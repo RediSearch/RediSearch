@@ -62,7 +62,7 @@ Creates an index with the given spec. The index name will be used in all the key
 
     * **SORTABLE**
     
-        Numeric, tag or text field can have the optional SORTABLE argument that allows the user to later [sort the results by the value of this field](/Sorting) (this adds memory overhead so do not declare it on large text fields).
+        Numeric, tag or text field can have the optional SORTABLE argument that allows the user to later [sort the results by the value of this field](Sorting.md) (this adds memory overhead so do not declare it on large text fields).
       
     * **NOSTEM**
     
@@ -83,7 +83,7 @@ Creates an index with the given spec. The index name will be used in all the key
         * `dm:pt` - Double Metaphone for Portuguese
         * `dm:es` - Double Metaphone for Spanish
     
-        For more details see [Phonetic Matching](/Phonetic_Matching).
+        For more details see [Phonetic Matching](Phonetic_Matching.md).
 
 ### Complexity
 O(1)
@@ -150,7 +150,7 @@ Adds a document to the index.
 
   The expression is evaluated atomically before the update, ensuring that the update will happen only if it is true.
 
-  See [Aggregations](/Aggregations) for more details on the expression language. 
+  See [Aggregations](Aggregations.md) for more details on the expression language. 
 
 - **LANGUAGE language**: If set, we use a stemmer for the supplied language during indexing. Default
   to English. 
@@ -172,7 +172,7 @@ order for the indexer to properly tokenize the terms. If the default language
 is used then search terms will be extracted based on punctuation characters and
 whitespace. The Chinese language tokenizer makes use of a segmentation algorithm
 (via [Friso](https://github.com/lionsoul2014/friso)) which segments texts and
-checks it against a predefined dictionary. See [Stemming](/Stemming) for more
+checks it against a predefined dictionary. See [Stemming](Stemming.md) for more
 information.
 
 ### Complexity
@@ -385,7 +385,7 @@ Searches the index with a textual query, returning either documents or just ids.
 
 - **index**: The index name. The index must be first created with `FT.CREATE`.
 - **query**: the text query to search. If it's more than a single word, put it in quotes.
-  Refer to [query syntax](/Query_Syntax) for more details. 
+  Refer to [query syntax](Query_Syntax.md) for more details. 
   
 - **NOCONTENT**: If it appears after the query, we only return the document ids and not 
   the content. This is useful if RediSearch is only an index on an external document collection
@@ -418,8 +418,8 @@ Searches the index with a textual query, returning either documents or just ids.
   `num` is the number of fields following the keyword. If `num` is 0, it acts like `NOCONTENT`.  
 - **SUMMARIZE ...**: Use this option to return only the sections of the field which contain the 
   matched text.
-  See [Highlighting](/Highlight) for more details
-- **HIGHLIGHT ...**: Use this option to format occurrences of matched text. See [Highligting](/Highlight) for more
+  See [Highlighting](Highlight.md) for more details
+- **HIGHLIGHT ...**: Use this option to format occurrences of matched text. See [Highligting](Highlight.md) for more
   details
 - **SLOP {slop}**: If set, we allow a maximum of N intervening number of unmatched offsets between 
   phrase terms. (i.e the slop for exact phrases is 0)
@@ -432,12 +432,12 @@ Searches the index with a textual query, returning either documents or just ids.
   Defaults to English. If an unsupported language is sent, the command returns an error.
   See FT.ADD for the list of languages.
 
-- **EXPANDER {expander}**: If set, we will use a custom query expander instead of the stemmer. [See Extensions](/Extensions).
-- **SCORER {scorer}**: If set, we will use a custom scoring function defined by the user. [See Extensions](/Extensions).
+- **EXPANDER {expander}**: If set, we will use a custom query expander instead of the stemmer. [See Extensions](Extensions.md).
+- **SCORER {scorer}**: If set, we will use a custom scoring function defined by the user. [See Extensions](Extensions.md).
 - **PAYLOAD {payload}**: Add an arbitrary, binary safe payload that will be exposed to custom scoring 
-  functions. [See Extensions](/Extensions).
+  functions. [See Extensions](Extensions.md).
   
-- **SORTBY {field} [ASC|DESC]**: If specified, and field is a [sortable field](/Sorting), the results 
+- **SORTBY {field} [ASC|DESC]**: If specified, and field is a [sortable field](Sorting.md), the results 
   are ordered by the value of this field. This applies to both text and numeric fields.
 - **LIMIT first num**: If the parameters appear after the query, we limit the results to 
   the offset and number of results given. The default is 0 10
@@ -477,7 +477,7 @@ FT.AGGREGATE  {index_name}
 
 ### Description
 
-Runs a search query on an index, and performs aggregate transformations on the results, extracting statistics etc from them. See [the full documentation on aggregations](/Aggregations/) for further details.
+Runs a search query on an index, and performs aggregate transformations on the results, extracting statistics etc from them. See [the full documentation on aggregations](Aggregations.md) for further details.
 
 ### Parameters
 
@@ -776,7 +776,7 @@ FT.TAGVALS {index} {field_name}
 
 ### Description
 
-Returns the distinct tags indexed in a [Tag field](/Tags/). 
+Returns the distinct tags indexed in a [Tag field](Tags.md). 
 
 This is useful if your tag field indexes things like cities, categories, etc.
 
@@ -784,7 +784,7 @@ This is useful if your tag field indexes things like cities, categories, etc.
 
       There is no paging or sorting, the tags are not alphabetically sorted. 
     
-      This command only operates on [Tag fields](/Tags/).  
+      This command only operates on [Tag fields](Tags.md).  
     
       The strings return lower-cased and stripped of whitespaces, but otherwise unchanged.
 
@@ -837,7 +837,7 @@ Integer Reply: the current size of the suggestion dictionary.
 ### Format
 
 ```
-FT.SUGGET {key} {prefix} [FUZZY] [WITHPAYLOADS] [MAX num]
+FT.SUGGET {key} {prefix} [FUZZY] [WITHSCORES] [WITHPAYLOADS] [MAX num]
 ```
 
 ### Description
@@ -850,8 +850,7 @@ Gets completion suggestions for a prefix.
 - **prefix**: the prefix to complete on
 - **FUZZY**: if set, we do a fuzzy prefix search, including prefixes at Levenshtein distance of 1 from 
   the prefix sent
-- **MAX num**: If set, we limit the results to a maximum of `num`. (**Note**: The default is 5, and 
-  the number cannot be greater than 10).
+- **MAX num**: If set, we limit the results to a maximum of `num` (default: 5).
 - **WITHSCORES**: If set, we also return the score of each suggestion. this can be used to merge 
   results from multiple instances
 - **WITHPAYLOADS**: If set, we return optional payloads saved along with the suggestions. If no 
@@ -986,7 +985,7 @@ The command is used to dump the synonyms data structure. Returns a list of synon
 
 Performs spelling correction on a query, returning suggestions for misspelled terms.
 
-See [Query Spelling Correction](/Spellcheck) for more details.
+See [Query Spelling Correction](Spellcheck.md) for more details.
 
 ### Parameters
 
@@ -994,7 +993,7 @@ See [Query Spelling Correction](/Spellcheck) for more details.
 
 * **query**: the search query.
 
-* **TERMS**: specifies an inclusion (`INCLUDE`) or exclusion (`EXCLUDE`) custom dictionary named `{dict}`. Refer to [`FT.DICTADD`](Commands/#ftdictadd), [`FT.DICTDEL`](/Commands/#ftdictdel) and [`FT.DICTDUMP`](/Commands/#ftdictdump) for managing custom dictionaries.
+* **TERMS**: specifies an inclusion (`INCLUDE`) or exclusion (`EXCLUDE`) custom dictionary named `{dict}`. Refer to [`FT.DICTADD`](Commands.md#ftdictadd), [`FT.DICTDEL`](Commands.md#ftdictdel) and [`FT.DICTDUMP`](Commands.md#ftdictdump) for managing custom dictionaries.
 
 * **DISTANCE**: the maximal Levenshtein distance for spelling suggestions (default: 1, max: 4).
 
@@ -1100,3 +1099,39 @@ Dumps all terms in the given dictionary.
 ### Returns
 
 Returns an array, where each element is term (string).
+
+---
+
+## FT.CONFIG
+
+### Format
+```
+  FT.CONFIG <GET|HELP> {option}
+  FT.CONFIG SET {option} {value}
+```
+
+### Description
+
+Retrieves, describes and sets runtime configuration options.
+
+### Parameters
+
+* **option**: the name of the configuration option, or '*' for all.
+* **value**: a value for the configuration option.
+
+For details about the configuration options refer to [Configuring](Configuring.md).
+
+Setting values in runtime is supported for these configuration options:
+
+* `NOGC`
+* `MINPREFIX`
+* `MAXEXPANSIONS`
+* `TIMEOUT`
+* `ON_TIMEOUT`
+* `MIN_PHONETIC_TERM_LEN`
+
+### Returns
+
+When provided with a valid option name, the `GET` subcommand returns a string with the current option's value. An array containing an array for each configuration option, consisting of the option's name and current value, is returned when '*' is provided.
+
+The `SET` subcommand returns 'OK' for valid runtime-settable option names and values.

@@ -4,14 +4,16 @@ repo_url: https://github.com/RedisLabsModules/RediSearch
 repo_name: RedisLabsModules/RediSearch
 
 google_analytics:
-  - 'UA-92003007-8'
+  - 'UA-92003007-1'
   - 'auto'
 markdown_extensions:
   - codehilite
-  - toc(permalink=true, separator="_")
+  - toc:
+      permalink: True
+      separator: "_"
   - admonition
   
-use_directory_urls: true
+use_directory_urls: false
 theme:
   name: 'material'
   language: 'en'

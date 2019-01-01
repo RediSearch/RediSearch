@@ -1,5 +1,6 @@
 CMAKE_MINIMUM_REQUIRED(VERSION 2.8.9)
 PROJECT(redisearch)
+INCLUDE(cmake/redisearch_cflags.cmake)
 
 # Allow to use 'LOCATION' setting
 CMAKE_POLICY(SET CMP0026 OLD)
@@ -7,13 +8,9 @@ CMAKE_POLICY(SET CMP0026 OLD)
 OPTION(RS_RUN_TESTS "Build & Run RediSearch's tests" OFF)
 
 ADD_DEFINITIONS(-UNDEBUG)
-SET(RS_COMMON_FLAGS "-Wall -Wno-unused-function -Wno-unused-variable -Wno-unused-result -Wno-sign-compare")
-SET(RS_COMMON_FLAGS "${RS_COMMON_FLAGS} -fPIC -Werror=implicit-function-declaration")
-SET(RS_COMMON_FLAGS "${RS_COMMON_FLAGS} -pthread")
-SET(RS_COMMON_FLAGS "${RS_COMMON_FLAGS} -fno-strict-aliasing")
 
-SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${RS_COMMON_FLAGS} -std=gnu99")
-SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${RS_COMMON_FLAGS} -std=c++11 -fno-rtti -fno-exceptions")
+SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${RS_C_FLAGS}")
+SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${RS_CXX_FLAGS}")
 
 IF(RS_RUN_TESTS)
     ENABLE_TESTING()

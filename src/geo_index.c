@@ -23,6 +23,13 @@ int GeoIndex_AddStrings(GeoIndex *gi, t_docId docId, char *slon, char *slat) {
   }
 }
 
+void GeoIndex_RemoveEntries(GeoIndex *gi, IndexSpec *sp, t_docId docId) {
+  RedisModuleString *ks = IndexSpec_GetFormattedKey(sp, gi->sp);
+  RedisModuleCtx *ctx = gi->ctx->redisCtx;
+  RedisModuleCallReply *rep = RedisModule_Call(ctx, "ZREM", "sl", ks, docId);
+  RedisModule_FreeCallReply(rep);
+}
+
 /* Parse a geo filter from redis arguments. We assume the filter args start at argv[0], and FILTER
  * is not passed to us.
  * The GEO filter syntax is (FILTER) <property> LONG LAT DIST m|km|ft|mi

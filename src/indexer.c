@@ -536,6 +536,22 @@ typedef struct {
 static IndexerList indexers_g = {NULL, 0};
 
 // Returns the given indexer, if it exists
+static DocumentIndexer *findAndRemoveDocumentIndexer(const char *specname) {
+  DocumentIndexer *prev = NULL;
+  for (DocumentIndexer *cur = indexers_g.first; cur; cur = cur->next) {
+    if (strcmp(specname, cur->name) == 0) {
+      if (prev) {
+        prev->next = cur->next;
+      } else {
+        indexers_g.first = cur->next;
+      }
+      return cur;
+    }
+    prev = cur;
+  }
+  return NULL;
+}
+
 static DocumentIndexer *findDocumentIndexer(const char *specname) {
   for (DocumentIndexer *cur = indexers_g.first; cur; cur = cur->next) {
     if (strcmp(specname, cur->name) == 0) {
@@ -547,8 +563,10 @@ static DocumentIndexer *findDocumentIndexer(const char *specname) {
 
 // Creates a new DocumentIndexer. This initializes the structure and starts the
 // thread. This does not insert it into the list of threads, though
-static DocumentIndexer *NewDocumentIndexer(const char *name) {
+// todo: remove the withIndexThread var once we switch to threadpool
+static DocumentIndexer *NewDocumentIndexer(const char *name, int options) {
   DocumentIndexer *indexer = calloc(1, sizeof(*indexer));
+  indexer->options = options;
   indexer->head = indexer->tail = NULL;
 
   BlkAlloc_Init(&indexer->alloc);
@@ -556,10 +574,12 @@ static DocumentIndexer *NewDocumentIndexer(const char *name) {
       .Alloc = mergedAlloc, .Compare = mergedCompare, .Hash = mergedHash};
   KHTable_Init(&indexer->mergeHt, &procs, &indexer->alloc, 4096);
 
-  pthread_cond_init(&indexer->cond, NULL);
-  pthread_mutex_init(&indexer->lock, NULL);
-  static pthread_t dummyThr;
-  pthread_create(&dummyThr, NULL, Indexer_Run, indexer);
+  if (!(options & INDEXER_THREADLESS)) {
+    pthread_cond_init(&indexer->cond, NULL);
+    pthread_mutex_init(&indexer->lock, NULL);
+    static pthread_t dummyThr;
+    pthread_create(&dummyThr, NULL, Indexer_Run, indexer);
+  }
   indexer->name = strdup(name);
   indexer->next = NULL;
   indexer->redisCtx = RedisModule_GetThreadSafeContext(NULL);
@@ -571,9 +591,33 @@ static DocumentIndexer *NewDocumentIndexer(const char *name) {
   return indexer;
 }
 
+static void DocumentIndexe_Free(DocumentIndexer *indexer) {
+  free(indexer->name);
+  //  BlkAlloc_FreeAll(&indexer->alloc);
+  pthread_cond_destroy(&indexer->cond);
+  pthread_mutex_destroy(&indexer->lock);
+  free(indexer->concCtx.openKeys);
+  RedisModule_FreeString(indexer->redisCtx, indexer->specKeyName);
+  KHTable_Clear(&indexer->mergeHt);
+  KHTable_Free(&indexer->mergeHt);
+  RedisModule_FreeThreadSafeContext(indexer->redisCtx);
+  free(indexer);
+}
+
+void DropDocumentIndexer(const char *specname) {
+  DocumentIndexer *match = findAndRemoveDocumentIndexer(specname);
+  if (!match) {
+    return;
+  }
+
+  if (match->options & INDEXER_THREADLESS) {
+    DocumentIndexe_Free(match);
+  }
+}
+
 // Get the document indexer for the given index name. If the indexer does not
 // exist, it is created and placed into the list of indexes
-DocumentIndexer *GetDocumentIndexer(const char *specname) {
+DocumentIndexer *GetDocumentIndexer(const char *specname, int options) {
   DocumentIndexer *match = findDocumentIndexer(specname);
   if (match) {
     return match;
@@ -592,7 +636,7 @@ DocumentIndexer *GetDocumentIndexer(const char *specname) {
     return match;
   }
 
-  DocumentIndexer *newIndexer = NewDocumentIndexer(specname);
+  DocumentIndexer *newIndexer = NewDocumentIndexer(specname, options);
   newIndexer->next = indexers_g.first;
   indexers_g.first = newIndexer;
   indexers_g.lockMod = 0;

@@ -65,6 +65,7 @@ typedef struct {
 /* Create a new inverted index object, with the given flag. If initBlock is 1, we create the first
  * block */
 InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock);
+IndexBlock *InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId);
 void indexBlock_Free(IndexBlock *blk);
 void InvertedIndex_Free(void *idx);
 

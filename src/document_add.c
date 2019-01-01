@@ -140,7 +140,6 @@ int RS_AddDocument(RedisSearchCtx *sctx, RedisModuleString *name, const AddDocum
   if (exists && opts->evalExpr) {
     int res = 0;
     if (Document_EvalExpression(sctx, name, opts->evalExpr, &res, status) == REDISMODULE_OK) {
-      printf("Eval OK!\n");
       if (res == 0) {
         QueryError_SetError(status, QUERY_EDOCNOTADDED, NULL);
         goto error;
@@ -238,15 +237,18 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     canBlock = CheckConcurrentSupport(ctx);
   }
 
-  if (!canBlock) {
-    opts.options |= DOCUMENT_ADD_CURTHREAD;
-  }
-
   RedisModule_AutoMemory(ctx);
   IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 0);
   if (!sp) {
     RedisModule_ReplyWithError(ctx, "Unknown index name");
     goto cleanup;
+  }
+  if (canBlock) {
+    canBlock = !(sp->flags & Index_Temporary) && CheckConcurrentSupport(ctx);
+  }
+
+  if (!canBlock) {
+    opts.options |= DOCUMENT_ADD_CURTHREAD;
   }
   RedisSearchCtx sctx = {.redisCtx = ctx, .spec = sp};
   rv = RS_AddDocument(&sctx, argv[2], &opts, &status);
@@ -347,7 +349,7 @@ static int doAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 
   IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
   if (sp == NULL) {
-    RedisModule_ReplyWithError(ctx, "Unknown Index name");
+    QueryError_SetErrorFmt(&status, QUERY_EGENERIC, "Unknown Index name");
     goto cleanup;
   }
 

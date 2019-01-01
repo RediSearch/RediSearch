@@ -28,6 +28,7 @@ typedef enum fieldType { FIELD_FULLTEXT, FIELD_NUMERIC, FIELD_GEO, FIELD_TAG } F
 #define SPEC_NOHL_STR "NOHL"
 #define SPEC_SCHEMA_STR "SCHEMA"
 #define SPEC_SCHEMA_EXPANDABLE_STR "MAXTEXTFIELDS"
+#define SPEC_TEMPORARY_STR "TEMPORARY"
 #define SPEC_TEXT_STR "TEXT"
 #define SPEC_WEIGHT_STR "WEIGHT"
 #define SPEC_NOSTEM_STR "NOSTEM"
@@ -134,10 +135,11 @@ typedef enum {
   Index_StoreByteOffsets = 0x40,
   Index_WideSchema = 0x080,
   Index_HasSmap = 0x100,
+  Index_Temporary = 0x200,
   Index_DocIdsOnly = 0x00,
 
   // If any of the fields has phonetics. This is just a cache for quick lookup
-  Index_HasPhonetic = 0x200
+  Index_HasPhonetic = 0x400
 } IndexFlags;
 
 /**
@@ -154,7 +156,7 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
   (Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets | Index_StoreNumeric | \
    Index_WideSchema)
 
-#define INDEX_CURRENT_VERSION 12
+#define INDEX_CURRENT_VERSION 13
 // Those versions contains doc table as array, we modified it to be array of linked lists
 #define INDEX_MIN_COMPACTED_DOCTABLE_VERSION 12
 #define INDEX_MIN_COMPAT_VERSION 2
@@ -171,6 +173,9 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
 #define INDEX_MIN_DOCLEN_VERSION 9
 
 #define INDEX_MIN_BINKEYS_VERSION 10
+
+// Versions below this one do not contains expire information
+#define INDEX_MIN_EXPIRE_VERSION 13
 
 #define Index_SupportsHighlight(spec) \
   (((spec)->flags & Index_StoreTermOffsets) && ((spec)->flags & Index_StoreByteOffsets))
@@ -193,7 +198,7 @@ typedef struct {
 
   StopWordList *stopwords;
 
-  GCContext* gc;
+  GCContext *gc;
 
   SynonymMap *smap;
 
@@ -202,6 +207,7 @@ typedef struct {
   RedisModuleCtx *strCtx;
   RedisModuleString **indexStrs;
   struct IndexSpecCache *spcache;
+  long long timeout;
 } IndexSpec;
 
 extern RedisModuleType *IndexSpecType;

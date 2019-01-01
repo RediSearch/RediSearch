@@ -1203,7 +1203,7 @@ static YYACTIONTYPE yy_reduce(
       case 3: /* expr ::= expr expr */
 #line 173 "parser.y"
 {
-    int rv = one_not_null(yymsp[-1].minor.yy35, yymsp[0].minor.yy35, &yylhsminor.yy35);
+    int rv = one_not_null(yymsp[-1].minor.yy35, yymsp[0].minor.yy35, (void**)&yylhsminor.yy35);
     if (rv == NODENN_BOTH_INVALID) {
         yylhsminor.yy35 = NULL;
     } else if (rv == NODENN_ONE_NULL) {
@@ -1233,7 +1233,7 @@ static YYACTIONTYPE yy_reduce(
       case 5: /* union ::= expr OR expr */
 #line 200 "parser.y"
 {
-    int rv = one_not_null(yymsp[-2].minor.yy35, yymsp[0].minor.yy35, &yylhsminor.yy35);
+    int rv = one_not_null(yymsp[-2].minor.yy35, yymsp[0].minor.yy35, (void**)&yylhsminor.yy35);
     if (rv == NODENN_BOTH_INVALID) {
         yylhsminor.yy35 = NULL;
     } else if (rv == NODENN_ONE_NULL) {

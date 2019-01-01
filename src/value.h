@@ -232,7 +232,6 @@ int RSValue_ToNumber(const RSValue *v, double *d);
 /* Return a 64 hash value of an RSValue. If this is not an incremental hashing, pass 0 as hval */
 /* Return a 64 hash value of an RSValue. If this is not an incremental hashing, pass 0 as hval */
 static inline uint64_t RSValue_Hash(const RSValue *v, uint64_t hval) {
-  if (!v) return 0;
   switch (v->t) {
     case RSValue_Reference:
       return RSValue_Hash(v->ref, hval);

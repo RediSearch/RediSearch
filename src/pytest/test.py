@@ -1286,6 +1286,7 @@ def testPayload(env):
             env.assertEqual(res[i + 1], 'payload %s' % res[i])
 
 def testGarbageCollector(env):
+    env.skipOnCluster()
     N = 100
     r = env
     env.assertOk(r.execute_command(
@@ -1940,6 +1941,8 @@ def testIssue484(env):
         'SORTBY', '4', '@value_count', 'DESC', '@value', 'ASC')
     expected = [6, ['value', 'white', 'value_count', '2'], ['value', 'cars', 'value_count', '2'], ['value', 'small cars', 'value_count', '1'], ['value', 'blue', 'value_count', '2'], ['value', 'Big cars', 'value_count', '2'], ['value', 'green', 'value_count', '1']]
     assertAggrowsEqual(env, expected, res)
+    for var in expected:
+        env.assertIn(var, res)
 
 def testIssue501(env):
     env.cmd('FT.CREATE', 'incidents', 'SCHEMA', 'report', 'TEXT')

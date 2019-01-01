@@ -13,6 +13,7 @@
 #include "cursor.h"
 #include "tag_index.h"
 #include "redis_index.h"
+#include "indexer.h"
 
 void (*IndexSpec_OnCreate)(const IndexSpec *) = NULL;
 
@@ -174,6 +175,9 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
 
   // set the value in redis
   RedisModule_ModuleTypeSetValue(k, IndexSpecType, sp);
+  if (sp->flags & Index_Temporary) {
+    RedisModule_SetExpire(k, sp->timeout * 1000);
+  }
 
   if (IndexSpec_OnCreate) {
     IndexSpec_OnCreate(sp);
@@ -504,6 +508,21 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryE
     spec->flags |= Index_WideSchema;
   }
 
+  int expireOffset = findOffset(SPEC_TEMPORARY_STR, argv, argc);
+  if (expireOffset != -1) {
+    if (expireOffset >= argc || expireOffset >= schemaOffset) {
+      QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid expire arg");
+      goto failure;
+    }
+    if (sscanf(argv[expireOffset + 1], "%lld", &spec->timeout) != 1) {
+      QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid expire arg");
+      goto failure;
+    }
+    spec->flags |= Index_Temporary;
+  } else {
+    spec->timeout = -1;
+  }
+
   int swIndex = findOffset(SPEC_STOPWORDS_STR, argv, argc);
   if (swIndex >= 0 && swIndex + 1 < schemaOffset) {
     int listSize = atoi(argv[swIndex + 1]);
@@ -646,10 +665,8 @@ void IndexSpec_FreeWithKey(IndexSpec *sp, RedisModuleCtx *ctx) {
   RedisModule_DeleteKey(kk);
   RedisModule_CloseKey(kk);
 }
-
-void IndexSpec_Free(void *ctx) {
-  IndexSpec *spec = ctx;
-
+static void IndexSpec_FreeInternals(IndexSpec *spec) {
+  DropDocumentIndexer(spec->name);
   if (spec->gc) {
     GCContext_Stop(spec->gc);
   }
@@ -666,6 +683,7 @@ void IndexSpec_Free(void *ctx) {
   }
 
   Cursors_PurgeWithName(&RSCursors, spec->name);
+  CursorList_RemoveSpec(&RSCursors, spec->name);
 
   rm_free(spec->name);
   if (spec->sortables) {
@@ -693,6 +711,37 @@ void IndexSpec_Free(void *ctx) {
   rm_free(spec);
 }
 
+static void IndexSpec_FreeAsync(void *data) {
+  IndexSpec *spec = data;
+  RedisModuleCtx *threadCtx = RedisModule_GetThreadSafeContext(NULL);
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(threadCtx, spec);
+  RedisModule_AutoMemory(threadCtx);
+  RedisModule_ThreadSafeContextLock(threadCtx);
+
+  Redis_DropIndex(&sctx, true, false);
+  IndexSpec_FreeInternals(spec);
+
+  RedisModule_ThreadSafeContextUnlock(threadCtx);
+  RedisModule_FreeThreadSafeContext(threadCtx);
+}
+
+static struct thpool_ *cleanPool = NULL;
+
+void IndexSpec_Free(void *ctx) {
+
+  IndexSpec *spec = ctx;
+
+  if (spec->flags & Index_Temporary) {
+    if (!cleanPool) {
+      cleanPool = thpool_init(1);
+    }
+    thpool_add_work(cleanPool, IndexSpec_FreeAsync, ctx);
+    return;
+  }
+
+  IndexSpec_FreeInternals(spec);
+}
+
 IndexSpec *IndexSpec_LoadEx(RedisModuleCtx *ctx, RedisModuleString *formattedKey, int openWrite,
                             RedisModuleKey **keyp) {
   RedisModuleKey *key_s = NULL;
@@ -710,6 +759,11 @@ IndexSpec *IndexSpec_LoadEx(RedisModuleCtx *ctx, RedisModuleString *formattedKey
   }
 
   IndexSpec *ret = RedisModule_ModuleTypeGetValue(*keyp);
+  if (ret->flags & Index_Temporary) {
+    RedisModuleKey *temp = RedisModule_OpenKey(ctx, formattedKey, REDISMODULE_WRITE);
+    RedisModule_SetExpire(temp, ret->timeout * 1000);
+    RedisModule_CloseKey(temp);
+  }
   return ret;
 }
 
@@ -816,7 +870,8 @@ IndexSpec *NewIndexSpec(const char *name, size_t numFields) {
  * index after removing documents */
 void IndexSpec_StartGC(RedisModuleCtx *ctx, IndexSpec *sp, float initialHZ) {
   assert(!sp->gc);
-  if (RSGlobalConfig.enableGC) {
+  // we will not create a gc thread on temporary index
+  if (RSGlobalConfig.enableGC && !(sp->flags & Index_Temporary)) {
     RedisModuleString *keyName = RedisModule_CreateString(ctx, sp->name, strlen(sp->name));
     RedisModule_RetainString(ctx, keyName);
     sp->gc = GCContext_CreateGC(keyName, initialHZ, sp->uniqueId);
@@ -988,6 +1043,11 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
   if (IndexSpec_OnCreate) {
     IndexSpec_OnCreate(sp);
   }
+  if (encver < INDEX_MIN_EXPIRE_VERSION) {
+    sp->timeout = -1;
+  } else {
+    sp->timeout = RedisModule_LoadUnsigned(rdb);
+  }
   return sp;
 }
 
@@ -1016,6 +1076,7 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, void *value) {
   if (sp->flags & Index_HasSmap) {
     SynonymMap_RdbSave(rdb, sp->smap);
   }
+  RedisModule_SaveUnsigned(rdb, sp->timeout);
 }
 
 void IndexSpec_Digest(RedisModuleDigest *digest, void *value) {

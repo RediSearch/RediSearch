@@ -28,14 +28,29 @@ void *InvertedIndex_RdbLoad(RedisModuleIO *rdb, int encver) {
   idx->size = RedisModule_LoadUnsigned(rdb);
   idx->blocks = rm_calloc(idx->size, sizeof(IndexBlock));
 
+  size_t actualSize = 0;
   for (uint32_t i = 0; i < idx->size; i++) {
-    IndexBlock *blk = &idx->blocks[i];
+    IndexBlock *blk = &idx->blocks[actualSize];
     blk->firstId = RedisModule_LoadUnsigned(rdb);
     blk->lastId = RedisModule_LoadUnsigned(rdb);
     blk->numDocs = RedisModule_LoadUnsigned(rdb);
+    if (blk->numDocs > 0) {
+      ++actualSize;
+    }
+
     blk->buf.data = RedisModule_LoadStringBuffer(rdb, &blk->buf.offset);
     blk->buf.cap = blk->buf.offset;
     // if we read a buffer of 0 bytes we still read 1 byte from the RDB that needs to be freed
+    if (!blk->buf.cap && blk->buf.data) {
+      RedisModule_Free(blk->buf.data);
+      blk->buf.data = NULL;
+    }
+  }
+  idx->size = actualSize;
+  if (idx->size == 0) {
+    InvertedIndex_AddBlock(idx, 0);
+  } else {
+    idx->blocks = rm_realloc(idx->blocks, idx->size * sizeof(IndexBlock));
   }
   return idx;
 }
@@ -45,10 +60,21 @@ void InvertedIndex_RdbSave(RedisModuleIO *rdb, void *value) {
   RedisModule_SaveUnsigned(rdb, idx->flags);
   RedisModule_SaveUnsigned(rdb, idx->lastId);
   RedisModule_SaveUnsigned(rdb, idx->numDocs);
-  RedisModule_SaveUnsigned(rdb, idx->size);
+  uint32_t readSize = 0;
+  for (uint32_t i = 0; i < idx->size; i++) {
+    IndexBlock *blk = &idx->blocks[i];
+    if (blk->numDocs == 0) {
+      continue;
+    }
+    ++readSize;
+  }
+  RedisModule_SaveUnsigned(rdb, readSize);
 
   for (uint32_t i = 0; i < idx->size; i++) {
     IndexBlock *blk = &idx->blocks[i];
+    if (blk->numDocs == 0) {
+      continue;
+    }
     RedisModule_SaveUnsigned(rdb, blk->firstId);
     RedisModule_SaveUnsigned(rdb, blk->lastId);
     RedisModule_SaveUnsigned(rdb, blk->numDocs);
@@ -126,7 +152,7 @@ RedisModuleString *fmtRedisScoreIndexKey(RedisSearchCtx *ctx, const char *term, 
                                         term);
 }
 
-RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName) {
+RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName, bool resetTTL) {
 
   RedisModuleString *keyName = RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, indexName);
 
@@ -140,6 +166,12 @@ RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName) {
   }
   IndexSpec *sp = RedisModule_ModuleTypeGetValue(k);
 
+  if ((sp->flags & Index_Temporary) && resetTTL) {
+    RedisModuleKey *temp = RedisModule_OpenKey(ctx, keyName, REDISMODULE_WRITE);
+    RedisModule_SetExpire(temp, sp->timeout * 1000);
+    RedisModule_CloseKey(temp);
+  }
+
   RedisSearchCtx *sctx = rm_malloc(sizeof(*sctx));
   *sctx = (RedisSearchCtx){.spec = sp,  // newline
                            .redisCtx = ctx,
@@ -148,9 +180,9 @@ RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName) {
   return sctx;
 }
 
-RedisSearchCtx *NewSearchCtx(RedisModuleCtx *ctx, RedisModuleString *indexName) {
+RedisSearchCtx *NewSearchCtx(RedisModuleCtx *ctx, RedisModuleString *indexName, bool resetTTL) {
 
-  return NewSearchCtxC(ctx, RedisModule_StringPtrLen(indexName, NULL));
+  return NewSearchCtxC(ctx, RedisModule_StringPtrLen(indexName, NULL), resetTTL);
 }
 
 RedisSearchCtx *SearchCtx_Refresh(RedisSearchCtx *sctx, RedisModuleString *keyName) {
@@ -162,7 +194,7 @@ RedisSearchCtx *SearchCtx_Refresh(RedisSearchCtx *sctx, RedisModuleString *keyNa
   // try to acquire it again...
   RedisModule_ThreadSafeContextLock(redisCtx);
   // reopen the context - it might have gone away!
-  return NewSearchCtx(redisCtx, keyName);
+  return NewSearchCtx(redisCtx, keyName, true);
 }
 
 RedisSearchCtx *NewSearchCtxDefault(RedisModuleCtx *ctx) {
@@ -472,7 +504,7 @@ static int Redis_DeleteKey(RedisModuleCtx *ctx, RedisModuleString *s) {
   return 0;
 }
 
-int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments) {
+int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments, int deleteSpecKey) {
 
   if (deleteDocuments) {
 
@@ -480,29 +512,43 @@ int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments) {
     DocTable_ForEach(dt, Redis_DeleteKey(ctx->redisCtx, DMD_CreateKeyString(dmd, ctx->redisCtx)));
   }
 
-  // Delete any dangling term keys
-  RedisModuleString *pf = fmtRedisTermKey(ctx, "*", 1);
-  const char *prefix = RedisModule_StringPtrLen(pf, NULL);
-  Redis_ScanKeys(ctx->redisCtx, prefix, Redis_DropScanHandler, ctx);
+  rune *rstr = NULL;
+  t_len slen = 0;
+  float score = 0;
+  int dist = 0;
+  size_t termLen;
 
-  // Do the same with geo keys
-  pf = RedisModule_CreateStringPrintf(ctx->redisCtx, GEOINDEX_KEY_FMT, ctx->spec->name, "*");
-  prefix = RedisModule_StringPtrLen(pf, NULL);
-  Redis_ScanKeys(ctx->redisCtx, prefix, Redis_DropScanHandler, ctx);
+  TrieIterator *it = Trie_Iterate(ctx->spec->terms, "", 0, 0, 1);
+  while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, &dist)) {
+    char *res = runesToStr(rstr, slen, &termLen);
+    RedisModuleString *keyName = fmtRedisTermKey(ctx, res, strlen(res));
+    Redis_DropScanHandler(ctx->redisCtx, keyName, ctx);
+    RedisModule_FreeString(ctx->redisCtx, keyName);
+    free(res);
+  }
+  DFAFilter_Free(it->ctx);
+  free(it->ctx);
+  TrieIterator_Free(it);
 
-  // Delete the numeric and tag indexes which reside on separate keys
+  // Delete the numeric, tag, and geo indexes which reside on separate keys
   for (size_t i = 0; i < ctx->spec->numFields; i++) {
     const FieldSpec *spec = ctx->spec->fields + i;
     if (spec->type == FIELD_NUMERIC) {
       Redis_DeleteKey(ctx->redisCtx, fmtRedisNumericIndexKey(ctx, spec->name));
     } else if (spec->type == FIELD_TAG) {
       Redis_DeleteKey(ctx->redisCtx, TagIndex_FormatName(ctx, spec->name));
+    } else if (spec->type == FIELD_GEO) {
+      Redis_DeleteKey(ctx->redisCtx, RedisModule_CreateStringPrintf(ctx->redisCtx, GEOINDEX_KEY_FMT,
+                                                                    ctx->spec->name, spec->name));
     }
   }
 
   // Delete the index spec
-  int deleted = Redis_DeleteKey(
-      ctx->redisCtx,
-      RedisModule_CreateStringPrintf(ctx->redisCtx, INDEX_SPEC_KEY_FMT, ctx->spec->name));
+  int deleted = 1;
+  if (deleteSpecKey) {
+    deleted = Redis_DeleteKey(
+        ctx->redisCtx,
+        RedisModule_CreateStringPrintf(ctx->redisCtx, INDEX_SPEC_KEY_FMT, ctx->spec->name));
+  }
   return deleted ? REDISMODULE_OK : REDISMODULE_ERR;
 }

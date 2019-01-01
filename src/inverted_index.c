@@ -27,7 +27,7 @@ static IndexReader *NewIndexReaderGeneric(InvertedIndex *idx, IndexDecoder decod
                                           double weight);
 
 /* Add a new block to the index with a given document id as the initial id */
-static IndexBlock *InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId) {
+IndexBlock *InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId) {
 
   idx->size++;
   idx->blocks = rm_realloc(idx->blocks, idx->size * sizeof(IndexBlock));
@@ -935,6 +935,7 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepa
   t_docId lastReadId = blk->firstId;
   bool isFirstRes = true;
 
+  t_docId oldFirstBlock = blk->lastId;
   blk->lastId = blk->firstId = 0;
   Buffer repair = blk->buf;
   repair.offset = 0;
@@ -1011,6 +1012,15 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepa
     blk->numDocs -= frags;
     blk->buf = repair;
     Buffer_ShrinkToSize(&blk->buf);
+  }
+  if (blk->numDocs == 0) {
+    // if we left with no elements we do need to keep the
+    // first id so the binary search on the block will still working.
+    // The last_id will turn zero indicating there is no records in
+    // this block. We will not save empty blocks in rdb and also we
+    // will not read empty block from rdb (in case we read a corrunpted
+    // rdb from older versions).
+    blk->firstId = oldFirstBlock;
   }
   IndexResult_Free(res);
   return frags;

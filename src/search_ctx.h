@@ -13,6 +13,11 @@
 extern "C" {
 #endif
 
+#if defined(__FreeBSD__)
+#define CLOCK_MONOTONIC_RAW CLOCK_MONOTONIC
+#endif
+
+/** Context passed to all redis related search handling functions. */
 typedef struct RedisSearchCtx {
   RedisModuleCtx *redisCtx;
   RedisModuleKey *key_;
@@ -26,13 +31,13 @@ typedef struct RedisSearchCtx {
 
 #define SEARCH_CTX_SORTABLES(ctx) ((ctx && ctx->spec) ? ctx->spec->sortables : NULL)
 // Create a string context on the heap
-RedisSearchCtx *NewSearchCtx(RedisModuleCtx *ctx, RedisModuleString *indexName);
+RedisSearchCtx *NewSearchCtx(RedisModuleCtx *ctx, RedisModuleString *indexName, bool resetTTL);
 RedisSearchCtx *NewSearchCtxDefault(RedisModuleCtx *ctx);
 
 RedisSearchCtx *SearchCtx_Refresh(RedisSearchCtx *sctx, RedisModuleString *keyName);
 
 // Same as above, only from c string (null terminated)
-RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName);
+RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName, bool resetTTL);
 
 #define SearchCtx_Incref(sctx) \
   ({                           \

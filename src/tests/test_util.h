@@ -8,29 +8,28 @@
 static int numTests = 0;
 static int numAsserts = 0;
 
-#define TESTFUNC(f)                        \
-  printf("  Testing %s\t\t", __STRING(f)); \
-  numTests++;                              \
-  fflush(stdout);                          \
-  if (f()) {                               \
-    printf(" %s FAILED!\n", __STRING(f));  \
-    exit(1);                               \
-  } else                                   \
+#define TESTFUNC(f)               \
+  printf("  Testing %s\t\t", #f); \
+  numTests++;                     \
+  fflush(stdout);                 \
+  if (f()) {                      \
+    printf(" %s FAILED!\n", #f);  \
+    exit(1);                      \
+  } else                          \
     printf("[PASS]\n");
 
-#define ASSERTM(expr, ...)                                                                 \
-  if (!(expr)) {                                                                           \
-    fprintf(stderr, "%s:%d: Assertion '%s' Failed: " __VA_ARGS__ "\n", __FILE__, __LINE__, \
-            __STRING(expr));                                                               \
-    return -1;                                                                             \
-  }                                                                                        \
+#define ASSERTM(expr, ...)                                                                         \
+  if (!(expr)) {                                                                                   \
+    fprintf(stderr, "%s:%d: Assertion '%s' Failed: " __VA_ARGS__ "\n", __FILE__, __LINE__, #expr); \
+    return -1;                                                                                     \
+  }                                                                                                \
   numAsserts++;
 
-#define ASSERT(expr)                                                                      \
-  if (!(expr)) {                                                                          \
-    fprintf(stderr, "%s:%d Assertion '%s' Failed\n", __FILE__, __LINE__, __STRING(expr)); \
-    return -1;                                                                            \
-  }                                                                                       \
+#define ASSERT(expr)                                                             \
+  if (!(expr)) {                                                                 \
+    fprintf(stderr, "%s:%d Assertion '%s' Failed\n", __FILE__, __LINE__, #expr); \
+    return -1;                                                                   \
+  }                                                                              \
   numAsserts++;
 
 #define ASSERT_STRING_EQ(s1, s2) ASSERT(!strcmp(s1, s2));

@@ -2,26 +2,31 @@
 
 RediSearch supports a few run-time configuration options that should be determined when loading the module. In time more options will be added. 
 
-!!! tip "Passing Configuration Options"
-    In general, passing configuration options is done by appending arguments after the `--loadmodule` argument in the command line, `loadmodule` configuration directive in a Redis config file, or the `MODULE LOAD` command. For example:
-    
-    In redis.conf:
+## Passing Configuration Options During Loading
 
-    ```
-    loadmodule redisearch.so OPT1 OPT2
-    ```
+In general, passing configuration options is done by appending arguments after the `--loadmodule` argument in the command line, `loadmodule` configuration directive in a Redis config file, or the `MODULE LOAD` command. For example:
 
-    From redis-cli:
+In redis.conf:
 
-    ```
-    127.0.0.6379> MODULE load redisearch.so OPT1 OPT2
-    ```
+```
+loadmodule redisearch.so OPT1 OPT2
+```
 
-    From command line:
+From redis-cli:
 
-    ```
-    $ redis-server --loadmodule ./redisearch.so OPT1 OPT2
-    ```
+```
+127.0.0.6379> MODULE load redisearch.so OPT1 OPT2
+```
+
+From command line:
+
+```
+$ redis-server --loadmodule ./redisearch.so OPT1 OPT2
+```
+
+## Setting Configuration Options In Run-Time
+
+As of v1.4.1, the [`FT.CONFIG`](Commands.md#ftconfig) allows setting some options during runtime. In addition, the command can be used to view the current run-time configuration options.
 
 # RediSearch configuration options
 
@@ -84,7 +89,7 @@ $ redis-server --loadmodule ./redisearch.so SAFEMODE
 
 ## EXTLOAD {file_name}
 
-If present, we try to load a RediSearch extension dynamic library from the specified file path. See [Extensions](/Extensions) for details.
+If present, we try to load a RediSearch extension dynamic library from the specified file path. See [Extensions](Extensions.md) for details.
 
 ### Default
 
@@ -164,7 +169,7 @@ $ redis-server --loadmodule ./redisearch.so MAXDOCTABLESIZE 3000000
 
 ## FRISOINI {file_name}
 
-If present, we load the custom Chinese dictionary from the specified path. See [Using custom dictionaries](/Chinese#using_custom_dictionaries) for more details.
+If present, we load the custom Chinese dictionary from the specified path. See [Using custom dictionaries](Chinese.md#using_custom_dictionaries) for more details.
 
 ### Default
 
@@ -176,6 +181,7 @@ Not set
 $ redis-server --loadmodule ./redisearch.so FRISOINI /opt/dict/friso.ini
 ```
 
+---
 
 ## GC_SCANSIZE 
 
@@ -189,4 +195,25 @@ The garbage collection bulk size of the internal gc used for cleaning up the ind
 
 ```
 $ redis-server --loadmodule ./redisearch.so GC_SCANSIZE 10
+```
+
+---
+
+## GC_POLICY
+
+The policy for the garbage collector. Supported policies are:
+
+* **DEFAULT**: the default policy.
+* **FORK**: uses a forked thread for garbage collection (v1.4.1 and above).
+
+!!! warning "The `FORK` garbage collection policy is considered an experimental feature, and should be used responsibly."
+
+### Default
+
+"default"
+
+### Example
+
+```
+$ redis-server --loadmodule ./redisearch.so GC_POLICY DEFAULT
 ```

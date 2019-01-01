@@ -62,7 +62,7 @@ TEST_F(AggTest, testBasic) {
   ASSERT_FALSE(QueryError_HasError(&qerr));
 
   RedisSearchCtx *sctx =
-      NewSearchCtx(ctx, RedisModule_CreateString(ctx, spec->name, strlen(spec->name)));
+      NewSearchCtx(ctx, RedisModule_CreateString(ctx, spec->name, strlen(spec->name)), true);
   ASSERT_FALSE(sctx == NULL);
   rv = AREQ_ApplyContext(rr, sctx, &qerr);
   ASSERT_EQ(REDISMODULE_OK, rv);

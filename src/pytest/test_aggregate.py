@@ -156,7 +156,7 @@ class TestAggregate():
         res = self.env.cmd(*cmd)
         row = to_dict(res[1])
         # TODO: Better samples
-        self.env.assertAlmostEqual(14.99, float(row['q50']), delta=2)
+        self.env.assertAlmostEqual(14.99, float(row['q50']), delta=3)
         self.env.assertAlmostEqual(70, float(row['q90']), delta=50)
         self.env.assertAlmostEqual(110, (float(row['q95'])), delta=50)
 
@@ -466,3 +466,15 @@ def grouper(iterable, n, fillvalue=None):
     from itertools import izip_longest
     args = [iter(iterable)] * n
     return izip_longest(fillvalue=fillvalue, *args)
+
+def testAggregateGroupByOnEmptyField(env):
+    env.cmd('ft.create', 'idx', 'SCHEMA', 'f', 'TEXT', 'SORTABLE', 'test', 'TEXT', 'SORTABLE')
+    env.cmd('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'f', 'field', 'test', 'test1,test2,test3')
+    env.cmd('ft.add', 'idx', 'doc2', '1.0', 'FIELDS', 'f', 'field', 'test', '')
+    res = env.cmd('ft.aggregate', 'idx', 'field', 'APPLY', 'split(@test)', 'as', 'check',
+                  'GROUPBY', '1', '@check', 'REDUCE', 'COUNT', '0', 'as', 'count')
+
+    expected = [4L, ['check', 'test3', 'count', '1'],
+                              ['check', None, 'count', '1'], ['check', 'test1', 'count', '1'], ['check', 'test2', 'count', '1']]
+    for var in expected:
+        env.assertIn(var, res)
