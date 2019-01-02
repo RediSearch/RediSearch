@@ -5,11 +5,14 @@ SET(baseCommand "${CMAKE_CURRENT_SOURCE_DIR}/runtests.sh;--module=$<TARGET_FILE:
 FOREACH(n ${PY_TEST_FILES})
     GET_FILENAME_COMPONENT(test_name ${n} NAME_WE)
     ADD_TEST(NAME "PY_${test_name}"
-        COMMAND ${baseCommand} "-t" "${n}")
+        COMMAND ${baseCommand} "-t" "${n}"
+        WORKING_DIRECTORY ${PROJECT_BINARY_DIR})
 
     ADD_TEST(NAME "PY_${test_name}_SAFEMODE"
-        COMMAND ${baseCommand} "-t" "${n}" "--module-args" "SAFEMODE")
+        COMMAND ${baseCommand} "-t" "${n}" "--module-args" "SAFEMODE"
+        WORKING_DIRECTORY ${PROJECT_BINARY_DIR})
 
     ADD_TEST(NAME "PY_${test_name}_FORKGC"
-        COMMAND ${baseCommand} "-t" "${n}" "--module-args=GC_POLICY FORK")
+        COMMAND ${baseCommand} "-t" "${n}" "--module-args=GC_POLICY FORK"
+        WORKING_DIRECTORY ${PROJECT_BINARY_DIR})
 ENDFOREACH()
