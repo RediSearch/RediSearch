@@ -93,7 +93,7 @@ static void FieldList_RestrictReturn(FieldList *fields) {
   fields->numFields = oix;
 }
 
-static int parseCursorSettings(AggregateRequest *req, ArgsCursor *ac, QueryError *status) {
+static int parseCursorSettings(AREQ *req, ArgsCursor *ac, QueryError *status) {
   ACArgSpec specs[] = {{.name = "MAXIDLE",
                         .type = AC_ARGTYPE_UINT,
                         .target = &req->cursorMaxIdle,
@@ -122,8 +122,7 @@ static int parseCursorSettings(AggregateRequest *req, ArgsCursor *ac, QueryError
 #define ARG_ERROR -1
 #define ARG_UNKNOWN 0
 
-static int handleCommonArgs(AggregateRequest *req, ArgsCursor *ac, QueryError *status,
-                            int allowLegacy) {
+static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int allowLegacy) {
   int rv;
   // This handles the common arguments that are not stateful
   if (AC_AdvanceIfMatch(ac, "LIMIT")) {

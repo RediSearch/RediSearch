@@ -101,7 +101,7 @@ typedef struct {
 
   /** Set if the query has "timed out". Unset during each iteration */
   int pause;
-} AggregateRequest, AREQ;
+} AREQ;
 
 /**
  * Create a new aggregate request. The request's lifecycle consists of several
@@ -153,29 +153,6 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status);
  * the requests. This does not yet start iterating over the objects
  */
 int AREQ_BuildPipeline(AREQ *req, QueryError *status);
-
-// Don't enable concurrent mode.
-#define AGGREGATE_REQUEST_NO_CONCURRENT 0x01
-
-// Only generate the plan
-#define AGGREGATE_REQUEST_NO_PARSE_QUERY 0x02
-
-// Don't attempt to open the spec
-#define AGGREGATE_REQUEST_SPECLESS 0x04
-
-typedef struct {
-  const char *cursorLookupName;  // Override the index name in the SearchCtx
-  int flags;                     // AGGREGATE_REQUEST_XXX
-} AggregateRequestSettings;
-
-/**
- * Persist the request. This safely converts a stack allocated request to
- * one allocated on the heap. This assumes that `req` lives on the stack.
- *
- * The current implementation simply does a malloc and memcpy, but this is
- * abstracted in case the request's own members contain references to it.
- */
-AggregateRequest *AREQ_Persist(AggregateRequest *req);
 
 /******************************************************************************
  ******************************************************************************
@@ -229,17 +206,8 @@ ResultProcessor *Grouper_GetRP(Grouper *gr);
  */
 void Grouper_AddReducer(Grouper *g, Reducer *r, RLookupKey *dst);
 
-// Entry points
-void AggregateCommand_ExecAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                                    struct ConcurrentCmdCtx *cmdCtx);
-void AggregateCommand_ExecAggregateEx(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                                      struct ConcurrentCmdCtx *cmdCtx,
-                                      const AggregateRequestSettings *setings);
-void AggregateCommand_ExecCursor(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                                 struct ConcurrentCmdCtx *);
-
-void AREQ_Execute(AggregateRequest *req, RedisModuleCtx *outctx);
-void AREQ_Free(AggregateRequest *req);
+void AREQ_Execute(AREQ *req, RedisModuleCtx *outctx);
+void AREQ_Free(AREQ *req);
 
 #define AREQ_RP(req) (req)->qiter.endProc
 
