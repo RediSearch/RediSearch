@@ -24,6 +24,7 @@
 #define EFFECTIVE_FIELDMASK(q_, qn_) ((qn_)->opts.fieldMask & (q)->opts->fieldmask)
 
 static IndexIterator *getEOFIterator(void);
+static IndexIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n);
 
 static void QueryTokenNode_Free(QueryTokenNode *tn) {
 
@@ -678,7 +679,7 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
   return ret;
 }
 
-IndexIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
+static IndexIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
   switch (n->type) {
     case QN_TOKEN:
       return Query_EvalTokenNode(q, n);

@@ -20,12 +20,20 @@
 extern "C" {
 #endif
 
+/**
+ * Query AST structure.
+ *
+ * To parse a query, use QAST_Parse
+ * To get an iterator from the query, use, QAST_Iterate()
+ * To release the query AST, use QAST_Free()
+ */
 typedef struct QueryAST {
   size_t numTokens;
   QueryNode *root;
   // User data and length, for use by scorers
   const void *udata;
   size_t udatalen;
+
   // Copied query and length, because it seems we modify the string
   // in the parser (FIXME). Thus, if the original query is const
   // then it explodes
@@ -35,8 +43,6 @@ typedef struct QueryAST {
 
 /**
  * Parse the query string into an AST.
- * TODO: Populate with options here...
- *
  * @param src the AST structure to populate
  * @param sctx the context - this is never written to or retained
  * @param sopts options modifying parsing behavior
@@ -96,14 +102,6 @@ void QueryNode_SetFieldMask(QueryNode *n, t_fieldMask mask);
 
 /* Only used in tests, for now */
 void QueryNode_Print(QueryParseCtx *q, QueryNode *qs, int depth);
-
-#define QUERY_ERROR_INTERNAL_STR "Internal error processing QueryParseCtx"
-#define QUERY_ERROR_INTERNAL -1
-
-/* Evaluate a QueryParseCtx stage and prepare it for execution. As execution is lazy
-this doesn't
-actually do anything besides prepare the execution chaing */
-IndexIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n);
 
 /* Free the QueryParseCtx execution stage and its children recursively */
 void QueryNode_Free(QueryNode *n);
