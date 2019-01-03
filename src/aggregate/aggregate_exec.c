@@ -127,7 +127,6 @@ static int sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
   }
 
   SearchResult_Clear(&r);
-  req->stateflags |= QEXEC_S_SENTONE;
   if (rc != RS_RESULT_OK) {
     goto done;
   }

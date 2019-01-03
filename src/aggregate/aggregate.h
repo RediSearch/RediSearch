@@ -22,11 +22,6 @@ typedef enum {
   QEXEC_F_IS_CURSOR = 0x20,      // Is a cursor-type query
   QEXEC_F_SEND_SCHEMA = 0x40,    // Unused for now
 
-  /**
-   * If this pointer is heap allocated, in which case the pointer itself is freed during AR_Free()
-   */
-  QEXEC_F_IS_HEAPALLOC = 0x80,
-
   /** Don't use concurrent execution */
   QEXEC_F_SAFEMODE = 0x100,
 
@@ -42,9 +37,6 @@ typedef enum {
 } QEFlags;
 
 typedef enum {
-  /* sent at least one reply */
-  QEXEC_S_SENTONE = 0x01,
-
   /* Received EOF from iterator */
   QEXEC_S_ITERDONE = 0x02,
 
@@ -65,6 +57,7 @@ typedef struct {
 
   /** Fields to be output and otherwise processed */
   FieldList outFields;
+
   /** Options controlling search behavior */
   RSSearchOptions searchopts;
 
@@ -98,9 +91,6 @@ typedef struct {
   /** Cursor settings */
   unsigned cursorMaxIdle;
   unsigned cursorChunkSize;
-
-  /** Set if the query has "timed out". Unset during each iteration */
-  int pause;
 } AREQ;
 
 /**
