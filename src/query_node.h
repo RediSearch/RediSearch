@@ -105,11 +105,11 @@ typedef struct {
 
 /* A node with a numeric filter */
 typedef struct {
-  const struct numericFilter *nf;
+  const struct NumericFilter *nf;
 } QueryNumericNode;
 
 typedef struct {
-  const struct geoFilter *gf;
+  const struct GeoFilter *gf;
 } QueryGeofilterNode;
 
 typedef struct {

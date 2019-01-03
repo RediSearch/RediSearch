@@ -19,8 +19,7 @@ int GeoIndex_AddStrings(GeoIndex *gi, t_docId docId, char *slon, char *slat);
 
 void GeoIndex_RemoveEntries(GeoIndex *gi, IndexSpec *sp, t_docId docId);
 
-typedef struct geoFilter {
-
+typedef struct GeoFilter {
   const char *property;
   double lat;
   double lon;

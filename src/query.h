@@ -43,7 +43,7 @@ typedef struct QueryAST {
 
 /**
  * Parse the query string into an AST.
- * @param src the AST structure to populate
+ * @param dst the AST structure to populate
  * @param sctx the context - this is never written to or retained
  * @param sopts options modifying parsing behavior
  * @param qstr the query string
@@ -53,8 +53,14 @@ typedef struct QueryAST {
 int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions *sopts,
                const char *qstr, size_t len, QueryError *status);
 
+/**
+ * Global filter options impact *all* query nodes. This structure can be used
+ * to set global properties for the entire query
+ */
 typedef struct {
+  // Used only to support legacy FILTER keyword. Should not be used by newer code
   const NumericFilter *numeric;
+  // Used only to support legacy GEOFILTER keyword. Should not be used by newer code
   const GeoFilter *geo;
 
   /** List of IDs to limit to, and the length of that array */
@@ -66,55 +72,39 @@ typedef struct {
 void QAST_SetGlobalFilters(QueryAST *ast, const QAST_GlobalFilterOptions *options);
 
 /**
- * Open the result iterator on the filters.
- * Returns the iterator for the root node.
- * If there are no results, NULL is returned and the error is set to
+ * Open the result iterator on the filters. Returns the iterator for the root node.
  *
- * @ref QUERY_ENORESULTS
  * @param ast the parsed tree
  * @param opts options
  * @param sctx the search context. Note that this may be retained by the iterators
  *  for the remainder of the query.
+ * @param conc Used to save state on the query
  * @return an iterator.
  */
 IndexIterator *QAST_Iterate(const QueryAST *ast, const RSSearchOptions *options,
                             RedisSearchCtx *sctx, ConcurrentSearchCtx *conc, QueryError *status);
 
+/**
+ * Expand the query using a pre-registered expander. Query expansion possibly
+ * modifies or adds additional search terms to the query.
+ * @param q the query
+ * @param expander the name of the expander
+ * @param opts query options, passed to the expander function
+ * @param status error detail
+ * @return REDISMODULE_OK, or REDISMODULE_ERR with more detail in `status`
+ */
 int QAST_Expand(QueryAST *q, const char *expander, RSSearchOptions *opts, RedisSearchCtx *sctx,
                 QueryError *status);
 
-// TODO: These APIs are helpers for the generated parser. They belong in the
-// bowels of the actual parser, and should probably be a macro!
-QueryNode *NewTokenNode(QueryParseCtx *q, const char *s, size_t len);
-QueryNode *NewTokenNodeExpanded(QueryAST *q, const char *s, size_t len, RSTokenFlags flags);
-QueryNode *NewPhraseNode(int exact);
-QueryNode *NewUnionNode();
-QueryNode *NewPrefixNode(QueryParseCtx *q, const char *s, size_t len);
-QueryNode *NewFuzzyNode(QueryParseCtx *q, const char *s, size_t len, int maxDist);
-QueryNode *NewNotNode(QueryNode *n);
-QueryNode *NewOptionalNode(QueryNode *n);
-QueryNode *NewNumericNode(const NumericFilter *flt);
-QueryNode *NewIdFilterNode(const t_docId *, size_t);
-QueryNode *NewWildcardNode();
-QueryNode *NewGeofilterNode(const GeoFilter *flt);
-QueryNode *NewTagNode(const char *tag, size_t len);
-void QueryNode_SetFieldMask(QueryNode *n, t_fieldMask mask);
-
-/* Only used in tests, for now */
-void QueryNode_Print(QueryParseCtx *q, QueryNode *qs, int depth);
-
-/* Free the QueryParseCtx execution stage and its children recursively */
-void QueryNode_Free(QueryNode *n);
-
 /* Return a string representation of the QueryParseCtx parse tree. The string should be freed by the
  * caller */
-char *Query_DumpExplain(const QueryAST *q, const IndexSpec *spec);
+char *QAST_DumpExplain(const QueryAST *q, const IndexSpec *spec);
 
 /** Print a representation of the query to standard output */
 void QAST_Print(const QueryAST *ast, const IndexSpec *spec);
 
 typedef int (*QueryNode_ForEachCallback)(QueryNode *node, void *q, void *ctx);
-int Query_NodeForEach(QueryAST *q, QueryNode_ForEachCallback callback, void *ctx);
+int QAST_NodeForEach(QueryAST *q, QueryNode_ForEachCallback callback, void *ctx);
 
 /* Cleanup a query AST */
 void QAST_Destroy(QueryAST *q);

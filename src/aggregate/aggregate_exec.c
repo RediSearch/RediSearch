@@ -253,7 +253,7 @@ char *RS_GetExplainOutput(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   if (buildRequest(ctx, argv, argc, COMMAND_EXPLAIN, status, &r) != REDISMODULE_OK) {
     return NULL;
   }
-  char *ret = Query_DumpExplain(&r->ast, r->sctx->spec);
+  char *ret = QAST_DumpExplain(&r->ast, r->sctx->spec);
   AREQ_Free(r);
   return ret;
 }

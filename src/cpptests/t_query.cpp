@@ -6,8 +6,6 @@
 #include <stdio.h>
 #include <gtest/gtest.h>
 
-void QueryNode_Print(QueryParseCtx *q, QueryNode *qs, int depth);
-
 #define QUERY_PARSE_CTX(ctx, qt, opts) NewQueryParseCtx(&ctx, qt, strlen(qt), &opts);
 
 struct SearchOptionsCXX : RSSearchOptions {
@@ -68,9 +66,6 @@ bool isValidQuery(const char *qt, RedisSearchCtx &ctx) {
   //   fprintf(stderr, "Error parsing query '%s': %s\n", qt, err);
   //   free(err);
   //   return 1;
-  // }
-  // if (n) {
-  //   QueryNode_Print(q, n, 0);
   // }
   // Query_Free(q);
 

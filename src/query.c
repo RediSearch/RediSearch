@@ -19,6 +19,7 @@
 #include "err.h"
 #include "concurrent_ctx.h"
 #include "numeric_index.h"
+#include "numeric_filter.h"
 #include "util/strconv.h"
 
 #define EFFECTIVE_FIELDMASK(q_, qn_) ((qn_)->opts.fieldMask & (q)->opts->fieldmask)
@@ -849,7 +850,6 @@ void QueryPhraseNode_AddChild(QueryNode *parent, QueryNode *child) {
 
   pn->children = realloc(pn->children, sizeof(QueryNode *) * (pn->numChildren + 1));
   pn->children[pn->numChildren++] = child;
-  // QueryNode_Print(NULL, parent, 0);
 }
 
 void QueryUnionNode_AddChild(QueryNode *parent, QueryNode *child) {
@@ -1015,7 +1015,7 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
 /* Return a string representation of the query parse tree. The string should be freed by the
  * caller
  */
-char *Query_DumpExplain(const QueryAST *q, const IndexSpec *spec) {
+char *QAST_DumpExplain(const QueryAST *q, const IndexSpec *spec) {
   // empty query
   if (!q || !q->root) {
     return strdup("NULL");
