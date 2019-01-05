@@ -591,7 +591,7 @@ TEST_F(IndexTest, testIntersection) {
 
   RSIndexResult *h = NULL;
 
-  float topFreq = 0;
+  uint32_t topFreq = 0;
   while (ii->Read(ii->ctx, &h) != INDEXREAD_EOF) {
     ASSERT_EQ(h->type, RSResultType_Intersection);
     ASSERT_TRUE(RSIndexResult_IsAggregate(h));
@@ -605,9 +605,9 @@ TEST_F(IndexTest, testIntersection) {
 
     ASSERT_TRUE(copy->docId == h->docId);
     ASSERT_TRUE(copy->type == RSResultType_Intersection);
-
+    ASSERT_EQ((count * 2 + 2) * 2, h->docId);
+    ASSERT_EQ(count * 2 + 2, h->freq);
     IndexResult_Free(copy);
-
     ++count;
   }
 
