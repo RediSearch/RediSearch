@@ -24,7 +24,6 @@ static void *fvNewInstance(Reducer *rbase) {
 
   fv->value = NULL;
   fv->sortval = NULL;
-  printf("New FVX: Property: %p. SortProperty: %p\n", fv->retprop, fv->sortprop);
   return fv;
 }
 
@@ -55,18 +54,11 @@ static int fvAdd_sort(Reducer *r, void *ctx, const RLookupRow *srcrow) {
   }
 
   if (!fvx->sortval) {
-    printf("No SORTBY!\n");
     // No current value: assign value and continue
     fvx->value = RSValue_IncrRef(val);
     fvx->sortval = RSValue_IncrRef(curSortval);
     return 1;
   }
-
-  printf("Comparing ");
-  RSValue_Print(curSortval);
-  printf(" <= > ");
-  RSValue_Print(fvx->sortval);
-  printf("\n");
 
   int rc = (fvx->ascending ? -1 : 1) * RSValue_Cmp(curSortval, fvx->sortval);
   int isnull = RSValue_IsNull(fvx->sortval);
@@ -118,7 +110,6 @@ Reducer *RDCRFirstValue_New(const ReducerOptions *options) {
   }
 
   Reducer *rbase = &fvr->base;
-  printf("SortProp (BASE): %p\n", fvr->sortprop);
 
   rbase->Add = fvr->sortprop ? fvAdd_sort : fvAdd_noSort;
   rbase->Finalize = fvFinalize;

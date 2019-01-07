@@ -11,9 +11,9 @@ TEST_F(TagIndexTest, testCreate) {
   // ASSERT_STRING_EQ(idx->)
   const size_t N = 100000;
   std::vector<const char *> v{"hello", "world", "foo"};
-  for (auto s : v) {
-    printf("V[n]: %s\n", s);
-  }
+  // for (auto s : v) {
+  //   printf("V[n]: %s\n", s);
+  // }
   size_t totalSZ = 0;
   for (t_docId d = 1; d <= N; d++) {
     size_t sz = TagIndex_Index(idx, &v[0], v.size(), d);

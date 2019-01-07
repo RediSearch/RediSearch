@@ -101,14 +101,14 @@ TEST_F(ExprTest, testParser) {
     FAIL() << "Could not parse expression";
   }
   ASSERT_TRUE(root != NULL);
-  ExprAST_Print(root);
-  printf("\n");
+  // ExprAST_Print(root);
+  // printf("\n");
 
   EvalCtx eval(root);
   int rc = eval.eval();
   ASSERT_EQ(EXPR_EVAL_OK, rc);
   ASSERT_EQ(RSValue_Number, eval.result().t);
-  RSValue_Print(&eval.result());
+  // RSValue_Print(&eval.result());
 }
 
 TEST_F(ExprTest, testGetFields) {
@@ -131,13 +131,13 @@ TEST_F(ExprTest, testGetFields) {
 TEST_F(ExprTest, testFunction) {
   const char *e = "floor(log2(35) + sqrt(4) % 10) - abs(-5/20)";
   EvalCtx ctx(e);
-  ExprAST_Print(ctx.root);
+  // ExprAST_Print(ctx.root);
   int rc = ctx.eval();
   if (rc != EXPR_EVAL_OK) {
     FAIL() << "Could not parse " << e << " " << ctx.error();
   }
   ASSERT_EQ(RSValue_Number, ctx.result().t);
-  RSValue_Print(&ctx.result());
+  // RSValue_Print(&ctx.result());
 }
 
 struct EvalResult {
@@ -181,7 +181,7 @@ TEST_F(ExprTest, testPredicate) {
   RLookupRow rr = {0};
   RLookup_WriteOwnKey(kfoo, &rr, RS_NumVal(1));
   RLookup_WriteOwnKey(kbar, &rr, RS_NumVal(2));
-  RLookupRow_Dump(&rr);
+  // RLookupRow_Dump(&rr);
   QueryError status = {QueryErrorCode(0)};
 #define TEST_EVAL(e, expected)                          \
   {                                                     \
@@ -258,7 +258,7 @@ TEST_F(ExprTest, testPropertyFetch) {
   rc = ctx.eval();
   ASSERT_EQ(EXPR_EVAL_OK, rc);
   ASSERT_EQ(RSValue_Number, ctx.result().t);
-  RSValue_Print(&ctx.result());
+  // RSValue_Print(&ctx.result());
   RLookupRow_Cleanup(&rr);
   RLookup_Cleanup(&lk);
 }

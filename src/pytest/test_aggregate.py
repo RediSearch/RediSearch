@@ -39,28 +39,6 @@ class TestAggregate():
     def __init__(self):
         self.env = Env()
         add_values(self.env)
-    
-    # def setUp(self):
-    #     res = self.env.cmd('ft.aggregate', 'games', '@brand:mad catz', 'sortby', '1', '@price', 'return', '1', 'price')
-    #     ss = 0
-    #     pprint.pprint(res)
-
-    #     for did, row in grouper(res[1:], 2):
-    #         row = to_dict(row)
-    #         ss += float(row['price'])
-    #     print "Have {} sum".format(ss)
-    
-    # def tearDown(self):
-    #     res = self.env.cmd('ft.aggregate', 'games', '@brand:mad catz', 'sortby', '1', '@price', 'return', '1', 'price')
-    #     ss = 0
-    #     pprint.pprint(res)
-
-    #     for did, row in grouper(res[1:], 2):
-    #         row = to_dict(row)
-    #         ss += float(row['price'])
-        
-    #     print "Have {} sum".format(ss)
-    #     self.env.assertAlmostEqual(3973.48, ss, 1)
 
     def testGroupBy(self):
         cmd = ['ft.aggregate', 'games', '*',
@@ -103,7 +81,6 @@ class TestAggregate():
                'REDUCE', 'count', '0',
                'SORTBY', '2', '@avg_price', 'DESC']
         res = self.env.cmd(*cmd)
-        print res
         self.env.assertIsNotNone(res)
         self.env.assertEqual(26, res[0])
         # Ensure the formatting actually exists
@@ -292,21 +269,11 @@ class TestAggregate():
             self.env.assertEqual(int(row['count']), len(row['prices']))
 
     def testSortBy(self):
-        res = self.env.cmd('ft.aggregate', 'games', '@brand:mad catz', 'sortby', '1', '@price', 'return', '1', 'price')
-        ss = 0
-        pprint.pprint(res)
-
-        for did, row in grouper(res[1:], 2):
-            row = to_dict(row)
-            ss += float(row['price'])
-        
-        print "Have {} sum".format(ss)
-
         res = self.env.cmd('ft.aggregate', 'games', '*', 'GROUPBY', '1', '@brand',
                            'REDUCE', 'sum', 1, '@price', 'as', 'price',
                            'SORTBY', 2, '@price', 'desc',
                            'LIMIT', '0', '2')
-        # pprint.pprint(res)
+
         self.env.assertListEqual([292L, ['brand', '', 'price', '44780.69'], [
                                  'brand', 'mad catz', 'price', '3973.48']], res)
 
@@ -323,7 +290,6 @@ class TestAggregate():
                            'REDUCE', 'sum', 1, '@price', 'as', 'price',
                            'SORTBY', 2, '@price', 'asc', 'MAX', 2)
         
-        pprint.pprint(res)
         self.env.assertListEqual([292L, ['brand', 'myiico', 'price', '0.23'], [
                                  'brand', 'crystal dynamics', 'price', '0.25']], res)
 
@@ -333,7 +299,6 @@ class TestAggregate():
                            'APPLY', '(@price % 10)', 'AS', 'price',
                            'SORTBY', 4, '@price', 'asc', '@brand', 'desc', 'MAX', 10,
                            )
-        pprint.pprint(res)
         self.env.assertListEqual([292L, ['brand', 'zps', 'price', '0'], ['brand', 'zalman', 'price', '0'], ['brand', 'yoozoo', 'price', '0'], ['brand', 'white label', 'price', '0'], ['brand', 'stinky', 'price', '0'], [
                                  'brand', 'polaroid', 'price', '0'], ['brand', 'plantronics', 'price', '0'], ['brand', 'ozone', 'price', '0'], ['brand', 'oooo', 'price', '0'], ['brand', 'neon', 'price', '0']], res)
 
@@ -341,16 +306,6 @@ class TestAggregate():
         pass
 
     def testNoGroup(self):
-        res = self.env.cmd('ft.aggregate', 'games', '@brand:mad catz', 'sortby', '1', '@price', 'return', '1', 'price')
-        ss = 0
-        pprint.pprint(res)
-
-        for did, row in grouper(res[1:], 2):
-            row = to_dict(row)
-            ss += float(row['price'])
-        
-        print "Have {} sum".format(ss)
-
         res = self.env.cmd('ft.aggregate', 'games', '*', 'LOAD', '2', '@brand', '@price',
                            'APPLY', 'floor(sqrt(@price)) % 10', 'AS', 'price',
                            'SORTBY', 4, '@price', 'desc', '@brand', 'desc', 'MAX', 5,
@@ -363,7 +318,6 @@ class TestAggregate():
  ['brand', 'speedlink', 'price', '9']]
         # exp = [2265L, ['brand', 'Xbox', 'price', '9'], ['brand', 'Turtle Beach', 'price', '9'], [
                             #  'brand', 'Trust', 'price', '9'], ['brand', 'SteelSeries', 'price', '9'], ['brand', 'Speedlink', 'price', '9']]
-        pprint.pprint(res)
         self.env.assertListEqual(exp[1], res[1])
 
     def testLoad(self):
@@ -371,7 +325,6 @@ class TestAggregate():
                            'LOAD', '3', '@brand', '@price', '@nonexist',
                            'SORTBY', 2, '@price', 'DESC', 'MAX', 2)
         exp = [3L, ['brand', '', 'price', '759.12', 'nonexist', None], ['brand', 'Sony', 'price', '695.8', 'nonexist', None]]
-        pprint.pprint(res)
         self.env.assertEqual(exp[1], res[1])
 
     def testSplit(self):
@@ -408,11 +361,6 @@ class TestAggregate():
                                  ['brand', 'beyerdynamic', 'top_item', 'beyerdynamic mmx300 pc gaming premium digital headset with microphone', 'top_price', '359.74',
                                      'bottom_item', 'beyerdynamic headzone pc gaming digital surround sound system with mmx300 digital headset with microphone', 'bottom_price', '0'],
                                  ['brand', 'mad catz', 'top_item', 'mad catz s.t.r.i.k.e.7 gaming keyboard', 'top_price', '295.95', 'bottom_item', 'madcatz mov4545 xbox replacement breakaway cable', 'bottom_price', '3.49']]
-        import pprint
-        print "Got:"
-        pprint.pprint(res)
-        print "Expected:"
-        pprint.pprint(expected)
         self.env.assertListEqual(expected, res)
 
     def testLoadAfterGroupBy(self):

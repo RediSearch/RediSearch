@@ -247,7 +247,6 @@ int RSValue_ToNumber(const RSValue *v, double *d) {
       return 0;
   }
   // If we have a string - try to parse it
-  printf("Will try to parse %s as strign\n", p);
   if (p) {
     char *e;
     errno = 0;

@@ -116,13 +116,12 @@ static int Grouper_rpYield(ResultProcessor *base, SearchResult *r) {
           RSValue *groupval = RLookup_GetItem(dstkey, &gr->rowdata);
           if (groupval) {
             RLookup_WriteKey(dstkey, &r->rowdata, groupval);
-          } else {
-            printf("No such group value??? Sad!\n");
           }
         }
       } else {
+        // FIXME!
         // Error! Couldn't get value? Handle me here!
-        printf("Finalize() returned bad value!\n");
+        // printf("Finalize() returned bad value!\n");
       }
     }
     ++g->iter;
@@ -210,7 +209,6 @@ static void invokeGroupReducers(Grouper *g, RLookupRow *srcrow) {
     const RLookupKey *srckey = g->srckeys[ii];
     RSValue *v = RLookup_GetItem(srckey, srcrow);
     if (v == NULL) {
-      printf("Couldn't get value for %s\n", srckey->name);
       v = RS_NullVal();
     }
     groupvals[ii] = v;
@@ -219,7 +217,6 @@ static void invokeGroupReducers(Grouper *g, RLookupRow *srcrow) {
 }
 
 static int Grouper_rpAccum(ResultProcessor *base, SearchResult *res) {
-  // static SearchResult up;
   Grouper *g = (Grouper *)base;
 
   int rc;

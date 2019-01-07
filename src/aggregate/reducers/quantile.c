@@ -50,7 +50,6 @@ static void quantileFreeInstance(Reducer *unused, void *p) {
 Reducer *RDCRQuantile_New(const ReducerOptions *options) {
   QTLReducer *r = calloc(1, sizeof(*r));
   r->resolution = 500;  // Fixed, i guess?
-  printf("Hi!\n");
 
   if (!ReducerOptions_GetKey(options, &r->base.srckey)) {
     goto error;

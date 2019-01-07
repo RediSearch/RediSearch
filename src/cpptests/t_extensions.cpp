@@ -42,7 +42,7 @@ int myExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
 static int numFreed = 0;
 void myFreeFunc(void *p) {
   numFreed++;
-  printf("Freeing %p %d\n", p, numFreed);
+  // printf("Freeing %p %d\n", p, numFreed);
   free(p);
 }
 

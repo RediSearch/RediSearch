@@ -400,7 +400,7 @@ static IndexIterator *Query_EvalFuzzyNode(QueryEvalCtx *q, QueryNode *qn) {
 
 static IndexIterator *Query_EvalPhraseNode(QueryEvalCtx *q, QueryNode *qn) {
   if (qn->type != QN_PHRASE) {
-    printf("Not a phrase node!\n");
+    // printf("Not a phrase node!\n");
     return NULL;
   }
   QueryPhraseNode *node = &qn->pn;

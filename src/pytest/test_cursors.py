@@ -42,8 +42,6 @@ def testCursors(env):
     resp = env.cmd(*(query[::]+['COUNT', 10]))
 
     resp = exhaustCursor(env, 'idx', resp)
-    import pprint
-    pprint.pprint(resp)
     env.assertEqual(11, len(resp))
 
 def testMultipleIndexes(env):
@@ -76,8 +74,6 @@ def testCapacities(env):
     for _ in range(128):
         r1 = env.cmd(*q1)
         r2 = env.cmd(*q2)
-        # print r1
-        # print r2
         cursors1.append(r1)
         cursors2.append(r2)
 

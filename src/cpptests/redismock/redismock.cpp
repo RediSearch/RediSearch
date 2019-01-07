@@ -260,12 +260,10 @@ static int getNextEntry(va_list &ap, HashValue::Key &e, void **vpp) {
 }
 
 int RMCK_HashSet(RedisModuleKey *key, int flags, ...) {
-  printf("Doign hset... key: %s\n", key->key.c_str());
   bool wasEmpty = false;
   if (!key->ref) {
     // Empty...
     wasEmpty = true;
-    printf("Creating new hash value.\n");
     key->ref = new HashValue(key->key);
     key->ref->incref();
   } else if (key->ref->typecode() != REDISMODULE_KEYTYPE_HASH) {
@@ -292,7 +290,6 @@ int RMCK_HashSet(RedisModuleKey *key, int flags, ...) {
 
   if (wasEmpty) {
     // Assign this value to the main DB:
-    printf("Setting key in DB...\n");
     key->parent->db->set(hv);
     // and delete the original reference
     hv->decref();

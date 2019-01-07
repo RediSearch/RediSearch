@@ -443,7 +443,7 @@ TEST_F(IndexTest, testNumericInverted) {
   }
   ASSERT_EQ(75, idx->lastId);
 
-  printf("written %zd bytes\n", IndexBlock_DataLen(&idx->blocks[0]));
+  // printf("written %zd bytes\n", IndexBlock_DataLen(&idx->blocks[0]));
 
   IndexReader *ir = NewNumericReader(idx, NULL);
   IndexIterator *it = NewReadIterator(ir);
@@ -478,7 +478,7 @@ TEST_F(IndexTest, testNumericVaried) {
   RSIndexResult *res;
 
   for (size_t i = 0; i < numCount; i++) {
-    printf("Checking i=%lu. Expected=%lf\n", i, nums[i]);
+    // printf("Checking i=%lu. Expected=%lf\n", i, nums[i]);
     int rv = it->Read(it->ctx, &res);
     ASSERT_NE(INDEXREAD_EOF, rv);
     ASSERT_LT(fabs(nums[i] - res->num.value), 0.01);
@@ -835,10 +835,10 @@ static void fillSchema(std::vector<char *> &args, size_t nfields) {
   }
   args.resize(n);
 
-  for (int i = 0; i < n; i++) {
-    printf("%s ", args[i]);
-  }
-  printf("\n");
+  // for (int i = 0; i < n; i++) {
+  //   printf("%s ", args[i]);
+  // }
+  // printf("\n");
 }
 
 static void freeSchemaArgs(std::vector<char *> &args) {

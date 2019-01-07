@@ -580,7 +580,6 @@ def testPaging(env):
         chunk = random.randrange(1, 10)
     res = r.execute_command(
         'ft.search', 'idx', 'hello', 'nocontent', 'sortby', 'bar', 'asc', 'limit', N, 10)
-    print res
     env.assertEqual(res[0], N)
     env.assertEqual(len(res), 1)
 
@@ -919,7 +918,6 @@ def testAddHash(env):
     env.assertOk(r.execute_command('ft.addhash', 'idx', 'doc2', 1.0))
 
     res = r.execute_command('ft.search', 'idx', "hello", "nocontent")
-    print res
     env.assertEqual(3, len(res))
     env.assertEqual(2, res[0])
     env.assertEqual("doc1", res[2])
@@ -930,7 +928,6 @@ def testAddHash(env):
         "hello",
         "filter", "price", "0", "3"
         )
-    print res
     env.assertEqual(3, len(res))
     env.assertEqual(1, res[0])
     env.assertEqual("doc1", res[1])
@@ -1080,13 +1077,11 @@ def testExpander(env):
         'ft.create', 'idx', 'schema', 'title', 'text'))
     env.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 0.5, 'fields',
                                     'title', 'hello kitty'))
-    print r.execute_command('keys *')
     res = r.execute_command(
         'ft.search', 'idx', 'kitties',
         "nocontent",
         "expander", "SBSTEM"
         )
-    print res
     env.assertEqual(2, len(res))
     env.assertEqual(1, res[0])
 
@@ -1600,8 +1595,6 @@ def testBinaryKeys(env):
     for _ in env.reloading_iterator():
         exp = [2L, 'Hello\x00World', ['txt', 'Bin match'], 'Hello', ['txt', 'NoBin match']]
         res = env.cmd('ft.search', 'idx', 'match')
-        print(exp)
-        print(res)
         env.assertEqual(exp, res)
 
 def testNonDefaultDb(env):
@@ -1737,8 +1730,8 @@ def assertAggrowsEqual(env, exp, got):
 
 def assertResultsEqual(env, exp, got, inorder=True):
     from pprint import pprint
-    pprint(exp)
-    pprint(got)
+    # pprint(exp)
+    # pprint(got)
     env.assertEqual(exp[0], got[0])
     env.assertEqual(len(exp), len(got))
 
@@ -1947,13 +1940,9 @@ def testIssue484(env):
 def testIssue501(env):
     env.cmd('FT.CREATE', 'incidents', 'SCHEMA', 'report', 'TEXT')
     env.cmd('FT.ADD', 'incidents', 'doc1', 1.0, 'FIELDS', 'report', 'report content')
-    print "Added doc..."
     env.cmd('FT.DICTADD', 'slang', 'timmies', 'toque', 'toonie', 'serviette', 'kerfuffle', 'chesterfield')
-    print "Added to dict"
-    print "going to spellcheck"
     rv = env.cmd('FT.SPELLCHECK', 'incidents', 'qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq',
         'TERMS', 'INCLUDE', 'slang', 'TERMS', 'EXCLUDE', 'slang')
-    print "spellcheque done"
     env.assertEqual("qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq", rv[0][1])
     env.assertEqual([], rv[0][2])
 

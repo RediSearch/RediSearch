@@ -491,7 +491,6 @@ static int parseGroupby(AREQ *req, ArgsCursor *ac, QueryError *status) {
     cur = array_ensure_tail(&gstp->reducers, PLN_Reducer);
 
     if (buildReducer(gstp, cur, ac, name, status) != REDISMODULE_OK) {
-      printf("Error for reducer!\n");
       goto error;
     }
   }

@@ -14,7 +14,7 @@
 class AggTest : public ::testing::Test {};
 
 static void donecb(RSAddDocumentCtx *aCtx, RedisModuleCtx *, void *) {
-  printf("Finished indexing document. Status: %s\n", QueryError_GetError(&aCtx->status));
+  // printf("Finished indexing document. Status: %s\n", QueryError_GetError(&aCtx->status));
 }
 
 template <typename... Ts>
@@ -75,19 +75,22 @@ TEST_F(AggTest, testBasic) {
 
   SearchResult res = {0};
   RLookup *lk = AGPLN_GetLookup(&rr->ap, NULL, AGPLN_GETLOOKUP_LAST);
+  size_t count = 0;
   while ((rv = rp->Next(rp, &res)) == RS_RESULT_OK) {
-    std::cerr << "Doc ID: " << res.docId << std::endl;
-    for (auto kk = lk->head; kk; kk = kk->next) {
-      RSValue *vv = RLookup_GetItem(kk, &res.rowdata);
-      if (vv != NULL) {
-        std::cerr << "  " << kk->name << ": ";
-        RSValue_Print(vv);
-        std::cerr << std::endl;
-      }
-    }
+    count++;
+    // std::cerr << "Doc ID: " << res.docId << std::endl;
+    // for (auto kk = lk->head; kk; kk = kk->next) {
+    //   RSValue *vv = RLookup_GetItem(kk, &res.rowdata);
+    //   if (vv != NULL) {
+    //     std::cerr << "  " << kk->name << ": ";
+    //     RSValue_Print(vv);
+    //     std::cerr << std::endl;
+    //   }
+    // }
     SearchResult_Clear(&res);
   }
   ASSERT_EQ(RS_RESULT_EOF, rv);
+  ASSERT_EQ(3, count);
 
   SearchResult_Destroy(&res);
   AREQ_Free(rr);
@@ -174,7 +177,7 @@ TEST_F(AggTest, testGroupBy) {
   QITR_PushRP(&qitr, gp);
 
   while (gp->Next(gp, &res) == RS_RESULT_OK) {
-    RLookupRow_Dump(&res.rowdata);
+    // RLookupRow_Dump(&res.rowdata);
     SearchResult_Clear(&res);
   }
   SearchResult_Destroy(&res);
@@ -224,7 +227,7 @@ TEST_F(AggTest, testGroupSplit) {
   QITR_PushRP(&qitr, gp);
 
   while (gp->Next(gp, &res) == RS_RESULT_OK) {
-    RLookupRow_Dump(&res.rowdata);
+    // RLookupRow_Dump(&res.rowdata);
     RSValue *rv = RLookup_GetItem(val_out, &res.rowdata);
     ASSERT_FALSE(NULL == rv);
     ASSERT_FALSE(RSValue_IsNull(rv));
