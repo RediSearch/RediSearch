@@ -6,6 +6,10 @@
 #include "rmalloc.h"
 #define DEFAULT_RECORDLIST_SIZE 4
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 RSQueryTerm *NewQueryTerm(RSToken *tok, int id);
 void Term_Free(RSQueryTerm *t);
 
@@ -18,7 +22,7 @@ static inline void AggregateResult_Reset(RSIndexResult *r) {
 
   r->docId = 0;
   r->agg.numChildren = 0;
-  r->agg.typeMask = 0;
+  r->agg.typeMask = (RSResultType)0;
 }
 /* Allocate a new intersection result with a given capacity*/
 RSIndexResult *NewIntersectResult(size_t cap, double weight);
@@ -41,7 +45,8 @@ static inline void AggregateResult_AddChild(RSIndexResult *parent, RSIndexResult
   /* Increase capacity if needed */
   if (agg->numChildren >= agg->childrenCap) {
     agg->childrenCap = agg->childrenCap ? agg->childrenCap * 2 : 1;
-    agg->children = rm_realloc(agg->children, agg->childrenCap * sizeof(RSIndexResult *));
+    agg->children = (__typeof__(agg->children))rm_realloc(
+        agg->children, agg->childrenCap * sizeof(RSIndexResult *));
   }
   agg->children[agg->numChildren++] = child;
   // update the parent's type mask
@@ -71,4 +76,7 @@ size_t IndexResult_GetMatchedTerms(RSIndexResult *r, RSQueryTerm **arr, size_t c
  * need to be ordered as in the query or not */
 int IndexResult_IsWithinRange(RSIndexResult *r, int maxSlop, int inOrder);
 
+#ifdef __cplusplus
+}
+#endif
 #endif

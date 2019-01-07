@@ -1,16 +1,27 @@
 import subprocess
 import os
 import os.path
+import sys
 from RLTest import Env
 
+if 'EXT_TEST_PATH' in os.environ:
+    EXTPATH = os.environ['EXT_TEST_PATH']
+else:
+    EXTPATH = 'src/tests/libexample_extension'
+    if sys.platform.lower() == 'darwin':
+        EXTPATH += '.dylib'
+    else:
+        EXTPATH += '.so'
+
+if not os.path.exists(EXTPATH):
+    raise Exception("Path ({}) does not exist. "
+        "Run from the build directory or set EXT_TEST_PATH in the environment".format(EXTPATH))
+
+EXTPATH = os.path.abspath(EXTPATH)
 
 def testExt():
-    extentionPath = os.path.abspath(os.path.dirname(os.path.realpath(__file__)) + '/../tests/ext-example/example.so')
-
-    if not os.path.exists(extentionPath):
-        print subprocess.call(['make', '-C', os.path.dirname(extentionPath)])
-
-    env = Env(moduleArgs='EXTLOAD %s' % extentionPath)
+    # extentionPath = os.path.abspath(os.path.dirname(os.path.realpath(__file__)) + '/../tests/ext-example/example.so')
+    env = Env(moduleArgs='EXTLOAD %s' % EXTPATH)
 
     N = 100
     env.assertOk(env.execute_command(

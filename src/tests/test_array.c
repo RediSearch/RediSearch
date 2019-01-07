@@ -4,6 +4,8 @@
 #include "rmutil/alloc.h"
 #include "test_util.h"
 
+REDISMODULE_INIT_SYMBOLS();
+
 int testArray() {
   Array arr;
   Array_Init(&arr);

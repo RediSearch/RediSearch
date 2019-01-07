@@ -28,9 +28,10 @@
 
 #include "token.h"
 #include "expression.h"
+#include "exprast.h"
 #include "parser.h"
 
-#line 34 "parser.c"
+#line 35 "parser.c"
 /**************** End of %include directives **********************************/
 /* These constants specify the various numeric values for terminal symbols
 ** in a format understandable to "makeheaders".  This section is blank unless
@@ -545,21 +546,21 @@ static void yy_destructor(
 {
 #line 23 "parser.y"
 RSExpr_Free((yypminor->yy19)); 
-#line 549 "parser.c"
+#line 550 "parser.c"
 }
       break;
     case 24: /* number */
 {
 #line 26 "parser.y"
 
-#line 556 "parser.c"
+#line 557 "parser.c"
 }
       break;
     case 25: /* arglist */
 {
 #line 29 "parser.y"
 RSArgList_Free((yypminor->yy46)); 
-#line 563 "parser.c"
+#line 564 "parser.c"
 }
       break;
 /********* End destructor definitions *****************************************/
@@ -969,135 +970,135 @@ static YYACTIONTYPE yy_reduce(
 /********** Begin reduce actions **********************************************/
         YYMINORTYPE yylhsminor;
       case 0: /* program ::= expr */
-#line 44 "parser.y"
+#line 45 "parser.y"
 { ctx->root = yymsp[0].minor.yy19; }
-#line 975 "parser.c"
+#line 976 "parser.c"
         break;
       case 1: /* expr ::= LP expr RP */
-#line 46 "parser.y"
+#line 47 "parser.y"
 { yymsp[-2].minor.yy19 = yymsp[-1].minor.yy19; }
-#line 980 "parser.c"
+#line 981 "parser.c"
         break;
       case 2: /* expr ::= expr PLUS expr */
-#line 47 "parser.y"
+#line 48 "parser.y"
 { yylhsminor.yy19 = RS_NewOp('+', yymsp[-2].minor.yy19, yymsp[0].minor.yy19); }
-#line 985 "parser.c"
+#line 986 "parser.c"
   yymsp[-2].minor.yy19 = yylhsminor.yy19;
         break;
       case 3: /* expr ::= expr DIVIDE expr */
-#line 48 "parser.y"
+#line 49 "parser.y"
 {  yylhsminor.yy19 = RS_NewOp('/', yymsp[-2].minor.yy19, yymsp[0].minor.yy19); }
-#line 991 "parser.c"
+#line 992 "parser.c"
   yymsp[-2].minor.yy19 = yylhsminor.yy19;
         break;
       case 4: /* expr ::= expr TIMES expr */
-#line 49 "parser.y"
+#line 50 "parser.y"
 {  yylhsminor.yy19 = RS_NewOp('*', yymsp[-2].minor.yy19, yymsp[0].minor.yy19);}
-#line 997 "parser.c"
+#line 998 "parser.c"
   yymsp[-2].minor.yy19 = yylhsminor.yy19;
         break;
       case 5: /* expr ::= expr MINUS expr */
-#line 50 "parser.y"
+#line 51 "parser.y"
 {  yylhsminor.yy19 = RS_NewOp('-', yymsp[-2].minor.yy19, yymsp[0].minor.yy19); }
-#line 1003 "parser.c"
+#line 1004 "parser.c"
   yymsp[-2].minor.yy19 = yylhsminor.yy19;
         break;
       case 6: /* expr ::= expr POW expr */
-#line 51 "parser.y"
+#line 52 "parser.y"
 {  yylhsminor.yy19 = RS_NewOp('^', yymsp[-2].minor.yy19, yymsp[0].minor.yy19); }
-#line 1009 "parser.c"
+#line 1010 "parser.c"
   yymsp[-2].minor.yy19 = yylhsminor.yy19;
         break;
       case 7: /* expr ::= expr MOD expr */
-#line 52 "parser.y"
+#line 53 "parser.y"
 { yylhsminor.yy19 = RS_NewOp('%', yymsp[-2].minor.yy19, yymsp[0].minor.yy19); }
-#line 1015 "parser.c"
+#line 1016 "parser.c"
   yymsp[-2].minor.yy19 = yylhsminor.yy19;
         break;
       case 8: /* expr ::= expr EQ expr */
-#line 55 "parser.y"
+#line 56 "parser.y"
 { yylhsminor.yy19 = RS_NewPredicate(RSCondition_Eq, yymsp[-2].minor.yy19, yymsp[0].minor.yy19); }
-#line 1021 "parser.c"
+#line 1022 "parser.c"
   yymsp[-2].minor.yy19 = yylhsminor.yy19;
         break;
       case 9: /* expr ::= expr NE expr */
-#line 56 "parser.y"
+#line 57 "parser.y"
 { yylhsminor.yy19 = RS_NewPredicate(RSCondition_Ne, yymsp[-2].minor.yy19, yymsp[0].minor.yy19); }
-#line 1027 "parser.c"
+#line 1028 "parser.c"
   yymsp[-2].minor.yy19 = yylhsminor.yy19;
         break;
       case 10: /* expr ::= expr LT expr */
-#line 57 "parser.y"
+#line 58 "parser.y"
 { yylhsminor.yy19 = RS_NewPredicate(RSCondition_Lt, yymsp[-2].minor.yy19, yymsp[0].minor.yy19); }
-#line 1033 "parser.c"
+#line 1034 "parser.c"
   yymsp[-2].minor.yy19 = yylhsminor.yy19;
         break;
       case 11: /* expr ::= expr LE expr */
-#line 58 "parser.y"
+#line 59 "parser.y"
 { yylhsminor.yy19 = RS_NewPredicate(RSCondition_Le, yymsp[-2].minor.yy19, yymsp[0].minor.yy19); }
-#line 1039 "parser.c"
+#line 1040 "parser.c"
   yymsp[-2].minor.yy19 = yylhsminor.yy19;
         break;
       case 12: /* expr ::= expr GT expr */
-#line 59 "parser.y"
+#line 60 "parser.y"
 { yylhsminor.yy19 = RS_NewPredicate(RSCondition_Gt, yymsp[-2].minor.yy19, yymsp[0].minor.yy19); }
-#line 1045 "parser.c"
+#line 1046 "parser.c"
   yymsp[-2].minor.yy19 = yylhsminor.yy19;
         break;
       case 13: /* expr ::= expr GE expr */
-#line 60 "parser.y"
+#line 61 "parser.y"
 { yylhsminor.yy19 = RS_NewPredicate(RSCondition_Ge, yymsp[-2].minor.yy19, yymsp[0].minor.yy19); }
-#line 1051 "parser.c"
+#line 1052 "parser.c"
   yymsp[-2].minor.yy19 = yylhsminor.yy19;
         break;
       case 14: /* expr ::= expr AND expr */
-#line 61 "parser.y"
+#line 62 "parser.y"
 { yylhsminor.yy19 = RS_NewPredicate(RSCondition_And, yymsp[-2].minor.yy19, yymsp[0].minor.yy19); }
-#line 1057 "parser.c"
+#line 1058 "parser.c"
   yymsp[-2].minor.yy19 = yylhsminor.yy19;
         break;
       case 15: /* expr ::= expr OR expr */
-#line 62 "parser.y"
+#line 63 "parser.y"
 { yylhsminor.yy19 = RS_NewPredicate(RSCondition_Or, yymsp[-2].minor.yy19, yymsp[0].minor.yy19); }
-#line 1063 "parser.c"
+#line 1064 "parser.c"
   yymsp[-2].minor.yy19 = yylhsminor.yy19;
         break;
       case 16: /* expr ::= NOT expr */
-#line 63 "parser.y"
-{ yymsp[-1].minor.yy19 = RS_NewPredicate(RSCondition_Not, yymsp[0].minor.yy19, NULL); }
-#line 1069 "parser.c"
+#line 64 "parser.y"
+{ yymsp[-1].minor.yy19 = RS_NewInverted(yymsp[0].minor.yy19); }
+#line 1070 "parser.c"
         break;
       case 17: /* expr ::= STRING */
-#line 66 "parser.y"
+#line 67 "parser.y"
 { yylhsminor.yy19 =  RS_NewStringLiteral((char*)yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len); }
-#line 1074 "parser.c"
+#line 1075 "parser.c"
   yymsp[0].minor.yy19 = yylhsminor.yy19;
         break;
       case 18: /* expr ::= number */
-#line 67 "parser.y"
+#line 68 "parser.y"
 { yylhsminor.yy19 = RS_NewNumberLiteral(yymsp[0].minor.yy32); }
-#line 1080 "parser.c"
+#line 1081 "parser.c"
   yymsp[0].minor.yy19 = yylhsminor.yy19;
         break;
       case 19: /* number ::= NUMBER */
-#line 69 "parser.y"
+#line 70 "parser.y"
 { yylhsminor.yy32 = yymsp[0].minor.yy0.numval; }
-#line 1086 "parser.c"
+#line 1087 "parser.c"
   yymsp[0].minor.yy32 = yylhsminor.yy32;
         break;
       case 20: /* number ::= MINUS NUMBER */
-#line 70 "parser.y"
+#line 71 "parser.y"
 { yymsp[-1].minor.yy32 = -yymsp[0].minor.yy0.numval; }
-#line 1092 "parser.c"
+#line 1093 "parser.c"
         break;
       case 21: /* expr ::= PROPERTY */
-#line 72 "parser.y"
+#line 73 "parser.y"
 { yylhsminor.yy19 = RS_NewProp(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len); }
-#line 1097 "parser.c"
+#line 1098 "parser.c"
   yymsp[0].minor.yy19 = yylhsminor.yy19;
         break;
       case 22: /* expr ::= SYMBOL LP arglist RP */
-#line 73 "parser.y"
+#line 74 "parser.y"
 {
     RSFunction cb = RSFunctionRegistry_Get(yymsp[-3].minor.yy0.s, yymsp[-3].minor.yy0.len);
     if (!cb) {
@@ -1108,11 +1109,11 @@ static YYACTIONTYPE yy_reduce(
          yylhsminor.yy19 = RS_NewFunc(yymsp[-3].minor.yy0.s, yymsp[-3].minor.yy0.len, yymsp[-1].minor.yy46, cb);
     }
 }
-#line 1112 "parser.c"
+#line 1113 "parser.c"
   yymsp[-3].minor.yy19 = yylhsminor.yy19;
         break;
       case 23: /* expr ::= SYMBOL */
-#line 84 "parser.y"
+#line 85 "parser.y"
 {
     if (yymsp[0].minor.yy0.len == 4 && !strncmp(yymsp[0].minor.yy0.s, "NULL", 4)) {
         yylhsminor.yy19 = RS_NewNullLiteral();
@@ -1122,26 +1123,26 @@ static YYACTIONTYPE yy_reduce(
         yylhsminor.yy19 = NULL; 
     }
 }
-#line 1126 "parser.c"
+#line 1127 "parser.c"
   yymsp[0].minor.yy19 = yylhsminor.yy19;
         break;
       case 24: /* arglist ::= */
-#line 94 "parser.y"
+#line 95 "parser.y"
 { yymsp[1].minor.yy46 = RS_NewArgList(NULL); }
-#line 1132 "parser.c"
+#line 1133 "parser.c"
         break;
       case 25: /* arglist ::= expr */
-#line 95 "parser.y"
+#line 96 "parser.y"
 { yylhsminor.yy46 = RS_NewArgList(yymsp[0].minor.yy19); }
-#line 1137 "parser.c"
+#line 1138 "parser.c"
   yymsp[0].minor.yy46 = yylhsminor.yy46;
         break;
       case 26: /* arglist ::= arglist COMMA expr */
-#line 96 "parser.y"
+#line 97 "parser.y"
 { 
     yylhsminor.yy46 = RSArgList_Append(yymsp[-2].minor.yy46, yymsp[0].minor.yy19);
 }
-#line 1145 "parser.c"
+#line 1146 "parser.c"
   yymsp[-2].minor.yy46 = yylhsminor.yy46;
         break;
       default:
@@ -1204,12 +1205,12 @@ static void yy_syntax_error(
   RSExprParser_ParseCTX_FETCH
 #define TOKEN yyminor
 /************ Begin %syntax_error code ****************************************/
-#line 38 "parser.y"
+#line 39 "parser.y"
   
 
     asprintf(&ctx->errorMsg, "Syntax error at offset %d near '%.*s'", TOKEN.pos, TOKEN.len, TOKEN.s);
     ctx->ok = 0;
-#line 1213 "parser.c"
+#line 1214 "parser.c"
 /************ End %syntax_error code ******************************************/
   RSExprParser_ParseARG_STORE /* Suppress warning about unused %extra_argument variable */
   RSExprParser_ParseCTX_STORE

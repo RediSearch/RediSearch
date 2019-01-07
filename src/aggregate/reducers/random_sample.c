@@ -1,81 +1,87 @@
 #include <aggregate/reducer.h>
 
-struct randomSampleProperties {
-  RSKey property;
-  RSSortingTable *sortables;
-  int len;
-};
+typedef struct {
+  Reducer base;
+  size_t len;
+} RSMPLReducer;
 
-struct randomSampleCtx {
-  struct randomSampleProperties *props;
-  int seen;  // how many items we've seen
-  RSValue *samples[];
-};
+typedef struct {
+  size_t seen;  // how many items we've seen
+  RSValue *samplesArray;
+} rsmplCtx;
 
-void *sample_NewInstance(ReducerCtx *rctx) {
-  struct randomSampleProperties *props = rctx->privdata;
-
-  struct randomSampleCtx *ctx =
-      ReducerCtx_Alloc(rctx, sizeof(*ctx) + props->len * sizeof(RSValue *), 10000);
-  ctx->props = props;
+static void *sampleNewInstance(Reducer *base) {
+  RSMPLReducer *r = (RSMPLReducer *)base;
+  rsmplCtx *ctx = Reducer_BlkAlloc(base, sizeof(*ctx) + r->len * sizeof(RSValue *), 10000);
   ctx->seen = 0;
+  ctx->samplesArray = RSValue_NewArrayEx(NULL, r->len, 0);
   return ctx;
 }
 
-int sample_Add(void *ctx, SearchResult *res) {
-  struct randomSampleCtx *sc = ctx;
+static int sampleAdd(Reducer *rbase, void *ctx, const RLookupRow *srcrow) {
+  RSMPLReducer *r = (RSMPLReducer *)rbase;
+  rsmplCtx *sc = ctx;
+  RSValue *v = RLookup_GetItem(rbase->srckey, srcrow);
+  if (!v) {
+    return 1;
+  }
 
-  RSValue *v = SearchResult_GetValue(res, sc->props->sortables, &sc->props->property);
-  if (v) {
-    if (sc->seen < sc->props->len) {
-      sc->samples[sc->seen++] = RSValue_IncrRef(RSValue_MakePersistent(v));
-    } else {
-      int i = rand() % sc->seen++;
-      if (i < sc->props->len) {
-        RSValue_Free(sc->samples[i]);
-        sc->samples[i] = RSValue_IncrRef(RSValue_MakePersistent(v));
-      }
+  if (sc->seen < r->len) {
+    RSVALUE_ARRELEM(sc->samplesArray, sc->seen) = RSValue_IncrRef(v);
+    RSVALUE_ARRLEN(sc->samplesArray)++;
+    assert(RSVALUE_ARRLEN(sc->samplesArray) <= r->len);
+  } else {
+    size_t i = rand() % sc->seen + 1;
+    if (i < r->len) {
+      RSVALUE_REPLACE(&RSVALUE_ARRELEM(sc->samplesArray, i), v);
     }
   }
-
+  sc->seen++;
   return 1;
 }
 
-int sample_Finalize(void *ctx, const char *key, SearchResult *res) {
-  struct randomSampleCtx *sc = ctx;
-
-  int top = MIN(sc->props->len, sc->seen);
-  RSValue **arr = calloc(top, sizeof(RSValue *));
-  memcpy(arr, sc->samples, top * sizeof(RSValue *));
-
-  RSFieldMap_Set(&res->fields, key, RS_ArrVal(arr, top));
-  // set len to 0 so we won't try to free the values on destruction
-  sc->seen = 0;
-  return 1;
+static RSValue *sampleFinalize(Reducer *rbase, void *ctx) {
+  rsmplCtx *sc = ctx;
+  RSMPLReducer *r = (RSMPLReducer *)rbase;
+  size_t len = MIN(r->len, sc->seen);
+  RSValue *ret = sc->samplesArray;
+  sc->samplesArray = NULL;
+  return ret;
 }
 
-void sample_FreeInstance(void *p) {
-  struct randomSampleCtx *sc = p;
-  int top = MIN(sc->props->len, sc->seen);
-
-  for (int i = 0; i < top; i++) {
-    RSValue_Free(sc->samples[i]);
+static void sampleFreeInstance(Reducer *rbase, void *p) {
+  rsmplCtx *sc = p;
+  RSMPLReducer *r = (RSMPLReducer *)rbase;
+  if (sc->samplesArray) {
+    RSValue_Decref(sc->samplesArray);
   }
 }
 
-Reducer *NewRandomSample(RedisSearchCtx *sctx, int size, const char *property, const char *alias) {
-  Reducer *r = malloc(sizeof(*r));
-  r->Add = sample_Add;
-  r->Finalize = sample_Finalize;
-  r->Free = Reducer_GenericFree;
-  r->FreeInstance = sample_FreeInstance;
-  r->NewInstance = sample_NewInstance;
-  r->alias = FormatAggAlias(alias, "random_sample", property);
-  struct randomSampleProperties *props = malloc(sizeof(*props));
-  props->sortables = SEARCH_CTX_SORTABLES(sctx);
-  props->property = RS_KEY(RSKEY(property));
-  props->len = size;
-  r->ctx = (ReducerCtx){.property = property, .ctx = sctx, .privdata = props};
-
-  return r;
+Reducer *RDCRRandomSample_New(const ReducerOptions *options) {
+  RSMPLReducer *ret = calloc(1, sizeof(*ret));
+  if (!ReducerOptions_GetKey(options, &ret->base.srckey)) {
+    free(ret);
+    return NULL;
+  }
+  // Get the number of samples..
+  unsigned samplesize;
+  int rc = AC_GetUnsigned(options->args, &samplesize, 0);
+  if (rc != AC_OK) {
+    QERR_MKBADARGS_AC(options->status, "<sample size>", rc);
+    free(ret);
+    return NULL;
+  }
+  if (samplesize > MAX_SAMPLE_SIZE) {
+    QERR_MKBADARGS_FMT(options->status, "Sample size too large");
+    free(ret);
+    return NULL;
+  }
+  ret->len = samplesize;
+  Reducer *rbase = &ret->base;
+  rbase->Add = sampleAdd;
+  rbase->Finalize = sampleFinalize;
+  rbase->Free = Reducer_GenericFree;
+  rbase->FreeInstance = sampleFreeInstance;
+  rbase->NewInstance = sampleNewInstance;
+  return rbase;
 }

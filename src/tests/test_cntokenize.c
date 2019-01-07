@@ -17,6 +17,8 @@
 #include <time.h>
 #include <float.h>
 
+REDISMODULE_INIT_SYMBOLS();
+
 static char *getFile(const char *name) {
   FILE *fp = fopen(name, "rb");
   if (fp == NULL) {

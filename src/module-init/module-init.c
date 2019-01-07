@@ -1,3 +1,6 @@
+#include "redismodule.h"
+REDISMODULE_INIT_SYMBOLS();
+
 #include "module.h"
 #include "version.h"
 

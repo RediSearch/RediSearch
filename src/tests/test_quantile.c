@@ -28,6 +28,8 @@ static int testBasic() {
   return 0;
 }
 
+REDISMODULE_INIT_SYMBOLS();
+
 TEST_MAIN({
   RMUTil_InitAlloc();
 

@@ -25,6 +25,10 @@ struct RSSortingVector;
 #define REDISEARCH_ERR 1
 #define REDISEARCH_OK 0
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* A payload object is set either by a query expander or by the user, and can be used to process
  * scores. For examples, it can be a feature vector that is then compared to a feature vector
  * extracted from each result or document */
@@ -107,15 +111,22 @@ typedef struct {
   RSTokenFlags flags : 31;
 } RSToken;
 
+struct QueryAST;
+
 /* RSQueryExpanderCtx is a context given to query expanders, containing callback methods and useful
  * data */
 typedef struct RSQueryExpanderCtx {
 
   /* Opaque query object used internally by the engine, and should not be accessed */
-  struct RSQuery *query;
+  struct QueryAST *qast;
+
+  struct RedisSearchCtx *handle;
 
   /* Opaque query node object used internally by the engine, and should not be accessed */
   struct RSQueryNode **currentNode;
+
+  /* Error object. Can be used to signal an error to the user */
+  struct QueryError *status;
 
   /* Private data of the extension, set on extension initialization or during expansion. If a Free
    * calback is provided, it will be used automatically to free this data */
@@ -147,7 +158,7 @@ typedef struct RSQueryExpanderCtx {
 } RSQueryExpanderCtx;
 
 /* The signature for a query expander instance */
-typedef void (*RSQueryTokenExpander)(RSQueryExpanderCtx *ctx, RSToken *token);
+typedef int (*RSQueryTokenExpander)(RSQueryExpanderCtx *ctx, RSToken *token);
 /* A free function called after the query expansion phase is over, to release per-query data */
 typedef void (*RSFreeFunction)(void *);
 
@@ -204,7 +215,7 @@ typedef struct {
 /* A virtual record represents a record that doesn't have a term or an aggregate, like numeric
  * records */
 typedef struct {
-
+  char dummy;
 } RSVirtualRecord;
 
 typedef struct {
@@ -230,7 +241,7 @@ typedef struct {
   struct RSIndexResult **children;
 
   // A map of the aggregate type of the underlying results
-  RSResultType typeMask;
+  uint32_t typeMask;
 } RSAggregateResult;
 
 #pragma pack(16)
@@ -281,12 +292,14 @@ typedef struct RSIndexResult {
 
 #pragma pack()
 
+RSOffsetIterator RSOffsetVector_Iterate(const RSOffsetVector *v, RSQueryTerm *t);
+
 /* Iterate an offset vector. The iterator object is allocated on the heap and needs to be freed */
-RSOffsetIterator RSIndexResult_IterateOffsets(RSIndexResult *res);
+RSOffsetIterator RSIndexResult_IterateOffsets(const RSIndexResult *res);
 
-int RSIndexResult_HasOffsets(RSIndexResult *res);
+int RSIndexResult_HasOffsets(const RSIndexResult *res);
 
-int RSIndexResult_IsAggregate(RSIndexResult *r);
+int RSIndexResult_IsAggregate(const RSIndexResult *r);
 
 /* RS_SCORE_FILTEROUT is a special value (-inf) that should be returned by scoring functions in
  * order to completely filter out results and disregard them in the totals count */
@@ -303,9 +316,11 @@ typedef struct {
  * private data set by the extensionm and callback functions */
 typedef struct {
   /* Private data set by the extension on initialization time, or during scoring */
-  void *privdata;
+  void *extdata;
+
   /* Payload set by the client or by the query expander */
-  RSPayload payload;
+  const void *qdata;
+  size_t qdatalen;
 
   /* Index statistics to be used by scoring functions */
   RSIndexStats indexStats;
@@ -313,10 +328,10 @@ typedef struct {
   /* The GetSlop() calback. Returns the cumulative "slop" or distance between the query terms,
    * that can be used to factor the result score */
   int (*GetSlop)(RSIndexResult *res);
-} RSScoringFunctionCtx;
+} ScoringFunctionArgs;
 
 /* RSScoringFunction is a callback type for query custom scoring function modules */
-typedef double (*RSScoringFunction)(RSScoringFunctionCtx *ctx, RSIndexResult *res,
+typedef double (*RSScoringFunction)(ScoringFunctionArgs *ctx, RSIndexResult *res,
                                     RSDocumentMetadata *dmd, double minScore);
 
 /* The extension registeration context, containing the callbacks avaliable to the extension for
@@ -330,4 +345,7 @@ typedef struct RSExtensionCtx {
 
 /* An extension initialization function  */
 typedef int (*RSExtensionInitFunc)(RSExtensionCtx *ctx);
+#ifdef __cplusplus
+}
+#endif
 #endif

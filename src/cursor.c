@@ -66,11 +66,18 @@ static void Cursor_FreeInternal(Cursor *cur, khiter_t khi) {
   kh_del(cursors, cur->parent->lookup, khi);
   assert(kh_get(cursors, cur->parent->lookup, cur->id) == kh_end(cur->parent->lookup));
   cur->specInfo->used--;
-  if (cur->sctx->redisCtx) {
-    RedisModule_FreeThreadSafeContext(cur->sctx->redisCtx);
-    cur->sctx->redisCtx = NULL;
+  if (cur->execState) {
+    Cursor_FreeExecState(cur->execState);
+    cur->execState = NULL;
   }
-  SearchCtx_Free(cur->sctx);
+  RedisModuleCtx *thctx = cur->sctx->redisCtx;
+  cur->sctx->redisCtx = NULL;
+  SearchCtx_Decref(cur->sctx);
+  cur->sctx = NULL;
+
+  if (thctx) {
+    RedisModule_FreeThreadSafeContext(thctx);
+  }
   rm_free(cur);
 }
 
@@ -184,14 +191,15 @@ static uint64_t CursorList_GenerateId(CursorList *curlist) {
 }
 
 Cursor *Cursors_Reserve(CursorList *cl, RedisSearchCtx *sctx, const char *lookupName,
-                        unsigned interval, char **err) {
+                        unsigned interval, QueryError *status) {
   CursorList_Lock(cl);
   CursorList_IncrCounter(cl);
   CursorSpecInfo *spec = findInfo(cl, lookupName, NULL);
   Cursor *cur = NULL;
 
   if (spec == NULL) {
-    SET_ERR(err, "Index does not have cursors enabled or does not exist");
+    QueryError_SetErrorFmt(status, QUERY_ENOINDEX, "Index `%s` does not have cursors enabled",
+                           lookupName);
     goto done;
   }
 
@@ -199,7 +207,7 @@ Cursor *Cursors_Reserve(CursorList *cl, RedisSearchCtx *sctx, const char *lookup
     Cursors_GCInternal(cl, 0);
     if (spec->used >= spec->cap) {
       /** Collect idle cursors now */
-      SET_ERR(err, "Too many cursors allocated for index");
+      QueryError_SetError(status, QUERY_ELIMIT, "Too many cursors allocated for index");
       goto done;
     }
   }
@@ -207,7 +215,7 @@ Cursor *Cursors_Reserve(CursorList *cl, RedisSearchCtx *sctx, const char *lookup
   cur = rm_calloc(1, sizeof(*cur));
   cur->parent = cl;
   cur->specInfo = spec;
-  cur->sctx = sctx;
+  cur->sctx = SearchCtx_Incref(sctx);
   cur->id = CursorList_GenerateId(cl);
   cur->pos = -1;
   cur->timeoutIntervalMs = interval;

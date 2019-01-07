@@ -460,13 +460,16 @@ def testExplain(env):
     res = r.execute_command('ft.explain', 'idx', q)
     # print res.replace('\n', '\\n')
     # expected = """INTERSECT {\n  UNION {\n    hello\n    +hello(expanded)\n  }\n  UNION {\n    world\n    +world(expanded)\n  }\n  EXACT {\n    what\n    what\n  }\n  UNION {\n    UNION {\n      hello\n      +hello(expanded)\n    }\n    UNION {\n      world\n      +world(expanded)\n    }\n  }\n  UNION {\n    NUMERIC {10.000000 <= @bar <= 100.000000}\n    NUMERIC {200.000000 <= @bar <= 300.000000}\n  }\n}\n"""
-    expected = """INTERSECT {\n  UNION {\n    hello\n    <HL(expanded)\n    +hello(expanded)\n  }\n  UNION {\n    world\n    <ARLT(expanded)\n    +world(expanded)\n  }\n  EXACT {\n    what\n    what\n  }\n  UNION {\n    UNION {\n      hello\n      <HL(expanded)\n      +hello(expanded)\n    }\n    UNION {\n      world\n      <ARLT(expanded)\n      +world(expanded)\n    }\n  }\n  UNION {\n    NUMERIC {10.000000 <= @bar <= 100.000000}\n    NUMERIC {200.000000 <= @bar <= 300.000000}\n  }\n}\n"""
+    # expected = """INTERSECT {\n  UNION {\n    hello\n    <HL(expanded)\n    +hello(expanded)\n  }\n  UNION {\n    world\n    <ARLT(expanded)\n    +world(expanded)\n  }\n  EXACT {\n    what\n    what\n  }\n  UNION {\n    UNION {\n      hello\n      <HL(expanded)\n      +hello(expanded)\n    }\n    UNION {\n      world\n      <ARLT(expanded)\n      +world(expanded)\n    }\n  }\n  UNION {\n    NUMERIC {10.000000 <= @bar <= 100.000000}\n    NUMERIC {200.000000 <= @bar <= 300.000000}\n  }\n}\n"""
+    expected = """INTERSECT {\n  UNION {\n    hello\n    +hello(expanded)\n  }\n  UNION {\n    world\n    +world(expanded)\n  }\n  EXACT {\n    what\n    what\n  }\n  UNION {\n    UNION {\n      hello\n      +hello(expanded)\n    }\n    UNION {\n      world\n      +world(expanded)\n    }\n  }\n  UNION {\n    NUMERIC {10.000000 <= @bar <= 100.000000}\n    NUMERIC {200.000000 <= @bar <= 300.000000}\n  }\n}\n"""
     env.assertEqual(res, expected)
 
-    expected = ['INTERSECT {', '  UNION {', '    hello', '    <HL(expanded)', '    +hello(expanded)', '  }', '  UNION {', '    world', '    <ARLT(expanded)', '    +world(expanded)', '  }', '  EXACT {', '    what', '    what', '  }', '  UNION {', '    UNION {', '      hello', '      <HL(expanded)', '      +hello(expanded)', '    }', '    UNION {', '      world', '      <ARLT(expanded)', '      +world(expanded)', '    }', '  }', '  UNION {', '    NUMERIC {10.000000 <= @bar <= 100.000000}', '    NUMERIC {200.000000 <= @bar <= 300.000000}', '  }', '}', '']
+
+    # expected = ['INTERSECT {', '  UNION {', '    hello', '    <HL(expanded)', '    +hello(expanded)', '  }', '  UNION {', '    world', '    <ARLT(expanded)', '    +world(expanded)', '  }', '  EXACT {', '    what', '    what', '  }', '  UNION {', '    UNION {', '      hello', '      <HL(expanded)', '      +hello(expanded)', '    }', '    UNION {', '      world', '      <ARLT(expanded)', '      +world(expanded)', '    }', '  }', '  UNION {', '    NUMERIC {10.000000 <= @bar <= 100.000000}', '    NUMERIC {200.000000 <= @bar <= 300.000000}', '  }', '}', '']
     if env.is_cluster():
         raise unittest.SkipTest()
     res = env.cmd('ft.explainCli', 'idx', q)
+    expected = ['INTERSECT {', '  UNION {', '    hello', '    +hello(expanded)', '  }', '  UNION {', '    world', '    +world(expanded)', '  }', '  EXACT {', '    what', '    what', '  }', '  UNION {', '    UNION {', '      hello', '      +hello(expanded)', '    }', '    UNION {', '      world', '      +world(expanded)', '    }', '  }', '  UNION {', '    NUMERIC {10.000000 <= @bar <= 100.000000}', '    NUMERIC {200.000000 <= @bar <= 300.000000}', '  }', '}', '']
     env.assertEqual(expected, res)
 
 def testNoIndex(env):
@@ -516,8 +519,8 @@ def testPartial(env):
                                     'fields', 'num', 3, 'extra', 'jorem gipsum'))
     res = r.execute_command(
         'ft.search', 'idx', 'hello world', 'sortby', 'num', 'desc',)
-    env.assertListEqual([2L, 'doc1', ['foo', 'hello world', 'num', '3', 'extra', 'jorem gipsum'],
-                          'doc2', ['foo', 'hello world', 'num', '2', 'extra', 'abba']], res)
+    assertResultsEqual(env, [2L, 'doc1', ['foo', 'hello world', 'num', '3', 'extra', 'jorem gipsum'],
+        'doc2', ['foo', 'hello world', 'num', '2', 'extra', 'abba']], res)
     res = r.execute_command(
         'ft.search', 'idx', 'hello', 'nocontent', 'withscores')
     # Updating only indexed field affects search results
@@ -644,6 +647,7 @@ def testSortBy(env):
             'ft.search', 'idx', 'world', 'nocontent', 'sortby', 'bar', 'asc')
         env.assertEqual([100L, 'doc99', 'doc98', 'doc97', 'doc96',
                           'doc95', 'doc94', 'doc93', 'doc92', 'doc91', 'doc90'], res)
+
         res = r.execute_command('ft.search', 'idx', 'world', 'nocontent',
                                 'sortby', 'bar', 'desc', 'withscores', 'limit', '2', '5')
         env.assertEqual(
@@ -920,7 +924,10 @@ def testAddHash(env):
     env.assertEqual("doc2", res[1])
 
     res = r.execute_command(
-        'ft.search', 'idx', "hello", "filter", "price", "0", "3")
+        'ft.search', 'idx',
+        "hello",
+        "filter", "price", "0", "3"
+        )
     env.assertEqual(3, len(res))
     env.assertEqual(1, res[0])
     env.assertEqual("doc1", res[1])
@@ -1070,9 +1077,11 @@ def testExpander(env):
         'ft.create', 'idx', 'schema', 'title', 'text'))
     env.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 0.5, 'fields',
                                     'title', 'hello kitty'))
-
     res = r.execute_command(
-        'ft.search', 'idx', 'kitties', "nocontent", "expander", "SBSTEM")
+        'ft.search', 'idx', 'kitties',
+        "nocontent",
+        "expander", "SBSTEM"
+        )
     env.assertEqual(2, len(res))
     env.assertEqual(1, res[0])
 
@@ -1352,16 +1361,17 @@ def testReturning(env):
             env.assertTrue(docname.startswith('DOC_'))
 
     # Test when field is not found
-    res = env.cmd('ft.search', 'idx', 'val*', 'return', 1, 'nonexist')
-    env.assertEqual(21, len(res))
-    env.assertEqual(10, res[0])
-    for pair in grouper(res[1:], 2):
-        _, pair = pair
-        env.assertEqual(None, pair[1])
+    # Note: DISABLED because returning fields not in schema is now an ERROR
+    # res = env.cmd('ft.search', 'idx', 'val*', 'return', 1, 'nonexist')
+    # env.assertEqual(21, len(res))
+    # env.assertEqual(10, res[0])
+    # for pair in grouper(res[1:], 2):
+    #     _, pair = pair
+    #     env.assertEqual(None, pair[1])
 
-    # Test that we don't crash if we're given the wrong number of fields
-    with env.assertResponseError():
-        res = env.cmd('ft.search', 'idx', 'val*', 'return', 700, 'nonexist')
+    # # Test that we don't crash if we're given the wrong number of fields
+    # with env.assertResponseError():
+    #     res = env.cmd('ft.search', 'idx', 'val*', 'return', 700, 'nonexist')
 
 def _test_create_options_real(env, *options):
     options = [x for x in options if x]
@@ -1581,12 +1591,11 @@ def testBinaryKeys(env):
     env.cmd('ft.create', 'idx', 'schema', 'txt', 'text')
     # Insert a document
     env.cmd('ft.add', 'idx', 'Hello', 1.0, 'fields', 'txt', 'NoBin match')
-    env.cmd('ft.add', 'idx', 'Hello\x00World',
-             1.0, 'fields', 'txt', 'Bin match')
+    env.cmd('ft.add', 'idx', 'Hello\x00World', 1.0, 'fields', 'txt', 'Bin match')
     for _ in env.reloading_iterator():
+        exp = [2L, 'Hello\x00World', ['txt', 'Bin match'], 'Hello', ['txt', 'NoBin match']]
         res = env.cmd('ft.search', 'idx', 'match')
-        env.assertEqual(res, [2L, 'Hello\x00World', [
-                         'txt', 'Bin match'], 'Hello', ['txt', 'NoBin match']])
+        env.assertEqual(exp, res)
 
 def testNonDefaultDb(env):
     if env.is_cluster():
@@ -1656,7 +1665,8 @@ def testSortbyMissingFieldSparse(env):
     env.cmd('ft.add', 'idx', 'doc1', 1.0, 'fields', 'lastName', 'mark')
     res = env.cmd('ft.search', 'idx', 'mark', 'WITHSORTKEYS', "SORTBY",
                    "firstName", "ASC", "limit", 0, 100)
-    env.assertEqual([1L, 'doc1', None, ['lastName', 'mark']], res)
+    # commented because we don't filter out exclusive sortby fields
+    # env.assertEqual([1L, 'doc1', None, ['lastName', 'mark']], res)
 
 def testLuaAndMulti(env):
     if env.is_cluster():
@@ -1704,6 +1714,39 @@ def testUninitSortvector(env):
     for x in range(10):
         env.broadcast('DEBUG RELOAD')
 
+
+def normalize_row(row):
+    return to_dict(row)
+
+
+def assertAggrowsEqual(env, exp, got):
+    env.assertEqual(exp[0], got[0])
+    env.assertEqual(len(exp), len(got))
+
+    # and now, it's just free form:
+    exp = sorted(to_dict(x) for x in exp[1:])
+    got = sorted(to_dict(x) for x in got[1:])
+    env.assertEqual(exp, got)
+
+def assertResultsEqual(env, exp, got, inorder=True):
+    from pprint import pprint
+    # pprint(exp)
+    # pprint(got)
+    env.assertEqual(exp[0], got[0])
+    env.assertEqual(len(exp), len(got))
+
+    exp = list(grouper(exp[1:], 2))
+    got = list(grouper(got[1:], 2))
+
+    for x in range(len(exp)):
+        exp_did, exp_fields = exp[x]
+        got_did, got_fields = got[x]
+        env.assertEqual(exp_did, got_did, message="at position {}".format(x))
+        got_fields = to_dict(got_fields)
+        exp_fields = to_dict(exp_fields)
+        env.assertEqual(exp_fields, got_fields, message="at position {}".format(x))
+
+
 def testAlterIndex(env):
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'f1', 'TEXT')
     env.cmd('FT.ADD', 'idx', 'doc1', 1.0, 'FIELDS', 'f1', 'hello', 'f2', 'world')
@@ -1721,10 +1764,10 @@ def testAlterIndex(env):
     for _ in env.retry_with_reload():
         # Test that sortable works
         res = env.cmd('FT.SEARCH', 'idx', 'hello', 'SORTBY', 'f3', 'DESC')
-        env.assertEqual(
-            [12, 'doc12', ['f1', 'hello', 'f3', 'val9'], 'doc11', ['f1', 'hello', 'f3', 'val8'], 'doc10', ['f1', 'hello', 'f3', 'val7'], 'doc9', ['f1', 'hello', 'f3', 'val6'], 'doc8', ['f1', 'hello', 'f3', 'val5'], 'doc7', [
-                'f1', 'hello', 'f3', 'val4'], 'doc6', ['f1', 'hello', 'f3', 'val3'], 'doc5', ['f1', 'hello', 'f3', 'val2'], 'doc4', ['f1', 'hello', 'f3', 'val1'], 'doc3', ['f1', 'hello', 'f3', 'val0']],
-            res)
+        exp = [12, 'doc12', ['f1', 'hello', 'f3', 'val9'], 'doc11', ['f1', 'hello', 'f3', 'val8'], 'doc10', ['f1', 'hello', 'f3', 'val7'], 'doc9', ['f1', 'hello', 'f3', 'val6'], 'doc8', ['f1', 'hello', 'f3', 'val5'], 'doc7', [
+                'f1', 'hello', 'f3', 'val4'], 'doc6', ['f1', 'hello', 'f3', 'val3'], 'doc5', ['f1', 'hello', 'f3', 'val2'], 'doc4', ['f1', 'hello', 'f3', 'val1'], 'doc3', ['f1', 'hello', 'f3', 'val0']]
+        
+        assertResultsEqual(env, exp, res)
 
     # Test that we can add a numeric field
     env.cmd('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'n1', 'NUMERIC')
@@ -1828,7 +1871,7 @@ def testIssue417(env):
         try:
             env.execute_command('FT.ADD', 'idx', 'doc1', '1.0', 'FIELDS', 't0', '1')
         except redis.ResponseError as e:
-            env.assertTrue('already in index' in e.message.lower())
+            env.assertTrue('already' in e.message.lower())
 
 # >FT.CREATE myIdx SCHEMA title TEXT WEIGHT 5.0 body TEXT url TEXT
 # >FT.ADD myIdx doc1 1.0 FIELDS title "hello world" body "lorem ipsum" url "www.google.com"
@@ -1887,8 +1930,10 @@ def testIssue484(env):
         'load', '2', '@color', '@categoryid',
         'APPLY', 'split(format("%s-%s",@color,@categoryid),"-")', 'as', 'value',
         'GROUPBY', '1', '@value',
-        'REDUCE', 'COUNT', '0', 'as', 'value_count')
+        'REDUCE', 'COUNT', '0', 'as', 'value_count',
+        'SORTBY', '4', '@value_count', 'DESC', '@value', 'ASC')
     expected = [6, ['value', 'white', 'value_count', '2'], ['value', 'cars', 'value_count', '2'], ['value', 'small cars', 'value_count', '1'], ['value', 'blue', 'value_count', '2'], ['value', 'Big cars', 'value_count', '2'], ['value', 'green', 'value_count', '1']]
+    assertAggrowsEqual(env, expected, res)
     for var in expected:
         env.assertIn(var, res)
 

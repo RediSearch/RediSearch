@@ -7,17 +7,26 @@
 #include "../spec.h"
 #include "../tokenize.h"
 #include "../varint.h"
-#include "test_util.h"
-#include "time_sample.h"
 #include "../rmutil/alloc.h"
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
 #include <time.h>
 #include <float.h>
+#include <gtest/gtest.h>
+#include <vector>
+#include <cstdint>
 
-RSOffsetIterator _offsetVector_iterate(RSOffsetVector *v);
-int testVarint() {
+class IndexTest : public ::testing::Test {};
+
+static RSOffsetVector offsetsFromVVW(const VarintVectorWriter *vvw) {
+  RSOffsetVector ret = {0};
+  ret.data = VVW_GetByteData(vvw);
+  ret.len = VVW_GetByteLength(vvw);
+  return ret;
+}
+
+TEST_F(IndexTest, testVarint) {
   VarintVectorWriter *vw = NewVarintVectorWriter(8);
   uint32_t expected[5] = {10, 1000, 1020, 10000, 10020};
   for (int i = 0; i < 5; i++) {
@@ -28,22 +37,21 @@ int testVarint() {
   // printf("%ld %ld\n", BufferLen(vw->bw.buf), vw->bw.buf->cap);
   VVW_Truncate(vw);
 
-  RSOffsetVector vec = (RSOffsetVector)VVW_OFFSETVECTOR_INIT(vw);
+  RSOffsetVector vec = offsetsFromVVW(vw);
   // Buffer_Seek(vw->bw.buf, 0);
-  RSOffsetIterator it = _offsetVector_iterate(&vec);
+  RSOffsetIterator it = RSOffsetVector_Iterate(&vec, NULL);
   int x = 0;
   uint32_t n = 0;
   while (RS_OFFSETVECTOR_EOF != (n = it.Next(it.ctx, NULL))) {
-
-    ASSERTM(n == expected[x++], "Wrong number decoded");
+    auto curexp = expected[x++];
+    ASSERT_EQ(curexp, n) << "Wrong number decoded";
     // printf("%d %d\n", x, n);
   }
   it.Free(it.ctx);
   VVW_Free(vw);
-  return 0;
 }
 
-int testDistance() {
+TEST_F(IndexTest, testDistance) {
   VarintVectorWriter *vw = NewVarintVectorWriter(8);
   VarintVectorWriter *vw2 = NewVarintVectorWriter(8);
   VarintVectorWriter *vw3 = NewVarintVectorWriter(8);
@@ -65,37 +73,37 @@ int testDistance() {
 
   RSIndexResult *tr1 = NewTokenRecord(NULL, 1);
   tr1->docId = 1;
-  tr1->term.offsets = (RSOffsetVector)(RSOffsetVector)VVW_OFFSETVECTOR_INIT(vw);
+  tr1->term.offsets = offsetsFromVVW(vw);
 
   RSIndexResult *tr2 = NewTokenRecord(NULL, 1);
   tr2->docId = 1;
-  tr2->term.offsets = (RSOffsetVector)(RSOffsetVector)VVW_OFFSETVECTOR_INIT(vw2);
+  tr2->term.offsets = offsetsFromVVW(vw2);
 
   RSIndexResult *res = NewIntersectResult(2, 1);
   AggregateResult_AddChild(res, tr1);
   AggregateResult_AddChild(res, tr2);
 
   int delta = IndexResult_MinOffsetDelta(res);
-  ASSERT_EQUAL(2, delta);
+  ASSERT_EQ(2, delta);
 
-  ASSERT_EQUAL(0, IndexResult_IsWithinRange(res, 0, 0));
-  ASSERT_EQUAL(0, IndexResult_IsWithinRange(res, 0, 1));
-  ASSERT_EQUAL(0, IndexResult_IsWithinRange(res, 1, 1));
-  ASSERT_EQUAL(1, IndexResult_IsWithinRange(res, 1, 0));
-  ASSERT_EQUAL(1, IndexResult_IsWithinRange(res, 2, 1));
-  ASSERT_EQUAL(1, IndexResult_IsWithinRange(res, 2, 0));
-  ASSERT_EQUAL(1, IndexResult_IsWithinRange(res, 3, 1));
-  ASSERT_EQUAL(1, IndexResult_IsWithinRange(res, 4, 0));
-  ASSERT_EQUAL(1, IndexResult_IsWithinRange(res, 4, 1));
-  ASSERT_EQUAL(1, IndexResult_IsWithinRange(res, 5, 1));
+  ASSERT_EQ(0, IndexResult_IsWithinRange(res, 0, 0));
+  ASSERT_EQ(0, IndexResult_IsWithinRange(res, 0, 1));
+  ASSERT_EQ(0, IndexResult_IsWithinRange(res, 1, 1));
+  ASSERT_EQ(1, IndexResult_IsWithinRange(res, 1, 0));
+  ASSERT_EQ(1, IndexResult_IsWithinRange(res, 2, 1));
+  ASSERT_EQ(1, IndexResult_IsWithinRange(res, 2, 0));
+  ASSERT_EQ(1, IndexResult_IsWithinRange(res, 3, 1));
+  ASSERT_EQ(1, IndexResult_IsWithinRange(res, 4, 0));
+  ASSERT_EQ(1, IndexResult_IsWithinRange(res, 4, 1));
+  ASSERT_EQ(1, IndexResult_IsWithinRange(res, 5, 1));
 
   RSIndexResult *tr3 = NewTokenRecord(NULL, 1);
   tr3->docId = 1;
-  tr3->term.offsets = (RSOffsetVector)VVW_OFFSETVECTOR_INIT(vw3);
+  tr3->term.offsets = offsetsFromVVW(vw3);
   AggregateResult_AddChild(res, tr3);
 
   delta = IndexResult_MinOffsetDelta(res);
-  ASSERT_EQUAL(7, delta);
+  ASSERT_EQ(7, delta);
 
   // test merge iteration
   RSOffsetIterator it = RSIndexResult_IterateOffsets(res);
@@ -105,7 +113,7 @@ int testDistance() {
   int i = 0;
   do {
     rc = it.Next(it.ctx, NULL);
-    ASSERT_EQUAL(rc, (expected[i++]));
+    ASSERT_EQ(rc, (expected[i++]));
   } while (rc != RS_OFFSETVECTOR_EOF);
   it.Free(it.ctx);
 
@@ -116,18 +124,18 @@ int testDistance() {
   VVW_Free(vw);
   VVW_Free(vw2);
   VVW_Free(vw3);
-
-  return 0;
 }
 
-int testIndexReadWriteFlags(uint32_t indexFlags) {
+class IndexFlagsTest : public testing::TestWithParam<int> {};
 
+TEST_P(IndexFlagsTest, testRWFlags) {
+  IndexFlags indexFlags = (IndexFlags)GetParam();
   InvertedIndex *idx = NewInvertedIndex(indexFlags, 1);
 
   IndexEncoder enc = InvertedIndex_GetEncoder(indexFlags);
-  ASSERT(enc != NULL);
+  ASSERT_TRUE(enc != NULL);
 
-  for (int i = 0; i < 200; i++) {
+  for (size_t i = 0; i < 200; i++) {
     // if (i % 10000 == 1) {
     //     printf("iw cap: %ld, iw size: %d, numdocs: %d\n", w->cap, IW_Len(w),
     //     w->ndocs);
@@ -150,9 +158,9 @@ int testIndexReadWriteFlags(uint32_t indexFlags) {
     VVW_Free(h.vw);
   }
 
-  ASSERT_EQUAL(200, idx->numDocs);
-  ASSERT_EQUAL(2, idx->size);
-  ASSERT_EQUAL(199, idx->lastId);
+  ASSERT_EQ(200, idx->numDocs);
+  ASSERT_EQ(2, idx->size);
+  ASSERT_EQ(199, idx->lastId);
 
   // IW_MakeSkipIndex(w, NewMemoryBuffer(8, BUFFER_WRITE));
 
@@ -169,12 +177,12 @@ int testIndexReadWriteFlags(uint32_t indexFlags) {
 
     int n = 0;
     int rc;
-    while (IR_HasNext(ir)) {
+    while (!ir->atEnd_) {
       if ((rc = IR_Read(ir, &h)) == INDEXREAD_EOF) {
         break;
       }
-      ASSERT_EQUAL(INDEXREAD_OK, rc);
-      ASSERT_EQUAL(h->docId, n);
+      ASSERT_EQ(INDEXREAD_OK, rc);
+      ASSERT_EQ(h->docId, n);
       n++;
     }
     // for (int z= 0; z < 10; z++) {
@@ -195,23 +203,12 @@ int testIndexReadWriteFlags(uint32_t indexFlags) {
   // IW_Free(w);
   // // overriding the regular IW_Free because we already deleted the buffer
   InvertedIndex_Free(idx);
-  return 0;
 }
 
-int testIndexReadWrite() {
-  for (uint32_t i = 0; i < 32; i++) {
-    // printf("Testing %u BEGIN\n", i);
-    int rv = testIndexReadWriteFlags(i);
-    // printf("Testing %u END\n", i);
-    if (rv != 0) {
-      return -1;
-    }
-  }
-  return 0;
-}
+INSTANTIATE_TEST_CASE_P(IndexFlagsP, IndexFlagsTest, ::testing::Range(1, 32));
 
 InvertedIndex *createIndex(int size, int idStep) {
-  InvertedIndex *idx = NewInvertedIndex(INDEX_DEFAULT_FLAGS, 1);
+  InvertedIndex *idx = NewInvertedIndex((IndexFlags)(INDEX_DEFAULT_FLAGS), 1);
 
   IndexEncoder enc = InvertedIndex_GetEncoder(idx->flags);
   t_docId id = idStep;
@@ -249,7 +246,7 @@ int printIntersect(void *ctx, RSIndexResult *hits, int argc) {
   return 0;
 }
 
-int testReadIterator() {
+TEST_F(IndexTest, testReadIterator) {
   InvertedIndex *idx = createIndex(10, 1);
 
   IndexReader *r1 = NewTermIndexReader(idx, NULL, RS_FIELDMASK_ALL, NULL, 1);  //
@@ -258,31 +255,31 @@ int testReadIterator() {
 
   IndexIterator *it = NewReadIterator(r1);
   int i = 1;
-  while (it->HasNext(it->ctx)) {
+  while (IITER_HAS_NEXT(it)) {
     if (it->Read(it->ctx, &h) == INDEXREAD_EOF) {
       break;
     }
 
     // printf("Iter got %d\n", h.docId);
-    ASSERT(h->docId == i++);
+    ASSERT_EQ(h->docId, i);
+    i++;
   }
-  ASSERT(i == 11);
+  ASSERT_EQ(11, i);
 
   it->Free(it);
 
   // IndexResult_Free(&h);
   InvertedIndex_Free(idx);
-  return 0;
 }
 
-int testUnion() {
+TEST_F(IndexTest, testUnion) {
   InvertedIndex *w = createIndex(10, 2);
   InvertedIndex *w2 = createIndex(10, 3);
   IndexReader *r1 = NewTermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL, 1);   //
   IndexReader *r2 = NewTermIndexReader(w2, NULL, RS_FIELDMASK_ALL, NULL, 1);  //
 
   // printf("Reading!\n");
-  IndexIterator **irs = calloc(2, sizeof(IndexIterator *));
+  IndexIterator **irs = (IndexIterator **)calloc(2, sizeof(IndexIterator *));
   irs[0] = NewReadIterator(r1);
   irs[1] = NewReadIterator(r2);
 
@@ -292,15 +289,16 @@ int testUnion() {
   int i = 0;
   while (ui->Read(ui->ctx, &h) != INDEXREAD_EOF) {
     // printf("%d <=> %d\n", h.docId, expected[i]);
-    ASSERT(h->docId == expected[i++]);
+    ASSERT_EQ(expected[i], h->docId);
+    i++;
 
     RSIndexResult *copy = IndexResult_DeepCopy(h);
-    ASSERT(copy != NULL);
-    ASSERT(copy != h);
-    ASSERT(copy->isCopy == 1);
+    ASSERT_TRUE(copy != NULL);
+    ASSERT_TRUE(copy != h);
+    ASSERT_TRUE(copy->isCopy);
 
-    ASSERT(copy->docId == h->docId);
-    ASSERT(copy->type == h->type);
+    ASSERT_EQ(copy->docId, h->docId);
+    ASSERT_EQ(copy->type, h->type);
 
     IndexResult_Free(copy);
 
@@ -311,17 +309,16 @@ int testUnion() {
   // IndexResult_Free(&h);
   InvertedIndex_Free(w);
   InvertedIndex_Free(w2);
-  return 0;
 }
 
-int testWeight() {
+TEST_F(IndexTest, testWeight) {
   InvertedIndex *w = createIndex(10, 1);
   InvertedIndex *w2 = createIndex(10, 2);
   IndexReader *r1 = NewTermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL, 0.5);  //
   IndexReader *r2 = NewTermIndexReader(w2, NULL, RS_FIELDMASK_ALL, NULL, 1);   //
 
   // printf("Reading!\n");
-  IndexIterator **irs = calloc(2, sizeof(IndexIterator *));
+  IndexIterator **irs = (IndexIterator **)calloc(2, sizeof(IndexIterator *));
   irs[0] = NewReadIterator(r1);
   irs[1] = NewReadIterator(r2);
 
@@ -331,16 +328,16 @@ int testWeight() {
   int i = 0;
   while (ui->Read(ui->ctx, &h) != INDEXREAD_EOF) {
     // printf("%d <=> %d\n", h.docId, expected[i]);
-    ASSERT(h->docId == expected[i++]);
-    ASSERT_EQUAL(h->weight, 0.8);
+    ASSERT_EQ(h->docId, expected[i++]);
+    ASSERT_EQ(h->weight, 0.8);
     if (h->agg.numChildren == 2) {
-      ASSERT_EQUAL(h->agg.children[0]->weight, 0.5);
-      ASSERT_EQUAL(h->agg.children[1]->weight, 1);
+      ASSERT_EQ(h->agg.children[0]->weight, 0.5);
+      ASSERT_EQ(h->agg.children[1]->weight, 1);
     } else {
       if (i <= 10) {
-        ASSERT_EQUAL(h->agg.children[0]->weight, 0.5);
+        ASSERT_EQ(h->agg.children[0]->weight, 0.5);
       } else {
-        ASSERT_EQUAL(h->agg.children[0]->weight, 1);
+        ASSERT_EQ(h->agg.children[0]->weight, 1);
       }
     }
   }
@@ -349,10 +346,9 @@ int testWeight() {
   // IndexResult_Free(&h);
   InvertedIndex_Free(w);
   InvertedIndex_Free(w2);
-  return 0;
 }
 
-int testNot() {
+TEST_F(IndexTest, testNot) {
   InvertedIndex *w = createIndex(16, 1);
   // not all numbers that divide by 3
   InvertedIndex *w2 = createIndex(10, 3);
@@ -360,7 +356,7 @@ int testNot() {
   IndexReader *r2 = NewTermIndexReader(w2, NULL, RS_FIELDMASK_ALL, NULL, 1);  //
 
   // printf("Reading!\n");
-  IndexIterator **irs = calloc(2, sizeof(IndexIterator *));
+  IndexIterator **irs = (IndexIterator **)calloc(2, sizeof(IndexIterator *));
   irs[0] = NewReadIterator(r1);
   irs[1] = NewNotIterator(NewReadIterator(r2), w2->lastId, 1);
 
@@ -370,7 +366,7 @@ int testNot() {
   int i = 0;
   while (ui->Read(ui->ctx, &h) != INDEXREAD_EOF) {
     // printf("%d <=> %d\n", h->docId, expected[i]);
-    ASSERT(h->docId == expected[i++]);
+    ASSERT_EQ(expected[i++], h->docId);
     // printf("%d, ", h.docId);
   }
 
@@ -378,10 +374,9 @@ int testNot() {
   // IndexResult_Free(&h);
   InvertedIndex_Free(w);
   InvertedIndex_Free(w2);
-  return 0;
 }
 
-int testPureNot() {
+TEST_F(IndexTest, testPureNot) {
   InvertedIndex *w = createIndex(10, 3);
 
   IndexReader *r1 = NewTermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL, 1);  //
@@ -396,15 +391,14 @@ int testPureNot() {
   while (ir->Read(ir->ctx, &h) != INDEXREAD_EOF) {
 
     // printf("%d <=> %d\n", h->docId, expected[i]);
-    ASSERT(h->docId == expected[i++]);
+    ASSERT_EQ(expected[i++], h->docId);
   }
-
   ir->Free(ir);
   InvertedIndex_Free(w);
-  return 0;
 }
 
-int testOptional() {
+// Note -- in test_index.c, this test was never actually run!
+TEST_F(IndexTest, DISABLED_testOptional) {
   InvertedIndex *w = createIndex(16, 1);
   // not all numbers that divide by 3
   InvertedIndex *w2 = createIndex(10, 3);
@@ -412,7 +406,7 @@ int testOptional() {
   IndexReader *r2 = NewTermIndexReader(w2, NULL, RS_FIELDMASK_ALL, NULL, 1);  //
 
   // printf("Reading!\n");
-  IndexIterator **irs = calloc(2, sizeof(IndexIterator *));
+  IndexIterator **irs = (IndexIterator **)calloc(2, sizeof(IndexIterator *));
   irs[0] = NewReadIterator(r1);
   irs[1] = NewOptionalIterator(NewReadIterator(r2), w2->lastId, 1);
 
@@ -421,12 +415,12 @@ int testOptional() {
 
   int i = 1;
   while (ui->Read(ui->ctx, &h) != INDEXREAD_EOF) {
-    // printf("%d <=> %d\n", h->docId, expected[i]);
-    ASSERT(h->docId == i);
+    // printf("%d <=> %d\n", h->docId, i);
+    ASSERT_EQ(i, h->docId);
     if (i > 0 && i % 3 == 0) {
-      ASSERT(h->agg.children[1]->freq == 1)
+      ASSERT_EQ(1, h->agg.children[1]->freq);
     } else {
-      ASSERT(h->agg.children[1]->freq == 0)
+      ASSERT_EQ(0, h->agg.children[1]->freq);
     }
     // printf("%d, ", h.docId);
   }
@@ -435,10 +429,9 @@ int testOptional() {
   // IndexResult_Free(&h);
   InvertedIndex_Free(w);
   InvertedIndex_Free(w2);
-  return 0;
 }
 
-int testNumericInverted() {
+TEST_F(IndexTest, testNumericInverted) {
 
   InvertedIndex *idx = NewInvertedIndex(Index_StoreNumeric, 1);
 
@@ -446,11 +439,11 @@ int testNumericInverted() {
     size_t sz = InvertedIndex_WriteNumericEntry(idx, i + 1, (double)(i + 1));
     // printf("written %zd bytes\n", sz);
 
-    ASSERT(sz > 1);
+    ASSERT_TRUE(sz > 1);
   }
-  ASSERT_EQUAL(75, idx->lastId);
+  ASSERT_EQ(75, idx->lastId);
 
-  printf("written %zd bytes\n", idx->blocks[0].data->offset);
+  // printf("written %zd bytes\n", IndexBlock_DataLen(&idx->blocks[0]));
 
   IndexReader *ir = NewNumericReader(idx, NULL);
   IndexIterator *it = NewReadIterator(ir);
@@ -459,15 +452,14 @@ int testNumericInverted() {
   while (INDEXREAD_EOF != it->Read(it->ctx, &res)) {
     // printf("%d %f\n", res->docId, res->num.value);
 
-    ASSERT_EQUAL(i++, res->docId);
-    ASSERT_EQUAL(res->num.value, (float)res->docId);
+    ASSERT_EQ(i++, res->docId);
+    ASSERT_EQ(res->num.value, (float)res->docId);
   }
   InvertedIndex_Free(idx);
   it->Free(it);
-  return 0;
 }
 
-int testNumericVaried() {
+TEST_F(IndexTest, testNumericVaried) {
   InvertedIndex *idx = NewInvertedIndex(Index_StoreNumeric, 1);
 
   static const double nums[] = {0,          0.13,          0.001,     -0.1,     1.0,
@@ -477,7 +469,7 @@ int testNumericVaried() {
 
   for (size_t i = 0; i < numCount; i++) {
     size_t sz = InvertedIndex_WriteNumericEntry(idx, i + 1, nums[i]);
-    ASSERT(sz > 1);
+    ASSERT_GT(sz, 1);
     // printf("[%lu]: Stored %lf\n", i, nums[i]);
   }
 
@@ -486,17 +478,15 @@ int testNumericVaried() {
   RSIndexResult *res;
 
   for (size_t i = 0; i < numCount; i++) {
-    printf("Checking i=%lu. Expected=%lf\n", i, nums[i]);
+    // printf("Checking i=%lu. Expected=%lf\n", i, nums[i]);
     int rv = it->Read(it->ctx, &res);
-    ASSERT(INDEXREAD_EOF != rv);
-    ASSERT(fabs(nums[i] - res->num.value) < 0.01);
+    ASSERT_NE(INDEXREAD_EOF, rv);
+    ASSERT_LT(fabs(nums[i] - res->num.value), 0.01);
   }
 
-  ASSERT_EQUAL(INDEXREAD_EOF, it->Read(it->ctx, &res));
+  ASSERT_EQ(INDEXREAD_EOF, it->Read(it->ctx, &res));
   InvertedIndex_Free(idx);
   it->Free(it);
-
-  return 0;
 }
 
 typedef struct {
@@ -534,7 +524,7 @@ static const encodingInfo infos[] = {
     {-INFINITY, 2}             // 27
 };
 
-int testNumericEncoding() {
+TEST_F(IndexTest, testNumericEncoding) {
   static const size_t numInfos = sizeof(infos) / sizeof(infos[0]);
   InvertedIndex *idx = NewInvertedIndex(Index_StoreNumeric, 1);
   // printf("TestNumericEncoding\n");
@@ -542,7 +532,7 @@ int testNumericEncoding() {
   for (size_t ii = 0; ii < numInfos; ii++) {
     // printf("\n[%lu]: Expecting Val=%lf, Sz=%lu\n", ii, infos[ii].value, infos[ii].size);
     size_t sz = InvertedIndex_WriteNumericEntry(idx, ii + 1, infos[ii].value);
-    ASSERT_EQUAL(infos[ii].size, sz);
+    ASSERT_EQ(infos[ii].size, sz);
   }
 
   IndexReader *ir = NewNumericReader(idx, NULL);
@@ -553,22 +543,20 @@ int testNumericEncoding() {
     // printf("\nReading [%lu]\n", ii);
 
     int rc = it->Read(it->ctx, &res);
-    ASSERT(rc != INDEXREAD_EOF);
+    ASSERT_NE(rc, INDEXREAD_EOF);
     // printf("%lf <-> %lf\n", infos[ii].value, res->num.value);
     if (fabs(infos[ii].value) == INFINITY) {
-      ASSERT(infos[ii].value == res->num.value);
+      ASSERT_EQ(infos[ii].value, res->num.value);
     } else {
-      ASSERT(fabs(infos[ii].value - res->num.value) < 0.01);
+      ASSERT_LT(fabs(infos[ii].value - res->num.value), 0.01);
     }
   }
 
   InvertedIndex_Free(idx);
   it->Free(it);
-
-  return 0;
 }
 
-int testAbort() {
+TEST_F(IndexTest, testAbort) {
 
   InvertedIndex *w = createIndex(1000, 1);
   IndexReader *r = NewTermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL, 1);  //
@@ -582,20 +570,19 @@ int testAbort() {
     }
     n++;
   }
-  ASSERT_EQUAL(51, n);
+  ASSERT_EQ(51, n);
   it->Free(it);
   InvertedIndex_Free(w);
-  return 0;
 }
 
-int testIntersection() {
+TEST_F(IndexTest, testIntersection) {
 
   InvertedIndex *w = createIndex(100000, 4);
   InvertedIndex *w2 = createIndex(100000, 2);
   IndexReader *r1 = NewTermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL, 1);   //
   IndexReader *r2 = NewTermIndexReader(w2, NULL, RS_FIELDMASK_ALL, NULL, 1);  //
 
-  IndexIterator **irs = calloc(2, sizeof(IndexIterator *));
+  IndexIterator **irs = (IndexIterator **)calloc(2, sizeof(IndexIterator *));
   irs[0] = NewReadIterator(r1);
   irs[1] = NewReadIterator(r2);
 
@@ -604,30 +591,25 @@ int testIntersection() {
 
   RSIndexResult *h = NULL;
 
-  TimeSample ts;
-  TimeSampler_Start(&ts);
   float topFreq = 0;
   while (ii->Read(ii->ctx, &h) != INDEXREAD_EOF) {
-    ASSERT(h->type == RSResultType_Intersection);
-    ASSERT(RSIndexResult_IsAggregate(h));
-    ASSERT(RSIndexResult_HasOffsets(h));
+    ASSERT_EQ(h->type, RSResultType_Intersection);
+    ASSERT_TRUE(RSIndexResult_IsAggregate(h));
+    ASSERT_TRUE(RSIndexResult_HasOffsets(h));
     topFreq = topFreq > h->freq ? topFreq : h->freq;
 
     RSIndexResult *copy = IndexResult_DeepCopy(h);
-    ASSERT(copy != NULL);
-    ASSERT(copy != h);
-    ASSERT(copy->isCopy == 1);
+    ASSERT_TRUE(copy != NULL);
+    ASSERT_TRUE(copy != h);
+    ASSERT_TRUE(copy->isCopy == 1);
 
-    ASSERT(copy->docId == h->docId);
-    ASSERT(copy->type == RSResultType_Intersection);
+    ASSERT_TRUE(copy->docId == h->docId);
+    ASSERT_TRUE(copy->type == RSResultType_Intersection);
 
     IndexResult_Free(copy);
 
-    // printf("%d\n", h.docId);
-    TimeSampler_Tick(&ts);
     ++count;
   }
-  TimeSampler_End(&ts);
 
   // int count = IR_Intersect(r1, r2, onIntersect, &ctx);
 
@@ -635,61 +617,57 @@ int testIntersection() {
   // TimeSampler_DurationMS(&ts),
   // 1000000 * TimeSampler_IterationMS(&ts));
   // printf("top freq: %f\n", topFreq);
-  ASSERT(count == 50000)
-  ASSERT(topFreq == 100000.0);
+  ASSERT_EQ(count, 50000);
+  ASSERT_EQ(topFreq, 100000.0);
 
   ii->Free(ii);
   // IndexResult_Free(&h);
   InvertedIndex_Free(w);
   InvertedIndex_Free(w2);
-
-  return 0;
 }
 
-int testBuffer() {
+TEST_F(IndexTest, testBuffer) {
   // TEST_START();
 
   BufferWriter w = NewBufferWriter(NewBuffer(2));
-  ASSERTM(w.buf->cap == 2, "Wrong capacity");
-  ASSERT(w.buf->data != NULL);
-  ASSERT(Buffer_Offset(w.buf) == 0);
-  ASSERT(w.buf->data == w.pos);
+  ASSERT_TRUE(w.buf->cap == 2) << "Wrong capacity";
+  ASSERT_TRUE(w.buf->data != NULL);
+  ASSERT_TRUE(Buffer_Offset(w.buf) == 0);
+  ASSERT_TRUE(w.buf->data == w.pos);
 
   const char *x = "helololoolo";
   size_t l = Buffer_Write(&w, (void *)x, strlen(x) + 1);
 
-  ASSERT(l == strlen(x) + 1);
-  ASSERT(Buffer_Offset(w.buf) == l);
-  ASSERT_EQUAL(Buffer_Capacity(w.buf), 14);
+  ASSERT_TRUE(l == strlen(x) + 1);
+  ASSERT_TRUE(Buffer_Offset(w.buf) == l);
+  ASSERT_EQ(Buffer_Capacity(w.buf), 14);
 
   l = WriteVarint(1337654, &w);
-  ASSERT(l == 3);
-  ASSERT_EQUAL(Buffer_Offset(w.buf), 15);
-  ASSERT_EQUAL(Buffer_Capacity(w.buf), 17);
+  ASSERT_TRUE(l == 3);
+  ASSERT_EQ(Buffer_Offset(w.buf), 15);
+  ASSERT_EQ(Buffer_Capacity(w.buf), 17);
 
   Buffer_Truncate(w.buf, 0);
 
-  ASSERT(Buffer_Capacity(w.buf) == 15);
+  ASSERT_TRUE(Buffer_Capacity(w.buf) == 15);
 
   BufferReader br = NewBufferReader(w.buf);
-  ASSERT(br.pos == 0);
+  ASSERT_TRUE(br.pos == 0);
 
-  char *y = malloc(strlen(x) + 1);
+  char *y = (char *)malloc(strlen(x) + 1);
   l = Buffer_Read(&br, y, strlen(x) + 1);
-  ASSERT(l == strlen(x) + 1);
+  ASSERT_TRUE(l == strlen(x) + 1);
 
-  ASSERT(strcmp(y, x) == 0);
-  ASSERT(BufferReader_Offset(&br) == l);
+  ASSERT_TRUE(strcmp(y, x) == 0);
+  ASSERT_TRUE(BufferReader_Offset(&br) == l);
 
   free(y);
 
   int n = ReadVarint(&br);
-  ASSERT(n == 1337654);
+  ASSERT_TRUE(n == 1337654);
 
   Buffer_Free(w.buf);
   free(w.buf);
-
-  return 0;
 }
 
 typedef struct {
@@ -699,10 +677,10 @@ typedef struct {
 } tokenContext;
 
 int tokenFunc(void *ctx, const Token *t) {
-  tokenContext *tx = ctx;
+  tokenContext *tx = (tokenContext *)ctx;
   int ret = strncmp(t->tok, tx->expected[tx->num++], t->tokLen);
-  assert(ret == 0);
-  assert(t->pos > 0);
+  EXPECT_TRUE(ret == 0);
+  EXPECT_TRUE(t->pos > 0);
   return 0;
 }
 
@@ -713,7 +691,7 @@ int tokenFunc(void *ctx, const Token *t) {
 //   ctx.expected = (char **)expected;
 
 //   tokenize(txt, &ctx, tokenFunc, NULL, 0, DefaultStopWordList(), 0);
-//   ASSERT(ctx.num == 5);
+//   ASSERT_TRUE(ctx.num == 5);
 
 //   free(txt);
 
@@ -732,179 +710,167 @@ int tokenFunc(void *ctx, const Token *t) {
 //   return 0;
 // }
 
-int testIndexSpec() {
-
+TEST_F(IndexTest, testIndexSpec) {
   const char *title = "title", *body = "body", *foo = "foo", *bar = "bar", *name = "name";
   const char *args[] = {"STOPWORDS", "2",      "hello", "world",    "SCHEMA", title,
                         "text",      "weight", "0.1",   body,       "text",   "weight",
                         "2.0",       foo,      "text",  "sortable", bar,      "numeric",
                         "sortable",  name,     "text",  "nostem"};
-
-  char *err = NULL;
-
+  QueryError err = {QUERY_OK};
   IndexSpec *s = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
-  if (err != NULL) {
-    FAIL("Error parsing spec: %s", err);
-  }
-  ASSERT(s != NULL);
-  ASSERT(err == NULL);
-  ASSERT(s->numFields == 5)
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
+  ASSERT_TRUE(s);
+  ASSERT_TRUE(s->numFields == 5);
+  ASSERT_TRUE(s->stopwords != NULL);
+  ASSERT_TRUE(s->stopwords != DefaultStopWordList());
+  ASSERT_TRUE(s->flags & Index_StoreFieldFlags);
+  ASSERT_TRUE(s->flags & Index_StoreTermOffsets);
+  ASSERT_TRUE(s->flags & Index_HasCustomStopwords);
 
-  ASSERT(s->stopwords != NULL);
-  ASSERT(s->stopwords != DefaultStopWordList());
-  ASSERT(s->flags & Index_StoreFieldFlags);
-  ASSERT(s->flags & Index_StoreTermOffsets);
-  ASSERT(s->flags & Index_HasCustomStopwords);
+  ASSERT_TRUE(IndexSpec_IsStopWord(s, "hello", 5));
+  ASSERT_TRUE(IndexSpec_IsStopWord(s, "world", 5));
+  ASSERT_TRUE(!IndexSpec_IsStopWord(s, "werld", 5));
 
-  ASSERT(IndexSpec_IsStopWord(s, "hello", 5));
-  ASSERT(IndexSpec_IsStopWord(s, "world", 5));
-  ASSERT(!IndexSpec_IsStopWord(s, "werld", 5));
-
-  FieldSpec *f = IndexSpec_GetField(s, body, strlen(body));
-  ASSERT(f != NULL);
-  ASSERT(f->type == FIELD_FULLTEXT);
-  ASSERT(strcmp(f->name, body) == 0);
-  ASSERT(f->textOpts.weight == 2.0);
-  ASSERT_EQUAL(FIELD_BIT(f), 2);
-  ASSERT(f->options == 0);
-  ASSERT(f->sortIdx == -1);
+  const FieldSpec *f = IndexSpec_GetField(s, body, strlen(body));
+  ASSERT_TRUE(f != NULL);
+  ASSERT_TRUE(f->type == FIELD_FULLTEXT);
+  ASSERT_TRUE(strcmp(f->name, body) == 0);
+  ASSERT_TRUE(f->textOpts.weight == 2.0);
+  ASSERT_EQ(FIELD_BIT(f), 2);
+  ASSERT_TRUE(f->options == 0);
+  ASSERT_TRUE(f->sortIdx == -1);
 
   f = IndexSpec_GetField(s, title, strlen(title));
-  ASSERT(f != NULL);
-  ASSERT(f->type == FIELD_FULLTEXT);
-  ASSERT(strcmp(f->name, title) == 0);
-  ASSERT(f->textOpts.weight == 0.1);
-  ASSERT(FIELD_BIT(f) == 1);
-  ASSERT(f->options == 0);
-  ASSERT(f->sortIdx == -1);
+  ASSERT_TRUE(f != NULL);
+  ASSERT_TRUE(f->type == FIELD_FULLTEXT);
+  ASSERT_TRUE(strcmp(f->name, title) == 0);
+  ASSERT_TRUE(f->textOpts.weight == 0.1);
+  ASSERT_TRUE(FIELD_BIT(f) == 1);
+  ASSERT_TRUE(f->options == 0);
+  ASSERT_TRUE(f->sortIdx == -1);
 
   f = IndexSpec_GetField(s, foo, strlen(foo));
-  ASSERT(f != NULL);
-  ASSERT(f->type == FIELD_FULLTEXT);
-  ASSERT(strcmp(f->name, foo) == 0);
-  ASSERT(f->textOpts.weight == 1);
-  ASSERT(FIELD_BIT(f) == 4);
-  ASSERT(f->options == FieldSpec_Sortable);
-  ASSERT(f->sortIdx == 0);
+  ASSERT_TRUE(f != NULL);
+  ASSERT_TRUE(f->type == FIELD_FULLTEXT);
+  ASSERT_TRUE(strcmp(f->name, foo) == 0);
+  ASSERT_TRUE(f->textOpts.weight == 1);
+  ASSERT_TRUE(FIELD_BIT(f) == 4);
+  ASSERT_TRUE(f->options == FieldSpec_Sortable);
+  ASSERT_TRUE(f->sortIdx == 0);
 
   f = IndexSpec_GetField(s, bar, strlen(bar));
-  ASSERT(f != NULL);
-  ASSERT(f->type == FIELD_NUMERIC);
+  ASSERT_TRUE(f != NULL);
+  ASSERT_TRUE(f->type == FIELD_NUMERIC);
 
-  ASSERT(strcmp(f->name, bar) == 0);
-  ASSERT(f->textOpts.weight == 0);
-  ASSERT(FIELD_BIT(f) == 1);
-  ASSERT(f->options == FieldSpec_Sortable);
-  ASSERT(f->sortIdx == 1);
-  ASSERT(IndexSpec_GetField(s, "fooz", 4) == NULL)
+  ASSERT_TRUE(strcmp(f->name, bar) == 0);
+  ASSERT_TRUE(f->textOpts.weight == 0);
+  ASSERT_TRUE(FIELD_BIT(f) == 1);
+  ASSERT_TRUE(f->options == FieldSpec_Sortable);
+  ASSERT_TRUE(f->sortIdx == 1);
+  ASSERT_TRUE(IndexSpec_GetField(s, "fooz", 4) == NULL);
 
   f = IndexSpec_GetField(s, name, strlen(name));
-  ASSERT(f != NULL);
-  ASSERT(f->type == FIELD_FULLTEXT);
-  ASSERT(strcmp(f->name, name) == 0);
-  ASSERT(f->textOpts.weight == 1);
-  ASSERT(FIELD_BIT(f) == 8);
-  ASSERT(f->options == FieldSpec_NoStemming);
-  ASSERT(f->sortIdx == -1);
+  ASSERT_TRUE(f != NULL);
+  ASSERT_TRUE(f->type == FIELD_FULLTEXT);
+  ASSERT_TRUE(strcmp(f->name, name) == 0);
+  ASSERT_TRUE(f->textOpts.weight == 1);
+  ASSERT_TRUE(FIELD_BIT(f) == 8);
+  ASSERT_TRUE(f->options == FieldSpec_NoStemming);
+  ASSERT_TRUE(f->sortIdx == -1);
 
-  ASSERT(s->sortables != NULL);
-  ASSERT(s->sortables->len == 2);
+  ASSERT_TRUE(s->sortables != NULL);
+  ASSERT_TRUE(s->sortables->len == 2);
   int rc = IndexSpec_GetFieldSortingIndex(s, foo, strlen(foo));
-  ASSERT_EQUAL(0, rc);
+  ASSERT_EQ(0, rc);
   rc = IndexSpec_GetFieldSortingIndex(s, bar, strlen(bar));
-  ASSERT_EQUAL(1, rc);
+  ASSERT_EQ(1, rc);
   rc = IndexSpec_GetFieldSortingIndex(s, title, strlen(title));
-  ASSERT_EQUAL(-1, rc);
+  ASSERT_EQ(-1, rc);
 
   IndexSpec_Free(s);
 
+  QueryError_ClearError(&err);
   const char *args2[] = {
       "NOOFFSETS", "NOFIELDS", "SCHEMA", title, "text",
   };
   s = IndexSpec_Parse("idx", args2, sizeof(args2) / sizeof(const char *), &err);
-  if (err != NULL) {
-    FAIL("Error parsing spec: %s", err);
-  }
-  ASSERT(s != NULL);
-  ASSERT(err == NULL);
-  ASSERT(s->numFields == 1);
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
+  ASSERT_TRUE(s);
+  ASSERT_TRUE(s->numFields == 1);
 
-  ASSERT(!(s->flags & Index_StoreFieldFlags));
-  ASSERT(!(s->flags & Index_StoreTermOffsets));
+  ASSERT_TRUE(!(s->flags & Index_StoreFieldFlags));
+  ASSERT_TRUE(!(s->flags & Index_StoreTermOffsets));
   IndexSpec_Free(s);
 
   // User-reported bug
   const char *args3[] = {"mySpec", "SCHEMA", "ha", "NUMERIC", "hb",
                          "TEXT",   "WEIGHT", "1",  "NOSTEM"};
+  QueryError_ClearError(&err);
   s = IndexSpec_Parse("idx", args3, sizeof(args3) / sizeof(args3[0]), &err);
-  if (err != NULL) {
-    FAIL("Error parsing field spec: %s", err);
-  }
-  ASSERT(FieldSpec_IsNoStem(s->fields + 1));
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
+  ASSERT_TRUE(s);
+  ASSERT_TRUE(FieldSpec_IsNoStem(s->fields + 1));
   IndexSpec_Free(s);
-
-  return 0;
 }
 
-void fillSchema(char **args, int N, int *sz) {
-  args[0] = "mySpec";
-  args[1] = "SCHEMA";
-  int n = 2;
-  for (int i = 0; i < N; i++) {
-    int _ = asprintf(&args[n++], "field%d", i);
+static void fillSchema(std::vector<char *> &args, size_t nfields) {
+  args.resize(2 + nfields * 3);
+  args[0] = strdup("mySpec");
+  args[1] = strdup("SCHEMA");
+  size_t n = 2;
+  for (unsigned i = 0; i < nfields; i++) {
+    asprintf(&args[n++], "field%u", i);
     if (i % 2 == 0) {
-      args[n++] = "TEXT";
+      args[n++] = strdup("TEXT");
     } else {
       if (i < 40) {
         // odd fields under 40 are TEXT noINDEX
-        args[n++] = ("TEXT");
-        args[n++] = ("NOINDEX");
+        args[n++] = strdup("TEXT");
+        args[n++] = strdup("NOINDEX");
       } else {
         // the rest are numeric
-        args[n++] = ("NUMERIC");
+        args[n++] = strdup("NUMERIC");
       }
     }
   }
-  *sz = n;
+  args.resize(n);
 
-  for (int i = 0; i < n; i++) {
-    printf("%s ", args[i]);
-  }
-  printf("\n");
+  // for (int i = 0; i < n; i++) {
+  //   printf("%s ", args[i]);
+  // }
+  // printf("\n");
 }
 
-int testHugeSpec() {
-  int N = 64;
-  int n = 2;
-  char *args[n + N * 3];
-  fillSchema(args, N, &n);
-
-  char *err = NULL;
-
-  IndexSpec *s = IndexSpec_Parse("idx", (const char **)args, n, &err);
-  if (err != NULL) {
-    FAIL("Error parsing spec: %s", err);
+static void freeSchemaArgs(std::vector<char *> &args) {
+  for (auto s : args) {
+    free(s);
   }
-  ASSERT(s != NULL);
+  args.clear();
+}
 
-  ASSERT(err == NULL);
-  ASSERT(s->numFields == N);
+TEST_F(IndexTest, testHugeSpec) {
+  int N = 64;
+  std::vector<char *> args;
+  fillSchema(args, N);
+
+  QueryError err = {QUERY_OK};
+  IndexSpec *s = IndexSpec_Parse("idx", (const char **)&args[0], args.size(), &err);
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
+  ASSERT_TRUE(s);
+  ASSERT_TRUE(s->numFields == N);
   IndexSpec_Free(s);
+  freeSchemaArgs(args);
 
   // test too big a schema
   N = 300;
-  n = 2;
-  char *args2[n + N * 3];
+  fillSchema(args, N);
 
-  fillSchema(args2, N, &n);
-
-  err = NULL;
-
-  s = IndexSpec_Parse("idx", (const char **)args2, n, &err);
-  ASSERT(s == NULL);
-  ASSERT(err != NULL);
-  ASSERT_STRING_EQ("Too many TEXT fields in schema", err);
-  return 0;
+  QueryError_ClearError(&err);
+  s = IndexSpec_Parse("idx", (const char **)&args[0], args.size(), &err);
+  ASSERT_TRUE(s == NULL);
+  ASSERT_TRUE(QueryError_HasError(&err));
+  ASSERT_STREQ("Too many TEXT fields in schema", QueryError_GetError(&err));
+  freeSchemaArgs(args);
 }
 
 typedef union {
@@ -913,7 +879,7 @@ typedef union {
   float f;
 } u;
 
-int testIndexFlags() {
+TEST_F(IndexTest, testIndexFlags) {
 
   ForwardIndexEntry h;
   h.docId = 1234;
@@ -925,67 +891,64 @@ int testIndexFlags() {
   }
   VVW_Truncate(h.vw);
 
-  u_char flags = INDEX_DEFAULT_FLAGS;
-  InvertedIndex *w = NewInvertedIndex(flags, 1);
+  uint32_t flags = INDEX_DEFAULT_FLAGS;
+  InvertedIndex *w = NewInvertedIndex(IndexFlags(flags), 1);
   IndexEncoder enc = InvertedIndex_GetEncoder(w->flags);
-  ASSERT(w->flags == flags);
+  ASSERT_TRUE(w->flags == flags);
   size_t sz = InvertedIndex_WriteForwardIndexEntry(w, enc, &h);
   // printf("written %zd bytes. Offset=%zd\n", sz, h.vw->buf.offset);
-  ASSERT_EQUAL(15, sz);
+  ASSERT_EQ(15, sz);
   InvertedIndex_Free(w);
 
   flags &= ~Index_StoreTermOffsets;
-  w = NewInvertedIndex(flags, 1);
-  ASSERT(!(w->flags & Index_StoreTermOffsets));
+  w = NewInvertedIndex(IndexFlags(flags), 1);
+  ASSERT_TRUE(!(w->flags & Index_StoreTermOffsets));
   enc = InvertedIndex_GetEncoder(w->flags);
   size_t sz2 = InvertedIndex_WriteForwardIndexEntry(w, enc, &h);
   // printf("Wrote %zd bytes. Offset=%zd\n", sz2, h.vw->buf.offset);
-  ASSERT_EQUAL(sz2, sz - Buffer_Offset(&h.vw->buf) - 1);
+  ASSERT_EQ(sz2, sz - Buffer_Offset(&h.vw->buf) - 1);
   InvertedIndex_Free(w);
 
   flags = INDEX_DEFAULT_FLAGS | Index_WideSchema;
-  w = NewInvertedIndex(flags, 1);
-  ASSERT((w->flags & Index_WideSchema));
+  w = NewInvertedIndex(IndexFlags(flags), 1);
+  ASSERT_TRUE((w->flags & Index_WideSchema));
   enc = InvertedIndex_GetEncoder(w->flags);
   h.fieldMask = 0xffffffffffff;
-  ASSERT_EQUAL(21, InvertedIndex_WriteForwardIndexEntry(w, enc, &h));
+  ASSERT_EQ(21, InvertedIndex_WriteForwardIndexEntry(w, enc, &h));
   InvertedIndex_Free(w);
 
   flags |= Index_WideSchema;
-  w = NewInvertedIndex(flags, 1);
-  ASSERT((w->flags & Index_WideSchema));
+  w = NewInvertedIndex(IndexFlags(flags), 1);
+  ASSERT_TRUE((w->flags & Index_WideSchema));
   enc = InvertedIndex_GetEncoder(w->flags);
   h.fieldMask = 0xffffffffffff;
   sz = InvertedIndex_WriteForwardIndexEntry(w, enc, &h);
-  ASSERT_EQUAL(21, sz);
+  ASSERT_EQ(21, sz);
   InvertedIndex_Free(w);
 
   flags &= Index_StoreFreqs;
-  w = NewInvertedIndex(flags, 1);
-  ASSERT(!(w->flags & Index_StoreTermOffsets));
-  ASSERT(!(w->flags & Index_StoreFieldFlags));
+  w = NewInvertedIndex(IndexFlags(flags), 1);
+  ASSERT_TRUE(!(w->flags & Index_StoreTermOffsets));
+  ASSERT_TRUE(!(w->flags & Index_StoreFieldFlags));
   enc = InvertedIndex_GetEncoder(w->flags);
   sz = InvertedIndex_WriteForwardIndexEntry(w, enc, &h);
-  ASSERT_EQUAL(3, sz);
+  ASSERT_EQ(3, sz);
   InvertedIndex_Free(w);
 
   flags |= Index_StoreFieldFlags | Index_WideSchema;
-  w = NewInvertedIndex(flags, 1);
-  ASSERT((w->flags & Index_WideSchema));
-  ASSERT((w->flags & Index_StoreFieldFlags));
+  w = NewInvertedIndex(IndexFlags(flags), 1);
+  ASSERT_TRUE((w->flags & Index_WideSchema));
+  ASSERT_TRUE((w->flags & Index_StoreFieldFlags));
   enc = InvertedIndex_GetEncoder(w->flags);
   h.fieldMask = 0xffffffffffff;
   sz = InvertedIndex_WriteForwardIndexEntry(w, enc, &h);
-  ASSERT_EQUAL(10, sz);
+  ASSERT_EQ(10, sz);
   InvertedIndex_Free(w);
 
   VVW_Free(h.vw);
-
-  return 0;
 }
 
-int testDocTable() {
-
+TEST_F(IndexTest, testDocTable) {
   char buf[16];
   DocTable dt = NewDocTable(10, 10);
   t_docId did = 0;
@@ -993,112 +956,105 @@ int testDocTable() {
   // get overflow and check that everything works correctly
   int N = 100;
   for (int i = 0; i < N; i++) {
-    sprintf(buf, "doc_%d", i);
-    RSDocumentKey docKey = MakeDocKey(buf, strlen(buf));
-    t_docId nd = DocTable_Put(&dt, docKey, (double)i, Document_DefaultFlags, buf, strlen(buf));
-    ASSERT_EQUAL(did + 1, nd);
+    size_t nkey = sprintf(buf, "doc_%d", i);
+    t_docId nd = DocTable_Put(&dt, buf, nkey, (double)i, Document_DefaultFlags, buf, strlen(buf));
+    ASSERT_EQ(did + 1, nd);
     did = nd;
   }
 
-  ASSERT_EQUAL(N + 1, dt.size);
-  ASSERT_EQUAL(N, dt.maxDocId);
+  ASSERT_EQ(N + 1, dt.size);
+  ASSERT_EQ(N, dt.maxDocId);
 #ifdef __x86_64__
-  ASSERT_EQUAL(10980, (int)dt.memsize);
+  ASSERT_EQ(10980, (int)dt.memsize);
 #endif
   for (int i = 0; i < N; i++) {
     sprintf(buf, "doc_%d", i);
-
-    RSDocumentKey docKey = DocTable_GetKey(&dt, i + 1);
-    ASSERT_STRING_EQ(docKey.str, buf);
+    const char *key = DocTable_GetKey(&dt, i + 1, NULL);
+    ASSERT_STREQ(key, buf);
 
     float score = DocTable_GetScore(&dt, i + 1);
-    ASSERT_EQUAL((int)score, i);
+    ASSERT_EQ((int)score, i);
 
     RSDocumentMetadata *dmd = DocTable_Get(&dt, i + 1);
     DMD_Incref(dmd);
-    ASSERT(dmd != NULL);
-    ASSERT(dmd->flags & Document_HasPayload);
-    ASSERT_STRING_EQ(dmd->keyPtr, (char *)buf);
+    ASSERT_TRUE(dmd != NULL);
+    ASSERT_TRUE(dmd->flags & Document_HasPayload);
+    ASSERT_STREQ(dmd->keyPtr, buf);
     char *pl = dmd->payload->data;
-    ASSERT(!(strncmp(pl, (char *)buf, dmd->payload->len)));
+    ASSERT_TRUE(!(strncmp(pl, (char *)buf, dmd->payload->len)));
 
-    ASSERT_EQUAL((int)dmd->score, i);
-    ASSERT_EQUAL((int)dmd->flags, (int)(Document_DefaultFlags | Document_HasPayload));
+    ASSERT_EQ((int)dmd->score, i);
+    ASSERT_EQ((int)dmd->flags, (int)(Document_DefaultFlags | Document_HasPayload));
 
-    t_docId xid = DocIdMap_Get(&dt.dim, MakeDocKey(buf, strlen(buf)));
+    t_docId xid = DocIdMap_Get(&dt.dim, buf, strlen(buf));
 
-    ASSERT_EQUAL((int)xid, i + 1);
+    ASSERT_EQ((int)xid, i + 1);
 
-    int rc = DocTable_Delete(&dt, MakeDocKey(dmd->keyPtr, sdslen(dmd->keyPtr)));
-    ASSERT_EQUAL(1, rc);
-    ASSERT((int)(dmd->flags & Document_Deleted));
+    int rc = DocTable_Delete(&dt, dmd->keyPtr, sdslen(dmd->keyPtr));
+    ASSERT_EQ(1, rc);
+    ASSERT_TRUE((int)(dmd->flags & Document_Deleted));
     DMD_Decref(dmd);
     dmd = DocTable_Get(&dt, i + 1);
-    ASSERT(!dmd);
+    ASSERT_TRUE(!dmd);
   }
 
-  ASSERT(0 == DocIdMap_Get(&dt.dim, MakeDocKey("foo bar", strlen("foo bar"))));
+  ASSERT_FALSE(DocIdMap_Get(&dt.dim, "foo bar", strlen("foo bar")));
+  ASSERT_FALSE(DocTable_Get(&dt, N + 2));
 
-  ASSERT(NULL == DocTable_Get(&dt, N + 2));
-
-  t_docId strDocId = DocTable_Put(&dt, MakeDocKey("Hello", 5), 1.0, 0, NULL, 0);
-  ASSERT(0 != strDocId);
+  t_docId strDocId = DocTable_Put(&dt, "Hello", 5, 1.0, 0, NULL, 0);
+  ASSERT_TRUE(0 != strDocId);
 
   // Test that binary keys also work here
   static const char binBuf[] = {"Hello\x00World"};
   const size_t binBufLen = 11;
-  ASSERT(0 == DocIdMap_Get(&dt.dim, MakeDocKey(binBuf, binBufLen)));
-
-  t_docId binDocId = DocTable_Put(&dt, MakeDocKey(binBuf, binBufLen), 1.0, 0, NULL, 0);
-  ASSERT(0 != binDocId);
-  ASSERT(binDocId != strDocId);
-
-  ASSERT_EQUAL(binDocId, DocIdMap_Get(&dt.dim, MakeDocKey(binBuf, binBufLen)));
-  ASSERT(strDocId == DocIdMap_Get(&dt.dim, MakeDocKey("Hello", 5)));
-
+  ASSERT_FALSE(DocIdMap_Get(&dt.dim, binBuf, binBufLen));
+  t_docId binDocId = DocTable_Put(&dt, binBuf, binBufLen, 1.0, 0, NULL, 0);
+  ASSERT_TRUE(binDocId);
+  ASSERT_NE(binDocId, strDocId);
+  ASSERT_EQ(binDocId, DocIdMap_Get(&dt.dim, binBuf, binBufLen));
+  ASSERT_EQ(strDocId, DocIdMap_Get(&dt.dim, "Hello", 5));
   DocTable_Free(&dt);
-  return 0;
 }
 
-int testSortable() {
+TEST_F(IndexTest, testSortable) {
   RSSortingTable *tbl = NewSortingTable();
   RSSortingTable_Add(tbl, "foo", RSValue_String);
   RSSortingTable_Add(tbl, "bar", RSValue_String);
   RSSortingTable_Add(tbl, "baz", RSValue_String);
-  ASSERT_EQUAL(3, tbl->len);
+  ASSERT_EQ(3, tbl->len);
 
-  ASSERT_STRING_EQ("foo", tbl->fields[0].name);
-  ASSERT_EQUAL(RSValue_String, tbl->fields[0].type);
-  ASSERT_STRING_EQ("bar", tbl->fields[1].name);
-  ASSERT_STRING_EQ("baz", tbl->fields[2].name);
-  ASSERT_EQUAL(0, RSSortingTable_GetFieldIdx(tbl, "foo"));
-  ASSERT_EQUAL(0, RSSortingTable_GetFieldIdx(tbl, "FoO"));
-  ASSERT_EQUAL(-1, RSSortingTable_GetFieldIdx(NULL, "FoO"));
+  ASSERT_STREQ("foo", tbl->fields[0].name);
+  ASSERT_EQ(RSValue_String, tbl->fields[0].type);
+  ASSERT_STREQ("bar", tbl->fields[1].name);
+  ASSERT_STREQ("baz", tbl->fields[2].name);
+  ASSERT_EQ(0, RSSortingTable_GetFieldIdx(tbl, "foo"));
+  ASSERT_EQ(0, RSSortingTable_GetFieldIdx(tbl, "FoO"));
+  ASSERT_EQ(-1, RSSortingTable_GetFieldIdx(NULL, "FoO"));
 
-  ASSERT_EQUAL(1, RSSortingTable_GetFieldIdx(tbl, "bar"));
-  ASSERT_EQUAL(-1, RSSortingTable_GetFieldIdx(tbl, "barbar"));
+  ASSERT_EQ(1, RSSortingTable_GetFieldIdx(tbl, "bar"));
+  ASSERT_EQ(-1, RSSortingTable_GetFieldIdx(tbl, "barbar"));
 
   RSSortingVector *v = NewSortingVector(tbl->len);
-  ASSERT_EQUAL(v->len, tbl->len);
-  char *str = "hello";
-  char *masse = "Maße";
+  ASSERT_EQ(v->len, tbl->len);
 
+  const char *str = "hello";
+  const char *masse = "Maße";
   double num = 3.141;
-  ASSERT(RSValue_IsNull(v->values[0]));
+  ASSERT_TRUE(RSValue_IsNull(v->values[0]));
   RSSortingVector_Put(v, 0, str, RS_SORTABLE_STR);
-  ASSERT_EQUAL(v->values[0]->t, RSValue_String);
-  ASSERT_EQUAL(v->values[0]->strval.stype, RSString_RMAlloc);
+  ASSERT_EQ(v->values[0]->t, RSValue_String);
+  ASSERT_EQ(v->values[0]->strval.stype, RSString_RMAlloc);
 
-  ASSERT(RSValue_IsNull(v->values[1]));
-  ASSERT(RSValue_IsNull(v->values[2]));
+  ASSERT_TRUE(RSValue_IsNull(v->values[1]));
+  ASSERT_TRUE(RSValue_IsNull(v->values[2]));
   RSSortingVector_Put(v, 1, &num, RSValue_Number);
-  ASSERT_EQUAL(v->values[1]->t, RS_SORTABLE_NUM);
+  ASSERT_EQ(v->values[1]->t, RS_SORTABLE_NUM);
 
   RSSortingVector *v2 = NewSortingVector(tbl->len);
   RSSortingVector_Put(v2, 0, masse, RS_SORTABLE_STR);
 
   /// test string unicode lowercase normalization
-  ASSERT_STRING_EQ("masse", v2->values[0]->strval.str);
+  ASSERT_STREQ("masse", v2->values[0]->strval.str);
 
   double s2 = 4.444;
   RSSortingVector_Put(v2, 1, &s2, RS_SORTABLE_NUM);
@@ -1106,116 +1062,79 @@ int testSortable() {
   RSSortingKey sk = {.index = 0, .ascending = 0};
 
   int rc = RSSortingVector_Cmp(v, v2, &sk);
-  ASSERT(rc > 0);
+  ASSERT_TRUE(rc > 0);
   sk.ascending = 1;
   rc = RSSortingVector_Cmp(v, v2, &sk);
-  ASSERT(rc < 0);
+  ASSERT_TRUE(rc < 0);
   rc = RSSortingVector_Cmp(v, v, &sk);
-  ASSERT_EQUAL(0, rc);
+  ASSERT_EQ(0, rc);
 
   sk.index = 1;
 
   rc = RSSortingVector_Cmp(v, v2, &sk);
-  ASSERT_EQUAL(-1, rc);
+  ASSERT_EQ(-1, rc);
   sk.ascending = 0;
   rc = RSSortingVector_Cmp(v, v2, &sk);
-  ASSERT_EQUAL(1, rc);
+  ASSERT_EQ(1, rc);
 
   SortingTable_Free(tbl);
   SortingVector_Free(v);
   SortingVector_Free(v2);
-  return 0;
 }
 
-int testVarintFieldMask() {
-
+TEST_F(IndexTest, testVarintFieldMask) {
   t_fieldMask x = 127;
   size_t expected[] = {1, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16, 17, 19};
   BufferWriter bw = NewBufferWriter(NewBuffer(1));
   for (int i = 0; i < sizeof(t_fieldMask); i++, x |= x << 8) {
     size_t sz = WriteVarintFieldMask(x, &bw);
-    ASSERT_EQUAL(expected[i], sz);
+    ASSERT_EQ(expected[i], sz);
     BufferWriter_Seek(&bw, 0);
     BufferReader br = NewBufferReader(bw.buf);
 
     t_fieldMask y = ReadVarintFieldMask(&br);
 
-    ASSERT(y == x);
+    ASSERT_EQ(y, x);
   }
-  RETURN_TEST_SUCCESS;
 }
 
-int testDeltaSplits() {
-  InvertedIndex *idx = NewInvertedIndex(INDEX_DEFAULT_FLAGS, 1);
+TEST_F(IndexTest, testDeltaSplits) {
+  InvertedIndex *idx = NewInvertedIndex((IndexFlags)(INDEX_DEFAULT_FLAGS), 1);
   ForwardIndexEntry ent = {0};
   ent.docId = 1;
   ent.fieldMask = RS_FIELDMASK_ALL;
 
   IndexEncoder enc = InvertedIndex_GetEncoder(idx->flags);
   InvertedIndex_WriteForwardIndexEntry(idx, enc, &ent);
-  ASSERT_EQUAL(idx->size, 1);
+  ASSERT_EQ(idx->size, 1);
 
   ent.docId = 200;
   InvertedIndex_WriteForwardIndexEntry(idx, enc, &ent);
-  ASSERT_EQUAL(idx->size, 1);
+  ASSERT_EQ(idx->size, 1);
 
   ent.docId = 1LLU << 48;
   InvertedIndex_WriteForwardIndexEntry(idx, enc, &ent);
-  ASSERT_EQUAL(idx->size, 2);
+  ASSERT_EQ(idx->size, 2);
   ent.docId++;
   InvertedIndex_WriteForwardIndexEntry(idx, enc, &ent);
-  ASSERT_EQUAL(idx->size, 2);
+  ASSERT_EQ(idx->size, 2);
 
   IndexReader *ir = NewTermIndexReader(idx, NULL, RS_FIELDMASK_ALL, NULL, 1);
   RSIndexResult *h = NULL;
-  ASSERT_EQUAL(INDEXREAD_OK, IR_Read(ir, &h));
-  ASSERT_EQUAL(1, h->docId);
+  ASSERT_EQ(INDEXREAD_OK, IR_Read(ir, &h));
+  ASSERT_EQ(1, h->docId);
 
-  ASSERT_EQUAL(INDEXREAD_OK, IR_Read(ir, &h));
-  ASSERT_EQUAL(200, h->docId);
+  ASSERT_EQ(INDEXREAD_OK, IR_Read(ir, &h));
+  ASSERT_EQ(200, h->docId);
 
-  ASSERT_EQUAL(INDEXREAD_OK, IR_Read(ir, &h));
-  ASSERT_EQUAL((1LLU << 48), h->docId);
+  ASSERT_EQ(INDEXREAD_OK, IR_Read(ir, &h));
+  ASSERT_EQ((1LLU << 48), h->docId);
 
-  ASSERT_EQUAL(INDEXREAD_OK, IR_Read(ir, &h));
-  ASSERT_EQUAL((1LLU << 48) + 1, h->docId);
+  ASSERT_EQ(INDEXREAD_OK, IR_Read(ir, &h));
+  ASSERT_EQ((1LLU << 48) + 1, h->docId);
 
-  ASSERT_EQUAL(INDEXREAD_EOF, IR_Read(ir, &h));
+  ASSERT_EQ(INDEXREAD_EOF, IR_Read(ir, &h));
 
   IR_Free(ir);
   InvertedIndex_Free(idx);
-  RETURN_TEST_SUCCESS;
 }
-
-TEST_MAIN({
-  // LOGGING_INIT(L_INFO);
-  RMUTil_InitAlloc();
-
-  TESTFUNC(testWeight);
-  TESTFUNC(testVarintFieldMask);
-
-  TESTFUNC(testPureNot);
-  TESTFUNC(testHugeSpec);
-
-  TESTFUNC(testAbort)
-  TESTFUNC(testNumericInverted);
-  TESTFUNC(testNumericVaried);
-  TESTFUNC(testNumericEncoding);
-
-  TESTFUNC(testVarint);
-  TESTFUNC(testDistance);
-  TESTFUNC(testIndexReadWrite);
-
-  TESTFUNC(testReadIterator);
-  TESTFUNC(testIntersection);
-  TESTFUNC(testNot);
-  TESTFUNC(testUnion);
-
-  TESTFUNC(testBuffer);
-  // TESTFUNC(testTokenize);
-  TESTFUNC(testIndexSpec);
-  TESTFUNC(testIndexFlags);
-  TESTFUNC(testDocTable);
-  TESTFUNC(testSortable);
-  TESTFUNC(testDeltaSplits);
-});

@@ -12,6 +12,7 @@
 #include "config.h"
 #include "cursor.h"
 #include "tag_index.h"
+#include "redis_index.h"
 #include "indexer.h"
 
 void (*IndexSpec_OnCreate)(const IndexSpec *) = NULL;
@@ -19,26 +20,64 @@ void (*IndexSpec_OnCreate)(const IndexSpec *) = NULL;
 RedisModuleType *IndexSpecType;
 uint64_t spec_unique_ids = 0;
 
+static const FieldSpec *getFieldCommon(const IndexSpec *spec, const char *name, size_t len,
+                                       int useCase) {
+  for (size_t i = 0; i < spec->numFields; i++) {
+    if (len != strlen(spec->fields[i].name)) {
+      continue;
+    }
+    const FieldSpec *fs = spec->fields + i;
+    if (useCase) {
+      if (!strncmp(fs->name, name, len)) {
+        return fs;
+      }
+    } else {
+      if (!strncasecmp(fs->name, name, len)) {
+        return fs;
+      }
+    }
+  }
+  return NULL;
+}
+
 /*
  * Get a field spec by field name. Case insensitive!
  * Return the field spec if found, NULL if not
  */
-FieldSpec *IndexSpec_GetField(IndexSpec *spec, const char *name, size_t len) {
-  for (int i = 0; i < spec->numFields; i++) {
-    if (len != strlen(spec->fields[i].name)) continue;
-    if (!strncasecmp(spec->fields[i].name, name, len)) {
-      return &spec->fields[i];
-    }
-  }
-
-  return NULL;
+const FieldSpec *IndexSpec_GetField(IndexSpec *spec, const char *name, size_t len) {
+  return getFieldCommon(spec, name, len, 0);
 };
 
+const FieldSpec *IndexSpec_GetFieldCase(const IndexSpec *spec, const char *name, size_t n) {
+  return getFieldCommon(spec, name, n, 1);
+}
+
 t_fieldMask IndexSpec_GetFieldBit(IndexSpec *spec, const char *name, size_t len) {
-  FieldSpec *sp = IndexSpec_GetField(spec, name, len);
+  const FieldSpec *sp = IndexSpec_GetField(spec, name, len);
   if (!sp || sp->type != FIELD_FULLTEXT || !FieldSpec_IsIndexable(sp)) return 0;
 
   return FIELD_BIT(sp);
+}
+
+int IndexSpec_CheckPhoneticEnabled(const IndexSpec *sp, t_fieldMask fm) {
+  if (!(sp->flags & Index_HasPhonetic)) {
+    return 0;
+  }
+
+  if (fm == 0 || fm == (t_fieldMask)-1) {
+    // No fields -- implicit phonetic match!
+    return 1;
+  }
+
+  for (size_t ii = 0; ii < sp->numFields; ++ii) {
+    if (fm & ((t_fieldMask)1 << ii)) {
+      const FieldSpec *fs = sp->fields + ii;
+      if (fs->type == FIELD_FULLTEXT && (FieldSpec_IsPhonetics(fs))) {
+        return 1;
+      }
+    }
+  }
+  return 0;
 }
 
 int IndexSpec_GetFieldSortingIndex(IndexSpec *sp, const char *name, size_t len) {
@@ -46,7 +85,7 @@ int IndexSpec_GetFieldSortingIndex(IndexSpec *sp, const char *name, size_t len) 
   return RSSortingTable_GetFieldIdx(sp->sortables, name);
 }
 
-char *GetFieldNameByBit(IndexSpec *sp, t_fieldMask id) {
+const char *GetFieldNameByBit(const IndexSpec *sp, t_fieldMask id) {
   for (int i = 0; i < sp->numFields; i++) {
     if (FIELD_BIT(&sp->fields[i]) == id && sp->fields[i].type == FIELD_FULLTEXT &&
         FieldSpec_IsIndexable(&sp->fields[i])) {
@@ -65,14 +104,14 @@ char *GetFieldNameByBit(IndexSpec *sp, t_fieldMask id) {
     SCHEMA {field} [TEXT [WEIGHT {weight}]] | [NUMERIC]
 */
 IndexSpec *IndexSpec_ParseRedisArgs(RedisModuleCtx *ctx, RedisModuleString *name,
-                                    RedisModuleString **argv, int argc, char **err) {
+                                    RedisModuleString **argv, int argc, QueryError *status) {
 
   const char *args[argc];
   for (int i = 0; i < argc; i++) {
     args[i] = RedisModule_StringPtrLen(argv[i], NULL);
   }
 
-  IndexSpec *ret = IndexSpec_Parse(RedisModule_StringPtrLen(name, NULL), args, argc, err);
+  IndexSpec *ret = IndexSpec_Parse(RedisModule_StringPtrLen(name, NULL), args, argc, status);
 
   return ret;
 }
@@ -105,10 +144,9 @@ int isRdbLoading(RedisModuleCtx *ctx) {
 }
 
 IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                               char **err) {
-  IndexSpec *sp = IndexSpec_ParseRedisArgs(ctx, argv[1], &argv[2], argc - 2, err);
+                               QueryError *status) {
+  IndexSpec *sp = IndexSpec_ParseRedisArgs(ctx, argv[1], &argv[2], argc - 2, status);
   if (sp == NULL) {
-    SET_ERR(err, "Could not parse index spec");
     return NULL;
   }
 
@@ -118,11 +156,14 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
   // check that the key is empty
   if (k == NULL || (RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_EMPTY)) {
     if (RedisModule_ModuleTypeGetType(k) != IndexSpecType) {
-      SET_ERR(err, "Wrong type for index key");
+      QueryError_SetCode(status, QUERY_EREDISKEYTYPE);
     } else {
-      SET_ERR(err, "Index already exists. Drop it first!");
+      QueryError_SetCode(status, QUERY_EINDEXEXISTS);
     }
     IndexSpec_Free(sp);
+    if (k) {
+      RedisModule_CloseKey(k);
+    }
     return NULL;
   }
 
@@ -141,7 +182,7 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
   if (IndexSpec_OnCreate) {
     IndexSpec_OnCreate(sp);
   }
-
+  RedisModule_CloseKey(k);
   return sp;
 }
 
@@ -192,7 +233,8 @@ static bool checkPhoneticAlgorithmAndLang(char *matcher) {
 
 /* Parse a field definition from argv, at *offset. We advance offset as we progress.
  *  Returns 1 on successful parse, 0 otherwise */
-static int parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *sp, char **err) {
+static int parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *sp,
+                          QueryError *status) {
 
   // if we're at the end - fail
   if (*offset >= argc) return 0;
@@ -231,7 +273,7 @@ static int parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *s
       } else if (!strcasecmp(argv[*offset], SPEC_PHONETIC_STR)) {
         // phonetic with no matcher
         if (++*offset == argc) {
-          return 0;
+          goto error;
         }
         // try and parse the matcher
         char *matcher = strdup(argv[*offset]);
@@ -240,11 +282,12 @@ static int parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *s
         // Spanish (es)
         // in the future we will support more algorithms and more languages
         if (!checkPhoneticAlgorithmAndLang(matcher)) {
-          SET_ERR(err,
-                  "Matcher Format: <2 chars algorithm>:<2 chars language>. Support algorithms: "
-                  "double metaphone (dm). Supported languages: English (en), French (fr), "
-                  "Portuguese (pt) and Spanish (es)");
-          return 0;
+          QueryError_SetError(
+              status, QUERY_EINVAL,
+              "Matcher Format: <2 chars algorithm>:<2 chars language>. Support algorithms: "
+              "double metaphone (dm). Supported languages: English (en), French (fr), "
+              "Portuguese (pt) and Spanish (es)");
+          goto error;
         }
 
         sp->options |= FieldSpec_Phonetics;
@@ -275,7 +318,8 @@ static int parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *s
       if (strlen(argv[*offset]) == 1) {
         sp->tagOpts.separator = argv[*offset][0];
       } else {
-        SET_ERR(err, "Invalid separator, only 1 byte ascii characters allowed");
+        QueryError_SetError(status, QUERY_EPARSEARGS,
+                            "Invalid separator, only 1 byte ascii characters allowed");
         goto error;
       }
       ++*offset;
@@ -288,7 +332,7 @@ static int parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *s
     if (!strcasecmp(argv[*offset], SPEC_SORTABLE_STR)) {
       // cannot sort by geo fields
       if (sp->type == FIELD_GEO) {
-        SET_ERR(err, "Geo fields cannot be sortable");
+        QueryError_SetError(status, QUERY_EBADOPTION, "Geo fields cannot be sortable");
         goto error;
       }
       sp->options |= FieldSpec_Sortable;
@@ -304,6 +348,10 @@ static int parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *s
   return 1;
 
 error:
+  if (!QueryError_HasError(status)) {
+    QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Could not parse schema for field `%s`",
+                           argv[0]);
+  }
   if (sp->name) {
     rm_free(sp->name);
     sp->name = NULL;
@@ -330,13 +378,16 @@ RSValueType fieldTypeToValueType(FieldType ft) {
  * Add fields to an existing (or newly created) index. If the addition fails,
  *
  */
-static int IndexSpec_AddFieldsInternal(IndexSpec *sp, const char **argv, int argc, char **err,
-                                       int isNew) {
-
+static int IndexSpec_AddFieldsInternal(IndexSpec *sp, const char **argv, int argc,
+                                       QueryError *status, int isNew) {
+  if (sp->spcache) {
+    IndexSpecCache_Decref(sp->spcache);
+    sp->spcache = NULL;
+  }
   const size_t prevNumFields = sp->numFields;
   const size_t prevSortLen = sp->sortables->len;
-
   int textId = -1;
+  FieldSpec *fs = NULL;
 
   for (size_t ii = 0; ii < sp->numFields; ++ii) {
     const FieldSpec *fs = sp->fields + ii;
@@ -347,13 +398,12 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, const char **argv, int arg
 
   for (int offset = 0; offset < argc && sp->numFields < SPEC_MAX_FIELDS;) {
     sp->fields = rm_realloc(sp->fields, sizeof(*sp->fields) * (sp->numFields + 1));
-    FieldSpec *fs = sp->fields + sp->numFields;
+    fs = sp->fields + sp->numFields;
     memset(fs, 0, sizeof(*fs));
 
     fs->index = sp->numFields;
 
-    if (!parseFieldSpec(argv, &offset, argc, fs, err)) {
-      SET_ERR(err, "Could not parse field spec");
+    if (!parseFieldSpec(argv, &offset, argc, fs, status)) {
       goto reset;
     }
 
@@ -361,7 +411,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, const char **argv, int arg
       // make sure we don't have too many indexable fields
       textId++;  // Explicit
       if (textId == SPEC_MAX_FIELD_ID) {
-        SET_ERR(err, "Too many TEXT fields in schema");
+        QueryError_SetError(status, QUERY_ELIMIT, "Too many TEXT fields in schema");
         goto reset;
       }
 
@@ -371,9 +421,10 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, const char **argv, int arg
         if (isNew) {
           sp->flags |= Index_WideSchema;
         } else if ((sp->flags & Index_WideSchema) == 0) {
-          SET_ERR(err,
-                  "Cannot add more fields. Declare index with wide fields to allow adding "
-                  "unlimited fields");
+          QueryError_SetError(
+              status, QUERY_ELIMIT,
+              "Cannot add more fields. Declare index with wide fields to allow adding "
+              "unlimited fields");
           goto reset;
         }
       }
@@ -381,44 +432,58 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, const char **argv, int arg
     }
 
     if (IndexSpec_GetField(sp, fs->name, strlen(fs->name))) {
-      SET_ERR(err, "Duplicate field in schema");
+      QueryError_SetError(status, QUERY_EINVAL, "Duplicate field in schema");
       goto reset;
     }
 
     if (FieldSpec_IsSortable(fs)) {
       fs->sortIdx = RSSortingTable_Add(sp->sortables, fs->name, fieldTypeToValueType(fs->type));
     }
+    if (FieldSpec_IsPhonetics(fs)) {
+      sp->flags |= Index_HasPhonetic;
+    }
     sp->numFields++;
   }
   return 1;
 
 reset:
+  // If the current field spec exists, but was not added (i.e. we got an error)
+  // and reached this block, then free it
+  if (fs && fs->name) {
+    rm_free(fs->name);
+  }
+  for (size_t ii = prevNumFields; ii < sp->numFields; ++ii) {
+    if (sp->fields[ii].name) {
+      rm_free(sp->fields[ii].name);
+    }
+  }
+
   sp->numFields = prevNumFields;
   sp->sortables->len = prevSortLen;
   return 0;
 }
 
-int IndexSpec_AddFields(IndexSpec *sp, const char **argv, int argc, char **err) {
-  return IndexSpec_AddFieldsInternal(sp, argv, argc, err, 0);
+int IndexSpec_AddFields(IndexSpec *sp, const char **argv, int argc, QueryError *status) {
+  return IndexSpec_AddFieldsInternal(sp, argv, argc, status, 0);
 }
 
-int IndexSpec_AddFieldsRedisArgs(IndexSpec *sp, RedisModuleString **argv, int argc, char **err) {
+int IndexSpec_AddFieldsRedisArgs(IndexSpec *sp, RedisModuleString **argv, int argc,
+                                 QueryError *status) {
   const char *args[argc];
   for (int i = 0; i < argc; i++) {
     args[i] = RedisModule_StringPtrLen(argv[i], NULL);
   }
-  return IndexSpec_AddFields(sp, args, argc, err);
+  return IndexSpec_AddFields(sp, args, argc, status);
 }
 
 /* The format currently is FT.CREATE {index} [NOOFFSETS] [NOFIELDS]
     SCHEMA {field} [TEXT [WEIGHT {weight}]] | [NUMERIC]
   */
-IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, char **err) {
-  *err = NULL;
+IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryError *status) {
   int schemaOffset = findOffset(SPEC_SCHEMA_STR, argv, argc);
   // no schema or schema towrards the end
   if (schemaOffset == -1) {
-    SET_ERR(err, "schema not found");
+    QueryError_SetError(status, QUERY_EPARSEARGS, "Schema not found");
     return NULL;
   }
   IndexSpec *spec = NewIndexSpec(name, 0);
@@ -446,11 +511,11 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, char *
   int expireOffset = findOffset(SPEC_TEMPORARY_STR, argv, argc);
   if (expireOffset != -1) {
     if (expireOffset >= argc || expireOffset >= schemaOffset) {
-      SET_ERR(err, "Invalid expire arg");
+      QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid expire arg");
       goto failure;
     }
     if (sscanf(argv[expireOffset + 1], "%lld", &spec->timeout) != 1) {
-      SET_ERR(err, "Invalid expire arg");
+      QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid expire arg");
       goto failure;
     }
     spec->flags |= Index_Temporary;
@@ -462,7 +527,7 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, char *
   if (swIndex >= 0 && swIndex + 1 < schemaOffset) {
     int listSize = atoi(argv[swIndex + 1]);
     if (listSize < 0 || (swIndex + 2 + listSize > schemaOffset)) {
-      SET_ERR(err, "Invalid stopword list size");
+      QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid stopword list size");
       goto failure;
     }
     spec->stopwords = NewStopWordListCStr(&argv[swIndex + 2], listSize);
@@ -471,7 +536,7 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, char *
     spec->stopwords = DefaultStopWordList();
   }
   schemaOffset++;
-  if (!IndexSpec_AddFieldsInternal(spec, argv + schemaOffset, argc - schemaOffset, err, 1)) {
+  if (!IndexSpec_AddFieldsInternal(spec, argv + schemaOffset, argc - schemaOffset, status, 1)) {
     goto failure;
   }
   return spec;
@@ -497,6 +562,37 @@ int IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len) {
     sp->stats.termsSize += len;
   }
   return isNew;
+}
+
+IndexSpecCache *IndexSpec_GetSpecCache(const IndexSpec *spec) {
+  if (!spec->spcache) {
+    ((IndexSpec *)spec)->spcache = IndexSpec_BuildSpecCache(spec);
+  }
+
+  spec->spcache->refcount++;
+  return spec->spcache;
+}
+
+IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec) {
+  IndexSpecCache *ret = calloc(1, sizeof(*ret));
+  ret->nfields = spec->numFields;
+  ret->fields = malloc(sizeof(*ret->fields) * ret->nfields);
+  ret->refcount = 1;
+  for (size_t ii = 0; ii < spec->numFields; ++ii) {
+    ret->fields[ii] = spec->fields[ii];
+    ret->fields[ii].name = strdup(ret->fields[ii].name);
+  }
+  return ret;
+}
+
+void IndexSpecCache_Decref(IndexSpecCache *c) {
+  if (--c->refcount) {
+    return;
+  }
+  for (size_t ii = 0; ii < c->nfields; ++ii) {
+    free(c->fields[ii].name);
+  }
+  free(c);
 }
 
 /// given an array of random weights, return the a weighted random selection, as the index in the
@@ -553,6 +649,22 @@ char *IndexSpec_GetRandomTerm(IndexSpec *sp, size_t sampleSize) {
   return samples[selection];
 }
 
+void IndexSpec_FreeWithKey(IndexSpec *sp, RedisModuleCtx *ctx) {
+  RedisModuleString *s = RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, sp->name);
+  RedisModuleKey *kk = RedisModule_OpenKey(ctx, s, REDISMODULE_WRITE);
+  RedisModule_FreeString(ctx, s);
+  if (kk == NULL || RedisModule_KeyType(kk) != REDISMODULE_KEYTYPE_MODULE ||
+      RedisModule_ModuleTypeGetType(kk) != IndexSpecType) {
+    if (kk != NULL) {
+      RedisModule_CloseKey(kk);
+    }
+    IndexSpec_Free(sp);
+    return;
+  }
+  assert(RedisModule_ModuleTypeGetValue(kk) == sp);
+  RedisModule_DeleteKey(kk);
+  RedisModule_CloseKey(kk);
+}
 static void IndexSpec_FreeInternals(IndexSpec *spec) {
   DropDocumentIndexer(spec->name);
   if (spec->gc) {
@@ -673,6 +785,8 @@ RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs)
       ret = fmtRedisNumericIndexKey(&sctx, fs->name);
     } else if (fs->type == FIELD_TAG) {
       ret = TagIndex_FormatName(&sctx, fs->name);
+    } else if (fs->type == FIELD_GEO) {
+      ret = RedisModule_CreateStringPrintf(sp->strCtx, GEOINDEX_KEY_FMT, sp->name, fs->name);
     } else {
       // Unknown
       ret = NULL;
@@ -683,6 +797,14 @@ RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs)
   }
   sp->indexStrs[fs->index] = ret;
   return ret;
+}
+
+RedisModuleString *IndexSpec_GetFormattedKeyByName(IndexSpec *sp, const char *s) {
+  const FieldSpec *fs = IndexSpec_GetField(sp, s, strlen(s));
+  if (!fs) {
+    return NULL;
+  }
+  return IndexSpec_GetFormattedKey(sp, fs);
 }
 
 t_fieldMask IndexSpec_ParseFieldMask(IndexSpec *sp, RedisModuleString **argv, int argc) {

@@ -11,7 +11,6 @@
 #include "spec.h"
 #include "tokenize.h"
 #include "util/logging.h"
-#include "search_request.h"
 #include "rmalloc.h"
 #include "indexer.h"
 #include "tag_index.h"
@@ -60,12 +59,13 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Doc
 
   for (int i = 0; i < doc->numFields; i++) {
     const DocumentField *f = doc->fields + i;
-    FieldSpec *fs = IndexSpec_GetField(sp, f->name, strlen(f->name));
+    const FieldSpec *fs = IndexSpec_GetField(sp, f->name, strlen(f->name));
     if (fs && f->text) {
 
       aCtx->fspecs[i] = *fs;
       if (dedupe[fs->index]) {
-        aCtx->errorString = DUP_FIELD_ERRSTR;
+        QueryError_SetErrorFmt(&aCtx->status, QUERY_EDUPFIELD, "Tried to insert `%s` twice",
+                               fs->name);
         return -1;
       }
 
@@ -115,7 +115,7 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Doc
   return 0;
 }
 
-RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b, const char **err) {
+RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b, QueryError *status) {
 
   if (!actxPool_g) {
     actxPool_g = mempool_new(16, allocDocumentContext, freeDocumentContext);
@@ -124,7 +124,7 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b, const char **err
   // Get a new context
   RSAddDocumentCtx *aCtx = mempool_get(actxPool_g);
   aCtx->stateFlags = 0;
-  aCtx->errorString = NULL;
+  QueryError_ClearError(&aCtx->status);
   aCtx->totalTokens = 0;
   aCtx->client.bc = NULL;
   aCtx->next = NULL;
@@ -137,7 +137,8 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b, const char **err
 
   // Assign the document:
   if (AddDocumentCtx_SetDocument(aCtx, sp, b, aCtx->doc.numFields) != 0) {
-    *err = aCtx->errorString;
+    *status = aCtx->status;
+    aCtx->status.detail = NULL;
     mempool_release(actxPool_g, aCtx);
     return NULL;
   }
@@ -165,11 +166,7 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b, const char **err
 }
 
 static void doReplyFinish(RSAddDocumentCtx *aCtx, RedisModuleCtx *ctx) {
-  if (aCtx->errorString) {
-    RedisModule_ReplyWithError(ctx, aCtx->errorString);
-  } else {
-    RedisModule_ReplyWithSimpleString(ctx, "OK");
-  }
+  aCtx->donecb(aCtx, ctx, NULL);
   AddDocumentCtx_Free(aCtx);
 }
 
@@ -232,7 +229,8 @@ static int AddDocumentCtx_ReplaceMerge(RSAddDocumentCtx *aCtx, RedisSearchCtx *s
   array_free(toLoad);
 
   if (rv != REDISMODULE_OK) {
-    RedisModule_ReplyWithError(sctx->redisCtx, "Error updating document");
+    QueryError_SetError(&aCtx->status, QUERY_ENODOC, "Could not load existing document");
+    aCtx->donecb(aCtx, sctx->redisCtx, NULL);
     AddDocumentCtx_Free(aCtx);
     return 1;
   }
@@ -311,18 +309,18 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
   }
 
   ByteOffsetWriter_Cleanup(&aCtx->offsetsWriter);
+  QueryError_ClearError(&aCtx->status);
 
   mempool_release(actxPool_g, aCtx);
 }
 
 #define FIELD_HANDLER(name)                                                                \
   static int name(RSAddDocumentCtx *aCtx, const DocumentField *field, const FieldSpec *fs, \
-                  fieldData *fdata, const char **errorString)
+                  fieldData *fdata, QueryError *status)
 
 #define FIELD_BULK_INDEXER(name)                                                    \
   static int name(IndexBulkData *bulk, RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx, \
-                  DocumentField *field, const FieldSpec *fs, fieldData *fdata,      \
-                  const char **errorString)
+                  DocumentField *field, const FieldSpec *fs, fieldData *fdata, QueryError *status)
 
 #define FIELD_BULK_CTOR(name) \
   static void name(IndexBulkData *bulk, const FieldSpec *fs, RedisSearchCtx *ctx)
@@ -377,7 +375,7 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
 
 FIELD_PREPROCESSOR(numericPreprocessor) {
   if (RedisModule_StringToDouble(field->text, &fdata->numeric) == REDISMODULE_ERR) {
-    *errorString = "Could not parse numeric index value";
+    QueryError_SetCode(status, QUERY_EPARSEARGS);
     return -1;
   }
 
@@ -405,7 +403,7 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
   const char *c = RedisModule_StringPtrLen(field->text, NULL);
   char *pos = strpbrk(c, " ,");
   if (!pos) {
-    *errorString = "Invalid lon/lat format. Use \"lon lat\" or \"lon,lat\"";
+    QueryError_SetCode(status, QUERY_EGEOFORMAT);
     return -1;
   }
   *pos = '\0';
@@ -420,7 +418,7 @@ FIELD_BULK_INDEXER(geoIndexer) {
   int rv = GeoIndex_AddStrings(&gi, aCtx->doc.docId, fdata->geo.slon, fdata->geo.slat);
 
   if (rv == REDISMODULE_ERR) {
-    *errorString = "Could not index geo value";
+    QueryError_SetError(status, QUERY_EGENERIC, "Could not index geo value");
     return -1;
   }
   return 0;
@@ -449,10 +447,11 @@ FIELD_BULK_CTOR(tagCtor) {
 FIELD_BULK_INDEXER(tagIndexer) {
   int rc = 0;
   if (!bulk->indexData) {
-    *errorString = "Could not open tag index for indexing";
+    QueryError_SetError(status, QUERY_EGENERIC, "Could not open tag index for indexing");
     rc = -1;
   } else {
-    TagIndex_Index(bulk->indexData, fdata->tags, aCtx->doc.docId);
+    TagIndex_Index(bulk->indexData, (const char **)fdata->tags, array_len(fdata->tags),
+                   aCtx->doc.docId);
   }
   if (fdata->tags) {
     TagIndex_FreePreprocessedData(fdata->tags);
@@ -511,7 +510,7 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx) {
       continue;
     }
 
-    if (pp(aCtx, &doc->fields[i], fs, fdata, &aCtx->errorString) != 0) {
+    if (pp(aCtx, &doc->fields[i], fs, fdata, &aCtx->status) != 0) {
       ourRv = REDISMODULE_ERR;
       goto cleanup;
     }
@@ -524,9 +523,7 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx) {
 
 cleanup:
   if (ourRv != REDISMODULE_OK) {
-    if (aCtx->errorString == NULL) {
-      aCtx->errorString = "ERR couldn't index document";
-    }
+    QueryError_SetCode(&aCtx->status, QUERY_EGENERIC);
     AddDocumentCtx_Finish(aCtx);
   }
   return ourRv;
@@ -540,94 +537,66 @@ cleanup:
  *
  * Returns  REDISMODULE_ERR on failure, OK otherwise*/
 int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const char *expr,
-                            int *result, char **err) {
+                            int *result, QueryError *status) {
+
+  int rc = REDISMODULE_ERR;
+  const RSDocumentMetadata *dmd = DocTable_GetByKeyR(&sctx->spec->docs, key);
+  if (!dmd) {
+    // We don't know the document...
+    QueryError_SetError(status, QUERY_ENODOC, "");
+    return REDISMODULE_ERR;
+  }
 
   // Try to parser the expression first, fail if we can't
-  RSExpr *e = RSExpr_Parse(expr, strlen(expr), err);
+  RSExpr *e = ExprAST_Parse(expr, strlen(expr), status);
   if (!e) {
     return REDISMODULE_ERR;
   }
 
-  // Get the fields needed to evaluate the expression, so we'll know what to load (if any)
-  const char **fields = Expr_GetRequiredFields(e);
-
-  Document doc = {.docKey = key};
-  // Get the metadata, which should include sortables
-  RSDocumentMetadata *md = DocTable_GetByKeyR(&sctx->spec->docs, doc.docKey);
-
-  // Make sure the field list only includes fields which are not already in the sorting vector
-  size_t loadFields = 0;
-  if (md && md->sortVector) {
-    // If a field is in the sorting vector, we simply skip it. n is the total fields not in the
-    // sorting vector
-    for (size_t i = 0; i < array_len(fields); i++) {
-      if (RSSortingTable_GetFieldIdx(sctx->spec->sortables, fields[i]) == -1) {
-        fields[loadFields++] = fields[i];
-      }
-    }
-  } else {
-    // If we don't have a sorting vector - we need to load all the fields.
-    loadFields = array_len(fields);
+  RLookup lookup_s;
+  RLookupRow row = {0};
+  IndexSpecCache *spcache = IndexSpec_GetSpecCache(sctx->spec);
+  RLookup_Init(&lookup_s, spcache);
+  if (ExprAST_GetLookupKeys(e, &lookup_s, status) == EXPR_EVAL_ERR) {
+    goto done;
   }
 
-  // loadFields > 0 means that some fields needed are not sortable and should be loaded from hash
-  if (loadFields > 0) {
-    if (Redis_LoadDocumentEx(sctx, key, fields, loadFields, &doc, NULL) == REDISMODULE_ERR) {
-      SET_ERR(err, "Could not load document");
-      array_free(fields);
-      return REDISMODULE_ERR;
-    }
+  RLookupLoadOptions loadopts = {.sctx = sctx, .dmd = dmd, .status = status};
+  if (RLookup_LoadDocument(&lookup_s, &row, &loadopts) != REDISMODULE_OK) {
+    // printf("Couldn't load document!\n");
+    goto done;
   }
 
-  // Create a field map from the document fields
-  RSFieldMap *fm = RS_NewFieldMap(doc.numFields);
-  for (int i = 0; i < doc.numFields; i++) {
-    RSFieldMap_Add(&fm, doc.fields[i].name, RS_RedisStringVal(doc.fields[i].text));
+  ExprEval evaluator = {.err = status, .lookup = &lookup_s, .res = NULL, .srcrow = &row, .root = e};
+  RSValue rv = RSVALUE_STATIC;
+  if (ExprEval_Eval(&evaluator, &rv) != EXPR_EVAL_OK) {
+    // printf("Eval not OK!!! SAD!!\n");
+    goto done;
   }
 
-  // create a mock search result
-  SearchResult res = (SearchResult){
-      .docId = doc.docId,
-      .fields = fm,
-      .scorerPrivateData = md,
-  };
-  // All this is needed to eval the expression
-  RSFunctionEvalCtx *fctx = RS_NewFunctionEvalCtx();
-  fctx->res = &res;
-  RSExprEvalCtx evctx = (RSExprEvalCtx){
-      .r = &res,
-      .sortables = sctx ? (sctx->spec ? sctx->spec->sortables : NULL) : NULL,
-      .fctx = fctx,
-  };
-  RSValue out = RSVALUE_STATIC;
-  int rc = REDISMODULE_OK;
+  *result = RSValue_BoolTest(&rv);
+  RSValue_Clear(&rv);
+  rc = REDISMODULE_OK;
 
-  // Now actually eval the expression
-  if (EXPR_EVAL_ERR == RSExpr_Eval(&evctx, e, &out, err)) {
-    rc = REDISMODULE_ERR;
-  } else {
-    // The result is the boolean value of the expression's output
-    *result = RSValue_BoolTest(&out);
+// Clean up:
+done:
+  if (e) {
+    ExprAST_Free(e);
   }
-
-  // Cleanup
-  array_free(fields);
-  RSFunctionEvalCtx_Free(fctx);
-  RSFieldMap_Free(fm);
-  RSExpr_Free(e);
-  Document_Free(&doc);
+  RLookupRow_Cleanup(&row);
+  RLookup_Cleanup(&lookup_s);
   return rc;
 }
 
 static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
-#define BAIL(s)            \
-  do {                     \
-    aCtx->errorString = s; \
-    goto done;             \
+#define BAIL(s)                                            \
+  do {                                                     \
+    QueryError_SetError(&aCtx->status, QUERY_EGENERIC, s); \
+    goto done;                                             \
   } while (0);
 
   Document *doc = &aCtx->doc;
-  t_docId docId = DocTable_GetId(&sctx->spec->docs, MakeDocKeyR(doc->docKey));
+  t_docId docId = DocTable_GetIdR(&sctx->spec->docs, doc->docKey);
   if (docId == 0) {
     BAIL("Couldn't load old document");
   }
@@ -648,7 +617,7 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
     // Update sortables if needed
     for (int i = 0; i < doc->numFields; i++) {
       DocumentField *f = &doc->fields[i];
-      FieldSpec *fs = IndexSpec_GetField(sctx->spec, f->name, strlen(f->name));
+      const FieldSpec *fs = IndexSpec_GetField(sctx->spec, f->name, strlen(f->name));
       if (fs == NULL || !FieldSpec_IsSortable(fs)) {
         continue;
       }
@@ -687,11 +656,7 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
   }
 
 done:
-  if (aCtx->errorString) {
-    RedisModule_ReplyWithError(sctx->redisCtx, aCtx->errorString);
-  } else {
-    RedisModule_ReplyWithSimpleString(sctx->redisCtx, "OK");
-  }
+  aCtx->donecb(aCtx, sctx->redisCtx, NULL);
   AddDocumentCtx_Free(aCtx);
 }
 

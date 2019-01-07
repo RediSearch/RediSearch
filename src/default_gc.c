@@ -38,7 +38,7 @@ typedef struct NumericFieldGCCtx {
 #define SPEC_STATUS_INVALID 2
 
 /* Internal definition of the garbage collector context (each index has one) */
-typedef struct GarbageCollectorCtx {
+struct GarbageCollectorCtx {
 
   // current frequency
   float hz;
@@ -57,8 +57,7 @@ typedef struct GarbageCollectorCtx {
   uint64_t specUniqueId;
 
   bool noLockMode;
-
-} GarbageCollectorCtx;
+};
 
 /* Create a new garbage collector, with a string for the index name, and initial frequency */
 GarbageCollectorCtx *NewGarbageCollector(const RedisModuleString *k, float initialHZ,
@@ -150,7 +149,6 @@ size_t gc_RandomTerm(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status) 
   RedisModule_Log(ctx, "debug", "New HZ: %f\n", gc->hz);
 end:
   if (sctx) {
-    RedisModule_CloseKey(sctx->key);
     SearchCtx_Free(sctx);
   }
   if (idxKey) RedisModule_CloseKey(idxKey);
@@ -285,7 +283,6 @@ end:
   }
 
   if (sctx) {
-    RedisModule_CloseKey(sctx->key);
     SearchCtx_Free(sctx);
   }
 
@@ -375,7 +372,6 @@ end:
   }
 
   if (sctx) {
-    RedisModule_CloseKey(sctx->key);
     SearchCtx_Free(sctx);
   }
 

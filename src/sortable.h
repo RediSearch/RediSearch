@@ -2,6 +2,11 @@
 #define __RS_SORTABLE_H__
 #include "redismodule.h"
 #include "value.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* Sortables - embedded sorting fields. When creating a schema we can specify fields that will be
  * sortable.
  * A sortable field means that its data will get copied into an inline table inside the index. right
@@ -72,9 +77,15 @@ RSValueType SortingTable_GetFieldType(RSSortingTable *tbl, const char *name, RSV
 int RSSortingVector_Cmp(RSSortingVector *self, RSSortingVector *other, RSSortingKey *sk);
 
 /* Put a value in the sorting vector */
-void RSSortingVector_Put(RSSortingVector *tbl, int idx, void *p, int type);
+void RSSortingVector_Put(RSSortingVector *tbl, int idx, const void *p, int type);
 
-RSValue *RSSortingVector_Get(RSSortingVector *v, RSSortingKey *k);
+/* Returns the value for a given index. Does not increment the refcount */
+static inline RSValue *RSSortingVector_Get(RSSortingVector *v, size_t index) {
+  if (v->len <= index) {
+    return NULL;
+  }
+  return v->values[index];
+}
 
 size_t RSSortingVector_GetMemorySize(RSSortingVector *v);
 
@@ -90,4 +101,7 @@ void SortingVector_RdbSave(RedisModuleIO *rdb, RSSortingVector *v);
 /* Load a sorting vector from RDB */
 RSSortingVector *SortingVector_RdbLoad(RedisModuleIO *rdb, int encver);
 
+#ifdef __cplusplus
+}
+#endif
 #endif

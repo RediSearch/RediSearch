@@ -24,7 +24,7 @@ static inline char *rm_strdup(const char *s) {
 }
 
 static char *rm_strndup(const char *s, size_t n) {
-  char *ret = rm_malloc(n + 1);
+  char *ret = (char *)rm_malloc(n + 1);
 
   if (ret) {
     ret[n] = '\0';

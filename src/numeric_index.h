@@ -14,6 +14,10 @@
 
 #define RT_LEAF_CARDINALITY_MAX 500
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct {
   double value;
   size_t appearances;
@@ -48,7 +52,9 @@ typedef struct rtNode {
   NumericRange *range;
 } NumericRangeNode;
 
-typedef struct { NumericRangeNode **nodesStack; } NumericRangeTreeIterator;
+typedef struct {
+  NumericRangeNode **nodesStack;
+} NumericRangeTreeIterator;
 
 /* The root tree and its metadata */
 typedef struct {
@@ -66,9 +72,9 @@ typedef struct {
 
 #define NumericRangeNode_IsLeaf(n) (n->left == NULL && n->right == NULL)
 
-struct indexIterator *NewNumericRangeIterator(NumericRange *nr, NumericFilter *f);
+struct indexIterator *NewNumericRangeIterator(NumericRange *nr, const NumericFilter *f);
 
-struct indexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, NumericFilter *flt,
+struct indexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const NumericFilter *flt,
                                                ConcurrentSearchCtx *csx);
 
 /* Add an entry to a numeric range node. Returns the cardinality of the range after the
@@ -121,4 +127,7 @@ NumericRangeTreeIterator *NumericRangeTreeIterator_New(NumericRangeTree *t);
 NumericRangeNode *NumericRangeTreeIterator_Next(NumericRangeTreeIterator *iter);
 void NumericRangeTreeIterator_Free(NumericRangeTreeIterator *iter);
 
+#ifdef __cplusplus
+}
+#endif
 #endif

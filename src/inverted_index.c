@@ -32,7 +32,7 @@ IndexBlock *InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId) {
   idx->size++;
   idx->blocks = rm_realloc(idx->blocks, idx->size * sizeof(IndexBlock));
   idx->blocks[idx->size - 1] = (IndexBlock){.firstId = firstId, .lastId = firstId, .numDocs = 0};
-  INDEX_LAST_BLOCK(idx).data = NewBuffer(INDEX_BLOCK_INITIAL_CAP);
+  Buffer_Init(&INDEX_LAST_BLOCK(idx).buf, INDEX_BLOCK_INITIAL_CAP);
   return &INDEX_LAST_BLOCK(idx);
 }
 
@@ -51,10 +51,7 @@ InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock) {
 }
 
 void indexBlock_Free(IndexBlock *blk) {
-  if (blk->data) {
-    Buffer_Free(blk->data);
-    free(blk->data);
-  }
+  Buffer_Free(&blk->buf);
 }
 
 void InvertedIndex_Free(void *ctx) {
@@ -66,6 +63,14 @@ void InvertedIndex_Free(void *ctx) {
   rm_free(idx);
 }
 
+static void IR_SetAtEnd(IndexReader *r, int value) {
+  if (r->isValidP) {
+    *r->isValidP = !value;
+  }
+  r->atEnd_ = value;
+}
+#define IR_IS_AT_END(ir) (ir)->atEnd_
+
 /* A callback called from the ConcurrentSearchCtx after regaining execution and reopening the
  * underlying term key. We check for changes in the underlying key, or possible deletion of it */
 void IndexReader_OnReopen(RedisModuleKey *k, void *privdata) {
@@ -73,7 +78,7 @@ void IndexReader_OnReopen(RedisModuleKey *k, void *privdata) {
   IndexReader *ir = privdata;
   // If the key has been deleted we'll get a NULL here, so we just mark ourselves as EOF
   if (k == NULL || RedisModule_ModuleTypeGetType(k) != InvertedIndexType) {
-    ir->atEnd = 1;
+    IR_SetAtEnd(ir, 1);
     ir->idx = NULL;
     ir->br.buf = NULL;
     return;
@@ -86,7 +91,7 @@ void IndexReader_OnReopen(RedisModuleKey *k, void *privdata) {
   if (ir->gcMarker == ir->idx->gcMarker) {
     // no GC - we just go to the same offset we were at
     size_t offset = ir->br.pos;
-    ir->br = NewBufferReader(IR_CURRENT_BLOCK(ir).data);
+    ir->br = NewBufferReader(&IR_CURRENT_BLOCK(ir).buf);
     ir->br.pos = offset;
   } else {
     // if there has been a GC cycle on this key while we were asleep, the offset might not be valid
@@ -94,7 +99,7 @@ void IndexReader_OnReopen(RedisModuleKey *k, void *privdata) {
 
     // reset the state of the reader
     t_docId lastId = ir->lastId;
-    ir->br = NewBufferReader(IR_CURRENT_BLOCK(ir).data);
+    ir->br = NewBufferReader(&IR_CURRENT_BLOCK(ir).buf);
     ir->lastId = IR_CURRENT_BLOCK(ir).firstId;
 
     // seek to the previous last id
@@ -415,7 +420,7 @@ size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
     delta = 0;
   }
 
-  BufferWriter bw = NewBufferWriter(blk->data);
+  BufferWriter bw = NewBufferWriter(&blk->buf);
 
   // printf("Writing docId %llu, delta %llu, flags %x\n", docId, delta, (int)idx->flags);
   size_t ret = encoder(&bw, delta, entry);
@@ -456,14 +461,9 @@ size_t InvertedIndex_WriteNumericEntry(InvertedIndex *idx, t_docId docId, double
   return InvertedIndex_WriteEntryGeneric(idx, encodeNumeric, docId, &rec);
 }
 
-int IR_HasNext(void *ctx) {
-  IndexReader *ir = ctx;
-  return !ir->atEnd;
-}
-
 static void IndexReader_AdvanceBlock(IndexReader *ir) {
   ir->currentBlock++;
-  ir->br = NewBufferReader(IR_CURRENT_BLOCK(ir).data);
+  ir->br = NewBufferReader(&IR_CURRENT_BLOCK(ir).buf);
   ir->lastId = IR_CURRENT_BLOCK(ir).firstId;
 }
 
@@ -478,9 +478,10 @@ static void IndexReader_AdvanceBlock(IndexReader *ir) {
  *
  ******************************************************************************/
 
-#define DECODER(name) static int name(BufferReader *br, IndexDecoderCtx ctx, RSIndexResult *res)
+#define DECODER(name) \
+  static int name(BufferReader *br, const IndexDecoderCtx *ctx, RSIndexResult *res)
 
-#define CHECK_FLAGS(ctx, res) return ((res->fieldMask & ctx.num) != 0)
+#define CHECK_FLAGS(ctx, res) return ((res->fieldMask & ctx->num) != 0)
 
 DECODER(readFreqsFlags) {
   qint_decode3(br, (uint32_t *)&res->docId, &res->freq, (uint32_t *)&res->fieldMask);
@@ -498,8 +499,8 @@ DECODER(readFreqsFlagsWide) {
 DECODER(readFreqOffsetsFlags) {
   qint_decode4(br, (uint32_t *)&res->docId, &res->freq, (uint32_t *)&res->fieldMask,
                &res->offsetsSz);
-
-  res->term.offsets = (RSOffsetVector){.data = BufferReader_Current(br), .len = res->offsetsSz};
+  res->term.offsets.data = BufferReader_Current(br);
+  res->term.offsets.len = res->offsetsSz;
   Buffer_Skip(br, res->offsetsSz);
   CHECK_FLAGS(ctx, res);
 }
@@ -549,10 +550,15 @@ DECODER(readNumeric) {
     }
   }
 
-  NumericFilter *f = ctx.ptr;
+  // printf("res->num.value: %lf\n", res->num.value);
+
+  NumericFilter *f = ctx->ptr;
   if (f) {
-    return NumericFilter_Match(f, res->num.value);
+    int rv = NumericFilter_Match(f, res->num.value);
+    // printf("Checking against filter: %d\n", rv);
+    return rv;
   }
+  // printf("Field matches.. hurray!\n");
   return 1;
 }
 
@@ -667,20 +673,20 @@ IndexDecoder InvertedIndex_GetDecoder(uint32_t flags) {
   }
 }
 
-IndexReader *NewNumericReader(InvertedIndex *idx, NumericFilter *flt) {
+IndexReader *NewNumericReader(InvertedIndex *idx, const NumericFilter *flt) {
   RSIndexResult *res = NewNumericResult();
   res->freq = 1;
   res->fieldMask = RS_FIELDMASK_ALL;
   res->num.value = 0;
 
-  IndexDecoderCtx ctx = {.ptr = flt};
+  IndexDecoderCtx ctx = {.ptr = (void *)flt};
   return NewIndexReaderGeneric(idx, readNumeric, ctx, res, 1);
 }
 
 int IR_Read(void *ctx, RSIndexResult **e) {
 
   IndexReader *ir = ctx;
-  if (ir->atEnd) {
+  if (IR_IS_AT_END(ir)) {
     goto eof;
   }
   do {
@@ -695,18 +701,19 @@ int IR_Read(void *ctx, RSIndexResult **e) {
     }
 
     size_t pos = ir->br.pos;
-    int rv = ir->decoder(&ir->br, ir->decoderCtx, ir->record);
+    int rv = ir->decoder(&ir->br, &ir->decoderCtx, ir->record);
+    RSIndexResult *record = ir->record;
 
     // We write the docid as a 32 bit number when decoding it with qint.
-    uint32_t delta = *(uint32_t *)&ir->record->docId;
+    uint32_t delta = *(uint32_t *)&record->docId;
     if (pos == 0 && delta != 0) {
       // this is an old version rdb, the first entry is the docid itself and
       // not the delta
-      ir->record->docId = delta;
+      record->docId = delta;
     } else {
-      ir->record->docId = delta + ir->lastId;
+      record->docId = delta + ir->lastId;
     }
-    ir->lastId = ir->record->docId;
+    ir->lastId = record->docId;
 
     // The decoder also acts as a filter. A zero return value means that the
     // current record should not be processed.
@@ -715,18 +722,15 @@ int IR_Read(void *ctx, RSIndexResult **e) {
     }
 
     ++ir->len;
-    *e = ir->record;
+    *e = record;
     return INDEXREAD_OK;
 
   } while (1);
 eof:
-  ir->atEnd = 1;
+  IR_SetAtEnd(ir, 1);
   return INDEXREAD_EOF;
 }
 
-RSIndexResult *IR_Current(void *ctx) {
-  return ((IndexReader *)ctx)->record;
-}
 inline void IR_Seek(IndexReader *ir, t_offset offset, t_docId docId) {
   Buffer_Seek(&ir->br, offset);
   ir->lastId = docId;
@@ -768,7 +772,7 @@ static int IndexReader_SkipToBlock(IndexReader *ir, t_docId docId) {
 
 found:
   ir->lastId = IR_CURRENT_BLOCK(ir).firstId;
-  ir->br = NewBufferReader(IR_CURRENT_BLOCK(ir).data);
+  ir->br = NewBufferReader(&IR_CURRENT_BLOCK(ir).buf);
   return 1;
 }
 
@@ -790,7 +794,7 @@ int IR_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
   if (!docId) {
     return IR_Read(ctx, hit);
   }
-  if (ir->atEnd) goto eof;
+  if (IR_IS_AT_END(ir)) goto eof;
   if (docId > ir->idx->lastId) goto eof;
 
   // try to skip to the current block
@@ -810,7 +814,7 @@ int IR_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
     return INDEXREAD_NOTFOUND;
   }
 eof:
-  ir->atEnd = 1;
+  IR_SetAtEnd(ir, 1);
   return INDEXREAD_EOF;
 }
 
@@ -820,22 +824,27 @@ size_t IR_NumDocs(void *ctx) {
   return ir->len;
 }
 
+static void IndexReader_Init(IndexReader *ret, InvertedIndex *idx, IndexDecoder decoder,
+                             IndexDecoderCtx decoderCtx, RSIndexResult *record, double weight) {
+  ret->currentBlock = 0;
+  ret->idx = idx;
+  ret->gcMarker = idx->gcMarker;
+  ret->record = record;
+  ret->len = 0;
+  ret->weight = weight;
+  ret->lastId = IR_CURRENT_BLOCK(ret).firstId;
+  ret->br = NewBufferReader(&IR_CURRENT_BLOCK(ret).buf);
+  ret->decoder = decoder;
+  ret->decoderCtx = decoderCtx;
+  ret->isValidP = NULL;
+  IR_SetAtEnd(ret, 0);
+}
+
 static IndexReader *NewIndexReaderGeneric(InvertedIndex *idx, IndexDecoder decoder,
                                           IndexDecoderCtx decoderCtx, RSIndexResult *record,
                                           double weight) {
   IndexReader *ret = rm_malloc(sizeof(IndexReader));
-  ret->currentBlock = 0;
-  ret->idx = idx;
-
-  ret->gcMarker = idx->gcMarker;
-  ret->record = record;
-  ret->len = 0;
-  ret->atEnd = 0;
-  ret->weight = weight;
-  ret->lastId = IR_CURRENT_BLOCK(ret).firstId;
-  ret->br = NewBufferReader(IR_CURRENT_BLOCK(ret).data);
-  ret->decoder = decoder;
-  ret->decoderCtx = decoderCtx;
+  IndexReader_Init(ret, idx, decoder, decoderCtx, record, weight);
   return ret;
 }
 
@@ -869,7 +878,7 @@ void IR_Free(IndexReader *ir) {
 
 void IR_Abort(void *ctx) {
   IndexReader *it = ctx;
-  it->atEnd = 1;
+  IR_SetAtEnd(it, 1);
 }
 
 void ReadIterator_Free(IndexIterator *it) {
@@ -888,12 +897,17 @@ inline t_docId IR_LastDocId(void *ctx) {
 void IR_Rewind(void *ctx) {
 
   IndexReader *ir = ctx;
-  ir->atEnd = 0;
+  IR_SetAtEnd(ir, 0);
   ir->currentBlock = 0;
   ir->gcMarker = ir->idx->gcMarker;
-  ir->br = NewBufferReader(IR_CURRENT_BLOCK(ir).data);
+  ir->br = NewBufferReader(&IR_CURRENT_BLOCK(ir).buf);
   ir->lastId = IR_CURRENT_BLOCK(ir).firstId;
 }
+
+typedef struct {
+  IndexIterator it;
+  IndexReader ir;
+} IRIndexIterator;
 
 IndexIterator *NewReadIterator(IndexReader *ir) {
   IndexIterator *ri = rm_malloc(sizeof(IndexIterator));
@@ -901,12 +915,15 @@ IndexIterator *NewReadIterator(IndexReader *ir) {
   ri->Read = IR_Read;
   ri->SkipTo = IR_SkipTo;
   ri->LastDocId = IR_LastDocId;
-  ri->HasNext = IR_HasNext;
   ri->Free = ReadIterator_Free;
   ri->Len = IR_NumDocs;
-  ri->Current = IR_Current;
   ri->Abort = IR_Abort;
   ri->Rewind = IR_Rewind;
+  ri->HasNext = NULL;
+  ri->isValid = !ir->atEnd_;
+  ri->current = ir->record;
+
+  ir->isValidP = &ri->isValid;
   return ri;
 }
 
@@ -920,14 +937,14 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepa
 
   t_docId oldFirstBlock = blk->lastId;
   blk->lastId = blk->firstId = 0;
-  Buffer repair = *blk->data;
+  Buffer repair = blk->buf;
   repair.offset = 0;
 
-  BufferReader br = NewBufferReader(blk->data);
+  BufferReader br = NewBufferReader(&blk->buf);
   BufferWriter bw = NewBufferWriter(&repair);
 
   RSIndexResult *res = flags == Index_StoreNumeric ? NewNumericResult() : NewTokenRecord(NULL, 1);
-  int frags = 0;
+  size_t frags = 0;
 
   uint32_t readFlags = flags & INDEX_STORAGE_MASK;
   IndexDecoder decoder = InvertedIndex_GetDecoder(readFlags);
@@ -939,8 +956,9 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepa
   }
 
   while (!BufferReader_AtEnd(&br)) {
+    static const IndexDecoderCtx empty = {0};
     const char *bufBegin = BufferReader_Current(&br);
-    decoder(&br, (IndexDecoderCtx){}, res);
+    decoder(&br, &empty, res);
     size_t sz = BufferReader_Current(&br) - bufBegin;
     if (!(isFirstRes && res->docId != 0)) {
       // if we are entering this here
@@ -992,8 +1010,8 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepa
     // If we deleted stuff from this block, we need to change the number of docs and the data
     // pointer
     blk->numDocs -= frags;
-    *blk->data = repair;
-    Buffer_Truncate(blk->data, 0);
+    blk->buf = repair;
+    Buffer_ShrinkToSize(&blk->buf);
   }
   if (blk->numDocs == 0) {
     // if we left with no elements we do need to keep the

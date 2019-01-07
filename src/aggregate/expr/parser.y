@@ -31,6 +31,7 @@
 %include {
 #include "token.h"
 #include "expression.h"
+#include "exprast.h"
 #include "parser.h"
 
 }
@@ -60,7 +61,7 @@ expr(A) ::= expr(B) GT expr(C). { A = RS_NewPredicate(RSCondition_Gt, B, C); }
 expr(A) ::= expr(B) GE expr(C). { A = RS_NewPredicate(RSCondition_Ge, B, C); }
 expr(A) ::= expr(B) AND expr(C). { A = RS_NewPredicate(RSCondition_And, B, C); }
 expr(A) ::= expr(B) OR expr(C). { A = RS_NewPredicate(RSCondition_Or, B, C); }
-expr(A) ::= NOT expr(B). { A = RS_NewPredicate(RSCondition_Not, B, NULL); }
+expr(A) ::= NOT expr(B). { A = RS_NewInverted(B); }
 
 
 expr(A) ::= STRING(B). { A =  RS_NewStringLiteral((char*)B.s, B.len); }

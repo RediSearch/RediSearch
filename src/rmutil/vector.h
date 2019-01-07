@@ -4,11 +4,14 @@
 #include <string.h>
 #include <stdarg.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
 /*
-* Generic resizable vector that can be used if you just want to store stuff
-* temporarily.
-* Works like C++ std::vector with an underlying resizable buffer
-*/
+ * Generic resizable vector that can be used if you just want to store stuff
+ * temporarily.
+ * Works like C++ std::vector with an underlying resizable buffer
+ */
 typedef struct {
   char *data;
   size_t elemSize;
@@ -25,16 +28,16 @@ Vector *__newVectorSize(size_t elemSize, size_t cap);
 int __vector_PutPtr(Vector *v, size_t pos, void *elem);
 
 /*
-* Create a new vector for a given type and a given capacity.
-* e.g. NewVector(int, 0) - empty vector of ints
-*/
+ * Create a new vector for a given type and a given capacity.
+ * e.g. NewVector(int, 0) - empty vector of ints
+ */
 #define NewVector(type, cap) __newVectorSize(sizeof(type), cap)
 
 /*
-* get the element at index pos. The value is copied in to ptr. If pos is outside
-* the vector capacity, we return 0
-* otherwise 1
-*/
+ * get the element at index pos. The value is copied in to ptr. If pos is outside
+ * the vector capacity, we return 0
+ * otherwise 1
+ */
 int Vector_Get(Vector *v, size_t pos, void *ptr);
 
 /* Get the element at the end of the vector, decreasing the size by one */
@@ -44,9 +47,9 @@ int Vector_Pop(Vector *v, void *ptr);
 //*(typeof(ptr))(v->data + v->elemSize*pos)
 
 /*
-* Put an element at pos.
-* Note: If pos is outside the vector capacity, we resize it accordingly
-*/
+ * Put an element at pos.
+ * Note: If pos is outside the vector capacity, we resize it accordingly
+ */
 #define Vector_Put(v, pos, elem) __vector_PutPtr(v, pos, elem ? &(typeof(elem)){elem} : NULL)
 
 /* Push an element at the end of v, resizing it if needed. This macro wraps
@@ -73,4 +76,7 @@ void Vector_FreeEx(Vector *v, void (*freeCB)(void *));
 
 int __vecotr_PutPtr(Vector *v, size_t pos, void *elem);
 
+#ifdef __cplusplus
+}
+#endif
 #endif

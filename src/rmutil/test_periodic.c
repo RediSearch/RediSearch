@@ -5,6 +5,8 @@
 #include "assert.h"
 #include "test.h"
 
+REDISMODULE_INIT_SYMBOLS();
+
 int timerCb(RedisModuleCtx *ctx, void *p) {
   int *x = p;
   (*x)++;

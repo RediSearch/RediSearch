@@ -10,20 +10,19 @@
 #define ISOFMT_LEN sizeof(ISOFMT) - 1
 
 // TIME(propert, [fmt_string])
-static int timeFormat(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *argv, int argc,
-                      char **err) {
-
+static int timeFormat(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,
+                      QueryError *err) {
   VALIDATE_ARGS("time", 1, 2, err);
   const char *fmt = ISOFMT;
   if (argc == 2) {
     VALIDATE_ARG_TYPE("time", argv, 1, RSValue_String);
-    fmt = RSValue_StringPtrLen(&argv[1], NULL);
+    fmt = RSValue_StringPtrLen(argv[1], NULL);
   }
   // Get the format
-  static char timebuf[1024] = {0};  // Should be enough for any human time string
+  char timebuf[1024] = {0};  // Should be enough for any human time string
   double n;
   // value is not a number
-  if (!RSValue_ToNumber(&argv[0], &n)) {
+  if (!RSValue_ToNumber(argv[0], &n)) {
     goto err;
   }
   time_t tt = (time_t)n;
@@ -40,7 +39,7 @@ static int timeFormat(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *argv, in
   }
 
   // Finally, allocate a buffer to store the time!
-  char *buf = RSFunction_Strndup(ctx, timebuf, rv);
+  char *buf = ExprEval_Strndup(ctx, timebuf, rv);
 
   // It will be released by the block allocator destruction, so we refer to it is a static string so
   // the value ref counter will not release it
@@ -72,11 +71,11 @@ time_t fast_timegm(const struct tm *ltm) {
   return (tdays * 86400) + (ltm->tm_hour * 3600) + (ltm->tm_min * 60) + ltm->tm_sec;
 }
 
-static int func_hour(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *argv, int argc, char **err) {
+static int func_hour(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc, QueryError *err) {
   VALIDATE_ARGS("hour", 1, 1, err);
 
   double d;
-  if (!RSValue_ToNumber(&argv[0], &d) || d < 0) {
+  if (!RSValue_ToNumber(argv[0], &d) || d < 0) {
     goto err;
   }
   time_t ts = (time_t)d;
@@ -96,12 +95,12 @@ err:
   return EXPR_EVAL_OK;
 }
 
-static int func_minute(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *argv, int argc,
-                       char **err) {
+static int func_minute(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,
+                       QueryError *err) {
   VALIDATE_ARGS("minute", 1, 1, err);
 
   double d;
-  if (!RSValue_ToNumber(&argv[0], &d) || d < 0) {
+  if (!RSValue_ToNumber(argv[0], &d) || d < 0) {
     goto err;
   }
   RSValue_SetNumber(result, floor(d - fmod(d, 60)));
@@ -114,11 +113,11 @@ err:
 }
 
 /* Round timestamp to its day start */
-static int func_day(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *argv, int argc, char **err) {
+static int func_day(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc, QueryError *err) {
   VALIDATE_ARGS("day", 1, 1, err);
 
   double d;
-  if (!RSValue_ToNumber(&argv[0], &d) || d < 0) {
+  if (!RSValue_ToNumber(argv[0], &d) || d < 0) {
     goto err;
   }
   time_t ts = (time_t)d;
@@ -138,12 +137,12 @@ err:
   return EXPR_EVAL_OK;
 }
 
-static int func_dayofmonth(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *argv, int argc,
-                           char **err) {
+static int func_dayofmonth(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,
+                           QueryError *err) {
   VALIDATE_ARGS("dayofmonth", 1, 1, err);
 
   double d;
-  if (!RSValue_ToNumber(&argv[0], &d) || d < 0) {
+  if (!RSValue_ToNumber(argv[0], &d) || d < 0) {
     goto err;
   }
   time_t ts = (time_t)d;
@@ -159,12 +158,12 @@ err:
   return EXPR_EVAL_OK;
 }
 
-static int func_dayofweek(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *argv, int argc,
-                          char **err) {
+static int func_dayofweek(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,
+                          QueryError *err) {
   VALIDATE_ARGS("dayofweek", 1, 1, err);
 
   double d;
-  if (!RSValue_ToNumber(&argv[0], &d) || d < 0) {
+  if (!RSValue_ToNumber(argv[0], &d) || d < 0) {
     goto err;
   }
   time_t ts = (time_t)d;
@@ -180,12 +179,12 @@ err:
   return EXPR_EVAL_OK;
 }
 
-static int func_dayofyear(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *argv, int argc,
-                          char **err) {
+static int func_dayofyear(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,
+                          QueryError *err) {
   VALIDATE_ARGS("dayofyear", 1, 1, err);
 
   double d;
-  if (!RSValue_ToNumber(&argv[0], &d) || d < 0) {
+  if (!RSValue_ToNumber(argv[0], &d) || d < 0) {
     goto err;
   }
   time_t ts = (time_t)d;
@@ -201,11 +200,11 @@ err:
   return EXPR_EVAL_OK;
 }
 
-static int func_year(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *argv, int argc, char **err) {
+static int func_year(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc, QueryError *err) {
   VALIDATE_ARGS("year", 1, 1, err);
 
   double d;
-  if (!RSValue_ToNumber(&argv[0], &d) || d < 0) {
+  if (!RSValue_ToNumber(argv[0], &d) || d < 0) {
     goto err;
   }
   time_t ts = (time_t)d;
@@ -221,12 +220,12 @@ err:
 }
 
 /* Round a timestamp to the beginning of the month */
-static int func_month(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *argv, int argc,
-                      char **err) {
+static int func_month(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,
+                      QueryError *err) {
   VALIDATE_ARGS("month", 1, 1, err);
 
   double d;
-  if (!RSValue_ToNumber(&argv[0], &d) || d < 0) {
+  if (!RSValue_ToNumber(argv[0], &d) || d < 0) {
     goto err;
   }
   time_t ts = (time_t)d;
@@ -246,12 +245,12 @@ err:
   return EXPR_EVAL_OK;
 }
 
-static int func_monthofyear(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *argv, int argc,
-                            char **err) {
+static int func_monthofyear(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,
+                            QueryError *err) {
   VALIDATE_ARGS("monthofyear", 1, 1, err);
 
   double d;
-  if (!RSValue_ToNumber(&argv[0], &d) || d < 0) {
+  if (!RSValue_ToNumber(argv[0], &d) || d < 0) {
     goto err;
   }
   time_t ts = (time_t)d;
@@ -266,7 +265,7 @@ err:
   return EXPR_EVAL_OK;
 }
 
-static int parseTime(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *argv, int argc, char **err) {
+static int parseTime(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc, QueryError *err) {
   VALIDATE_ARGS("parse_time", 2, 2, err);
   VALIDATE_ARG_ISSTRING("parse_time", argv, 0);
   VALIDATE_ARG_ISSTRING("parse_time", argv, 1);
@@ -275,13 +274,13 @@ static int parseTime(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *argv, int
   char valbuf[1024] = {0};
   size_t fmtlen;
 
-  const char *origfmt = RSValue_StringPtrLen(&argv[0], &fmtlen);
+  const char *origfmt = RSValue_StringPtrLen(argv[0], &fmtlen);
   if (fmtlen > sizeof(fmtbuf)) {
     goto err;
   }
 
   size_t vallen;
-  const char *origval = RSValue_StringPtrLen(&argv[1], &vallen);
+  const char *origval = RSValue_StringPtrLen(argv[1], &vallen);
   if (vallen > sizeof(valbuf)) {
     goto err;
   }

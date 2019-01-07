@@ -72,8 +72,10 @@ def testCapacities(env):
     cursors1 = []
     cursors2 = []
     for _ in range(128):
-        cursors1.append(env.cmd( * q1))
-        cursors2.append(env.cmd( * q2))
+        r1 = env.cmd(*q1)
+        r2 = env.cmd(*q2)
+        cursors1.append(r1)
+        cursors2.append(r2)
 
     # Get info for the cursors
     info = getCursorStats(env, 'idx1')

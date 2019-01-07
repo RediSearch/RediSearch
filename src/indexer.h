@@ -60,14 +60,14 @@ int Indexer_Add(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx);
  * This function is called with the GIL released.
  */
 typedef int (*PreprocessorFunc)(RSAddDocumentCtx *aCtx, const DocumentField *field,
-                                const FieldSpec *fs, fieldData *fdata, const char **errorString);
+                                const FieldSpec *fs, fieldData *fdata, QueryError *status);
 
 /**
  * Function to write the entry for the field into the actual index. This is called
  * with the GIL locked, and it should therefore only write data, and nothing more.
  */
 typedef int (*IndexerFunc)(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx, const DocumentField *field,
-                           const FieldSpec *fs, fieldData *fdata, const char **errorString);
+                           const FieldSpec *fs, fieldData *fdata, QueryError *status);
 
 /**
  * Get the preprocessor function for a given index type
@@ -84,8 +84,7 @@ typedef struct {
 typedef struct {
   void (*BulkInit)(IndexBulkData *bulk, const FieldSpec *fs, RedisSearchCtx *sctx);
   int (*BulkAdd)(IndexBulkData *bulk, RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx,
-                 DocumentField *field, const FieldSpec *fs, fieldData *fdata,
-                 const char **errorString);
+                 DocumentField *field, const FieldSpec *fs, fieldData *fdata, QueryError *status);
   void (*BulkDone)(IndexBulkData *bulk, RedisSearchCtx *ctx);
 } BulkIndexer;
 

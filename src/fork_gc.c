@@ -128,13 +128,7 @@ static bool ForkGc_InvertedIndexRepair(ForkGCCtx *gc, RedisSearchCtx *sctx, Inve
     ForkGc_FDWriteLongLong(gc->pipefd[GC_WRITERFD], blk->numDocs);
     ForkGc_FDWriteLongLong(gc->pipefd[GC_WRITERFD],
                            numDocsBefore[blocksFixed[i]]);  // send num docs before
-    if (blk->data->data) {
-      ForkGc_FDWriteBuffer(gc->pipefd[GC_WRITERFD], blk->data->data, blk->data->cap);
-      ForkGc_FDWriteLongLong(gc->pipefd[GC_WRITERFD], blk->data->offset);
-    } else {
-      ForkGc_FDWriteBuffer(gc->pipefd[GC_WRITERFD], NULL, 0);
-      ForkGc_FDWriteLongLong(gc->pipefd[GC_WRITERFD], 0);
-    }
+    ForkGc_FDWriteBuffer(gc->pipefd[GC_WRITERFD], IndexBlock_DataBuf(blk), IndexBlock_DataLen(blk));
   }
   array_free(blocksFixed);
   return true;
@@ -301,7 +295,6 @@ static void ForkGc_CollectGarbage(ForkGCCtx *gc) {
   ForkGc_CollectGarbageFromTagIdx(gc, sctx);
 
   if (sctx) {
-    RedisModule_CloseKey(sctx->key);
     SearchCtx_Free(sctx);
     RedisModule_FreeThreadSafeContext(rctx);
   }
@@ -325,16 +318,10 @@ static void ForkGc_ReadModifiedBlock(ForkGCCtx *gc, ModifiedBlock *blockModified
   blockModified->blk.lastId = ForkGc_FDReadLongLong(gc->pipefd[GC_READERFD]);
   blockModified->blk.numDocs = ForkGc_FDReadLongLong(gc->pipefd[GC_READERFD]);
   blockModified->numBlocksBefore = ForkGc_FDReadLongLong(gc->pipefd[GC_READERFD]);
-  size_t cap;
-  char *data = ForkGc_FDReadBuffer(gc->pipefd[GC_READERFD], &cap);
-  blockModified->blk.data = malloc(sizeof(Buffer));
-  blockModified->blk.data->offset = ForkGc_FDReadLongLong(gc->pipefd[GC_READERFD]);
-  ;
-  blockModified->blk.data->cap = cap;
-  blockModified->blk.data->data = data;
-  if (data == NULL) {
-    // todo : we have a new empty block, lets count it in stats somehow.
-  }
+
+  Buffer *b = &blockModified->blk.buf;
+  b->data = ForkGc_FDReadBuffer(gc->pipefd[GC_READERFD], &b->offset);
+  b->cap = b->offset;
 }
 
 static bool ForkGc_ReadInvertedIndexFromFork(ForkGCCtx *gc, ForkGc_InvertedIndexData *idxData) {
@@ -362,13 +349,10 @@ static void ForkGc_FixInvertedIndex(ForkGCCtx *gc, ForkGc_InvertedIndexData *idx
     ModifiedBlock *blockModified = idxData->blocksModified + i;
     if (blockModified->numBlocksBefore == idx->blocks[blockModified->blockIndex].numDocs) {
       indexBlock_Free(&idx->blocks[blockModified->blockIndex]);
-      idx->blocks[blockModified->blockIndex].data = blockModified->blk.data;
-      idx->blocks[blockModified->blockIndex].firstId = blockModified->blk.firstId;
-      idx->blocks[blockModified->blockIndex].lastId = blockModified->blk.lastId;
-      idx->blocks[blockModified->blockIndex].numDocs = blockModified->blk.numDocs;
+      idx->blocks[blockModified->blockIndex] = blockModified->blk;
     } else {
       gc->stats.gcBlocksDenied++;
-      Buffer_Free(blockModified->blk.data);
+      Buffer_Free(&blockModified->blk.buf);
     }
   }
 }
@@ -418,7 +402,6 @@ cleanup:
     RedisModule_CloseKey(idxKey);
   }
   if (sctx) {
-    RedisModule_CloseKey(sctx->key);
     SearchCtx_Free(sctx);
   }
   if (term) {
@@ -517,7 +500,6 @@ static bool ForkGc_ReadNumericInvertedIndex(ForkGCCtx *gc, int *ret_val, RedisMo
   loop_cleanup:
     RedisModule_ThreadSafeContextUnlock(rctx);
     if (sctx) {
-      RedisModule_CloseKey(sctx->key);
       SearchCtx_Free(sctx);
     }
     if (idxData.blocksModified) {
@@ -584,7 +566,6 @@ static bool ForkGc_ReadTagIndex(ForkGCCtx *gc, int *ret_val, RedisModuleCtx *rct
   loop_cleanup:
     RedisModule_ThreadSafeContextUnlock(rctx);
     if (sctx) {
-      RedisModule_CloseKey(sctx->key);
       SearchCtx_Free(sctx);
     }
     if (idxData.blocksModified) {

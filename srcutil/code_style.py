@@ -16,6 +16,16 @@ GIT_STATUS_PATTERNS = [
     'src/*.[ch]pp'
 ]
 
+IGNPTRN = [
+        'src/aggregate/expr/lexer.c',
+        'src/redismodule.h',
+        'src/dep/gtest'
+]
+
+IGNOREPATHS = []
+for f in IGNPTRN:
+    IGNOREPATHS += glob.glob(f)
+
 ap = ArgumentParser()
 ap.add_argument('-f', '--path',
     help="Manual path or glob to format", metavar="FILE_OR_DIR")
@@ -67,8 +77,23 @@ else:
         elif status[0] in ('M', 'A'):
             files.append(line[3:])
 
+
+print IGNOREPATHS
 has_error = False
 for f in files:
+    is_skip = True
+    if f in IGNOREPATHS:
+        print f + ' [SKIP]'
+        continue
+    for p in IGNOREPATHS:
+        if f.startswith(p):
+            print f + ' [SKIP]'
+            is_skip = True
+            break
+
+    if is_skip:
+        continue
+
     cmd = ['clang-format'] + CLANG_ARGS + ['-output-replacements-xml', f]
     if options.verbose:
         print "Executing", cmd

@@ -3,8 +3,10 @@
 
 #include <stopwords.h>
 #include <redisearch.h>
-#include <sortable.h>
+#include "numeric_filter.h"
+#include "geo_index.h"
 #include "config.h"
+#include "rlookup.h"
 
 typedef enum {
   // No summaries
@@ -32,7 +34,10 @@ typedef struct {
 } HighlightSettings;
 
 typedef struct {
-  char *name;
+  const char *name;
+
+  /* Lookup key associated with field */
+  const RLookupKey *lookupKey;
   SummarizeSettings summarizeSettings;
   HighlightSettings highlightSettings;
   SummarizeMode mode;
@@ -41,32 +46,27 @@ typedef struct {
 } ReturnedField;
 
 typedef struct {
+  // "Template" field. This contains settings applied to all other fields
   ReturnedField defaultField;
 
   // List of individual field specifications
   ReturnedField *fields;
   size_t numFields;
-  uint16_t wantSummaries;
+
   // Whether this list contains fields explicitly selected by `RETURN`
   uint16_t explicitReturn;
 } FieldList;
 
-ReturnedField *FieldList_GetCreateField(FieldList *fields, RedisModuleString *rname);
+ReturnedField *FieldList_GetCreateField(FieldList *fields, const char *name);
 void FieldList_Free(FieldList *fields);
 
+int ParseSummarize(ArgsCursor *ac, FieldList *fields);
+int ParseHighlight(ArgsCursor *ac, FieldList *fields);
+
 typedef enum {
-  Search_NoContent = 0x01,
   Search_Verbatim = 0x02,
   Search_NoStopwrods = 0x04,
-
-  Search_WithScores = 0x08,
-  Search_WithPayloads = 0x10,
-
   Search_InOrder = 0x20,
-
-  Search_WithSortKeys = 0x40,
-  Search_AggregationQuery = 0x80,
-  Search_IsCursor = 0x100,
   Search_HasSlop = 0x200
 } RSSearchFlags;
 
@@ -76,68 +76,31 @@ typedef enum {
 #define SEARCH_REQUEST_RESULTS_MAX 1000000
 
 typedef struct {
-  /* The index name - since we need to open the spec in a side thread */
-  char *indexName;
-
-  // Stopword list
-  StopWordList *stopwords;
-
-  // Query language
   const char *language;
+  const char *expanderName;
+  const char *scorerName;
 
-  // Pointer to payload info. The target resides in the search request itself
-  RSPayload *payload;
-
-  // Global field mask from INFIELDS
-  t_fieldMask fieldMask;
-
-  // Global flags
-  RSSearchFlags flags;
-
-  // Slop control
+  uint32_t flags;
+  t_fieldMask fieldmask;
   int slop;
 
-  int concurrentMode;
+  const char **inkeys;
+  size_t ninkeys;
 
-  RSSortingKey *sortBy;
+  // Keys are converted into arrays. This is done when the actual
+  // search ctx is available
+  t_docId *inids;
+  size_t nids;
 
-  /* Paging */
-  size_t offset;
-  size_t num;
+  const StopWordList *stopwords;
 
-  /* Cursor read limit */
-  size_t chunksize;
-
-  char *expander;
-
-  char *scorer;
-
-  /* Does any stage in the query plan beyond the fiters nees the index results? Only scoring
-   * functions need them, so for aggregate queries it makes our lives simpler to not assign it */
-  int needIndexResult;
-  long long timeoutMS;
-  RSTimeoutPolicy timeoutPolicy;
-  FieldList fields;
+  /** Legacy options */
+  struct {
+    NumericFilter **filters;
+    GeoFilter *gf;
+    const char **infields;
+    size_t ninfields;
+  } legacy;
 } RSSearchOptions;
-
-#define RS_DEFAULT_SEARCHOPTS                 \
-  ((RSSearchOptions){                         \
-      .stopwords = NULL,                      \
-      .language = NULL,                       \
-      .payload = NULL,                        \
-      .fieldMask = RS_FIELDMASK_ALL,          \
-      .flags = RS_DEFAULT_QUERY_FLAGS,        \
-      .slop = -1,                             \
-      .concurrentMode = 1,                    \
-      .sortBy = NULL,                         \
-      .offset = 0,                            \
-      .num = 10,                              \
-      .expander = NULL,                       \
-      .scorer = NULL,                         \
-      .needIndexResult = 0,                   \
-      .timeoutMS = 0,                         \
-      .timeoutPolicy = TimeoutPolicy_Default, \
-      .fields = (FieldList){},                \
-  })
 
 #endif

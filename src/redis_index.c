@@ -38,15 +38,12 @@ void *InvertedIndex_RdbLoad(RedisModuleIO *rdb, int encver) {
       ++actualSize;
     }
 
-    size_t cap;
-    char *data = RedisModule_LoadStringBuffer(rdb, &cap);
-
-    blk->data = Buffer_Wrap(cap > 0 ? data : NULL, cap);
-    blk->data->offset = cap;
+    blk->buf.data = RedisModule_LoadStringBuffer(rdb, &blk->buf.offset);
+    blk->buf.cap = blk->buf.offset;
     // if we read a buffer of 0 bytes we still read 1 byte from the RDB that needs to be freed
-    if (!cap && data) {
-      RedisModule_Free(data);
-      Buffer_Free(blk->data);
+    if (!blk->buf.cap && blk->buf.data) {
+      RedisModule_Free(blk->buf.data);
+      blk->buf.data = NULL;
     }
   }
   idx->size = actualSize;
@@ -81,7 +78,11 @@ void InvertedIndex_RdbSave(RedisModuleIO *rdb, void *value) {
     RedisModule_SaveUnsigned(rdb, blk->firstId);
     RedisModule_SaveUnsigned(rdb, blk->lastId);
     RedisModule_SaveUnsigned(rdb, blk->numDocs);
-    RedisModule_SaveStringBuffer(rdb, blk->data->data ? blk->data->data : "", blk->data->offset);
+    if (IndexBlock_DataLen(blk)) {
+      RedisModule_SaveStringBuffer(rdb, IndexBlock_DataBuf(blk), IndexBlock_DataLen(blk));
+    } else {
+      RedisModule_SaveStringBuffer(rdb, "", 0);
+    }
   }
 }
 void InvertedIndex_Digest(RedisModuleDigest *digest, void *value) {
@@ -92,8 +93,7 @@ unsigned long InvertedIndex_MemUsage(const void *value) {
   unsigned long ret = sizeof(InvertedIndex);
   for (size_t i = 0; i < idx->size; i++) {
     ret += sizeof(IndexBlock);
-    ret += sizeof(Buffer);
-    ret += Buffer_Offset(idx->blocks[i].data);
+    ret += IndexBlock_DataLen(&idx->blocks[i]);
   }
   return ret;
 }
@@ -159,6 +159,8 @@ RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName, bool r
   RedisModuleKey *k = RedisModule_OpenKey(ctx, keyName, REDISMODULE_READ);
   // printf("open key %s: %p\n", RedisModule_StringPtrLen(keyName, NULL), k);
   // we do not allow empty indexes when loading an existing index
+  RedisModule_FreeString(ctx, keyName);
+
   if (k == NULL || RedisModule_ModuleTypeGetType(k) != IndexSpecType) {
     return NULL;
   }
@@ -171,12 +173,10 @@ RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName, bool r
   }
 
   RedisSearchCtx *sctx = rm_malloc(sizeof(*sctx));
-  *sctx = (RedisSearchCtx){
-      .spec = sp,
-      .redisCtx = ctx,
-      .key = k,
-      .keyName = keyName,
-  };
+  *sctx = (RedisSearchCtx){.spec = sp,  // newline
+                           .redisCtx = ctx,
+                           .key_ = k,
+                           .refcount = 1};
   return sctx;
 }
 
@@ -187,7 +187,6 @@ RedisSearchCtx *NewSearchCtx(RedisModuleCtx *ctx, RedisModuleString *indexName, 
 
 RedisSearchCtx *SearchCtx_Refresh(RedisSearchCtx *sctx, RedisModuleString *keyName) {
   // First we close the relevant keys we're touching
-  RedisModule_CloseKey(sctx->key);
   RedisModuleCtx *redisCtx = sctx->redisCtx;
   SearchCtx_Free(sctx);
   // now release the global lock
@@ -205,6 +204,10 @@ RedisSearchCtx *NewSearchCtxDefault(RedisModuleCtx *ctx) {
 }
 
 void SearchCtx_Free(RedisSearchCtx *sctx) {
+  if (sctx->key_) {
+    RedisModule_CloseKey(sctx->key_);
+    sctx->key_ = NULL;
+  }
   rm_free(sctx);
 }
 /*
@@ -334,37 +337,53 @@ IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, RSQueryTerm *term, DocTable *
 
   IndexReader *ret = NewTermIndexReader(idx, dt, fieldMask, term, weight);
   if (csx) {
-    ConcurrentSearch_AddKey(csx, k, REDISMODULE_READ, termKey, IndexReader_OnReopen, ret, NULL,
-                            ConcurrentKey_SharedNothing);
+    ConcurrentSearch_AddKey(csx, k, REDISMODULE_READ, termKey, IndexReader_OnReopen, ret, NULL);
   }
+  RedisModule_FreeString(ctx->redisCtx, termKey);
   return ret;
 }
 
-int Redis_LoadDocument(RedisSearchCtx *ctx, RedisModuleString *key, Document *doc) {
+int Redis_LoadDocumentR(RedisSearchCtx *ctx, RedisModuleString *key, Document *doc) {
+  int rc = REDISMODULE_ERR;
+  RedisModuleCallReply *rep = NULL;
   doc->numFields = 0;
   doc->fields = NULL;
-  RedisModuleCallReply *rep = RedisModule_Call(ctx->redisCtx, "HGETALL", "s", key);
+
+  rep = RedisModule_Call(ctx->redisCtx, "HGETALL", "s", key);
   if (rep == NULL || RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_ARRAY) {
-    return REDISMODULE_ERR;
+    goto done;
   }
 
   size_t len = RedisModule_CallReplyLength(rep);
   // Zero means the document does not exist in redis
   if (len == 0) {
-    return REDISMODULE_ERR;
+    goto done;
   }
+
   doc->fields = calloc(len / 2, sizeof(DocumentField));
   doc->numFields = len / 2;
-  int n = 0;
+  size_t n = 0;
   RedisModuleCallReply *k, *v;
-  for (int i = 0; i < len; i += 2, ++n) {
+  for (size_t i = 0; i < len; i += 2, ++n) {
     k = RedisModule_CallReplyArrayElement(rep, i);
     v = RedisModule_CallReplyArrayElement(rep, i + 1);
     doc->fields[n].name = RedisModule_StringPtrLen(RedisModule_CreateStringFromCallReply(k), NULL);
     doc->fields[n].text = RedisModule_CreateStringFromCallReply(v);
   }
+  rc = REDISMODULE_OK;
 
-  return REDISMODULE_OK;
+done:
+  if (rep) {
+    RedisModule_FreeCallReply(rep);
+  }
+  return rc;
+}
+
+int Redis_LoadDocumentC(RedisSearchCtx *ctx, const char *s, size_t n, Document *doc) {
+  RedisModuleString *r = RedisModule_CreateString(ctx->redisCtx, s, n);
+  int ret = Redis_LoadDocumentR(ctx, r, doc);
+  RedisModule_FreeString(ctx->redisCtx, r);
+  return ret;
 }
 
 int Redis_LoadDocumentEx(RedisSearchCtx *ctx, RedisModuleString *key, const char **fields,
@@ -376,7 +395,7 @@ int Redis_LoadDocumentEx(RedisSearchCtx *ctx, RedisModuleString *key, const char
 
   *rkeyp = NULL;
   if (!fields) {
-    return Redis_LoadDocument(ctx, key, doc);
+    return Redis_LoadDocumentR(ctx, key, doc);
   }
 
   // Get the key itself

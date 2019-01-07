@@ -2,73 +2,79 @@
 #include "util/quantile.h"
 
 typedef struct {
-  RSKey property;
+  Reducer base;
   double pct;
   size_t resolution;
-} quantileParams;
+} QTLReducer;
 
-typedef struct {
-  QuantStream *strm;
-  quantileParams *params;
-  RSSortingTable *sortables;
-} quantileCtx;
-
-static void *quantile_NewInstance(ReducerCtx *ctx) {
-  quantileCtx *qctx = ReducerCtx_Alloc(ctx, sizeof(*qctx), 100 * sizeof(*qctx));
-  qctx->params = ctx->privdata;
-  qctx->strm = NewQuantileStream(&qctx->params->pct, 1, qctx->params->resolution);
-  qctx->sortables = SEARCH_CTX_SORTABLES(ctx->ctx);
-  return qctx;
+static void *quantileNewInstance(Reducer *parent) {
+  QTLReducer *qt = (QTLReducer *)parent;
+  return NewQuantileStream(&qt->pct, 1, qt->resolution);
 }
 
-static int quantile_Add(void *ctx, SearchResult *res) {
-  quantileCtx *qctx = ctx;
+static int quantileAdd(Reducer *rbase, void *ctx, const RLookupRow *row) {
   double d;
-  RSValue *v = SearchResult_GetValue(res, qctx->sortables, &qctx->params->property);
-  if (v) {
-    if (v->t != RSValue_Array) {
-      if (RSValue_ToNumber(v, &d)) {
-        QS_Insert(qctx->strm, d);
-      }
-    } else {
-      uint32_t sz = RSValue_ArrayLen(v);
-      for (uint32_t i = 0; i < sz; i++) {
-        if (RSValue_ToNumber(RSValue_ArrayItem(v, i), &d)) {
-          QS_Insert(qctx->strm, d);
-        }
+  QTLReducer *qt = (QTLReducer *)rbase;
+  QuantStream *qs = ctx;
+  RSValue *v = RLookup_GetItem(rbase->srckey, row);
+  if (!v) {
+    return 1;
+  }
+
+  if (v->t != RSValue_Array) {
+    if (RSValue_ToNumber(v, &d)) {
+      QS_Insert(qs, d);
+    }
+  } else {
+    uint32_t sz = RSValue_ArrayLen(v);
+    for (uint32_t i = 0; i < sz; i++) {
+      if (RSValue_ToNumber(RSValue_ArrayItem(v, i), &d)) {
+        QS_Insert(qs, d);
       }
     }
   }
   return 1;
 }
 
-static int quantile_Finalize(void *ctx, const char *key, SearchResult *res) {
-  quantileCtx *qctx = ctx;
-  double value = QS_Query(qctx->strm, qctx->params->pct);
-  RSFieldMap_SetNumber(&res->fields, key, value);
-  return 1;
+static RSValue *quantileFinalize(Reducer *r, void *ctx) {
+  QuantStream *qs = ctx;
+  QTLReducer *qt = (QTLReducer *)r;
+  double value = QS_Query(qs, qt->pct);
+  return RS_NumVal(value);
 }
 
-static void quantile_FreeInstance(void *p) {
-  quantileCtx *qctx = p;
-  QS_Free(qctx->strm);
+static void quantileFreeInstance(Reducer *unused, void *p) {
+  QS_Free(p);
 }
 
-Reducer *NewQuantile(RedisSearchCtx *ctx, const char *property, const char *alias, double pct,
-                     size_t resolution) {
-  Reducer *r = malloc(sizeof(*r));
-  r->Add = quantile_Add;
-  r->Finalize = quantile_Finalize;
-  r->Free = Reducer_GenericFree;
-  r->FreeInstance = quantile_FreeInstance;
-  r->NewInstance = quantile_NewInstance;
-  r->alias = FormatAggAlias(alias, "quantile", property);
+Reducer *RDCRQuantile_New(const ReducerOptions *options) {
+  QTLReducer *r = calloc(1, sizeof(*r));
+  r->resolution = 500;  // Fixed, i guess?
 
-  quantileParams *params = calloc(1, sizeof(*params));
+  if (!ReducerOptions_GetKey(options, &r->base.srckey)) {
+    goto error;
+  }
+  int rv;
+  if ((rv = AC_GetDouble(options->args, &r->pct, 0)) != AC_OK) {
+    QERR_MKBADARGS_AC(options->status, options->name, rv);
+    goto error;
+  }
+  if (!(r->pct >= 0 && r->pct <= 1.0)) {
+    QERR_MKBADARGS_FMT(options->status, "Percentage must be between 0.0 and 1.0");
+    goto error;
+  }
+  if (!ReducerOpts_EnsureArgsConsumed(options)) {
+    goto error;
+  }
 
-  params->property = RS_KEY(property);
-  params->pct = pct;
-  params->resolution = resolution;
-  r->ctx = (ReducerCtx){.ctx = ctx, .privdata = params};
-  return r;
+  r->base.NewInstance = quantileNewInstance;
+  r->base.Add = quantileAdd;
+  r->base.Free = Reducer_GenericFree;
+  r->base.FreeInstance = quantileFreeInstance;
+  r->base.Finalize = quantileFinalize;
+  return &r->base;
+
+error:
+  free(r);
+  return NULL;
 }

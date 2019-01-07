@@ -26,6 +26,11 @@
 #include <stdarg.h>
 #include <stdint.h>
 #include <assert.h>
+#include <stdio.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /* Definition of malloc & friedns that can be overridden before including arr.h.
  * Alternatively you can include arr_rm_alloc.h, which wraps arr.h and sets the allcoation functions
@@ -57,12 +62,15 @@ typedef void *array_t;
 /* Initialize a new array with a given element size and capacity. Should not be used directly - use
  * array_new instead */
 static array_t array_new_sz(uint32_t elem_sz, uint32_t cap, uint32_t len) {
-  array_hdr_t *hdr = array_alloc_fn(sizeof(array_hdr_t) + cap * elem_sz);
+  array_hdr_t *hdr = (array_hdr_t *)array_alloc_fn(sizeof(array_hdr_t) + cap * elem_sz);
   hdr->cap = cap;
   hdr->elem_sz = elem_sz;
   hdr->len = len;
   return (array_t)(hdr->buf);
 }
+
+/* Functions declared as symbols for use in debugger */
+void array_debug(void *pp);
 
 /* Initialize an array for a given type T with a given capacity and zero length. The array should be
  * case to a pointer to that type. e.g.
@@ -71,36 +79,88 @@ static array_t array_new_sz(uint32_t elem_sz, uint32_t cap, uint32_t len) {
  *
  * This allows direct access to elements
  *  */
-#define array_new(T, cap) (array_new_sz(sizeof(T), cap, 0))
+#define array_new(T, cap) (T *)(array_new_sz(sizeof(T), cap, 0))
 
 /* Initialize an array for a given type T with a given length. The capacity allocated is identical
  * to the length
  *  */
-#define array_newlen(T, len) (array_new_sz(sizeof(T), len, len))
+#define array_newlen(T, len) (T *)(array_new_sz(sizeof(T), len, len))
 
 static inline array_t array_ensure_cap(array_t arr, uint32_t cap) {
   array_hdr_t *hdr = array_hdr(arr);
   if (cap > hdr->cap) {
     hdr->cap = MAX(hdr->cap * 2, cap);
-    hdr = array_realloc_fn(hdr, array_sizeof(hdr));
+    hdr = (array_hdr_t *)array_realloc_fn(hdr, array_sizeof(hdr));
   }
   return (array_t)hdr->buf;
 }
 
 /* Ensure capacity for the array to grow by one */
-static inline array_t array_grow(array_t arr) {
-  return array_ensure_cap(arr, ++array_hdr(arr)->len);
+static inline array_t array_grow(array_t arr, size_t n) {
+  array_hdr(arr)->len += n;
+  return array_ensure_cap(arr, array_hdr(arr)->len);
 }
 
+/* Ensures that array_tail will always point to a valid element. */
+#define array_ensure_tail(arrpp, T)            \
+  ({                                           \
+    if (!*(arrpp)) {                           \
+      *(arrpp) = array_newlen(T, 1);           \
+    } else {                                   \
+      *(arrpp) = (T *)array_grow(*(arrpp), 1); \
+    }                                          \
+    &(array_tail(*(arrpp)));                   \
+  })
+
+#define array_ensure_append(arrpp, src, n, T)      \
+  ({                                               \
+    size_t a__oldlen = 0;                          \
+    if (!arrpp) {                                  \
+      arrpp = array_newlen(T, n);                  \
+    } else {                                       \
+      a__oldlen = array_len(arrpp);                \
+      arrpp = (T *)array_grow(arrpp, n);           \
+    }                                              \
+    memcpy(arrpp + a__oldlen, src, n * sizeof(T)); \
+    arrpp;                                         \
+  })
+
+/*
+ * This macro is useful for sparse arrays. It ensures that `*arrpp` will
+ * point to a valid index in the array, growing the array to fit.
+ *
+ * If the array needs to be expanded in order to contain the index, then
+ * the unused portion of the array (i.e. the space between the previously
+ * last-valid element and the new index) is zero'd
+ *
+ * @param arrpp a pointer to the array (e.g. `T**`)
+ * @param pos the index that should be considered valid
+ * @param T the type of the array (in case it must be created)
+ * @return A pointer of T at the requested index
+ */
+#define array_ensure_at(arrpp, pos, T)                                    \
+  ({                                                                      \
+    if (!(*arrpp)) {                                                      \
+      *(arrpp) = array_new(T, 1);                                         \
+    }                                                                     \
+    if (array_len(*arrpp) <= pos) {                                       \
+      size_t curlen = array_len(*arrpp);                                  \
+      array_hdr(*arrpp)->len = pos + 1;                                   \
+      *arrpp = (T *)array_ensure_cap(*(arrpp), array_hdr(*(arrpp))->len); \
+      memset((T *)*arrpp + curlen, 0, sizeof(T) * ((pos + 1) - curlen));  \
+    }                                                                     \
+    (T *)(*arrpp) + pos;                                                  \
+  })
+
 /* get the last element in the array */
-#define array_tail(arr) (arr[array_hdr(arr)->len - 1])
+#define array_tail(arr) ((arr)[array_hdr(arr)->len - 1])
 
 /* Append an element to the array, returning the array which may have been reallocated */
-#define array_append(arr, x)   \
-  ({                           \
-    (arr) = array_grow((arr)); \
-    array_tail((arr)) = (x);   \
-    (arr);                     \
+#define array_append(arr, x)                       \
+  ({                                               \
+    (arr) = (__typeof__(arr))array_grow((arr), 1); \
+    array_tail((arr)) = (x);                       \
+    (arr);                                         \
   })
 
 /* Get the length of the array */
@@ -108,22 +168,23 @@ static inline uint32_t array_len(array_t arr) {
   return arr ? array_hdr(arr)->len : 0;
 }
 
+#define ARR_CAP_NOSHRINK ((uint32_t)-1)
 static inline void *array_trimm(array_t arr, uint32_t len, uint32_t cap) {
   array_hdr_t *arr_hdr = array_hdr(arr);
   assert(len >= 0 && "trimming len is negative");
-  assert((cap == -1 || cap > 0 || len == cap) && "trimming capacity is illegal");
-  assert((cap == -1 || cap >= len) && "trimming len is greater then capacity");
+  assert((cap == ARR_CAP_NOSHRINK || cap > 0 || len == cap) && "trimming capacity is illegal");
+  assert((cap == ARR_CAP_NOSHRINK || cap >= len) && "trimming len is greater then capacity");
   assert((len <= arr_hdr->len) && "trimming len is greater then current len");
   arr_hdr->len = len;
-  if (cap != -1) {
+  if (cap != ARR_CAP_NOSHRINK) {
     arr_hdr->cap = cap;
-    arr_hdr = array_realloc_fn(arr_hdr, array_sizeof(arr_hdr));
+    arr_hdr = (array_hdr_t *)array_realloc_fn(arr_hdr, array_sizeof(arr_hdr));
   }
   return arr_hdr->buf;
 }
 
-#define array_trimm_len(arr, len) array_trimm(arr, len, -1)
-#define array_trimm_cap(arr, len) array_trimm(arr, len, len)
+#define array_trimm_len(arr, len) (__typeof__(arr)) array_trimm(arr, len, ARR_CAP_NOSHRINK)
+#define array_trimm_cap(arr, len) (__typeof__(arr)) array_trimm(arr, len, len)
 
 /* Free the array, without dealing with individual elements */
 static void array_free(array_t arr) {
@@ -139,7 +200,7 @@ static void array_free(array_t arr) {
 #define array_foreach(arr, as, blk)                 \
   ({                                                \
     for (uint32_t i = 0; i < array_len(arr); i++) { \
-      typeof(*arr) as = arr[i];                     \
+      __typeof__(*arr) as = arr[i];                 \
       blk;                                          \
     }                                               \
   })
@@ -163,4 +224,7 @@ static void array_free(array_t arr) {
     arr[--(array_hdr(arr)->len)];    \
   })
 
+#ifdef __cplusplus
+}
+#endif
 #endif

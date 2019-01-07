@@ -2,6 +2,7 @@
 #define __QUERY_NODE_H__
 #include <stdlib.h>
 #include "redisearch.h"
+#include "query_error.h"
 //#include "numeric_index.h"
 
 struct RSQueryNode;
@@ -43,6 +44,9 @@ typedef enum {
 
   /* Fuzzy term - expand with levenshtein distance */
   QN_FUZZY,
+
+  /* Null term - take no action */
+  QN_NULL
 } QueryNodeType;
 
 /* A prhase node represents a list of nodes with intersection between them, or a phrase in the case
@@ -53,6 +57,14 @@ typedef struct {
   int exact;
 
 } QueryPhraseNode;
+
+/**
+ * Query node used when the query is effectively null but not invalid. This
+ * might happen as a result of a query containing only stopwords.
+ */
+typedef struct {
+  int dummy;
+} QueryNullNode;
 
 /* A Union node represents a set of child nodes where the index unions the result between them */
 typedef struct {
@@ -93,15 +105,16 @@ typedef struct {
 
 /* A node with a numeric filter */
 typedef struct {
-  struct numericFilter *nf;
+  const struct NumericFilter *nf;
 } QueryNumericNode;
 
 typedef struct {
-  struct geoFilter *gf;
+  const struct GeoFilter *gf;
 } QueryGeofilterNode;
 
 typedef struct {
-  struct idFilter *f;
+  t_docId *ids;
+  size_t len;
 } QueryIdFilterNode;
 
 typedef enum {
@@ -142,12 +155,13 @@ typedef struct RSQueryNode {
     QueryNumericNode nn;
     QueryGeofilterNode gn;
     QueryIdFilterNode fn;
-    QueryNotNode not;
+    QueryNotNode inverted;
     QueryOptionalNode opt;
     QueryPrefixNode pfx;
     QueryWildcardNode wc;
     QueryTagNode tag;
     QueryFuzzyNode fz;
+    QueryNullNode null;
   };
 
   /* The node type, for resolving the union access */
@@ -155,7 +169,7 @@ typedef struct RSQueryNode {
   QueryNodeOptions opts;
 } QueryNode;
 
-int QueryNode_ApplyAttributes(QueryNode *qn, QueryAttribute *attr, size_t len, char **err);
+int QueryNode_ApplyAttributes(QueryNode *qn, QueryAttribute *attr, size_t len, QueryError *status);
 
 /* Add a child to a phrase node */
 void QueryPhraseNode_AddChild(QueryNode *parent, QueryNode *child);

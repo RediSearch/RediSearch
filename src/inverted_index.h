@@ -12,12 +12,16 @@
 #include <stdint.h>
 #include <math.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* A single block of data in the index. The index is basically a list of blocks we iterate */
 typedef struct {
   t_docId firstId;
   t_docId lastId;
+  Buffer buf;
   uint16_t numDocs;
-  Buffer *data;
 } IndexBlock;
 
 typedef struct {
@@ -39,6 +43,7 @@ struct indexReadCtx;
 typedef union {
   void *ptr;
   t_fieldMask num;
+  t_docId matchId;
 } IndexDecoderCtx;
 
 /**
@@ -63,6 +68,10 @@ InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock);
 IndexBlock *InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId);
 void indexBlock_Free(IndexBlock *blk);
 void InvertedIndex_Free(void *idx);
+
+#define IndexBlock_DataBuf(b) (b)->buf.data
+#define IndexBlock_DataLen(b) (b)->buf.offset
+
 int InvertedIndex_Repair(InvertedIndex *idx, DocTable *dt, uint32_t startBlock,
                          IndexRepairParams *params);
 
@@ -76,7 +85,7 @@ int InvertedIndex_Repair(InvertedIndex *idx, DocTable *dt, uint32_t startBlock,
  * If the record should not be processed, it should not be populated and 0 should
  * be returned. Otherwise, the function should return 1.
  */
-typedef int (*IndexDecoder)(BufferReader *br, IndexDecoderCtx ctx, RSIndexResult *res);
+typedef int (*IndexDecoder)(BufferReader *br, const IndexDecoderCtx *ctx, RSIndexResult *res);
 
 /* Get the decoder for the index based on the index flags. This is used to externally inject the
  * endoder/decoder when reading and writing */
@@ -104,7 +113,11 @@ typedef struct indexReadCtx {
   /* The record we are decoding into */
   RSIndexResult *record;
 
-  int atEnd;
+  int atEnd_;
+
+  // If present, this pointer is updated when the end has been reached. This is
+  // an optimization to avoid calling IR_HasNext() each time
+  uint8_t *isValidP;
 
   /* This marker lets us know whether the garbage collector has visited this index while the reading
    * thread was asleep, and reset the state in a deeper way
@@ -135,7 +148,7 @@ size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
 /* Create a new index reader for numeric records, optionally using a given filter. If the filter
  * is
  * NULL we will return all the records in the index */
-IndexReader *NewNumericReader(InvertedIndex *idx, NumericFilter *flt);
+IndexReader *NewNumericReader(InvertedIndex *idx, const NumericFilter *flt);
 
 /* Get the appropriate encoder for an inverted index given its flags. Returns NULL on invalid flags
  */
@@ -162,9 +175,6 @@ int IR_Read(void *ctx, RSIndexResult **e);
  */
 int IR_Next(void *ctx);
 
-/* Can we read more from an index reader? */
-int IR_HasNext(void *ctx);
-
 /* Skip to a specific docId in a reader,using the skip index, and read the entry
  * there */
 int IR_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit);
@@ -189,4 +199,7 @@ static inline double CalculateIDF(size_t totalDocs, size_t termDocs) {
   return logb(1.0F + totalDocs / (termDocs ? termDocs : (double)1));
 }
 
+#ifdef __cplusplus
+}
+#endif
 #endif

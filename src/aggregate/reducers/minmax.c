@@ -3,25 +3,27 @@
 
 typedef enum { Minmax_Min = 1, Minmax_Max = 2 } MinmaxMode;
 
-struct minmaxCtx {
+typedef struct {
+  const RLookupKey *srckey;
   double val;
-  RSKey property;
-  RSSortingTable *sortables;
   MinmaxMode mode;
   size_t numMatches;
-};
+} minmaxCtx;
 
-static void *newInstanceCommon(ReducerCtx *ctx, MinmaxMode mode) {
-  struct minmaxCtx *m = ReducerCtx_Alloc(ctx, sizeof(*ctx), 1024);
-  m->mode = mode;
+typedef struct {
+  Reducer base;
+  MinmaxMode mode;
+} MinmaxReducer;
 
-  
-  m->property = RS_KEY(ctx->property);
+static void *minmaxNewInstance(Reducer *rbase) {
+  MinmaxReducer *r = (MinmaxReducer *)rbase;
+  minmaxCtx *m = BlkAlloc_Alloc(&rbase->alloc, sizeof(*m), 1024);
+  m->mode = r->mode;
+  m->srckey = r->base.srckey;
   m->numMatches = 0;
-  m->sortables = SEARCH_CTX_SORTABLES(ctx->ctx);
-  if (mode == Minmax_Min) {
+  if (m->mode == Minmax_Min) {
     m->val = DBL_MAX;
-  } else if (mode == Minmax_Max) {
+  } else if (m->mode == Minmax_Max) {
     m->val = DBL_MIN;
   } else {
     m->val = 0;
@@ -29,17 +31,10 @@ static void *newInstanceCommon(ReducerCtx *ctx, MinmaxMode mode) {
   return m;
 }
 
-static void *min_NewInstance(ReducerCtx *ctx) {
-  return newInstanceCommon(ctx, Minmax_Min);
-}
-
-static void *max_NewInstance(ReducerCtx *ctx) {
-  return newInstanceCommon(ctx, Minmax_Max);
-}
-static int minmax_Add(void *ctx, SearchResult *res) {
-  struct minmaxCtx *m = ctx;
+static int minmaxAdd(Reducer *r, void *ctx, const RLookupRow *srcrow) {
+  minmaxCtx *m = ctx;
   double val;
-  RSValue *v = SearchResult_GetValue(res, m->sortables, &m->property);
+  RSValue *v = RLookup_GetItem(m->srckey, srcrow);
   if (!RSValue_ToNumber(v, &val)) {
     return 1;
   }
@@ -54,39 +49,29 @@ static int minmax_Add(void *ctx, SearchResult *res) {
   return 1;
 }
 
-static int minmax_Finalize(void *base, const char *key, SearchResult *res) {
-  struct minmaxCtx *ctx = base;
-  RSFieldMap_SetNumber(&res->fields, key, ctx->numMatches ? ctx->val : 0);
-  return 1;
+static RSValue *minmaxFinalize(Reducer *parent, void *instance) {
+  minmaxCtx *ctx = instance;
+  return RS_NumVal(ctx->numMatches ? ctx->val : 0);
 }
 
-
-static Reducer *newMinMax(RedisSearchCtx *ctx, const char *property, const char *alias,
-                          MinmaxMode mode) {
-  Reducer *r = malloc(sizeof(*r));
-  r->Add = minmax_Add;
-  r->Finalize = minmax_Finalize;
-  r->Free = Reducer_GenericFree;
-  r->FreeInstance = NULL;//minmax_FreeInstance;
-  r->ctx = (ReducerCtx){.ctx = ctx, .property = property};
-
-  const char *fstr = NULL;
-  if (mode == Minmax_Max) {
-    r->NewInstance = max_NewInstance;
-    fstr = "max";
-  } else if (mode == Minmax_Min) {
-    r->NewInstance = min_NewInstance;
-    fstr = "min";
+static Reducer *newMinMax(const ReducerOptions *options, MinmaxMode mode) {
+  MinmaxReducer *r = calloc(1, sizeof(*r));
+  if (!ReducerOpts_GetKey(options, &r->base.srckey)) {
+    free(r);
+    return NULL;
   }
-
-  r->alias = FormatAggAlias(alias, fstr, property);
-  return r;
+  r->base.NewInstance = minmaxNewInstance;
+  r->base.Add = minmaxAdd;
+  r->base.Finalize = minmaxFinalize;
+  r->base.Free = Reducer_GenericFree;
+  r->mode = mode;
+  return &r->base;
 }
 
-Reducer *NewMin(RedisSearchCtx *ctx, const char *property, const char *alias) {
-  return newMinMax(ctx, property, alias, Minmax_Min);
+Reducer *RDCRMin_New(const ReducerOptions *options) {
+  return newMinMax(options, Minmax_Min);
 }
 
-Reducer *NewMax(RedisSearchCtx *ctx, const char *property, const char *alias) {
-  return newMinMax(ctx, property, alias, Minmax_Max);
+Reducer *RDCRMax_New(const ReducerOptions *options) {
+  return newMinMax(options, Minmax_Max);
 }

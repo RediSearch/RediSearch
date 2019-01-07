@@ -1,209 +1,53 @@
-#include <ctype.h>
 #include "expression.h"
 #include "result_processor.h"
-#include "util/arr.h"
 
-#define arglist_sizeof(l) (sizeof(RSArgList) + ((l) * sizeof(RSExpr *)))
+static int evalInternal(ExprEval *eval, const RSExpr *e, RSValue *res);
 
-RSArgList *RS_NewArgList(RSExpr *e) {
-  RSArgList *ret = malloc(arglist_sizeof(e ? 1 : 0));
-  ret->len = e ? 1 : 0;
-  if (e) ret->args[0] = e;
-  return ret;
+static void setReferenceValue(RSValue *dst, RSValue *src) {
+  RSValue_MakeReference(dst, src);
 }
+static int evalFunc(ExprEval *eval, const RSFunctionExpr *f, RSValue *result) {
+  int rc = EXPR_EVAL_ERR;
 
-RSArgList *RSArgList_Append(RSArgList *l, RSExpr *e) {
-  l = realloc(l, arglist_sizeof(l->len + 1));
-  l->args[l->len++] = e;
-  return l;
-}
+  /** First, evaluate every argument */
+  size_t nusedargs = 0;
+  size_t nargs = f->args->len;
+  RSValue *argspp[nargs];
+  RSValue args[nargs];
 
-static RSExpr *newExpr(RSExprType t) {
-  RSExpr *e = malloc(sizeof(*e));
-  e->t = t;
-  return e;
-}
-
-// unquote and unescape a stirng literal, and return a cleaned copy of it
-char *unescpeStringDup(const char *s, size_t sz) {
-
-  char *dst = malloc(sz);
-  char *dstStart = dst;
-  char *src = (char *)s + 1;       // we start after the first quote
-  char *end = (char *)s + sz - 1;  // we end at the last quote
-  while (src < end) {
-    // unescape
-    if (*src == '\\' && src + 1 < end && (ispunct(*(src + 1)) || isspace(*(src + 1)))) {
-      ++src;
-      continue;
-    }
-    *dst++ = *src++;
-  }
-  *dst = '\0';
-  return dstStart;
-}
-RSExpr *RS_NewStringLiteral(const char *str, size_t len) {
-  RSExpr *e = newExpr(RSExpr_Literal);
-  e->literal = RS_StaticValue(RSValue_String);
-  e->literal.strval.str = unescpeStringDup(str, len);
-  e->literal.strval.len = strlen(e->literal.strval.str);
-  e->literal.strval.stype = RSString_Malloc;
-  return e;
-}
-
-RSExpr *RS_NewNullLiteral() {
-  RSExpr *e = newExpr(RSExpr_Literal);
-  RSValue_MakeReference(&e->literal, RS_NullVal());
-  return e;
-}
-
-RSExpr *RS_NewNumberLiteral(double n) {
-  RSExpr *e = newExpr(RSExpr_Literal);
-
-  e->literal = RS_StaticValue(RSValue_Number);
-  e->literal.numval = n;
-  return e;
-}
-
-RSExpr *RS_NewOp(unsigned char op, RSExpr *left, RSExpr *right) {
-  RSExpr *e = newExpr(RSExpr_Op);
-  e->op.op = op;
-  e->op.left = left;
-  e->op.right = right;
-  return e;
-}
-
-RSExpr *RS_NewPredicate(RSCondition cond, RSExpr *left, RSExpr *right) {
-  RSExpr *e = newExpr(RSExpr_Predicate);
-  e->pred = (RSPredicate){
-      .cond = cond,
-      .left = left,
-      .right = right,
-  };
-  return e;
-}
-
-RSExpr *RS_NewFunc(const char *str, size_t len, RSArgList *args, RSFunction cb) {
-  RSExpr *e = newExpr(RSExpr_Function);
-  e->func.args = args;
-  e->func.name = strndup(str, len);
-  e->func.Call = cb;
-  return e;
-}
-
-RSExpr *RS_NewProp(const char *str, size_t len) {
-  RSExpr *e = newExpr(RSExpr_Property);
-  e->property.key = strndup(str, len);
-  e->property.sortableIdx = RSKEY_UNCACHED;
-  e->property.fieldIdx = RSKEY_UNCACHED;
-  return e;
-}
-void RSArgList_Free(RSArgList *l) {
-  if (!l) return;
-  for (size_t i = 0; i < l->len; i++) {
-    RSExpr_Free(l->args[i]);
-  }
-  free(l);
-}
-void RSExpr_Free(RSExpr *e) {
-  if (!e) return;
-  switch (e->t) {
-    case RSExpr_Literal:
-      RSValue_Free(&e->literal);
-      break;
-    case RSExpr_Function:
-      free((char *)e->func.name);
-      RSArgList_Free(e->func.args);
-      break;
-    case RSExpr_Op:
-      RSExpr_Free(e->op.left);
-      RSExpr_Free(e->op.right);
-      break;
-    case RSExpr_Predicate:
-      RSExpr_Free(e->pred.left);
-      RSExpr_Free(e->pred.right);
-      break;
-    case RSExpr_Property:
-      free((char *)e->property.key);
-      break;
-  }
-  free(e);
-}
-
-void RSExpr_Print(RSExpr *e) {
-  if (!e) {
-    printf("NULL");
-    return;
-  }
-  switch (e->t) {
-    case RSExpr_Literal:
-      RSValue_Print(&e->literal);
-      break;
-    case RSExpr_Function:
-      printf("%s(", e->func.name);
-      for (size_t i = 0; e->func.args != NULL && i < e->func.args->len; i++) {
-        RSExpr_Print(e->func.args->args[i]);
-        if (i < e->func.args->len - 1) printf(", ");
-      }
-      printf(")");
-      break;
-    case RSExpr_Op:
-      printf("(");
-      RSExpr_Print(e->op.left);
-      printf(" %c ", e->op.op);
-      RSExpr_Print(e->op.right);
-      printf(")");
-      break;
-
-    case RSExpr_Predicate:
-      // NOT of a single predicate
-      if (e->pred.cond == RSCondition_Not) {
-        printf("!");
-        RSExpr_Print(e->pred.left);
-        return;
-      }
-      printf("(");
-      RSExpr_Print(e->pred.left);
-      printf(" %s ", RSConditionStrings[e->pred.cond]);
-      RSExpr_Print(e->pred.right);
-      printf(")");
-
-      break;
-    case RSExpr_Property:
-      printf("@%s", e->property.key);
-  }
-}
-
-static inline int evalFunc(RSExprEvalCtx *ctx, RSFunctionExpr *f, RSValue *result, char **err) {
-
-  RSValue args[f->args->len];
-  for (size_t i = 0; i < f->args->len; i++) {
-    args[i] = RSVALUE_STATIC;
-    if (RSExpr_Eval(ctx, f->args->args[i], &args[i], err) == EXPR_EVAL_ERR) {
+  for (size_t ii = 0; ii < nargs; ii++) {
+    args[ii] = (RSValue)RSVALUE_STATIC;
+    argspp[ii] = &args[ii];
+    if (evalInternal(eval, f->args->args[ii], &args[ii]) == EXPR_EVAL_ERR) {
       // TODO: Free other results
-      return EXPR_EVAL_ERR;
+      rc = EXPR_EVAL_ERR;
+      goto cleanup;
     }
+    nusedargs++;
   }
 
-  int rc = f->Call(ctx->fctx, result, args, f->args->len, err);
-  for (size_t i = 0; i < f->args->len; i++) {
-    RSValue_Free(&args[i]);
+  /** We pass an RSValue**, not an RSValue*, as the arguments */
+  rc = f->Call(eval, result, argspp, nargs, eval->err);
+
+cleanup:
+  for (size_t ii = 0; ii < nusedargs; ii++) {
+    RSValue_Clear(&args[ii]);
   }
   return rc;
 }
 
-static int evalOp(RSExprEvalCtx *ctx, RSExprOp *op, RSValue *result, char **err) {
-
+static int evalOp(ExprEval *eval, const RSExprOp *op, RSValue *result) {
   RSValue l = RSVALUE_STATIC, r = RSVALUE_STATIC;
-  if (RSExpr_Eval(ctx, op->left, &l, err) == EXPR_EVAL_ERR) {
-    return EXPR_EVAL_ERR;
+  int rc = EXPR_EVAL_ERR;
+
+  if (evalInternal(eval, op->left, &l) == EXPR_EVAL_ERR) {
+    goto cleanup;
   }
-  if (RSExpr_Eval(ctx, op->right, &r, err) == EXPR_EVAL_ERR) {
-    return EXPR_EVAL_ERR;
+  if (evalInternal(eval, op->right, &r) == EXPR_EVAL_ERR) {
+    goto cleanup;
   }
 
   double n1, n2;
-  int rc = EXPR_EVAL_OK;
   if (!RSValue_ToNumber(&l, &n1) || !RSValue_ToNumber(&r, &n2)) {
 
     // asprintf(err, "Invalid values for op '%c'", op->op);
@@ -237,159 +81,274 @@ static int evalOp(RSExprEvalCtx *ctx, RSExprOp *op, RSValue *result, char **err)
 
   result->numval = res;
   result->t = RSValue_Number;
+  rc = EXPR_EVAL_OK;
 
 cleanup:
-  RSValue_Free(&l);
-  RSValue_Free(&r);
+  RSValue_Clear(&l);
+  RSValue_Clear(&r);
   return rc;
 }
 
-static int evalPredicate(RSExprEvalCtx *ctx, RSPredicate *pred, RSValue *result, char **err) {
-
-  RSValue l = RSVALUE_STATIC, r = RSVALUE_STATIC;
-  if (RSExpr_Eval(ctx, pred->left, &l, err) == EXPR_EVAL_ERR) {
-    return EXPR_EVAL_ERR;
-  }
-  if (pred->right && RSExpr_Eval(ctx, pred->right, &r, err) == EXPR_EVAL_ERR) {
-    return EXPR_EVAL_ERR;
-  }
-
-  RSValue* l_ptr = RSValue_Dereference(&l);
-  RSValue* r_ptr = RSValue_Dereference(&r);
-
-  int res;
-  if(l_ptr->t == RSValue_Null || r_ptr->t == RSValue_Null){
-    // NULL are not comparable
-    res = 0;
-  }else switch (pred->cond) {
+static int getPredicateBoolean(const RSValue *l, const RSValue *r, RSCondition op) {
+  switch (op) {
     case RSCondition_Eq:
-      res = RSValue_Equal(&l, &r);
-      break;
+      return RSValue_Equal(l, r);
+
     case RSCondition_Lt:
-      res = RSValue_Cmp(&l, &r) < 0;
-      break;
+      return RSValue_Cmp(l, r) < 0;
+
     /* Less than or equal, <= */
     case RSCondition_Le:
-      res = RSValue_Cmp(&l, &r) <= 0;
+      return RSValue_Cmp(l, r) <= 0;
 
-      break;
       /* Greater than, > */
     case RSCondition_Gt:
-      res = RSValue_Cmp(&l, &r) > 0;
-
-      break;
+      return RSValue_Cmp(l, r) > 0;
 
     /* Greater than or equal, >= */
     case RSCondition_Ge:
-      res = RSValue_Cmp(&l, &r) >= 0;
-
-      break;
+      return RSValue_Cmp(l, r) >= 0;
 
     /* Not equal, != */
     case RSCondition_Ne:
-      res = !RSValue_Equal(&l, &r);
-      break;
+      return !RSValue_Equal(l, r);
+
       /* Logical AND of 2 expressions, && */
     case RSCondition_And:
-      res = RSValue_BoolTest(&l) && RSValue_BoolTest(&r);
-      break;
+      return RSValue_BoolTest(l) && RSValue_BoolTest(r);
 
     /* Logical OR of 2 expressions, || */
     case RSCondition_Or:
-      res = RSValue_BoolTest(&l) || RSValue_BoolTest(&r);
+      return RSValue_BoolTest(l) || RSValue_BoolTest(r);
 
-      break;
-
-    case RSCondition_Not:
-      res = RSValue_BoolTest(&l) == 0;
-      break;
+    default:
+      assert("Unknown predicate received" && 0);
+      return 0;
   }
+}
+
+static int evalInverted(ExprEval *eval, const RSInverted *vv, RSValue *result) {
+  RSValue tmpval = RSVALUE_STATIC;
+  if (evalInternal(eval, vv->child, &tmpval) != EXPR_EVAL_OK) {
+    return EXPR_EVAL_ERR;
+  }
+
+  result->numval = !RSValue_BoolTest(&tmpval);
+  result->t = RSValue_Number;
+
+  RSValue_Clear(&tmpval);
+  return EXPR_EVAL_OK;
+}
+
+static int evalPredicate(ExprEval *eval, const RSPredicate *pred, RSValue *result) {
+
+  RSValue l = RSVALUE_STATIC, r = RSVALUE_STATIC;
+  int rc = EXPR_EVAL_ERR;
+  if (evalInternal(eval, pred->left, &l) == EXPR_EVAL_ERR ||
+      evalInternal(eval, pred->right, &r) == EXPR_EVAL_ERR) {
+    goto cleanup;
+  }
+
+  RSValue *l_ptr = RSValue_Dereference(&l);
+  RSValue *r_ptr = RSValue_Dereference(&r);
+
+  int res = getPredicateBoolean(&l, &r, pred->cond);
 
   result->numval = res;
   result->t = RSValue_Number;
+  rc = EXPR_EVAL_OK;
 
-  RSValue_Free(&l);
-  RSValue_Free(&r);
-  return EXPR_EVAL_OK;
-}
-static inline int evalProperty(RSExprEvalCtx *ctx, RSKey *k, RSValue *result, char **err) {
-  RSValue_MakeReference(result, SearchResult_GetValue(ctx->r, ctx->sortables, k));
-  return EXPR_EVAL_OK;
+cleanup:
+  RSValue_Clear(&l);
+  RSValue_Clear(&r);
+  return rc;
 }
 
-int RSExpr_Eval(RSExprEvalCtx *ctx, RSExpr *e, RSValue *result, char **err) {
-  if (!e) {
-    return EXPR_EVAL_ERR;
+static int evalProperty(ExprEval *eval, const RSLookupExpr *e, RSValue *res) {
+  if (!e->lookupObj) {
+    // No lookup object. This means that the key does not exist
+    QueryError_SetError(eval->err, QUERY_ENOPROPKEY, NULL);
+    return 0;
   }
+
+  /** Find the actual value */
+  RSValue *value = RLookup_GetItem(e->lookupObj, eval->srcrow);
+  if (!value) {
+    // RLookupRow_Dump(eval->srcrow);
+    QueryError_SetError(eval->err, QUERY_ENOPROPVAL, NULL);
+    return 0;
+  }
+
+  setReferenceValue(res, value);
+  return 1;
+}
+
+static int evalInternal(ExprEval *eval, const RSExpr *e, RSValue *res) {
+  RSValue_Clear(res);
   switch (e->t) {
     case RSExpr_Property:
-      return evalProperty(ctx, &e->property, result, err);
+      return evalProperty(eval, &e->property, res);
     case RSExpr_Literal:
-      RSValue_MakeReference(result, &e->literal);
+      RSValue_MakeReference(res, (RSValue *)&e->literal);
       return EXPR_EVAL_OK;
     case RSExpr_Function:
-      return evalFunc(ctx, &e->func, result, err);
-
+      return evalFunc(eval, &e->func, res);
     case RSExpr_Op:
-      return evalOp(ctx, &e->op, result, err);
+      return evalOp(eval, &e->op, res);
     case RSExpr_Predicate:
-      return evalPredicate(ctx, &e->pred, result, err);
+      return evalPredicate(eval, &e->pred, res);
+    case RSExpr_Inverted:
+      return evalInverted(eval, &e->inverted, res);
   }
   return EXPR_EVAL_ERR;
 }
 
-void expr_GetFieldsInternal(RSExpr *expr, const char ***arr) {
-  if (!expr) {
-    return;
+int ExprEval_Eval(ExprEval *evaluator, RSValue *result) {
+  return evalInternal(evaluator, evaluator->root, result);
+}
+
+int ExprAST_GetLookupKeys(RSExpr *expr, RLookup *lookup, QueryError *err) {
+#define RECURSE(v)                                             \
+  if (ExprAST_GetLookupKeys(v, lookup, err) != EXPR_EVAL_OK) { \
+    return EXPR_EVAL_ERR;                                      \
   }
+
   switch (expr->t) {
     case RSExpr_Property:
-      *arr = array_append(*arr, expr->property.key);
+      expr->property.lookupObj = RLookup_GetKey(lookup, expr->property.key, RLOOKUP_F_NOINCREF);
+      if (!expr->property.lookupObj) {
+        QueryError_SetErrorFmt(err, QUERY_ENOPROPKEY, "Property `%s` not loaded in pipeline",
+                               expr->property.key);
+        return EXPR_EVAL_ERR;
+      }
       break;
     case RSExpr_Function:
-      for (size_t i = 0; i < expr->func.args->len; i++) {
-        expr_GetFieldsInternal(expr->func.args->args[i], arr);
+      for (size_t ii = 0; ii < expr->func.args->len; ii++) {
+        RECURSE(expr->func.args->args[ii])
       }
       break;
     case RSExpr_Op:
-      expr_GetFieldsInternal(expr->op.left, arr);
-      expr_GetFieldsInternal(expr->op.right, arr);
+      RECURSE(expr->op.left);
+      RECURSE(expr->op.right);
       break;
     case RSExpr_Predicate:
-      expr_GetFieldsInternal(expr->pred.left, arr);
-      expr_GetFieldsInternal(expr->pred.right, arr);
+      RECURSE(expr->pred.left);
+      RECURSE(expr->pred.right);
+      break;
+    case RSExpr_Inverted:
+      RECURSE(expr->inverted.child);
       break;
     default:
       break;
   }
+  return EXPR_EVAL_OK;
 }
 
-/* Return all the field names needed by the expression. Returns an array that should be freed with
- * array_free */
-const char **Expr_GetRequiredFields(RSExpr *expr) {
-  const char **ret = array_new(const char *, 2);
-  expr_GetFieldsInternal(expr, &ret);
+/* Allocate some memory for a function that can be freed automatically when the execution is done */
+void *ExprEval_UnalignedAlloc(ExprEval *ctx, size_t sz) {
+  return BlkAlloc_Alloc(&ctx->stralloc, sz, MAX(sz, 1024));
+}
+
+char *ExprEval_Strndup(ExprEval *ctx, const char *str, size_t len) {
+  char *ret = ExprEval_UnalignedAlloc(ctx, len + 1);
+  memcpy(ret, str, len);
+  ret[len] = '\0';
   return ret;
 }
 
-/* Get the return type of an expression. In the case of a property we do not try to guess but
- * rather just return String */
-RSValueType GetExprType(RSExpr *expr, RSSortingTable *tbl) {
-  if (!expr) return RSValue_Null;
-  switch (expr->t) {
-    case RSExpr_Function:
-      return RSFunctionRegistry_GetType(expr->func.name, strlen(expr->func.name));
-      break;
-    case RSExpr_Op:
-      return RSValue_Number;
-    case RSExpr_Predicate:
-      return RSValue_Number;
-    case RSExpr_Literal:
-      return expr->literal.t;
-    case RSExpr_Property: {
-      // best effort based on sorting table, default to string
-      // safe if tbl is null
-      return SortingTable_GetFieldType(tbl, RSKEY(expr->property.key), RSValue_String);
-    }
+/**
+ * ResultProcessor type which evaluates expressions
+ */
+typedef struct RPEvaluator RPEvaluator;
+struct RPEvaluator {
+  ResultProcessor base;
+  ExprEval eval;
+  RSValue *val;
+  const RLookupKey *outkey;
+  int isFilter;
+};
+
+#define RESULT_EVAL_ERR RS_RESULT_MAX + 1
+
+static int rpevalCommon(RPEvaluator *pc, SearchResult *r) {
+  /** Get the upstream result */
+  int rc = pc->base.upstream->Next(pc->base.upstream, r);
+  if (rc != RS_RESULT_OK) {
+    return rc;
   }
+
+  pc->eval.res = r;
+  pc->eval.srcrow = &r->rowdata;
+
+  // TODO: Set this once only
+  pc->eval.err = pc->base.parent->err;
+
+  if (!pc->val) {
+    pc->val = RS_NewValue(RSValue_Undef);
+  }
+
+  rc = ExprEval_Eval(&pc->eval, pc->val);
+  if (rc == EXPR_EVAL_ERR) {
+    return RS_RESULT_ERROR;
+  }
+  return RS_RESULT_OK;
+}
+
+static int rpevalNext_project(ResultProcessor *rp, SearchResult *r) {
+  RPEvaluator *pc = (RPEvaluator *)rp;
+  int rc = rpevalCommon(pc, r);
+
+  if (rc != RS_RESULT_OK) {
+    return rc;
+  }
+  RLookup_WriteKey(pc->outkey, &r->rowdata, pc->val);
+  pc->val = NULL;
+  return RS_RESULT_OK;
+}
+
+static int rpevalNext_filter(ResultProcessor *rp, SearchResult *r) {
+  RPEvaluator *pc = (RPEvaluator *)rp;
+  int rc;
+  while ((rc = rpevalCommon(pc, r)) == RS_RESULT_OK) {
+    // Check if it's a boolean result!
+    int boolrv = RSValue_BoolTest(pc->val);
+    RSValue_Clear(pc->val);
+
+    if (boolrv) {
+      return RS_RESULT_OK;
+    }
+
+    // Otherwise, the result must be filtered out.
+    SearchResult_Clear(r);
+  }
+  return rc;
+}
+
+static void rpevalFree(ResultProcessor *rp) {
+  RPEvaluator *ee = (RPEvaluator *)rp;
+  if (ee->val) {
+    RSValue_Decref(ee->val);
+  }
+  free(ee);
+}
+static ResultProcessor *RPEvaluator_NewCommon(const RSExpr *ast, const RLookup *lookup,
+                                              const RLookupKey *dstkey, int isFilter) {
+  RPEvaluator *rp = calloc(1, sizeof(*rp));
+  rp->base.Next = isFilter ? rpevalNext_filter : rpevalNext_project;
+  rp->base.Free = rpevalFree;
+  rp->base.name = isFilter ? "Filter" : "Projector";
+  rp->eval.lookup = lookup;
+  rp->eval.root = ast;
+  rp->outkey = dstkey;
+  BlkAlloc_Init(&rp->eval.stralloc);
+  return &rp->base;
+}
+
+ResultProcessor *RPEvaluator_NewProjector(const RSExpr *ast, const RLookup *lookup,
+                                          const RLookupKey *dstkey) {
+  return RPEvaluator_NewCommon(ast, lookup, dstkey, 0);
+}
+
+ResultProcessor *RPEvaluator_NewFilter(const RSExpr *ast, const RLookup *lookup) {
+  return RPEvaluator_NewCommon(ast, lookup, NULL, 1);
 }

@@ -47,4 +47,4 @@ fi
 
 
 
-exec python -m RLTest $ARGS $@
+exec python -m RLTest $ARGS "$@"

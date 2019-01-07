@@ -24,14 +24,10 @@
 %token_type {QueryToken}  
 
 %syntax_error {  
-
-    int len = TOKEN.len + 100;
-    char buf[len];
-    snprintf(buf, len, "Syntax error at offset %d near '%.*s'", TOKEN.pos, TOKEN.len, TOKEN.s);
-    
-    ctx->ok = 0;
-    ctx->errorMsg = strdup(buf);
-}   
+    QueryError_SetErrorFmt(ctx->status, QUERY_ESYNTAX,
+        "Syntax error at offset %d near %.*s",
+        TOKEN.pos, TOKEN.len, TOKEN.s);
+}
    
 %include {   
 
@@ -91,16 +87,16 @@ size_t unescapen(char *s, size_t sz) {
 // 0 if a && b
 // -1 if !a && !b
 // 1 if a ^ b (i.e. !(a&&b||!a||!b)). The result is stored in `out` 
-static int one_not_null(void *a, void *b, void **out) {
+static int one_not_null(void *a, void *b, void *out) {
     if (a && b) {
         return NODENN_BOTH_VALID;
     } else if (a == NULL && b == NULL) {
         return NODENN_BOTH_INVALID;
     } if (a) {
-        *out = a;
+        *(void **)out = a;
         return NODENN_ONE_NULL;
     } else {
-        *out = b;
+        *(void **)out = b;
         return NODENN_ONE_NULL;
     }
 }
@@ -303,11 +299,7 @@ attribute_list(A) ::= . {
 expr(A) ::= expr(B) ARROW  LB attribute_list(C) RB . {
 
     if (B && C) {
-        char *err = NULL;
-        if (!QueryNode_ApplyAttributes(B, C, array_len(C), &err)) {
-            ctx->ok = 0;
-            ctx->errorMsg = err;
-        }
+        QueryNode_ApplyAttributes(B, C, array_len(C), ctx->status);
     }
     array_free_ex(C, free((char*)((QueryAttribute*)ptr )->value));
     A = B;
@@ -519,11 +511,7 @@ expr(A) ::= modifier(B) COLON geo_filter(C). {
 
 geo_filter(A) ::= LSQB num(B) num(C) num(D) TERM(E) RSQB. [NUMBER] {
     A = NewGeoFilter(B.num, C.num, D.num, strdupcase(E.s, E.len));
-    char *err = NULL;
-    if (!GeoFilter_IsValid(A, &err)) {
-        ctx->ok = 0;
-        ctx->errorMsg = strdup(err);
-    }
+    GeoFilter_Validate(A, ctx->status);
 }
 
 

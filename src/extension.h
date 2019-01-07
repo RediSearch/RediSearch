@@ -3,8 +3,13 @@
 
 #include "redisearch.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
 /* Initialize the extensions mechanism, create registries, etc */
 void Extensions_Init();
+/* clear the extensions list */
+void Extensions_Free();
 
 /* Context for saving a scoring function and its private data and free */
 typedef struct {
@@ -21,7 +26,7 @@ typedef struct {
 } ExtQueryExpanderCtx;
 
 /* Get a scoring function by name. Returns NULL if no such scoring function exists */
-ExtScoringFunctionCtx *Extensions_GetScoringFunction(RSScoringFunctionCtx *ctx, const char *name);
+ExtScoringFunctionCtx *Extensions_GetScoringFunction(ScoringFunctionArgs *fnargs, const char *name);
 
 /* Get a query expander function by name. Returns NULL if no such function exists */
 ExtQueryExpanderCtx *Extensions_GetQueryExpander(RSQueryExpanderCtx *ctx, const char *name);
@@ -33,4 +38,7 @@ int Extension_Load(const char *name, RSExtensionInitFunc func);
  * is set to NULL on success or an error message on failure */
 int Extension_LoadDynamic(const char *path, char **errMsg);
 
+#ifdef __cplusplus
+}
+#endif
 #endif

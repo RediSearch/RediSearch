@@ -13,7 +13,7 @@ void Document_Init(Document *doc, RedisModuleString *docKey, double score, int n
 }
 
 void Document_PrepareForAdd(Document *doc, RedisModuleString *docKey, double score,
-                            AddDocumentOptions *opts, RedisModuleCtx *ctx) {
+                            const AddDocumentOptions *opts, RedisModuleCtx *ctx) {
   size_t payloadSize = 0;
   const char *payloadStr = NULL;
   if (opts->payload) {
@@ -82,12 +82,16 @@ void Document_FreeDetached(Document *doc, RedisModuleCtx *anyCtx) {
   Document_Free(doc);
 }
 
-int Redis_SaveDocument(RedisSearchCtx *ctx, Document *doc) {
+int Redis_SaveDocument(RedisSearchCtx *ctx, Document *doc, QueryError *status) {
 
   RedisModuleKey *k =
       RedisModule_OpenKey(ctx->redisCtx, doc->docKey, REDISMODULE_WRITE | REDISMODULE_READ);
   if (k == NULL || (RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_EMPTY &&
                     RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_HASH)) {
+    QueryError_SetError(status, QUERY_EREDISKEYTYPE, NULL);
+    if (k) {
+      RedisModule_CloseKey(k);
+    }
     return REDISMODULE_ERR;
   }
 
@@ -95,6 +99,7 @@ int Redis_SaveDocument(RedisSearchCtx *ctx, Document *doc) {
     RedisModule_HashSet(k, REDISMODULE_HASH_CFIELDS, doc->fields[i].name, doc->fields[i].text,
                         NULL);
   }
+  RedisModule_CloseKey(k);
   return REDISMODULE_OK;
 }
 

@@ -43,7 +43,7 @@ double tfidfRecursive(RSIndexResult *r, RSDocumentMetadata *dmd) {
 }
 
 /* internal common tf-idf function, where just the normalization method changes */
-static inline double tfIdfInternal(RSScoringFunctionCtx *ctx, RSIndexResult *h,
+static inline double tfIdfInternal(ScoringFunctionArgs *ctx, RSIndexResult *h,
                                    RSDocumentMetadata *dmd, double minScore, int normMode) {
   if (dmd->score == 0) return 0;
   double norm = normMode == NORM_MAXFREQ ? (double)dmd->maxFreq : dmd->len;
@@ -60,14 +60,14 @@ static inline double tfIdfInternal(RSScoringFunctionCtx *ctx, RSIndexResult *h,
 
 /* Calculate sum(TF-IDF)*document score for each result, where TF is normalized by maximum frequency
  * in this document*/
-double TFIDFScorer(RSScoringFunctionCtx *ctx, RSIndexResult *h, RSDocumentMetadata *dmd,
+double TFIDFScorer(ScoringFunctionArgs *ctx, RSIndexResult *h, RSDocumentMetadata *dmd,
                    double minScore) {
   return tfIdfInternal(ctx, h, dmd, minScore, NORM_MAXFREQ);
 }
 
 /* Identical scorer to TFIDFScorer, only the normalization is by total weighted frequency in the doc
  */
-double TFIDFNormDocLenScorer(RSScoringFunctionCtx *ctx, RSIndexResult *h, RSDocumentMetadata *dmd,
+double TFIDFNormDocLenScorer(ScoringFunctionArgs *ctx, RSIndexResult *h, RSDocumentMetadata *dmd,
                              double minScore) {
 
   return tfIdfInternal(ctx, h, dmd, minScore, NORM_DOCLEN);
@@ -82,7 +82,7 @@ double TFIDFNormDocLenScorer(RSScoringFunctionCtx *ctx, RSIndexResult *h, RSDocu
  ******************************************************************************************/
 
 /* recursively calculate score for each token, summing up sub tokens */
-static double bm25Recursive(RSScoringFunctionCtx *ctx, RSIndexResult *r, RSDocumentMetadata *dmd) {
+static double bm25Recursive(ScoringFunctionArgs *ctx, RSIndexResult *r, RSDocumentMetadata *dmd) {
   static const float b = 0.5;
   static const float k1 = 1.2;
   double f = (double)r->freq;
@@ -106,7 +106,7 @@ static double bm25Recursive(RSScoringFunctionCtx *ctx, RSIndexResult *r, RSDocum
 }
 
 /* BM25 scoring function */
-double BM25Scorer(RSScoringFunctionCtx *ctx, RSIndexResult *r, RSDocumentMetadata *dmd,
+double BM25Scorer(ScoringFunctionArgs *ctx, RSIndexResult *r, RSDocumentMetadata *dmd,
                   double minScore) {
   double score = dmd->score * bm25Recursive(ctx, r, dmd);
 
@@ -124,7 +124,7 @@ double BM25Scorer(RSScoringFunctionCtx *ctx, RSIndexResult *r, RSDocumentMetadat
  * Raw document-score scorer. Just returns the document score
  *
  ******************************************************************************************/
-double DocScoreScorer(RSScoringFunctionCtx *ctx, RSIndexResult *r, RSDocumentMetadata *dmd,
+double DocScoreScorer(ScoringFunctionArgs *ctx, RSIndexResult *r, RSDocumentMetadata *dmd,
                       double minScore) {
   return dmd->score;
 }
@@ -159,7 +159,7 @@ double _dismaxRecursive(RSIndexResult *r) {
   return r->weight * ret;
 }
 /* Calculate sum(TF-IDF)*document score for each result */
-double DisMaxScorer(RSScoringFunctionCtx *ctx, RSIndexResult *h, RSDocumentMetadata *dmd,
+double DisMaxScorer(ScoringFunctionArgs *ctx, RSIndexResult *h, RSDocumentMetadata *dmd,
                     double minScore) {
   // printf("score for %d: %f\n", h->docId, dmd->score);
   // if (dmd->score == 0 || h == NULL) return 0;
@@ -178,17 +178,17 @@ static const unsigned char bitsinbyte[256] = {
 
 /* HAMMING - Scorer using Hamming distance between the query payload and the document payload. Only
  * works if both have the payloads the same length */
-double HammingDistanceScorer(RSScoringFunctionCtx *ctx, RSIndexResult *h, RSDocumentMetadata *dmd,
+double HammingDistanceScorer(ScoringFunctionArgs *ctx, RSIndexResult *h, RSDocumentMetadata *dmd,
                              double minScore) {
   // the strings must be of the same length > 0
-  if (!dmd->payload || !dmd->payload->len || dmd->payload->len != ctx->payload.len) {
+  if (!dmd->payload || !dmd->payload->len || dmd->payload->len != ctx->qdatalen) {
     return 0;
   }
   size_t ret = 0;
-  size_t len = ctx->payload.len;
+  size_t len = ctx->qdatalen;
   // if the strings are not aligned to 64 bit - calculate the diff byte by
 
-  const unsigned char *a = (unsigned char *)ctx->payload.data;
+  const unsigned char *a = (unsigned char *)ctx->qdata;
   const unsigned char *b = (unsigned char *)dmd->payload->data;
   for (size_t i = 0; i < len; i++) {
     ret += bitsinbyte[(unsigned char)(a[i] ^ b[i])];
@@ -255,8 +255,7 @@ static void expandCn(RSQueryExpanderCtx *ctx, RSToken *token) {
  * Stemmer based query expander
  *
  ******************************************************************************************/
-void StemmerExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
-  // printf("Enter: %.*s\n", (int)token->len, token->str);
+int StemmerExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
 
   // we store the stemmer as private data on the first call to expand
   defaultExpanderCtx *dd = ctx->privdata;
@@ -265,7 +264,7 @@ void StemmerExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
   if (!ctx->privdata) {
     if (!strcasecmp(ctx->language, "chinese")) {
       expandCn(ctx, token);
-      return;
+      return REDISMODULE_OK;
     } else {
       dd = ctx->privdata = calloc(1, sizeof(*dd));
       dd->isCn = 0;
@@ -275,7 +274,7 @@ void StemmerExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
 
   if (dd->isCn) {
     expandCn(ctx, token);
-    return;
+    return REDISMODULE_OK;
   }
 
   sb = dd->data.latin;
@@ -283,7 +282,7 @@ void StemmerExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
   // No stemmer available for this language - just return the node so we won't
   // be called again
   if (!sb) {
-    return;
+    return REDISMODULE_OK;
   }
 
   const sb_symbol *b = (const sb_symbol *)token->str;
@@ -301,6 +300,7 @@ void StemmerExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
       ctx->ExpandToken(ctx, strndup((const char *)stemmed, sl), sl, 0x0);
     }
   }
+  return REDISMODULE_OK;
 }
 
 void StemmerExpanderFree(void *p) {
@@ -322,7 +322,7 @@ void StemmerExpanderFree(void *p) {
  * phonetic based query expander
  *
  ******************************************************************************************/
-void PhoneticExpand(RSQueryExpanderCtx *ctx, RSToken *token) {
+int PhoneticExpand(RSQueryExpanderCtx *ctx, RSToken *token) {
   char *primary = NULL;
 
   PhoneticManager_ExpandPhonetics(NULL, token->str, token->len, &primary, NULL);
@@ -330,9 +330,7 @@ void PhoneticExpand(RSQueryExpanderCtx *ctx, RSToken *token) {
   if (primary) {
     ctx->ExpandToken(ctx, primary, strlen(primary), 0x0);
   }
-}
-
-void PhoneticExpanderFree(void *p) {
+  return REDISMODULE_OK;
 }
 
 /******************************************************************************************
@@ -340,17 +338,17 @@ void PhoneticExpanderFree(void *p) {
  * Synonyms based query expander
  *
  ******************************************************************************************/
-void SynonymExpand(RSQueryExpanderCtx *ctx, RSToken *token) {
+int SynonymExpand(RSQueryExpanderCtx *ctx, RSToken *token) {
 #define BUFF_LEN 100
-  IndexSpec *spec = ctx->query->sctx->spec;
+  IndexSpec *spec = ctx->handle->spec;
   if (!spec->smap) {
-    return;
+    return REDISMODULE_OK;
   }
 
   TermData *t_data = SynonymMap_GetIdsBySynonym(spec->smap, token->str, token->len);
 
   if (t_data == NULL) {
-    return;
+    return REDISMODULE_OK;
   }
 
   for (int i = 0; i < array_len(t_data->ids); ++i) {
@@ -358,9 +356,7 @@ void SynonymExpand(RSQueryExpanderCtx *ctx, RSToken *token) {
     int len = SynonymMap_IdToStr(t_data->ids[i], buff, BUFF_LEN);
     ctx->ExpandToken(ctx, strdup((const char *)buff), len, 0x0);
   }
-}
-
-void SynonymExpanderFree(void *p) {
+  return REDISMODULE_OK;
 }
 
 /******************************************************************************************
@@ -368,11 +364,41 @@ void SynonymExpanderFree(void *p) {
  * Default query expander
  *
  ******************************************************************************************/
-void DefaultExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
+int DefaultExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
   int phonetic = (*(ctx->currentNode))->opts.phonetic;
   SynonymExpand(ctx, token);
-  // todo: if phonetic default check if the field spec has phonetics
-  if (phonetic == PHONETIC_DEFAULT || phonetic == PHONETIC_ENABLED) {
+
+  if (phonetic == PHONETIC_DEFAULT) {
+    // Eliminate the phonetic expansion if we know that none of the fields
+    // actually use phonetic matching
+    if (IndexSpec_CheckPhoneticEnabled(ctx->handle->spec, (*ctx->currentNode)->opts.fieldMask)) {
+      phonetic = PHONETIC_ENABLED;
+    }
+  } else if (phonetic == PHONETIC_ENABLED || phonetic == PHONETIC_DESABLED) {
+    // Verify that the field is actually phonetic
+    int isValid = 0;
+    if ((*ctx->currentNode)->opts.fieldMask == RS_FIELDMASK_ALL) {
+      if (ctx->handle->spec->flags & Index_HasPhonetic) {
+        isValid = 1;
+      }
+    } else {
+      t_fieldMask fm = (*ctx->currentNode)->opts.fieldMask;
+      for (size_t ii = 0; ii < ctx->handle->spec->numFields; ++ii) {
+        if (!(fm & (t_fieldMask)1 << ii)) {
+          continue;
+        }
+        const FieldSpec *fs = ctx->handle->spec->fields + ii;
+        if (FieldSpec_IsPhonetics(fs)) {
+          isValid = 1;
+        }
+      }
+    }
+    if (!isValid) {
+      QueryError_SetError(ctx->status, QUERY_EINVAL, "field does not support phonetics");
+      return REDISMODULE_ERR;
+    }
+  }
+  if (phonetic == PHONETIC_ENABLED) {
     PhoneticExpand(ctx, token);
   }
 
@@ -381,12 +407,11 @@ void DefaultExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
   // todo: fix the free of the 'RSToken *token' by the stemmer and allow any
   //       expnders ordering!!
   StemmerExpander(ctx, token);
+  return REDISMODULE_OK;
 }
 
 void DefaultExpanderFree(void *p) {
   StemmerExpanderFree(p);
-  SynonymExpanderFree(p);
-  PhoneticExpanderFree(p);
 }
 
 /* Register the default extension */
@@ -432,14 +457,14 @@ int DefaultExtensionInit(RSExtensionCtx *ctx) {
   }
 
   /* Synonyms expender */
-  if (ctx->RegisterQueryExpander(SYNONYMS_EXPENDER_NAME, SynonymExpand, SynonymExpanderFree,
-                                 NULL) == REDISEARCH_ERR) {
+  if (ctx->RegisterQueryExpander(SYNONYMS_EXPENDER_NAME, SynonymExpand, NULL, NULL) ==
+      REDISEARCH_ERR) {
     return REDISEARCH_ERR;
   }
 
   /* Phonetic expender */
-  if (ctx->RegisterQueryExpander(PHONETIC_EXPENDER_NAME, PhoneticExpand, PhoneticExpanderFree,
-                                 NULL) == REDISEARCH_ERR) {
+  if (ctx->RegisterQueryExpander(PHONETIC_EXPENDER_NAME, PhoneticExpand, NULL, NULL) ==
+      REDISEARCH_ERR) {
     return REDISEARCH_ERR;
   }
 

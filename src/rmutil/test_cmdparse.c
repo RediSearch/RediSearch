@@ -2,6 +2,8 @@
 #include <string.h>
 #include "test.h"
 #include "cmdparse.h"
+#include "redismodule.h"
+REDISMODULE_INIT_SYMBOLS();
 
 void CmdSchemaNode_Print(CmdSchemaNode *n, int depth);
 

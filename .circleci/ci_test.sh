@@ -4,7 +4,7 @@ set -x
 
 pip install wheel
 pip install setuptools --upgrade
-pip install git+https://github.com/RedisLabsModules/RLTest.git@master
+pip install git+https://github.com/RedisLabsModules/RLTest.git@mark-fixes
 
 PROJECT_DIR=$PWD
 cd $PROJECT_DIR/$BUILD_DIR

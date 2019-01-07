@@ -1,16 +1,13 @@
 #ifndef RS_AGG_EXPRESSION_H_
 #define RS_AGG_EXPRESSION_H_
+
 #include <redisearch.h>
 #include <value.h>
-#include <result_processor.h>
 #include <aggregate/functions/function.h>
-#include <util/block_alloc.h>
 
-typedef struct {
-  char *err;
-  int code;
-  int errAllocated;
-} RSError;
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /* Expression type enum */
 typedef enum {
@@ -24,6 +21,9 @@ typedef enum {
   RSExpr_Function,
   /* Predicate expression, e.g. @foo == 3 */
   RSExpr_Predicate,
+
+  /* NOT expression, i.e. !(....) */
+  RSExpr_Inverted
 } RSExprType;
 
 struct RSExpr;
@@ -49,16 +49,13 @@ typedef enum {
   /* Logical AND of 2 expressions, && */
   RSCondition_And,
   /* Logical OR of 2 expressions, || */
-  RSCondition_Or,
-
-  /* Logical NOT of the left expression only */
-  RSCondition_Not,
+  RSCondition_Or
 } RSCondition;
 
 static const char *RSConditionStrings[] = {
     [RSCondition_Eq] = "==",  [RSCondition_Lt] = "<",  [RSCondition_Le] = "<=",
     [RSCondition_Gt] = ">",   [RSCondition_Ge] = ">=", [RSCondition_Ne] = "!=",
-    [RSCondition_And] = "&&", [RSCondition_Or] = "||", [RSCondition_Not] = "!",
+    [RSCondition_And] = "&&", [RSCondition_Or] = "||",
 };
 
 typedef struct {
@@ -66,6 +63,10 @@ typedef struct {
   struct RSExpr *right;
   RSCondition cond;
 } RSPredicate;
+
+typedef struct {
+  struct RSExpr *child;
+} RSInverted;
 
 typedef struct {
   size_t len;
@@ -78,52 +79,94 @@ typedef struct {
   RSFunction Call;
 } RSFunctionExpr;
 
+typedef struct {
+  const char *key;
+  const RLookupKey *lookupObj;
+} RSLookupExpr;
+
 typedef struct RSExpr {
+  RSExprType t;
   union {
     RSExprOp op;
     RSValue literal;
     RSFunctionExpr func;
-    RSKey property;
     RSPredicate pred;
+    RSLookupExpr property;
+    RSInverted inverted;
   };
-  RSExprType t;
 } RSExpr;
 
-typedef struct {
-  SearchResult *r;
-  RSSortingTable *sortables;
-  RedisSearchCtx *sctx;
-  RSFunctionEvalCtx *fctx;
-} RSExprEvalCtx;
+/**
+ * Expression execution context/evaluator. I need to refactor this into something
+ * nicer, but I think this will do.
+ */
+typedef struct ExprEval {
+  QueryError *err;
+  const RLookup *lookup;
+  const SearchResult *res;
+  const RLookupRow *srcrow;
+  const RSExpr *root;
+  BlkAlloc stralloc; // Optional. YNOT?
+} ExprEval;
 
-#define EXPR_EVAL_ERR 1
-#define EXPR_EVAL_OK 0
-int RSExpr_Eval(RSExprEvalCtx *ctx, RSExpr *e, RSValue *result, char **err);
+#define EXPR_EVAL_ERR 0
+#define EXPR_EVAL_OK 1
 
-RSArgList *RS_NewArgList(RSExpr *e);
-void RSArgList_Free(RSArgList *l);
-RSArgList *RSArgList_Append(RSArgList *l, RSExpr *e);
+/**
+ * Scan through the expression and generate any required lookups for the keys.
+ * @param root Root iterator for scan start
+ * @param lookup The lookup registry which will store the keys
+ * @param err If this fails, EXPR_EVAL_ERR is returned, and this variable contains
+ *  the error.
+ */
+int ExprAST_GetLookupKeys(RSExpr *root, RLookup *lookup, QueryError *err);
+int ExprEval_Eval(ExprEval *evaluator, RSValue *result);
 
-RSExpr *RS_NewStringLiteral(const char *str, size_t len);
-RSExpr *RS_NewNullLiteral();
-RSExpr *RS_NewNumberLiteral(double n);
-RSExpr *RS_NewOp(unsigned char op, RSExpr *left, RSExpr *right);
-RSExpr *RS_NewFunc(const char *str, size_t len, RSArgList *args, RSFunction cb);
-RSExpr *RS_NewProp(const char *str, size_t len);
-RSExpr *RS_NewPredicate(RSCondition cond, RSExpr *left, RSExpr *right);
-void RSExpr_Free(RSExpr *expr);
-void RSExpr_Print(RSExpr *expr);
+void ExprAST_Free(RSExpr *expr);
+void ExprAST_Print(const RSExpr *expr);
+RSExpr * ExprAST_Parse(const char *e, size_t n, QueryError *status);
 
 /* Parse an expression string, returning a prased expression tree on success. On failure (syntax
  * err, etc) we set and error in err, and return NULL */
 RSExpr *RSExpr_Parse(const char *expr, size_t len, char **err);
+void RSExpr_Free(RSExpr *e);
 
-/* Get the return type of an expression. In the case of a property we do not try to guess but rather
- * just return String */
-RSValueType GetExprType(RSExpr *expr, RSSortingTable *tbl);
+/**
+ * Helper functions for the evaluator context:
+ */
+void *ExprEval_UnalignedAlloc(ExprEval *ev, size_t n);
+char *ExprEval_Strndup(ExprEval *ev, const char *s, size_t n);
 
-/* Return all the field names needed by the expression. Returns an array that should be freed with
- * array_free */
-const char **Expr_GetRequiredFields(RSExpr *expr);
+/** Cleans up the allocator */
+void ExprEval_Cleanup(ExprEval *ev);
 
+/**
+ * Creates a new result processor in the form of a projector. The projector will
+ * execute the expression in `ast` and write the result of that expression to the
+ * appropriate place.
+ * 
+ * @param ast the parsed expression
+ * @param lookup the lookup registry that contains the keys to search for
+ * @param dstkey the target key (in lookup) to store the result.
+ * 
+ * @note The ast needs to be paired with the appropriate RLookupKey objects. This
+ * can be done by calling EXPR_GetLookupKeys()
+ */
+ResultProcessor *RPEvaluator_NewProjector(const RSExpr *ast, const RLookup *lookup, const RLookupKey *dstkey);
+
+/**
+ * Creates a new result processor in the form of a filter. The filter will
+ * execute the expression in `ast` on each upstream result. If the expression
+ * evaluates to false, the result will not be propagated to the next processor.
+ * 
+ * @param ast the parsed expression
+ * @param lookup lookup used to find the key for the value
+ * 
+ * See notes for NewProjector()
+ */
+ResultProcessor *RPEvaluator_NewFilter(const RSExpr *ast, const RLookup *lookup);
+
+#ifdef __cplusplus
+}
+#endif
 #endif

@@ -102,12 +102,12 @@ int ConcurrentSearch_HandleRedisCommand(int poolType, ConcurrentCmdHandler handl
   return ConcurrentSearch_HandleRedisCommandEx(poolType, 0, handler, ctx, argv, argc);
 }
 
-static void ConcurrentSearch_CloseKeys(ConcurrentSearchCtx *ctx) {
+void ConcurrentSearchCtx_CloseKeys(ConcurrentSearchCtx *ctx) {
   size_t sz = ctx->numOpenKeys;
   for (size_t i = 0; i < sz; i++) {
-    if (ctx->openKeys[i].key &&  // if this is a shared key, don't do anything
-        !(ctx->openKeys[i].opts & ConcurrentKey_SharedKey)) {
+    if (ctx->openKeys[i].key) {
       RedisModule_CloseKey(ctx->openKeys[i].key);
+      ctx->openKeys[i].key = NULL;
     }
   }
 }
@@ -118,7 +118,6 @@ void ConcurrentSearchCtx_ReopenKeys(ConcurrentSearchCtx *ctx) {
     ConcurrentKeyCtx *kx = &ctx->openKeys[i];
     kx->key = RedisModule_OpenKey(ctx->ctx, kx->keyName, kx->keyFlags);
     // if the key is marked as shared, make sure it isn't now
-    kx->opts &= ~ConcurrentKey_SharedKey;
     kx->cb(kx->key, kx->privdata);
   }
 }
@@ -174,23 +173,23 @@ void ConcurrentSearchCtx_InitSingle(ConcurrentSearchCtx *ctx, RedisModuleCtx *rc
 void ConcurrentSearchCtx_Free(ConcurrentSearchCtx *ctx) {
   // Release the monitored open keys
   for (size_t i = 0; i < ctx->numOpenKeys; i++) {
+    ConcurrentKeyCtx *cctx = ctx->openKeys + i;
 
-    if (ctx->isLocked && ctx->openKeys[i].key &&
-        // if this is a shared key, don't do anything
-        !(ctx->openKeys[i].opts & ConcurrentKey_SharedKey)) {
-      RedisModule_CloseKey(ctx->openKeys[i].key);
-    }
-    // If the key name is a shared string, don't do anything
-    if (!(ctx->openKeys[i].opts & ConcurrentKey_SharedKeyString)) {
-      RedisModule_FreeString(ctx->ctx, ctx->openKeys[i].keyName);
+    RedisModule_FreeString(ctx->ctx, cctx->keyName);
+
+    if (cctx->key) {
+      RedisModule_CloseKey(cctx->key);
+      cctx->key = NULL;
     }
 
     // free the private data if needed
-    if (ctx->openKeys[i].freePrivData) {
-      ctx->openKeys[i].freePrivData(ctx->openKeys[i].privdata);
+    if (cctx->freePrivData) {
+      cctx->freePrivData(cctx->privdata);
     }
   }
+
   free(ctx->openKeys);
+  ctx->numOpenKeys = 0;
 }
 
 /* Add a "monitored" key to the context. When keys are open during concurrent execution, they need
@@ -208,8 +207,7 @@ void ConcurrentSearchCtx_Free(ConcurrentSearchCtx *ctx) {
  * when the context is freed to release the private data. If NULL is passed, we do nothing */
 void ConcurrentSearch_AddKey(ConcurrentSearchCtx *ctx, RedisModuleKey *key, int openFlags,
                              RedisModuleString *keyName, ConcurrentReopenCallback cb,
-                             void *privdata, void (*freePrivDataCallback)(void *),
-                             ConcurrentKeyOptions opts) {
+                             void *privdata, void (*freePrivDataCallback)(void *)) {
   ctx->numOpenKeys++;
   ctx->openKeys = realloc(ctx->openKeys, ctx->numOpenKeys * sizeof(ConcurrentKeyCtx));
   ctx->openKeys[ctx->numOpenKeys - 1] = (ConcurrentKeyCtx){.key = key,
@@ -217,8 +215,8 @@ void ConcurrentSearch_AddKey(ConcurrentSearchCtx *ctx, RedisModuleKey *key, int 
                                                            .keyFlags = openFlags,
                                                            .cb = cb,
                                                            .privdata = privdata,
-                                                           .freePrivData = freePrivDataCallback,
-                                                           .opts = opts};
+                                                           .freePrivData = freePrivDataCallback};
+  RedisModule_RetainString(ctx->ctx, keyName);
 }
 
 void ConcurrentSearchCtx_Lock(ConcurrentSearchCtx *ctx) {
@@ -229,7 +227,7 @@ void ConcurrentSearchCtx_Lock(ConcurrentSearchCtx *ctx) {
 }
 
 void ConcurrentSearchCtx_Unlock(ConcurrentSearchCtx *ctx) {
-  ConcurrentSearch_CloseKeys(ctx);
+  ConcurrentSearchCtx_CloseKeys(ctx);
   RedisModule_ThreadSafeContextUnlock(ctx->ctx);
   ctx->isLocked = 0;
 }

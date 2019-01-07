@@ -5,7 +5,7 @@ INCLUDE(cmake/redisearch_cflags.cmake)
 # Allow to use 'LOCATION' setting
 CMAKE_POLICY(SET CMP0026 OLD)
 
-OPTION(RS_RUN_TESTS "Build & Run RediSearch's tests" ON)
+OPTION(RS_RUN_TESTS "Build & Run RediSearch's tests" OFF)
 
 ADD_DEFINITIONS(-UNDEBUG)
 
@@ -82,12 +82,18 @@ SET(FINAL_OBJECTS
 
 ADD_LIBRARY(redisearchS STATIC ${FINAL_OBJECTS})
 ADD_LIBRARY(redisearch SHARED ${FINAL_OBJECTS} src/module-init/module-init.c)
+ADD_EXECUTABLE(sizes src/c_utils/sizes.cpp)
+TARGET_LINK_LIBRARIES(sizes redisearch dl)
 
 SET_TARGET_PROPERTIES(redisearch PROPERTIES PREFIX "")
 SET_TARGET_PROPERTIES(redisearch PROPERTIES SUFFIX ".so")
 TARGET_LINK_LIBRARIES(redisearchS -lm -lc -ldl)
 
 IF (RS_RUN_TESTS)
+    SET(BUILD_GTEST ON CACHE BOOL "" FORCE)
+    SET(BUILD_GMOCK OFF CACHE BOOL "" FORCE)
+    ADD_SUBDIRECTORY(src/dep/gtest)
+    ADD_SUBDIRECTORY(src/cpptests)
     ADD_SUBDIRECTORY(src/tests)
     ADD_SUBDIRECTORY(src/pytest)
 ENDIF()

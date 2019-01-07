@@ -10,6 +10,10 @@
 #include "rmutil/args.h"
 #include "query_error.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 /// General Architecture                                                     ///
@@ -49,13 +53,20 @@ typedef struct {
   int stringOwner;
 } Document;
 
+struct RSAddDocumentCtx;
+
+typedef void (*DocumentAddCompleted)(struct RSAddDocumentCtx *, RedisModuleCtx *, void *);
+
 typedef struct {
-  uint32_t options;  // DOCUMENT_ADD_XXX
-  const char *language;
-  RedisModuleString *payload;
-  RedisModuleString **fieldsArray;
-  size_t numFieldElems;
-  const char *evalExpr;
+  uint32_t options;                 // DOCUMENT_ADD_XXX
+  const char *language;             // Language document should be indexed as
+  RedisModuleString *payload;       // Arbitrary payload provided on return with WITHPAYLOADS
+  RedisModuleString **fieldsArray;  // Field, Value, Field Value
+  size_t numFieldElems;             // Number of elements
+  double score;                     // Score of the document
+  const char *evalExpr;             // Only add the document if this expression evaluates to true.
+  DocumentAddCompleted donecb;      // Callback to invoke when operation is done
+
 } AddDocumentOptions;
 
 int AddDocumentOptions_Parse(AddDocumentOptions *opts, ArgsCursor *ac, QueryError *status);
@@ -85,7 +96,7 @@ void Document_Init(Document *doc, RedisModuleString *docKey, double score, int n
  *
  */
 void Document_PrepareForAdd(Document *doc, RedisModuleString *docKey, double score,
-                            AddDocumentOptions *opts, RedisModuleCtx *ctx);
+                            const AddDocumentOptions *opts, RedisModuleCtx *ctx);
 
 /**
  * Copy any data from the document into its own independent copies. srcCtx is
@@ -128,6 +139,7 @@ void Document_Free(Document *doc);
 #define DOCUMENT_ADD_REPLACE 0x01
 #define DOCUMENT_ADD_PARTIAL 0x02
 #define DOCUMENT_ADD_NOSAVE 0x04
+#define DOCUMENT_ADD_CURTHREAD 0x08  // Perform operation in main thread
 
 struct ForwardIndex;
 union FieldData;
@@ -154,9 +166,7 @@ union FieldData;
 
 struct DocumentIndexer;
 
-/**
- * Context used when indexing documents.
- */
+/** Context used when indexing documents */
 typedef struct RSAddDocumentCtx {
   struct RSAddDocumentCtx *next;  // Next context in the queue
   Document doc;                   // Document which is being indexed
@@ -189,11 +199,12 @@ typedef struct RSAddDocumentCtx {
 
   // Scratch space used by per-type field preprocessors (see the source)
   union FieldData *fdatas;
-  const char *errorString;  // Error message is placed here if there is an error during processing
-  uint32_t totalTokens;     // Number of tokens, used for offset vector
-  uint32_t specFlags;       // Cached index flags
-  uint8_t options;          // Indexing options - i.e. DOCUMENT_ADD_xxx
-  uint8_t stateFlags;       // Indexing state, ACTX_F_xxx
+  QueryError status;     // Error message is placed here if there is an error during processing
+  uint32_t totalTokens;  // Number of tokens, used for offset vector
+  uint32_t specFlags;    // Cached index flags
+  uint8_t options;       // Indexing options - i.e. DOCUMENT_ADD_xxx
+  uint8_t stateFlags;    // Indexing state, ACTX_F_xxx
+  DocumentAddCompleted donecb;
 } RSAddDocumentCtx;
 
 #define AddDocumentCtx_IsBlockable(aCtx) (!((aCtx)->stateFlags & ACTX_F_NOBLOCK))
@@ -212,7 +223,7 @@ typedef struct RSAddDocumentCtx {
  *
  * When done, call AddDocumentCtx_Free
  */
-RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *base, const char **err);
+RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *base, QueryError *status);
 
 /**
  * At this point the context will take over from the caller, and handle sending
@@ -242,7 +253,9 @@ int Document_AddToIndexes(RSAddDocumentCtx *ctx);
 void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx);
 
 /* Load a single document */
-int Redis_LoadDocument(RedisSearchCtx *ctx, RedisModuleString *key, Document *Doc);
+int Redis_LoadDocumentC(RedisSearchCtx *ctx, const char *s, size_t n, Document *doc);
+int Redis_LoadDocumentR(RedisSearchCtx *ctx, RedisModuleString *key, Document *doc);
+#define Redis_LoadDocument Redis_LoadDocumentR
 
 /* Evaluate an IF expression (e.g. IF "@foo == 'bar'") against a document, by getting the
  * properties from the sorting table or from the hash representation of the document.
@@ -252,7 +265,7 @@ int Redis_LoadDocument(RedisSearchCtx *ctx, RedisModuleString *key, Document *Do
  *
  * Returns  REDISMODULE_ERR on failure, OK otherwise*/
 int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const char *expr,
-                            int *result, char **err);
+                            int *result, QueryError *err);
 
 /**
  * Load a single document fields is an array of fields to load from a document.
@@ -265,7 +278,7 @@ int Redis_LoadDocumentEx(RedisSearchCtx *ctx, RedisModuleString *key, const char
 /**
  * Save a document in the index. Used for returning contents in search results.
  */
-int Redis_SaveDocument(RedisSearchCtx *ctx, Document *doc);
+int Redis_SaveDocument(RedisSearchCtx *ctx, Document *doc, QueryError *status);
 
 /* Serialzie the document's fields to a redis client */
 int Document_ReplyFields(RedisModuleCtx *ctx, Document *doc);
@@ -278,4 +291,9 @@ int RSSafeAddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
 int RSAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int RSSafeAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
+int RS_AddDocument(RedisSearchCtx *sctx, RedisModuleString *name, const AddDocumentOptions *opts,
+                   QueryError *status);
+#ifdef __cplusplus
+}
+#endif
 #endif
