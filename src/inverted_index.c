@@ -524,13 +524,14 @@ DECODER(readFreqOffsetsFlags) {
 }
 
 SKIPPER(seekFreqOffsetsFlags) {
-  uint32_t did = 0, freq = 0, fm = 0, offsz = 0;
+  uint32_t did = 0, freq = 0, offsz = 0;
+  t_fieldMask fm = 0;
   t_docId lastId = ir->lastId;
   int rc = 0;
 
   if (!BufferReader_AtEnd(br)) {
     size_t oldpos = br->pos;
-    qint_decode4(br, &did, &freq, &fm, &offsz);
+    qint_decode4(br, &did, &freq, (uint32_t *)&fm, &offsz);
     Buffer_Skip(br, offsz);
 
     if (oldpos == 0 && did != 0) {
@@ -551,7 +552,7 @@ SKIPPER(seekFreqOffsetsFlags) {
 
   if (!BufferReader_AtEnd(br)) {
     while (!BufferReader_AtEnd(br)) {
-      qint_decode4(br, &did, &freq, &fm, &offsz);
+      qint_decode4(br, &did, &freq, (uint32_t *)&fm, &offsz);
       Buffer_Skip(br, offsz);
       lastId = (did += lastId);
       if (did > expid) {
@@ -572,8 +573,8 @@ SKIPPER(seekFreqOffsetsFlags) {
 
 done:
   res->docId = did;
-  res->fieldMask = fm;
   res->freq = freq;
+  res->fieldMask = fm;
   res->offsetsSz = offsz;
   res->term.offsets.data = BufferReader_Current(br) - offsz;
   res->term.offsets.len = offsz;
