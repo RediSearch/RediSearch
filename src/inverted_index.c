@@ -22,9 +22,18 @@
 // pointer to the current block while reading the index
 #define IR_CURRENT_BLOCK(ir) (ir->idx->blocks[ir->currentBlock])
 
-static IndexReader *NewIndexReaderGeneric(InvertedIndex *idx, IndexDecoder decoder,
+static IndexReader *NewIndexReaderGeneric(InvertedIndex *idx, IndexDecoderProcs decoder,
                                           IndexDecoderCtx decoderCtx, RSIndexResult *record,
                                           double weight);
+
+/**
+ * Get the real ID, given the current delta
+ * @param lastId[in, out] The last ID processed. This is updated with the
+ *  current ID after computing
+ * @param delta the raw delta read
+ * @param isFirst whether this is the first ID in the block
+ */
+static t_docId calculateId(t_docId lastId, uint32_t delta, int isFirst);
 
 /* Add a new block to the index with a given document id as the initial id */
 IndexBlock *InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId) {
@@ -481,6 +490,15 @@ static void IndexReader_AdvanceBlock(IndexReader *ir) {
 #define DECODER(name) \
   static int name(BufferReader *br, const IndexDecoderCtx *ctx, RSIndexResult *res)
 
+/**
+ * Skipper implements SkipTo. It is an optimized version of DECODER which reads
+ * the document ID first, and skips ahead if the result does not match the
+ * expected one.
+ */
+#define SKIPPER(name)                                                                           \
+  static int name(BufferReader *br, const IndexDecoderCtx *ctx, IndexReader *ir, t_docId expid, \
+                  RSIndexResult *res)
+
 #define CHECK_FLAGS(ctx, res) return ((res->fieldMask & ctx->num) != 0)
 
 DECODER(readFreqsFlags) {
@@ -503,6 +521,67 @@ DECODER(readFreqOffsetsFlags) {
   res->term.offsets.len = res->offsetsSz;
   Buffer_Skip(br, res->offsetsSz);
   CHECK_FLAGS(ctx, res);
+}
+
+SKIPPER(seekFreqOffsetsFlags) {
+  uint32_t did = 0, freq = 0, offsz = 0;
+  t_fieldMask fm = 0;
+  t_docId lastId = ir->lastId;
+  int rc = 0;
+
+  if (!BufferReader_AtEnd(br)) {
+    size_t oldpos = br->pos;
+    qint_decode4(br, &did, &freq, (uint32_t *)&fm, &offsz);
+    Buffer_Skip(br, offsz);
+
+    if (oldpos == 0 && did != 0) {
+      // Old RDB: Delta is not 0, but the docid itself
+      lastId = did;
+    } else {
+      lastId = (did += lastId);
+    }
+
+    if (did > expid) {
+      // overshoot
+      goto done;
+    } else if (did == expid && (ctx->num & fm)) {
+      rc = 1;
+      goto done;
+    }
+  }
+
+  if (!BufferReader_AtEnd(br)) {
+    while (!BufferReader_AtEnd(br)) {
+      qint_decode4(br, &did, &freq, (uint32_t *)&fm, &offsz);
+      Buffer_Skip(br, offsz);
+      lastId = (did += lastId);
+      if (did > expid) {
+        // Overshoot!
+        break;
+      } else if (did < expid) {
+        continue;
+      } else {
+        // equal!
+        if (!(ctx->num & fm)) {
+          continue;
+        }
+        rc = 1;
+        break;
+      }
+    }
+  }
+
+done:
+  res->docId = did;
+  res->freq = freq;
+  res->fieldMask = fm;
+  res->offsetsSz = offsz;
+  res->term.offsets.data = BufferReader_Current(br) - offsz;
+  res->term.offsets.len = offsz;
+
+  // sync back!
+  ir->lastId = lastId;
+  return rc;
 }
 
 DECODER(readFreqOffsetsFlagsWide) {
@@ -616,60 +695,64 @@ DECODER(readDocIdsOnly) {
   return 1;  // Don't care about field mask
 }
 
-IndexDecoder InvertedIndex_GetDecoder(uint32_t flags) {
+IndexDecoderProcs InvertedIndex_GetDecoder(uint32_t flags) {
+#define RETURN_DECODERS(reader, seeker_) \
+  procs.decoder = reader;                \
+  procs.seeker = seeker_;                \
+  return procs;
+  IndexDecoderProcs procs = {0};
   switch (flags & INDEX_STORAGE_MASK) {
 
     // (freqs, fields, offset)
     case Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets:
-
-      return readFreqOffsetsFlags;
+      RETURN_DECODERS(readFreqOffsetsFlags, seekFreqOffsetsFlags);
 
     case Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets | Index_WideSchema:
-      return readFreqOffsetsFlagsWide;
+      RETURN_DECODERS(readFreqOffsetsFlagsWide, NULL);
 
     // (freqs)
     case Index_StoreFreqs:
-      return readFreqs;
+      RETURN_DECODERS(readFreqs, NULL);
 
     // (offsets)
     case Index_StoreTermOffsets:
-      return readOffsets;
+      RETURN_DECODERS(readOffsets, NULL);
 
     // (fields)
     case Index_StoreFieldFlags:
-      return readFlags;
+      RETURN_DECODERS(readFlags, NULL);
 
     case Index_StoreFieldFlags | Index_WideSchema:
-      return readFlagsWide;
+      RETURN_DECODERS(readFlagsWide, NULL);
 
     // ()
     case Index_DocIdsOnly:
-      return readDocIdsOnly;
+      RETURN_DECODERS(readDocIdsOnly, NULL);
 
     // (freqs, offsets)
     case Index_StoreFreqs | Index_StoreTermOffsets:
-      return readFreqsOffsets;
+      RETURN_DECODERS(readFreqsOffsets, NULL);
 
     // (freqs, fields)
     case Index_StoreFreqs | Index_StoreFieldFlags:
-      return readFreqsFlags;
+      RETURN_DECODERS(readFreqsFlags, NULL);
 
     case Index_StoreFreqs | Index_StoreFieldFlags | Index_WideSchema:
-      return readFreqsFlagsWide;
+      RETURN_DECODERS(readFreqsFlagsWide, NULL);
 
     // (fields, offsets)
     case Index_StoreFieldFlags | Index_StoreTermOffsets:
-      return readFlagsOffsets;
+      RETURN_DECODERS(readFlagsOffsets, NULL);
 
     case Index_StoreFieldFlags | Index_StoreTermOffsets | Index_WideSchema:
-      return readFlagsOffsetsWide;
+      RETURN_DECODERS(readFlagsOffsetsWide, NULL);
 
     case Index_StoreNumeric:
-      return readNumeric;
+      RETURN_DECODERS(readNumeric, NULL);
 
     default:
       fprintf(stderr, "No decoder for flags %x\n", flags & INDEX_STORAGE_MASK);
-      return NULL;
+      RETURN_DECODERS(NULL, NULL);
   }
 }
 
@@ -680,7 +763,21 @@ IndexReader *NewNumericReader(InvertedIndex *idx, const NumericFilter *flt) {
   res->num.value = 0;
 
   IndexDecoderCtx ctx = {.ptr = (void *)flt};
-  return NewIndexReaderGeneric(idx, readNumeric, ctx, res, 1);
+  IndexDecoderProcs procs = {.decoder = readNumeric};
+  return NewIndexReaderGeneric(idx, procs, ctx, res, 1);
+}
+
+static t_docId calculateId(t_docId lastId, uint32_t delta, int isFirst) {
+  t_docId ret;
+
+  if (isFirst && delta != 0) {
+    // this is an old version rdb, the first entry is the docid itself and
+    // not the delta
+    ret = delta;
+  } else {
+    ret = delta + lastId;
+  }
+  return ret;
 }
 
 int IR_Read(void *ctx, RSIndexResult **e) {
@@ -701,19 +798,12 @@ int IR_Read(void *ctx, RSIndexResult **e) {
     }
 
     size_t pos = ir->br.pos;
-    int rv = ir->decoder(&ir->br, &ir->decoderCtx, ir->record);
+    int rv = ir->decoders.decoder(&ir->br, &ir->decoderCtx, ir->record);
     RSIndexResult *record = ir->record;
 
     // We write the docid as a 32 bit number when decoding it with qint.
     uint32_t delta = *(uint32_t *)&record->docId;
-    if (pos == 0 && delta != 0) {
-      // this is an old version rdb, the first entry is the docid itself and
-      // not the delta
-      record->docId = delta;
-    } else {
-      record->docId = delta + ir->lastId;
-    }
-    ir->lastId = record->docId;
+    ir->lastId = record->docId = calculateId(ir->lastId, delta, pos == 0);
 
     // The decoder also acts as a filter. A zero return value means that the
     // current record should not be processed.
@@ -731,36 +821,29 @@ eof:
   return INDEXREAD_EOF;
 }
 
-inline void IR_Seek(IndexReader *ir, t_offset offset, t_docId docId) {
-  Buffer_Seek(&ir->br, offset);
-  ir->lastId = docId;
-}
-
-#define BLOCK_MATCHES(blk, docId) (blk.firstId <= docId && docId <= blk.lastId)
+#define BLOCK_MATCHES(blk, docId) ((blk).firstId <= docId && docId <= (blk).lastId)
 
 static int IndexReader_SkipToBlock(IndexReader *ir, t_docId docId) {
-
+  int rc = 0;
   InvertedIndex *idx = ir->idx;
 
-  if (!idx->size || docId < idx->blocks[0].firstId) {
+  // the current block doesn't match and it's the last one - no point in searching
+  if (ir->currentBlock + 1 == idx->size) {
     return 0;
   }
-
-  // if we don't need to move beyond the current block
-  if (BLOCK_MATCHES(IR_CURRENT_BLOCK(ir), docId)) return 1;
-  // the current block doesn't match and it's the last one - no point in searching
-  if (ir->currentBlock + 1 == idx->size) return 0;
 
   uint32_t top = idx->size - 1;
   uint32_t bottom = ir->currentBlock + 1;
   uint32_t i = bottom;  //(bottom + top) / 2;
   while (bottom <= top) {
-    if (BLOCK_MATCHES(idx->blocks[i], docId)) {
+    const IndexBlock *blk = idx->blocks + i;
+    if (BLOCK_MATCHES(*blk, docId)) {
       ir->currentBlock = i;
-      goto found;
+      rc = 1;
+      goto new_block;
     }
 
-    if (docId < idx->blocks[i].firstId) {
+    if (docId < blk->firstId) {
       top = i - 1;
     } else {
       bottom = i + 1;
@@ -770,48 +853,95 @@ static int IndexReader_SkipToBlock(IndexReader *ir, t_docId docId) {
 
   ir->currentBlock = i;
 
-found:
+new_block:
   ir->lastId = IR_CURRENT_BLOCK(ir).firstId;
   ir->br = NewBufferReader(&IR_CURRENT_BLOCK(ir).buf);
-  return 1;
+  return rc;
 }
 
-/**
-Skip to the given docId, or one place after it
-@param ctx IndexReader context
-@param docId docId to seek to
-@param hit an index hit we put our reads into
-@return INDEXREAD_OK if found, INDEXREAD_NOTFOUND if not found, INDEXREAD_EOF
-if
-at EOF
-*/
 int IR_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
   IndexReader *ir = ctx;
-
-  // printf("IR %s skipTo %d\n", ir->term->str, docId);
-  /* If we are skipping to 0, it's just like a normal read */
-
   if (!docId) {
     return IR_Read(ctx, hit);
   }
-  if (IR_IS_AT_END(ir)) goto eof;
-  if (docId > ir->idx->lastId) goto eof;
 
-  // try to skip to the current block
-  if (!IndexReader_SkipToBlock(ir, docId)) {
-    if (IR_Read(ir, hit) == INDEXREAD_EOF) {
-      goto eof;
-    }
-    return INDEXREAD_NOTFOUND;
+  if (IR_IS_AT_END(ir)) {
+    goto eof;
   }
 
-  int rc;
-  t_docId rid;
-  while (INDEXREAD_EOF != (rc = IR_Read(ir, hit))) {
-    rid = ir->lastId;
-    if (rid < docId) continue;
-    if (rid == docId) return INDEXREAD_OK;
-    return INDEXREAD_NOTFOUND;
+  if (docId > ir->idx->lastId || ir->idx->size == 0) {
+    goto eof;
+  }
+
+  if (!BLOCK_MATCHES(IR_CURRENT_BLOCK(ir), docId)) {
+    IndexReader_SkipToBlock(ir, docId);
+  } else if (BufferReader_AtEnd(&ir->br)) {
+    // Current block, but there's nothing here
+    if (IR_Read(ir, hit) == INDEXREAD_EOF) {
+      goto eof;
+    } else {
+      return INDEXREAD_NOTFOUND;
+    }
+  }
+
+  /**
+   * We need to replicate the effects of IR_Read() without actually calling it
+   * continuously.
+   *
+   * The seeker function saves CPU by avoiding unnecessary function
+   * calls and pointer derefences/accesses if the requested ID is
+   * not found. Because less checking is required
+   *
+   * We:
+   * 1. Call IR_Read() at least once
+   * 2. IR_Read seeks ahead to the first non-empty block
+   * 3. IR_Read reads the current record
+   * 4. If the current record's flags do not match the fieldmask, it
+   *    continues to step 2
+   * 5. If the current record's flags match, the function exits
+   * 6. The returned ID is examined. If:
+   *    - ID is smaller than requested, continue to step 1
+   *    - ID is larger than requested, return NOTFOUND
+   *    - ID is equal, return OK
+   */
+
+  if (ir->decoders.seeker) {
+    // // if needed - skip to the next block (skipping empty blocks that may appear here due to GC)
+    while (BufferReader_AtEnd(&ir->br)) {
+      // We're at the end of the last block...
+      if (ir->currentBlock + 1 == ir->idx->size) {
+        goto eof;
+      }
+      IndexReader_AdvanceBlock(ir);
+    }
+
+    if (!ir->decoders.seeker(&ir->br, &ir->decoderCtx, ir, docId, ir->record)) {
+      if (BufferReader_AtEnd(&ir->br)) {
+        if (ir->currentBlock < ir->idx->size - 1) {
+          IndexReader_AdvanceBlock(ir);
+        }
+      }
+      *hit = ir->record;
+      return INDEXREAD_NOTFOUND;
+    } else {
+      // Found:
+      *hit = ir->record;
+      if (BufferReader_AtEnd(&ir->br)) {
+        if (ir->currentBlock < ir->idx->size - 1) {
+          IndexReader_AdvanceBlock(ir);
+        }
+      }
+      return INDEXREAD_OK;
+    }
+  } else {
+    int rc;
+    t_docId rid;
+    while (INDEXREAD_EOF != (rc = IR_Read(ir, hit))) {
+      rid = ir->lastId;
+      if (rid < docId) continue;
+      if (rid == docId) return INDEXREAD_OK;
+      return INDEXREAD_NOTFOUND;
+    }
   }
 eof:
   IR_SetAtEnd(ir, 1);
@@ -824,7 +954,7 @@ size_t IR_NumDocs(void *ctx) {
   return ir->len;
 }
 
-static void IndexReader_Init(IndexReader *ret, InvertedIndex *idx, IndexDecoder decoder,
+static void IndexReader_Init(IndexReader *ret, InvertedIndex *idx, IndexDecoderProcs decoder,
                              IndexDecoderCtx decoderCtx, RSIndexResult *record, double weight) {
   ret->currentBlock = 0;
   ret->idx = idx;
@@ -834,13 +964,13 @@ static void IndexReader_Init(IndexReader *ret, InvertedIndex *idx, IndexDecoder 
   ret->weight = weight;
   ret->lastId = IR_CURRENT_BLOCK(ret).firstId;
   ret->br = NewBufferReader(&IR_CURRENT_BLOCK(ret).buf);
-  ret->decoder = decoder;
+  ret->decoders = decoder;
   ret->decoderCtx = decoderCtx;
   ret->isValidP = NULL;
   IR_SetAtEnd(ret, 0);
 }
 
-static IndexReader *NewIndexReaderGeneric(InvertedIndex *idx, IndexDecoder decoder,
+static IndexReader *NewIndexReaderGeneric(InvertedIndex *idx, IndexDecoderProcs decoder,
                                           IndexDecoderCtx decoderCtx, RSIndexResult *record,
                                           double weight) {
   IndexReader *ret = rm_malloc(sizeof(IndexReader));
@@ -856,8 +986,8 @@ IndexReader *NewTermIndexReader(InvertedIndex *idx, DocTable *docTable, t_fieldM
   }
 
   // Get the decoder
-  IndexDecoder decoder = InvertedIndex_GetDecoder((uint32_t)idx->flags & INDEX_STORAGE_MASK);
-  if (!decoder) {
+  IndexDecoderProcs decoder = InvertedIndex_GetDecoder((uint32_t)idx->flags & INDEX_STORAGE_MASK);
+  if (!decoder.decoder) {
     return NULL;
   }
 
@@ -947,10 +1077,10 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepa
   size_t frags = 0;
 
   uint32_t readFlags = flags & INDEX_STORAGE_MASK;
-  IndexDecoder decoder = InvertedIndex_GetDecoder(readFlags);
+  IndexDecoderProcs decoders = InvertedIndex_GetDecoder(readFlags);
   IndexEncoder encoder = InvertedIndex_GetEncoder(readFlags);
 
-  if (!encoder || !decoder) {
+  if (!encoder || !decoders.decoder) {
     fprintf(stderr, "Could not get decoder/encoder for index\n");
     return -1;
   }
@@ -958,7 +1088,7 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepa
   while (!BufferReader_AtEnd(&br)) {
     static const IndexDecoderCtx empty = {0};
     const char *bufBegin = BufferReader_Current(&br);
-    decoder(&br, &empty, res);
+    decoders.decoder(&br, &empty, res);
     size_t sz = BufferReader_Current(&br) - bufBegin;
     if (!(isFirstRes && res->docId != 0)) {
       // if we are entering this here
