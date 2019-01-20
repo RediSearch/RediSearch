@@ -1,3 +1,4 @@
+[![GitHub issues](https://img.shields.io/github/release/RedisLabsModules/RediSearch.svg)](https://github.com/RedisLabsModules/RediSearch/releases/latest)
 [![CircleCI](https://circleci.com/gh/RedisLabsModules/RediSearch/tree/master.svg?style=svg)](https://circleci.com/gh/RedisLabsModules/RediSearch/tree/master)
 
 # RediSearch
