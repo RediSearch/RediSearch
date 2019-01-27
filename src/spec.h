@@ -13,6 +13,7 @@
 #include "synonym_map.h"
 #include "query_error.h"
 #include "field_spec.h"
+#include "util/dict.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -148,6 +149,7 @@ typedef struct {
   RedisModuleString **indexStrs;
   struct IndexSpecCache *spcache;
   long long timeout;
+  dict* keysDict;
 } IndexSpec;
 
 extern RedisModuleType *IndexSpecType;

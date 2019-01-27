@@ -16,6 +16,9 @@
 
 typedef struct IndexSpec Index;
 typedef struct FieldSpec Field;
+typedef struct Document Doc;
+typedef struct RSQueryNode QN;
+typedef struct indexIterator ResultsIterator;
 
 int MODULE_API_FUNC(RediSearch_GetLowLevelApiVersion)();
 
@@ -41,6 +44,38 @@ void MODULE_API_FUNC(RediSearch_FieldSetSortable)(Field* fs, Index* sp);
 
 void MODULE_API_FUNC(RediSearch_FieldSetNoIndex)(Field* fs);
 
+Doc* MODULE_API_FUNC(RediSearch_CreateDocument)(const void *docKey, size_t len, double score, const char *lang);
+
+void MODULE_API_FUNC(RediSearch_DocumentAddTextField)(Doc* d, const char* fieldName, const char* val);
+
+void MODULE_API_FUNC(RediSearch_DocumentAddNumericField)(Doc* d, const char* fieldName, double num);
+
+void MODULE_API_FUNC(RediSearch_SpecAddDocument)(Index* sp, Doc* d);
+
+QN* MODULE_API_FUNC(RediSearch_CreateTokenNode)(const char* token);
+
+QN* MODULE_API_FUNC(RediSearch_CreateNumericNode)(const char* field, double max, double min, int includeMax, int includeMin);
+
+QN *MODULE_API_FUNC(RediSearch_CreatePrefixNode)(const char *s);
+
+QN *MODULE_API_FUNC(RediSearch_CreateTagNode)(const char *field);
+
+void MODULE_API_FUNC(RediSearch_TagNodeAddChild)(QN* qn, QN* child);
+
+QN* MODULE_API_FUNC(RediSearch_CreateIntersectNode)(int exact);
+
+void MODULE_API_FUNC(RediSearch_IntersectNodeAddChild)(QN* qn, QN* child);
+
+QN* MODULE_API_FUNC(RediSearch_CreateUnionNode)();
+
+void MODULE_API_FUNC(RediSearch_UnionNodeAddChild)(QN* qn, QN* child);
+
+ResultsIterator* MODULE_API_FUNC(RediSearch_GetResutlsIterator)(QN* qn, Index* sp);
+
+const void* MODULE_API_FUNC(RediSearch_ResutlsIteratorNext)(ResultsIterator* iter, Index* sp, size_t* len);
+
+void MODULE_API_FUNC(RediSearch_ResutlsIteratorFree)(ResultsIterator* iter);
+
 #define REDISEARCH_MODULE_INIT_FUNCTION(name) \
   if (RedisModule_GetApi("RediSearch_" #name, ((void **)&RediSearch_ ## name))) { \
     printf("could not initialize RediSearch_" #name "\r\n");\
@@ -61,6 +96,22 @@ static bool RediSearch_Initialize(){
   REDISEARCH_MODULE_INIT_FUNCTION(TagSetSeparator);
   REDISEARCH_MODULE_INIT_FUNCTION(FieldSetSortable);
   REDISEARCH_MODULE_INIT_FUNCTION(FieldSetNoIndex);
+
+  REDISEARCH_MODULE_INIT_FUNCTION(FieldSetNoIndex);
+  REDISEARCH_MODULE_INIT_FUNCTION(FieldSetNoIndex);
+  REDISEARCH_MODULE_INIT_FUNCTION(FieldSetNoIndex);
+
+  REDISEARCH_MODULE_INIT_FUNCTION(SpecAddDocument);
+
+  REDISEARCH_MODULE_INIT_FUNCTION(CreateTokenNode);
+  REDISEARCH_MODULE_INIT_FUNCTION(CreateNumericNode);
+  REDISEARCH_MODULE_INIT_FUNCTION(CreatePrefixNode);
+  REDISEARCH_MODULE_INIT_FUNCTION(CreateTagNode);
+  REDISEARCH_MODULE_INIT_FUNCTION(TagNodeAddChild);
+  REDISEARCH_MODULE_INIT_FUNCTION(CreateIntersectNode);
+  REDISEARCH_MODULE_INIT_FUNCTION(IntersectNodeAddChild);
+  REDISEARCH_MODULE_INIT_FUNCTION(CreateUnionNode);
+  REDISEARCH_MODULE_INIT_FUNCTION(UnionNodeAddChild);
 
   if(RediSearch_GetLowLevelApiVersion() > REDISEARCH_LOW_LEVEL_API_VERSION){
     return REDISMODULE_ERR;

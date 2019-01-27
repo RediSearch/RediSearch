@@ -7,7 +7,14 @@
 #include "spec.h"
 #include "field_spec.h"
 #include "redisearch_api.h"
+#include "document.h"
 #include <assert.h>
+#include "util/dict.h"
+#include "query_node.h"
+#include "search_options.h"
+#include "query_internal.h"
+#include "numeric_filter.h"
+#include "query.h"
 
 int RS_GetLowLevelApiVersion(){
   return REDISEARCH_LOW_LEVEL_API_VERSION;
@@ -16,6 +23,7 @@ int RS_GetLowLevelApiVersion(){
 IndexSpec* RS_CreateSpec(const char* name){
   IndexSpec *spec = NewIndexSpec(name);
   spec->flags |= Index_Temporary; // temporary is so that we will not use threads!!
+  spec->keysDict = dictCreate(&dictTypeHeapRedisStrings, NULL);
   return spec;
 }
 
@@ -79,6 +87,119 @@ void RS_FieldSetNoIndex(FieldSpec* fs){
   FieldSpec_SetNoIndex(fs);
 }
 
+Document* RS_CreateDocument(const void *docKey, size_t len, double score, const char *lang){
+  return Document_Create(docKey, len, score, lang);
+}
+
+void RS_DocumentAddTextField(Document* d, const char* fieldName, const char* val){
+  Document_AddTextField(d, fieldName, val);
+}
+
+void RS_DocumentAddNumericField(Document* d, const char* fieldName, double num){
+  Document_AddNumericField(d, fieldName, num);
+}
+
+static void RS_AddDocDone(RSAddDocumentCtx *aCtx, RedisModuleCtx *ctx, void *unused){}
+
+void RS_SpecAddDocument(IndexSpec* sp, Document* d){
+  uint32_t options = 0;
+  QueryError status = {0};
+  RSAddDocumentCtx *aCtx = NewAddDocumentCtx(sp, d, &status);
+  aCtx->donecb = RS_AddDocDone;
+  RedisSearchCtx sctx = {.redisCtx = NULL, .spec = sp};
+  int exists = !!DocTable_GetIdR(&sp->docs, d->docKey);
+  if(exists){
+    options |= DOCUMENT_ADD_REPLACE;
+  }
+  aCtx->stateFlags |= ACTX_F_NOBLOCK;
+  AddDocumentCtx_Submit(aCtx, &sctx, options);
+}
+
+QueryNode* RS_CreateTokenNode(const char* token){
+  QueryNode *ret = NewQueryNode(QN_TOKEN);
+
+  ret->tn = (QueryTokenNode){.str = (char *)strdup(token), .len = strlen(token), .expanded = 0, .flags = 0};
+  return ret;
+}
+
+QueryNode* RS_CreateNumericNode(const char* field, double max, double min, int includeMax, int includeMin){
+  QueryNode *ret = NewQueryNode(QN_NUMERIC);
+  ret->nn.nf = NewNumericFilter(max, min, includeMax, includeMin);
+  ret->nn.nf->fieldName = strdup(field);
+  return ret;
+}
+
+QueryNode *RS_CreatePrefixNode(const char *s){
+  QueryNode *ret = NewQueryNode(QN_PREFX);
+  ret->pfx = (QueryPrefixNode){.str = (char *)strdup(s), .len = strlen(s), .expanded = 0, .flags = 0};
+  return ret;
+}
+
+QueryNode *RS_CreateTagNode(const char *field){
+  QueryNode *ret = NewQueryNode(QN_TAG);
+  ret->tag.fieldName = strdup(field);
+  ret->tag.len = strlen(field);
+  ret->tag.numChildren = 0;
+  ret->tag.children = NULL;
+  return ret;
+}
+
+void RS_TagNodeAddChild(QueryNode* qn, QueryNode* child){
+  QueryTagNode_AddChildren(qn, &child, 1);
+}
+
+QueryNode* RS_CreateIntersectNode(int exact){
+  QueryNode *ret = NewQueryNode(QN_PHRASE);
+  ret->pn = (QueryPhraseNode){.children = NULL, .numChildren = 0, .exact = exact};
+  return ret;
+}
+
+void RS_IntersectNodeAddChild(QueryNode* qn, QueryNode* child){
+  QueryPhraseNode_AddChild(qn, child);
+}
+
+QueryNode* RS_CreateUnionNode(){
+  QueryNode *ret = NewQueryNode(QN_UNION);
+  ret->un = (QueryUnionNode){.children = NULL, .numChildren = 0};
+  return ret;
+}
+
+void RS_UnionNodeAddChild(QueryNode* qn, QueryNode* child){
+  QueryUnionNode_AddChild(qn, child);
+}
+
+IndexIterator* RS_GetResutlsIterator(QueryNode* qn, IndexSpec* sp){
+  RedisSearchCtx sctx = {.redisCtx = NULL, .spec = sp};
+  RSSearchOptions searchOpts;
+  searchOpts.fieldmask = RS_FIELDMASK_ALL;
+  searchOpts.slop = -1;
+  QueryEvalCtx qectx = {
+      .conc = NULL,
+      .opts = &searchOpts,
+      .numTokens = 0,
+      .docTable = &sp->docs,
+      .sctx = &sctx,
+  };
+  IndexIterator* ret = Query_EvalNode(&qectx, qn);
+  QueryNode_Free(qn);
+  return ret;
+}
+
+const void* RS_ResutlsIteratorNext(IndexIterator* iter, IndexSpec* sp, size_t* len){
+  RSIndexResult *e = NULL;
+  while(iter->Read(iter->ctx, &e) != INDEXREAD_EOF){
+    const char * docId = DocTable_GetKey(&sp->docs, e->docId, len);
+    if(docId){
+      return docId;
+    }
+  }
+  return NULL;
+}
+
+void RS_ResutlsIteratorFree(IndexIterator* iter){
+  iter->Free(iter);
+}
+
 #define REGISTER_API(name, registerApiCallback) \
   if(registerApiCallback("RediSearch_" #name, RS_ ## name) != REDISMODULE_OK){\
     printf("could not register RediSearch_" #name "\r\n");\
@@ -101,6 +222,26 @@ int RS_InitializeLowLevelApi(RedisModuleCtx* ctx){
   REGISTER_API(TagSetSeparator, moduleRegisterApi);
   REGISTER_API(FieldSetSortable, moduleRegisterApi);
   REGISTER_API(FieldSetNoIndex, moduleRegisterApi);
+
+  REGISTER_API(CreateDocument, moduleRegisterApi);
+  REGISTER_API(DocumentAddTextField, moduleRegisterApi);
+  REGISTER_API(DocumentAddNumericField, moduleRegisterApi);
+
+  REGISTER_API(SpecAddDocument, moduleRegisterApi);
+
+  REGISTER_API(CreateTokenNode, moduleRegisterApi);
+  REGISTER_API(CreateNumericNode, moduleRegisterApi);
+  REGISTER_API(CreatePrefixNode, moduleRegisterApi);
+  REGISTER_API(CreateTagNode, moduleRegisterApi);
+  REGISTER_API(TagNodeAddChild, moduleRegisterApi);
+  REGISTER_API(CreateIntersectNode, moduleRegisterApi);
+  REGISTER_API(IntersectNodeAddChild, moduleRegisterApi);
+  REGISTER_API(CreateUnionNode, moduleRegisterApi);
+  REGISTER_API(UnionNodeAddChild, moduleRegisterApi);
+
+  REGISTER_API(GetResutlsIterator, moduleRegisterApi);
+  REGISTER_API(ResutlsIteratorNext, moduleRegisterApi);
+  REGISTER_API(ResutlsIteratorFree, moduleRegisterApi);
 
   return REDISMODULE_OK;
 }

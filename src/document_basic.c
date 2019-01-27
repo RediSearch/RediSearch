@@ -1,15 +1,39 @@
 #include "document.h"
 #include "stemmer.h"
+#include "rmalloc.h"
 
 void Document_Init(Document *doc, RedisModuleString *docKey, double score, int numFields,
                    const char *lang, const char *payload, size_t payloadSize) {
   doc->docKey = docKey;
   doc->score = (float)score;
   doc->numFields = numFields;
-  doc->fields = calloc(doc->numFields, sizeof(DocumentField));
+  doc->fields = numFields? calloc(doc->numFields, sizeof(DocumentField)) : NULL;
   doc->language = lang;
   doc->payload = payload;
   doc->payloadSize = payloadSize;
+}
+
+Document* Document_Create(const char *docKey, size_t len, double score, const char *lang){
+  RedisModuleString* docKeyStr = RedisModule_CreateString(NULL, docKey, len);
+  const char* language = DEFAULT_LANGUAGE;
+  if(lang){
+    language = lang;
+  }
+  Document* ret = rm_malloc(sizeof(*ret));
+  Document_Init(ret, docKeyStr, score, 0, language, NULL, 0);
+  return ret;
+}
+
+void Document_AddTextField(Document* d, const char *fieldName, const char* fieldVal){
+  d->fields = realloc(d->fields, (++d->numFields) * sizeof(DocumentField));
+  d->fields[d->numFields - 1].name = strdup(fieldName);
+  d->fields[d->numFields - 1].text = RedisModule_CreateString(NULL, fieldVal, strlen(fieldVal));
+}
+
+void Document_AddNumericField(Document* d, const char *fieldName, double num){
+  d->fields = realloc(d->fields, (++d->numFields) * sizeof(DocumentField));
+  d->fields[d->numFields - 1].name = strdup(fieldName);
+  d->fields[d->numFields - 1].text = RedisModule_CreateStringPrintf(NULL, "lf", num);
 }
 
 void Document_PrepareForAdd(Document *doc, RedisModuleString *docKey, double score,

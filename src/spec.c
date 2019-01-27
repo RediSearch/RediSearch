@@ -833,6 +833,7 @@ IndexSpec *NewIndexSpec(const char *name) {
   sp->docs = DocTable_New(100);
   sp->stopwords = DefaultStopWordList();
   sp->terms = NewTrie();
+  sp->keysDict = NULL;
   memset(&sp->stats, 0, sizeof(sp->stats));
   return sp;
 }

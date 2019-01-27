@@ -105,7 +105,7 @@ typedef struct {
 
 /* A node with a numeric filter */
 typedef struct {
-  const struct NumericFilter *nf;
+  struct NumericFilter *nf;
 } QueryNumericNode;
 
 typedef struct {
