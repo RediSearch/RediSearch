@@ -12,12 +12,11 @@
 #include "gc.h"
 #include "synonym_map.h"
 #include "query_error.h"
+#include "field_spec.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-typedef enum fieldType { FIELD_FULLTEXT, FIELD_NUMERIC, FIELD_GEO, FIELD_TAG } FieldType;
 
 #define NUMERIC_STR "NUMERIC"
 #define GEO_STR "GEO"
@@ -50,65 +49,6 @@ static const char *SpecTypeNames[] = {[FIELD_FULLTEXT] = SPEC_TEXT_STR,
 #define SPEC_MAX_FIELD_ID (sizeof(t_fieldMask) * 8)
 // The threshold after which we move to a special encoding for wide fields
 #define SPEC_WIDEFIELD_THRESHOLD 32
-
-typedef enum {
-  FieldSpec_Sortable = 0x01,
-  FieldSpec_NoStemming = 0x02,
-  FieldSpec_NotIndexable = 0x04,
-  FieldSpec_Phonetics = 0x08,
-} FieldSpecOptions;
-
-// Specific options for text fields
-typedef struct {
-  // weight in frequency calculations
-  double weight;
-  // bitwise id for field masks
-  t_fieldId id;
-} TextFieldOptions;
-
-// Flags for tag fields
-typedef enum {
-  TagField_CaseSensitive = 0x01,
-  TagField_TrimSpace = 0x02,
-  TagField_RemoveAccents = 0x04,
-} TagFieldFlags;
-
-#define TAG_FIELD_DEFAULT_FLAGS TagField_TrimSpace &TagField_RemoveAccents;
-
-// Specific options for tag fields
-typedef struct {
-  char separator;
-  TagFieldFlags flags;
-} TagFieldOptions;
-
-/* The fieldSpec represents a single field in the document's field spec.
-Each field has a unique id that's a power of two, so we can filter fields
-by a bit mask.
-Each field has a type, allowing us to add non text fields in the future */
-typedef struct fieldSpec {
-  char *name;
-  FieldType type;
-  FieldSpecOptions options;
-
-  int sortIdx;
-
-  /**
-   * Unique field index. Each field has a unique index regardless of its type
-   */
-  uint16_t index;
-
-  union {
-    TextFieldOptions textOpts;
-    TagFieldOptions tagOpts;
-  };
-
-  // TODO: More options here..
-} FieldSpec;
-
-#define FieldSpec_IsSortable(fs) ((fs)->options & FieldSpec_Sortable)
-#define FieldSpec_IsNoStem(fs) ((fs)->options & FieldSpec_NoStemming)
-#define FieldSpec_IsPhonetics(fs) ((fs)->options & FieldSpec_Phonetics)
-#define FieldSpec_IsIndexable(fs) (0 == ((fs)->options & FieldSpec_NotIndexable))
 
 typedef struct {
   size_t numDocuments;
@@ -298,6 +238,7 @@ void IndexSpec_StartGC(RedisModuleCtx *ctx, IndexSpec *sp, float initialHZ);
 
 /* Same as above but with ordinary strings, to allow unit testing */
 IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryError *status);
+FieldSpec* IndexSpec_CreateField(IndexSpec *sp);
 
 /* Add fields to a redis schema */
 int IndexSpec_AddFields(IndexSpec *sp, const char **argv, int argc, QueryError *status);
@@ -337,7 +278,8 @@ int IndexSpec_IsStopWord(IndexSpec *sp, const char *term, size_t len);
 RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs);
 RedisModuleString *IndexSpec_GetFormattedKeyByName(IndexSpec *sp, const char *s);
 
-IndexSpec *NewIndexSpec(const char *name, size_t numFields);
+IndexSpec *NewIndexSpec(const char *name);
+int IndexSpec_AddField(IndexSpec *sp, FieldSpec* fs);
 void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver);
 void IndexSpec_RdbSave(RedisModuleIO *rdb, void *value);
 void IndexSpec_Digest(RedisModuleDigest *digest, void *value);

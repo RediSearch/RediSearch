@@ -2,6 +2,12 @@
 #include <inverted_index.h>
 #include <cstdio>
 
+extern "C"{
+int moduleRegisterApi(const char *funcname, void *funcptr){
+  return 0;
+}
+}
+
 int main(int, char **) {
   printf("Size of document metadata: %lu\n", sizeof(RSDocumentMetadata));
   printf("Size of inverted index: %lu\n", sizeof(InvertedIndex));

@@ -8,6 +8,10 @@
 REDISMODULE_INIT_SYMBOLS();
 
 extern "C" {
+int moduleRegisterApi(const char *funcname, void *funcptr){
+  return 0;
+}
+
 static int my_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   if (RedisModule_Init(ctx, "ft", REDISEARCH_MODULE_VERSION, REDISMODULE_APIVER_1) ==

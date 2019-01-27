@@ -28,6 +28,7 @@
 #include "dictionary.h"
 #include "suggest.h"
 #include "numeric_index.h"
+#include "redisearch_api.h"
 
 #define LOAD_INDEX(ctx, srcname, write)                                                     \
   ({                                                                                        \
@@ -1009,6 +1010,8 @@ static int validateAofSettings(RedisModuleCtx *ctx) {
   return rc;
 }
 
+int RS_InitializeLowLevelApi(RedisModuleCtx* ctx);
+
 int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   // Check that redis supports thread safe context. RC3 or below doesn't
@@ -1018,6 +1021,13 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
                     "\t\t\t\tPlease use Redis 4.0.0 or later from https://redis.io/download\n"
                     "\t\t\t\tRedis will exit now!");
     return REDISMODULE_ERR;
+  }
+
+  if(RS_InitializeLowLevelApi(ctx) != REDISMODULE_OK){
+    RedisModule_Log(ctx, "warning", "Could not initialize low level api");
+    return REDISMODULE_ERR;
+  }else{
+    RedisModule_Log(ctx, "notice", "Low level api version %d initialized successfully", REDISEARCH_LOW_LEVEL_API_VERSION);
   }
 
   // Print version string!
