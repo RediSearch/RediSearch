@@ -229,7 +229,7 @@ size_t gc_TagIndex(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status) {
     goto end;
   }
 
-  TagIndex *indexTag = TagIndex_Open(ctx, keyName, false, &idxKey);
+  TagIndex *indexTag = TagIndex_Open(sctx, keyName, false, &idxKey);
   if (!indexTag) {
     goto end;
   }
@@ -265,7 +265,7 @@ size_t gc_TagIndex(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status) {
     }
 
     // reopen inverted index
-    indexTag = TagIndex_Open(ctx, keyName, false, &idxKey);
+    indexTag = TagIndex_Open(sctx, keyName, false, &idxKey);
     if (!indexTag) {
       break;
     }

@@ -245,7 +245,7 @@ static void ForkGc_CollectGarbageFromTagIdx(ForkGCCtx *gc, RedisSearchCtx *sctx)
   if (array_len(tagFields) != 0) {
     for (int i = 0; i < array_len(tagFields); ++i) {
       RedisModuleString *keyName = IndexSpec_GetFormattedKey(sctx->spec, tagFields[i]);
-      TagIndex *tagIdx = TagIndex_Open(sctx->redisCtx, keyName, false, &idxKey);
+      TagIndex *tagIdx = TagIndex_Open(sctx, keyName, false, &idxKey);
       if (!tagIdx) {
         continue;
       }
@@ -553,7 +553,7 @@ static bool ForkGc_ReadTagIndex(ForkGCCtx *gc, int *ret_val, RedisModuleCtx *rct
 
     RedisModuleKey *idxKey = NULL;
     keyName = TagIndex_FormatName(sctx, fieldName);
-    TagIndex *tagIdx = TagIndex_Open(sctx->redisCtx, keyName, false, &idxKey);
+    TagIndex *tagIdx = TagIndex_Open(sctx, keyName, false, &idxKey);
 
     if (tagIdx->uniqueId != tagUniqueId) {
       RETURN;

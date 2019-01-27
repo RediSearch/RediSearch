@@ -188,30 +188,40 @@ RedisModuleString *TagIndex_FormatName(RedisSearchCtx *sctx, const char *field) 
 }
 
 /* Open the tag index in redis */
-TagIndex *TagIndex_Open(RedisModuleCtx *ctx, RedisModuleString *formattedKey, int openWrite,
+TagIndex *TagIndex_Open(RedisSearchCtx *sctx, RedisModuleString *formattedKey, int openWrite,
                         RedisModuleKey **keyp) {
-  RedisModuleKey *key_s = NULL;
-  if (!keyp) {
-    keyp = &key_s;
-  }
-
-  *keyp = RedisModule_OpenKey(ctx, formattedKey,
-                              REDISMODULE_READ | (openWrite ? REDISMODULE_WRITE : 0));
-
-  int type = RedisModule_KeyType(*keyp);
-  if (type != REDISMODULE_KEYTYPE_EMPTY && RedisModule_ModuleTypeGetType(*keyp) != TagIndexType) {
-    return NULL;
-  }
-
-  /* Create an empty value object if the key is currently empty. */
   TagIndex *ret = NULL;
-  if (type == REDISMODULE_KEYTYPE_EMPTY) {
-    if (openWrite) {
-      ret = NewTagIndex();
-      RedisModule_ModuleTypeSetValue((*keyp), TagIndexType, ret);
+  if(!sctx->spec->keysDict){
+    RedisModuleKey *key_s = NULL;
+    if (!keyp) {
+      keyp = &key_s;
     }
-  } else {
-    ret = RedisModule_ModuleTypeGetValue(*keyp);
+
+    *keyp = RedisModule_OpenKey(sctx->redisCtx, formattedKey,
+                                REDISMODULE_READ | (openWrite ? REDISMODULE_WRITE : 0));
+
+    int type = RedisModule_KeyType(*keyp);
+    if (type != REDISMODULE_KEYTYPE_EMPTY && RedisModule_ModuleTypeGetType(*keyp) != TagIndexType) {
+      return NULL;
+    }
+
+    /* Create an empty value object if the key is currently empty. */
+    if (type == REDISMODULE_KEYTYPE_EMPTY) {
+      if (openWrite) {
+        ret = NewTagIndex();
+        RedisModule_ModuleTypeSetValue((*keyp), TagIndexType, ret);
+      }
+    } else {
+      ret = RedisModule_ModuleTypeGetValue(*keyp);
+    }
+  }else{
+    ret = dictFetchValue(sctx->spec->keysDict, formattedKey);
+    if(!ret){
+      if (openWrite) {
+        ret = NewTagIndex();
+        dictAdd(sctx->spec->keysDict, formattedKey, ret);
+      }
+    }
   }
 
   return ret;

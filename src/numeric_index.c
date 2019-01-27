@@ -399,22 +399,31 @@ struct indexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const Numeri
   if (!s) {
     return NULL;
   }
-  RedisModuleKey *key = RedisModule_OpenKey(ctx->redisCtx, s, REDISMODULE_READ);
-  if (!key || RedisModule_ModuleTypeGetType(key) != NumericIndexType) {
-    return NULL;
-  }
+  RedisModuleKey *key = NULL;
+  NumericRangeTree *t = NULL;
+  if(!ctx->spec->keysDict){
+    key = RedisModule_OpenKey(ctx->redisCtx, s, REDISMODULE_READ);
+    if (!key || RedisModule_ModuleTypeGetType(key) != NumericIndexType) {
+      return NULL;
+    }
 
-  NumericRangeTree *t = RedisModule_ModuleTypeGetValue(key);
+    t = RedisModule_ModuleTypeGetValue(key);
+  }else{
+    t = dictFetchValue(ctx->spec->keysDict, s);
+    if(!t){
+      return NULL;
+    }
+  }
 
   IndexIterator *it = createNumericIterator(t, flt);
   if (!it) {
     return NULL;
   }
 
-  NumericUnionCtx *uc = malloc(sizeof(*uc));
-  uc->lastRevId = t->revisionId;
-  uc->it = it;
   if (csx) {
+    NumericUnionCtx *uc = malloc(sizeof(*uc));
+    uc->lastRevId = t->revisionId;
+    uc->it = it;
     ConcurrentSearch_AddKey(csx, key, REDISMODULE_READ, s, NumericRangeIterator_OnReopen, uc, free);
   }
   return it;
@@ -423,27 +432,35 @@ struct indexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const Numeri
 NumericRangeTree *OpenNumericIndex(RedisSearchCtx *ctx, RedisModuleString *keyName,
                                    RedisModuleKey **idxKey) {
 
-  RedisModuleKey *key_s = NULL;
-
-  if (!idxKey) {
-    idxKey = &key_s;
-  }
-
-  *idxKey = RedisModule_OpenKey(ctx->redisCtx, keyName, REDISMODULE_READ | REDISMODULE_WRITE);
-
-  int type = RedisModule_KeyType(*idxKey);
-  if (type != REDISMODULE_KEYTYPE_EMPTY &&
-      RedisModule_ModuleTypeGetType(*idxKey) != NumericIndexType) {
-    return NULL;
-  }
-
-  /* Create an empty value object if the key is currently empty. */
   NumericRangeTree *t;
-  if (type == REDISMODULE_KEYTYPE_EMPTY) {
-    t = NewNumericRangeTree();
-    RedisModule_ModuleTypeSetValue((*idxKey), NumericIndexType, t);
-  } else {
-    t = RedisModule_ModuleTypeGetValue(*idxKey);
+  if(!ctx->spec->keysDict){
+    RedisModuleKey *key_s = NULL;
+
+    if (!idxKey) {
+      idxKey = &key_s;
+    }
+
+    *idxKey = RedisModule_OpenKey(ctx->redisCtx, keyName, REDISMODULE_READ | REDISMODULE_WRITE);
+
+    int type = RedisModule_KeyType(*idxKey);
+    if (type != REDISMODULE_KEYTYPE_EMPTY &&
+        RedisModule_ModuleTypeGetType(*idxKey) != NumericIndexType) {
+      return NULL;
+    }
+
+    /* Create an empty value object if the key is currently empty. */
+    if (type == REDISMODULE_KEYTYPE_EMPTY) {
+      t = NewNumericRangeTree();
+      RedisModule_ModuleTypeSetValue((*idxKey), NumericIndexType, t);
+    } else {
+      t = RedisModule_ModuleTypeGetValue(*idxKey);
+    }
+  }else{
+    t = dictFetchValue(ctx->spec->keysDict, keyName);
+    if(!t){
+      t = NewNumericRangeTree();
+      dictAdd(ctx->spec->keysDict, keyName, t);
+    }
   }
   return t;
 }

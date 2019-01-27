@@ -124,7 +124,7 @@ void TagIndex_RegisterConcurrentIterators(TagIndex *idx, ConcurrentSearchCtx *co
                                           RedisModuleKey *key, RedisModuleString *keyname,
                                           array_t *iters);
 /* Open the tag index key in redis */
-TagIndex *TagIndex_Open(RedisModuleCtx *ctx, RedisModuleString *formattedKey, int openWrite,
+TagIndex *TagIndex_Open(RedisSearchCtx *sctx, RedisModuleString *formattedKey, int openWrite,
                         RedisModuleKey **keyp);
 
 /* Serialize all the tags in the index to the redis client */

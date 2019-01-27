@@ -636,7 +636,7 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
     return NULL;
   }
   RedisModuleString *kstr = IndexSpec_GetFormattedKey(q->sctx->spec, fs);
-  TagIndex *idx = TagIndex_Open(q->sctx->redisCtx, kstr, 0, &k);
+  TagIndex *idx = TagIndex_Open(q->sctx, kstr, 0, &k);
   IndexIterator **total_its = NULL;
 
   if (!idx) {

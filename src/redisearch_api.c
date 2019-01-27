@@ -111,6 +111,7 @@ void RS_SpecAddDocument(IndexSpec* sp, Document* d){
   if(exists){
     options |= DOCUMENT_ADD_REPLACE;
   }
+  options |= DOCUMENT_ADD_NOSAVE;
   aCtx->stateFlags |= ACTX_F_NOBLOCK;
   AddDocumentCtx_Submit(aCtx, &sctx, options);
 }
