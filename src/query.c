@@ -328,7 +328,7 @@ static IndexIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
   // an upper limit on the number of expansions is enforced to avoid stuff like "*"
 
   while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, &dist) &&
-         itsSz < RSGlobalConfig.maxPrefixExpansions) {
+         (itsSz < q->sctx->spec->maxPrefixExpansions || q->sctx->spec->maxPrefixExpansions == -1)) {
 
     // Create a token for the reader
     RSToken tok = (RSToken){
@@ -545,7 +545,7 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
   }
 
   // we allow a minimum of 2 letters in the prefx by default (configurable)
-  if (qn->pfx.len < RSGlobalConfig.minTermPrefix) {
+  if (qn->pfx.len < q->sctx->spec->minPrexif) {
     return NULL;
   }
   if (!idx || !idx->values) return NULL;
@@ -562,7 +562,8 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
   void *ptr;
 
   // Find all completions of the prefix
-  while (TrieMapIterator_Next(it, &s, &sl, &ptr) && itsSz < RSGlobalConfig.maxPrefixExpansions) {
+  while (TrieMapIterator_Next(it, &s, &sl, &ptr) &&
+         (itsSz < q->sctx->spec->maxPrefixExpansions || q->sctx->spec->maxPrefixExpansions == -1)) {
     IndexIterator *ret = TagIndex_OpenReader(idx, q->docTable, s, sl, 1);
     if (!ret) continue;
 

@@ -19,6 +19,7 @@ Document* Document_Create(const char *docKey, size_t len, double score, const ch
   if(lang){
     language = lang;
   }
+  language = strdup(language);
   Document* ret = rm_malloc(sizeof(*ret));
   Document_Init(ret, docKeyStr, score, 0, language, NULL, 0);
   return ret;

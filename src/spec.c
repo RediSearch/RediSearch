@@ -1,4 +1,4 @@
-#include "rmutil/strings.h"
+  #include "rmutil/strings.h"
 #include "rmutil/util.h"
 #include "spec.h"
 #include "util/logging.h"
@@ -834,6 +834,8 @@ IndexSpec *NewIndexSpec(const char *name) {
   sp->stopwords = DefaultStopWordList();
   sp->terms = NewTrie();
   sp->keysDict = NULL;
+  sp->minPrexif = RSGlobalConfig.minTermPrefix;
+  sp->maxPrefixExpansions = RSGlobalConfig.maxPrefixExpansions;
   memset(&sp->stats, 0, sizeof(sp->stats));
   return sp;
 }
@@ -974,6 +976,9 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
   sp->docs = DocTable_New(1000);
   sp->name = RedisModule_LoadStringBuffer(rdb, NULL);
   sp->flags = (IndexFlags)RedisModule_LoadUnsigned(rdb);
+  sp->keysDict = NULL;
+  sp->maxPrefixExpansions = RSGlobalConfig.maxPrefixExpansions;
+  sp->minPrexif = RSGlobalConfig.minTermPrefix;
   if (encver < INDEX_MIN_NOFREQ_VERSION) {
     sp->flags |= Index_StoreFreqs;
   }

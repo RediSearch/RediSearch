@@ -24,6 +24,8 @@ IndexSpec* RS_CreateSpec(const char* name){
   IndexSpec *spec = NewIndexSpec(name);
   spec->flags |= Index_Temporary; // temporary is so that we will not use threads!!
   spec->keysDict = dictCreate(&dictTypeHeapRedisStrings, NULL);
+  spec->minPrexif = 0;
+  spec->maxPrefixExpansions = -1;
   return spec;
 }
 
@@ -114,6 +116,7 @@ void RS_SpecAddDocument(IndexSpec* sp, Document* d){
   options |= DOCUMENT_ADD_NOSAVE;
   aCtx->stateFlags |= ACTX_F_NOBLOCK;
   AddDocumentCtx_Submit(aCtx, &sctx, options);
+  rm_free(d);
 }
 
 QueryNode* RS_CreateTokenNode(const char* token){

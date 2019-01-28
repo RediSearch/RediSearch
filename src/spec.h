@@ -150,6 +150,8 @@ typedef struct {
   struct IndexSpecCache *spcache;
   long long timeout;
   dict* keysDict;
+  long long minPrexif;
+  long long maxPrefixExpansions; // -1 unlimited
 } IndexSpec;
 
 extern RedisModuleType *IndexSpecType;
