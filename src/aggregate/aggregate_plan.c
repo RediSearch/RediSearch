@@ -40,7 +40,29 @@ int AGPLN_HasStep(const AGGPlan *pln, PLN_StepType t) {
 
 void AGPLN_AddBefore(AGGPlan *pln, PLN_BaseStep *posstp, PLN_BaseStep *newstp) {
   assert(newstp->type > PLN_T_INVALID);
-  dllist_insert(posstp->llnodePln.prev, posstp->llnodePln.next, &newstp->llnodePln);
+  if (posstp == NULL || DLLIST_IS_FIRST(&pln->steps, &posstp->llnodePln)) {
+    dllist_prepend(&pln->steps, &posstp->llnodePln);
+  } else {
+    dllist_insert(posstp->llnodePln.prev, &posstp->llnodePln, &newstp->llnodePln);
+  }
+}
+
+void AGPLN_AddAfter(AGGPlan *pln, PLN_BaseStep *posstp, PLN_BaseStep *newstp) {
+  assert(newstp->type > PLN_T_INVALID);
+  if (posstp == NULL || DLLIST_IS_LAST(&pln->steps, &posstp->llnodePln)) {
+    AGPLN_AddStep(pln, newstp);
+  } else {
+    dllist_insert(&posstp->llnodePln, posstp->llnodePln.next, &newstp->llnodePln);
+  }
+}
+
+void AGPLN_Prepend(AGGPlan *pln, PLN_BaseStep *newstp) {
+  dllist_prepend(&pln->steps, &newstp->llnodePln);
+}
+
+void AGPLN_PopStep(AGGPlan *pln, PLN_BaseStep *step) {
+  dllist_delete(&step->llnodePln);
+  (void)pln;
 }
 
 static void rootStepDtor(PLN_BaseStep *bstp) {
