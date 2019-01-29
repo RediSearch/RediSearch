@@ -138,6 +138,8 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
  * will be loaded and analyzed.
  *
  * This consumes a refcount of the context used.
+ *
+ * Note that this function consumes a refcount even if it fails!
  */
 int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status);
 

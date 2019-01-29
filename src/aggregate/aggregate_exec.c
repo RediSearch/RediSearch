@@ -183,7 +183,10 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     goto done;
   }
 
-  if (AREQ_ApplyContext(*r, sctx, status) != REDISMODULE_OK) {
+  rc = AREQ_ApplyContext(*r, sctx, status);
+  thctx = NULL;
+  // ctx is always assigned after ApplyContext
+  if (rc != REDISMODULE_OK) {
     assert(QueryError_HasError(status));
     goto done;
   }
@@ -209,7 +212,6 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   }
 
   const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
-  RedisModuleCtx *thctx = NULL;
   AREQ *r = NULL;
   QueryError status = {0};
 
@@ -220,7 +222,6 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   if (r->reqflags & QEXEC_F_IS_CURSOR) {
     int rc = AREQ_StartCursor(r, ctx, r->sctx->spec->name, &status);
     if (rc != REDISMODULE_OK) {
-      thctx = r->sctx->redisCtx;
       goto error;
     }
   } else {
@@ -233,10 +234,6 @@ error:
   if (r) {
     AREQ_Free(r);
   }
-  if (thctx) {
-    RedisModule_FreeThreadSafeContext(thctx);
-  }
-
   return QueryError_ReplyAndClear(ctx, &status);
 }
 
@@ -328,7 +325,7 @@ static void cursorRead(RedisModuleCtx *ctx, uint64_t cid, size_t count) {
 
 int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 4) {
-    RedisModule_WrongArity(ctx);
+    return RedisModule_WrongArity(ctx);
   }
 
   const char *cmd = RedisModule_StringPtrLen(argv[1], NULL);
