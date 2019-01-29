@@ -141,6 +141,8 @@ done:
   if (rc != RS_RESULT_OK) {
     req->stateflags |= QEXEC_S_ITERDONE;
   }
+  // Reset the total results length:
+  req->qiter.totalResults = 0;
   RedisModule_ReplySetArrayLength(outctx, nelem);
   return REDISMODULE_OK;
 }
