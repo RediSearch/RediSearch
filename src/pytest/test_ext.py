@@ -13,8 +13,17 @@ else:
     else:
         EXTPATH += '.so'
 
-
 EXTPATH = os.path.abspath(EXTPATH)
+
+# Last ditch effort:
+SRCFILE = os.path.dirname(__file__) + '/../tests/ext-example/example.c'
+INCDIR = os.path.dirname(__file__) + '/../'
+
+if not os.path.exists(EXTPATH):
+    EXTPATH = os.path.abspath('libexample_extension.' + ('dylib' if sys.platform.lower() == 'darwin' else 'so'))
+    args = ['cc', '-shared', '-fPIC', '-o', EXTPATH, SRCFILE, '-I' + INCDIR]
+    print args
+    print subprocess.call(args)
 
 def testExt():
     if not os.path.exists(EXTPATH):
