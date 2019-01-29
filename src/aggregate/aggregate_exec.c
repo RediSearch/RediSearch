@@ -18,7 +18,7 @@ static const RSValue *getSortKey(AREQ *req, const SearchResult *r) {
     return NULL;
   }
   const RLookupKey *kk = astp->sortkeysLK[0];
-  if (kk->flags & RLOOKUP_F_SVSRC) {
+  if (kk->flags & RLOOKUP_F_SVSRC && (r->rowdata.sv && r->rowdata.sv->len > kk->svidx)) {
     return r->rowdata.sv->values[kk->svidx];
   } else {
     return RLookup_GetItem(astp->sortkeysLK[0], &r->rowdata);
