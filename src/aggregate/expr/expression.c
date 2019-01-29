@@ -301,7 +301,7 @@ static int rpevalNext_project(ResultProcessor *rp, SearchResult *r) {
   if (rc != RS_RESULT_OK) {
     return rc;
   }
-  RLookup_WriteKey(pc->outkey, &r->rowdata, pc->val);
+  RLookup_WriteOwnKey(pc->outkey, &r->rowdata, pc->val);
   pc->val = NULL;
   return RS_RESULT_OK;
 }

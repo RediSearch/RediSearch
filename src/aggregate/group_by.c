@@ -108,8 +108,7 @@ static int Grouper_rpYield(ResultProcessor *base, SearchResult *r) {
       Reducer *rd = g->reducers[ii];
       RSValue *v = rd->Finalize(rd, gr->accumdata[ii]);
       if (v) {
-        RLookup_WriteKey(rd->dstkey, &r->rowdata, v);
-        RSValue_Decref(v);
+        RLookup_WriteOwnKey(rd->dstkey, &r->rowdata, v);
 
         for (size_t ii = 0; ii < g->nkeys; ++ii) {
           const RLookupKey *dstkey = g->dstkeys[ii];
