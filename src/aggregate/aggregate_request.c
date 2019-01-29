@@ -433,9 +433,15 @@ static void groupStepFree(PLN_BaseStep *base) {
   free(base);
 }
 
-static int buildReducer(PLN_GroupStep *g, PLN_Reducer *gr, ArgsCursor *ac, const char *name,
-                        QueryError *status) {
+static RLookup *groupStepGetLookup(PLN_BaseStep *bstp) {
+  return &((PLN_GroupStep *)bstp)->lookup;
+}
+
+int PLNGroupStep_AddReducer(PLN_GroupStep *gstp, const char *name, ArgsCursor *ac,
+                            QueryError *status) {
   // Just a list of functions..
+  PLN_Reducer *gr = array_ensure_tail(&gstp->reducers, PLN_Reducer);
+
   gr->name = name;
   int rv = AC_GetVarArgs(ac, &gr->args);
   if (rv != AC_OK) {
@@ -453,7 +459,7 @@ static int buildReducer(PLN_GroupStep *g, PLN_Reducer *gr, ArgsCursor *ac, const
     }
   }
   if (alias == NULL) {
-    gr->alias = getReducerAlias(g, name, &gr->args);
+    gr->alias = getReducerAlias(gstp, name, &gr->args);
   } else {
     gr->alias = strdup(alias);
   }
@@ -462,6 +468,16 @@ static int buildReducer(PLN_GroupStep *g, PLN_Reducer *gr, ArgsCursor *ac, const
 
 static void genericStepFree(PLN_BaseStep *p) {
   free(p);
+}
+
+PLN_GroupStep *PLNGroupStep_New(const char **properties, size_t nproperties) {
+  PLN_GroupStep *gstp = calloc(1, sizeof(*gstp));
+  gstp->properties = properties;
+  gstp->nproperties = nproperties;
+  gstp->base.dtor = groupStepFree;
+  gstp->base.getLookup = groupStepGetLookup;
+  gstp->base.type = PLN_T_GROUP;
+  return gstp;
 }
 
 static int parseGroupby(AREQ *req, ArgsCursor *ac, QueryError *status) {
@@ -475,32 +491,42 @@ static int parseGroupby(AREQ *req, ArgsCursor *ac, QueryError *status) {
   }
 
   // Number of fields.. now let's see the reducers
-
-  PLN_GroupStep *gstp = calloc(1, sizeof(*gstp));
-  gstp->properties = (const char **)groupArgs.objs;
-  gstp->nproperties = groupArgs.argc;
-  gstp->base.dtor = groupStepFree;
-  gstp->base.type = PLN_T_GROUP;
+  PLN_GroupStep *gstp = PLNGroupStep_New((const char **)groupArgs.objs, groupArgs.argc);
   AGPLN_AddStep(&req->ap, &gstp->base);
 
   while (AC_AdvanceIfMatch(ac, "REDUCE")) {
-    PLN_Reducer *cur;
     const char *name;
     if (AC_GetString(ac, &name, NULL, 0) != AC_OK) {
       QERR_MKBADARGS_AC(status, "REDUCE", rv);
       return REDISMODULE_ERR;
     }
-    cur = array_ensure_tail(&gstp->reducers, PLN_Reducer);
-
-    if (buildReducer(gstp, cur, ac, name, status) != REDISMODULE_OK) {
+    if (PLNGroupStep_AddReducer(gstp, name, ac, status) != REDISMODULE_OK) {
       goto error;
     }
   }
-  gstp->idx = req->serial++;
   return REDISMODULE_OK;
 
 error:
   return REDISMODULE_ERR;
+}
+
+static void freeFilterStep(PLN_BaseStep *bstp) {
+  PLN_MapFilterStep *fstp = (PLN_MapFilterStep *)bstp;
+  if (fstp->parsedExpr) {
+    ExprAST_Free(fstp->parsedExpr);
+  }
+  if (fstp->shouldFreeRaw) {
+    free((char *)fstp->rawExpr);
+  }
+  free(bstp);
+}
+
+PLN_MapFilterStep *PLNMapFilterStep_New(const char *expr, int mode) {
+  PLN_MapFilterStep *stp = calloc(1, sizeof(*stp));
+  stp->base.dtor = freeFilterStep;
+  stp->base.type = mode;
+  stp->rawExpr = expr;
+  return stp;
 }
 
 static int handleApplyOrFilter(AREQ *req, ArgsCursor *ac, QueryError *status, int isApply) {
@@ -512,10 +538,7 @@ static int handleApplyOrFilter(AREQ *req, ArgsCursor *ac, QueryError *status, in
     return REDISMODULE_ERR;
   }
 
-  PLN_MapFilterStep *stp = calloc(1, sizeof(*stp));
-  stp->base.dtor = genericStepFree;
-  stp->base.type = isApply ? PLN_T_APPLY : PLN_T_FILTER;
-  stp->rawExpr = expr;
+  PLN_MapFilterStep *stp = PLNMapFilterStep_New(expr, isApply ? PLN_T_APPLY : PLN_T_FILTER);
   AGPLN_AddStep(&req->ap, &stp->base);
 
   if (isApply) {

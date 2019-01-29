@@ -69,6 +69,9 @@ static void rootStepDtor(PLN_BaseStep *bstp) {
   PLN_FirstStep *fstp = (PLN_FirstStep *)bstp;
   RLookup_Cleanup(&fstp->lookup);
 }
+static RLookup *rootStepLookup(PLN_BaseStep *bstp) {
+  return &((PLN_FirstStep *)bstp)->lookup;
+}
 
 void AGPLN_Init(AGGPlan *plan) {
   memset(plan, 0, sizeof *plan);
@@ -76,15 +79,13 @@ void AGPLN_Init(AGGPlan *plan) {
   dllist_append(&plan->steps, &plan->firstStep_s.base.llnodePln);
   plan->firstStep_s.base.type = PLN_T_ROOT;
   plan->firstStep_s.base.dtor = rootStepDtor;
+  plan->firstStep_s.base.getLookup = rootStepLookup;
 }
 
 static RLookup *lookupFromNode(const DLLIST_node *nn) {
-  const PLN_BaseStep *stp = DLLIST_ITEM(nn, PLN_BaseStep, llnodePln);
-  assert(stp->type != PLN_T_INVALID);
-  if (stp->type == PLN_T_ROOT) {
-    return &((PLN_FirstStep *)stp)->lookup;
-  } else if (stp->type == PLN_T_GROUP) {
-    return &((PLN_GroupStep *)stp)->lookup;
+  PLN_BaseStep *stp = DLLIST_ITEM(nn, PLN_BaseStep, llnodePln);
+  if (stp->getLookup) {
+    return stp->getLookup(stp);
   } else {
     return NULL;
   }
@@ -208,7 +209,7 @@ void AGPLN_Dump(const AGGPlan *pln) {
         printf("  EXPR:%s\n", ((PLN_MapFilterStep *)stp)->rawExpr);
         if (stp->alias) {
           printf("  AS:%s\n", stp->alias);
-  }
+        }
         break;
       case PLN_T_ARRANGE: {
         const PLN_ArrangeStep *astp = (PLN_ArrangeStep *)stp;

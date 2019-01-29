@@ -41,7 +41,12 @@ typedef struct PLN_BaseStep {
   uint32_t flags;  // PLN_F_XXX
 
   const char *alias;
-  void (*dtor)(struct PLN_BaseStep *);  // Called to destroy step-specific data
+  // Called to destroy step-specific data
+  void (*dtor)(struct PLN_BaseStep *);
+
+  // Called to yield the lookup structure for the given step. If this object
+  // does not have a lookup, can be set to NULL.
+  RLookup *(*getLookup)(struct PLN_BaseStep *);
 
   // Type specific stuff goes here..
 } PLN_BaseStep;
@@ -69,6 +74,7 @@ typedef struct {
   PLN_BaseStep base;
   const char *rawExpr;
   RSExpr *parsedExpr;
+  int shouldFreeRaw;  // Whether we own the raw expression
 } PLN_MapFilterStep;
 
 // Magic value -- will sort by score. For use in SEARCH mode
@@ -109,7 +115,28 @@ typedef struct {
   int idx;
 } PLN_GroupStep;
 
+/**
+ * Returns a new group step with the appropriate constructor
+ */
+PLN_GroupStep *PLNGroupStep_New(const char **props, size_t nprops);
+
+/**
+ * Adds a reducer (with its arguments) to the group step
+ * @param gstp the group step
+ * @param name the name of the reducer
+ * @param ac arguments to the reducer; if an alias is used, it is provided
+ *  here as well.
+ */
+int PLNGroupStep_AddReducer(PLN_GroupStep *gstp, const char *name, ArgsCursor *ac,
+                            QueryError *status);
+
+PLN_MapFilterStep *PLNMapFilterStep_New(const char *expr, int mode);
+
+#ifdef __cplusplus
+typedef PLN_GroupStep::PLN_Reducer PLN_Reducer;
+#else
 typedef struct PLN_Reducer PLN_Reducer;
+#endif
 
 /* A plan is a linked list of all steps */
 struct AGGPlan {
