@@ -185,8 +185,43 @@ static inline const char *AC_Strerror(int code) {
 #define AC_Clear(ac)  // NOOP
 #define AC_IsAtEnd(ac) ((ac)->offset >= (ac)->argc)
 #define AC_NumRemaining(ac) ((ac)->argc - (ac)->offset)
-
+#define AC_NumArgs(ac) (ac)->argc
+#define AC_StringArg(ac, N) (const char *)((ac)->objs[N])
 #ifdef __cplusplus
 }
+
+#include <vector>
+#include <tuple>
+#include <type_traits>
+#include <array>
+class ArgsCursorCXX : public ArgsCursor {
+ public:
+  template <typename... T>
+  ArgsCursorCXX(T... args) {
+    typedef typename std::tuple_element<0, std::tuple<T...>>::type FirstType;
+    typedef const typename std::remove_pointer<FirstType>::type *ConstPointerType;
+    typedef typename std::conditional<std::is_pointer<FirstType>::value, ConstPointerType,
+                                      FirstType>::type RealType;
+    std::array<const void *, sizeof...(args)> stackarr = {{args...}};
+    arr.assign(stackarr.begin(), stackarr.end());
+    RealType *arrptr = (RealType *)(&arr[0]);
+    init(&arrptr[0], arr.size());
+  }
+
+  void append(void *p) {
+    arr.push_back(p);
+    objs = (void **)&arr[0];
+    argc = arr.size();
+  }
+
+ private:
+  std::vector<const void *> arr;
+  void init(const char **s, size_t n) {
+    ArgsCursor_InitCString(this, s, n);
+  }
+  void init(RedisModuleString **s, size_t n) {
+    ArgsCursor_InitRString(this, s, n);
+  }
+};
 #endif
 #endif
