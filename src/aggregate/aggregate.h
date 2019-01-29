@@ -202,6 +202,22 @@ void Grouper_AddReducer(Grouper *g, Reducer *r, RLookupKey *dst);
 void AREQ_Execute(AREQ *req, RedisModuleCtx *outctx);
 void AREQ_Free(AREQ *req);
 
+/**
+ * Start the cursor on the current request
+ * @param r the request
+ * @param outctx the context used for replies (only used in current command)
+ * @param lookupName the name of the index used for the cursor reservation
+ * @param status if this function errors, this contains the message
+ * @return REDISMODULE_OK or REDISMODULE_ERR
+ *
+ * If this function returns REDISMODULE_OK then the cursor might have been
+ * freed. If it returns REDISMODULE_ERR, then the cursor is still valid
+ * and must be freed manually.
+ */
+int AREQ_StartCursor(AREQ *r, RedisModuleCtx *outctx, const char *lookupName, QueryError *status);
+
+int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+
 #define AREQ_RP(req) (req)->qiter.endProc
 
 #ifdef __cplusplus
