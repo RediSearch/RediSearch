@@ -32,7 +32,10 @@ typedef enum {
   QEXEC_F_SEND_HIGHLIGHT = 0x400,
 
   /* Do not emit any rows, only the number of query results */
-  QEXEC_F_NOROWS = 0x800
+  QEXEC_F_NOROWS = 0x800,
+
+  /* Do not stringify result values. Send them in their proper types */
+  QEXEC_F_TYPED = 0x1000
 
 } QEFlags;
 

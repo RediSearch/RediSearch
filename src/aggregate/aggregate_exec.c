@@ -99,7 +99,7 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
       if (!v) {
         RedisModule_ReplyWithNull(outctx);
       } else {
-        RSValue_SendReply(outctx, v);
+        RSValue_SendReply(outctx, v, req->reqflags & QEXEC_F_TYPED);
       }
     }
     REDISMODULE_END_ARRAY(outctx, nfields * 2);

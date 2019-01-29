@@ -169,6 +169,8 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
     if (parseCursorSettings(req, ac, status) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
+  } else if (AC_AdvanceIfMatch(ac, "_NUM_SSTRING")) {
+    req->reqflags |= QEXEC_F_TYPED;
   } else {
     return ARG_UNKNOWN;
   }
