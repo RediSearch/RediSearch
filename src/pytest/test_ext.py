@@ -13,13 +13,14 @@ else:
     else:
         EXTPATH += '.so'
 
-if not os.path.exists(EXTPATH):
-    raise Exception("Path ({}) does not exist. "
-        "Run from the build directory or set EXT_TEST_PATH in the environment".format(EXTPATH))
 
 EXTPATH = os.path.abspath(EXTPATH)
 
 def testExt():
+    if not os.path.exists(EXTPATH):
+        raise Exception("Path ({}) does not exist. "
+            "Run from the build directory or set EXT_TEST_PATH in the environment".format(EXTPATH))
+
     # extentionPath = os.path.abspath(os.path.dirname(os.path.realpath(__file__)) + '/../tests/ext-example/example.so')
     env = Env(moduleArgs='EXTLOAD %s' % EXTPATH)
 
