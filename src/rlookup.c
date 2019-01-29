@@ -61,11 +61,12 @@ RLookupKey *RLookup_GetKeyEx(RLookup *lookup, const char *name, size_t n, int fl
   int isNew = 0;
 
   for (RLookupKey *kk = lookup->head; kk; kk = kk->next) {
-    if (!strncmp(kk->name, name, n)) {
-      ret = kk;
+    size_t origlen = strlen(kk->name);
+    if (origlen == n && !strncmp(kk->name, name, origlen)) {
       if (flags & RLOOKUP_F_OEXCL) {
         return NULL;
       }
+      ret = kk;
       break;
     }
   }
