@@ -329,6 +329,7 @@ static void rpevalFree(ResultProcessor *rp) {
   if (ee->val) {
     RSValue_Decref(ee->val);
   }
+  BlkAlloc_FreeAll(&ee->eval.stralloc, NULL, NULL, 0);
   free(ee);
 }
 static ResultProcessor *RPEvaluator_NewCommon(const RSExpr *ast, const RLookup *lookup,
