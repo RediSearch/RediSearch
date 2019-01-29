@@ -182,7 +182,14 @@ static void extractGroups(Grouper *g, const RSValue **xarr, size_t xpos, size_t 
   } else {
     // Array value. Replace current XPOS with child temporarily
     const RSValue *array = xarr[xpos];
-    const RSValue *elem = RSValue_ArrayItem(v, arridx);
+    const RSValue *elem;
+
+    if (arridx >= RSValue_ArrayLen(v)) {
+      elem = NULL;
+    } else {
+      elem = RSValue_ArrayItem(v, arridx);
+    }
+
     if (elem == NULL) {
       elem = RS_NullVal();
     }
