@@ -255,11 +255,21 @@ static void cleanCallback(void *ptr, void *arg) {
 
 static void Grouper_rpFree(ResultProcessor *grrp) {
   Grouper *g = (Grouper *)grrp;
+  for (khiter_t it = kh_begin(g->groups); it != kh_end(g->groups); ++it) {
+    if (!kh_exist(g->groups, it)) {
+      continue;
+    }
+    Group *gr = kh_value(g->groups, it);
+    RLookupRow_Cleanup(&gr->rowdata);
+  }
   kh_destroy(khid, g->groups);
   BlkAlloc_FreeAll(&g->groupsAlloc, cleanCallback, g, GROUP_BYTESIZE(g));
 
   for (size_t i = 0; i < GROUPER_NREDUCERS(g); i++) {
     g->reducers[i]->Free(g->reducers[i]);
+  }
+  if (g->reducers) {
+    array_free(g->reducers);
   }
   free(g->srckeys);
   free(g->dstkeys);
