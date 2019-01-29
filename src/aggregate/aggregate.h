@@ -142,10 +142,17 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
 int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status);
 
 /**
+ * Do not create the root result processor. Only process those components
+ * which process fully-formed, fully-scored results. This also means
+ * that a scorer is not created. It will also not initialize the
+ * first step or the initial lookup table
+ */
+#define AREQ_BUILDPIPELINE_NO_ROOT 0x01
+/**
  * Constructs the pipeline objects needed to actually start processing
  * the requests. This does not yet start iterating over the objects
  */
-int AREQ_BuildPipeline(AREQ *req, QueryError *status);
+int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status);
 
 /******************************************************************************
  ******************************************************************************

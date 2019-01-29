@@ -188,7 +188,7 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     goto done;
   }
 
-  rc = AREQ_BuildPipeline(*r, status);
+  rc = AREQ_BuildPipeline(*r, 0, status);
 
 done:
   if (rc != REDISMODULE_OK && *r) {
