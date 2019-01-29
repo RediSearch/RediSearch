@@ -172,12 +172,166 @@ void AGPLN_Dump(const AGGPlan *pln) {
   for (const DLLIST_node *nn = pln->steps.next; nn && nn != &pln->steps; nn = nn->next) {
     const PLN_BaseStep *stp = DLLIST_ITEM(nn, PLN_BaseStep, llnodePln);
     printf("STEP: [T=%s. P=%p]\n", steptypeToString(stp->type), stp);
-    RLookup *lk = lookupFromNode(nn);
+    const RLookup *lk = lookupFromNode(nn);
     if (lk) {
       printf("  NEW LOOKUP: %p\n", lk);
       for (const RLookupKey *kk = lk->head; kk; kk = kk->next) {
         printf("    %s @%p: FLAGS=0x%x\n", kk->name, kk, kk->flags);
       }
     }
+
+    switch (stp->type) {
+      case PLN_T_APPLY:
+      case PLN_T_FILTER:
+        printf("  EXPR:%s\n", ((PLN_MapFilterStep *)stp)->rawExpr);
+        if (stp->alias) {
+          printf("  AS:%s\n", stp->alias);
   }
+        break;
+      case PLN_T_ARRANGE: {
+        const PLN_ArrangeStep *astp = (PLN_ArrangeStep *)stp;
+        if (astp->offset || astp->limit) {
+          printf("  OFFSET:%lu LIMIT:%lu\n", (unsigned long)astp->offset,
+                 (unsigned long)astp->limit);
+        }
+        if (astp->sortKeys) {
+          printf("  SORT:\n");
+          for (size_t ii = 0; ii < array_len(astp->sortKeys); ++ii) {
+            const char *dir = SORTASCMAP_GETASC(astp->sortAscMap, ii) ? "ASC" : "DESC";
+            printf("    %s:%s\n", astp->sortKeys[ii], dir);
+          }
+        }
+        break;
+      }
+      case PLN_T_LOAD: {
+        const PLN_LoadStep *lstp = (PLN_LoadStep *)stp;
+        for (size_t ii = 0; ii < lstp->args.argc; ++ii) {
+          printf("  %s\n", lstp->args.objs[ii]);
+        }
+        break;
+      }
+      case PLN_T_GROUP: {
+        const PLN_GroupStep *gstp = (PLN_GroupStep *)stp;
+        printf("  BY:\n");
+        for (size_t ii = 0; ii < gstp->nproperties; ++ii) {
+          printf("    %s\n", gstp->properties[ii]);
+        }
+        for (size_t ii = 0; ii < array_len(gstp->reducers); ++ii) {
+          const PLN_Reducer *r = gstp->reducers + ii;
+          printf("  REDUCE: %s AS %s\n", r->name, r->alias);
+          if (r->args.argc) {
+            printf("    ARGS:[");
+          }
+          for (size_t jj = 0; jj < r->args.argc; ++jj) {
+            printf("%s ", r->args.objs[jj]);
+          }
+          printf("]\n");
+        }
+        break;
+      }
+      case PLN_T_ROOT:
+      case PLN_T_DISTRIBUTE:
+      case PLN_T_INVALID:
+      case PLN_T__MAX:
+        break;
+    }
+  }
+}
+
+array_t AGPLN_Serialize(const AGGPlan *pln) {
+#define APPEND_STR(s)             \
+  {                               \
+    char *s__ = strdup(s);        \
+    arr = array_append(arr, s__); \
+  }
+#define APPEND_UINT(n)            \
+  {                               \
+    unsigned long long ull__ = n; \
+    char s__0[64];                \
+    sprintf(s__0, "%llu", ull__); \
+    APPEND_STR(s__0);             \
+  }
+#define APPEND_AC(ac)                                \
+  for (size_t ii__ = 0; ii__ < (ac)->argc; ++ii__) { \
+    APPEND_STR((const char *)(ac)->objs[ii__]);      \
+  }
+
+  char **arr = array_new(char *, 1);
+  for (const DLLIST_node *nn = pln->steps.next; nn != &pln->steps; nn = nn->next) {
+    const PLN_BaseStep *stp = DLLIST_ITEM(nn, PLN_BaseStep, llnodePln);
+    switch (stp->type) {
+      case PLN_T_APPLY:
+      case PLN_T_FILTER: {
+        PLN_MapFilterStep *mstp = (PLN_MapFilterStep *)stp;
+        if (stp->type == PLN_T_APPLY) {
+          APPEND_STR("APPLY");
+        } else {
+          APPEND_STR("FILTER");
+        }
+        APPEND_STR(mstp->rawExpr);
+        if (stp->alias) {
+          APPEND_STR("AS");
+          APPEND_STR(stp->alias);
+        }
+      } break;
+      case PLN_T_ARRANGE: {
+        PLN_ArrangeStep *astp = (PLN_ArrangeStep *)stp;
+        if (astp->limit || astp->offset) {
+          APPEND_STR("LIMIT");
+          APPEND_UINT(astp->offset);
+          APPEND_UINT(astp->limit);
+        }
+        if (astp->sortKeys) {
+          size_t numsort = array_len(astp->sortKeys);
+          APPEND_STR("SORTBY");
+          APPEND_UINT(numsort * 2);
+          for (size_t ii = 0; ii < numsort; ++ii) {
+            char *stmp;
+            asprintf(&stmp, "@%s", astp->sortKeys[ii]);
+            arr = array_append(arr, stmp);
+            if (SORTASCMAP_GETASC(astp->sortAscMap, ii)) {
+              APPEND_STR("ASC");
+            } else {
+              APPEND_STR("DESC");
+            }
+          }
+        }
+      } break;
+      case PLN_T_LOAD: {
+        PLN_LoadStep *lstp = (PLN_LoadStep *)stp;
+        if (lstp->args.argc) {
+          APPEND_STR("LOAD");
+          APPEND_UINT(lstp->args.argc);
+          APPEND_AC(&lstp->args);
+        }
+        break;
+      }
+      case PLN_T_GROUP: {
+        PLN_GroupStep *gstp = (PLN_GroupStep *)stp;
+        APPEND_STR("GROUPBY");
+        APPEND_UINT(gstp->nproperties);
+        for (size_t ii = 0; ii < gstp->nproperties; ++ii) {
+          APPEND_STR(gstp->properties[ii]);
+        }
+        size_t nreducers = array_len(gstp->reducers);
+        for (size_t ii = 0; ii < nreducers; ++ii) {
+          const PLN_Reducer *r = gstp->reducers + ii;
+          APPEND_STR("REDUCE");
+          APPEND_STR(r->name);
+          APPEND_UINT(r->args.argc);
+          APPEND_AC(&r->args);
+          if (r->alias) {
+            APPEND_STR("AS");
+            APPEND_STR(r->alias);
+          }
+        }
+      }
+      case PLN_T_INVALID:
+      case PLN_T_ROOT:
+      case PLN_T_DISTRIBUTE:
+      case PLN_T__MAX:
+        break;
+    }
+  }
+  return arr;
 }
