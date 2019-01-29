@@ -63,7 +63,7 @@ int ReducerOpts_GetKey(const ReducerOptions *options, const RLookupKey **out) {
   if (*s == '@') {
     s++;
   }
-  *out = RLookup_GetKey(options->srclookup, s, RLOOKUP_F_OCREAT | RLOOKUP_F_HIDDEN);
+  *out = RLookup_GetKey(options->srclookup, s, RLOOKUP_F_HIDDEN);
   if (!*out) {
     QueryError_SetErrorFmt(options->status, QUERY_ENOPROPKEY,
                            "Property `%s` not present in document or pipeline", s);
