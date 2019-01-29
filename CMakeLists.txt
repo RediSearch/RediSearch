@@ -96,6 +96,8 @@ IF (RS_RUN_TESTS)
     ADD_SUBDIRECTORY(src/cpptests)
     ADD_SUBDIRECTORY(src/tests)
     ADD_SUBDIRECTORY(src/pytest)
+ELSEIF (RS_ENABLE_MOCK)
+    ADD_SUBDIRECTORY(src/cpptests/redismock)
 ENDIF()
 
 # SET(RMTEST_MODULE_PATH $<TARGET_FILE:redisearch>)
