@@ -170,8 +170,10 @@ TEST_F(AggTest, testGroupBy) {
   ASSERT_TRUE(gr != NULL);
 
   Grouper_AddReducer(gr, RDCRCount_New(NULL), count_out);
-  ReducerOptionsCXX sumOptions("SUM", &rk_in, "SCORE");
-  Grouper_AddReducer(gr, RDCRSum_New(&sumOptions), score_out);
+  ReducerOptionsCXX sumOptions("SUM", &rk_in, "score");
+  auto sumReducer = RDCRSum_New(&sumOptions);
+  ASSERT_TRUE(sumReducer != NULL) << QueryError_GetError(sumOptions.status);
+  Grouper_AddReducer(gr, sumReducer, score_out);
   SearchResult res = {0};
   ResultProcessor *gp = Grouper_GetRP(gr);
   QITR_PushRP(&qitr, gp);
