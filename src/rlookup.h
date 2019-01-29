@@ -117,8 +117,6 @@ typedef struct {
   /** Dynamic values obtained from prior processing */
   RSValue **dyn;
 
-  /** Array of 'static' RSValues, where the underlying storage  */
-  RSValue *dyn_s;
   /**
    * How many values actually exist in dyn. Note that this
    * is not the length of the array!
