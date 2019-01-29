@@ -249,7 +249,7 @@ IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec);
  * Get a field spec by field name. Case insensitive!
  * Return the field spec if found, NULL if not
  */
-const FieldSpec *IndexSpec_GetField(IndexSpec *spec, const char *name, size_t len);
+const FieldSpec *IndexSpec_GetField(const IndexSpec *spec, const char *name, size_t len);
 
 /**
  * Case-sensitive version of GetField()
