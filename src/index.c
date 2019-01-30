@@ -1194,6 +1194,7 @@ IndexIterator *NewOptionalIterator(IndexIterator *it, t_docId maxDocId, double w
   nc->virt->fieldMask = RS_FIELDMASK_ALL;
   nc->base.current = nc->virt;
   nc->child = it;
+  nc->childCT = NULL;
   nc->lastDocId = 0;
   nc->maxDocId = maxDocId;
   nc->weight = weight;
