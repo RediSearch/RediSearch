@@ -170,6 +170,7 @@ static int rpscoreNext(ResultProcessor *base, SearchResult *res) {
     if (res->score == RS_SCORE_FILTEROUT) {
       base->parent->totalResults--;
       SearchResult_Clear(res);
+      // continue;
     }
 
     break;
