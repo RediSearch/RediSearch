@@ -564,7 +564,7 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
   // Find all completions of the prefix
   while (TrieMapIterator_Next(it, &s, &sl, &ptr) &&
          (itsSz < q->sctx->spec->maxPrefixExpansions || q->sctx->spec->maxPrefixExpansions == -1)) {
-    IndexIterator *ret = TagIndex_OpenReader(idx, q->docTable, s, sl, 1);
+    IndexIterator *ret = TagIndex_OpenReader(idx, q->sctx->spec, s, sl, 1);
     if (!ret) continue;
 
     // Add the reader to the iterator array
@@ -592,7 +592,7 @@ static IndexIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, Qu
   IndexIterator *ret = NULL;
   switch (n->type) {
     case QN_TOKEN: {
-      ret = TagIndex_OpenReader(idx, q->docTable, n->tn.str, n->tn.len, weight);
+      ret = TagIndex_OpenReader(idx, q->sctx->spec, n->tn.str, n->tn.len, weight);
       break;
     }
     case QN_PREFX:
@@ -610,7 +610,7 @@ static IndexIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, Qu
 
       sds s = sdsjoin(terms, n->pn.numChildren, " ");
 
-      ret = TagIndex_OpenReader(idx, q->docTable, s, sdslen(s), weight);
+      ret = TagIndex_OpenReader(idx, q->sctx->spec, s, sdslen(s), weight);
       sdsfree(s);
       break;
     }

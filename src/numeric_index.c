@@ -106,7 +106,7 @@ double NumericRange_Split(NumericRange *n, NumericRangeNode **lp, NumericRangeNo
                     MIN(NR_MAXRANGE_CARD, 1 + n->splitCard * NR_EXPONENT));
 
   RSIndexResult *res = NULL;
-  IndexReader *ir = NewNumericReader(n->entries, NULL);
+  IndexReader *ir = NewNumericReader(NULL, n->entries, NULL);
   while (INDEXREAD_OK == IR_Read(ir, &res)) {
     NumericRange_Add(res->num.value < split ? (*lp)->range : (*rp)->range, res->docId,
                      res->num.value, 1);
@@ -331,21 +331,21 @@ void NumericRangeTree_Free(NumericRangeTree *t) {
   RedisModule_Free(t);
 }
 
-IndexIterator *NewNumericRangeIterator(NumericRange *nr, const NumericFilter *f) {
+IndexIterator *NewNumericRangeIterator(IndexSpec* sp, NumericRange *nr, const NumericFilter *f) {
 
   // if this range is at either end of the filter, we need to check each record
   if (NumericFilter_Match(f, nr->minVal) && NumericFilter_Match(f, nr->maxVal)) {
     // make the filter NULL so the reader will ignore it
     f = NULL;
   }
-  IndexReader *ir = NewNumericReader(nr->entries, f);
+  IndexReader *ir = NewNumericReader(sp, nr->entries, f);
 
   return NewReadIterator(ir);
 }
 
 /* Create a union iterator from the numeric filter, over all the sub-ranges in the tree that fit
  * the filter */
-IndexIterator *createNumericIterator(NumericRangeTree *t, const NumericFilter *f) {
+IndexIterator *createNumericIterator(IndexSpec* sp, NumericRangeTree *t, const NumericFilter *f) {
 
   Vector *v = NumericRangeTree_Find(t, f->min, f->max);
   if (!v || Vector_Size(v) == 0) {
@@ -360,7 +360,7 @@ IndexIterator *createNumericIterator(NumericRangeTree *t, const NumericFilter *f
   if (n == 1) {
     NumericRange *rng;
     Vector_Get(v, 0, &rng);
-    IndexIterator *it = NewNumericRangeIterator(rng, f);
+    IndexIterator *it = NewNumericRangeIterator(sp, rng, f);
     Vector_Free(v);
     return it;
   }
@@ -376,7 +376,7 @@ IndexIterator *createNumericIterator(NumericRangeTree *t, const NumericFilter *f
       continue;
     }
 
-    its[i] = NewNumericRangeIterator(rng, f);
+    its[i] = NewNumericRangeIterator(sp, rng, f);
   }
   Vector_Free(v);
 
@@ -415,7 +415,7 @@ struct indexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const Numeri
     }
   }
 
-  IndexIterator *it = createNumericIterator(t, flt);
+  IndexIterator *it = createNumericIterator(ctx->spec, t, flt);
   if (!it) {
     return NULL;
   }
@@ -588,7 +588,7 @@ static void numericIndex_rdbSaveCallback(NumericRangeNode *n, void *ctx) {
   if (NumericRangeNode_IsLeaf(n) && n->range) {
     NumericRange *rng = n->range;
     RSIndexResult *res = NULL;
-    IndexReader *ir = NewNumericReader(rng->entries, NULL);
+    IndexReader *ir = NewNumericReader(NULL, rng->entries, NULL);
 
     while (INDEXREAD_OK == IR_Read(ir, &res)) {
       RedisModule_SaveUnsigned(rctx->rdb, res->docId);

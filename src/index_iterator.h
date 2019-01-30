@@ -9,6 +9,15 @@
 #define INDEXREAD_OK 1
 #define INDEXREAD_NOTFOUND 2
 
+#define MODE_SORTED 1
+#define MODE_UNSORTED 2
+
+typedef struct IndexCriteriaTester {
+  void*  ctx;
+  int (*TextCriteria)(void *ctx, t_docId id);
+  void (*Free)(struct IndexCriteriaTester* ct);
+}IndexCriteriaTester;
+
 /* An abstract interface used by readers / intersectors / unioners etc.
 Basically query execution creates a tree of iterators that activate each other
 recursively */
@@ -24,7 +33,13 @@ typedef struct indexIterator {
   // Cached value - used if Current() is not set
   RSIndexResult *current;
 
+  int mode;
+
   RSIndexResult *(*GetCurrent)(void *ctx);
+
+  size_t (*ExpectedResultsAmount)(void *ctx);
+
+  IndexCriteriaTester* (*GetCriteriaTester)(void *ctx);
 
   /* Read the next entry from the iterator, into hit *e.
    *  Returns INDEXREAD_EOF if at the end */

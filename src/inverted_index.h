@@ -93,6 +93,8 @@ IndexDecoder InvertedIndex_GetDecoder(uint32_t flags);
 
 /* An IndexReader wraps an inverted index record for reading and iteration */
 typedef struct indexReadCtx {
+  IndexSpec* sp;
+
   // the underlying data buffer
   BufferReader br;
 
@@ -148,7 +150,7 @@ size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
 /* Create a new index reader for numeric records, optionally using a given filter. If the filter
  * is
  * NULL we will return all the records in the index */
-IndexReader *NewNumericReader(InvertedIndex *idx, const NumericFilter *flt);
+IndexReader *NewNumericReader(IndexSpec* sp, InvertedIndex *idx, const NumericFilter *flt);
 
 /* Get the appropriate encoder for an inverted index given its flags. Returns NULL on invalid flags
  */
@@ -159,7 +161,7 @@ IndexEncoder InvertedIndex_GetEncoder(IndexFlags flags);
  * If singleWordMode is set to 1, we ignore the skip index and use the score
  * index.
  */
-IndexReader *NewTermIndexReader(InvertedIndex *idx, DocTable *docTable, t_fieldMask fieldMask,
+IndexReader *NewTermIndexReader(InvertedIndex *idx, IndexSpec* sp, t_fieldMask fieldMask,
                                 RSQueryTerm *term, double weight);
 
 /* free an index reader */

@@ -18,6 +18,44 @@ static inline int isEof(const IdListIterator *it) {
   return !it->base.isValid;
 }
 
+typedef struct ILCriteriaTesterCtx{
+  t_docId *docIds;
+  t_offset size;
+}ILCriteriaTesterCtx;
+
+static int cmp_docids(const void *p1, const void *p2);
+
+static int IL_TextCriteria(void *ctx, t_docId id){
+  ILCriteriaTesterCtx* ctc = ctx;
+  return bsearch((void*)id, ctc->docIds, (size_t)ctc->size, sizeof(t_docId), cmp_docids) != NULL;
+}
+
+static void IL_CriteriaTesterFree(struct IndexCriteriaTester* ct){
+  ILCriteriaTesterCtx* ctc = ct->ctx;
+  rm_free(ctc->docIds);
+  rm_free(ctc);
+  rm_free(ct);
+}
+
+IndexCriteriaTester* IL_GetCriteriaTester(void *ctx){
+  IdListIterator *it = ctx;
+  ILCriteriaTesterCtx* ctc = rm_malloc(sizeof(*ctc));
+  ctc->docIds = it->docIds;
+  ctc->size = it->size;
+  it->docIds = NULL;
+  it->size = 0;
+  IndexCriteriaTester* ct = rm_malloc(sizeof(*ct));
+  ct->ctx = ctc;
+  ct->TextCriteria = IL_TextCriteria;
+  ct->Free = IL_CriteriaTesterFree;
+  return ct;
+}
+
+size_t IL_ExpectedResultsAmount(void *ctx){
+  IdListIterator *it = ctx;
+  return (size_t)it->size;
+}
+
 /* Read the next entry from the iterator, into hit *e.
  *  Returns INDEXREAD_EOF if at the end */
 int IL_Read(void *ctx, RSIndexResult **r) {
@@ -95,7 +133,9 @@ t_docId IL_LastDocId(void *ctx) {
 void IL_Free(struct indexIterator *self) {
   IdListIterator *it = self->ctx;
   IndexResult_Free(it->base.current);
-  rm_free(it->docIds);
+  if(it->docIds){
+    rm_free(it->docIds);
+  }
   rm_free(self);
 }
 
@@ -138,6 +178,8 @@ IndexIterator *NewIdListIterator(t_docId *ids, t_offset num, double weight) {
 
   IndexIterator *ret = &it->base;
   ret->ctx = it;
+  ret->GetCriteriaTester = IL_GetCriteriaTester;
+  ret->ExpectedResultsAmount = IL_ExpectedResultsAmount;
   ret->Free = IL_Free;
   ret->LastDocId = IL_LastDocId;
   ret->Len = IL_Len;
@@ -145,6 +187,7 @@ IndexIterator *NewIdListIterator(t_docId *ids, t_offset num, double weight) {
   ret->SkipTo = IL_SkipTo;
   ret->Abort = IL_Abort;
   ret->Rewind = IL_Rewind;
+  ret->mode = MODE_SORTED;
 
   ret->HasNext = NULL;
   ret->GetCurrent = NULL;

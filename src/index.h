@@ -46,11 +46,11 @@ IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *t, int q
 IndexIterator *NewIntersecIterator(IndexIterator **its, int num, DocTable *t, t_fieldMask fieldMask,
                                    int maxSlop, int inOrder, double weight);
 
-/* Create an Optional clause iterator by wrapping another index iterator. An optional iterator
- * always returns OK on skips, but a virtual hit with frequency of 0 if there is no hit */
+/* Create a NOT iterator by wrapping another index iterator */
 IndexIterator *NewNotIterator(IndexIterator *it, t_docId maxDocId, double weight);
 
-/* Create a NOT iterator by wrapping another index iterator */
+/* Create an Optional clause iterator by wrapping another index iterator. An optional iterator
+ * always returns OK on skips, but a virtual hit with frequency of 0 if there is no hit */
 IndexIterator *NewOptionalIterator(IndexIterator *it, t_docId maxDocId, double weight);
 
 /* Create a wildcard iterator, matching ALL documents in the index. This is used for one thing only

@@ -117,7 +117,7 @@ size_t TagIndex_Index(TagIndex *idx, const char **values, size_t n, t_docId docI
 
 /* Open an index reader to iterate a tag index for a specific tag. Used at query evaluation time.
  * Returns NULL if there is no such tag in the index */
-IndexIterator *TagIndex_OpenReader(TagIndex *idx, DocTable *dt, const char *value, size_t len,
+IndexIterator *TagIndex_OpenReader(TagIndex *idx, IndexSpec* sp, const char *value, size_t len,
                                    double weight);
 
 void TagIndex_RegisterConcurrentIterators(TagIndex *idx, ConcurrentSearchCtx *conc,
