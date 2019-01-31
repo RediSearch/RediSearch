@@ -1,10 +1,3 @@
-/*
- * redisearch_api.h
- *
- *  Created on: 24 Jan 2019
- *      Author: root
- */
-
 #ifndef SRC_REDISEARCH_API_H_
 #define SRC_REDISEARCH_API_H_
 

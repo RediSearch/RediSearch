@@ -13,8 +13,7 @@
 #define MODE_UNSORTED 2
 
 typedef struct IndexCriteriaTester {
-  void*  ctx;
-  int (*TextCriteria)(void *ctx, t_docId id);
+  int (*Test)(struct IndexCriteriaTester *ctx, t_docId id);
   void (*Free)(struct IndexCriteriaTester* ct);
 }IndexCriteriaTester;
 
@@ -37,7 +36,7 @@ typedef struct indexIterator {
 
   RSIndexResult *(*GetCurrent)(void *ctx);
 
-  size_t (*ExpectedResultsAmount)(void *ctx);
+  size_t (*EstimateNumResults)(void *ctx);
 
   IndexCriteriaTester* (*GetCriteriaTester)(void *ctx);
 

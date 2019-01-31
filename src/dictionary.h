@@ -1,10 +1,3 @@
-/*
- * dictionary.h
- *
- *  Created on: Jul 25, 2018
- *      Author: meir
- */
-
 #ifndef SRC_DICTIONARY_H_
 #define SRC_DICTIONARY_H_
 

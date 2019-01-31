@@ -1,9 +1,3 @@
-/*
- * field_spec.c
- *
- *  Created on: 24 Jan 2019
- *      Author: root
- */
 #include "field_spec.h"
 #include "rmalloc.h"
 

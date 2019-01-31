@@ -683,39 +683,37 @@ IndexReader *NewNumericReader(IndexSpec* sp, InvertedIndex *idx, const NumericFi
   return NewIndexReaderGeneric(sp, idx, readNumeric, ctx, res, 1);
 }
 
-typedef struct IndexCriteriaTesterCtx{
+typedef struct IR_CriteriaTester{
+  IndexCriteriaTester base;
   char* term;
   size_t termLen;
   t_fieldMask fieldMask;
   IndexSpec* spec;
-}IndexCriteriaTesterCtx;
+}IR_CriteriaTester;
 
-static int IR_TextCriteria(void *ctx, t_docId id){
+static int IR_Text(IndexCriteriaTester* ct, t_docId id){
   return true;
 }
 
-static void IR_CriteriaTesterFree(IndexCriteriaTester* ct){
-  IndexCriteriaTesterCtx* ictc = ct->ctx;
-  rm_free(ictc->term);
-  rm_free(ictc);
-  rm_free(ct);
+static void IR_TesterFree(IndexCriteriaTester* ct){
+  IR_CriteriaTester* irct = (IR_CriteriaTester*)ct;
+  rm_free(irct->term);
+  rm_free(irct);
 }
 
 IndexCriteriaTester* IR_GetCriteriaTester(void *ctx){
   IndexReader *ir = ctx;
-  IndexCriteriaTester* tester = rm_malloc(sizeof(*tester));
-  IndexCriteriaTesterCtx* ictc = rm_malloc(sizeof(IndexCriteriaTesterCtx));
-  ictc->term = rm_strdup(ir->record->term.term->str);
-  ictc->termLen = ir->record->term.term->len;
-  ictc->fieldMask = ir->record->fieldMask;
-  ictc->spec = ir->sp;
-  tester->ctx = ictc;
-  tester->TextCriteria = IR_TextCriteria;
-  tester->Free = IR_CriteriaTesterFree;
-  return tester;
+  IR_CriteriaTester* irct = rm_malloc(sizeof(*irct));
+  irct->term = rm_strdup(ir->record->term.term->str);
+  irct->termLen = ir->record->term.term->len;
+  irct->fieldMask = ir->record->fieldMask;
+  irct->spec = ir->sp;
+  irct->base.Test = IR_Text;
+  irct->base.Free = IR_TesterFree;
+  return &irct->base;
 }
 
-size_t IR_ExpectedResultsAmount(void *ctx){
+size_t IR_EstimateNumResults(void *ctx){
   IndexReader *ir = ctx;
   return ir->idx->numDocs;
 }
@@ -950,7 +948,7 @@ IndexIterator *NewReadIterator(IndexReader *ir) {
   IndexIterator *ri = rm_malloc(sizeof(IndexIterator));
   ri->ctx = ir;
   ri->mode = MODE_SORTED;
-  ri->ExpectedResultsAmount = IR_ExpectedResultsAmount;
+  ri->EstimateNumResults = IR_EstimateNumResults;
   ri->GetCriteriaTester = IR_GetCriteriaTester;
   ri->Read = IR_Read;
   ri->SkipTo = IR_SkipTo;

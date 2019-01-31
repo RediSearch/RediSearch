@@ -1,9 +1,3 @@
-/*
- * redisearch_api.c
- *
- *  Created on: 24 Jan 2019
- *      Author: root
- */
 #include "spec.h"
 #include "field_spec.h"
 #include "redisearch_api.h"
@@ -24,7 +18,7 @@ IndexSpec* RS_CreateSpec(const char* name){
   IndexSpec *spec = NewIndexSpec(name);
   spec->flags |= Index_Temporary; // temporary is so that we will not use threads!!
   spec->keysDict = dictCreate(&dictTypeHeapRedisStrings, NULL);
-  spec->minPrexif = 0;
+  spec->minPrefix = 0;
   spec->maxPrefixExpansions = -1;
   return spec;
 }
@@ -212,7 +206,7 @@ void RS_ResutlsIteratorFree(IndexIterator* iter){
 
 int moduleRegisterApi(const char *funcname, void *funcptr);
 
-int RS_InitializeLowLevelApi(RedisModuleCtx* ctx){
+int RS_InitializeLibrary(RedisModuleCtx* ctx){
   REGISTER_API(GetLowLevelApiVersion, moduleRegisterApi);
 
   REGISTER_API(CreateSpec, moduleRegisterApi);

@@ -150,7 +150,7 @@ typedef struct {
   struct IndexSpecCache *spcache;
   long long timeout;
   dict* keysDict;
-  long long minPrexif;
+  long long minPrefix;
   long long maxPrefixExpansions; // -1 unlimited
 } IndexSpec;
 

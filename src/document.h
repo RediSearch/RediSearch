@@ -40,7 +40,7 @@ typedef struct{
   RedisModuleString *text;
 } DocumentField;
 
-typedef struct Documet {
+typedef struct Document {
   RedisModuleString *docKey;
   DocumentField *fields;
   int numFields;

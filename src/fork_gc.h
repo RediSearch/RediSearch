@@ -1,9 +1,3 @@
-/*
- * fork_gc.h
- *
- *  Created on: Aug 16, 2018
- *      Author: meir
- */
 
 #ifndef SRC_FORK_GC_H_
 #define SRC_FORK_GC_H_

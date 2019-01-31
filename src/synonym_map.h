@@ -1,9 +1,3 @@
-/*
- * synonym_map.h
- *
- *  Created on: May 2, 2018
- *      Author: meir
- */
 
 #ifndef SRC_SYNONYM_MAP_H_
 #define SRC_SYNONYM_MAP_H_

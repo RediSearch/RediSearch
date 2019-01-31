@@ -7,7 +7,7 @@
 
 extern "C" {
 // declaration for an internal function implemented in numeric_index.c
-IndexIterator *createNumericIterator(IndexSpec* sp, NumericRangeTree *t, const NumericFilter *f);
+IndexIterator *createNumericIterator(const IndexSpec* sp, NumericRangeTree *t, const NumericFilter *f);
 }
 
 // Helper so we get the same pseudo-random numbers

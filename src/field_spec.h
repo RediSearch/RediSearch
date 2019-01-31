@@ -1,10 +1,3 @@
-/*
- * field_spec.h
- *
- *  Created on: 24 Jan 2019
- *      Author: root
- */
-
 #ifndef SRC_FIELD_SPEC_H_
 #define SRC_FIELD_SPEC_H_
 
