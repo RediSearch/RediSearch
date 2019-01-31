@@ -61,11 +61,12 @@ if options.path:
 else:
     po = Popen(['git', 'status', '--porcelain'] + GIT_STATUS_PATTERNS, stdout=PIPE)
     output, _ = po.communicate()
+    po.wait()
     lines = [line for line in output.split('\n') if line]
     files = []
     for line in lines:
         # Check the two letter status
-        status = line[0:2]
+        status = line[0:2].strip()
         if status[0] == ' ':
             continue
         if status[0] in ('C', 'R'):
@@ -78,10 +79,9 @@ else:
             files.append(line[3:])
 
 
-print IGNOREPATHS
 has_error = False
 for f in files:
-    is_skip = True
+    is_skip = False
     if f in IGNOREPATHS:
         print f + ' [SKIP]'
         continue
