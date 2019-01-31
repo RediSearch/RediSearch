@@ -345,7 +345,7 @@ error:
     QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Could not parse schema for field `%s`",
                            argv[0]);
   }
-  FieldSpec_Dispose(sp);
+  FieldSpec_Cleanup(sp);
   return 0;
 }
 
@@ -423,10 +423,10 @@ reset:
   if (fs) {
     // if we have a field spec it means that we increased the number of fields, so we need to decreas it.
     --sp->numFields;
-    FieldSpec_Dispose(fs);
+    FieldSpec_Cleanup(fs);
   }
   for (size_t ii = prevNumFields; ii < sp->numFields; ++ii) {
-    FieldSpec_Dispose(&sp->fields[ii]);
+    FieldSpec_Cleanup(&sp->fields[ii]);
   }
 
   sp->numFields = prevNumFields;

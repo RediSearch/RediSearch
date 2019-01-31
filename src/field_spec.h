@@ -84,7 +84,7 @@ void FieldSpec_TagSetSeparator(FieldSpec* fs, char sep);
 void FieldSpec_SetSortable(FieldSpec* fs);
 void FieldSpec_SetNoIndex(FieldSpec* fs);
 
-void FieldSpec_Dispose(FieldSpec* fs);
+void FieldSpec_Cleanup(FieldSpec* fs);
 void FieldSpec_Free(FieldSpec* fs);
 
 RSValueType fieldTypeToValueType(FieldType ft);

@@ -104,7 +104,7 @@ void FieldSpec_SetNoIndex(FieldSpec* fs){
   fs->options |= FieldSpec_NotIndexable;
 }
 
-void FieldSpec_Dispose(FieldSpec* fs){
+void FieldSpec_Cleanup(FieldSpec* fs){
   if (fs->name) {
     rm_free(fs->name);
     fs->name = NULL;
@@ -112,7 +112,7 @@ void FieldSpec_Dispose(FieldSpec* fs){
 }
 
 void FieldSpec_Free(FieldSpec* fs){
-  FieldSpec_Dispose(fs);
+  FieldSpec_Cleanup(fs);
   rm_free(fs);
 }
 
