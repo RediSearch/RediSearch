@@ -818,21 +818,22 @@ ok:
   return INDEXREAD_OK;
 }
 
-/* Read has no meaning in the sense of an OPTIONAL iterator, so we just read the next record from
- * our child */
+/* optional read will return all the ids, the only difference is the return score */
 static int OI_Read(void *ctx, RSIndexResult **hit) {
   OptionalMatchContext *nc = ctx;
-  if (nc->lastDocId > nc->maxDocId) return INDEXREAD_EOF;
-  if (nc->child) {
-    if (nc->child->Read(nc->child->ctx, &nc->base.current) == INDEXREAD_OK) {
-      if (hit) {
-        nc->base.current->weight = nc->weight;
-        *hit = nc->base.current;
-      }
-      return INDEXREAD_OK;
-    }
+  if (nc->lastDocId >= nc->maxDocId) return INDEXREAD_EOF;
+  nc->lastDocId++;
+  if (!nc->child->current || nc->lastDocId > nc->child->current->docId) {
+    nc->child->Read(nc->child->ctx, &nc->base.current);
   }
-  return INDEXREAD_EOF;
+  if (nc->lastDocId == nc->child->current->docId) {
+    *hit = nc->child->current;
+  } else {
+    nc->base.current = nc->virt;
+    nc->base.current->docId = nc->lastDocId;
+    *hit = nc->base.current;
+  }
+  return INDEXREAD_OK;
 }
 
 /* We always have next, in case anyone asks... ;) */
