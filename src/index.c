@@ -14,7 +14,7 @@ static int UI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit);
 static int UI_Next(void *ctx);
 static inline int UI_ReadUnsorted(void *ctx, RSIndexResult **hit);
 static int UI_ReadSorted(void *ctx, RSIndexResult **hit);
-static size_t UI_EstimateNumResults(void *ctx);
+static size_t UI_NumEstimated(void *ctx);
 static IndexCriteriaTester *UI_GetCriteriaTester(void *ctx);
 static size_t UI_Len(void *ctx);
 
@@ -23,7 +23,7 @@ static int II_Next(void *ctx);
 static int II_ReadUnsorted(void *ctx, RSIndexResult **hit);
 static IndexCriteriaTester *II_GetCriteriaTester(void *ctx);
 static int II_ReadSorted(void *ctx, RSIndexResult **hit);
-static size_t II_EstimateNumResults(void *ctx);
+static size_t II_NumEstimated(void *ctx);
 static size_t II_Len(void *ctx);
 static t_docId II_LastDocId(void *ctx);
 
@@ -127,7 +127,7 @@ IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *dt, int 
   it->mode = MODE_SORTED;
   it->ctx = ctx;
   it->GetCriteriaTester = UI_GetCriteriaTester;
-  it->EstimateNumResults = UI_EstimateNumResults;
+  it->NumEstimated = UI_NumEstimated;
   it->LastDocId = UI_LastDocId;
   it->Read = UI_ReadSorted;
   it->SkipTo = UI_SkipTo;
@@ -139,7 +139,7 @@ IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *dt, int 
   UI_SyncIterList(ctx);
 
   for (int i = 0; i < num; ++i) {
-    ctx->expectedResutlsAmount += its[i]->EstimateNumResults(its[i]->ctx);
+    ctx->expectedResutlsAmount += its[i]->NumEstimated(its[i]->ctx);
   }
 
 #define MAX_RESULTS_FOR_UNSORTED_MODE 1000
@@ -151,7 +151,7 @@ IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *dt, int 
   return it;
 }
 
-typedef struct UnionCriteriaTester {
+typedef struct {
   IndexCriteriaTester base;
   IndexCriteriaTester **chiledren;
   int chiledrenLen;
@@ -189,7 +189,7 @@ static IndexCriteriaTester *UI_GetCriteriaTester(void *ctx) {
   return &ct->base;
 }
 
-static size_t UI_EstimateNumResults(void *ctx) {
+static size_t UI_NumEstimated(void *ctx) {
   UnionIterator *ui = ctx;
   return ui->expectedResutlsAmount;
 }
@@ -501,7 +501,7 @@ IndexIterator *NewIntersecIterator(IndexIterator **its, int num, DocTable *dt,
   IndexIterator *it = &ctx->base;
   it->ctx = ctx;
   it->LastDocId = II_LastDocId;
-  it->EstimateNumResults = II_EstimateNumResults;
+  it->NumEstimated = II_NumEstimated;
   it->GetCriteriaTester = II_GetCriteriaTester;
   it->Read = II_ReadSorted;
   it->SkipTo = II_SkipTo;
@@ -523,7 +523,7 @@ IndexIterator *NewIntersecIterator(IndexIterator **its, int num, DocTable *dt,
       ctx->num++;
       continue;
     }
-    size_t amount = its[i]->EstimateNumResults(its[i]->ctx);
+    size_t amount = its[i]->NumEstimated(its[i]->ctx);
     if (amount < ctx->expectedResutlsAmount) {
       ctx->expectedResutlsAmount = amount;
       ctx->bestIt = its[i];
@@ -652,12 +652,12 @@ static int II_ReadUnsorted(void *ctx, RSIndexResult **hit) {
   }
 }
 
-typedef struct IICriteriaTester {
+typedef struct {
   IndexCriteriaTester base;
   IndexCriteriaTester **chiledren;
 } IICriteriaTester;
 
-static int II_Text(struct IndexCriteriaTester *ct, t_docId id) {
+static int II_Test(struct IndexCriteriaTester *ct, t_docId id) {
   IICriteriaTester *ict = (IICriteriaTester *)ct;
   for (size_t i = 0; i < array_len(ict->chiledren); ++i) {
     if (!ict->chiledren[i]->Test(ict->chiledren[i], id)) {
@@ -667,7 +667,7 @@ static int II_Text(struct IndexCriteriaTester *ct, t_docId id) {
   return 1;
 }
 
-static void II_TexterFree(struct IndexCriteriaTester *ct) {
+static void II_TesterFree(struct IndexCriteriaTester *ct) {
   IICriteriaTester *ict = (IICriteriaTester *)ct;
   for (size_t i = 0; i < array_len(ict->chiledren); ++i) {
     ict->chiledren[i]->Free(ict->chiledren[i]);
@@ -684,12 +684,12 @@ static IndexCriteriaTester *II_GetCriteriaTester(void *ctx) {
   }
   ict->chiledren = ic->testers;
   ic->testers = array_new(IndexCriteriaTester *, 0);
-  ict->base.Test = II_Text;
-  ict->base.Free = II_TexterFree;
+  ict->base.Test = II_Test;
+  ict->base.Free = II_TesterFree;
   return &ict->base;
 }
 
-static size_t II_EstimateNumResults(void *ctx) {
+static size_t II_NumEstimated(void *ctx) {
   IntersectIterator *ic = ctx;
   return ic->expectedResutlsAmount;
 }
@@ -882,16 +882,16 @@ ok:
   return INDEXREAD_OK;
 }
 
-typedef struct NI_CriteriaTester {
+typedef struct {
   IndexCriteriaTester base;
   IndexCriteriaTester *child;
 } NI_CriteriaTester;
 
-static int NI_Text(struct IndexCriteriaTester *ct, t_docId id) {
+static int NI_Test(struct IndexCriteriaTester *ct, t_docId id) {
   NI_CriteriaTester *nct = (NI_CriteriaTester *)ct;
   return !nct->child->Test(nct->child, id);
 }
-static void NI_TexterFree(struct IndexCriteriaTester *ct) {
+static void NI_TesterFree(struct IndexCriteriaTester *ct) {
   NI_CriteriaTester *nct = (NI_CriteriaTester *)ct;
   nct->child->Free(nct->child);
   rm_free(nct);
@@ -901,12 +901,12 @@ static IndexCriteriaTester *NI_GetCriteriaTester(void *ctx) {
   NotContext *nc = ctx;
   NI_CriteriaTester *nct = rm_malloc(sizeof(*nct));
   nct->child = nc->base.GetCriteriaTester(nc->base.ctx);
-  nct->base.Test = NI_Text;
-  nct->base.Free = NI_TexterFree;
+  nct->base.Test = NI_Test;
+  nct->base.Free = NI_TesterFree;
   return &nct->base;
 }
 
-static size_t NI_EstimateNumResults(void *ctx) {
+static size_t NI_NumEstimated(void *ctx) {
   NotContext *nc = ctx;
   return nc->maxDocId;
 }
@@ -1012,7 +1012,7 @@ IndexIterator *NewNotIterator(IndexIterator *it, t_docId maxDocId, double weight
   IndexIterator *ret = &nc->base;
   ret->ctx = nc;
   ret->GetCriteriaTester = NI_GetCriteriaTester;
-  ret->EstimateNumResults = NI_EstimateNumResults;
+  ret->NumEstimated = NI_NumEstimated;
   ret->Free = NI_Free;
   ret->HasNext = NI_HasNext;
   ret->LastDocId = NI_LastDocId;
@@ -1092,22 +1092,22 @@ ok:
   return INDEXREAD_OK;
 }
 
-static int OI_Text(struct IndexCriteriaTester *ct, t_docId id) {
+static int OI_Test(struct IndexCriteriaTester *ct, t_docId id) {
   return 1;
 }
 
-static void OI_TexterFree(struct IndexCriteriaTester *ct) {
+static void OI_TesterFree(struct IndexCriteriaTester *ct) {
   rm_free(ct);
 }
 
 static IndexCriteriaTester *OI_GetCriteriaTester(void *ctx) {
   IndexCriteriaTester *tester = rm_malloc(sizeof(*tester));
-  tester->Test = OI_Text;
-  tester->Free = OI_TexterFree;
+  tester->Test = OI_Test;
+  tester->Free = OI_TesterFree;
   return tester;
 }
 
-static size_t OI_EstimateNumResults(void *ctx) {
+static size_t OI_NumEstimated(void *ctx) {
   OptionalMatchContext *nc = ctx;
   return nc->maxDocId;
 }
@@ -1197,7 +1197,7 @@ IndexIterator *NewOptionalIterator(IndexIterator *it, t_docId maxDocId, double w
   IndexIterator *ret = &nc->base;
   ret->ctx = nc;
   ret->GetCriteriaTester = OI_GetCriteriaTester;
-  ret->EstimateNumResults = OI_EstimateNumResults;
+  ret->NumEstimated = OI_NumEstimated;
   ret->Free = OI_Free;
   ret->HasNext = OI_HasNext;
   ret->LastDocId = OI_LastDocId;

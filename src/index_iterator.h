@@ -14,8 +14,8 @@
 
 typedef struct IndexCriteriaTester {
   int (*Test)(struct IndexCriteriaTester *ctx, t_docId id);
-  void (*Free)(struct IndexCriteriaTester* ct);
-}IndexCriteriaTester;
+  void (*Free)(struct IndexCriteriaTester *ct);
+} IndexCriteriaTester;
 
 /* An abstract interface used by readers / intersectors / unioners etc.
 Basically query execution creates a tree of iterators that activate each other
@@ -36,9 +36,9 @@ typedef struct indexIterator {
 
   RSIndexResult *(*GetCurrent)(void *ctx);
 
-  size_t (*EstimateNumResults)(void *ctx);
+  size_t (*NumEstimated)(void *ctx);
 
-  IndexCriteriaTester* (*GetCriteriaTester)(void *ctx);
+  IndexCriteriaTester *(*GetCriteriaTester)(void *ctx);
 
   /* Read the next entry from the iterator, into hit *e.
    *  Returns INDEXREAD_EOF if at the end */

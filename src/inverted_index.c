@@ -22,7 +22,7 @@
 // pointer to the current block while reading the index
 #define IR_CURRENT_BLOCK(ir) (ir->idx->blocks[ir->currentBlock])
 
-static IndexReader *NewIndexReaderGeneric(IndexSpec *sp, InvertedIndex *idx,
+static IndexReader *NewIndexReaderGeneric(const IndexSpec *sp, InvertedIndex *idx,
                                           IndexDecoderProcs decoder, IndexDecoderCtx decoderCtx,
                                           RSIndexResult *record, double weight);
 
@@ -756,7 +756,7 @@ IndexDecoderProcs InvertedIndex_GetDecoder(uint32_t flags) {
   }
 }
 
-IndexReader *NewNumericReader(IndexSpec *sp, InvertedIndex *idx, const NumericFilter *flt) {
+IndexReader *NewNumericReader(const IndexSpec *sp, InvertedIndex *idx, const NumericFilter *flt) {
   RSIndexResult *res = NewNumericResult();
   res->freq = 1;
   res->fieldMask = RS_FIELDMASK_ALL;
@@ -780,7 +780,7 @@ static t_docId calculateId(t_docId lastId, uint32_t delta, int isFirst) {
   return ret;
 }
 
-typedef struct IR_CriteriaTester {
+typedef struct {
   IndexCriteriaTester base;
   char *term;
   size_t termLen;
@@ -788,7 +788,7 @@ typedef struct IR_CriteriaTester {
   IndexSpec *spec;
 } IR_CriteriaTester;
 
-static int IR_Text(IndexCriteriaTester *ct, t_docId id) {
+static int IR_Test(IndexCriteriaTester *ct, t_docId id) {
   return true;
 }
 
@@ -805,12 +805,12 @@ IndexCriteriaTester *IR_GetCriteriaTester(void *ctx) {
   irct->termLen = ir->record->term.term->len;
   irct->fieldMask = ir->record->fieldMask;
   irct->spec = ir->sp;
-  irct->base.Test = IR_Text;
+  irct->base.Test = IR_Test;
   irct->base.Free = IR_TesterFree;
   return &irct->base;
 }
 
-size_t IR_EstimateNumResults(void *ctx) {
+size_t IR_NumEstimated(void *ctx) {
   IndexReader *ir = ctx;
   return ir->idx->numDocs;
 }
@@ -989,7 +989,7 @@ size_t IR_NumDocs(void *ctx) {
   return ir->len;
 }
 
-static void IndexReader_Init(IndexSpec *sp, IndexReader *ret, InvertedIndex *idx,
+static void IndexReader_Init(const IndexSpec *sp, IndexReader *ret, InvertedIndex *idx,
                              IndexDecoderProcs decoder, IndexDecoderCtx decoderCtx,
                              RSIndexResult *record, double weight) {
   ret->currentBlock = 0;
@@ -1006,7 +1006,7 @@ static void IndexReader_Init(IndexSpec *sp, IndexReader *ret, InvertedIndex *idx
   IR_SetAtEnd(ret, 0);
 }
 
-static IndexReader *NewIndexReaderGeneric(IndexSpec *sp, InvertedIndex *idx,
+static IndexReader *NewIndexReaderGeneric(const IndexSpec *sp, InvertedIndex *idx,
                                           IndexDecoderProcs decoder, IndexDecoderCtx decoderCtx,
                                           RSIndexResult *record, double weight) {
   IndexReader *ret = rm_malloc(sizeof(IndexReader));
@@ -1079,7 +1079,7 @@ IndexIterator *NewReadIterator(IndexReader *ir) {
   IndexIterator *ri = rm_malloc(sizeof(IndexIterator));
   ri->ctx = ir;
   ri->mode = MODE_SORTED;
-  ri->EstimateNumResults = IR_EstimateNumResults;
+  ri->NumEstimated = IR_NumEstimated;
   ri->GetCriteriaTester = IR_GetCriteriaTester;
   ri->Read = IR_Read;
   ri->SkipTo = IR_SkipTo;

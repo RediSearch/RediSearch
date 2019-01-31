@@ -18,38 +18,38 @@ static inline int isEof(const IdListIterator *it) {
   return !it->base.isValid;
 }
 
-typedef struct ILCriteriaTester{
+typedef struct {
   IndexCriteriaTester base;
   t_docId *docIds;
   t_offset size;
-}ILCriteriaTester;
+} ILCriteriaTester;
 
 static int cmp_docids(const void *p1, const void *p2);
 
-static int IL_Text(struct IndexCriteriaTester* ct, t_docId id){
-  ILCriteriaTester* lct = (ILCriteriaTester*)ct;
-  return bsearch((void*)id, lct->docIds, (size_t)lct->size, sizeof(t_docId), cmp_docids) != NULL;
+static int IL_Test(struct IndexCriteriaTester *ct, t_docId id) {
+  ILCriteriaTester *lct = (ILCriteriaTester *)ct;
+  return bsearch((void *)id, lct->docIds, (size_t)lct->size, sizeof(t_docId), cmp_docids) != NULL;
 }
 
-static void IL_TesterFree(struct IndexCriteriaTester* ct){
-  ILCriteriaTester* lct = (ILCriteriaTester*)ct;
+static void IL_TesterFree(struct IndexCriteriaTester *ct) {
+  ILCriteriaTester *lct = (ILCriteriaTester *)ct;
   rm_free(lct->docIds);
   rm_free(ct);
 }
 
-IndexCriteriaTester* IL_GetCriteriaTester(void *ctx){
+IndexCriteriaTester *IL_GetCriteriaTester(void *ctx) {
   IdListIterator *it = ctx;
-  ILCriteriaTester* ct = rm_malloc(sizeof(*ct));
+  ILCriteriaTester *ct = rm_malloc(sizeof(*ct));
   ct->docIds = it->docIds;
   ct->size = it->size;
   it->docIds = NULL;
   it->size = 0;
-  ct->base.Test = IL_Text;
+  ct->base.Test = IL_Test;
   ct->base.Free = IL_TesterFree;
   return &ct->base;
 }
 
-size_t IL_EstimateNumResults(void *ctx){
+size_t IL_NumEstimated(void *ctx) {
   IdListIterator *it = ctx;
   return (size_t)it->size;
 }
@@ -131,7 +131,7 @@ t_docId IL_LastDocId(void *ctx) {
 void IL_Free(struct indexIterator *self) {
   IdListIterator *it = self->ctx;
   IndexResult_Free(it->base.current);
-  if(it->docIds){
+  if (it->docIds) {
     rm_free(it->docIds);
   }
   rm_free(self);
@@ -177,7 +177,7 @@ IndexIterator *NewIdListIterator(t_docId *ids, t_offset num, double weight) {
   IndexIterator *ret = &it->base;
   ret->ctx = it;
   ret->GetCriteriaTester = IL_GetCriteriaTester;
-  ret->EstimateNumResults = IL_EstimateNumResults;
+  ret->NumEstimated = IL_NumEstimated;
   ret->Free = IL_Free;
   ret->LastDocId = IL_LastDocId;
   ret->Len = IL_Len;
