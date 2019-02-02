@@ -261,94 +261,108 @@ void AGPLN_Dump(const AGGPlan *pln) {
   }
 }
 
-array_t AGPLN_Serialize(const AGGPlan *pln) {
-#define APPEND_STR(s)             \
-  {                               \
-    char *s__ = strdup(s);        \
-    arr = array_append(arr, s__); \
-  }
-#define APPEND_UINT(n)            \
-  {                               \
-    unsigned long long ull__ = n; \
-    char s__0[64];                \
-    sprintf(s__0, "%llu", ull__); \
-    APPEND_STR(s__0);             \
-  }
-#define APPEND_AC(ac)                                \
-  for (size_t ii__ = 0; ii__ < (ac)->argc; ++ii__) { \
-    APPEND_STR((const char *)(ac)->objs[ii__]);      \
-  }
+typedef char **myArgArray_t;
 
+static inline void append_string(myArgArray_t *arr, const char *src) {
+  char *s = strdup(src);
+  *arr = array_append(*arr, s);
+}
+static inline void append_uint(myArgArray_t *arr, unsigned long long ll) {
+  char s[64] = {0};
+  sprintf(s, "%llu", ll);
+  append_string(arr, s);
+}
+static inline void append_ac(myArgArray_t *arr, const ArgsCursor *ac) {
+  for (size_t ii = 0; ii < ac->argc; ++ii) {
+    append_string(arr, AC_StringArg(ac, ii));
+  }
+}
+
+static void serializeMapFilter(myArgArray_t *arr, const PLN_BaseStep *stp) {
+  const PLN_MapFilterStep *mstp = (PLN_MapFilterStep *)stp;
+  if (stp->type == PLN_T_APPLY) {
+    append_string(arr, "APPLY");
+  } else {
+    append_string(arr, "FILTER");
+  }
+  append_string(arr, mstp->rawExpr);
+  if (stp->alias) {
+    append_string(arr, "AS");
+    append_string(arr, stp->alias);
+  }
+}
+
+static void serializeArrange(myArgArray_t *arr, const PLN_BaseStep *stp) {
+  const PLN_ArrangeStep *astp = (PLN_ArrangeStep *)stp;
+  if (astp->limit || astp->offset) {
+    append_string(arr, "LIMIT");
+    append_uint(arr, astp->offset);
+    append_uint(arr, astp->limit);
+  }
+  if (astp->sortKeys) {
+    size_t numsort = array_len(astp->sortKeys);
+    append_string(arr, "SORTBY");
+    append_uint(arr, numsort * 2);
+    for (size_t ii = 0; ii < numsort; ++ii) {
+      char *stmp;
+      asprintf(&stmp, "@%s", astp->sortKeys[ii]);
+      *arr = array_append(*arr, stmp);
+      if (SORTASCMAP_GETASC(astp->sortAscMap, ii)) {
+        append_string(arr, "ASC");
+      } else {
+        append_string(arr, "DESC");
+      }
+    }
+  }
+}
+static void serializeLoad(myArgArray_t *arr, const PLN_BaseStep *stp) {
+  PLN_LoadStep *lstp = (PLN_LoadStep *)stp;
+  if (lstp->args.argc) {
+    append_string(arr, "LOAD");
+    append_uint(arr, lstp->args.argc);
+    append_ac(arr, &lstp->args);
+  }
+}
+
+static void serializeGroup(myArgArray_t *arr, const PLN_BaseStep *stp) {
+  const PLN_GroupStep *gstp = (PLN_GroupStep *)stp;
+  append_string(arr, "GROUPBY");
+  append_uint(arr, gstp->nproperties);
+  for (size_t ii = 0; ii < gstp->nproperties; ++ii) {
+    append_string(arr, gstp->properties[ii]);
+  }
+  size_t nreducers = array_len(gstp->reducers);
+  for (size_t ii = 0; ii < nreducers; ++ii) {
+    const PLN_Reducer *r = gstp->reducers + ii;
+    append_string(arr, "REDUCE");
+    append_string(arr, r->name);
+    append_uint(arr, r->args.argc);
+    append_ac(arr, &r->args);
+    if (r->alias) {
+      append_string(arr, "AS");
+      append_string(arr, r->alias);
+    }
+  }
+}
+
+array_t AGPLN_Serialize(const AGGPlan *pln) {
   char **arr = array_new(char *, 1);
   for (const DLLIST_node *nn = pln->steps.next; nn != &pln->steps; nn = nn->next) {
     const PLN_BaseStep *stp = DLLIST_ITEM(nn, PLN_BaseStep, llnodePln);
     switch (stp->type) {
       case PLN_T_APPLY:
-      case PLN_T_FILTER: {
-        PLN_MapFilterStep *mstp = (PLN_MapFilterStep *)stp;
-        if (stp->type == PLN_T_APPLY) {
-          APPEND_STR("APPLY");
-        } else {
-          APPEND_STR("FILTER");
-        }
-        APPEND_STR(mstp->rawExpr);
-        if (stp->alias) {
-          APPEND_STR("AS");
-          APPEND_STR(stp->alias);
-        }
-      } break;
-      case PLN_T_ARRANGE: {
-        PLN_ArrangeStep *astp = (PLN_ArrangeStep *)stp;
-        if (astp->limit || astp->offset) {
-          APPEND_STR("LIMIT");
-          APPEND_UINT(astp->offset);
-          APPEND_UINT(astp->limit);
-        }
-        if (astp->sortKeys) {
-          size_t numsort = array_len(astp->sortKeys);
-          APPEND_STR("SORTBY");
-          APPEND_UINT(numsort * 2);
-          for (size_t ii = 0; ii < numsort; ++ii) {
-            char *stmp;
-            asprintf(&stmp, "@%s", astp->sortKeys[ii]);
-            arr = array_append(arr, stmp);
-            if (SORTASCMAP_GETASC(astp->sortAscMap, ii)) {
-              APPEND_STR("ASC");
-            } else {
-              APPEND_STR("DESC");
-            }
-          }
-        }
-      } break;
-      case PLN_T_LOAD: {
-        PLN_LoadStep *lstp = (PLN_LoadStep *)stp;
-        if (lstp->args.argc) {
-          APPEND_STR("LOAD");
-          APPEND_UINT(lstp->args.argc);
-          APPEND_AC(&lstp->args);
-        }
+      case PLN_T_FILTER:
+        serializeMapFilter(&arr, stp);
         break;
-      }
-      case PLN_T_GROUP: {
-        PLN_GroupStep *gstp = (PLN_GroupStep *)stp;
-        APPEND_STR("GROUPBY");
-        APPEND_UINT(gstp->nproperties);
-        for (size_t ii = 0; ii < gstp->nproperties; ++ii) {
-          APPEND_STR(gstp->properties[ii]);
-        }
-        size_t nreducers = array_len(gstp->reducers);
-        for (size_t ii = 0; ii < nreducers; ++ii) {
-          const PLN_Reducer *r = gstp->reducers + ii;
-          APPEND_STR("REDUCE");
-          APPEND_STR(r->name);
-          APPEND_UINT(r->args.argc);
-          APPEND_AC(&r->args);
-          if (r->alias) {
-            APPEND_STR("AS");
-            APPEND_STR(r->alias);
-          }
-        }
-      }
+      case PLN_T_ARRANGE:
+        serializeArrange(&arr, stp);
+        break;
+      case PLN_T_LOAD:
+        serializeLoad(&arr, stp);
+        break;
+      case PLN_T_GROUP:
+        serializeGroup(&arr, stp);
+        break;
       case PLN_T_INVALID:
       case PLN_T_ROOT:
       case PLN_T_DISTRIBUTE:
