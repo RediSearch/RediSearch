@@ -840,7 +840,7 @@ static void IR_TesterFreeTerm(IndexCriteriaTester *ct) {
 
 IndexCriteriaTester *IR_GetCriteriaTester(void *ctx) {
   IndexReader *ir = ctx;
-  if (!ir->sp->getValue) {
+  if (!ir->sp || !ir->sp->getValue) {
     return NULL;  // CriteriaTester is not supported!!!
   }
   IR_CriteriaTester *irct = rm_malloc(sizeof(*irct));
