@@ -109,7 +109,7 @@ IndexDecoderProcs InvertedIndex_GetDecoder(uint32_t flags);
 
 /* An IndexReader wraps an inverted index record for reading and iteration */
 typedef struct IndexReader {
-  IndexSpec *sp;
+  const IndexSpec *sp;
 
   // the underlying data buffer
   BufferReader br;

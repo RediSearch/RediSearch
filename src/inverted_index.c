@@ -782,31 +782,81 @@ static t_docId calculateId(t_docId lastId, uint32_t delta, int isFirst) {
 
 typedef struct {
   IndexCriteriaTester base;
-  char *term;
-  size_t termLen;
-  t_fieldMask fieldMask;
-  IndexSpec *spec;
+  union {
+    NumericFilter nf;
+    struct {
+      char *term;
+      size_t termLen;
+      t_fieldMask fieldMask;
+    } tf;
+  };
+  const IndexSpec *spec;
 } IR_CriteriaTester;
 
-static int IR_Test(IndexCriteriaTester *ct, t_docId id) {
-  return true;
+static int IR_TestNumeric(IndexCriteriaTester *ct, t_docId id) {
+  IR_CriteriaTester *irct = (IR_CriteriaTester *)ct;
+  const IndexSpec *sp = irct->spec;
+  size_t len;
+  const char *externalId = DocTable_GetKey((DocTable *)&sp->docs, id, &len);
+  double doubleValue;
+  int ret = sp->getValue(sp->getValueCtx, irct->nf.fieldName, externalId, NULL, &doubleValue);
+  assert(ret == DOUBLE_VALUE_TYPE);
+  return ((irct->nf.min < doubleValue || (irct->nf.inclusiveMin && irct->nf.min == doubleValue)) &&
+          (irct->nf.max > doubleValue || (irct->nf.inclusiveMax && irct->nf.max == doubleValue)));
 }
 
-static void IR_TesterFree(IndexCriteriaTester *ct) {
+static void IR_TesterFreeNumeric(IndexCriteriaTester *ct) {
   IR_CriteriaTester *irct = (IR_CriteriaTester *)ct;
-  rm_free(irct->term);
+  rm_free(irct->nf.fieldName);
+  rm_free(irct);
+}
+
+static int IR_TestTerm(IndexCriteriaTester *ct, t_docId id) {
+  IR_CriteriaTester *irct = (IR_CriteriaTester *)ct;
+  const IndexSpec *sp = irct->spec;
+  size_t len;
+  const char *externalId = DocTable_GetKey((DocTable *)&sp->docs, id, &len);
+  for (int i = 0; i < sp->numFields; ++i) {
+    FieldSpec *field = sp->fields + i;
+    if (!(FIELD_BIT(field) & irct->tf.fieldMask)) {
+      // field is not requested, we are not checking this field!!
+      continue;
+    }
+    char *strValue;
+    int ret = sp->getValue(sp->getValueCtx, field->name, externalId, &strValue, NULL);
+    assert(ret == STR_VALUE_TYPE);
+    if (strcmp(irct->tf.term, strValue) == 0) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+static void IR_TesterFreeTerm(IndexCriteriaTester *ct) {
+  IR_CriteriaTester *irct = (IR_CriteriaTester *)ct;
+  rm_free(irct->tf.term);
   rm_free(irct);
 }
 
 IndexCriteriaTester *IR_GetCriteriaTester(void *ctx) {
   IndexReader *ir = ctx;
+  if (!ir->sp->getValue) {
+    return NULL;  // CriteriaTester is not supported!!!
+  }
   IR_CriteriaTester *irct = rm_malloc(sizeof(*irct));
-  irct->term = rm_strdup(ir->record->term.term->str);
-  irct->termLen = ir->record->term.term->len;
-  irct->fieldMask = ir->record->fieldMask;
   irct->spec = ir->sp;
-  irct->base.Test = IR_Test;
-  irct->base.Free = IR_TesterFree;
+  if (ir->decoders.decoder == readNumeric) {
+    irct->nf = *(NumericFilter *)ir->decoderCtx.ptr;
+    irct->nf.fieldName = rm_strdup(irct->nf.fieldName);
+    irct->base.Test = IR_TestNumeric;
+    irct->base.Free = IR_TesterFreeNumeric;
+  } else {
+    irct->tf.term = rm_strdup(ir->record->term.term->str);
+    irct->tf.termLen = ir->record->term.term->len;
+    irct->tf.fieldMask = ir->decoderCtx.num;
+    irct->base.Test = IR_TestTerm;
+    irct->base.Free = IR_TesterFreeTerm;
+  }
   return &irct->base;
 }
 
@@ -1003,6 +1053,7 @@ static void IndexReader_Init(const IndexSpec *sp, IndexReader *ret, InvertedInde
   ret->decoders = decoder;
   ret->decoderCtx = decoderCtx;
   ret->isValidP = NULL;
+  ret->sp = sp;
   IR_SetAtEnd(ret, 0);
 }
 

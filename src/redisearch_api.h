@@ -13,6 +13,12 @@ typedef struct Document Doc;
 typedef struct RSQueryNode QN;
 typedef struct indexIterator ResultsIterator;
 
+#define VALUE_NOT_FOUND 0
+#define STR_VALUE_TYPE 1
+#define DOUBLE_VALUE_TYPE 2
+typedef int (*GetValueCallback)(void* ctx, const char* fieldName, const void* id, char** strVal,
+                                double* doubleVal);
+
 int MODULE_API_FUNC(RediSearch_GetLowLevelApiVersion)();
 
 Index* MODULE_API_FUNC(RediSearch_CreateSpec)(const char* name);
@@ -37,9 +43,11 @@ void MODULE_API_FUNC(RediSearch_FieldSetSortable)(Field* fs, Index* sp);
 
 void MODULE_API_FUNC(RediSearch_FieldSetNoIndex)(Field* fs);
 
-Doc* MODULE_API_FUNC(RediSearch_CreateDocument)(const void *docKey, size_t len, double score, const char *lang);
+Doc* MODULE_API_FUNC(RediSearch_CreateDocument)(const void* docKey, size_t len, double score,
+                                                const char* lang);
 
-void MODULE_API_FUNC(RediSearch_DocumentAddTextField)(Doc* d, const char* fieldName, const char* val);
+void MODULE_API_FUNC(RediSearch_DocumentAddTextField)(Doc* d, const char* fieldName,
+                                                      const char* val);
 
 void MODULE_API_FUNC(RediSearch_DocumentAddNumericField)(Doc* d, const char* fieldName, double num);
 
@@ -47,11 +55,12 @@ void MODULE_API_FUNC(RediSearch_SpecAddDocument)(Index* sp, Doc* d);
 
 QN* MODULE_API_FUNC(RediSearch_CreateTokenNode)(const char* token);
 
-QN* MODULE_API_FUNC(RediSearch_CreateNumericNode)(const char* field, double max, double min, int includeMax, int includeMin);
+QN* MODULE_API_FUNC(RediSearch_CreateNumericNode)(const char* field, double max, double min,
+                                                  int includeMax, int includeMin);
 
-QN *MODULE_API_FUNC(RediSearch_CreatePrefixNode)(const char *s);
+QN* MODULE_API_FUNC(RediSearch_CreatePrefixNode)(const char* s);
 
-QN *MODULE_API_FUNC(RediSearch_CreateTagNode)(const char *field);
+QN* MODULE_API_FUNC(RediSearch_CreateTagNode)(const char* field);
 
 void MODULE_API_FUNC(RediSearch_TagNodeAddChild)(QN* qn, QN* child);
 
@@ -65,17 +74,18 @@ void MODULE_API_FUNC(RediSearch_UnionNodeAddChild)(QN* qn, QN* child);
 
 ResultsIterator* MODULE_API_FUNC(RediSearch_GetResutlsIterator)(QN* qn, Index* sp);
 
-const void* MODULE_API_FUNC(RediSearch_ResutlsIteratorNext)(ResultsIterator* iter, Index* sp, size_t* len);
+const void* MODULE_API_FUNC(RediSearch_ResutlsIteratorNext)(ResultsIterator* iter, Index* sp,
+                                                            size_t* len);
 
 void MODULE_API_FUNC(RediSearch_ResutlsIteratorFree)(ResultsIterator* iter);
 
-#define REDISEARCH_MODULE_INIT_FUNCTION(name) \
-  if (RedisModule_GetApi("RediSearch_" #name, ((void **)&RediSearch_ ## name))) { \
-    printf("could not initialize RediSearch_" #name "\r\n");\
-    return REDISMODULE_ERR; \
+#define REDISEARCH_MODULE_INIT_FUNCTION(name)                                  \
+  if (RedisModule_GetApi("RediSearch_" #name, ((void**)&RediSearch_##name))) { \
+    printf("could not initialize RediSearch_" #name "\r\n");                   \
+    return REDISMODULE_ERR;                                                    \
   }
 
-static bool RediSearch_Initialize(){
+static bool RediSearch_Initialize() {
   REDISEARCH_MODULE_INIT_FUNCTION(GetLowLevelApiVersion);
 
   REDISEARCH_MODULE_INIT_FUNCTION(CreateSpec);
@@ -110,12 +120,11 @@ static bool RediSearch_Initialize(){
   REDISEARCH_MODULE_INIT_FUNCTION(ResutlsIteratorNext);
   REDISEARCH_MODULE_INIT_FUNCTION(ResutlsIteratorFree);
 
-  if(RediSearch_GetLowLevelApiVersion() > REDISEARCH_LOW_LEVEL_API_VERSION){
+  if (RediSearch_GetLowLevelApiVersion() > REDISEARCH_LOW_LEVEL_API_VERSION) {
     return REDISMODULE_ERR;
   }
 
   return REDISMODULE_OK;
 }
-
 
 #endif /* SRC_REDISEARCH_API_H_ */

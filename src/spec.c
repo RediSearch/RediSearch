@@ -1,4 +1,4 @@
-  #include "rmutil/strings.h"
+#include "rmutil/strings.h"
 #include "rmutil/util.h"
 #include "spec.h"
 #include "util/logging.h"
@@ -372,7 +372,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, const char **argv, int arg
   }
 
   for (int offset = 0; offset < argc && sp->numFields < SPEC_MAX_FIELDS;) {
-    const char* fieldName = argv[offset];
+    const char *fieldName = argv[offset];
     if (IndexSpec_GetField(sp, fieldName, strlen(fieldName))) {
       QueryError_SetError(status, QUERY_EINVAL, "Duplicate field in schema");
       goto reset;
@@ -421,7 +421,8 @@ reset:
   // If the current field spec exists, but was not added (i.e. we got an error)
   // and reached this block, then free it
   if (fs) {
-    // if we have a field spec it means that we increased the number of fields, so we need to decreas it.
+    // if we have a field spec it means that we increased the number of fields, so we need to
+    // decreas it.
     --sp->numFields;
     FieldSpec_Cleanup(fs);
   }
@@ -836,13 +837,15 @@ IndexSpec *NewIndexSpec(const char *name) {
   sp->keysDict = NULL;
   sp->minPrefix = RSGlobalConfig.minTermPrefix;
   sp->maxPrefixExpansions = RSGlobalConfig.maxPrefixExpansions;
+  sp->getValue = NULL;
+  sp->getValueCtx = NULL;
   memset(&sp->stats, 0, sizeof(sp->stats));
   return sp;
 }
 
-FieldSpec* IndexSpec_CreateField(IndexSpec *sp){
+FieldSpec *IndexSpec_CreateField(IndexSpec *sp) {
   sp->fields = rm_realloc(sp->fields, sizeof(*sp->fields) * (sp->numFields + 1));
-  FieldSpec* fs = sp->fields + sp->numFields;
+  FieldSpec *fs = sp->fields + sp->numFields;
   memset(fs, 0, sizeof(*fs));
   FieldSpec_SetIndex(fs, sp->numFields++);
   return fs;

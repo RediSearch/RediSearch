@@ -40,7 +40,8 @@ extern "C" {
 #define SPEC_SEPARATOR_STR "SEPARATOR"
 
 static const char *SpecTypeNames[] = {[FIELD_FULLTEXT] = SPEC_TEXT_STR,
-                                      [FIELD_NUMERIC] = NUMERIC_STR, [FIELD_GEO] = GEO_STR,
+                                      [FIELD_NUMERIC] = NUMERIC_STR,
+                                      [FIELD_GEO] = GEO_STR,
                                       [FIELD_TAG] = SPEC_TAG_STR};
 
 #define INDEX_SPEC_KEY_PREFIX "idx:"
@@ -123,6 +124,12 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
 
 #define FIELD_BIT(fs) (((t_fieldMask)1) << (fs)->textOpts.id)
 
+#define VALUE_NOT_FOUND 0
+#define STR_VALUE_TYPE 1
+#define DOUBLE_VALUE_TYPE 2
+typedef int (*GetValueCallback)(void *ctx, const char *fieldName, const void *id, char **strVal,
+                                double *doubleVal);
+
 typedef struct {
   char *name;
   FieldSpec *fields;
@@ -149,9 +156,11 @@ typedef struct {
   RedisModuleString **indexStrs;
   struct IndexSpecCache *spcache;
   long long timeout;
-  dict* keysDict;
+  dict *keysDict;
   long long minPrefix;
-  long long maxPrefixExpansions; // -1 unlimited
+  long long maxPrefixExpansions;  // -1 unlimited
+  GetValueCallback getValue;
+  void *getValueCtx;
 } IndexSpec;
 
 extern RedisModuleType *IndexSpecType;
@@ -160,10 +169,10 @@ extern RedisModuleType *IndexSpecType;
  * This lightweight object contains a COPY of the actual index spec.
  * This makes it safe for other modules to use for information such as
  * field names, WITHOUT worrying about the index schema changing.
- * 
+ *
  * If the index schema changes, this object is simply recreated rather
  * than modified, making it immutable.
- * 
+ *
  * It is freed when its reference count hits 0
  */
 typedef struct IndexSpecCache {
@@ -235,18 +244,20 @@ int isRdbLoading(RedisModuleCtx *ctx);
 /* Create a new index spec from redis arguments, set it in a redis key and start its GC.
  * If an error occurred - we set an error string in err and return NULL.
  */
-IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, QueryError *status);
+IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                               QueryError *status);
 
 /* Start the garbage collection loop on the index spec */
 void IndexSpec_StartGC(RedisModuleCtx *ctx, IndexSpec *sp, float initialHZ);
 
 /* Same as above but with ordinary strings, to allow unit testing */
 IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryError *status);
-FieldSpec* IndexSpec_CreateField(IndexSpec *sp);
+FieldSpec *IndexSpec_CreateField(IndexSpec *sp);
 
 /* Add fields to a redis schema */
 int IndexSpec_AddFields(IndexSpec *sp, const char **argv, int argc, QueryError *status);
-int IndexSpec_AddFieldsRedisArgs(IndexSpec *sp, RedisModuleString **argv, int argc, QueryError *status);
+int IndexSpec_AddFieldsRedisArgs(IndexSpec *sp, RedisModuleString **argv, int argc,
+                                 QueryError *status);
 
 IndexSpec *IndexSpec_Load(RedisModuleCtx *ctx, const char *name, int openWrite);
 
@@ -283,7 +294,7 @@ RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs)
 RedisModuleString *IndexSpec_GetFormattedKeyByName(IndexSpec *sp, const char *s);
 
 IndexSpec *NewIndexSpec(const char *name);
-int IndexSpec_AddField(IndexSpec *sp, FieldSpec* fs);
+int IndexSpec_AddField(IndexSpec *sp, FieldSpec *fs);
 void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver);
 void IndexSpec_RdbSave(RedisModuleIO *rdb, void *value);
 void IndexSpec_Digest(RedisModuleDigest *digest, void *value);

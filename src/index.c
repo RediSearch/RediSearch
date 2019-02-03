@@ -144,8 +144,20 @@ IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *dt, int 
 
 #define MAX_RESULTS_FOR_UNSORTED_MODE 1000
   if (ctx->expectedResutlsAmount > MAX_RESULTS_FOR_UNSORTED_MODE) {
-    it->mode = MODE_UNSORTED;
-    it->Read = UI_ReadUnsorted;
+    // make sure all the children support CriteriaTester
+    int ctSupported = 1;
+    for (int i = 0; i < ctx->num; ++i) {
+      IndexCriteriaTester *tester = ctx->origits[i]->GetCriteriaTester(ctx->origits[i]->ctx);
+      if (!tester) {
+        ctSupported = 0;
+        break;
+      }
+      tester->Free(tester);
+    }
+    if (ctSupported) {
+      it->mode = MODE_UNSORTED;
+      it->Read = UI_ReadUnsorted;
+    }
   }
 
   return it;
@@ -182,7 +194,7 @@ static IndexCriteriaTester *UI_GetCriteriaTester(void *ctx) {
   ct->chiledrenLen = ui->num;
   ct->chiledren = rm_malloc(ct->chiledrenLen * sizeof(IndexCriteriaTester *));
   for (int i = 0; i < ct->chiledrenLen; ++i) {
-    ct->chiledren[i] = ui->its[i]->GetCriteriaTester(ui->its[i]->ctx);
+    ct->chiledren[i] = ui->origits[i]->GetCriteriaTester(ui->origits[i]->ctx);
   }
   ct->base.Test = UI_Test;
   ct->base.Free = UI_TesterFree;
