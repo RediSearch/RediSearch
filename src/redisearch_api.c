@@ -89,6 +89,21 @@ Document* RS_CreateDocument(const void* docKey, size_t len, double score, const 
   return Document_Create(docKey, len, score, lang);
 }
 
+int RS_DropDocument(IndexSpec* sp, const void* docKey, size_t len) {
+  RedisModuleString* docId = RedisModule_CreateString(NULL, docKey, len);
+  t_docId id = DocTable_GetIdR(&sp->docs, docId);
+  if (id == 0) {
+    RedisModule_FreeString(NULL, docId);
+    return 0;
+  }
+  int rc = DocTable_DeleteR(&sp->docs, docId);
+  if (rc) {
+    sp->stats.numDocuments--;
+    return 1;
+  }
+  return 0;
+}
+
 void RS_DocumentAddTextField(Document* d, const char* fieldName, const char* val) {
   Document_AddTextField(d, fieldName, val);
 }

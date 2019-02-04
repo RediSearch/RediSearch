@@ -46,6 +46,8 @@ void MODULE_API_FUNC(RediSearch_FieldSetNoIndex)(Field* fs);
 Doc* MODULE_API_FUNC(RediSearch_CreateDocument)(const void* docKey, size_t len, double score,
                                                 const char* lang);
 
+int MODULE_API_FUNC(RediSearch_DropDocument)(Index* sp, const void* docKey, size_t len);
+
 void MODULE_API_FUNC(RediSearch_DocumentAddTextField)(Doc* d, const char* fieldName,
                                                       const char* val);
 
@@ -102,6 +104,7 @@ static bool RediSearch_Initialize() {
   REDISEARCH_MODULE_INIT_FUNCTION(FieldSetNoIndex);
 
   REDISEARCH_MODULE_INIT_FUNCTION(CreateDocument);
+  REDISEARCH_MODULE_INIT_FUNCTION(DropDocument);
   REDISEARCH_MODULE_INIT_FUNCTION(DocumentAddTextField);
   REDISEARCH_MODULE_INIT_FUNCTION(DocumentAddNumericField);
 
