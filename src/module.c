@@ -344,8 +344,12 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   SpellCheck_Reply(&scCtx, &qast);
 
 end:
-  array_free(includeDict);
-  array_free(excludeDict);
+  if (includeDict != NULL) {
+    array_free(includeDict);
+  }
+  if (excludeDict != NULL) {
+    array_free(excludeDict);
+  }
   QAST_Destroy(&qast);
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
