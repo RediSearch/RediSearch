@@ -10,6 +10,9 @@
 #include "redis_index.h"
 #include "numeric_filter.h"
 #include "redismodule.h"
+
+uint64_t TotalIIBlocks = 0;
+
 // The number of entries in each index block. A new block will be created after every N entries
 #define INDEX_BLOCK_SIZE 100
 
@@ -37,7 +40,7 @@ static t_docId calculateId(t_docId lastId, uint32_t delta, int isFirst);
 
 /* Add a new block to the index with a given document id as the initial id */
 IndexBlock *InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId) {
-
+  TotalIIBlocks++;
   idx->size++;
   idx->blocks = rm_realloc(idx->blocks, idx->size * sizeof(IndexBlock));
   idx->blocks[idx->size - 1] = (IndexBlock){.firstId = firstId, .lastId = firstId, .numDocs = 0};
@@ -65,6 +68,7 @@ void indexBlock_Free(IndexBlock *blk) {
 
 void InvertedIndex_Free(void *ctx) {
   InvertedIndex *idx = ctx;
+  TotalIIBlocks -= idx->size;
   for (uint32_t i = 0; i < idx->size; i++) {
     indexBlock_Free(&idx->blocks[i]);
   }
