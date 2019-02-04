@@ -116,30 +116,36 @@ void RS_SpecAddDocument(IndexSpec* sp, Document* d) {
   rm_free(d);
 }
 
-QueryNode* RS_CreateTokenNode(const char* token) {
+QueryNode* RS_CreateTokenNode(IndexSpec* sp, const char* fieldName, const char* token) {
   QueryNode* ret = NewQueryNode(QN_TOKEN);
 
   ret->tn = (QueryTokenNode){
       .str = (char*)strdup(token), .len = strlen(token), .expanded = 0, .flags = 0};
+  if (fieldName) {
+    ret->opts.fieldMask = IndexSpec_GetFieldBit(sp, fieldName, strlen(fieldName));
+  }
   return ret;
 }
 
-QueryNode* RS_CreateNumericNode(const char* field, double max, double min, int includeMax,
-                                int includeMin) {
+QueryNode* RS_CreateNumericNode(IndexSpec* sp, const char* field, double max, double min,
+                                int includeMax, int includeMin) {
   QueryNode* ret = NewQueryNode(QN_NUMERIC);
   ret->nn.nf = NewNumericFilter(max, min, includeMax, includeMin);
   ret->nn.nf->fieldName = strdup(field);
   return ret;
 }
 
-QueryNode* RS_CreatePrefixNode(const char* s) {
+QueryNode* RS_CreatePrefixNode(IndexSpec* sp, const char* fieldName, const char* s) {
   QueryNode* ret = NewQueryNode(QN_PREFX);
   ret->pfx =
       (QueryPrefixNode){.str = (char*)strdup(s), .len = strlen(s), .expanded = 0, .flags = 0};
+  if (fieldName) {
+    ret->opts.fieldMask = IndexSpec_GetFieldBit(sp, fieldName, strlen(fieldName));
+  }
   return ret;
 }
 
-QueryNode* RS_CreateTagNode(const char* field) {
+QueryNode* RS_CreateTagNode(IndexSpec* sp, const char* field) {
   QueryNode* ret = NewQueryNode(QN_TAG);
   ret->tag.fieldName = strdup(field);
   ret->tag.len = strlen(field);
@@ -152,7 +158,7 @@ void RS_TagNodeAddChild(QueryNode* qn, QueryNode* child) {
   QueryTagNode_AddChildren(qn, &child, 1);
 }
 
-QueryNode* RS_CreateIntersectNode(int exact) {
+QueryNode* RS_CreateIntersectNode(IndexSpec* sp, int exact) {
   QueryNode* ret = NewQueryNode(QN_PHRASE);
   ret->pn = (QueryPhraseNode){.children = NULL, .numChildren = 0, .exact = exact};
   return ret;
@@ -162,7 +168,7 @@ void RS_IntersectNodeAddChild(QueryNode* qn, QueryNode* child) {
   QueryPhraseNode_AddChild(qn, child);
 }
 
-QueryNode* RS_CreateUnionNode() {
+QueryNode* RS_CreateUnionNode(IndexSpec* sp) {
   QueryNode* ret = NewQueryNode(QN_UNION);
   ret->un = (QueryUnionNode){.children = NULL, .numChildren = 0};
   return ret;

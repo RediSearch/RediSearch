@@ -53,22 +53,23 @@ void MODULE_API_FUNC(RediSearch_DocumentAddNumericField)(Doc* d, const char* fie
 
 void MODULE_API_FUNC(RediSearch_SpecAddDocument)(Index* sp, Doc* d);
 
-QN* MODULE_API_FUNC(RediSearch_CreateTokenNode)(const char* token);
+QN* MODULE_API_FUNC(RediSearch_CreateTokenNode)(Index* sp, const char* fieldName,
+                                                const char* token);
 
-QN* MODULE_API_FUNC(RediSearch_CreateNumericNode)(const char* field, double max, double min,
-                                                  int includeMax, int includeMin);
+QN* MODULE_API_FUNC(RediSearch_CreateNumericNode)(Index* sp, const char* field, double max,
+                                                  double min, int includeMax, int includeMin);
 
-QN* MODULE_API_FUNC(RediSearch_CreatePrefixNode)(const char* s);
+QN* MODULE_API_FUNC(RediSearch_CreatePrefixNode)(Index* sp, const char* fieldName, const char* s);
 
-QN* MODULE_API_FUNC(RediSearch_CreateTagNode)(const char* field);
+QN* MODULE_API_FUNC(RediSearch_CreateTagNode)(Index* sp, const char* field);
 
 void MODULE_API_FUNC(RediSearch_TagNodeAddChild)(QN* qn, QN* child);
 
-QN* MODULE_API_FUNC(RediSearch_CreateIntersectNode)(int exact);
+QN* MODULE_API_FUNC(RediSearch_CreateIntersectNode)(Index* sp, int exact);
 
 void MODULE_API_FUNC(RediSearch_IntersectNodeAddChild)(QN* qn, QN* child);
 
-QN* MODULE_API_FUNC(RediSearch_CreateUnionNode)();
+QN* MODULE_API_FUNC(RediSearch_CreateUnionNode)(Index* sp);
 
 void MODULE_API_FUNC(RediSearch_UnionNodeAddChild)(QN* qn, QN* child);
 
