@@ -1949,6 +1949,11 @@ def testIssue501(env):
     env.assertEqual("qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq", rv[0][1])
     env.assertEqual([], rv[0][2])
 
+def testIssue589(env):
+    env.cmd('FT.CREATE', 'incidents', 'SCHEMA', 'report', 'TEXT')
+    env.cmd('FT.ADD', 'incidents', 'doc1', 1.0, 'FIELDS', 'report', 'report content')
+    env.expect('FT.SPELLCHECK', 'incidents', 'report :').error().contains("Syntax error at offset")
+
 def grouper(iterable, n, fillvalue=None):
     "Collect data into fixed-length chunks or blocks"
     from itertools import izip_longest
