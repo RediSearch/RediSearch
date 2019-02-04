@@ -225,6 +225,10 @@ void RS_ResutlsIteratorFree(IndexIterator* iter) {
   iter->Free(iter);
 }
 
+void RS_ResutlsIteratorReset(ResultsIterator* iter) {
+  iter->Rewind(iter->ctx);
+}
+
 #define REGISTER_API(name, registerApiCallback)                                \
   if (registerApiCallback("RediSearch_" #name, RS_##name) != REDISMODULE_OK) { \
     printf("could not register RediSearch_" #name "\r\n");                     \
@@ -249,6 +253,7 @@ int RS_InitializeLibrary(RedisModuleCtx* ctx) {
   REGISTER_API(FieldSetNoIndex, moduleRegisterApi);
 
   REGISTER_API(CreateDocument, moduleRegisterApi);
+  REGISTER_API(DropDocument, moduleRegisterApi);
   REGISTER_API(DocumentAddTextField, moduleRegisterApi);
   REGISTER_API(DocumentAddNumericField, moduleRegisterApi);
 
@@ -267,6 +272,7 @@ int RS_InitializeLibrary(RedisModuleCtx* ctx) {
   REGISTER_API(GetResutlsIterator, moduleRegisterApi);
   REGISTER_API(ResutlsIteratorNext, moduleRegisterApi);
   REGISTER_API(ResutlsIteratorFree, moduleRegisterApi);
+  REGISTER_API(ResutlsIteratorReset, moduleRegisterApi);
 
   return REDISMODULE_OK;
 }

@@ -82,6 +82,8 @@ const void* MODULE_API_FUNC(RediSearch_ResutlsIteratorNext)(ResultsIterator* ite
 
 void MODULE_API_FUNC(RediSearch_ResutlsIteratorFree)(ResultsIterator* iter);
 
+void MODULE_API_FUNC(RediSearch_ResutlsIteratorReset)(ResultsIterator* iter);
+
 #define REDISEARCH_MODULE_INIT_FUNCTION(name)                                  \
   if (RedisModule_GetApi("RediSearch_" #name, ((void**)&RediSearch_##name))) { \
     printf("could not initialize RediSearch_" #name "\r\n");                   \
@@ -123,6 +125,7 @@ static bool RediSearch_Initialize() {
   REDISEARCH_MODULE_INIT_FUNCTION(GetResutlsIterator);
   REDISEARCH_MODULE_INIT_FUNCTION(ResutlsIteratorNext);
   REDISEARCH_MODULE_INIT_FUNCTION(ResutlsIteratorFree);
+  REDISEARCH_MODULE_INIT_FUNCTION(ResutlsIteratorReset);
 
   if (RediSearch_GetLowLevelApiVersion() > REDISEARCH_LOW_LEVEL_API_VERSION) {
     return REDISMODULE_ERR;
