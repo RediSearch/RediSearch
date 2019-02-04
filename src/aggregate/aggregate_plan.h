@@ -41,10 +41,18 @@ typedef struct PLN_BaseStep {
   uint32_t flags;  // PLN_F_XXX
 
   const char *alias;
-  void (*dtor)(struct PLN_BaseStep *);  // Called to destroy step-specific data
+  // Called to destroy step-specific data
+  void (*dtor)(struct PLN_BaseStep *);
+
+  // Called to yield the lookup structure for the given step. If this object
+  // does not have a lookup, can be set to NULL.
+  RLookup *(*getLookup)(struct PLN_BaseStep *);
 
   // Type specific stuff goes here..
 } PLN_BaseStep;
+
+#define PLN_NEXT_STEP(step) DLLIST_ITEM((step)->llnodePln.next, PLN_BaseStep, llnodePln)
+#define PLN_PREV_STEP(step) DLLIST_ITEM((step)->llnodePln.prev, PLN_BaseStep, llnodePln)
 
 /**
  * JUNCTION/REDUCTION POINTS
@@ -66,6 +74,7 @@ typedef struct {
   PLN_BaseStep base;
   const char *rawExpr;
   RSExpr *parsedExpr;
+  int shouldFreeRaw;  // Whether we own the raw expression
 } PLN_MapFilterStep;
 
 // Magic value -- will sort by score. For use in SEARCH mode
@@ -103,10 +112,31 @@ typedef struct {
     char *alias;       // Output key
     ArgsCursor args;
   } * reducers;
-  int idx;
+  uint32_t serial;  // For automatically generated aliases
 } PLN_GroupStep;
 
+/**
+ * Returns a new group step with the appropriate constructor
+ */
+PLN_GroupStep *PLNGroupStep_New(const char **props, size_t nprops);
+
+/**
+ * Adds a reducer (with its arguments) to the group step
+ * @param gstp the group step
+ * @param name the name of the reducer
+ * @param ac arguments to the reducer; if an alias is used, it is provided
+ *  here as well.
+ */
+int PLNGroupStep_AddReducer(PLN_GroupStep *gstp, const char *name, ArgsCursor *ac,
+                            QueryError *status);
+
+PLN_MapFilterStep *PLNMapFilterStep_New(const char *expr, int mode);
+
+#ifdef __cplusplus
+typedef PLN_GroupStep::PLN_Reducer PLN_Reducer;
+#else
 typedef struct PLN_Reducer PLN_Reducer;
+#endif
 
 /* A plan is a linked list of all steps */
 struct AGGPlan {
@@ -119,7 +149,7 @@ struct AGGPlan {
 /* Serialize the plan into an array of string args, to create a command to be sent over the network.
  * The strings need to be freed with free and the array needs to be freed with array_free(). The
  * length can be extracted with array_len */
-char **AGPLN_Serialize(AGGPlan *plan);
+array_t AGPLN_Serialize(const AGGPlan *plan);
 
 /* Free the plan resources, not the plan itself */
 void AGPLN_Free(AGGPlan *plan);
@@ -134,6 +164,11 @@ void AGPLN_FreeSteps(AGGPlan *pln);
 
 void AGPLN_AddStep(AGGPlan *plan, PLN_BaseStep *step);
 void AGPLN_AddBefore(AGGPlan *pln, PLN_BaseStep *step, PLN_BaseStep *add);
+void AGPLN_AddAfter(AGGPlan *pln, PLN_BaseStep *step, PLN_BaseStep *add);
+void AGPLN_Prepend(AGGPlan *pln, PLN_BaseStep *newstp);
+
+/* Removes the step from the plan */
+void AGPLN_PopStep(AGGPlan *pln, PLN_BaseStep *step);
 
 /** Checks if a step with the given type is contained within the plan */
 int AGPLN_HasStep(const AGGPlan *pln, PLN_StepType t);

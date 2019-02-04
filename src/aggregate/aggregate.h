@@ -32,7 +32,10 @@ typedef enum {
   QEXEC_F_SEND_HIGHLIGHT = 0x400,
 
   /* Do not emit any rows, only the number of query results */
-  QEXEC_F_NOROWS = 0x800
+  QEXEC_F_NOROWS = 0x800,
+
+  /* Do not stringify result values. Send them in their proper types */
+  QEXEC_F_TYPED = 0x1000
 
 } QEFlags;
 
@@ -135,14 +138,23 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
  * will be loaded and analyzed.
  *
  * This consumes a refcount of the context used.
+ *
+ * Note that this function consumes a refcount even if it fails!
  */
 int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status);
 
 /**
+ * Do not create the root result processor. Only process those components
+ * which process fully-formed, fully-scored results. This also means
+ * that a scorer is not created. It will also not initialize the
+ * first step or the initial lookup table
+ */
+#define AREQ_BUILDPIPELINE_NO_ROOT 0x01
+/**
  * Constructs the pipeline objects needed to actually start processing
  * the requests. This does not yet start iterating over the objects
  */
-int AREQ_BuildPipeline(AREQ *req, QueryError *status);
+int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status);
 
 /******************************************************************************
  ******************************************************************************
@@ -198,6 +210,22 @@ void Grouper_AddReducer(Grouper *g, Reducer *r, RLookupKey *dst);
 
 void AREQ_Execute(AREQ *req, RedisModuleCtx *outctx);
 void AREQ_Free(AREQ *req);
+
+/**
+ * Start the cursor on the current request
+ * @param r the request
+ * @param outctx the context used for replies (only used in current command)
+ * @param lookupName the name of the index used for the cursor reservation
+ * @param status if this function errors, this contains the message
+ * @return REDISMODULE_OK or REDISMODULE_ERR
+ *
+ * If this function returns REDISMODULE_OK then the cursor might have been
+ * freed. If it returns REDISMODULE_ERR, then the cursor is still valid
+ * and must be freed manually.
+ */
+int AREQ_StartCursor(AREQ *r, RedisModuleCtx *outctx, const char *lookupName, QueryError *status);
+
+int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 #define AREQ_RP(req) (req)->qiter.endProc
 

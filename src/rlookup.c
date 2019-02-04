@@ -61,11 +61,12 @@ RLookupKey *RLookup_GetKeyEx(RLookup *lookup, const char *name, size_t n, int fl
   int isNew = 0;
 
   for (RLookupKey *kk = lookup->head; kk; kk = kk->next) {
-    if (!strncmp(kk->name, name, n)) {
-      ret = kk;
+    size_t origlen = strlen(kk->name);
+    if (origlen == n && !strncmp(kk->name, name, origlen)) {
       if (flags & RLOOKUP_F_OEXCL) {
         return NULL;
       }
+      ret = kk;
       break;
     }
   }
@@ -75,15 +76,24 @@ RLookupKey *RLookup_GetKeyEx(RLookup *lookup, const char *name, size_t n, int fl
   }
 
   if (!ret) {
-    if (!(flags & RLOOKUP_F_OCREAT)) {
+    if (!(flags & RLOOKUP_F_OCREAT) && !(lookup->options & RLOOKUP_OPT_UNRESOLVED_OK)) {
       return NULL;
     } else {
       ret = createNewKey(lookup, name, n, flags, lookup->rowlen++);
+      if (!(flags & RLOOKUP_F_OCREAT)) {
+        ret->flags |= RLOOKUP_F_UNRESOLVED;
+      }
     }
   }
 
   if (!(flags & RLOOKUP_F_NOINCREF)) {
     ret->refcnt++;
+  }
+
+  if (flags & RLOOKUP_F_OCREAT) {
+    // If the requester of this key is also its creator, remove the unresolved
+    // flag
+    ret->flags &= ~RLOOKUP_F_UNRESOLVED;
   }
   return ret;
 }

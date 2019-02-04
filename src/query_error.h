@@ -10,37 +10,38 @@
 extern "C" {
 #endif
 
-#define QUERY_XERRS(X)                                                        \
-  X(QUERY_EGENERIC, "Generic error evaluating the query")                     \
-  X(QUERY_ESYNTAX, "Parsing/Syntax error for query string")                   \
-  X(QUERY_EPARSEARGS, "Error parsing query/aggregation arguments")            \
-  X(QUERY_EADDARGS, "Error parsing document indexing arguments")              \
-  X(QUERY_EEXPR, "Parsing/Evaluating dynamic expression failed")              \
-  X(QUERY_EKEYWORD, "Could not handle query keyword")                         \
-  X(QUERY_ENORESULTS, "Query matches no results")                             \
-  X(QUERY_EBADATTR, "Attribute not supported for term")                       \
-  X(QUERY_EINVAL, "Could not validate the query nodes (bad attribute?)")      \
-  X(QUERY_EBUILDPLAN, "Could not build plan from query")                      \
-  X(QUERY_ECONSTRUCT_PIPELINE, "Could not construct query pipeline")          \
-  X(QUERY_ENOREDUCER, "Missing reducer")                                      \
-  X(QUERY_EREDUCER_GENERIC, "Generic reducer error")                          \
-  X(QUERY_EAGGPLAN, "Could not plan aggregation request")                     \
-  X(QUERY_ECURSORALLOC, "Could not allocate a cursor")                        \
-  X(QUERY_EREDUCERINIT, "Could not initialize reducer")                       \
-  X(QUERY_EQSTRING, "Bad query string")                                       \
-  X(QUERY_ENOPROPKEY, "Property does not exist in schema")                    \
-  X(QUERY_ENOPROPVAL, "Value was not found in result (not a hard error)")     \
-  X(QUERY_ENODOC, "Document does not exist")                                  \
-  X(QUERY_ENOOPTION, "Invalid option")                                        \
-  X(QUERY_EREDISKEYTYPE, "Invalid Redis key")                                 \
-  X(QUERY_EINDEXEXISTS, "Index already exists")                               \
-  X(QUERY_EBADOPTION, "Option not supported for current mode")                \
-  X(QUERY_ELIMIT, "Limit exceeded")                                           \
-  X(QUERY_ENOINDEX, "Index not found")                                        \
-  X(QUERY_EDOCEXISTS, "Document already exists")                              \
-  X(QUERY_EDOCNOTADDED, "Document was not added because condition was unmet") \
-  X(QUERY_EDUPFIELD, "Field was specified twice")                             \
-  X(QUERY_EGEOFORMAT, "Invalid lon/lat format. Use \"lon lat\" or \"lon,lat\"")
+#define QUERY_XERRS(X)                                                          \
+  X(QUERY_EGENERIC, "Generic error evaluating the query")                       \
+  X(QUERY_ESYNTAX, "Parsing/Syntax error for query string")                     \
+  X(QUERY_EPARSEARGS, "Error parsing query/aggregation arguments")              \
+  X(QUERY_EADDARGS, "Error parsing document indexing arguments")                \
+  X(QUERY_EEXPR, "Parsing/Evaluating dynamic expression failed")                \
+  X(QUERY_EKEYWORD, "Could not handle query keyword")                           \
+  X(QUERY_ENORESULTS, "Query matches no results")                               \
+  X(QUERY_EBADATTR, "Attribute not supported for term")                         \
+  X(QUERY_EINVAL, "Could not validate the query nodes (bad attribute?)")        \
+  X(QUERY_EBUILDPLAN, "Could not build plan from query")                        \
+  X(QUERY_ECONSTRUCT_PIPELINE, "Could not construct query pipeline")            \
+  X(QUERY_ENOREDUCER, "Missing reducer")                                        \
+  X(QUERY_EREDUCER_GENERIC, "Generic reducer error")                            \
+  X(QUERY_EAGGPLAN, "Could not plan aggregation request")                       \
+  X(QUERY_ECURSORALLOC, "Could not allocate a cursor")                          \
+  X(QUERY_EREDUCERINIT, "Could not initialize reducer")                         \
+  X(QUERY_EQSTRING, "Bad query string")                                         \
+  X(QUERY_ENOPROPKEY, "Property does not exist in schema")                      \
+  X(QUERY_ENOPROPVAL, "Value was not found in result (not a hard error)")       \
+  X(QUERY_ENODOC, "Document does not exist")                                    \
+  X(QUERY_ENOOPTION, "Invalid option")                                          \
+  X(QUERY_EREDISKEYTYPE, "Invalid Redis key")                                   \
+  X(QUERY_EINDEXEXISTS, "Index already exists")                                 \
+  X(QUERY_EBADOPTION, "Option not supported for current mode")                  \
+  X(QUERY_ELIMIT, "Limit exceeded")                                             \
+  X(QUERY_ENOINDEX, "Index not found")                                          \
+  X(QUERY_EDOCEXISTS, "Document already exists")                                \
+  X(QUERY_EDOCNOTADDED, "Document was not added because condition was unmet")   \
+  X(QUERY_EDUPFIELD, "Field was specified twice")                               \
+  X(QUERY_EGEOFORMAT, "Invalid lon/lat format. Use \"lon lat\" or \"lon,lat\"") \
+  X(QUERY_ENODISTRIBUTE, "Could not distribute the operation")
 
 typedef enum {
   QUERY_OK = 0,

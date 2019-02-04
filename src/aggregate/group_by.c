@@ -108,8 +108,7 @@ static int Grouper_rpYield(ResultProcessor *base, SearchResult *r) {
       Reducer *rd = g->reducers[ii];
       RSValue *v = rd->Finalize(rd, gr->accumdata[ii]);
       if (v) {
-        RLookup_WriteKey(rd->dstkey, &r->rowdata, v);
-        RSValue_Decref(v);
+        RLookup_WriteOwnKey(rd->dstkey, &r->rowdata, v);
 
         for (size_t ii = 0; ii < g->nkeys; ++ii) {
           const RLookupKey *dstkey = g->dstkeys[ii];
@@ -183,7 +182,14 @@ static void extractGroups(Grouper *g, const RSValue **xarr, size_t xpos, size_t 
   } else {
     // Array value. Replace current XPOS with child temporarily
     const RSValue *array = xarr[xpos];
-    const RSValue *elem = RSValue_ArrayItem(v, arridx);
+    const RSValue *elem;
+
+    if (arridx >= RSValue_ArrayLen(v)) {
+      elem = NULL;
+    } else {
+      elem = RSValue_ArrayItem(v, arridx);
+    }
+
     if (elem == NULL) {
       elem = RS_NullVal();
     }
@@ -249,11 +255,21 @@ static void cleanCallback(void *ptr, void *arg) {
 
 static void Grouper_rpFree(ResultProcessor *grrp) {
   Grouper *g = (Grouper *)grrp;
+  for (khiter_t it = kh_begin(g->groups); it != kh_end(g->groups); ++it) {
+    if (!kh_exist(g->groups, it)) {
+      continue;
+    }
+    Group *gr = kh_value(g->groups, it);
+    RLookupRow_Cleanup(&gr->rowdata);
+  }
   kh_destroy(khid, g->groups);
   BlkAlloc_FreeAll(&g->groupsAlloc, cleanCallback, g, GROUP_BYTESIZE(g));
 
   for (size_t i = 0; i < GROUPER_NREDUCERS(g); i++) {
     g->reducers[i]->Free(g->reducers[i]);
+  }
+  if (g->reducers) {
+    array_free(g->reducers);
   }
   free(g->srckeys);
   free(g->dstkeys);

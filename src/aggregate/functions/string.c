@@ -272,8 +272,7 @@ static int stringfunc_split(ExprEval *ctx, RSValue *result, RSValue **argv, size
   for (size_t i = 0; i < l; i++) {
     vals[i] = tmp[i];
   }
-
-  RSValue *ret = RS_ArrVal(vals, l);
+  RSValue *ret = RSValue_NewArrayEx(vals, l, RSVAL_ARRAY_ALLOC | RSVAL_ARRAY_NOINCREF);
   RSValue_MakeReference(result, ret);
   return EXPR_EVAL_OK;
 }

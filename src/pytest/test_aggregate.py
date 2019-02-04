@@ -201,7 +201,7 @@ class TestAggregate():
         cmd = ['FT.AGGREGATE', 'games', '@brand:sony',
                'GROUPBY', '2', '@title', '@brand',
                'REDUCE', 'COUNT', '0',
-               'REDUCE', 'MAX', '1', 'PRICE', 'AS', 'price',
+               'REDUCE', 'MAX', '1', '@price', 'AS', 'price',
                'APPLY', 'format("%s|%s|%s|%s", @title, @brand, "Mark", @price)', 'as', 'titleBrand',
                'LIMIT', '0', '10']
         res = self.env.cmd(*cmd)

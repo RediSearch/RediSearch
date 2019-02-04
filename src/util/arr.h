@@ -59,6 +59,8 @@ typedef void *array_t;
 /* Interanl - get a pointer to an element inside the array at a given index */
 #define array_elem(arr, idx) (*((void **)((char *)arr + (idx * array_hdr(arr)->elem_sz))))
 
+static inline uint32_t array_len(array_t arr);
+
 /* Initialize a new array with a given element size and capacity. Should not be used directly - use
  * array_new instead */
 static array_t array_new_sz(uint32_t elem_sz, uint32_t cap, uint32_t len) {
@@ -99,6 +101,14 @@ static inline array_t array_ensure_cap(array_t arr, uint32_t cap) {
 static inline array_t array_grow(array_t arr, size_t n) {
   array_hdr(arr)->len += n;
   return array_ensure_cap(arr, array_hdr(arr)->len);
+}
+
+static inline array_t array_ensure_len(array_t arr, size_t len) {
+  if (len <= array_len(arr)) {
+    return arr;
+  }
+  len -= array_len(arr);
+  return array_grow(arr, len);
 }
 
 /* Ensures that array_tail will always point to a valid element. */
