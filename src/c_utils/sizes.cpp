@@ -2,6 +2,8 @@
 #include <inverted_index.h>
 #include <cstdio>
 
+REDISMODULE_INIT_SYMBOLS();
+
 int main(int, char **) {
   printf("Size of document metadata: %lu\n", sizeof(RSDocumentMetadata));
   printf("Size of inverted index: %lu\n", sizeof(InvertedIndex));

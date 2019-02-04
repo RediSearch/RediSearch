@@ -170,6 +170,9 @@ static int rpscoreNext(ResultProcessor *base, SearchResult *res) {
     if (res->score == RS_SCORE_FILTEROUT) {
       base->parent->totalResults--;
       SearchResult_Clear(res);
+      // continue and loop to the next result, since this is excluded by the
+      // scorer.
+      continue;
     }
 
     break;
@@ -261,8 +264,11 @@ static int rpsortNext_Yield(ResultProcessor *rp, SearchResult *r) {
   // make sure we don't overshoot the heap size, unless the heap size is dynamic
   if (self->pq->count > 0 && (!self->size || self->offset++ < self->size)) {
     SearchResult *sr = mmh_pop_max(self->pq);
+    RLookupRow oldrow = r->rowdata;
     *r = *sr;
+
     free(sr);
+    RLookupRow_Cleanup(&oldrow);
     return RS_RESULT_OK;
   }
   return RS_RESULT_EOF;

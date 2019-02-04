@@ -31,7 +31,7 @@ typedef enum {
 } ReducerType;
 
 /* Maximum possible value to random sample group size */
-#define MAX_SAMPLE_SIZE 1000
+#define MAX_SAMPLE_SIZE 2000
 
 typedef struct Reducer {
   /**

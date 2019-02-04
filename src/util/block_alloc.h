@@ -3,6 +3,10 @@
 
 #include <stdlib.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct BlkAllocBlock {
   struct BlkAllocBlock *next;
   size_t numUsed;
@@ -50,4 +54,7 @@ void BlkAlloc_FreeAll(BlkAlloc *alloc, BlkAllocCleaner cleaner, void *arg, size_
  */
 void BlkAlloc_Clear(BlkAlloc *alloc, BlkAllocCleaner cleaner, void *arg, size_t elemSize);
 
+#ifdef __cplusplus
+}
+#endif
 #endif

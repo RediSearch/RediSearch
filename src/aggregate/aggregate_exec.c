@@ -7,7 +7,6 @@
 
 typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN } CommandType;
 static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num);
-static int startCursor(AREQ *r, RedisSearchCtx *sctx, RedisModuleCtx *outctx, QueryError *err);
 
 /**
  * Get the sorting key of the result. This will be the sorting key of the last
@@ -19,7 +18,7 @@ static const RSValue *getSortKey(AREQ *req, const SearchResult *r) {
     return NULL;
   }
   const RLookupKey *kk = astp->sortkeysLK[0];
-  if (kk->flags & RLOOKUP_F_SVSRC) {
+  if (kk->flags & RLOOKUP_F_SVSRC && (r->rowdata.sv && r->rowdata.sv->len > kk->svidx)) {
     return r->rowdata.sv->values[kk->svidx];
   } else {
     return RLookup_GetItem(astp->sortkeysLK[0], &r->rowdata);
@@ -99,7 +98,7 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
       if (!v) {
         RedisModule_ReplyWithNull(outctx);
       } else {
-        RSValue_SendReply(outctx, v);
+        RSValue_SendReply(outctx, v, req->reqflags & QEXEC_F_TYPED);
       }
     }
     REDISMODULE_END_ARRAY(outctx, nfields * 2);
@@ -142,6 +141,8 @@ done:
   if (rc != RS_RESULT_OK) {
     req->stateflags |= QEXEC_S_ITERDONE;
   }
+  // Reset the total results length:
+  req->qiter.totalResults = 0;
   RedisModule_ReplySetArrayLength(outctx, nelem);
   return REDISMODULE_OK;
 }
@@ -182,12 +183,15 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     goto done;
   }
 
-  if (AREQ_ApplyContext(*r, sctx, status) != REDISMODULE_OK) {
+  rc = AREQ_ApplyContext(*r, sctx, status);
+  thctx = NULL;
+  // ctx is always assigned after ApplyContext
+  if (rc != REDISMODULE_OK) {
     assert(QueryError_HasError(status));
     goto done;
   }
 
-  rc = AREQ_BuildPipeline(*r, status);
+  rc = AREQ_BuildPipeline(*r, 0, status);
 
 done:
   if (rc != REDISMODULE_OK && *r) {
@@ -208,7 +212,6 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   }
 
   const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
-  RedisModuleCtx *thctx = NULL;
   AREQ *r = NULL;
   QueryError status = {0};
 
@@ -217,9 +220,8 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   }
 
   if (r->reqflags & QEXEC_F_IS_CURSOR) {
-    int rc = startCursor(r, r->sctx, ctx, &status);
+    int rc = AREQ_StartCursor(r, ctx, r->sctx->spec->name, &status);
     if (rc != REDISMODULE_OK) {
-      thctx = r->sctx->redisCtx;
       goto error;
     }
   } else {
@@ -232,10 +234,6 @@ error:
   if (r) {
     AREQ_Free(r);
   }
-  if (thctx) {
-    RedisModule_FreeThreadSafeContext(thctx);
-  }
-
   return QueryError_ReplyAndClear(ctx, &status);
 }
 
@@ -259,14 +257,12 @@ char *RS_GetExplainOutput(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 
 static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num);
 
-static int startCursor(AREQ *r, RedisSearchCtx *sctx, RedisModuleCtx *outctx, QueryError *err) {
-  const char *ixname = sctx->spec->name;
-  Cursor *cursor = Cursors_Reserve(&RSCursors, sctx, ixname, r->cursorMaxIdle, err);
+int AREQ_StartCursor(AREQ *r, RedisModuleCtx *outctx, const char *lookupName, QueryError *err) {
+  Cursor *cursor = Cursors_Reserve(&RSCursors, lookupName, r->cursorMaxIdle, err);
   if (cursor == NULL) {
     return REDISMODULE_ERR;
   }
   cursor->execState = r;
-  cursor->sctx = sctx;
   runCursor(outctx, cursor, 0);
   return REDISMODULE_OK;
 }
@@ -327,10 +323,9 @@ static void cursorRead(RedisModuleCtx *ctx, uint64_t cid, size_t count) {
   runCursor(ctx, cursor, count);
 }
 
-void RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 4) {
-    RedisModule_WrongArity(ctx);
-    return;
+    return RedisModule_WrongArity(ctx);
   }
 
   const char *cmd = RedisModule_StringPtrLen(argv[1], NULL);
@@ -342,7 +337,7 @@ void RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   if (RedisModule_StringToLongLong(argv[3], &cid) != REDISMODULE_OK) {
     RedisModule_ReplyWithError(ctx, "Bad cursor ID");
-    return;
+    return REDISMODULE_OK;
   }
 
   char cmdc = toupper(*cmd);
@@ -353,7 +348,7 @@ void RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       // e.g. 'COUNT <timeout>'
       if (RedisModule_StringToLongLong(argv[5], &count) != REDISMODULE_OK) {
         RedisModule_ReplyWithError(ctx, "Bad value for COUNT");
-        return;
+        return REDISMODULE_OK;
       }
     }
     cursorRead(ctx, cid, count);
@@ -373,8 +368,10 @@ void RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     printf("Unknown command %s\n", cmd);
     RedisModule_ReplyWithError(ctx, "Unknown subcommand");
   }
+  return REDISMODULE_OK;
 }
 
 void Cursor_FreeExecState(void *p) {
+  AREQ *r = p;
   AREQ_Free(p);
 }

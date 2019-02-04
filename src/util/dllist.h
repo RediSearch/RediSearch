@@ -42,6 +42,9 @@ static inline void dllist_delete(DLLIST_node *item) {
   item->next = item->prev = NULL;
 }
 
+#define DLLIST_IS_FIRST(l, itm) ((itm)->prev == l)
+#define DLLIST_IS_LAST(l, itm) ((itm)->next == l)
+
 #define DLLIST_ITEM(L, T, mname) ((T *)(void *)((char *)(L)-offsetof(T, mname)))
 #define DLLIST_FOREACH(it, ll) for (DLLIST_node *it = (ll)->next; it != (ll); it = it->next)
 

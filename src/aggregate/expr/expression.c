@@ -301,7 +301,7 @@ static int rpevalNext_project(ResultProcessor *rp, SearchResult *r) {
   if (rc != RS_RESULT_OK) {
     return rc;
   }
-  RLookup_WriteKey(pc->outkey, &r->rowdata, pc->val);
+  RLookup_WriteOwnKey(pc->outkey, &r->rowdata, pc->val);
   pc->val = NULL;
   return RS_RESULT_OK;
 }
@@ -329,6 +329,7 @@ static void rpevalFree(ResultProcessor *rp) {
   if (ee->val) {
     RSValue_Decref(ee->val);
   }
+  BlkAlloc_FreeAll(&ee->eval.stralloc, NULL, NULL, 0);
   free(ee);
 }
 static ResultProcessor *RPEvaluator_NewCommon(const RSExpr *ast, const RLookup *lookup,

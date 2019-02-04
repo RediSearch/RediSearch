@@ -67,7 +67,7 @@ TEST_F(AggTest, testBasic) {
   rv = AREQ_ApplyContext(rr, sctx, &qerr);
   ASSERT_EQ(REDISMODULE_OK, rv);
 
-  rv = AREQ_BuildPipeline(rr, &qerr);
+  rv = AREQ_BuildPipeline(rr, 0, &qerr);
   ASSERT_EQ(REDISMODULE_OK, rv) << QueryError_GetError(&qerr);
 
   auto rp = AREQ_RP(rr);
@@ -170,8 +170,10 @@ TEST_F(AggTest, testGroupBy) {
   ASSERT_TRUE(gr != NULL);
 
   Grouper_AddReducer(gr, RDCRCount_New(NULL), count_out);
-  ReducerOptionsCXX sumOptions("SUM", &rk_in, "SCORE");
-  Grouper_AddReducer(gr, RDCRSum_New(&sumOptions), score_out);
+  ReducerOptionsCXX sumOptions("SUM", &rk_in, "score");
+  auto sumReducer = RDCRSum_New(&sumOptions);
+  ASSERT_TRUE(sumReducer != NULL) << QueryError_GetError(sumOptions.status);
+  Grouper_AddReducer(gr, sumReducer, score_out);
   SearchResult res = {0};
   ResultProcessor *gp = Grouper_GetRP(gr);
   QITR_PushRP(&qitr, gp);

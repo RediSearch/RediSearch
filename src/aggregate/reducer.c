@@ -43,7 +43,7 @@ ReducerFactory RDCR_GetFactory(const char *name) {
   X(RDCRFirstValue_New, "FIRST_VALUE")             \
   X(RDCRRandomSample_New, "RANDOM_SAMPLE")         \
   X(RDCRHLL_New, "HLL")                            \
-  X(RDCRHLLSum_New, "HLLSUM")
+  X(RDCRHLLSum_New, "HLL_SUM")
 
 void RDCR_RegisterBuiltins(void) {
 #define X(fn, n) RDCR_RegisterFactory(n, fn);
@@ -63,7 +63,7 @@ int ReducerOpts_GetKey(const ReducerOptions *options, const RLookupKey **out) {
   if (*s == '@') {
     s++;
   }
-  *out = RLookup_GetKey(options->srclookup, s, RLOOKUP_F_OCREAT | RLOOKUP_F_HIDDEN);
+  *out = RLookup_GetKey(options->srclookup, s, RLOOKUP_F_HIDDEN);
   if (!*out) {
     QueryError_SetErrorFmt(options->status, QUERY_ENOPROPKEY,
                            "Property `%s` not present in document or pipeline", s);

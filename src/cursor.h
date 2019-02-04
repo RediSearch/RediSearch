@@ -25,9 +25,6 @@ typedef struct Cursor {
   /** Parent - used for deletion, etc */
   struct CursorList *parent;
 
-  /** Search ctx */
-  RedisSearchCtx *sctx;
-
   /** Execution state. Opaque to the cursor - managed by consumer */
   void *execState;
 
@@ -135,8 +132,8 @@ void CursorList_RemoveSpec(CursorList *cl, const char *k);
  * Timeout is the max idle timeout (activated at each call to Pause()) in
  * milliseconds.
  */
-Cursor *Cursors_Reserve(CursorList *cl, RedisSearchCtx *sctx, const char *lookupName,
-                        unsigned timeout, QueryError *status);
+Cursor *Cursors_Reserve(CursorList *cl, const char *lookupName, unsigned timeout,
+                        QueryError *status);
 
 /**
  * Retrieve a cursor for execution. This locates the cursor, removes it

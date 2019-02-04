@@ -89,12 +89,19 @@ typedef struct RLookup {
 
   // Length of the data row. This is not necessarily the number
   // of lookup keys
-  size_t rowlen;
+  uint32_t rowlen;
+
+  // Flags/options
+  uint32_t options;
 
   // If present, then GetKey will consult this list if the value is not found in
   // the existing list of keys.
   IndexSpecCache *spcache;
 } RLookup;
+
+// If the key cannot be found, do not mark it as an error, but create it and
+// mark it as F_UNRESOLVED
+#define RLOOKUP_OPT_UNRESOLVED_OK 0x01
 
 /**
  * Row data for a lookup key. This abstracts the question of "where" the
@@ -110,8 +117,6 @@ typedef struct {
   /** Dynamic values obtained from prior processing */
   RSValue **dyn;
 
-  /** Array of 'static' RSValues, where the underlying storage  */
-  RSValue *dyn_s;
   /**
    * How many values actually exist in dyn. Note that this
    * is not the length of the array!
@@ -159,6 +164,11 @@ typedef struct {
 #define RLOOKUP_F_SORTKEY 0x100
 
 /**
+ * This key is unresolved. It source needs to be derived from elsewhere
+ */
+#define RLOOKUP_F_UNRESOLVED 0x200
+
+/**
  * These flags do not persist to the key, they are just options to GetKey()
  */
 #define RLOOKUP_TRANSIENT_FLAGS (RLOOKUP_F_OEXCL | RLOOKUP_F_OCREAT | RLOOKUP_F_NOINCREF)
@@ -166,6 +176,10 @@ typedef struct {
 /**
  * Get a RLookup key for a given name. The behavior of this function depends on
  * the flags.
+ *
+ * If F_OCREAT is not used, then this function will return NULL if a key could
+ * not be found, unless OPT_UNRESOLVED_OK is set on the lookup itself. In this
+ * case, the key is returned, but has the F_UNRESOLVED flag set.
  */
 RLookupKey *RLookup_GetKey(RLookup *lookup, const char *name, int flags);
 

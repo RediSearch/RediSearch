@@ -13,13 +13,23 @@ else:
     else:
         EXTPATH += '.so'
 
-if not os.path.exists(EXTPATH):
-    raise Exception("Path ({}) does not exist. "
-        "Run from the build directory or set EXT_TEST_PATH in the environment".format(EXTPATH))
-
 EXTPATH = os.path.abspath(EXTPATH)
 
+# Last ditch effort:
+SRCFILE = os.path.dirname(__file__) + '/../tests/ext-example/example.c'
+INCDIR = os.path.dirname(__file__) + '/../'
+
+if not os.path.exists(EXTPATH):
+    EXTPATH = os.path.abspath('libexample_extension.' + ('dylib' if sys.platform.lower() == 'darwin' else 'so'))
+    args = ['cc', '-shared', '-fPIC', '-o', EXTPATH, SRCFILE, '-I' + INCDIR]
+    print args
+    print subprocess.call(args)
+
 def testExt():
+    if not os.path.exists(EXTPATH):
+        raise Exception("Path ({}) does not exist. "
+            "Run from the build directory or set EXT_TEST_PATH in the environment".format(EXTPATH))
+
     # extentionPath = os.path.abspath(os.path.dirname(os.path.realpath(__file__)) + '/../tests/ext-example/example.so')
     env = Env(moduleArgs='EXTLOAD %s' % EXTPATH)
 

@@ -508,7 +508,7 @@ int RSValue_Equal(const RSValue *v1, const RSValue *v2) {
 }
 
 /* Based on the value type, serialize the value into redis client response */
-int RSValue_SendReply(RedisModuleCtx *ctx, const RSValue *v) {
+int RSValue_SendReply(RedisModuleCtx *ctx, const RSValue *v, int isTyped) {
   v = RSValue_Dereference(v);
 
   switch (v->t) {
@@ -519,14 +519,19 @@ int RSValue_SendReply(RedisModuleCtx *ctx, const RSValue *v) {
     case RSValue_Number: {
       char buf[128];
       snprintf(buf, sizeof(buf), "%.12g", v->numval);
-      return RedisModule_ReplyWithStringBuffer(ctx, buf, strlen(buf));
+
+      if (isTyped) {
+        return RedisModule_ReplyWithError(ctx, buf);
+      } else {
+        return RedisModule_ReplyWithStringBuffer(ctx, buf, strlen(buf));
+      }
     }
     case RSValue_Null:
       return RedisModule_ReplyWithNull(ctx);
     case RSValue_Array:
       RedisModule_ReplyWithArray(ctx, v->arrval.len);
       for (uint32_t i = 0; i < v->arrval.len; i++) {
-        RSValue_SendReply(ctx, v->arrval.vals[i]);
+        RSValue_SendReply(ctx, v->arrval.vals[i], isTyped);
       }
       return REDISMODULE_OK;
     default:
