@@ -68,6 +68,7 @@ void indexBlock_Free(IndexBlock *blk) {
 
 void InvertedIndex_Free(void *ctx) {
   InvertedIndex *idx = ctx;
+  TotalIIBlocks -= idx->size;
   for (uint32_t i = 0; i < idx->size; i++) {
     indexBlock_Free(&idx->blocks[i]);
   }
