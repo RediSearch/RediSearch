@@ -450,8 +450,9 @@ FIELD_BULK_INDEXER(tagIndexer) {
     QueryError_SetError(status, QUERY_EGENERIC, "Could not open tag index for indexing");
     rc = -1;
   } else {
-    TagIndex_Index(bulk->indexData, (const char **)fdata->tags, array_len(fdata->tags),
-                   aCtx->doc.docId);
+    ctx->spec->stats.invertedSize += TagIndex_Index(bulk->indexData, (const char **)fdata->tags,
+                                                    array_len(fdata->tags), aCtx->doc.docId);
+    ctx->spec->stats.numRecords++;
   }
   if (fdata->tags) {
     TagIndex_FreePreprocessedData(fdata->tags);
