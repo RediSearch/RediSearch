@@ -21,7 +21,7 @@ rune runeFold(rune r) {
   return __fold((uint32_t)r);
 }
 
-char *runesToStr(rune *in, size_t len, size_t *utflen) {
+char *runesToStr(const rune *in, size_t len, size_t *utflen) {
   if (len > MAX_RUNESTR_LEN) {
     if (utflen) *utflen = 0;
     return NULL;
@@ -64,7 +64,7 @@ rune *strToFoldedRunes(const char *str, size_t *len) {
 }
 
 rune *strToRunes(const char *str, size_t *len) {
-
+  // Determine the length
   ssize_t rlen = nu_strlen(str, nu_utf8_read);
   if (rlen > MAX_RUNESTR_LEN) {
     if (len) *len = 0;
