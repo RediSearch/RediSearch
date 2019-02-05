@@ -39,18 +39,22 @@ typedef struct {
 } runeBuf;
 
 static inline rune *runeBufFill(const char *s, size_t n, runeBuf *buf, size_t *len) {
-  // Assume x2 growth.
-  *len = n * 2;
-  if (*len <= RUNE_STATIC_ALLOC_SIZE) {
-    buf->isDynamic = 0;
-    *len = strToRunesN(s, n, buf->u.s);
-    buf->u.s[*len] = 0;
-    return buf->u.s;
-  } else {
+  /**
+   * Assumption: the number of bytes in a utf8 string is always greater than the
+   * number of codepoints it can produce.
+   */
+  *len = n;
+  rune *target;
+  if (*len > RUNE_STATIC_ALLOC_SIZE) {
     buf->isDynamic = 1;
-    buf->u.p = strToRunes(s, len);
-    return buf->u.p;
+    target = buf->u.p = malloc(((*len) + 1) * sizeof(rune));
+  } else {
+    buf->isDynamic = 0;
+    target = buf->u.s;
   }
+  *len = strToRunesN(s, n, target);
+  target[*len] = 0;
+  return target;
 }
 
 static inline void runeBufFree(runeBuf *buf) {
