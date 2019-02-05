@@ -147,7 +147,7 @@ IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *dt, int 
   }
 
 #define MAX_RESULTS_FOR_UNSORTED_MODE 1000
-  if (it->mode == MODE_SORTED && ctx->expectedResutlsAmount > MAX_RESULTS_FOR_UNSORTED_MODE) {
+  if (it->mode == MODE_SORTED && ctx->expectedResutlsAmount >= MAX_RESULTS_FOR_UNSORTED_MODE) {
     // make sure all the children support CriteriaTester
     int ctSupported = 1;
     for (int i = 0; i < ctx->num; ++i) {

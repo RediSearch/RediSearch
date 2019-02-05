@@ -839,6 +839,7 @@ IndexSpec *NewIndexSpec(const char *name) {
   sp->maxPrefixExpansions = RSGlobalConfig.maxPrefixExpansions;
   sp->getValue = NULL;
   sp->getValueCtx = NULL;
+  sp->textFields = 0;
   memset(&sp->stats, 0, sizeof(sp->stats));
   return sp;
 }

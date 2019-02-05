@@ -34,6 +34,7 @@ static inline FieldSpec* RS_CreateField(IndexSpec* sp, const char* name) {
 FieldSpec* RS_CreateTextField(IndexSpec* sp, const char* name) {
   FieldSpec* fs = RS_CreateField(sp, name);
   FieldSpec_InitializeText(fs);
+  fs->textOpts.id = sp->textFields++;
   return fs;
 }
 
@@ -145,7 +146,7 @@ QueryNode* RS_CreateTokenNode(IndexSpec* sp, const char* fieldName, const char* 
 QueryNode* RS_CreateNumericNode(IndexSpec* sp, const char* field, double max, double min,
                                 int includeMax, int includeMin) {
   QueryNode* ret = NewQueryNode(QN_NUMERIC);
-  ret->nn.nf = NewNumericFilter(max, min, includeMax, includeMin);
+  ret->nn.nf = NewNumericFilter(min, max, includeMin, includeMax);
   ret->nn.nf->fieldName = strdup(field);
   return ret;
 }
@@ -198,6 +199,12 @@ IndexIterator* RS_GetResutlsIterator(QueryNode* qn, IndexSpec* sp) {
   RSSearchOptions searchOpts;
   searchOpts.fieldmask = RS_FIELDMASK_ALL;
   searchOpts.slop = -1;
+
+  QueryAST ast = {.root = qn};
+
+  QueryError status = {0};
+  QAST_Expand(&ast, NULL, &searchOpts, &sctx, &status);
+
   QueryEvalCtx qectx = {
       .conc = NULL,
       .opts = &searchOpts,
@@ -205,7 +212,7 @@ IndexIterator* RS_GetResutlsIterator(QueryNode* qn, IndexSpec* sp) {
       .docTable = &sp->docs,
       .sctx = &sctx,
   };
-  IndexIterator* ret = Query_EvalNode(&qectx, qn);
+  IndexIterator* ret = Query_EvalNode(&qectx, ast.root);
   QueryNode_Free(qn);
   return ret;
 }

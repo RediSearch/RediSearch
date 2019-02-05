@@ -161,6 +161,7 @@ typedef struct {
   long long maxPrefixExpansions;  // -1 unlimited
   GetValueCallback getValue;
   void *getValueCtx;
+  size_t textFields;
 } IndexSpec;
 
 extern RedisModuleType *IndexSpecType;

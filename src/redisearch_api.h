@@ -21,7 +21,8 @@ typedef int (*GetValueCallback)(void* ctx, const char* fieldName, const void* id
 
 int MODULE_API_FUNC(RediSearch_GetLowLevelApiVersion)();
 
-Index* MODULE_API_FUNC(RediSearch_CreateSpec)(const char* name);
+Index* MODULE_API_FUNC(RediSearch_CreateSpec)(const char* name, GetValueCallback getValue,
+                                              void* getValueCtx);
 
 Field* MODULE_API_FUNC(RediSearch_CreateTextField)(Index* sp, const char* name);
 

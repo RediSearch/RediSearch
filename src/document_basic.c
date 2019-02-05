@@ -7,34 +7,34 @@ void Document_Init(Document *doc, RedisModuleString *docKey, double score, int n
   doc->docKey = docKey;
   doc->score = (float)score;
   doc->numFields = numFields;
-  doc->fields = numFields? calloc(doc->numFields, sizeof(DocumentField)) : NULL;
+  doc->fields = numFields ? calloc(doc->numFields, sizeof(DocumentField)) : NULL;
   doc->language = lang;
   doc->payload = payload;
   doc->payloadSize = payloadSize;
 }
 
-Document* Document_Create(const char *docKey, size_t len, double score, const char *lang){
-  RedisModuleString* docKeyStr = RedisModule_CreateString(NULL, docKey, len);
-  const char* language = DEFAULT_LANGUAGE;
-  if(lang){
+Document *Document_Create(const char *docKey, size_t len, double score, const char *lang) {
+  RedisModuleString *docKeyStr = RedisModule_CreateString(NULL, docKey, len);
+  const char *language = DEFAULT_LANGUAGE;
+  if (lang) {
     language = lang;
   }
   language = strdup(language);
-  Document* ret = rm_malloc(sizeof(*ret));
+  Document *ret = rm_malloc(sizeof(*ret));
   Document_Init(ret, docKeyStr, score, 0, language, NULL, 0);
   return ret;
 }
 
-void Document_AddTextField(Document* d, const char *fieldName, const char* fieldVal){
+void Document_AddTextField(Document *d, const char *fieldName, const char *fieldVal) {
   d->fields = realloc(d->fields, (++d->numFields) * sizeof(DocumentField));
   d->fields[d->numFields - 1].name = strdup(fieldName);
   d->fields[d->numFields - 1].text = RedisModule_CreateString(NULL, fieldVal, strlen(fieldVal));
 }
 
-void Document_AddNumericField(Document* d, const char *fieldName, double num){
+void Document_AddNumericField(Document *d, const char *fieldName, double num) {
   d->fields = realloc(d->fields, (++d->numFields) * sizeof(DocumentField));
   d->fields[d->numFields - 1].name = strdup(fieldName);
-  d->fields[d->numFields - 1].text = RedisModule_CreateStringPrintf(NULL, "lf", num);
+  d->fields[d->numFields - 1].text = RedisModule_CreateStringPrintf(NULL, "%lf", num);
 }
 
 void Document_PrepareForAdd(Document *doc, RedisModuleString *docKey, double score,

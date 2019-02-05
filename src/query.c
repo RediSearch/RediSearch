@@ -795,10 +795,11 @@ int QAST_Expand(QueryAST *q, const char *expander, RSSearchOptions *opts, RedisS
   if (!q->root) {
     return REDISMODULE_OK;
   }
-  RSQueryExpanderCtx expCtx = {.qast = q,
-                               .language = opts->language ? opts->language : DEFAULT_LANGUAGE,
-                               .handle = sctx,
-                               .status = status};
+  RSQueryExpanderCtx expCtx = {
+      .qast = q,
+      .language = (opts && opts->language) ? opts->language : DEFAULT_LANGUAGE,
+      .handle = sctx,
+      .status = status};
 
   ExtQueryExpanderCtx *xpc =
       Extensions_GetQueryExpander(&expCtx, expander ? expander : DEFAULT_EXPANDER_NAME);
