@@ -722,8 +722,6 @@ static void rangeIterate(TrieNode *n, const rune *min, uint16_t nmin, const rune
   if (n->sortmode != TRIENODE_SORTED_LEX) {
     qsort(arr, arrlen, sizeof(*arr), cmpLexFull);
     n->sortmode = TRIENODE_SORTED_LEX;
-  } else {
-    // printf("Already sorted lexically wtf!\n");
   }
 
   // Find the minimum range here..
