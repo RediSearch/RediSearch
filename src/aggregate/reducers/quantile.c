@@ -4,7 +4,7 @@
 typedef struct {
   Reducer base;
   double pct;
-  size_t resolution;
+  unsigned resolution;
 } QTLReducer;
 
 static void *quantileNewInstance(Reducer *parent) {
@@ -63,6 +63,18 @@ Reducer *RDCRQuantile_New(const ReducerOptions *options) {
     QERR_MKBADARGS_FMT(options->status, "Percentage must be between 0.0 and 1.0");
     goto error;
   }
+
+  if (!AC_IsAtEnd(options->args)) {
+    if ((rv = AC_GetUnsigned(options->args, &r->resolution, 0)) != AC_OK) {
+      QERR_MKBADARGS_AC(options->status, "<resolution>", rv);
+      goto error;
+    }
+    if (r->resolution < 1 || r->resolution > MAX_SAMPLE_SIZE) {
+      QERR_MKBADARGS_FMT(options->status, "Invalid resolution");
+      goto error;
+    }
+  }
+
   if (!ReducerOpts_EnsureArgsConsumed(options)) {
     goto error;
   }
