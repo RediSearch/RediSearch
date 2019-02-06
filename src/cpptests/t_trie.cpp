@@ -5,7 +5,6 @@
 #include <string>
 
 typedef std::set<std::string> ElemSet;
-static ElemSet *elements_g;
 
 class TrieTest : public ::testing::Test {};
 
@@ -29,18 +28,17 @@ static ElemSet trieIterRange(Trie *t, const char *begin, size_t nbegin, const ch
   nr2 = strToRunesN(end, nend, r2);
 
   ElemSet foundElements;
-  elements_g = &foundElements;
-
   TrieNode_IterateRange(t->root, r1, nr1, r2, nr2,
-                        [](const rune *u16, size_t nrune, void *) {
+                        [](const rune *u16, size_t nrune, void *ctx) {
                           size_t n;
                           char *s = runesToStr(u16, nrune, &n);
                           std::string xs(s, n);
                           free(s);
-                          ASSERT_EQ(elements_g->end(), elements_g->find(xs));
-                          elements_g->insert(xs);
+                          ElemSet *e = (ElemSet *)ctx;
+                          ASSERT_EQ(e->end(), e->find(xs));
+                          e->insert(xs);
                         },
-                        NULL);
+                        &foundElements);
   return foundElements;
 }
 
@@ -53,7 +51,7 @@ TEST_F(TrieTest, testBasicRange) {
   rune rbuf[TRIE_MAX_STRING_LEN + 1];
   for (size_t ii = 0; ii < 1000; ++ii) {
     char buf[64];
-    sprintf(buf, "%llu", ii);
+    sprintf(buf, "%lu", (unsigned long)ii);
     auto n = trieInsert(t, buf);
     ASSERT_TRUE(n);
   }
