@@ -38,8 +38,8 @@ typedef struct {
 Each field has a unique id that's a power of two, so we can filter fields
 by a bit mask.
 Each field has a type, allowing us to add non text fields in the future */
-typedef struct fieldSpec {
-  char *name;
+typedef struct FieldSpec {
+  char* name;
   FieldType type;
   FieldSpecOptions options;
 
@@ -58,7 +58,7 @@ typedef struct fieldSpec {
   // TODO: More options here..
 } FieldSpec;
 
-#define TAG_FIELD_DEFAULT_FLAGS TagField_TrimSpace & TagField_RemoveAccents;
+#define TAG_FIELD_DEFAULT_FLAGS TagField_TrimSpace& TagField_RemoveAccents;
 
 #define FieldSpec_IsSortable(fs) ((fs)->options & FieldSpec_Sortable)
 #define FieldSpec_IsNoStem(fs) ((fs)->options & FieldSpec_NoStemming)

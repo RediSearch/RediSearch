@@ -130,7 +130,7 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
 typedef int (*GetValueCallback)(void *ctx, const char *fieldName, const void *id, char **strVal,
                                 double *doubleVal);
 
-typedef struct {
+typedef struct IndexSpec {
   char *name;
   FieldSpec *fields;
   int numFields;
