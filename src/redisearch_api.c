@@ -196,7 +196,7 @@ void RS_UnionNodeAddChild(QueryNode* qn, QueryNode* child) {
 
 IndexIterator* RS_GetResutlsIterator(QueryNode* qn, IndexSpec* sp) {
   RedisSearchCtx sctx = {.redisCtx = NULL, .spec = sp};
-  RSSearchOptions searchOpts;
+  RSSearchOptions searchOpts = {0};
   searchOpts.fieldmask = RS_FIELDMASK_ALL;
   searchOpts.slop = -1;
 
