@@ -6,14 +6,20 @@
 #include <stdio.h>
 #include "rune_util.h"
 #include "redisearch.h"
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 typedef uint16_t t_len;
 
 #define TRIE_MAX_STRING_LEN 255
 #define TRIE_MAX_PREFIX 100
-#define TRIENODE_SORTED 0x1
-#define TRIENODE_TERMINAL 0x2
-#define TRIENODE_DELETED 0x4
+#define TRIENODE_TERMINAL 0x1
+#define TRIENODE_DELETED 0x2
+
+#define TRIENODE_SORTED_NONE 0
+#define TRIENODE_SORTED_SCORE 1
+#define TRIENODE_SORTED_LEX 2
 
 #pragma pack(1)
 typedef struct {
@@ -39,7 +45,8 @@ typedef struct {
   // the number of child nodes
   t_len numChildren;
 
-  unsigned char flags;
+  uint8_t flags : 2;
+  uint8_t sortmode : 2;
 
   // the node's score. Non termn
   float score;
@@ -193,4 +200,24 @@ int TrieIterator_Next(TrieIterator *it, rune **ptr, t_len *len, RSPayload *paylo
                       void *matchCtx);
 
 TrieNode *TrieNode_RandomWalk(TrieNode *n, int minSteps, rune **str, t_len *len);
+
+typedef void(TrieRangeCallback)(const rune *, size_t, void *);
+
+/**
+ * Iterate all nodes within range.
+ * @param n the node to iterateo
+ * @param min the minimum lexical string to check from
+ * @param minlen the length of min
+ * @param max the maximum lexical string to check until
+ * @param maxlen the maximum length of the max
+ * @param callback the callback to invoke
+ * @param ctx data to be passed to the callback
+ */
+
+void TrieNode_IterateRange(TrieNode *n, const rune *min, size_t minlen, const rune *max,
+                           size_t maxlen, TrieRangeCallback callback, void *ctx);
+
+#ifdef __cplusplus
+}
+#endif
 #endif

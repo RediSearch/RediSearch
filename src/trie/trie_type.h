@@ -6,6 +6,10 @@
 #include "trie.h"
 #include "levenshtein.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 extern RedisModuleType *TrieType;
 
 #define TRIE_ENCVER_CURRENT 1
@@ -54,4 +58,7 @@ void TrieType_RdbSave(RedisModuleIO *rdb, void *value);
 void TrieType_Digest(RedisModuleDigest *digest, void *value);
 void TrieType_Free(void *value);
 
+#ifdef __cplusplus
+}
+#endif
 #endif
