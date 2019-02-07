@@ -18,7 +18,7 @@ static const RSValue *getSortKey(AREQ *req, const SearchResult *r) {
     return NULL;
   }
   const RLookupKey *kk = astp->sortkeysLK[0];
-  if (kk->flags & RLOOKUP_F_SVSRC && (r->rowdata.sv && r->rowdata.sv->len > kk->svidx)) {
+  if ((kk->flags & RLOOKUP_F_SVSRC) && (r->rowdata.sv && r->rowdata.sv->len > kk->svidx)) {
     return r->rowdata.sv->values[kk->svidx];
   } else {
     return RLookup_GetItem(astp->sortkeysLK[0], &r->rowdata);
@@ -30,7 +30,7 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
   const RSDocumentMetadata *dmd = r->dmd;
   size_t count = 0;
 
-  if (dmd && req->reqflags & QEXEC_F_IS_SEARCH) {
+  if (dmd && (req->reqflags & QEXEC_F_IS_SEARCH)) {
     size_t n;
     const char *s = DMD_KeyPtrLen(dmd, &n);
     RedisModule_ReplyWithStringBuffer(outctx, s, n);
