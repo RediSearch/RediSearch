@@ -1,5 +1,7 @@
 #include "../redisearch_api.h"
 #include <gtest/gtest.h>
+#include <set>
+#include <string>
 
 #define DOCID1 "doc1"
 #define DOCID2 "doc2"
@@ -8,6 +10,8 @@
 #define NUMERIC_FIELD_NAME "num"
 #define TAG_FIELD_NAME1 "tag1"
 #define TAG_FIELD_NAME2 "tag2"
+
+REDISEARCH_API_INIT_SYMBOLS();
 
 class LLApiTest : public ::testing::Test {
   virtual void SetUp() {
@@ -22,7 +26,7 @@ TEST_F(LLApiTest, testGetVersion) {
   ASSERT_EQ(RediSearch_GetLowLevelApiVersion(), REDISEARCH_LOW_LEVEL_API_VERSION);
 }
 
-TEST_F(LLApiTest, testAddDocumetTextField) {
+TEST_F(LLApiTest, testAddDocumentTextField) {
   // creating the index
   Index* index = RediSearch_CreateSpec("index", NULL, NULL);
 
@@ -238,9 +242,47 @@ TEST_F(LLApiTest, testMassivePrefix) {
   RediSearch_ResutlsIteratorFree(iter);
 }
 
-char buffer[1024];
+TEST_F(LLApiTest, testRanges) {
+  Index* index = RediSearch_CreateSpec("index", NULL, NULL);
+  RediSearch_CreateTextField(index, FIELD_NAME_1);
+  char buf[] = {"Mark_"};
+  size_t nbuf = strlen(buf);
+  for (char c = 'a'; c < 'z'; c++) {
+    buf[nbuf - 1] = c;
+    char did[64];
+    sprintf(did, "doc%c", c);
+    Doc* d = RediSearch_CreateDocument(did, strlen(did), 0, NULL);
+    RediSearch_DocumentAddTextField(d, FIELD_NAME_1, buf);
+    RediSearch_SpecAddDocument(index, d);
+  }
 
-int GetValue(void* ctx, const char* fieldName, const void* id, char** strVal, double* doubleVal) {
+  QN* qn = RediSearch_CreateLexRangeNode(index, FIELD_NAME_1, "MarkN", "MarkX");
+  ResultsIterator* iter = RediSearch_GetResutlsIterator(qn, index);
+  ASSERT_FALSE(NULL == iter);
+  std::set<std::string> results;
+  const char* id;
+  size_t nid;
+  while ((id = (const char*)RediSearch_ResutlsIteratorNext(iter, index, &nid))) {
+    std::string idstr(id, nid);
+    ASSERT_EQ(results.end(), results.find(idstr));
+    results.insert(idstr);
+  }
+
+  ASSERT_EQ(10, results.size());
+  for (char c = 'n'; c < 'x'; c++) {
+    char namebuf[64];
+    sprintf(namebuf, "doc%c", c);
+    ASSERT_NE(results.end(), results.find(namebuf));
+  }
+  RediSearch_ResutlsIteratorFree(iter);
+
+  // printf("Have %lu ids in range!\n", results.size());
+}
+
+static char buffer[1024];
+
+static int GetValue(void* ctx, const char* fieldName, const void* id, char** strVal,
+                    double* doubleVal) {
   *strVal = buffer;
   int numId;
   sscanf((char*)id, "doc%d", &numId);
