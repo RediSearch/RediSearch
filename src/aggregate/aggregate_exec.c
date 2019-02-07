@@ -92,14 +92,14 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
         // printf("Skipping hidden field %s/%p\n", kk->name, kk);
         continue;
       }
-      nfields++;
-      RedisModule_ReplyWithSimpleString(outctx, kk->name);
       const RSValue *v = RLookup_GetItem(kk, &r->rowdata);
       if (!v) {
-        RedisModule_ReplyWithNull(outctx);
-      } else {
-        RSValue_SendReply(outctx, v, req->reqflags & QEXEC_F_TYPED);
+        continue;
       }
+
+      nfields++;
+      RedisModule_ReplyWithSimpleString(outctx, kk->name);
+      RSValue_SendReply(outctx, v, req->reqflags & QEXEC_F_TYPED);
     }
     REDISMODULE_END_ARRAY(outctx, nfields * 2);
   }
