@@ -14,7 +14,7 @@ int RS_GetLowLevelApiVersion() {
   return REDISEARCH_LOW_LEVEL_API_VERSION;
 }
 
-IndexSpec* RS_CreateSpec(const char* name, GetValueCallback getValue, void* getValueCtx) {
+IndexSpec* RS_CreateSpec(const char* name, RSGetValueCallback getValue, void* getValueCtx) {
   IndexSpec* spec = NewIndexSpec(name);
   spec->flags |= Index_Temporary;  // temporary is so that we will not use threads!!
   spec->keysDict = dictCreate(&dictTypeHeapRedisStrings, NULL);

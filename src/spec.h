@@ -127,7 +127,7 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
 #define VALUE_NOT_FOUND 0
 #define STR_VALUE_TYPE 1
 #define DOUBLE_VALUE_TYPE 2
-typedef int (*GetValueCallback)(void *ctx, const char *fieldName, const void *id, char **strVal,
+typedef int (*RSGetValueCallback)(void *ctx, const char *fieldName, const void *id, char **strVal,
                                 double *doubleVal);
 
 typedef struct IndexSpec {
@@ -159,7 +159,7 @@ typedef struct IndexSpec {
   dict *keysDict;
   long long minPrefix;
   long long maxPrefixExpansions;  // -1 unlimited
-  GetValueCallback getValue;
+  RSGetValueCallback getValue;
   void *getValueCtx;
   size_t textFields;
 } IndexSpec;

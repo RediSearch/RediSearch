@@ -11,82 +11,83 @@ extern "C" {
 
 #define MODULE_API_FUNC(T, N) extern T(*N)
 
-typedef struct IndexSpec Index;
-typedef struct FieldSpec Field;
-typedef struct Document Doc;
-typedef struct RSQueryNode QN;
+typedef struct IndexSpec RSIndex;
+typedef struct FieldSpec RSField;
+typedef struct Document RSDoc;
+typedef struct RSQueryNode RSQNode;
 typedef struct indexIterator ResultsIterator;
 
 #define VALUE_NOT_FOUND 0
 #define STR_VALUE_TYPE 1
 #define DOUBLE_VALUE_TYPE 2
-typedef int (*GetValueCallback)(void* ctx, const char* fieldName, const void* id, char** strVal,
-                                double* doubleVal);
+typedef int (*RSGetValueCallback)(void* ctx, const char* fieldName, const void* id, char** strVal,
+                                  double* doubleVal);
 
 MODULE_API_FUNC(int, RediSearch_GetLowLevelApiVersion)();
 
-MODULE_API_FUNC(Index*, RediSearch_CreateSpec)
-(const char* name, GetValueCallback getValue, void* getValueCtx);
+MODULE_API_FUNC(RSIndex*, RediSearch_CreateSpec)
+(const char* name, RSGetValueCallback getValue, void* getValueCtx);
 
-MODULE_API_FUNC(Field*, RediSearch_CreateTextField)(Index* sp, const char* name);
+MODULE_API_FUNC(RSField*, RediSearch_CreateTextField)(RSIndex* sp, const char* name);
 
-MODULE_API_FUNC(void, RediSearch_TextFieldSetWeight)(Field* fs, double w);
+MODULE_API_FUNC(void, RediSearch_TextFieldSetWeight)(RSField* fs, double w);
 
-MODULE_API_FUNC(void, RediSearch_TextFieldNoStemming)(Field* fs);
+MODULE_API_FUNC(void, RediSearch_TextFieldNoStemming)(RSField* fs);
 
-MODULE_API_FUNC(void, RediSearch_TextFieldPhonetic)(Field* fs, Index* sp);
+MODULE_API_FUNC(void, RediSearch_TextFieldPhonetic)(RSField* fs, RSIndex* sp);
 
-MODULE_API_FUNC(Field*, RediSearch_CreateGeoField)(Index* sp, const char* name);
+MODULE_API_FUNC(RSField*, RediSearch_CreateGeoField)(RSIndex* sp, const char* name);
 
-MODULE_API_FUNC(Field*, RediSearch_CreateNumericField)(Index* sp, const char* name);
+MODULE_API_FUNC(RSField*, RediSearch_CreateNumericField)(RSIndex* sp, const char* name);
 
-MODULE_API_FUNC(Field*, RediSearch_CreateTagField)(Index* sp, const char* name);
+MODULE_API_FUNC(RSField*, RediSearch_CreateTagField)(RSIndex* sp, const char* name);
 
-MODULE_API_FUNC(void, RediSearch_TagSetSeparator)(Field* fs, char sep);
+MODULE_API_FUNC(void, RediSearch_TagSetSeparator)(RSField* fs, char sep);
 
-MODULE_API_FUNC(void, RediSearch_FieldSetSortable)(Field* fs, Index* sp);
+MODULE_API_FUNC(void, RediSearch_FieldSetSortable)(RSField* fs, RSIndex* sp);
 
-MODULE_API_FUNC(void, RediSearch_FieldSetNoIndex)(Field* fs);
+MODULE_API_FUNC(void, RediSearch_FieldSetNoIndex)(RSField* fs);
 
-MODULE_API_FUNC(Doc*, RediSearch_CreateDocument)
+MODULE_API_FUNC(RSDoc*, RediSearch_CreateDocument)
 (const void* docKey, size_t len, double score, const char* lang);
 
-MODULE_API_FUNC(int, RediSearch_DropDocument)(Index* sp, const void* docKey, size_t len);
+MODULE_API_FUNC(int, RediSearch_DropDocument)(RSIndex* sp, const void* docKey, size_t len);
 
 MODULE_API_FUNC(void, RediSearch_DocumentAddTextField)
-(Doc* d, const char* fieldName, const char* val);
+(RSDoc* d, const char* fieldName, const char* val);
 
 MODULE_API_FUNC(void, RediSearch_DocumentAddNumericField)
-(Doc* d, const char* fieldName, double num);
+(RSDoc* d, const char* fieldName, double num);
 
-MODULE_API_FUNC(void, RediSearch_SpecAddDocument)(Index* sp, Doc* d);
+MODULE_API_FUNC(void, RediSearch_SpecAddDocument)(RSIndex* sp, RSDoc* d);
 
-MODULE_API_FUNC(QN*, RediSearch_CreateTokenNode)
-(Index* sp, const char* fieldName, const char* token);
+MODULE_API_FUNC(RSQNode*, RediSearch_CreateTokenNode)
+(RSIndex* sp, const char* fieldName, const char* token);
 
-MODULE_API_FUNC(QN*, RediSearch_CreateNumericNode)
-(Index* sp, const char* field, double max, double min, int includeMax, int includeMin);
+MODULE_API_FUNC(RSQNode*, RediSearch_CreateNumericNode)
+(RSIndex* sp, const char* field, double max, double min, int includeMax, int includeMin);
 
-MODULE_API_FUNC(QN*, RediSearch_CreatePrefixNode)(Index* sp, const char* fieldName, const char* s);
+MODULE_API_FUNC(RSQNode*, RediSearch_CreatePrefixNode)
+(RSIndex* sp, const char* fieldName, const char* s);
 
-MODULE_API_FUNC(QN*, RediSearch_CreateLexRangeNode)
-(Index* sp, const char* fieldName, const char* begin, const char* end);
+MODULE_API_FUNC(RSQNode*, RediSearch_CreateLexRangeNode)
+(RSIndex* sp, const char* fieldName, const char* begin, const char* end);
 
-MODULE_API_FUNC(QN*, RediSearch_CreateTagNode)(Index* sp, const char* field);
+MODULE_API_FUNC(RSQNode*, RediSearch_CreateTagNode)(RSIndex* sp, const char* field);
 
-MODULE_API_FUNC(void, RediSearch_TagNodeAddChild)(QN* qn, QN* child);
+MODULE_API_FUNC(void, RediSearch_TagNodeAddChild)(RSQNode* qn, RSQNode* child);
 
-MODULE_API_FUNC(QN*, RediSearch_CreateIntersectNode)(Index* sp, int exact);
+MODULE_API_FUNC(RSQNode*, RediSearch_CreateIntersectNode)(RSIndex* sp, int exact);
 
-MODULE_API_FUNC(void, RediSearch_IntersectNodeAddChild)(QN* qn, QN* child);
+MODULE_API_FUNC(void, RediSearch_IntersectNodeAddChild)(RSQNode* qn, RSQNode* child);
 
-MODULE_API_FUNC(QN*, RediSearch_CreateUnionNode)(Index* sp);
+MODULE_API_FUNC(RSQNode*, RediSearch_CreateUnionNode)(RSIndex* sp);
 
-MODULE_API_FUNC(void, RediSearch_UnionNodeAddChild)(QN* qn, QN* child);
+MODULE_API_FUNC(void, RediSearch_UnionNodeAddChild)(RSQNode* qn, RSQNode* child);
 
-MODULE_API_FUNC(ResultsIterator*, RediSearch_GetResutlsIterator)(QN* qn, Index* sp);
+MODULE_API_FUNC(ResultsIterator*, RediSearch_GetResutlsIterator)(RSQNode* qn, RSIndex* sp);
 
-const MODULE_API_FUNC(void*, RediSearch_ResutlsIteratorNext)(ResultsIterator* iter, Index* sp,
+const MODULE_API_FUNC(void*, RediSearch_ResutlsIteratorNext)(ResultsIterator* iter, RSIndex* sp,
                                                              size_t* len);
 
 MODULE_API_FUNC(void, RediSearch_ResutlsIteratorFree)(ResultsIterator* iter);
