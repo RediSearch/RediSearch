@@ -3,9 +3,13 @@
 
 #include "redismodule.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define REDISEARCH_LOW_LEVEL_API_VERSION 1
 
-#define MODULE_API_FUNC(x) (*x)
+#define MODULE_API_FUNC(T, N) extern T(*N)
 
 typedef struct IndexSpec Index;
 typedef struct FieldSpec Field;
@@ -19,74 +23,75 @@ typedef struct indexIterator ResultsIterator;
 typedef int (*GetValueCallback)(void* ctx, const char* fieldName, const void* id, char** strVal,
                                 double* doubleVal);
 
-int MODULE_API_FUNC(RediSearch_GetLowLevelApiVersion)();
+MODULE_API_FUNC(int, RediSearch_GetLowLevelApiVersion)();
 
-Index* MODULE_API_FUNC(RediSearch_CreateSpec)(const char* name, GetValueCallback getValue,
-                                              void* getValueCtx);
+MODULE_API_FUNC(Index*, RediSearch_CreateSpec)
+(const char* name, GetValueCallback getValue, void* getValueCtx);
 
-Field* MODULE_API_FUNC(RediSearch_CreateTextField)(Index* sp, const char* name);
+MODULE_API_FUNC(Field*, RediSearch_CreateTextField)(Index* sp, const char* name);
 
-void MODULE_API_FUNC(RediSearch_TextFieldSetWeight)(Field* fs, double w);
+MODULE_API_FUNC(void, RediSearch_TextFieldSetWeight)(Field* fs, double w);
 
-void MODULE_API_FUNC(RediSearch_TextFieldNoStemming)(Field* fs);
+MODULE_API_FUNC(void, RediSearch_TextFieldNoStemming)(Field* fs);
 
-void MODULE_API_FUNC(RediSearch_TextFieldPhonetic)(Field* fs, Index* sp);
+MODULE_API_FUNC(void, RediSearch_TextFieldPhonetic)(Field* fs, Index* sp);
 
-Field* MODULE_API_FUNC(RediSearch_CreateGeoField)(Index* sp, const char* name);
+MODULE_API_FUNC(Field*, RediSearch_CreateGeoField)(Index* sp, const char* name);
 
-Field* MODULE_API_FUNC(RediSearch_CreateNumericField)(Index* sp, const char* name);
+MODULE_API_FUNC(Field*, RediSearch_CreateNumericField)(Index* sp, const char* name);
 
-Field* MODULE_API_FUNC(RediSearch_CreateTagField)(Index* sp, const char* name);
+MODULE_API_FUNC(Field*, RediSearch_CreateTagField)(Index* sp, const char* name);
 
-void MODULE_API_FUNC(RediSearch_TagSetSeparator)(Field* fs, char sep);
+MODULE_API_FUNC(void, RediSearch_TagSetSeparator)(Field* fs, char sep);
 
-void MODULE_API_FUNC(RediSearch_FieldSetSortable)(Field* fs, Index* sp);
+MODULE_API_FUNC(void, RediSearch_FieldSetSortable)(Field* fs, Index* sp);
 
-void MODULE_API_FUNC(RediSearch_FieldSetNoIndex)(Field* fs);
+MODULE_API_FUNC(void, RediSearch_FieldSetNoIndex)(Field* fs);
 
-Doc* MODULE_API_FUNC(RediSearch_CreateDocument)(const void* docKey, size_t len, double score,
-                                                const char* lang);
+MODULE_API_FUNC(Doc*, RediSearch_CreateDocument)
+(const void* docKey, size_t len, double score, const char* lang);
 
-int MODULE_API_FUNC(RediSearch_DropDocument)(Index* sp, const void* docKey, size_t len);
+MODULE_API_FUNC(int, RediSearch_DropDocument)(Index* sp, const void* docKey, size_t len);
 
-void MODULE_API_FUNC(RediSearch_DocumentAddTextField)(Doc* d, const char* fieldName,
-                                                      const char* val);
+MODULE_API_FUNC(void, RediSearch_DocumentAddTextField)
+(Doc* d, const char* fieldName, const char* val);
 
-void MODULE_API_FUNC(RediSearch_DocumentAddNumericField)(Doc* d, const char* fieldName, double num);
+MODULE_API_FUNC(void, RediSearch_DocumentAddNumericField)
+(Doc* d, const char* fieldName, double num);
 
-void MODULE_API_FUNC(RediSearch_SpecAddDocument)(Index* sp, Doc* d);
+MODULE_API_FUNC(void, RediSearch_SpecAddDocument)(Index* sp, Doc* d);
 
-QN* MODULE_API_FUNC(RediSearch_CreateTokenNode)(Index* sp, const char* fieldName,
-                                                const char* token);
+MODULE_API_FUNC(QN*, RediSearch_CreateTokenNode)
+(Index* sp, const char* fieldName, const char* token);
 
-QN* MODULE_API_FUNC(RediSearch_CreateNumericNode)(Index* sp, const char* field, double max,
-                                                  double min, int includeMax, int includeMin);
+MODULE_API_FUNC(QN*, RediSearch_CreateNumericNode)
+(Index* sp, const char* field, double max, double min, int includeMax, int includeMin);
 
-QN* MODULE_API_FUNC(RediSearch_CreatePrefixNode)(Index* sp, const char* fieldName, const char* s);
+MODULE_API_FUNC(QN*, RediSearch_CreatePrefixNode)(Index* sp, const char* fieldName, const char* s);
 
-QN* MODULE_API_FUNC(RediSearch_CreateLexRangeNode)(Index* sp, const char* fieldName,
-                                                   const char* begin, const char* end);
+MODULE_API_FUNC(QN*, RediSearch_CreateLexRangeNode)
+(Index* sp, const char* fieldName, const char* begin, const char* end);
 
-QN* MODULE_API_FUNC(RediSearch_CreateTagNode)(Index* sp, const char* field);
+MODULE_API_FUNC(QN*, RediSearch_CreateTagNode)(Index* sp, const char* field);
 
-void MODULE_API_FUNC(RediSearch_TagNodeAddChild)(QN* qn, QN* child);
+MODULE_API_FUNC(void, RediSearch_TagNodeAddChild)(QN* qn, QN* child);
 
-QN* MODULE_API_FUNC(RediSearch_CreateIntersectNode)(Index* sp, int exact);
+MODULE_API_FUNC(QN*, RediSearch_CreateIntersectNode)(Index* sp, int exact);
 
-void MODULE_API_FUNC(RediSearch_IntersectNodeAddChild)(QN* qn, QN* child);
+MODULE_API_FUNC(void, RediSearch_IntersectNodeAddChild)(QN* qn, QN* child);
 
-QN* MODULE_API_FUNC(RediSearch_CreateUnionNode)(Index* sp);
+MODULE_API_FUNC(QN*, RediSearch_CreateUnionNode)(Index* sp);
 
-void MODULE_API_FUNC(RediSearch_UnionNodeAddChild)(QN* qn, QN* child);
+MODULE_API_FUNC(void, RediSearch_UnionNodeAddChild)(QN* qn, QN* child);
 
-ResultsIterator* MODULE_API_FUNC(RediSearch_GetResutlsIterator)(QN* qn, Index* sp);
+MODULE_API_FUNC(ResultsIterator*, RediSearch_GetResutlsIterator)(QN* qn, Index* sp);
 
-const void* MODULE_API_FUNC(RediSearch_ResutlsIteratorNext)(ResultsIterator* iter, Index* sp,
-                                                            size_t* len);
+const MODULE_API_FUNC(void*, RediSearch_ResutlsIteratorNext)(ResultsIterator* iter, Index* sp,
+                                                             size_t* len);
 
-void MODULE_API_FUNC(RediSearch_ResutlsIteratorFree)(ResultsIterator* iter);
+MODULE_API_FUNC(void, RediSearch_ResutlsIteratorFree)(ResultsIterator* iter);
 
-void MODULE_API_FUNC(RediSearch_ResutlsIteratorReset)(ResultsIterator* iter);
+MODULE_API_FUNC(void, RediSearch_ResutlsIteratorReset)(ResultsIterator* iter);
 
 #define REDISEARCH_MODULE_INIT_FUNCTION(name)                                  \
   if (RedisModule_GetApi("RediSearch_" #name, ((void**)&RediSearch_##name))) { \
@@ -94,49 +99,51 @@ void MODULE_API_FUNC(RediSearch_ResutlsIteratorReset)(ResultsIterator* iter);
     return REDISMODULE_ERR;                                                    \
   }
 
+#define RS_XAPIFUNC(X)       \
+  X(GetLowLevelApiVersion)   \
+  X(CreateSpec)              \
+  X(CreateTextField)         \
+  X(TextFieldSetWeight)      \
+  X(TextFieldNoStemming)     \
+  X(TextFieldPhonetic)       \
+  X(CreateGeoField)          \
+  X(CreateNumericField)      \
+  X(CreateTagField)          \
+  X(TagSetSeparator)         \
+  X(FieldSetSortable)        \
+  X(FieldSetNoIndex)         \
+  X(CreateDocument)          \
+  X(DropDocument)            \
+  X(DocumentAddTextField)    \
+  X(DocumentAddNumericField) \
+  X(SpecAddDocument)         \
+  X(CreateTokenNode)         \
+  X(CreateNumericNode)       \
+  X(CreatePrefixNode)        \
+  X(CreateLexRangeNode)      \
+  X(CreateTagNode)           \
+  X(TagNodeAddChild)         \
+  X(CreateIntersectNode)     \
+  X(IntersectNodeAddChild)   \
+  X(CreateUnionNode)         \
+  X(UnionNodeAddChild)       \
+  X(GetResutlsIterator)      \
+  X(ResutlsIteratorNext)     \
+  X(ResutlsIteratorFree)     \
+  X(ResutlsIteratorReset)
+
 static bool RediSearch_Initialize() {
-  REDISEARCH_MODULE_INIT_FUNCTION(GetLowLevelApiVersion);
-
-  REDISEARCH_MODULE_INIT_FUNCTION(CreateSpec);
-  REDISEARCH_MODULE_INIT_FUNCTION(CreateTextField);
-  REDISEARCH_MODULE_INIT_FUNCTION(TextFieldSetWeight);
-  REDISEARCH_MODULE_INIT_FUNCTION(TextFieldNoStemming);
-  REDISEARCH_MODULE_INIT_FUNCTION(TextFieldPhonetic);
-  REDISEARCH_MODULE_INIT_FUNCTION(CreateGeoField);
-  REDISEARCH_MODULE_INIT_FUNCTION(CreateNumericField);
-  REDISEARCH_MODULE_INIT_FUNCTION(CreateTagField);
-  REDISEARCH_MODULE_INIT_FUNCTION(TagSetSeparator);
-  REDISEARCH_MODULE_INIT_FUNCTION(FieldSetSortable);
-  REDISEARCH_MODULE_INIT_FUNCTION(FieldSetNoIndex);
-
-  REDISEARCH_MODULE_INIT_FUNCTION(CreateDocument);
-  REDISEARCH_MODULE_INIT_FUNCTION(DropDocument);
-  REDISEARCH_MODULE_INIT_FUNCTION(DocumentAddTextField);
-  REDISEARCH_MODULE_INIT_FUNCTION(DocumentAddNumericField);
-
-  REDISEARCH_MODULE_INIT_FUNCTION(SpecAddDocument);
-
-  REDISEARCH_MODULE_INIT_FUNCTION(CreateTokenNode);
-  REDISEARCH_MODULE_INIT_FUNCTION(CreateNumericNode);
-  REDISEARCH_MODULE_INIT_FUNCTION(CreatePrefixNode);
-  REDISEARCH_MODULE_INIT_FUNCTION(CreateLexRangeNode);
-  REDISEARCH_MODULE_INIT_FUNCTION(CreateTagNode);
-  REDISEARCH_MODULE_INIT_FUNCTION(TagNodeAddChild);
-  REDISEARCH_MODULE_INIT_FUNCTION(CreateIntersectNode);
-  REDISEARCH_MODULE_INIT_FUNCTION(IntersectNodeAddChild);
-  REDISEARCH_MODULE_INIT_FUNCTION(CreateUnionNode);
-  REDISEARCH_MODULE_INIT_FUNCTION(UnionNodeAddChild);
-
-  REDISEARCH_MODULE_INIT_FUNCTION(GetResutlsIterator);
-  REDISEARCH_MODULE_INIT_FUNCTION(ResutlsIteratorNext);
-  REDISEARCH_MODULE_INIT_FUNCTION(ResutlsIteratorFree);
-  REDISEARCH_MODULE_INIT_FUNCTION(ResutlsIteratorReset);
-
+  RS_XAPIFUNC(REDISEARCH_MODULE_INIT_FUNCTION);
   if (RediSearch_GetLowLevelApiVersion() > REDISEARCH_LOW_LEVEL_API_VERSION) {
     return REDISMODULE_ERR;
   }
-
   return REDISMODULE_OK;
 }
 
+#define REDISEARCH__API_INIT_NULL(s) __typeof__(RediSearch_##s) RediSearch_##s = NULL;
+#define REDISEARCH_API_INIT_SYMBOLS() RS_XAPIFUNC(REDISEARCH__API_INIT_NULL)
+
+#ifdef __cplusplus
+}
+#endif
 #endif /* SRC_REDISEARCH_API_H_ */

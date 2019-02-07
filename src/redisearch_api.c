@@ -284,6 +284,7 @@ int RS_InitializeLibrary(RedisModuleCtx* ctx) {
   REGISTER_API(CreateTokenNode, moduleRegisterApi);
   REGISTER_API(CreateNumericNode, moduleRegisterApi);
   REGISTER_API(CreatePrefixNode, moduleRegisterApi);
+  REGISTER_API(CreateLexRangeNode, moduleRegisterApi);
   REGISTER_API(CreateTagNode, moduleRegisterApi);
   REGISTER_API(TagNodeAddChild, moduleRegisterApi);
   REGISTER_API(CreateIntersectNode, moduleRegisterApi);
