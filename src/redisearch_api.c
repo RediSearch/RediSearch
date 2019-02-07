@@ -161,6 +161,21 @@ QueryNode* RS_CreatePrefixNode(IndexSpec* sp, const char* fieldName, const char*
   return ret;
 }
 
+QueryNode* RS_CreateLexRangeNode(IndexSpec* sp, const char* fieldName, const char* begin,
+                                 const char* end) {
+  QueryNode* ret = NewQueryNode(QN_LEXRANGE);
+  if (begin) {
+    ret->lxrng.begin = strdup(begin);
+  }
+  if (end) {
+    ret->lxrng.end = strdup(end);
+  }
+  if (fieldName) {
+    ret->opts.fieldMask = IndexSpec_GetFieldBit(sp, fieldName, strlen(fieldName));
+  }
+  return ret;
+}
+
 QueryNode* RS_CreateTagNode(IndexSpec* sp, const char* field) {
   QueryNode* ret = NewQueryNode(QN_TAG);
   ret->tag.fieldName = strdup(field);

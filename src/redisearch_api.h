@@ -64,6 +64,9 @@ QN* MODULE_API_FUNC(RediSearch_CreateNumericNode)(Index* sp, const char* field, 
 
 QN* MODULE_API_FUNC(RediSearch_CreatePrefixNode)(Index* sp, const char* fieldName, const char* s);
 
+QN* MODULE_API_FUNC(RediSearch_CreateLexRangeNode)(Index* sp, const char* fieldName,
+                                                   const char* begin, const char* end);
+
 QN* MODULE_API_FUNC(RediSearch_CreateTagNode)(Index* sp, const char* field);
 
 void MODULE_API_FUNC(RediSearch_TagNodeAddChild)(QN* qn, QN* child);
@@ -116,6 +119,7 @@ static bool RediSearch_Initialize() {
   REDISEARCH_MODULE_INIT_FUNCTION(CreateTokenNode);
   REDISEARCH_MODULE_INIT_FUNCTION(CreateNumericNode);
   REDISEARCH_MODULE_INIT_FUNCTION(CreatePrefixNode);
+  REDISEARCH_MODULE_INIT_FUNCTION(CreateLexRangeNode);
   REDISEARCH_MODULE_INIT_FUNCTION(CreateTagNode);
   REDISEARCH_MODULE_INIT_FUNCTION(TagNodeAddChild);
   REDISEARCH_MODULE_INIT_FUNCTION(CreateIntersectNode);

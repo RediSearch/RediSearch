@@ -357,6 +357,7 @@ void SpellCheck_Reply(SpellCheckCtx *scCtx, QueryAST *q) {
         break;
 
       case QN_PREFX:
+      case QN_LEXRANGE:
       case QN_NUMERIC:
       case QN_GEO:
       case QN_IDS:

@@ -62,6 +62,10 @@ static void QueryTagNode_Free(QueryTagNode *tag) {
   }
   free((char *)tag->fieldName);
 }
+
+static void QueryLexRangeNode_Free(QueryLexRangeNode *lx) {
+}
+
 // void _queryNumericNode_Free(QueryNumericNode *nn) { free(nn->nf); }
 
 void QueryNode_Free(QueryNode *n) {
@@ -97,9 +101,10 @@ void QueryNode_Free(QueryNode *n) {
     case QN_FUZZY:
       QueryTokenNode_Free(&n->fz.tok);
       break;
+    case QN_LEXRANGE:
+      QueryLexRangeNode_Free(&n->lxrng);
     case QN_WILDCARD:
     case QN_IDS:
-
       break;
 
     case QN_TAG:
@@ -385,6 +390,67 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
   if (!terms) return NULL;
 
   return iterateExpandedTerms(q, terms, qn->pfx.str, qn->pfx.len, 0, 1, &qn->opts);
+}
+
+typedef struct {
+  IndexIterator **its;
+  size_t nits;
+  size_t cap;
+  QueryEvalCtx *q;
+  QueryNodeOptions *opts;
+} LexRangeCtx;
+
+static void rangeIterCb(const rune *r, size_t n, void *p) {
+  LexRangeCtx *ctx = p;
+  QueryEvalCtx *q = ctx->q;
+  RSToken tok = {0};
+  tok.str = runesToStr(r, n, &tok.len);
+  RSQueryTerm *term = NewQueryTerm(&tok, ctx->q->tokenId++);
+  IndexReader *ir = Redis_OpenReader(q->sctx, term, &q->sctx->spec->docs, 0,
+                                     q->opts->fieldmask & ctx->opts->fieldMask, q->conc, 1);
+  free(tok.str);
+  if (!ir) {
+    Term_Free(term);
+    return;
+  }
+
+  ctx->its[ctx->nits++] = NewReadIterator(ir);
+  if (ctx->nits == ctx->cap) {
+    ctx->cap *= 2;
+    ctx->its = realloc(ctx->its, ctx->cap * sizeof(*ctx->its));
+  }
+}
+
+static IndexIterator *Query_EvalLexRangeNode(QueryEvalCtx *q, QueryNode *lx) {
+  Trie *t = q->sctx->spec->terms;
+  LexRangeCtx ctx = {.q = q, .opts = &lx->opts};
+
+  if (!t) {
+    return NULL;
+  }
+
+  ctx.cap = 8;
+  ctx.its = malloc(sizeof(*ctx.its) * ctx.cap);
+  ctx.nits = 0;
+
+  rune *begin = NULL, *end = NULL;
+  size_t nbegin = 0, nend = 0;
+  if (lx->lxrng.begin) {
+    begin = strToFoldedRunes(lx->lxrng.begin, &nbegin);
+  }
+  if (lx->lxrng.end) {
+    end = strToFoldedRunes(lx->lxrng.end, &nend);
+  }
+
+  TrieNode_IterateRange(t->root, begin, nbegin, end, nend, rangeIterCb, &ctx);
+  free(begin);
+  free(end);
+  if (!ctx.its || ctx.nits == 0) {
+    free(ctx.its);
+    return NULL;
+  } else {
+    return NewUnionIterator(ctx.its, ctx.nits, q->docTable, 1, lx->opts.weight);
+  }
 }
 
 static IndexIterator *Query_EvalFuzzyNode(QueryEvalCtx *q, QueryNode *qn) {
@@ -695,6 +761,8 @@ IndexIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
       return Query_EvalNotNode(q, n);
     case QN_PREFX:
       return Query_EvalPrefixNode(q, n);
+    case QN_LEXRANGE:
+      return Query_EvalLexRangeNode(q, n);
     case QN_FUZZY:
       return Query_EvalFuzzyNode(q, n);
     case QN_NUMERIC:
@@ -940,6 +1008,11 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       s = sdscatprintf(s, "PREFIX{%s*", (char *)qs->pfx.str);
       break;
 
+    case QN_LEXRANGE:
+      s = sdscatprintf(s, "LEXRANGE{%s...%s", qs->lxrng.begin ? qs->lxrng.begin : "",
+                       qs->lxrng.end ? qs->lxrng.end : "");
+      break;
+
     case QN_NOT:
       s = sdscat(s, "NOT{\n");
       s = QueryNode_DumpSds(s, spec, qs->inverted.child, depth + 1);
@@ -1079,6 +1152,7 @@ int Query_NodeForEach(QueryAST *q, QueryNode_ForEachCallback callback, void *ctx
       case QN_FUZZY:
       case QN_TOKEN:
       case QN_PREFX:
+      case QN_LEXRANGE:
       case QN_NUMERIC:
       case QN_NULL:
         break;
