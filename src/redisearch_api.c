@@ -14,7 +14,7 @@ int RS_GetCApiVersion() {
   return REDISEARCH_CAPI_VERSION;
 }
 
-IndexSpec* RS_CreateSpec(const char* name, RSGetValueCallback getValue, void* getValueCtx) {
+IndexSpec* RS_CreateIndex(const char* name, RSGetValueCallback getValue, void* getValueCtx) {
   IndexSpec* spec = NewIndexSpec(name);
   spec->flags |= Index_Temporary;  // temporary is so that we will not use threads!!
   spec->keysDict = dictCreate(&dictTypeHeapRedisStrings, NULL);
@@ -262,7 +262,7 @@ int moduleRegisterApi(const char* funcname, void* funcptr);
 int RS_InitializeLibrary(RedisModuleCtx* ctx) {
   REGISTER_API(GetCApiVersion, moduleRegisterApi);
 
-  REGISTER_API(CreateSpec, moduleRegisterApi);
+  REGISTER_API(CreateIndex, moduleRegisterApi);
   REGISTER_API(CreateTextField, moduleRegisterApi);
   REGISTER_API(TextFieldSetWeight, moduleRegisterApi);
   REGISTER_API(TextFieldNoStemming, moduleRegisterApi);

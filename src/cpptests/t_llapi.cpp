@@ -28,7 +28,7 @@ TEST_F(LLApiTest, testGetVersion) {
 
 TEST_F(LLApiTest, testAddDocumentTextField) {
   // creating the index
-  RSIndex* index = RediSearch_CreateSpec("index", NULL, NULL);
+  RSIndex* index = RediSearch_CreateIndex("index", NULL, NULL);
 
   // adding text field to the index
   RediSearch_CreateTextField(index, FIELD_NAME_1);
@@ -116,7 +116,7 @@ TEST_F(LLApiTest, testAddDocumentTextField) {
 
 TEST_F(LLApiTest, testAddDocumetNumericField) {
   // creating the index
-  RSIndex* index = RediSearch_CreateSpec("index", NULL, NULL);
+  RSIndex* index = RediSearch_CreateIndex("index", NULL, NULL);
 
   // adding text field to the index
   RediSearch_CreateNumericField(index, NUMERIC_FIELD_NAME);
@@ -141,7 +141,7 @@ TEST_F(LLApiTest, testAddDocumetNumericField) {
 
 TEST_F(LLApiTest, testAddDocumetTagField) {
   // creating the index
-  RSIndex* index = RediSearch_CreateSpec("index", NULL, NULL);
+  RSIndex* index = RediSearch_CreateIndex("index", NULL, NULL);
 
   // adding text field to the index
   RediSearch_CreateTagField(index, TAG_FIELD_NAME1);
@@ -182,7 +182,7 @@ TEST_F(LLApiTest, testAddDocumetTagField) {
 
 TEST_F(LLApiTest, testPhoneticSearch) {
   // creating the index
-  RSIndex* index = RediSearch_CreateSpec("index", NULL, NULL);
+  RSIndex* index = RediSearch_CreateIndex("index", NULL, NULL);
   RSField* f = RediSearch_CreateTextField(index, FIELD_NAME_1);
   RediSearch_TextFieldPhonetic(f, index);
 
@@ -214,7 +214,7 @@ TEST_F(LLApiTest, testPhoneticSearch) {
 
 TEST_F(LLApiTest, testMassivePrefix) {
   // creating the index
-  RSIndex* index = RediSearch_CreateSpec("index", NULL, NULL);
+  RSIndex* index = RediSearch_CreateIndex("index", NULL, NULL);
   RediSearch_CreateTagField(index, TAG_FIELD_NAME1);
 
   char buff[1024];
@@ -243,7 +243,7 @@ TEST_F(LLApiTest, testMassivePrefix) {
 }
 
 TEST_F(LLApiTest, testRanges) {
-  RSIndex* index = RediSearch_CreateSpec("index", NULL, NULL);
+  RSIndex* index = RediSearch_CreateIndex("index", NULL, NULL);
   RediSearch_CreateTextField(index, FIELD_NAME_1);
   char buf[] = {"Mark_"};
   size_t nbuf = strlen(buf);
@@ -296,7 +296,7 @@ static int GetValue(void* ctx, const char* fieldName, const void* id, char** str
 
 TEST_F(LLApiTest, testMassivePrefixWithUnsortedSupport) {
   // creating the index
-  RSIndex* index = RediSearch_CreateSpec("index", GetValue, NULL);
+  RSIndex* index = RediSearch_CreateIndex("index", GetValue, NULL);
   RediSearch_CreateTagField(index, TAG_FIELD_NAME1);
 
   char buff[1024];
@@ -326,7 +326,7 @@ TEST_F(LLApiTest, testMassivePrefixWithUnsortedSupport) {
 
 TEST_F(LLApiTest, testPrefixIntersection) {
   // creating the index
-  RSIndex* index = RediSearch_CreateSpec("index", GetValue, NULL);
+  RSIndex* index = RediSearch_CreateIndex("index", GetValue, NULL);
   RediSearch_CreateTagField(index, TAG_FIELD_NAME1);
   RediSearch_CreateTagField(index, TAG_FIELD_NAME2);
 

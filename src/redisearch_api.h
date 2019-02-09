@@ -25,7 +25,7 @@ typedef int (*RSGetValueCallback)(void* ctx, const char* fieldName, const void* 
 
 MODULE_API_FUNC(int, RediSearch_GetCApiVersion)();
 
-MODULE_API_FUNC(RSIndex*, RediSearch_CreateSpec)
+MODULE_API_FUNC(RSIndex*, RediSearch_CreateIndex)
 (const char* name, RSGetValueCallback getValue, void* getValueCtx);
 
 MODULE_API_FUNC(RSField*, RediSearch_CreateTextField)(RSIndex* sp, const char* name);
@@ -102,7 +102,7 @@ MODULE_API_FUNC(void, RediSearch_ResultsIteratorReset)(RSResultsIterator* iter);
 
 #define RS_XAPIFUNC(X)       \
   X(GetCApiVersion)          \
-  X(CreateSpec)              \
+  X(CreateIndex)             \
   X(CreateTextField)         \
   X(TextFieldSetWeight)      \
   X(TextFieldNoStemming)     \
