@@ -25,6 +25,10 @@ IndexSpec* RS_CreateIndex(const char* name, RSGetValueCallback getValue, void* g
   return spec;
 }
 
+void RS_DropIndex(IndexSpec* sp) {
+  IndexSpec_Free(sp);
+}
+
 static inline FieldSpec* RS_CreateField(IndexSpec* sp, const char* name) {
   FieldSpec* fs = IndexSpec_CreateField(sp);
   FieldSpec_SetName(fs, name);
@@ -263,6 +267,7 @@ int RS_InitializeLibrary(RedisModuleCtx* ctx) {
   REGISTER_API(GetCApiVersion, moduleRegisterApi);
 
   REGISTER_API(CreateIndex, moduleRegisterApi);
+  REGISTER_API(DropIndex, moduleRegisterApi);
   REGISTER_API(CreateTextField, moduleRegisterApi);
   REGISTER_API(TextFieldSetWeight, moduleRegisterApi);
   REGISTER_API(TextFieldNoStemming, moduleRegisterApi);

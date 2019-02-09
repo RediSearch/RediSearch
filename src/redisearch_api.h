@@ -28,6 +28,8 @@ MODULE_API_FUNC(int, RediSearch_GetCApiVersion)();
 MODULE_API_FUNC(RSIndex*, RediSearch_CreateIndex)
 (const char* name, RSGetValueCallback getValue, void* getValueCtx);
 
+MODULE_API_FUNC(void, RediSearch_DropIndex)(RSIndex*);
+
 MODULE_API_FUNC(RSField*, RediSearch_CreateTextField)(RSIndex* sp, const char* name);
 
 MODULE_API_FUNC(void, RediSearch_TextFieldSetWeight)(RSField* fs, double w);
@@ -106,6 +108,7 @@ MODULE_API_FUNC(void, RediSearch_ResultsIteratorReset)(RSResultsIterator* iter);
 #define RS_XAPIFUNC(X)       \
   X(GetCApiVersion)          \
   X(CreateIndex)             \
+  X(DropIndex)               \
   X(CreateTextField)         \
   X(TextFieldSetWeight)      \
   X(TextFieldNoStemming)     \

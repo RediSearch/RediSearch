@@ -112,6 +112,7 @@ TEST_F(LLApiTest, testAddDocumentTextField) {
   ASSERT_STREQ(id, NULL);
 
   RediSearch_ResultsIteratorFree(iter);
+  RediSearch_DropIndex(index);
 }
 
 TEST_F(LLApiTest, testAddDocumetNumericField) {
