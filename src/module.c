@@ -1010,7 +1010,7 @@ static int validateAofSettings(RedisModuleCtx *ctx) {
   return rc;
 }
 
-int RS_InitializeLibrary(RedisModuleCtx* ctx);
+int RS_InitializeLibrary(RedisModuleCtx *ctx);
 
 int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
@@ -1023,11 +1023,12 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
     return REDISMODULE_ERR;
   }
 
-  if(RS_InitializeLibrary(ctx) != REDISMODULE_OK){
+  if (RS_InitializeLibrary(ctx) != REDISMODULE_OK) {
     RedisModule_Log(ctx, "warning", "Could not initialize low level api");
     return REDISMODULE_ERR;
-  }else{
-    RedisModule_Log(ctx, "notice", "Low level api version %d initialized successfully", REDISEARCH_LOW_LEVEL_API_VERSION);
+  } else {
+    RedisModule_Log(ctx, "notice", "Low level api version %d initialized successfully",
+                    REDISEARCH_CAPI_VERSION);
   }
 
   // Print version string!

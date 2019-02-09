@@ -14,6 +14,7 @@
 #include "query_error.h"
 #include "field_spec.h"
 #include "util/dict.h"
+#include "redisearch_api.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -123,12 +124,6 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
   (((spec)->flags & Index_StoreTermOffsets) && ((spec)->flags & Index_StoreByteOffsets))
 
 #define FIELD_BIT(fs) (((t_fieldMask)1) << (fs)->textOpts.id)
-
-#define VALUE_NOT_FOUND 0
-#define STR_VALUE_TYPE 1
-#define DOUBLE_VALUE_TYPE 2
-typedef int (*RSGetValueCallback)(void *ctx, const char *fieldName, const void *id, char **strVal,
-                                double *doubleVal);
 
 typedef struct IndexSpec {
   char *name;

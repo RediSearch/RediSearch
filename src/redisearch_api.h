@@ -7,7 +7,7 @@
 extern "C" {
 #endif
 
-#define REDISEARCH_LOW_LEVEL_API_VERSION 1
+#define REDISEARCH_CAPI_VERSION 1
 
 #define MODULE_API_FUNC(T, N) extern T(*N)
 
@@ -15,15 +15,15 @@ typedef struct IndexSpec RSIndex;
 typedef struct FieldSpec RSField;
 typedef struct Document RSDoc;
 typedef struct RSQueryNode RSQNode;
-typedef struct indexIterator ResultsIterator;
+typedef struct indexIterator RSResultsIterator;
 
-#define VALUE_NOT_FOUND 0
-#define STR_VALUE_TYPE 1
-#define DOUBLE_VALUE_TYPE 2
+#define RSVALTYPE_NOTFOUND 0
+#define RSVALTYPE_STRING 1
+#define RSVALTYPE_DOUBLE 2
 typedef int (*RSGetValueCallback)(void* ctx, const char* fieldName, const void* id, char** strVal,
                                   double* doubleVal);
 
-MODULE_API_FUNC(int, RediSearch_GetLowLevelApiVersion)();
+MODULE_API_FUNC(int, RediSearch_GetCApiVersion)();
 
 MODULE_API_FUNC(RSIndex*, RediSearch_CreateSpec)
 (const char* name, RSGetValueCallback getValue, void* getValueCtx);
@@ -85,14 +85,14 @@ MODULE_API_FUNC(RSQNode*, RediSearch_CreateUnionNode)(RSIndex* sp);
 
 MODULE_API_FUNC(void, RediSearch_UnionNodeAddChild)(RSQNode* qn, RSQNode* child);
 
-MODULE_API_FUNC(ResultsIterator*, RediSearch_GetResutlsIterator)(RSQNode* qn, RSIndex* sp);
+MODULE_API_FUNC(RSResultsIterator*, RediSearch_GetResultsIterator)(RSQNode* qn, RSIndex* sp);
 
-const MODULE_API_FUNC(void*, RediSearch_ResutlsIteratorNext)(ResultsIterator* iter, RSIndex* sp,
+const MODULE_API_FUNC(void*, RediSearch_ResultsIteratorNext)(RSResultsIterator* iter, RSIndex* sp,
                                                              size_t* len);
 
-MODULE_API_FUNC(void, RediSearch_ResutlsIteratorFree)(ResultsIterator* iter);
+MODULE_API_FUNC(void, RediSearch_ResultsIteratorFree)(RSResultsIterator* iter);
 
-MODULE_API_FUNC(void, RediSearch_ResutlsIteratorReset)(ResultsIterator* iter);
+MODULE_API_FUNC(void, RediSearch_ResultsIteratorReset)(RSResultsIterator* iter);
 
 #define REDISEARCH_MODULE_INIT_FUNCTION(name)                                  \
   if (RedisModule_GetApi("RediSearch_" #name, ((void**)&RediSearch_##name))) { \
@@ -101,7 +101,7 @@ MODULE_API_FUNC(void, RediSearch_ResutlsIteratorReset)(ResultsIterator* iter);
   }
 
 #define RS_XAPIFUNC(X)       \
-  X(GetLowLevelApiVersion)   \
+  X(GetCApiVersion)          \
   X(CreateSpec)              \
   X(CreateTextField)         \
   X(TextFieldSetWeight)      \
@@ -128,14 +128,14 @@ MODULE_API_FUNC(void, RediSearch_ResutlsIteratorReset)(ResultsIterator* iter);
   X(IntersectNodeAddChild)   \
   X(CreateUnionNode)         \
   X(UnionNodeAddChild)       \
-  X(GetResutlsIterator)      \
-  X(ResutlsIteratorNext)     \
-  X(ResutlsIteratorFree)     \
-  X(ResutlsIteratorReset)
+  X(GetResultsIterator)      \
+  X(ResultsIteratorNext)     \
+  X(ResultsIteratorFree)     \
+  X(ResultsIteratorReset)
 
 static bool RediSearch_Initialize() {
   RS_XAPIFUNC(REDISEARCH_MODULE_INIT_FUNCTION);
-  if (RediSearch_GetLowLevelApiVersion() > REDISEARCH_LOW_LEVEL_API_VERSION) {
+  if (RediSearch_GetCApiVersion() > REDISEARCH_CAPI_VERSION) {
     return REDISMODULE_ERR;
   }
   return REDISMODULE_OK;

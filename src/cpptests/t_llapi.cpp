@@ -23,7 +23,7 @@ class LLApiTest : public ::testing::Test {
 };
 
 TEST_F(LLApiTest, testGetVersion) {
-  ASSERT_EQ(RediSearch_GetLowLevelApiVersion(), REDISEARCH_LOW_LEVEL_API_VERSION);
+  ASSERT_EQ(RediSearch_GetCApiVersion(), REDISEARCH_CAPI_VERSION);
 }
 
 TEST_F(LLApiTest, testAddDocumentTextField) {
@@ -41,30 +41,30 @@ TEST_F(LLApiTest, testAddDocumentTextField) {
   // searching on the index
 #define SEARCH_TERM "index"
   RSQNode* qn = RediSearch_CreateTokenNode(index, FIELD_NAME_1, SEARCH_TERM);
-  ResultsIterator* iter = RediSearch_GetResutlsIterator(qn, index);
+  RSResultsIterator* iter = RediSearch_GetResultsIterator(qn, index);
 
   size_t len;
-  const char* id = (const char*)RediSearch_ResutlsIteratorNext(iter, index, &len);
+  const char* id = (const char*)RediSearch_ResultsIteratorNext(iter, index, &len);
   ASSERT_STREQ(id, DOCID1);
-  id = (const char*)RediSearch_ResutlsIteratorNext(iter, index, &len);
+  id = (const char*)RediSearch_ResultsIteratorNext(iter, index, &len);
   ASSERT_STREQ(id, NULL);
 
-  RediSearch_ResutlsIteratorFree(iter);
+  RediSearch_ResultsIteratorFree(iter);
 
   // test prefix search
   qn = RediSearch_CreatePrefixNode(index, FIELD_NAME_1, "in");
-  iter = RediSearch_GetResutlsIterator(qn, index);
+  iter = RediSearch_GetResultsIterator(qn, index);
 
-  id = (const char*)RediSearch_ResutlsIteratorNext(iter, index, &len);
+  id = (const char*)RediSearch_ResultsIteratorNext(iter, index, &len);
   ASSERT_STREQ(id, DOCID1);
-  id = (const char*)RediSearch_ResutlsIteratorNext(iter, index, &len);
+  id = (const char*)RediSearch_ResultsIteratorNext(iter, index, &len);
   ASSERT_STREQ(id, NULL);
 
-  RediSearch_ResutlsIteratorFree(iter);
+  RediSearch_ResultsIteratorFree(iter);
 
   // search with no results
   qn = RediSearch_CreatePrefixNode(index, FIELD_NAME_1, "nn");
-  iter = RediSearch_GetResutlsIterator(qn, index);
+  iter = RediSearch_GetResultsIterator(qn, index);
   ASSERT_FALSE(iter);
 
   // adding another text field
@@ -78,27 +78,27 @@ TEST_F(LLApiTest, testAddDocumentTextField) {
 
   // test prefix search, should return both documents now
   qn = RediSearch_CreatePrefixNode(index, FIELD_NAME_1, "in");
-  iter = RediSearch_GetResutlsIterator(qn, index);
+  iter = RediSearch_GetResultsIterator(qn, index);
 
-  id = (const char*)RediSearch_ResutlsIteratorNext(iter, index, &len);
+  id = (const char*)RediSearch_ResultsIteratorNext(iter, index, &len);
   ASSERT_STREQ(id, DOCID1);
-  id = (const char*)RediSearch_ResutlsIteratorNext(iter, index, &len);
+  id = (const char*)RediSearch_ResultsIteratorNext(iter, index, &len);
   ASSERT_STREQ(id, DOCID2);
-  id = (const char*)RediSearch_ResutlsIteratorNext(iter, index, &len);
+  id = (const char*)RediSearch_ResultsIteratorNext(iter, index, &len);
   ASSERT_STREQ(id, NULL);
 
-  RediSearch_ResutlsIteratorFree(iter);
+  RediSearch_ResultsIteratorFree(iter);
 
   // test prefix search on second field, should return only second document
   qn = RediSearch_CreatePrefixNode(index, FIELD_NAME_2, "an");
-  iter = RediSearch_GetResutlsIterator(qn, index);
+  iter = RediSearch_GetResultsIterator(qn, index);
 
-  id = (const char*)RediSearch_ResutlsIteratorNext(iter, index, &len);
+  id = (const char*)RediSearch_ResultsIteratorNext(iter, index, &len);
   ASSERT_STREQ(id, DOCID2);
-  id = (const char*)RediSearch_ResutlsIteratorNext(iter, index, &len);
+  id = (const char*)RediSearch_ResultsIteratorNext(iter, index, &len);
   ASSERT_STREQ(id, NULL);
 
-  RediSearch_ResutlsIteratorFree(iter);
+  RediSearch_ResultsIteratorFree(iter);
 
   // delete the second document
   int ret = RediSearch_DropDocument(index, DOCID2, strlen(DOCID2));
@@ -106,12 +106,12 @@ TEST_F(LLApiTest, testAddDocumentTextField) {
 
   // searching again, make sure there is no results
   qn = RediSearch_CreatePrefixNode(index, FIELD_NAME_2, "an");
-  iter = RediSearch_GetResutlsIterator(qn, index);
+  iter = RediSearch_GetResultsIterator(qn, index);
 
-  id = (const char*)RediSearch_ResutlsIteratorNext(iter, index, &len);
+  id = (const char*)RediSearch_ResultsIteratorNext(iter, index, &len);
   ASSERT_STREQ(id, NULL);
 
-  RediSearch_ResutlsIteratorFree(iter);
+  RediSearch_ResultsIteratorFree(iter);
 }
 
 TEST_F(LLApiTest, testAddDocumetNumericField) {
@@ -128,15 +128,15 @@ TEST_F(LLApiTest, testAddDocumetNumericField) {
 
   // searching on the index
   RSQNode* qn = RediSearch_CreateNumericNode(index, NUMERIC_FIELD_NAME, 30, 10, 0, 0);
-  ResultsIterator* iter = RediSearch_GetResutlsIterator(qn, index);
+  RSResultsIterator* iter = RediSearch_GetResultsIterator(qn, index);
 
   size_t len;
-  const char* id = (const char*)RediSearch_ResutlsIteratorNext(iter, index, &len);
+  const char* id = (const char*)RediSearch_ResultsIteratorNext(iter, index, &len);
   ASSERT_STREQ(id, DOCID1);
-  id = (const char*)RediSearch_ResutlsIteratorNext(iter, index, &len);
+  id = (const char*)RediSearch_ResultsIteratorNext(iter, index, &len);
   ASSERT_STREQ(id, NULL);
 
-  RediSearch_ResutlsIteratorFree(iter);
+  RediSearch_ResultsIteratorFree(iter);
 }
 
 TEST_F(LLApiTest, testAddDocumetTagField) {
@@ -156,28 +156,28 @@ TEST_F(LLApiTest, testAddDocumetTagField) {
   RSQNode* qn = RediSearch_CreateTagNode(index, TAG_FIELD_NAME1);
   RSQNode* tqn = RediSearch_CreateTokenNode(index, NULL, TAG_VALUE);
   RediSearch_TagNodeAddChild(qn, tqn);
-  ResultsIterator* iter = RediSearch_GetResutlsIterator(qn, index);
+  RSResultsIterator* iter = RediSearch_GetResultsIterator(qn, index);
 
   size_t len;
-  const char* id = (const char*)RediSearch_ResutlsIteratorNext(iter, index, &len);
+  const char* id = (const char*)RediSearch_ResultsIteratorNext(iter, index, &len);
   ASSERT_STREQ(id, DOCID1);
-  id = (const char*)RediSearch_ResutlsIteratorNext(iter, index, &len);
+  id = (const char*)RediSearch_ResultsIteratorNext(iter, index, &len);
   ASSERT_STREQ(id, NULL);
 
-  RediSearch_ResutlsIteratorFree(iter);
+  RediSearch_ResultsIteratorFree(iter);
 
   // prefix search on the index
   qn = RediSearch_CreateTagNode(index, TAG_FIELD_NAME1);
   tqn = RediSearch_CreatePrefixNode(index, NULL, "ta");
   RediSearch_TagNodeAddChild(qn, tqn);
-  iter = RediSearch_GetResutlsIterator(qn, index);
+  iter = RediSearch_GetResultsIterator(qn, index);
 
-  id = (const char*)RediSearch_ResutlsIteratorNext(iter, index, &len);
+  id = (const char*)RediSearch_ResultsIteratorNext(iter, index, &len);
   ASSERT_STREQ(id, DOCID1);
-  id = (const char*)RediSearch_ResutlsIteratorNext(iter, index, &len);
+  id = (const char*)RediSearch_ResultsIteratorNext(iter, index, &len);
   ASSERT_STREQ(id, NULL);
 
-  RediSearch_ResutlsIteratorFree(iter);
+  RediSearch_ResultsIteratorFree(iter);
 }
 
 TEST_F(LLApiTest, testPhoneticSearch) {
@@ -196,19 +196,19 @@ TEST_F(LLApiTest, testPhoneticSearch) {
 
   // make sure phonetic search works on field1
   RSQNode* qn = RediSearch_CreateTokenNode(index, FIELD_NAME_1, "phelix");
-  ResultsIterator* iter = RediSearch_GetResutlsIterator(qn, index);
+  RSResultsIterator* iter = RediSearch_GetResultsIterator(qn, index);
 
   size_t len;
-  const char* id = (const char*)RediSearch_ResutlsIteratorNext(iter, index, &len);
+  const char* id = (const char*)RediSearch_ResultsIteratorNext(iter, index, &len);
   ASSERT_STREQ(id, DOCID1);
-  id = (const char*)RediSearch_ResutlsIteratorNext(iter, index, &len);
+  id = (const char*)RediSearch_ResultsIteratorNext(iter, index, &len);
   ASSERT_STREQ(id, NULL);
 
-  RediSearch_ResutlsIteratorFree(iter);
+  RediSearch_ResultsIteratorFree(iter);
 
   // make sure phonetic search on field2 do not return results
   qn = RediSearch_CreateTokenNode(index, FIELD_NAME_2, "phelix");
-  iter = RediSearch_GetResutlsIterator(qn, index);
+  iter = RediSearch_GetResultsIterator(qn, index);
   ASSERT_FALSE(iter);
 }
 
@@ -230,16 +230,16 @@ TEST_F(LLApiTest, testMassivePrefix) {
   RSQNode* qn = RediSearch_CreateTagNode(index, TAG_FIELD_NAME1);
   RSQNode* pqn = RediSearch_CreatePrefixNode(index, NULL, "tag-");
   RediSearch_TagNodeAddChild(qn, pqn);
-  ResultsIterator* iter = RediSearch_GetResutlsIterator(qn, index);
+  RSResultsIterator* iter = RediSearch_GetResultsIterator(qn, index);
   ASSERT_TRUE(iter);
 
   for (size_t i = 0; i < NUM_OF_DOCS; ++i) {
     size_t len;
-    const char* id = (const char*)RediSearch_ResutlsIteratorNext(iter, index, &len);
+    const char* id = (const char*)RediSearch_ResultsIteratorNext(iter, index, &len);
     ASSERT_TRUE(id);
   }
 
-  RediSearch_ResutlsIteratorFree(iter);
+  RediSearch_ResultsIteratorFree(iter);
 }
 
 TEST_F(LLApiTest, testRanges) {
@@ -257,12 +257,12 @@ TEST_F(LLApiTest, testRanges) {
   }
 
   RSQNode* qn = RediSearch_CreateLexRangeNode(index, FIELD_NAME_1, "MarkN", "MarkX");
-  ResultsIterator* iter = RediSearch_GetResutlsIterator(qn, index);
+  RSResultsIterator* iter = RediSearch_GetResultsIterator(qn, index);
   ASSERT_FALSE(NULL == iter);
   std::set<std::string> results;
   const char* id;
   size_t nid;
-  while ((id = (const char*)RediSearch_ResutlsIteratorNext(iter, index, &nid))) {
+  while ((id = (const char*)RediSearch_ResultsIteratorNext(iter, index, &nid))) {
     std::string idstr(id, nid);
     ASSERT_EQ(results.end(), results.find(idstr));
     results.insert(idstr);
@@ -274,7 +274,7 @@ TEST_F(LLApiTest, testRanges) {
     sprintf(namebuf, "doc%c", c);
     ASSERT_NE(results.end(), results.find(namebuf));
   }
-  RediSearch_ResutlsIteratorFree(iter);
+  RediSearch_ResultsIteratorFree(iter);
 
   // printf("Have %lu ids in range!\n", results.size());
 }
@@ -291,7 +291,7 @@ static int GetValue(void* ctx, const char* fieldName, const void* id, char** str
   } else {
     sprintf(*strVal, "tag2-%d", numId);
   }
-  return STR_VALUE_TYPE;
+  return RSVALTYPE_STRING;
 }
 
 TEST_F(LLApiTest, testMassivePrefixWithUnsortedSupport) {
@@ -312,16 +312,16 @@ TEST_F(LLApiTest, testMassivePrefixWithUnsortedSupport) {
   RSQNode* qn = RediSearch_CreateTagNode(index, TAG_FIELD_NAME1);
   RSQNode* pqn = RediSearch_CreatePrefixNode(index, NULL, "tag-");
   RediSearch_TagNodeAddChild(qn, pqn);
-  ResultsIterator* iter = RediSearch_GetResutlsIterator(qn, index);
+  RSResultsIterator* iter = RediSearch_GetResultsIterator(qn, index);
   ASSERT_TRUE(iter);
 
   for (size_t i = 0; i < NUM_OF_DOCS; ++i) {
     size_t len;
-    const char* id = (const char*)RediSearch_ResutlsIteratorNext(iter, index, &len);
+    const char* id = (const char*)RediSearch_ResultsIteratorNext(iter, index, &len);
     ASSERT_TRUE(id);
   }
 
-  RediSearch_ResutlsIteratorFree(iter);
+  RediSearch_ResultsIteratorFree(iter);
 }
 
 TEST_F(LLApiTest, testPrefixIntersection) {
@@ -352,14 +352,14 @@ TEST_F(LLApiTest, testPrefixIntersection) {
   RediSearch_IntersectNodeAddChild(iqn, qn1);
   RediSearch_IntersectNodeAddChild(iqn, qn2);
 
-  ResultsIterator* iter = RediSearch_GetResutlsIterator(iqn, index);
+  RSResultsIterator* iter = RediSearch_GetResultsIterator(iqn, index);
   ASSERT_TRUE(iter);
 
   for (size_t i = 0; i < NUM_OF_DOCS; ++i) {
     size_t len;
-    const char* id = (const char*)RediSearch_ResutlsIteratorNext(iter, index, &len);
+    const char* id = (const char*)RediSearch_ResultsIteratorNext(iter, index, &len);
     ASSERT_STRNE(id, NULL);
   }
 
-  RediSearch_ResutlsIteratorFree(iter);
+  RediSearch_ResultsIteratorFree(iter);
 }

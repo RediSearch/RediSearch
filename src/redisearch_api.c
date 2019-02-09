@@ -10,8 +10,8 @@
 #include "numeric_filter.h"
 #include "query.h"
 
-int RS_GetLowLevelApiVersion() {
-  return REDISEARCH_LOW_LEVEL_API_VERSION;
+int RS_GetCApiVersion() {
+  return REDISEARCH_CAPI_VERSION;
 }
 
 IndexSpec* RS_CreateSpec(const char* name, RSGetValueCallback getValue, void* getValueCtx) {
@@ -209,7 +209,7 @@ void RS_UnionNodeAddChild(QueryNode* qn, QueryNode* child) {
   QueryUnionNode_AddChild(qn, child);
 }
 
-IndexIterator* RS_GetResutlsIterator(QueryNode* qn, IndexSpec* sp) {
+IndexIterator* RS_GetResultsIterator(QueryNode* qn, IndexSpec* sp) {
   RedisSearchCtx sctx = {.redisCtx = NULL, .spec = sp};
   RSSearchOptions searchOpts = {0};
   searchOpts.fieldmask = RS_FIELDMASK_ALL;
@@ -232,7 +232,7 @@ IndexIterator* RS_GetResutlsIterator(QueryNode* qn, IndexSpec* sp) {
   return ret;
 }
 
-const void* RS_ResutlsIteratorNext(IndexIterator* iter, IndexSpec* sp, size_t* len) {
+const void* RS_ResultsIteratorNext(IndexIterator* iter, IndexSpec* sp, size_t* len) {
   RSIndexResult* e = NULL;
   while (iter->Read(iter->ctx, &e) != INDEXREAD_EOF) {
     const char* docId = DocTable_GetKey(&sp->docs, e->docId, len);
@@ -243,11 +243,11 @@ const void* RS_ResutlsIteratorNext(IndexIterator* iter, IndexSpec* sp, size_t* l
   return NULL;
 }
 
-void RS_ResutlsIteratorFree(IndexIterator* iter) {
+void RS_ResultsIteratorFree(IndexIterator* iter) {
   iter->Free(iter);
 }
 
-void RS_ResutlsIteratorReset(ResultsIterator* iter) {
+void RS_ResultsIteratorReset(RSResultsIterator* iter) {
   iter->Rewind(iter->ctx);
 }
 
@@ -260,7 +260,7 @@ void RS_ResutlsIteratorReset(ResultsIterator* iter) {
 int moduleRegisterApi(const char* funcname, void* funcptr);
 
 int RS_InitializeLibrary(RedisModuleCtx* ctx) {
-  REGISTER_API(GetLowLevelApiVersion, moduleRegisterApi);
+  REGISTER_API(GetCApiVersion, moduleRegisterApi);
 
   REGISTER_API(CreateSpec, moduleRegisterApi);
   REGISTER_API(CreateTextField, moduleRegisterApi);
@@ -292,10 +292,10 @@ int RS_InitializeLibrary(RedisModuleCtx* ctx) {
   REGISTER_API(CreateUnionNode, moduleRegisterApi);
   REGISTER_API(UnionNodeAddChild, moduleRegisterApi);
 
-  REGISTER_API(GetResutlsIterator, moduleRegisterApi);
-  REGISTER_API(ResutlsIteratorNext, moduleRegisterApi);
-  REGISTER_API(ResutlsIteratorFree, moduleRegisterApi);
-  REGISTER_API(ResutlsIteratorReset, moduleRegisterApi);
+  REGISTER_API(GetResultsIterator, moduleRegisterApi);
+  REGISTER_API(ResultsIteratorNext, moduleRegisterApi);
+  REGISTER_API(ResultsIteratorFree, moduleRegisterApi);
+  REGISTER_API(ResultsIteratorReset, moduleRegisterApi);
 
   return REDISMODULE_OK;
 }

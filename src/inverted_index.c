@@ -800,7 +800,7 @@ static int IR_TestNumeric(IndexCriteriaTester *ct, t_docId id) {
   const char *externalId = DocTable_GetKey((DocTable *)&sp->docs, id, &len);
   double doubleValue;
   int ret = sp->getValue(sp->getValueCtx, irct->nf.fieldName, externalId, NULL, &doubleValue);
-  assert(ret == DOUBLE_VALUE_TYPE);
+  assert(ret == RSVALTYPE_DOUBLE);
   return ((irct->nf.min < doubleValue || (irct->nf.inclusiveMin && irct->nf.min == doubleValue)) &&
           (irct->nf.max > doubleValue || (irct->nf.inclusiveMax && irct->nf.max == doubleValue)));
 }
@@ -824,7 +824,7 @@ static int IR_TestTerm(IndexCriteriaTester *ct, t_docId id) {
     }
     char *strValue;
     int ret = sp->getValue(sp->getValueCtx, field->name, externalId, &strValue, NULL);
-    assert(ret == STR_VALUE_TYPE);
+    assert(ret == RSVALTYPE_STRING);
     if (strcmp(irct->tf.term, strValue) == 0) {
       return 1;
     }
