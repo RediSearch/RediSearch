@@ -105,8 +105,8 @@ int RS_DropDocument(IndexSpec* sp, const void* docKey, size_t len) {
   return 0;
 }
 
-void RS_DocumentAddTextField(Document* d, const char* fieldName, const char* val) {
-  Document_AddTextField(d, fieldName, val);
+void RS_DocumentAddTextField(Document* d, const char* fieldName, const char* val, size_t n) {
+  Document_AddTextField(d, fieldName, val, n);
 }
 
 void RS_DocumentAddNumericField(Document* d, const char* fieldName, double num) {

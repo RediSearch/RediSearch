@@ -25,10 +25,10 @@ Document *Document_Create(const char *docKey, size_t len, double score, const ch
   return ret;
 }
 
-void Document_AddTextField(Document *d, const char *fieldName, const char *fieldVal) {
+void Document_AddTextField(Document *d, const char *fieldName, const char *fieldVal, size_t n) {
   d->fields = realloc(d->fields, (++d->numFields) * sizeof(DocumentField));
   d->fields[d->numFields - 1].name = strdup(fieldName);
-  d->fields[d->numFields - 1].text = RedisModule_CreateString(NULL, fieldVal, strlen(fieldVal));
+  d->fields[d->numFields - 1].text = RedisModule_CreateString(NULL, fieldVal, n);
 }
 
 void Document_AddNumericField(Document *d, const char *fieldName, double num) {

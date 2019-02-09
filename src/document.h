@@ -35,7 +35,7 @@ extern "C" {
  * See document.c for the internals.
  */
 
-typedef struct{
+typedef struct {
   const char *name;
   RedisModuleString *text;
 } DocumentField;
@@ -71,10 +71,10 @@ typedef struct {
 
 int AddDocumentOptions_Parse(AddDocumentOptions *opts, ArgsCursor *ac, QueryError *status);
 
-Document* Document_Create(const char *docKey, size_t len, double score, const char *lang);
+Document *Document_Create(const char *docKey, size_t len, double score, const char *lang);
 
-void Document_AddTextField(Document* d, const char *fieldName, const char* fieldVal);
-void Document_AddNumericField(Document* d, const char *fieldName, double num);
+void Document_AddTextField(Document *d, const char *fieldName, const char *fieldVal, size_t n);
+void Document_AddNumericField(Document *d, const char *fieldName, double num);
 
 /**
  * Initialize document structure with the relevant fields. numFields will allocate

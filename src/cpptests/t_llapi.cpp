@@ -35,7 +35,7 @@ TEST_F(LLApiTest, testAddDocumentTextField) {
 
   // adding document to the index
   RSDoc* d = RediSearch_CreateDocument(DOCID1, strlen(DOCID1), 1.0, NULL);
-  RediSearch_DocumentAddTextField(d, FIELD_NAME_1, "some test to index");
+  RediSearch_DocumentAddTextFieldC(d, FIELD_NAME_1, "some test to index");
   RediSearch_SpecAddDocument(index, d);
 
   // searching on the index
@@ -72,8 +72,8 @@ TEST_F(LLApiTest, testAddDocumentTextField) {
 
   // adding document to the index with both fields
   d = RediSearch_CreateDocument(DOCID2, strlen(DOCID2), 1.0, NULL);
-  RediSearch_DocumentAddTextField(d, FIELD_NAME_1, "another indexing testing");
-  RediSearch_DocumentAddTextField(d, FIELD_NAME_2, "another indexing testing");
+  RediSearch_DocumentAddTextFieldC(d, FIELD_NAME_1, "another indexing testing");
+  RediSearch_DocumentAddTextFieldC(d, FIELD_NAME_2, "another indexing testing");
   RediSearch_SpecAddDocument(index, d);
 
   // test prefix search, should return both documents now
@@ -149,7 +149,7 @@ TEST_F(LLApiTest, testAddDocumetTagField) {
   // adding document to the index
 #define TAG_VALUE "tag_value"
   RSDoc* d = RediSearch_CreateDocument(DOCID1, strlen(DOCID1), 1.0, NULL);
-  RediSearch_DocumentAddTextField(d, TAG_FIELD_NAME1, TAG_VALUE);
+  RediSearch_DocumentAddTextFieldC(d, TAG_FIELD_NAME1, TAG_VALUE);
   RediSearch_SpecAddDocument(index, d);
 
   // searching on the index
@@ -190,8 +190,8 @@ TEST_F(LLApiTest, testPhoneticSearch) {
   RediSearch_CreateTextField(index, FIELD_NAME_2);
 
   RSDoc* d = RediSearch_CreateDocument(DOCID1, strlen(DOCID1), 1.0, NULL);
-  RediSearch_DocumentAddTextField(d, FIELD_NAME_1, "felix");
-  RediSearch_DocumentAddTextField(d, FIELD_NAME_2, "felix");
+  RediSearch_DocumentAddTextFieldC(d, FIELD_NAME_1, "felix");
+  RediSearch_DocumentAddTextFieldC(d, FIELD_NAME_2, "felix");
   RediSearch_SpecAddDocument(index, d);
 
   // make sure phonetic search works on field1
@@ -223,7 +223,7 @@ TEST_F(LLApiTest, testMassivePrefix) {
     sprintf(buff, "doc%d", i);
     RSDoc* d = RediSearch_CreateDocument(buff, strlen(buff), 1.0, NULL);
     sprintf(buff, "tag-%d", i);
-    RediSearch_DocumentAddTextField(d, TAG_FIELD_NAME1, buff);
+    RediSearch_DocumentAddTextFieldC(d, TAG_FIELD_NAME1, buff);
     RediSearch_SpecAddDocument(index, d);
   }
 
@@ -252,7 +252,7 @@ TEST_F(LLApiTest, testRanges) {
     char did[64];
     sprintf(did, "doc%c", c);
     RSDoc* d = RediSearch_CreateDocument(did, strlen(did), 0, NULL);
-    RediSearch_DocumentAddTextField(d, FIELD_NAME_1, buf);
+    RediSearch_DocumentAddTextFieldC(d, FIELD_NAME_1, buf);
     RediSearch_SpecAddDocument(index, d);
   }
 
@@ -305,7 +305,7 @@ TEST_F(LLApiTest, testMassivePrefixWithUnsortedSupport) {
     sprintf(buff, "doc%d", i);
     RSDoc* d = RediSearch_CreateDocument(buff, strlen(buff), 1.0, NULL);
     sprintf(buff, "tag-%d", i);
-    RediSearch_DocumentAddTextField(d, TAG_FIELD_NAME1, buff);
+    RediSearch_DocumentAddTextFieldC(d, TAG_FIELD_NAME1, buff);
     RediSearch_SpecAddDocument(index, d);
   }
 
@@ -336,9 +336,9 @@ TEST_F(LLApiTest, testPrefixIntersection) {
     sprintf(buff, "doc%d", i);
     RSDoc* d = RediSearch_CreateDocument(buff, strlen(buff), 1.0, NULL);
     sprintf(buff, "tag1-%d", i);
-    RediSearch_DocumentAddTextField(d, TAG_FIELD_NAME1, buff);
+    RediSearch_DocumentAddTextFieldC(d, TAG_FIELD_NAME1, buff);
     sprintf(buff, "tag2-%d", i);
-    RediSearch_DocumentAddTextField(d, TAG_FIELD_NAME2, buff);
+    RediSearch_DocumentAddTextFieldC(d, TAG_FIELD_NAME2, buff);
     RediSearch_SpecAddDocument(index, d);
   }
 

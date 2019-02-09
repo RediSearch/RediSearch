@@ -54,7 +54,10 @@ MODULE_API_FUNC(RSDoc*, RediSearch_CreateDocument)
 MODULE_API_FUNC(int, RediSearch_DropDocument)(RSIndex* sp, const void* docKey, size_t len);
 
 MODULE_API_FUNC(void, RediSearch_DocumentAddTextField)
-(RSDoc* d, const char* fieldName, const char* val);
+(RSDoc* d, const char* fieldName, const char* val, size_t n);
+
+#define RediSearch_DocumentAddTextFieldC(d, f, v) \
+  RediSearch_DocumentAddTextField(d, f, v, strlen(v))
 
 MODULE_API_FUNC(void, RediSearch_DocumentAddNumericField)
 (RSDoc* d, const char* fieldName, double num);
