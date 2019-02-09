@@ -1,6 +1,7 @@
 #include "internal.h"
 #include "util.h"
 #include "redismock.h"
+
 #include <string>
 #include <map>
 #include <vector>
@@ -14,6 +15,9 @@
 #include <cstdlib>
 #include <climits>
 #include <cassert>
+#include <mutex>
+
+static std::mutex RMCK_GlobalLock;
 
 std::string HashValue::Key::makeKey() const {
   if (flags & REDISMODULE_HASH_CFIELDS) {
@@ -515,14 +519,35 @@ void RMCK_FreeThreadSafeContext(RedisModuleCtx *ctx) {
   delete ctx;
 }
 
+void RMCK_AutoMemory(RedisModuleCtx *ctx) {
+  ctx->automemory = true;
+}
+
+void RMCK_ThreadSafeContextLock(RedisModuleCtx *) {
+  RMCK_GlobalLock.lock();
+}
+
+void RMCK_ThreadSafeContextUnlock(RedisModuleCtx *) {
+  RMCK_GlobalLock.unlock();
+}
+
+RedisModuleCallReply *RMCK_Call(RedisModuleCtx *, const char *, const char *, ...) {
+  return NULL;
+}
+
 Module::ModuleMap Module::modules;
 std::vector<KVDB *> KVDB::dbs;
 static int RMCK_GetApi(const char *s, void *pp);
 
 /** Misc */
 RedisModuleCtx::~RedisModuleCtx() {
-  for (auto it : allockeys) {
-    delete it;
+  if (automemory) {
+    for (auto it : allockeys) {
+      delete it;
+    }
+    for (auto it : allocstrs) {
+      delete it;
+    }
   }
 }
 
@@ -596,10 +621,14 @@ static void registerApis() {
 
   REGISTER_API(SetModuleAttribs);
   REGISTER_API(Log);
+  REGISTER_API(Call);
 
   REGISTER_API(GetThreadSafeContext);
   REGISTER_API(FreeThreadSafeContext);
+  REGISTER_API(ThreadSafeContextLock);
+  REGISTER_API(ThreadSafeContextUnlock);
   REGISTER_API(StringCompare);
+  REGISTER_API(AutoMemory);
 }
 
 static int RMCK_GetApi(const char *s, void *pp) {
