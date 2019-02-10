@@ -3,6 +3,7 @@
 #include <cstdio>
 
 REDISMODULE_INIT_SYMBOLS();
+REDISEARCH_API_INIT_SYMBOLS();
 
 extern "C" {
 
