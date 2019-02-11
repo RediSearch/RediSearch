@@ -14,10 +14,24 @@ int RS_GetCApiVersion() {
   return REDISEARCH_CAPI_VERSION;
 }
 
+static dictType invidxDictType = {0};
+
+static void invidxFreeCb(void* unused, void* p) {
+  InvertedIndex* idx = p;
+  InvertedIndex_Free(p);
+}
+
 IndexSpec* RS_CreateIndex(const char* name, RSGetValueCallback getValue, void* getValueCtx) {
   IndexSpec* spec = NewIndexSpec(name);
   spec->flags |= Index_Temporary;  // temporary is so that we will not use threads!!
-  spec->keysDict = dictCreate(&dictTypeHeapRedisStrings, NULL);
+
+  // Initialize only once:
+  if (!invidxDictType.valDestructor) {
+    invidxDictType = dictTypeHeapRedisStrings;
+    invidxDictType.valDestructor = invidxFreeCb;
+  }
+
+  spec->keysDict = dictCreate(&invidxDictType, NULL);
   spec->minPrefix = 0;
   spec->maxPrefixExpansions = -1;
   spec->getValue = getValue;
@@ -26,6 +40,9 @@ IndexSpec* RS_CreateIndex(const char* name, RSGetValueCallback getValue, void* g
 }
 
 void RS_DropIndex(IndexSpec* sp) {
+  dict* d = sp->keysDict;
+  dictRelease(d);
+  sp->keysDict = NULL;
   IndexSpec_Free(sp);
 }
 

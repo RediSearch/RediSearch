@@ -138,6 +138,7 @@ TEST_F(LLApiTest, testAddDocumetNumericField) {
   ASSERT_STREQ(id, NULL);
 
   RediSearch_ResultsIteratorFree(iter);
+  RediSearch_DropIndex(index);
 }
 
 TEST_F(LLApiTest, testAddDocumetTagField) {
@@ -179,6 +180,7 @@ TEST_F(LLApiTest, testAddDocumetTagField) {
   ASSERT_STREQ(id, NULL);
 
   RediSearch_ResultsIteratorFree(iter);
+  RediSearch_DropIndex(index);
 }
 
 TEST_F(LLApiTest, testPhoneticSearch) {
@@ -211,6 +213,7 @@ TEST_F(LLApiTest, testPhoneticSearch) {
   qn = RediSearch_CreateTokenNode(index, FIELD_NAME_2, "phelix");
   iter = RediSearch_GetResultsIterator(qn, index);
   ASSERT_FALSE(iter);
+  RediSearch_DropIndex(index);
 }
 
 TEST_F(LLApiTest, testMassivePrefix) {
@@ -241,6 +244,7 @@ TEST_F(LLApiTest, testMassivePrefix) {
   }
 
   RediSearch_ResultsIteratorFree(iter);
+  RediSearch_DropIndex(index);
 }
 
 TEST_F(LLApiTest, testRanges) {
@@ -278,6 +282,7 @@ TEST_F(LLApiTest, testRanges) {
   RediSearch_ResultsIteratorFree(iter);
 
   // printf("Have %lu ids in range!\n", results.size());
+  RediSearch_DropIndex(index);
 }
 
 static char buffer[1024];
@@ -323,6 +328,7 @@ TEST_F(LLApiTest, testMassivePrefixWithUnsortedSupport) {
   }
 
   RediSearch_ResultsIteratorFree(iter);
+  RediSearch_DropIndex(index);
 }
 
 TEST_F(LLApiTest, testPrefixIntersection) {
@@ -363,4 +369,5 @@ TEST_F(LLApiTest, testPrefixIntersection) {
   }
 
   RediSearch_ResultsIteratorFree(iter);
+  RediSearch_DropIndex(index);
 }
