@@ -47,7 +47,7 @@ typedef struct {
 
   // If set to 1, we exit skips after the first hit found and not merge further results
   int quickExit;
-  size_t expectedResutlsAmount;
+  size_t nexpected;
   double weight;
   uint64_t len;
 } UnionIterator;
@@ -119,7 +119,7 @@ IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *dt, int 
   ctx->len = 0;
   ctx->quickExit = quickExit;
   ctx->its = calloc(ctx->num, sizeof(*ctx->its));
-  ctx->expectedResutlsAmount = 0;
+  ctx->nexpected = 0;
   ctx->currIt = 0;
 
   // bind the union iterator calls
@@ -138,16 +138,16 @@ IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *dt, int 
   it->Rewind = UI_Rewind;
   UI_SyncIterList(ctx);
 
-  for (int i = 0; i < num; ++i) {
-    ctx->expectedResutlsAmount += its[i]->NumEstimated(its[i]->ctx);
+  for (size_t i = 0; i < num; ++i) {
+    ctx->nexpected += its[i]->NumEstimated(its[i]->ctx);
     if (its[i]->mode == MODE_UNSORTED) {
       it->mode = MODE_UNSORTED;
       it->Read = UI_ReadUnsorted;
     }
   }
 
-#define MAX_RESULTS_FOR_UNSORTED_MODE 1000
-  if (it->mode == MODE_SORTED && ctx->expectedResutlsAmount >= MAX_RESULTS_FOR_UNSORTED_MODE) {
+  const size_t maxresultsSorted = 1000;
+  if (it->mode == MODE_SORTED && ctx->nexpected >= maxresultsSorted) {
     // make sure all the children support CriteriaTester
     int ctSupported = 1;
     for (int i = 0; i < ctx->num; ++i) {
@@ -169,14 +169,14 @@ IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *dt, int 
 
 typedef struct {
   IndexCriteriaTester base;
-  IndexCriteriaTester **chiledren;
-  int chiledrenLen;
+  IndexCriteriaTester **children;
+  int nchildren;
 } UnionCriteriaTester;
 
 static int UI_Test(struct IndexCriteriaTester *ct, t_docId id) {
   UnionCriteriaTester *uct = (UnionCriteriaTester *)ct;
-  for (int i = 0; i < uct->chiledrenLen; ++i) {
-    if (uct->chiledren[i]->Test(uct->chiledren[i], id)) {
+  for (int i = 0; i < uct->nchildren; ++i) {
+    if (uct->children[i]->Test(uct->children[i], id)) {
       return 1;
     }
   }
@@ -185,20 +185,20 @@ static int UI_Test(struct IndexCriteriaTester *ct, t_docId id) {
 
 static void UI_TesterFree(struct IndexCriteriaTester *ct) {
   UnionCriteriaTester *uct = (UnionCriteriaTester *)ct;
-  for (int i = 0; i < uct->chiledrenLen; ++i) {
-    uct->chiledren[i]->Free(uct->chiledren[i]);
+  for (int i = 0; i < uct->nchildren; ++i) {
+    uct->children[i]->Free(uct->children[i]);
   }
-  rm_free(uct->chiledren);
+  rm_free(uct->children);
   rm_free(uct);
 }
 
 static IndexCriteriaTester *UI_GetCriteriaTester(void *ctx) {
   UnionIterator *ui = ctx;
   UnionCriteriaTester *ct = rm_malloc(sizeof(*ct));
-  ct->chiledrenLen = ui->num;
-  ct->chiledren = rm_malloc(ct->chiledrenLen * sizeof(IndexCriteriaTester *));
-  for (int i = 0; i < ct->chiledrenLen; ++i) {
-    ct->chiledren[i] = ui->origits[i]->GetCriteriaTester(ui->origits[i]->ctx);
+  ct->nchildren = ui->num;
+  ct->children = rm_malloc(ct->nchildren * sizeof(IndexCriteriaTester *));
+  for (int i = 0; i < ct->nchildren; ++i) {
+    ct->children[i] = ui->origits[i]->GetCriteriaTester(ui->origits[i]->ctx);
   }
   ct->base.Test = UI_Test;
   ct->base.Free = UI_TesterFree;
@@ -207,7 +207,7 @@ static IndexCriteriaTester *UI_GetCriteriaTester(void *ctx) {
 
 static size_t UI_NumEstimated(void *ctx) {
   UnionIterator *ui = ctx;
-  return ui->expectedResutlsAmount;
+  return ui->nexpected;
 }
 
 static inline int UI_ReadUnsorted(void *ctx, RSIndexResult **hit) {
@@ -288,11 +288,6 @@ static inline int UI_ReadSorted(void *ctx, RSIndexResult **hit) {
   IITER_SET_EOF(&ui->base);
 
   return INDEXREAD_EOF;
-}
-
-static int UI_Next(void *ctx) {
-  // RSIndexResult h = NewIndexResult();
-  return UI_ReadSorted(ctx, NULL);
 }
 
 /**
@@ -441,7 +436,7 @@ typedef struct {
   DocTable *docTable;
   t_fieldMask fieldMask;
   double weight;
-  size_t expectedResutlsAmount;
+  size_t nexpected;
 } IntersectIterator;
 
 void IntersectIterator_Free(IndexIterator *it) {
@@ -508,7 +503,7 @@ IndexIterator *NewIntersecIterator(IndexIterator **its, int num, DocTable *dt,
   ctx->weight = weight;
   ctx->docIds = calloc(num, sizeof(t_docId));
   ctx->docTable = dt;
-  ctx->expectedResutlsAmount = UINT32_MAX;
+  ctx->nexpected = UINT32_MAX;
 
   ctx->base.isValid = 1;
   ctx->base.current = NewIntersectResult(num, weight);
@@ -534,14 +529,14 @@ IndexIterator *NewIntersecIterator(IndexIterator **its, int num, DocTable *dt,
   for (int i = 0; i < num; ++i) {
     if (!its[i]) {
       // a null iterator is handled as an iterator with no results
-      ctx->expectedResutlsAmount = 0;
+      ctx->nexpected = 0;
       ctx->its = array_append(ctx->its, NULL);
       ctx->num++;
       continue;
     }
     size_t amount = its[i]->NumEstimated(its[i]->ctx);
-    if (amount < ctx->expectedResutlsAmount) {
-      ctx->expectedResutlsAmount = amount;
+    if (amount < ctx->nexpected) {
+      ctx->nexpected = amount;
       ctx->bestIt = its[i];
     }
     if (its[i]->mode == MODE_SORTED) {
@@ -638,10 +633,6 @@ static int II_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
   return INDEXREAD_NOTFOUND;
 }
 
-static int II_Next(void *ctx) {
-  return II_ReadSorted(ctx, NULL);
-}
-
 static int II_ReadUnsorted(void *ctx, RSIndexResult **hit) {
   IntersectIterator *ic = ctx;
   int rc = INDEXREAD_OK;
@@ -670,13 +661,13 @@ static int II_ReadUnsorted(void *ctx, RSIndexResult **hit) {
 
 typedef struct {
   IndexCriteriaTester base;
-  IndexCriteriaTester **chiledren;
+  IndexCriteriaTester **children;
 } IICriteriaTester;
 
 static int II_Test(struct IndexCriteriaTester *ct, t_docId id) {
   IICriteriaTester *ict = (IICriteriaTester *)ct;
-  for (size_t i = 0; i < array_len(ict->chiledren); ++i) {
-    if (!ict->chiledren[i]->Test(ict->chiledren[i], id)) {
+  for (size_t i = 0; i < array_len(ict->children); ++i) {
+    if (!ict->children[i]->Test(ict->children[i], id)) {
       return 0;
     }
   }
@@ -685,10 +676,10 @@ static int II_Test(struct IndexCriteriaTester *ct, t_docId id) {
 
 static void II_TesterFree(struct IndexCriteriaTester *ct) {
   IICriteriaTester *ict = (IICriteriaTester *)ct;
-  for (size_t i = 0; i < array_len(ict->chiledren); ++i) {
-    ict->chiledren[i]->Free(ict->chiledren[i]);
+  for (size_t i = 0; i < array_len(ict->children); ++i) {
+    ict->children[i]->Free(ict->children[i]);
   }
-  array_free(ict->chiledren);
+  array_free(ict->children);
   rm_free(ict);
 }
 
@@ -698,7 +689,7 @@ static IndexCriteriaTester *II_GetCriteriaTester(void *ctx) {
   for (size_t i = 0; i < array_len(ic->its); ++i) {
     ic->testers = array_append(ic->testers, ic->its[i]->GetCriteriaTester(ic->its[i]));
   }
-  ict->chiledren = ic->testers;
+  ict->children = ic->testers;
   ic->testers = array_new(IndexCriteriaTester *, 0);
   ict->base.Test = II_Test;
   ict->base.Free = II_TesterFree;
@@ -707,7 +698,7 @@ static IndexCriteriaTester *II_GetCriteriaTester(void *ctx) {
 
 static size_t II_NumEstimated(void *ctx) {
   IntersectIterator *ic = ctx;
-  return ic->expectedResutlsAmount;
+  return ic->nexpected;
 }
 
 static int II_ReadSorted(void *ctx, RSIndexResult **hit) {
