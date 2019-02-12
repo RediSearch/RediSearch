@@ -189,10 +189,10 @@ QueryNode* RS_CreateLexRangeNode(IndexSpec* sp, const char* fieldName, const cha
                                  const char* end) {
   QueryNode* ret = NewQueryNode(QN_LEXRANGE);
   if (begin) {
-    ret->lxrng.begin = strdup(begin);
+    ret->lxrng.begin = begin;
   }
   if (end) {
-    ret->lxrng.end = strdup(end);
+    ret->lxrng.end = end;
   }
   if (fieldName) {
     ret->opts.fieldMask = IndexSpec_GetFieldBit(sp, fieldName, strlen(fieldName));

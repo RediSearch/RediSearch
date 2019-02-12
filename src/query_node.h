@@ -121,8 +121,8 @@ typedef struct {
 } QueryIdFilterNode;
 
 typedef struct {
-  char *begin;
-  char *end;
+  const char *begin;
+  const char *end;
 } QueryLexRangeNode;
 
 typedef enum {

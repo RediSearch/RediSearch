@@ -64,6 +64,7 @@ static void QueryTagNode_Free(QueryTagNode *tag) {
 }
 
 static void QueryLexRangeNode_Free(QueryLexRangeNode *lx) {
+  // Nothing here for now..
 }
 
 // void _queryNumericNode_Free(QueryNumericNode *nn) { free(nn->nf); }
@@ -103,12 +104,14 @@ void QueryNode_Free(QueryNode *n) {
       break;
     case QN_LEXRANGE:
       QueryLexRangeNode_Free(&n->lxrng);
+      break;
     case QN_WILDCARD:
     case QN_IDS:
       break;
 
     case QN_TAG:
       QueryTagNode_Free(&n->tag);
+      break;
 
     case QN_NULL:
       break;
