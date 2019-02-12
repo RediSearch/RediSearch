@@ -16,9 +16,12 @@ int RS_GetCApiVersion() {
 
 static dictType invidxDictType = {0};
 
-static void invidxFreeCb(void* unused, void* p) {
-  InvertedIndex* idx = p;
-  InvertedIndex_Free(p);
+static void valFreeCb(void* unused, void* p) {
+  KeysDictValue* kdv = p;
+  if (kdv->dtor) {
+    kdv->dtor(kdv->p);
+  }
+  free(kdv);
 }
 
 IndexSpec* RS_CreateIndex(const char* name, RSGetValueCallback getValue, void* getValueCtx) {
@@ -28,7 +31,7 @@ IndexSpec* RS_CreateIndex(const char* name, RSGetValueCallback getValue, void* g
   // Initialize only once:
   if (!invidxDictType.valDestructor) {
     invidxDictType = dictTypeHeapRedisStrings;
-    invidxDictType.valDestructor = invidxFreeCb;
+    invidxDictType.valDestructor = valFreeCb;
   }
 
   spec->keysDict = dictCreate(&invidxDictType, NULL);
@@ -43,7 +46,7 @@ void RS_DropIndex(IndexSpec* sp) {
   dict* d = sp->keysDict;
   dictRelease(d);
   sp->keysDict = NULL;
-  IndexSpec_Free(sp);
+  IndexSpec_FreeSync(sp);
 }
 
 static inline FieldSpec* RS_CreateField(IndexSpec* sp, const char* name) {

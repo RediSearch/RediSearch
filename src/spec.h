@@ -159,6 +159,11 @@ typedef struct IndexSpec {
   size_t textFields;
 } IndexSpec;
 
+typedef struct {
+  void (*dtor)(void *p);
+  void *p;
+} KeysDictValue;
+
 extern RedisModuleType *IndexSpecType;
 
 /**
@@ -274,6 +279,12 @@ char *IndexSpec_GetRandomTerm(IndexSpec *sp, size_t sampleSize);
  * and should be on the request's stack
  */
 void IndexSpec_Free(void *spec);
+
+/**
+ * Free the index synchronously. Any keys associated with the index (but not the
+ * documents themselves) are freed before this function returns.
+ */
+void IndexSpec_FreeSync(IndexSpec *spec);
 
 /** Delete the redis key from Redis */
 void IndexSpec_FreeWithKey(IndexSpec *spec, RedisModuleCtx *ctx);

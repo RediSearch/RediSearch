@@ -165,7 +165,7 @@ void TagIndex_RegisterConcurrentIterators(TagIndex *idx, ConcurrentSearchCtx *co
 
 /* Open an index reader to iterate a tag index for a specific tag. Used at query evaluation time.
  * Returns NULL if there is no such tag in the index */
-IndexIterator *TagIndex_OpenReader(TagIndex *idx, IndexSpec* sp, const char *value, size_t len,
+IndexIterator *TagIndex_OpenReader(TagIndex *idx, IndexSpec *sp, const char *value, size_t len,
                                    double weight) {
 
   InvertedIndex *iv = TrieMap_Find(idx->values, (char *)value, len);
@@ -187,11 +187,26 @@ RedisModuleString *TagIndex_FormatName(RedisSearchCtx *sctx, const char *field) 
   return RedisModule_CreateStringPrintf(sctx->redisCtx, TAG_INDEX_KEY_FMT, sctx->spec->name, field);
 }
 
+static TagIndex *openTagKeyDict(RedisSearchCtx *ctx, RedisModuleString *key, int openWrite) {
+  KeysDictValue *kdv = dictFetchValue(ctx->spec->keysDict, key);
+  if (kdv) {
+    return kdv->p;
+  }
+  if (!openWrite) {
+    return NULL;
+  }
+  kdv = calloc(1, sizeof(*kdv));
+  kdv->p = NewTagIndex();
+  kdv->dtor = TagIndex_Free;
+  dictAdd(ctx->spec->keysDict, key, kdv);
+  return kdv->p;
+}
+
 /* Open the tag index in redis */
 TagIndex *TagIndex_Open(RedisSearchCtx *sctx, RedisModuleString *formattedKey, int openWrite,
                         RedisModuleKey **keyp) {
   TagIndex *ret = NULL;
-  if(!sctx->spec->keysDict){
+  if (!sctx->spec->keysDict) {
     RedisModuleKey *key_s = NULL;
     if (!keyp) {
       keyp = &key_s;
@@ -214,14 +229,8 @@ TagIndex *TagIndex_Open(RedisSearchCtx *sctx, RedisModuleString *formattedKey, i
     } else {
       ret = RedisModule_ModuleTypeGetValue(*keyp);
     }
-  }else{
-    ret = dictFetchValue(sctx->spec->keysDict, formattedKey);
-    if(!ret){
-      if (openWrite) {
-        ret = NewTagIndex();
-        dictAdd(sctx->spec->keysDict, formattedKey, ret);
-      }
-    }
+  } else {
+    ret = openTagKeyDict(sctx, formattedKey, openWrite);
   }
 
   return ret;
