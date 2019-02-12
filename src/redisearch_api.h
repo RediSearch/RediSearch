@@ -99,12 +99,6 @@ MODULE_API_FUNC(void, RediSearch_ResultsIteratorFree)(RSResultsIterator* iter);
 
 MODULE_API_FUNC(void, RediSearch_ResultsIteratorReset)(RSResultsIterator* iter);
 
-#define REDISEARCH_MODULE_INIT_FUNCTION(name)                                  \
-  if (RedisModule_GetApi("RediSearch_" #name, ((void**)&RediSearch_##name))) { \
-    printf("could not initialize RediSearch_" #name "\r\n");                   \
-    return REDISMODULE_ERR;                                                    \
-  }
-
 #define RS_XAPIFUNC(X)       \
   X(GetCApiVersion)          \
   X(CreateIndex)             \
@@ -139,13 +133,30 @@ MODULE_API_FUNC(void, RediSearch_ResultsIteratorReset)(RSResultsIterator* iter);
   X(ResultsIteratorFree)     \
   X(ResultsIteratorReset)
 
-static bool RediSearch_Initialize() {
-  RS_XAPIFUNC(REDISEARCH_MODULE_INIT_FUNCTION);
-  if (RediSearch_GetCApiVersion() > REDISEARCH_CAPI_VERSION) {
-    return REDISMODULE_ERR;
+#define REDISEARCH_MODULE_INIT_FUNCTION(name)                                  \
+  if (RedisModule_GetApi("RediSearch_" #name, ((void**)&RediSearch_##name))) { \
+    printf("could not initialize RediSearch_" #name "\r\n");                   \
+    rv__ = REDISMODULE_ERR;                                                    \
+    goto rsfunc_init_end__;                                                    \
   }
-  return REDISMODULE_OK;
-}
+
+/**
+ * This is implemented as a macro rather than a function so that the inclusion of this
+ * header file does not automatically require the symbols to be defined above.
+ *
+ * We are making use of special GCC statement-expressions `({...})`. This is also
+ * supported by clang
+ */
+#define RediSearch_Initialize()                                  \
+  ({                                                             \
+    int rv__ = REDISMODULE_OK;                                   \
+    RS_XAPIFUNC(REDISEARCH_MODULE_INIT_FUNCTION);                \
+    if (RediSearch_GetCApiVersion() > REDISEARCH_CAPI_VERSION) { \
+      rv__ = REDISMODULE_ERR;                                    \
+    }                                                            \
+  rsfunc_init_end__:;                                            \
+    rv__;                                                        \
+  })
 
 #define REDISEARCH__API_INIT_NULL(s) __typeof__(RediSearch_##s) RediSearch_##s = NULL;
 #define REDISEARCH_API_INIT_SYMBOLS() RS_XAPIFUNC(REDISEARCH__API_INIT_NULL)
