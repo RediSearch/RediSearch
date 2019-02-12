@@ -39,6 +39,7 @@ IndexSpec* RS_CreateIndex(const char* name, RSGetValueCallback getValue, void* g
   spec->maxPrefixExpansions = -1;
   spec->getValue = getValue;
   spec->getValueCtx = getValueCtx;
+  DocTable_EnableIdArray(&spec->docs);
   return spec;
 }
 
