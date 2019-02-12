@@ -132,7 +132,6 @@ static void TagReader_OnReopen(RedisModuleKey *k, void *privdata) {
   TagIndex *idx = RedisModule_ModuleTypeGetValue(k);
   for (size_t ii = 0; ii < nits; ++ii) {
     IndexReader *ir = its[ii]->ctx;
-    ir->idx = ir->idx;
 
     // the gc marker tells us if there is a chance the keys has undergone GC while we were asleep
     if (ir->gcMarker == ir->idx->gcMarker) {
