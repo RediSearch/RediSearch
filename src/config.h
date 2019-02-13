@@ -71,6 +71,11 @@ typedef struct {
   size_t indexPoolSize;
   int poolSizeNoAuto;  // Don't auto-detect pool size
 
+  /**
+   * Don't return error if maximum prefix expansion is reached
+   */
+  int prefixExpansionNoError;
+
   size_t gcScanSize;
 
   size_t minPhoneticTermLen;

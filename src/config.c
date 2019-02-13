@@ -18,6 +18,27 @@ static int readLongLong(RedisModuleString **argv, size_t argc, size_t *offset, l
   return RedisModule_StringToLongLong(argv[(*offset)++], out);
 }
 
+static int readBoolean(RedisModuleString **argv, size_t argc, size_t *offset, long long *out) {
+  assert(*offset <= argc);
+  if (*offset == argc) {
+    RETURN_ERROR("Missing argument");
+  }
+  int rc = RedisModule_StringToLongLong(argv[*offset], out);
+  if (rc != REDISMODULE_OK) {
+    const char *s = RedisModule_StringPtrLen(argv[*offset], NULL);
+    rc = REDISMODULE_OK;
+    if (!strcasecmp(s, "true") || !strcasecmp(s, "on")) {
+      *out = 1;
+    } else if (!strcasecmp(s, "false") || !strcasecmp(s, "off")) {
+      *out = 0;
+    } else {
+      rc = REDISMODULE_ERR;
+    }
+  }
+  (*offset)++;
+  return rc;
+}
+
 static int readLongLongLimit(RedisModuleString **argv, size_t argc, size_t *offset, long long *out,
                              long long minVal, long long maxVal) {
   if (readLongLong(argv, argc, offset, out) != REDISMODULE_OK) {
@@ -46,6 +67,20 @@ static int readLongLongLimit(RedisModuleString **argv, size_t argc, size_t *offs
       cv = !cv;                                  \
     }                                            \
     return sdsnew(cv ? "true" : "false");        \
+  }
+
+#define CONFIG_BOOLEAN_SETTER(name, var, invert)    \
+  CONFIG_SETTER(name) {                             \
+    long long tmp = 0;                              \
+    int rc = readBoolean(argv, argc, offset, &tmp); \
+    if (rc != REDISMODULE_OK) {                     \
+      return rc;                                    \
+    }                                               \
+    if (invert) {                                   \
+      tmp = !tmp;                                   \
+    }                                               \
+    config->var = tmp;                              \
+    return REDISMODULE_OK;                          \
   }
 
 // EXTLOAD
@@ -125,6 +160,9 @@ CONFIG_GETTER(getMaxExpansions) {
   sds ss = sdsempty();
   return sdscatprintf(ss, "%llu", config->maxPrefixExpansions);
 }
+
+CONFIG_BOOLEAN_SETTER(setMaxExpansionsLimitNoError, prefixExpansionNoError, 0)
+CONFIG_BOOLEAN_GETTER(getMaxExpansionsLimitNoError, prefixExpansionNoError, 0)
 
 // TIMEOUT
 CONFIG_SETTER(setTimeout) {
@@ -344,6 +382,12 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "Maximum prefix expansions to be used in a query",
          .setValue = setMaxExpansions,
          .getValue = getMaxExpansions},
+        {
+            .name = "MAXEXPANSIONS_LIMIT_NOERR",
+            .helpText = "Don't raise error if maximum expansion limit is reached",
+            .setValue = setMaxExpansionsLimitNoError,
+            .getValue = getMaxExpansionsLimitNoError,
+        },
         {.name = "TIMEOUT",
          .helpText = "Query (search) timeout",
          .setValue = setTimeout,

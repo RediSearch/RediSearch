@@ -332,12 +332,11 @@ static IndexIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
   t_len slen = 0;
   float score = 0;
   int dist = 0;
+  int hasErr = 0;
 
   // an upper limit on the number of expansions is enforced to avoid stuff like "*"
-  size_t maxExpansions = q->sctx->spec->maxPrefixExpansions;
-  while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, &dist) &&
-         (itsSz < maxExpansions || maxExpansions == -1)) {
-
+  const size_t maxExpansions = q->sctx->spec->maxPrefixExpansions;
+  while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, &dist)) {
     // Create a token for the reader
     RSToken tok = (RSToken){
         .expanded = 0,
@@ -367,6 +366,14 @@ static IndexIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
       itsCap *= 2;
       its = realloc(its, itsCap * sizeof(*its));
     }
+    if (maxExpansions != -1 && itsSz > maxExpansions) {
+      if (!RSGlobalConfig.prefixExpansionNoError) {
+        QueryError_SetError(q->status, QUERY_ELIMIT,
+                            "Maximum expansions reached for prefix query (MAXEXPANSIONS)");
+        hasErr = 1;
+      }
+      break;
+    }
   }
 
   DFAFilter_Free(it->ctx);
@@ -377,6 +384,15 @@ static IndexIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
     free(its);
     return NULL;
   }
+
+  if (hasErr) {
+    for (size_t ii = 0; ii < itsSz; ++ii) {
+      its[ii]->Free(its[ii]);
+    }
+    free(its);
+    return NULL;
+  }
+
   return NewUnionIterator(its, itsSz, q->docTable, 1, opts->weight);
 }
 /* Ealuate a prefix node by expanding all its possible matches and creating one big UNION on all
@@ -629,11 +645,11 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
   char *s;
   tm_len_t sl;
   void *ptr;
+  int hasErr = 0;
 
   // Find all completions of the prefix
-  size_t maxExpansions = q->sctx->spec->maxPrefixExpansions;
-  while (TrieMapIterator_Next(it, &s, &sl, &ptr) &&
-         (itsSz < maxExpansions || maxExpansions == -1)) {
+  const size_t maxExpansions = q->sctx->spec->maxPrefixExpansions;
+  while (TrieMapIterator_Next(it, &s, &sl, &ptr)) {
     IndexIterator *ret = TagIndex_OpenReader(idx, q->sctx->spec, s, sl, 1);
     if (!ret) continue;
 
@@ -643,12 +659,29 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
       itsCap *= 2;
       its = realloc(its, itsCap * sizeof(*its));
     }
+
+    if (maxExpansions != -1 && itsSz > maxExpansions) {
+      if (!RSGlobalConfig.prefixExpansionNoError) {
+        QueryError_SetError(q->status, QUERY_ELIMIT,
+                            "Maximum expansions reached for prefix query (MAXEXPANSIONS)");
+        hasErr = 1;
+      }
+      break;
+    }
   }
 
   TrieMapIterator_Free(it);
 
   // printf("Expanded %d terms!\n", itsSz);
   if (itsSz == 0) {
+    free(its);
+    return NULL;
+  }
+
+  if (hasErr) {
+    for (size_t ii = 0; ii < itsSz; ++ii) {
+      its[ii]->Free(its[ii]);
+    }
     free(its);
     return NULL;
   }
@@ -841,6 +874,7 @@ IndexIterator *QAST_Iterate(const QueryAST *qast, const RSSearchOptions *opts, R
       .numTokens = qast->numTokens,
       .docTable = &sctx->spec->docs,
       .sctx = sctx,
+      .status = status,
   };
   IndexIterator *root = Query_EvalNode(&qectx, qast->root);
   if (!root) {

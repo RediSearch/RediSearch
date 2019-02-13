@@ -37,6 +37,7 @@ typedef struct {
   size_t numTokens;
   uint32_t tokenId;
   DocTable *docTable;
+  QueryError *status;
 } QueryEvalCtx;
 
 struct QueryAST;

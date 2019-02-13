@@ -5,6 +5,7 @@ import unittest
 from hotels import hotels
 import random
 import time
+from xmlrpclib import ResponseError
 
 
 def testAdd(env):
@@ -623,6 +624,18 @@ def testPrefix(env):
         res = r.execute_command(
             'ft.search', 'idx', 'constant term9*', 'nocontent')
         env.assertEqual([0], res)
+
+def testPrefixTooBig(env):
+    env.cmd('ft.create', 'idx', 'schema', 'foo', 'text')
+    # Get the maximum prefix
+    max = env.cmd('ft.config', 'get', 'MAXEXPANSIONS')
+    max = int(max[0][1])
+    env.assertGreater(max, 0)
+    env.assertLess(max, 2000)
+    for x in range(max+1):
+        env.cmd('ft.add', 'idx', 'doc{}'.format(x), 1.0, 'fields',
+                'foo', 'term{}'.format(x))
+    env.assertRaises(redis.ResponseError, env.cmd, 'ft.search', 'idx', 'term*')
 
 def testSortBy(env):
     r = env
