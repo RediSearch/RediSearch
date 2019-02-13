@@ -328,7 +328,7 @@ class TestAggregate():
         res = self.env.cmd('ft.aggregate', 'games', '*',
                            'LOAD', '3', '@brand', '@price', '@nonexist',
                            'SORTBY', 2, '@price', 'DESC', 'MAX', 2)
-        exp = [3L, ['brand', '', 'price', '759.12', 'nonexist', None], ['brand', 'Sony', 'price', '695.8', 'nonexist', None]]
+        exp = [3L, ['brand', '', 'price', '759.12'], ['brand', 'Sony', 'price', '695.8']]
         self.env.assertEqual(exp[1], res[1])
 
     def testSplit(self):

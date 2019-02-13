@@ -111,7 +111,7 @@ def testSummarizationNoSave(env):
     res = env.cmd('FT.SEARCH', 'idx', 'hello',
                    'SUMMARIZE', 'RETURN', 1, 'body')
     # print res
-    env.assertEqual([1L, 'doc', ['body', None]], res)
+    env.assertEqual([1L, 'doc', []], res)
 
 def testSummarizationMeta(env):
     env.cmd('ft.create', 'idx', 'schema', 'foo',
