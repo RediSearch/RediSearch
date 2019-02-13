@@ -393,6 +393,19 @@ void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
     t->maxSize = MIN(RSGlobalConfig.maxDocTableSize, t->maxDocId);
   }
 
+  if (t->maxDocId > t->maxSize) {
+    /**
+     * If the maximum doc id is greater than the maximum cap size
+     * then it means there is a possibility that any index under maxId can
+     * be accessed. However, it is possible that this bucket does not have
+     * any documents inside it (and thus might not be populated below), but
+     * could still be accessed for simple queries (e.g. get, exist). Ensure
+     * we don't have to rely on Set/Put to ensure the doc table array.
+     */
+    t->cap = t->maxSize;
+    t->buckets = rm_calloc(t->cap, sizeof(*t->buckets));
+  }
+
   for (size_t i = 1; i < t->size; i++) {
     size_t len;
 
