@@ -169,6 +169,9 @@ union FieldData;
 // operation is being done from within the context of AOF
 #define ACTX_F_NOBLOCK 0x20
 
+// Document is entirely empty (no sortables, indexables)
+#define ACTX_F_EMPTY 0x40
+
 struct DocumentIndexer;
 
 /** Context used when indexing documents */
