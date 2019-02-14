@@ -1,9 +1,3 @@
-/*
- * spell_check.h
- *
- *  Created on: Jul 12, 2018
- *      Author: meir
- */
 
 #ifndef SRC_SPELL_CHECK_H_
 #define SRC_SPELL_CHECK_H_

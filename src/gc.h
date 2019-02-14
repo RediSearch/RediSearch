@@ -1,9 +1,3 @@
-/*
- * gc.h
- *
- *  Created on: Aug 30, 2018
- *      Author: meir
- */
 
 #ifndef SRC_GC_H_
 #define SRC_GC_H_

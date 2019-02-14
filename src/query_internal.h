@@ -45,6 +45,7 @@ struct GeoFilter;
 
 // TODO: These APIs are helpers for the generated parser. They belong in the
 // bowels of the actual parser, and should probably be a macro!
+QueryNode *NewQueryNode(QueryNodeType type);
 QueryNode *NewTokenNode(QueryParseCtx *q, const char *s, size_t len);
 QueryNode *NewTokenNodeExpanded(struct QueryAST *q, const char *s, size_t len, RSTokenFlags flags);
 QueryNode *NewPhraseNode(int exact);

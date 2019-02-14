@@ -25,7 +25,6 @@
 #define EFFECTIVE_FIELDMASK(q_, qn_) ((qn_)->opts.fieldMask & (q)->opts->fieldmask)
 
 static IndexIterator *getEOFIterator(void);
-static IndexIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n);
 
 static void QueryTokenNode_Free(QueryTokenNode *tn) {
 
@@ -63,6 +62,11 @@ static void QueryTagNode_Free(QueryTagNode *tag) {
   }
   free((char *)tag->fieldName);
 }
+
+static void QueryLexRangeNode_Free(QueryLexRangeNode *lx) {
+  // Nothing here for now..
+}
+
 // void _queryNumericNode_Free(QueryNumericNode *nn) { free(nn->nf); }
 
 void QueryNode_Free(QueryNode *n) {
@@ -98,13 +102,16 @@ void QueryNode_Free(QueryNode *n) {
     case QN_FUZZY:
       QueryTokenNode_Free(&n->fz.tok);
       break;
+    case QN_LEXRANGE:
+      QueryLexRangeNode_Free(&n->lxrng);
+      break;
     case QN_WILDCARD:
     case QN_IDS:
-
       break;
 
     case QN_TAG:
       QueryTagNode_Free(&n->tag);
+      break;
 
     case QN_NULL:
       break;
@@ -112,7 +119,7 @@ void QueryNode_Free(QueryNode *n) {
   free(n);
 }
 
-static QueryNode *NewQueryNode(QueryNodeType type) {
+QueryNode *NewQueryNode(QueryNodeType type) {
   QueryNode *s = calloc(1, sizeof(QueryNode));
   s->type = type;
   s->opts = (QueryNodeOptions){
@@ -212,7 +219,7 @@ QueryNode *NewTagNode(const char *field, size_t len) {
 
 QueryNode *NewNumericNode(const NumericFilter *flt) {
   QueryNode *ret = NewQueryNode(QN_NUMERIC);
-  ret->nn = (QueryNumericNode){.nf = flt};
+  ret->nn = (QueryNumericNode){.nf = (NumericFilter *)flt};
 
   return ret;
 }
@@ -248,7 +255,7 @@ static void setFilterNode(QueryAST *q, QueryNode *n) {
 void QAST_SetGlobalFilters(QueryAST *ast, const QAST_GlobalFilterOptions *options) {
   if (options->numeric) {
     QueryNode *n = NewQueryNode(QN_NUMERIC);
-    n->nn.nf = options->numeric;
+    n->nn.nf = (NumericFilter *)options->numeric;
     setFilterNode(ast, n);
   }
   if (options->geo) {
@@ -327,9 +334,9 @@ static IndexIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
   int dist = 0;
 
   // an upper limit on the number of expansions is enforced to avoid stuff like "*"
-
+  size_t maxExpansions = q->sctx->spec->maxPrefixExpansions;
   while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, &dist) &&
-         itsSz < RSGlobalConfig.maxPrefixExpansions) {
+         (itsSz < maxExpansions || maxExpansions == -1)) {
 
     // Create a token for the reader
     RSToken tok = (RSToken){
@@ -386,6 +393,67 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
   if (!terms) return NULL;
 
   return iterateExpandedTerms(q, terms, qn->pfx.str, qn->pfx.len, 0, 1, &qn->opts);
+}
+
+typedef struct {
+  IndexIterator **its;
+  size_t nits;
+  size_t cap;
+  QueryEvalCtx *q;
+  QueryNodeOptions *opts;
+} LexRangeCtx;
+
+static void rangeIterCb(const rune *r, size_t n, void *p) {
+  LexRangeCtx *ctx = p;
+  QueryEvalCtx *q = ctx->q;
+  RSToken tok = {0};
+  tok.str = runesToStr(r, n, &tok.len);
+  RSQueryTerm *term = NewQueryTerm(&tok, ctx->q->tokenId++);
+  IndexReader *ir = Redis_OpenReader(q->sctx, term, &q->sctx->spec->docs, 0,
+                                     q->opts->fieldmask & ctx->opts->fieldMask, q->conc, 1);
+  free(tok.str);
+  if (!ir) {
+    Term_Free(term);
+    return;
+  }
+
+  ctx->its[ctx->nits++] = NewReadIterator(ir);
+  if (ctx->nits == ctx->cap) {
+    ctx->cap *= 2;
+    ctx->its = realloc(ctx->its, ctx->cap * sizeof(*ctx->its));
+  }
+}
+
+static IndexIterator *Query_EvalLexRangeNode(QueryEvalCtx *q, QueryNode *lx) {
+  Trie *t = q->sctx->spec->terms;
+  LexRangeCtx ctx = {.q = q, .opts = &lx->opts};
+
+  if (!t) {
+    return NULL;
+  }
+
+  ctx.cap = 8;
+  ctx.its = malloc(sizeof(*ctx.its) * ctx.cap);
+  ctx.nits = 0;
+
+  rune *begin = NULL, *end = NULL;
+  size_t nbegin = 0, nend = 0;
+  if (lx->lxrng.begin) {
+    begin = strToFoldedRunes(lx->lxrng.begin, &nbegin);
+  }
+  if (lx->lxrng.end) {
+    end = strToFoldedRunes(lx->lxrng.end, &nend);
+  }
+
+  TrieNode_IterateRange(t->root, begin, nbegin, end, nend, rangeIterCb, &ctx);
+  free(begin);
+  free(end);
+  if (!ctx.its || ctx.nits == 0) {
+    free(ctx.its);
+    return NULL;
+  } else {
+    return NewUnionIterator(ctx.its, ctx.nits, q->docTable, 1, lx->opts.weight);
+  }
 }
 
 static IndexIterator *Query_EvalFuzzyNode(QueryEvalCtx *q, QueryNode *qn) {
@@ -546,7 +614,7 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
   }
 
   // we allow a minimum of 2 letters in the prefx by default (configurable)
-  if (qn->pfx.len < RSGlobalConfig.minTermPrefix) {
+  if (qn->pfx.len < q->sctx->spec->minPrefix) {
     return NULL;
   }
   if (!idx || !idx->values) return NULL;
@@ -563,8 +631,10 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
   void *ptr;
 
   // Find all completions of the prefix
-  while (TrieMapIterator_Next(it, &s, &sl, &ptr) && itsSz < RSGlobalConfig.maxPrefixExpansions) {
-    IndexIterator *ret = TagIndex_OpenReader(idx, q->docTable, s, sl, 1);
+  size_t maxExpansions = q->sctx->spec->maxPrefixExpansions;
+  while (TrieMapIterator_Next(it, &s, &sl, &ptr) &&
+         (itsSz < maxExpansions || maxExpansions == -1)) {
+    IndexIterator *ret = TagIndex_OpenReader(idx, q->sctx->spec, s, sl, 1);
     if (!ret) continue;
 
     // Add the reader to the iterator array
@@ -592,7 +662,7 @@ static IndexIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, Qu
   IndexIterator *ret = NULL;
   switch (n->type) {
     case QN_TOKEN: {
-      ret = TagIndex_OpenReader(idx, q->docTable, n->tn.str, n->tn.len, weight);
+      ret = TagIndex_OpenReader(idx, q->sctx->spec, n->tn.str, n->tn.len, weight);
       break;
     }
     case QN_PREFX:
@@ -610,7 +680,7 @@ static IndexIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, Qu
 
       sds s = sdsjoin(terms, n->pn.numChildren, " ");
 
-      ret = TagIndex_OpenReader(idx, q->docTable, s, sdslen(s), weight);
+      ret = TagIndex_OpenReader(idx, q->sctx->spec, s, sdslen(s), weight);
       sdsfree(s);
       break;
     }
@@ -637,7 +707,7 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
     return NULL;
   }
   RedisModuleString *kstr = IndexSpec_GetFormattedKey(q->sctx->spec, fs);
-  TagIndex *idx = TagIndex_Open(q->sctx->redisCtx, kstr, 0, &k);
+  TagIndex *idx = TagIndex_Open(q->sctx, kstr, 0, &k);
   IndexIterator **total_its = NULL;
 
   if (!idx) {
@@ -680,7 +750,7 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
   return ret;
 }
 
-static IndexIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
+IndexIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
   switch (n->type) {
     case QN_TOKEN:
       return Query_EvalTokenNode(q, n);
@@ -694,6 +764,8 @@ static IndexIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
       return Query_EvalNotNode(q, n);
     case QN_PREFX:
       return Query_EvalPrefixNode(q, n);
+    case QN_LEXRANGE:
+      return Query_EvalLexRangeNode(q, n);
     case QN_FUZZY:
       return Query_EvalFuzzyNode(q, n);
     case QN_NUMERIC:
@@ -794,10 +866,11 @@ int QAST_Expand(QueryAST *q, const char *expander, RSSearchOptions *opts, RedisS
   if (!q->root) {
     return REDISMODULE_OK;
   }
-  RSQueryExpanderCtx expCtx = {.qast = q,
-                               .language = opts->language ? opts->language : DEFAULT_LANGUAGE,
-                               .handle = sctx,
-                               .status = status};
+  RSQueryExpanderCtx expCtx = {
+      .qast = q,
+      .language = (opts && opts->language) ? opts->language : DEFAULT_LANGUAGE,
+      .handle = sctx,
+      .status = status};
 
   ExtQueryExpanderCtx *xpc =
       Extensions_GetQueryExpander(&expCtx, expander ? expander : DEFAULT_EXPANDER_NAME);
@@ -936,6 +1009,11 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
 
     case QN_PREFX:
       s = sdscatprintf(s, "PREFIX{%s*", (char *)qs->pfx.str);
+      break;
+
+    case QN_LEXRANGE:
+      s = sdscatprintf(s, "LEXRANGE{%s...%s", qs->lxrng.begin ? qs->lxrng.begin : "",
+                       qs->lxrng.end ? qs->lxrng.end : "");
       break;
 
     case QN_NOT:
@@ -1077,6 +1155,7 @@ int Query_NodeForEach(QueryAST *q, QueryNode_ForEachCallback callback, void *ctx
       case QN_FUZZY:
       case QN_TOKEN:
       case QN_PREFX:
+      case QN_LEXRANGE:
       case QN_NUMERIC:
       case QN_NULL:
         break;

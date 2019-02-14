@@ -5,14 +5,16 @@
 #include "../ext/default.h"
 #include <gtest/gtest.h>
 
+int myRegisterFunc(RSExtensionCtx *ctx);
+
 class ExtTest : public ::testing::Test {
  protected:
   virtual void SetUp(void) {
     Extensions_Init();
+    Extension_Load("testung", myRegisterFunc);
   }
 
   virtual void TearDown(void) {
-    Extensions_Free();
   }
 };
 
@@ -66,7 +68,6 @@ int myRegisterFunc(RSExtensionCtx *ctx) {
 
 TEST_F(ExtTest, testRegistration) {
   numFreed = 0;
-  ASSERT_TRUE(REDISEARCH_OK == Extension_Load("testung", myRegisterFunc));
 
   RSQueryExpanderCtx qexp;
   ExtQueryExpanderCtx *qx = Extensions_GetQueryExpander(&qexp, EXPANDER_NAME);
@@ -114,7 +115,6 @@ TEST_F(ExtTest, testDynamicLoading) {
 
 TEST_F(ExtTest, testQueryExpander) {
   numFreed = 0;
-  ASSERT_TRUE(REDISEARCH_OK == Extension_Load("testung", myRegisterFunc));
 
   const char *qt = "hello world";
   RSSearchOptions opts = {0};

@@ -205,7 +205,7 @@ DEBUG_COMMAND(DumpNumericIndex) {
   RedisModule_ReplyWithArray(sctx->redisCtx, REDISMODULE_POSTPONED_ARRAY_LEN);
   while ((currNode = NumericRangeTreeIterator_Next(iter))) {
     if (currNode->range) {
-      IndexReader *reader = NewNumericReader(currNode->range->entries, NULL);
+      IndexReader *reader = NewNumericReader(NULL, currNode->range->entries, NULL);
       ReplyReaderResults(reader, sctx->redisCtx);
       ++resultSize;
     }
@@ -231,7 +231,7 @@ DEBUG_COMMAND(DumpTagIndex) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
     goto end;
   }
-  TagIndex *tagIndex = TagIndex_Open(sctx->redisCtx, keyName, false, &keyp);
+  TagIndex *tagIndex = TagIndex_Open(sctx, keyName, false, &keyp);
   if (!tagIndex) {
     RedisModule_ReplyWithError(sctx->redisCtx, "can not open tag field");
     goto end;
@@ -401,7 +401,7 @@ DEBUG_COMMAND(InfoTagIndex) {
     goto end;
   }
 
-  const TagIndex *idx = TagIndex_Open(sctx->redisCtx, keyName, false, &keyp);
+  const TagIndex *idx = TagIndex_Open(sctx, keyName, false, &keyp);
   if (!idx) {
     RedisModule_ReplyWithError(sctx->redisCtx, "can not open tag field");
     goto end;

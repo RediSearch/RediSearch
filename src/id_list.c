@@ -18,6 +18,42 @@ static inline int isEof(const IdListIterator *it) {
   return !it->base.isValid;
 }
 
+typedef struct {
+  IndexCriteriaTester base;
+  t_docId *docIds;
+  t_offset size;
+} ILCriteriaTester;
+
+static int cmp_docids(const void *p1, const void *p2);
+
+static int IL_Test(struct IndexCriteriaTester *ct, t_docId id) {
+  ILCriteriaTester *lct = (ILCriteriaTester *)ct;
+  return bsearch((void *)id, lct->docIds, (size_t)lct->size, sizeof(t_docId), cmp_docids) != NULL;
+}
+
+static void IL_TesterFree(struct IndexCriteriaTester *ct) {
+  ILCriteriaTester *lct = (ILCriteriaTester *)ct;
+  rm_free(lct->docIds);
+  rm_free(ct);
+}
+
+IndexCriteriaTester *IL_GetCriteriaTester(void *ctx) {
+  IdListIterator *it = ctx;
+  ILCriteriaTester *ct = rm_malloc(sizeof(*ct));
+  ct->docIds = it->docIds;
+  ct->size = it->size;
+  it->docIds = NULL;
+  it->size = 0;
+  ct->base.Test = IL_Test;
+  ct->base.Free = IL_TesterFree;
+  return &ct->base;
+}
+
+size_t IL_NumEstimated(void *ctx) {
+  IdListIterator *it = ctx;
+  return (size_t)it->size;
+}
+
 /* Read the next entry from the iterator, into hit *e.
  *  Returns INDEXREAD_EOF if at the end */
 int IL_Read(void *ctx, RSIndexResult **r) {
@@ -95,7 +131,9 @@ t_docId IL_LastDocId(void *ctx) {
 void IL_Free(struct indexIterator *self) {
   IdListIterator *it = self->ctx;
   IndexResult_Free(it->base.current);
-  rm_free(it->docIds);
+  if (it->docIds) {
+    rm_free(it->docIds);
+  }
   rm_free(self);
 }
 
@@ -138,6 +176,8 @@ IndexIterator *NewIdListIterator(t_docId *ids, t_offset num, double weight) {
 
   IndexIterator *ret = &it->base;
   ret->ctx = it;
+  ret->GetCriteriaTester = IL_GetCriteriaTester;
+  ret->NumEstimated = IL_NumEstimated;
   ret->Free = IL_Free;
   ret->LastDocId = IL_LastDocId;
   ret->Len = IL_Len;
@@ -145,6 +185,7 @@ IndexIterator *NewIdListIterator(t_docId *ids, t_offset num, double weight) {
   ret->SkipTo = IL_SkipTo;
   ret->Abort = IL_Abort;
   ret->Rewind = IL_Rewind;
+  ret->mode = MODE_SORTED;
 
   ret->HasNext = NULL;
   ret->GetCurrent = NULL;

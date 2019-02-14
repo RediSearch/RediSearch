@@ -67,7 +67,8 @@ typedef struct {
 
   DMDChain *buckets;
   DocIdMap dim;
-
+  const void **idmap;
+  size_t idmapLen;
 } DocTable;
 
 /* increasing the ref count of the given dmd */
@@ -183,6 +184,9 @@ static inline void DMD_Decref(RSDocumentMetadata *dmd) {
     DMD_Free(dmd);
   }
 }
+
+/* Enables quick conversion for ID lookups. For use with external C API */
+void DocTable_EnableIdArray(DocTable *t);
 
 /* Save the table to RDB. Called from the owning index */
 void DocTable_RdbSave(DocTable *t, RedisModuleIO *rdb);

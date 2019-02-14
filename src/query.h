@@ -53,6 +53,8 @@ typedef struct QueryAST {
 int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions *sopts,
                const char *qstr, size_t len, QueryError *status);
 
+IndexIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n);
+
 /**
  * Global filter options impact *all* query nodes. This structure can be used
  * to set global properties for the entire query

@@ -136,6 +136,7 @@ typedef struct RedisModuleTypeMethods {
 
 #define REDISMODULE_API_FUNC(T, N) extern T(*N)
 
+REDISMODULE_API_FUNC(int, RedisModule_GetApi)(const char *, void *);
 REDISMODULE_API_FUNC(void *, RedisModule_Alloc)(size_t bytes);
 REDISMODULE_API_FUNC(void *, RedisModule_Realloc)(void *ptr, size_t bytes);
 REDISMODULE_API_FUNC(void, RedisModule_Free)(void *ptr);
@@ -292,6 +293,7 @@ REDISMODULE_API_FUNC(void, RedisModule_ThreadSafeContextUnlock)(RedisModuleCtx *
 #endif
 
 #define REDISMODULE_XAPI_STABLE(X) \
+  X(GetApi)                        \
   X(Alloc)                         \
   X(Calloc)                        \
   X(Free)                          \

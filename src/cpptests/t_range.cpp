@@ -7,7 +7,7 @@
 
 extern "C" {
 // declaration for an internal function implemented in numeric_index.c
-IndexIterator *createNumericIterator(NumericRangeTree *t, const NumericFilter *f);
+IndexIterator *createNumericIterator(const IndexSpec* sp, NumericRangeTree *t, const NumericFilter *f);
 }
 
 // Helper so we get the same pseudo-random numbers
@@ -88,7 +88,7 @@ TEST_F(RangeTest, testRangeIterator) {
     }
 
     // printf("Testing range %f..%f, should have %d docs\n", min, max, count);
-    IndexIterator *it = createNumericIterator(t, flt);
+    IndexIterator *it = createNumericIterator(NULL, t, flt);
 
     int xcount = 0;
     RSIndexResult *res = NULL;

@@ -1,9 +1,3 @@
-/*
- * phonetic_manager.h
- *
- *  Created on: Jul 23, 2018
- *      Author: meir
- */
 
 #ifndef SRC_PHONETIC_MANAGER_H_
 #define SRC_PHONETIC_MANAGER_H_

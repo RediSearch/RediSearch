@@ -13,7 +13,7 @@ extern "C" {
 #define NF_NEGATIVE_INFINITY (-1.0 / 0.0)
 
 typedef struct NumericFilter {
-  const char *fieldName;
+  char *fieldName;
   double min;
   double max;
   int inclusiveMin;

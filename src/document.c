@@ -441,7 +441,7 @@ FIELD_PREPROCESSOR(tagPreprocessor) {
 
 FIELD_BULK_CTOR(tagCtor) {
   RedisModuleString *kname = IndexSpec_GetFormattedKey(ctx->spec, fs);
-  bulk->indexData = TagIndex_Open(ctx->redisCtx, kname, 1, &bulk->indexKey);
+  bulk->indexData = TagIndex_Open(ctx, kname, 1, &bulk->indexKey);
 }
 
 FIELD_BULK_INDEXER(tagIndexer) {

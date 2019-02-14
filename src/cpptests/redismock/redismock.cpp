@@ -1,6 +1,7 @@
 #include "internal.h"
 #include "util.h"
 #include "redismock.h"
+
 #include <string>
 #include <map>
 #include <vector>
@@ -14,6 +15,9 @@
 #include <cstdlib>
 #include <climits>
 #include <cassert>
+#include <mutex>
+
+static std::mutex RMCK_GlobalLock;
 
 std::string HashValue::Key::makeKey() const {
   if (flags & REDISMODULE_HASH_CFIELDS) {
@@ -117,7 +121,9 @@ size_t RMCK_ValueLength(RedisModuleKey *k) {
 /** String functions */
 RedisModuleString *RMCK_CreateString(RedisModuleCtx *ctx, const char *s, size_t n) {
   RedisModuleString *rs = new RedisModuleString(s, n);
-  ctx->addPointer(rs);
+  if (ctx) {
+    ctx->addPointer(rs);
+  }
   return rs;
 }
 
@@ -140,7 +146,9 @@ RedisModuleString *RMCK_CreateStringPrintf(RedisModuleCtx *ctx, const char *fmt,
 
 void RMCK_FreeString(RedisModuleCtx *ctx, RedisModuleString *s) {
   s->decref();
-  ctx->notifyRemoved(s);
+  if (ctx) {
+    ctx->notifyRemoved(s);
+  }
 }
 
 void RMCK_RetainString(RedisModuleCtx *ctx, RedisModuleString *s) {
@@ -389,6 +397,10 @@ void RMCK_Log(RedisModuleCtx *ctx, const char *level, const char *fmt, ...) {
   va_end(ap);
 }
 
+int RMCK_StringCompare(RedisModuleString *a, RedisModuleString *b) {
+  return a->compare((std::string)*b);
+}
+
 /** MODULE TYPES */
 RedisModuleType *RMCK_CreateDataType(RedisModuleCtx *ctx, const char *name, int encver,
                                      RedisModuleTypeMethods *meths) {
@@ -507,14 +519,35 @@ void RMCK_FreeThreadSafeContext(RedisModuleCtx *ctx) {
   delete ctx;
 }
 
+void RMCK_AutoMemory(RedisModuleCtx *ctx) {
+  ctx->automemory = true;
+}
+
+void RMCK_ThreadSafeContextLock(RedisModuleCtx *) {
+  RMCK_GlobalLock.lock();
+}
+
+void RMCK_ThreadSafeContextUnlock(RedisModuleCtx *) {
+  RMCK_GlobalLock.unlock();
+}
+
+RedisModuleCallReply *RMCK_Call(RedisModuleCtx *, const char *, const char *, ...) {
+  return NULL;
+}
+
 Module::ModuleMap Module::modules;
 std::vector<KVDB *> KVDB::dbs;
 static int RMCK_GetApi(const char *s, void *pp);
 
 /** Misc */
 RedisModuleCtx::~RedisModuleCtx() {
-  for (auto it : allockeys) {
-    delete it;
+  if (automemory) {
+    for (auto it : allockeys) {
+      delete it;
+    }
+    for (auto it : allocstrs) {
+      delete it;
+    }
   }
 }
 
@@ -546,7 +579,15 @@ void KVDB::debugDump() const {
 std::map<std::string, void *> fnregistry;
 #define REGISTER_API(basename) fnregistry["RedisModule_" #basename] = (void *)RMCK_##basename
 
+extern "C" {
+int moduleRegisterApi(const char *funcname, void *funcptr) {
+  fnregistry[funcname] = funcptr;
+  return 0;
+}
+}
+
 static void registerApis() {
+  REGISTER_API(GetApi);
   REGISTER_API(Alloc);
   REGISTER_API(Calloc);
   REGISTER_API(Realloc);
@@ -580,9 +621,14 @@ static void registerApis() {
 
   REGISTER_API(SetModuleAttribs);
   REGISTER_API(Log);
+  REGISTER_API(Call);
 
   REGISTER_API(GetThreadSafeContext);
   REGISTER_API(FreeThreadSafeContext);
+  REGISTER_API(ThreadSafeContextLock);
+  REGISTER_API(ThreadSafeContextUnlock);
+  REGISTER_API(StringCompare);
+  REGISTER_API(AutoMemory);
 }
 
 static int RMCK_GetApi(const char *s, void *pp) {

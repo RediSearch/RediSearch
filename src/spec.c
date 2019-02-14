@@ -238,9 +238,7 @@ static int parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *s
 
   // if we're at the end - fail
   if (*offset >= argc) return 0;
-  sp->sortIdx = -1;
-  sp->options = 0;
-  sp->name = rm_strdup(argv[*offset]);
+  FieldSpec_SetName(sp, argv[*offset]);
 
   // we can't be at the end
   if (++*offset == argc) {
@@ -251,13 +249,11 @@ static int parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *s
   if (!strcasecmp(argv[*offset], SPEC_TEXT_STR)) {
 
     // init default weight and type
-    sp->type = FIELD_FULLTEXT;
-    sp->textOpts.weight = 1.0;
+    FieldSpec_InitializeText(sp);
 
     while (++*offset < argc) {
       if (!strcasecmp(argv[*offset], SPEC_NOSTEM_STR)) {
-        sp->options |= FieldSpec_NoStemming;
-
+        FieldSpec_TextNoStem(sp);
       } else if (!strcasecmp(argv[*offset], SPEC_WEIGHT_STR)) {
         // weight with no value is invalid
         if (++*offset == argc) {
@@ -268,8 +264,7 @@ static int parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *s
         if (d == 0 || d == HUGE_VAL || d == -HUGE_VAL || d < 0) {
           goto error;
         }
-        sp->textOpts.weight = d;
-
+        FieldSpec_TextSetWeight(sp, d);
       } else if (!strcasecmp(argv[*offset], SPEC_PHONETIC_STR)) {
         // phonetic with no matcher
         if (++*offset == argc) {
@@ -289,8 +284,7 @@ static int parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *s
               "Portuguese (pt) and Spanish (es)");
           goto error;
         }
-
-        sp->options |= FieldSpec_Phonetics;
+        FieldSpec_TextPhonetic(sp);
       } else {
         break;
       }
@@ -301,22 +295,21 @@ static int parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *s
     }
 
   } else if (!strcasecmp(argv[*offset], NUMERIC_STR)) {
-    sp->type = FIELD_NUMERIC;
+    FieldSpec_InitializeNumeric(sp);
     ++*offset;
 
   } else if (!strcasecmp(argv[*offset], GEO_STR)) {  // geo field
-    sp->type = FIELD_GEO;
+    FieldSpec_InitializeGeo(sp);
     ++*offset;
   } else if (!strcasecmp(argv[*offset], SPEC_TAG_STR)) {  // tag field
-    sp->type = FIELD_TAG;
-    sp->tagOpts.separator = ',';
-    sp->tagOpts.flags = TAG_FIELD_DEFAULT_FLAGS;
+    FieldSpec_InitializeTag(sp);
+
     ++*offset;
     // Detectet SEPARATOR Argument
     if (*offset + 1 < argc && !strcasecmp(argv[*offset], SPEC_SEPARATOR_STR)) {
       ++*offset;
       if (strlen(argv[*offset]) == 1) {
-        sp->tagOpts.separator = argv[*offset][0];
+        FieldSpec_TagSetSeparator(sp, argv[*offset][0]);
       } else {
         QueryError_SetError(status, QUERY_EPARSEARGS,
                             "Invalid separator, only 1 byte ascii characters allowed");
@@ -335,10 +328,10 @@ static int parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *s
         QueryError_SetError(status, QUERY_EBADOPTION, "Geo fields cannot be sortable");
         goto error;
       }
-      sp->options |= FieldSpec_Sortable;
+      FieldSpec_SetSortable(sp);
       ++*offset;
     } else if (!strcasecmp(argv[*offset], SPEC_NOINDEX_STR)) {
-      sp->options |= FieldSpec_NotIndexable;
+      FieldSpec_SetNoIndex(sp);
       ++*offset;
     } else {
       break;
@@ -352,26 +345,8 @@ error:
     QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Could not parse schema for field `%s`",
                            argv[0]);
   }
-  if (sp->name) {
-    rm_free(sp->name);
-    sp->name = NULL;
-  }
+  FieldSpec_Cleanup(sp);
   return 0;
-}
-
-/* Convert field type rsvalue type */
-RSValueType fieldTypeToValueType(FieldType ft) {
-  switch (ft) {
-    case FIELD_NUMERIC:
-      return RSValue_Number;
-    case FIELD_FULLTEXT:
-    case FIELD_TAG:
-      return RSValue_String;
-    case FIELD_GEO:
-    default:
-      // geo is not sortable so we don't care as of now...
-      return RSValue_Null;
-  }
 }
 
 /**
@@ -397,11 +372,12 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, const char **argv, int arg
   }
 
   for (int offset = 0; offset < argc && sp->numFields < SPEC_MAX_FIELDS;) {
-    sp->fields = rm_realloc(sp->fields, sizeof(*sp->fields) * (sp->numFields + 1));
-    fs = sp->fields + sp->numFields;
-    memset(fs, 0, sizeof(*fs));
-
-    fs->index = sp->numFields;
+    const char *fieldName = argv[offset];
+    if (IndexSpec_GetField(sp, fieldName, strlen(fieldName))) {
+      QueryError_SetError(status, QUERY_EINVAL, "Duplicate field in schema");
+      goto reset;
+    }
+    fs = IndexSpec_CreateField(sp);
 
     if (!parseFieldSpec(argv, &offset, argc, fs, status)) {
       goto reset;
@@ -431,31 +407,27 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, const char **argv, int arg
       fs->textOpts.id = textId;
     }
 
-    if (IndexSpec_GetField(sp, fs->name, strlen(fs->name))) {
-      QueryError_SetError(status, QUERY_EINVAL, "Duplicate field in schema");
-      goto reset;
-    }
-
     if (FieldSpec_IsSortable(fs)) {
       fs->sortIdx = RSSortingTable_Add(sp->sortables, fs->name, fieldTypeToValueType(fs->type));
     }
     if (FieldSpec_IsPhonetics(fs)) {
       sp->flags |= Index_HasPhonetic;
     }
-    sp->numFields++;
+    fs = NULL;
   }
   return 1;
 
 reset:
   // If the current field spec exists, but was not added (i.e. we got an error)
   // and reached this block, then free it
-  if (fs && fs->name) {
-    rm_free(fs->name);
+  if (fs) {
+    // if we have a field spec it means that we increased the number of fields, so we need to
+    // decreas it.
+    --sp->numFields;
+    FieldSpec_Cleanup(fs);
   }
   for (size_t ii = prevNumFields; ii < sp->numFields; ++ii) {
-    if (sp->fields[ii].name) {
-      rm_free(sp->fields[ii].name);
-    }
+    FieldSpec_Cleanup(&sp->fields[ii]);
   }
 
   sp->numFields = prevNumFields;
@@ -486,7 +458,7 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryE
     QueryError_SetError(status, QUERY_EPARSEARGS, "Schema not found");
     return NULL;
   }
-  IndexSpec *spec = NewIndexSpec(name, 0);
+  IndexSpec *spec = NewIndexSpec(name);
 
   if (argExists(SPEC_NOOFFSETS_STR, argv, argc, schemaOffset)) {
     spec->flags &= ~(Index_StoreTermOffsets | Index_StoreByteOffsets);
@@ -742,6 +714,16 @@ void IndexSpec_Free(void *ctx) {
   IndexSpec_FreeInternals(spec);
 }
 
+void IndexSpec_FreeSync(IndexSpec *spec) {
+  // Need a context for this:
+  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
+  RedisModule_AutoMemory(ctx);
+  Redis_DropIndex(&sctx, 0, 1);
+  IndexSpec_FreeInternals(spec);
+  RedisModule_FreeThreadSafeContext(ctx);
+}
+
 IndexSpec *IndexSpec_LoadEx(RedisModuleCtx *ctx, RedisModuleString *formattedKey, int openWrite,
                             RedisModuleKey **keyp) {
   RedisModuleKey *key_s = NULL;
@@ -853,17 +835,31 @@ int IndexSpec_IsStopWord(IndexSpec *sp, const char *term, size_t len) {
   return StopWordList_Contains(sp->stopwords, term, len);
 }
 
-IndexSpec *NewIndexSpec(const char *name, size_t numFields) {
+IndexSpec *NewIndexSpec(const char *name) {
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
-  sp->fields = rm_calloc(sizeof(FieldSpec), numFields ? numFields : SPEC_MAX_FIELDS);
+  sp->fields = rm_calloc(sizeof(FieldSpec), SPEC_MAX_FIELDS);
   sp->sortables = NewSortingTable();
   sp->flags = INDEX_DEFAULT_FLAGS;
   sp->name = rm_strdup(name);
   sp->docs = DocTable_New(100);
   sp->stopwords = DefaultStopWordList();
   sp->terms = NewTrie();
+  sp->keysDict = NULL;
+  sp->minPrefix = RSGlobalConfig.minTermPrefix;
+  sp->maxPrefixExpansions = RSGlobalConfig.maxPrefixExpansions;
+  sp->getValue = NULL;
+  sp->getValueCtx = NULL;
+  sp->textFields = 0;
   memset(&sp->stats, 0, sizeof(sp->stats));
   return sp;
+}
+
+FieldSpec *IndexSpec_CreateField(IndexSpec *sp) {
+  sp->fields = rm_realloc(sp->fields, sizeof(*sp->fields) * (sp->numFields + 1));
+  FieldSpec *fs = sp->fields + sp->numFields;
+  memset(fs, 0, sizeof(*fs));
+  FieldSpec_SetIndex(fs, sp->numFields++);
+  return fs;
 }
 
 /* Start the garbage collection loop on the index spec. The GC removes garbage data left on the
@@ -994,6 +990,9 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
   sp->docs = DocTable_New(1000);
   sp->name = RedisModule_LoadStringBuffer(rdb, NULL);
   sp->flags = (IndexFlags)RedisModule_LoadUnsigned(rdb);
+  sp->keysDict = NULL;
+  sp->maxPrefixExpansions = RSGlobalConfig.maxPrefixExpansions;
+  sp->minPrefix = RSGlobalConfig.minTermPrefix;
   if (encver < INDEX_MIN_NOFREQ_VERSION) {
     sp->flags |= Index_StoreFreqs;
   }

@@ -45,6 +45,9 @@ typedef enum {
   /* Fuzzy term - expand with levenshtein distance */
   QN_FUZZY,
 
+  /* Lexical range */
+  QN_LEXRANGE,
+
   /* Null term - take no action */
   QN_NULL
 } QueryNodeType;
@@ -105,7 +108,7 @@ typedef struct {
 
 /* A node with a numeric filter */
 typedef struct {
-  const struct NumericFilter *nf;
+  struct NumericFilter *nf;
 } QueryNumericNode;
 
 typedef struct {
@@ -116,6 +119,11 @@ typedef struct {
   t_docId *ids;
   size_t len;
 } QueryIdFilterNode;
+
+typedef struct {
+  const char *begin;
+  const char *end;
+} QueryLexRangeNode;
 
 typedef enum {
   QueryNode_Verbatim = 0x01,
@@ -161,6 +169,7 @@ typedef struct RSQueryNode {
     QueryWildcardNode wc;
     QueryTagNode tag;
     QueryFuzzyNode fz;
+    QueryLexRangeNode lxrng;
     QueryNullNode null;
   };
 
