@@ -1,4 +1,3 @@
-#include "rmutil/strings.h"
 #include "rmutil/util.h"
 #include "spec.h"
 #include "util/logging.h"
@@ -186,21 +185,6 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
   return sp;
 }
 
-static int findOffset(const char *arg, const char **argv, int argc) {
-  for (int i = 0; i < argc; i++) {
-    if (!strcasecmp(arg, argv[i])) {
-      return i;
-    }
-  }
-  return -1;
-}
-
-static int argExists(const char *arg, const char **argv, int argc, int maxIdx) {
-  int idx = findOffset(arg, argv, argc);
-  // printf("pos for %s: %d\n", arg, idx);
-  return idx >= 0 && idx < maxIdx;
-}
-
 char *strtolower(char *str) {
   char *p = str;
   while (*p) {
@@ -210,7 +194,7 @@ char *strtolower(char *str) {
   return str;
 }
 
-static bool checkPhoneticAlgorithmAndLang(char *matcher) {
+static bool checkPhoneticAlgorithmAndLang(const char *matcher) {
   if (strlen(matcher) != 5) {
     return false;
   }
@@ -231,119 +215,115 @@ static bool checkPhoneticAlgorithmAndLang(char *matcher) {
   return langauge_found;
 }
 
+static int parseTextField(FieldSpec *sp, ArgsCursor *ac, QueryError *status) {
+  int rc;
+  // this is a text field
+  // init default weight and type
+  FieldSpec_InitializeText(sp);
+  while (!AC_IsAtEnd(ac)) {
+    if (AC_AdvanceIfMatch(ac, SPEC_NOSTEM_STR)) {
+      FieldSpec_TextNoStem(sp);
+      continue;
+
+    } else if (AC_AdvanceIfMatch(ac, SPEC_WEIGHT_STR)) {
+      double d;
+      if ((rc = AC_GetDouble(ac, &d, 0)) != AC_OK) {
+        QERR_MKBADARGS_AC(status, "weight", rc);
+        return 0;
+      }
+      FieldSpec_TextSetWeight(sp, d);
+      continue;
+
+    } else if (AC_AdvanceIfMatch(ac, SPEC_PHONETIC_STR)) {
+      if (AC_IsAtEnd(ac)) {
+        QueryError_SetError(status, QUERY_EPARSEARGS, SPEC_PHONETIC_STR " requires an argument");
+        return 0;
+      }
+
+      const char *matcher = AC_GetStringNC(ac, NULL);
+      // try and parse the matcher
+      // currently we just make sure algorithm is double metaphone (dm)
+      // and language is one of the following : English (en), French (fr), Portuguese (pt) and
+      // Spanish (es)
+      // in the future we will support more algorithms and more languages
+      if (!checkPhoneticAlgorithmAndLang(matcher)) {
+        QueryError_SetError(
+            status, QUERY_EINVAL,
+            "Matcher Format: <2 chars algorithm>:<2 chars language>. Support algorithms: "
+            "double metaphone (dm). Supported languages: English (en), French (fr), "
+            "Portuguese (pt) and Spanish (es)");
+        return 0;
+      }
+      FieldSpec_TextPhonetic(sp);
+      continue;
+
+    } else {
+      break;
+    }
+  }
+  return 1;
+}
+
 /* Parse a field definition from argv, at *offset. We advance offset as we progress.
  *  Returns 1 on successful parse, 0 otherwise */
-static int parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *sp,
-                          QueryError *status) {
-
-  // if we're at the end - fail
-  if (*offset >= argc) return 0;
-  FieldSpec_SetName(sp, argv[*offset]);
-
-  // we can't be at the end
-  if (++*offset == argc) {
-    goto error;
+static int parseFieldSpec(const char *name, ArgsCursor *ac, FieldSpec *sp, QueryError *status) {
+  if (AC_IsAtEnd(ac)) {
+    QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Field `%s` does not have a type", name);
+    return 0;
   }
 
-  // this is a text field
-  if (!strcasecmp(argv[*offset], SPEC_TEXT_STR)) {
+  FieldSpec_SetName(sp, name);
 
-    // init default weight and type
-    FieldSpec_InitializeText(sp);
-
-    while (++*offset < argc) {
-      if (!strcasecmp(argv[*offset], SPEC_NOSTEM_STR)) {
-        FieldSpec_TextNoStem(sp);
-      } else if (!strcasecmp(argv[*offset], SPEC_WEIGHT_STR)) {
-        // weight with no value is invalid
-        if (++*offset == argc) {
-          goto error;
-        }
-        // try and parse the weight
-        double d = strtod(argv[*offset], NULL);
-        if (d == 0 || d == HUGE_VAL || d == -HUGE_VAL || d < 0) {
-          goto error;
-        }
-        FieldSpec_TextSetWeight(sp, d);
-      } else if (!strcasecmp(argv[*offset], SPEC_PHONETIC_STR)) {
-        // phonetic with no matcher
-        if (++*offset == argc) {
-          goto error;
-        }
-        // try and parse the matcher
-        char *matcher = strdup(argv[*offset]);
-        // currently we just make sure algorithm is double metaphone (dm)
-        // and language is one of the following : English (en), French (fr), Portuguese (pt) and
-        // Spanish (es)
-        // in the future we will support more algorithms and more languages
-        if (!checkPhoneticAlgorithmAndLang(matcher)) {
-          QueryError_SetError(
-              status, QUERY_EINVAL,
-              "Matcher Format: <2 chars algorithm>:<2 chars language>. Support algorithms: "
-              "double metaphone (dm). Supported languages: English (en), French (fr), "
-              "Portuguese (pt) and Spanish (es)");
-          goto error;
-        }
-        FieldSpec_TextPhonetic(sp);
-      } else {
-        break;
-      }
+  if (AC_AdvanceIfMatch(ac, SPEC_TEXT_STR)) {
+    if (!parseTextField(sp, ac, status)) {
+      goto error;
     }
-
-    if (*offset == argc) {
-      return 1;
-    }
-
-  } else if (!strcasecmp(argv[*offset], NUMERIC_STR)) {
+  } else if (AC_AdvanceIfMatch(ac, NUMERIC_STR)) {
     FieldSpec_InitializeNumeric(sp);
-    ++*offset;
 
-  } else if (!strcasecmp(argv[*offset], GEO_STR)) {  // geo field
+  } else if (AC_AdvanceIfMatch(ac, GEO_STR)) {  // geo field
     FieldSpec_InitializeGeo(sp);
-    ++*offset;
-  } else if (!strcasecmp(argv[*offset], SPEC_TAG_STR)) {  // tag field
+  } else if (AC_AdvanceIfMatch(ac, SPEC_TAG_STR)) {  // tag field
     FieldSpec_InitializeTag(sp);
-
-    ++*offset;
-    // Detectet SEPARATOR Argument
-    if (*offset + 1 < argc && !strcasecmp(argv[*offset], SPEC_SEPARATOR_STR)) {
-      ++*offset;
-      if (strlen(argv[*offset]) == 1) {
-        FieldSpec_TagSetSeparator(sp, argv[*offset][0]);
-      } else {
-        QueryError_SetError(status, QUERY_EPARSEARGS,
-                            "Invalid separator, only 1 byte ascii characters allowed");
+    if (AC_AdvanceIfMatch(ac, SPEC_SEPARATOR_STR)) {
+      if (AC_IsAtEnd(ac)) {
+        QueryError_SetError(status, QUERY_EPARSEARGS, SPEC_SEPARATOR_STR " requires an argument");
         goto error;
       }
-      ++*offset;
+      const char *sep = AC_GetStringNC(ac, NULL);
+      if (strlen(sep) != 1) {
+        QueryError_SetErrorFmt(status, QUERY_EPARSEARGS,
+                               "Tag separator must be a single character. Got `%s`", sep);
+        goto error;
+      }
+      FieldSpec_TagSetSeparator(sp, *sep);
     }
   } else {  // not numeric and not text - nothing more supported currently
+    QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Invalid field type for field `%s`", name);
     goto error;
   }
 
-  while (*offset < argc) {
-    if (!strcasecmp(argv[*offset], SPEC_SORTABLE_STR)) {
+  while (!AC_IsAtEnd(ac)) {
+    if (AC_AdvanceIfMatch(ac, SPEC_SORTABLE_STR)) {
       // cannot sort by geo fields
       if (sp->type == FIELD_GEO) {
         QueryError_SetError(status, QUERY_EBADOPTION, "Geo fields cannot be sortable");
         goto error;
       }
       FieldSpec_SetSortable(sp);
-      ++*offset;
-    } else if (!strcasecmp(argv[*offset], SPEC_NOINDEX_STR)) {
+      continue;
+    } else if (AC_AdvanceIfMatch(ac, SPEC_NOINDEX_STR)) {
       FieldSpec_SetNoIndex(sp);
-      ++*offset;
+      continue;
     } else {
       break;
     }
   }
-
   return 1;
 
 error:
   if (!QueryError_HasError(status)) {
-    QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Could not parse schema for field `%s`",
-                           argv[0]);
+    QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Could not parse schema for field `%s`", name);
   }
   FieldSpec_Cleanup(sp);
   return 0;
@@ -353,8 +333,8 @@ error:
  * Add fields to an existing (or newly created) index. If the addition fails,
  *
  */
-static int IndexSpec_AddFieldsInternal(IndexSpec *sp, const char **argv, int argc,
-                                       QueryError *status, int isNew) {
+static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError *status,
+                                       int isNew) {
   if (sp->spcache) {
     IndexSpecCache_Decref(sp->spcache);
     sp->spcache = NULL;
@@ -371,15 +351,16 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, const char **argv, int arg
     }
   }
 
-  for (int offset = 0; offset < argc && sp->numFields < SPEC_MAX_FIELDS;) {
-    const char *fieldName = argv[offset];
-    if (IndexSpec_GetField(sp, fieldName, strlen(fieldName))) {
+  while (!AC_IsAtEnd(ac)) {
+    size_t nfieldName = 0;
+    const char *fieldName = AC_GetStringNC(ac, &nfieldName);
+    if (IndexSpec_GetField(sp, fieldName, nfieldName)) {
       QueryError_SetError(status, QUERY_EINVAL, "Duplicate field in schema");
       goto reset;
     }
     fs = IndexSpec_CreateField(sp);
 
-    if (!parseFieldSpec(argv, &offset, argc, fs, status)) {
+    if (!parseFieldSpec(fieldName, ac, fs, status)) {
       goto reset;
     }
 
@@ -436,7 +417,9 @@ reset:
 }
 
 int IndexSpec_AddFields(IndexSpec *sp, const char **argv, int argc, QueryError *status) {
-  return IndexSpec_AddFieldsInternal(sp, argv, argc, status, 0);
+  ArgsCursor ac = {0};
+  ArgsCursor_InitCString(&ac, argv, argc);
+  return IndexSpec_AddFieldsInternal(sp, &ac, status, 0);
 }
 
 int IndexSpec_AddFieldsRedisArgs(IndexSpec *sp, RedisModuleString **argv, int argc,
@@ -452,63 +435,60 @@ int IndexSpec_AddFieldsRedisArgs(IndexSpec *sp, RedisModuleString **argv, int ar
     SCHEMA {field} [TEXT [WEIGHT {weight}]] | [NUMERIC]
   */
 IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryError *status) {
-  int schemaOffset = findOffset(SPEC_SCHEMA_STR, argv, argc);
-  // no schema or schema towrards the end
-  if (schemaOffset == -1) {
-    QueryError_SetError(status, QUERY_EPARSEARGS, "Schema not found");
-    return NULL;
-  }
   IndexSpec *spec = NewIndexSpec(name);
 
-  if (argExists(SPEC_NOOFFSETS_STR, argv, argc, schemaOffset)) {
-    spec->flags &= ~(Index_StoreTermOffsets | Index_StoreByteOffsets);
-  }
+  ArgsCursor ac = {0};
+  ArgsCursor acStopwords = {0};
 
-  if (argExists(SPEC_NOHL_STR, argv, argc, schemaOffset)) {
-    spec->flags &= ~Index_StoreByteOffsets;
-  }
+  ArgsCursor_InitCString(&ac, argv, argc);
+  long long timeout = -1;
+  int dummy;
 
-  if (argExists(SPEC_NOFIELDS_STR, argv, argc, schemaOffset)) {
-    spec->flags &= ~Index_StoreFieldFlags;
-  }
+  ACArgSpec argopts[] = {
+      {AC_MKUNFLAG(SPEC_NOOFFSETS_STR, &spec->flags,
+                   Index_StoreTermOffsets | Index_StoreByteOffsets)},
+      {AC_MKUNFLAG(SPEC_NOHL_STR, &spec->flags, Index_StoreByteOffsets)},
+      {AC_MKUNFLAG(SPEC_NOFIELDS_STR, &spec->flags, Index_StoreFieldFlags)},
+      {AC_MKUNFLAG(SPEC_NOFREQS_STR, &spec->flags, Index_StoreFreqs)},
+      {AC_MKBITFLAG(SPEC_SCHEMA_EXPANDABLE_STR, &spec->flags, Index_WideSchema)},
+      // For compatibility
+      {.name = "NOSCOREIDX", .target = &dummy, .type = AC_ARGTYPE_BOOLFLAG},
+      {.name = SPEC_TEMPORARY_STR, .target = &timeout, .type = AC_ARGTYPE_LLONG},
+      {.name = SPEC_STOPWORDS_STR, .target = &acStopwords, .type = AC_ARGTYPE_SUBARGS},
+      {.name = NULL}};
 
-  if (argExists(SPEC_NOFREQS_STR, argv, argc, schemaOffset)) {
-    spec->flags &= ~Index_StoreFreqs;
-  }
-
-  if (argExists(SPEC_SCHEMA_EXPANDABLE_STR, argv, argc, schemaOffset)) {
-    spec->flags |= Index_WideSchema;
-  }
-
-  int expireOffset = findOffset(SPEC_TEMPORARY_STR, argv, argc);
-  if (expireOffset != -1) {
-    if (expireOffset >= argc || expireOffset >= schemaOffset) {
-      QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid expire arg");
+  ACArgSpec *errarg = NULL;
+  int rc = AC_ParseArgSpec(&ac, argopts, &errarg);
+  if (rc != AC_OK) {
+    if (rc != AC_ERR_ENOENT) {
+      QERR_MKBADARGS_AC(status, errarg->name, rc);
       goto failure;
     }
-    if (sscanf(argv[expireOffset + 1], "%lld", &spec->timeout) != 1) {
-      QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid expire arg");
-      goto failure;
-    }
+  }
+
+  if (timeout != -1) {
     spec->flags |= Index_Temporary;
-  } else {
-    spec->timeout = -1;
   }
+  spec->timeout = timeout;
 
-  int swIndex = findOffset(SPEC_STOPWORDS_STR, argv, argc);
-  if (swIndex >= 0 && swIndex + 1 < schemaOffset) {
-    int listSize = atoi(argv[swIndex + 1]);
-    if (listSize < 0 || (swIndex + 2 + listSize > schemaOffset)) {
-      QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid stopword list size");
-      goto failure;
-    }
-    spec->stopwords = NewStopWordListCStr(&argv[swIndex + 2], listSize);
+  if (AC_IsInitialized(&acStopwords)) {
+    spec->stopwords = NewStopWordListCStr((const char **)acStopwords.objs, acStopwords.argc);
     spec->flags |= Index_HasCustomStopwords;
   } else {
     spec->stopwords = DefaultStopWordList();
   }
-  schemaOffset++;
-  if (!IndexSpec_AddFieldsInternal(spec, argv + schemaOffset, argc - schemaOffset, status, 1)) {
+
+  if (!AC_AdvanceIfMatch(&ac, SPEC_SCHEMA_STR)) {
+    if (AC_NumRemaining(&ac)) {
+      const char *badarg = AC_GetStringNC(&ac, NULL);
+      QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Unknown argument `%s`", badarg);
+    } else {
+      QueryError_SetError(status, QUERY_EPARSEARGS, "No schema found");
+    }
+    goto failure;
+  }
+
+  if (!IndexSpec_AddFieldsInternal(spec, &ac, status, 1)) {
     goto failure;
   }
   return spec;

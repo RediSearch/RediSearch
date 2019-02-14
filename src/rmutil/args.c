@@ -206,6 +206,9 @@ static int parseSingleSpec(ArgsCursor *ac, ACArgSpec *spec) {
     case AC_ARGTYPE_BITFLAG:
       *(uint32_t *)(spec->target) |= spec->slicelen;
       return AC_OK;
+    case AC_ARGTYPE_UNFLAG:
+      *(uint32_t *)spec->target &= ~spec->slicelen;
+      return AC_OK;
     case AC_ARGTYPE_DOUBLE:
       return AC_GetDouble(ac, spec->target, spec->intflags);
     case AC_ARGTYPE_INT:
