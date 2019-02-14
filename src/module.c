@@ -220,10 +220,17 @@ int GetDocumentsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
 
+  const DocTable *dt = &sctx->spec->docs;
   RedisModule_ReplyWithArray(ctx, argc - 2);
-  for (int i = 2; i < argc; i++) {
-    Document doc;
+  for (size_t i = 2; i < argc; i++) {
 
+    if (DocTable_GetIdR(dt, argv[i]) == 0) {
+      // Document does not exist in index; even though it exists in keyspace
+      RedisModule_ReplyWithNull(ctx);
+      continue;
+    }
+
+    Document doc;
     if (Redis_LoadDocument(sctx, argv[i], &doc) == REDISMODULE_ERR) {
       RedisModule_ReplyWithNull(ctx);
     } else {
@@ -257,7 +264,8 @@ int GetSingleDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
 
   Document doc;
 
-  if (Redis_LoadDocument(sctx, argv[2], &doc) == REDISMODULE_ERR) {
+  if (DocTable_GetIdR(&sctx->spec->docs, argv[2]) == 0 ||
+      Redis_LoadDocument(sctx, argv[2], &doc) == REDISMODULE_ERR) {
     RedisModule_ReplyWithNull(ctx);
   } else {
     Document_ReplyFields(ctx, &doc);

@@ -240,6 +240,16 @@ def testGet(env):
     env.assertEqual(len(rr), 100)
     for res in rr:
         env.assertIsNone(res)
+    
+    # Verify that when a document is deleted, GET returns NULL
+    r.cmd('ft.del', 'idx', 'doc10') # But we still keep the document
+    r.cmd('ft.del', 'idx', 'doc11')
+    res = r.cmd('ft.get', 'idx', 'doc10')
+    r.assertEqual(None, res)
+    res = r.cmd('ft.mget', 'idx', 'doc10', 'doc11', 'doc12')
+    r.assertIsNone(res[0])
+    r.assertIsNone(res[1])
+    r.assertTrue(not not res[2])
 
 def testDelete(env):
     r = env
