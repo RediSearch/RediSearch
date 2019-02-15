@@ -904,6 +904,41 @@ def testGeo(env):
             'heathrow', -0.44155, 51.45865, '5', 'km')
         env.assertListEqual(res, res2)
 
+def testGeoDeletion(env):
+    if env.is_cluster():
+        raise unittest.SkipTest()
+        # Can't properly test if deleted on cluster
+
+    env.cmd('ft.create', 'idx', 'schema',
+            'g1', 'geo', 'g2', 'geo', 't1', 'text')
+    env.cmd('ft.add', 'idx', 'doc1', 1.0, 'fields',
+            'g1', "-0.1757,51.5156",
+            'g2', "-0.1757,51.5156",
+            't1', "hello")
+    env.cmd('ft.add', 'idx', 'doc2', 1.0, 'fields',
+            'g1', "-0.1757,51.5156",
+            'g2', "-0.1757,51.5156",
+            't1', "hello")
+    
+    print env.cmd('keys', '*')
+    # keys are: "geo:idx/g1" and "geo:idx/g2"
+    env.assertEqual(2, env.cmd('zcard', 'geo:idx/g1'))
+    env.assertEqual(2, env.cmd('zcard', 'geo:idx/g2'))
+    
+    # Remove the first doc
+    env.cmd('ft.del', 'idx', 'doc1')
+    env.assertEqual(1, env.cmd('zcard', 'geo:idx/g1'))
+    env.assertEqual(1, env.cmd('zcard', 'geo:idx/g2'))
+    
+    # Replace the other one:
+    env.cmd('ft.add', 'idx', 'doc2', 1.0,
+            'replace', 'fields',
+            't1', 'just text here')
+    env.assertEqual(0, env.cmd('zcard', 'geo:idx/g1'))
+    env.assertEqual(0, env.cmd('zcard', 'geo:idx/g2'))
+
+
+
 def testAddHash(env):
     if env.is_cluster():
         raise unittest.SkipTest()
