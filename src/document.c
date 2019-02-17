@@ -82,6 +82,9 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Doc
           hasTextFields = 1;
         } else {
           hasOtherFields = 1;
+          if (fs->type == FIELD_GEO) {
+            aCtx->docFlags = Document_HasOnDemandDeletable;
+          }
         }
       }
     } else {
@@ -131,6 +134,7 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b, QueryError *stat
   aCtx->stateFlags = 0;
   QueryError_ClearError(&aCtx->status);
   aCtx->totalTokens = 0;
+  aCtx->docFlags = 0;
   aCtx->client.bc = NULL;
   aCtx->next = NULL;
   aCtx->specFlags = sp->flags;

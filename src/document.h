@@ -205,6 +205,9 @@ typedef struct RSAddDocumentCtx {
   // Old document data. Contains sortables
   RSDocumentMetadata *oldMd;
 
+  // New flags to assign to the document
+  RSDocumentFlags docFlags;
+
   // Scratch space used by per-type field preprocessors (see the source)
   union FieldData *fdatas;
   QueryError status;     // Error message is placed here if there is an error during processing

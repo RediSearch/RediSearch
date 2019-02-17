@@ -239,9 +239,24 @@ static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, Re
   }
 }
 
+static void handleReplaceDelete(RedisSearchCtx *sctx, t_docId did) {
+  IndexSpec *sp = sctx->spec;
+  for (size_t ii = 0; ii < sp->numFields; ++ii) {
+    const FieldSpec *fs = sp->fields + ii;
+    if (fs->type != FIELD_GEO) {
+      continue;
+    }
+    // Open the key:
+    RedisModuleString *fmtkey = IndexSpec_GetFormattedKey(sp, fs);
+    GeoIndex gi = {.ctx = sctx, .sp = fs};
+    GeoIndex_RemoveEntries(&gi, sp, did);
+  }
+}
+
 /** Assigns a document ID to a single document. */
-static int makeDocumentId(RSAddDocumentCtx *aCtx, IndexSpec *spec, int replace,
+static int makeDocumentId(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, int replace,
                           QueryError *status) {
+  IndexSpec *spec = sctx->spec;
   DocTable *table = &spec->docs;
   Document *doc = &aCtx->doc;
   if (replace) {
@@ -250,13 +265,18 @@ static int makeDocumentId(RSAddDocumentCtx *aCtx, IndexSpec *spec, int replace,
       // decrease the number of documents in the index stats only if the document was there
       --spec->stats.numDocuments;
       aCtx->oldMd = dmd;
+      if (dmd->flags & Document_HasOnDemandDeletable) {
+        // Delete all on-demand fields.. this means geo,but could mean other things..
+        handleReplaceDelete(sctx, dmd->id);
+      }
     }
   }
 
   size_t n;
   const char *s = RedisModule_StringPtrLen(doc->docKey, &n);
 
-  doc->docId = DocTable_Put(table, s, n, doc->score, 0, doc->payload, doc->payloadSize);
+  doc->docId =
+      DocTable_Put(table, s, n, doc->score, aCtx->docFlags, doc->payload, doc->payloadSize);
   if (doc->docId == 0) {
     QueryError_SetError(status, QUERY_EDOCEXISTS, NULL);
     return -1;
@@ -280,7 +300,7 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
     }
 
     assert(!cur->doc.docId);
-    int rv = makeDocumentId(cur, spec, cur->options & DOCUMENT_ADD_REPLACE, &cur->status);
+    int rv = makeDocumentId(cur, ctx, cur->options & DOCUMENT_ADD_REPLACE, &cur->status);
     if (rv != 0) {
       cur->stateFlags |= ACTX_F_ERRORED;
       continue;
