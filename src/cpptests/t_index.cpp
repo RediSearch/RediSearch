@@ -803,8 +803,7 @@ TEST_F(IndexTest, testIndexSpec) {
   IndexSpec_Free(s);
 
   // User-reported bug
-  const char *args3[] = {"mySpec", "SCHEMA", "ha", "NUMERIC", "hb",
-                         "TEXT",   "WEIGHT", "1",  "NOSTEM"};
+  const char *args3[] = {"SCHEMA", "ha", "NUMERIC", "hb", "TEXT", "WEIGHT", "1", "NOSTEM"};
   QueryError_ClearError(&err);
   s = IndexSpec_Parse("idx", args3, sizeof(args3) / sizeof(args3[0]), &err);
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
@@ -814,10 +813,9 @@ TEST_F(IndexTest, testIndexSpec) {
 }
 
 static void fillSchema(std::vector<char *> &args, size_t nfields) {
-  args.resize(2 + nfields * 3);
-  args[0] = strdup("mySpec");
-  args[1] = strdup("SCHEMA");
-  size_t n = 2;
+  args.resize(1 + nfields * 3);
+  args[0] = strdup("SCHEMA");
+  size_t n = 1;
   for (unsigned i = 0; i < nfields; i++) {
     asprintf(&args[n++], "field%u", i);
     if (i % 2 == 0) {

@@ -132,7 +132,12 @@ typedef enum {
    * Accepts U32 target. Use 'slicelen' as the field to indicate which bit should
    * be set.
    */
-  AC_ARGTYPE_BITFLAG
+  AC_ARGTYPE_BITFLAG,
+
+  /**
+   * Like bitflag, except the value is _removed_ from the target. Accepts U32 target
+   */
+  AC_ARGTYPE_UNFLAG,
 } ACArgType;
 
 /**
@@ -140,6 +145,9 @@ typedef enum {
  */
 #define AC_MKBITFLAG(name_, target_, bit_) \
   .name = name_, .target = target_, .type = AC_ARGTYPE_BITFLAG, .slicelen = bit_
+
+#define AC_MKUNFLAG(name_, target_, bit_) \
+  .name = name_, .target = target_, .type = AC_ARGTYPE_UNFLAG, .slicelen = bit_
 
 typedef struct {
   const char *name;  // Name of the argument

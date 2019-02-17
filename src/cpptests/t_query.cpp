@@ -84,7 +84,7 @@ TEST_F(QueryTest, testParser) {
                                "numeric", "loc",   "geo",    "tags",   "tag"};
   QueryError err = {QueryErrorCode(0)};
   ctx.spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
-  ASSERT_FALSE(QueryError_HasError(&err));
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
 
   // test some valid queries
   assertValidQuery("hello", ctx);
