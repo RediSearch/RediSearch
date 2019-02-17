@@ -411,9 +411,6 @@ static bool ForkGc_ReadInvertedIndex(ForkGCCtx *gc, int *ret_val, RedisModuleCtx
   ForkGc_updateStats(sctx, gc, idxData.docsCollected, idxData.bytesCollected);
 
 cleanup:
-  if (rctx) {
-    RedisModule_ThreadSafeContextUnlock(rctx);
-  }
 
   if (idxKey) {
     RedisModule_CloseKey(idxKey);
@@ -424,6 +421,9 @@ cleanup:
       RedisModule_FreeString(sctx->redisCtx, sctx->keyName);
     }
     SearchCtx_Free(sctx);
+  }
+  if (rctx) {
+    RedisModule_ThreadSafeContextUnlock(rctx);
   }
   if (term) {
     rm_free(term);
@@ -519,7 +519,6 @@ static bool ForkGc_ReadNumericInvertedIndex(ForkGCCtx *gc, int *ret_val, RedisMo
     currNode->range->card = newCard;
 
   loop_cleanup:
-    RedisModule_ThreadSafeContextUnlock(rctx);
     if (sctx) {
       RedisModule_CloseKey(sctx->key);
       if (sctx->keyName) {
@@ -536,6 +535,7 @@ static bool ForkGc_ReadNumericInvertedIndex(ForkGCCtx *gc, int *ret_val, RedisMo
     if (idxKey) {
       RedisModule_CloseKey(idxKey);
     }
+    RedisModule_ThreadSafeContextUnlock(rctx);
     if (shouldReturn) {
       if (fieldName) {
         rm_free(fieldName);
@@ -589,7 +589,6 @@ static bool ForkGc_ReadTagIndex(ForkGCCtx *gc, int *ret_val, RedisModuleCtx *rct
     ForkGc_updateStats(sctx, gc, idxData.docsCollected, idxData.bytesCollected);
 
   loop_cleanup:
-    RedisModule_ThreadSafeContextUnlock(rctx);
     if (sctx) {
       RedisModule_CloseKey(sctx->key);
       if (sctx->keyName) {
@@ -606,6 +605,7 @@ static bool ForkGc_ReadTagIndex(ForkGCCtx *gc, int *ret_val, RedisModuleCtx *rct
     if (idxKey) {
       RedisModule_CloseKey(idxKey);
     }
+    RedisModule_ThreadSafeContextUnlock(rctx);
     if (shouldReturn) {
       if (fieldName) {
         rm_free(fieldName);
