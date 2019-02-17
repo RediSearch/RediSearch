@@ -369,6 +369,7 @@ static void ForkGc_FixInvertedIndex(ForkGCCtx *gc, ForkGc_InvertedIndexData *idx
     } else {
       gc->stats.gcBlocksDenied++;
       Buffer_Free(blockModified->blk.data);
+      free(blockModified->blk.data);
     }
   }
 }
@@ -419,6 +420,9 @@ cleanup:
   }
   if (sctx) {
     RedisModule_CloseKey(sctx->key);
+    if (sctx->keyName) {
+      RedisModule_FreeString(sctx->redisCtx, sctx->keyName);
+    }
     SearchCtx_Free(sctx);
   }
   if (term) {
@@ -518,6 +522,9 @@ static bool ForkGc_ReadNumericInvertedIndex(ForkGCCtx *gc, int *ret_val, RedisMo
     RedisModule_ThreadSafeContextUnlock(rctx);
     if (sctx) {
       RedisModule_CloseKey(sctx->key);
+      if (sctx->keyName) {
+        RedisModule_FreeString(sctx->redisCtx, sctx->keyName);
+      }
       SearchCtx_Free(sctx);
     }
     if (idxData.blocksModified) {
@@ -585,6 +592,9 @@ static bool ForkGc_ReadTagIndex(ForkGCCtx *gc, int *ret_val, RedisModuleCtx *rct
     RedisModule_ThreadSafeContextUnlock(rctx);
     if (sctx) {
       RedisModule_CloseKey(sctx->key);
+      if (sctx->keyName) {
+        RedisModule_FreeString(sctx->redisCtx, sctx->keyName);
+      }
       SearchCtx_Free(sctx);
     }
     if (idxData.blocksModified) {
