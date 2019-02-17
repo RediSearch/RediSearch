@@ -384,7 +384,9 @@ static void Indexer_Process(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx) {
 
   if (ACTX_IS_INDEXED(aCtx) || aCtx->stateFlags & (ACTX_F_ERRORED)) {
     // Document is complete or errored. No need for further processing.
-    return;
+    if (!(aCtx->stateFlags & ACTX_F_EMPTY)) {
+      return;
+    }
   }
 
   int useTermHt = indexer->size > 1 && (aCtx->stateFlags & ACTX_F_TEXTINDEXED) == 0;

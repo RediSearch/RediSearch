@@ -104,6 +104,11 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Doc
     aCtx->sv = NewSortingVector(sp->sortables->len);
   }
 
+  int empty = (aCtx->sv == NULL) && !hasTextFields && !hasOtherFields;
+  if (empty) {
+    aCtx->stateFlags |= ACTX_F_EMPTY;
+  }
+
   if ((aCtx->options & DOCUMENT_ADD_NOSAVE) == 0 && numIndexable &&
       (sp->flags & Index_StoreByteOffsets)) {
     if (!aCtx->byteOffsets) {
