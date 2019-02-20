@@ -173,6 +173,7 @@ QueryNode* RS_CreateNumericNode(IndexSpec* sp, const char* field, double max, do
   QueryNode* ret = NewQueryNode(QN_NUMERIC);
   ret->nn.nf = NewNumericFilter(min, max, includeMin, includeMax);
   ret->nn.nf->fieldName = strdup(field);
+  ret->opts.fieldMask = IndexSpec_GetFieldBit(sp, field, strlen(field));
   return ret;
 }
 
@@ -207,6 +208,7 @@ QueryNode* RS_CreateTagNode(IndexSpec* sp, const char* field) {
   ret->tag.len = strlen(field);
   ret->tag.numChildren = 0;
   ret->tag.children = NULL;
+  ret->opts.fieldMask = IndexSpec_GetFieldBit(sp, field, strlen(field));
   return ret;
 }
 
@@ -224,6 +226,22 @@ void RS_IntersectNodeAddChild(QueryNode* qn, QueryNode* child) {
   QueryPhraseNode_AddChild(qn, child);
 }
 
+void RS_IntersectNodeClearChildren(QueryNode* qn) {
+  assert(qn->type == QN_PHRASE);
+  qn->pn.numChildren = 0;
+}
+
+size_t RS_IntersectNodeGetNumChildren(QueryNode* qn) {
+  assert(qn->type == QN_PHRASE);
+  return qn->pn.numChildren;
+}
+
+QueryNode* RS_IntersectNodeGetChild(QueryNode* qn, size_t index) {
+  assert(qn->type == QN_PHRASE);
+  assert(index >= 0 && index < qn->pn.numChildren);
+  return qn->pn.children[index];
+}
+
 QueryNode* RS_CreateUnionNode(IndexSpec* sp) {
   QueryNode* ret = NewQueryNode(QN_UNION);
   ret->un = (QueryUnionNode){.children = NULL, .numChildren = 0};
@@ -231,7 +249,28 @@ QueryNode* RS_CreateUnionNode(IndexSpec* sp) {
 }
 
 void RS_UnionNodeAddChild(QueryNode* qn, QueryNode* child) {
+  assert(qn->type == QN_UNION);
   QueryUnionNode_AddChild(qn, child);
+}
+
+void RS_UnionNodeClearChildren(QueryNode* qn) {
+  assert(qn->type == QN_UNION);
+  qn->un.numChildren = 0;
+}
+
+size_t RS_UnionNodeGetNumChildren(QueryNode* qn) {
+  assert(qn->type == QN_UNION);
+  return qn->un.numChildren;
+}
+
+QueryNode* RS_UnionNodeGetChild(QueryNode* qn, size_t index) {
+  assert(qn->type == QN_UNION);
+  assert(index >= 0 && index < qn->un.numChildren);
+  return qn->un.children[index];
+}
+
+int RS_QueryNodeGetFieldMask(QueryNode* qn) {
+  return qn->opts.fieldMask;
 }
 
 IndexIterator* RS_GetResultsIterator(QueryNode* qn, IndexSpec* sp) {
@@ -255,6 +294,14 @@ IndexIterator* RS_GetResultsIterator(QueryNode* qn, IndexSpec* sp) {
   IndexIterator* ret = Query_EvalNode(&qectx, ast.root);
   QueryNode_Free(qn);
   return ret;
+}
+
+void RS_QueryNodeFree(QueryNode* qn) {
+  QueryNode_Free(qn);
+}
+
+int RS_QueryNodeType(QueryNode* qn) {
+  return qn->type;
 }
 
 const void* RS_ResultsIteratorNext(IndexIterator* iter, IndexSpec* sp, size_t* len) {
@@ -317,6 +364,15 @@ int RS_InitializeLibrary(RedisModuleCtx* ctx) {
   REGISTER_API(IntersectNodeAddChild, moduleRegisterApi);
   REGISTER_API(CreateUnionNode, moduleRegisterApi);
   REGISTER_API(UnionNodeAddChild, moduleRegisterApi);
+  REGISTER_API(QueryNodeFree, moduleRegisterApi);
+  REGISTER_API(UnionNodeClearChildren, moduleRegisterApi);
+  REGISTER_API(IntersectNodeClearChildren, moduleRegisterApi);
+  REGISTER_API(QueryNodeType, moduleRegisterApi);
+  REGISTER_API(UnionNodeGetNumChildren, moduleRegisterApi);
+  REGISTER_API(UnionNodeGetChild, moduleRegisterApi);
+  REGISTER_API(IntersectNodeGetNumChildren, moduleRegisterApi);
+  REGISTER_API(IntersectNodeGetChild, moduleRegisterApi);
+  REGISTER_API(QueryNodeGetFieldMask, moduleRegisterApi);
 
   REGISTER_API(GetResultsIterator, moduleRegisterApi);
   REGISTER_API(ResultsIteratorNext, moduleRegisterApi);

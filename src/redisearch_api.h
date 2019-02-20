@@ -20,6 +20,25 @@ typedef struct indexIterator RSResultsIterator;
 #define RSVALTYPE_NOTFOUND 0
 #define RSVALTYPE_STRING 1
 #define RSVALTYPE_DOUBLE 2
+
+#define RSRANGE_INF (1.0 / 0.0)
+#define RSRANGE_NEG_INF (-1.0 / 0.0)
+
+#define RSLECRANGE_INF NULL
+#define RSLEXRANGE_NEG_INF NULL
+
+#define QNTYPE_INTERSECT 1
+#define QNTYPE_UNION 2
+#define QNTYPE_TOKEN 3
+#define QNTYPE_NUMERIC 4
+#define QNTYPE_NOT 5
+#define QNTYPE_OPTIONAL 6
+#define QNTYPE_GEO 7
+#define QNTYPE_PREFX 8
+#define QNTYPE_TAG 11
+#define QNTYPE_FUZZY 12
+#define QNTYPE_LEXRANGE 13
+
 typedef int (*RSGetValueCallback)(void* ctx, const char* fieldName, const void* id, char** strVal,
                                   double* doubleVal);
 
@@ -90,6 +109,24 @@ MODULE_API_FUNC(RSQNode*, RediSearch_CreateUnionNode)(RSIndex* sp);
 
 MODULE_API_FUNC(void, RediSearch_UnionNodeAddChild)(RSQNode* qn, RSQNode* child);
 
+MODULE_API_FUNC(void, RediSearch_QueryNodeFree)(RSQNode* qn);
+
+MODULE_API_FUNC(void, RediSearch_UnionNodeClearChildren)(RSQNode* qn);
+
+MODULE_API_FUNC(void, RediSearch_IntersectNodeClearChildren)(RSQNode* qn);
+
+MODULE_API_FUNC(int, RediSearch_QueryNodeType)(RSQNode* qn);
+
+MODULE_API_FUNC(size_t, RediSearch_UnionNodeGetNumChildren)(RSQNode* qn);
+
+MODULE_API_FUNC(RSQNode*, RediSearch_UnionNodeGetChild)(RSQNode* qn, size_t index);
+
+MODULE_API_FUNC(size_t, RediSearch_IntersectNodeGetNumChildren)(RSQNode* qn);
+
+MODULE_API_FUNC(RSQNode*, RediSearch_IntersectNodeGetChild)(RSQNode* qn, size_t index);
+
+MODULE_API_FUNC(int, RediSearch_QueryNodeGetFieldMask)(RSQNode* qn);
+
 MODULE_API_FUNC(RSResultsIterator*, RediSearch_GetResultsIterator)(RSQNode* qn, RSIndex* sp);
 
 const MODULE_API_FUNC(void*, RediSearch_ResultsIteratorNext)(RSResultsIterator* iter, RSIndex* sp,
@@ -99,38 +136,47 @@ MODULE_API_FUNC(void, RediSearch_ResultsIteratorFree)(RSResultsIterator* iter);
 
 MODULE_API_FUNC(void, RediSearch_ResultsIteratorReset)(RSResultsIterator* iter);
 
-#define RS_XAPIFUNC(X)       \
-  X(GetCApiVersion)          \
-  X(CreateIndex)             \
-  X(DropIndex)               \
-  X(CreateTextField)         \
-  X(TextFieldSetWeight)      \
-  X(TextFieldNoStemming)     \
-  X(TextFieldPhonetic)       \
-  X(CreateGeoField)          \
-  X(CreateNumericField)      \
-  X(CreateTagField)          \
-  X(TagSetSeparator)         \
-  X(FieldSetSortable)        \
-  X(FieldSetNoIndex)         \
-  X(CreateDocument)          \
-  X(DropDocument)            \
-  X(DocumentAddTextField)    \
-  X(DocumentAddNumericField) \
-  X(SpecAddDocument)         \
-  X(CreateTokenNode)         \
-  X(CreateNumericNode)       \
-  X(CreatePrefixNode)        \
-  X(CreateLexRangeNode)      \
-  X(CreateTagNode)           \
-  X(TagNodeAddChild)         \
-  X(CreateIntersectNode)     \
-  X(IntersectNodeAddChild)   \
-  X(CreateUnionNode)         \
-  X(UnionNodeAddChild)       \
-  X(GetResultsIterator)      \
-  X(ResultsIteratorNext)     \
-  X(ResultsIteratorFree)     \
+#define RS_XAPIFUNC(X)           \
+  X(GetCApiVersion)              \
+  X(CreateIndex)                 \
+  X(DropIndex)                   \
+  X(CreateTextField)             \
+  X(TextFieldSetWeight)          \
+  X(TextFieldNoStemming)         \
+  X(TextFieldPhonetic)           \
+  X(CreateGeoField)              \
+  X(CreateNumericField)          \
+  X(CreateTagField)              \
+  X(TagSetSeparator)             \
+  X(FieldSetSortable)            \
+  X(FieldSetNoIndex)             \
+  X(CreateDocument)              \
+  X(DropDocument)                \
+  X(DocumentAddTextField)        \
+  X(DocumentAddNumericField)     \
+  X(SpecAddDocument)             \
+  X(CreateTokenNode)             \
+  X(CreateNumericNode)           \
+  X(CreatePrefixNode)            \
+  X(CreateLexRangeNode)          \
+  X(CreateTagNode)               \
+  X(TagNodeAddChild)             \
+  X(CreateIntersectNode)         \
+  X(IntersectNodeAddChild)       \
+  X(CreateUnionNode)             \
+  X(UnionNodeAddChild)           \
+  X(QueryNodeFree)               \
+  X(UnionNodeClearChildren)      \
+  X(IntersectNodeClearChildren)  \
+  X(QueryNodeType)               \
+  X(UnionNodeGetNumChildren)     \
+  X(UnionNodeGetChild)           \
+  X(IntersectNodeGetNumChildren) \
+  X(IntersectNodeGetChild)       \
+  X(QueryNodeGetFieldMask)       \
+  X(GetResultsIterator)          \
+  X(ResultsIteratorNext)         \
+  X(ResultsIteratorFree)         \
   X(ResultsIteratorReset)
 
 #define REDISEARCH_MODULE_INIT_FUNCTION(name)                                  \
