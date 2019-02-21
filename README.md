@@ -76,4 +76,4 @@ RediSearch has a distributed cluster version that can scale to billions of docum
 
 ### License
 
-REDIS SOURCE AVAILABLE LICENSE AGREEMENT - see [LICENSE](LICENSE)
+ Redis Source Available License Agreement - see [LICENSE](LICENSE)
