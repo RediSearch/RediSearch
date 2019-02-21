@@ -76,4 +76,4 @@ RediSearch has a distributed cluster version that can scale to billions of docum
 
 ### License
 
-Apache 2.0 with Commons Clause - see [LICENSE](LICENSE)
+ Redis Source Available License Agreement - see [LICENSE](LICENSE)
