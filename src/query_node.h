@@ -13,7 +13,7 @@ struct idFilter;
 /* The types of query nodes */
 typedef enum {
   /* Phrase (AND) node, exact or not */
-  QN_PHRASE,
+  QN_PHRASE = 1,
   /* Union (OR) Node */
   QN_UNION,
   /* Single token node */
