@@ -27,17 +27,17 @@ typedef struct indexIterator RSResultsIterator;
 #define RSLECRANGE_INF NULL
 #define RSLEXRANGE_NEG_INF NULL
 
-#define QNTYPE_INTERSECT 1
-#define QNTYPE_UNION 2
-#define QNTYPE_TOKEN 3
-#define QNTYPE_NUMERIC 4
-#define QNTYPE_NOT 5
-#define QNTYPE_OPTIONAL 6
-#define QNTYPE_GEO 7
-#define QNTYPE_PREFX 8
-#define QNTYPE_TAG 11
-#define QNTYPE_FUZZY 12
-#define QNTYPE_LEXRANGE 13
+#define RSQNTYPE_INTERSECT 1
+#define RSQNTYPE_UNION 2
+#define RSQNTYPE_TOKEN 3
+#define RSQNTYPE_NUMERIC 4
+#define RSQNTYPE_NOT 5
+#define RSQNTYPE_OPTIONAL 6
+#define RSQNTYPE_GEO 7
+#define RSQNTYPE_PREFX 8
+#define RSQNTYPE_TAG 11
+#define RSQNTYPE_FUZZY 12
+#define RSQNTYPE_LEXRANGE 13
 
 typedef int (*RSGetValueCallback)(void* ctx, const char* fieldName, const void* id, char** strVal,
                                   double* doubleVal);
