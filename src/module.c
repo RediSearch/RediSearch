@@ -1023,6 +1023,59 @@ static int validateAofSettings(RedisModuleCtx *ctx) {
   return rc;
 }
 
+static void *RediSearch_OnHashChangedThread(void *data) {
+  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
+  RedisModuleString *key = data;
+  RedisModule_ThreadSafeContextLock(ctx);
+  // calling addhash {index} {docId} {score} [LANGUAGE language] [REPLACE]
+  RedisModuleString **args = array_new(RedisModuleString *, 5);
+  RedisModuleString *addHashCommand =
+      RedisModule_CreateString(ctx, "FT.ADDHASH", strlen("FT.ADDHASH"));
+
+  char *keyCStr = strdup(RedisModule_StringPtrLen(key, NULL));
+  char *p = strstr(keyCStr, ":");
+  if (!p) {
+    // key do not contains index name
+    return NULL;
+  }
+  p[0] = '\0';
+  char *keyNameCStr = p + 1;
+
+  RedisModuleString *indexName = RedisModule_CreateString(ctx, keyCStr, strlen(keyCStr));
+  RedisModuleString *keyName = RedisModule_CreateString(ctx, keyNameCStr, strlen(keyNameCStr));
+  free(keyCStr);
+
+  RedisModuleString *score = RedisModule_CreateString(ctx, "1.0", strlen("1.0"));
+
+  RedisModuleString *replace = RedisModule_CreateString(ctx, "REPLACE", strlen("REPLACE"));
+
+  args = array_append(args, addHashCommand);
+  args = array_append(args, indexName);
+  args = array_append(args, keyName);
+  args = array_append(args, score);
+  args = array_append(args, replace);
+
+  RSSafeAddHashCommand(ctx, args, 5);
+
+  RedisModule_FreeString(ctx, addHashCommand);
+  RedisModule_FreeString(ctx, indexName);
+  RedisModule_FreeString(NULL, key);
+  RedisModule_FreeString(NULL, keyName);
+  RedisModule_FreeString(ctx, score);
+  RedisModule_FreeString(ctx, replace);
+
+  array_free(args);
+  RedisModule_ThreadSafeContextUnlock(ctx);
+  return NULL;
+}
+
+void RediSearch_OnHashChanged(RedisModuleCtx *ctx, RedisModuleString *key) {
+  pthread_t t;
+  pthread_create(&t, NULL, RediSearch_OnHashChangedThread,
+                 RedisModule_CreateStringFromString(NULL, key));
+  pthread_detach(t);
+}
+
 int RS_InitializeLibrary(RedisModuleCtx *ctx);
 
 int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -1042,6 +1095,15 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   } else {
     RedisModule_Log(ctx, "notice", "Low level api version %d initialized successfully",
                     REDISEARCH_CAPI_VERSION);
+  }
+
+  void (*RegisterOnHashChangeCallback)(void (*)(RedisModuleCtx *, RedisModuleString *));
+  if (RedisModule_GetApi("RegisterOnHashChangeCallback", (void *)&RegisterOnHashChangeCallback) ==
+      REDISMODULE_OK) {
+    RegisterOnHashChangeCallback(RediSearch_OnHashChanged);
+    RedisModule_Log(ctx, "notice", "successfully registered crdt api");
+  } else {
+    RedisModule_Log(ctx, "warning", "failed registered crdt api");
   }
 
   // Print version string!

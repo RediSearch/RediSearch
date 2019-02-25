@@ -416,14 +416,13 @@ REDISMODULE_API_FUNC(void, RedisModule_ThreadSafeContextUnlock)(RedisModuleCtx *
 
 typedef int (*RedisModule_GetApiFunctionType)(const char *name, void *pp);
 
-REDISMODULE_API_FUNC(int, RedisModule_GetApi)(const char *, void *);
-
 /* This is included inline inside each Redis module. */
 static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int apiver)
     __attribute__((unused));
 
 static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int apiver) {
   RedisModule_GetApiFunctionType getapifuncptr = (RedisModule_GetApiFunctionType)((void **)ctx)[0];
+  RedisModule_GetApi = getapifuncptr;
 #define X(basename) getapifuncptr("RedisModule_" #basename, (void *)&RedisModule_##basename);
   REDISMODULE_XAPI(X)
 #undef X

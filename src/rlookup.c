@@ -349,7 +349,7 @@ static int RLookup_HGETALL(RLookup *it, RLookupRow *dst, RLookupLoadOptions *opt
   RedisModuleCallReply *rep = NULL;
   RedisModuleCtx *ctx = options->sctx->redisCtx;
   RedisModuleString *krstr =
-      RedisModule_CreateString(ctx, options->dmd->keyPtr, sdslen(options->dmd->keyPtr));
+      RedisModule_CreateStringPrintf(ctx, "%s:%s", options->sctx->spec->name, options->dmd->keyPtr);
 
   rep = RedisModule_Call(ctx, "HGETALL", "s", krstr);
 
@@ -393,9 +393,9 @@ int RLookup_LoadDocument(RLookup *it, RLookupRow *dst, RLookupLoadOptions *optio
   if (options->dmd) {
     dst->sv = options->dmd->sortVector;
   }
-  if (options->mode & RLOOKUP_LOAD_ALLKEYS) {
-    return RLookup_HGETALL(it, dst, options);
-  } else {
-    return loadIndividualKeys(it, dst, options);
-  }
+  //  if (options->mode & RLOOKUP_LOAD_ALLKEYS) {
+  return RLookup_HGETALL(it, dst, options);
+  //  } else {
+  //    return loadIndividualKeys(it, dst, options);
+  //  }
 }

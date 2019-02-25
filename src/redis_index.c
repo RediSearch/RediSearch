@@ -379,10 +379,15 @@ int Redis_LoadDocumentR(RedisSearchCtx *ctx, RedisModuleString *key, Document *d
   doc->numFields = 0;
   doc->fields = NULL;
 
-  rep = RedisModule_Call(ctx->redisCtx, "HGETALL", "s", key);
+  RedisModuleString *keyStr = RedisModule_CreateStringPrintf(
+      ctx->redisCtx, "%s:%s", ctx->spec->name, RedisModule_StringPtrLen(key, NULL));
+
+  rep = RedisModule_Call(ctx->redisCtx, "HGETALL", "s", keyStr);
   if (rep == NULL || RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_ARRAY) {
     goto done;
   }
+
+  RedisModule_FreeString(ctx->redisCtx, keyStr);
 
   size_t len = RedisModule_CallReplyLength(rep);
   // Zero means the document does not exist in redis

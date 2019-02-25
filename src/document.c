@@ -175,7 +175,9 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b, QueryError *stat
 }
 
 static void doReplyFinish(RSAddDocumentCtx *aCtx, RedisModuleCtx *ctx) {
-  aCtx->donecb(aCtx, ctx, NULL);
+  if (aCtx->donecb) {
+    aCtx->donecb(aCtx, ctx, NULL);
+  }
   AddDocumentCtx_Free(aCtx);
 }
 

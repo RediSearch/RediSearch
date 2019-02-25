@@ -109,22 +109,28 @@ void Document_FreeDetached(Document *doc, RedisModuleCtx *anyCtx) {
 
 int Redis_SaveDocument(RedisSearchCtx *ctx, Document *doc, QueryError *status) {
 
-  RedisModuleKey *k =
-      RedisModule_OpenKey(ctx->redisCtx, doc->docKey, REDISMODULE_WRITE | REDISMODULE_READ);
-  if (k == NULL || (RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_EMPTY &&
-                    RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_HASH)) {
-    QueryError_SetError(status, QUERY_EREDISKEYTYPE, NULL);
-    if (k) {
-      RedisModule_CloseKey(k);
-    }
-    return REDISMODULE_ERR;
-  }
+  //  RedisModuleKey *k =
+  //      RedisModule_OpenKey(ctx->redisCtx, doc->docKey, REDISMODULE_WRITE | REDISMODULE_READ);
+  //  if (k == NULL || (RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_EMPTY &&
+  //                    RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_HASH)) {
+  //    QueryError_SetError(status, QUERY_EREDISKEYTYPE, NULL);
+  //    if (k) {
+  //      RedisModule_CloseKey(k);
+  //    }
+  //    return REDISMODULE_ERR;
+  //  }
+  const char *keyId = RedisModule_StringPtrLen(doc->docKey, NULL);
+  RedisModuleString *keyIdModified =
+      RedisModule_CreateStringPrintf(ctx->redisCtx, "%s:%s", ctx->spec->name, keyId);
 
   for (int i = 0; i < doc->numFields; i++) {
-    RedisModule_HashSet(k, REDISMODULE_HASH_CFIELDS, doc->fields[i].name, doc->fields[i].text,
-                        NULL);
+    //    RedisModule_HashSet(k, REDISMODULE_HASH_CFIELDS, doc->fields[i].name, doc->fields[i].text,
+    //                        NULL);
+
+    RedisModule_Call(ctx->redisCtx, "hset", "scs", keyIdModified, doc->fields[i].name,
+                     doc->fields[i].text);
   }
-  RedisModule_CloseKey(k);
+  //  RedisModule_CloseKey(k);
   return REDISMODULE_OK;
 }
 
