@@ -679,13 +679,17 @@ static int ForkGc_PeriodicCallback(RedisModuleCtx *ctx, void *privdata) {
     close(gc->pipefd[GC_READERFD]);
     ForkGc_CollectGarbage(gc);
     close(gc->pipefd[GC_WRITERFD]);
+    sleep(RSGlobalConfig.forkGcSleepBeforeExit);
     _exit(EXIT_SUCCESS);
   } else {
     // main process
     close(gc->pipefd[GC_WRITERFD]);
     ForkGc_ReadGarbageFromFork(gc, &ret_val);
     close(gc->pipefd[GC_READERFD]);
-    wait(NULL);
+    pid_t id = wait4(cpid, NULL, 0, NULL);
+    if (id == -1) {
+      printf("an error acquire when waiting for fork to terminate, pid:%d", cpid);
+    }
   }
   TimeSampler_End(&ts);
 
