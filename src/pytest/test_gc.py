@@ -108,6 +108,8 @@ def testDeleteDocWithGoeField(env):
 
 
 def testGCIntegrationWithRedisFork(env):
+    if env.isCluster():
+        raise unittest.SkipTest()
     env = Env(moduleArgs='GC_POLICY FORK')
     env.expect('FT.CONFIG', 'SET', 'FORKGC_SLEEP_BEFORE_EXIT', '4').ok()
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT', 'SORTABLE').ok()
