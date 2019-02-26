@@ -349,7 +349,7 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "Set the minimum prefix for expansions (`*`)",
          .setValue = setMinPrefix,
          .getValue = getMinPrefix},
-        {.name = "FORKGCSLEEPBEFOREXIT",
+        {.name = "FORKGC_SLEEP_BEFORE_EXIT",
          .helpText = "set the amount of seconds for the fork GC to sleep before exists, should "
                      "always be set to 0 (other then on tests).",
          .setValue = setForkGCSleep,
