@@ -1,5 +1,6 @@
 
 import unittest
+from RLTest import Env
 
 
 def testBasicGC(env):
@@ -107,6 +108,7 @@ def testDeleteDocWithGoeField(env):
 
 
 def testGCIntegrationWithRedisFork(env):
+    env = Env(moduleArgs='GC_POLICY FORK')
     env.expect('FT.CONFIG', 'SET', 'FORKGCSLEEPBEFOREXIT', '4').ok()
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT', 'SORTABLE').ok()
     env.expect('FT.ADD', 'idx', 'doc1', 1.0, 'FIELDS', 'title', 'hello world').ok()
