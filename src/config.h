@@ -77,6 +77,7 @@ typedef struct {
 
   GCPolicy gcPolicy;
   GCPolicy forkGcRunIntervalSec;
+  size_t forkGcSleepBeforeExit;
 
   // Chained configuration data
   void *chainedConfig;
@@ -155,6 +156,7 @@ sds RSConfig_GetInfoString(const RSConfig *config);
     .indexPoolSize = CONCURRENT_INDEX_POOL_DEFAULT_SIZE, .poolSizeNoAuto = 0,                   \
     .gcScanSize = GC_SCANSIZE, .minPhoneticTermLen = DEFAULT_MIN_PHONETIC_TERM_LEN,             \
     .gcPolicy = GCPolicy_Default, .forkGcRunIntervalSec = DEFAULT_FORK_GC_RUN_INTERVAL,         \
+    .forkGcSleepBeforeExit = 0,                                                                 \
   }
 
 #endif
