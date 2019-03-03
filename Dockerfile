@@ -11,6 +11,7 @@ RUN set -ex;\
     cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo ../ -DGIT_DESCRIBE_VERSION="$GIT_DESCRIBE_VERSION"; \
     make -j4; \
     pip install git+https://github.com/RedisLabsModules/RLTest; \
+    pip install redis-py-cluster; \
     make test;
 
 # Package the runner
