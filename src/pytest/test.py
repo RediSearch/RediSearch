@@ -1901,6 +1901,14 @@ def testIssue501(env):
     env.assertEqual("qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq", rv[0][1])
     env.assertEqual([], rv[0][2])
 
+
+def testIssue621(env):
+    env.expect('ft.create', 'test', 'SCHEMA', 'uuid', 'TAG', 'title', 'TEXT').equal('OK')
+    env.expect('ft.add', 'test', 'a', '1', 'REPLACE', 'PARTIAL', 'FIELDS', 'uuid', 'foo', 'title', 'bar').equal('OK')
+    env.expect('ft.add', 'test', 'a', '1', 'REPLACE', 'PARTIAL', 'FIELDS', 'title', 'bar').equal('OK')
+    env.expect('ft.search', 'test', '@uuid:{foo}').equal([1L, 'a', ['uuid', 'foo', 'title', 'bar']])
+
+
 def grouper(iterable, n, fillvalue=None):
     "Collect data into fixed-length chunks or blocks"
     from itertools import izip_longest
