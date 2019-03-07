@@ -112,14 +112,20 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Doc
 
   if (hasTextFields || hasOtherFields) {
     aCtx->stateFlags |= ACTX_F_INDEXABLES;
+  } else {
+    aCtx->stateFlags &= ~ACTX_F_INDEXABLES;
   }
 
   if (!hasTextFields) {
     aCtx->stateFlags |= ACTX_F_TEXTINDEXED;
+  } else {
+    aCtx->stateFlags &= ~ACTX_F_TEXTINDEXED;
   }
 
   if (!hasOtherFields) {
     aCtx->stateFlags |= ACTX_F_OTHERINDEXED;
+  } else {
+    aCtx->stateFlags &= ~ACTX_F_OTHERINDEXED;
   }
 
   if ((aCtx->stateFlags & ACTX_F_SORTABLES) && aCtx->sv == NULL) {
