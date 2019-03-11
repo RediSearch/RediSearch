@@ -41,6 +41,10 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
     RedisModule_ReplyWithDouble(outctx, r->score);
     count++;
   }
+  if (options & QEXEC_F_SENDRAWIDS) {
+    RedisModule_ReplyWithLongLong(outctx, r->docId);
+    count++;
+  }
   if (options & QEXEC_F_SEND_PAYLOADS) {
     count++;
     if (dmd && dmd->payload) {

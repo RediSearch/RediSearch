@@ -35,7 +35,10 @@ typedef enum {
   QEXEC_F_NOROWS = 0x800,
 
   /* Do not stringify result values. Send them in their proper types */
-  QEXEC_F_TYPED = 0x1000
+  QEXEC_F_TYPED = 0x1000,
+
+  /* Send raw document IDs alongside key names. Used for debugging */
+  QEXEC_F_SENDRAWIDS = 0x2000
 
 } QEFlags;
 
