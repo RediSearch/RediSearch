@@ -11,7 +11,6 @@
 #include "rmalloc.h"
 
 static int UI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit);
-static int UI_Next(void *ctx);
 static inline int UI_ReadUnsorted(void *ctx, RSIndexResult **hit);
 static int UI_ReadSorted(void *ctx, RSIndexResult **hit);
 static size_t UI_NumEstimated(void *ctx);
@@ -19,7 +18,6 @@ static IndexCriteriaTester *UI_GetCriteriaTester(void *ctx);
 static size_t UI_Len(void *ctx);
 
 static int II_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit);
-static int II_Next(void *ctx);
 static int II_ReadUnsorted(void *ctx, RSIndexResult **hit);
 static IndexCriteriaTester *II_GetCriteriaTester(void *ctx);
 static int II_ReadSorted(void *ctx, RSIndexResult **hit);
@@ -703,15 +701,12 @@ static size_t II_NumEstimated(void *ctx) {
 
 static int II_ReadSorted(void *ctx, RSIndexResult **hit) {
   IntersectIterator *ic = ctx;
-
   if (ic->num == 0) return INDEXREAD_EOF;
-  AggregateResult_Reset(ic->base.current);
 
   int nh = 0;
   int i = 0;
 
   do {
-
     nh = 0;
     AggregateResult_Reset(ic->base.current);
 
@@ -1051,6 +1046,7 @@ typedef struct {
   t_fieldMask fieldMask;
   t_docId lastDocId;
   t_docId maxDocId;
+  t_docId nextRealId;
   double weight;
 } OptionalMatchContext, OptionalIterator;
 
@@ -1068,33 +1064,50 @@ static void OI_Free(IndexIterator *it) {
 
 static int OI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
   OptionalMatchContext *nc = ctx;
-  if (nc->lastDocId > nc->maxDocId) return INDEXREAD_EOF;
-  // If we don't have a child it means the sub iterator is of a meaningless expression.
-  // So negating it means we will always return OK!
+  //  printf("OI_SkipTo => %llu!. NextReal: %llu. Max: %llu. Last: %llu\n", docId, nc->nextRealId,
+  //  nc->maxDocId, nc->lastDocId);
+
+  int found = 0;
+  if (nc->lastDocId > nc->maxDocId) {
+    return INDEXREAD_EOF;
+  }
+
+  // Set the current ID
+  nc->lastDocId = docId;
+
   if (!nc->child) {
-    goto ok;
-  }
-  RSIndexResult *res = IITER_CURRENT_RECORD(nc->child);
-
-  // if the child's current is already at our docId - just copy it to our current and hit's
-  if (docId == (nc->lastDocId = res->docId)) {
-    *hit = nc->base.current = res;
-    return INDEXREAD_OK;
-  }
-  // read the next entry from the child
-  int rc = nc->child->SkipTo(nc->child->ctx, docId, &nc->base.current);
-
-  // OK means ok - pass the entry with the value
-  if (rc == INDEXREAD_OK) {
-    *hit = nc->base.current;
+    nc->virt->docId = docId;
+    nc->base.current = nc->virt;
     return INDEXREAD_OK;
   }
 
-ok:
+  if (docId == 0) {
+    return nc->base.Read(ctx, hit);
+  }
 
-  // NOT FOUND or end means OK. We need to set the docId on the hit we will bubble up
-  nc->base.current = nc->virt;
-  nc->lastDocId = nc->base.current->docId = docId;
+  if (docId == nc->nextRealId) {
+    // Edge case -- match on the docid we just looked for
+    found = 1;
+    // reset current pointer since this might have been a prior
+    // virt return
+    nc->base.current = nc->child->current;
+
+  } else if (docId > nc->nextRealId) {
+    int rc = nc->child->SkipTo(nc->child->ctx, docId, &nc->base.current);
+    if (rc == INDEXREAD_OK) {
+      found = 1;
+    }
+    nc->nextRealId = nc->base.current->docId;
+  }
+
+  if (found) {
+    // Has a real hit
+    RSIndexResult *r = nc->base.current;
+  } else {
+    nc->virt->docId = docId;
+    nc->base.current = nc->virt;
+  }
+
   *hit = nc->base.current;
   return INDEXREAD_OK;
 }
@@ -1138,18 +1151,27 @@ static int OI_ReadUnsorted(void *ctx, RSIndexResult **hit) {
  * our child */
 static int OI_ReadSorted(void *ctx, RSIndexResult **hit) {
   OptionalMatchContext *nc = ctx;
-  if (nc->lastDocId >= nc->maxDocId) return INDEXREAD_EOF;
+  if (nc->lastDocId >= nc->maxDocId) {
+    return INDEXREAD_EOF;
+  }
+
+  // Increase the size by one
   nc->lastDocId++;
-  if (!nc->child->current || nc->lastDocId > nc->child->current->docId) {
-    nc->child->Read(nc->child->ctx, &nc->base.current);
+
+  if (nc->lastDocId > nc->nextRealId) {
+    int rc = nc->child->Read(nc->child->ctx, &nc->base.current);
+    if (rc == INDEXREAD_EOF) {
+      nc->nextRealId = nc->maxDocId;
+    } else {
+      nc->nextRealId = nc->base.current->docId;
+    }
   }
-  if (nc->lastDocId == nc->child->current->docId) {
-    *hit = nc->child->current;
-  } else {
+
+  if (nc->base.current->docId != nc->lastDocId) {
+    nc->virt->docId = nc->lastDocId;
     nc->base.current = nc->virt;
-    nc->base.current->docId = nc->lastDocId;
-    *hit = nc->base.current;
   }
+  *hit = nc->base.current;
   return INDEXREAD_OK;
 }
 
@@ -1189,7 +1211,6 @@ static void OI_Rewind(void *ctx) {
 }
 
 IndexIterator *NewOptionalIterator(IndexIterator *it, t_docId maxDocId, double weight) {
-
   OptionalMatchContext *nc = malloc(sizeof(*nc));
   nc->virt = NewVirtualResult(weight);
   nc->virt->freq = 0;
@@ -1200,6 +1221,7 @@ IndexIterator *NewOptionalIterator(IndexIterator *it, t_docId maxDocId, double w
   nc->lastDocId = 0;
   nc->maxDocId = maxDocId;
   nc->weight = weight;
+  nc->nextRealId = 0;
 
   IndexIterator *ret = &nc->base;
   ret->ctx = nc;
