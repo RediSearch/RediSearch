@@ -4,22 +4,52 @@
 #include "redisearch.h"
 #include "value.h"
 
-typedef enum fieldType { FIELD_FULLTEXT, FIELD_NUMERIC, FIELD_GEO, FIELD_TAG } FieldType;
+#ifdef __cplusplus
+#define RS_ENUM_BITWISE_HELPER(T)   \
+  inline T operator|=(T a, int b) { \
+    return (T)((int)a | b);         \
+  }
+#else
+#define RS_ENUM_BITWISE_HELPER(T)
+#endif
+
+typedef enum {
+  // Newline
+  INDEXFLD_T_FULLTEXT = 0x01,
+  INDEXFLD_T_NUMERIC = 0x02,
+  INDEXFLD_T_GEO = 0x04,
+  INDEXFLD_T_TAG = 0x08
+} FieldType;
+
+#define INDEXFLD_NUM_TYPES 4
+
+// clang-format off
+// otherwise, it looks h o r r i b l e
+#define INDEXTYPE_TO_POS(T)           \
+  (T == INDEXFLD_T_FULLTEXT   ? 0 : \
+  (T == INDEXFLD_T_NUMERIC    ? 1 : \
+  (T == INDEXFLD_T_GEO        ? 2 : \
+  (T == INDEXFLD_T_TAG        ? 3 : -1))))
+
+#define INDEXTYPE_FROM_POS(P) (1<<(P))
+// clang-format on
+
+#define IXFLDPOS_FULLTEXT INDEXTYPE_TO_POS(INDEXFLD_T_FULLTEXT)
+#define IXFLDPOS_NUMERIC INDEXTYPE_TO_POS(INDEXFLD_T_NUMERIC)
+#define IXFLDPOS_GEO INDEXTYPE_TO_POS(INDEXFLD_T_GEO)
+#define IXFLDPOS_TAG INDEXTYPE_TO_POS(INDEXFLD_T_TAG)
+
+RS_ENUM_BITWISE_HELPER(FieldType)
 
 typedef enum {
   FieldSpec_Sortable = 0x01,
   FieldSpec_NoStemming = 0x02,
   FieldSpec_NotIndexable = 0x04,
   FieldSpec_Phonetics = 0x08,
+  FieldSpec_Dynamic = 0x10
 } FieldSpecOptions;
 
-// Specific options for text fields
-typedef struct {
-  // weight in frequency calculations
-  double weight;
-  // bitwise id for field masks
-  t_fieldId id;
-} TextFieldOptions;
+RS_ENUM_BITWISE_HELPER(FieldSpecOptions)
 
 // Flags for tag fields
 typedef enum {
@@ -28,11 +58,7 @@ typedef enum {
   TagField_RemoveAccents = 0x04,
 } TagFieldFlags;
 
-// Specific options for tag fields
-typedef struct {
-  char separator;
-  TagFieldFlags flags;
-} TagFieldOptions;
+RS_ENUM_BITWISE_HELPER(TagFieldFlags)
 
 /* The fieldSpec represents a single field in the document's field spec.
 Each field has a unique id that's a power of two, so we can filter fields
@@ -40,49 +66,42 @@ by a bit mask.
 Each field has a type, allowing us to add non text fields in the future */
 typedef struct FieldSpec {
   char* name;
-  FieldType type;
-  FieldSpecOptions options;
+  FieldType types : 8;
+  FieldSpecOptions options : 8;
 
-  int sortIdx;
+  /** If this field is sortable, the sortable index */
+  int16_t sortIdx;
 
-  /**
-   * Unique field index. Each field has a unique index regardless of its type
-   */
+  /** Unique field index. Each field has a unique index regardless of its type */
   uint16_t index;
 
-  union {
-    TextFieldOptions textOpts;
-    TagFieldOptions tagOpts;
-  };
+  // Flags for tag options
+  TagFieldFlags tagFlags : 16;
+  char tagSep;
+
+  // weight in frequency calculations
+  double ftWeight;
+  // ID used to identify the field within the field mask
+  t_fieldId ftId;
 
   // TODO: More options here..
 } FieldSpec;
 
-#define TAG_FIELD_DEFAULT_FLAGS TagField_TrimSpace& TagField_RemoveAccents;
+#define FIELD_IS(f, t) (((f)->types) & t)
+#define FIELD_CHKIDX(fmask, ix) (fmask & ix)
+
+#define TAG_FIELD_DEFAULT_FLAGS (TagFieldFlags)(TagField_TrimSpace | TagField_RemoveAccents);
+#define TAG_FIELD_DEFAULT_SEP ','
 
 #define FieldSpec_IsSortable(fs) ((fs)->options & FieldSpec_Sortable)
 #define FieldSpec_IsNoStem(fs) ((fs)->options & FieldSpec_NoStemming)
 #define FieldSpec_IsPhonetics(fs) ((fs)->options & FieldSpec_Phonetics)
 #define FieldSpec_IsIndexable(fs) (0 == ((fs)->options & FieldSpec_NotIndexable))
 
-FieldSpec* FieldSpec_CreateText();
-FieldSpec* FieldSpec_CreateNumeric();
-FieldSpec* FieldSpec_CreateGeo();
-FieldSpec* FieldSpec_CreateTag();
-
-void FieldSpec_InitializeText(FieldSpec* fs);
-void FieldSpec_InitializeNumeric(FieldSpec* fs);
-void FieldSpec_InitializeGeo(FieldSpec* fs);
-void FieldSpec_InitializeTag(FieldSpec* fs);
-
-void FieldSpec_SetName(FieldSpec* fs, const char* name);
-void FieldSpec_SetIndex(FieldSpec* fs, uint16_t index);
-void FieldSpec_TextNoStem(FieldSpec* fs);
-void FieldSpec_TextSetWeight(FieldSpec* fs, double w);
-void FieldSpec_TextPhonetic(FieldSpec* fs);
-void FieldSpec_TagSetSeparator(FieldSpec* fs, char sep);
-void FieldSpec_SetSortable(FieldSpec* fs);
-void FieldSpec_SetNoIndex(FieldSpec* fs);
+static inline void FieldSpec_SetSortable(FieldSpec* fs) {
+  assert(!(fs->options & FieldSpec_Dynamic) && "dynamic fields cannot be sortable");
+  fs->options |= FieldSpec_Sortable;
+}
 
 void FieldSpec_Cleanup(FieldSpec* fs);
 void FieldSpec_Free(FieldSpec* fs);

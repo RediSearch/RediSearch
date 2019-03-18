@@ -15,7 +15,7 @@ typedef struct geoIndex {
 
 #define GEOINDEX_KEY_FMT "geo:%s/%s"
 
-int GeoIndex_AddStrings(GeoIndex *gi, t_docId docId, char *slon, char *slat);
+int GeoIndex_AddStrings(GeoIndex *gi, t_docId docId, const char *slon, const char *slat);
 
 void GeoIndex_RemoveEntries(GeoIndex *gi, IndexSpec *sp, t_docId docId);
 

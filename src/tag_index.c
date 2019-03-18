@@ -60,7 +60,7 @@ static inline char *mySep(char sep, char **s, int trimSpace, size_t *toklen) {
 char *strtolower(char *str);
 
 /* Preprocess a document tag field, returning a vector of all tags split from the content */
-char **TagIndex_Preprocess(const TagFieldOptions *opts, const DocumentField *data) {
+char **TagIndex_Preprocess(char sep, TagFieldFlags flags, const DocumentField *data) {
   size_t sz;
   char *p = (char *)RedisModule_StringPtrLen(data->text, &sz);
   if (!p || sz == 0) return NULL;
@@ -69,12 +69,12 @@ char **TagIndex_Preprocess(const TagFieldOptions *opts, const DocumentField *dat
   while (p) {
     // get the next token
     size_t toklen;
-    char *tok = mySep(opts->separator, &p, 1, &toklen);
+    char *tok = mySep(sep, &p, 1, &toklen);
     // this means we're at the end
     if (tok == NULL) break;
     if (toklen > 0) {
       // lowercase the string (TODO: non latin lowercase)
-      if (!(opts->flags & TagField_CaseSensitive)) {
+      if (!(flags & TagField_CaseSensitive)) {
         tok = strtolower(tok);
       }
       tok = strndup(tok, MIN(toklen, MAX_TAG_LEN));

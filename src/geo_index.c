@@ -4,9 +4,9 @@
 #include "rmalloc.h"
 
 /* Add a docId to a geoindex key. Right now we just use redis' own GEOADD */
-int GeoIndex_AddStrings(GeoIndex *gi, t_docId docId, char *slon, char *slat) {
+int GeoIndex_AddStrings(GeoIndex *gi, t_docId docId, const char *slon, const char *slat) {
 
-  RedisModuleString *ks = IndexSpec_GetFormattedKey(gi->ctx->spec, gi->sp);
+  RedisModuleString *ks = IndexSpec_GetFormattedKey(gi->ctx->spec, gi->sp, INDEXFLD_T_GEO);
   RedisModuleCtx *ctx = gi->ctx->redisCtx;
 
   /* GEOADD key longitude latitude member*/
@@ -24,7 +24,7 @@ int GeoIndex_AddStrings(GeoIndex *gi, t_docId docId, char *slon, char *slat) {
 }
 
 void GeoIndex_RemoveEntries(GeoIndex *gi, IndexSpec *sp, t_docId docId) {
-  RedisModuleString *ks = IndexSpec_GetFormattedKey(sp, gi->sp);
+  RedisModuleString *ks = IndexSpec_GetFormattedKey(sp, gi->sp, INDEXFLD_T_GEO);
   RedisModuleCtx *ctx = gi->ctx->redisCtx;
   RedisModuleCallReply *rep = RedisModule_Call(ctx, "ZREM", "sl", ks, docId);
   RedisModule_FreeCallReply(rep);
@@ -93,7 +93,7 @@ static int cmp_docids(const void *p1, const void *p2) {
 static t_docId *geoRangeLoad(const GeoIndex *gi, const GeoFilter *gf, size_t *num) {
   *num = 0;
   t_docId *docIds = NULL;
-  RedisModuleString *s = IndexSpec_GetFormattedKey(gi->ctx->spec, gi->sp);
+  RedisModuleString *s = IndexSpec_GetFormattedKey(gi->ctx->spec, gi->sp, INDEXFLD_T_GEO);
   assert(s);
   /*GEORADIUS key longitude latitude radius m|km|ft|mi */
   RedisModuleCtx *ctx = gi->ctx->redisCtx;

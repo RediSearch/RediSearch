@@ -24,7 +24,7 @@ static void valFreeCb(void* unused, void* p) {
   free(kdv);
 }
 
-IndexSpec* RS_CreateIndex(const char* name, RSGetValueCallback getValue, void* getValueCtx) {
+static IndexSpec* RS_CreateIndex(const char* name, RSGetValueCallback getValue, void* getValueCtx) {
   IndexSpec* spec = NewIndexSpec(name);
   spec->flags |= Index_Temporary;  // temporary is so that we will not use threads!!
 
@@ -43,79 +43,83 @@ IndexSpec* RS_CreateIndex(const char* name, RSGetValueCallback getValue, void* g
   return spec;
 }
 
-void RS_DropIndex(IndexSpec* sp) {
+static void RS_DropIndex(IndexSpec* sp) {
   dict* d = sp->keysDict;
   dictRelease(d);
   sp->keysDict = NULL;
   IndexSpec_FreeSync(sp);
 }
 
-static inline FieldSpec* RS_CreateField(IndexSpec* sp, const char* name) {
-  FieldSpec* fs = IndexSpec_CreateField(sp);
-  FieldSpec_SetName(fs, name);
+static RSField* RS_CreateField(IndexSpec* sp, const char* name, unsigned types, unsigned options) {
+  assert(types);
+  RSField* fs = IndexSpec_CreateField(sp, name);
+  int numTypes = 0;
+
+  if (types & RSFLDTYPE_FULLTEXT) {
+    numTypes++;
+    int txtId = IndexSpec_CreateTextId(sp);
+    if (txtId < 0) {
+      return NULL;
+    }
+    fs->ftId = txtId;
+    fs->types |= INDEXFLD_T_FULLTEXT;
+  }
+
+  if (types & RSFLDTYPE_NUMERIC) {
+    numTypes++;
+    fs->types |= INDEXFLD_T_NUMERIC;
+  }
+  if (types & RSFLDTYPE_GEO) {
+    fs->types |= INDEXFLD_T_GEO;
+    numTypes++;
+  }
+  if (types & RSFLDTYPE_TAG) {
+    fs->types |= INDEXFLD_T_TAG;
+    numTypes++;
+  }
+
+  if (numTypes > 1) {
+    fs->options |= FieldSpec_Dynamic;
+  }
+
+  if (options & RSFLDOPT_NOINDEX) {
+    fs->options |= FieldSpec_NotIndexable;
+  }
+  if (options & RSFLDOPT_SORTABLE) {
+    fs->options |= FieldSpec_Sortable;
+    fs->sortIdx = RSSortingTable_Add(sp->sortables, fs->name, fieldTypeToValueType(fs->types));
+  }
+  if (options & RSFLDOPT_TXTNOSTEM) {
+    fs->options |= FieldSpec_NoStemming;
+  }
+  if (options & RSFLDOPT_TXTPHONETIC) {
+    fs->options |= FieldSpec_Phonetics;
+    sp->flags |= Index_HasPhonetic;
+  }
+
   return fs;
 }
 
-FieldSpec* RS_CreateTextField(IndexSpec* sp, const char* name) {
-  FieldSpec* fs = RS_CreateField(sp, name);
-  FieldSpec_InitializeText(fs);
-  fs->textOpts.id = sp->textFields++;
-  return fs;
+static void RS_TextFieldSetWeight(IndexSpec* sp, FieldSpec* fs, double w) {
+  assert(FIELD_IS(fs, INDEXFLD_T_FULLTEXT));
+  fs->ftWeight = w;
 }
 
-void RS_TextFieldSetWeight(FieldSpec* fs, double w) {
-  assert(fs->type == FIELD_FULLTEXT);
-  FieldSpec_TextSetWeight(fs, w);
+static void RS_TagSetSeparator(FieldSpec* fs, char sep) {
+  assert(FIELD_IS(fs, INDEXFLD_T_TAG));
+  fs->tagSep = sep;
 }
 
-void RS_TextFieldNoStemming(FieldSpec* fs) {
-  assert(fs->type == FIELD_FULLTEXT);
-  FieldSpec_TextNoStem(fs);
+static Document* RS_CreateDocument(const void* docKey, size_t len, double score, const char* lang) {
+  RedisModuleString* docKeyStr = RedisModule_CreateString(NULL, docKey, len);
+  const char* language = lang ? lang : "english";
+  Document* ret = rm_calloc(1, sizeof(*ret));
+  Document_Init(ret, docKeyStr, score, 0, language, NULL, 0);
+  ret->language = strdup(ret->language);
+  return ret;
 }
 
-void RS_TextFieldPhonetic(FieldSpec* fs, IndexSpec* sp) {
-  assert(fs->type == FIELD_FULLTEXT);
-  FieldSpec_TextPhonetic(fs);
-  sp->flags |= Index_HasPhonetic;
-}
-
-FieldSpec* RS_CreateGeoField(IndexSpec* sp, const char* name) {
-  FieldSpec* fs = RS_CreateField(sp, name);
-  FieldSpec_InitializeGeo(fs);
-  return fs;
-}
-
-FieldSpec* RS_CreateNumericField(IndexSpec* sp, const char* name) {
-  FieldSpec* fs = RS_CreateField(sp, name);
-  FieldSpec_InitializeNumeric(fs);
-  return fs;
-}
-
-FieldSpec* RS_CreateTagField(IndexSpec* sp, const char* name) {
-  FieldSpec* fs = RS_CreateField(sp, name);
-  FieldSpec_InitializeTag(fs);
-  return fs;
-}
-
-void RS_TagSetSeparator(FieldSpec* fs, char sep) {
-  assert(fs->type == FIELD_TAG);
-  FieldSpec_TagSetSeparator(fs, sep);
-}
-
-void RS_FieldSetSortable(FieldSpec* fs, IndexSpec* sp) {
-  FieldSpec_SetSortable(fs);
-  fs->sortIdx = RSSortingTable_Add(sp->sortables, fs->name, fieldTypeToValueType(fs->type));
-}
-
-void RS_FieldSetNoIndex(FieldSpec* fs) {
-  FieldSpec_SetNoIndex(fs);
-}
-
-Document* RS_CreateDocument(const void* docKey, size_t len, double score, const char* lang) {
-  return Document_Create(docKey, len, score, lang);
-}
-
-int RS_DropDocument(IndexSpec* sp, const void* docKey, size_t len) {
+static int RS_DropDocument(IndexSpec* sp, const void* docKey, size_t len) {
   RedisModuleString* docId = RedisModule_CreateString(NULL, docKey, len);
   t_docId id = DocTable_GetIdR(&sp->docs, docId);
   if (id == 0) {
@@ -130,12 +134,21 @@ int RS_DropDocument(IndexSpec* sp, const void* docKey, size_t len) {
   return 0;
 }
 
-void RS_DocumentAddTextField(Document* d, const char* fieldName, const char* val, size_t n) {
-  Document_AddTextField(d, fieldName, val, n);
+static void RS_DocumentAddField(Document* d, const char* fieldName, RedisModuleString* value,
+                                unsigned as) {
+  Document_AddField(d, fieldName, value, as);
+  RedisModule_RetainString(NULL, value);
 }
 
-void RS_DocumentAddNumericField(Document* d, const char* fieldName, double num) {
-  Document_AddNumericField(d, fieldName, num);
+static void RS_DocumentAddFieldString(Document* d, const char* fieldname, const char* s, size_t n,
+                                      unsigned as) {
+  RedisModuleString* r = RedisModule_CreateString(NULL, s, n);
+  Document_AddField(d, fieldname, r, as);
+}
+
+static void RS_DocumentAddFieldNumber(Document* d, const char* fieldname, double n, unsigned as) {
+  RedisModuleString* r = RedisModule_CreateStringPrintf(NULL, "%lf", n);
+  Document_AddField(d, fieldname, r, as);
 }
 
 static void RS_AddDocDone(RSAddDocumentCtx* aCtx, RedisModuleCtx* ctx, void* unused) {
@@ -333,24 +346,17 @@ int moduleRegisterApi(const char* funcname, void* funcptr);
 
 int RS_InitializeLibrary(RedisModuleCtx* ctx) {
   REGISTER_API(GetCApiVersion, moduleRegisterApi);
-
   REGISTER_API(CreateIndex, moduleRegisterApi);
   REGISTER_API(DropIndex, moduleRegisterApi);
-  REGISTER_API(CreateTextField, moduleRegisterApi);
+  REGISTER_API(CreateField, moduleRegisterApi);
   REGISTER_API(TextFieldSetWeight, moduleRegisterApi);
-  REGISTER_API(TextFieldNoStemming, moduleRegisterApi);
-  REGISTER_API(TextFieldPhonetic, moduleRegisterApi);
-  REGISTER_API(CreateGeoField, moduleRegisterApi);
-  REGISTER_API(CreateNumericField, moduleRegisterApi);
-  REGISTER_API(CreateTagField, moduleRegisterApi);
   REGISTER_API(TagSetSeparator, moduleRegisterApi);
-  REGISTER_API(FieldSetSortable, moduleRegisterApi);
-  REGISTER_API(FieldSetNoIndex, moduleRegisterApi);
 
   REGISTER_API(CreateDocument, moduleRegisterApi);
   REGISTER_API(DropDocument, moduleRegisterApi);
-  REGISTER_API(DocumentAddTextField, moduleRegisterApi);
-  REGISTER_API(DocumentAddNumericField, moduleRegisterApi);
+  REGISTER_API(DocumentAddField, moduleRegisterApi);
+  REGISTER_API(DocumentAddFieldString, moduleRegisterApi);
+  REGISTER_API(DocumentAddFieldNumber, moduleRegisterApi);
 
   REGISTER_API(SpecAddDocument, moduleRegisterApi);
 

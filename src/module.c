@@ -133,25 +133,44 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
     RedisModule_ReplyWithSimpleString(ctx, sp->fields[i].name);
     int nn = 1;
-    REPLY_KVSTR(nn, "type", SpecTypeNames[sp->fields[i].type]);
-    if (sp->fields[i].type == FIELD_FULLTEXT) {
-      REPLY_KVNUM(nn, SPEC_WEIGHT_STR, sp->fields[i].textOpts.weight);
+    const FieldSpec *fs = sp->fields + i;
+
+    if (fs->options & FieldSpec_Dynamic) {
+      REPLY_KVSTR(nn, "type", "<DYNAMIC>");
+      size_t ntypes = 0;
+
+      nn += 2;
+      RedisModule_ReplyWithSimpleString(ctx, "types");
+      RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+      for (size_t jj = 0; jj < INDEXFLD_NUM_TYPES; ++jj) {
+        if (FIELD_IS(fs, INDEXTYPE_FROM_POS(jj))) {
+          ntypes++;
+          RedisModule_ReplyWithSimpleString(ctx, SpecTypeNames[jj]);
+        }
+      }
+      RedisModule_ReplySetArrayLength(ctx, ntypes);
+    } else {
+      REPLY_KVSTR(nn, "type", SpecTypeNames[INDEXTYPE_TO_POS(fs->types)]);
     }
 
-    if (sp->fields[i].type == FIELD_TAG) {
+    if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT)) {
+      REPLY_KVNUM(nn, SPEC_WEIGHT_STR, fs->ftWeight);
+    }
+
+    if (FIELD_IS(fs, INDEXFLD_T_TAG)) {
       char buf[2];
-      sprintf(buf, "%c", sp->fields[i].tagOpts.separator);
+      sprintf(buf, "%c", fs->tagSep);
       REPLY_KVSTR(nn, SPEC_SEPARATOR_STR, buf);
     }
-    if (FieldSpec_IsSortable(&sp->fields[i])) {
+    if (FieldSpec_IsSortable(fs)) {
       RedisModule_ReplyWithSimpleString(ctx, SPEC_SORTABLE_STR);
       ++nn;
     }
-    if (FieldSpec_IsNoStem(&sp->fields[i])) {
+    if (FieldSpec_IsNoStem(fs)) {
       RedisModule_ReplyWithSimpleString(ctx, SPEC_NOSTEM_STR);
       ++nn;
     }
-    if (!FieldSpec_IsIndexable(&sp->fields[i])) {
+    if (!FieldSpec_IsIndexable(fs)) {
       RedisModule_ReplyWithSimpleString(ctx, SPEC_NOINDEX_STR);
       ++nn;
     }
@@ -439,7 +458,7 @@ int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   for (size_t i = 0; i < sp->numFields; ++i) {
     FieldSpec *fs = sp->fields + i;
-    if (fs->type != FIELD_GEO) {
+    if (!FIELD_IS(fs, INDEXFLD_T_GEO)) {
       continue;
     }
     GeoIndex gi = {.ctx = &sctx, .sp = fs};
@@ -626,7 +645,7 @@ int TagValsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModule_ReplyWithError(ctx, "No such field");
     goto cleanup;
   }
-  if (sp->type != FIELD_TAG) {
+  if (!FIELD_IS(sp, INDEXFLD_T_TAG)) {
     RedisModule_ReplyWithError(ctx, "Not a tag field");
     goto cleanup;
   }
@@ -906,6 +925,7 @@ int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
 int AlterIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // Need at least <cmd> <index> <subcommand> <args...>
+  printf("AlterIndex!\n");
   RedisModule_AutoMemory(ctx);
 
   if (argc < 5) {

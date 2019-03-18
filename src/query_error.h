@@ -41,7 +41,8 @@ extern "C" {
   X(QUERY_EDOCNOTADDED, "Document was not added because condition was unmet")   \
   X(QUERY_EDUPFIELD, "Field was specified twice")                               \
   X(QUERY_EGEOFORMAT, "Invalid lon/lat format. Use \"lon lat\" or \"lon,lat\"") \
-  X(QUERY_ENODISTRIBUTE, "Could not distribute the operation")
+  X(QUERY_ENODISTRIBUTE, "Could not distribute the operation")                  \
+  X(QUERY_EUNSUPPTYPE, "Unsupported index type")
 
 typedef enum {
   QUERY_OK = 0,

@@ -733,37 +733,37 @@ TEST_F(IndexTest, testIndexSpec) {
 
   const FieldSpec *f = IndexSpec_GetField(s, body, strlen(body));
   ASSERT_TRUE(f != NULL);
-  ASSERT_TRUE(f->type == FIELD_FULLTEXT);
-  ASSERT_TRUE(strcmp(f->name, body) == 0);
-  ASSERT_TRUE(f->textOpts.weight == 2.0);
+  ASSERT_TRUE(FIELD_IS(f, INDEXFLD_T_FULLTEXT));
+  ASSERT_STREQ(f->name, body);
+  ASSERT_EQ(f->ftWeight, 2.0);
   ASSERT_EQ(FIELD_BIT(f), 2);
-  ASSERT_TRUE(f->options == 0);
-  ASSERT_TRUE(f->sortIdx == -1);
+  ASSERT_EQ(f->options, 0);
+  ASSERT_EQ(f->sortIdx, -1);
 
   f = IndexSpec_GetField(s, title, strlen(title));
   ASSERT_TRUE(f != NULL);
-  ASSERT_TRUE(f->type == FIELD_FULLTEXT);
+  ASSERT_TRUE(FIELD_IS(f, INDEXFLD_T_FULLTEXT));
   ASSERT_TRUE(strcmp(f->name, title) == 0);
-  ASSERT_TRUE(f->textOpts.weight == 0.1);
+  ASSERT_TRUE(f->ftWeight == 0.1);
   ASSERT_TRUE(FIELD_BIT(f) == 1);
   ASSERT_TRUE(f->options == 0);
   ASSERT_TRUE(f->sortIdx == -1);
 
   f = IndexSpec_GetField(s, foo, strlen(foo));
   ASSERT_TRUE(f != NULL);
-  ASSERT_TRUE(f->type == FIELD_FULLTEXT);
+  ASSERT_TRUE(FIELD_IS(f, INDEXFLD_T_FULLTEXT));
   ASSERT_TRUE(strcmp(f->name, foo) == 0);
-  ASSERT_TRUE(f->textOpts.weight == 1);
+  ASSERT_TRUE(f->ftWeight == 1);
   ASSERT_TRUE(FIELD_BIT(f) == 4);
   ASSERT_TRUE(f->options == FieldSpec_Sortable);
   ASSERT_TRUE(f->sortIdx == 0);
 
   f = IndexSpec_GetField(s, bar, strlen(bar));
   ASSERT_TRUE(f != NULL);
-  ASSERT_TRUE(f->type == FIELD_NUMERIC);
+  ASSERT_TRUE(FIELD_IS(f, INDEXFLD_T_NUMERIC));
 
   ASSERT_TRUE(strcmp(f->name, bar) == 0);
-  ASSERT_TRUE(f->textOpts.weight == 0);
+  ASSERT_TRUE(f->ftWeight == 0);
   ASSERT_TRUE(FIELD_BIT(f) == 1);
   ASSERT_TRUE(f->options == FieldSpec_Sortable);
   ASSERT_TRUE(f->sortIdx == 1);
@@ -771,9 +771,9 @@ TEST_F(IndexTest, testIndexSpec) {
 
   f = IndexSpec_GetField(s, name, strlen(name));
   ASSERT_TRUE(f != NULL);
-  ASSERT_TRUE(f->type == FIELD_FULLTEXT);
+  ASSERT_TRUE(FIELD_IS(f, INDEXFLD_T_FULLTEXT));
   ASSERT_TRUE(strcmp(f->name, name) == 0);
-  ASSERT_TRUE(f->textOpts.weight == 1);
+  ASSERT_TRUE(f->ftWeight == 1);
   ASSERT_TRUE(FIELD_BIT(f) == 8);
   ASSERT_TRUE(f->options == FieldSpec_NoStemming);
   ASSERT_TRUE(f->sortIdx == -1);

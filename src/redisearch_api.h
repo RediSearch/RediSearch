@@ -39,6 +39,22 @@ typedef struct indexIterator RSResultsIterator;
 #define RSQNTYPE_FUZZY 12
 #define RSQNTYPE_LEXRANGE 13
 
+typedef enum {
+  RSFLDTYPE_DEFAULT = 0x00,
+  RSFLDTYPE_FULLTEXT = 0x01,
+  RSFLDTYPE_NUMERIC = 0x02,
+  RSFLDTYPE_GEO = 0x04,
+  RSFLDTYPE_TAG = 0x08
+} RSFielddType;
+
+typedef enum {
+  RSFLDOPT_NONE = 0x00,
+  RSFLDOPT_SORTABLE = 0x01,
+  RSFLDOPT_NOINDEX = 0x02,
+  RSFLDOPT_TXTNOSTEM = 0x04,
+  RSFLDOPT_TXTPHONETIC = 0x08
+} RSFielddOptions;
+
 typedef int (*RSGetValueCallback)(void* ctx, const char* fieldName, const void* id, char** strVal,
                                   double* doubleVal);
 
@@ -49,39 +65,52 @@ MODULE_API_FUNC(RSIndex*, RediSearch_CreateIndex)
 
 MODULE_API_FUNC(void, RediSearch_DropIndex)(RSIndex*);
 
-MODULE_API_FUNC(RSField*, RediSearch_CreateTextField)(RSIndex* sp, const char* name);
+/**
+ * Create a new field in the index
+ * @param idx the index
+ * @param name the name of the field
+ * @param ftype a mask of RSFieldType that should be supported for indexing.
+ *  This also indicates the default indexing settings if not otherwise specified
+ * @param fopt a mask of RSFieldOptions
+ */
+MODULE_API_FUNC(RSField*, RediSearch_CreateField)
+(RSIndex* idx, const char* name, unsigned ftype, unsigned fopt);
+
+#define RediSearch_CreateNumericField(idx, name) \
+  RediSearch_CreateField(idx, name, RSFLDTYPE_NUMERIC, RSFLDOPT_NONE)
+#define RediSearch_CreateTextField(idx, name) \
+  RediSearch_CreateField(idx, name, RSFLDTYPE_FULLTEXT, RSFLDOPT_NONE)
+#define RediSearch_CreateTagField(idx, name) \
+  RediSearch_CreateField(idx, name, RSFLDTYPE_TAG, RSFLDOPT_NONE)
+#define RediSearch_CreateGeoField(idx, name) \
+  RediSearch_CreateField(idx, name, RSFLDTYPE_GEO, RSFLDOPT_NONE)
 
 MODULE_API_FUNC(void, RediSearch_TextFieldSetWeight)(RSField* fs, double w);
-
-MODULE_API_FUNC(void, RediSearch_TextFieldNoStemming)(RSField* fs);
-
-MODULE_API_FUNC(void, RediSearch_TextFieldPhonetic)(RSField* fs, RSIndex* sp);
-
-MODULE_API_FUNC(RSField*, RediSearch_CreateGeoField)(RSIndex* sp, const char* name);
-
-MODULE_API_FUNC(RSField*, RediSearch_CreateNumericField)(RSIndex* sp, const char* name);
-
-MODULE_API_FUNC(RSField*, RediSearch_CreateTagField)(RSIndex* sp, const char* name);
-
 MODULE_API_FUNC(void, RediSearch_TagSetSeparator)(RSField* fs, char sep);
-
-MODULE_API_FUNC(void, RediSearch_FieldSetSortable)(RSField* fs, RSIndex* sp);
-
-MODULE_API_FUNC(void, RediSearch_FieldSetNoIndex)(RSField* fs);
 
 MODULE_API_FUNC(RSDoc*, RediSearch_CreateDocument)
 (const void* docKey, size_t len, double score, const char* lang);
+#define RediSearch_CreateDocumentSimple(s) RediSearch_CreateDocument(s, strlen(s), 1.0, NULL)
 
 MODULE_API_FUNC(int, RediSearch_DropDocument)(RSIndex* sp, const void* docKey, size_t len);
 
-MODULE_API_FUNC(void, RediSearch_DocumentAddTextField)
-(RSDoc* d, const char* fieldName, const char* val, size_t n);
+/**
+ * Add a field (with value) to the document
+ * @param d the document
+ * @param fieldName the name of the field
+ * @param s the contents of the field to be added (if numeric, the string representation)
+ * @param indexAsTypes the types the field should be indexed as. Should be a
+ *  bitmask of RSFieldType
+ */
+MODULE_API_FUNC(void, RediSearch_DocumentAddField)
+(RSDoc* d, const char* fieldName, RedisModuleString* s, unsigned indexAsTypes);
 
-#define RediSearch_DocumentAddTextFieldC(d, f, v) \
-  RediSearch_DocumentAddTextField(d, f, v, strlen(v))
-
-MODULE_API_FUNC(void, RediSearch_DocumentAddNumericField)
-(RSDoc* d, const char* fieldName, double num);
+MODULE_API_FUNC(void, RediSearch_DocumentAddFieldString)
+(RSDoc* d, const char* fieldName, const char* s, size_t n, unsigned indexAsTypes);
+#define RediSearch_DocumentAddFieldCString(doc, fieldname, s, indexAs) \
+  RediSearch_DocumentAddFieldString(doc, fieldname, s, strlen(s), indexAs)
+MODULE_API_FUNC(void, RediSearch_DocumentAddFieldNumber)
+(RSDoc* d, const char* fieldName, double n, unsigned indexAsTypes);
 
 MODULE_API_FUNC(void, RediSearch_SpecAddDocument)(RSIndex* sp, RSDoc* d);
 
@@ -140,20 +169,14 @@ MODULE_API_FUNC(void, RediSearch_ResultsIteratorReset)(RSResultsIterator* iter);
   X(GetCApiVersion)              \
   X(CreateIndex)                 \
   X(DropIndex)                   \
-  X(CreateTextField)             \
+  X(CreateField)                 \
   X(TextFieldSetWeight)          \
-  X(TextFieldNoStemming)         \
-  X(TextFieldPhonetic)           \
-  X(CreateGeoField)              \
-  X(CreateNumericField)          \
-  X(CreateTagField)              \
   X(TagSetSeparator)             \
-  X(FieldSetSortable)            \
-  X(FieldSetNoIndex)             \
   X(CreateDocument)              \
   X(DropDocument)                \
-  X(DocumentAddTextField)        \
-  X(DocumentAddNumericField)     \
+  X(DocumentAddField)            \
+  X(DocumentAddFieldNumber)      \
+  X(DocumentAddFieldString)      \
   X(SpecAddDocument)             \
   X(CreateTokenNode)             \
   X(CreateNumericNode)           \

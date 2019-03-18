@@ -38,20 +38,23 @@ extern "C" {
 typedef struct {
   const char *name;
   RedisModuleString *text;
+  FieldType indexAs;
 } DocumentField;
 
 typedef struct Document {
   RedisModuleString *docKey;
   DocumentField *fields;
-  int numFields;
+  uint32_t numFields;
   float score;
   const char *language;
   t_docId docId;
-
   const char *payload;
   size_t payloadSize;
-  int stringOwner;
+  uint32_t flags;
 } Document;
+
+// The document is "static" -- don't free the document's contents
+#define DOCUMENT_F_STATIC 0x01
 
 struct RSAddDocumentCtx;
 
@@ -71,10 +74,8 @@ typedef struct {
 
 int AddDocumentOptions_Parse(AddDocumentOptions *opts, ArgsCursor *ac, QueryError *status);
 
-Document *Document_Create(const char *docKey, size_t len, double score, const char *lang);
-
-void Document_AddTextField(Document *d, const char *fieldName, const char *fieldVal, size_t n);
-void Document_AddNumericField(Document *d, const char *fieldName, double num);
+void Document_AddField(Document *d, const char *fieldname, RedisModuleString *fieldval,
+                       uint32_t typemask);
 
 /**
  * Initialize document structure with the relevant fields. numFields will allocate
@@ -147,7 +148,7 @@ void Document_Free(Document *doc);
 #define DOCUMENT_ADD_CURTHREAD 0x08  // Perform operation in main thread
 
 struct ForwardIndex;
-union FieldData;
+struct FieldIndexerData;
 
 // The context has had its forward entries merged in the merge table. We can
 // skip merging its tokens
@@ -209,7 +210,7 @@ typedef struct RSAddDocumentCtx {
   RSDocumentFlags docFlags;
 
   // Scratch space used by per-type field preprocessors (see the source)
-  union FieldData *fdatas;
+  struct FieldIndexerData *fdatas;
   QueryError status;     // Error message is placed here if there is an error during processing
   uint32_t totalTokens;  // Number of tokens, used for offset vector
   uint32_t specFlags;    // Cached index flags

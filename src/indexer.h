@@ -7,14 +7,12 @@
 #include "concurrent_ctx.h"
 #include "util/arr.h"
 // Preprocessors can store field data to this location
-typedef union FieldData {
+typedef struct FieldIndexerData {
   double numeric;  // i.e. the numeric value of the field
-  struct {
-    char *slon;
-    char *slat;
-  } geo;  // lon/lat pair
+  const char *geoSlon;
+  const char *geoSlat;
   char **tags;
-} fieldData;
+} FieldIndexerData;
 
 typedef struct DocumentIndexer {
   RSAddDocumentCtx *head;          // first item in the queue
@@ -60,34 +58,27 @@ int Indexer_Add(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx);
  * This function is called with the GIL released.
  */
 typedef int (*PreprocessorFunc)(RSAddDocumentCtx *aCtx, const DocumentField *field,
-                                const FieldSpec *fs, fieldData *fdata, QueryError *status);
+                                const FieldSpec *fs, FieldIndexerData *fdata, QueryError *status);
 
 /**
  * Function to write the entry for the field into the actual index. This is called
  * with the GIL locked, and it should therefore only write data, and nothing more.
  */
 typedef int (*IndexerFunc)(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx, const DocumentField *field,
-                           const FieldSpec *fs, fieldData *fdata, QueryError *status);
-
-/**
- * Get the preprocessor function for a given index type
- */
-PreprocessorFunc GetIndexPreprocessor(const FieldType ft);
+                           const FieldSpec *fs, FieldIndexerData *fdata, QueryError *status);
 
 typedef struct {
-  RedisModuleKey *indexKey;
-  void *indexData;
-  int initialized;
-  int type;
+  RedisModuleKey *indexKeys[INDEXFLD_NUM_TYPES];
+  void *indexDatas[INDEXFLD_NUM_TYPES];
+  FieldType typemask;
+  int found;
 } IndexBulkData;
 
-typedef struct {
-  void (*BulkInit)(IndexBulkData *bulk, const FieldSpec *fs, RedisSearchCtx *sctx);
-  int (*BulkAdd)(IndexBulkData *bulk, RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx,
-                 DocumentField *field, const FieldSpec *fs, fieldData *fdata, QueryError *status);
-  void (*BulkDone)(IndexBulkData *bulk, RedisSearchCtx *ctx);
-} BulkIndexer;
+// IndexerBulkAdd(bulk, cur, sctx, doc->fields + ii, fs, fdata, &cur->status);
 
-const BulkIndexer *GetBulkIndexer(const FieldType ft);
+int IndexerBulkAdd(IndexBulkData *bulk, RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
+                   const DocumentField *field, const FieldSpec *fs, FieldIndexerData *fdata,
+                   QueryError *status);
+void IndexerBulkCleanup(IndexBulkData *cur, RedisSearchCtx *sctx);
 
 #endif
