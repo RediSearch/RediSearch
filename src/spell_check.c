@@ -303,7 +303,8 @@ static bool SpellCheck_CheckTermDictsExistance(SpellCheckCtx *scCtx) {
 
 static int forEachCallback(QueryNode *n, QueryNode *orig, void *arg) {
   SpellCheckCtx *scCtx = arg;
-  if (SpellCheck_ReplyTermSuggestions(scCtx, n->tn.str, n->tn.len, n->opts.fieldMask)) {
+  if (n->type == QN_TOKEN &&
+      SpellCheck_ReplyTermSuggestions(scCtx, n->tn.str, n->tn.len, n->opts.fieldMask)) {
     scCtx->results++;
   }
   return 1;
@@ -321,7 +322,7 @@ void SpellCheck_Reply(SpellCheckCtx *scCtx, QueryAST *q) {
     RedisModule_ReplyWithLongLong(scCtx->sctx->redisCtx, scCtx->sctx->spec->docs.size - 1);
   }
 
-  QueryNode_ForEach(q->root, forEachCallback, scCtx);
+  QueryNode_ForEach(q->root, forEachCallback, scCtx, 1);
 
   RedisModule_ReplySetArrayLength(scCtx->sctx->redisCtx,
                                   scCtx->results + (scCtx->fullScoreInfo ? 1 : 0));

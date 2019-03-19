@@ -166,6 +166,6 @@ void QueryNode_ClearChildren(QueryNode *parent, int shouldFree);
 #define QueryNode_GetChild(qn, ix) (QueryNode_NumChildren(qn) > ix ? (qn)->children[ix] : NULL)
 
 typedef int (*QueryNode_ForEachCallback)(QueryNode *node, QueryNode *q, void *ctx);
-int QueryNode_ForEach(QueryNode *q, QueryNode_ForEachCallback callback, void *ctx);
+int QueryNode_ForEach(QueryNode *q, QueryNode_ForEachCallback callback, void *ctx, int reverse);
 
 #endif
