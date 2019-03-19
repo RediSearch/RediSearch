@@ -122,6 +122,15 @@ static inline array_t array_ensure_len(array_t arr, size_t len) {
     &(array_tail(*(arrpp)));                   \
   })
 
+/**
+ * Appends elements to the end of the array, creating the array if it does
+ * not exist
+ * @param arrpp array pointer. Can be NULL
+ * @param src array (i.e. C array) of elements to append
+ * @param n length of sec
+ * @param T type of the array (for sizeof)
+ * @return the array
+ */
 #define array_ensure_append(arrpp, src, n, T)      \
   ({                                               \
     size_t a__oldlen = 0;                          \
@@ -133,6 +142,24 @@ static inline array_t array_ensure_len(array_t arr, size_t len) {
     }                                              \
     memcpy(arrpp + a__oldlen, src, n * sizeof(T)); \
     arrpp;                                         \
+  })
+
+/**
+ * Does the same thing as ensure_append, but the added elements are
+ * at the _beginning_ of the array
+ */
+#define array_ensure_prepend(arrpp, src, n, T)                          \
+  ({                                                                    \
+    size_t a__oldlen = 0;                                               \
+    if (!arrpp) {                                                       \
+      arrpp = array_newlen(T, n);                                       \
+    } else {                                                            \
+      a__oldlen = array_len(arrpp);                                     \
+      arrpp = (T *)array_grow(arrpp, n);                                \
+    }                                                                   \
+    memmove(((char *)arrpp) + sizeof(T), arrpp, a__oldlen * sizeof(T)); \
+    memcpy(arrpp, src, n * sizeof(T));                                  \
+    arrpp;                                                              \
   })
 
 /*
@@ -200,6 +227,8 @@ static inline void *array_trimm(array_t arr, uint32_t len, uint32_t cap) {
 static void array_free(array_t arr) {
   array_free_fn(array_hdr(arr));
 }
+
+#define array_clear(arr) array_hdr(arr)->len = 0
 
 /* Repeate the code in "blk" for each element in the array, and give it the name of "as".
  * e.g:

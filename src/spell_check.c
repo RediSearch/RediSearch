@@ -301,16 +301,18 @@ static bool SpellCheck_CheckTermDictsExistance(SpellCheckCtx *scCtx) {
   return true;
 }
 
+static int forEachCallback(QueryNode *n, QueryNode *orig, void *arg) {
+  SpellCheckCtx *scCtx = arg;
+  if (SpellCheck_ReplyTermSuggestions(scCtx, n->tn.str, n->tn.len, n->opts.fieldMask)) {
+    scCtx->results++;
+  }
+  return 1;
+}
+
 void SpellCheck_Reply(SpellCheckCtx *scCtx, QueryAST *q) {
-#define NODES_INITIAL_SIZE 5
   if (!SpellCheck_CheckTermDictsExistance(scCtx)) {
     return;
   }
-  size_t results = 0;
-
-  QueryNode **nodes = array_new(QueryNode *, NODES_INITIAL_SIZE);
-  nodes = array_append(nodes, q->root);
-  QueryNode *currNode = NULL;
 
   RedisModule_ReplyWithArray(scCtx->sctx->redisCtx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
@@ -319,56 +321,8 @@ void SpellCheck_Reply(SpellCheckCtx *scCtx, QueryAST *q) {
     RedisModule_ReplyWithLongLong(scCtx->sctx->redisCtx, scCtx->sctx->spec->docs.size - 1);
   }
 
-  while (array_len(nodes) > 0) {
-    currNode = array_pop(nodes);
+  QueryNode_ForEach(q->root, forEachCallback, scCtx);
 
-    switch (currNode->type) {
-      case QN_PHRASE:
-        for (int i = currNode->pn.numChildren - 1; i >= 0; i--) {
-          nodes = array_append(nodes, currNode->pn.children[i]);
-        }
-        break;
-      case QN_TOKEN:
-        if (SpellCheck_ReplyTermSuggestions(scCtx, currNode->tn.str, currNode->tn.len,
-                                            currNode->opts.fieldMask)) {
-          ++results;
-        }
-        break;
-
-      case QN_NOT:
-        nodes = array_append(nodes, currNode->inverted.child);
-        break;
-
-      case QN_OPTIONAL:
-        nodes = array_append(nodes, currNode->opt.child);
-        break;
-
-      case QN_UNION:
-        for (int i = currNode->un.numChildren - 1; i >= 0; i--) {
-          nodes = array_append(nodes, currNode->un.children[i]);
-        }
-        break;
-
-      case QN_TAG:
-        // todo: do we need to do enything here?
-        for (int i = currNode->tag.numChildren - 1; i >= 0; i--) {
-          nodes = array_append(nodes, currNode->tag.children[i]);
-        }
-        break;
-
-      case QN_PREFX:
-      case QN_LEXRANGE:
-      case QN_NUMERIC:
-      case QN_GEO:
-      case QN_IDS:
-      case QN_WILDCARD:
-      case QN_FUZZY:
-      case QN_NULL:
-        break;
-    }
-  }
-
-  array_free(nodes);
-
-  RedisModule_ReplySetArrayLength(scCtx->sctx->redisCtx, results + (scCtx->fullScoreInfo ? 1 : 0));
+  RedisModule_ReplySetArrayLength(scCtx->sctx->redisCtx,
+                                  scCtx->results + (scCtx->fullScoreInfo ? 1 : 0));
 }

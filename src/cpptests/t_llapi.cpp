@@ -201,7 +201,7 @@ TEST_F(LLApiTest, testAddDocumetTagField) {
   // searching on the index
   RSQNode* qn = RediSearch_CreateTagNode(index, TAG_FIELD_NAME1);
   RSQNode* tqn = RediSearch_CreateTokenNode(index, NULL, TAG_VALUE);
-  RediSearch_TagNodeAddChild(qn, tqn);
+  RediSearch_QueryNodeAddChild(qn, tqn);
   RSResultsIterator* iter = RediSearch_GetResultsIterator(qn, index);
 
   size_t len;
@@ -215,7 +215,7 @@ TEST_F(LLApiTest, testAddDocumetTagField) {
   // prefix search on the index
   qn = RediSearch_CreateTagNode(index, TAG_FIELD_NAME1);
   tqn = RediSearch_CreatePrefixNode(index, NULL, "ta");
-  RediSearch_TagNodeAddChild(qn, tqn);
+  RediSearch_QueryNodeAddChild(qn, tqn);
   iter = RediSearch_GetResultsIterator(qn, index);
 
   id = (const char*)RediSearch_ResultsIteratorNext(iter, index, &len);
@@ -268,7 +268,7 @@ TEST_F(LLApiTest, testMassivePrefix) {
 
   RSQNode* qn = RediSearch_CreateTagNode(index, TAG_FIELD_NAME1);
   RSQNode* pqn = RediSearch_CreatePrefixNode(index, NULL, "tag-");
-  RediSearch_TagNodeAddChild(qn, pqn);
+  RediSearch_QueryNodeAddChild(qn, pqn);
   RSResultsIterator* iter = RediSearch_GetResultsIterator(qn, index);
   ASSERT_TRUE(iter);
 
@@ -352,7 +352,7 @@ TEST_F(LLApiTest, testMassivePrefixWithUnsortedSupport) {
 
   RSQNode* qn = RediSearch_CreateTagNode(index, TAG_FIELD_NAME1);
   RSQNode* pqn = RediSearch_CreatePrefixNode(index, NULL, "tag-");
-  RediSearch_TagNodeAddChild(qn, pqn);
+  RediSearch_QueryNodeAddChild(qn, pqn);
   RSResultsIterator* iter = RediSearch_GetResultsIterator(qn, index);
   ASSERT_TRUE(iter);
 
@@ -386,13 +386,13 @@ TEST_F(LLApiTest, testPrefixIntersection) {
 
   RSQNode* qn1 = RediSearch_CreateTagNode(index, TAG_FIELD_NAME1);
   RSQNode* pqn1 = RediSearch_CreatePrefixNode(index, NULL, "tag1-");
-  RediSearch_TagNodeAddChild(qn1, pqn1);
+  RediSearch_QueryNodeAddChild(qn1, pqn1);
   RSQNode* qn2 = RediSearch_CreateTagNode(index, TAG_FIELD_NAME2);
   RSQNode* pqn2 = RediSearch_CreatePrefixNode(index, NULL, "tag2-");
-  RediSearch_TagNodeAddChild(qn2, pqn2);
+  RediSearch_QueryNodeAddChild(qn2, pqn2);
   RSQNode* iqn = RediSearch_CreateIntersectNode(index, 0);
-  RediSearch_IntersectNodeAddChild(iqn, qn1);
-  RediSearch_IntersectNodeAddChild(iqn, qn2);
+  RediSearch_QueryNodeAddChild(iqn, qn1);
+  RediSearch_QueryNodeAddChild(iqn, qn2);
 
   RSResultsIterator* iter = RediSearch_GetResultsIterator(iqn, index);
   ASSERT_TRUE(iter);

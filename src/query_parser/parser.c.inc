@@ -1214,9 +1214,9 @@ static YYACTIONTYPE yy_reduce(
             yylhsminor.yy35 = yymsp[-1].minor.yy35;
         } else {     
             yylhsminor.yy35 = NewPhraseNode(0);
-            QueryPhraseNode_AddChild(yylhsminor.yy35, yymsp[-1].minor.yy35);
+            QueryNode_AddChild(yylhsminor.yy35, yymsp[-1].minor.yy35);
         }
-        QueryPhraseNode_AddChild(yylhsminor.yy35, yymsp[0].minor.yy35);
+        QueryNode_AddChild(yylhsminor.yy35, yymsp[0].minor.yy35);
     }
 }
 #line 1223 "parser.c"
@@ -1243,12 +1243,12 @@ static YYACTIONTYPE yy_reduce(
             yylhsminor.yy35 = yymsp[-2].minor.yy35;
         } else {
             yylhsminor.yy35 = NewUnionNode();
-            QueryUnionNode_AddChild(yylhsminor.yy35, yymsp[-2].minor.yy35);
+            QueryNode_AddChild(yylhsminor.yy35, yymsp[-2].minor.yy35);
             yylhsminor.yy35->opts.fieldMask |= yymsp[-2].minor.yy35->opts.fieldMask;
         }
 
         // Handle yymsp[0].minor.yy35
-        QueryUnionNode_AddChild(yylhsminor.yy35, yymsp[0].minor.yy35);
+        QueryNode_AddChild(yylhsminor.yy35, yymsp[0].minor.yy35);
         yylhsminor.yy35->opts.fieldMask |= yymsp[0].minor.yy35->opts.fieldMask;
         QueryNode_SetFieldMask(yylhsminor.yy35, yylhsminor.yy35->opts.fieldMask);
     }
@@ -1262,7 +1262,7 @@ static YYACTIONTYPE yy_reduce(
 {
     yylhsminor.yy35 = yymsp[-2].minor.yy35;
     if (yymsp[0].minor.yy35) {
-        QueryUnionNode_AddChild(yylhsminor.yy35, yymsp[0].minor.yy35);
+        QueryNode_AddChild(yylhsminor.yy35, yymsp[0].minor.yy35);
         yylhsminor.yy35->opts.fieldMask |= yymsp[0].minor.yy35->opts.fieldMask;
         QueryNode_SetFieldMask(yymsp[0].minor.yy35, yylhsminor.yy35->opts.fieldMask);
     }
@@ -1425,8 +1425,8 @@ static YYACTIONTYPE yy_reduce(
 #line 341 "parser.y"
 {
     yylhsminor.yy35 = NewPhraseNode(0);
-    QueryPhraseNode_AddChild(yylhsminor.yy35, NewTokenNode(ctx, strdupcase(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len), -1));
-    QueryPhraseNode_AddChild(yylhsminor.yy35, NewTokenNode(ctx, strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), -1));
+    QueryNode_AddChild(yylhsminor.yy35, NewTokenNode(ctx, strdupcase(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len), -1));
+    QueryNode_AddChild(yylhsminor.yy35, NewTokenNode(ctx, strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), -1));
 }
 #line 1432 "parser.c"
   yymsp[-1].minor.yy35 = yylhsminor.yy35;
@@ -1435,7 +1435,7 @@ static YYACTIONTYPE yy_reduce(
 #line 347 "parser.y"
 {
     yylhsminor.yy35 = yymsp[-1].minor.yy35;
-    QueryPhraseNode_AddChild(yylhsminor.yy35, NewTokenNode(ctx, strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), -1));
+    QueryNode_AddChild(yylhsminor.yy35, NewTokenNode(ctx, strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), -1));
 }
 #line 1441 "parser.c"
   yymsp[-1].minor.yy35 = yylhsminor.yy35;
@@ -1546,10 +1546,10 @@ static YYACTIONTYPE yy_reduce(
         size_t slen = unescapen((char*)s, yymsp[-2].minor.yy0.len);
 
         yylhsminor.yy35 = NewTagNode(s, slen);
-        QueryTagNode_AddChildren(yylhsminor.yy35, yymsp[0].minor.yy35->pn.children, yymsp[0].minor.yy35->pn.numChildren);
+        QueryNode_AddChildren(yylhsminor.yy35, yymsp[0].minor.yy35->children, QueryNode_NumChildren(yymsp[0].minor.yy35));
         
         // Set the children count on yymsp[0].minor.yy35 to 0 so they won't get recursively free'd
-        yymsp[0].minor.yy35->pn.numChildren = 0;
+        QueryNode_ClearChildren(yymsp[0].minor.yy35, 0);
         QueryNode_Free(yymsp[0].minor.yy35);
     }
 }
@@ -1560,7 +1560,7 @@ static YYACTIONTYPE yy_reduce(
 #line 453 "parser.y"
 {
     yymsp[-1].minor.yy35 = NewPhraseNode(0);
-    QueryPhraseNode_AddChild(yymsp[-1].minor.yy35, NewTokenNode(ctx, strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), -1));
+    QueryNode_AddChild(yymsp[-1].minor.yy35, NewTokenNode(ctx, strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), -1));
 }
 #line 1566 "parser.c"
         break;
@@ -1569,14 +1569,14 @@ static YYACTIONTYPE yy_reduce(
 #line 458 "parser.y"
 {
     yymsp[-1].minor.yy35 = NewPhraseNode(0);
-    QueryPhraseNode_AddChild(yymsp[-1].minor.yy35, yymsp[0].minor.yy35);
+    QueryNode_AddChild(yymsp[-1].minor.yy35, yymsp[0].minor.yy35);
 }
 #line 1575 "parser.c"
         break;
       case 38: /* tag_list ::= tag_list OR term */
 #line 468 "parser.y"
 {
-    QueryPhraseNode_AddChild(yymsp[-2].minor.yy35, NewTokenNode(ctx, strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), -1));
+    QueryNode_AddChild(yymsp[-2].minor.yy35, NewTokenNode(ctx, strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), -1));
     yylhsminor.yy35 = yymsp[-2].minor.yy35;
 }
 #line 1583 "parser.c"
@@ -1586,7 +1586,7 @@ static YYACTIONTYPE yy_reduce(
       case 40: /* tag_list ::= tag_list OR termlist */ yytestcase(yyruleno==40);
 #line 473 "parser.y"
 {
-    QueryPhraseNode_AddChild(yymsp[-2].minor.yy35, yymsp[0].minor.yy35);
+    QueryNode_AddChild(yymsp[-2].minor.yy35, yymsp[0].minor.yy35);
     yylhsminor.yy35 = yymsp[-2].minor.yy35;
 }
 #line 1593 "parser.c"

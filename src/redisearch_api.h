@@ -128,32 +128,16 @@ MODULE_API_FUNC(RSQNode*, RediSearch_CreateLexRangeNode)
 
 MODULE_API_FUNC(RSQNode*, RediSearch_CreateTagNode)(RSIndex* sp, const char* field);
 
-MODULE_API_FUNC(void, RediSearch_TagNodeAddChild)(RSQNode* qn, RSQNode* child);
-
 MODULE_API_FUNC(RSQNode*, RediSearch_CreateIntersectNode)(RSIndex* sp, int exact);
-
-MODULE_API_FUNC(void, RediSearch_IntersectNodeAddChild)(RSQNode* qn, RSQNode* child);
-
 MODULE_API_FUNC(RSQNode*, RediSearch_CreateUnionNode)(RSIndex* sp);
-
-MODULE_API_FUNC(void, RediSearch_UnionNodeAddChild)(RSQNode* qn, RSQNode* child);
-
 MODULE_API_FUNC(void, RediSearch_QueryNodeFree)(RSQNode* qn);
 
-MODULE_API_FUNC(void, RediSearch_UnionNodeClearChildren)(RSQNode* qn);
-
-MODULE_API_FUNC(void, RediSearch_IntersectNodeClearChildren)(RSQNode* qn);
+MODULE_API_FUNC(void, RediSearch_QueryNodeAddChild)(RSQNode*, RSQNode*);
+MODULE_API_FUNC(void, RediSearch_QueryNodeClearChildren)(RSQNode*);
+MODULE_API_FUNC(RSQNode*, RediSearch_QueryNodeGetChild)(const RSQNode*, size_t);
+MODULE_API_FUNC(size_t, RediSearch_QueryNodeNumChildren)(const RSQNode*);
 
 MODULE_API_FUNC(int, RediSearch_QueryNodeType)(RSQNode* qn);
-
-MODULE_API_FUNC(size_t, RediSearch_UnionNodeGetNumChildren)(RSQNode* qn);
-
-MODULE_API_FUNC(RSQNode*, RediSearch_UnionNodeGetChild)(RSQNode* qn, size_t index);
-
-MODULE_API_FUNC(size_t, RediSearch_IntersectNodeGetNumChildren)(RSQNode* qn);
-
-MODULE_API_FUNC(RSQNode*, RediSearch_IntersectNodeGetChild)(RSQNode* qn, size_t index);
-
 MODULE_API_FUNC(int, RediSearch_QueryNodeGetFieldMask)(RSQNode* qn);
 
 MODULE_API_FUNC(RSResultsIterator*, RediSearch_GetResultsIterator)(RSQNode* qn, RSIndex* sp);
@@ -178,42 +162,37 @@ MODULE_API_FUNC(void, RediSearch_ResultsIteratorFree)(RSResultsIterator* iter);
 
 MODULE_API_FUNC(void, RediSearch_ResultsIteratorReset)(RSResultsIterator* iter);
 
-#define RS_XAPIFUNC(X)           \
-  X(GetCApiVersion)              \
-  X(CreateIndex)                 \
-  X(DropIndex)                   \
-  X(CreateField)                 \
-  X(TextFieldSetWeight)          \
-  X(TagSetSeparator)             \
-  X(CreateDocument)              \
-  X(DropDocument)                \
-  X(DocumentAddField)            \
-  X(DocumentAddFieldNumber)      \
-  X(DocumentAddFieldString)      \
-  X(SpecAddDocument)             \
-  X(CreateTokenNode)             \
-  X(CreateNumericNode)           \
-  X(CreatePrefixNode)            \
-  X(CreateLexRangeNode)          \
-  X(CreateTagNode)               \
-  X(TagNodeAddChild)             \
-  X(CreateIntersectNode)         \
-  X(IntersectNodeAddChild)       \
-  X(CreateUnionNode)             \
-  X(UnionNodeAddChild)           \
-  X(QueryNodeFree)               \
-  X(UnionNodeClearChildren)      \
-  X(IntersectNodeClearChildren)  \
-  X(QueryNodeType)               \
-  X(UnionNodeGetNumChildren)     \
-  X(UnionNodeGetChild)           \
-  X(IntersectNodeGetNumChildren) \
-  X(IntersectNodeGetChild)       \
-  X(QueryNodeGetFieldMask)       \
-  X(GetResultsIterator)          \
-  X(ResultsIteratorNext)         \
-  X(ResultsIteratorFree)         \
-  X(ResultsIteratorReset)        \
+#define RS_XAPIFUNC(X)      \
+  X(GetCApiVersion)         \
+  X(CreateIndex)            \
+  X(DropIndex)              \
+  X(CreateField)            \
+  X(TextFieldSetWeight)     \
+  X(TagSetSeparator)        \
+  X(CreateDocument)         \
+  X(DropDocument)           \
+  X(DocumentAddField)       \
+  X(DocumentAddFieldNumber) \
+  X(DocumentAddFieldString) \
+  X(SpecAddDocument)        \
+  X(CreateTokenNode)        \
+  X(CreateNumericNode)      \
+  X(CreatePrefixNode)       \
+  X(CreateLexRangeNode)     \
+  X(CreateTagNode)          \
+  X(CreateIntersectNode)    \
+  X(CreateUnionNode)        \
+  X(QueryNodeAddChild)      \
+  X(QueryNodeClearChildren) \
+  X(QueryNodeGetChild)      \
+  X(QueryNodeNumChildren)   \
+  X(QueryNodeFree)          \
+  X(QueryNodeType)          \
+  X(QueryNodeGetFieldMask)  \
+  X(GetResultsIterator)     \
+  X(ResultsIteratorNext)    \
+  X(ResultsIteratorFree)    \
+  X(ResultsIteratorReset)   \
   X(IterateQuery)
 
 #define REDISEARCH_MODULE_INIT_FUNCTION(name)                                  \

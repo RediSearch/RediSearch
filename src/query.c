@@ -21,6 +21,7 @@
 #include "numeric_index.h"
 #include "numeric_filter.h"
 #include "util/strconv.h"
+#include "util/arr.h"
 
 #define EFFECTIVE_FIELDMASK(q_, qn_) ((qn_)->opts.fieldMask & (q)->opts->fieldmask)
 
@@ -31,35 +32,7 @@ static void QueryTokenNode_Free(QueryTokenNode *tn) {
   if (tn->str) free(tn->str);
 }
 
-static void QueryPhraseNode_Free(QueryPhraseNode *pn) {
-  for (int i = 0; i < pn->numChildren; i++) {
-    QueryNode_Free(pn->children[i]);
-  }
-  if (pn->children) {
-    free(pn->children);
-    pn->children = NULL;
-  }
-}
-
-static void QueryUnionNode_Free(QueryUnionNode *pn) {
-  for (int i = 0; i < pn->numChildren; i++) {
-    QueryNode_Free(pn->children[i]);
-  }
-  if (pn->children) {
-    free(pn->children);
-    pn->children = NULL;
-  }
-}
-
 static void QueryTagNode_Free(QueryTagNode *tag) {
-
-  for (int i = 0; i < tag->numChildren; i++) {
-    QueryNode_Free(tag->children[i]);
-  }
-  if (tag->children) {
-    free(tag->children);
-    tag->children = NULL;
-  }
   free((char *)tag->fieldName);
 }
 
@@ -71,26 +44,23 @@ static void QueryLexRangeNode_Free(QueryLexRangeNode *lx) {
 
 void QueryNode_Free(QueryNode *n) {
   if (!n) return;
+
+  if (n->children) {
+    for (size_t ii = 0; ii < QueryNode_NumChildren(n); ++ii) {
+      QueryNode_Free(n->children[ii]);
+    }
+    array_free(n->children);
+    n->children = NULL;
+  }
+
   switch (n->type) {
     case QN_TOKEN:
       QueryTokenNode_Free(&n->tn);
-      break;
-    case QN_PHRASE:
-      QueryPhraseNode_Free(&n->pn);
-      break;
-    case QN_UNION:
-      QueryUnionNode_Free(&n->un);
       break;
     case QN_NUMERIC:
       NumericFilter_Free((void *)n->nn.nf);
 
       break;  //
-    case QN_NOT:
-      QueryNode_Free(n->inverted.child);
-      break;
-    case QN_OPTIONAL:
-      QueryNode_Free(n->opt.child);
-      break;
     case QN_PREFX:
       QueryTokenNode_Free(&n->pfx);
       break;
@@ -113,7 +83,11 @@ void QueryNode_Free(QueryNode *n) {
       QueryTagNode_Free(&n->tag);
       break;
 
+    case QN_UNION:
+    case QN_NOT:
+    case QN_OPTIONAL:
     case QN_NULL:
+    case QN_PHRASE:
       break;
   }
   free(n);
@@ -130,6 +104,12 @@ QueryNode *NewQueryNode(QueryNodeType type) {
       .weight = 1,
   };
   return s;
+}
+
+QueryNode *NewQueryNodeChildren(QueryNodeType type, QueryNode **children, size_t n) {
+  QueryNode *ret = NewQueryNode(type);
+  ret->children = array_ensure_append(ret->children, children, n, QueryNode *);
+  return ret;
 }
 
 QueryNode *NewTokenNodeExpanded(QueryAST *q, const char *s, size_t len, RSTokenFlags flags) {
@@ -149,10 +129,6 @@ QueryNode *NewTokenNode(QueryParseCtx *q, const char *s, size_t len) {
 
   ret->tn = (QueryTokenNode){.str = (char *)s, .len = len, .expanded = 0, .flags = 0};
   return ret;
-}
-
-QueryNode *NewWildcardNode() {
-  return NewQueryNode(QN_WILDCARD);
 }
 
 QueryNode *NewPrefixNode(QueryParseCtx *q, const char *s, size_t len) {
@@ -180,30 +156,9 @@ QueryNode *NewFuzzyNode(QueryParseCtx *q, const char *s, size_t len, int maxDist
   return ret;
 }
 
-QueryNode *NewUnionNode() {
-  QueryNode *ret = NewQueryNode(QN_UNION);
-  // ret->fieldMask = 0;
-  ret->un = (QueryUnionNode){.children = NULL, .numChildren = 0};
-  return ret;
-}
-
 QueryNode *NewPhraseNode(int exact) {
   QueryNode *ret = NewQueryNode(QN_PHRASE);
-  // ret->fieldMask = 0;
-
-  ret->pn = (QueryPhraseNode){.children = NULL, .numChildren = 0, .exact = exact};
-  return ret;
-}
-
-QueryNode *NewNotNode(QueryNode *n) {
-  QueryNode *ret = NewQueryNode(QN_NOT);
-  ret->inverted.child = n;
-  return ret;
-}
-
-QueryNode *NewOptionalNode(QueryNode *n) {
-  QueryNode *ret = NewQueryNode(QN_OPTIONAL);
-  ret->inverted.child = n;
+  ret->pn.exact = exact;
   return ret;
 }
 
@@ -212,8 +167,6 @@ QueryNode *NewTagNode(const char *field, size_t len) {
   QueryNode *ret = NewQueryNode(QN_TAG);
   ret->tag.fieldName = field;
   ret->tag.len = len;
-  ret->tag.numChildren = 0;
-  ret->tag.children = NULL;
   return ret;
 }
 
@@ -236,17 +189,12 @@ static void setFilterNode(QueryAST *q, QueryNode *n) {
   // for a simple phrase node we just add the numeric node
   if (q->root->type == QN_PHRASE) {
     // we usually want the numeric range as the "leader" iterator.
-    // TODO: do this in a smart manner
-    QueryPhraseNode_AddChild(q->root, n);
-    for (int i = q->root->pn.numChildren - 1; i > 0; --i) {
-      q->root->pn.children[i] = q->root->pn.children[i - 1];
-    }
-    q->root->pn.children[0] = n;
+    q->root->children = array_ensure_prepend(q->root->children, &n, 1, QueryNode *);
     q->numTokens++;
   } else {  // for other types, we need to create a new phrase node
     QueryNode *nr = NewPhraseNode(0);
-    QueryPhraseNode_AddChild(nr, n);
-    QueryPhraseNode_AddChild(nr, q->root);
+    QueryNode_AddChild(nr, n);
+    QueryNode_AddChild(nr, q->root);
     q->numTokens++;
     q->root = nr;
   }
@@ -280,17 +228,18 @@ static void QueryNode_Expand(RSQueryTokenExpander expander, RSQueryExpanderCtx *
     return;
   }
 
+  int expandChildren = 0;
+
   if (qn->type == QN_TOKEN) {
     expCtx->currentNode = pqn;
     expander(expCtx, &qn->tn);
-
-  } else if (qn->type == QN_PHRASE && !qn->pn.exact) {  // do not expand exact phrases
-    for (size_t i = 0; i < qn->pn.numChildren; i++) {
-      QueryNode_Expand(expander, expCtx, &qn->pn.children[i]);
-    }
-  } else if (qn->type == QN_UNION) {
-    for (size_t i = 0; i < qn->un.numChildren; i++) {
-      QueryNode_Expand(expander, expCtx, &qn->un.children[i]);
+  } else if (qn->type == QN_UNION ||
+             (qn->type == QN_PHRASE && !qn->pn.exact)) {  // do not expand exact phrases
+    expandChildren = 1;
+  }
+  if (expandChildren) {
+    for (size_t ii = 0; ii < QueryNode_NumChildren(qn); ++ii) {
+      QueryNode_Expand(expander, expCtx, &qn->children[ii]);
     }
   }
 }
@@ -474,22 +423,22 @@ static IndexIterator *Query_EvalPhraseNode(QueryEvalCtx *q, QueryNode *qn) {
   QueryPhraseNode *node = &qn->pn;
   // an intersect stage with one child is the same as the child, so we just
   // return it
-  if (node->numChildren == 1) {
-    node->children[0]->opts.fieldMask &= qn->opts.fieldMask;
-    return Query_EvalNode(q, node->children[0]);
+  if (QueryNode_NumChildren(qn) == 1) {
+    qn->children[0]->opts.fieldMask &= qn->opts.fieldMask;
+    return Query_EvalNode(q, qn->children[0]);
   }
 
   // recursively eval the children
-  IndexIterator **iters = calloc(node->numChildren, sizeof(IndexIterator *));
-  for (int i = 0; i < node->numChildren; i++) {
-    node->children[i]->opts.fieldMask &= qn->opts.fieldMask;
-    iters[i] = Query_EvalNode(q, node->children[i]);
+  IndexIterator **iters = calloc(QueryNode_NumChildren(qn), sizeof(IndexIterator *));
+  for (size_t ii = 0; ii < QueryNode_NumChildren(qn); ++ii) {
+    qn->children[ii]->opts.fieldMask &= qn->opts.fieldMask;
+    iters[ii] = Query_EvalNode(q, qn->children[ii]);
   }
   IndexIterator *ret;
 
   if (node->exact) {
-    ret = NewIntersecIterator(iters, node->numChildren, q->docTable, EFFECTIVE_FIELDMASK(q, qn), 0,
-                              1, qn->opts.weight);
+    ret = NewIntersecIterator(iters, QueryNode_NumChildren(qn), q->docTable,
+                              EFFECTIVE_FIELDMASK(q, qn), 0, 1, qn->opts.weight);
   } else {
     // Let the query node override the slop/order parameters
     int slop = qn->opts.maxSlop;
@@ -505,8 +454,8 @@ static IndexIterator *Query_EvalPhraseNode(QueryEvalCtx *q, QueryNode *qn) {
       slop = __INT_MAX__;
     }
 
-    ret = NewIntersecIterator(iters, node->numChildren, q->docTable, EFFECTIVE_FIELDMASK(q, qn),
-                              slop, inOrder, qn->opts.weight);
+    ret = NewIntersecIterator(iters, QueryNode_NumChildren(qn), q->docTable,
+                              EFFECTIVE_FIELDMASK(q, qn), slop, inOrder, qn->opts.weight);
   }
   return ret;
 }
@@ -525,8 +474,8 @@ static IndexIterator *Query_EvalNotNode(QueryEvalCtx *q, QueryNode *qn) {
   }
   QueryNotNode *node = &qn->inverted;
 
-  return NewNotIterator(node->child ? Query_EvalNode(q, node->child) : NULL, q->docTable->maxDocId,
-                        qn->opts.weight);
+  return NewNotIterator(QueryNode_NumChildren(qn) ? Query_EvalNode(q, qn->children[0]) : NULL,
+                        q->docTable->maxDocId, qn->opts.weight);
 }
 
 static IndexIterator *Query_EvalOptionalNode(QueryEvalCtx *q, QueryNode *qn) {
@@ -535,7 +484,7 @@ static IndexIterator *Query_EvalOptionalNode(QueryEvalCtx *q, QueryNode *qn) {
   }
   QueryOptionalNode *node = &qn->opt;
 
-  return NewOptionalIterator(node->child ? Query_EvalNode(q, node->child) : NULL,
+  return NewOptionalIterator(QueryNode_NumChildren(qn) ? Query_EvalNode(q, qn->children[0]) : NULL,
                              q->docTable->maxDocId, qn->opts.weight);
 }
 
@@ -571,20 +520,18 @@ static IndexIterator *Query_EvalUnionNode(QueryEvalCtx *q, QueryNode *qn) {
   if (qn->type != QN_UNION) {
     return NULL;
   }
-  QueryUnionNode *node = &qn->un;
 
   // a union stage with one child is the same as the child, so we just return it
-  if (node->numChildren == 1) {
-    node->children[0]->opts.fieldMask &= qn->opts.fieldMask;
-    return Query_EvalNode(q, node->children[0]);
+  if (QueryNode_NumChildren(qn) == 1) {
+    return Query_EvalNode(q, qn->children[0]);
   }
 
   // recursively eval the children
-  IndexIterator **iters = calloc(node->numChildren, sizeof(IndexIterator *));
+  IndexIterator **iters = calloc(QueryNode_NumChildren(qn), sizeof(IndexIterator *));
   int n = 0;
-  for (int i = 0; i < node->numChildren; i++) {
-    node->children[i]->opts.fieldMask &= qn->opts.fieldMask;
-    IndexIterator *it = Query_EvalNode(q, node->children[i]);
+  for (size_t i = 0; i < QueryNode_NumChildren(qn); ++i) {
+    qn->children[i]->opts.fieldMask &= qn->opts.fieldMask;
+    IndexIterator *it = Query_EvalNode(q, qn->children[i]);
     if (it) {
       iters[n++] = it;
     }
@@ -669,16 +616,16 @@ static IndexIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, Qu
       return Query_EvalTagPrefixNode(q, idx, n, iterout, weight);
 
     case QN_PHRASE: {
-      char *terms[n->pn.numChildren];
-      for (int i = 0; i < n->pn.numChildren; i++) {
-        if (n->pn.children[i]->type == QN_TOKEN) {
-          terms[i] = n->pn.children[i]->tn.str;
+      char *terms[QueryNode_NumChildren(n)];
+      for (size_t i = 0; i < QueryNode_NumChildren(n); ++i) {
+        if (n->children[i]->type == QN_TOKEN) {
+          terms[i] = n->children[i]->tn.str;
         } else {
           terms[i] = "";
         }
       }
 
-      sds s = sdsjoin(terms, n->pn.numChildren, " ");
+      sds s = sdsjoin(terms, QueryNode_NumChildren(n), " ");
 
       ret = TagIndex_OpenReader(idx, q->sctx->spec, s, sdslen(s), weight);
       sdsfree(s);
@@ -714,9 +661,9 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
     return NULL;
   }
   // a union stage with one child is the same as the child, so we just return it
-  if (node->numChildren == 1) {
+  if (QueryNode_NumChildren(qn) == 1) {
     IndexIterator *ret =
-        query_EvalSingleTagNode(q, idx, node->children[0], &total_its, qn->opts.weight);
+        query_EvalSingleTagNode(q, idx, qn->children[0], &total_its, qn->opts.weight);
     if (ret && q->conc) {
       TagIndex_RegisterConcurrentIterators(idx, q->conc, k, kstr, (array_t *)total_its);
     }
@@ -724,11 +671,11 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
   }
 
   // recursively eval the children
-  IndexIterator **iters = calloc(node->numChildren, sizeof(IndexIterator *));
+  IndexIterator **iters = calloc(QueryNode_NumChildren(qn), sizeof(IndexIterator *));
   size_t n = 0;
-  for (size_t i = 0; i < node->numChildren; i++) {
+  for (size_t i = 0; i < QueryNode_NumChildren(qn); i++) {
     IndexIterator *it =
-        query_EvalSingleTagNode(q, idx, node->children[i], &total_its, qn->opts.weight);
+        query_EvalSingleTagNode(q, idx, qn->children[i], &total_its, qn->opts.weight);
     if (it) {
       iters[n++] = it;
     }
@@ -892,57 +839,36 @@ int QAST_Expand(QueryAST *q, const char *expander, RSSearchOptions *opts, RedisS
 void QueryNode_SetFieldMask(QueryNode *n, t_fieldMask mask) {
   if (!n) return;
   n->opts.fieldMask &= mask;
-  switch (n->type) {
-
-    case QN_PHRASE:
-      for (int i = 0; i < n->pn.numChildren; i++) {
-        QueryNode_SetFieldMask(n->pn.children[i], mask);
-      }
-      break;
-
-    case QN_UNION:
-      for (int i = 0; i < n->un.numChildren; i++) {
-        QueryNode_SetFieldMask(n->un.children[i], mask);
-      }
-      break;
-
-    case QN_NOT:
-      QueryNode_SetFieldMask(n->inverted.child, mask);
-      break;
-    case QN_OPTIONAL:
-      QueryNode_SetFieldMask(n->opt.child, mask);
-      break;
-
-    default:
-      break;
+  for (size_t ii = 0; ii < QueryNode_NumChildren(n); ++ii) {
+    QueryNode_SetFieldMask(n->children[ii], mask);
   }
 }
-void QueryPhraseNode_AddChild(QueryNode *parent, QueryNode *child) {
-  if (!child) return;
-  QueryPhraseNode *pn = &parent->pn;
 
-  pn->children = realloc(pn->children, sizeof(QueryNode *) * (pn->numChildren + 1));
-  pn->children[pn->numChildren++] = child;
-}
-
-void QueryUnionNode_AddChild(QueryNode *parent, QueryNode *child) {
-  if (!child) return;
-  QueryUnionNode *un = &parent->un;
-
-  un->children = realloc(un->children, sizeof(QueryNode *) * (un->numChildren + 1));
-  un->children[un->numChildren++] = child;
-}
-
-void QueryTagNode_AddChildren(QueryNode *parent, QueryNode **children, size_t num) {
-  if (!children) return;
-  QueryTagNode *tn = &parent->tag;
-
-  tn->children = realloc(tn->children, sizeof(QueryNode *) * (tn->numChildren + num));
-  for (size_t i = 0; i < num; i++) {
-    if (children[i] && (children[i]->type == QN_TOKEN || children[i]->type == QN_PHRASE ||
-                        children[i]->type == QN_PREFX)) {
-      tn->children[tn->numChildren++] = children[i];
+void QueryNode_AddChildren(QueryNode *n, QueryNode **children, size_t nchildren) {
+  if (n->type == QN_TAG) {
+    for (size_t ii = 0; ii < nchildren; ++ii) {
+      if (children[ii]->type == QN_TOKEN || children[ii]->type == QN_PHRASE ||
+          children[ii]->type == QN_PREFX) {
+        n->children = array_ensure_append(n->children, children + ii, 1, QueryNode *);
+      }
     }
+  } else {
+    array_ensure_append(n->children, children, nchildren, QueryNode *);
+  }
+}
+
+void QueryNode_AddChild(QueryNode *n, QueryNode *ch) {
+  QueryNode_AddChildren(n, &ch, 1);
+}
+
+void QueryNode_ClearChildren(QueryNode *n, int shouldFree) {
+  if (shouldFree) {
+    for (size_t ii = 0; ii < QueryNode_NumChildren(n); ++ii) {
+      QueryNode_Free(n->children[ii]);
+    }
+  }
+  if (QueryNode_NumChildren(n)) {
+    array_clear(n->children);
   }
 }
 
@@ -960,6 +886,10 @@ static sds doPad(sds s, int len) {
   buf[len * 2] = 0;
   return sdscat(s, buf);
 }
+
+static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, int depth);
+
+static sds QueryNode_DumpChildren(sds s, const IndexSpec *spec, const QueryNode *qs, int depth);
 
 static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, int depth) {
   s = doPad(s, depth);
@@ -993,8 +923,8 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
   switch (qs->type) {
     case QN_PHRASE:
       s = sdscatprintf(s, "%s {\n", qs->pn.exact ? "EXACT" : "INTERSECT");
-      for (int i = 0; i < qs->pn.numChildren; i++) {
-        s = QueryNode_DumpSds(s, spec, qs->pn.children[i], depth + 1);
+      for (size_t ii = 0; ii < QueryNode_NumChildren(qs); ++ii) {
+        s = QueryNode_DumpSds(s, spec, qs->children[ii], depth + 1);
       }
       s = doPad(s, depth);
 
@@ -1018,13 +948,13 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
 
     case QN_NOT:
       s = sdscat(s, "NOT{\n");
-      s = QueryNode_DumpSds(s, spec, qs->inverted.child, depth + 1);
+      s = QueryNode_DumpChildren(s, spec, qs, depth + 1);
       s = doPad(s, depth);
       break;
 
     case QN_OPTIONAL:
       s = sdscat(s, "OPTIONAL{\n");
-      s = QueryNode_DumpSds(s, spec, qs->inverted.child, depth + 1);
+      s = QueryNode_DumpChildren(s, spec, qs, depth + 1);
       s = doPad(s, depth);
       break;
 
@@ -1035,16 +965,12 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
     } break;
     case QN_UNION:
       s = sdscat(s, "UNION {\n");
-      for (int i = 0; i < qs->un.numChildren; i++) {
-        s = QueryNode_DumpSds(s, spec, qs->un.children[i], depth + 1);
-      }
+      s = QueryNode_DumpChildren(s, spec, qs, depth + 1);
       s = doPad(s, depth);
       break;
     case QN_TAG:
       s = sdscatprintf(s, "TAG:@%.*s {\n", (int)qs->tag.len, qs->tag.fieldName);
-      for (int i = 0; i < qs->tag.numChildren; i++) {
-        s = QueryNode_DumpSds(s, spec, qs->tag.children[i], depth + 1);
-      }
+      s = QueryNode_DumpChildren(s, spec, qs, depth + 1);
       s = doPad(s, depth);
       break;
     case QN_GEO:
@@ -1090,6 +1016,13 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
   return s;
 }
 
+static sds QueryNode_DumpChildren(sds s, const IndexSpec *spec, const QueryNode *qs, int depth) {
+  for (size_t ii = 0; ii < QueryNode_NumChildren(qs); ++ii) {
+    s = QueryNode_DumpSds(s, spec, qs->children[ii], depth);
+  }
+  return s;
+}
+
 /* Return a string representation of the query parse tree. The string should be freed by the
  * caller
  */
@@ -1111,10 +1044,10 @@ void QAST_Print(const QueryAST *ast, const IndexSpec *spec) {
   sdsfree(s);
 }
 
-int Query_NodeForEach(QueryAST *q, QueryNode_ForEachCallback callback, void *ctx) {
+int QueryNode_ForEach(QueryNode *q, QueryNode_ForEachCallback callback, void *ctx) {
 #define INITIAL_ARRAY_NODE_SIZE 5
   QueryNode **nodes = array_new(QueryNode *, INITIAL_ARRAY_NODE_SIZE);
-  nodes = array_append(nodes, q->root);
+  nodes = array_append(nodes, q);
   int retVal = 1;
   while (array_len(nodes) > 0) {
     QueryNode *curr = array_pop(nodes);
@@ -1122,43 +1055,8 @@ int Query_NodeForEach(QueryAST *q, QueryNode_ForEachCallback callback, void *ctx
       retVal = 0;
       break;
     }
-    switch (curr->type) {
-      case QN_PHRASE:
-        for (int i = 0; i < curr->pn.numChildren; i++) {
-          nodes = array_append(nodes, curr->pn.children[i]);
-        }
-        break;
-
-      case QN_NOT:
-        nodes = array_append(nodes, curr->inverted.child);
-        break;
-
-      case QN_OPTIONAL:
-        nodes = array_append(nodes, curr->opt.child);
-        break;
-
-      case QN_UNION:
-        for (int i = 0; i < curr->un.numChildren; i++) {
-          nodes = array_append(nodes, curr->un.children[i]);
-        }
-        break;
-
-      case QN_TAG:
-        for (int i = 0; i < curr->tag.numChildren; i++) {
-          nodes = array_append(nodes, curr->tag.children[i]);
-        }
-        break;
-
-      case QN_GEO:
-      case QN_IDS:
-      case QN_WILDCARD:
-      case QN_FUZZY:
-      case QN_TOKEN:
-      case QN_PREFX:
-      case QN_LEXRANGE:
-      case QN_NUMERIC:
-      case QN_NULL:
-        break;
+    for (size_t ii = 0; ii < QueryNode_NumChildren(curr); ++ii) {
+      nodes = array_append(nodes, curr->children[ii]);
     }
   }
 

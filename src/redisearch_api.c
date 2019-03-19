@@ -221,71 +221,36 @@ static QueryNode* RS_CreateTagNode(IndexSpec* sp, const char* field) {
   QueryNode* ret = NewQueryNode(QN_TAG);
   ret->tag.fieldName = strdup(field);
   ret->tag.len = strlen(field);
-  ret->tag.numChildren = 0;
-  ret->tag.children = NULL;
   ret->opts.fieldMask = IndexSpec_GetFieldBit(sp, field, strlen(field));
   return ret;
 }
 
-static void RS_TagNodeAddChild(QueryNode* qn, QueryNode* child) {
-  QueryTagNode_AddChildren(qn, &child, 1);
-}
-
 static QueryNode* RS_CreateIntersectNode(IndexSpec* sp, int exact) {
   QueryNode* ret = NewQueryNode(QN_PHRASE);
-  ret->pn = (QueryPhraseNode){.children = NULL, .numChildren = 0, .exact = exact};
+  ret->pn.exact = exact;
   return ret;
-}
-
-static void RS_IntersectNodeAddChild(QueryNode* qn, QueryNode* child) {
-  QueryPhraseNode_AddChild(qn, child);
-}
-
-static void RS_IntersectNodeClearChildren(QueryNode* qn) {
-  assert(qn->type == QN_PHRASE);
-  qn->pn.numChildren = 0;
-}
-
-static size_t RS_IntersectNodeGetNumChildren(QueryNode* qn) {
-  assert(qn->type == QN_PHRASE);
-  return qn->pn.numChildren;
-}
-
-static QueryNode* RS_IntersectNodeGetChild(QueryNode* qn, size_t index) {
-  assert(qn->type == QN_PHRASE);
-  assert(index >= 0 && index < qn->pn.numChildren);
-  return qn->pn.children[index];
 }
 
 static QueryNode* RS_CreateUnionNode(IndexSpec* sp) {
-  QueryNode* ret = NewQueryNode(QN_UNION);
-  ret->un = (QueryUnionNode){.children = NULL, .numChildren = 0};
-  return ret;
-}
-
-static void RS_UnionNodeAddChild(QueryNode* qn, QueryNode* child) {
-  assert(qn->type == QN_UNION);
-  QueryUnionNode_AddChild(qn, child);
-}
-
-static void RS_UnionNodeClearChildren(QueryNode* qn) {
-  assert(qn->type == QN_UNION);
-  qn->un.numChildren = 0;
-}
-
-static size_t RS_UnionNodeGetNumChildren(QueryNode* qn) {
-  assert(qn->type == QN_UNION);
-  return qn->un.numChildren;
-}
-
-static QueryNode* RS_UnionNodeGetChild(QueryNode* qn, size_t index) {
-  assert(qn->type == QN_UNION);
-  assert(index >= 0 && index < qn->un.numChildren);
-  return qn->un.children[index];
+  return NewQueryNode(QN_UNION);
 }
 
 static int RS_QueryNodeGetFieldMask(QueryNode* qn) {
   return qn->opts.fieldMask;
+}
+
+#define RS_QueryNodeAddChild QueryNode_AddChild
+
+static void RS_QueryNodeClearChildren(QueryNode* qn) {
+  QueryNode_ClearChildren(qn, 1);
+}
+
+static QueryNode* RS_QueryNodeGetChild(QueryNode* qn, size_t ix) {
+  return QueryNode_GetChild(qn, ix);
+}
+
+static size_t RS_QueryNodeNumChildren(const QueryNode* qn) {
+  return QueryNode_NumChildren(qn);
 }
 
 typedef struct RS_ApiIter {

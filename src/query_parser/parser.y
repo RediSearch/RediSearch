@@ -182,9 +182,9 @@ expr(A) ::= expr(B) expr(C) . [AND] {
             A = B;
         } else {     
             A = NewPhraseNode(0);
-            QueryPhraseNode_AddChild(A, B);
+            QueryNode_AddChild(A, B);
         }
-        QueryPhraseNode_AddChild(A, C);
+        QueryNode_AddChild(A, C);
     }
 } 
 
@@ -208,12 +208,12 @@ union(A) ::= expr(B) OR expr(C) . [OR] {
             A = B;
         } else {
             A = NewUnionNode();
-            QueryUnionNode_AddChild(A, B);
+            QueryNode_AddChild(A, B);
             A->opts.fieldMask |= B->opts.fieldMask;
         }
 
         // Handle C
-        QueryUnionNode_AddChild(A, C);
+        QueryNode_AddChild(A, C);
         A->opts.fieldMask |= C->opts.fieldMask;
         QueryNode_SetFieldMask(A, A->opts.fieldMask);
     }
@@ -223,7 +223,7 @@ union(A) ::= expr(B) OR expr(C) . [OR] {
 union(A) ::= union(B) OR expr(C). [ORX] {
     A = B;
     if (C) {
-        QueryUnionNode_AddChild(A, C);
+        QueryNode_AddChild(A, C);
         A->opts.fieldMask |= C->opts.fieldMask;
         QueryNode_SetFieldMask(C, A->opts.fieldMask);
     }
@@ -340,13 +340,13 @@ expr(A) ::= STOPWORD . [STOPWORD] {
 
 termlist(A) ::= term(B) term(C). [TERMLIST]  {
     A = NewPhraseNode(0);
-    QueryPhraseNode_AddChild(A, NewTokenNode(ctx, strdupcase(B.s, B.len), -1));
-    QueryPhraseNode_AddChild(A, NewTokenNode(ctx, strdupcase(C.s, C.len), -1));
+    QueryNode_AddChild(A, NewTokenNode(ctx, strdupcase(B.s, B.len), -1));
+    QueryNode_AddChild(A, NewTokenNode(ctx, strdupcase(C.s, C.len), -1));
 }
 
 termlist(A) ::= termlist(B) term(C) . [TERMLIST] {
     A = B;
-    QueryPhraseNode_AddChild(A, NewTokenNode(ctx, strdupcase(C.s, C.len), -1));
+    QueryNode_AddChild(A, NewTokenNode(ctx, strdupcase(C.s, C.len), -1));
 }
 
 termlist(A) ::= termlist(B) STOPWORD . [TERMLIST] {
@@ -442,41 +442,41 @@ expr(A) ::= modifier(B) COLON tag_list(C) . {
         size_t slen = unescapen((char*)s, B.len);
 
         A = NewTagNode(s, slen);
-        QueryTagNode_AddChildren(A, C->pn.children, C->pn.numChildren);
+        QueryNode_AddChildren(A, C->children, QueryNode_NumChildren(C));
         
         // Set the children count on C to 0 so they won't get recursively free'd
-        C->pn.numChildren = 0;
+        QueryNode_ClearChildren(C, 0);
         QueryNode_Free(C);
     }
 }
 
 tag_list(A) ::= LB term(B) . [TAGLIST] {
     A = NewPhraseNode(0);
-    QueryPhraseNode_AddChild(A, NewTokenNode(ctx, strdupcase(B.s, B.len), -1));
+    QueryNode_AddChild(A, NewTokenNode(ctx, strdupcase(B.s, B.len), -1));
 }
 
 tag_list(A) ::= LB prefix(B) . [TAGLIST] {
     A = NewPhraseNode(0);
-    QueryPhraseNode_AddChild(A, B);
+    QueryNode_AddChild(A, B);
 }
 
 tag_list(A) ::= LB termlist(B) . [TAGLIST] {
     A = NewPhraseNode(0);
-    QueryPhraseNode_AddChild(A, B);
+    QueryNode_AddChild(A, B);
 }
 
 tag_list(A) ::= tag_list(B) OR term(C) . [TAGLIST] {
-    QueryPhraseNode_AddChild(B, NewTokenNode(ctx, strdupcase(C.s, C.len), -1));
+    QueryNode_AddChild(B, NewTokenNode(ctx, strdupcase(C.s, C.len), -1));
     A = B;
 }
 
 tag_list(A) ::= tag_list(B) OR prefix(C) . [TAGLIST] {
-    QueryPhraseNode_AddChild(B, C);
+    QueryNode_AddChild(B, C);
     A = B;
 }
 
 tag_list(A) ::= tag_list(B) OR termlist(C) . [TAGLIST] {
-    QueryPhraseNode_AddChild(B, C);
+    QueryNode_AddChild(B, C);
     A = B;
 }
 
