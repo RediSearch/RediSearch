@@ -23,6 +23,11 @@ Creates an index with the given spec. The index name will be used in all the key
     
         You can always use the `NOFIELDS` option and not encode field information into the index, for saving space, if you do not need filtering by text fields. This will still allow filtering by numeric and geo fields.
 
+#### Example
+```sql
+FT.CREATE idx SCHEMA name TEXT SORTABLE age NUMERIC SORTABLE myTag TAG SORTABLE
+```
+
 ### Parameters
 
 * **index**: the index name to create. If it exists the old spec will be overwritten
@@ -110,6 +115,11 @@ FT.ADD {index} {docId} {score}
 ### Description
 
 Adds a document to the index.
+
+#### Example
+```sql
+FT.ADD idx doc1 1.0 FIELDS title hello world
+```
 
 ### Parameters
 
@@ -209,6 +219,11 @@ A special status `NOADD` is returned if an `IF` condition evaluated to false.
 
 Adds a document to the index from an existing HASH key in Redis.
 
+#### Example
+```sql
+FT.ADDHASH idx hash1 1.0 REPLACE
+```
+
 ### Parameters
 
 - **index**: The Fulltext index name. The index must be first created with FT.CREATE
@@ -263,6 +278,11 @@ indexing. Existing documents will not be reindexed.
     index will only ever be able to contain 32 total text fields). If you wish for the index to
     contain more than 32 fields, create it with the `MAXTEXTFIELDS` option.
 
+#### Example
+```sql
+FT.ALTER idx SCHEMA ADD id2 NUMERIC SORTABLE
+```
+
 ### Parameters
 
 * **index**: the index name.
@@ -296,9 +316,8 @@ Returns information and statistics on the index. Returned values include:
 * Average bytes per record.
 * Size and capacity of the index buffers.
 
-Example:
-
-```
+#### Example
+```bash
 127.0.0.1:6379> ft.info wik{0}
  1) index_name
  2) wikipedia
@@ -380,6 +399,11 @@ FT.SEARCH {index} {query} [NOCONTENT] [VERBATIM] [NOSTOPWORDS] [WITHSCORES] [WIT
 ### Description
 
 Searches the index with a textual query, returning either documents or just ids.
+
+### Example
+```sql
+FT.SEARCH idx "@text:morphix=>{$phonetic:false}"
+```
 
 ### Parameters
 
@@ -479,6 +503,15 @@ FT.AGGREGATE  {index_name}
 
 Runs a search query on an index, and performs aggregate transformations on the results, extracting statistics etc from them. See [the full documentation on aggregations](Aggregations.md) for further details.
 
+### Example
+```sql
+FT.AGGREGATE idx "@url:\"about.html\""
+    APPLY "@timestamp - (@timestamp % 86400)" AS day
+    GROUPBY 2 @day @country
+    	REDUCE count 0 AS num_visits 
+    SORTBY 4 @day ASC @country DESC
+```
+
 ### Parameters
 
 * **index_name**: The index the query is executed against.
@@ -537,7 +570,7 @@ Array Response. Each row is an array and represents a single aggregate result.
 
 Here we are counting GitHub events by user (actor), to produce the most active users:
 
-```
+```sh
 127.0.0.1:6379> FT.AGGREGATE gh "*" GROUPBY 1 @actor REDUCE COUNT 0 AS num SORTBY 2 @num DESC MAX 10
  1) (integer) 284784
  2) 1) "actor"
@@ -599,8 +632,7 @@ Returns the execution plan for a complex query.
 
 In the returned response, a `+` on a term is an indication of stemming. 
 
-Example:
-
+### Example
 ```sh
 $ redis-cli --raw
 
@@ -622,6 +654,7 @@ INTERSECT {
   }
 }
 ```
+
 ### Parameters
 
 - **index**: The index name. The index must be first created with FT.CREATE
@@ -661,6 +694,11 @@ After deletion, the document can be re-added to the index. It will get a differe
         
         Alternatively, you can just send an extra **DEL {doc_id}** to redis and delete the document directly. You can run both of them in a MULTI transaction.
 
+### Example
+```sql
+FT.DEL idx doc1 
+```
+
 ### Parameters
 
 - **index**: The index name. The index must be first created with FT.CREATE
@@ -693,6 +731,11 @@ Returns the full contents of a document.
 Currently it is equivalent to HGETALL, but this is future-proof and will allow us to change the internal representation of documents inside Redis in the future. In addition, it allows simpler implementation of fetching documents in clustered mode.
 
 If the document does not exist or is not a HASH object, we return a NULL reply
+
+### Example
+```sql
+FT.GET idx doc1 
+```
 
 ### Parameters
 
@@ -727,6 +770,11 @@ Each element, in turn, is an array of key-value pairs representing the document.
 
 If a document is not found or is not a valid HASH object, its place in the parent array is filled with a Null reply object.
 
+### Example
+```sql
+FT.MGET idx doc1 doc2
+```
+
 ### Parameters
 
 - **index**: The Fulltext index name. The index must be first created with FT.CREATE
@@ -754,6 +802,11 @@ By default, DROP deletes the document hashes as well, but adding the KEEPDOCS op
 
 If no other data is on the Redis instance, this is equivalent to FLUSHDB, apart from the fact
 that the index specification is not deleted.
+
+### Example
+```sql
+FT.DROP idx KEEPDOCS 
+```
 
 ### Parameters
 
@@ -787,6 +840,11 @@ This is useful if your tag field indexes things like cities, categories, etc.
       This command only operates on [Tag fields](Tags.md).  
     
       The strings return lower-cased and stripped of whitespaces, but otherwise unchanged.
+      
+### Example
+```sql
+FT.TAGVALS idx myTag 
+```
 
 ### Parameters
 
@@ -816,6 +874,11 @@ FT.SUGADD {key} {string} {score} [INCR] [PAYLOAD {payload}]
 Adds a suggestion string to an auto-complete suggestion dictionary. This is disconnected from the
 index definitions, and leaves creating and updating suggestions dictionaries to the user.
 
+### Example
+```sql
+FT.SUGADD ac "hello world" 1
+```
+
 ### Parameters
 
 - **key**: the suggestion dictionary key.
@@ -843,6 +906,11 @@ FT.SUGGET {key} {prefix} [FUZZY] [WITHSCORES] [WITHPAYLOADS] [MAX num]
 ### Description
 
 Gets completion suggestions for a prefix.
+
+### Example
+```sql
+FT.SUGGET ac hell FUZZY MAX 3 WITHSCORES
+```
 
 ### Parameters
 
@@ -874,6 +942,11 @@ FT.SUGDEL {key} {string}
 
 Deletes a string from a suggestion index. 
 
+### Example
+```sql
+FT.SUGDEL ac "hello world"
+```
+
 ### Parameters
 
 - **key**: the suggestion dictionary key.
@@ -896,6 +969,11 @@ FT.SUGLEN {key}
 ### Description
 
 Gets the size of an auto-complete suggestion dictionary
+
+### Example
+```sql
+FT.SUGDEL ac 
+```
 
 ### Parameters
 
