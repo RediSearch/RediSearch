@@ -156,7 +156,7 @@ static void RS_DocumentAddFieldNumber(Document* d, const char* fieldname, double
 static void RS_AddDocDone(RSAddDocumentCtx* aCtx, RedisModuleCtx* ctx, void* unused) {
 }
 
-void RS_SpecAddDocument(IndexSpec* sp, Document* d) {
+static void RS_SpecAddDocument(IndexSpec* sp, Document* d) {
   uint32_t options = 0;
   QueryError status = {0};
   RSAddDocumentCtx* aCtx = NewAddDocumentCtx(sp, d, &status);
@@ -172,7 +172,7 @@ void RS_SpecAddDocument(IndexSpec* sp, Document* d) {
   rm_free(d);
 }
 
-QueryNode* RS_CreateTokenNode(IndexSpec* sp, const char* fieldName, const char* token) {
+static QueryNode* RS_CreateTokenNode(IndexSpec* sp, const char* fieldName, const char* token) {
   QueryNode* ret = NewQueryNode(QN_TOKEN);
 
   ret->tn = (QueryTokenNode){
@@ -183,8 +183,8 @@ QueryNode* RS_CreateTokenNode(IndexSpec* sp, const char* fieldName, const char* 
   return ret;
 }
 
-QueryNode* RS_CreateNumericNode(IndexSpec* sp, const char* field, double max, double min,
-                                int includeMax, int includeMin) {
+static QueryNode* RS_CreateNumericNode(IndexSpec* sp, const char* field, double max, double min,
+                                       int includeMax, int includeMin) {
   QueryNode* ret = NewQueryNode(QN_NUMERIC);
   ret->nn.nf = NewNumericFilter(min, max, includeMin, includeMax);
   ret->nn.nf->fieldName = strdup(field);
@@ -192,7 +192,7 @@ QueryNode* RS_CreateNumericNode(IndexSpec* sp, const char* field, double max, do
   return ret;
 }
 
-QueryNode* RS_CreatePrefixNode(IndexSpec* sp, const char* fieldName, const char* s) {
+static QueryNode* RS_CreatePrefixNode(IndexSpec* sp, const char* fieldName, const char* s) {
   QueryNode* ret = NewQueryNode(QN_PREFX);
   ret->pfx =
       (QueryPrefixNode){.str = (char*)strdup(s), .len = strlen(s), .expanded = 0, .flags = 0};
@@ -202,8 +202,8 @@ QueryNode* RS_CreatePrefixNode(IndexSpec* sp, const char* fieldName, const char*
   return ret;
 }
 
-QueryNode* RS_CreateLexRangeNode(IndexSpec* sp, const char* fieldName, const char* begin,
-                                 const char* end) {
+static QueryNode* RS_CreateLexRangeNode(IndexSpec* sp, const char* fieldName, const char* begin,
+                                        const char* end) {
   QueryNode* ret = NewQueryNode(QN_LEXRANGE);
   if (begin) {
     ret->lxrng.begin = begin;
@@ -217,7 +217,7 @@ QueryNode* RS_CreateLexRangeNode(IndexSpec* sp, const char* fieldName, const cha
   return ret;
 }
 
-QueryNode* RS_CreateTagNode(IndexSpec* sp, const char* field) {
+static QueryNode* RS_CreateTagNode(IndexSpec* sp, const char* field) {
   QueryNode* ret = NewQueryNode(QN_TAG);
   ret->tag.fieldName = strdup(field);
   ret->tag.len = strlen(field);
@@ -227,64 +227,64 @@ QueryNode* RS_CreateTagNode(IndexSpec* sp, const char* field) {
   return ret;
 }
 
-void RS_TagNodeAddChild(QueryNode* qn, QueryNode* child) {
+static void RS_TagNodeAddChild(QueryNode* qn, QueryNode* child) {
   QueryTagNode_AddChildren(qn, &child, 1);
 }
 
-QueryNode* RS_CreateIntersectNode(IndexSpec* sp, int exact) {
+static QueryNode* RS_CreateIntersectNode(IndexSpec* sp, int exact) {
   QueryNode* ret = NewQueryNode(QN_PHRASE);
   ret->pn = (QueryPhraseNode){.children = NULL, .numChildren = 0, .exact = exact};
   return ret;
 }
 
-void RS_IntersectNodeAddChild(QueryNode* qn, QueryNode* child) {
+static void RS_IntersectNodeAddChild(QueryNode* qn, QueryNode* child) {
   QueryPhraseNode_AddChild(qn, child);
 }
 
-void RS_IntersectNodeClearChildren(QueryNode* qn) {
+static void RS_IntersectNodeClearChildren(QueryNode* qn) {
   assert(qn->type == QN_PHRASE);
   qn->pn.numChildren = 0;
 }
 
-size_t RS_IntersectNodeGetNumChildren(QueryNode* qn) {
+static size_t RS_IntersectNodeGetNumChildren(QueryNode* qn) {
   assert(qn->type == QN_PHRASE);
   return qn->pn.numChildren;
 }
 
-QueryNode* RS_IntersectNodeGetChild(QueryNode* qn, size_t index) {
+static QueryNode* RS_IntersectNodeGetChild(QueryNode* qn, size_t index) {
   assert(qn->type == QN_PHRASE);
   assert(index >= 0 && index < qn->pn.numChildren);
   return qn->pn.children[index];
 }
 
-QueryNode* RS_CreateUnionNode(IndexSpec* sp) {
+static QueryNode* RS_CreateUnionNode(IndexSpec* sp) {
   QueryNode* ret = NewQueryNode(QN_UNION);
   ret->un = (QueryUnionNode){.children = NULL, .numChildren = 0};
   return ret;
 }
 
-void RS_UnionNodeAddChild(QueryNode* qn, QueryNode* child) {
+static void RS_UnionNodeAddChild(QueryNode* qn, QueryNode* child) {
   assert(qn->type == QN_UNION);
   QueryUnionNode_AddChild(qn, child);
 }
 
-void RS_UnionNodeClearChildren(QueryNode* qn) {
+static void RS_UnionNodeClearChildren(QueryNode* qn) {
   assert(qn->type == QN_UNION);
   qn->un.numChildren = 0;
 }
 
-size_t RS_UnionNodeGetNumChildren(QueryNode* qn) {
+static size_t RS_UnionNodeGetNumChildren(QueryNode* qn) {
   assert(qn->type == QN_UNION);
   return qn->un.numChildren;
 }
 
-QueryNode* RS_UnionNodeGetChild(QueryNode* qn, size_t index) {
+static QueryNode* RS_UnionNodeGetChild(QueryNode* qn, size_t index) {
   assert(qn->type == QN_UNION);
   assert(index >= 0 && index < qn->un.numChildren);
   return qn->un.children[index];
 }
 
-int RS_QueryNodeGetFieldMask(QueryNode* qn) {
+static int RS_QueryNodeGetFieldMask(QueryNode* qn) {
   return qn->opts.fieldMask;
 }
 
@@ -293,7 +293,7 @@ typedef struct RS_ApiIter {
   QueryAST qast;  // Used for string queries..
 } RS_ApiIter;
 
-RS_ApiIter* RS_IterateQuery(IndexSpec* sp, const char* s, size_t n, char** error) {
+static RS_ApiIter* RS_IterateQuery(IndexSpec* sp, const char* s, size_t n, char** error) {
   RS_ApiIter* ret = rm_calloc(1, sizeof(*ret));
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(NULL, sp);
   RSSearchOptions options = {0};
@@ -329,7 +329,7 @@ end:
   return ret;
 }
 
-RS_ApiIter* RS_GetResultsIterator(QueryNode* qn, IndexSpec* sp) {
+static RS_ApiIter* RS_GetResultsIterator(QueryNode* qn, IndexSpec* sp) {
   RS_ApiIter* ret = rm_calloc(1, sizeof(*ret));
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(NULL, sp);
   RSSearchOptions searchOpts = {0};
@@ -356,15 +356,15 @@ RS_ApiIter* RS_GetResultsIterator(QueryNode* qn, IndexSpec* sp) {
   return ret;
 }
 
-void RS_QueryNodeFree(QueryNode* qn) {
+static void RS_QueryNodeFree(QueryNode* qn) {
   QueryNode_Free(qn);
 }
 
-int RS_QueryNodeType(QueryNode* qn) {
+static int RS_QueryNodeType(QueryNode* qn) {
   return qn->type;
 }
 
-const void* RS_ResultsIteratorNext(RS_ApiIter* iter, IndexSpec* sp, size_t* len) {
+static const void* RS_ResultsIteratorNext(RS_ApiIter* iter, IndexSpec* sp, size_t* len) {
   RSIndexResult* e = NULL;
   while (iter->internal->Read(iter->internal->ctx, &e) != INDEXREAD_EOF) {
     const char* docId = DocTable_GetKey(&sp->docs, e->docId, len);
@@ -383,59 +383,19 @@ static void RS_ResultsIteratorFree(RS_ApiIter* iter) {
   rm_free(iter);
 }
 
-void RS_ResultsIteratorReset(RS_ApiIter* iter) {
+static void RS_ResultsIteratorReset(RS_ApiIter* iter) {
   iter->internal->Rewind(iter->internal->ctx);
 }
 
-#define REGISTER_API(name, registerApiCallback)                                \
-  if (registerApiCallback("RediSearch_" #name, RS_##name) != REDISMODULE_OK) { \
-    printf("could not register RediSearch_" #name "\r\n");                     \
-    return REDISMODULE_ERR;                                                    \
+#define REGISTER_API(name)                                                   \
+  if (moduleRegisterApi("RediSearch_" #name, RS_##name) != REDISMODULE_OK) { \
+    printf("could not register RediSearch_" #name "\r\n");                   \
+    return REDISMODULE_ERR;                                                  \
   }
 
 int moduleRegisterApi(const char* funcname, void* funcptr);
 
 int RS_InitializeLibrary(RedisModuleCtx* ctx) {
-  REGISTER_API(GetCApiVersion, moduleRegisterApi);
-  REGISTER_API(CreateIndex, moduleRegisterApi);
-  REGISTER_API(DropIndex, moduleRegisterApi);
-  REGISTER_API(CreateField, moduleRegisterApi);
-  REGISTER_API(TextFieldSetWeight, moduleRegisterApi);
-  REGISTER_API(TagSetSeparator, moduleRegisterApi);
-
-  REGISTER_API(CreateDocument, moduleRegisterApi);
-  REGISTER_API(DropDocument, moduleRegisterApi);
-  REGISTER_API(DocumentAddField, moduleRegisterApi);
-  REGISTER_API(DocumentAddFieldString, moduleRegisterApi);
-  REGISTER_API(DocumentAddFieldNumber, moduleRegisterApi);
-
-  REGISTER_API(SpecAddDocument, moduleRegisterApi);
-
-  REGISTER_API(CreateTokenNode, moduleRegisterApi);
-  REGISTER_API(CreateNumericNode, moduleRegisterApi);
-  REGISTER_API(CreatePrefixNode, moduleRegisterApi);
-  REGISTER_API(CreateLexRangeNode, moduleRegisterApi);
-  REGISTER_API(CreateTagNode, moduleRegisterApi);
-  REGISTER_API(TagNodeAddChild, moduleRegisterApi);
-  REGISTER_API(CreateIntersectNode, moduleRegisterApi);
-  REGISTER_API(IntersectNodeAddChild, moduleRegisterApi);
-  REGISTER_API(CreateUnionNode, moduleRegisterApi);
-  REGISTER_API(UnionNodeAddChild, moduleRegisterApi);
-  REGISTER_API(QueryNodeFree, moduleRegisterApi);
-  REGISTER_API(UnionNodeClearChildren, moduleRegisterApi);
-  REGISTER_API(IntersectNodeClearChildren, moduleRegisterApi);
-  REGISTER_API(QueryNodeType, moduleRegisterApi);
-  REGISTER_API(UnionNodeGetNumChildren, moduleRegisterApi);
-  REGISTER_API(UnionNodeGetChild, moduleRegisterApi);
-  REGISTER_API(IntersectNodeGetNumChildren, moduleRegisterApi);
-  REGISTER_API(IntersectNodeGetChild, moduleRegisterApi);
-  REGISTER_API(QueryNodeGetFieldMask, moduleRegisterApi);
-
-  REGISTER_API(GetResultsIterator, moduleRegisterApi);
-  REGISTER_API(IterateQuery, moduleRegisterApi);
-  REGISTER_API(ResultsIteratorNext, moduleRegisterApi);
-  REGISTER_API(ResultsIteratorFree, moduleRegisterApi);
-  REGISTER_API(ResultsIteratorReset, moduleRegisterApi);
-
+  RS_XAPIFUNC(REGISTER_API)
   return REDISMODULE_OK;
 }
