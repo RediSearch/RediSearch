@@ -39,21 +39,17 @@ typedef struct RS_ApiIter RSResultsIterator;
 #define RSQNTYPE_FUZZY 12
 #define RSQNTYPE_LEXRANGE 13
 
-typedef enum {
-  RSFLDTYPE_DEFAULT = 0x00,
-  RSFLDTYPE_FULLTEXT = 0x01,
-  RSFLDTYPE_NUMERIC = 0x02,
-  RSFLDTYPE_GEO = 0x04,
-  RSFLDTYPE_TAG = 0x08
-} RSFielddType;
+#define RSFLDTYPE_DEFAULT 0x00
+#define RSFLDTYPE_FULLTEXT 0x01
+#define RSFLDTYPE_NUMERIC 0x02
+#define RSFLDTYPE_GEO 0x04
+#define RSFLDTYPE_TAG 0x08
 
-typedef enum {
-  RSFLDOPT_NONE = 0x00,
-  RSFLDOPT_SORTABLE = 0x01,
-  RSFLDOPT_NOINDEX = 0x02,
-  RSFLDOPT_TXTNOSTEM = 0x04,
-  RSFLDOPT_TXTPHONETIC = 0x08
-} RSFielddOptions;
+#define RSFLDOPT_NONE 0x00
+#define RSFLDOPT_SORTABLE 0x01
+#define RSFLDOPT_NOINDEX 0x02
+#define RSFLDOPT_TXTNOSTEM 0x04
+#define RSFLDOPT_TXTPHONETIC 0x08
 
 typedef int (*RSGetValueCallback)(void* ctx, const char* fieldName, const void* id, char** strVal,
                                   double* doubleVal);
