@@ -26,10 +26,9 @@ TEST_F(LLApiTest, testGetVersion) {
   ASSERT_EQ(RediSearch_GetCApiVersion(), REDISEARCH_CAPI_VERSION);
 }
 
-static std::vector<std::string> getResults(RSIndex* index, RSQueryNode* qn,
-                                           bool expectEmpty = false) {
+static std::vector<std::string> getResultsCommon(RSIndex* index, RSResultsIterator* it,
+                                                 bool expectEmpty) {
   std::vector<std::string> ret;
-  auto it = RediSearch_GetResultsIterator(qn, index);
   if (expectEmpty) {
     EXPECT_TRUE(it == NULL);
   } else {
@@ -54,6 +53,18 @@ done:
     RediSearch_ResultsIteratorFree(it);
   }
   return ret;
+}
+
+static std::vector<std::string> getResults(RSIndex* index, RSQueryNode* qn,
+                                           bool expectEmpty = false) {
+  auto it = RediSearch_GetResultsIterator(qn, index);
+  return getResultsCommon(index, it, expectEmpty);
+}
+
+static std::vector<std::string> getResults(RSIndex* index, const char* s,
+                                           bool expectEmpty = false) {
+  auto it = RediSearch_IterateQuery(index, s, strlen(s), NULL);
+  return getResultsCommon(index, it, expectEmpty);
 }
 
 TEST_F(LLApiTest, testAddDocumentTextField) {
@@ -415,4 +426,38 @@ TEST_F(LLApiTest, testMultitype) {
   auto results = getResults(index, qn);
   ASSERT_EQ(1, results.size());
   ASSERT_EQ("doc1", results[0]);
+}
+
+TEST_F(LLApiTest, testQueryString) {
+  RSIndex* index = RediSearch_CreateIndex("index", NULL, NULL);
+  RediSearch_CreateField(index, "ft1", RSFLDTYPE_FULLTEXT, RSFLDOPT_NONE);
+  RediSearch_CreateField(index, "ft2", RSFLDTYPE_FULLTEXT, RSFLDOPT_NONE);
+  RediSearch_CreateField(index, "n1", RSFLDTYPE_NUMERIC, RSFLDOPT_NONE);
+  RediSearch_CreateField(index, "tg1", RSFLDTYPE_TAG, RSFLDOPT_NONE);
+
+  // Insert the documents...
+  for (size_t ii = 0; ii < 100; ++ii) {
+    char docbuf[1024] = {0};
+    sprintf(docbuf, "doc%lu\n", ii);
+    Document* d = RediSearch_CreateDocumentSimple(docbuf);
+    // Fill with fields..
+    sprintf(docbuf, "hello%lu\n", ii);
+    RediSearch_DocumentAddFieldCString(d, "ft1", docbuf, RSFLDTYPE_DEFAULT);
+    sprintf(docbuf, "world%lu\n", ii);
+    RediSearch_DocumentAddFieldCString(d, "ft2", docbuf, RSFLDTYPE_DEFAULT);
+    sprintf(docbuf, "tag%lu\n", ii);
+    RediSearch_DocumentAddFieldCString(d, "tg1", docbuf, RSFLDTYPE_TAG);
+    RediSearch_DocumentAddFieldNumber(d, "n1", ii, RSFLDTYPE_DEFAULT);
+    RediSearch_SpecAddDocument(index, d);
+  }
+
+  // Issue a query
+  auto res = getResults(index, "hello*");
+  ASSERT_EQ(100, res.size());
+
+  res = getResults(index, "@ft1:hello*");
+  ASSERT_EQ(100, res.size());
+
+  res = getResults(index, "(@ft1:hello1)|(@ft1:hello50)");
+  ASSERT_EQ(2, res.size());
 }

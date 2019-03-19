@@ -15,7 +15,7 @@ typedef struct IndexSpec RSIndex;
 typedef struct FieldSpec RSField;
 typedef struct Document RSDoc;
 typedef struct RSQueryNode RSQNode;
-typedef struct indexIterator RSResultsIterator;
+typedef struct RS_ApiIter RSResultsIterator;
 
 #define RSVALTYPE_NOTFOUND 0
 #define RSVALTYPE_STRING 1
@@ -158,6 +158,19 @@ MODULE_API_FUNC(int, RediSearch_QueryNodeGetFieldMask)(RSQNode* qn);
 
 MODULE_API_FUNC(RSResultsIterator*, RediSearch_GetResultsIterator)(RSQNode* qn, RSIndex* sp);
 
+/**
+ * Return an iterator over the results of the specified query string
+ * @param sp the index
+ * @param s the query string
+ * @param n the length of the steing
+ * @param[out] if not-NULL, will be set to the error message, if there is a
+ *  problem parsing the query
+ * @return an iterator over the results, or NULL if no iterator can be had
+ *  (see err, or no results).
+ */
+MODULE_API_FUNC(RSResultsIterator*, RediSearch_IterateQuery)
+(RSIndex* sp, const char* s, size_t n, char** err);
+
 const MODULE_API_FUNC(void*, RediSearch_ResultsIteratorNext)(RSResultsIterator* iter, RSIndex* sp,
                                                              size_t* len);
 
@@ -200,7 +213,8 @@ MODULE_API_FUNC(void, RediSearch_ResultsIteratorReset)(RSResultsIterator* iter);
   X(GetResultsIterator)          \
   X(ResultsIteratorNext)         \
   X(ResultsIteratorFree)         \
-  X(ResultsIteratorReset)
+  X(ResultsIteratorReset)        \
+  X(IterateQuery)
 
 #define REDISEARCH_MODULE_INIT_FUNCTION(name)                                  \
   if (RedisModule_GetApi("RediSearch_" #name, ((void**)&RediSearch_##name))) { \

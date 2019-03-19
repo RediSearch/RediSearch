@@ -10,6 +10,8 @@
 #include "numeric_filter.h"
 #include "query.h"
 
+static void RS_ResultsIteratorFree(struct RS_ApiIter* iter);
+
 int RS_GetCApiVersion() {
   return REDISEARCH_CAPI_VERSION;
 }
@@ -286,11 +288,52 @@ int RS_QueryNodeGetFieldMask(QueryNode* qn) {
   return qn->opts.fieldMask;
 }
 
-IndexIterator* RS_GetResultsIterator(QueryNode* qn, IndexSpec* sp) {
-  RedisSearchCtx sctx = {.redisCtx = NULL, .spec = sp};
+typedef struct RS_ApiIter {
+  IndexIterator* internal;
+  QueryAST qast;  // Used for string queries..
+} RS_ApiIter;
+
+RS_ApiIter* RS_IterateQuery(IndexSpec* sp, const char* s, size_t n, char** error) {
+  RS_ApiIter* ret = rm_calloc(1, sizeof(*ret));
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(NULL, sp);
+  RSSearchOptions options = {0};
+  QueryError status = {0};
+  RSSearchOptions_Init(&options);
+
+  if (QAST_Parse(&ret->qast, &sctx, &options, s, n, &status) != REDISMODULE_OK) {
+    goto end;
+  }
+
+  if (QAST_Expand(&ret->qast, NULL, &options, &sctx, &status) != REDISMODULE_OK) {
+    goto end;
+  }
+
+  ret->internal = QAST_Iterate(&ret->qast, &options, &sctx, NULL, &status);
+  if (!ret->internal) {
+    goto end;
+  }
+
+  // dummy statement for goto
+  ;
+end:
+  if (QueryError_HasError(&status)) {
+    if (ret) {
+      RS_ResultsIteratorFree(ret);
+      ret = NULL;
+    }
+    if (error) {
+      *error = rm_strdup(QueryError_GetError(&status));
+    }
+  }
+  QueryError_ClearError(&status);
+  return ret;
+}
+
+RS_ApiIter* RS_GetResultsIterator(QueryNode* qn, IndexSpec* sp) {
+  RS_ApiIter* ret = rm_calloc(1, sizeof(*ret));
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(NULL, sp);
   RSSearchOptions searchOpts = {0};
-  searchOpts.fieldmask = RS_FIELDMASK_ALL;
-  searchOpts.slop = -1;
+  RSSearchOptions_Init(&searchOpts);
 
   QueryAST ast = {.root = qn};
 
@@ -304,7 +347,11 @@ IndexIterator* RS_GetResultsIterator(QueryNode* qn, IndexSpec* sp) {
       .docTable = &sp->docs,
       .sctx = &sctx,
   };
-  IndexIterator* ret = Query_EvalNode(&qectx, ast.root);
+  ret->internal = Query_EvalNode(&qectx, ast.root);
+  if (!ret->internal) {
+    rm_free(ret);
+    ret = NULL;
+  }
   QueryNode_Free(qn);
   return ret;
 }
@@ -317,9 +364,9 @@ int RS_QueryNodeType(QueryNode* qn) {
   return qn->type;
 }
 
-const void* RS_ResultsIteratorNext(IndexIterator* iter, IndexSpec* sp, size_t* len) {
+const void* RS_ResultsIteratorNext(RS_ApiIter* iter, IndexSpec* sp, size_t* len) {
   RSIndexResult* e = NULL;
-  while (iter->Read(iter->ctx, &e) != INDEXREAD_EOF) {
+  while (iter->internal->Read(iter->internal->ctx, &e) != INDEXREAD_EOF) {
     const char* docId = DocTable_GetKey(&sp->docs, e->docId, len);
     if (docId) {
       return docId;
@@ -328,12 +375,16 @@ const void* RS_ResultsIteratorNext(IndexIterator* iter, IndexSpec* sp, size_t* l
   return NULL;
 }
 
-void RS_ResultsIteratorFree(IndexIterator* iter) {
-  iter->Free(iter);
+static void RS_ResultsIteratorFree(RS_ApiIter* iter) {
+  if (iter->internal) {
+    iter->internal->Free(iter->internal);
+  }
+  QAST_Destroy(&iter->qast);
+  rm_free(iter);
 }
 
-void RS_ResultsIteratorReset(RSResultsIterator* iter) {
-  iter->Rewind(iter->ctx);
+void RS_ResultsIteratorReset(RS_ApiIter* iter) {
+  iter->internal->Rewind(iter->internal->ctx);
 }
 
 #define REGISTER_API(name, registerApiCallback)                                \
@@ -381,6 +432,7 @@ int RS_InitializeLibrary(RedisModuleCtx* ctx) {
   REGISTER_API(QueryNodeGetFieldMask, moduleRegisterApi);
 
   REGISTER_API(GetResultsIterator, moduleRegisterApi);
+  REGISTER_API(IterateQuery, moduleRegisterApi);
   REGISTER_API(ResultsIteratorNext, moduleRegisterApi);
   REGISTER_API(ResultsIteratorFree, moduleRegisterApi);
   REGISTER_API(ResultsIteratorReset, moduleRegisterApi);
