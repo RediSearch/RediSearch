@@ -763,8 +763,6 @@ TEST_F(IndexTest, testIndexSpec) {
   ASSERT_TRUE(FIELD_IS(f, INDEXFLD_T_NUMERIC));
 
   ASSERT_TRUE(strcmp(f->name, bar) == 0);
-  ASSERT_TRUE(f->ftWeight == 0);
-  ASSERT_TRUE(FIELD_BIT(f) == 1);
   ASSERT_TRUE(f->options == FieldSpec_Sortable);
   ASSERT_TRUE(f->sortIdx == 1);
   ASSERT_TRUE(IndexSpec_GetField(s, "fooz", 4) == NULL);
