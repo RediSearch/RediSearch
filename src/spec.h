@@ -274,6 +274,8 @@ int IndexSpec_AddFields(IndexSpec *sp, const char **argv, int argc, QueryError *
 int IndexSpec_AddFieldsRedisArgs(IndexSpec *sp, RedisModuleString **argv, int argc,
                                  QueryError *status);
 
+void FieldSpec_Initialize(FieldSpec *sp, FieldType types);
+
 IndexSpec *IndexSpec_Load(RedisModuleCtx *ctx, const char *name, int openWrite);
 
 IndexSpec *IndexSpec_LoadEx(RedisModuleCtx *ctx, RedisModuleString *formattedKey, int openWrite,

@@ -263,6 +263,14 @@ static int parseTextField(FieldSpec *sp, ArgsCursor *ac, QueryError *status) {
   return 1;
 }
 
+void FieldSpec_Initialize(FieldSpec *sp, FieldType types) {
+  sp->types |= types;
+  if (FIELD_IS(sp, INDEXFLD_T_TAG)) {
+    sp->tagFlags = TAG_FIELD_DEFAULT_FLAGS;
+    sp->tagSep = TAG_FIELD_DEFAULT_SEP;
+  }
+}
+
 /* Parse a field definition from argv, at *offset. We advance offset as we progress.
  *  Returns 1 on successful parse, 0 otherwise */
 static int parseFieldSpec(ArgsCursor *ac, FieldSpec *sp, QueryError *status) {
@@ -272,17 +280,16 @@ static int parseFieldSpec(ArgsCursor *ac, FieldSpec *sp, QueryError *status) {
   }
 
   if (AC_AdvanceIfMatch(ac, SPEC_TEXT_STR)) {
-    sp->types |= INDEXFLD_T_FULLTEXT;
+    FieldSpec_Initialize(sp, INDEXFLD_T_FULLTEXT);
     if (!parseTextField(sp, ac, status)) {
       goto error;
     }
   } else if (AC_AdvanceIfMatch(ac, NUMERIC_STR)) {
-    sp->types |= INDEXFLD_T_NUMERIC;
+    FieldSpec_Initialize(sp, INDEXFLD_T_NUMERIC);
   } else if (AC_AdvanceIfMatch(ac, GEO_STR)) {  // geo field
-    sp->types |= INDEXFLD_T_GEO;
+    FieldSpec_Initialize(sp, INDEXFLD_T_GEO);
   } else if (AC_AdvanceIfMatch(ac, SPEC_TAG_STR)) {  // tag field
-    sp->types |= INDEXFLD_T_TAG;
-
+    FieldSpec_Initialize(sp, INDEXFLD_T_TAG);
     if (AC_AdvanceIfMatch(ac, SPEC_SEPARATOR_STR)) {
       if (AC_IsAtEnd(ac)) {
         QueryError_SetError(status, QUERY_EPARSEARGS, SPEC_SEPARATOR_STR " requires an argument");

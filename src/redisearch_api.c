@@ -64,19 +64,19 @@ static RSField* RS_CreateField(IndexSpec* sp, const char* name, unsigned types, 
       return NULL;
     }
     fs->ftId = txtId;
-    fs->types |= INDEXFLD_T_FULLTEXT;
+    FieldSpec_Initialize(fs, INDEXFLD_T_FULLTEXT);
   }
 
   if (types & RSFLDTYPE_NUMERIC) {
     numTypes++;
-    fs->types |= INDEXFLD_T_NUMERIC;
+    FieldSpec_Initialize(fs, INDEXFLD_T_NUMERIC);
   }
   if (types & RSFLDTYPE_GEO) {
-    fs->types |= INDEXFLD_T_GEO;
+    FieldSpec_Initialize(fs, INDEXFLD_T_GEO);
     numTypes++;
   }
   if (types & RSFLDTYPE_TAG) {
-    fs->types |= INDEXFLD_T_TAG;
+    FieldSpec_Initialize(fs, INDEXFLD_T_TAG);
     numTypes++;
   }
 
