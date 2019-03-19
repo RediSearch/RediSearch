@@ -98,11 +98,7 @@ typedef struct FieldSpec {
 #define FieldSpec_IsPhonetics(fs) ((fs)->options & FieldSpec_Phonetics)
 #define FieldSpec_IsIndexable(fs) (0 == ((fs)->options & FieldSpec_NotIndexable))
 
-static inline void FieldSpec_SetSortable(FieldSpec* fs) {
-  assert(!(fs->options & FieldSpec_Dynamic) && "dynamic fields cannot be sortable");
-  fs->options |= FieldSpec_Sortable;
-}
-
+void FieldSpec_SetSortable(FieldSpec* fs);
 void FieldSpec_Cleanup(FieldSpec* fs);
 void FieldSpec_Free(FieldSpec* fs);
 

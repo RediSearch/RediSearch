@@ -26,3 +26,8 @@ void FieldSpec_Free(FieldSpec* fs) {
   FieldSpec_Cleanup(fs);
   rm_free(fs);
 }
+
+void FieldSpec_SetSortable(FieldSpec* fs) {
+  assert(!(fs->options & FieldSpec_Dynamic) && "dynamic fields cannot be sortable");
+  fs->options |= FieldSpec_Sortable;
+}
