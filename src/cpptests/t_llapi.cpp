@@ -69,7 +69,7 @@ static std::vector<std::string> getResults(RSIndex* index, const char* s,
 
 TEST_F(LLApiTest, testAddDocumentTextField) {
   // creating the index
-  RSIndex* index = RediSearch_CreateIndex("index", NULL, NULL);
+  RSIndex* index = RediSearch_CreateIndex("index", NULL);
 
   // adding text field to the index
   RediSearch_CreateField(index, FIELD_NAME_1, RSFLDTYPE_FULLTEXT, RSFLDOPT_NONE);
@@ -160,7 +160,7 @@ TEST_F(LLApiTest, testAddDocumentTextField) {
 
 TEST_F(LLApiTest, testAddDocumentNumericField) {
   // creating the index
-  RSIndex* index = RediSearch_CreateIndex("index", NULL, NULL);
+  RSIndex* index = RediSearch_CreateIndex("index", NULL);
 
   // adding text field to the index
   RediSearch_CreateNumericField(index, NUMERIC_FIELD_NAME);
@@ -187,7 +187,7 @@ TEST_F(LLApiTest, testAddDocumentNumericField) {
 
 TEST_F(LLApiTest, testAddDocumetTagField) {
   // creating the index
-  RSIndex* index = RediSearch_CreateIndex("index", NULL, NULL);
+  RSIndex* index = RediSearch_CreateIndex("index", NULL);
 
   // adding text field to the index
   RediSearch_CreateTagField(index, TAG_FIELD_NAME1);
@@ -229,7 +229,7 @@ TEST_F(LLApiTest, testAddDocumetTagField) {
 
 TEST_F(LLApiTest, testPhoneticSearch) {
   // creating the index
-  RSIndex* index = RediSearch_CreateIndex("index", NULL, NULL);
+  RSIndex* index = RediSearch_CreateIndex("index", NULL);
   RediSearch_CreateField(index, FIELD_NAME_1, RSFLDTYPE_FULLTEXT, RSFLDOPT_TXTPHONETIC);
   RediSearch_CreateField(index, FIELD_NAME_2, RSFLDTYPE_FULLTEXT, RSFLDOPT_NONE);
 
@@ -253,7 +253,7 @@ TEST_F(LLApiTest, testPhoneticSearch) {
 
 TEST_F(LLApiTest, testMassivePrefix) {
   // creating the index
-  RSIndex* index = RediSearch_CreateIndex("index", NULL, NULL);
+  RSIndex* index = RediSearch_CreateIndex("index", NULL);
   RediSearch_CreateTagField(index, TAG_FIELD_NAME1);
 
   char buff[1024];
@@ -283,7 +283,7 @@ TEST_F(LLApiTest, testMassivePrefix) {
 }
 
 TEST_F(LLApiTest, testRanges) {
-  RSIndex* index = RediSearch_CreateIndex("index", NULL, NULL);
+  RSIndex* index = RediSearch_CreateIndex("index", NULL);
   RediSearch_CreateTextField(index, FIELD_NAME_1);
   char buf[] = {"Mark_"};
   size_t nbuf = strlen(buf);
@@ -337,7 +337,11 @@ static int GetValue(void* ctx, const char* fieldName, const void* id, char** str
 
 TEST_F(LLApiTest, testMassivePrefixWithUnsortedSupport) {
   // creating the index
-  RSIndex* index = RediSearch_CreateIndex("index", GetValue, NULL);
+  RSIndexOptions* options = RediSearch_CreateIndexOptions();
+  RediSearch_IndexOptionsSetGetValueCallback(options, GetValue, NULL);
+  RSIndex* index = RediSearch_CreateIndex("index", options);
+  RediSearch_FreeIndexOptions(options);
+
   RediSearch_CreateTagField(index, TAG_FIELD_NAME1);
 
   char buff[1024];
@@ -368,7 +372,11 @@ TEST_F(LLApiTest, testMassivePrefixWithUnsortedSupport) {
 
 TEST_F(LLApiTest, testPrefixIntersection) {
   // creating the index
-  RSIndex* index = RediSearch_CreateIndex("index", GetValue, NULL);
+  RSIndexOptions* options = RediSearch_CreateIndexOptions();
+  RediSearch_IndexOptionsSetGetValueCallback(options, GetValue, NULL);
+  RSIndex* index = RediSearch_CreateIndex("index", options);
+  RediSearch_FreeIndexOptions(options);
+
   RediSearch_CreateTagField(index, TAG_FIELD_NAME1);
   RediSearch_CreateTagField(index, TAG_FIELD_NAME2);
 
@@ -408,7 +416,7 @@ TEST_F(LLApiTest, testPrefixIntersection) {
 }
 
 TEST_F(LLApiTest, testMultitype) {
-  RSIndex* index = RediSearch_CreateIndex("index", NULL, NULL);
+  RSIndex* index = RediSearch_CreateIndex("index", NULL);
   auto* f = RediSearch_CreateField(index, "f1", RSFLDTYPE_FULLTEXT, RSFLDOPT_NONE);
   ASSERT_TRUE(f != NULL);
   f = RediSearch_CreateField(index, "f2", RSFLDTYPE_FULLTEXT | RSFLDTYPE_TAG | RSFLDTYPE_NUMERIC,
@@ -429,7 +437,7 @@ TEST_F(LLApiTest, testMultitype) {
 }
 
 TEST_F(LLApiTest, testQueryString) {
-  RSIndex* index = RediSearch_CreateIndex("index", NULL, NULL);
+  RSIndex* index = RediSearch_CreateIndex("index", NULL);
   RediSearch_CreateField(index, "ft1", RSFLDTYPE_FULLTEXT, RSFLDOPT_NONE);
   RediSearch_CreateField(index, "ft2", RSFLDTYPE_FULLTEXT, RSFLDOPT_NONE);
   RediSearch_CreateField(index, "n1", RSFLDTYPE_NUMERIC, RSFLDOPT_NONE);

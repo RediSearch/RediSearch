@@ -38,7 +38,10 @@ int main(int, char **) {
   const char *arguments[] = {"SAFEMODE", "NOGC"};
   RMCK_Bootstrap(my_OnLoad, arguments, 2);
   RediSearch_Initialize();
-  auto idx = RediSearch_CreateIndex("ix", NULL, NULL);
+  auto options = RediSearch_CreateIndexOptions();
+  auto idx = RediSearch_CreateIndex("ix", options);
+  RediSearch_FreeIndexOptions(options);
+
   RediSearch_CreateField(idx, "f1", RSFLDTYPE_FULLTEXT, RSFLDOPT_NONE);
   // Ok so far..
   for (size_t ii = 0; ii < NUM_DOCS; ++ii) {

@@ -26,7 +26,11 @@ static void valFreeCb(void* unused, void* p) {
   free(kdv);
 }
 
-static IndexSpec* RS_CreateIndex(const char* name, RSGetValueCallback getValue, void* getValueCtx) {
+static IndexSpec* RS_CreateIndex(const char* name, const RSIndexOptions* options) {
+  RSIndexOptions opts_s = {0};
+  if (!options) {
+    options = &opts_s;
+  }
   IndexSpec* spec = NewIndexSpec(name);
   spec->flags |= Index_Temporary;  // temporary is so that we will not use threads!!
 
@@ -35,12 +39,11 @@ static IndexSpec* RS_CreateIndex(const char* name, RSGetValueCallback getValue, 
     invidxDictType = dictTypeHeapRedisStrings;
     invidxDictType.valDestructor = valFreeCb;
   }
-
+  spec->getValue = options->gvcb;
+  spec->getValueCtx = options->gvcbData;
   spec->keysDict = dictCreate(&invidxDictType, NULL);
   spec->minPrefix = 0;
   spec->maxPrefixExpansions = -1;
-  spec->getValue = getValue;
-  spec->getValueCtx = getValueCtx;
   DocTable_EnableIdArray(&spec->docs);
   return spec;
 }
@@ -350,6 +353,23 @@ static void RS_ResultsIteratorFree(RS_ApiIter* iter) {
 
 static void RS_ResultsIteratorReset(RS_ApiIter* iter) {
   iter->internal->Rewind(iter->internal->ctx);
+}
+
+static RSIndexOptions* RS_CreateIndexOptions() {
+  return rm_calloc(1, sizeof(RSIndexOptions));
+}
+static void RS_FreeIndexOptions(RSIndexOptions* options) {
+  rm_free(options);
+}
+
+static void RS_IndexOptionsSetGetValueCallback(RSIndexOptions* options, RSGetValueCallback cb,
+                                               void* ctx) {
+  options->gvcb = cb;
+  options->gvcbData = ctx;
+}
+
+static void RS_IndexOptionsSetFlags(RSIndexOptions* options, uint32_t flags) {
+  options->flags = flags;
 }
 
 #define REGISTER_API(name)                                                   \
