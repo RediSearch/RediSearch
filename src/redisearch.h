@@ -3,12 +3,15 @@
 
 #include <stdint.h>
 #include <stdlib.h>
+#include <limits.h>
 
 typedef uint64_t t_docId;
 typedef uint64_t t_offset;
 // used to represent the id of a single field.
 // to produce a field mask we calculate 2^fieldId
 typedef uint16_t t_fieldId;
+
+#define DOCID_MAX UINT64_MAX
 
 #if defined(__x86_64__) && !defined(RS_NO_U128)
 /* 64 bit architectures use 128 bit field masks and up to 128 fields */

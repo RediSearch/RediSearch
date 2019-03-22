@@ -57,6 +57,7 @@ typedef int (*RSGetValueCallback)(void* ctx, const char* fieldName, const void* 
 
 MODULE_API_FUNC(int, RediSearch_GetCApiVersion)();
 
+#define RSIDXOPT_DOCTBLSIZE_UNLIMITED 0x01
 
 struct RSIdxOptions {
   RSGetValueCallback gvcb;

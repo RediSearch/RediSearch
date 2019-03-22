@@ -30,38 +30,6 @@ static inline int DocTable_ValidateDocId(const DocTable *t, t_docId docId) {
   return docId != 0 && docId <= t->maxDocId;
 }
 
-static void DocTable_IdArrayPut(DocTable *t, t_docId did, const void *p) {
-  if (t->idmap == NULL) {
-    return;
-  }
-  if (t->idmapLen < did + 1) {
-    size_t minlen = did + 1;
-    size_t calclen = (double)t->idmapLen * 1.5;
-    t->idmapLen = MAX(minlen, calclen);
-    t->idmap = rm_realloc(t->idmap, t->idmapLen * sizeof(*t->idmap));
-  }
-  t->idmap[did] = p;
-}
-
-static const void *DocTable_IdArrayGet(const DocTable *t, t_docId did) {
-  if (!t->idmap || t->idmapLen < did + 1) {
-    return NULL;
-  }
-  return t->idmap[did];
-}
-
-static void DocTable_IdArrayDel(DocTable *t, t_docId did) {
-  if (!t->idmap || t->idmapLen < did + 1) {
-    return;
-  }
-  t->idmap[did] = NULL;
-}
-
-void DocTable_EnableIdArray(DocTable *t) {
-  t->idmapLen = 1;
-  t->idmap = rm_malloc(sizeof(*t->idmap));
-}
-
 /* Get the metadata for a doc Id from the DocTable.
  *  If docId is not inside the table, we return NULL */
 
@@ -142,7 +110,6 @@ static inline void DocTable_Set(DocTable *t, t_docId docId, RSDocumentMetadata *
     dmd->next = NULL;
     chain->last = dmd;
   }
-  DocTable_IdArrayPut(t, docId, dmd->keyPtr);
 }
 
 /** Get the docId of a key if it exists in the table, or 0 if it doesnt */
@@ -274,15 +241,6 @@ const char *DocTable_GetKey(DocTable *t, t_docId docId, size_t *lenp) {
     lenp = &len_s;
   }
 
-  if (t->idmap) {
-    const char *s = DocTable_IdArrayGet(t, docId);
-    if (s == NULL) {
-      return NULL;
-    }
-    *lenp = sdslen((sds)s);
-    return s;
-  }
-
   RSDocumentMetadata *dmd = DocTable_Get(t, docId);
   if (!dmd) {
     *lenp = 0;
@@ -333,7 +291,6 @@ void DocTable_Free(DocTable *t) {
     }
   }
   rm_free(t->buckets);
-  rm_free(t->idmap);
   DocIdMap_Free(&t->dim);
 }
 
@@ -370,7 +327,6 @@ int DocTable_Delete(DocTable *t, const char *s, size_t n) {
 
 RSDocumentMetadata *DocTable_Pop(DocTable *t, const char *s, size_t n) {
   t_docId docId = DocIdMap_Get(&t->dim, s, n);
-  DocTable_IdArrayDel(t, docId);
 
   if (docId && docId <= t->maxDocId) {
 

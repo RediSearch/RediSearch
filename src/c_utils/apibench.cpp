@@ -10,7 +10,7 @@
 #include <redisearch_api.h>
 #include <cpptests/redismock/redismock.h>
 
-#define NUM_DOCS 500000UL  // 10M
+#define NUM_DOCS 5000000UL  // 10M
 #define NUM_ITER 100UL
 
 REDISMODULE_INIT_SYMBOLS();
@@ -39,6 +39,7 @@ int main(int, char **) {
   RMCK_Bootstrap(my_OnLoad, arguments, 2);
   RediSearch_Initialize();
   auto options = RediSearch_CreateIndexOptions();
+  RediSearch_IndexOptionsSetFlags(options, RSIDXOPT_DOCTBLSIZE_UNLIMITED);
   auto idx = RediSearch_CreateIndex("ix", options);
   RediSearch_FreeIndexOptions(options);
 

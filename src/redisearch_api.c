@@ -44,7 +44,9 @@ static IndexSpec* RS_CreateIndex(const char* name, const RSIndexOptions* options
   spec->keysDict = dictCreate(&invidxDictType, NULL);
   spec->minPrefix = 0;
   spec->maxPrefixExpansions = -1;
-  DocTable_EnableIdArray(&spec->docs);
+  if (options->flags & RSIDXOPT_DOCTBLSIZE_UNLIMITED) {
+    spec->docs.maxSize = DOCID_MAX;
+  }
   return spec;
 }
 
