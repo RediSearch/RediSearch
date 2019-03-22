@@ -114,3 +114,5 @@ GET_TARGET_PROPERTY(RMTEST_EXT_PATH example_extension LOCATION)
 
 CONFIGURE_FILE(cmake/rmtest.config.in
     ${PROJECT_BINARY_DIR}/rmtest.config.default)
+
+ADD_SUBDIRECTORY(src/c_utils)
