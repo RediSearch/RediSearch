@@ -395,6 +395,7 @@ void RMCK_Log(RedisModuleCtx *ctx, const char *level, const char *fmt, ...) {
   va_start(ap, fmt);
   vfprintf(stderr, fmt, ap);
   va_end(ap);
+  fputc('\n', stderr);
 }
 
 int RMCK_StringCompare(RedisModuleString *a, RedisModuleString *b) {
