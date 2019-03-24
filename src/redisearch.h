@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <limits.h>
+#include "util/dllist.h"
 
 typedef uint64_t t_docId;
 typedef uint64_t t_offset;
@@ -87,11 +88,8 @@ typedef struct RSDocumentMetadata_s {
   struct RSSortingVector *sortVector;
   /* Offsets of all terms in the document (in bytes). Used by highlighter */
   struct RSByteOffsets *byteOffsets;
-
+  DLLIST2_node llnode;
   uint32_t ref_count;
-
-  struct RSDocumentMetadata_s *next;
-  struct RSDocumentMetadata_s *prev;
 } RSDocumentMetadata;
 
 /* Forward declaration of the opaque query object */

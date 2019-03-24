@@ -52,8 +52,7 @@ void DocIdMap_Free(DocIdMap *m);
  * same key. This may result in document duplication in results  */
 
 typedef struct {
-  struct RSDocumentMetadata_s *first;
-  struct RSDocumentMetadata_s *last;
+  DLLIST2 lroot;
 } DMDChain;
 
 typedef struct {
@@ -73,17 +72,16 @@ typedef struct {
 #define DMD_Incref(md) \
   if (md) ++md->ref_count;
 
-#define DocTable_ForEach(dt, code)          \
-  for (size_t i = 1; i < dt->cap; ++i) {    \
-    DMDChain *chain = &dt->buckets[i];      \
-    if (DMDChain_IsEmpty(chain)) {          \
-      continue;                             \
-    }                                       \
-    RSDocumentMetadata *dmd = chain->first; \
-    while (dmd) {                           \
-      code;                                 \
-      dmd = dmd->next;                      \
-    }                                       \
+#define DOCTABLE_FOREACH(dt, code)                                           \
+  for (size_t i = 1; i < dt->cap; ++i) {                                     \
+    DMDChain *chain = &dt->buckets[i];                                       \
+    if (DLLIST2_IS_EMPTY(&chain->lroot)) {                                   \
+      continue;                                                              \
+    }                                                                        \
+    DLLIST2_FOREACH(it, &chain->lroot) {                                     \
+      RSDocumentMetadata *dmd = DLLIST_ITEM(it, RSDocumentMetadata, llnode); \
+      code;                                                                  \
+    }                                                                        \
   }
 
 /* Creates a new DocTable with a given capacity */
@@ -117,11 +115,6 @@ float DocTable_GetScore(DocTable *t, t_docId docId);
 /* Set the payload for a document. Returns 1 if we set the payload, 0 if we couldn't find the
  * document */
 int DocTable_SetPayload(DocTable *t, t_docId docId, const char *data, size_t len);
-
-/*
- * return true iff the given dmdChain holds no elements
- */
-int DMDChain_IsEmpty(const DMDChain *dmdChain);
 
 int DocTable_Exists(const DocTable *t, t_docId docId);
 
