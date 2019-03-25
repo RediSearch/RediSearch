@@ -939,6 +939,11 @@ static void FieldSpec_RdbSave(RedisModuleIO *rdb, FieldSpec *f) {
   }
 }
 
+static const FieldType fieldTypeMap[] = {[IDXFLD_LEGACY_FULLTEXT] = INDEXFLD_T_FULLTEXT,
+                                         [IDXFLD_LEGACY_NUMERIC] = INDEXFLD_T_NUMERIC,
+                                         [IDXFLD_LEGACY_GEO] = INDEXFLD_T_GEO,
+                                         [IDXFLD_LEGACY_TAG] = INDEXFLD_T_TAG};
+
 static void FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
 
   // Fall back to legacy encoding if needed
@@ -950,6 +955,11 @@ static void FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
   f->types = RedisModule_LoadUnsigned(rdb);
   f->options = RedisModule_LoadUnsigned(rdb);
   f->sortIdx = RedisModule_LoadSigned(rdb);
+
+  if (encver < INDEX_MIN_MULTITYPE_VERSION) {
+    assert(f->types <= IDXFLD_LEGACY_MAX);
+    f->types = fieldTypeMap[f->types];
+  }
 
   // Load text specific options
   if (FIELD_IS(f, INDEXFLD_T_FULLTEXT) || (f->options & FieldSpec_Dynamic)) {
