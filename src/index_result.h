@@ -66,7 +66,7 @@ void IndexResult_Print(RSIndexResult *r, int depth);
 void IndexResult_Free(RSIndexResult *r);
 
 /* Get the minimal delta between the terms in the result */
-int IndexResult_MinOffsetDelta(RSIndexResult *r);
+int IndexResult_MinOffsetDelta(const RSIndexResult *r);
 
 /* Fill an array of max capacity cap with all the matching text terms for the result. The number of
  * matching terms is returned */

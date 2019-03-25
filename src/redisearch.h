@@ -332,12 +332,12 @@ typedef struct {
 
   /* The GetSlop() calback. Returns the cumulative "slop" or distance between the query terms,
    * that can be used to factor the result score */
-  int (*GetSlop)(RSIndexResult *res);
+  int (*GetSlop)(const RSIndexResult *res);
 } ScoringFunctionArgs;
 
 /* RSScoringFunction is a callback type for query custom scoring function modules */
-typedef double (*RSScoringFunction)(ScoringFunctionArgs *ctx, RSIndexResult *res,
-                                    RSDocumentMetadata *dmd, double minScore);
+typedef double (*RSScoringFunction)(const ScoringFunctionArgs *ctx, const RSIndexResult *res,
+                                    const RSDocumentMetadata *dmd, double minScore);
 
 /* The extension registeration context, containing the callbacks avaliable to the extension for
  * registering query expanders and scorers. */
