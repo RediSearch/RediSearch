@@ -169,6 +169,13 @@ typedef struct {
 #define RLOOKUP_F_UNRESOLVED 0x200
 
 /**
+ * The opposite of F_HIDDEN. This field is specified as an explicit return in
+ * the RETURN list, so ensure that this gets emitted. Only set if
+ * explicitReturn is true in the aggregation request.
+ */
+#define RLOOKUP_F_EXPLICITRETURN 0x400
+
+/**
  * These flags do not persist to the key, they are just options to GetKey()
  */
 #define RLOOKUP_TRANSIENT_FLAGS (RLOOKUP_F_OEXCL | RLOOKUP_F_OCREAT | RLOOKUP_F_NOINCREF)

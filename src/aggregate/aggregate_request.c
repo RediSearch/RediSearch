@@ -965,7 +965,6 @@ int buildOutputPipeline(AREQ *req, QueryError *status) {
   RLookup *lookup = AGPLN_GetLookup(pln, NULL, AGPLN_GETLOOKUP_LAST);
   // Add a LOAD step...
   const RLookupKey **loadkeys = NULL;
-  size_t nloadkeys = 0;
   if (req->outFields.explicitReturn) {
     // Go through all the fields and ensure that each one exists in the lookup stage
     for (size_t ii = 0; ii < req->outFields.numFields; ++ii) {
@@ -977,10 +976,11 @@ int buildOutputPipeline(AREQ *req, QueryError *status) {
         goto error;
       }
       *array_ensure_tail(&loadkeys, const RLookupKey *) = lk;
-      nloadkeys++;
+      // assign explicit output flag
+      lk->flags |= RLOOKUP_F_EXPLICITRETURN;
     }
   }
-  rp = RPLoader_New(lookup, loadkeys, nloadkeys);
+  rp = RPLoader_New(lookup, loadkeys, loadkeys ? array_len(loadkeys) : 0);
   if (loadkeys) {
     array_free(loadkeys);
   }
@@ -1004,8 +1004,6 @@ int buildOutputPipeline(AREQ *req, QueryError *status) {
     PUSH_RP();
   }
 
-  if ((req->reqflags & QEXEC_F_IS_SEARCH) && !(req->reqflags & QEXEC_F_SEND_NOFIELDS)) {
-  }
   return REDISMODULE_OK;
 error:
   return REDISMODULE_ERR;

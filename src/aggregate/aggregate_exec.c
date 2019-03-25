@@ -92,6 +92,9 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
         // printf("Skipping hidden field %s/%p\n", kk->name, kk);
         continue;
       }
+      if (req->outFields.explicitReturn && (kk->flags & RLOOKUP_F_EXPLICITRETURN) == 0) {
+        continue;
+      }
       const RSValue *v = RLookup_GetItem(kk, &r->rowdata);
       if (!v) {
         continue;
