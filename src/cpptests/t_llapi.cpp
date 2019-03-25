@@ -26,14 +26,9 @@ TEST_F(LLApiTest, testGetVersion) {
   ASSERT_EQ(RediSearch_GetCApiVersion(), REDISEARCH_CAPI_VERSION);
 }
 
-static std::vector<std::string> getResultsCommon(RSIndex* index, RSResultsIterator* it,
-                                                 bool expectEmpty) {
+static std::vector<std::string> getResultsCommon(RSIndex* index, RSResultsIterator* it) {
   std::vector<std::string> ret;
-  if (expectEmpty) {
-    EXPECT_TRUE(it == NULL);
-  } else {
-    EXPECT_FALSE(it == NULL);
-  }
+  EXPECT_FALSE(it == NULL);
 
   if (!it) {
     goto done;
@@ -55,16 +50,14 @@ done:
   return ret;
 }
 
-static std::vector<std::string> getResults(RSIndex* index, RSQueryNode* qn,
-                                           bool expectEmpty = false) {
+static std::vector<std::string> getResults(RSIndex* index, RSQueryNode* qn) {
   auto it = RediSearch_GetResultsIterator(qn, index);
-  return getResultsCommon(index, it, expectEmpty);
+  return getResultsCommon(index, it);
 }
 
-static std::vector<std::string> getResults(RSIndex* index, const char* s,
-                                           bool expectEmpty = false) {
+static std::vector<std::string> getResults(RSIndex* index, const char* s) {
   auto it = RediSearch_IterateQuery(index, s, strlen(s), NULL);
-  return getResultsCommon(index, it, expectEmpty);
+  return getResultsCommon(index, it);
 }
 
 TEST_F(LLApiTest, testAddDocumentTextField) {
@@ -105,8 +98,7 @@ TEST_F(LLApiTest, testAddDocumentTextField) {
 
   // search with no results
   qn = RediSearch_CreatePrefixNode(index, FIELD_NAME_1, "nn");
-  iter = RediSearch_GetResultsIterator(qn, index);
-  ASSERT_FALSE(iter);
+  ASSERT_TRUE(getResults(index, qn).empty());
 
   // adding another text field
   RediSearch_CreateField(index, FIELD_NAME_2, RSFLDTYPE_FULLTEXT, RSFLDOPT_NONE);
@@ -246,7 +238,7 @@ TEST_F(LLApiTest, testPhoneticSearch) {
 
   // make sure phonetic search on field2 do not return results
   qn = RediSearch_CreateTokenNode(index, FIELD_NAME_2, "phelix");
-  res = getResults(index, qn, true);
+  res = getResults(index, qn);
   ASSERT_EQ(0, res.size());
   RediSearch_DropIndex(index);
 }
