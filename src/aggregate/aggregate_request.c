@@ -171,6 +171,8 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
     }
   } else if (AC_AdvanceIfMatch(ac, "_NUM_SSTRING")) {
     req->reqflags |= QEXEC_F_TYPED;
+  } else if (AC_AdvanceIfMatch(ac, "WITHRAWIDS")) {
+    req->reqflags |= QEXEC_F_SENDRAWIDS;
   } else {
     return ARG_UNKNOWN;
   }
