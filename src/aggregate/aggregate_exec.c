@@ -138,8 +138,10 @@ static int sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
   }
 
   while (nrows++ < limit && (rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
+    if (!(req->reqflags & QEXEC_F_NOROWS)) {
+      nelem += serializeResult(req, outctx, &r);
+    }
     // Serialize it as a search result
-    nelem += serializeResult(req, outctx, &r);
     SearchResult_Clear(&r);
   }
 

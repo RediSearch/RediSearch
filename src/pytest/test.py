@@ -1951,6 +1951,12 @@ def testIssue446(env):
     rv = env.cmd('ft.search', 'myIdx', 'hello', 'limit', '0', '0')
     env.assertEqual([1], rv)
 
+    # Related - issue 635
+    env.cmd('ft.add', 'myIdx', 'doc2', '1.0', 'fields', 'title', 'hello')
+    rv = env.cmd('ft.search', 'myIdx', 'hello', 'limit', '0', '0')
+    env.assertEqual([2], rv)
+
+
 def testTimeoutSettings(env):
     env.cmd('ft.create', 'idx', 'schema', 't1', 'text')
     env.expect('ft.search', 'idx', '*', 'ON_TIMEOUT', 'BLAHBLAH').raiseError()
