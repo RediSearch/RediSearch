@@ -396,15 +396,15 @@ static bool ForkGc_ReadInvertedIndex(ForkGCCtx *gc, int *ret_val, RedisModuleCtx
   ForkGc_updateStats(sctx, gc, idxData.docsCollected, idxData.bytesCollected);
 
 cleanup:
-  if (rctx) {
-    RedisModule_ThreadSafeContextUnlock(rctx);
-  }
 
   if (idxKey) {
     RedisModule_CloseKey(idxKey);
   }
   if (sctx) {
     SearchCtx_Free(sctx);
+  }
+  if (rctx) {
+    RedisModule_ThreadSafeContextUnlock(rctx);
   }
   if (term) {
     rm_free(term);
@@ -500,7 +500,6 @@ static bool ForkGc_ReadNumericInvertedIndex(ForkGCCtx *gc, int *ret_val, RedisMo
     currNode->range->card = newCard;
 
   loop_cleanup:
-    RedisModule_ThreadSafeContextUnlock(rctx);
     if (sctx) {
       SearchCtx_Free(sctx);
     }
@@ -513,6 +512,7 @@ static bool ForkGc_ReadNumericInvertedIndex(ForkGCCtx *gc, int *ret_val, RedisMo
     if (idxKey) {
       RedisModule_CloseKey(idxKey);
     }
+    RedisModule_ThreadSafeContextUnlock(rctx);
     if (shouldReturn) {
       if (fieldName) {
         rm_free(fieldName);
@@ -566,7 +566,6 @@ static bool ForkGc_ReadTagIndex(ForkGCCtx *gc, int *ret_val, RedisModuleCtx *rct
     ForkGc_updateStats(sctx, gc, idxData.docsCollected, idxData.bytesCollected);
 
   loop_cleanup:
-    RedisModule_ThreadSafeContextUnlock(rctx);
     if (sctx) {
       SearchCtx_Free(sctx);
     }
@@ -579,6 +578,7 @@ static bool ForkGc_ReadTagIndex(ForkGCCtx *gc, int *ret_val, RedisModuleCtx *rct
     if (idxKey) {
       RedisModule_CloseKey(idxKey);
     }
+    RedisModule_ThreadSafeContextUnlock(rctx);
     if (shouldReturn) {
       if (fieldName) {
         rm_free(fieldName);
@@ -652,13 +652,17 @@ static int ForkGc_PeriodicCallback(RedisModuleCtx *ctx, void *privdata) {
     close(gc->pipefd[GC_READERFD]);
     ForkGc_CollectGarbage(gc);
     close(gc->pipefd[GC_WRITERFD]);
+    sleep(RSGlobalConfig.forkGcSleepBeforeExit);
     _exit(EXIT_SUCCESS);
   } else {
     // main process
     close(gc->pipefd[GC_WRITERFD]);
     ForkGc_ReadGarbageFromFork(gc, &ret_val);
     close(gc->pipefd[GC_READERFD]);
-    wait(NULL);
+    pid_t id = wait4(cpid, NULL, 0, NULL);
+    if (id == -1) {
+      printf("an error acquire when waiting for fork to terminate, pid:%d", cpid);
+    }
   }
   TimeSampler_End(&ts);
 

@@ -1383,8 +1383,11 @@ def testGarbageCollector(env):
         env.assertEqual([0], res)
 
 def testReturning(env):
-    env.assertCmdOk('ft.create', 'idx', 'schema', 'f1',
-                     'text', 'f2', 'text', 'n1', 'numeric', 'f3', 'text')
+    env.assertCmdOk('ft.create', 'idx', 'schema',
+                     'f1', 'text',
+                     'f2', 'text',
+                     'n1', 'numeric', 'sortable',
+                     'f3', 'text')
     for i in range(10):
         env.assertCmdOk('ft.add', 'idx', 'DOC_{0}'.format(i), 1.0, 'fields',
                          'f2', 'val2', 'f1', 'val1', 'f3', 'val3',
@@ -1407,6 +1410,14 @@ def testReturning(env):
             env.assertEqual(2, len(fields))
             env.assertEqual(field, fields[0])
             env.assertTrue(docname.startswith('DOC_'))
+
+    # Test that we don't return SORTBY fields if they weren't specified
+    # also in RETURN
+    res = env.cmd('ft.search', 'idx', 'val*', 'return', 1, 'f1',
+        'sortby', 'n1', 'ASC')
+    row = res[2]
+    # get the first result
+    env.assertEqual(['f1', 'val1'], row)
 
     # Test when field is not found
     # Note: DISABLED because returning fields not in schema is now an ERROR
@@ -1942,6 +1953,12 @@ def testIssue446(env):
     env.cmd('ft.add', 'myIdx', 'doc1', '1.0', 'fields', 'title', 'hello world', 'body', 'lorem ipsum', 'url', '"www.google.com')
     rv = env.cmd('ft.search', 'myIdx', 'hello', 'limit', '0', '0')
     env.assertEqual([1], rv)
+
+    # Related - issue 635
+    env.cmd('ft.add', 'myIdx', 'doc2', '1.0', 'fields', 'title', 'hello')
+    rv = env.cmd('ft.search', 'myIdx', 'hello', 'limit', '0', '0')
+    env.assertEqual([2], rv)
+
 
 def testTimeoutSettings(env):
     env.cmd('ft.create', 'idx', 'schema', 't1', 'text')

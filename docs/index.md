@@ -2,7 +2,7 @@
 
 # RediSearch - Redis Powered Search Engine
 
-RediSearch is a an open-source Full-Text and Secondary Index engine over Redis, developed by [Redis Labs](http://redislabs.com). 
+RediSearch is a source available Full-Text and Secondary Index engine over Redis, developed by [Redis Labs](http://redislabs.com). 
 
 !!! note "Quick Links:"
     * [Source Code at GitHub](https://github.com/RedisLabsModules/RediSearch).

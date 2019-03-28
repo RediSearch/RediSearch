@@ -96,6 +96,20 @@ CONFIG_GETTER(getMinPrefix) {
   return sdscatprintf(ss, "%lld", config->minTermPrefix);
 }
 
+CONFIG_SETTER(setForkGCSleep) {
+  long long arg;
+  if (readLongLongLimit(argv, argc, offset, &arg, 1, LLONG_MAX) != REDISMODULE_OK) {
+    return REDISMODULE_ERR;
+  }
+  config->forkGcSleepBeforeExit = arg;
+  return REDISMODULE_OK;
+}
+
+CONFIG_GETTER(getForkGCSleep) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%zu", config->forkGcSleepBeforeExit);
+}
+
 // MAXDOCTABLESIZE
 CONFIG_SETTER(setMaxDocTableSize) {
   long long size;
@@ -229,7 +243,7 @@ CONFIG_SETTER(setForkGcInterval) {
 
 CONFIG_GETTER(getForkGcInterval) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%lu", config->forkGcRunIntervalSec);
+  return sdscatprintf(ss, "%u", config->forkGcRunIntervalSec);
 }
 
 CONFIG_SETTER(setMinPhoneticTermLen) {
@@ -335,6 +349,11 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "Set the minimum prefix for expansions (`*`)",
          .setValue = setMinPrefix,
          .getValue = getMinPrefix},
+        {.name = "FORKGC_SLEEP_BEFORE_EXIT",
+         .helpText = "set the amount of seconds for the fork GC to sleep before exists, should "
+                     "always be set to 0 (other then on tests).",
+         .setValue = setForkGCSleep,
+         .getValue = getForkGCSleep},
         {.name = "MAXDOCTABLESIZE",
          .helpText = "Maximum runtime document table size (for this process)",
          .setValue = setMaxDocTableSize,

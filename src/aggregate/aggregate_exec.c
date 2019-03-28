@@ -96,6 +96,9 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
         // printf("Skipping hidden field %s/%p\n", kk->name, kk);
         continue;
       }
+      if (req->outFields.explicitReturn && (kk->flags & RLOOKUP_F_EXPLICITRETURN) == 0) {
+        continue;
+      }
       const RSValue *v = RLookup_GetItem(kk, &r->rowdata);
       if (!v) {
         continue;
@@ -135,8 +138,10 @@ static int sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
   }
 
   while (nrows++ < limit && (rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
+    if (!(req->reqflags & QEXEC_F_NOROWS)) {
+      nelem += serializeResult(req, outctx, &r);
+    }
     // Serialize it as a search result
-    nelem += serializeResult(req, outctx, &r);
     SearchResult_Clear(&r);
   }
 

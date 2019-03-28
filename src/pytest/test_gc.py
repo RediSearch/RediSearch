@@ -1,5 +1,6 @@
 
 import unittest
+from RLTest import Env
 
 
 def testBasicGC(env):
@@ -104,3 +105,15 @@ def testDeleteDocWithGoeField(env):
     env.expect('zrange', 'geo:idx/test2', '0', '-1').equal(['1'])
     env.expect('FT.DEL', 'idx', 'doc1').equal(1)
     env.expect('zrange', 'geo:idx/test2', '0', '-1').equal([])
+
+
+def testGCIntegrationWithRedisFork(env):
+    if env.isCluster():
+        raise unittest.SkipTest()
+    env = Env(moduleArgs='GC_POLICY FORK')
+    env.expect('FT.CONFIG', 'SET', 'FORKGC_SLEEP_BEFORE_EXIT', '4').ok()
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT', 'SORTABLE').ok()
+    env.expect('FT.ADD', 'idx', 'doc1', 1.0, 'FIELDS', 'title', 'hello world').ok()
+    env.expect('bgsave').equal('Background saving started')
+    env.cmd('FT.DEBUG', 'GC_FORCEINVOKE', 'idx')
+    env.expect('bgsave').equal('Background saving started')

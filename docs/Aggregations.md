@@ -60,7 +60,7 @@ RediSearch to avoid a parsing ambiguity in case one of your arguments has the
 name of another parameter. For example, to sort by first name, last name, and
 country, one would specify `SORTBY 6 firstName ASC lastName DESC country ASC`.
 
-* **index_name**: The index the query is executed again.
+* **index_name**: The index the query is executed against.
 
 * **query_string**: The base filtering query that retrieves the documents. It follows **the exact same syntax** as the search query, including filters, unions, not, optional, etc.
 
