@@ -14,9 +14,11 @@
 extern "C" {
 #endif
 
-uint64_t siphash(const uint8_t *in, const size_t inlen, const uint8_t *k);
-uint64_t siphash_nocase(const uint8_t *in, const size_t inlen, const uint8_t *k);
-int moduleRegisterApi(const char *funcname, void *funcptr);
+uint64_t siphash(const uint8_t *in, const size_t inlen, const uint8_t *k)
+    __attribute__((visibility("default")));
+uint64_t siphash_nocase(const uint8_t *in, const size_t inlen, const uint8_t *k)
+    __attribute__((visibility("default")));
+int moduleRegisterApi(const char *funcname, void *funcptr) __attribute__((visibility("default")));
 
 #ifdef __cplusplus
 }
