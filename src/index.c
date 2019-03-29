@@ -1237,7 +1237,7 @@ IndexIterator *NewOptionalIterator(IndexIterator *it, t_docId maxDocId, double w
   ret->Rewind = OI_Rewind;
   ret->mode = MODE_SORTED;
 
-  if (nc->child->mode == MODE_UNSORTED) {
+  if (nc->child && nc->child->mode == MODE_UNSORTED) {
     nc->childCT = nc->child->GetCriteriaTester(nc->child->ctx);
     ret->Read = OI_ReadUnsorted;
   }
