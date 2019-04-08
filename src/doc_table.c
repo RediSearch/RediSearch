@@ -488,7 +488,7 @@ void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
     dmd->score = RedisModule_LoadFloat(rdb);
     dmd->payload = NULL;
     // read payload if set
-    if (dmd->flags & Document_HasPayload) {
+    if ((dmd->flags & Document_HasPayload) && !(dmd->flags & Document_Deleted)) {
       dmd->payload = RedisModule_Alloc(sizeof(RSPayload));
       dmd->payload->data = RedisModule_LoadStringBuffer(rdb, &dmd->payload->len);
       dmd->payload->len--;
