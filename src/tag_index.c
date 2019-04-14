@@ -116,6 +116,7 @@ size_t TagIndex_Index(TagIndex *idx, char **values, t_docId docId) {
 struct TagReaderCtx {
   TagIndex *idx;
   IndexIterator *it;
+  uint32_t uniqueId;
 };
 
 static void TagReader_OnReopen(RedisModuleKey *k, void *privdata) {
@@ -130,6 +131,10 @@ static void TagReader_OnReopen(RedisModuleKey *k, void *privdata) {
 
   // If the key is valid, we just reset the reader's buffer reader to the current block pointer
   ctx->idx = RedisModule_ModuleTypeGetValue(k);
+  if (ctx->uniqueId != ctx->idx->uniqueId) {
+    ctx->it->Abort(ctx->it->ctx);
+    return;
+  }
   IndexReader *ir = ctx->it->ctx;
   ir->idx = ir->idx;
 
@@ -180,6 +185,7 @@ IndexIterator *TagIndex_OpenReader(TagIndex *idx, DocTable *dt, const char *valu
     struct TagReaderCtx *tc = malloc(sizeof(*tc));
     tc->idx = idx;
     tc->it = it;
+    tc->uniqueId = idx->uniqueId;
     ConcurrentSearch_AddKey(csx, k, REDISMODULE_READ, keyName, TagReader_OnReopen, tc, free,
                             ConcurrentKey_SharedKey | ConcurrentKey_SharedKeyString);
   }
