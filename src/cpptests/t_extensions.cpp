@@ -134,20 +134,20 @@ TEST_F(ExtTest, testQueryExpander) {
   ASSERT_EQ(qast.numTokens, 4);
 
   QueryNode *n = qast.root;
-  ASSERT_TRUE(n->pn.children[0]->type == QN_UNION);
-  ASSERT_STREQ("hello", n->pn.children[0]->un.children[0]->tn.str);
-  ASSERT_TRUE(n->pn.children[0]->un.children[0]->tn.expanded == 0);
-  ASSERT_STREQ("foo", n->pn.children[0]->un.children[1]->tn.str);
-  ASSERT_EQ(0x00FF, n->pn.children[0]->un.children[1]->tn.flags);
+  ASSERT_EQ(QN_UNION, n->children[0]->type);
+  ASSERT_STREQ("hello", n->children[0]->children[0]->tn.str);
+  ASSERT_EQ(0, n->children[0]->children[0]->tn.expanded);
+  ASSERT_STREQ("foo", n->children[0]->children[1]->tn.str);
+  ASSERT_EQ(0x00FF, n->children[0]->children[1]->tn.flags);
 
-  ASSERT_TRUE(n->pn.children[0]->un.children[1]->tn.expanded != 0);
+  ASSERT_NE(0, n->children[0]->children[1]->tn.expanded);
 
-  ASSERT_TRUE(n->pn.children[1]->type == QN_UNION);
-  ASSERT_STREQ("world", n->pn.children[1]->un.children[0]->tn.str);
-  ASSERT_STREQ("foo", n->pn.children[1]->un.children[1]->tn.str);
+  ASSERT_EQ(QN_UNION, n->children[1]->type);
+  ASSERT_STREQ("world", n->children[1]->children[0]->tn.str);
+  ASSERT_STREQ("foo", n->children[1]->children[1]->tn.str);
 
-  RSQueryTerm *qtr = NewQueryTerm(&n->pn.children[1]->un.children[1]->tn, 1);
-  ASSERT_STREQ(qtr->str, n->pn.children[1]->un.children[1]->tn.str);
+  RSQueryTerm *qtr = NewQueryTerm(&n->children[1]->children[1]->tn, 1);
+  ASSERT_STREQ(qtr->str, n->children[1]->children[1]->tn.str);
   ASSERT_EQ(0x00FF, qtr->flags);
 
   Term_Free(qtr);

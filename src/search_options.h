@@ -103,4 +103,10 @@ typedef struct {
   } legacy;
 } RSSearchOptions;
 
+static inline void RSSearchOptions_Init(RSSearchOptions *options) {
+  memset(options, 0, sizeof(*options));
+  options->slop = -1;
+  options->fieldmask = RS_FIELDMASK_ALL;
+}
+
 #endif

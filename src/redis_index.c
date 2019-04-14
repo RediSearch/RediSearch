@@ -447,6 +447,7 @@ int Redis_LoadDocumentEx(RedisSearchCtx *ctx, RedisModuleString *key, const char
     if (rv == REDISMODULE_OK) {
       doc->numFields++;
       doc->fields[ii].name = fields[ii];
+      doc->fields[ii].indexAs = 0;
     }
   }
 
@@ -562,14 +563,15 @@ int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments, int deleteSpecKey)
 
   // Delete the numeric, tag, and geo indexes which reside on separate keys
   for (size_t i = 0; i < ctx->spec->numFields; i++) {
-    const FieldSpec *spec = ctx->spec->fields + i;
-    if (spec->type == FIELD_NUMERIC) {
-      Redis_DeleteKey(ctx->redisCtx, fmtRedisNumericIndexKey(ctx, spec->name));
-    } else if (spec->type == FIELD_TAG) {
-      Redis_DeleteKey(ctx->redisCtx, TagIndex_FormatName(ctx, spec->name));
-    } else if (spec->type == FIELD_GEO) {
-      Redis_DeleteKey(ctx->redisCtx, RedisModule_CreateStringPrintf(ctx->redisCtx, GEOINDEX_KEY_FMT,
-                                                                    ctx->spec->name, spec->name));
+    const FieldSpec *fs = ctx->spec->fields + i;
+    if (FIELD_IS(fs, INDEXFLD_T_NUMERIC)) {
+      Redis_DeleteKey(ctx->redisCtx, IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_NUMERIC));
+    }
+    if (FIELD_IS(fs, INDEXFLD_T_TAG)) {
+      Redis_DeleteKey(ctx->redisCtx, IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_TAG));
+    }
+    if (FIELD_IS(fs, INDEXFLD_T_GEO)) {
+      Redis_DeleteKey(ctx->redisCtx, IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_GEO));
     }
   }
 

@@ -157,14 +157,14 @@ void Ext_ExpandToken(struct RSQueryExpanderCtx *ctx, const char *str, size_t len
     un->opts.fieldMask = qn->opts.fieldMask;
 
     /* Append current node to the new union node as a child */
-    QueryUnionNode_AddChild(un, qn);
+    QueryNode_AddChild(un, qn);
     *ctx->currentNode = un;
   }
 
   QueryNode *exp = NewTokenNodeExpanded(q, str, len, flags);
   exp->opts.fieldMask = qn->opts.fieldMask;
   /* Now the current node must be a union node - so we just add a new token node to it */
-  QueryUnionNode_AddChild(*ctx->currentNode, exp);
+  QueryNode_AddChild(*ctx->currentNode, exp);
   // q->numTokens++;
 }
 
@@ -179,7 +179,7 @@ void Ext_ExpandTokenWithPhrase(struct RSQueryExpanderCtx *ctx, const char **toks
 
   QueryNode *ph = NewPhraseNode(exact);
   for (size_t i = 0; i < num; i++) {
-    QueryPhraseNode_AddChild(ph, NewTokenNodeExpanded(q, toks[i], strlen(toks[i]), flags));
+    QueryNode_AddChild(ph, NewTokenNodeExpanded(q, toks[i], strlen(toks[i]), flags));
   }
 
   // if we're replacing - just set the expanded phrase instead of the token
@@ -194,11 +194,11 @@ void Ext_ExpandTokenWithPhrase(struct RSQueryExpanderCtx *ctx, const char **toks
       QueryNode *un = NewUnionNode();
 
       /* Append current node to the new union node as a child */
-      QueryUnionNode_AddChild(un, qn);
+      QueryNode_AddChild(un, qn);
       *ctx->currentNode = un;
     }
     /* Now the current node must be a union node - so we just add a new token node to it */
-    QueryUnionNode_AddChild(*ctx->currentNode, ph);
+    QueryNode_AddChild(*ctx->currentNode, ph);
   }
 }
 

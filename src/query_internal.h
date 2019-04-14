@@ -45,18 +45,23 @@ struct GeoFilter;
 
 // TODO: These APIs are helpers for the generated parser. They belong in the
 // bowels of the actual parser, and should probably be a macro!
+
 QueryNode *NewQueryNode(QueryNodeType type);
+QueryNode *NewQueryNodeChildren(QueryNodeType type, QueryNode **children, size_t n);
+
 QueryNode *NewTokenNode(QueryParseCtx *q, const char *s, size_t len);
 QueryNode *NewTokenNodeExpanded(struct QueryAST *q, const char *s, size_t len, RSTokenFlags flags);
 QueryNode *NewPhraseNode(int exact);
-QueryNode *NewUnionNode();
+
+#define NewUnionNode() NewQueryNode(QN_UNION)
+#define NewWildcardNode() NewQueryNode(QN_WILDCARD)
+#define NewNotNode(child) NewQueryNodeChildren(QN_NOT, &child, 1)
+#define NewOptionalNode(child) NewQueryNodeChildren(QN_OPTIONAL, &child, 1)
+
 QueryNode *NewPrefixNode(QueryParseCtx *q, const char *s, size_t len);
 QueryNode *NewFuzzyNode(QueryParseCtx *q, const char *s, size_t len, int maxDist);
-QueryNode *NewNotNode(QueryNode *n);
-QueryNode *NewOptionalNode(QueryNode *n);
 QueryNode *NewNumericNode(const struct NumericFilter *flt);
 QueryNode *NewIdFilterNode(const t_docId *, size_t);
-QueryNode *NewWildcardNode();
 QueryNode *NewGeofilterNode(const struct GeoFilter *flt);
 QueryNode *NewTagNode(const char *tag, size_t len);
 void QueryNode_SetFieldMask(QueryNode *n, t_fieldMask mask);

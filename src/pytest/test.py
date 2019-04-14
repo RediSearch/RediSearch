@@ -62,6 +62,9 @@ def testUnionIdList(env):
         "ft.add", "test", "1", "1", "FIELDS", "tags", "alberta", "waypoint", "-113.524,53.5244"))
     env.assertOk(r.execute_command(
         "ft.add", "test", "2", "1", "FIELDS", "tags", "ontario", "waypoint", "-79.395,43.661667"))
+    
+    print r.cmd('ft.search', 'test', '@tags:{ontario}')
+
     res = r.execute_command(
         'ft.search', 'test', "@waypoint:[-113.52 53.52 20 mi]|@tags:{ontario}", 'nocontent')
     env.assertEqual(res, [2, '2', '1'])
@@ -2012,6 +2015,13 @@ def testIssue589(env):
     env.cmd('FT.CREATE', 'incidents', 'SCHEMA', 'report', 'TEXT')
     env.cmd('FT.ADD', 'incidents', 'doc1', 1.0, 'FIELDS', 'report', 'report content')
     env.expect('FT.SPELLCHECK', 'incidents', 'report :').error().contains("Syntax error at offset")
+
+def testIssue621(env):
+    env.expect('ft.create', 'test', 'SCHEMA', 'uuid', 'TAG', 'title', 'TEXT').equal('OK')
+    env.expect('ft.add', 'test', 'a', '1', 'REPLACE', 'PARTIAL', 'FIELDS', 'uuid', 'foo', 'title', 'bar').equal('OK')
+    env.expect('ft.add', 'test', 'a', '1', 'REPLACE', 'PARTIAL', 'FIELDS', 'title', 'bar').equal('OK')
+    env.expect('ft.search', 'test', '@uuid:{foo}').equal([1L, 'a', ['uuid', 'foo', 'title', 'bar']])
+
 
 def grouper(iterable, n, fillvalue=None):
     "Collect data into fixed-length chunks or blocks"

@@ -614,10 +614,7 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
   AGPLN_Init(&req->ap);
 
   RSSearchOptions *searchOpts = &req->searchopts;
-  // TODO: Default should be all fields
-  searchOpts->fieldmask = RS_FIELDMASK_ALL;
-  searchOpts->slop = -1;
-
+  RSSearchOptions_Init(searchOpts);
   if (parseQueryArgs(&ac, req, searchOpts, &req->ap, status) != REDISMODULE_OK) {
     goto error;
   }

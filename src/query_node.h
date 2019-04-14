@@ -55,10 +55,7 @@ typedef enum {
 /* A prhase node represents a list of nodes with intersection between them, or a phrase in the case
  * of several token nodes. */
 typedef struct {
-  struct RSQueryNode **children;
-  int numChildren;
   int exact;
-
 } QueryPhraseNode;
 
 /**
@@ -69,27 +66,10 @@ typedef struct {
   int dummy;
 } QueryNullNode;
 
-/* A Union node represents a set of child nodes where the index unions the result between them */
-typedef struct {
-  struct RSQueryNode **children;
-  int numChildren;
-} QueryUnionNode;
-
 typedef struct {
   const char *fieldName;
   size_t len;
-
-  struct RSQueryNode **children;
-  int numChildren;
 } QueryTagNode;
-
-typedef struct {
-  struct RSQueryNode *child;
-} QueryNotNode;
-
-typedef struct {
-  struct RSQueryNode *child;
-} QueryOptionalNode;
 
 /* A token node is a terminal, single term/token node. An expansion of synonyms is represented by a
  * Union node with several token nodes. A token can have private metadata written by expanders or
@@ -102,9 +82,6 @@ typedef struct {
   RSToken tok;
   int maxDist;
 } QueryFuzzyNode;
-
-typedef struct {
-} QueryWildcardNode;
 
 /* A node with a numeric filter */
 typedef struct {
@@ -153,6 +130,8 @@ typedef struct {
   int phonetic;
 } QueryNodeOptions;
 
+typedef QueryNullNode QueryUnionNode, QueryNotNode, QueryOptionalNode;
+
 /* QueryNode reqresents any query node in the query tree. It has a type to resolve which node it
  * is, and a union of all possible nodes  */
 typedef struct RSQueryNode {
@@ -166,25 +145,27 @@ typedef struct RSQueryNode {
     QueryNotNode inverted;
     QueryOptionalNode opt;
     QueryPrefixNode pfx;
-    QueryWildcardNode wc;
     QueryTagNode tag;
     QueryFuzzyNode fz;
     QueryLexRangeNode lxrng;
-    QueryNullNode null;
   };
 
   /* The node type, for resolving the union access */
   QueryNodeType type;
   QueryNodeOptions opts;
+  struct RSQueryNode **children;
 } QueryNode;
 
 int QueryNode_ApplyAttributes(QueryNode *qn, QueryAttribute *attr, size_t len, QueryError *status);
 
-/* Add a child to a phrase node */
-void QueryPhraseNode_AddChild(QueryNode *parent, QueryNode *child);
+void QueryNode_AddChildren(QueryNode *parent, QueryNode **children, size_t n);
+void QueryNode_AddChild(QueryNode *parent, QueryNode *child);
+void QueryNode_ClearChildren(QueryNode *parent, int shouldFree);
 
-/* Add a child to a union node  */
-void QueryUnionNode_AddChild(QueryNode *parent, QueryNode *child);
+#define QueryNode_NumChildren(qn) ((qn)->children ? array_len((qn)->children) : 0)
+#define QueryNode_GetChild(qn, ix) (QueryNode_NumChildren(qn) > ix ? (qn)->children[ix] : NULL)
 
-void QueryTagNode_AddChildren(QueryNode *parent, QueryNode **children, size_t num);
+typedef int (*QueryNode_ForEachCallback)(QueryNode *node, QueryNode *q, void *ctx);
+int QueryNode_ForEach(QueryNode *q, QueryNode_ForEachCallback callback, void *ctx, int reverse);
+
 #endif

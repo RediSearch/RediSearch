@@ -39,11 +39,18 @@ extern "C" {
 #define SPEC_STOPWORDS_STR "STOPWORDS"
 #define SPEC_NOINDEX_STR "NOINDEX"
 #define SPEC_SEPARATOR_STR "SEPARATOR"
+#define SPEC_MULTITYPE_STR "MULTITYPE"
 
-static const char *SpecTypeNames[] = {[FIELD_FULLTEXT] = SPEC_TEXT_STR,
-                                      [FIELD_NUMERIC] = NUMERIC_STR,
-                                      [FIELD_GEO] = GEO_STR,
-                                      [FIELD_TAG] = SPEC_TAG_STR};
+/**
+ * If wishing to represent field types positionally, use this
+ * enum. Since field types are a bitmask, it's pointless to waste
+ * space like this
+ */
+
+static const char *SpecTypeNames[] = {[IXFLDPOS_FULLTEXT] = SPEC_TEXT_STR,
+                                      [IXFLDPOS_NUMERIC] = NUMERIC_STR,
+                                      [IXFLDPOS_GEO] = GEO_STR,
+                                      [IXFLDPOS_TAG] = SPEC_TAG_STR};
 
 #define INDEX_SPEC_KEY_PREFIX "idx:"
 #define INDEX_SPEC_KEY_FMT INDEX_SPEC_KEY_PREFIX "%s"
@@ -99,7 +106,8 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
   (Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets | Index_StoreNumeric | \
    Index_WideSchema)
 
-#define INDEX_CURRENT_VERSION 13
+#define INDEX_CURRENT_VERSION 14
+
 // Those versions contains doc table as array, we modified it to be array of linked lists
 #define INDEX_MIN_COMPACTED_DOCTABLE_VERSION 12
 #define INDEX_MIN_COMPAT_VERSION 2
@@ -120,10 +128,22 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
 // Versions below this one do not contains expire information
 #define INDEX_MIN_EXPIRE_VERSION 13
 
+// Versions below this contain legacy types; newer versions allow a field
+// to contain multiple types
+#define INDEX_MIN_MULTITYPE_VERSION 14
+
+#define IDXFLD_LEGACY_FULLTEXT 0
+#define IDXFLD_LEGACY_NUMERIC 1
+#define IDXFLD_LEGACY_GEO 2
+#define IDXFLD_LEGACY_TAG 3
+#define IDXFLD_LEGACY_MAX 3
+
 #define Index_SupportsHighlight(spec) \
   (((spec)->flags & Index_StoreTermOffsets) && ((spec)->flags & Index_StoreByteOffsets))
 
-#define FIELD_BIT(fs) (((t_fieldMask)1) << (fs)->textOpts.id)
+#define FIELD_BIT(fs) (((t_fieldMask)1) << (fs)->ftId)
+
+typedef RedisModuleString *IndexSpecFmtStrings[INDEXFLD_NUM_TYPES];
 
 typedef struct IndexSpec {
   char *name;
@@ -148,7 +168,7 @@ typedef struct IndexSpec {
   uint64_t uniqueId;
 
   RedisModuleCtx *strCtx;
-  RedisModuleString **indexStrs;
+  IndexSpecFmtStrings *indexStrs;
   struct IndexSpecCache *spcache;
   long long timeout;
   dict *keysDict;
@@ -156,7 +176,6 @@ typedef struct IndexSpec {
   long long maxPrefixExpansions;  // -1 unlimited
   RSGetValueCallback getValue;
   void *getValueCtx;
-  size_t textFields;
 } IndexSpec;
 
 typedef struct {
@@ -253,12 +272,20 @@ void IndexSpec_StartGC(RedisModuleCtx *ctx, IndexSpec *sp, float initialHZ);
 
 /* Same as above but with ordinary strings, to allow unit testing */
 IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryError *status);
-FieldSpec *IndexSpec_CreateField(IndexSpec *sp);
+FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name);
+
+/**
+ * Gets the next text id from the index. This does not currently
+ * modify the index
+ */
+int IndexSpec_CreateTextId(const IndexSpec *sp);
 
 /* Add fields to a redis schema */
 int IndexSpec_AddFields(IndexSpec *sp, const char **argv, int argc, QueryError *status);
 int IndexSpec_AddFieldsRedisArgs(IndexSpec *sp, RedisModuleString **argv, int argc,
                                  QueryError *status);
+
+void FieldSpec_Initialize(FieldSpec *sp, FieldType types);
 
 IndexSpec *IndexSpec_Load(RedisModuleCtx *ctx, const char *name, int openWrite);
 
@@ -297,8 +324,8 @@ int IndexSpec_ParseStopWords(IndexSpec *sp, RedisModuleString **strs, size_t len
 int IndexSpec_IsStopWord(IndexSpec *sp, const char *term, size_t len);
 
 /** Returns a string suitable for indexes. This saves on string creation/destruction */
-RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs);
-RedisModuleString *IndexSpec_GetFormattedKeyByName(IndexSpec *sp, const char *s);
+RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs, FieldType forType);
+RedisModuleString *IndexSpec_GetFormattedKeyByName(IndexSpec *sp, const char *s, FieldType forType);
 
 IndexSpec *NewIndexSpec(const char *name);
 int IndexSpec_AddField(IndexSpec *sp, FieldSpec *fs);

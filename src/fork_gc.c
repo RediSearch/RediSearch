@@ -180,11 +180,12 @@ static void ForkGc_CollectGarbageFromInvIdx(ForkGCCtx *gc, RedisSearchCtx *sctx)
 
 static void ForkGc_CollectGarbageFromNumIdx(ForkGCCtx *gc, RedisSearchCtx *sctx) {
   RedisModuleKey *idxKey = NULL;
-  FieldSpec **numericFields = getFieldsByType(sctx->spec, FIELD_NUMERIC);
+  FieldSpec **numericFields = getFieldsByType(sctx->spec, INDEXFLD_T_NUMERIC);
 
   if (array_len(numericFields) != 0) {
     for (int i = 0; i < array_len(numericFields); ++i) {
-      RedisModuleString *keyName = IndexSpec_GetFormattedKey(sctx->spec, numericFields[i]);
+      RedisModuleString *keyName =
+          IndexSpec_GetFormattedKey(sctx->spec, numericFields[i], INDEXFLD_T_NUMERIC);
       NumericRangeTree *rt = OpenNumericIndex(sctx, keyName, &idxKey);
 
       NumericRangeTreeIterator *gcIterator = NumericRangeTreeIterator_New(rt);
@@ -241,10 +242,11 @@ static void ForkGc_CollectGarbageFromNumIdx(ForkGCCtx *gc, RedisSearchCtx *sctx)
 
 static void ForkGc_CollectGarbageFromTagIdx(ForkGCCtx *gc, RedisSearchCtx *sctx) {
   RedisModuleKey *idxKey = NULL;
-  FieldSpec **tagFields = getFieldsByType(sctx->spec, FIELD_TAG);
+  FieldSpec **tagFields = getFieldsByType(sctx->spec, INDEXFLD_T_TAG);
   if (array_len(tagFields) != 0) {
     for (int i = 0; i < array_len(tagFields); ++i) {
-      RedisModuleString *keyName = IndexSpec_GetFormattedKey(sctx->spec, tagFields[i]);
+      RedisModuleString *keyName =
+          IndexSpec_GetFormattedKey(sctx->spec, tagFields[i], INDEXFLD_T_TAG);
       TagIndex *tagIdx = TagIndex_Open(sctx, keyName, false, &idxKey);
       if (!tagIdx) {
         continue;

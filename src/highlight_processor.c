@@ -44,7 +44,7 @@ static int fragmentizeOffsets(IndexSpec *spec, const char *fieldName, const char
                               const RSByteOffsets *byteOffsets, FragmentList *fragList,
                               int options) {
   const FieldSpec *fs = IndexSpec_GetField(spec, fieldName, strlen(fieldName));
-  if (!fs || fs->type != FIELD_FULLTEXT) {
+  if (!fs || !FIELD_IS(fs, INDEXFLD_T_FULLTEXT)) {
     return 0;
   }
 
@@ -52,7 +52,7 @@ static int fragmentizeOffsets(IndexSpec *spec, const char *fieldName, const char
   RSOffsetIterator offsIter = RSIndexResult_IterateOffsets(indexResult);
   FragmentTermIterator fragIter = {NULL};
   RSByteOffsetIterator bytesIter;
-  if (RSByteOffset_Iterate(byteOffsets, fs->textOpts.id, &bytesIter) != REDISMODULE_OK) {
+  if (RSByteOffset_Iterate(byteOffsets, fs->ftId, &bytesIter) != REDISMODULE_OK) {
     goto done;
   }
 

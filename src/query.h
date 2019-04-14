@@ -105,9 +105,6 @@ char *QAST_DumpExplain(const QueryAST *q, const IndexSpec *spec);
 /** Print a representation of the query to standard output */
 void QAST_Print(const QueryAST *ast, const IndexSpec *spec);
 
-typedef int (*QueryNode_ForEachCallback)(QueryNode *node, void *q, void *ctx);
-int QAST_NodeForEach(QueryAST *q, QueryNode_ForEachCallback callback, void *ctx);
-
 /* Cleanup a query AST */
 void QAST_Destroy(QueryAST *q);
 

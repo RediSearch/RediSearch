@@ -53,7 +53,7 @@ const FieldSpec *IndexSpec_GetFieldCase(const IndexSpec *spec, const char *name,
 
 t_fieldMask IndexSpec_GetFieldBit(IndexSpec *spec, const char *name, size_t len) {
   const FieldSpec *sp = IndexSpec_GetField(spec, name, len);
-  if (!sp || sp->type != FIELD_FULLTEXT || !FieldSpec_IsIndexable(sp)) return 0;
+  if (!sp || !FIELD_IS(sp, INDEXFLD_T_FULLTEXT) || !FieldSpec_IsIndexable(sp)) return 0;
 
   return FIELD_BIT(sp);
 }
@@ -71,7 +71,7 @@ int IndexSpec_CheckPhoneticEnabled(const IndexSpec *sp, t_fieldMask fm) {
   for (size_t ii = 0; ii < sp->numFields; ++ii) {
     if (fm & ((t_fieldMask)1 << ii)) {
       const FieldSpec *fs = sp->fields + ii;
-      if (fs->type == FIELD_FULLTEXT && (FieldSpec_IsPhonetics(fs))) {
+      if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && (FieldSpec_IsPhonetics(fs))) {
         return 1;
       }
     }
@@ -86,7 +86,7 @@ int IndexSpec_GetFieldSortingIndex(IndexSpec *sp, const char *name, size_t len) 
 
 const char *GetFieldNameByBit(const IndexSpec *sp, t_fieldMask id) {
   for (int i = 0; i < sp->numFields; i++) {
-    if (FIELD_BIT(&sp->fields[i]) == id && sp->fields[i].type == FIELD_FULLTEXT &&
+    if (FIELD_BIT(&sp->fields[i]) == id && FIELD_IS(&sp->fields[i], INDEXFLD_T_FULLTEXT) &&
         FieldSpec_IsIndexable(&sp->fields[i])) {
       return sp->fields[i].name;
     }
@@ -119,7 +119,7 @@ FieldSpec **getFieldsByType(IndexSpec *spec, FieldType type) {
 #define FIELDS_ARRAY_CAP 2
   FieldSpec **fields = array_new(FieldSpec *, FIELDS_ARRAY_CAP);
   for (int i = 0; i < spec->numFields; ++i) {
-    if (spec->fields[i].type == type) {
+    if (FIELD_IS(spec->fields + i, type)) {
       fields = array_append(fields, &(spec->fields[i]));
     }
   }
@@ -219,10 +219,9 @@ static int parseTextField(FieldSpec *sp, ArgsCursor *ac, QueryError *status) {
   int rc;
   // this is a text field
   // init default weight and type
-  FieldSpec_InitializeText(sp);
   while (!AC_IsAtEnd(ac)) {
     if (AC_AdvanceIfMatch(ac, SPEC_NOSTEM_STR)) {
-      FieldSpec_TextNoStem(sp);
+      sp->options |= FieldSpec_NoStemming;
       continue;
 
     } else if (AC_AdvanceIfMatch(ac, SPEC_WEIGHT_STR)) {
@@ -231,7 +230,7 @@ static int parseTextField(FieldSpec *sp, ArgsCursor *ac, QueryError *status) {
         QERR_MKBADARGS_AC(status, "weight", rc);
         return 0;
       }
-      FieldSpec_TextSetWeight(sp, d);
+      sp->ftWeight = d;
       continue;
 
     } else if (AC_AdvanceIfMatch(ac, SPEC_PHONETIC_STR)) {
@@ -254,7 +253,7 @@ static int parseTextField(FieldSpec *sp, ArgsCursor *ac, QueryError *status) {
             "Portuguese (pt) and Spanish (es)");
         return 0;
       }
-      FieldSpec_TextPhonetic(sp);
+      sp->options |= FieldSpec_Phonetics;
       continue;
 
     } else {
@@ -264,27 +263,33 @@ static int parseTextField(FieldSpec *sp, ArgsCursor *ac, QueryError *status) {
   return 1;
 }
 
+void FieldSpec_Initialize(FieldSpec *sp, FieldType types) {
+  sp->types |= types;
+  if (FIELD_IS(sp, INDEXFLD_T_TAG)) {
+    sp->tagFlags = TAG_FIELD_DEFAULT_FLAGS;
+    sp->tagSep = TAG_FIELD_DEFAULT_SEP;
+  }
+}
+
 /* Parse a field definition from argv, at *offset. We advance offset as we progress.
  *  Returns 1 on successful parse, 0 otherwise */
-static int parseFieldSpec(const char *name, ArgsCursor *ac, FieldSpec *sp, QueryError *status) {
+static int parseFieldSpec(ArgsCursor *ac, FieldSpec *sp, QueryError *status) {
   if (AC_IsAtEnd(ac)) {
-    QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Field `%s` does not have a type", name);
+    QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Field `%s` does not have a type", sp->name);
     return 0;
   }
 
-  FieldSpec_SetName(sp, name);
-
   if (AC_AdvanceIfMatch(ac, SPEC_TEXT_STR)) {
+    FieldSpec_Initialize(sp, INDEXFLD_T_FULLTEXT);
     if (!parseTextField(sp, ac, status)) {
       goto error;
     }
   } else if (AC_AdvanceIfMatch(ac, NUMERIC_STR)) {
-    FieldSpec_InitializeNumeric(sp);
-
+    FieldSpec_Initialize(sp, INDEXFLD_T_NUMERIC);
   } else if (AC_AdvanceIfMatch(ac, GEO_STR)) {  // geo field
-    FieldSpec_InitializeGeo(sp);
+    FieldSpec_Initialize(sp, INDEXFLD_T_GEO);
   } else if (AC_AdvanceIfMatch(ac, SPEC_TAG_STR)) {  // tag field
-    FieldSpec_InitializeTag(sp);
+    FieldSpec_Initialize(sp, INDEXFLD_T_TAG);
     if (AC_AdvanceIfMatch(ac, SPEC_SEPARATOR_STR)) {
       if (AC_IsAtEnd(ac)) {
         QueryError_SetError(status, QUERY_EPARSEARGS, SPEC_SEPARATOR_STR " requires an argument");
@@ -296,24 +301,19 @@ static int parseFieldSpec(const char *name, ArgsCursor *ac, FieldSpec *sp, Query
                                "Tag separator must be a single character. Got `%s`", sep);
         goto error;
       }
-      FieldSpec_TagSetSeparator(sp, *sep);
+      sp->tagSep = *sep;
     }
   } else {  // not numeric and not text - nothing more supported currently
-    QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Invalid field type for field `%s`", name);
+    QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Invalid field type for field `%s`", sp->name);
     goto error;
   }
 
   while (!AC_IsAtEnd(ac)) {
     if (AC_AdvanceIfMatch(ac, SPEC_SORTABLE_STR)) {
-      // cannot sort by geo fields
-      if (sp->type == FIELD_GEO) {
-        QueryError_SetError(status, QUERY_EBADOPTION, "Geo fields cannot be sortable");
-        goto error;
-      }
       FieldSpec_SetSortable(sp);
       continue;
     } else if (AC_AdvanceIfMatch(ac, SPEC_NOINDEX_STR)) {
-      FieldSpec_SetNoIndex(sp);
+      sp->options |= FieldSpec_NotIndexable;
       continue;
     } else {
       break;
@@ -323,15 +323,34 @@ static int parseFieldSpec(const char *name, ArgsCursor *ac, FieldSpec *sp, Query
 
 error:
   if (!QueryError_HasError(status)) {
-    QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Could not parse schema for field `%s`", name);
+    QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Could not parse schema for field `%s`",
+                           sp->name);
   }
   FieldSpec_Cleanup(sp);
   return 0;
 }
 
+int IndexSpec_CreateTextId(const IndexSpec *sp) {
+  int maxId = -1;
+  for (size_t ii = 0; ii < sp->numFields; ++ii) {
+    const FieldSpec *fs = sp->fields + ii;
+    if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT)) {
+      if (fs->ftId == (t_fieldId)-1) {
+        // ignore
+        continue;
+      }
+      maxId = MAX(fs->ftId, maxId);
+    }
+  }
+
+  if (maxId + 1 >= SPEC_MAX_FIELD_ID) {
+    return -1;
+  }
+  return maxId + 1;
+}
+
 /**
  * Add fields to an existing (or newly created) index. If the addition fails,
- *
  */
 static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError *status,
                                        int isNew) {
@@ -341,15 +360,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
   }
   const size_t prevNumFields = sp->numFields;
   const size_t prevSortLen = sp->sortables->len;
-  int textId = -1;
   FieldSpec *fs = NULL;
-
-  for (size_t ii = 0; ii < sp->numFields; ++ii) {
-    const FieldSpec *fs = sp->fields + ii;
-    if (fs->type == FIELD_FULLTEXT) {
-      textId = MAX(textId, fs->textOpts.id);
-    }
-  }
 
   while (!AC_IsAtEnd(ac)) {
     size_t nfieldName = 0;
@@ -358,16 +369,16 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
       QueryError_SetError(status, QUERY_EINVAL, "Duplicate field in schema");
       goto reset;
     }
-    fs = IndexSpec_CreateField(sp);
 
-    if (!parseFieldSpec(fieldName, ac, fs, status)) {
+    fs = IndexSpec_CreateField(sp, fieldName);
+
+    if (!parseFieldSpec(ac, fs, status)) {
       goto reset;
     }
 
-    if (fs->type == FIELD_FULLTEXT && FieldSpec_IsIndexable(fs)) {
-      // make sure we don't have too many indexable fields
-      textId++;  // Explicit
-      if (textId == SPEC_MAX_FIELD_ID) {
+    if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && FieldSpec_IsIndexable(fs)) {
+      int textId = IndexSpec_CreateTextId(sp);
+      if (textId < 0) {
         QueryError_SetError(status, QUERY_ELIMIT, "Too many TEXT fields in schema");
         goto reset;
       }
@@ -385,11 +396,18 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
           goto reset;
         }
       }
-      fs->textOpts.id = textId;
+      fs->ftId = textId;
     }
 
     if (FieldSpec_IsSortable(fs)) {
-      fs->sortIdx = RSSortingTable_Add(sp->sortables, fs->name, fieldTypeToValueType(fs->type));
+      if (fs->options & FieldSpec_Dynamic) {
+        QueryError_SetError(status, QUERY_EBADOPTION, "Cannot set dynamic field to sortable");
+        goto reset;
+      }
+
+      fs->sortIdx = RSSortingTable_Add(sp->sortables, fs->name, fieldTypeToValueType(fs->types));
+    } else {
+      fs->sortIdx = -1;
     }
     if (FieldSpec_IsPhonetics(fs)) {
       sp->flags |= Index_HasPhonetic;
@@ -650,14 +668,17 @@ static void IndexSpec_FreeInternals(IndexSpec *spec) {
   if (spec->smap) {
     SynonymMap_Free(spec->smap);
   }
-
   if (spec->indexStrs) {
     for (size_t ii = 0; ii < spec->numFields; ++ii) {
-      if (spec->indexStrs[ii]) {
-        RedisModule_FreeString(spec->strCtx, spec->indexStrs[ii]);
+      for (size_t jj = 0; jj < INDEXFLD_NUM_TYPES; ++jj) {
+        if (spec->indexStrs[ii][jj]) {
+          RedisModule_FreeString(spec->strCtx, spec->indexStrs[ii][jj]);
+        }
       }
     }
     rm_free(spec->indexStrs);
+  }
+  if (spec->strCtx) {
     RedisModule_FreeThreadSafeContext(spec->strCtx);
   }
   rm_free(spec);
@@ -735,38 +756,47 @@ IndexSpec *IndexSpec_Load(RedisModuleCtx *ctx, const char *name, int openWrite) 
   return IndexSpec_LoadEx(ctx, s, openWrite, NULL);
 }
 
-RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs) {
+RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs,
+                                             FieldType forType) {
   if (!sp->indexStrs) {
     sp->indexStrs = rm_calloc(SPEC_MAX_FIELDS, sizeof(*sp->indexStrs));
     sp->strCtx = RedisModule_GetThreadSafeContext(NULL);
   }
-  RedisModuleString *ret = sp->indexStrs[fs->index];
+
+  RedisModuleString *ret = sp->indexStrs[fs->index][INDEXTYPE_TO_POS(forType)];
   if (!ret) {
     RedisSearchCtx sctx = {.redisCtx = sp->strCtx, .spec = sp};
-    if (fs->type == FIELD_NUMERIC) {
-      ret = fmtRedisNumericIndexKey(&sctx, fs->name);
-    } else if (fs->type == FIELD_TAG) {
-      ret = TagIndex_FormatName(&sctx, fs->name);
-    } else if (fs->type == FIELD_GEO) {
-      ret = RedisModule_CreateStringPrintf(sp->strCtx, GEOINDEX_KEY_FMT, sp->name, fs->name);
-    } else {
-      // Unknown
-      ret = NULL;
+    switch (forType) {
+      case INDEXFLD_T_NUMERIC:
+        ret = fmtRedisNumericIndexKey(&sctx, fs->name);
+        break;
+      case INDEXFLD_T_TAG:
+        ret = TagIndex_FormatName(&sctx, fs->name);
+        break;
+      case INDEXFLD_T_GEO:
+        ret = RedisModule_CreateStringPrintf(sp->strCtx, GEOINDEX_KEY_FMT, sp->name, fs->name);
+        break;
+      case INDEXFLD_T_FULLTEXT:  // Text fields don't get a per-field index
+      default:
+        ret = NULL;
+        abort();
+        break;
     }
   }
   if (!ret) {
     return NULL;
   }
-  sp->indexStrs[fs->index] = ret;
+  sp->indexStrs[fs->index][forType] = ret;
   return ret;
 }
 
-RedisModuleString *IndexSpec_GetFormattedKeyByName(IndexSpec *sp, const char *s) {
+RedisModuleString *IndexSpec_GetFormattedKeyByName(IndexSpec *sp, const char *s,
+                                                   FieldType forType) {
   const FieldSpec *fs = IndexSpec_GetField(sp, s, strlen(s));
   if (!fs) {
     return NULL;
   }
-  return IndexSpec_GetFormattedKey(sp, fs);
+  return IndexSpec_GetFormattedKey(sp, fs, forType);
 }
 
 t_fieldMask IndexSpec_ParseFieldMask(IndexSpec *sp, RedisModuleString **argv, int argc) {
@@ -829,16 +859,21 @@ IndexSpec *NewIndexSpec(const char *name) {
   sp->maxPrefixExpansions = RSGlobalConfig.maxPrefixExpansions;
   sp->getValue = NULL;
   sp->getValueCtx = NULL;
-  sp->textFields = 0;
   memset(&sp->stats, 0, sizeof(sp->stats));
   return sp;
 }
 
-FieldSpec *IndexSpec_CreateField(IndexSpec *sp) {
+FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name) {
   sp->fields = rm_realloc(sp->fields, sizeof(*sp->fields) * (sp->numFields + 1));
   FieldSpec *fs = sp->fields + sp->numFields;
   memset(fs, 0, sizeof(*fs));
-  FieldSpec_SetIndex(fs, sp->numFields++);
+  fs->index = sp->numFields++;
+  fs->name = rm_strdup(name);
+  fs->ftId = (t_fieldId)-1;
+  fs->ftWeight = 1.0;
+  fs->sortIdx = -1;
+  fs->tagFlags = TAG_FIELD_DEFAULT_FLAGS;
+  fs->tagFlags = TAG_FIELD_DEFAULT_SEP;
   return fs;
 }
 
@@ -873,15 +908,15 @@ static void FieldSpec_RdbLoadCompat8(RedisModuleIO *rdb, FieldSpec *f, int encve
   // the old versions encoded the bit id of the field directly
   // we convert that to a power of 2
   if (encver < INDEX_MIN_WIDESCHEMA_VERSION) {
-    f->textOpts.id = bit(RedisModule_LoadUnsigned(rdb));
+    f->ftId = bit(RedisModule_LoadUnsigned(rdb));
   } else {
     // the new version encodes just the power of 2 of the bit
-    f->textOpts.id = RedisModule_LoadUnsigned(rdb);
+    f->ftId = RedisModule_LoadUnsigned(rdb);
   }
-  f->type = RedisModule_LoadUnsigned(rdb);
-  f->textOpts.weight = RedisModule_LoadDouble(rdb);
-  f->tagOpts.flags = TAG_FIELD_DEFAULT_FLAGS;
-  f->tagOpts.separator = ',';
+  f->types = RedisModule_LoadUnsigned(rdb);
+  f->ftWeight = RedisModule_LoadDouble(rdb);
+  f->tagFlags = TAG_FIELD_DEFAULT_FLAGS;
+  f->tagSep = TAG_FIELD_DEFAULT_SEP;
   if (encver >= 4) {
     f->options = RedisModule_LoadUnsigned(rdb);
     f->sortIdx = RedisModule_LoadSigned(rdb);
@@ -890,18 +925,24 @@ static void FieldSpec_RdbLoadCompat8(RedisModuleIO *rdb, FieldSpec *f, int encve
 
 static void FieldSpec_RdbSave(RedisModuleIO *rdb, FieldSpec *f) {
   RedisModule_SaveStringBuffer(rdb, f->name, strlen(f->name) + 1);
-  RedisModule_SaveUnsigned(rdb, f->type);
+  RedisModule_SaveUnsigned(rdb, f->types);
   RedisModule_SaveUnsigned(rdb, f->options);
   RedisModule_SaveSigned(rdb, f->sortIdx);
   // Save text specific options
-  if (f->type == FIELD_FULLTEXT) {
-    RedisModule_SaveUnsigned(rdb, f->textOpts.id);
-    RedisModule_SaveDouble(rdb, f->textOpts.weight);
-  } else if (f->type == FIELD_TAG) {
-    RedisModule_SaveUnsigned(rdb, f->tagOpts.flags);
-    RedisModule_SaveStringBuffer(rdb, &f->tagOpts.separator, 1);
+  if (FIELD_IS(f, INDEXFLD_T_FULLTEXT) || (f->options & FieldSpec_Dynamic)) {
+    RedisModule_SaveUnsigned(rdb, f->ftId);
+    RedisModule_SaveDouble(rdb, f->ftWeight);
+  }
+  if (FIELD_IS(f, INDEXFLD_T_TAG) || (f->options & FieldSpec_Dynamic)) {
+    RedisModule_SaveUnsigned(rdb, f->tagFlags);
+    RedisModule_SaveStringBuffer(rdb, &f->tagSep, 1);
   }
 }
+
+static const FieldType fieldTypeMap[] = {[IDXFLD_LEGACY_FULLTEXT] = INDEXFLD_T_FULLTEXT,
+                                         [IDXFLD_LEGACY_NUMERIC] = INDEXFLD_T_NUMERIC,
+                                         [IDXFLD_LEGACY_GEO] = INDEXFLD_T_GEO,
+                                         [IDXFLD_LEGACY_TAG] = INDEXFLD_T_TAG};
 
 static void FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
 
@@ -911,24 +952,28 @@ static void FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
   }
 
   f->name = RedisModule_LoadStringBuffer(rdb, NULL);
-  f->type = RedisModule_LoadUnsigned(rdb);
+  f->types = RedisModule_LoadUnsigned(rdb);
   f->options = RedisModule_LoadUnsigned(rdb);
   f->sortIdx = RedisModule_LoadSigned(rdb);
 
+  if (encver < INDEX_MIN_MULTITYPE_VERSION) {
+    assert(f->types <= IDXFLD_LEGACY_MAX);
+    f->types = fieldTypeMap[f->types];
+  }
+
   // Load text specific options
-  if (f->type == FIELD_FULLTEXT) {
-    f->textOpts.id = RedisModule_LoadUnsigned(rdb);
-    f->textOpts.weight = RedisModule_LoadDouble(rdb);
+  if (FIELD_IS(f, INDEXFLD_T_FULLTEXT) || (f->options & FieldSpec_Dynamic)) {
+    f->ftId = RedisModule_LoadUnsigned(rdb);
+    f->ftWeight = RedisModule_LoadDouble(rdb);
   }
   // Load tag specific options
-  if (f->type == FIELD_TAG) {
-    f->tagOpts.flags = RedisModule_LoadUnsigned(rdb);
+  if (FIELD_IS(f, INDEXFLD_T_TAG) || (f->options & FieldSpec_Dynamic)) {
+    f->tagFlags = RedisModule_LoadUnsigned(rdb);
     // Load the separator
     size_t l;
     char *s = RedisModule_LoadStringBuffer(rdb, &l);
     assert(l == 1);
-
-    f->tagOpts.separator = *s;
+    f->tagSep = *s;
     rm_free(s);
   }
 }
@@ -987,7 +1032,7 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
     if (FieldSpec_IsSortable(fs)) {
       assert(fs->sortIdx < RS_SORTABLES_MAX);
       sp->sortables->fields[fs->sortIdx].name = fs->name;
-      sp->sortables->fields[fs->sortIdx].type = fieldTypeToValueType(fs->type);
+      sp->sortables->fields[fs->sortIdx].type = fieldTypeToValueType(fs->types);
       sp->sortables->len = MAX(sp->sortables->len, fs->sortIdx + 1);
     }
   }

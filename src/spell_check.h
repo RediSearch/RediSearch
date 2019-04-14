@@ -23,6 +23,7 @@ typedef struct SpellCheckCtx {
   const char **excludeDict;
   long long distance;
   bool fullScoreInfo;
+  size_t results;
 } SpellCheckCtx;
 
 RS_Suggestions *RS_SuggestionsCreate();

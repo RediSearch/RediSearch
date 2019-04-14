@@ -105,7 +105,7 @@ TagIndex *NewTagIndex();
 void TagIndex_Free(void *p);
 
 /* Preprocess a document tag field, returning a vector of all tags split from the content */
-char **TagIndex_Preprocess(const TagFieldOptions *opts, const DocumentField *data);
+char **TagIndex_Preprocess(char sep, TagFieldFlags flags, const DocumentField *data);
 
 static inline void TagIndex_FreePreprocessedData(char **s) {
   array_foreach(s, tmpv, { free(tmpv); });
@@ -117,7 +117,7 @@ size_t TagIndex_Index(TagIndex *idx, const char **values, size_t n, t_docId docI
 
 /* Open an index reader to iterate a tag index for a specific tag. Used at query evaluation time.
  * Returns NULL if there is no such tag in the index */
-IndexIterator *TagIndex_OpenReader(TagIndex *idx, IndexSpec* sp, const char *value, size_t len,
+IndexIterator *TagIndex_OpenReader(TagIndex *idx, IndexSpec *sp, const char *value, size_t len,
                                    double weight);
 
 void TagIndex_RegisterConcurrentIterators(TagIndex *idx, ConcurrentSearchCtx *conc,

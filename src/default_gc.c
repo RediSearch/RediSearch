@@ -206,7 +206,7 @@ static RedisModuleString *getRandomFieldByType(IndexSpec *spec, FieldType type) 
   // choose random tag field
   int randomIndex = rand() % array_len(tagFields);
 
-  RedisModuleString *ret = IndexSpec_GetFormattedKey(spec, tagFields[randomIndex]);
+  RedisModuleString *ret = IndexSpec_GetFormattedKey(spec, tagFields[randomIndex], type);
   array_free(tagFields);
   return ret;
 }
@@ -224,7 +224,7 @@ size_t gc_TagIndex(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status) {
   }
   IndexSpec *spec = sctx->spec;
 
-  RedisModuleString *keyName = getRandomFieldByType(spec, FIELD_TAG);
+  RedisModuleString *keyName = getRandomFieldByType(spec, INDEXFLD_T_TAG);
   if (!keyName) {
     goto end;
   }
@@ -300,7 +300,7 @@ size_t gc_NumericIndex(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status
   }
   IndexSpec *spec = sctx->spec;
   // find all the numeric fields
-  numericFields = getFieldsByType(spec, FIELD_NUMERIC);
+  numericFields = getFieldsByType(spec, INDEXFLD_T_NUMERIC);
 
   if (array_len(numericFields) == 0) {
     goto end;
@@ -312,7 +312,8 @@ size_t gc_NumericIndex(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status
            array_len(gc->numericGCCtx));  // it is not possible to remove fields
     gc_FreeNumericGcCtxArray(gc);
     for (int i = 0; i < array_len(numericFields); ++i) {
-      RedisModuleString *keyName = IndexSpec_GetFormattedKey(spec, numericFields[i]);
+      RedisModuleString *keyName =
+          IndexSpec_GetFormattedKey(spec, numericFields[i], INDEXFLD_T_NUMERIC);
       NumericRangeTree *rt = OpenNumericIndex(sctx, keyName, &idxKey);
       // if we could not open the numeric field we probably have a
       // corruption in our data, better to know it now.
@@ -327,7 +328,8 @@ size_t gc_NumericIndex(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status
   NumericFieldGCCtx *numericGcCtx = gc->numericGCCtx[randomIndex];
 
   // open the relevent numeric index to check that our pointer is valid
-  RedisModuleString *keyName = IndexSpec_GetFormattedKey(spec, numericFields[randomIndex]);
+  RedisModuleString *keyName =
+      IndexSpec_GetFormattedKey(spec, numericFields[randomIndex], INDEXFLD_T_NUMERIC);
   NumericRangeTree *rt = OpenNumericIndex(sctx, keyName, &idxKey);
   if (idxKey) RedisModule_CloseKey(idxKey);
 

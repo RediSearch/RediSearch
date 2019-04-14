@@ -10,6 +10,8 @@
 #include "numeric_filter.h"
 #include "query.h"
 
+static void RS_ResultsIteratorFree(struct RS_ApiIter* iter);
+
 int RS_GetCApiVersion() {
   return REDISEARCH_CAPI_VERSION;
 }
@@ -24,7 +26,7 @@ static void valFreeCb(void* unused, void* p) {
   free(kdv);
 }
 
-IndexSpec* RS_CreateIndex(const char* name, RSGetValueCallback getValue, void* getValueCtx) {
+static IndexSpec* RS_CreateIndex(const char* name, RSGetValueCallback getValue, void* getValueCtx) {
   IndexSpec* spec = NewIndexSpec(name);
   spec->flags |= Index_Temporary;  // temporary is so that we will not use threads!!
 
@@ -43,79 +45,83 @@ IndexSpec* RS_CreateIndex(const char* name, RSGetValueCallback getValue, void* g
   return spec;
 }
 
-void RS_DropIndex(IndexSpec* sp) {
+static void RS_DropIndex(IndexSpec* sp) {
   dict* d = sp->keysDict;
   dictRelease(d);
   sp->keysDict = NULL;
   IndexSpec_FreeSync(sp);
 }
 
-static inline FieldSpec* RS_CreateField(IndexSpec* sp, const char* name) {
-  FieldSpec* fs = IndexSpec_CreateField(sp);
-  FieldSpec_SetName(fs, name);
+static RSField* RS_CreateField(IndexSpec* sp, const char* name, unsigned types, unsigned options) {
+  assert(types);
+  RSField* fs = IndexSpec_CreateField(sp, name);
+  int numTypes = 0;
+
+  if (types & RSFLDTYPE_FULLTEXT) {
+    numTypes++;
+    int txtId = IndexSpec_CreateTextId(sp);
+    if (txtId < 0) {
+      return NULL;
+    }
+    fs->ftId = txtId;
+    FieldSpec_Initialize(fs, INDEXFLD_T_FULLTEXT);
+  }
+
+  if (types & RSFLDTYPE_NUMERIC) {
+    numTypes++;
+    FieldSpec_Initialize(fs, INDEXFLD_T_NUMERIC);
+  }
+  if (types & RSFLDTYPE_GEO) {
+    FieldSpec_Initialize(fs, INDEXFLD_T_GEO);
+    numTypes++;
+  }
+  if (types & RSFLDTYPE_TAG) {
+    FieldSpec_Initialize(fs, INDEXFLD_T_TAG);
+    numTypes++;
+  }
+
+  if (numTypes > 1) {
+    fs->options |= FieldSpec_Dynamic;
+  }
+
+  if (options & RSFLDOPT_NOINDEX) {
+    fs->options |= FieldSpec_NotIndexable;
+  }
+  if (options & RSFLDOPT_SORTABLE) {
+    fs->options |= FieldSpec_Sortable;
+    fs->sortIdx = RSSortingTable_Add(sp->sortables, fs->name, fieldTypeToValueType(fs->types));
+  }
+  if (options & RSFLDOPT_TXTNOSTEM) {
+    fs->options |= FieldSpec_NoStemming;
+  }
+  if (options & RSFLDOPT_TXTPHONETIC) {
+    fs->options |= FieldSpec_Phonetics;
+    sp->flags |= Index_HasPhonetic;
+  }
+
   return fs;
 }
 
-FieldSpec* RS_CreateTextField(IndexSpec* sp, const char* name) {
-  FieldSpec* fs = RS_CreateField(sp, name);
-  FieldSpec_InitializeText(fs);
-  fs->textOpts.id = sp->textFields++;
-  return fs;
+static void RS_TextFieldSetWeight(IndexSpec* sp, FieldSpec* fs, double w) {
+  assert(FIELD_IS(fs, INDEXFLD_T_FULLTEXT));
+  fs->ftWeight = w;
 }
 
-void RS_TextFieldSetWeight(FieldSpec* fs, double w) {
-  assert(fs->type == FIELD_FULLTEXT);
-  FieldSpec_TextSetWeight(fs, w);
+static void RS_TagSetSeparator(FieldSpec* fs, char sep) {
+  assert(FIELD_IS(fs, INDEXFLD_T_TAG));
+  fs->tagSep = sep;
 }
 
-void RS_TextFieldNoStemming(FieldSpec* fs) {
-  assert(fs->type == FIELD_FULLTEXT);
-  FieldSpec_TextNoStem(fs);
+static Document* RS_CreateDocument(const void* docKey, size_t len, double score, const char* lang) {
+  RedisModuleString* docKeyStr = RedisModule_CreateString(NULL, docKey, len);
+  const char* language = lang ? lang : "english";
+  Document* ret = rm_calloc(1, sizeof(*ret));
+  Document_Init(ret, docKeyStr, score, 0, language, NULL, 0);
+  ret->language = strdup(ret->language);
+  return ret;
 }
 
-void RS_TextFieldPhonetic(FieldSpec* fs, IndexSpec* sp) {
-  assert(fs->type == FIELD_FULLTEXT);
-  FieldSpec_TextPhonetic(fs);
-  sp->flags |= Index_HasPhonetic;
-}
-
-FieldSpec* RS_CreateGeoField(IndexSpec* sp, const char* name) {
-  FieldSpec* fs = RS_CreateField(sp, name);
-  FieldSpec_InitializeGeo(fs);
-  return fs;
-}
-
-FieldSpec* RS_CreateNumericField(IndexSpec* sp, const char* name) {
-  FieldSpec* fs = RS_CreateField(sp, name);
-  FieldSpec_InitializeNumeric(fs);
-  return fs;
-}
-
-FieldSpec* RS_CreateTagField(IndexSpec* sp, const char* name) {
-  FieldSpec* fs = RS_CreateField(sp, name);
-  FieldSpec_InitializeTag(fs);
-  return fs;
-}
-
-void RS_TagSetSeparator(FieldSpec* fs, char sep) {
-  assert(fs->type == FIELD_TAG);
-  FieldSpec_TagSetSeparator(fs, sep);
-}
-
-void RS_FieldSetSortable(FieldSpec* fs, IndexSpec* sp) {
-  FieldSpec_SetSortable(fs);
-  fs->sortIdx = RSSortingTable_Add(sp->sortables, fs->name, fieldTypeToValueType(fs->type));
-}
-
-void RS_FieldSetNoIndex(FieldSpec* fs) {
-  FieldSpec_SetNoIndex(fs);
-}
-
-Document* RS_CreateDocument(const void* docKey, size_t len, double score, const char* lang) {
-  return Document_Create(docKey, len, score, lang);
-}
-
-int RS_DropDocument(IndexSpec* sp, const void* docKey, size_t len) {
+static int RS_DropDocument(IndexSpec* sp, const void* docKey, size_t len) {
   RedisModuleString* docId = RedisModule_CreateString(NULL, docKey, len);
   t_docId id = DocTable_GetIdR(&sp->docs, docId);
   if (id == 0) {
@@ -130,18 +136,27 @@ int RS_DropDocument(IndexSpec* sp, const void* docKey, size_t len) {
   return 0;
 }
 
-void RS_DocumentAddTextField(Document* d, const char* fieldName, const char* val, size_t n) {
-  Document_AddTextField(d, fieldName, val, n);
+static void RS_DocumentAddField(Document* d, const char* fieldName, RedisModuleString* value,
+                                unsigned as) {
+  Document_AddField(d, fieldName, value, as);
+  RedisModule_RetainString(NULL, value);
 }
 
-void RS_DocumentAddNumericField(Document* d, const char* fieldName, double num) {
-  Document_AddNumericField(d, fieldName, num);
+static void RS_DocumentAddFieldString(Document* d, const char* fieldname, const char* s, size_t n,
+                                      unsigned as) {
+  RedisModuleString* r = RedisModule_CreateString(NULL, s, n);
+  Document_AddField(d, fieldname, r, as);
+}
+
+static void RS_DocumentAddFieldNumber(Document* d, const char* fieldname, double n, unsigned as) {
+  RedisModuleString* r = RedisModule_CreateStringPrintf(NULL, "%lf", n);
+  Document_AddField(d, fieldname, r, as);
 }
 
 static void RS_AddDocDone(RSAddDocumentCtx* aCtx, RedisModuleCtx* ctx, void* unused) {
 }
 
-void RS_SpecAddDocument(IndexSpec* sp, Document* d) {
+static void RS_SpecAddDocument(IndexSpec* sp, Document* d) {
   uint32_t options = 0;
   QueryError status = {0};
   RSAddDocumentCtx* aCtx = NewAddDocumentCtx(sp, d, &status);
@@ -157,7 +172,7 @@ void RS_SpecAddDocument(IndexSpec* sp, Document* d) {
   rm_free(d);
 }
 
-QueryNode* RS_CreateTokenNode(IndexSpec* sp, const char* fieldName, const char* token) {
+static QueryNode* RS_CreateTokenNode(IndexSpec* sp, const char* fieldName, const char* token) {
   QueryNode* ret = NewQueryNode(QN_TOKEN);
 
   ret->tn = (QueryTokenNode){
@@ -168,8 +183,8 @@ QueryNode* RS_CreateTokenNode(IndexSpec* sp, const char* fieldName, const char* 
   return ret;
 }
 
-QueryNode* RS_CreateNumericNode(IndexSpec* sp, const char* field, double max, double min,
-                                int includeMax, int includeMin) {
+static QueryNode* RS_CreateNumericNode(IndexSpec* sp, const char* field, double max, double min,
+                                       int includeMax, int includeMin) {
   QueryNode* ret = NewQueryNode(QN_NUMERIC);
   ret->nn.nf = NewNumericFilter(min, max, includeMin, includeMax);
   ret->nn.nf->fieldName = strdup(field);
@@ -177,7 +192,7 @@ QueryNode* RS_CreateNumericNode(IndexSpec* sp, const char* field, double max, do
   return ret;
 }
 
-QueryNode* RS_CreatePrefixNode(IndexSpec* sp, const char* fieldName, const char* s) {
+static QueryNode* RS_CreatePrefixNode(IndexSpec* sp, const char* fieldName, const char* s) {
   QueryNode* ret = NewQueryNode(QN_PREFX);
   ret->pfx =
       (QueryPrefixNode){.str = (char*)strdup(s), .len = strlen(s), .expanded = 0, .flags = 0};
@@ -187,8 +202,8 @@ QueryNode* RS_CreatePrefixNode(IndexSpec* sp, const char* fieldName, const char*
   return ret;
 }
 
-QueryNode* RS_CreateLexRangeNode(IndexSpec* sp, const char* fieldName, const char* begin,
-                                 const char* end) {
+static QueryNode* RS_CreateLexRangeNode(IndexSpec* sp, const char* fieldName, const char* begin,
+                                        const char* end) {
   QueryNode* ret = NewQueryNode(QN_LEXRANGE);
   if (begin) {
     ret->lxrng.begin = begin;
@@ -202,82 +217,88 @@ QueryNode* RS_CreateLexRangeNode(IndexSpec* sp, const char* fieldName, const cha
   return ret;
 }
 
-QueryNode* RS_CreateTagNode(IndexSpec* sp, const char* field) {
+static QueryNode* RS_CreateTagNode(IndexSpec* sp, const char* field) {
   QueryNode* ret = NewQueryNode(QN_TAG);
   ret->tag.fieldName = strdup(field);
   ret->tag.len = strlen(field);
-  ret->tag.numChildren = 0;
-  ret->tag.children = NULL;
   ret->opts.fieldMask = IndexSpec_GetFieldBit(sp, field, strlen(field));
   return ret;
 }
 
-void RS_TagNodeAddChild(QueryNode* qn, QueryNode* child) {
-  QueryTagNode_AddChildren(qn, &child, 1);
-}
-
-QueryNode* RS_CreateIntersectNode(IndexSpec* sp, int exact) {
+static QueryNode* RS_CreateIntersectNode(IndexSpec* sp, int exact) {
   QueryNode* ret = NewQueryNode(QN_PHRASE);
-  ret->pn = (QueryPhraseNode){.children = NULL, .numChildren = 0, .exact = exact};
+  ret->pn.exact = exact;
   return ret;
 }
 
-void RS_IntersectNodeAddChild(QueryNode* qn, QueryNode* child) {
-  QueryPhraseNode_AddChild(qn, child);
+static QueryNode* RS_CreateUnionNode(IndexSpec* sp) {
+  return NewQueryNode(QN_UNION);
 }
 
-void RS_IntersectNodeClearChildren(QueryNode* qn) {
-  assert(qn->type == QN_PHRASE);
-  qn->pn.numChildren = 0;
-}
-
-size_t RS_IntersectNodeGetNumChildren(QueryNode* qn) {
-  assert(qn->type == QN_PHRASE);
-  return qn->pn.numChildren;
-}
-
-QueryNode* RS_IntersectNodeGetChild(QueryNode* qn, size_t index) {
-  assert(qn->type == QN_PHRASE);
-  assert(index >= 0 && index < qn->pn.numChildren);
-  return qn->pn.children[index];
-}
-
-QueryNode* RS_CreateUnionNode(IndexSpec* sp) {
-  QueryNode* ret = NewQueryNode(QN_UNION);
-  ret->un = (QueryUnionNode){.children = NULL, .numChildren = 0};
-  return ret;
-}
-
-void RS_UnionNodeAddChild(QueryNode* qn, QueryNode* child) {
-  assert(qn->type == QN_UNION);
-  QueryUnionNode_AddChild(qn, child);
-}
-
-void RS_UnionNodeClearChildren(QueryNode* qn) {
-  assert(qn->type == QN_UNION);
-  qn->un.numChildren = 0;
-}
-
-size_t RS_UnionNodeGetNumChildren(QueryNode* qn) {
-  assert(qn->type == QN_UNION);
-  return qn->un.numChildren;
-}
-
-QueryNode* RS_UnionNodeGetChild(QueryNode* qn, size_t index) {
-  assert(qn->type == QN_UNION);
-  assert(index >= 0 && index < qn->un.numChildren);
-  return qn->un.children[index];
-}
-
-int RS_QueryNodeGetFieldMask(QueryNode* qn) {
+static int RS_QueryNodeGetFieldMask(QueryNode* qn) {
   return qn->opts.fieldMask;
 }
 
-IndexIterator* RS_GetResultsIterator(QueryNode* qn, IndexSpec* sp) {
-  RedisSearchCtx sctx = {.redisCtx = NULL, .spec = sp};
+#define RS_QueryNodeAddChild QueryNode_AddChild
+
+static void RS_QueryNodeClearChildren(QueryNode* qn) {
+  QueryNode_ClearChildren(qn, 1);
+}
+
+static QueryNode* RS_QueryNodeGetChild(QueryNode* qn, size_t ix) {
+  return QueryNode_GetChild(qn, ix);
+}
+
+static size_t RS_QueryNodeNumChildren(const QueryNode* qn) {
+  return QueryNode_NumChildren(qn);
+}
+
+typedef struct RS_ApiIter {
+  IndexIterator* internal;
+  QueryAST qast;  // Used for string queries..
+} RS_ApiIter;
+
+static RS_ApiIter* RS_IterateQuery(IndexSpec* sp, const char* s, size_t n, char** error) {
+  RS_ApiIter* ret = rm_calloc(1, sizeof(*ret));
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(NULL, sp);
+  RSSearchOptions options = {0};
+  QueryError status = {0};
+  RSSearchOptions_Init(&options);
+
+  if (QAST_Parse(&ret->qast, &sctx, &options, s, n, &status) != REDISMODULE_OK) {
+    goto end;
+  }
+
+  if (QAST_Expand(&ret->qast, NULL, &options, &sctx, &status) != REDISMODULE_OK) {
+    goto end;
+  }
+
+  ret->internal = QAST_Iterate(&ret->qast, &options, &sctx, NULL, &status);
+  if (!ret->internal) {
+    goto end;
+  }
+
+  // dummy statement for goto
+  ;
+end:
+  if (QueryError_HasError(&status)) {
+    if (ret) {
+      RS_ResultsIteratorFree(ret);
+      ret = NULL;
+    }
+    if (error) {
+      *error = rm_strdup(QueryError_GetError(&status));
+    }
+  }
+  QueryError_ClearError(&status);
+  return ret;
+}
+
+static RS_ApiIter* RS_GetResultsIterator(QueryNode* qn, IndexSpec* sp) {
+  RS_ApiIter* ret = rm_calloc(1, sizeof(*ret));
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(NULL, sp);
   RSSearchOptions searchOpts = {0};
-  searchOpts.fieldmask = RS_FIELDMASK_ALL;
-  searchOpts.slop = -1;
+  RSSearchOptions_Init(&searchOpts);
 
   QueryAST ast = {.root = qn};
 
@@ -291,22 +312,26 @@ IndexIterator* RS_GetResultsIterator(QueryNode* qn, IndexSpec* sp) {
       .docTable = &sp->docs,
       .sctx = &sctx,
   };
-  IndexIterator* ret = Query_EvalNode(&qectx, ast.root);
+  ret->internal = Query_EvalNode(&qectx, ast.root);
+  if (!ret->internal) {
+    rm_free(ret);
+    ret = NULL;
+  }
   QueryNode_Free(qn);
   return ret;
 }
 
-void RS_QueryNodeFree(QueryNode* qn) {
+static void RS_QueryNodeFree(QueryNode* qn) {
   QueryNode_Free(qn);
 }
 
-int RS_QueryNodeType(QueryNode* qn) {
+static int RS_QueryNodeType(QueryNode* qn) {
   return qn->type;
 }
 
-const void* RS_ResultsIteratorNext(IndexIterator* iter, IndexSpec* sp, size_t* len) {
+static const void* RS_ResultsIteratorNext(RS_ApiIter* iter, IndexSpec* sp, size_t* len) {
   RSIndexResult* e = NULL;
-  while (iter->Read(iter->ctx, &e) != INDEXREAD_EOF) {
+  while (iter->internal->Read(iter->internal->ctx, &e) != INDEXREAD_EOF) {
     const char* docId = DocTable_GetKey(&sp->docs, e->docId, len);
     if (docId) {
       return docId;
@@ -315,69 +340,27 @@ const void* RS_ResultsIteratorNext(IndexIterator* iter, IndexSpec* sp, size_t* l
   return NULL;
 }
 
-void RS_ResultsIteratorFree(IndexIterator* iter) {
-  iter->Free(iter);
+static void RS_ResultsIteratorFree(RS_ApiIter* iter) {
+  if (iter->internal) {
+    iter->internal->Free(iter->internal);
+  }
+  QAST_Destroy(&iter->qast);
+  rm_free(iter);
 }
 
-void RS_ResultsIteratorReset(RSResultsIterator* iter) {
-  iter->Rewind(iter->ctx);
+static void RS_ResultsIteratorReset(RS_ApiIter* iter) {
+  iter->internal->Rewind(iter->internal->ctx);
 }
 
-#define REGISTER_API(name, registerApiCallback)                                \
-  if (registerApiCallback("RediSearch_" #name, RS_##name) != REDISMODULE_OK) { \
-    printf("could not register RediSearch_" #name "\r\n");                     \
-    return REDISMODULE_ERR;                                                    \
+#define REGISTER_API(name)                                                   \
+  if (moduleRegisterApi("RediSearch_" #name, RS_##name) != REDISMODULE_OK) { \
+    printf("could not register RediSearch_" #name "\r\n");                   \
+    return REDISMODULE_ERR;                                                  \
   }
 
 int moduleRegisterApi(const char* funcname, void* funcptr);
 
 int RS_InitializeLibrary(RedisModuleCtx* ctx) {
-  REGISTER_API(GetCApiVersion, moduleRegisterApi);
-
-  REGISTER_API(CreateIndex, moduleRegisterApi);
-  REGISTER_API(DropIndex, moduleRegisterApi);
-  REGISTER_API(CreateTextField, moduleRegisterApi);
-  REGISTER_API(TextFieldSetWeight, moduleRegisterApi);
-  REGISTER_API(TextFieldNoStemming, moduleRegisterApi);
-  REGISTER_API(TextFieldPhonetic, moduleRegisterApi);
-  REGISTER_API(CreateGeoField, moduleRegisterApi);
-  REGISTER_API(CreateNumericField, moduleRegisterApi);
-  REGISTER_API(CreateTagField, moduleRegisterApi);
-  REGISTER_API(TagSetSeparator, moduleRegisterApi);
-  REGISTER_API(FieldSetSortable, moduleRegisterApi);
-  REGISTER_API(FieldSetNoIndex, moduleRegisterApi);
-
-  REGISTER_API(CreateDocument, moduleRegisterApi);
-  REGISTER_API(DropDocument, moduleRegisterApi);
-  REGISTER_API(DocumentAddTextField, moduleRegisterApi);
-  REGISTER_API(DocumentAddNumericField, moduleRegisterApi);
-
-  REGISTER_API(SpecAddDocument, moduleRegisterApi);
-
-  REGISTER_API(CreateTokenNode, moduleRegisterApi);
-  REGISTER_API(CreateNumericNode, moduleRegisterApi);
-  REGISTER_API(CreatePrefixNode, moduleRegisterApi);
-  REGISTER_API(CreateLexRangeNode, moduleRegisterApi);
-  REGISTER_API(CreateTagNode, moduleRegisterApi);
-  REGISTER_API(TagNodeAddChild, moduleRegisterApi);
-  REGISTER_API(CreateIntersectNode, moduleRegisterApi);
-  REGISTER_API(IntersectNodeAddChild, moduleRegisterApi);
-  REGISTER_API(CreateUnionNode, moduleRegisterApi);
-  REGISTER_API(UnionNodeAddChild, moduleRegisterApi);
-  REGISTER_API(QueryNodeFree, moduleRegisterApi);
-  REGISTER_API(UnionNodeClearChildren, moduleRegisterApi);
-  REGISTER_API(IntersectNodeClearChildren, moduleRegisterApi);
-  REGISTER_API(QueryNodeType, moduleRegisterApi);
-  REGISTER_API(UnionNodeGetNumChildren, moduleRegisterApi);
-  REGISTER_API(UnionNodeGetChild, moduleRegisterApi);
-  REGISTER_API(IntersectNodeGetNumChildren, moduleRegisterApi);
-  REGISTER_API(IntersectNodeGetChild, moduleRegisterApi);
-  REGISTER_API(QueryNodeGetFieldMask, moduleRegisterApi);
-
-  REGISTER_API(GetResultsIterator, moduleRegisterApi);
-  REGISTER_API(ResultsIteratorNext, moduleRegisterApi);
-  REGISTER_API(ResultsIteratorFree, moduleRegisterApi);
-  REGISTER_API(ResultsIteratorReset, moduleRegisterApi);
-
+  RS_XAPIFUNC(REGISTER_API)
   return REDISMODULE_OK;
 }

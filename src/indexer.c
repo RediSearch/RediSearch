@@ -243,11 +243,11 @@ static void handleReplaceDelete(RedisSearchCtx *sctx, t_docId did) {
   IndexSpec *sp = sctx->spec;
   for (size_t ii = 0; ii < sp->numFields; ++ii) {
     const FieldSpec *fs = sp->fields + ii;
-    if (fs->type != FIELD_GEO) {
+    if (!FIELD_IS(fs, INDEXFLD_T_GEO)) {
       continue;
     }
     // Open the key:
-    RedisModuleString *fmtkey = IndexSpec_GetFormattedKey(sp, fs);
+    RedisModuleString *fmtkey = IndexSpec_GetFormattedKey(sp, fs, INDEXFLD_T_GEO);
     GeoIndex gi = {.ctx = sctx, .sp = fs};
     GeoIndex_RemoveEntries(&gi, sp, did);
   }
@@ -325,7 +325,7 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
 
 static void indexBulkFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
   // Traverse all fields, seeing if there may be something which can be written!
-  IndexBulkData bData[SPEC_MAX_FIELDS] = {{0}};
+  IndexBulkData bData[SPEC_MAX_FIELDS] = {{NULL}};
   IndexBulkData *activeBulks[SPEC_MAX_FIELDS];
   size_t numActiveBulks = 0;
 
@@ -337,22 +337,17 @@ static void indexBulkFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
     const Document *doc = &cur->doc;
     for (size_t ii = 0; ii < doc->numFields; ++ii) {
       const FieldSpec *fs = cur->fspecs + ii;
-      fieldData *fdata = cur->fdatas + ii;
-      if (fs->name == NULL || fs->type == FIELD_FULLTEXT || !FieldSpec_IsIndexable(fs)) {
+      FieldIndexerData *fdata = cur->fdatas + ii;
+      if (fs->name == NULL || fs->types == INDEXFLD_T_FULLTEXT || !FieldSpec_IsIndexable(fs)) {
         continue;
       }
-
-      const BulkIndexer *procs = GetBulkIndexer(fs->type);
       IndexBulkData *bulk = &bData[fs->index];
-      if (!bulk->initialized) {
-        if (procs->BulkInit) {
-          procs->BulkInit(bulk, fs, sctx);
-        }
-        bulk->initialized = 1;
-        bulk->type = fs->type;
+      if (!bulk->found) {
+        bulk->found = 1;
         activeBulks[numActiveBulks++] = bulk;
       }
-      if (procs->BulkAdd(bulk, cur, sctx, doc->fields + ii, fs, fdata, &cur->status) != 0) {
+
+      if (IndexerBulkAdd(bulk, cur, sctx, doc->fields + ii, fs, fdata, &cur->status) != 0) {
         cur->stateFlags |= ACTX_F_ERRORED;
       }
       cur->stateFlags |= ACTX_F_OTHERINDEXED;
@@ -362,13 +357,7 @@ static void indexBulkFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
   // Flush it!
   for (size_t ii = 0; ii < numActiveBulks; ++ii) {
     IndexBulkData *cur = activeBulks[ii];
-    const BulkIndexer *procs = GetBulkIndexer(cur->type);
-    if (procs->BulkDone) {
-      procs->BulkDone(cur, sctx);
-    }
-    if (cur->indexKey) {
-      RedisModule_CloseKey(cur->indexKey);
-    }
+    IndexerBulkCleanup(cur, sctx);
   }
 }
 
@@ -386,9 +375,6 @@ static void reopenCb(RedisModuleKey *k, void *arg) {
 }
 
 // Routines for the merged hash table
-static const KHTableProcs mergedHtProcs = {
-    .Alloc = mergedAlloc, .Compare = mergedCompare, .Hash = mergedHash};
-
 #define ACTX_IS_INDEXED(actx)                                           \
   (((actx)->stateFlags & (ACTX_F_OTHERINDEXED | ACTX_F_TEXTINDEXED)) == \
    (ACTX_F_OTHERINDEXED | ACTX_F_TEXTINDEXED))
