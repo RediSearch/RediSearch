@@ -194,6 +194,7 @@ typedef struct RSAddDocumentCtx {
   uint32_t specFlags;       // Cached index flags
   uint8_t options;          // Indexing options - i.e. DOCUMENT_ADD_xxx
   uint8_t stateFlags;       // Indexing state, ACTX_F_xxx
+  uint64_t specUniqueId;
 } RSAddDocumentCtx;
 
 #define AddDocumentCtx_IsBlockable(aCtx) (!((aCtx)->stateFlags & ACTX_F_NOBLOCK))

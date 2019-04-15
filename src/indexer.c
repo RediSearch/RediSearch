@@ -414,7 +414,7 @@ static void Indexer_Process(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx) {
     ctx = *aCtx->client.sctx;
   }
 
-  if (!ctx.spec) {
+  if (!ctx.spec || ctx.spec->uniqueId != aCtx->specUniqueId) {
     aCtx->errorString = "ERR Index no longer valid";
     aCtx->stateFlags |= ACTX_F_ERRORED;
     goto cleanup;
