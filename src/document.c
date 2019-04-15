@@ -135,6 +135,7 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b, const char **err
   aCtx->client.bc = NULL;
   aCtx->next = NULL;
   aCtx->specFlags = sp->flags;
+  aCtx->specUniqueId = sp->uniqueId;
   int indexerOptions = 0;
   if (sp->flags & Index_Temporary) {
     indexerOptions = INDEXER_THREADLESS;
