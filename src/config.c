@@ -344,7 +344,7 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "Disable garbage collection (for this process)",
          .setValue = setNoGc,
          .getValue = getNoGc,
-         .flags = RSCONFIGVAR_F_FLAG},
+         .flags = RSCONFIGVAR_F_FLAG | RSCONFIGVAR_F_IMMUTABLE},
         {.name = "MINPREFIX",
          .helpText = "Set the minimum prefix for expansions (`*`)",
          .setValue = setMinPrefix,
@@ -406,8 +406,7 @@ RSConfigOptions RSGlobalConfigOptions = {
         {.name = "FORK_GC_RUN_INTERVAL",
          .helpText = "interval in which to run the fork gc (relevant only when fork gc is used)",
          .setValue = setForkGcInterval,
-         .getValue = getForkGcInterval,
-         .flags = RSCONFIGVAR_F_IMMUTABLE},
+         .getValue = getForkGcInterval},
         {.name = NULL}}};
 
 void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst) {
@@ -523,7 +522,7 @@ RSTimeoutPolicy TimeoutPolicy_Parse(const char *s, size_t n) {
   if (!strncasecmp(s, "RETURN", n)) {
     return TimeoutPolicy_Return;
   } else if (!strncasecmp(s, "FAIL", n)) {
-    return TimeoutPolicy_Return;
+    return TimeoutPolicy_Fail;
   } else {
     return TimeoutPolicy_Invalid;
   }
