@@ -63,7 +63,7 @@ int main(int, char **) {
   using std::chrono::microseconds;
   using std::chrono::system_clock;
 
-  std::chrono::microseconds elapsed;
+  microseconds elapsed;
   for (size_t ii = 0; ii < NUM_ITER; ++ii) {
     auto qn = RediSearch_CreateTokenNode(idx, "f1", "hello");
     auto it = RediSearch_GetResultsIterator(qn, idx);
@@ -75,8 +75,8 @@ int main(int, char **) {
     while (RediSearch_ResultsIteratorNext(it, idx, &ndummy)) {
       n++;
     }
-
-    elapsed += (system_clock::now() - begin);
+    elapsed += duration_cast<microseconds>(system_clock::now() - begin);
+    // elapsed += system_clock::now() - begin;
     assert(n == NUM_DOCS);
     RediSearch_ResultsIteratorFree(it);
     if ((ii + 1) % 10 == 0) {
