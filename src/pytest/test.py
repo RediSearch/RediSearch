@@ -1896,6 +1896,13 @@ def testIssue366_2(env):
     for _ in env.retry_with_reload():
         pass  #
 
+def testIssue654(env):
+    # Crashes during FILTER
+    env.cmd('ft.create', 'idx', 'schema', 'id', 'numeric')
+    env.cmd('ft.add', 'idx', 1, 1, 'fields', 'id', 1)
+    env.cmd('ft.add', 'idx', 2, 1, 'fields', 'id', 2)
+    res = env.cmd('ft.search', 'idx', '*', 'filter', '@version', 0, 2)
+
 def testReplaceReload(env):
     env.cmd('FT.CREATE', 'idx2', 'SCHEMA', 'textfield', 'TEXT', 'numfield', 'NUMERIC')
     # Create a document and then replace it.

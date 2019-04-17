@@ -773,8 +773,12 @@ static int EOI_Read(void *p, RSIndexResult **e) {
 static void EOI_Free(struct indexIterator *self) {
   // Nothing
 }
+static size_t EOI_NumEstimated(void *ctx) {
+  return 0;
+}
 
-static IndexIterator eofIterator = {.Read = EOI_Read, .Free = EOI_Free};
+static IndexIterator eofIterator = {
+    .Read = EOI_Read, .Free = EOI_Free, .NumEstimated = EOI_NumEstimated};
 
 static IndexIterator *getEOFIterator(void) {
   return &eofIterator;

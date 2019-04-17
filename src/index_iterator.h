@@ -9,8 +9,8 @@
 #define INDEXREAD_OK 1
 #define INDEXREAD_NOTFOUND 2
 
-#define MODE_SORTED 1
-#define MODE_UNSORTED 2
+#define MODE_SORTED 0
+#define MODE_UNSORTED 1
 
 typedef struct IndexCriteriaTester {
   int (*Test)(struct IndexCriteriaTester *ctx, t_docId id);
@@ -87,7 +87,9 @@ typedef struct indexIterator {
 #define IITER_HAS_NEXT(ii) ((ii)->isValid ? 1 : (ii)->HasNext ? (ii)->HasNext((ii)->ctx) : 0)
 #define IITER_CURRENT_RECORD(ii) \
   ((ii)->current ? (ii)->current : ((ii)->GetCurrent ? (ii)->GetCurrent((ii)->ctx) : NULL))
-
+#define IITER_NUM_ESTIMATED(ii) ((ii)->NumEstimated ? (ii)->NumEstimated((ii)->ctx) : 0)
+#define IITER_GET_CRITERIA_TESTER(ii) \
+  ((ii)->GetCriteriaTester ? (ii)->GetCriteriaTester((ii)->ctx) : NULL)
 // static inline RSIndexResult *IITER_CURRENT_RECORD(IndexIterator *ii) {
 //   if (ii->current) {
 //     return ii->current;
