@@ -1327,6 +1327,10 @@ static void WI_Rewind(void *p) {
   ctx->current = 1;
 }
 
+static size_t WI_NumEstimated(void *p) {
+  return SIZE_MAX;
+}
+
 /* Create a new wildcard iterator */
 IndexIterator *NewWildcardIterator(t_docId maxId) {
   WildcardIteratorCtx *c = calloc(1, sizeof(*c));
@@ -1347,5 +1351,6 @@ IndexIterator *NewWildcardIterator(t_docId maxId) {
   ret->SkipTo = WI_SkipTo;
   ret->Abort = WI_Abort;
   ret->Rewind = WI_Rewind;
+  ret->NumEstimated = WI_NumEstimated;
   return ret;
 }
