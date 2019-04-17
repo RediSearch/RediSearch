@@ -89,6 +89,20 @@ FT.CREATE idx SCHEMA name TEXT SORTABLE age NUMERIC SORTABLE myTag TAG SORTABLE
         * `dm:es` - Double Metaphone for Spanish
     
         For more details see [Phonetic Matching](Phonetic_Matching.md).
+    
+    * **WEIGHT {weight}**
+
+        For `TEXT` fields, declares the importance of this field when
+        calculating result accuracy. This is a multiplication factor, and
+        defaults to 1 if not specified.
+    
+    * **SEPARATOR {sep}**
+
+        For `TAG` fields, indicates how the text contained in the field
+        is to be split into individual tags. The default is `,`. The value
+        must be a single character.
+    
+    
 
 ### Complexity
 O(1)
@@ -464,7 +478,9 @@ FT.SEARCH idx "@text:morphix=>{$phonetic:false}"
 - **SORTBY {field} [ASC|DESC]**: If specified, and field is a [sortable field](Sorting.md), the results 
   are ordered by the value of this field. This applies to both text and numeric fields.
 - **LIMIT first num**: If the parameters appear after the query, we limit the results to 
-  the offset and number of results given. The default is 0 10
+  the offset and number of results given. The default is 0 10.
+  Note that you can use `LIMIT 0 0` to count the number of documents in
+  the resultset without actually returning them.
 
 ### Complexity
 
