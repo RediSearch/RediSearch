@@ -5,7 +5,7 @@
 ### Format
 ```
   FT.CREATE {index} 
-    [MAXTEXTFIELDS] [NOOFFSETS] [NOHL] [NOFIELDS] [NOFREQS]
+    [MAXTEXTFIELDS] [TEMPORARY {seconds}] [NOOFFSETS] [NOHL] [NOFIELDS] [NOFREQS]
     [STOPWORDS {num} {stopword} ...]
     SCHEMA {field} [TEXT [NOSTEM] [WEIGHT {weight}] [PHONETIC {matcher}] | NUMERIC | GEO | TAG [SEPARATOR {sep}] ] [SORTABLE][NOINDEX] ...
 ```
@@ -39,6 +39,11 @@ FT.CREATE idx SCHEMA name TEXT SORTABLE age NUMERIC SORTABLE myTag TAG SORTABLE
 
 * **NOOFFSETS**: If set, we do not store term offsets for documents (saves memory, does not
   allow exact searches or highlighting). Implies `NOHL`.
+
+* **TEMPORARY**: Create a temporary index that will be expire after a given number of seconds.
+  Temporary indexes shares resources, it is possible to create hundreds of thousands of Temporary indexes.
+  Expiration is not limited. In addition whenever the index is touched (searched or updated) the
+  expiration is reset.
 
 * **NOHL**: Conserves storage space and memory by disabling highlighting support. If set, we do
   not store corresponding byte offsets for term positions. `NOHL` is also implied by `NOOFFSETS`.
