@@ -348,7 +348,8 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
       }
       req->reqflags |= QEXEC_F_SEND_HIGHLIGHT;
 
-    } else if ((rv = parseQueryLegacyArgs(ac, searchOpts, status) != ARG_UNKNOWN)) {
+    } else if ((req->reqflags & QEXEC_F_IS_SEARCH) &&
+               (rv = parseQueryLegacyArgs(ac, searchOpts, status) != ARG_UNKNOWN)) {
       if (rv == ARG_ERROR) {
         return REDISMODULE_ERR;
       }

@@ -137,7 +137,7 @@ IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *dt, int 
   UI_SyncIterList(ctx);
 
   for (size_t i = 0; i < num; ++i) {
-    ctx->nexpected += its[i]->NumEstimated(its[i]->ctx);
+    ctx->nexpected += IITER_NUM_ESTIMATED(its[i]);
     if (its[i]->mode == MODE_UNSORTED) {
       it->mode = MODE_UNSORTED;
       it->Read = UI_ReadUnsorted;
@@ -149,7 +149,7 @@ IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *dt, int 
     // make sure all the children support CriteriaTester
     int ctSupported = 1;
     for (int i = 0; i < ctx->num; ++i) {
-      IndexCriteriaTester *tester = ctx->origits[i]->GetCriteriaTester(ctx->origits[i]->ctx);
+      IndexCriteriaTester *tester = IITER_GET_CRITERIA_TESTER(ctx->origits[i]);
       if (!tester) {
         ctSupported = 0;
         break;
@@ -196,7 +196,7 @@ static IndexCriteriaTester *UI_GetCriteriaTester(void *ctx) {
   ct->nchildren = ui->num;
   ct->children = rm_malloc(ct->nchildren * sizeof(IndexCriteriaTester *));
   for (int i = 0; i < ct->nchildren; ++i) {
-    ct->children[i] = ui->origits[i]->GetCriteriaTester(ui->origits[i]->ctx);
+    ct->children[i] = IITER_GET_CRITERIA_TESTER(ui->origits[i]);
   }
   ct->base.Test = UI_Test;
   ct->base.Free = UI_TesterFree;
@@ -448,7 +448,9 @@ void IntersectIterator_Free(IndexIterator *it) {
   }
 
   for (int i = 0; i < array_len(ui->testers); i++) {
-    ui->testers[i]->Free(ui->testers[i]);
+    if (ui->testers[i]) {
+      ui->testers[i]->Free(ui->testers[i]);
+    }
   }
   free(ui->docIds);
   IndexResult_Free(it->current);
@@ -532,7 +534,7 @@ IndexIterator *NewIntersecIterator(IndexIterator **its, int num, DocTable *dt,
       ctx->num++;
       continue;
     }
-    size_t amount = its[i]->NumEstimated(its[i]->ctx);
+    size_t amount = IITER_NUM_ESTIMATED(its[i]);
     if (amount < ctx->nexpected) {
       ctx->nexpected = amount;
       ctx->bestIt = its[i];
@@ -548,8 +550,7 @@ IndexIterator *NewIntersecIterator(IndexIterator **its, int num, DocTable *dt,
   if (array_len(ctx->its) == 0) {
     for (size_t i = 0; i < array_len(unsortedIts); ++i) {
       if (unsortedIts[i] != ctx->bestIt) {
-        ctx->testers =
-            array_append(ctx->testers, unsortedIts[i]->GetCriteriaTester(unsortedIts[i]->ctx));
+        ctx->testers = array_append(ctx->testers, IITER_GET_CRITERIA_TESTER(unsortedIts[i]));
         unsortedIts[i]->Free(unsortedIts[i]);
       }
     }
@@ -557,8 +558,7 @@ IndexIterator *NewIntersecIterator(IndexIterator **its, int num, DocTable *dt,
     it->Read = II_ReadUnsorted;
   } else {
     for (size_t i = 0; i < array_len(unsortedIts); ++i) {
-      ctx->testers =
-          array_append(ctx->testers, unsortedIts[i]->GetCriteriaTester(unsortedIts[i]->ctx));
+      ctx->testers = array_append(ctx->testers, IITER_GET_CRITERIA_TESTER(unsortedIts[i]));
       unsortedIts[i]->Free(unsortedIts[i]);
     }
   }
@@ -685,7 +685,7 @@ static IndexCriteriaTester *II_GetCriteriaTester(void *ctx) {
   IntersectIterator *ic = ctx;
   IICriteriaTester *ict = rm_malloc(sizeof(*ict));
   for (size_t i = 0; i < array_len(ic->its); ++i) {
-    ic->testers = array_append(ic->testers, ic->its[i]->GetCriteriaTester(ic->its[i]));
+    ic->testers = array_append(ic->testers, IITER_GET_CRITERIA_TESTER(ic->its[i]));
   }
   ict->children = ic->testers;
   ic->testers = array_new(IndexCriteriaTester *, 0);
@@ -1027,7 +1027,7 @@ IndexIterator *NewNotIterator(IndexIterator *it, t_docId maxDocId, double weight
   ret->mode = MODE_SORTED;
 
   if (nc->child && nc->child->mode == MODE_UNSORTED) {
-    nc->childCT = nc->child->GetCriteriaTester(nc->child->ctx);
+    nc->childCT = IITER_GET_CRITERIA_TESTER(nc->child);
     ret->Read = NI_ReadUnsorted;
   }
 
@@ -1238,7 +1238,7 @@ IndexIterator *NewOptionalIterator(IndexIterator *it, t_docId maxDocId, double w
   ret->mode = MODE_SORTED;
 
   if (nc->child && nc->child->mode == MODE_UNSORTED) {
-    nc->childCT = nc->child->GetCriteriaTester(nc->child->ctx);
+    nc->childCT = IITER_GET_CRITERIA_TESTER(nc->child);
     ret->Read = OI_ReadUnsorted;
   }
 
@@ -1327,9 +1327,13 @@ static void WI_Rewind(void *p) {
   ctx->current = 1;
 }
 
+static size_t WI_NumEstimated(void *p) {
+  return SIZE_MAX;
+}
+
 /* Create a new wildcard iterator */
 IndexIterator *NewWildcardIterator(t_docId maxId) {
-  WildcardIteratorCtx *c = malloc(sizeof(*c));
+  WildcardIteratorCtx *c = calloc(1, sizeof(*c));
   c->current = 1;
   c->topId = maxId;
 
@@ -1347,6 +1351,6 @@ IndexIterator *NewWildcardIterator(t_docId maxId) {
   ret->SkipTo = WI_SkipTo;
   ret->Abort = WI_Abort;
   ret->Rewind = WI_Rewind;
-  ret->GetCurrent = NULL;
+  ret->NumEstimated = WI_NumEstimated;
   return ret;
 }
