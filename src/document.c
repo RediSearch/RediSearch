@@ -200,7 +200,7 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b, QueryError *stat
 }
 
 static void doReplyFinish(RSAddDocumentCtx *aCtx, RedisModuleCtx *ctx) {
-  aCtx->donecb(aCtx, ctx, NULL);
+  aCtx->donecb(aCtx, ctx, aCtx->donecbData);
   AddDocumentCtx_Free(aCtx);
 }
 
@@ -264,7 +264,7 @@ static int AddDocumentCtx_ReplaceMerge(RSAddDocumentCtx *aCtx, RedisSearchCtx *s
 
   if (rv != REDISMODULE_OK) {
     QueryError_SetError(&aCtx->status, QUERY_ENODOC, "Could not load existing document");
-    aCtx->donecb(aCtx, sctx->redisCtx, NULL);
+    aCtx->donecb(aCtx, sctx->redisCtx, aCtx->donecbData);
     AddDocumentCtx_Free(aCtx);
     return 1;
   }
@@ -709,7 +709,7 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
   }
 
 done:
-  aCtx->donecb(aCtx, sctx->redisCtx, NULL);
+  aCtx->donecb(aCtx, sctx->redisCtx, aCtx->donecbData);
   AddDocumentCtx_Free(aCtx);
 }
 

@@ -161,23 +161,46 @@ static void RS_DocumentAddFieldNumber(Document* d, const char* fieldname, double
   Document_AddField(d, fieldname, r, as);
 }
 
-static void RS_AddDocDone(RSAddDocumentCtx* aCtx, RedisModuleCtx* ctx, void* unused) {
+typedef struct {
+  char** s;
+  int hasErr;
+} RSError;
+
+static void RS_AddDocDone(RSAddDocumentCtx* aCtx, RedisModuleCtx* ctx, void* err) {
+  RSError* ourErr = err;
+  if (QueryError_HasError(&aCtx->status)) {
+    if (ourErr->s) {
+      *ourErr->s = strdup(QueryError_GetError(&aCtx->status));
+    }
+    ourErr->hasErr = aCtx->status.code;
+  }
 }
 
-static void RS_SpecAddDocument(IndexSpec* sp, Document* d) {
-  uint32_t options = 0;
+static int RS_IndexAddDocument(IndexSpec* sp, Document* d, int options, char** errs) {
+  RSError err = {.s = errs};
   QueryError status = {0};
   RSAddDocumentCtx* aCtx = NewAddDocumentCtx(sp, d, &status);
   aCtx->donecb = RS_AddDocDone;
+  aCtx->donecbData = &err;
   RedisSearchCtx sctx = {.redisCtx = NULL, .spec = sp};
   int exists = !!DocTable_GetIdR(&sp->docs, d->docKey);
   if (exists) {
-    options |= DOCUMENT_ADD_REPLACE;
+    if (options & REDISEARCH_ADD_REPLACE) {
+      options |= DOCUMENT_ADD_REPLACE;
+    } else {
+      if (errs) {
+        *errs = strdup("Document already exists");
+      }
+      AddDocumentCtx_Free(aCtx);
+      return REDISMODULE_ERR;
+    }
   }
+
   options |= DOCUMENT_ADD_NOSAVE;
   aCtx->stateFlags |= ACTX_F_NOBLOCK;
   AddDocumentCtx_Submit(aCtx, &sctx, options);
   rm_free(d);
+  return err.hasErr ? REDISMODULE_ERR : REDISMODULE_OK;
 }
 
 static QueryNode* RS_CreateTokenNode(IndexSpec* sp, const char* fieldName, const char* token) {

@@ -134,7 +134,14 @@ MODULE_API_FUNC(void, RediSearch_DocumentAddFieldString)
 MODULE_API_FUNC(void, RediSearch_DocumentAddFieldNumber)
 (RSDoc* d, const char* fieldName, double n, unsigned indexAsTypes);
 
-MODULE_API_FUNC(void, RediSearch_SpecAddDocument)(RSIndex* sp, RSDoc* d);
+/**
+ * Replace document if it already exists
+ */
+#define REDISEARCH_ADD_REPLACE 0x01
+
+MODULE_API_FUNC(int, RediSearch_IndexAddDocument)(RSIndex* sp, RSDoc* d, int flags, char**);
+#define RediSearch_SpecAddDocument(sp, d) \
+  RediSearch_IndexAddDocument(sp, d, REDISEARCH_ADD_REPLACE, NULL)
 
 MODULE_API_FUNC(RSQNode*, RediSearch_CreateTokenNode)
 (RSIndex* sp, const char* fieldName, const char* token);
@@ -200,7 +207,7 @@ MODULE_API_FUNC(void, RediSearch_ResultsIteratorReset)(RSResultsIterator* iter);
   X(DocumentAddField)                \
   X(DocumentAddFieldNumber)          \
   X(DocumentAddFieldString)          \
-  X(SpecAddDocument)                 \
+  X(IndexAddDocument)                \
   X(CreateTokenNode)                 \
   X(CreateNumericNode)               \
   X(CreatePrefixNode)                \
