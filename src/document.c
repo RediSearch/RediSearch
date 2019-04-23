@@ -1,5 +1,6 @@
 #include <string.h>
 #include <assert.h>
+#include <inttypes.h>
 
 #include "document.h"
 #include "forward_index.h"
@@ -226,7 +227,7 @@ void AddDocumentCtx_Finish(RSAddDocumentCtx *aCtx) {
 #define SELF_EXEC_THRESHOLD 1024
 
 void Document_Dump(const Document *doc) {
-  printf("Document Key: %s. ID=%llu\n", RedisModule_StringPtrLen(doc->docKey, NULL), doc->docId);
+  printf("Document Key: %s. ID=%" PRIu64 "\n", RedisModule_StringPtrLen(doc->docKey, NULL), doc->docId);
   for (size_t ii = 0; ii < doc->numFields; ++ii) {
     printf("  [%lu]: %s => %s\n", ii, doc->fields[ii].name,
            RedisModule_StringPtrLen(doc->fields[ii].text, NULL));
