@@ -345,8 +345,7 @@ static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** err
   ;
 end:
   if (input->qtype == QUERY_INPUT_NODE) {
-    QueryNode_Free(input->u.qn);
-    input->u.qn = NULL;
+    QueryNode_Free(it->qast.root);
     it->qast.root = NULL;
   }
 
@@ -356,7 +355,7 @@ end:
       it = NULL;
     }
     if (error) {
-      *error = rm_strdup(QueryError_GetError(&status));
+      *error = strdup(QueryError_GetError(&status));
     }
   }
   QueryError_ClearError(&status);
@@ -403,6 +402,8 @@ static double RS_ResultsIteratorGetScore(const RS_ApiIter* it) {
 static void RS_ResultsIteratorFree(RS_ApiIter* iter) {
   if (iter->internal) {
     iter->internal->Free(iter->internal);
+  } else {
+    printf("Not freeing internal iterator. internal iterator is null\n");
   }
   if (iter->scorerFree) {
     iter->scorerFree(iter->scargs.extdata);
