@@ -99,7 +99,9 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Doc
       if (f->indexAs & INDEXFLD_T_FULLTEXT) {
         numTextIndexable++;
         hasTextFields = 1;
-      } else {
+      }
+
+      if (f->indexAs != INDEXFLD_T_FULLTEXT) {
         // has non-text but indexable fields
         hasOtherFields = 1;
       }
@@ -509,7 +511,7 @@ int IndexerBulkAdd(IndexBulkData *bulk, RSAddDocumentCtx *cur, RedisSearchCtx *s
   int rc = 0;
   for (size_t ii = 0; ii < INDEXFLD_NUM_TYPES && rc == 0; ++ii) {
     // see which types are supported in the current field...
-    if (field->indexAs & (1 << ii)) {
+    if (field->indexAs & INDEXTYPE_FROM_POS(ii)) {
       switch (ii) {
         case IXFLDPOS_TAG:
           rc = tagIndexer(bulk, cur, sctx, field, fs, fdata, status);
