@@ -421,7 +421,7 @@ typedef struct {
   IndexCriteriaTester **testers;
   t_docId *docIds;
   int *rcs;
-  int num;
+  unsigned num;
   size_t len;
   int maxSlop;
   int inOrder;
@@ -452,9 +452,10 @@ void IntersectIterator_Free(IndexIterator *it) {
       ui->testers[i]->Free(ui->testers[i]);
     }
   }
+
   free(ui->docIds);
+  free(ui->its);
   IndexResult_Free(it->current);
-  array_free(ui->its);
   array_free(ui->testers);
   free(it);
 }
@@ -483,17 +484,63 @@ static void II_Rewind(void *ctx) {
   }
 }
 
-IndexIterator *NewIntersecIterator(IndexIterator **its, int num, DocTable *dt,
+static void II_SortChildren(IntersectIterator *ctx) {
+  /**
+   * 1. Go through all the iterators, ensuring none of them is NULL
+   *    (replace with empty if indeed NULL)
+   * 2. If all the iterators are unsorted then set the mode to UNSORTED
+   * 3. If all or any of the iterators are sorted, then remove the
+   *    unsorted iterators from the equation, simply adding them to the
+   *    tester list
+   */
+  IndexIterator **unsortedIts = NULL;
+
+  for (size_t i = 0; i < ctx->num; ++i) {
+    IndexIterator *curit = ctx->its[i];
+    if (!curit) {
+      ctx->bestIt = ctx->its[i] = NewEmptyIterator();
+      ctx->nexpected = 0;
+      continue;
+    }
+
+    size_t amount = IITER_NUM_ESTIMATED(curit);
+    if (amount < ctx->nexpected) {
+      ctx->nexpected = amount;
+      ctx->bestIt = curit;
+    }
+
+    if (curit->mode == MODE_UNSORTED) {
+      unsortedIts = array_ensure_append(unsortedIts, &curit, 1, IndexIterator *);
+    }
+  }
+
+  if (unsortedIts && array_len(unsortedIts) == ctx->num) {
+    ctx->base.mode = MODE_UNSORTED;
+    ctx->base.Read = II_ReadUnsorted;
+    ctx->num = 1;
+    ctx->its[0] = ctx->bestIt;
+    // The other iterators are also stored in unsortedIts
+    // and because we know that there are no sorted iterators
+  }
+
+  if (unsortedIts) {
+    for (size_t ii = 0; ii < array_len(unsortedIts); ++ii) {
+      IndexIterator *cur = unsortedIts[ii];
+      if (ctx->base.mode == MODE_UNSORTED && ctx->bestIt == cur) {
+        continue;
+      }
+      IndexCriteriaTester *tester = IITER_GET_CRITERIA_TESTER(cur);
+      ctx->testers = array_ensure_append(ctx->testers, &tester, 1, IndexCriteriaTester *);
+      cur->Free(cur);
+    }
+  }
+  array_free(unsortedIts);
+}
+
+IndexIterator *NewIntersecIterator(IndexIterator **its_, size_t num, DocTable *dt,
                                    t_fieldMask fieldMask, int maxSlop, int inOrder, double weight) {
-#define INITIAL_LEN 10
   // printf("Creating new intersection iterator with fieldMask=%llx\n", fieldMask);
   IntersectIterator *ctx = calloc(1, sizeof(*ctx));
-  ctx->its = array_new(IndexIterator *, INITIAL_LEN);
-  ctx->testers = array_new(IndexCriteriaTester *, INITIAL_LEN);
-  ctx->bestIt = NULL;
-  IndexIterator **unsortedIts = array_new(IndexIterator *, INITIAL_LEN);
-  ;
-  ctx->num = 0;
   ctx->lastDocId = 0;
   ctx->lastFoundId = 0;
   ctx->len = 0;
@@ -507,6 +554,8 @@ IndexIterator *NewIntersecIterator(IndexIterator **its, int num, DocTable *dt,
 
   ctx->base.isValid = 1;
   ctx->base.current = NewIntersectResult(num, weight);
+  ctx->its = its_;
+  ctx->num = num;
 
   // bind the iterator calls
   IndexIterator *it = &ctx->base;
@@ -523,46 +572,7 @@ IndexIterator *NewIntersecIterator(IndexIterator **its, int num, DocTable *dt,
   it->GetCurrent = NULL;
   it->HasNext = NULL;
   it->mode = MODE_SORTED;
-
-  int allSorted = 1;
-  IndexIterator *bestIterator;
-  for (int i = 0; i < num; ++i) {
-    if (!its[i]) {
-      // a null iterator is handled as an iterator with no results
-      ctx->nexpected = 0;
-      ctx->its = array_append(ctx->its, NULL);
-      ctx->num++;
-      continue;
-    }
-    size_t amount = IITER_NUM_ESTIMATED(its[i]);
-    if (amount < ctx->nexpected) {
-      ctx->nexpected = amount;
-      ctx->bestIt = its[i];
-    }
-    if (its[i]->mode == MODE_SORTED) {
-      ctx->its = array_append(ctx->its, its[i]);
-      ctx->num++;
-    } else {
-      unsortedIts = array_append(unsortedIts, its[i]);
-    }
-  }
-
-  if (array_len(ctx->its) == 0) {
-    for (size_t i = 0; i < array_len(unsortedIts); ++i) {
-      if (unsortedIts[i] != ctx->bestIt) {
-        ctx->testers = array_append(ctx->testers, IITER_GET_CRITERIA_TESTER(unsortedIts[i]));
-        unsortedIts[i]->Free(unsortedIts[i]);
-      }
-    }
-    it->mode = MODE_UNSORTED;
-    it->Read = II_ReadUnsorted;
-  } else {
-    for (size_t i = 0; i < array_len(unsortedIts); ++i) {
-      ctx->testers = array_append(ctx->testers, IITER_GET_CRITERIA_TESTER(unsortedIts[i]));
-      unsortedIts[i]->Free(unsortedIts[i]);
-    }
-  }
-
+  II_SortChildren(ctx);
   return it;
 }
 
@@ -796,8 +806,8 @@ static size_t II_Len(void *ctx) {
   return ((IntersectIterator *)ctx)->len;
 }
 
-/* A Not iterator works by wrapping another iterator, and returning OK for misses, and NOTFOUND for
- * hits */
+/* A Not iterator works by wrapping another iterator, and returning OK for misses, and NOTFOUND
+ * for hits */
 typedef struct {
   IndexIterator base;
   IndexIterator *child;
@@ -836,8 +846,8 @@ static void NI_Free(IndexIterator *it) {
   free(it);
 }
 
-/* SkipTo for NOT iterator. If we have a match - return NOTFOUND. If we don't or we're at the end -
- * return OK */
+/* SkipTo for NOT iterator. If we have a match - return NOTFOUND. If we don't or we're at the end
+ * - return OK */
 static int NI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
   NotContext *nc = ctx;
 
@@ -1353,4 +1363,21 @@ IndexIterator *NewWildcardIterator(t_docId maxId) {
   ret->Rewind = WI_Rewind;
   ret->NumEstimated = WI_NumEstimated;
   return ret;
+}
+
+static int EOI_Read(void *p, RSIndexResult **e) {
+  return INDEXREAD_EOF;
+}
+static void EOI_Free(struct indexIterator *self) {
+  // Nothing
+}
+static size_t EOI_NumEstimated(void *ctx) {
+  return 0;
+}
+
+static IndexIterator eofIterator = {
+    .Read = EOI_Read, .Free = EOI_Free, .NumEstimated = EOI_NumEstimated};
+
+IndexIterator *NewEmptyIterator(void) {
+  return &eofIterator;
 }
