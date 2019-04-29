@@ -1374,9 +1374,29 @@ static void EOI_Free(struct indexIterator *self) {
 static size_t EOI_NumEstimated(void *ctx) {
   return 0;
 }
+static size_t EOI_Len(void *ctx) {
+  return 0;
+}
+static t_docId EOI_LastDocId(void *ctx) {
+  return 0;
+}
 
-static IndexIterator eofIterator = {
-    .Read = EOI_Read, .Free = EOI_Free, .NumEstimated = EOI_NumEstimated};
+static int EOI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
+  return INDEXREAD_EOF;
+}
+static void EOI_Abort(void *ctx) {
+}
+static void EOI_Rewind(void *ctx) {
+}
+
+static IndexIterator eofIterator = {.Read = EOI_Read,
+                                    .Free = EOI_Free,
+                                    .SkipTo = EOI_SkipTo,
+                                    .Len = EOI_Len,
+                                    .LastDocId = EOI_LastDocId,
+                                    .NumEstimated = EOI_NumEstimated,
+                                    .Abort = EOI_Abort,
+                                    .Rewind = EOI_Rewind};
 
 IndexIterator *NewEmptyIterator(void) {
   return &eofIterator;
