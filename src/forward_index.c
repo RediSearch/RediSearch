@@ -97,7 +97,8 @@ ForwardIndex *NewForwardIndex(Document *doc, uint32_t idxFlags) {
   idx->totalFreq = 0;
 
   KHTable_Init(idx->hits, &procs, &idx->entries, termCount);
-  idx->vvwPool = mempool_new(termCount, vvwAlloc, vvwFree);
+  mempool_options options = {.initialCap = termCount, .alloc = vvwAlloc, .free = vvwFree};
+  idx->vvwPool = mempool_new(&options);
 
   ForwardIndex_InitCommon(idx, doc, idxFlags);
   return idx;

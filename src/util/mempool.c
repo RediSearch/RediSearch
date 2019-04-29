@@ -1,10 +1,9 @@
-#define _RS_MEMPOOL_C_
 #include "mempool.h"
 #include <sys/param.h>
 #include <stdio.h>
 #include <pthread.h>
 
-typedef struct mempool_t {
+struct mempool_t {
   void **entries;
   size_t top;
   size_t cap;
@@ -12,22 +11,22 @@ typedef struct mempool_t {
   mempool_alloc_fn alloc;
   mempool_free_fn free;
   pthread_mutex_t lock;
-} mempool_t;
-
-mempool_t *mempool_new(size_t cap, mempool_alloc_fn alloc, mempool_free_fn freefn) {
-  return mempool_new_limited(cap, 0, alloc, freefn);
-}
+};
 
 static int mempoolDisable_g = -1;
 
-mempool_t *mempool_new_limited(size_t cap, size_t max, mempool_alloc_fn alloc,
-                               mempool_free_fn freefn) {
-  mempool_t *p = malloc(sizeof(mempool_t));
-  p->entries = calloc(cap, sizeof(void *));
-  p->alloc = alloc;
-  p->free = freefn;
-  p->cap = cap;
-  p->max = max;
+struct {
+  mempool_t **pools;
+  size_t numPools;
+} globalPools_g = {NULL};
+
+mempool_t *mempool_new(const mempool_options *options) {
+  mempool_t *p = calloc(1, sizeof(*p));
+  p->entries = calloc(options->initialCap, sizeof(void *));
+  p->alloc = options->alloc;
+  p->free = options->free;
+  p->cap = options->initialCap;
+  p->max = options->maxCap;
   p->top = 0;
   if (mempoolDisable_g == -1) {
     if (getenv("REDISEARCH_NO_MEMPOOL")) {
@@ -42,6 +41,12 @@ mempool_t *mempool_new_limited(size_t cap, size_t max, mempool_alloc_fn alloc,
     p->max = 0;
     free(p->entries);
     p->entries = NULL;
+  }
+  if (options->isGlobal) {
+    globalPools_g.numPools++;
+    globalPools_g.pools =
+        realloc(globalPools_g.pools, sizeof(*globalPools_g.pools) * globalPools_g.numPools);
+    globalPools_g.pools[globalPools_g.numPools - 1] = p;
   }
   return p;
 }
@@ -77,4 +82,12 @@ void mempool_destroy(mempool_t *p) {
   }
   free(p->entries);
   free(p);
+}
+
+void mempool_free_global(void) {
+  for (size_t ii = 0; ii < globalPools_g.numPools; ++ii) {
+    mempool_destroy(globalPools_g.pools[ii]);
+  }
+  free(globalPools_g.pools);
+  globalPools_g.numPools = 0;
 }

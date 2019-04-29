@@ -1207,3 +1207,11 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   RM_TRY(RedisModule_CreateCommand, ctx, RS_CONFIG, ConfigCommand, "readonly", 1, 1, 1);
   return REDISMODULE_OK;
 }
+
+void RediSearch_CleanupModule(void) {
+  CursorList_Destroy(&RSCursors);
+  Extensions_Free();
+  StopWordList_FreeGlobals();
+  FunctionRegistry_Free();
+  mempool_free_global();
+}
