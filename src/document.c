@@ -398,7 +398,7 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
     }
     aCtx->tokenizer->Start(aCtx->tokenizer, (char *)c, fl, options);
 
-    Token tok;
+    Token tok = {0};
     uint32_t lastTokPos = 0;
     uint32_t newTokPos;
     while (0 != (newTokPos = aCtx->tokenizer->Next(aCtx->tokenizer, &tok))) {
@@ -410,6 +410,7 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
       curOffsetField->lastTokPos = lastTokPos;
     }
     aCtx->totalTokens = lastTokPos;
+    Token_Destroy(&tok);
   }
   return 0;
 }
