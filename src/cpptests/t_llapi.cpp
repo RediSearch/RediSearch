@@ -418,7 +418,8 @@ TEST_F(LLApiTest, testMultitype) {
   RSDoc* d = RediSearch_CreateDocumentSimple("doc1");
   RediSearch_DocumentAddFieldCString(d, "f1", "hello", RSFLDTYPE_FULLTEXT);
   RediSearch_DocumentAddFieldCString(d, "f2", "world", RSFLDTYPE_FULLTEXT | RSFLDTYPE_TAG);
-  RediSearch_SpecAddDocument(index, d);
+  int rc = RediSearch_SpecAddDocument(index, d);
+  ASSERT_EQ(REDISMODULE_OK, rc);
 
   // Done
   // Now search for them...
@@ -426,6 +427,14 @@ TEST_F(LLApiTest, testMultitype) {
   auto results = getResults(index, qn);
   ASSERT_EQ(1, results.size());
   ASSERT_EQ("doc1", results[0]);
+
+  qn = RediSearch_CreateTagNode(index, "f2");
+  RediSearch_QueryNodeAddChild(qn, RediSearch_CreateTokenNode(index, NULL, "world"));
+  results = getResults(index, qn);
+  ASSERT_EQ(1, results.size());
+  ASSERT_EQ("doc1", results[0]);
+
+  RediSearch_DropIndex(index);
 }
 
 TEST_F(LLApiTest, testQueryString) {
@@ -460,4 +469,5 @@ TEST_F(LLApiTest, testQueryString) {
 
   res = getResults(index, "(@ft1:hello1)|(@ft1:hello50)");
   ASSERT_EQ(2, res.size());
+  RediSearch_DropIndex(index);
 }
