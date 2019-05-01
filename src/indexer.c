@@ -7,6 +7,7 @@
 #include "redis_index.h"
 
 #include <assert.h>
+static void DocumentIndexer_Free(DocumentIndexer *indexer);
 
 static void writeIndexEntry(IndexSpec *spec, InvertedIndex *idx, IndexEncoder encoder,
                             ForwardIndexEntry *entry) {
@@ -467,16 +468,24 @@ cleanup:
   }
 }
 
+#define IS_NOT_DELETED(idxer) ((idxer)->options & INDEXER_DELETING == 0)
+
 static void *Indexer_Run(void *p) {
   DocumentIndexer *indexer = p;
 
   while (1) {
     pthread_mutex_lock(&indexer->lock);
-    while (indexer->head == NULL) {
+    while (indexer->head == NULL && IS_NOT_DELETED(indexer)) {
       pthread_cond_wait(&indexer->cond, &indexer->lock);
     }
 
     RSAddDocumentCtx *cur = indexer->head;
+    if (cur == NULL) {
+      assert(!IS_NOT_DELETED(indexer));
+      pthread_mutex_unlock(&indexer->lock);
+      break;
+    }
+
     indexer->size--;
 
     if ((indexer->head = cur->next) == NULL) {
@@ -486,6 +495,8 @@ static void *Indexer_Run(void *p) {
     Indexer_Process(indexer, cur);
     AddDocumentCtx_Finish(cur);
   }
+
+  DocumentIndexer_Free(indexer);
   return NULL;
 }
 
@@ -580,8 +591,7 @@ static DocumentIndexer *NewDocumentIndexer(const char *name, int options) {
   if (!(options & INDEXER_THREADLESS)) {
     pthread_cond_init(&indexer->cond, NULL);
     pthread_mutex_init(&indexer->lock, NULL);
-    static pthread_t dummyThr;
-    pthread_create(&dummyThr, NULL, Indexer_Run, indexer);
+    pthread_create(&indexer->thr, NULL, Indexer_Run, indexer);
   }
   indexer->name = strdup(name);
   indexer->next = NULL;
@@ -594,11 +604,12 @@ static DocumentIndexer *NewDocumentIndexer(const char *name, int options) {
   return indexer;
 }
 
-static void DocumentIndexe_Free(DocumentIndexer *indexer) {
+static void DocumentIndexer_Free(DocumentIndexer *indexer) {
   free(indexer->name);
-  //  BlkAlloc_FreeAll(&indexer->alloc);
-  pthread_cond_destroy(&indexer->cond);
-  pthread_mutex_destroy(&indexer->lock);
+  if (!(indexer->options & INDEXER_THREADLESS)) {
+    pthread_cond_destroy(&indexer->cond);
+    pthread_mutex_destroy(&indexer->lock);
+  }
   free(indexer->concCtx.openKeys);
   RedisModule_FreeString(indexer->redisCtx, indexer->specKeyName);
   KHTable_Clear(&indexer->mergeHt);
@@ -614,7 +625,14 @@ void DropDocumentIndexer(const char *specname) {
   }
 
   if (match->options & INDEXER_THREADLESS) {
-    DocumentIndexe_Free(match);
+    DocumentIndexer_Free(match);
+  } else {
+    pthread_t thr = match->thr;
+    pthread_mutex_lock(&match->lock);
+    match->options |= INDEXER_DELETING;
+    pthread_cond_signal(&match->cond);
+    pthread_mutex_unlock(&match->lock);
+    pthread_join(thr, NULL);
   }
 }
 
