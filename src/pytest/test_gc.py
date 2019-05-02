@@ -6,7 +6,7 @@ from RLTest import Env
 def testBasicGC(env):
     if env.isCluster():
         raise unittest.SkipTest()
-    if 'GC_POLICY FORK' in env.moduleArgs:
+    if env.moduleArgs is not None and 'GC_POLICY FORK' in env.moduleArgs:
         # this test is not relevent for fork gc cause its not cleaning the last block
         raise unittest.SkipTest()
     env.assertOk(env.cmd('ft.create', 'idx', 'schema', 'title', 'text', 'id', 'numeric', 't', 'tag'))
@@ -39,7 +39,7 @@ def testBasicGC(env):
 def testNumerciGCIntensive(env):
     if env.isCluster():
         raise unittest.SkipTest()
-    if 'GC_POLICY FORK' in env.moduleArgs:
+    if env.moduleArgs is not None and 'GC_POLICY FORK' in env.moduleArgs:
         # this test is not relevent for fork gc cause its not cleaning the last block
         raise unittest.SkipTest()
     NumberOfDocs = 1000
@@ -63,7 +63,7 @@ def testNumerciGCIntensive(env):
 def testTagGC(env):
     if env.isCluster():
         raise unittest.SkipTest()
-    if 'GC_POLICY FORK' in env.moduleArgs:
+    if env.moduleArgs is not None and 'GC_POLICY FORK' in env.moduleArgs:
         # this test is not relevent for fork gc cause its not cleaning the last block
         raise unittest.SkipTest()
     NumberOfDocs = 10
