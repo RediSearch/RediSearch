@@ -36,6 +36,18 @@ void ConcurrentSearch_ThreadPoolStart() {
   }
 }
 
+/** Stop all the concurrent threads */
+void ConcurrentSearch_ThreadPoolDestroy(void) {
+  if (!threadpools_g) {
+    return;
+  }
+  for (size_t ii = 0; ii < array_len(threadpools_g); ++ii) {
+    thpool_destroy(threadpools_g[ii]);
+  }
+  array_free(threadpools_g);
+  threadpools_g = NULL;
+}
+
 typedef struct ConcurrentCmdCtx {
   RedisModuleBlockedClient *bc;
   RedisModuleCtx *ctx;

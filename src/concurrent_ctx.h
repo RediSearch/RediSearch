@@ -113,6 +113,7 @@ static inline void ConcurrentSearch_SetKey(ConcurrentSearchCtx *ctx, RedisModule
 
 /** Start the concurrent search thread pool. Should be called when initializing the module */
 void ConcurrentSearch_ThreadPoolStart();
+void ConcurrentSearch_ThreadPoolDestroy(void);
 
 /* Create a new thread pool, and return its identifying id */
 int ConcurrentSearch_CreatePool(int numThreads);

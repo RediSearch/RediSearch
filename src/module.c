@@ -1214,4 +1214,5 @@ void RediSearch_CleanupModule(void) {
   StopWordList_FreeGlobals();
   FunctionRegistry_Free();
   mempool_free_global();
+  ConcurrentSearch_ThreadPoolDestroy();
 }
