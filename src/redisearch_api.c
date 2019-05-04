@@ -129,7 +129,7 @@ static Document* RS_CreateDocument(const void* docKey, size_t len, double score,
   return ret;
 }
 
-static int RS_DropDocument(IndexSpec* sp, const void* docKey, size_t len) {
+static int RS_DeleteDocument(IndexSpec* sp, const void* docKey, size_t len) {
   RedisModuleString* docId = RedisModule_CreateString(NULL, docKey, len);
   int rc = REDISMODULE_OK;
   t_docId id = DocTable_GetIdR(&sp->docs, docId);

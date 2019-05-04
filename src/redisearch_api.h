@@ -114,8 +114,8 @@ MODULE_API_FUNC(RSDoc*, RediSearch_CreateDocument)
 (const void* docKey, size_t len, double score, const char* lang);
 #define RediSearch_CreateDocumentSimple(s) RediSearch_CreateDocument(s, strlen(s), 1.0, NULL)
 
-MODULE_API_FUNC(int, RediSearch_DropDocument)(RSIndex* sp, const void* docKey, size_t len);
-
+MODULE_API_FUNC(int, RediSearch_DeleteDocument)(RSIndex* sp, const void* docKey, size_t len);
+#define RediSearch_DropDocument RediSearch_DeleteDocument
 /**
  * Add a field (with value) to the document
  * @param d the document
@@ -203,7 +203,7 @@ MODULE_API_FUNC(void, RediSearch_ResultsIteratorReset)(RSResultsIterator* iter);
   X(TextFieldSetWeight)              \
   X(TagSetSeparator)                 \
   X(CreateDocument)                  \
-  X(DropDocument)                    \
+  X(DeleteDocument)                  \
   X(DocumentAddField)                \
   X(DocumentAddFieldNumber)          \
   X(DocumentAddFieldString)          \
