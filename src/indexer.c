@@ -468,7 +468,7 @@ cleanup:
   }
 }
 
-#define IS_NOT_DELETED(idxer) ((idxer)->options & INDEXER_DELETING == 0)
+#define IS_NOT_DELETED(idxer) (((idxer)->options & INDEXER_DELETING) == 0)
 
 static void *Indexer_Run(void *p) {
   DocumentIndexer *indexer = p;
