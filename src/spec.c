@@ -151,6 +151,7 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
 
   RedisModuleString *keyString = RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, sp->name);
   RedisModuleKey *k = RedisModule_OpenKey(ctx, keyString, REDISMODULE_READ | REDISMODULE_WRITE);
+  RedisModule_FreeString(ctx, keyString);
 
   // check that the key is empty
   if (k == NULL || (RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_EMPTY)) {
@@ -562,6 +563,7 @@ void IndexSpecCache_Decref(IndexSpecCache *c) {
   for (size_t ii = 0; ii < c->nfields; ++ii) {
     free(c->fields[ii].name);
   }
+  free(c->fields);
   free(c);
 }
 
@@ -662,6 +664,10 @@ static void IndexSpec_FreeInternals(IndexSpec *spec) {
 
   if (spec->smap) {
     SynonymMap_Free(spec->smap);
+  }
+  if (spec->spcache) {
+    IndexSpecCache_Decref(spec->spcache);
+    spec->spcache = NULL;
   }
 
   if (spec->indexStrs) {
