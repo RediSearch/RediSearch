@@ -131,17 +131,17 @@ static Document* RS_CreateDocument(const void* docKey, size_t len, double score,
 
 static int RS_DropDocument(IndexSpec* sp, const void* docKey, size_t len) {
   RedisModuleString* docId = RedisModule_CreateString(NULL, docKey, len);
-  int rc = 0;
+  int rc = REDISMODULE_OK;
   t_docId id = DocTable_GetIdR(&sp->docs, docId);
   if (id == 0) {
-    rc = 0;
+    rc = REDISMODULE_ERR;
   } else {
     rc = DocTable_DeleteR(&sp->docs, docId);
     if (rc) {
       sp->stats.numDocuments--;
     } else {
       // is this possible?
-      rc = 0;
+      rc = REDISMODULE_ERR;
     }
   }
   RedisModule_FreeString(NULL, docId);
