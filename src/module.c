@@ -932,7 +932,7 @@ int AlterIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
   // I'd like to use CmdSchema, but want to avoid the ugly <N> <list of N> stuff..
   if (!RMUtil_StringEqualsCaseC(argv[2], "SCHEMA") || !RMUtil_StringEqualsCaseC(argv[3], "ADD")) {
-    return RedisModule_ReplyWithError(ctx, "Unknown command");
+    return RedisModule_ReplyWithError(ctx, "Unknown action passed to ALTER");
   }
   IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
   if (!sp) {
