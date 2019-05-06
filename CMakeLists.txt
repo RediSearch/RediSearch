@@ -6,6 +6,7 @@ INCLUDE(cmake/redisearch_cflags.cmake)
 CMAKE_POLICY(SET CMP0026 OLD)
 
 OPTION(RS_RUN_TESTS "Build & Run RediSearch's tests" OFF)
+OPTION(USE_ASAN "Use AddressSanitizer (clang)" OFF)
 
 ADD_DEFINITIONS(-UNDEBUG)
 
