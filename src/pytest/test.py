@@ -2029,6 +2029,39 @@ def testIssue621(env):
     env.expect('ft.add', 'test', 'a', '1', 'REPLACE', 'PARTIAL', 'FIELDS', 'title', 'bar').equal('OK')
     env.expect('ft.search', 'test', '@uuid:{foo}').equal([1L, 'a', ['uuid', 'foo', 'title', 'bar']])
 
+# Server crash on doc names that conflict with index keys #666
+def testIssue666(env):
+    env.cmd('ft.create', 'foo', 'schema', 'bar', 'text')
+    env.cmd('ft.add', 'foo', 'mydoc', 1, 'fields', 'bar', 'one two three')
+
+    # crashes here
+    with env.assertResponseError():
+        env.cmd('ft.add', 'foo', 'ft:foo/two', '1', 'fields', 'bar', 'four five six')
+    # try with replace:
+    with env.assertResponseError():
+        env.cmd('ft.add', 'foo', 'ft:foo/two', '1', 'REPLACE',
+            'FIELDS', 'bar', 'four five six')
+    with env.assertResponseError():
+        env.cmd('ft.add', 'foo', 'idx:foo', '1', 'REPLACE',
+            'FIELDS', 'bar', 'four five six')
+
+    env.cmd('ft.add', 'foo', 'mydoc1', 1, 'fields', 'bar', 'four five six')
+
+# 127.0.0.1:6379> flushdb
+# OK
+# 127.0.0.1:6379> ft.create foo SCHEMA bar text
+# OK
+# 127.0.0.1:6379> ft.add foo mydoc 1 FIELDS bar "one two three"
+# OK
+# 127.0.0.1:6379> keys *
+# 1) "mydoc"
+# 2) "ft:foo/one"
+# 3) "idx:foo"
+# 4) "ft:foo/two"
+# 5) "ft:foo/three"
+# 127.0.0.1:6379> ft.add foo "ft:foo/two" 1 FIELDS bar "four five six"
+# Could not connect to Redis at 127.0.0.1:6379: Connection refused
+
 
 def grouper(iterable, n, fillvalue=None):
     "Collect data into fixed-length chunks or blocks"

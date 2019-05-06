@@ -162,6 +162,7 @@ int RS_AddDocument(RedisSearchCtx *sctx, RedisModuleString *name, const AddDocum
     RedisSearchCtx sctx_s = SEARCH_CTX_STATIC(sctx->redisCtx, sp);
     if (Redis_SaveDocument(&sctx_s, &doc, status) != REDISMODULE_OK) {
       Document_FreeDetached(&doc, ctx);
+      goto error;
     }
   }
 
