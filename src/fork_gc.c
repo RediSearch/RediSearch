@@ -63,7 +63,11 @@ static char *ForkGc_FDReadBuffer(int fd, size_t *len) {
     return NULL;
   }
   char *buff = rm_malloc(*len * sizeof(char));
-  read(fd, buff, *len);
+  ssize_t l = read(fd, buff, *len);
+  if (l != *len) {
+    // we can not write logs here cause we are in the fork process, lets at least print to stdout.
+    printf("warning: got a bad length when writing to pipe.\r\n");
+  }
   return buff;
 }
 
@@ -71,15 +75,20 @@ static bool ForkGc_InvertedIndexRepair(ForkGCCtx *gc, RedisSearchCtx *sctx, Inve
                                        void (*RepairCallback)(const RSIndexResult *, void *),
                                        void *arg) {
   int *blocksFixed = array_new(int, 10);
+  int *blocksFixedOldIndexes = array_new(int, 10);
+  Buffer **blksToFree = array_new(Buffer *, 10);
   int numDocsBefore[idx->size];
   long long totalBytesCollected = 0;
   long long totalDocsCollected = 0;
-  for (uint32_t i = 0; i < idx->size; ++i) {
+  IndexBlock *newBlocksArray = array_new(IndexBlock, idx->size);
+  bool blocksRepaired = false;
+  for (uint32_t i = 0; i < idx->size - 1; ++i) {
     IndexBlock *blk = idx->blocks + i;
     if (blk->lastId - blk->firstId > UINT32_MAX) {
       // Skip over blocks which have a wide variation. In the future we might
       // want to split a block into two (or more) on high-delta boundaries.
       // todo: is it ok??
+      newBlocksArray = array_append(newBlocksArray, *blk);
       continue;
     }
     IndexRepairParams params = {0};
@@ -93,19 +102,49 @@ static bool ForkGc_InvertedIndexRepair(ForkGCCtx *gc, RedisSearchCtx *sctx, Inve
     }
 
     if (repaired > 0) {
-      blocksFixed = array_append(blocksFixed, i);
+      blocksRepaired = true;
+      if (blk->numDocs == 0) {
+        blksToFree = array_append(blksToFree, blk->data);
+      } else {
+        newBlocksArray = array_append(newBlocksArray, *blk);
+        blocksFixed = array_append(blocksFixed, array_len(newBlocksArray) - 1);
+        blocksFixedOldIndexes = array_append(blocksFixedOldIndexes, i);
+      }
+    } else {
+      newBlocksArray = array_append(newBlocksArray, *blk);
     }
 
     totalBytesCollected += params.bytesCollected;
     totalDocsCollected += repaired;
   }
 
-  if (array_len(blocksFixed) == 0) {
+  if (!blocksRepaired) {
     // no blocks was repaired
     ForkGc_FDWriteLongLong(gc->pipefd[GC_WRITERFD], 0);
     array_free(blocksFixed);
+    array_free(blocksFixedOldIndexes);
+    array_free(newBlocksArray);
+    array_free(blksToFree);
     return false;
   }
+
+  ForkGc_FDWriteLongLong(gc->pipefd[GC_WRITERFD], 1);  // indicating we have repaired blocks
+
+  // sending original invidx size
+  ForkGc_FDWriteLongLong(gc->pipefd[GC_WRITERFD], idx->size);
+
+  if (array_len(newBlocksArray) == idx->size - 1) {
+    // no empty block, there is no need to send the blocks array
+    ForkGc_FDWriteLongLong(gc->pipefd[GC_WRITERFD], 0);  // indicating we have no new invidx
+  } else {
+    ForkGc_FDWriteLongLong(gc->pipefd[GC_WRITERFD], 1);  // indicating we have new invidx
+    // empty blocks introduce, sending the new blocks array
+    ForkGc_FDWriteBuffer(gc->pipefd[GC_WRITERFD], (char *)newBlocksArray,
+                         array_len(newBlocksArray) * sizeof(IndexBlock));
+  }
+
+  ForkGc_FDWriteBuffer(gc->pipefd[GC_WRITERFD], (char *)blksToFree,
+                       array_len(blksToFree) * sizeof(Buffer *));
 
   // write number of repaired blocks
   ForkGc_FDWriteLongLong(gc->pipefd[GC_WRITERFD], array_len(blocksFixed));
@@ -116,13 +155,11 @@ static bool ForkGc_InvertedIndexRepair(ForkGCCtx *gc, RedisSearchCtx *sctx, Inve
   // write total docs collected
   ForkGc_FDWriteLongLong(gc->pipefd[GC_WRITERFD], totalDocsCollected);
 
-  // write total number of blocks
-  ForkGc_FDWriteLongLong(gc->pipefd[GC_WRITERFD], idx->size);
-
   for (int i = 0; i < array_len(blocksFixed); ++i) {
     // write fix block
-    IndexBlock *blk = idx->blocks + blocksFixed[i];
+    IndexBlock *blk = newBlocksArray + blocksFixed[i];
     ForkGc_FDWriteLongLong(gc->pipefd[GC_WRITERFD], blocksFixed[i]);  // writing the block index
+    ForkGc_FDWriteLongLong(gc->pipefd[GC_WRITERFD], blocksFixedOldIndexes[i]);  // writing old index
     ForkGc_FDWriteLongLong(gc->pipefd[GC_WRITERFD], blk->firstId);
     ForkGc_FDWriteLongLong(gc->pipefd[GC_WRITERFD], blk->lastId);
     ForkGc_FDWriteLongLong(gc->pipefd[GC_WRITERFD], blk->numDocs);
@@ -137,6 +174,9 @@ static bool ForkGc_InvertedIndexRepair(ForkGCCtx *gc, RedisSearchCtx *sctx, Inve
     }
   }
   array_free(blocksFixed);
+  array_free(blocksFixedOldIndexes);
+  array_free(newBlocksArray);
+  array_free(blksToFree);
   return true;
 }
 
@@ -309,18 +349,26 @@ static void ForkGc_CollectGarbage(ForkGCCtx *gc) {
 
 typedef struct ModifiedBlock {
   long long blockIndex;
+  long long blockOldIndex;
   int numBlocksBefore;
   IndexBlock blk;
 } ModifiedBlock;
 
 typedef struct {
+  size_t originalSize;
   long long bytesCollected;
   long long docsCollected;
+  Buffer **freeBufs;
+  size_t freeBufsSize;
+  bool blockArrayExists;
+  IndexBlock *newBlocksArray;
+  size_t newBlocksArraySize;
   ModifiedBlock *blocksModified;
 } ForkGc_InvertedIndexData;
 
 static void ForkGc_ReadModifiedBlock(ForkGCCtx *gc, ModifiedBlock *blockModified) {
   blockModified->blockIndex = ForkGc_FDReadLongLong(gc->pipefd[GC_READERFD]);
+  blockModified->blockOldIndex = ForkGc_FDReadLongLong(gc->pipefd[GC_READERFD]);
   blockModified->blk.firstId = ForkGc_FDReadLongLong(gc->pipefd[GC_READERFD]);
   blockModified->blk.lastId = ForkGc_FDReadLongLong(gc->pipefd[GC_READERFD]);
   blockModified->blk.numDocs = ForkGc_FDReadLongLong(gc->pipefd[GC_READERFD]);
@@ -329,7 +377,7 @@ static void ForkGc_ReadModifiedBlock(ForkGCCtx *gc, ModifiedBlock *blockModified
   char *data = ForkGc_FDReadBuffer(gc->pipefd[GC_READERFD], &cap);
   blockModified->blk.data = malloc(sizeof(Buffer));
   blockModified->blk.data->offset = ForkGc_FDReadLongLong(gc->pipefd[GC_READERFD]);
-  ;
+
   blockModified->blk.data->cap = cap;
   blockModified->blk.data->data = data;
   if (data == NULL) {
@@ -338,14 +386,28 @@ static void ForkGc_ReadModifiedBlock(ForkGCCtx *gc, ModifiedBlock *blockModified
 }
 
 static bool ForkGc_ReadInvertedIndexFromFork(ForkGCCtx *gc, ForkGc_InvertedIndexData *idxData) {
-  long long blocksModifiedSize = ForkGc_FDReadLongLong(gc->pipefd[GC_READERFD]);
-  if (blocksModifiedSize == 0) {
+  long long blocksRepaired = ForkGc_FDReadLongLong(gc->pipefd[GC_READERFD]);
+  if (!blocksRepaired) {
     return false;
   }
 
+  idxData->originalSize = ForkGc_FDReadLongLong(gc->pipefd[GC_READERFD]);
+
+  idxData->blockArrayExists = ForkGc_FDReadLongLong(gc->pipefd[GC_READERFD]);
+  if (idxData->blockArrayExists) {
+    idxData->newBlocksArray =
+        (IndexBlock *)ForkGc_FDReadBuffer(gc->pipefd[GC_READERFD], &idxData->newBlocksArraySize);
+    idxData->newBlocksArraySize /= sizeof(IndexBlock);
+  }
+
+  idxData->freeBufs =
+      (Buffer **)ForkGc_FDReadBuffer(gc->pipefd[GC_READERFD], &idxData->freeBufsSize);
+  idxData->freeBufsSize /= sizeof(Buffer *);
+
+  long long blocksModifiedSize = ForkGc_FDReadLongLong(gc->pipefd[GC_READERFD]);
+
   idxData->bytesCollected = ForkGc_FDReadLongLong(gc->pipefd[GC_READERFD]);
   idxData->docsCollected = ForkGc_FDReadLongLong(gc->pipefd[GC_READERFD]);
-  ForkGc_FDReadLongLong(gc->pipefd[GC_READERFD]);  // throw totalblocks in inverted index
 
   idxData->blocksModified = array_new(ModifiedBlock, blocksModifiedSize);
   for (int i = 0; i < blocksModifiedSize; ++i) {
@@ -358,19 +420,38 @@ static bool ForkGc_ReadInvertedIndexFromFork(ForkGCCtx *gc, ForkGc_InvertedIndex
 
 static void ForkGc_FixInvertedIndex(ForkGCCtx *gc, ForkGc_InvertedIndexData *idxData,
                                     InvertedIndex *idx) {
+  if (idxData->freeBufs) {
+    for (int i = 0; i < idxData->freeBufsSize; ++i) {
+      Buffer_Free(idxData->freeBufs[i]);
+      free(idxData->freeBufs[i]);
+    }
+    rm_free(idxData->freeBufs);
+  }
+
   for (int i = 0; i < array_len(idxData->blocksModified); ++i) {
     ModifiedBlock *blockModified = idxData->blocksModified + i;
-    if (blockModified->numBlocksBefore == idx->blocks[blockModified->blockIndex].numDocs) {
-      indexBlock_Free(&idx->blocks[blockModified->blockIndex]);
-      idx->blocks[blockModified->blockIndex].data = blockModified->blk.data;
-      idx->blocks[blockModified->blockIndex].firstId = blockModified->blk.firstId;
-      idx->blocks[blockModified->blockIndex].lastId = blockModified->blk.lastId;
-      idx->blocks[blockModified->blockIndex].numDocs = blockModified->blk.numDocs;
-    } else {
-      gc->stats.gcBlocksDenied++;
-      Buffer_Free(blockModified->blk.data);
-      free(blockModified->blk.data);
-    }
+    indexBlock_Free(&idx->blocks[blockModified->blockOldIndex]);
+  }
+
+  assert(idx->size >= idxData->originalSize);
+  if (idxData->blockArrayExists) {
+    idxData->newBlocksArray = rm_realloc(
+        idxData->newBlocksArray,
+        (idxData->newBlocksArraySize +
+         (idx->size - (idxData->originalSize - 1 /* we are copy the last block anyway*/))) *
+            sizeof(IndexBlock));
+    memcpy(idxData->newBlocksArray + idxData->newBlocksArraySize,
+           idx->blocks + (idxData->originalSize - 1),
+           (idx->size - (idxData->originalSize - 1)) * sizeof(IndexBlock));
+    rm_free(idx->blocks);
+    idxData->newBlocksArraySize += (idx->size - (idxData->originalSize - 1));
+    idx->blocks = idxData->newBlocksArray;
+    idx->size = idxData->newBlocksArraySize;
+  }
+
+  for (int i = 0; i < array_len(idxData->blocksModified); ++i) {
+    ModifiedBlock *blockModified = idxData->blocksModified + i;
+    idx->blocks[blockModified->blockIndex] = blockModified->blk;
   }
 }
 
