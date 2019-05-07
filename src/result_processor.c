@@ -417,7 +417,12 @@ static int cmpBySortKey(const void *e1, const void *e2, const void *udata) {
   if (!h1->sorterPrivateData || !h2->sorterPrivateData) {
     return h1->docId < h2->docId ? -1 : 1;
   }
-  return -RSSortingVector_Cmp(h1->sorterPrivateData, h2->sorterPrivateData, (RSSortingKey *)sk);
+  int res = -RSSortingVector_Cmp(h1->sorterPrivateData, h2->sorterPrivateData, (RSSortingKey *)sk);
+  if(res == 0){
+    return h1->docId < h2->docId ? -1 : 1;
+  }else{
+    return res;
+  }
 }
 
 /* Compare results for the heap by sorting key */
