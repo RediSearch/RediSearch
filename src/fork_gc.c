@@ -64,7 +64,7 @@ static char *ForkGc_FDReadBuffer(int fd, size_t *len) {
   }
   char *buff = rm_malloc(*len * sizeof(char));
   ssize_t l = read(fd, buff, *len);
-  if (l == *len) {
+  if (l != *len) {
     // we can not write logs here cause we are in the fork process, lets at least print to stdout.
     printf("warning: got a bad length when writing to pipe.\r\n");
   }
