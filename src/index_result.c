@@ -231,12 +231,12 @@ e.g. if V1 is {2,4,8} and V2 is {0,5,12}, the distance is 1 - abs(4-5)
 @param vs a list of vector pointers
 @param num the size of the list
 */
-int IndexResult_MinOffsetDelta(RSIndexResult *r) {
+int IndexResult_MinOffsetDelta(const RSIndexResult *r) {
   if (!RSIndexResult_IsAggregate(r) || r->agg.numChildren <= 1) {
     return 1;
   }
 
-  RSAggregateResult *agg = &r->agg;
+  const RSAggregateResult *agg = &r->agg;
   int dist = 0;
   int num = agg->numChildren;
 

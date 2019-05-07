@@ -41,3 +41,8 @@ void RegisterAllFunctions() {
   RegisterDateFunctions();
   RegisterStringFunctions();
 }
+
+void FunctionRegistry_Free(void) {
+  free(functions_g.funcs);
+  memset(&functions_g, 0, sizeof(functions_g));
+}

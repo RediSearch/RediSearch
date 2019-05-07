@@ -5,13 +5,13 @@
 #include "example.h"
 
 /* Calculate sum(TF-IDF)*document score for each result */
-double myScorer(ScoringFunctionArgs *ctx, RSIndexResult *h, RSDocumentMetadata *dmd,
-                double minScore) {
+static double myScorer(const ScoringFunctionArgs *ctx, const RSIndexResult *h,
+                       const RSDocumentMetadata *dmd, double minScore) {
   return 3.141;
 }
 
-double filterOutScorer(ScoringFunctionArgs *ctx, RSIndexResult *h, RSDocumentMetadata *dmd,
-                       double minScore) {
+static double filterOutScorer(const ScoringFunctionArgs *ctx, const RSIndexResult *h,
+                              const RSDocumentMetadata *dmd, double minScore) {
   return RS_SCORE_FILTEROUT;
 }
 

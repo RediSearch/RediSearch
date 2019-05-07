@@ -151,6 +151,7 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
 
   RedisModuleString *keyString = RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, sp->name);
   RedisModuleKey *k = RedisModule_OpenKey(ctx, keyString, REDISMODULE_READ | REDISMODULE_WRITE);
+  RedisModule_FreeString(ctx, keyString);
 
   // check that the key is empty
   if (k == NULL || (RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_EMPTY)) {
@@ -562,6 +563,7 @@ void IndexSpecCache_Decref(IndexSpecCache *c) {
   for (size_t ii = 0; ii < c->nfields; ++ii) {
     free(c->fields[ii].name);
   }
+  free(c->fields);
   free(c);
 }
 
@@ -635,6 +637,7 @@ void IndexSpec_FreeWithKey(IndexSpec *sp, RedisModuleCtx *ctx) {
   RedisModule_DeleteKey(kk);
   RedisModule_CloseKey(kk);
 }
+
 static void IndexSpec_FreeInternals(IndexSpec *spec) {
   DropDocumentIndexer(spec->name);
   if (spec->gc) {
@@ -645,12 +648,6 @@ static void IndexSpec_FreeInternals(IndexSpec *spec) {
     TrieType_Free(spec->terms);
   }
   DocTable_Free(&spec->docs);
-  if (spec->fields != NULL) {
-    for (int i = 0; i < spec->numFields; i++) {
-      rm_free(spec->fields[i].name);
-    }
-    rm_free(spec->fields);
-  }
 
   Cursors_PurgeWithName(&RSCursors, spec->name);
   CursorList_RemoveSpec(&RSCursors, spec->name);
@@ -668,11 +665,17 @@ static void IndexSpec_FreeInternals(IndexSpec *spec) {
   if (spec->smap) {
     SynonymMap_Free(spec->smap);
   }
+  if (spec->spcache) {
+    IndexSpecCache_Decref(spec->spcache);
+    spec->spcache = NULL;
+  }
+
   if (spec->indexStrs) {
     for (size_t ii = 0; ii < spec->numFields; ++ii) {
+      IndexSpecFmtStrings *fmts = spec->indexStrs + ii;
       for (size_t jj = 0; jj < INDEXFLD_NUM_TYPES; ++jj) {
-        if (spec->indexStrs[ii][jj]) {
-          RedisModule_FreeString(spec->strCtx, spec->indexStrs[ii][jj]);
+        if (fmts->types[jj]) {
+          RedisModule_FreeString(spec->strCtx, fmts->types[jj]);
         }
       }
     }
@@ -680,6 +683,13 @@ static void IndexSpec_FreeInternals(IndexSpec *spec) {
   }
   if (spec->strCtx) {
     RedisModule_FreeThreadSafeContext(spec->strCtx);
+  }
+
+  if (spec->fields != NULL) {
+    for (size_t i = 0; i < spec->numFields; i++) {
+      rm_free(spec->fields[i].name);
+    }
+    rm_free(spec->fields);
   }
   rm_free(spec);
 }
@@ -763,7 +773,9 @@ RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs,
     sp->strCtx = RedisModule_GetThreadSafeContext(NULL);
   }
 
-  RedisModuleString *ret = sp->indexStrs[fs->index][INDEXTYPE_TO_POS(forType)];
+  size_t typeix = INDEXTYPE_TO_POS(forType);
+
+  RedisModuleString *ret = sp->indexStrs[fs->index].types[typeix];
   if (!ret) {
     RedisSearchCtx sctx = {.redisCtx = sp->strCtx, .spec = sp};
     switch (forType) {
@@ -786,7 +798,7 @@ RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs,
   if (!ret) {
     return NULL;
   }
-  sp->indexStrs[fs->index][forType] = ret;
+  sp->indexStrs[fs->index].types[typeix] = ret;
   return ret;
 }
 

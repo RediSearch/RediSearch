@@ -16,6 +16,7 @@ typedef struct FieldSpec RSField;
 typedef struct Document RSDoc;
 typedef struct RSQueryNode RSQNode;
 typedef struct RS_ApiIter RSResultsIterator;
+typedef struct RSIdxOptions RSIndexOptions;
 
 #define RSVALTYPE_NOTFOUND 0
 #define RSVALTYPE_STRING 1
@@ -56,8 +57,33 @@ typedef int (*RSGetValueCallback)(void* ctx, const char* fieldName, const void* 
 
 MODULE_API_FUNC(int, RediSearch_GetCApiVersion)();
 
+#define RSIDXOPT_DOCTBLSIZE_UNLIMITED 0x01
+
+struct RSIdxOptions {
+  RSGetValueCallback gvcb;
+  void* gvcbData;
+  uint32_t flags;
+};
+
+/**
+ * Allocate an index options struct. This structure can be used to set global
+ * options on the index prior to it being created.
+ */
+MODULE_API_FUNC(RSIndexOptions*, RediSearch_CreateIndexOptions)(void);
+
+/**
+ * Frees the index options previously allocated. The options are _not_ freed
+ * in a call to CreateIndex()
+ */
+MODULE_API_FUNC(void, RediSearch_FreeIndexOptions)(RSIndexOptions*);
+MODULE_API_FUNC(void, RediSearch_IndexOptionsSetGetValueCallback)
+(RSIndexOptions* opts, RSGetValueCallback cb, void* ctx);
+
+/** Set flags modifying index creation. */
+MODULE_API_FUNC(void, RediSearch_IndexOptionsSetFlags)(RSIndexOptions* opts, uint32_t flags);
+
 MODULE_API_FUNC(RSIndex*, RediSearch_CreateIndex)
-(const char* name, RSGetValueCallback getValue, void* getValueCtx);
+(const char* name, const RSIndexOptions* options);
 
 MODULE_API_FUNC(void, RediSearch_DropIndex)(RSIndex*);
 
@@ -88,8 +114,8 @@ MODULE_API_FUNC(RSDoc*, RediSearch_CreateDocument)
 (const void* docKey, size_t len, double score, const char* lang);
 #define RediSearch_CreateDocumentSimple(s) RediSearch_CreateDocument(s, strlen(s), 1.0, NULL)
 
-MODULE_API_FUNC(int, RediSearch_DropDocument)(RSIndex* sp, const void* docKey, size_t len);
-
+MODULE_API_FUNC(int, RediSearch_DeleteDocument)(RSIndex* sp, const void* docKey, size_t len);
+#define RediSearch_DropDocument RediSearch_DeleteDocument
 /**
  * Add a field (with value) to the document
  * @param d the document
@@ -108,7 +134,14 @@ MODULE_API_FUNC(void, RediSearch_DocumentAddFieldString)
 MODULE_API_FUNC(void, RediSearch_DocumentAddFieldNumber)
 (RSDoc* d, const char* fieldName, double n, unsigned indexAsTypes);
 
-MODULE_API_FUNC(void, RediSearch_SpecAddDocument)(RSIndex* sp, RSDoc* d);
+/**
+ * Replace document if it already exists
+ */
+#define REDISEARCH_ADD_REPLACE 0x01
+
+MODULE_API_FUNC(int, RediSearch_IndexAddDocument)(RSIndex* sp, RSDoc* d, int flags, char**);
+#define RediSearch_SpecAddDocument(sp, d) \
+  RediSearch_IndexAddDocument(sp, d, REDISEARCH_ADD_REPLACE, NULL)
 
 MODULE_API_FUNC(RSQNode*, RediSearch_CreateTokenNode)
 (RSIndex* sp, const char* fieldName, const char* token);
@@ -158,37 +191,41 @@ MODULE_API_FUNC(void, RediSearch_ResultsIteratorFree)(RSResultsIterator* iter);
 
 MODULE_API_FUNC(void, RediSearch_ResultsIteratorReset)(RSResultsIterator* iter);
 
-#define RS_XAPIFUNC(X)      \
-  X(GetCApiVersion)         \
-  X(CreateIndex)            \
-  X(DropIndex)              \
-  X(CreateField)            \
-  X(TextFieldSetWeight)     \
-  X(TagSetSeparator)        \
-  X(CreateDocument)         \
-  X(DropDocument)           \
-  X(DocumentAddField)       \
-  X(DocumentAddFieldNumber) \
-  X(DocumentAddFieldString) \
-  X(SpecAddDocument)        \
-  X(CreateTokenNode)        \
-  X(CreateNumericNode)      \
-  X(CreatePrefixNode)       \
-  X(CreateLexRangeNode)     \
-  X(CreateTagNode)          \
-  X(CreateIntersectNode)    \
-  X(CreateUnionNode)        \
-  X(QueryNodeAddChild)      \
-  X(QueryNodeClearChildren) \
-  X(QueryNodeGetChild)      \
-  X(QueryNodeNumChildren)   \
-  X(QueryNodeFree)          \
-  X(QueryNodeType)          \
-  X(QueryNodeGetFieldMask)  \
-  X(GetResultsIterator)     \
-  X(ResultsIteratorNext)    \
-  X(ResultsIteratorFree)    \
-  X(ResultsIteratorReset)   \
+#define RS_XAPIFUNC(X)               \
+  X(GetCApiVersion)                  \
+  X(CreateIndexOptions)              \
+  X(IndexOptionsSetGetValueCallback) \
+  X(IndexOptionsSetFlags)            \
+  X(FreeIndexOptions)                \
+  X(CreateIndex)                     \
+  X(DropIndex)                       \
+  X(CreateField)                     \
+  X(TextFieldSetWeight)              \
+  X(TagSetSeparator)                 \
+  X(CreateDocument)                  \
+  X(DeleteDocument)                  \
+  X(DocumentAddField)                \
+  X(DocumentAddFieldNumber)          \
+  X(DocumentAddFieldString)          \
+  X(IndexAddDocument)                \
+  X(CreateTokenNode)                 \
+  X(CreateNumericNode)               \
+  X(CreatePrefixNode)                \
+  X(CreateLexRangeNode)              \
+  X(CreateTagNode)                   \
+  X(CreateIntersectNode)             \
+  X(CreateUnionNode)                 \
+  X(QueryNodeAddChild)               \
+  X(QueryNodeClearChildren)          \
+  X(QueryNodeGetChild)               \
+  X(QueryNodeNumChildren)            \
+  X(QueryNodeFree)                   \
+  X(QueryNodeType)                   \
+  X(QueryNodeGetFieldMask)           \
+  X(GetResultsIterator)              \
+  X(ResultsIteratorNext)             \
+  X(ResultsIteratorFree)             \
+  X(ResultsIteratorReset)            \
   X(IterateQuery)
 
 #define REDISEARCH_MODULE_INIT_FUNCTION(name)                                  \

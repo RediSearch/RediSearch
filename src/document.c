@@ -99,7 +99,9 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Doc
       if (f->indexAs & INDEXFLD_T_FULLTEXT) {
         numTextIndexable++;
         hasTextFields = 1;
-      } else {
+      }
+
+      if (f->indexAs != INDEXFLD_T_FULLTEXT) {
         // has non-text but indexable fields
         hasOtherFields = 1;
       }
@@ -151,7 +153,11 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Doc
 RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b, QueryError *status) {
 
   if (!actxPool_g) {
-    actxPool_g = mempool_new(16, allocDocumentContext, freeDocumentContext);
+    mempool_options mopts = {.initialCap = 16,
+                             .alloc = allocDocumentContext,
+                             .free = freeDocumentContext,
+                             .isGlobal = 1};
+    actxPool_g = mempool_new(&mopts);
   }
 
   // Get a new context
@@ -200,7 +206,7 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b, QueryError *stat
 }
 
 static void doReplyFinish(RSAddDocumentCtx *aCtx, RedisModuleCtx *ctx) {
-  aCtx->donecb(aCtx, ctx, NULL);
+  aCtx->donecb(aCtx, ctx, aCtx->donecbData);
   AddDocumentCtx_Free(aCtx);
 }
 
@@ -264,7 +270,7 @@ static int AddDocumentCtx_ReplaceMerge(RSAddDocumentCtx *aCtx, RedisSearchCtx *s
 
   if (rv != REDISMODULE_OK) {
     QueryError_SetError(&aCtx->status, QUERY_ENODOC, "Could not load existing document");
-    aCtx->donecb(aCtx, sctx->redisCtx, NULL);
+    aCtx->donecb(aCtx, sctx->redisCtx, aCtx->donecbData);
     AddDocumentCtx_Free(aCtx);
     return 1;
   }
@@ -392,7 +398,7 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
     }
     aCtx->tokenizer->Start(aCtx->tokenizer, (char *)c, fl, options);
 
-    Token tok;
+    Token tok = {0};
     uint32_t lastTokPos = 0;
     uint32_t newTokPos;
     while (0 != (newTokPos = aCtx->tokenizer->Next(aCtx->tokenizer, &tok))) {
@@ -404,6 +410,7 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
       curOffsetField->lastTokPos = lastTokPos;
     }
     aCtx->totalTokens = lastTokPos;
+    Token_Destroy(&tok);
   }
   return 0;
 }
@@ -509,7 +516,7 @@ int IndexerBulkAdd(IndexBulkData *bulk, RSAddDocumentCtx *cur, RedisSearchCtx *s
   int rc = 0;
   for (size_t ii = 0; ii < INDEXFLD_NUM_TYPES && rc == 0; ++ii) {
     // see which types are supported in the current field...
-    if (field->indexAs & (1 << ii)) {
+    if (field->indexAs & INDEXTYPE_FROM_POS(ii)) {
       switch (ii) {
         case IXFLDPOS_TAG:
           rc = tagIndexer(bulk, cur, sctx, field, fs, fdata, status);
@@ -709,7 +716,7 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
   }
 
 done:
-  aCtx->donecb(aCtx, sctx->redisCtx, NULL);
+  aCtx->donecb(aCtx, sctx->redisCtx, aCtx->donecbData);
   AddDocumentCtx_Free(aCtx);
 }
 

@@ -217,6 +217,7 @@ typedef struct RSAddDocumentCtx {
   uint8_t options;       // Indexing options - i.e. DOCUMENT_ADD_xxx
   uint8_t stateFlags;    // Indexing state, ACTX_F_xxx
   DocumentAddCompleted donecb;
+  void *donecbData;
 } RSAddDocumentCtx;
 
 #define AddDocumentCtx_IsBlockable(aCtx) (!((aCtx)->stateFlags & ACTX_F_NOBLOCK))

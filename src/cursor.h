@@ -112,6 +112,11 @@ extern CursorList RSCursors;
  */
 void CursorList_Init(CursorList *cl);
 
+/**
+ * Clear the cursor list
+ */
+void CursorList_Destroy(CursorList *cl);
+
 #define RSCURSORS_DEFAULT_CAPACITY 128
 #define RSCURSORS_SWEEP_INTERVAL 500                /* GC Every 500 requests */
 #define RSCURSORS_SWEEP_THROTTLE (1 * (1000000000)) /* Throttle, in NS */

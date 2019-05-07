@@ -33,6 +33,7 @@ class MyEnvironment : public ::testing::Environment {
   }
 
   virtual void TearDown() {
+    RediSearch_CleanupModule();
     RMCK_Shutdown();
   }
 };

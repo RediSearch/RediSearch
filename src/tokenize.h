@@ -42,6 +42,8 @@ typedef struct {
   uint32_t pos;
 } Token;
 
+#define Token_Destroy(t) free((t)->phoneticsPrimary)
+
 // A NormalizeFunc converts a raw token to the normalized form in which it will be stored
 typedef char *(*NormalizeFunc)(char *, size_t *);
 

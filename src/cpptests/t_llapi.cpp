@@ -26,14 +26,9 @@ TEST_F(LLApiTest, testGetVersion) {
   ASSERT_EQ(RediSearch_GetCApiVersion(), REDISEARCH_CAPI_VERSION);
 }
 
-static std::vector<std::string> getResultsCommon(RSIndex* index, RSResultsIterator* it,
-                                                 bool expectEmpty) {
+static std::vector<std::string> getResultsCommon(RSIndex* index, RSResultsIterator* it) {
   std::vector<std::string> ret;
-  if (expectEmpty) {
-    EXPECT_TRUE(it == NULL);
-  } else {
-    EXPECT_FALSE(it == NULL);
-  }
+  EXPECT_FALSE(it == NULL);
 
   if (!it) {
     goto done;
@@ -55,21 +50,19 @@ done:
   return ret;
 }
 
-static std::vector<std::string> getResults(RSIndex* index, RSQueryNode* qn,
-                                           bool expectEmpty = false) {
+static std::vector<std::string> getResults(RSIndex* index, RSQueryNode* qn) {
   auto it = RediSearch_GetResultsIterator(qn, index);
-  return getResultsCommon(index, it, expectEmpty);
+  return getResultsCommon(index, it);
 }
 
-static std::vector<std::string> getResults(RSIndex* index, const char* s,
-                                           bool expectEmpty = false) {
+static std::vector<std::string> getResults(RSIndex* index, const char* s) {
   auto it = RediSearch_IterateQuery(index, s, strlen(s), NULL);
-  return getResultsCommon(index, it, expectEmpty);
+  return getResultsCommon(index, it);
 }
 
 TEST_F(LLApiTest, testAddDocumentTextField) {
   // creating the index
-  RSIndex* index = RediSearch_CreateIndex("index", NULL, NULL);
+  RSIndex* index = RediSearch_CreateIndex("index", NULL);
 
   // adding text field to the index
   RediSearch_CreateField(index, FIELD_NAME_1, RSFLDTYPE_FULLTEXT, RSFLDOPT_NONE);
@@ -105,8 +98,7 @@ TEST_F(LLApiTest, testAddDocumentTextField) {
 
   // search with no results
   qn = RediSearch_CreatePrefixNode(index, FIELD_NAME_1, "nn");
-  iter = RediSearch_GetResultsIterator(qn, index);
-  ASSERT_FALSE(iter);
+  ASSERT_TRUE(getResults(index, qn).empty());
 
   // adding another text field
   RediSearch_CreateField(index, FIELD_NAME_2, RSFLDTYPE_FULLTEXT, RSFLDOPT_NONE);
@@ -160,7 +152,7 @@ TEST_F(LLApiTest, testAddDocumentTextField) {
 
 TEST_F(LLApiTest, testAddDocumentNumericField) {
   // creating the index
-  RSIndex* index = RediSearch_CreateIndex("index", NULL, NULL);
+  RSIndex* index = RediSearch_CreateIndex("index", NULL);
 
   // adding text field to the index
   RediSearch_CreateNumericField(index, NUMERIC_FIELD_NAME);
@@ -187,7 +179,7 @@ TEST_F(LLApiTest, testAddDocumentNumericField) {
 
 TEST_F(LLApiTest, testAddDocumetTagField) {
   // creating the index
-  RSIndex* index = RediSearch_CreateIndex("index", NULL, NULL);
+  RSIndex* index = RediSearch_CreateIndex("index", NULL);
 
   // adding text field to the index
   RediSearch_CreateTagField(index, TAG_FIELD_NAME1);
@@ -229,7 +221,7 @@ TEST_F(LLApiTest, testAddDocumetTagField) {
 
 TEST_F(LLApiTest, testPhoneticSearch) {
   // creating the index
-  RSIndex* index = RediSearch_CreateIndex("index", NULL, NULL);
+  RSIndex* index = RediSearch_CreateIndex("index", NULL);
   RediSearch_CreateField(index, FIELD_NAME_1, RSFLDTYPE_FULLTEXT, RSFLDOPT_TXTPHONETIC);
   RediSearch_CreateField(index, FIELD_NAME_2, RSFLDTYPE_FULLTEXT, RSFLDOPT_NONE);
 
@@ -246,14 +238,14 @@ TEST_F(LLApiTest, testPhoneticSearch) {
 
   // make sure phonetic search on field2 do not return results
   qn = RediSearch_CreateTokenNode(index, FIELD_NAME_2, "phelix");
-  res = getResults(index, qn, true);
+  res = getResults(index, qn);
   ASSERT_EQ(0, res.size());
   RediSearch_DropIndex(index);
 }
 
 TEST_F(LLApiTest, testMassivePrefix) {
   // creating the index
-  RSIndex* index = RediSearch_CreateIndex("index", NULL, NULL);
+  RSIndex* index = RediSearch_CreateIndex("index", NULL);
   RediSearch_CreateTagField(index, TAG_FIELD_NAME1);
 
   char buff[1024];
@@ -283,7 +275,7 @@ TEST_F(LLApiTest, testMassivePrefix) {
 }
 
 TEST_F(LLApiTest, testRanges) {
-  RSIndex* index = RediSearch_CreateIndex("index", NULL, NULL);
+  RSIndex* index = RediSearch_CreateIndex("index", NULL);
   RediSearch_CreateTextField(index, FIELD_NAME_1);
   char buf[] = {"Mark_"};
   size_t nbuf = strlen(buf);
@@ -337,7 +329,11 @@ static int GetValue(void* ctx, const char* fieldName, const void* id, char** str
 
 TEST_F(LLApiTest, testMassivePrefixWithUnsortedSupport) {
   // creating the index
-  RSIndex* index = RediSearch_CreateIndex("index", GetValue, NULL);
+  RSIndexOptions* options = RediSearch_CreateIndexOptions();
+  RediSearch_IndexOptionsSetGetValueCallback(options, GetValue, NULL);
+  RSIndex* index = RediSearch_CreateIndex("index", options);
+  RediSearch_FreeIndexOptions(options);
+
   RediSearch_CreateTagField(index, TAG_FIELD_NAME1);
 
   char buff[1024];
@@ -368,7 +364,11 @@ TEST_F(LLApiTest, testMassivePrefixWithUnsortedSupport) {
 
 TEST_F(LLApiTest, testPrefixIntersection) {
   // creating the index
-  RSIndex* index = RediSearch_CreateIndex("index", GetValue, NULL);
+  RSIndexOptions* options = RediSearch_CreateIndexOptions();
+  RediSearch_IndexOptionsSetGetValueCallback(options, GetValue, NULL);
+  RSIndex* index = RediSearch_CreateIndex("index", options);
+  RediSearch_FreeIndexOptions(options);
+
   RediSearch_CreateTagField(index, TAG_FIELD_NAME1);
   RediSearch_CreateTagField(index, TAG_FIELD_NAME2);
 
@@ -408,7 +408,7 @@ TEST_F(LLApiTest, testPrefixIntersection) {
 }
 
 TEST_F(LLApiTest, testMultitype) {
-  RSIndex* index = RediSearch_CreateIndex("index", NULL, NULL);
+  RSIndex* index = RediSearch_CreateIndex("index", NULL);
   auto* f = RediSearch_CreateField(index, "f1", RSFLDTYPE_FULLTEXT, RSFLDOPT_NONE);
   ASSERT_TRUE(f != NULL);
   f = RediSearch_CreateField(index, "f2", RSFLDTYPE_FULLTEXT | RSFLDTYPE_TAG | RSFLDTYPE_NUMERIC,
@@ -418,7 +418,8 @@ TEST_F(LLApiTest, testMultitype) {
   RSDoc* d = RediSearch_CreateDocumentSimple("doc1");
   RediSearch_DocumentAddFieldCString(d, "f1", "hello", RSFLDTYPE_FULLTEXT);
   RediSearch_DocumentAddFieldCString(d, "f2", "world", RSFLDTYPE_FULLTEXT | RSFLDTYPE_TAG);
-  RediSearch_SpecAddDocument(index, d);
+  int rc = RediSearch_SpecAddDocument(index, d);
+  ASSERT_EQ(REDISMODULE_OK, rc);
 
   // Done
   // Now search for them...
@@ -426,10 +427,18 @@ TEST_F(LLApiTest, testMultitype) {
   auto results = getResults(index, qn);
   ASSERT_EQ(1, results.size());
   ASSERT_EQ("doc1", results[0]);
+
+  qn = RediSearch_CreateTagNode(index, "f2");
+  RediSearch_QueryNodeAddChild(qn, RediSearch_CreateTokenNode(index, NULL, "world"));
+  results = getResults(index, qn);
+  ASSERT_EQ(1, results.size());
+  ASSERT_EQ("doc1", results[0]);
+
+  RediSearch_DropIndex(index);
 }
 
 TEST_F(LLApiTest, testQueryString) {
-  RSIndex* index = RediSearch_CreateIndex("index", NULL, NULL);
+  RSIndex* index = RediSearch_CreateIndex("index", NULL);
   RediSearch_CreateField(index, "ft1", RSFLDTYPE_FULLTEXT, RSFLDOPT_NONE);
   RediSearch_CreateField(index, "ft2", RSFLDTYPE_FULLTEXT, RSFLDOPT_NONE);
   RediSearch_CreateField(index, "n1", RSFLDTYPE_NUMERIC, RSFLDOPT_NONE);
@@ -460,4 +469,5 @@ TEST_F(LLApiTest, testQueryString) {
 
   res = getResults(index, "(@ft1:hello1)|(@ft1:hello50)");
   ASSERT_EQ(2, res.size());
+  RediSearch_DropIndex(index);
 }

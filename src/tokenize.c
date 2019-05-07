@@ -124,7 +124,6 @@ uint32_t simpleTokenizer_Next(RSTokenizer *base, Token *t) {
 
     if ((ctx->options & TOKENIZE_PHONETICS) && normLen >= RSGlobalConfig.minPhoneticTermLen) {
       // VLA: eww
-      char phonOrig[normLen + 1];
       PhoneticManager_ExpandPhonetics(NULL, tok, normLen, &t->phoneticsPrimary, NULL);
     }
 
@@ -181,7 +180,9 @@ RSTokenizer *GetTokenizer(const char *language, Stemmer *stemmer, StopWordList *
 
 RSTokenizer *GetChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords) {
   if (!tokpoolCn_g) {
-    tokpoolCn_g = mempool_new(16, newCnTokenizerAlloc, tokenizerFree);
+    mempool_options opts = {
+        .isGlobal = 1, .initialCap = 16, .alloc = newCnTokenizerAlloc, .free = tokenizerFree};
+    tokpoolCn_g = mempool_new(&opts);
   }
 
   RSTokenizer *t = mempool_get(tokpoolCn_g);
@@ -191,7 +192,9 @@ RSTokenizer *GetChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords) {
 
 RSTokenizer *GetSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords) {
   if (!tokpoolLatin_g) {
-    tokpoolLatin_g = mempool_new(16, newLatinTokenizerAlloc, tokenizerFree);
+    mempool_options opts = {
+        .isGlobal = 1, .initialCap = 16, .alloc = newLatinTokenizerAlloc, .free = tokenizerFree};
+    tokpoolLatin_g = mempool_new(&opts);
   }
   RSTokenizer *t = mempool_get(tokpoolLatin_g);
   t->Reset(t, stemmer, stopwords, 0);

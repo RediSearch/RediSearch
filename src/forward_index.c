@@ -97,7 +97,8 @@ ForwardIndex *NewForwardIndex(Document *doc, uint32_t idxFlags) {
   idx->totalFreq = 0;
 
   KHTable_Init(idx->hits, &procs, &idx->entries, termCount);
-  idx->vvwPool = mempool_new(termCount, vvwAlloc, vvwFree);
+  mempool_options options = {.initialCap = termCount, .alloc = vvwAlloc, .free = vvwFree};
+  idx->vvwPool = mempool_new(&options);
 
   ForwardIndex_InitCommon(idx, doc, idxFlags);
   return idx;
@@ -155,9 +156,12 @@ static khIdxEntry *makeEntry(ForwardIndex *idx, const char *s, size_t n, uint32_
   return (khIdxEntry *)bb;
 }
 
+#define TOKOPT_F_STEM 0x01
+#define TOKOPT_F_COPYSTR 0x02
+
 static void ForwardIndex_HandleToken(ForwardIndex *idx, const char *tok, size_t tokLen,
-                                     uint32_t pos, float fieldScore, t_fieldId fieldId, int isStem,
-                                     int shouldCopy, bool addToTermsTrie) {
+                                     uint32_t pos, float fieldScore, t_fieldId fieldId,
+                                     int options) {
   // LG_DEBUG("token %.*s, hval %d\n", t.len, t.s, hval);
   ForwardIndexEntry *h = NULL;
   int isNew = 0;
@@ -170,7 +174,7 @@ static void ForwardIndex_HandleToken(ForwardIndex *idx, const char *tok, size_t 
     h->fieldMask = 0;
     h->hash = hash;
     h->next = NULL;
-    if (shouldCopy) {
+    if (options & TOKOPT_F_COPYSTR) {
       h->term = copyTempString(idx, tok, tokLen);
     } else {
       h->term = tok;
@@ -187,8 +191,6 @@ static void ForwardIndex_HandleToken(ForwardIndex *idx, const char *tok, size_t 
       h->vw = NULL;
     }
 
-    h->addToTermsTrie = addToTermsTrie;
-
   } else {
     // printf("Existing token %.*s\n", (int)t->len, t->s);
   }
@@ -197,7 +199,7 @@ static void ForwardIndex_HandleToken(ForwardIndex *idx, const char *tok, size_t 
   float score = (float)fieldScore;
 
   // stem tokens get lower score
-  if (isStem) {
+  if (options & TOKOPT_F_STEM) {
     score *= STEM_TOKEN_FACTOR;
   }
   h->freq += MAX(1, (uint32_t)score);
@@ -216,18 +218,24 @@ static void ForwardIndex_HandleToken(ForwardIndex *idx, const char *tok, size_t 
 int forwardIndexTokenFunc(void *ctx, const Token *tokInfo) {
 #define SYNONYM_BUFF_LEN 100
   const ForwardIndexTokenizerCtx *tokCtx = ctx;
+  int options = 0;
+  if (tokInfo->flags & Token_CopyRaw) {
+    options |= TOKOPT_F_COPYSTR;
+  }
   ForwardIndex_HandleToken(tokCtx->idx, tokInfo->tok, tokInfo->tokLen, tokInfo->pos,
-                           tokCtx->fieldScore, tokCtx->fieldId, 0, tokInfo->flags & Token_CopyRaw,
-                           true);
+                           tokCtx->fieldScore, tokCtx->fieldId, options);
 
   if (tokCtx->allOffsets) {
     VVW_Write(tokCtx->allOffsets, tokInfo->raw - tokCtx->doc);
   }
 
   if (tokInfo->stem) {
+    int stemopts = TOKOPT_F_STEM;
+    if (tokInfo->flags & Token_CopyStem) {
+      stemopts |= TOKOPT_F_COPYSTR;
+    }
     ForwardIndex_HandleToken(tokCtx->idx, tokInfo->stem, tokInfo->stemLen, tokInfo->pos,
-                             tokCtx->fieldScore, tokCtx->fieldId, 1,
-                             tokInfo->flags & Token_CopyStem, true);
+                             tokCtx->fieldScore, tokCtx->fieldId, stemopts);
   }
 
   if (tokCtx->idx->smap) {
@@ -238,7 +246,7 @@ int forwardIndexTokenFunc(void *ctx, const Token *tokInfo) {
       for (int i = 0; i < array_len(t_data->ids); ++i) {
         synonym_len = SynonymMap_IdToStr(t_data->ids[i], synonym_buff, SYNONYM_BUFF_LEN);
         ForwardIndex_HandleToken(tokCtx->idx, synonym_buff, synonym_len, tokInfo->pos,
-                                 tokCtx->fieldScore, tokCtx->fieldId, 0, 1, true);
+                                 tokCtx->fieldScore, tokCtx->fieldId, TOKOPT_F_COPYSTR);
       }
     }
   }
@@ -246,7 +254,7 @@ int forwardIndexTokenFunc(void *ctx, const Token *tokInfo) {
   if (tokInfo->phoneticsPrimary) {
     ForwardIndex_HandleToken(tokCtx->idx, tokInfo->phoneticsPrimary,
                              strlen(tokInfo->phoneticsPrimary), tokInfo->pos, tokCtx->fieldScore,
-                             tokCtx->fieldId, 0, 0, true);
+                             tokCtx->fieldId, TOKOPT_F_COPYSTR);
   }
 
   return 0;

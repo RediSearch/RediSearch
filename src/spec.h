@@ -143,7 +143,9 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
 
 #define FIELD_BIT(fs) (((t_fieldMask)1) << (fs)->ftId)
 
-typedef RedisModuleString *IndexSpecFmtStrings[INDEXFLD_NUM_TYPES];
+typedef struct {
+  RedisModuleString *types[INDEXFLD_NUM_TYPES];
+} IndexSpecFmtStrings;
 
 typedef struct IndexSpec {
   char *name;
@@ -168,6 +170,7 @@ typedef struct IndexSpec {
   uint64_t uniqueId;
 
   RedisModuleCtx *strCtx;
+  // cached strings, corresponding to number of fields
   IndexSpecFmtStrings *indexStrs;
   struct IndexSpecCache *spcache;
   long long timeout;

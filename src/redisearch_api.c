@@ -9,6 +9,9 @@
 #include "query_internal.h"
 #include "numeric_filter.h"
 #include "query.h"
+#include "extension.h"
+#include "ext/default.h"
+#include <float.h>
 
 static void RS_ResultsIteratorFree(struct RS_ApiIter* iter);
 
@@ -26,7 +29,11 @@ static void valFreeCb(void* unused, void* p) {
   free(kdv);
 }
 
-static IndexSpec* RS_CreateIndex(const char* name, RSGetValueCallback getValue, void* getValueCtx) {
+static IndexSpec* RS_CreateIndex(const char* name, const RSIndexOptions* options) {
+  RSIndexOptions opts_s = {0};
+  if (!options) {
+    options = &opts_s;
+  }
   IndexSpec* spec = NewIndexSpec(name);
   spec->flags |= Index_Temporary;  // temporary is so that we will not use threads!!
 
@@ -35,13 +42,14 @@ static IndexSpec* RS_CreateIndex(const char* name, RSGetValueCallback getValue, 
     invidxDictType = dictTypeHeapRedisStrings;
     invidxDictType.valDestructor = valFreeCb;
   }
-
+  spec->getValue = options->gvcb;
+  spec->getValueCtx = options->gvcbData;
   spec->keysDict = dictCreate(&invidxDictType, NULL);
   spec->minPrefix = 0;
   spec->maxPrefixExpansions = -1;
-  spec->getValue = getValue;
-  spec->getValueCtx = getValueCtx;
-  DocTable_EnableIdArray(&spec->docs);
+  if (options->flags & RSIDXOPT_DOCTBLSIZE_UNLIMITED) {
+    spec->docs.maxSize = DOCID_MAX;
+  }
   return spec;
 }
 
@@ -121,19 +129,23 @@ static Document* RS_CreateDocument(const void* docKey, size_t len, double score,
   return ret;
 }
 
-static int RS_DropDocument(IndexSpec* sp, const void* docKey, size_t len) {
+static int RS_DeleteDocument(IndexSpec* sp, const void* docKey, size_t len) {
   RedisModuleString* docId = RedisModule_CreateString(NULL, docKey, len);
+  int rc = REDISMODULE_OK;
   t_docId id = DocTable_GetIdR(&sp->docs, docId);
   if (id == 0) {
-    RedisModule_FreeString(NULL, docId);
-    return 0;
+    rc = REDISMODULE_ERR;
+  } else {
+    rc = DocTable_DeleteR(&sp->docs, docId);
+    if (rc) {
+      sp->stats.numDocuments--;
+    } else {
+      // is this possible?
+      rc = REDISMODULE_ERR;
+    }
   }
-  int rc = DocTable_DeleteR(&sp->docs, docId);
-  if (rc) {
-    sp->stats.numDocuments--;
-    return 1;
-  }
-  return 0;
+  RedisModule_FreeString(NULL, docId);
+  return rc;
 }
 
 static void RS_DocumentAddField(Document* d, const char* fieldName, RedisModuleString* value,
@@ -153,23 +165,46 @@ static void RS_DocumentAddFieldNumber(Document* d, const char* fieldname, double
   Document_AddField(d, fieldname, r, as);
 }
 
-static void RS_AddDocDone(RSAddDocumentCtx* aCtx, RedisModuleCtx* ctx, void* unused) {
+typedef struct {
+  char** s;
+  int hasErr;
+} RSError;
+
+static void RS_AddDocDone(RSAddDocumentCtx* aCtx, RedisModuleCtx* ctx, void* err) {
+  RSError* ourErr = err;
+  if (QueryError_HasError(&aCtx->status)) {
+    if (ourErr->s) {
+      *ourErr->s = strdup(QueryError_GetError(&aCtx->status));
+    }
+    ourErr->hasErr = aCtx->status.code;
+  }
 }
 
-static void RS_SpecAddDocument(IndexSpec* sp, Document* d) {
-  uint32_t options = 0;
+static int RS_IndexAddDocument(IndexSpec* sp, Document* d, int options, char** errs) {
+  RSError err = {.s = errs};
   QueryError status = {0};
   RSAddDocumentCtx* aCtx = NewAddDocumentCtx(sp, d, &status);
   aCtx->donecb = RS_AddDocDone;
+  aCtx->donecbData = &err;
   RedisSearchCtx sctx = {.redisCtx = NULL, .spec = sp};
   int exists = !!DocTable_GetIdR(&sp->docs, d->docKey);
   if (exists) {
-    options |= DOCUMENT_ADD_REPLACE;
+    if (options & REDISEARCH_ADD_REPLACE) {
+      options |= DOCUMENT_ADD_REPLACE;
+    } else {
+      if (errs) {
+        *errs = strdup("Document already exists");
+      }
+      AddDocumentCtx_Free(aCtx);
+      return REDISMODULE_ERR;
+    }
   }
+
   options |= DOCUMENT_ADD_NOSAVE;
   aCtx->stateFlags |= ACTX_F_NOBLOCK;
   AddDocumentCtx_Submit(aCtx, &sctx, options);
   rm_free(d);
+  return err.hasErr ? REDISMODULE_ERR : REDISMODULE_OK;
 }
 
 static QueryNode* RS_CreateTokenNode(IndexSpec* sp, const char* fieldName, const char* token) {
@@ -255,70 +290,90 @@ static size_t RS_QueryNodeNumChildren(const QueryNode* qn) {
 
 typedef struct RS_ApiIter {
   IndexIterator* internal;
-  QueryAST qast;  // Used for string queries..
+  RSIndexResult* res;
+  const RSDocumentMetadata* lastmd;
+  ScoringFunctionArgs scargs;
+  RSScoringFunction scorer;
+  RSFreeFunction scorerFree;
+  double minscore;  // Used for scoring
+  QueryAST qast;    // Used for string queries..
 } RS_ApiIter;
 
-static RS_ApiIter* RS_IterateQuery(IndexSpec* sp, const char* s, size_t n, char** error) {
-  RS_ApiIter* ret = rm_calloc(1, sizeof(*ret));
+#define QUERY_INPUT_STRING 1
+#define QUERY_INPUT_NODE 2
+
+typedef struct {
+  int qtype;
+  union {
+    struct {
+      const char* qs;
+      size_t n;
+    } s;
+    QueryNode* qn;
+  } u;
+} QueryInput;
+
+static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** error) {
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(NULL, sp);
   RSSearchOptions options = {0};
   QueryError status = {0};
   RSSearchOptions_Init(&options);
+  RS_ApiIter* it = calloc(1, sizeof(*it));
 
-  if (QAST_Parse(&ret->qast, &sctx, &options, s, n, &status) != REDISMODULE_OK) {
+  if (input->qtype == QUERY_INPUT_STRING) {
+    if (QAST_Parse(&it->qast, &sctx, &options, input->u.s.qs, input->u.s.n, &status) !=
+        REDISMODULE_OK) {
+      goto end;
+    }
+  } else {
+    it->qast.root = input->u.qn;
+  }
+
+  if (QAST_Expand(&it->qast, NULL, &options, &sctx, &status) != REDISMODULE_OK) {
     goto end;
   }
 
-  if (QAST_Expand(&ret->qast, NULL, &options, &sctx, &status) != REDISMODULE_OK) {
+  it->internal = QAST_Iterate(&it->qast, &options, &sctx, NULL, &status);
+  if (!it->internal) {
     goto end;
   }
 
-  ret->internal = QAST_Iterate(&ret->qast, &options, &sctx, NULL, &status);
-  if (!ret->internal) {
-    goto end;
-  }
+  IndexSpec_GetStats(sp, &it->scargs.indexStats);
+  ExtScoringFunctionCtx* scoreCtx = Extensions_GetScoringFunction(&it->scargs, DEFAULT_SCORER_NAME);
+  assert(scoreCtx);
+  it->scorer = scoreCtx->sf;
+  it->scorerFree = scoreCtx->ff;
+  it->minscore = DBL_MAX;
 
   // dummy statement for goto
   ;
 end:
-  if (QueryError_HasError(&status)) {
-    if (ret) {
-      RS_ResultsIteratorFree(ret);
-      ret = NULL;
+  if (input->qtype == QUERY_INPUT_NODE) {
+    QueryNode_Free(it->qast.root);
+    it->qast.root = NULL;
+  }
+
+  if (QueryError_HasError(&status) || it->internal == NULL) {
+    if (it) {
+      RS_ResultsIteratorFree(it);
+      it = NULL;
     }
     if (error) {
-      *error = rm_strdup(QueryError_GetError(&status));
+      *error = strdup(QueryError_GetError(&status));
     }
   }
   QueryError_ClearError(&status);
-  return ret;
+  return it;
+}
+
+static RS_ApiIter* RS_IterateQuery(IndexSpec* sp, const char* s, size_t n, char** error) {
+  QueryInput input = {.qtype = QUERY_INPUT_STRING, .u = {.s = {s, .n = n}}};
+  return handleIterCommon(sp, &input, error);
 }
 
 static RS_ApiIter* RS_GetResultsIterator(QueryNode* qn, IndexSpec* sp) {
-  RS_ApiIter* ret = rm_calloc(1, sizeof(*ret));
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(NULL, sp);
-  RSSearchOptions searchOpts = {0};
-  RSSearchOptions_Init(&searchOpts);
-
-  QueryAST ast = {.root = qn};
-
-  QueryError status = {0};
-  QAST_Expand(&ast, NULL, &searchOpts, &sctx, &status);
-
-  QueryEvalCtx qectx = {
-      .conc = NULL,
-      .opts = &searchOpts,
-      .numTokens = 0,
-      .docTable = &sp->docs,
-      .sctx = &sctx,
-  };
-  ret->internal = Query_EvalNode(&qectx, ast.root);
-  if (!ret->internal) {
-    rm_free(ret);
-    ret = NULL;
-  }
-  QueryNode_Free(qn);
-  return ret;
+  QueryInput input = {.qtype = QUERY_INPUT_NODE, .u = {.qn = qn}};
+  return handleIterCommon(sp, &input, NULL);
 }
 
 static void RS_QueryNodeFree(QueryNode* qn) {
@@ -330,19 +385,32 @@ static int RS_QueryNodeType(QueryNode* qn) {
 }
 
 static const void* RS_ResultsIteratorNext(RS_ApiIter* iter, IndexSpec* sp, size_t* len) {
-  RSIndexResult* e = NULL;
-  while (iter->internal->Read(iter->internal->ctx, &e) != INDEXREAD_EOF) {
-    const char* docId = DocTable_GetKey(&sp->docs, e->docId, len);
-    if (docId) {
-      return docId;
+  while (iter->internal->Read(iter->internal->ctx, &iter->res) != INDEXREAD_EOF) {
+    const RSDocumentMetadata* md = DocTable_Get(&sp->docs, iter->res->docId);
+    if (md == NULL || ((md)->flags & Document_Deleted)) {
+      continue;
     }
+    iter->lastmd = md;
+    if (len) {
+      *len = sdslen(md->keyPtr);
+    }
+    return md->keyPtr;
   }
   return NULL;
+}
+
+static double RS_ResultsIteratorGetScore(const RS_ApiIter* it) {
+  return it->scorer(&it->scargs, it->res, it->lastmd, 0);
 }
 
 static void RS_ResultsIteratorFree(RS_ApiIter* iter) {
   if (iter->internal) {
     iter->internal->Free(iter->internal);
+  } else {
+    printf("Not freeing internal iterator. internal iterator is null\n");
+  }
+  if (iter->scorerFree) {
+    iter->scorerFree(iter->scargs.extdata);
   }
   QAST_Destroy(&iter->qast);
   rm_free(iter);
@@ -350,6 +418,23 @@ static void RS_ResultsIteratorFree(RS_ApiIter* iter) {
 
 static void RS_ResultsIteratorReset(RS_ApiIter* iter) {
   iter->internal->Rewind(iter->internal->ctx);
+}
+
+static RSIndexOptions* RS_CreateIndexOptions() {
+  return rm_calloc(1, sizeof(RSIndexOptions));
+}
+static void RS_FreeIndexOptions(RSIndexOptions* options) {
+  rm_free(options);
+}
+
+static void RS_IndexOptionsSetGetValueCallback(RSIndexOptions* options, RSGetValueCallback cb,
+                                               void* ctx) {
+  options->gvcb = cb;
+  options->gvcbData = ctx;
+}
+
+static void RS_IndexOptionsSetFlags(RSIndexOptions* options, uint32_t flags) {
+  options->flags = flags;
 }
 
 #define REGISTER_API(name)                                                   \

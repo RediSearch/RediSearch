@@ -34,8 +34,8 @@ uint32_t _ovi_Next(void *ctx, RSQueryTerm **t);
 void _ovi_Rewind(void *ctx);
 
 /* memory pool for buffer iterators */
-mempool_t *__offsetIters = NULL;
-mempool_t *__aggregateIters = NULL;
+static mempool_t *__offsetIters = NULL;
+static mempool_t *__aggregateIters = NULL;
 
 /* Free it */
 void _ovi_free(void *ctx) {
@@ -48,7 +48,9 @@ void *newOffsetIterator() {
 /* Create an offset iterator interface  from a raw offset vector */
 RSOffsetIterator RSOffsetVector_Iterate(const RSOffsetVector *v, RSQueryTerm *t) {
   if (!__offsetIters) {
-    __offsetIters = mempool_new(8, newOffsetIterator, free);
+    mempool_options options = {
+        .isGlobal = 1, .initialCap = 8, .alloc = newOffsetIterator, .free = free};
+    __offsetIters = mempool_new(&options);
   }
   _RSOffsetVectorIterator *it = mempool_get(__offsetIters);
   it->buf = (Buffer){.data = v->data, .offset = v->len, .cap = v->len};
@@ -75,7 +77,9 @@ void *_newAggregateIter() {
 /* Create an iterator from the aggregate offset iterators of the aggregate result */
 static RSOffsetIterator _aggregateResult_iterate(const RSAggregateResult *agg) {
   if (!__aggregateIters) {
-    __aggregateIters = mempool_new(8, _newAggregateIter, free);
+    mempool_options opts = {
+        .isGlobal = 1, .initialCap = 8, .alloc = _newAggregateIter, .free = free};
+    __aggregateIters = mempool_new(&opts);
   }
   _RSAggregateOffsetIterator *it = mempool_get(__aggregateIters);
   it->res = agg;
