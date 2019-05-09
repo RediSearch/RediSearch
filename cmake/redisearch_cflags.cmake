@@ -22,5 +22,9 @@ IF (HAVE_W_INCOMPATIBLE_POINTER_TYPES)
     ENDIF()
 ENDIF()
 
+IF (USE_ASAN)
+    SET(RS_COMMON_FLAGS "${RS_COMMON_FLAGS} -fsanitize=address")
+ENDIF()
+
 SET(RS_C_FLAGS "${RS_COMMON_FLAGS} -std=gnu99")
 SET(RS_CXX_FLAGS "${RS_COMMON_FLAGS} -fno-rtti -fno-exceptions -std=c++11")
