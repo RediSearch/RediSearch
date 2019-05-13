@@ -53,7 +53,7 @@ def testConditionalUpdate(env):
                                'IF', '@bar > 42', 'FIELDS', 'bar', '15'))
 
 def testUnionIdList(env):
-    # Regression test for https://github.com/RedisLabsModules/RediSearch/issues/306
+    # Regression test for https://github.com/RediSearch/RediSearch/issues/306
     r = env
     N = 100
     env.assertOk(r.execute_command(

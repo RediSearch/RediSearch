@@ -1,5 +1,6 @@
-[![GitHub issues](https://img.shields.io/github/release/RedisLabsModules/RediSearch.svg)](https://github.com/RedisLabsModules/RediSearch/releases/latest)
-[![CircleCI](https://circleci.com/gh/RedisLabsModules/RediSearch/tree/master.svg?style=svg)](https://circleci.com/gh/RedisLabsModules/RediSearch/tree/master)
+[![GitHub issues](https://img.shields.io/github/release/RediSearch/RediSearch.svg)](https://github.com/RediSearch/RediSearch/releases/latest)
+[![CircleCI](https://circleci.com/gh/RediSearch/RediSearch/tree/master.svg?style=svg)](https://circleci.com/gh/RediSearch/RediSearch/tree/master)
+[![Docker Cloud Build Status](https://img.shields.io/docker/cloud/build/redislabs/redisearch.svg)](https://hub.docker.com/r/redislabs/redisearch/builds/)
 
 # RediSearch
 

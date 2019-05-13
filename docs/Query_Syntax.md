@@ -237,4 +237,4 @@ The supported attributes are:
 
 ## Technical note
 
-The query parser is built using the Lemon Parser Generator and a Ragel based lexer. You can see the grammar definition [at the git repo](https://github.com/RedisLabsModules/RediSearch/blob/master/src/query_parser/parser.y).
+The query parser is built using the Lemon Parser Generator and a Ragel based lexer. You can see the grammar definition [at the git repo](https://github.com/RediSearch/RediSearch/blob/master/src/query_parser/parser.y).
