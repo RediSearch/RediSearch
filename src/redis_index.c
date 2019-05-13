@@ -153,29 +153,17 @@ RedisModuleString *fmtRedisScoreIndexKey(RedisSearchCtx *ctx, const char *term, 
 }
 
 RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName, bool resetTTL) {
+  IndexLoadOptions loadOpts = {.name = {.cstring = indexName}};
+  IndexSpec *sp = IndexSpec_LoadEx(ctx, &loadOpts);
 
-  RedisModuleString *keyName = RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, indexName);
-
-  RedisModuleKey *k = RedisModule_OpenKey(ctx, keyName, REDISMODULE_READ);
-  // printf("open key %s: %p\n", RedisModule_StringPtrLen(keyName, NULL), k);
-  // we do not allow empty indexes when loading an existing index
-  RedisModule_FreeString(ctx, keyName);
-
-  if (k == NULL || RedisModule_ModuleTypeGetType(k) != IndexSpecType) {
+  if (!sp) {
     return NULL;
-  }
-  IndexSpec *sp = RedisModule_ModuleTypeGetValue(k);
-
-  if ((sp->flags & Index_Temporary) && resetTTL) {
-    RedisModuleKey *temp = RedisModule_OpenKey(ctx, keyName, REDISMODULE_WRITE);
-    RedisModule_SetExpire(temp, sp->timeout * 1000);
-    RedisModule_CloseKey(temp);
   }
 
   RedisSearchCtx *sctx = rm_malloc(sizeof(*sctx));
   *sctx = (RedisSearchCtx){.spec = sp,  // newline
                            .redisCtx = ctx,
-                           .key_ = k,
+                           .key_ = loadOpts.keyp,
                            .refcount = 1};
   return sctx;
 }
@@ -574,6 +562,7 @@ int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments, int deleteSpecKey)
       Redis_DeleteKey(ctx->redisCtx, IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_GEO));
     }
   }
+  IndexSpec_ClearAliases(ctx->spec, ctx->redisCtx);
 
   // Delete the index spec
   int deleted = 1;

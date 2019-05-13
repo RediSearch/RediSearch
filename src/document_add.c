@@ -261,7 +261,9 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     }
   } else {
     // Replicate *here*
-    RedisModule_Replicate(ctx, RS_SAFEADD_CMD, "v", argv + 1, argc - 1);
+    // note: we inject the index name manually so that we eliminate alias
+    // lookups on smaller documents
+    RedisModule_Replicate(ctx, RS_SAFEADD_CMD, "cv", sp->name, argv + 2, argc - 2);
   }
 
 cleanup:

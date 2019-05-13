@@ -434,8 +434,6 @@ int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisModule_AutoMemory(ctx);
 
   if (argc < 3 || argc > 4) return RedisModule_WrongArity(ctx);
-  RedisModule_ReplicateVerbatim(ctx);
-
   IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
   if (sp == NULL) {
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
@@ -485,8 +483,8 @@ int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (sp->gc) {
       GCContext_OnDelete(sp->gc);
     }
+    RedisModule_Replicate(ctx, RS_DEL_CMD, "c", sp->name);
   }
-
   return RedisModule_ReplyWithLongLong(ctx, rc);
 }
 
@@ -634,7 +632,6 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisModule_ReplicateVerbatim(ctx);
 
   RedisModule_AutoMemory(ctx);
-
   IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 0);
   if (sp == NULL) {
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
@@ -791,38 +788,62 @@ int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 }
 
 int AlterIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  ArgsCursor ac = {0};
+  ArgsCursor_InitRString(&ac, argv + 1, argc - 1);
+
   // Need at least <cmd> <index> <subcommand> <args...>
   RedisModule_AutoMemory(ctx);
 
   if (argc < 5) {
     return RedisModule_WrongArity(ctx);
   }
-  // I'd like to use CmdSchema, but want to avoid the ugly <N> <list of N> stuff..
-  if (!RMUtil_StringEqualsCaseC(argv[2], "SCHEMA") || !RMUtil_StringEqualsCaseC(argv[3], "ADD")) {
-    return RedisModule_ReplyWithError(ctx, "Unknown action passed to ALTER");
-  }
-  IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
-  if (!sp) {
-    return RedisModule_ReplyWithError(ctx, "Unknown index name");
-  }
-
-  const int schemaOffset = 4;
+  const char *ixname = AC_GetStringNC(&ac, NULL);
   QueryError status = {0};
 
-  if (argc - schemaOffset == 0) {
-    return RedisModule_ReplyWithError(ctx, "No fields provided");
+  if (AC_AdvanceIfMatch(&ac, "SCHEMA")) {
+    if (!AC_AdvanceIfMatch(&ac, "ADD")) {
+      return RedisModule_ReplyWithError(ctx, "Unknown action passed to ALTER SCHEMA");
+    }
+    if (!AC_NumRemaining(&ac)) {
+      return RedisModule_ReplyWithError(ctx, "No fields provided");
+    }
+    IndexSpec *sp = IndexSpec_Load(ctx, ixname, 1);
+    if (!sp) {
+      return RedisModule_ReplyWithError(ctx, "Unknown index name");
+    }
+    IndexSpec_AddFields(sp, &ac, &status);
+  } else if (AC_AdvanceIfMatch(&ac, "ALIAS")) {
+    // Before doing anything, ensure that the index name we've received
+    // is in fact a real index, and not an alias itself:
+    IndexLoadOptions loadOpts = {.name = {.cstring = ixname}, .flags = INDEXSPEC_LOAD_NOALIAS};
+    IndexSpec *sptmp = IndexSpec_LoadEx(ctx, &loadOpts);
+    if (!sptmp) {
+      return RedisModule_ReplyWithError(ctx, "Unknown index name (or name is an alias itself");
+    } else {
+      RedisModule_CloseKey(loadOpts.keyp);
+    }
+
+    if (AC_AdvanceIfMatch(&ac, "ADD")) {
+      // Adding an alias
+      if (!AC_NumRemaining(&ac)) {
+        return RedisModule_ReplyWithError(ctx, "Missing alias!");
+      }
+      const char *alias = AC_GetStringNC(&ac, NULL);
+      IndexAlias_Add(ctx, alias, ixname, NULL, &status);
+    } else if (AC_AdvanceIfMatch(&ac, "DEL")) {
+      // assume that `ixname` itself is the actual alias
+      IndexAlias_Del(ctx, ixname, NULL, 0, &status);
+    } else {
+      return RedisModule_ReplyWithError(ctx, "Unknown ALTER ALIAS subcommand");
+    }
   }
 
-  int rc = IndexSpec_AddFieldsRedisArgs(sp, argv + schemaOffset, argc - schemaOffset, &status);
-  if (!rc) {
-    RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
-    QueryError_ClearError(&status);
+  if (QueryError_HasError(&status)) {
+    return QueryError_ReplyAndClear(ctx, &status);
   } else {
-    RedisModule_ReplyWithSimpleString(ctx, "OK");
+    RedisModule_ReplicateVerbatim(ctx);
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
-
-  RedisModule_ReplicateVerbatim(ctx);
-  return REDISMODULE_OK;
 }
 
 int ConfigCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {

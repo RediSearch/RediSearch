@@ -1973,6 +1973,35 @@ def testTimeoutSettings(env):
     env.expect('ft.search', 'idx', '*', 'ON_TIMEOUT', 'RETURN').notRaiseError()
     env.expect('ft.search', 'idx', '*', 'ON_TIMEOUT', 'FAIL').notRaiseError()
 
+def testAlias(env):
+    env.cmd('ft.create', 'idx', 'schema', 't1', 'text')
+    env.cmd('ft.create', 'idx2', 'schema', 't1', 'text')
+
+    env.cmd('ft.alter', 'idx', 'alias', 'add', 'myIndex')
+    env.cmd('ft.add', 'myIndex', 'doc1', 1.0, 'fields', 't1', 'hello')
+    r = env.cmd('ft.search', 'idx', 'hello')
+    env.assertEqual([1, 'doc1', ['t1', 'hello']], r)
+    r2 = env.cmd('ft.search', 'myIndex', 'hello')
+    env.assertEqual(r, r2)
+
+    # try to add the same alias again; should be an error
+    env.expect('ft.alter', 'idx2', 'alias', 'add', 'myIndex').raiseError()
+    env.expect('ft.alter', 'idx', 'alias', 'add', 'alias2').notRaiseError()
+    # now delete the index
+    env.cmd('ft.drop', 'myIndex')
+
+    # index list should be cleared now. This can be tested by trying to alias
+    # the old alias to different index
+    env.cmd('ft.alter', 'idx2', 'alias', 'add', 'myIndex')
+    env.cmd('ft.alter', 'idx2', 'alias', 'add', 'alias2')
+    env.cmd('ft.add', 'myIndex', 'doc2', 1.0, 'fields', 't1', 'hello')
+    r = env.cmd('ft.search', 'alias2', 'hello')
+
+    # check that aliasing one alias to another returns an error. This will
+    # end up being confusing
+    env.expect('ft.alter', 'myIndex', 'alias', 'add', 'alias3').raiseError()
+    env.expect('ft.alter', 'myIndex', 'alias', 'del', 'alias2').raiseError()
+
 # Standalone functionality
 def testIssue484(env):
 # Issue with split
