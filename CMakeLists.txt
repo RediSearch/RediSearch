@@ -7,6 +7,7 @@ CMAKE_POLICY(SET CMP0026 OLD)
 
 OPTION(RS_RUN_TESTS "Build & Run RediSearch's tests" OFF)
 OPTION(USE_ASAN "Use AddressSanitizer (clang)" OFF)
+OPTION(USE_MSAN "Use MemorySanitizer (clang)" OFF)
 
 ADD_DEFINITIONS(-UNDEBUG)
 
