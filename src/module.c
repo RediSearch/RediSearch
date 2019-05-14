@@ -924,7 +924,6 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   if (RS_InitializeLibrary(ctx) != REDISMODULE_OK) {
     RedisModule_Log(ctx, "warning", "Could not initialize low level api");
-    return REDISMODULE_ERR;
   } else {
     RedisModule_Log(ctx, "notice", "Low level api version %d initialized successfully",
                     REDISEARCH_CAPI_VERSION);
