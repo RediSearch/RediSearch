@@ -2002,6 +2002,13 @@ def testAlias(env):
     env.expect('ft.alter', 'myIndex', 'alias', 'add', 'alias3').raiseError()
     env.expect('ft.alter', 'myIndex', 'alias', 'del', 'alias2').raiseError()
 
+def testNoCreate(env):
+    env.cmd('ft.create', 'idx', 'schema', 'f1', 'text')
+    env.expect('ft.add', 'idx', 'doc1', 1, 'nocreate', 'fields', 'f1', 'hello').raiseError()
+    env.expect('ft.add', 'idx', 'doc1', 1, 'replace', 'nocreate', 'fields', 'f1', 'hello').raiseError()
+    env.expect('ft.add', 'idx', 'doc1', 1, 'replace', 'fields', 'f1', 'hello').notRaiseError()
+    env.expect('ft.add', 'idx', 'doc1', 1, 'replace', 'nocreate', 'fields', 'f1', 'world').notRaiseError()
+
 # Standalone functionality
 def testIssue484(env):
 # Issue with split

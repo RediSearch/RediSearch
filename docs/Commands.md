@@ -121,7 +121,7 @@ OK or an error
 ```
 FT.ADD {index} {docId} {score} 
   [NOSAVE]
-  [REPLACE [PARTIAL]]
+  [REPLACE [PARTIAL] [NOCREATE]]
   [LANGUAGE {language}] 
   [PAYLOAD {payload}]
   [IF {condition}]
@@ -161,6 +161,10 @@ FT.ADD idx doc1 1.0 FIELDS title hello world
   reindexing. Fields not given to the command will be loaded from the current version of the
   document. Also, if only non-indexable fields, score or payload are set - we do not do a full
   re-indexing of the document, and this will be a lot faster.
+
+- **NOCREATE** (only applicable with REPLACE): If set, the document is only updated
+  and reindexed if it already exists. If the document does not exist, an error
+  will be returned.
 
 - **FIELDS**: Following the FIELDS specifier, we are looking for pairs of  `{field} {value}` to be
   indexed. Each field will be scored based on the index spec given in `FT.CREATE`. 
