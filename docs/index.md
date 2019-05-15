@@ -1,4 +1,4 @@
-<center>![logo.png](logo.png)</center>
+<img src="img/logo.svg" alt="logo" width="200"/>
 
 # RediSearch - Redis Powered Search Engine
 
