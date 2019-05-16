@@ -5,7 +5,7 @@
 # RediSearch
 
 ### Full-Text search over Redis by RedisLabs
-![logo.png](docs/logo.png)
+<img src="docs/img/logo.svg" alt="logo" width="300"/>
 
 ### See Full Documentation at [https://oss.redislabs.com/redisearch/](https://oss.redislabs.com/redisearch/)
 
