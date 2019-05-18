@@ -736,27 +736,30 @@ void IndexSpec_FreeSync(IndexSpec *spec) {
 static IndexSpec *IndexSpec_LoadAlias(RedisModuleCtx *ctx, IndexLoadOptions *options,
                                       int modeflags) {
   // Maybe it's an alias?
-  IndexAliasParams aparams = {0};
   QueryError etmp = {0};
   IndexSpec *ret = NULL;
 
-  int rc = IndexAlias_Get(ctx, NULL, options->alookup, modeflags, &aparams, &etmp);
-  if (rc != REDISMODULE_OK) {
-    // alias table missing
-    goto done;
-  }
-
   RedisModuleString *atarget = NULL;
+  RedisModuleKey *tbl = NULL;
   const void *hgarg;
+  const char *alias;
   int hgopts = REDISMODULE_HASH_NONE;
+
   if (options->flags & INDEXSPEC_LOAD_KEY_RSTRING) {
     hgarg = options->name.rstring;
     hgopts = REDISMODULE_HASH_NONE;
+    alias = RedisModule_StringPtrLen(hgarg, NULL);
   } else {
-    hgarg = options->name.cstring;
+    alias = hgarg = options->name.cstring;
     hgopts = REDISMODULE_HASH_CFIELDS;
   }
-  RedisModule_HashGet(aparams.akey, hgopts, hgarg, &atarget, NULL);
+
+  tbl = IndexAlias_GetTable(ctx, alias, options->alookup, modeflags, &etmp);
+  if (tbl == NULL) {
+    goto done;
+  }
+
+  RedisModule_HashGet(tbl, hgopts, hgarg, &atarget, NULL);
 
   if (atarget == NULL) {
     // no mapping for alias. uh oh
@@ -774,7 +777,9 @@ static IndexSpec *IndexSpec_LoadAlias(RedisModuleCtx *ctx, IndexLoadOptions *opt
 
 done:
   QueryError_ClearError(&etmp);
-  IndexAlias_ParamsFree(ctx, &aparams);
+  if (tbl) {
+    RedisModule_CloseKey(tbl);
+  }
   return ret;
 }
 
@@ -1216,8 +1221,10 @@ int IndexSpec_RegisterType(RedisModuleCtx *ctx) {
 }
 
 const char *IndexAlias_GetTableName(RedisModuleCtx *ctx, const char *lookup, const char *alias) {
+  // RS_ASSERT(alias);
   if (IndexAlias_GetUserTableName && lookup == NULL) {
-    return IndexAlias_GetUserTableName(ctx, alias);
+    const char *tmp = IndexAlias_GetUserTableName(ctx, alias);
+    return tmp;
   } else if (lookup) {
     return lookup;
   } else {
@@ -1225,77 +1232,95 @@ const char *IndexAlias_GetTableName(RedisModuleCtx *ctx, const char *lookup, con
   }
 }
 
-void IndexAlias_ParamsFree(RedisModuleCtx *ctx, IndexAliasParams *params) {
-  if (params->ikey) {
-    RedisModule_CloseKey(params->ikey);
-  }
-  if (params->akey) {
-    RedisModule_CloseKey(params->akey);
-  }
-  if (params->istr) {
-    RedisModule_FreeString(ctx, params->istr);
-  }
-}
-
-int IndexAlias_Get(RedisModuleCtx *ctx, const char *alias, const char *lookup, int mode,
-                   IndexAliasParams *out, QueryError *status) {
+RedisModuleKey *IndexAlias_GetTable(RedisModuleCtx *ctx, const char *forAlias, const char *lookup,
+                                    int mode, QueryError *status) {
   int rc = REDISMODULE_ERR;
-  lookup = IndexAlias_GetTableName(ctx, lookup, alias);
+  lookup = IndexAlias_GetTableName(ctx, lookup, forAlias);
   RedisModuleString *kstr = RedisModule_CreateString(ctx, lookup, strlen(lookup));
-  out->akey = RedisModule_OpenKey(ctx, kstr, mode);
+  RedisModuleKey *ret = RedisModule_OpenKey(ctx, kstr, mode);
 
-  if (out->akey == NULL) {
+  if (ret == NULL) {
     QueryError_SetErrorFmt(status, QUERY_ENOINDEX, "Alias table not found");
     goto done;
   }
 
-  if (RedisModule_KeyType(out->akey) != REDISMODULE_KEYTYPE_HASH &&
-      RedisModule_KeyType(out->akey) != REDISMODULE_KEYTYPE_EMPTY) {
+  if (RedisModule_KeyType(ret) != REDISMODULE_KEYTYPE_HASH &&
+      RedisModule_KeyType(ret) != REDISMODULE_KEYTYPE_EMPTY) {
     QueryError_SetErrorFmt(status, QUERY_EREDISKEYTYPE, "Alias table has wrong key type");
+    if (ret) {
+      RedisModule_CloseKey(ret);
+      ret = NULL;
+    }
     goto done;
   }
 
-  // Open the spec itself
-  if (alias) {
-    out->istr = RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, alias);
-    IndexLoadOptions lopts = {.flags = INDEXSPEC_LOAD_NOALIAS | INDEXSPEC_LOAD_KEY_FORMATTED,
-                              .name = {.rstring = out->istr}};
-
-    if (mode & REDISMODULE_WRITE) {
-      lopts.flags |= INDEXSPEC_LOAD_WRITEABLE;
-    }
-
-    out->sp = IndexSpec_LoadEx(ctx, &lopts);
-    if (out->sp == NULL) {
-      QueryError_SetErrorFmt(status, QUERY_ENOINDEX, "Could not open index");
-      goto done;
-    }
-  }
-
-  rc = REDISMODULE_OK;
-
 done:
   RedisModule_FreeString(ctx, kstr);
-  if (rc != REDISMODULE_OK) {
-    IndexAlias_ParamsFree(ctx, out);
-    memset(out, 0, sizeof(*out));
+  return ret;
+}
+
+typedef struct {
+  RedisModuleKey *ktbl;
+  RedisModuleKey *kspec;
+  IndexSpec *sp;
+  RedisModuleString *spfmt;
+} AliasSpecCtx;
+
+static void IndexAlias_FreeCtx(RedisModuleCtx *ctx, AliasSpecCtx *asctx) {
+  if (asctx->ktbl) {
+    RedisModule_CloseKey(asctx->ktbl);
   }
-  return rc;
+  if (asctx->kspec) {
+    RedisModule_CloseKey(asctx->kspec);
+  }
+  if (asctx->spfmt) {
+    RedisModule_FreeString(ctx, asctx->spfmt);
+  }
+}
+
+static int IndexAlias_LoadTableAndSpec(RedisModuleCtx *ctx, const char *alias, const char *target,
+                                       const char *lookup, AliasSpecCtx *spctx, QueryError *error) {
+  spctx->ktbl = IndexAlias_GetTable(ctx, target, lookup, REDISMODULE_WRITE, error);
+  if (!spctx->ktbl) {
+    return REDISMODULE_ERR;
+  }
+
+  // Format the index string
+  spctx->spfmt = RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, target);
+  IndexLoadOptions lopts = {
+      .name = {.rstring = spctx->spfmt},
+      .flags = INDEXSPEC_LOAD_KEY_FORMATTED | INDEXSPEC_LOAD_NOALIAS | INDEXSPEC_LOAD_WRITEABLE};
+  spctx->sp = IndexSpec_LoadEx(ctx, &lopts);
+
+  if (!spctx->sp) {
+    QueryError_SetError(error, QUERY_ENOINDEX, "Target index does not exist");
+    goto error;
+  }
+  return REDISMODULE_OK;
+
+error:
+  IndexAlias_FreeCtx(ctx, spctx);
+  return REDISMODULE_ERR;
 }
 
 int IndexAlias_Add(RedisModuleCtx *ctx, const char *alias, const char *target, const char *lookup,
                    QueryError *error) {
-  IndexAliasParams params = {0};
-  if (IndexAlias_Get(ctx, target, lookup, REDISMODULE_WRITE, &params, error) != REDISMODULE_OK) {
+
+  AliasSpecCtx asctx = {0};
+  int rc = IndexAlias_LoadTableAndSpec(ctx, alias, target, lookup, &asctx, error);
+  if (rc != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
 
+  RedisModuleKey *tbl = asctx.ktbl;
+  IndexSpec *sp = asctx.sp;
+  RedisModuleString *spfmt = asctx.spfmt;
   RedisModuleString *curvalue = NULL;
-  int rc = REDISMODULE_ERR;
-  if (RedisModule_HashGet(params.akey, REDISMODULE_HASH_CFIELDS, alias, &curvalue, NULL) ==
+
+  if (RedisModule_HashGet(tbl, REDISMODULE_HASH_CFIELDS, alias, &curvalue, NULL) ==
           REDISMODULE_OK &&
       curvalue != NULL) {
-    if (RedisModule_StringCompare(params.istr, curvalue) != 0) {
+    if (RedisModule_StringCompare(spfmt, curvalue) != 0) {
       QueryError_SetError(error, QUERY_EINDEXEXISTS, "Alias already exists");
     } else {
       // mapping already exists; nothing to be done
@@ -1305,26 +1330,25 @@ int IndexAlias_Add(RedisModuleCtx *ctx, const char *alias, const char *target, c
   }
 
   // Mapping does not yet exist. Create it
-  RedisModule_HashSet(params.akey, REDISMODULE_HASH_CFIELDS, alias, params.istr, NULL);
+  RedisModule_HashSet(tbl, REDISMODULE_HASH_CFIELDS, alias, spfmt, NULL);
   // Append the alias to the list of aliases in the spec
   char *duped = rm_strdup(alias);
-  params.sp->aliases = array_ensure_append(params.sp->aliases, &duped, 1, char *);
+  sp->aliases = array_ensure_append(asctx.sp->aliases, &duped, 1, char *);
   rc = REDISMODULE_OK;
 
 done:
-  IndexAlias_ParamsFree(ctx, &params);
+  IndexAlias_FreeCtx(ctx, &asctx);
   return rc;
 }
 
 int IndexAlias_Del(RedisModuleCtx *ctx, const char *alias, const char *lookup, int options,
                    QueryError *status) {
-  // First determine the actual target
-  IndexAliasParams aparams = {0};
-  if (IndexAlias_Get(ctx, NULL, lookup, REDISMODULE_WRITE, &aparams, status) != REDISMODULE_OK) {
-    return REDISMODULE_ERR;
-  }
 
   int rc = REDISMODULE_ERR;
+  RedisModuleKey *tbl = IndexAlias_GetTable(ctx, alias, lookup, REDISMODULE_WRITE, status);
+  if (!tbl) {
+    goto done;
+  }
   IndexLoadOptions lopts = {.name = {.cstring = alias}, .flags = INDEXSPEC_LOAD_WRITEABLE};
   IndexSpec *sp = IndexSpec_LoadAlias(ctx, &lopts, REDISMODULE_WRITE | REDISMODULE_READ);
   if (!sp) {
@@ -1346,11 +1370,13 @@ int IndexAlias_Del(RedisModuleCtx *ctx, const char *alias, const char *lookup, i
   }
 
   // Remove it from the hash table itself
-  RedisModule_HashSet(aparams.akey, REDISMODULE_HASH_CFIELDS, alias, REDISMODULE_HASH_DELETE, NULL);
+  RedisModule_HashSet(tbl, REDISMODULE_HASH_CFIELDS, alias, REDISMODULE_HASH_DELETE, NULL);
   rc = REDISMODULE_OK;
 
 done:
-  IndexAlias_ParamsFree(ctx, &aparams);
+  if (tbl) {
+    RedisModule_CloseKey(tbl);
+  }
   if (lopts.keyp) {
     RedisModule_CloseKey(lopts.keyp);
   }

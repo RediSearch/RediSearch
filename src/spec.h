@@ -375,36 +375,25 @@ t_fieldMask IndexSpec_ParseFieldMask(IndexSpec *sp, RedisModuleString **argv, in
 
 void IndexSpec_InitializeSynonym(IndexSpec *sp);
 
-typedef struct {
-  IndexSpec *sp;            // [out] The index spec
-  RedisModuleKey *ikey;     // [out] The key of the index
-  RedisModuleString *istr;  // [out] The key string of the index
-  RedisModuleKey *akey;     // [out] the alias mapping of the index
-} IndexAliasParams;
-
 /**
  * Associate the given index target (ixname) with an alias (alias)
  */
 int IndexAlias_Add(RedisModuleCtx *ctx, const char *alias, const char *ixname,
                    const char *lookup, QueryError *status);
 /**
- * Retrieve the index spec (and some relevant info) associated with the given
- * alias, if any
+ * Open the alias table, returning the key associated with it (which is a
+ * Redis hash)
  */
-int IndexAlias_Get(RedisModuleCtx *ctx, const char *alias, const char *lookup,
-                   int mode, IndexAliasParams *out, QueryError *status);
+RedisModuleKey* IndexAlias_GetTable(RedisModuleCtx *ctx, const char *target, const char *lookup,
+              int mode, QueryError *status);
 
 // Do not delete the backreference to the spec itself. This is used when the
 // spec itself is being destroyed
 #define INDEXALIAS_DEL_NOBACKREF 0x01
 
-/**
- * Disassociate the spec from the given alias
- */
+/** Disassociate the spec from the given alias */
 int IndexAlias_Del(RedisModuleCtx *ctx, const char *alias, const char *lookup,
                    int options, QueryError *status);
-
-void IndexAlias_ParamsFree(RedisModuleCtx *ctx, IndexAliasParams *params);
 
 const char *IndexAlias_GetTableName(RedisModuleCtx *ctx, const char *lookup, const char *ixname);
 
