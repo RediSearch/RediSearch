@@ -66,6 +66,7 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Doc
     const FieldSpec *fs = IndexSpec_GetField(sp, f->name, strlen(f->name));
     if (!fs || !f->text) {
       aCtx->fspecs[i].name = NULL;
+      aCtx->fspecs[i].types = 0;
       continue;
     }
 
@@ -326,6 +327,17 @@ void AddDocumentCtx_Submit(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, uint32_
 }
 
 void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
+  /**
+   * Free preprocessed data; this is the only reliable place
+   * to do it
+   */
+  for (size_t ii = 0; ii < aCtx->doc.numFields; ++ii) {
+    if (FIELD_IS(aCtx->fspecs + ii, INDEXFLD_T_TAG) && aCtx->fdatas[ii].tags) {
+      TagIndex_FreePreprocessedData(aCtx->fdatas[ii].tags);
+      aCtx->fdatas[ii].tags = NULL;
+    }
+  }
+
   // Destroy the common fields:
   Document_FreeDetached(&aCtx->doc, aCtx->indexer->redisCtx);
 
@@ -497,9 +509,6 @@ FIELD_BULK_INDEXER(tagIndexer) {
   ctx->spec->stats.invertedSize +=
       TagIndex_Index(tidx, (const char **)fdata->tags, array_len(fdata->tags), aCtx->doc.docId);
   ctx->spec->stats.numRecords++;
-  if (fdata->tags) {
-    TagIndex_FreePreprocessedData(fdata->tags);
-  }
   return rc;
 }
 
