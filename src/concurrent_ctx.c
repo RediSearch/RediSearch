@@ -1,4 +1,5 @@
 #include "concurrent_ctx.h"
+#include "lock_handler.h"
 #include "dep/thpool/thpool.h"
 #include <unistd.h>
 #include <util/arr.h>
@@ -7,7 +8,6 @@
 static threadpool *threadpools_g = NULL;
 
 int CONCURRENT_POOL_INDEX = -1;
-int CONCURRENT_POOL_SEARCH = -1;
 
 int ConcurrentSearch_CreatePool(int numThreads) {
   if (!threadpools_g) {
@@ -21,8 +21,7 @@ int ConcurrentSearch_CreatePool(int numThreads) {
 /** Start the concurrent search thread pool. Should be called when initializing the module */
 void ConcurrentSearch_ThreadPoolStart() {
 
-  if (CONCURRENT_POOL_SEARCH == -1) {
-    CONCURRENT_POOL_SEARCH = ConcurrentSearch_CreatePool(RSGlobalConfig.searchPoolSize);
+  if (CONCURRENT_POOL_INDEX == -1) {
     long numProcs = 0;
 
     if (!RSGlobalConfig.poolSizeNoAuto) {
@@ -67,14 +66,14 @@ static void threadHandleCommand(void *p) {
   ConcurrentCmdCtx *ctx = p;
   // Lock GIL if needed
   if (!(ctx->options & CMDCTX_NO_GIL)) {
-    RedisModule_ThreadSafeContextLock(ctx->ctx);
+    LockHandler_AcquireGIL(ctx->ctx);
   }
 
   ctx->handler(ctx->ctx, ctx->argv, ctx->argc, ctx);
 
   // Unlock GIL if needed
   if (!(ctx->options & CMDCTX_NO_GIL)) {
-    RedisModule_ThreadSafeContextUnlock(ctx->ctx);
+    LockHandler_ReleaseGIL(ctx->ctx);
   }
 
   if (!(ctx->options & CMDCTX_KEEP_RCTX)) {
@@ -233,13 +232,13 @@ void ConcurrentSearch_AddKey(ConcurrentSearchCtx *ctx, RedisModuleKey *key, int 
 
 void ConcurrentSearchCtx_Lock(ConcurrentSearchCtx *ctx) {
   assert(!ctx->isLocked);
-  RedisModule_ThreadSafeContextLock(ctx->ctx);
+  LockHandler_AcquireGIL(ctx->ctx);
   ctx->isLocked = 1;
   ConcurrentSearchCtx_ReopenKeys(ctx);
 }
 
 void ConcurrentSearchCtx_Unlock(ConcurrentSearchCtx *ctx) {
   ConcurrentSearchCtx_CloseKeys(ctx);
-  RedisModule_ThreadSafeContextUnlock(ctx->ctx);
+  LockHandler_ReleaseGIL(ctx->ctx);
   ctx->isLocked = 0;
 }

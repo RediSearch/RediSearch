@@ -9,6 +9,7 @@
 #include "tag_index.h"
 #include "rmalloc.h"
 #include <stdio.h>
+#include "lock_handler.h"
 
 RedisModuleType *InvertedIndexType;
 
@@ -190,9 +191,9 @@ RedisSearchCtx *SearchCtx_Refresh(RedisSearchCtx *sctx, RedisModuleString *keyNa
   RedisModuleCtx *redisCtx = sctx->redisCtx;
   SearchCtx_Free(sctx);
   // now release the global lock
-  RedisModule_ThreadSafeContextUnlock(redisCtx);
+  LockHandler_ReleaseGIL(redisCtx);
   // try to acquire it again...
-  RedisModule_ThreadSafeContextLock(redisCtx);
+  LockHandler_AcquireGIL(redisCtx);
   // reopen the context - it might have gone away!
   return NewSearchCtx(redisCtx, keyName, true);
 }

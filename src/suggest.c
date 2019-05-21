@@ -4,6 +4,7 @@
 #include "rmutil/args.h"
 #include "trie/trie_type.h"
 #include "query_error.h"
+#include "lock_handler.h"
 
 /*
 ## FT.SUGGADD key string score [INCR] [PAYLOAD {payload}]
@@ -41,6 +42,8 @@ int RSSuggestAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     return RedisModule_WrongArity(ctx);
   }
 
+  LockHandler_AcquireWrite(ctx);
+
   int incr = 0, rv = AC_OK;
   RSPayload payload = {0};
   ArgsCursor ac = {0};
@@ -51,9 +54,11 @@ int RSSuggestAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
       incr = 1;
     } else if (!strcasecmp(s, "PAYLOAD")) {
       if ((rv = AC_GetString(&ac, (const char **)&payload.data, &payload.len, 0)) != AC_OK) {
+        LockHandler_ReleaseWrite(ctx);
         return RMUtil_ReplyWithErrorFmt(ctx, "Invalid payload: %s", AC_Strerror(rv));
       }
     } else {
+      LockHandler_ReleaseWrite(ctx);
       return RMUtil_ReplyWithErrorFmt(ctx, "Unknown argument `%s`", s);
     }
   }
@@ -62,12 +67,14 @@ int RSSuggestAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_READ | REDISMODULE_WRITE);
   int type = RedisModule_KeyType(key);
   if (type != REDISMODULE_KEYTYPE_EMPTY && RedisModule_ModuleTypeGetType(key) != TrieType) {
+    LockHandler_ReleaseWrite(ctx);
     return RedisModule_ReplyWithError(ctx, REDISMODULE_ERRORMSG_WRONGTYPE);
   }
 
   RedisModuleString *val = argv[2];
   double score;
   if ((RedisModule_StringToDouble(argv[3], &score) != REDISMODULE_OK)) {
+    LockHandler_ReleaseWrite(ctx);
     return RedisModule_ReplyWithError(ctx, "ERR invalid score");
   }
 
@@ -85,6 +92,7 @@ int RSSuggestAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
   RedisModule_ReplyWithLongLong(ctx, tree->size);
   RedisModule_ReplicateVerbatim(ctx);
+  LockHandler_ReleaseWrite(ctx);
   return REDISMODULE_OK;
 }
 
@@ -105,13 +113,18 @@ int RSSuggestLenCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   RedisModule_AutoMemory(ctx); /* Use automatic memory management. */
 
   if (argc != 2) return RedisModule_WrongArity(ctx);
+
+  LockHandler_AcquireRead(ctx);
+
   RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_READ);
   int type = RedisModule_KeyType(key);
   if (type != REDISMODULE_KEYTYPE_EMPTY && RedisModule_ModuleTypeGetType(key) != TrieType) {
+    LockHandler_ReleaseRead(ctx);
     return RedisModule_ReplyWithError(ctx, REDISMODULE_ERRORMSG_WRONGTYPE);
   }
 
   Trie *tree = RedisModule_ModuleTypeGetValue(key);
+  LockHandler_ReleaseRead(ctx);
   return RedisModule_ReplyWithLongLong(ctx, tree ? tree->size : 0);
 }
 
@@ -136,18 +149,23 @@ int RSSuggestDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   if (argc != 3) return RedisModule_WrongArity(ctx);
   RedisModule_ReplicateVerbatim(ctx);
 
+  LockHandler_AcquireWrite(ctx);
+
   RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_READ);
   int type = RedisModule_KeyType(key);
   if (type != REDISMODULE_KEYTYPE_EMPTY && RedisModule_ModuleTypeGetType(key) != TrieType) {
+    LockHandler_ReleaseWrite(ctx);
     return RedisModule_ReplyWithError(ctx, REDISMODULE_ERRORMSG_WRONGTYPE);
   }
 
   Trie *tree = RedisModule_ModuleTypeGetValue(key);
   if (!tree) {
+    LockHandler_ReleaseWrite(ctx);
     return RedisModule_ReplyWithLongLong(ctx, 0);
   }
   size_t len;
   const char *str = RedisModule_StringPtrLen(argv[2], &len);
+  LockHandler_ReleaseWrite(ctx);
   return RedisModule_ReplyWithLongLong(ctx, Trie_Delete(tree, str, len));
 }
 
@@ -234,10 +252,13 @@ int RSSuggestGetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
   if (argc < 3 || argc > 10) return RedisModule_WrongArity(ctx);
 
+  LockHandler_AcquireRead(ctx);
+
   // get the string to search for
   size_t len;
   const char *s = RedisModule_StringPtrLen(argv[2], &len);
   if (len >= TRIE_MAX_PREFIX * sizeof(rune)) {
+    LockHandler_ReleaseRead(ctx);
     return RedisModule_ReplyWithError(ctx, "Invalid query length");
   }
 
@@ -255,6 +276,7 @@ parse_error:
   if (QueryError_HasError(&status)) {
     RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
     QueryError_ClearError(&status);
+    LockHandler_ReleaseRead(ctx);
     return REDISMODULE_OK;
   }
 
@@ -262,17 +284,20 @@ parse_error:
   // make sure the key is a trie
   int type = RedisModule_KeyType(key);
   if (type != REDISMODULE_KEYTYPE_EMPTY && RedisModule_ModuleTypeGetType(key) != TrieType) {
+    LockHandler_ReleaseRead(ctx);
     return RedisModule_ReplyWithError(ctx, REDISMODULE_ERRORMSG_WRONGTYPE);
   }
 
   Trie *tree = RedisModule_ModuleTypeGetValue(key);
   if (tree == NULL) {
+    LockHandler_ReleaseRead(ctx);
     return RedisModule_ReplyWithNull(ctx);
   }
 
   Vector *res = Trie_Search(tree, s, len, options.numResults, options.maxDistance, 1, options.trim,
                             options.optimize);
   if (!res) {
+    LockHandler_ReleaseRead(ctx);
     return RedisModule_ReplyWithError(ctx, "Invalid query");
   }
   // if we also need to return scores, we need double the records
@@ -300,5 +325,6 @@ parse_error:
   }
   Vector_Free(res);
 
+  LockHandler_ReleaseRead(ctx);
   return REDISMODULE_OK;
 }

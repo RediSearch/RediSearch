@@ -5,6 +5,7 @@
 #include "geo_index.h"
 #include "index.h"
 #include "redis_index.h"
+#include "lock_handler.h"
 
 #include <assert.h>
 static void DocumentIndexer_Free(DocumentIndexer *indexer);
@@ -403,6 +404,9 @@ static void Indexer_Process(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx) {
 
   const int isBlocked = AddDocumentCtx_IsBlockable(aCtx);
 
+  // We are going to touch keys, lets acquire the write lock.
+  LockHandler_AcquireWrite(indexer->redisCtx);
+
   if (isBlocked) {
     // Force a context at this point:
     if (!indexer->isDbSelected) {
@@ -466,6 +470,8 @@ cleanup:
     BlkAlloc_Clear(&indexer->alloc, NULL, NULL, 0);
     KHTable_Clear(&indexer->mergeHt);
   }
+
+  LockHandler_ReleaseWrite(indexer->redisCtx);
 }
 
 #define IS_NOT_DELETED(idxer) (((idxer)->options & INDEXER_DELETING) == 0)

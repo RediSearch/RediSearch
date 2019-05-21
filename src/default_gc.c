@@ -17,6 +17,7 @@
 #include <unistd.h>
 #include <sys/wait.h>
 #include <stdbool.h>
+#include "lock_handler.h"
 
 // convert a frequency to timespec
 struct timespec hzToTimeSpec(float hz) {
@@ -385,7 +386,8 @@ int GC_PeriodicCallback(RedisModuleCtx *ctx, void *privdata) {
 
   int status = SPEC_STATUS_OK;
   RedisModule_AutoMemory(ctx);
-  RedisModule_ThreadSafeContextLock(ctx);
+  LockHandler_AcquireGIL(ctx);
+  LockHandler_AcquireWrite(ctx);
 
   assert(gc);
 
@@ -422,7 +424,8 @@ int GC_PeriodicCallback(RedisModuleCtx *ctx, void *privdata) {
 
 end:
 
-  RedisModule_ThreadSafeContextUnlock(ctx);
+  LockHandler_ReleaseWrite(ctx);
+  LockHandler_ReleaseGIL(ctx);
 
   return status == SPEC_STATUS_OK;
 }
@@ -431,13 +434,15 @@ end:
 void GC_OnTerm(void *privdata) {
   GarbageCollectorCtx *gc = privdata;
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
-  RedisModule_ThreadSafeContextLock(ctx);
+  LockHandler_AcquireGIL(ctx);
+  LockHandler_AcquireWrite(ctx);
   RedisModule_FreeString(ctx, (RedisModuleString *)gc->keyName);
   for (int i = 0; i < array_len(gc->numericGCCtx); ++i) {
     gc_FreeNumericGcCtx(gc->numericGCCtx[i]);
   }
   array_free(gc->numericGCCtx);
-  RedisModule_ThreadSafeContextUnlock(ctx);
+  LockHandler_ReleaseWrite(ctx);
+  LockHandler_ReleaseGIL(ctx);
   RedisModule_FreeThreadSafeContext(ctx);
   free(gc);
 }

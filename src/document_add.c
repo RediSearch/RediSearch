@@ -2,6 +2,7 @@
 #include "err.h"
 #include "util/logging.h"
 #include "commands.h"
+#include "lock_handler.h"
 
 /*
 ## FT.ADD <index> <docId> <score> [NOSAVE] [REPLACE] [PARTIAL] [IF <expr>] [LANGUAGE <lang>]
@@ -210,6 +211,9 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return RedisModule_WrongArity(ctx);
   }
 
+  // I am a writer, lets acquire the write lock
+  LockHandler_AcquireWrite(ctx);
+
   ArgsCursor ac;
   AddDocumentOptions opts = {.donecb = replyCallback};
   QueryError status = {0};
@@ -266,6 +270,7 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
 cleanup:
   QueryError_ClearError(&status);
+  LockHandler_ReleaseWrite(ctx);
   return REDISMODULE_OK;
 }
 
@@ -310,6 +315,8 @@ static int doAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   }
 
   RedisModule_AutoMemory(ctx);
+
+  LockHandler_AcquireWrite(ctx);
 
   QueryError status = {0};
   ArgsCursor ac = {0};
@@ -359,6 +366,7 @@ static int doAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   Document doc;
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
   if (Redis_LoadDocument(&sctx, argv[2], &doc) != REDISMODULE_OK) {
+    LockHandler_ReleaseWrite(ctx);
     return RedisModule_ReplyWithError(ctx, "Could not load document");
   }
 
@@ -375,6 +383,7 @@ static int doAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   RSAddDocumentCtx *aCtx = NewAddDocumentCtx(sp, &doc, &status);
   if (aCtx == NULL) {
     Document_FreeDetached(&doc, ctx);
+    LockHandler_ReleaseWrite(ctx);
     return QueryError_ReplyAndClear(ctx, &status);
   }
 
@@ -390,12 +399,14 @@ static int doAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 
   RedisModule_Replicate(ctx, RS_SAFEADDHASH_CMD, "v", argv + 1, argc - 1);
   AddDocumentCtx_Submit(aCtx, &sctx, replace ? DOCUMENT_ADD_REPLACE : 0);
+  LockHandler_ReleaseWrite(ctx);
   return REDISMODULE_OK;
 
 cleanup:
   assert(QueryError_HasError(&status));
   RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
   QueryError_ClearError(&status);
+  LockHandler_ReleaseWrite(ctx);
   return REDISMODULE_OK;
 }
 

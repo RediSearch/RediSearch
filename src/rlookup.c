@@ -2,6 +2,7 @@
 #include <document.h>
 #include <assert.h>
 #include <util/arr.h>
+#include "lock_handler.h"
 
 static RLookupKey *createNewKey(RLookup *lookup, const char *name, size_t n, int flags,
                                 uint16_t idx) {
@@ -393,9 +394,13 @@ int RLookup_LoadDocument(RLookup *it, RLookupRow *dst, RLookupLoadOptions *optio
   if (options->dmd) {
     dst->sv = options->dmd->sortVector;
   }
+  int ret;
+  LockHandler_AcquireGIL(options->sctx->redisCtx);
   if (options->mode & RLOOKUP_LOAD_ALLKEYS) {
-    return RLookup_HGETALL(it, dst, options);
+    ret = RLookup_HGETALL(it, dst, options);
   } else {
-    return loadIndividualKeys(it, dst, options);
+    ret = loadIndividualKeys(it, dst, options);
   }
+  LockHandler_ReleaseGIL(options->sctx->redisCtx);
+  return ret;
 }

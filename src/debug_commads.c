@@ -6,6 +6,7 @@
 #include "numeric_index.h"
 #include "phonetic_manager.h"
 #include "gc.h"
+#include "lock_handler.h"
 
 #define DUMP_PHONETIC_HASH "DUMP_PHONETIC_HASH"
 
@@ -515,7 +516,10 @@ int DebugCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   for (DebugCommandType *c = &commands[0]; c->name != NULL; c++) {
     if (strcasecmp(c->name, subCommand) == 0) {
-      return c->callback(ctx, argv + 2, argc - 2);
+      LockHandler_AcquireRead(ctx);
+      int ret = c->callback(ctx, argv + 2, argc - 2);
+      LockHandler_ReleaseRead(ctx);
+      return ret;
     }
   }
 

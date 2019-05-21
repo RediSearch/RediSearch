@@ -13,6 +13,8 @@ extern "C" {
 
 typedef struct Grouper Grouper;
 
+extern threadpool searchPool;
+
 typedef enum {
   QEXEC_F_IS_EXTENDED = 0x01,    // Contains aggregations or projections
   QEXEC_F_SEND_SCORES = 0x02,    // Output: Send scores with each result

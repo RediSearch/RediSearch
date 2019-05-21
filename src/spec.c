@@ -13,6 +13,7 @@
 #include "tag_index.h"
 #include "redis_index.h"
 #include "indexer.h"
+#include "lock_handler.h"
 
 void (*IndexSpec_OnCreate)(const IndexSpec *) = NULL;
 
@@ -699,12 +700,12 @@ static void IndexSpec_FreeAsync(void *data) {
   RedisModuleCtx *threadCtx = RedisModule_GetThreadSafeContext(NULL);
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(threadCtx, spec);
   RedisModule_AutoMemory(threadCtx);
-  RedisModule_ThreadSafeContextLock(threadCtx);
+  LockHandler_AcquireWrite(threadCtx);
 
   Redis_DropIndex(&sctx, true, false);
   IndexSpec_FreeInternals(spec);
 
-  RedisModule_ThreadSafeContextUnlock(threadCtx);
+  LockHandler_ReleaseWrite(threadCtx);
   RedisModule_FreeThreadSafeContext(threadCtx);
 }
 
@@ -722,7 +723,9 @@ void IndexSpec_Free(void *ctx) {
     return;
   }
 
+  LockHandler_AcquireWrite(spec->strCtx);
   IndexSpec_FreeInternals(spec);
+  LockHandler_ReleaseWrite(spec->strCtx);
 }
 
 void IndexSpec_FreeSync(IndexSpec *spec) {
@@ -730,8 +733,12 @@ void IndexSpec_FreeSync(IndexSpec *spec) {
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
   RedisModule_AutoMemory(ctx);
+  LockHandler_AcquireWrite(ctx);
+
   Redis_DropIndex(&sctx, 0, 1);
   IndexSpec_FreeInternals(spec);
+
+  LockHandler_ReleaseWrite(ctx);
   RedisModule_FreeThreadSafeContext(ctx);
 }
 

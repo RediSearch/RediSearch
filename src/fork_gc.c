@@ -10,6 +10,7 @@
 #include <stdbool.h>
 #include <unistd.h>
 #include <sys/wait.h>
+#include "lock_handler.h"
 
 #define GC_WRITERFD 1
 #define GC_READERFD 0
@@ -375,7 +376,9 @@ static bool ForkGc_ReadInvertedIndex(ForkGCCtx *gc, int *ret_val, RedisModuleCtx
     return true;
   }
 
-  RedisModule_ThreadSafeContextLock(rctx);
+  LockHandler_AcquireGIL(rctx);
+  LockHandler_AcquireWrite(rctx);
+
   RedisModuleKey *idxKey = NULL;
   RedisSearchCtx *sctx = NULL;
   sctx = NewSearchCtx(rctx, (RedisModuleString *)gc->keyName, false);
@@ -404,7 +407,8 @@ cleanup:
     SearchCtx_Free(sctx);
   }
   if (rctx) {
-    RedisModule_ThreadSafeContextUnlock(rctx);
+    LockHandler_ReleaseWrite(rctx);
+    LockHandler_ReleaseGIL(rctx);
   }
   if (term) {
     rm_free(term);
@@ -455,7 +459,9 @@ static bool ForkGc_ReadNumericInvertedIndex(ForkGCCtx *gc, int *ret_val, RedisMo
       valuesDeleted[i] = ForkGc_FDReadLongLong(gc->pipefd[GC_READERFD]);
     }
 
-    RedisModule_ThreadSafeContextLock(rctx);
+    LockHandler_AcquireGIL(rctx);
+    LockHandler_AcquireWrite(rctx);
+
     RedisSearchCtx *sctx = NewSearchCtx(rctx, (RedisModuleString *)gc->keyName, false);
     if (!sctx || sctx->spec->uniqueId != gc->specUniqueId) {
       RETURN;
@@ -512,7 +518,9 @@ static bool ForkGc_ReadNumericInvertedIndex(ForkGCCtx *gc, int *ret_val, RedisMo
     if (idxKey) {
       RedisModule_CloseKey(idxKey);
     }
-    RedisModule_ThreadSafeContextUnlock(rctx);
+
+    LockHandler_ReleaseWrite(rctx);
+    LockHandler_ReleaseGIL(rctx);
     if (shouldReturn) {
       if (fieldName) {
         rm_free(fieldName);
@@ -547,7 +555,9 @@ static bool ForkGc_ReadTagIndex(ForkGCCtx *gc, int *ret_val, RedisModuleCtx *rct
       continue;
     }
 
-    RedisModule_ThreadSafeContextLock(rctx);
+    LockHandler_AcquireGIL(rctx);
+    LockHandler_AcquireWrite(rctx);
+
     RedisSearchCtx *sctx = NewSearchCtx(rctx, (RedisModuleString *)gc->keyName, false);
     if (!sctx || sctx->spec->uniqueId != gc->specUniqueId) {
       RETURN;
@@ -578,7 +588,9 @@ static bool ForkGc_ReadTagIndex(ForkGCCtx *gc, int *ret_val, RedisModuleCtx *rct
     if (idxKey) {
       RedisModule_CloseKey(idxKey);
     }
-    RedisModule_ThreadSafeContextUnlock(rctx);
+
+    LockHandler_ReleaseWrite(rctx);
+    LockHandler_ReleaseGIL(rctx);
     if (shouldReturn) {
       if (fieldName) {
         rm_free(fieldName);
@@ -623,16 +635,16 @@ static int ForkGc_PeriodicCallback(RedisModuleCtx *ctx, void *privdata) {
 
   // Check if RDB is loading - not needed after the first time we find out that rdb is not reloading
   if (gc->rdbPossiblyLoading) {
-    RedisModule_ThreadSafeContextLock(ctx);
+    LockHandler_AcquireGIL(ctx);
     if (isRdbLoading(ctx)) {
       RedisModule_Log(ctx, "notice", "RDB Loading in progress, not performing GC");
-      RedisModule_ThreadSafeContextUnlock(ctx);
+      LockHandler_ReleaseGIL(ctx);
       return 1;
     } else {
       // the RDB will not load again, so it's safe to ignore the info check in the next cycles
       gc->rdbPossiblyLoading = 0;
     }
-    RedisModule_ThreadSafeContextUnlock(ctx);
+    LockHandler_ReleaseGIL(ctx);
   }
 
   pid_t cpid;
@@ -644,9 +656,9 @@ static int ForkGc_PeriodicCallback(RedisModuleCtx *ctx, void *privdata) {
 
   TimeSampler_Start(&ts);
   pipe(gc->pipefd);  // create the pipe
-  RedisModule_ThreadSafeContextLock(ctx);
+  LockHandler_AcquireGIL(ctx);
   cpid = fork();  // duplicate the current process
-  RedisModule_ThreadSafeContextUnlock(ctx);
+  LockHandler_ReleaseGIL(ctx);
   if (cpid == 0) {
     // fork process
     close(gc->pipefd[GC_READERFD]);
@@ -678,9 +690,9 @@ static int ForkGc_PeriodicCallback(RedisModuleCtx *ctx, void *privdata) {
 void ForkGc_OnTerm(void *privdata) {
   ForkGCCtx *gc = privdata;
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
-  RedisModule_ThreadSafeContextLock(ctx);
+  LockHandler_AcquireGIL(ctx);
   RedisModule_FreeString(ctx, (RedisModuleString *)gc->keyName);
-  RedisModule_ThreadSafeContextUnlock(ctx);
+  LockHandler_ReleaseGIL(ctx);
   RedisModule_FreeThreadSafeContext(ctx);
   free(gc);
 }

@@ -29,6 +29,7 @@
 #include "suggest.h"
 #include "numeric_index.h"
 #include "redisearch_api.h"
+#include "lock_handler.h"
 
 #define LOAD_INDEX(ctx, srcname, write)                                                     \
   ({                                                                                        \
@@ -46,9 +47,12 @@ int SetPayloadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc != 4) {
     return RedisModule_WrongArity(ctx);
   }
+
   RedisModule_ReplicateVerbatim(ctx);
 
   RedisModule_AutoMemory(ctx);
+
+  LockHandler_AcquireWrite(ctx);
 
   IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
   if (sp == NULL) {
@@ -75,6 +79,8 @@ int SetPayloadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 cleanup:
 
   return REDISMODULE_OK;
+
+  LockHandler_ReleaseWrite(ctx);
 }
 
 #define REPLY_KVNUM(n, k, v)                   \
@@ -115,8 +121,11 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisModule_AutoMemory(ctx);
   if (argc < 2) return RedisModule_WrongArity(ctx);
 
+  LockHandler_AcquireRead(ctx);
+
   IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
   if (sp == NULL) {
+    LockHandler_ReleaseRead(ctx);
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
 
@@ -217,6 +226,8 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   n += 2;
 
   RedisModule_ReplySetArrayLength(ctx, n);
+
+  LockHandler_ReleaseRead(ctx);
   return REDISMODULE_OK;
 }
 
@@ -234,8 +245,12 @@ int GetDocumentsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   }
 
   RedisModule_AutoMemory(ctx);
+
+  LockHandler_AcquireRead(ctx);
+
   RedisSearchCtx *sctx = NewSearchCtx(ctx, argv[1], true);
   if (sctx == NULL) {
+    LockHandler_ReleaseRead(ctx);
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
 
@@ -260,6 +275,7 @@ int GetDocumentsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
   SearchCtx_Free(sctx);
 
+  LockHandler_ReleaseRead(ctx);
   return REDISMODULE_OK;
 }
 
@@ -276,8 +292,11 @@ int GetSingleDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   }
 
   RedisModule_AutoMemory(ctx);
+
+  LockHandler_AcquireRead(ctx);
   RedisSearchCtx *sctx = NewSearchCtx(ctx, argv[1], true);
   if (sctx == NULL) {
+    LockHandler_ReleaseRead(ctx);
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
 
@@ -291,6 +310,8 @@ int GetSingleDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     Document_Free(&doc);
   }
   SearchCtx_Free(sctx);
+
+  LockHandler_ReleaseRead(ctx);
   return REDISMODULE_OK;
 }
 
@@ -304,8 +325,12 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   RedisModule_AutoMemory(ctx);
+
+  LockHandler_AcquireRead(ctx);
+
   RedisSearchCtx *sctx = NewSearchCtx(ctx, argv[1], true);
   if (sctx == NULL) {
+    LockHandler_ReleaseRead(ctx);
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
 
@@ -381,6 +406,8 @@ end:
   }
   QAST_Destroy(&qast);
   SearchCtx_Free(sctx);
+
+  LockHandler_ReleaseRead(ctx);
   return REDISMODULE_OK;
 }
 
@@ -433,11 +460,16 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisModule_AutoMemory(ctx);
 
-  if (argc < 3 || argc > 4) return RedisModule_WrongArity(ctx);
+  if (argc < 3 || argc > 4) {
+    return RedisModule_WrongArity(ctx);
+  }
   RedisModule_ReplicateVerbatim(ctx);
+
+  LockHandler_AcquireWrite(ctx);
 
   IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
   if (sp == NULL) {
+    LockHandler_ReleaseWrite(ctx);
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
 
@@ -452,6 +484,7 @@ int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // Get the doc ID
   t_docId id = DocTable_GetIdR(&sp->docs, docKey);
   if (id == 0) {
+    LockHandler_ReleaseWrite(ctx);
     return RedisModule_ReplyWithLongLong(ctx, 0);
     // ID does not exist.
   }
@@ -487,6 +520,7 @@ int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     }
   }
 
+  LockHandler_ReleaseWrite(ctx);
   return RedisModule_ReplyWithLongLong(ctx, rc);
 }
 
@@ -633,8 +667,11 @@ int TagValsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   RedisModule_AutoMemory(ctx);
+
+  LockHandler_AcquireRead(ctx);
   RedisSearchCtx *sctx = NewSearchCtx(ctx, argv[1], true);
   if (sctx == NULL) {
+    LockHandler_ReleaseRead(ctx);
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
 
@@ -660,6 +697,8 @@ int TagValsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
 cleanup:
   SearchCtx_Free(sctx);
+
+  LockHandler_ReleaseRead(ctx);
   return REDISMODULE_OK;
 }
 /*
@@ -703,15 +742,20 @@ int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
   RedisModule_AutoMemory(ctx);
   RedisModule_ReplicateVerbatim(ctx);
+
   QueryError status = {0};
+
+  LockHandler_AcquireWrite(ctx);
 
   IndexSpec *sp = IndexSpec_CreateNew(ctx, argv, argc, &status);
   if (sp == NULL) {
     RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
     QueryError_ClearError(&status);
+    LockHandler_ReleaseWrite(ctx);
     return REDISMODULE_OK;
   }
 
+  LockHandler_ReleaseWrite(ctx);
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
@@ -742,7 +786,12 @@ int OptimizeIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   RedisModule_AutoMemory(ctx);
 
+  LockHandler_AcquireRead(ctx);
+
   IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 0);
+
+  LockHandler_ReleaseRead(ctx);
+
   if (sp == NULL) {
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
@@ -768,8 +817,11 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   RedisModule_AutoMemory(ctx);
 
+  LockHandler_AcquireWrite(ctx);
+
   IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 0);
   if (sp == NULL) {
+    LockHandler_ReleaseWrite(ctx);
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
 
@@ -781,6 +833,8 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
   Redis_DropIndex(&sctx, delDocs, true);
+
+  LockHandler_ReleaseWrite(ctx);
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
@@ -794,9 +848,12 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 int SynAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 3) return RedisModule_WrongArity(ctx);
 
+  LockHandler_AcquireWrite(ctx);
+
   IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 0);
   if (!sp) {
     RedisModule_ReplyWithError(ctx, "Unknown index name");
+    LockHandler_ReleaseWrite(ctx);
     return REDISMODULE_OK;
   }
 
@@ -808,18 +865,24 @@ int SynAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   RedisModule_ReplyWithLongLong(ctx, id);
 
+  LockHandler_ReleaseWrite(ctx);
+
   return REDISMODULE_OK;
 }
 
 int SynUpdateCommandInternal(RedisModuleCtx *ctx, RedisModuleString *indexName, long long id,
                              RedisModuleString **synonyms, size_t size, bool checkIdSanity) {
+  LockHandler_AcquireWrite(ctx);
+
   IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(indexName, NULL), 0);
   if (!sp) {
+    LockHandler_ReleaseWrite(ctx);
     RedisModule_ReplyWithError(ctx, "Unknown index name");
     return REDISMODULE_OK;
   }
 
   if (checkIdSanity && (!sp->smap || id >= SynonymMap_GetMaxId(sp->smap))) {
+    LockHandler_ReleaseWrite(ctx);
     RedisModule_ReplyWithError(ctx, "given id does not exists");
     return REDISMODULE_OK;
   }
@@ -829,6 +892,8 @@ int SynUpdateCommandInternal(RedisModuleCtx *ctx, RedisModuleString *indexName, 
   SynonymMap_UpdateRedisStr(sp->smap, synonyms, size, id);
 
   RedisModule_ReplyWithSimpleString(ctx, "OK");
+
+  LockHandler_ReleaseWrite(ctx);
 
   return REDISMODULE_OK;
 }
@@ -893,13 +958,17 @@ int SynForceUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 2) return RedisModule_WrongArity(ctx);
 
+  LockHandler_AcquireRead(ctx);
+
   IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 0);
   if (!sp) {
+    LockHandler_ReleaseRead(ctx);
     RedisModule_ReplyWithError(ctx, "Unknown index name");
     return REDISMODULE_OK;
   }
 
   if (!sp->smap) {
+    LockHandler_ReleaseRead(ctx);
     RedisModule_ReplyWithArray(ctx, 0);
     return REDISMODULE_OK;
   }
@@ -920,6 +989,8 @@ int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   rm_free(terms_data);
 
+  LockHandler_ReleaseRead(ctx);
+
   return REDISMODULE_OK;
 }
 
@@ -934,8 +1005,11 @@ int AlterIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (!RMUtil_StringEqualsCaseC(argv[2], "SCHEMA") || !RMUtil_StringEqualsCaseC(argv[3], "ADD")) {
     return RedisModule_ReplyWithError(ctx, "Unknown command");
   }
+  LockHandler_AcquireWrite(ctx);
+
   IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
   if (!sp) {
+    LockHandler_ReleaseWrite(ctx);
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
   }
 
@@ -943,6 +1017,7 @@ int AlterIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   QueryError status = {0};
 
   if (argc - schemaOffset == 0) {
+    LockHandler_ReleaseWrite(ctx);
     return RedisModule_ReplyWithError(ctx, "No fields provided");
   }
 
@@ -955,6 +1030,8 @@ int AlterIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   RedisModule_ReplicateVerbatim(ctx);
+
+  LockHandler_ReleaseWrite(ctx);
   return REDISMODULE_OK;
 }
 
@@ -1055,6 +1132,16 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
     return REDISMODULE_ERR;
   }
 
+  if (LockHandler_Initialize() != REDISMODULE_OK) {
+    RedisModule_Log(ctx, "warning", "Could not initialize lock handler");
+    return REDISMODULE_ERR;
+  }
+
+  if (RSGlobalConfig.concurrentMode) {
+    ConcurrentSearch_ThreadPoolStart();
+    searchPool = thpool_init(RSGlobalConfig.searchPoolSize);
+  }
+
   if (RS_InitializeLibrary(ctx) != REDISMODULE_OK) {
     RedisModule_Log(ctx, "warning", "Could not initialize low level api");
     return REDISMODULE_ERR;
@@ -1090,10 +1177,6 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   // Init extension mechanism
   Extensions_Init();
-
-  if (RSGlobalConfig.concurrentMode) {
-    ConcurrentSearch_ThreadPoolStart();
-  }
 
   // Init cursors mechanism
   CursorList_Init(&RSCursors);

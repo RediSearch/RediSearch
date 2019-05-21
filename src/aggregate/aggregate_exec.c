@@ -4,9 +4,12 @@
 #include "aggregate.h"
 #include "cursor.h"
 #include "rmutil/util.h"
+#include "../lock_handler.h"
 
 typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN } CommandType;
 static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num);
+
+threadpool searchPool;
 
 /**
  * Get the sorting key of the result. This will be the sorting key of the last
@@ -213,20 +216,37 @@ done:
   return rc;
 }
 
-static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                             CommandType type) {
-  // Index name is argv[1]
-  if (argc < 2) {
-    return RedisModule_WrongArity(ctx);
-  }
+typedef struct searchConcurentCtx {
+  RedisModuleBlockedClient *bc;
+  RedisModuleString **argv;
+  int argc;
+  CommandType type;
+} searchConcurentCtx;
+
+static int executeSearchReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  return REDISMODULE_OK;
+}
+static int executeSearchTimeoutCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  return REDISMODULE_OK;
+}
+
+static int execCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                               CommandType type) {
+  LockHandler_AcquireRead(ctx);
 
   const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
   AREQ *r = NULL;
   QueryError status = {0};
 
-  if (buildRequest(ctx, argv, argc, type, &status, &r) != REDISMODULE_OK) {
+  LockHandler_AcquireGIL(ctx);
+
+  if (buildRequest(RedisModule_GetThreadSafeContext(NULL), argv, argc, type, &status, &r) !=
+      REDISMODULE_OK) {
+    LockHandler_ReleaseGIL(ctx);
     goto error;
   }
+
+  LockHandler_ReleaseGIL(ctx);
 
   if (r->reqflags & QEXEC_F_IS_CURSOR) {
     int rc = AREQ_StartCursor(r, ctx, r->sctx->spec->name, &status);
@@ -234,16 +254,58 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
       goto error;
     }
   } else {
-    // Execute() will call free when appropriate.
     AREQ_Execute(r, ctx);
   }
+
+  LockHandler_ReleaseRead(ctx);
   return REDISMODULE_OK;
 
 error:
   if (r) {
     AREQ_Free(r);
   }
+  LockHandler_ReleaseRead(ctx);
   return QueryError_ReplyAndClear(ctx, &status);
+}
+
+static void executeSearchAtThread(void *pd) {
+  searchConcurentCtx *searchCtx = pd;
+  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(searchCtx->bc);
+  execCommandInternal(ctx, searchCtx->argv, searchCtx->argc, searchCtx->type);
+  RedisModule_UnblockClient(searchCtx->bc, NULL);
+
+  for (int i = 0; i < searchCtx->argc; ++i) {
+    RedisModule_FreeString(ctx, searchCtx->argv[i]);
+  }
+  rm_free(searchCtx->argv);
+  rm_free(searchCtx);
+
+  RedisModule_FreeThreadSafeContext(ctx);
+}
+
+static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                             CommandType type) {
+  // Index name is argv[1]
+  if (argc < 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  if (!RSGlobalConfig.concurrentMode) {
+    return execCommandInternal(ctx, argv, argc, type);
+  } else {
+    searchConcurentCtx *searchCtx = rm_malloc(sizeof(*searchCtx));
+    searchCtx->bc = RedisModule_BlockClient(ctx, executeSearchReplyCallback,
+                                            executeSearchTimeoutCallback, NULL, 100000);
+    searchCtx->argc = argc;
+    searchCtx->argv = rm_malloc(argc * sizeof(RedisModuleString *));
+    for (int i = 0; i < argc; ++i) {
+      searchCtx->argv[i] = RedisModule_CreateStringFromString(ctx, argv[i]);
+    }
+    searchCtx->type = type;
+    thpool_add_work(searchPool, executeSearchAtThread, searchCtx);
+  }
+
+  return REDISMODULE_OK;
 }
 
 int RSAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -256,7 +318,8 @@ int RSSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 char *RS_GetExplainOutput(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                           QueryError *status) {
   AREQ *r = NULL;
-  if (buildRequest(ctx, argv, argc, COMMAND_EXPLAIN, status, &r) != REDISMODULE_OK) {
+  if (buildRequest(RedisModule_GetThreadSafeContext(NULL), argv, argc, COMMAND_EXPLAIN, status,
+                   &r) != REDISMODULE_OK) {
     return NULL;
   }
   char *ret = QAST_DumpExplain(&r->ast, r->sctx->spec);
@@ -360,19 +423,25 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         return REDISMODULE_OK;
       }
     }
+    LockHandler_AcquireRead(ctx);
     cursorRead(ctx, cid, count);
+    LockHandler_ReleaseRead(ctx);
 
   } else if (cmdc == 'D') {
+    LockHandler_AcquireWrite(ctx);
     int rc = Cursors_Purge(&RSCursors, cid);
     if (rc != REDISMODULE_OK) {
       RedisModule_ReplyWithError(ctx, "Cursor does not exist");
     } else {
       RedisModule_ReplyWithSimpleString(ctx, "OK");
     }
+    LockHandler_ReleaseWrite(ctx);
 
   } else if (cmdc == 'G') {
+    LockHandler_AcquireWrite(ctx);
     int rc = Cursors_CollectIdle(&RSCursors);
     RedisModule_ReplyWithLongLong(ctx, rc);
+    LockHandler_ReleaseWrite(ctx);
   } else {
     printf("Unknown command %s\n", cmd);
     RedisModule_ReplyWithError(ctx, "Unknown subcommand");

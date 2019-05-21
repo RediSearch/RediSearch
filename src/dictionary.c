@@ -1,8 +1,8 @@
 #include "dictionary.h"
 #include "redismodule.h"
+#include "lock_handler.h"
 
-Trie *SpellCheck_OpenDict(RedisModuleCtx *ctx, const char *dictName, int mode,
-                                 RedisModuleKey **k) {
+Trie *SpellCheck_OpenDict(RedisModuleCtx *ctx, const char *dictName, int mode, RedisModuleKey **k) {
   RedisModuleString *keyName = RedisModule_CreateStringPrintf(ctx, DICT_KEY_FMT, dictName);
 
   *k = RedisModule_OpenKey(ctx, keyName, mode);
@@ -29,8 +29,8 @@ Trie *SpellCheck_OpenDict(RedisModuleCtx *ctx, const char *dictName, int mode,
   return RedisModule_ModuleTypeGetValue(*k);
 }
 
-int Dictionary_Add(RedisModuleCtx *ctx, const char *dictName, RedisModuleString **values,
-                       int len, char **err) {
+int Dictionary_Add(RedisModuleCtx *ctx, const char *dictName, RedisModuleString **values, int len,
+                   char **err) {
   int valuesAdded = 0;
   RedisModuleKey *k = NULL;
   Trie *t = SpellCheck_OpenDict(ctx, dictName, REDISMODULE_WRITE, &k);
@@ -48,8 +48,8 @@ int Dictionary_Add(RedisModuleCtx *ctx, const char *dictName, RedisModuleString 
   return valuesAdded;
 }
 
-int Dictionary_Del(RedisModuleCtx *ctx, const char *dictName, RedisModuleString **values,
-                       int len, char **err) {
+int Dictionary_Del(RedisModuleCtx *ctx, const char *dictName, RedisModuleString **values, int len,
+                   char **err) {
   int valuesDeleted = 0;
   RedisModuleKey *k = NULL;
   Trie *t = SpellCheck_OpenDict(ctx, dictName, REDISMODULE_WRITE, &k);
@@ -114,7 +114,9 @@ int DictDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   const char *dictName = RedisModule_StringPtrLen(argv[1], NULL);
 
   char *error;
+  LockHandler_AcquireRead(ctx);
   int retVal = Dictionary_Dump(ctx, dictName, &error);
+  LockHandler_ReleaseRead(ctx);
   if (retVal < 0) {
     RedisModule_ReplyWithError(ctx, error);
   }
@@ -132,7 +134,9 @@ int DictDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   const char *dictName = RedisModule_StringPtrLen(argv[1], NULL);
 
   char *error;
+  LockHandler_AcquireWrite(ctx);
   int retVal = Dictionary_Del(ctx, dictName, argv + 2, argc - 2, &error);
+  LockHandler_ReleaseWrite(ctx);
   if (retVal < 0) {
     RedisModule_ReplyWithError(ctx, error);
   } else {
@@ -152,7 +156,9 @@ int DictAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   const char *dictName = RedisModule_StringPtrLen(argv[1], NULL);
 
   char *error;
+  LockHandler_AcquireWrite(ctx);
   int retVal = Dictionary_Add(ctx, dictName, argv + 2, argc - 2, &error);
+  LockHandler_ReleaseWrite(ctx);
   if (retVal < 0) {
     RedisModule_ReplyWithError(ctx, error);
   } else {
