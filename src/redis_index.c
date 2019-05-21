@@ -562,7 +562,6 @@ int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments, int deleteSpecKey)
       Redis_DeleteKey(ctx->redisCtx, IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_GEO));
     }
   }
-  IndexSpec_ClearAliases(ctx->spec, ctx->redisCtx);
 
   // Delete the index spec
   int deleted = 1;

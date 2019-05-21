@@ -123,4 +123,20 @@ TEST_F(ArrTest, testDelete) {
     a = array_del(a, ii);
   }
   ASSERT_EQ(0, array_len(a));
+  array_free(a);
+
+  int tmp = 1;
+  a = NULL;
+  a = array_ensure_append(a, &tmp, 1, int);
+  ASSERT_EQ(1, array_len(a));
+  tmp = 2;
+  a = array_ensure_append(a, &tmp, 1, int);
+  ASSERT_EQ(2, array_len(a));
+  ASSERT_EQ(1, a[0]);
+  ASSERT_EQ(2, a[1]);
+
+  a = array_del(a, 0);
+  ASSERT_EQ(1, array_len(a));
+  ASSERT_EQ(2, a[1]);
+  array_free(a);
 }

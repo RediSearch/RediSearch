@@ -107,7 +107,7 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
   (Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets | Index_StoreNumeric | \
    Index_WideSchema)
 
-#define INDEX_CURRENT_VERSION 14
+#define INDEX_CURRENT_VERSION 15
 
 // Those versions contains doc table as array, we modified it to be array of linked lists
 #define INDEX_MIN_COMPACTED_DOCTABLE_VERSION 12
@@ -132,6 +132,8 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
 // Versions below this contain legacy types; newer versions allow a field
 // to contain multiple types
 #define INDEX_MIN_MULTITYPE_VERSION 14
+
+#define INDEX_MIN_ALIAS_VERSION 15
 
 #define IDXFLD_LEGACY_FULLTEXT 0
 #define IDXFLD_LEGACY_NUMERIC 1
@@ -298,11 +300,18 @@ IndexSpec *IndexSpec_Load(RedisModuleCtx *ctx, const char *name, int openWrite);
 #define INDEXSPEC_LOAD_NOALIAS 0x02
 /** The name of the index is in the format of a redis string */
 #define INDEXSPEC_LOAD_KEY_RSTRING 0x04
+
 /**
  * The redis string is formatted, and is not the "plain" index name.
  * Impliest RSTRING
  */
 #define INDEXSPEC_LOAD_KEY_FORMATTED (0x08 | INDEXSPEC_LOAD_KEY_RSTRING)
+
+/**
+ * Don't load or return the key. Should only be used in cases where the
+ * spec is not persisted between threads
+ */
+#define INDEXSPEC_LOAD_KEYLESS 0x10
 
 typedef struct {
   uint32_t flags;
@@ -364,7 +373,7 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver);
 void IndexSpec_RdbSave(RedisModuleIO *rdb, void *value);
 void IndexSpec_Digest(RedisModuleDigest *digest, void *value);
 int IndexSpec_RegisterType(RedisModuleCtx *ctx);
-void IndexSpec_ClearAliases(IndexSpec *sp, RedisModuleCtx *ctx);
+void IndexSpec_ClearAliases(IndexSpec *sp);
 // void IndexSpec_Free(void *value);
 
 /*
@@ -375,35 +384,6 @@ t_fieldMask IndexSpec_ParseFieldMask(IndexSpec *sp, RedisModuleString **argv, in
 
 void IndexSpec_InitializeSynonym(IndexSpec *sp);
 
-/**
- * Associate the given index target (ixname) with an alias (alias)
- */
-int IndexAlias_Add(RedisModuleCtx *ctx, const char *alias, const char *ixname,
-                   const char *lookup, QueryError *status);
-/**
- * Open the alias table, returning the key associated with it (which is a
- * Redis hash)
- */
-RedisModuleKey* IndexAlias_GetTable(RedisModuleCtx *ctx, const char *target, const char *lookup,
-              int mode, QueryError *status);
-
-// Do not delete the backreference to the spec itself. This is used when the
-// spec itself is being destroyed
-#define INDEXALIAS_DEL_NOBACKREF 0x01
-
-/** Disassociate the spec from the given alias */
-int IndexAlias_Del(RedisModuleCtx *ctx, const char *alias, const char *lookup,
-                   int options, QueryError *status);
-
-const char *IndexAlias_GetTableName(RedisModuleCtx *ctx, const char *lookup, const char *ixname);
-
-/**
- * Can be used to override the way in which the alias table is located for a
- * given index name. If not specified, the default alias table (global) is used.
- * This may not be desired in a distributed environment in which it is required
- * for the alias table to reside on the same database as the target
- */
-extern const char* (*IndexAlias_GetUserTableName)(RedisModuleCtx *ctx, const char *alias);
 
 #ifdef __cplusplus
 }

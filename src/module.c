@@ -29,6 +29,7 @@
 #include "suggest.h"
 #include "numeric_index.h"
 #include "redisearch_api.h"
+#include "alias.h"
 
 #define LOAD_INDEX(ctx, srcname, write)                                                     \
   ({                                                                                        \
@@ -797,8 +798,13 @@ int AlterIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 5) {
     return RedisModule_WrongArity(ctx);
   }
-  const char *ixname = AC_GetStringNC(&ac, NULL);
   QueryError status = {0};
+
+  const char *ixname = AC_GetStringNC(&ac, NULL);
+  IndexSpec *sp = IndexSpec_Load(ctx, ixname, 1);
+  if (!sp) {
+    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+  }
 
   if (AC_AdvanceIfMatch(&ac, "SCHEMA")) {
     if (!AC_AdvanceIfMatch(&ac, "ADD")) {
@@ -806,10 +812,6 @@ int AlterIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     }
     if (!AC_NumRemaining(&ac)) {
       return RedisModule_ReplyWithError(ctx, "No fields provided");
-    }
-    IndexSpec *sp = IndexSpec_Load(ctx, ixname, 1);
-    if (!sp) {
-      return RedisModule_ReplyWithError(ctx, "Unknown index name");
     }
     IndexSpec_AddFields(sp, &ac, &status);
   } else if (AC_AdvanceIfMatch(&ac, "ALIAS")) {
@@ -829,10 +831,10 @@ int AlterIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         return RedisModule_ReplyWithError(ctx, "Missing alias!");
       }
       const char *alias = AC_GetStringNC(&ac, NULL);
-      IndexAlias_Add(ctx, alias, ixname, NULL, &status);
+      IndexAlias_Add(alias, sp, 0, &status);
     } else if (AC_AdvanceIfMatch(&ac, "DEL")) {
-      // assume that `ixname` itself is the actual alias
-      IndexAlias_Del(ctx, ixname, NULL, 0, &status);
+      const char *alias = AC_GetStringNC(&ac, NULL);
+      IndexAlias_Del(alias, sp, 0, &status);
     } else {
       return RedisModule_ReplyWithError(ctx, "Unknown ALTER ALIAS subcommand");
     }
@@ -1102,4 +1104,5 @@ void RediSearch_CleanupModule(void) {
   FunctionRegistry_Free();
   mempool_free_global();
   ConcurrentSearch_ThreadPoolDestroy();
+  IndexAlias_DestroyGlobal();
 }
