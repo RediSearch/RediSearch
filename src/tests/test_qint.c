@@ -3,8 +3,6 @@
 #include "qint.h"
 #include "rmutil/alloc.h"
 
-REDISMODULE_INIT_SYMBOLS();
-
 int main(int argc, char **argv) {
   RMUTil_InitAlloc();
   Buffer *b = NewBuffer(1024);

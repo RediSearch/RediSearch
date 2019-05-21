@@ -1,1 +1,1 @@
-ADD_LIBRARY(redismock STATIC redismock.cpp util.cpp)
+ADD_LIBRARY(redismock SHARED redismock.cpp util.cpp)

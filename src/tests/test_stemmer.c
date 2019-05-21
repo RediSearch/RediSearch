@@ -76,8 +76,6 @@ int testTokenize() {
   return 0;
 }
 
-REDISMODULE_INIT_SYMBOLS();
-
 TEST_MAIN({
   RMUTil_InitAlloc();
   TESTFUNC(testStemmer);
