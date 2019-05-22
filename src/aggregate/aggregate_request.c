@@ -1158,17 +1158,14 @@ void AREQ_Free(AREQ *req) {
 
   ConcurrentSearchCtx_Free(&req->conc);
 
-  RedisModuleCtx *thctx = NULL;
   if (req->sctx) {
-    thctx = req->sctx->redisCtx;
+    // we do not need to free req->sctx->redisCtx, if its a ThreadSafeCtx it will be free by the
+    // thread.
     req->sctx->redisCtx = NULL;
     SearchCtx_Decref(req->sctx);
   }
   for (size_t ii = 0; ii < req->nargs; ++ii) {
     sdsfree(req->args[ii]);
-  }
-  if (thctx) {
-    RedisModule_FreeThreadSafeContext(thctx);
   }
   free(req->args);
   free(req);

@@ -232,16 +232,14 @@ static int executeSearchTimeoutCallback(RedisModuleCtx *ctx, RedisModuleString *
 
 static int execCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                CommandType type) {
+  LockHandler_AcquireGIL(ctx);
   LockHandler_AcquireRead(ctx);
 
   const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
   AREQ *r = NULL;
   QueryError status = {0};
 
-  LockHandler_AcquireGIL(ctx);
-
-  if (buildRequest(RedisModule_GetThreadSafeContext(NULL), argv, argc, type, &status, &r) !=
-      REDISMODULE_OK) {
+  if (buildRequest(ctx, argv, argc, type, &status, &r) != REDISMODULE_OK) {
     LockHandler_ReleaseGIL(ctx);
     goto error;
   }

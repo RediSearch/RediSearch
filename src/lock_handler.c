@@ -1,9 +1,3 @@
-/*
- * lock_handler.c
- *
- *  Created on: May 20, 2019
- */
-
 #include "lock_handler.h"
 #include "rmalloc.h"
 #include <pthread.h>
@@ -28,8 +22,8 @@ typedef enum AcquiredType {
 } AcquiredType;
 
 typedef struct LockHandlerCtx {
-  size_t GILacquiredAmount;
-  size_t RWacquiredAmount;
+  size_t GILacquiredCount;
+  size_t RWacquiredCount;
   AcquiredType RWacquiredType;
 } LockHandlerCtx;
 
@@ -37,8 +31,8 @@ static LockHandlerCtx* LockHandler_GetSpecific() {
   LockHandlerCtx* lh = pthread_getspecific(lockKey);
   if (!lh) {
     lh = rm_malloc(sizeof(*lh));
-    lh->GILacquiredAmount = 0;
-    lh->RWacquiredAmount = 0;
+    lh->GILacquiredCount = 0;
+    lh->RWacquiredCount = 0;
     lh->RWacquiredType = AcquiredType_NONE;
     pthread_setspecific(lockKey, lh);
   }
@@ -52,8 +46,8 @@ int LockHandler_Initialize() {
   }
 
   LockHandlerCtx* lh = rm_malloc(sizeof(*lh));
-  lh->GILacquiredAmount = 1;  // init is called from the main thread, the lock is always acquired
-  lh->RWacquiredAmount = 0;
+  lh->GILacquiredCount = 1;  // init is called from the main thread, the lock is always acquired
+  lh->RWacquiredCount = 0;
   lh->RWacquiredType = AcquiredType_NONE;
   pthread_setspecific(lockKey, lh);
   return REDISMODULE_OK;
@@ -61,14 +55,14 @@ int LockHandler_Initialize() {
 
 void LockHandler_AcquireGIL(RedisModuleCtx* rctx) {
   LockHandlerCtx* lh = LockHandler_GetSpecific();
-  if (lh->GILacquiredAmount == 0) {
-    if (lh->RWacquiredAmount > 0) {
+  if (lh->GILacquiredCount == 0) {
+    if (lh->RWacquiredCount > 0) {
       // we want to acquire GIL while holding the RWLock.
       // to prevent deadlock we will release the RWLock and re-acquire it after acquire the GIL.
       pthread_rwlock_unlock(&lockRW);
     }
     RedisModule_ThreadSafeContextLock(rctx);
-    if (lh->RWacquiredAmount > 0) {
+    if (lh->RWacquiredCount > 0) {
       if (lh->RWacquiredType == AcquiredType_READ) {
         int res = pthread_rwlock_rdlock(&lockRW);
         assert(res == 0);
@@ -80,14 +74,14 @@ void LockHandler_AcquireGIL(RedisModuleCtx* rctx) {
       }
     }
   }
-  ++lh->GILacquiredAmount;
+  ++lh->GILacquiredCount;
 }
 
 void LockHandler_ReleaseGIL(RedisModuleCtx* rctx) {
   LockHandlerCtx* lh = LockHandler_GetSpecific();
   assert(lh);
-  assert(lh->GILacquiredAmount > 0);
-  if (--lh->GILacquiredAmount == 0) {
+  assert(lh->GILacquiredCount > 0);
+  if (--lh->GILacquiredCount == 0) {
     RedisModule_ThreadSafeContextUnlock(rctx);
   }
 }
@@ -97,7 +91,7 @@ void LockHandler_AcquireRead(RedisModuleCtx* rctx) {
   assert(lh);
   assert(lh->RWacquiredType != AcquiredType_WRITE);
 
-  if (lh->RWacquiredAmount == 0) {
+  if (lh->RWacquiredCount == 0) {
     LockHandler_AcquireGIL(rctx);  // prevent deadlocks!!
     int res = pthread_rwlock_rdlock(&lockRW);
     assert(res == 0);
@@ -105,15 +99,15 @@ void LockHandler_AcquireRead(RedisModuleCtx* rctx) {
     lh->RWacquiredType = AcquiredType_READ;
   }
 
-  ++lh->RWacquiredAmount;
+  ++lh->RWacquiredCount;
 }
 
 void LockHandler_ReleaseRead(RedisModuleCtx* rctx) {
   LockHandlerCtx* lh = LockHandler_GetSpecific();
   assert(lh);
-  assert(lh->RWacquiredAmount > 0);
+  assert(lh->RWacquiredCount > 0);
   assert(lh->RWacquiredType == AcquiredType_READ);
-  if (--lh->RWacquiredAmount == 0) {
+  if (--lh->RWacquiredCount == 0) {
     pthread_rwlock_unlock(&lockRW);
     lh->RWacquiredType = AcquiredType_NONE;
   }
@@ -124,7 +118,7 @@ void LockHandler_AcquireWrite(RedisModuleCtx* rctx) {
   assert(lh);
   assert(lh->RWacquiredType != AcquiredType_READ);
 
-  if (lh->RWacquiredAmount == 0) {
+  if (lh->RWacquiredCount == 0) {
     LockHandler_AcquireGIL(rctx);  // prevent deadlocks!!
     int res = pthread_rwlock_wrlock(&lockRW);
     assert(res == 0);
@@ -132,15 +126,15 @@ void LockHandler_AcquireWrite(RedisModuleCtx* rctx) {
     lh->RWacquiredType = AcquiredType_WRITE;
   }
 
-  ++lh->RWacquiredAmount;
+  ++lh->RWacquiredCount;
 }
 
 void LockHandler_ReleaseWrite(RedisModuleCtx* rctx) {
   LockHandlerCtx* lh = LockHandler_GetSpecific();
   assert(lh);
-  assert(lh->RWacquiredAmount > 0);
+  assert(lh->RWacquiredCount > 0);
   assert(lh->RWacquiredType == AcquiredType_WRITE);
-  if (--lh->RWacquiredAmount == 0) {
+  if (--lh->RWacquiredCount == 0) {
     pthread_rwlock_unlock(&lockRW);
     lh->RWacquiredType = AcquiredType_NONE;
   }

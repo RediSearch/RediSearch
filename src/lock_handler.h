@@ -1,9 +1,3 @@
-/*
- * lock_handler.h
- *
- *  Created on: May 20, 2019
- */
-
 #ifndef SRC_LOCK_HANDLER_H_
 #define SRC_LOCK_HANDLER_H_
 
