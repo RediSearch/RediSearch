@@ -328,7 +328,7 @@ static void keepResult(struct sorterCtx *sctx, SearchResult *r) {
     for (size_t ii = 0; ii < r->fields->len; ++ii) {
       r->fields->fields[ii].val = RSValue_MakePersistent(r->fields->fields[ii].val);
       r->fields->fields[ii].key = strdup(r->fields->fields[ii].key);
-      r->fields->isKeyAlloc = 1;
+      r->fields->fields[ii].isKeyAlloc = 1;
     }
   }
 }

@@ -43,9 +43,9 @@ int Projector_Next(ResultProcessorCtx *ctx, SearchResult *res) {
     a->allocated = 1;
     a->refcount = 0;
 
-    RSFieldMap_Set(&res->fields, strdup(pc->alias), a);
+    RSFieldMap_Set(&res->fields, pc->alias, a);
   } else {
-    RSFieldMap_Set(&res->fields, strdup(pc->alias), RS_NullVal());
+    RSFieldMap_Set(&res->fields, pc->alias, RS_NullVal());
   }
   return RS_RESULT_OK;
 }

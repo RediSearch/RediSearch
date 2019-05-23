@@ -88,7 +88,9 @@ RSValue *RS_NewValue(RSValueType t);
 
 static RSValue RS_StaticValue(RSValueType t) {
   RSValue v = (RSValue){
-      .t = t, .refcount = 1, .allocated = 0,
+      .t = t,
+      .refcount = 1,
+      .allocated = 0,
   };
   return v;
 }
@@ -101,7 +103,10 @@ void RSValue_SetConstString(RSValue *v, const char *str, size_t len);
 static inline void RSValue_MakeReference(RSValue *dst, RSValue *src) {
 
   *dst = (RSValue){
-      .t = RSValue_Reference, .refcount = 1, .allocated = 0, .ref = RSValue_IncrRef(src),
+      .t = RSValue_Reference,
+      .refcount = 1,
+      .allocated = 0,
+      .ref = RSValue_IncrRef(src),
   };
 }
 /* Return the value itself or its referred value */
@@ -289,9 +294,11 @@ typedef struct {
   int sortableIdx;
 } RSKey;
 
-#define RS_KEY(s)                                                          \
-  ((RSKey){                                                                \
-      .key = s, .fieldIdx = RSKEY_UNCACHED, .sortableIdx = RSKEY_UNCACHED, \
+#define RS_KEY(s)                    \
+  ((RSKey){                          \
+      .key = s,                      \
+      .fieldIdx = RSKEY_UNCACHED,    \
+      .sortableIdx = RSKEY_UNCACHED, \
   })
 
 #define RS_KEY_STRDUP(s) RS_KEY(strdup(s))
@@ -319,6 +326,7 @@ void RSMultiKey_Free(RSMultiKey *k);
 typedef struct {
   const char *key;
   RSValue *val;
+  uint32_t isKeyAlloc;
 } RSField;
 
 /* Create new KV field */
@@ -328,7 +336,6 @@ RSField RS_NewField(const char *k, RSValue *val);
 typedef struct {
   uint16_t len;
   uint16_t cap;
-  uint32_t isKeyAlloc;
   RSField fields[];
 } RSFieldMap;
 

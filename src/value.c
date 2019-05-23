@@ -108,7 +108,9 @@ inline void RSValue_Free(RSValue *v) {
 
 RSValue RS_Value(RSValueType t) {
   RSValue v = (RSValue){
-      .t = t, .refcount = 1, .allocated = 0,
+      .t = t,
+      .refcount = 1,
+      .allocated = 0,
   };
   return v;
 }
@@ -606,6 +608,7 @@ inline RSField RS_NewField(const char *k, RSValue *val) {
   RSField ret;
   ret.key = (RSKEY(k));
   ret.val = RSValue_IncrRef(val);
+  ret.isKeyAlloc = 0;
   return ret;
 }
 
@@ -688,11 +691,10 @@ void RSFieldMap_Reset(RSFieldMap *m) {
   if (m) {
     for (size_t i = 0; i < m->len; i++) {
       RSValue_Free(m->fields[i].val);
-      if (m->isKeyAlloc) {
+      if (m->fields[i].isKeyAlloc) {
         free(m->fields[i].key);
       }
     }
-    m->isKeyAlloc = 0;
     m->len = 0;
   }
 }
