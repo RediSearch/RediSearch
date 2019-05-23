@@ -4,6 +4,9 @@
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <pthread.h>
+
+pthread_rwlock_t RWLock = PTHREAD_RWLOCK_INITIALIZER;
 
 static int numTests = 0;
 static int numAsserts = 0;

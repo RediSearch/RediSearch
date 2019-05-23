@@ -12,6 +12,8 @@
 #include "extension.h"
 #include "ext/default.h"
 #include <float.h>
+#include "rwlock.h"
+#include "fork_gc.h"
 
 static void RS_ResultsIteratorFree(struct RS_ApiIter* iter);
 
@@ -30,7 +32,12 @@ static void valFreeCb(void* unused, void* p) {
 }
 
 static IndexSpec* RS_CreateIndex(const char* name, const RSIndexOptions* options) {
-  RSIndexOptions opts_s = {0};
+  RSIndexOptions opts_s = {
+      .gvcb = NULL,
+      .gvcbData = NULL,
+      .flags = 0,
+      .gcPolicy = -1,
+  };
   if (!options) {
     options = &opts_s;
   }
@@ -50,18 +57,31 @@ static IndexSpec* RS_CreateIndex(const char* name, const RSIndexOptions* options
   if (options->flags & RSIDXOPT_DOCTBLSIZE_UNLIMITED) {
     spec->docs.maxSize = DOCID_MAX;
   }
+  if (options->gcPolicy != GC_POLICY_NONE) {
+    IndexSpec_StartGCFromSpec(spec, GC_DEFAULT_HZ, options->gcPolicy);
+  }
   return spec;
 }
 
 static void RS_DropIndex(IndexSpec* sp) {
+  RWLOCK_ACQUIRE_WRITE();
+
+  if (sp->gc) {
+    // for now this is good enough, we should add another api to GC called before its freed.
+    ((ForkGCCtx*)(sp->gc->gcCtx))->type = ForkGCCtxType_FREED;
+  }
   dict* d = sp->keysDict;
   dictRelease(d);
   sp->keysDict = NULL;
   IndexSpec_FreeSync(sp);
+
+  RWLOCK_RELEASE();
 }
 
 static RSField* RS_CreateField(IndexSpec* sp, const char* name, unsigned types, unsigned options) {
   assert(types);
+  RWLOCK_ACQUIRE_WRITE();
+
   RSField* fs = IndexSpec_CreateField(sp, name);
   int numTypes = 0;
 
@@ -107,6 +127,8 @@ static RSField* RS_CreateField(IndexSpec* sp, const char* name, unsigned types, 
     sp->flags |= Index_HasPhonetic;
   }
 
+  RWLOCK_RELEASE();
+
   return fs;
 }
 
@@ -130,6 +152,8 @@ static Document* RS_CreateDocument(const void* docKey, size_t len, double score,
 }
 
 static int RS_DeleteDocument(IndexSpec* sp, const void* docKey, size_t len) {
+  RWLOCK_ACQUIRE_WRITE();
+
   RedisModuleString* docId = RedisModule_CreateString(NULL, docKey, len);
   int rc = REDISMODULE_OK;
   t_docId id = DocTable_GetIdR(&sp->docs, docId);
@@ -145,6 +169,8 @@ static int RS_DeleteDocument(IndexSpec* sp, const void* docKey, size_t len) {
     }
   }
   RedisModule_FreeString(NULL, docId);
+
+  RWLOCK_RELEASE();
   return rc;
 }
 
@@ -181,6 +207,8 @@ static void RS_AddDocDone(RSAddDocumentCtx* aCtx, RedisModuleCtx* ctx, void* err
 }
 
 static int RS_IndexAddDocument(IndexSpec* sp, Document* d, int options, char** errs) {
+  RWLOCK_ACQUIRE_WRITE();
+
   RSError err = {.s = errs};
   QueryError status = {0};
   RSAddDocumentCtx* aCtx = NewAddDocumentCtx(sp, d, &status);
@@ -204,6 +232,8 @@ static int RS_IndexAddDocument(IndexSpec* sp, Document* d, int options, char** e
   aCtx->stateFlags |= ACTX_F_NOBLOCK;
   AddDocumentCtx_Submit(aCtx, &sctx, options);
   rm_free(d);
+
+  RWLOCK_RELEASE();
   return err.hasErr ? REDISMODULE_ERR : REDISMODULE_OK;
 }
 
@@ -314,6 +344,9 @@ typedef struct {
 } QueryInput;
 
 static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** error) {
+  // here we only take the read lock and we will free it when the iterator will be freed
+  RWLOCK_ACQUIRE_READ();
+
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(NULL, sp);
   RSSearchOptions options = {0};
   QueryError status = {0};
@@ -414,6 +447,8 @@ static void RS_ResultsIteratorFree(RS_ApiIter* iter) {
   }
   QAST_Destroy(&iter->qast);
   rm_free(iter);
+
+  RWLOCK_RELEASE();
 }
 
 static void RS_ResultsIteratorReset(RS_ApiIter* iter) {
@@ -421,7 +456,9 @@ static void RS_ResultsIteratorReset(RS_ApiIter* iter) {
 }
 
 static RSIndexOptions* RS_CreateIndexOptions() {
-  return rm_calloc(1, sizeof(RSIndexOptions));
+  RSIndexOptions* ret = rm_calloc(1, sizeof(RSIndexOptions));
+  ret->gcPolicy = GC_POLICY_NONE;
+  return ret;
 }
 static void RS_FreeIndexOptions(RSIndexOptions* options) {
   rm_free(options);
@@ -435,6 +472,10 @@ static void RS_IndexOptionsSetGetValueCallback(RSIndexOptions* options, RSGetVal
 
 static void RS_IndexOptionsSetFlags(RSIndexOptions* options, uint32_t flags) {
   options->flags = flags;
+}
+
+static void RS_IndexOptionsSetGCPolicy(RSIndexOptions* options, int policy) {
+  options->gcPolicy = policy;
 }
 
 #define REGISTER_API(name)                                                   \
