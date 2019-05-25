@@ -1,9 +1,9 @@
 #!/bin/sh
 set -x
-if [ -z "CC" ]; then
+if [ -z "$CC" ]; then
     CC=clang
 fi
-if [ -z "CXX" ]; then
+if [ -z "$CXX" ]; then
     CXX=clang++
 fi
 
