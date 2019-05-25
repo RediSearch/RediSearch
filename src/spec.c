@@ -1132,11 +1132,7 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
       size_t dummy;
       char *s = RedisModule_LoadStringBuffer(rdb, &dummy);
       int rc = IndexAlias_Add(s, sp, 0, &status);
-      if (rc != REDISMODULE_OK) {
-        fprintf(stderr, "[redisearch]: couldn't add alias for %s while loading: %s\n", sp->name,
-                QueryError_GetError(&status));
-        QueryError_ClearError(&status);
-      }
+      assert(rc == REDISMODULE_OK);
     }
   }
   return sp;

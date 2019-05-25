@@ -2011,8 +2011,10 @@ def testAlias(env):
     env.cmd('ft.create', 'idx3', 'schema', 't1', 'text')
     env.cmd('ft.add', 'idx3', 'doc3', 1.0, 'fields', 't1', 'foo')
     env.cmd('ft.alter', 'idx3', 'alias', 'add', 'myIndex')
-    r = env.cmd('ft.search', 'myIndex', 'foo')
-    env.assertEqual([1L, 'doc3', ['t1', 'foo']], r)
+    # also, check that this works in rdb save
+    for _ in env.retry_with_rdb_reload():
+        r = env.cmd('ft.search', 'myIndex', 'foo')
+        env.assertEqual([1L, 'doc3', ['t1', 'foo']], r)
 
 def testNoCreate(env):
     env.cmd('ft.create', 'idx', 'schema', 'f1', 'text')

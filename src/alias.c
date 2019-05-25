@@ -48,6 +48,7 @@ int AliasTable_Del(AliasTable *table, const char *alias, IndexSpec *spec, int op
 
   ssize_t idx = -1;
   for (size_t ii = 0; ii < array_len(spec->aliases); ++ii) {
+    // note, NULL might be here if we're clearing the spec's aliases
     if (spec->aliases[ii] && !strcasecmp(spec->aliases[ii], alias)) {
       idx = ii;
       break;
@@ -63,12 +64,8 @@ int AliasTable_Del(AliasTable *table, const char *alias, IndexSpec *spec, int op
     size_t oldLen = array_len(spec->aliases);
     spec->aliases = array_del(spec->aliases, idx);
   }
-
-  int rc = REDISMODULE_OK;
-  if (dictDelete(table, alias) == DICT_ERR) {
-    QueryError_SetError(error, QUERY_ENOINDEX, "Alias does not belong to index");
-    rc = REDISMODULE_ERR;
-  }
+  int rc = dictDelete(table, alias);
+  assert(rc == DICT_OK);
 
   if (toFree) {
     rm_free(toFree);
@@ -113,17 +110,11 @@ void IndexSpec_ClearAliases(IndexSpec *sp) {
   }
   for (size_t ii = 0; ii < array_len(sp->aliases); ++ii) {
     char **pp = sp->aliases + ii;
-    if (!*pp) {
-      continue;
-    }
     QueryError e = {0};
     int rc = IndexAlias_Del(*pp, sp, INDEXALIAS_NO_BACKREF, &e);
-    if (rc != REDISMODULE_OK) {
-      fprintf(stderr, "redisearch: alias %s in list for %s but does not exist: %s\n", *pp, sp->name,
-              QueryError_GetError(&e));
-      QueryError_ClearError(&e);
-    }
+    assert(rc == REDISMODULE_OK);
     rm_free(*pp);
+    // set to NULL so IndexAlias_Del skips over this
     *pp = NULL;
   }
   array_free(sp->aliases);
