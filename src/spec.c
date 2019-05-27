@@ -180,7 +180,8 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
   if (sp->flags & Index_Temporary) {
     RedisModule_SetExpire(k, sp->timeout * 1000);
   }
-
+  // Create the indexer
+  sp->indexer = NewIndexer(sp);
   if (IndexSpec_OnCreate) {
     IndexSpec_OnCreate(sp);
   }
@@ -630,7 +631,9 @@ void IndexSpec_FreeWithKey(IndexSpec *sp, RedisModuleCtx *ctx) {
 }
 
 static void IndexSpec_FreeInternals(IndexSpec *spec) {
-  DropDocumentIndexer(spec->name);
+  if (spec->indexer) {
+    Indexer_Free(spec->indexer);
+  }
   if (spec->gc) {
     GCContext_Stop(spec->gc);
   }
@@ -1135,6 +1138,7 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
       assert(rc == REDISMODULE_OK);
     }
   }
+  sp->indexer = NewIndexer(sp);
   return sp;
 }
 

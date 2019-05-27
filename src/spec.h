@@ -150,6 +150,8 @@ typedef struct {
   RedisModuleString *types[INDEXFLD_NUM_TYPES];
 } IndexSpecFmtStrings;
 
+struct DocumentIndexer;
+
 typedef struct IndexSpec {
   char *name;
   FieldSpec *fields;
@@ -183,6 +185,7 @@ typedef struct IndexSpec {
   RSGetValueCallback getValue;
   void *getValueCtx;
   char **aliases; // Aliases to self-remove when the index is deleted
+  struct DocumentIndexer *indexer;
 } IndexSpec;
 
 typedef struct {

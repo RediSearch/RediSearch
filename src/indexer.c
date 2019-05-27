@@ -7,7 +7,7 @@
 #include "redis_index.h"
 
 #include <assert.h>
-static void DocumentIndexer_Free(DocumentIndexer *indexer);
+static void Indexer_FreeInternal(DocumentIndexer *indexer);
 
 static void writeIndexEntry(IndexSpec *spec, InvertedIndex *idx, IndexEncoder encoder,
                             ForwardIndexEntry *entry) {
@@ -368,6 +368,9 @@ static void reopenCb(RedisModuleKey *k, void *arg) {
   }
 
   ctx->spec = RedisModule_ModuleTypeGetValue(k);
+  if (ctx->spec->uniqueId != ctx->specId) {
+    ctx->spec = NULL;
+  }
 }
 
 // Routines for the merged hash table
@@ -413,6 +416,7 @@ static void Indexer_Process(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx) {
     }
 
     ctx.redisCtx = indexer->redisCtx;
+    ctx.specId = indexer->specId;
     ConcurrentSearch_SetKey(&indexer->concCtx, indexer->specKeyName, &ctx);
     ConcurrentSearchCtx_ResetClock(&indexer->concCtx);
     ConcurrentSearchCtx_Lock(&indexer->concCtx);
@@ -496,7 +500,7 @@ static void *Indexer_Run(void *p) {
     AddDocumentCtx_Finish(cur);
   }
 
-  DocumentIndexer_Free(indexer);
+  Indexer_FreeInternal(indexer);
   return NULL;
 }
 
@@ -540,47 +544,14 @@ int Indexer_Add(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx) {
  * every item within the document ID belongs to the same index.
  */
 
-// List of all the index threads
-typedef struct {
-  DocumentIndexer *first;  // First thread in the list
-  volatile int lockMod;    // "Spinlock" in case the list needs to be modified
-} IndexerList;
-
-// Instance of list
-static IndexerList indexers_g = {NULL, 0};
-
-// Returns the given indexer, if it exists
-static DocumentIndexer *findAndRemoveDocumentIndexer(const char *specname) {
-  DocumentIndexer *prev = NULL;
-  for (DocumentIndexer *cur = indexers_g.first; cur; cur = cur->next) {
-    if (strcmp(specname, cur->name) == 0) {
-      if (prev) {
-        prev->next = cur->next;
-      } else {
-        indexers_g.first = cur->next;
-      }
-      return cur;
-    }
-    prev = cur;
-  }
-  return NULL;
-}
-
-static DocumentIndexer *findDocumentIndexer(const char *specname) {
-  for (DocumentIndexer *cur = indexers_g.first; cur; cur = cur->next) {
-    if (strcmp(specname, cur->name) == 0) {
-      return cur;
-    }
-  }
-  return NULL;
-}
-
 // Creates a new DocumentIndexer. This initializes the structure and starts the
 // thread. This does not insert it into the list of threads, though
 // todo: remove the withIndexThread var once we switch to threadpool
-static DocumentIndexer *NewDocumentIndexer(const char *name, int options) {
+DocumentIndexer *NewIndexer(IndexSpec *spec) {
   DocumentIndexer *indexer = calloc(1, sizeof(*indexer));
-  indexer->options = options;
+  if (spec->flags & Index_Temporary) {
+    indexer->options |= INDEXER_THREADLESS;
+  }
   indexer->head = indexer->tail = NULL;
 
   BlkAlloc_Init(&indexer->alloc);
@@ -588,24 +559,24 @@ static DocumentIndexer *NewDocumentIndexer(const char *name, int options) {
       .Alloc = mergedAlloc, .Compare = mergedCompare, .Hash = mergedHash};
   KHTable_Init(&indexer->mergeHt, &procs, &indexer->alloc, 4096);
 
-  if (!(options & INDEXER_THREADLESS)) {
+  if (!(indexer->options & INDEXER_THREADLESS)) {
     pthread_cond_init(&indexer->cond, NULL);
     pthread_mutex_init(&indexer->lock, NULL);
     pthread_create(&indexer->thr, NULL, Indexer_Run, indexer);
   }
-  indexer->name = strdup(name);
+
   indexer->next = NULL;
   indexer->redisCtx = RedisModule_GetThreadSafeContext(NULL);
+  indexer->specId = spec->uniqueId;
   indexer->specKeyName =
-      RedisModule_CreateStringPrintf(indexer->redisCtx, INDEX_SPEC_KEY_FMT, indexer->name);
+      RedisModule_CreateStringPrintf(indexer->redisCtx, INDEX_SPEC_KEY_FMT, spec->name);
 
   ConcurrentSearchCtx_InitSingle(&indexer->concCtx, indexer->redisCtx,
                                  REDISMODULE_READ | REDISMODULE_WRITE, reopenCb);
   return indexer;
 }
 
-static void DocumentIndexer_Free(DocumentIndexer *indexer) {
-  free(indexer->name);
+static void Indexer_FreeInternal(DocumentIndexer *indexer) {
   if (!(indexer->options & INDEXER_THREADLESS)) {
     pthread_cond_destroy(&indexer->cond);
     pthread_mutex_destroy(&indexer->lock);
@@ -618,48 +589,15 @@ static void DocumentIndexer_Free(DocumentIndexer *indexer) {
   free(indexer);
 }
 
-void DropDocumentIndexer(const char *specname) {
-  DocumentIndexer *match = findAndRemoveDocumentIndexer(specname);
-  if (!match) {
-    return;
-  }
-
-  if (match->options & INDEXER_THREADLESS) {
-    DocumentIndexer_Free(match);
+void Indexer_Free(DocumentIndexer *indexer) {
+  if (indexer->options & INDEXER_THREADLESS) {
+    Indexer_FreeInternal(indexer);
   } else {
-    pthread_t thr = match->thr;
-    pthread_mutex_lock(&match->lock);
-    match->options |= INDEXER_DELETING;
-    pthread_cond_signal(&match->cond);
-    pthread_mutex_unlock(&match->lock);
+    pthread_t thr = indexer->thr;
+    pthread_mutex_lock(&indexer->lock);
+    indexer->options |= INDEXER_DELETING;
+    pthread_cond_signal(&indexer->cond);
+    pthread_mutex_unlock(&indexer->lock);
     pthread_join(thr, NULL);
   }
-}
-
-// Get the document indexer for the given index name. If the indexer does not
-// exist, it is created and placed into the list of indexes
-DocumentIndexer *GetDocumentIndexer(const char *specname, int options) {
-  DocumentIndexer *match = findDocumentIndexer(specname);
-  if (match) {
-    return match;
-  }
-
-  // This is akin to a spinlock. Wait until lockMod is 0, and then atomically
-  // set it to 1.
-  while (!__sync_bool_compare_and_swap(&indexers_g.lockMod, 0, 1)) {
-  }
-
-  // Try to find it again. Another thread may have modified the list while
-  // we were waiting for lockMod to become 0.
-  match = findDocumentIndexer(specname);
-  if (match) {
-    indexers_g.lockMod = 0;
-    return match;
-  }
-
-  DocumentIndexer *newIndexer = NewDocumentIndexer(specname, options);
-  newIndexer->next = indexers_g.first;
-  indexers_g.first = newIndexer;
-  indexers_g.lockMod = 0;
-  return newIndexer;
 }
