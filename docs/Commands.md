@@ -121,7 +121,7 @@ OK or an error
 ```
 FT.ADD {index} {docId} {score} 
   [NOSAVE]
-  [REPLACE [PARTIAL]]
+  [REPLACE [PARTIAL] [NOCREATE]]
   [LANGUAGE {language}] 
   [PAYLOAD {payload}]
   [IF {condition}]
@@ -161,6 +161,10 @@ FT.ADD idx doc1 1.0 FIELDS title hello world
   reindexing. Fields not given to the command will be loaded from the current version of the
   document. Also, if only non-indexable fields, score or payload are set - we do not do a full
   re-indexing of the document, and this will be a lot faster.
+
+- **NOCREATE** (only applicable with REPLACE): If set, the document is only updated
+  and reindexed if it already exists. If the document does not exist, an error
+  will be returned.
 
 - **FIELDS**: Following the FIELDS specifier, we are looking for pairs of  `{field} {value}` to be
   indexed. Each field will be scored based on the index spec given in `FT.CREATE`. 
@@ -271,7 +275,7 @@ OK on success, or an error if something went wrong.
 
 ---
 
-## FT.ALTER
+## FT.ALTER SCHEMA ADD
 
 ### Format
 
@@ -281,8 +285,7 @@ FT.ALTER {index} SCHEMA ADD {field} {options} ...
 
 ### Description
 
-Alters an existing index. Currently, adding fields to the index is the only supported
-alteration.
+Adds a new field to the index.
 
 Adding a field to the index will cause any future document updates to use the new field when
 indexing. Existing documents will not be reindexed.
@@ -304,6 +307,35 @@ FT.ALTER idx SCHEMA ADD id2 NUMERIC SORTABLE
 * **index**: the index name.
 * **field**: the field name.
 * **options**: the field options - refer to `FT.CREATE` for more information.
+
+### Complexity
+
+O(1)
+
+### Returns
+
+OK or an error.
+
+
+---
+
+## FT.ALTER ALIAS ADD
+## FT.ALTER ALIAS DEL
+
+### Format
+
+```
+FT.ALTER {index} ALIAS ADD {alias}
+FT.ALTER {index} ALIAS DEL {alias}
+```
+
+The `ALIAS ADD` and `ALIAS DEL` commands will add or remove an alias from
+an index. Index aliases can be used to refer to actual indexes in data
+commands such as `FT.SEARCH` or `FT.ADD`. This allows an administrator
+to transparently redirect application queries to alternative indexes.
+
+Indexes can have more than one alias, though an alias cannot refer to another
+alias.
 
 ### Complexity
 

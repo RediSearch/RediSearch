@@ -105,3 +105,38 @@ TEST_F(ArrTest, testEnsure) {
   ASSERT_EQ(30, f[prevlen + 2].x);
   array_free(f);
 }
+
+TEST_F(ArrTest, testDelete) {
+  int *a = array_new(int, 1);
+  a = array_append(a, 42);
+  a = array_del(a, 0);
+  ASSERT_EQ(0, array_len(a));
+
+  // repopulate
+  for (size_t ii = 0; ii < 10; ++ii) {
+    a = array_append(a, ii);
+  }
+  ASSERT_EQ(10, array_len(a));
+  // Remove last element
+  for (ssize_t ii = 9; ii >= 0; --ii) {
+    ASSERT_LT(ii, array_len(a)) << ii;
+    a = array_del(a, ii);
+  }
+  ASSERT_EQ(0, array_len(a));
+  array_free(a);
+
+  int tmp = 1;
+  a = NULL;
+  a = array_ensure_append(a, &tmp, 1, int);
+  ASSERT_EQ(1, array_len(a));
+  tmp = 2;
+  a = array_ensure_append(a, &tmp, 1, int);
+  ASSERT_EQ(2, array_len(a));
+  ASSERT_EQ(1, a[0]);
+  ASSERT_EQ(2, a[1]);
+
+  a = array_del(a, 0);
+  ASSERT_EQ(1, array_len(a));
+  ASSERT_EQ(2, a[1]);
+  array_free(a);
+}

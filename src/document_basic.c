@@ -91,8 +91,7 @@ void Document_FreeDetached(Document *doc, RedisModuleCtx *anyCtx) {
   Document_Free(doc);
 }
 
-int Redis_SaveDocument(RedisSearchCtx *ctx, Document *doc, QueryError *status) {
-
+int Redis_SaveDocument(RedisSearchCtx *ctx, Document *doc, int options, QueryError *status) {
   RedisModuleKey *k =
       RedisModule_OpenKey(ctx->redisCtx, doc->docKey, REDISMODULE_WRITE | REDISMODULE_READ);
   if (k == NULL || (RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_EMPTY &&
@@ -101,6 +100,11 @@ int Redis_SaveDocument(RedisSearchCtx *ctx, Document *doc, QueryError *status) {
     if (k) {
       RedisModule_CloseKey(k);
     }
+    return REDISMODULE_ERR;
+  }
+  if ((options & REDIS_SAVEDOC_NOCREATE) && RedisModule_KeyType(k) == REDISMODULE_KEYTYPE_EMPTY) {
+    RedisModule_CloseKey(k);
+    QueryError_SetError(status, QUERY_ENODOC, "Document does not exist");
     return REDISMODULE_ERR;
   }
 
