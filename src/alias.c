@@ -61,8 +61,7 @@ int AliasTable_Del(AliasTable *table, const char *alias, IndexSpec *spec, int op
 
   if (!(options & INDEXALIAS_NO_BACKREF)) {
     toFree = spec->aliases[idx];
-    size_t oldLen = array_len(spec->aliases);
-    spec->aliases = array_del(spec->aliases, idx);
+    spec->aliases = array_del_fast(spec->aliases, idx);
   }
   int rc = dictDelete(table, alias);
   assert(rc == DICT_OK);
@@ -82,25 +81,15 @@ IndexSpec *AliasTable_Get(AliasTable *tbl, const char *alias) {
   }
 }
 
-#define ENSURE_INIT()
-
 int IndexAlias_Add(const char *alias, IndexSpec *spec, int options, QueryError *status) {
-  if (!AliasTable_g) {
-    IndexAlias_InitGlobal();
-  }
   return AliasTable_Add(AliasTable_g, alias, spec, options, status);
 }
+
 int IndexAlias_Del(const char *alias, IndexSpec *spec, int options, QueryError *status) {
-  if (!AliasTable_g) {
-    QueryError_SetError(status, QUERY_ENOINDEX, "No alias have been created");
-    return REDISMODULE_ERR;
-  }
   return AliasTable_Del(AliasTable_g, alias, spec, options, status);
 }
+
 IndexSpec *IndexAlias_Get(const char *alias) {
-  if (!AliasTable_g) {
-    return NULL;
-  }
   return AliasTable_Get(AliasTable_g, alias);
 }
 

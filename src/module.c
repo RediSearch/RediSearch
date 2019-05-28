@@ -987,6 +987,8 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   // Init cursors mechanism
   CursorList_Init(&RSCursors);
 
+  IndexAlias_InitGlobal();
+
   // Register aggregation functions
   RegisterAllFunctions();
 
