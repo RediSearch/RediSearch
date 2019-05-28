@@ -29,6 +29,7 @@
 #include "suggest.h"
 #include "numeric_index.h"
 #include "redisearch_api.h"
+#include "alias.h"
 
 pthread_rwlock_t RWLock = PTHREAD_RWLOCK_INITIALIZER;
 
@@ -436,8 +437,6 @@ int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisModule_AutoMemory(ctx);
 
   if (argc < 3 || argc > 4) return RedisModule_WrongArity(ctx);
-  RedisModule_ReplicateVerbatim(ctx);
-
   IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
   if (sp == NULL) {
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
@@ -487,143 +486,10 @@ int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (sp->gc) {
       GCContext_OnDelete(sp->gc);
     }
+    RedisModule_Replicate(ctx, RS_DEL_CMD, "c", sp->name);
   }
-
   return RedisModule_ReplyWithLongLong(ctx, rc);
 }
-
-/*
-## FT.SEARCH <index> <query> [NOCONTENT] [LIMIT offset num]
-    [INFIELDS <num> field ...]
-    [LANGUAGE lang] [VERBATIM]
-    [FILTER {property} {min} {max}]
-    [SLOP {slop}] [INORDER]
-    [GEOFILTER {property} {lon} {lat} {radius} {unit}]
-
-Seach the index with a textual query, returning either documents or just ids.
-
-### Parameters:
-   - index: The Fulltext index name. The index must be first created with
-FT.CREATE
-
-   - query: the text query to search. If it's more than a single word, put it
-in
-quotes.
-   Basic syntax like quotes for exact matching is supported.
-
-   - NOCONTENT: If it appears after the query, we only return the document ids
-and not
-   the content. This is useful if rediseach is only an index on an external
-document collection
-
-   - LIMIT fist num: If the parameters appear after the query, we limit the
-results to the offset and number of results given. The default is 0 10
-
-   - FILTER: Apply a numeric filter to a numeric field, with a minimum and maximum
-
-   - GEOFILTER: Apply a radius filter to a geo field, with a given lon, lat, radius and radius
-units (m, km, mi, or ft)
-
-   - PAYLOAD: Add a payload to the query that will be exposed to custrom scoring functions.
-
-   - INFIELDS num field1 field2 ...: If set, filter the results to ones
-appearing only in specific
-   fields of the document, like title or url. num is the number of specified
-field arguments
-
-   - VERBATIM: If set, we turn off stemming for the query processing. Faster
-    but will yield less results
-
-   - WITHSCORES: If set, we also return the relative internal score of each
-    document. this can be used to merge results from multiple instances
-
-   - WITHPAYLOADS: If set, we return document payloads as they were inserted, or nil if no payload
-    exists.
-
-   - NOSTOPWORDS: If set, we do not check the query for stopwords
-
-   - SLOP slop: If set, we allow a maximal intervening number of unmatched offsets between phrase
-terms.
-
-   - INORDER: Phrase terms must appear in the document in the same order as in the query.
-
-   - LANGUAGE lang: If set, we use a stemmer for the supplied langauge.
-Defaults
-to English.
-   If an unsupported language is sent, the command returns an error. The
-supported languages are:
-
-   > "arabic",  "danish",    "dutch",   "english",   "finnish",    "french",
-   > "german",  "hungarian", "italian", "norwegian", "portuguese", "romanian",
-   > "russian", "spanish",   "swedish", "tamil",     "turkish"
-
-### Returns:
-
-    An array reply, where the first element is the total number of results,
-and
-then pairs of
-    document id, and a nested array of field/value, unless NOCONTENT was given
-*/
-#if 0
-void _SearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                    struct ConcurrentCmdCtx *cmdCtx) {
-  // at least one field, and number of field/text args must be even
-
-  RedisModule_AutoMemory(ctx);
-  RedisSearchCtx *sctx = NewSearchCtx(ctx, argv[1], true);
-  if (sctx == NULL) {
-    RedisModule_ReplyWithError(ctx, "Unknown Index name");
-    return;
-  }
-
-  QueryError status = {0};
-  RSSearchRequest *req = NULL;
-  QueryParseCtx *q = NULL;
-  QueryPlan *plan = NULL;
-
-  req = ParseRequest(sctx, argv, argc, &status);
-  if (req == NULL) {
-    RedisModule_Log(ctx, "warning", "Error parsing request: %s", status.detail);
-    RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
-    goto end;
-  }
-
-  q = SearchRequest_ParseQuery(sctx, req, &status);
-  if (!q && status.code != QUERY_OK) {
-    RedisModule_Log(ctx, "warning", "Error parsing query: %s", QueryError_GetError(&status));
-    RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
-    goto end;
-  }
-
-  plan = SearchRequest_BuildPlan(sctx, req, q, &status);
-  if (!plan) {
-    if (QueryError_HasError(&status) && status.code != QUERY_ENORESULTS) {
-      RedisModule_Log(ctx, "debug", "Error parsing query: %s", QueryError_GetError(&status));
-      RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
-    } else {
-      /* Simulate an empty response - this means an empty query */
-      RedisModule_ReplyWithArray(ctx, 1);
-      RedisModule_ReplyWithLongLong(ctx, 0);
-    }
-    goto end;
-  }
-
-  QueryPlan_Run(plan, ctx);
-  if (QueryError_HasError(&status)) {
-    RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
-  }
-
-end:
-  QueryError_ClearError(&status);
-
-  if (plan) QueryPlan_Free(plan);
-  if (sctx) SearchCtx_Free(sctx);
-  if (req) RSSearchRequest_Free(req);
-  if (q) Query_Free(q);
-}
-
-GEN_CONCURRENT_WRAPPER(SearchCommand, argc >= 3, _SearchCommand, CONCURRENT_POOL_SEARCH)
-#endif
 
 /* FT.TAGVALS {idx} {field}
  * Return all the values of a tag field.
@@ -769,7 +635,6 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisModule_ReplicateVerbatim(ctx);
 
   RedisModule_AutoMemory(ctx);
-
   IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 0);
   if (sp == NULL) {
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
@@ -926,38 +791,63 @@ int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 }
 
 int AlterIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  ArgsCursor ac = {0};
+  ArgsCursor_InitRString(&ac, argv + 1, argc - 1);
+
   // Need at least <cmd> <index> <subcommand> <args...>
   RedisModule_AutoMemory(ctx);
 
   if (argc < 5) {
     return RedisModule_WrongArity(ctx);
   }
-  // I'd like to use CmdSchema, but want to avoid the ugly <N> <list of N> stuff..
-  if (!RMUtil_StringEqualsCaseC(argv[2], "SCHEMA") || !RMUtil_StringEqualsCaseC(argv[3], "ADD")) {
-    return RedisModule_ReplyWithError(ctx, "Unknown command");
-  }
-  IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
+  QueryError status = {0};
+
+  const char *ixname = AC_GetStringNC(&ac, NULL);
+  IndexSpec *sp = IndexSpec_Load(ctx, ixname, 1);
   if (!sp) {
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
   }
 
-  const int schemaOffset = 4;
-  QueryError status = {0};
+  if (AC_AdvanceIfMatch(&ac, "SCHEMA")) {
+    if (!AC_AdvanceIfMatch(&ac, "ADD")) {
+      return RedisModule_ReplyWithError(ctx, "Unknown action passed to ALTER SCHEMA");
+    }
+    if (!AC_NumRemaining(&ac)) {
+      return RedisModule_ReplyWithError(ctx, "No fields provided");
+    }
+    IndexSpec_AddFields(sp, &ac, &status);
+  } else if (AC_AdvanceIfMatch(&ac, "ALIAS")) {
+    // Before doing anything, ensure that the index name we've received
+    // is in fact a real index, and not an alias itself:
+    IndexLoadOptions loadOpts = {.name = {.cstring = ixname}, .flags = INDEXSPEC_LOAD_NOALIAS};
+    IndexSpec *sptmp = IndexSpec_LoadEx(ctx, &loadOpts);
+    if (!sptmp) {
+      return RedisModule_ReplyWithError(ctx, "Unknown index name (or name is an alias itself");
+    } else {
+      RedisModule_CloseKey(loadOpts.keyp);
+    }
 
-  if (argc - schemaOffset == 0) {
-    return RedisModule_ReplyWithError(ctx, "No fields provided");
+    if (AC_AdvanceIfMatch(&ac, "ADD")) {
+      // Adding an alias
+      if (!AC_NumRemaining(&ac)) {
+        return RedisModule_ReplyWithError(ctx, "Missing alias!");
+      }
+      const char *alias = AC_GetStringNC(&ac, NULL);
+      IndexAlias_Add(alias, sp, 0, &status);
+    } else if (AC_AdvanceIfMatch(&ac, "DEL")) {
+      const char *alias = AC_GetStringNC(&ac, NULL);
+      IndexAlias_Del(alias, sp, 0, &status);
+    } else {
+      return RedisModule_ReplyWithError(ctx, "Unknown ALTER ALIAS subcommand");
+    }
   }
 
-  int rc = IndexSpec_AddFieldsRedisArgs(sp, argv + schemaOffset, argc - schemaOffset, &status);
-  if (!rc) {
-    RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
-    QueryError_ClearError(&status);
+  if (QueryError_HasError(&status)) {
+    return QueryError_ReplyAndClear(ctx, &status);
   } else {
-    RedisModule_ReplyWithSimpleString(ctx, "OK");
+    RedisModule_ReplicateVerbatim(ctx);
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
-
-  RedisModule_ReplicateVerbatim(ctx);
-  return REDISMODULE_OK;
 }
 
 int ConfigCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -1059,7 +949,6 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   if (RS_InitializeLibrary(ctx) != REDISMODULE_OK) {
     RedisModule_Log(ctx, "warning", "Could not initialize low level api");
-    return REDISMODULE_ERR;
   } else {
     RedisModule_Log(ctx, "notice", "Low level api version %d initialized successfully",
                     REDISEARCH_CAPI_VERSION);
@@ -1099,6 +988,8 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   // Init cursors mechanism
   CursorList_Init(&RSCursors);
+
+  IndexAlias_InitGlobal();
 
   // Register aggregation functions
   RegisterAllFunctions();
@@ -1217,4 +1108,6 @@ void RediSearch_CleanupModule(void) {
   FunctionRegistry_Free();
   mempool_free_global();
   ConcurrentSearch_ThreadPoolDestroy();
+  IndexAlias_DestroyGlobal();
 }
+==== BASE ====

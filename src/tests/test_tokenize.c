@@ -3,8 +3,6 @@
 #include "../stemmer.h"
 #include "../rmutil/alloc.h"
 
-REDISMODULE_INIT_SYMBOLS();
-
 int testTokenize() {
   Stemmer *st = NewStemmer(SnowballStemmer, "english");
 

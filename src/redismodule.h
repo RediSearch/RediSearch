@@ -290,6 +290,9 @@ REDISMODULE_API_FUNC(RedisModuleCtx *, RedisModule_GetThreadSafeContext)
 REDISMODULE_API_FUNC(void, RedisModule_FreeThreadSafeContext)(RedisModuleCtx *ctx);
 REDISMODULE_API_FUNC(void, RedisModule_ThreadSafeContextLock)(RedisModuleCtx *ctx);
 REDISMODULE_API_FUNC(void, RedisModule_ThreadSafeContextUnlock)(RedisModuleCtx *ctx);
+REDISMODULE_API_FUNC(int, RedisModule_ExportSharedAPI)
+(RedisModuleCtx *ctx, const char *name, void *fn);
+REDISMODULE_API_FUNC(void *, RedisModule_GetSharedAPI)(RedisModuleCtx *, const char *);
 #endif
 
 #define REDISMODULE_XAPI_STABLE(X) \
@@ -406,7 +409,9 @@ REDISMODULE_API_FUNC(void, RedisModule_ThreadSafeContextUnlock)(RedisModuleCtx *
   X(IsBlockedReplyRequest)               \
   X(IsBlockedTimeoutRequest)             \
   X(GetBlockedClientPrivateData)         \
-  X(AbortBlock)
+  X(AbortBlock)                          \
+  X(ExportSharedAPI)                     \
+  X(GetSharedAPI)
 
 #ifdef REDISMODULE_EXPERIMENTAL_API
 #define REDISMODULE_XAPI(X) REDISMODULE_XAPI_STABLE(X) REDISMODULE_XAPI_EXPERIMENTAL(X)

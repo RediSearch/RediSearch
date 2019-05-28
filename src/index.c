@@ -184,7 +184,9 @@ static int UI_Test(struct IndexCriteriaTester *ct, t_docId id) {
 static void UI_TesterFree(struct IndexCriteriaTester *ct) {
   UnionCriteriaTester *uct = (UnionCriteriaTester *)ct;
   for (int i = 0; i < uct->nchildren; ++i) {
-    uct->children[i]->Free(uct->children[i]);
+    if (uct->children[i]) {
+      uct->children[i]->Free(uct->children[i]);
+    }
   }
   rm_free(uct->children);
   rm_free(uct);

@@ -580,11 +580,15 @@ void KVDB::debugDump() const {
 std::map<std::string, void *> fnregistry;
 #define REGISTER_API(basename) fnregistry["RedisModule_" #basename] = (void *)RMCK_##basename
 
-extern "C" {
-int moduleRegisterApi(const char *funcname, void *funcptr) {
-  fnregistry[funcname] = funcptr;
-  return 0;
+static int RMCK_ExportSharedAPI(RedisModuleCtx *, const char *name, void *funcptr) {
+  if (fnregistry.find(name) != fnregistry.end()) {
+    return REDISMODULE_ERR;
+  }
+  fnregistry[name] = funcptr;
+  return REDISMODULE_OK;
 }
+static void *RMCK_GetSharedAPI(RedisModuleCtx *, const char *name) {
+  return fnregistry[name];
 }
 
 static void registerApis() {
@@ -630,6 +634,8 @@ static void registerApis() {
   REGISTER_API(ThreadSafeContextUnlock);
   REGISTER_API(StringCompare);
   REGISTER_API(AutoMemory);
+  REGISTER_API(ExportSharedAPI);
+  REGISTER_API(GetSharedAPI);
 }
 
 static int RMCK_GetApi(const char *s, void *pp) {

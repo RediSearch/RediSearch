@@ -5,8 +5,6 @@
 #include "redismock/util.h"
 #include "redismock/internal.h"
 
-REDISMODULE_INIT_SYMBOLS();
-
 extern "C" {
 uint64_t siphash(const uint8_t *in, const size_t inlen, const uint8_t *k) {
   return 0;

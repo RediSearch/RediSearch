@@ -480,15 +480,17 @@ static void RS_IndexOptionsSetGCPolicy(RSIndexOptions* options, int policy) {
   options->gcPolicy = policy;
 }
 
-#define REGISTER_API(name)                                                   \
-  if (moduleRegisterApi("RediSearch_" #name, RS_##name) != REDISMODULE_OK) { \
-    printf("could not register RediSearch_" #name "\r\n");                   \
-    return REDISMODULE_ERR;                                                  \
+#define REGISTER_API(name)                                                                  \
+  if (RedisModule_ExportSharedAPI(ctx, "RediSearch_" #name, RS_##name) != REDISMODULE_OK) { \
+    RedisModule_Log(ctx, "warning", "could not register RediSearch_" #name "\r\n");         \
+    return REDISMODULE_ERR;                                                                 \
   }
 
-int moduleRegisterApi(const char* funcname, void* funcptr);
-
 int RS_InitializeLibrary(RedisModuleCtx* ctx) {
+  if (RedisModule_ExportSharedAPI == NULL) {
+    RedisModule_Log(ctx, "warning", "Upgrade redis-server to use Redis Search's C API");
+    return REDISMODULE_ERR;
+  }
   RS_XAPIFUNC(REGISTER_API)
   return REDISMODULE_OK;
 }
