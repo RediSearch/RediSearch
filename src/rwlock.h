@@ -1,10 +1,3 @@
-/*
- * rwlock.h
- *
- *  Created on: May 23, 2019
- *      Author: root
- */
-
 #ifndef SRC_RWLOCK_H_
 #define SRC_RWLOCK_H_
 

@@ -731,13 +731,13 @@ void IndexSpec_FreeSync(IndexSpec *spec) {
   //  LLAPI and there is no need to drop keys cause its out of the key space.
   //  Let me know what you think
 
-  // Need a context for this:
-  //  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
-  //  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
-  //  RedisModule_AutoMemory(ctx);
-  //  Redis_DropIndex(&sctx, 0, 1);
+  //   Need a context for this:
+  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
+  RedisModule_AutoMemory(ctx);
+  Redis_DropIndex(&sctx, 0, 1);
   IndexSpec_FreeInternals(spec);
-  //  RedisModule_FreeThreadSafeContext(ctx);
+  RedisModule_FreeThreadSafeContext(ctx);
 }
 
 IndexSpec *IndexSpec_LoadEx(RedisModuleCtx *ctx, RedisModuleString *formattedKey, int openWrite,

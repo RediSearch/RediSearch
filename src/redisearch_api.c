@@ -89,6 +89,7 @@ static RSField* RS_CreateField(IndexSpec* sp, const char* name, unsigned types, 
     numTypes++;
     int txtId = IndexSpec_CreateTextId(sp);
     if (txtId < 0) {
+      RWLOCK_RELEASE();
       return NULL;
     }
     fs->ftId = txtId;
@@ -224,6 +225,7 @@ static int RS_IndexAddDocument(IndexSpec* sp, Document* d, int options, char** e
         *errs = strdup("Document already exists");
       }
       AddDocumentCtx_Free(aCtx);
+      RWLOCK_RELEASE();
       return REDISMODULE_ERR;
     }
   }

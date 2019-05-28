@@ -52,7 +52,7 @@ GCContext* GCContext_CreateGCFromSpec(IndexSpec* sp, float initialHZ, uint64_t u
   pthread_mutex_init(&ret->bClients.lock, NULL);
   switch (gcPolicy) {
     case GCPolicy_Fork:
-      ret->gcCtx = (void*)NewForkGCFromSpec(sp, uniqueId, &ret->callbacks);
+      ret->gcCtx = NewForkGCFromSpec(sp, uniqueId, &ret->callbacks);
       break;
     case GCPolicy_Default:
     default:
@@ -68,11 +68,11 @@ GCContext* GCContext_CreateGC(RedisModuleString* keyName, float initialHZ, uint6
   pthread_mutex_init(&ret->bClients.lock, NULL);
   switch (RSGlobalConfig.gcPolicy) {
     case GCPolicy_Fork:
-      ret->gcCtx = (void*)NewForkGC(keyName, uniqueId, &ret->callbacks);
+      ret->gcCtx = NewForkGC(keyName, uniqueId, &ret->callbacks);
       break;
     case GCPolicy_Default:
     default:
-      ret->gcCtx = (void*)NewGarbageCollector(keyName, initialHZ, uniqueId, &ret->callbacks);
+      ret->gcCtx = NewGarbageCollector(keyName, initialHZ, uniqueId, &ret->callbacks);
       break;
   }
   return ret;
