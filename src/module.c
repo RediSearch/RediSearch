@@ -1110,4 +1110,3 @@ void RediSearch_CleanupModule(void) {
   ConcurrentSearch_ThreadPoolDestroy();
   IndexAlias_DestroyGlobal();
 }
-==== BASE ====
