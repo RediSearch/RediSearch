@@ -1,7 +1,7 @@
 site_name: RediSearch Documentation
 site_url: https://oss.redislabs.com/redisearch
-repo_url: https://github.com/RedisLabsModules/RediSearch
-repo_name: RedisLabsModules/RediSearch
+repo_url: https://github.com/RediSearch/RediSearch
+repo_name: RediSearch/RediSearch
 
 google_analytics:
   - 'UA-92003007-1'
@@ -17,7 +17,7 @@ use_directory_urls: false
 theme:
   name: 'material'
   language: 'en'
-  logo: 'logo_small.png'
+  logo: 'img/logo_small.png'
   favicon: 'img/favicon.png'
   palette:
     primary: 'indigo'

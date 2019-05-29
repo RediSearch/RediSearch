@@ -112,8 +112,6 @@ int testFragmentize() {
   return 0;
 }
 
-REDISMODULE_INIT_SYMBOLS();
-
 TEST_MAIN({
   // LOGGING_INIT(L_INFO);
   RMUTil_InitAlloc();

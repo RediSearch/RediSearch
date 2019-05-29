@@ -28,7 +28,7 @@ void addDocument(RedisModuleCtx *ctx, IndexSpec *sp, const char *docid, Ts... ar
 
   QueryError status = {QueryErrorCode(0)};
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
-  RS_AddDocument(&sctx, RedisModule_CreateString(ctx, docid, strlen(docid)), &options, &status);
+  RS_AddDocument(&sctx, RMCK::RString(docid), &options, &status);
 }
 
 TEST_F(AggTest, testBasic) {
@@ -44,25 +44,23 @@ TEST_F(AggTest, testBasic) {
   addDocument(ctx, spec, "doc1", "t1", "value one", (const char *)NULL);
   addDocument(ctx, spec, "doc2", "t1", "value two", (const char *)NULL);
   addDocument(ctx, spec, "doc3", "t1", "value three", (const char *)NULL);
-
-  RedisModuleKey *kk = RedisModule_OpenKey(
-      ctx, RedisModule_CreateString(ctx, "doc1", strlen("doc1")), REDISMODULE_READ);
+  RedisModuleKey *kk = RedisModule_OpenKey(ctx, RMCK::RString("doc1"), REDISMODULE_READ);
   ASSERT_FALSE(kk == NULL);
+
   // Ensure the key has the correct properties
   RedisModuleString *vtmp = NULL;
   int rv = RedisModule_HashGet(kk, REDISMODULE_HASH_CFIELDS, "t1", &vtmp, NULL);
   ASSERT_EQ(REDISMODULE_OK, rv);
   ASSERT_STREQ("value one", RedisModule_StringPtrLen(vtmp, NULL));
   RedisModule_CloseKey(kk);
+  RedisModule_FreeString(ctx, vtmp);
 
   AREQ *rr = AREQ_New();
   RMCK::ArgvList aggArgs(ctx, "*");
   rv = AREQ_Compile(rr, aggArgs, aggArgs.size(), &qerr);
   ASSERT_EQ(REDISMODULE_OK, rv) << QueryError_GetError(&qerr);
   ASSERT_FALSE(QueryError_HasError(&qerr));
-
-  RedisSearchCtx *sctx =
-      NewSearchCtx(ctx, RedisModule_CreateString(ctx, spec->name, strlen(spec->name)), true);
+  RedisSearchCtx *sctx = NewSearchCtxC(ctx, spec->name, true);
   ASSERT_FALSE(sctx == NULL);
   rv = AREQ_ApplyContext(rr, sctx, &qerr);
   ASSERT_EQ(REDISMODULE_OK, rv);

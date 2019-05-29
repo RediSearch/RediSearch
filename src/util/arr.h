@@ -225,7 +225,10 @@ static inline void *array_trimm(array_t arr, uint32_t len, uint32_t cap) {
 
 /* Free the array, without dealing with individual elements */
 static void array_free(array_t arr) {
-  array_free_fn(array_hdr(arr));
+  if (arr != NULL) {
+    // like free(), shouldn't explode if NULL
+    array_free_fn(array_hdr(arr));
+  }
 }
 
 #define array_clear(arr) array_hdr(arr)->len = 0
@@ -261,6 +264,27 @@ static void array_free(array_t arr) {
   ({                                 \
     assert(array_hdr(arr)->len > 0); \
     arr[--(array_hdr(arr)->len)];    \
+  })
+
+/* Remove a specified element from the array */
+#define array_del(arr, ix)                                                        \
+  ({                                                                              \
+    assert(array_len(arr) > ix);                                                  \
+    if (array_len(arr) - 1 > ix) {                                                \
+      memcpy(arr + ix, arr + ix + 1, sizeof(*arr) * (array_len(arr) - (ix + 1))); \
+    }                                                                             \
+    --array_hdr(arr)->len;                                                        \
+    arr;                                                                          \
+  })
+
+/* Remove a specified element from the array, but does not preserve order */
+#define array_del_fast(arr, ix)          \
+  ({                                     \
+    if (array_len(arr) > 1) {            \
+      arr[ix] = arr[array_len(arr) - 1]; \
+    }                                    \
+    --array_hdr(arr)->len;               \
+    arr;                                 \
   })
 
 #ifdef __cplusplus

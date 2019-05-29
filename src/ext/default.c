@@ -27,7 +27,7 @@
 #define NORM_DOCLEN 2
 
 // recursively calculate tf-idf
-double tfidfRecursive(RSIndexResult *r, RSDocumentMetadata *dmd) {
+static double tfidfRecursive(const RSIndexResult *r, const RSDocumentMetadata *dmd) {
 
   if (r->type == RSResultType_Term) {
     return r->weight * ((double)r->freq) * (r->term.term ? r->term.term->idf : 0);
@@ -43,8 +43,8 @@ double tfidfRecursive(RSIndexResult *r, RSDocumentMetadata *dmd) {
 }
 
 /* internal common tf-idf function, where just the normalization method changes */
-static inline double tfIdfInternal(ScoringFunctionArgs *ctx, RSIndexResult *h,
-                                   RSDocumentMetadata *dmd, double minScore, int normMode) {
+static inline double tfIdfInternal(const ScoringFunctionArgs *ctx, const RSIndexResult *h,
+                                   const RSDocumentMetadata *dmd, double minScore, int normMode) {
   if (dmd->score == 0) return 0;
   double norm = normMode == NORM_MAXFREQ ? (double)dmd->maxFreq : dmd->len;
 
@@ -60,15 +60,15 @@ static inline double tfIdfInternal(ScoringFunctionArgs *ctx, RSIndexResult *h,
 
 /* Calculate sum(TF-IDF)*document score for each result, where TF is normalized by maximum frequency
  * in this document*/
-double TFIDFScorer(ScoringFunctionArgs *ctx, RSIndexResult *h, RSDocumentMetadata *dmd,
-                   double minScore) {
+double TFIDFScorer(const ScoringFunctionArgs *ctx, const RSIndexResult *h,
+                   const RSDocumentMetadata *dmd, double minScore) {
   return tfIdfInternal(ctx, h, dmd, minScore, NORM_MAXFREQ);
 }
 
 /* Identical scorer to TFIDFScorer, only the normalization is by total weighted frequency in the doc
  */
-double TFIDFNormDocLenScorer(ScoringFunctionArgs *ctx, RSIndexResult *h, RSDocumentMetadata *dmd,
-                             double minScore) {
+static double TFIDFNormDocLenScorer(const ScoringFunctionArgs *ctx, const RSIndexResult *h,
+                                    const RSDocumentMetadata *dmd, double minScore) {
 
   return tfIdfInternal(ctx, h, dmd, minScore, NORM_DOCLEN);
 }
@@ -82,7 +82,8 @@ double TFIDFNormDocLenScorer(ScoringFunctionArgs *ctx, RSIndexResult *h, RSDocum
  ******************************************************************************************/
 
 /* recursively calculate score for each token, summing up sub tokens */
-static double bm25Recursive(ScoringFunctionArgs *ctx, RSIndexResult *r, RSDocumentMetadata *dmd) {
+static double bm25Recursive(const ScoringFunctionArgs *ctx, const RSIndexResult *r,
+                            const RSDocumentMetadata *dmd) {
   static const float b = 0.5;
   static const float k1 = 1.2;
   double f = (double)r->freq;
@@ -106,8 +107,8 @@ static double bm25Recursive(ScoringFunctionArgs *ctx, RSIndexResult *r, RSDocume
 }
 
 /* BM25 scoring function */
-double BM25Scorer(ScoringFunctionArgs *ctx, RSIndexResult *r, RSDocumentMetadata *dmd,
-                  double minScore) {
+static double BM25Scorer(const ScoringFunctionArgs *ctx, const RSIndexResult *r,
+                         const RSDocumentMetadata *dmd, double minScore) {
   double score = dmd->score * bm25Recursive(ctx, r, dmd);
 
   // no need to factor the distance if tfidf is already below minimal score
@@ -124,8 +125,8 @@ double BM25Scorer(ScoringFunctionArgs *ctx, RSIndexResult *r, RSDocumentMetadata
  * Raw document-score scorer. Just returns the document score
  *
  ******************************************************************************************/
-double DocScoreScorer(ScoringFunctionArgs *ctx, RSIndexResult *r, RSDocumentMetadata *dmd,
-                      double minScore) {
+double DocScoreScorer(const ScoringFunctionArgs *ctx, const RSIndexResult *r,
+                      const RSDocumentMetadata *dmd, double minScore) {
   return dmd->score;
 }
 
@@ -134,7 +135,7 @@ double DocScoreScorer(ScoringFunctionArgs *ctx, RSIndexResult *r, RSDocumentMeta
  * DISMAX-style scorer
  *
  ******************************************************************************************/
-double _dismaxRecursive(RSIndexResult *r) {
+static double _dismaxRecursive(const RSIndexResult *r) {
   // for terms - we return the term frequency
   double ret = 0;
   switch (r->type) {
@@ -159,8 +160,8 @@ double _dismaxRecursive(RSIndexResult *r) {
   return r->weight * ret;
 }
 /* Calculate sum(TF-IDF)*document score for each result */
-double DisMaxScorer(ScoringFunctionArgs *ctx, RSIndexResult *h, RSDocumentMetadata *dmd,
-                    double minScore) {
+double DisMaxScorer(const ScoringFunctionArgs *ctx, const RSIndexResult *h,
+                    const RSDocumentMetadata *dmd, double minScore) {
   // printf("score for %d: %f\n", h->docId, dmd->score);
   // if (dmd->score == 0 || h == NULL) return 0;
   return _dismaxRecursive(h);
@@ -178,8 +179,8 @@ static const unsigned char bitsinbyte[256] = {
 
 /* HAMMING - Scorer using Hamming distance between the query payload and the document payload. Only
  * works if both have the payloads the same length */
-double HammingDistanceScorer(ScoringFunctionArgs *ctx, RSIndexResult *h, RSDocumentMetadata *dmd,
-                             double minScore) {
+static double HammingDistanceScorer(const ScoringFunctionArgs *ctx, const RSIndexResult *h,
+                                    const RSDocumentMetadata *dmd, double minScore) {
   // the strings must be of the same length > 0
   if (!dmd->payload || !dmd->payload->len || dmd->payload->len != ctx->qdatalen) {
     return 0;

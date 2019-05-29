@@ -2,8 +2,6 @@
 #include "../synonym_map.h"
 #include "rmutil/alloc.h"
 
-REDISMODULE_INIT_SYMBOLS();
-
 int testSynonymMapAddGetId() {
   SynonymMap* smap = SynonymMap_New(false);
   const char* values1[] = {"val1", "val2", "val3", "val4"};

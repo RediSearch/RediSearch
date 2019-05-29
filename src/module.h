@@ -8,6 +8,9 @@ extern "C" {
 #endif
 int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
+/** Cleans up all globals in the module */
+void RediSearch_CleanupModule(void);
+
 #ifdef __cplusplus
 }
 #endif

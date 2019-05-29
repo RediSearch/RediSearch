@@ -146,6 +146,7 @@ void Document_Free(Document *doc);
 #define DOCUMENT_ADD_PARTIAL 0x02
 #define DOCUMENT_ADD_NOSAVE 0x04
 #define DOCUMENT_ADD_CURTHREAD 0x08  // Perform operation in main thread
+#define DOCUMENT_ADD_NOCREATE 0x10   // Don't create document if not exist (replace ONLY)
 
 struct ForwardIndex;
 struct FieldIndexerData;
@@ -217,6 +218,7 @@ typedef struct RSAddDocumentCtx {
   uint8_t options;       // Indexing options - i.e. DOCUMENT_ADD_xxx
   uint8_t stateFlags;    // Indexing state, ACTX_F_xxx
   DocumentAddCompleted donecb;
+  void *donecbData;
 } RSAddDocumentCtx;
 
 #define AddDocumentCtx_IsBlockable(aCtx) (!((aCtx)->stateFlags & ACTX_F_NOBLOCK))
@@ -287,10 +289,12 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
 int Redis_LoadDocumentEx(RedisSearchCtx *ctx, RedisModuleString *key, const char **fields,
                          size_t nfields, Document *doc, RedisModuleKey **keyp);
 
+// Don't create document if it does not exist. Replace only
+#define REDIS_SAVEDOC_NOCREATE 0x01
 /**
  * Save a document in the index. Used for returning contents in search results.
  */
-int Redis_SaveDocument(RedisSearchCtx *ctx, Document *doc, QueryError *status);
+int Redis_SaveDocument(RedisSearchCtx *ctx, Document *doc, int options, QueryError *status);
 
 /* Serialzie the document's fields to a redis client */
 int Document_ReplyFields(RedisModuleCtx *ctx, Document *doc);

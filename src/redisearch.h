@@ -3,12 +3,16 @@
 
 #include <stdint.h>
 #include <stdlib.h>
+#include <limits.h>
+#include "util/dllist.h"
 
 typedef uint64_t t_docId;
 typedef uint64_t t_offset;
 // used to represent the id of a single field.
 // to produce a field mask we calculate 2^fieldId
 typedef uint16_t t_fieldId;
+
+#define DOCID_MAX UINT64_MAX
 
 #if defined(__x86_64__) && !defined(RS_NO_U128)
 /* 64 bit architectures use 128 bit field masks and up to 128 fields */
@@ -84,11 +88,8 @@ typedef struct RSDocumentMetadata_s {
   struct RSSortingVector *sortVector;
   /* Offsets of all terms in the document (in bytes). Used by highlighter */
   struct RSByteOffsets *byteOffsets;
-
+  DLLIST2_node llnode;
   uint32_t ref_count;
-
-  struct RSDocumentMetadata_s *next;
-  struct RSDocumentMetadata_s *prev;
 } RSDocumentMetadata;
 
 /* Forward declaration of the opaque query object */
@@ -331,12 +332,12 @@ typedef struct {
 
   /* The GetSlop() calback. Returns the cumulative "slop" or distance between the query terms,
    * that can be used to factor the result score */
-  int (*GetSlop)(RSIndexResult *res);
+  int (*GetSlop)(const RSIndexResult *res);
 } ScoringFunctionArgs;
 
 /* RSScoringFunction is a callback type for query custom scoring function modules */
-typedef double (*RSScoringFunction)(ScoringFunctionArgs *ctx, RSIndexResult *res,
-                                    RSDocumentMetadata *dmd, double minScore);
+typedef double (*RSScoringFunction)(const ScoringFunctionArgs *ctx, const RSIndexResult *res,
+                                    const RSDocumentMetadata *dmd, double minScore);
 
 /* The extension registeration context, containing the callbacks avaliable to the extension for
  * registering query expanders and scorers. */

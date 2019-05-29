@@ -121,7 +121,7 @@ OK or an error
 ```
 FT.ADD {index} {docId} {score} 
   [NOSAVE]
-  [REPLACE [PARTIAL]]
+  [REPLACE [PARTIAL] [NOCREATE]]
   [LANGUAGE {language}] 
   [PAYLOAD {payload}]
   [IF {condition}]
@@ -161,6 +161,10 @@ FT.ADD idx doc1 1.0 FIELDS title hello world
   reindexing. Fields not given to the command will be loaded from the current version of the
   document. Also, if only non-indexable fields, score or payload are set - we do not do a full
   re-indexing of the document, and this will be a lot faster.
+
+- **NOCREATE** (only applicable with REPLACE): If set, the document is only updated
+  and reindexed if it already exists. If the document does not exist, an error
+  will be returned.
 
 - **FIELDS**: Following the FIELDS specifier, we are looking for pairs of  `{field} {value}` to be
   indexed. Each field will be scored based on the index spec given in `FT.CREATE`. 
@@ -271,7 +275,7 @@ OK on success, or an error if something went wrong.
 
 ---
 
-## FT.ALTER
+## FT.ALTER SCHEMA ADD
 
 ### Format
 
@@ -281,8 +285,7 @@ FT.ALTER {index} SCHEMA ADD {field} {options} ...
 
 ### Description
 
-Alters an existing index. Currently, adding fields to the index is the only supported
-alteration.
+Adds a new field to the index.
 
 Adding a field to the index will cause any future document updates to use the new field when
 indexing. Existing documents will not be reindexed.
@@ -304,6 +307,35 @@ FT.ALTER idx SCHEMA ADD id2 NUMERIC SORTABLE
 * **index**: the index name.
 * **field**: the field name.
 * **options**: the field options - refer to `FT.CREATE` for more information.
+
+### Complexity
+
+O(1)
+
+### Returns
+
+OK or an error.
+
+
+---
+
+## FT.ALTER ALIAS ADD
+## FT.ALTER ALIAS DEL
+
+### Format
+
+```
+FT.ALTER {index} ALIAS ADD {alias}
+FT.ALTER {index} ALIAS DEL {alias}
+```
+
+The `ALIAS ADD` and `ALIAS DEL` commands will add or remove an alias from
+an index. Index aliases can be used to refer to actual indexes in data
+commands such as `FT.SEARCH` or `FT.ADD`. This allows an administrator
+to transparently redirect application queries to alternative indexes.
+
+Indexes can have more than one alias, though an alias cannot refer to another
+alias.
 
 ### Complexity
 
@@ -687,6 +719,71 @@ O(1)
 String Response. A string representing the execution plan (see above example). 
 
 **Note**: You should use `redis-cli --raw` to properly read line-breaks in the returned response.
+
+---
+
+## FT.EXPLAINCLI
+
+### Format
+
+```
+FT.EXPLAINCLI {index} {query}
+```
+
+### Description
+
+Returns the execution plan for a complex query but formatted for easier reading without using `redis-cli --raw`.
+
+In the returned response, a `+` on a term is an indication of stemming. 
+
+### Example
+```sh
+$ redis-cli
+
+127.0.0.1:6379> FT.EXPLAINCLI rd "(foo bar)|(hello world) @date:[100 200]|@date:[500 +inf]"
+ 1) INTERSECT {
+ 2)   UNION {
+ 3)     INTERSECT {
+ 4)       UNION {
+ 5)         foo
+ 6)         +foo(expanded)
+ 7)       }
+ 8)       UNION {
+ 9)         bar
+10)         +bar(expanded)
+11)       }
+12)     }
+13)     INTERSECT {
+14)       UNION {
+15)         hello
+16)         +hello(expanded)
+17)       }
+18)       UNION {
+19)         world
+20)         +world(expanded)
+21)       }
+22)     }
+23)   }
+24)   UNION {
+25)     NUMERIC {100.000000 <= @date <= 200.000000}
+26)     NUMERIC {500.000000 <= @date <= inf}
+27)   }
+28) }
+29)
+```
+
+### Parameters
+
+- **index**: The index name. The index must be first created with FT.CREATE
+- **query**: The query string, as if sent to FT.SEARCH
+
+### Complexity
+
+O(1)
+
+### Returns
+
+String Response. A string representing the execution plan (see above example). 
 
 ---
 

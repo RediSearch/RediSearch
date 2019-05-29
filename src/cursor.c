@@ -334,3 +334,24 @@ void Cursors_PurgeWithName(CursorList *cl, const char *lookupName) {
   }
   Cursors_ForEach(cl, purgeCb, info);
 }
+
+void CursorList_Destroy(CursorList *cl) {
+  Cursors_GCInternal(cl, 1);
+  for (khiter_t ii = 0; ii != kh_end(cl->lookup); ++ii) {
+    if (!kh_exist(cl->lookup, ii)) {
+      continue;
+    }
+    Cursor *c = kh_val(cl->lookup, ii);
+    fprintf(stderr, "[redisearch] leaked cursor at %p\n", c);
+    Cursor_FreeInternal(c, ii);
+  }
+  kh_destroy(cursors, cl->lookup);
+
+  for (size_t ii = 0; ii < cl->specsCount; ++ii) {
+    CursorSpecInfo *sp = cl->specs[ii];
+    free(sp->keyName);
+    free(sp);
+  }
+  free(cl->specs);
+  pthread_mutex_destroy(&cl->lock);
+}

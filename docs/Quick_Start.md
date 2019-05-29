@@ -18,7 +18,7 @@ download a precompiled binary from [CMake downloads](https://cmake.org/download/
 To build using CMake:
 
 ```sh
-git clone https://github.com/RedisLabsModules/RediSearch.git
+git clone https://github.com/RediSearch/RediSearch.git
 cd RediSearch
 mkdir build
 cd build
@@ -35,7 +35,7 @@ take care of running `cmake` with the appropriate arguments, and provide you
 with a `redisearch.so` file in the `src` directory:
 
 ```sh
-git clone https://github.com/RedisLabsModules/RediSearch.git
+git clone https://github.com/RediSearch/RediSearch.git
 cd RediSearch
 make
 redis-server --loadmodule ./src/redisearch.so

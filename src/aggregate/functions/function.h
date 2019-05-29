@@ -78,6 +78,7 @@ void RegisterStringFunctions();
 void RegisterDateFunctions();
 void RegisterAllFunctions();
 
+void FunctionRegistry_Free(void);
 #ifdef __cplusplus
 }
 #endif

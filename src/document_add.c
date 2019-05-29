@@ -57,9 +57,10 @@ static int parseDocumentOptions(AddDocumentOptions *opts, ArgsCursor *ac, QueryE
   opts->numFieldElems = 0;
   opts->options = 0;
 
-  ACArgSpec argList[] = {{.name = "NOSAVE", .type = AC_ARGTYPE_BOOLFLAG, .target = &nosave},
-                         {.name = "REPLACE", .type = AC_ARGTYPE_BOOLFLAG, .target = &replace},
-                         {.name = "PARTIAL", .type = AC_ARGTYPE_BOOLFLAG, .target = &partial},
+  ACArgSpec argList[] = {{AC_MKBITFLAG("NOSAVE", &opts->options, DOCUMENT_ADD_NOSAVE)},
+                         {AC_MKBITFLAG("REPLACE", &opts->options, DOCUMENT_ADD_REPLACE)},
+                         {AC_MKBITFLAG("PARTIAL", &opts->options, DOCUMENT_ADD_PARTIAL)},
+                         {AC_MKBITFLAG("NOCREATE", &opts->options, DOCUMENT_ADD_NOCREATE)},
                          {.name = "PAYLOAD", .type = AC_ARGTYPE_RSTRING, .target = &opts->payload},
                          {.name = "LANGUAGE", .type = AC_ARGTYPE_STRING, .target = &opts->language},
                          {.name = "IF", .type = AC_ARGTYPE_STRING, .target = &opts->evalExpr},
@@ -159,9 +160,14 @@ int RS_AddDocument(RedisSearchCtx *sctx, RedisModuleString *name, const AddDocum
 
   Document_PrepareForAdd(&doc, name, opts->score, opts, sctx->redisCtx);
   if (!(opts->options & DOCUMENT_ADD_NOSAVE)) {
+    int saveopts = 0;
+    if (opts->options & DOCUMENT_ADD_NOCREATE) {
+      saveopts |= REDIS_SAVEDOC_NOCREATE;
+    }
     RedisSearchCtx sctx_s = SEARCH_CTX_STATIC(sctx->redisCtx, sp);
-    if (Redis_SaveDocument(&sctx_s, &doc, status) != REDISMODULE_OK) {
+    if (Redis_SaveDocument(&sctx_s, &doc, saveopts, status) != REDISMODULE_OK) {
       Document_FreeDetached(&doc, ctx);
+      goto error;
     }
   }
 
@@ -225,11 +231,7 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   }
 
   if (QueryError_HasError(&status)) {
-    if (status.code == QUERY_EDOCNOTADDED) {
-      RedisModule_ReplyWithSimpleString(ctx, "NOADD");
-    } else {
-      RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
-    }
+    RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
     goto cleanup;
   }
 
@@ -260,7 +262,9 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     }
   } else {
     // Replicate *here*
-    RedisModule_Replicate(ctx, RS_SAFEADD_CMD, "v", argv + 1, argc - 1);
+    // note: we inject the index name manually so that we eliminate alias
+    // lookups on smaller documents
+    RedisModule_Replicate(ctx, RS_SAFEADD_CMD, "cv", sp->name, argv + 2, argc - 2);
   }
 
 cleanup:

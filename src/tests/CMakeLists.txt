@@ -2,7 +2,7 @@ INCLUDE (CTest)
 
 FUNCTION(RSTEST name)
     ADD_EXECUTABLE("${name}" "${name}.c")
-    TARGET_LINK_LIBRARIES("${name}" "redisearchS")
+    TARGET_LINK_LIBRARIES("${name}" redisearch apistubs)
     ADD_TEST(NAME "${name}" COMMAND "${name}" WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
 ENDFUNCTION()
 

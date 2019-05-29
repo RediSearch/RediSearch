@@ -30,9 +30,12 @@ typedef struct DocumentIndexer {
   KHTable mergeHt;               // Hashtable and block allocator for merging
   BlkAlloc alloc;
   int options;
+  pthread_t thr;
 } DocumentIndexer;
 
 #define INDEXER_THREADLESS 0x01
+// Set when the indexer is about to be deleted
+#define INDEXER_DELETING 0x02
 
 void DropDocumentIndexer(const char *specname);
 

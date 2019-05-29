@@ -11,8 +11,8 @@ typedef struct StopWordList {
   size_t refcount;
 } StopWordList;
 
-StopWordList *__default_stopwords = NULL;
-StopWordList *__empty_stopwords = NULL;
+static StopWordList *__default_stopwords = NULL;
+static StopWordList *__empty_stopwords = NULL;
 
 StopWordList *DefaultStopWordList() {
   if (__default_stopwords == NULL) {
@@ -85,20 +85,35 @@ void StopWordList_Ref(StopWordList *sl) {
   __sync_fetch_and_add(&sl->refcount, 1);
 }
 
+static void StopWordList_FreeInternal(StopWordList *sl) {
+  if (sl) {
+    TrieMap_Free(sl->m, NULL);
+  }
+  rm_free(sl);
+}
+
 /* Free a stopword list's memory */
 void StopWordList_Unref(StopWordList *sl) {
-  if (sl == __default_stopwords) {
+  if (sl == __default_stopwords || sl == __empty_stopwords) {
     return;
   }
 
   if (__sync_sub_and_fetch(&sl->refcount, 1)) {
     return;
   }
+  StopWordList_FreeInternal(sl);
+}
 
-  if (sl) {
-    TrieMap_Free(sl->m, NULL);
+void StopWordList_FreeGlobals(void) {
+  if (__default_stopwords) {
+    StopWordList_FreeInternal(__default_stopwords);
+    __default_stopwords = NULL;
   }
-  rm_free(sl);
+
+  if (__empty_stopwords) {
+    StopWordList_FreeInternal(__empty_stopwords);
+    __empty_stopwords = NULL;
+  }
 }
 
 /* Load a stopword list from RDB */

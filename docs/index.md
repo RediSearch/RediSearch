@@ -1,12 +1,12 @@
-<center>![logo.png](logo.png)</center>
+<img src="img/logo.svg" alt="logo" width="200"/>
 
 # RediSearch - Redis Powered Search Engine
 
 RediSearch is a source available Full-Text and Secondary Index engine over Redis, developed by [Redis Labs](http://redislabs.com). 
 
 !!! note "Quick Links:"
-    * [Source Code at GitHub](https://github.com/RedisLabsModules/RediSearch).
-    * [Latest Release](https://github.com/RedisLabsModules/RediSearch/releases)
+    * [Source Code at GitHub](https://github.com/RediSearch/RediSearch).
+    * [Latest Release](https://github.com/RediSearch/RediSearch/releases)
     * [Docker Image: redislabs/redisearch](https://hub.docker.com/r/redislabs/redisearch/)
     * [Quick Start Guide](Quick_Start.md)
     * [Mailing list / Forum](https://groups.google.com/forum/#!forum/redisearch)

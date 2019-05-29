@@ -53,7 +53,7 @@ def testConditionalUpdate(env):
                                'IF', '@bar > 42', 'FIELDS', 'bar', '15'))
 
 def testUnionIdList(env):
-    # Regression test for https://github.com/RedisLabsModules/RediSearch/issues/306
+    # Regression test for https://github.com/RediSearch/RediSearch/issues/306
     r = env
     N = 100
     env.assertOk(r.execute_command(
@@ -1973,6 +1973,56 @@ def testTimeoutSettings(env):
     env.expect('ft.search', 'idx', '*', 'ON_TIMEOUT', 'RETURN').notRaiseError()
     env.expect('ft.search', 'idx', '*', 'ON_TIMEOUT', 'FAIL').notRaiseError()
 
+def testAlias(env):
+    env.cmd('ft.create', 'idx', 'schema', 't1', 'text')
+    env.cmd('ft.create', 'idx2', 'schema', 't1', 'text')
+
+    env.cmd('ft.alter', 'idx', 'alias', 'add', 'myIndex')
+    env.cmd('ft.add', 'myIndex', 'doc1', 1.0, 'fields', 't1', 'hello')
+    r = env.cmd('ft.search', 'idx', 'hello')
+    env.assertEqual([1, 'doc1', ['t1', 'hello']], r)
+    r2 = env.cmd('ft.search', 'myIndex', 'hello')
+    env.assertEqual(r, r2)
+
+    # try to add the same alias again; should be an error
+    env.expect('ft.alter', 'idx2', 'alias', 'add', 'myIndex').raiseError()
+    env.expect('ft.alter', 'idx', 'alias', 'add', 'alias2').notRaiseError()
+    # now delete the index
+    env.cmd('ft.drop', 'myIndex')
+
+    # index list should be cleared now. This can be tested by trying to alias
+    # the old alias to different index
+    env.cmd('ft.alter', 'idx2', 'alias', 'add', 'myIndex')
+    env.cmd('ft.alter', 'idx2', 'alias', 'add', 'alias2')
+    env.cmd('ft.add', 'myIndex', 'doc2', 1.0, 'fields', 't1', 'hello')
+    r = env.cmd('ft.search', 'alias2', 'hello')
+    env.assertEqual([1L, 'doc2', ['t1', 'hello']], r)
+
+    # check that aliasing one alias to another returns an error. This will
+    # end up being confusing
+    env.expect('ft.alter', 'myIndex', 'alias', 'add', 'alias3').raiseError()
+    env.expect('ft.alter', 'myIndex', 'alias', 'del', 'alias2').raiseError()
+
+    # check that deleting the alias works as expected
+    env.expect('ft.alter', 'idx2', 'alias', 'del', 'myIndex').notRaiseError()
+    env.expect('ft.search', 'myIndex', 'foo').raiseError()
+    
+    # create a new index and see if we can use the old name
+    env.cmd('ft.create', 'idx3', 'schema', 't1', 'text')
+    env.cmd('ft.add', 'idx3', 'doc3', 1.0, 'fields', 't1', 'foo')
+    env.cmd('ft.alter', 'idx3', 'alias', 'add', 'myIndex')
+    # also, check that this works in rdb save
+    for _ in env.retry_with_rdb_reload():
+        r = env.cmd('ft.search', 'myIndex', 'foo')
+        env.assertEqual([1L, 'doc3', ['t1', 'foo']], r)
+
+def testNoCreate(env):
+    env.cmd('ft.create', 'idx', 'schema', 'f1', 'text')
+    env.expect('ft.add', 'idx', 'doc1', 1, 'nocreate', 'fields', 'f1', 'hello').raiseError()
+    env.expect('ft.add', 'idx', 'doc1', 1, 'replace', 'nocreate', 'fields', 'f1', 'hello').raiseError()
+    env.expect('ft.add', 'idx', 'doc1', 1, 'replace', 'fields', 'f1', 'hello').notRaiseError()
+    env.expect('ft.add', 'idx', 'doc1', 1, 'replace', 'nocreate', 'fields', 'f1', 'world').notRaiseError()
+
 # Standalone functionality
 def testIssue484(env):
 # Issue with split
@@ -2028,6 +2078,39 @@ def testIssue621(env):
     env.expect('ft.add', 'test', 'a', '1', 'REPLACE', 'PARTIAL', 'FIELDS', 'uuid', 'foo', 'title', 'bar').equal('OK')
     env.expect('ft.add', 'test', 'a', '1', 'REPLACE', 'PARTIAL', 'FIELDS', 'title', 'bar').equal('OK')
     env.expect('ft.search', 'test', '@uuid:{foo}').equal([1L, 'a', ['uuid', 'foo', 'title', 'bar']])
+
+# Server crash on doc names that conflict with index keys #666
+def testIssue666(env):
+    env.cmd('ft.create', 'foo', 'schema', 'bar', 'text')
+    env.cmd('ft.add', 'foo', 'mydoc', 1, 'fields', 'bar', 'one two three')
+
+    # crashes here
+    with env.assertResponseError():
+        env.cmd('ft.add', 'foo', 'ft:foo/two', '1', 'fields', 'bar', 'four five six')
+    # try with replace:
+    with env.assertResponseError():
+        env.cmd('ft.add', 'foo', 'ft:foo/two', '1', 'REPLACE',
+            'FIELDS', 'bar', 'four five six')
+    with env.assertResponseError():
+        env.cmd('ft.add', 'foo', 'idx:foo', '1', 'REPLACE',
+            'FIELDS', 'bar', 'four five six')
+
+    env.cmd('ft.add', 'foo', 'mydoc1', 1, 'fields', 'bar', 'four five six')
+
+# 127.0.0.1:6379> flushdb
+# OK
+# 127.0.0.1:6379> ft.create foo SCHEMA bar text
+# OK
+# 127.0.0.1:6379> ft.add foo mydoc 1 FIELDS bar "one two three"
+# OK
+# 127.0.0.1:6379> keys *
+# 1) "mydoc"
+# 2) "ft:foo/one"
+# 3) "idx:foo"
+# 4) "ft:foo/two"
+# 5) "ft:foo/three"
+# 127.0.0.1:6379> ft.add foo "ft:foo/two" 1 FIELDS bar "four five six"
+# Could not connect to Redis at 127.0.0.1:6379: Connection refused
 
 
 def grouper(iterable, n, fillvalue=None):

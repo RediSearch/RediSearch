@@ -36,7 +36,9 @@ static inline mempoolThreadPool *getPoolInfo() {
   mempoolThreadPool *tp = pthread_getspecific(mempoolKey_g);
   if (tp == NULL) {
     tp = calloc(1, sizeof(*tp));
-    tp->values = mempool_new_limited(1000, 0, _valueAlloc, _valueFree);
+    mempool_options opts = {
+        .isGlobal = 0, .initialCap = 0, .maxCap = 1000, .alloc = _valueAlloc, .free = _valueFree};
+    tp->values = mempool_new(&opts);
     pthread_setspecific(mempoolKey_g, tp);
   }
   return tp;

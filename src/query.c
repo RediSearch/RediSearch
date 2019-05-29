@@ -25,8 +25,6 @@
 
 #define EFFECTIVE_FIELDMASK(q_, qn_) ((qn_)->opts.fieldMask & (q)->opts->fieldmask)
 
-static IndexIterator *getEOFIterator(void);
-
 static void QueryTokenNode_Free(QueryTokenNode *tn) {
 
   if (tn->str) free(tn->str);
@@ -655,6 +653,7 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
   }
   RedisModuleString *kstr = IndexSpec_GetFormattedKey(q->sctx->spec, fs, INDEXFLD_T_TAG);
   TagIndex *idx = TagIndex_Open(q->sctx, kstr, 0, &k);
+
   IndexIterator **total_its = NULL;
 
   if (!idx) {
@@ -664,8 +663,12 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
   if (QueryNode_NumChildren(qn) == 1) {
     IndexIterator *ret =
         query_EvalSingleTagNode(q, idx, qn->children[0], &total_its, qn->opts.weight);
-    if (ret && q->conc) {
-      TagIndex_RegisterConcurrentIterators(idx, q->conc, k, kstr, (array_t *)total_its);
+    if (ret) {
+      if (q->conc) {
+        TagIndex_RegisterConcurrentIterators(idx, q->conc, k, kstr, (array_t *)total_its);
+      } else {
+        array_free(total_its);
+      }
     }
     return ret;
   }
@@ -726,7 +729,7 @@ IndexIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
     case QN_WILDCARD:
       return Query_EvalWildcardNode(q, n);
     case QN_NULL:
-      return getEOFIterator();
+      return NewEmptyIterator();
   }
 
   return NULL;
@@ -767,23 +770,6 @@ int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions 
   return REDISMODULE_OK;
 }
 
-static int EOI_Read(void *p, RSIndexResult **e) {
-  return INDEXREAD_EOF;
-}
-static void EOI_Free(struct indexIterator *self) {
-  // Nothing
-}
-static size_t EOI_NumEstimated(void *ctx) {
-  return 0;
-}
-
-static IndexIterator eofIterator = {
-    .Read = EOI_Read, .Free = EOI_Free, .NumEstimated = EOI_NumEstimated};
-
-static IndexIterator *getEOFIterator(void) {
-  return &eofIterator;
-}
-
 IndexIterator *QAST_Iterate(const QueryAST *qast, const RSSearchOptions *opts, RedisSearchCtx *sctx,
                             ConcurrentSearchCtx *conc, QueryError *status) {
   QueryEvalCtx qectx = {
@@ -797,7 +783,7 @@ IndexIterator *QAST_Iterate(const QueryAST *qast, const RSSearchOptions *opts, R
   if (!root) {
     if (!QueryError_HasError(status)) {
       // Return the dummy iterator
-      return &eofIterator;
+      return NewEmptyIterator();
     }
   }
   return root;
