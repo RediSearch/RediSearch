@@ -182,7 +182,7 @@ typedef struct IndexSpec {
   long long maxPrefixExpansions;  // -1 unlimited
   RSGetValueCallback getValue;
   void *getValueCtx;
-  char **aliases; // Aliases to self-remove when the index is deleted
+  char **aliases;  // Aliases to self-remove when the index is deleted
 } IndexSpec;
 
 typedef struct {
@@ -276,6 +276,7 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
 
 /* Start the garbage collection loop on the index spec */
 void IndexSpec_StartGC(RedisModuleCtx *ctx, IndexSpec *sp, float initialHZ);
+void IndexSpec_StartGCFromSpec(IndexSpec *sp, float initialHZ, uint32_t gcPolicy);
 
 /* Same as above but with ordinary strings, to allow unit testing */
 IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryError *status);
@@ -383,7 +384,6 @@ void IndexSpec_ClearAliases(IndexSpec *sp);
 t_fieldMask IndexSpec_ParseFieldMask(IndexSpec *sp, RedisModuleString **argv, int argc);
 
 void IndexSpec_InitializeSynonym(IndexSpec *sp);
-
 
 #ifdef __cplusplus
 }

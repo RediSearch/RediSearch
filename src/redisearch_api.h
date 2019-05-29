@@ -59,10 +59,14 @@ MODULE_API_FUNC(int, RediSearch_GetCApiVersion)();
 
 #define RSIDXOPT_DOCTBLSIZE_UNLIMITED 0x01
 
+#define GC_POLICY_NONE -1
+#define GC_POLICY_FORK 1
+
 struct RSIdxOptions {
   RSGetValueCallback gvcb;
   void* gvcbData;
   uint32_t flags;
+  int gcPolicy;
 };
 
 /**
@@ -191,6 +195,10 @@ MODULE_API_FUNC(void, RediSearch_ResultsIteratorFree)(RSResultsIterator* iter);
 
 MODULE_API_FUNC(void, RediSearch_ResultsIteratorReset)(RSResultsIterator* iter);
 
+MODULE_API_FUNC(double, RediSearch_ResultsIteratorGetScore)(const RSResultsIterator* it);
+
+MODULE_API_FUNC(void, RediSearch_IndexOptionsSetGCPolicy)(RSIndexOptions* options, int policy);
+
 #define RS_XAPIFUNC(X)               \
   X(GetCApiVersion)                  \
   X(CreateIndexOptions)              \
@@ -226,7 +234,9 @@ MODULE_API_FUNC(void, RediSearch_ResultsIteratorReset)(RSResultsIterator* iter);
   X(ResultsIteratorNext)             \
   X(ResultsIteratorFree)             \
   X(ResultsIteratorReset)            \
-  X(IterateQuery)
+  X(IterateQuery)                    \
+  X(ResultsIteratorGetScore)         \
+  X(IndexOptionsSetGCPolicy)
 
 #define REDISEARCH_MODULE_INIT_FUNCTION(name)                                  \
   if (RedisModule_GetApi("RediSearch_" #name, ((void**)&RediSearch_##name))) { \

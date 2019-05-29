@@ -31,6 +31,8 @@
 #include "redisearch_api.h"
 #include "alias.h"
 
+pthread_rwlock_t RWLock = PTHREAD_RWLOCK_INITIALIZER;
+
 #define LOAD_INDEX(ctx, srcname, write)                                                     \
   ({                                                                                        \
     IndexSpec *sptmp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(srcname, NULL), write); \
