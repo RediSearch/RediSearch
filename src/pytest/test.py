@@ -1421,17 +1421,13 @@ def testReturning(env):
     env.assertEqual(['f1', 'val1'], row)
 
     # Test when field is not found
-    # Note: DISABLED because returning fields not in schema is now an ERROR
-    # res = env.cmd('ft.search', 'idx', 'val*', 'return', 1, 'nonexist')
-    # env.assertEqual(21, len(res))
-    # env.assertEqual(10, res[0])
-    # for pair in grouper(res[1:], 2):
-    #     _, pair = pair
-    #     env.assertEqual(None, pair[1])
+    res = env.cmd('ft.search', 'idx', 'val*', 'return', 1, 'nonexist')
+    env.assertEqual(21, len(res))
+    env.assertEqual(10, res[0])
 
     # # Test that we don't crash if we're given the wrong number of fields
-    # with env.assertResponseError():
-    #     res = env.cmd('ft.search', 'idx', 'val*', 'return', 700, 'nonexist')
+    with env.assertResponseError():
+        res = env.cmd('ft.search', 'idx', 'val*', 'return', 700, 'nonexist')
 
 def _test_create_options_real(env, *options):
     options = [x for x in options if x]
