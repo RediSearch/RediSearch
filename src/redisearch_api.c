@@ -486,7 +486,7 @@ static void RS_IndexOptionsSetGCPolicy(RSIndexOptions* options, int policy) {
     return REDISMODULE_ERR;                                                                 \
   }
 
-int RS_InitializeLibrary(RedisModuleCtx* ctx) {
+int RS_InitializeCapi(RedisModuleCtx* ctx) {
   if (RedisModule_ExportSharedAPI == NULL) {
     RedisModule_Log(ctx, "warning", "Upgrade redis-server to use Redis Search's C API");
     return REDISMODULE_ERR;

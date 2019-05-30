@@ -4,7 +4,6 @@ REDISMODULE_INIT_SYMBOLS();
 #include "module.h"
 #include "version.h"
 
-#ifndef RS_STATIC
 /* This stub is compiled in (by the build system) if it's an end-target module */
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
@@ -13,4 +12,3 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     return REDISMODULE_ERR;
   return RediSearch_InitModuleInternal(ctx, argv, argc);
 }
-#endif
