@@ -3,7 +3,6 @@
 #include "api_stubs.h"
 
 REDISMODULE_INIT_SYMBOLS();
-REDISEARCH_API_INIT_SYMBOLS();
 
 uint64_t siphash(const uint8_t *in, const size_t inlen, const uint8_t *k) {
   return 0;

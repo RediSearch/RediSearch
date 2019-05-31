@@ -6,6 +6,7 @@ INCLUDE(cmake/redisearch_cflags.cmake)
 CMAKE_POLICY(SET CMP0026 OLD)
 
 OPTION(RS_RUN_TESTS "Build & Run RediSearch's tests" OFF)
+OPTION(RS_BUILD_STATIC "Builds a static library" OFF)
 OPTION(USE_ASAN "Use AddressSanitizer (clang)" OFF)
 OPTION(USE_MSAN "Use MemorySanitizer (clang)" OFF)
 
@@ -80,12 +81,17 @@ SET(FINAL_OBJECTS
     $<TARGET_OBJECTS:rmutil>
     $<TARGET_OBJECTS:friso>
     $<TARGET_OBJECTS:snowball>
-    $<TARGET_OBJECTS:metaphone>)
+    $<TARGET_OBJECTS:metaphone>
+    src/module-init/module-init.c)
 
-ADD_LIBRARY(redisearch SHARED ${FINAL_OBJECTS} src/module-init/module-init.c)
+ADD_LIBRARY(redisearch SHARED ${FINAL_OBJECTS})
 TARGET_LINK_LIBRARIES(redisearch dl m)
 SET_TARGET_PROPERTIES(redisearch PROPERTIES PREFIX "")
 SET_TARGET_PROPERTIES(redisearch PROPERTIES SUFFIX ".so")
+
+IF (RS_BUILD_STATIC)
+    ADD_LIBRARY(redisearchS STATIC ${FINAL_OBJECTS})
+ENDIF()
 
 IF (APPLE) 
     SET_TARGET_PROPERTIES(redisearch

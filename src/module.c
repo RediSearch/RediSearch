@@ -16,8 +16,6 @@
 #include "rmutil/args.h"
 #include "spec.h"
 #include "util/logging.h"
-#include "extension.h"
-#include "ext/default.h"
 #include "config.h"
 #include "aggregate/aggregate.h"
 #include "rmalloc.h"
@@ -895,124 +893,14 @@ int ConfigCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModule_Log(ctx, "verbose", "Successfully executed " #f);              \
   }
 
-/**
- * Check if we can run under the current AOF configuration. Returns true
- * or false
- */
-static int validateAofSettings(RedisModuleCtx *ctx) {
-  int rc = 1;
-
-  if (RedisModule_GetContextFlags == NULL) {
-    RedisModule_Log(ctx, "warning",
-                    "Could not determine if AOF is in use. AOF Rewrite will crash!");
-    return 1;
-  }
-
-  if ((RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_AOF) == 0) {
-    // AOF disabled. All is OK, and no further checks needed
-    return rc;
-  }
-
-  // Can't exexcute commands on the loading context, so make a new one
-  RedisModuleCtx *confCtx = RedisModule_GetThreadSafeContext(NULL);
-  RedisModuleCallReply *reply =
-      RedisModule_Call(confCtx, "CONFIG", "cc", "GET", "aof-use-rdb-preamble");
-  assert(reply);
-  assert(RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_ARRAY);
-  assert(RedisModule_CallReplyLength(reply) == 2);
-  const char *value =
-      RedisModule_CallReplyStringPtr(RedisModule_CallReplyArrayElement(reply, 1), NULL);
-
-  // I tried using strcasecmp, but it seems that the yes/no replies have a trailing
-  // embedded newline in them
-  if (tolower(*value) == 'n') {
-    RedisModule_Log(ctx, "warning", "FATAL: aof-use-rdb-preamble required if AOF is used!");
-    rc = 0;
-  }
-  RedisModule_FreeCallReply(reply);
-  RedisModule_FreeThreadSafeContext(confCtx);
-  return rc;
-}
-
-int RS_InitializeCapi(RedisModuleCtx *ctx);
-
 int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-
-  // Check that redis supports thread safe context. RC3 or below doesn't
-  if (RedisModule_GetThreadSafeContext == NULL) {
-    RedisModule_Log(ctx, "warning",
-                    "***** FATAL: Incompatible version of redis 4.0 detected. *****\n"
-                    "\t\t\t\tPlease use Redis 4.0.0 or later from https://redis.io/download\n"
-                    "\t\t\t\tRedis will exit now!");
-    return REDISMODULE_ERR;
-  }
-
-  if (RS_InitializeCapi(ctx) != REDISMODULE_OK) {
-    RedisModule_Log(ctx, "warning", "Could not initialize low level api");
-  } else {
-    RedisModule_Log(ctx, "notice", "Low level api version %d initialized successfully",
-                    REDISEARCH_CAPI_VERSION);
-  }
-
-  // Print version string!
-  RedisModule_Log(ctx, "notice", "RediSearch version %d.%d.%d (Git=%s)", REDISEARCH_VERSION_MAJOR,
-                  REDISEARCH_VERSION_MINOR, REDISEARCH_VERSION_PATCH, RS_GetExtraVersion());
-
   char *err;
   if (ReadConfig(argv, argc, &err) == REDISMODULE_ERR) {
     RedisModule_Log(ctx, "warning", "Invalid Configurations: %s", err);
     free(err);
     return REDISMODULE_ERR;
   }
-  sds confstr = RSConfig_GetInfoString(&RSGlobalConfig);
-  RedisModule_Log(ctx, "notice", confstr);
-  sdsfree(confstr);
-
-  if (RedisModule_GetContextFlags == NULL && RSGlobalConfig.concurrentMode) {
-    RedisModule_Log(ctx, "warning",
-                    "GetContextFlags unsupported (need Redis >= 4.0.6). Commands executed in "
-                    "MULTI or LUA will "
-                    "malfunction unless 'safe' functions are used or SAFEMODE is enabled.");
-  }
-
-  if (!validateAofSettings(ctx)) {
-    return REDISMODULE_ERR;
-  }
-
-  // Init extension mechanism
-  Extensions_Init();
-
-  if (RSGlobalConfig.concurrentMode) {
-    ConcurrentSearch_ThreadPoolStart();
-  }
-
-  // Init cursors mechanism
-  CursorList_Init(&RSCursors);
-
-  IndexAlias_InitGlobal();
-
-  // Register aggregation functions
-  RegisterAllFunctions();
-
-  RedisModule_Log(ctx, "notice", "Initialized thread pool!");
-
-  /* Load extensions if needed */
-  if (RSGlobalConfig.extLoad != NULL) {
-
-    char *errMsg = NULL;
-    // Load the extension so TODO: pass with param
-    if (Extension_LoadDynamic(RSGlobalConfig.extLoad, &errMsg) == REDISMODULE_ERR) {
-      RedisModule_Log(ctx, "warning", "Could not load extension %s: %s", RSGlobalConfig.extLoad,
-                      errMsg);
-      free(errMsg);
-      return REDISMODULE_ERR;
-    }
-    RedisModule_Log(ctx, "notice", "Loaded RediSearch extension '%s'", RSGlobalConfig.extLoad);
-  }
-
-  // Register the default hard coded extension
-  if (Extension_Load("DEFAULT", DefaultExtensionInit) == REDISEARCH_ERR) {
-    RedisModule_Log(ctx, "warning", "Could not register default extension");
+  if (RediSearch_Init(ctx, REDISEARCH_INIT_MODULE) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
 
