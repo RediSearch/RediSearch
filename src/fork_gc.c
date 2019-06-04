@@ -10,9 +10,38 @@
 #include <stdbool.h>
 #include <unistd.h>
 #include <sys/wait.h>
+#include "rwlock.h"
 
 #define GC_WRITERFD 1
 #define GC_READERFD 0
+
+// if return false, we should abort.
+static void ForkGc_AqcuireLock(ForkGCCtx *gc, RedisModuleCtx *ctx) {
+  if (gc->type == ForkGCCtxType_OUT_KEYSPACE) {
+    RWLOCK_ACQUIRE_WRITE();
+  } else {
+    RedisModule_ThreadSafeContextLock(ctx);
+  }
+}
+
+static void ForkGc_ReleaseLock(ForkGCCtx *gc, RedisModuleCtx *ctx) {
+  if (gc->type == ForkGCCtxType_OUT_KEYSPACE) {
+    RWLOCK_RELEASE();
+  } else {
+    RedisModule_ThreadSafeContextUnlock(ctx);
+  }
+}
+
+static RedisSearchCtx *ForkGc_GetSearchCtx(ForkGCCtx *gc, RedisModuleCtx *ctx) {
+  RedisSearchCtx *sctx = NULL;
+  if (gc->type == ForkGCCtxType_OUT_KEYSPACE) {
+    sctx = rm_malloc(sizeof(*sctx));
+    *sctx = (RedisSearchCtx)SEARCH_CTX_STATIC(ctx, gc->sp);
+  } else if (gc->type == ForkGCCtxType_IN_KEYSPACE) {
+    sctx = NewSearchCtx(ctx, (RedisModuleString *)gc->keyName, false);
+  }
+  return sctx;
+}
 
 static void ForkGc_updateStats(RedisSearchCtx *sctx, ForkGCCtx *gc, size_t recordsRemoved,
                                size_t bytesCollected) {
@@ -281,7 +310,7 @@ static void ForkGc_CollectGarbageFromTagIdx(ForkGCCtx *gc, RedisSearchCtx *sctx)
 
 static void ForkGc_CollectGarbage(ForkGCCtx *gc) {
   RedisModuleCtx *rctx = RedisModule_GetThreadSafeContext(NULL);
-  RedisSearchCtx *sctx = NewSearchCtx(rctx, (RedisModuleString *)gc->keyName, false);
+  RedisSearchCtx *sctx = ForkGc_GetSearchCtx(gc, rctx);
   size_t totalRemoved = 0;
   size_t totalCollected = 0;
   if (!sctx || sctx->spec->uniqueId != gc->specUniqueId) {
@@ -375,10 +404,11 @@ static bool ForkGc_ReadInvertedIndex(ForkGCCtx *gc, int *ret_val, RedisModuleCtx
     return true;
   }
 
-  RedisModule_ThreadSafeContextLock(rctx);
+  ForkGc_AqcuireLock(gc, rctx);
+
   RedisModuleKey *idxKey = NULL;
   RedisSearchCtx *sctx = NULL;
-  sctx = NewSearchCtx(rctx, (RedisModuleString *)gc->keyName, false);
+  sctx = ForkGc_GetSearchCtx(gc, rctx);
   if (!sctx || sctx->spec->uniqueId != gc->specUniqueId) {
     *ret_val = 0;
     goto cleanup;
@@ -403,9 +433,7 @@ cleanup:
   if (sctx) {
     SearchCtx_Free(sctx);
   }
-  if (rctx) {
-    RedisModule_ThreadSafeContextUnlock(rctx);
-  }
+  ForkGc_ReleaseLock(gc, rctx);
   if (term) {
     rm_free(term);
   }
@@ -455,8 +483,9 @@ static bool ForkGc_ReadNumericInvertedIndex(ForkGCCtx *gc, int *ret_val, RedisMo
       valuesDeleted[i] = ForkGc_FDReadLongLong(gc->pipefd[GC_READERFD]);
     }
 
-    RedisModule_ThreadSafeContextLock(rctx);
-    RedisSearchCtx *sctx = NewSearchCtx(rctx, (RedisModuleString *)gc->keyName, false);
+    ForkGc_AqcuireLock(gc, rctx);
+
+    RedisSearchCtx *sctx = ForkGc_GetSearchCtx(gc, rctx);
     if (!sctx || sctx->spec->uniqueId != gc->specUniqueId) {
       RETURN;
     }
@@ -512,7 +541,7 @@ static bool ForkGc_ReadNumericInvertedIndex(ForkGCCtx *gc, int *ret_val, RedisMo
     if (idxKey) {
       RedisModule_CloseKey(idxKey);
     }
-    RedisModule_ThreadSafeContextUnlock(rctx);
+    ForkGc_ReleaseLock(gc, rctx);
     if (shouldReturn) {
       if (fieldName) {
         rm_free(fieldName);
@@ -547,8 +576,8 @@ static bool ForkGc_ReadTagIndex(ForkGCCtx *gc, int *ret_val, RedisModuleCtx *rct
       continue;
     }
 
-    RedisModule_ThreadSafeContextLock(rctx);
-    RedisSearchCtx *sctx = NewSearchCtx(rctx, (RedisModuleString *)gc->keyName, false);
+    ForkGc_AqcuireLock(gc, rctx);
+    RedisSearchCtx *sctx = ForkGc_GetSearchCtx(gc, rctx);
     if (!sctx || sctx->spec->uniqueId != gc->specUniqueId) {
       RETURN;
     }
@@ -578,7 +607,7 @@ static bool ForkGc_ReadTagIndex(ForkGCCtx *gc, int *ret_val, RedisModuleCtx *rct
     if (idxKey) {
       RedisModule_CloseKey(idxKey);
     }
-    RedisModule_ThreadSafeContextUnlock(rctx);
+    ForkGc_ReleaseLock(gc, rctx);
     if (shouldReturn) {
       if (fieldName) {
         rm_free(fieldName);
@@ -622,7 +651,7 @@ static int ForkGc_PeriodicCallback(RedisModuleCtx *ctx, void *privdata) {
   RedisModule_AutoMemory(ctx);
 
   // Check if RDB is loading - not needed after the first time we find out that rdb is not reloading
-  if (gc->rdbPossiblyLoading) {
+  if (gc->rdbPossiblyLoading && !gc->sp) {
     RedisModule_ThreadSafeContextLock(ctx);
     if (isRdbLoading(ctx)) {
       RedisModule_Log(ctx, "notice", "RDB Loading in progress, not performing GC");
@@ -644,9 +673,12 @@ static int ForkGc_PeriodicCallback(RedisModuleCtx *ctx, void *privdata) {
 
   TimeSampler_Start(&ts);
   pipe(gc->pipefd);  // create the pipe
-  RedisModule_ThreadSafeContextLock(ctx);
+  ForkGc_AqcuireLock(gc, ctx);
+  if (gc->type == ForkGCCtxType_FREED) {
+    return 0;
+  }
   cpid = fork();  // duplicate the current process
-  RedisModule_ThreadSafeContextUnlock(ctx);
+  ForkGc_ReleaseLock(gc, ctx);
   if (cpid == 0) {
     // fork process
     close(gc->pipefd[GC_READERFD]);
@@ -677,11 +709,13 @@ static int ForkGc_PeriodicCallback(RedisModuleCtx *ctx, void *privdata) {
 
 void ForkGc_OnTerm(void *privdata) {
   ForkGCCtx *gc = privdata;
-  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
-  RedisModule_ThreadSafeContextLock(ctx);
-  RedisModule_FreeString(ctx, (RedisModuleString *)gc->keyName);
-  RedisModule_ThreadSafeContextUnlock(ctx);
-  RedisModule_FreeThreadSafeContext(ctx);
+  if (gc->keyName) {
+    RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
+    RedisModule_ThreadSafeContextLock(ctx);
+    RedisModule_FreeString(ctx, (RedisModuleString *)gc->keyName);
+    RedisModule_ThreadSafeContextUnlock(ctx);
+    RedisModule_FreeThreadSafeContext(ctx);
+  }
   free(gc);
 }
 
@@ -725,6 +759,7 @@ ForkGCCtx *NewForkGC(const RedisModuleString *k, uint64_t specUniqueId, GCCallba
       .stats = {},
       .rdbPossiblyLoading = 1,
       .specUniqueId = specUniqueId,
+      .type = ForkGCCtxType_IN_KEYSPACE,
   };
 
   callbacks->onDelete = ForkGc_OnDelete;
@@ -734,4 +769,11 @@ ForkGCCtx *NewForkGC(const RedisModuleString *k, uint64_t specUniqueId, GCCallba
   callbacks->getInterval = ForkGc_GetInterval;
 
   return forkGc;
+}
+
+ForkGCCtx *NewForkGCFromSpec(IndexSpec *sp, uint64_t specUniqueId, GCCallbacks *callbacks) {
+  ForkGCCtx *ctx = NewForkGC(NULL, specUniqueId, callbacks);
+  ctx->sp = sp;
+  ctx->type = ForkGCCtxType_OUT_KEYSPACE;
+  return ctx;
 }

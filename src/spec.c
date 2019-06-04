@@ -721,7 +721,12 @@ void IndexSpec_Free(void *ctx) {
 }
 
 void IndexSpec_FreeSync(IndexSpec *spec) {
-  // Need a context for this:
+  //  todo:
+  //  mark I think we only need IndexSpec_FreeInternals, this is called only from the
+  //  LLAPI and there is no need to drop keys cause its out of the key space.
+  //  Let me know what you think
+
+  //   Need a context for this:
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
   RedisModule_AutoMemory(ctx);
@@ -930,6 +935,11 @@ FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name) {
   fs->tagFlags = TAG_FIELD_DEFAULT_FLAGS;
   fs->tagFlags = TAG_FIELD_DEFAULT_SEP;
   return fs;
+}
+
+void IndexSpec_StartGCFromSpec(IndexSpec *sp, float initialHZ, uint32_t gcPolicy) {
+  sp->gc = GCContext_CreateGCFromSpec(sp, initialHZ, sp->uniqueId, gcPolicy);
+  GCContext_Start(sp->gc);
 }
 
 /* Start the garbage collection loop on the index spec. The GC removes garbage data left on the
