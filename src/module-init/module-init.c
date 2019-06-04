@@ -92,6 +92,17 @@ static int initAsModule(RedisModuleCtx *ctx) {
   return REDISMODULE_OK;
 }
 
+static int initAsLibrary(RedisModuleCtx *ctx) {
+  // Ensure Redis symbols are initialized as well!.
+  // This is copy/pasted from redismodule.h
+  // We don't use RedisModule_Init, since this also changes the attributes
+  // of the provided ctx, which is probably owned by another module
+  RedisModule_GetApiFunctionType getapifuncptr = (RedisModule_GetApiFunctionType)((void **)ctx)[0];
+#define X(basename) getapifuncptr("RedisModule_" #basename, (void *)&RedisModule_##basename);
+  REDISMODULE_XAPI(X)
+#undef X
+}
+
 int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
 #define DO_LOG(...)                               \
   if (ctx && (mode == REDISEARCH_INIT_LIBRARY)) { \
@@ -103,6 +114,8 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
          REDISEARCH_VERSION_MINOR, REDISEARCH_VERSION_PATCH, RS_GetExtraVersion());
 
   if (mode == REDISEARCH_INIT_MODULE && initAsModule(ctx) != REDISMODULE_OK) {
+    return REDISMODULE_ERR;
+  } else if (mode == REDISEARCH_INIT_LIBRARY && initAsLibrary(ctx) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
 
