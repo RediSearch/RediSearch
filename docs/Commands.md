@@ -134,7 +134,7 @@ Adds a document to the index.
 
 #### Example
 ```sql
-FT.ADD idx doc1 1.0 FIELDS title hello world
+FT.ADD idx doc1 1.0 FIELDS title "hello world"
 ```
 
 ### Parameters
