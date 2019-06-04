@@ -171,11 +171,8 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b, QueryError *stat
   aCtx->client.bc = NULL;
   aCtx->next = NULL;
   aCtx->specFlags = sp->flags;
-  int indexerOptions = 0;
-  if (sp->flags & Index_Temporary) {
-    indexerOptions = INDEXER_THREADLESS;
-  }
-  aCtx->indexer = GetDocumentIndexer(sp->name, indexerOptions);
+  aCtx->indexer = sp->indexer;
+  assert(sp->indexer);
 
   // Assign the document:
   if (AddDocumentCtx_SetDocument(aCtx, sp, b, aCtx->doc.numFields) != 0) {
@@ -234,7 +231,8 @@ void AddDocumentCtx_Finish(RSAddDocumentCtx *aCtx) {
 #define SELF_EXEC_THRESHOLD 1024
 
 void Document_Dump(const Document *doc) {
-  printf("Document Key: %s. ID=%" PRIu64 "\n", RedisModule_StringPtrLen(doc->docKey, NULL), doc->docId);
+  printf("Document Key: %s. ID=%" PRIu64 "\n", RedisModule_StringPtrLen(doc->docKey, NULL),
+         doc->docId);
   for (size_t ii = 0; ii < doc->numFields; ++ii) {
     printf("  [%lu]: %s => %s\n", ii, doc->fields[ii].name,
            RedisModule_StringPtrLen(doc->fields[ii].text, NULL));
