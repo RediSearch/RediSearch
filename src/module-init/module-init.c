@@ -99,7 +99,11 @@ static int initAsLibrary(RedisModuleCtx *ctx) {
   RedisModule_GetApiFunctionType getapifuncptr = (RedisModule_GetApiFunctionType)((void **)ctx)[0];
 #define X(basename) getapifuncptr("RedisModule_" #basename, (void *)&RedisModule_##basename);
   REDISMODULE_XAPI(X)
+
+  // Disable concurrent mode:
+  RSGlobalConfig.concurrentMode = 0;
 #undef X
+  return REDISMODULE_OK;
 }
 
 int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
