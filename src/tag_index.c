@@ -113,15 +113,19 @@ size_t TagIndex_Index(TagIndex *idx, const char **values, size_t n, t_docId docI
   return ret;
 }
 
-typedef struct IndexIterator **TagConcCtx;
+typedef struct {
+  IndexIterator **its;
+  uint32_t uid;
+} TagConcCtx;
 
 static void TagReader_OnReopen(RedisModuleKey *k, void *privdata) {
-
   TagConcCtx *ctx = privdata;
-  IndexIterator **its = privdata;
+  IndexIterator **its = ctx->its;
+  TagIndex *idx = NULL;
   size_t nits = array_len(its);
   // If the key has been deleted we'll get a NULL here, so we just mark ourselves as EOF
-  if (k == NULL || RedisModule_ModuleTypeGetType(k) != TagIndexType) {
+  if (k == NULL || RedisModule_ModuleTypeGetType(k) != TagIndexType ||
+      (idx = RedisModule_ModuleTypeGetValue(k))->uniqueId != ctx->uid) {
     for (size_t ii = 0; ii < nits; ++ii) {
       its[ii]->Abort(its[ii]->ctx);
     }
@@ -129,7 +133,6 @@ static void TagReader_OnReopen(RedisModuleKey *k, void *privdata) {
   }
 
   // If the key is valid, we just reset the reader's buffer reader to the current block pointer
-  TagIndex *idx = RedisModule_ModuleTypeGetValue(k);
   for (size_t ii = 0; ii < nits; ++ii) {
     IndexReader *ir = its[ii]->ctx;
 
@@ -155,11 +158,22 @@ static void TagReader_OnReopen(RedisModuleKey *k, void *privdata) {
   }
 }
 
+static void concCtxFree(void *p) {
+  TagConcCtx *tctx = p;
+  if (tctx->its) {
+    array_free(tctx->its);
+  }
+  free(p);
+}
+
 void TagIndex_RegisterConcurrentIterators(TagIndex *idx, ConcurrentSearchCtx *conc,
                                           RedisModuleKey *key, RedisModuleString *keyname,
                                           array_t *iters) {
-  ConcurrentSearch_AddKey(conc, key, REDISMODULE_READ, keyname, TagReader_OnReopen, iters,
-                          array_free);
+  TagConcCtx *tctx = calloc(1, sizeof(*tctx));
+  tctx->uid = idx->uniqueId;
+  tctx->its = (IndexIterator **)iters;
+  ConcurrentSearch_AddKey(conc, key, REDISMODULE_READ, keyname, TagReader_OnReopen, tctx,
+                          concCtxFree);
 }
 
 /* Open an index reader to iterate a tag index for a specific tag. Used at query evaluation time.

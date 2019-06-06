@@ -8,6 +8,7 @@
 #include "query_internal.h"
 #include "numeric_filter.h"
 #include "query.h"
+#include "indexer.h"
 #include "extension.h"
 #include "ext/default.h"
 #include <float.h>
@@ -35,6 +36,9 @@ IndexSpec* RediSearch_CreateIndex(const char* name, const RSIndexOptions* option
   }
   IndexSpec* spec = NewIndexSpec(name);
   spec->flags |= Index_Temporary;  // temporary is so that we will not use threads!!
+  if (!spec->indexer) {
+    spec->indexer = NewIndexer(spec);
+  }
 
   // Initialize only once:
   if (!invidxDictType.valDestructor) {

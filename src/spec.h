@@ -150,6 +150,8 @@ typedef struct {
   RedisModuleString *types[INDEXFLD_NUM_TYPES];
 } IndexSpecFmtStrings;
 
+struct DocumentIndexer;
+
 struct IndexSpec {
   char *name;
   FieldSpec *fields;
@@ -182,7 +184,8 @@ struct IndexSpec {
   long long maxPrefixExpansions;  // -1 unlimited
   RSGetValueCallback getValue;
   void *getValueCtx;
-  char **aliases;  // Aliases to self-remove when the index is deleted
+  char **aliases; // Aliases to self-remove when the index is deleted
+  struct DocumentIndexer *indexer;
 };
 
 typedef struct {

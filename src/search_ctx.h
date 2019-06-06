@@ -24,6 +24,7 @@ typedef struct RedisSearchCtx {
   IndexSpec *spec;
   uint32_t refcount;
   int isStatic;
+  uint64_t specId;  // Unique id of the spec; used when refreshing
 } RedisSearchCtx;
 
 #define SEARCH_CTX_STATIC(ctx, sp) \

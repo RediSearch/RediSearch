@@ -23,9 +23,8 @@ typedef struct DocumentIndexer {
   ConcurrentSearchCtx concCtx;     // GIL locking. This is repopulated with the relevant key data
   RedisModuleCtx *redisCtx;        // Context for keeping the spec key
   RedisModuleString *specKeyName;  // Cached, used for opening/closing the spec key.
+  uint64_t specId;                 // Unique spec ID. Used to verify we haven't been replaced
   int isDbSelected;
-
-  char *name;  // The name of the index this structure belongs to. For use with the list of indexers
   struct DocumentIndexer *next;  // Next structure in the indexer list
   KHTable mergeHt;               // Hashtable and block allocator for merging
   BlkAlloc alloc;
@@ -37,13 +36,8 @@ typedef struct DocumentIndexer {
 // Set when the indexer is about to be deleted
 #define INDEXER_DELETING 0x02
 
-void DropDocumentIndexer(const char *specname);
-
-/**
- * Get the indexing thread for the given spec `specname`. If no such thread is
- * running, a new one will be instantiated.
- */
-DocumentIndexer *GetDocumentIndexer(const char *specname, int options);
+void Indexer_Free(DocumentIndexer *indexer);
+DocumentIndexer *NewIndexer(IndexSpec *spec);
 
 /**
  * Add a document to the indexing queue. If successful, the indexer now takes
