@@ -1173,16 +1173,20 @@ static int OI_ReadSorted(void *ctx, RSIndexResult **hit) {
   if (nc->lastDocId > nc->nextRealId) {
     int rc = nc->child->Read(nc->child->ctx, &nc->base.current);
     if (rc == INDEXREAD_EOF) {
-      nc->nextRealId = nc->maxDocId;
+      nc->nextRealId = nc->maxDocId + 1;
     } else {
       nc->nextRealId = nc->base.current->docId;
     }
   }
 
-  if (nc->base.current->docId != nc->lastDocId) {
-    nc->virt->docId = nc->lastDocId;
+  if (nc->lastDocId != nc->nextRealId) {
     nc->base.current = nc->virt;
+    nc->base.current->weight = 0;
+  } else {
+    nc->base.current->weight = nc->weight;
   }
+
+  nc->base.current->docId = nc->lastDocId;
   *hit = nc->base.current;
   return INDEXREAD_OK;
 }
@@ -1225,8 +1229,8 @@ static void OI_Rewind(void *ctx) {
 IndexIterator *NewOptionalIterator(IndexIterator *it, t_docId maxDocId, double weight) {
   OptionalMatchContext *nc = malloc(sizeof(*nc));
   nc->virt = NewVirtualResult(weight);
-  nc->virt->freq = 0;
   nc->virt->fieldMask = RS_FIELDMASK_ALL;
+  nc->virt->freq = 1;
   nc->base.current = nc->virt;
   nc->child = it;
   nc->childCT = NULL;

@@ -9,7 +9,11 @@ extern "C" {
 
 #define REDISEARCH_CAPI_VERSION 1
 
+#ifdef REDISEARCH_API_EXTERN
 #define MODULE_API_FUNC(T, N) extern T(*N)
+#else
+#define MODULE_API_FUNC(T, N) T N
+#endif
 
 typedef struct IndexSpec RSIndex;
 typedef struct FieldSpec RSField;
@@ -111,7 +115,7 @@ MODULE_API_FUNC(RSField*, RediSearch_CreateField)
 #define RediSearch_CreateGeoField(idx, name) \
   RediSearch_CreateField(idx, name, RSFLDTYPE_GEO, RSFLDOPT_NONE)
 
-MODULE_API_FUNC(void, RediSearch_TextFieldSetWeight)(RSField* fs, double w);
+MODULE_API_FUNC(void, RediSearch_TextFieldSetWeight)(RSIndex* sp, RSField* fs, double w);
 MODULE_API_FUNC(void, RediSearch_TagSetSeparator)(RSField* fs, char sep);
 
 MODULE_API_FUNC(RSDoc*, RediSearch_CreateDocument)
@@ -245,12 +249,17 @@ MODULE_API_FUNC(void, RediSearch_IndexOptionsSetGCPolicy)(RSIndexOptions* option
     goto rsfunc_init_end__;                                                    \
   }
 
+#ifdef REDISEARCH_API_EXTERN
 /**
  * This is implemented as a macro rather than a function so that the inclusion of this
  * header file does not automatically require the symbols to be defined above.
  *
  * We are making use of special GCC statement-expressions `({...})`. This is also
- * supported by clang
+ * supported by clang.
+ *
+ * This function should not be used if RediSearch is compiled as a
+ * static library. In this case, the functions are actually properly
+ * linked.
  */
 #define RediSearch_Initialize()                                  \
   ({                                                             \
@@ -265,7 +274,20 @@ MODULE_API_FUNC(void, RediSearch_IndexOptionsSetGCPolicy)(RSIndexOptions* option
 
 #define REDISEARCH__API_INIT_NULL(s) __typeof__(RediSearch_##s) RediSearch_##s = NULL;
 #define REDISEARCH_API_INIT_SYMBOLS() RS_XAPIFUNC(REDISEARCH__API_INIT_NULL)
+#else
+#define REDISEARCH_API_INIT_SYMBOLS()
+#define RediSearch_Initialize()
+#endif
 
+/**
+ * Export the C API to be dynamically discoverable by other modules.
+ * This is an internal function
+ */
+int RediSearch_ExportCapi(RedisModuleCtx* ctx);
+
+#define REDISEARCH_INIT_MODULE 0x01
+#define REDISEARCH_INIT_LIBRARY 0x02
+int RediSearch_Init(RedisModuleCtx* ctx, int mode);
 #ifdef __cplusplus
 }
 #endif

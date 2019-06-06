@@ -792,7 +792,7 @@ static int ForkGc_PeriodicCallback(RedisModuleCtx *ctx, void *privdata) {
 
 void ForkGc_OnTerm(void *privdata) {
   ForkGCCtx *gc = privdata;
-  if (gc->keyName) {
+  if (gc->keyName && gc->type == ForkGCCtxType_IN_KEYSPACE) {
     RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
     RedisModule_ThreadSafeContextLock(ctx);
     RedisModule_FreeString(ctx, (RedisModuleString *)gc->keyName);

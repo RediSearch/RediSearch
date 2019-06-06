@@ -878,6 +878,7 @@ def testGeo(env):
         env.assertEqual(len(hotels), res[0])
 
         res = gsearch('hilton', "-0.1757", "51.5156", '1')
+        print res
         env.assertEqual(3, res[0])
         env.assertEqual('hotel2', res[5])
         env.assertEqual('hotel21', res[3])
@@ -1423,17 +1424,13 @@ def testReturning(env):
     env.assertEqual(['f1', 'val1'], row)
 
     # Test when field is not found
-    # Note: DISABLED because returning fields not in schema is now an ERROR
-    # res = env.cmd('ft.search', 'idx', 'val*', 'return', 1, 'nonexist')
-    # env.assertEqual(21, len(res))
-    # env.assertEqual(10, res[0])
-    # for pair in grouper(res[1:], 2):
-    #     _, pair = pair
-    #     env.assertEqual(None, pair[1])
+    res = env.cmd('ft.search', 'idx', 'val*', 'return', 1, 'nonexist')
+    env.assertEqual(21, len(res))
+    env.assertEqual(10, res[0])
 
     # # Test that we don't crash if we're given the wrong number of fields
-    # with env.assertResponseError():
-    #     res = env.cmd('ft.search', 'idx', 'val*', 'return', 700, 'nonexist')
+    with env.assertResponseError():
+        res = env.cmd('ft.search', 'idx', 'val*', 'return', 700, 'nonexist')
 
 def _test_create_options_real(env, *options):
     options = [x for x in options if x]
@@ -2115,6 +2112,17 @@ def testIssue666(env):
 # 127.0.0.1:6379> ft.add foo "ft:foo/two" 1 FIELDS bar "four five six"
 # Could not connect to Redis at 127.0.0.1:6379: Connection refused
 
+
+def testOptionalFilter(env):
+    env.cmd('ft.create', 'idx', 'schema', 't1', 'text')
+    for x in range(100):
+        env.cmd('ft.add', 'idx', 'doc_{}'.format(x), 1, 'fields', 't1', 'hello world word{}'.format(x))
+
+    print env.cmd('ft.explain', 'idx', '(~@t1:word20)')
+    # print(r)
+
+    r = env.cmd('ft.search', 'idx', '~(word20 => {$weight: 2.0})')
+    print(r)
 
 def grouper(iterable, n, fillvalue=None):
     "Collect data into fixed-length chunks or blocks"

@@ -1,6 +1,5 @@
 #include "spec.h"
 #include "field_spec.h"
-#include "redisearch_api.h"
 #include "document.h"
 #include <assert.h>
 #include "util/dict.h"
@@ -16,9 +15,7 @@
 #include "rwlock.h"
 #include "fork_gc.h"
 
-static void RS_ResultsIteratorFree(struct RS_ApiIter* iter);
-
-int RS_GetCApiVersion() {
+int RediSearch_GetCApiVersion() {
   return REDISEARCH_CAPI_VERSION;
 }
 
@@ -32,13 +29,8 @@ static void valFreeCb(void* unused, void* p) {
   free(kdv);
 }
 
-static IndexSpec* RS_CreateIndex(const char* name, const RSIndexOptions* options) {
-  RSIndexOptions opts_s = {
-      .gvcb = NULL,
-      .gvcbData = NULL,
-      .flags = 0,
-      .gcPolicy = -1,
-  };
+IndexSpec* RediSearch_CreateIndex(const char* name, const RSIndexOptions* options) {
+  RSIndexOptions opts_s = {.gcPolicy = GC_POLICY_FORK};
   if (!options) {
     options = &opts_s;
   }
@@ -67,7 +59,7 @@ static IndexSpec* RS_CreateIndex(const char* name, const RSIndexOptions* options
   return spec;
 }
 
-static void RS_DropIndex(IndexSpec* sp) {
+void RediSearch_DropIndex(IndexSpec* sp) {
   RWLOCK_ACQUIRE_WRITE();
 
   if (sp->gc) {
@@ -82,7 +74,7 @@ static void RS_DropIndex(IndexSpec* sp) {
   RWLOCK_RELEASE();
 }
 
-static RSField* RS_CreateField(IndexSpec* sp, const char* name, unsigned types, unsigned options) {
+RSField* RediSearch_CreateField(IndexSpec* sp, const char* name, unsigned types, unsigned options) {
   assert(types);
   RWLOCK_ACQUIRE_WRITE();
 
@@ -137,17 +129,17 @@ static RSField* RS_CreateField(IndexSpec* sp, const char* name, unsigned types, 
   return fs;
 }
 
-static void RS_TextFieldSetWeight(IndexSpec* sp, FieldSpec* fs, double w) {
+void RediSearch_TextFieldSetWeight(IndexSpec* sp, FieldSpec* fs, double w) {
   assert(FIELD_IS(fs, INDEXFLD_T_FULLTEXT));
   fs->ftWeight = w;
 }
 
-static void RS_TagSetSeparator(FieldSpec* fs, char sep) {
+void RediSearch_TagSetSeparator(FieldSpec* fs, char sep) {
   assert(FIELD_IS(fs, INDEXFLD_T_TAG));
   fs->tagSep = sep;
 }
 
-static Document* RS_CreateDocument(const void* docKey, size_t len, double score, const char* lang) {
+RSDoc* RediSearch_CreateDocument(const void* docKey, size_t len, double score, const char* lang) {
   RedisModuleString* docKeyStr = RedisModule_CreateString(NULL, docKey, len);
   const char* language = lang ? lang : "english";
   Document* ret = rm_calloc(1, sizeof(*ret));
@@ -156,7 +148,7 @@ static Document* RS_CreateDocument(const void* docKey, size_t len, double score,
   return ret;
 }
 
-static int RS_DeleteDocument(IndexSpec* sp, const void* docKey, size_t len) {
+int RediSearch_DeleteDocument(IndexSpec* sp, const void* docKey, size_t len) {
   RWLOCK_ACQUIRE_WRITE();
 
   RedisModuleString* docId = RedisModule_CreateString(NULL, docKey, len);
@@ -179,19 +171,19 @@ static int RS_DeleteDocument(IndexSpec* sp, const void* docKey, size_t len) {
   return rc;
 }
 
-static void RS_DocumentAddField(Document* d, const char* fieldName, RedisModuleString* value,
-                                unsigned as) {
+void RediSearch_DocumentAddField(Document* d, const char* fieldName, RedisModuleString* value,
+                                 unsigned as) {
   Document_AddField(d, fieldName, value, as);
   RedisModule_RetainString(NULL, value);
 }
 
-static void RS_DocumentAddFieldString(Document* d, const char* fieldname, const char* s, size_t n,
-                                      unsigned as) {
+void RediSearch_DocumentAddFieldString(Document* d, const char* fieldname, const char* s, size_t n,
+                                       unsigned as) {
   RedisModuleString* r = RedisModule_CreateString(NULL, s, n);
   Document_AddField(d, fieldname, r, as);
 }
 
-static void RS_DocumentAddFieldNumber(Document* d, const char* fieldname, double n, unsigned as) {
+void RediSearch_DocumentAddFieldNumber(Document* d, const char* fieldname, double n, unsigned as) {
   RedisModuleString* r = RedisModule_CreateStringPrintf(NULL, "%lf", n);
   Document_AddField(d, fieldname, r, as);
 }
@@ -201,7 +193,7 @@ typedef struct {
   int hasErr;
 } RSError;
 
-static void RS_AddDocDone(RSAddDocumentCtx* aCtx, RedisModuleCtx* ctx, void* err) {
+void RediSearch_AddDocDone(RSAddDocumentCtx* aCtx, RedisModuleCtx* ctx, void* err) {
   RSError* ourErr = err;
   if (QueryError_HasError(&aCtx->status)) {
     if (ourErr->s) {
@@ -211,13 +203,13 @@ static void RS_AddDocDone(RSAddDocumentCtx* aCtx, RedisModuleCtx* ctx, void* err
   }
 }
 
-static int RS_IndexAddDocument(IndexSpec* sp, Document* d, int options, char** errs) {
+int RediSearch_IndexAddDocument(IndexSpec* sp, Document* d, int options, char** errs) {
   RWLOCK_ACQUIRE_WRITE();
 
   RSError err = {.s = errs};
   QueryError status = {0};
   RSAddDocumentCtx* aCtx = NewAddDocumentCtx(sp, d, &status);
-  aCtx->donecb = RS_AddDocDone;
+  aCtx->donecb = RediSearch_AddDocDone;
   aCtx->donecbData = &err;
   RedisSearchCtx sctx = {.redisCtx = NULL, .spec = sp};
   int exists = !!DocTable_GetIdR(&sp->docs, d->docKey);
@@ -243,7 +235,7 @@ static int RS_IndexAddDocument(IndexSpec* sp, Document* d, int options, char** e
   return err.hasErr ? REDISMODULE_ERR : REDISMODULE_OK;
 }
 
-static QueryNode* RS_CreateTokenNode(IndexSpec* sp, const char* fieldName, const char* token) {
+QueryNode* RediSearch_CreateTokenNode(IndexSpec* sp, const char* fieldName, const char* token) {
   QueryNode* ret = NewQueryNode(QN_TOKEN);
 
   ret->tn = (QueryTokenNode){
@@ -254,8 +246,8 @@ static QueryNode* RS_CreateTokenNode(IndexSpec* sp, const char* fieldName, const
   return ret;
 }
 
-static QueryNode* RS_CreateNumericNode(IndexSpec* sp, const char* field, double max, double min,
-                                       int includeMax, int includeMin) {
+QueryNode* RediSearch_CreateNumericNode(IndexSpec* sp, const char* field, double max, double min,
+                                        int includeMax, int includeMin) {
   QueryNode* ret = NewQueryNode(QN_NUMERIC);
   ret->nn.nf = NewNumericFilter(min, max, includeMin, includeMax);
   ret->nn.nf->fieldName = strdup(field);
@@ -263,7 +255,7 @@ static QueryNode* RS_CreateNumericNode(IndexSpec* sp, const char* field, double 
   return ret;
 }
 
-static QueryNode* RS_CreatePrefixNode(IndexSpec* sp, const char* fieldName, const char* s) {
+QueryNode* RediSearch_CreatePrefixNode(IndexSpec* sp, const char* fieldName, const char* s) {
   QueryNode* ret = NewQueryNode(QN_PREFX);
   ret->pfx =
       (QueryPrefixNode){.str = (char*)strdup(s), .len = strlen(s), .expanded = 0, .flags = 0};
@@ -273,8 +265,8 @@ static QueryNode* RS_CreatePrefixNode(IndexSpec* sp, const char* fieldName, cons
   return ret;
 }
 
-static QueryNode* RS_CreateLexRangeNode(IndexSpec* sp, const char* fieldName, const char* begin,
-                                        const char* end) {
+QueryNode* RediSearch_CreateLexRangeNode(IndexSpec* sp, const char* fieldName, const char* begin,
+                                         const char* end) {
   QueryNode* ret = NewQueryNode(QN_LEXRANGE);
   if (begin) {
     ret->lxrng.begin = begin;
@@ -288,7 +280,7 @@ static QueryNode* RS_CreateLexRangeNode(IndexSpec* sp, const char* fieldName, co
   return ret;
 }
 
-static QueryNode* RS_CreateTagNode(IndexSpec* sp, const char* field) {
+QueryNode* RediSearch_CreateTagNode(IndexSpec* sp, const char* field) {
   QueryNode* ret = NewQueryNode(QN_TAG);
   ret->tag.fieldName = strdup(field);
   ret->tag.len = strlen(field);
@@ -296,31 +288,33 @@ static QueryNode* RS_CreateTagNode(IndexSpec* sp, const char* field) {
   return ret;
 }
 
-static QueryNode* RS_CreateIntersectNode(IndexSpec* sp, int exact) {
+QueryNode* RediSearch_CreateIntersectNode(IndexSpec* sp, int exact) {
   QueryNode* ret = NewQueryNode(QN_PHRASE);
   ret->pn.exact = exact;
   return ret;
 }
 
-static QueryNode* RS_CreateUnionNode(IndexSpec* sp) {
+QueryNode* RediSearch_CreateUnionNode(IndexSpec* sp) {
   return NewQueryNode(QN_UNION);
 }
 
-static int RS_QueryNodeGetFieldMask(QueryNode* qn) {
+int RediSearch_QueryNodeGetFieldMask(QueryNode* qn) {
   return qn->opts.fieldMask;
 }
 
-#define RS_QueryNodeAddChild QueryNode_AddChild
+void RediSearch_QueryNodeAddChild(QueryNode* parent, QueryNode* child) {
+  QueryNode_AddChild(parent, child);
+}
 
-static void RS_QueryNodeClearChildren(QueryNode* qn) {
+void RediSearch_QueryNodeClearChildren(QueryNode* qn) {
   QueryNode_ClearChildren(qn, 1);
 }
 
-static QueryNode* RS_QueryNodeGetChild(QueryNode* qn, size_t ix) {
+QueryNode* RediSearch_QueryNodeGetChild(const QueryNode* qn, size_t ix) {
   return QueryNode_GetChild(qn, ix);
 }
 
-static size_t RS_QueryNodeNumChildren(const QueryNode* qn) {
+size_t RediSearch_QueryNodeNumChildren(const QueryNode* qn) {
   return QueryNode_NumChildren(qn);
 }
 
@@ -394,7 +388,7 @@ end:
 
   if (QueryError_HasError(&status) || it->internal == NULL) {
     if (it) {
-      RS_ResultsIteratorFree(it);
+      RediSearch_ResultsIteratorFree(it);
       it = NULL;
     }
     if (error) {
@@ -405,25 +399,25 @@ end:
   return it;
 }
 
-static RS_ApiIter* RS_IterateQuery(IndexSpec* sp, const char* s, size_t n, char** error) {
+RS_ApiIter* RediSearch_IterateQuery(IndexSpec* sp, const char* s, size_t n, char** error) {
   QueryInput input = {.qtype = QUERY_INPUT_STRING, .u = {.s = {s, .n = n}}};
   return handleIterCommon(sp, &input, error);
 }
 
-static RS_ApiIter* RS_GetResultsIterator(QueryNode* qn, IndexSpec* sp) {
+RS_ApiIter* RediSearch_GetResultsIterator(QueryNode* qn, IndexSpec* sp) {
   QueryInput input = {.qtype = QUERY_INPUT_NODE, .u = {.qn = qn}};
   return handleIterCommon(sp, &input, NULL);
 }
 
-static void RS_QueryNodeFree(QueryNode* qn) {
+void RediSearch_QueryNodeFree(QueryNode* qn) {
   QueryNode_Free(qn);
 }
 
-static int RS_QueryNodeType(QueryNode* qn) {
+int RediSearch_QueryNodeType(QueryNode* qn) {
   return qn->type;
 }
 
-static const void* RS_ResultsIteratorNext(RS_ApiIter* iter, IndexSpec* sp, size_t* len) {
+const void* RediSearch_ResultsIteratorNext(RS_ApiIter* iter, IndexSpec* sp, size_t* len) {
   while (iter->internal->Read(iter->internal->ctx, &iter->res) != INDEXREAD_EOF) {
     const RSDocumentMetadata* md = DocTable_Get(&sp->docs, iter->res->docId);
     if (md == NULL || ((md)->flags & Document_Deleted)) {
@@ -438,11 +432,11 @@ static const void* RS_ResultsIteratorNext(RS_ApiIter* iter, IndexSpec* sp, size_
   return NULL;
 }
 
-static double RS_ResultsIteratorGetScore(const RS_ApiIter* it) {
+double RediSearch_ResultsIteratorGetScore(const RS_ApiIter* it) {
   return it->scorer(&it->scargs, it->res, it->lastmd, 0);
 }
 
-static void RS_ResultsIteratorFree(RS_ApiIter* iter) {
+void RediSearch_ResultsIteratorFree(RS_ApiIter* iter) {
   if (iter->internal) {
     iter->internal->Free(iter->internal);
   } else {
@@ -457,40 +451,42 @@ static void RS_ResultsIteratorFree(RS_ApiIter* iter) {
   RWLOCK_RELEASE();
 }
 
-static void RS_ResultsIteratorReset(RS_ApiIter* iter) {
+void RediSearch_ResultsIteratorReset(RS_ApiIter* iter) {
   iter->internal->Rewind(iter->internal->ctx);
 }
 
-static RSIndexOptions* RS_CreateIndexOptions() {
+RSIndexOptions* RediSearch_CreateIndexOptions() {
   RSIndexOptions* ret = rm_calloc(1, sizeof(RSIndexOptions));
   ret->gcPolicy = GC_POLICY_NONE;
   return ret;
 }
-static void RS_FreeIndexOptions(RSIndexOptions* options) {
+
+void RediSearch_FreeIndexOptions(RSIndexOptions* options) {
   rm_free(options);
 }
 
-static void RS_IndexOptionsSetGetValueCallback(RSIndexOptions* options, RSGetValueCallback cb,
-                                               void* ctx) {
+void RediSearch_IndexOptionsSetGetValueCallback(RSIndexOptions* options, RSGetValueCallback cb,
+                                                void* ctx) {
   options->gvcb = cb;
   options->gvcbData = ctx;
 }
 
-static void RS_IndexOptionsSetFlags(RSIndexOptions* options, uint32_t flags) {
+void RediSearch_IndexOptionsSetFlags(RSIndexOptions* options, uint32_t flags) {
   options->flags = flags;
 }
 
-static void RS_IndexOptionsSetGCPolicy(RSIndexOptions* options, int policy) {
+void RediSearch_IndexOptionsSetGCPolicy(RSIndexOptions* options, int policy) {
   options->gcPolicy = policy;
 }
 
-#define REGISTER_API(name)                                                                  \
-  if (RedisModule_ExportSharedAPI(ctx, "RediSearch_" #name, RS_##name) != REDISMODULE_OK) { \
-    RedisModule_Log(ctx, "warning", "could not register RediSearch_" #name "\r\n");         \
-    return REDISMODULE_ERR;                                                                 \
+#define REGISTER_API(name)                                                          \
+  if (RedisModule_ExportSharedAPI(ctx, "RediSearch_" #name, RediSearch_##name) !=   \
+      REDISMODULE_OK) {                                                             \
+    RedisModule_Log(ctx, "warning", "could not register RediSearch_" #name "\r\n"); \
+    return REDISMODULE_ERR;                                                         \
   }
 
-int RS_InitializeLibrary(RedisModuleCtx* ctx) {
+int RediSearch_ExportCapi(RedisModuleCtx* ctx) {
   if (RedisModule_ExportSharedAPI == NULL) {
     RedisModule_Log(ctx, "warning", "Upgrade redis-server to use Redis Search's C API");
     return REDISMODULE_ERR;
