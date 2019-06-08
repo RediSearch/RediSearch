@@ -1974,7 +1974,7 @@ def testAlias(env):
     env.cmd('ft.create', 'idx', 'schema', 't1', 'text')
     env.cmd('ft.create', 'idx2', 'schema', 't1', 'text')
 
-    env.cmd('ft.alter', 'idx', 'alias', 'add', 'myIndex')
+    env.cmd('ft.aliasAdd', 'myIndex', 'idx')
     env.cmd('ft.add', 'myIndex', 'doc1', 1.0, 'fields', 't1', 'hello')
     r = env.cmd('ft.search', 'idx', 'hello')
     env.assertEqual([1, 'doc1', ['t1', 'hello']], r)
@@ -1982,36 +1982,40 @@ def testAlias(env):
     env.assertEqual(r, r2)
 
     # try to add the same alias again; should be an error
-    env.expect('ft.alter', 'idx2', 'alias', 'add', 'myIndex').raiseError()
-    env.expect('ft.alter', 'idx', 'alias', 'add', 'alias2').notRaiseError()
+    env.expect('ft.aliasAdd', 'myIndex', 'idx2').raiseError()
+    env.expect('ft.aliasAdd', 'alias2', 'idx').notRaiseError()
     # now delete the index
     env.cmd('ft.drop', 'myIndex')
 
     # index list should be cleared now. This can be tested by trying to alias
     # the old alias to different index
-    env.cmd('ft.alter', 'idx2', 'alias', 'add', 'myIndex')
-    env.cmd('ft.alter', 'idx2', 'alias', 'add', 'alias2')
+    env.cmd('ft.aliasAdd', 'myIndex', 'idx2')
+    env.cmd('ft.aliasAdd', 'alias2', 'idx2')
     env.cmd('ft.add', 'myIndex', 'doc2', 1.0, 'fields', 't1', 'hello')
     r = env.cmd('ft.search', 'alias2', 'hello')
     env.assertEqual([1L, 'doc2', ['t1', 'hello']], r)
 
     # check that aliasing one alias to another returns an error. This will
     # end up being confusing
-    env.expect('ft.alter', 'myIndex', 'alias', 'add', 'alias3').raiseError()
-    env.expect('ft.alter', 'myIndex', 'alias', 'del', 'alias2').raiseError()
+    env.expect('ft.aliasAdd', 'alias3', 'myIndex').raiseError()
 
     # check that deleting the alias works as expected
-    env.expect('ft.alter', 'idx2', 'alias', 'del', 'myIndex').notRaiseError()
+    env.expect('ft.aliasDel', 'myIndex').notRaiseError()
     env.expect('ft.search', 'myIndex', 'foo').raiseError()
     
     # create a new index and see if we can use the old name
     env.cmd('ft.create', 'idx3', 'schema', 't1', 'text')
     env.cmd('ft.add', 'idx3', 'doc3', 1.0, 'fields', 't1', 'foo')
-    env.cmd('ft.alter', 'idx3', 'alias', 'add', 'myIndex')
+    env.cmd('ft.aliasAdd', 'myIndex', 'idx3')
     # also, check that this works in rdb save
     for _ in env.retry_with_rdb_reload():
         r = env.cmd('ft.search', 'myIndex', 'foo')
         env.assertEqual([1L, 'doc3', ['t1', 'foo']], r)
+
+    # Check that we can move an alias from one index to another
+    env.cmd('ft.aliasUpdate', 'myIndex', 'idx2')
+    r = env.cmd('ft.search', 'myIndex', "hello")
+    env.assertEqual([1L, 'doc2', ['t1', 'hello']], r)
 
 def testNoCreate(env):
     env.cmd('ft.create', 'idx', 'schema', 'f1', 'text')

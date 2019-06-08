@@ -309,7 +309,7 @@ IndexSpec *IndexSpec_Load(RedisModuleCtx *ctx, const char *name, int openWrite);
  * The redis string is formatted, and is not the "plain" index name.
  * Impliest RSTRING
  */
-#define INDEXSPEC_LOAD_KEY_FORMATTED (0x08 | INDEXSPEC_LOAD_KEY_RSTRING)
+#define INDEXSPEC_LOAD_KEY_FORMATTED 0x08
 
 /**
  * Don't load or return the key. Should only be used in cases where the

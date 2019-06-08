@@ -319,23 +319,31 @@ OK or an error.
 
 ---
 
-## FT.ALTER ALIAS ADD
-## FT.ALTER ALIAS DEL
+## FT.ALIASADD
+## FT.ALIASUPDATE
+## FT.ALIASDEL
 
 ### Format
 
 ```
-FT.ALTER {index} ALIAS ADD {alias}
+FT.ALIASADD {name} {index}
+FT.ALIASUPDATE {name} {index}
+FT.ALIASDEL {name}
 FT.ALTER {index} ALIAS DEL {alias}
 ```
 
-The `ALIAS ADD` and `ALIAS DEL` commands will add or remove an alias from
+The `FT.ALIASADD` and `FT.ALIASDEL` commands will add or remove an alias from
 an index. Index aliases can be used to refer to actual indexes in data
 commands such as `FT.SEARCH` or `FT.ADD`. This allows an administrator
 to transparently redirect application queries to alternative indexes.
 
 Indexes can have more than one alias, though an alias cannot refer to another
 alias.
+
+The `FT.ALIASUPDATE` command differs from the `FT.ALIASADD` command in that
+it will remove the alias association with a previous index, if any. `FT.ALIASDD`
+will fail, on the other hand, if the alias is already associated with another
+index.
 
 ### Complexity
 

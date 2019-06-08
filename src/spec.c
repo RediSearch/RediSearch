@@ -803,6 +803,10 @@ done:
   if (isKeynameOwner) {
     RedisModule_FreeString(ctx, formatted);
   }
+  if ((options->flags & INDEXSPEC_LOAD_KEYLESS) && options->keyp) {
+    RedisModule_CloseKey(options->keyp);
+    options->keyp = NULL;
+  }
   return ret;
 }
 
