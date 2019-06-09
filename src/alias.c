@@ -4,7 +4,9 @@
 AliasTable *AliasTable_g = NULL;
 
 AliasTable *AliasTable_New(void) {
-  return dictCreate(&dictTypeHeapStrings, NULL);
+  AliasTable *t = rm_calloc(1, sizeof(*t));
+  t->d = dictCreate(&dictTypeHeapStrings, NULL);
+  return t;
 }
 
 void IndexAlias_InitGlobal(void) {
@@ -15,7 +17,7 @@ void IndexAlias_DestroyGlobal(void) {
   if (!AliasTable_g) {
     return;
   }
-  dictRelease(AliasTable_g);
+  dictRelease(AliasTable_g->d);
   AliasTable_g = NULL;
 }
 
@@ -23,7 +25,7 @@ int AliasTable_Add(AliasTable *table, const char *alias, IndexSpec *spec, int op
                    QueryError *error) {
   // look up and see if it exists:
   dictEntry *e, *existing = NULL;
-  e = dictAddRaw(table, (void *)alias, &existing);
+  e = dictAddRaw(table->d, (void *)alias, &existing);
   if (existing) {
     QueryError_SetError(error, QUERY_EINDEXEXISTS, "Alias already exists");
     return REDISMODULE_ERR;
@@ -33,6 +35,9 @@ int AliasTable_Add(AliasTable *table, const char *alias, IndexSpec *spec, int op
   if (!(options & INDEXALIAS_NO_BACKREF)) {
     char *duped = rm_strdup(alias);
     spec->aliases = array_ensure_append(spec->aliases, &duped, 1, char *);
+  }
+  if (table->on_add) {
+    table->on_add(alias, spec);
   }
   return REDISMODULE_OK;
 }
@@ -63,8 +68,11 @@ int AliasTable_Del(AliasTable *table, const char *alias, IndexSpec *spec, int op
     toFree = spec->aliases[idx];
     spec->aliases = array_del_fast(spec->aliases, idx);
   }
-  int rc = dictDelete(table, alias);
+  int rc = dictDelete(table->d, alias);
   assert(rc == DICT_OK);
+  if (table->on_del) {
+    table->on_del(alias, spec);
+  }
 
   if (toFree) {
     rm_free(toFree);
@@ -73,7 +81,7 @@ int AliasTable_Del(AliasTable *table, const char *alias, IndexSpec *spec, int op
 }
 
 IndexSpec *AliasTable_Get(AliasTable *tbl, const char *alias) {
-  dictEntry *e = dictFind(tbl, alias);
+  dictEntry *e = dictFind(tbl->d, alias);
   if (e) {
     return e->v.val;
   } else {
