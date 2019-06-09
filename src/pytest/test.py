@@ -2017,6 +2017,16 @@ def testAlias(env):
     r = env.cmd('ft.search', 'myIndex', "hello")
     env.assertEqual([1L, 'doc2', ['t1', 'hello']], r)
 
+    # Test that things like ft.get, ft.aggregate, etc. work
+    r = env.cmd('ft.get', 'myIndex', 'doc2')
+    env.assertEqual(['t1', 'hello'], r)
+
+    r = env.cmd('ft.aggregate', 'myIndex', 'hello', 'LOAD', '1', '@t1')
+    env.assertEqual([1, ['t1', 'hello']], r)
+
+    r = env.cmd('ft.del', 'myIndex', 'doc2')
+    env.assertEqual(1, r)
+
 def testNoCreate(env):
     env.cmd('ft.create', 'idx', 'schema', 'f1', 'text')
     env.expect('ft.add', 'idx', 'doc1', 1, 'nocreate', 'fields', 'f1', 'hello').raiseError()
