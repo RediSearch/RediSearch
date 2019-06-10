@@ -1,5 +1,8 @@
 #include "redismodule.h"
+
+#pragma GCC visibility push(default)
 REDISMODULE_INIT_SYMBOLS();
+#pragma GCC visibility pop
 
 #include "module.h"
 #include "version.h"
