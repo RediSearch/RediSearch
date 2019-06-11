@@ -153,30 +153,18 @@ RedisModuleString *fmtRedisScoreIndexKey(RedisSearchCtx *ctx, const char *term, 
 }
 
 RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName, bool resetTTL) {
-
-  RedisModuleString *keyName = RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, indexName);
-
-  RedisModuleKey *k = RedisModule_OpenKey(ctx, keyName, REDISMODULE_READ);
-  // printf("open key %s: %p\n", RedisModule_StringPtrLen(keyName, NULL), k);
-  // we do not allow empty indexes when loading an existing index
-  if (k == NULL || RedisModule_ModuleTypeGetType(k) != IndexSpecType) {
+  IndexLoadOptions lOpts = {.name = {.cstring = indexName}};
+  IndexSpec *sp = IndexSpec_LoadEx(ctx, &lOpts);
+  if (!sp) {
     return NULL;
-  }
-  IndexSpec *sp = RedisModule_ModuleTypeGetValue(k);
-
-  if ((sp->flags & Index_Temporary) && resetTTL) {
-    RedisModuleKey *temp = RedisModule_OpenKey(ctx, keyName, REDISMODULE_WRITE);
-    RedisModule_SetExpire(temp, sp->timeout * 1000);
-    RedisModule_CloseKey(temp);
   }
 
   RedisSearchCtx *sctx = rm_malloc(sizeof(*sctx));
   *sctx = (RedisSearchCtx){
       .spec = sp,
       .redisCtx = ctx,
-      .key = k,
-      .keyName = keyName,
-  };
+      .key = lOpts.keyp,
+      .keyName = RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, sp->name)};
   return sctx;
 }
 

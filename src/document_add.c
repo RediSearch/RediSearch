@@ -218,7 +218,7 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   }
 
   // Replicate *here*
-  RedisModule_Replicate(ctx, RS_SAFEADD_CMD, "v", argv + 1, argc - 1);
+  RedisModule_Replicate(ctx, RS_SAFEADD_CMD, "cv", sp->name, argv + 2, argc - 2);
   AddDocumentCtx_Submit(aCtx, &sctx, opts.options);
 
 cleanup:

@@ -12,7 +12,19 @@
 #include "gc.h"
 #include "synonym_map.h"
 
-typedef enum fieldType { FIELD_FULLTEXT, FIELD_NUMERIC, FIELD_GEO, FIELD_TAG } FieldType;
+#define IDXFLD_LEGACY_FULLTEXT 0
+#define IDXFLD_LEGACY_NUMERIC 1
+#define IDXFLD_LEGACY_GEO 2
+#define IDXFLD_LEGACY_TAG 3
+#define IDXFLD_LEGACY_MAX 3
+
+// New-style fields, for compatibility with multitype in 1.6
+typedef enum fieldType {
+  FIELD_FULLTEXT = 0x01,
+  FIELD_NUMERIC = 0x02,
+  FIELD_GEO = 0x04,
+  FIELD_TAG = 0x08
+} FieldType;
 
 #define NUMERIC_STR "NUMERIC"
 #define GEO_STR "GEO"
@@ -148,9 +160,8 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
   (Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets | Index_StoreNumeric | \
    Index_WideSchema)
 
-#define INDEX_CURRENT_VERSION 13
-// Those versions contains doc table as array, we modified it to be array of linked lists
-#define INDEX_MIN_COMPACTED_DOCTABLE_VERSION 12
+#define INDEX_CURRENT_VERSION 15
+
 #define INDEX_MIN_COMPAT_VERSION 2
 // Versions below this always store the frequency
 #define INDEX_MIN_NOFREQ_VERSION 6
@@ -166,8 +177,17 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
 
 #define INDEX_MIN_BINKEYS_VERSION 10
 
+// Those versions contains doc table as array, we modified it to be array of linked lists
+#define INDEX_MIN_COMPACTED_DOCTABLE_VERSION 12
+
 // Versions below this one do not contains expire information
 #define INDEX_MIN_EXPIRE_VERSION 13
+
+// Multitype; not implemented in 1.4, but needs to support new constant values
+#define INDEX_MIN_MULTITYPE_VERSION 14
+
+// Minimum version for alias support
+#define INDEX_MIN_ALIAS_VERSION 15
 
 #define Index_SupportsHighlight(spec) \
   (((spec)->flags & Index_StoreTermOffsets) && ((spec)->flags & Index_StoreByteOffsets))
@@ -198,6 +218,7 @@ typedef struct {
 
   RedisModuleCtx *strCtx;
   RedisModuleString **indexStrs;
+  char **aliases;
   long long timeout;
 } IndexSpec;
 
@@ -251,8 +272,44 @@ int IndexSpec_AddFieldsRedisArgs(IndexSpec *sp, RedisModuleString **argv, int ar
 
 IndexSpec *IndexSpec_Load(RedisModuleCtx *ctx, const char *name, int openWrite);
 
-IndexSpec *IndexSpec_LoadEx(RedisModuleCtx *ctx, RedisModuleString *formattedKey, int openWrite,
-                            RedisModuleKey **keyp);
+/** Load the index as writeable */
+#define INDEXSPEC_LOAD_WRITEABLE 0x01
+/** Don't consult the alias table when retrieving the index */
+#define INDEXSPEC_LOAD_NOALIAS 0x02
+/** The name of the index is in the format of a redis string */
+#define INDEXSPEC_LOAD_KEY_RSTRING 0x04
+
+/**
+ * The redis string is formatted, and is not the "plain" index name.
+ * Impliest RSTRING
+ */
+#define INDEXSPEC_LOAD_KEY_FORMATTED 0x08
+
+/**
+ * Don't load or return the key. Should only be used in cases where the
+ * spec is not persisted between threads
+ */
+#define INDEXSPEC_LOAD_KEYLESS 0x10
+
+typedef struct {
+  uint32_t flags;
+  union {
+    const char *cstring;
+    RedisModuleString *rstring;
+  } name;
+
+  /** key pointer. you should close this when done with the index */
+  RedisModuleKey *keyp;
+  /** name of alias lookup key to use */
+  const char *alookup;
+} IndexLoadOptions;
+
+
+/**
+ * Find and load the index using the specified parameters.
+ * @return the index spec, or NULL if the index does not exist
+ */
+IndexSpec *IndexSpec_LoadEx(RedisModuleCtx *ctx, IndexLoadOptions *options);
 
 // Global hook called when an index spec is created
 extern void (*IndexSpec_OnCreate)(const IndexSpec *sp);
@@ -287,6 +344,8 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, void *value);
 void IndexSpec_Digest(RedisModuleDigest *digest, void *value);
 int IndexSpec_RegisterType(RedisModuleCtx *ctx);
 // void IndexSpec_Free(void *value);
+
+void IndexSpec_ClearAliases(IndexSpec *sp);
 
 /*
  * Parse the field mask passed to a query, map field names to a bit mask passed down to the

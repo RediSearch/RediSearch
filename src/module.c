@@ -28,15 +28,7 @@
 #include "spell_check.h"
 #include "dictionary.h"
 #include "suggest.h"
-
-#define LOAD_INDEX(ctx, srcname, write)                                                     \
-  ({                                                                                        \
-    IndexSpec *sptmp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(srcname, NULL), write); \
-    if (sptmp == NULL) {                                                                    \
-      return RedisModule_ReplyWithError(ctx, "Unknown index name");                         \
-    }                                                                                       \
-    sptmp;                                                                                  \
-  })
+#include "alias.h"
 
 /* FT.SETPAYLOAD {index} {docId} {payload} */
 int SetPayloadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -489,7 +481,6 @@ int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisModule_AutoMemory(ctx);
 
   if (argc < 3 || argc > 4) return RedisModule_WrongArity(ctx);
-  RedisModule_ReplicateVerbatim(ctx);
 
   IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
   if (sp == NULL) {
@@ -533,7 +524,7 @@ int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       GCContext_OnDelete(sp->gc);
     }
   }
-
+  RedisModule_Replicate(ctx, "cv", RS_DEL_CMD, "cs", sp->name, argv[2]);
   return RedisModule_ReplyWithLongLong(ctx, rc);
 }
 
@@ -1088,6 +1079,66 @@ static int validateAofSettings(RedisModuleCtx *ctx) {
   return rc;
 }
 
+// FT.ALIASADD <NAME> <TARGET>
+static int AliasAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  ArgsCursor ac = {0};
+  ArgsCursor_InitRString(&ac, argv + 1, argc - 1);
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  IndexLoadOptions loadOpts = {
+      .name = {.rstring = argv[2]},
+      .flags = INDEXSPEC_LOAD_NOALIAS | INDEXSPEC_LOAD_KEYLESS | INDEXSPEC_LOAD_KEY_RSTRING};
+  IndexSpec *sptmp = IndexSpec_LoadEx(ctx, &loadOpts);
+  if (!sptmp) {
+    return RedisModule_ReplyWithError(ctx, "Unknown index name (or name is an alias itself)");
+  }
+  QueryError status = {0};
+  int rc = IndexAlias_Add(RedisModule_StringPtrLen(argv[1], NULL), sptmp, 0, &status);
+  if (rc != REDISMODULE_OK) {
+    return QueryError_ReplyAndClear(ctx, &status);
+  } else {
+    RedisModule_ReplicateVerbatim(ctx);
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+  }
+}
+
+static int AliasDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  if (argc != 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+  IndexLoadOptions lOpts = {.name = {.rstring = argv[1]},
+                            .flags = INDEXSPEC_LOAD_KEYLESS | INDEXSPEC_LOAD_KEY_RSTRING};
+  IndexSpec *sp = IndexSpec_LoadEx(ctx, &lOpts);
+  if (!sp) {
+    return RedisModule_ReplyWithError(ctx, "Alias does not exist");
+  }
+  QueryError status = {0};
+  if (IndexAlias_Del(RedisModule_StringPtrLen(argv[1], NULL), sp, 0, &status) != REDISMODULE_OK) {
+    return QueryError_ReplyAndClear(ctx, &status);
+  } else {
+    RedisModule_ReplicateVerbatim(ctx);
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+  }
+}
+
+static int AliasUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  IndexLoadOptions lOpts = {.name = {.rstring = argv[1]},
+                            .flags = INDEXSPEC_LOAD_KEYLESS | INDEXSPEC_LOAD_KEY_RSTRING};
+  IndexSpec *spOrig = IndexSpec_LoadEx(ctx, &lOpts);
+  if (spOrig) {
+    QueryError status = {0};
+    if (IndexAlias_Del(RedisModule_StringPtrLen(argv[1], NULL), spOrig, 0, &status) !=
+        REDISMODULE_OK) {
+      return QueryError_ReplyAndClear(ctx, &status);
+    }
+  }
+  return AliasAddCommand(ctx, argv, argc);
+}
+
 int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   // Check that redis supports thread safe context. RC3 or below doesn't
@@ -1134,6 +1185,8 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   // Init cursors mechanism
   CursorList_Init(&RSCursors);
+
+  IndexAlias_InitGlobal();
 
   RedisModule_Log(ctx, "notice", "Initialized thread pool!");
 
@@ -1239,5 +1292,10 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   RM_TRY(RedisModule_CreateCommand, ctx, RS_DICT_DUMP, DictDumpCommand, "readonly", 1, 1, 1);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_CONFIG, ConfigCommand, "readonly", 1, 1, 1);
+
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASADD, AliasAddCommand, "readonly", 1, 1, 1);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASDEL, AliasDelCommand, "readonly", 1, 1, 1);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASUPDATE, AliasUpdateCommand, "readonly", 1, 1, 1);
+
   return REDISMODULE_OK;
 }
