@@ -18,6 +18,7 @@ void IndexAlias_DestroyGlobal(void) {
     return;
   }
   dictRelease(AliasTable_g->d);
+  rm_free(AliasTable_g);
   AliasTable_g = NULL;
 }
 

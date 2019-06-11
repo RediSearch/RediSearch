@@ -848,24 +848,29 @@ int AlterIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 }
 
-// FT.ALIASADD <NAME> <TARGET>
-static int AliasAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+static int aliasAddCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                          QueryError *error) {
   ArgsCursor ac = {0};
   ArgsCursor_InitRString(&ac, argv + 1, argc - 1);
-  if (argc != 3) {
-    return RedisModule_WrongArity(ctx);
-  }
   IndexLoadOptions loadOpts = {
       .name = {.rstring = argv[2]},
       .flags = INDEXSPEC_LOAD_NOALIAS | INDEXSPEC_LOAD_KEYLESS | INDEXSPEC_LOAD_KEY_RSTRING};
   IndexSpec *sptmp = IndexSpec_LoadEx(ctx, &loadOpts);
   if (!sptmp) {
-    return RedisModule_ReplyWithError(ctx, "Unknown index name (or name is an alias itself)");
+    QueryError_SetError(error, QUERY_ENOINDEX, "Unknown index name (or name is an alias itself)");
+    return REDISMODULE_ERR;
   }
-  QueryError status = {0};
-  int rc = IndexAlias_Add(RedisModule_StringPtrLen(argv[1], NULL), sptmp, 0, &status);
-  if (rc != REDISMODULE_OK) {
-    return QueryError_ReplyAndClear(ctx, &status);
+  return IndexAlias_Add(RedisModule_StringPtrLen(argv[1], NULL), sptmp, 0, error);
+}
+
+// FT.ALIASADD <NAME> <TARGET>
+static int AliasAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  QueryError e = {0};
+  if (aliasAddCommon(ctx, argv, argc, &e) != REDISMODULE_OK) {
+    return QueryError_ReplyAndClear(ctx, &e);
   } else {
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
@@ -893,17 +898,29 @@ static int AliasUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
   if (argc != 3) {
     return RedisModule_WrongArity(ctx);
   }
+
+  QueryError status = {0};
   IndexLoadOptions lOpts = {.name = {.rstring = argv[1]},
                             .flags = INDEXSPEC_LOAD_KEYLESS | INDEXSPEC_LOAD_KEY_RSTRING};
   IndexSpec *spOrig = IndexSpec_LoadEx(ctx, &lOpts);
   if (spOrig) {
-    QueryError status = {0};
     if (IndexAlias_Del(RedisModule_StringPtrLen(argv[1], NULL), spOrig, 0, &status) !=
         REDISMODULE_OK) {
       return QueryError_ReplyAndClear(ctx, &status);
     }
   }
-  return AliasAddCommand(ctx, argv, argc);
+  if (aliasAddCommon(ctx, argv, argc, &status) != REDISMODULE_OK) {
+    // Add back the previous index.. this shouldn't fail
+    if (spOrig) {
+      QueryError e2 = {0};
+      const char *alias = RedisModule_StringPtrLen(argv[1], NULL);
+      IndexAlias_Add(alias, spOrig, 0, &e2);
+      QueryError_ClearError(&e2);
+    }
+    return QueryError_ReplyAndClear(ctx, &status);
+  } else {
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+  }
 }
 
 int ConfigCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
