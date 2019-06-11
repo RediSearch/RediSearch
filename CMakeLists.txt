@@ -86,6 +86,9 @@ ADD_LIBRARY(redisearch SHARED ${FINAL_OBJECTS} src/module-init/module-init.c)
 SET_TARGET_PROPERTIES(redisearch PROPERTIES PREFIX "")
 SET_TARGET_PROPERTIES(redisearch PROPERTIES SUFFIX ".so")
 TARGET_LINK_LIBRARIES(redisearchS -lm -lc -ldl)
+IF (APPLE)
+    SET_TARGET_PROPERTIES(redisearch PROPERTIES LINK_FLAGS "-undefined dynamic_lookup")
+ENDIF()
 
 IF (RS_RUN_TESTS)
     ADD_SUBDIRECTORY(src/tests)
@@ -97,6 +100,8 @@ ENDIF()
 
 GET_TARGET_PROPERTY(RMTEST_MODULE_PATH redisearch LOCATION)
 GET_TARGET_PROPERTY(RMTEST_EXT_PATH example_extension LOCATION)
+
+ADD_LIBRARY(apistubs SHARED src/c_utils/api_stubs.c)
 
 CONFIGURE_FILE(cmake/rmtest.config.in
     ${PROJECT_BINARY_DIR}/rmtest.config.default)
