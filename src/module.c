@@ -484,7 +484,7 @@ int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (sp->gc) {
       GCContext_OnDelete(sp->gc);
     }
-    RedisModule_Replicate(ctx, RS_DEL_CMD, "c", sp->name);
+    RedisModule_Replicate(ctx, RS_DEL_CMD, "cs", sp->name, argv[2]);
   }
   return RedisModule_ReplyWithLongLong(ctx, rc);
 }
