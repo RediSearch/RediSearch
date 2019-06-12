@@ -1,5 +1,8 @@
 #include "redismodule.h"
+
+#pragma GCC visibility push(default)
 REDISMODULE_INIT_SYMBOLS();
+#pragma GCC visibility pop
 
 #include "module.h"
 #include "version.h"
@@ -14,12 +17,14 @@ REDISMODULE_INIT_SYMBOLS();
 #include "aggregate/aggregate.h"
 #include "ext/default.h"
 
+#ifndef RS_NO_ONLOAD
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (RedisModule_Init(ctx, "ft", REDISEARCH_MODULE_VERSION, REDISMODULE_APIVER_1) ==
       REDISMODULE_ERR)
     return REDISMODULE_ERR;
   return RediSearch_InitModuleInternal(ctx, argv, argc);
 }
+#endif
 
 /**
  * Check if we can run under the current AOF configuration. Returns true

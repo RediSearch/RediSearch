@@ -8,7 +8,12 @@
 extern "C" {
 #endif
 
-typedef struct dict AliasTable;
+typedef struct {
+  struct dict *d;
+  void (*on_add)(const char *alias, const IndexSpec *spec);
+  void (*on_del)(const char *alias, const IndexSpec *spec);
+} AliasTable;
+
 extern AliasTable *AliasTable_g;
 
 // Do not access or otherwise touch the backreference in the

@@ -549,7 +549,7 @@ int Indexer_Add(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx) {
 // todo: remove the withIndexThread var once we switch to threadpool
 DocumentIndexer *NewIndexer(IndexSpec *spec) {
   DocumentIndexer *indexer = calloc(1, sizeof(*indexer));
-  if (spec->flags & Index_Temporary) {
+  if ((spec->flags & Index_Temporary) || RSGlobalConfig.concurrentMode == 0) {
     indexer->options |= INDEXER_THREADLESS;
   }
   indexer->head = indexer->tail = NULL;

@@ -1257,6 +1257,9 @@ IndexIterator *NewOptionalIterator(IndexIterator *it, t_docId maxDocId, double w
     nc->childCT = IITER_GET_CRITERIA_TESTER(nc->child);
     ret->Read = OI_ReadUnsorted;
   }
+  if (!nc->child) {
+    nc->child = NewEmptyIterator();
+  }
 
   return ret;
 }
