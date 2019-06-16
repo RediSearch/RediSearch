@@ -167,15 +167,20 @@ cleanup:
 static int evalProperty(ExprEval *eval, const RSLookupExpr *e, RSValue *res) {
   if (!e->lookupObj) {
     // No lookup object. This means that the key does not exist
-    QueryError_SetError(eval->err, QUERY_ENOPROPKEY, NULL);
+    // Note: Because this is evaluated for each row potentially, do not assume
+    // that query error is present:
+    if (eval->err) {
+      QueryError_SetError(eval->err, QUERY_ENOPROPKEY, NULL);
+    }
     return 0;
   }
 
   /** Find the actual value */
   RSValue *value = RLookup_GetItem(e->lookupObj, eval->srcrow);
   if (!value) {
-    // RLookupRow_Dump(eval->srcrow);
-    QueryError_SetError(eval->err, QUERY_ENOPROPVAL, NULL);
+    if (eval->err) {
+      QueryError_SetError(eval->err, QUERY_ENOPROPVAL, NULL);
+    }
     return 0;
   }
 
@@ -208,9 +213,13 @@ int ExprEval_Eval(ExprEval *evaluator, RSValue *result) {
 }
 
 int ExprAST_GetLookupKeys(RSExpr *expr, RLookup *lookup, QueryError *err) {
-#define RECURSE(v)                                             \
-  if (ExprAST_GetLookupKeys(v, lookup, err) != EXPR_EVAL_OK) { \
-    return EXPR_EVAL_ERR;                                      \
+#define RECURSE(v)                                                                             \
+  if (!v) {                                                                                    \
+    QueryError_SetErrorFmt(err, QUERY_EEXPR, "Missing (or badly formatted) value for %s", #v); \
+    return EXPR_EVAL_ERR;                                                                      \
+  }                                                                                            \
+  if (ExprAST_GetLookupKeys(v, lookup, err) != EXPR_EVAL_OK) {                                 \
+    return EXPR_EVAL_ERR;                                                                      \
   }
 
   switch (expr->t) {

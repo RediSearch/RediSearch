@@ -484,7 +484,7 @@ int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (sp->gc) {
       GCContext_OnDelete(sp->gc);
     }
-    RedisModule_Replicate(ctx, RS_DEL_CMD, "c", sp->name);
+    RedisModule_Replicate(ctx, RS_DEL_CMD, "cs", sp->name, argv[2]);
   }
   return RedisModule_ReplyWithLongLong(ctx, rc);
 }
@@ -872,6 +872,7 @@ static int AliasAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
   if (aliasAddCommon(ctx, argv, argc, &e) != REDISMODULE_OK) {
     return QueryError_ReplyAndClear(ctx, &e);
   } else {
+    RedisModule_ReplicateVerbatim(ctx);
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
 }
@@ -890,6 +891,7 @@ static int AliasDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
   if (IndexAlias_Del(RedisModule_StringPtrLen(argv[1], NULL), sp, 0, &status) != REDISMODULE_OK) {
     return QueryError_ReplyAndClear(ctx, &status);
   } else {
+    RedisModule_ReplicateVerbatim(ctx);
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
 }
@@ -919,6 +921,7 @@ static int AliasUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
     }
     return QueryError_ReplyAndClear(ctx, &status);
   } else {
+    RedisModule_ReplicateVerbatim(ctx);
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
 }
