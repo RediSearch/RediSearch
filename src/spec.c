@@ -667,7 +667,6 @@ IndexSpec *IndexSpec_LoadEx(RedisModuleCtx *ctx, IndexLoadOptions *options) {
       goto done;  // doesn't exist.
     }
     IndexSpec *aliasTarget = ret = IndexAlias_Get(ixname);
-    printf("Checking alias lookup.. %s => %p\n", ixname, ret);
     if (aliasTarget && (options->flags & INDEXSPEC_LOAD_KEYLESS) == 0) {
       if (isKeynameOwner) {
         RedisModule_FreeString(ctx, formatted);
