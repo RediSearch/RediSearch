@@ -18,6 +18,7 @@ GIT_STATUS_PATTERNS = [
 
 IGNPTRN = [
         'src/aggregate/expr/lexer.c',
+        'src/dep/cndict/cndict_data.c',
         'src/redismodule.h',
         'src/dep/gtest'
 ]
