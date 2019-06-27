@@ -1,0 +1,77 @@
+#include <gtest/gtest.h>
+#include "stemmer.h"
+#include "tokenize.h"
+#include <set>
+
+class TokenizerTest : public ::testing::Test {};
+
+TEST_F(TokenizerTest, testTokenize) {
+  Stemmer *st = NewStemmer(SnowballStemmer, "english");
+  RSTokenizer *tk = GetSimpleTokenizer(st, DefaultStopWordList());
+  char *txt = strdup("hello worlds    - - -,,, . . . -=- hello\\-world to be שלום עולם");
+  const char *expected[] = {"hello", "worlds", "hello-world", "שלום", "עולם", "\\"};
+  const char *stems[] = {NULL, "+world", NULL, NULL, NULL, NULL, NULL};
+  tk->Start(tk, txt, strlen(txt), TOKENIZE_DEFAULT_OPTIONS);
+  Token tok;
+  size_t i = 0;
+  while (tk->Next(tk, &tok)) {
+    ASSERT_EQ(i + 1, tok.pos);
+    ASSERT_EQ(tok.tokLen, strlen(expected[i]));
+    std::string got(tok.tok, tok.tokLen);
+    ASSERT_STREQ(got.c_str(), expected[i]);
+    if (!stems[i]) {
+      ASSERT_TRUE(tok.stem == NULL);
+    } else {
+      std::string gotStem(tok.stem, tok.stemLen);
+      ASSERT_STREQ(gotStem.c_str(), stems[i]);
+    }
+    i++;
+  }
+  free(txt);
+  st->Free(st);
+  tk->Free(tk);
+}
+
+struct MyToken {
+  std::string token;
+  std::string stem;
+  std::string raw;
+
+  MyToken(const Token &t) {
+    if (t.raw) {
+      raw.assign(t.raw, t.rawLen);
+    }
+    if (t.tok) {
+      token.assign(t.tok, t.tok);
+    }
+    if (t.stem) {
+      stem.assign(t.stem, t.stemLen);
+    }
+  }
+};
+
+TEST_F(TokenizerTest, testChineseMixed) {
+  auto tk = NewChineseTokenizer(NULL, NULL, 0);
+  char *txt = strdup(
+      "同时支持对 UTF-8/GBK \\\\ 编码的切分，hello-world hello\\-world \\:\\:world \\:\\:支持 php5 "
+      "和 "
+      "php7 扩展和 sphinx token 插件 \\\\ \\");
+  tk->Start(tk, txt, strlen(txt), 0);
+  Token t = {0};
+  size_t pos = 1;
+  std::set<std::string> tokens;
+  while (tk->Next(tk, &t)) {
+    ASSERT_EQ(t.pos, pos);
+    std::string tok(t.tok, t.tokLen);
+    tokens.insert(tok);
+    // printf("inserted %s\n", tok.c_str());
+    pos++;
+  }
+  ASSERT_NE(tokens.end(), tokens.find("::支持"));
+  ASSERT_NE(tokens.end(), tokens.find("hello-world"));
+  ASSERT_NE(tokens.end(), tokens.find("::world"));
+  // FIXME: Current parsing behavior makes this really odd..
+  //   ASSERT_NE(tokens.end(), tokens.find("\\"));
+  tk->Free(tk);
+  free(txt);
+}
