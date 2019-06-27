@@ -695,12 +695,15 @@ static void II_TesterFree(struct IndexCriteriaTester *ct) {
 
 static IndexCriteriaTester *II_GetCriteriaTester(void *ctx) {
   IntersectIterator *ic = ctx;
+  if (!ic->testers) {
+    return NULL;
+  }
+
   IICriteriaTester *ict = rm_malloc(sizeof(*ict));
   for (size_t i = 0; i < array_len(ic->its); ++i) {
     ic->testers = array_append(ic->testers, IITER_GET_CRITERIA_TESTER(ic->its[i]));
   }
   ict->children = ic->testers;
-  ic->testers = array_new(IndexCriteriaTester *, 0);
   ict->base.Test = II_Test;
   ict->base.Free = II_TesterFree;
   return &ict->base;
