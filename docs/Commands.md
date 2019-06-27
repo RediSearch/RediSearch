@@ -230,7 +230,7 @@ A special status `NOADD` is returned if an `IF` condition evaluated to false.
 ### Warning!!!
 
 FT.ADD will actually create a hash in Redis with the given fields and value. This means that if the hash already exists, it will override with the new values. Moreover, if you try to add a document with the same id to two different indexes one of them will override the other and you will get wrong responses from one of the indexes.
-For this reason its recommended to create global unique documents ids (can be achieve by adding the index name to the document id as prefix).
+For this reason, it is recommended to create global unique documents ids (this can e.g. be achieved by adding the index name to the document id as prefix).
 
 ## FT.ADDHASH
 
