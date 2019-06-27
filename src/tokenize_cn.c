@@ -1,15 +1,21 @@
 #include "tokenize.h"
+#include "toksep.h"
 #include "config.h"
 #include "dep/friso/friso.h"
 #include "cndict_loader.h"
+#include "util/minmax.h"
 #include <assert.h>
 
 static friso_config_t config_g;
 static friso_t friso_g;
 
+#define CNTOKENIZE_BUF_MAX 256
+
 typedef struct {
   RSTokenizer base;
   friso_task_t fTask;
+  char escapebuf[CNTOKENIZE_BUF_MAX];
+  size_t nescapebuf;
 } cnTokenizer;
 
 // TODO: This is just a global init
@@ -45,11 +51,34 @@ static void cnTokenizer_Start(RSTokenizer *base, char *text, size_t len, uint32_
   base->ctx.len = len;
   base->ctx.options = options;
   friso_set_text(self->fTask, text);
+  self->nescapebuf = 0;
+}
+
+// check if the word has a trailing escape. assumes NUL-termination
+static int hasTrailingEscape(const char *s, size_t n) {
+  if (s[n] != '\\') {
+    return 0;
+  }
+  return istoksep(s[n + 1]);
+}
+
+static int appendToEscbuf(cnTokenizer *cn, const char *s, size_t n) {
+  size_t toCp = Min(n, CNTOKENIZE_BUF_MAX - cn->nescapebuf);
+  memcpy(cn->escapebuf + cn->nescapebuf, s, toCp);
+  cn->nescapebuf += toCp;
+  // printf("Added %.*s to escbuf\n", (int)n, s);
+  return toCp == n;
 }
 
 static uint32_t cnTokenizer_Next(RSTokenizer *base, Token *t) {
   cnTokenizer *self = (cnTokenizer *)base;
   TokenizerCtx *ctx = &base->ctx;
+
+  int useEscBuf = 0;
+  int inEscape = 0;
+  int tokInit = 0;
+  self->nescapebuf = 0;
+
   while (1) {
     friso_token_t tok = config_g->next_token(friso_g, config_g, self->fTask);
     if (tok == NULL) {
@@ -62,31 +91,70 @@ static uint32_t cnTokenizer_Next(RSTokenizer *base, Token *t) {
     }
 
     switch (tok->type) {
-      // Skip words we know we don't care about.
+        // Skip words we know we don't care about.
       case __LEX_STOPWORDS__:
-      case __LEX_PUNC_WORDS__:
       case __LEX_ENPUN_WORDS__:
       case __LEX_CJK_UNITS__:
       case __LEX_NCSYN_WORDS__:
+        inEscape = 0;
         continue;
+
+      case __LEX_PUNC_WORDS__:
+        if (inEscape && istoksep(tok->word[0])) {
+          appendToEscbuf(self, tok->word, tok->length);
+          inEscape = 0;
+          continue;
+        }
+
+        if (tok->word[0] == '\\') {
+          if (istoksep(ctx->text[tok->offset + 1])) {
+            inEscape = 1;
+            useEscBuf = 1;
+            t->tok = self->escapebuf;
+          }
+        }
+        continue;
+
       default:
         break;
     }
 
-    // fprintf(stderr, "Pos: %u. Offset: %u. Len: %u. RLen: %u. Type: %u\n", tok->pos, tok->offset,
-    //         tok->length, tok->rlen, tok->type);
+    inEscape = 0;
+    const char *bufstart = ctx->text + tok->offset;
+    const char *bufend = ctx->text + ctx->len;
 
     // We don't care if it's english, chinese, or a mix. They all get treated the same in
     // the index.
-    *t = (Token){.tok = tok->word,
-                 .tokLen = tok->length,
-                 .raw = ctx->text + tok->offset,
-                 .rawLen = tok->rlen,
-                 .stem = NULL,
-                 .flags = Token_CopyRaw | Token_CopyStem,
-                 .pos = ++ctx->lastOffset};
+    if (!tokInit) {
+      t->rawLen = tok->rlen;
+      t->raw = ctx->text + tok->offset;
+      t->stem = NULL;
+      t->flags = Token_CopyRaw | Token_CopyStem;
+      t->pos = ++ctx->lastOffset;
+      tokInit = 1;
+    } else {
+      t->rawLen = bufend - t->raw;
+    }
 
-    return t->pos;
+    // if this is not the terminator of the word, continue..
+    if (hasTrailingEscape(bufstart, tok->rlen)) {
+      inEscape = 1;
+      useEscBuf = 1;
+      t->tok = self->escapebuf;
+      t->tokLen = self->nescapebuf;
+    }
+
+    if (useEscBuf) {
+      appendToEscbuf(self, tok->word, tok->length);
+      t->tokLen = self->nescapebuf;
+    } else {
+      // not an escape
+      t->tok = tok->word;
+      t->tokLen = tok->length;
+    }
+    if (!inEscape) {
+      return t->pos;
+    }
   }
 }
 
