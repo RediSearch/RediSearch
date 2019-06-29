@@ -40,6 +40,8 @@ static void freeDocumentContext(void *p) {
 
 #define DUP_FIELD_ERRSTR "Requested to index field twice"
 
+#define FIELD_IS_VALID(aCtx, ix) ((aCtx)->fspecs[ix].name != NULL)
+
 static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Document *base,
                                       size_t oldFieldCount) {
   aCtx->stateFlags &= ~ACTX_F_INDEXABLES;
@@ -331,7 +333,8 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
    * to do it
    */
   for (size_t ii = 0; ii < aCtx->doc.numFields; ++ii) {
-    if (FIELD_IS(aCtx->fspecs + ii, INDEXFLD_T_TAG) && aCtx->fdatas[ii].tags) {
+    if (FIELD_IS_VALID(aCtx, ii) && FIELD_IS(aCtx->fspecs + ii, INDEXFLD_T_TAG) &&
+        aCtx->fdatas[ii].tags) {
       TagIndex_FreePreprocessedData(aCtx->fdatas[ii].tags);
       aCtx->fdatas[ii].tags = NULL;
     }
