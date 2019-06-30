@@ -1911,6 +1911,9 @@ def testIssue621(env):
     env.expect('ft.add', 'test', 'a', '1', 'REPLACE', 'PARTIAL', 'FIELDS', 'title', 'bar').equal('OK')
     env.expect('ft.search', 'test', '@uuid:{foo}').equal([1L, 'a', ['uuid', 'foo', 'title', 'bar']])
 
+def testIssue739(env):
+    env.expect('FT.CREATE', 'idx1', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
+    env.expect('FT.SEARCH', 'idx1', 'idx1', '%132s123s1234%').raiseError().contains('Unknown keyword')
 
 def testAlias(env):
     env.cmd('ft.create', 'idx', 'schema', 't1', 'text')
