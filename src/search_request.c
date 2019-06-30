@@ -20,7 +20,7 @@
 #undef SET_ERR
 #undef FMT_ERR
 #define SET_ERR(status, s) QueryError_SetError(status, QUERY_EKEYWORD, s)
-#define FMT_ERR(unused, s, ...) QueryError_SetErrorFmt(status, QUERY_EKEYWORD, ##__VA_ARGS__)
+#define FMT_ERR(unused, s, ...) QueryError_SetErrorFmt(status, QUERY_EKEYWORD, s, ##__VA_ARGS__)
 
 /**
  * Handler signature. argv and argc are the original arguments passed (for the
