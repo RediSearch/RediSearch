@@ -9,7 +9,7 @@ TEST_F(TokenizerTest, testTokenize) {
   Stemmer *st = NewStemmer(SnowballStemmer, "english");
   RSTokenizer *tk = GetSimpleTokenizer(st, DefaultStopWordList());
   char *txt = strdup("hello worlds    - - -,,, . . . -=- hello\\-world to be שלום עולם");
-  const char *expected[] = {"hello", "worlds", "hello-world", "שלום", "עולם", "\\"};
+  const char *expected[] = {"hello", "worlds", "hello-world", "שלום", "עולם"};
   const char *stems[] = {NULL, "+world", NULL, NULL, NULL, NULL, NULL};
   tk->Start(tk, txt, strlen(txt), TOKENIZE_DEFAULT_OPTIONS);
   Token tok;
@@ -52,10 +52,23 @@ struct MyToken {
 
 TEST_F(TokenizerTest, testChineseMixed) {
   auto tk = NewChineseTokenizer(NULL, NULL, 0);
-  char *txt = strdup(
+  std::string tokstr(
       "同时支持对 UTF-8/GBK \\\\ 编码的切分，hello-world hello\\-world \\:\\:world \\:\\:支持 php5 "
+      "trailing\\-backslash\\- hi "
       "和 "
-      "php7 扩展和 sphinx token 插件 \\\\ \\");
+      "multiple\\ words\\ with\\ spaces "
+      "multiple\\-words\\-with\\-hyphens "
+      "php7 扩展和 sphinx token 插件 ");
+  // append a very large token, too
+  for (size_t ii = 0; ii < 20; ++ii) {
+    tokstr.append(20, 'a');
+    tokstr.append(1, '\\');
+    tokstr.append(1, ' ');
+  }
+  tokstr += " trailing trailing2";
+  // printf("tokstr: %s\n", tokstr.c_str());
+
+  char *txt = strdup(tokstr.c_str());
   tk->Start(tk, txt, strlen(txt), 0);
   Token t = {0};
   size_t pos = 1;
@@ -64,14 +77,43 @@ TEST_F(TokenizerTest, testChineseMixed) {
     ASSERT_EQ(t.pos, pos);
     std::string tok(t.tok, t.tokLen);
     tokens.insert(tok);
-    // printf("inserted %s\n", tok.c_str());
+    // printf("inserted %s (n=%d)\n", tok.c_str(), tok.size());
     pos++;
   }
   ASSERT_NE(tokens.end(), tokens.find("::支持"));
   ASSERT_NE(tokens.end(), tokens.find("hello-world"));
   ASSERT_NE(tokens.end(), tokens.find("::world"));
+  ASSERT_NE(tokens.end(), tokens.find("trailing2"));
+  ASSERT_NE(
+      tokens.end(),
+      tokens.find(
+          " aaaaaaaaaaaaaaaaaaaa aaaaaaaaaaaaaaaaaaaa aaaaaaaaaaaaaaaaaaaa aaaaaaaaaaaaaaaaaaaa "
+          "aaaaaaaaaaaaaaaaaaaa aaaaaaaaaaaaaaaaaaaa aaaaaaaaaaaaaaaaaaaa trailing"));
+  ASSERT_NE(tokens.end(), tokens.find("multiple words with spaces"));
+  ASSERT_NE(tokens.end(), tokens.find("multiple-words-with-hyphens"));
   // FIXME: Current parsing behavior makes this really odd..
   //   ASSERT_NE(tokens.end(), tokens.find("\\"));
+  tk->Free(tk);
+  free(txt);
+}
+
+TEST_F(TokenizerTest, testTrailingEscapes) {
+  auto tk = NewChineseTokenizer(NULL, NULL, 0);
+  char *txt = strdup("hello world\\ ");
+  tk->Start(tk, txt, strlen(txt), 0);
+
+  std::set<std::string> tokens;
+  Token t;
+  size_t pos = 1;
+  while (tk->Next(tk, &t)) {
+    ASSERT_EQ(t.pos, pos);
+    std::string tok(t.tok, t.tokLen);
+    tokens.insert(tok);
+    // printf("inserted %s (n=%d)\n", tok.c_str(), tok.size());
+    pos++;
+  }
+  ASSERT_NE(tokens.end(), tokens.find("hello"));
+  ASSERT_NE(tokens.end(), tokens.find("world "));  // note the space
   tk->Free(tk);
   free(txt);
 }
