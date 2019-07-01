@@ -699,10 +699,15 @@ static IndexCriteriaTester *II_GetCriteriaTester(void *ctx) {
     return NULL;
   }
 
-  IICriteriaTester *ict = rm_malloc(sizeof(*ict));
   for (size_t i = 0; i < array_len(ic->its); ++i) {
+    IndexCriteriaTester *sub = IITER_GET_CRITERIA_TESTER(ic->its[i]);
+    if (!sub) {
+      return NULL;
+    }
     ic->testers = array_append(ic->testers, IITER_GET_CRITERIA_TESTER(ic->its[i]));
   }
+
+  IICriteriaTester *ict = rm_malloc(sizeof(*ict));
   ict->children = ic->testers;
   ict->base.Test = II_Test;
   ict->base.Free = II_TesterFree;
