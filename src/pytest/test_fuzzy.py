@@ -53,3 +53,8 @@ def testFuzzySyntaxError(env):
         except Exception as e:
             error = str(e)
         env.assertTrue('Syntax error' in error)
+
+def testFuzzyWithNumbersOnly(env):
+    env.expect('ft.create', 'idx', 'schema', 'test', 'TEXT', 'SORTABLE').equal('OK')
+    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', '12345').equal('OK')
+    env.expect('ft.search', 'idx', '%%21345%%').equal([1, 'doc1', ['test', '12345']])

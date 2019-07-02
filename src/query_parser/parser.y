@@ -390,17 +390,17 @@ prefix(A) ::= PREFIX(B) . [PREFIX] {
 // Fuzzy terms
 /////////////////////////////////////////////////////////////////
 
-expr(A) ::=  PERCENT TERM(B) PERCENT. [PREFIX] {
+expr(A) ::=  PERCENT term(B) PERCENT. [PREFIX] {
     B.s = strdupcase(B.s, B.len);
     A = NewFuzzyNode(ctx, B.s, strlen(B.s), 1);
 }
 
-expr(A) ::= PERCENT PERCENT TERM(B) PERCENT PERCENT. [PREFIX] {
+expr(A) ::= PERCENT PERCENT term(B) PERCENT PERCENT. [PREFIX] {
     B.s = strdupcase(B.s, B.len);
     A = NewFuzzyNode(ctx, B.s, strlen(B.s), 2);
 }
 
-expr(A) ::= PERCENT PERCENT PERCENT TERM(B) PERCENT PERCENT PERCENT. [PREFIX] {
+expr(A) ::= PERCENT PERCENT PERCENT term(B) PERCENT PERCENT PERCENT. [PREFIX] {
     B.s = strdupcase(B.s, B.len);
     A = NewFuzzyNode(ctx, B.s, strlen(B.s), 3);
 }

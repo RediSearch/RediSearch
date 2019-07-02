@@ -13,7 +13,7 @@ RUN set -ex;\
     make -j4; \
     pip install git+https://github.com/RedisLabsModules/RLTest; \
     pip install redis-py-cluster; \
-    make test;
+    ctest -V;
 
 # Package the runner
 FROM redis:latest
