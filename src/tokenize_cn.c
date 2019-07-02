@@ -65,9 +65,6 @@ static int hasTrailingEscape(const char *s, size_t n) {
 static int appendToEscbuf(cnTokenizer *cn, const char *s, size_t n) {
   size_t toCp = Min(n, CNTOKENIZE_BUF_MAX - cn->nescapebuf);
   memcpy(cn->escapebuf + cn->nescapebuf, s, toCp);
-  if (toCp == 0) {
-    // printf("Couldn't append; n=%u\n", n);
-  }
   cn->nescapebuf += toCp;
   // printf("Added %.*s to escbuf\n", (int)n, s);
   return toCp == n;
