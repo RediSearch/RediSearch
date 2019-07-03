@@ -61,7 +61,6 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Doc
     // garbage
     aCtx->fdatas[ii].tags = NULL;
   }
-  size_t numTextIndexable = 0;
   size_t numIndexable = 0;
 
   // size: uint16_t * SPEC_MAX_FIELDS
