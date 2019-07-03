@@ -77,6 +77,11 @@ static int appendToEscbuf(cnTokenizer *cn, const char *s, size_t n) {
 #define ESCAPED_CHAR_SELF 1  // buf + len is the escaped character'
 #define ESCAPED_CHAR_NEXT 2  // buf + len + 1 is the escaped character
 
+/**
+ * Append escaped characters, advancing the buffer internally. Returns true
+ * if the current token needs more characters, or 0 if this token is
+ * complete
+ */
 static int appendEscapedChars(cnTokenizer *self, friso_token_t ftok, int mode) {
   const char *escbegin = self->base.ctx.text + ftok->offset + ftok->length;
   size_t skipBy;
@@ -90,10 +95,17 @@ static int appendEscapedChars(cnTokenizer *self, friso_token_t ftok, int mode) {
   if (appendToEscbuf(self, escbegin, 1)) {
     // printf("appending %.*s\n", 1, escbegin);
     self->fTask->idx += skipBy;
-    return 1;
-  } else {
-    return 0;
+
+    // if there are more tokens...
+    if (self->fTask->idx < self->base.ctx.len) {
+      // and this token is not completed (i.e. character _after_ escape
+      // is not itself a word separator)
+      if (!istoksep(self->base.ctx.text[self->fTask->idx])) {
+        return 1;
+      }
+    }
   }
+  return 0;
 }
 
 static void initToken(RSTokenizer *base, Token *t, const friso_token_t from) {
@@ -174,13 +186,14 @@ static uint32_t cnTokenizer_Next(RSTokenizer *base, Token *t) {
       if (!useEscBuf) {
         useEscBuf = 1;
         t->tok = self->escapebuf;
-        t->tokLen = self->nescapebuf;
       }
+      t->tokLen = self->nescapebuf;
       if (!appendToEscbuf(self, tok->word, tok->length)) {
         t->tokLen = self->nescapebuf;
         return t->pos;
       }
       if (!appendEscapedChars(self, tok, ESCAPED_CHAR_NEXT)) {
+        t->tokLen = self->nescapebuf;
         return t->pos;
       }
       continue;

@@ -56,9 +56,11 @@ TEST_F(TokenizerTest, testChineseMixed) {
       "同时支持对 UTF-8/GBK \\\\ 编码的切分，hello-world hello\\-world \\:\\:world \\:\\:支持 php5 "
       "trailing\\-backslash\\- hi "
       "和 "
+      "world\\- "
       "multiple\\ words\\ with\\ spaces "
       "multiple\\-words\\-with\\-hyphens "
       "php7 扩展和 sphinx token 插件 ");
+
   // append a very large token, too
   for (size_t ii = 0; ii < 20; ++ii) {
     tokstr.append(20, 'a');
@@ -77,18 +79,20 @@ TEST_F(TokenizerTest, testChineseMixed) {
     ASSERT_EQ(t.pos, pos);
     std::string tok(t.tok, t.tokLen);
     tokens.insert(tok);
-    // printf("inserted %s (n=%d)\n", tok.c_str(), tok.size());
+    printf("inserted %s (n=%d)\n", tok.c_str(), tok.size());
     pos++;
   }
   ASSERT_NE(tokens.end(), tokens.find("::支持"));
   ASSERT_NE(tokens.end(), tokens.find("hello-world"));
   ASSERT_NE(tokens.end(), tokens.find("::world"));
   ASSERT_NE(tokens.end(), tokens.find("trailing2"));
+  ASSERT_NE(tokens.end(), tokens.find("trailing"));
+  ASSERT_NE(tokens.end(), tokens.find("world-"));
   ASSERT_NE(
       tokens.end(),
       tokens.find(
           " aaaaaaaaaaaaaaaaaaaa aaaaaaaaaaaaaaaaaaaa aaaaaaaaaaaaaaaaaaaa aaaaaaaaaaaaaaaaaaaa "
-          "aaaaaaaaaaaaaaaaaaaa aaaaaaaaaaaaaaaaaaaa aaaaaaaaaaaaaaaaaaaa trailing"));
+          "aaaaaaaaaaaaaaaaaaaa aaaaaaaaaaaaaaaaaaaa aaaaaaaaaaaaaaaaaaaa "));
   ASSERT_NE(tokens.end(), tokens.find("multiple words with spaces"));
   ASSERT_NE(tokens.end(), tokens.find("multiple-words-with-hyphens"));
   // FIXME: Current parsing behavior makes this really odd..
