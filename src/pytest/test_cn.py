@@ -61,3 +61,22 @@ def testTradSimp(env):
     # The variants should still show up as different, so as to not modify
     env.assertTrue('那時' in res[2][1])
     env.assertTrue('那时' in res[4][1])
+
+def testMixedEscapes(env):
+    env.cmd('ft.create', 'idx', 'schema', 'txt', 'text')
+    env.cmd('ft.add', 'idx', 'doc1', 1.0, 'language', 'chinese', 'fields', 'txt', 'hello\\-world 那时')
+    env.cmd('ft.add', 'idx', 'doc2', 1.0, 'fields', 'txt', 'hello\\-world')
+    env.cmd('ft.add', 'idx', 'doc3', 1.0, 'language', 'chinese', 'fields', 'txt', 'one \\:\\:hello two 器上同步 \\-hello world\\- two 器上同步')
+
+    r = env.cmd('ft.search', 'idx', 'hello\\-world')
+    env.assertEqual(2, r[0])
+    env.assertEqual('doc2', r[1])
+    env.assertEqual('doc1', r[3])
+    r = env.cmd('ft.search', 'idx', '\\:\\:hello')
+    env.assertEqual('doc3', r[1])
+    r = env.cmd('ft.search', 'idx', '\\-hello')
+    env.assertEqual('doc3', r[1])
+    r = env.cmd('ft.search', 'idx', 'two')
+    env.assertEqual('doc3', r[1])
+    r = env.cmd('ft.search', 'idx', 'world\\-')
+    env.assertEqual('doc3', r[1])
