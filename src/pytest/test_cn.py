@@ -64,7 +64,19 @@ def testTradSimp(env):
 
 def testMixedEscapes(env):
     env.cmd('ft.create', 'idx', 'schema', 'txt', 'text')
-    env.cmd('ft.add', 'idx', 'doc1', 1.0, 'language', 'chinese', 'fields', 'txt', 'hello\\-world')
+    env.cmd('ft.add', 'idx', 'doc1', 1.0, 'language', 'chinese', 'fields', 'txt', 'hello\\-world 那时')
     env.cmd('ft.add', 'idx', 'doc2', 1.0, 'fields', 'txt', 'hello\\-world')
+    env.cmd('ft.add', 'idx', 'doc3', 1.0, 'language', 'chinese', 'fields', 'txt', 'one \\:\\:hello two 器上同步 \\-hello world\\- two 器上同步')
+
     r = env.cmd('ft.search', 'idx', 'hello\\-world')
-    env.assertEqual([2L, 'doc2', ['txt', 'hello\\-world'], 'doc1', ['txt', 'hello\\-world']], r)
+    env.assertEqual(2, r[0])
+    env.assertEqual('doc2', r[1])
+    env.assertEqual('doc1', r[3])
+    r = env.cmd('ft.search', 'idx', '\\:\\:hello')
+    env.assertEqual('doc3', r[1])
+    r = env.cmd('ft.search', 'idx', '\\-hello')
+    env.assertEqual('doc3', r[1])
+    r = env.cmd('ft.search', 'idx', 'two')
+    env.assertEqual('doc3', r[1])
+    r = env.cmd('ft.search', 'idx', 'world\\-')
+    env.assertEqual('doc3', r[1])
