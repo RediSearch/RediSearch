@@ -115,6 +115,7 @@ static void initToken(RSTokenizer *base, Token *t, const friso_token_t from) {
   t->stemLen = 0;
   t->flags = Token_CopyRaw | Token_CopyStem;
   t->pos = ++base->ctx.lastOffset;
+  t->phoneticsPrimary = NULL;
 }
 
 static uint32_t cnTokenizer_Next(RSTokenizer *base, Token *t) {
