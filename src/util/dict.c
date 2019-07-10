@@ -1,3 +1,5 @@
+// clang-format off
+
 /* Hash Tables Implementation.
  *
  * This file implements in memory hash tables with insert/del/replace/find/
@@ -40,6 +42,10 @@
 #include <stdarg.h>
 #include <limits.h>
 #include <sys/time.h>
+
+#pragma GCC visibility push(default)
+#include "siphash.c.inc"
+#pragma GCC visibility pop
 
 #include "dict.h"
 #include "redismodule.h"
