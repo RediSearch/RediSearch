@@ -1270,6 +1270,7 @@ int InvertedIndex_Repair(InvertedIndex *idx, DocTable *dt, uint32_t startBlock,
     } else if (repaired > 0) {
       // Record the number of records removed for gc stats
       params->docsCollected += repaired;
+      idx->numDocs -= repaired;
 
       // Increase the GC marker so other queries can tell that we did something
       ++idx->gcMarker;
