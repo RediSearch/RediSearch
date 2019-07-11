@@ -298,6 +298,10 @@ QueryNode* RediSearch_CreateUnionNode(IndexSpec* sp) {
   return NewQueryNode(QN_UNION);
 }
 
+QueryNode* RediSearch_CreateNotNode(IndexSpec* sp) {
+  return NewQueryNode(QN_NOT);
+}
+
 int RediSearch_QueryNodeGetFieldMask(QueryNode* qn) {
   return qn->opts.fieldMask;
 }

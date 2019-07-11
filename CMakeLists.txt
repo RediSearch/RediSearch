@@ -81,16 +81,16 @@ SET(FINAL_OBJECTS
     $<TARGET_OBJECTS:rmutil>
     $<TARGET_OBJECTS:friso>
     $<TARGET_OBJECTS:snowball>
-    $<TARGET_OBJECTS:metaphone>
-    src/module-init/module-init.c)
+    $<TARGET_OBJECTS:metaphone>)
 
-ADD_LIBRARY(redisearch SHARED ${FINAL_OBJECTS})
+ADD_LIBRARY(redisearch SHARED ${FINAL_OBJECTS} src/module-init/module-init.c)
 TARGET_LINK_LIBRARIES(redisearch dl m)
 SET_TARGET_PROPERTIES(redisearch PROPERTIES PREFIX "")
 SET_TARGET_PROPERTIES(redisearch PROPERTIES SUFFIX ".so")
 
 IF (RS_BUILD_STATIC)
-    ADD_LIBRARY(redisearchS STATIC ${FINAL_OBJECTS})
+    ADD_LIBRARY(redisearchS STATIC ${FINAL_OBJECTS} src/module-init/module-init.c)
+    SET_TARGET_PROPERTIES(redisearchS PROPERTIES COMPILE_DEFINITIONS RS_NO_ONLOAD)
 ENDIF()
 
 IF (APPLE) 

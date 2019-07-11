@@ -1,8 +1,10 @@
 #include "redismodule.h"
 
+#ifndef RS_NO_ONLOAD
 #pragma GCC visibility push(default)
 REDISMODULE_INIT_SYMBOLS();
 #pragma GCC visibility pop
+#endif
 
 #include "module.h"
 #include "version.h"
