@@ -166,7 +166,7 @@ IndexIterator *TagIndex_OpenReader(TagIndex *idx, DocTable *dt, const char *valu
                                    RedisModuleString *keyName, double weight) {
 
   InvertedIndex *iv = TrieMap_Find(idx->values, (char *)value, len);
-  if (iv == TRIEMAP_NOTFOUND || !iv) {
+  if (iv == TRIEMAP_NOTFOUND || !iv || iv->numDocs == 0) {
     return NULL;
   }
 

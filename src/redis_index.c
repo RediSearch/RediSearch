@@ -322,6 +322,11 @@ IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, RSQueryTerm *term, DocTable *
   }
 
   InvertedIndex *idx = RedisModule_ModuleTypeGetValue(k);
+  if (!idx->numDocs) {
+    // empty index! pass
+    RedisModule_FreeString(ctx->redisCtx, termKey);
+    return NULL;
+  }
 
   IndexReader *ret = NewTermIndexReader(idx, dt, fieldMask, term, weight);
   if (csx) {
