@@ -10,6 +10,10 @@
 #include <stdlib.h>
 #include <strings.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef enum { Token_CopyRaw = 0x01, Token_CopyStem = 0x02 } TokenFlags;
 
 /* Represents a token found in a document */
@@ -93,4 +97,7 @@ RSTokenizer *GetChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords);
 RSTokenizer *GetSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords);
 void Tokenizer_Release(RSTokenizer *t);
 
+#ifdef __cplusplus
+}
+#endif
 #endif

@@ -2,6 +2,10 @@
 #define __RS_STEMMER_H__
 #include <stdlib.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef enum { SnowballStemmer } StemmerType;
 
 #define DEFAULT_LANGUAGE "english"
@@ -38,4 +42,7 @@ const char *__sbstemmer_Stem(void *ctx, const char *word, size_t len, size_t *ou
 void __sbstemmer_Free(Stemmer *s);
 Stemmer *__newSnowballStemmer(const char *language);
 
+#ifdef __cplusplus
+}
+#endif
 #endif
