@@ -2138,6 +2138,20 @@ def testOptionalFilter(env):
     r = env.cmd('ft.search', 'idx', '~(word20 => {$weight: 2.0})')
     print(r)
 
+
+def testIssue736(env):
+    # 1. create the schema, we need a tag field
+    env.cmd('ft.create', 'idx', 'schema', 't1', 'text', 'n2', 'numeric', 't2', 'tag')
+    # 2. create a single document to initialize at least one RSAddDocumentCtx
+    env.cmd('ft.add', 'idx', 'doc1', 1, 'fields', 't1', 'hello', 't2', 'foo, bar')
+    # 3. create a second document with many filler fields to force a realloc:
+    extra_fields = []
+    for x in range(20):
+        extra_fields += ['nidx_fld{}'.format(x), 'val{}'.format(x)]
+    extra_fields += ['n2', 'not-a-number', 't2', 'random, junk']
+    with env.assertResponseError():
+        env.cmd('ft.add', 'idx', 'doc2', 1, 'fields', *extra_fields)
+
 def grouper(iterable, n, fillvalue=None):
     "Collect data into fixed-length chunks or blocks"
     from itertools import izip_longest

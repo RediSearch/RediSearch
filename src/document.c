@@ -40,6 +40,8 @@ static void freeDocumentContext(void *p) {
 
 #define DUP_FIELD_ERRSTR "Requested to index field twice"
 
+#define FIELD_IS_VALID(aCtx, ix) ((aCtx)->fspecs[ix].name != NULL)
+
 static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Document *base,
                                       size_t oldFieldCount) {
   aCtx->stateFlags &= ~ACTX_F_INDEXABLES;
@@ -55,6 +57,12 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Doc
     aCtx->fdatas = realloc(aCtx->fdatas, sizeof(*aCtx->fdatas) * doc->numFields);
   }
 
+  for (size_t ii = 0; ii < doc->numFields; ++ii) {
+    // zero out field data. We check at the destructor to see if there is any
+    // left-over tag data here; if we've realloc'd, then this contains
+    // garbage
+    aCtx->fdatas[ii].tags = NULL;
+  }
   size_t numTextIndexable = 0;
 
   // size: uint16_t * SPEC_MAX_FIELDS
@@ -331,7 +339,8 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
    * to do it
    */
   for (size_t ii = 0; ii < aCtx->doc.numFields; ++ii) {
-    if (FIELD_IS(aCtx->fspecs + ii, INDEXFLD_T_TAG) && aCtx->fdatas[ii].tags) {
+    if (FIELD_IS_VALID(aCtx, ii) && FIELD_IS(aCtx->fspecs + ii, INDEXFLD_T_TAG) &&
+        aCtx->fdatas[ii].tags) {
       TagIndex_FreePreprocessedData(aCtx->fdatas[ii].tags);
       aCtx->fdatas[ii].tags = NULL;
     }
@@ -428,7 +437,7 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
 
 FIELD_PREPROCESSOR(numericPreprocessor) {
   if (RedisModule_StringToDouble(field->text, &fdata->numeric) == REDISMODULE_ERR) {
-    QueryError_SetCode(status, QUERY_EPARSEARGS);
+    QueryError_SetCode(status, QUERY_ENOTNUMERIC);
     return -1;
   }
 
