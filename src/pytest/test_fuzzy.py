@@ -18,6 +18,23 @@ def testLdLimit(env):
     env.assertEqual([0L], env.cmd('ft.search', 'idx', r'%sword%'))  # should return nothing
     env.assertEqual([1L, 'doc1', ['title', 'hello world']], env.cmd('ft.search', 'idx', r'%%sword%%'))
 
+def testStopwords(env):
+    env.cmd('ft.create', 'idx', 'schema', 't1', 'text')
+    for t in ('iwth', 'ta', 'foo', 'rof', 'whhch', 'witha'):
+        env.cmd('ft.add', 'idx', t, 1.0, 'fields', 't1', t)
+
+    r = env.cmd('ft.search', 'idx', '%for%')
+    env.assertEqual([1, 'foo', ['t1', 'foo']], r)
+
+    r = env.cmd('ft.search', 'idx', '%%with%%')
+    env.assertEqual([2, 'witha', ['t1', 'witha'], 'iwth', ['t1', 'iwth']], r)
+
+    r = env.cmd('ft.search', 'idx', '%with%')
+    env.assertEqual([1, 'witha', ['t1', 'witha']], r)
+
+    r = env.cmd('ft.search', 'idx', '%at%')
+    env.assertEqual([1, 'ta', ['t1', 'ta']], r)
+
 def testFuzzyMultipleResults(env):
     r = env
     env.assertOk(r.execute_command(
