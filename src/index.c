@@ -720,7 +720,6 @@ static IndexCriteriaTester *II_GetCriteriaTester(void *ctx) {
         ic->testers[i]->Free(ic->testers[i]);
       }
       array_free(ic->testers);
-      rm_free(ict);
       return NULL;
     }
     ic->testers = array_ensure_append(ic->testers, tester, 1, IndexCriteriaTester *);
