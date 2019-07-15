@@ -2153,8 +2153,8 @@ def testIssue736(env):
     with env.assertResponseError():
         env.cmd('ft.add', 'idx', 'doc2', 1, 'fields', *extra_fields)
 
-def testCriteriaTesterDiactivated():
-    env = Env(moduleArgs='MAX_RESULTS_TO_UNSORTED_MODE 1')
+def testCriteriaTesterDeactivated():
+    env = Env(moduleArgs='_MAX_RESULTS_TO_UNSORTED_MODE 1')
     env.cmd('ft.create', 'idx', 'schema', 't1', 'text')
     env.cmd('ft.add', 'idx', 'doc1', 1, 'fields', 't1', 'hello1 hey hello2')
     env.cmd('ft.add', 'idx', 'doc2', 1, 'fields', 't1', 'hello2 hey')

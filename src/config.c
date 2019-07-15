@@ -421,9 +421,9 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "interval in which to run the fork gc (relevant only when fork gc is used)",
          .setValue = setForkGcInterval,
          .getValue = getForkGcInterval},
-        {.name = "MAX_RESULTS_TO_UNSORTED_MODE",
-         .helpText =
-             "max results for union interator in which the interator will switch to unsorted mode",
+        {.name = "_MAX_RESULTS_TO_UNSORTED_MODE",
+         .helpText = "max results for union interator in which the interator will switch to "
+                     "unsorted mode, should be used for debug only.",
          .setValue = setMaxResultsToUnsortedMode,
          .getValue = getMaxResultsToUnsortedMode},
         {.name = NULL}}};

@@ -145,6 +145,9 @@ IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *dt, int 
   }
 
   const size_t maxresultsSorted = RSGlobalConfig.maxResultsToUnsortedMode;
+  // this code is normally (and should be) dead.
+  // i.e. the deepest-most IndexIterator does not have a CT
+  //      so it will always eventually return NULL CT
   if (it->mode == MODE_SORTED && ctx->nexpected >= maxresultsSorted) {
     // make sure all the children support CriteriaTester
     int ctSupported = 1;
@@ -194,20 +197,20 @@ static void UI_TesterFree(struct IndexCriteriaTester *ct) {
 
 static IndexCriteriaTester *UI_GetCriteriaTester(void *ctx) {
   UnionIterator *ui = ctx;
-  UnionCriteriaTester *ct = rm_malloc(sizeof(*ct));
-  ct->nchildren = ui->num;
-  ct->children = rm_malloc(ct->nchildren * sizeof(IndexCriteriaTester *));
-  for (int i = 0; i < ct->nchildren; ++i) {
-    ct->children[i] = IITER_GET_CRITERIA_TESTER(ui->origits[i]);
-    if (!ct->children[i]) {
-      for (int j = 0; j < i; j++) {
-        ct->children[j]->Free(ct->children[j]);
-        rm_free(ct->children);
-        rm_free(ct);
+  IndexCriteriaTester **children = rm_malloc(ui->num * sizeof(IndexCriteriaTester *));
+  for (size_t i = 0; i < ui->num; ++i) {
+    children[i] = IITER_GET_CRITERIA_TESTER(ui->origits[i]);
+    if (!children[i]) {
+      for (size_t j = 0; j < i; j++) {
+        children[j]->Free(children[j]);
+        rm_free(children);
       }
       return NULL;
     }
   }
+  UnionCriteriaTester *ct = rm_malloc(sizeof(*ct));
+  ct->children = children;
+  ct->nchildren = ui->num;
   ct->base.Test = UI_Test;
   ct->base.Free = UI_TesterFree;
   return &ct->base;
@@ -710,7 +713,6 @@ static void II_TesterFree(struct IndexCriteriaTester *ct) {
 
 static IndexCriteriaTester *II_GetCriteriaTester(void *ctx) {
   IntersectIterator *ic = ctx;
-  IICriteriaTester *ict = rm_malloc(sizeof(*ict));
   for (size_t i = 0; i < ic->num; ++i) {
     IndexCriteriaTester *tester = IITER_GET_CRITERIA_TESTER(ic->its[i]);
     if (!tester) {
@@ -723,6 +725,7 @@ static IndexCriteriaTester *II_GetCriteriaTester(void *ctx) {
     }
     ic->testers = array_ensure_append(ic->testers, tester, 1, IndexCriteriaTester *);
   }
+  IICriteriaTester *ict = rm_malloc(sizeof(*ict));
   ict->children = ic->testers;
   ic->testers = NULL;
   ict->base.Test = II_Test;
@@ -937,12 +940,12 @@ static void NI_TesterFree(struct IndexCriteriaTester *ct) {
 
 static IndexCriteriaTester *NI_GetCriteriaTester(void *ctx) {
   NotContext *nc = ctx;
-  NI_CriteriaTester *nct = rm_malloc(sizeof(*nct));
-  nct->child = nc->base.GetCriteriaTester(nc->base.ctx);
-  if (!nct->child) {
-    rm_free(nct);
+  IndexCriteriaTester *ct = nc->base.GetCriteriaTester(nc->base.ctx);
+  if (!ct) {
     return NULL;
   }
+  NI_CriteriaTester *nct = rm_malloc(sizeof(*nct));
+  nct->child = ct;
   nct->base.Test = NI_Test;
   nct->base.Free = NI_TesterFree;
   return &nct->base;
