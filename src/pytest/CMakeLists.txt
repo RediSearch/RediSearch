@@ -15,4 +15,8 @@ FOREACH(n ${PY_TEST_FILES})
     ADD_TEST(NAME "PY_${test_name}_FORKGC"
         COMMAND ${baseCommand} "-t" "${n}" "--module-args=GC_POLICY FORK"
         WORKING_DIRECTORY ${PROJECT_BINARY_DIR})
+
+    ADD_TEST(NAME "PY_${test_name}_CRITETIA_TESTER"
+        COMMAND ${baseCommand} "-t" "${n}" "--module-args=MAX_RESULTS_TO_UNSORTED_MODE 1"
+        WORKING_DIRECTORY ${PROJECT_BINARY_DIR})
 ENDFOREACH()

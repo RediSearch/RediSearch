@@ -34,16 +34,15 @@ static int IL_Test(struct IndexCriteriaTester *ct, t_docId id) {
 static void IL_TesterFree(struct IndexCriteriaTester *ct) {
   ILCriteriaTester *lct = (ILCriteriaTester *)ct;
   rm_free(lct->docIds);
-  rm_free(ct);
+  rm_free(lct);
 }
 
 IndexCriteriaTester *IL_GetCriteriaTester(void *ctx) {
   IdListIterator *it = ctx;
   ILCriteriaTester *ct = rm_malloc(sizeof(*ct));
-  ct->docIds = it->docIds;
+  ct->docIds = rm_malloc(sizeof(t_docId) * it->size);
+  memcpy(ct->docIds, it->docIds, it->size);
   ct->size = it->size;
-  it->docIds = NULL;
-  it->size = 0;
   ct->base.Test = IL_Test;
   ct->base.Free = IL_TesterFree;
   return &ct->base;
