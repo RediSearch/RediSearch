@@ -24,7 +24,7 @@
 */
 #include <stdio.h>
 /************ Begin %include sections from the grammar ************************/
-#line 32 "parser.y"
+#line 34 "parser.y"
    
 
 #include <stdlib.h>
@@ -121,7 +121,7 @@ static int one_not_null(void *a, void *b, void *out) {
 **    YYACTIONTYPE       is the data type used for "action codes" - numbers
 **                       that indicate what to do in response to the next
 **                       token.
-**    ParseTOKENTYPE     is the data type used for minor type for terminal
+**    RSQueryParser_TOKENTYPE     is the data type used for minor type for terminal
 **                       symbols.  Background: A "minor type" is a semantic
 **                       value associated with a terminal or non-terminal
 **                       symbols.  For example, for an "ID" terminal symbol,
@@ -132,16 +132,16 @@ static int one_not_null(void *a, void *b, void *out) {
 **                       symbols.
 **    YYMINORTYPE        is the data type used for all minor types.
 **                       This is typically a union of many types, one of
-**                       which is ParseTOKENTYPE.  The entry in the union
+**                       which is RSQueryParser_TOKENTYPE.  The entry in the union
 **                       for terminal symbols is called "yy0".
 **    YYSTACKDEPTH       is the maximum depth of the parser's stack.  If
 **                       zero the stack is dynamically sized using realloc()
-**    ParseARG_SDECL     A static variable declaration for the %extra_argument
-**    ParseARG_PDECL     A parameter declaration for the %extra_argument
-**    ParseARG_PARAM     Code to pass %extra_argument as a subroutine parameter
-**    ParseARG_STORE     Code to store %extra_argument into yypParser
-**    ParseARG_FETCH     Code to extract %extra_argument from yypParser
-**    ParseCTX_*         As ParseARG_ except for %extra_context
+**    RSQueryParser_ARG_SDECL     A static variable declaration for the %extra_argument
+**    RSQueryParser_ARG_PDECL     A parameter declaration for the %extra_argument
+**    RSQueryParser_ARG_PARAM     Code to pass %extra_argument as a subroutine parameter
+**    RSQueryParser_ARG_STORE     Code to store %extra_argument into yypParser
+**    RSQueryParser_ARG_FETCH     Code to extract %extra_argument from yypParser
+**    RSQueryParser_CTX_*         As RSQueryParser_ARG_ except for %extra_context
 **    YYERRORSYMBOL      is the code number of the error symbol.  If not
 **                       defined, then do no error processing.
 **    YYNSTATE           the combined number of states.
@@ -163,10 +163,10 @@ static int one_not_null(void *a, void *b, void *out) {
 #define YYCODETYPE unsigned char
 #define YYNOCODE 42
 #define YYACTIONTYPE unsigned char
-#define ParseTOKENTYPE QueryToken
+#define RSQueryParser_TOKENTYPE QueryToken
 typedef union {
   int yyinit;
-  ParseTOKENTYPE yy0;
+  RSQueryParser_TOKENTYPE yy0;
   QueryNode * yy35;
   NumericFilter * yy36;
   QueryAttribute yy55;
@@ -178,16 +178,16 @@ typedef union {
 #ifndef YYSTACKDEPTH
 #define YYSTACKDEPTH 100
 #endif
-#define ParseARG_SDECL  QueryParseCtx *ctx ;
-#define ParseARG_PDECL , QueryParseCtx *ctx 
-#define ParseARG_PARAM ,ctx 
-#define ParseARG_FETCH  QueryParseCtx *ctx =yypParser->ctx ;
-#define ParseARG_STORE yypParser->ctx =ctx ;
-#define ParseCTX_SDECL
-#define ParseCTX_PDECL
-#define ParseCTX_PARAM
-#define ParseCTX_FETCH
-#define ParseCTX_STORE
+#define RSQueryParser_ARG_SDECL  QueryParseCtx *ctx ;
+#define RSQueryParser_ARG_PDECL , QueryParseCtx *ctx 
+#define RSQueryParser_ARG_PARAM ,ctx 
+#define RSQueryParser_ARG_FETCH  QueryParseCtx *ctx =yypParser->ctx ;
+#define RSQueryParser_ARG_STORE yypParser->ctx =ctx ;
+#define RSQueryParser_CTX_SDECL
+#define RSQueryParser_CTX_PDECL
+#define RSQueryParser_CTX_PARAM
+#define RSQueryParser_CTX_FETCH
+#define RSQueryParser_CTX_STORE
 #define YYNSTATE             62
 #define YYNRULE              54
 #define YYNTOKEN             27
@@ -410,8 +410,8 @@ struct yyParser {
 #ifndef YYNOERRORRECOVERY
   int yyerrcnt;                 /* Shifts left before out of the error */
 #endif
-  ParseARG_SDECL                /* A place to hold %extra_argument */
-  ParseCTX_SDECL                /* A place to hold %extra_context */
+  RSQueryParser_ARG_SDECL                /* A place to hold %extra_argument */
+  RSQueryParser_CTX_SDECL                /* A place to hold %extra_context */
 #if YYSTACKDEPTH<=0
   int yystksz;                  /* Current side of the stack */
   yyStackEntry *yystack;        /* The parser's stack */
@@ -447,7 +447,7 @@ static char *yyTracePrompt = 0;
 ** Outputs:
 ** None.
 */
-void ParseTrace(FILE *TraceFILE, char *zTracePrompt){
+void RSQueryParser_Trace(FILE *TraceFILE, char *zTracePrompt){
   yyTraceFILE = TraceFILE;
   yyTracePrompt = zTracePrompt;
   if( yyTraceFILE==0 ) yyTracePrompt = 0;
@@ -600,7 +600,7 @@ static int yyGrowStack(yyParser *p){
 #endif
 
 /* Datatype of the argument to the memory allocated passed as the
-** second argument to ParseAlloc() below.  This can be changed by
+** second argument to RSQueryParser_Alloc() below.  This can be changed by
 ** putting an appropriate #define in the %include section of the input
 ** grammar.
 */
@@ -610,9 +610,9 @@ static int yyGrowStack(yyParser *p){
 
 /* Initialize a new parser that has already been allocated.
 */
-void ParseInit(void *yypRawParser ParseCTX_PDECL){
+void RSQueryParser_Init(void *yypRawParser RSQueryParser_CTX_PDECL){
   yyParser *yypParser = (yyParser*)yypRawParser;
-  ParseCTX_STORE
+  RSQueryParser_CTX_STORE
 #ifdef YYTRACKMAXSTACKDEPTH
   yypParser->yyhwm = 0;
 #endif
@@ -636,7 +636,7 @@ void ParseInit(void *yypRawParser ParseCTX_PDECL){
 #endif
 }
 
-#ifndef Parse_ENGINEALWAYSONSTACK
+#ifndef RSQueryParser__ENGINEALWAYSONSTACK
 /* 
 ** This function allocates a new parser.
 ** The only argument is a pointer to a function which works like
@@ -647,18 +647,18 @@ void ParseInit(void *yypRawParser ParseCTX_PDECL){
 **
 ** Outputs:
 ** A pointer to a parser.  This pointer is used in subsequent calls
-** to Parse and ParseFree.
+** to RSQueryParser_ and RSQueryParser_Free.
 */
-void *ParseAlloc(void *(*mallocProc)(YYMALLOCARGTYPE) ParseCTX_PDECL){
+void *RSQueryParser_Alloc(void *(*mallocProc)(YYMALLOCARGTYPE) RSQueryParser_CTX_PDECL){
   yyParser *yypParser;
   yypParser = (yyParser*)(*mallocProc)( (YYMALLOCARGTYPE)sizeof(yyParser) );
   if( yypParser ){
-    ParseCTX_STORE
-    ParseInit(yypParser ParseCTX_PARAM);
+    RSQueryParser_CTX_STORE
+    RSQueryParser_Init(yypParser RSQueryParser_CTX_PARAM);
   }
   return (void*)yypParser;
 }
-#endif /* Parse_ENGINEALWAYSONSTACK */
+#endif /* RSQueryParser__ENGINEALWAYSONSTACK */
 
 
 /* The following function deletes the "minor type" or semantic value
@@ -673,8 +673,8 @@ static void yy_destructor(
   YYCODETYPE yymajor,     /* Type code for object to destroy */
   YYMINORTYPE *yypminor   /* The object to be destroyed */
 ){
-  ParseARG_FETCH
-  ParseCTX_FETCH
+  RSQueryParser_ARG_FETCH
+  RSQueryParser_CTX_FETCH
   switch( yymajor ){
     /* Here is inserted the actions which take place when a
     ** terminal or non-terminal is destroyed.  This can happen
@@ -693,7 +693,7 @@ static void yy_destructor(
     case 40: /* modifier */
     case 41: /* term */
 {
-#line 108 "parser.y"
+#line 110 "parser.y"
  
 #line 699 "parser.c"
 }
@@ -705,35 +705,35 @@ static void yy_destructor(
     case 33: /* fuzzy */
     case 34: /* tag_list */
 {
-#line 111 "parser.y"
+#line 113 "parser.y"
  QueryNode_Free((yypminor->yy35)); 
 #line 711 "parser.c"
 }
       break;
     case 28: /* attribute */
 {
-#line 114 "parser.y"
+#line 116 "parser.y"
  free((char*)(yypminor->yy55).value); 
 #line 718 "parser.c"
 }
       break;
     case 29: /* attribute_list */
 {
-#line 117 "parser.y"
+#line 119 "parser.y"
  array_free_ex((yypminor->yy69), free((char*)((QueryAttribute*)ptr )->value)); 
 #line 725 "parser.c"
 }
       break;
     case 35: /* geo_filter */
 {
-#line 136 "parser.y"
+#line 138 "parser.y"
  GeoFilter_Free((yypminor->yy64)); 
 #line 732 "parser.c"
 }
       break;
     case 36: /* modifierlist */
 {
-#line 139 "parser.y"
+#line 141 "parser.y"
  
     for (size_t i = 0; i < Vector_Size((yypminor->yy78)); i++) {
         char *s;
@@ -747,7 +747,7 @@ static void yy_destructor(
       break;
     case 38: /* numeric_range */
 {
-#line 151 "parser.y"
+#line 153 "parser.y"
 
     NumericFilter_Free((yypminor->yy36));
 
@@ -783,7 +783,7 @@ static void yy_pop_parser_stack(yyParser *pParser){
 /*
 ** Clear all secondary memory allocations from the parser
 */
-void ParseFinalize(void *p){
+void RSQueryParser_Finalize(void *p){
   yyParser *pParser = (yyParser*)p;
   while( pParser->yytos>pParser->yystack ) yy_pop_parser_stack(pParser);
 #if YYSTACKDEPTH<=0
@@ -791,7 +791,7 @@ void ParseFinalize(void *p){
 #endif
 }
 
-#ifndef Parse_ENGINEALWAYSONSTACK
+#ifndef RSQueryParser__ENGINEALWAYSONSTACK
 /* 
 ** Deallocate and destroy a parser.  Destructors are called for
 ** all stack elements before shutting the parser down.
@@ -800,23 +800,23 @@ void ParseFinalize(void *p){
 ** is defined in a %include section of the input grammar) then it is
 ** assumed that the input pointer is never NULL.
 */
-void ParseFree(
+void RSQueryParser_Free(
   void *p,                    /* The parser to be deleted */
   void (*freeProc)(void*)     /* Function used to reclaim memory */
 ){
 #ifndef YYPARSEFREENEVERNULL
   if( p==0 ) return;
 #endif
-  ParseFinalize(p);
+  RSQueryParser_Finalize(p);
   (*freeProc)(p);
 }
-#endif /* Parse_ENGINEALWAYSONSTACK */
+#endif /* RSQueryParser__ENGINEALWAYSONSTACK */
 
 /*
 ** Return the peak depth of the stack for a parser.
 */
 #ifdef YYTRACKMAXSTACKDEPTH
-int ParseStackPeak(void *p){
+int RSQueryParser_StackPeak(void *p){
   yyParser *pParser = (yyParser*)p;
   return pParser->yyhwm;
 }
@@ -840,7 +840,7 @@ static unsigned char yycoverage[YYNSTATE][YYNTOKEN];
 ** Return the number of missed state/lookahead combinations.
 */
 #if defined(YYCOVERAGE)
-int ParseCoverage(FILE *out){
+int RSQueryParser_Coverage(FILE *out){
   int stateno, iLookAhead, i;
   int nMissed = 0;
   for(stateno=0; stateno<YYNSTATE; stateno++){
@@ -961,8 +961,8 @@ static int yy_find_reduce_action(
 ** The following routine is called if the stack overflows.
 */
 static void yyStackOverflow(yyParser *yypParser){
-   ParseARG_FETCH
-   ParseCTX_FETCH
+   RSQueryParser_ARG_FETCH
+   RSQueryParser_CTX_FETCH
 #ifndef NDEBUG
    if( yyTraceFILE ){
      fprintf(yyTraceFILE,"%sStack Overflow!\n",yyTracePrompt);
@@ -973,8 +973,8 @@ static void yyStackOverflow(yyParser *yypParser){
    ** stack every overflows */
 /******** Begin %stack_overflow code ******************************************/
 /******** End %stack_overflow code ********************************************/
-   ParseARG_STORE /* Suppress warning about unused %extra_argument var */
-   ParseCTX_STORE
+   RSQueryParser_ARG_STORE /* Suppress warning about unused %extra_argument var */
+   RSQueryParser_CTX_STORE
 }
 
 /*
@@ -1005,7 +1005,7 @@ static void yy_shift(
   yyParser *yypParser,          /* The parser to be shifted */
   YYACTIONTYPE yyNewState,      /* The new state to shift in */
   YYCODETYPE yyMajor,           /* The major token to shift in */
-  ParseTOKENTYPE yyMinor        /* The minor token to shift in */
+  RSQueryParser_TOKENTYPE yyMinor        /* The minor token to shift in */
 ){
   yyStackEntry *yytos;
   yypParser->yytos++;
@@ -1119,14 +1119,14 @@ static YYACTIONTYPE yy_reduce(
   yyParser *yypParser,         /* The parser */
   unsigned int yyruleno,       /* Number of the rule by which to reduce */
   int yyLookahead,             /* Lookahead token, or YYNOCODE if none */
-  ParseTOKENTYPE yyLookaheadToken  /* Value of the lookahead token */
-  ParseCTX_PDECL                   /* %extra_context */
+  RSQueryParser_TOKENTYPE yyLookaheadToken  /* Value of the lookahead token */
+  RSQueryParser_CTX_PDECL                   /* %extra_context */
 ){
   int yygoto;                     /* The next state */
   int yyact;                      /* The next action */
   yyStackEntry *yymsp;            /* The top of the parser's stack */
   int yysize;                     /* Amount to pop the stack */
-  ParseARG_FETCH
+  RSQueryParser_ARG_FETCH
   (void)yyLookahead;
   (void)yyLookaheadToken;
   yymsp = yypParser->yytos;
@@ -1188,7 +1188,7 @@ static YYACTIONTYPE yy_reduce(
 /********** Begin reduce actions **********************************************/
         YYMINORTYPE yylhsminor;
       case 0: /* query ::= expr */
-#line 155 "parser.y"
+#line 157 "parser.y"
 { 
  /* If the root is a negative node, we intersect it with a wildcard node */
  
@@ -1198,21 +1198,21 @@ static YYACTIONTYPE yy_reduce(
 #line 1199 "parser.c"
         break;
       case 1: /* query ::= */
-#line 161 "parser.y"
+#line 163 "parser.y"
 {
     ctx->root = NULL;
 }
 #line 1206 "parser.c"
         break;
       case 2: /* query ::= STAR */
-#line 165 "parser.y"
+#line 167 "parser.y"
 {
     ctx->root = NewWildcardNode();
 }
 #line 1213 "parser.c"
         break;
       case 3: /* expr ::= expr expr */
-#line 173 "parser.y"
+#line 175 "parser.y"
 {
     int rv = one_not_null(yymsp[-1].minor.yy35, yymsp[0].minor.yy35, (void**)&yylhsminor.yy35);
     if (rv == NODENN_BOTH_INVALID) {
@@ -1234,7 +1234,7 @@ static YYACTIONTYPE yy_reduce(
   yymsp[-1].minor.yy35 = yylhsminor.yy35;
         break;
       case 4: /* expr ::= union */
-#line 196 "parser.y"
+#line 198 "parser.y"
 {
     yylhsminor.yy35 = yymsp[0].minor.yy35;
 }
@@ -1242,7 +1242,7 @@ static YYACTIONTYPE yy_reduce(
   yymsp[0].minor.yy35 = yylhsminor.yy35;
         break;
       case 5: /* union ::= expr OR expr */
-#line 200 "parser.y"
+#line 202 "parser.y"
 {
     int rv = one_not_null(yymsp[-2].minor.yy35, yymsp[0].minor.yy35, (void**)&yylhsminor.yy35);
     if (rv == NODENN_BOTH_INVALID) {
@@ -1269,7 +1269,7 @@ static YYACTIONTYPE yy_reduce(
   yymsp[-2].minor.yy35 = yylhsminor.yy35;
         break;
       case 6: /* union ::= union OR expr */
-#line 223 "parser.y"
+#line 225 "parser.y"
 {
     yylhsminor.yy35 = yymsp[-2].minor.yy35;
     if (yymsp[0].minor.yy35) {
@@ -1282,7 +1282,7 @@ static YYACTIONTYPE yy_reduce(
   yymsp[-2].minor.yy35 = yylhsminor.yy35;
         break;
       case 7: /* expr ::= modifier COLON expr */
-#line 236 "parser.y"
+#line 238 "parser.y"
 {
     if (yymsp[0].minor.yy35 == NULL) {
         yylhsminor.yy35 = NULL;
@@ -1297,7 +1297,7 @@ static YYACTIONTYPE yy_reduce(
   yymsp[-2].minor.yy35 = yylhsminor.yy35;
         break;
       case 8: /* expr ::= modifierlist COLON expr */
-#line 248 "parser.y"
+#line 250 "parser.y"
 {
     
     if (yymsp[0].minor.yy35 == NULL) {
@@ -1322,14 +1322,14 @@ static YYACTIONTYPE yy_reduce(
   yymsp[-2].minor.yy35 = yylhsminor.yy35;
         break;
       case 9: /* expr ::= LP expr RP */
-#line 269 "parser.y"
+#line 271 "parser.y"
 {
     yymsp[-2].minor.yy35 = yymsp[-1].minor.yy35;
 }
 #line 1330 "parser.c"
         break;
       case 10: /* attribute ::= ATTRIBUTE COLON term */
-#line 277 "parser.y"
+#line 279 "parser.y"
 {
     
     yylhsminor.yy55 = (QueryAttribute){ .name = yymsp[-2].minor.yy0.s, .namelen = yymsp[-2].minor.yy0.len, .value = strndup(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), .vallen = yymsp[0].minor.yy0.len };
@@ -1338,7 +1338,7 @@ static YYACTIONTYPE yy_reduce(
   yymsp[-2].minor.yy55 = yylhsminor.yy55;
         break;
       case 11: /* attribute_list ::= attribute */
-#line 282 "parser.y"
+#line 284 "parser.y"
 {
     yylhsminor.yy69 = array_new(QueryAttribute, 2);
     yylhsminor.yy69 = array_append(yylhsminor.yy69, yymsp[0].minor.yy55);
@@ -1347,7 +1347,7 @@ static YYACTIONTYPE yy_reduce(
   yymsp[0].minor.yy69 = yylhsminor.yy69;
         break;
       case 12: /* attribute_list ::= attribute_list SEMICOLON attribute */
-#line 287 "parser.y"
+#line 289 "parser.y"
 {
     yylhsminor.yy69 = array_append(yymsp[-2].minor.yy69, yymsp[0].minor.yy55);
 }
@@ -1355,7 +1355,7 @@ static YYACTIONTYPE yy_reduce(
   yymsp[-2].minor.yy69 = yylhsminor.yy69;
         break;
       case 13: /* attribute_list ::= attribute_list SEMICOLON */
-#line 291 "parser.y"
+#line 293 "parser.y"
 {
     yylhsminor.yy69 = yymsp[-1].minor.yy69;
 }
@@ -1363,14 +1363,14 @@ static YYACTIONTYPE yy_reduce(
   yymsp[-1].minor.yy69 = yylhsminor.yy69;
         break;
       case 14: /* attribute_list ::= */
-#line 295 "parser.y"
+#line 297 "parser.y"
 {
     yymsp[1].minor.yy69 = NULL;
 }
 #line 1371 "parser.c"
         break;
       case 15: /* expr ::= expr ARROW LB attribute_list RB */
-#line 299 "parser.y"
+#line 301 "parser.y"
 {
 
     if (yymsp[-4].minor.yy35 && yymsp[-1].minor.yy69) {
@@ -1383,7 +1383,7 @@ static YYACTIONTYPE yy_reduce(
   yymsp[-4].minor.yy35 = yylhsminor.yy35;
         break;
       case 16: /* expr ::= QUOTE termlist QUOTE */
-#line 312 "parser.y"
+#line 314 "parser.y"
 {
     yymsp[-1].minor.yy35->pn.exact =1;
     yymsp[-1].minor.yy35->opts.flags |= QueryNode_Verbatim;
@@ -1393,7 +1393,7 @@ static YYACTIONTYPE yy_reduce(
 #line 1394 "parser.c"
         break;
       case 17: /* expr ::= QUOTE term QUOTE */
-#line 319 "parser.y"
+#line 321 "parser.y"
 {
     yymsp[-2].minor.yy35 = NewTokenNode(ctx, strdupcase(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len), -1);
     yymsp[-2].minor.yy35->opts.flags |= QueryNode_Verbatim;
@@ -1402,7 +1402,7 @@ static YYACTIONTYPE yy_reduce(
 #line 1403 "parser.c"
         break;
       case 18: /* expr ::= term */
-#line 325 "parser.y"
+#line 327 "parser.y"
 {
    yylhsminor.yy35 = NewTokenNode(ctx, strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), -1);
 }
@@ -1410,7 +1410,7 @@ static YYACTIONTYPE yy_reduce(
   yymsp[0].minor.yy35 = yylhsminor.yy35;
         break;
       case 19: /* expr ::= prefix */
-#line 329 "parser.y"
+#line 331 "parser.y"
 {
     yylhsminor.yy35= yymsp[0].minor.yy35;
 }
@@ -1418,7 +1418,7 @@ static YYACTIONTYPE yy_reduce(
   yymsp[0].minor.yy35 = yylhsminor.yy35;
         break;
       case 20: /* expr ::= termlist */
-#line 333 "parser.y"
+#line 335 "parser.y"
 {
         yylhsminor.yy35 = yymsp[0].minor.yy35;
 }
@@ -1426,14 +1426,14 @@ static YYACTIONTYPE yy_reduce(
   yymsp[0].minor.yy35 = yylhsminor.yy35;
         break;
       case 21: /* expr ::= STOPWORD */
-#line 337 "parser.y"
+#line 339 "parser.y"
 {
     yymsp[0].minor.yy35 = NULL;
 }
 #line 1434 "parser.c"
         break;
       case 22: /* termlist ::= term term */
-#line 341 "parser.y"
+#line 343 "parser.y"
 {
     yylhsminor.yy35 = NewPhraseNode(0);
     QueryNode_AddChild(yylhsminor.yy35, NewTokenNode(ctx, strdupcase(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len), -1));
@@ -1443,7 +1443,7 @@ static YYACTIONTYPE yy_reduce(
   yymsp[-1].minor.yy35 = yylhsminor.yy35;
         break;
       case 23: /* termlist ::= termlist term */
-#line 347 "parser.y"
+#line 349 "parser.y"
 {
     yylhsminor.yy35 = yymsp[-1].minor.yy35;
     QueryNode_AddChild(yylhsminor.yy35, NewTokenNode(ctx, strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), -1));
@@ -1453,7 +1453,7 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 24: /* termlist ::= termlist STOPWORD */
       case 44: /* tag_list ::= tag_list RB */ yytestcase(yyruleno==44);
-#line 352 "parser.y"
+#line 354 "parser.y"
 {
     yylhsminor.yy35 = yymsp[-1].minor.yy35;
 }
@@ -1461,7 +1461,7 @@ static YYACTIONTYPE yy_reduce(
   yymsp[-1].minor.yy35 = yylhsminor.yy35;
         break;
       case 25: /* expr ::= MINUS expr */
-#line 360 "parser.y"
+#line 362 "parser.y"
 { 
     if (yymsp[0].minor.yy35) {
         yymsp[-1].minor.yy35 = NewNotNode(yymsp[0].minor.yy35);
@@ -1472,7 +1472,7 @@ static YYACTIONTYPE yy_reduce(
 #line 1473 "parser.c"
         break;
       case 26: /* expr ::= TILDE expr */
-#line 372 "parser.y"
+#line 374 "parser.y"
 { 
     if (yymsp[0].minor.yy35) {
         yymsp[-1].minor.yy35 = NewOptionalNode(yymsp[0].minor.yy35);
@@ -1483,7 +1483,7 @@ static YYACTIONTYPE yy_reduce(
 #line 1484 "parser.c"
         break;
       case 27: /* prefix ::= PREFIX */
-#line 384 "parser.y"
+#line 386 "parser.y"
 {
     yymsp[0].minor.yy0.s = strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
     yylhsminor.yy35 = NewPrefixNode(ctx, yymsp[0].minor.yy0.s, strlen(yymsp[0].minor.yy0.s));
@@ -1493,7 +1493,7 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 28: /* expr ::= PERCENT term PERCENT */
       case 31: /* expr ::= PERCENT STOPWORD PERCENT */ yytestcase(yyruleno==31);
-#line 393 "parser.y"
+#line 395 "parser.y"
 {
     yymsp[-1].minor.yy0.s = strdupcase(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len);
     yymsp[-2].minor.yy35 = NewFuzzyNode(ctx, yymsp[-1].minor.yy0.s, strlen(yymsp[-1].minor.yy0.s), 1);
@@ -1502,7 +1502,7 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 29: /* expr ::= PERCENT PERCENT term PERCENT PERCENT */
       case 32: /* expr ::= PERCENT PERCENT STOPWORD PERCENT PERCENT */ yytestcase(yyruleno==32);
-#line 398 "parser.y"
+#line 400 "parser.y"
 {
     yymsp[-2].minor.yy0.s = strdupcase(yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
     yymsp[-4].minor.yy35 = NewFuzzyNode(ctx, yymsp[-2].minor.yy0.s, strlen(yymsp[-2].minor.yy0.s), 2);
@@ -1511,7 +1511,7 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 30: /* expr ::= PERCENT PERCENT PERCENT term PERCENT PERCENT PERCENT */
       case 33: /* expr ::= PERCENT PERCENT PERCENT STOPWORD PERCENT PERCENT PERCENT */ yytestcase(yyruleno==33);
-#line 403 "parser.y"
+#line 405 "parser.y"
 {
     yymsp[-3].minor.yy0.s = strdupcase(yymsp[-3].minor.yy0.s, yymsp[-3].minor.yy0.len);
     yymsp[-6].minor.yy35 = NewFuzzyNode(ctx, yymsp[-3].minor.yy0.s, strlen(yymsp[-3].minor.yy0.s), 3);
@@ -1519,7 +1519,7 @@ static YYACTIONTYPE yy_reduce(
 #line 1520 "parser.c"
         break;
       case 34: /* modifier ::= MODIFIER */
-#line 428 "parser.y"
+#line 430 "parser.y"
 {
     yymsp[0].minor.yy0.len = unescapen((char*)yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
     yylhsminor.yy0 = yymsp[0].minor.yy0;
@@ -1528,7 +1528,7 @@ static YYACTIONTYPE yy_reduce(
   yymsp[0].minor.yy0 = yylhsminor.yy0;
         break;
       case 35: /* modifierlist ::= modifier OR term */
-#line 433 "parser.y"
+#line 435 "parser.y"
 {
     yylhsminor.yy78 = NewVector(char *, 2);
     char *s = strdupcase(yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
@@ -1540,7 +1540,7 @@ static YYACTIONTYPE yy_reduce(
   yymsp[-2].minor.yy78 = yylhsminor.yy78;
         break;
       case 36: /* modifierlist ::= modifierlist OR term */
-#line 441 "parser.y"
+#line 443 "parser.y"
 {
     char *s = strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
     Vector_Push(yymsp[-2].minor.yy78, s);
@@ -1550,7 +1550,7 @@ static YYACTIONTYPE yy_reduce(
   yymsp[-2].minor.yy78 = yylhsminor.yy78;
         break;
       case 37: /* expr ::= modifier COLON tag_list */
-#line 451 "parser.y"
+#line 453 "parser.y"
 {
     if (!yymsp[0].minor.yy35) {
         yylhsminor.yy35= NULL;
@@ -1571,7 +1571,7 @@ static YYACTIONTYPE yy_reduce(
   yymsp[-2].minor.yy35 = yylhsminor.yy35;
         break;
       case 38: /* tag_list ::= LB term */
-#line 468 "parser.y"
+#line 470 "parser.y"
 {
     yymsp[-1].minor.yy35 = NewPhraseNode(0);
     QueryNode_AddChild(yymsp[-1].minor.yy35, NewTokenNode(ctx, strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), -1));
@@ -1580,7 +1580,7 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 39: /* tag_list ::= LB prefix */
       case 40: /* tag_list ::= LB termlist */ yytestcase(yyruleno==40);
-#line 473 "parser.y"
+#line 475 "parser.y"
 {
     yymsp[-1].minor.yy35 = NewPhraseNode(0);
     QueryNode_AddChild(yymsp[-1].minor.yy35, yymsp[0].minor.yy35);
@@ -1588,7 +1588,7 @@ static YYACTIONTYPE yy_reduce(
 #line 1589 "parser.c"
         break;
       case 41: /* tag_list ::= tag_list OR term */
-#line 483 "parser.y"
+#line 485 "parser.y"
 {
     QueryNode_AddChild(yymsp[-2].minor.yy35, NewTokenNode(ctx, strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), -1));
     yylhsminor.yy35 = yymsp[-2].minor.yy35;
@@ -1598,7 +1598,7 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 42: /* tag_list ::= tag_list OR prefix */
       case 43: /* tag_list ::= tag_list OR termlist */ yytestcase(yyruleno==43);
-#line 488 "parser.y"
+#line 490 "parser.y"
 {
     QueryNode_AddChild(yymsp[-2].minor.yy35, yymsp[0].minor.yy35);
     yylhsminor.yy35 = yymsp[-2].minor.yy35;
@@ -1607,7 +1607,7 @@ static YYACTIONTYPE yy_reduce(
   yymsp[-2].minor.yy35 = yylhsminor.yy35;
         break;
       case 45: /* expr ::= modifier COLON numeric_range */
-#line 507 "parser.y"
+#line 509 "parser.y"
 {
     // we keep the capitalization as is
     yymsp[0].minor.yy36->fieldName = strndup(yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
@@ -1617,14 +1617,14 @@ static YYACTIONTYPE yy_reduce(
   yymsp[-2].minor.yy35 = yylhsminor.yy35;
         break;
       case 46: /* numeric_range ::= LSQB num num RSQB */
-#line 513 "parser.y"
+#line 515 "parser.y"
 {
     yymsp[-3].minor.yy36 = NewNumericFilter(yymsp[-2].minor.yy83.num, yymsp[-1].minor.yy83.num, yymsp[-2].minor.yy83.inclusive, yymsp[-1].minor.yy83.inclusive);
 }
 #line 1625 "parser.c"
         break;
       case 47: /* expr ::= modifier COLON geo_filter */
-#line 521 "parser.y"
+#line 523 "parser.y"
 {
     // we keep the capitalization as is
     yymsp[0].minor.yy64->property = strndup(yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
@@ -1634,7 +1634,7 @@ static YYACTIONTYPE yy_reduce(
   yymsp[-2].minor.yy35 = yylhsminor.yy35;
         break;
       case 48: /* geo_filter ::= LSQB num num num TERM RSQB */
-#line 527 "parser.y"
+#line 529 "parser.y"
 {
     yymsp[-5].minor.yy64 = NewGeoFilter(yymsp[-4].minor.yy83.num, yymsp[-3].minor.yy83.num, yymsp[-2].minor.yy83.num, strdupcase(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len));
     GeoFilter_Validate(yymsp[-5].minor.yy64, ctx->status);
@@ -1642,7 +1642,7 @@ static YYACTIONTYPE yy_reduce(
 #line 1643 "parser.c"
         break;
       case 49: /* num ::= NUMBER */
-#line 538 "parser.y"
+#line 540 "parser.y"
 {
     yylhsminor.yy83.num = yymsp[0].minor.yy0.numval;
     yylhsminor.yy83.inclusive = 1;
@@ -1651,7 +1651,7 @@ static YYACTIONTYPE yy_reduce(
   yymsp[0].minor.yy83 = yylhsminor.yy83;
         break;
       case 50: /* num ::= LP num */
-#line 543 "parser.y"
+#line 545 "parser.y"
 {
     yymsp[-1].minor.yy83=yymsp[0].minor.yy83;
     yymsp[-1].minor.yy83.inclusive = 0;
@@ -1659,7 +1659,7 @@ static YYACTIONTYPE yy_reduce(
 #line 1660 "parser.c"
         break;
       case 51: /* num ::= MINUS num */
-#line 548 "parser.y"
+#line 550 "parser.y"
 {
     yymsp[0].minor.yy83.num = -yymsp[0].minor.yy83.num;
     yymsp[-1].minor.yy83 = yymsp[0].minor.yy83;
@@ -1668,7 +1668,7 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 52: /* term ::= TERM */
       case 53: /* term ::= NUMBER */ yytestcase(yyruleno==53);
-#line 553 "parser.y"
+#line 555 "parser.y"
 {
     yylhsminor.yy0 = yymsp[0].minor.yy0; 
 }
@@ -1706,8 +1706,8 @@ static YYACTIONTYPE yy_reduce(
 static void yy_parse_failed(
   yyParser *yypParser           /* The parser */
 ){
-  ParseARG_FETCH
-  ParseCTX_FETCH
+  RSQueryParser_ARG_FETCH
+  RSQueryParser_CTX_FETCH
 #ifndef NDEBUG
   if( yyTraceFILE ){
     fprintf(yyTraceFILE,"%sFail!\n",yyTracePrompt);
@@ -1718,8 +1718,8 @@ static void yy_parse_failed(
   ** parser fails */
 /************ Begin %parse_failure code ***************************************/
 /************ End %parse_failure code *****************************************/
-  ParseARG_STORE /* Suppress warning about unused %extra_argument variable */
-  ParseCTX_STORE
+  RSQueryParser_ARG_STORE /* Suppress warning about unused %extra_argument variable */
+  RSQueryParser_CTX_STORE
 }
 #endif /* YYNOERRORRECOVERY */
 
@@ -1729,21 +1729,21 @@ static void yy_parse_failed(
 static void yy_syntax_error(
   yyParser *yypParser,           /* The parser */
   int yymajor,                   /* The major type of the error token */
-  ParseTOKENTYPE yyminor         /* The minor type of the error token */
+  RSQueryParser_TOKENTYPE yyminor         /* The minor type of the error token */
 ){
-  ParseARG_FETCH
-  ParseCTX_FETCH
+  RSQueryParser_ARG_FETCH
+  RSQueryParser_CTX_FETCH
 #define TOKEN yyminor
 /************ Begin %syntax_error code ****************************************/
-#line 26 "parser.y"
+#line 28 "parser.y"
   
     QueryError_SetErrorFmt(ctx->status, QUERY_ESYNTAX,
         "Syntax error at offset %d near %.*s",
         TOKEN.pos, TOKEN.len, TOKEN.s);
 #line 1744 "parser.c"
 /************ End %syntax_error code ******************************************/
-  ParseARG_STORE /* Suppress warning about unused %extra_argument variable */
-  ParseCTX_STORE
+  RSQueryParser_ARG_STORE /* Suppress warning about unused %extra_argument variable */
+  RSQueryParser_CTX_STORE
 }
 
 /*
@@ -1752,8 +1752,8 @@ static void yy_syntax_error(
 static void yy_accept(
   yyParser *yypParser           /* The parser */
 ){
-  ParseARG_FETCH
-  ParseCTX_FETCH
+  RSQueryParser_ARG_FETCH
+  RSQueryParser_CTX_FETCH
 #ifndef NDEBUG
   if( yyTraceFILE ){
     fprintf(yyTraceFILE,"%sAccept!\n",yyTracePrompt);
@@ -1767,13 +1767,13 @@ static void yy_accept(
   ** parser accepts */
 /*********** Begin %parse_accept code *****************************************/
 /*********** End %parse_accept code *******************************************/
-  ParseARG_STORE /* Suppress warning about unused %extra_argument variable */
-  ParseCTX_STORE
+  RSQueryParser_ARG_STORE /* Suppress warning about unused %extra_argument variable */
+  RSQueryParser_CTX_STORE
 }
 
 /* The main parser program.
 ** The first argument is a pointer to a structure obtained from
-** "ParseAlloc" which describes the current state of the parser.
+** "RSQueryParser_Alloc" which describes the current state of the parser.
 ** The second argument is the major token number.  The third is
 ** the minor token.  The fourth optional argument is whatever the
 ** user wants (and specified in the grammar) and is available for
@@ -1790,11 +1790,11 @@ static void yy_accept(
 ** Outputs:
 ** None.
 */
-void Parse(
+void RSQueryParser_(
   void *yyp,                   /* The parser */
   int yymajor,                 /* The major token code number */
-  ParseTOKENTYPE yyminor       /* The value for the token */
-  ParseARG_PDECL               /* Optional %extra_argument parameter */
+  RSQueryParser_TOKENTYPE yyminor       /* The value for the token */
+  RSQueryParser_ARG_PDECL               /* Optional %extra_argument parameter */
 ){
   YYMINORTYPE yyminorunion;
   YYACTIONTYPE yyact;   /* The parser action. */
@@ -1805,8 +1805,8 @@ void Parse(
   int yyerrorhit = 0;   /* True if yymajor has invoked an error */
 #endif
   yyParser *yypParser = (yyParser*)yyp;  /* The parser */
-  ParseCTX_FETCH
-  ParseARG_STORE
+  RSQueryParser_CTX_FETCH
+  RSQueryParser_ARG_STORE
 
   assert( yypParser->yytos!=0 );
 #if !defined(YYERRORSYMBOL) && !defined(YYNOERRORRECOVERY)
@@ -1831,7 +1831,7 @@ void Parse(
     yyact = yy_find_shift_action(yymajor,yyact);
     if( yyact >= YY_MIN_REDUCE ){
       yyact = yy_reduce(yypParser,yyact-YY_MIN_REDUCE,yymajor,
-                        yyminor ParseCTX_PARAM);
+                        yyminor RSQueryParser_CTX_PARAM);
     }else if( yyact <= YY_MAX_SHIFTREDUCE ){
       yy_shift(yypParser,yyact,yymajor,yyminor);
 #ifndef YYNOERRORRECOVERY

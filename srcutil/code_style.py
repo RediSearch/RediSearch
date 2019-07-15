@@ -20,6 +20,8 @@ IGNPTRN = [
         'src/aggregate/expr/lexer.c',
         'src/dep/cndict/cndict_data.c',
         'src/redismodule.h',
+        'src/query_parser/parser.c',
+        'src/query_parser/lexer.c',
         'src/dep/gtest'
 ]
 
