@@ -507,14 +507,15 @@ static void II_SortChildren(IntersectIterator *ctx) {
    *    tester list
    */
   IndexIterator **unsortedIts = NULL;
-  IndexIterator **sortedIts = NULL;
+  IndexIterator **sortedIts = rm_malloc(sizeof(IndexIterator *) * ctx->num);
+  size_t sortedItsSize = 0;
 
   for (size_t i = 0; i < ctx->num; ++i) {
     IndexIterator *curit = ctx->its[i];
     if (!curit) {
       ctx->bestIt = ctx->its[i] = NewEmptyIterator();
       ctx->nexpected = 0;
-      sortedIts = array_ensure_append(sortedIts, &(ctx->its[i]), 1, IndexIterator *);
+      sortedIts[sortedItsSize++] = ctx->its[i];
       continue;
     }
 
@@ -527,7 +528,7 @@ static void II_SortChildren(IntersectIterator *ctx) {
     if (curit->mode == MODE_UNSORTED) {
       unsortedIts = array_ensure_append(unsortedIts, &curit, 1, IndexIterator *);
     } else {
-      sortedIts = array_ensure_append(sortedIts, &curit, 1, IndexIterator *);
+      sortedIts[sortedItsSize++] = curit;
     }
   }
 
@@ -553,7 +554,7 @@ static void II_SortChildren(IntersectIterator *ctx) {
   }
   free(ctx->its);
   ctx->its = sortedIts;
-  ctx->num = array_len(sortedIts);
+  ctx->num = sortedItsSize;
   array_free(unsortedIts);
 }
 
