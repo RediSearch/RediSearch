@@ -285,6 +285,14 @@ void IndexSpec_StartGCFromSpec(IndexSpec *sp, float initialHZ, uint32_t gcPolicy
 IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryError *status);
 FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name);
 
+/** 
+ * Indicate that the index spec should use an internal dictionary,rather than
+ * the Redis keyspace
+ */
+void IndexSpec_MakeKeyless(IndexSpec *sp);
+
+#define IndexSpec_IsKeyless(sp) ((sp)->keysDict != NULL)
+
 /**
  * Gets the next text id from the index. This does not currently
  * modify the index
