@@ -355,7 +355,7 @@ static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** err
   RSSearchOptions options = {0};
   QueryError status = {0};
   RSSearchOptions_Init(&options);
-  RS_ApiIter* it = calloc(1, sizeof(*it));
+  RS_ApiIter* it = rm_calloc(1, sizeof(*it));
 
   if (input->qtype == QUERY_INPUT_STRING) {
     if (QAST_Parse(&it->qast, &sctx, &options, input->u.s.qs, input->u.s.n, &status) !=
