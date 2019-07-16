@@ -144,7 +144,10 @@ IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *dt, int 
     }
   }
 
-  const size_t maxresultsSorted = 1000;
+  const size_t maxresultsSorted = RSGlobalConfig.maxResultsToUnsortedMode;
+  // this code is normally (and should be) dead.
+  // i.e. the deepest-most IndexIterator does not have a CT
+  //      so it will always eventually return NULL CT
   if (it->mode == MODE_SORTED && ctx->nexpected >= maxresultsSorted) {
     // make sure all the children support CriteriaTester
     int ctSupported = 1;
@@ -194,12 +197,20 @@ static void UI_TesterFree(struct IndexCriteriaTester *ct) {
 
 static IndexCriteriaTester *UI_GetCriteriaTester(void *ctx) {
   UnionIterator *ui = ctx;
-  UnionCriteriaTester *ct = rm_malloc(sizeof(*ct));
-  ct->nchildren = ui->num;
-  ct->children = rm_malloc(ct->nchildren * sizeof(IndexCriteriaTester *));
-  for (int i = 0; i < ct->nchildren; ++i) {
-    ct->children[i] = IITER_GET_CRITERIA_TESTER(ui->origits[i]);
+  IndexCriteriaTester **children = rm_malloc(ui->num * sizeof(IndexCriteriaTester *));
+  for (size_t i = 0; i < ui->num; ++i) {
+    children[i] = IITER_GET_CRITERIA_TESTER(ui->origits[i]);
+    if (!children[i]) {
+      for (size_t j = 0; j < i; j++) {
+        children[j]->Free(children[j]);
+        rm_free(children);
+      }
+      return NULL;
+    }
   }
+  UnionCriteriaTester *ct = rm_malloc(sizeof(*ct));
+  ct->children = children;
+  ct->nchildren = ui->num;
   ct->base.Test = UI_Test;
   ct->base.Free = UI_TesterFree;
   return &ct->base;
@@ -496,12 +507,15 @@ static void II_SortChildren(IntersectIterator *ctx) {
    *    tester list
    */
   IndexIterator **unsortedIts = NULL;
+  IndexIterator **sortedIts = malloc(sizeof(IndexIterator *) * ctx->num);
+  size_t sortedItsSize = 0;
 
   for (size_t i = 0; i < ctx->num; ++i) {
     IndexIterator *curit = ctx->its[i];
     if (!curit) {
       ctx->bestIt = ctx->its[i] = NewEmptyIterator();
       ctx->nexpected = 0;
+      sortedIts[sortedItsSize++] = ctx->its[i];
       continue;
     }
 
@@ -513,6 +527,8 @@ static void II_SortChildren(IntersectIterator *ctx) {
 
     if (curit->mode == MODE_UNSORTED) {
       unsortedIts = array_ensure_append(unsortedIts, &curit, 1, IndexIterator *);
+    } else {
+      sortedIts[sortedItsSize++] = curit;
     }
   }
 
@@ -536,6 +552,9 @@ static void II_SortChildren(IntersectIterator *ctx) {
       cur->Free(cur);
     }
   }
+  free(ctx->its);
+  ctx->its = sortedIts;
+  ctx->num = sortedItsSize;
   array_free(unsortedIts);
 }
 
@@ -695,12 +714,20 @@ static void II_TesterFree(struct IndexCriteriaTester *ct) {
 
 static IndexCriteriaTester *II_GetCriteriaTester(void *ctx) {
   IntersectIterator *ic = ctx;
-  IICriteriaTester *ict = rm_malloc(sizeof(*ict));
-  for (size_t i = 0; i < array_len(ic->its); ++i) {
-    ic->testers = array_append(ic->testers, IITER_GET_CRITERIA_TESTER(ic->its[i]));
+  for (size_t i = 0; i < ic->num; ++i) {
+    IndexCriteriaTester *tester = IITER_GET_CRITERIA_TESTER(ic->its[i]);
+    if (!tester) {
+      for (int j = 0; j < array_len(ic->testers); j++) {
+        ic->testers[i]->Free(ic->testers[i]);
+      }
+      array_free(ic->testers);
+      return NULL;
+    }
+    ic->testers = array_ensure_append(ic->testers, tester, 1, IndexCriteriaTester *);
   }
+  IICriteriaTester *ict = rm_malloc(sizeof(*ict));
   ict->children = ic->testers;
-  ic->testers = array_new(IndexCriteriaTester *, 0);
+  ic->testers = NULL;
   ict->base.Test = II_Test;
   ict->base.Free = II_TesterFree;
   return &ict->base;
@@ -913,8 +940,12 @@ static void NI_TesterFree(struct IndexCriteriaTester *ct) {
 
 static IndexCriteriaTester *NI_GetCriteriaTester(void *ctx) {
   NotContext *nc = ctx;
+  IndexCriteriaTester *ct = nc->base.GetCriteriaTester(nc->base.ctx);
+  if (!ct) {
+    return NULL;
+  }
   NI_CriteriaTester *nct = rm_malloc(sizeof(*nct));
-  nct->child = nc->base.GetCriteriaTester(nc->base.ctx);
+  nct->child = ct;
   nct->base.Test = NI_Test;
   nct->base.Free = NI_TesterFree;
   return &nct->base;
@@ -1040,6 +1071,7 @@ IndexIterator *NewNotIterator(IndexIterator *it, t_docId maxDocId, double weight
 
   if (nc->child && nc->child->mode == MODE_UNSORTED) {
     nc->childCT = IITER_GET_CRITERIA_TESTER(nc->child);
+    assert(nc->childCT);
     ret->Read = NI_ReadUnsorted;
   }
 
@@ -1255,6 +1287,7 @@ IndexIterator *NewOptionalIterator(IndexIterator *it, t_docId maxDocId, double w
 
   if (nc->child && nc->child->mode == MODE_UNSORTED) {
     nc->childCT = IITER_GET_CRITERIA_TESTER(nc->child);
+    assert(nc->childCT);
     ret->Read = OI_ReadUnsorted;
   }
   if (!nc->child) {

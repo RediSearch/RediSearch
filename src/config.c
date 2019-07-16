@@ -241,9 +241,23 @@ CONFIG_SETTER(setForkGcInterval) {
   return REDISMODULE_OK;
 }
 
+CONFIG_SETTER(setMaxResultsToUnsortedMode) {
+  long long val;
+  if (readLongLongLimit(argv, argc, offset, &val, 1, LLONG_MAX) != REDISMODULE_OK) {
+    return REDISMODULE_ERR;
+  }
+  config->maxResultsToUnsortedMode = val;
+  return REDISMODULE_OK;
+}
+
 CONFIG_GETTER(getForkGcInterval) {
   sds ss = sdsempty();
   return sdscatprintf(ss, "%u", config->forkGcRunIntervalSec);
+}
+
+CONFIG_GETTER(getMaxResultsToUnsortedMode) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%u", config->maxResultsToUnsortedMode);
 }
 
 CONFIG_SETTER(setMinPhoneticTermLen) {
@@ -407,6 +421,11 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "interval in which to run the fork gc (relevant only when fork gc is used)",
          .setValue = setForkGcInterval,
          .getValue = getForkGcInterval},
+        {.name = "_MAX_RESULTS_TO_UNSORTED_MODE",
+         .helpText = "max results for union interator in which the interator will switch to "
+                     "unsorted mode, should be used for debug only.",
+         .setValue = setMaxResultsToUnsortedMode,
+         .getValue = getMaxResultsToUnsortedMode},
         {.name = NULL}}};
 
 void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst) {

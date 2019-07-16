@@ -5,6 +5,7 @@ import unittest
 from hotels import hotels
 import random
 import time
+from RLTest import Env
 
 
 def testAdd(env):
@@ -2151,6 +2152,14 @@ def testIssue736(env):
     extra_fields += ['n2', 'not-a-number', 't2', 'random, junk']
     with env.assertResponseError():
         env.cmd('ft.add', 'idx', 'doc2', 1, 'fields', *extra_fields)
+
+def testCriteriaTesterDeactivated():
+    env = Env(moduleArgs='_MAX_RESULTS_TO_UNSORTED_MODE 1')
+    env.cmd('ft.create', 'idx', 'schema', 't1', 'text')
+    env.cmd('ft.add', 'idx', 'doc1', 1, 'fields', 't1', 'hello1 hey hello2')
+    env.cmd('ft.add', 'idx', 'doc2', 1, 'fields', 't1', 'hello2 hey')
+    env.cmd('ft.add', 'idx', 'doc3', 1, 'fields', 't1', 'hey')
+    env.expect('ft.search', 'idx', '(hey hello1)|(hello2 hey)').equal([2L, 'doc1', ['t1', 'hello1 hey hello2'], 'doc2', ['t1', 'hello2 hey']])
 
 def grouper(iterable, n, fillvalue=None):
     "Collect data into fixed-length chunks or blocks"
