@@ -686,6 +686,11 @@ static void IndexSpec_FreeInternals(IndexSpec *spec) {
     rm_free(spec->fields);
   }
   IndexSpec_ClearAliases(spec);
+
+  if (spec->keysDict) {
+    dictRelease(spec->keysDict);
+  }
+
   rm_free(spec);
 }
 
@@ -730,7 +735,9 @@ void IndexSpec_FreeSync(IndexSpec *spec) {
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
   RedisModule_AutoMemory(ctx);
-  Redis_DropIndex(&sctx, 0, 1);
+  if (!IndexSpec_IsKeyless(spec)) {
+    Redis_DropIndex(&sctx, 0, 1);
+  }
   IndexSpec_FreeInternals(spec);
   RedisModule_FreeThreadSafeContext(ctx);
 }
@@ -939,6 +946,24 @@ FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name) {
   fs->tagFlags = TAG_FIELD_DEFAULT_FLAGS;
   fs->tagFlags = TAG_FIELD_DEFAULT_SEP;
   return fs;
+}
+
+static dictType invidxDictType = {0};
+static void valFreeCb(void *unused, void *p) {
+  KeysDictValue *kdv = p;
+  if (kdv->dtor) {
+    kdv->dtor(kdv->p);
+  }
+  free(kdv);
+}
+
+void IndexSpec_MakeKeyless(IndexSpec *sp) {
+  // Initialize only once:
+  if (!invidxDictType.valDestructor) {
+    invidxDictType = dictTypeHeapRedisStrings;
+    invidxDictType.valDestructor = valFreeCb;
+  }
+  sp->keysDict = dictCreate(&invidxDictType, NULL);
 }
 
 void IndexSpec_StartGCFromSpec(IndexSpec *sp, float initialHZ, uint32_t gcPolicy) {
