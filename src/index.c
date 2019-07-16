@@ -467,7 +467,7 @@ void IntersectIterator_Free(IndexIterator *it) {
   }
 
   free(ui->docIds);
-  array_free(ui->its);
+  free(ui->its);
   IndexResult_Free(it->current);
   array_free(ui->testers);
   free(it);
@@ -507,7 +507,7 @@ static void II_SortChildren(IntersectIterator *ctx) {
    *    tester list
    */
   IndexIterator **unsortedIts = NULL;
-  IndexIterator **sortedIts = rm_malloc(sizeof(IndexIterator *) * ctx->num);
+  IndexIterator **sortedIts = malloc(sizeof(IndexIterator *) * ctx->num);
   size_t sortedItsSize = 0;
 
   for (size_t i = 0; i < ctx->num; ++i) {
