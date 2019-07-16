@@ -465,10 +465,11 @@ static void ForkGc_FixInvertedIndex(ForkGCCtx *gc, ForkGc_InvertedIndexData *idx
     idx->size = idxData->newBlocksArraySize;
   }
 
-  for (int i = 0; i < array_len(idxData->blocksModified); ++i) {
+  for (size_t i = 0; i < array_len(idxData->blocksModified); ++i) {
     ModifiedBlock *blockModified = idxData->blocksModified + i;
     idx->blocks[blockModified->blockIndex] = blockModified->blk;
   }
+  idx->numDocs -= idxData->docsCollected;
 }
 
 static bool ForkGc_ReadInvertedIndex(ForkGCCtx *gc, int *ret_val, RedisModuleCtx *rctx) {

@@ -353,6 +353,13 @@ IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, RSQueryTerm *term, DocTable *
       return NULL;
     }
   }
+
+  if (!idx->numDocs) {
+    // empty index! pass
+    RedisModule_FreeString(ctx->redisCtx, termKey);
+    return NULL;
+  }
+
   IndexReader *ret = NewTermIndexReader(idx, ctx->spec, fieldMask, term, weight);
   if (csx) {
     ConcurrentSearch_AddKey(csx, k, REDISMODULE_READ, termKey, IndexReader_OnReopen, ret, NULL);
