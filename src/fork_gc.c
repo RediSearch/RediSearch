@@ -465,7 +465,6 @@ static void ForkGc_FixInvertedIndex(ForkGCCtx *gc, ForkGc_InvertedIndexData *idx
     idx->size = idxData->newBlocksArraySize;
   }
 
-  size_t totalDeleted = 0;
   for (size_t i = 0; i < array_len(idxData->blocksModified); ++i) {
     ModifiedBlock *blockModified = idxData->blocksModified + i;
     idx->blocks[blockModified->blockIndex] = blockModified->blk;
