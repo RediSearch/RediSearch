@@ -286,7 +286,7 @@ static RSConfigVar *findConfigVar(const RSConfigOptions *config, const char *nam
   for (; config; config = config->next) {
     const RSConfigVar *vars = config->vars;
     for (; vars->name != NULL; vars++) {
-      if (!strcmp(name, vars->name)) {
+      if (!strcasecmp(name, vars->name)) {
         return (RSConfigVar *)vars;
       }
     }
