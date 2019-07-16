@@ -66,7 +66,7 @@ uint32_t _aoi_Next(void *ctx, RSQueryTerm **term);
 void _aoi_Free(void *ctx);
 void _aoi_Rewind(void *ctx);
 
-void *_newAggregateIter() {
+static void *aggiterNew() {
   _RSAggregateOffsetIterator *it = malloc(sizeof(_RSAggregateOffsetIterator));
   it->size = 0;
   it->offsets = NULL;
@@ -74,11 +74,20 @@ void *_newAggregateIter() {
   it->terms = NULL;
   return it;
 }
+
+static void aggiterFree(void *p) {
+  _RSAggregateOffsetIterator *aggiter = p;
+  free(aggiter->offsets);
+  free(aggiter->iters);
+  free(aggiter->terms);
+  free(aggiter);
+}
+
 /* Create an iterator from the aggregate offset iterators of the aggregate result */
 static RSOffsetIterator _aggregateResult_iterate(const RSAggregateResult *agg) {
   if (!__aggregateIters) {
     mempool_options opts = {
-        .isGlobal = 1, .initialCap = 8, .alloc = _newAggregateIter, .free = free};
+        .isGlobal = 1, .initialCap = 8, .alloc = aggiterNew, .free = aggiterFree};
     __aggregateIters = mempool_new(&opts);
   }
   _RSAggregateOffsetIterator *it = mempool_get(__aggregateIters);
