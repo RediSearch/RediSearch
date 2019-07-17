@@ -56,3 +56,10 @@ RediSearch has a distributed cluster version that can scale to billions of docum
 * Partial and conditional document updates.
 
 
+## Mailing List / Forum
+
+Got questions? Feel free to ask at the [RediSearch mailing list](https://groups.google.com/forum/#!forum/redisearch).
+
+## License
+
+Redis Source Available License Agreement - see [LICENSE](https://raw.githubusercontent.com/RediSearch/RediSearch/master/LICENSE)
