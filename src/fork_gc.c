@@ -55,12 +55,12 @@ static void ForkGc_FDWriteLongLong(int fd, long long val) {
   assert(size == sizeof(long long));
 }
 
-static void ForkGc_FDWritePtr(int fd, void *val) {
+static void ForkGc_FDWritePtr(int fd, const void *val) {
   ssize_t size = write(fd, &val, sizeof(void *));
   assert(size == sizeof(void *));
 }
 
-static void ForkGc_FDWriteBuffer(int fd, const char *buff, size_t len) {
+static void ForkGc_FDWriteBuffer(int fd, const void *buff, size_t len) {
   ForkGc_FDWriteLongLong(fd, len);
   if (len > 0) {
     ssize_t size = write(fd, buff, len);
@@ -103,102 +103,103 @@ static void *ForkGc_FDReadBuffer(int fd, size_t *len) {
 static bool ForkGc_InvertedIndexRepair(ForkGCCtx *gc, RedisSearchCtx *sctx, InvertedIndex *idx,
                                        void (*RepairCallback)(const RSIndexResult *, void *),
                                        void *arg) {
-  int *blocksFixed = array_new(int, 10);
-  int *blocksFixedOldIndexes = array_new(int, 10);
+  typedef struct {
+    size_t oldix;
+    size_t newix;
+  } FixedBlockInfo;
+  FixedBlockInfo *fbino = array_new(FixedBlockInfo, 10);
   void **bufsToFree = array_new(void *, 10);
-  size_t numDocsBefore[idx->size];
-  long long totalBytesCollected = 0;
-  long long totalDocsCollected = 0;
-  IndexBlock *newBlocks = array_new(IndexBlock, idx->size);
-  bool blocksRepaired = false;
-  for (uint32_t i = 0; i < idx->size - 1; ++i) {
+  IndexBlock *outblocks = array_new(IndexBlock, idx->size);
+
+  // statistics
+  size_t nbytes = 0, ndocs = 0;
+  bool rv = false;
+
+  for (size_t i = 0; i < idx->size - 1; ++i) {
     IndexBlock *blk = idx->blocks + i;
     if (blk->lastId - blk->firstId > UINT32_MAX) {
       // Skip over blocks which have a wide variation. In the future we might
       // want to split a block into two (or more) on high-delta boundaries.
       // todo: is it ok??
-      newBlocks = array_append(newBlocks, *blk);
+      outblocks = array_append(outblocks, *blk);
       continue;
     }
-    IndexRepairParams params = {0};
-    params.RepairCallback = RepairCallback;
-    params.arg = arg;
-    numDocsBefore[i] = blk->numDocs;
+
+    IndexRepairParams params = {.RepairCallback = RepairCallback, .arg = arg};
     int repaired = IndexBlock_Repair(blk, &sctx->spec->docs, idx->flags, &params);
     // We couldn't repair the block - return 0
     if (repaired == -1) {
-      return false;
+      goto done;
     }
 
     if (repaired > 0) {
-      blocksRepaired = true;
       if (blk->numDocs == 0) {
+        // this block should be removed
         bufsToFree = array_append(bufsToFree, blk->buf.data);
       } else {
-        newBlocks = array_append(newBlocks, *blk);
-        blocksFixed = array_append(blocksFixed, array_len(newBlocks) - 1);
-        blocksFixedOldIndexes = array_append(blocksFixedOldIndexes, i);
+        outblocks = array_append(outblocks, *blk);
+        FixedBlockInfo *curfbi = array_ensure_tail(&fbino, FixedBlockInfo);
+        curfbi->newix = array_len(outblocks) - 1;
+        curfbi->oldix = i;
       }
     } else {
-      newBlocks = array_append(newBlocks, *blk);
+      outblocks = array_append(outblocks, *blk);
     }
 
-    totalBytesCollected += params.bytesCollected;
-    totalDocsCollected += repaired;
+    nbytes += params.bytesCollected;
+    ndocs += repaired;
   }
 
-  if (!blocksRepaired) {
-    // no blocks was repaired
+  if (array_len(fbino) == 0 && array_len(bufsToFree) == 0) {
+    // No blocks were removed or repaired
     ForkGc_FDWriteLongLong(gc->pipefd[GC_WRITERFD], 0);
-    array_free(blocksFixed);
-    array_free(blocksFixedOldIndexes);
-    array_free(newBlocks);
-    array_free(bufsToFree);
-    return false;
+    goto done;
   }
 
   ForkGc_FDWriteLongLong(gc->pipefd[GC_WRITERFD], 1);  // indicating we have repaired blocks
 
-  // sending original invidx size
+  // send original block count
   ForkGc_FDWriteLongLong(gc->pipefd[GC_WRITERFD], idx->size);
 
-  if (array_len(newBlocks) == idx->size - 1) {
+  if (array_len(outblocks) == idx->size - 1) {
     // no empty block, there is no need to send the blocks array
     ForkGc_FDWriteLongLong(gc->pipefd[GC_WRITERFD], 0);  // indicating we have no new invidx
   } else {
     ForkGc_FDWriteLongLong(gc->pipefd[GC_WRITERFD], 1);  // indicating we have new invidx
     // empty blocks introduce, sending the new blocks array
-    ForkGc_FDWriteBuffer(gc->pipefd[GC_WRITERFD], (char *)newBlocks,
-                         array_len(newBlocks) * sizeof(IndexBlock));
+    ForkGc_FDWriteBuffer(gc->pipefd[GC_WRITERFD], outblocks,
+                         array_len(outblocks) * sizeof(IndexBlock));
   }
 
-  ForkGc_FDWriteBuffer(gc->pipefd[GC_WRITERFD], (char *)bufsToFree,
+  ForkGc_FDWriteBuffer(gc->pipefd[GC_WRITERFD], bufsToFree,
                        array_len(bufsToFree) * sizeof(char **));
 
   // write number of repaired blocks
-  ForkGc_FDWriteLongLong(gc->pipefd[GC_WRITERFD], array_len(blocksFixed));
+  ForkGc_FDWriteLongLong(gc->pipefd[GC_WRITERFD], array_len(fbino));
 
   // write total bytes collected
-  ForkGc_FDWriteLongLong(gc->pipefd[GC_WRITERFD], totalBytesCollected);
+  ForkGc_FDWriteLongLong(gc->pipefd[GC_WRITERFD], nbytes);
 
   // write total docs collected
-  ForkGc_FDWriteLongLong(gc->pipefd[GC_WRITERFD], totalDocsCollected);
+  ForkGc_FDWriteLongLong(gc->pipefd[GC_WRITERFD], ndocs);
 
-  for (size_t i = 0; i < array_len(blocksFixed); ++i) {
+  for (size_t i = 0; i < array_len(fbino); ++i) {
     // write fix block
-    IndexBlock *blk = newBlocks + blocksFixed[i];
-    ForkGc_FDWriteLongLong(gc->pipefd[GC_WRITERFD], blocksFixed[i]);  // writing the block index
-    ForkGc_FDWriteLongLong(gc->pipefd[GC_WRITERFD], blocksFixedOldIndexes[i]);  // writing old index
+    IndexBlock *blk = outblocks + fbino[i].newix;
+    ForkGc_FDWriteLongLong(gc->pipefd[GC_WRITERFD], fbino[i].newix);  // writing the block index
+    ForkGc_FDWriteLongLong(gc->pipefd[GC_WRITERFD], fbino[i].oldix);  // writing old index
     ForkGc_FDWriteLongLong(gc->pipefd[GC_WRITERFD], blk->firstId);
     ForkGc_FDWriteLongLong(gc->pipefd[GC_WRITERFD], blk->lastId);
     ForkGc_FDWriteLongLong(gc->pipefd[GC_WRITERFD], blk->numDocs);
     ForkGc_FDWriteBuffer(gc->pipefd[GC_WRITERFD], IndexBlock_DataBuf(blk), IndexBlock_DataLen(blk));
   }
-  array_free(blocksFixed);
-  array_free(blocksFixedOldIndexes);
-  array_free(newBlocks);
+  rv = true;
+
+done:
+  array_free(fbino);
+  array_free(outblocks);
   array_free(bufsToFree);
-  return true;
+  return rv;
 }
 
 static void ForkGc_CollectTerm(ForkGCCtx *gc, RedisSearchCtx *sctx, char *term, size_t termLen) {
