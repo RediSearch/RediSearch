@@ -200,18 +200,34 @@ done:
   return rv;
 }
 
-static void ForkGc_CollectTerm(ForkGCCtx *gc, RedisSearchCtx *sctx, char *term, size_t termLen) {
-  RedisModuleKey *idxKey = NULL;
-  InvertedIndex *idx = Redis_OpenInvertedIndexEx(sctx, term, strlen(term), 1, &idxKey);
-  if (idx) {
-    // inverted index name
-    FGC_SendBuffer(gc, term, termLen);
+static void FGC_CollectTerms(ForkGCCtx *gc, RedisSearchCtx *sctx) {
+  TrieIterator *iter = Trie_Iterate(sctx->spec->terms, "", 0, 0, 1);
+  rune *rstr = NULL;
+  t_len slen = 0;
+  float score = 0;
+  int dist = 0;
+  while (TrieIterator_Next(iter, &rstr, &slen, NULL, &score, &dist)) {
+    size_t termLen;
+    char *term = runesToStr(rstr, slen, &termLen);
+    RedisModuleKey *idxKey = NULL;
+    InvertedIndex *idx = Redis_OpenInvertedIndexEx(sctx, term, strlen(term), 1, &idxKey);
+    if (idx) {
+      // inverted index name
+      FGC_SendBuffer(gc, term, termLen);
 
-    ForkGc_InvertedIndexRepair(gc, sctx, idx, NULL, NULL);
+      ForkGc_InvertedIndexRepair(gc, sctx, idx, NULL, NULL);
+    }
+    if (idxKey) {
+      RedisModule_CloseKey(idxKey);
+    }
+    free(term);
   }
-  if (idxKey) {
-    RedisModule_CloseKey(idxKey);
-  }
+  DFAFilter_Free(iter->ctx);
+  free(iter->ctx);
+  TrieIterator_Free(iter);
+
+  // we are done with terms
+  FGC_SendBuffer(gc, "\0", 1);
 }
 
 static void ForkGc_CountDeletedCardinality(const RSIndexResult *r, void *arg) {
@@ -224,27 +240,7 @@ static void ForkGc_CountDeletedCardinality(const RSIndexResult *r, void *arg) {
   }
 }
 
-static void ForkGc_CollectGarbageFromInvIdx(ForkGCCtx *gc, RedisSearchCtx *sctx) {
-  TrieIterator *iter = Trie_Iterate(sctx->spec->terms, "", 0, 0, 1);
-  rune *rstr = NULL;
-  t_len slen = 0;
-  float score = 0;
-  int dist = 0;
-  while (TrieIterator_Next(iter, &rstr, &slen, NULL, &score, &dist)) {
-    size_t termLen;
-    char *term = runesToStr(rstr, slen, &termLen);
-    ForkGc_CollectTerm(gc, sctx, term, termLen);
-    free(term);
-  }
-  DFAFilter_Free(iter->ctx);
-  free(iter->ctx);
-  TrieIterator_Free(iter);
-
-  // we are done with terms
-  FGC_SendBuffer(gc, "\0", 1);
-}
-
-static void ForkGc_CollectGarbageFromNumIdx(ForkGCCtx *gc, RedisSearchCtx *sctx) {
+static void FGC_CollectNumeric(ForkGCCtx *gc, RedisSearchCtx *sctx) {
   RedisModuleKey *idxKey = NULL;
   FieldSpec **numericFields = getFieldsByType(sctx->spec, INDEXFLD_T_NUMERIC);
 
@@ -295,7 +291,9 @@ static void ForkGc_CollectGarbageFromNumIdx(ForkGCCtx *gc, RedisSearchCtx *sctx)
       // we are done with the current field
       FGC_SendPtrAddr(gc, 0);
 
-      if (idxKey) RedisModule_CloseKey(idxKey);
+      if (idxKey) {
+        RedisModule_CloseKey(idxKey);
+      }
 
       NumericRangeTreeIterator_Free(gcIterator);
     }
@@ -305,7 +303,7 @@ static void ForkGc_CollectGarbageFromNumIdx(ForkGCCtx *gc, RedisSearchCtx *sctx)
   FGC_SendBuffer(gc, "\0", 1);
 }
 
-static void ForkGc_CollectGarbageFromTagIdx(ForkGCCtx *gc, RedisSearchCtx *sctx) {
+static void FGC_CollectTags(ForkGCCtx *gc, RedisSearchCtx *sctx) {
   RedisModuleKey *idxKey = NULL;
   FieldSpec **tagFields = getFieldsByType(sctx->spec, INDEXFLD_T_TAG);
   if (array_len(tagFields) != 0) {
@@ -336,7 +334,9 @@ static void ForkGc_CollectGarbageFromTagIdx(ForkGCCtx *gc, RedisSearchCtx *sctx)
       // we are done with the current field
       FGC_SendPtrAddr(gc, 0);
 
-      if (idxKey) RedisModule_CloseKey(idxKey);
+      if (idxKey) {
+        RedisModule_CloseKey(idxKey);
+      }
     }
   }
   // we are done with numeric fields
@@ -352,16 +352,12 @@ static void ForkGc_CollectGarbage(ForkGCCtx *gc) {
     return;
   }
 
-  ForkGc_CollectGarbageFromInvIdx(gc, sctx);
+  FGC_CollectTerms(gc, sctx);
+  FGC_CollectNumeric(gc, sctx);
+  FGC_CollectTags(gc, sctx);
 
-  ForkGc_CollectGarbageFromNumIdx(gc, sctx);
-
-  ForkGc_CollectGarbageFromTagIdx(gc, sctx);
-
-  if (sctx) {
-    SearchCtx_Free(sctx);
-    RedisModule_FreeThreadSafeContext(rctx);
-  }
+  SearchCtx_Free(sctx);
+  RedisModule_FreeThreadSafeContext(rctx);
 }
 
 typedef struct ModifiedBlock {
@@ -379,9 +375,9 @@ typedef struct {
   size_t numNewBlocks;
   ModifiedBlock *changedBlocks;
   size_t numChangedBlocks;
-} ForkGc_InvertedIndexData;
+} InvIdxInfo;
 
-static void ForkGc_ReadModifiedBlock(ForkGCCtx *gc, ModifiedBlock *blockModified) {
+static void FGC_RecvModifiedBlock(ForkGCCtx *gc, ModifiedBlock *blockModified) {
   blockModified->blockIndex = FGC_RecvLongLong(gc);
   blockModified->blockOldIndex = FGC_RecvLongLong(gc);
   blockModified->blk.firstId = FGC_RecvLongLong(gc);
@@ -393,34 +389,33 @@ static void ForkGc_ReadModifiedBlock(ForkGCCtx *gc, ModifiedBlock *blockModified
   b->cap = b->offset;
 }
 
-static bool ForkGc_ReadInvertedIndexFromFork(ForkGCCtx *gc, ForkGc_InvertedIndexData *idxData) {
+static bool FGC_RecvInvIdx(ForkGCCtx *gc, InvIdxInfo *info) {
   long long blocksRepaired = FGC_RecvLongLong(gc);
   if (!blocksRepaired) {
     return false;
   }
 
-  idxData->originalSize = FGC_RecvLongLong(gc);
+  info->originalSize = FGC_RecvLongLong(gc);
   int hasNewBlocks = FGC_RecvLongLong(gc);
   if (hasNewBlocks) {
-    idxData->newBlocks = (IndexBlock *)FGC_RecvBuffer(gc, &idxData->numNewBlocks);
-    idxData->numNewBlocks /= sizeof(IndexBlock);
+    info->newBlocks = (IndexBlock *)FGC_RecvBuffer(gc, &info->numNewBlocks);
+    info->numNewBlocks /= sizeof(IndexBlock);
   }
 
-  idxData->addrsToFree = FGC_RecvBuffer(gc, &idxData->numAddrsToFree);
-  idxData->numAddrsToFree /= sizeof(char *);
+  info->addrsToFree = FGC_RecvBuffer(gc, &info->numAddrsToFree);
+  info->numAddrsToFree /= sizeof(char *);
 
-  idxData->numChangedBlocks = FGC_RecvLongLong(gc);
-  idxData->bytesCollected = FGC_RecvLongLong(gc);
-  idxData->docsCollected = FGC_RecvLongLong(gc);
-  idxData->changedBlocks = rm_malloc(sizeof(*idxData->changedBlocks) * idxData->numChangedBlocks);
-  for (size_t i = 0; i < idxData->numChangedBlocks; ++i) {
-    ForkGc_ReadModifiedBlock(gc, idxData->changedBlocks + i);
+  info->numChangedBlocks = FGC_RecvLongLong(gc);
+  info->bytesCollected = FGC_RecvLongLong(gc);
+  info->docsCollected = FGC_RecvLongLong(gc);
+  info->changedBlocks = rm_malloc(sizeof(*info->changedBlocks) * info->numChangedBlocks);
+  for (size_t i = 0; i < info->numChangedBlocks; ++i) {
+    FGC_RecvModifiedBlock(gc, info->changedBlocks + i);
   }
   return true;
 }
 
-static void ForkGc_FixInvertedIndex(ForkGCCtx *gc, ForkGc_InvertedIndexData *idxData,
-                                    InvertedIndex *idx) {
+static void ForkGc_FixInvertedIndex(ForkGCCtx *gc, InvIdxInfo *idxData, InvertedIndex *idx) {
   if (idxData->addrsToFree) {
     for (int i = 0; i < idxData->numAddrsToFree; ++i) {
       rm_free(idxData->addrsToFree[i]);
@@ -465,8 +460,8 @@ static bool ForkGc_ReadInvertedIndex(ForkGCCtx *gc, int *ret_val, RedisModuleCtx
     return false;
   }
 
-  ForkGc_InvertedIndexData idxData = {0};
-  if (!ForkGc_ReadInvertedIndexFromFork(gc, &idxData)) {
+  InvIdxInfo idxData = {0};
+  if (!FGC_RecvInvIdx(gc, &idxData)) {
     rm_free(term);
     return true;
   }
@@ -531,8 +526,8 @@ static bool ForkGc_ReadNumericInvertedIndex(ForkGCCtx *gc, int *ret_val, RedisMo
   RedisModuleString *keyName = NULL;
   while ((currNode = FGC_RecvPtrAddr(gc))) {
 
-    ForkGc_InvertedIndexData idxData = {0};
-    if (!ForkGc_ReadInvertedIndexFromFork(gc, &idxData)) {
+    InvIdxInfo idxData = {0};
+    if (!FGC_RecvInvIdx(gc, &idxData)) {
       continue;
     }
 
@@ -631,8 +626,8 @@ static bool ForkGc_ReadTagIndex(ForkGCCtx *gc, int *ret_val, RedisModuleCtx *rct
   InvertedIndex *value = NULL;
   RedisModuleString *keyName = NULL;
   while ((value = FGC_RecvPtrAddr(gc))) {
-    ForkGc_InvertedIndexData idxData = {0};
-    if (!ForkGc_ReadInvertedIndexFromFork(gc, &idxData)) {
+    InvIdxInfo idxData = {0};
+    if (!FGC_RecvInvIdx(gc, &idxData)) {
       continue;
     }
 
