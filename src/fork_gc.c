@@ -60,11 +60,16 @@ static void FGC_SendPtrAddr(ForkGCCtx *fgc, const void *val) {
   assert(size == sizeof(void *));
 }
 
+static void FGC_SendFixed(ForkGCCtx *fgc, const void *buff, size_t len) {
+  assert(len > 0);
+  ssize_t size = write(fgc->pipefd[GC_WRITERFD], buff, len);
+  assert(size == len);
+}
+
 static void FGC_SendBuffer(ForkGCCtx *fgc, const void *buff, size_t len) {
   FGC_SendLongLong(fgc, len);
   if (len > 0) {
-    ssize_t size = write(fgc->pipefd[GC_WRITERFD], buff, len);
-    assert(size == len);
+    FGC_SendFixed(fgc, buff, len);
   }
 }
 
@@ -86,19 +91,45 @@ static void *FGC_RecvPtrAddr(ForkGCCtx *fgc) {
   return ret;
 }
 
+static void FGC_RecvFixed(ForkGCCtx *fgc, void *buf, size_t len) {
+  ssize_t nrecvd = read(fgc->pipefd[GC_READERFD], buf, len);
+  if (nrecvd != len) {
+    printf("warning: got a bad length when writing to pipe.\r\n");
+  }
+}
+
 static void *FGC_RecvBuffer(ForkGCCtx *fgc, size_t *len) {
   *len = FGC_RecvLongLong(fgc);
   if (*len == 0) {
     return NULL;
   }
-  char *buff = rm_malloc(*len * sizeof(char));
-  ssize_t l = read(fgc->pipefd[GC_READERFD], buff, *len);
-  if (l != *len) {
-    // we can not write logs here cause we are in the fork process, lets at least print to stdout.
-    printf("warning: got a bad length when writing to pipe.\r\n");
-  }
+  char *buff = rm_malloc(*len);
+  FGC_RecvFixed(fgc, buff, *len);
   return buff;
 }
+
+typedef struct {
+  // Number of blocks prior to repair
+  uint32_t nblocksOrig;
+  // Number of blocks repaired
+  uint32_t nblocksRepaired;
+  // Number of bytes cleaned in inverted index
+  uint64_t nbytesCollected;
+  // Number of document records removed
+  uint64_t ndocsCollected;
+} FGC_MsgInvIdxInfo;
+
+/**
+ * Structure sent describing an index block
+ */
+typedef struct {
+  int64_t oldix;  // Old position of the block
+  int64_t newix;  // New position of the block
+  uint64_t numDocs;
+  uint64_t firstId;
+  uint64_t lastId;
+  // the actual content of the block follows...
+} FGC_MsgBlockInfo;
 
 static bool ForkGc_InvertedIndexRepair(ForkGCCtx *gc, RedisSearchCtx *sctx, InvertedIndex *idx,
                                        void (*RepairCallback)(const RSIndexResult *, void *),
@@ -158,37 +189,34 @@ static bool ForkGc_InvertedIndexRepair(ForkGCCtx *gc, RedisSearchCtx *sctx, Inve
 
   FGC_SendLongLong(gc, 1);  // indicating we have repaired blocks
 
-  // send original block count
-  FGC_SendLongLong(gc, idx->size);
+  FGC_MsgInvIdxInfo ixmsg = {
+      .nblocksOrig = idx->size,
+      .nblocksRepaired = array_len(fbino),
+      .nbytesCollected = nbytes,
+      .ndocsCollected = ndocs,
+  };
+  FGC_SendFixed(gc, &ixmsg, sizeof ixmsg);
 
   if (array_len(outblocks) == idx->size - 1) {
-    // no empty block, there is no need to send the blocks array
-    FGC_SendLongLong(gc, 0);  // indicating we have no new invidx
+    // no empty block, there is no need to send the blocks array. Don't send
+    // any new blocks
+    FGC_SendBuffer(gc, NULL, 0);
   } else {
-    FGC_SendLongLong(gc, 1);  // indicating we have new invidx
-    // empty blocks introduce, sending the new blocks array
     FGC_SendBuffer(gc, outblocks, array_len(outblocks) * sizeof(IndexBlock));
   }
 
   FGC_SendBuffer(gc, bufsToFree, array_len(bufsToFree) * sizeof(char **));
 
-  // write number of repaired blocks
-  FGC_SendLongLong(gc, array_len(fbino));
-
-  // write total bytes collected
-  FGC_SendLongLong(gc, nbytes);
-
-  // write total docs collected
-  FGC_SendLongLong(gc, ndocs);
-
   for (size_t i = 0; i < array_len(fbino); ++i) {
     // write fix block
     IndexBlock *blk = outblocks + fbino[i].newix;
-    FGC_SendLongLong(gc, fbino[i].newix);  // writing the block index
-    FGC_SendLongLong(gc, fbino[i].oldix);  // writing old index
-    FGC_SendLongLong(gc, blk->firstId);
-    FGC_SendLongLong(gc, blk->lastId);
-    FGC_SendLongLong(gc, blk->numDocs);
+    FGC_MsgBlockInfo msg = {.newix = fbino[i].newix,
+                            .oldix = fbino[i].oldix,
+                            .firstId = blk->firstId,
+                            .lastId = blk->lastId,
+                            .numDocs = blk->numDocs};
+
+    FGC_SendFixed(gc, &msg, sizeof msg);
     FGC_SendBuffer(gc, IndexBlock_DataBuf(blk), IndexBlock_DataLen(blk));
   }
   rv = true;
@@ -378,11 +406,13 @@ typedef struct {
 } InvIdxInfo;
 
 static void FGC_RecvModifiedBlock(ForkGCCtx *gc, ModifiedBlock *blockModified) {
-  blockModified->blockIndex = FGC_RecvLongLong(gc);
-  blockModified->blockOldIndex = FGC_RecvLongLong(gc);
-  blockModified->blk.firstId = FGC_RecvLongLong(gc);
-  blockModified->blk.lastId = FGC_RecvLongLong(gc);
-  blockModified->blk.numDocs = FGC_RecvLongLong(gc);
+  FGC_MsgBlockInfo msg = {0};
+  FGC_RecvFixed(gc, &msg, sizeof msg);
+  blockModified->blockIndex = msg.newix;
+  blockModified->blockOldIndex = msg.oldix;
+  blockModified->blk.firstId = msg.firstId;
+  blockModified->blk.lastId = msg.lastId;
+  blockModified->blk.numDocs = msg.numDocs;
 
   Buffer *b = &blockModified->blk.buf;
   b->data = FGC_RecvBuffer(gc, &b->offset);
@@ -390,24 +420,25 @@ static void FGC_RecvModifiedBlock(ForkGCCtx *gc, ModifiedBlock *blockModified) {
 }
 
 static bool FGC_RecvInvIdx(ForkGCCtx *gc, InvIdxInfo *info) {
-  long long blocksRepaired = FGC_RecvLongLong(gc);
-  if (!blocksRepaired) {
+  long long wasRepaired = FGC_RecvLongLong(gc);
+  if (!wasRepaired) {
     return false;
   }
-
-  info->originalSize = FGC_RecvLongLong(gc);
-  int hasNewBlocks = FGC_RecvLongLong(gc);
-  if (hasNewBlocks) {
-    info->newBlocks = (IndexBlock *)FGC_RecvBuffer(gc, &info->numNewBlocks);
-    info->numNewBlocks /= sizeof(IndexBlock);
+  FGC_MsgInvIdxInfo infmsg = {0};
+  FGC_RecvFixed(gc, &infmsg, sizeof infmsg);
+  info->newBlocks = FGC_RecvBuffer(gc, &info->numNewBlocks);
+  if (info->numNewBlocks) {
+    info->numNewBlocks /= sizeof(*info->newBlocks);
   }
 
   info->addrsToFree = FGC_RecvBuffer(gc, &info->numAddrsToFree);
   info->numAddrsToFree /= sizeof(char *);
 
-  info->numChangedBlocks = FGC_RecvLongLong(gc);
-  info->bytesCollected = FGC_RecvLongLong(gc);
-  info->docsCollected = FGC_RecvLongLong(gc);
+  info->originalSize = infmsg.nblocksOrig;
+  info->numChangedBlocks = infmsg.nblocksRepaired;
+  info->bytesCollected = infmsg.nbytesCollected;
+  info->docsCollected = infmsg.ndocsCollected;
+
   info->changedBlocks = rm_malloc(sizeof(*info->changedBlocks) * info->numChangedBlocks);
   for (size_t i = 0; i < info->numChangedBlocks; ++i) {
     FGC_RecvModifiedBlock(gc, info->changedBlocks + i);
