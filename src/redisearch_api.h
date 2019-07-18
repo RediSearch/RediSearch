@@ -167,6 +167,7 @@ MODULE_API_FUNC(RSQNode*, RediSearch_CreateTagNode)(RSIndex* sp, const char* fie
 
 MODULE_API_FUNC(RSQNode*, RediSearch_CreateIntersectNode)(RSIndex* sp, int exact);
 MODULE_API_FUNC(RSQNode*, RediSearch_CreateUnionNode)(RSIndex* sp);
+MODULE_API_FUNC(RSQNode*, RediSearch_CreateEmptyNode)(RSIndex* sp);
 MODULE_API_FUNC(RSQNode*, RediSearch_CreateNotNode)(RSIndex* sp);
 MODULE_API_FUNC(void, RediSearch_QueryNodeFree)(RSQNode* qn);
 
