@@ -241,10 +241,15 @@ struct RedisModuleCtx {
   RedisModuleCtx(uint32_t dbid = 0);
 
   void addPointer(RedisModuleString *s) {
-    allocstrs.insert(s);
+    if (automemory) {
+      allocstrs.insert(s);
+    }
   }
+
   void addPointer(RedisModuleKey *kk) {
-    allockeys.insert(kk);
+    if (automemory) {
+      allockeys.insert(kk);
+    }
   }
 
   void notifyRemoved(RedisModuleKey *k) {
