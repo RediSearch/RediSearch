@@ -1443,3 +1443,23 @@ static IndexIterator eofIterator = {.Read = EOI_Read,
 IndexIterator *NewEmptyIterator(void) {
   return &eofIterator;
 }
+
+const char *IndexIterator_GetTypeString(const IndexIterator *it) {
+  if (it->Free == UnionIterator_Free) {
+    return "UNION";
+  } else if (it->Free == IntersectIterator_Free) {
+    return "INTERSECTION";
+  } else if (it->Free == OI_Free) {
+    return "OPTIONAL";
+  } else if (it->Free == WI_Free) {
+    return "WILDCARD";
+  } else if (it->Free == NI_Free) {
+    return "NOT";
+  } else if (it->Free == ReadIterator_Free) {
+    return "IIDX";
+  } else if (it == &eofIterator) {
+    return "EMPTY";
+  } else {
+    return "Unknown";
+  }
+}
