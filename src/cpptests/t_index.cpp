@@ -628,8 +628,9 @@ TEST_F(IndexTest, testIntersection) {
 
 TEST_F(IndexTest, testBuffer) {
   // TEST_START();
-
-  BufferWriter w = NewBufferWriter(NewBuffer(2));
+  Buffer b = {0};
+  Buffer_Init(&b, 2);
+  BufferWriter w = NewBufferWriter(&b);
   ASSERT_TRUE(w.buf->cap == 2) << "Wrong capacity";
   ASSERT_TRUE(w.buf->data != NULL);
   ASSERT_TRUE(Buffer_Offset(w.buf) == 0);
@@ -667,7 +668,6 @@ TEST_F(IndexTest, testBuffer) {
   ASSERT_TRUE(n == 1337654);
 
   Buffer_Free(w.buf);
-  free(w.buf);
 }
 
 typedef struct {
@@ -1081,7 +1081,9 @@ TEST_F(IndexTest, testSortable) {
 TEST_F(IndexTest, testVarintFieldMask) {
   t_fieldMask x = 127;
   size_t expected[] = {1, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16, 17, 19};
-  BufferWriter bw = NewBufferWriter(NewBuffer(1));
+  Buffer b = {0};
+  Buffer_Init(&b, 1);
+  BufferWriter bw = NewBufferWriter(&b);
   for (int i = 0; i < sizeof(t_fieldMask); i++, x |= x << 8) {
     size_t sz = WriteVarintFieldMask(x, &bw);
     ASSERT_EQ(expected[i], sz);
@@ -1092,6 +1094,7 @@ TEST_F(IndexTest, testVarintFieldMask) {
 
     ASSERT_EQ(y, x);
   }
+  Buffer_Free(&b);
 }
 
 TEST_F(IndexTest, testDeltaSplits) {

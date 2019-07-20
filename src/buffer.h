@@ -173,8 +173,6 @@ static inline char *BufferWriter_PtrAt(BufferWriter *b, size_t pos) {
 size_t BufferWriter_Seek(BufferWriter *b, size_t offset);
 size_t Buffer_WriteAt(BufferWriter *b, size_t offset, void *data, size_t len);
 
-Buffer *NewBuffer(size_t len);
-
 Buffer *Buffer_Wrap(char *data, size_t len);
 void Buffer_Free(Buffer *buf);
 
