@@ -867,6 +867,7 @@ TEST_F(IndexTest, testHugeSpec) {
   ASSERT_TRUE(QueryError_HasError(&err));
   ASSERT_STREQ("Too many TEXT fields in schema", QueryError_GetError(&err));
   freeSchemaArgs(args);
+  QueryError_ClearError(&err);
 }
 
 typedef union {

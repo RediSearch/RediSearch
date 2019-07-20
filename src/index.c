@@ -524,6 +524,7 @@ static void II_SortChildren(IntersectIterator *ctx) {
       if (unsortedIts) {
         array_free(unsortedIts);
       }
+      ctx->bestIt = NULL;
       return;
     }
 
@@ -559,6 +560,8 @@ static void II_SortChildren(IntersectIterator *ctx) {
       ctx->testers = array_ensure_append(ctx->testers, &tester, 1, IndexCriteriaTester *);
       cur->Free(cur);
     }
+  } else {
+    ctx->bestIt = NULL;
   }
 
   free(ctx->its);
