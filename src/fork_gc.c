@@ -146,7 +146,7 @@ static bool ForkGc_InvertedIndexRepair(ForkGCCtx *gc, RedisSearchCtx *sctx, Inve
   size_t nbytes = 0, ndocs = 0;
   bool rv = false;
 
-  for (size_t i = 0; i < idx->size - 1; ++i) {
+  for (size_t i = 0; i < idx->size; ++i) {
     IndexBlock *blk = idx->blocks + i;
     if (blk->lastId - blk->firstId > UINT32_MAX) {
       // Skip over blocks which have a wide variation. In the future we might
@@ -197,7 +197,7 @@ static bool ForkGc_InvertedIndexRepair(ForkGCCtx *gc, RedisSearchCtx *sctx, Inve
   };
   FGC_SendFixed(gc, &ixmsg, sizeof ixmsg);
 
-  if (array_len(outblocks) == idx->size - 1) {
+  if (array_len(outblocks) == idx->size) {
     // no empty block, there is no need to send the blocks array. Don't send
     // any new blocks
     FGC_SendBuffer(gc, NULL, 0);
@@ -447,29 +447,44 @@ static bool FGC_RecvInvIdx(ForkGCCtx *gc, InvIdxInfo *info) {
 }
 
 static void ForkGc_FixInvertedIndex(ForkGCCtx *gc, InvIdxInfo *idxData, InvertedIndex *idx) {
-  if (idxData->addrsToFree) {
-    for (int i = 0; i < idxData->numAddrsToFree; ++i) {
-      rm_free(idxData->addrsToFree[i]);
+  for (size_t i = 0; i < idxData->numAddrsToFree; ++i) {
+    rm_free(idxData->addrsToFree[i]);
+  }
+  rm_free(idxData->addrsToFree);
+
+  if (idxData->numChangedBlocks) {
+    for (size_t i = 0; i < idxData->numChangedBlocks - 1; ++i) {
+      ModifiedBlock *blockModified = idxData->changedBlocks + i;
+      indexBlock_Free(&idx->blocks[blockModified->blockOldIndex]);
     }
-    rm_free(idxData->addrsToFree);
+    ModifiedBlock *lastBinfo = idxData->changedBlocks + idxData->numChangedBlocks - 1;
+    IndexBlock *lastOld = idx->blocks + lastBinfo->blockOldIndex;
+    if (lastBinfo->blk.numDocs == lastOld->numDocs) {
+      indexBlock_Free(lastOld);
+    }
   }
 
-  for (int i = 0; i < idxData->numChangedBlocks; ++i) {
-    ModifiedBlock *blockModified = idxData->changedBlocks + i;
-    indexBlock_Free(&idx->blocks[blockModified->blockOldIndex]);
-  }
-
+  // Ensure the old index is at least as big as the new index' size
   assert(idx->size >= idxData->originalSize);
   if (idxData->newBlocks) {
-    idxData->newBlocks = rm_realloc(
-        idxData->newBlocks,
-        (idxData->numNewBlocks +
-         (idx->size - (idxData->originalSize - 1 /* we are copy the last block anyway*/))) *
-            sizeof(IndexBlock));
-    memcpy(idxData->newBlocks + idxData->numNewBlocks, idx->blocks + (idxData->originalSize - 1),
-           (idx->size - (idxData->originalSize - 1)) * sizeof(IndexBlock));
+    /**
+     * 'newBlocks' means reordered blocks [TODO: (Mark) rename this variable].
+     * If we have a new block ordering, let the current 'newBlocks' array be
+     * the indexes' new block array
+     */
+
+    // Number of blocks added in the parent process since the last scan
+    size_t newAddedLen = idx->size - idxData->originalSize;
+
+    // The final size is the reordered block size, plus the number of blocks
+    // which we haven't scanned yet, because they were added in the parent
+    size_t totalLen = idxData->numNewBlocks + newAddedLen;
+
+    idxData->newBlocks = rm_realloc(idxData->newBlocks, totalLen * sizeof(*idxData->newBlocks));
+    memcpy(idxData->newBlocks + idxData->numNewBlocks, (idx->blocks + idxData->originalSize),
+           newAddedLen * sizeof(*idxData->newBlocks));
     rm_free(idx->blocks);
-    idxData->numNewBlocks += (idx->size - (idxData->originalSize - 1));
+    idxData->numNewBlocks += newAddedLen;
     idx->blocks = idxData->newBlocks;
     idx->size = idxData->numNewBlocks;
   }
