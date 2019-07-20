@@ -465,6 +465,9 @@ void IntersectIterator_Free(IndexIterator *it) {
       ui->testers[i]->Free(ui->testers[i]);
     }
   }
+  if (ui->bestIt) {
+    ui->bestIt->Free(ui->bestIt);
+  }
 
   free(ui->docIds);
   free(ui->its);
@@ -509,14 +512,19 @@ static void II_SortChildren(IntersectIterator *ctx) {
   IndexIterator **unsortedIts = NULL;
   IndexIterator **sortedIts = malloc(sizeof(IndexIterator *) * ctx->num);
   size_t sortedItsSize = 0;
-
   for (size_t i = 0; i < ctx->num; ++i) {
     IndexIterator *curit = ctx->its[i];
+
     if (!curit) {
-      ctx->bestIt = ctx->its[i] = NewEmptyIterator();
-      ctx->nexpected = 0;
-      sortedIts[sortedItsSize++] = ctx->its[i];
-      continue;
+      // If the current iterator is empty, then the entire
+      // query will fail; just free all the iterators and call it good
+      if (sortedIts) {
+        free(sortedIts);
+      }
+      if (unsortedIts) {
+        array_free(unsortedIts);
+      }
+      return;
     }
 
     size_t amount = IITER_NUM_ESTIMATED(curit);
@@ -532,16 +540,16 @@ static void II_SortChildren(IntersectIterator *ctx) {
     }
   }
 
-  if (unsortedIts && array_len(unsortedIts) == ctx->num) {
-    ctx->base.mode = MODE_UNSORTED;
-    ctx->base.Read = II_ReadUnsorted;
-    ctx->num = 1;
-    ctx->its[0] = ctx->bestIt;
-    // The other iterators are also stored in unsortedIts
-    // and because we know that there are no sorted iterators
-  }
-
   if (unsortedIts) {
+    if (array_len(unsortedIts) == ctx->num) {
+      ctx->base.mode = MODE_UNSORTED;
+      ctx->base.Read = II_ReadUnsorted;
+      ctx->num = 1;
+      ctx->its[0] = ctx->bestIt;
+      // The other iterators are also stored in unsortedIts
+      // and because we know that there are no sorted iterators
+    }
+
     for (size_t ii = 0; ii < array_len(unsortedIts); ++ii) {
       IndexIterator *cur = unsortedIts[ii];
       if (ctx->base.mode == MODE_UNSORTED && ctx->bestIt == cur) {
@@ -552,6 +560,7 @@ static void II_SortChildren(IntersectIterator *ctx) {
       cur->Free(cur);
     }
   }
+
   free(ctx->its);
   ctx->its = sortedIts;
   ctx->num = sortedItsSize;
@@ -1043,7 +1052,6 @@ static t_docId NI_LastDocId(void *ctx) {
 IndexIterator *NewNotIterator(IndexIterator *it, t_docId maxDocId, double weight) {
 
   NotContext *nc = malloc(sizeof(*nc));
-  nc->base.current = NewVirtualResult(weight);
   nc->base.current = NewVirtualResult(weight);
   nc->base.current->fieldMask = RS_FIELDMASK_ALL;
   nc->base.current->docId = 0;
