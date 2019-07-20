@@ -190,6 +190,9 @@ void RLookupRow_Dump(const RLookupRow *rr) {
 }
 
 void RLookupKey_FreeInternal(RLookupKey *k) {
+  if (k->flags & RLOOKUP_F_NAMEALLOC) {
+    free((void *)k->name);
+  }
   free(k);
 }
 
