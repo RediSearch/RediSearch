@@ -735,7 +735,7 @@ IndexIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
   return NULL;
 }
 
-QueryNode *Query_Parse(QueryParseCtx *);
+QueryNode *RSQuery_ParseRaw(QueryParseCtx *);
 
 int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions *opts,
                const char *q, size_t n, QueryError *status) {
@@ -749,7 +749,7 @@ int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions 
                          .sctx = (RedisSearchCtx *)sctx,
                          .opts = opts,
                          .status = status};
-  dst->root = Query_Parse(&qpCtx);
+  dst->root = RSQuery_ParseRaw(&qpCtx);
   // printf("Parsed %.*s. Error (Y/N): %d. Root: %p\n", (int)n, q, QueryError_HasError(status),
   //  dst->root);
   if (!dst->root) {
