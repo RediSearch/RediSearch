@@ -568,7 +568,6 @@ int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     return RedisModule_ReplyWithError(ctx, "Cannot create index on db != 0");
   }
 
-  RedisModule_AutoMemory(ctx);
   RedisModule_ReplicateVerbatim(ctx);
   QueryError status = {0};
 
