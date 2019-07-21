@@ -45,9 +45,6 @@ void Document_PrepareForAdd(Document *doc, RedisModuleString *docKey, double sco
 void Document_DetachFields(Document *doc, RedisModuleCtx *ctx) {
   for (size_t ii = 0; ii < doc->numFields; ++ii) {
     DocumentField *f = doc->fields + ii;
-    if (f->text) {
-      RedisModule_RetainString(ctx, f->text);
-    }
     f->name = strdup(f->name);
   }
 }

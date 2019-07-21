@@ -239,7 +239,6 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     canBlock = CheckConcurrentSupport(ctx);
   }
 
-  RedisModule_AutoMemory(ctx);
   IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 0);
   if (!sp) {
     RedisModule_ReplyWithError(ctx, "Unknown index name");
@@ -311,8 +310,6 @@ static int doAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   if (argc < 4 || argc > 7) {
     return RedisModule_WrongArity(ctx);
   }
-
-  RedisModule_AutoMemory(ctx);
 
   QueryError status = {0};
   ArgsCursor ac = {0};
