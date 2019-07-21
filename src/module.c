@@ -1073,7 +1073,12 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   return REDISMODULE_OK;
 }
 
-void RediSearch_CleanupModule(void) {
+void __attribute__((destructor)) RediSearch_CleanupModule(void) {
+  static int invoked = 0;
+  if (invoked) {
+    return;
+  }
+  invoked = 1;
   CursorList_Destroy(&RSCursors);
   Extensions_Free();
   StopWordList_FreeGlobals();
