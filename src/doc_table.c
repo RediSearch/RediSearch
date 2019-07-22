@@ -51,6 +51,9 @@ int DocTable_Exists(const DocTable *t, t_docId docId) {
     return 0;
   }
   uint32_t ix = DocTable_GetBucket(t, docId);
+  if (ix >= t->cap) {
+    return 0;
+  }
   const DMDChain *chain = t->buckets + ix;
   if (chain == NULL) {
     return 0;
