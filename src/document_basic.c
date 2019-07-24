@@ -103,11 +103,8 @@ int Document_LoadSchemaFields(Document *doc, RedisSearchCtx *sctx) {
     }
     size_t oix = doc->numFields++;
     doc->fields[oix].name = strdup(fname);
-
-    // TODO:
-    // I'm unsure if creating a new string and freeing
-    doc->fields[oix].text = RedisModule_CreateStringFromString(sctx->redisCtx, v);
-    RedisModule_FreeString(sctx->redisCtx, v);
+    doc->fields[oix].text =
+        v;  // HashGet gives us `v` with a refcount of 1, meaning we're the only owner
   }
   rv = REDISMODULE_OK;
 

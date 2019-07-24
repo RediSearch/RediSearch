@@ -1173,6 +1173,7 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
       size_t dummy;
       char *s = RedisModule_LoadStringBuffer(rdb, &dummy);
       int rc = IndexAlias_Add(s, sp, 0, &status);
+      rm_free(s);
       assert(rc == REDISMODULE_OK);
     }
   }

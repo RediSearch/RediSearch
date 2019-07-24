@@ -1,5 +1,6 @@
 #include "value.h"
 #include "util/mempool.h"
+#include "module.h"
 #include <pthread.h>
 
 ///////////////////////////////////////////////////////////////
@@ -81,6 +82,9 @@ void RSValue_Clear(RSValue *v) {
       break;
     case RSValue_Reference:
       RSValue_Decref(v->ref);
+      break;
+    case RSValue_OwnRstring:
+      RedisModule_FreeString(RSDummyContext, v->rstrval);
       break;
     default:  // no free
       break;
@@ -171,10 +175,29 @@ RSValue *RS_StringValFmt(const char *fmt, ...) {
 }
 
 /* Wrap a redis string value */
-inline RSValue *RS_RedisStringVal(RedisModuleString *str) {
+RSValue *RS_RedisStringVal(RedisModuleString *str) {
   RSValue *v = RS_NewValue(RSValue_RedisString);
   v->rstrval = str;
   return v;
+}
+
+RSValue *RS_OwnRedisStringVal(RedisModuleString *str) {
+  RSValue *r = RS_RedisStringVal(str);
+  RSValue_MakeRStringOwner(r);
+  return r;
+}
+
+RSValue *RS_StealRedisStringVal(RedisModuleString *str) {
+  RSValue *ret = RS_RedisStringVal(str);
+  ret->rstrval = str;
+  ret->t = RSValue_OwnRstring;
+  return ret;
+}
+
+void RSValue_MakeRStringOwner(RSValue *v) {
+  assert(v->t == RSValue_RedisString);
+  v->t = RSValue_OwnRstring;
+  RedisModule_RetainString(RSDummyContext, v->rstrval);
 }
 
 /* Convert a value to a string value. If the value is already a string value it gets
@@ -184,7 +207,8 @@ void RSValue_ToString(RSValue *dst, RSValue *v) {
     case RSValue_String:
       RSValue_MakeReference(dst, v);
       break;
-    case RSValue_RedisString: {
+    case RSValue_RedisString:
+    case RSValue_OwnRstring: {
       size_t sz;
       const char *str = RedisModule_StringPtrLen(v->rstrval, &sz);
       RSValue_SetConstString(dst, str, sz);
@@ -238,6 +262,7 @@ int RSValue_ToNumber(const RSValue *v, double *d) {
       l = v->strval.len;
       break;
     case RSValue_RedisString:
+    case RSValue_OwnRstring:
       // Redis strings - take the number and len
       p = RedisModule_StringPtrLen(v->rstrval, &l);
       break;
@@ -278,6 +303,7 @@ inline const void *RSValue_ToBuffer(RSValue *value, size_t *outlen) {
       *outlen = value->strval.len;
       return value->strval.str;
     case RSValue_RedisString:
+    case RSValue_OwnRstring:
       return RedisModule_StringPtrLen(value->rstrval, outlen);
     case RSValue_Array:
     case RSValue_Null:
@@ -298,6 +324,7 @@ const char *RSValue_StringPtrLen(const RSValue *value, size_t *lenp) {
       }
       return value->strval.str;
     case RSValue_RedisString:
+    case RSValue_OwnRstring:
       return RedisModule_StringPtrLen(value->rstrval, lenp);
     default:
       return NULL;
@@ -454,7 +481,8 @@ int RSValue_Cmp(const RSValue *v1, const RSValue *v2) {
         return v1->numval > v2->numval ? 1 : (v1->numval < v2->numval ? -1 : 0);
       case RSValue_String:
         return cmp_strings(v1->strval.str, v2->strval.str, v1->strval.len, v2->strval.len);
-      case RSValue_RedisString: {
+      case RSValue_RedisString:
+      case RSValue_OwnRstring: {
         size_t l1, l2;
         const char *s1 = RedisModule_StringPtrLen(v1->rstrval, &l1);
         const char *s2 = RedisModule_StringPtrLen(v2->rstrval, &l2);
@@ -496,6 +524,7 @@ int RSValue_SendReply(RedisModuleCtx *ctx, const RSValue *v, int isTyped) {
     case RSValue_String:
       return RedisModule_ReplyWithStringBuffer(ctx, v->strval.str, v->strval.len);
     case RSValue_RedisString:
+    case RSValue_OwnRstring:
       return RedisModule_ReplyWithString(ctx, v->rstrval);
     case RSValue_Number: {
       char buf[128];
@@ -531,6 +560,7 @@ void RSValue_Print(const RSValue *v) {
       fprintf(fp, "\"%.*s\"", v->strval.len, v->strval.str);
       break;
     case RSValue_RedisString:
+    case RSValue_OwnRstring:
       fprintf(fp, "\"%s\"", RedisModule_StringPtrLen(v->rstrval, NULL));
       break;
     case RSValue_Number:
@@ -637,6 +667,7 @@ const char *RSValue_TypeName(RSValueType t) {
       return "string";
     case RSValue_Null:
       return "(null)";
+    case RSValue_OwnRstring:
     case RSValue_RedisString:
       return "redis-string";
     case RSValue_Reference:
