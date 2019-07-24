@@ -206,8 +206,6 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b, QueryError *stat
   }
 
   aCtx->tokenizer = GetTokenizer(b->language, aCtx->fwIdx->stemmer, sp->stopwords);
-  StopWordList_Ref(sp->stopwords);
-
   aCtx->doc.docId = 0;
   return aCtx;
 }
