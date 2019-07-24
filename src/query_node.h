@@ -99,7 +99,9 @@ typedef struct {
 
 typedef struct {
   const char *begin;
+  bool includeBegin;
   const char *end;
+  bool includeEnd;
 } QueryLexRangeNode;
 
 typedef enum {

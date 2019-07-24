@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <stdbool.h>
 #include "rune_util.h"
 #include "redisearch.h"
 #ifdef __cplusplus
@@ -214,8 +215,9 @@ typedef void(TrieRangeCallback)(const rune *, size_t, void *);
  * @param ctx data to be passed to the callback
  */
 
-void TrieNode_IterateRange(TrieNode *n, const rune *min, size_t minlen, const rune *max,
-                           size_t maxlen, TrieRangeCallback callback, void *ctx);
+void TrieNode_IterateRange(TrieNode *n, const rune *min, size_t minlen, bool includeMin,
+                           const rune *max, size_t maxlen, bool includeMax,
+                           TrieRangeCallback callback, void *ctx);
 
 #ifdef __cplusplus
 }

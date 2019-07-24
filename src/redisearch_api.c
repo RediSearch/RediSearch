@@ -266,13 +266,15 @@ QueryNode* RediSearch_CreatePrefixNode(IndexSpec* sp, const char* fieldName, con
 }
 
 QueryNode* RediSearch_CreateLexRangeNode(IndexSpec* sp, const char* fieldName, const char* begin,
-                                         const char* end) {
+                                         const char* end, int includeBegin, int includeEnd) {
   QueryNode* ret = NewQueryNode(QN_LEXRANGE);
   if (begin) {
     ret->lxrng.begin = begin;
+    ret->lxrng.includeBegin = includeBegin;
   }
   if (end) {
     ret->lxrng.end = end;
+    ret->lxrng.includeEnd = includeEnd;
   }
   if (fieldName) {
     ret->opts.fieldMask = IndexSpec_GetFieldBit(sp, fieldName, strlen(fieldName));

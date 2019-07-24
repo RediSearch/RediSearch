@@ -161,7 +161,8 @@ MODULE_API_FUNC(RSQNode*, RediSearch_CreatePrefixNode)
 (RSIndex* sp, const char* fieldName, const char* s);
 
 MODULE_API_FUNC(RSQNode*, RediSearch_CreateLexRangeNode)
-(RSIndex* sp, const char* fieldName, const char* begin, const char* end);
+(RSIndex* sp, const char* fieldName, const char* begin, const char* end, int includeBegin,
+ int includeEnd);
 
 MODULE_API_FUNC(RSQNode*, RediSearch_CreateTagNode)(RSIndex* sp, const char* field);
 
