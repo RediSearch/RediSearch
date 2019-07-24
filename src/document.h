@@ -36,7 +36,7 @@ extern "C" {
  */
 
 typedef struct {
-  const char *name;
+  const char *name;  // Can either be char or RMString
   RedisModuleString *text;
   FieldType indexAs;
 } DocumentField;
@@ -53,8 +53,22 @@ typedef struct Document {
   uint32_t flags;
 } Document;
 
-// The document is "static" -- don't free the document's contents
-#define DOCUMENT_F_STATIC 0x01
+/** Document field names are RedisModuleString */
+// #define DOCUMENT_F_NAMERSTRING 0x01
+
+/**
+ * Indicates that the document owns a reference to the field contents,
+ * the language string, and the payload.
+ *
+ * The document always owns the field array, though.
+ */
+#define DOCUMENT_F_OWNSTRINGS 0x02
+
+/**
+ * The document has been moved to another target. This is quicker than
+ * zero'ing the entire structure
+ */
+#define DOCUMENT_F_DEAD 0x08
 
 struct RSAddDocumentCtx;
 
@@ -69,10 +83,7 @@ typedef struct {
   double score;                     // Score of the document
   const char *evalExpr;             // Only add the document if this expression evaluates to true.
   DocumentAddCompleted donecb;      // Callback to invoke when operation is done
-
 } AddDocumentOptions;
-
-int AddDocumentOptions_Parse(AddDocumentOptions *opts, ArgsCursor *ac, QueryError *status);
 
 void Document_AddField(Document *d, const char *fieldname, RedisModuleString *fieldval,
                        uint32_t typemask);
@@ -86,41 +97,40 @@ void Document_AddField(Document *d, const char *fieldname, RedisModuleString *fi
  * of the data within the document, call Document_Detach on the document (after
  * calling this function).
  */
-void Document_Init(Document *doc, RedisModuleString *docKey, double score, int numFields,
-                   const char *lang, const char *payload, size_t payloadSize);
+void Document_Init(Document *doc, RedisModuleString *docKey, double score, const char *lang);
+void Document_SetPayload(Document *doc, const void *payload, size_t n);
 
 /**
- * Prepare a document for being added to NewAddDocumentCtx.
- * This calls Document_Init and Document_Detach, and aims to eliminate
- * common boilerplate when parsing arguments
- *
- * doc: The document to initialize
- * docKey: The string ID of the document
- * score: Document store
- * options: fields and other input parameters for the operation
- * ctx: Owning context, used for Detach()
- *
+ * Make the document the owner of the strings it contains
  */
-void Document_PrepareForAdd(Document *doc, RedisModuleString *docKey, double score,
-                            const AddDocumentOptions *opts, RedisModuleCtx *ctx);
+void Document_MakeStringsOwner(Document *doc);
 
 /**
- * Copy any data from the document into its own independent copies. srcCtx is
- * the context owning any RedisModuleString items - which are assigned using
- * RedisModule_RetainString.
- *
- * If the document contains fields, the field data is also retained.
+ * Clear the document of its fields. This does not free the document
+ * or clear its name
  */
-void Document_Detach(Document *doc, RedisModuleCtx *srcCtx);
+void Document_Clear(Document *doc);
 
 /**
- * These two functions are used to manipulate the internal field data within a
- * document _without_ additional allocations. ClearDetachedFields() will
- * clear the document's field count to 0, whereas DetachFields will detach
- * the newly loaded field data (via Redis_LoadDocument).
+ * Move the contents of one document to another. This also manages ownership
+ * semantics
  */
-void Document_ClearDetachedFields(Document *doc, RedisModuleCtx *anyCtx);
-void Document_DetachFields(Document *doc, RedisModuleCtx *ctx);
+void Document_Move(Document *dst, Document *src);
+
+/**
+ * Load all fields specified in the schema to the document. Note that
+ * the document must then be freed using Document_Free().
+ *
+ * The document must already have the docKey set
+ */
+int Document_LoadSchemaFields(Document *doc, RedisSearchCtx *sctx);
+
+/**
+ * Load all the fields into the document.
+ */
+int Document_LoadAllFields(Document *doc, RedisModuleCtx *ctx);
+
+void Document_LoadPairwiseArgs(Document *doc, RedisModuleString **args, size_t nargs);
 
 /**
  * Print contents of document to screen
@@ -266,11 +276,6 @@ int Document_AddToIndexes(RSAddDocumentCtx *ctx);
  */
 void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx);
 
-/* Load a single document */
-int Redis_LoadDocumentC(RedisSearchCtx *ctx, const char *s, size_t n, Document *doc);
-int Redis_LoadDocumentR(RedisSearchCtx *ctx, RedisModuleString *key, Document *doc);
-#define Redis_LoadDocument Redis_LoadDocumentR
-
 /* Evaluate an IF expression (e.g. IF "@foo == 'bar'") against a document, by getting the
  * properties from the sorting table or from the hash representation of the document.
  *
@@ -280,14 +285,6 @@ int Redis_LoadDocumentR(RedisSearchCtx *ctx, RedisModuleString *key, Document *d
  * Returns  REDISMODULE_ERR on failure, OK otherwise*/
 int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const char *expr,
                             int *result, QueryError *err);
-
-/**
- * Load a single document fields is an array of fields to load from a document.
- * keyp is an [out] pointer to a key which may be closed after the document field
- * is no longer required. Can be NULL
- */
-int Redis_LoadDocumentEx(RedisSearchCtx *ctx, RedisModuleString *key, const char **fields,
-                         size_t nfields, Document *doc, RedisModuleKey **keyp);
 
 // Don't create document if it does not exist. Replace only
 #define REDIS_SAVEDOC_NOCREATE 0x01

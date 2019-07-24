@@ -133,7 +133,7 @@ RSDoc* RediSearch_CreateDocument(const void* docKey, size_t len, double score, c
   RedisModuleString* docKeyStr = RedisModule_CreateString(NULL, docKey, len);
   const char* language = lang ? lang : "english";
   Document* ret = rm_calloc(1, sizeof(*ret));
-  Document_Init(ret, docKeyStr, score, 0, language, NULL, 0);
+  Document_Init(ret, docKeyStr, score, language);
   ret->language = strdup(ret->language);
   return ret;
 }

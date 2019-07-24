@@ -158,7 +158,14 @@ int RS_AddDocument(RedisSearchCtx *sctx, RedisModuleString *name, const AddDocum
   RedisModuleCtx *ctx = sctx->redisCtx;
   Document doc = {0};
 
-  Document_PrepareForAdd(&doc, name, opts->score, opts, sctx->redisCtx);
+  Document_Init(&doc, name, opts->score, opts->language);
+  if (opts->payload) {
+    size_t npayload = 0;
+    const char *payload = RedisModule_StringPtrLen(opts->payload, &npayload);
+    Document_SetPayload(&doc, payload, npayload);
+  }
+  Document_LoadPairwiseArgs(&doc, opts->fieldsArray, opts->numFieldElems);
+
   if (!(opts->options & DOCUMENT_ADD_NOSAVE)) {
     int saveopts = 0;
     if (opts->options & DOCUMENT_ADD_NOCREATE) {
@@ -166,7 +173,7 @@ int RS_AddDocument(RedisSearchCtx *sctx, RedisModuleString *name, const AddDocum
     }
     RedisSearchCtx sctx_s = SEARCH_CTX_STATIC(sctx->redisCtx, sp);
     if (Redis_SaveDocument(&sctx_s, &doc, saveopts, status) != REDISMODULE_OK) {
-      Document_FreeDetached(&doc, ctx);
+      Document_Free(&doc);
       goto error;
     }
   }
@@ -175,7 +182,7 @@ int RS_AddDocument(RedisSearchCtx *sctx, RedisModuleString *name, const AddDocum
            doc.numFields);
   RSAddDocumentCtx *aCtx = NewAddDocumentCtx(sp, &doc, status);
   if (aCtx == NULL) {
-    Document_FreeDetached(&doc, ctx);
+    Document_Free(&doc);
     goto error;
   }
 
@@ -356,25 +363,20 @@ static int doAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 
   // Load the document score
 
-  Document doc;
+  Document doc = {0};
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
-  if (Redis_LoadDocument(&sctx, argv[2], &doc) != REDISMODULE_OK) {
+  Document_Init(&doc, argv[2], ds, language);
+  if (Document_LoadAllFields(&doc, ctx) != REDISMODULE_OK) {
+    Document_Free(&doc);
     return RedisModule_ReplyWithError(ctx, "Could not load document");
   }
-
-  doc.docKey = argv[2];
-  doc.score = ds;
-  doc.language = language ? language : DEFAULT_LANGUAGE;
-  doc.payload = NULL;
-  doc.payloadSize = 0;
-  Document_Detach(&doc, ctx);
 
   LG_DEBUG("Adding doc %s with %d fields\n", RedisModule_StringPtrLen(doc.docKey, NULL),
            doc.numFields);
 
   RSAddDocumentCtx *aCtx = NewAddDocumentCtx(sp, &doc, &status);
   if (aCtx == NULL) {
-    Document_FreeDetached(&doc, ctx);
+    Document_Free(&doc);
     return QueryError_ReplyAndClear(ctx, &status);
   }
 
