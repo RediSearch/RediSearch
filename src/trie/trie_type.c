@@ -120,6 +120,9 @@ TrieIterator *Trie_Iterate(Trie *t, const char *prefix, size_t len, int maxDist,
   size_t rlen;
   rune *runes = strToFoldedRunes(prefix, &rlen);
   if (!runes || rlen > TRIE_MAX_PREFIX) {
+    if (runes) {
+      free(runes);
+    }
     return NULL;
   }
   DFAFilter *fc = malloc(sizeof(*fc));
