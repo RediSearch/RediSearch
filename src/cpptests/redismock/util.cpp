@@ -29,3 +29,30 @@ std::vector<RedisModuleString *> RMCK::CreateArgv(RedisModuleCtx *ctx, const cha
   }
   return ret;
 }
+
+size_t RMCK::GetRefcount(const RedisModuleString *s) {
+  return s->refcount;
+}
+
+bool RMCK::hset(RedisModuleCtx *ctx, const char *rkey, const char *hkey, const char *value,
+                bool create) {
+  auto v = ctx->db->get(rkey);
+  HashValue *hv = NULL;
+  if (!v) {
+    if (!create) {
+      return false;
+    } else {
+      hv = new HashValue(rkey);
+      ctx->db->set(hv);
+      hv->decref();
+    }
+  } else {
+    hv = static_cast<HashValue *>(v);
+  }
+  hv->add(hkey, value);
+  return true;
+}
+
+void RMCK::flushdb(RedisModuleCtx *ctx) {
+  ctx->db->clear();
+}

@@ -40,6 +40,23 @@ class RString {
   RedisModuleString *p;
 };
 
+// Get the refcount of a given string
+size_t GetRefcount(const RedisModuleString *s);
+
+/**
+ * Set the value of a hash key; creating the hash if it doesn't exist
+ * @param ctx the context
+ * @param rkey the key of the overall hash
+ * @param hkey the key within the hash
+ * @param v the value to set for `hkey`
+ * @param create if false, will fail if `rkey` does not yet exist
+ */
+bool hset(RedisModuleCtx *ctx, const char *rkey, const char *hkey, const char *v,
+          bool create = true);
+
+/** Clears the database associated with the context */
+void flushdb(RedisModuleCtx *);
+
 std::vector<RedisModuleString *> CreateArgv(RedisModuleCtx *, const char *s, ...);
 std::vector<RedisModuleString *> CreateArgv(RedisModuleCtx *, const char **s, size_t n);
 

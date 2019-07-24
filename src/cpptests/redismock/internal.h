@@ -119,8 +119,13 @@ class HashValue : public Value {
     }
   }
   void hset(const Key &, const RedisModuleString *);
+  void add(const char *key, const char *value, int mode = REDISMODULE_HASH_NONE);
+
   const std::string *hget(const Key &) const;
   RedisModuleString **kvarray(RedisModuleCtx *allocctx) const;
+  const std::map<std::string, std::string> &items() const {
+    return m_map;
+  }
 
  private:
   std::map<std::string, std::string> m_map;
@@ -194,12 +199,21 @@ struct KVDB {
   std::map<std::string, Value *> db;
   uint32_t id = -1;
 
-  Value *get(RedisModuleString *s) {
-    auto ret = db.find(*s);
+  Value *get(const std::string &s) {
+    auto ret = db.find(s);
     if (ret == db.end()) {
       return NULL;
     }
     return ret->second;
+  }
+
+  Value *get(RedisModuleString *s) {
+    return get(*s);
+  }
+
+  Value *get(const char *s) {
+    std::string tmp(s);
+    return get(tmp);
   }
 
   void set(Value *v) {
@@ -218,11 +232,15 @@ struct KVDB {
     v->decref();
   }
 
-  ~KVDB() {
+  void clear() {
     for (auto it : db) {
       it.second->decref();
     }
     db.clear();
+  }
+
+  ~KVDB() {
+    clear();
   }
 
   void debugDump() const;
@@ -290,5 +308,20 @@ struct RedisModuleType {
 };
 
 typedef struct RedisModuleType Datatype;
+
+struct RedisModuleCallReply {
+  int type = 0;
+  long long ll = 0;
+  std::string s;
+  std::vector<RedisModuleCallReply> arr;
+  RedisModuleCtx *ctx;
+  RedisModuleCallReply(RedisModuleCtx *ctx, const std::string &s_)
+      : type(REDISMODULE_REPLY_STRING), s(s_), ctx(ctx) {
+  }
+  RedisModuleCallReply(RedisModuleCtx *ctx) : ctx(ctx) {
+  }
+  ~RedisModuleCallReply() {
+  }
+};
 
 #endif
