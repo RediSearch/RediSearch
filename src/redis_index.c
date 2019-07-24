@@ -341,23 +341,20 @@ IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, RSQueryTerm *term, DocTable *
     // we do not allow empty indexes when loading an existing index
     if (k == NULL || RedisModule_KeyType(k) == REDISMODULE_KEYTYPE_EMPTY ||
         RedisModule_ModuleTypeGetType(k) != InvertedIndexType) {
-      RedisModule_FreeString(ctx->redisCtx, termKey);
-      return NULL;
+      goto err;
     }
 
     idx = RedisModule_ModuleTypeGetValue(k);
   } else {
     idx = openIndexKeysDict(ctx, termKey, 0);
     if (!idx) {
-      RedisModule_FreeString(ctx->redisCtx, termKey);
-      return NULL;
+      goto err;
     }
   }
 
   if (!idx->numDocs) {
     // empty index! pass
-    RedisModule_FreeString(ctx->redisCtx, termKey);
-    return NULL;
+    goto err;
   }
 
   IndexReader *ret = NewTermIndexReader(idx, ctx->spec, fieldMask, term, weight);
@@ -366,6 +363,15 @@ IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, RSQueryTerm *term, DocTable *
   }
   RedisModule_FreeString(ctx->redisCtx, termKey);
   return ret;
+
+err:
+  if (k) {
+    RedisModule_CloseKey(k);
+  }
+  if (termKey) {
+    RedisModule_FreeString(ctx->redisCtx, termKey);
+  }
+  return NULL;
 }
 
 int Redis_ScanKeys(RedisModuleCtx *ctx, const char *prefix, ScanFunc f, void *opaque) {
