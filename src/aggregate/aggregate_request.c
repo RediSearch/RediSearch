@@ -674,6 +674,8 @@ static void applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const Redis
       QAST_GlobalFilterOptions legacyFilterOpts = {.numeric = opts->legacy.filters[ii]};
       QAST_SetGlobalFilters(ast, &legacyFilterOpts);
     }
+    array_clear(opts->legacy.filters);  // so AREQ_Free() doesn't free the filters themselves, which
+                                        // are now owned by the query object
   }
   if (opts->legacy.gf) {
     QAST_GlobalFilterOptions legacyOpts = {.geo = opts->legacy.gf};
@@ -1171,6 +1173,12 @@ void AREQ_Free(AREQ *req) {
   }
   for (size_t ii = 0; ii < req->nargs; ++ii) {
     sdsfree(req->args[ii]);
+  }
+  if (req->searchopts.legacy.filters) {
+    for (size_t ii = 0; ii < array_len(req->searchopts.legacy.filters); ++ii) {
+      NumericFilter_Free(req->searchopts.legacy.filters[ii]);
+    }
+    array_free(req->searchopts.legacy.filters);
   }
   if (thctx) {
     RedisModule_FreeThreadSafeContext(thctx);
