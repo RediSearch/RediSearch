@@ -116,6 +116,7 @@ static void arrangeDtor(PLN_BaseStep *bstp) {
   if (astp->sortKeys) {
     array_free(astp->sortKeys);
   }
+  free(astp->sortkeysLK);
   free(bstp);
 }
 

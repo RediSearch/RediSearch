@@ -71,7 +71,7 @@ ReturnedField *FieldList_GetCreateField(FieldList *fields, const char *name) {
   fields->fields = realloc(fields->fields, sizeof(*fields->fields) * ++fields->numFields);
   ReturnedField *ret = fields->fields + (fields->numFields - 1);
   memset(ret, 0, sizeof *ret);
-  ret->name = strdup(name);
+  ret->name = name;
   return ret;
 }
 
@@ -521,6 +521,7 @@ static void freeFilterStep(PLN_BaseStep *bstp) {
   if (fstp->shouldFreeRaw) {
     free((char *)fstp->rawExpr);
   }
+  free((void *)fstp->base.alias);
   free(bstp);
 }
 
@@ -1180,6 +1181,8 @@ void AREQ_Free(AREQ *req) {
     }
     array_free(req->searchopts.legacy.filters);
   }
+  free(req->searchopts.inids);
+  FieldList_Free(&req->outFields);
   if (thctx) {
     RedisModule_FreeThreadSafeContext(thctx);
   }
