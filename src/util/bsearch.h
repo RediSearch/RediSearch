@@ -35,7 +35,7 @@ typedef int (*rsbcompare)(const void *s, const void *elem);
  * @param cmp the comparison function
  * @return `end`
  */
-static inline int rsb_gr(const void *arr, size_t narr, size_t elemsz, const void *s,
+static inline int rsb_gt(const void *arr, size_t narr, size_t elemsz, const void *s,
                          rsbcompare cmp) {
   size_t begin = 0;
   size_t end = narr - 1;
@@ -67,7 +67,7 @@ static inline int rsb_gr(const void *arr, size_t narr, size_t elemsz, const void
   return begin;
 }
 
-static inline int rsb_ls(const void *arr, size_t narr, size_t elemsz, const void *s,
+static inline int rsb_lt(const void *arr, size_t narr, size_t elemsz, const void *s,
                          rsbcompare cmp) {
   size_t begin = 0;
   size_t end = narr - 1;

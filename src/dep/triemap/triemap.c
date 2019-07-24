@@ -729,7 +729,7 @@ static void TrieMapRangeIterate(TrieMapNode *n, const char *min, uint16_t nmin, 
     // search for the first element which are greater then our min value
     h.r = min;
     h.n = nmin;
-    beginIdx = rsb_gr(arr, arrlen, sizeof(*arr), &h, TrieMaprsbCompareExact);
+    beginIdx = rsb_gt(arr, arrlen, sizeof(*arr), &h, TrieMaprsbCompareExact);
   }
 
   int endIdx = nmax ? arrlen - 1 : -1;
@@ -737,7 +737,7 @@ static void TrieMapRangeIterate(TrieMapNode *n, const char *min, uint16_t nmin, 
     // search for the first element which are less then our max value
     h.r = max;
     h.n = nmax;
-    endIdx = rsb_ls(arr, arrlen, sizeof(*arr), &h, TrieMaprsbCompareExact);
+    endIdx = rsb_lt(arr, arrlen, sizeof(*arr), &h, TrieMaprsbCompareExact);
   }
 
   // we need to iterate (without any checking) on all the subtree from beginIdx to endIdx

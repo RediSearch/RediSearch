@@ -683,7 +683,7 @@ static void rangeIterateSubTree(TrieNode *n, RangeCtx *r) {
 
   TrieNode **arr = __trieNode_children(n);
 
-  for (int ii = 0; ii < n->numChildren; ++ii) {
+  for (size_t ii = 0; ii < n->numChildren; ++ii) {
     // printf("Descending to index %lu\n", ii);
     rangeIterateSubTree(arr[ii], r);
   }
@@ -790,7 +790,7 @@ static void rangeIterate(TrieNode *n, const rune *min, int nmin, const rune *max
     // search for the first element which are greater then our min value
     h.r = min;
     h.n = nmin;
-    beginIdx = rsb_gr(arr, arrlen, sizeof(*arr), &h, rsbCompareExact);
+    beginIdx = rsb_gt(arr, arrlen, sizeof(*arr), &h, rsbCompareExact);
   }
 
   int endIdx = nmax ? arrlen - 1 : -1;
@@ -798,7 +798,7 @@ static void rangeIterate(TrieNode *n, const rune *min, int nmin, const rune *max
     // search for the first element which are less then our max value
     h.r = max;
     h.n = nmax;
-    endIdx = rsb_ls(arr, arrlen, sizeof(*arr), &h, rsbCompareExact);
+    endIdx = rsb_lt(arr, arrlen, sizeof(*arr), &h, rsbCompareExact);
   }
 
   // we need to iterate (without any checking) on all the subtree from beginIdx to endIdx

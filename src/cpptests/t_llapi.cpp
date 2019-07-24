@@ -272,9 +272,7 @@ TEST_F(LLApiTest, testMassivePrefix) {
   RediSearch_DropIndex(index);
 }
 
-TEST_F(LLApiTest, testRanges) {
-  RSIndex* index = RediSearch_CreateIndex("index", NULL);
-  RediSearch_CreateTextField(index, FIELD_NAME_1);
+static void PopulateIndex(RSIndex* index) {
   char buf[] = {"Mark_"};
   size_t nbuf = strlen(buf);
   for (char c = 'a'; c <= 'z'; c++) {
@@ -285,8 +283,9 @@ TEST_F(LLApiTest, testRanges) {
     RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, buf, RSFLDTYPE_DEFAULT);
     RediSearch_SpecAddDocument(index, d);
   }
+}
 
-  RSQNode* qn = RediSearch_CreateLexRangeNode(index, FIELD_NAME_1, "MarkN", "MarkX", 1, 1);
+static void ValidateResults(RSIndex* index, RSQNode* qn, char start, char end, int numResults) {
   RSResultsIterator* iter = RediSearch_GetResultsIterator(qn, index);
   ASSERT_FALSE(NULL == iter);
   std::set<std::string> results;
@@ -298,31 +297,28 @@ TEST_F(LLApiTest, testRanges) {
     results.insert(idstr);
   }
 
-  ASSERT_EQ(11, results.size());
-  for (char c = 'n'; c <= 'x'; c++) {
+  ASSERT_EQ(numResults, results.size());
+  for (char c = start; c <= end; c++) {
     char namebuf[64];
     sprintf(namebuf, "doc%c", c);
     ASSERT_NE(results.end(), results.find(namebuf));
   }
   RediSearch_ResultsIteratorFree(iter);
+}
+
+TEST_F(LLApiTest, testRanges) {
+  RSIndex* index = RediSearch_CreateIndex("index", NULL);
+  RediSearch_CreateTextField(index, FIELD_NAME_1);
+
+  PopulateIndex(index);
+
+  RSQNode* qn = RediSearch_CreateLexRangeNode(index, FIELD_NAME_1, "MarkN", "MarkX", 1, 1);
+
+  ValidateResults(index, qn, 'n', 'x', 11);
 
   qn = RediSearch_CreateLexRangeNode(index, FIELD_NAME_1, "MarkN", "MarkX", 0, 0);
-  iter = RediSearch_GetResultsIterator(qn, index);
-  ASSERT_FALSE(NULL == iter);
-  results.clear();
-  while ((id = (const char*)RediSearch_ResultsIteratorNext(iter, index, &nid))) {
-    std::string idstr(id, nid);
-    ASSERT_EQ(results.end(), results.find(idstr));
-    results.insert(idstr);
-  }
 
-  ASSERT_EQ(9, results.size());
-  for (char c = 'o'; c <= 'w'; c++) {
-    char namebuf[64];
-    sprintf(namebuf, "doc%c", c);
-    ASSERT_NE(results.end(), results.find(namebuf));
-  }
-  RediSearch_ResultsIteratorFree(iter);
+  ValidateResults(index, qn, 'o', 'w', 9);
 
   // printf("Have %lu ids in range!\n", results.size());
   RediSearch_DropIndex(index);
@@ -331,62 +327,23 @@ TEST_F(LLApiTest, testRanges) {
 TEST_F(LLApiTest, testRangesOnTags) {
   RSIndex* index = RediSearch_CreateIndex("index", NULL);
   RediSearch_CreateTagField(index, FIELD_NAME_1);
-  char buf[] = {"Mark_"};
-  size_t nbuf = strlen(buf);
-  for (char c = 'A'; c <= 'X'; c++) {
-    buf[nbuf - 1] = c;
-    char did[64];
-    sprintf(did, "doc%c", c);
-    RSDoc* d = RediSearch_CreateDocument(did, strlen(did), 0, NULL);
-    RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, buf, RSFLDTYPE_DEFAULT);
-    RediSearch_SpecAddDocument(index, d);
-  }
+
+  PopulateIndex(index);
 
   // test with include max and min
   RSQNode* tagQn = RediSearch_CreateTagNode(index, FIELD_NAME_1);
-  RSQNode* qn = RediSearch_CreateLexRangeNode(index, FIELD_NAME_1, "MarkN", "MarkX", 1, 1);
+  RSQNode* qn = RediSearch_CreateLexRangeNode(index, FIELD_NAME_1, "Markn", "Markx", 1, 1);
   RediSearch_QueryNodeAddChild(tagQn, qn);
-  RSResultsIterator* iter = RediSearch_GetResultsIterator(tagQn, index);
-  ASSERT_FALSE(NULL == iter);
-  std::set<std::string> results;
-  const char* id;
-  size_t nid;
-  while ((id = (const char*)RediSearch_ResultsIteratorNext(iter, index, &nid))) {
-    std::string idstr(id, nid);
-    ASSERT_EQ(results.end(), results.find(idstr));
-    results.insert(idstr);
-  }
 
-  ASSERT_EQ(11, results.size());
-  for (char c = 'N'; c <= 'X'; c++) {
-    char namebuf[64];
-    sprintf(namebuf, "doc%c", c);
-    ASSERT_NE(results.end(), results.find(namebuf));
-  }
-  RediSearch_ResultsIteratorFree(iter);
+  ValidateResults(index, tagQn, 'n', 'x', 11);
 
   // test without include max and min
   tagQn = RediSearch_CreateTagNode(index, FIELD_NAME_1);
-  qn = RediSearch_CreateLexRangeNode(index, FIELD_NAME_1, "MarkN", "MarkX", 0, 0);
+  qn = RediSearch_CreateLexRangeNode(index, FIELD_NAME_1, "Markn", "Markx", 0, 0);
   RediSearch_QueryNodeAddChild(tagQn, qn);
-  iter = RediSearch_GetResultsIterator(tagQn, index);
-  ASSERT_FALSE(NULL == iter);
-  results.clear();
-  while ((id = (const char*)RediSearch_ResultsIteratorNext(iter, index, &nid))) {
-    std::string idstr(id, nid);
-    ASSERT_EQ(results.end(), results.find(idstr));
-    results.insert(idstr);
-  }
 
-  ASSERT_EQ(9, results.size());
-  for (char c = 'O'; c <= 'W'; c++) {
-    char namebuf[64];
-    sprintf(namebuf, "doc%c", c);
-    ASSERT_NE(results.end(), results.find(namebuf));
-  }
-  RediSearch_ResultsIteratorFree(iter);
+  ValidateResults(index, tagQn, 'o', 'w', 9);
 
-  // printf("Have %lu ids in range!\n", results.size());
   RediSearch_DropIndex(index);
 }
 

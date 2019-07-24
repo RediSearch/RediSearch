@@ -77,7 +77,7 @@ TEST_F(TrieTest, testBasicRange) {
   ret = trieIterRange(t, NULL, NULL);
   ASSERT_EQ(t->size, ret.size());
 
-  // Min and max the same- should not yield anything
+  // Min and max the same- should return only one value
   ret = trieIterRange(t, "1", "1");
   ASSERT_EQ(1, ret.size());
 

@@ -351,6 +351,14 @@ typedef struct {
   double weight;
 } LexRangeCtx;
 
+static void rangeItersAddIterator(LexRangeCtx *ctx, IndexReader *ir) {
+  ctx->its[ctx->nits++] = NewReadIterator(ir);
+  if (ctx->nits == ctx->cap) {
+    ctx->cap *= 2;
+    ctx->its = realloc(ctx->its, ctx->cap * sizeof(*ctx->its));
+  }
+}
+
 static void rangeIterCbStrs(const char *r, size_t n, void *p, void *invidx) {
   LexRangeCtx *ctx = p;
   QueryEvalCtx *q = ctx->q;
@@ -364,11 +372,7 @@ static void rangeIterCbStrs(const char *r, size_t n, void *p, void *invidx) {
     return;
   }
 
-  ctx->its[ctx->nits++] = NewReadIterator(ir);
-  if (ctx->nits == ctx->cap) {
-    ctx->cap *= 2;
-    ctx->its = realloc(ctx->its, ctx->cap * sizeof(*ctx->its));
-  }
+  rangeItersAddIterator(ctx, ir);
 }
 
 static void rangeIterCb(const rune *r, size_t n, void *p) {
@@ -385,11 +389,7 @@ static void rangeIterCb(const rune *r, size_t n, void *p) {
     return;
   }
 
-  ctx->its[ctx->nits++] = NewReadIterator(ir);
-  if (ctx->nits == ctx->cap) {
-    ctx->cap *= 2;
-    ctx->its = realloc(ctx->its, ctx->cap * sizeof(*ctx->its));
-  }
+  rangeItersAddIterator(ctx, ir);
 }
 
 static IndexIterator *Query_EvalLexRangeNode(QueryEvalCtx *q, QueryNode *lx) {
