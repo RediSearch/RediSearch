@@ -194,6 +194,9 @@ MODULE_API_FUNC(RSResultsIterator*, RediSearch_GetResultsIterator)(RSQNode* qn, 
 MODULE_API_FUNC(RSResultsIterator*, RediSearch_IterateQuery)
 (RSIndex* sp, const char* s, size_t n, char** err);
 
+MODULE_API_FUNC(int, RediSearch_DocumentExists)
+(RSIndex* sp, const void* docKey, size_t len);
+
 MODULE_API_FUNC(const void*, RediSearch_ResultsIteratorNext)
 (RSResultsIterator* iter, RSIndex* sp, size_t* len);
 
