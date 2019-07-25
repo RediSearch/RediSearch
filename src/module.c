@@ -375,6 +375,7 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   SpellCheck_Reply(&scCtx, &qast);
 
 end:
+  QueryError_ClearError(&status);
   if (includeDict != NULL) {
     array_free(includeDict);
   }

@@ -42,14 +42,11 @@ static void freeDocumentContext(void *p) {
 
 #define FIELD_IS_VALID(aCtx, ix) ((aCtx)->fspecs[ix].name != NULL)
 
-static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Document *base,
+static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Document *doc,
                                       size_t oldFieldCount) {
   aCtx->stateFlags &= ~ACTX_F_INDEXABLES;
   aCtx->stateFlags &= ~ACTX_F_TEXTINDEXED;
   aCtx->stateFlags &= ~ACTX_F_OTHERINDEXED;
-
-  Document_Move(&aCtx->doc, base);
-  Document *doc = &aCtx->doc;
 
   if (oldFieldCount < doc->numFields) {
     // Pre-allocate the field specs
@@ -157,6 +154,8 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Doc
     }
     RSByteOffsets_ReserveFields(aCtx->byteOffsets, numTextIndexable);
   }
+
+  Document_Move(&aCtx->doc, doc);
   return 0;
 }
 
