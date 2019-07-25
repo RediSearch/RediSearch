@@ -47,4 +47,5 @@ TEST_MAIN({
   RMUTil_InitAlloc();
   TESTFUNC(testStopwordList);
   TESTFUNC(testDefaultStopwords);
+  StopWordList_FreeGlobals();
 });

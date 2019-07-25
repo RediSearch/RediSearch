@@ -72,6 +72,8 @@ int testTokenize() {
   ASSERT_EQUAL(ctx.num, 7);
 
   free(txt);
+  tk->Free(tk);
+  s->Free(s);
 
   return 0;
 }
@@ -80,4 +82,5 @@ TEST_MAIN({
   RMUTil_InitAlloc();
   TESTFUNC(testStemmer);
   TESTFUNC(testTokenize);
+  StopWordList_FreeGlobals();
 });

@@ -200,6 +200,7 @@ int testTrie() {
 
   TrieNode_Free(root);
   free(runes);
+  free(str);
 
   return 0;
 }
