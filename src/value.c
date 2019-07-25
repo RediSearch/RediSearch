@@ -14,8 +14,12 @@ typedef struct {
 
 static void mempoolThreadPoolDtor(void *p) {
   mempoolThreadPool *tp = p;
-  mempool_destroy(tp->values);
-  mempool_destroy(tp->fieldmaps);
+  if (tp->values) {
+    mempool_destroy(tp->values);
+  }
+  if (tp->fieldmaps) {
+    mempool_destroy(tp->fieldmaps);
+  }
   free(tp);
 }
 
