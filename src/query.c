@@ -405,7 +405,7 @@ static IndexIterator *Query_EvalLexRangeNode(QueryEvalCtx *q, QueryNode *lx) {
   ctx.nits = 0;
 
   rune *begin = NULL, *end = NULL;
-  size_t nbegin = 0, nend = 0;
+  size_t nbegin = -1, nend = -1;
   if (lx->lxrng.begin) {
     begin = strToFoldedRunes(lx->lxrng.begin, &nbegin);
   }
