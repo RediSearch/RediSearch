@@ -1973,6 +1973,45 @@ def testAlias(env):
     env.assertEqual(1, r)
 
 
+def testPrefixDeletedExpansions(env):
+    from unittest import SkipTest
+    # first get the gc implementation. This doesn't work on forkgc currently
+    gcp = env.cmd('ft.config', 'GET', 'GC_POLICY')[0][1]
+    if gcp.lower() == 'fork':
+        raise SkipTest('test not supported on fork gc')
+
+    env.cmd('ft.create', 'idx', 'schema', 'txt1', 'text', 'tag1', 'tag')
+    # get the number of maximum expansions
+    maxexpansions = int(env.cmd('ft.config', 'get', 'MAXEXPANSIONS')[0][1])
+
+    for x in range(maxexpansions):
+        env.cmd('ft.add', 'idx', 'doc{}'.format(x), 1, 'fields',
+                'txt1', 'term{}'.format(x), 'tag1', 'tag{}'.format(x))
+    
+    for x in range(maxexpansions):
+        env.cmd('ft.del', 'idx', 'doc{}'.format(x))
+    
+    env.cmd('ft.add', 'idx', 'doc_XXX', 1, 'fields', 'txt1', 'termZZZ', 'tag1', 'tagZZZ')
+
+    # r = env.cmd('ft.search', 'idx', 'term*')
+    # print(r)
+    # r = env.cmd('ft.search', 'idx', '@tag1:{tag*}')
+    # print(r)
+
+    tmax = time.time() + 0.5  # 250ms max
+    iters = 0
+    while time.time() < tmax:
+        iters += 1
+        env.cmd('ft.debug', 'gc_forceinvoke', 'idx')
+        r = env.cmd('ft.search', 'idx', '@txt1:term* @tag1:{tag*}')
+        if r[0]:
+            break
+    
+    print 'did {} iterations'.format(iters)
+    r = env.cmd('ft.search', 'idx', '@txt1:term* @tag1:{tag*}')
+    env.assertEqual([1, 'doc_XXX', ['txt1', 'termZZZ', 'tag1', 'tagZZZ']], r)
+
+
 def grouper(iterable, n, fillvalue=None):
     "Collect data into fixed-length chunks or blocks"
     from itertools import izip_longest
