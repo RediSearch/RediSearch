@@ -131,10 +131,10 @@ MODULE_API_FUNC(int, RediSearch_DeleteDocument)(RSIndex* sp, const void* docKey,
  * @param fieldName the name of the field
  * @param s the contents of the field to be added (if numeric, the string representation)
  * @param indexAsTypes the types the field should be indexed as. Should be a
- *  bitmask of RSFieldType
+ *  bitmask of RSFieldType.
  */
 MODULE_API_FUNC(void, RediSearch_DocumentAddField)
-(RSDoc* d, const char* fieldName, RedisModuleString* s, unsigned indexAsTypes);
+(RSDoc* d, const char* fieldName, RedisModuleString* s, RedisModuleCtx* ctx, unsigned indexAsTypes);
 
 MODULE_API_FUNC(void, RediSearch_DocumentAddFieldString)
 (RSDoc* d, const char* fieldName, const char* s, size_t n, unsigned indexAsTypes);

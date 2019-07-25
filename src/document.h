@@ -53,8 +53,14 @@ typedef struct Document {
   uint32_t flags;
 } Document;
 
-/** Document field names are RedisModuleString */
-// #define DOCUMENT_F_NAMERSTRING 0x01
+/**
+ * Document should decrement the reference count to the contained strings. Used
+ * when the user does not want to retain his own reference to them. It effectively
+ * "steals" a reference.
+ *
+ * This only applies to _values_; not keys. Used internally by the C API
+ */
+#define DOCUMENT_F_OWNREFS 0x01
 
 /**
  * Indicates that the document owns a reference to the field contents,
@@ -110,6 +116,11 @@ void Document_SetPayload(Document *doc, const void *payload, size_t n);
  * Make the document the owner of the strings it contains
  */
 void Document_MakeStringsOwner(Document *doc);
+
+/**
+ * Make the document object steal references to the document's strings.
+ */
+void Document_MakeRefOwner(Document *doc);
 
 /**
  * Clear the document of its fields. This does not free the document

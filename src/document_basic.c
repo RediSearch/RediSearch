@@ -7,6 +7,7 @@ void Document_Init(Document *doc, RedisModuleString *docKey, double score, const
   doc->docKey = docKey;
   doc->score = (float)score;
   doc->numFields = 0;
+  doc->fields = NULL;
   doc->language = lang ? lang : DEFAULT_LANGUAGE;
   doc->payload = NULL;
   doc->payloadSize = 0;
@@ -63,12 +64,21 @@ void Document_MakeStringsOwner(Document *d) {
     // Already the owner
     return;
   }
-  d->docKey = RedisModule_CreateStringFromString(RSDummyContext, d->docKey);
+  RedisModuleString *oldDocKey = d->docKey;
+  d->docKey = RedisModule_CreateStringFromString(RSDummyContext, oldDocKey);
+  if (d->flags & DOCUMENT_F_OWNREFS) {
+    RedisModule_FreeString(RSDummyContext, oldDocKey);
+  }
+
   for (size_t ii = 0; ii < d->numFields; ++ii) {
     DocumentField *f = d->fields + ii;
     f->name = strdup(f->name);
     if (f->text) {
-      f->text = RedisModule_CreateStringFromString(RSDummyContext, f->text);
+      RedisModuleString *oldText = f->text;
+      f->text = RedisModule_CreateStringFromString(RSDummyContext, oldText);
+      if (d->flags & DOCUMENT_F_OWNREFS) {
+        RedisModule_FreeString(RSDummyContext, oldText);
+      }
     }
   }
   if (d->payload) {
@@ -77,6 +87,11 @@ void Document_MakeStringsOwner(Document *d) {
     d->payload = tmp;
   }
   d->flags |= DOCUMENT_F_OWNSTRINGS;
+  d->flags &= ~DOCUMENT_F_OWNREFS;
+}
+
+void Document_MakeRefOwner(Document *doc) {
+  doc->flags |= DOCUMENT_F_OWNREFS;
 }
 
 int Document_LoadSchemaFields(Document *doc, RedisSearchCtx *sctx) {
@@ -154,10 +169,11 @@ done:
 }
 
 void Document_LoadPairwiseArgs(Document *d, RedisModuleString **args, size_t nargs) {
-
   d->fields = calloc(nargs / 2, sizeof(*d->fields));
-  for (size_t ii = 0; ii < nargs; ii += 2) {
-    DocumentField *dst = d->fields + d->numFields++;
+  d->numFields = nargs / 2;
+  size_t oix = 0;
+  for (size_t ii = 0; ii < nargs; ii += 2, oix++) {
+    DocumentField *dst = d->fields + oix;
     const char *name = RedisModule_StringPtrLen(args[ii], NULL);
     dst->name = name;
     dst->text = args[ii + 1];
@@ -165,9 +181,11 @@ void Document_LoadPairwiseArgs(Document *d, RedisModuleString **args, size_t nar
 }
 
 void Document_Clear(Document *d) {
-  if (d->flags & DOCUMENT_F_OWNSTRINGS) {
+  if (d->flags & (DOCUMENT_F_OWNSTRINGS | DOCUMENT_F_OWNREFS)) {
     for (size_t ii = 0; ii < d->numFields; ++ii) {
-      free((void *)d->fields[ii].name);
+      if (d->flags & DOCUMENT_F_OWNSTRINGS) {
+        free((void *)d->fields[ii].name);
+      }
       if (d->fields[ii].text) {
         RedisModule_FreeString(RSDummyContext, d->fields[ii].text);
       }
@@ -179,20 +197,19 @@ void Document_Clear(Document *d) {
 }
 
 void Document_Free(Document *doc) {
-  if (doc->flags & DOCUMENT_F_OWNSTRINGS) {
-    for (size_t ii = 0; ii < doc->numFields; ++ii) {
-      DocumentField *f = doc->fields + ii;
-      free((void *)f->name);
-      if (f->text) {
-        RedisModule_FreeString(RSDummyContext, f->text);
-      }
-    }
+  if (doc->flags & DOCUMENT_F_DEAD) {
+    return;
+  }
+
+  Document_Clear(doc);
+  if (doc->flags & (DOCUMENT_F_OWNREFS | DOCUMENT_F_OWNSTRINGS)) {
     RedisModule_FreeString(RSDummyContext, doc->docKey);
+  }
+  if (doc->flags & DOCUMENT_F_OWNSTRINGS) {
     if (doc->payload) {
       free((void *)doc->payload);
     }
   }
-  free(doc->fields);
 }
 
 int Redis_SaveDocument(RedisSearchCtx *ctx, Document *doc, int options, QueryError *status) {
