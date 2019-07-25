@@ -46,7 +46,7 @@ distdir=$DISTDIR/$subdir
 mkdir -p $distdir
 outname_base=$distdir/$PACKAGE_NAME.$format
 echo "Old outname base: $outname_base"
-outname_base=$(ramp pack -m ramp.yml -o $outname_base --print-only $MODULE_SO)
+outname_base=$(ramp pack -m ramp.yml -o $outname_base --print-filename-only $MODULE_SO)
 echo "Output is $outname_base"
 ramp pack -m ramp.yml -o $outname_base.zip $MODULE_SO
 return 0
