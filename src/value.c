@@ -426,27 +426,6 @@ inline RSValue *RS_NullVal() {
   return &RS_NULL;
 }
 
-RSValue *RS_NewValueFromCmdArg(CmdArg *arg) {
-  switch (arg->type) {
-    case CmdArg_Double:
-      return RS_NumVal(CMDARG_DOUBLE(arg));
-    case CmdArg_Integer:
-      return RS_NumVal((double)CMDARG_INT(arg));
-    case CmdArg_String:
-      return RS_ConstStringVal(CMDARG_STRPTR(arg), CMDARG_STRLEN(arg));
-    case CmdArg_Flag:
-      return RS_NumVal((double)CMDARG_BOOL(arg));
-    case CmdArg_Array: {
-      RSValue **vals = calloc(CMDARG_ARRLEN(arg), sizeof(*vals));
-      for (size_t i = 0; i < CMDARG_ARRLEN(arg); ++i) {
-        vals[i] = RS_NewValueFromCmdArg(CMDARG_ARRELEM(arg, i));
-      }
-      return RS_ArrVal(vals, CMDARG_ARRLEN(arg));
-    }
-    default:
-      return RS_NullVal();
-  }
-}
 static inline int cmp_strings(const char *s1, const char *s2, size_t l1, size_t l2) {
   int cmp = strncmp(s1, s2, MIN(l1, l2));
   if (l1 == l2) {
