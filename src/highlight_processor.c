@@ -261,7 +261,7 @@ static void processField(HlpProcessor *hlpCtx, hlpDocContext *docParams, Returne
   RSValue *v = summarizeField(RP_SPEC(&hlpCtx->base), spec, fName, fieldValue, docParams,
                               hlpCtx->fragmentizeOptions);
   if (v) {
-    RLookup_WriteKey(spec->lookupKey, docParams->row, v);
+    RLookup_WriteOwnKey(spec->lookupKey, docParams->row, v);
   }
 }
 
