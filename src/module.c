@@ -28,6 +28,7 @@
 #include "numeric_index.h"
 #include "redisearch_api.h"
 #include "alias.h"
+#include "module.h"
 
 pthread_rwlock_t RWLock = PTHREAD_RWLOCK_INITIALIZER;
 
@@ -1075,7 +1076,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 
 void __attribute__((destructor)) RediSearch_CleanupModule(void) {
   static int invoked = 0;
-  if (invoked) {
+  if (invoked || !RS_Initialized) {
     return;
   }
   invoked = 1;
