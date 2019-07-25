@@ -1973,12 +1973,10 @@ def testAlias(env):
     env.assertEqual(1, r)
 
 
-def testPrefixDeletedExpansions(env):
-    from unittest import SkipTest
-    # first get the gc implementation. This doesn't work on forkgc currently
-    gcp = env.cmd('ft.config', 'GET', 'GC_POLICY')[0][1]
-    if gcp.lower() == 'fork':
-        raise SkipTest('test not supported on fork gc')
+def testPrefixDeletedExpansions(env): 
+    if env.moduleArgs is not None and 'FORK' in env.moduleArgs:
+        # This doesn't work on forkgc currently
+        env.skip()
 
     env.cmd('ft.create', 'idx', 'schema', 'txt1', 'text', 'tag1', 'tag')
     # get the number of maximum expansions
