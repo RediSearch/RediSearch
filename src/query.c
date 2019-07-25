@@ -348,7 +348,32 @@ typedef struct {
   size_t cap;
   QueryEvalCtx *q;
   QueryNodeOptions *opts;
+  double weight;
 } LexRangeCtx;
+
+static void rangeItersAddIterator(LexRangeCtx *ctx, IndexReader *ir) {
+  ctx->its[ctx->nits++] = NewReadIterator(ir);
+  if (ctx->nits == ctx->cap) {
+    ctx->cap *= 2;
+    ctx->its = realloc(ctx->its, ctx->cap * sizeof(*ctx->its));
+  }
+}
+
+static void rangeIterCbStrs(const char *r, size_t n, void *p, void *invidx) {
+  LexRangeCtx *ctx = p;
+  QueryEvalCtx *q = ctx->q;
+  RSToken tok = {0};
+  tok.str = (char *)r;
+  tok.len = n;
+  RSQueryTerm *term = NewQueryTerm(&tok, ctx->q->tokenId++);
+  IndexReader *ir = NewTermIndexReader(invidx, q->sctx->spec, RS_FIELDMASK_ALL, term, ctx->weight);
+  if (!ir) {
+    Term_Free(term);
+    return;
+  }
+
+  rangeItersAddIterator(ctx, ir);
+}
 
 static void rangeIterCb(const rune *r, size_t n, void *p) {
   LexRangeCtx *ctx = p;
@@ -364,11 +389,7 @@ static void rangeIterCb(const rune *r, size_t n, void *p) {
     return;
   }
 
-  ctx->its[ctx->nits++] = NewReadIterator(ir);
-  if (ctx->nits == ctx->cap) {
-    ctx->cap *= 2;
-    ctx->its = realloc(ctx->its, ctx->cap * sizeof(*ctx->its));
-  }
+  rangeItersAddIterator(ctx, ir);
 }
 
 static IndexIterator *Query_EvalLexRangeNode(QueryEvalCtx *q, QueryNode *lx) {
@@ -384,7 +405,7 @@ static IndexIterator *Query_EvalLexRangeNode(QueryEvalCtx *q, QueryNode *lx) {
   ctx.nits = 0;
 
   rune *begin = NULL, *end = NULL;
-  size_t nbegin = 0, nend = 0;
+  size_t nbegin = -1, nend = -1;
   if (lx->lxrng.begin) {
     begin = strToFoldedRunes(lx->lxrng.begin, &nbegin);
   }
@@ -392,7 +413,8 @@ static IndexIterator *Query_EvalLexRangeNode(QueryEvalCtx *q, QueryNode *lx) {
     end = strToFoldedRunes(lx->lxrng.end, &nend);
   }
 
-  TrieNode_IterateRange(t->root, begin, nbegin, end, nend, rangeIterCb, &ctx);
+  TrieNode_IterateRange(t->root, begin, nbegin, lx->lxrng.includeBegin, end, nend,
+                        lx->lxrng.includeEnd, rangeIterCb, &ctx);
   free(begin);
   free(end);
   if (!ctx.its || ctx.nits == 0) {
@@ -551,6 +573,32 @@ static IndexIterator *Query_EvalUnionNode(QueryEvalCtx *q, QueryNode *qn) {
 
 typedef IndexIterator **IndexIteratorArray;
 
+static IndexIterator *Query_EvalTagLexRangeNode(QueryEvalCtx *q, TagIndex *idx, QueryNode *qn,
+                                                IndexIteratorArray *iterout, double weight) {
+  TrieMap *t = idx->values;
+  LexRangeCtx ctx = {.q = q, .opts = &qn->opts, .weight = weight};
+
+  if (!t) {
+    return NULL;
+  }
+
+  ctx.cap = 8;
+  ctx.its = malloc(sizeof(*ctx.its) * ctx.cap);
+  ctx.nits = 0;
+
+  const char *begin = qn->lxrng.begin, *end = qn->lxrng.end;
+  size_t nbegin = strlen(begin), nend = strlen(end);
+
+  TrieMap_IterateRange(t, begin, nbegin, qn->lxrng.includeBegin, end, nend, qn->lxrng.includeEnd,
+                       rangeIterCbStrs, &ctx);
+  if (ctx.nits == 0) {
+    free(ctx.its);
+    return NULL;
+  } else {
+    return NewUnionIterator(ctx.its, ctx.nits, q->docTable, 1, qn->opts.weight);
+  }
+}
+
 /* Evaluate a tag prefix by expanding it with a lookup on the tag index */
 static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, QueryNode *qn,
                                               IndexIteratorArray *iterout, double weight) {
@@ -612,6 +660,9 @@ static IndexIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, Qu
     }
     case QN_PREFX:
       return Query_EvalTagPrefixNode(q, idx, n, iterout, weight);
+
+    case QN_LEXRANGE:
+      return Query_EvalTagLexRangeNode(q, idx, n, iterout, weight);
 
     case QN_PHRASE: {
       char *terms[QueryNode_NumChildren(n)];
@@ -838,7 +889,7 @@ void QueryNode_AddChildren(QueryNode *n, QueryNode **children, size_t nchildren)
   if (n->type == QN_TAG) {
     for (size_t ii = 0; ii < nchildren; ++ii) {
       if (children[ii]->type == QN_TOKEN || children[ii]->type == QN_PHRASE ||
-          children[ii]->type == QN_PREFX) {
+          children[ii]->type == QN_PREFX || children[ii]->type == QN_LEXRANGE) {
         n->children = array_ensure_append(n->children, children + ii, 1, QueryNode *);
       }
     }

@@ -640,27 +640,26 @@ typedef struct {
   uint16_t n;
 } rsbHelper;
 
-static int rsbCompareCommon(const void *h, const void *e, int onlyCommon) {
+static int rsbCompareCommon(const void *h, const void *e, int prefix) {
   const rsbHelper *term = h;
   const TrieNode *elem = *(const TrieNode **)e;
-  size_t ntmp;
   int rc;
-  if (onlyCommon) {
-    size_t cmplen = MIN(term->n, elem->len);
-    rc = runecmp(term->r, cmplen, elem->str, cmplen);
+
+  if (prefix) {
+    size_t minLen = MIN(elem->len, term->n);
+    rc = runecmp(term->r, minLen, elem->str, minLen);
   } else {
     rc = runecmp(term->r, term->n, elem->str, elem->len);
   }
-  // printf("Comparing h(%s) to e(%s) => %d\n", runesToStr(term->r, term->n, &ntmp),
-  //        runesToStr(elem->str, elem->len, &ntmp), rc);
+
   return rc;
 }
 
-static int rsbCompareEnd(const void *h, const void *e) {
+static int rsbCompareExact(const void *h, const void *e) {
   return rsbCompareCommon(h, e, 0);
 }
 
-static int rsbCompareBegin(const void *h, const void *e) {
+static int rsbComparePrefix(const void *h, const void *e) {
   return rsbCompareCommon(h, e, 1);
 }
 
@@ -669,57 +668,60 @@ typedef struct {
   size_t offset;
   TrieRangeCallback *callback;
   void *cbctx;
+  bool includeMin;
+  bool includeMax;
 } RangeCtx;
+
+static void rangeIterateSubTree(TrieNode *n, RangeCtx *r) {
+  memcpy(r->buf + r->offset, n->str, sizeof(*n->str) * n->len);
+  r->offset += n->len;
+  r->buf[r->offset] = 0;
+
+  if (__trieNode_isTerminal(n)) {
+    r->callback(r->buf, r->offset, r->cbctx);
+  }
+
+  TrieNode **arr = __trieNode_children(n);
+
+  for (size_t ii = 0; ii < n->numChildren; ++ii) {
+    // printf("Descending to index %lu\n", ii);
+    rangeIterateSubTree(arr[ii], r);
+  }
+
+  r->offset -= n->len;
+}
 
 /**
  * Try to place as many of the common arguments in rangectx, so that the stack
  * size is not negatively impacted and prone to attack.
  */
-static void rangeIterate(TrieNode *n, const rune *min, uint16_t nmin, const rune *max,
-                         uint16_t nmax, RangeCtx *r) {
-  // printf("Enter\n");
+static void rangeIterate(TrieNode *n, const rune *min, int nmin, const rune *max, int nmax,
+                         RangeCtx *r) {
   // Push string to stack
   memcpy(r->buf + r->offset, n->str, sizeof(*n->str) * n->len);
   r->offset += n->len;
   r->buf[r->offset] = 0;
 
-  /**
-   * Chop off the leading chars of the term which are currently unused. If no
-   * chars remain, then remove it
-   */
-  if (nmin < n->len) {
-    nmin = 0;
-    min = NULL;
-  } else {
-    nmin -= n->len;
-    min += n->len;
-  }
-  if (nmax < n->len) {
-    nmax = 0;
-    max = NULL;
-  } else {
-    nmax -= n->len;
-    max += n->len;
-  }
-
-  /**
-   * If this node is terminal AND nmin is 0, invoke the
-   * callback. If nmin is not zero, then it means that this
-   * node is smaller than the minimum (even if it might be a
-   * parent to nodes that do match!)
-   */
-  if (nmin == 0 && __trieNode_isTerminal(n)) {
-    r->callback(r->buf, r->offset, r->cbctx);
+  if (__trieNode_isTerminal(n)) {
+    // current node is a termina.
+    // if nmin or nmax is zero, it means that we find an exact match
+    // we should fire the callback only if exact match requested
+    if (r->includeMin && nmin == 0) {
+      r->callback(r->buf, r->offset, r->cbctx);
+    } else if (r->includeMax && nmax == 0) {
+      r->callback(r->buf, r->offset, r->cbctx);
+    }
   }
 
   TrieNode **arr = __trieNode_children(n);
   size_t arrlen = n->numChildren;
   if (!arrlen) {
-    // printf("Node has no children..\n");
+    // no children, just return.
     goto clean_stack;
   }
 
   if (n->sortmode != TRIENODE_SORTED_LEX) {
+    // lex sorting the children array.
     qsort(arr, arrlen, sizeof(*arr), cmpLexFull);
     n->sortmode = TRIENODE_SORTED_LEX;
   }
@@ -728,40 +730,135 @@ static void rangeIterate(TrieNode *n, const rune *min, uint16_t nmin, const rune
   // Use binary search to find the beginning and end ranges:
   rsbHelper h;
 
-  uint16_t beginIdx = 0, endIdx = arrlen;
-  if (nmin) {
+  int beginEqIdx = -1;
+  if (nmin > 0) {
+    // searching for node that matches the prefix of our min value
     h.r = min;
     h.n = nmin;
-    beginIdx = rsb_ge(arr, arrlen, sizeof(*arr), 0, arrlen, &h, rsbCompareBegin);
-    if (beginIdx == arrlen) {
-      // printf("First and last element are same. Bad!\n");
-      goto clean_stack;
-    }
+    beginEqIdx = rsb_eq(arr, arrlen, sizeof(*arr), &h, rsbComparePrefix);
   }
-  if (nmax) {
+
+  int endEqIdx = -1;
+  if (nmax > 0) {
+    // searching for node that matches the prefix of our max value
     h.r = max;
     h.n = nmax;
-    endIdx = rsb_ge(arr, arrlen, sizeof(*arr), beginIdx, arrlen, &h, rsbCompareEnd);
+    endEqIdx = rsb_eq(arr, arrlen, sizeof(*arr), &h, rsbComparePrefix);
   }
 
-  // printf("Children:\n");
-  // for (size_t ii = 0; ii < arrlen; ++ii) {
-  //   printf("[%lu]: %c\n", ii, arr[ii]->str[0]);
-  // }
-  // printf("BeginIdx: %u, endIdx: %u, numChildren: %u\n", beginIdx, endIdx, n->numChildren);
+  if (beginEqIdx == endEqIdx && endEqIdx != -1) {
+    // special case, min value and max value share a command prefix.
+    // we need to call recursively with the child contains this prefix
+    TrieNode *child = arr[beginEqIdx];
 
-  for (size_t ii = beginIdx; ii < endIdx; ++ii) {
-    // printf("Descending to index %lu\n", ii);
-    rangeIterate(arr[ii], min, nmin, max, nmax, r);
+    const rune *nextMin = min + child->len;
+    int nNextMin = nmin - child->len;
+    if (nNextMin < 0) {
+      nNextMin = 0;
+      nextMin = NULL;
+    }
+
+    const rune *nextMax = max + child->len;
+    int nNextMax = nmax - child->len;
+    if (nNextMax < 0) {
+      nNextMax = 0;
+      nextMax = NULL;
+    }
+
+    rangeIterate(child, nextMin, nNextMin, nextMax, nNextMax, r);
+    goto clean_stack;
+  }
+
+  if (beginEqIdx != -1) {
+    // we find a child that matches min prefix
+    // we should continue the search on this child but at this point we should
+    // not limit the max value
+    TrieNode *child = arr[beginEqIdx];
+
+    const rune *nextMin = min + child->len;
+    int nNextMin = nmin - child->len;
+    if (nNextMin < 0) {
+      nNextMin = 0;
+      nextMin = NULL;
+    }
+
+    rangeIterate(child, nextMin, nNextMin, NULL, -1, r);
+  }
+
+  int beginIdx = 0;
+  if (nmin > 0) {
+    // search for the first element which are greater then our min value
+    h.r = min;
+    h.n = nmin;
+    beginIdx = rsb_gt(arr, arrlen, sizeof(*arr), &h, rsbCompareExact);
+  }
+
+  int endIdx = nmax ? arrlen - 1 : -1;
+  if (nmax > 0) {
+    // search for the first element which are less then our max value
+    h.r = max;
+    h.n = nmax;
+    endIdx = rsb_lt(arr, arrlen, sizeof(*arr), &h, rsbCompareExact);
+  }
+
+  // we need to iterate (without any checking) on all the subtree from beginIdx to endIdx
+  for (int ii = beginIdx; ii <= endIdx; ++ii) {
+    rangeIterateSubTree(arr[ii], r);
+  }
+
+  if (endEqIdx != -1) {
+    // we find a child that matches max prefix
+    // we should continue the search on this child but at this point we should
+    // not limit the min value
+    TrieNode *child = arr[endEqIdx];
+
+    const rune *nextMax = max + child->len;
+    int nNextMax = nmax - child->len;
+    if (nNextMax < 0) {
+      nNextMax = 0;
+      nextMax = NULL;
+    }
+
+    rangeIterate(child, NULL, -1, nextMax, nNextMax, r);
   }
 
 clean_stack:
-  // printf("Exit\n");
   r->offset -= n->len;
 }
 
-void TrieNode_IterateRange(TrieNode *n, const rune *min, size_t nmin, const rune *max, size_t nmax,
+// LexRange iteration.
+// If min = NULL and nmin = -1 it tells us there is not limit on the min value
+// same rule goes for max value.
+void TrieNode_IterateRange(TrieNode *n, const rune *min, size_t nmin, bool includeMin,
+                           const rune *max, size_t nmax, bool includeMax,
                            TrieRangeCallback callback, void *ctx) {
-  RangeCtx r = {{0}, 0, .callback = callback, .cbctx = ctx};
+  if (min && max) {
+    // min and max exists, lets compare them to make sure min < max
+    int cmp = runecmp(min, nmin, max, nmax);
+    if (cmp > 0) {
+      // min > max, no reason to continue
+      return;
+    }
+
+    if (cmp == 0) {
+      // min = max, we should just search for min and check for its existence
+      if (includeMin || includeMax) {
+        if (TrieNode_Find(n, (rune *)min, nmin) != 0) {
+          callback(min, nmin, ctx);
+        }
+      }
+      return;
+    }
+  }
+
+  // min < max we should start the scan
+  RangeCtx r = {
+      {0},
+      0,
+      .callback = callback,
+      .cbctx = ctx,
+      .includeMin = includeMin,
+      .includeMax = includeMax,
+  };
   rangeIterate(n, min, nmin, max, nmax, &r);
 }

@@ -24,11 +24,24 @@ static ElemSet trieIterRange(Trie *t, const char *begin, size_t nbegin, const ch
   rune r2[256] = {0};
   size_t nr1, nr2;
 
+  rune *r1Ptr = r1;
+  rune *r2Ptr = r2;
+
   nr1 = strToRunesN(begin, nbegin, r1);
   nr2 = strToRunesN(end, nend, r2);
 
+  if (!begin) {
+    r1Ptr = NULL;
+    nr1 = -1;
+  }
+
+  if (!end) {
+    r2Ptr = NULL;
+    nr2 = -1;
+  }
+
   ElemSet foundElements;
-  TrieNode_IterateRange(t->root, r1, nr1, r2, nr2,
+  TrieNode_IterateRange(t->root, r1Ptr, nr1, true, r2Ptr, nr2, false,
                         [](const rune *u16, size_t nrune, void *ctx) {
                           size_t n;
                           char *s = runesToStr(u16, nrune, &n);
@@ -64,12 +77,12 @@ TEST_F(TrieTest, testBasicRange) {
   ret = trieIterRange(t, NULL, NULL);
   ASSERT_EQ(t->size, ret.size());
 
-  // Min and max the same- should not yield anything
+  // Min and max the same- should return only one value
   ret = trieIterRange(t, "1", "1");
-  ASSERT_EQ(0, ret.size());
+  ASSERT_EQ(1, ret.size());
 
   // Min and Min+1
-  ret = trieIterRange(t, "10", 2, "10\x1", 3);
+  ret = trieIterRange(t, "10", 2, "10\x01", 3);
   ASSERT_EQ(1, ret.size());
 
   // No min, but has a max

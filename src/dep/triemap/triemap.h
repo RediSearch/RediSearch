@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdbool.h>
 
 typedef uint16_t tm_len_t;
 
@@ -132,5 +133,11 @@ void TrieMapIterator_Free(TrieMapIterator *it);
 /* Iterate to the next matching entry in the trie. Returns 1 if we can continue,
  * or 0 if we're done and should exit */
 int TrieMapIterator_Next(TrieMapIterator *it, char **ptr, tm_len_t *len, void **value);
+
+typedef void(TrieMapRangeCallback)(const char *, size_t, void *, void *);
+
+void TrieMap_IterateRange(TrieMap *trie, const char *min, size_t minlen, bool includeMin,
+                          const char *max, size_t maxlen, bool includeMax,
+                          TrieMapRangeCallback callback, void *ctx);
 
 #endif

@@ -35,8 +35,10 @@ typedef int (*rsbcompare)(const void *s, const void *elem);
  * @param cmp the comparison function
  * @return `end`
  */
-static inline size_t rsb_ge(const void *arr, size_t narr, size_t elemsz, size_t begin, size_t end,
-                            const void *s, rsbcompare cmp) {
+static inline int rsb_gt(const void *arr, size_t narr, size_t elemsz, const void *s,
+                         rsbcompare cmp) {
+  size_t begin = 0;
+  size_t end = narr - 1;
 
   while (begin < end) {
     size_t cur = (begin + end) / 2;
@@ -45,7 +47,7 @@ static inline size_t rsb_ge(const void *arr, size_t narr, size_t elemsz, size_t 
     int rc = cmp(s, p);
     if (rc == 0) {
       // Matches!
-      return cur;
+      begin = cur + 1;
     } else if (rc < 0) {
       end = cur;
     } else {
@@ -53,7 +55,73 @@ static inline size_t rsb_ge(const void *arr, size_t narr, size_t elemsz, size_t 
     }
   }
   assert(begin == end);
+  if (begin != 0) {
+    return begin;  // we found what we was looking for!
+  }
+  size_t tmpidx = begin * elemsz;
+  const void *p = ((const char *)arr) + tmpidx;
+  int rc = cmp(s, p);
+  if (rc > 0) {
+    begin += 1;  // we could not find what we was looking for
+  }
   return begin;
+}
+
+static inline int rsb_lt(const void *arr, size_t narr, size_t elemsz, const void *s,
+                         rsbcompare cmp) {
+  size_t begin = 0;
+  size_t end = narr - 1;
+
+  while (begin < end) {
+    size_t cur = ((begin + end) / 2) + ((begin + end) % 2);
+    size_t tmpidx = cur * elemsz;
+    const void *p = ((const char *)arr) + tmpidx;
+    int rc = cmp(s, p);
+    if (rc == 0) {
+      // Matches!
+      end = cur - 1;
+    } else if (rc < 0) {
+      end = cur - 1;
+    } else {
+      begin = cur;
+    }
+  }
+  assert(begin == end);
+  if (begin != 0) {
+    return begin;  // we found what we was looking for!
+  }
+  size_t tmpidx = begin * elemsz;
+  const void *p = ((const char *)arr) + tmpidx;
+  int rc = cmp(s, p);
+  if (rc < 0) {
+    return begin -= 1;  // what we are looking for does not exists
+  }
+  return begin;
+}
+
+static inline int rsb_eq(const void *arr, size_t narr, size_t elemsz, const void *s,
+                         rsbcompare cmp) {
+  size_t begin = 0;
+  size_t end = narr - 1;
+
+  while (begin < end) {
+    size_t cur = ((begin + end) / 2) + ((begin + end) % 2);
+    size_t tmpidx = cur * elemsz;
+    const void *p = ((const char *)arr) + tmpidx;
+    int rc = cmp(s, p);
+    if (rc == 0) {
+      // Matches!
+      return cur;
+    } else if (rc < 0) {
+      end = cur - 1;
+    } else {
+      begin = cur;
+    }
+  }
+  assert(begin == end);
+  size_t tmpidx = begin * elemsz;
+  const void *p = ((const char *)arr) + tmpidx;
+  return cmp(s, p) == 0 ? begin : -1;
 }
 
 #ifdef __cplusplus

@@ -1,6 +1,8 @@
 #include "triemap.h"
 #include <math.h>
 #include <sys/param.h>
+#include <ctype.h>
+#include "util/bsearch.h"
 
 void *TRIEMAP_NOTFOUND = "NOT FOUND";
 
@@ -550,6 +552,253 @@ void TrieMapIterator_Free(TrieMapIterator *it) {
   free(it->buf);
   free(it->stack);
   free(it);
+}
+
+#define TRIE_MAX_STRING_LEN 255
+
+typedef struct {
+  char buf[TRIE_MAX_STRING_LEN + 1];
+  size_t offset;
+  TrieMapRangeCallback *callback;
+  void *cbctx;
+  bool includeMin;
+  bool includeMax;
+} TrieMapRangeCtx;
+
+typedef struct {
+  const char *r;
+  uint16_t n;
+} TrieMaprsbHelper;
+
+static int nodecmp(const char *sa, size_t na, const char *sb, size_t nb) {
+  size_t minlen = MIN(na, nb);
+  for (size_t ii = 0; ii < minlen; ++ii) {
+    char a = tolower(sa[ii]), b = tolower(sb[ii]);
+    int rc = a - b;
+    if (rc == 0) {
+      continue;
+    }
+    return rc;
+  }
+
+  // Both strings match up to this point
+  if (na > nb) {
+    // nb is a substring of na; na is greater
+    return 1;
+  } else if (nb > na) {
+    // na is a substring of nb; nb is greater
+    return -1;
+  }
+  // strings are the same
+  return 0;
+}
+
+static int TrieMaprsbCompareCommon(const void *h, const void *e, int prefix) {
+  const TrieMaprsbHelper *term = h;
+  const TrieMapNode *elem = *(const TrieMapNode **)e;
+  size_t ntmp;
+  int rc;
+  if (prefix) {
+    size_t minLen = MIN(elem->len, term->n);
+    rc = nodecmp(term->r, minLen, elem->str, minLen);
+  } else {
+    rc = nodecmp(term->r, term->n, elem->str, elem->len);
+  }
+  return rc;
+}
+
+static int TrieMaprsbCompareExact(const void *h, const void *e) {
+  return TrieMaprsbCompareCommon(h, e, 0);
+}
+
+static int TrieMaprsbComparePrefix(const void *h, const void *e) {
+  return TrieMaprsbCompareCommon(h, e, 1);
+}
+
+static void TrieMaprangeIterateSubTree(TrieMapNode *n, TrieMapRangeCtx *r) {
+  memcpy(r->buf + r->offset, n->str, sizeof(*n->str) * n->len);
+  r->offset += n->len;
+  r->buf[r->offset] = 0;
+
+  if (__trieMapNode_isTerminal(n)) {
+    r->callback(r->buf, r->offset, r->cbctx, n->value);
+  }
+
+  TrieMapNode **arr = __trieMapNode_children(n);
+
+  for (int ii = 0; ii < n->numChildren; ++ii) {
+    // printf("Descending to index %lu\n", ii);
+    TrieMaprangeIterateSubTree(arr[ii], r);
+  }
+
+  r->offset -= n->len;
+}
+
+/**
+ * Try to place as many of the common arguments in rangectx, so that the stack
+ * size is not negatively impacted and prone to attack.
+ */
+static void TrieMapRangeIterate(TrieMapNode *n, const char *min, uint16_t nmin, const char *max,
+                                uint16_t nmax, TrieMapRangeCtx *r) {
+  // Push string to stack
+  memcpy(r->buf + r->offset, n->str, sizeof(*n->str) * n->len);
+  r->offset += n->len;
+  r->buf[r->offset] = 0;
+
+  if (__trieMapNode_isTerminal(n)) {
+    // current node is a terminal.
+    // if nmin or nmax is zero, it means that we find an exact match
+    // we should fire the callback only if exact match requested
+    if (r->includeMin && nmin == 0) {
+      r->callback(r->buf, r->offset, r->cbctx, n->value);
+    } else if (r->includeMax && nmax == 0) {
+      r->callback(r->buf, r->offset, r->cbctx, n->value);
+    }
+  }
+
+  TrieMapNode **arr = __trieMapNode_children(n);
+  size_t arrlen = n->numChildren;
+  if (!arrlen) {
+    // no children, just return.
+    goto clean_stack;
+  }
+
+  __trieNode_sortChildren(n);
+
+  // Find the minimum range here..
+  // Use binary search to find the beginning and end ranges:
+  TrieMaprsbHelper h;
+
+  int beginEqIdx = -1;
+  if (nmin > 0) {
+    // searching for node that matches the prefix of our min value
+    h.r = min;
+    h.n = nmin;
+    beginEqIdx = rsb_eq(arr, arrlen, sizeof(*arr), &h, TrieMaprsbComparePrefix);
+  }
+
+  int endEqIdx = -1;
+  if (nmax > 0) {
+    // searching for node that matches the prefix of our max value
+    h.r = max;
+    h.n = nmax;
+    endEqIdx = rsb_eq(arr, arrlen, sizeof(*arr), &h, TrieMaprsbComparePrefix);
+  }
+
+  if (beginEqIdx == endEqIdx && endEqIdx != -1) {
+    // special case, min value and max value share a command prefix.
+    // we need to call recursively with the child contains this prefix
+    TrieMapNode *child = arr[beginEqIdx];
+
+    const char *nextMin = min + child->len;
+    int nNextMin = nmin - child->len;
+    if (nNextMin < 0) {
+      nNextMin = 0;
+      nextMin = NULL;
+    }
+
+    const char *nextMax = max + child->len;
+    int nNextMax = nmax - child->len;
+    if (nNextMax < 0) {
+      nNextMax = 0;
+      nextMax = NULL;
+    }
+
+    TrieMapRangeIterate(child, nextMin, nNextMin, nextMax, nNextMax, r);
+    goto clean_stack;
+  }
+
+  if (beginEqIdx != -1) {
+    // we find a child that matches min prefix
+    // we should continue the search on this child but at this point we should
+    // not limit the max value
+    TrieMapNode *child = arr[beginEqIdx];
+
+    const char *nextMin = min + child->len;
+    int nNextMin = nmin - child->len;
+    if (nNextMin < 0) {
+      nNextMin = 0;
+      nextMin = NULL;
+    }
+
+    TrieMapRangeIterate(child, nextMin, nNextMin, NULL, -1, r);
+  }
+
+  int beginIdx = 0;
+  if (nmin > 0) {
+    // search for the first element which are greater then our min value
+    h.r = min;
+    h.n = nmin;
+    beginIdx = rsb_gt(arr, arrlen, sizeof(*arr), &h, TrieMaprsbCompareExact);
+  }
+
+  int endIdx = nmax ? arrlen - 1 : -1;
+  if (nmax > 0) {
+    // search for the first element which are less then our max value
+    h.r = max;
+    h.n = nmax;
+    endIdx = rsb_lt(arr, arrlen, sizeof(*arr), &h, TrieMaprsbCompareExact);
+  }
+
+  // we need to iterate (without any checking) on all the subtree from beginIdx to endIdx
+  for (int ii = beginIdx; ii <= endIdx; ++ii) {
+    TrieMaprangeIterateSubTree(arr[ii], r);
+  }
+
+  if (endEqIdx != -1) {
+    // we find a child that matches max prefix
+    // we should continue the search on this child but at this point we should
+    // not limit the min value
+    TrieMapNode *child = arr[endEqIdx];
+
+    const char *nextMax = max + child->len;
+    int nNextMax = nmax - child->len;
+    if (nNextMax < 0) {
+      nNextMax = 0;
+      nextMax = NULL;
+    }
+
+    TrieMapRangeIterate(child, NULL, -1, nextMax, nNextMax, r);
+  }
+
+clean_stack:
+  r->offset -= n->len;
+}
+
+void TrieMap_IterateRange(TrieMap *trie, const char *min, size_t minlen, bool includeMin,
+                          const char *max, size_t maxlen, bool includeMax,
+                          TrieMapRangeCallback callback, void *ctx) {
+  if (trie->root->numChildren == 0) {
+    return;
+  }
+
+  if (min && max) {
+    // min and max exists, lets compare them to make sure min < max
+    int cmp = nodecmp(min, minlen, max, maxlen);
+    if (cmp > 0) {
+      // min > max, no reason to continue
+      return;
+    }
+
+    if (cmp == 0) {
+      // min = max, we should just search for min and check for its existence
+      if (includeMin || includeMax) {
+        void *val = TrieMapNode_Find(trie->root, (char *)min, minlen);
+        if (val) {
+          callback(min, minlen, ctx, val);
+        }
+      }
+      return;
+    }
+  }
+
+  TrieMapRangeCtx tmctx = {
+      .callback = callback,
+      .cbctx = ctx,
+      .includeMin = includeMin,
+      .includeMax = includeMax,
+  };
+  TrieMapRangeIterate(trie->root, min, minlen, max, maxlen, &tmctx);
 }
 
 int TrieMapIterator_Next(TrieMapIterator *it, char **ptr, tm_len_t *len, void **value) {
