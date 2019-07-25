@@ -1975,7 +1975,7 @@ def testAlias(env):
 
 def testPrefixDeletedExpansions(env):
     from unittest import SkipTest 
-    if 'FORK' in env.moduleArgs:
+    if env.moduleArgs is not None and 'FORK' in env.moduleArgs:
         # This doesn't work on forkgc currently
         env.skip()
 
