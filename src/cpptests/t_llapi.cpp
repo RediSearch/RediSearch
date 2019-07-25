@@ -469,3 +469,17 @@ TEST_F(LLApiTest, testQueryString) {
   ASSERT_EQ(2, res.size());
   RediSearch_DropIndex(index);
 }
+
+TEST_F(LLApiTest, testDocumentExists) {
+  RSIndex* index = RediSearch_CreateIndex("index", NULL);
+  RediSearch_CreateField(index, "ft1", RSFLDTYPE_FULLTEXT, RSFLDOPT_NONE);
+
+  const char* docid = "doc1";
+  Document* d = RediSearch_CreateDocumentSimple(docid);
+  RediSearch_DocumentAddFieldCString(d, "ft1", "test", RSFLDTYPE_DEFAULT);
+  RediSearch_SpecAddDocument(index, d);
+
+  ASSERT_TRUE(RediSearch_DocumentExists(index, docid, strlen(docid)));
+
+  RediSearch_DropIndex(index);
+}

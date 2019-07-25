@@ -407,6 +407,10 @@ end:
   return it;
 }
 
+int RediSearch_DocumentExists(IndexSpec* sp, const void* docKey, size_t len) {
+  return DocTable_GetId(&sp->docs, docKey, len) != 0;
+}
+
 RS_ApiIter* RediSearch_IterateQuery(IndexSpec* sp, const char* s, size_t n, char** error) {
   QueryInput input = {.qtype = QUERY_INPUT_STRING, .u = {.s = {s, .n = n}}};
   return handleIterCommon(sp, &input, error);
