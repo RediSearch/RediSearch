@@ -1974,6 +1974,7 @@ def testAlias(env):
 
 
 def testPrefixDeletedExpansions(env): 
+    env.skipOnCluster()
     if env.moduleArgs is not None and 'FORK' in env.moduleArgs:
         # This doesn't work on forkgc currently
         env.skip()
