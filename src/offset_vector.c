@@ -43,13 +43,13 @@ void _ovi_free(void *ctx) {
 }
 
 void *newOffsetIterator() {
-  return malloc(sizeof(_RSOffsetVectorIterator));
+  return rm_malloc(sizeof(_RSOffsetVectorIterator));
 }
 /* Create an offset iterator interface  from a raw offset vector */
 RSOffsetIterator RSOffsetVector_Iterate(const RSOffsetVector *v, RSQueryTerm *t) {
   if (!__offsetIters) {
     mempool_options options = {
-        .isGlobal = 1, .initialCap = 8, .alloc = newOffsetIterator, .free = free};
+        .isGlobal = 1, .initialCap = 8, .alloc = newOffsetIterator, .free = rm_free};
     __offsetIters = mempool_new(&options);
   }
   _RSOffsetVectorIterator *it = mempool_get(__offsetIters);
@@ -67,7 +67,7 @@ void _aoi_Free(void *ctx);
 void _aoi_Rewind(void *ctx);
 
 static void *aggiterNew() {
-  _RSAggregateOffsetIterator *it = malloc(sizeof(_RSAggregateOffsetIterator));
+  _RSAggregateOffsetIterator *it = rm_malloc(sizeof(_RSAggregateOffsetIterator));
   it->size = 0;
   it->offsets = NULL;
   it->iters = NULL;
@@ -77,10 +77,10 @@ static void *aggiterNew() {
 
 static void aggiterFree(void *p) {
   _RSAggregateOffsetIterator *aggiter = p;
-  free(aggiter->offsets);
-  free(aggiter->iters);
-  free(aggiter->terms);
-  free(aggiter);
+  rm_free(aggiter->offsets);
+  rm_free(aggiter->iters);
+  rm_free(aggiter->terms);
+  rm_free(aggiter);
 }
 
 /* Create an iterator from the aggregate offset iterators of the aggregate result */
@@ -95,12 +95,12 @@ static RSOffsetIterator _aggregateResult_iterate(const RSAggregateResult *agg) {
 
   if (agg->numChildren > it->size) {
     it->size = agg->numChildren;
-    free(it->iters);
-    free(it->offsets);
-    free(it->terms);
-    it->iters = calloc(agg->numChildren, sizeof(RSOffsetIterator));
-    it->offsets = calloc(agg->numChildren, sizeof(uint32_t));
-    it->terms = calloc(agg->numChildren, sizeof(RSQueryTerm *));
+    rm_free(it->iters);
+    rm_free(it->offsets);
+    rm_free(it->terms);
+    it->iters = rm_calloc(agg->numChildren, sizeof(RSOffsetIterator));
+    it->offsets = rm_calloc(agg->numChildren, sizeof(uint32_t));
+    it->terms = rm_calloc(agg->numChildren, sizeof(RSQueryTerm *));
   }
 
   for (int i = 0; i < agg->numChildren; i++) {
