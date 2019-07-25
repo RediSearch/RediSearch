@@ -108,9 +108,8 @@ uint32_t simpleTokenizer_Next(RSTokenizer *base, Token *t) {
                  .raw = tok,
                  .rawLen = origLen,
                  .pos = ++ctx->lastOffset,
-                 .stem = NULL,
-                 .phoneticsPrimary = NULL,
-                 .flags = Token_CopyStem};
+                 .flags = Token_CopyStem,
+                 .phoneticsPrimary = t->phoneticsPrimary};
 
     // if we support stemming - try to stem the word
     if (!(ctx->options & TOKENIZE_NOSTEM) && self->stemmer && normLen >= MIN_STEM_CANDIDATE_LEN) {
