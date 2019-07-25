@@ -13,7 +13,7 @@ if [ -z "$MODULE_SO" ]; then
 fi
 
 # Install my fork of RAMP- need to merge it first
-pip install git+https://github.com/mnunberg/RAMP@print_version --upgrade
+pip install git+https://github.com/RedisLabs/RAMP@master --upgrade
 
 if [ -z "$DIST_SUFFIX" ]; then
     if [ -e /etc/redhat-release ]; then
