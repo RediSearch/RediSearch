@@ -95,6 +95,7 @@ void RSValue_Clear(RSValue *v) {
   }
 
   v->ref = NULL;
+  v->t = RSValue_Undef;
 }
 
 /* Free a value's internal value. It only does anything in the case of a string, and doesn't free

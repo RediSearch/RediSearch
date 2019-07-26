@@ -141,6 +141,7 @@ void RSValue_SetConstString(RSValue *v, const char *str, size_t len);
 
 #ifndef __cplusplus
 static inline void RSValue_MakeReference(RSValue *dst, RSValue *src) {
+  assert(src);
   RSValue_Clear(dst);
   dst->t = RSValue_Reference;
   dst->ref = RSValue_IncrRef(src);

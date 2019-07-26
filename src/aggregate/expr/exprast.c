@@ -17,7 +17,7 @@ RSArgList *RSArgList_Append(RSArgList *l, RSExpr *e) {
 }
 
 static RSExpr *newExpr(RSExprType t) {
-  RSExpr *e = malloc(sizeof(*e));
+  RSExpr *e = calloc(1, sizeof(*e));
   e->t = t;
   return e;
 }
