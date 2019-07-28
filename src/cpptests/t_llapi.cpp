@@ -484,12 +484,17 @@ TEST_F(LLApiTest, testMultitype) {
 
 TEST_F(LLApiTest, testMultitypeNumericTag) {
   RSIndex* index = RediSearch_CreateIndex("index", NULL);
-  RSField* f =
+  RSField* f1 =
+      RediSearch_CreateField(index, "f1", RSFLDTYPE_TAG | RSFLDTYPE_NUMERIC, RSFLDOPT_NONE);
+  RSField* f2 =
       RediSearch_CreateField(index, "f2", RSFLDTYPE_TAG | RSFLDTYPE_NUMERIC, RSFLDOPT_NONE);
+
+  RediSearch_TagCaseSensitive(f1, 1);
 
   // Add document...
   RSDoc* d = RediSearch_CreateDocumentSimple("doc1");
-  RediSearch_DocumentAddFieldCString(d, "f2", "world", RSFLDTYPE_TAG);
+  RediSearch_DocumentAddFieldCString(d, "f1", "World", RSFLDTYPE_TAG);
+  RediSearch_DocumentAddFieldCString(d, "f2", "World", RSFLDTYPE_TAG);
   int rc = RediSearch_SpecAddDocument(index, d);
   ASSERT_EQ(REDISMODULE_OK, rc);
 
@@ -497,6 +502,19 @@ TEST_F(LLApiTest, testMultitypeNumericTag) {
   RediSearch_QueryNodeAddChild(qn,
                                RediSearch_CreateLexRangeNode(index, "f2", "world", "world", 1, 1));
   std::vector<std::string> results = getResults(index, qn);
+  ASSERT_EQ(1, results.size());
+  ASSERT_EQ("doc1", results[0]);
+
+  qn = RediSearch_CreateTagNode(index, "f1");
+  RediSearch_QueryNodeAddChild(qn,
+                               RediSearch_CreateLexRangeNode(index, "f2", "world", "world", 1, 1));
+  results = getResults(index, qn);
+  ASSERT_EQ(0, results.size());
+
+  qn = RediSearch_CreateTagNode(index, "f1");
+  RediSearch_QueryNodeAddChild(qn,
+                               RediSearch_CreateLexRangeNode(index, "f2", "World", "world", 1, 1));
+  results = getResults(index, qn);
   ASSERT_EQ(1, results.size());
   ASSERT_EQ("doc1", results[0]);
 
