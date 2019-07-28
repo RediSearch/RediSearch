@@ -250,11 +250,11 @@ QueryNode* RediSearch_CreateLexRangeNode(IndexSpec* sp, const char* fieldName, c
                                          const char* end, int includeBegin, int includeEnd) {
   QueryNode* ret = NewQueryNode(QN_LEXRANGE);
   if (begin) {
-    ret->lxrng.begin = begin;
+    ret->lxrng.begin = begin ? strdup(begin) : NULL;
     ret->lxrng.includeBegin = includeBegin;
   }
   if (end) {
-    ret->lxrng.end = end;
+    ret->lxrng.end = end ? strdup(end) : NULL;
     ret->lxrng.includeEnd = includeEnd;
   }
   if (fieldName) {
