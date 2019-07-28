@@ -11,6 +11,9 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 /** Cleans up all globals in the module */
 void RediSearch_CleanupModule(void);
 
+/** Indicates that RediSearch_Init was called */
+extern int RS_Initialized;
+
 #ifdef __cplusplus
 }
 #endif

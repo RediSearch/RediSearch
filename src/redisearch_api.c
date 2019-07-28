@@ -19,35 +19,20 @@ int RediSearch_GetCApiVersion() {
   return REDISEARCH_CAPI_VERSION;
 }
 
-static dictType invidxDictType = {0};
-
-static void valFreeCb(void* unused, void* p) {
-  KeysDictValue* kdv = p;
-  if (kdv->dtor) {
-    kdv->dtor(kdv->p);
-  }
-  free(kdv);
-}
-
 IndexSpec* RediSearch_CreateIndex(const char* name, const RSIndexOptions* options) {
   RSIndexOptions opts_s = {.gcPolicy = GC_POLICY_FORK};
   if (!options) {
     options = &opts_s;
   }
   IndexSpec* spec = NewIndexSpec(name);
+  IndexSpec_MakeKeyless(spec);
   spec->flags |= Index_Temporary;  // temporary is so that we will not use threads!!
   if (!spec->indexer) {
     spec->indexer = NewIndexer(spec);
   }
 
-  // Initialize only once:
-  if (!invidxDictType.valDestructor) {
-    invidxDictType = dictTypeHeapRedisStrings;
-    invidxDictType.valDestructor = valFreeCb;
-  }
   spec->getValue = options->gvcb;
   spec->getValueCtx = options->gvcbData;
-  spec->keysDict = dictCreate(&invidxDictType, NULL);
   spec->minPrefix = 0;
   spec->maxPrefixExpansions = -1;
   if (options->flags & RSIDXOPT_DOCTBLSIZE_UNLIMITED) {
@@ -66,11 +51,7 @@ void RediSearch_DropIndex(IndexSpec* sp) {
     // for now this is good enough, we should add another api to GC called before its freed.
     ((ForkGCCtx*)(sp->gc->gcCtx))->type = ForkGCCtxType_FREED;
   }
-  dict* d = sp->keysDict;
-  dictRelease(d);
-  sp->keysDict = NULL;
   IndexSpec_FreeSync(sp);
-
   RWLOCK_RELEASE();
 }
 

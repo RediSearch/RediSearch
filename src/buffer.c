@@ -47,15 +47,6 @@ void Buffer_Init(Buffer *b, size_t cap) {
   b->data = rm_malloc(cap);
 }
 
-/**
-Allocate a new buffer around data.
-*/
-Buffer *NewBuffer(size_t cap) {
-  Buffer *buf = malloc(sizeof(Buffer));
-  Buffer_Init(buf, cap);
-  return buf;
-}
-
 Buffer *Buffer_Wrap(char *data, size_t len) {
   Buffer *buf = malloc(sizeof(Buffer));
   buf->cap = len;

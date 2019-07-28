@@ -76,4 +76,5 @@ TEST_F(ResultProcessorTest, testProcessorChain) {
   numFreed = 0;
   QITR_FreeChain(&qitr);
   ASSERT_EQ(2, numFreed);
+  RLookup_Cleanup(&lk);
 }

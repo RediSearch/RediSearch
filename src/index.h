@@ -66,6 +66,9 @@ IndexIterator *NewIdListIterator(t_docId *ids, t_offset num, double weight);
 
 /** Create a new iterator which returns no results */
 IndexIterator *NewEmptyIterator(void);
+
+/** Return a string containing the type of the iterator */
+const char *IndexIterator_GetTypeString(const IndexIterator *it);
 #ifdef __cplusplus
 }
 #endif
