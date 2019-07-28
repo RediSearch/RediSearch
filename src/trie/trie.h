@@ -13,7 +13,7 @@ extern "C" {
 
 typedef uint16_t t_len;
 
-#define TRIE_MAX_STRING_LEN 255
+#define TRIE_INITIAL_STRING_LEN 256
 #define TRIE_MAX_PREFIX 100
 #define TRIENODE_TERMINAL 0x1
 #define TRIENODE_DELETED 0x2
@@ -149,10 +149,10 @@ typedef void (*StackPopCallback)(void *ctx, int num);
 /* Opaque trie iterator type */
 // typedef struct TrieIterator TrieIterator;
 typedef struct TrieIterator {
-  rune buf[TRIE_MAX_STRING_LEN + 1];
+  rune buf[TRIE_INITIAL_STRING_LEN + 1];
   t_len bufOffset;
 
-  stackNode stack[TRIE_MAX_STRING_LEN + 1];
+  stackNode stack[TRIE_INITIAL_STRING_LEN + 1];
   t_len stackOffset;
   StepFilter filter;
   float minScore;
@@ -215,9 +215,9 @@ typedef void(TrieRangeCallback)(const rune *, size_t, void *);
  * @param ctx data to be passed to the callback
  */
 
-void TrieNode_IterateRange(TrieNode *n, const rune *min, size_t minlen, bool includeMin,
-                           const rune *max, size_t maxlen, bool includeMax,
-                           TrieRangeCallback callback, void *ctx);
+void TrieNode_IterateRange(TrieNode *n, const rune *min, int minlen, bool includeMin,
+                           const rune *max, int maxlen, bool includeMax, TrieRangeCallback callback,
+                           void *ctx);
 
 #ifdef __cplusplus
 }

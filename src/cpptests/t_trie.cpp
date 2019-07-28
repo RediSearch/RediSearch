@@ -61,7 +61,7 @@ static ElemSet trieIterRange(Trie *t, const char *begin, const char *end) {
 
 TEST_F(TrieTest, testBasicRange) {
   Trie *t = NewTrie();
-  rune rbuf[TRIE_MAX_STRING_LEN + 1];
+  rune rbuf[TRIE_INITIAL_STRING_LEN + 1];
   for (size_t ii = 0; ii < 1000; ++ii) {
     char buf[64];
     sprintf(buf, "%lu", (unsigned long)ii);
@@ -99,7 +99,7 @@ TEST_F(TrieTest, testBasicRange) {
  */
 TEST_F(TrieTest, testDeepEntry) {
   Trie *t = NewTrie();
-  const size_t maxbuf = TRIE_MAX_STRING_LEN - 1;
+  const size_t maxbuf = TRIE_INITIAL_STRING_LEN - 1;
   char manyOnes[maxbuf + 1];
   for (size_t ii = 0; ii < maxbuf; ++ii) {
     manyOnes[ii] = '1';

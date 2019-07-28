@@ -320,6 +320,10 @@ TEST_F(LLApiTest, testRanges) {
 
   ValidateResults(index, qn, 'o', 'w', 9);
 
+  qn = RediSearch_CreateLexRangeNode(index, FIELD_NAME_1, NULL, NULL, 1, 1);
+
+  ValidateResults(index, qn, 'a', 'z', 26);
+
   // printf("Have %lu ids in range!\n", results.size());
   RediSearch_DropIndex(index);
 }
@@ -343,6 +347,12 @@ TEST_F(LLApiTest, testRangesOnTags) {
   RediSearch_QueryNodeAddChild(tagQn, qn);
 
   ValidateResults(index, tagQn, 'o', 'w', 9);
+
+  tagQn = RediSearch_CreateTagNode(index, FIELD_NAME_1);
+  qn = RediSearch_CreateLexRangeNode(index, FIELD_NAME_1, NULL, NULL, 1, 1);
+  RediSearch_QueryNodeAddChild(tagQn, qn);
+
+  ValidateResults(index, tagQn, 'a', 'z', 26);
 
   RediSearch_DropIndex(index);
 }
@@ -466,6 +476,27 @@ TEST_F(LLApiTest, testMultitype) {
   qn = RediSearch_CreateTagNode(index, "f2");
   RediSearch_QueryNodeAddChild(qn, RediSearch_CreateTokenNode(index, NULL, "world"));
   results = getResults(index, qn);
+  ASSERT_EQ(1, results.size());
+  ASSERT_EQ("doc1", results[0]);
+
+  RediSearch_DropIndex(index);
+}
+
+TEST_F(LLApiTest, testMultitypeNumericTag) {
+  RSIndex* index = RediSearch_CreateIndex("index", NULL);
+  RSField* f =
+      RediSearch_CreateField(index, "f2", RSFLDTYPE_TAG | RSFLDTYPE_NUMERIC, RSFLDOPT_NONE);
+
+  // Add document...
+  RSDoc* d = RediSearch_CreateDocumentSimple("doc1");
+  RediSearch_DocumentAddFieldCString(d, "f2", "world", RSFLDTYPE_TAG);
+  int rc = RediSearch_SpecAddDocument(index, d);
+  ASSERT_EQ(REDISMODULE_OK, rc);
+
+  auto qn = RediSearch_CreateTagNode(index, "f2");
+  RediSearch_QueryNodeAddChild(qn,
+                               RediSearch_CreateLexRangeNode(index, "f2", "world", "world", 1, 1));
+  std::vector<std::string> results = getResults(index, qn);
   ASSERT_EQ(1, results.size());
   ASSERT_EQ("doc1", results[0]);
 

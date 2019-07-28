@@ -65,14 +65,14 @@ static inline void runeBufFree(runeBuf *buf) {
 
 int Trie_InsertStringBuffer(Trie *t, const char *s, size_t len, double score, int incr,
                             RSPayload *payload) {
-  if (len > TRIE_MAX_STRING_LEN * sizeof(rune)) {
+  if (len > TRIE_INITIAL_STRING_LEN * sizeof(rune)) {
     return 0;
   }
   runeBuf buf;
   rune *runes = runeBufFill(s, len, &buf, &len);
   int rc;
 
-  if (runes && len && len < TRIE_MAX_STRING_LEN) {
+  if (runes && len && len < TRIE_INITIAL_STRING_LEN) {
     rc = TrieNode_Add(&t->root, runes, len, payload, (float)score, incr ? ADD_INCR : ADD_REPLACE);
     t->size += rc;
   } else {
@@ -86,7 +86,7 @@ int Trie_InsertStringBuffer(Trie *t, const char *s, size_t len, double score, in
 int Trie_Delete(Trie *t, const char *s, size_t len) {
 
   rune *runes = strToRunes(s, &len);
-  if (!runes || len > TRIE_MAX_STRING_LEN) {
+  if (!runes || len > TRIE_INITIAL_STRING_LEN) {
     return 0;
   }
   int rc = TrieNode_Delete(t->root, runes, len);
