@@ -117,6 +117,7 @@ MODULE_API_FUNC(RSField*, RediSearch_CreateField)
 
 MODULE_API_FUNC(void, RediSearch_TextFieldSetWeight)(RSIndex* sp, RSField* fs, double w);
 MODULE_API_FUNC(void, RediSearch_TagSetSeparator)(RSField* fs, char sep);
+MODULE_API_FUNC(void, RediSearch_TagCaseSensitive)(RSField* fs, int enable);
 
 MODULE_API_FUNC(RSDoc*, RediSearch_CreateDocument)
 (const void* docKey, size_t len, double score, const char* lang);

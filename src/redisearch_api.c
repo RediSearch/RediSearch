@@ -120,6 +120,15 @@ void RediSearch_TagSetSeparator(FieldSpec* fs, char sep) {
   fs->tagSep = sep;
 }
 
+void RediSearch_TagCaseSensitive(RSField* fs, int enable) {
+  assert(FIELD_IS(fs, INDEXFLD_T_TAG));
+  if (enable) {
+    fs->tagFlags |= TagField_CaseSensitive;
+  } else {
+    fs->tagFlags &= ~TagField_CaseSensitive;
+  }
+}
+
 RSDoc* RediSearch_CreateDocument(const void* docKey, size_t len, double score, const char* lang) {
   RedisModuleString* docKeyStr = RedisModule_CreateString(NULL, docKey, len);
   const char* language = lang ? lang : "english";
