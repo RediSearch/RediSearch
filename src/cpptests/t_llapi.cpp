@@ -507,13 +507,13 @@ TEST_F(LLApiTest, testMultitypeNumericTag) {
 
   qn = RediSearch_CreateTagNode(index, "f1");
   RediSearch_QueryNodeAddChild(qn,
-                               RediSearch_CreateLexRangeNode(index, "f2", "world", "world", 1, 1));
+                               RediSearch_CreateLexRangeNode(index, "f1", "world", "world", 1, 1));
   results = getResults(index, qn);
   ASSERT_EQ(0, results.size());
 
   qn = RediSearch_CreateTagNode(index, "f1");
   RediSearch_QueryNodeAddChild(qn,
-                               RediSearch_CreateLexRangeNode(index, "f2", "World", "world", 1, 1));
+                               RediSearch_CreateLexRangeNode(index, "f1", "World", "world", 1, 1));
   results = getResults(index, qn);
   ASSERT_EQ(1, results.size());
   ASSERT_EQ("doc1", results[0]);
