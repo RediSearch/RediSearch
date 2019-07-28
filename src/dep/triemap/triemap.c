@@ -619,7 +619,7 @@ static void TrieMaprangeIterateSubTree(TrieMapNode *n, TrieMapRangeCtx *r) {
   r->buf = array_ensure_append(r->buf, n->str, n->len, char);
 
   if (__trieMapNode_isTerminal(n)) {
-    r->callback(r->buf, array_len(r->buf) * sizeof(char), r->cbctx, n->value);
+    r->callback(r->buf, array_len(r->buf), r->cbctx, n->value);
   }
 
   TrieMapNode **arr = __trieMapNode_children(n);
@@ -646,9 +646,9 @@ static void TrieMapRangeIterate(TrieMapNode *n, const char *min, int nmin, const
     // if nmin or nmax is zero, it means that we find an exact match
     // we should fire the callback only if exact match requested
     if (r->includeMin && nmin == 0) {
-      r->callback(r->buf, array_len(r->buf) * sizeof(char), r->cbctx, n->value);
+      r->callback(r->buf, array_len(r->buf), r->cbctx, n->value);
     } else if (r->includeMax && nmax == 0) {
-      r->callback(r->buf, array_len(r->buf) * sizeof(char), r->cbctx, n->value);
+      r->callback(r->buf, array_len(r->buf), r->cbctx, n->value);
     }
   }
 
