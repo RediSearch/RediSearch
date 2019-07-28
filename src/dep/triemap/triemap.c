@@ -3,6 +3,7 @@
 #include <sys/param.h>
 #include <ctype.h>
 #include "util/bsearch.h"
+#include "util/arr.h"
 
 void *TRIEMAP_NOTFOUND = "NOT FOUND";
 
@@ -554,11 +555,10 @@ void TrieMapIterator_Free(TrieMapIterator *it) {
   free(it);
 }
 
-#define TRIE_MAX_STRING_LEN 255
+#define TRIE_INITIAL_STRING_LEN 255
 
 typedef struct {
-  char buf[TRIE_MAX_STRING_LEN + 1];
-  size_t offset;
+  char *buf;
   TrieMapRangeCallback *callback;
   void *cbctx;
   bool includeMin;
@@ -567,7 +567,7 @@ typedef struct {
 
 typedef struct {
   const char *r;
-  uint16_t n;
+  int n;
 } TrieMaprsbHelper;
 
 static int nodecmp(const char *sa, size_t na, const char *sb, size_t nb) {
@@ -616,12 +616,10 @@ static int TrieMaprsbComparePrefix(const void *h, const void *e) {
 }
 
 static void TrieMaprangeIterateSubTree(TrieMapNode *n, TrieMapRangeCtx *r) {
-  memcpy(r->buf + r->offset, n->str, sizeof(*n->str) * n->len);
-  r->offset += n->len;
-  r->buf[r->offset] = 0;
+  r->buf = array_ensure_append(r->buf, n->str, n->len, char);
 
   if (__trieMapNode_isTerminal(n)) {
-    r->callback(r->buf, r->offset, r->cbctx, n->value);
+    r->callback(r->buf, array_len(r->buf), r->cbctx, n->value);
   }
 
   TrieMapNode **arr = __trieMapNode_children(n);
@@ -631,28 +629,26 @@ static void TrieMaprangeIterateSubTree(TrieMapNode *n, TrieMapRangeCtx *r) {
     TrieMaprangeIterateSubTree(arr[ii], r);
   }
 
-  r->offset -= n->len;
+  array_trimm_len(r->buf, array_len(r->buf) - n->len);
 }
 
 /**
  * Try to place as many of the common arguments in rangectx, so that the stack
  * size is not negatively impacted and prone to attack.
  */
-static void TrieMapRangeIterate(TrieMapNode *n, const char *min, uint16_t nmin, const char *max,
-                                uint16_t nmax, TrieMapRangeCtx *r) {
+static void TrieMapRangeIterate(TrieMapNode *n, const char *min, int nmin, const char *max,
+                                int nmax, TrieMapRangeCtx *r) {
   // Push string to stack
-  memcpy(r->buf + r->offset, n->str, sizeof(*n->str) * n->len);
-  r->offset += n->len;
-  r->buf[r->offset] = 0;
+  r->buf = array_ensure_append(r->buf, n->str, n->len, char);
 
   if (__trieMapNode_isTerminal(n)) {
     // current node is a terminal.
     // if nmin or nmax is zero, it means that we find an exact match
     // we should fire the callback only if exact match requested
     if (r->includeMin && nmin == 0) {
-      r->callback(r->buf, r->offset, r->cbctx, n->value);
+      r->callback(r->buf, array_len(r->buf), r->cbctx, n->value);
     } else if (r->includeMax && nmax == 0) {
-      r->callback(r->buf, r->offset, r->cbctx, n->value);
+      r->callback(r->buf, array_len(r->buf), r->cbctx, n->value);
     }
   }
 
@@ -762,11 +758,11 @@ static void TrieMapRangeIterate(TrieMapNode *n, const char *min, uint16_t nmin, 
   }
 
 clean_stack:
-  r->offset -= n->len;
+  array_trimm_len(r->buf, array_len(r->buf) - n->len);
 }
 
-void TrieMap_IterateRange(TrieMap *trie, const char *min, size_t minlen, bool includeMin,
-                          const char *max, size_t maxlen, bool includeMax,
+void TrieMap_IterateRange(TrieMap *trie, const char *min, int minlen, bool includeMin,
+                          const char *max, int maxlen, bool includeMax,
                           TrieMapRangeCallback callback, void *ctx) {
   if (trie->root->numChildren == 0) {
     return;
@@ -784,7 +780,7 @@ void TrieMap_IterateRange(TrieMap *trie, const char *min, size_t minlen, bool in
       // min = max, we should just search for min and check for its existence
       if (includeMin || includeMax) {
         void *val = TrieMapNode_Find(trie->root, (char *)min, minlen);
-        if (val) {
+        if (val != TRIEMAP_NOTFOUND) {
           callback(min, minlen, ctx, val);
         }
       }
@@ -798,6 +794,7 @@ void TrieMap_IterateRange(TrieMap *trie, const char *min, size_t minlen, bool in
       .includeMin = includeMin,
       .includeMax = includeMax,
   };
+  tmctx.buf = array_new(char, TRIE_INITIAL_STRING_LEN);
   TrieMapRangeIterate(trie->root, min, minlen, max, maxlen, &tmctx);
 }
 

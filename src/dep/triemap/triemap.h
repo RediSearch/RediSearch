@@ -136,8 +136,8 @@ int TrieMapIterator_Next(TrieMapIterator *it, char **ptr, tm_len_t *len, void **
 
 typedef void(TrieMapRangeCallback)(const char *, size_t, void *, void *);
 
-void TrieMap_IterateRange(TrieMap *trie, const char *min, size_t minlen, bool includeMin,
-                          const char *max, size_t maxlen, bool includeMax,
+void TrieMap_IterateRange(TrieMap *trie, const char *min, int minlen, bool includeMin,
+                          const char *max, int maxlen, bool includeMax,
                           TrieMapRangeCallback callback, void *ctx);
 
 #endif

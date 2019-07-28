@@ -3,6 +3,7 @@
 #include "util/bsearch.h"
 #include "sparse_vector.h"
 #include "redisearch.h"
+#include "util/arr.h"
 
 size_t __trieNode_Sizeof(t_len numChildren, t_len slen) {
   return sizeof(TrieNode) + numChildren * sizeof(TrieNode *) + sizeof(rune) * (slen + 1);
@@ -302,7 +303,7 @@ void __trieNode_optimizeChildren(TrieNode *n) {
 
 int TrieNode_Delete(TrieNode *n, rune *str, t_len len) {
   t_len offset = 0;
-  static TrieNode *stack[TRIE_MAX_STRING_LEN];
+  static TrieNode *stack[TRIE_INITIAL_STRING_LEN];
   int stackPos = 0;
   int rc = 0;
   while (n && offset < len) {
@@ -394,7 +395,7 @@ void __trieNode_sortChildren(TrieNode *n) {
 
 /* Push a new trie node on the iterator's stack */
 inline void __ti_Push(TrieIterator *it, TrieNode *node, int skipped) {
-  if (it->stackOffset < TRIE_MAX_STRING_LEN - 1) {
+  if (it->stackOffset < TRIE_INITIAL_STRING_LEN - 1) {
     stackNode *sn = &it->stack[it->stackOffset++];
     sn->childOffset = 0;
     sn->stringOffset = 0;
@@ -664,8 +665,7 @@ static int rsbComparePrefix(const void *h, const void *e) {
 }
 
 typedef struct {
-  rune buf[TRIE_MAX_STRING_LEN + 1];
-  size_t offset;
+  rune *buf;
   TrieRangeCallback *callback;
   void *cbctx;
   bool includeMin;
@@ -673,12 +673,11 @@ typedef struct {
 } RangeCtx;
 
 static void rangeIterateSubTree(TrieNode *n, RangeCtx *r) {
-  memcpy(r->buf + r->offset, n->str, sizeof(*n->str) * n->len);
-  r->offset += n->len;
-  r->buf[r->offset] = 0;
+  // Push string to stack
+  r->buf = array_ensure_append(r->buf, n->str, n->len, rune);
 
   if (__trieNode_isTerminal(n)) {
-    r->callback(r->buf, r->offset, r->cbctx);
+    r->callback(r->buf, array_len(r->buf), r->cbctx);
   }
 
   TrieNode **arr = __trieNode_children(n);
@@ -688,7 +687,7 @@ static void rangeIterateSubTree(TrieNode *n, RangeCtx *r) {
     rangeIterateSubTree(arr[ii], r);
   }
 
-  r->offset -= n->len;
+  array_trimm_len(r->buf, array_len(r->buf) - n->len);
 }
 
 /**
@@ -698,18 +697,16 @@ static void rangeIterateSubTree(TrieNode *n, RangeCtx *r) {
 static void rangeIterate(TrieNode *n, const rune *min, int nmin, const rune *max, int nmax,
                          RangeCtx *r) {
   // Push string to stack
-  memcpy(r->buf + r->offset, n->str, sizeof(*n->str) * n->len);
-  r->offset += n->len;
-  r->buf[r->offset] = 0;
+  r->buf = array_ensure_append(r->buf, n->str, n->len, rune);
 
   if (__trieNode_isTerminal(n)) {
     // current node is a termina.
     // if nmin or nmax is zero, it means that we find an exact match
     // we should fire the callback only if exact match requested
     if (r->includeMin && nmin == 0) {
-      r->callback(r->buf, r->offset, r->cbctx);
+      r->callback(r->buf, array_len(r->buf), r->cbctx);
     } else if (r->includeMax && nmax == 0) {
-      r->callback(r->buf, r->offset, r->cbctx);
+      r->callback(r->buf, array_len(r->buf), r->cbctx);
     }
   }
 
@@ -823,15 +820,14 @@ static void rangeIterate(TrieNode *n, const rune *min, int nmin, const rune *max
   }
 
 clean_stack:
-  r->offset -= n->len;
+  array_trimm_len(r->buf, array_len(r->buf) - n->len);
 }
 
 // LexRange iteration.
 // If min = NULL and nmin = -1 it tells us there is not limit on the min value
 // same rule goes for max value.
-void TrieNode_IterateRange(TrieNode *n, const rune *min, size_t nmin, bool includeMin,
-                           const rune *max, size_t nmax, bool includeMax,
-                           TrieRangeCallback callback, void *ctx) {
+void TrieNode_IterateRange(TrieNode *n, const rune *min, int nmin, bool includeMin, const rune *max,
+                           int nmax, bool includeMax, TrieRangeCallback callback, void *ctx) {
   if (min && max) {
     // min and max exists, lets compare them to make sure min < max
     int cmp = runecmp(min, nmin, max, nmax);
@@ -860,5 +856,6 @@ void TrieNode_IterateRange(TrieNode *n, const rune *min, size_t nmin, bool inclu
       .includeMin = includeMin,
       .includeMax = includeMax,
   };
+  r.buf = array_new(rune, TRIE_INITIAL_STRING_LEN);
   rangeIterate(n, min, nmin, max, nmax, &r);
 }
