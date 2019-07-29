@@ -35,7 +35,7 @@ export PYTHONPATH
 # See if there is a configuration file in the current directory. Use it
 # if it exists
 
-ARGS="--clear-logs"
+# ARGS="--clear-logs"
 
 if [ -e rltest.config ]; then
     ARGS="@rltest.config ${ARGS}"
