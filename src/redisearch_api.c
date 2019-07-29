@@ -120,7 +120,7 @@ void RediSearch_TagSetSeparator(FieldSpec* fs, char sep) {
   fs->tagSep = sep;
 }
 
-void RediSearch_TagCaseSensitive(RSField* fs, int enable) {
+void RediSearch_TagCaseSensitive(FieldSpec* fs, int enable) {
   assert(FIELD_IS(fs, INDEXFLD_T_TAG));
   if (enable) {
     fs->tagFlags |= TagField_CaseSensitive;
@@ -381,10 +381,6 @@ static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** err
   // dummy statement for goto
   ;
 end:
-  if (input->qtype == QUERY_INPUT_NODE) {
-    QueryNode_Free(it->qast.root);
-    it->qast.root = NULL;
-  }
 
   if (QueryError_HasError(&status) || it->internal == NULL) {
     if (it) {
