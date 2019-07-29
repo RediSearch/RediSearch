@@ -170,6 +170,49 @@ TEST_F(LLApiTest, testAddDocumentNumericField) {
   ASSERT_STREQ(id, DOCID1);
   id = (const char*)RediSearch_ResultsIteratorNext(iter, index, &len);
   ASSERT_STREQ(id, NULL);
+  RediSearch_ResultsIteratorFree(iter);
+
+  // searching on the index
+  qn = RediSearch_CreateNumericNode(index, NUMERIC_FIELD_NAME, RSRANGE_INF, 10, 0, 0);
+  iter = RediSearch_GetResultsIterator(qn, index);
+  ASSERT_TRUE(iter != NULL);
+
+  id = (const char*)RediSearch_ResultsIteratorNext(iter, index, &len);
+  ASSERT_STREQ(id, DOCID1);
+  id = (const char*)RediSearch_ResultsIteratorNext(iter, index, &len);
+  ASSERT_STREQ(id, NULL);
+
+  RediSearch_ResultsIteratorFree(iter);
+  RediSearch_DropIndex(index);
+}
+
+TEST_F(LLApiTest, testAddDocumentNumericFieldWithMoreThenOneNode) {
+  // creating the index
+  RSIndex* index = RediSearch_CreateIndex("index", NULL);
+
+  // adding text field to the index
+  RediSearch_CreateNumericField(index, NUMERIC_FIELD_NAME);
+
+  // adding document to the index
+  RSDoc* d = RediSearch_CreateDocument(DOCID1, strlen(DOCID1), 1.0, NULL);
+  RediSearch_DocumentAddFieldNumber(d, NUMERIC_FIELD_NAME, 20, RSFLDTYPE_DEFAULT);
+  RediSearch_SpecAddDocument(index, d);
+
+  // adding document to the index
+  d = RediSearch_CreateDocument(DOCID2, strlen(DOCID2), 1.0, NULL);
+  RediSearch_DocumentAddFieldNumber(d, NUMERIC_FIELD_NAME, 40, RSFLDTYPE_DEFAULT);
+  RediSearch_SpecAddDocument(index, d);
+
+  // searching on the index
+  RSQNode* qn = RediSearch_CreateNumericNode(index, NUMERIC_FIELD_NAME, 30, 10, 0, 0);
+  RSResultsIterator* iter = RediSearch_GetResultsIterator(qn, index);
+  ASSERT_TRUE(iter != NULL);
+
+  size_t len;
+  const char* id = (const char*)RediSearch_ResultsIteratorNext(iter, index, &len);
+  ASSERT_STREQ(id, DOCID1);
+  id = (const char*)RediSearch_ResultsIteratorNext(iter, index, &len);
+  ASSERT_STREQ(id, NULL);
 
   RediSearch_ResultsIteratorFree(iter);
   RediSearch_DropIndex(index);
