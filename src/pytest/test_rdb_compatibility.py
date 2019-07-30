@@ -2,7 +2,7 @@ import os
 import subprocess
 from shutil import copyfile
 
-REDISEARCH_CACHE_DIR = os.path.expanduser('~/.RediSearch/rdbs/')
+REDISEARCH_CACHE_DIR = '/tmp/'
 BASE_RDBS_URL = 'https://s3.amazonaws.com/redismodules/redisearch-enterprise/rdbs/'
 
 def testRDBCompatibility(env):
@@ -27,6 +27,10 @@ def testRDBCompatibility(env):
         filePath = os.path.join(REDISEARCH_CACHE_DIR, fileName)
         if not os.path.exists(filePath):
             subprocess.call(['wget', BASE_RDBS_URL + fileName, '-O', filePath])
+        if not os.path.exists(filePath):
+            if os.environ.get('CI') is None:
+                env.skip()
+            env.assertTrue(False) ## we could not download rdbs and we are running on CI, let fail the test
         copyfile(filePath, rdbFilePath)  
         env.start()
         env.assertTrue(env.checkExitCode())
