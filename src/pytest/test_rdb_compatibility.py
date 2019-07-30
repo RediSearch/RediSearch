@@ -6,6 +6,7 @@ REDISEARCH_CACHE_DIR = os.path.expanduser('~/.RediSearch/rdbs/')
 BASE_RDBS_URL = 'https://s3.amazonaws.com/redismodules/redisearch-enterprise/rdbs/'
 
 def testRDBCompatibility(env):
+    env.skipOnCluster()
     filesNames = [
             'redisearch_1.2.0.rdb',
             'redisearch_1.4.0.rdb',
