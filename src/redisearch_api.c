@@ -495,7 +495,7 @@ int RediSearch_ExportCapi(RedisModuleCtx* ctx) {
   return REDISMODULE_OK;
 }
 
-void RediSearch_SetMaxResultsToUseCT(size_t num) {
+void RediSearch_SetCriteriaTesterThreshold(size_t num) {
   if (num == 0) {
     RSGlobalConfig.maxResultsToUnsortedMode = DEFAULT_MAX_RESULTS_TO_UNSORTED_MODE;
   } else {

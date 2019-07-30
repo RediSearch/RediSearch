@@ -618,7 +618,7 @@ int RSGetValue(void* ctx, const char* fieldName, const void* id, char** strVal, 
 }
 
 TEST_F(LLApiTest, testNumericFieldWithCT) {
-  RediSearch_SetMaxResultsToUseCT(1);
+  RediSearch_SetCriteriaTesterThreshold(1);
 
   RSIndexOptions* opt = RediSearch_CreateIndexOptions();
   RediSearch_IndexOptionsSetGetValueCallback(opt, RSGetValue, NULL);
@@ -653,5 +653,5 @@ TEST_F(LLApiTest, testNumericFieldWithCT) {
   RediSearch_ResultsIteratorFree(iter);
   RediSearch_DropIndex(index);
 
-  RediSearch_SetMaxResultsToUseCT(0);
+  RediSearch_SetCriteriaTesterThreshold(0);
 }
