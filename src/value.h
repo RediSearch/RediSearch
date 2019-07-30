@@ -10,7 +10,6 @@
 #include <rmutil/sds.h>
 #include "redisearch.h"
 #include "util/fnv.h"
-#include "rmutil/cmdparse.h"
 #include "rmutil/args.h"
 
 #ifdef __cplusplus
@@ -308,8 +307,6 @@ RSValue *RS_StringArrayT(char **strs, uint32_t sz, RSStringType st);
 
 /* Create a new NULL RSValue */
 RSValue *RS_NullVal();
-
-RSValue *RS_NewValueFromCmdArg(CmdArg *arg);
 
 /* Compare 2 values for sorting */
 int RSValue_Cmp(const RSValue *v1, const RSValue *v2);
