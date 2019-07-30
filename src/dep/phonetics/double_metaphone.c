@@ -958,11 +958,11 @@ void DoubleMetaphone(const char *str, char **primary_pp, char **secondary_pp) {
   if (primary->length > 4) SetAt(primary, 4, '\0');
 
   if (secondary->length > 4) SetAt(secondary, 4, '\0');
-  if (primary_pp) {
+  if (primary_pp && primary->length > 0) {
     *primary_pp = primary->str;
     primary->free_string_on_destroy = 0;
   }
-  if (secondary_pp) {
+  if (secondary_pp && secondary->length > 0) {
     *secondary_pp = secondary->str;
     secondary->free_string_on_destroy = 0;
   }
