@@ -183,6 +183,8 @@ MODULE_API_FUNC(int, RediSearch_QueryNodeGetFieldMask)(RSQNode* qn);
 
 MODULE_API_FUNC(RSResultsIterator*, RediSearch_GetResultsIterator)(RSQNode* qn, RSIndex* sp);
 
+MODULE_API_FUNC(void, RediSearch_SetCriteriaTesterThreshold)(size_t num);
+
 /**
  * Return an iterator over the results of the specified query string
  * @param sp the index
@@ -248,7 +250,8 @@ MODULE_API_FUNC(void, RediSearch_IndexOptionsSetGCPolicy)(RSIndexOptions* option
   X(ResultsIteratorReset)            \
   X(IterateQuery)                    \
   X(ResultsIteratorGetScore)         \
-  X(IndexOptionsSetGCPolicy)
+  X(IndexOptionsSetGCPolicy)         \
+  X(SetCriteriaTesterThreshold)
 
 #define REDISEARCH_MODULE_INIT_FUNCTION(name)                                  \
   if (RedisModule_GetApi("RediSearch_" #name, ((void**)&RediSearch_##name))) { \

@@ -849,6 +849,14 @@ IndexCriteriaTester *IR_GetCriteriaTester(void *ctx) {
   if (!ir->sp || !ir->sp->getValue) {
     return NULL;  // CriteriaTester is not supported!!!
   }
+  if (ir->decoders.decoder == readNumeric) {
+    // for now, if the iterator did not took the numric filter
+    // we will avoid using the CT.
+    // TODO: save the numeric filter in the numeric iterator to support CT anyway.
+    if (!ir->decoderCtx.ptr) {
+      return NULL;
+    }
+  }
   IR_CriteriaTester *irct = rm_malloc(sizeof(*irct));
   irct->spec = ir->sp;
   if (ir->decoders.decoder == readNumeric) {
