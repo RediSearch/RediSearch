@@ -27,12 +27,33 @@ std::string HashValue::Key::makeKey() const {
   }
 }
 
+void HashValue::add(const char *key, const char *value, int mode) {
+  if (mode & REDISMODULE_HASH_XX) {
+    if (m_map.find(key) == m_map.end()) {
+      return;
+    }
+  } else if (mode & REDISMODULE_HASH_NX) {
+    if (m_map.find(key) != m_map.end()) {
+      return;
+    }
+  }
+  m_map[key] = value;
+}
+
 void HashValue::hset(const HashValue::Key &k, const RedisModuleString *value) {
-  std::string skey;
+  const char *skey;
+  if (k.flags & REDISMODULE_HASH_CFIELDS) {
+    skey = k.cstr;
+  } else {
+    skey = (*k.rstr).c_str();
+  }
+
   if (value == REDISMODULE_HASH_DELETE) {
     m_map.erase(skey);
     return;
   }
+
+  add(skey, value->c_str(), k.flags);
 
   if (k.flags & REDISMODULE_HASH_XX) {
     if (m_map.find(skey) == m_map.end()) {
@@ -43,8 +64,9 @@ void HashValue::hset(const HashValue::Key &k, const RedisModuleString *value) {
       return;
     }
   }
+  m_map[skey] = *value;
+
   if (k.flags & REDISMODULE_HASH_CFIELDS) {
-    m_map[k.cstr] = *value;
   } else {
     m_map[*k.rstr] = *value;
   }
@@ -532,8 +554,82 @@ void RMCK_ThreadSafeContextUnlock(RedisModuleCtx *) {
   RMCK_GlobalLock.unlock();
 }
 
-RedisModuleCallReply *RMCK_Call(RedisModuleCtx *, const char *, const char *, ...) {
-  return NULL;
+RedisModuleCallReply *RMCK_Call(RedisModuleCtx *ctx, const char *cmd, const char *fmt, ...) {
+  // We only support HGETALL for now
+  if (strcasecmp(cmd, "HGETALL") != 0) {
+    return NULL;
+  }
+  va_list ap;
+  va_start(ap, fmt);
+  const char *id = NULL;
+  if (*fmt == 'c') {
+    id = va_arg(ap, const char *);
+  } else if (*fmt == 's') {
+    RedisModuleString *rid = va_arg(ap, RedisModuleString *);
+    id = rid->c_str();
+  }
+  va_end(ap);
+  if (!id) {
+    return NULL;
+  }
+
+  auto v = ctx->db->get(id);
+  RedisModuleCallReply *r = new RedisModuleCallReply(ctx);
+  r->type = REDISMODULE_REPLY_ARRAY;
+  if (!v) {
+    return r;
+  }
+  if (v->typecode() != REDISMODULE_KEYTYPE_HASH) {
+    return r;
+  }
+  HashValue *hv = static_cast<HashValue *>(v);
+  for (auto it : hv->items()) {
+    r->arr.push_back(RedisModuleCallReply(ctx, it.first));
+    r->arr.push_back(RedisModuleCallReply(ctx, it.second));
+  }
+  return r;
+}
+
+int RMCK_CallReplyType(RedisModuleCallReply *r) {
+  return r->type;
+}
+
+void RMCK_FreeCallReply(RedisModuleCallReply *r) {
+  delete r;
+}
+
+size_t RMCK_CallReplyLength(RedisModuleCallReply *r) {
+  if (r->type == REDISMODULE_REPLY_ARRAY) {
+    return r->arr.size();
+  } else if (r->type == REDISMODULE_REPLY_STRING) {
+    return r->s.size();
+  } else {
+    return 0;
+  }
+}
+
+RedisModuleCallReply *RMCK_CallReplyArrayElement(RedisModuleCallReply *r, size_t idx) {
+  assert(r->type == REDISMODULE_REPLY_ARRAY && r->arr.size() > idx);
+  return &r->arr[idx];
+}
+
+RedisModuleString *RMCK_CreateStringFromCallReply(RedisModuleCallReply *r) {
+  switch (r->type) {
+    case REDISMODULE_REPLY_STRING:
+      return RedisModule_CreateString(r->ctx, r->s.c_str(), r->s.size());
+    case REDISMODULE_REPLY_INTEGER:
+      return RedisModule_CreateStringPrintf(r->ctx, "%ll", r->ll);
+    default:
+      return NULL;
+  }
+}
+
+const char *RMCK_CallReplyStringPtr(RedisModuleCallReply *r, size_t *n) {
+  if (r->type != REDISMODULE_REPLY_STRING && r->type != REDISMODULE_REPLY_ERROR) {
+    return NULL;
+  }
+  *n = r->s.size();
+  return r->s.c_str();
 }
 
 Module::ModuleMap Module::modules;
@@ -627,6 +723,13 @@ static void registerApis() {
   REGISTER_API(SetModuleAttribs);
   REGISTER_API(Log);
   REGISTER_API(Call);
+
+  REGISTER_API(FreeCallReply);
+  REGISTER_API(CallReplyLength);
+  REGISTER_API(CallReplyType);
+  REGISTER_API(CreateStringFromCallReply);
+  REGISTER_API(CallReplyArrayElement);
+  REGISTER_API(CallReplyStringPtr);
 
   REGISTER_API(GetThreadSafeContext);
   REGISTER_API(FreeThreadSafeContext);
