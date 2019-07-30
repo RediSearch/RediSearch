@@ -115,7 +115,6 @@ static int initAsLibrary(RedisModuleCtx *ctx) {
 
 int RS_Initialized = 0;
 RedisModuleCtx *RSDummyContext = NULL;
-int RS_Initialized = 0;
 
 int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
 #define DO_LOG(...)                               \
