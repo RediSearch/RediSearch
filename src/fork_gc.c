@@ -393,7 +393,6 @@ typedef struct {
   size_t numDelBlocks;
 
   MSG_RepairedBlock *changedBlocks;
-  size_t numChangedBlocks;
 
   IndexBlock *newBlocklist;
   size_t newBlocklistSize;
@@ -440,15 +439,15 @@ static void ForkGc_FixInvertedIndex(ForkGCCtx *gc, InvIdxBuffers *idxData, MSG_I
           idxData->newBlocklist, sizeof(*idxData->newBlocklist) * idxData->newBlocklistSize);
       idxData->newBlocklist[idxData->newBlocklistSize - 1] = *lastOld;
     } else {
-      MSG_RepairedBlock *rb = idxData->changedBlocks + idxData->numChangedBlocks - 1;
+      MSG_RepairedBlock *rb = idxData->changedBlocks + info->nblocksRepaired - 1;
       indexBlock_Free(&rb->blk);
-      idxData->numChangedBlocks--;
+      info->nblocksRepaired--;
     }
     info->ndocsCollected -= info->lastblkDocsRemoved;
     info->nbytesCollected -= info->lastblkBytesCollected;
   }
 
-  for (size_t i = 0; i < idxData->numChangedBlocks; ++i) {
+  for (size_t i = 0; i < info->nblocksRepaired; ++i) {
     MSG_RepairedBlock *blockModified = idxData->changedBlocks + i;
     indexBlock_Free(&idx->blocks[blockModified->oldix]);
   }
@@ -480,7 +479,7 @@ static void ForkGc_FixInvertedIndex(ForkGCCtx *gc, InvIdxBuffers *idxData, MSG_I
     idx->size = idxData->newBlocklistSize;
   }
 
-  for (size_t i = 0; i < idxData->numChangedBlocks; ++i) {
+  for (size_t i = 0; i < info->nblocksRepaired; ++i) {
     MSG_RepairedBlock *blockModified = idxData->changedBlocks + i;
     idx->blocks[blockModified->newix] = blockModified->blk;
   }
