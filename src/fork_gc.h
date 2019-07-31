@@ -18,21 +18,17 @@ typedef struct {
   uint64_t gcBlocksDenied;
 } ForkGCStats;
 
-typedef enum ForkGCCtxType {
-  ForkGCCtxType_IN_KEYSPACE,
-  ForkGCCtxType_OUT_KEYSPACE,
-  ForkGCCtxType_FREED
-} ForkGCCtxType;
+typedef enum FGCType { FGC_TYPE_INKEYSPACE, FGC_TYPE_NOKEYSPACE, FGC_TYPE_FREED } FGCType;
 
 /* Internal definition of the garbage collector context (each index has one) */
-typedef struct ForkGCCtx {
+typedef struct ForkGC {
 
   // inverted index key name for reopening the index
   union {
     const RedisModuleString *keyName;
     IndexSpec *sp;
   };
-  ForkGCCtxType type;
+  FGCType type;
 
   uint64_t specUniqueId;
 
@@ -44,14 +40,9 @@ typedef struct ForkGCCtx {
 
   int pipefd[2];
 
-} ForkGCCtx;
+} ForkGC;
 
-ForkGCCtx *NewForkGC(const RedisModuleString *k, uint64_t specUniqueId, GCCallbacks *callbacks);
-ForkGCCtx *NewForkGCFromSpec(IndexSpec *sp, uint64_t specUniqueId, GCCallbacks *callbacks);
-void ForkGc_RenderStats(RedisModuleCtx *ctx, void *gcCtx);
-void ForkGc_OnDelete(void *ctx);
-void ForkGc_ForceInvoke(void *ctx, RedisModuleBlockedClient *bClient);
-void ForkGc_OnTerm(void *privdata);
-struct timespec ForkGc_GetInterval(void *ctx);
+ForkGC *FGC_New(const RedisModuleString *k, uint64_t specUniqueId, GCCallbacks *callbacks);
+ForkGC *FGC_NewFromSpec(IndexSpec *sp, uint64_t specUniqueId, GCCallbacks *callbacks);
 
 #endif /* SRC_FORK_GC_H_ */

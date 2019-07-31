@@ -49,7 +49,7 @@ void RediSearch_DropIndex(IndexSpec* sp) {
 
   if (sp->gc) {
     // for now this is good enough, we should add another api to GC called before its freed.
-    ((ForkGCCtx*)(sp->gc->gcCtx))->type = ForkGCCtxType_FREED;
+    ((ForkGC*)(sp->gc->gcCtx))->type = FGC_TYPE_FREED;
   }
   IndexSpec_FreeSync(sp);
   RWLOCK_RELEASE();

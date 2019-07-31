@@ -52,7 +52,7 @@ GCContext* GCContext_CreateGCFromSpec(IndexSpec* sp, float initialHZ, uint64_t u
   pthread_mutex_init(&ret->bClients.lock, NULL);
   switch (gcPolicy) {
     case GCPolicy_Fork:
-      ret->gcCtx = NewForkGCFromSpec(sp, uniqueId, &ret->callbacks);
+      ret->gcCtx = FGC_NewFromSpec(sp, uniqueId, &ret->callbacks);
       break;
     case GCPolicy_Default:
     default:
@@ -68,7 +68,7 @@ GCContext* GCContext_CreateGC(RedisModuleString* keyName, float initialHZ, uint6
   pthread_mutex_init(&ret->bClients.lock, NULL);
   switch (RSGlobalConfig.gcPolicy) {
     case GCPolicy_Fork:
-      ret->gcCtx = NewForkGC(keyName, uniqueId, &ret->callbacks);
+      ret->gcCtx = FGC_New(keyName, uniqueId, &ret->callbacks);
       break;
     case GCPolicy_Default:
     default:
