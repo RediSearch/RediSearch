@@ -425,28 +425,39 @@ static bool FGC_RecvInvIdx(ForkGCCtx *gc, InvIdxBuffers *bufs, MSG_IndexInfo *in
   return true;
 }
 
-static void ForkGc_FixInvertedIndex(ForkGCCtx *gc, InvIdxBuffers *idxData, MSG_IndexInfo *info,
-                                    InvertedIndex *idx) {
-  size_t lastOldIdx = info->nblocksOrig - 1;
-  IndexBlock *lastOld = idx->blocks + lastOldIdx;
-
-  if (info->lastblkDocsRemoved && info->lastblkNumDocs != lastOld->numDocs) {
-    if (info->lastblkDocsRemoved == info->lastblkNumDocs) {
-      MSG_DeletedBlock *db = idxData->delBlocks + idxData->numDelBlocks - 1;
-      idxData->numDelBlocks--;
-      idxData->newBlocklistSize++;
-      idxData->newBlocklist = rm_realloc(
-          idxData->newBlocklist, sizeof(*idxData->newBlocklist) * idxData->newBlocklistSize);
-      idxData->newBlocklist[idxData->newBlocklistSize - 1] = *lastOld;
-    } else {
-      MSG_RepairedBlock *rb = idxData->changedBlocks + info->nblocksRepaired - 1;
-      indexBlock_Free(&rb->blk);
-      info->nblocksRepaired--;
-    }
-    info->ndocsCollected -= info->lastblkDocsRemoved;
-    info->nbytesCollected -= info->lastblkBytesCollected;
+static void checkLastBlock(ForkGCCtx *gc, InvIdxBuffers *idxData, MSG_IndexInfo *info,
+                           InvertedIndex *idx) {
+  IndexBlock *lastOld = idx->blocks + info->nblocksOrig - 1;
+  if (info->lastblkDocsRemoved == 0) {
+    // didn't touch last block in child
+    return;
+  }
+  if (info->lastblkNumDocs == lastOld->numDocs) {
+    // didn't touch last block in parent
+    return;
   }
 
+  if (info->lastblkDocsRemoved == info->lastblkNumDocs) {
+    MSG_DeletedBlock *db = idxData->delBlocks + idxData->numDelBlocks - 1;
+    idxData->numDelBlocks--;
+    idxData->newBlocklistSize++;
+    idxData->newBlocklist = rm_realloc(idxData->newBlocklist,
+                                       sizeof(*idxData->newBlocklist) * idxData->newBlocklistSize);
+    idxData->newBlocklist[idxData->newBlocklistSize - 1] = *lastOld;
+  } else {
+    MSG_RepairedBlock *rb = idxData->changedBlocks + info->nblocksRepaired - 1;
+    indexBlock_Free(&rb->blk);
+    info->nblocksRepaired--;
+  }
+
+  info->ndocsCollected -= info->lastblkDocsRemoved;
+  info->nbytesCollected -= info->lastblkBytesCollected;
+  gc->stats.gcBlocksDenied++;
+}
+
+static void ForkGc_FixInvertedIndex(ForkGCCtx *gc, InvIdxBuffers *idxData, MSG_IndexInfo *info,
+                                    InvertedIndex *idx) {
+  checkLastBlock(gc, idxData, info, idx);
   for (size_t i = 0; i < info->nblocksRepaired; ++i) {
     MSG_RepairedBlock *blockModified = idxData->changedBlocks + i;
     indexBlock_Free(&idx->blocks[blockModified->oldix]);
