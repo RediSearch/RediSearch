@@ -4,6 +4,10 @@
 
 #include "redismodule.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct BlockClient {
   RedisModuleBlockedClient* bClient;
   struct BlockClient* next;
@@ -41,4 +45,7 @@ void GCContext_RenderStats(GCContext* gc, RedisModuleCtx* ctx);
 void GCContext_OnDelete(GCContext* gc);
 void GCContext_ForceInvoke(GCContext* gc, RedisModuleBlockedClient* bc);
 
+#ifdef __cplusplus
+}
+#endif
 #endif /* SRC_GC_H_ */
