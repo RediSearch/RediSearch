@@ -4,6 +4,7 @@
 #include <version.h>
 #include "redismock/util.h"
 #include "redismock/internal.h"
+#include "common.h"
 
 extern "C" {
 static int my_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -27,6 +28,10 @@ class MyEnvironment : public ::testing::Environment {
     RediSearch_CleanupModule();
   }
 };
+
+bool RS::deleteDocument(RedisModuleCtx *ctx, IndexSpec *sp, const char *docid) {
+  return RediSearch_DeleteDocument(sp, docid, strlen(docid)) == REDISMODULE_OK;
+}
 
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
