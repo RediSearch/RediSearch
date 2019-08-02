@@ -771,12 +771,19 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
 
   int ret_val = 1;
 
+  while (gc->pauseState & FGC_PAUSED_CHILD) {
+    gc->execState = FGC_STATE_WAIT_FORK;
+    // spin or sleep
+    usleep(500);
+  }
+
   TimeSampler_Start(&ts);
   pipe(gc->pipefd);  // create the pipe
   FGC_lock(gc, ctx);
   if (gc->type == FGC_TYPE_FREED) {
     return 0;
   }
+  gc->execState = FGC_STATE_SCANNING;
   cpid = fork();  // duplicate the current process
   FGC_unlock(gc, ctx);
   if (cpid == 0) {
@@ -789,6 +796,13 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
   } else {
     // main process
     close(gc->pipefd[GC_WRITERFD]);
+    while (gc->pauseState & FGC_PAUSED_PARENT) {
+      gc->execState = FGC_STATE_WAIT_APPLY;
+      // spin
+      usleep(500);
+    }
+
+    gc->execState = FGC_STATE_APPLYING;
     FGC_parentHandleFromChild(gc, &ret_val);
     close(gc->pipefd[GC_READERFD]);
     pid_t id = wait4(cpid, NULL, 0, NULL);
@@ -796,6 +810,7 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
       printf("an error acquire when waiting for fork to terminate, pid:%d", cpid);
     }
   }
+  gc->execState = FGC_STATE_IDLE;
   TimeSampler_End(&ts);
 
   long long msRun = TimeSampler_DurationMS(&ts);
@@ -805,6 +820,32 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
   gc->stats.lastRunTimeMs = msRun;
 
   return ret_val;
+}
+
+void FGC_WaitAtFork(ForkGC *gc) {
+  assert(gc->pauseState == 0);
+  gc->pauseState |= FGC_PAUSED_CHILD;
+  while (gc->execState != FGC_STATE_WAIT_FORK) {
+    usleep(500);
+  }
+}
+
+void FGC_WaitAtApply(ForkGC *gc) {
+  // Ensure that we're waiting for the child to begin
+  assert(gc->pauseState == FGC_PAUSED_CHILD);
+  assert(gc->execState == FGC_STATE_WAIT_FORK);
+
+  gc->pauseState = FGC_PAUSED_PARENT;
+  while (gc->execState != FGC_STATE_WAIT_APPLY) {
+    usleep(500);
+  }
+}
+
+void FGC_WaitClear(ForkGC *gc) {
+  gc->pauseState = 0;
+  while (gc->execState != FGC_STATE_IDLE) {
+    usleep(500);
+  }
 }
 
 static void onTerminateCb(void *privdata) {
