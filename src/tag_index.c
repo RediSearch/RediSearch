@@ -85,18 +85,23 @@ char **TagIndex_Preprocess(char sep, TagFieldFlags flags, const DocumentField *d
   return ret;
 }
 
+struct InvertedIndex *TagIndex_OpenIndex(TagIndex *idx, const char *value, size_t len, int create) {
+  InvertedIndex *iv = TrieMap_Find(idx->values, (char *)value, len);
+  if (iv == TRIEMAP_NOTFOUND) {
+    if (create) {
+      iv = NewInvertedIndex(Index_DocIdsOnly, 1);
+      TrieMap_Add(idx->values, (char *)value, len, iv, NULL);
+    }
+  }
+  return iv;
+}
+
 /* Ecode a single docId into a specific tag value */
 static inline size_t tagIndex_Put(TagIndex *idx, const char *value, size_t len, t_docId docId) {
 
-  InvertedIndex *iv = TrieMap_Find(idx->values, (char *)value, len);
-  if (iv == TRIEMAP_NOTFOUND) {
-    iv = NewInvertedIndex(Index_DocIdsOnly, 1);
-    TrieMap_Add(idx->values, (char *)value, len, iv, NULL);
-  }
-
   IndexEncoder enc = InvertedIndex_GetEncoder(Index_DocIdsOnly);
   RSIndexResult rec = {.type = RSResultType_Virtual, .docId = docId, .offsetsSz = 0, .freq = 0};
-
+  InvertedIndex *iv = TagIndex_OpenIndex(idx, value, len, 1);
   return InvertedIndex_WriteEntryGeneric(iv, enc, docId, &rec);
 }
 

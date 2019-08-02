@@ -7,6 +7,8 @@
 #include "value.h"
 #include "geo_index.h"
 
+struct InvertedIndex;
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -126,6 +128,8 @@ void TagIndex_RegisterConcurrentIterators(TagIndex *idx, ConcurrentSearchCtx *co
 /* Open the tag index key in redis */
 TagIndex *TagIndex_Open(RedisSearchCtx *sctx, RedisModuleString *formattedKey, int openWrite,
                         RedisModuleKey **keyp);
+
+struct InvertedIndex *TagIndex_OpenIndex(TagIndex *idx, const char *value, size_t len, int create);
 
 /* Serialize all the tags in the index to the redis client */
 void TagIndex_SerializeValues(TagIndex *idx, RedisModuleCtx *ctx);

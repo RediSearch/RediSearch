@@ -26,7 +26,7 @@ typedef struct {
   uint16_t numDocs;
 } IndexBlock;
 
-typedef struct {
+typedef struct InvertedIndex {
   IndexBlock *blocks;
   uint32_t size;
   IndexFlags flags;
