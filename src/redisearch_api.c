@@ -140,22 +140,18 @@ RSDoc* RediSearch_CreateDocument(const void* docKey, size_t len, double score, c
 
 int RediSearch_DeleteDocument(IndexSpec* sp, const void* docKey, size_t len) {
   RWLOCK_ACQUIRE_WRITE();
-
-  RedisModuleString* docId = RedisModule_CreateString(NULL, docKey, len);
   int rc = REDISMODULE_OK;
-  t_docId id = DocTable_GetIdR(&sp->docs, docId);
+  t_docId id = DocTable_GetId(&sp->docs, docKey, len);
   if (id == 0) {
     rc = REDISMODULE_ERR;
   } else {
-    rc = DocTable_DeleteR(&sp->docs, docId);
-    if (rc) {
+    if (DocTable_Delete(&sp->docs, docKey, len)) {
+      // Delete returns true/false, not RM_{OK,ERR}
       sp->stats.numDocuments--;
     } else {
-      // is this possible?
       rc = REDISMODULE_ERR;
     }
   }
-  RedisModule_FreeString(NULL, docId);
 
   RWLOCK_RELEASE();
   return rc;
