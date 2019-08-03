@@ -9,6 +9,7 @@ OPTION(RS_RUN_TESTS "Build & Run RediSearch's tests" OFF)
 OPTION(RS_BUILD_STATIC "Builds a static library" OFF)
 OPTION(USE_ASAN "Use AddressSanitizer (clang)" OFF)
 OPTION(USE_MSAN "Use MemorySanitizer (clang)" OFF)
+OPTION(USE_TSAN "Use ThreadSanitizer (clang)" OFF)
 
 ADD_DEFINITIONS(-UNDEBUG)
 
