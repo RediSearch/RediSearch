@@ -86,9 +86,10 @@ static int GCContext_PeriodicCallback(RedisModuleCtx* ctx, void* privdata) {
   if (bClient) {
     RedisModule_UnblockClient(bClient, NULL);
   }
-
-  RMUtilTimer_SetInterval(gc->timer, gc->callbacks.getInterval(gc->gcCtx));
-
+  if (gc->timer) {
+    // Timer could've been deleted..
+    RMUtilTimer_SetInterval(gc->timer, gc->callbacks.getInterval(gc->gcCtx));
+  }
   return ret;
 }
 
@@ -104,9 +105,10 @@ void GCContext_Start(GCContext* gc) {
 }
 
 void GCContext_Stop(GCContext* gc) {
-  if (gc->timer) {
-    RMUtilTimer_Terminate(gc->timer);
+  if (gc->callbacks.kill) {
+    gc->callbacks.kill(gc->gcCtx);
   }
+  RMUtilTimer_Terminate(gc->timer);
 }
 
 void GCContext_RenderStats(GCContext* gc, RedisModuleCtx* ctx) {
@@ -114,7 +116,9 @@ void GCContext_RenderStats(GCContext* gc, RedisModuleCtx* ctx) {
 }
 
 void GCContext_OnDelete(GCContext* gc) {
-  gc->callbacks.onDelete(gc->gcCtx);
+  if (gc->callbacks.onDelete) {
+    gc->callbacks.onDelete(gc->gcCtx);
+  }
 }
 
 void GCContext_ForceInvoke(GCContext* gc, RedisModuleBlockedClient* bc) {
