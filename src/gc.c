@@ -79,6 +79,13 @@ GCContext* GCContext_CreateGC(RedisModuleString* keyName, float initialHZ, uint6
 }
 
 static int GCContext_PeriodicCallback(RedisModuleCtx* ctx, void* privdata) {
+  if (RedisModule_AvoidReplicaTraffic && RedisModule_AvoidReplicaTraffic()) {
+    // If slave trafic is not allow it means that there is a state machine running
+    // we do not want to run any GC w(hich might cause a FORK process to start for example).
+    // Its better to just avoid it.
+    return 1;
+  }
+
   GCContext* gc = privdata;
   int ret = gc->callbacks.periodicCallback(ctx, gc->gcCtx);
 
