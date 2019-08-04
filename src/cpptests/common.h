@@ -5,6 +5,7 @@
 #include "redismock/util.h"
 #include "spec.h"
 #include "document.h"
+#include "rwlock.h"
 
 namespace RS {
 
@@ -14,6 +15,7 @@ static void donecb(RSAddDocumentCtx *aCtx, RedisModuleCtx *, void *) {
 
 template <typename... Ts>
 bool addDocument(RedisModuleCtx *ctx, IndexSpec *sp, const char *docid, Ts... args) {
+  RWLOCK_ACQUIRE_WRITE();
   RMCK::ArgvList argv(ctx, args...);
   AddDocumentOptions options = {0};
   options.options |= DOCUMENT_ADD_CURTHREAD;
@@ -24,6 +26,7 @@ bool addDocument(RedisModuleCtx *ctx, IndexSpec *sp, const char *docid, Ts... ar
   QueryError status = {QueryErrorCode(0)};
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
   int rv = RS_AddDocument(&sctx, RMCK::RString(docid), &options, &status);
+  RWLOCK_RELEASE();
   return rv == REDISMODULE_OK;
 }
 
