@@ -18,3 +18,4 @@ While it is possible and simple to use the raw Redis commands API, in most cases
 | PHP | [redisearch-php](https://github.com/ethanhann/redisearch-php) | Ethan Hann | MIT |
 | Ruby on Rails | [redi_search_rails](https://github.com/dmitrypol/redi_search_rails)  | Dmitry Polyakovsky | MIT | |
 | Ruby | [redisearch-rb](https://github.com/vruizext/redisearch-rb) | Victor Ruiz | MIT | |
+| Ruby | [redi_search](https://github.com/npezza93/redi_search) | Nick Pezza | MIT | Also works with Ruby on Rails |
