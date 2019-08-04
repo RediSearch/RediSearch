@@ -46,11 +46,9 @@ IndexSpec* RediSearch_CreateIndex(const char* name, const RSIndexOptions* option
 
 void RediSearch_DropIndex(IndexSpec* sp) {
   RWLOCK_ACQUIRE_WRITE();
-
-  if (sp->gc) {
-    // for now this is good enough, we should add another api to GC called before its freed.
-    ((ForkGC*)(sp->gc->gcCtx))->type = FGC_TYPE_FREED;
-  }
+  dict* d = sp->keysDict;
+  dictRelease(d);
+  sp->keysDict = NULL;
   IndexSpec_FreeSync(sp);
   RWLOCK_RELEASE();
 }

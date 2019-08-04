@@ -854,7 +854,16 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
   return ret_val;
 }
 
-void FGC_WaitAtFork(ForkGC *gc) __attribute__((no_sanitize("thread"))) {
+#if defined(__has_feature)
+#if __has_feature(thread_sanitizer)
+#define NO_TSAN_CHECK __attribute__((no_sanitize("thread")))
+#endif
+#endif
+#ifndef NO_TSAN_CHECK
+#define NO_TSAN_CHECK
+#endif
+
+void FGC_WaitAtFork(ForkGC *gc) NO_TSAN_CHECK {
   assert(gc->pauseState == 0);
   gc->pauseState = FGC_PAUSED_CHILD;
 
@@ -863,7 +872,7 @@ void FGC_WaitAtFork(ForkGC *gc) __attribute__((no_sanitize("thread"))) {
   }
 }
 
-void FGC_WaitAtApply(ForkGC *gc) __attribute__((no_sanitize("thread"))) {
+void FGC_WaitAtApply(ForkGC *gc) NO_TSAN_CHECK {
   // Ensure that we're waiting for the child to begin
   assert(gc->pauseState == FGC_PAUSED_CHILD);
   assert(gc->execState == FGC_STATE_WAIT_FORK);
@@ -874,7 +883,7 @@ void FGC_WaitAtApply(ForkGC *gc) __attribute__((no_sanitize("thread"))) {
   }
 }
 
-void FGC_WaitClear(ForkGC *gc) __attribute__((no_sanitize("thread"))) {
+void FGC_WaitClear(ForkGC *gc) NO_TSAN_CHECK {
   gc->pauseState = 0;
   while (gc->execState != FGC_STATE_IDLE) {
     usleep(500);
