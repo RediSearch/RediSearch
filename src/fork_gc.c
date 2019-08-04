@@ -707,9 +707,9 @@ static bool FGC_parentHandleTags(ForkGC *gc, int *ret_val, RedisModuleCtx *rctx)
     }
 
     if (!FGC_lock(gc, rctx)) {
-      hasLock = 0;
       RETURN;
     }
+    hasLock = 1;
     sctx = FGC_getSctx(gc, rctx);
     if (!sctx || sctx->spec->uniqueId != gc->specUniqueId) {
       RETURN;
