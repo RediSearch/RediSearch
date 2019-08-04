@@ -5,6 +5,7 @@
 #include "fork_gc.h"
 #include "tag_index.h"
 #include "inverted_index.h"
+#include "rwlock.h"
 
 static timespec getTimespecCb(void *) {
   timespec ts = {0};
@@ -49,13 +50,15 @@ TEST_F(FGCTest, testRemoveSingle) {
    * the deletion, but BEFORE the addition.
    */
   FGC_WaitAtFork(fgc);
-  ASSERT_TRUE(RS::deleteDocument(ctx, sp, "doc1"));
+  auto rv = RS::deleteDocument(ctx, sp, "doc1");
+  ASSERT_TRUE(rv);
 
   /**
    * This function allows the GC to perform fork(2), but makes it wait
    * before it begins receiving results.
    */
   FGC_WaitAtApply(fgc);
+
   ASSERT_TRUE(RS::addDocument(ctx, sp, "doc2", "f1", "hello"));
 
   /** This function allows the gc to receive the results */
@@ -110,4 +113,5 @@ TEST_F(FGCTest, testRepairBlock) {
 
   ASSERT_EQ(1, fgc->stats.gcBlocksDenied);
   ASSERT_EQ(2, iv->size);
+  RediSearch_DropIndex(sp);
 }

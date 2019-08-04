@@ -22,7 +22,7 @@ typedef struct {
   uint64_t gcBlocksDenied;
 } ForkGCStats;
 
-typedef enum FGCType { FGC_TYPE_INKEYSPACE, FGC_TYPE_NOKEYSPACE, FGC_TYPE_FREED } FGCType;
+typedef enum FGCType { FGC_TYPE_INKEYSPACE, FGC_TYPE_NOKEYSPACE } FGCType;
 
 /* Internal definition of the garbage collector context (each index has one) */
 typedef struct ForkGC {
@@ -32,6 +32,9 @@ typedef struct ForkGC {
     const RedisModuleString *keyName;
     IndexSpec *sp;
   };
+
+  RedisModuleCtx *ctx;
+
   FGCType type;
 
   uint64_t specUniqueId;
@@ -41,9 +44,9 @@ typedef struct ForkGC {
 
   // flag for rdb loading. Set to 1 initially, but unce it's set to 0 we don't need to check anymore
   int rdbPossiblyLoading;
-
+  // Whether the gc has been requested for deletion
+  volatile int deleting;
   int pipefd[2];
-
   volatile uint32_t pauseState;
   volatile uint32_t execState;
 } ForkGC;
