@@ -203,8 +203,8 @@ static IndexCriteriaTester *UI_GetCriteriaTester(void *ctx) {
     if (!children[i]) {
       for (size_t j = 0; j < i; j++) {
         children[j]->Free(children[j]);
-        rm_free(children);
       }
+      rm_free(children);
       return NULL;
     }
   }
