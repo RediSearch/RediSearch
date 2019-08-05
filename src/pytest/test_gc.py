@@ -103,7 +103,8 @@ def testDeleteDocWithGoeField(env):
     env.expect('zrange', 'geo:idx/test2', '0', '-1').equal(['1'])
     env.expect('FT.DEL', 'idx', 'doc1').equal(1)
     rv = env.cmd('zrange', 'geo:idx/test2', '0', '-1')
-    env.assertFalse(rv)
+    # On newer redis versions, this is a NULL instead of an empty array
+    env.assertFalse(bool(rv))
 
 def testGCIntegrationWithRedisFork(env):
     if env.isCluster():
