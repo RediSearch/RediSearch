@@ -135,7 +135,7 @@ TEST_F(LLApiTest, testAddDocumentTextField) {
 
   // delete the second document
   int ret = RediSearch_DropDocument(index, DOCID2, strlen(DOCID2));
-  ASSERT_TRUE(ret);
+  ASSERT_EQ(REDISMODULE_OK, ret);
 
   // searching again, make sure there is no results
   qn = RediSearch_CreatePrefixNode(index, FIELD_NAME_2, "an");
