@@ -3,20 +3,19 @@
 #define SRC_GC_H_
 
 #include "redismodule.h"
+#include "util/dllist.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 typedef struct BlockClient {
+  DLLIST_node llnode;
   RedisModuleBlockedClient* bClient;
-  struct BlockClient* next;
-  struct BlockClient* prev;
 } BlockClient;
 
 typedef struct BlockClients {
-  BlockClient* head;
-  BlockClient* tail;
+  DLLIST clients;
   pthread_mutex_t lock;
 } BlockClients;
 

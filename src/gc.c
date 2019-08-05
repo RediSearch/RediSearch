@@ -8,40 +8,22 @@
 #include <assert.h>
 
 static void BlockClients_push(BlockClients* ctx, RedisModuleBlockedClient* bClient) {
-  pthread_mutex_lock(&ctx->lock);
   BlockClient* bc = rm_calloc(1, sizeof(BlockClient));
   bc->bClient = bClient;
-
-  if (ctx->head == NULL) {
-    ctx->head = ctx->tail = bc;
-    pthread_mutex_unlock(&ctx->lock);
-    return;
-  }
-
-  bc->next = ctx->head;
-  ctx->head->prev = bc;
-  ctx->head = bc;
+  pthread_mutex_lock(&ctx->lock);
+  dllist_prepend(&ctx->clients, &bc->llnode);
   pthread_mutex_unlock(&ctx->lock);
 }
 
 static RedisModuleBlockedClient* BlockClients_pop(BlockClients* ctx) {
   pthread_mutex_lock(&ctx->lock);
-  BlockClient* bc = ctx->tail;
-  if (!bc) {
-    pthread_mutex_unlock(&ctx->lock);
-    return NULL;
+  RedisModuleBlockedClient* ret = NULL;
+  DLLIST_node* nn = dllist_pop_tail(&ctx->clients);
+  if (nn) {
+    BlockClient* bc = DLLIST_ITEM(nn, BlockClient, llnode);
+    ret = bc->bClient;
+    rm_free(bc);
   }
-
-  ctx->tail = bc->prev;
-  if (ctx->tail) {
-    ctx->tail->next = NULL;
-  } else {
-    ctx->head = NULL;
-  }
-
-  RedisModuleBlockedClient* ret = bc->bClient;
-  rm_free(bc);
-
   pthread_mutex_unlock(&ctx->lock);
   return ret;
 }
@@ -50,6 +32,7 @@ GCContext* GCContext_CreateGCFromSpec(IndexSpec* sp, float initialHZ, uint64_t u
                                       uint32_t gcPolicy) {
   GCContext* ret = rm_calloc(1, sizeof(GCContext));
   pthread_mutex_init(&ret->bClients.lock, NULL);
+  dllist_init(&ret->bClients.clients);
   switch (gcPolicy) {
     case GCPolicy_Fork:
       ret->gcCtx = FGC_NewFromSpec(sp, uniqueId, &ret->callbacks);
@@ -65,6 +48,7 @@ GCContext* GCContext_CreateGCFromSpec(IndexSpec* sp, float initialHZ, uint64_t u
 
 GCContext* GCContext_CreateGC(RedisModuleString* keyName, float initialHZ, uint64_t uniqueId) {
   GCContext* ret = rm_calloc(1, sizeof(GCContext));
+  dllist_init(&ret->bClients.clients);
   pthread_mutex_init(&ret->bClients.lock, NULL);
   switch (RSGlobalConfig.gcPolicy) {
     case GCPolicy_Fork:
