@@ -493,6 +493,14 @@ static void FGC_applyInvertedIndex(ForkGC *gc, InvIdxBuffers *idxData, MSG_Index
     idxData->newBlocklistSize += newAddedLen;
     idx->blocks = idxData->newBlocklist;
     idx->size = idxData->newBlocklistSize;
+  } else if (idxData->numDelBlocks) {
+    // In this case, all blocks the child has seen need to be deleted. We don't
+    // get a new block list, because they are all gone..
+    size_t newAddedLen = idx->size - info->nblocksOrig;
+    if (newAddedLen) {
+      memmove(idx->blocks, idx->blocks + info->nblocksOrig, sizeof(*idx->blocks) * newAddedLen);
+    }
+    idx->size = newAddedLen;
   }
 
   for (size_t i = 0; i < info->nblocksRepaired; ++i) {
