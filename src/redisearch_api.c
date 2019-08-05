@@ -55,11 +55,12 @@ void RediSearch_DropIndex(IndexSpec* sp) {
   RWLOCK_RELEASE();
 }
 
-RSField* RediSearch_CreateField(IndexSpec* sp, const char* name, unsigned types, unsigned options) {
+RSFieldID RediSearch_CreateField(IndexSpec* sp, const char* name, unsigned types,
+                                 unsigned options) {
   assert(types);
   RWLOCK_ACQUIRE_WRITE();
 
-  RSField* fs = IndexSpec_CreateField(sp, name);
+  FieldSpec* fs = IndexSpec_CreateField(sp, name);
   int numTypes = 0;
 
   if (types & RSFLDTYPE_FULLTEXT) {
@@ -67,7 +68,7 @@ RSField* RediSearch_CreateField(IndexSpec* sp, const char* name, unsigned types,
     int txtId = IndexSpec_CreateTextId(sp);
     if (txtId < 0) {
       RWLOCK_RELEASE();
-      return NULL;
+      return RSFIELD_INVALID;
     }
     fs->ftId = txtId;
     FieldSpec_Initialize(fs, INDEXFLD_T_FULLTEXT);
@@ -106,21 +107,23 @@ RSField* RediSearch_CreateField(IndexSpec* sp, const char* name, unsigned types,
   }
 
   RWLOCK_RELEASE();
-
-  return fs;
+  return fs->index;
 }
 
-void RediSearch_TextFieldSetWeight(IndexSpec* sp, FieldSpec* fs, double w) {
+void RediSearch_TextFieldSetWeight(IndexSpec* sp, RSFieldID id, double w) {
+  FieldSpec* fs = sp->fields + id;
   assert(FIELD_IS(fs, INDEXFLD_T_FULLTEXT));
   fs->ftWeight = w;
 }
 
-void RediSearch_TagSetSeparator(FieldSpec* fs, char sep) {
+void RediSearch_TagSetSeparator(IndexSpec* sp, RSFieldID id, char sep) {
+  FieldSpec* fs = sp->fields + id;
   assert(FIELD_IS(fs, INDEXFLD_T_TAG));
   fs->tagSep = sep;
 }
 
-void RediSearch_TagCaseSensitive(FieldSpec* fs, int enable) {
+void RediSearch_TagFieldSetCaseSensitive(IndexSpec* sp, RSFieldID id, int enable) {
+  FieldSpec* fs = sp->fields + id;
   assert(FIELD_IS(fs, INDEXFLD_T_TAG));
   if (enable) {
     fs->tagFlags |= TagField_CaseSensitive;
