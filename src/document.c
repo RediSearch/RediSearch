@@ -48,7 +48,7 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Doc
   aCtx->stateFlags &= ~ACTX_F_TEXTINDEXED;
   aCtx->stateFlags &= ~ACTX_F_OTHERINDEXED;
 
-  aCtx->doc = *base;
+  Document_Move(&aCtx->doc, base);
   Document *doc = &aCtx->doc;
 
   if (oldFieldCount < doc->numFields) {
@@ -257,25 +257,9 @@ static int AddDocumentCtx_ReplaceMerge(RSAddDocumentCtx *aCtx, RedisSearchCtx *s
    */
   // Free the old field data
   size_t oldFieldCount = aCtx->doc.numFields;
-  Document_ClearDetachedFields(&aCtx->doc, sctx->redisCtx);
 
-  // Get a list of fields needed to be loaded for reindexing
-  const char **toLoad = array_new(const char *, 8);
-
-  for (size_t ii = 0; ii < sctx->spec->numFields; ++ii) {
-    // TODO: We should only need to reload fields that are actually being reindexed!
-    toLoad = array_append(toLoad, sctx->spec->fields[ii].name);
-  }
-
-  // for (size_t ii = 0; ii < array_len(toLoad); ++ii) {
-  //   printf("Loading: %s\n", toLoad[ii]);
-  // }
-
-  int rv =
-      Redis_LoadDocumentEx(sctx, aCtx->doc.docKey, toLoad, array_len(toLoad), &aCtx->doc, NULL);
-  // int rv = Redis_LoadDocument(sctx, aCtx->doc.docKey, &aCtx->doc);
-  array_free(toLoad);
-
+  Document_Clear(&aCtx->doc);
+  int rv = Document_LoadSchemaFields(&aCtx->doc, sctx);
   if (rv != REDISMODULE_OK) {
     QueryError_SetError(&aCtx->status, QUERY_ENODOC, "Could not load existing document");
     aCtx->donecb(aCtx, sctx->redisCtx, aCtx->donecbData);
@@ -284,9 +268,8 @@ static int AddDocumentCtx_ReplaceMerge(RSAddDocumentCtx *aCtx, RedisSearchCtx *s
   }
 
   // Keep hold of the new fields.
-  Document_DetachFields(&aCtx->doc, sctx->redisCtx);
+  Document_MakeStringsOwner(&aCtx->doc);
   AddDocumentCtx_SetDocument(aCtx, sctx->spec, &aCtx->doc, oldFieldCount);
-
   return 0;
 }
 
@@ -308,6 +291,10 @@ void AddDocumentCtx_Submit(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, uint32_
   if ((aCtx->options & DOCUMENT_ADD_PARTIAL) && handlePartialUpdate(aCtx, sctx)) {
     return;
   }
+
+  // We actually modify (!) the strings in the document, so we always require
+  // ownership
+  Document_MakeStringsOwner(&aCtx->doc);
 
   if (AddDocumentCtx_IsBlockable(aCtx)) {
     aCtx->client.bc = RedisModule_BlockClient(sctx->redisCtx, replyCallback, NULL, NULL, 0);
@@ -347,7 +334,7 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
   }
 
   // Destroy the common fields:
-  Document_FreeDetached(&aCtx->doc, aCtx->indexer->redisCtx);
+  Document_Free(&aCtx->doc);
 
   if (aCtx->sv) {
     SortingVector_Free(aCtx->sv);
