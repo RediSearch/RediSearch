@@ -89,6 +89,12 @@ void Document_AddField(Document *d, const char *fieldname, RedisModuleString *fi
                        uint32_t typemask);
 
 /**
+ * Add a simple char buffer value. This creates an RMString internally, so this
+ * must be used with F_OWNSTRINGS
+ */
+void Document_AddFieldC(Document *d, const char *fieldname, const char *val, size_t vallen,
+                        uint32_t typemask);
+/**
  * Initialize document structure with the relevant fields. numFields will allocate
  * the fields array, but you must still actually copy the data along.
  *

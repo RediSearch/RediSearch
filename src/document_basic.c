@@ -12,13 +12,33 @@ void Document_Init(Document *doc, RedisModuleString *docKey, double score, const
   doc->payloadSize = 0;
 }
 
-void Document_AddField(Document *d, const char *fieldname, RedisModuleString *fieldval,
-                       uint32_t typemask) {
+static DocumentField *addFieldCommon(Document *d, const char *fieldname, uint32_t typemask) {
   d->fields = realloc(d->fields, (++d->numFields) * sizeof(*d->fields));
   DocumentField *f = d->fields + d->numFields - 1;
   f->indexAs = typemask;
-  f->name = fieldname;
-  f->text = fieldval;
+  if (d->flags & DOCUMENT_F_OWNSTRINGS) {
+    f->name = strdup(fieldname);
+  } else {
+    f->name = fieldname;
+  }
+  return f;
+}
+
+void Document_AddField(Document *d, const char *fieldname, RedisModuleString *fieldval,
+                       uint32_t typemask) {
+  DocumentField *f = addFieldCommon(d, fieldname, typemask);
+  if (d->flags & DOCUMENT_F_OWNSTRINGS) {
+    f->text = RedisModule_CreateStringFromString(RSDummyContext, fieldval);
+  } else {
+    f->text = fieldval;
+  }
+}
+
+void Document_AddFieldC(Document *d, const char *fieldname, const char *val, size_t vallen,
+                        uint32_t typemask) {
+  assert(d->flags & DOCUMENT_F_OWNSTRINGS);
+  DocumentField *f = addFieldCommon(d, fieldname, typemask);
+  f->text = RedisModule_CreateString(RSDummyContext, val, vallen);
 }
 
 void Document_SetPayload(Document *d, const void *p, size_t n) {
