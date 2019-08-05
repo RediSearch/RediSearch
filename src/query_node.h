@@ -98,9 +98,9 @@ typedef struct {
 } QueryIdFilterNode;
 
 typedef struct {
-  const char *begin;
+  char *begin;
   bool includeBegin;
-  const char *end;
+  char *end;
   bool includeEnd;
 } QueryLexRangeNode;
 
