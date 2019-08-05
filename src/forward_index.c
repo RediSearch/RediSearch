@@ -117,6 +117,11 @@ void ForwardIndex_Reset(ForwardIndex *idx, Document *doc, uint32_t idxFlags) {
   BlkAlloc_Clear(&idx->terms, NULL, NULL, 0);
   BlkAlloc_Clear(&idx->entries, clearEntry, idx->vvwPool, sizeof(khIdxEntry));
   KHTable_Clear(idx->hits);
+  if (idx->smap) {
+    SynonymMap_Free(idx->smap);
+    idx->smap = NULL;
+  }
+
   ForwardIndex_InitCommon(idx, doc, idxFlags);
 }
 
