@@ -14,6 +14,7 @@
 #include <float.h>
 #include "rwlock.h"
 #include "fork_gc.h"
+#include "module.h"
 
 int RediSearch_GetCApiVersion() {
   return REDISEARCH_CAPI_VERSION;
@@ -138,6 +139,7 @@ RSDoc* RediSearch_CreateDocument(const void* docKey, size_t len, double score, c
   Document* ret = rm_calloc(1, sizeof(*ret));
   Document_Init(ret, docKeyStr, score, language);
   Document_MakeStringsOwner(ret);
+  RedisModule_FreeString(RSDummyContext, docKeyStr);
   return ret;
 }
 
