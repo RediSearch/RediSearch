@@ -929,7 +929,7 @@ static int AliasUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
 int ConfigCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // Not bound to a specific index, so...
   RedisModule_AutoMemory(ctx);
-  QueryError status;
+  QueryError status = {0};
 
   // CONFIG <GET|SET> <NAME> [value]
   if (argc < 3) {
