@@ -652,6 +652,6 @@ TEST_F(LLApiTest, testNumericFieldWithCT) {
 
   RediSearch_ResultsIteratorFree(iter);
   RediSearch_DropIndex(index);
-
+  RediSearch_FreeIndexOptions(opt);
   RediSearch_SetCriteriaTesterThreshold(0);
 }
