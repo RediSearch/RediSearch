@@ -295,6 +295,10 @@ REDISMODULE_API_FUNC(int, RedisModule_ExportSharedAPI)
 REDISMODULE_API_FUNC(void *, RedisModule_GetSharedAPI)(RedisModuleCtx *, const char *);
 #endif
 
+/* Enterprise Only API */
+
+REDISMODULE_API_FUNC(int, RedisModule_AvoidReplicaTraffic)();
+
 #define REDISMODULE_XAPI_STABLE(X) \
   X(GetApi)                        \
   X(Alloc)                         \
@@ -413,10 +417,13 @@ REDISMODULE_API_FUNC(void *, RedisModule_GetSharedAPI)(RedisModuleCtx *, const c
   X(ExportSharedAPI)                     \
   X(GetSharedAPI)
 
+#define REDISMODULE_XAPI_ENTERPRISE(X) \
+  X(AvoidReplicaTraffic)                 \
+
 #ifdef REDISMODULE_EXPERIMENTAL_API
-#define REDISMODULE_XAPI(X) REDISMODULE_XAPI_STABLE(X) REDISMODULE_XAPI_EXPERIMENTAL(X)
+#define REDISMODULE_XAPI(X) REDISMODULE_XAPI_STABLE(X) REDISMODULE_XAPI_EXPERIMENTAL(X) REDISMODULE_XAPI_ENTERPRISE(X)
 #else
-#define REDISMODULE_XAPI(X) REDISMODULE_XAPI_STABLE(X)
+#define REDISMODULE_XAPI(X) REDISMODULE_XAPI_STABLE(X) REDISMODULE_XAPI_ENTERPRISE(X)
 #endif
 
 typedef int (*RedisModule_GetApiFunctionType)(const char *name, void *pp);
