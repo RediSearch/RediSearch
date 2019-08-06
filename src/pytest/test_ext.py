@@ -33,6 +33,9 @@ def testExt():
     # extentionPath = os.path.abspath(os.path.dirname(os.path.realpath(__file__)) + '/../tests/ext-example/example.so')
     env = Env(moduleArgs='EXTLOAD %s' % EXTPATH)
 
+    if env.env == 'existing-env':
+        env.skip()
+
     N = 100
     env.assertOk(env.execute_command(
         'ft.create', 'idx', 'schema', 'f', 'text'))

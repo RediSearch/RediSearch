@@ -25,6 +25,8 @@ def testAof():
 
 def testRawAof():
     env = Env(useAof=True)
+    if env.env == 'existing-env':
+        env.skip()
     aofTestCommon(env, lambda: env.broadcast('debug', 'loadaof'))
 
 
