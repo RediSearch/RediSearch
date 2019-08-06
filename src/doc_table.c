@@ -42,6 +42,9 @@ RSDocumentMetadata *DocTable_Get(const DocTable *t, t_docId docId) {
     return NULL;
   }
   uint32_t bucketIndex = DocTable_GetBucket(t, docId);
+  if (bucketIndex >= t->cap) {
+    return NULL;
+  }
   DMDChain *dmdChain = &t->buckets[bucketIndex];
   RSDocumentMetadata *currDmd = dmdChain->first;
   while (currDmd) {
