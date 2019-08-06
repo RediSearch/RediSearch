@@ -70,5 +70,5 @@ std::vector<std::string> RS::search(RSIndex *index, const char *s) {
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
   ::testing::AddGlobalTestEnvironment(new MyEnvironment());
-  RUN_ALL_TESTS();
+  return RUN_ALL_TESTS();
 }

@@ -849,8 +849,6 @@ void TrieNode_IterateRange(TrieNode *n, const rune *min, int nmin, bool includeM
 
   // min < max we should start the scan
   RangeCtx r = {
-      {0},
-      0,
       .callback = callback,
       .cbctx = ctx,
       .includeMin = includeMin,
