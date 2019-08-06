@@ -6,6 +6,7 @@
 #include "tag_index.h"
 #include "inverted_index.h"
 #include "rwlock.h"
+#include <set>
 
 static timespec getTimespecCb(void *) {
   timespec ts = {0};
@@ -36,7 +37,7 @@ class FGCTest : public ::testing::Test {
   }
 };
 
-TEST_F(FGCTest, testRemoveSingle) {
+TEST_F(FGCTest, testRemoveLastBlock) {
   RMCK::Context ctx;
   auto sp = createIndex(ctx);
 
@@ -70,21 +71,31 @@ TEST_F(FGCTest, testRemoveSingle) {
   RediSearch_DropIndex(sp);
 }
 
-/**
- * Repair the last block, while adding more documents to it...
- */
-TEST_F(FGCTest, testRepairBlock) {
-  RMCK::Context ctx;
-  auto sp = createIndex(ctx);
-  // Delete the first block:
-  unsigned curId = 0;
-
+static InvertedIndex *getTagInvidx(RedisModuleCtx *ctx, IndexSpec *sp, const char *field,
+                                   const char *value) {
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
   RedisModuleKey *keyp = NULL;
   RedisModuleString *fmtkey = IndexSpec_GetFormattedKeyByName(sp, "f1", INDEXFLD_T_TAG);
   auto tix = TagIndex_Open(&sctx, fmtkey, 1, &keyp);
   auto iv = TagIndex_OpenIndex(tix, "hello", strlen("hello"), 1);
+  return iv;
+}
 
+static std::string numToDocid(unsigned id) {
+  char buf[1024];
+  sprintf(buf, "doc%u", id);
+  return std::string(buf);
+}
+
+/**
+ * Repair the last block, while adding more documents to it...
+ */
+TEST_F(FGCTest, testRepairLastBlock) {
+  RMCK::Context ctx;
+  auto sp = createIndex(ctx);
+  // Delete the first block:
+  unsigned curId = 0;
+  auto iv = getTagInvidx(ctx, sp, "f1", "hello");
   while (iv->size < 2) {
     char buf[1024];
     size_t n = sprintf(buf, "doc%u", curId++);
@@ -113,5 +124,64 @@ TEST_F(FGCTest, testRepairBlock) {
 
   ASSERT_EQ(1, fgc->stats.gcBlocksDenied);
   ASSERT_EQ(2, iv->size);
+  RediSearch_DropIndex(sp);
+}
+
+/**
+ * Ensure that removing a middle block while adding to the parent will maintain
+ * the parent's changes
+ */
+TEST_F(FGCTest, testRemoveMiddleBlock) {
+  RMCK::Context ctx;
+  auto sp = createIndex(ctx);
+  // Delete the first block:
+  unsigned curId = 0;
+  InvertedIndex *iv = getTagInvidx(ctx, sp, "f1", "hello");
+
+  while (iv->size < 2) {
+    RS::addDocument(ctx, sp, numToDocid(++curId).c_str(), "f1", "hello");
+  }
+
+  unsigned firstMidId = curId;
+  while (iv->size < 3) {
+    RS::addDocument(ctx, sp, numToDocid(++curId).c_str(), "f1", "hello");
+  }
+  unsigned firstLastBlockId = curId;
+  unsigned lastMidId = curId - 1;
+  ASSERT_EQ(3, iv->size);
+
+  auto fgc = reinterpret_cast<ForkGC *>(sp->gc->gcCtx);
+  FGC_WaitAtFork(fgc);
+  for (size_t ii = firstMidId; ii < lastMidId + 1; ++ii) {
+    RS::deleteDocument(ctx, sp, numToDocid(ii).c_str());
+  }
+
+  FGC_WaitAtApply(fgc);
+  // Add a new document
+  unsigned newLastBlockId = curId + 1;
+  while (iv->size < 4) {
+    ASSERT_TRUE(RS::addDocument(ctx, sp, numToDocid(++curId).c_str(), "f1", "hello"));
+  }
+  unsigned lastLastBlockId = curId - 1;
+
+  // Get the previous pointer, i.e. the one we expect to have the updated
+  // info. We do -2 and not -1 because we have one new document in the
+  // fourth block (as a sentinel)
+  const char *pp = iv->blocks[iv->size - 2].buf.data;
+  FGC_WaitClear(fgc);
+  ASSERT_EQ(3, iv->size);
+
+  // The pointer to the last gc-block, received from the fork
+  const char *gcpp = iv->blocks[iv->size - 2].buf.data;
+  ASSERT_EQ(pp, gcpp);
+
+  // Now search for the ID- let's be sure it exists
+  auto vv = RS::search(sp, "@f1:{hello}");
+  std::set<std::string> ss(vv.begin(), vv.end());
+  ASSERT_NE(ss.end(), ss.find(numToDocid(newLastBlockId)));
+  ASSERT_NE(ss.end(), ss.find(numToDocid(newLastBlockId - 1)));
+  ASSERT_NE(ss.end(), ss.find(numToDocid(lastLastBlockId)));
+  ASSERT_EQ(0, fgc->stats.gcBlocksDenied);
+
   RediSearch_DropIndex(sp);
 }

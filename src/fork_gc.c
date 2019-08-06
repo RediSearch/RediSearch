@@ -478,6 +478,21 @@ static void FGC_applyInvertedIndex(ForkGC *gc, InvIdxBuffers *idxData, MSG_Index
   assert(idx->size >= info->nblocksOrig);
 
   if (idxData->newBlocklist) {
+    /**
+     * At this point, we check if the last block has had new data added to it,
+     * but was _not_ repaired. We check for a repaired last block in
+     * checkLastBlock().
+     */
+
+    if (!info->lastblkDocsRemoved) {
+      /**
+       * Last block was unmodified-- let's prefer the last block's pointer
+       * over our own (which may be stale).
+       * If the last block was repaired, this is handled above
+       */
+      idxData->newBlocklist[idxData->newBlocklistSize - 1] = idx->blocks[info->nblocksOrig - 1];
+    }
+
     // Number of blocks added in the parent process since the last scan
     size_t newAddedLen = idx->size - info->nblocksOrig;
 
@@ -489,6 +504,7 @@ static void FGC_applyInvertedIndex(ForkGC *gc, InvIdxBuffers *idxData, MSG_Index
         rm_realloc(idxData->newBlocklist, totalLen * sizeof(*idxData->newBlocklist));
     memcpy(idxData->newBlocklist + idxData->newBlocklistSize, (idx->blocks + info->nblocksOrig),
            newAddedLen * sizeof(*idxData->newBlocklist));
+
     rm_free(idx->blocks);
     idxData->newBlocklistSize += newAddedLen;
     idx->blocks = idxData->newBlocklist;
