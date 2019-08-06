@@ -98,7 +98,7 @@ CONFIG_GETTER(getMinPrefix) {
 
 CONFIG_SETTER(setForkGCSleep) {
   long long arg;
-  if (readLongLongLimit(argv, argc, offset, &arg, 1, LLONG_MAX) != REDISMODULE_OK) {
+  if (readLongLongLimit(argv, argc, offset, &arg, 0, LLONG_MAX) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
   config->forkGcSleepBeforeExit = arg;

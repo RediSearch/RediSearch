@@ -102,8 +102,9 @@ def testDeleteDocWithGoeField(env):
     env.expect('FT.ADD', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'checking', 'test2', '1,1').ok()
     env.expect('zrange', 'geo:idx/test2', '0', '-1').equal(['1'])
     env.expect('FT.DEL', 'idx', 'doc1').equal(1)
-    env.expect('zrange', 'geo:idx/test2', '0', '-1').equal([])
-
+    rv = env.cmd('zrange', 'geo:idx/test2', '0', '-1')
+    # On newer redis versions, this is a NULL instead of an empty array
+    env.assertFalse(bool(rv))
 
 def testGCIntegrationWithRedisFork(env):
     if env.env == 'existing-env':
@@ -117,3 +118,4 @@ def testGCIntegrationWithRedisFork(env):
     env.expect('bgsave').equal('Background saving started')
     env.cmd('FT.DEBUG', 'GC_FORCEINVOKE', 'idx')
     env.expect('bgsave').equal('Background saving started')
+    env.cmd('FT.CONFIG', 'SET', 'FORKGC_SLEEP_BEFORE_EXIT', '0')

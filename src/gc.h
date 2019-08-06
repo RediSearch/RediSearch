@@ -3,16 +3,19 @@
 #define SRC_GC_H_
 
 #include "redismodule.h"
+#include "util/dllist.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 typedef struct BlockClient {
+  DLLIST_node llnode;
   RedisModuleBlockedClient* bClient;
-  struct BlockClient* next;
-  struct BlockClient* prev;
 } BlockClient;
 
 typedef struct BlockClients {
-  BlockClient* head;
-  BlockClient* tail;
+  DLLIST clients;
   pthread_mutex_t lock;
 } BlockClients;
 
@@ -21,6 +24,9 @@ typedef struct GCCallbacks {
   void (*renderStats)(RedisModuleCtx* ctx, void* gc);
   void (*onDelete)(void* ctx);
   void (*onTerm)(void* ctx);
+
+  // Send a "kill signal" to the GC, requesting it to terminate asynchronously
+  void (*kill)(void* ctx);
   struct timespec (*getInterval)(void* ctx);
 } GCCallbacks;
 
@@ -41,4 +47,7 @@ void GCContext_RenderStats(GCContext* gc, RedisModuleCtx* ctx);
 void GCContext_OnDelete(GCContext* gc);
 void GCContext_ForceInvoke(GCContext* gc, RedisModuleBlockedClient* bc);
 
+#ifdef __cplusplus
+}
+#endif
 #endif /* SRC_GC_H_ */

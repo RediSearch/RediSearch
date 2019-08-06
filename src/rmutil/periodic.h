@@ -4,6 +4,10 @@
 #include <redismodule.h>
 #include <stdbool.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /** periodic.h - Utility periodic timer running a task repeatedly every given time interval */
 
 /* RMUtilTimer - opaque context for the timer */
@@ -57,4 +61,9 @@ int RMUtilTimer_Signal(struct RMUtilTimer *t);
     Free the timer context. The caller should be responsible for freeing the private data at this
  * point */
 // void RMUtilTimer_Free(struct RMUtilTimer *t);
+
+#ifdef __cplusplus
+}
+#endif
+
 #endif

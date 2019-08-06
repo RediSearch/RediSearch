@@ -2,6 +2,7 @@
 #define DLLIST_H
 
 #include <stdlib.h>
+#include <stddef.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -49,6 +50,16 @@ static inline void dllist_delete(DLLIST_node *item) {
 
 #define DLLIST_ITEM(L, T, mname) ((T *)(void *)((char *)(L)-offsetof(T, mname)))
 #define DLLIST_FOREACH(it, ll) for (DLLIST_node *it = (ll)->next; it != (ll); it = it->next)
+
+static inline DLLIST_node *dllist_pop_tail(DLLIST *list) {
+  DLLIST_node *item;
+  if (DLLIST_IS_EMPTY(list)) {
+    return NULL;
+  }
+  item = list->prev;
+  dllist_delete(item);
+  return item;
+}
 
 /**
  * DLLIST2 API

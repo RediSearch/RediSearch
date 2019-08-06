@@ -4,6 +4,7 @@
 #include "redismock/util.h"
 #include "redismock/internal.h"
 #include "spec.h"
+#include "common.h"
 #include <module.h>
 #include <version.h>
 #include <vector>
@@ -12,24 +13,7 @@
 #include <cstdarg>
 
 class AggTest : public ::testing::Test {};
-
-static void donecb(RSAddDocumentCtx *aCtx, RedisModuleCtx *, void *) {
-  // printf("Finished indexing document. Status: %s\n", QueryError_GetError(&aCtx->status));
-}
-
-template <typename... Ts>
-void addDocument(RedisModuleCtx *ctx, IndexSpec *sp, const char *docid, Ts... args) {
-  RMCK::ArgvList argv(ctx, args...);
-  AddDocumentOptions options = {0};
-  options.options |= DOCUMENT_ADD_CURTHREAD;
-  options.numFieldElems = argv.size();
-  options.fieldsArray = argv;
-  options.donecb = donecb;
-
-  QueryError status = {QueryErrorCode(0)};
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
-  RS_AddDocument(&sctx, RMCK::RString(docid), &options, &status);
-}
+using RS::addDocument;
 
 TEST_F(AggTest, testBasic) {
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);

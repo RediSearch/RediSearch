@@ -1,3 +1,6 @@
+#ifndef RMCK_UTIL_H
+#define RMCK_UTIL_H
+
 #include "redismock.h"
 #include <cstdarg>
 #include <cstring>
@@ -94,4 +97,24 @@ class ArgvList {
   }
 };
 
+class Context {
+ public:
+  Context() {
+    m_ctx = RedisModule_GetThreadSafeContext(NULL);
+  }
+  ~Context() {
+    RedisModule_FreeThreadSafeContext(m_ctx);
+  }
+
+  operator RedisModuleCtx *() {
+    return m_ctx;
+  }
+
+  Context(const Context &) = delete;
+
+ private:
+  RedisModuleCtx *m_ctx;
+};
+
 }  // namespace RMCK
+#endif
