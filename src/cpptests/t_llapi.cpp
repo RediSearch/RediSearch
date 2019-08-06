@@ -466,8 +466,8 @@ TEST_F(LLApiTest, testPrefixIntersection) {
 
 TEST_F(LLApiTest, testMultitype) {
   RSIndex* index = RediSearch_CreateIndex("index", NULL);
-  auto* f = RediSearch_CreateField(index, "f1", RSFLDTYPE_FULLTEXT, RSFLDOPT_NONE);
-  ASSERT_TRUE(f != NULL);
+  auto f = RediSearch_CreateField(index, "f1", RSFLDTYPE_FULLTEXT, RSFLDOPT_NONE);
+  ASSERT_NE(RSFIELD_INVALID, f);
   f = RediSearch_CreateField(index, "f2", RSFLDTYPE_FULLTEXT | RSFLDTYPE_TAG | RSFLDTYPE_NUMERIC,
                              RSFLDOPT_NONE);
 
@@ -496,12 +496,12 @@ TEST_F(LLApiTest, testMultitype) {
 
 TEST_F(LLApiTest, testMultitypeNumericTag) {
   RSIndex* index = RediSearch_CreateIndex("index", NULL);
-  RSField* f1 =
+  RSFieldID f1 =
       RediSearch_CreateField(index, "f1", RSFLDTYPE_TAG | RSFLDTYPE_NUMERIC, RSFLDOPT_NONE);
-  RSField* f2 =
+  RSFieldID f2 =
       RediSearch_CreateField(index, "f2", RSFLDTYPE_TAG | RSFLDTYPE_NUMERIC, RSFLDOPT_NONE);
 
-  RediSearch_TagCaseSensitive(f1, 1);
+  RediSearch_TagFieldSetCaseSensitive(index, f1, 1);
 
   // Add document...
   RSDoc* d = RediSearch_CreateDocumentSimple("doc1");
@@ -621,6 +621,6 @@ TEST_F(LLApiTest, testNumericFieldWithCT) {
 
   RediSearch_ResultsIteratorFree(iter);
   RediSearch_DropIndex(index);
-
+  RediSearch_FreeIndexOptions(opt);
   RediSearch_SetCriteriaTesterThreshold(0);
 }

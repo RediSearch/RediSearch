@@ -36,6 +36,7 @@ export PYTHONPATH
 # if it exists
 
 ARGS="--clear-logs"
+# ARGS="--unix"
 
 if [ -e rltest.config ]; then
     ARGS="@rltest.config ${ARGS}"

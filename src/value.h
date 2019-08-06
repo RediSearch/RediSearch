@@ -31,6 +31,8 @@ typedef enum {
   RSValue_RedisString = 5,
   // An array of values, that can be of any type
   RSValue_Array = 6,
+  // A redis string, but we own a refcount to it; tied to RSDummy
+  RSValue_OwnRstring = 7,
   // Reference to another value
   RSValue_Reference = 8,
 
@@ -139,13 +141,15 @@ void RSValue_SetConstString(RSValue *v, const char *str, size_t len);
 
 #ifndef __cplusplus
 static inline void RSValue_MakeReference(RSValue *dst, RSValue *src) {
+  assert(src);
+  RSValue_Clear(dst);
+  dst->t = RSValue_Reference;
+  dst->ref = RSValue_IncrRef(src);
+}
 
-  *dst = (RSValue){
-      .t = RSValue_Reference,
-      .refcount = 1,
-      .allocated = 0,
-      .ref = RSValue_IncrRef(src),
-  };
+static inline void RSValue_MakeOwnReference(RSValue *dst, RSValue *src) {
+  RSValue_MakeReference(dst, src);
+  RSValue_Decref(src);
 }
 #endif
 
@@ -179,11 +183,24 @@ static inline RSValue *RS_ConstStringVal(const char *s, size_t n) {
 /* Wrap a redis string value */
 RSValue *RS_RedisStringVal(RedisModuleString *str);
 
+/**
+ *  Create a new value object which increments and owns a reference to the string
+ */
+RSValue *RS_OwnRedisStringVal(RedisModuleString *str);
+
+/**
+ * Create a new value object which steals a reference to the string
+ */
+RSValue *RS_StealRedisStringVal(RedisModuleString *s);
+
+void RSValue_MakeRStringOwner(RSValue *v);
+
 const char *RSValue_TypeName(RSValueType t);
 
 // Returns true if the value contains a string
 static inline int RSValue_IsString(const RSValue *value) {
-  return value && (value->t == RSValue_String || value->t == RSValue_RedisString);
+  return value && (value->t == RSValue_String || value->t == RSValue_RedisString ||
+                   value->t == RSValue_OwnRstring);
 }
 
 /* Return 1 if the value is NULL, RSValue_Null or a reference to RSValue_Null */
@@ -240,7 +257,8 @@ static inline uint64_t RSValue_Hash(const RSValue *v, uint64_t hval) {
     case RSValue_Number:
       return fnv_64a_buf(&v->numval, sizeof(double), hval);
 
-    case RSValue_RedisString: {
+    case RSValue_RedisString:
+    case RSValue_OwnRstring: {
       size_t sz;
       const char *c = RedisModule_StringPtrLen(v->rstrval, &sz);
       return fnv_64a_buf((void *)c, sz, hval);
@@ -327,7 +345,8 @@ static inline int RSValue_BoolTest(const RSValue *v) {
       return v->numval != 0;
     case RSValue_String:
       return v->strval.len != 0;
-    case RSValue_RedisString: {
+    case RSValue_RedisString:
+    case RSValue_OwnRstring: {
       size_t l = 0;
       const char *p = RedisModule_StringPtrLen(v->rstrval, &l);
       return l != 0;

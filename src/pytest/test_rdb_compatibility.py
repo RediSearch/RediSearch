@@ -33,5 +33,6 @@ def testRDBCompatibility(env):
             env.assertTrue(False) ## we could not download rdbs and we are running on CI, let fail the test
         copyfile(filePath, rdbFilePath)  
         env.start()
+        env.cmd('flushall')
         env.assertTrue(env.checkExitCode())
     

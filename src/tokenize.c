@@ -108,9 +108,8 @@ uint32_t simpleTokenizer_Next(RSTokenizer *base, Token *t) {
                  .raw = tok,
                  .rawLen = origLen,
                  .pos = ++ctx->lastOffset,
-                 .stem = NULL,
-                 .phoneticsPrimary = NULL,
-                 .flags = Token_CopyStem};
+                 .flags = Token_CopyStem,
+                 .phoneticsPrimary = t->phoneticsPrimary};
 
     // if we support stemming - try to stem the word
     if (!(ctx->options & TOKENIZE_NOSTEM) && self->stemmer && normLen >= MIN_STEM_CANDIDATE_LEN) {
@@ -144,6 +143,11 @@ static void doReset(RSTokenizer *tokbase, Stemmer *stemmer, StopWordList *stopwo
   t->base.ctx.stopwords = stopwords;
   t->base.ctx.options = opts;
   t->base.ctx.lastOffset = 0;
+  if (stopwords) {
+    // Initially this function is called when we receive it from the mempool;
+    // in which case stopwords is NULL.
+    StopWordList_Ref(stopwords);
+  }
 }
 
 RSTokenizer *NewSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint32_t opts) {
@@ -205,6 +209,10 @@ void Tokenizer_Release(RSTokenizer *t) {
   // In the future it would be nice to have an actual ID field or w/e, but for
   // now we can just compare callback pointers
   if (t->Next == simpleTokenizer_Next) {
+    if (t->ctx.stopwords) {
+      StopWordList_Unref(t->ctx.stopwords);
+      t->ctx.stopwords = NULL;
+    }
     mempool_release(tokpoolLatin_g, t);
   } else {
     mempool_release(tokpoolCn_g, t);

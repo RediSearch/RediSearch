@@ -117,6 +117,7 @@ void FragmentList_FragmentizeBuffer(FragmentList *fragList, const char *doc, Ste
   while (tokenizer->Next(tokenizer, &tokInfo)) {
     extractToken(fragList, &tokInfo, terms, numTerms);
   }
+  tokenizer->Free(tokenizer);
 }
 
 static void addToIov(const char *s, size_t n, Array *b) {

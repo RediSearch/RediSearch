@@ -57,28 +57,30 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
   if ((options & QEXEC_F_SEND_SORTKEYS)) {
     count++;
     const RSValue *sortkey = getSortKey(req, r);
+    RedisModuleString *rskey = NULL;
     if (sortkey) {
       switch (sortkey->t) {
         case RSValue_Number:
           /* Serialize double - by prepending "%" to the number, so the coordinator/client can
            * tell it's a double and not just a numeric string value */
-          RedisModule_ReplyWithString(
-              outctx, RedisModule_CreateStringPrintf(outctx, "#%.17g", sortkey->numval));
+          rskey = RedisModule_CreateStringPrintf(outctx, "#%.17g", sortkey->numval);
           break;
         case RSValue_String:
           /* Serialize string - by prepending "$" to it */
-
-          RedisModule_ReplyWithString(
-              outctx, RedisModule_CreateStringPrintf(outctx, "$%s", sortkey->strval));
+          rskey = RedisModule_CreateStringPrintf(outctx, "$%s", sortkey->strval);
           break;
         case RSValue_RedisString:
-          RedisModule_ReplyWithString(
-              outctx, RedisModule_CreateStringPrintf(
-                          outctx, "$%s", RedisModule_StringPtrLen(sortkey->rstrval, NULL)));
+          rskey = RedisModule_CreateStringPrintf(outctx, "$%s",
+                                                 RedisModule_StringPtrLen(sortkey->rstrval, NULL));
           break;
         default:
-          // NIL, or any other type:
-          RedisModule_ReplyWithNull(outctx);
+          break;
+      }
+      if (rskey) {
+        RedisModule_ReplyWithString(outctx, rskey);
+        RedisModule_FreeString(outctx, rskey);
+      } else {
+        RedisModule_ReplyWithNull(outctx);
       }
     } else {
       RedisModule_ReplyWithNull(outctx);

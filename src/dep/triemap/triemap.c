@@ -796,6 +796,7 @@ void TrieMap_IterateRange(TrieMap *trie, const char *min, int minlen, bool inclu
   };
   tmctx.buf = array_new(char, TRIE_INITIAL_STRING_LEN);
   TrieMapRangeIterate(trie->root, min, minlen, max, maxlen, &tmctx);
+  array_free(tmctx.buf);
 }
 
 int TrieMapIterator_Next(TrieMapIterator *it, char **ptr, tm_len_t *len, void **value) {

@@ -285,14 +285,6 @@ typedef enum {
 } RLookupLoadFlags;
 
 typedef struct {
-  /**
-   * If loadAllFields or loadNonCached is true, then this contains the pointer
-   * returned from RedisModule_OpenKey
-   */
-
-  RedisModuleKey *keyobj;
-  /** Needed for opening keys */
-
   struct RedisSearchCtx *sctx;
 
   /** Needed for the key name, and perhaps the sortable */
@@ -308,15 +300,6 @@ typedef struct {
    * fields are desired.
    */
   RLookupLoadFlags mode;
-
-  /**
-   * If set, the strings from documents are copied from the key, rather than
-   * pointing to the underlying RMString.
-   *
-   * If this option is set to false (default), then keyobj will always be NULL
-   * and be automatically closed.
-   */
-  int copyStrings;
 
   /**
    * Don't use sortables when loading documents. This might be used to ensure

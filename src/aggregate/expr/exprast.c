@@ -17,7 +17,7 @@ RSArgList *RSArgList_Append(RSArgList *l, RSExpr *e) {
 }
 
 static RSExpr *newExpr(RSExprType t) {
-  RSExpr *e = malloc(sizeof(*e));
+  RSExpr *e = calloc(1, sizeof(*e));
   e->t = t;
   return e;
 }
@@ -116,7 +116,7 @@ void RSExpr_Free(RSExpr *e) {
   if (!e) return;
   switch (e->t) {
     case RSExpr_Literal:
-      RSValue_Free(&e->literal);
+      RSValue_Clear(&e->literal);
       break;
     case RSExpr_Function:
       free((char *)e->func.name);

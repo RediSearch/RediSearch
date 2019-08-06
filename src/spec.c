@@ -483,10 +483,11 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryE
   spec->timeout = timeout;
 
   if (AC_IsInitialized(&acStopwords)) {
+    if (spec->stopwords) {
+      StopWordList_Unref(spec->stopwords);
+    }
     spec->stopwords = NewStopWordListCStr((const char **)acStopwords.objs, acStopwords.argc);
     spec->flags |= Index_HasCustomStopwords;
-  } else {
-    spec->stopwords = DefaultStopWordList();
   }
 
   if (!AC_AdvanceIfMatch(&ac, SPEC_SCHEMA_STR)) {
@@ -1173,6 +1174,7 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
       size_t dummy;
       char *s = RedisModule_LoadStringBuffer(rdb, &dummy);
       int rc = IndexAlias_Add(s, sp, 0, &status);
+      rm_free(s);
       assert(rc == REDISMODULE_OK);
     }
   }

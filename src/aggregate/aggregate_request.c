@@ -71,7 +71,7 @@ ReturnedField *FieldList_GetCreateField(FieldList *fields, const char *name) {
   fields->fields = realloc(fields->fields, sizeof(*fields->fields) * ++fields->numFields);
   ReturnedField *ret = fields->fields + (fields->numFields - 1);
   memset(ret, 0, sizeof *ret);
-  ret->name = strdup(name);
+  ret->name = name;
   return ret;
 }
 
@@ -521,6 +521,7 @@ static void freeFilterStep(PLN_BaseStep *bstp) {
   if (fstp->shouldFreeRaw) {
     free((char *)fstp->rawExpr);
   }
+  free((void *)fstp->base.alias);
   free(bstp);
 }
 
@@ -674,6 +675,8 @@ static void applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const Redis
       QAST_GlobalFilterOptions legacyFilterOpts = {.numeric = opts->legacy.filters[ii]};
       QAST_SetGlobalFilters(ast, &legacyFilterOpts);
     }
+    array_clear(opts->legacy.filters);  // so AREQ_Free() doesn't free the filters themselves, which
+                                        // are now owned by the query object
   }
   if (opts->legacy.gf) {
     QAST_GlobalFilterOptions legacyOpts = {.geo = opts->legacy.gf};
@@ -1172,6 +1175,14 @@ void AREQ_Free(AREQ *req) {
   for (size_t ii = 0; ii < req->nargs; ++ii) {
     sdsfree(req->args[ii]);
   }
+  if (req->searchopts.legacy.filters) {
+    for (size_t ii = 0; ii < array_len(req->searchopts.legacy.filters); ++ii) {
+      NumericFilter_Free(req->searchopts.legacy.filters[ii]);
+    }
+    array_free(req->searchopts.legacy.filters);
+  }
+  free(req->searchopts.inids);
+  FieldList_Free(&req->outFields);
   if (thctx) {
     RedisModule_FreeThreadSafeContext(thctx);
   }

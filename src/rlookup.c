@@ -212,7 +212,7 @@ void RLookup_Cleanup(RLookup *lk) {
   memset(lk, 0xff, sizeof(*lk));
 }
 
-static RSValue *hvalToValue(RedisModuleString *src, RLookupCoerceType type, int copyStrings) {
+static RSValue *hvalToValue(RedisModuleString *src, RLookupCoerceType type) {
   if (type == RLOOKUP_C_BOOL || type == RLOOKUP_C_INT) {
     long long ll = 0;
     RedisModule_StringToLongLong(src, &ll);
@@ -222,18 +222,11 @@ static RSValue *hvalToValue(RedisModuleString *src, RLookupCoerceType type, int 
     RedisModule_StringToDouble(src, &dd);
     return RS_NumVal(dd);
   } else {
-    if (copyStrings) {
-      size_t n;
-      const char *s = RedisModule_StringPtrLen(src, &n);
-      return RS_NewCopiedString(s, n);
-    } else {
-      return RS_RedisStringVal(src);
-    }
+    return RS_StealRedisStringVal(src);
   }
 }
 
-static RSValue *replyElemToValue(RedisModuleCallReply *rep, RLookupCoerceType otype,
-                                 int copyStrings) {
+static RSValue *replyElemToValue(RedisModuleCallReply *rep, RLookupCoerceType otype) {
   switch (RedisModule_CallReplyType(rep)) {
     case REDISMODULE_REPLY_STRING: {
       if (otype == RLOOKUP_C_BOOL || RLOOKUP_C_INT) {
@@ -247,12 +240,8 @@ static RSValue *replyElemToValue(RedisModuleCallReply *rep, RLookupCoerceType ot
         // Convert to double -- calling code should check if NULL
         return RSValue_ParseNumber(s, len);
       }
-
-      if (copyStrings) {
-        return RS_NewCopiedString(s, len);
-      } else {
-        return RS_ConstStringVal(s, len);
-      }
+      // Note, the pointer is within CallReply; we need to copy
+      return RS_NewCopiedString(s, len);
     }
 
     case REDISMODULE_REPLY_INTEGER:
@@ -271,24 +260,25 @@ static RSValue *replyElemToValue(RedisModuleCallReply *rep, RLookupCoerceType ot
   }
 }
 
-static int getKeyCommon(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOptions *options) {
+static int getKeyCommon(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOptions *options,
+                        RedisModuleKey **keyobj) {
   if (!options->noSortables && (kk->flags & RLOOKUP_F_SVSRC)) {
     // No need to "write" this key. It's always implicitly loaded!
     return REDISMODULE_OK;
   }
 
   // In this case, the flag must be obtained via HGET
-  if (!options->keyobj) {
+  if (!*keyobj) {
     RedisModuleCtx *ctx = options->sctx->redisCtx;
     RedisModuleString *keyName =
         RedisModule_CreateString(ctx, options->dmd->keyPtr, strlen(options->dmd->keyPtr));
-    options->keyobj = RedisModule_OpenKey(ctx, keyName, REDISMODULE_READ);
+    *keyobj = RedisModule_OpenKey(ctx, keyName, REDISMODULE_READ);
     RedisModule_FreeString(ctx, keyName);
-    if (!options->keyobj) {
+    if (!*keyobj) {
       QueryError_SetCode(options->status, QUERY_ENODOC);
       return REDISMODULE_ERR;
     }
-    if (RedisModule_KeyType(options->keyobj) != REDISMODULE_KEYTYPE_HASH) {
+    if (RedisModule_KeyType(*keyobj) != REDISMODULE_KEYTYPE_HASH) {
       QueryError_SetCode(options->status, QUERY_EREDISKEYTYPE);
       return REDISMODULE_ERR;
     }
@@ -296,13 +286,13 @@ static int getKeyCommon(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOption
 
   // Get the actual hash value
   RedisModuleString *val = NULL;
-  int rc = RedisModule_HashGet(options->keyobj, REDISMODULE_HASH_CFIELDS, kk->name, &val, NULL);
+  int rc = RedisModule_HashGet(*keyobj, REDISMODULE_HASH_CFIELDS, kk->name, &val, NULL);
   if (rc != REDISMODULE_OK || val == NULL) {
     return REDISMODULE_OK;
   }
 
   // Value has a reference count of 1
-  RSValue *rsv = hvalToValue(val, kk->fieldtype, options->copyStrings);
+  RSValue *rsv = hvalToValue(val, kk->fieldtype);
   RLookup_WriteKey(kk, dst, rsv);
   RSValue_Decref(rsv);
   return REDISMODULE_OK;
@@ -310,11 +300,13 @@ static int getKeyCommon(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOption
 
 static int loadIndividualKeys(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options) {
   // Load the document from the schema. This should be simple enough...
+  RedisModuleKey *key = NULL;  // This is populated by getKeyCommon; we free it at the end
+  int rc = REDISMODULE_ERR;
   if (options->nkeys) {
     for (size_t ii = 0; ii < options->nkeys; ++ii) {
       const RLookupKey *kk = options->keys[ii];
-      if (getKeyCommon(kk, dst, options) != REDISMODULE_OK) {
-        goto error;
+      if (getKeyCommon(kk, dst, options, &key) != REDISMODULE_OK) {
+        goto done;
       }
     }
   } else {
@@ -327,24 +319,18 @@ static int loadIndividualKeys(RLookup *it, RLookupRow *dst, RLookupLoadOptions *
           continue;
         }
       }
-      if (getKeyCommon(kk, dst, options) != REDISMODULE_OK) {
-        goto error;
+      if (getKeyCommon(kk, dst, options, &key) != REDISMODULE_OK) {
+        goto done;
       }
     }
   }
+  rc = REDISMODULE_OK;
 
-  if (options->keyobj && options->copyStrings) {
-    RedisModule_CloseKey(options->keyobj);
-    options->keyobj = NULL;
+done:
+  if (key) {
+    RedisModule_CloseKey(key);
   }
-  return REDISMODULE_OK;
-
-error:
-  if (options->keyobj) {
-    RedisModule_CloseKey(options->keyobj);
-    options->keyobj = NULL;
-  }
-  return REDISMODULE_ERR;
+  return rc;
 }
 
 static int RLookup_HGETALL(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options) {
@@ -376,7 +362,7 @@ static int RLookup_HGETALL(RLookup *it, RLookupRow *dst, RLookupLoadOptions *opt
     if (!options->noSortables && (rlk->flags & RLOOKUP_F_SVSRC)) {
       continue;  // Can load it from the sort vector on demand.
     }
-    RSValue *vptr = replyElemToValue(repv, rlk->fieldtype, options->copyStrings);
+    RSValue *vptr = replyElemToValue(repv, rlk->fieldtype);
     RLookup_WriteOwnKey(rlk, dst, vptr);
   }
 
@@ -386,7 +372,7 @@ done:
   if (krstr) {
     RedisModule_FreeString(ctx, krstr);
   }
-  if (rep && (options->copyStrings || rc != REDISMODULE_OK)) {
+  if (rep) {
     RedisModule_FreeCallReply(rep);
   }
   return rc;

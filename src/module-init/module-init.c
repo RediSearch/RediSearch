@@ -118,7 +118,7 @@ RedisModuleCtx *RSDummyContext = NULL;
 
 int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
 #define DO_LOG(...)                               \
-  if (ctx && (mode == REDISEARCH_INIT_LIBRARY)) { \
+  if (ctx && (mode != REDISEARCH_INIT_LIBRARY)) { \
     RedisModule_Log(ctx, ##__VA_ARGS__);          \
   }
 

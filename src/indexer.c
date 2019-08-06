@@ -585,6 +585,7 @@ static void Indexer_FreeInternal(DocumentIndexer *indexer) {
   RedisModule_FreeString(indexer->redisCtx, indexer->specKeyName);
   KHTable_Clear(&indexer->mergeHt);
   KHTable_Free(&indexer->mergeHt);
+  BlkAlloc_FreeAll(&indexer->alloc, NULL, 0, 0);
   RedisModule_FreeThreadSafeContext(indexer->redisCtx);
   free(indexer);
 }
