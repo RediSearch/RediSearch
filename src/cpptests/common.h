@@ -43,6 +43,9 @@ IndexSpec *createIndex(RedisModuleCtx *ctx, const char *name, Ts... args) {
   return sp;
 }
 
+std::vector<std::string> search(RSIndex *index, RSQueryNode *qn);
+std::vector<std::string> search(RSIndex *index, const char *s);
+
 }  // namespace RS
 
 #endif
