@@ -950,7 +950,6 @@ static void statsCb(RedisModuleCtx *ctx, void *gcCtx) {
 static void killCb(void *ctx) {
   ForkGC *gc = ctx;
   gc->deleting = 1;
-  gc->sp = NULL;
 }
 
 static struct timespec getIntervalCb(void *ctx) {
@@ -967,10 +966,10 @@ ForkGC *FGC_New(const RedisModuleString *k, uint64_t specUniqueId, GCCallbacks *
       .specUniqueId = specUniqueId,
       .type = FGC_TYPE_INKEYSPACE,
   };
-
   forkGc->ctx = RedisModule_GetThreadSafeContext(NULL);
   if (k) {
     forkGc->keyName = RedisModule_CreateStringFromString(forkGc->ctx, k);
+    RedisModule_FreeString(forkGc->ctx, k);
   }
 
   callbacks->onTerm = onTerminateCb;
