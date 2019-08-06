@@ -11,6 +11,8 @@ def testExt():
         print subprocess.call(['make', '-C', os.path.dirname(extentionPath)])
 
     env = Env(moduleArgs='EXTLOAD %s' % extentionPath)
+    if env.env == 'existing-env':
+        env.skip()
 
     N = 100
     env.assertOk(env.execute_command(
