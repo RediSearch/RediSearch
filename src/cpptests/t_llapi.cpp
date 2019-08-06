@@ -624,3 +624,8 @@ TEST_F(LLApiTest, testNumericFieldWithCT) {
   RediSearch_FreeIndexOptions(opt);
   RediSearch_SetCriteriaTesterThreshold(0);
 }
+
+TEST_F(LLApiTest, testFreeDocument) {
+  auto* d = RediSearch_CreateDocument("doc1", strlen("doc1"), 1, "turkish");
+  RediSearch_FreeDocument(d);
+}
