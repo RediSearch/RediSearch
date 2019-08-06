@@ -827,7 +827,7 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
 
   int ret_val = 1;
 
-  while (gc->pauseState & FGC_PAUSED_CHILD) {
+  while (gc->pauseState == FGC_PAUSED_CHILD) {
     gc->execState = FGC_STATE_WAIT_FORK;
     // spin or sleep
     usleep(500);
