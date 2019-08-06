@@ -141,6 +141,11 @@ RSDoc* RediSearch_CreateDocument(const void* docKey, size_t len, double score, c
   return ret;
 }
 
+void RediSearch_FreeDocument(RSDoc* doc) {
+  Document_Free(doc);
+  rm_free(doc);
+}
+
 int RediSearch_DeleteDocument(IndexSpec* sp, const void* docKey, size_t len) {
   RWLOCK_ACQUIRE_WRITE();
   int rc = REDISMODULE_OK;

@@ -86,6 +86,9 @@ void Document_MakeStringsOwner(Document *d) {
     memcpy(tmp, d->payload, d->payloadSize);
     d->payload = tmp;
   }
+  if (d->language) {
+    d->language = strdup(d->language);
+  }
   d->flags |= DOCUMENT_F_OWNSTRINGS;
   d->flags &= ~DOCUMENT_F_OWNREFS;
 }
@@ -208,6 +211,9 @@ void Document_Free(Document *doc) {
   if (doc->flags & DOCUMENT_F_OWNSTRINGS) {
     if (doc->payload) {
       free((void *)doc->payload);
+    }
+    if (doc->language) {
+      free((void *)doc->language);
     }
   }
 }
