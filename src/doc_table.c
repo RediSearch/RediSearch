@@ -36,6 +36,9 @@ RSDocumentMetadata *DocTable_Get(const DocTable *t, t_docId docId) {
     return NULL;
   }
   uint32_t bucketIndex = DocTable_GetBucket(t, docId);
+  if (bucketIndex >= t->cap) {
+    return NULL;
+  }
   DMDChain *dmdChain = &t->buckets[bucketIndex];
   DLLIST2_FOREACH(it, &dmdChain->lroot) {
     RSDocumentMetadata *dmd = DLLIST2_ITEM(it, RSDocumentMetadata, llnode);
