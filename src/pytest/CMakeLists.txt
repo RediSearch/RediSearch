@@ -9,11 +9,11 @@ FOREACH(n ${PY_TEST_FILES})
         WORKING_DIRECTORY ${PROJECT_BINARY_DIR})
 
     ADD_TEST(NAME "PY_${test_name}_SAFEMODE"
-        COMMAND ${baseCommand} "-t" "${n}" "--module-args" "SAFEMODE"
+        COMMAND ${baseCommand} "-t" "${n}" "--module-args=SAFEMODE"
         WORKING_DIRECTORY ${PROJECT_BINARY_DIR})
 
-    ADD_TEST(NAME "PY_${test_name}_FORKGC"
-        COMMAND ${baseCommand} "-t" "${n}" "--module-args=GC_POLICY FORK"
+    ADD_TEST(NAME "PY_${test_name}_syncgc"
+        COMMAND ${baseCommand} "-t" "${n}" "--module-args=GC_POLICY SYNC"
         WORKING_DIRECTORY ${PROJECT_BINARY_DIR})
 
     ADD_TEST(NAME "PY_${test_name}_CRITERIA_TESTER"

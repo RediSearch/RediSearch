@@ -67,7 +67,7 @@ MODULE_API_FUNC(int, RediSearch_GetCApiVersion)();
 #define RSIDXOPT_DOCTBLSIZE_UNLIMITED 0x01
 
 #define GC_POLICY_NONE -1
-#define GC_POLICY_FORK 1
+#define GC_POLICY_FORK 0
 
 struct RSIdxOptions {
   RSGetValueCallback gvcb;
