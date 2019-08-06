@@ -279,10 +279,10 @@ CONFIG_SETTER(setGcPolicy) {
     RETURN_ERROR("Missing argument");
   }
   const char *policy = RedisModule_StringPtrLen(argv[(*offset)++], NULL);
-  if (!strcasecmp(policy, "DEFAULT")) {
-    config->gcPolicy = GCPolicy_Default;
-  } else if (!strcasecmp(policy, "FORK")) {
+  if (!strcasecmp(policy, "DEFAULT") || !strcasecmp(policy, "FORK")) {
     config->gcPolicy = GCPolicy_Fork;
+  } else if (!strcasecmp(policy, "SYNC")) {
+    config->gcPolicy = GCPolicy_Sync;
   } else {
     RETURN_ERROR("Invalid GC Policy value");
     return REDISMODULE_ERR;

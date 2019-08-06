@@ -12,10 +12,7 @@ typedef enum {
   TimeoutPolicy_Invalid       // Not a real value
 } RSTimeoutPolicy;
 
-typedef enum {
-  GCPolicy_Default = 0,
-  GCPolicy_Fork,
-} GCPolicy;
+typedef enum { GCPolicy_Fork = 0, GCPolicy_Sync } GCPolicy;
 
 const char *TimeoutPolicy_ToString(RSTimeoutPolicy);
 
@@ -26,8 +23,8 @@ RSTimeoutPolicy TimeoutPolicy_Parse(const char *s, size_t n);
 
 static inline const char *GCPolicy_ToString(GCPolicy policy) {
   switch (policy) {
-    case GCPolicy_Default:
-      return "default";
+    case GCPolicy_Sync:
+      return "sync";
     case GCPolicy_Fork:
       return "fork";
     default:

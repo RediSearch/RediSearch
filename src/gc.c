@@ -37,7 +37,7 @@ GCContext* GCContext_CreateGCFromSpec(IndexSpec* sp, float initialHZ, uint64_t u
     case GCPolicy_Fork:
       ret->gcCtx = FGC_NewFromSpec(sp, uniqueId, &ret->callbacks);
       break;
-    case GCPolicy_Default:
+    case GCPolicy_Sync:
     default:
       // currently LLAPI only support FORK_GC, in the future we might allow default GC as well.
       // This is why we pass the GC_POLICY to the function.
@@ -54,7 +54,7 @@ GCContext* GCContext_CreateGC(RedisModuleString* keyName, float initialHZ, uint6
     case GCPolicy_Fork:
       ret->gcCtx = FGC_New(keyName, uniqueId, &ret->callbacks);
       break;
-    case GCPolicy_Default:
+    case GCPolicy_Sync:
     default:
       ret->gcCtx = NewGarbageCollector(keyName, initialHZ, uniqueId, &ret->callbacks);
       break;
