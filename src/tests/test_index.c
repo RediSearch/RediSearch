@@ -1188,15 +1188,15 @@ int testDeltaSplits() {
   RETURN_TEST_SUCCESS;
 }
 
-#define TEST_MY_SEP(sep, str)        \
-  s = strdup(str);                   \
-  token = mySep(sep, &s, &tokenLen); \
-  ASSERT_STRING_EQ(token, "foo");    \
-  ASSERT_EQUAL(tokenLen, 3);         \
-  token = mySep(sep, &s, &tokenLen); \
-  ASSERT_STRING_EQ(token, "bar");    \
-  ASSERT_EQUAL(tokenLen, 3);         \
-  token = mySep(sep, &s, &tokenLen); \
+#define TEST_MY_SEP(sep, str)                     \
+  s = strdup(str);                                \
+  token = TagIndex_SepString(sep, &s, &tokenLen); \
+  ASSERT_STRING_EQ(token, "foo");                 \
+  ASSERT_EQUAL(tokenLen, 3);                      \
+  token = TagIndex_SepString(sep, &s, &tokenLen); \
+  ASSERT_STRING_EQ(token, "bar");                 \
+  ASSERT_EQUAL(tokenLen, 3);                      \
+  token = TagIndex_SepString(sep, &s, &tokenLen); \
   ASSERT(!token);
 
 int testMySep() {
@@ -1205,15 +1205,15 @@ int testMySep() {
   char *token;
 
   s = strdup(" , , , , , , ,   , , , ,,,,   ,,,");
-  token = mySep(',', &s, &tokenLen);
+  token = TagIndex_SepString(',', &s, &tokenLen);
   ASSERT(!token);
-  token = mySep(',', &s, &tokenLen);
+  token = TagIndex_SepString(',', &s, &tokenLen);
   ASSERT(!token);
 
   s = strdup("");
-  token = mySep(',', &s, &tokenLen);
+  token = TagIndex_SepString(',', &s, &tokenLen);
   ASSERT(!token);
-  token = mySep(',', &s, &tokenLen);
+  token = TagIndex_SepString(',', &s, &tokenLen);
   ASSERT(!token);
 
   TEST_MY_SEP(',', "foo,bar")

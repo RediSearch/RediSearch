@@ -98,7 +98,7 @@ RedisModuleString *TagIndex_FormatName(RedisSearchCtx *sctx, const char *field);
 /* Create a new tag index*/
 TagIndex *NewTagIndex();
 
-char *mySep(char sep, char **s, size_t *toklen);
+char *TagIndex_SepString(char sep, char **s, size_t *toklen);
 
 /* Preprocess a document tag field, returning a vector of all tags split from the content */
 char **TagIndex_Preprocess(const TagFieldOptions *opts, const DocumentField *data);

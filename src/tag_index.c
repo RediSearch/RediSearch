@@ -21,7 +21,7 @@ TagIndex *NewTagIndex() {
 }
 
 /* read the next token from the string */
-char *mySep(char sep, char **s, size_t *toklen) {
+char *TagIndex_SepString(char sep, char **s, size_t *toklen) {
 
   char *start = *s;
 
@@ -67,7 +67,7 @@ char **TagIndex_Preprocess(const TagFieldOptions *opts, const DocumentField *dat
   while (p) {
     // get the next token
     size_t toklen;
-    char *tok = mySep(opts->separator, &p, &toklen);
+    char *tok = TagIndex_SepString(opts->separator, &p, &toklen);
     // this means we're at the end
     if (tok == NULL) break;
     if (toklen > 0) {
