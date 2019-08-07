@@ -21,40 +21,38 @@ TagIndex *NewTagIndex() {
 }
 
 /* read the next token from the string */
-static inline char *mySep(char sep, char **s, int trimSpace, size_t *toklen) {
+char *mySep(char sep, char **s, size_t *toklen) {
 
-  char *orig = *s;
-  char *end = orig;
-  // trim spaces before start of token
-  if (trimSpace) {
-    while (isspace(*orig)) orig++;
+  char *start = *s;
+
+  // find the first none space and none separator char
+  while (*start && (isspace(*start) || *start == sep)) {
+    start++;
   }
-  char *pos = *s;
-  for (; *pos; ++pos) {
-    if (*pos == sep) {
-      *pos = '\0';
-      end = pos;
-      *s = (char *)++pos;
+
+  if (*start == '\0') {
+    // no token found
+    *s = start;
+    return NULL;
+  }
+
+  char *end = start;
+  char *lastChar = start;
+  for (; *end; ++end) {
+    if (*end == sep) {
+      end++;
       break;
     }
+    if (!isspace(*end)) {
+      lastChar = end;
+    }
   }
 
-  if (!*pos) {
-    end = pos;
-    *s = NULL;
-  }
-  // trim trailing spaces
-  if (trimSpace) {
-    char *x = end - 1;
-    while (isspace(*x) && x >= orig) {
-      *x-- = 0;
-    }
-    if (*x) end = x + 1;
-    // consume an all space string
-    if (x == orig && isspace(*x)) end = x;
-  }
-  *toklen = end - orig;
-  return orig;
+  *(lastChar + 1) = '\0';
+  *s = end;
+
+  *toklen = lastChar - start + 1;
+  return start;
 }
 
 char *strtolower(char *str);
@@ -72,7 +70,7 @@ char **TagIndex_Preprocess(const TagFieldOptions *opts, const DocumentField *dat
   while (p) {
     // get the next token
     size_t toklen;
-    char *tok = mySep(opts->separator, &p, 1, &toklen);
+    char *tok = mySep(opts->separator, &p, &toklen);
     // this means we're at the end
     if (tok == NULL) break;
     if (toklen > 0) {

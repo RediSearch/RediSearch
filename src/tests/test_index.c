@@ -2,6 +2,7 @@
 #include "../index.h"
 #include "../inverted_index.h"
 #include "../index_result.h"
+#include "../tag_index.h"
 #include "../query_parser/tokenizer.h"
 #include "../rmutil/alloc.h"
 #include "../spec.h"
@@ -1187,6 +1188,45 @@ int testDeltaSplits() {
   RETURN_TEST_SUCCESS;
 }
 
+#define TEST_MY_SEP(sep, str)        \
+  s = strdup(str);                   \
+  token = mySep(sep, &s, &tokenLen); \
+  ASSERT_STRING_EQ(token, "foo");    \
+  ASSERT_EQUAL(tokenLen, 3);         \
+  token = mySep(sep, &s, &tokenLen); \
+  ASSERT_STRING_EQ(token, "bar");    \
+  ASSERT_EQUAL(tokenLen, 3);         \
+  token = mySep(sep, &s, &tokenLen); \
+  ASSERT(!token);
+
+int testMySep() {
+  char *s;
+  size_t tokenLen;
+  char *token;
+
+  s = strdup(" , , , , , , ,   , , , ,,,,   ,,,");
+  token = mySep(',', &s, &tokenLen);
+  ASSERT(!token);
+  token = mySep(',', &s, &tokenLen);
+  ASSERT(!token);
+
+  s = strdup("");
+  token = mySep(',', &s, &tokenLen);
+  ASSERT(!token);
+  token = mySep(',', &s, &tokenLen);
+  ASSERT(!token);
+
+  TEST_MY_SEP(',', "foo,bar")
+
+  TEST_MY_SEP(',', "  foo  ,   bar   ")
+
+  TEST_MY_SEP(',', " ,,  foo  ,   bar ,,  ")
+
+  TEST_MY_SEP(' ', "   foo    bar   ")
+
+  return 0;
+}
+
 TEST_MAIN({
   // LOGGING_INIT(L_INFO);
   RMUTil_InitAlloc();
@@ -1218,4 +1258,6 @@ TEST_MAIN({
   TESTFUNC(testDocTable);
   TESTFUNC(testSortable);
   TESTFUNC(testDeltaSplits);
+
+  TESTFUNC(testMySep);
 });
