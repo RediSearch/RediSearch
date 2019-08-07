@@ -257,7 +257,7 @@ CONFIG_GETTER(getForkGcInterval) {
 
 CONFIG_GETTER(getMaxResultsToUnsortedMode) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%u", config->maxResultsToUnsortedMode);
+  return sdscatprintf(ss, "%lld", config->maxResultsToUnsortedMode);
 }
 
 CONFIG_SETTER(setMinPhoneticTermLen) {

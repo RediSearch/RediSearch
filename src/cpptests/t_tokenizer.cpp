@@ -79,7 +79,7 @@ TEST_F(TokenizerTest, testChineseMixed) {
     ASSERT_EQ(t.pos, pos);
     std::string tok(t.tok, t.tokLen);
     tokens.insert(tok);
-    printf("inserted %s (n=%d)\n", tok.c_str(), tok.size());
+    // printf("inserted %s (n=%d)\n", tok.c_str(), tok.size());
     pos++;
   }
   ASSERT_NE(tokens.end(), tokens.find("::支持"));

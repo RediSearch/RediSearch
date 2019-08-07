@@ -78,6 +78,7 @@ int main(int, char **) {
   }
 
   printf("\n");
-  printf("µs/query: %llu\n", elapsed.count() / NUM_ITER);
-  printf("ms/query: %llu\n", duration_cast<std::chrono::milliseconds>(elapsed).count() / NUM_ITER);
+  printf("µs/query: %llu\n", (unsigned long long)elapsed.count() / NUM_ITER);
+  printf("ms/query: %llu\n",
+         (unsigned long long)duration_cast<std::chrono::milliseconds>(elapsed).count() / NUM_ITER);
 }
