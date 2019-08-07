@@ -1222,6 +1222,8 @@ int testMySep() {
 
   TEST_MY_SEP(',', " ,,  foo  ,   bar ,,  ")
 
+  TEST_MY_SEP(',', " ,,  foo  , ,   bar ,,  ")
+
   TEST_MY_SEP(' ', "   foo    bar   ")
 
   return 0;
