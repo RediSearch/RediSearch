@@ -65,6 +65,9 @@ char **TagIndex_Preprocess(const TagFieldOptions *opts, const DocumentField *dat
   char *p = (char *)RedisModule_StringPtrLen(data->text, &sz);
   if (!p || sz == 0) return NULL;
   char **ret = array_new(char *, 4);
+  while (*p && isspace(*p)) {
+    ++p;
+  }
   char *pp = p = strndup(p, sz);
   while (p) {
     // get the next token
