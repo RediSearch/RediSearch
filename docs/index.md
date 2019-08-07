@@ -57,6 +57,16 @@ RediSearch has a distributed cluster version that can scale to billions of docum
 * Document deletion and updating with index garbage collection.
 * Partial and conditional document updates.
 
+## References
+### Videos
+1. [RediSearch Overview - RedisConf 2019](https://youtu.be/AwnEhr9BO74) 
+1. [RediSearch & CRDT - Redis Day Tel Aviv 2019](https://youtu.be/OGC6Mx9E3jU)
+
+### Blog posts
+1. [Mastering RediSearch / Part I](https://redislabs.com/blog/mastering-redisearch-part/)
+1. [Mastering RediSearch / Part II](https://redislabs.com/blog/mastering-redisearch-part-ii/)
+1. [Mastering RediSearch / Part III](https://redislabs.com/blog/mastering-redisearch-part-iii/)
+1. [Search Benchmarking: RediSearch vs. Elasticsearch](https://redislabs.com/blog/search-benchmarking-redisearch-vs-elasticsearch/)
 
 ## Mailing List / Forum
 
