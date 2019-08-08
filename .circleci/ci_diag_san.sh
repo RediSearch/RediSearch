@@ -37,6 +37,7 @@ cat >rltest.config <<EOF
 --no-output-catch
 --exit-on-failure
 --check-exitcode
+--unix
 EOF
 
 export ASAN_OPTIONS=detect_odr_violation=0
@@ -44,4 +45,4 @@ export ASAN_OPTIONS=detect_odr_violation=0
 # FIXME: Need to change the image once this actually works..
 ln -s /usr/bin/llvm-symbolizer-4.0 /usr/bin/llvm-symbolizer || true
 
-ctest --output-on-failure
+ctest --output-on-failure -j20
