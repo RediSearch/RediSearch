@@ -2193,6 +2193,22 @@ def testCriteriaTesterDeactivated():
     env.cmd('ft.add', 'idx', 'doc3', 1, 'fields', 't1', 'hey')
     env.expect('ft.search', 'idx', '(hey hello1)|(hello2 hey)').equal([2L, 'doc1', ['t1', 'hello1 hey hello2'], 'doc2', ['t1', 'hello2 hey']])
 
+def testIssue828(env):
+    log = """
+1565192435.041878 [0 172.17.0.1:46032] "FT.CREATE" "beers" "SCHEMA" "name" "TEXT" "PHONETIC" "dm:en" "style" "TAG" "SORTABLE" "abv" "NUMERIC" "SORTABLE"
+1565433541.022515 [0 127.0.0.1:51583] "FT.ADD" "beers" "802" "1.0" "FIELDS" "index" "25" "abv" "0.049" "ibu" "17.0" "id" "802" "name" "Hell or High Watermelon Wheat (2009)" "style" "Fruit / Vegetable Beer" "brewery_id" "368" "ounces" "12.0"
+"""
+    # Ensure this doesn't crash..
+    import shlex
+    cmds = []
+    lines = log.split("\n")
+    for l in lines:
+        cmd = l.split(' ', 3)[-1].strip()
+        if not cmd:
+            continue
+        cmd = shlex.split(cmd)
+        env.cmd(*cmd)
+
 def grouper(iterable, n, fillvalue=None):
     "Collect data into fixed-length chunks or blocks"
     from itertools import izip_longest
