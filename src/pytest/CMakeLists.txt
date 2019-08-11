@@ -13,7 +13,7 @@ FOREACH(n ${PY_TEST_FILES})
         WORKING_DIRECTORY ${PROJECT_BINARY_DIR})
 
     ADD_TEST(NAME "PY_${test_name}_syncgc"
-        COMMAND ${baseCommand} "-t" "${n}" "--module-args=GC_POLICY SYNC"
+        COMMAND ${baseCommand} "-t" "${n}" "--module-args=GC_POLICY LEGACY"
         WORKING_DIRECTORY ${PROJECT_BINARY_DIR})
 
     ADD_TEST(NAME "PY_${test_name}_CRITERIA_TESTER"
