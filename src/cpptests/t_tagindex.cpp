@@ -47,3 +47,45 @@ TEST_F(TagIndexTest, testCreate) {
   it->Free(it);
   TagIndex_Free(idx);
 }
+
+#define TEST_MY_SEP(sep, str)                     \
+  orig = s = strdup(str);                         \
+  token = TagIndex_SepString(sep, &s, &tokenLen); \
+  EXPECT_STREQ(token, "foo");                     \
+  ASSERT_EQ(tokenLen, 3);                         \
+  token = TagIndex_SepString(sep, &s, &tokenLen); \
+  EXPECT_STREQ(token, "bar");                     \
+  ASSERT_EQ(tokenLen, 3);                         \
+  token = TagIndex_SepString(sep, &s, &tokenLen); \
+  ASSERT_FALSE(token);                            \
+  free(orig);
+
+TEST_F(TagIndexTest, testSepString) {
+  char *orig, *s;
+  size_t tokenLen;
+  char *token;
+
+  orig = s = strdup(" , , , , , , ,   , , , ,,,,   ,,,");
+  token = TagIndex_SepString(',', &s, &tokenLen);
+  ASSERT_FALSE(token);
+  token = TagIndex_SepString(',', &s, &tokenLen);
+  ASSERT_FALSE(token);
+  free(orig);
+
+  orig = s = strdup("");
+  token = TagIndex_SepString(',', &s, &tokenLen);
+  ASSERT_FALSE(token);
+  token = TagIndex_SepString(',', &s, &tokenLen);
+  ASSERT_FALSE(token);
+  free(orig);
+
+  TEST_MY_SEP(',', "foo,bar")
+
+  TEST_MY_SEP(',', "  foo  ,   bar   ")
+
+  TEST_MY_SEP(',', " ,,  foo  ,   bar ,,  ")
+
+  TEST_MY_SEP(',', " ,,  foo  , ,   bar ,,  ")
+
+  TEST_MY_SEP(' ', "   foo    bar   ")
+}
