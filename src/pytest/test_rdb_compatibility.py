@@ -32,7 +32,6 @@ def testRDBCompatibility(env):
             env.assertTrue(False)  ## we could not download rdbs and we are running on CI, let fail the test
         else:
             env.skip()
-            env.stop()
             return
 
     for fileName in RDBS:
