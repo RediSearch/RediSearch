@@ -961,6 +961,7 @@ void DoubleMetaphone(const char *str, char **primary_pp, char **secondary_pp) {
   if (primary_pp) {
     if (*primary_pp) {
       free(*primary_pp);
+      *primary_pp = NULL;
     }
     if (primary->length > 0) {
       *primary_pp = primary->str;
@@ -970,6 +971,7 @@ void DoubleMetaphone(const char *str, char **primary_pp, char **secondary_pp) {
   if (secondary_pp) {
     if (*secondary_pp) {
       free(*secondary_pp);
+      *secondary_pp = NULL;
     }
     if (secondary->length > 0) {
       *secondary_pp = secondary->str;

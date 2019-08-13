@@ -2193,6 +2193,17 @@ def testCriteriaTesterDeactivated():
     env.cmd('ft.add', 'idx', 'doc3', 1, 'fields', 't1', 'hey')
     env.expect('ft.search', 'idx', '(hey hello1)|(hello2 hey)').equal([2L, 'doc1', ['t1', 'hello1 hey hello2'], 'doc2', ['t1', 'hello2 hey']])
 
+def testIssue828(env):
+    env.cmd('ft.create', 'beers', 'SCHEMA',
+        'name', 'TEXT', 'PHONETIC', 'dm:en',
+        'style', 'TAG', 'SORTABLE',
+        'abv', 'NUMERIC', 'SORTABLE')
+    rv = env.cmd("FT.ADD", "beers", "802", "1.0",
+        "FIELDS", "index", "25", "abv", "0.049",
+        "name", "Hell or High Watermelon Wheat (2009)",
+        "style", "Fruit / Vegetable Beer")
+    env.assertEqual('OK', rv)
+
 def grouper(iterable, n, fillvalue=None):
     "Collect data into fixed-length chunks or blocks"
     from itertools import izip_longest
