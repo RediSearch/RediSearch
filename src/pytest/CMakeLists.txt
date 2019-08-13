@@ -12,7 +12,7 @@ FOREACH(n ${PY_TEST_FILES})
         COMMAND ${baseCommand} "-t" "${n}" "--module-args=SAFEMODE"
         WORKING_DIRECTORY ${PROJECT_BINARY_DIR})
 
-    ADD_TEST(NAME "PY_${test_name}_syncgc"
+    ADD_TEST(NAME "PY_${test_name}_legacygc"
         COMMAND ${baseCommand} "-t" "${n}" "--module-args=GC_POLICY LEGACY"
         WORKING_DIRECTORY ${PROJECT_BINARY_DIR})
 
