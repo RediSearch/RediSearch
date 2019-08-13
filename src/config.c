@@ -281,7 +281,7 @@ CONFIG_SETTER(setGcPolicy) {
   const char *policy = RedisModule_StringPtrLen(argv[(*offset)++], NULL);
   if (!strcasecmp(policy, "DEFAULT") || !strcasecmp(policy, "FORK")) {
     config->gcPolicy = GCPolicy_Fork;
-  } else if (!strcasecmp(policy, "SYNC")) {
+  } else if (!strcasecmp(policy, "LEGACY")) {
     config->gcPolicy = GCPolicy_Sync;
   } else {
     RETURN_ERROR("Invalid GC Policy value");
@@ -413,7 +413,7 @@ RSConfigOptions RSGlobalConfigOptions = {
          .setValue = setMinPhoneticTermLen,
          .getValue = getMinPhoneticTermLen},
         {.name = "GC_POLICY",
-         .helpText = "gc policy to use (DEFAULT/FORK)",
+         .helpText = "gc policy to use (DEFAULT/LEGACY)",
          .setValue = setGcPolicy,
          .getValue = getGcPolicy,
          .flags = RSCONFIGVAR_F_IMMUTABLE},

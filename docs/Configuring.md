@@ -203,11 +203,11 @@ $ redis-server --loadmodule ./redisearch.so GC_SCANSIZE 10
 
 The policy for the garbage collector. Supported policies are:
 
-* **FORK**: uses a forked thread for garbage collection (v1.4.1 and above).
-            This is the default GC policy since version 1.6.1 and is ideal
-            for general purpose workloads.
-* **SYNC**: Uses a synchronous, in-process fork. This is ideal for read-heavy
-            and append-heavy workloads with very few updates/deletes
+* **FORK**:   uses a forked thread for garbage collection (v1.4.1 and above).
+              This is the default GC policy since version 1.6.1 and is ideal
+              for general purpose workloads.
+* **LEGACY**: Uses a synchronous, in-process fork. This is ideal for read-heavy
+              and append-heavy workloads with very few updates/deletes
 
 ### Default
 
@@ -216,5 +216,5 @@ The policy for the garbage collector. Supported policies are:
 ### Example
 
 ```
-$ redis-server --loadmodule ./redisearch.so GC_POLICY SYNC
+$ redis-server --loadmodule ./redisearch.so GC_POLICY LEGACY
 ```
