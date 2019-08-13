@@ -174,7 +174,6 @@ struct IndexSpec {
 
   uint64_t uniqueId;
 
-  RedisModuleCtx *strCtx;
   // cached strings, corresponding to number of fields
   IndexSpecFmtStrings *indexStrs;
   struct IndexSpecCache *spcache;
