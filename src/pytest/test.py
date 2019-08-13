@@ -2204,6 +2204,15 @@ def testIssue828(env):
         "style", "Fruit / Vegetable Beer")
     env.assertEqual('OK', rv)
 
+def testFieldWildcard(env):
+    env.cmd('FT.CONFIG', 'set', 'MINPREFIX', '0')
+    env.cmd('ft.create', 'idx', 'SCHEMA', 'test1', 'TEXT', 'test2', 'TEXT')
+    env.cmd('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test1', 'foo', 'test2', 'bar')
+    env.cmd('ft.add', 'idx', 'doc2', '1.0', 'FIELDS', 'test2', 'bar')
+    env.expect('ft.search', 'idx', '@test1:*').equal([1L, 'doc1', ['test1', 'foo', 'test2', 'bar']])
+    env.expect('ft.search', 'idx', '-@test1:*').equal([1L, 'doc2', ['test2', 'bar']])
+
+
 def grouper(iterable, n, fillvalue=None):
     "Collect data into fixed-length chunks or blocks"
     from itertools import izip_longest

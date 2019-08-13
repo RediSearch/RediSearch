@@ -10,6 +10,7 @@
 %left TERMLIST.
 %left TERM. 
 %left PREFIX.
+%left STAR.
 %left PERCENT.
 %left ATTRIBUTE.
 %right LP.
@@ -388,6 +389,10 @@ prefix(A) ::= PREFIX(B) . [PREFIX] {
     A = NewPrefixNode(ctx, B.s, strlen(B.s));
 }
 
+prefix(A) ::= STAR . [PREFIX] {
+    A = NewPrefixNode(ctx, strdup(""), 0);
+}
+
 /////////////////////////////////////////////////////////////////
 // Fuzzy terms
 /////////////////////////////////////////////////////////////////
@@ -430,7 +435,7 @@ expr(A) ::= PERCENT PERCENT PERCENT STOPWORD(B) PERCENT PERCENT PERCENT. [PREFIX
 modifier(A) ::= MODIFIER(B) . {
     B.len = unescapen((char*)B.s, B.len);
     A = B;
- } 
+}
 
 modifierlist(A) ::= modifier(B) OR term(C). {
     A = NewVector(char *, 2);

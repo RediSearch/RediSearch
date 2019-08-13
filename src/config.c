@@ -84,7 +84,7 @@ CONFIG_BOOLEAN_GETTER(getNoGc, enableGC, 1)
 // MINPREFIX
 CONFIG_SETTER(setMinPrefix) {
   long long arg;
-  if (readLongLongLimit(argv, argc, offset, &arg, 1, LLONG_MAX) != REDISMODULE_OK) {
+  if (readLongLongLimit(argv, argc, offset, &arg, 0, LLONG_MAX) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
   config->minTermPrefix = arg;
