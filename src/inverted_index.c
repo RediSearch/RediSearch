@@ -1068,7 +1068,7 @@ static void IndexReader_Init(const IndexSpec *sp, IndexReader *ret, InvertedInde
   ret->decoderCtx = decoderCtx;
   ret->isValidP = NULL;
   ret->sp = sp;
-  IR_SetAtEnd(ret, 0);
+  IR_SetAtEnd(ret, !(idx->size && idx->numDocs));
 }
 
 static IndexReader *NewIndexReaderGeneric(const IndexSpec *sp, InvertedIndex *idx,

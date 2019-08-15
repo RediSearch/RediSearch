@@ -28,6 +28,36 @@ def testBasicGC(env):
     env.assertEqual(env.cmd('ft.debug', 'DUMP_NUMIDX', 'idx', 'id'), [[long(i) for i in range(2, 102)]])
     env.assertEqual(env.cmd('ft.debug', 'DUMP_TAGIDX', 'idx', 't'), [['tag1', [long(i) for i in range(2, 102)]]])
 
+def testIssue842(env):
+    # This is very similar to testBasicGC, but triggers a bug!
+    if env.isCluster():
+        raise unittest.SkipTest()
+    env.assertOk(env.cmd('ft.create', 'idx', 'schema', 'title', 'text', 'id', 'numeric', 't', 'tag'))
+    env.assertOk(env.cmd('ft.add', 'idx', 'doc1', 1.0, 'fields',
+                            'title', 'hello world',
+                            'id', '5',
+                            't', 'tag1'))
+
+    env.assertOk(env.cmd('ft.add', 'idx', 'doc2', 1.0, 'fields',
+                            'title', 'hello world 1',
+                            'id', '7',
+                            't', 'tag2'))
+
+    env.assertEqual(env.cmd('ft.debug', 'DUMP_INVIDX', 'idx', 'world'), [1, 2])
+    env.assertEqual(env.cmd('ft.debug', 'DUMP_NUMIDX', 'idx', 'id'), [[1, 2], [2], [1]])
+    env.assertEqual(env.cmd('ft.debug', 'DUMP_TAGIDX', 'idx', 't'), [['tag1', [1]], ['tag2', [2]]])
+
+    env.assertEqual(env.cmd('ft.del', 'idx', 'doc2'), 1)
+
+    for i in range(100):
+        # gc is random so we need to do it long enough times for it to work
+        env.cmd('ft.debug', 'GC_FORCEINVOKE', 'idx')
+
+    # check that the gc collected the deleted docs
+    env.assertEqual(env.cmd('ft.debug', 'DUMP_INVIDX', 'idx', 'world'), [1])
+    env.assertEqual(env.cmd('ft.debug', 'DUMP_NUMIDX', 'idx', 'id'), [[1], [], [1]])
+    env.assertEqual(env.cmd('ft.debug', 'DUMP_TAGIDX', 'idx', 't'), [['tag1', [1]], ['tag2', []]])
+    
 
 def testNumerciGCIntensive(env):
     if env.isCluster():
