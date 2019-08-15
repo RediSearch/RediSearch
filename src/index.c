@@ -727,7 +727,10 @@ static void II_TesterFree(struct IndexCriteriaTester *ct) {
 static IndexCriteriaTester *II_GetCriteriaTester(void *ctx) {
   IntersectIterator *ic = ctx;
   for (size_t i = 0; i < ic->num; ++i) {
-    IndexCriteriaTester *tester = IITER_GET_CRITERIA_TESTER(ic->its[i]);
+    IndexCriteriaTester *tester = NULL;
+    if (ic->its[i]) {
+      tester = IITER_GET_CRITERIA_TESTER(ic->its[i]);
+    }
     if (!tester) {
       for (int j = 0; j < array_len(ic->testers); j++) {
         ic->testers[i]->Free(ic->testers[i]);
