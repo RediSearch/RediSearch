@@ -611,6 +611,7 @@ static bool FGC_parentHandleNumeric(ForkGC *gc, int *ret_val, RedisModuleCtx *rc
   bool shouldReturn = false;
   RedisModuleString *keyName = NULL;
   while ((currNode = FGC_recvPtrAddr(gc))) {
+    RedisSearchCtx *sctx = NULL;
     MSG_IndexInfo info = {0};
     InvIdxBuffers idxbufs = {0};
     if (!FGC_recvInvIdx(gc, &idxbufs, &info)) {
@@ -631,7 +632,7 @@ static bool FGC_parentHandleNumeric(ForkGC *gc, int *ret_val, RedisModuleCtx *rc
     }
     hasLock = 1;
 
-    RedisSearchCtx *sctx = FGC_getSctx(gc, rctx);
+    sctx = FGC_getSctx(gc, rctx);
     if (!sctx || sctx->spec->uniqueId != gc->specUniqueId) {
       RETURN;
     }
