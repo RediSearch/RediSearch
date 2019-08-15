@@ -2010,6 +2010,14 @@ def testPrefixDeletedExpansions(env):
     r = env.cmd('ft.search', 'idx', '@txt1:term* @tag1:{tag*}')
     env.assertEqual([1, 'doc_XXX', ['txt1', 'termZZZ', 'tag1', 'tagZZZ']], r)
 
+def testRED_289(env):
+    env.cmd('ft.create', 'idx', 'schema', 'test', 'TEXT')
+    for i in range(20000):
+        env.cmd('ft.add', 'idx', 'doc%d'%i, '1.0', 'FIELDS', 'test', 'foo')
+    env.expect('FT.SEARCH', 'idx', 'foo', 'RETURN', '2', 'test').error()
+    print env.cmd('FT.SEARCH', 'idx', 'foo', 'LIMIT', '0', '20000', 'RETURN', '2', 'test', 'WITHSCORE')
+    env.assertTrue(env.isUp()) # make sure we did not crashed
+
 
 def grouper(iterable, n, fillvalue=None):
     "Collect data into fixed-length chunks or blocks"
@@ -2021,3 +2029,4 @@ def grouper(iterable, n, fillvalue=None):
 
 def to_dict(r):
     return {r[i]: r[i + 1] for i in range(0, len(r), 2)}
+
