@@ -517,6 +517,9 @@ static void FGC_applyInvertedIndex(ForkGC *gc, InvIdxBuffers *idxData, MSG_Index
       memmove(idx->blocks, idx->blocks + info->nblocksOrig, sizeof(*idx->blocks) * newAddedLen);
     }
     idx->size = newAddedLen;
+    if (idx->size == 0) {
+      InvertedIndex_AddBlock(idx, 0);
+    }
   }
 
   for (size_t i = 0; i < info->nblocksRepaired; ++i) {

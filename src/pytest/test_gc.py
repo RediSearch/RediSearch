@@ -28,6 +28,25 @@ def testBasicGC(env):
     env.assertEqual(env.cmd('ft.debug', 'DUMP_NUMIDX', 'idx', 'id'), [[long(i) for i in range(2, 102)]])
     env.assertEqual(env.cmd('ft.debug', 'DUMP_TAGIDX', 'idx', 't'), [['tag1', [long(i) for i in range(2, 102)]]])
 
+def testBasicGCWithEmptyInvIdx(env):
+    if env.isCluster():
+        raise unittest.SkipTest()
+    if env.moduleArgs is not None and 'GC_POLICY LEGACY' in env.moduleArgs:
+        # this test is not relevent for legacy gc cause its not squeshing inverted index
+        raise unittest.SkipTest()
+    env.assertOk(env.cmd('ft.create', 'idx', 'schema', 'title', 'text'))
+    env.assertOk(env.cmd('ft.add', 'idx', 'doc1', 1.0, 'fields',
+                         'title', 'hello world'))
+
+    env.assertEqual(env.cmd('ft.debug', 'DUMP_INVIDX', 'idx', 'world'), [1])
+
+    env.assertEqual(env.cmd('ft.del', 'idx', 'doc1'), 1)
+
+    env.cmd('ft.debug', 'GC_FORCEINVOKE', 'idx')
+
+    # check that the gc collected the deleted docs
+    env.assertEqual(env.cmd('ft.debug', 'DUMP_INVIDX', 'idx', 'world'), [])
+
 
 def testNumerciGCIntensive(env):
     if env.isCluster():
