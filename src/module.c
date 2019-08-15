@@ -815,30 +815,6 @@ int AlterIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       return RedisModule_ReplyWithError(ctx, "No fields provided");
     }
     IndexSpec_AddFields(sp, &ac, &status);
-  } else if (AC_AdvanceIfMatch(&ac, "ALIAS")) {
-    // Before doing anything, ensure that the index name we've received
-    // is in fact a real index, and not an alias itself:
-    IndexLoadOptions loadOpts = {.name = {.cstring = ixname}, .flags = INDEXSPEC_LOAD_NOALIAS};
-    IndexSpec *sptmp = IndexSpec_LoadEx(ctx, &loadOpts);
-    if (!sptmp) {
-      return RedisModule_ReplyWithError(ctx, "Unknown index name (or name is an alias itself");
-    } else {
-      RedisModule_CloseKey(loadOpts.keyp);
-    }
-
-    if (AC_AdvanceIfMatch(&ac, "ADD")) {
-      // Adding an alias
-      if (!AC_NumRemaining(&ac)) {
-        return RedisModule_ReplyWithError(ctx, "Missing alias!");
-      }
-      const char *alias = AC_GetStringNC(&ac, NULL);
-      IndexAlias_Add(alias, sp, 0, &status);
-    } else if (AC_AdvanceIfMatch(&ac, "DEL")) {
-      const char *alias = AC_GetStringNC(&ac, NULL);
-      IndexAlias_Del(alias, sp, 0, &status);
-    } else {
-      return RedisModule_ReplyWithError(ctx, "Unknown ALTER ALIAS subcommand");
-    }
   }
 
   if (QueryError_HasError(&status)) {
