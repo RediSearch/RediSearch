@@ -2096,6 +2096,10 @@ def testIssue621(env):
 
 # Server crash on doc names that conflict with index keys #666
 def testIssue666(env):
+    # We cannot reliably determine that any error will occur in cluster mode
+    # because of the key name
+    env.skipOnCluster()
+
     env.cmd('ft.create', 'foo', 'schema', 'bar', 'text')
     env.cmd('ft.add', 'foo', 'mydoc', 1, 'fields', 'bar', 'one two three')
 
