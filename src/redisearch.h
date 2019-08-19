@@ -134,7 +134,7 @@ typedef struct RSQueryExpanderCtx {
   struct QueryError *status;
 
   /* Private data of the extension, set on extension initialization or during expansion. If a Free
-   * calback is provided, it will be used automatically to free this data */
+   * callback is provided, it will be used automatically to free this data */
   void *privdata;
 
   /* The language of the query. Defaults to "english" */
@@ -330,7 +330,7 @@ typedef struct {
   /* Index statistics to be used by scoring functions */
   RSIndexStats indexStats;
 
-  /* The GetSlop() calback. Returns the cumulative "slop" or distance between the query terms,
+  /* The GetSlop() callback. Returns the cumulative "slop" or distance between the query terms,
    * that can be used to factor the result score */
   int (*GetSlop)(const RSIndexResult *res);
 } ScoringFunctionArgs;
