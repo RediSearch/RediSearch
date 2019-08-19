@@ -2132,6 +2132,8 @@ def testIssue666(env):
 # Could not connect to Redis at 127.0.0.1:6379: Connection refused
 
 def testPrefixDeletedExpansions(env):
+    env.skipOnCluster()
+
     env.cmd('ft.create', 'idx', 'schema', 'txt1', 'text', 'tag1', 'tag')
     # get the number of maximum expansions
     maxexpansions = int(env.cmd('ft.config', 'get', 'MAXEXPANSIONS')[0][1])
