@@ -20,10 +20,11 @@ static size_t serializeResult(QueryPlan *qex, SearchResult *r, RSSearchFlags fla
                               RedisModuleCtx *ctx) {
   size_t count = 0;
   RSDocumentMetadata *dmd = DocTable_Get(&qex->ctx->spec->docs, r->docId);
-  if (!dmd) {
+  if (!dmd && !(qex->opts.flags & Search_AggregationQuery)) {
     return 0;
   }
-  if (!(qex->opts.flags & Search_AggregationQuery)) {
+
+  if (!(qex->opts.flags & Search_AggregationQuery) && dmd) {
     size_t klen;
     const char *k = DMD_KeyPtrLen(dmd, &klen);
     count += 1;
@@ -37,14 +38,14 @@ static size_t serializeResult(QueryPlan *qex, SearchResult *r, RSSearchFlags fla
 
   if (flags & Search_WithPayloads) {
     ++count;
-    if (dmd->payload) {
+    if (dmd && dmd->payload) {
       RedisModule_ReplyWithStringBuffer(ctx, dmd->payload->data, dmd->payload->len);
     } else {
       RedisModule_ReplyWithNull(ctx);
     }
   }
 
-  if (flags & Search_WithSortKeys) {
+  if ((flags & Search_WithSortKeys) && dmd) {
     ++count;
     const RSValue *sortkey = RSSortingVector_Get(dmd->sortVector, qex->opts.sortBy);
     if (sortkey) {
