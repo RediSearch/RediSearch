@@ -8,14 +8,6 @@
  *   processors
  ******************************************************************************************************/
 
-#define FETCH_DMD()                                        \
-  ({                                                       \
-    if (!dmd) {                                            \
-      dmd = DocTable_Get(&qex->ctx->spec->docs, r->docId); \
-    }                                                      \
-    dmd;                                                   \
-  })
-
 static size_t serializeResult(QueryPlan *qex, SearchResult *r, RSSearchFlags flags,
                               RedisModuleCtx *ctx) {
   size_t count = 0;
