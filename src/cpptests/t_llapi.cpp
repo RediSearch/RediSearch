@@ -402,6 +402,8 @@ TEST_F(LLApiTest, testRangesOnTagsWithOneNode) {
   ASSERT_TRUE(id == NULL);
 
   RediSearch_ResultsIteratorFree(iter);
+
+  RediSearch_DropIndex(index);
 }
 
 static char buffer[1024];
