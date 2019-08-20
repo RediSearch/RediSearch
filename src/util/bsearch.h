@@ -55,13 +55,13 @@ static inline int rsb_gt(const void *arr, size_t narr, size_t elemsz, const void
     }
   }
   assert(begin == end);
-  if (begin != 0) {
+  if (begin != narr - 1) {
     return begin;  // we found what we was looking for!
   }
   size_t tmpidx = begin * elemsz;
   const void *p = ((const char *)arr) + tmpidx;
   int rc = cmp(s, p);
-  if (rc > 0) {
+  if (rc >= 0) {
     begin += 1;  // we could not find what we was looking for
   }
   return begin;
@@ -93,7 +93,7 @@ static inline int rsb_lt(const void *arr, size_t narr, size_t elemsz, const void
   size_t tmpidx = begin * elemsz;
   const void *p = ((const char *)arr) + tmpidx;
   int rc = cmp(s, p);
-  if (rc < 0) {
+  if (rc <= 0) {
     return begin -= 1;  // what we are looking for does not exists
   }
   return begin;

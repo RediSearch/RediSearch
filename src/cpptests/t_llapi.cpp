@@ -369,6 +369,41 @@ TEST_F(LLApiTest, testRangesOnTags) {
   RediSearch_DropIndex(index);
 }
 
+TEST_F(LLApiTest, testRangesOnTagsWithOneNode) {
+  RSIndex* index = RediSearch_CreateIndex("index", NULL);
+  RediSearch_CreateTagField(index, FIELD_NAME_1);
+
+  RSDoc* d = RediSearch_CreateDocument("doc1", strlen("doc1"), 0, NULL);
+  RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, "C", RSFLDTYPE_TAG);
+  RediSearch_SpecAddDocument(index, d);
+
+  // test with include max and min
+  RSQNode* tagQn = RediSearch_CreateTagNode(index, FIELD_NAME_1);
+  RSQNode* qn = RediSearch_CreateLexRangeNode(index, FIELD_NAME_1, "C", RSLECRANGE_INF, 0, 1);
+  RediSearch_QueryNodeAddChild(tagQn, qn);
+
+  RSResultsIterator* iter = RediSearch_GetResultsIterator(tagQn, index);
+
+  ASSERT_FALSE(NULL == iter);
+  size_t nid;
+  const char* id = (const char*)RediSearch_ResultsIteratorNext(iter, index, &nid);
+  ASSERT_TRUE(id == NULL);
+
+  RediSearch_ResultsIteratorFree(iter);
+
+  tagQn = RediSearch_CreateTagNode(index, FIELD_NAME_1);
+  qn = RediSearch_CreateLexRangeNode(index, FIELD_NAME_1, RSLECRANGE_INF, "C", 1, 0);
+  RediSearch_QueryNodeAddChild(tagQn, qn);
+
+  iter = RediSearch_GetResultsIterator(tagQn, index);
+
+  ASSERT_FALSE(NULL == iter);
+  id = (const char*)RediSearch_ResultsIteratorNext(iter, index, &nid);
+  ASSERT_TRUE(id == NULL);
+
+  RediSearch_ResultsIteratorFree(iter);
+}
+
 static char buffer[1024];
 
 static int GetValue(void* ctx, const char* fieldName, const void* id, char** strVal,
