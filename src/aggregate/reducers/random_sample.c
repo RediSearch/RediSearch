@@ -49,8 +49,6 @@ int sample_Finalize(void *ctx, const char *key, SearchResult *res) {
   memcpy(arr, sc->samples, top * sizeof(RSValue *));
 
   RSFieldMap_Set(&res->fields, key, RS_ArrVal(arr, top));
-  // set len to 0 so we won't try to free the values on destruction
-  sc->seen = 0;
   return 1;
 }
 

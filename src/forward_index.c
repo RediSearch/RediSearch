@@ -94,6 +94,7 @@ ForwardIndex *NewForwardIndex(Document *doc, uint32_t idxFlags) {
   size_t termCount = estimtateTermCount(doc);
   idx->hits = rm_calloc(1, sizeof(*idx->hits));
   idx->stemmer = NULL;
+  idx->smap = NULL;
   idx->totalFreq = 0;
 
   KHTable_Init(idx->hits, &procs, &idx->entries, termCount);
@@ -113,6 +114,9 @@ static void clearEntry(void *elem, void *pool) {
 }
 
 void ForwardIndex_Reset(ForwardIndex *idx, Document *doc, uint32_t idxFlags) {
+  if (idx->smap) {
+    SynonymMap_Free(idx->smap);
+  }
   BlkAlloc_Clear(&idx->terms, NULL, NULL, 0);
   BlkAlloc_Clear(&idx->entries, clearEntry, idx->vvwPool, sizeof(khIdxEntry));
   KHTable_Clear(idx->hits);
@@ -246,7 +250,8 @@ int forwardIndexTokenFunc(void *ctx, const Token *tokInfo) {
   if (tokInfo->phoneticsPrimary) {
     ForwardIndex_HandleToken(tokCtx->idx, tokInfo->phoneticsPrimary,
                              strlen(tokInfo->phoneticsPrimary), tokInfo->pos, tokCtx->fieldScore,
-                             tokCtx->fieldId, 0, 0, true);
+                             tokCtx->fieldId, 0, 1, true);
+    rm_free(tokInfo->phoneticsPrimary);
   }
 
   return 0;

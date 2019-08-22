@@ -170,7 +170,7 @@ char *strtolower(char *str) {
   return str;
 }
 
-static bool checkPhoneticAlgorithmAndLang(char *matcher) {
+static bool checkPhoneticAlgorithmAndLang(const char *matcher) {
   if (strlen(matcher) != 5) {
     return false;
   }
@@ -232,20 +232,19 @@ static int parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *s
       } else if (!strcasecmp(argv[*offset], SPEC_PHONETIC_STR)) {
         // phonetic with no matcher
         if (++*offset == argc) {
-          return 0;
+          goto error;
         }
         // try and parse the matcher
-        char *matcher = rm_strdup(argv[*offset]);
         // currently we just make sure algorithm is double metaphone (dm)
         // and language is one of the following : English (en), French (fr), Portuguese (pt) and
         // Spanish (es)
         // in the future we will support more algorithms and more languages
-        if (!checkPhoneticAlgorithmAndLang(matcher)) {
+        if (!checkPhoneticAlgorithmAndLang(argv[*offset])) {
           SET_ERR(err,
                   "Matcher Format: <2 chars algorithm>:<2 chars language>. Support algorithms: "
                   "double metaphone (dm). Supported languages: English (en), French (fr), "
                   "Portuguese (pt) and Spanish (es)");
-          return 0;
+          goto error;
         }
 
         sp->options |= FieldSpec_Phonetics;
@@ -394,6 +393,10 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, const char **argv, int arg
   return 1;
 
 reset:
+  for (int i = prevNumFields; i < sp->numFields; ++i) {
+    FieldSpec *fs = sp->fields + i;
+    rm_free(fs->name);
+  }
   sp->numFields = prevNumFields;
   sp->sortables->len = prevSortLen;
   return 0;

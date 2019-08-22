@@ -40,6 +40,7 @@ int Filter_Next(ResultProcessorCtx *ctx, SearchResult *res) {
         return RS_RESULT_OK;
       }
     }
+    SearchResult_FreeInternal(res);
   } while (1);
   return RS_RESULT_EOF;
 }

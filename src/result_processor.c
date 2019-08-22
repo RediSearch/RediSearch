@@ -608,7 +608,7 @@ static void loadExplicitFields(struct loaderCtx *lc, RedisSearchCtx *sctx, Redis
       RSSortingKey k = {.index = field->sortIndex};
       RSValue *v = RSSortingVector_Get(dmd->sortVector, &k);
       if (v) {
-        RSFieldMap_Set(&r->fields, field->name, RSValue_IncrRef(v));
+        RSFieldMap_Set(&r->fields, field->name, v);
         continue;
       }
     }

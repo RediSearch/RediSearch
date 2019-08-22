@@ -225,7 +225,7 @@ InvertedIndex *createIndex(int size, int idStep) {
     h.docId = id;
     h.fieldMask = 1;
     h.freq = 1;
-    h.term = "hello";
+    h.term = rm_strdup("hello");
     h.len = 5;
 
     h.vw = NewVarintVectorWriter(8);

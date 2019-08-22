@@ -71,6 +71,7 @@ static void Cursor_FreeInternal(Cursor *cur, khiter_t khi) {
     cur->sctx->redisCtx = NULL;
   }
   SearchCtx_Free(cur->sctx);
+  AggregateRequest_Free(cur->execState);
   rm_free(cur);
 }
 
