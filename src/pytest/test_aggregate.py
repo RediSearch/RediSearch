@@ -121,6 +121,7 @@ class TestAggregate():
         self.env.assertEqual(1461, int(row['count_distinctish(title)']))
 
     def testQuantile(self):
+        self.env.skipOnCluster()
         cmd = ['FT.AGGREGATE', 'games', '*',
                'GROUPBY', '1', '@brand',
                'REDUCE', 'QUANTILE', '2', '@price', '0.50', 'AS', 'q50',
