@@ -218,25 +218,25 @@ void Grouper_Free(Grouper *g) {
   }
   RSMultiKey_Free(g->keys);
 
-  free(g->reducers);
-  free(g);
+  rm_free(g->reducers);
+  rm_free(g);
 }
 // Free just frees up the processor. If left as NULL we simply use free()
 static void Grouper_FreeProcessor(struct resultProcessor *p) {
   Grouper *g = p->ctx.privdata;
   Grouper_Free(g);
-  free(p);
+  rm_free(p);
   // KHTable_FreeEx(&g->groups, NULL, gtGroupClean);
 }
 
 Grouper *NewGrouper(RSMultiKey *keys, RSSortingTable *tbl) {
-  Grouper *g = malloc(sizeof(*g));
+  Grouper *g = rm_malloc(sizeof(*g));
   BlkAlloc_Init(&g->groupsAlloc);
   g->groups = kh_init(khid);
   g->sortTable = tbl;
   g->keys = keys;
   g->capReducers = 2;
-  g->reducers = calloc(g->capReducers, sizeof(Reducer *));
+  g->reducers = rm_calloc(g->capReducers, sizeof(Reducer *));
   g->numReducers = 0;
   g->accumulating = 1;
   g->hasIter = 0;
@@ -257,7 +257,7 @@ void Grouper_AddReducer(Grouper *g, Reducer *r) {
   g->numReducers++;
   if (g->numReducers == g->capReducers) {
     g->capReducers *= 2;
-    g->reducers = realloc(g->reducers, g->capReducers * sizeof(Reducer *));
+    g->reducers = rm_realloc(g->reducers, g->capReducers * sizeof(Reducer *));
   }
   g->reducers[g->numReducers - 1] = r;
 }

@@ -9,9 +9,9 @@ int testTagIndexCreate() {
   // ASSERT_STRING_EQ(idx->)
   int N = 100000;
   char **v = array_newlen(char *, 3);
-  v[0] = strdup("hello");
-  v[1] = strdup("world");
-  v[2] = strdup("foo");
+  v[0] = rm_strdup("hello");
+  v[1] = rm_strdup("world");
+  v[2] = rm_strdup("foo");
   size_t totalSZ = 0;
   for (t_docId d = 1; d <= N; d++) {
     size_t sz = TagIndex_Index(idx, v, d);

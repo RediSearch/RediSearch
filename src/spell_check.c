@@ -19,7 +19,7 @@ int RS_SuggestionCompare(const void *val1, const void *val2) {
 }
 
 RS_Suggestion *RS_SuggestionCreate(char *suggestion, size_t len, double score) {
-  RS_Suggestion *res = calloc(1, sizeof(RS_Suggestion));
+  RS_Suggestion *res = rm_calloc(1, sizeof(RS_Suggestion));
   res->suggestion = suggestion;
   res->len = len;
   res->score = score;
@@ -27,13 +27,13 @@ RS_Suggestion *RS_SuggestionCreate(char *suggestion, size_t len, double score) {
 }
 
 static void RS_SuggestionFree(RS_Suggestion *suggestion) {
-  free(suggestion->suggestion);
-  free(suggestion);
+  rm_free(suggestion->suggestion);
+  rm_free(suggestion);
 }
 
 RS_Suggestions *RS_SuggestionsCreate() {
 #define SUGGESTIONS_ARRAY_INITIAL_SIZE 10
-  RS_Suggestions *ret = calloc(1, sizeof(RS_Suggestions));
+  RS_Suggestions *ret = rm_calloc(1, sizeof(RS_Suggestions));
   ret->suggestionsTrie = NewTrie();
   return ret;
 }
@@ -67,7 +67,7 @@ void RS_SuggestionsAdd(RS_Suggestions *s, char *term, size_t len, double score, 
 void RS_SuggestionsFree(RS_Suggestions *s) {
   //  array_free_ex(s->suggestions, RS_SuggestionFree(*(RS_Suggestion **)ptr));
   TrieType_Free(s->suggestionsTrie);
-  free(s);
+  rm_free(s);
 }
 
 /**
@@ -121,7 +121,7 @@ static bool SpellCheck_IsTermExistsInTrie(Trie *t, const char *term, size_t len,
     retVal = true;
   }
   DFAFilter_Free(it->ctx);
-  free(it->ctx);
+  rm_free(it->ctx);
   TrieIterator_Free(it);
   if (outScore) {
     *outScore = score;
@@ -148,10 +148,10 @@ static void SpellCheck_FindSuggestions(SpellCheckCtx *scCtx, Trie *t, const char
     if ((score = SpellCheck_GetScore(scCtx, res, suggestionLen, fieldMask)) != -1) {
       RS_SuggestionsAdd(s, res, suggestionLen, score, incr);
     }
-    free(res);
+    rm_free(res);
   }
   DFAFilter_Free(it->ctx);
-  free(it->ctx);
+  rm_free(it->ctx);
   TrieIterator_Free(it);
 }
 
@@ -168,7 +168,7 @@ RS_Suggestion **spellCheck_GetSuggestions(RS_Suggestions *s) {
     ret = array_append(ret, RS_SuggestionCreate(res, termLen, score));
   }
   DFAFilter_Free(iter->ctx);
-  free(iter->ctx);
+  rm_free(iter->ctx);
   TrieIterator_Free(iter);
   return ret;
 }
@@ -324,7 +324,7 @@ void SpellCheck_Reply(SpellCheckCtx *scCtx, QueryParseCtx *q) {
 
     switch (currNode->type) {
       case QN_PHRASE:
-        for (int i = currNode->pn.numChildren - 1 ; i >= 0 ; i--) {
+        for (int i = currNode->pn.numChildren - 1; i >= 0; i--) {
           nodes = array_append(nodes, currNode->pn.children[i]);
         }
         break;
@@ -344,14 +344,14 @@ void SpellCheck_Reply(SpellCheckCtx *scCtx, QueryParseCtx *q) {
         break;
 
       case QN_UNION:
-        for (int i = currNode->un.numChildren - 1 ; i >= 0; i--) {
+        for (int i = currNode->un.numChildren - 1; i >= 0; i--) {
           nodes = array_append(nodes, currNode->un.children[i]);
         }
         break;
 
       case QN_TAG:
         // todo: do we need to do enything here?
-        for (int i = currNode->tag.numChildren - 1; i >= 0 ; i--) {
+        for (int i = currNode->tag.numChildren - 1; i >= 0; i--) {
           nodes = array_append(nodes, currNode->tag.children[i]);
         }
         break;

@@ -30,7 +30,7 @@
     snprintf(buf, len, "Syntax error at offset %d near '%.*s'", TOKEN.pos, TOKEN.len, TOKEN.s);
     
     ctx->ok = 0;
-    ctx->errorMsg = strdup(buf);
+    ctx->errorMsg = rm_strdup(buf);
 }   
    
 %include {   
@@ -46,7 +46,7 @@
 
 // strndup + lowercase in one pass!
 char *strdupcase(const char *s, size_t len) {
-  char *ret = strndup(s, len);
+  char *ret = rm_strndup(s, len);
   char *dst = ret;
   char *src = dst;
   while (*src) {
@@ -115,10 +115,10 @@ static int one_not_null(void *a, void *b, void **out) {
 %destructor expr { QueryNode_Free($$); }
 
 %type attribute { QueryAttribute }
-%destructor attribute { free((char*)$$.value); }
+%destructor attribute { rm_free((char*)$$.value); }
 
 %type attribute_list {QueryAttribute *}
-%destructor attribute_list { array_free_ex($$, free((char*)((QueryAttribute*)ptr )->value)); }
+%destructor attribute_list { array_free_ex($$, rm_free((char*)((QueryAttribute*)ptr )->value)); }
 
 %type prefix { QueryNode * } 
 %destructor prefix { QueryNode_Free($$); }
@@ -144,7 +144,7 @@ static int one_not_null(void *a, void *b, void **out) {
     for (size_t i = 0; i < Vector_Size($$); i++) {
         char *s;
         Vector_Get($$, i, &s);
-        free(s);
+        rm_free(s);
     }
     Vector_Free($$); 
 }
@@ -261,7 +261,7 @@ expr(A) ::= modifierlist(B) COLON expr(C) . [MODIFIER] {
                 char *p;
                 Vector_Get(B, i, &p);
                 mask |= IndexSpec_GetFieldBit(ctx->sctx->spec, p, strlen(p)); 
-                free(p);
+                rm_free(p);
             }
         }
         QueryNode_SetFieldMask(C, mask);
@@ -280,7 +280,7 @@ expr(A) ::= LP expr(B) RP . {
 
 attribute(A) ::= ATTRIBUTE(B) COLON term(C). {
     
-    A = (QueryAttribute){ .name = B.s, .namelen = B.len, .value = strndup(C.s, C.len), .vallen = C.len };
+    A = (QueryAttribute){ .name = B.s, .namelen = B.len, .value = rm_strndup(C.s, C.len), .vallen = C.len };
 }
 
 attribute_list(A) ::= attribute(B) . {
@@ -309,7 +309,7 @@ expr(A) ::= expr(B) ARROW  LB attribute_list(C) RB . {
             ctx->errorMsg = err;
         }
     }
-    array_free_ex(C, free((char*)((QueryAttribute*)ptr )->value));
+    array_free_ex(C, rm_free((char*)((QueryAttribute*)ptr )->value));
     A = B;
 }
 
@@ -446,7 +446,7 @@ expr(A) ::= modifier(B) COLON tag_list(C) . {
         A= NULL;
     } else {
         // Tag field names must be case sensitive, we we can't do strdupcase
-        char *s = strndup(B.s, B.len);
+        char *s = rm_strndup(B.s, B.len);
         size_t slen = unescapen((char*)s, B.len);
 
         A = NewTagNode(s, slen);
@@ -499,7 +499,7 @@ tag_list(A) ::= tag_list(B) RB . [TAGLIST] {
 /////////////////////////////////////////////////////////////////
 expr(A) ::= modifier(B) COLON numeric_range(C). {
     // we keep the capitalization as is
-    C->fieldName = strndup(B.s, B.len);
+    C->fieldName = rm_strndup(B.s, B.len);
     A = NewNumericNode(C);
 }
 
@@ -513,7 +513,7 @@ numeric_range(A) ::= LSQB num(B) num(C) RSQB. [NUMBER] {
 
 expr(A) ::= modifier(B) COLON geo_filter(C). {
     // we keep the capitalization as is
-    C->property = strndup(B.s, B.len);
+    C->property = rm_strndup(B.s, B.len);
     A = NewGeofilterNode(C);
 }
 
@@ -522,7 +522,7 @@ geo_filter(A) ::= LSQB num(B) num(C) num(D) TERM(E) RSQB. [NUMBER] {
     char *err = NULL;
     if (!GeoFilter_IsValid(A, &err)) {
         ctx->ok = 0;
-        ctx->errorMsg = strdup(err);
+        ctx->errorMsg = rm_strdup(err);
     }
 }
 

@@ -26,7 +26,7 @@ double myScorer(RSScoringFunctionCtx *ctx, RSIndexResult *h, RSDocumentMetadata 
 }
 
 void myExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
-  ctx->ExpandToken(ctx, strdup("foo"), 3, 0x00ff);
+  ctx->ExpandToken(ctx, rm_strdup("foo"), 3, 0x00ff);
 }
 
 int numFreed = 0;
@@ -34,19 +34,19 @@ void myFreeFunc(void *p) {
   numFreed++;
   printf("Freeing %p %d\n", p, numFreed);
 
-  free(p);
+  rm_free(p);
 }
 
 /* Register the default extension */
 int myRegisterFunc(RSExtensionCtx *ctx) {
 
-  struct privdata *spd = malloc(sizeof(struct privdata));
+  struct privdata *spd = rm_malloc(sizeof(struct privdata));
   spd->freed = 0;
   if (ctx->RegisterScoringFunction("myScorer", myScorer, myFreeFunc, spd) == REDISEARCH_ERR) {
     return REDISEARCH_ERR;
   }
 
-  spd = malloc(sizeof(struct privdata));
+  spd = rm_malloc(sizeof(struct privdata));
   spd->freed = 0;
   /* Snowball Stemmer is the default expander */
   if (ctx->RegisterQueryExpander("myExpander", myExpander, myFreeFunc, spd) == REDISEARCH_ERR) {

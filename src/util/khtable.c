@@ -1,6 +1,7 @@
 #include "khtable.h"
 #include <stdlib.h>
 #include <string.h>
+#include "rmalloc.h"
 
 static uint32_t primes[] = {5ul,         11ul,        23ul,      47ul,       97ul,       199ul,
                             409ul,       823ul,       1741ul,    3469ul,     6949ul,     14033ul,
@@ -22,14 +23,14 @@ void KHTable_Init(KHTable *table, const KHTableProcs *procs, void *ctx, size_t e
     table->numBuckets = *p;
   }
 
-  table->buckets = calloc(sizeof(*table->buckets), table->numBuckets);
+  table->buckets = rm_calloc(sizeof(*table->buckets), table->numBuckets);
   table->numItems = 0;
   table->procs = *procs;
   table->alloc = ctx;
 }
 
 void KHTable_Free(KHTable *table) {
-  free(table->buckets);
+  rm_free(table->buckets);
 }
 
 void KHTable_Clear(KHTable *table) {
@@ -53,7 +54,7 @@ static int KHTable_Rehash(KHTable *table) {
 
   // printf("Rehashing %lu -> %lu\n", table->numBuckets, newCapacity);
 
-  KHTableEntry **newEntries = calloc(newCapacity, sizeof(*table->buckets));
+  KHTableEntry **newEntries = rm_calloc(newCapacity, sizeof(*table->buckets));
   for (size_t ii = 0; ii < table->numBuckets; ++ii) {
 
     KHTableEntry *cur = table->buckets[ii];
@@ -71,7 +72,7 @@ static int KHTable_Rehash(KHTable *table) {
     }
   }
 
-  free(table->buckets);
+  rm_free(table->buckets);
   table->buckets = newEntries;
   table->numBuckets = newCapacity;
 

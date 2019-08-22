@@ -18,3 +18,4 @@ ADD_DEPENDENCIES(test_extensions example_extension)
 SET_TESTS_PROPERTIES(test_extensions PROPERTIES
     ENVIRONMENT "EXT_TEST_PATH=$<TARGET_FILE:example_extension>"
 )
+

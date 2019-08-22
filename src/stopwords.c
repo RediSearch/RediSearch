@@ -62,7 +62,7 @@ StopWordList *NewStopWordListCStr(const char **strs, size_t len) {
 
   for (size_t i = 0; i < len; i++) {
 
-    char *t = strdup(strs[i]);
+    char *t = rm_strdup(strs[i]);
     if (t == NULL) {
       break;
     }
@@ -76,7 +76,7 @@ StopWordList *NewStopWordListCStr(const char **strs, size_t len) {
     }
     // printf("Adding stopword %s\n", t);
     TrieMap_Add(sl->m, t, tlen, NULL, NULL);
-    free(t);
+    rm_free(t);
   }
   return sl;
 }

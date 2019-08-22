@@ -2,6 +2,7 @@
 #include "config.h"
 #include "value.h"
 #include "aggregate/aggregate.h"
+#include "rmalloc.h"
 
 /******************************************************************************************************
  *   Query Plan - the actual binding context of the whole execution plan - from filters to
@@ -216,7 +217,7 @@ void QueryPlan_Free(QueryPlan *plan) {
   }
   if (plan->conc) {
     ConcurrentSearchCtx_Free(plan->conc);
-    free(plan->conc);
+    rm_free(plan->conc);
   }
   if (plan->preHook.privdata) {
     if (plan->preHook.free) plan->preHook.free(plan->preHook.privdata);
@@ -225,7 +226,7 @@ void QueryPlan_Free(QueryPlan *plan) {
     if (plan->postHook.free) plan->postHook.free(plan->postHook.privdata);
   }
 
-  free(plan);
+  rm_free(plan);
 }
 
 static int queryPlan_ValidateNode(QueryNode *node, QueryParseCtx *q, void *ctx) {
@@ -271,9 +272,9 @@ static int queryPlan_EvalQuery(QueryPlan *plan, QueryParseCtx *parsedQuery, RSSe
 QueryPlan *Query_BuildPlan(RedisSearchCtx *ctx, QueryParseCtx *parsedQuery, RSSearchOptions *opts,
                            ProcessorChainBuilder pcb, void *chainBuilderContext,
                            QueryError *status) {
-  QueryPlan *plan = calloc(1, sizeof(*plan));
+  QueryPlan *plan = rm_calloc(1, sizeof(*plan));
   plan->ctx = ctx;
-  plan->conc = opts->concurrentMode ? malloc(sizeof(*plan->conc)) : NULL;
+  plan->conc = opts->concurrentMode ? rm_malloc(sizeof(*plan->conc)) : NULL;
   plan->opts = opts ? *opts : RS_DEFAULT_SEARCHOPTS;
   if (plan->opts.timeoutMS == 0) {
     plan->opts.timeoutMS = RSGlobalConfig.queryTimeoutMS;

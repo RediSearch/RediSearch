@@ -58,18 +58,18 @@ static void UI_Rewind(void *ctx) {
 IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *dt, int quickExit,
                                 double weight) {
   // create union context
-  UnionContext *ctx = calloc(1, sizeof(UnionContext));
+  UnionContext *ctx = rm_calloc(1, sizeof(UnionContext));
   ctx->its = its;
   ctx->weight = weight;
   ctx->num = num;
   ctx->docTable = dt;
   ctx->atEnd = 0;
-  ctx->docIds = calloc(num, sizeof(t_docId));
+  ctx->docIds = rm_calloc(num, sizeof(t_docId));
   ctx->current = NewUnionResult(num, weight);
   ctx->len = 0;
   ctx->quickExit = quickExit;
   // bind the union iterator calls
-  IndexIterator *it = malloc(sizeof(IndexIterator));
+  IndexIterator *it = rm_malloc(sizeof(IndexIterator));
   it->ctx = ctx;
   it->LastDocId = UI_LastDocId;
   it->Current = UI_Current;
@@ -273,11 +273,11 @@ void UnionIterator_Free(IndexIterator *it) {
     }
   }
 
-  free(ui->docIds);
+  rm_free(ui->docIds);
   IndexResult_Free(ui->current);
-  free(ui->its);
-  free(ui);
-  free(it);
+  rm_free(ui->its);
+  rm_free(ui);
+  rm_free(it);
 }
 
 static size_t UI_Len(void *ctx) {
@@ -293,11 +293,11 @@ void IntersectIterator_Free(IndexIterator *it) {
     }
     // IndexResult_Free(&ui->currentHits[i]);
   }
-  free(ui->docIds);
+  rm_free(ui->docIds);
   IndexResult_Free(ui->current);
-  free(ui->its);
-  free(it->ctx);
-  free(it);
+  rm_free(ui->its);
+  rm_free(it->ctx);
+  rm_free(it);
 }
 
 static void II_Abort(void *ctx) {
@@ -327,7 +327,7 @@ static void II_Rewind(void *ctx) {
 IndexIterator *NewIntersecIterator(IndexIterator **its, int num, DocTable *dt,
                                    t_fieldMask fieldMask, int maxSlop, int inOrder, double weight) {
 
-  IntersectContext *ctx = calloc(1, sizeof(IntersectContext));
+  IntersectContext *ctx = rm_calloc(1, sizeof(IntersectContext));
   ctx->its = its;
   ctx->num = num;
   ctx->lastDocId = 0;
@@ -338,12 +338,12 @@ IndexIterator *NewIntersecIterator(IndexIterator **its, int num, DocTable *dt,
   ctx->fieldMask = fieldMask;
   ctx->atEnd = 0;
   ctx->weight = weight;
-  ctx->docIds = calloc(num, sizeof(t_docId));
+  ctx->docIds = rm_calloc(num, sizeof(t_docId));
   ctx->current = NewIntersectResult(num, weight);
   ctx->docTable = dt;
 
   // bind the iterator calls
-  IndexIterator *it = malloc(sizeof(IndexIterator));
+  IndexIterator *it = rm_malloc(sizeof(IndexIterator));
   it->ctx = ctx;
   it->LastDocId = II_LastDocId;
   it->Read = II_Read;
@@ -552,8 +552,8 @@ static void NI_Free(IndexIterator *it) {
     nc->child->Free(nc->child);
   }
   IndexResult_Free(nc->current);
-  free(it->ctx);
-  free(it);
+  rm_free(it->ctx);
+  rm_free(it);
 }
 
 /* SkipTo for NOT iterator. If we have a match - return NOTFOUND. If we don't or we're at the end -
@@ -682,7 +682,7 @@ static t_docId NI_LastDocId(void *ctx) {
 
 IndexIterator *NewNotIterator(IndexIterator *it, t_docId maxDocId, double weight) {
 
-  NotContext *nc = malloc(sizeof(*nc));
+  NotContext *nc = rm_malloc(sizeof(*nc));
   nc->current = NewVirtualResult(weight);
   nc->current->fieldMask = RS_FIELDMASK_ALL;
   nc->current->docId = 0;
@@ -692,7 +692,7 @@ IndexIterator *NewNotIterator(IndexIterator *it, t_docId maxDocId, double weight
   nc->len = 0;
   nc->weight = weight;
 
-  IndexIterator *ret = malloc(sizeof(*it));
+  IndexIterator *ret = rm_malloc(sizeof(*it));
   ret->ctx = nc;
   ret->Current = NI_Current;
   ret->Free = NI_Free;
@@ -717,8 +717,8 @@ static void OI_Free(IndexIterator *it) {
     nc->child->Free(nc->child);
   }
   IndexResult_Free(nc->virt);
-  free(it->ctx);
-  free(it);
+  rm_free(it->ctx);
+  rm_free(it);
 }
 
 /* SkipTo for NOT iterator. If we have a match - return NOTFOUND. If we don't or we're at the end -
@@ -815,7 +815,7 @@ static void OI_Rewind(void *ctx) {
 
 IndexIterator *NewOptionalIterator(IndexIterator *it, t_docId maxDocId, double weight) {
 
-  OptionalMatchContext *nc = malloc(sizeof(*nc));
+  OptionalMatchContext *nc = rm_malloc(sizeof(*nc));
   nc->virt = NewVirtualResult(weight);
   nc->virt->freq = 0;
   nc->virt->fieldMask = RS_FIELDMASK_ALL;
@@ -825,7 +825,7 @@ IndexIterator *NewOptionalIterator(IndexIterator *it, t_docId maxDocId, double w
   nc->maxDocId = maxDocId;
   nc->weight = weight;
 
-  IndexIterator *ret = malloc(sizeof(*ret));
+  IndexIterator *ret = rm_malloc(sizeof(*ret));
   ret->ctx = nc;
   ret->Current = OI_Current;
   ret->Free = OI_Free;
@@ -856,8 +856,8 @@ static void WI_Free(IndexIterator *it) {
 
   WildcardIteratorCtx *nc = it->ctx;
   IndexResult_Free(nc->res);
-  free(it->ctx);
-  free(it);
+  rm_free(it->ctx);
+  rm_free(it);
 }
 
 /* Read reads the next consecutive id, unless we're at the end */
@@ -930,14 +930,14 @@ static void WI_Rewind(void *p) {
 
 /* Create a new wildcard iterator */
 IndexIterator *NewWildcardIterator(t_docId maxId) {
-  WildcardIteratorCtx *c = malloc(sizeof(*c));
+  WildcardIteratorCtx *c = rm_malloc(sizeof(*c));
   c->current = 1;
   c->topId = maxId;
   c->res = NewVirtualResult(1);
   c->res->freq = 1;
   c->res->fieldMask = RS_FIELDMASK_ALL;
 
-  IndexIterator *ret = malloc(sizeof(*ret));
+  IndexIterator *ret = rm_malloc(sizeof(*ret));
   ret->ctx = c;
   ret->Current = WI_Current;
   ret->Free = WI_Free;

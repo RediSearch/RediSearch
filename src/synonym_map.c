@@ -55,7 +55,8 @@ static void TermData_RdbSave(RedisModuleIO* rdb, TermData* t_data) {
 
 static TermData* TermData_RdbLoad(RedisModuleIO* rdb) {
   char* term = RedisModule_LoadStringBuffer(rdb, NULL);
-  TermData* t_data = TermData_New(term);
+  TermData* t_data = TermData_New(rm_strdup(term));
+  RedisModule_Free(term);
   uint64_t ids_len = RedisModule_LoadUnsigned(rdb);
   for (int i = 0; i < ids_len; ++i) {
     uint64_t id = RedisModule_LoadUnsigned(rdb);
@@ -139,7 +140,7 @@ void SynonymMap_Update(SynonymMap* smap, const char** synonyms, size_t size, uin
     SynonymMap_Free(smap->read_only_copy);
     smap->read_only_copy = NULL;
   }
-  if(id >= smap->curr_id){
+  if (id >= smap->curr_id) {
     smap->curr_id = id + 1;
   }
 }

@@ -60,8 +60,8 @@ int testRangeIterator() {
   ASSERT(t != NULL);
 
   int N = 1000000;
-  double *lookup = calloc(N + 1, sizeof(double));
-  uint8_t *matched = calloc(N + 1, sizeof(uint8_t));
+  double *lookup = rm_calloc(N + 1, sizeof(double));
+  uint8_t *matched = rm_calloc(N + 1, sizeof(uint8_t));
   for (int i = 0; i < N; i++) {
 
     t_docId docId = i + 1;
@@ -131,8 +131,8 @@ int testRangeIterator() {
     ASSERT_EQUAL(xcount, count);
     it->Free(it);
   }
-  free(lookup);
-  free(matched);
+  rm_free(lookup);
+  rm_free(matched);
 
   ASSERT_EQUAL(t->numRanges, 145);
   ASSERT_EQUAL(t->numEntries, N);

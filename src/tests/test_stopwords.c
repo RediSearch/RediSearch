@@ -6,7 +6,8 @@ void RMUTil_InitAlloc();
 
 int testStopwordList() {
 
-  char *terms[] = {strdup("foo"), strdup("bar"), strdup("שלום"), strdup("Hello"), strdup("WORLD")};
+  char *terms[] = {rm_strdup("foo"), rm_strdup("bar"), rm_strdup("שלום"), rm_strdup("Hello"),
+                   rm_strdup("WORLD")};
   const char *test_terms[] = {"foo", "bar", "שלום", "hello", "world"};
 
   StopWordList *sl = NewStopWordListCStr((const char **)terms, sizeof(terms) / sizeof(char *));
@@ -22,7 +23,7 @@ int testStopwordList() {
 
   StopWordList_Free(sl);
   for (int i = 0; i < sizeof(terms) / sizeof(const char *); i++) {
-    free(terms[i]);
+    rm_free(terms[i]);
   }
   return 0;
 }

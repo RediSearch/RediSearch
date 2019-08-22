@@ -4,6 +4,7 @@
 #include <sys/param.h>
 #include <assert.h>
 #include "dep/snowball/include/libstemmer.h"
+#include "rmalloc.h"
 
 const char *__supportedLanguages[] = {"arabic",     "danish",   "dutch",     "english", "finnish",
                                       "french",     "german",   "hungarian", "italian", "norwegian",
@@ -45,7 +46,7 @@ const char *__sbstemmer_Stem(void *ctx, const char *word, size_t len, size_t *ou
     // make sure the expansion plus the 1 char prefix fit in our static buffer
     if (*outlen + 2 > stctx->cap) {
       stctx->cap = *outlen + 2;
-      stctx->buf = realloc(stctx->buf, stctx->cap);
+      stctx->buf = rm_realloc(stctx->buf, stctx->cap);
     }
     // the first location is saved for the + prefix
     memcpy(stctx->buf + 1, stemmed, *outlen + 1);
@@ -57,9 +58,9 @@ const char *__sbstemmer_Stem(void *ctx, const char *word, size_t len, size_t *ou
 void __sbstemmer_Free(Stemmer *s) {
   struct sbStemmerCtx *ctx = s->ctx;
   sb_stemmer_delete(ctx->sb);
-  free(ctx->buf);
-  free(ctx);
-  free(s);
+  rm_free(ctx->buf);
+  rm_free(ctx);
+  rm_free(s);
 }
 
 static int sbstemmer_Reset(Stemmer *stemmer, StemmerType type, const char *language) {
@@ -76,13 +77,13 @@ Stemmer *__newSnowballStemmer(const char *language) {
     return NULL;
   }
 
-  struct sbStemmerCtx *ctx = malloc(sizeof(*ctx));
+  struct sbStemmerCtx *ctx = rm_malloc(sizeof(*ctx));
   ctx->sb = sb;
   ctx->cap = 24;
-  ctx->buf = malloc(ctx->cap);
+  ctx->buf = rm_malloc(ctx->cap);
   ctx->buf[0] = STEM_PREFIX;
 
-  Stemmer *ret = malloc(sizeof(Stemmer));
+  Stemmer *ret = rm_malloc(sizeof(Stemmer));
   ret->ctx = ctx;
   ret->Stem = __sbstemmer_Stem;
   ret->Free = __sbstemmer_Free;

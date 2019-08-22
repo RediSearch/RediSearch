@@ -589,7 +589,7 @@ static DocumentIndexer *findDocumentIndexer(const char *specname) {
 // thread. This does not insert it into the list of threads, though
 // todo: remove the withIndexThread var once we switch to threadpool
 static DocumentIndexer *NewDocumentIndexer(const char *name, int options) {
-  DocumentIndexer *indexer = calloc(1, sizeof(*indexer));
+  DocumentIndexer *indexer = rm_calloc(1, sizeof(*indexer));
   indexer->options = options;
   indexer->head = indexer->tail = NULL;
 
@@ -604,7 +604,7 @@ static DocumentIndexer *NewDocumentIndexer(const char *name, int options) {
     static pthread_t dummyThr;
     pthread_create(&dummyThr, NULL, Indexer_Run, indexer);
   }
-  indexer->name = strdup(name);
+  indexer->name = rm_strdup(name);
   indexer->next = NULL;
   indexer->redisCtx = RedisModule_GetThreadSafeContext(NULL);
   indexer->specKeyName =

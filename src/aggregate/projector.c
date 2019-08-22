@@ -16,7 +16,7 @@ typedef struct {
 } ProjectorCtx;
 
 static ProjectorCtx *NewProjectorCtx(const char *alias) {
-  ProjectorCtx *ret = malloc(sizeof(*ret));
+  ProjectorCtx *ret = rm_malloc(sizeof(*ret));
   ret->alias = alias;
   return ret;
 }
@@ -26,8 +26,8 @@ void Projector_Free(ResultProcessor *p) {
 
   RSFunctionEvalCtx_Free(pc->ctx.fctx);
   RSExpr_Free(pc->exp);
-  free(pc);
-  free(p);
+  rm_free(pc);
+  rm_free(p);
 }
 
 int Projector_Next(ResultProcessorCtx *ctx, SearchResult *res) {
@@ -60,7 +60,7 @@ ResultProcessor *NewProjector(RedisSearchCtx *sctx, ResultProcessor *upstream, c
   ctx->exp = RSExpr_Parse(expr, len, &status->detail);
   QueryError_MaybeSetCode(status, QUERY_EEXPR);
   if (!ctx->exp) {
-    free(ctx);
+    rm_free(ctx);
     return NULL;
   }
   ResultProcessor *proc = NewResultProcessor(upstream, ctx);

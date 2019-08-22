@@ -5,6 +5,7 @@
 #include "alloc.h"
 
 #include "sds.h"
+#include "rmalloc.h"
 
 // RedisModuleString *RMUtil_CreateFormattedString(RedisModuleCtx *ctx, const char *fmt, ...) {
 //     sds s = sdsempty();
@@ -74,7 +75,7 @@ void RMUtil_StringConvert(RedisModuleString **rs, const char **ss, size_t n, int
   for (size_t ii = 0; ii < n; ++ii) {
     const char *p = RedisModule_StringPtrLen(rs[ii], NULL);
     if (options & RMUTIL_STRINGCONVERT_COPY) {
-      p = strdup(p);
+      p = rm_strdup(p);
     }
     ss[ii] = p;
   }

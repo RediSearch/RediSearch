@@ -1,6 +1,7 @@
 #include "test_util.h"
 #include <result_processor.h>
 #include <query.h>
+#include "../rmutil/alloc.h"
 
 struct processor1Ctx {
   int counter;
@@ -35,8 +36,8 @@ int p2_Next(ResultProcessorCtx *ctx, SearchResult *res) {
 static int numFreed = 0;
 
 static void resultProcessor_GenericFree(ResultProcessor *rp) {
-  free(rp->ctx.privdata);
-  free(rp);
+  rm_free(rp->ctx.privdata);
+  rm_free(rp);
   numFreed++;
 }
 
@@ -44,7 +45,7 @@ int testProcessorChain() {
 
   QueryProcessingCtx pc = {};
 
-  struct processor1Ctx *p = malloc(sizeof(*p));
+  struct processor1Ctx *p = rm_malloc(sizeof(*p));
   p->counter = 0;
   ResultProcessor *p1 = NewResultProcessor(NULL, p);
   p1->ctx.qxc = &pc;
@@ -87,4 +88,7 @@ int testProcessorChain() {
   RETURN_TEST_SUCCESS;
 }
 
-TEST_MAIN({ TESTFUNC(testProcessorChain); })
+TEST_MAIN({
+  RMUTil_InitAlloc();
+  TESTFUNC(testProcessorChain);
+})

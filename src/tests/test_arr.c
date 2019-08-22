@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include "test_util.h"
 #include <util/arr.h>
+#include "../rmutil/alloc.h"
 
 typedef struct {
   int x;
@@ -77,6 +78,7 @@ int testTrimm() {
 }
 
 TEST_MAIN({
+  RMUTil_InitAlloc();
   TESTFUNC(testStruct);
   TESTFUNC(testStrings);
   TESTFUNC(testScalar);

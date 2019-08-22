@@ -3,6 +3,7 @@
 #include <aggregate/expr/expression.h>
 #include <aggregate/functions/function.h>
 #include <util/arr.h>
+#include "../rmutil/alloc.h"
 
 int testExpr() {
 
@@ -207,6 +208,7 @@ int testPropertyFetch() {
   RETURN_TEST_SUCCESS;
 }
 TEST_MAIN({
+  RMUTil_InitAlloc();
   TESTFUNC(testNull);
   TESTFUNC(testPredicate);
   TESTFUNC(testExpr);
@@ -214,5 +216,4 @@ TEST_MAIN({
   TESTFUNC(testFunction);
   TESTFUNC(testPropertyFetch);
   TESTFUNC(testGetFields);
-
 });

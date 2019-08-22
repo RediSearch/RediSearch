@@ -2,13 +2,14 @@
 #include "dep/phonetics/double_metaphone.h"
 #include <string.h>
 #include <stdlib.h>
+#include "rmalloc.h"
 
 static void PhoneticManager_AddPrefix(char** phoneticTerm) {
   if (!phoneticTerm || !(*phoneticTerm)) {
     return;
   }
   size_t len = strlen(*phoneticTerm) + 1;
-  *phoneticTerm = realloc(*phoneticTerm, sizeof(char*) * (len + 1));
+  *phoneticTerm = rm_realloc(*phoneticTerm, sizeof(char*) * (len + 1));
   memmove((*phoneticTerm) + 1, *phoneticTerm, len);
   *phoneticTerm[0] = PHONETIC_PREFIX;
 }

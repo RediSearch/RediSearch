@@ -240,7 +240,7 @@ static void summarizeField(IndexSpec *spec, const ReturnedField *fieldInfo, cons
 
 static void resetIovsArr(Array **iovsArrp, size_t *curSize, size_t newSize) {
   if (*curSize < newSize) {
-    *iovsArrp = realloc(*iovsArrp, sizeof(**iovsArrp) * newSize);
+    *iovsArrp = rm_realloc(*iovsArrp, sizeof(**iovsArrp) * newSize);
   }
   for (size_t ii = 0; ii < *curSize; ++ii) {
     Array_Resize((*iovsArrp) + ii, 0);
@@ -328,12 +328,12 @@ static int hlp_Next(ResultProcessorCtx *ctx, SearchResult *r) {
   for (size_t ii = 0; ii < numIovsArr; ++ii) {
     Array_Free(&docParams.iovsArr[ii]);
   }
-  free(docParams.iovsArr);
+  rm_free(docParams.iovsArr);
   return RS_RESULT_OK;
 }
 
 ResultProcessor *NewHighlightProcessor(ResultProcessor *parent, RSSearchRequest *req) {
-  hlpContext *hlpCtx = calloc(1, sizeof(*hlpCtx));
+  hlpContext *hlpCtx = rm_calloc(1, sizeof(*hlpCtx));
   hlpCtx->fields = &req->opts.fields;
   if (req->opts.language && strcasecmp(req->opts.language, "chinese") == 0) {
     hlpCtx->fragmentizeOptions = FRAGMENTIZE_TOKLEN_EXACT;

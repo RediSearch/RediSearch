@@ -3,6 +3,7 @@
 #include <sys/param.h>
 #include <stdio.h>
 #include <pthread.h>
+#include "rmalloc.h"
 
 typedef struct mempool_t {
   void **entries;
@@ -20,8 +21,8 @@ mempool_t *mempool_new(size_t cap, mempool_alloc_fn alloc, mempool_free_fn freef
 
 mempool_t *mempool_new_limited(size_t cap, size_t max, mempool_alloc_fn alloc,
                                mempool_free_fn free) {
-  mempool_t *p = malloc(sizeof(mempool_t));
-  p->entries = calloc(cap, sizeof(void *));
+  mempool_t *p = rm_malloc(sizeof(mempool_t));
+  p->entries = rm_calloc(cap, sizeof(void *));
   p->alloc = alloc;
   p->free = free;
   p->cap = cap;
@@ -51,7 +52,7 @@ inline void mempool_release(mempool_t *p, void *ptr) {
     }
     // grow the pool
     p->cap += p->cap ? MIN(p->cap, 1024) : 1;
-    p->entries = realloc(p->entries, p->cap * sizeof(void *));
+    p->entries = rm_realloc(p->entries, p->cap * sizeof(void *));
   }
   p->entries[p->top++] = ptr;
 }
@@ -60,6 +61,6 @@ void mempool_destroy(mempool_t *p) {
   for (size_t i = 0; i < p->top; i++) {
     p->free(p->entries[i]);
   }
-  free(p->entries);
-  free(p);
+  rm_free(p->entries);
+  rm_free(p);
 }

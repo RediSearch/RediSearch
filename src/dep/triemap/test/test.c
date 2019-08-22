@@ -12,7 +12,7 @@ void testTrie() {
 
   for (int i = 0; i < 100; i++) {
     sprintf(buf, "key%d", i);
-    int *pi = malloc(sizeof(int));
+    int *pi = rm_malloc(sizeof(int));
     *pi = i;
     int rc = TrieMap_Add(tm, buf, strlen(buf), NULL, NULL);
     mu_check(rc);
@@ -22,7 +22,7 @@ void testTrie() {
   mu_assert_int_eq(100, tm->cardinality);
 
   // check insertion of empty node
-  int *empty = malloc(sizeof(int));
+  int *empty = rm_malloc(sizeof(int));
   *empty = 1337;
   mu_check(1 == TrieMap_Add(tm, "", 0, NULL, NULL));
   mu_assert_int_eq(101, tm->cardinality);
@@ -64,7 +64,7 @@ void testTrieIterator() {
 
   for (int i = 0; i < 100; i++) {
     sprintf(buf, "key%d", i);
-    int *pi = malloc(sizeof(int));
+    int *pi = rm_malloc(sizeof(int));
     *pi = i;
     TrieMap_Add(tm, buf, strlen(buf), pi, NULL);
   }
@@ -121,7 +121,7 @@ void testRandomWalk() {
 
   for (int i = 0; i < N; i++) {
     sprintf(buf, "key%d", i);
-    TrieMap_Add(tm, buf, strlen(buf), strdup(buf), NULL);
+    TrieMap_Add(tm, buf, strlen(buf), rm_strdup(buf), NULL);
   }
   char *sbuf;
   tm_len_t len;
@@ -131,7 +131,7 @@ void testRandomWalk() {
     mu_check(rc);
     mu_check(ptr);
 
-    free(sbuf);
+    rm_free(sbuf);
   }
 
   for (int i = 1; i < 9; i++) {
@@ -163,7 +163,7 @@ void testRandom() {
       buf[j] = rand() % 255;
     }
 
-    int *pi = malloc(sizeof(int));
+    int *pi = rm_malloc(sizeof(int));
     *pi = i + 1;
     TrieMap_Add(tm, buf, n, pi, NULL);
     // if (i % 1000 == 0) printf("%d\n", i);

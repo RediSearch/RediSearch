@@ -43,12 +43,12 @@ void _ovi_free(void *ctx) {
 }
 
 void *newOffsetIterator() {
-  return malloc(sizeof(_RSOffsetVectorIterator));
+  return rm_malloc(sizeof(_RSOffsetVectorIterator));
 }
 /* Create an offset iterator interface  from a raw offset vector */
 RSOffsetIterator _offsetVector_iterate(RSOffsetVector *v, RSQueryTerm *t) {
   if (!__offsetIters) {
-    __offsetIters = mempool_new(8, newOffsetIterator, free);
+    __offsetIters = mempool_new(8, newOffsetIterator, rm_free);
   }
   _RSOffsetVectorIterator *it = mempool_get(__offsetIters);
   it->buf = (Buffer){.data = v->data, .offset = v->len, .cap = v->len};
@@ -65,7 +65,7 @@ void _aoi_Free(void *ctx);
 void _aoi_Rewind(void *ctx);
 
 void *_newAggregateIter() {
-  _RSAggregateOffsetIterator *it = malloc(sizeof(_RSAggregateOffsetIterator));
+  _RSAggregateOffsetIterator *it = rm_malloc(sizeof(_RSAggregateOffsetIterator));
   it->size = 0;
   it->offsets = NULL;
   it->iters = NULL;
@@ -75,19 +75,19 @@ void *_newAggregateIter() {
 /* Create an iterator from the aggregate offset iterators of the aggregate result */
 RSOffsetIterator _aggregateResult_iterate(RSAggregateResult *agg) {
   if (!__aggregateIters) {
-    __aggregateIters = mempool_new(8, _newAggregateIter, free);
+    __aggregateIters = mempool_new(8, _newAggregateIter, rm_free);
   }
   _RSAggregateOffsetIterator *it = mempool_get(__aggregateIters);
   it->res = agg;
 
   if (agg->numChildren > it->size) {
     it->size = agg->numChildren;
-    free(it->iters);
-    free(it->offsets);
-    free(it->terms);
-    it->iters = calloc(agg->numChildren, sizeof(RSOffsetIterator));
-    it->offsets = calloc(agg->numChildren, sizeof(uint32_t));
-    it->terms = calloc(agg->numChildren, sizeof(RSQueryTerm *));
+    rm_free(it->iters);
+    rm_free(it->offsets);
+    rm_free(it->terms);
+    it->iters = rm_calloc(agg->numChildren, sizeof(RSOffsetIterator));
+    it->offsets = rm_calloc(agg->numChildren, sizeof(uint32_t));
+    it->terms = rm_calloc(agg->numChildren, sizeof(RSQueryTerm *));
   }
 
   for (int i = 0; i < agg->numChildren; i++) {

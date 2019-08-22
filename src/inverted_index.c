@@ -53,7 +53,7 @@ InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock) {
 void indexBlock_Free(IndexBlock *blk) {
   if (blk->data) {
     Buffer_Free(blk->data);
-    free(blk->data);
+    rm_free(blk->data);
   }
 }
 

@@ -336,17 +336,17 @@ int ReadConfig(RedisModuleString **argv, int argc, char **err) {
     const char *name = RedisModule_StringPtrLen(argv[offset], NULL);
     RSConfigVar *curVar = findConfigVar(&RSGlobalConfigOptions, name);
     if (curVar == NULL) {
-      asprintf(err, "No such configuration option `%s`", name);
+      rm_asprintf(err, "No such configuration option `%s`", name);
       return REDISMODULE_ERR;
     }
     if (curVar->setValue == NULL) {
-      asprintf(err, "%s: Option is read-only", name);
+      rm_asprintf(err, "%s: Option is read-only", name);
       return REDISMODULE_ERR;
     }
 
     offset++;
     if (curVar->setValue(&RSGlobalConfig, argv, argc, &offset) != REDISMODULE_OK) {
-      asprintf(err, "%s: Bad value", name);
+      rm_asprintf(err, "%s: Bad value", name);
       return REDISMODULE_ERR;
     }
     // Mark the option as having been modified

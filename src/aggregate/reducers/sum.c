@@ -9,7 +9,8 @@ struct sumCtx {
 };
 
 void *sum_NewInstance(ReducerCtx *rctx) {
-  struct sumCtx *ctx = ReducerCtx_Alloc(rctx, sizeof(*ctx), 100*sizeof(*ctx));  // malloc(sizeof(*ctr));
+  struct sumCtx *ctx =
+      ReducerCtx_Alloc(rctx, sizeof(*ctx), 100 * sizeof(*ctx));  // malloc(sizeof(*ctr));
   ctx->count = 0;
   ctx->total = 0;
   ctx->sortables = SEARCH_CTX_SORTABLES(rctx->ctx);
@@ -52,12 +53,12 @@ int sum_Finalize(void *ctx, const char *key, SearchResult *res) {
 
 void sum_FreeInstance(void *p) {
   struct sumCtx *c = p;
-  free(c);
+  rm_free(c);
 }
 
-static int sentinel =  0;
+static int sentinel = 0;
 Reducer *newSumCommon(RedisSearchCtx *ctx, const char *property, const char *alias, int isAvg) {
-  Reducer *r = malloc(sizeof(*r));
+  Reducer *r = rm_malloc(sizeof(*r));
   r->Add = sum_Add;
   r->Finalize = sum_Finalize;
   r->Free = Reducer_GenericFreeWithStaticPrivdata;

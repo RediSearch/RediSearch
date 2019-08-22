@@ -1,5 +1,6 @@
 #include "query_error.h"
 #include <assert.h>
+#include "rmalloc.h"
 
 void QueryError_FmtUnknownArg(QueryError *err, ArgsCursor *ac, const char *name) {
   assert(!AC_IsAtEnd(ac));
@@ -35,9 +36,9 @@ void QueryError_SetError(QueryError *status, QueryErrorCode code, const char *er
   status->code = code;
 
   if (err) {
-    status->detail = strdup(err);
+    status->detail = rm_strdup(err);
   } else {
-    status->detail = strdup(QueryError_Strerror(code));
+    status->detail = rm_strdup(QueryError_Strerror(code));
   }
 }
 
@@ -49,7 +50,7 @@ void QueryError_SetCode(QueryError *status, QueryErrorCode code) {
 
 void QueryError_ClearError(QueryError *err) {
   if (err->detail) {
-    free(err->detail);
+    rm_free(err->detail);
     err->detail = NULL;
   }
   err->code = QUERY_OK;
@@ -61,7 +62,7 @@ void QueryError_SetErrorFmt(QueryError *status, QueryErrorCode code, const char 
   }
   va_list ap;
   va_start(ap, fmt);
-  vasprintf(&status->detail, fmt, ap);
+  rm_vasprintf(&status->detail, fmt, ap);
   va_end(ap);
   status->code = code;
 }

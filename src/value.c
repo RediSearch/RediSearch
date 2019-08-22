@@ -1,6 +1,7 @@
 #include "value.h"
 #include "util/mempool.h"
 #include <pthread.h>
+#include "rmalloc.h"
 
 ///////////////////////////////////////////////////////////////
 // Variant Values - will be used in documents as well
@@ -15,17 +16,17 @@ static void mempoolThreadPoolDtor(void *p) {
   mempoolThreadPool *tp = p;
   mempool_destroy(tp->values);
   mempool_destroy(tp->fieldmaps);
-  free(tp);
+  rm_free(tp);
 }
 
 pthread_key_t mempoolKey_g;
 
 static void *_valueAlloc() {
-  return malloc(sizeof(RSValue));
+  return rm_malloc(sizeof(RSValue));
 }
 
 static void _valueFree(void *p) {
-  free(p);
+  rm_free(p);
 }
 
 /* The byte size of the field map */
@@ -34,7 +35,7 @@ static inline size_t RSFieldMap_SizeOf(uint16_t cap) {
 }
 
 void *_fieldMapAlloc() {
-  RSFieldMap *ret = calloc(1, RSFieldMap_SizeOf(8));
+  RSFieldMap *ret = rm_calloc(1, RSFieldMap_SizeOf(8));
   ret->cap = 8;
   return ret;
 }
@@ -46,9 +47,9 @@ static void __attribute__((constructor)) initKey() {
 static inline mempoolThreadPool *getPoolInfo() {
   mempoolThreadPool *tp = pthread_getspecific(mempoolKey_g);
   if (tp == NULL) {
-    tp = calloc(1, sizeof(*tp));
+    tp = rm_calloc(1, sizeof(*tp));
     tp->values = mempool_new_limited(1000, 0, _valueAlloc, _valueFree);
-    tp->fieldmaps = mempool_new_limited(100, 1000, _fieldMapAlloc, free);
+    tp->fieldmaps = mempool_new_limited(100, 1000, _fieldMapAlloc, rm_free);
     pthread_setspecific(mempoolKey_g, tp);
   }
   return tp;
@@ -74,10 +75,10 @@ inline void RSValue_Free(RSValue *v) {
         // free strings by allocation strategy
         switch (v->strval.stype) {
           case RSString_Malloc:
-            free(v->strval.str);
+            rm_free(v->strval.str);
             break;
           case RSString_RMAlloc:
-            RedisModule_Free(v->strval.str);
+            rm_free(v->strval.str);
             break;
           case RSString_SDS:
             sdsfree(v->strval.str);
@@ -91,7 +92,7 @@ inline void RSValue_Free(RSValue *v) {
         for (uint32_t i = 0; i < v->arrval.len; i++) {
           RSValue_Free(v->arrval.vals[i]);
         }
-        if (v->allocated) free(v->arrval.vals);
+        if (v->allocated) rm_free(v->arrval.vals);
         break;
       case RSValue_Reference:
         RSValue_Free(v->ref);
@@ -129,7 +130,7 @@ inline void RSValue_SetString(RSValue *v, char *str, size_t len) {
 
 RSValue *RS_NewCopiedString(const char *s, size_t n) {
   RSValue *v = RS_NewValue(RSValue_String);
-  char *cp = malloc(n + 1);
+  char *cp = rm_malloc(n + 1);
   cp[n] = 0;
   memcpy(cp, s, n);
   RSValue_SetString(v, cp, n);
@@ -184,7 +185,7 @@ RSValue *RS_StringValFmt(const char *fmt, ...) {
   char *buf;
   va_list ap;
   va_start(ap, fmt);
-  vasprintf(&buf, fmt, ap);
+  rm_vasprintf(&buf, fmt, ap);
   va_end(ap);
   return RS_StringVal(buf, strlen(buf));
 }
@@ -215,7 +216,7 @@ void RSValue_ToString(RSValue *dst, RSValue *v) {
     }
     case RSValue_Number: {
       char *str;
-      asprintf(&str, "%.12g", v->numval);
+      rm_asprintf(&str, "%.12g", v->numval);
       RSValue_SetString(dst, str, strlen(str));
       break;
     }
@@ -369,7 +370,7 @@ inline RSValue *RS_ArrVal(RSValue **vals, uint32_t len) {
 }
 
 RSValue *RS_VStringArray(uint32_t sz, ...) {
-  RSValue **arr = calloc(sz, sizeof(*arr));
+  RSValue **arr = rm_calloc(sz, sizeof(*arr));
   va_list ap;
   va_start(ap, sz);
   for (uint32_t i = 0; i < sz; i++) {
@@ -382,7 +383,7 @@ RSValue *RS_VStringArray(uint32_t sz, ...) {
 
 /* Wrap an array of NULL terminated C strings into an RSValue array */
 RSValue *RS_StringArray(char **strs, uint32_t sz) {
-  RSValue **arr = calloc(sz, sizeof(RSValue *));
+  RSValue **arr = rm_calloc(sz, sizeof(RSValue *));
 
   for (uint32_t i = 0; i < sz; i++) {
     arr[i] = RS_StringValC(strs[i]);
@@ -391,7 +392,7 @@ RSValue *RS_StringArray(char **strs, uint32_t sz) {
 }
 
 RSValue *RS_StringArrayT(char **strs, uint32_t sz, RSStringType st) {
-  RSValue **arr = calloc(sz, sizeof(RSValue *));
+  RSValue **arr = rm_calloc(sz, sizeof(RSValue *));
 
   for (uint32_t i = 0; i < sz; i++) {
     arr[i] = RS_StringValT(strs[i], strlen(strs[i]), st);
@@ -415,7 +416,7 @@ RSValue *RS_NewValueFromCmdArg(CmdArg *arg) {
     case CmdArg_Flag:
       return RS_NumVal((double)CMDARG_BOOL(arg));
     case CmdArg_Array: {
-      RSValue **vals = calloc(CMDARG_ARRLEN(arg), sizeof(*vals));
+      RSValue **vals = rm_calloc(CMDARG_ARRLEN(arg), sizeof(*vals));
       for (size_t i = 0; i < CMDARG_ARRLEN(arg); ++i) {
         vals[i] = RS_NewValueFromCmdArg(CMDARG_ARRELEM(arg, i));
       }
@@ -560,14 +561,14 @@ void RSValue_Print(RSValue *v) {
 }
 
 RSMultiKey *RS_NewMultiKey(uint16_t len) {
-  RSMultiKey *ret = calloc(1, sizeof(RSMultiKey) + len * sizeof(RSKey));
+  RSMultiKey *ret = rm_calloc(1, sizeof(RSMultiKey) + len * sizeof(RSKey));
   ret->len = len;
   ret->keysAllocated = 0;
   return ret;
 }
 
 RSMultiKey *RS_NewMultiKeyVariadic(int len, ...) {
-  RSMultiKey *ret = calloc(1, sizeof(RSMultiKey) + len * sizeof(RSKey));
+  RSMultiKey *ret = rm_calloc(1, sizeof(RSMultiKey) + len * sizeof(RSKey));
   ret->len = len;
   ret->keysAllocated = 0;
   va_list ap;
@@ -588,7 +589,7 @@ RSMultiKey *RS_NewMultiKeyFromArgs(CmdArray *arr, int allowCaching, int duplicat
     assert(CMDARRAY_ELEMENT(arr, i)->type == CmdArg_String);
     ret->keys[i] = RS_KEY(RSKEY(CMDARG_STRPTR(CMDARRAY_ELEMENT(arr, i))));
     if (duplicateStrings) {
-      ret->keys[i].key = strdup(ret->keys[i].key);
+      ret->keys[i].key = rm_strdup(ret->keys[i].key);
     }
   }
   return ret;
@@ -599,7 +600,7 @@ RSMultiKey *RSMultiKey_Copy(RSMultiKey *k, int copyKeys) {
   ret->keysAllocated = copyKeys;
 
   for (size_t i = 0; i < k->len; i++) {
-    ret->keys[i] = RS_KEY(copyKeys ? strdup(k->keys[i].key) : k->keys[i].key);
+    ret->keys[i] = RS_KEY(copyKeys ? rm_strdup(k->keys[i].key) : k->keys[i].key);
   }
   return ret;
 }
@@ -607,10 +608,10 @@ RSMultiKey *RSMultiKey_Copy(RSMultiKey *k, int copyKeys) {
 void RSMultiKey_Free(RSMultiKey *k) {
   if (k->keysAllocated) {
     for (size_t i = 0; i < k->len; i++) {
-      free((char *)k->keys[i].key);
+      rm_free((char *)k->keys[i].key);
     }
   }
-  free(k);
+  rm_free(k);
 }
 
 /* Create new KV field */
@@ -638,7 +639,7 @@ void RSFieldMap_EnsureCap(RSFieldMap **m) {
   }
   if ((*m)->len + 1 >= (*m)->cap) {
     (*m)->cap = MIN((*m)->cap * 2, UINT16_MAX);
-    *m = realloc(*m, RSFieldMap_SizeOf((*m)->cap));
+    *m = rm_realloc(*m, RSFieldMap_SizeOf((*m)->cap));
   }
 }
 
@@ -702,7 +703,7 @@ void RSFieldMap_Reset(RSFieldMap *m) {
     for (size_t i = 0; i < m->len; i++) {
       RSValue_Free(m->fields[i].val);
       if (m->fields[i].isKeyAlloc) {
-        free(m->fields[i].key);
+        rm_free(m->fields[i].key);
       }
     }
     m->len = 0;

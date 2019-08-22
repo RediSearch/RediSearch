@@ -3,6 +3,7 @@
 #include <unistd.h>
 #include <util/arr.h>
 #include <assert.h>
+#include "rmalloc.h"
 
 static threadpool *threadpools_g = NULL;
 
@@ -70,8 +71,8 @@ static void threadHandleCommand(void *p) {
   }
 
   RedisModule_UnblockClient(ctx->bc, NULL);
-  free(ctx->argv);
-  free(p);
+  rm_free(ctx->argv);
+  rm_free(p);
 }
 
 void ConcurrentCmdCtx_KeepRedisCtx(ConcurrentCmdCtx *cctx) {
@@ -80,7 +81,7 @@ void ConcurrentCmdCtx_KeepRedisCtx(ConcurrentCmdCtx *cctx) {
 
 int ConcurrentSearch_HandleRedisCommandEx(int poolType, int options, ConcurrentCmdHandler handler,
                                           RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  ConcurrentCmdCtx *cmdCtx = malloc(sizeof(*cmdCtx));
+  ConcurrentCmdCtx *cmdCtx = rm_malloc(sizeof(*cmdCtx));
   cmdCtx->bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
   cmdCtx->argc = argc;
   cmdCtx->ctx = RedisModule_GetThreadSafeContext(cmdCtx->bc);
@@ -88,7 +89,7 @@ int ConcurrentSearch_HandleRedisCommandEx(int poolType, int options, ConcurrentC
   cmdCtx->handler = handler;
   cmdCtx->options = options;
   // Copy command arguments so they can be released by the calling thread
-  cmdCtx->argv = calloc(argc, sizeof(RedisModuleString *));
+  cmdCtx->argv = rm_calloc(argc, sizeof(RedisModuleString *));
   for (int i = 0; i < argc; i++) {
     cmdCtx->argv[i] = RedisModule_CreateStringFromString(cmdCtx->ctx, argv[i]);
   }
@@ -166,7 +167,7 @@ void ConcurrentSearchCtx_InitSingle(ConcurrentSearchCtx *ctx, RedisModuleCtx *rc
   ctx->ctx = rctx;
   ctx->isLocked = 0;
   ctx->numOpenKeys = 1;
-  ctx->openKeys = calloc(1, sizeof(*ctx->openKeys));
+  ctx->openKeys = rm_calloc(1, sizeof(*ctx->openKeys));
   ctx->openKeys->cb = cb;
   ctx->openKeys->keyFlags = mode;
 }
@@ -190,7 +191,7 @@ void ConcurrentSearchCtx_Free(ConcurrentSearchCtx *ctx) {
       ctx->openKeys[i].freePrivData(ctx->openKeys[i].privdata);
     }
   }
-  free(ctx->openKeys);
+  rm_free(ctx->openKeys);
 }
 
 /* Add a "monitored" key to the context. When keys are open during concurrent execution, they need
@@ -211,7 +212,7 @@ void ConcurrentSearch_AddKey(ConcurrentSearchCtx *ctx, RedisModuleKey *key, int 
                              void *privdata, void (*freePrivDataCallback)(void *),
                              ConcurrentKeyOptions opts) {
   ctx->numOpenKeys++;
-  ctx->openKeys = realloc(ctx->openKeys, ctx->numOpenKeys * sizeof(ConcurrentKeyCtx));
+  ctx->openKeys = rm_realloc(ctx->openKeys, ctx->numOpenKeys * sizeof(ConcurrentKeyCtx));
   ctx->openKeys[ctx->numOpenKeys - 1] = (ConcurrentKeyCtx){.key = key,
                                                            .keyName = keyName,
                                                            .keyFlags = openFlags,

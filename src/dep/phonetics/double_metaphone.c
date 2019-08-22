@@ -23,6 +23,7 @@
 #include <stdarg.h>
 #include <assert.h>
 #include "double_metaphone.h"
+#include "rmalloc.h"
 
 /*
  * * If META_USE_PERL_MALLOC is defined we use Perl's memory routines.
@@ -37,9 +38,9 @@
 
 #else
 
-#define META_MALLOC(v, n, t) (v = (t *)malloc(((n) * sizeof(t))))
-#define META_REALLOC(v, n, t) (v = (t *)realloc((v), ((n) * sizeof(t))))
-#define META_FREE(x) free((x))
+#define META_MALLOC(v, n, t) (v = (t *)rm_malloc(((n) * sizeof(t))))
+#define META_REALLOC(v, n, t) (v = (t *)rm_realloc((v), ((n) * sizeof(t))))
+#define META_FREE(x) rm_free((x))
 
 #endif /* META_USE_PERL_MALLOC */
 
