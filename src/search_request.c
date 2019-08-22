@@ -214,9 +214,11 @@ KEYWORD_HANDLER(handleOnTimeout) {
   size_t n = 0;
   if (AC_GetString(ac, &s, &n, 0) != AC_OK) {
     SET_ERR(status, "ON_TIMEOUT requires argument");
+    return REDISMODULE_ERR;
   }
   if ((opts->timeoutPolicy = TimeoutPolicy_Parse(s, n)) == TimeoutPolicy_Invalid) {
     SET_ERR(status, "Invalid value for ON_TIMEOUT");
+    return REDISMODULE_ERR;
   }
   return REDISMODULE_OK;
 }
@@ -269,7 +271,9 @@ static int handleKeyword(RSSearchRequest *req, RedisSearchCtx *sctx, const char 
   }
 
   if (handler->parser(ac, req, &req->opts, sctx, status) != REDISMODULE_OK) {
-    SET_ERR(status, handler->errStr);
+    if (!status->detail) {
+      SET_ERR(status, handler->errStr);
+    }
     return REDISMODULE_ERR;
   }
 

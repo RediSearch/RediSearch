@@ -166,7 +166,7 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b, const char **err
   }
 
   aCtx->tokenizer = GetTokenizer(b->language, aCtx->fwIdx->stemmer, sp->stopwords);
-  StopWordList_Ref(sp->stopwords);
+  //  StopWordList_Ref(sp->stopwords); is this needed?
 
   aCtx->doc.docId = 0;
   return aCtx;
@@ -682,6 +682,11 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
 
       if (!md->sortVector) {
         md->sortVector = NewSortingVector(sctx->spec->sortables->len);
+      }
+
+      // we must free the old value before setting the new one!!!
+      if (md->sortVector->values[idx] && md->sortVector->values[idx]->t != RSValue_Null) {
+        RSValue_Free(md->sortVector->values[idx]);
       }
 
       switch (fs->type) {

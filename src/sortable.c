@@ -64,6 +64,9 @@ char *normalizeStr(const char *str) {
 
 /* Put a value in the sorting vector */
 void RSSortingVector_Put(RSSortingVector *tbl, int idx, void *p, int type) {
+  //  if(tbl->values[idx] && tbl->values[idx]->t != RSValue_Null){
+  //    RSValue_Free(tbl->values[idx]);
+  //  }
   if (idx <= RS_SORTABLES_MAX) {
     switch (type) {
       case RS_SORTABLE_NUM:

@@ -441,6 +441,7 @@ end:
 
   Query_Free(q);
   RSSearchRequest_Free(req);
+  SearchCtx_Free(sctx);
   return REDISMODULE_OK;
 }
 

@@ -344,10 +344,10 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, const char **argv, int arg
       textId = MAX(textId, fs->textOpts.id);
     }
   }
-
+  FieldSpec *fs = NULL;
   for (int offset = 0; offset < argc && sp->numFields < SPEC_MAX_FIELDS;) {
     sp->fields = rm_realloc(sp->fields, sizeof(*sp->fields) * (sp->numFields + 1));
-    FieldSpec *fs = sp->fields + sp->numFields;
+    fs = sp->fields + sp->numFields;
     memset(fs, 0, sizeof(*fs));
 
     fs->index = sp->numFields;
@@ -393,6 +393,9 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, const char **argv, int arg
   return 1;
 
 reset:
+  if (fs && fs->name) {
+    rm_free(fs->name);
+  }
   for (int i = prevNumFields; i < sp->numFields; ++i) {
     FieldSpec *fs = sp->fields + i;
     rm_free(fs->name);
