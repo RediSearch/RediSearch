@@ -497,9 +497,6 @@ static void *Indexer_Run(void *p) {
       indexer->tail = NULL;
     }
     pthread_mutex_unlock(&indexer->lock);
-    printf("sleeping!!\r\n");
-    sleep(10);
-    printf("done!!\r\n");
     Indexer_Process(indexer, cur);
     AddDocumentCtx_Finish(cur);
   }
