@@ -10,6 +10,7 @@
 #include <stdbool.h>
 #include <unistd.h>
 #include <sys/wait.h>
+#include <sys/prctl.h>
 
 #define GC_WRITERFD 1
 #define GC_READERFD 0
@@ -728,6 +729,14 @@ done:
   RedisModule_FreeThreadSafeContext(rctx);
 }
 
+static int ForkGc_IsForkApiExists() {
+  return false;
+}
+
+static int ForkGc_Fork() {
+  return fork();
+}
+
 static int ForkGc_PeriodicCallback(RedisModuleCtx *ctx, void *privdata) {
   ForkGCCtx *gc = privdata;
   RedisModule_AutoMemory(ctx);
@@ -752,15 +761,31 @@ static int ForkGc_PeriodicCallback(RedisModuleCtx *ctx, void *privdata) {
   int ret_val = 1;
 
   size_t totalCollectedBefore = gc->stats.totalCollected;
+  pid_t ppid_before_fork = getpid();
 
   TimeSampler_Start(&ts);
   pipe(gc->pipefd);  // create the pipe
   RedisModule_ThreadSafeContextLock(ctx);
-  cpid = fork();  // duplicate the current process
+  cpid = ForkGc_Fork();  // duplicate the current process
   RedisModule_ThreadSafeContextUnlock(ctx);
+
+  if (cpid == -1) {
+    return 1;
+  }
+
   if (cpid == 0) {
     // fork process
     close(gc->pipefd[GC_READERFD]);
+    if (!ForkGc_IsForkApiExists()) {
+      // set the parrent death signal to SIGTERM
+      int r = prctl(PR_SET_PDEATHSIG, SIGTERM);
+      if (r == -1) {
+        exit(1);
+      }
+      // test in case the original parent exited just
+      // before the prctl() call
+      if (getppid() != ppid_before_fork) exit(1);
+    }
     ForkGc_CollectGarbage(gc);
     close(gc->pipefd[GC_WRITERFD]);
     sleep(RSGlobalConfig.forkGcSleepBeforeExit);
