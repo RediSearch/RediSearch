@@ -141,6 +141,7 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b, const char **err
     indexerOptions = INDEXER_THREADLESS;
   }
   aCtx->indexer = GetDocumentIndexer(sp->name, indexerOptions);
+  ++aCtx->indexer->refCounter;
 
   // Assign the document:
   if (AddDocumentCtx_SetDocument(aCtx, sp, b, aCtx->doc.numFields) != 0) {
@@ -172,6 +173,15 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b, const char **err
 }
 
 static void doReplyFinish(RSAddDocumentCtx *aCtx, RedisModuleCtx *ctx) {
+  --aCtx->indexer->refCounter;
+  if (aCtx->indexer->isDeleted && aCtx->indexer->refCounter == 0) {
+    // threadless index will be free at the drop index command immediately
+    assert(!(aCtx->indexer->options & INDEXER_THREADLESS));
+    pthread_mutex_lock(&aCtx->indexer->lock);
+    aCtx->indexer->shouldStop = true;
+    pthread_cond_signal(&aCtx->indexer->cond);
+    pthread_mutex_unlock(&aCtx->indexer->lock);
+  }
   if (aCtx->errorString) {
     RedisModule_ReplyWithError(ctx, aCtx->errorString);
   } else {

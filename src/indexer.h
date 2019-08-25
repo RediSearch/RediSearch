@@ -32,6 +32,9 @@ typedef struct DocumentIndexer {
   KHTable mergeHt;               // Hashtable and block allocator for merging
   BlkAlloc alloc;
   int options;
+  int refCounter;
+  bool isDeleted;
+  bool shouldStop;
 } DocumentIndexer;
 
 #define INDEXER_THREADLESS 0x01
