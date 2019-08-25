@@ -7,6 +7,7 @@
 #include "redis_index.h"
 
 #include <assert.h>
+#include <unistd.h>
 static void Indexer_FreeInternal(DocumentIndexer *indexer);
 
 static void writeIndexEntry(IndexSpec *spec, InvertedIndex *idx, IndexEncoder encoder,
@@ -472,20 +473,20 @@ cleanup:
   }
 }
 
-#define IS_NOT_DELETED(idxer) (((idxer)->options & INDEXER_DELETING) == 0)
+#define SHOULD_STOP(idxer) (((idxer)->options & INDEXER_STOP))
 
 static void *Indexer_Run(void *p) {
   DocumentIndexer *indexer = p;
 
-  while (1) {
-    pthread_mutex_lock(&indexer->lock);
-    while (indexer->head == NULL && IS_NOT_DELETED(indexer)) {
+  pthread_mutex_lock(&indexer->lock);
+  while (!SHOULD_STOP(indexer)) {
+    while (indexer->head == NULL && !SHOULD_STOP(indexer)) {
       pthread_cond_wait(&indexer->cond, &indexer->lock);
     }
 
     RSAddDocumentCtx *cur = indexer->head;
     if (cur == NULL) {
-      assert(!IS_NOT_DELETED(indexer));
+      assert(SHOULD_STOP(indexer));
       pthread_mutex_unlock(&indexer->lock);
       break;
     }
@@ -496,6 +497,9 @@ static void *Indexer_Run(void *p) {
       indexer->tail = NULL;
     }
     pthread_mutex_unlock(&indexer->lock);
+    printf("sleeping!!\r\n");
+    sleep(10);
+    printf("done!!\r\n");
     Indexer_Process(indexer, cur);
     AddDocumentCtx_Finish(cur);
   }
@@ -597,8 +601,10 @@ void Indexer_Free(DocumentIndexer *indexer) {
     pthread_t thr = indexer->thr;
     pthread_mutex_lock(&indexer->lock);
     indexer->options |= INDEXER_DELETING;
-    pthread_cond_signal(&indexer->cond);
+    if (indexer->refCount == 0) {
+      indexer->options |= INDEXER_STOP;
+      pthread_cond_signal(&indexer->cond);
+    }
     pthread_mutex_unlock(&indexer->lock);
-    pthread_join(thr, NULL);
   }
 }

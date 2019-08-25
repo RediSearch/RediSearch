@@ -30,11 +30,14 @@ typedef struct DocumentIndexer {
   BlkAlloc alloc;
   int options;
   pthread_t thr;
+  size_t refCount;
 } DocumentIndexer;
 
 #define INDEXER_THREADLESS 0x01
 // Set when the indexer is about to be deleted
 #define INDEXER_DELETING 0x02
+
+#define INDEXER_STOP 0x04
 
 void Indexer_Free(DocumentIndexer *indexer);
 DocumentIndexer *NewIndexer(IndexSpec *spec);
