@@ -11,6 +11,7 @@
 #include <unistd.h>
 #include <sys/wait.h>
 #include "rwlock.h"
+#include <sys/prctl.h>
 
 #define GC_WRITERFD 1
 #define GC_READERFD 0
@@ -803,6 +804,14 @@ void FGC_parentHandleFromChild(ForkGC *gc, int *ret_val) {
 done:;
 }
 
+static int ForkGc_IsForkApiExists() {
+  return false;
+}
+
+static int ForkGc_Fork() {
+  return fork();
+}
+
 static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
   ForkGC *gc = privdata;
   if (gc->deleting) {
@@ -837,6 +846,8 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
     usleep(500);
   }
 
+  pid_t ppid_before_fork = getpid();
+
   TimeSampler_Start(&ts);
   pipe(gc->pipefd);  // create the pipe
   if (!FGC_lock(gc, ctx)) {
@@ -844,11 +855,26 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
   }
 
   gc->execState = FGC_STATE_SCANNING;
-  cpid = fork();  // duplicate the current process
+  cpid = ForkGc_Fork();  // duplicate the current process
   FGC_unlock(gc, ctx);
+
+  if (cpid == -1) {
+    return 1;
+  }
+
   if (cpid == 0) {
     // fork process
     close(gc->pipefd[GC_READERFD]);
+    if (!ForkGc_IsForkApiExists()) {
+      // set the parrent death signal to SIGTERM
+      int r = prctl(PR_SET_PDEATHSIG, SIGTERM);
+      if (r == -1) {
+        exit(1);
+      }
+      // test in case the original parent exited just
+      // before the prctl() call
+      if (getppid() != ppid_before_fork) exit(1);
+    }
     FGC_childScanIndexes(gc);
     close(gc->pipefd[GC_WRITERFD]);
     sleep(RSGlobalConfig.forkGcSleepBeforeExit);
