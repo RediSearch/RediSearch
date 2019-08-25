@@ -238,18 +238,18 @@ class TestAggregate():
             row = to_dict(row)
             self.env.assertGreater(int(row['count']), 5)
 
-        # cmd = ['ft.aggregate', 'games', '*',
-        #        'GROUPBY', '1', '@brand',
-        #        'REDUCE', 'count', '0', 'AS', 'count',
-        #        'FILTER', '@count < 5',
-        #        'FILTER', '@count > 2 && @brand != ""'
-        #        ]
+        cmd = ['ft.aggregate', 'games', '*',
+               'GROUPBY', '1', '@brand',
+               'REDUCE', 'count', '0', 'AS', 'count',
+               'FILTER', '@count < 5',
+               'FILTER', '@count > 2 && @brand != ""'
+               ]
 
-        # res = self.env.cmd(*cmd)
-        # for row in res[1:]:
-        #     row = to_dict(row)
-        #     self.env.assertLess(int(row['count']), 5)
-        #     self.env.assertGreater(int(row['count']), 2)
+        res = self.env.cmd(*cmd)
+        for row in res[1:]:
+            row = to_dict(row)
+            self.env.assertLess(int(row['count']), 5)
+            self.env.assertGreater(int(row['count']), 2)
 
     def testToList(self):
         cmd = ['ft.aggregate', 'games', '*',
