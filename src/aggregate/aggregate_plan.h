@@ -174,11 +174,18 @@ void AGPLN_PopStep(AGGPlan *pln, PLN_BaseStep *step);
 int AGPLN_HasStep(const AGGPlan *pln, PLN_StepType t);
 /**
  * Gets the last arrange step for the current pipeline stage. If no arrange
+ * step exists, return NULL.
+ *
+ */
+PLN_ArrangeStep *AGPLN_GetArrangeStep(AGGPlan *pln);
+
+/**
+ * Gets the last arrange step for the current pipeline stage. If no arrange
  * step exists, one is created.
  *
  * This function should be used to limit/page through the current step
  */
-PLN_ArrangeStep *AGPLN_GetArrangeStep(AGGPlan *pln);
+PLN_ArrangeStep *AGPLN_GetOrCreateArrangeStep(AGGPlan *pln);
 
 /**
  * Locate a plan within the given constraints. begin and end are the plan ranges

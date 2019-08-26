@@ -126,7 +126,7 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
   int rv;
   // This handles the common arguments that are not stateful
   if (AC_AdvanceIfMatch(ac, "LIMIT")) {
-    PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(&req->ap);
+    PLN_ArrangeStep *arng = AGPLN_GetOrCreateArrangeStep(&req->ap);
     // Parse offset, length
     if (AC_NumRemaining(ac) < 2) {
       QueryError_SetError(status, QUERY_EPARSEARGS, "LIMIT requires two arguments");
@@ -147,7 +147,7 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
       return ARG_ERROR;
     }
   } else if (AC_AdvanceIfMatch(ac, "SORTBY")) {
-    PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(&req->ap);
+    PLN_ArrangeStep *arng = AGPLN_GetOrCreateArrangeStep(&req->ap);
     if ((parseSortby(arng, ac, status, allowLegacy)) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
