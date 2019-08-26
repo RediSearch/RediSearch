@@ -784,7 +784,9 @@ static int ForkGc_PeriodicCallback(RedisModuleCtx *ctx, void *privdata) {
       }
       // test in case the original parent exited just
       // before the prctl() call
-      if (getppid() != ppid_before_fork) exit(1);
+      if (getppid() != ppid_before_fork) {
+        exit(1);
+      }
     }
     ForkGc_CollectGarbage(gc);
     close(gc->pipefd[GC_WRITERFD]);
