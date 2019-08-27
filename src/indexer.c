@@ -7,6 +7,7 @@
 #include "redis_index.h"
 
 #include <assert.h>
+#include <unistd.h>
 
 static void writeIndexEntry(IndexSpec *spec, InvertedIndex *idx, IndexEncoder encoder,
                             ForwardIndexEntry *entry) {
@@ -462,13 +463,30 @@ cleanup:
   }
 }
 
+static void DocumentIndexer_Free(DocumentIndexer *indexer) {
+  free(indexer->name);
+  //  BlkAlloc_FreeAll(&indexer->alloc);
+  pthread_cond_destroy(&indexer->cond);
+  pthread_mutex_destroy(&indexer->lock);
+  free(indexer->concCtx.openKeys);
+  RedisModule_FreeString(indexer->redisCtx, indexer->specKeyName);
+  KHTable_Clear(&indexer->mergeHt);
+  KHTable_Free(&indexer->mergeHt);
+  RedisModule_FreeThreadSafeContext(indexer->redisCtx);
+  free(indexer);
+}
+
 static void *Indexer_Run(void *p) {
   DocumentIndexer *indexer = p;
 
-  while (1) {
-    pthread_mutex_lock(&indexer->lock);
-    while (indexer->head == NULL) {
+  pthread_mutex_lock(&indexer->lock);
+  while (!indexer->shouldStop) {
+    while (indexer->head == NULL && !indexer->shouldStop) {
       pthread_cond_wait(&indexer->cond, &indexer->lock);
+    }
+
+    if (indexer->shouldStop) {
+      break;
     }
 
     RSAddDocumentCtx *cur = indexer->head;
@@ -480,7 +498,11 @@ static void *Indexer_Run(void *p) {
     pthread_mutex_unlock(&indexer->lock);
     Indexer_Process(indexer, cur);
     AddDocumentCtx_Finish(cur);
+    pthread_mutex_lock(&indexer->lock);
   }
+
+  DocumentIndexer_Free(indexer);
+
   return NULL;
 }
 
@@ -527,7 +549,6 @@ int Indexer_Add(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx) {
 // List of all the index threads
 typedef struct {
   DocumentIndexer *first;  // First thread in the list
-  volatile int lockMod;    // "Spinlock" in case the list needs to be modified
 } IndexerList;
 
 // Instance of list
@@ -589,28 +610,26 @@ static DocumentIndexer *NewDocumentIndexer(const char *name, int options) {
   return indexer;
 }
 
-static void DocumentIndexe_Free(DocumentIndexer *indexer) {
-  free(indexer->name);
-  //  BlkAlloc_FreeAll(&indexer->alloc);
-  pthread_cond_destroy(&indexer->cond);
-  pthread_mutex_destroy(&indexer->lock);
-  free(indexer->concCtx.openKeys);
-  RedisModule_FreeString(indexer->redisCtx, indexer->specKeyName);
-  KHTable_Clear(&indexer->mergeHt);
-  KHTable_Free(&indexer->mergeHt);
-  RedisModule_FreeThreadSafeContext(indexer->redisCtx);
-  free(indexer);
-}
-
 void DropDocumentIndexer(const char *specname) {
   DocumentIndexer *match = findAndRemoveDocumentIndexer(specname);
   if (!match) {
     return;
   }
 
-  if (match->options & INDEXER_THREADLESS) {
-    DocumentIndexe_Free(match);
+  match->isDeleted = true;
+
+  if (match->refCounter == 0) {
+    if (match->options & INDEXER_THREADLESS) {
+      DocumentIndexer_Free(match);
+    } else {
+      pthread_mutex_lock(&match->lock);
+      match->shouldStop = true;
+      pthread_cond_signal(&match->cond);
+      pthread_mutex_unlock(&match->lock);
+    }
+    return;
   }
+  assert(!(match->options & INDEXER_THREADLESS));
 }
 
 // Get the document indexer for the given index name. If the indexer does not
@@ -621,22 +640,8 @@ DocumentIndexer *GetDocumentIndexer(const char *specname, int options) {
     return match;
   }
 
-  // This is akin to a spinlock. Wait until lockMod is 0, and then atomically
-  // set it to 1.
-  while (!__sync_bool_compare_and_swap(&indexers_g.lockMod, 0, 1)) {
-  }
-
-  // Try to find it again. Another thread may have modified the list while
-  // we were waiting for lockMod to become 0.
-  match = findDocumentIndexer(specname);
-  if (match) {
-    indexers_g.lockMod = 0;
-    return match;
-  }
-
   DocumentIndexer *newIndexer = NewDocumentIndexer(specname, options);
   newIndexer->next = indexers_g.first;
   indexers_g.first = newIndexer;
-  indexers_g.lockMod = 0;
   return newIndexer;
 }
