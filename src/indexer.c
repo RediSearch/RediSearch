@@ -499,6 +499,7 @@ static void *Indexer_Run(void *p) {
     pthread_mutex_unlock(&indexer->lock);
     Indexer_Process(indexer, cur);
     AddDocumentCtx_Finish(cur);
+    pthread_mutex_lock(&indexer->lock);
   }
 
   Indexer_FreeInternal(indexer);
