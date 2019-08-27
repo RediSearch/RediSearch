@@ -7,6 +7,7 @@
 #include "redis_index.h"
 
 #include <assert.h>
+#include <unistd.h>
 static void Indexer_FreeInternal(DocumentIndexer *indexer);
 
 static void writeIndexEntry(IndexSpec *spec, InvertedIndex *idx, IndexEncoder encoder,
@@ -472,20 +473,20 @@ cleanup:
   }
 }
 
-#define IS_NOT_DELETED(idxer) (((idxer)->options & INDEXER_DELETING) == 0)
+#define SHOULD_STOP(idxer) ((idxer)->options & INDEXER_STOPPED)
 
 static void *Indexer_Run(void *p) {
   DocumentIndexer *indexer = p;
 
-  while (1) {
-    pthread_mutex_lock(&indexer->lock);
-    while (indexer->head == NULL && IS_NOT_DELETED(indexer)) {
+  pthread_mutex_lock(&indexer->lock);
+  while (!SHOULD_STOP(indexer)) {
+    while (indexer->head == NULL && !SHOULD_STOP(indexer)) {
       pthread_cond_wait(&indexer->cond, &indexer->lock);
     }
 
     RSAddDocumentCtx *cur = indexer->head;
     if (cur == NULL) {
-      assert(!IS_NOT_DELETED(indexer));
+      assert(SHOULD_STOP(indexer));
       pthread_mutex_unlock(&indexer->lock);
       break;
     }
@@ -498,6 +499,7 @@ static void *Indexer_Run(void *p) {
     pthread_mutex_unlock(&indexer->lock);
     Indexer_Process(indexer, cur);
     AddDocumentCtx_Finish(cur);
+    pthread_mutex_lock(&indexer->lock);
   }
 
   Indexer_FreeInternal(indexer);
@@ -549,6 +551,7 @@ int Indexer_Add(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx) {
 // todo: remove the withIndexThread var once we switch to threadpool
 DocumentIndexer *NewIndexer(IndexSpec *spec) {
   DocumentIndexer *indexer = calloc(1, sizeof(*indexer));
+  indexer->refcount = 1;
   if ((spec->flags & Index_Temporary) || RSGlobalConfig.concurrentMode == 0) {
     indexer->options |= INDEXER_THREADLESS;
   }
@@ -590,15 +593,25 @@ static void Indexer_FreeInternal(DocumentIndexer *indexer) {
   free(indexer);
 }
 
+size_t Indexer_Decref(DocumentIndexer *indexer) {
+  size_t ret = __sync_sub_and_fetch(&indexer->refcount, 1);
+  if (!ret) {
+    pthread_mutex_lock(&indexer->lock);
+    indexer->options |= INDEXER_STOPPED;
+    pthread_cond_signal(&indexer->cond);
+    pthread_mutex_unlock(&indexer->lock);
+  }
+  return ret;
+}
+
+size_t Indexer_Incref(DocumentIndexer *indexer) {
+  return ++indexer->refcount;
+}
+
 void Indexer_Free(DocumentIndexer *indexer) {
   if (indexer->options & INDEXER_THREADLESS) {
     Indexer_FreeInternal(indexer);
   } else {
-    pthread_t thr = indexer->thr;
-    pthread_mutex_lock(&indexer->lock);
-    indexer->options |= INDEXER_DELETING;
-    pthread_cond_signal(&indexer->cond);
-    pthread_mutex_unlock(&indexer->lock);
-    pthread_join(thr, NULL);
+    Indexer_Decref(indexer);
   }
 }
