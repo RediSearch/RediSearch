@@ -2210,6 +2210,13 @@ def testIssue828(env):
         "style", "Fruit / Vegetable Beer")
     env.assertEqual('OK', rv)
 
+def testIssue862(env):
+    env.cmd('ft.create', 'idx', 'SCHEMA', 'test', 'TEXT', 'SORTABLE')
+    rv = env.cmd("FT.ADD", "idx", "doc1", "1.0", "FIELDS", "test", "foo")
+    env.assertEqual('OK', rv)
+    rv = env.cmd("FT.SEARCH", "idx", "foo", 'WITHSORTKEYS')
+    env.assertEqual([1L, 'doc1', None, ['test', 'foo']], rv)
+
 def grouper(iterable, n, fillvalue=None):
     "Collect data into fixed-length chunks or blocks"
     from itertools import izip_longest

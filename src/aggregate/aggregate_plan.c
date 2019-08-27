@@ -130,8 +130,15 @@ PLN_ArrangeStep *AGPLN_GetArrangeStep(AGGPlan *pln) {
       return (PLN_ArrangeStep *)stp;
     }
   }
-  // If we are still here, then an arrange step does not exist. Create one!
-  PLN_ArrangeStep *ret = calloc(1, sizeof(*ret));
+  return NULL;
+}
+
+PLN_ArrangeStep *AGPLN_GetOrCreateArrangeStep(AGGPlan *pln) {
+  PLN_ArrangeStep *ret = AGPLN_GetArrangeStep(pln);
+  if (ret) {
+    return ret;
+  }
+  ret = calloc(1, sizeof(*ret));
   ret->base.type = PLN_T_ARRANGE;
   ret->base.dtor = arrangeDtor;
   AGPLN_AddStep(pln, &ret->base);
