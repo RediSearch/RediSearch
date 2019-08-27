@@ -473,7 +473,7 @@ cleanup:
   }
 }
 
-#define SHOULD_STOP(idxer) (((idxer)->options & INDEXER_STOP))
+#define SHOULD_STOP(idxer) (((idxer)->refcount == 0))
 
 static void *Indexer_Run(void *p) {
   DocumentIndexer *indexer = p;
@@ -550,6 +550,7 @@ int Indexer_Add(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx) {
 // todo: remove the withIndexThread var once we switch to threadpool
 DocumentIndexer *NewIndexer(IndexSpec *spec) {
   DocumentIndexer *indexer = calloc(1, sizeof(*indexer));
+  indexer->refcount = 1;
   if ((spec->flags & Index_Temporary) || RSGlobalConfig.concurrentMode == 0) {
     indexer->options |= INDEXER_THREADLESS;
   }
@@ -591,17 +592,23 @@ static void Indexer_FreeInternal(DocumentIndexer *indexer) {
   free(indexer);
 }
 
+size_t Indexer_Decref(DocumentIndexer *indexer) {
+  return --indexer->refcount;
+}
+
+size_t Indexer_Incref(DocumentIndexer *indexer) {
+  return ++indexer->refcount;
+}
+
 void Indexer_Free(DocumentIndexer *indexer) {
   if (indexer->options & INDEXER_THREADLESS) {
     Indexer_FreeInternal(indexer);
   } else {
     pthread_t thr = indexer->thr;
-    pthread_mutex_lock(&indexer->lock);
-    indexer->options |= INDEXER_DELETING;
-    if (indexer->refCount == 0) {
-      indexer->options |= INDEXER_STOP;
+    if (!Indexer_Decref(indexer)) {
+      pthread_mutex_lock(&indexer->lock);
       pthread_cond_signal(&indexer->cond);
+      pthread_mutex_unlock(&indexer->lock);
     }
-    pthread_mutex_unlock(&indexer->lock);
   }
 }
