@@ -2018,6 +2018,12 @@ def testRED_289(env):
     print env.cmd('FT.SEARCH', 'idx', 'foo', 'LIMIT', '0', '20000', 'RETURN', '2', 'test', 'WITHSCORE')
     env.assertTrue(env.isUp()) # make sure we did not crashed
 
+def testIssue_866(env):
+    env.expect('ft.sugadd', 'sug', 'test123', '1').equal(1)
+    env.expect('ft.sugadd', 'sug', 'test456', '1').equal(2)
+    env.expect('ft.sugdel', 'sug', 'test').equal(0)
+    env.expect('ft.sugget', 'sug', '').equal(['test123', 'test456'])
+
 
 def grouper(iterable, n, fillvalue=None):
     "Collect data into fixed-length chunks or blocks"
