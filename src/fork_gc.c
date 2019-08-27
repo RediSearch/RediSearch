@@ -10,7 +10,9 @@
 #include <stdbool.h>
 #include <unistd.h>
 #include <sys/wait.h>
+#ifdef __linux__
 #include <sys/prctl.h>
+#endif
 
 #define GC_WRITERFD 1
 #define GC_READERFD 0
@@ -777,6 +779,7 @@ static int ForkGc_PeriodicCallback(RedisModuleCtx *ctx, void *privdata) {
     // fork process
     close(gc->pipefd[GC_READERFD]);
     if (!ForkGc_IsForkApiExists()) {
+#ifdef __linux__
       // set the parrent death signal to SIGTERM
       int r = prctl(PR_SET_PDEATHSIG, SIGTERM);
       if (r == -1) {
@@ -787,6 +790,7 @@ static int ForkGc_PeriodicCallback(RedisModuleCtx *ctx, void *privdata) {
       if (getppid() != ppid_before_fork) {
         exit(1);
       }
+#endif
     }
     ForkGc_CollectGarbage(gc);
     close(gc->pipefd[GC_WRITERFD]);
