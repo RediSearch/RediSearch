@@ -179,8 +179,8 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b, QueryError *stat
   aCtx->next = NULL;
   aCtx->specFlags = sp->flags;
   aCtx->indexer = sp->indexer;
-  Indexer_Incref(aCtx->indexer->refcount);
   assert(sp->indexer);
+  Indexer_Incref(aCtx->indexer);
 
   // Assign the document:
   if (AddDocumentCtx_SetDocument(aCtx, sp, b, aCtx->doc.numFields) != 0) {
@@ -212,7 +212,7 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b, QueryError *stat
 
 static void doReplyFinish(RSAddDocumentCtx *aCtx, RedisModuleCtx *ctx) {
   aCtx->donecb(aCtx, ctx, aCtx->donecbData);
-  if (!Indexer_Decref(aCtx->indexer->refcount)) {
+  if (!Indexer_Decref(aCtx->indexer)) {
     pthread_mutex_lock(&aCtx->indexer->lock);
     pthread_cond_signal(&aCtx->indexer->cond);
     pthread_mutex_unlock(&aCtx->indexer->lock);

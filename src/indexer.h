@@ -36,7 +36,6 @@ typedef struct DocumentIndexer {
 #define INDEXER_THREADLESS 0x01
 // Set when the indexer is about to be deleted
 
-
 size_t Indexer_Decref(DocumentIndexer *indexer);
 
 size_t Indexer_Incref(DocumentIndexer *indexer);
