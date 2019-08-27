@@ -212,11 +212,7 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b, QueryError *stat
 
 static void doReplyFinish(RSAddDocumentCtx *aCtx, RedisModuleCtx *ctx) {
   aCtx->donecb(aCtx, ctx, aCtx->donecbData);
-  if (!Indexer_Decref(aCtx->indexer)) {
-    pthread_mutex_lock(&aCtx->indexer->lock);
-    pthread_cond_signal(&aCtx->indexer->cond);
-    pthread_mutex_unlock(&aCtx->indexer->lock);
-  }
+  Indexer_Decref(aCtx->indexer);
   AddDocumentCtx_Free(aCtx);
 }
 

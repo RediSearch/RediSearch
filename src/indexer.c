@@ -473,7 +473,7 @@ cleanup:
   }
 }
 
-#define SHOULD_STOP(idxer) (((idxer)->refcount == 0))
+#define SHOULD_STOP(idxer) ((idxer)->options & INDEXER_STOPPED)
 
 static void *Indexer_Run(void *p) {
   DocumentIndexer *indexer = p;
@@ -594,7 +594,14 @@ static void Indexer_FreeInternal(DocumentIndexer *indexer) {
 }
 
 size_t Indexer_Decref(DocumentIndexer *indexer) {
-  return --indexer->refcount;
+  size_t ret = __sync_sub_and_fetch(&indexer->refcount, 1);
+  if (!ret) {
+    pthread_mutex_lock(&indexer->lock);
+    indexer->options |= INDEXER_STOPPED;
+    pthread_cond_signal(&indexer->cond);
+    pthread_mutex_unlock(&indexer->lock);
+  }
+  return ret;
 }
 
 size_t Indexer_Incref(DocumentIndexer *indexer) {
@@ -605,11 +612,6 @@ void Indexer_Free(DocumentIndexer *indexer) {
   if (indexer->options & INDEXER_THREADLESS) {
     Indexer_FreeInternal(indexer);
   } else {
-    pthread_t thr = indexer->thr;
-    if (!Indexer_Decref(indexer)) {
-      pthread_mutex_lock(&indexer->lock);
-      pthread_cond_signal(&indexer->cond);
-      pthread_mutex_unlock(&indexer->lock);
-    }
+    Indexer_Decref(indexer);
   }
 }
