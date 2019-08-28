@@ -12,5 +12,7 @@ mkdir $BUILD_DIR
 cd $BUILD_DIR
 cmake $PROJECT_DIR \
     -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-    -DRS_RUN_TESTS=1
+    -DRS_RUN_TESTS=1 \
+    -RS_VERBOSE_TESTS=1 \
+    ../
 make -j$CI_CONCURRENCY
