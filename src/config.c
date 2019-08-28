@@ -241,7 +241,7 @@ CONFIG_SETTER(setForkGcInterval) {
   return REDISMODULE_OK;
 }
 
-CONFIG_SETTER(setForkGcRertyInterval) {
+CONFIG_SETTER(setForkGcRetryInterval) {
   long long val;
   if (readLongLongLimit(argv, argc, offset, &val, 1, LLONG_MAX) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
@@ -438,7 +438,7 @@ RSConfigOptions RSGlobalConfigOptions = {
          .getValue = getForkGcInterval},
         {.name = "FORK_GC_RETRY_INTERVAL",
          .helpText = "interval (in seconds) in which to retry running the forkgc after failure.",
-         .setValue = setForkGcRertyInterval,
+         .setValue = setForkGcRetryInterval,
          .getValue = getForkGcRetryInterval},
         {.name = "_MAX_RESULTS_TO_UNSORTED_MODE",
          .helpText = "max results for union interator in which the interator will switch to "
