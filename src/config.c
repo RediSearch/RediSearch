@@ -241,9 +241,23 @@ CONFIG_SETTER(setForkGcInterval) {
   return REDISMODULE_OK;
 }
 
+CONFIG_SETTER(setForkGcRetryInterval) {
+  long long val;
+  if (readLongLongLimit(argv, argc, offset, &val, 1, LLONG_MAX) != REDISMODULE_OK) {
+    return REDISMODULE_ERR;
+  }
+  config->forkGcRetryInterval = val;
+  return REDISMODULE_OK;
+}
+
 CONFIG_GETTER(getForkGcInterval) {
   sds ss = sdsempty();
   return sdscatprintf(ss, "%lu", config->forkGcRunIntervalSec);
+}
+
+CONFIG_GETTER(getForkGcRetryInterval) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%lu", config->forkGcRetryInterval);
 }
 
 CONFIG_SETTER(setMinPhoneticTermLen) {
@@ -407,6 +421,10 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "interval in which to run the fork gc (relevant only when fork gc is used)",
          .setValue = setForkGcInterval,
          .getValue = getForkGcInterval},
+        {.name = "FORK_GC_RETRY_INTERVAL",
+         .helpText = "interval in which to retry run fork gc on failure",
+         .setValue = setForkGcRetryInterval,
+         .getValue = getForkGcRetryInterval},
         {.name = NULL}}};
 
 void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst) {

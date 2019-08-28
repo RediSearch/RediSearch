@@ -119,6 +119,9 @@ def testDeleteDocWithGoeField(env):
 def testGCIntegrationWithRedisFork(env):
     if env.env == 'existing-env':
         env.skip()
+    if env.env == 'enterprise':
+        # on enterprise env we have the fork api which will not allow us to run more then one fork simultaneously.
+        env.skip()
     if env.isCluster():
         raise unittest.SkipTest()
     env = Env(moduleArgs='GC_POLICY FORK')
