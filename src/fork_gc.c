@@ -812,11 +812,23 @@ done:;
  * The following two functions wrap this functionality.
  */
 static int FGC_haveRedisFork() {
-  return false;
+  return RedisModule_Fork != NULL;
 }
 
-static int FGC_fork() {
-  return fork();
+static int FGC_fork(ForkGC *gc, RedisModuleCtx *ctx) {
+  if (FGC_haveRedisFork()) {
+    if (gc->type == FGC_TYPE_NOKEYSPACE) {
+      // If we are not in key space we still need to acquire the GIL to use the fork api
+      RedisModule_ThreadSafeContextLock(ctx);
+    }
+    int ret = RedisModule_Fork(NULL, NULL);
+    if (gc->type == FGC_TYPE_NOKEYSPACE) {
+      RedisModule_ThreadSafeContextUnlock(ctx);
+    }
+    return ret;
+  } else {
+    return fork();
+  }
 }
 
 static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
@@ -862,12 +874,15 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
   }
 
   gc->execState = FGC_STATE_SCANNING;
-  cpid = FGC_fork();  // duplicate the current process
+  cpid = FGC_fork(gc, ctx);  // duplicate the current process
   FGC_unlock(gc, ctx);
 
   if (cpid == -1) {
+    gc->retryInterval.tv_sec = RSGlobalConfig.forkGcRetryInterval;
     return 1;
   }
+
+  gc->retryInterval.tv_sec = RSGlobalConfig.forkGcRunIntervalSec;
 
   if (cpid == 0) {
     // fork process
@@ -900,9 +915,20 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
     gc->execState = FGC_STATE_APPLYING;
     FGC_parentHandleFromChild(gc, &ret_val);
     close(gc->pipefd[GC_READERFD]);
-    pid_t id = wait4(cpid, NULL, 0, NULL);
-    if (id == -1) {
-      printf("an error acquire when waiting for fork to terminate, pid:%d", cpid);
+    if (FGC_haveRedisFork()) {
+      if (gc->type == FGC_TYPE_NOKEYSPACE) {
+        // If we are not in key space we still need to acquire the GIL to use the fork api
+        RedisModule_ThreadSafeContextLock(ctx);
+      }
+      RedisModule_KillForkChild(cpid);
+      if (gc->type == FGC_TYPE_NOKEYSPACE) {
+        RedisModule_ThreadSafeContextUnlock(ctx);
+      }
+    } else {
+      pid_t id = wait4(cpid, NULL, 0, NULL);
+      if (id == -1) {
+        printf("an error acquire when waiting for fork to terminate, pid:%d", cpid);
+      }
     }
   }
   gc->execState = FGC_STATE_IDLE;
@@ -992,10 +1018,8 @@ static void killCb(void *ctx) {
 }
 
 static struct timespec getIntervalCb(void *ctx) {
-  struct timespec interval;
-  interval.tv_sec = RSGlobalConfig.forkGcRunIntervalSec;
-  interval.tv_nsec = 0;
-  return interval;
+  ForkGC *gc = ctx;
+  return gc->retryInterval;
 }
 
 ForkGC *FGC_New(const RedisModuleString *k, uint64_t specUniqueId, GCCallbacks *callbacks) {
@@ -1005,6 +1029,8 @@ ForkGC *FGC_New(const RedisModuleString *k, uint64_t specUniqueId, GCCallbacks *
       .specUniqueId = specUniqueId,
       .type = FGC_TYPE_INKEYSPACE,
   };
+  forkGc->retryInterval.tv_sec = RSGlobalConfig.forkGcRunIntervalSec;
+  forkGc->retryInterval.tv_nsec = 0;
   forkGc->ctx = RedisModule_GetThreadSafeContext(NULL);
   if (k) {
     forkGc->keyName = RedisModule_CreateStringFromString(forkGc->ctx, k);

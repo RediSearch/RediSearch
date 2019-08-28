@@ -49,6 +49,8 @@ typedef struct ForkGC {
   int pipefd[2];
   volatile uint32_t pauseState;
   volatile uint32_t execState;
+
+  struct timespec retryInterval;
 } ForkGC;
 
 ForkGC *FGC_New(const RedisModuleString *k, uint64_t specUniqueId, GCCallbacks *callbacks);
