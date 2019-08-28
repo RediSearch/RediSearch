@@ -121,6 +121,7 @@ typedef void (*RedisModuleTypeSaveFunc)(RedisModuleIO *rdb, void *value);
 typedef void (*RedisModuleTypeRewriteFunc)(RedisModuleIO *aof, RedisModuleString *key, void *value);
 typedef size_t (*RedisModuleTypeMemUsageFunc)(const void *value);
 typedef void (*RedisModuleTypeDigestFunc)(RedisModuleDigest *digest, void *value);
+typedef void (*RedisModuleForkDoneHandler) (int exitcode, int bysignal, void *user_data);
 typedef void (*RedisModuleTypeFreeFunc)(void *value);
 
 #define REDISMODULE_TYPE_METHOD_VERSION 1
@@ -298,6 +299,9 @@ REDISMODULE_API_FUNC(void *, RedisModule_GetSharedAPI)(RedisModuleCtx *, const c
 /* Enterprise Only API */
 
 REDISMODULE_API_FUNC(int, RedisModule_AvoidReplicaTraffic)();
+REDISMODULE_API_FUNC(int, RedisModule_Fork)(RedisModuleForkDoneHandler cb, void *user_data);
+REDISMODULE_API_FUNC(int, RedisModule_ExitFromChild)(int retcode);
+REDISMODULE_API_FUNC(int, RedisModule_KillForkChild)(int child_pid);
 
 #define REDISMODULE_XAPI_STABLE(X) \
   X(GetApi)                        \
@@ -418,7 +422,10 @@ REDISMODULE_API_FUNC(int, RedisModule_AvoidReplicaTraffic)();
   X(GetSharedAPI)
 
 #define REDISMODULE_XAPI_ENTERPRISE(X) \
-  X(AvoidReplicaTraffic)                 \
+  X(AvoidReplicaTraffic)               \
+  X(Fork)                              \
+  X(ExitFromChild)                     \
+  X(KillForkChild)
 
 #ifdef REDISMODULE_EXPERIMENTAL_API
 #define REDISMODULE_XAPI(X) REDISMODULE_XAPI_STABLE(X) REDISMODULE_XAPI_EXPERIMENTAL(X) REDISMODULE_XAPI_ENTERPRISE(X)

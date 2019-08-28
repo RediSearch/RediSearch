@@ -241,6 +241,15 @@ CONFIG_SETTER(setForkGcInterval) {
   return REDISMODULE_OK;
 }
 
+CONFIG_SETTER(setForkGcRetryInterval) {
+  long long val;
+  if (readLongLongLimit(argv, argc, offset, &val, 1, LLONG_MAX) != REDISMODULE_OK) {
+    return REDISMODULE_ERR;
+  }
+  config->forkGcRetryInterval = val;
+  return REDISMODULE_OK;
+}
+
 CONFIG_SETTER(setMaxResultsToUnsortedMode) {
   long long val;
   if (readLongLongLimit(argv, argc, offset, &val, 1, LLONG_MAX) != REDISMODULE_OK) {
@@ -251,6 +260,11 @@ CONFIG_SETTER(setMaxResultsToUnsortedMode) {
 }
 
 CONFIG_GETTER(getForkGcInterval) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%u", config->forkGcRunIntervalSec);
+}
+
+CONFIG_GETTER(getForkGcRetryInterval) {
   sds ss = sdsempty();
   return sdscatprintf(ss, "%u", config->forkGcRunIntervalSec);
 }
@@ -418,9 +432,14 @@ RSConfigOptions RSGlobalConfigOptions = {
          .getValue = getGcPolicy,
          .flags = RSCONFIGVAR_F_IMMUTABLE},
         {.name = "FORK_GC_RUN_INTERVAL",
-         .helpText = "interval in which to run the fork gc (relevant only when fork gc is used)",
+         .helpText = "interval (in seconds) in which to run the fork gc (relevant only when fork "
+                     "gc is used)",
          .setValue = setForkGcInterval,
          .getValue = getForkGcInterval},
+        {.name = "FORK_GC_RETRY_INTERVAL",
+         .helpText = "interval (in seconds) in which to retry running the forkgc after failure.",
+         .setValue = setForkGcRetryInterval,
+         .getValue = getForkGcRetryInterval},
         {.name = "_MAX_RESULTS_TO_UNSORTED_MODE",
          .helpText = "max results for union interator in which the interator will switch to "
                      "unsorted mode, should be used for debug only.",

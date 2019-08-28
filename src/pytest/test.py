@@ -64,7 +64,7 @@ def testUnionIdList(env):
     env.assertOk(r.execute_command(
         "ft.add", "test", "2", "1", "FIELDS", "tags", "ontario", "waypoint", "-79.395,43.661667"))
     
-    print r.cmd('ft.search', 'test', '@tags:{ontario}')
+    r.cmd('ft.search', 'test', '@tags:{ontario}')
 
     res = r.execute_command(
         'ft.search', 'test', "@waypoint:[-113.52 53.52 20 mi]|@tags:{ontario}", 'nocontent')
