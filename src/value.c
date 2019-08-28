@@ -441,6 +441,16 @@ static inline int cmp_strings(const char *s1, const char *s2, size_t l1, size_t 
 }
 
 int RSValue_Cmp(RSValue *v1, RSValue *v2) {
+  if (v1 == NULL && v2 == NULL) {
+    return 0;
+  }
+  if (v1 == NULL) {
+    return -1;
+  }
+  if (v2 == NULL) {
+    return 1;
+  }
+
   assert(v1);
   assert(v2);
   v1 = RSValue_Dereference(v1);
