@@ -319,7 +319,7 @@ int TrieNode_Delete(TrieNode *n, rune *str, t_len len) {
       // we're at the end of both strings!
       // this means we've found what we're looking for
       if (localOffset == n->len) {
-        if (!(n->flags & TRIENODE_DELETED)) {
+        if (!__trieNode_isDeleted(n) && __trieNode_isTerminal(n)) {
 
           n->flags |= TRIENODE_DELETED;
           n->flags &= ~TRIENODE_TERMINAL;
