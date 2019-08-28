@@ -469,16 +469,17 @@ cleanup:
 }
 
 static void DocumentIndexer_Free(DocumentIndexer *indexer) {
-  free(indexer->name);
+  rm_free(indexer->name);
   //  BlkAlloc_FreeAll(&indexer->alloc);
   pthread_cond_destroy(&indexer->cond);
   pthread_mutex_destroy(&indexer->lock);
-  free(indexer->concCtx.openKeys);
+  rm_free(indexer->concCtx.openKeys);
   RedisModule_FreeString(indexer->redisCtx, indexer->specKeyName);
   KHTable_Clear(&indexer->mergeHt);
   KHTable_Free(&indexer->mergeHt);
+  BlkAlloc_FreeAll(&indexer->alloc, NULL, 0, 0);
   RedisModule_FreeThreadSafeContext(indexer->redisCtx);
-  free(indexer);
+  rm_free(indexer);
 }
 
 static void *Indexer_Run(void *p) {
