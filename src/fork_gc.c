@@ -813,7 +813,10 @@ static int ForkGc_PeriodicCallback(RedisModuleCtx *ctx, void *privdata) {
     close(gc->pipefd[GC_READERFD]);
     // we got all the data, lets wait/kill the fork child
     if (ForkGc_IsForkApiExists()) {
+      // before using fork api we must acquire the GIL
+      RedisModule_ThreadSafeContextLock(ctx);
       RedisModule_KillForkChild(cpid);
+      RedisModule_ThreadSafeContextUnlock(ctx);
     } else {
       pid_t id = wait4(cpid, NULL, 0, NULL);
       if (id == -1) {
