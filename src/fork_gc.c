@@ -732,11 +732,15 @@ done:
 }
 
 static int ForkGc_IsForkApiExists() {
-  return false;
+  return RedisModule_Fork != NULL;
 }
 
 static int ForkGc_Fork() {
-  return fork();
+  if (ForkGc_IsForkApiExists()) {
+    return RedisModule_Fork(NULL, NULL);
+  } else {
+    return fork();
+  }
 }
 
 static int ForkGc_PeriodicCallback(RedisModuleCtx *ctx, void *privdata) {
@@ -772,8 +776,14 @@ static int ForkGc_PeriodicCallback(RedisModuleCtx *ctx, void *privdata) {
   RedisModule_ThreadSafeContextUnlock(ctx);
 
   if (cpid == -1) {
+    // we failed to open a fork process.
+    // this probably happened because there is another fork already running and we
+    // are using the fork api that protects us from opening 2 forks simultaneously.
+    // we will retry after timeout.
+    gc->interval.tv_sec = RSGlobalConfig.forkGcRetryInterval;
     return 1;
   }
+  gc->interval.tv_sec = RSGlobalConfig.forkGcRunIntervalSec;
 
   if (cpid == 0) {
     // fork process
@@ -801,9 +811,17 @@ static int ForkGc_PeriodicCallback(RedisModuleCtx *ctx, void *privdata) {
     close(gc->pipefd[GC_WRITERFD]);
     ForkGc_ReadGarbageFromFork(gc, &ret_val);
     close(gc->pipefd[GC_READERFD]);
-    pid_t id = wait4(cpid, NULL, 0, NULL);
-    if (id == -1) {
-      printf("an error acquire when waiting for fork to terminate, pid:%d", cpid);
+    // we got all the data, lets wait/kill the fork child
+    if (ForkGc_IsForkApiExists()) {
+      // before using fork api we must acquire the GIL
+      RedisModule_ThreadSafeContextLock(ctx);
+      RedisModule_KillForkChild(cpid);
+      RedisModule_ThreadSafeContextUnlock(ctx);
+    } else {
+      pid_t id = wait4(cpid, NULL, 0, NULL);
+      if (id == -1) {
+        printf("an error acquire when waiting for fork to terminate, pid:%d", cpid);
+      }
     }
   }
   TimeSampler_End(&ts);
@@ -853,10 +871,8 @@ void ForkGc_OnDelete(void *ctx) {
 }
 
 struct timespec ForkGc_GetInterval(void *ctx) {
-  struct timespec interval;
-  interval.tv_sec = RSGlobalConfig.forkGcRunIntervalSec;
-  interval.tv_nsec = 0;
-  return interval;
+  ForkGCCtx *forkGc = ctx;
+  return forkGc->interval;
 }
 
 ForkGCCtx *NewForkGC(const RedisModuleString *k, uint64_t specUniqueId, GCCallbacks *callbacks) {
@@ -868,6 +884,9 @@ ForkGCCtx *NewForkGC(const RedisModuleString *k, uint64_t specUniqueId, GCCallba
       .rdbPossiblyLoading = 1,
       .specUniqueId = specUniqueId,
   };
+
+  forkGc->interval.tv_sec = RSGlobalConfig.forkGcRunIntervalSec;
+  forkGc->interval.tv_nsec = 0;
 
   callbacks->onDelete = ForkGc_OnDelete;
   callbacks->onTerm = ForkGc_OnTerm;

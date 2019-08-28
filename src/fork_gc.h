@@ -40,9 +40,11 @@ typedef struct ForkGCCtx {
 
   int pipefd[2];
 
+  struct timespec interval;
+
 } ForkGCCtx;
 
-ForkGCCtx* NewForkGC(const RedisModuleString *k, uint64_t specUniqueId, GCCallbacks* callbacks);
+ForkGCCtx *NewForkGC(const RedisModuleString *k, uint64_t specUniqueId, GCCallbacks *callbacks);
 void ForkGc_RenderStats(RedisModuleCtx *ctx, void *gcCtx);
 void ForkGc_OnDelete(void *ctx);
 void ForkGc_ForceInvoke(void *ctx, RedisModuleBlockedClient *bClient);

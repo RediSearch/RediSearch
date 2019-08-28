@@ -2015,7 +2015,7 @@ def testRED_289(env):
     for i in range(20000):
         env.cmd('ft.add', 'idx', 'doc%d'%i, '1.0', 'FIELDS', 'test', 'foo')
     env.expect('FT.SEARCH', 'idx', 'foo', 'RETURN', '2', 'test').error()
-    print env.cmd('FT.SEARCH', 'idx', 'foo', 'LIMIT', '0', '20000', 'RETURN', '2', 'test', 'WITHSCORE')
+    env.cmd('FT.SEARCH', 'idx', 'foo', 'LIMIT', '0', '20000', 'RETURN', '2', 'test', 'WITHSCORE')
     env.assertTrue(env.isUp()) # make sure we did not crashed
 
 def testIssue_866(env):
