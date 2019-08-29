@@ -42,6 +42,8 @@ typedef struct ForkGCCtx {
 
   struct timespec interval;
 
+  size_t deletedDocsFromLastRun;
+
 } ForkGCCtx;
 
 ForkGCCtx *NewForkGC(const RedisModuleString *k, uint64_t specUniqueId, GCCallbacks *callbacks);
