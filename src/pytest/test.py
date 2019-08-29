@@ -2024,6 +2024,12 @@ def testIssue_866(env):
     env.expect('ft.sugdel', 'sug', 'test').equal(0)
     env.expect('ft.sugget', 'sug', '').equal(['test123', 'test456'])
 
+def testIssue_848(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test1', 'TEXT', 'SORTABLE').equal('OK')
+    env.expect('FT.ADD', 'idx', 'doc1', '1.0', 'FIELDS', 'test1', 'foo').equal('OK')
+    env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'test2', 'TEXT', 'SORTABLE').equal('OK')
+    env.expect('FT.ADD', 'idx', 'doc2', '1.0', 'FIELDS', 'test1', 'foo', 'test2', 'bar').equal('OK')
+    env.expect('FT.SEARCH', 'idx', 'foo', 'SORTBY', 'test2', 'ASC').equal([2L, 'doc1', ['test1', 'foo'], 'doc2', ['test1', 'foo', 'test2', 'bar']])
 
 def grouper(iterable, n, fillvalue=None):
     "Collect data into fixed-length chunks or blocks"
