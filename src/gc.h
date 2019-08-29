@@ -4,6 +4,7 @@
 
 #include "redismodule.h"
 #include "util/dllist.h"
+#include <time.h>
 
 #ifdef __cplusplus
 extern "C" {
