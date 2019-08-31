@@ -213,7 +213,7 @@ typedef struct RedisModuleTypeMethods {
     X(int, ReplyWithLongLong, (RedisModuleCtx *ctx, long long ll)) \
     X(int, GetSelectedDb, (RedisModuleCtx *ctx)) \
     X(int, SelectDb, (RedisModuleCtx *ctx, int newid)) \
-    X(void *, OpenKey, (RedisModuleCtx *ctx, RedisModuleString *keyname, int mode)) \
+    X(RedisModuleKey *, OpenKey, (RedisModuleCtx *ctx, RedisModuleString *keyname, int mode)) \
     X(void, CloseKey, (RedisModuleKey *kp)) \
     X(int, KeyType, (RedisModuleKey *kp)) \
     X(size_t, ValueLength, (RedisModuleKey *kp)) \
