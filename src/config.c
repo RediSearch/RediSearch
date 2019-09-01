@@ -243,7 +243,7 @@ CONFIG_SETTER(setForkGcInterval) {
 
 CONFIG_SETTER(setForkGcCleanThreshold) {
   long long val;
-  if (readLongLongLimit(argv, argc, offset, &val, 1, LLONG_MAX) != REDISMODULE_OK) {
+  if (readLongLongLimit(argv, argc, offset, &val, 0, LLONG_MAX) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
   config->forkGcCleanThreashold = val;
