@@ -250,11 +250,12 @@ $ redis-server --loadmodule ./redisearch.so GC_POLICY FORK FORK_GC_RETRY_INTERVA
 
 ## FORK_GC_CLEAN_THRESHOLD
 
-The fork gc will only start to clean when the number of not cleaned document will acceded this threshold.
+The fork gc will only start to clean when the number of not cleaned document will acceded this threshold. The default is zero
+for behavior backword compatability but its highly recomended to change it to some higher number.
 
 ### Default
 
-"10000"
+"0"
 
 ### Example
 
