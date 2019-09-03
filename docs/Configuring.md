@@ -1,6 +1,6 @@
 # Run-time configuration
 
-RediSearch supports a few run-time configuration options that should be determined when loading the module. In time more options will be added. 
+RediSearch supports a few run-time configuration options that should be determined when loading the module. In time more options will be added.
 
 ## Passing Configuration Options During Loading
 
@@ -183,7 +183,7 @@ $ redis-server --loadmodule ./redisearch.so FRISOINI /opt/dict/friso.ini
 
 ---
 
-## GC_SCANSIZE 
+## GC_SCANSIZE
 
 The garbage collection bulk size of the internal gc used for cleaning up the indexes.
 
@@ -218,9 +218,13 @@ The policy for the garbage collector. Supported policies are:
 $ redis-server --loadmodule ./redisearch.so GC_POLICY DEFAULT
 ```
 
+### Notes
+
+* When the `GC_POLICY` is `FORK` it can be combined with the options below.
+
 ## FORK_GC_RUN_INTERVAL
 
-interval (in seconds) in which to run the fork gc (relevant only when fork gc is used).
+Interval (in seconds) between two consecutive `fork GC` runs.
 
 ### Default
 
@@ -232,11 +236,15 @@ interval (in seconds) in which to run the fork gc (relevant only when fork gc is
 $ redis-server --loadmodule ./redisearch.so GC_POLICY FORK FORK_GC_RUN_INTERVAL 60
 ```
 
+### Notes
+
+* only to be combined with `GC_POLICY FORK`
+* added in v1.4.16
+* not to be combined with `FORK_GC_CLEAN_THRESHOLD`
+
 ## FORK_GC_RETRY_INTERVAL
 
-interval (in seconds) in which to retry run fork gc on failure. The forkgc might failed if for some reason we could
-not start a fork process. Usualy such thing might happened when using redis fork api which does not allow more then one
-fork to be created at the same time.
+Interval (in seconds) in which RediSearch will retry to run `fork GC` in case of a failure. Usually, a failure could happen when the redis fork api does not allow for more then one fork to be created at the same time.
 
 ### Default
 
@@ -248,10 +256,15 @@ fork to be created at the same time.
 $ redis-server --loadmodule ./redisearch.so GC_POLICY FORK FORK_GC_RETRY_INTERVAL 10
 ```
 
+### Notes
+
+* only to be combined with `GC_POLICY FORK` and `FORK_GC_RUN_INTERVAL`
+* added in v1.4.16
+* not to be combined with `FORK_GC_CLEAN_THRESHOLD`
+
 ## FORK_GC_CLEAN_THRESHOLD
 
-The fork gc will only start to clean when the number of not cleaned document will acceded this threshold. The default is zero
-for behavior backword compatability but its highly recomended to change it to some higher number.
+The `fork GC` will only start to clean when the number of not cleaned document will exceeded this threshold. The default value is zero for backwards compatibility.  However, it's highly recommended to change it to a higher number.
 
 ### Default
 
@@ -262,3 +275,9 @@ for behavior backword compatability but its highly recomended to change it to so
 ```
 $ redis-server --loadmodule ./redisearch.so GC_POLICY FORK FORK_GC_CLEAN_THRESHOLD 10000
 ```
+
+### Notes
+
+* only to be combined with `GC_POLICY FORK`
+* added in v1.4.16
+* not to be combined with `FORK_GC_RETRY_INTERVAL`
