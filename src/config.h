@@ -157,7 +157,7 @@ sds RSConfig_GetInfoString(const RSConfig *config);
     .indexPoolSize = CONCURRENT_INDEX_POOL_DEFAULT_SIZE, .poolSizeNoAuto = 0,                   \
     .gcScanSize = GC_SCANSIZE, .minPhoneticTermLen = DEFAULT_MIN_PHONETIC_TERM_LEN,             \
     .gcPolicy = GCPolicy_Default, .forkGcRunIntervalSec = DEFAULT_FORK_GC_RUN_INTERVAL,         \
-    .forkGcSleepBeforeExit = 0, .forkGcRetryInterval = 5, .forkGcCleanThreashold = 0            \
+    .forkGcSleepBeforeExit = 0, .forkGcRetryInterval = 5, .forkGcCleanThreshold = 0             \
   }
 
 #endif

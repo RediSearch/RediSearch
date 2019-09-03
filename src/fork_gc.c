@@ -745,7 +745,7 @@ static int ForkGc_Fork() {
 
 static int ForkGc_PeriodicCallback(RedisModuleCtx *ctx, void *privdata) {
   ForkGCCtx *gc = privdata;
-  if (gc->deletedDocsFromLastRun < RSGlobalConfig.forkGcCleanThreashold) {
+  if (gc->deletedDocsFromLastRun < RSGlobalConfig.forkGcCleanThreshold) {
     return 1;
   }
   RedisModule_AutoMemory(ctx);

@@ -246,7 +246,7 @@ CONFIG_SETTER(setForkGcCleanThreshold) {
   if (readLongLongLimit(argv, argc, offset, &val, 0, LLONG_MAX) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
-  config->forkGcCleanThreashold = val;
+  config->forkGcCleanThreshold = val;
   return REDISMODULE_OK;
 }
 
@@ -261,7 +261,7 @@ CONFIG_SETTER(setForkGcRetryInterval) {
 
 CONFIG_GETTER(getForkGcCleanThreshold) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%lu", config->forkGcCleanThreashold);
+  return sdscatprintf(ss, "%lu", config->forkGcCleanThreshold);
 }
 
 CONFIG_GETTER(getForkGcInterval) {
