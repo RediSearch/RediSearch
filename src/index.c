@@ -413,9 +413,17 @@ static int II_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
     // printf("Skipto %d hit @%d\n", docId, ic->current->docId);
 
     // Update the last found id
-    ic->lastFoundId = ic->current->docId;
-    if (hit) *hit = ic->current;
-    return INDEXREAD_OK;
+    if (ic->maxSlop >= 0) {
+      if (IndexResult_IsWithinRange(ic->current, ic->maxSlop, ic->inOrder)) {
+        ic->lastFoundId = ic->current->docId;
+        if (hit) *hit = ic->current;
+        return INDEXREAD_OK;
+      }
+    } else {
+      ic->lastFoundId = ic->current->docId;
+      if (hit) *hit = ic->current;
+      return INDEXREAD_OK;
+    }
   }
 
   // Not found - but we need to read the next valid result into hit
