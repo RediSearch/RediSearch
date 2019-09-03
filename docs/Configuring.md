@@ -217,3 +217,47 @@ The policy for the garbage collector. Supported policies are:
 ```
 $ redis-server --loadmodule ./redisearch.so GC_POLICY DEFAULT
 ```
+
+## FORK_GC_RUN_INTERVAL
+
+interval (in seconds) in which to run the fork gc (relevant only when fork gc is used).
+
+### Default
+
+"30"
+
+### Example
+
+```
+$ redis-server --loadmodule ./redisearch.so GC_POLICY FORK FORK_GC_RUN_INTERVAL 60
+```
+
+## FORK_GC_RETRY_INTERVAL
+
+interval (in seconds) in which to retry run fork gc on failure. The forkgc might failed if for some reason we could
+not start a fork process. Usualy such thing might happened when using redis fork api which does not allow more then one
+fork to be created at the same time.
+
+### Default
+
+"5"
+
+### Example
+
+```
+$ redis-server --loadmodule ./redisearch.so GC_POLICY FORK FORK_GC_RETRY_INTERVAL 10
+```
+
+## FORK_GC_CLEAN_THRESHOLD
+
+The fork gc will only start to clean when the number of not cleaned document will acceded this threshold.
+
+### Default
+
+"10000"
+
+### Example
+
+```
+$ redis-server --loadmodule ./redisearch.so GC_POLICY FORK FORK_GC_CLEAN_THRESHOLD 10000
+```
