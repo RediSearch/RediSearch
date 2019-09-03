@@ -132,7 +132,6 @@ def testGCIntegrationWithRedisFork(env):
         env.skip()
     if env.isCluster():
         raise unittest.SkipTest()
-    env = Env(moduleArgs='GC_POLICY FORK')
     env.expect('FT.CONFIG', 'SET', 'FORKGC_SLEEP_BEFORE_EXIT', '4').ok()
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT', 'SORTABLE').ok()
     env.expect('FT.ADD', 'idx', 'doc1', 1.0, 'FIELDS', 'title', 'hello world').ok()
@@ -140,3 +139,71 @@ def testGCIntegrationWithRedisFork(env):
     env.cmd('FT.DEBUG', 'GC_FORCEINVOKE', 'idx')
     env.expect('bgsave').equal('Background saving started')
     env.cmd('FT.CONFIG', 'SET', 'FORKGC_SLEEP_BEFORE_EXIT', '0')
+
+def testGCThreshold(env):
+    if env.env == 'existing-env':
+        env.skip()
+    if env.isCluster():
+        raise unittest.SkipTest()
+
+    env = Env(moduleArgs='GC_POLICY FORK FORK_GC_CLEAN_THRESHOLD 1000')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT', 'SORTABLE').ok()
+    for i in range(1000):
+        env.expect('FT.ADD', 'idx', 'doc%d' % i, '1.0', 'FIELDS', 'title', 'foo').ok()
+
+    debug_rep = env.cmd('FT.DEBUG', 'DUMP_INVIDX', 'idx', 'foo')
+
+    for i in range(999):
+        env.expect('FT.DEL', 'idx', 'doc%d' % i).equal(1)
+
+    env.cmd('ft.debug', 'GC_FORCEINVOKE', 'idx')
+
+    env.expect('FT.DEBUG', 'DUMP_INVIDX', 'idx', 'foo').equal(debug_rep)
+
+    env.expect('FT.DEL', 'idx', 'doc999').equal(1)
+
+    env.cmd('ft.debug', 'GC_FORCEINVOKE', 'idx')
+
+    debug_rep = env.cmd('FT.DEBUG', 'DUMP_INVIDX', 'idx', 'foo')
+
+    env.assertEqual(len(debug_rep), 0)
+
+    # retry with replace
+    for i in range(1000):
+        env.expect('FT.ADD', 'idx', 'doc%d' % i, '1.0', 'FIELDS', 'title', 'foo').ok()
+
+    debug_rep = env.cmd('FT.DEBUG', 'DUMP_INVIDX', 'idx', 'foo')
+
+    for i in range(999):
+        env.expect('FT.ADD', 'idx', 'doc%d' % i, '1.0', 'REPLACE', 'FIELDS', 'title', 'foo1').ok()
+
+    env.cmd('ft.debug', 'GC_FORCEINVOKE', 'idx')
+
+    env.expect('FT.DEBUG', 'DUMP_INVIDX', 'idx', 'foo').equal(debug_rep)
+
+    env.expect('FT.ADD', 'idx', 'doc999', '1.0', 'REPLACE', 'FIELDS', 'title', 'foo1').ok()
+
+    env.cmd('ft.debug', 'GC_FORCEINVOKE', 'idx')
+
+    debug_rep = env.cmd('FT.DEBUG', 'DUMP_INVIDX', 'idx', 'foo')
+
+    env.assertEqual(len(debug_rep), 0)
+
+    # retry with replace partial
+
+    debug_rep = env.cmd('FT.DEBUG', 'DUMP_INVIDX', 'idx', 'foo')
+
+    for i in range(999):
+        env.expect('FT.ADD', 'idx', 'doc%d' % i, '1.0', 'REPLACE', 'PARTIAL', 'FIELDS', 'title', 'foo2').ok()
+
+    env.cmd('ft.debug', 'GC_FORCEINVOKE', 'idx')
+
+    env.expect('FT.DEBUG', 'DUMP_INVIDX', 'idx', 'foo').equal(debug_rep)
+
+    env.expect('FT.ADD', 'idx', 'doc999', '1.0', 'REPLACE', 'PARTIAL', 'FIELDS', 'title', 'foo1').ok()
+
+    env.cmd('ft.debug', 'GC_FORCEINVOKE', 'idx')
+
+    debug_rep = env.cmd('FT.DEBUG', 'DUMP_INVIDX', 'idx', 'foo')
+
+    env.assertEqual(len(debug_rep), 0)

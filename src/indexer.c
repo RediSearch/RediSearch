@@ -266,6 +266,9 @@ static int makeDocumentId(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, int repl
         // Delete all on-demand fields.. this means geo,but could mean other things..
         handleReplaceDelete(sctx, dmd->id);
       }
+      if (sctx->spec->gc) {
+        GCContext_OnDelete(sctx->spec->gc);
+      }
     }
   }
 

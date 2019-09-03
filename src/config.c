@@ -241,6 +241,15 @@ CONFIG_SETTER(setForkGcInterval) {
   return REDISMODULE_OK;
 }
 
+CONFIG_SETTER(setForkGcCleanThreshold) {
+  long long val;
+  if (readLongLongLimit(argv, argc, offset, &val, 0, LLONG_MAX) != REDISMODULE_OK) {
+    return REDISMODULE_ERR;
+  }
+  config->forkGcCleanThreshold = val;
+  return REDISMODULE_OK;
+}
+
 CONFIG_SETTER(setForkGcRetryInterval) {
   long long val;
   if (readLongLongLimit(argv, argc, offset, &val, 1, LLONG_MAX) != REDISMODULE_OK) {
@@ -257,6 +266,11 @@ CONFIG_SETTER(setMaxResultsToUnsortedMode) {
   }
   config->maxResultsToUnsortedMode = val;
   return REDISMODULE_OK;
+}
+
+CONFIG_GETTER(getForkGcCleanThreshold) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%lu", config->forkGcCleanThreshold);
 }
 
 CONFIG_GETTER(getForkGcInterval) {
@@ -436,6 +450,11 @@ RSConfigOptions RSGlobalConfigOptions = {
                      "gc is used)",
          .setValue = setForkGcInterval,
          .getValue = getForkGcInterval},
+        {.name = "FORK_GC_CLEAN_THRESHOLD",
+         .helpText = "the fork gc will only start to clean when the number of not cleaned document "
+                     "will acceded this threshold",
+         .setValue = setForkGcCleanThreshold,
+         .getValue = getForkGcCleanThreshold},
         {.name = "FORK_GC_RETRY_INTERVAL",
          .helpText = "interval (in seconds) in which to retry running the forkgc after failure.",
          .setValue = setForkGcRetryInterval,
