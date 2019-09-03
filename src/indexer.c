@@ -252,6 +252,11 @@ static int makeDocumentId(RSAddDocumentCtx *aCtx, IndexSpec *spec, int replace,
       // decrease the number of documents in the index stats only if the document was there
       --spec->stats.numDocuments;
       aCtx->oldMd = dmd;
+
+      if (spec->gc) {
+        // tell the GC we have a deleted document
+        GCContext_OnDelete(spec->gc);
+      }
     }
   }
 

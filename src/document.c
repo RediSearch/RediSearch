@@ -187,6 +187,7 @@ static void doReplyFinish(RSAddDocumentCtx *aCtx, RedisModuleCtx *ctx) {
   } else {
     RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
+
   AddDocumentCtx_Free(aCtx);
 }
 

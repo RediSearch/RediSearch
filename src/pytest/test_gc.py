@@ -136,3 +136,71 @@ def testGCIntegrationWithRedisFork(env):
     env.expect('bgsave').equal('Background saving started')
     env.cmd('FT.DEBUG', 'GC_FORCEINVOKE', 'idx')
     env.expect('bgsave').equal('Background saving started')
+
+def testGCThreshold(env):
+    if env.env == 'existing-env':
+        env.skip()
+    if env.isCluster():
+        raise unittest.SkipTest()
+
+    env = Env(moduleArgs='GC_POLICY FORK FORK_GC_CLEAN_THRESHOLD 1000')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT', 'SORTABLE').ok()
+    for i in range(1000):
+        env.expect('FT.ADD', 'idx', 'doc%d' % i, '1.0', 'FIELDS', 'title', 'foo').ok()
+
+    debug_rep = env.cmd('FT.DEBUG', 'DUMP_INVIDX', 'idx', 'foo')
+
+    for i in range(999):
+        env.expect('FT.DEL', 'idx', 'doc%d' % i).equal(1)
+
+    env.cmd('ft.debug', 'GC_FORCEINVOKE', 'idx')
+
+    env.expect('FT.DEBUG', 'DUMP_INVIDX', 'idx', 'foo').equal(debug_rep)
+
+    env.expect('FT.DEL', 'idx', 'doc999').equal(1)
+
+    env.cmd('ft.debug', 'GC_FORCEINVOKE', 'idx')
+
+    debug_rep = env.cmd('FT.DEBUG', 'DUMP_INVIDX', 'idx', 'foo')
+
+    env.assertEqual(len(debug_rep), 100) # only the last block are not clean
+
+    # retry with replace
+    for i in range(1000):
+        env.expect('FT.ADD', 'idx', 'doc%d' % i, '1.0', 'FIELDS', 'title', 'foo').ok()
+
+    debug_rep = env.cmd('FT.DEBUG', 'DUMP_INVIDX', 'idx', 'foo')
+
+    for i in range(999):
+        env.expect('FT.ADD', 'idx', 'doc%d' % i, '1.0', 'REPLACE', 'FIELDS', 'title', 'foo1').ok()
+
+    env.cmd('ft.debug', 'GC_FORCEINVOKE', 'idx')
+
+    env.expect('FT.DEBUG', 'DUMP_INVIDX', 'idx', 'foo').equal(debug_rep)
+
+    env.expect('FT.ADD', 'idx', 'doc999', '1.0', 'REPLACE', 'FIELDS', 'title', 'foo1').ok()
+
+    env.cmd('ft.debug', 'GC_FORCEINVOKE', 'idx')
+
+    debug_rep = env.cmd('FT.DEBUG', 'DUMP_INVIDX', 'idx', 'foo')
+
+    env.assertEqual(len(debug_rep), 100) # only the last block are not clean
+
+    # retry with replace partial
+
+    debug_rep = env.cmd('FT.DEBUG', 'DUMP_INVIDX', 'idx', 'foo')
+
+    for i in range(999):
+        env.expect('FT.ADD', 'idx', 'doc%d' % i, '1.0', 'REPLACE', 'PARTIAL', 'FIELDS', 'title', 'foo2').ok()
+
+    env.cmd('ft.debug', 'GC_FORCEINVOKE', 'idx')
+
+    env.expect('FT.DEBUG', 'DUMP_INVIDX', 'idx', 'foo').equal(debug_rep)
+
+    env.expect('FT.ADD', 'idx', 'doc999', '1.0', 'REPLACE', 'PARTIAL', 'FIELDS', 'title', 'foo1').ok()
+
+    env.cmd('ft.debug', 'GC_FORCEINVOKE', 'idx')
+
+    debug_rep = env.cmd('FT.DEBUG', 'DUMP_INVIDX', 'idx', 'foo')
+
+    env.assertEqual(len(debug_rep), 100) # only the last block are not clean
