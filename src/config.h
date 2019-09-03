@@ -76,7 +76,7 @@ typedef struct {
 
   GCPolicy gcPolicy;
   size_t forkGcRunIntervalSec;
-  size_t forkGcCleanThreashold;
+  size_t forkGcCleanThreshold;
   size_t forkGcRetryInterval;
   size_t forkGcSleepBeforeExit;
 

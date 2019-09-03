@@ -242,7 +242,7 @@ $ redis-server --loadmodule ./redisearch.so GC_POLICY FORK FORK_GC_RUN_INTERVAL 
 
 ## FORK_GC_RETRY_INTERVAL
 
-Interval (in seconds) in which RediSearch will retry to run `fork GC` in case of a failure. Usually, a failure could happen when the redis fork api does not allow for more then one fork to be created at the same time.
+Interval (in seconds) in which RediSearch will retry to run `fork GC` in case of a failure. Usually, a failure could happen when the redis fork api does not allow for more than one fork to be created at the same time.
 
 ### Default
 
