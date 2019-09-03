@@ -2217,6 +2217,19 @@ def testIssue862(env):
     rv = env.cmd("FT.SEARCH", "idx", "foo", 'WITHSORTKEYS')
     env.assertEqual([1L, 'doc1', None, ['test', 'foo']], rv)
 
+def testIssue_884(env):
+    env.expect('FT.create', 'idx', 'STOPWORDS', '0', 'SCHEMA', 'title', 'text', 'weight',
+               '50', 'subtitle', 'text', 'weight', '10', 'author', 'text', 'weight',
+               '10', 'description', 'text', 'weight', '20').equal('OK')
+
+    env.expect('FT.ADD', 'idx', 'doc4', '1.0', 'FIELDS', 'title', 'mohsin conversation the conversation tahir').equal('OK')
+    env.expect('FT.ADD', 'idx', 'doc3', '1.0', 'FIELDS', 'title', 'Fareham Civilization Church - Sermons and conversations mohsin conversation the').equal('OK')
+    env.expect('FT.ADD', 'idx', 'doc2', '1.0', 'FIELDS', 'title', 'conversation the conversation - a drama about conversation, the science of conversation.').equal('OK')
+    env.expect('FT.ADD', 'idx', 'doc1', '1.0', 'FIELDS', 'title', 'mohsin conversation with the mohsin').equal('OK')
+
+    env.expect('FT.SEARCH', 'idx', '@title:(conversation) (@title:(conversation the conversation))=>{$inorder: true;$slop: 0}').equal(
+        [2L, 'doc2', ['title', 'conversation the conversation - a drama about conversation, the science of conversation.'], 'doc4', ['title', 'mohsin conversation the conversation tahir']])
+
 def testIssue_866(env):
     env.expect('ft.sugadd', 'sug', 'test123', '1').equal(1)
     env.expect('ft.sugadd', 'sug', 'test456', '1').equal(2)
