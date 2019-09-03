@@ -201,7 +201,7 @@ $ redis-server --loadmodule ./redisearch.so GC_SCANSIZE 10
 
 ## GC_POLICY
 
-The policy for the garbage collector. Supported policies are:
+The policy for the garbage collector (GC). Supported policies are:
 
 * **DEFAULT**: the default policy.
 * **FORK**: uses a forked thread for garbage collection (v1.4.1 and above).
@@ -239,8 +239,6 @@ $ redis-server --loadmodule ./redisearch.so GC_POLICY FORK FORK_GC_RUN_INTERVAL 
 ### Notes
 
 * only to be combined with `GC_POLICY FORK`
-* added in v1.4.16
-* not to be combined with `FORK_GC_CLEAN_THRESHOLD`
 
 ## FORK_GC_RETRY_INTERVAL
 
@@ -258,13 +256,12 @@ $ redis-server --loadmodule ./redisearch.so GC_POLICY FORK FORK_GC_RETRY_INTERVA
 
 ### Notes
 
-* only to be combined with `GC_POLICY FORK` and `FORK_GC_RUN_INTERVAL`
+* only to be combined with `GC_POLICY FORK`
 * added in v1.4.16
-* not to be combined with `FORK_GC_CLEAN_THRESHOLD`
 
 ## FORK_GC_CLEAN_THRESHOLD
 
-The `fork GC` will only start to clean when the number of not cleaned document will exceeded this threshold. The default value is zero for backwards compatibility.  However, it's highly recommended to change it to a higher number.
+The `fork GC` will only start to clean when the number of not cleaned documents is exceeding this threshold, otherwise it will skip this run. The default value is zero for backwards compatibility.  However, it's highly recommended to change it to a higher number.
 
 ### Default
 
@@ -280,4 +277,3 @@ $ redis-server --loadmodule ./redisearch.so GC_POLICY FORK FORK_GC_CLEAN_THRESHO
 
 * only to be combined with `GC_POLICY FORK`
 * added in v1.4.16
-* not to be combined with `FORK_GC_RETRY_INTERVAL`
