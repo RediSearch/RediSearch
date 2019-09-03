@@ -2031,6 +2031,14 @@ def testIssue_848(env):
     env.expect('FT.ADD', 'idx', 'doc2', '1.0', 'FIELDS', 'test1', 'foo', 'test2', 'bar').equal('OK')
     env.expect('FT.SEARCH', 'idx', 'foo', 'SORTBY', 'test2', 'ASC').equal([2L, 'doc1', ['test1', 'foo'], 'doc2', ['test1', 'foo', 'test2', 'bar']])
 
+def testMod_309(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
+    for i in range(100000):
+        env.expect('FT.ADD', 'idx', 'doc%d'%i, '1.0', 'FIELDS', 'test', 'foo').equal('OK')
+    res = env.cmd('FT.AGGREGATE', 'idx', 'foo')
+    env.assertEqual(len(res), 100001)
+
+
 def grouper(iterable, n, fillvalue=None):
     "Collect data into fixed-length chunks or blocks"
     from itertools import izip_longest
