@@ -9,6 +9,7 @@ def testBasicGC(env):
     if env.moduleArgs is not None and 'GC_POLICY FORK' in env.moduleArgs:
         # this test is not relevent for fork gc cause its not cleaning the last block
         raise unittest.SkipTest()
+    env.cmd('FT.CONFIG', 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0')
     env.assertOk(env.cmd('ft.create', 'idx', 'schema', 'title', 'text', 'id', 'numeric', 't', 'tag'))
     env.assertOk(env.cmd('ft.add', 'idx', 'doc1', 1.0, 'fields',
                          'title', 'hello world',
@@ -42,6 +43,7 @@ def testNumerciGCIntensive(env):
     if env.moduleArgs is not None and 'GC_POLICY FORK' in env.moduleArgs:
         # this test is not relevent for fork gc cause its not cleaning the last block
         raise unittest.SkipTest()
+    env.cmd('FT.CONFIG', 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0')
     NumberOfDocs = 1000
     env.assertOk(env.cmd('ft.create', 'idx', 'schema', 'id', 'numeric'))
 
@@ -66,6 +68,7 @@ def testTagGC(env):
     if env.moduleArgs is not None and 'GC_POLICY FORK' in env.moduleArgs:
         # this test is not relevent for fork gc cause its not cleaning the last block
         raise unittest.SkipTest()
+    env.cmd('FT.CONFIG', 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0')
     NumberOfDocs = 10
     env.assertOk(env.cmd('ft.create', 'idx', 'schema', 't', 'tag'))
 
@@ -88,6 +91,7 @@ def testTagGC(env):
 def testDeleteEntireBlock(env):
     if env.isCluster():
         raise unittest.SkipTest()
+    env.cmd('FT.CONFIG', 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'TEXT', 'SORTABLE', 'test2', 'TEXT', 'SORTABLE', ).ok()
     # creating 5 blocks on 'checking' inverted index
     for i in range(700):
@@ -109,6 +113,7 @@ def testDeleteEntireBlock(env):
 def testDeleteDocWithGoeField(env):
     if env.isCluster():
         raise unittest.SkipTest()
+    env.cmd('FT.CONFIG', 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'TEXT', 'SORTABLE', 'test2', 'GEO').ok()
     env.expect('FT.ADD', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'checking', 'test2', '1,1').ok()
     env.expect('zrange', 'geo:idx/test2', '0', '-1').equal(['1'])
@@ -124,10 +129,78 @@ def testGCIntegrationWithRedisFork(env):
         env.skip()
     if env.isCluster():
         raise unittest.SkipTest()
-    env = Env(moduleArgs='GC_POLICY FORK')
+    env = Env(moduleArgs='GC_POLICY FORK FORK_GC_CLEAN_THRESHOLD 0')
     env.expect('FT.CONFIG', 'SET', 'FORKGC_SLEEP_BEFORE_EXIT', '4').ok()
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT', 'SORTABLE').ok()
     env.expect('FT.ADD', 'idx', 'doc1', 1.0, 'FIELDS', 'title', 'hello world').ok()
     env.expect('bgsave').equal('Background saving started')
     env.cmd('FT.DEBUG', 'GC_FORCEINVOKE', 'idx')
     env.expect('bgsave').equal('Background saving started')
+
+def testGCThreshold(env):
+    if env.env == 'existing-env':
+        env.skip()
+    if env.isCluster():
+        raise unittest.SkipTest()
+
+    env = Env(moduleArgs='GC_POLICY FORK FORK_GC_CLEAN_THRESHOLD 1000')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT', 'SORTABLE').ok()
+    for i in range(1000):
+        env.expect('FT.ADD', 'idx', 'doc%d' % i, '1.0', 'FIELDS', 'title', 'foo').ok()
+
+    debug_rep = env.cmd('FT.DEBUG', 'DUMP_INVIDX', 'idx', 'foo')
+
+    for i in range(999):
+        env.expect('FT.DEL', 'idx', 'doc%d' % i).equal(1)
+
+    env.cmd('ft.debug', 'GC_FORCEINVOKE', 'idx')
+
+    env.expect('FT.DEBUG', 'DUMP_INVIDX', 'idx', 'foo').equal(debug_rep)
+
+    env.expect('FT.DEL', 'idx', 'doc999').equal(1)
+
+    env.cmd('ft.debug', 'GC_FORCEINVOKE', 'idx')
+
+    debug_rep = env.cmd('FT.DEBUG', 'DUMP_INVIDX', 'idx', 'foo')
+
+    env.assertEqual(len(debug_rep), 100) # only the last block are not clean
+
+    # retry with replace
+    for i in range(1000):
+        env.expect('FT.ADD', 'idx', 'doc%d' % i, '1.0', 'FIELDS', 'title', 'foo').ok()
+
+    debug_rep = env.cmd('FT.DEBUG', 'DUMP_INVIDX', 'idx', 'foo')
+
+    for i in range(999):
+        env.expect('FT.ADD', 'idx', 'doc%d' % i, '1.0', 'REPLACE', 'FIELDS', 'title', 'foo1').ok()
+
+    env.cmd('ft.debug', 'GC_FORCEINVOKE', 'idx')
+
+    env.expect('FT.DEBUG', 'DUMP_INVIDX', 'idx', 'foo').equal(debug_rep)
+
+    env.expect('FT.ADD', 'idx', 'doc999', '1.0', 'REPLACE', 'FIELDS', 'title', 'foo1').ok()
+
+    env.cmd('ft.debug', 'GC_FORCEINVOKE', 'idx')
+
+    debug_rep = env.cmd('FT.DEBUG', 'DUMP_INVIDX', 'idx', 'foo')
+
+    env.assertEqual(len(debug_rep), 100) # only the last block are not clean
+
+    # retry with replace partial
+
+    debug_rep = env.cmd('FT.DEBUG', 'DUMP_INVIDX', 'idx', 'foo')
+
+    for i in range(999):
+        env.expect('FT.ADD', 'idx', 'doc%d' % i, '1.0', 'REPLACE', 'PARTIAL', 'FIELDS', 'title', 'foo2').ok()
+
+    env.cmd('ft.debug', 'GC_FORCEINVOKE', 'idx')
+
+    env.expect('FT.DEBUG', 'DUMP_INVIDX', 'idx', 'foo').equal(debug_rep)
+
+    env.expect('FT.ADD', 'idx', 'doc999', '1.0', 'REPLACE', 'PARTIAL', 'FIELDS', 'title', 'foo1').ok()
+
+    env.cmd('ft.debug', 'GC_FORCEINVOKE', 'idx')
+
+    debug_rep = env.cmd('FT.DEBUG', 'DUMP_INVIDX', 'idx', 'foo')
+
+    env.assertEqual(len(debug_rep), 100) # only the last block are not clean

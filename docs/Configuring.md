@@ -1,6 +1,6 @@
 # Run-time configuration
 
-RediSearch supports a few run-time configuration options that should be determined when loading the module. In time more options will be added. 
+RediSearch supports a few run-time configuration options that should be determined when loading the module. In time more options will be added.
 
 ## Passing Configuration Options During Loading
 
@@ -183,7 +183,7 @@ $ redis-server --loadmodule ./redisearch.so FRISOINI /opt/dict/friso.ini
 
 ---
 
-## GC_SCANSIZE 
+## GC_SCANSIZE
 
 The garbage collection bulk size of the internal gc used for cleaning up the indexes.
 
@@ -201,7 +201,7 @@ $ redis-server --loadmodule ./redisearch.so GC_SCANSIZE 10
 
 ## GC_POLICY
 
-The policy for the garbage collector. Supported policies are:
+The policy for the garbage collector (GC). Supported policies are:
 
 * **DEFAULT**: the default policy.
 * **FORK**: uses a forked thread for garbage collection (v1.4.1 and above).
@@ -217,3 +217,63 @@ The policy for the garbage collector. Supported policies are:
 ```
 $ redis-server --loadmodule ./redisearch.so GC_POLICY DEFAULT
 ```
+
+### Notes
+
+* When the `GC_POLICY` is `FORK` it can be combined with the options below.
+
+## FORK_GC_RUN_INTERVAL
+
+Interval (in seconds) between two consecutive `fork GC` runs.
+
+### Default
+
+"30"
+
+### Example
+
+```
+$ redis-server --loadmodule ./redisearch.so GC_POLICY FORK FORK_GC_RUN_INTERVAL 60
+```
+
+### Notes
+
+* only to be combined with `GC_POLICY FORK`
+
+## FORK_GC_RETRY_INTERVAL
+
+Interval (in seconds) in which RediSearch will retry to run `fork GC` in case of a failure. Usually, a failure could happen when the redis fork api does not allow for more than one fork to be created at the same time.
+
+### Default
+
+"5"
+
+### Example
+
+```
+$ redis-server --loadmodule ./redisearch.so GC_POLICY FORK FORK_GC_RETRY_INTERVAL 10
+```
+
+### Notes
+
+* only to be combined with `GC_POLICY FORK`
+* added in v1.4.16
+
+## FORK_GC_CLEAN_THRESHOLD
+
+The `fork GC` will only start to clean when the number of not cleaned documents is exceeding this threshold, otherwise it will skip this run. The default value is zero for backwards compatibility.  However, it's highly recommended to change it to a higher number.
+
+### Default
+
+"0"
+
+### Example
+
+```
+$ redis-server --loadmodule ./redisearch.so GC_POLICY FORK FORK_GC_CLEAN_THRESHOLD 10000
+```
+
+### Notes
+
+* only to be combined with `GC_POLICY FORK`
+* added in v1.4.16

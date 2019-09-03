@@ -745,6 +745,9 @@ static int ForkGc_Fork() {
 
 static int ForkGc_PeriodicCallback(RedisModuleCtx *ctx, void *privdata) {
   ForkGCCtx *gc = privdata;
+  if (gc->deletedDocsFromLastRun < RSGlobalConfig.forkGcCleanThreshold) {
+    return 1;
+  }
   RedisModule_AutoMemory(ctx);
 
   // Check if RDB is loading - not needed after the first time we find out that rdb is not reloading
@@ -773,7 +776,6 @@ static int ForkGc_PeriodicCallback(RedisModuleCtx *ctx, void *privdata) {
   pipe(gc->pipefd);  // create the pipe
   RedisModule_ThreadSafeContextLock(ctx);
   cpid = ForkGc_Fork();  // duplicate the current process
-  RedisModule_ThreadSafeContextUnlock(ctx);
 
   if (cpid == -1) {
     // we failed to open a fork process.
@@ -781,8 +783,14 @@ static int ForkGc_PeriodicCallback(RedisModuleCtx *ctx, void *privdata) {
     // are using the fork api that protects us from opening 2 forks simultaneously.
     // we will retry after timeout.
     gc->interval.tv_sec = RSGlobalConfig.forkGcRetryInterval;
+    RedisModule_ThreadSafeContextUnlock(ctx);
     return 1;
   }
+  // we set the number of deleted document to 0 cause we are going to clean all
+  // the deleted documents
+  gc->deletedDocsFromLastRun = 0;
+
+  RedisModule_ThreadSafeContextUnlock(ctx);
   gc->interval.tv_sec = RSGlobalConfig.forkGcRunIntervalSec;
 
   if (cpid == 0) {
@@ -868,6 +876,8 @@ void ForkGc_RenderStats(RedisModuleCtx *ctx, void *gcCtx) {
 }
 
 void ForkGc_OnDelete(void *ctx) {
+  ForkGCCtx *forkGc = ctx;
+  forkGc->deletedDocsFromLastRun++;
 }
 
 struct timespec ForkGc_GetInterval(void *ctx) {
@@ -883,6 +893,7 @@ ForkGCCtx *NewForkGC(const RedisModuleString *k, uint64_t specUniqueId, GCCallba
       .stats = {},
       .rdbPossiblyLoading = 1,
       .specUniqueId = specUniqueId,
+      .deletedDocsFromLastRun = 0,
   };
 
   forkGc->interval.tv_sec = RSGlobalConfig.forkGcRunIntervalSec;
