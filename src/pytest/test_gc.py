@@ -1,5 +1,6 @@
 
 import unittest
+import time
 from RLTest import Env
 
 
@@ -137,6 +138,7 @@ def testGCIntegrationWithRedisFork(env):
     env.expect('FT.ADD', 'idx', 'doc1', 1.0, 'FIELDS', 'title', 'hello world').ok()
     env.expect('bgsave').equal('Background saving started')
     env.cmd('FT.DEBUG', 'GC_FORCEINVOKE', 'idx')
+    time.sleep(1)
     env.expect('bgsave').equal('Background saving started')
     env.cmd('FT.CONFIG', 'SET', 'FORKGC_SLEEP_BEFORE_EXIT', '0')
 
