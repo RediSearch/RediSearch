@@ -51,9 +51,9 @@ static RSValue *sumFinalize(Reducer *baseparent, void *instance) {
 }
 
 static Reducer *newReducerCommon(const ReducerOptions *options, int isAvg) {
-  SumReducer *r = calloc(1, sizeof(*r));
+  SumReducer *r = rm_calloc(1, sizeof(*r));
   if (!ReducerOpts_GetKey(options, &r->srckey)) {
-    free(r);
+    rm_free(r);
     return NULL;
   }
   r->base.NewInstance = sumNewInstance;

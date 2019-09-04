@@ -47,9 +47,9 @@ static int ensureExtendedMode(AREQ *areq, const char *name, QueryError *status) 
 static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status, int allowLegacy);
 
 static void ReturnedField_Free(ReturnedField *field) {
-  free(field->highlightSettings.openTag);
-  free(field->highlightSettings.closeTag);
-  free(field->summarizeSettings.separator);
+  rm_free(field->highlightSettings.openTag);
+  rm_free(field->highlightSettings.closeTag);
+  rm_free(field->summarizeSettings.separator);
 }
 
 void FieldList_Free(FieldList *fields) {
@@ -57,7 +57,7 @@ void FieldList_Free(FieldList *fields) {
     ReturnedField_Free(fields->fields + ii);
   }
   ReturnedField_Free(&fields->defaultField);
-  free(fields->fields);
+  rm_free(fields->fields);
 }
 
 ReturnedField *FieldList_GetCreateField(FieldList *fields, const char *name) {
@@ -68,7 +68,7 @@ ReturnedField *FieldList_GetCreateField(FieldList *fields, const char *name) {
     }
   }
 
-  fields->fields = realloc(fields->fields, sizeof(*fields->fields) * ++fields->numFields);
+  fields->fields = rm_realloc(fields->fields, sizeof(*fields->fields) * ++fields->numFields);
   ReturnedField *ret = fields->fields + (fields->numFields - 1);
   memset(ret, 0, sizeof *ret);
   ret->name = name;
@@ -275,7 +275,7 @@ static int parseQueryLegacyArgs(ArgsCursor *ac, RSSearchOptions *options, QueryE
       return ARG_ERROR;
     }
   } else if (AC_AdvanceIfMatch(ac, "GEOFILTER")) {
-    options->legacy.gf = calloc(1, sizeof(*options->legacy.gf));
+    options->legacy.gf = rm_calloc(1, sizeof(*options->legacy.gf));
     if (GeoFilter_Parse(options->legacy.gf, ac, status) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
@@ -416,7 +416,7 @@ static char *getReducerAlias(PLN_GroupStep *g, const char *func, const ArgsCurso
   sdstolower(out);
 
   // duplicate everything. yeah this is lame but this function is not in a tight loop
-  char *dup = strndup(out, sdslen(out));
+  char *dup = rm_strndup(out, sdslen(out));
   sdsfree(out);
   return dup;
 }
@@ -427,13 +427,13 @@ static void groupStepFree(PLN_BaseStep *base) {
     size_t nreducers = array_len(g->reducers);
     for (size_t ii = 0; ii < nreducers; ++ii) {
       PLN_Reducer *gr = g->reducers + ii;
-      free(gr->alias);
+      rm_free(gr->alias);
     }
     array_free(g->reducers);
   }
 
   RLookup_Cleanup(&g->lookup);
-  free(base);
+  rm_free(base);
 }
 
 static RLookup *groupStepGetLookup(PLN_BaseStep *bstp) {
@@ -464,17 +464,17 @@ int PLNGroupStep_AddReducer(PLN_GroupStep *gstp, const char *name, ArgsCursor *a
   if (alias == NULL) {
     gr->alias = getReducerAlias(gstp, name, &gr->args);
   } else {
-    gr->alias = strdup(alias);
+    gr->alias = rm_strdup(alias);
   }
   return REDISMODULE_OK;
 }
 
 static void genericStepFree(PLN_BaseStep *p) {
-  free(p);
+  rm_free(p);
 }
 
 PLN_GroupStep *PLNGroupStep_New(const char **properties, size_t nproperties) {
-  PLN_GroupStep *gstp = calloc(1, sizeof(*gstp));
+  PLN_GroupStep *gstp = rm_calloc(1, sizeof(*gstp));
   gstp->properties = properties;
   gstp->nproperties = nproperties;
   gstp->base.dtor = groupStepFree;
@@ -519,14 +519,14 @@ static void freeFilterStep(PLN_BaseStep *bstp) {
     ExprAST_Free(fstp->parsedExpr);
   }
   if (fstp->shouldFreeRaw) {
-    free((char *)fstp->rawExpr);
+    rm_free((char *)fstp->rawExpr);
   }
-  free((void *)fstp->base.alias);
-  free(bstp);
+  rm_free((void *)fstp->base.alias);
+  rm_free(bstp);
 }
 
 PLN_MapFilterStep *PLNMapFilterStep_New(const char *expr, int mode) {
-  PLN_MapFilterStep *stp = calloc(1, sizeof(*stp));
+  PLN_MapFilterStep *stp = rm_calloc(1, sizeof(*stp));
   stp->base.dtor = freeFilterStep;
   stp->base.type = mode;
   stp->rawExpr = expr;
@@ -552,9 +552,9 @@ static int handleApplyOrFilter(AREQ *req, ArgsCursor *ac, QueryError *status, in
         QERR_MKBADARGS_FMT(status, "AS needs argument");
         goto error;
       }
-      stp->base.alias = strdup(alias);
+      stp->base.alias = rm_strdup(alias);
     } else {
-      stp->base.alias = strdup(expr);
+      stp->base.alias = rm_strdup(expr);
     }
   }
   return REDISMODULE_OK;
@@ -568,8 +568,8 @@ error:
 
 static void loadDtor(PLN_BaseStep *bstp) {
   PLN_LoadStep *lstp = (PLN_LoadStep *)bstp;
-  free(lstp->keys);
-  free(lstp);
+  rm_free(lstp->keys);
+  rm_free(lstp);
 }
 
 static int handleLoad(AREQ *req, ArgsCursor *ac, QueryError *status) {
@@ -580,22 +580,22 @@ static int handleLoad(AREQ *req, ArgsCursor *ac, QueryError *status) {
     return REDISMODULE_ERR;
   }
 
-  PLN_LoadStep *lstp = calloc(1, sizeof(*lstp));
+  PLN_LoadStep *lstp = rm_calloc(1, sizeof(*lstp));
   lstp->base.type = PLN_T_LOAD;
   lstp->base.dtor = loadDtor;
   lstp->args = loadfields;
-  lstp->keys = calloc(loadfields.argc, sizeof(*lstp->keys));
+  lstp->keys = rm_calloc(loadfields.argc, sizeof(*lstp->keys));
 
   AGPLN_AddStep(&req->ap, &lstp->base);
   return REDISMODULE_OK;
 }
 
 AREQ *AREQ_New(void) {
-  return calloc(1, sizeof(AREQ));
+  return rm_calloc(1, sizeof(AREQ));
 }
 
 int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *status) {
-  req->args = malloc(sizeof(*req->args) * argc);
+  req->args = rm_malloc(sizeof(*req->args) * argc);
   req->nargs = argc;
   for (size_t ii = 0; ii < argc; ++ii) {
     size_t n;
@@ -684,7 +684,7 @@ static void applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const Redis
   }
 
   if (opts->inkeys) {
-    opts->inids = malloc(sizeof(*opts->inids) * opts->ninkeys);
+    opts->inids = rm_malloc(sizeof(*opts->inids) * opts->ninkeys);
     for (size_t ii = 0; ii < opts->ninkeys; ++ii) {
       t_docId did = DocTable_GetId(&sctx->spec->docs, opts->inkeys[ii], strlen(opts->inkeys[ii]));
       if (did) {
@@ -860,7 +860,7 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
 
   if (astp->sortKeys) {
     size_t nkeys = array_len(astp->sortKeys);
-    astp->sortkeysLK = malloc(sizeof(*astp->sortKeys) * nkeys);
+    astp->sortkeysLK = rm_malloc(sizeof(*astp->sortKeys) * nkeys);
 
     const RLookupKey **sortkeys = astp->sortkeysLK;
 
@@ -1181,11 +1181,11 @@ void AREQ_Free(AREQ *req) {
     }
     array_free(req->searchopts.legacy.filters);
   }
-  free(req->searchopts.inids);
+  rm_free(req->searchopts.inids);
   FieldList_Free(&req->outFields);
   if (thctx) {
     RedisModule_FreeThreadSafeContext(thctx);
   }
-  free(req->args);
-  free(req);
+  rm_free(req->args);
+  rm_free(req);
 }

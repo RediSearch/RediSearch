@@ -27,16 +27,16 @@
 
 static void QueryTokenNode_Free(QueryTokenNode *tn) {
 
-  if (tn->str) free(tn->str);
+  if (tn->str) rm_free(tn->str);
 }
 
 static void QueryTagNode_Free(QueryTagNode *tag) {
-  free((char *)tag->fieldName);
+  rm_free((char *)tag->fieldName);
 }
 
 static void QueryLexRangeNode_Free(QueryLexRangeNode *lx) {
-  if (lx->begin) free(lx->begin);
-  if (lx->end) free(lx->end);
+  if (lx->begin) rm_free(lx->begin);
+  if (lx->end) rm_free(lx->end);
 }
 
 // void _queryNumericNode_Free(QueryNumericNode *nn) { free(nn->nf); }
@@ -89,11 +89,11 @@ void QueryNode_Free(QueryNode *n) {
     case QN_PHRASE:
       break;
   }
-  free(n);
+  rm_free(n);
 }
 
 QueryNode *NewQueryNode(QueryNodeType type) {
-  QueryNode *s = calloc(1, sizeof(QueryNode));
+  QueryNode *s = rm_calloc(1, sizeof(QueryNode));
   s->type = type;
   s->opts = (QueryNodeOptions){
       .fieldMask = RS_FIELDMASK_ALL,
@@ -274,7 +274,7 @@ static IndexIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
   if (!it) return NULL;
 
   size_t itsSz = 0, itsCap = 8;
-  IndexIterator **its = calloc(itsCap, sizeof(*its));
+  IndexIterator **its = rm_calloc(itsCap, sizeof(*its));
 
   rune *rstr = NULL;
   t_len slen = 0;
@@ -303,7 +303,7 @@ static IndexIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
     IndexReader *ir = Redis_OpenReader(q->sctx, term, &q->sctx->spec->docs, 0,
                                        q->opts->fieldmask & opts->fieldMask, q->conc, 1);
 
-    free(tok.str);
+    rm_free(tok.str);
     if (!ir) {
       Term_Free(term);
       continue;
@@ -313,16 +313,16 @@ static IndexIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
     its[itsSz++] = NewReadIterator(ir);
     if (itsSz == itsCap) {
       itsCap *= 2;
-      its = realloc(its, itsCap * sizeof(*its));
+      its = rm_realloc(its, itsCap * sizeof(*its));
     }
   }
 
   DFAFilter_Free(it->ctx);
-  free(it->ctx);
+  rm_free(it->ctx);
   TrieIterator_Free(it);
   // printf("Expanded %d terms!\n", itsSz);
   if (itsSz == 0) {
-    free(its);
+    rm_free(its);
     return NULL;
   }
   return NewUnionIterator(its, itsSz, q->docTable, 1, opts->weight);
@@ -356,7 +356,7 @@ static void rangeItersAddIterator(LexRangeCtx *ctx, IndexReader *ir) {
   ctx->its[ctx->nits++] = NewReadIterator(ir);
   if (ctx->nits == ctx->cap) {
     ctx->cap *= 2;
-    ctx->its = realloc(ctx->its, ctx->cap * sizeof(*ctx->its));
+    ctx->its = rm_realloc(ctx->its, ctx->cap * sizeof(*ctx->its));
   }
 }
 
@@ -384,7 +384,7 @@ static void rangeIterCb(const rune *r, size_t n, void *p) {
   RSQueryTerm *term = NewQueryTerm(&tok, ctx->q->tokenId++);
   IndexReader *ir = Redis_OpenReader(q->sctx, term, &q->sctx->spec->docs, 0,
                                      q->opts->fieldmask & ctx->opts->fieldMask, q->conc, 1);
-  free(tok.str);
+  rm_free(tok.str);
   if (!ir) {
     Term_Free(term);
     return;
@@ -402,7 +402,7 @@ static IndexIterator *Query_EvalLexRangeNode(QueryEvalCtx *q, QueryNode *lx) {
   }
 
   ctx.cap = 8;
-  ctx.its = malloc(sizeof(*ctx.its) * ctx.cap);
+  ctx.its = rm_malloc(sizeof(*ctx.its) * ctx.cap);
   ctx.nits = 0;
 
   rune *begin = NULL, *end = NULL;
@@ -416,10 +416,10 @@ static IndexIterator *Query_EvalLexRangeNode(QueryEvalCtx *q, QueryNode *lx) {
 
   TrieNode_IterateRange(t->root, begin, begin ? nbegin : -1, lx->lxrng.includeBegin, end,
                         end ? nend : -1, lx->lxrng.includeEnd, rangeIterCb, &ctx);
-  free(begin);
-  free(end);
+  rm_free(begin);
+  rm_free(end);
   if (!ctx.its || ctx.nits == 0) {
-    free(ctx.its);
+    rm_free(ctx.its);
     return NULL;
   } else {
     return NewUnionIterator(ctx.its, ctx.nits, q->docTable, 1, lx->opts.weight);
@@ -450,7 +450,7 @@ static IndexIterator *Query_EvalPhraseNode(QueryEvalCtx *q, QueryNode *qn) {
   }
 
   // recursively eval the children
-  IndexIterator **iters = calloc(QueryNode_NumChildren(qn), sizeof(IndexIterator *));
+  IndexIterator **iters = rm_calloc(QueryNode_NumChildren(qn), sizeof(IndexIterator *));
   for (size_t ii = 0; ii < QueryNode_NumChildren(qn); ++ii) {
     qn->children[ii]->opts.fieldMask &= qn->opts.fieldMask;
     iters[ii] = Query_EvalNode(q, qn->children[ii]);
@@ -548,7 +548,7 @@ static IndexIterator *Query_EvalUnionNode(QueryEvalCtx *q, QueryNode *qn) {
   }
 
   // recursively eval the children
-  IndexIterator **iters = calloc(QueryNode_NumChildren(qn), sizeof(IndexIterator *));
+  IndexIterator **iters = rm_calloc(QueryNode_NumChildren(qn), sizeof(IndexIterator *));
   int n = 0;
   for (size_t i = 0; i < QueryNode_NumChildren(qn); ++i) {
     qn->children[i]->opts.fieldMask &= qn->opts.fieldMask;
@@ -558,13 +558,13 @@ static IndexIterator *Query_EvalUnionNode(QueryEvalCtx *q, QueryNode *qn) {
     }
   }
   if (n == 0) {
-    free(iters);
+    rm_free(iters);
     return NULL;
   }
 
   if (n == 1) {
     IndexIterator *ret = iters[0];
-    free(iters);
+    rm_free(iters);
     return ret;
   }
 
@@ -584,7 +584,7 @@ static IndexIterator *Query_EvalTagLexRangeNode(QueryEvalCtx *q, TagIndex *idx, 
   }
 
   ctx.cap = 8;
-  ctx.its = malloc(sizeof(*ctx.its) * ctx.cap);
+  ctx.its = rm_malloc(sizeof(*ctx.its) * ctx.cap);
   ctx.nits = 0;
 
   const char *begin = qn->lxrng.begin, *end = qn->lxrng.end;
@@ -593,7 +593,7 @@ static IndexIterator *Query_EvalTagLexRangeNode(QueryEvalCtx *q, TagIndex *idx, 
   TrieMap_IterateRange(t, begin, nbegin, qn->lxrng.includeBegin, end, nend, qn->lxrng.includeEnd,
                        rangeIterCbStrs, &ctx);
   if (ctx.nits == 0) {
-    free(ctx.its);
+    rm_free(ctx.its);
     return NULL;
   } else {
     return NewUnionIterator(ctx.its, ctx.nits, q->docTable, 1, qn->opts.weight);
@@ -617,7 +617,7 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
   if (!it) return NULL;
 
   size_t itsSz = 0, itsCap = 8;
-  IndexIterator **its = calloc(itsCap, sizeof(*its));
+  IndexIterator **its = rm_calloc(itsCap, sizeof(*its));
 
   // an upper limit on the number of expansions is enforced to avoid stuff like "*"
   char *s;
@@ -635,7 +635,7 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
     its[itsSz++] = ret;
     if (itsSz == itsCap) {
       itsCap *= 2;
-      its = realloc(its, itsCap * sizeof(*its));
+      its = rm_realloc(its, itsCap * sizeof(*its));
     }
   }
 
@@ -643,7 +643,7 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
 
   // printf("Expanded %d terms!\n", itsSz);
   if (itsSz == 0) {
-    free(its);
+    rm_free(its);
     return NULL;
   }
 
@@ -726,7 +726,7 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
   }
 
   // recursively eval the children
-  IndexIterator **iters = calloc(QueryNode_NumChildren(qn), sizeof(IndexIterator *));
+  IndexIterator **iters = rm_calloc(QueryNode_NumChildren(qn), sizeof(IndexIterator *));
   size_t n = 0;
   for (size_t i = 0; i < QueryNode_NumChildren(qn); i++) {
     IndexIterator *it =
@@ -736,7 +736,7 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
     }
   }
   if (n == 0) {
-    free(iters);
+    rm_free(iters);
     return NULL;
   }
 
@@ -792,7 +792,7 @@ QueryNode *RSQuery_ParseRaw(QueryParseCtx *);
 int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions *opts,
                const char *q, size_t n, QueryError *status) {
   if (!dst->query) {
-    dst->query = strndup(q, n);
+    dst->query = rm_strndup(q, n);
     dst->nquery = n;
   }
   QueryParseCtx qpCtx = {// force multiline
@@ -845,7 +845,7 @@ void QAST_Destroy(QueryAST *q) {
   QueryNode_Free(q->root);
   q->root = NULL;
   q->numTokens = 0;
-  free(q->query);
+  rm_free(q->query);
   q->nquery = 0;
   q->query = NULL;
 }
@@ -1071,11 +1071,11 @@ static sds QueryNode_DumpChildren(sds s, const IndexSpec *spec, const QueryNode 
 char *QAST_DumpExplain(const QueryAST *q, const IndexSpec *spec) {
   // empty query
   if (!q || !q->root) {
-    return strdup("NULL");
+    return rm_strdup("NULL");
   }
 
   sds s = QueryNode_DumpSds(sdsnew(""), spec, q->root, 0);
-  char *ret = strndup(s, sdslen(s));
+  char *ret = rm_strndup(s, sdslen(s));
   sdsfree(s);
   return ret;
 }

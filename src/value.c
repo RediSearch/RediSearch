@@ -20,17 +20,17 @@ static void mempoolThreadPoolDtor(void *p) {
   if (tp->fieldmaps) {
     mempool_destroy(tp->fieldmaps);
   }
-  free(tp);
+  rm_free(tp);
 }
 
 pthread_key_t mempoolKey_g;
 
 static void *_valueAlloc() {
-  return malloc(sizeof(RSValue));
+  return rm_malloc(sizeof(RSValue));
 }
 
 static void _valueFree(void *p) {
-  free(p);
+  rm_free(p);
 }
 
 static void __attribute__((constructor)) initKey() {
@@ -40,7 +40,7 @@ static void __attribute__((constructor)) initKey() {
 static inline mempoolThreadPool *getPoolInfo() {
   mempoolThreadPool *tp = pthread_getspecific(mempoolKey_g);
   if (tp == NULL) {
-    tp = calloc(1, sizeof(*tp));
+    tp = rm_calloc(1, sizeof(*tp));
     mempool_options opts = {
         .isGlobal = 0, .initialCap = 0, .maxCap = 1000, .alloc = _valueAlloc, .free = _valueFree};
     tp->values = mempool_new(&opts);
@@ -63,10 +63,10 @@ void RSValue_Clear(RSValue *v) {
       // free strings by allocation strategy
       switch (v->strval.stype) {
         case RSString_Malloc:
-          free(v->strval.str);
+          rm_free(v->strval.str);
           break;
         case RSString_RMAlloc:
-          RedisModule_Free(v->strval.str);
+          rm_free(v->strval.str);
           break;
         case RSString_SDS:
           sdsfree(v->strval.str);
@@ -81,7 +81,7 @@ void RSValue_Clear(RSValue *v) {
         RSValue_Decref(v->arrval.vals[i]);
       }
       if (!v->arrval.staticarray) {
-        free(v->arrval.vals);
+        rm_free(v->arrval.vals);
       }
       break;
     case RSValue_Reference:
@@ -130,7 +130,7 @@ inline void RSValue_SetString(RSValue *v, char *str, size_t len) {
 
 RSValue *RS_NewCopiedString(const char *s, size_t n) {
   RSValue *v = RS_NewValue(RSValue_String);
-  char *cp = malloc(n + 1);
+  char *cp = rm_malloc(n + 1);
   cp[n] = 0;
   memcpy(cp, s, n);
   RSValue_SetString(v, cp, n);
@@ -174,7 +174,7 @@ RSValue *RS_StringValFmt(const char *fmt, ...) {
   char *buf;
   va_list ap;
   va_start(ap, fmt);
-  vasprintf(&buf, fmt, ap);
+  rm_vasprintf(&buf, fmt, ap);
   va_end(ap);
   return RS_StringVal(buf, strlen(buf));
 }
@@ -221,7 +221,7 @@ void RSValue_ToString(RSValue *dst, RSValue *v) {
     }
     case RSValue_Number: {
       char *str;
-      asprintf(&str, "%.12g", v->numval);
+      rm_asprintf(&str, "%.12g", v->numval);
       RSValue_SetString(dst, str, strlen(str));
       break;
     }
@@ -378,7 +378,7 @@ RSValue *RSValue_NewArrayEx(RSValue **vals, size_t n, int options) {
   if (options & RSVAL_ARRAY_ALLOC) {
     list = vals;
   } else {
-    list = malloc(sizeof(*list) * n);
+    list = rm_malloc(sizeof(*list) * n);
   }
 
   arr->arrval.vals = list;
@@ -422,7 +422,7 @@ RSValue *RS_ArrVal(RSValue **vals, uint32_t len) {
 }
 
 RSValue *RS_VStringArray(uint32_t sz, ...) {
-  RSValue **arr = calloc(sz, sizeof(*arr));
+  RSValue **arr = rm_calloc(sz, sizeof(*arr));
   va_list ap;
   va_start(ap, sz);
   for (uint32_t i = 0; i < sz; i++) {
@@ -435,7 +435,7 @@ RSValue *RS_VStringArray(uint32_t sz, ...) {
 
 /* Wrap an array of NULL terminated C strings into an RSValue array */
 RSValue *RS_StringArray(char **strs, uint32_t sz) {
-  RSValue **arr = calloc(sz, sizeof(RSValue *));
+  RSValue **arr = rm_calloc(sz, sizeof(RSValue *));
 
   for (uint32_t i = 0; i < sz; i++) {
     arr[i] = RS_StringValC(strs[i]);
@@ -444,7 +444,7 @@ RSValue *RS_StringArray(char **strs, uint32_t sz) {
 }
 
 RSValue *RS_StringArrayT(char **strs, uint32_t sz, RSStringType st) {
-  RSValue **arr = calloc(sz, sizeof(RSValue *));
+  RSValue **arr = rm_calloc(sz, sizeof(RSValue *));
 
   for (uint32_t i = 0; i < sz; i++) {
     arr[i] = RS_StringValT(strs[i], strlen(strs[i]), st);

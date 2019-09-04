@@ -68,7 +68,7 @@ static void *rmutilTimer_Loop(void *ctx) {
   // free resources associated with the timer
   pthread_cond_destroy(&tm->cond);
   pthread_mutex_unlock(&tm->lock);
-  free(tm);
+  rm_free(tm);
 
   return NULL;
 }
@@ -80,13 +80,13 @@ void RMUtilTimer_SetInterval(struct RMUtilTimer *t, struct timespec newInterval)
 
 RMUtilTimer *RMUtil_NewPeriodicTimer(RMutilTimerFunc cb, RMUtilTimerTerminationFunc onTerm,
                                      void *privdata, struct timespec interval) {
-  RMUtilTimer *ret = malloc(sizeof(*ret));
+  RMUtilTimer *ret = rm_malloc(sizeof(*ret));
   *ret = (RMUtilTimer){
       .privdata = privdata,
       .interval = interval,
       .cb = cb,
       .onTerm = onTerm,
-      .isCanceled=false,
+      .isCanceled = false,
   };
   pthread_cond_init(&ret->cond, NULL);
   pthread_mutex_init(&ret->lock, NULL);
@@ -95,11 +95,11 @@ RMUtilTimer *RMUtil_NewPeriodicTimer(RMutilTimerFunc cb, RMUtilTimerTerminationF
   return ret;
 }
 
-void RMUtilTimer_ForceInvoke(struct RMUtilTimer *t){
+void RMUtilTimer_ForceInvoke(struct RMUtilTimer *t) {
   RMUtilTimer_Signal(t);
 }
 
-int RMUtilTimer_Signal(struct RMUtilTimer *t){
+int RMUtilTimer_Signal(struct RMUtilTimer *t) {
   return pthread_cond_signal(&t->cond);
 }
 

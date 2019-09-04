@@ -11,6 +11,7 @@
 #include "redisearch.h"
 #include "util/fnv.h"
 #include "rmutil/args.h"
+#include "rmalloc.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -216,7 +217,7 @@ static inline int RSValue_IsNull(const RSValue *value) {
  * discarding the pointer here is "safe" */
 static inline RSValue *RSValue_MakePersistent(RSValue *v) {
   if (v->t == RSValue_String && v->strval.stype == RSString_Volatile) {
-    v->strval.str = strndup(v->strval.str, v->strval.len);
+    v->strval.str = rm_strndup(v->strval.str, v->strval.len);
     v->strval.stype = RSString_Malloc;
   } else if (v->t == RSValue_Array) {
     for (size_t i = 0; i < v->arrval.len; i++) {

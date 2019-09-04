@@ -50,7 +50,7 @@ int GeoFilter_Parse(GeoFilter *gf, ArgsCursor *ac, QueryError *status) {
     QERR_MKBADARGS_AC(status, "<geo property>", rv);
     return REDISMODULE_ERR;
   } else {
-    gf->property = strdup(gf->property);
+    gf->property = rm_strdup(gf->property);
   }
   if ((rv = AC_GetDouble(ac, &gf->lon, 0) != AC_OK)) {
     QERR_MKBADARGS_AC(status, "<lon>", rv);
@@ -73,15 +73,15 @@ int GeoFilter_Parse(GeoFilter *gf, ArgsCursor *ac, QueryError *status) {
     QERR_MKBADARGS_FMT(status, "Unknown distance unit %s", gf->unit);
     return REDISMODULE_ERR;
   }
-  gf->unit = strdup(gf->unit);
+  gf->unit = rm_strdup(gf->unit);
 
   return REDISMODULE_OK;
 }
 
 void GeoFilter_Free(GeoFilter *gf) {
-  if (gf->property) free((char *)gf->property);
-  if (gf->unit) free((char *)gf->unit);
-  free(gf);
+  if (gf->property) rm_free((char *)gf->property);
+  if (gf->unit) rm_free((char *)gf->unit);
+  rm_free(gf);
 }
 
 static int cmp_docids(const void *p1, const void *p2) {
@@ -142,7 +142,7 @@ IndexIterator *NewGeoRangeIterator(GeoIndex *gi, const GeoFilter *gf, double wei
 
 /* Create a geo filter from parsed strings and numbers */
 GeoFilter *NewGeoFilter(double lon, double lat, double radius, const char *unit) {
-  GeoFilter *gf = malloc(sizeof(*gf));
+  GeoFilter *gf = rm_malloc(sizeof(*gf));
   *gf = (GeoFilter){
       .lon = lon,
       .lat = lat,

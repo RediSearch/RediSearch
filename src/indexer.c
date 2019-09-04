@@ -550,7 +550,7 @@ int Indexer_Add(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx) {
 // thread. This does not insert it into the list of threads, though
 // todo: remove the withIndexThread var once we switch to threadpool
 DocumentIndexer *NewIndexer(IndexSpec *spec) {
-  DocumentIndexer *indexer = calloc(1, sizeof(*indexer));
+  DocumentIndexer *indexer = rm_calloc(1, sizeof(*indexer));
   indexer->refcount = 1;
   if ((spec->flags & Index_Temporary) || RSGlobalConfig.concurrentMode == 0) {
     indexer->options |= INDEXER_THREADLESS;
@@ -584,13 +584,13 @@ static void Indexer_FreeInternal(DocumentIndexer *indexer) {
     pthread_cond_destroy(&indexer->cond);
     pthread_mutex_destroy(&indexer->lock);
   }
-  free(indexer->concCtx.openKeys);
+  rm_free(indexer->concCtx.openKeys);
   RedisModule_FreeString(indexer->redisCtx, indexer->specKeyName);
   KHTable_Clear(&indexer->mergeHt);
   KHTable_Free(&indexer->mergeHt);
   BlkAlloc_FreeAll(&indexer->alloc, NULL, 0, 0);
   RedisModule_FreeThreadSafeContext(indexer->redisCtx);
-  free(indexer);
+  rm_free(indexer);
 }
 
 size_t Indexer_Decref(DocumentIndexer *indexer) {

@@ -401,7 +401,7 @@ void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
     }
     dmd->id = encver < INDEX_MIN_COMPACTED_DOCTABLE_VERSION ? i : RedisModule_LoadUnsigned(rdb);
     dmd->keyPtr = sdsnewlen(tmpPtr, len);
-    rm_free(tmpPtr);
+    RedisModule_Free(tmpPtr);
 
     dmd->flags = RedisModule_LoadUnsigned(rdb);
     dmd->maxFreq = 1;
@@ -421,12 +421,16 @@ void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
     // read payload if set
     if ((dmd->flags & Document_HasPayload)) {
       if (!(dmd->flags & Document_Deleted)) {
-        dmd->payload = RedisModule_Alloc(sizeof(RSPayload));
+        dmd->payload = rm_malloc(sizeof(RSPayload));
         dmd->payload->data = RedisModule_LoadStringBuffer(rdb, &dmd->payload->len);
+        char *buf = rm_malloc(dmd->payload->len);
+        memcpy(buf, dmd->payload->data, dmd->payload->len);
+        RedisModule_Free(dmd->payload->data);
+        dmd->payload->data = buf;
         dmd->payload->len--;
         t->memsize += dmd->payload->len + sizeof(RSPayload);
       } else if ((dmd->flags & Document_Deleted) && (encver == INDEX_MIN_EXPIRE_VERSION)) {
-        RedisModule_LoadStringBuffer(rdb, NULL);  // throw this string to garbage
+        RedisModule_Free(RedisModule_LoadStringBuffer(rdb, NULL));  // throw this string to garbage
       }
     }
     dmd->sortVector = NULL;
@@ -440,8 +444,8 @@ void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
       char *tmp = RedisModule_LoadStringBuffer(rdb, &nTmp);
       Buffer *bufTmp = Buffer_Wrap(tmp, nTmp);
       dmd->byteOffsets = LoadByteOffsets(bufTmp);
-      free(bufTmp);
-      rm_free(tmp);
+      rm_free(bufTmp);
+      RedisModule_Free(tmp);
     }
 
     if (dmd->flags & Document_Deleted) {
@@ -486,7 +490,7 @@ void DocIdMap_Put(DocIdMap *m, const char *s, size_t n, t_docId docId) {
 }
 
 void DocIdMap_Free(DocIdMap *m) {
-  TrieMap_Free(m->tm, RedisModule_Free);
+  TrieMap_Free(m->tm, rm_free);
 }
 
 int DocIdMap_Delete(DocIdMap *m, const char *s, size_t n) {

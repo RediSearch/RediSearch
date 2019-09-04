@@ -61,9 +61,9 @@ static RSValue *stddevFinalize(Reducer *parent, void *instance) {
 }
 
 Reducer *RDCRStdDev_New(const ReducerOptions *options) {
-  Reducer *r = calloc(1, sizeof(*r));
+  Reducer *r = rm_calloc(1, sizeof(*r));
   if (!ReducerOptions_GetKey(options, &r->srckey)) {
-    free(r);
+    rm_free(r);
     return NULL;
   }
   r->Add = stddevAdd;

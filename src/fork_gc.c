@@ -260,10 +260,10 @@ static void FGC_childCollectTerms(ForkGC *gc, RedisSearchCtx *sctx) {
     if (idxKey) {
       RedisModule_CloseKey(idxKey);
     }
-    free(term);
+    rm_free(term);
   }
   DFAFilter_Free(iter->ctx);
-  free(iter->ctx);
+  rm_free(iter->ctx);
   TrieIterator_Free(iter);
 
   // we are done with terms
@@ -988,7 +988,7 @@ static void onTerminateCb(void *privdata) {
   }
 
   RedisModule_FreeThreadSafeContext(gc->ctx);
-  free(gc);
+  rm_free(gc);
 }
 
 static void statsCb(RedisModuleCtx *ctx, void *gcCtx) {
@@ -1023,7 +1023,7 @@ static struct timespec getIntervalCb(void *ctx) {
 }
 
 ForkGC *FGC_New(const RedisModuleString *k, uint64_t specUniqueId, GCCallbacks *callbacks) {
-  ForkGC *forkGc = calloc(1, sizeof(*forkGc));
+  ForkGC *forkGc = rm_calloc(1, sizeof(*forkGc));
   *forkGc = (ForkGC){
       .rdbPossiblyLoading = 1,
       .specUniqueId = specUniqueId,

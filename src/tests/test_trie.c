@@ -10,6 +10,7 @@
 #include <time.h>
 #include "test_util.h"
 #include "../dep/libnu/libnu.h"
+#include "rmutil/alloc.h"
 
 int count = 0;
 
@@ -345,6 +346,7 @@ int testDFAFilter() {
 }
 
 TEST_MAIN({
+  RMUTil_InitAlloc();
   TESTFUNC(testRuneUtil);
   TESTFUNC(testDFAFilter);
   TESTFUNC(testTrie);

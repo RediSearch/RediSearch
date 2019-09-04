@@ -122,13 +122,13 @@ double NumericRange_Split(NumericRange *n, NumericRangeNode **lp, NumericRangeNo
 
 NumericRangeNode *NewLeafNode(size_t cap, double min, double max, size_t splitCard) {
 
-  NumericRangeNode *n = RedisModule_Alloc(sizeof(NumericRangeNode));
+  NumericRangeNode *n = rm_malloc(sizeof(NumericRangeNode));
   n->left = NULL;
   n->right = NULL;
   n->value = 0;
 
   n->maxDepth = 0;
-  n->range = RedisModule_Alloc(sizeof(NumericRange));
+  n->range = rm_malloc(sizeof(NumericRange));
 
   *n->range = (NumericRange){.minVal = min,
                              .maxVal = max,
@@ -136,7 +136,7 @@ NumericRangeNode *NewLeafNode(size_t cap, double min, double max, size_t splitCa
                              .card = 0,
                              .splitCard = splitCard,
                              .values = array_new(CardinalityValue, 1),
-                             //.values = RedisModule_Calloc(splitCard, sizeof(CardinalityValue)),
+                             //.values = rm_calloc(splitCard, sizeof(CardinalityValue)),
                              .entries = NewInvertedIndex(Index_StoreNumeric, 1)};
   return n;
 }
@@ -162,7 +162,7 @@ int NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value) {
       if (++n->maxDepth > NR_MAX_DEPTH && n->range) {
         InvertedIndex_Free(n->range->entries);
         array_free(n->range->values);
-        RedisModule_Free(n->range);
+        rm_free(n->range);
         n->range = NULL;
       }
 
@@ -261,14 +261,14 @@ void NumericRangeNode_Free(NumericRangeNode *n) {
   if (n->range) {
     InvertedIndex_Free(n->range->entries);
     array_free(n->range->values);
-    RedisModule_Free(n->range);
+    rm_free(n->range);
     n->range = NULL;
   }
 
   NumericRangeNode_Free(n->left);
   NumericRangeNode_Free(n->right);
 
-  RedisModule_Free(n);
+  rm_free(n);
 }
 
 uint16_t numericTreesUniqueId = 0;
@@ -276,7 +276,7 @@ uint16_t numericTreesUniqueId = 0;
 /* Create a new numeric range tree */
 NumericRangeTree *NewNumericRangeTree() {
 #define GC_NODES_INITIAL_SIZE 10
-  NumericRangeTree *ret = RedisModule_Alloc(sizeof(NumericRangeTree));
+  NumericRangeTree *ret = rm_malloc(sizeof(NumericRangeTree));
 
   ret->root = NewLeafNode(2, NF_NEGATIVE_INFINITY, NF_INFINITY, 2);
   ret->numEntries = 0;
@@ -328,7 +328,7 @@ void NumericRangeNode_Traverse(NumericRangeNode *n,
 
 void NumericRangeTree_Free(NumericRangeTree *t) {
   NumericRangeNode_Free(t->root);
-  RedisModule_Free(t);
+  rm_free(t);
 }
 
 IndexIterator *NewNumericRangeIterator(const IndexSpec *sp, NumericRange *nr,
@@ -369,7 +369,7 @@ IndexIterator *createNumericIterator(const IndexSpec *sp, NumericRangeTree *t,
 
   // We create a  union iterator, advancing a union on all the selected range,
   // treating them as one consecutive range
-  IndexIterator **its = calloc(n, sizeof(IndexIterator *));
+  IndexIterator **its = rm_calloc(n, sizeof(IndexIterator *));
 
   for (size_t i = 0; i < n; i++) {
     NumericRange *rng;
@@ -404,7 +404,7 @@ static NumericRangeTree *openNumericKeysDict(RedisSearchCtx *ctx, RedisModuleStr
   if (!write) {
     return NULL;
   }
-  kdv = calloc(1, sizeof(*kdv));
+  kdv = rm_calloc(1, sizeof(*kdv));
   kdv->dtor = (void (*)(void *))NumericRangeTree_Free;
   kdv->p = NewNumericRangeTree();
   dictAdd(ctx->spec->keysDict, keyName, kdv);
@@ -441,10 +441,11 @@ struct indexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const Numeri
   }
 
   if (csx) {
-    NumericUnionCtx *uc = malloc(sizeof(*uc));
+    NumericUnionCtx *uc = rm_malloc(sizeof(*uc));
     uc->lastRevId = t->revisionId;
     uc->it = it;
-    ConcurrentSearch_AddKey(csx, key, REDISMODULE_READ, s, NumericRangeIterator_OnReopen, uc, free);
+    ConcurrentSearch_AddKey(csx, key, REDISMODULE_READ, s, NumericRangeIterator_OnReopen, uc,
+                            rm_free);
   }
   return it;
 }

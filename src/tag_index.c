@@ -63,7 +63,7 @@ char **TagIndex_Preprocess(char sep, TagFieldFlags flags, const DocumentField *d
   char *p = (char *)RedisModule_StringPtrLen(data->text, &sz);
   if (!p || sz == 0) return NULL;
   char **ret = array_new(char *, 4);
-  char *pp = p = strndup(p, sz);
+  char *pp = p = rm_strndup(p, sz);
   while (p) {
     // get the next token
     size_t toklen;
@@ -75,11 +75,11 @@ char **TagIndex_Preprocess(char sep, TagFieldFlags flags, const DocumentField *d
       if (!(flags & TagField_CaseSensitive)) {
         tok = strtolower(tok);
       }
-      tok = strndup(tok, MIN(toklen, MAX_TAG_LEN));
+      tok = rm_strndup(tok, MIN(toklen, MAX_TAG_LEN));
       ret = array_append(ret, tok);
     }
   }
-  free(pp);
+  rm_free(pp);
   return ret;
 }
 
@@ -166,13 +166,13 @@ static void concCtxFree(void *p) {
   if (tctx->its) {
     array_free(tctx->its);
   }
-  free(p);
+  rm_free(p);
 }
 
 void TagIndex_RegisterConcurrentIterators(TagIndex *idx, ConcurrentSearchCtx *conc,
                                           RedisModuleKey *key, RedisModuleString *keyname,
                                           array_t *iters) {
-  TagConcCtx *tctx = calloc(1, sizeof(*tctx));
+  TagConcCtx *tctx = rm_calloc(1, sizeof(*tctx));
   tctx->uid = idx->uniqueId;
   tctx->its = (IndexIterator **)iters;
   ConcurrentSearch_AddKey(conc, key, REDISMODULE_READ, keyname, TagReader_OnReopen, tctx,
@@ -211,7 +211,7 @@ static TagIndex *openTagKeyDict(RedisSearchCtx *ctx, RedisModuleString *key, int
   if (!openWrite) {
     return NULL;
   }
-  kdv = calloc(1, sizeof(*kdv));
+  kdv = rm_calloc(1, sizeof(*kdv));
   kdv->p = NewTagIndex();
   kdv->dtor = TagIndex_Free;
   dictAdd(ctx->spec->keysDict, key, kdv);
@@ -283,7 +283,7 @@ void *TagIndex_RdbLoad(RedisModuleIO *rdb, int encver) {
     InvertedIndex *inv = InvertedIndex_RdbLoad(rdb, INVERTED_INDEX_ENCVER);
     assert(inv != NULL);
     TrieMap_Add(idx->values, s, MIN(slen, MAX_TAG_LEN), inv, NULL);
-    rm_free(s);
+    RedisModule_Free(s);
   }
   return idx;
 }

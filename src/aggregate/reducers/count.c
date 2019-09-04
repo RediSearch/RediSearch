@@ -24,7 +24,7 @@ static RSValue *counterFinalize(Reducer *r, void *instance) {
 }
 
 Reducer *RDCRCount_New(const ReducerOptions *unused) {
-  Reducer *r = calloc(1, sizeof(*r));
+  Reducer *r = rm_calloc(1, sizeof(*r));
   r->Add = counterAdd;
   r->Finalize = counterFinalize;
   r->Free = Reducer_GenericFree;

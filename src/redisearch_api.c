@@ -188,7 +188,7 @@ void RediSearch_AddDocDone(RSAddDocumentCtx* aCtx, RedisModuleCtx* ctx, void* er
   RSError* ourErr = err;
   if (QueryError_HasError(&aCtx->status)) {
     if (ourErr->s) {
-      *ourErr->s = strdup(QueryError_GetError(&aCtx->status));
+      *ourErr->s = rm_strdup(QueryError_GetError(&aCtx->status));
     }
     ourErr->hasErr = aCtx->status.code;
   }
@@ -209,7 +209,7 @@ int RediSearch_IndexAddDocument(IndexSpec* sp, Document* d, int options, char** 
       options |= DOCUMENT_ADD_REPLACE;
     } else {
       if (errs) {
-        *errs = strdup("Document already exists");
+        *errs = rm_strdup("Document already exists");
       }
       AddDocumentCtx_Free(aCtx);
       RWLOCK_RELEASE();
@@ -230,7 +230,7 @@ QueryNode* RediSearch_CreateTokenNode(IndexSpec* sp, const char* fieldName, cons
   QueryNode* ret = NewQueryNode(QN_TOKEN);
 
   ret->tn = (QueryTokenNode){
-      .str = (char*)strdup(token), .len = strlen(token), .expanded = 0, .flags = 0};
+      .str = (char*)rm_strdup(token), .len = strlen(token), .expanded = 0, .flags = 0};
   if (fieldName) {
     ret->opts.fieldMask = IndexSpec_GetFieldBit(sp, fieldName, strlen(fieldName));
   }
@@ -241,7 +241,7 @@ QueryNode* RediSearch_CreateNumericNode(IndexSpec* sp, const char* field, double
                                         int includeMax, int includeMin) {
   QueryNode* ret = NewQueryNode(QN_NUMERIC);
   ret->nn.nf = NewNumericFilter(min, max, includeMin, includeMax);
-  ret->nn.nf->fieldName = strdup(field);
+  ret->nn.nf->fieldName = rm_strdup(field);
   ret->opts.fieldMask = IndexSpec_GetFieldBit(sp, field, strlen(field));
   return ret;
 }
@@ -249,7 +249,7 @@ QueryNode* RediSearch_CreateNumericNode(IndexSpec* sp, const char* field, double
 QueryNode* RediSearch_CreatePrefixNode(IndexSpec* sp, const char* fieldName, const char* s) {
   QueryNode* ret = NewQueryNode(QN_PREFX);
   ret->pfx =
-      (QueryPrefixNode){.str = (char*)strdup(s), .len = strlen(s), .expanded = 0, .flags = 0};
+      (QueryPrefixNode){.str = (char*)rm_strdup(s), .len = strlen(s), .expanded = 0, .flags = 0};
   if (fieldName) {
     ret->opts.fieldMask = IndexSpec_GetFieldBit(sp, fieldName, strlen(fieldName));
   }
@@ -260,11 +260,11 @@ QueryNode* RediSearch_CreateLexRangeNode(IndexSpec* sp, const char* fieldName, c
                                          const char* end, int includeBegin, int includeEnd) {
   QueryNode* ret = NewQueryNode(QN_LEXRANGE);
   if (begin) {
-    ret->lxrng.begin = begin ? strdup(begin) : NULL;
+    ret->lxrng.begin = begin ? rm_strdup(begin) : NULL;
     ret->lxrng.includeBegin = includeBegin;
   }
   if (end) {
-    ret->lxrng.end = end ? strdup(end) : NULL;
+    ret->lxrng.end = end ? rm_strdup(end) : NULL;
     ret->lxrng.includeEnd = includeEnd;
   }
   if (fieldName) {
@@ -275,7 +275,7 @@ QueryNode* RediSearch_CreateLexRangeNode(IndexSpec* sp, const char* fieldName, c
 
 QueryNode* RediSearch_CreateTagNode(IndexSpec* sp, const char* field) {
   QueryNode* ret = NewQueryNode(QN_TAG);
-  ret->tag.fieldName = strdup(field);
+  ret->tag.fieldName = rm_strdup(field);
   ret->tag.len = strlen(field);
   ret->opts.fieldMask = IndexSpec_GetFieldBit(sp, field, strlen(field));
   return ret;
@@ -389,7 +389,7 @@ end:
       it = NULL;
     }
     if (error) {
-      *error = strdup(QueryError_GetError(&status));
+      *error = rm_strdup(QueryError_GetError(&status));
     }
   }
   QueryError_ClearError(&status);

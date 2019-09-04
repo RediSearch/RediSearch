@@ -23,7 +23,7 @@ static mempool_t *actxPool_g = NULL;
 // For documentation, see these functions' definitions
 static void *allocDocumentContext(void) {
   // See if there's one in the pool?
-  RSAddDocumentCtx *aCtx = calloc(1, sizeof(*aCtx));
+  RSAddDocumentCtx *aCtx = rm_calloc(1, sizeof(*aCtx));
   return aCtx;
 }
 
@@ -33,9 +33,9 @@ static void freeDocumentContext(void *p) {
     ForwardIndexFree(aCtx->fwIdx);
   }
 
-  free(aCtx->fspecs);
-  free(aCtx->fdatas);
-  free(aCtx);
+  rm_free(aCtx->fspecs);
+  rm_free(aCtx->fdatas);
+  rm_free(aCtx);
 }
 
 #define DUP_FIELD_ERRSTR "Requested to index field twice"
@@ -50,8 +50,8 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Doc
 
   if (oldFieldCount < doc->numFields) {
     // Pre-allocate the field specs
-    aCtx->fspecs = realloc(aCtx->fspecs, sizeof(*aCtx->fspecs) * doc->numFields);
-    aCtx->fdatas = realloc(aCtx->fdatas, sizeof(*aCtx->fdatas) * doc->numFields);
+    aCtx->fspecs = rm_realloc(aCtx->fspecs, sizeof(*aCtx->fspecs) * doc->numFields);
+    aCtx->fdatas = rm_realloc(aCtx->fdatas, sizeof(*aCtx->fdatas) * doc->numFields);
   }
 
   for (size_t ii = 0; ii < doc->numFields; ++ii) {
