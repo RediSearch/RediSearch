@@ -35,4 +35,5 @@ docker_push: docker
 	docker push redislabs/redisearch:$(MODULE_VERSION)
 
 clean:
-    $(MAKE) -C build clean
+	$(MAKE) -C build clean
+
