@@ -1,7 +1,7 @@
 COMPAT_MODULE = src/redisearch.so
 all: $(COMPAT_MODULE)
 
-COMPAT_DIR := build-compat
+COMPAT_DIR := build
 
 
 $(COMPAT_MODULE): $(COMPAT_DIR)/redisearch.so
