@@ -33,3 +33,6 @@ docker_push: docker
 	docker push redislabs/redisearch:latest
 	docker tag redislabs/redisearch:latest redislabs/redisearch:$(MODULE_VERSION)
 	docker push redislabs/redisearch:$(MODULE_VERSION)
+
+clean:
+    rm -rf build/*
