@@ -139,7 +139,9 @@ def testGCIntegrationWithRedisFork(env):
     env.expect('bgsave').equal('Background saving started')
     env.cmd('FT.DEBUG', 'GC_FORCEINVOKE', 'idx')
     time.sleep(1)
-    env.expect('bgsave').equal('Background saving started')
+    res = None
+    while res != 'Background saving started':
+        res = env.cmd('bgsave')
     env.cmd('FT.CONFIG', 'SET', 'FORKGC_SLEEP_BEFORE_EXIT', '0')
 
 def testGCThreshold(env):
