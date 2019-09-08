@@ -604,6 +604,7 @@ static DocumentIndexer *NewDocumentIndexer(const char *name, int options) {
     pthread_mutex_init(&indexer->lock, NULL);
     static pthread_t dummyThr;
     pthread_create(&dummyThr, NULL, Indexer_Run, indexer);
+    pthread_detach(dummyThr);
   }
   indexer->name = rm_strdup(name);
   indexer->next = NULL;
