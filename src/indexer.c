@@ -566,6 +566,7 @@ DocumentIndexer *NewIndexer(IndexSpec *spec) {
     pthread_cond_init(&indexer->cond, NULL);
     pthread_mutex_init(&indexer->lock, NULL);
     pthread_create(&indexer->thr, NULL, Indexer_Run, indexer);
+    pthread_detach(indexer->thr);
   }
 
   indexer->next = NULL;

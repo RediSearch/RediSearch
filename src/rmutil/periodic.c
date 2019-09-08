@@ -92,6 +92,7 @@ RMUtilTimer *RMUtil_NewPeriodicTimer(RMutilTimerFunc cb, RMUtilTimerTerminationF
   pthread_mutex_init(&ret->lock, NULL);
 
   pthread_create(&ret->thread, NULL, rmutilTimer_Loop, ret);
+  pthread_detach(ret->thread);
   return ret;
 }
 
