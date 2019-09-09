@@ -211,15 +211,11 @@ def testGCThreshold(env):
     env.assertEqual(len(debug_rep), 0)
 
 def testGCShutDownOnExit(env):
-    if env.env == 'existing-env':
+    if env.env == 'existing-env' or env.env == 'enterprise' or env.isCluster():
         env.skip()
-    if env.env == 'enterprise':
-        env.skip()
-    if env.isCluster():
-        raise unittest.SkipTest()
-    env = Env(moduleArgs='GC_POLICY FORK FORK_GC_RUN_INTERVAL 1 FORKGC_SLEEP_BEFORE_EXIT 20')
+    env = Env(moduleArgs='GC_POLICY FORK FORKGC_SLEEP_BEFORE_EXIT 20')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT', 'SORTABLE').ok()
-    time.sleep(2) ## make sure forkgc started 
+    env.expect('FT.DEBUG', 'GC_FORCEBGINVOKE', 'idx').ok()
     env.stop()
     env.start()
 
