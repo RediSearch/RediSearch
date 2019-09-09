@@ -3,6 +3,7 @@
 #include "buffer.h"
 #include <arpa/inet.h>  // htonl, etc.
 #include <stdint.h>
+#include "rmalloc.h"
 
 extern const char ChineseDict[];
 extern const size_t ChineseDictCompressedLength;
@@ -51,7 +52,7 @@ static int readRecord(ReaderCtx *ctx) {
       size_t synLen = strlen(curSyn);
       rdr->pos += synLen + 1;
       // Store the synonym somewhere?
-      array_list_add(syns, strdup(curSyn));
+      array_list_add(syns, rm_strdup(curSyn));
     }
   }
 
@@ -63,7 +64,7 @@ static int readRecord(ReaderCtx *ctx) {
   }
 
   // printf("Adding record TYPE: %u. TERM: %s. NSYNS: %u\n", lexType, term, numSyns);
-  friso_dic_add_with_fre(ctx->dic, lexType, strdup(term), syns, freq);
+  friso_dic_add_with_fre(ctx->dic, lexType, rm_strdup(term), syns, freq);
   return 1;
 }
 
@@ -77,7 +78,7 @@ int ChineseDictLoad(friso_dic_t d) {
   assert(version == 0);
 
   // First load the symbol..
-  char *expanded = malloc(ChineseDictFullLength);
+  char *expanded = rm_malloc(ChineseDictFullLength);
   mz_ulong dstLen = ChineseDictFullLength;
   int rv = mz_uncompress((unsigned char *)expanded, &dstLen, (const unsigned char *)inbuf,
                          ChineseDictCompressedLength);
@@ -101,6 +102,6 @@ int ChineseDictLoad(friso_dic_t d) {
     // Do nothing
   }
 
-  free(expanded);
+  rm_free(expanded);
   return 0;
 }

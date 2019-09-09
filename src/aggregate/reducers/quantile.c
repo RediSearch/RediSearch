@@ -48,7 +48,7 @@ static void quantileFreeInstance(Reducer *unused, void *p) {
 }
 
 Reducer *RDCRQuantile_New(const ReducerOptions *options) {
-  QTLReducer *r = calloc(1, sizeof(*r));
+  QTLReducer *r = rm_calloc(1, sizeof(*r));
   r->resolution = 500;  // Fixed, i guess?
 
   if (!ReducerOptions_GetKey(options, &r->base.srckey)) {
@@ -87,6 +87,6 @@ Reducer *RDCRQuantile_New(const ReducerOptions *options) {
   return &r->base;
 
 error:
-  free(r);
+  rm_free(r);
   return NULL;
 }

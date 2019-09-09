@@ -2,6 +2,7 @@
 #include "heap.h"
 #include "assert.h"
 #include "redismodule.h"
+#include "alloc.h"
 REDISMODULE_INIT_SYMBOLS();
 
 int cmp(void *a, void *b) {
@@ -11,6 +12,7 @@ int cmp(void *a, void *b) {
 }
 
 int main(int argc, char **argv) {
+  RMUTil_InitAlloc();
   int myints[] = {10, 20, 30, 5, 15};
   Vector *v = NewVector(int, 5);
   for (int i = 0; i < 5; i++) {

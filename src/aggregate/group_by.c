@@ -271,18 +271,18 @@ static void Grouper_rpFree(ResultProcessor *grrp) {
   if (g->reducers) {
     array_free(g->reducers);
   }
-  free(g->srckeys);
-  free(g->dstkeys);
-  free(g);
+  rm_free(g->srckeys);
+  rm_free(g->dstkeys);
+  rm_free(g);
 }
 
 Grouper *Grouper_New(const RLookupKey **srckeys, const RLookupKey **dstkeys, size_t nkeys) {
-  Grouper *g = calloc(1, sizeof(*g));
+  Grouper *g = rm_calloc(1, sizeof(*g));
   BlkAlloc_Init(&g->groupsAlloc);
   g->groups = kh_init(khid);
 
-  g->srckeys = calloc(nkeys, sizeof(*g->srckeys));
-  g->dstkeys = calloc(nkeys, sizeof(*g->dstkeys));
+  g->srckeys = rm_calloc(nkeys, sizeof(*g->srckeys));
+  g->dstkeys = rm_calloc(nkeys, sizeof(*g->dstkeys));
   g->nkeys = nkeys;
   for (size_t ii = 0; ii < nkeys; ++ii) {
     g->srckeys[ii] = srckeys[ii];

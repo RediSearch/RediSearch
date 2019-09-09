@@ -1,5 +1,6 @@
 #include "dictionary.h"
 #include "redismodule.h"
+#include "rmalloc.h"
 
 Trie *SpellCheck_OpenDict(RedisModuleCtx *ctx, const char *dictName, int mode, RedisModuleKey **k) {
   RedisModuleString *keyName = RedisModule_CreateStringPrintf(ctx, DICT_KEY_FMT, dictName);
@@ -92,10 +93,10 @@ int Dictionary_Dump(RedisModuleCtx *ctx, const char *dictName, char **err) {
   while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, &dist)) {
     char *res = runesToStr(rstr, slen, &termLen);
     RedisModule_ReplyWithStringBuffer(ctx, res, termLen);
-    free(res);
+    rm_free(res);
   }
   DFAFilter_Free(it->ctx);
-  free(it->ctx);
+  rm_free(it->ctx);
   TrieIterator_Free(it);
 
   RedisModule_CloseKey(k);

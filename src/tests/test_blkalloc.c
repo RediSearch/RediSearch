@@ -2,8 +2,10 @@
 #include "test_util.h"
 #include <stdint.h>
 #include <assert.h>
+#include "rmutil/alloc.h"
 
 int testBlockAlloc() {
+  RMUTil_InitAlloc();
   BlkAlloc alloc;
   BlkAlloc_Init(&alloc);
   ASSERT(alloc.last == NULL);

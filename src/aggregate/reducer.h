@@ -84,21 +84,21 @@ typedef struct Reducer {
 
 static inline void Reducer_GenericFree(Reducer *r) {
   BlkAlloc_FreeAll(&r->alloc, NULL, 0, 0);
-  free(r);
+  rm_free(r);
 }
 
 // Format a function name in the form of s(arg). Returns a pointer for use with 'free'
 static inline char *FormatAggAlias(const char *alias, const char *fname, const char *propname) {
   if (alias) {
-    return strdup(alias);
+    return rm_strdup(alias);
   }
 
   if (!propname || *propname == 0) {
-    return strdup(fname);
+    return rm_strdup(fname);
   }
 
   char *s = NULL;
-  asprintf(&s, "%s(%s)", fname, propname);
+  rm_asprintf(&s, "%s(%s)", fname, propname);
   return s;
 }
 

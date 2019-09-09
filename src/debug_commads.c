@@ -69,10 +69,10 @@ DEBUG_COMMAND(DumpTerms) {
   while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, &dist)) {
     char *res = runesToStr(rstr, slen, &termLen);
     RedisModule_ReplyWithStringBuffer(ctx, res, termLen);
-    free(res);
+    rm_free(res);
   }
   DFAFilter_Free(it->ctx);
-  free(it->ctx);
+  rm_free(it->ctx);
   TrieIterator_Free(it);
 
   SearchCtx_Free(sctx);
@@ -314,8 +314,8 @@ DEBUG_COMMAND(DumpPhoneticHash) {
   RedisModule_ReplyWithStringBuffer(ctx, primary, strlen(primary));
   RedisModule_ReplyWithStringBuffer(ctx, secondary, strlen(secondary));
 
-  free(primary);
-  free(secondary);
+  rm_free(primary);
+  rm_free(secondary);
   return REDISMODULE_OK;
 }
 

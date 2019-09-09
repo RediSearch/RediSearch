@@ -539,13 +539,13 @@ IndexSpecCache *IndexSpec_GetSpecCache(const IndexSpec *spec) {
 }
 
 IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec) {
-  IndexSpecCache *ret = calloc(1, sizeof(*ret));
+  IndexSpecCache *ret = rm_calloc(1, sizeof(*ret));
   ret->nfields = spec->numFields;
-  ret->fields = malloc(sizeof(*ret->fields) * ret->nfields);
+  ret->fields = rm_malloc(sizeof(*ret->fields) * ret->nfields);
   ret->refcount = 1;
   for (size_t ii = 0; ii < spec->numFields; ++ii) {
     ret->fields[ii] = spec->fields[ii];
-    ret->fields[ii].name = strdup(ret->fields[ii].name);
+    ret->fields[ii].name = rm_strdup(ret->fields[ii].name);
   }
   return ret;
 }
@@ -555,10 +555,10 @@ void IndexSpecCache_Decref(IndexSpecCache *c) {
     return;
   }
   for (size_t ii = 0; ii < c->nfields; ++ii) {
-    free(c->fields[ii].name);
+    rm_free(c->fields[ii].name);
   }
-  free(c->fields);
-  free(c);
+  rm_free(c->fields);
+  rm_free(c);
 }
 
 /// given an array of random weights, return the a weighted random selection, as the index in the
@@ -608,7 +608,7 @@ char *IndexSpec_GetRandomTerm(IndexSpec *sp, size_t sampleSize) {
   size_t selection = weightedRandom(weights, sampleSize);
   for (int i = 0; i < sampleSize; i++) {
     if (i != selection) {
-      free(samples[i]);
+      rm_free(samples[i]);
     }
   }
   // printf("Selected %s --> %f\n", samples[selection], weights[selection]);
@@ -951,7 +951,7 @@ static void valFreeCb(void *unused, void *p) {
   if (kdv->dtor) {
     kdv->dtor(kdv->p);
   }
-  free(kdv);
+  rm_free(kdv);
 }
 
 void IndexSpec_MakeKeyless(IndexSpec *sp) {
@@ -995,6 +995,9 @@ int bit(t_fieldMask id) {
 static void FieldSpec_RdbLoadCompat8(RedisModuleIO *rdb, FieldSpec *f, int encver) {
 
   f->name = RedisModule_LoadStringBuffer(rdb, NULL);
+  char *tmpName = rm_strdup(f->name);
+  RedisModule_Free(f->name);
+  f->name = tmpName;
   // the old versions encoded the bit id of the field directly
   // we convert that to a power of 2
   if (encver < INDEX_MIN_WIDESCHEMA_VERSION) {
@@ -1042,6 +1045,10 @@ static void FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
   }
 
   f->name = RedisModule_LoadStringBuffer(rdb, NULL);
+  char *tmpName = rm_strdup(f->name);
+  RedisModule_Free(f->name);
+  f->name = tmpName;
+
   f->types = RedisModule_LoadUnsigned(rdb);
   f->options = RedisModule_LoadUnsigned(rdb);
   f->sortIdx = RedisModule_LoadSigned(rdb);
@@ -1064,7 +1071,7 @@ static void FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
     char *s = RedisModule_LoadStringBuffer(rdb, &l);
     assert(l == 1);
     f->tagSep = *s;
-    rm_free(s);
+    RedisModule_Free(s);
   }
 }
 
@@ -1104,6 +1111,9 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
   sp->terms = NULL;
   sp->docs = DocTable_New(1000);
   sp->name = RedisModule_LoadStringBuffer(rdb, NULL);
+  char *tmpName = rm_strdup(sp->name);
+  RedisModule_Free(sp->name);
+  sp->name = tmpName;
   sp->flags = (IndexFlags)RedisModule_LoadUnsigned(rdb);
   sp->keysDict = NULL;
   sp->maxPrefixExpansions = RSGlobalConfig.maxPrefixExpansions;
@@ -1170,7 +1180,7 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
       size_t dummy;
       char *s = RedisModule_LoadStringBuffer(rdb, &dummy);
       int rc = IndexAlias_Add(s, sp, 0, &status);
-      rm_free(s);
+      RedisModule_Free(s);
       assert(rc == REDISMODULE_OK);
     }
   }

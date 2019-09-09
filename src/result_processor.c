@@ -101,11 +101,11 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
 }
 
 static void rpidxFree(ResultProcessor *iter) {
-  free(iter);
+  rm_free(iter);
 }
 
 ResultProcessor *RPIndexIterator_New(IndexIterator *root) {
-  RPIndexIterator *ret = calloc(1, sizeof(*ret));
+  RPIndexIterator *ret = rm_calloc(1, sizeof(*ret));
   ret->iiter = root;
   ret->base.Next = rpidxNext;
   ret->base.Free = rpidxFree;
@@ -187,14 +187,14 @@ static void rpscoreFree(ResultProcessor *rp) {
   if (self->scorerFree) {
     self->scorerFree(self->scorerCtx.extdata);
   }
-  free(self);
+  rm_free(self);
 }
 
 /* Create a new scorer by name. If the name is not found in the scorer registry, we use the defalt
  * scorer */
 ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
                               const ScoringFunctionArgs *fnargs) {
-  RPScorer *ret = calloc(1, sizeof(*ret));
+  RPScorer *ret = rm_calloc(1, sizeof(*ret));
   ret->scorer = funcs->sf;
   ret->scorerFree = funcs->ff;
   ret->scorerCtx = *fnargs;
@@ -267,7 +267,7 @@ static int rpsortNext_Yield(ResultProcessor *rp, SearchResult *r) {
     RLookupRow oldrow = r->rowdata;
     *r = *sr;
 
-    free(sr);
+    rm_free(sr);
     RLookupRow_Cleanup(&oldrow);
     return RS_RESULT_OK;
   }
@@ -278,12 +278,12 @@ static void rpsortFree(ResultProcessor *rp) {
   RPSorter *self = (RPSorter *)rp;
   if (self->pooledResult) {
     SearchResult_Destroy(self->pooledResult);
-    free(self->pooledResult);
+    rm_free(self->pooledResult);
   }
 
   // calling mmh_free will free all the remaining results in the heap, if any
   mmh_free(self->pq);
-  free(rp);
+  rm_free(rp);
 }
 
 #define RESULT_QUEUED RS_RESULT_MAX + 1
@@ -292,7 +292,7 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
   RPSorter *self = (RPSorter *)rp;
 
   if (self->pooledResult == NULL) {
-    self->pooledResult = calloc(1, sizeof(*self->pooledResult));
+    self->pooledResult = rm_calloc(1, sizeof(*self->pooledResult));
   } else {
     RLookupRow_Wipe(&self->pooledResult->rowdata);
   }
@@ -398,13 +398,13 @@ static int cmpByFields(const void *e1, const void *e2, const void *udata) {
 static void srDtor(void *p) {
   if (p) {
     SearchResult_Destroy(p);
-    free(p);
+    rm_free(p);
   }
 }
 
 ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys, size_t nkeys,
                                       uint64_t ascmap) {
-  RPSorter *ret = calloc(1, sizeof(*ret));
+  RPSorter *ret = rm_calloc(1, sizeof(*ret));
   ret->cmp = nkeys ? cmpByFields : cmpByScore;
   ret->cmpCtx = ret;
   ret->fieldcmp.ascendMap = ascmap;
@@ -481,12 +481,12 @@ static int rppagerNext(ResultProcessor *base, SearchResult *r) {
 }
 
 static void rppagerFree(ResultProcessor *base) {
-  free(base);
+  rm_free(base);
 }
 
 /* Create a new pager. The offset and limit are taken from the user request */
 ResultProcessor *RPPager_New(size_t offset, size_t limit) {
-  RPPager *ret = calloc(1, sizeof(*ret));
+  RPPager *ret = rm_calloc(1, sizeof(*ret));
   ret->offset = offset;
   ret->limit = limit;
   ret->base.name = "Pager/Limiter";
@@ -542,14 +542,14 @@ static int rploaderNext(ResultProcessor *base, SearchResult *r) {
 
 static void rploaderFree(ResultProcessor *base) {
   RPLoader *lc = (RPLoader *)base;
-  free(lc->fields);
-  free(lc);
+  rm_free(lc->fields);
+  rm_free(lc);
 }
 
 ResultProcessor *RPLoader_New(RLookup *lk, const RLookupKey **keys, size_t nkeys) {
-  RPLoader *sc = calloc(1, sizeof(*sc));
+  RPLoader *sc = rm_calloc(1, sizeof(*sc));
   sc->nfields = nkeys;
-  sc->fields = calloc(nkeys, sizeof(*sc->fields));
+  sc->fields = rm_calloc(nkeys, sizeof(*sc->fields));
   memcpy(sc->fields, keys, sizeof(*keys) * nkeys);
 
   sc->lk = lk;

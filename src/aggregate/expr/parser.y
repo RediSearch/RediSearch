@@ -38,7 +38,7 @@
 
 %syntax_error {  
 
-    asprintf(&ctx->errorMsg, "Syntax error at offset %d near '%.*s'", TOKEN.pos, TOKEN.len, TOKEN.s);
+    rm_asprintf(&ctx->errorMsg, "Syntax error at offset %d near '%.*s'", TOKEN.pos, TOKEN.len, TOKEN.s);
     ctx->ok = 0;
 }   
    
@@ -74,7 +74,7 @@ expr(A) ::= PROPERTY(B). { A = RS_NewProp(B.s, B.len); }
 expr(A) ::= SYMBOL(B) LP arglist(C) RP. {
     RSFunction cb = RSFunctionRegistry_Get(B.s, B.len);
     if (!cb) {
-        asprintf(&ctx->errorMsg, "Unknown function name '%.*s'", B.len, B.s);
+        rm_asprintf(&ctx->errorMsg, "Unknown function name '%.*s'", B.len, B.s);
         ctx->ok = 0;
         A = NULL; 
     } else {
@@ -86,7 +86,7 @@ expr(A) ::= SYMBOL(B) . {
     if (B.len == 4 && !strncmp(B.s, "NULL", 4)) {
         A = RS_NewNullLiteral();
     } else {
-        asprintf(&ctx->errorMsg, "Unknown symbol '%.*s'", B.len, B.s);
+        rm_asprintf(&ctx->errorMsg, "Unknown symbol '%.*s'", B.len, B.s);
         ctx->ok = 0;
         A = NULL; 
     }

@@ -83,18 +83,18 @@ static void fvFreeInstance(Reducer *parent, void *p) {
 }
 
 Reducer *RDCRFirstValue_New(const ReducerOptions *options) {
-  FVReducer *fvr = calloc(1, sizeof(*fvr));
+  FVReducer *fvr = rm_calloc(1, sizeof(*fvr));
   fvr->ascending = 1;
 
   if (!ReducerOpts_GetKey(options, &fvr->base.srckey)) {
-    free(fvr);
+    rm_free(fvr);
     return NULL;
   }
 
   if (AC_AdvanceIfMatch(options->args, "BY")) {
     // Get the next field...
     if (!ReducerOptions_GetKey(options, &fvr->sortprop)) {
-      free(fvr);
+      rm_free(fvr);
       return NULL;
     }
     if (AC_AdvanceIfMatch(options->args, "ASC")) {
@@ -105,7 +105,7 @@ Reducer *RDCRFirstValue_New(const ReducerOptions *options) {
   }
 
   if (!ReducerOpts_EnsureArgsConsumed(options)) {
-    free(fvr);
+    rm_free(fvr);
     return NULL;
   }
 

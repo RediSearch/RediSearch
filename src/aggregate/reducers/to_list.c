@@ -48,7 +48,7 @@ static RSValue *tolistFinalize(Reducer *rbase, void *ctx) {
   char *c;
   tm_len_t l;
   void *ptr;
-  RSValue **arr = calloc(tlc->values->cardinality, sizeof(RSValue));
+  RSValue **arr = rm_calloc(tlc->values->cardinality, sizeof(RSValue));
   size_t i = 0;
   while (TrieMapIterator_Next(it, &c, &l, &ptr)) {
     if (ptr) {
@@ -71,9 +71,9 @@ static void tolistFreeInstance(Reducer *parent, void *p) {
 }
 
 Reducer *RDCRToList_New(const ReducerOptions *opts) {
-  Reducer *r = calloc(1, sizeof(*r));
+  Reducer *r = rm_calloc(1, sizeof(*r));
   if (!ReducerOptions_GetKey(opts, &r->srckey)) {
-    free(r);
+    rm_free(r);
     return NULL;
   }
   r->Add = tolistAdd;
