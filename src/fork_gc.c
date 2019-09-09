@@ -799,7 +799,7 @@ static int ForkGc_PeriodicCallback(RedisModuleCtx *ctx, void *privdata) {
     if (!ForkGc_IsForkApiExists()) {
 #ifdef __linux__
       // set the parrent death signal to SIGTERM
-      int r = prctl(PR_SET_PDEATHSIG, SIGTERM);
+      int r = prctl(PR_SET_PDEATHSIG, SIGKILL);
       if (r == -1) {
         exit(1);
       }
