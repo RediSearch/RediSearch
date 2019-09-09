@@ -817,14 +817,7 @@ static int FGC_haveRedisFork() {
 
 static int FGC_fork(ForkGC *gc, RedisModuleCtx *ctx) {
   if (FGC_haveRedisFork()) {
-    if (gc->type == FGC_TYPE_NOKEYSPACE) {
-      // If we are not in key space we still need to acquire the GIL to use the fork api
-      RedisModule_ThreadSafeContextLock(ctx);
-    }
     int ret = RedisModule_Fork(NULL, NULL);
-    if (gc->type == FGC_TYPE_NOKEYSPACE) {
-      RedisModule_ThreadSafeContextUnlock(ctx);
-    }
     return ret;
   } else {
     return fork();
@@ -835,6 +828,9 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
   ForkGC *gc = privdata;
   if (gc->deleting) {
     return 0;
+  }
+  if (gc->deletedDocsFromLastRun < RSGlobalConfig.forkGcCleanThreshold) {
+    return 1;
   }
 
   RedisModule_AutoMemory(ctx);
@@ -869,18 +865,44 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
 
   TimeSampler_Start(&ts);
   pipe(gc->pipefd);  // create the pipe
+
+  if (gc->type == FGC_TYPE_NOKEYSPACE) {
+    // If we are not in key space we still need to acquire the GIL to use the fork api
+    RedisModule_ThreadSafeContextLock(ctx);
+  }
+
   if (!FGC_lock(gc, ctx)) {
+
+    if (gc->type == FGC_TYPE_NOKEYSPACE) {
+      RedisModule_ThreadSafeContextUnlock(ctx);
+    }
+
     return 0;
   }
 
   gc->execState = FGC_STATE_SCANNING;
+
   cpid = FGC_fork(gc, ctx);  // duplicate the current process
-  FGC_unlock(gc, ctx);
 
   if (cpid == -1) {
     gc->retryInterval.tv_sec = RSGlobalConfig.forkGcRetryInterval;
+
+    if (gc->type == FGC_TYPE_NOKEYSPACE) {
+      RedisModule_ThreadSafeContextUnlock(ctx);
+    }
+
+    FGC_unlock(gc, ctx);
+
     return 1;
   }
+
+  gc->deletedDocsFromLastRun = 0;
+
+  if (gc->type == FGC_TYPE_NOKEYSPACE) {
+    RedisModule_ThreadSafeContextUnlock(ctx);
+  }
+
+  FGC_unlock(gc, ctx);
 
   gc->retryInterval.tv_sec = RSGlobalConfig.forkGcRunIntervalSec;
 
@@ -1017,6 +1039,11 @@ static void killCb(void *ctx) {
   gc->deleting = 1;
 }
 
+static void deleteCb(void *ctx) {
+  ForkGC *gc = ctx;
+  ++gc->deletedDocsFromLastRun;
+}
+
 static struct timespec getIntervalCb(void *ctx) {
   ForkGC *gc = ctx;
   return gc->retryInterval;
@@ -1028,6 +1055,7 @@ ForkGC *FGC_New(const RedisModuleString *k, uint64_t specUniqueId, GCCallbacks *
       .rdbPossiblyLoading = 1,
       .specUniqueId = specUniqueId,
       .type = FGC_TYPE_INKEYSPACE,
+      .deletedDocsFromLastRun = 0,
   };
   forkGc->retryInterval.tv_sec = RSGlobalConfig.forkGcRunIntervalSec;
   forkGc->retryInterval.tv_nsec = 0;
@@ -1042,6 +1070,7 @@ ForkGC *FGC_New(const RedisModuleString *k, uint64_t specUniqueId, GCCallbacks *
   callbacks->renderStats = statsCb;
   callbacks->getInterval = getIntervalCb;
   callbacks->kill = killCb;
+  callbacks->onDelete = deleteCb;
 
   return forkGc;
 }
