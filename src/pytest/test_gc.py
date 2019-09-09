@@ -204,3 +204,20 @@ def testGCThreshold(env):
     debug_rep = env.cmd('FT.DEBUG', 'DUMP_INVIDX', 'idx', 'foo')
 
     env.assertEqual(len(debug_rep), 100) # only the last block are not clean
+
+def testGCShutDownOnExit(env):
+    import time
+    if env.env == 'existing-env':
+        env.skip()
+    if env.env == 'enterprise':
+        env.skip()
+    if env.isCluster():
+        raise unittest.SkipTest()
+    env = Env(moduleArgs='GC_POLICY FORK FORK_GC_RUN_INTERVAL 1 FORKGC_SLEEP_BEFORE_EXIT 20')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT', 'SORTABLE').ok()
+    time.sleep(2) ## make sure forkgc started 
+    env.stop()
+    env.start()
+
+    # make sure server started successfully
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT', 'SORTABLE').ok()
