@@ -15,4 +15,9 @@
 
 int DefaultExtensionInit(RSExtensionCtx *ctx);
 
+typedef enum {
+  /* Flag for scorer function to create explanation strings */
+  SCORE_F_WITH_EXPLANATION = 0x01
+} ScoreFuncFlags;
+
 #endif

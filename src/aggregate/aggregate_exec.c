@@ -4,6 +4,7 @@
 #include "aggregate.h"
 #include "cursor.h"
 #include "rmutil/util.h"
+#include "scoreExplain.h"
 
 typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN } CommandType;
 static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num);
@@ -38,13 +39,21 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
   }
 
   if (options & QEXEC_F_SEND_SCORES) {
-    RedisModule_ReplyWithDouble(outctx, r->score);
+    if ((options & QEXEC_F_SEND_SCORE_EXPLAIN) == false) {
+      RedisModule_ReplyWithDouble(outctx, r->score);
+    } else {
+      RedisModule_ReplyWithArray(outctx, 2);
+      RedisModule_ReplyWithDouble(outctx, (double)r->score);
+      SEReply(outctx, r->scoreExplain);
+    }
     count++;
   }
+
   if (options & QEXEC_F_SENDRAWIDS) {
     RedisModule_ReplyWithLongLong(outctx, r->docId);
     count++;
   }
+  
   if (options & QEXEC_F_SEND_PAYLOADS) {
     count++;
     if (dmd && dmd->payload) {
