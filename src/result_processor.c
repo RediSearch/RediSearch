@@ -22,6 +22,8 @@ void QITR_Cleanup(QueryIterator *qitr) {
 void SearchResult_Clear(SearchResult *r) {
   // This won't affect anything if the result is null
   r->score = 0;
+  SEDestroy(r->scoreExplain);
+  r->scoreExplain = NULL;
   if (r->indexResult) {
     // IndexResult_Free(r->indexResult);
     r->indexResult = NULL;
@@ -164,7 +166,8 @@ static int rpscoreNext(ResultProcessor *base, SearchResult *res) {
 
     // Apply the scoring function
     res->score = self->scorer(&self->scorerCtx, res->indexResult, res->dmd, base->parent->minScore);
-
+    res->scoreExplain = SEExtractStrings(res->indexResult);
+    
     // If we got the special score RS_SCORE_FILTEROUT - disregard the result and decrease the total
     // number of results (it's been increased by the upstream processor)
     if (res->score == RS_SCORE_FILTEROUT) {

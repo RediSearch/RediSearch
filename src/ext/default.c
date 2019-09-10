@@ -1,4 +1,5 @@
 #include <string.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <sys/param.h>
 #include "../redisearch.h"
@@ -26,19 +27,28 @@
 // normalize TF by number of tokens (weighted)
 #define NORM_DOCLEN 2
 
-// recursively calculate tf-idf
-static double tfidfRecursive(const RSIndexResult *r, const RSDocumentMetadata *dmd) {
+#define EXPLAIN(indexResult, fmt, args...)                      \
+        if (explain) {                                           \
+          asprintf((char ** restrict)&indexResult->scoreExplainStr, fmt, ##args);      \
+        } 
 
+// recursively calculate tf-idf
+static double tfidfRecursive(const RSIndexResult *r, const RSDocumentMetadata *dmd, bool explain) {
   if (r->type == RSResultType_Term) {
-    return r->weight * ((double)r->freq) * (r->term.term ? r->term.term->idf : 0);
+    double idf = r->term.term ? r->term.term->idf : 0;
+    double res = r->weight * ((double)r->freq) * idf;
+    EXPLAIN(r, "TFIDF %.2f = Weight %.2f * TF %d * IDF %.2f", res, r->weight, r->freq, idf);
+    return res;
   }
   if (r->type & (RSResultType_Intersection | RSResultType_Union)) {
     double ret = 0;
     for (int i = 0; i < r->agg.numChildren; i++) {
-      ret += tfidfRecursive(r->agg.children[i], dmd);
+      ret += tfidfRecursive(r->agg.children[i], dmd, explain);
     }
+    EXPLAIN(r, "%.2f = Weight %.2f * children TFIDF %.2f",  r->weight * ret, r->weight, ret)
     return r->weight * ret;
   }
+  EXPLAIN(r, "TFIDF %.2f = Weight %.2f * Frequency %d", r->weight * (double)r->freq, r->weight, r->freq);
   return r->weight * (double)r->freq;
 }
 
@@ -46,21 +56,26 @@ static double tfidfRecursive(const RSIndexResult *r, const RSDocumentMetadata *d
 static inline double tfIdfInternal(const ScoringFunctionArgs *ctx, const RSIndexResult *h,
                                    const RSDocumentMetadata *dmd, double minScore, int normMode) {
   if (dmd->score == 0) return 0;
-  double norm = normMode == NORM_MAXFREQ ? (double)dmd->maxFreq : dmd->len;
+  bool explain = ctx->scoreflags & SCORE_F_WITH_EXPLANATION;
+  uint32_t norm = normMode == NORM_MAXFREQ ? dmd->maxFreq : dmd->len;
+  double rawTfidf = tfidfRecursive(h, dmd, explain);
+  double tfidf = dmd->score * rawTfidf / norm;
 
-  double tfidf = dmd->score * tfidfRecursive(h, dmd) / norm;
   // no need to factor the distance if tfidf is already below minimal score
   if (tfidf < minScore) {
     return 0;
   }
 
-  tfidf /= (double)ctx->GetSlop(h);
+  int slop = ctx->GetSlop(h);
+  tfidf /= slop;
+  EXPLAIN(h, "%s. Final TFIDF : %.2f * document score %.2f / norm %d / slop %d",
+          h->scoreExplainStr, rawTfidf, dmd->score, norm, slop);
   return tfidf;
 }
 
 /* Calculate sum(TF-IDF)*document score for each result, where TF is normalized by maximum frequency
  * in this document*/
-double TFIDFScorer(const ScoringFunctionArgs *ctx, const RSIndexResult *h,
+static double TFIDFScorer(const ScoringFunctionArgs *ctx, const RSIndexResult *h,
                    const RSDocumentMetadata *dmd, double minScore) {
   return tfIdfInternal(ctx, h, dmd, minScore, NORM_MAXFREQ);
 }
@@ -83,40 +98,49 @@ static double TFIDFNormDocLenScorer(const ScoringFunctionArgs *ctx, const RSInde
 
 /* recursively calculate score for each token, summing up sub tokens */
 static double bm25Recursive(const ScoringFunctionArgs *ctx, const RSIndexResult *r,
-                            const RSDocumentMetadata *dmd) {
+                            const RSDocumentMetadata *dmd, bool explain) {
   static const float b = 0.5;
   static const float k1 = 1.2;
   double f = (double)r->freq;
-
+  double ret = 0;
+  
   if (r->type == RSResultType_Term) {
     double idf = (r->term.term ? r->term.term->idf : 0);
 
-    double ret = idf * f / (f + k1 * (1.0f - b + b * ctx->indexStats.avgDocLen));
-    return ret;
+    ret = idf * f / (f + k1 * (1.0f - b + b * ctx->indexStats.avgDocLen));
+    EXPLAIN(r, "%.2f = IDF %.2f * F %d / (F %d + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len %.2f))", 
+            ret, idf, r->freq, r->freq, ctx->indexStats.avgDocLen);  
+  } else if (r->type & (RSResultType_Intersection | RSResultType_Union)) {
+    for (int i = 0; i < r->agg.numChildren; i++) {
+      ret += bm25Recursive(ctx, r->agg.children[i], dmd, explain);
+    }
+    ret *= r->weight;
+  } else if (f) {   // default for virtual type -just disregard the idf
+    ret = r->weight * f / (f + k1 * (1.0f - b + b * ctx->indexStats.avgDocLen));
+    EXPLAIN(r, "%.2f = Weight %.2f * F %d / (F %d + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len %.2f))", 
+            ret, r->weight, r->freq, r->freq, ctx->indexStats.avgDocLen);
+  } else {
+    EXPLAIN(r, "Frequency 0 -> value 0")
   }
 
-  if (r->type & (RSResultType_Intersection | RSResultType_Union)) {
-    double ret = 0;
-    for (int i = 0; i < r->agg.numChildren; i++) {
-      ret += bm25Recursive(ctx, r->agg.children[i], dmd);
-    }
-    return r->weight * ret;
-  }
-  // default for virtual type -just disregard the idf
-  return r->weight * (r->freq ? f / (f + k1 * (1.0f - b + b * ctx->indexStats.avgDocLen)) : 0);
+  return ret;
 }
 
 /* BM25 scoring function */
 static double BM25Scorer(const ScoringFunctionArgs *ctx, const RSIndexResult *r,
                          const RSDocumentMetadata *dmd, double minScore) {
-  double score = dmd->score * bm25Recursive(ctx, r, dmd);
+  bool explain = ctx->scoreflags & SCORE_F_WITH_EXPLANATION;
+  double bm25res = bm25Recursive(ctx, r, dmd, explain);
+  double score = dmd->score * bm25res;
 
   // no need to factor the distance if tfidf is already below minimal score
   if (score < minScore) {
     return 0;
   }
-
-  score /= (double)ctx->GetSlop(r);
+  int slop = ctx->GetSlop(r);
+  score /= slop;
+  EXPLAIN(r, "%s. Final BM25 : %.2f * document score %.2f / slop %d",
+          r->scoreExplainStr, bm25res, dmd->score, slop);
   return score;
 }
 
@@ -125,8 +149,10 @@ static double BM25Scorer(const ScoringFunctionArgs *ctx, const RSIndexResult *r,
  * Raw document-score scorer. Just returns the document score
  *
  ******************************************************************************************/
-double DocScoreScorer(const ScoringFunctionArgs *ctx, const RSIndexResult *r,
+static double DocScoreScorer(const ScoringFunctionArgs *ctx, const RSIndexResult *r,
                       const RSDocumentMetadata *dmd, double minScore) {
+  bool explain = ctx->scoreflags & SCORE_F_WITH_EXPLANATION;
+  EXPLAIN(r, "Document's score is %.2f", dmd->score);
   return dmd->score;
 }
 
@@ -160,7 +186,7 @@ static double _dismaxRecursive(const RSIndexResult *r) {
   return r->weight * ret;
 }
 /* Calculate sum(TF-IDF)*document score for each result */
-double DisMaxScorer(const ScoringFunctionArgs *ctx, const RSIndexResult *h,
+static double DisMaxScorer(const ScoringFunctionArgs *ctx, const RSIndexResult *h,
                     const RSDocumentMetadata *dmd, double minScore) {
   // printf("score for %d: %f\n", h->docId, dmd->score);
   // if (dmd->score == 0 || h == NULL) return 0;
@@ -185,6 +211,7 @@ static double HammingDistanceScorer(const ScoringFunctionArgs *ctx, const RSInde
   if (!dmd->payload || !dmd->payload->len || dmd->payload->len != ctx->qdatalen) {
     return 0;
   }
+  bool explain = ctx->scoreflags & SCORE_F_WITH_EXPLANATION;
   size_t ret = 0;
   size_t len = ctx->qdatalen;
   // if the strings are not aligned to 64 bit - calculate the diff byte by
@@ -194,8 +221,10 @@ static double HammingDistanceScorer(const ScoringFunctionArgs *ctx, const RSInde
   for (size_t i = 0; i < len; i++) {
     ret += bitsinbyte[(unsigned char)(a[i] ^ b[i])];
   }
+  double result = 1.0 / (double)(ret + 1);
+  EXPLAIN(h, "String length is %zu. Bit count is %zu. Result is (1 / count + 1) = %.2f", len, ret, result);
   // we inverse the distance, and add 1 to make sure a distance of 0 yields a perfect score of 1
-  return 1.0 / (double)(ret + 1);
+  return result;
 }
 
 typedef struct {
