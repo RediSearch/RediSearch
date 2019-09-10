@@ -55,14 +55,18 @@ static double tfidfRecursive(const RSIndexResult *r, const RSDocumentMetadata *d
 /* internal common tf-idf function, where just the normalization method changes */
 static inline double tfIdfInternal(const ScoringFunctionArgs *ctx, const RSIndexResult *h,
                                    const RSDocumentMetadata *dmd, double minScore, int normMode) {
-  if (dmd->score == 0) return 0;
   bool explain = ctx->scoreflags & SCORE_F_WITH_EXPLANATION;
+  if (dmd->score == 0) {
+    EXPLAIN(h, "Document score is 0");
+    return 0;
+  }
   uint32_t norm = normMode == NORM_MAXFREQ ? dmd->maxFreq : dmd->len;
   double rawTfidf = tfidfRecursive(h, dmd, explain);
   double tfidf = dmd->score * rawTfidf / norm;
 
   // no need to factor the distance if tfidf is already below minimal score
   if (tfidf < minScore) {
+    EXPLAIN(h, "TFIDF score of %.2f is smaller than minimum score %.2f", tfidf, minScore);
     return 0;
   }
 
@@ -114,13 +118,14 @@ static double bm25Recursive(const ScoringFunctionArgs *ctx, const RSIndexResult 
     for (int i = 0; i < r->agg.numChildren; i++) {
       ret += bm25Recursive(ctx, r->agg.children[i], dmd, explain);
     }
+    EXPLAIN(r, "%.2f = Weight %.2f * children BM25 %.2f",  r->weight * ret, r->weight, ret);
     ret *= r->weight;
   } else if (f) {   // default for virtual type -just disregard the idf
     ret = r->weight * f / (f + k1 * (1.0f - b + b * ctx->indexStats.avgDocLen));
     EXPLAIN(r, "%.2f = Weight %.2f * F %d / (F %d + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len %.2f))", 
             ret, r->weight, r->freq, r->freq, ctx->indexStats.avgDocLen);
   } else {
-    EXPLAIN(r, "Frequency 0 -> value 0")
+    EXPLAIN(r, "Frequency 0 -> value 0");
   }
 
   return ret;
@@ -135,11 +140,12 @@ static double BM25Scorer(const ScoringFunctionArgs *ctx, const RSIndexResult *r,
 
   // no need to factor the distance if tfidf is already below minimal score
   if (score < minScore) {
+    EXPLAIN(r, "BM25 score of %.2f is smaller than minimum score %.2f", bm25res, score);
     return 0;
   }
   int slop = ctx->GetSlop(r);
   score /= slop;
-  EXPLAIN(r, "%s. Final BM25 : %.2f * document score %.2f / slop %d",
+  EXPLAIN(r, "%s. Final BM25 : %.2f = document score %.2f / slop %d",
           r->scoreExplainStr, bm25res, dmd->score, slop);
   return score;
 }
@@ -161,26 +167,30 @@ static double DocScoreScorer(const ScoringFunctionArgs *ctx, const RSIndexResult
  * DISMAX-style scorer
  *
  ******************************************************************************************/
-static double _dismaxRecursive(const RSIndexResult *r) {
+static double _dismaxRecursive(const ScoringFunctionArgs *ctx, const RSIndexResult *r) {
   // for terms - we return the term frequency
+  bool explain = ctx->scoreflags & SCORE_F_WITH_EXPLANATION;
   double ret = 0;
   switch (r->type) {
     case RSResultType_Term:
     case RSResultType_Numeric:
     case RSResultType_Virtual:
       ret = r->freq;
+      EXPLAIN(r, "DISMAX %.2f = Weight %.2f * Frequency %d", r->weight * ret, r->weight, r->freq);
       break;
     // for intersections - we sum up the term scores
     case RSResultType_Intersection:
       for (int i = 0; i < r->agg.numChildren; i++) {
-        ret += _dismaxRecursive(r->agg.children[i]);
+        ret += _dismaxRecursive(ctx, r->agg.children[i]);
       }
+      EXPLAIN(r, "%.2f = Weight %.2f * children DISMAX %.2f",  r->weight * ret, r->weight, ret);
       break;
     // for unions - we take the max frequency
     case RSResultType_Union:
       for (int i = 0; i < r->agg.numChildren; i++) {
-        ret = MAX(ret, _dismaxRecursive(r->agg.children[i]));
+        ret = MAX(ret, _dismaxRecursive(ctx, r->agg.children[i]));
       }
+      EXPLAIN(r, "%.2f = Weight %.2f * children DISMAX %.2f",  r->weight * ret, r->weight, ret);
       break;
   }
   return r->weight * ret;
@@ -190,7 +200,7 @@ static double DisMaxScorer(const ScoringFunctionArgs *ctx, const RSIndexResult *
                     const RSDocumentMetadata *dmd, double minScore) {
   // printf("score for %d: %f\n", h->docId, dmd->score);
   // if (dmd->score == 0 || h == NULL) return 0;
-  return _dismaxRecursive(h);
+  return _dismaxRecursive(ctx, h);
 }
 /* taken from redis - bitops.c */
 static const unsigned char bitsinbyte[256] = {
@@ -207,11 +217,12 @@ static const unsigned char bitsinbyte[256] = {
  * works if both have the payloads the same length */
 static double HammingDistanceScorer(const ScoringFunctionArgs *ctx, const RSIndexResult *h,
                                     const RSDocumentMetadata *dmd, double minScore) {
+  bool explain = ctx->scoreflags & SCORE_F_WITH_EXPLANATION;
   // the strings must be of the same length > 0
   if (!dmd->payload || !dmd->payload->len || dmd->payload->len != ctx->qdatalen) {
+    EXPLAIN(h, "Issues with strings");
     return 0;
   }
-  bool explain = ctx->scoreflags & SCORE_F_WITH_EXPLANATION;
   size_t ret = 0;
   size_t len = ctx->qdatalen;
   // if the strings are not aligned to 64 bit - calculate the diff byte by
