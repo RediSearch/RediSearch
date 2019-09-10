@@ -1,6 +1,5 @@
 
 import unittest
-import time
 from RLTest import Env
 
 
@@ -210,3 +209,15 @@ def testGCThreshold(env):
     debug_rep = env.cmd('FT.DEBUG', 'DUMP_INVIDX', 'idx', 'foo')
 
     env.assertEqual(len(debug_rep), 0)
+
+def testGCShutDownOnExit(env):
+    if env.env == 'existing-env' or env.env == 'enterprise' or env.isCluster():
+        env.skip()
+    env = Env(moduleArgs='GC_POLICY FORK FORKGC_SLEEP_BEFORE_EXIT 20')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT', 'SORTABLE').ok()
+    env.expect('FT.DEBUG', 'GC_FORCEBGINVOKE', 'idx').ok()
+    env.stop()
+    env.start()
+
+    # make sure server started successfully
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT', 'SORTABLE').ok()

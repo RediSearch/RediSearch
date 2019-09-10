@@ -912,7 +912,7 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
 #ifdef __linux__
     if (!FGC_haveRedisFork()) {
       // set the parrent death signal to SIGTERM
-      int r = prctl(PR_SET_PDEATHSIG, SIGTERM);
+      int r = prctl(PR_SET_PDEATHSIG, SIGKILL);
       if (r == -1) {
         exit(1);
       }
