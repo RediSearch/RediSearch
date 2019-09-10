@@ -180,21 +180,20 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
   return ARG_HANDLED;
 }
 
-static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status, int allowLegacy) {
+static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status, int isLegacy) {
   // Assume argument is at 'SORTBY'
   ArgsCursor subArgs = {0};
-  int rv = AC_GetVarArgs(ac, &subArgs);
-  int isLegacy = 0, legacyDesc = 0;
+  int rv;
+  int legacyDesc = 0;
 
   // We build a bitmap of maximum 64 sorting parameters. 1 means asc, 0 desc
   // By default all bits are 1. Whenever we encounter DESC we flip the corresponding bit
   uint64_t ascMap = SORTASCMAP_INIT;
   const char **keys = NULL;
 
-  if (rv != AC_OK) {
-    if (allowLegacy && AC_NumRemaining(ac) > 0) {
+  if (isLegacy) {
+    if (AC_NumRemaining(ac) > 0) {
       // Mimic subArgs to contain the single field we already have
-      isLegacy = 1;
       AC_GetSlice(ac, &subArgs, 1);
       if (AC_AdvanceIfMatch(ac, "DESC")) {
         legacyDesc = 1;
@@ -202,6 +201,11 @@ static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status
         legacyDesc = 0;
       }
     } else {
+      goto err;
+    }
+  } else {
+    rv = AC_GetVarArgs(ac, &subArgs);
+    if (rv != AC_OK) {
       QERR_MKBADARGS_AC(status, "SORTBY", rv);
       goto err;
     }
