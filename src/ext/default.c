@@ -27,17 +27,19 @@
 // normalize TF by number of tokens (weighted)
 #define NORM_DOCLEN 2
 
-#define EXPLAIN(indexResult, fmt, args...)                      \
-        if (explain) {                                           \
-          asprintf((char ** restrict)&indexResult->scoreExplainStr, fmt, ##args);      \
-        } 
+#define EXPLAIN(indexResult, fmt, args...)                                            \
+        if (explain) {                                                                \
+          char *tempStr = indexResult->scoreExplainStr;                               \
+          rm_asprintf((char ** restrict)&indexResult->scoreExplainStr, fmt, ##args);     \
+          rm_free(tempStr);                                                              \
+        }                                                                             \
 
 // recursively calculate tf-idf
 static double tfidfRecursive(const RSIndexResult *r, const RSDocumentMetadata *dmd, bool explain) {
   if (r->type == RSResultType_Term) {
     double idf = r->term.term ? r->term.term->idf : 0;
     double res = r->weight * ((double)r->freq) * idf;
-    EXPLAIN(r, "TFIDF %.2f = Weight %.2f * TF %d * IDF %.2f", res, r->weight, r->freq, idf);
+    EXPLAIN(r, "(TFIDF %.2f = Weight %.2f * TF %d * IDF %.2f)", res, r->weight, r->freq, idf);
     return res;
   }
   if (r->type & (RSResultType_Intersection | RSResultType_Union)) {
@@ -45,10 +47,10 @@ static double tfidfRecursive(const RSIndexResult *r, const RSDocumentMetadata *d
     for (int i = 0; i < r->agg.numChildren; i++) {
       ret += tfidfRecursive(r->agg.children[i], dmd, explain);
     }
-    EXPLAIN(r, "%.2f = Weight %.2f * children TFIDF %.2f",  r->weight * ret, r->weight, ret)
+    EXPLAIN(r, "(Weight %.2f * total children TFIDF %.2f)", r->weight, ret)
     return r->weight * ret;
   }
-  EXPLAIN(r, "TFIDF %.2f = Weight %.2f * Frequency %d", r->weight * (double)r->freq, r->weight, r->freq);
+  EXPLAIN(r, "(TFIDF %.2f = Weight %.2f * Frequency %d)", r->weight * (double)r->freq, r->weight, r->freq);
   return r->weight * (double)r->freq;
 }
 
@@ -72,10 +74,8 @@ static inline double tfIdfInternal(const ScoringFunctionArgs *ctx, const RSIndex
 
   int slop = ctx->GetSlop(h);
   tfidf /= slop;
-  char *tempStr = h->scoreExplainStr;
-  EXPLAIN(h, "%s. Final TFIDF : %.2f * document score %.2f / norm %d / slop %d",
+  EXPLAIN(h, "Final TFIDF : %s * %.2f * document score %.2f / norm %d / slop %d",
           h->scoreExplainStr, rawTfidf, dmd->score, norm, slop);
-  if (h->scoreExplainStr != tempStr) free(tempStr);
   return tfidf;
 }
 
@@ -114,17 +114,17 @@ static double bm25Recursive(const ScoringFunctionArgs *ctx, const RSIndexResult 
     double idf = (r->term.term ? r->term.term->idf : 0);
 
     ret = idf * f / (f + k1 * (1.0f - b + b * ctx->indexStats.avgDocLen));
-    EXPLAIN(r, "%.2f = IDF %.2f * F %d / (F %d + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len %.2f))", 
+    EXPLAIN(r, "(%.2f = IDF %.2f * F %d / (F %d + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len %.2f)))", 
             ret, idf, r->freq, r->freq, ctx->indexStats.avgDocLen);  
   } else if (r->type & (RSResultType_Intersection | RSResultType_Union)) {
     for (int i = 0; i < r->agg.numChildren; i++) {
       ret += bm25Recursive(ctx, r->agg.children[i], dmd, explain);
     }
-    EXPLAIN(r, "%.2f = Weight %.2f * children BM25 %.2f",  r->weight * ret, r->weight, ret);
+    EXPLAIN(r, "(Weight %.2f * children BM25 %.2f)", r->weight, ret);
     ret *= r->weight;
   } else if (f) {   // default for virtual type -just disregard the idf
     ret = r->weight * f / (f + k1 * (1.0f - b + b * ctx->indexStats.avgDocLen));
-    EXPLAIN(r, "%.2f = Weight %.2f * F %d / (F %d + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len %.2f))", 
+    EXPLAIN(r, "(%.2f = Weight %.2f * F %d / (F %d + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len %.2f)))", 
             ret, r->weight, r->freq, r->freq, ctx->indexStats.avgDocLen);
   } else {
     EXPLAIN(r, "Frequency 0 -> value 0");
@@ -147,10 +147,8 @@ static double BM25Scorer(const ScoringFunctionArgs *ctx, const RSIndexResult *r,
   }
   int slop = ctx->GetSlop(r);
   score /= slop;
-  char *tempStr = r->scoreExplainStr;
-  EXPLAIN(r, "%s. Final BM25 : %.2f = document score %.2f / slop %d",
-          r->scoreExplainStr, bm25res, dmd->score, slop);
-  if (r->scoreExplainStr != tempStr) free(tempStr);
+  EXPLAIN(r, "Final BM25 : %s * document score %.2f / slop %d",
+          r->scoreExplainStr, dmd->score, slop);
   return score;
 }
 

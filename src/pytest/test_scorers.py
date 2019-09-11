@@ -96,12 +96,12 @@ def testTFIDFScorerExplanation(env):
         'ft.add', 'idx', 'doc3', 0.1, 'fields', 'title', 'hello yet another world',' body', 'lorem ist ipsum lorem lorem'))    
     res = env.cmd('ft.search', 'idx', 'hello world', 'withscores', 'EXPLAINSCORE')
     env.assertEqual(res[0], 3L)
-    env.assertEqual(res[2][1], ['20.00 = Weight 1.00 * children TFIDF 20.00. Final TFIDF : 20.00 * document score 1.00 / norm 10 / slop 2', 
-                                ['TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00', 'TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00']])
-    env.assertEqual(res[5][1], ['20.00 = Weight 1.00 * children TFIDF 20.00. Final TFIDF : 20.00 * document score 0.50 / norm 10 / slop 1',
-                                ['TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00', 'TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00']])
-    env.assertEqual(res[8][1], ['20.00 = Weight 1.00 * children TFIDF 20.00. Final TFIDF : 20.00 * document score 0.10 / norm 10 / slop 3',
-                                ['TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00', 'TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00']])
+    env.assertEqual(res[2][1], ['Final TFIDF : (Weight 1.00 * total children TFIDF 20.00) * 20.00 * document score 1.00 / norm 10 / slop 2',
+                                ['(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)', '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)']])
+    env.assertEqual(res[5][1], ['Final TFIDF : (Weight 1.00 * total children TFIDF 20.00) * 20.00 * document score 0.50 / norm 10 / slop 1',
+                                ['(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)', '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)']])
+    env.assertEqual(res[8][1], ['Final TFIDF : (Weight 1.00 * total children TFIDF 20.00) * 20.00 * document score 0.10 / norm 10 / slop 3',
+                                ['(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)', '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)']])
 
 def testBM25ScorerExplanation(env):
     env.assertOk(env.cmd(
@@ -114,12 +114,12 @@ def testBM25ScorerExplanation(env):
         'ft.add', 'idx', 'doc3', 0.1, 'fields', 'title', 'hello yet another world',' body', 'lorem ist ipsum lorem lorem'))    
     res = env.cmd('ft.search', 'idx', 'hello world', 'withscores', 'EXPLAINSCORE', 'scorer', 'BM25')
     env.assertEqual(res[0], 3L)
-    env.assertEqual(res[2][1], ['1.56 = Weight 1.00 * children BM25 1.56. Final BM25 : 1.56 = document score 1.00 / slop 2',
-        ['0.78 = IDF 1.00 * F 10 / (F 10 + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len 3.67))', '0.78 = IDF 1.00 * F 10 / (F 10 + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len 3.67))']])
-    env.assertEqual(res[5][1], ['1.56 = Weight 1.00 * children BM25 1.56. Final BM25 : 1.56 = document score 0.50 / slop 1',
-        ['0.78 = IDF 1.00 * F 10 / (F 10 + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len 3.67))', '0.78 = IDF 1.00 * F 10 / (F 10 + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len 3.67))']])
-    env.assertEqual(res[8][1], ['1.56 = Weight 1.00 * children BM25 1.56. Final BM25 : 1.56 = document score 0.10 / slop 3',
-        ['0.78 = IDF 1.00 * F 10 / (F 10 + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len 3.67))', '0.78 = IDF 1.00 * F 10 / (F 10 + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len 3.67))']])
+    env.assertEqual(res[2][1], ['Final BM25 : (Weight 1.00 * children BM25 1.56) * document score 1.00 / slop 2',
+        ['(0.78 = IDF 1.00 * F 10 / (F 10 + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len 3.67)))', '(0.78 = IDF 1.00 * F 10 / (F 10 + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len 3.67)))']])
+    env.assertEqual(res[5][1], 	['Final BM25 : (Weight 1.00 * children BM25 1.56) * document score 0.50 / slop 1',
+        ['(0.78 = IDF 1.00 * F 10 / (F 10 + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len 3.67)))', '(0.78 = IDF 1.00 * F 10 / (F 10 + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len 3.67)))']])
+    env.assertEqual(res[8][1], ['Final BM25 : (Weight 1.00 * children BM25 1.56) * document score 0.10 / slop 3',
+        ['(0.78 = IDF 1.00 * F 10 / (F 10 + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len 3.67)))', '(0.78 = IDF 1.00 * F 10 / (F 10 + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len 3.67)))']])
 
 def testDisMaxScorerExplanation(env):
     env.assertOk(env.cmd(
