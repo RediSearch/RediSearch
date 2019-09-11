@@ -72,8 +72,10 @@ static inline double tfIdfInternal(const ScoringFunctionArgs *ctx, const RSIndex
 
   int slop = ctx->GetSlop(h);
   tfidf /= slop;
+  char *tempStr = h->scoreExplainStr;
   EXPLAIN(h, "%s. Final TFIDF : %.2f * document score %.2f / norm %d / slop %d",
           h->scoreExplainStr, rawTfidf, dmd->score, norm, slop);
+  if (h->scoreExplainStr != tempStr) free(tempStr);
   return tfidf;
 }
 
@@ -145,8 +147,10 @@ static double BM25Scorer(const ScoringFunctionArgs *ctx, const RSIndexResult *r,
   }
   int slop = ctx->GetSlop(r);
   score /= slop;
+  char *tempStr = r->scoreExplainStr;
   EXPLAIN(r, "%s. Final BM25 : %.2f = document score %.2f / slop %d",
           r->scoreExplainStr, bm25res, dmd->score, slop);
+  if (r->scoreExplainStr != tempStr) free(tempStr);
   return score;
 }
 

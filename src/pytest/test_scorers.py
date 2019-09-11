@@ -70,6 +70,21 @@ def testScoreTagIndex(env):
             #print res
             env.assertListEqual(expected_results[i], res)
 
+def testDocscoreScorerExplanation(env):
+    env.assertOk(env.cmd(
+        'ft.create', 'idx', 'schema', 'title', 'text', 'weight', 10, 'body', 'text'))
+    env.assertOk(env.cmd(
+        'ft.add', 'idx', 'doc1', 0.5, 'fields', 'title', 'hello world',' body', 'lorem ist ipsum'))
+    env.assertOk(env.cmd(
+        'ft.add', 'idx', 'doc2', 1, 'fields', 'title', 'hello another world',' body', 'lorem ist ipsum lorem lorem'))
+    env.assertOk(env.cmd(
+        'ft.add', 'idx', 'doc3', 0.1, 'fields', 'title', 'hello yet another world',' body', 'lorem ist ipsum lorem lorem'))    
+    res = env.cmd('ft.search', 'idx', 'hello world', 'withscores', 'EXPLAINSCORE', 'scorer', 'DOCSCORE')
+    env.assertEqual(res[0], 3L)
+    env.assertEqual(res[2][1], "Document's score is 1.00")
+    env.assertEqual(res[5][1], "Document's score is 0.50")
+    env.assertEqual(res[8][1], "Document's score is 0.10")
+
 def testTFIDFScorerExplanation(env):
     env.assertOk(env.cmd(
         'ft.create', 'idx', 'schema', 'title', 'text', 'weight', 10, 'body', 'text'))
@@ -87,21 +102,6 @@ def testTFIDFScorerExplanation(env):
                                 ['TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00', 'TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00']])
     env.assertEqual(res[8][1], ['20.00 = Weight 1.00 * children TFIDF 20.00. Final TFIDF : 20.00 * document score 0.10 / norm 10 / slop 3',
                                 ['TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00', 'TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00']])
-
-def testDocscoreScorerExplanation(env):
-    env.assertOk(env.cmd(
-        'ft.create', 'idx', 'schema', 'title', 'text', 'weight', 10, 'body', 'text'))
-    env.assertOk(env.cmd(
-        'ft.add', 'idx', 'doc1', 0.5, 'fields', 'title', 'hello world',' body', 'lorem ist ipsum'))
-    env.assertOk(env.cmd(
-        'ft.add', 'idx', 'doc2', 1, 'fields', 'title', 'hello another world',' body', 'lorem ist ipsum lorem lorem'))
-    env.assertOk(env.cmd(
-        'ft.add', 'idx', 'doc3', 0.1, 'fields', 'title', 'hello yet another world',' body', 'lorem ist ipsum lorem lorem'))    
-    res = env.cmd('ft.search', 'idx', 'hello world', 'withscores', 'EXPLAINSCORE', 'scorer', 'DOCSCORE')
-    env.assertEqual(res[0], 3L)
-    env.assertEqual(res[2][1], "Document's score is 1.00")
-    env.assertEqual(res[5][1], "Document's score is 0.50")
-    env.assertEqual(res[8][1], "Document's score is 0.10")
 
 def testBM25ScorerExplanation(env):
     env.assertOk(env.cmd(
