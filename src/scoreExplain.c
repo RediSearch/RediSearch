@@ -1,4 +1,5 @@
 #include "scoreExplain.h"
+#include "rmalloc.h"
 
 struct RSScoreExplain{
   char *str;
@@ -7,7 +8,7 @@ struct RSScoreExplain{
 };
 
 static RSScoreExplain *recExplainExtractStrings(RSIndexResult *inxRes) {
-  RSScoreExplain *scrExp = (RSScoreExplain *)calloc(1, sizeof(RSScoreExplain));
+  RSScoreExplain *scrExp = (RSScoreExplain *)rm_calloc(1, sizeof(RSScoreExplain));
   scrExp->str = inxRes->scoreExplainStr;
   inxRes->scoreExplainStr = NULL;
   
@@ -15,7 +16,7 @@ static RSScoreExplain *recExplainExtractStrings(RSIndexResult *inxRes) {
       inxRes->agg.children[0]->scoreExplainStr != NULL) { // Some children don't get love
     int numChildren = inxRes->agg.numChildren;
     scrExp->numChildren = numChildren;
-    scrExp->children = (RSScoreExplain **)calloc(numChildren, sizeof(RSScoreExplain *));
+    scrExp->children = (RSScoreExplain **)rm_calloc(numChildren, sizeof(RSScoreExplain *));
     for (int i = 0; i < numChildren; i++) {
       scrExp->children[i] = recExplainExtractStrings(inxRes->agg.children[i]);
     }
@@ -46,9 +47,9 @@ static void recExplainDestroy(RSScoreExplain *scrExp) {
   for(int i = 0; i < scrExp->numChildren; i++) {
     recExplainDestroy(scrExp->children[i]);
   }
-  free(scrExp->children);
-  free(scrExp->str);
-  free(scrExp);
+  rm_free(scrExp->children);
+  rm_free(scrExp->str);
+  rm_free(scrExp);
 }
 
 RSScoreExplain *SEExtractStrings(RSIndexResult *inxRes) {
