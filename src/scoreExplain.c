@@ -7,7 +7,7 @@ struct RSScoreExplain{
 };
 
 static RSScoreExplain *recExplainExtractStrings(RSIndexResult *inxRes) {
-  RSScoreExplain *scrExp = (RSScoreExplain *)calloc(1, sizeof(scrExp));
+  RSScoreExplain *scrExp = (RSScoreExplain *)calloc(1, sizeof(RSScoreExplain));
   scrExp->str = inxRes->scoreExplainStr;
   inxRes->scoreExplainStr = NULL;
   
@@ -43,7 +43,6 @@ static void recExplainReply(RedisModuleCtx *ctx, RSScoreExplain *scrExp) {
 }
 
 static void recExplainDestroy(RSScoreExplain *scrExp) {
-  printf("explain destroy %p\n", scrExp);
   for(int i = 0; i < scrExp->numChildren; i++) {
     recExplainDestroy(scrExp->children[i]);
   }
