@@ -1,5 +1,5 @@
-#ifndef __RS_SCORE_EXPLAIN_H__
-#define __RS_SCORE_EXPLAIN_H__
+#ifndef RS_SCORE_EXPLAIN_H_
+#define RS_SCORE_EXPLAIN_H_
 #include "redismodule.h"
 #include "redisearch.h"
 
@@ -28,4 +28,4 @@ void SEDestroy(RSScoreExplain *scrExp);
 #ifdef __cplusplus
 }
 #endif
-#endif // __RS_SORTABLE_H__
+#endif // RS_SCORE_EXPLAIN_H_

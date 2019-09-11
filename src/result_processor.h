@@ -10,7 +10,7 @@
 #include "search_options.h"
 #include "rlookup.h"
 #include "extension.h"
-#include "scoreExplain.h"
+#include "score_explain.h"
 
 #ifdef __cplusplus
 extern "C" {
