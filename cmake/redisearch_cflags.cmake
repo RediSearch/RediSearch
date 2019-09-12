@@ -35,5 +35,12 @@ ELSEIF(USE_MSAN)
     SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++ -Wl,-rpath=${MSAN_PREFIX}/lib -L${MSAN_PREFIX}/lib -lc++abi -I${MSAN_PREFIX}/include -I${MSAN_PREFIX}/include/c++/v1")
 ENDIF()
 
+IF (USE_COVERAGE)
+    IF (NOT CMAKE_BUILD_TYPE STREQUAL "DEBUG")
+        MESSAGE(FATAL_ERROR "Build type must be DEBUG for coverage")
+    ENDIF()
+    SET(RS_COMMON_FLAGS "${RS_COMMON_FLAGS} -coverage")
+ENDIF()
+
 SET(RS_C_FLAGS "${RS_COMMON_FLAGS} -std=gnu99")
 SET(RS_CXX_FLAGS "${RS_COMMON_FLAGS} -fno-rtti -fno-exceptions -std=c++11")
