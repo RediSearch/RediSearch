@@ -105,7 +105,7 @@ KEYWORD_HANDLER(parseNumericFilter) {
 
 KEYWORD_HANDLER(parseGeoFilter) {
   if (!req->geoFilter) {
-    req->geoFilter = malloc(sizeof(*req->geoFilter));
+    req->geoFilter = rm_malloc(sizeof(*req->geoFilter));
   }
 
   int rv = GeoFilter_Parse(req->geoFilter, (RedisModuleString **)ac->objs + ac->offset, 5);
@@ -127,26 +127,26 @@ KEYWORD_HANDLER(parseLanguage) {
   if (!IsSupportedLanguage(lang, strlen(lang))) {
     return REDISMODULE_ERR;
   }
-  opts->language = strdup(lang);
+  opts->language = rm_strdup(lang);
   return REDISMODULE_OK;
 }
 
 KEYWORD_HANDLER(parseExpander) {
-  opts->expander = strdup(AC_GetStringNC(ac, NULL));
+  opts->expander = rm_strdup(AC_GetStringNC(ac, NULL));
   return REDISMODULE_OK;
 }
 
 KEYWORD_HANDLER(handlePayload) {
   const char *payload = AC_GetStringNC(ac, &req->payload.len);
   if (req->payload.len) {
-    req->payload.data = malloc(req->payload.len);
+    req->payload.data = rm_malloc(req->payload.len);
     memcpy(req->payload.data, payload, req->payload.len);
   }
   return REDISMODULE_OK;
 }
 
 KEYWORD_HANDLER(handleScorer) {
-  opts->scorer = strdup(AC_GetStringNC(ac, NULL));
+  opts->scorer = rm_strdup(AC_GetStringNC(ac, NULL));
   if (Extensions_GetScoringFunction(NULL, opts->scorer) == NULL) {
     SET_ERR(status, "Invalid scorer name");
     return REDISMODULE_ERR;
@@ -175,7 +175,7 @@ KEYWORD_HANDLER(handleSortBy) {
   int rc = RSSortingTable_ParseKey(sctx->spec->sortables, &sortKey, (RedisModuleString **)ac->objs,
                                    ac->argc, &curOffset);
   if (rc == REDISMODULE_OK) {
-    opts->sortBy = malloc(sizeof(sortKey));
+    opts->sortBy = rm_malloc(sizeof(sortKey));
     *opts->sortBy = sortKey;
   }
   ac->offset = curOffset;
@@ -214,9 +214,11 @@ KEYWORD_HANDLER(handleOnTimeout) {
   size_t n = 0;
   if (AC_GetString(ac, &s, &n, 0) != AC_OK) {
     SET_ERR(status, "ON_TIMEOUT requires argument");
+    return REDISMODULE_ERR;
   }
   if ((opts->timeoutPolicy = TimeoutPolicy_Parse(s, n)) == TimeoutPolicy_Invalid) {
     SET_ERR(status, "Invalid value for ON_TIMEOUT");
+    return REDISMODULE_ERR;
   }
   return REDISMODULE_OK;
 }
@@ -269,7 +271,9 @@ static int handleKeyword(RSSearchRequest *req, RedisSearchCtx *sctx, const char 
   }
 
   if (handler->parser(ac, req, &req->opts, sctx, status) != REDISMODULE_OK) {
-    SET_ERR(status, handler->errStr);
+    if (!status->detail) {
+      SET_ERR(status, handler->errStr);
+    }
     return REDISMODULE_ERR;
   }
 
@@ -279,7 +283,7 @@ static int handleKeyword(RSSearchRequest *req, RedisSearchCtx *sctx, const char 
 RSSearchRequest *ParseRequest(RedisSearchCtx *ctx, RedisModuleString **argv, int argc,
                               QueryError *status) {
 
-  RSSearchRequest *req = calloc(1, sizeof(*req));
+  RSSearchRequest *req = rm_calloc(1, sizeof(*req));
   *req = (RSSearchRequest){.opts = RS_DEFAULT_SEARCHOPTS, .payload = {.data = NULL, .len = 0}};
 
 #define CUR_ARG_EQ(s) (!strcasecmp(curArg, s))
@@ -329,13 +333,13 @@ opts_done:
   }
 
   if (!req->opts.expander) {
-    req->opts.expander = strdup(DEFAULT_EXPANDER_NAME);
+    req->opts.expander = rm_strdup(DEFAULT_EXPANDER_NAME);
   }
 
   FieldList_RestrictReturn(&req->opts.fields);
 
   req->rawQuery = (char *)RedisModule_StringPtrLen(argv[2], &req->qlen);
-  req->rawQuery = strndup(req->rawQuery, req->qlen);
+  req->rawQuery = rm_strndup(req->rawQuery, req->qlen);
   return req;
 
 err:
@@ -344,10 +348,10 @@ err:
 }
 
 static void ReturnedField_Free(ReturnedField *field) {
-  free(field->highlightSettings.openTag);
-  free(field->highlightSettings.closeTag);
-  free(field->summarizeSettings.separator);
-  free(field->name);
+  rm_free(field->highlightSettings.openTag);
+  rm_free(field->highlightSettings.closeTag);
+  rm_free(field->summarizeSettings.separator);
+  rm_free(field->name);
 }
 
 void FieldList_Free(FieldList *fields) {
@@ -355,7 +359,7 @@ void FieldList_Free(FieldList *fields) {
     ReturnedField_Free(fields->fields + ii);
   }
   ReturnedField_Free(&fields->defaultField);
-  free(fields->fields);
+  rm_free(fields->fields);
 }
 
 ReturnedField *FieldList_GetCreateField(FieldList *fields, RedisModuleString *rname) {
@@ -367,10 +371,10 @@ ReturnedField *FieldList_GetCreateField(FieldList *fields, RedisModuleString *rn
     }
   }
 
-  fields->fields = realloc(fields->fields, sizeof(*fields->fields) * ++fields->numFields);
+  fields->fields = rm_realloc(fields->fields, sizeof(*fields->fields) * ++fields->numFields);
   ReturnedField *ret = fields->fields + (fields->numFields - 1);
   memset(ret, 0, sizeof *ret);
-  ret->name = strdup(name);
+  ret->name = rm_strdup(name);
   return ret;
 }
 
@@ -394,15 +398,15 @@ void FieldList_RestrictReturn(FieldList *fields) {
 
 void RSSearchRequest_Free(RSSearchRequest *req) {
 
-  if (req->opts.indexName) free(req->opts.indexName);
+  if (req->opts.indexName) rm_free(req->opts.indexName);
 
-  if (req->opts.expander) free(req->opts.expander);
+  if (req->opts.expander) rm_free(req->opts.expander);
 
-  if (req->opts.scorer) free(req->opts.scorer);
+  if (req->opts.scorer) rm_free(req->opts.scorer);
 
-  if (req->opts.language) free((char *)req->opts.language);
+  if (req->opts.language) rm_free((char *)req->opts.language);
 
-  if (req->rawQuery) free(req->rawQuery);
+  if (req->rawQuery) rm_free(req->rawQuery);
 
   if (req->geoFilter) {
     GeoFilter_Free(req->geoFilter);
@@ -413,7 +417,7 @@ void RSSearchRequest_Free(RSSearchRequest *req) {
   }
 
   if (req->payload.data) {
-    free(req->payload.data);
+    rm_free(req->payload.data);
   }
 
   if (req->opts.sortBy) {
@@ -435,7 +439,7 @@ void RSSearchRequest_Free(RSSearchRequest *req) {
 
   FieldList_Free(&req->opts.fields);
 
-  free(req);
+  rm_free(req);
 }
 
 QueryParseCtx *SearchRequest_ParseQuery(RedisSearchCtx *sctx, RSSearchRequest *req,

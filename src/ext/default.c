@@ -212,7 +212,7 @@ static void expandCn(RSQueryExpanderCtx *ctx, RSToken *token) {
   defaultExpanderCtx *dd = ctx->privdata;
   RSTokenizer *tokenizer;
   if (!dd) {
-    dd = ctx->privdata = calloc(1, sizeof(*dd));
+    dd = ctx->privdata = rm_calloc(1, sizeof(*dd));
     dd->isCn = 1;
   }
   if (!dd->data.cn.tokenizer) {
@@ -228,7 +228,7 @@ static void expandCn(RSQueryExpanderCtx *ctx, RSToken *token) {
 
   Token tTok;
   while (tokenizer->Next(tokenizer, &tTok)) {
-    char *s = strndup(tTok.tok, tTok.tokLen);
+    char *s = rm_strndup(tTok.tok, tTok.tokLen);
     Vector_Push(tokVec, s);
   }
 
@@ -245,7 +245,7 @@ static void expandCn(RSQueryExpanderCtx *ctx, RSToken *token) {
       // Note, top <= 1; but just for simplicity
       char *s;
       Vector_Get(tokVec, ii, &s);
-      free(s);
+      rm_free(s);
     }
   }
 }
@@ -267,7 +267,7 @@ void StemmerExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
       expandCn(ctx, token);
       return;
     } else {
-      dd = ctx->privdata = calloc(1, sizeof(*dd));
+      dd = ctx->privdata = rm_calloc(1, sizeof(*dd));
       dd->isCn = 0;
       sb = dd->data.latin = sb_stemmer_new(ctx->language, NULL);
     }
@@ -293,12 +293,12 @@ void StemmerExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
     int sl = sb_stemmer_length(sb);
 
     // Make a copy of the stemmed buffer with the + prefix given to stems
-    char *dup = malloc(sl + 2);
+    char *dup = rm_malloc(sl + 2);
     dup[0] = STEM_PREFIX;
     memcpy(dup + 1, stemmed, sl + 1);
     ctx->ExpandToken(ctx, dup, sl + 1, 0x0);  // TODO: Set proper flags here
     if (sl != token->len || strncmp((const char *)stemmed, token->str, token->len)) {
-      ctx->ExpandToken(ctx, strndup((const char *)stemmed, sl), sl, 0x0);
+      ctx->ExpandToken(ctx, rm_strndup((const char *)stemmed, sl), sl, 0x0);
     }
   }
 }
@@ -314,7 +314,7 @@ void StemmerExpanderFree(void *p) {
   } else if (dd->data.latin) {
     sb_stemmer_delete(dd->data.latin);
   }
-  free(dd);
+  rm_free(dd);
 }
 
 /******************************************************************************************
@@ -356,7 +356,7 @@ void SynonymExpand(RSQueryExpanderCtx *ctx, RSToken *token) {
   for (int i = 0; i < array_len(t_data->ids); ++i) {
     char buff[BUFF_LEN];
     int len = SynonymMap_IdToStr(t_data->ids[i], buff, BUFF_LEN);
-    ctx->ExpandToken(ctx, strdup((const char *)buff), len, 0x0);
+    ctx->ExpandToken(ctx, rm_strdup((const char *)buff), len, 0x0);
   }
 }
 

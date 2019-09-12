@@ -63,7 +63,7 @@ char **TagIndex_Preprocess(const TagFieldOptions *opts, const DocumentField *dat
   char *p = (char *)RedisModule_StringPtrLen(data->text, &sz);
   if (!p || sz == 0) return NULL;
   char **ret = array_new(char *, 4);
-  char *pp = p = strndup(p, sz);
+  char *pp = p = rm_strndup(p, sz);
   while (p) {
     // get the next token
     size_t toklen;
@@ -75,11 +75,11 @@ char **TagIndex_Preprocess(const TagFieldOptions *opts, const DocumentField *dat
       if (!(opts->flags & TagField_CaseSensitive)) {
         tok = strtolower(tok);
       }
-      tok = strndup(tok, MIN(toklen, MAX_TAG_LEN));
+      tok = rm_strndup(tok, MIN(toklen, MAX_TAG_LEN));
       ret = array_append(ret, tok);
     }
   }
-  free(pp);
+  rm_free(pp);
   return ret;
 }
 
@@ -180,11 +180,11 @@ IndexIterator *TagIndex_OpenReader(TagIndex *idx, DocTable *dt, const char *valu
 
   // register the on reopen function
   if (csx) {
-    struct TagReaderCtx *tc = malloc(sizeof(*tc));
+    struct TagReaderCtx *tc = rm_malloc(sizeof(*tc));
     tc->idx = idx;
     tc->it = it;
     tc->uniqueId = idx->uniqueId;
-    ConcurrentSearch_AddKey(csx, k, REDISMODULE_READ, keyName, TagReader_OnReopen, tc, free,
+    ConcurrentSearch_AddKey(csx, k, REDISMODULE_READ, keyName, TagReader_OnReopen, tc, rm_free,
                             ConcurrentKey_SharedKey | ConcurrentKey_SharedKeyString);
   }
 
@@ -257,7 +257,7 @@ void *TagIndex_RdbLoad(RedisModuleIO *rdb, int encver) {
     InvertedIndex *inv = InvertedIndex_RdbLoad(rdb, INVERTED_INDEX_ENCVER);
     assert(inv != NULL);
     TrieMap_Add(idx->values, s, MIN(slen, MAX_TAG_LEN), inv, NULL);
-    rm_free(s);
+    RedisModule_Free(s);
   }
   return idx;
 }

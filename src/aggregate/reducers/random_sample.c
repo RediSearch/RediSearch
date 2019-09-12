@@ -45,12 +45,10 @@ int sample_Finalize(void *ctx, const char *key, SearchResult *res) {
   struct randomSampleCtx *sc = ctx;
 
   int top = MIN(sc->props->len, sc->seen);
-  RSValue **arr = calloc(top, sizeof(RSValue *));
+  RSValue **arr = rm_calloc(top, sizeof(RSValue *));
   memcpy(arr, sc->samples, top * sizeof(RSValue *));
 
   RSFieldMap_Set(&res->fields, key, RS_ArrVal(arr, top));
-  // set len to 0 so we won't try to free the values on destruction
-  sc->seen = 0;
   return 1;
 }
 
@@ -64,14 +62,14 @@ void sample_FreeInstance(void *p) {
 }
 
 Reducer *NewRandomSample(RedisSearchCtx *sctx, int size, const char *property, const char *alias) {
-  Reducer *r = malloc(sizeof(*r));
+  Reducer *r = rm_malloc(sizeof(*r));
   r->Add = sample_Add;
   r->Finalize = sample_Finalize;
   r->Free = Reducer_GenericFree;
   r->FreeInstance = sample_FreeInstance;
   r->NewInstance = sample_NewInstance;
   r->alias = FormatAggAlias(alias, "random_sample", property);
-  struct randomSampleProperties *props = malloc(sizeof(*props));
+  struct randomSampleProperties *props = rm_malloc(sizeof(*props));
   props->sortables = SEARCH_CTX_SORTABLES(sctx);
   props->property = RS_KEY(RSKEY(property));
   props->len = size;

@@ -5,6 +5,7 @@
 #include "assert.h"
 #include "test.h"
 #include "args.h"
+#include "../rmutil/alloc.h"
 
 int testCArgs() {
   ArgsCursor ac;
@@ -89,6 +90,7 @@ static int testTypeConversion() {
 }
 
 TEST_MAIN({
+  RMUTil_InitAlloc();
   TESTFUNC(testCArgs);
   TESTFUNC(testTypeConversion);
 })

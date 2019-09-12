@@ -2,6 +2,7 @@
 #include <string.h>
 #include "test.h"
 #include "cmdparse.h"
+#include "../rmutil/alloc.h"
 
 void CmdSchemaNode_Print(CmdSchemaNode *n, int depth);
 
@@ -496,6 +497,7 @@ void exampleZadd() {
 }
 
 TEST_MAIN({
+  RMUTil_InitAlloc();
   exampleZadd();
 
   TESTFUNC(testSchema);

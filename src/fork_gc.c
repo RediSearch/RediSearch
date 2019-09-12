@@ -217,10 +217,10 @@ static void ForkGc_CollectGarbageFromInvIdx(ForkGCCtx *gc, RedisSearchCtx *sctx)
     size_t termLen;
     char *term = runesToStr(rstr, slen, &termLen);
     ForkGc_CollectTerm(gc, sctx, term, termLen);
-    free(term);
+    rm_free(term);
   }
   DFAFilter_Free(iter->ctx);
-  free(iter->ctx);
+  rm_free(iter->ctx);
   TrieIterator_Free(iter);
 
   // we are done with terms
@@ -378,7 +378,7 @@ static void ForkGc_ReadModifiedBlock(ForkGCCtx *gc, ModifiedBlock *blockModified
   blockModified->numBlocksBefore = ForkGc_FDReadLongLong(gc->pipefd[GC_READERFD]);
   size_t cap;
   char *data = ForkGc_FDReadBuffer(gc->pipefd[GC_READERFD], &cap);
-  blockModified->blk.data = malloc(sizeof(Buffer));
+  blockModified->blk.data = rm_malloc(sizeof(Buffer));
   blockModified->blk.data->offset = ForkGc_FDReadLongLong(gc->pipefd[GC_READERFD]);
 
   blockModified->blk.data->cap = cap;
@@ -426,7 +426,7 @@ static void ForkGc_FixInvertedIndex(ForkGCCtx *gc, ForkGc_InvertedIndexData *idx
   if (idxData->freeBufs) {
     for (int i = 0; i < idxData->freeBufsSize; ++i) {
       Buffer_Free(idxData->freeBufs[i]);
-      free(idxData->freeBufs[i]);
+      rm_free(idxData->freeBufs[i]);
     }
     rm_free(idxData->freeBufs);
   }
@@ -850,7 +850,7 @@ void ForkGc_OnTerm(void *privdata) {
   RedisModule_FreeString(ctx, (RedisModuleString *)gc->keyName);
   RedisModule_ThreadSafeContextUnlock(ctx);
   RedisModule_FreeThreadSafeContext(ctx);
-  free(gc);
+  rm_free(gc);
 }
 
 void ForkGc_RenderStats(RedisModuleCtx *ctx, void *gcCtx) {
@@ -886,7 +886,7 @@ struct timespec ForkGc_GetInterval(void *ctx) {
 }
 
 ForkGCCtx *NewForkGC(const RedisModuleString *k, uint64_t specUniqueId, GCCallbacks *callbacks) {
-  ForkGCCtx *forkGc = malloc(sizeof(*forkGc));
+  ForkGCCtx *forkGc = rm_malloc(sizeof(*forkGc));
 
   *forkGc = (ForkGCCtx){
       .keyName = k,

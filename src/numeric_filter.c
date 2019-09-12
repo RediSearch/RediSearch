@@ -30,8 +30,8 @@ NumericFilter *ParseNumericFilter(RedisSearchCtx *ctx, RedisModuleString **argv,
     return NULL;
   }
 
-  NumericFilter *nf = malloc(sizeof(NumericFilter));
-  nf->fieldName = strndup(f, len);
+  NumericFilter *nf = rm_malloc(sizeof(NumericFilter));
+  nf->fieldName = rm_strndup(f, len);
   nf->inclusiveMax = 1;
   nf->inclusiveMin = 1;
   nf->min = 0;
@@ -95,15 +95,15 @@ NumericFilter *ParseNumericFilter(RedisSearchCtx *ctx, RedisModuleString **argv,
 
 error:
 
-  free(nf);
+  rm_free(nf);
   return NULL;
 }
 
 void NumericFilter_Free(NumericFilter *nf) {
   if (nf->fieldName) {
-    free((char *)nf->fieldName);
+    rm_free((char *)nf->fieldName);
   }
-  free(nf);
+  rm_free(nf);
 }
 
 /* Parse multiple filters from an argument list. Returns a vector of filters parse, or NULL if no
@@ -138,7 +138,7 @@ Vector *ParseMultipleFilters(RedisSearchCtx *ctx, RedisModuleString **argv, int 
 }
 
 NumericFilter *NewNumericFilter(double min, double max, int inclusiveMin, int inclusiveMax) {
-  NumericFilter *f = malloc(sizeof(NumericFilter));
+  NumericFilter *f = rm_malloc(sizeof(NumericFilter));
 
   f->min = min;
   f->max = max;

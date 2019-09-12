@@ -3,6 +3,7 @@
 #include "../util/fnv.h"
 #include <string.h>
 #include <assert.h>
+#include "../rmutil/alloc.h"
 
 typedef struct {
   KHTableEntry base;
@@ -68,4 +69,7 @@ int testKhTable() {
   return 0;
 }
 
-TEST_MAIN({ TESTFUNC(testKhTable); })
+TEST_MAIN({
+  RMUTil_InitAlloc();
+  TESTFUNC(testKhTable);
+})

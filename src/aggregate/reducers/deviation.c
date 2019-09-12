@@ -9,7 +9,7 @@ typedef struct {
 } devCtx;
 
 static void *stddev_NewInstance(ReducerCtx *ctx) {
-  devCtx *dctx = calloc(1, sizeof(*dctx));
+  devCtx *dctx = rm_calloc(1, sizeof(*dctx));
   dctx->property = RS_KEY(ctx->property);
   dctx->sortables = SEARCH_CTX_SORTABLES(ctx->ctx);
   return dctx;
@@ -61,11 +61,11 @@ static int stddev_Finalize(void *ctx, const char *key, SearchResult *res) {
 }
 
 static void stddev_FreeInstance(void *p) {
-  free(p);
+  rm_free(p);
 }
 
 Reducer *NewStddev(RedisSearchCtx *ctx, const char *property, const char *alias) {
-  Reducer *r = malloc(sizeof(*r));
+  Reducer *r = rm_malloc(sizeof(*r));
   r->Add = stddev_Add;
   r->Finalize = stddev_Finalize;
   r->Free = Reducer_GenericFree;

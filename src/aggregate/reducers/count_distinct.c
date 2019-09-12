@@ -124,7 +124,7 @@ static int hllFinalize(void *ctx, const char *key, SearchResult *res) {
   struct distinctishCounter *ctr = ctx;
   // Serialize field map.
   HLLSerializedHeader hdr = {.flags = 0, .bits = ctr->hll.bits};
-  char *str = malloc(sizeof(hdr) + ctr->hll.size);
+  char *str = rm_malloc(sizeof(hdr) + ctr->hll.size);
   size_t hdrsize = sizeof(hdr);
   memcpy(str, &hdr, hdrsize);
   memcpy(str + hdrsize, ctr->hll.registers, ctr->hll.size);

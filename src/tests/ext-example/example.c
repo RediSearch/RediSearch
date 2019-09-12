@@ -3,6 +3,7 @@
 #include <sys/param.h>
 #include <redisearch.h>
 #include "example.h"
+#include "rmalloc.h"
 
 struct privdata {
   int freed;
@@ -20,20 +21,20 @@ double filterOutScorer(RSScoringFunctionCtx *ctx, RSIndexResult *h, RSDocumentMe
 }
 
 void myExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
-  ctx->ExpandToken(ctx, strdup("foo"), 3, 0x00ff);
+  ctx->ExpandToken(ctx, rm_strdup("foo"), 3, 0x00ff);
 }
 
 int numFreed = 0;
 void myFreeFunc(void *p) {
   // printf("Freeing %p\n", p);
   numFreed++;
-  free(p);
+  rm_free(p);
 }
 
 /* Register the default extension */
 int RS_ExtensionInit(RSExtensionCtx *ctx) {
 
-  struct privdata *spd = malloc(sizeof(struct privdata));
+  struct privdata *spd = rm_malloc(sizeof(struct privdata));
   spd->freed = 0;
   if (ctx->RegisterScoringFunction("example_scorer", myScorer, myFreeFunc, spd) == REDISEARCH_ERR) {
     return REDISEARCH_ERR;
@@ -44,7 +45,7 @@ int RS_ExtensionInit(RSExtensionCtx *ctx) {
     return REDISEARCH_ERR;
   }
 
-  spd = malloc(sizeof(struct privdata));
+  spd = rm_malloc(sizeof(struct privdata));
   spd->freed = 0;
   /* Snowball Stemmer is the default expander */
   if (ctx->RegisterQueryExpander("example_expander", myExpander, myFreeFunc, spd) ==

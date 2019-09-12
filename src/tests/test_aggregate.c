@@ -57,7 +57,7 @@ int testGroupBy() {
     RSFieldMap_Print(res->fields);
     RSFieldMap_Reset(res->fields);
     // res->fields->len = 0;
-    // res->fields = NULL;
+    // res->fields = NURSTESTLL;
     printf("\n");
   }
   SearchResult_Free(res);

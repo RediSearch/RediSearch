@@ -13,7 +13,7 @@ typedef struct {
 } FilterCtx;
 
 static FilterCtx *NewFilterCtx() {
-  FilterCtx *ret = malloc(sizeof(*ret));
+  FilterCtx *ret = rm_malloc(sizeof(*ret));
   return ret;
 }
 
@@ -22,8 +22,8 @@ void Filter_Free(ResultProcessor *p) {
 
   RSFunctionEvalCtx_Free(pc->ctx.fctx);
   RSExpr_Free(pc->exp);
-  free(pc);
-  free(p);
+  rm_free(pc);
+  rm_free(p);
 }
 
 int Filter_Next(ResultProcessorCtx *ctx, SearchResult *res) {
@@ -40,6 +40,7 @@ int Filter_Next(ResultProcessorCtx *ctx, SearchResult *res) {
         return RS_RESULT_OK;
       }
     }
+    SearchResult_FreeInternal(res);
   } while (1);
   return RS_RESULT_EOF;
 }
@@ -54,7 +55,7 @@ ResultProcessor *NewFilter(RedisSearchCtx *sctx, ResultProcessor *upstream, cons
   ctx->exp = RSExpr_Parse(expr, len, &status->detail);
   if (!ctx->exp) {
     QueryError_MaybeSetCode(status, QUERY_EEXPR);
-    free(ctx);
+    rm_free(ctx);
     return NULL;
   }
   ResultProcessor *proc = NewResultProcessor(upstream, ctx);

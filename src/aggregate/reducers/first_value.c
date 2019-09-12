@@ -71,11 +71,10 @@ static void fv_FreeInstance(void *p) {
   RSValue_Free(&fvx->sortValue);
 }
 
-
 Reducer *NewFirstValue(RedisSearchCtx *ctx, const char *key, const char *sortKey, int asc,
                        const char *alias) {
 
-  struct firstValueParams *params = malloc(sizeof(*params));
+  struct firstValueParams *params = rm_malloc(sizeof(*params));
   params->property = key;
   params->sortProperty = sortKey;
   params->ascending = asc;

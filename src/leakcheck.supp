@@ -49,14 +49,6 @@
 }
 
 {
-    global_indexer
-    Memcheck:Leak
-    ...
-    fun:NewDocumentIndexer
-    ...
-}
-
-{
     create_command
     Memcheck:Leak
     ...
@@ -78,23 +70,6 @@
     Memcheck:Leak
     ...
     fun:slowlogCreateEntry
-    ...
-}
-
-{
-    timer_context
-    Memcheck:Leak
-    ...
-    fun:RM_GetThreadSafeContext
-    fun:rmutilTimer_Loop
-    ...
-}
-
-{
-    gc_globals
-    Memcheck:Leak
-    ...
-    fun:IndexSpec_StartGC
     ...
 }
 
@@ -121,14 +96,6 @@
     Memcheck:Leak
     ...
     fun:moduleLoad
-    ...
-}
-
-{
-   sds_client_buffer
-    Memcheck:Leak
-    ...
-    fun:readQueryFromClient
     ...
 }
 

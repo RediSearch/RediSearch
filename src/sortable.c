@@ -64,6 +64,9 @@ char *normalizeStr(const char *str) {
 
 /* Put a value in the sorting vector */
 void RSSortingVector_Put(RSSortingVector *tbl, int idx, void *p, int type) {
+  //  if(tbl->values[idx] && tbl->values[idx]->t != RSValue_Null){
+  //    RSValue_Free(tbl->values[idx]);
+  //  }
   if (idx <= RS_SORTABLES_MAX) {
     switch (type) {
       case RS_SORTABLE_NUM:
@@ -146,7 +149,9 @@ RSSortingVector *SortingVector_RdbLoad(RedisModuleIO *rdb, int encver) {
         // strings include an extra character for null terminator. we set it to zero just in case
         char *s = RedisModule_LoadStringBuffer(rdb, &len);
         s[len - 1] = '\0';
-        vec->values[i] = RSValue_IncrRef(RS_StringValT(s, len - 1, RSString_RMAlloc));
+        char *s1 = rm_strdup(s);
+        RedisModule_Free(s);
+        vec->values[i] = RSValue_IncrRef(RS_StringValT(s1, len - 1, RSString_RMAlloc));
         break;
       }
       case RS_SORTABLE_NUM:
@@ -256,5 +261,5 @@ int RSSortingTable_ParseKey(RSSortingTable *tbl, RSSortingKey *k, RedisModuleStr
 }
 
 void RSSortingKey_Free(RSSortingKey *k) {
-  free(k);
+  rm_free(k);
 }

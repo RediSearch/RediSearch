@@ -170,7 +170,7 @@ char *strtolower(char *str) {
   return str;
 }
 
-static bool checkPhoneticAlgorithmAndLang(char *matcher) {
+static bool checkPhoneticAlgorithmAndLang(const char *matcher) {
   if (strlen(matcher) != 5) {
     return false;
   }
@@ -232,20 +232,19 @@ static int parseFieldSpec(const char **argv, int *offset, int argc, FieldSpec *s
       } else if (!strcasecmp(argv[*offset], SPEC_PHONETIC_STR)) {
         // phonetic with no matcher
         if (++*offset == argc) {
-          return 0;
+          goto error;
         }
         // try and parse the matcher
-        char *matcher = strdup(argv[*offset]);
         // currently we just make sure algorithm is double metaphone (dm)
         // and language is one of the following : English (en), French (fr), Portuguese (pt) and
         // Spanish (es)
         // in the future we will support more algorithms and more languages
-        if (!checkPhoneticAlgorithmAndLang(matcher)) {
+        if (!checkPhoneticAlgorithmAndLang(argv[*offset])) {
           SET_ERR(err,
                   "Matcher Format: <2 chars algorithm>:<2 chars language>. Support algorithms: "
                   "double metaphone (dm). Supported languages: English (en), French (fr), "
                   "Portuguese (pt) and Spanish (es)");
-          return 0;
+          goto error;
         }
 
         sp->options |= FieldSpec_Phonetics;
@@ -345,10 +344,10 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, const char **argv, int arg
       textId = MAX(textId, fs->textOpts.id);
     }
   }
-
+  FieldSpec *fs = NULL;
   for (int offset = 0; offset < argc && sp->numFields < SPEC_MAX_FIELDS;) {
     sp->fields = rm_realloc(sp->fields, sizeof(*sp->fields) * (sp->numFields + 1));
-    FieldSpec *fs = sp->fields + sp->numFields;
+    fs = sp->fields + sp->numFields;
     memset(fs, 0, sizeof(*fs));
 
     fs->index = sp->numFields;
@@ -394,6 +393,13 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, const char **argv, int arg
   return 1;
 
 reset:
+  if (fs && fs->name) {
+    rm_free(fs->name);
+  }
+  for (int i = prevNumFields; i < sp->numFields; ++i) {
+    FieldSpec *fs = sp->fields + i;
+    rm_free(fs->name);
+  }
   sp->numFields = prevNumFields;
   sp->sortables->len = prevSortLen;
   return 0;
@@ -547,7 +553,7 @@ char *IndexSpec_GetRandomTerm(IndexSpec *sp, size_t sampleSize) {
   size_t selection = weightedRandom(weights, sampleSize);
   for (int i = 0; i < sampleSize; i++) {
     if (i != selection) {
-      free(samples[i]);
+      rm_free(samples[i]);
     }
   }
   // printf("Selected %s --> %f\n", samples[selection], weights[selection]);
@@ -825,7 +831,9 @@ int bit(t_fieldMask id) {
 // Backwards compat version of load for rdbs with version < 8
 static void FieldSpec_RdbLoadCompat8(RedisModuleIO *rdb, FieldSpec *f, int encver) {
 
-  f->name = RedisModule_LoadStringBuffer(rdb, NULL);
+  char *name = RedisModule_LoadStringBuffer(rdb, NULL);
+  f->name = rm_strdup(name);
+  RedisModule_Free(name);
   // the old versions encoded the bit id of the field directly
   // we convert that to a power of 2
   if (encver < INDEX_MIN_WIDESCHEMA_VERSION) {
@@ -866,7 +874,9 @@ static void FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
     return FieldSpec_RdbLoadCompat8(rdb, f, encver);
   }
 
-  f->name = RedisModule_LoadStringBuffer(rdb, NULL);
+  char *name = RedisModule_LoadStringBuffer(rdb, NULL);
+  f->name = rm_strdup(name);
+  RedisModule_Free(name);
   f->type = RedisModule_LoadUnsigned(rdb);
   if (encver < INDEX_MIN_MULTITYPE_VERSION) {
     if (f->type == IDXFLD_LEGACY_FULLTEXT) {
@@ -896,7 +906,7 @@ static void FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
     assert(l == 1);
 
     f->tagOpts.separator = *s;
-    rm_free(s);
+    RedisModule_Free(s);
   }
 }
 
@@ -935,7 +945,9 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
   sp->sortables = NewSortingTable();
   sp->terms = NULL;
   sp->docs = DocTable_New(1000);
-  sp->name = RedisModule_LoadStringBuffer(rdb, NULL);
+  char *name = RedisModule_LoadStringBuffer(rdb, NULL);
+  sp->name = rm_strdup(name);
+  RedisModule_Free(name);
   sp->flags = (IndexFlags)RedisModule_LoadUnsigned(rdb);
   if (encver < INDEX_MIN_NOFREQ_VERSION) {
     sp->flags |= Index_StoreFreqs;

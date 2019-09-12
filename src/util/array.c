@@ -2,7 +2,8 @@
 #include "rmalloc.h"
 #include "util/minmax.h"
 
-static ArrayAllocProcs libcAllocProcs_g = {.Alloc = malloc, .Realloc = realloc, .Free = free};
+static ArrayAllocProcs libcAllocProcs_g = {
+    .Alloc = rm_malloc, .Realloc = rm_realloc, .Free = rm_free};
 static ArrayAllocProcs rmAllocProcs_g = {
     .Alloc = rm_malloc, .Realloc = rm_realloc, .Free = rm_free};
 

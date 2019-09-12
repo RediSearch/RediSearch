@@ -30,7 +30,7 @@ static char *getFile(const char *name) {
     abort();
   }
 
-  char *buf = malloc(nbuf + 1);
+  char *buf = rm_malloc(nbuf + 1);
   buf[nbuf] = '\0';
 
   size_t nr, offset = 0;
@@ -71,7 +71,7 @@ int testFragmentize() {
   HighlightTags tags = {.openTag = "<i>", .closeTag = "</i>"};
   char *hlRes = FragmentList_HighlightWholeDocS(&fragList, &tags);
   ASSERT(strlen(hlRes) > strlen(lorem));
-  free(hlRes);
+  rm_free(hlRes);
 
   static const size_t numFrags = 3;
   Array contexts[numFrags];
@@ -104,7 +104,7 @@ int testFragmentize() {
     printf(" ... ");
   }
 
-  free(lorem);
+  rm_free(lorem);
   FragmentList_Free(&fragList);
   for (size_t ii = 0; ii < numFrags; ++ii) {
     Array_Free(contexts + ii);
@@ -113,7 +113,6 @@ int testFragmentize() {
 }
 
 TEST_MAIN({
-
   // LOGGING_INIT(L_INFO);
   RMUTil_InitAlloc();
   TESTFUNC(testFragmentize);

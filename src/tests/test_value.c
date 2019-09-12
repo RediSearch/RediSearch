@@ -1,5 +1,6 @@
 #include "test_util.h"
 #include <value.h>
+#include "../rmutil/alloc.h"
 
 int testValue() {
   RSValue *v = RS_NumVal(3);
@@ -10,7 +11,7 @@ int testValue() {
   ASSERT_EQUAL(RSValue_Null, v->t);
 
   const char *str = "hello world";
-  v = RS_StringValC(strdup(str));
+  v = RS_StringValC(rm_strdup(str));
   ASSERT_EQUAL(RSValue_String, v->t);
   ASSERT_EQUAL(strlen(str), v->strval.len);
   ASSERT(!strcmp(str, v->strval.str));
@@ -34,7 +35,7 @@ int testField() {
 
 int testArray() {
 
-  RSValue *arr = RS_VStringArray(3, strdup("foo"), strdup("bar"), strdup("baz"));
+  RSValue *arr = RS_VStringArray(3, rm_strdup("foo"), rm_strdup("bar"), rm_strdup("baz"));
   ASSERT_EQUAL(3, arr->arrval.len);
   ASSERT_EQUAL(RSValue_String, RSValue_ArrayItem(arr, 0)->t);
   ASSERT_STRING_EQ("foo", RSValue_ArrayItem(arr, 0)->strval.str);
@@ -47,7 +48,7 @@ int testArray() {
 
   RSValue_Free(arr);
 
-  char *strs[] = {strdup("foo"), strdup("bar"), strdup("baz")};
+  char *strs[] = {rm_strdup("foo"), rm_strdup("bar"), rm_strdup("baz")};
   arr = RS_StringArray(strs, 3);
   ASSERT_EQUAL(3, arr->arrval.len);
   ASSERT_EQUAL(RSValue_String, RSValue_ArrayItem(arr, 0)->t);
@@ -107,6 +108,7 @@ int testFieldMap() {
 }
 
 TEST_MAIN({
+  RMUTil_InitAlloc();
   TESTFUNC(testValue);
   TESTFUNC(testField);
   TESTFUNC(testArray);

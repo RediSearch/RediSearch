@@ -19,7 +19,7 @@ struct mempool_t;
 
 #define MEMPOOOL_STATIC_ALLOCATOR(name, sz) \
   void *name() {                            \
-    return malloc(sz);                      \
+    return rm_malloc(sz);                   \
   }
 /* Create a new memory pool */
 struct mempool_t *mempool_new(size_t cap, mempool_alloc_fn alloc, mempool_free_fn free);

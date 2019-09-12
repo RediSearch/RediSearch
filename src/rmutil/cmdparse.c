@@ -9,6 +9,8 @@
 
 #include "cmdparse.h"
 
+#include "rmalloc.h"
+
 int CmdString_CaseEquals(CmdString *str, const char *other) {
   if (!str || !other) return 0;
   size_t l = strlen(other);
@@ -62,7 +64,7 @@ void CmdArg_Print(CmdArg *n, int depth) {
   }
 }
 static inline CmdArg *NewCmdArg(CmdArgType t) {
-  CmdArg *ret = malloc(sizeof(CmdArg));
+  CmdArg *ret = rm_malloc(sizeof(CmdArg));
 
   ret->type = t;
   return ret;
@@ -70,7 +72,7 @@ static inline CmdArg *NewCmdArg(CmdArgType t) {
 
 static CmdArg *NewCmdString(const char *s, size_t len) {
   CmdArg *ret = NewCmdArg(CmdArg_String);
-  ret->s = (CmdString){.str = strdup(s), .len = len};
+  ret->s = (CmdString){.str = rm_strdup(s), .len = len};
   return ret;
 }
 
@@ -96,7 +98,7 @@ static CmdArg *NewCmdArray(size_t cap) {
   CmdArg *ret = NewCmdArg(CmdArg_Array);
   ret->a.cap = cap;
   ret->a.len = 0;
-  ret->a.args = calloc(cap, sizeof(CmdArg *));
+  ret->a.args = rm_calloc(cap, sizeof(CmdArg *));
 
   return ret;
 }
@@ -104,7 +106,7 @@ static CmdArg *NewCmdArray(size_t cap) {
 static CmdArg *NewCmdObject(size_t cap) {
   CmdArg *ret = NewCmdArg(CmdArg_Object);
   ret->obj = (CmdObject){
-      .entries = calloc(cap, sizeof(CmdKeyValue)),
+      .entries = rm_calloc(cap, sizeof(CmdKeyValue)),
       .cap = cap,
       .len = 0,
   };
@@ -124,24 +126,24 @@ int CmdArg_GetFlag(CmdArg *parent, const char *flag) {
 void CmdArg_Free(CmdArg *arg) {
   switch (arg->type) {
     case CmdArg_String:
-      free(arg->s.str);
+      rm_free(arg->s.str);
       break;
     case CmdArg_Object:
       for (size_t i = 0; i < arg->obj.len; i++) {
         CmdArg_Free(arg->obj.entries[i].v);
       }
-      free(arg->obj.entries);
+      rm_free(arg->obj.entries);
       break;
     case CmdArg_Array:
       for (size_t i = 0; i < arg->a.len; i++) {
         CmdArg_Free(arg->a.args[i]);
       }
-      free(arg->a.args);
+      rm_free(arg->a.args);
       break;
     default:
       break;
   }
-  free(arg);
+  rm_free(arg);
 }
 
 static int CmdObj_Set(CmdObject *obj, const char *key, CmdArg *val, int unique) {
@@ -157,7 +159,7 @@ static int CmdObj_Set(CmdObject *obj, const char *key, CmdArg *val, int unique) 
 
   if (obj->len + 1 > obj->cap) {
     obj->cap += obj->cap ? obj->cap : 2;
-    obj->entries = realloc(obj->entries, obj->cap * sizeof(CmdKeyValue));
+    obj->entries = rm_realloc(obj->entries, obj->cap * sizeof(CmdKeyValue));
   }
   obj->entries[obj->len++] = (CmdKeyValue){.k = key, .v = val};
   return CMDPARSE_OK;
@@ -167,7 +169,7 @@ static int CmdArray_Append(CmdArray *arr, CmdArg *val) {
 
   if (arr->len == arr->cap) {
     arr->cap += arr->cap ? arr->cap : 2;
-    arr->args = realloc(arr->args, arr->cap * sizeof(CmdArg *));
+    arr->args = rm_realloc(arr->args, arr->cap * sizeof(CmdArg *));
   }
 
   arr->args[arr->len++] = val;
@@ -175,7 +177,7 @@ static int CmdArray_Append(CmdArray *arr, CmdArg *val) {
 }
 
 static CmdSchemaElement *newSchemaElement(CmdSchemaElementType type) {
-  CmdSchemaElement *ret = calloc(1, sizeof(*ret));
+  CmdSchemaElement *ret = rm_calloc(1, sizeof(*ret));
   ret->type = type;
   ret->validator = NULL;
   ret->validatorCtx = NULL;
@@ -185,7 +187,7 @@ static CmdSchemaElement *newSchemaElement(CmdSchemaElementType type) {
 static CmdSchemaNode *NewSchemaNode(CmdSchemaNodeType type, const char *name,
                                     CmdSchemaElement *element, CmdSchemaFlags flags,
                                     const char *help) {
-  CmdSchemaNode *ret = malloc(sizeof(*ret));
+  CmdSchemaNode *ret = rm_malloc(sizeof(*ret));
   *ret = (CmdSchemaNode){
       .val = element,
       .flags = flags,
@@ -206,7 +208,7 @@ static int cmdSchema_addChild(CmdSchemaNode *parent, CmdSchemaNode *child) {
     return CMDPARSE_ERR;
   }
   parent->size++;
-  parent->edges = realloc(parent->edges, parent->size * sizeof(CmdSchemaNode *));
+  parent->edges = rm_realloc(parent->edges, parent->size * sizeof(CmdSchemaNode *));
   parent->edges[parent->size - 1] = child;
   return CMDPARSE_OK;
 }
@@ -316,7 +318,7 @@ CmdSchemaNode *CmdSchema_AddSubSchema(CmdSchemaNode *parent, const char *param, 
   CmdSchemaNode *ret = NewSchemaNode(CmdSchemaNode_Schema, param, NULL, flags, help);
 
   parent->size++;
-  parent->edges = realloc(parent->edges, parent->size * sizeof(CmdSchemaNode *));
+  parent->edges = rm_realloc(parent->edges, parent->size * sizeof(CmdSchemaNode *));
   parent->edges[parent->size - 1] = ret;
   return ret;
 }
@@ -446,10 +448,10 @@ void CmdSchemaNode_Free(CmdSchemaNode *n) {
     for (int i = 0; i < n->size; i++) {
       CmdSchemaNode_Free(n->edges[i]);
     }
-    free(n->edges);
+    rm_free(n->edges);
   }
-  free(n->val);
-  free(n);
+  rm_free(n->val);
+  rm_free(n);
 }
 typedef enum {
   CmdParser_New = 0x00,
@@ -497,7 +499,7 @@ int typedParse(CmdArg **node, CmdString *arg, char type, char **err) {
     case 'l': {
       long long i;
       if (!parseInt(arg->str, &i)) {
-        asprintf(err, "Could not parse int value '%s'", arg->str);
+        rm_asprintf(err, "Could not parse int value '%s'", arg->str);
         return CMDPARSE_ERR;
       }
       *node = NewCmdInteger(i);
@@ -507,14 +509,14 @@ int typedParse(CmdArg **node, CmdString *arg, char type, char **err) {
     case 'd': {
       double d;
       if (!parseDouble(arg->str, &d)) {
-        asprintf(err, "Could not parse double value '%s'", arg->str);
+        rm_asprintf(err, "Could not parse double value '%s'", arg->str);
         return CMDPARSE_ERR;
       }
       *node = NewCmdDouble(d);
       break;
     }
     default:
-      asprintf(err, "Invalid type specifier '%c'", type);
+      rm_asprintf(err, "Invalid type specifier '%c'", type);
       return CMDPARSE_ERR;
   }
   return CMDPARSE_OK;
@@ -554,12 +556,12 @@ int CmdArg_ParseInt(CmdArg *arg, int64_t *i) {
   }
 }
 
-#define CMDPARSE_CHECK_POS(pos, argc, err, msg)            \
-  {                                                        \
-    if (pos >= argc) {                                     \
-      *err = strdup(msg ? msg : "Insufficient Arguments"); \
-      return CMDPARSE_ERR;                                 \
-    }                                                      \
+#define CMDPARSE_CHECK_POS(pos, argc, err, msg)               \
+  {                                                           \
+    if (pos >= argc) {                                        \
+      *err = rm_strdup(msg ? msg : "Insufficient Arguments"); \
+      return CMDPARSE_ERR;                                    \
+    }                                                         \
   }
 
 static int parseArg(CmdSchemaArg *arg, CmdArg **current, CmdString *argv, int argc, int *pos,
@@ -597,12 +599,12 @@ static int parseVector(CmdSchemaVector *vec, CmdArg **current, CmdString *argv, 
   CMDPARSE_CHECK_POS(*pos, argc, err, "Vector length out of range");
   long long vlen = 0;
   if (!parseInt(argv[*pos].str, &vlen)) {
-    asprintf(err, "Invalid vector length token '%s'", argv[*pos].str);
+    rm_asprintf(err, "Invalid vector length token '%s'", argv[*pos].str);
     return CMDPARSE_ERR;
   }
 
   if (vlen < 0 || *pos + vlen >= argc) {
-    asprintf(err, "Invalid or out of range vector length: %lld", vlen);
+    rm_asprintf(err, "Invalid or out of range vector length: %lld", vlen);
     return CMDPARSE_ERR;
   }
 
@@ -701,7 +703,7 @@ static int cmdParser_ProcessElement(CmdSchemaElement *elem, CmdArg **out, CmdStr
   // if needed - validate the element
   if (elem->validator) {
     if (!elem->validator(*out, elem->validatorCtx)) {
-      asprintf(err, "Validation failed at offset %d near '%s'", *pos, argv[*pos - 1].str);
+      rm_asprintf(err, "Validation failed at offset %d near '%s'", *pos, argv[*pos - 1].str);
       return CMDPARSE_ERR;
     }
   }
@@ -718,7 +720,7 @@ static int cmdArg_AddChild(CmdArg *parent, const char *name, CmdArg *child, char
       return CmdArray_Append(&parent->a, child);
 
     default: {
-      asprintf(err, "Cannot add child to node of type %d", parent->type);
+      rm_asprintf(err, "Cannot add child to node of type %d", parent->type);
       return CMDPARSE_ERR;
     }
   }
@@ -822,7 +824,7 @@ end:
     CmdSchemaNode *edge = node->edges[i];
     if (edge->flags & CmdSchema_Required && !(sf[i] & CmdParser_Visited)) {
       // set an error indicating the first missed required argument
-      asprintf(err, "Missing required argument '%s' in '%s'", node->edges[i]->name, node->name);
+      rm_asprintf(err, "Missing required argument '%s' in '%s'", node->edges[i]->name, node->name);
       return CMDPARSE_ERR;
     }
 
@@ -849,7 +851,7 @@ int CmdParser_ParseCmd(CmdSchemaNode *schema, CmdArg **arg, CmdString *argv, int
     return CMDPARSE_ERR;
   }
   if (strict && pos < argc) {
-    asprintf(err, "Extra arguments not parsed. Only %d of %d args parsed", pos, argc);
+    rm_asprintf(err, "Extra arguments not parsed. Only %d of %d args parsed", pos, argc);
     if (*arg) CmdArg_Free(*arg);
     *arg = NULL;
     return CMDPARSE_ERR;
@@ -859,7 +861,7 @@ int CmdParser_ParseCmd(CmdSchemaNode *schema, CmdArg **arg, CmdString *argv, int
 
 int CmdParser_ParseRedisModuleCmd(CmdSchemaNode *schema, CmdArg **cmd, RedisModuleString **argv,
                                   int argc, char **err, int strict) {
-  CmdString *args = calloc(argc, sizeof(CmdString));
+  CmdString *args = rm_calloc(argc, sizeof(CmdString));
   for (int i = 0; i < argc; i++) {
     size_t len;
     const char *arg = RedisModule_StringPtrLen(argv[i], &len);
@@ -867,7 +869,7 @@ int CmdParser_ParseRedisModuleCmd(CmdSchemaNode *schema, CmdArg **cmd, RedisModu
   }
 
   int rc = CmdParser_ParseCmd(schema, cmd, args, argc, err, strict);
-  free(args);
+  rm_free(args);
   return rc;
 }
 
@@ -876,7 +878,7 @@ CmdString *CmdParser_NewArgListV(size_t size, ...) {
   va_list ap;
 
   va_start(ap, size);
-  CmdString *ret = calloc(size, sizeof(CmdString));
+  CmdString *ret = rm_calloc(size, sizeof(CmdString));
   for (size_t i = 0; i < size; i++) {
     const char *arg = va_arg(ap, const char *);
     ret[i] = CMD_STRING((char *)arg);
@@ -888,7 +890,7 @@ CmdString *CmdParser_NewArgListV(size_t size, ...) {
 
 CmdString *CmdParser_NewArgListC(const char **argv, size_t argc) {
 
-  CmdString *ret = calloc(argc, sizeof(CmdString));
+  CmdString *ret = rm_calloc(argc, sizeof(CmdString));
   for (size_t i = 0; i < argc; i++) {
     ret[i] = CMD_STRING((char *)argv[i]);
   }

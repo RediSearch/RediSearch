@@ -7,7 +7,7 @@
 #include <err.h>
 
 AggregateStep *AggregatePlan_NewStep(AggregateStepType t) {
-  AggregateStep *step = malloc(sizeof(*step));
+  AggregateStep *step = rm_malloc(sizeof(*step));
   step->type = t;
   step->next = NULL;
   step->prev = NULL;
@@ -33,7 +33,7 @@ AggregateStep *AggregatePlan_NewApplyStep(const char *alias, const char *expr, c
   ret->apply = (AggregateApplyStep){
       .rawExpr = (char *)expr,
       .parsedExpr = pe,
-      .alias = alias ? strdup(alias) : NULL,
+      .alias = alias ? rm_strdup(alias) : NULL,
   };
   return ret;
 }
@@ -55,11 +55,11 @@ AggregateStep *AggregatePlan_NewApplyStepFmt(const char *alias, char **err, cons
   char *exp;
   va_list ap;
   va_start(ap, fmt);
-  vasprintf(&exp, fmt, ap);
+  rm_vasprintf(&exp, fmt, ap);
   va_end(ap);
   AggregateStep *st = AggregatePlan_NewApplyStep(alias, exp, err);
   if (!st) {
-    free(exp);
+    rm_free(exp);
   }
   return st;
 }
@@ -72,7 +72,7 @@ AggregateStep *newApplyStepArgs(CmdArg *arg, char **err) {
     return NULL;
   }
 
-  const char *exp = strdup(CMDARG_STRPTR(expr));
+  const char *exp = rm_strdup(CMDARG_STRPTR(expr));
   const char *alias = CMDARG_ORNULL(CmdArg_FirstOf(arg, "AS"), CMDARG_STRPTR);
   return AggregatePlan_NewApplyStep(alias, exp, err);
 }
@@ -84,7 +84,7 @@ AggregateStep *newFilterStep(CmdArg *arg, char **err) {
     return NULL;
   }
 
-  const char *exp = strdup(CMDARG_STRPTR(arg));
+  const char *exp = rm_strdup(CMDARG_STRPTR(arg));
 
   return AggregatePlan_NewFilterStep(exp, err);
 }
@@ -197,7 +197,7 @@ char *AggregatePlan_GetReducerAlias(AggregateGroupStep *g, const char *func, RSV
   sdstolower(out);
 
   // duplicate everything. yeah this is lame but this function is not in a tight loop
-  char *dup = strndup(out, sdslen(out));
+  char *dup = rm_strndup(out, sdslen(out));
   sdsfree(out);
   return dup;
 }
@@ -217,7 +217,7 @@ char *AggregateGroupStep_AddReducer(AggregateGroupStep *g, const char *func, cha
   if (!alias) {
     alias = AggregatePlan_GetReducerAlias(g, func, arr, argc);
   } else {
-    alias = strdup(alias);
+    alias = rm_strdup(alias);
   }
 
   g->reducers = array_append(g->reducers, ((AggregateGroupReduce){
@@ -244,7 +244,7 @@ void buildReducer(AggregateGroupStep *g, AggregateGroupReduce *gr, CmdArg *red, 
     gr->alias =
         AggregatePlan_GetReducerAlias(g, gr->reducer, gr->args, gr->args ? array_len(gr->args) : 0);
   } else {
-    gr->alias = strdup(gr->alias);
+    gr->alias = rm_strdup(gr->alias);
   }
 }
 
@@ -514,7 +514,7 @@ int AggregatePlan_Build(AggregatePlan *plan, CmdArg *cmd, char **err) {
       continue;
     } else if (!strcasecmp(key, "query")) {
       next = AggregatePlan_NewStep(AggregateStep_Query);
-      next->query.str = strdup(CMDARG_STRPTR(child));
+      next->query.str = rm_strdup(CMDARG_STRPTR(child));
     } else if (!strcasecmp(key, "GROUPBY")) {
       next = newGroupStep(n++, child, err);
       isLoadAllow = false;
@@ -529,7 +529,7 @@ int AggregatePlan_Build(AggregatePlan *plan, CmdArg *cmd, char **err) {
       isLoadAllow = false;
     } else if (!strcasecmp(key, "LOAD")) {
       if (!isLoadAllow) {
-        *err = strdup(LOAD_NO_ALLOW_ERROR);
+        *err = rm_strdup(LOAD_NO_ALLOW_ERROR);
         goto fail;
       }
       next = newLoadStep(child, err);
@@ -555,7 +555,7 @@ fail:
 }
 
 void arrPushStrdup(char ***v, const char *s) {
-  char *c = strdup(s);
+  char *c = rm_strdup(s);
   *v = array_append(*v, c);
 }
 
@@ -563,7 +563,7 @@ void arrPushStrfmt(char ***v, const char *fmt, ...) {
   va_list ap;
   va_start(ap, fmt);
   char *c;
-  vasprintf(&c, fmt, ap);
+  rm_vasprintf(&c, fmt, ap);
   va_end(ap);
 
   *v = array_append(*v, c);
@@ -729,7 +729,7 @@ void AggregatePlan_FPrint(AggregatePlan *plan, FILE *out) {
     fputc(' ', out);
     sdsfree(s);
   }
-  array_free_ex(args, free(*(void **)ptr););
+  array_free_ex(args, rm_free(*(void **)ptr););
   fputs("\n", out);
 }
 
@@ -745,14 +745,14 @@ void reducer_Free(void *p) {
 
   AggregateGroupReduce *gr = p;
   // the reducer func itself is const char and should not be freed
-  free(gr->alias);
+  rm_free(gr->alias);
   array_free_ex(gr->args, RSValue_Free(*(void **)ptr));
 }
 
 void AggregateStep_Free(AggregateStep *s) {
   switch (s->type) {
     case AggregateStep_Query:
-      free(s->query.str);
+      rm_free(s->query.str);
       break;
     case AggregateStep_Group:
       RSMultiKey_Free(s->group.properties);
@@ -762,12 +762,12 @@ void AggregateStep_Free(AggregateStep *s) {
       RSMultiKey_Free(s->sort.keys);
       break;
     case AggregateStep_Apply:
-      free(s->apply.alias);
-      free(s->apply.rawExpr);
+      rm_free(s->apply.alias);
+      rm_free(s->apply.rawExpr);
       if (s->apply.parsedExpr) RSExpr_Free(s->apply.parsedExpr);
       break;
     case AggregateStep_Filter:
-      free(s->filter.rawExpr);
+      rm_free(s->filter.rawExpr);
       if (s->filter.parsedExpr) RSExpr_Free(s->apply.parsedExpr);
       break;
     case AggregateStep_Load:
@@ -778,14 +778,14 @@ void AggregateStep_Free(AggregateStep *s) {
       break;
     case AggregateStep_Distribute:
       AggregatePlan_Free(s->dist.plan);
-      free(s->dist.plan);
+      rm_free(s->dist.plan);
       break;
 
     case AggregateStep_Limit:
     case AggregateStep_Dummy:
       break;
   }
-  free(s);
+  rm_free(s);
 }
 
 void AggregatePlan_Free(AggregatePlan *plan) {

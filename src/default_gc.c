@@ -63,7 +63,7 @@ typedef struct GarbageCollectorCtx {
 /* Create a new garbage collector, with a string for the index name, and initial frequency */
 GarbageCollectorCtx *NewGarbageCollector(const RedisModuleString *k, float initialHZ,
                                          uint64_t specUniqueId, GCCallbacks *callbacks) {
-  GarbageCollectorCtx *gcCtx = malloc(sizeof(*gcCtx));
+  GarbageCollectorCtx *gcCtx = rm_malloc(sizeof(*gcCtx));
 
   *gcCtx = (GarbageCollectorCtx){
       .hz = initialHZ,
@@ -146,7 +146,7 @@ size_t gc_RandomTerm(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status) 
     RedisModule_Log(ctx, "notice", "Garbage collected %zd bytes in %zd records for term '%s'",
                     totalCollected, totalRemoved, term);
   }
-  free(term);
+  rm_free(term);
   RedisModule_Log(ctx, "debug", "New HZ: %f\n", gc->hz);
 end:
   if (sctx) {
@@ -281,7 +281,7 @@ size_t gc_TagIndex(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status) {
 end:
   if (idxKey) RedisModule_CloseKey(idxKey);
   if (randomKey) {
-    free(randomKey);
+    rm_free(randomKey);
   }
 
   if (sctx) {
@@ -443,7 +443,7 @@ void GC_OnTerm(void *privdata) {
   array_free(gc->numericGCCtx);
   RedisModule_ThreadSafeContextUnlock(ctx);
   RedisModule_FreeThreadSafeContext(ctx);
-  free(gc);
+  rm_free(gc);
 }
 
 // called externally when the user deletes a document to hint at increasing the HZ

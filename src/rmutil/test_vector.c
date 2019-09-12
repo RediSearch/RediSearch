@@ -1,6 +1,7 @@
 #include "vector.h"
 #include <stdio.h>
 #include "test.h"
+#include "../rmutil/alloc.h"
 
 int testVector() {
 
@@ -55,4 +56,7 @@ int testVector() {
   // printf("rc: %d got %s\n", rc, x);
 }
 
-TEST_MAIN({ TESTFUNC(testVector); });
+TEST_MAIN({
+  RMUTil_InitAlloc();
+  TESTFUNC(testVector);
+});

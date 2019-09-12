@@ -5,6 +5,7 @@
 #include <stdbool.h>
 
 #include "minmax_heap.h"
+#include "rmalloc.h"
 
 #define is_min(n) ((log2_32(n) & 1) == 0)
 #define parent(n) (n / 2)
@@ -164,7 +165,7 @@ void mmh_insert(heap_t* h, void* value) {
   // check for realloc
   if (h->count == h->size) {
     h->size = h->size * 2;
-    h->data = realloc(h->data, (1 + h->size) * sizeof(void*));
+    h->data = rm_realloc(h->data, (1 + h->size) * sizeof(void*));
   }
   h->data[h->count] = value;
   bubbleup(h, h->count);
@@ -245,9 +246,9 @@ heap_t* mmh_init_with_size(size_t size, mmh_cmp_func cmp, void* cmp_ctx, mmh_fre
   // first array element is wasted since 1st heap element is on position 1
   // inside the array i.e. => [0,(1),(2), ... (n)] so minimum viable size is 2
   size = size > 2 ? size : 2;
-  heap_t* h = calloc(1, sizeof(heap_t));
+  heap_t* h = rm_calloc(1, sizeof(heap_t));
   // We allocate 1 extra space because we start at index 1
-  h->data = calloc(size + 1, sizeof(void*));
+  h->data = rm_calloc(size + 1, sizeof(void*));
   h->count = 0;
   h->size = size;
   h->cmp = cmp;
@@ -262,6 +263,6 @@ void mmh_free(heap_t* h) {
       h->free_func(h->data[i]);
     }
   }
-  free(h->data);
-  free(h);
+  rm_free(h->data);
+  rm_free(h);
 }

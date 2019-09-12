@@ -65,8 +65,8 @@ int GeoFilter_Parse(GeoFilter *gf, RedisModuleString **argv, int argc) {
 
     return REDISMODULE_ERR;
   }
-  gf->property = gf->property ? strdup(gf->property) : NULL;
-  gf->unit = gf->unit ? strdup(gf->unit) : NULL;
+  gf->property = gf->property ? rm_strdup(gf->property) : NULL;
+  gf->unit = gf->unit ? rm_strdup(gf->unit) : NULL;
   // verify unit
   if (!gf->unit || (strcasecmp(gf->unit, "m") && strcasecmp(gf->unit, "km") &&
                     strcasecmp(gf->unit, "ft") && strcasecmp(gf->unit, "mi"))) {
@@ -78,9 +78,9 @@ int GeoFilter_Parse(GeoFilter *gf, RedisModuleString **argv, int argc) {
 }
 
 void GeoFilter_Free(GeoFilter *gf) {
-  if (gf->property) free((char *)gf->property);
-  if (gf->unit) free((char *)gf->unit);
-  free(gf);
+  if (gf->property) rm_free((char *)gf->property);
+  if (gf->unit) rm_free((char *)gf->unit);
+  rm_free(gf);
 }
 
 static int cmp_docids(const void *p1, const void *p2) {
@@ -133,7 +133,7 @@ IndexIterator *NewGeoRangeIterator(GeoIndex *gi, GeoFilter *gf, double weight) {
 
 /* Create a geo filter from parsed strings and numbers */
 GeoFilter *NewGeoFilter(double lon, double lat, double radius, const char *unit) {
-  GeoFilter *gf = malloc(sizeof(*gf));
+  GeoFilter *gf = rm_malloc(sizeof(*gf));
   *gf = (GeoFilter){
       .lon = lon,
       .lat = lat,

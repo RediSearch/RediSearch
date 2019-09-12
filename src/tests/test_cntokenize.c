@@ -39,7 +39,7 @@ static char *getFile(const char *name) {
     abort();
   }
 
-  char *buf = malloc(nbuf + 1);
+  char *buf = rm_malloc(nbuf + 1);
   buf[nbuf] = '\0';
 
   size_t nr, offset = 0;
@@ -69,11 +69,12 @@ static int testCnTokenize(void) {
     ASSERT(pos == t.pos);
   }
   cnTok->Free(cnTok);
-  free(cnTxt);
+  rm_free(cnTxt);
   return 0;
 }
 
 TEST_MAIN({
+  RMUTil_InitAlloc();
   // LOGGING_INIT(L_INFO);
   RMUTil_InitAlloc();
   TESTFUNC(testCnTokenize);

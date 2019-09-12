@@ -225,7 +225,7 @@ InvertedIndex *createIndex(int size, int idStep) {
     h.docId = id;
     h.fieldMask = 1;
     h.freq = 1;
-    h.term = "hello";
+    h.term = rm_strdup("hello");
     h.len = 5;
 
     h.vw = NewVarintVectorWriter(8);
@@ -283,7 +283,7 @@ int testUnion() {
   IndexReader *r2 = NewTermIndexReader(w2, NULL, RS_FIELDMASK_ALL, NULL, 1);  //
 
   // printf("Reading!\n");
-  IndexIterator **irs = calloc(2, sizeof(IndexIterator *));
+  IndexIterator **irs = rm_calloc(2, sizeof(IndexIterator *));
   irs[0] = NewReadIterator(r1);
   irs[1] = NewReadIterator(r2);
 
@@ -322,7 +322,7 @@ int testWeight() {
   IndexReader *r2 = NewTermIndexReader(w2, NULL, RS_FIELDMASK_ALL, NULL, 1);   //
 
   // printf("Reading!\n");
-  IndexIterator **irs = calloc(2, sizeof(IndexIterator *));
+  IndexIterator **irs = rm_calloc(2, sizeof(IndexIterator *));
   irs[0] = NewReadIterator(r1);
   irs[1] = NewReadIterator(r2);
 
@@ -361,7 +361,7 @@ int testNot() {
   IndexReader *r2 = NewTermIndexReader(w2, NULL, RS_FIELDMASK_ALL, NULL, 1);  //
 
   // printf("Reading!\n");
-  IndexIterator **irs = calloc(2, sizeof(IndexIterator *));
+  IndexIterator **irs = rm_calloc(2, sizeof(IndexIterator *));
   irs[0] = NewReadIterator(r1);
   irs[1] = NewNotIterator(NewReadIterator(r2), w2->lastId, 1);
 
@@ -413,7 +413,7 @@ int testOptional() {
   IndexReader *r2 = NewTermIndexReader(w2, NULL, RS_FIELDMASK_ALL, NULL, 1);  //
 
   // printf("Reading!\n");
-  IndexIterator **irs = calloc(2, sizeof(IndexIterator *));
+  IndexIterator **irs = rm_calloc(2, sizeof(IndexIterator *));
   irs[0] = NewReadIterator(r1);
   irs[1] = NewOptionalIterator(NewReadIterator(r2), w2->lastId, 1);
 
@@ -596,7 +596,7 @@ int testIntersection() {
   IndexReader *r1 = NewTermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL, 1);   //
   IndexReader *r2 = NewTermIndexReader(w2, NULL, RS_FIELDMASK_ALL, NULL, 1);  //
 
-  IndexIterator **irs = calloc(2, sizeof(IndexIterator *));
+  IndexIterator **irs = rm_calloc(2, sizeof(IndexIterator *));
   irs[0] = NewReadIterator(r1);
   irs[1] = NewReadIterator(r2);
 
@@ -675,20 +675,20 @@ int testBuffer() {
   BufferReader br = NewBufferReader(w.buf);
   ASSERT(br.pos == 0);
 
-  char *y = malloc(strlen(x) + 1);
+  char *y = rm_malloc(strlen(x) + 1);
   l = Buffer_Read(&br, y, strlen(x) + 1);
   ASSERT(l == strlen(x) + 1);
 
   ASSERT(strcmp(y, x) == 0);
   ASSERT(BufferReader_Offset(&br) == l);
 
-  free(y);
+  rm_free(y);
 
   int n = ReadVarint(&br);
   ASSERT(n == 1337654);
 
   Buffer_Free(w.buf);
-  free(w.buf);
+  rm_free(w.buf);
 
   return 0;
 }
@@ -1204,13 +1204,13 @@ int testMySep() {
   size_t tokenLen;
   char *token;
 
-  s = strdup(" , , , , , , ,   , , , ,,,,   ,,,");
+  s = rm_strdup(" , , , , , , ,   , , , ,,,,   ,,,");
   token = TagIndex_SepString(',', &s, &tokenLen);
   ASSERT(!token);
   token = TagIndex_SepString(',', &s, &tokenLen);
   ASSERT(!token);
 
-  s = strdup("");
+  s = rm_strdup("");
   token = TagIndex_SepString(',', &s, &tokenLen);
   ASSERT(!token);
   token = TagIndex_SepString(',', &s, &tokenLen);

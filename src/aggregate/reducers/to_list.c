@@ -49,7 +49,7 @@ int tolist_Finalize(void *ctx, const char *key, SearchResult *res) {
   char *c;
   tm_len_t l;
   void *ptr;
-  RSValue **arr = calloc(tlc->values->cardinality, sizeof(RSValue));
+  RSValue **arr = rm_calloc(tlc->values->cardinality, sizeof(RSValue));
   size_t i = 0;
   while (TrieMapIterator_Next(it, &c, &l, &ptr)) {
     if (ptr) {
@@ -66,7 +66,6 @@ void freeValues(void *ptr) {
   // free(ptr);
 }
 
-
 void tolist_FreeInstance(void *p) {
   struct tolistCtx *tlc = p;
 
@@ -74,7 +73,7 @@ void tolist_FreeInstance(void *p) {
 }
 
 Reducer *NewToList(RedisSearchCtx *sctx, const char *property, const char *alias) {
-  Reducer *r = malloc(sizeof(*r));
+  Reducer *r = rm_malloc(sizeof(*r));
   r->Add = tolist_Add;
   r->Finalize = tolist_Finalize;
   r->Free = Reducer_GenericFree;

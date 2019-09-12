@@ -5,6 +5,7 @@
 #include "cndict_loader.h"
 #include "util/minmax.h"
 #include <assert.h>
+#include "rmalloc.h"
 
 static friso_config_t config_g;
 static friso_t friso_g;
@@ -215,7 +216,7 @@ static uint32_t cnTokenizer_Next(RSTokenizer *base, Token *t) {
 static void cnTokenizer_Free(RSTokenizer *base) {
   cnTokenizer *self = (cnTokenizer *)base;
   friso_free_task(self->fTask);
-  free(self);
+  rm_free(self);
 }
 
 static void cnTokenizer_Reset(RSTokenizer *base, Stemmer *stemmer, StopWordList *stopwords,
@@ -225,7 +226,7 @@ static void cnTokenizer_Reset(RSTokenizer *base, Stemmer *stemmer, StopWordList 
 }
 
 RSTokenizer *NewChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint32_t opts) {
-  cnTokenizer *tokenizer = calloc(1, sizeof(*tokenizer));
+  cnTokenizer *tokenizer = rm_calloc(1, sizeof(*tokenizer));
   tokenizer->fTask = friso_new_task();
   maybeFrisoInit();
   tokenizer->base.ctx.options = opts;

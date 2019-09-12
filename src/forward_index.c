@@ -53,7 +53,7 @@ static size_t estimtateTermCount(const Document *doc) {
 }
 
 static void *vvwAlloc(void) {
-  VarintVectorWriter *vvw = calloc(1, sizeof(*vvw));
+  VarintVectorWriter *vvw = rm_calloc(1, sizeof(*vvw));
   VVW_Init(vvw, 64);
   return vvw;
 }
@@ -61,7 +61,7 @@ static void *vvwAlloc(void) {
 static void vvwFree(void *p) {
   // printf("Releasing VVW=%p\n", p);
   VVW_Cleanup(p);
-  free(p);
+  rm_free(p);
 }
 
 static void ForwardIndex_InitCommon(ForwardIndex *idx, Document *doc, uint32_t idxFlags) {
@@ -92,8 +92,9 @@ ForwardIndex *NewForwardIndex(Document *doc, uint32_t idxFlags) {
   };
 
   size_t termCount = estimtateTermCount(doc);
-  idx->hits = calloc(1, sizeof(*idx->hits));
+  idx->hits = rm_calloc(1, sizeof(*idx->hits));
   idx->stemmer = NULL;
+  idx->smap = NULL;
   idx->totalFreq = 0;
 
   KHTable_Init(idx->hits, &procs, &idx->entries, termCount);
@@ -113,6 +114,9 @@ static void clearEntry(void *elem, void *pool) {
 }
 
 void ForwardIndex_Reset(ForwardIndex *idx, Document *doc, uint32_t idxFlags) {
+  if (idx->smap) {
+    SynonymMap_Free(idx->smap);
+  }
   BlkAlloc_Clear(&idx->terms, NULL, NULL, 0);
   BlkAlloc_Clear(&idx->entries, clearEntry, idx->vvwPool, sizeof(khIdxEntry));
   KHTable_Clear(idx->hits);
@@ -127,7 +131,7 @@ void ForwardIndexFree(ForwardIndex *idx) {
   BlkAlloc_FreeAll(&idx->entries, clearEntry, idx->vvwPool, sizeof(khIdxEntry));
   BlkAlloc_FreeAll(&idx->terms, NULL, NULL, 0);
   KHTable_Free(idx->hits);
-  free(idx->hits);
+  rm_free(idx->hits);
   mempool_destroy(idx->vvwPool);
 
   if (idx->stemmer) {
@@ -246,7 +250,8 @@ int forwardIndexTokenFunc(void *ctx, const Token *tokInfo) {
   if (tokInfo->phoneticsPrimary) {
     ForwardIndex_HandleToken(tokCtx->idx, tokInfo->phoneticsPrimary,
                              strlen(tokInfo->phoneticsPrimary), tokInfo->pos, tokCtx->fieldScore,
-                             tokCtx->fieldId, 0, 0, true);
+                             tokCtx->fieldId, 0, 1, true);
+    rm_free(tokInfo->phoneticsPrimary);
   }
 
   return 0;

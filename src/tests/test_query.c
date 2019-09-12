@@ -30,7 +30,7 @@ int isValidQuery(char *qt, RedisSearchCtx ctx) {
   if (err) {
     Query_Free(q);
     fprintf(stderr, "Error parsing query '%s': %s\n", qt, err);
-    free(err);
+    rm_free(err);
     return 1;
   }
   if (n) {

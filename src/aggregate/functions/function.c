@@ -15,10 +15,10 @@ char *RSFunction_Strndup(RSFunctionEvalCtx *ctx, const char *str, size_t len) {
 
 void RSFunctionEvalCtx_Free(RSFunctionEvalCtx *ctx) {
   BlkAlloc_FreeAll(&ctx->alloc, NULL, NULL, 0);
-  free(ctx);
+  rm_free(ctx);
 }
 RSFunctionEvalCtx *RS_NewFunctionEvalCtx() {
-  RSFunctionEvalCtx *ret = malloc(sizeof(*ret));
+  RSFunctionEvalCtx *ret = rm_malloc(sizeof(*ret));
   BlkAlloc_Init(&ret->alloc);
   return ret;
 }
@@ -49,7 +49,7 @@ RSValueType RSFunctionRegistry_GetType(const char *name, size_t len) {
 int RSFunctionRegistry_RegisterFunction(const char *name, RSFunction f, RSValueType retType) {
   if (functions_g.len + 1 >= functions_g.cap) {
     functions_g.cap += functions_g.cap ? functions_g.cap : 2;
-    functions_g.funcs = realloc(functions_g.funcs, functions_g.cap * sizeof(*functions_g.funcs));
+    functions_g.funcs = rm_realloc(functions_g.funcs, functions_g.cap * sizeof(*functions_g.funcs));
   }
   functions_g.funcs[functions_g.len].f = f;
   functions_g.funcs[functions_g.len].name = name;

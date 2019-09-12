@@ -12,7 +12,7 @@
 
 /* Create a new result processor with a given upstream processor, and context private data */
 ResultProcessor *NewResultProcessor(ResultProcessor *upstream, void *privdata) {
-  ResultProcessor *p = calloc(1, sizeof(ResultProcessor));
+  ResultProcessor *p = rm_calloc(1, sizeof(ResultProcessor));
   p->ctx = (ResultProcessorCtx){
       .privdata = privdata,
       .upstream = upstream,
@@ -41,14 +41,14 @@ void ResultProcessor_Free(ResultProcessor *rp) {
     rp->Free(rp);
   } else {
     // For processors that did not bother to define a special Free - we just call free()
-    free(rp);
+    rm_free(rp);
   }
   // continue to the upstream processor
   if (upstream) ResultProcessor_Free(upstream);
 }
 
 SearchResult *NewSearchResult() {
-  SearchResult *ret = calloc(1, sizeof(*ret));
+  SearchResult *ret = rm_calloc(1, sizeof(*ret));
   ret->fields = RS_NewFieldMap(4);
   ret->score = 0;
   return ret;
@@ -73,14 +73,14 @@ void SearchResult_FreeInternal(SearchResult *r) {
 /* Free the search result object including the object itself */
 void SearchResult_Free(void *p) {
   SearchResult_FreeInternal((SearchResult *)p);
-  free(p);
+  rm_free(p);
 }
 
 /* Generic free function for result processors that just need to free their private data with free()
  */
 void ResultProcessor_GenericFree(ResultProcessor *rp) {
-  free(rp->ctx.privdata);
-  free(rp);
+  rm_free(rp->ctx.privdata);
+  rm_free(rp);
 }
 
 /*******************************************************************************************************************
@@ -206,7 +206,7 @@ static void scorer_Free(ResultProcessor *rp) {
 /* Create a new scorer by name. If the name is not found in the scorer registry, we use the defalt
  * scorer */
 ResultProcessor *NewScorer(const char *scorer, ResultProcessor *upstream, RSSearchRequest *req) {
-  struct scorerCtx *sc = malloc(sizeof(*sc));
+  struct scorerCtx *sc = rm_malloc(sizeof(*sc));
   ExtScoringFunctionCtx *scx =
       Extensions_GetScoringFunction(&sc->scorerCtx, scorer ? scorer : DEFAULT_SCORER_NAME);
   if (!scx) {
@@ -297,7 +297,7 @@ int sorter_Yield(struct sorterCtx *sc, SearchResult *r) {
     SearchResult *sr = mmh_pop_max(sc->pq);
     *r = *sr;
     DMD_Decref(r->scorerPrivateData);
-    free(sr);
+    rm_free(sr);
     return RS_RESULT_OK;
   }
   return RS_RESULT_EOF;
@@ -312,14 +312,14 @@ void sorter_Free(ResultProcessor *rp) {
     if (sc->sortMode == Sort_ByFields) {
       struct fieldCmpCtx *fcc = sc->cmpCtx;
       RSMultiKey_Free(fcc->keys);
-      free(fcc);
+      rm_free(fcc);
     }
   }
 
   // calling mmh_free will free all the remaining results in the heap, if any
   mmh_free(sc->pq);
-  free(sc);
-  free(rp);
+  rm_free(sc);
+  rm_free(rp);
 }
 
 static void keepResult(struct sorterCtx *sctx, SearchResult *r) {
@@ -327,7 +327,7 @@ static void keepResult(struct sorterCtx *sctx, SearchResult *r) {
   if (sctx->sortMode == Sort_ByFields && r->fields) {
     for (size_t ii = 0; ii < r->fields->len; ++ii) {
       r->fields->fields[ii].val = RSValue_MakePersistent(r->fields->fields[ii].val);
-      r->fields->fields[ii].key = strdup(r->fields->fields[ii].key);
+      r->fields->fields[ii].key = rm_strdup(r->fields->fields[ii].key);
       r->fields->fields[ii].isKeyAlloc = 1;
     }
   }
@@ -452,7 +452,7 @@ static int cmpByFields(const void *e1, const void *e2, const void *udata) {
 ResultProcessor *NewSorter(SortMode sortMode, void *sortCtx, uint32_t size,
                            ResultProcessor *upstream, int copyIndexResults) {
 
-  struct sorterCtx *sc = malloc(sizeof(*sc));
+  struct sorterCtx *sc = rm_malloc(sizeof(*sc));
   // select the sorting function by the sort mode
   switch (sortMode) {
     case Sort_ByScore:
@@ -483,7 +483,7 @@ ResultProcessor *NewSorter(SortMode sortMode, void *sortCtx, uint32_t size,
 
 ResultProcessor *NewSorterByFields(RSMultiKey *mk, uint64_t ascendingMap, uint32_t size,
                                    ResultProcessor *upstream) {
-  struct fieldCmpCtx *c = malloc(sizeof(*c));
+  struct fieldCmpCtx *c = rm_malloc(sizeof(*c));
   c->ascendMap = ascendingMap;
   c->keys = mk;
 
@@ -541,7 +541,7 @@ int pager_Next(ResultProcessorCtx *ctx, SearchResult *r) {
 
 /* Create a new pager. The offset and limit are taken from the user request */
 ResultProcessor *NewPager(ResultProcessor *upstream, uint32_t offset, uint32_t limit) {
-  struct pagerCtx *pc = malloc(sizeof(*pc));
+  struct pagerCtx *pc = rm_malloc(sizeof(*pc));
   pc->offset = offset;
   pc->limit = limit;
   pc->count = 0;
@@ -608,7 +608,7 @@ static void loadExplicitFields(struct loaderCtx *lc, RedisSearchCtx *sctx, Redis
       RSSortingKey k = {.index = field->sortIndex};
       RSValue *v = RSSortingVector_Get(dmd->sortVector, &k);
       if (v) {
-        RSFieldMap_Set(&r->fields, field->name, RSValue_IncrRef(v));
+        RSFieldMap_Set(&r->fields, field->name, v);
         continue;
       }
     }
@@ -680,16 +680,16 @@ int loader_Next(ResultProcessorCtx *ctx, SearchResult *r) {
 
 void loader_Free(ResultProcessor *rp) {
   struct loaderCtx *lc = rp->ctx.privdata;
-  free(lc->fields);
-  free(lc);
-  free(rp);
+  rm_free(lc->fields);
+  rm_free(lc);
+  rm_free(rp);
 }
 ResultProcessor *NewLoader(ResultProcessor *upstream, RedisSearchCtx *sctx, FieldList *fields) {
-  struct loaderCtx *sc = malloc(sizeof(*sc));
+  struct loaderCtx *sc = rm_malloc(sizeof(*sc));
 
   sc->ctx = sctx;
   sc->numFields = fields->numFields;
-  sc->fields = calloc(fields->numFields, sizeof(*sc->fields));
+  sc->fields = rm_calloc(fields->numFields, sizeof(*sc->fields));
 
   for (size_t ii = 0; ii < fields->numFields; ++ii) {
     const char *name = fields->fields[ii].name;

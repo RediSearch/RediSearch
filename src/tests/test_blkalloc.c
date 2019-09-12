@@ -2,6 +2,7 @@
 #include "test_util.h"
 #include <stdint.h>
 #include <assert.h>
+#include "../rmutil/alloc.h"
 
 int testBlockAlloc() {
   BlkAlloc alloc;
@@ -79,6 +80,7 @@ static int testFreeFunc() {
 }
 
 TEST_MAIN({
+  RMUTil_InitAlloc();
   TESTFUNC(testBlockAlloc);
   TESTFUNC(testFreeFunc);
 })

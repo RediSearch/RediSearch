@@ -469,16 +469,17 @@ cleanup:
 }
 
 static void DocumentIndexer_Free(DocumentIndexer *indexer) {
-  free(indexer->name);
+  rm_free(indexer->name);
   //  BlkAlloc_FreeAll(&indexer->alloc);
   pthread_cond_destroy(&indexer->cond);
   pthread_mutex_destroy(&indexer->lock);
-  free(indexer->concCtx.openKeys);
+  rm_free(indexer->concCtx.openKeys);
   RedisModule_FreeString(indexer->redisCtx, indexer->specKeyName);
   KHTable_Clear(&indexer->mergeHt);
   KHTable_Free(&indexer->mergeHt);
+  BlkAlloc_FreeAll(&indexer->alloc, NULL, 0, 0);
   RedisModule_FreeThreadSafeContext(indexer->redisCtx);
-  free(indexer);
+  rm_free(indexer);
 }
 
 static void *Indexer_Run(void *p) {
@@ -589,7 +590,7 @@ static DocumentIndexer *findDocumentIndexer(const char *specname) {
 // thread. This does not insert it into the list of threads, though
 // todo: remove the withIndexThread var once we switch to threadpool
 static DocumentIndexer *NewDocumentIndexer(const char *name, int options) {
-  DocumentIndexer *indexer = calloc(1, sizeof(*indexer));
+  DocumentIndexer *indexer = rm_calloc(1, sizeof(*indexer));
   indexer->options = options;
   indexer->head = indexer->tail = NULL;
 
@@ -603,8 +604,9 @@ static DocumentIndexer *NewDocumentIndexer(const char *name, int options) {
     pthread_mutex_init(&indexer->lock, NULL);
     static pthread_t dummyThr;
     pthread_create(&dummyThr, NULL, Indexer_Run, indexer);
+    pthread_detach(dummyThr);
   }
-  indexer->name = strdup(name);
+  indexer->name = rm_strdup(name);
   indexer->next = NULL;
   indexer->redisCtx = RedisModule_GetThreadSafeContext(NULL);
   indexer->specKeyName =

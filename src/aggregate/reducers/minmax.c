@@ -15,7 +15,6 @@ static void *newInstanceCommon(ReducerCtx *ctx, MinmaxMode mode) {
   struct minmaxCtx *m = ReducerCtx_Alloc(ctx, sizeof(*ctx), 1024);
   m->mode = mode;
 
-  
   m->property = RS_KEY(ctx->property);
   m->numMatches = 0;
   m->sortables = SEARCH_CTX_SORTABLES(ctx->ctx);
@@ -60,14 +59,13 @@ static int minmax_Finalize(void *base, const char *key, SearchResult *res) {
   return 1;
 }
 
-
 static Reducer *newMinMax(RedisSearchCtx *ctx, const char *property, const char *alias,
                           MinmaxMode mode) {
-  Reducer *r = malloc(sizeof(*r));
+  Reducer *r = rm_malloc(sizeof(*r));
   r->Add = minmax_Add;
   r->Finalize = minmax_Finalize;
   r->Free = Reducer_GenericFree;
-  r->FreeInstance = NULL;//minmax_FreeInstance;
+  r->FreeInstance = NULL;  // minmax_FreeInstance;
   r->ctx = (ReducerCtx){.ctx = ctx, .property = property};
 
   const char *fstr = NULL;

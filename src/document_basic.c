@@ -6,7 +6,7 @@ void Document_Init(Document *doc, RedisModuleString *docKey, double score, int n
   doc->docKey = docKey;
   doc->score = (float)score;
   doc->numFields = numFields;
-  doc->fields = calloc(doc->numFields, sizeof(DocumentField));
+  doc->fields = rm_calloc(doc->numFields, sizeof(DocumentField));
   doc->language = lang;
   doc->payload = payload;
   doc->payloadSize = payloadSize;
@@ -38,7 +38,7 @@ void Document_DetachFields(Document *doc, RedisModuleCtx *ctx) {
     if (f->text) {
       RedisModule_RetainString(ctx, f->text);
     }
-    f->name = strdup(f->name);
+    f->name = rm_strdup(f->name);
   }
 }
 
@@ -47,9 +47,9 @@ void Document_ClearDetachedFields(Document *doc, RedisModuleCtx *anyCtx) {
     if (doc->fields[ii].text) {
       RedisModule_FreeString(anyCtx, doc->fields[ii].text);
     }
-    free((void *)doc->fields[ii].name);
+    rm_free((void *)doc->fields[ii].name);
   }
-  free(doc->fields);
+  rm_free(doc->fields);
   doc->fields = NULL;
   doc->numFields = 0;
 }
@@ -60,24 +60,24 @@ void Document_Detach(Document *doc, RedisModuleCtx *srcCtx) {
 
   Document_DetachFields(doc, srcCtx);
   if (doc->payload) {
-    char *tmp = malloc(doc->payloadSize);
+    char *tmp = rm_malloc(doc->payloadSize);
     memcpy(tmp, doc->payload, doc->payloadSize);
     doc->payload = tmp;
   }
   if (doc->language) {
-    doc->language = strdup(doc->language);
+    doc->language = rm_strdup(doc->language);
   }
 }
 
 void Document_Free(Document *doc) {
-  free(doc->fields);
+  rm_free(doc->fields);
 }
 
 void Document_FreeDetached(Document *doc, RedisModuleCtx *anyCtx) {
   RedisModule_FreeString(anyCtx, doc->docKey);
   Document_ClearDetachedFields(doc, anyCtx);
-  free((char *)doc->payload);
-  free((char *)doc->language);
+  rm_free((char *)doc->payload);
+  rm_free((char *)doc->language);
 
   Document_Free(doc);
 }

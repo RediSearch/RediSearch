@@ -135,7 +135,6 @@ static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num) {
   }
 
 delcursor:
-  AggregateRequest_Free(req);
   Cursor_Free(cursor);
 }
 
