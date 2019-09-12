@@ -3,15 +3,14 @@
 
 #include <unistd.h>
 #include <pthread.h>
-#include "aggregate/aggregate.h"
 #include "util/khash.h"
 #include "util/array.h"
 #include "search_ctx.h"
 
 typedef struct {
-  const char *keyName; /** Name of the key that refers to the spec */
-  size_t cap;          /** Maximum number of cursors for the spec */
-  size_t used;         /** Number of cursors currently open */
+  char *keyName; /** Name of the key that refers to the spec */
+  size_t cap;    /** Maximum number of cursors for the spec */
+  size_t used;   /** Number of cursors currently open */
 } CursorSpecInfo;
 
 struct CursorList;
@@ -25,9 +24,6 @@ typedef struct Cursor {
 
   /** Parent - used for deletion, etc */
   struct CursorList *parent;
-
-  /** Search ctx */
-  RedisSearchCtx *sctx;
 
   /** Execution state. Opaque to the cursor - managed by consumer */
   void *execState;
@@ -116,6 +112,11 @@ extern CursorList RSCursors;
  */
 void CursorList_Init(CursorList *cl);
 
+/**
+ * Clear the cursor list
+ */
+void CursorList_Destroy(CursorList *cl);
+
 #define RSCURSORS_DEFAULT_CAPACITY 128
 #define RSCURSORS_SWEEP_INTERVAL 500                /* GC Every 500 requests */
 #define RSCURSORS_SWEEP_THROTTLE (1 * (1000000000)) /* Throttle, in NS */
@@ -126,6 +127,8 @@ void CursorList_Init(CursorList *cl);
  */
 void CursorList_AddSpec(CursorList *cl, const char *k, size_t capacity);
 
+void CursorList_RemoveSpec(CursorList *cl, const char *k);
+
 /**
  * Reserve a cursor for use with a given query.
  * Returns NULL if the index does not exist or if there are too many
@@ -134,8 +137,8 @@ void CursorList_AddSpec(CursorList *cl, const char *k, size_t capacity);
  * Timeout is the max idle timeout (activated at each call to Pause()) in
  * milliseconds.
  */
-Cursor *Cursors_Reserve(CursorList *cl, RedisSearchCtx *sctx, const char *lookupName,
-                        unsigned timeout, char **err);
+Cursor *Cursors_Reserve(CursorList *cl, const char *lookupName, unsigned timeout,
+                        QueryError *status);
 
 /**
  * Retrieve a cursor for execution. This locates the cursor, removes it
@@ -166,4 +169,5 @@ void Cursors_PurgeWithName(CursorList *cl, const char *lookupName);
 
 void Cursors_RenderStats(CursorList *cl, const char *key, RedisModuleCtx *ctx);
 
+void Cursor_FreeExecState(void *);
 #endif

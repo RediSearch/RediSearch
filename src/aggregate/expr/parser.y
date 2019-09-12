@@ -31,13 +31,14 @@
 %include {
 #include "token.h"
 #include "expression.h"
+#include "exprast.h"
 #include "parser.h"
 
 }
 
 %syntax_error {  
 
-    asprintf(&ctx->errorMsg, "Syntax error at offset %d near '%.*s'", TOKEN.pos, TOKEN.len, TOKEN.s);
+    rm_asprintf(&ctx->errorMsg, "Syntax error at offset %d near '%.*s'", TOKEN.pos, TOKEN.len, TOKEN.s);
     ctx->ok = 0;
 }   
    
@@ -60,7 +61,7 @@ expr(A) ::= expr(B) GT expr(C). { A = RS_NewPredicate(RSCondition_Gt, B, C); }
 expr(A) ::= expr(B) GE expr(C). { A = RS_NewPredicate(RSCondition_Ge, B, C); }
 expr(A) ::= expr(B) AND expr(C). { A = RS_NewPredicate(RSCondition_And, B, C); }
 expr(A) ::= expr(B) OR expr(C). { A = RS_NewPredicate(RSCondition_Or, B, C); }
-expr(A) ::= NOT expr(B). { A = RS_NewPredicate(RSCondition_Not, B, NULL); }
+expr(A) ::= NOT expr(B). { A = RS_NewInverted(B); }
 
 
 expr(A) ::= STRING(B). { A =  RS_NewStringLiteral((char*)B.s, B.len); }
@@ -73,7 +74,7 @@ expr(A) ::= PROPERTY(B). { A = RS_NewProp(B.s, B.len); }
 expr(A) ::= SYMBOL(B) LP arglist(C) RP. {
     RSFunction cb = RSFunctionRegistry_Get(B.s, B.len);
     if (!cb) {
-        asprintf(&ctx->errorMsg, "Unknown function name '%.*s'", B.len, B.s);
+        rm_asprintf(&ctx->errorMsg, "Unknown function name '%.*s'", B.len, B.s);
         ctx->ok = 0;
         A = NULL; 
     } else {
@@ -85,7 +86,7 @@ expr(A) ::= SYMBOL(B) . {
     if (B.len == 4 && !strncmp(B.s, "NULL", 4)) {
         A = RS_NewNullLiteral();
     } else {
-        asprintf(&ctx->errorMsg, "Unknown symbol '%.*s'", B.len, B.s);
+        rm_asprintf(&ctx->errorMsg, "Unknown symbol '%.*s'", B.len, B.s);
         ctx->ok = 0;
         A = NULL; 
     }

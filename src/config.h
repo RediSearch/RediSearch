@@ -3,6 +3,7 @@
 
 #include "redismodule.h"
 #include "rmutil/sds.h"
+#include "query_error.h"
 
 typedef enum {
   TimeoutPolicy_Default = 0,  // Defer to global config
@@ -11,10 +12,7 @@ typedef enum {
   TimeoutPolicy_Invalid       // Not a real value
 } RSTimeoutPolicy;
 
-typedef enum {
-  GCPolicy_Default = 0,
-  GCPolicy_Fork,
-} GCPolicy;
+typedef enum { GCPolicy_Fork = 0, GCPolicy_Sync } GCPolicy;
 
 const char *TimeoutPolicy_ToString(RSTimeoutPolicy);
 
@@ -25,8 +23,8 @@ RSTimeoutPolicy TimeoutPolicy_Parse(const char *s, size_t n);
 
 static inline const char *GCPolicy_ToString(GCPolicy policy) {
   switch (policy) {
-    case GCPolicy_Default:
-      return "default";
+    case GCPolicy_Sync:
+      return "sync";
     case GCPolicy_Fork:
       return "fork";
     default:
@@ -75,10 +73,15 @@ typedef struct {
   size_t minPhoneticTermLen;
 
   GCPolicy gcPolicy;
-  GCPolicy forkGcRunIntervalSec;
+  size_t forkGcRunIntervalSec;
+  size_t forkGcCleanThreshold;
+  size_t forkGcRetryInterval;
+  size_t forkGcSleepBeforeExit;
 
   // Chained configuration data
   void *chainedConfig;
+
+  long long maxResultsToUnsortedMode;
 } RSConfig;
 
 typedef enum {
@@ -132,7 +135,7 @@ void RSConfig_DumpProto(const RSConfig *cfg, const RSConfigOptions *options, con
  * can be == argc)
  */
 int RSConfig_SetOption(RSConfig *config, RSConfigOptions *options, const char *name,
-                       RedisModuleString **argv, int argc, size_t *offset, char **err);
+                       RedisModuleString **argv, int argc, size_t *offset, QueryError *status);
 
 sds RSConfig_GetInfoString(const RSConfig *config);
 
@@ -144,16 +147,19 @@ sds RSConfig_GetInfoString(const RSConfig *config);
 #define GC_SCANSIZE 100
 #define DEFAULT_MIN_PHONETIC_TERM_LEN 3
 #define DEFAULT_FORK_GC_RUN_INTERVAL 10
+#define DEFAULT_MAX_RESULTS_TO_UNSORTED_MODE 1000
 // default configuration
-#define RS_DEFAULT_CONFIG                                                                       \
-  {                                                                                             \
-    .concurrentMode = 1, .extLoad = NULL, .enableGC = 1, .minTermPrefix = 2,                    \
-    .maxPrefixExpansions = 200, .queryTimeoutMS = 500, .timeoutPolicy = TimeoutPolicy_Return,   \
-    .cursorReadSize = 1000, .cursorMaxIdle = 300000, .maxDocTableSize = DEFAULT_DOC_TABLE_SIZE, \
-    .searchPoolSize = CONCURRENT_SEARCH_POOL_DEFAULT_SIZE,                                      \
-    .indexPoolSize = CONCURRENT_INDEX_POOL_DEFAULT_SIZE, .poolSizeNoAuto = 0,                   \
-    .gcScanSize = GC_SCANSIZE, .minPhoneticTermLen = DEFAULT_MIN_PHONETIC_TERM_LEN,             \
-    .gcPolicy = GCPolicy_Default, .forkGcRunIntervalSec = DEFAULT_FORK_GC_RUN_INTERVAL,         \
+#define RS_DEFAULT_CONFIG                                                                         \
+  {                                                                                               \
+    .concurrentMode = 1, .extLoad = NULL, .enableGC = 1, .minTermPrefix = 2,                      \
+    .maxPrefixExpansions = 200, .queryTimeoutMS = 500, .timeoutPolicy = TimeoutPolicy_Return,     \
+    .cursorReadSize = 1000, .cursorMaxIdle = 300000, .maxDocTableSize = DEFAULT_DOC_TABLE_SIZE,   \
+    .searchPoolSize = CONCURRENT_SEARCH_POOL_DEFAULT_SIZE,                                        \
+    .indexPoolSize = CONCURRENT_INDEX_POOL_DEFAULT_SIZE, .poolSizeNoAuto = 0,                     \
+    .gcScanSize = GC_SCANSIZE, .minPhoneticTermLen = DEFAULT_MIN_PHONETIC_TERM_LEN,               \
+    .gcPolicy = GCPolicy_Fork, .forkGcRunIntervalSec = DEFAULT_FORK_GC_RUN_INTERVAL,              \
+    .forkGcSleepBeforeExit = 0, .maxResultsToUnsortedMode = DEFAULT_MAX_RESULTS_TO_UNSORTED_MODE, \
+    .forkGcRetryInterval = 5, .forkGcCleanThreshold = 0                                           \
   }
 
 #endif

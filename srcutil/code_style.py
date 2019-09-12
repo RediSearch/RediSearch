@@ -16,6 +16,19 @@ GIT_STATUS_PATTERNS = [
     'src/*.[ch]pp'
 ]
 
+IGNPTRN = [
+        'src/aggregate/expr/lexer.c',
+        'src/dep/cndict/cndict_data.c',
+        'src/redismodule.h',
+        'src/query_parser/parser.c',
+        'src/query_parser/lexer.c',
+        'src/dep/gtest'
+]
+
+IGNOREPATHS = []
+for f in IGNPTRN:
+    IGNOREPATHS += glob.glob(f)
+
 ap = ArgumentParser()
 ap.add_argument('-f', '--path',
     help="Manual path or glob to format", metavar="FILE_OR_DIR")
@@ -51,11 +64,12 @@ if options.path:
 else:
     po = Popen(['git', 'status', '--porcelain'] + GIT_STATUS_PATTERNS, stdout=PIPE)
     output, _ = po.communicate()
+    po.wait()
     lines = [line for line in output.split('\n') if line]
     files = []
     for line in lines:
         # Check the two letter status
-        status = line[0:2]
+        status = line[0:2].strip()
         if status[0] == ' ':
             continue
         if status[0] in ('C', 'R'):
@@ -67,8 +81,22 @@ else:
         elif status[0] in ('M', 'A'):
             files.append(line[3:])
 
+
 has_error = False
 for f in files:
+    is_skip = False
+    if f in IGNOREPATHS:
+        print f + ' [SKIP]'
+        continue
+    for p in IGNOREPATHS:
+        if f.startswith(p):
+            print f + ' [SKIP]'
+            is_skip = True
+            break
+
+    if is_skip:
+        continue
+
     cmd = ['clang-format'] + CLANG_ARGS + ['-output-replacements-xml', f]
     if options.verbose:
         print "Executing", cmd

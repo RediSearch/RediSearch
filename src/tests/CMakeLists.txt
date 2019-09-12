@@ -2,7 +2,7 @@ INCLUDE (CTest)
 
 FUNCTION(RSTEST name)
     ADD_EXECUTABLE("${name}" "${name}.c")
-    TARGET_LINK_LIBRARIES("${name}" "redisearchS")
+    TARGET_LINK_LIBRARIES("${name}" redisearch apistubs)
     ADD_TEST(NAME "${name}" COMMAND "${name}" WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
 ENDFUNCTION()
 
@@ -14,7 +14,3 @@ FOREACH(n ${TEST_SOURCES})
 ENDFOREACH()
 
 ADD_LIBRARY(example_extension SHARED "ext-example/example.c")
-ADD_DEPENDENCIES(test_extensions example_extension)
-SET_TESTS_PROPERTIES(test_extensions PROPERTIES
-    ENVIRONMENT "EXT_TEST_PATH=$<TARGET_FILE:example_extension>"
-)

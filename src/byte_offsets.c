@@ -72,7 +72,8 @@ RSByteOffsets *LoadByteOffsets(Buffer *buf) {
   return offsets;
 }
 
-int RSByteOffset_Iterate(RSByteOffsets *offsets, uint32_t fieldId, RSByteOffsetIterator *iter) {
+int RSByteOffset_Iterate(const RSByteOffsets *offsets, uint32_t fieldId,
+                         RSByteOffsetIterator *iter) {
   const RSByteOffsetField *offField = NULL;
   for (size_t ii = 0; ii < offsets->numFields; ++ii) {
     if (offsets->fields[ii].fieldId == fieldId) {

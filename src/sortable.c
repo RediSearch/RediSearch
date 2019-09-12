@@ -63,37 +63,35 @@ char *normalizeStr(const char *str) {
 }
 
 /* Put a value in the sorting vector */
-void RSSortingVector_Put(RSSortingVector *tbl, int idx, void *p, int type) {
-  if (idx <= RS_SORTABLES_MAX) {
-    switch (type) {
-      case RS_SORTABLE_NUM:
-        tbl->values[idx] = RSValue_IncrRef(RS_NumVal(*(double *)p));
+void RSSortingVector_Put(RSSortingVector *tbl, int idx, const void *p, int type) {
+  if (idx > RS_SORTABLES_MAX) {
+    return;
+  }
+  if (tbl->values[idx]) {
+    RSValue_Decref(tbl->values[idx]);
+    tbl->values[idx] = NULL;
+  }
+  switch (type) {
+    case RS_SORTABLE_NUM:
+      tbl->values[idx] = RS_NumVal(*(double *)p);
 
-        break;
-      case RS_SORTABLE_STR: {
-        char *ns = normalizeStr((char *)p);
-        tbl->values[idx] = RSValue_IncrRef(RS_StringValT(ns, strlen(ns), RSString_RMAlloc));
-        break;
-      }
-      case RS_SORTABLE_NIL:
-      default:
-        tbl->values[idx] = RSValue_IncrRef(RS_NullVal());
-        break;
+      break;
+    case RS_SORTABLE_STR: {
+      char *ns = normalizeStr((const char *)p);
+      tbl->values[idx] = RS_StringValT(ns, strlen(ns), RSString_RMAlloc);
+      break;
     }
+    case RS_SORTABLE_NIL:
+    default:
+      tbl->values[idx] = RS_NullVal();
+      break;
   }
-}
-RSValue *RSSortingVector_Get(RSSortingVector *v, RSSortingKey *k) {
-  if (!v || !k) return NULL;
-  if (k->index >= 0 && k->index < v->len) {
-    return v->values[k->index];
-  }
-  return NULL;
 }
 
 /* Free a sorting vector */
 void SortingVector_Free(RSSortingVector *v) {
-  for (int i = 0; i < v->len; i++) {
-    RSValue_Free(v->values[i]);
+  for (size_t i = 0; i < v->len; i++) {
+    RSValue_Decref(v->values[i]);
   }
   rm_free(v);
 }
@@ -146,17 +144,18 @@ RSSortingVector *SortingVector_RdbLoad(RedisModuleIO *rdb, int encver) {
         // strings include an extra character for null terminator. we set it to zero just in case
         char *s = RedisModule_LoadStringBuffer(rdb, &len);
         s[len - 1] = '\0';
-        vec->values[i] = RSValue_IncrRef(RS_StringValT(s, len - 1, RSString_RMAlloc));
+        vec->values[i] = RS_StringValT(rm_strdup(s), len - 1, RSString_RMAlloc);
+        RedisModule_Free(s);
         break;
       }
       case RS_SORTABLE_NUM:
         // load numeric value
-        vec->values[i] = RSValue_IncrRef(RS_NumVal(RedisModule_LoadDouble(rdb)));
+        vec->values[i] = RS_NumVal(RedisModule_LoadDouble(rdb));
         break;
       // for nil we read nothing
       case RS_SORTABLE_NIL:
       default:
-        vec->values[i] = RSValue_IncrRef(RS_NullVal());
+        vec->values[i] = RS_NullVal();
         break;
     }
   }
@@ -256,5 +255,5 @@ int RSSortingTable_ParseKey(RSSortingTable *tbl, RSSortingKey *k, RedisModuleStr
 }
 
 void RSSortingKey_Free(RSSortingKey *k) {
-  free(k);
+  rm_free(k);
 }

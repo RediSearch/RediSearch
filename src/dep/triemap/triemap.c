@@ -1,6 +1,9 @@
 #include "triemap.h"
 #include <math.h>
 #include <sys/param.h>
+#include <ctype.h>
+#include "util/bsearch.h"
+#include "util/arr.h"
 
 void *TRIEMAP_NOTFOUND = "NOT FOUND";
 
@@ -25,7 +28,7 @@ size_t __trieMapNode_Sizeof(tm_len_t numChildren, tm_len_t slen) {
 }
 
 TrieMapNode *__trieMapNode_resizeChildren(TrieMapNode *n, int offset) {
-  n = realloc(n, __trieMapNode_Sizeof(n->numChildren + offset, n->len));
+  n = rm_realloc(n, __trieMapNode_Sizeof(n->numChildren + offset, n->len));
   TrieMapNode **children = __trieMapNode_children(n);
 
   // stretch or shrink the child key cache array
@@ -40,7 +43,7 @@ TrieMapNode *__trieMapNode_resizeChildren(TrieMapNode *n, int offset) {
 TrieMapNode *__newTrieMapNode(char *str, tm_len_t offset, tm_len_t len, tm_len_t numChildren,
                               void *value, int terminal) {
   tm_len_t nlen = len - offset;
-  TrieMapNode *n = malloc(__trieMapNode_Sizeof(numChildren, nlen));
+  TrieMapNode *n = rm_malloc(__trieMapNode_Sizeof(numChildren, nlen));
   n->len = nlen;
   n->numChildren = numChildren;
   n->value = value;
@@ -52,7 +55,7 @@ TrieMapNode *__newTrieMapNode(char *str, tm_len_t offset, tm_len_t len, tm_len_t
 }
 
 TrieMap *NewTrieMap() {
-  TrieMap *tm = malloc(sizeof(TrieMap));
+  TrieMap *tm = rm_malloc(sizeof(TrieMap));
   tm->cardinality = 0;
   tm->root = __newTrieMapNode((char *)"", 0, 0, 0, NULL, 0);
   return tm;
@@ -89,7 +92,7 @@ TrieMapNode *__trieMapNode_Split(TrieMapNode *n, tm_len_t offset) {
   // the parent node is now non terminal and non sorted
   n->flags = 0;  //&= ~(TM_NODE_TERMINAL | TM_NODE_DELETED | TM_NODE_SORTED);
 
-  n = realloc(n, __trieMapNode_Sizeof(n->numChildren, n->len));
+  n = rm_realloc(n, __trieMapNode_Sizeof(n->numChildren, n->len));
   __trieMapNode_children(n)[0] = newChild;
   *__trieMapNode_childKey(n, 0) = newChild->str[0];
   return n;
@@ -135,7 +138,7 @@ int TrieMapNode_Add(TrieMapNode **np, char *str, tm_len_t len, void *value, Trie
       n->value = cb(n->value, value);
     } else {
       if (n->value) {
-        free(n->value);
+        rm_free(n->value);
       }
       n->value = value;
     }
@@ -346,8 +349,8 @@ TrieMapNode *__trieMapNode_MergeWithSingleChild(TrieMapNode *n) {
   memcpy(__trieMapNode_children(merged), __trieMapNode_children(ch),
          sizeof(TrieMapNode *) * merged->numChildren);
   memcpy(__trieMapNode_childKey(merged, 0), __trieMapNode_childKey(ch, 0), merged->numChildren);
-  free(n);
-  free(ch);
+  rm_free(n);
+  rm_free(ch);
 
   return merged;
 }
@@ -393,14 +396,14 @@ void __trieMapNode_optimizeChildren(TrieMapNode *n, void (*freeCB)(void *)) {
 int TrieMapNode_Delete(TrieMapNode *n, char *str, tm_len_t len, void (*freeCB)(void *)) {
   tm_len_t offset = 0;
   int stackCap = 8;
-  TrieMapNode **stack = calloc(stackCap, sizeof(TrieMapNode *));
+  TrieMapNode **stack = rm_calloc(stackCap, sizeof(TrieMapNode *));
   int stackPos = 0;
   int rc = 0;
   while (n && (offset < len || len == 0)) {
     stack[stackPos++] = n;
     if (stackPos == stackCap) {
       stackCap *= 2;
-      stack = realloc(stack, stackCap * sizeof(TrieMapNode *));
+      stack = rm_realloc(stack, stackCap * sizeof(TrieMapNode *));
     }
     tm_len_t localOffset = 0;
     for (; offset < len && localOffset < n->len; offset++, localOffset++) {
@@ -421,7 +424,7 @@ int TrieMapNode_Delete(TrieMapNode *n, char *str, tm_len_t len, void (*freeCB)(v
             if (freeCB) {
               freeCB(n->value);
             } else {
-              free(n->value);
+              rm_free(n->value);
             }
             n->value = NULL;
           }
@@ -455,7 +458,7 @@ end:
   while (stackPos--) {
     __trieMapNode_optimizeChildren(stack[stackPos], freeCB);
   }
-  free(stack);
+  rm_free(stack);
   return rc;
 }
 
@@ -487,17 +490,17 @@ void TrieMapNode_Free(TrieMapNode *n, void (*freeCB)(void *)) {
     if (freeCB) {
       freeCB(n->value);
     } else {
-      free(n->value);
+      rm_free(n->value);
     }
   }
 
-  free(n);
+  rm_free(n);
 }
 
 /* the current top of the iterator stack */
 #define __tmi_current(it) &it->stack[it->stackOffset - 1]
 
-  /* Step itearator return codes below: */
+/* Step itearator return codes below: */
 
 #define TM_ITERSTATE_SELF 0
 #define TM_ITERSTATE_CHILDREN 1
@@ -511,7 +514,7 @@ inline void __tmi_Push(TrieMapIterator *it, TrieMapNode *node) {
     } else {
       it->stackCap += MIN(it->stackCap, 1024);
     }
-    it->stack = realloc(it->stack, it->stackCap * sizeof(__tmi_stackNode));
+    it->stack = rm_realloc(it->stack, it->stackCap * sizeof(__tmi_stackNode));
   }
   it->stack[it->stackOffset++] = (__tmi_stackNode){
       .childOffset = 0,
@@ -530,12 +533,12 @@ inline void __tmi_Pop(TrieMapIterator *it) {
 }
 
 TrieMapIterator *TrieMap_Iterate(TrieMap *t, const char *prefix, tm_len_t len) {
-  TrieMapIterator *it = calloc(1, sizeof(TrieMapIterator));
+  TrieMapIterator *it = rm_calloc(1, sizeof(TrieMapIterator));
 
   it->bufLen = 16;
-  it->buf = calloc(1, it->bufLen);
+  it->buf = rm_calloc(1, it->bufLen);
   it->stackCap = 8;
-  it->stack = calloc(it->stackCap, sizeof(__tmi_stackNode));
+  it->stack = rm_calloc(it->stackCap, sizeof(__tmi_stackNode));
   it->bufOffset = 0;
   it->inSuffix = 0;
   it->prefix = prefix;
@@ -547,9 +550,253 @@ TrieMapIterator *TrieMap_Iterate(TrieMap *t, const char *prefix, tm_len_t len) {
 }
 
 void TrieMapIterator_Free(TrieMapIterator *it) {
-  free(it->buf);
-  free(it->stack);
-  free(it);
+  rm_free(it->buf);
+  rm_free(it->stack);
+  rm_free(it);
+}
+
+#define TRIE_INITIAL_STRING_LEN 255
+
+typedef struct {
+  char *buf;
+  TrieMapRangeCallback *callback;
+  void *cbctx;
+  bool includeMin;
+  bool includeMax;
+} TrieMapRangeCtx;
+
+typedef struct {
+  const char *r;
+  int n;
+} TrieMaprsbHelper;
+
+static int nodecmp(const char *sa, size_t na, const char *sb, size_t nb) {
+  size_t minlen = MIN(na, nb);
+  for (size_t ii = 0; ii < minlen; ++ii) {
+    char a = tolower(sa[ii]), b = tolower(sb[ii]);
+    int rc = a - b;
+    if (rc == 0) {
+      continue;
+    }
+    return rc;
+  }
+
+  // Both strings match up to this point
+  if (na > nb) {
+    // nb is a substring of na; na is greater
+    return 1;
+  } else if (nb > na) {
+    // na is a substring of nb; nb is greater
+    return -1;
+  }
+  // strings are the same
+  return 0;
+}
+
+static int TrieMaprsbCompareCommon(const void *h, const void *e, int prefix) {
+  const TrieMaprsbHelper *term = h;
+  const TrieMapNode *elem = *(const TrieMapNode **)e;
+  size_t ntmp;
+  int rc;
+  if (prefix) {
+    size_t minLen = MIN(elem->len, term->n);
+    rc = nodecmp(term->r, minLen, elem->str, minLen);
+  } else {
+    rc = nodecmp(term->r, term->n, elem->str, elem->len);
+  }
+  return rc;
+}
+
+static int TrieMaprsbCompareExact(const void *h, const void *e) {
+  return TrieMaprsbCompareCommon(h, e, 0);
+}
+
+static int TrieMaprsbComparePrefix(const void *h, const void *e) {
+  return TrieMaprsbCompareCommon(h, e, 1);
+}
+
+static void TrieMaprangeIterateSubTree(TrieMapNode *n, TrieMapRangeCtx *r) {
+  r->buf = array_ensure_append(r->buf, n->str, n->len, char);
+
+  if (__trieMapNode_isTerminal(n)) {
+    r->callback(r->buf, array_len(r->buf), r->cbctx, n->value);
+  }
+
+  TrieMapNode **arr = __trieMapNode_children(n);
+
+  for (int ii = 0; ii < n->numChildren; ++ii) {
+    // printf("Descending to index %lu\n", ii);
+    TrieMaprangeIterateSubTree(arr[ii], r);
+  }
+
+  array_trimm_len(r->buf, array_len(r->buf) - n->len);
+}
+
+/**
+ * Try to place as many of the common arguments in rangectx, so that the stack
+ * size is not negatively impacted and prone to attack.
+ */
+static void TrieMapRangeIterate(TrieMapNode *n, const char *min, int nmin, const char *max,
+                                int nmax, TrieMapRangeCtx *r) {
+  // Push string to stack
+  r->buf = array_ensure_append(r->buf, n->str, n->len, char);
+
+  if (__trieMapNode_isTerminal(n)) {
+    // current node is a terminal.
+    // if nmin or nmax is zero, it means that we find an exact match
+    // we should fire the callback only if exact match requested
+    if (r->includeMin && nmin == 0) {
+      r->callback(r->buf, array_len(r->buf), r->cbctx, n->value);
+    } else if (r->includeMax && nmax == 0) {
+      r->callback(r->buf, array_len(r->buf), r->cbctx, n->value);
+    }
+  }
+
+  TrieMapNode **arr = __trieMapNode_children(n);
+  size_t arrlen = n->numChildren;
+  if (!arrlen) {
+    // no children, just return.
+    goto clean_stack;
+  }
+
+  __trieNode_sortChildren(n);
+
+  // Find the minimum range here..
+  // Use binary search to find the beginning and end ranges:
+  TrieMaprsbHelper h;
+
+  int beginEqIdx = -1;
+  if (nmin > 0) {
+    // searching for node that matches the prefix of our min value
+    h.r = min;
+    h.n = nmin;
+    beginEqIdx = rsb_eq(arr, arrlen, sizeof(*arr), &h, TrieMaprsbComparePrefix);
+  }
+
+  int endEqIdx = -1;
+  if (nmax > 0) {
+    // searching for node that matches the prefix of our max value
+    h.r = max;
+    h.n = nmax;
+    endEqIdx = rsb_eq(arr, arrlen, sizeof(*arr), &h, TrieMaprsbComparePrefix);
+  }
+
+  if (beginEqIdx == endEqIdx && endEqIdx != -1) {
+    // special case, min value and max value share a command prefix.
+    // we need to call recursively with the child contains this prefix
+    TrieMapNode *child = arr[beginEqIdx];
+
+    const char *nextMin = min + child->len;
+    int nNextMin = nmin - child->len;
+    if (nNextMin < 0) {
+      nNextMin = 0;
+      nextMin = NULL;
+    }
+
+    const char *nextMax = max + child->len;
+    int nNextMax = nmax - child->len;
+    if (nNextMax < 0) {
+      nNextMax = 0;
+      nextMax = NULL;
+    }
+
+    TrieMapRangeIterate(child, nextMin, nNextMin, nextMax, nNextMax, r);
+    goto clean_stack;
+  }
+
+  if (beginEqIdx != -1) {
+    // we find a child that matches min prefix
+    // we should continue the search on this child but at this point we should
+    // not limit the max value
+    TrieMapNode *child = arr[beginEqIdx];
+
+    const char *nextMin = min + child->len;
+    int nNextMin = nmin - child->len;
+    if (nNextMin < 0) {
+      nNextMin = 0;
+      nextMin = NULL;
+    }
+
+    TrieMapRangeIterate(child, nextMin, nNextMin, NULL, -1, r);
+  }
+
+  int beginIdx = 0;
+  if (nmin > 0) {
+    // search for the first element which are greater then our min value
+    h.r = min;
+    h.n = nmin;
+    beginIdx = rsb_gt(arr, arrlen, sizeof(*arr), &h, TrieMaprsbCompareExact);
+  }
+
+  int endIdx = nmax ? arrlen - 1 : -1;
+  if (nmax > 0) {
+    // search for the first element which are less then our max value
+    h.r = max;
+    h.n = nmax;
+    endIdx = rsb_lt(arr, arrlen, sizeof(*arr), &h, TrieMaprsbCompareExact);
+  }
+
+  // we need to iterate (without any checking) on all the subtree from beginIdx to endIdx
+  for (int ii = beginIdx; ii <= endIdx; ++ii) {
+    TrieMaprangeIterateSubTree(arr[ii], r);
+  }
+
+  if (endEqIdx != -1) {
+    // we find a child that matches max prefix
+    // we should continue the search on this child but at this point we should
+    // not limit the min value
+    TrieMapNode *child = arr[endEqIdx];
+
+    const char *nextMax = max + child->len;
+    int nNextMax = nmax - child->len;
+    if (nNextMax < 0) {
+      nNextMax = 0;
+      nextMax = NULL;
+    }
+
+    TrieMapRangeIterate(child, NULL, -1, nextMax, nNextMax, r);
+  }
+
+clean_stack:
+  array_trimm_len(r->buf, array_len(r->buf) - n->len);
+}
+
+void TrieMap_IterateRange(TrieMap *trie, const char *min, int minlen, bool includeMin,
+                          const char *max, int maxlen, bool includeMax,
+                          TrieMapRangeCallback callback, void *ctx) {
+  if (trie->root->numChildren == 0) {
+    return;
+  }
+
+  if (min && max) {
+    // min and max exists, lets compare them to make sure min < max
+    int cmp = nodecmp(min, minlen, max, maxlen);
+    if (cmp > 0) {
+      // min > max, no reason to continue
+      return;
+    }
+
+    if (cmp == 0) {
+      // min = max, we should just search for min and check for its existence
+      if (includeMin || includeMax) {
+        void *val = TrieMapNode_Find(trie->root, (char *)min, minlen);
+        if (val != TRIEMAP_NOTFOUND) {
+          callback(min, minlen, ctx, val);
+        }
+      }
+      return;
+    }
+  }
+
+  TrieMapRangeCtx tmctx = {
+      .callback = callback,
+      .cbctx = ctx,
+      .includeMin = includeMin,
+      .includeMax = includeMax,
+  };
+  tmctx.buf = array_new(char, TRIE_INITIAL_STRING_LEN);
+  TrieMapRangeIterate(trie->root, min, minlen, max, maxlen, &tmctx);
+  array_free(tmctx.buf);
 }
 
 int TrieMapIterator_Next(TrieMapIterator *it, char **ptr, tm_len_t *len, void **value) {
@@ -581,7 +828,7 @@ int TrieMapIterator_Next(TrieMapIterator *it, char **ptr, tm_len_t *len, void **
           } else {
             it->bufLen += MIN(it->bufLen, 1024);
           }
-          it->buf = realloc(it->buf, it->bufLen);
+          it->buf = rm_realloc(it->buf, it->bufLen);
         }
       }
 
@@ -634,19 +881,19 @@ int TrieMapIterator_Next(TrieMapIterator *it, char **ptr, tm_len_t *len, void **
 
 void TrieMap_Free(TrieMap *t, void (*freeCB)(void *)) {
   TrieMapNode_Free(t->root, freeCB);
-  free(t);
+  rm_free(t);
 }
 
 TrieMapNode *TrieMapNode_RandomWalk(TrieMapNode *n, int minSteps, char **str, tm_len_t *len) {
   // create an iteration stack we walk up and down
   size_t stackCap = minSteps;
   size_t stackSz = 1;
-  TrieMapNode **stack = calloc(stackCap, sizeof(TrieMapNode *));
+  TrieMapNode **stack = rm_calloc(stackCap, sizeof(TrieMapNode *));
   stack[0] = n;
 
   if (stackSz == stackCap) {
     stackCap += minSteps;
-    stack = realloc(stack, stackCap * sizeof(TrieMapNode *));
+    stack = rm_realloc(stack, stackCap * sizeof(TrieMapNode *));
   }
 
   size_t bufCap = n->len;
@@ -673,7 +920,7 @@ TrieMapNode *TrieMapNode_RandomWalk(TrieMapNode *n, int minSteps, char **str, tm
     steps++;
     if (stackSz == stackCap) {
       stackCap += minSteps;
-      stack = realloc(stack, stackCap * sizeof(TrieMapNode *));
+      stack = rm_realloc(stack, stackCap * sizeof(TrieMapNode *));
     }
 
     bufCap += n->len;
@@ -683,7 +930,7 @@ TrieMapNode *TrieMapNode_RandomWalk(TrieMapNode *n, int minSteps, char **str, tm
   n = stack[stackSz - 1];
 
   /* build the string by walking the stack and copying all node strings */
-  char *buf = malloc(bufCap + 1);
+  char *buf = rm_malloc(bufCap + 1);
   buf[bufCap] = 0;
   tm_len_t bufSize = 0;
   for (size_t i = 0; i < stackSz; i++) {
@@ -692,7 +939,7 @@ TrieMapNode *TrieMapNode_RandomWalk(TrieMapNode *n, int minSteps, char **str, tm
   }
   *str = buf;
   *len = bufSize;
-  free(stack);
+  rm_free(stack);
   return n;
 }
 
@@ -707,7 +954,7 @@ void *TrieMap_RandomValueByPrefix(TrieMap *t, const char *prefix, tm_len_t pflen
 
   TrieMapNode *n = TrieMapNode_RandomWalk(root, (int)round(log2(1 + t->cardinality)), &str, &len);
   if (n) {
-    free(str);
+    rm_free(str);
     return n->value;
   }
   return NULL;

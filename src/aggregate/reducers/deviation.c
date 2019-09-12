@@ -2,20 +2,21 @@
 #include <math.h>
 
 typedef struct {
-  RSKey property;
+  const RLookupKey *srckey;
   size_t n;
   double oldM, newM, oldS, newS;
-  RSSortingTable *sortables;
 } devCtx;
 
-static void *stddev_NewInstance(ReducerCtx *ctx) {
-  devCtx *dctx = calloc(1, sizeof(*dctx));
-  dctx->property = RS_KEY(ctx->property);
-  dctx->sortables = SEARCH_CTX_SORTABLES(ctx->ctx);
+#define BLOCK_SIZE 1024 * sizeof(devCtx)
+
+static void *stddevNewInstance(Reducer *rbase) {
+  devCtx *dctx = BlkAlloc_Alloc(&rbase->alloc, sizeof(*dctx), BLOCK_SIZE);
+  memset(dctx, 0, sizeof(*dctx));
+  dctx->srckey = rbase->srckey;
   return dctx;
 }
 
-void stddev_addInternal(devCtx *dctx, double d) {
+static void stddevAddInternal(devCtx *dctx, double d) {
   // https://www.johndcook.com/blog/standard_deviation/
   dctx->n++;
   if (dctx->n == 1) {
@@ -31,20 +32,20 @@ void stddev_addInternal(devCtx *dctx, double d) {
   }
 }
 
-static int stddev_Add(void *ctx, SearchResult *res) {
+static int stddevAdd(Reducer *r, void *ctx, const RLookupRow *srcrow) {
   devCtx *dctx = ctx;
   double d;
-  RSValue *v = SearchResult_GetValue(res, dctx->sortables, &dctx->property);
+  RSValue *v = RLookup_GetItem(dctx->srckey, srcrow);
   if (v) {
     if (v->t != RSValue_Array) {
       if (RSValue_ToNumber(v, &d)) {
-        stddev_addInternal(dctx, d);
+        stddevAddInternal(dctx, d);
       }
     } else {
       uint32_t sz = RSValue_ArrayLen(v);
       for (uint32_t i = 0; i < sz; i++) {
         if (RSValue_ToNumber(RSValue_ArrayItem(v, i), &d)) {
-          stddev_addInternal(dctx, d);
+          stddevAddInternal(dctx, d);
         }
       }
     }
@@ -52,26 +53,23 @@ static int stddev_Add(void *ctx, SearchResult *res) {
   return 1;
 }
 
-static int stddev_Finalize(void *ctx, const char *key, SearchResult *res) {
-  devCtx *dctx = ctx;
+static RSValue *stddevFinalize(Reducer *parent, void *instance) {
+  devCtx *dctx = instance;
   double variance = ((dctx->n > 1) ? dctx->newS / (dctx->n - 1) : 0.0);
   double stddev = sqrt(variance);
-  RSFieldMap_SetNumber(&res->fields, key, stddev);
-  return 1;
+  return RS_NumVal(stddev);
 }
 
-static void stddev_FreeInstance(void *p) {
-  free(p);
-}
-
-Reducer *NewStddev(RedisSearchCtx *ctx, const char *property, const char *alias) {
-  Reducer *r = malloc(sizeof(*r));
-  r->Add = stddev_Add;
-  r->Finalize = stddev_Finalize;
+Reducer *RDCRStdDev_New(const ReducerOptions *options) {
+  Reducer *r = rm_calloc(1, sizeof(*r));
+  if (!ReducerOptions_GetKey(options, &r->srckey)) {
+    rm_free(r);
+    return NULL;
+  }
+  r->Add = stddevAdd;
+  r->Finalize = stddevFinalize;
   r->Free = Reducer_GenericFree;
-  r->FreeInstance = stddev_FreeInstance;
-  r->NewInstance = stddev_NewInstance;
-  r->alias = FormatAggAlias(alias, "stddev", property);
-  r->ctx = (ReducerCtx){.ctx = ctx, .property = property};
+  r->NewInstance = stddevNewInstance;
+  r->reducerId = REDUCER_T_STDDEV;
   return r;
 }

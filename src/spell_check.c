@@ -19,7 +19,7 @@ int RS_SuggestionCompare(const void *val1, const void *val2) {
 }
 
 RS_Suggestion *RS_SuggestionCreate(char *suggestion, size_t len, double score) {
-  RS_Suggestion *res = calloc(1, sizeof(RS_Suggestion));
+  RS_Suggestion *res = rm_calloc(1, sizeof(RS_Suggestion));
   res->suggestion = suggestion;
   res->len = len;
   res->score = score;
@@ -27,13 +27,13 @@ RS_Suggestion *RS_SuggestionCreate(char *suggestion, size_t len, double score) {
 }
 
 static void RS_SuggestionFree(RS_Suggestion *suggestion) {
-  free(suggestion->suggestion);
-  free(suggestion);
+  rm_free(suggestion->suggestion);
+  rm_free(suggestion);
 }
 
 RS_Suggestions *RS_SuggestionsCreate() {
 #define SUGGESTIONS_ARRAY_INITIAL_SIZE 10
-  RS_Suggestions *ret = calloc(1, sizeof(RS_Suggestions));
+  RS_Suggestions *ret = rm_calloc(1, sizeof(RS_Suggestions));
   ret->suggestionsTrie = NewTrie();
   return ret;
 }
@@ -67,7 +67,7 @@ void RS_SuggestionsAdd(RS_Suggestions *s, char *term, size_t len, double score, 
 void RS_SuggestionsFree(RS_Suggestions *s) {
   //  array_free_ex(s->suggestions, RS_SuggestionFree(*(RS_Suggestion **)ptr));
   TrieType_Free(s->suggestionsTrie);
-  free(s);
+  rm_free(s);
 }
 
 /**
@@ -121,7 +121,7 @@ static bool SpellCheck_IsTermExistsInTrie(Trie *t, const char *term, size_t len,
     retVal = true;
   }
   DFAFilter_Free(it->ctx);
-  free(it->ctx);
+  rm_free(it->ctx);
   TrieIterator_Free(it);
   if (outScore) {
     *outScore = score;
@@ -148,10 +148,10 @@ static void SpellCheck_FindSuggestions(SpellCheckCtx *scCtx, Trie *t, const char
     if ((score = SpellCheck_GetScore(scCtx, res, suggestionLen, fieldMask)) != -1) {
       RS_SuggestionsAdd(s, res, suggestionLen, score, incr);
     }
-    free(res);
+    rm_free(res);
   }
   DFAFilter_Free(it->ctx);
-  free(it->ctx);
+  rm_free(it->ctx);
   TrieIterator_Free(it);
 }
 
@@ -168,7 +168,7 @@ RS_Suggestion **spellCheck_GetSuggestions(RS_Suggestions *s) {
     ret = array_append(ret, RS_SuggestionCreate(res, termLen, score));
   }
   DFAFilter_Free(iter->ctx);
-  free(iter->ctx);
+  rm_free(iter->ctx);
   TrieIterator_Free(iter);
   return ret;
 }
@@ -301,16 +301,19 @@ static bool SpellCheck_CheckTermDictsExistance(SpellCheckCtx *scCtx) {
   return true;
 }
 
-void SpellCheck_Reply(SpellCheckCtx *scCtx, QueryParseCtx *q) {
-#define NODES_INITIAL_SIZE 5
+static int forEachCallback(QueryNode *n, QueryNode *orig, void *arg) {
+  SpellCheckCtx *scCtx = arg;
+  if (n->type == QN_TOKEN &&
+      SpellCheck_ReplyTermSuggestions(scCtx, n->tn.str, n->tn.len, n->opts.fieldMask)) {
+    scCtx->results++;
+  }
+  return 1;
+}
+
+void SpellCheck_Reply(SpellCheckCtx *scCtx, QueryAST *q) {
   if (!SpellCheck_CheckTermDictsExistance(scCtx)) {
     return;
   }
-  size_t results = 0;
-
-  QueryNode **nodes = array_new(QueryNode *, NODES_INITIAL_SIZE);
-  nodes = array_append(nodes, q->root);
-  QueryNode *currNode = NULL;
 
   RedisModule_ReplyWithArray(scCtx->sctx->redisCtx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
@@ -319,54 +322,8 @@ void SpellCheck_Reply(SpellCheckCtx *scCtx, QueryParseCtx *q) {
     RedisModule_ReplyWithLongLong(scCtx->sctx->redisCtx, scCtx->sctx->spec->docs.size - 1);
   }
 
-  while (array_len(nodes) > 0) {
-    currNode = array_pop(nodes);
+  QueryNode_ForEach(q->root, forEachCallback, scCtx, 1);
 
-    switch (currNode->type) {
-      case QN_PHRASE:
-        for (int i = currNode->pn.numChildren - 1 ; i >= 0 ; i--) {
-          nodes = array_append(nodes, currNode->pn.children[i]);
-        }
-        break;
-      case QN_TOKEN:
-        if (SpellCheck_ReplyTermSuggestions(scCtx, currNode->tn.str, currNode->tn.len,
-                                            currNode->opts.fieldMask)) {
-          ++results;
-        }
-        break;
-
-      case QN_NOT:
-        nodes = array_append(nodes, currNode->not.child);
-        break;
-
-      case QN_OPTIONAL:
-        nodes = array_append(nodes, currNode->opt.child);
-        break;
-
-      case QN_UNION:
-        for (int i = currNode->un.numChildren - 1 ; i >= 0; i--) {
-          nodes = array_append(nodes, currNode->un.children[i]);
-        }
-        break;
-
-      case QN_TAG:
-        // todo: do we need to do enything here?
-        for (int i = currNode->tag.numChildren - 1; i >= 0 ; i--) {
-          nodes = array_append(nodes, currNode->tag.children[i]);
-        }
-        break;
-
-      case QN_PREFX:
-      case QN_NUMERIC:
-      case QN_GEO:
-      case QN_IDS:
-      case QN_WILDCARD:
-      case QN_FUZZY:
-        break;
-    }
-  }
-
-  array_free(nodes);
-
-  RedisModule_ReplySetArrayLength(scCtx->sctx->redisCtx, results + (scCtx->fullScoreInfo ? 1 : 0));
+  RedisModule_ReplySetArrayLength(scCtx->sctx->redisCtx,
+                                  scCtx->results + (scCtx->fullScoreInfo ? 1 : 0));
 }

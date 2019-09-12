@@ -113,8 +113,8 @@ int testFragmentize() {
 }
 
 TEST_MAIN({
-
   // LOGGING_INIT(L_INFO);
   RMUTil_InitAlloc();
   TESTFUNC(testFragmentize);
+  StopWordList_FreeGlobals();
 });

@@ -76,7 +76,8 @@ typedef struct {
  * Begin iterating over the byte offsets for a given field. Returns REDISMODULE_ERR
  * if the field does not exist in the current byte offset
  */
-int RSByteOffset_Iterate(RSByteOffsets *offsets, uint32_t fieldId, RSByteOffsetIterator *iter);
+int RSByteOffset_Iterate(const RSByteOffsets *offsets, uint32_t fieldId,
+                         RSByteOffsetIterator *iter);
 
 /**
  * Returns the next byte offset for the given position. The current position

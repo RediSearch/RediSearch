@@ -5,6 +5,7 @@ import unittest
 from hotels import hotels
 import random
 import time
+from RLTest import Env
 
 
 def testAdd(env):
@@ -53,7 +54,7 @@ def testConditionalUpdate(env):
                                'IF', '@bar > 42', 'FIELDS', 'bar', '15'))
 
 def testUnionIdList(env):
-    # Regression test for https://github.com/RedisLabsModules/RediSearch/issues/306
+    # Regression test for https://github.com/RediSearch/RediSearch/issues/306
     r = env
     N = 100
     env.assertOk(r.execute_command(
@@ -62,6 +63,9 @@ def testUnionIdList(env):
         "ft.add", "test", "1", "1", "FIELDS", "tags", "alberta", "waypoint", "-113.524,53.5244"))
     env.assertOk(r.execute_command(
         "ft.add", "test", "2", "1", "FIELDS", "tags", "ontario", "waypoint", "-79.395,43.661667"))
+    
+    r.cmd('ft.search', 'test', '@tags:{ontario}')
+
     res = r.execute_command(
         'ft.search', 'test', "@waypoint:[-113.52 53.52 20 mi]|@tags:{ontario}", 'nocontent')
     env.assertEqual(res, [2, '2', '1'])
@@ -240,6 +244,16 @@ def testGet(env):
     env.assertEqual(len(rr), 100)
     for res in rr:
         env.assertIsNone(res)
+    
+    # Verify that when a document is deleted, GET returns NULL
+    r.cmd('ft.del', 'idx', 'doc10') # But we still keep the document
+    r.cmd('ft.del', 'idx', 'doc11')
+    res = r.cmd('ft.get', 'idx', 'doc10')
+    r.assertEqual(None, res)
+    res = r.cmd('ft.mget', 'idx', 'doc10', 'doc11', 'doc12')
+    r.assertIsNone(res[0])
+    r.assertIsNone(res[1])
+    r.assertTrue(not not res[2])
 
 def testDelete(env):
     r = env
@@ -450,6 +464,9 @@ def testOptional(env):
     res = r.execute_command(
         'ft.search', 'idx', 'hello ~world ~werld', 'nocontent', 'scorer', 'DISMAX')
     env.assertEqual([3L, 'doc3', 'doc2', 'doc1'], res)
+    res = r.execute_command(
+        'ft.search', 'idx', '~world ~werld hello', 'nocontent', 'scorer', 'DISMAX')
+    env.assertEqual([3L, 'doc3', 'doc2', 'doc1'], res)
 
 def testExplain(env):
 
@@ -460,13 +477,16 @@ def testExplain(env):
     res = r.execute_command('ft.explain', 'idx', q)
     # print res.replace('\n', '\\n')
     # expected = """INTERSECT {\n  UNION {\n    hello\n    +hello(expanded)\n  }\n  UNION {\n    world\n    +world(expanded)\n  }\n  EXACT {\n    what\n    what\n  }\n  UNION {\n    UNION {\n      hello\n      +hello(expanded)\n    }\n    UNION {\n      world\n      +world(expanded)\n    }\n  }\n  UNION {\n    NUMERIC {10.000000 <= @bar <= 100.000000}\n    NUMERIC {200.000000 <= @bar <= 300.000000}\n  }\n}\n"""
-    expected = """INTERSECT {\n  UNION {\n    hello\n    <HL(expanded)\n    +hello(expanded)\n  }\n  UNION {\n    world\n    <ARLT(expanded)\n    +world(expanded)\n  }\n  EXACT {\n    what\n    what\n  }\n  UNION {\n    UNION {\n      hello\n      <HL(expanded)\n      +hello(expanded)\n    }\n    UNION {\n      world\n      <ARLT(expanded)\n      +world(expanded)\n    }\n  }\n  UNION {\n    NUMERIC {10.000000 <= @bar <= 100.000000}\n    NUMERIC {200.000000 <= @bar <= 300.000000}\n  }\n}\n"""
+    # expected = """INTERSECT {\n  UNION {\n    hello\n    <HL(expanded)\n    +hello(expanded)\n  }\n  UNION {\n    world\n    <ARLT(expanded)\n    +world(expanded)\n  }\n  EXACT {\n    what\n    what\n  }\n  UNION {\n    UNION {\n      hello\n      <HL(expanded)\n      +hello(expanded)\n    }\n    UNION {\n      world\n      <ARLT(expanded)\n      +world(expanded)\n    }\n  }\n  UNION {\n    NUMERIC {10.000000 <= @bar <= 100.000000}\n    NUMERIC {200.000000 <= @bar <= 300.000000}\n  }\n}\n"""
+    expected = """INTERSECT {\n  UNION {\n    hello\n    +hello(expanded)\n  }\n  UNION {\n    world\n    +world(expanded)\n  }\n  EXACT {\n    what\n    what\n  }\n  UNION {\n    UNION {\n      hello\n      +hello(expanded)\n    }\n    UNION {\n      world\n      +world(expanded)\n    }\n  }\n  UNION {\n    NUMERIC {10.000000 <= @bar <= 100.000000}\n    NUMERIC {200.000000 <= @bar <= 300.000000}\n  }\n}\n"""
     env.assertEqual(res, expected)
 
-    expected = ['INTERSECT {', '  UNION {', '    hello', '    <HL(expanded)', '    +hello(expanded)', '  }', '  UNION {', '    world', '    <ARLT(expanded)', '    +world(expanded)', '  }', '  EXACT {', '    what', '    what', '  }', '  UNION {', '    UNION {', '      hello', '      <HL(expanded)', '      +hello(expanded)', '    }', '    UNION {', '      world', '      <ARLT(expanded)', '      +world(expanded)', '    }', '  }', '  UNION {', '    NUMERIC {10.000000 <= @bar <= 100.000000}', '    NUMERIC {200.000000 <= @bar <= 300.000000}', '  }', '}', '']
+
+    # expected = ['INTERSECT {', '  UNION {', '    hello', '    <HL(expanded)', '    +hello(expanded)', '  }', '  UNION {', '    world', '    <ARLT(expanded)', '    +world(expanded)', '  }', '  EXACT {', '    what', '    what', '  }', '  UNION {', '    UNION {', '      hello', '      <HL(expanded)', '      +hello(expanded)', '    }', '    UNION {', '      world', '      <ARLT(expanded)', '      +world(expanded)', '    }', '  }', '  UNION {', '    NUMERIC {10.000000 <= @bar <= 100.000000}', '    NUMERIC {200.000000 <= @bar <= 300.000000}', '  }', '}', '']
     if env.is_cluster():
         raise unittest.SkipTest()
     res = env.cmd('ft.explainCli', 'idx', q)
+    expected = ['INTERSECT {', '  UNION {', '    hello', '    +hello(expanded)', '  }', '  UNION {', '    world', '    +world(expanded)', '  }', '  EXACT {', '    what', '    what', '  }', '  UNION {', '    UNION {', '      hello', '      +hello(expanded)', '    }', '    UNION {', '      world', '      +world(expanded)', '    }', '  }', '  UNION {', '    NUMERIC {10.000000 <= @bar <= 100.000000}', '    NUMERIC {200.000000 <= @bar <= 300.000000}', '  }', '}', '']
     env.assertEqual(expected, res)
 
 def testNoIndex(env):
@@ -516,8 +536,8 @@ def testPartial(env):
                                     'fields', 'num', 3, 'extra', 'jorem gipsum'))
     res = r.execute_command(
         'ft.search', 'idx', 'hello world', 'sortby', 'num', 'desc',)
-    env.assertListEqual([2L, 'doc1', ['foo', 'hello world', 'num', '3', 'extra', 'jorem gipsum'],
-                          'doc2', ['foo', 'hello world', 'num', '2', 'extra', 'abba']], res)
+    assertResultsEqual(env, [2L, 'doc1', ['foo', 'hello world', 'num', '3', 'extra', 'jorem gipsum'],
+        'doc2', ['foo', 'hello world', 'num', '2', 'extra', 'abba']], res)
     res = r.execute_command(
         'ft.search', 'idx', 'hello', 'nocontent', 'withscores')
     # Updating only indexed field affects search results
@@ -644,6 +664,7 @@ def testSortBy(env):
             'ft.search', 'idx', 'world', 'nocontent', 'sortby', 'bar', 'asc')
         env.assertEqual([100L, 'doc99', 'doc98', 'doc97', 'doc96',
                           'doc95', 'doc94', 'doc93', 'doc92', 'doc91', 'doc90'], res)
+
         res = r.execute_command('ft.search', 'idx', 'world', 'nocontent',
                                 'sortby', 'bar', 'desc', 'withscores', 'limit', '2', '5')
         env.assertEqual(
@@ -858,6 +879,7 @@ def testGeo(env):
         env.assertEqual(len(hotels), res[0])
 
         res = gsearch('hilton', "-0.1757", "51.5156", '1')
+        print res
         env.assertEqual(3, res[0])
         env.assertEqual('hotel2', res[5])
         env.assertEqual('hotel21', res[3])
@@ -897,6 +919,38 @@ def testGeo(env):
             'heathrow', -0.44155, 51.45865, '5', 'km')
         env.assertListEqual(res, res2)
 
+def testGeoDeletion(env):
+    if env.is_cluster():
+        raise unittest.SkipTest()
+        # Can't properly test if deleted on cluster
+
+    env.cmd('ft.create', 'idx', 'schema',
+            'g1', 'geo', 'g2', 'geo', 't1', 'text')
+    env.cmd('ft.add', 'idx', 'doc1', 1.0, 'fields',
+            'g1', "-0.1757,51.5156",
+            'g2', "-0.1757,51.5156",
+            't1', "hello")
+    env.cmd('ft.add', 'idx', 'doc2', 1.0, 'fields',
+            'g1', "-0.1757,51.5156",
+            'g2', "-0.1757,51.5156",
+            't1', "hello")
+    
+    # keys are: "geo:idx/g1" and "geo:idx/g2"
+    env.assertEqual(2, env.cmd('zcard', 'geo:idx/g1'))
+    env.assertEqual(2, env.cmd('zcard', 'geo:idx/g2'))
+    
+    # Remove the first doc
+    env.cmd('ft.del', 'idx', 'doc1')
+    env.assertEqual(1, env.cmd('zcard', 'geo:idx/g1'))
+    env.assertEqual(1, env.cmd('zcard', 'geo:idx/g2'))
+    
+    # Replace the other one:
+    env.cmd('ft.add', 'idx', 'doc2', 1.0,
+            'replace', 'fields',
+            't1', 'just text here')
+    env.assertEqual(0, env.cmd('zcard', 'geo:idx/g1'))
+    env.assertEqual(0, env.cmd('zcard', 'geo:idx/g2'))
+
 def testAddHash(env):
     if env.is_cluster():
         raise unittest.SkipTest()
@@ -920,7 +974,10 @@ def testAddHash(env):
     env.assertEqual("doc2", res[1])
 
     res = r.execute_command(
-        'ft.search', 'idx', "hello", "filter", "price", "0", "3")
+        'ft.search', 'idx',
+        "hello",
+        "filter", "price", "0", "3"
+        )
     env.assertEqual(3, len(res))
     env.assertEqual(1, res[0])
     env.assertEqual("doc1", res[1])
@@ -1070,9 +1127,11 @@ def testExpander(env):
         'ft.create', 'idx', 'schema', 'title', 'text'))
     env.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 0.5, 'fields',
                                     'title', 'hello kitty'))
-
     res = r.execute_command(
-        'ft.search', 'idx', 'kitties', "nocontent", "expander", "SBSTEM")
+        'ft.search', 'idx', 'kitties',
+        "nocontent",
+        "expander", "SBSTEM"
+        )
     env.assertEqual(2, len(res))
     env.assertEqual(1, res[0])
 
@@ -1273,6 +1332,9 @@ def testPayload(env):
 
 def testGarbageCollector(env):
     env.skipOnCluster()
+    if env.moduleArgs is not None and 'GC_POLICY FORK' in env.moduleArgs:
+        # this test is not relevent for fork gc cause its not cleaning the last block
+        raise unittest.SkipTest()
     N = 100
     r = env
     env.assertOk(r.execute_command(
@@ -1326,8 +1388,11 @@ def testGarbageCollector(env):
         env.assertEqual([0], res)
 
 def testReturning(env):
-    env.assertCmdOk('ft.create', 'idx', 'schema', 'f1',
-                     'text', 'f2', 'text', 'n1', 'numeric', 'f3', 'text')
+    env.assertCmdOk('ft.create', 'idx', 'schema',
+                     'f1', 'text',
+                     'f2', 'text',
+                     'n1', 'numeric', 'sortable',
+                     'f3', 'text')
     for i in range(10):
         env.assertCmdOk('ft.add', 'idx', 'DOC_{0}'.format(i), 1.0, 'fields',
                          'f2', 'val2', 'f1', 'val1', 'f3', 'val3',
@@ -1351,15 +1416,20 @@ def testReturning(env):
             env.assertEqual(field, fields[0])
             env.assertTrue(docname.startswith('DOC_'))
 
+    # Test that we don't return SORTBY fields if they weren't specified
+    # also in RETURN
+    res = env.cmd('ft.search', 'idx', 'val*', 'return', 1, 'f1',
+        'sortby', 'n1', 'ASC')
+    row = res[2]
+    # get the first result
+    env.assertEqual(['f1', 'val1'], row)
+
     # Test when field is not found
     res = env.cmd('ft.search', 'idx', 'val*', 'return', 1, 'nonexist')
     env.assertEqual(21, len(res))
     env.assertEqual(10, res[0])
-    for pair in grouper(res[1:], 2):
-        _, pair = pair
-        env.assertEqual(None, pair[1])
 
-    # Test that we don't crash if we're given the wrong number of fields
+    # # Test that we don't crash if we're given the wrong number of fields
     with env.assertResponseError():
         res = env.cmd('ft.search', 'idx', 'val*', 'return', 700, 'nonexist')
 
@@ -1381,11 +1451,11 @@ def _test_create_options_real(env, *options):
             i), 0.5, 'fields', 'f1', 'value for {}'.format(i))
 
     # Query
-    res = env.cmd('ft.search', 'idx', "value for 3")
-    if not has_offsets:
-        env.assertIsNone(res)
-    else:
-        env.assertIsNotNone(res)
+#     res = env.cmd('ft.search', 'idx', "value for 3")
+#     if not has_offsets:
+#         env.assertIsNone(res)
+#     else:
+#         env.assertIsNotNone(res)
 
     # Frequencies:
     env.assertCmdOk('ft.add', 'idx', 'doc100',
@@ -1412,7 +1482,7 @@ def _test_create_options_real(env, *options):
 def testCreationOptions(env):
     from itertools import combinations
     for x in range(1, 5):
-        for combo in combinations(('NOOFSETS', 'NOFREQS', 'NOFIELDS', ''), x):
+        for combo in combinations(('NOOFFSETS', 'NOFREQS', 'NOFIELDS', ''), x):
             _test_create_options_real(env, *combo)
 
 def testInfoCommand(env):
@@ -1581,12 +1651,11 @@ def testBinaryKeys(env):
     env.cmd('ft.create', 'idx', 'schema', 'txt', 'text')
     # Insert a document
     env.cmd('ft.add', 'idx', 'Hello', 1.0, 'fields', 'txt', 'NoBin match')
-    env.cmd('ft.add', 'idx', 'Hello\x00World',
-             1.0, 'fields', 'txt', 'Bin match')
+    env.cmd('ft.add', 'idx', 'Hello\x00World', 1.0, 'fields', 'txt', 'Bin match')
     for _ in env.reloading_iterator():
+        exp = [2L, 'Hello\x00World', ['txt', 'Bin match'], 'Hello', ['txt', 'NoBin match']]
         res = env.cmd('ft.search', 'idx', 'match')
-        env.assertEqual(res, [2L, 'Hello\x00World', [
-                         'txt', 'Bin match'], 'Hello', ['txt', 'NoBin match']])
+        env.assertEqual(exp, res)
 
 def testNonDefaultDb(env):
     if env.is_cluster():
@@ -1656,7 +1725,8 @@ def testSortbyMissingFieldSparse(env):
     env.cmd('ft.add', 'idx', 'doc1', 1.0, 'fields', 'lastName', 'mark')
     res = env.cmd('ft.search', 'idx', 'mark', 'WITHSORTKEYS', "SORTBY",
                    "firstName", "ASC", "limit", 0, 100)
-    env.assertEqual([1L, 'doc1', None, ['lastName', 'mark']], res)
+    # commented because we don't filter out exclusive sortby fields
+    # env.assertEqual([1L, 'doc1', None, ['lastName', 'mark']], res)
 
 def testLuaAndMulti(env):
     if env.is_cluster():
@@ -1704,6 +1774,39 @@ def testUninitSortvector(env):
     for x in range(10):
         env.broadcast('DEBUG RELOAD')
 
+
+def normalize_row(row):
+    return to_dict(row)
+
+
+def assertAggrowsEqual(env, exp, got):
+    env.assertEqual(exp[0], got[0])
+    env.assertEqual(len(exp), len(got))
+
+    # and now, it's just free form:
+    exp = sorted(to_dict(x) for x in exp[1:])
+    got = sorted(to_dict(x) for x in got[1:])
+    env.assertEqual(exp, got)
+
+def assertResultsEqual(env, exp, got, inorder=True):
+    from pprint import pprint
+    # pprint(exp)
+    # pprint(got)
+    env.assertEqual(exp[0], got[0])
+    env.assertEqual(len(exp), len(got))
+
+    exp = list(grouper(exp[1:], 2))
+    got = list(grouper(got[1:], 2))
+
+    for x in range(len(exp)):
+        exp_did, exp_fields = exp[x]
+        got_did, got_fields = got[x]
+        env.assertEqual(exp_did, got_did, message="at position {}".format(x))
+        got_fields = to_dict(got_fields)
+        exp_fields = to_dict(exp_fields)
+        env.assertEqual(exp_fields, got_fields, message="at position {}".format(x))
+
+
 def testAlterIndex(env):
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'f1', 'TEXT')
     env.cmd('FT.ADD', 'idx', 'doc1', 1.0, 'FIELDS', 'f1', 'hello', 'f2', 'world')
@@ -1721,10 +1824,10 @@ def testAlterIndex(env):
     for _ in env.retry_with_reload():
         # Test that sortable works
         res = env.cmd('FT.SEARCH', 'idx', 'hello', 'SORTBY', 'f3', 'DESC')
-        env.assertEqual(
-            [12, 'doc12', ['f1', 'hello', 'f3', 'val9'], 'doc11', ['f1', 'hello', 'f3', 'val8'], 'doc10', ['f1', 'hello', 'f3', 'val7'], 'doc9', ['f1', 'hello', 'f3', 'val6'], 'doc8', ['f1', 'hello', 'f3', 'val5'], 'doc7', [
-                'f1', 'hello', 'f3', 'val4'], 'doc6', ['f1', 'hello', 'f3', 'val3'], 'doc5', ['f1', 'hello', 'f3', 'val2'], 'doc4', ['f1', 'hello', 'f3', 'val1'], 'doc3', ['f1', 'hello', 'f3', 'val0']],
-            res)
+        exp = [12, 'doc12', ['f1', 'hello', 'f3', 'val9'], 'doc11', ['f1', 'hello', 'f3', 'val8'], 'doc10', ['f1', 'hello', 'f3', 'val7'], 'doc9', ['f1', 'hello', 'f3', 'val6'], 'doc8', ['f1', 'hello', 'f3', 'val5'], 'doc7', [
+                'f1', 'hello', 'f3', 'val4'], 'doc6', ['f1', 'hello', 'f3', 'val3'], 'doc5', ['f1', 'hello', 'f3', 'val2'], 'doc4', ['f1', 'hello', 'f3', 'val1'], 'doc3', ['f1', 'hello', 'f3', 'val0']]
+        
+        assertResultsEqual(env, exp, res)
 
     # Test that we can add a numeric field
     env.cmd('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'n1', 'NUMERIC')
@@ -1794,6 +1897,13 @@ def testIssue366_2(env):
     for _ in env.retry_with_reload():
         pass  #
 
+def testIssue654(env):
+    # Crashes during FILTER
+    env.cmd('ft.create', 'idx', 'schema', 'id', 'numeric')
+    env.cmd('ft.add', 'idx', 1, 1, 'fields', 'id', 1)
+    env.cmd('ft.add', 'idx', 2, 1, 'fields', 'id', 2)
+    res = env.cmd('ft.search', 'idx', '*', 'filter', '@version', 0, 2)
+
 def testReplaceReload(env):
     env.cmd('FT.CREATE', 'idx2', 'SCHEMA', 'textfield', 'TEXT', 'numfield', 'NUMERIC')
     # Create a document and then replace it.
@@ -1828,7 +1938,7 @@ def testIssue417(env):
         try:
             env.execute_command('FT.ADD', 'idx', 'doc1', '1.0', 'FIELDS', 't0', '1')
         except redis.ResponseError as e:
-            env.assertTrue('already in index' in e.message.lower())
+            env.assertTrue('already' in e.message.lower())
 
 # >FT.CREATE myIdx SCHEMA title TEXT WEIGHT 5.0 body TEXT url TEXT
 # >FT.ADD myIdx doc1 1.0 FIELDS title "hello world" body "lorem ipsum" url "www.google.com"
@@ -1852,11 +1962,81 @@ def testIssue446(env):
     rv = env.cmd('ft.search', 'myIdx', 'hello', 'limit', '0', '0')
     env.assertEqual([1], rv)
 
+    # Related - issue 635
+    env.cmd('ft.add', 'myIdx', 'doc2', '1.0', 'fields', 'title', 'hello')
+    rv = env.cmd('ft.search', 'myIdx', 'hello', 'limit', '0', '0')
+    env.assertEqual([2], rv)
+
+
 def testTimeoutSettings(env):
     env.cmd('ft.create', 'idx', 'schema', 't1', 'text')
     env.expect('ft.search', 'idx', '*', 'ON_TIMEOUT', 'BLAHBLAH').raiseError()
     env.expect('ft.search', 'idx', '*', 'ON_TIMEOUT', 'RETURN').notRaiseError()
     env.expect('ft.search', 'idx', '*', 'ON_TIMEOUT', 'FAIL').notRaiseError()
+
+def testAlias(env):
+    env.cmd('ft.create', 'idx', 'schema', 't1', 'text')
+    env.cmd('ft.create', 'idx2', 'schema', 't1', 'text')
+
+    env.cmd('ft.aliasAdd', 'myIndex', 'idx')
+    env.cmd('ft.add', 'myIndex', 'doc1', 1.0, 'fields', 't1', 'hello')
+    r = env.cmd('ft.search', 'idx', 'hello')
+    env.assertEqual([1, 'doc1', ['t1', 'hello']], r)
+    r2 = env.cmd('ft.search', 'myIndex', 'hello')
+    env.assertEqual(r, r2)
+
+    # try to add the same alias again; should be an error
+    env.expect('ft.aliasAdd', 'myIndex', 'idx2').raiseError()
+    env.expect('ft.aliasAdd', 'alias2', 'idx').notRaiseError()
+    # now delete the index
+    env.cmd('ft.drop', 'myIndex')
+
+    # index list should be cleared now. This can be tested by trying to alias
+    # the old alias to different index
+    env.cmd('ft.aliasAdd', 'myIndex', 'idx2')
+    env.cmd('ft.aliasAdd', 'alias2', 'idx2')
+    env.cmd('ft.add', 'myIndex', 'doc2', 1.0, 'fields', 't1', 'hello')
+    r = env.cmd('ft.search', 'alias2', 'hello')
+    env.assertEqual([1L, 'doc2', ['t1', 'hello']], r)
+
+    # check that aliasing one alias to another returns an error. This will
+    # end up being confusing
+    env.expect('ft.aliasAdd', 'alias3', 'myIndex').raiseError()
+
+    # check that deleting the alias works as expected
+    env.expect('ft.aliasDel', 'myIndex').notRaiseError()
+    env.expect('ft.search', 'myIndex', 'foo').raiseError()
+    
+    # create a new index and see if we can use the old name
+    env.cmd('ft.create', 'idx3', 'schema', 't1', 'text')
+    env.cmd('ft.add', 'idx3', 'doc3', 1.0, 'fields', 't1', 'foo')
+    env.cmd('ft.aliasAdd', 'myIndex', 'idx3')
+    # also, check that this works in rdb save
+    for _ in env.retry_with_rdb_reload():
+        r = env.cmd('ft.search', 'myIndex', 'foo')
+        env.assertEqual([1L, 'doc3', ['t1', 'foo']], r)
+
+    # Check that we can move an alias from one index to another
+    env.cmd('ft.aliasUpdate', 'myIndex', 'idx2')
+    r = env.cmd('ft.search', 'myIndex', "hello")
+    env.assertEqual([1L, 'doc2', ['t1', 'hello']], r)
+
+    # Test that things like ft.get, ft.aggregate, etc. work
+    r = env.cmd('ft.get', 'myIndex', 'doc2')
+    env.assertEqual(['t1', 'hello'], r)
+
+    r = env.cmd('ft.aggregate', 'myIndex', 'hello', 'LOAD', '1', '@t1')
+    env.assertEqual([1, ['t1', 'hello']], r)
+
+    r = env.cmd('ft.del', 'myIndex', 'doc2')
+    env.assertEqual(1, r)
+
+def testNoCreate(env):
+    env.cmd('ft.create', 'idx', 'schema', 'f1', 'text')
+    env.expect('ft.add', 'idx', 'doc1', 1, 'nocreate', 'fields', 'f1', 'hello').raiseError()
+    env.expect('ft.add', 'idx', 'doc1', 1, 'replace', 'nocreate', 'fields', 'f1', 'hello').raiseError()
+    env.expect('ft.add', 'idx', 'doc1', 1, 'replace', 'fields', 'f1', 'hello').notRaiseError()
+    env.expect('ft.add', 'idx', 'doc1', 1, 'replace', 'nocreate', 'fields', 'f1', 'world').notRaiseError()
 
 # Standalone functionality
 def testIssue484(env):
@@ -1887,8 +2067,10 @@ def testIssue484(env):
         'load', '2', '@color', '@categoryid',
         'APPLY', 'split(format("%s-%s",@color,@categoryid),"-")', 'as', 'value',
         'GROUPBY', '1', '@value',
-        'REDUCE', 'COUNT', '0', 'as', 'value_count')
+        'REDUCE', 'COUNT', '0', 'as', 'value_count',
+        'SORTBY', '4', '@value_count', 'DESC', '@value', 'ASC')
     expected = [6, ['value', 'white', 'value_count', '2'], ['value', 'cars', 'value_count', '2'], ['value', 'small cars', 'value_count', '1'], ['value', 'blue', 'value_count', '2'], ['value', 'Big cars', 'value_count', '2'], ['value', 'green', 'value_count', '1']]
+    assertAggrowsEqual(env, expected, res)
     for var in expected:
         env.assertIn(var, res)
 
@@ -1900,6 +2082,185 @@ def testIssue501(env):
         'TERMS', 'INCLUDE', 'slang', 'TERMS', 'EXCLUDE', 'slang')
     env.assertEqual("qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq", rv[0][1])
     env.assertEqual([], rv[0][2])
+
+def testIssue589(env):
+    env.cmd('FT.CREATE', 'incidents', 'SCHEMA', 'report', 'TEXT')
+    env.cmd('FT.ADD', 'incidents', 'doc1', 1.0, 'FIELDS', 'report', 'report content')
+    env.expect('FT.SPELLCHECK', 'incidents', 'report :').error().contains("Syntax error at offset")
+
+def testIssue621(env):
+    env.expect('ft.create', 'test', 'SCHEMA', 'uuid', 'TAG', 'title', 'TEXT').equal('OK')
+    env.expect('ft.add', 'test', 'a', '1', 'REPLACE', 'PARTIAL', 'FIELDS', 'uuid', 'foo', 'title', 'bar').equal('OK')
+    env.expect('ft.add', 'test', 'a', '1', 'REPLACE', 'PARTIAL', 'FIELDS', 'title', 'bar').equal('OK')
+    env.expect('ft.search', 'test', '@uuid:{foo}').equal([1L, 'a', ['uuid', 'foo', 'title', 'bar']])
+
+# Server crash on doc names that conflict with index keys #666
+def testIssue666(env):
+    # We cannot reliably determine that any error will occur in cluster mode
+    # because of the key name
+    env.skipOnCluster()
+
+    env.cmd('ft.create', 'foo', 'schema', 'bar', 'text')
+    env.cmd('ft.add', 'foo', 'mydoc', 1, 'fields', 'bar', 'one two three')
+
+    # crashes here
+    with env.assertResponseError():
+        env.cmd('ft.add', 'foo', 'ft:foo/two', '1', 'fields', 'bar', 'four five six')
+    # try with replace:
+    with env.assertResponseError():
+        env.cmd('ft.add', 'foo', 'ft:foo/two', '1', 'REPLACE',
+            'FIELDS', 'bar', 'four five six')
+    with env.assertResponseError():
+        env.cmd('ft.add', 'foo', 'idx:foo', '1', 'REPLACE',
+            'FIELDS', 'bar', 'four five six')
+
+    env.cmd('ft.add', 'foo', 'mydoc1', 1, 'fields', 'bar', 'four five six')
+
+# 127.0.0.1:6379> flushdb
+# OK
+# 127.0.0.1:6379> ft.create foo SCHEMA bar text
+# OK
+# 127.0.0.1:6379> ft.add foo mydoc 1 FIELDS bar "one two three"
+# OK
+# 127.0.0.1:6379> keys *
+# 1) "mydoc"
+# 2) "ft:foo/one"
+# 3) "idx:foo"
+# 4) "ft:foo/two"
+# 5) "ft:foo/three"
+# 127.0.0.1:6379> ft.add foo "ft:foo/two" 1 FIELDS bar "four five six"
+# Could not connect to Redis at 127.0.0.1:6379: Connection refused
+
+def testPrefixDeletedExpansions(env):
+    env.skipOnCluster()
+
+    env.cmd('ft.create', 'idx', 'schema', 'txt1', 'text', 'tag1', 'tag')
+    # get the number of maximum expansions
+    maxexpansions = int(env.cmd('ft.config', 'get', 'MAXEXPANSIONS')[0][1])
+
+    for x in range(maxexpansions):
+        env.cmd('ft.add', 'idx', 'doc{}'.format(x), 1, 'fields',
+                'txt1', 'term{}'.format(x), 'tag1', 'tag{}'.format(x))
+    
+    for x in range(maxexpansions):
+        env.cmd('ft.del', 'idx', 'doc{}'.format(x))
+    
+    env.cmd('ft.add', 'idx', 'doc_XXX', 1, 'fields', 'txt1', 'termZZZ', 'tag1', 'tagZZZ')
+
+    # r = env.cmd('ft.search', 'idx', 'term*')
+    # print(r)
+    # r = env.cmd('ft.search', 'idx', '@tag1:{tag*}')
+    # print(r)
+
+    tmax = time.time() + 0.5  # 250ms max
+    iters = 0
+    while time.time() < tmax:
+        iters += 1
+        env.cmd('ft.debug', 'gc_forceinvoke', 'idx')
+        r = env.cmd('ft.search', 'idx', '@txt1:term* @tag1:{tag*}')
+        if r[0]:
+            break
+    
+    print 'did {} iterations'.format(iters)
+    r = env.cmd('ft.search', 'idx', '@txt1:term* @tag1:{tag*}')
+    env.assertEqual([1, 'doc_XXX', ['txt1', 'termZZZ', 'tag1', 'tagZZZ']], r)
+
+
+def testOptionalFilter(env):
+    env.cmd('ft.create', 'idx', 'schema', 't1', 'text')
+    for x in range(100):
+        env.cmd('ft.add', 'idx', 'doc_{}'.format(x), 1, 'fields', 't1', 'hello world word{}'.format(x))
+
+    print env.cmd('ft.explain', 'idx', '(~@t1:word20)')
+    # print(r)
+
+    r = env.cmd('ft.search', 'idx', '~(word20 => {$weight: 2.0})')
+    print(r)
+
+
+def testIssue736(env):
+    # 1. create the schema, we need a tag field
+    env.cmd('ft.create', 'idx', 'schema', 't1', 'text', 'n2', 'numeric', 't2', 'tag')
+    # 2. create a single document to initialize at least one RSAddDocumentCtx
+    env.cmd('ft.add', 'idx', 'doc1', 1, 'fields', 't1', 'hello', 't2', 'foo, bar')
+    # 3. create a second document with many filler fields to force a realloc:
+    extra_fields = []
+    for x in range(20):
+        extra_fields += ['nidx_fld{}'.format(x), 'val{}'.format(x)]
+    extra_fields += ['n2', 'not-a-number', 't2', 'random, junk']
+    with env.assertResponseError():
+        env.cmd('ft.add', 'idx', 'doc2', 1, 'fields', *extra_fields)
+
+def testCriteriaTesterDeactivated():
+    env = Env(moduleArgs='_MAX_RESULTS_TO_UNSORTED_MODE 1')
+    env.cmd('ft.create', 'idx', 'schema', 't1', 'text')
+    env.cmd('ft.add', 'idx', 'doc1', 1, 'fields', 't1', 'hello1 hey hello2')
+    env.cmd('ft.add', 'idx', 'doc2', 1, 'fields', 't1', 'hello2 hey')
+    env.cmd('ft.add', 'idx', 'doc3', 1, 'fields', 't1', 'hey')
+    env.expect('ft.search', 'idx', '(hey hello1)|(hello2 hey)').equal([2L, 'doc1', ['t1', 'hello1 hey hello2'], 'doc2', ['t1', 'hello2 hey']])
+
+def testIssue828(env):
+    env.cmd('ft.create', 'beers', 'SCHEMA',
+        'name', 'TEXT', 'PHONETIC', 'dm:en',
+        'style', 'TAG', 'SORTABLE',
+        'abv', 'NUMERIC', 'SORTABLE')
+    rv = env.cmd("FT.ADD", "beers", "802", "1.0",
+        "FIELDS", "index", "25", "abv", "0.049",
+        "name", "Hell or High Watermelon Wheat (2009)",
+        "style", "Fruit / Vegetable Beer")
+    env.assertEqual('OK', rv)
+
+def testIssue862(env):
+    env.cmd('ft.create', 'idx', 'SCHEMA', 'test', 'TEXT', 'SORTABLE')
+    rv = env.cmd("FT.ADD", "idx", "doc1", "1.0", "FIELDS", "test", "foo")
+    env.assertEqual('OK', rv)
+    rv = env.cmd("FT.SEARCH", "idx", "foo", 'WITHSORTKEYS')
+    env.assertEqual([1L, 'doc1', None, ['test', 'foo']], rv)
+
+def testIssue_884(env):
+    env.expect('FT.create', 'idx', 'STOPWORDS', '0', 'SCHEMA', 'title', 'text', 'weight',
+               '50', 'subtitle', 'text', 'weight', '10', 'author', 'text', 'weight',
+               '10', 'description', 'text', 'weight', '20').equal('OK')
+
+    env.expect('FT.ADD', 'idx', 'doc4', '1.0', 'FIELDS', 'title', 'mohsin conversation the conversation tahir').equal('OK')
+    env.expect('FT.ADD', 'idx', 'doc3', '1.0', 'FIELDS', 'title', 'Fareham Civilization Church - Sermons and conversations mohsin conversation the').equal('OK')
+    env.expect('FT.ADD', 'idx', 'doc2', '1.0', 'FIELDS', 'title', 'conversation the conversation - a drama about conversation, the science of conversation.').equal('OK')
+    env.expect('FT.ADD', 'idx', 'doc1', '1.0', 'FIELDS', 'title', 'mohsin conversation with the mohsin').equal('OK')
+
+    env.expect('FT.SEARCH', 'idx', '@title:(conversation) (@title:(conversation the conversation))=>{$inorder: true;$slop: 0}').equal(
+        [2L, 'doc2', ['title', 'conversation the conversation - a drama about conversation, the science of conversation.'], 'doc4', ['title', 'mohsin conversation the conversation tahir']])
+
+def testIssue_866(env):
+    env.expect('ft.sugadd', 'sug', 'test123', '1').equal(1)
+    env.expect('ft.sugadd', 'sug', 'test456', '1').equal(2)
+    env.expect('ft.sugdel', 'sug', 'test').equal(0)
+    env.expect('ft.sugget', 'sug', '').equal(['test123', 'test456'])
+
+def testIssue_848(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test1', 'TEXT', 'SORTABLE').equal('OK')
+    env.expect('FT.ADD', 'idx', 'doc1', '1.0', 'FIELDS', 'test1', 'foo').equal('OK')
+    env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'test2', 'TEXT', 'SORTABLE').equal('OK')
+    env.expect('FT.ADD', 'idx', 'doc2', '1.0', 'FIELDS', 'test1', 'foo', 'test2', 'bar').equal('OK')
+    env.expect('FT.SEARCH', 'idx', 'foo', 'SORTBY', 'test2', 'ASC').equal([2L, 'doc2', ['test2', 'bar', 'test1', 'foo'], 'doc1', ['test1', 'foo']])
+
+def testMod_309(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
+    for i in range(100000):
+        env.expect('FT.ADD', 'idx', 'doc%d'%i, '1.0', 'FIELDS', 'test', 'foo').equal('OK')
+    res = env.cmd('FT.AGGREGATE', 'idx', 'foo')
+    env.assertEqual(len(res), 100001)
+
+def testIssue_865(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', '1', 'TEXT', 'SORTABLE').equal('OK')
+    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', '1', 'foo1').equal('OK')
+    env.expect('ft.add', 'idx', 'doc2', '1.0', 'FIELDS', '1', 'foo2').equal('OK')
+    env.expect('ft.search', 'idx', 'foo*', 'SORTBY', '1', 'ASC').equal([2, 'doc1', ['1', 'foo1'], 'doc2', ['1', 'foo2']])
+    env.expect('ft.search', 'idx', 'foo*', 'SORTBY', '1', 'DESC').equal([2, 'doc2', ['1', 'foo2'], 'doc1', ['1', 'foo1']])
+    env.expect('ft.search', 'idx', 'foo*', 'SORTBY', '1', 'bad').error()
+    env.expect('ft.search', 'idx', 'foo*', 'SORTBY', 'bad', 'bad').error()
+    env.expect('ft.search', 'idx', 'foo*', 'SORTBY', 'bad').error()
+    env.expect('ft.search', 'idx', 'foo*', 'SORTBY').error()
+
 
 def grouper(iterable, n, fillvalue=None):
     "Collect data into fixed-length chunks or blocks"

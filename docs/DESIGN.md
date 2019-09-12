@@ -16,7 +16,7 @@ You simply call `RedisModule_StringTruncate` to resize a memory chunk to the siz
 
 We use this API in the module mainly to encode inverted indexes, and for other auxiliary data structures besides that. 
 
-A generic "Buffer" implementation using DMA strings can be found in [redis_buffer.c](https://github.com/RedisLabsModules/RediSearch/blob/master/src/redis_buffer.c). It automatically resizes the Redis string it uses as raw memory when the capacity needs to grow.
+A generic "Buffer" implementation using DMA strings can be found in [redis_buffer.c](https://github.com/RediSearch/RediSearch/blob/master/src/redis_buffer.c). It automatically resizes the Redis string it uses as raw memory when the capacity needs to grow.
  
 ## Inverted index encoding
 

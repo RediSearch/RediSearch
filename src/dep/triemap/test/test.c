@@ -121,7 +121,7 @@ void testRandomWalk() {
 
   for (int i = 0; i < N; i++) {
     sprintf(buf, "key%d", i);
-    TrieMap_Add(tm, buf, strlen(buf), strdup(buf), NULL);
+    TrieMap_Add(tm, buf, strlen(buf), rm_strdup(buf), NULL);
   }
   char *sbuf;
   tm_len_t len;

@@ -117,6 +117,7 @@ void FragmentList_FragmentizeBuffer(FragmentList *fragList, const char *doc, Ste
   while (tokenizer->Next(tokenizer, &tokInfo)) {
     extractToken(fragList, &tokInfo, terms, numTerms);
   }
+  tokenizer->Free(tokenizer);
 }
 
 static void addToIov(const char *s, size_t n, Array *b) {
@@ -222,7 +223,7 @@ char *FragmentList_HighlightWholeDocS(const FragmentList *fragList, const Highli
     docLen += iovs[ii].iov_len;
   }
 
-  char *docBuf = malloc(docLen + 1);
+  char *docBuf = rm_malloc(docLen + 1);
   docBuf[docLen] = '\0';
 
   assert(docBuf);
@@ -250,7 +251,7 @@ static void FragmentList_Sort(FragmentList *fragList) {
   }
 
   const Fragment *origFrags = FragmentList_GetFragments(fragList);
-  fragList->sortedFrags = malloc(sizeof(*fragList->sortedFrags) * fragList->numFrags);
+  fragList->sortedFrags = rm_malloc(sizeof(*fragList->sortedFrags) * fragList->numFrags);
 
   for (size_t ii = 0; ii < fragList->numFrags; ++ii) {
     fragList->sortedFrags[ii] = origFrags + ii;
@@ -348,7 +349,7 @@ void FragmentList_HighlightFragments(FragmentList *fragList, const HighlightTags
   niovs = Min(niovs, fragList->numFrags);
 
   if (!fragList->scratchFrags) {
-    fragList->scratchFrags = malloc(sizeof(*fragList->scratchFrags) * fragList->numFrags);
+    fragList->scratchFrags = rm_malloc(sizeof(*fragList->scratchFrags) * fragList->numFrags);
   }
   const Fragment **indexes = fragList->scratchFrags;
 
@@ -399,8 +400,8 @@ void FragmentList_Free(FragmentList *fragList) {
     Array_Free(&frags[ii].termLocs);
   }
   Array_Free(&fragList->frags);
-  free(fragList->sortedFrags);
-  free(fragList->scratchFrags);
+  rm_free(fragList->sortedFrags);
+  rm_free(fragList->scratchFrags);
 }
 
 /**

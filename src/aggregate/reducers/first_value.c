@@ -1,92 +1,120 @@
 #include <aggregate/reducer.h>
 
-struct firstValueCtx {
-  RSKey property;
-  RSKey sortBy;
-  RSSortingTable *sortables;
-  RSValue value;
-  RSValue sortValue;
+typedef struct {
+  const RLookupKey *retprop;   // The key to return
+  const RLookupKey *sortprop;  // The key to sort by
+  RSValue *value;              // Value to return
+  RSValue *sortval;            // Top sorted value
   int ascending;
-  int hasValue;
-};
+} fvCtx;
 
-struct firstValueParams {
-  const char *property;
-  const char *sortProperty;
+typedef struct {
+  Reducer base;
+  const RLookupKey *sortprop;  // The property the value is sorted by
   int ascending;
-};
+} FVReducer;
 
-static void *fv_NewInstance(ReducerCtx *ctx) {
-  struct firstValueParams *params = ctx->privdata;
-  BlkAlloc *ba = &ctx->alloc;
-  struct firstValueCtx *fv =
-      ReducerCtx_Alloc(ctx, sizeof(*fv), 1024 * sizeof(*fv));  // malloc(sizeof(*ctr));
-  fv->property = RS_KEY(RSKEY(params->property));
-  fv->sortBy = RS_KEY(RSKEY(params->sortProperty));
-  fv->sortables = SEARCH_CTX_SORTABLES(ctx->ctx);
-  fv->hasValue = 0;
-  fv->ascending = params->ascending;
-  RSValue_MakeReference(&fv->value, RS_NullVal());
-  RSValue_MakeReference(&fv->sortValue, RS_NullVal());
+static void *fvNewInstance(Reducer *rbase) {
+  FVReducer *parent = (FVReducer *)rbase;
+  BlkAlloc *ba = &parent->base.alloc;
+  fvCtx *fv = BlkAlloc_Alloc(ba, sizeof(*fv), 1024 * sizeof(*fv));  // malloc(sizeof(*ctr));
+  fv->retprop = parent->base.srckey;
+  fv->sortprop = parent->sortprop;
+  fv->ascending = parent->ascending;
 
+  fv->value = NULL;
+  fv->sortval = NULL;
   return fv;
 }
 
-static int fv_Add(void *ctx, SearchResult *res) {
-  struct firstValueCtx *fvx = ctx;
-  RSValue *sortval = SearchResult_GetValue(res, fvx->sortables, &fvx->sortBy);
-  RSValue *val = SearchResult_GetValue(res, fvx->sortables, &fvx->property);
-  if (RSValue_IsNull(sortval)) {
-    if (!fvx->hasValue) {
-      fvx->hasValue = 1;
-      RSValue_MakeReference(&fvx->value, val ? RSValue_MakePersistent(val) : RS_NullVal());
-    }
+static int fvAdd_noSort(Reducer *r, void *ctx, const RLookupRow *srcrow) {
+  fvCtx *fvx = ctx;
+  if (fvx->value) {
     return 1;
   }
 
-  int rc = (fvx->ascending ? -1 : 1) * RSValue_Cmp(sortval, &fvx->sortValue);
-  int isnull = RSValue_IsNull(&fvx->sortValue);
+  RSValue *val = RLookup_GetItem(fvx->retprop, srcrow);
+  if (!val) {
+    return 1;
+  }
+  fvx->value = RSValue_IncrRef(val);
+  return 1;
+}
 
-  if (!fvx->hasValue || (!isnull && rc > 0) || (isnull && rc < 0)) {
-    RSValue_Free(&fvx->sortValue);
-    RSValue_Free(&fvx->value);
-    RSValue_MakeReference(&fvx->sortValue, RSValue_MakePersistent(sortval));
-    RSValue_MakeReference(&fvx->value, val ? RSValue_MakePersistent(val) : RS_NullVal());
-    fvx->hasValue = 1;
+static int fvAdd_sort(Reducer *r, void *ctx, const RLookupRow *srcrow) {
+  fvCtx *fvx = ctx;
+  RSValue *val = RLookup_GetItem(fvx->retprop, srcrow);
+  if (!val) {
+    return 1;
+  }
+
+  RSValue *curSortval = RLookup_GetItem(fvx->sortprop, srcrow);
+  if (!curSortval) {
+    curSortval = &RS_StaticNull;
+  }
+
+  if (!fvx->sortval) {
+    // No current value: assign value and continue
+    fvx->value = RSValue_IncrRef(val);
+    fvx->sortval = RSValue_IncrRef(curSortval);
+    return 1;
+  }
+
+  int rc = (fvx->ascending ? -1 : 1) * RSValue_Cmp(curSortval, fvx->sortval);
+  int isnull = RSValue_IsNull(fvx->sortval);
+
+  if (!fvx->value || (!isnull && rc > 0) || (isnull && rc < 0)) {
+    RSVALUE_REPLACE(&fvx->sortval, curSortval);
+    RSVALUE_REPLACE(&fvx->value, val);
   }
 
   return 1;
 }
 
-static int fv_Finalize(void *ctx, const char *key, SearchResult *res) {
-  struct firstValueCtx *fvx = ctx;
-  RSFieldMap_Set(&res->fields, key, RSValue_Dereference(&fvx->value));
-
-  return 1;
+static RSValue *fvFinalize(Reducer *parent, void *ctx) {
+  fvCtx *fvx = ctx;
+  return RSValue_IncrRef(fvx->value);
 }
 
-static void fv_FreeInstance(void *p) {
-  struct firstValueCtx *fvx = p;
-  RSValue_Free(&fvx->value);
-  RSValue_Free(&fvx->sortValue);
+static void fvFreeInstance(Reducer *parent, void *p) {
+  fvCtx *fvx = p;
+  RSVALUE_CLEARVAR(fvx->value);
+  RSVALUE_CLEARVAR(fvx->sortval);
 }
 
+Reducer *RDCRFirstValue_New(const ReducerOptions *options) {
+  FVReducer *fvr = rm_calloc(1, sizeof(*fvr));
+  fvr->ascending = 1;
 
-Reducer *NewFirstValue(RedisSearchCtx *ctx, const char *key, const char *sortKey, int asc,
-                       const char *alias) {
+  if (!ReducerOpts_GetKey(options, &fvr->base.srckey)) {
+    rm_free(fvr);
+    return NULL;
+  }
 
-  struct firstValueParams *params = malloc(sizeof(*params));
-  params->property = key;
-  params->sortProperty = sortKey;
-  params->ascending = asc;
+  if (AC_AdvanceIfMatch(options->args, "BY")) {
+    // Get the next field...
+    if (!ReducerOptions_GetKey(options, &fvr->sortprop)) {
+      rm_free(fvr);
+      return NULL;
+    }
+    if (AC_AdvanceIfMatch(options->args, "ASC")) {
+      fvr->ascending = 1;
+    } else if (AC_AdvanceIfMatch(options->args, "DESC")) {
+      fvr->ascending = 0;
+    }
+  }
 
-  Reducer *r = NewReducer(ctx, params);
+  if (!ReducerOpts_EnsureArgsConsumed(options)) {
+    rm_free(fvr);
+    return NULL;
+  }
 
-  r->Add = fv_Add;
-  r->Finalize = fv_Finalize;
-  r->Free = Reducer_GenericFree;
-  r->FreeInstance = fv_FreeInstance;
-  r->NewInstance = fv_NewInstance;
-  r->alias = FormatAggAlias(alias, "first_value", key);
-  return r;
+  Reducer *rbase = &fvr->base;
+
+  rbase->Add = fvr->sortprop ? fvAdd_sort : fvAdd_noSort;
+  rbase->Finalize = fvFinalize;
+  rbase->Free = Reducer_GenericFree;
+  rbase->FreeInstance = fvFreeInstance;
+  rbase->NewInstance = fvNewInstance;
+  return rbase;
 }

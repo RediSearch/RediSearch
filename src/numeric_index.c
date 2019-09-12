@@ -106,7 +106,7 @@ double NumericRange_Split(NumericRange *n, NumericRangeNode **lp, NumericRangeNo
                     MIN(NR_MAXRANGE_CARD, 1 + n->splitCard * NR_EXPONENT));
 
   RSIndexResult *res = NULL;
-  IndexReader *ir = NewNumericReader(n->entries, NULL);
+  IndexReader *ir = NewNumericReader(NULL, n->entries, NULL);
   while (INDEXREAD_OK == IR_Read(ir, &res)) {
     NumericRange_Add(res->num.value < split ? (*lp)->range : (*rp)->range, res->docId,
                      res->num.value, 1);
@@ -122,13 +122,13 @@ double NumericRange_Split(NumericRange *n, NumericRangeNode **lp, NumericRangeNo
 
 NumericRangeNode *NewLeafNode(size_t cap, double min, double max, size_t splitCard) {
 
-  NumericRangeNode *n = RedisModule_Alloc(sizeof(NumericRangeNode));
+  NumericRangeNode *n = rm_malloc(sizeof(NumericRangeNode));
   n->left = NULL;
   n->right = NULL;
   n->value = 0;
 
   n->maxDepth = 0;
-  n->range = RedisModule_Alloc(sizeof(NumericRange));
+  n->range = rm_malloc(sizeof(NumericRange));
 
   *n->range = (NumericRange){.minVal = min,
                              .maxVal = max,
@@ -136,7 +136,7 @@ NumericRangeNode *NewLeafNode(size_t cap, double min, double max, size_t splitCa
                              .card = 0,
                              .splitCard = splitCard,
                              .values = array_new(CardinalityValue, 1),
-                             //.values = RedisModule_Calloc(splitCard, sizeof(CardinalityValue)),
+                             //.values = rm_calloc(splitCard, sizeof(CardinalityValue)),
                              .entries = NewInvertedIndex(Index_StoreNumeric, 1)};
   return n;
 }
@@ -162,7 +162,7 @@ int NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value) {
       if (++n->maxDepth > NR_MAX_DEPTH && n->range) {
         InvertedIndex_Free(n->range->entries);
         array_free(n->range->values);
-        RedisModule_Free(n->range);
+        rm_free(n->range);
         n->range = NULL;
       }
 
@@ -261,14 +261,14 @@ void NumericRangeNode_Free(NumericRangeNode *n) {
   if (n->range) {
     InvertedIndex_Free(n->range->entries);
     array_free(n->range->values);
-    RedisModule_Free(n->range);
+    rm_free(n->range);
     n->range = NULL;
   }
 
   NumericRangeNode_Free(n->left);
   NumericRangeNode_Free(n->right);
 
-  RedisModule_Free(n);
+  rm_free(n);
 }
 
 uint16_t numericTreesUniqueId = 0;
@@ -276,7 +276,7 @@ uint16_t numericTreesUniqueId = 0;
 /* Create a new numeric range tree */
 NumericRangeTree *NewNumericRangeTree() {
 #define GC_NODES_INITIAL_SIZE 10
-  NumericRangeTree *ret = RedisModule_Alloc(sizeof(NumericRangeTree));
+  NumericRangeTree *ret = rm_malloc(sizeof(NumericRangeTree));
 
   ret->root = NewLeafNode(2, NF_NEGATIVE_INFINITY, NF_INFINITY, 2);
   ret->numEntries = 0;
@@ -328,24 +328,26 @@ void NumericRangeNode_Traverse(NumericRangeNode *n,
 
 void NumericRangeTree_Free(NumericRangeTree *t) {
   NumericRangeNode_Free(t->root);
-  RedisModule_Free(t);
+  rm_free(t);
 }
 
-IndexIterator *NewNumericRangeIterator(NumericRange *nr, NumericFilter *f) {
+IndexIterator *NewNumericRangeIterator(const IndexSpec *sp, NumericRange *nr,
+                                       const NumericFilter *f) {
 
   // if this range is at either end of the filter, we need to check each record
   if (NumericFilter_Match(f, nr->minVal) && NumericFilter_Match(f, nr->maxVal)) {
     // make the filter NULL so the reader will ignore it
     f = NULL;
   }
-  IndexReader *ir = NewNumericReader(nr->entries, f);
+  IndexReader *ir = NewNumericReader(sp, nr->entries, f);
 
   return NewReadIterator(ir);
 }
 
 /* Create a union iterator from the numeric filter, over all the sub-ranges in the tree that fit
  * the filter */
-IndexIterator *createNumericIterator(NumericRangeTree *t, NumericFilter *f) {
+IndexIterator *createNumericIterator(const IndexSpec *sp, NumericRangeTree *t,
+                                     const NumericFilter *f) {
 
   Vector *v = NumericRangeTree_Find(t, f->min, f->max);
   if (!v || Vector_Size(v) == 0) {
@@ -360,14 +362,14 @@ IndexIterator *createNumericIterator(NumericRangeTree *t, NumericFilter *f) {
   if (n == 1) {
     NumericRange *rng;
     Vector_Get(v, 0, &rng);
-    IndexIterator *it = NewNumericRangeIterator(rng, f);
+    IndexIterator *it = NewNumericRangeIterator(sp, rng, f);
     Vector_Free(v);
     return it;
   }
 
   // We create a  union iterator, advancing a union on all the selected range,
   // treating them as one consecutive range
-  IndexIterator **its = calloc(n, sizeof(IndexIterator *));
+  IndexIterator **its = rm_calloc(n, sizeof(IndexIterator *));
 
   for (size_t i = 0; i < n; i++) {
     NumericRange *rng;
@@ -376,7 +378,7 @@ IndexIterator *createNumericIterator(NumericRangeTree *t, NumericFilter *f) {
       continue;
     }
 
-    its[i] = NewNumericRangeIterator(rng, f);
+    its[i] = NewNumericRangeIterator(sp, rng, f);
   }
   Vector_Free(v);
 
@@ -393,26 +395,57 @@ RedisModuleString *fmtRedisNumericIndexKey(RedisSearchCtx *ctx, const char *fiel
                                         field);
 }
 
-struct indexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, NumericFilter *flt,
-                                               ConcurrentSearchCtx *csx) {
-  RedisModuleString *s = fmtRedisNumericIndexKey(ctx, flt->fieldName);
-  RedisModuleKey *key = RedisModule_OpenKey(ctx->redisCtx, s, REDISMODULE_READ);
-  if (!key || RedisModule_ModuleTypeGetType(key) != NumericIndexType) {
+static NumericRangeTree *openNumericKeysDict(RedisSearchCtx *ctx, RedisModuleString *keyName,
+                                             int write) {
+  KeysDictValue *kdv = dictFetchValue(ctx->spec->keysDict, keyName);
+  if (kdv) {
+    return kdv->p;
+  }
+  if (!write) {
     return NULL;
   }
-  NumericRangeTree *t = RedisModule_ModuleTypeGetValue(key);
+  kdv = rm_calloc(1, sizeof(*kdv));
+  kdv->dtor = (void (*)(void *))NumericRangeTree_Free;
+  kdv->p = NewNumericRangeTree();
+  dictAdd(ctx->spec->keysDict, keyName, kdv);
+  return kdv->p;
+}
 
-  IndexIterator *it = createNumericIterator(t, flt);
+struct indexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const NumericFilter *flt,
+                                               ConcurrentSearchCtx *csx) {
+  RedisModuleString *s =
+      IndexSpec_GetFormattedKeyByName(ctx->spec, flt->fieldName, INDEXFLD_T_NUMERIC);
+  if (!s) {
+    return NULL;
+  }
+  RedisModuleKey *key = NULL;
+  NumericRangeTree *t = NULL;
+  if (!ctx->spec->keysDict) {
+    key = RedisModule_OpenKey(ctx->redisCtx, s, REDISMODULE_READ);
+    if (!key || RedisModule_ModuleTypeGetType(key) != NumericIndexType) {
+      return NULL;
+    }
+
+    t = RedisModule_ModuleTypeGetValue(key);
+  } else {
+    t = openNumericKeysDict(ctx, s, 0);
+  }
+
+  if (!t) {
+    return NULL;
+  }
+
+  IndexIterator *it = createNumericIterator(ctx->spec, t, flt);
   if (!it) {
     return NULL;
   }
 
-  NumericUnionCtx *uc = malloc(sizeof(*uc));
-  uc->lastRevId = t->revisionId;
-  uc->it = it;
   if (csx) {
-    ConcurrentSearch_AddKey(csx, key, REDISMODULE_READ, s, NumericRangeIterator_OnReopen, uc, free,
-                            ConcurrentKey_SharedNothing);
+    NumericUnionCtx *uc = rm_malloc(sizeof(*uc));
+    uc->lastRevId = t->revisionId;
+    uc->it = it;
+    ConcurrentSearch_AddKey(csx, key, REDISMODULE_READ, s, NumericRangeIterator_OnReopen, uc,
+                            rm_free);
   }
   return it;
 }
@@ -420,27 +453,31 @@ struct indexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, NumericFilte
 NumericRangeTree *OpenNumericIndex(RedisSearchCtx *ctx, RedisModuleString *keyName,
                                    RedisModuleKey **idxKey) {
 
-  RedisModuleKey *key_s = NULL;
-
-  if (!idxKey) {
-    idxKey = &key_s;
-  }
-
-  *idxKey = RedisModule_OpenKey(ctx->redisCtx, keyName, REDISMODULE_READ | REDISMODULE_WRITE);
-
-  int type = RedisModule_KeyType(*idxKey);
-  if (type != REDISMODULE_KEYTYPE_EMPTY &&
-      RedisModule_ModuleTypeGetType(*idxKey) != NumericIndexType) {
-    return NULL;
-  }
-
-  /* Create an empty value object if the key is currently empty. */
   NumericRangeTree *t;
-  if (type == REDISMODULE_KEYTYPE_EMPTY) {
-    t = NewNumericRangeTree();
-    RedisModule_ModuleTypeSetValue((*idxKey), NumericIndexType, t);
+  if (!ctx->spec->keysDict) {
+    RedisModuleKey *key_s = NULL;
+
+    if (!idxKey) {
+      idxKey = &key_s;
+    }
+
+    *idxKey = RedisModule_OpenKey(ctx->redisCtx, keyName, REDISMODULE_READ | REDISMODULE_WRITE);
+
+    int type = RedisModule_KeyType(*idxKey);
+    if (type != REDISMODULE_KEYTYPE_EMPTY &&
+        RedisModule_ModuleTypeGetType(*idxKey) != NumericIndexType) {
+      return NULL;
+    }
+
+    /* Create an empty value object if the key is currently empty. */
+    if (type == REDISMODULE_KEYTYPE_EMPTY) {
+      t = NewNumericRangeTree();
+      RedisModule_ModuleTypeSetValue((*idxKey), NumericIndexType, t);
+    } else {
+      t = RedisModule_ModuleTypeGetValue(*idxKey);
+    }
   } else {
-    t = RedisModule_ModuleTypeGetValue(*idxKey);
+    t = openNumericKeysDict(ctx, keyName, 1);
   }
   return t;
 }
@@ -568,7 +605,7 @@ static void numericIndex_rdbSaveCallback(NumericRangeNode *n, void *ctx) {
   if (NumericRangeNode_IsLeaf(n) && n->range) {
     NumericRange *rng = n->range;
     RSIndexResult *res = NULL;
-    IndexReader *ir = NewNumericReader(rng->entries, NULL);
+    IndexReader *ir = NewNumericReader(NULL, rng->entries, NULL);
 
     while (INDEXREAD_OK == IR_Read(ir, &res)) {
       RedisModule_SaveUnsigned(rctx->rdb, res->docId);

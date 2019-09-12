@@ -9,25 +9,9 @@
 #include "byte_offsets.h"
 #include "rmutil/sds.h"
 
-// Simple pointer/size wrapper for a document key.
-typedef struct {
-  const char *str;
-  size_t len;
-} RSDocumentKey;
-
-// Returns a "DocumentKey" object suitable for use with the various DocTable
-// functions below. This returns a DocKey from a simple pointer/length pair
-static inline RSDocumentKey MakeDocKey(const char *key, size_t len) {
-  return (RSDocumentKey){.str = key, .len = len};
-}
-
-// This returns a DocumentKey from a RedisModuleString, curring out some boilerplate
-static inline RSDocumentKey MakeDocKeyR(RedisModuleString *s) {
-  size_t len;
-  const char *p = RedisModule_StringPtrLen(s, &len);
-  return MakeDocKey(p, len);
-}
-
+#ifdef __cplusplus
+extern "C" {
+#endif
 // Retrieves the pointer and length for the document's key.
 static inline const char *DMD_KeyPtrLen(const RSDocumentMetadata *dmd, size_t *len) {
   if (len) {
@@ -49,12 +33,12 @@ typedef struct {
 
 DocIdMap NewDocIdMap();
 /* Get docId from a did-map. Returns 0  if the key is not in the map */
-t_docId DocIdMap_Get(const DocIdMap *m, RSDocumentKey key);
+t_docId DocIdMap_Get(const DocIdMap *m, const char *s, size_t n);
 
 /* Put a new doc id in the map if it does not already exist */
-void DocIdMap_Put(DocIdMap *m, RSDocumentKey key, t_docId docId);
+void DocIdMap_Put(DocIdMap *m, const char *s, size_t n, t_docId docId);
 
-int DocIdMap_Delete(DocIdMap *m, RSDocumentKey key);
+int DocIdMap_Delete(DocIdMap *m, const char *s, size_t n);
 /* Free the doc id map */
 void DocIdMap_Free(DocIdMap *m);
 
@@ -68,14 +52,13 @@ void DocIdMap_Free(DocIdMap *m);
  * same key. This may result in document duplication in results  */
 
 typedef struct {
-  struct RSDocumentMetadata_s *first;
-  struct RSDocumentMetadata_s *last;
+  DLLIST2 lroot;
 } DMDChain;
 
 typedef struct {
   size_t size;
   // the maximum size this table is allowed to grow to
-  size_t maxSize;
+  t_docId maxSize;
   t_docId maxDocId;
   size_t cap;
   size_t memsize;
@@ -83,24 +66,22 @@ typedef struct {
 
   DMDChain *buckets;
   DocIdMap dim;
-
 } DocTable;
 
 /* increasing the ref count of the given dmd */
 #define DMD_Incref(md) \
   if (md) ++md->ref_count;
 
-#define DocTable_ForEach(dt, code)          \
-  for (size_t i = 1; i < dt->cap; ++i) {    \
-    DMDChain *chain = &dt->buckets[i];      \
-    if (DMDChain_IsEmpty(chain)) {          \
-      continue;                             \
-    }                                       \
-    RSDocumentMetadata *dmd = chain->first; \
-    while (dmd) {                           \
-      code;                                 \
-      dmd = dmd->next;                      \
-    }                                       \
+#define DOCTABLE_FOREACH(dt, code)                                           \
+  for (size_t i = 1; i < dt->cap; ++i) {                                     \
+    DMDChain *chain = &dt->buckets[i];                                       \
+    if (DLLIST2_IS_EMPTY(&chain->lroot)) {                                   \
+      continue;                                                              \
+    }                                                                        \
+    DLLIST2_FOREACH(it, &chain->lroot) {                                     \
+      RSDocumentMetadata *dmd = DLLIST_ITEM(it, RSDocumentMetadata, llnode); \
+      code;                                                                  \
+    }                                                                        \
   }
 
 /* Creates a new DocTable with a given capacity */
@@ -119,14 +100,14 @@ RSDocumentMetadata *DocTable_GetByKeyR(const DocTable *r, RedisModuleString *s);
  *
  * NOTE: Currently there is no deduplication on the table so we do not prevent dual insertion of the
  * same key. This may result in document duplication in results  */
-t_docId DocTable_Put(DocTable *t, RSDocumentKey key, double score, u_char flags,
+t_docId DocTable_Put(DocTable *t, const char *s, size_t n, double score, u_char flags,
                      const char *payload, size_t payloadSize);
 
 /* Get the "real" external key for an incremental i
  * If the document ID is not in the table, the returned key's `str` member will
  * be NULL
  */
-RSDocumentKey DocTable_GetKey(DocTable *t, t_docId docId);
+const char *DocTable_GetKey(DocTable *t, t_docId docId, size_t *n);
 
 /* Get the score for a document from the table. Returns 0 if docId is not in the table. */
 float DocTable_GetScore(DocTable *t, t_docId docId);
@@ -134,11 +115,6 @@ float DocTable_GetScore(DocTable *t, t_docId docId);
 /* Set the payload for a document. Returns 1 if we set the payload, 0 if we couldn't find the
  * document */
 int DocTable_SetPayload(DocTable *t, t_docId docId, const char *data, size_t len);
-
-/*
- * return true iff the given dmdChain holds no elements
- */
-int DMDChain_IsEmpty(const DMDChain *dmdChain);
 
 int DocTable_Exists(const DocTable *t, t_docId docId);
 
@@ -156,17 +132,34 @@ int DocTable_SetByteOffsets(DocTable *t, t_docId docId, RSByteOffsets *offsets);
 RSPayload *DocTable_GetPayload(DocTable *t, t_docId dodcId);
 
 /** Get the docId of a key if it exists in the table, or 0 if it doesnt */
-t_docId DocTable_GetId(const DocTable *dt, RSDocumentKey key);
+t_docId DocTable_GetId(const DocTable *dt, const char *s, size_t n);
+
+#define STRVARS_FROM_RSTRING(r) \
+  size_t n;                     \
+  const char *s = RedisModule_StringPtrLen(r, &n);
+
+static inline t_docId DocTable_GetIdR(const DocTable *dt, RedisModuleString *r) {
+  STRVARS_FROM_RSTRING(r);
+  return DocTable_GetId(dt, s, n);
+}
 
 /* Free the table and all the keys of documents */
 void DocTable_Free(DocTable *t);
 
-int DocTable_Delete(DocTable *t, RSDocumentKey key);
+int DocTable_Delete(DocTable *t, const char *key, size_t n);
+static inline int DocTable_DeleteR(DocTable *t, RedisModuleString *r) {
+  STRVARS_FROM_RSTRING(r);
+  return DocTable_Delete(t, s, n);
+}
 
-RSDocumentMetadata *DocTable_Pop(DocTable *t, RSDocumentKey key);
+RSDocumentMetadata *DocTable_Pop(DocTable *t, const char *s, size_t n);
+static inline RSDocumentMetadata *DocTable_PopR(DocTable *t, RedisModuleString *r) {
+  STRVARS_FROM_RSTRING(r);
+  return DocTable_Pop(t, s, n);
+}
 
 static inline RSDocumentMetadata *DocTable_GetByKey(DocTable *dt, const char *key) {
-  t_docId id = DocTable_GetId(dt, (RSDocumentKey){.str = key, .len = strlen(key)});
+  t_docId id = DocTable_GetId(dt, key, strlen(key));
   if (id == 0) {
     return NULL;
   }
@@ -189,4 +182,7 @@ void DocTable_RdbSave(DocTable *t, RedisModuleIO *rdb);
 /* Load the table from RDB */
 void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb, int encver);
 
+#ifdef __cplusplus
+}
+#endif
 #endif

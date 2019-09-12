@@ -6,6 +6,7 @@
 
 #include "parser.h"
 #include "expression.h"
+#include "exprast.h"
 
 #include "token.h"
 
@@ -257,7 +258,7 @@ RSExpr *RSExpr_Parse(const char *expr, size_t len, char **err) {
     .root = NULL,
     .ok = 1,
   };
-  void *pParser = RSExprParser_ParseAlloc(malloc);
+  void *pParser = RSExprParser_ParseAlloc(rm_malloc);
 
   
   int cs, act;
@@ -280,7 +281,7 @@ RSExpr *RSExpr_Parse(const char *expr, size_t len, char **err) {
     RSExpr_Free(ctx.root);
     ctx.root = NULL;
   }
-  RSExprParser_ParseFree(pParser, free);
+  RSExprParser_ParseFree(pParser, rm_free);
   if (err) {
     *err = ctx.errorMsg;
   }

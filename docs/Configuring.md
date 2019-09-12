@@ -1,6 +1,6 @@
 # Run-time configuration
 
-RediSearch supports a few run-time configuration options that should be determined when loading the module. In time more options will be added. 
+RediSearch supports a few run-time configuration options that should be determined when loading the module. In time more options will be added.
 
 ## Passing Configuration Options During Loading
 
@@ -26,7 +26,7 @@ $ redis-server --loadmodule ./redisearch.so OPT1 OPT2
 
 ## Setting Configuration Options In Run-Time
 
-As of v1.4.1, the [`FT.CONFIG`](/Commands/#ftconfig) allows setting some options during runtime. In addition, the command can be used to view the current run-time configuration options.
+As of v1.4.1, the [`FT.CONFIG`](Commands.md#ftconfig) allows setting some options during runtime. In addition, the command can be used to view the current run-time configuration options.
 
 # RediSearch configuration options
 
@@ -89,7 +89,7 @@ $ redis-server --loadmodule ./redisearch.so SAFEMODE
 
 ## EXTLOAD {file_name}
 
-If present, we try to load a RediSearch extension dynamic library from the specified file path. See [Extensions](/Extensions) for details.
+If present, we try to load a RediSearch extension dynamic library from the specified file path. See [Extensions](Extensions.md) for details.
 
 ### Default
 
@@ -169,7 +169,7 @@ $ redis-server --loadmodule ./redisearch.so MAXDOCTABLESIZE 3000000
 
 ## FRISOINI {file_name}
 
-If present, we load the custom Chinese dictionary from the specified path. See [Using custom dictionaries](/Chinese#using_custom_dictionaries) for more details.
+If present, we load the custom Chinese dictionary from the specified path. See [Using custom dictionaries](Chinese.md#using_custom_dictionaries) for more details.
 
 ### Default
 
@@ -183,7 +183,7 @@ $ redis-server --loadmodule ./redisearch.so FRISOINI /opt/dict/friso.ini
 
 ---
 
-## GC_SCANSIZE 
+## GC_SCANSIZE
 
 The garbage collection bulk size of the internal gc used for cleaning up the indexes.
 
@@ -201,19 +201,80 @@ $ redis-server --loadmodule ./redisearch.so GC_SCANSIZE 10
 
 ## GC_POLICY
 
-The policy for the garbage collector. Supported policies are:
+The policy for the garbage collector (GC). Supported policies are:
 
-* **DEFAULT**: the default policy.
-* **FORK**: uses a forked thread for garbage collection (v1.4.1 and above).
-
-!!! warning "The `FORK` garbage collection policy is considered an experimental feature, and should be used responsibly."
+* **FORK**:   uses a forked thread for garbage collection (v1.4.1 and above).
+              This is the default GC policy since version 1.6.1 and is ideal
+              for general purpose workloads.
+* **LEGACY**: Uses a synchronous, in-process fork. This is ideal for read-heavy
+              and append-heavy workloads with very few updates/deletes
 
 ### Default
 
-"default"
+"FORK"
 
 ### Example
 
 ```
-$ redis-server --loadmodule ./redisearch.so GC_POLICY DEFAULT
+$ redis-server --loadmodule ./redisearch.so GC_POLICY LEGACY
 ```
+
+### Notes
+
+* When the `GC_POLICY` is `FORK` it can be combined with the options below.
+
+## FORK_GC_RUN_INTERVAL
+
+Interval (in seconds) between two consecutive `fork GC` runs.
+
+### Default
+
+"30"
+
+### Example
+
+```
+$ redis-server --loadmodule ./redisearch.so GC_POLICY FORK FORK_GC_RUN_INTERVAL 60
+```
+
+### Notes
+
+* only to be combined with `GC_POLICY FORK`
+
+## FORK_GC_RETRY_INTERVAL
+
+Interval (in seconds) in which RediSearch will retry to run `fork GC` in case of a failure. Usually, a failure could happen when the redis fork api does not allow for more than one fork to be created at the same time.
+
+### Default
+
+"5"
+
+### Example
+
+```
+$ redis-server --loadmodule ./redisearch.so GC_POLICY FORK FORK_GC_RETRY_INTERVAL 10
+```
+
+### Notes
+
+* only to be combined with `GC_POLICY FORK`
+* added in v1.4.16
+
+## FORK_GC_CLEAN_THRESHOLD
+
+The `fork GC` will only start to clean when the number of not cleaned documents is exceeding this threshold, otherwise it will skip this run. The default value is zero for backwards compatibility.  However, it's highly recommended to change it to a higher number.
+
+### Default
+
+"0"
+
+### Example
+
+```
+$ redis-server --loadmodule ./redisearch.so GC_POLICY FORK FORK_GC_CLEAN_THRESHOLD 10000
+```
+
+### Notes
+
+* only to be combined with `GC_POLICY FORK`
+* added in v1.4.16

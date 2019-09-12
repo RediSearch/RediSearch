@@ -1,13 +1,15 @@
-[![CircleCI](https://circleci.com/gh/RedisLabsModules/RediSearch/tree/master.svg?style=svg)](https://circleci.com/gh/RedisLabsModules/RediSearch/tree/master)
+[![GitHub issues](https://img.shields.io/github/release/RediSearch/RediSearch.svg)](https://github.com/RediSearch/RediSearch/releases/latest)
+[![CircleCI](https://circleci.com/gh/RediSearch/RediSearch/tree/master.svg?style=svg)](https://circleci.com/gh/RediSearch/RediSearch/tree/master)
+[![Docker Cloud Build Status](https://img.shields.io/docker/cloud/build/redislabs/redisearch.svg)](https://hub.docker.com/r/redislabs/redisearch/builds/)
+[![Mailing List](https://img.shields.io/badge/Mailing%20List-RediSearch-blue)](https://groups.google.com/forum/#!forum/redisearch)
+[![Gitter](https://badges.gitter.im/RedisLabs/RediSearch.svg)](https://gitter.im/RedisLabs/RediSearch?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge)
 
 # RediSearch
 
 ### Full-Text search over Redis by RedisLabs
-![logo.png](docs/logo.png)
+<img src="docs/img/logo.svg" alt="logo" width="300"/>
 
 ### See Full Documentation at [https://oss.redislabs.com/redisearch/](https://oss.redislabs.com/redisearch/)
-
-### Latest Release: [1.4.2](https://github.com/RedisLabsModules/RediSearch/releases)
 
 # Overview
 
@@ -43,8 +45,9 @@ Official (Redis Labs) and community Clients:
 | PHP | [redisearch-php](https://github.com/ethanhann/redisearch-php) | Ethan Hann | MIT |
 | Ruby on Rails | [redi_search_rails](https://github.com/dmitrypol/redi_search_rails)  | Dmitry Polyakovsky | MIT | |
 | Ruby | [redisearch-rb](https://github.com/vruizext/redisearch-rb) | Victor Ruiz | MIT | |
+| Ruby | [redi_search](https://github.com/npezza93/redi_search) | Nick Pezza | MIT | Also works with Ruby on Rails |
 
-## Primary Features:
+## Features:
 
 * Full-Text indexing of multiple fields in documents.
 * Incremental indexing without performance loss.
@@ -52,13 +55,15 @@ Official (Redis Labs) and community Clients:
 * Field weights.
 * Complex boolean queries with AND, OR, NOT operators between sub-queries.
 * Prefix matching, fuzzy matching and exact phrase search in full-text queries.
+* Support for DM phonetic matching
 * Auto-complete suggestions (with fuzzy prefix suggestions).
 * Stemming based query expansion in [many languages](https://oss.redislabs.com/redisearch/Stemming/) (using [Snowball](http://snowballstem.org/)).
 * Support for logographic (Chinese, etc.) tokenization and querying (using [Friso](https://github.com/lionsoul2014/friso))
 * Limiting searches to specific document fields (up to 128 fields supported).
 * Numeric filters and ranges.
+* Lightweight tag fields for exact-match boolean queries
 * Geographical search utilizing Redis' own GEO commands.
-* A powerfull aggregations engine.
+* A powerful aggregations engine.
 * Supports any utf-8 encoded text.
 * Retrieve full document content or just ids.
 * Automatically index existing HASH keys as documents.
@@ -69,10 +74,6 @@ Official (Redis Labs) and community Clients:
 
 RediSearch has a distributed cluster version that can scale to billions of documents and hundreds of servers. However, at the moment it is only available as part of Redis Labs Enterprise. See the [Redis Labs Website](https://redislabs.com/modules/redisearch/) for more info and contact information.
 
-### Not *yet* supported:
-
-* Spelling correction
-
 ### License
 
-Apache 2.0 with Commons Clause - see [LICENSE](LICENSE)
+ Redis Source Available License Agreement - see [LICENSE](LICENSE)

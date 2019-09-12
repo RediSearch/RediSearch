@@ -7,6 +7,12 @@
 #include "value.h"
 #include "geo_index.h"
 
+struct InvertedIndex;
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /**
  * A Tag Index is an index that indexes textual tags for documents, in a simple manner than a full
  * text index, although
@@ -98,26 +104,34 @@ RedisModuleString *TagIndex_FormatName(RedisSearchCtx *sctx, const char *field);
 /* Create a new tag index*/
 TagIndex *NewTagIndex();
 
+void TagIndex_Free(void *p);
+
+char *TagIndex_SepString(char sep, char **s, size_t *toklen);
+
 /* Preprocess a document tag field, returning a vector of all tags split from the content */
-char **TagIndex_Preprocess(const TagFieldOptions *opts, const DocumentField *data);
+char **TagIndex_Preprocess(char sep, TagFieldFlags flags, const DocumentField *data);
 
 static inline void TagIndex_FreePreprocessedData(char **s) {
-  array_foreach(s, tmpv, { free(tmpv); });
+  array_foreach(s, tmpv, { rm_free(tmpv); });
   array_free(s);
 }
 
 /* Index a vector of pre-processed tags for a docId */
-size_t TagIndex_Index(TagIndex *idx, char **values, t_docId docId);
+size_t TagIndex_Index(TagIndex *idx, const char **values, size_t n, t_docId docId);
 
 /* Open an index reader to iterate a tag index for a specific tag. Used at query evaluation time.
  * Returns NULL if there is no such tag in the index */
-IndexIterator *TagIndex_OpenReader(TagIndex *idx, DocTable *dt, const char *value, size_t len,
-                                   ConcurrentSearchCtx *csx, RedisModuleKey *k,
-                                   RedisModuleString *keyName, double weight);
+IndexIterator *TagIndex_OpenReader(TagIndex *idx, IndexSpec *sp, const char *value, size_t len,
+                                   double weight);
 
+void TagIndex_RegisterConcurrentIterators(TagIndex *idx, ConcurrentSearchCtx *conc,
+                                          RedisModuleKey *key, RedisModuleString *keyname,
+                                          array_t *iters);
 /* Open the tag index key in redis */
-TagIndex *TagIndex_Open(RedisModuleCtx *ctx, RedisModuleString *formattedKey, int openWrite,
+TagIndex *TagIndex_Open(RedisSearchCtx *sctx, RedisModuleString *formattedKey, int openWrite,
                         RedisModuleKey **keyp);
+
+struct InvertedIndex *TagIndex_OpenIndex(TagIndex *idx, const char *value, size_t len, int create);
 
 /* Serialize all the tags in the index to the redis client */
 void TagIndex_SerializeValues(TagIndex *idx, RedisModuleCtx *ctx);
@@ -127,4 +141,7 @@ extern RedisModuleType *TagIndexType;
 /* Register the tag index type in redis */
 int TagIndex_RegisterType(RedisModuleCtx *ctx);
 
+#ifdef __cplusplus
+}
+#endif
 #endif

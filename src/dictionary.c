@@ -1,8 +1,8 @@
 #include "dictionary.h"
 #include "redismodule.h"
+#include "rmalloc.h"
 
-Trie *SpellCheck_OpenDict(RedisModuleCtx *ctx, const char *dictName, int mode,
-                                 RedisModuleKey **k) {
+Trie *SpellCheck_OpenDict(RedisModuleCtx *ctx, const char *dictName, int mode, RedisModuleKey **k) {
   RedisModuleString *keyName = RedisModule_CreateStringPrintf(ctx, DICT_KEY_FMT, dictName);
 
   *k = RedisModule_OpenKey(ctx, keyName, mode);
@@ -29,8 +29,8 @@ Trie *SpellCheck_OpenDict(RedisModuleCtx *ctx, const char *dictName, int mode,
   return RedisModule_ModuleTypeGetValue(*k);
 }
 
-int Dictionary_Add(RedisModuleCtx *ctx, const char *dictName, RedisModuleString **values,
-                       int len, char **err) {
+int Dictionary_Add(RedisModuleCtx *ctx, const char *dictName, RedisModuleString **values, int len,
+                   char **err) {
   int valuesAdded = 0;
   RedisModuleKey *k = NULL;
   Trie *t = SpellCheck_OpenDict(ctx, dictName, REDISMODULE_WRITE, &k);
@@ -48,8 +48,8 @@ int Dictionary_Add(RedisModuleCtx *ctx, const char *dictName, RedisModuleString 
   return valuesAdded;
 }
 
-int Dictionary_Del(RedisModuleCtx *ctx, const char *dictName, RedisModuleString **values,
-                       int len, char **err) {
+int Dictionary_Del(RedisModuleCtx *ctx, const char *dictName, RedisModuleString **values, int len,
+                   char **err) {
   int valuesDeleted = 0;
   RedisModuleKey *k = NULL;
   Trie *t = SpellCheck_OpenDict(ctx, dictName, REDISMODULE_WRITE, &k);
@@ -93,10 +93,10 @@ int Dictionary_Dump(RedisModuleCtx *ctx, const char *dictName, char **err) {
   while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, &dist)) {
     char *res = runesToStr(rstr, slen, &termLen);
     RedisModule_ReplyWithStringBuffer(ctx, res, termLen);
-    free(res);
+    rm_free(res);
   }
   DFAFilter_Free(it->ctx);
-  free(it->ctx);
+  rm_free(it->ctx);
   TrieIterator_Free(it);
 
   RedisModule_CloseKey(k);
@@ -138,7 +138,6 @@ int DictDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   } else {
     RedisModule_ReplyWithLongLong(ctx, retVal);
   }
-
   return REDISMODULE_OK;
 }
 

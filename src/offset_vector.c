@@ -19,7 +19,7 @@ typedef struct {
 } _RSOffsetVectorIterator;
 
 typedef struct {
-  RSAggregateResult *res;
+  const RSAggregateResult *res;
   size_t size;
   RSOffsetIterator *iters;
   uint32_t *offsets;
@@ -34,8 +34,8 @@ uint32_t _ovi_Next(void *ctx, RSQueryTerm **t);
 void _ovi_Rewind(void *ctx);
 
 /* memory pool for buffer iterators */
-mempool_t *__offsetIters = NULL;
-mempool_t *__aggregateIters = NULL;
+static mempool_t *__offsetIters = NULL;
+static mempool_t *__aggregateIters = NULL;
 
 /* Free it */
 void _ovi_free(void *ctx) {
@@ -43,12 +43,14 @@ void _ovi_free(void *ctx) {
 }
 
 void *newOffsetIterator() {
-  return malloc(sizeof(_RSOffsetVectorIterator));
+  return rm_malloc(sizeof(_RSOffsetVectorIterator));
 }
 /* Create an offset iterator interface  from a raw offset vector */
-RSOffsetIterator _offsetVector_iterate(RSOffsetVector *v, RSQueryTerm *t) {
+RSOffsetIterator RSOffsetVector_Iterate(const RSOffsetVector *v, RSQueryTerm *t) {
   if (!__offsetIters) {
-    __offsetIters = mempool_new(8, newOffsetIterator, free);
+    mempool_options options = {
+        .isGlobal = 1, .initialCap = 8, .alloc = newOffsetIterator, .free = rm_free};
+    __offsetIters = mempool_new(&options);
   }
   _RSOffsetVectorIterator *it = mempool_get(__offsetIters);
   it->buf = (Buffer){.data = v->data, .offset = v->len, .cap = v->len};
@@ -64,30 +66,41 @@ uint32_t _aoi_Next(void *ctx, RSQueryTerm **term);
 void _aoi_Free(void *ctx);
 void _aoi_Rewind(void *ctx);
 
-void *_newAggregateIter() {
-  _RSAggregateOffsetIterator *it = malloc(sizeof(_RSAggregateOffsetIterator));
+static void *aggiterNew() {
+  _RSAggregateOffsetIterator *it = rm_malloc(sizeof(_RSAggregateOffsetIterator));
   it->size = 0;
   it->offsets = NULL;
   it->iters = NULL;
   it->terms = NULL;
   return it;
 }
+
+static void aggiterFree(void *p) {
+  _RSAggregateOffsetIterator *aggiter = p;
+  rm_free(aggiter->offsets);
+  rm_free(aggiter->iters);
+  rm_free(aggiter->terms);
+  rm_free(aggiter);
+}
+
 /* Create an iterator from the aggregate offset iterators of the aggregate result */
-RSOffsetIterator _aggregateResult_iterate(RSAggregateResult *agg) {
+static RSOffsetIterator _aggregateResult_iterate(const RSAggregateResult *agg) {
   if (!__aggregateIters) {
-    __aggregateIters = mempool_new(8, _newAggregateIter, free);
+    mempool_options opts = {
+        .isGlobal = 1, .initialCap = 8, .alloc = aggiterNew, .free = aggiterFree};
+    __aggregateIters = mempool_new(&opts);
   }
   _RSAggregateOffsetIterator *it = mempool_get(__aggregateIters);
   it->res = agg;
 
   if (agg->numChildren > it->size) {
     it->size = agg->numChildren;
-    free(it->iters);
-    free(it->offsets);
-    free(it->terms);
-    it->iters = calloc(agg->numChildren, sizeof(RSOffsetIterator));
-    it->offsets = calloc(agg->numChildren, sizeof(uint32_t));
-    it->terms = calloc(agg->numChildren, sizeof(RSQueryTerm *));
+    rm_free(it->iters);
+    rm_free(it->offsets);
+    rm_free(it->terms);
+    it->iters = rm_calloc(agg->numChildren, sizeof(RSOffsetIterator));
+    it->offsets = rm_calloc(agg->numChildren, sizeof(uint32_t));
+    it->terms = rm_calloc(agg->numChildren, sizeof(RSQueryTerm *));
   }
 
   for (int i = 0; i < agg->numChildren; i++) {
@@ -111,11 +124,11 @@ RSOffsetIterator _emptyIterator() {
 }
 
 /* Create the appropriate iterator from a result based on its type */
-RSOffsetIterator RSIndexResult_IterateOffsets(RSIndexResult *res) {
+RSOffsetIterator RSIndexResult_IterateOffsets(const RSIndexResult *res) {
 
   switch (res->type) {
     case RSResultType_Term:
-      return _offsetVector_iterate(&res->term.offsets, res->term.term);
+      return RSOffsetVector_Iterate(&res->term.offsets, res->term.term);
 
     // virtual and numeric entries have no offsets and cannot participate
     case RSResultType_Virtual:

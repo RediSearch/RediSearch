@@ -8,6 +8,7 @@
 #include <string.h>
 #include <redismodule.h>
 #include "util.h"
+#include "rmalloc.h"
 
 /**
 Check if an argument exists in an argument list (argv,argc), starting at offset.
@@ -53,8 +54,8 @@ RMUtilInfo *RMUtil_GetRedisInfo(RedisModuleCtx *ctx) {
   }
 
   int cap = 100;  // rough estimate of info lines
-  RMUtilInfo *info = malloc(sizeof(RMUtilInfo));
-  info->entries = calloc(cap, sizeof(RMUtilInfoEntry));
+  RMUtilInfo *info = rm_malloc(sizeof(RMUtilInfo));
+  info->entries = rm_calloc(cap, sizeof(RMUtilInfoEntry));
 
   int i = 0;
   size_t sz;
@@ -70,12 +71,12 @@ RMUtilInfo *RMUtil_GetRedisInfo(RedisModuleCtx *ctx) {
     }
 
     char *key = strsep(&line, ":");
-    info->entries[i].key = strdup(key);
-    info->entries[i].val = strdup(line);
+    info->entries[i].key = rm_strdup(key);
+    info->entries[i].val = rm_strdup(line);
     i++;
     if (i >= cap) {
       cap *= 2;
-      info->entries = realloc(info->entries, cap * sizeof(RMUtilInfoEntry));
+      info->entries = rm_realloc(info->entries, cap * sizeof(RMUtilInfoEntry));
     }
   }
   info->numEntries = i;
@@ -84,11 +85,11 @@ RMUtilInfo *RMUtil_GetRedisInfo(RedisModuleCtx *ctx) {
 }
 void RMUtilRedisInfo_Free(RMUtilInfo *info) {
   for (int i = 0; i < info->numEntries; i++) {
-    free(info->entries[i].key);
-    free(info->entries[i].val);
+    rm_free(info->entries[i].key);
+    rm_free(info->entries[i].val);
   }
-  free(info->entries);
-  free(info);
+  rm_free(info->entries);
+  rm_free(info);
 }
 
 int RMUtilInfo_GetInt(RMUtilInfo *info, const char *key, long long *val) {
@@ -301,9 +302,9 @@ int RMUtil_ReplyWithErrorFmt(RedisModuleCtx *ctx, const char *fmt, ...) {
   va_list ap;
   char *s = NULL;
   va_start(ap, fmt);
-  vasprintf(&s, fmt, ap);
+  rm_vasprintf(&s, fmt, ap);
   va_end(ap);
   RedisModule_ReplyWithError(ctx, s);
-  free(s);
+  rm_free(s);
   return REDISMODULE_OK;
 }

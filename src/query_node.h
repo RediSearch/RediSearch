@@ -2,6 +2,7 @@
 #define __QUERY_NODE_H__
 #include <stdlib.h>
 #include "redisearch.h"
+#include "query_error.h"
 //#include "numeric_index.h"
 
 struct RSQueryNode;
@@ -12,7 +13,7 @@ struct idFilter;
 /* The types of query nodes */
 typedef enum {
   /* Phrase (AND) node, exact or not */
-  QN_PHRASE,
+  QN_PHRASE = 1,
   /* Union (OR) Node */
   QN_UNION,
   /* Single token node */
@@ -43,38 +44,32 @@ typedef enum {
 
   /* Fuzzy term - expand with levenshtein distance */
   QN_FUZZY,
+
+  /* Lexical range */
+  QN_LEXRANGE,
+
+  /* Null term - take no action */
+  QN_NULL
 } QueryNodeType;
 
 /* A prhase node represents a list of nodes with intersection between them, or a phrase in the case
  * of several token nodes. */
 typedef struct {
-  struct RSQueryNode **children;
-  int numChildren;
   int exact;
-
 } QueryPhraseNode;
 
-/* A Union node represents a set of child nodes where the index unions the result between them */
+/**
+ * Query node used when the query is effectively null but not invalid. This
+ * might happen as a result of a query containing only stopwords.
+ */
 typedef struct {
-  struct RSQueryNode **children;
-  int numChildren;
-} QueryUnionNode;
+  int dummy;
+} QueryNullNode;
 
 typedef struct {
   const char *fieldName;
   size_t len;
-
-  struct RSQueryNode **children;
-  int numChildren;
 } QueryTagNode;
-
-typedef struct {
-  struct RSQueryNode *child;
-} QueryNotNode;
-
-typedef struct {
-  struct RSQueryNode *child;
-} QueryOptionalNode;
 
 /* A token node is a terminal, single term/token node. An expansion of synonyms is represented by a
  * Union node with several token nodes. A token can have private metadata written by expanders or
@@ -88,21 +83,26 @@ typedef struct {
   int maxDist;
 } QueryFuzzyNode;
 
-typedef struct {
-} QueryWildcardNode;
-
 /* A node with a numeric filter */
 typedef struct {
-  struct numericFilter *nf;
+  struct NumericFilter *nf;
 } QueryNumericNode;
 
 typedef struct {
-  struct geoFilter *gf;
+  const struct GeoFilter *gf;
 } QueryGeofilterNode;
 
 typedef struct {
-  struct idFilter *f;
+  t_docId *ids;
+  size_t len;
 } QueryIdFilterNode;
+
+typedef struct {
+  char *begin;
+  bool includeBegin;
+  char *end;
+  bool includeEnd;
+} QueryLexRangeNode;
 
 typedef enum {
   QueryNode_Verbatim = 0x01,
@@ -132,6 +132,8 @@ typedef struct {
   int phonetic;
 } QueryNodeOptions;
 
+typedef QueryNullNode QueryUnionNode, QueryNotNode, QueryOptionalNode;
+
 /* QueryNode reqresents any query node in the query tree. It has a type to resolve which node it
  * is, and a union of all possible nodes  */
 typedef struct RSQueryNode {
@@ -142,26 +144,30 @@ typedef struct RSQueryNode {
     QueryNumericNode nn;
     QueryGeofilterNode gn;
     QueryIdFilterNode fn;
-    QueryNotNode not;
+    QueryNotNode inverted;
     QueryOptionalNode opt;
     QueryPrefixNode pfx;
-    QueryWildcardNode wc;
     QueryTagNode tag;
     QueryFuzzyNode fz;
+    QueryLexRangeNode lxrng;
   };
 
   /* The node type, for resolving the union access */
   QueryNodeType type;
   QueryNodeOptions opts;
+  struct RSQueryNode **children;
 } QueryNode;
 
-int QueryNode_ApplyAttributes(QueryNode *qn, QueryAttribute *attr, size_t len, char **err);
+int QueryNode_ApplyAttributes(QueryNode *qn, QueryAttribute *attr, size_t len, QueryError *status);
 
-/* Add a child to a phrase node */
-void QueryPhraseNode_AddChild(QueryNode *parent, QueryNode *child);
+void QueryNode_AddChildren(QueryNode *parent, QueryNode **children, size_t n);
+void QueryNode_AddChild(QueryNode *parent, QueryNode *child);
+void QueryNode_ClearChildren(QueryNode *parent, int shouldFree);
 
-/* Add a child to a union node  */
-void QueryUnionNode_AddChild(QueryNode *parent, QueryNode *child);
+#define QueryNode_NumChildren(qn) ((qn)->children ? array_len((qn)->children) : 0)
+#define QueryNode_GetChild(qn, ix) (QueryNode_NumChildren(qn) > ix ? (qn)->children[ix] : NULL)
 
-void QueryTagNode_AddChildren(QueryNode *parent, QueryNode **children, size_t num);
+typedef int (*QueryNode_ForEachCallback)(QueryNode *node, QueryNode *q, void *ctx);
+int QueryNode_ForEach(QueryNode *q, QueryNode_ForEachCallback callback, void *ctx, int reverse);
+
 #endif

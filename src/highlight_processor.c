@@ -1,6 +1,4 @@
 #include "result_processor.h"
-#include "search_request.h"
-#include "highlight.h"
 #include "fragmenter.h"
 #include "value.h"
 #include "util/minmax.h"
@@ -8,9 +6,11 @@
 #include <ctype.h>
 
 typedef struct {
+  ResultProcessor base;
   int fragmentizeOptions;
   const FieldList *fields;
-} hlpContext;
+  const RLookup *lookup;
+} HlpProcessor;
 
 /**
  * Common parameters passed around for highlighting one or more fields within
@@ -19,16 +19,16 @@ typedef struct {
  */
 typedef struct {
   // Byte offsets, byte-wise
-  RSByteOffsets *byteOffsets;
+  const RSByteOffsets *byteOffsets;
 
   // Index result, which contains the term offsets (word-wise)
-  RSIndexResult *indexResult;
-
-  // in-out for search results
-  RSFieldMap **fields;
+  const RSIndexResult *indexResult;
 
   // Array used for in/out when writing fields. Optimization cache
   Array *iovsArr;
+
+  RLookupRow *row;
+
 } hlpDocContext;
 
 /**
@@ -40,10 +40,11 @@ typedef struct {
  * Returns true if the fragmentation succeeded, false otherwise.
  */
 static int fragmentizeOffsets(IndexSpec *spec, const char *fieldName, const char *fieldText,
-                              size_t fieldLen, RSIndexResult *indexResult,
-                              RSByteOffsets *byteOffsets, FragmentList *fragList, int options) {
+                              size_t fieldLen, const RSIndexResult *indexResult,
+                              const RSByteOffsets *byteOffsets, FragmentList *fragList,
+                              int options) {
   const FieldSpec *fs = IndexSpec_GetField(spec, fieldName, strlen(fieldName));
-  if (!fs || fs->type != FIELD_FULLTEXT) {
+  if (!fs || !FIELD_IS(fs, INDEXFLD_T_FULLTEXT)) {
     return 0;
   }
 
@@ -51,7 +52,7 @@ static int fragmentizeOffsets(IndexSpec *spec, const char *fieldName, const char
   RSOffsetIterator offsIter = RSIndexResult_IterateOffsets(indexResult);
   FragmentTermIterator fragIter = {NULL};
   RSByteOffsetIterator bytesIter;
-  if (RSByteOffset_Iterate(byteOffsets, fs->textOpts.id, &bytesIter) != REDISMODULE_OK) {
+  if (RSByteOffset_Iterate(byteOffsets, fs->ftId, &bytesIter) != REDISMODULE_OK) {
     goto done;
   }
 
@@ -99,12 +100,11 @@ static size_t trimTrailingSpaces(const char *s, size_t input) {
   return input;
 }
 
-static void normalizeSettings(const char *name, const ReturnedField *srcField,
-                              const ReturnedField *defaults, ReturnedField *out) {
+static void normalizeSettings(const ReturnedField *srcField, const ReturnedField *defaults,
+                              ReturnedField *out) {
   if (srcField == NULL) {
     // Global setting
     *out = *defaults;
-    out->name = (char *)name;
     return;
   }
 
@@ -123,7 +123,8 @@ static void normalizeSettings(const char *name, const ReturnedField *srcField,
   }
 
   out->mode |= defaults->mode | srcField->mode;
-  out->name = (char *)name;
+  out->name = srcField->name;
+  out->lookupKey = srcField->lookupKey;
 }
 
 // Called when we cannot fragmentize based on byte offsets.
@@ -141,7 +142,7 @@ static char *trimField(const ReturnedField *fieldInfo, const char *docStr, size_
   headLen = Min(headLen, *docLen);
 
   Array bufTmp;
-  Array_InitEx(&bufTmp, ArrayAlloc_LibC);
+  Array_InitEx(&bufTmp, ArrayAlloc_RM);
 
   Array_Write(&bufTmp, docStr, headLen);
   headLen = stripDuplicateSpaces(bufTmp.data, headLen);
@@ -159,8 +160,9 @@ static char *trimField(const ReturnedField *fieldInfo, const char *docStr, size_
   return ret;
 }
 
-static void summarizeField(IndexSpec *spec, const ReturnedField *fieldInfo, const char *fieldName,
-                           RSValue *returnedField, hlpDocContext *docParams, int options) {
+static RSValue *summarizeField(IndexSpec *spec, const ReturnedField *fieldInfo,
+                               const char *fieldName, const RSValue *returnedField,
+                               hlpDocContext *docParams, int options) {
 
   FragmentList frags;
   FragmentList_Init(&frags, 8, 6);
@@ -179,12 +181,12 @@ static void summarizeField(IndexSpec *spec, const ReturnedField *fieldInfo, cons
       // If summarizing is requested then trim the field so that the user isn't
       // spammed with a large blob of text
       char *summarized = trimField(fieldInfo, docStr, &docLen, frags.estAvgWordSize);
-      RSFieldMap_Set(docParams->fields, fieldName, RS_StringVal(summarized, docLen));
+      return RS_StringVal(summarized, docLen);
     } else {
       // Otherwise, just return the whole field, but without highlighting
     }
     FragmentList_Free(&frags);
-    return;
+    return NULL;
   }
 
   // Highlight only
@@ -192,9 +194,8 @@ static void summarizeField(IndexSpec *spec, const ReturnedField *fieldInfo, cons
     // No need to return snippets; just return the entire doc with relevant tags
     // highlighted.
     char *hlDoc = FragmentList_HighlightWholeDocS(&frags, &tags);
-    RSFieldMap_Set(docParams->fields, fieldName, RS_StringValC(hlDoc));
     FragmentList_Free(&frags);
-    return;
+    return RS_StringValC(hlDoc);
   }
 
   size_t numIovArr = Min(fieldInfo->summarizeSettings.numFrags, FragmentList_GetNumFrags(&frags));
@@ -207,7 +208,7 @@ static void summarizeField(IndexSpec *spec, const ReturnedField *fieldInfo, cons
 
   // Buffer to store concatenated fragments
   Array bufTmp;
-  Array_InitEx(&bufTmp, ArrayAlloc_LibC);
+  Array_InitEx(&bufTmp, ArrayAlloc_RM);
 
   for (size_t ii = 0; ii < numIovArr; ++ii) {
     Array *curIovs = docParams->iovsArr + ii;
@@ -232,15 +233,14 @@ static void summarizeField(IndexSpec *spec, const ReturnedField *fieldInfo, cons
   // need to strndup it.
   size_t hlLen;
   char *hlText = Array_Steal(&bufTmp, &hlLen);
-  RSFieldMap_Set(docParams->fields, fieldName, RS_StringVal(hlText, hlLen));
-
   Array_Free(&bufTmp);
   FragmentList_Free(&frags);
+  return RS_StringVal(hlText, hlLen);
 }
 
 static void resetIovsArr(Array **iovsArrp, size_t *curSize, size_t newSize) {
   if (*curSize < newSize) {
-    *iovsArrp = realloc(*iovsArrp, sizeof(**iovsArrp) * newSize);
+    *iovsArrp = rm_realloc(*iovsArrp, sizeof(**iovsArrp) * newSize);
   }
   for (size_t ii = 0; ii < *curSize; ++ii) {
     Array_Resize((*iovsArrp) + ii, 0);
@@ -251,95 +251,107 @@ static void resetIovsArr(Array **iovsArrp, size_t *curSize, size_t newSize) {
   *curSize = newSize;
 }
 
-static void processField(ResultProcessorCtx *ctx, hlpDocContext *docParams, ReturnedField *spec) {
+static void processField(HlpProcessor *hlpCtx, hlpDocContext *docParams, ReturnedField *spec) {
   const char *fName = spec->name;
-  RSValue *fieldValue = RSFieldMap_Get(*docParams->fields, fName);
+  const RSValue *fieldValue = RLookup_GetItem(spec->lookupKey, docParams->row);
 
-  // Check if we have the value for this field.
-  // TODO: Might this be 'RSValue_String' later on?
   if (fieldValue == NULL || !RSValue_IsString(fieldValue)) {
-    RSFieldMap_Set(docParams->fields, fName, RS_NullVal());
     return;
   }
-  hlpContext *hlpCtx = ctx->privdata;
-  summarizeField(RP_SPEC(ctx), spec, fName, fieldValue, docParams, hlpCtx->fragmentizeOptions);
+  RSValue *v = summarizeField(RP_SPEC(&hlpCtx->base), spec, fName, fieldValue, docParams,
+                              hlpCtx->fragmentizeOptions);
+  if (v) {
+    RLookup_WriteOwnKey(spec->lookupKey, docParams->row, v);
+  }
 }
 
-static RSIndexResult *getIndexResult(QueryProcessingCtx *ctx, t_docId docId) {
+static const RSIndexResult *getIndexResult(ResultProcessor *rp, t_docId docId) {
+  IndexIterator *it = QITR_GetRootFilter(rp->parent);
   RSIndexResult *ir = NULL;
-  if (ctx->rootFilter) {
-    ctx->rootFilter->Rewind(ctx->rootFilter->ctx);
-    if (INDEXREAD_OK != ctx->rootFilter->SkipTo(ctx->rootFilter->ctx, docId, &ir)) {
-      return NULL;
-    }
+  if (!it) {
+    return NULL;
+  }
+  it->Rewind(it->ctx);
+  if (INDEXREAD_OK != it->SkipTo(it->ctx, docId, &ir)) {
+    return NULL;
   }
   return ir;
 }
 
-static int hlp_Next(ResultProcessorCtx *ctx, SearchResult *r) {
-  int rc = ResultProcessor_Next(ctx->upstream, r, 0);
-  if (rc == RS_RESULT_EOF) {
+static int hlpNext(ResultProcessor *rbase, SearchResult *r) {
+  int rc = rbase->upstream->Next(rbase->upstream, r);
+  if (rc != RS_RESULT_OK) {
     return rc;
   }
 
+  HlpProcessor *hlp = (HlpProcessor *)rbase;
+
   // Get the index result for the current document from the root iterator.
   // The current result should not contain an index result
-  RSIndexResult *ir = r->indexResult ? r->indexResult : getIndexResult(ctx->qxc, r->docId);
+  const RSIndexResult *ir = r->indexResult ? r->indexResult : getIndexResult(rbase, r->docId);
 
   // we can't work withot the inex result, just return QUEUED
   if (!ir) {
-    return RS_RESULT_QUEUED;
+    return RS_RESULT_OK;
   }
 
   size_t numIovsArr = 0;
-
-  const hlpContext *hlpCtx = ctx->privdata;
-  const FieldList *fields = hlpCtx->fields;
-  RSDocumentMetadata *dmd = DocTable_Get(&RP_SPEC(ctx)->docs, r->docId);
+  const FieldList *fields = hlp->fields;
+  RSDocumentMetadata *dmd = r->dmd;
   if (!dmd) {
-    return RS_RESULT_QUEUED;
+    return RS_RESULT_OK;
   }
 
-  hlpDocContext docParams = {
-      .byteOffsets = dmd->byteOffsets, .fields = &r->fields, .iovsArr = NULL, .indexResult = ir};
+  hlpDocContext docParams = {.byteOffsets = dmd->byteOffsets,  // nl
+                             .iovsArr = NULL,
+                             .indexResult = ir,
+                             .row = &r->rowdata};
 
   if (fields->numFields) {
     for (size_t ii = 0; ii < fields->numFields; ++ii) {
-      if (fields->fields[ii].mode == SummarizeMode_None &&
-          fields->defaultField.mode == SummarizeMode_None) {
+      const ReturnedField *ff = fields->fields + ii;
+      if (ff->mode == SummarizeMode_None && fields->defaultField.mode == SummarizeMode_None) {
         // Ignore - this is a field for `RETURN`, not `SUMMARIZE`
         continue;
-      } else {
-        ReturnedField combinedSpec = {0};
-        normalizeSettings(fields->fields[ii].name, fields->fields + ii, &fields->defaultField,
-                          &combinedSpec);
-        resetIovsArr(&docParams.iovsArr, &numIovsArr, combinedSpec.summarizeSettings.numFrags);
-        processField(ctx, &docParams, &combinedSpec);
       }
+      ReturnedField combinedSpec = {0};
+      normalizeSettings(ff, &fields->defaultField, &combinedSpec);
+      resetIovsArr(&docParams.iovsArr, &numIovsArr, combinedSpec.summarizeSettings.numFrags);
+      processField(hlp, &docParams, &combinedSpec);
     }
   } else if (fields->defaultField.mode != SummarizeMode_None) {
-    for (size_t ii = 0; ii < r->fields->len; ++ii) {
+    for (const RLookupKey *k = hlp->lookup->head; k; k = k->next) {
+      if (k->flags & RLOOKUP_F_HIDDEN) {
+        continue;
+      }
       ReturnedField spec = {0};
-      normalizeSettings(r->fields->fields[ii].key, NULL, &fields->defaultField, &spec);
+      normalizeSettings(NULL, &fields->defaultField, &spec);
+      spec.lookupKey = k;
+      spec.name = k->name;
       resetIovsArr(&docParams.iovsArr, &numIovsArr, spec.summarizeSettings.numFrags);
-      processField(ctx, &docParams, &spec);
+      processField(hlp, &docParams, &spec);
     }
   }
   for (size_t ii = 0; ii < numIovsArr; ++ii) {
     Array_Free(&docParams.iovsArr[ii]);
   }
-  free(docParams.iovsArr);
+  rm_free(docParams.iovsArr);
   return RS_RESULT_OK;
 }
 
-ResultProcessor *NewHighlightProcessor(ResultProcessor *parent, RSSearchRequest *req) {
-  hlpContext *hlpCtx = calloc(1, sizeof(*hlpCtx));
-  hlpCtx->fields = &req->opts.fields;
-  if (req->opts.language && strcasecmp(req->opts.language, "chinese") == 0) {
-    hlpCtx->fragmentizeOptions = FRAGMENTIZE_TOKLEN_EXACT;
+static void hlpFree(ResultProcessor *p) {
+  rm_free(p);
+}
+
+ResultProcessor *RPHighlighter_New(const RSSearchOptions *searchopts, const FieldList *fields,
+                                   const RLookup *lookup) {
+  HlpProcessor *hlp = rm_calloc(1, sizeof(*hlp));
+  if (searchopts->language && strcasecmp(searchopts->language, "chinese") == 0) {
+    hlp->fragmentizeOptions = FRAGMENTIZE_TOKLEN_EXACT;
   }
-  ResultProcessor *rp = NewResultProcessor(parent, hlpCtx);
-  rp->Next = hlp_Next;
-  rp->Free = ResultProcessor_GenericFree;
-  return rp;
+  hlp->base.Next = hlpNext;
+  hlp->base.Free = hlpFree;
+  hlp->fields = fields;
+  hlp->lookup = lookup;
+  return &hlp->base;
 }

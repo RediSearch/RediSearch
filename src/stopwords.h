@@ -3,6 +3,9 @@
 
 #include <stdlib.h>
 #include "redismodule.h"
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 static const char *DEFAULT_STOPWORDS[] = {
     "a",    "is",    "the",   "an",   "and",  "are", "as",  "at",   "be",   "but",  "by",   "for",
@@ -16,10 +19,11 @@ struct StopWordList;
 #endif
 
 /* Check if a stopword list contains a term. The term must be already lowercased */
-int StopWordList_Contains(struct StopWordList *sl, const char *term, size_t len);
+int StopWordList_Contains(const struct StopWordList *sl, const char *term, size_t len);
 
 struct StopWordList *DefaultStopWordList();
 struct StopWordList *EmptyStopWordList();
+void StopWordList_FreeGlobals(void);
 
 /* Create a new stopword list from a list of redis strings */
 struct StopWordList *NewStopWordList(RedisModuleString **strs, size_t len);
@@ -40,4 +44,7 @@ void StopWordList_RdbSave(RedisModuleIO *rdb, struct StopWordList *sl);
 
 void StopWordList_Ref(struct StopWordList *sl);
 
+#ifdef __cplusplus
+}
+#endif
 #endif

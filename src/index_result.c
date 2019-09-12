@@ -116,7 +116,8 @@ void IndexResult_Print(RSIndexResult *r, int depth) {
   for (int i = 0; i < depth; i++) printf("  ");
 
   if (r->type == RSResultType_Term) {
-    printf("Term{%llu: %s},\n", (unsigned long long)r->docId, r->term.term ? r->term.term->str : "nil");
+    printf("Term{%llu: %s},\n", (unsigned long long)r->docId,
+           r->term.term ? r->term.term->str : "nil");
     return;
   }
   if (r->type == RSResultType_Virtual) {
@@ -127,7 +128,8 @@ void IndexResult_Print(RSIndexResult *r, int depth) {
     printf("Numeric{%llu:%f},\n", (unsigned long long)r->docId, r->num.value);
     return;
   }
-  printf("%s => %llu{ \n", r->type == RSResultType_Intersection ? "Inter" : "Union", (unsigned long long)r->docId);
+  printf("%s => %llu{ \n", r->type == RSResultType_Intersection ? "Inter" : "Union",
+         (unsigned long long)r->docId);
 
   for (int i = 0; i < r->agg.numChildren; i++) {
 
@@ -174,7 +176,7 @@ void IndexResult_Init(RSIndexResult *h) {
   }
 }
 
-int RSIndexResult_HasOffsets(RSIndexResult *res) {
+int RSIndexResult_HasOffsets(const RSIndexResult *res) {
   switch (res->type) {
     case RSResultType_Term:
       return res->term.offsets.len > 0;
@@ -219,7 +221,7 @@ void IndexResult_Free(RSIndexResult *r) {
   rm_free(r);
 }
 
-inline int RSIndexResult_IsAggregate(RSIndexResult *r) {
+inline int RSIndexResult_IsAggregate(const RSIndexResult *r) {
   return (r->type & RS_RESULT_AGGREGATE) != 0;
 }
 #define __absdelta(x, y) (x > y ? x - y : y - x)
@@ -229,12 +231,12 @@ e.g. if V1 is {2,4,8} and V2 is {0,5,12}, the distance is 1 - abs(4-5)
 @param vs a list of vector pointers
 @param num the size of the list
 */
-int IndexResult_MinOffsetDelta(RSIndexResult *r) {
+int IndexResult_MinOffsetDelta(const RSIndexResult *r) {
   if (!RSIndexResult_IsAggregate(r) || r->agg.numChildren <= 1) {
     return 1;
   }
 
-  RSAggregateResult *agg = &r->agg;
+  const RSAggregateResult *agg = &r->agg;
   int dist = 0;
   int num = agg->numChildren;
 

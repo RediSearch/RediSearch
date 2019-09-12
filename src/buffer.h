@@ -12,6 +12,23 @@
 #define BUFFER_FREEABLE 2    // if set, we free the buffer on Release
 #define BUFFER_LAZY_ALLOC 4  // only allocate memory in a buffer writer on the first write
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/**
+ * Simple wrapper over any kind of string
+ */
+typedef struct {
+  const char *s;
+  size_t n;
+} RString;
+
+/**
+ * This handy macro expands an RSTRING to 2 arguments, the buffer and the length.
+ */
+#define RSTRING_S_N(rs) (rs)->s, (rs)->n
+
 typedef struct Buffer {
   char *data;
   size_t cap;
@@ -48,6 +65,8 @@ static inline size_t Buffer_Read(BufferReader *br, void *data, size_t len) {
 }
 size_t Buffer_Seek(BufferReader *b, size_t offset);
 
+#define Buffer_ShrinkToSize(b) Buffer_Truncate(b, 0)
+
 static inline size_t BufferReader_Offset(const BufferReader *br) {
   return br->pos;
 }
@@ -60,9 +79,7 @@ static inline size_t Buffer_Offset(const Buffer *ctx) {
   return ctx->offset;
 }
 
-static inline int BufferReader_AtEnd(const BufferReader *br) {
-  return br->pos >= br->buf->offset;
-}
+#define BufferReader_AtEnd(br) ((br)->pos >= (br)->buf->offset)
 
 static inline size_t Buffer_Capacity(const Buffer *ctx) {
   return ctx->cap;
@@ -76,10 +93,7 @@ static inline int Buffer_AtEnd(const Buffer *ctx) {
 Skip forward N bytes, returning the resulting offset on success or the end
 position if where is outside bounds
 */
-static inline size_t Buffer_Skip(BufferReader *br, int bytes) {
-  br->pos += bytes;
-  return br->pos;
-}
+#define Buffer_Skip(br, n) ((br)->pos += (n))
 
 typedef struct {
   Buffer *buf;
@@ -146,9 +160,7 @@ static inline uint8_t Buffer_ReadU8(BufferReader *r) {
 BufferWriter NewBufferWriter(Buffer *b);
 BufferReader NewBufferReader(Buffer *b);
 
-static inline char *BufferReader_Current(BufferReader *b) {
-  return b->buf->data + b->pos;
-}
+#define BufferReader_Current(b) (b)->buf->data + (b)->pos
 
 static inline size_t BufferWriter_Offset(BufferWriter *b) {
   return b->pos - b->buf->data;
@@ -161,9 +173,10 @@ static inline char *BufferWriter_PtrAt(BufferWriter *b, size_t pos) {
 size_t BufferWriter_Seek(BufferWriter *b, size_t offset);
 size_t Buffer_WriteAt(BufferWriter *b, size_t offset, void *data, size_t len);
 
-Buffer *NewBuffer(size_t len);
-
 Buffer *Buffer_Wrap(char *data, size_t len);
 void Buffer_Free(Buffer *buf);
 
+#ifdef __cplusplus
+}
+#endif
 #endif

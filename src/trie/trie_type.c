@@ -12,13 +12,14 @@
 #include <time.h>
 #include <string.h>
 #include <limits.h>
+#include "rmalloc.h"
 
 Trie *NewTrie() {
-  Trie *tree = RedisModule_Alloc(sizeof(Trie));
+  Trie *tree = rm_malloc(sizeof(Trie));
   rune *rs = strToRunes("", 0);
   tree->root = __newTrieNode(rs, 0, 0, NULL, 0, 0, 0, 0);
   tree->size = 0;
-  free(rs);
+  rm_free(rs);
   return tree;
 }
 
@@ -39,36 +40,40 @@ typedef struct {
 } runeBuf;
 
 static inline rune *runeBufFill(const char *s, size_t n, runeBuf *buf, size_t *len) {
-  // Assume x2 growth.
-  *len = n * 2;
-  if (*len <= RUNE_STATIC_ALLOC_SIZE) {
-    buf->isDynamic = 0;
-    *len = strToRunesN(s, n, buf->u.s);
-    buf->u.s[*len] = 0;
-    return buf->u.s;
-  } else {
+  /**
+   * Assumption: the number of bytes in a utf8 string is always greater than the
+   * number of codepoints it can produce.
+   */
+  *len = n;
+  rune *target;
+  if (*len > RUNE_STATIC_ALLOC_SIZE) {
     buf->isDynamic = 1;
-    buf->u.p = strToRunes(s, len);
-    return buf->u.p;
+    target = buf->u.p = rm_malloc(((*len) + 1) * sizeof(rune));
+  } else {
+    buf->isDynamic = 0;
+    target = buf->u.s;
   }
+  *len = strToRunesN(s, n, target);
+  target[*len] = 0;
+  return target;
 }
 
 static inline void runeBufFree(runeBuf *buf) {
   if (buf->isDynamic) {
-    free(buf->u.p);
+    rm_free(buf->u.p);
   }
 }
 
 int Trie_InsertStringBuffer(Trie *t, const char *s, size_t len, double score, int incr,
                             RSPayload *payload) {
-  if (len > TRIE_MAX_STRING_LEN * sizeof(rune)) {
+  if (len > TRIE_INITIAL_STRING_LEN * sizeof(rune)) {
     return 0;
   }
   runeBuf buf;
   rune *runes = runeBufFill(s, len, &buf, &len);
   int rc;
 
-  if (runes && len && len < TRIE_MAX_STRING_LEN) {
+  if (runes && len && len < TRIE_INITIAL_STRING_LEN) {
     rc = TrieNode_Add(&t->root, runes, len, payload, (float)score, incr ? ADD_INCR : ADD_REPLACE);
     t->size += rc;
   } else {
@@ -82,23 +87,23 @@ int Trie_InsertStringBuffer(Trie *t, const char *s, size_t len, double score, in
 int Trie_Delete(Trie *t, const char *s, size_t len) {
 
   rune *runes = strToRunes(s, &len);
-  if (!runes || len > TRIE_MAX_STRING_LEN) {
+  if (!runes || len > TRIE_INITIAL_STRING_LEN) {
     return 0;
   }
   int rc = TrieNode_Delete(t->root, runes, len);
   t->size -= rc;
-  free(runes);
+  rm_free(runes);
   return rc;
 }
 
 void TrieSearchResult_Free(TrieSearchResult *e) {
   if (e->str) {
-    free(e->str);
+    rm_free(e->str);
     e->str = NULL;
   }
   e->payload = NULL;
   e->plen = 0;
-  free(e);
+  rm_free(e);
 }
 
 static int cmpEntries(const void *p1, const void *p2, const void *udata) {
@@ -116,13 +121,16 @@ TrieIterator *Trie_Iterate(Trie *t, const char *prefix, size_t len, int maxDist,
   size_t rlen;
   rune *runes = strToFoldedRunes(prefix, &rlen);
   if (!runes || rlen > TRIE_MAX_PREFIX) {
+    if (runes) {
+      rm_free(runes);
+    }
     return NULL;
   }
-  DFAFilter *fc = malloc(sizeof(*fc));
+  DFAFilter *fc = rm_malloc(sizeof(*fc));
   *fc = NewDFAFilter(runes, rlen, maxDist, prefixMode);
 
   TrieIterator *it = TrieNode_Iterate(t->root, FilterFunc, StackPop, fc);
-  free(runes);
+  rm_free(runes);
   return it;
 }
 
@@ -136,11 +144,11 @@ Vector *Trie_Search(Trie *tree, const char *s, size_t len, size_t num, int maxDi
   rune *runes = strToFoldedRunes(s, &rlen);
   // make sure query length does not overflow
   if (!runes || rlen >= TRIE_MAX_PREFIX) {
-    free(runes);
+    rm_free(runes);
     return NULL;
   }
 
-  heap_t *pq = malloc(heap_sizeof(num));
+  heap_t *pq = rm_malloc(heap_sizeof(num));
   heap_init(pq, cmpEntries, NULL, num);
 
   DFAFilter fc = NewDFAFilter(runes, rlen, maxDist, prefixMode);
@@ -156,7 +164,7 @@ Vector *Trie_Search(Trie *tree, const char *s, size_t len, size_t num, int maxDi
   int dist = maxDist + 1;
   while (TrieIterator_Next(it, &rstr, &slen, &payload, &score, &dist)) {
     if (pooledEntry == NULL) {
-      pooledEntry = malloc(sizeof(TrieSearchResult));
+      pooledEntry = rm_malloc(sizeof(TrieSearchResult));
       pooledEntry->str = NULL;
       pooledEntry->payload = NULL;
       pooledEntry->plen = 0;
@@ -189,7 +197,7 @@ Vector *Trie_Search(Trie *tree, const char *s, size_t len, size_t num, int maxDi
     } else {
       if (ent->score >= it->minScore) {
         pooledEntry = heap_poll(pq);
-        free(pooledEntry->str);
+        rm_free(pooledEntry->str);
         pooledEntry->str = NULL;
         ent->str = runesToStr(rstr, slen, &ent->len);
         ent->payload = payload.data;
@@ -250,7 +258,7 @@ Vector *Trie_Search(Trie *tree, const char *s, size_t len, size_t num, int maxDi
     }
   }
 
-  free(runes);
+  rm_free(runes);
   TrieIterator_Free(it);
   DFAFilter_Free(&fc);
   heap_free(pq);
@@ -275,7 +283,7 @@ int Trie_RandomKey(Trie *t, char **str, t_len *len, double *score) {
   size_t sz;
   *str = runesToStr(rstr, rlen, &sz);
   *len = sz;
-  free(rstr);
+  rm_free(rstr);
 
   *score = n->score;
   return 1;
@@ -351,7 +359,7 @@ void TrieType_GenericSave(RedisModuleIO *rdb, Trie *tree, int savePayloads) {
         }
       }
       // TODO: Save a marker for empty payload!
-      free(s);
+      rm_free(s);
       count++;
     }
     if (count != tree->size) {
@@ -373,7 +381,7 @@ void TrieType_Free(void *value) {
     TrieNode_Free(tree->root);
   }
 
-  RedisModule_Free(tree);
+  rm_free(tree);
 }
 
 int TrieType_Register(RedisModuleCtx *ctx) {

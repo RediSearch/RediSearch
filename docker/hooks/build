@@ -1,0 +1,9 @@
+#!/bin/bash
+set -x
+ls -l
+echo "PWD: $PWD"
+echo "DOCKERFILE_PATH: ${DOCKERFILE_PATH}"
+env
+docker build \
+    --build-arg GIT_DESCRIBE_VERSION=$(git describe) -t $IMAGE_NAME -f $PWD/Dockerfile \
+    ..

@@ -9,33 +9,33 @@
 
 #define STRING_BLOCK_SIZE 512
 
-static int func_matchedTerms(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *argv, int argc,
-                             char **err) {
+static int func_matchedTerms(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,
+                             QueryError *err) {
   int maxTerms = 0;
   if (argc == 1) {
     double d;
-    if (RSValue_ToNumber(&argv[0], &d)) {
+    if (RSValue_ToNumber(argv[0], &d)) {
       if (d > 0) {
         maxTerms = (int)d;
       }
     }
   }
 
-  SearchResult *res = ctx->res;
   if (maxTerms == 0) maxTerms = 100;
   maxTerms = MIN(100, maxTerms);
+  const SearchResult *res = ctx->res;
 
   // fprintf(stderr, "res %p, indexresult %p\n", res, res ? res->indexResult : NULL);
   if (res && res->indexResult) {
     RSQueryTerm *terms[maxTerms];
     size_t n = IndexResult_GetMatchedTerms(ctx->res->indexResult, terms, maxTerms);
     if (n) {
-      RSValue **arr = calloc(n, sizeof(RSValue *));
+      RSValue **arr = rm_calloc(n, sizeof(RSValue *));
       for (size_t i = 0; i < n; i++) {
         arr[i] = RS_ConstStringVal(terms[i]->str, terms[i]->len);
       }
       RSValue *v = RS_ArrVal(arr, n);
-      RSValue_MakeReference(result, v);
+      RSValue_MakeOwnReference(result, v);
       return EXPR_EVAL_OK;
     }
   }
@@ -44,18 +44,18 @@ static int func_matchedTerms(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *a
 }
 
 /* lower(str) */
-static int stringfunc_tolower(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *argv, int argc,
-                              char **err) {
+static int stringfunc_tolower(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,
+                              QueryError *err) {
 
   VALIDATE_ARGS("lower", 1, 1, err);
-  if (!RSValue_IsString(&argv[0])) {
+  if (!RSValue_IsString(argv[0])) {
     RSValue_MakeReference(result, RS_NullVal());
     return EXPR_EVAL_OK;
   }
 
   size_t sz = 0;
-  char *p = (char *)RSValue_StringPtrLen(&argv[0], &sz);
-  char *np = RSFunction_Alloc(ctx, sz + 1);
+  char *p = (char *)RSValue_StringPtrLen(argv[0], &sz);
+  char *np = ExprEval_UnalignedAlloc(ctx, sz + 1);
   for (size_t i = 0; i < sz; i++) {
     np[i] = tolower(p[i]);
   }
@@ -65,18 +65,18 @@ static int stringfunc_tolower(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *
 }
 
 /* upper(str) */
-static int stringfunc_toupper(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *argv, int argc,
-                              char **err) {
+static int stringfunc_toupper(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,
+                              QueryError *err) {
   VALIDATE_ARGS("upper", 1, 1, err);
 
-  if (!RSValue_IsString(&argv[0])) {
+  if (!RSValue_IsString(argv[0])) {
     RSValue_MakeReference(result, RS_NullVal());
     return EXPR_EVAL_OK;
   }
 
   size_t sz = 0;
-  char *p = (char *)RSValue_StringPtrLen(&argv[0], &sz);
-  char *np = RSFunction_Alloc(ctx, sz + 1);
+  char *p = (char *)RSValue_StringPtrLen(argv[0], &sz);
+  char *np = ExprEval_UnalignedAlloc(ctx, sz + 1);
   for (size_t i = 0; i < sz; i++) {
     np[i] = toupper(p[i]);
   }
@@ -86,22 +86,22 @@ static int stringfunc_toupper(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *
 }
 
 /* substr(str, offset, len) */
-static int stringfunc_substr(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *argv, int argc,
-                             char **err) {
+static int stringfunc_substr(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,
+                             QueryError *err) {
   VALIDATE_ARGS("substr", 3, 3, err);
 
   VALIDATE_ARG_TYPE("substr", argv, 1, RSValue_Number);
   VALIDATE_ARG_TYPE("substr", argv, 2, RSValue_Number);
 
   size_t sz;
-  const char *str = RSValue_StringPtrLen(&argv[0], &sz);
+  const char *str = RSValue_StringPtrLen(argv[0], &sz);
   if (!str) {
-    SET_ERR(err, "Invalid type for substr, expected string");
+    QueryError_SetError(err, QUERY_EPARSEARGS, "Invalid type for substr. Expected string");
     return EXPR_EVAL_ERR;
   }
 
-  int offset = (int)RSValue_Dereference(&argv[1])->numval;
-  int len = (int)RSValue_Dereference(&argv[2])->numval;
+  int offset = (int)RSValue_Dereference(argv[1])->numval;
+  int len = (int)RSValue_Dereference(argv[2])->numval;
 
   // for negative offsets we count from the end of the string
   if (offset < 0) {
@@ -116,22 +116,22 @@ static int stringfunc_substr(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *a
     len = sz - offset;
   }
 
-  char *dup = RSFunction_Strndup(ctx, &str[offset], len);
+  char *dup = ExprEval_Strndup(ctx, &str[offset], len);
   RSValue_SetConstString(result, dup, len);
   return EXPR_EVAL_OK;
 }
 
-static int stringfunc_format(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *argv, int argc,
-                             char **err) {
+static int stringfunc_format(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,
+                             QueryError *err) {
   if (argc < 1) {
-    SET_ERR(err, "Need at least one argument for format");
+    QERR_MKBADARGS_FMT(err, "Need at least one argument for format");
     return EXPR_EVAL_ERR;
   }
   VALIDATE_ARG_ISSTRING("format", argv, 0);
 
   size_t argix = 1;
   size_t fmtsz = 0;
-  const char *fmt = RSValue_StringPtrLen(&argv[0], &fmtsz);
+  const char *fmt = RSValue_StringPtrLen(argv[0], &fmtsz);
   const char *last = fmt, *end = fmt + fmtsz;
   sds out = sdsMakeRoomFor(sdsnew(""), fmtsz);
 
@@ -142,7 +142,7 @@ static int stringfunc_format(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *a
 
     if (fmt[ii] == fmtsz - 1) {
       // ... %"
-      SET_ERR(err, "Bad format string!");
+      QERR_MKBADARGS_FMT(err, "Bad format string!");
       goto error;
     }
 
@@ -158,11 +158,11 @@ static int stringfunc_format(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *a
     }
 
     if (argix == argc) {
-      SET_ERR(err, "Not enough arguments for format");
+      QERR_MKBADARGS_FMT(err, "Not enough arguments for format");
       goto error;
     }
 
-    RSValue *arg = RSValue_Dereference(&argv[argix++]);
+    RSValue *arg = RSValue_Dereference(argv[argix++]);
     if (type == 's') {
       if (arg->t == RSValue_Null) {
         // write null value
@@ -186,7 +186,7 @@ static int stringfunc_format(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *a
         out = sdscatlen(out, str, sz);
       }
     } else {
-      SET_ERR(err, "Unknown format specifier passed");
+      QERR_MKBADARGS_FMT(err, "Unknown format specifier passed");
       goto error;
     }
   }
@@ -199,8 +199,8 @@ static int stringfunc_format(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *a
   return EXPR_EVAL_OK;
 
 error:
-  if (!*err) {
-    SET_ERR(err, "Error in format");
+  if (!QueryError_HasError(err)) {
+    QERR_MKBADARGS_FMT(err, "Error in format");
   }
   sdsfree(out);
   RSValue_MakeReference(result, RS_NullVal());
@@ -218,10 +218,10 @@ char *strtrim(char *s, size_t sl, size_t *outlen, const char *cset) {
 
   return sp;
 }
-static int stringfunc_split(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *argv, int argc,
-                            char **err) {
+static int stringfunc_split(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,
+                            QueryError *err) {
   if (argc < 1 || argc > 3) {
-    SET_ERR(err, "Invalid number of arguments for split");
+    QERR_MKBADARGS_FMT(err, "Invalid number of arguments for split");
     return EXPR_EVAL_ERR;
   }
   VALIDATE_ARG_ISSTRING("format", argv, 0);
@@ -229,15 +229,15 @@ static int stringfunc_split(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *ar
   const char *strp = " ";
   if (argc >= 2) {
     VALIDATE_ARG_ISSTRING("format", argv, 1);
-    sep = RSValue_StringPtrLen(&argv[1], NULL);
+    sep = RSValue_StringPtrLen(argv[1], NULL);
   }
   if (argc == 3) {
     VALIDATE_ARG_ISSTRING("format", argv, 2);
-    strp = RSValue_StringPtrLen(&argv[2], NULL);
+    strp = RSValue_StringPtrLen(argv[2], NULL);
   }
 
   size_t len;
-  char *str = (char *)RSValue_StringPtrLen(&argv[0], &len);
+  char *str = (char *)RSValue_StringPtrLen(argv[0], &len);
   char *ep = str + len;
   size_t l = 0;
   char *next;
@@ -268,13 +268,12 @@ static int stringfunc_split(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *ar
   //   tmp[l++] = RS_ConstStringVal(tok, len);
   // }
 
-  RSValue **vals = calloc(l, sizeof(*vals));
+  RSValue **vals = rm_calloc(l, sizeof(*vals));
   for (size_t i = 0; i < l; i++) {
     vals[i] = tmp[i];
   }
-
-  RSValue *ret = RS_ArrVal(vals, l);
-  RSValue_MakeReference(result, ret);
+  RSValue *ret = RSValue_NewArrayEx(vals, l, RSVAL_ARRAY_ALLOC | RSVAL_ARRAY_NOINCREF);
+  RSValue_MakeOwnReference(result, ret);
   return EXPR_EVAL_OK;
 }
 

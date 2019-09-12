@@ -156,4 +156,11 @@ typedef enum {
  */
 int RedisModule_TryGetValue(RedisModuleKey *key, const RedisModuleType *type, void **out);
 
+#define REDISMODULE_BEGIN_ARRAY(ctx)                                \
+  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN); \
+  {
+#define REDISMODULE_END_ARRAY(ctx, n)      \
+  RedisModule_ReplySetArrayLength(ctx, n); \
+  }
+
 #endif

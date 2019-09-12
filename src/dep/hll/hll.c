@@ -8,6 +8,8 @@
 #include "../../util/fnv.h"
 #include "hll.h"
 
+#include "rmalloc.h"
+
 static __inline uint8_t _hll_rank(uint32_t hash, uint8_t bits) {
   uint8_t i;
 
@@ -28,13 +30,13 @@ int hll_init(struct HLL *hll, uint8_t bits) {
 
   hll->bits = bits;
   hll->size = (size_t)1 << bits;
-  hll->registers = calloc(hll->size, 1);
+  hll->registers = rm_calloc(hll->size, 1);
 
   return 0;
 }
 
 void hll_destroy(struct HLL *hll) {
-  free(hll->registers);
+  rm_free(hll->registers);
 
   hll->registers = NULL;
 }

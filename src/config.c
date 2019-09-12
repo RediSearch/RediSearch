@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <limits.h>
 #include <assert.h>
+#include "rmalloc.h"
 
 #define RETURN_ERROR(s) return REDISMODULE_ERR;
 
@@ -94,6 +95,20 @@ CONFIG_SETTER(setMinPrefix) {
 CONFIG_GETTER(getMinPrefix) {
   sds ss = sdsempty();
   return sdscatprintf(ss, "%lld", config->minTermPrefix);
+}
+
+CONFIG_SETTER(setForkGCSleep) {
+  long long arg;
+  if (readLongLongLimit(argv, argc, offset, &arg, 0, LLONG_MAX) != REDISMODULE_OK) {
+    return REDISMODULE_ERR;
+  }
+  config->forkGcSleepBeforeExit = arg;
+  return REDISMODULE_OK;
+}
+
+CONFIG_GETTER(getForkGCSleep) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%zu", config->forkGcSleepBeforeExit);
 }
 
 // MAXDOCTABLESIZE
@@ -227,9 +242,51 @@ CONFIG_SETTER(setForkGcInterval) {
   return REDISMODULE_OK;
 }
 
+CONFIG_SETTER(setForkGcCleanThreshold) {
+  long long val;
+  if (readLongLongLimit(argv, argc, offset, &val, 0, LLONG_MAX) != REDISMODULE_OK) {
+    return REDISMODULE_ERR;
+  }
+  config->forkGcCleanThreshold = val;
+  return REDISMODULE_OK;
+}
+
+CONFIG_SETTER(setForkGcRetryInterval) {
+  long long val;
+  if (readLongLongLimit(argv, argc, offset, &val, 1, LLONG_MAX) != REDISMODULE_OK) {
+    return REDISMODULE_ERR;
+  }
+  config->forkGcRetryInterval = val;
+  return REDISMODULE_OK;
+}
+
+CONFIG_SETTER(setMaxResultsToUnsortedMode) {
+  long long val;
+  if (readLongLongLimit(argv, argc, offset, &val, 1, LLONG_MAX) != REDISMODULE_OK) {
+    return REDISMODULE_ERR;
+  }
+  config->maxResultsToUnsortedMode = val;
+  return REDISMODULE_OK;
+}
+
+CONFIG_GETTER(getForkGcCleanThreshold) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%lu", config->forkGcCleanThreshold);
+}
+
 CONFIG_GETTER(getForkGcInterval) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%lu", config->forkGcRunIntervalSec);
+  return sdscatprintf(ss, "%u", config->forkGcRunIntervalSec);
+}
+
+CONFIG_GETTER(getForkGcRetryInterval) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%u", config->forkGcRunIntervalSec);
+}
+
+CONFIG_GETTER(getMaxResultsToUnsortedMode) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%lld", config->maxResultsToUnsortedMode);
 }
 
 CONFIG_SETTER(setMinPhoneticTermLen) {
@@ -251,10 +308,10 @@ CONFIG_SETTER(setGcPolicy) {
     RETURN_ERROR("Missing argument");
   }
   const char *policy = RedisModule_StringPtrLen(argv[(*offset)++], NULL);
-  if (!strcasecmp(policy, "DEFAULT")) {
-    config->gcPolicy = GCPolicy_Default;
-  } else if (!strcasecmp(policy, "FORK")) {
+  if (!strcasecmp(policy, "DEFAULT") || !strcasecmp(policy, "FORK")) {
     config->gcPolicy = GCPolicy_Fork;
+  } else if (!strcasecmp(policy, "LEGACY")) {
+    config->gcPolicy = GCPolicy_Sync;
   } else {
     RETURN_ERROR("Invalid GC Policy value");
     return REDISMODULE_ERR;
@@ -272,7 +329,7 @@ static RSConfigVar *findConfigVar(const RSConfigOptions *config, const char *nam
   for (; config; config = config->next) {
     const RSConfigVar *vars = config->vars;
     for (; vars->name != NULL; vars++) {
-      if (!strcmp(name, vars->name)) {
+      if (!strcasecmp(name, vars->name)) {
         return (RSConfigVar *)vars;
       }
     }
@@ -294,17 +351,17 @@ int ReadConfig(RedisModuleString **argv, int argc, char **err) {
     const char *name = RedisModule_StringPtrLen(argv[offset], NULL);
     RSConfigVar *curVar = findConfigVar(&RSGlobalConfigOptions, name);
     if (curVar == NULL) {
-      asprintf(err, "No such configuration option `%s`", name);
+      rm_asprintf(err, "No such configuration option `%s`", name);
       return REDISMODULE_ERR;
     }
     if (curVar->setValue == NULL) {
-      asprintf(err, "%s: Option is read-only", name);
+      rm_asprintf(err, "%s: Option is read-only", name);
       return REDISMODULE_ERR;
     }
 
     offset++;
     if (curVar->setValue(&RSGlobalConfig, argv, argc, &offset) != REDISMODULE_OK) {
-      asprintf(err, "%s: Bad value", name);
+      rm_asprintf(err, "%s: Bad value", name);
       return REDISMODULE_ERR;
     }
     // Mark the option as having been modified
@@ -330,11 +387,16 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "Disable garbage collection (for this process)",
          .setValue = setNoGc,
          .getValue = getNoGc,
-         .flags = RSCONFIGVAR_F_FLAG},
+         .flags = RSCONFIGVAR_F_FLAG | RSCONFIGVAR_F_IMMUTABLE},
         {.name = "MINPREFIX",
          .helpText = "Set the minimum prefix for expansions (`*`)",
          .setValue = setMinPrefix,
          .getValue = getMinPrefix},
+        {.name = "FORKGC_SLEEP_BEFORE_EXIT",
+         .helpText = "set the amount of seconds for the fork GC to sleep before exists, should "
+                     "always be set to 0 (other then on tests).",
+         .setValue = setForkGCSleep,
+         .getValue = getForkGCSleep},
         {.name = "MAXDOCTABLESIZE",
          .helpText = "Maximum runtime document table size (for this process)",
          .setValue = setMaxDocTableSize,
@@ -380,15 +442,29 @@ RSConfigOptions RSGlobalConfigOptions = {
          .setValue = setMinPhoneticTermLen,
          .getValue = getMinPhoneticTermLen},
         {.name = "GC_POLICY",
-         .helpText = "gc policy to use (DEFAULT/FORK)",
+         .helpText = "gc policy to use (DEFAULT/LEGACY)",
          .setValue = setGcPolicy,
          .getValue = getGcPolicy,
          .flags = RSCONFIGVAR_F_IMMUTABLE},
         {.name = "FORK_GC_RUN_INTERVAL",
-         .helpText = "interval in which to run the fork gc (relevant only when fork gc is used)",
+         .helpText = "interval (in seconds) in which to run the fork gc (relevant only when fork "
+                     "gc is used)",
          .setValue = setForkGcInterval,
-         .getValue = getForkGcInterval,
-         .flags = RSCONFIGVAR_F_IMMUTABLE},
+         .getValue = getForkGcInterval},
+        {.name = "FORK_GC_CLEAN_THRESHOLD",
+         .helpText = "the fork gc will only start to clean when the number of not cleaned document "
+                     "will acceded this threshold",
+         .setValue = setForkGcCleanThreshold,
+         .getValue = getForkGcCleanThreshold},
+        {.name = "FORK_GC_RETRY_INTERVAL",
+         .helpText = "interval (in seconds) in which to retry running the forkgc after failure.",
+         .setValue = setForkGcRetryInterval,
+         .getValue = getForkGcRetryInterval},
+        {.name = "_MAX_RESULTS_TO_UNSORTED_MODE",
+         .helpText = "max results for union interator in which the interator will switch to "
+                     "unsorted mode, should be used for debug only.",
+         .setValue = setMaxResultsToUnsortedMode,
+         .getValue = getMaxResultsToUnsortedMode},
         {.name = NULL}}};
 
 void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst) {
@@ -476,14 +552,14 @@ void RSConfig_DumpProto(const RSConfig *config, const RSConfigOptions *options, 
 }
 
 int RSConfig_SetOption(RSConfig *config, RSConfigOptions *options, const char *name,
-                       RedisModuleString **argv, int argc, size_t *offset, char **err) {
+                       RedisModuleString **argv, int argc, size_t *offset, QueryError *status) {
   RSConfigVar *var = findConfigVar(options, name);
   if (!var) {
-    SET_ERR(err, "No such option");
+    QueryError_SetError(status, QUERY_ENOOPTION, NULL);
     return REDISMODULE_ERR;
   }
   if (var->flags & RSCONFIGVAR_F_IMMUTABLE) {
-    SET_ERR(err, "Option not settable at runtime");
+    QueryError_SetError(status, QUERY_EINVAL, "Not modifiable at runtime");
     return REDISMODULE_ERR;
   }
   return var->setValue(config, argv, argc, offset);
@@ -504,7 +580,7 @@ RSTimeoutPolicy TimeoutPolicy_Parse(const char *s, size_t n) {
   if (!strncasecmp(s, "RETURN", n)) {
     return TimeoutPolicy_Return;
   } else if (!strncasecmp(s, "FAIL", n)) {
-    return TimeoutPolicy_Return;
+    return TimeoutPolicy_Fail;
   } else {
     return TimeoutPolicy_Invalid;
   }

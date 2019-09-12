@@ -23,15 +23,13 @@
 
 %token_type {QueryToken}  
 
-%syntax_error {  
+%name RSQueryParser_
 
-    int len = TOKEN.len + 100;
-    char buf[len];
-    snprintf(buf, len, "Syntax error at offset %d near '%.*s'", TOKEN.pos, TOKEN.len, TOKEN.s);
-    
-    ctx->ok = 0;
-    ctx->errorMsg = strdup(buf);
-}   
+%syntax_error {  
+    QueryError_SetErrorFmt(ctx->status, QUERY_ESYNTAX,
+        "Syntax error at offset %d near %.*s",
+        TOKEN.pos, TOKEN.len, TOKEN.s);
+}
    
 %include {   
 
@@ -46,7 +44,7 @@
 
 // strndup + lowercase in one pass!
 char *strdupcase(const char *s, size_t len) {
-  char *ret = strndup(s, len);
+  char *ret = rm_strndup(s, len);
   char *dst = ret;
   char *src = dst;
   while (*src) {
@@ -91,16 +89,16 @@ size_t unescapen(char *s, size_t sz) {
 // 0 if a && b
 // -1 if !a && !b
 // 1 if a ^ b (i.e. !(a&&b||!a||!b)). The result is stored in `out` 
-static int one_not_null(void *a, void *b, void **out) {
+static int one_not_null(void *a, void *b, void *out) {
     if (a && b) {
         return NODENN_BOTH_VALID;
     } else if (a == NULL && b == NULL) {
         return NODENN_BOTH_INVALID;
     } if (a) {
-        *out = a;
+        *(void **)out = a;
         return NODENN_ONE_NULL;
     } else {
-        *out = b;
+        *(void **)out = b;
         return NODENN_ONE_NULL;
     }
 }
@@ -115,10 +113,10 @@ static int one_not_null(void *a, void *b, void **out) {
 %destructor expr { QueryNode_Free($$); }
 
 %type attribute { QueryAttribute }
-%destructor attribute { free((char*)$$.value); }
+%destructor attribute { rm_free((char*)$$.value); }
 
 %type attribute_list {QueryAttribute *}
-%destructor attribute_list { array_free_ex($$, free((char*)((QueryAttribute*)ptr )->value)); }
+%destructor attribute_list { array_free_ex($$, rm_free((char*)((QueryAttribute*)ptr )->value)); }
 
 %type prefix { QueryNode * } 
 %destructor prefix { QueryNode_Free($$); }
@@ -144,7 +142,7 @@ static int one_not_null(void *a, void *b, void **out) {
     for (size_t i = 0; i < Vector_Size($$); i++) {
         char *s;
         Vector_Get($$, i, &s);
-        free(s);
+        rm_free(s);
     }
     Vector_Free($$); 
 }
@@ -186,9 +184,9 @@ expr(A) ::= expr(B) expr(C) . [AND] {
             A = B;
         } else {     
             A = NewPhraseNode(0);
-            QueryPhraseNode_AddChild(A, B);
+            QueryNode_AddChild(A, B);
         }
-        QueryPhraseNode_AddChild(A, C);
+        QueryNode_AddChild(A, C);
     }
 } 
 
@@ -212,12 +210,12 @@ union(A) ::= expr(B) OR expr(C) . [OR] {
             A = B;
         } else {
             A = NewUnionNode();
-            QueryUnionNode_AddChild(A, B);
+            QueryNode_AddChild(A, B);
             A->opts.fieldMask |= B->opts.fieldMask;
         }
 
         // Handle C
-        QueryUnionNode_AddChild(A, C);
+        QueryNode_AddChild(A, C);
         A->opts.fieldMask |= C->opts.fieldMask;
         QueryNode_SetFieldMask(A, A->opts.fieldMask);
     }
@@ -227,7 +225,7 @@ union(A) ::= expr(B) OR expr(C) . [OR] {
 union(A) ::= union(B) OR expr(C). [ORX] {
     A = B;
     if (C) {
-        QueryUnionNode_AddChild(A, C);
+        QueryNode_AddChild(A, C);
         A->opts.fieldMask |= C->opts.fieldMask;
         QueryNode_SetFieldMask(C, A->opts.fieldMask);
     }
@@ -261,7 +259,7 @@ expr(A) ::= modifierlist(B) COLON expr(C) . [MODIFIER] {
                 char *p;
                 Vector_Get(B, i, &p);
                 mask |= IndexSpec_GetFieldBit(ctx->sctx->spec, p, strlen(p)); 
-                free(p);
+                rm_free(p);
             }
         }
         QueryNode_SetFieldMask(C, mask);
@@ -280,7 +278,7 @@ expr(A) ::= LP expr(B) RP . {
 
 attribute(A) ::= ATTRIBUTE(B) COLON term(C). {
     
-    A = (QueryAttribute){ .name = B.s, .namelen = B.len, .value = strndup(C.s, C.len), .vallen = C.len };
+    A = (QueryAttribute){ .name = B.s, .namelen = B.len, .value = rm_strndup(C.s, C.len), .vallen = C.len };
 }
 
 attribute_list(A) ::= attribute(B) . {
@@ -303,13 +301,9 @@ attribute_list(A) ::= . {
 expr(A) ::= expr(B) ARROW  LB attribute_list(C) RB . {
 
     if (B && C) {
-        char *err = NULL;
-        if (!QueryNode_ApplyAttributes(B, C, array_len(C), &err)) {
-            ctx->ok = 0;
-            ctx->errorMsg = err;
-        }
+        QueryNode_ApplyAttributes(B, C, array_len(C), ctx->status);
     }
-    array_free_ex(C, free((char*)((QueryAttribute*)ptr )->value));
+    array_free_ex(C, rm_free((char*)((QueryAttribute*)ptr )->value));
     A = B;
 }
 
@@ -348,13 +342,13 @@ expr(A) ::= STOPWORD . [STOPWORD] {
 
 termlist(A) ::= term(B) term(C). [TERMLIST]  {
     A = NewPhraseNode(0);
-    QueryPhraseNode_AddChild(A, NewTokenNode(ctx, strdupcase(B.s, B.len), -1));
-    QueryPhraseNode_AddChild(A, NewTokenNode(ctx, strdupcase(C.s, C.len), -1));
+    QueryNode_AddChild(A, NewTokenNode(ctx, strdupcase(B.s, B.len), -1));
+    QueryNode_AddChild(A, NewTokenNode(ctx, strdupcase(C.s, C.len), -1));
 }
 
 termlist(A) ::= termlist(B) term(C) . [TERMLIST] {
     A = B;
-    QueryPhraseNode_AddChild(A, NewTokenNode(ctx, strdupcase(C.s, C.len), -1));
+    QueryNode_AddChild(A, NewTokenNode(ctx, strdupcase(C.s, C.len), -1));
 }
 
 termlist(A) ::= termlist(B) STOPWORD . [TERMLIST] {
@@ -398,17 +392,32 @@ prefix(A) ::= PREFIX(B) . [PREFIX] {
 // Fuzzy terms
 /////////////////////////////////////////////////////////////////
 
-expr(A) ::=  PERCENT TERM(B) PERCENT. [PREFIX] {
+expr(A) ::=  PERCENT term(B) PERCENT. [PREFIX] {
     B.s = strdupcase(B.s, B.len);
     A = NewFuzzyNode(ctx, B.s, strlen(B.s), 1);
 }
 
-expr(A) ::= PERCENT PERCENT TERM(B) PERCENT PERCENT. [PREFIX] {
+expr(A) ::= PERCENT PERCENT term(B) PERCENT PERCENT. [PREFIX] {
     B.s = strdupcase(B.s, B.len);
     A = NewFuzzyNode(ctx, B.s, strlen(B.s), 2);
 }
 
-expr(A) ::= PERCENT PERCENT PERCENT TERM(B) PERCENT PERCENT PERCENT. [PREFIX] {
+expr(A) ::= PERCENT PERCENT PERCENT term(B) PERCENT PERCENT PERCENT. [PREFIX] {
+    B.s = strdupcase(B.s, B.len);
+    A = NewFuzzyNode(ctx, B.s, strlen(B.s), 3);
+}
+
+expr(A) ::=  PERCENT STOPWORD(B) PERCENT. [PREFIX] {
+    B.s = strdupcase(B.s, B.len);
+    A = NewFuzzyNode(ctx, B.s, strlen(B.s), 1);
+}
+
+expr(A) ::= PERCENT PERCENT STOPWORD(B) PERCENT PERCENT. [PREFIX] {
+    B.s = strdupcase(B.s, B.len);
+    A = NewFuzzyNode(ctx, B.s, strlen(B.s), 2);
+}
+
+expr(A) ::= PERCENT PERCENT PERCENT STOPWORD(B) PERCENT PERCENT PERCENT. [PREFIX] {
     B.s = strdupcase(B.s, B.len);
     A = NewFuzzyNode(ctx, B.s, strlen(B.s), 3);
 }
@@ -446,45 +455,45 @@ expr(A) ::= modifier(B) COLON tag_list(C) . {
         A= NULL;
     } else {
         // Tag field names must be case sensitive, we we can't do strdupcase
-        char *s = strndup(B.s, B.len);
+        char *s = rm_strndup(B.s, B.len);
         size_t slen = unescapen((char*)s, B.len);
 
         A = NewTagNode(s, slen);
-        QueryTagNode_AddChildren(A, C->pn.children, C->pn.numChildren);
+        QueryNode_AddChildren(A, C->children, QueryNode_NumChildren(C));
         
         // Set the children count on C to 0 so they won't get recursively free'd
-        C->pn.numChildren = 0;
+        QueryNode_ClearChildren(C, 0);
         QueryNode_Free(C);
     }
 }
 
 tag_list(A) ::= LB term(B) . [TAGLIST] {
     A = NewPhraseNode(0);
-    QueryPhraseNode_AddChild(A, NewTokenNode(ctx, strdupcase(B.s, B.len), -1));
+    QueryNode_AddChild(A, NewTokenNode(ctx, strdupcase(B.s, B.len), -1));
 }
 
 tag_list(A) ::= LB prefix(B) . [TAGLIST] {
     A = NewPhraseNode(0);
-    QueryPhraseNode_AddChild(A, B);
+    QueryNode_AddChild(A, B);
 }
 
 tag_list(A) ::= LB termlist(B) . [TAGLIST] {
     A = NewPhraseNode(0);
-    QueryPhraseNode_AddChild(A, B);
+    QueryNode_AddChild(A, B);
 }
 
 tag_list(A) ::= tag_list(B) OR term(C) . [TAGLIST] {
-    QueryPhraseNode_AddChild(B, NewTokenNode(ctx, strdupcase(C.s, C.len), -1));
+    QueryNode_AddChild(B, NewTokenNode(ctx, strdupcase(C.s, C.len), -1));
     A = B;
 }
 
 tag_list(A) ::= tag_list(B) OR prefix(C) . [TAGLIST] {
-    QueryPhraseNode_AddChild(B, C);
+    QueryNode_AddChild(B, C);
     A = B;
 }
 
 tag_list(A) ::= tag_list(B) OR termlist(C) . [TAGLIST] {
-    QueryPhraseNode_AddChild(B, C);
+    QueryNode_AddChild(B, C);
     A = B;
 }
 
@@ -499,7 +508,7 @@ tag_list(A) ::= tag_list(B) RB . [TAGLIST] {
 /////////////////////////////////////////////////////////////////
 expr(A) ::= modifier(B) COLON numeric_range(C). {
     // we keep the capitalization as is
-    C->fieldName = strndup(B.s, B.len);
+    C->fieldName = rm_strndup(B.s, B.len);
     A = NewNumericNode(C);
 }
 
@@ -513,17 +522,13 @@ numeric_range(A) ::= LSQB num(B) num(C) RSQB. [NUMBER] {
 
 expr(A) ::= modifier(B) COLON geo_filter(C). {
     // we keep the capitalization as is
-    C->property = strndup(B.s, B.len);
+    C->property = rm_strndup(B.s, B.len);
     A = NewGeofilterNode(C);
 }
 
 geo_filter(A) ::= LSQB num(B) num(C) num(D) TERM(E) RSQB. [NUMBER] {
     A = NewGeoFilter(B.num, C.num, D.num, strdupcase(E.s, E.len));
-    char *err = NULL;
-    if (!GeoFilter_IsValid(A, &err)) {
-        ctx->ok = 0;
-        ctx->errorMsg = strdup(err);
-    }
+    GeoFilter_Validate(A, ctx->status);
 }
 
 

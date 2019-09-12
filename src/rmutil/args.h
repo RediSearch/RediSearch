@@ -4,14 +4,21 @@
 #include <stdlib.h>
 #include <limits.h>
 #include <stdint.h>
+#include "sds.h"
 #include "redismodule.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-#define AC_TYPE_RSTRING 1
-#define AC_TYPE_CHAR 2
+typedef enum {
+  AC_TYPE_UNINIT = 0,  // Comment for formatting
+  AC_TYPE_RSTRING,
+  AC_TYPE_CHAR,
+  AC_TYPE_SDS
+} ACType;
+
+#define AC_IsInitialized(ac) ((ac)->type != AC_TYPE_UNINIT)
 
 /**
  * The cursor model simply reads through the current argument list, advancing
@@ -28,6 +35,13 @@ typedef struct {
 static inline void ArgsCursor_InitCString(ArgsCursor *cursor, const char **argv, int argc) {
   cursor->objs = (void **)argv;
   cursor->type = AC_TYPE_CHAR;
+  cursor->offset = 0;
+  cursor->argc = argc;
+}
+
+static inline void ArgsCursor_InitSDS(ArgsCursor *cursor, const sds *argv, int argc) {
+  cursor->objs = (void **)argv;
+  cursor->type = AC_TYPE_SDS;
   cursor->offset = 0;
   cursor->argc = argc;
 }
@@ -62,6 +76,8 @@ int AC_GetUnsignedLongLong(ArgsCursor *ac, unsigned long long *ull, int flags);
 int AC_GetUnsigned(ArgsCursor *ac, unsigned *u, int flags);
 int AC_GetInt(ArgsCursor *ac, int *i, int flags);
 int AC_GetDouble(ArgsCursor *ac, double *d, int flags);
+int AC_GetU32(ArgsCursor *ac, uint32_t *u, int flags);
+int AC_GetU64(ArgsCursor *ac, uint64_t *u, int flags);
 
 // Gets the string (and optionally the length). If the string does not exist,
 // it returns NULL. Used when caller is sure the arg exists
@@ -70,6 +86,10 @@ const char *AC_GetStringNC(ArgsCursor *ac, size_t *len);
 int AC_Advance(ArgsCursor *ac);
 int AC_AdvanceBy(ArgsCursor *ac, size_t by);
 
+// Advances the cursor if the next argument matches the given string. This
+// will swallow it up.
+int AC_AdvanceIfMatch(ArgsCursor *ac, const char *arg);
+
 /**
  * Read the argument list in the format of
  * <NUM_OF_ARGS> <ARG[1]> <ARG[2]> .. <ARG[NUM_OF_ARGS]>
@@ -77,12 +97,18 @@ int AC_AdvanceBy(ArgsCursor *ac, size_t by);
  */
 int AC_GetVarArgs(ArgsCursor *ac, ArgsCursor *dest);
 
+/**
+ * Consume the next <n> arguments and place them in <dest>
+ */
+int AC_GetSlice(ArgsCursor *ac, ArgsCursor *dest, size_t n);
+
 typedef enum {
   AC_ARGTYPE_STRING,
   AC_ARGTYPE_RSTRING,
   AC_ARGTYPE_LLONG,
   AC_ARGTYPE_ULLONG,
   AC_ARGTYPE_UINT,
+  AC_ARGTYPE_U32 = AC_ARGTYPE_UINT,
   AC_ARGTYPE_INT,
   AC_ARGTYPE_DOUBLE,
   /**
@@ -90,8 +116,38 @@ typedef enum {
    * In this case, the target value is assumed to be an int, and is set to
    * nonzero
    */
-  AC_ARGTYPE_BOOLFLAG
+  AC_ARGTYPE_BOOLFLAG,
+
+  /**
+   * Uses AC_GetVarArgs, gets a sub-arg list
+   */
+  AC_ARGTYPE_SUBARGS,
+
+  /**
+   * Use AC_GetSlice. Set slicelen in the spec to the expected count.
+   */
+  AC_ARGTYPE_SUBARGS_N,
+
+  /**
+   * Accepts U32 target. Use 'slicelen' as the field to indicate which bit should
+   * be set.
+   */
+  AC_ARGTYPE_BITFLAG,
+
+  /**
+   * Like bitflag, except the value is _removed_ from the target. Accepts U32 target
+   */
+  AC_ARGTYPE_UNFLAG,
 } ACArgType;
+
+/**
+ * Helper macro to define bitflag argtype
+ */
+#define AC_MKBITFLAG(name_, target_, bit_) \
+  .name = name_, .target = target_, .type = AC_ARGTYPE_BITFLAG, .slicelen = bit_
+
+#define AC_MKUNFLAG(name_, target_, bit_) \
+  .name = name_, .target = target_, .type = AC_ARGTYPE_UNFLAG, .slicelen = bit_
 
 typedef struct {
   const char *name;  // Name of the argument
@@ -99,6 +155,7 @@ typedef struct {
   size_t *len;       // [out] Target length pointer. Valid only for strings
   ACArgType type;    // Type of argument
   int intflags;      // AC_F_COALESCE, etc.
+  size_t slicelen;   // When using slice length, set this to the expected slice count
 } ACArgSpec;
 
 /**
@@ -136,8 +193,43 @@ static inline const char *AC_Strerror(int code) {
 #define AC_Clear(ac)  // NOOP
 #define AC_IsAtEnd(ac) ((ac)->offset >= (ac)->argc)
 #define AC_NumRemaining(ac) ((ac)->argc - (ac)->offset)
-
+#define AC_NumArgs(ac) (ac)->argc
+#define AC_StringArg(ac, N) (const char *)((ac)->objs[N])
 #ifdef __cplusplus
 }
+
+#include <vector>
+#include <tuple>
+#include <type_traits>
+#include <array>
+class ArgsCursorCXX : public ArgsCursor {
+ public:
+  template <typename... T>
+  ArgsCursorCXX(T... args) {
+    typedef typename std::tuple_element<0, std::tuple<T...>>::type FirstType;
+    typedef const typename std::remove_pointer<FirstType>::type *ConstPointerType;
+    typedef typename std::conditional<std::is_pointer<FirstType>::value, ConstPointerType,
+                                      FirstType>::type RealType;
+    std::array<const void *, sizeof...(args)> stackarr = {{args...}};
+    arr.assign(stackarr.begin(), stackarr.end());
+    RealType *arrptr = (RealType *)(&arr[0]);
+    init(&arrptr[0], arr.size());
+  }
+
+  void append(void *p) {
+    arr.push_back(p);
+    objs = (void **)&arr[0];
+    argc = arr.size();
+  }
+
+ private:
+  std::vector<const void *> arr;
+  void init(const char **s, size_t n) {
+    ArgsCursor_InitCString(this, s, n);
+  }
+  void init(RedisModuleString **s, size_t n) {
+    ArgsCursor_InitRString(this, s, n);
+  }
+};
 #endif
 #endif

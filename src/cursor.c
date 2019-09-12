@@ -28,9 +28,12 @@ void CursorList_Init(CursorList *cl) {
   srand48(getpid());
 }
 
-static CursorSpecInfo *findInfo(const CursorList *cl, const char *keyName) {
+static CursorSpecInfo *findInfo(const CursorList *cl, const char *keyName, size_t *index) {
   for (size_t ii = 0; ii < cl->specsCount; ++ii) {
     if (!strcmp(cl->specs[ii]->keyName, keyName)) {
+      if (index) {
+        *index = ii;
+      }
       return cl->specs[ii];
     }
   }
@@ -63,11 +66,10 @@ static void Cursor_FreeInternal(Cursor *cur, khiter_t khi) {
   kh_del(cursors, cur->parent->lookup, khi);
   assert(kh_get(cursors, cur->parent->lookup, cur->id) == kh_end(cur->parent->lookup));
   cur->specInfo->used--;
-  if (cur->sctx->redisCtx) {
-    RedisModule_FreeThreadSafeContext(cur->sctx->redisCtx);
-    cur->sctx->redisCtx = NULL;
+  if (cur->execState) {
+    Cursor_FreeExecState(cur->execState);
+    cur->execState = NULL;
   }
-  SearchCtx_Free(cur->sctx);
   rm_free(cur);
 }
 
@@ -140,15 +142,26 @@ int Cursors_CollectIdle(CursorList *cl) {
 }
 
 void CursorList_AddSpec(CursorList *cl, const char *k, size_t capacity) {
-  CursorSpecInfo *info = findInfo(cl, k);
+  CursorSpecInfo *info = findInfo(cl, k, NULL);
   if (!info) {
-    info = malloc(sizeof(*info));
-    info->keyName = strdup(k);
+    info = rm_malloc(sizeof(*info));
+    info->keyName = rm_strdup(k);
     info->used = 0;
-    cl->specs = realloc(cl->specs, sizeof(*cl->specs) * ++cl->specsCount);
+    cl->specs = rm_realloc(cl->specs, sizeof(*cl->specs) * ++cl->specsCount);
     cl->specs[cl->specsCount - 1] = info;
   }
   info->cap = capacity;
+}
+
+void CursorList_RemoveSpec(CursorList *cl, const char *k) {
+  size_t index;
+  CursorSpecInfo *info = findInfo(cl, k, &index);
+  if (info) {
+    cl->specs[index] = cl->specs[cl->specsCount - 1];
+    cl->specs = rm_realloc(cl->specs, sizeof(*cl->specs) * --cl->specsCount);
+    rm_free(info->keyName);
+    rm_free(info);
+  }
 }
 
 static void CursorList_IncrCounter(CursorList *cl) {
@@ -165,19 +178,20 @@ static void CursorList_IncrCounter(CursorList *cl) {
  * a stuck client and a crashed server
  */
 static uint64_t CursorList_GenerateId(CursorList *curlist) {
-  uint64_t id = lrand48() + 1; // 0 should never be returned as cursor id
+  uint64_t id = lrand48() + 1;  // 0 should never be returned as cursor id
   return id;
 }
 
-Cursor *Cursors_Reserve(CursorList *cl, RedisSearchCtx *sctx, const char *lookupName,
-                        unsigned interval, char **err) {
+Cursor *Cursors_Reserve(CursorList *cl, const char *lookupName, unsigned interval,
+                        QueryError *status) {
   CursorList_Lock(cl);
   CursorList_IncrCounter(cl);
-  CursorSpecInfo *spec = findInfo(cl, lookupName);
+  CursorSpecInfo *spec = findInfo(cl, lookupName, NULL);
   Cursor *cur = NULL;
 
   if (spec == NULL) {
-    SET_ERR(err, "Index does not have cursors enabled or does not exist");
+    QueryError_SetErrorFmt(status, QUERY_ENOINDEX, "Index `%s` does not have cursors enabled",
+                           lookupName);
     goto done;
   }
 
@@ -185,7 +199,7 @@ Cursor *Cursors_Reserve(CursorList *cl, RedisSearchCtx *sctx, const char *lookup
     Cursors_GCInternal(cl, 0);
     if (spec->used >= spec->cap) {
       /** Collect idle cursors now */
-      SET_ERR(err, "Too many cursors allocated for index");
+      QueryError_SetError(status, QUERY_ELIMIT, "Too many cursors allocated for index");
       goto done;
     }
   }
@@ -193,7 +207,6 @@ Cursor *Cursors_Reserve(CursorList *cl, RedisSearchCtx *sctx, const char *lookup
   cur = rm_calloc(1, sizeof(*cur));
   cur->parent = cl;
   cur->specInfo = spec;
-  cur->sctx = sctx;
   cur->id = CursorList_GenerateId(cl);
   cur->pos = -1;
   cur->timeoutIntervalMs = interval;
@@ -277,7 +290,7 @@ int Cursor_Free(Cursor *cur) {
 
 void Cursors_RenderStats(CursorList *cl, const char *name, RedisModuleCtx *ctx) {
   CursorList_Lock(cl);
-  CursorSpecInfo *info = findInfo(cl, name);
+  CursorSpecInfo *info = findInfo(cl, name, NULL);
   size_t n = 0;
 
   /** Output total information */
@@ -315,9 +328,30 @@ static void purgeCb(CursorList *cl, Cursor *cur, void *arg) {
 }
 
 void Cursors_PurgeWithName(CursorList *cl, const char *lookupName) {
-  CursorSpecInfo *info = findInfo(cl, lookupName);
+  CursorSpecInfo *info = findInfo(cl, lookupName, NULL);
   if (!info) {
     return;
   }
   Cursors_ForEach(cl, purgeCb, info);
+}
+
+void CursorList_Destroy(CursorList *cl) {
+  Cursors_GCInternal(cl, 1);
+  for (khiter_t ii = 0; ii != kh_end(cl->lookup); ++ii) {
+    if (!kh_exist(cl->lookup, ii)) {
+      continue;
+    }
+    Cursor *c = kh_val(cl->lookup, ii);
+    fprintf(stderr, "[redisearch] leaked cursor at %p\n", c);
+    Cursor_FreeInternal(c, ii);
+  }
+  kh_destroy(cursors, cl->lookup);
+
+  for (size_t ii = 0; ii < cl->specsCount; ++ii) {
+    CursorSpecInfo *sp = cl->specs[ii];
+    rm_free(sp->keyName);
+    rm_free(sp);
+  }
+  rm_free(cl->specs);
+  pthread_mutex_destroy(&cl->lock);
 }

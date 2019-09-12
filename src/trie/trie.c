@@ -1,7 +1,9 @@
 #include <sys/param.h>
 #include "trie.h"
+#include "util/bsearch.h"
 #include "sparse_vector.h"
 #include "redisearch.h"
+#include "util/arr.h"
 
 size_t __trieNode_Sizeof(t_len numChildren, t_len slen) {
   return sizeof(TrieNode) + numChildren * sizeof(TrieNode *) + sizeof(rune) * (slen + 1);
@@ -12,7 +14,7 @@ TriePayload *triePayload_New(const char *payload, uint32_t plen);
 // Allocate a new trie payload struct
 inline TriePayload *triePayload_New(const char *payload, uint32_t plen) {
 
-  TriePayload *p = malloc(sizeof(TriePayload) + sizeof(char) * (plen + 1));
+  TriePayload *p = rm_malloc(sizeof(TriePayload) + sizeof(char) * (plen + 1));
   p->len = plen;
   memcpy(p->data, payload, sizeof(char) * plen);
   return p;
@@ -20,12 +22,13 @@ inline TriePayload *triePayload_New(const char *payload, uint32_t plen) {
 
 TrieNode *__newTrieNode(rune *str, t_len offset, t_len len, const char *payload, size_t plen,
                         t_len numChildren, float score, int terminal) {
-  TrieNode *n = calloc(1, __trieNode_Sizeof(numChildren, len - offset));
+  TrieNode *n = rm_calloc(1, __trieNode_Sizeof(numChildren, len - offset));
   n->len = len - offset;
   n->numChildren = numChildren;
   n->score = score;
   n->flags = 0 | (terminal ? TRIENODE_TERMINAL : 0);
   n->maxChildScore = 0;
+  n->sortmode = TRIENODE_SORTED_NONE;
   memcpy(n->str, str + offset, sizeof(rune) * (len - offset));
   if (payload != NULL && plen > 0) {
     n->payload = triePayload_New(payload, plen);
@@ -36,12 +39,12 @@ TrieNode *__newTrieNode(rune *str, t_len offset, t_len len, const char *payload,
 TrieNode *__trie_AddChild(TrieNode *n, rune *str, t_len offset, t_len len, RSPayload *payload,
                           float score) {
   n->numChildren++;
-  n = realloc((void *)n, __trieNode_Sizeof(n->numChildren, n->len));
+  n = rm_realloc((void *)n, __trieNode_Sizeof(n->numChildren, n->len));
   // a newly added child must be a terminal node
   TrieNode *child = __newTrieNode(str, offset, len, payload ? payload->data : NULL,
                                   payload ? payload->len : 0, 0, score, 1);
   __trieNode_children(n)[n->numChildren - 1] = child;
-  n->flags &= ~TRIENODE_SORTED;  // the node is now not sorted
+  n->sortmode = TRIENODE_SORTED_NONE;
 
   return n;
 }
@@ -62,14 +65,15 @@ TrieNode *__trie_SplitNode(TrieNode *n, t_len offset) {
   n->len = offset;
   n->score = 0;
   // the parent node is now non terminal and non sorted
-  n->flags &= ~(TRIENODE_SORTED | TRIENODE_TERMINAL | TRIENODE_DELETED);
+  n->flags &= ~(TRIENODE_TERMINAL | TRIENODE_DELETED);
+  n->sortmode = TRIENODE_SORTED_NONE;
 
   n->maxChildScore = MAX(n->maxChildScore, newChild->score);
   if (n->payload != NULL) {
-    free(n->payload);
+    rm_free(n->payload);
     n->payload = NULL;
   }
-  n = realloc(n, __trieNode_Sizeof(n->numChildren, n->len));
+  n = rm_realloc(n, __trieNode_Sizeof(n->numChildren, n->len));
   __trieNode_children(n)[0] = newChild;
 
   return n;
@@ -98,15 +102,15 @@ TrieNode *__trieNode_MergeWithSingleChild(TrieNode *n) {
   TrieNode **newChildren = __trieNode_children(merged);
   memcpy(newChildren, children, sizeof(TrieNode *) * merged->numChildren);
   if (ch->payload) {
-    free(ch->payload);
+    rm_free(ch->payload);
     ch->payload = NULL;
   }
   if (n->payload != NULL) {
-    free(n->payload);
+    rm_free(n->payload);
     n->payload = NULL;
   }
-  free(n);
-  free(ch);
+  rm_free(n);
+  rm_free(ch);
 
   return merged;
 }
@@ -149,9 +153,9 @@ int TrieNode_Add(TrieNode **np, rune *str, t_len len, RSPayload *payload, float 
       n->score = score;
       n->flags |= TRIENODE_TERMINAL;
       TrieNode *newChild = __trieNode_children(n)[0];
-      n = realloc(n, __trieNode_Sizeof(n->numChildren, n->len));
+      n = rm_realloc(n, __trieNode_Sizeof(n->numChildren, n->len));
       if (n->payload != NULL) {
-        free(n->payload);
+        rm_free(n->payload);
         n->payload = NULL;
       }
       if (payload != NULL && payload->data != NULL && payload->len > 0) {
@@ -186,7 +190,7 @@ int TrieNode_Add(TrieNode **np, rune *str, t_len len, RSPayload *payload, float 
         n->score = score;
     }
     if (n->payload != NULL) {
-      free(n->payload);
+      rm_free(n->payload);
       n->payload = NULL;
     }
     if (payload != NULL && payload->data != NULL && payload->len > 0) {
@@ -299,7 +303,7 @@ void __trieNode_optimizeChildren(TrieNode *n) {
 
 int TrieNode_Delete(TrieNode *n, rune *str, t_len len) {
   t_len offset = 0;
-  static TrieNode *stack[TRIE_MAX_STRING_LEN];
+  static TrieNode *stack[TRIE_INITIAL_STRING_LEN];
   int stackPos = 0;
   int rc = 0;
   while (n && offset < len) {
@@ -315,7 +319,7 @@ int TrieNode_Delete(TrieNode *n, rune *str, t_len len) {
       // we're at the end of both strings!
       // this means we've found what we're looking for
       if (localOffset == n->len) {
-        if (!(n->flags & TRIENODE_DELETED)) {
+        if (!__trieNode_isDeleted(n) && __trieNode_isTerminal(n)) {
 
           n->flags |= TRIENODE_DELETED;
           n->flags &= ~TRIENODE_TERMINAL;
@@ -361,11 +365,11 @@ void TrieNode_Free(TrieNode *n) {
     TrieNode_Free(child);
   }
   if (n->payload != NULL) {
-    free(n->payload);
+    rm_free(n->payload);
     n->payload = NULL;
   }
 
-  free(n);
+  rm_free(n);
 }
 
 // comparator for node sorting by child max score
@@ -383,15 +387,15 @@ static int __trieNode_Cmp(const void *p1, const void *p2) {
 
 /* Sort the children of a node by their maxChildScore */
 void __trieNode_sortChildren(TrieNode *n) {
-  if (!(n->flags & TRIENODE_SORTED) && n->numChildren > 1) {
+  if (!(n->sortmode != TRIENODE_SORTED_SCORE) && n->numChildren > 1) {
     qsort(__trieNode_children(n), n->numChildren, sizeof(TrieNode *), __trieNode_Cmp);
   }
-  n->flags |= TRIENODE_SORTED;
+  n->sortmode = TRIENODE_SORTED_SCORE;
 }
 
 /* Push a new trie node on the iterator's stack */
 inline void __ti_Push(TrieIterator *it, TrieNode *node, int skipped) {
-  if (it->stackOffset < TRIE_MAX_STRING_LEN - 1) {
+  if (it->stackOffset < TRIE_INITIAL_STRING_LEN - 1) {
     stackNode *sn = &it->stack[it->stackOffset++];
     sn->childOffset = 0;
     sn->stringOffset = 0;
@@ -476,7 +480,7 @@ inline int __ti_step(TrieIterator *it, void *matchCtx) {
 
     case ITERSTATE_CHILDREN:
     default:
-      if (!(current->n->flags & TRIENODE_SORTED)) {
+      if (current->n->sortmode != TRIENODE_SORTED_SCORE) {
         __trieNode_sortChildren(current->n);
       }
       // push the next child
@@ -500,7 +504,7 @@ next:
 }
 
 TrieIterator *TrieNode_Iterate(TrieNode *n, StepFilter f, StackPopCallback pf, void *ctx) {
-  TrieIterator *it = calloc(1, sizeof(TrieIterator));
+  TrieIterator *it = rm_calloc(1, sizeof(TrieIterator));
   it->filter = f;
   it->popCallback = pf;
   it->minScore = 0;
@@ -511,7 +515,7 @@ TrieIterator *TrieNode_Iterate(TrieNode *n, StepFilter f, StackPopCallback pf, v
 }
 
 void TrieIterator_Free(TrieIterator *it) {
-  free(it);
+  rm_free(it);
 }
 
 int TrieIterator_Next(TrieIterator *it, rune **ptr, t_len *len, RSPayload *payload, float *score,
@@ -549,7 +553,7 @@ TrieNode *TrieNode_RandomWalk(TrieNode *n, int minSteps, rune **str, t_len *len)
 
   size_t stackCap = minSteps;
   size_t stackSz = 1;
-  TrieNode **stack = calloc(stackCap, sizeof(TrieNode *));
+  TrieNode **stack = rm_calloc(stackCap, sizeof(TrieNode *));
   stack[0] = n;
 
   int bufCap = n->len;
@@ -579,7 +583,7 @@ TrieNode *TrieNode_RandomWalk(TrieNode *n, int minSteps, rune **str, t_len *len)
     steps++;
     if (stackSz == stackCap) {
       stackCap += minSteps;
-      stack = realloc(stack, stackCap * sizeof(TrieNode *));
+      stack = rm_realloc(stack, stackCap * sizeof(TrieNode *));
     }
 
     bufCap += child->len;
@@ -590,7 +594,7 @@ TrieNode *TrieNode_RandomWalk(TrieNode *n, int minSteps, rune **str, t_len *len)
   n = stack[stackSz - 1];
 
   /* build the string by walking the stack and copying all node strings */
-  rune *buf = calloc(bufCap + 1, sizeof(rune));
+  rune *buf = rm_calloc(bufCap + 1, sizeof(rune));
 
   t_len bufSize = 0;
   for (size_t i = 0; i < stackSz; i++) {
@@ -601,6 +605,256 @@ TrieNode *TrieNode_RandomWalk(TrieNode *n, int minSteps, rune **str, t_len *len)
   *str = buf;
   *len = bufSize;
   //(*str)[bufSize] = '\0';
-  free(stack);
+  rm_free(stack);
   return n;
+}
+
+static int runecmp(const rune *sa, size_t na, const rune *sb, size_t nb) {
+  size_t minlen = MIN(na, nb);
+  for (size_t ii = 0; ii < minlen; ++ii) {
+    int rc = sa[ii] - sb[ii];
+    if (rc == 0) {
+      continue;
+    }
+    return rc;
+  }
+
+  // Both strings match up to this point
+  if (na > nb) {
+    // nb is a substring of na; na is greater
+    return 1;
+  } else if (nb > na) {
+    // na is a substring of nb; nb is greater
+    return -1;
+  }
+  // strings are the same
+  return 0;
+}
+
+static int cmpLexFull(const void *a, const void *b) {
+  const TrieNode *na = *(const TrieNode **)a, *nb = *(const TrieNode **)b;
+  return runecmp(na->str, na->len, nb->str, nb->len);
+}
+
+typedef struct {
+  const rune *r;
+  uint16_t n;
+} rsbHelper;
+
+static int rsbCompareCommon(const void *h, const void *e, int prefix) {
+  const rsbHelper *term = h;
+  const TrieNode *elem = *(const TrieNode **)e;
+  int rc;
+
+  if (prefix) {
+    size_t minLen = MIN(elem->len, term->n);
+    rc = runecmp(term->r, minLen, elem->str, minLen);
+  } else {
+    rc = runecmp(term->r, term->n, elem->str, elem->len);
+  }
+
+  return rc;
+}
+
+static int rsbCompareExact(const void *h, const void *e) {
+  return rsbCompareCommon(h, e, 0);
+}
+
+static int rsbComparePrefix(const void *h, const void *e) {
+  return rsbCompareCommon(h, e, 1);
+}
+
+typedef struct {
+  rune *buf;
+  TrieRangeCallback *callback;
+  void *cbctx;
+  bool includeMin;
+  bool includeMax;
+} RangeCtx;
+
+static void rangeIterateSubTree(TrieNode *n, RangeCtx *r) {
+  // Push string to stack
+  r->buf = array_ensure_append(r->buf, n->str, n->len, rune);
+
+  if (__trieNode_isTerminal(n)) {
+    r->callback(r->buf, array_len(r->buf), r->cbctx);
+  }
+
+  TrieNode **arr = __trieNode_children(n);
+
+  for (size_t ii = 0; ii < n->numChildren; ++ii) {
+    // printf("Descending to index %lu\n", ii);
+    rangeIterateSubTree(arr[ii], r);
+  }
+
+  array_trimm_len(r->buf, array_len(r->buf) - n->len);
+}
+
+/**
+ * Try to place as many of the common arguments in rangectx, so that the stack
+ * size is not negatively impacted and prone to attack.
+ */
+static void rangeIterate(TrieNode *n, const rune *min, int nmin, const rune *max, int nmax,
+                         RangeCtx *r) {
+  // Push string to stack
+  r->buf = array_ensure_append(r->buf, n->str, n->len, rune);
+
+  if (__trieNode_isTerminal(n)) {
+    // current node is a termina.
+    // if nmin or nmax is zero, it means that we find an exact match
+    // we should fire the callback only if exact match requested
+    if (r->includeMin && nmin == 0) {
+      r->callback(r->buf, array_len(r->buf), r->cbctx);
+    } else if (r->includeMax && nmax == 0) {
+      r->callback(r->buf, array_len(r->buf), r->cbctx);
+    }
+  }
+
+  TrieNode **arr = __trieNode_children(n);
+  size_t arrlen = n->numChildren;
+  if (!arrlen) {
+    // no children, just return.
+    goto clean_stack;
+  }
+
+  if (n->sortmode != TRIENODE_SORTED_LEX) {
+    // lex sorting the children array.
+    qsort(arr, arrlen, sizeof(*arr), cmpLexFull);
+    n->sortmode = TRIENODE_SORTED_LEX;
+  }
+
+  // Find the minimum range here..
+  // Use binary search to find the beginning and end ranges:
+  rsbHelper h;
+
+  int beginEqIdx = -1;
+  if (nmin > 0) {
+    // searching for node that matches the prefix of our min value
+    h.r = min;
+    h.n = nmin;
+    beginEqIdx = rsb_eq(arr, arrlen, sizeof(*arr), &h, rsbComparePrefix);
+  }
+
+  int endEqIdx = -1;
+  if (nmax > 0) {
+    // searching for node that matches the prefix of our max value
+    h.r = max;
+    h.n = nmax;
+    endEqIdx = rsb_eq(arr, arrlen, sizeof(*arr), &h, rsbComparePrefix);
+  }
+
+  if (beginEqIdx == endEqIdx && endEqIdx != -1) {
+    // special case, min value and max value share a command prefix.
+    // we need to call recursively with the child contains this prefix
+    TrieNode *child = arr[beginEqIdx];
+
+    const rune *nextMin = min + child->len;
+    int nNextMin = nmin - child->len;
+    if (nNextMin < 0) {
+      nNextMin = 0;
+      nextMin = NULL;
+    }
+
+    const rune *nextMax = max + child->len;
+    int nNextMax = nmax - child->len;
+    if (nNextMax < 0) {
+      nNextMax = 0;
+      nextMax = NULL;
+    }
+
+    rangeIterate(child, nextMin, nNextMin, nextMax, nNextMax, r);
+    goto clean_stack;
+  }
+
+  if (beginEqIdx != -1) {
+    // we find a child that matches min prefix
+    // we should continue the search on this child but at this point we should
+    // not limit the max value
+    TrieNode *child = arr[beginEqIdx];
+
+    const rune *nextMin = min + child->len;
+    int nNextMin = nmin - child->len;
+    if (nNextMin < 0) {
+      nNextMin = 0;
+      nextMin = NULL;
+    }
+
+    rangeIterate(child, nextMin, nNextMin, NULL, -1, r);
+  }
+
+  int beginIdx = 0;
+  if (nmin > 0) {
+    // search for the first element which are greater then our min value
+    h.r = min;
+    h.n = nmin;
+    beginIdx = rsb_gt(arr, arrlen, sizeof(*arr), &h, rsbCompareExact);
+  }
+
+  int endIdx = nmax ? arrlen - 1 : -1;
+  if (nmax > 0) {
+    // search for the first element which are less then our max value
+    h.r = max;
+    h.n = nmax;
+    endIdx = rsb_lt(arr, arrlen, sizeof(*arr), &h, rsbCompareExact);
+  }
+
+  // we need to iterate (without any checking) on all the subtree from beginIdx to endIdx
+  for (int ii = beginIdx; ii <= endIdx; ++ii) {
+    rangeIterateSubTree(arr[ii], r);
+  }
+
+  if (endEqIdx != -1) {
+    // we find a child that matches max prefix
+    // we should continue the search on this child but at this point we should
+    // not limit the min value
+    TrieNode *child = arr[endEqIdx];
+
+    const rune *nextMax = max + child->len;
+    int nNextMax = nmax - child->len;
+    if (nNextMax < 0) {
+      nNextMax = 0;
+      nextMax = NULL;
+    }
+
+    rangeIterate(child, NULL, -1, nextMax, nNextMax, r);
+  }
+
+clean_stack:
+  array_trimm_len(r->buf, array_len(r->buf) - n->len);
+}
+
+// LexRange iteration.
+// If min = NULL and nmin = -1 it tells us there is not limit on the min value
+// same rule goes for max value.
+void TrieNode_IterateRange(TrieNode *n, const rune *min, int nmin, bool includeMin, const rune *max,
+                           int nmax, bool includeMax, TrieRangeCallback callback, void *ctx) {
+  if (min && max) {
+    // min and max exists, lets compare them to make sure min < max
+    int cmp = runecmp(min, nmin, max, nmax);
+    if (cmp > 0) {
+      // min > max, no reason to continue
+      return;
+    }
+
+    if (cmp == 0) {
+      // min = max, we should just search for min and check for its existence
+      if (includeMin || includeMax) {
+        if (TrieNode_Find(n, (rune *)min, nmin) != 0) {
+          callback(min, nmin, ctx);
+        }
+      }
+      return;
+    }
+  }
+
+  // min < max we should start the scan
+  RangeCtx r = {
+      .callback = callback,
+      .cbctx = ctx,
+      .includeMin = includeMin,
+      .includeMax = includeMax,
+  };
+  r.buf = array_new(rune, TRIE_INITIAL_STRING_LEN);
+  rangeIterate(n, min, nmin, max, nmax, &r);
+  array_free(r.buf);
 }

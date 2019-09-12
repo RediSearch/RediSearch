@@ -1,5 +1,6 @@
 #include "vector.h"
 #include <stdio.h>
+#include "rmalloc.h"
 
 inline int __vector_PushPtr(Vector *v, void *elem) {
   if (v->top == v->cap) {
@@ -54,7 +55,7 @@ int Vector_Resize(Vector *v, size_t newcap) {
   int oldcap = v->cap;
   v->cap = newcap;
 
-  v->data = realloc(v->data, v->cap * v->elemSize);
+  v->data = rm_realloc(v->data, v->cap * v->elemSize);
 
   // If we grew:
   // put all zeros at the newly realloc'd part of the vector
@@ -66,8 +67,8 @@ int Vector_Resize(Vector *v, size_t newcap) {
 }
 
 Vector *__newVectorSize(size_t elemSize, size_t cap) {
-  Vector *vec = malloc(sizeof(Vector));
-  vec->data = calloc(cap, elemSize);
+  Vector *vec = rm_malloc(sizeof(Vector));
+  vec->data = rm_calloc(cap, elemSize);
   vec->top = 0;
   vec->elemSize = elemSize;
   vec->cap = cap;
@@ -76,8 +77,8 @@ Vector *__newVectorSize(size_t elemSize, size_t cap) {
 }
 
 void Vector_Free(Vector *v) {
-  free(v->data);
-  free(v);
+  rm_free(v->data);
+  rm_free(v);
 }
 
 /* return the used size of the vector, regardless of capacity */

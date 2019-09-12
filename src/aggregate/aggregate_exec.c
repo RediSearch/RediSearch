@@ -3,130 +3,306 @@
 #include "search_ctx.h"
 #include "aggregate.h"
 #include "cursor.h"
+#include "rmutil/util.h"
 
+typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN } CommandType;
 static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num);
 
-void AggregateCommand_ExecAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                                    struct ConcurrentCmdCtx *cmdCtx) {
-  AggregateRequestSettings settings = {.pcb = Aggregate_DefaultChainBuilder};
-  if (!cmdCtx) {
-    settings.flags |= AGGREGATE_REQUEST_NO_CONCURRENT;
+/**
+ * Get the sorting key of the result. This will be the sorting key of the last
+ * RLookup registry. Returns NULL if there is no sorting key
+ */
+static const RSValue *getSortKey(AREQ *req, const SearchResult *r) {
+  PLN_ArrangeStep *astp = AGPLN_GetArrangeStep(&req->ap);
+  if (!astp) {
+    return NULL;
   }
-  AggregateCommand_ExecAggregateEx(ctx, argv, argc, cmdCtx, &settings);
+  const RLookupKey *kk = astp->sortkeysLK[0];
+  if ((kk->flags & RLOOKUP_F_SVSRC) && (r->rowdata.sv && r->rowdata.sv->len > kk->svidx)) {
+    return r->rowdata.sv->values[kk->svidx];
+  } else {
+    return RLookup_GetItem(astp->sortkeysLK[0], &r->rowdata);
+  }
+}
+
+static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchResult *r) {
+  const uint32_t options = req->reqflags;
+  const RSDocumentMetadata *dmd = r->dmd;
+  size_t count = 0;
+
+  if (dmd && (options & QEXEC_F_IS_SEARCH)) {
+    size_t n;
+    const char *s = DMD_KeyPtrLen(dmd, &n);
+    RedisModule_ReplyWithStringBuffer(outctx, s, n);
+    count++;
+  }
+
+  if (options & QEXEC_F_SEND_SCORES) {
+    RedisModule_ReplyWithDouble(outctx, r->score);
+    count++;
+  }
+  if (options & QEXEC_F_SENDRAWIDS) {
+    RedisModule_ReplyWithLongLong(outctx, r->docId);
+    count++;
+  }
+  if (options & QEXEC_F_SEND_PAYLOADS) {
+    count++;
+    if (dmd && dmd->payload) {
+      RedisModule_ReplyWithStringBuffer(outctx, dmd->payload->data, dmd->payload->len);
+    } else {
+      RedisModule_ReplyWithNull(outctx);
+    }
+  }
+
+  if ((options & QEXEC_F_SEND_SORTKEYS)) {
+    count++;
+    const RSValue *sortkey = getSortKey(req, r);
+    RedisModuleString *rskey = NULL;
+    if (sortkey) {
+      switch (sortkey->t) {
+        case RSValue_Number:
+          /* Serialize double - by prepending "%" to the number, so the coordinator/client can
+           * tell it's a double and not just a numeric string value */
+          rskey = RedisModule_CreateStringPrintf(outctx, "#%.17g", sortkey->numval);
+          break;
+        case RSValue_String:
+          /* Serialize string - by prepending "$" to it */
+          rskey = RedisModule_CreateStringPrintf(outctx, "$%s", sortkey->strval);
+          break;
+        case RSValue_RedisString:
+          rskey = RedisModule_CreateStringPrintf(outctx, "$%s",
+                                                 RedisModule_StringPtrLen(sortkey->rstrval, NULL));
+          break;
+        default:
+          break;
+      }
+      if (rskey) {
+        RedisModule_ReplyWithString(outctx, rskey);
+        RedisModule_FreeString(outctx, rskey);
+      } else {
+        RedisModule_ReplyWithNull(outctx);
+      }
+    } else {
+      RedisModule_ReplyWithNull(outctx);
+    }
+  }
+
+  if (!(options & QEXEC_F_SEND_NOFIELDS)) {
+    count++;
+    size_t nfields = 0;
+    REDISMODULE_BEGIN_ARRAY(outctx);
+    RLookup *lk = AGPLN_GetLookup(&req->ap, NULL, AGPLN_GETLOOKUP_LAST);
+
+    for (const RLookupKey *kk = lk->head; kk; kk = kk->next) {
+      if (kk->flags & RLOOKUP_F_HIDDEN) {
+        // printf("Skipping hidden field %s/%p\n", kk->name, kk);
+        continue;
+      }
+      if (req->outFields.explicitReturn && (kk->flags & RLOOKUP_F_EXPLICITRETURN) == 0) {
+        continue;
+      }
+      const RSValue *v = RLookup_GetItem(kk, &r->rowdata);
+      if (!v) {
+        continue;
+      }
+
+      nfields++;
+      RedisModule_ReplyWithSimpleString(outctx, kk->name);
+      RSValue_SendReply(outctx, v, req->reqflags & QEXEC_F_TYPED);
+    }
+    REDISMODULE_END_ARRAY(outctx, nfields * 2);
+  }
+  return count;
 }
 
 /**
- * File containing top-level execution routines for aggregations
+ * Sends a chunk of <n> rows, optionally also sending the preamble
  */
-/*
-  FT.AGGREGATE
-  {idx:string}
-  {FILTER:string}
-  SELECT {nargs:integer} {string} ...
-  GROUPBY
-    {nargs:integer} {string} ...
-    [AS {AS:string}]
-    REDUCE
-      {FUNC:string}
-      {nargs:integer} {string} ...
-      [AS {AS:string}]
+static int sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
+  size_t nrows = 0;
+  size_t nelem = 0;
+  SearchResult r = {0};
+  int rc = RS_RESULT_EOF;
+  ResultProcessor *rp = req->qiter.endProc;
 
+  RedisModule_ReplyWithArray(outctx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
-  [SORTBY {nargs:integer} {string} ...]
-  [PROJECT
-    {FUNC:string}
-    {nargs:integer} {string} ...
-    [AS {AS:string}]
-  ] */
-void AggregateCommand_ExecAggregateEx(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                                      struct ConcurrentCmdCtx *cmdCtx,
-                                      const AggregateRequestSettings *settings) {
-
-  // at least one field, and number of field/text args must be even
-
-  RedisModule_AutoMemory(ctx);
-  RedisSearchCtx *sctx;
-  if (settings->flags & AGGREGATE_REQUEST_SPECLESS) {
-    sctx = NewSearchCtxDefault(ctx);
-  } else {
-    sctx = NewSearchCtx(ctx, argv[1], true);
-  }
-  if (sctx == NULL) {
-    RedisModule_ReplyWithError(ctx, "Unknown Index name");
-    return;
+  rc = rp->Next(rp, &r);
+  RedisModule_ReplyWithLongLong(outctx, req->qiter.totalResults);
+  nelem++;
+  if (rc == RS_RESULT_OK && nrows++ < limit && !(req->reqflags & QEXEC_F_NOROWS)) {
+    nelem += serializeResult(req, outctx, &r);
   }
 
-  AggregateRequest req_s = {NULL}, *req = &req_s;
-  int hasCursor = 0;
-  QueryError status = {0};
-
-  if (AggregateRequest_Start(req, sctx, settings, argv, argc, &status) != REDISMODULE_OK) {
-    RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
-    QueryError_ClearError(&status);
+  SearchResult_Clear(&r);
+  if (rc != RS_RESULT_OK) {
     goto done;
   }
 
-  if (req->ap.hasCursor) {
-    // Using a cursor here!
-    const char *idxName = settings->cursorLookupName ? settings->cursorLookupName
-                                                     : RedisModule_StringPtrLen(argv[1], NULL);
-
-    Cursor *cursor =
-        Cursors_Reserve(&RSCursors, sctx, idxName, req->ap.cursor.maxIdle, &status.detail);
-    if (!cursor) {
-      QueryError_MaybeSetCode(&status, QUERY_ECURSORALLOC);
-      RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
-      QueryError_ClearError(&status);
-      goto done;
+  while (nrows++ < limit && (rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
+    if (!(req->reqflags & QEXEC_F_NOROWS)) {
+      nelem += serializeResult(req, outctx, &r);
     }
-
-    req = AggregateRequest_Persist(req);
-    req->plan->opts.flags |= Search_IsCursor;
-    cursor->execState = req;
-    /* Don't let the context get removed from under our feet */
-    if (cmdCtx) {
-      ConcurrentCmdCtx_KeepRedisCtx(cmdCtx);
-    } else {
-      sctx->redisCtx = RedisModule_GetThreadSafeContext(NULL);
-      // ctx is still the original output context - so don't change it!
-    }
-    runCursor(ctx, cursor, req->ap.cursor.count);
-    return;
+    // Serialize it as a search result
+    SearchResult_Clear(&r);
   }
 
-  AggregateRequest_Run(req, sctx->redisCtx);
+done:
+  SearchResult_Destroy(&r);
+  if (rc != RS_RESULT_OK) {
+    req->stateflags |= QEXEC_S_ITERDONE;
+  }
+  // Reset the total results length:
+  req->qiter.totalResults = 0;
+  RedisModule_ReplySetArrayLength(outctx, nelem);
+  return REDISMODULE_OK;
+}
+
+void AREQ_Execute(AREQ *req, RedisModuleCtx *outctx) {
+  sendChunk(req, outctx, -1);
+  AREQ_Free(req);
+}
+
+static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int type,
+                        QueryError *status, AREQ **r) {
+
+  int rc = REDISMODULE_ERR;
+  const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
+  *r = AREQ_New();
+  RedisSearchCtx *sctx = NULL;
+  RedisModuleCtx *thctx = NULL;
+
+  if (type == COMMAND_SEARCH) {
+    (*r)->reqflags |= QEXEC_F_IS_SEARCH;
+  }
+
+  if (AREQ_Compile(*r, argv + 2, argc - 2, status) != REDISMODULE_OK) {
+    assert(QueryError_HasError(status));
+    goto done;
+  }
+
+  // Prepare the query.. this is where the context is applied.
+  if ((*r)->reqflags & QEXEC_F_IS_CURSOR) {
+    RedisModuleCtx *newctx = RedisModule_GetThreadSafeContext(NULL);
+    RedisModule_SelectDb(newctx, RedisModule_GetSelectedDb(ctx));
+    ctx = thctx = newctx;  // In case of error!
+  }
+
+  sctx = NewSearchCtxC(ctx, indexname, true);
+  if (!sctx) {
+    QueryError_SetErrorFmt(status, QUERY_ENOINDEX, "%s: no such index", indexname);
+    goto done;
+  }
+
+  rc = AREQ_ApplyContext(*r, sctx, status);
+  thctx = NULL;
+  // ctx is always assigned after ApplyContext
+  if (rc != REDISMODULE_OK) {
+    assert(QueryError_HasError(status));
+    goto done;
+  }
+
+  rc = AREQ_BuildPipeline(*r, 0, status);
 
 done:
-  AggregateRequest_Free(req);
-  SearchCtx_Free(sctx);
+  if (rc != REDISMODULE_OK && *r) {
+    AREQ_Free(*r);
+    *r = NULL;
+    if (thctx) {
+      RedisModule_FreeThreadSafeContext(thctx);
+    }
+  }
+  return rc;
+}
+
+static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                             CommandType type) {
+  // Index name is argv[1]
+  if (argc < 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
+  AREQ *r = NULL;
+  QueryError status = {0};
+
+  if (buildRequest(ctx, argv, argc, type, &status, &r) != REDISMODULE_OK) {
+    goto error;
+  }
+
+  if (r->reqflags & QEXEC_F_IS_CURSOR) {
+    int rc = AREQ_StartCursor(r, ctx, r->sctx->spec->name, &status);
+    if (rc != REDISMODULE_OK) {
+      goto error;
+    }
+  } else {
+    // Execute() will call free when appropriate.
+    AREQ_Execute(r, ctx);
+  }
+  return REDISMODULE_OK;
+
+error:
+  if (r) {
+    AREQ_Free(r);
+  }
+  return QueryError_ReplyAndClear(ctx, &status);
+}
+
+int RSAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  return execCommandCommon(ctx, argv, argc, COMMAND_AGGREGATE);
+}
+int RSSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  return execCommandCommon(ctx, argv, argc, COMMAND_SEARCH);
+}
+
+char *RS_GetExplainOutput(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                          QueryError *status) {
+  AREQ *r = NULL;
+  if (buildRequest(ctx, argv, argc, COMMAND_EXPLAIN, status, &r) != REDISMODULE_OK) {
+    return NULL;
+  }
+  char *ret = QAST_DumpExplain(&r->ast, r->sctx->spec);
+  AREQ_Free(r);
+  return ret;
+}
+
+static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num);
+
+int AREQ_StartCursor(AREQ *r, RedisModuleCtx *outctx, const char *lookupName, QueryError *err) {
+  Cursor *cursor = Cursors_Reserve(&RSCursors, lookupName, r->cursorMaxIdle, err);
+  if (cursor == NULL) {
+    return REDISMODULE_ERR;
+  }
+  cursor->execState = r;
+  runCursor(outctx, cursor, 0);
+  return REDISMODULE_OK;
 }
 
 static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num) {
-  AggregateRequest *req = cursor->execState;
+  AREQ *req = cursor->execState;
   if (!num) {
-    num = req->ap.cursor.count;
+    num = req->cursorChunkSize;
     if (!num) {
       num = RSGlobalConfig.cursorReadSize;
     }
   }
-  req->plan->opts.chunksize = num;
-  clock_gettime(CLOCK_MONOTONIC_RAW, &req->plan->execCtx.startTime);
-
+  req->cursorChunkSize = num;
   RedisModule_ReplyWithArray(outputCtx, 2);
-  AggregateRequest_Run(req, outputCtx);
-  if (req->plan->outputFlags & QP_OUTPUT_FLAG_ERROR) {
+  sendChunk(req, outputCtx, num);
+
+  if (req->stateflags & QEXEC_S_ERROR) {
     RedisModule_ReplyWithLongLong(outputCtx, 0);
     goto delcursor;
   }
 
-  if (req->plan->outputFlags & QP_OUTPUT_FLAG_DONE) {
+  if (req->stateflags & QEXEC_S_ITERDONE) {
     // Write the count!
     RedisModule_ReplyWithLongLong(outputCtx, 0);
   } else {
     RedisModule_ReplyWithLongLong(outputCtx, cursor->id);
   }
 
-  if (req->plan->outputFlags & QP_OUTPUT_FLAG_DONE) {
+  if (req->stateflags & QEXEC_S_ITERDONE) {
     goto delcursor;
   } else {
     // Update the idle timeout
@@ -135,7 +311,10 @@ static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num) {
   }
 
 delcursor:
-  AggregateRequest_Free(req);
+  AREQ_Free(req);
+  if (cursor) {
+    cursor->execState = NULL;
+  }
   Cursor_Free(cursor);
 }
 
@@ -150,18 +329,14 @@ static void cursorRead(RedisModuleCtx *ctx, uint64_t cid, size_t count) {
     RedisModule_ReplyWithError(ctx, "Cursor not found");
     return;
   }
-  AggregateRequest *req = cursor->execState;
-  if (req->plan->conc) {
-    ConcurrentSearchCtx_ReopenKeys(req->plan->conc);
-  }
+  AREQ *req = cursor->execState;
+  ConcurrentSearchCtx_ReopenKeys(&req->conc);
   runCursor(ctx, cursor, count);
 }
 
-void AggregateCommand_ExecCursor(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                                 struct ConcurrentCmdCtx *unused) {
+int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 4) {
-    RedisModule_WrongArity(ctx);
-    return;
+    return RedisModule_WrongArity(ctx);
   }
 
   const char *cmd = RedisModule_StringPtrLen(argv[1], NULL);
@@ -173,7 +348,7 @@ void AggregateCommand_ExecCursor(RedisModuleCtx *ctx, RedisModuleString **argv, 
 
   if (RedisModule_StringToLongLong(argv[3], &cid) != REDISMODULE_OK) {
     RedisModule_ReplyWithError(ctx, "Bad cursor ID");
-    return;
+    return REDISMODULE_OK;
   }
 
   char cmdc = toupper(*cmd);
@@ -184,7 +359,7 @@ void AggregateCommand_ExecCursor(RedisModuleCtx *ctx, RedisModuleString **argv, 
       // e.g. 'COUNT <timeout>'
       if (RedisModule_StringToLongLong(argv[5], &count) != REDISMODULE_OK) {
         RedisModule_ReplyWithError(ctx, "Bad value for COUNT");
-        return;
+        return REDISMODULE_OK;
       }
     }
     cursorRead(ctx, cid, count);
@@ -204,4 +379,10 @@ void AggregateCommand_ExecCursor(RedisModuleCtx *ctx, RedisModuleString **argv, 
     printf("Unknown command %s\n", cmd);
     RedisModule_ReplyWithError(ctx, "Unknown subcommand");
   }
+  return REDISMODULE_OK;
+}
+
+void Cursor_FreeExecState(void *p) {
+  AREQ *r = p;
+  AREQ_Free(p);
 }

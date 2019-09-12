@@ -24,6 +24,8 @@
 #include <assert.h>
 #include "double_metaphone.h"
 
+#include "rmalloc.h"
+
 /*
  * * If META_USE_PERL_MALLOC is defined we use Perl's memory routines.
  * */
@@ -37,9 +39,9 @@
 
 #else
 
-#define META_MALLOC(v, n, t) (v = (t *)malloc(((n) * sizeof(t))))
-#define META_REALLOC(v, n, t) (v = (t *)realloc((v), ((n) * sizeof(t))))
-#define META_FREE(x) free((x))
+#define META_MALLOC(v, n, t) (v = (t *)rm_malloc(((n) * sizeof(t))))
+#define META_REALLOC(v, n, t) (v = (t *)rm_realloc((v), ((n) * sizeof(t))))
+#define META_FREE(x) rm_free((x))
 
 #endif /* META_USE_PERL_MALLOC */
 
@@ -959,12 +961,24 @@ void DoubleMetaphone(const char *str, char **primary_pp, char **secondary_pp) {
 
   if (secondary->length > 4) SetAt(secondary, 4, '\0');
   if (primary_pp) {
-    *primary_pp = primary->str;
-    primary->free_string_on_destroy = 0;
+    if (*primary_pp) {
+      rm_free(*primary_pp);
+      *primary_pp = NULL;
+    }
+    if (primary->length > 0) {
+      *primary_pp = primary->str;
+      primary->free_string_on_destroy = 0;
+    }
   }
   if (secondary_pp) {
-    *secondary_pp = secondary->str;
-    secondary->free_string_on_destroy = 0;
+    if (*secondary_pp) {
+      rm_free(*secondary_pp);
+      *secondary_pp = NULL;
+    }
+    if (secondary->length > 0) {
+      *secondary_pp = secondary->str;
+      secondary->free_string_on_destroy = 0;
+    }
   }
 
   DestroyMetaString(original);

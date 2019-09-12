@@ -4,6 +4,9 @@
 #include "periodic.h"
 #include "assert.h"
 #include "test.h"
+#include "alloc.h"
+
+REDISMODULE_INIT_SYMBOLS();
 
 int timerCb(RedisModuleCtx *ctx, void *p) {
   int *x = p;
@@ -24,4 +27,7 @@ int testPeriodic() {
   return 0;
 }
 
-TEST_MAIN({ TESTFUNC(testPeriodic); });
+TEST_MAIN({
+  RMUTil_InitAlloc();
+  TESTFUNC(testPeriodic);
+});

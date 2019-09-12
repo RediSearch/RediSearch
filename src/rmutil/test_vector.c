@@ -1,9 +1,12 @@
 #include "vector.h"
 #include <stdio.h>
 #include "test.h"
+#include "redismodule.h"
+#include "alloc.h"
+REDISMODULE_INIT_SYMBOLS();
 
 int testVector() {
-
+  RMUTil_InitAlloc();
   Vector *v = NewVector(int, 1);
   ASSERT(v != NULL);
   // Vector_Put(v, 0, 1);

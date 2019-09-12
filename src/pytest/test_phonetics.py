@@ -77,3 +77,10 @@ def testPoneticWithSmallTerm(env):
 
     res = env.cmd('ft.search', 'complainants', '@name:(john=>{$phonetic:true})')
     env.assertEqual(res, [2L, 'foo64', ['name', 'jon smith', 'almamater', 'Trent'], 'foo65', ['name', 'john jones', 'almamater', 'Toronto']])
+
+def testPoneticOnNumbers(env):
+    env.assertOk(env.cmd('ft.create', 'idx', 'SCHEMA', 'test', 'TEXT', 'PHONETIC', 'dm:en'))
+    env.assertOk(env.cmd('ft.add', 'idx', 'doc1', 1.0, 'FIELDS', 'test', 'this is 2015 test'))
+    env.assertOk(env.cmd('ft.add', 'idx', 'doc2', 1.0, 'FIELDS', 'test', 'this is 04 test'))
+    res = env.cmd('ft.search', 'idx', '04')
+    env.assertEqual(res, [1L, 'doc2', ['test', 'this is 04 test']])

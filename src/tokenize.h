@@ -10,6 +10,10 @@
 #include <stdlib.h>
 #include <strings.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef enum { Token_CopyRaw = 0x01, Token_CopyStem = 0x02 } TokenFlags;
 
 /* Represents a token found in a document */
@@ -41,6 +45,8 @@ typedef struct {
   // position in the document - this is written to the inverted index
   uint32_t pos;
 } Token;
+
+#define Token_Destroy(t) rm_free((t)->phoneticsPrimary)
 
 // A NormalizeFunc converts a raw token to the normalized form in which it will be stored
 typedef char *(*NormalizeFunc)(char *, size_t *);
@@ -91,4 +97,7 @@ RSTokenizer *GetChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords);
 RSTokenizer *GetSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords);
 void Tokenizer_Release(RSTokenizer *t);
 
+#ifdef __cplusplus
+}
+#endif
 #endif

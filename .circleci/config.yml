@@ -4,6 +4,9 @@ defaults:
   ci_steps: &ci_steps
     - checkout
     - run:
+        name: Get Dependencies
+        command: ./.circleci/ci_get_deps.sh
+    - run:
         name: Build
         command: ./.circleci/ci_build.sh
     - run:
@@ -55,6 +58,24 @@ jobs:
               aws s3 cp $f s3://redismodules/$PACKAGE_NAME/snapshots/ --acl public-read;
             done
 
+  debug_asan:
+    docker:
+      - image: 'mnunberg/rmbuilder-san:latest'
+    steps:
+      - checkout
+      - run:
+          name: Run & build tests
+          command: ./.circleci/ci_diag_san.sh asan
+
+  debug_msan:
+    docker:
+      - image: 'mnunberg/rmbuilder-san:latest'
+    steps:
+      - checkout
+      - run:
+          name: Run & build tests
+          command: ./.circleci/ci_diag_san.sh msan
+
   deploy_release:
     docker:
       - image: 'redislabsmodules/rmbuilder:latest'
@@ -99,6 +120,18 @@ workflows:
               only: /.*/
             tags:
               only: /.*/
+      - debug_asan:
+          filters:
+              branches:
+                  only: /.*/
+              tags:
+                  only: /.*/
+      - debug_msan:
+          filters:
+              branches:
+                  only: /.*/
+              tags:
+                  only: /.*/
       - deploy_snapshots:
           requires: *default_jobs
           filters:
