@@ -35,10 +35,10 @@
           rm_free(tempStr);                                   \
         }                                                     \
 
-static inline void strExpCreateParent(const ScoringFunctionArgs *ctx, RSScoreExplain **scrExp) {
+static void strExpCreateParent(const ScoringFunctionArgs *ctx, RSScoreExplain **scrExp) {
 //  RSScoreExplain *scrExp = (RSScoreExplain *)ctx->scrExp;
   if (*scrExp) {
-    RSScoreExplain *finalScrExp = (RSScoreExplain *)rm_calloc(1, sizeof(RSScoreExplain));
+    RSScoreExplain *finalScrExp = rm_calloc(1, sizeof(RSScoreExplain));
     finalScrExp->numChildren = 1;
     finalScrExp->children = *scrExp;
     ((ScoringFunctionArgs *)ctx)->scrExp = *scrExp = finalScrExp;

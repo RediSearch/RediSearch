@@ -39,7 +39,7 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
   }
 
   if (options & QEXEC_F_SEND_SCORES) {
-    if (!(options & QEXEC_F_SEND_SCORE_EXPLAIN)) {
+    if (!(options & QEXEC_F_SEND_SCOREEXPLAIN)) {
       RedisModule_ReplyWithDouble(outctx, r->score);
     } else {
       RedisModule_ReplyWithArray(outctx, 2);

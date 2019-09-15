@@ -41,7 +41,7 @@ typedef enum {
   QEXEC_F_SENDRAWIDS = 0x2000,
 
   /* Flag for scorer function to create explanation strings */
-  QEXEC_F_SEND_SCORE_EXPLAIN = 0x4000
+  QEXEC_F_SEND_SCOREEXPLAIN = 0x4000
 
 } QEFlags;
 
