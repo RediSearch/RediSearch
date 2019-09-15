@@ -293,9 +293,6 @@ typedef struct RSIndexResult {
 
   /* Relative weight for scoring calculations. This is derived from the result's iterator weight */
   double weight;
-
-  /* Option: maintains explanation for how was the score calculated */
-  char *scoreExplainStr;
 } RSIndexResult;
 
 #pragma pack()
@@ -334,7 +331,7 @@ typedef struct {
   RSIndexStats indexStats;
 
   /** Flags controlling scoring function */
-  uint32_t scoreflags;
+  void *scrExp; //scoreflags
 
   /* The GetSlop() callback. Returns the cumulative "slop" or distance between the query terms,
    * that can be used to factor the result score */

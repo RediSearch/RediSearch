@@ -217,8 +217,6 @@ void IndexResult_Free(RSIndexResult *r) {
       }
     }
   }
-  free(r->scoreExplainStr); // if failed somewhere.
-  r->scoreExplainStr = NULL;
   
   rm_free(r);
 }

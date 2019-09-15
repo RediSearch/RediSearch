@@ -7,12 +7,11 @@
 extern "C" {
 #endif
 
-typedef struct RSScoreExplain RSScoreExplain;
-
-/*
- * Extract explanation strings from temporary RSIndexResult.
- */
-RSScoreExplain *SEExtractStrings(RSIndexResult *inxRes);
+typedef struct RSScoreExplain {
+  char *str;
+  int numChildren;
+  struct RSScoreExplain *children;
+} RSScoreExplain;
 
 /*
  * RedisModule_reply.

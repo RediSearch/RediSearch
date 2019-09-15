@@ -1,33 +1,6 @@
 #include "score_explain.h"
 #include "rmalloc.h"
 
-struct RSScoreExplain{
-  char *str;
-  int numChildren;
-  RSScoreExplain **children;
-};
-
-static RSScoreExplain *recExplainExtractStrings(RSIndexResult *inxRes) {
-  RSScoreExplain *scrExp = rm_calloc(1, sizeof(RSScoreExplain));
-  scrExp->str = inxRes->scoreExplainStr;
-  inxRes->scoreExplainStr = NULL;
-  
-  if (inxRes->type & (RSResultType_Intersection | RSResultType_Union) &&
-      inxRes->agg.children[0]->scoreExplainStr != NULL) { // Some children don't get love
-    int numChildren = inxRes->agg.numChildren;
-    scrExp->numChildren = numChildren;
-    scrExp->children = rm_calloc(numChildren, sizeof(RSScoreExplain *));
-    for (int i = 0; i < numChildren; i++) {
-      scrExp->children[i] = recExplainExtractStrings(inxRes->agg.children[i]);
-    }
-  } else { 
-    scrExp->numChildren = 0; 
-    scrExp->children = NULL; 
-  }
-  
-  return scrExp;
-}
-
 static void recExplainReply(RedisModuleCtx *ctx, RSScoreExplain *scrExp) {
   int numChildren = scrExp->numChildren;
 
@@ -38,23 +11,17 @@ static void recExplainReply(RedisModuleCtx *ctx, RSScoreExplain *scrExp) {
     RedisModule_ReplyWithSimpleString(ctx, scrExp->str);
     RedisModule_ReplyWithArray(ctx, numChildren);
     for(int i = 0; i < numChildren; i++) {
-      recExplainReply(ctx, scrExp->children[i]);
+      recExplainReply(ctx, &scrExp->children[i]);
     }
   }
 }
 
 static void recExplainDestroy(RSScoreExplain *scrExp) {
   for(int i = 0; i < scrExp->numChildren; i++) {
-    recExplainDestroy(scrExp->children[i]);
+    recExplainDestroy(&scrExp->children[i]);
   }
   rm_free(scrExp->children);
   rm_free(scrExp->str);
-  rm_free(scrExp);
-}
-
-RSScoreExplain *SEExtractStrings(RSIndexResult *inxRes) {
-  if (inxRes->scoreExplainStr == NULL) { return NULL; }
-  return recExplainExtractStrings(inxRes);
 }
 
 void SEReply(RedisModuleCtx *ctx, RSScoreExplain *scrExp){
@@ -66,5 +33,6 @@ void SEReply(RedisModuleCtx *ctx, RSScoreExplain *scrExp){
 void SEDestroy(RSScoreExplain *scrExp) {
   if (scrExp != NULL) {
     recExplainDestroy(scrExp);
+    rm_free(scrExp);
   }
 }

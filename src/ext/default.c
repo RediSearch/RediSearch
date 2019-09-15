@@ -12,6 +12,7 @@
 #include "../rmutil/vector.h"
 #include "../stemmer.h"
 #include "../phonetic_manager.h"
+#include "../score_explain.h"
 
 /******************************************************************************************
  *
@@ -27,55 +28,78 @@
 // normalize TF by number of tokens (weighted)
 #define NORM_DOCLEN 2
 
-#define EXPLAIN(explain, indexResult, fmt, args...)                                            \
-        if (explain) {                                                                \
-          char *tempStr = indexResult->scoreExplainStr;                               \
-          rm_asprintf((char ** restrict)&indexResult->scoreExplainStr, fmt, ##args);     \
-          rm_free(tempStr);                                                              \
-        }                                                                             \
+#define EXPLAIN(scrExp, fmt, args...)                         \
+        if (scrExp) {                                         \
+          void *tempStr = scrExp->str;                             \
+          rm_asprintf((char ** restrict)&scrExp->str, fmt, ##args); \
+          rm_free(tempStr);                                   \
+        }                                                     \
+
+static inline void strExpCreateParent(const ScoringFunctionArgs *ctx, RSScoreExplain **scrExp) {
+//  RSScoreExplain *scrExp = (RSScoreExplain *)ctx->scrExp;
+  if (*scrExp) {
+    RSScoreExplain *finalScrExp = (RSScoreExplain *)rm_calloc(1, sizeof(RSScoreExplain));
+    finalScrExp->numChildren = 1;
+    finalScrExp->children = *scrExp;
+    ((ScoringFunctionArgs *)ctx)->scrExp = *scrExp = finalScrExp;
+    
+  }
+}
 
 // recursively calculate tf-idf
-static double tfidfRecursive(const RSIndexResult *r, const RSDocumentMetadata *dmd, bool explain) {
+static double tfidfRecursive(const RSIndexResult *r, const RSDocumentMetadata *dmd, RSScoreExplain *scrExp) {
   if (r->type == RSResultType_Term) {
     double idf = r->term.term ? r->term.term->idf : 0;
     double res = r->weight * ((double)r->freq) * idf;
-    EXPLAIN(explain, r, "(TFIDF %.2f = Weight %.2f * TF %d * IDF %.2f)", res, r->weight, r->freq, idf);
+    EXPLAIN(scrExp, "(TFIDF %.2f = Weight %.2f * TF %d * IDF %.2f)", res, r->weight, r->freq, idf);
     return res;
   }
   if (r->type & (RSResultType_Intersection | RSResultType_Union)) {
     double ret = 0;
-    for (int i = 0; i < r->agg.numChildren; i++) {
-      ret += tfidfRecursive(r->agg.children[i], dmd, explain);
+    int numChildren = r->agg.numChildren;
+    if (!scrExp) {
+      for (int i = 0; i < numChildren; i++) {
+        ret += tfidfRecursive(r->agg.children[i], dmd, NULL);
+      }
+    } else {
+      scrExp->numChildren = numChildren;
+      scrExp->children = rm_calloc(numChildren, sizeof(RSScoreExplain));
+      for (int i = 0; i < numChildren; i++) {
+        ret += tfidfRecursive(r->agg.children[i], dmd, &scrExp->children[i]);
+      }
+      EXPLAIN(scrExp, "(Weight %.2f * total children TFIDF %.2f)", r->weight, ret)
     }
-    EXPLAIN(explain, r, "(Weight %.2f * total children TFIDF %.2f)", r->weight, ret)
     return r->weight * ret;
   }
-  EXPLAIN(explain, r, "(TFIDF %.2f = Weight %.2f * Frequency %d)", r->weight * (double)r->freq, r->weight, r->freq);
+  EXPLAIN(scrExp, "(TFIDF %.2f = Weight %.2f * Frequency %d)", r->weight * (double)r->freq, r->weight, r->freq);
   return r->weight * (double)r->freq;
 }
 
 /* internal common tf-idf function, where just the normalization method changes */
 static inline double tfIdfInternal(const ScoringFunctionArgs *ctx, const RSIndexResult *h,
                                    const RSDocumentMetadata *dmd, double minScore, int normMode) {
-  bool explain = ctx->scoreflags & SCORE_F_WITH_EXPLANATION;
+  RSScoreExplain *scrExp = (RSScoreExplain *)ctx->scrExp;
   if (dmd->score == 0) {
-    EXPLAIN(explain, h, "Document score is 0");
+    EXPLAIN(scrExp, "Document score is 0");
     return 0;
   }
   uint32_t norm = normMode == NORM_MAXFREQ ? dmd->maxFreq : dmd->len;
-  double rawTfidf = tfidfRecursive(h, dmd, explain);
+  double rawTfidf = tfidfRecursive(h, dmd, scrExp);
   double tfidf = dmd->score * rawTfidf / norm;
+  strExpCreateParent(ctx, &scrExp);
 
   // no need to factor the distance if tfidf is already below minimal score
   if (tfidf < minScore) {
-    EXPLAIN(explain, h, "TFIDF score of %.2f is smaller than minimum score %.2f", tfidf, minScore);
+    EXPLAIN(scrExp, "TFIDF score of %.2f is smaller than minimum score %.2f", tfidf, minScore);
     return 0;
   }
 
   int slop = ctx->GetSlop(h);
   tfidf /= slop;
-  EXPLAIN(explain, h, "Final TFIDF : %s * %.2f * document score %.2f / norm %d / slop %d",
-          h->scoreExplainStr, rawTfidf, dmd->score, norm, slop);
+  
+  EXPLAIN(scrExp, "Final TFIDF : words TFIDF %.2f * document score %.2f / norm %d / slop %d",
+            rawTfidf, dmd->score, norm, slop);
+  
   return tfidf;
 }
 
@@ -104,7 +128,7 @@ static double TFIDFNormDocLenScorer(const ScoringFunctionArgs *ctx, const RSInde
 
 /* recursively calculate score for each token, summing up sub tokens */
 static double bm25Recursive(const ScoringFunctionArgs *ctx, const RSIndexResult *r,
-                            const RSDocumentMetadata *dmd, bool explain) {
+                            const RSDocumentMetadata *dmd, RSScoreExplain *scrExp) {
   static const float b = 0.5;
   static const float k1 = 1.2;
   double f = (double)r->freq;
@@ -114,20 +138,29 @@ static double bm25Recursive(const ScoringFunctionArgs *ctx, const RSIndexResult 
     double idf = (r->term.term ? r->term.term->idf : 0);
 
     ret = idf * f / (f + k1 * (1.0f - b + b * ctx->indexStats.avgDocLen));
-    EXPLAIN(explain, r, "(%.2f = IDF %.2f * F %d / (F %d + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len %.2f)))", 
+    EXPLAIN(scrExp, "(%.2f = IDF %.2f * F %d / (F %d + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len %.2f)))", 
             ret, idf, r->freq, r->freq, ctx->indexStats.avgDocLen);  
   } else if (r->type & (RSResultType_Intersection | RSResultType_Union)) {
-    for (int i = 0; i < r->agg.numChildren; i++) {
-      ret += bm25Recursive(ctx, r->agg.children[i], dmd, explain);
+    int numChildren = r->agg.numChildren;
+    if (!scrExp) {
+      for (int i = 0; i < numChildren; i++) {
+        ret += bm25Recursive(ctx, r->agg.children[i], dmd, NULL);
+      }    
+    } else {
+      scrExp->numChildren = numChildren;
+      scrExp->children = rm_calloc(numChildren, sizeof(RSScoreExplain));
+      for (int i = 0; i < numChildren; i++) {
+        ret += bm25Recursive(ctx, r->agg.children[i], dmd, &scrExp->children[i]);
+      }
+      EXPLAIN(scrExp, "(Weight %.2f * children BM25 %.2f)", r->weight, ret);
     }
-    EXPLAIN(explain, r, "(Weight %.2f * children BM25 %.2f)", r->weight, ret);
     ret *= r->weight;
   } else if (f) {   // default for virtual type -just disregard the idf
     ret = r->weight * f / (f + k1 * (1.0f - b + b * ctx->indexStats.avgDocLen));
-    EXPLAIN(explain, r, "(%.2f = Weight %.2f * F %d / (F %d + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len %.2f)))", 
+    EXPLAIN(scrExp, "(%.2f = Weight %.2f * F %d / (F %d + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len %.2f)))", 
             ret, r->weight, r->freq, r->freq, ctx->indexStats.avgDocLen);
   } else {
-    EXPLAIN(explain, r, "Frequency 0 -> value 0");
+    EXPLAIN(scrExp, "Frequency 0 -> value 0");
   }
 
   return ret;
@@ -136,19 +169,22 @@ static double bm25Recursive(const ScoringFunctionArgs *ctx, const RSIndexResult 
 /* BM25 scoring function */
 static double BM25Scorer(const ScoringFunctionArgs *ctx, const RSIndexResult *r,
                          const RSDocumentMetadata *dmd, double minScore) {
-  bool explain = ctx->scoreflags & SCORE_F_WITH_EXPLANATION;
-  double bm25res = bm25Recursive(ctx, r, dmd, explain);
+  RSScoreExplain *scrExp = (RSScoreExplain *)ctx->scrExp;
+  double bm25res = bm25Recursive(ctx, r, dmd, scrExp);
   double score = dmd->score * bm25res;
+  strExpCreateParent(ctx, &scrExp);
 
   // no need to factor the distance if tfidf is already below minimal score
   if (score < minScore) {
-    EXPLAIN(explain, r, "BM25 score of %.2f is smaller than minimum score %.2f", bm25res, score);
+    EXPLAIN(scrExp, "BM25 score of %.2f is smaller than minimum score %.2f", bm25res, score);
     return 0;
   }
   int slop = ctx->GetSlop(r);
   score /= slop;
-  EXPLAIN(explain, r, "Final BM25 : %s * document score %.2f / slop %d",
-          r->scoreExplainStr, dmd->score, slop);
+  
+  EXPLAIN(scrExp, "Final BM25 : words BM25 %.2f * document score %.2f / slop %d",
+          bm25res, dmd->score, slop);
+
   return score;
 }
 
@@ -159,8 +195,8 @@ static double BM25Scorer(const ScoringFunctionArgs *ctx, const RSIndexResult *r,
  ******************************************************************************************/
 static double DocScoreScorer(const ScoringFunctionArgs *ctx, const RSIndexResult *r,
                       const RSDocumentMetadata *dmd, double minScore) {
-  bool explain = ctx->scoreflags & SCORE_F_WITH_EXPLANATION;
-  EXPLAIN(explain, r, "Document's score is %.2f", dmd->score);
+  RSScoreExplain *scrExp = (RSScoreExplain *)ctx->scrExp;
+  EXPLAIN(scrExp, "Document's score is %.2f", dmd->score);
   return dmd->score;
 }
 
@@ -169,30 +205,45 @@ static double DocScoreScorer(const ScoringFunctionArgs *ctx, const RSIndexResult
  * DISMAX-style scorer
  *
  ******************************************************************************************/
-static double dismaxRecursive(const ScoringFunctionArgs *ctx, const RSIndexResult *r) {
+static double dismaxRecursive(const ScoringFunctionArgs *ctx, const RSIndexResult *r, RSScoreExplain *scrExp) {
   // for terms - we return the term frequency
-  bool explain = ctx->scoreflags & SCORE_F_WITH_EXPLANATION;
   double ret = 0;
   switch (r->type) {
     case RSResultType_Term:
     case RSResultType_Numeric:
     case RSResultType_Virtual:
       ret = r->freq;
-      EXPLAIN(explain, r, "DISMAX %.2f = Weight %.2f * Frequency %d", r->weight * ret, r->weight, r->freq);
+      EXPLAIN(scrExp, "DISMAX %.2f = Weight %.2f * Frequency %d", r->weight * ret, r->weight, r->freq);
       break;
     // for intersections - we sum up the term scores
     case RSResultType_Intersection:
-      for (int i = 0; i < r->agg.numChildren; i++) {
-        ret += dismaxRecursive(ctx, r->agg.children[i]);
+      if (!scrExp) {
+        for (int i = 0; i < r->agg.numChildren; i++) {
+          ret += dismaxRecursive(ctx, r->agg.children[i], NULL);
+        }
+      } else {
+        scrExp->numChildren = r->agg.numChildren;
+        scrExp->children = rm_calloc(r->agg.numChildren, sizeof(RSScoreExplain));
+        for (int i = 0; i < r->agg.numChildren; i++) {
+          ret += dismaxRecursive(ctx, r->agg.children[i], &scrExp->children[i]);
+        }
+        EXPLAIN(scrExp, "%.2f = Weight %.2f * children DISMAX %.2f",  r->weight * ret, r->weight, ret);
       }
-      EXPLAIN(explain, r, "%.2f = Weight %.2f * children DISMAX %.2f",  r->weight * ret, r->weight, ret);
       break;
     // for unions - we take the max frequency
     case RSResultType_Union:
-      for (int i = 0; i < r->agg.numChildren; i++) {
-        ret = MAX(ret, dismaxRecursive(ctx, r->agg.children[i]));
+      if (!scrExp) {
+        for (int i = 0; i < r->agg.numChildren; i++) {
+          ret = MAX(ret, dismaxRecursive(ctx, r->agg.children[i], NULL));
+        }        
+      } else {
+        scrExp->numChildren = r->agg.numChildren;
+        scrExp->children = rm_calloc(r->agg.numChildren, sizeof(RSScoreExplain));
+        for (int i = 0; i < r->agg.numChildren; i++) {
+          ret = MAX(ret, dismaxRecursive(ctx, r->agg.children[i], &scrExp->children[i]));
+        }
+        EXPLAIN(scrExp, "%.2f = Weight %.2f * children DISMAX %.2f",  r->weight * ret, r->weight, ret);
       }
-      EXPLAIN(explain, r, "%.2f = Weight %.2f * children DISMAX %.2f",  r->weight * ret, r->weight, ret);
       break;
   }
   return r->weight * ret;
@@ -202,7 +253,7 @@ static double DisMaxScorer(const ScoringFunctionArgs *ctx, const RSIndexResult *
                     const RSDocumentMetadata *dmd, double minScore) {
   // printf("score for %d: %f\n", h->docId, dmd->score);
   // if (dmd->score == 0 || h == NULL) return 0;
-  return dismaxRecursive(ctx, h);
+  return dismaxRecursive(ctx, h, ctx->scrExp);
 }
 /* taken from redis - bitops.c */
 static const unsigned char bitsinbyte[256] = {
@@ -219,10 +270,10 @@ static const unsigned char bitsinbyte[256] = {
  * works if both have the payloads the same length */
 static double HammingDistanceScorer(const ScoringFunctionArgs *ctx, const RSIndexResult *h,
                                     const RSDocumentMetadata *dmd, double minScore) {
-  bool explain = ctx->scoreflags & SCORE_F_WITH_EXPLANATION;
+  RSScoreExplain *scrExp = (RSScoreExplain *)ctx->scrExp;
   // the strings must be of the same length > 0
   if (!dmd->payload || !dmd->payload->len || dmd->payload->len != ctx->qdatalen) {
-    EXPLAIN(explain, h, "Payloads provided to scorer vary in length");
+    EXPLAIN(scrExp, "Payloads provided to scorer vary in length");
     return 0;
   }
   size_t ret = 0;
@@ -235,7 +286,7 @@ static double HammingDistanceScorer(const ScoringFunctionArgs *ctx, const RSInde
     ret += bitsinbyte[(unsigned char)(a[i] ^ b[i])];
   }
   double result = 1.0 / (double)(ret + 1);
-  EXPLAIN(explain, h, "String length is %zu. Bit count is %zu. Result is (1 / count + 1) = %.2f", len, ret, result);
+  EXPLAIN(scrExp, "String length is %zu. Bit count is %zu. Result is (1 / count + 1) = %.2f", len, ret, result);
   // we inverse the distance, and add 1 to make sure a distance of 0 yields a perfect score of 1
   return result;
 }

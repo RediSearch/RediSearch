@@ -905,7 +905,7 @@ static ResultProcessor *getScorerRP(AREQ *req) {
   }
   ScoringFunctionArgs scargs = {0};
   if (req->reqflags & QEXEC_F_SEND_SCORE_EXPLAIN) {
-    scargs.scoreflags |= SCORE_F_WITH_EXPLANATION;
+    scargs.scrExp = rm_calloc(1, sizeof(RSScoreExplain));
   } 
   ExtScoringFunctionCtx *fns = Extensions_GetScoringFunction(&scargs, scorer);
   if (!fns) {
