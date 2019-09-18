@@ -3,7 +3,10 @@ PROJECT(redisearch)
 INCLUDE(cmake/redisearch_cflags.cmake)
 
 # Allow to use 'LOCATION' setting
-CMAKE_POLICY(SET CMP0026 OLD)
+IF(POLICY CMP0026)
+    CMAKE_POLICY(SET CMP0026 OLD)
+ENDIF()
+
 
 OPTION(RS_RUN_TESTS "Build & Run RediSearch's tests" OFF)
 OPTION(RS_BUILD_STATIC "Builds a static library" OFF)
