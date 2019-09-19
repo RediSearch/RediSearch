@@ -1062,7 +1062,7 @@ ForkGC *FGC_New(const RedisModuleString *k, uint64_t specUniqueId, GCCallbacks *
   forkGc->ctx = RedisModule_GetThreadSafeContext(NULL);
   if (k) {
     forkGc->keyName = RedisModule_CreateStringFromString(forkGc->ctx, k);
-    RedisModule_FreeString(forkGc->ctx, k);
+    RedisModule_FreeString(forkGc->ctx, (RedisModuleString *)k);
   }
 
   callbacks->onTerm = onTerminateCb;
