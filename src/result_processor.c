@@ -194,6 +194,8 @@ static void rpscoreFree(ResultProcessor *rp) {
   if (self->scorerFree) {
     self->scorerFree(self->scorerCtx.extdata);
   }
+  rm_free(self->scorerCtx.scrExp);
+  self->scorerCtx.scrExp = NULL;
   rm_free(self);
 }
 
