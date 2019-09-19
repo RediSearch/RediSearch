@@ -28,21 +28,25 @@
 // normalize TF by number of tokens (weighted)
 #define NORM_DOCLEN 2
 
-#define EXPLAIN(scrExp, fmt, args...)                         \
-        if (scrExp) {                                         \
-          void *tempStr = scrExp->str;                             \
-          rm_asprintf((char ** restrict)&scrExp->str, fmt, ##args); \
-          rm_free(tempStr);                                   \
-        }                                                     \
+static inline void EXPLAIN(RSScoreExplain *scrExp, char *fmt, ...) {
+  if (scrExp) {
+    void *tempStr = scrExp->str; 
+
+    va_list ap;
+    va_start(ap, fmt);
+    rm_vasprintf((char ** restrict)&scrExp->str, fmt, ap);
+    va_end(ap);
+    
+    rm_free(tempStr);
+  }
+}
 
 static void strExpCreateParent(const ScoringFunctionArgs *ctx, RSScoreExplain **scrExp) {
-//  RSScoreExplain *scrExp = (RSScoreExplain *)ctx->scrExp;
   if (*scrExp) {
     RSScoreExplain *finalScrExp = rm_calloc(1, sizeof(RSScoreExplain));
     finalScrExp->numChildren = 1;
     finalScrExp->children = *scrExp;
     ((ScoringFunctionArgs *)ctx)->scrExp = *scrExp = finalScrExp;
-    
   }
 }
 
@@ -67,7 +71,7 @@ static double tfidfRecursive(const RSIndexResult *r, const RSDocumentMetadata *d
       for (int i = 0; i < numChildren; i++) {
         ret += tfidfRecursive(r->agg.children[i], dmd, &scrExp->children[i]);
       }
-      EXPLAIN(scrExp, "(Weight %.2f * total children TFIDF %.2f)", r->weight, ret)
+      EXPLAIN(scrExp, "(Weight %.2f * total children TFIDF %.2f)", r->weight, ret);
     }
     return r->weight * ret;
   }
