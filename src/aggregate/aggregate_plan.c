@@ -116,8 +116,8 @@ static void arrangeDtor(PLN_BaseStep *bstp) {
   if (astp->sortKeys) {
     array_free(astp->sortKeys);
   }
-  free(astp->sortkeysLK);
-  free(bstp);
+  rm_free(astp->sortkeysLK);
+  rm_free(bstp);
 }
 
 PLN_ArrangeStep *AGPLN_GetArrangeStep(AGGPlan *pln) {
@@ -138,7 +138,7 @@ PLN_ArrangeStep *AGPLN_GetOrCreateArrangeStep(AGGPlan *pln) {
   if (ret) {
     return ret;
   }
-  ret = calloc(1, sizeof(*ret));
+  ret = rm_calloc(1, sizeof(*ret));
   ret->base.type = PLN_T_ARRANGE;
   ret->base.dtor = arrangeDtor;
   AGPLN_AddStep(pln, &ret->base);
@@ -272,7 +272,7 @@ void AGPLN_Dump(const AGGPlan *pln) {
 typedef char **myArgArray_t;
 
 static inline void append_string(myArgArray_t *arr, const char *src) {
-  char *s = strdup(src);
+  char *s = rm_strdup(src);
   *arr = array_append(*arr, s);
 }
 static inline void append_uint(myArgArray_t *arr, unsigned long long ll) {
@@ -313,7 +313,7 @@ static void serializeArrange(myArgArray_t *arr, const PLN_BaseStep *stp) {
     append_uint(arr, numsort * 2);
     for (size_t ii = 0; ii < numsort; ++ii) {
       char *stmp;
-      asprintf(&stmp, "@%s", astp->sortKeys[ii]);
+      rm_asprintf(&stmp, "@%s", astp->sortKeys[ii]);
       *arr = array_append(*arr, stmp);
       if (SORTASCMAP_GETASC(astp->sortAscMap, ii)) {
         append_string(arr, "ASC");

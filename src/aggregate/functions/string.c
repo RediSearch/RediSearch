@@ -30,7 +30,7 @@ static int func_matchedTerms(ExprEval *ctx, RSValue *result, RSValue **argv, siz
     RSQueryTerm *terms[maxTerms];
     size_t n = IndexResult_GetMatchedTerms(ctx->res->indexResult, terms, maxTerms);
     if (n) {
-      RSValue **arr = calloc(n, sizeof(RSValue *));
+      RSValue **arr = rm_calloc(n, sizeof(RSValue *));
       for (size_t i = 0; i < n; i++) {
         arr[i] = RS_ConstStringVal(terms[i]->str, terms[i]->len);
       }
@@ -268,7 +268,7 @@ static int stringfunc_split(ExprEval *ctx, RSValue *result, RSValue **argv, size
   //   tmp[l++] = RS_ConstStringVal(tok, len);
   // }
 
-  RSValue **vals = calloc(l, sizeof(*vals));
+  RSValue **vals = rm_calloc(l, sizeof(*vals));
   for (size_t i = 0; i < l; i++) {
     vals[i] = tmp[i];
   }

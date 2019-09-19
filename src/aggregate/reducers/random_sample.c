@@ -59,9 +59,9 @@ static void sampleFreeInstance(Reducer *rbase, void *p) {
 }
 
 Reducer *RDCRRandomSample_New(const ReducerOptions *options) {
-  RSMPLReducer *ret = calloc(1, sizeof(*ret));
+  RSMPLReducer *ret = rm_calloc(1, sizeof(*ret));
   if (!ReducerOptions_GetKey(options, &ret->base.srckey)) {
-    free(ret);
+    rm_free(ret);
     return NULL;
   }
   // Get the number of samples..
@@ -69,12 +69,12 @@ Reducer *RDCRRandomSample_New(const ReducerOptions *options) {
   int rc = AC_GetUnsigned(options->args, &samplesize, 0);
   if (rc != AC_OK) {
     QERR_MKBADARGS_AC(options->status, "<sample size>", rc);
-    free(ret);
+    rm_free(ret);
     return NULL;
   }
   if (samplesize > MAX_SAMPLE_SIZE) {
     QERR_MKBADARGS_FMT(options->status, "Sample size too large");
-    free(ret);
+    rm_free(ret);
     return NULL;
   }
   ret->len = samplesize;

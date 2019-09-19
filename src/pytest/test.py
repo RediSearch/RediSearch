@@ -2250,6 +2250,17 @@ def testMod_309(env):
     res = env.cmd('FT.AGGREGATE', 'idx', 'foo')
     env.assertEqual(len(res), 100001)
 
+def testIssue_865(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', '1', 'TEXT', 'SORTABLE').equal('OK')
+    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', '1', 'foo1').equal('OK')
+    env.expect('ft.add', 'idx', 'doc2', '1.0', 'FIELDS', '1', 'foo2').equal('OK')
+    env.expect('ft.search', 'idx', 'foo*', 'SORTBY', '1', 'ASC').equal([2, 'doc1', ['1', 'foo1'], 'doc2', ['1', 'foo2']])
+    env.expect('ft.search', 'idx', 'foo*', 'SORTBY', '1', 'DESC').equal([2, 'doc2', ['1', 'foo2'], 'doc1', ['1', 'foo1']])
+    env.expect('ft.search', 'idx', 'foo*', 'SORTBY', '1', 'bad').error()
+    env.expect('ft.search', 'idx', 'foo*', 'SORTBY', 'bad', 'bad').error()
+    env.expect('ft.search', 'idx', 'foo*', 'SORTBY', 'bad').error()
+    env.expect('ft.search', 'idx', 'foo*', 'SORTBY').error()
+
 
 def grouper(iterable, n, fillvalue=None):
     "Collect data into fixed-length chunks or blocks"

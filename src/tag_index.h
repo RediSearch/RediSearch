@@ -112,7 +112,7 @@ char *TagIndex_SepString(char sep, char **s, size_t *toklen);
 char **TagIndex_Preprocess(char sep, TagFieldFlags flags, const DocumentField *data);
 
 static inline void TagIndex_FreePreprocessedData(char **s) {
-  array_foreach(s, tmpv, { free(tmpv); });
+  array_foreach(s, tmpv, { rm_free(tmpv); });
   array_free(s);
 }
 

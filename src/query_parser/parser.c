@@ -38,7 +38,7 @@
 
 // strndup + lowercase in one pass!
 char *strdupcase(const char *s, size_t len) {
-  char *ret = strndup(s, len);
+  char *ret = rm_strndup(s, len);
   char *dst = ret;
   char *src = dst;
   while (*src) {
@@ -713,14 +713,14 @@ static void yy_destructor(
     case 28: /* attribute */
 {
 #line 116 "parser.y"
- free((char*)(yypminor->yy55).value); 
+ rm_free((char*)(yypminor->yy55).value); 
 #line 718 "parser.c"
 }
       break;
     case 29: /* attribute_list */
 {
 #line 119 "parser.y"
- array_free_ex((yypminor->yy69), free((char*)((QueryAttribute*)ptr )->value)); 
+ array_free_ex((yypminor->yy69), rm_free((char*)((QueryAttribute*)ptr )->value)); 
 #line 725 "parser.c"
 }
       break;
@@ -738,7 +738,7 @@ static void yy_destructor(
     for (size_t i = 0; i < Vector_Size((yypminor->yy78)); i++) {
         char *s;
         Vector_Get((yypminor->yy78), i, &s);
-        free(s);
+        rm_free(s);
     }
     Vector_Free((yypminor->yy78)); 
 
@@ -1310,7 +1310,7 @@ static YYACTIONTYPE yy_reduce(
                 char *p;
                 Vector_Get(yymsp[-2].minor.yy78, i, &p);
                 mask |= IndexSpec_GetFieldBit(ctx->sctx->spec, p, strlen(p)); 
-                free(p);
+                rm_free(p);
             }
         }
         QueryNode_SetFieldMask(yymsp[0].minor.yy35, mask);
@@ -1332,7 +1332,7 @@ static YYACTIONTYPE yy_reduce(
 #line 279 "parser.y"
 {
     
-    yylhsminor.yy55 = (QueryAttribute){ .name = yymsp[-2].minor.yy0.s, .namelen = yymsp[-2].minor.yy0.len, .value = strndup(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), .vallen = yymsp[0].minor.yy0.len };
+    yylhsminor.yy55 = (QueryAttribute){ .name = yymsp[-2].minor.yy0.s, .namelen = yymsp[-2].minor.yy0.len, .value = rm_strndup(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), .vallen = yymsp[0].minor.yy0.len };
 }
 #line 1338 "parser.c"
   yymsp[-2].minor.yy55 = yylhsminor.yy55;
@@ -1376,7 +1376,7 @@ static YYACTIONTYPE yy_reduce(
     if (yymsp[-4].minor.yy35 && yymsp[-1].minor.yy69) {
         QueryNode_ApplyAttributes(yymsp[-4].minor.yy35, yymsp[-1].minor.yy69, array_len(yymsp[-1].minor.yy69), ctx->status);
     }
-    array_free_ex(yymsp[-1].minor.yy69, free((char*)((QueryAttribute*)ptr )->value));
+    array_free_ex(yymsp[-1].minor.yy69, rm_free((char*)((QueryAttribute*)ptr )->value));
     yylhsminor.yy35 = yymsp[-4].minor.yy35;
 }
 #line 1383 "parser.c"
@@ -1556,7 +1556,7 @@ static YYACTIONTYPE yy_reduce(
         yylhsminor.yy35= NULL;
     } else {
         // Tag field names must be case sensitive, we we can't do strdupcase
-        char *s = strndup(yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
+        char *s = rm_strndup(yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
         size_t slen = unescapen((char*)s, yymsp[-2].minor.yy0.len);
 
         yylhsminor.yy35 = NewTagNode(s, slen);
@@ -1610,7 +1610,7 @@ static YYACTIONTYPE yy_reduce(
 #line 509 "parser.y"
 {
     // we keep the capitalization as is
-    yymsp[0].minor.yy36->fieldName = strndup(yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
+    yymsp[0].minor.yy36->fieldName = rm_strndup(yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
     yylhsminor.yy35 = NewNumericNode(yymsp[0].minor.yy36);
 }
 #line 1617 "parser.c"
@@ -1627,7 +1627,7 @@ static YYACTIONTYPE yy_reduce(
 #line 523 "parser.y"
 {
     // we keep the capitalization as is
-    yymsp[0].minor.yy64->property = strndup(yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
+    yymsp[0].minor.yy64->property = rm_strndup(yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
     yylhsminor.yy35 = NewGeofilterNode(yymsp[0].minor.yy64);
 }
 #line 1634 "parser.c"

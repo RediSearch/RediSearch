@@ -142,7 +142,7 @@ static char *trimField(const ReturnedField *fieldInfo, const char *docStr, size_
   headLen = Min(headLen, *docLen);
 
   Array bufTmp;
-  Array_InitEx(&bufTmp, ArrayAlloc_LibC);
+  Array_InitEx(&bufTmp, ArrayAlloc_RM);
 
   Array_Write(&bufTmp, docStr, headLen);
   headLen = stripDuplicateSpaces(bufTmp.data, headLen);
@@ -208,7 +208,7 @@ static RSValue *summarizeField(IndexSpec *spec, const ReturnedField *fieldInfo,
 
   // Buffer to store concatenated fragments
   Array bufTmp;
-  Array_InitEx(&bufTmp, ArrayAlloc_LibC);
+  Array_InitEx(&bufTmp, ArrayAlloc_RM);
 
   for (size_t ii = 0; ii < numIovArr; ++ii) {
     Array *curIovs = docParams->iovsArr + ii;
@@ -240,7 +240,7 @@ static RSValue *summarizeField(IndexSpec *spec, const ReturnedField *fieldInfo,
 
 static void resetIovsArr(Array **iovsArrp, size_t *curSize, size_t newSize) {
   if (*curSize < newSize) {
-    *iovsArrp = realloc(*iovsArrp, sizeof(**iovsArrp) * newSize);
+    *iovsArrp = rm_realloc(*iovsArrp, sizeof(**iovsArrp) * newSize);
   }
   for (size_t ii = 0; ii < *curSize; ++ii) {
     Array_Resize((*iovsArrp) + ii, 0);
@@ -335,17 +335,17 @@ static int hlpNext(ResultProcessor *rbase, SearchResult *r) {
   for (size_t ii = 0; ii < numIovsArr; ++ii) {
     Array_Free(&docParams.iovsArr[ii]);
   }
-  free(docParams.iovsArr);
+  rm_free(docParams.iovsArr);
   return RS_RESULT_OK;
 }
 
 static void hlpFree(ResultProcessor *p) {
-  free(p);
+  rm_free(p);
 }
 
 ResultProcessor *RPHighlighter_New(const RSSearchOptions *searchopts, const FieldList *fields,
                                    const RLookup *lookup) {
-  HlpProcessor *hlp = calloc(1, sizeof(*hlp));
+  HlpProcessor *hlp = rm_calloc(1, sizeof(*hlp));
   if (searchopts->language && strcasecmp(searchopts->language, "chinese") == 0) {
     hlp->fragmentizeOptions = FRAGMENTIZE_TOKLEN_EXACT;
   }

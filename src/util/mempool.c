@@ -2,6 +2,7 @@
 #include <sys/param.h>
 #include <stdio.h>
 #include <pthread.h>
+#include "rmalloc.h"
 
 struct mempool_t {
   void **entries;
@@ -21,8 +22,8 @@ struct {
 } globalPools_g = {NULL};
 
 mempool_t *mempool_new(const mempool_options *options) {
-  mempool_t *p = calloc(1, sizeof(*p));
-  p->entries = calloc(options->initialCap, sizeof(void *));
+  mempool_t *p = rm_calloc(1, sizeof(*p));
+  p->entries = rm_calloc(options->initialCap, sizeof(void *));
   p->alloc = options->alloc;
   p->free = options->free;
   p->cap = options->initialCap;
@@ -39,13 +40,13 @@ mempool_t *mempool_new(const mempool_options *options) {
   if (mempoolDisable_g) {
     p->cap = 0;
     p->max = 0;
-    free(p->entries);
+    rm_free(p->entries);
     p->entries = NULL;
   }
   if (options->isGlobal) {
     globalPools_g.numPools++;
     globalPools_g.pools =
-        realloc(globalPools_g.pools, sizeof(*globalPools_g.pools) * globalPools_g.numPools);
+        rm_realloc(globalPools_g.pools, sizeof(*globalPools_g.pools) * globalPools_g.numPools);
     globalPools_g.pools[globalPools_g.numPools - 1] = p;
   }
   return p;
@@ -71,7 +72,7 @@ inline void mempool_release(mempool_t *p, void *ptr) {
     }
     // grow the pool
     p->cap += p->cap ? MIN(p->cap, 1024) : 1;
-    p->entries = realloc(p->entries, p->cap * sizeof(void *));
+    p->entries = rm_realloc(p->entries, p->cap * sizeof(void *));
   }
   p->entries[p->top++] = ptr;
 }
@@ -80,14 +81,14 @@ void mempool_destroy(mempool_t *p) {
   for (size_t i = 0; i < p->top; i++) {
     p->free(p->entries[i]);
   }
-  free(p->entries);
-  free(p);
+  rm_free(p->entries);
+  rm_free(p);
 }
 
 void mempool_free_global(void) {
   for (size_t ii = 0; ii < globalPools_g.numPools; ++ii) {
     mempool_destroy(globalPools_g.pools[ii]);
   }
-  free(globalPools_g.pools);
+  rm_free(globalPools_g.pools);
   globalPools_g.numPools = 0;
 }

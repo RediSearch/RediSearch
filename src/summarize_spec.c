@@ -26,23 +26,23 @@ static int parseFieldList(ArgsCursor *ac, FieldList *fields, Array *fieldPtrs) {
 }
 
 static void setHighlightSettings(HighlightSettings *tgt, const HighlightSettings *defaults) {
-  free(tgt->closeTag);
-  free(tgt->openTag);
+  rm_free(tgt->closeTag);
+  rm_free(tgt->openTag);
 
   tgt->closeTag = NULL;
   tgt->openTag = NULL;
   if (defaults->openTag) {
-    tgt->openTag = strdup(defaults->openTag);
+    tgt->openTag = rm_strdup(defaults->openTag);
   }
   if (defaults->closeTag) {
-    tgt->closeTag = strdup(defaults->closeTag);
+    tgt->closeTag = rm_strdup(defaults->closeTag);
   }
 }
 
 static void setSummarizeSettings(SummarizeSettings *tgt, const SummarizeSettings *defaults) {
   *tgt = *defaults;
   if (tgt->separator) {
-    tgt->separator = strdup(tgt->separator);
+    tgt->separator = rm_strdup(tgt->separator);
   }
 }
 

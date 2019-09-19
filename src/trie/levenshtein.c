@@ -4,6 +4,7 @@
 #include <string.h>
 #include "levenshtein.h"
 #include "rune_util.h"
+#include "rmalloc.h"
 
 // NewSparseAutomaton creates a new automaton for the string s, with a given max
 // edit distance check
@@ -76,7 +77,7 @@ inline int SparseAutomaton_CanMatch(SparseAutomaton *a, sparseVector *v) {
 }
 
 dfaNode *__newDfaNode(int distance, sparseVector *state) {
-  dfaNode *ret = calloc(1, sizeof(dfaNode));
+  dfaNode *ret = rm_calloc(1, sizeof(dfaNode));
   ret->fallback = NULL;
   ret->distance = distance;
   ret->v = state;
@@ -88,8 +89,8 @@ dfaNode *__newDfaNode(int distance, sparseVector *state) {
 
 void __dfaNode_free(dfaNode *d) {
   sparseVector_free(d->v);
-  if (d->edges) free(d->edges);
-  free(d);
+  if (d->edges) rm_free(d->edges);
+  rm_free(d);
 }
 
 int __sv_equals(sparseVector *sv1, sparseVector *sv2) {
@@ -131,7 +132,7 @@ inline dfaNode *__dfn_getEdge(dfaNode *n, rune r) {
 }
 
 void __dfn_addEdge(dfaNode *n, rune r, dfaNode *child) {
-  n->edges = realloc(n->edges, sizeof(dfaEdge) * (n->numEdges + 1));
+  n->edges = rm_realloc(n->edges, sizeof(dfaEdge) * (n->numEdges + 1));
   n->edges[n->numEdges++] = (dfaEdge){.r = r, .n = child};
 }
 

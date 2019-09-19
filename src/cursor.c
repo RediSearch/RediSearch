@@ -144,10 +144,10 @@ int Cursors_CollectIdle(CursorList *cl) {
 void CursorList_AddSpec(CursorList *cl, const char *k, size_t capacity) {
   CursorSpecInfo *info = findInfo(cl, k, NULL);
   if (!info) {
-    info = malloc(sizeof(*info));
-    info->keyName = strdup(k);
+    info = rm_malloc(sizeof(*info));
+    info->keyName = rm_strdup(k);
     info->used = 0;
-    cl->specs = realloc(cl->specs, sizeof(*cl->specs) * ++cl->specsCount);
+    cl->specs = rm_realloc(cl->specs, sizeof(*cl->specs) * ++cl->specsCount);
     cl->specs[cl->specsCount - 1] = info;
   }
   info->cap = capacity;
@@ -158,9 +158,9 @@ void CursorList_RemoveSpec(CursorList *cl, const char *k) {
   CursorSpecInfo *info = findInfo(cl, k, &index);
   if (info) {
     cl->specs[index] = cl->specs[cl->specsCount - 1];
-    cl->specs = realloc(cl->specs, sizeof(*cl->specs) * --cl->specsCount);
-    free(info->keyName);
-    free(info);
+    cl->specs = rm_realloc(cl->specs, sizeof(*cl->specs) * --cl->specsCount);
+    rm_free(info->keyName);
+    rm_free(info);
   }
 }
 
@@ -349,9 +349,9 @@ void CursorList_Destroy(CursorList *cl) {
 
   for (size_t ii = 0; ii < cl->specsCount; ++ii) {
     CursorSpecInfo *sp = cl->specs[ii];
-    free(sp->keyName);
-    free(sp);
+    rm_free(sp->keyName);
+    rm_free(sp);
   }
-  free(cl->specs);
+  rm_free(cl->specs);
   pthread_mutex_destroy(&cl->lock);
 }

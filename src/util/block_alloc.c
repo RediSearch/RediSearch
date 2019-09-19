@@ -1,6 +1,7 @@
 #include "block_alloc.h"
 #include <assert.h>
 #include <stdio.h>
+#include "rmalloc.h"
 
 static void freeCommon(BlkAlloc *blocks, BlkAllocCleaner cleaner, void *arg, size_t elemSize,
                        int reuse) {
@@ -16,7 +17,7 @@ static void freeCommon(BlkAlloc *blocks, BlkAllocCleaner cleaner, void *arg, siz
       cur->next = blocks->avail;
       blocks->avail = cur;
     } else {
-      free(cur);
+      rm_free(cur);
     }
     cur = curNext;
   }
@@ -32,7 +33,7 @@ static void freeCommon(BlkAlloc *blocks, BlkAllocCleaner cleaner, void *arg, siz
     cur = blocks->avail;
     while (cur) {
       BlkAllocBlock *curNext = cur->next;
-      free(cur);
+      rm_free(cur);
       cur = curNext;
     }
   }
@@ -72,7 +73,7 @@ static BlkAllocBlock *getNewBlock(BlkAlloc *alloc, size_t blockSize) {
 
   if (!block) {
     // printf("Allocating new block..\n");
-    block = malloc(sizeof(*alloc->root) + blockSize);
+    block = rm_malloc(sizeof(*alloc->root) + blockSize);
     block->capacity = blockSize;
   } else {
     // printf("Reusing block %p. Alloc->Avail=%p\n", block, alloc->avail);

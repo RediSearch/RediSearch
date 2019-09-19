@@ -116,3 +116,7 @@ void GCContext_ForceInvoke(GCContext* gc, RedisModuleBlockedClient* bc) {
   BlockClients_push(&gc->bClients, bc);
   RMUtilTimer_ForceInvoke(gc->timer);
 }
+
+void GCContext_ForceBGInvoke(GCContext* gc) {
+  RMUtilTimer_Signal(gc->timer);
+}

@@ -74,6 +74,7 @@ typedef struct {
 
   GCPolicy gcPolicy;
   size_t forkGcRunIntervalSec;
+  size_t forkGcCleanThreshold;
   size_t forkGcRetryInterval;
   size_t forkGcSleepBeforeExit;
 
@@ -158,7 +159,7 @@ sds RSConfig_GetInfoString(const RSConfig *config);
     .gcScanSize = GC_SCANSIZE, .minPhoneticTermLen = DEFAULT_MIN_PHONETIC_TERM_LEN,               \
     .gcPolicy = GCPolicy_Fork, .forkGcRunIntervalSec = DEFAULT_FORK_GC_RUN_INTERVAL,              \
     .forkGcSleepBeforeExit = 0, .maxResultsToUnsortedMode = DEFAULT_MAX_RESULTS_TO_UNSORTED_MODE, \
-    .forkGcRetryInterval = 5,                                                                     \
+    .forkGcRetryInterval = 5, .forkGcCleanThreshold = 0                                           \
   }
 
 #endif

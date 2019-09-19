@@ -33,7 +33,7 @@ typedef struct {
 
 #define MEMPOOOL_STATIC_ALLOCATOR(name, sz) \
   void *name() {                            \
-    return malloc(sz);                      \
+    return rm_malloc(sz);                   \
   }
 /* Create a new memory pool */
 mempool_t *mempool_new(const mempool_options *options);

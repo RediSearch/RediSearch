@@ -4,6 +4,7 @@
 #include "periodic.h"
 #include "assert.h"
 #include "test.h"
+#include "alloc.h"
 
 REDISMODULE_INIT_SYMBOLS();
 
@@ -26,4 +27,7 @@ int testPeriodic() {
   return 0;
 }
 
-TEST_MAIN({ TESTFUNC(testPeriodic); });
+TEST_MAIN({
+  RMUTil_InitAlloc();
+  TESTFUNC(testPeriodic);
+});

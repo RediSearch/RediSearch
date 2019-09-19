@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <limits.h>
 #include <assert.h>
+#include "rmalloc.h"
 
 #define RETURN_ERROR(s) return REDISMODULE_ERR;
 
@@ -241,6 +242,15 @@ CONFIG_SETTER(setForkGcInterval) {
   return REDISMODULE_OK;
 }
 
+CONFIG_SETTER(setForkGcCleanThreshold) {
+  long long val;
+  if (readLongLongLimit(argv, argc, offset, &val, 0, LLONG_MAX) != REDISMODULE_OK) {
+    return REDISMODULE_ERR;
+  }
+  config->forkGcCleanThreshold = val;
+  return REDISMODULE_OK;
+}
+
 CONFIG_SETTER(setForkGcRetryInterval) {
   long long val;
   if (readLongLongLimit(argv, argc, offset, &val, 1, LLONG_MAX) != REDISMODULE_OK) {
@@ -257,6 +267,11 @@ CONFIG_SETTER(setMaxResultsToUnsortedMode) {
   }
   config->maxResultsToUnsortedMode = val;
   return REDISMODULE_OK;
+}
+
+CONFIG_GETTER(getForkGcCleanThreshold) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%lu", config->forkGcCleanThreshold);
 }
 
 CONFIG_GETTER(getForkGcInterval) {
@@ -336,17 +351,17 @@ int ReadConfig(RedisModuleString **argv, int argc, char **err) {
     const char *name = RedisModule_StringPtrLen(argv[offset], NULL);
     RSConfigVar *curVar = findConfigVar(&RSGlobalConfigOptions, name);
     if (curVar == NULL) {
-      asprintf(err, "No such configuration option `%s`", name);
+      rm_asprintf(err, "No such configuration option `%s`", name);
       return REDISMODULE_ERR;
     }
     if (curVar->setValue == NULL) {
-      asprintf(err, "%s: Option is read-only", name);
+      rm_asprintf(err, "%s: Option is read-only", name);
       return REDISMODULE_ERR;
     }
 
     offset++;
     if (curVar->setValue(&RSGlobalConfig, argv, argc, &offset) != REDISMODULE_OK) {
-      asprintf(err, "%s: Bad value", name);
+      rm_asprintf(err, "%s: Bad value", name);
       return REDISMODULE_ERR;
     }
     // Mark the option as having been modified
@@ -436,6 +451,11 @@ RSConfigOptions RSGlobalConfigOptions = {
                      "gc is used)",
          .setValue = setForkGcInterval,
          .getValue = getForkGcInterval},
+        {.name = "FORK_GC_CLEAN_THRESHOLD",
+         .helpText = "the fork gc will only start to clean when the number of not cleaned document "
+                     "will acceded this threshold",
+         .setValue = setForkGcCleanThreshold,
+         .getValue = getForkGcCleanThreshold},
         {.name = "FORK_GC_RETRY_INTERVAL",
          .helpText = "interval (in seconds) in which to retry running the forkgc after failure.",
          .setValue = setForkGcRetryInterval,

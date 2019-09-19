@@ -69,10 +69,10 @@ DEBUG_COMMAND(DumpTerms) {
   while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, &dist)) {
     char *res = runesToStr(rstr, slen, &termLen);
     RedisModule_ReplyWithStringBuffer(ctx, res, termLen);
-    free(res);
+    rm_free(res);
   }
   DFAFilter_Free(it->ctx);
-  free(it->ctx);
+  rm_free(it->ctx);
   TrieIterator_Free(it);
 
   SearchCtx_Free(sctx);
@@ -314,8 +314,8 @@ DEBUG_COMMAND(DumpPhoneticHash) {
   RedisModule_ReplyWithStringBuffer(ctx, primary, strlen(primary));
   RedisModule_ReplyWithStringBuffer(ctx, secondary, strlen(secondary));
 
-  free(primary);
-  free(secondary);
+  rm_free(primary);
+  rm_free(secondary);
   return REDISMODULE_OK;
 }
 
@@ -333,6 +333,9 @@ static int GCForceInvokeReplyTimeout(RedisModuleCtx *ctx, RedisModuleString **ar
 
 DEBUG_COMMAND(GCForceInvoke) {
 #define INVOKATION_TIMEOUT 30000  // gc invocation timeout ms
+  if (argc < 1) {
+    return RedisModule_WrongArity(ctx);
+  }
   IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[0], NULL), 0);
   if (!sp) {
     RedisModule_ReplyWithError(ctx, "Unknown index name");
@@ -341,6 +344,20 @@ DEBUG_COMMAND(GCForceInvoke) {
   RedisModuleBlockedClient *bc = RedisModule_BlockClient(
       ctx, GCForceInvokeReply, GCForceInvokeReplyTimeout, NULL, INVOKATION_TIMEOUT);
   GCContext_ForceInvoke(sp->gc, bc);
+  return REDISMODULE_OK;
+}
+
+DEBUG_COMMAND(GCForceBGInvoke) {
+  if (argc < 1) {
+    return RedisModule_WrongArity(ctx);
+  }
+  IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[0], NULL), 0);
+  if (!sp) {
+    RedisModule_ReplyWithError(ctx, "Unknown index name");
+    return REDISMODULE_OK;
+  }
+  GCContext_ForceBGInvoke(sp->gc);
+  RedisModule_ReplyWithSimpleString(ctx, "OK");
   return REDISMODULE_OK;
 }
 
@@ -492,6 +509,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex},
                                {"INVIDX_SUMMARY", InvertedIndexSummary},
                                {"NUMIDX_SUMMARY", NumericIndexSummary},
                                {"GC_FORCEINVOKE", GCForceInvoke},
+                               {"GC_FORCEBGINVOKE", GCForceBGInvoke},
                                {NULL, NULL}};
 
 int DebugCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {

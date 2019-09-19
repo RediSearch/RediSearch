@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/param.h>
+#include "rmalloc.h"
 
 // static int msb = (int)(~0ULL << 25);
 
@@ -78,11 +79,11 @@ size_t WriteVarintFieldMask(t_fieldMask value, BufferWriter *w) {
 
 void VVW_Free(VarintVectorWriter *w) {
   Buffer_Free(&w->buf);
-  free(w);
+  rm_free(w);
 }
 
 VarintVectorWriter *NewVarintVectorWriter(size_t cap) {
-  VarintVectorWriter *w = malloc(sizeof(VarintVectorWriter));
+  VarintVectorWriter *w = rm_malloc(sizeof(VarintVectorWriter));
   VVW_Init(w, cap);
   return w;
 }
