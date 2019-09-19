@@ -28,17 +28,18 @@
 // normalize TF by number of tokens (weighted)
 #define NORM_DOCLEN 2
 
-static inline void EXPLAIN(RSScoreExplain *scrExp, char *fmt, ...) {
-  if (scrExp) {
-    void *tempStr = scrExp->str; 
+#define EXPLAIN(exp, fmt, args...)       \
+{ if (exp) {explain(exp, fmt, ##args); }}
 
-    va_list ap;
-    va_start(ap, fmt);
-    rm_vasprintf((char ** restrict)&scrExp->str, fmt, ap);
-    va_end(ap);
-    
-    rm_free(tempStr);
-  }
+static inline void explain(RSScoreExplain *scrExp, char *fmt, ...) {
+  void *tempStr = scrExp->str; 
+
+  va_list ap;
+  va_start(ap, fmt);
+  rm_vasprintf((char ** restrict)&scrExp->str, fmt, ap);
+  va_end(ap);
+  
+  rm_free(tempStr);
 }
 
 static void strExpCreateParent(const ScoringFunctionArgs *ctx, RSScoreExplain **scrExp) {
