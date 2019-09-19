@@ -2171,11 +2171,10 @@ def testOptionalFilter(env):
     for x in range(100):
         env.cmd('ft.add', 'idx', 'doc_{}'.format(x), 1, 'fields', 't1', 'hello world word{}'.format(x))
 
-    print env.cmd('ft.explain', 'idx', '(~@t1:word20)')
+    env.cmd('ft.explain', 'idx', '(~@t1:word20)')
     # print(r)
 
     r = env.cmd('ft.search', 'idx', '~(word20 => {$weight: 2.0})')
-    print(r)
 
 
 def testIssue736(env):
@@ -2261,6 +2260,141 @@ def testIssue_865(env):
     env.expect('ft.search', 'idx', 'foo*', 'SORTBY', 'bad').error()
     env.expect('ft.search', 'idx', 'foo*', 'SORTBY').error()
 
+def testSummerizeWithAggregateRaiseError(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
+    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo1').equal('OK')
+    env.expect('ft.add', 'idx', 'doc2', '1.0', 'FIELDS', 'test', 'foo2').equal('OK')
+    env.expect('ft.aggregate', 'idx', 'foo2', 'SUMMARIZE', 'FIELDS', '1', 'test',
+               'GROUPBY', '1', '@test', 'REDUCE', 'COUNT', '0').error()
+
+def testSummerizeHighlightParseError(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
+    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo1').equal('OK')
+    env.expect('ft.add', 'idx', 'doc2', '1.0', 'FIELDS', 'test', 'foo2').equal('OK')
+    env.expect('ft.search', 'idx', 'foo2', 'SUMMARIZE', 'FIELDS', 'WITHSCORES').error()
+    env.expect('ft.search', 'idx', 'foo2', 'HIGHLIGHT', 'FIELDS', 'WITHSCORES').error()
+
+def testCursorBadArgument(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
+    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo1').equal('OK')
+    env.expect('ft.add', 'idx', 'doc2', '1.0', 'FIELDS', 'test', 'foo2').equal('OK')
+    env.expect('ft.aggregate', 'idx', '*',
+               'GROUPBY', '1', '@test', 'REDUCE', 'COUNT', '0',
+               'WITHCURSOR', 'COUNT', 'BAD').error()
+
+def testLimitBadArgument(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
+    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo1').equal('OK')
+    env.expect('ft.add', 'idx', 'doc2', '1.0', 'FIELDS', 'test', 'foo2').equal('OK')
+    env.expect('ft.search', 'idx', '*', 'LIMIT', '1').error()
+
+def testOnTimeoutBadArgument(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
+    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo1').equal('OK')
+    env.expect('ft.add', 'idx', 'doc2', '1.0', 'FIELDS', 'test', 'foo2').equal('OK')
+    env.expect('ft.search', 'idx', '*', 'ON_TIMEOUT', 'bad').error()
+
+def testAggregateSortByWrongArgument(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
+    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo1').equal('OK')
+    env.expect('ft.add', 'idx', 'doc2', '1.0', 'FIELDS', 'test', 'foo2').equal('OK')
+    env.expect('ft.aggregate', 'idx', '*', 'SORTBY', 'bad').error()
+
+def testAggregateSortByMaxNumberOfFields(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA',
+               'test1', 'TEXT', 'SORTABLE',
+               'test2', 'TEXT', 'SORTABLE',
+               'test3', 'TEXT', 'SORTABLE',
+               'test4', 'TEXT', 'SORTABLE',
+               'test5', 'TEXT', 'SORTABLE',
+               'test6', 'TEXT', 'SORTABLE',
+               'test7', 'TEXT', 'SORTABLE',
+               'test8', 'TEXT', 'SORTABLE',
+               'test9', 'TEXT', 'SORTABLE'
+               ).equal('OK')
+    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo1').equal('OK')
+    env.expect('ft.add', 'idx', 'doc2', '1.0', 'FIELDS', 'test', 'foo2').equal('OK')
+    env.expect('ft.aggregate', 'idx', '*', 'SORTBY', '9', *['@test%d' % (i + 1) for i in range(9)]).error()
+    args = ['@test%d' % (i + 1) for i in range(8)] + ['bad']
+    env.expect('ft.aggregate', 'idx', '*', 'SORTBY', '9', *args).error()
+    args = ['@test%d' % (i + 1) for i in range(8)] + ['ASC', 'MAX', 'bad']
+    env.expect('ft.aggregate', 'idx', '*', 'SORTBY', '9', *args).error()
+    args = ['@test%d' % (i + 1) for i in range(8)] + ['ASC', 'MAX']
+    env.expect('ft.aggregate', 'idx', '*', 'SORTBY', '9', *args).error()
+
+def testNumericFilterError(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'NUMERIC', 'SORTABLE').equal('OK')
+    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', '1').equal('OK')
+    env.expect('ft.search', 'idx', '*', 'FILTER', 'test', 'bad', '2').error()
+    env.expect('ft.search', 'idx', '*', 'FILTER', 'test', '0', 'bad').error()
+    env.expect('ft.search', 'idx', '*', 'FILTER', 'test', '0').error()
+    env.expect('ft.search', 'idx', '*', 'FILTER', 'test', 'bad').error()
+    env.expect('ft.search', 'idx', '*', 'FILTER', 'test', '0', '2', 'FILTER', 'test', '0', 'bla').error()
+
+def testGeoFilterError(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'NUMERIC', 'SORTABLE').equal('OK')
+    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', '1').equal('OK')
+    env.expect('ft.search', 'idx', '*', 'GEOFILTER', 'test', '1').error()
+    env.expect('ft.search', 'idx', '*', 'GEOFILTER', 'test', 'bad' , '2', '3', 'km').error()
+    env.expect('ft.search', 'idx', '*', 'GEOFILTER', 'test', '1' , 'bad', '3', 'km').error()
+    env.expect('ft.search', 'idx', '*', 'GEOFILTER', 'test', '1' , '2', 'bad', 'km').error()
+    env.expect('ft.search', 'idx', '*', 'GEOFILTER', 'test', '1' , '2', '3', 'bad').error()
+
+def testReducerError(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'NUMERIC', 'SORTABLE').equal('OK')
+    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', '1').equal('OK')
+    env.expect('ft.aggregate', 'idx', '*', 'GROUPBY', '1', '@test', 'REDUCE', 'COUNT', 'bad').error()
+    env.expect('ft.aggregate', 'idx', '*', 'GROUPBY', '1', '@test', 'REDUCE', 'COUNT', '0', 'as').error()
+
+def testGroupbyError(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'NUMERIC', 'SORTABLE').equal('OK')
+    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', '1').equal('OK')
+    env.expect('ft.aggregate', 'idx', '*', 'GROUPBY', '1', '@test', 'REDUCE').error()
+    env.expect('ft.aggregate', 'idx', '*', 'GROUPBY', '1', '@test1').error()
+    env.expect('ft.aggregate', 'idx', '*', 'GROUPBY', '1', '@test', 'REDUCE', 'bad', '0').error()
+    env.expect('ft.aggregate', 'idx', '*', 'GROUPBY', '1', '@test', 'REDUCE', 'SUM', '1', '@test1').error()
+
+def testGroupbyWithSort(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'NUMERIC', 'SORTABLE').equal('OK')
+    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', '1').equal('OK')
+    env.expect('ft.add', 'idx', 'doc2', '1.0', 'FIELDS', 'test', '1').equal('OK')
+    env.expect('ft.add', 'idx', 'doc3', '1.0', 'FIELDS', 'test', '2').equal('OK')
+    env.expect('ft.aggregate', 'idx', '*', 'SORTBY', '2', '@test', 'ASC', 
+               'GROUPBY', '1', '@test', 'REDUCE', 'COUNT', '0', 'as', 'count').equal([2L, ['test', '2', 'count', '1'], ['test', '1', 'count', '2']])
+
+def testApplyError(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
+    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
+    env.expect('ft.aggregate', 'idx', '*', 'APPLY', 'split(@test)', 'as').error()
+
+def testLoadError(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
+    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
+    env.expect('ft.aggregate', 'idx', '*', 'LOAD', 'bad').error()
+    env.expect('ft.aggregate', 'idx', '*', 'LOAD', 'bad', 'test').error()
+    env.expect('ft.aggregate', 'idx', '*', 'LOAD', '2', 'test').error()
+    env.expect('ft.aggregate', 'idx', '*', 'LOAD', '2', '@test').error()
+
+def testMissingArgsError(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
+    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
+    env.expect('ft.aggregate', 'idx').error()
+
+def testUnexistsScorer(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
+    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
+    env.expect('ft.search', 'idx', '*', 'SCORER', 'bad').error()
+
+def testHighlightWithUnknowsProperty(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'TEXT').equal('OK')
+    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
+    env.expect('ft.aggregate', 'idx', '*', 'HIGHLIGHT', 'FIELDS', '1', 'test1').error()
+
+def testBadFilterExpression(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'TEXT').equal('OK')
+    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
+    env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'FILTER', 'blabla').error()
+    env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'FILTER', '@test1 > 1').error()
 
 def grouper(iterable, n, fillvalue=None):
     "Collect data into fixed-length chunks or blocks"

@@ -74,7 +74,6 @@ typedef struct {
   PLN_BaseStep base;
   const char *rawExpr;
   RSExpr *parsedExpr;
-  int shouldFreeRaw;  // Whether we own the raw expression
 } PLN_MapFilterStep;
 
 // Magic value -- will sort by score. For use in SEARCH mode

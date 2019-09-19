@@ -823,7 +823,7 @@ int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions 
 }
 
 IndexIterator *QAST_Iterate(const QueryAST *qast, const RSSearchOptions *opts, RedisSearchCtx *sctx,
-                            ConcurrentSearchCtx *conc, QueryError *status) {
+                            ConcurrentSearchCtx *conc) {
   QueryEvalCtx qectx = {
       .conc = conc,
       .opts = opts,
@@ -833,10 +833,8 @@ IndexIterator *QAST_Iterate(const QueryAST *qast, const RSSearchOptions *opts, R
   };
   IndexIterator *root = Query_EvalNode(&qectx, qast->root);
   if (!root) {
-    if (!QueryError_HasError(status)) {
-      // Return the dummy iterator
-      return NewEmptyIterator();
-    }
+    // Return the dummy iterator
+    root = NewEmptyIterator();
   }
   return root;
 }
