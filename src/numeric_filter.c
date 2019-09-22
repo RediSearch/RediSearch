@@ -48,14 +48,14 @@ NumericFilter *NumericFilter_Parse(ArgsCursor *ac, QueryError *status) {
     return NULL;
   }
 
-  NumericFilter *nf = calloc(1, sizeof(*nf));
+  NumericFilter *nf = rm_calloc(1, sizeof(*nf));
 
   // make sure we have an index spec for this filter and it's indeed numeric
   nf->inclusiveMax = 1;
   nf->inclusiveMin = 1;
   nf->min = 0;
   nf->max = 0;
-  nf->fieldName = strdup(AC_GetStringNC(ac, NULL));
+  nf->fieldName = rm_strdup(AC_GetStringNC(ac, NULL));
 
   // Parse the min range
   const char *s = AC_GetStringNC(ac, NULL);
@@ -73,13 +73,13 @@ NumericFilter *NumericFilter_Parse(ArgsCursor *ac, QueryError *status) {
 
 void NumericFilter_Free(NumericFilter *nf) {
   if (nf->fieldName) {
-    free((char *)nf->fieldName);
+    rm_free((char *)nf->fieldName);
   }
-  free(nf);
+  rm_free(nf);
 }
 
 NumericFilter *NewNumericFilter(double min, double max, int inclusiveMin, int inclusiveMax) {
-  NumericFilter *f = malloc(sizeof(NumericFilter));
+  NumericFilter *f = rm_malloc(sizeof(NumericFilter));
 
   f->min = min;
   f->max = max;

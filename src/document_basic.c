@@ -14,11 +14,11 @@ void Document_Init(Document *doc, RedisModuleString *docKey, double score, const
 }
 
 static DocumentField *addFieldCommon(Document *d, const char *fieldname, uint32_t typemask) {
-  d->fields = realloc(d->fields, (++d->numFields) * sizeof(*d->fields));
+  d->fields = rm_realloc(d->fields, (++d->numFields) * sizeof(*d->fields));
   DocumentField *f = d->fields + d->numFields - 1;
   f->indexAs = typemask;
   if (d->flags & DOCUMENT_F_OWNSTRINGS) {
-    f->name = strdup(fieldname);
+    f->name = rm_strdup(fieldname);
   } else {
     f->name = fieldname;
   }
@@ -46,7 +46,7 @@ void Document_SetPayload(Document *d, const void *p, size_t n) {
   d->payload = p;
   d->payloadSize = n;
   if (d->flags & DOCUMENT_F_OWNSTRINGS) {
-    d->payload = malloc(n);
+    d->payload = rm_malloc(n);
     memcpy((void *)d->payload, p, n);
   }
 }
@@ -72,7 +72,7 @@ void Document_MakeStringsOwner(Document *d) {
 
   for (size_t ii = 0; ii < d->numFields; ++ii) {
     DocumentField *f = d->fields + ii;
-    f->name = strdup(f->name);
+    f->name = rm_strdup(f->name);
     if (f->text) {
       RedisModuleString *oldText = f->text;
       f->text = RedisModule_CreateStringFromString(RSDummyContext, oldText);
@@ -82,12 +82,12 @@ void Document_MakeStringsOwner(Document *d) {
     }
   }
   if (d->payload) {
-    void *tmp = malloc(d->payloadSize);
+    void *tmp = rm_malloc(d->payloadSize);
     memcpy(tmp, d->payload, d->payloadSize);
     d->payload = tmp;
   }
   if (d->language) {
-    d->language = strdup(d->language);
+    d->language = rm_strdup(d->language);
   }
   d->flags |= DOCUMENT_F_OWNSTRINGS;
   d->flags &= ~DOCUMENT_F_OWNREFS;
@@ -110,7 +110,7 @@ int Document_LoadSchemaFields(Document *doc, RedisSearchCtx *sctx) {
   }
 
   Document_MakeStringsOwner(doc);
-  doc->fields = calloc(nitems, sizeof(*doc->fields));
+  doc->fields = rm_calloc(nitems, sizeof(*doc->fields));
 
   for (size_t ii = 0; ii < sctx->spec->numFields; ++ii) {
     const char *fname = sctx->spec->fields[ii].name;
@@ -120,7 +120,7 @@ int Document_LoadSchemaFields(Document *doc, RedisSearchCtx *sctx) {
       continue;
     }
     size_t oix = doc->numFields++;
-    doc->fields[oix].name = strdup(fname);
+    doc->fields[oix].name = rm_strdup(fname);
     doc->fields[oix].text =
         v;  // HashGet gives us `v` with a refcount of 1, meaning we're the only owner
   }
@@ -150,7 +150,7 @@ int Document_LoadAllFields(Document *doc, RedisModuleCtx *ctx) {
 
   Document_MakeStringsOwner(doc);
 
-  doc->fields = calloc(len / 2, sizeof(DocumentField));
+  doc->fields = rm_calloc(len / 2, sizeof(DocumentField));
   doc->numFields = len / 2;
   size_t n = 0;
   RedisModuleCallReply *k, *v;
@@ -159,7 +159,7 @@ int Document_LoadAllFields(Document *doc, RedisModuleCtx *ctx) {
     v = RedisModule_CallReplyArrayElement(rep, i + 1);
     size_t nlen = 0;
     const char *name = RedisModule_CallReplyStringPtr(k, &nlen);
-    doc->fields[n].name = strndup(name, nlen);
+    doc->fields[n].name = rm_strndup(name, nlen);
     doc->fields[n].text = RedisModule_CreateStringFromCallReply(v);
   }
   rc = REDISMODULE_OK;
@@ -172,7 +172,7 @@ done:
 }
 
 void Document_LoadPairwiseArgs(Document *d, RedisModuleString **args, size_t nargs) {
-  d->fields = calloc(nargs / 2, sizeof(*d->fields));
+  d->fields = rm_calloc(nargs / 2, sizeof(*d->fields));
   d->numFields = nargs / 2;
   size_t oix = 0;
   for (size_t ii = 0; ii < nargs; ii += 2, oix++) {
@@ -187,14 +187,14 @@ void Document_Clear(Document *d) {
   if (d->flags & (DOCUMENT_F_OWNSTRINGS | DOCUMENT_F_OWNREFS)) {
     for (size_t ii = 0; ii < d->numFields; ++ii) {
       if (d->flags & DOCUMENT_F_OWNSTRINGS) {
-        free((void *)d->fields[ii].name);
+        rm_free((void *)d->fields[ii].name);
       }
       if (d->fields[ii].text) {
         RedisModule_FreeString(RSDummyContext, d->fields[ii].text);
       }
     }
   }
-  free(d->fields);
+  rm_free(d->fields);
   d->numFields = 0;
   d->fields = NULL;
 }
@@ -210,10 +210,10 @@ void Document_Free(Document *doc) {
   }
   if (doc->flags & DOCUMENT_F_OWNSTRINGS) {
     if (doc->payload) {
-      free((void *)doc->payload);
+      rm_free((void *)doc->payload);
     }
     if (doc->language) {
-      free((void *)doc->language);
+      rm_free((void *)doc->language);
     }
   }
 }

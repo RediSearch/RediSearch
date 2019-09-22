@@ -44,6 +44,11 @@ void *InvertedIndex_RdbLoad(RedisModuleIO *rdb, int encver) {
     if (!blk->buf.cap && blk->buf.data) {
       RedisModule_Free(blk->buf.data);
       blk->buf.data = NULL;
+    } else {
+      char *buf = rm_malloc(blk->buf.offset);
+      memcpy(buf, blk->buf.data, blk->buf.offset);
+      RedisModule_Free(blk->buf.data);
+      blk->buf.data = buf;
     }
   }
   idx->size = actualSize;
@@ -126,7 +131,7 @@ RedisModuleString *fmtRedisTermKey(RedisSearchCtx *ctx, const char *term, size_t
 
   char *buf, *bufDyn = NULL;
   if (nameLen + len + 10 > sizeof(buf_s)) {
-    buf = bufDyn = calloc(1, nameLen + len + 10);
+    buf = bufDyn = rm_calloc(1, nameLen + len + 10);
     strcpy(buf, "ft:");
   } else {
     buf = buf_s;
@@ -138,7 +143,7 @@ RedisModuleString *fmtRedisTermKey(RedisSearchCtx *ctx, const char *term, size_t
   memcpy(buf + offset, term, len);
   offset += len;
   RedisModuleString *ret = RedisModule_CreateString(ctx->redisCtx, buf, offset);
-  free(bufDyn);
+  rm_free(bufDyn);
   return ret;
 }
 
@@ -281,7 +286,7 @@ static InvertedIndex *openIndexKeysDict(RedisSearchCtx *ctx, RedisModuleString *
     return NULL;
   }
 
-  kdv = calloc(1, sizeof(*kdv));
+  kdv = rm_calloc(1, sizeof(*kdv));
   kdv->dtor = InvertedIndex_Free;
   kdv->p = NewInvertedIndex(ctx->spec->flags, 1);
   dictAdd(ctx->spec->keysDict, termKey, kdv);
@@ -431,7 +436,7 @@ int Redis_DropScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaq
 
   char *k = (char *)RedisModule_StringPtrLen(kn, &len);
   k += pflen;
-  // char *term = strndup(k, len - pflen);
+  // char *term = rm_strndup(k, len - pflen);
 
   RedisModuleString *sck = fmtRedisScoreIndexKey(sctx, k, len - pflen);
   RedisModuleString *sik = fmtRedisSkipIndexKey(sctx, k, len - pflen);
@@ -475,10 +480,10 @@ int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments, int deleteSpecKey)
     RedisModuleString *keyName = fmtRedisTermKey(ctx, res, strlen(res));
     Redis_DropScanHandler(ctx->redisCtx, keyName, ctx);
     RedisModule_FreeString(ctx->redisCtx, keyName);
-    free(res);
+    rm_free(res);
   }
   DFAFilter_Free(it->ctx);
-  free(it->ctx);
+  rm_free(it->ctx);
   TrieIterator_Free(it);
 
   // Delete the numeric, tag, and geo indexes which reside on separate keys

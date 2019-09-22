@@ -411,7 +411,7 @@ static int queryExplainCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int
     RedisModule_ReplyWithStringBuffer(ctx, explainRoot, strlen(explainRoot));
   }
 
-  free(explainRoot);
+  rm_free(explainRoot);
   return REDISMODULE_OK;
 }
 
@@ -952,7 +952,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   char *err;
   if (ReadConfig(argv, argc, &err) == REDISMODULE_ERR) {
     RedisModule_Log(ctx, "warning", "Invalid Configurations: %s", err);
-    free(err);
+    rm_free(err);
     return REDISMODULE_ERR;
   }
   if (RediSearch_Init(ctx, REDISEARCH_INIT_MODULE) != REDISMODULE_OK) {

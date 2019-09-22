@@ -435,7 +435,7 @@ static int yyGrowStack(yyParser *p){
     pNew = malloc(newSize*sizeof(pNew[0]));
     if( pNew ) pNew[0] = p->yystk0;
   }else{
-    pNew = realloc(p->yystack, newSize*sizeof(pNew[0]));
+    pNew = rm_realloc(p->yystack, newSize*sizeof(pNew[0]));
   }
   if( pNew ){
     p->yystack = pNew;

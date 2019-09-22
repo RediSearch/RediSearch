@@ -58,9 +58,9 @@ static void distinctFreeInstance(Reducer *r, void *p) {
 }
 
 Reducer *RDCRCountDistinct_New(const ReducerOptions *options) {
-  Reducer *r = calloc(1, sizeof(*r));
+  Reducer *r = rm_calloc(1, sizeof(*r));
   if (!ReducerOpts_GetKey(options, &r->srckey)) {
-    free(r);
+    rm_free(r);
     return NULL;
   }
   r->Add = distinctAdd;
@@ -121,7 +121,7 @@ static RSValue *hllFinalize(Reducer *parent, void *ctx) {
 
   // Serialize field map.
   HLLSerializedHeader hdr = {.flags = 0, .bits = ctr->hll.bits};
-  char *str = malloc(sizeof(hdr) + ctr->hll.size);
+  char *str = rm_malloc(sizeof(hdr) + ctr->hll.size);
   size_t hdrsize = sizeof(hdr);
   memcpy(str, &hdr, hdrsize);
   memcpy(str + hdrsize, ctr->hll.registers, ctr->hll.size);
@@ -130,9 +130,9 @@ static RSValue *hllFinalize(Reducer *parent, void *ctx) {
 }
 
 static Reducer *newHllCommon(const ReducerOptions *options, int isRaw) {
-  Reducer *r = calloc(1, sizeof(*r));
+  Reducer *r = rm_calloc(1, sizeof(*r));
   if (!ReducerOpts_GetKey(options, &r->srckey)) {
-    free(r);
+    rm_free(r);
     return NULL;
   }
   r->Add = distinctishAdd;
@@ -233,9 +233,9 @@ static void hllsumFreeInstance(Reducer *r, void *p) {
 }
 
 Reducer *RDCRHLLSum_New(const ReducerOptions *options) {
-  Reducer *r = calloc(1, sizeof(*r));
+  Reducer *r = rm_calloc(1, sizeof(*r));
   if (!ReducerOpts_GetKey(options, &r->srckey)) {
-    free(r);
+    rm_free(r);
     return NULL;
   }
   r->reducerId = REDUCER_T_HLLSUM;

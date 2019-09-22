@@ -47,6 +47,7 @@ void GCContext_Stop(GCContext* gc);
 void GCContext_RenderStats(GCContext* gc, RedisModuleCtx* ctx);
 void GCContext_OnDelete(GCContext* gc);
 void GCContext_ForceInvoke(GCContext* gc, RedisModuleBlockedClient* bc);
+void GCContext_ForceBGInvoke(GCContext* gc);
 
 #ifdef __cplusplus
 }

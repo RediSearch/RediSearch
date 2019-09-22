@@ -2,6 +2,7 @@
 #include "assert.h"
 #include "priority_queue.h"
 #include "redismodule.h"
+#include "alloc.h"
 REDISMODULE_INIT_SYMBOLS();
 
 int cmp(void *i1, void *i2) {
@@ -11,6 +12,7 @@ int cmp(void *i1, void *i2) {
 }
 
 int main(int argc, char **argv) {
+  RMUTil_InitAlloc();
   PriorityQueue *pq = NewPriorityQueue(int, 10, cmp);
   assert(0 == Priority_Queue_Size(pq));
 

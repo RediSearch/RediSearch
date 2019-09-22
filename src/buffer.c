@@ -48,7 +48,7 @@ void Buffer_Init(Buffer *b, size_t cap) {
 }
 
 Buffer *Buffer_Wrap(char *data, size_t len) {
-  Buffer *buf = malloc(sizeof(Buffer));
+  Buffer *buf = rm_malloc(sizeof(Buffer));
   buf->cap = len;
   buf->offset = 0;
   buf->data = data;

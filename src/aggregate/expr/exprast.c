@@ -4,20 +4,20 @@
 #define arglist_sizeof(l) (sizeof(RSArgList) + ((l) * sizeof(RSExpr *)))
 
 RSArgList *RS_NewArgList(RSExpr *e) {
-  RSArgList *ret = malloc(arglist_sizeof(e ? 1 : 0));
+  RSArgList *ret = rm_malloc(arglist_sizeof(e ? 1 : 0));
   ret->len = e ? 1 : 0;
   if (e) ret->args[0] = e;
   return ret;
 }
 
 RSArgList *RSArgList_Append(RSArgList *l, RSExpr *e) {
-  l = realloc(l, arglist_sizeof(l->len + 1));
+  l = rm_realloc(l, arglist_sizeof(l->len + 1));
   l->args[l->len++] = e;
   return l;
 }
 
 static RSExpr *newExpr(RSExprType t) {
-  RSExpr *e = calloc(1, sizeof(*e));
+  RSExpr *e = rm_calloc(1, sizeof(*e));
   e->t = t;
   return e;
 }
@@ -25,7 +25,7 @@ static RSExpr *newExpr(RSExprType t) {
 // unquote and unescape a stirng literal, and return a cleaned copy of it
 char *unescpeStringDup(const char *s, size_t sz) {
 
-  char *dst = malloc(sz);
+  char *dst = rm_malloc(sz);
   char *dstStart = dst;
   char *src = (char *)s + 1;       // we start after the first quote
   char *end = (char *)s + sz - 1;  // we end at the last quote
@@ -87,14 +87,14 @@ RSExpr *RS_NewPredicate(RSCondition cond, RSExpr *left, RSExpr *right) {
 RSExpr *RS_NewFunc(const char *str, size_t len, RSArgList *args, RSFunction cb) {
   RSExpr *e = newExpr(RSExpr_Function);
   e->func.args = args;
-  e->func.name = strndup(str, len);
+  e->func.name = rm_strndup(str, len);
   e->func.Call = cb;
   return e;
 }
 
 RSExpr *RS_NewProp(const char *str, size_t len) {
   RSExpr *e = newExpr(RSExpr_Property);
-  e->property.key = strndup(str, len);
+  e->property.key = rm_strndup(str, len);
   e->property.lookupObj = NULL;
   return e;
 }
@@ -110,7 +110,7 @@ void RSArgList_Free(RSArgList *l) {
   for (size_t i = 0; i < l->len; i++) {
     RSExpr_Free(l->args[i]);
   }
-  free(l);
+  rm_free(l);
 }
 void RSExpr_Free(RSExpr *e) {
   if (!e) return;
@@ -119,7 +119,7 @@ void RSExpr_Free(RSExpr *e) {
       RSValue_Clear(&e->literal);
       break;
     case RSExpr_Function:
-      free((char *)e->func.name);
+      rm_free((char *)e->func.name);
       RSArgList_Free(e->func.args);
       break;
     case RSExpr_Op:
@@ -131,12 +131,12 @@ void RSExpr_Free(RSExpr *e) {
       RSExpr_Free(e->pred.right);
       break;
     case RSExpr_Property:
-      free((char *)e->property.key);
+      rm_free((char *)e->property.key);
       break;
     case RSExpr_Inverted:
       RSExpr_Free(e->inverted.child);
   }
-  free(e);
+  rm_free(e);
 }
 
 void RSExpr_Print(const RSExpr *e) {
@@ -198,6 +198,6 @@ RSExpr *ExprAST_Parse(const char *e, size_t n, QueryError *status) {
   if (!ret) {
     QueryError_SetError(status, QUERY_EEXPR, errtmp);
   }
-  free(errtmp);
+  rm_free(errtmp);
   return ret;
 }

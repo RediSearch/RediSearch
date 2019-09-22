@@ -339,11 +339,11 @@ static void rpevalFree(ResultProcessor *rp) {
     RSValue_Decref(ee->val);
   }
   BlkAlloc_FreeAll(&ee->eval.stralloc, NULL, NULL, 0);
-  free(ee);
+  rm_free(ee);
 }
 static ResultProcessor *RPEvaluator_NewCommon(const RSExpr *ast, const RLookup *lookup,
                                               const RLookupKey *dstkey, int isFilter) {
-  RPEvaluator *rp = calloc(1, sizeof(*rp));
+  RPEvaluator *rp = rm_calloc(1, sizeof(*rp));
   rp->base.Next = isFilter ? rpevalNext_filter : rpevalNext_project;
   rp->base.Free = rpevalFree;
   rp->base.name = isFilter ? "Filter" : "Projector";

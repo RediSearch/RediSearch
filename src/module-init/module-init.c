@@ -163,7 +163,7 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
     // Load the extension so TODO: pass with param
     if (Extension_LoadDynamic(RSGlobalConfig.extLoad, &errMsg) == REDISMODULE_ERR) {
       DO_LOG("warning", "Could not load extension %s: %s", RSGlobalConfig.extLoad, errMsg);
-      free(errMsg);
+      rm_free(errMsg);
       return REDISMODULE_ERR;
     }
     DO_LOG("notice", "Loaded RediSearch extension '%s'", RSGlobalConfig.extLoad);

@@ -27,7 +27,7 @@ RSValueType RSFunctionRegistry_GetType(const char *name, size_t len) {
 int RSFunctionRegistry_RegisterFunction(const char *name, RSFunction f, RSValueType retType) {
   if (functions_g.len + 1 >= functions_g.cap) {
     functions_g.cap += functions_g.cap ? functions_g.cap : 2;
-    functions_g.funcs = realloc(functions_g.funcs, functions_g.cap * sizeof(*functions_g.funcs));
+    functions_g.funcs = rm_realloc(functions_g.funcs, functions_g.cap * sizeof(*functions_g.funcs));
   }
   functions_g.funcs[functions_g.len].f = f;
   functions_g.funcs[functions_g.len].name = name;
@@ -43,6 +43,6 @@ void RegisterAllFunctions() {
 }
 
 void FunctionRegistry_Free(void) {
-  free(functions_g.funcs);
+  rm_free(functions_g.funcs);
   memset(&functions_g, 0, sizeof(functions_g));
 }

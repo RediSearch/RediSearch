@@ -5,14 +5,14 @@
 
 static RLookupKey *createNewKey(RLookup *lookup, const char *name, size_t n, int flags,
                                 uint16_t idx) {
-  RLookupKey *ret = calloc(1, sizeof(*ret));
+  RLookupKey *ret = rm_calloc(1, sizeof(*ret));
 
   ret->flags = (flags & (~RLOOKUP_TRANSIENT_FLAGS));
   ret->dstidx = idx;
   ret->refcnt = 1;
 
   if (flags & RLOOKUP_F_NAMEALLOC) {
-    ret->name = strndup(name, n);
+    ret->name = rm_strndup(name, n);
   } else {
     ret->name = name;
   }
@@ -191,9 +191,9 @@ void RLookupRow_Dump(const RLookupRow *rr) {
 
 void RLookupKey_FreeInternal(RLookupKey *k) {
   if (k->flags & RLOOKUP_F_NAMEALLOC) {
-    free((void *)k->name);
+    rm_free((void *)k->name);
   }
-  free(k);
+  rm_free(k);
 }
 
 void RLookup_Cleanup(RLookup *lk) {

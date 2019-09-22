@@ -51,6 +51,7 @@ typedef struct ForkGC {
   volatile uint32_t execState;
 
   struct timespec retryInterval;
+  volatile size_t deletedDocsFromLastRun;
 } ForkGC;
 
 ForkGC *FGC_New(const RedisModuleString *k, uint64_t specUniqueId, GCCallbacks *callbacks);
