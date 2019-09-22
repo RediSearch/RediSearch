@@ -2261,6 +2261,12 @@ def testIssue_865(env):
     env.expect('ft.search', 'idx', 'foo*', 'SORTBY', 'bad').error()
     env.expect('ft.search', 'idx', 'foo*', 'SORTBY').error()
 
+def testErrorWithApply(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
+    env.expect('FT.ADD', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo bar').equal('OK')
+    err = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'split()')[1]
+    env.assertEqual(str(err), 'Invalid number of arguments for split')
+
 
 def grouper(iterable, n, fillvalue=None):
     "Collect data into fixed-length chunks or blocks"

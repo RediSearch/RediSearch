@@ -941,6 +941,7 @@ int buildImplicitPipeline(AREQ *req, QueryError *Status) {
   RedisSearchCtx *sctx = req->sctx;
   req->qiter.conc = &req->conc;
   req->qiter.sctx = sctx;
+  req->qiter.err = Status;
 
   IndexSpecCache *cache = IndexSpec_GetSpecCache(req->sctx->spec);
   assert(cache);
