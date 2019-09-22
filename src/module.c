@@ -854,13 +854,6 @@ static int AliasAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
   }
 }
 
-#ifdef RS_GIT_SHA
-static int GitShaCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  RedisModule_ReplyWithStringBuffer(ctx, RS_GIT_SHA, strlen(RS_GIT_SHA));
-  return REDISMODULE_OK;
-}
-#endif
-
 static int AliasDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc != 2) {
     return RedisModule_WrongArity(ctx);
@@ -1061,10 +1054,6 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASUPDATE, AliasUpdateCommand, "readonly", 2, 2, 1);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASDEL, AliasDelCommand, "readonly", 0, 0, -1);
-#endif
-
-#ifdef RS_GIT_SHA
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_GITSHA, GitShaCommand, "readonly", 0, 0, -1);
 #endif
   return REDISMODULE_OK;
 }
