@@ -277,6 +277,7 @@ static int parseQueryLegacyArgs(ArgsCursor *ac, RSSearchOptions *options, QueryE
   } else if (AC_AdvanceIfMatch(ac, "GEOFILTER")) {
     options->legacy.gf = rm_calloc(1, sizeof(*options->legacy.gf));
     if (GeoFilter_Parse(options->legacy.gf, ac, status) != REDISMODULE_OK) {
+      GeoFilter_Free(options->legacy.gf);
       return ARG_ERROR;
     }
   } else {
@@ -766,11 +767,13 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup, Qu
     ReducerFactory ff = RDCR_GetFactory(pr->name);
     if (!ff) {
       // No such reducer!
+      Grouper_Free(grp);
       QueryError_SetErrorFmt(err, QUERY_ENOREDUCER, "No such reducer: %s", pr->name);
       return NULL;
     }
     Reducer *rr = ff(&options);
     if (!rr) {
+      Grouper_Free(grp);
       return NULL;
     }
 

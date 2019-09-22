@@ -199,6 +199,8 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status);
  */
 Grouper *Grouper_New(const RLookupKey **srckeys, const RLookupKey **dstkeys, size_t n);
 
+void Grouper_Free(Grouper *g);
+
 /**
  * Gets the result processor associated with the grouper.
  * This is used for building the query pipeline

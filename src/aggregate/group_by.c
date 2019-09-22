@@ -276,6 +276,10 @@ static void Grouper_rpFree(ResultProcessor *grrp) {
   rm_free(g);
 }
 
+void Grouper_Free(Grouper *g) {
+  g->base.Free(&g->base);
+}
+
 Grouper *Grouper_New(const RLookupKey **srckeys, const RLookupKey **dstkeys, size_t nkeys) {
   Grouper *g = rm_calloc(1, sizeof(*g));
   BlkAlloc_Init(&g->groupsAlloc);

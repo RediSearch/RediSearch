@@ -68,12 +68,12 @@ int GeoFilter_Parse(GeoFilter *gf, ArgsCursor *ac, QueryError *status) {
   }
 
   gf->unit = AC_GetStringNC(ac, NULL);
+  gf->unit = rm_strdup(gf->unit);
   if (strcasecmp(gf->unit, "m") && strcasecmp(gf->unit, "km") && strcasecmp(gf->unit, "ft") &&
       strcasecmp(gf->unit, "mi")) {
     QERR_MKBADARGS_FMT(status, "Unknown distance unit %s", gf->unit);
     return REDISMODULE_ERR;
   }
-  gf->unit = rm_strdup(gf->unit);
 
   return REDISMODULE_OK;
 }
