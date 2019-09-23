@@ -361,6 +361,15 @@ DEBUG_COMMAND(GCForceBGInvoke) {
   return REDISMODULE_OK;
 }
 
+DEBUG_COMMAND(GitSha) {
+#ifdef RS_GIT_SHA
+  RedisModule_ReplyWithStringBuffer(ctx, RS_GIT_SHA, strlen(RS_GIT_SHA));
+#else
+  RedisModule_ReplyWithError(ctx, "GIT SHA was not defined on compilation");
+#endif
+  return REDISMODULE_OK;
+}
+
 typedef struct {
   // Whether to enumerate the number of docids per entry
   int countValueEntries;
@@ -510,6 +519,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex},
                                {"NUMIDX_SUMMARY", NumericIndexSummary},
                                {"GC_FORCEINVOKE", GCForceInvoke},
                                {"GC_FORCEBGINVOKE", GCForceBGInvoke},
+                               {"GIT_SHA", GitSha},
                                {NULL, NULL}};
 
 int DebugCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
