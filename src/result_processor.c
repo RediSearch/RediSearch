@@ -379,11 +379,11 @@ static int cmpByFields(const void *e1, const void *e2, const void *udata) {
     ascending = SORTASCMAP_GETASC(self->fieldcmp.ascendMap, i);
     if (!v1 || !v2) {
       int rc;
-      if(v1){
+      if (v1) {
         rc = 1;
-      }else if(v2){
+      } else if (v2) {
         rc = -1;
-      }else{
+      } else {
         rc = h1->docId < h2->docId ? -1 : 1;
       }
       return ascending ? -rc : rc;
