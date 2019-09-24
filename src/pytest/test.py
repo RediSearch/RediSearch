@@ -2428,7 +2428,11 @@ def testBadCursor(env):
     env.expect('FT.CURSOR', 'DROP', 'idx', '1111').error()
     env.expect('FT.CURSOR', 'bad', 'idx', '1111').error()
 
-
+def testGroupByWithApplyError(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'TEXT').equal('OK')
+    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
+    err = env.cmd('FT.AGGREGATE', 'idx', '*', 'APPLY', 'split()', 'GROUPBY', '1', '@test', 'REDUCE', 'COUNT', '0', 'AS', 'count')[1]
+    env.assertEqual(str(err), 'Invalid number of arguments for split')
 
 def grouper(iterable, n, fillvalue=None):
     "Collect data into fixed-length chunks or blocks"
