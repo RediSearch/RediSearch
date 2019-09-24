@@ -515,6 +515,9 @@ static void freeFilterStep(PLN_BaseStep *bstp) {
   if (fstp->parsedExpr) {
     ExprAST_Free(fstp->parsedExpr);
   }
+  if (fstp->shouldFreeRaw) {
+    rm_free((char *)fstp->rawExpr);
+  }
   rm_free((void *)fstp->base.alias);
   rm_free(bstp);
 }
