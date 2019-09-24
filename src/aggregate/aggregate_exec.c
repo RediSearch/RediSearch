@@ -96,6 +96,7 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
     for (const RLookupKey *kk = lk->head; kk; kk = kk->next) {
       if (kk->flags & RLOOKUP_F_HIDDEN) {
         // printf("Skipping hidden field %s/%p\n", kk->name, kk);
+        // todo: this is a dead code, no one set RLOOKUP_F_HIDDEN
         continue;
       }
       if (req->outFields.explicitReturn && (kk->flags & RLOOKUP_F_EXPLICITRETURN) == 0) {
@@ -290,10 +291,7 @@ static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num) {
   RedisModule_ReplyWithArray(outputCtx, 2);
   sendChunk(req, outputCtx, num);
 
-  if (req->stateflags & QEXEC_S_ERROR) {
-    RedisModule_ReplyWithLongLong(outputCtx, 0);
-    goto delcursor;
-  }
+  assert(!(req->stateflags & QEXEC_S_ERROR));
 
   if (req->stateflags & QEXEC_S_ITERDONE) {
     // Write the count!
@@ -376,7 +374,6 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     int rc = Cursors_CollectIdle(&RSCursors);
     RedisModule_ReplyWithLongLong(ctx, rc);
   } else {
-    printf("Unknown command %s\n", cmd);
     RedisModule_ReplyWithError(ctx, "Unknown subcommand");
   }
   return REDISMODULE_OK;

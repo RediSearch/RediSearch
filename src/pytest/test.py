@@ -2396,6 +2396,34 @@ def testBadFilterExpression(env):
     env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'FILTER', 'blabla').error()
     env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'FILTER', '@test1 > 1').error()
 
+def testWithSortKeysOnNoneSortableValue(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'TEXT').equal('OK')
+    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
+    env.expect('ft.search', 'idx', '*', 'WITHSORTKEYS', 'SORTBY', 'test').equal([1L, 'doc1', '$foo', ['test', 'foo']])
+
+def testWithWithRawIds(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'TEXT').equal('OK')
+    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
+    env.expect('ft.search', 'idx', '*', 'WITHRAWIDS').equal([1L, 'doc1', 1L, ['test', 'foo']])
+
+def testUnkownIndex(env):
+    env.expect('ft.aggregate').error()
+    env.expect('ft.aggregate', 'idx', '*').error()
+    env.expect('ft.aggregate', 'idx', '*', 'WITHCURSOR').error()
+
+def testExplainError(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'TEXT').equal('OK')
+    env.expect('FT.EXPLAIN', 'idx', '(').error()
+
+def testBadCursor(env):
+    env.expect('FT.CURSOR', 'READ', 'idx').error()
+    env.expect('FT.CURSOR', 'READ', 'idx', '1111').error()
+    env.expect('FT.CURSOR', 'READ', 'idx', 'bad').error()
+    env.expect('FT.CURSOR', 'DROP', 'idx', '1111').error()
+    env.expect('FT.CURSOR', 'bad', 'idx', '1111').error()
+
+
+
 def grouper(iterable, n, fillvalue=None):
     "Collect data into fixed-length chunks or blocks"
     from itertools import izip_longest
