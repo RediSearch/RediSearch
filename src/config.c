@@ -276,12 +276,12 @@ CONFIG_GETTER(getForkGcCleanThreshold) {
 
 CONFIG_GETTER(getForkGcInterval) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%u", config->forkGcRunIntervalSec);
+  return sdscatprintf(ss, "%lu", config->forkGcRunIntervalSec);
 }
 
 CONFIG_GETTER(getForkGcRetryInterval) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%u", config->forkGcRunIntervalSec);
+  return sdscatprintf(ss, "%lu", config->forkGcRunIntervalSec);
 }
 
 CONFIG_GETTER(getMaxResultsToUnsortedMode) {

@@ -133,6 +133,9 @@ static int sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
   nelem++;
   if (rc == RS_RESULT_OK && nrows++ < limit && !(req->reqflags & QEXEC_F_NOROWS)) {
     nelem += serializeResult(req, outctx, &r);
+  } else if (rc == RS_RESULT_ERROR) {
+    QueryError_ReplyAndClear(outctx, req->qiter.err);
+    ++nelem;
   }
 
   SearchResult_Clear(&r);
@@ -327,7 +330,9 @@ static void cursorRead(RedisModuleCtx *ctx, uint64_t cid, size_t count) {
     RedisModule_ReplyWithError(ctx, "Cursor not found");
     return;
   }
+  QueryError status = {0};
   AREQ *req = cursor->execState;
+  req->qiter.err = &status;
   ConcurrentSearchCtx_ReopenKeys(&req->conc);
   runCursor(ctx, cursor, count);
 }
