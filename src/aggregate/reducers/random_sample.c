@@ -32,7 +32,7 @@ static int sampleAdd(Reducer *rbase, void *ctx, const RLookupRow *srcrow) {
     RSVALUE_ARRLEN(sc->samplesArray)++;
     assert(RSVALUE_ARRLEN(sc->samplesArray) <= r->len);
   } else {
-    size_t i = rand() % sc->seen + 1;
+    size_t i = rand() % (sc->seen + 1);
     if (i < r->len) {
       RSVALUE_REPLACE(&RSVALUE_ARRELEM(sc->samplesArray, i), v);
     }

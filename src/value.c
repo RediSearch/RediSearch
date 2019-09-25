@@ -299,7 +299,6 @@ int RSValue_ToNumber(const RSValue *v, double *d) {
 
 /**
  * Returns the value as a simple opaque buffer
- */
 inline const void *RSValue_ToBuffer(RSValue *value, size_t *outlen) {
   value = RSValue_Dereference(value);
 
@@ -320,6 +319,7 @@ inline const void *RSValue_ToBuffer(RSValue *value, size_t *outlen) {
       return "";
   }
 }
+ */
 
 // Gets the string pointer and length from the value
 const char *RSValue_StringPtrLen(const RSValue *value, size_t *lenp) {

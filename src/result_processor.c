@@ -380,12 +380,20 @@ static int cmpByFields(const void *e1, const void *e2, const void *udata) {
   for (size_t i = 0; i < self->fieldcmp.nkeys && i < SORTASCMAP_MAXFIELDS; i++) {
     const RSValue *v1 = RLookup_GetItem(self->fieldcmp.keys[i], &h1->rowdata);
     const RSValue *v2 = RLookup_GetItem(self->fieldcmp.keys[i], &h2->rowdata);
-    if (!v1 || !v2) {
-      break;
-    }
-    
     // take the ascending bit for this property from the ascending bitmap
     ascending = SORTASCMAP_GETASC(self->fieldcmp.ascendMap, i);
+    if (!v1 || !v2) {
+      int rc;
+      if (v1) {
+        rc = 1;
+      } else if (v2) {
+        rc = -1;
+      } else {
+        rc = h1->docId < h2->docId ? -1 : 1;
+      }
+      return ascending ? -rc : rc;
+    }
+
     int rc = RSValue_Cmp(v1, v2, qerr);
     // printf("asc? %d Compare: \n", ascending);
     // RSValue_Print(v1);
