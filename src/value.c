@@ -495,7 +495,6 @@ static inline int convert_to_numeber(const RSValue *v, RSValue *vn, QueryError *
 }
 
 int RSValue_Cmp(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
-  BB;
   assert(v1);
   assert(v2);
   v1 = RSValue_Dereference(v1);
