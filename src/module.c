@@ -341,7 +341,7 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
                    MAX_LEV_DISTANCE));
       goto end;
     }
-  }
+  } // LCOV_EXCL_LINE
 
   int nextPos = 0;
   while ((nextPos = RMUtil_ArgExists("TERMS", argv, argc, nextPos + 1))) {

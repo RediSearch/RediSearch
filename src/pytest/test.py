@@ -220,6 +220,9 @@ def testGet(env):
     env.assertOk(r.execute_command(
         'ft.create', 'idx', 'schema', 'foo', 'text', 'bar', 'text'))
 
+    env.expect('ft.get', 'idx').error()
+    env.expect('ft.get', 'idx', 'foo', 'bar').error()
+
     for i in range(100):
         env.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
                                         'foo', 'hello world', 'bar', 'wat wat'))
@@ -248,6 +251,7 @@ def testGet(env):
     # Verify that when a document is deleted, GET returns NULL
     r.cmd('ft.del', 'idx', 'doc10') # But we still keep the document
     r.cmd('ft.del', 'idx', 'doc11')
+    r.cmd('ft.del', 'idx', 'coverage') #should write into log. How is it tested?
     res = r.cmd('ft.get', 'idx', 'doc10')
     r.assertEqual(None, res)
     res = r.cmd('ft.mget', 'idx', 'doc10', 'doc11', 'doc12')
@@ -373,6 +377,9 @@ def testDrop(env):
         keys = r.keys('*')
         env.assertListEqual(['doc0', 'doc1', 'doc10', 'doc11', 'doc12', 'doc13', 'doc14', 'doc15', 'doc16', 'doc17', 'doc18', 'doc19', 'doc2', 'doc20', 'doc21', 'doc22', 'doc23', 'doc24', 'doc25', 'doc26', 'doc27', 'doc28', 'doc29', 'doc3', 'doc30', 'doc31', 'doc32', 'doc33', 'doc34', 'doc35', 'doc36', 'doc37', 'doc38', 'doc39', 'doc4', 'doc40', 'doc41', 'doc42', 'doc43', 'doc44', 'doc45', 'doc46', 'doc47', 'doc48', 'doc49', 'doc5', 'doc50', 'doc51', 'doc52', 'doc53',
                               'doc54', 'doc55', 'doc56', 'doc57', 'doc58', 'doc59', 'doc6', 'doc60', 'doc61', 'doc62', 'doc63', 'doc64', 'doc65', 'doc66', 'doc67', 'doc68', 'doc69', 'doc7', 'doc70', 'doc71', 'doc72', 'doc73', 'doc74', 'doc75', 'doc76', 'doc77', 'doc78', 'doc79', 'doc8', 'doc80', 'doc81', 'doc82', 'doc83', 'doc84', 'doc85', 'doc86', 'doc87', 'doc88', 'doc89', 'doc9', 'doc90', 'doc91', 'doc92', 'doc93', 'doc94', 'doc95', 'doc96', 'doc97', 'doc98', 'doc99'], sorted(keys))
+
+    with env.assertResponseError():
+        env.assertOk(env.cmd('FT.DROP', 'idx', 'KEEPDOCS', '666')) 
 
 def testCustomStopwords(env):
     r = env
@@ -2033,6 +2040,7 @@ def testAlias(env):
 
 def testNoCreate(env):
     env.cmd('ft.create', 'idx', 'schema', 'f1', 'text')
+    env.expect('ft.add', 'idx', 'schema', 'f1').raiseError()
     env.expect('ft.add', 'idx', 'doc1', 1, 'nocreate', 'fields', 'f1', 'hello').raiseError()
     env.expect('ft.add', 'idx', 'doc1', 1, 'replace', 'nocreate', 'fields', 'f1', 'hello').raiseError()
     env.expect('ft.add', 'idx', 'doc1', 1, 'replace', 'fields', 'f1', 'hello').notRaiseError()
@@ -2275,3 +2283,12 @@ def grouper(iterable, n, fillvalue=None):
 
 def to_dict(r):
     return {r[i]: r[i + 1] for i in range(0, len(r), 2)}
+
+def testOptimize(env):
+    env.cmd('ft.create', 'idx', 'SCHEMA', 'test', 'TEXT', 'SORTABLE')
+    env.cmd('FT.ADD', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo')   
+    env.assertEqual(0, env.cmd('FT.OPTIMIZE', 'idx'))   
+    with env.assertResponseError():
+        env.assertOk(env.cmd('FT.OPTIMIZE', 'idx', '666'))    
+
+
