@@ -415,9 +415,6 @@ RSValue *RS_ArrVal(RSValue **vals, uint32_t len) {
   v->arrval.vals = vals;
   v->arrval.len = len;
   v->arrval.staticarray = 0;
-  for (uint32_t i = 0; i < len; i++) {
-    RSValue_IncrRef(v->arrval.vals[i]);
-  }
   return v;
 }
 
