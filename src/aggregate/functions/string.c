@@ -48,13 +48,14 @@ static int stringfunc_tolower(ExprEval *ctx, RSValue *result, RSValue **argv, si
                               QueryError *err) {
 
   VALIDATE_ARGS("lower", 1, 1, err);
-  if (!RSValue_IsString(argv[0])) {
+  RSValue *val = RSValue_Dereference(argv[0]);
+  if (!RSValue_IsString(val)) {
     RSValue_MakeReference(result, RS_NullVal());
     return EXPR_EVAL_OK;
   }
 
   size_t sz = 0;
-  char *p = (char *)RSValue_StringPtrLen(argv[0], &sz);
+  char *p = (char *)RSValue_StringPtrLen(val, &sz);
   char *np = ExprEval_UnalignedAlloc(ctx, sz + 1);
   for (size_t i = 0; i < sz; i++) {
     np[i] = tolower(p[i]);
@@ -69,13 +70,14 @@ static int stringfunc_toupper(ExprEval *ctx, RSValue *result, RSValue **argv, si
                               QueryError *err) {
   VALIDATE_ARGS("upper", 1, 1, err);
 
-  if (!RSValue_IsString(argv[0])) {
+  RSValue *val = RSValue_Dereference(argv[0]);
+  if (!RSValue_IsString(val)) {
     RSValue_MakeReference(result, RS_NullVal());
     return EXPR_EVAL_OK;
   }
 
   size_t sz = 0;
-  char *p = (char *)RSValue_StringPtrLen(argv[0], &sz);
+  char *p = (char *)RSValue_StringPtrLen(val, &sz);
   char *np = ExprEval_UnalignedAlloc(ctx, sz + 1);
   for (size_t i = 0; i < sz; i++) {
     np[i] = toupper(p[i]);
@@ -110,7 +112,7 @@ static int stringfunc_substr(ExprEval *ctx, RSValue *result, RSValue **argv, siz
   offset = MAX(0, MIN(offset, sz));
   // len < 0 means read until the end of the string
   if (len < 0) {
-    len = MAX(0, (sz - offset) + len);
+    len = MAX(0, ((int)sz - offset) + len);
   }
   if (offset + len > sz) {
     len = sz - offset;
