@@ -1,7 +1,10 @@
+#include <pthread.h>
+
 #include "value.h"
 #include "util/mempool.h"
 #include "module.h"
-#include <pthread.h>
+#include "query_error.h"
+
 
 ///////////////////////////////////////////////////////////////
 // Variant Values - will be used in documents as well
@@ -473,7 +476,26 @@ static inline int cmp_strings(const char *s1, const char *s2, size_t l1, size_t 
   }
 }
 
-int RSValue_Cmp(const RSValue *v1, const RSValue *v2) {
+static inline int cmp_numbers(const RSValue *v1, const RSValue *v2) {
+  return v1->numval > v2->numval ? 1 : (v1->numval < v2->numval ? -1 : 0);
+}
+
+static inline int convert_to_numeber(const RSValue *v, RSValue *vn, QueryError *qerr) {
+  double d;
+  if (! RSValue_ToNumber(v, &d)) {
+    if (!qerr) return 0;
+     
+    const char *s = RSValue_StringPtrLen(v, NULL);
+    QueryError_SetErrorFmt(qerr, QUERY_ENOTNUMERIC, "Error converting string '%s' to number", s);
+    return 0;
+  }
+
+  RSValue_SetNumber(vn, d);
+  return 1;
+}
+
+int RSValue_Cmp(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
+  BB;
   assert(v1);
   assert(v2);
   v1 = RSValue_Dereference(v1);
@@ -482,8 +504,7 @@ int RSValue_Cmp(const RSValue *v1, const RSValue *v2) {
   if (v1->t == v2->t) {
     switch (v1->t) {
       case RSValue_Number:
-
-        return v1->numval > v2->numval ? 1 : (v1->numval < v2->numval ? -1 : 0);
+        return cmp_numbers(v1, v2);
       case RSValue_String:
         return cmp_strings(v1->strval.str, v2->strval.str, v1->strval.len, v2->strval.len);
       case RSValue_RedisString:
@@ -511,14 +532,39 @@ int RSValue_Cmp(const RSValue *v1, const RSValue *v2) {
   // cast to strings and compare as strings
   char buf1[100], buf2[100];
 
+  // if either of the arguments is a number, convert the other one to a number
+  // if, however, error handling is not available, fallback to string comparison
+  do {
+    if (v1->t == RSValue_Number) {
+      RSValue v2n;
+      if (!convert_to_numeber(v2, &v2n, qerr)) {
+        // if it is possible to indicate an error, return
+        if (qerr) return 0;
+        // otherwise, fallback to string comparison
+        break;
+      }
+      return cmp_numbers(v1, &v2n);
+    } else if (v2->t == RSValue_Number) {
+      RSValue v1n;
+      if (!convert_to_numeber(v1, &v1n, qerr)) {
+        // if it is possible to indicate an error, return
+        if (qerr) return 0;
+        // otherwise, fallback to string comparison
+        break;
+      }
+      // otherwise, fallback to string comparison
+      return cmp_numbers(&v1n, v2);
+    }
+  } while(0);
+
   size_t l1, l2;
   const char *s1 = RSValue_ConvertStringPtrLen(v1, &l1, buf1, sizeof(buf1));
   const char *s2 = RSValue_ConvertStringPtrLen(v2, &l2, buf2, sizeof(buf2));
   return cmp_strings(s1, s2, l1, l2);
 }
 
-int RSValue_Equal(const RSValue *v1, const RSValue *v2) {
-  return RSValue_Cmp(v1, v2) == 0;
+int RSValue_Equal(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
+  return RSValue_Cmp(v1, v2, qerr) == 0;
 }
 
 /* Based on the value type, serialize the value into redis client response */

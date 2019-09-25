@@ -372,16 +372,21 @@ static int cmpByFields(const void *e1, const void *e2, const void *udata) {
   const SearchResult *h1 = e1, *h2 = e2;
   int ascending = 0;
 
+  QueryError *qerr = NULL;
+  if (self && self->base.parent && self->base.parent->err) {
+  	qerr = self->base.parent->err;
+  }
+ 
   for (size_t i = 0; i < self->fieldcmp.nkeys && i < SORTASCMAP_MAXFIELDS; i++) {
     const RSValue *v1 = RLookup_GetItem(self->fieldcmp.keys[i], &h1->rowdata);
     const RSValue *v2 = RLookup_GetItem(self->fieldcmp.keys[i], &h2->rowdata);
     if (!v1 || !v2) {
       break;
     }
-
+    
     // take the ascending bit for this property from the ascending bitmap
     ascending = SORTASCMAP_GETASC(self->fieldcmp.ascendMap, i);
-    int rc = RSValue_Cmp(v1, v2);
+    int rc = RSValue_Cmp(v1, v2, qerr);
     // printf("asc? %d Compare: \n", ascending);
     // RSValue_Print(v1);
     // printf(" <=> ");

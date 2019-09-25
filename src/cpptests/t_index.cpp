@@ -1058,21 +1058,24 @@ TEST_F(IndexTest, testSortable) {
 
   RSSortingKey sk = {.index = 0, .ascending = 0};
 
-  int rc = RSSortingVector_Cmp(v, v2, &sk);
-  ASSERT_TRUE(rc > 0);
+  QueryError qerr;
+  QueryError_ClearError(&qerr);
+
+  int rc = RSSortingVector_Cmp(v, v2, &sk, &qerr);
+  ASSERT_TRUE(rc > 0 && qerr.code == QUERY_OK);
   sk.ascending = 1;
-  rc = RSSortingVector_Cmp(v, v2, &sk);
-  ASSERT_TRUE(rc < 0);
-  rc = RSSortingVector_Cmp(v, v, &sk);
-  ASSERT_EQ(0, rc);
+  rc = RSSortingVector_Cmp(v, v2, &sk, &qerr);
+  ASSERT_TRUE(rc < 0 && qerr.code == QUERY_OK);
+  rc = RSSortingVector_Cmp(v, v, &sk, &qerr);
+  ASSERT_TRUE(0 == rc && qerr.code == QUERY_OK);
 
   sk.index = 1;
 
-  rc = RSSortingVector_Cmp(v, v2, &sk);
-  ASSERT_EQ(-1, rc);
+  rc = RSSortingVector_Cmp(v, v2, &sk, &qerr);
+  ASSERT_TRUE(-1 == rc && qerr.code == QUERY_OK);
   sk.ascending = 0;
-  rc = RSSortingVector_Cmp(v, v2, &sk);
-  ASSERT_EQ(1, rc);
+  rc = RSSortingVector_Cmp(v, v2, &sk, &qerr);
+  ASSERT_TRUE(1 == rc && qerr.code == QUERY_OK);
 
   SortingTable_Free(tbl);
   SortingVector_Free(v);

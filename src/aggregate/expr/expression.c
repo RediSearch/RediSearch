@@ -89,29 +89,30 @@ cleanup:
   return rc;
 }
 
-static int getPredicateBoolean(const RSValue *l, const RSValue *r, RSCondition op) {
+static int getPredicateBoolean(ExprEval *eval, const RSValue *l, const RSValue *r, RSCondition op) {
+  QueryError *qerr = eval ? eval->err : NULL;
   switch (op) {
     case RSCondition_Eq:
-      return RSValue_Equal(l, r);
+      return RSValue_Equal(l, r, qerr);
 
     case RSCondition_Lt:
-      return RSValue_Cmp(l, r) < 0;
+      return RSValue_Cmp(l, r, qerr) < 0;
 
     /* Less than or equal, <= */
     case RSCondition_Le:
-      return RSValue_Cmp(l, r) <= 0;
+      return RSValue_Cmp(l, r, qerr) <= 0;
 
       /* Greater than, > */
     case RSCondition_Gt:
-      return RSValue_Cmp(l, r) > 0;
+      return RSValue_Cmp(l, r, qerr) > 0;
 
     /* Greater than or equal, >= */
     case RSCondition_Ge:
-      return RSValue_Cmp(l, r) >= 0;
+      return RSValue_Cmp(l, r, qerr) >= 0;
 
     /* Not equal, != */
     case RSCondition_Ne:
-      return !RSValue_Equal(l, r);
+      return !RSValue_Equal(l, r, qerr);
 
       /* Logical AND of 2 expressions, && */
     case RSCondition_And:
@@ -123,6 +124,9 @@ static int getPredicateBoolean(const RSValue *l, const RSValue *r, RSCondition o
 
     default:
       assert("Unknown predicate received" && 0);
+      if (qerr) {
+        QueryError_SetErrorFmt(qerr, QUERY_EEXPR, "Unknown predicate received");
+      }
       return 0;
   }
 }
@@ -141,7 +145,6 @@ static int evalInverted(ExprEval *eval, const RSInverted *vv, RSValue *result) {
 }
 
 static int evalPredicate(ExprEval *eval, const RSPredicate *pred, RSValue *result) {
-
   RSValue l = RSVALUE_STATIC, r = RSVALUE_STATIC;
   int rc = EXPR_EVAL_ERR;
   if (evalInternal(eval, pred->left, &l) == EXPR_EVAL_ERR ||
@@ -152,11 +155,14 @@ static int evalPredicate(ExprEval *eval, const RSPredicate *pred, RSValue *resul
   RSValue *l_ptr = RSValue_Dereference(&l);
   RSValue *r_ptr = RSValue_Dereference(&r);
 
-  int res = getPredicateBoolean(&l, &r, pred->cond);
-
-  result->numval = res;
-  result->t = RSValue_Number;
-  rc = EXPR_EVAL_OK;
+  int res = getPredicateBoolean(eval, &l, &r, pred->cond);
+  if (!eval->err || eval->err->code == QUERY_OK) {
+    result->numval = res;
+    result->t = RSValue_Number;
+    rc = EXPR_EVAL_OK;
+  } else {
+    result->t = RSValue_Undef;
+  }
 
 cleanup:
   RSValue_Clear(&l);
