@@ -528,9 +528,6 @@ int RSValue_Cmp(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
     return 1;
   }
 
-  // cast to strings and compare as strings
-  char buf1[100], buf2[100];
-
   // if either of the arguments is a number, convert the other one to a number
   // if, however, error handling is not available, fallback to string comparison
   do {
@@ -556,6 +553,9 @@ int RSValue_Cmp(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
     }
   } while(0);
 
+  // cast to strings and compare as strings
+  char buf1[100], buf2[100];
+
   size_t l1, l2;
   const char *s1 = RSValue_ConvertStringPtrLen(v1, &l1, buf1, sizeof(buf1));
   const char *s2 = RSValue_ConvertStringPtrLen(v2, &l2, buf2, sizeof(buf2));
@@ -563,7 +563,65 @@ int RSValue_Cmp(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
 }
 
 int RSValue_Equal(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
-  return RSValue_Cmp(v1, v2, qerr) == 0;
+  assert(v1);
+  assert(v2);
+  v1 = RSValue_Dereference(v1);
+  v2 = RSValue_Dereference(v2);
+
+  if (v1->t == v2->t) {
+    switch (v1->t) {
+      case RSValue_Number:
+        return cmp_numbers(v1, v2) == 0;
+        
+      case RSValue_String:
+        return cmp_strings(v1->strval.str, v2->strval.str, v1->strval.len, v2->strval.len) == 0;
+        
+      case RSValue_RedisString:
+      case RSValue_OwnRstring: {
+        size_t l1, l2;
+        const char *s1 = RedisModule_StringPtrLen(v1->rstrval, &l1);
+        const char *s2 = RedisModule_StringPtrLen(v2->rstrval, &l2);
+        return cmp_strings(s1, s2, l1, l2) == 0;
+      }
+      
+      case RSValue_Null:
+        return 1;
+
+      case RSValue_Array: {
+          if (v1->arrval.len != v2->arrval.len) return 0;
+		  for (uint32_t i = 0; i < v1->arrval.len; i++) {
+              if (! RSValue_Equal(v1->arrval.vals[i], v2->arrval.vals[i], qerr)) {
+                  return 0;
+              }
+		  }
+      }
+
+      default:
+        return 0;
+    }
+  }
+
+  if (v1->t == RSValue_Null || v2->t == RSValue_Null) {
+    return 0;
+  }
+
+  // if either of the arguments is a number, convert the other one to a number
+  RSValue vn;
+  if (v1->t == RSValue_Number) {
+    if (!convert_to_numeber(v2, &vn, NULL)) return 0;
+    return cmp_numbers(v1, &vn) == 0;
+  } else if (v2->t == RSValue_Number) {
+    if (!convert_to_numeber(v1, &vn, qerr)) return 0;
+    return cmp_numbers(&vn, v2) == 0;
+  }
+
+  // cast to strings and compare as strings
+  char buf1[100], buf2[100];
+
+  size_t l1, l2;
+  const char *s1 = RSValue_ConvertStringPtrLen(v1, &l1, buf1, sizeof(buf1));
+  const char *s2 = RSValue_ConvertStringPtrLen(v2, &l2, buf2, sizeof(buf2));
+  return cmp_strings(s1, s2, l1, l2) == 0;
 }
 
 /* Based on the value type, serialize the value into redis client response */
