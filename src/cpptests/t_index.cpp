@@ -1059,7 +1059,7 @@ TEST_F(IndexTest, testSortable) {
   RSSortingKey sk = {.index = 0, .ascending = 0};
 
   QueryError qerr;
-  QueryError_ClearError(&qerr);
+  QueryError_Init(&qerr);
 
   int rc = RSSortingVector_Cmp(v, v2, &sk, &qerr);
   ASSERT_TRUE(rc > 0 && qerr.code == QUERY_OK);

@@ -2,6 +2,12 @@
 #include <assert.h>
 #include "rmalloc.h"
 
+void QueryError_Init(QueryError *qerr) {
+  assert(qerr);
+  qerr->code = QUERY_OK;
+  qerr->detail = NULL;
+}
+
 void QueryError_FmtUnknownArg(QueryError *err, ArgsCursor *ac, const char *name) {
   assert(!AC_IsAtEnd(ac));
   const char *s;
