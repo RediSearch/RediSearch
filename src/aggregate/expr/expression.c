@@ -50,7 +50,7 @@ static int evalOp(ExprEval *eval, const RSExprOp *op, RSValue *result) {
   double n1, n2;
   if (!RSValue_ToNumber(&l, &n1) || !RSValue_ToNumber(&r, &n2)) {
 
-    // asprintf(err, "Invalid values for op '%c'", op->op);
+    QueryError_SetError(eval->err, QUERY_ENOTNUMERIC, NULL);
     rc = EXPR_EVAL_ERR;
     goto cleanup;
   }
