@@ -1,6 +1,5 @@
 CMAKE_MINIMUM_REQUIRED(VERSION 2.8.9)
 PROJECT(redisearch)
-INCLUDE(cmake/redisearch_cflags.cmake)
 
 # Allow to use 'LOCATION' setting
 IF(POLICY CMP0026)
@@ -14,6 +13,9 @@ OPTION(USE_ASAN "Use AddressSanitizer (clang)" OFF)
 OPTION(USE_MSAN "Use MemorySanitizer (clang)" OFF)
 OPTION(USE_TSAN "Use ThreadSanitizer (clang)" OFF)
 OPTION(USE_REDIS_ALLOCATOR "Use redis allocator" ON)
+OPTION(USE_COVERAGE "Build with coverage" OFF)
+
+INCLUDE(cmake/redisearch_cflags.cmake)
 
 ADD_DEFINITIONS(-UNDEBUG)
 
@@ -43,16 +45,36 @@ IF (NOT GIT_DESCRIBE_VERSION)
         OUTPUT_STRIP_TRAILING_WHITESPACE)
 ENDIF()
 
+IF (NOT GIT_SHA)
+    EXECUTE_PROCESS(COMMAND git rev-parse HEAD
+        WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+        OUTPUT_VARIABLE GIT_SHA
+        OUTPUT_STRIP_TRAILING_WHITESPACE)
+ENDIF()
+
 IF (NOT GIT_DESCRIBE_VERSION AND NOT RS_FORCE_NO_GITVERSION)
     MESSAGE(FATAL_ERROR "`git describe` failed. Either define `GIT_DESCRIBE_VERSION` or `RS_FORCE_NO_GITVERSION`")
 ENDIF()
 
 MESSAGE("${GIT_DESCRIBE_VERSION}")
+MESSAGE("${GIT_SHA}")
 
 IF (GIT_DESCRIBE_VERSION)
     ADD_DEFINITIONS(-DRS_GIT_VERSION="${GIT_DESCRIBE_VERSION}")
 ENDIF (GIT_DESCRIBE_VERSION)
 
+IF (GIT_SHA)
+    ADD_DEFINITIONS(-DRS_GIT_SHA="${GIT_SHA}")
+ENDIF (GIT_SHA)
+
+
+IF (USE_COVERAGE)
+    SET(_lcovInit "${PROJECT_BINARY_DIR}/lcov-init.sh")
+    SET(_lcovCapture "${PROJECT_BINARY_DIR}/lcov-capture.sh")
+    CONFIGURE_FILE("cmake/lcov-init.sh.in" "${_lcovInit}" @ONLY)
+    CONFIGURE_FILE("cmake/lcov-capture.sh.in" "${_lcovCapture}" @ONLY)
+    EXECUTE_PROCESS(COMMAND chmod a+x ${_lcovInit} ${_lcovCapture})
+ENDIF()
 
 # Set globals here!
 INCLUDE_DIRECTORIES(${PROJECT_SOURCE_DIR}/src)
