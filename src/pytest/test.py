@@ -220,8 +220,11 @@ def testGet(env):
     env.assertOk(r.execute_command(
         'ft.create', 'idx', 'schema', 'foo', 'text', 'bar', 'text'))
 
+    env.expect('ft.get').error()
     env.expect('ft.get', 'idx').error()
     env.expect('ft.get', 'idx', 'foo', 'bar').error()
+    env.expect('ft.mget').error()
+    env.expect('ft.mget', 'idx').error()
 
     for i in range(100):
         env.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
@@ -234,6 +237,7 @@ def testGet(env):
             ['foo', 'hello world', 'bar', 'wat wat'], res)
         env.assertIsNone(r.execute_command(
             'ft.get', 'idx', 'doc%dsdfsd' % i))
+        env.expect('ft.get', 'no_idx', 'doc' % i).error()
 
     rr = r.execute_command(
         'ft.mget', 'idx', *('doc%d' % i for i in range(100)))
@@ -2052,6 +2056,14 @@ def testNoCreate(env):
     env.expect('ft.add', 'idx', 'doc1', 1, 'replace', 'nocreate', 'fields', 'f1', 'hello').raiseError()
     env.expect('ft.add', 'idx', 'doc1', 1, 'replace', 'fields', 'f1', 'hello').notRaiseError()
     env.expect('ft.add', 'idx', 'doc1', 1, 'replace', 'nocreate', 'fields', 'f1', 'world').notRaiseError()
+
+def testSpellCheck(env):
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'report', 'TEXT')
+    env.cmd('FT.ADD', 'idx', 'doc1', 1.0, 'FIELDS', 'report', 'report content')  
+    rv = env.cmd('FT.SPELLCHECK', 'idx', '111111')
+    env.assertEqual([['TERM', '111111', []]], rv)
+    rv = env.cmd('FT.SPELLCHECK', 'idx', '111111', 'FULLSCOREINFO')
+    env.assertEqual([1L, ['TERM', '111111', []]], rv)
 
 # Standalone functionality
 def testIssue484(env):
