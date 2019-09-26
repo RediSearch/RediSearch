@@ -126,6 +126,15 @@ def testSynonymUpdateUnknownIndex(env):
         exceptionStr = str(e)
     env.assertEqual(exceptionStr, 'Unknown index name')
 
+def testSynonymUpdateUnknownIndex(env):
+    r = env
+    exceptionStr = None
+    try:
+        r.execute_command('ft.synupdate', 'idx', '10000000000', 'child')
+    except Exception as e:
+        exceptionStr = str(e)
+    env.assertEqual(exceptionStr, 'wrong parameters, id out of range')
+
 def testSynonymUpdateNotNumberId(env):
     r = env
     exceptionStr = None
@@ -204,3 +213,25 @@ def testSynonymsIntensiveLoad(env):
         for i in range(iterations):
             res = r.execute_command('ft.search', 'idx', 'child%d' % i, 'EXPANDER', 'SYNONYM')
             env.assertEqual(res, [1L, 'doc%d' % i, ['title', 'he is a boy%d' % i, 'body', 'this is a test']])
+
+def testSynonymsForceUpdate(env):
+    exceptionStr = None
+    try:
+        env.execute_command('ft.synforceupdate', 'idx', '0', 'child')
+    except Exception as e:
+        exceptionStr = str(e)
+    env.assertEqual(exceptionStr, 'Unknown index name')
+
+    exceptionStr = None
+    try:
+        env.execute_command('ft.synforceupdate', 'idx', 'olah', 'child')
+    except Exception as e:
+        exceptionStr = str(e)
+    env.assertEqual(exceptionStr, 'Unknown index name')
+
+    exceptionStr = None
+    try:
+        env.execute_command('ft.synforceupdate', 'idx', '10000000000', 'child')
+    except Exception as e:
+        exceptionStr = str(e)
+    env.assertEqual(exceptionStr, 'wrong parameters, id out of range')
