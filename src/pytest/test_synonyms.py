@@ -227,7 +227,7 @@ def testSynonymsForceUpdate(env):
         env.execute_command('ft.synforceupdate', 'idx', 'olah', 'child')
     except Exception as e:
         exceptionStr = str(e)
-    env.assertEqual(exceptionStr, 'Unknown index name')
+    env.assertEqual(exceptionStr, 'wrong parameters, id is not an integer')
 
     exceptionStr = None
     try:
