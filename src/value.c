@@ -480,7 +480,7 @@ static inline int cmp_numbers(const RSValue *v1, const RSValue *v2) {
   return v1->numval > v2->numval ? 1 : (v1->numval < v2->numval ? -1 : 0);
 }
 
-static inline int convert_to_numeber(const RSValue *v, RSValue *vn, QueryError *qerr) {
+static inline int convert_to_number(const RSValue *v, RSValue *vn, QueryError *qerr) {
   double d;
   if (! RSValue_ToNumber(v, &d)) {
     if (!qerr) return 0;
@@ -533,7 +533,7 @@ int RSValue_Cmp(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
   do {
     if (v1->t == RSValue_Number) {
       RSValue v2n;
-      if (!convert_to_numeber(v2, &v2n, qerr)) {
+      if (!convert_to_number(v2, &v2n, qerr)) {
         // if it is possible to indicate an error, return
         if (qerr) return 0;
         // otherwise, fallback to string comparison
@@ -542,7 +542,7 @@ int RSValue_Cmp(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
       return cmp_numbers(v1, &v2n);
     } else if (v2->t == RSValue_Number) {
       RSValue v1n;
-      if (!convert_to_numeber(v1, &v1n, qerr)) {
+      if (!convert_to_number(v1, &v1n, qerr)) {
         // if it is possible to indicate an error, return
         if (qerr) return 0;
         // otherwise, fallback to string comparison
@@ -608,10 +608,10 @@ int RSValue_Equal(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
   // if either of the arguments is a number, convert the other one to a number
   RSValue vn;
   if (v1->t == RSValue_Number) {
-    if (!convert_to_numeber(v2, &vn, NULL)) return 0;
+    if (!convert_to_number(v2, &vn, NULL)) return 0;
     return cmp_numbers(v1, &vn) == 0;
   } else if (v2->t == RSValue_Number) {
-    if (!convert_to_numeber(v1, &vn, qerr)) return 0;
+    if (!convert_to_number(v1, &vn, qerr)) return 0;
     return cmp_numbers(&vn, v2) == 0;
   }
 

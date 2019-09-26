@@ -124,9 +124,6 @@ static int getPredicateBoolean(ExprEval *eval, const RSValue *l, const RSValue *
 
     default:
       assert("Unknown predicate received" && 0);
-      if (qerr) {
-        QueryError_SetErrorFmt(qerr, QUERY_EEXPR, "Unknown predicate received");
-      }
       return 0;
   }
 }
