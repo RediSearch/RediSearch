@@ -237,7 +237,7 @@ def testGet(env):
             ['foo', 'hello world', 'bar', 'wat wat'], res)
         env.assertIsNone(r.execute_command(
             'ft.get', 'idx', 'doc%dsdfsd' % i))
-        env.expect('ft.get', 'no_idx%d', 'doc' % i).error()
+        env.expect('ft.get', 'no_idx', 'doc%d' % i).error()
 
     rr = r.execute_command(
         'ft.mget', 'idx', *('doc%d' % i for i in range(100)))
