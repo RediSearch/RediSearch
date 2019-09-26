@@ -1062,12 +1062,15 @@ TEST_F(IndexTest, testSortable) {
   QueryError_Init(&qerr);
 
   int rc = RSSortingVector_Cmp(v, v2, &sk, &qerr);
-  ASSERT_TRUE(rc > 0 && qerr.code == QUERY_OK);
+  ASSERT_LT(0, rc);
+  ASSERT_EQ(QUERY_OK, qerr.code);
   sk.ascending = 1;
   rc = RSSortingVector_Cmp(v, v2, &sk, &qerr);
-  ASSERT_TRUE(rc < 0 && qerr.code == QUERY_OK);
+  ASSERT_GT(0, rc);
+  ASSERT_EQ(QUERY_OK, qerr.code);
   rc = RSSortingVector_Cmp(v, v, &sk, &qerr);
-  ASSERT_TRUE(0 == rc && qerr.code == QUERY_OK);
+  ASSERT_EQ(0, rc);
+  ASSERT_EQ(QUERY_OK, qerr.code);
 
   sk.index = 1;
 

@@ -138,7 +138,7 @@ int func_to_number(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,
   double n;
   if (!RSValue_ToNumber(argv[0], &n)) {
     size_t sz = 0;
-    char *p = (char *)RSValue_StringPtrLen(argv[0], &sz);
+    const char *p = RSValue_StringPtrLen(argv[0], &sz);
     QueryError_SetErrorFmt(err, QUERY_EPARSEARGS, "to_number: cannot convert string '%s'", p);
     return EXPR_EVAL_ERR;
   }
