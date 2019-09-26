@@ -76,7 +76,7 @@ static int evalOp(ExprEval *eval, const RSExprOp *op, RSValue *result) {
       res = pow(n1, n2);
       break;
     default:
-      res = NAN;
+      res = NAN;  // todo : we can not really reach here
   }
 
   result->numval = res;
@@ -166,6 +166,7 @@ cleanup:
 
 static int evalProperty(ExprEval *eval, const RSLookupExpr *e, RSValue *res) {
   if (!e->lookupObj) {
+    // todo : this can not happened
     // No lookup object. This means that the key does not exist
     // Note: Because this is evaluated for each row potentially, do not assume
     // that query error is present:
@@ -205,7 +206,7 @@ static int evalInternal(ExprEval *eval, const RSExpr *e, RSValue *res) {
     case RSExpr_Inverted:
       return evalInverted(eval, &e->inverted, res);
   }
-  return EXPR_EVAL_ERR;
+  return EXPR_EVAL_ERR;  // todo: this can not happened
 }
 
 int ExprEval_Eval(ExprEval *evaluator, RSValue *result) {

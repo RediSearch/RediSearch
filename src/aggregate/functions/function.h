@@ -69,7 +69,6 @@ typedef struct {
 typedef struct RSFunctionInfo RSFunctionInfo;
 
 RSFunction RSFunctionRegistry_Get(const char *name, size_t len);
-RSValueType RSFunctionRegistry_GetType(const char *name, size_t len);
 
 int RSFunctionRegistry_RegisterFunction(const char *name, RSFunction f, RSValueType retType);
 
