@@ -142,7 +142,7 @@ static int stringfunc_format(ExprEval *ctx, RSValue *result, RSValue **argv, siz
       continue;
     }
 
-    if (fmt[ii] == fmtsz - 1) {
+    if (ii == fmtsz - 1) {
       // ... %"
       QERR_MKBADARGS_FMT(err, "Bad format string!");
       goto error;
@@ -201,9 +201,7 @@ static int stringfunc_format(ExprEval *ctx, RSValue *result, RSValue **argv, siz
   return EXPR_EVAL_OK;
 
 error:
-  if (!QueryError_HasError(err)) {
-    QERR_MKBADARGS_FMT(err, "Error in format");
-  }
+  asser(QueryError_HasError(err));
   sdsfree(out);
   RSValue_MakeReference(result, RS_NullVal());
   return EXPR_EVAL_ERR;

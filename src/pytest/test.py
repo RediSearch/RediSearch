@@ -2440,7 +2440,13 @@ def testGroupByWithApplyError(env):
 def testSubStrErrors(env):
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'TEXT').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
+
+    err = env.cmd('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'matched_terms()', 'as', 'a', 'APPLY', 'substr(@a,0,4)')[1]
+    env.assertEqual(type(err), redis.exceptions.ResponseError)
+
     env.cmd('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test2', 'APPLY', 'substr("test",3,-2)', 'as', 'a')
+    env.cmd('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test2', 'APPLY', 'substr("test",3,1000)', 'as', 'a')
+    env.cmd('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test2', 'APPLY', 'substr("test",-1,2)', 'as', 'a')
     env.cmd('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test2', 'APPLY', 'substr("test")', 'as', 'a')
     env.cmd('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test2', 'APPLY', 'substr(1)', 'as', 'a')
     env.cmd('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test2', 'APPLY', 'substr("test", "test")', 'as', 'a')
@@ -2473,6 +2479,7 @@ def testToUpperLower(env):
 def testMatchedTerms(env):
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'TEXT').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
+    env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'matched_terms()', 'as', 'a').equal([1L, ['test', 'foo', 'a', None]])
     env.expect('ft.aggregate', 'idx', 'foo', 'LOAD', '1', '@test', 'APPLY', 'matched_terms()', 'as', 'a').equal([1L, ['test', 'foo', 'a', ['foo']]])
     env.expect('ft.aggregate', 'idx', 'foo', 'LOAD', '1', '@test', 'APPLY', 'matched_terms(100)', 'as', 'a').equal([1L, ['test', 'foo', 'a', ['foo']]])
     env.expect('ft.aggregate', 'idx', 'foo', 'LOAD', '1', '@test', 'APPLY', 'matched_terms(-100)', 'as', 'a').equal([1L, ['test', 'foo', 'a', ['foo']]])
@@ -2487,11 +2494,19 @@ def testStrFormatError(env):
     err = env.cmd('ft.aggregate', 'idx', 'foo', 'LOAD', '1', '@test', 'APPLY', 'format("%s")', 'as', 'a')[1]
     env.assertEqual(type(err), redis.exceptions.ResponseError)
 
+    err = env.cmd('ft.aggregate', 'idx', 'foo', 'LOAD', '1', '@test', 'APPLY', 'format("%", "test")', 'as', 'a')[1]
+    env.assertEqual(type(err), redis.exceptions.ResponseError)
+
+    err = env.cmd('ft.aggregate', 'idx', 'foo', 'LOAD', '1', '@test', 'APPLY', 'format("%b", "test")', 'as', 'a')[1]
+    env.assertEqual(type(err), redis.exceptions.ResponseError)
+
     err = env.cmd('ft.aggregate', 'idx', 'foo', 'LOAD', '1', '@test', 'APPLY', 'format(5)', 'as', 'a')[1]
     env.assertEqual(type(err), redis.exceptions.ResponseError)
 
-
     env.expect('ft.aggregate', 'idx', 'foo', 'LOAD', '1', '@test', 'APPLY', 'upper(1)', 'as', 'b', 'APPLY', 'format("%s", @b)', 'as', 'a').equal([1L, ['test', 'foo', 'b', None, 'a', '(null)']])
+
+    # working example
+    env.expect('ft.aggregate', 'idx', 'foo', 'APPLY', 'format("%s-test", "test")', 'as', 'a').equal([1L, ['a', 'test-test']])
 
 def testTimeFormatError(env):
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'NUMERIC').equal('OK')
