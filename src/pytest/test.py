@@ -503,6 +503,11 @@ def testNoIndex(env):
         'foo', 'text',
         'num', 'numeric', 'sortable', 'noindex',
         'extra', 'text', 'noindex', 'sortable'))
+
+    res = env.cmd('ft.info', 'idx')
+    env.assertEqual(res[5][1][4], 'NOINDEX')
+    env.assertEqual(res[5][2][6], 'NOINDEX')
+
     env.assertOk(r.execute_command('ft.add', 'idx', 'doc1', '0.1', 'fields',
                                     'foo', 'hello world', 'num', 1, 'extra', 'hello lorem ipsum'))
     res = r.execute_command(
@@ -1549,6 +1554,8 @@ def testInfoCommand(env):
 def testNoStem(env):
     env.cmd('ft.create', 'idx', 'schema', 'body',
              'text', 'name', 'text', 'nostem')
+    res = env.cmd('ft.info', 'idx')
+    env.assertEqual(res[5][1][5], 'NOSTEM')
     for _ in env.retry_with_reload():
         try:
             env.cmd('ft.del', 'idx', 'doc')
@@ -2291,4 +2298,6 @@ def testOptimize(env):
     with env.assertResponseError():
         env.assertOk(env.cmd('FT.OPTIMIZE', 'idx', '666'))    
 
-
+def testInfo(env):
+    env.cmd('ft.create', 'idx', 'SCHEMA', 'test', 'TEXT', 'SORTABLE')
+    env.expect('ft.info', 'no_idx').error()
