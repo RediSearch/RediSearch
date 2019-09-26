@@ -24,6 +24,6 @@ cat >rltest.config <<EOF
 EOF
 
 ./lcov-init.sh
-ctest -j20
+ctest
 ./lcov-capture.sh coverage.info
 bash <(curl -s https://codecov.io/bash) -f coverage.info
