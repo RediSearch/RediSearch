@@ -2304,6 +2304,12 @@ def testIssue_779(env):
     env.expect('FT.ADD idx2 doc2 1.0 REPLACE PARTIAL if @ot1<4-002 FIELDS newf DOG ot1 4002').contains('Syntax error')
     env.expect('FT.ADD idx2 doc2 1.0 REPLACE PARTIAL if @ot1<to_number(4-002) FIELDS newf DOG ot1 4002').contains('Syntax error')
 
+def testWrongResultsReturnedBySkipOptimization(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'f1', 'TEXT', 'f2', 'TEXT').equal('OK')
+    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'f1', 'foo', 'f2', 'bar').equal('OK')
+    env.expect('ft.add', 'idx', 'doc2', '1.0', 'FIELDS', 'f1', 'moo', 'f2', 'foo').equal('OK')
+    env.expect('ft.search', 'idx', 'foo @f2:moo').debugPrint().equal([0L])
+
 def grouper(iterable, n, fillvalue=None):
     "Collect data into fixed-length chunks or blocks"
     from itertools import izip_longest
