@@ -1996,6 +1996,8 @@ def testAlias(env):
     env.cmd('ft.create', 'idx', 'schema', 't1', 'text')
     env.cmd('ft.create', 'idx2', 'schema', 't1', 'text')
 
+    env.expect('ft.aliasAdd', 'myIndex').raiseError()
+    env.expect('ft.aliasupdate', 'fake_alias', 'imaginary_alias', 'Too_many_args').raiseError()
     env.cmd('ft.aliasAdd', 'myIndex', 'idx')
     env.cmd('ft.add', 'myIndex', 'doc1', 1.0, 'fields', 't1', 'hello')
     r = env.cmd('ft.search', 'idx', 'hello')
@@ -2048,6 +2050,9 @@ def testAlias(env):
 
     r = env.cmd('ft.del', 'myIndex', 'doc2')
     env.assertEqual(1, r)
+    env.expect('ft.aliasdel').raiseError()
+    env.expect('ft.aliasdel', 'myIndex', 'yourIndex').raiseError()
+    env.expect('ft.aliasdel', 'non_existing_alias').raiseError()
 
 def testNoCreate(env):
     env.cmd('ft.create', 'idx', 'schema', 'f1', 'text')
@@ -2313,3 +2318,9 @@ def testOptimize(env):
 def testInfo(env):
     env.cmd('ft.create', 'idx', 'SCHEMA', 'test', 'TEXT', 'SORTABLE')
     env.expect('ft.info', 'no_idx').error()
+
+def testConfig(env):
+    env.cmd('ft.create', 'idx', 'SCHEMA', 'test', 'TEXT', 'SORTABLE')
+    env.expect('ft.config', 'idx').error()
+    env.expect('ft.config', 'help', 'idx').equal([])
+    env.expect('ft.config', 'no_such_command', 'idx').equal('No such configuration action')
