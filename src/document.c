@@ -237,6 +237,7 @@ void AddDocumentCtx_Finish(RSAddDocumentCtx *aCtx) {
 // How many bytes in a document to warrant it being tokenized in a separate thread
 #define SELF_EXEC_THRESHOLD 1024
 
+// LCOV_EXCL_START debug
 void Document_Dump(const Document *doc) {
   printf("Document Key: %s. ID=%" PRIu64 "\n", RedisModule_StringPtrLen(doc->docKey, NULL),
          doc->docId);
@@ -244,7 +245,8 @@ void Document_Dump(const Document *doc) {
     printf("  [%lu]: %s => %s\n", ii, doc->fields[ii].name,
            RedisModule_StringPtrLen(doc->fields[ii].text, NULL));
   }
-}
+} 
+// LCOV_EXCL_STOP
 
 static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx);
 

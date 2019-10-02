@@ -7,7 +7,6 @@ import random
 import time
 from RLTest import Env
 
-
 def testAdd(env):
     if env.is_cluster():
         raise unittest.SkipTest()
@@ -225,6 +224,7 @@ def testGet(env):
     env.expect('ft.get', 'idx', 'foo', 'bar').error()
     env.expect('ft.mget').error()
     env.expect('ft.mget', 'idx').error()
+    env.expect('ft.mget', 'fake_idx').error()
 
     for i in range(100):
         env.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
@@ -271,6 +271,8 @@ def testDelete(env):
     for i in range(100):
         env.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
                                         'f', 'hello world'))
+    
+    env.expect('ft.del', 'fake_idx', 'doc1').error()
 
     for i in range(100):
         # the doc hash should exist now
@@ -1501,6 +1503,8 @@ def testCreationOptions(env):
         for combo in combinations(('NOOFFSETS', 'NOFREQS', 'NOFIELDS', ''), x):
             _test_create_options_real(env, *combo)
 
+    env.expect('ft.create', 'idx').error()
+
 def testInfoCommand(env):
     from itertools import combinations
     r = env
@@ -1855,6 +1859,10 @@ def testAlterIndex(env):
         res = env.cmd('FT.SEARCH', 'idx', '@n1:[0 100]')
         env.assertEqual([1, 'docN1', ['n1', '50']], res)
 
+    env.expect('FT.ALTER', 'idx', 'SCHEMA', 'NOT_ADD', 'f2', 'TEXT').error()
+    env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD').error()
+    env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'f2').error()
+
 def testAlterValidation(env):
     # Test that constraints for ALTER comand
     env.cmd('FT.CREATE', 'idx1', 'SCHEMA', 'f0', 'TEXT')
@@ -2048,11 +2056,16 @@ def testAlias(env):
     r = env.cmd('ft.aggregate', 'myIndex', 'hello', 'LOAD', '1', '@t1')
     env.assertEqual([1, ['t1', 'hello']], r)
 
-    r = env.cmd('ft.del', 'myIndex', 'doc2')
+    # Test update
+    env.expect('ft.aliasAdd', 'updateIndex', 'idx3')
+    env.expect('ft.aliasUpdate', 'updateIndex', 'fake_idx')
+
+    r = env.cmd('ft.del', 'idx2', 'doc2')
     env.assertEqual(1, r)
     env.expect('ft.aliasdel').raiseError()
     env.expect('ft.aliasdel', 'myIndex', 'yourIndex').raiseError()
     env.expect('ft.aliasdel', 'non_existing_alias').raiseError()
+
 
 def testNoCreate(env):
     env.cmd('ft.create', 'idx', 'schema', 'f1', 'text')
@@ -2114,6 +2127,9 @@ def testIssue501(env):
         'TERMS', 'INCLUDE', 'slang', 'TERMS', 'EXCLUDE', 'slang')
     env.assertEqual("qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq", rv[0][1])
     env.assertEqual([], rv[0][2])
+
+    env.expect('FT.SPELLCHECK', 'incidents', 'qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq',
+        'TERMS', 'FAKE_COMMAND', 'slang').error()
 
 def testIssue589(env):
     env.cmd('FT.CREATE', 'incidents', 'SCHEMA', 'report', 'TEXT')
@@ -2313,7 +2329,8 @@ def testOptimize(env):
     env.cmd('FT.ADD', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo')   
     env.assertEqual(0, env.cmd('FT.OPTIMIZE', 'idx'))   
     with env.assertResponseError():
-        env.assertOk(env.cmd('FT.OPTIMIZE', 'idx', '666'))    
+        env.assertOk(env.cmd('FT.OPTIMIZE', 'idx', '666'))   
+    env.expect('FT.OPTIMIZE', 'fake_idx').error()
 
 def testInfo(env):
     env.cmd('ft.create', 'idx', 'SCHEMA', 'test', 'TEXT', 'SORTABLE')

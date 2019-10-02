@@ -1074,6 +1074,12 @@ TEST_F(IndexTest, testSortable) {
   rc = RSSortingVector_Cmp(v, v2, &sk);
   ASSERT_EQ(1, rc);
 
+  // test no crush
+  RSSortingVector_Put(NULL, RS_SORTABLES_MAX + 1, NULL, 0);
+
+  RSSortingVector_Put(v2, sk.index, &s2, RS_SORTABLE_NIL);
+  ASSERT_EQ(v2->values[sk.index], RS_NullVal());
+
   SortingTable_Free(tbl);
   SortingVector_Free(v);
   SortingVector_Free(v2);

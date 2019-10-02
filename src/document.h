@@ -152,7 +152,7 @@ void Document_LoadPairwiseArgs(Document *doc, RedisModuleString **args, size_t n
 /**
  * Print contents of document to screen
  */
-void Document_Dump(const Document *doc);
+void Document_Dump(const Document *doc); // LCOV_EXCL_LINE debug
 /**
  * Free any copied data within the document. anyCtx is any non-NULL
  * RedisModuleCtx. The reason for requiring a context is more related to the
