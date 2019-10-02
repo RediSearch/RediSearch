@@ -1077,10 +1077,6 @@ TEST_F(IndexTest, testSortable) {
   // test no crush
   RSSortingVector_Put(NULL, RS_SORTABLES_MAX + 1, NULL, 0);
 
-  RSSortingVector *v3 = NewSortingVector(tbl->len);
-  RSSortingVector_Put(v3, 0, NULL, RS_SORTABLE_NIL);
-  ASSERT_EQ(v3->values[0]->t, RSValue_Null);
-
   SortingTable_Free(tbl);
   SortingVector_Free(v);
   SortingVector_Free(v2);
