@@ -85,6 +85,13 @@ static void FGC_sendBuffer(ForkGC *fgc, const void *buff, size_t len) {
   }
 }
 
+/**
+ * Send instead of a string to indicate that no more buffers are to be received
+ */
+static void FGC_sendTerminator(ForkGC *fgc) {
+  FGC_sendLongLong(fgc, LLONG_MAX);
+}
+
 static long long FGC_recvLongLong(ForkGC *fgc) {
   long long ret;
   ssize_t sizeRead = read(fgc->pipefd[GC_READERFD], &ret, sizeof(ret));
@@ -110,8 +117,13 @@ static void FGC_recvFixed(ForkGC *fgc, void *buf, size_t len) {
   }
 }
 
+static void *RECV_BUFFER_EMPTY = (void *)0x0deadbeef;
+
 static void *FGC_recvBuffer(ForkGC *fgc, size_t *len) {
   *len = FGC_recvLongLong(fgc);
+  if (*len == LLONG_MAX) {
+    return RECV_BUFFER_EMPTY;
+  }
   if (*len == 0) {
     return NULL;
   }
@@ -267,7 +279,7 @@ static void FGC_childCollectTerms(ForkGC *gc, RedisSearchCtx *sctx) {
   TrieIterator_Free(iter);
 
   // we are done with terms
-  FGC_sendBuffer(gc, "\0", 1);
+  FGC_sendTerminator(gc);
 }
 
 static void countDeletedCardinality(const RSIndexResult *r, void *arg) {
@@ -340,7 +352,7 @@ static void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
   }
 
   // we are done with numeric fields
-  FGC_sendBuffer(gc, "\0", 1);
+  FGC_sendTerminator(gc);
 }
 
 static void FGC_childCollectTags(ForkGC *gc, RedisSearchCtx *sctx) {
@@ -380,7 +392,7 @@ static void FGC_childCollectTags(ForkGC *gc, RedisSearchCtx *sctx) {
     }
   }
   // we are done with numeric fields
-  FGC_sendBuffer(gc, "\0", 1);
+  FGC_sendTerminator(gc);
 }
 
 static void FGC_childScanIndexes(ForkGC *gc) {
@@ -541,10 +553,7 @@ static bool FGC_parentHandleTerms(ForkGC *gc, int *ret_val, RedisModuleCtx *rctx
   RedisModuleKey *idxKey = NULL;
   RedisSearchCtx *sctx = NULL;
 
-  if (term == NULL || term[0] == '\0') {
-    if (term) {
-      rm_free(term);
-    }
+  if (term == RECV_BUFFER_EMPTY) {
     return false;
   }
 
@@ -604,16 +613,13 @@ cleanup:
 static bool FGC_parentHandleNumeric(ForkGC *gc, int *ret_val, RedisModuleCtx *rctx) {
   int hasLock = 0;
   size_t fieldNameLen;
+
   char *fieldName = FGC_recvBuffer(gc, &fieldNameLen);
-  if (fieldName == NULL || fieldName[0] == '\0') {
-    if (fieldName) {
-      rm_free(fieldName);
-    }
+  if (fieldName == RECV_BUFFER_EMPTY) {
     return false;
   }
 
   uint64_t rtUniqueId = FGC_recvLongLong(gc);
-
   NumericRangeNode *currNode = NULL;
   bool shouldReturn = false;
   RedisModuleString *keyName = NULL;
@@ -715,10 +721,7 @@ static bool FGC_parentHandleTags(ForkGC *gc, int *ret_val, RedisModuleCtx *rctx)
   int hasLock = 0;
   size_t fieldNameLen;
   char *fieldName = FGC_recvBuffer(gc, &fieldNameLen);
-  if (fieldName == NULL || fieldName[0] == '\0') {
-    if (fieldName) {
-      rm_free(fieldName);
-    }
+  if (fieldName == RECV_BUFFER_EMPTY) {
     return false;
   }
 
