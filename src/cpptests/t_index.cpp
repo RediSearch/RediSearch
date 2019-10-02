@@ -1080,7 +1080,6 @@ TEST_F(IndexTest, testSortable) {
   RSSortingVector *v3 = NewSortingVector(tbl->len);
   RSSortingVector_Put(v3, sk.index, NULL, RS_SORTABLE_NIL);
   ASSERT_EQ(v3->values[sk.index]->t, RSValue_Null);
-  RSValue_Decref(v3->values[sk.index]);
 
   SortingTable_Free(tbl);
   SortingVector_Free(v);
