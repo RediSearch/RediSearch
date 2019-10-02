@@ -1085,6 +1085,7 @@ TEST_F(IndexTest, testSortable) {
   SortingTable_Free(tbl);
   SortingVector_Free(v);
   SortingVector_Free(v2);
+  SortingVector_Free(v3);
 }
 
 TEST_F(IndexTest, testVarintFieldMask) {
