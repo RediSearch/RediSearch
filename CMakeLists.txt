@@ -1,6 +1,5 @@
 CMAKE_MINIMUM_REQUIRED(VERSION 2.8.9)
 PROJECT(redisearch)
-INCLUDE(cmake/redisearch_cflags.cmake)
 
 # Allow to use 'LOCATION' setting
 IF(POLICY CMP0026)
@@ -14,6 +13,9 @@ OPTION(USE_ASAN "Use AddressSanitizer (clang)" OFF)
 OPTION(USE_MSAN "Use MemorySanitizer (clang)" OFF)
 OPTION(USE_TSAN "Use ThreadSanitizer (clang)" OFF)
 OPTION(USE_REDIS_ALLOCATOR "Use redis allocator" ON)
+OPTION(USE_COVERAGE "Build with coverage" OFF)
+
+INCLUDE(cmake/redisearch_cflags.cmake)
 
 ADD_DEFINITIONS(-UNDEBUG)
 
@@ -65,6 +67,14 @@ IF (GIT_SHA)
     ADD_DEFINITIONS(-DRS_GIT_SHA="${GIT_SHA}")
 ENDIF (GIT_SHA)
 
+
+IF (USE_COVERAGE)
+    SET(_lcovInit "${PROJECT_BINARY_DIR}/lcov-init.sh")
+    SET(_lcovCapture "${PROJECT_BINARY_DIR}/lcov-capture.sh")
+    CONFIGURE_FILE("cmake/lcov-init.sh.in" "${_lcovInit}" @ONLY)
+    CONFIGURE_FILE("cmake/lcov-capture.sh.in" "${_lcovCapture}" @ONLY)
+    EXECUTE_PROCESS(COMMAND chmod a+x ${_lcovInit} ${_lcovCapture})
+ENDIF()
 
 # Set globals here!
 INCLUDE_DIRECTORIES(${PROJECT_SOURCE_DIR}/src)
