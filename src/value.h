@@ -241,10 +241,10 @@ RSValue *RS_NullVal();
 RSValue *RS_NewValueFromCmdArg(CmdArg *arg);
 
 /* Compare 2 values for sorting */
-int RSValue_Cmp(RSValue *v1, RSValue *v2);
+int RSValue_Cmp(RSValue *v1, RSValue *v2, int *errcode, char **err);
 
 /* Return 1 if the two values are equal */
-int RSValue_Equal(RSValue *v1, RSValue *v2);
+int RSValue_Equal(RSValue *v1, RSValue *v2, int *errcode, char **err);
 
 /* "truth testing" for a value. for a number - not zero. For a string/array - not empty. null is
  * considered false */

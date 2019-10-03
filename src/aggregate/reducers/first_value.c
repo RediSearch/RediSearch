@@ -44,7 +44,7 @@ static int fv_Add(void *ctx, SearchResult *res) {
     return 1;
   }
 
-  int rc = (fvx->ascending ? -1 : 1) * RSValue_Cmp(sortval, &fvx->sortValue);
+  int rc = (fvx->ascending ? -1 : 1) * RSValue_Cmp(sortval, &fvx->sortValue, NULL, NULL);
   int isnull = RSValue_IsNull(&fvx->sortValue);
 
   if (!fvx->hasValue || (!isnull && rc > 0) || (isnull && rc < 0)) {

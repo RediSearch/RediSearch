@@ -121,6 +121,30 @@ static int stringfunc_substr(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *a
   return EXPR_EVAL_OK;
 }
 
+int func_to_number(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *argv, int argc,
+                   char **err) {
+  VALIDATE_ARGS("to_number", 1, 1, err);
+
+  double n;
+  if (!RSValue_ToNumber(&argv[0], &n)) {
+    size_t sz = 0;
+    const char *p = RSValue_StringPtrLen(&argv[0], &sz);
+    FMT_ERR(err, "to_number: cannot convert string '%s'", p);
+    return EXPR_EVAL_ERR;
+  }
+
+  RSValue_SetNumber(result, n);
+  return EXPR_EVAL_OK;
+}
+
+int func_to_str(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *argv, int argc,
+                char **err) {
+  VALIDATE_ARGS("to_str", 1, 1, err);
+
+  RSValue_ToString(result, &argv[0]);
+  return EXPR_EVAL_OK;
+}
+
 static int stringfunc_format(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *argv, int argc,
                              char **err) {
   if (argc < 1) {
@@ -285,4 +309,6 @@ void RegisterStringFunctions() {
   RSFunctionRegistry_RegisterFunction("format", stringfunc_format, RSValue_String);
   RSFunctionRegistry_RegisterFunction("split", stringfunc_split, RSValue_Array);
   RSFunctionRegistry_RegisterFunction("matched_terms", func_matchedTerms, RSValue_Array);
+  RSFunctionRegistry_RegisterFunction("to_number", func_to_number, RSValue_Number);
+  RSFunctionRegistry_RegisterFunction("to_str", func_to_str, RSValue_String);
 }
