@@ -104,6 +104,16 @@ int testEval(const char *e, SearchResult *r, int expected, char **err) {
   return 1;
 }
 
+int testForErr(const char *e, SearchResult *r, char **err) {
+  RSExpr *root = RSExpr_Parse(e, strlen(e), err);
+  if (root == NULL) return 0;
+
+  RSExprEvalCtx ctx = {.r = r};
+  RSValue val;
+  int rc = RSExpr_Eval(&ctx, root, &val, err);
+  return *err != NULL;
+}
+
 int testPredicate() {
   SearchResult *rs = NewSearchResult();
   rs->docId = 1;
@@ -111,13 +121,22 @@ int testPredicate() {
   RSFieldMap_Add(&rs->fields, "bar", RS_NumVal(2));
 
   char *err = NULL;
+
 #define TEST_EVAL(e, rs, expected, err)        \
-  {                                            \
+  do {                                         \
     if (!testEval(e, rs, expected, &err)) {    \
       if (err) FAIL("%s", err);                \
       FAIL("Expression eval failed: %s\n", e); \
     }                                          \
-  }
+  } while(0)
+
+#define TEST_ERR(e, rs, err)                                  \
+  do {                                                        \
+    if (!testForErr(e, rs, &err)) {                           \
+      FAIL("Expression eval did not produce error: %s\n", e); \
+    }                                                         \
+    *err = 0;                                                 \
+  } while(0)
 
   TEST_EVAL("1 == 1", rs, 1, err);
   TEST_EVAL("1 < 2", rs, 1, err);

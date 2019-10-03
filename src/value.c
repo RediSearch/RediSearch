@@ -563,7 +563,7 @@ int RSValue_Equal(RSValue *v1, RSValue *v2, int *errcode, char **err) {
       }
       
       case RSValue_Null:
-        return 1;
+        return 0;
 
       case RSValue_Array: {
           if (v1->arrval.len != v2->arrval.len) return 0;
@@ -586,10 +586,10 @@ int RSValue_Equal(RSValue *v1, RSValue *v2, int *errcode, char **err) {
   // if either of the arguments is a number, convert the other one to a number
   RSValue vn;
   if (v1->t == RSValue_Number) {
-    if (!convert_to_number(v2, &vn, errcode, err)) return 0;
+    if (!convert_to_number(v2, &vn, NULL, NULL)) return 0;
     return cmp_numbers(v1, &vn) == 0;
   } else if (v2->t == RSValue_Number) {
-    if (!convert_to_number(v1, &vn, errcode, err)) return 0;
+    if (!convert_to_number(v1, &vn, NULL, NULL)) return 0;
     return cmp_numbers(&vn, v2) == 0;
   }
 

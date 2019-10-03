@@ -111,9 +111,17 @@ static inline void RSValue_MakeReference(RSValue *dst, RSValue *src) {
   };
 }
 /* Return the value itself or its referred value */
+#if 1
 static inline RSValue *RSValue_Dereference(RSValue *v) {
   return v && v->t == RSValue_Reference ? v->ref : v;
 }
+#else
+static inline RSValue *RSValue_Dereference(const RSValue *v) {
+  for (; v && v->t == RSValue_Reference; v = v->ref)
+    ;
+  return (RSValue *)v;
+}
+#endif
 
 /* Wrap a string with length into a value object. Doesn't duplicate the string. Use strdup if
  * the value needs to be detached */
