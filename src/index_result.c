@@ -217,7 +217,7 @@ void IndexResult_Free(RSIndexResult *r) {
       }
     }
   }
-
+  
   rm_free(r);
 }
 
