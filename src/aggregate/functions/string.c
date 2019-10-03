@@ -9,8 +9,6 @@
 
 #define STRING_BLOCK_SIZE 512
 
-///////////////////////////////////////////////////////////////////////////////////////////////
-
 static int func_matchedTerms(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,
                              QueryError *err) {
   int maxTerms = 0;
@@ -45,8 +43,6 @@ static int func_matchedTerms(ExprEval *ctx, RSValue *result, RSValue **argv, siz
   return EXPR_EVAL_OK;
 }
 
-//---------------------------------------------------------------------------------------------
-
 /* lower(str) */
 static int stringfunc_tolower(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,
                               QueryError *err) {
@@ -68,8 +64,6 @@ static int stringfunc_tolower(ExprEval *ctx, RSValue *result, RSValue **argv, si
   return EXPR_EVAL_OK;
 }
 
-//---------------------------------------------------------------------------------------------
-
 /* upper(str) */
 static int stringfunc_toupper(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,
                               QueryError *err) {
@@ -90,8 +84,6 @@ static int stringfunc_toupper(ExprEval *ctx, RSValue *result, RSValue **argv, si
   RSValue_SetConstString(result, np, sz);
   return EXPR_EVAL_OK;
 }
-
-//---------------------------------------------------------------------------------------------
 
 /* substr(str, offset, len) */
 static int stringfunc_substr(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,
@@ -129,8 +121,6 @@ static int stringfunc_substr(ExprEval *ctx, RSValue *result, RSValue **argv, siz
   return EXPR_EVAL_OK;
 }
 
-//---------------------------------------------------------------------------------------------
-
 int func_to_number(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,
                    QueryError *err) {
   VALIDATE_ARGS("to_number", 1, 1, err);
@@ -147,8 +137,6 @@ int func_to_number(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,
   return EXPR_EVAL_OK;
 }
 
-//---------------------------------------------------------------------------------------------
-
 int func_to_str(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,
                    QueryError *err) {
   VALIDATE_ARGS("to_str", 1, 1, err);
@@ -156,8 +144,6 @@ int func_to_str(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,
   RSValue_ToString(result, argv[0]);
   return EXPR_EVAL_OK;
 }
-
-//---------------------------------------------------------------------------------------------
 
 static int stringfunc_format(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,
                              QueryError *err) {
@@ -245,8 +231,6 @@ error:
   return EXPR_EVAL_ERR;
 }
 
-//---------------------------------------------------------------------------------------------
-
 char *strtrim(char *s, size_t sl, size_t *outlen, const char *cset) {
   char *start, *end, *sp, *ep;
 
@@ -258,9 +242,6 @@ char *strtrim(char *s, size_t sl, size_t *outlen, const char *cset) {
 
   return sp;
 }
-
-//---------------------------------------------------------------------------------------------
-
 static int stringfunc_split(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,
                             QueryError *err) {
   if (argc < 1 || argc > 3) {
@@ -320,8 +301,6 @@ static int stringfunc_split(ExprEval *ctx, RSValue *result, RSValue **argv, size
   return EXPR_EVAL_OK;
 }
 
-//---------------------------------------------------------------------------------------------
-
 void RegisterStringFunctions() {
   RSFunctionRegistry_RegisterFunction("lower", stringfunc_tolower, RSValue_String);
   RSFunctionRegistry_RegisterFunction("upper", stringfunc_toupper, RSValue_String);
@@ -332,5 +311,3 @@ void RegisterStringFunctions() {
   RSFunctionRegistry_RegisterFunction("to_number", func_to_number, RSValue_Number);
   RSFunctionRegistry_RegisterFunction("to_str", func_to_str, RSValue_String);
 }
-
-///////////////////////////////////////////////////////////////////////////////////////////////
