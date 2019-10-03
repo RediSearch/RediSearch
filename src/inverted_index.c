@@ -535,6 +535,8 @@ SKIPPER(seekFreqOffsetsFlags) {
   t_docId lastId = ir->lastId;
   int rc = 0;
 
+  t_fieldMask num = ctx->num;
+
   if (!BufferReader_AtEnd(br)) {
     size_t oldpos = br->pos;
     qint_decode4(br, &did, &freq, (uint32_t *)&fm, &offsz);
@@ -547,7 +549,7 @@ SKIPPER(seekFreqOffsetsFlags) {
       lastId = (did += lastId);
     }
 
-    if (ctx->num & fm) {
+    if (num & fm) {
       if (did >= expid) {
         // overshoot
         rc = 1;
@@ -561,7 +563,7 @@ SKIPPER(seekFreqOffsetsFlags) {
       qint_decode4(br, &did, &freq, (uint32_t *)&fm, &offsz);
       Buffer_Skip(br, offsz);
       lastId = (did += lastId);
-      if (!(ctx->num & fm)) {
+      if (!(num & fm)) {
         continue;  // we just ignore it if it does not match the field mask
       }
       if (did >= expid) {
@@ -1009,6 +1011,9 @@ int IR_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
       IndexReader_AdvanceBlock(ir);
     }
 
+    // the seeker will return 1 only when it found a docid which is greater or equals the
+    // searched docid and the field mask matches the searched fields mask. We need to continue
+    // scanning only when we found such an id or we reached the end of the inverted index.
     while (!ir->decoders.seeker(&ir->br, &ir->decoderCtx, ir, docId, ir->record)) {
       if (BufferReader_AtEnd(&ir->br)) {
         if (ir->currentBlock < ir->idx->size - 1) {
