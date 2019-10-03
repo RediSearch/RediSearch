@@ -72,6 +72,9 @@ NumericFilter *NumericFilter_Parse(ArgsCursor *ac, QueryError *status) {
 }
 
 void NumericFilter_Free(NumericFilter *nf) {
+  if (!nf) {
+    return;
+  }
   if (nf->fieldName) {
     rm_free((char *)nf->fieldName);
   }

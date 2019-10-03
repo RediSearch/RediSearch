@@ -60,7 +60,7 @@ static int fvAdd_sort(Reducer *r, void *ctx, const RLookupRow *srcrow) {
     return 1;
   }
 
-  int rc = (fvx->ascending ? -1 : 1) * RSValue_Cmp(curSortval, fvx->sortval);
+  int rc = (fvx->ascending ? -1 : 1) * RSValue_Cmp(curSortval, fvx->sortval, NULL);
   int isnull = RSValue_IsNull(fvx->sortval);
 
   if (!fvx->value || (!isnull && rc > 0) || (isnull && rc < 0)) {

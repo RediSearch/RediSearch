@@ -58,6 +58,9 @@ typedef struct QueryError {
   char *detail;
 } QueryError;
 
+/** Initialize QueryError object */
+void QueryError_Init(QueryError *qerr);
+
 /** Return the constant string of an error code */
 const char *QueryError_Strerror(QueryErrorCode code);
 

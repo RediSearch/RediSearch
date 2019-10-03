@@ -74,7 +74,8 @@ int RSSortingTable_GetFieldIdx(RSSortingTable *tbl, const char *field);
 RSValueType SortingTable_GetFieldType(RSSortingTable *tbl, const char *name, RSValueType delt);
 
 /* Internal compare function between members of the sorting vectors, sorted by sk */
-int RSSortingVector_Cmp(RSSortingVector *self, RSSortingVector *other, RSSortingKey *sk);
+int RSSortingVector_Cmp(RSSortingVector *self, RSSortingVector *other, RSSortingKey *sk,
+                        QueryError *qerr);
 
 /* Put a value in the sorting vector */
 void RSSortingVector_Put(RSSortingVector *tbl, int idx, const void *p, int type);
