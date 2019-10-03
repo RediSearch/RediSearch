@@ -611,7 +611,7 @@ int RSValue_Equal(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
     if (!convert_to_number(v2, &vn, NULL)) return 0;
     return cmp_numbers(v1, &vn) == 0;
   } else if (v2->t == RSValue_Number) {
-    if (!convert_to_number(v1, &vn, qerr)) return 0;
+    if (!convert_to_number(v1, &vn, NULL)) return 0;
     return cmp_numbers(&vn, v2) == 0;
   }
 
