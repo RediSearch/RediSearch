@@ -220,11 +220,6 @@ t_docId DocTable_Put(DocTable *t, const char *s, size_t n, double score, u_char 
   return docId;
 }
 
-RSPayload *DocTable_GetPayload(DocTable *t, t_docId docId) {
-  RSDocumentMetadata *dmd = DocTable_Get(t, docId);
-  return dmd ? dmd->payload : NULL;
-}
-
 /* Get the "real" external key for an incremental id. Returns NULL if docId is not in the table.
  */
 const char *DocTable_GetKey(DocTable *t, t_docId docId, size_t *lenp) {

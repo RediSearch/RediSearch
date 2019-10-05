@@ -127,10 +127,6 @@ int DocTable_SetSortingVector(DocTable *t, t_docId docId, RSSortingVector *v);
  */
 int DocTable_SetByteOffsets(DocTable *t, t_docId docId, RSByteOffsets *offsets);
 
-/* Get the payload for a document, if any was set. If no payload has been set or the document id is
- * not found, we return NULL */
-RSPayload *DocTable_GetPayload(DocTable *t, t_docId dodcId);
-
 /** Get the docId of a key if it exists in the table, or 0 if it doesnt */
 t_docId DocTable_GetId(const DocTable *dt, const char *s, size_t n);
 
