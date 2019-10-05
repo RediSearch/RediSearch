@@ -38,7 +38,6 @@ TEST_F(IndexTest, testVarint) {
   VVW_Truncate(vw);
 
   RSOffsetVector vec = offsetsFromVVW(vw);
-  // Buffer_Seek(vw->bw.buf, 0);
   RSOffsetIterator it = RSOffsetVector_Iterate(&vec, NULL);
   int x = 0;
   uint32_t n = 0;

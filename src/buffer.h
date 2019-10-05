@@ -63,7 +63,6 @@ static inline size_t Buffer_Read(BufferReader *br, void *data, size_t len) {
 
   return len;
 }
-size_t Buffer_Seek(BufferReader *b, size_t offset);
 
 #define Buffer_ShrinkToSize(b) Buffer_Truncate(b, 0)
 

@@ -90,14 +90,3 @@ size_t Buffer_WriteAt(BufferWriter *b, size_t offset, void *data, size_t len) {
   BufferWriter_Seek(b, pos);
   return sz;
 }
-/**
-Seek to a specific offset. If offset is out of bounds we seek to the end.
-@return the effective seek position
-*/
-inline size_t Buffer_Seek(BufferReader *br, size_t where) {
-  Buffer *b = br->buf;
-
-  br->pos = MIN(where, b->cap);
-
-  return where;
-}
