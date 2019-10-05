@@ -265,16 +265,6 @@ int forwardIndexTokenFunc(void *ctx, const Token *tokInfo) {
   return 0;
 }
 
-ForwardIndexEntry *ForwardIndex_Find(ForwardIndex *i, const char *s, size_t n, uint32_t hash) {
-  KHTableEntry *baseEnt = KHTable_GetEntry(i->hits, s, n, hash, NULL);
-  if (!baseEnt) {
-    return NULL;
-  } else {
-    khIdxEntry *bEnt = (khIdxEntry *)baseEnt;
-    return &bEnt->ent;
-  }
-}
-
 ForwardIndexIterator ForwardIndex_Iterate(ForwardIndex *i) {
   ForwardIndexIterator iter;
   iter.hits = i->hits;
