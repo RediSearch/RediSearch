@@ -53,7 +53,7 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
     RedisModule_ReplyWithLongLong(outctx, r->docId);
     count++;
   }
-  
+
   if (options & QEXEC_F_SEND_PAYLOADS) {
     count++;
     if (dmd && dmd->payload) {
@@ -116,7 +116,7 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
       }
 
       nfields++;
-      RedisModule_ReplyWithSimpleString(outctx, kk->name);
+      RedisModule_ReplyWithStringBuffer(outctx, kk->name, strlen(kk->name));
       RSValue_SendReply(outctx, v, req->reqflags & QEXEC_F_TYPED);
     }
     REDISMODULE_END_ARRAY(outctx, nfields * 2);
