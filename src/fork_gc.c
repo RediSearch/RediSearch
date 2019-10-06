@@ -124,10 +124,11 @@ static void *FGC_recvBuffer(ForkGC *fgc, size_t *len) {
   if (*len == LLONG_MAX) {
     return RECV_BUFFER_EMPTY;
   }
-  char *buff = rm_malloc(*len + 1);
   if (*len == 0) {
     return NULL;
   }
+
+  char *buff = rm_malloc(*len + 1);
   buff[*len] = 0;
   FGC_recvFixed(fgc, buff, *len);
   return buff;
@@ -463,6 +464,15 @@ static void FGC_recvInvIdx(ForkGC *gc, InvIdxBuffers *bufs, MSG_IndexInfo *info)
   }
 }
 
+static void freeInvIdx(InvIdxBuffers *bufs, MSG_IndexInfo *info) {
+  rm_free(bufs->newBlocklist);
+  rm_free(bufs->delBlocks);
+  for (size_t ii = 0; ii < info->nblocksRepaired; ++ii) {
+    rm_free(bufs->changedBlocks[ii].blk.buf.data);
+  }
+  rm_free(bufs->changedBlocks);
+}
+
 static void checkLastBlock(ForkGC *gc, InvIdxBuffers *idxData, MSG_IndexInfo *info,
                            InvertedIndex *idx) {
   IndexBlock *lastOld = idx->blocks + info->nblocksOrig - 1;
@@ -486,6 +496,10 @@ static void checkLastBlock(ForkGC *gc, InvIdxBuffers *idxData, MSG_IndexInfo *in
     MSG_RepairedBlock *rb = idxData->changedBlocks + info->nblocksRepaired - 1;
     indexBlock_Free(&rb->blk);
     info->nblocksRepaired--;
+    if (!info->nblocksRepaired) {
+      rm_free(idxData->newBlocklist);
+      idxData->newBlocklist = NULL;
+    }
   }
 
   info->ndocsCollected -= info->lastblkDocsRemoved;
@@ -612,7 +626,11 @@ cleanup:
     FGC_unlock(gc, rctx);
   }
   rm_free(term);
-  rm_free(idxbufs.changedBlocks);
+  if (!*ret_val) {
+    freeInvIdx(&idxbufs, &info);
+  } else {
+    rm_free(idxbufs.changedBlocks);
+  }
   return true;
 }
 
@@ -739,11 +757,11 @@ static bool FGC_parentHandleTags(ForkGC *gc, int *ret_val, RedisModuleCtx *rctx)
   }
 
   uint64_t tagUniqueId = FGC_recvLongLong(gc);
-  bool shouldReturn = false;
   InvertedIndex *value = NULL;
-  RedisModuleString *keyName = NULL;
 
   while ((value = FGC_recvPtrAddr(gc))) {
+    bool shouldReturn = false;
+    RedisModuleString *keyName = NULL;
     RedisModuleKey *idxKey = NULL;
     RedisSearchCtx *sctx = NULL;
     MSG_IndexInfo info = {0};
@@ -774,7 +792,6 @@ static bool FGC_parentHandleTags(ForkGC *gc, int *ret_val, RedisModuleCtx *rctx)
     if (sctx) {
       SearchCtx_Free(sctx);
     }
-    rm_free(idxbufs.changedBlocks);
     if (keyName) {
       RedisModule_FreeString(rctx, keyName);
     }
@@ -786,16 +803,15 @@ static bool FGC_parentHandleTags(ForkGC *gc, int *ret_val, RedisModuleCtx *rctx)
       hasLock = 0;
     }
     if (shouldReturn) {
-      if (fieldName) {
-        rm_free(fieldName);
-      }
+      freeInvIdx(&idxbufs, &info);
+      rm_free(fieldName);
       return false;
+    } else {
+      rm_free(idxbufs.changedBlocks);
     }
   }
 
-  if (fieldName) {
-    rm_free(fieldName);
-  }
+  rm_free(fieldName);
   return true;
 }
 
