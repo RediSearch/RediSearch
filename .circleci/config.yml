@@ -75,7 +75,19 @@ jobs:
       - run:
           name: Run & build tests
           command: ./.circleci/ci_diag_san.sh msan
-
+  
+  coverage:
+    docker:
+      - image: redislabsmodules/rmbuilder:latest
+    steps:
+      - checkout
+      - run:
+          name: Build & Test
+          command: ./.circleci/ci_coverage.sh
+      - store_artifacts:
+          path: coverage
+          destination: coverage
+  
   deploy_release:
     docker:
       - image: 'redislabsmodules/rmbuilder:latest'
@@ -132,6 +144,12 @@ workflows:
                   only: /.*/
               tags:
                   only: /.*/
+      - coverage:
+          filters:
+              branches:
+                only: /.*/
+              tags:
+                only: /.*/
       - deploy_snapshots:
           requires: *default_jobs
           filters:

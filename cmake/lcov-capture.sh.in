@@ -1,0 +1,18 @@
+#!/bin/sh
+
+INFO_FILE=$1
+if [ -z "${INFO_FILE}" ]; then
+    INFO_FILE='coverage.info'
+fi
+
+LCOV=lcov
+${LCOV} -c -d @PROJECT_SOURCE_DIR@ -o ${INFO_FILE}
+${LCOV} -r ${INFO_FILE} -o ${INFO_FILE} \
+    '/Applications/*' \
+    '/usr/*' \
+    '@PROJECT_SOURCE_DIR@/src/dep/*' \
+    '@PROJECT_SOURCE_DIR@/src/cpptests/*' \
+    '@PROJECT_SOURCE_DIR@/src/tests/*' \
+    '*/sds.c' '*/sds.h'
+
+echo "Wrote coverage report to ${INFO_FILE}"

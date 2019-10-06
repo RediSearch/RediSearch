@@ -313,6 +313,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
       {AC_MKBITFLAG("WITHPAYLOADS", &req->reqflags, QEXEC_F_SEND_PAYLOADS)},
       {AC_MKBITFLAG("NOCONTENT", &req->reqflags, QEXEC_F_SEND_NOFIELDS)},
       {AC_MKBITFLAG("NOSTOPWORDS", &searchOpts->flags, Search_NoStopwrods)},
+      {AC_MKBITFLAG("EXPLAINSCORE", &req->reqflags, QEXEC_F_SEND_SCOREEXPLAIN)},
       {.name = "PAYLOAD",
        .type = AC_ARGTYPE_STRING,
        .target = &req->ast.udata,
@@ -903,6 +904,9 @@ static ResultProcessor *getScorerRP(AREQ *req) {
     scorer = DEFAULT_SCORER_NAME;
   }
   ScoringFunctionArgs scargs = {0};
+  if (req->reqflags & QEXEC_F_SEND_SCOREEXPLAIN) {
+    scargs.scrExp = rm_calloc(1, sizeof(RSScoreExplain));
+  } 
   ExtScoringFunctionCtx *fns = Extensions_GetScoringFunction(&scargs, scorer);
   if (!fns) {
     fns = Extensions_GetScoringFunction(&scargs, DEFAULT_SCORER_NAME);
