@@ -106,6 +106,7 @@ workflows:
               only:
                 - master
                 - circle-overhaul
+                - "1.4"
       - deploy_release:
           requires: *default_jobs
           filters:

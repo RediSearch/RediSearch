@@ -1,8 +1,5 @@
 #include "value.h"
 #include "util/mempool.h"
-#include "err.h"
-#include "aggregate/expr/expression.h"
-
 #include <pthread.h>
 #include "rmalloc.h"
 
