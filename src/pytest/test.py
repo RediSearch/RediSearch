@@ -1183,6 +1183,18 @@ def testNumericRange(env):
         env.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1, 'fields',
                                         'title', 'hello kitty', 'score', i, 'price', 100 + 10 * i))
 
+    with env.assertResponseError():
+        res = env.cmd('ft.search', 'idx', 'score:[1]') 
+
+    with env.assertResponseError():
+        res = env.cmd('ft.search', 'idx', 'hello kitty', 'filter', 'score', 5)
+
+    with env.assertResponseError():
+        res = env.cmd('ft.search', 'idx', 'hello kitty', 'filter', 'score', 5, 'inf')   
+
+    with env.assertResponseError():
+        res = env.cmd('ft.search', 'idx', 'hello kitty', 'filter', 'score', 'inf', 5)   
+
     for _ in r.retry_with_rdb_reload():
         res = r.execute_command('ft.search', 'idx', 'hello kitty', "nocontent",
                                 "filter", "score", 0, 100)
