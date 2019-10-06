@@ -187,7 +187,6 @@ Cursor *Cursors_Reserve(CursorList *cl, const char *lookupName, unsigned interva
   CursorList_Lock(cl);
   CursorList_IncrCounter(cl);
   CursorSpecInfo *spec = findInfo(cl, lookupName, NULL);
-  Cursor *cur = NULL;
 
   if (spec == NULL) {
     QueryError_SetErrorFmt(status, QUERY_ENOINDEX, "Index `%s` does not have cursors enabled",
@@ -204,6 +203,7 @@ Cursor *Cursors_Reserve(CursorList *cl, const char *lookupName, unsigned interva
     }
   }
 
+  Cursor *cur = NULL;
   cur = rm_calloc(1, sizeof(*cur));
   cur->parent = cl;
   cur->specInfo = spec;
