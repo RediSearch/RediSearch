@@ -489,7 +489,7 @@ static struct action *Action_new(void){
   if( freelist==0 ){
     int i;
     int amt = 100;
-    freelist = (struct action *)rm_calloc(amt, sizeof(struct action));
+    freelist = (struct action *)calloc(amt, sizeof(struct action));
     if( freelist==0 ){
       fprintf(stderr,"Unable to allocate memory for a new parser action.");
       exit(1);
@@ -608,14 +608,14 @@ struct acttab {
 
 /* Free all memory associated with the given acttab */
 void acttab_free(acttab *p){
-  rm_free( p->aAction );
-  rm_free( p->aLookahead );
-  rm_free( p );
+  free( p->aAction );
+  free( p->aLookahead );
+  free( p );
 }
 
 /* Allocate a new acttab structure */
 acttab *acttab_alloc(int nsymbol, int nterminal){
-  acttab *p = (acttab *) rm_calloc( 1, sizeof(*p) );
+  acttab *p = (acttab *) calloc( 1, sizeof(*p) );
   if( p==0 ){
     fprintf(stderr,"Unable to allocate memory for a new acttab.");
     exit(1);
@@ -634,7 +634,7 @@ acttab *acttab_alloc(int nsymbol, int nterminal){
 void acttab_action(acttab *p, int lookahead, int action){
   if( p->nLookahead>=p->nLookaheadAlloc ){
     p->nLookaheadAlloc += 25;
-    p->aLookahead = (struct lookahead_action *) rm_realloc( p->aLookahead,
+    p->aLookahead = (struct lookahead_action *) realloc( p->aLookahead,
                              sizeof(p->aLookahead[0])*p->nLookaheadAlloc );
     if( p->aLookahead==0 ){
       fprintf(stderr,"malloc failed\n");
@@ -684,7 +684,7 @@ int acttab_insert(acttab *p, int makeItSafe){
   if( p->nAction + n >= p->nActionAlloc ){
     int oldAlloc = p->nActionAlloc;
     p->nActionAlloc = p->nAction + n + p->nActionAlloc + 20;
-    p->aAction = (struct lookahead_action *) rm_realloc( p->aAction,
+    p->aAction = (struct lookahead_action *) realloc( p->aAction,
                           sizeof(p->aAction[0])*p->nActionAlloc);
     if( p->aAction==0 ){
       fprintf(stderr,"malloc failed\n");
@@ -1298,7 +1298,7 @@ PRIVATE struct config *newconfig(void){
   if( freelist==0 ){
     int i;
     int amt = 3;
-    freelist = (struct config *)rm_calloc( amt, sizeof(struct config) );
+    freelist = (struct config *)calloc( amt, sizeof(struct config) );
     if( freelist==0 ){
       fprintf(stderr,"Unable to allocate memory for a new configuration.");
       exit(1);
@@ -1522,13 +1522,13 @@ static char **azDefine = 0;  /* Name of the -D macros */
 static void handle_D_option(char *z){
   char **paz;
   nDefine++;
-  azDefine = (char **) rm_realloc(azDefine, sizeof(azDefine[0])*nDefine);
+  azDefine = (char **) realloc(azDefine, sizeof(azDefine[0])*nDefine);
   if( azDefine==0 ){
     fprintf(stderr,"out of memory\n");
     exit(1);
   }
   paz = &azDefine[nDefine-1];
-  *paz = (char *) rm_malloc( lemonStrlen(z)+1 );
+  *paz = (char *) malloc( lemonStrlen(z)+1 );
   if( *paz==0 ){
     fprintf(stderr,"out of memory\n");
     exit(1);
@@ -1542,7 +1542,7 @@ static void handle_D_option(char *z){
 */
 static char *outputDir = NULL;
 static void handle_d_option(char *z){
-  outputDir = (char *) rm_malloc( lemonStrlen(z)+1 );
+  outputDir = (char *) malloc( lemonStrlen(z)+1 );
   if( outputDir==0 ){
     fprintf(stderr,"out of memory\n");
     exit(1);
@@ -1552,7 +1552,7 @@ static void handle_d_option(char *z){
 
 static char *user_templatename = NULL;
 static void handle_T_option(char *z){
-  user_templatename = (char *) rm_malloc( lemonStrlen(z)+1 );
+  user_templatename = (char *) malloc( lemonStrlen(z)+1 );
   if( user_templatename==0 ){
     memory_error();
   }
@@ -2364,7 +2364,7 @@ to follow the previous rule.");
     case IN_RHS:
       if( x[0]=='.' ){
         struct rule *rp;
-        rp = (struct rule *)rm_calloc( sizeof(struct rule) +
+        rp = (struct rule *)calloc( sizeof(struct rule) +
              sizeof(struct symbol*)*psp->nrhs + sizeof(char*)*psp->nrhs, 1);
         if( rp==0 ){
           ErrorMsg(psp->filename,psp->tokenlineno,
@@ -2416,17 +2416,17 @@ to follow the previous rule.");
         struct symbol *msp = psp->rhs[psp->nrhs-1];
         if( msp->type!=MULTITERMINAL ){
           struct symbol *origsp = msp;
-          msp = (struct symbol *) rm_calloc(1,sizeof(*msp));
+          msp = (struct symbol *) calloc(1,sizeof(*msp));
           memset(msp, 0, sizeof(*msp));
           msp->type = MULTITERMINAL;
           msp->nsubsym = 1;
-          msp->subsym = (struct symbol **) rm_calloc(1,sizeof(struct symbol*));
+          msp->subsym = (struct symbol **) calloc(1,sizeof(struct symbol*));
           msp->subsym[0] = origsp;
           msp->name = origsp->name;
           psp->rhs[psp->nrhs-1] = msp;
         }
         msp->nsubsym++;
-        msp->subsym = (struct symbol **) rm_realloc(msp->subsym,
+        msp->subsym = (struct symbol **) realloc(msp->subsym,
           sizeof(struct symbol*)*msp->nsubsym);
         msp->subsym[msp->nsubsym-1] = Symbol_new(&x[1]);
         if( ISLOWER(x[1]) || ISLOWER(msp->subsym[0]->name[0]) ){
@@ -2634,7 +2634,7 @@ to follow the previous rule.");
           nLine = lemonStrlen(zLine);
           n += nLine + lemonStrlen(psp->filename) + nBack;
         }
-        *psp->declargslot = (char *) rm_realloc(*psp->declargslot, n);
+        *psp->declargslot = (char *) realloc(*psp->declargslot, n);
         zBuf = *psp->declargslot + nOld;
         if( addLineMacro ){
           if( nOld && zBuf[-1]!='\n' ){
@@ -2748,7 +2748,7 @@ to follow the previous rule.");
       }else if( ISUPPER(x[0]) || ((x[0]=='|' || x[0]=='/') && ISUPPER(x[1])) ){
         struct symbol *msp = psp->tkclass;
         msp->nsubsym++;
-        msp->subsym = (struct symbol **) rm_realloc(msp->subsym,
+        msp->subsym = (struct symbol **) realloc(msp->subsym,
           sizeof(struct symbol*)*msp->nsubsym);
         if( !ISUPPER(x[0]) ) x++;
         msp->subsym[msp->nsubsym-1] = Symbol_new(x);
@@ -2852,7 +2852,7 @@ void Parse(struct lemon *gp)
   fseek(fp,0,2);
   filesize = ftell(fp);
   rewind(fp);
-  filebuf = (char *)rm_malloc( filesize+1 );
+  filebuf = (char *)malloc( filesize+1 );
   if( filesize>100000000 || filebuf==0 ){
     ErrorMsg(ps.filename,0,"Input file too large.");
     gp->errorcnt++;
@@ -2862,7 +2862,7 @@ void Parse(struct lemon *gp)
   if( fread(filebuf,1,filesize,fp)!=filesize ){
     ErrorMsg(ps.filename,0,"Can't read in all %d bytes of this file.",
       filesize);
-    rm_free(filebuf);
+    free(filebuf);
     gp->errorcnt++;
     fclose(fp);
     return;
@@ -2967,7 +2967,7 @@ void Parse(struct lemon *gp)
     *cp = (char)c;                  /* Restore the buffer */
     cp = nextcp;
   }
-  rm_free(filebuf);                    /* Release the buffer after parsing */
+  free(filebuf);                    /* Release the buffer after parsing */
   gp->rule = ps.firstrule;
   gp->errorcnt = ps.errorcnt;
 }
@@ -2985,7 +2985,7 @@ struct plink *Plink_new(void){
   if( plink_freelist==0 ){
     int i;
     int amt = 100;
-    plink_freelist = (struct plink *)rm_calloc( amt, sizeof(struct plink) );
+    plink_freelist = (struct plink *)calloc( amt, sizeof(struct plink) );
     if( plink_freelist==0 ){
       fprintf(stderr,
       "Unable to allocate memory for a new follow-set propagation link.\n");
@@ -3057,7 +3057,7 @@ PRIVATE char *file_makename(struct lemon *lemp, const char *suffix)
   sz += lemonStrlen(suffix);
   if( outputDir ) sz += lemonStrlen(outputDir) + 1;
   sz += 5;
-  name = (char*)rm_malloc( sz );
+  name = (char*)malloc( sz );
   if( name==0 ){
     fprintf(stderr,"Can't allocate space for a filename.\n");
     exit(1);
@@ -3084,7 +3084,7 @@ PRIVATE FILE *file_open(
 ){
   FILE *fp;
 
-  if( lemp->outname ) rm_free(lemp->outname);
+  if( lemp->outname ) free(lemp->outname);
   lemp->outname = file_makename(lemp, suffix);
   fp = fopen(lemp->outname,mode);
   if( fp==0 && *mode=='w' ){
@@ -3400,14 +3400,14 @@ PRIVATE char *pathsearch(char *argv0, char *name, int modemask)
   if( cp ){
     c = *cp;
     *cp = 0;
-    path = (char *)rm_malloc( lemonStrlen(argv0) + lemonStrlen(name) + 2 );
+    path = (char *)malloc( lemonStrlen(argv0) + lemonStrlen(name) + 2 );
     if( path ) lemon_sprintf(path,"%s/%s",argv0,name);
     *cp = c;
   }else{
     pathlist = getenv("PATH");
     if( pathlist==0 ) pathlist = ".:/bin:/usr/bin";
-    pathbuf = (char *) rm_malloc( lemonStrlen(pathlist) + 1 );
-    path = (char *)rm_malloc( lemonStrlen(pathlist)+lemonStrlen(name)+2 );
+    pathbuf = (char *) malloc( lemonStrlen(pathlist) + 1 );
+    path = (char *)malloc( lemonStrlen(pathlist)+lemonStrlen(name)+2 );
     if( (pathbuf != 0) && (path!=0) ){
       pathbufptr = pathbuf;
       lemon_strcpy(pathbuf, pathlist);
@@ -3422,7 +3422,7 @@ PRIVATE char *pathsearch(char *argv0, char *name, int modemask)
         else pathbuf = &cp[1];
         if( access(path,modemask)==0 ) break;
       }
-      rm_free(pathbufptr);
+      free(pathbufptr);
     }
   }
   return path;
@@ -3670,7 +3670,7 @@ PRIVATE char *append_str(const char *zText, int n, int p1, int p2){
   }
   if( (int) (n+sizeof(zInt)*2+used) >= alloced ){
     alloced = n + sizeof(zInt)*2 + used + 200;
-    z = (char *) rm_realloc(z,  alloced);
+    z = (char *) realloc(z,  alloced);
   }
   if( z==0 ) return empty;
   while( n-- > 0 ){
@@ -3960,7 +3960,7 @@ void print_stack_union(
 
   /* Allocate and initialize types[] and allocate stddt[] */
   arraysize = lemp->nsymbol * 2;
-  types = (char**)rm_calloc( arraysize, sizeof(char*) );
+  types = (char**)calloc( arraysize, sizeof(char*) );
   if( types==0 ){
     fprintf(stderr,"Out of memory.\n");
     exit(1);
@@ -3977,7 +3977,7 @@ void print_stack_union(
     len = lemonStrlen(sp->datatype);
     if( len>maxdtlength ) maxdtlength = len;
   }
-  stddt = (char*)rm_malloc( maxdtlength*2 + 1 );
+  stddt = (char*)malloc( maxdtlength*2 + 1 );
   if( stddt==0 ){
     fprintf(stderr,"Out of memory.\n");
     exit(1);
@@ -4026,7 +4026,7 @@ void print_stack_union(
     }
     if( types[hash]==0 ){
       sp->dtnum = hash + 1;
-      types[hash] = (char*)rm_malloc( lemonStrlen(stddt)+1 );
+      types[hash] = (char*)malloc( lemonStrlen(stddt)+1 );
       if( types[hash]==0 ){
         fprintf(stderr,"Out of memory.\n");
         exit(1);
@@ -4048,13 +4048,13 @@ void print_stack_union(
   for(i=0; i<arraysize; i++){
     if( types[i]==0 ) continue;
     fprintf(out,"  %s yy%d;\n",types[i],i+1); lineno++;
-    rm_free(types[i]);
+    free(types[i]);
   }
   if( lemp->errsym && lemp->errsym->useCnt ){
     fprintf(out,"  int yy%d;\n",lemp->errsym->dtnum); lineno++;
   }
-  rm_free(stddt);
-  rm_free(types);
+  free(stddt);
+  free(types);
   fprintf(out,"} YYMINORTYPE;\n"); lineno++;
   *plineno = lineno;
 }
@@ -4180,7 +4180,7 @@ void ReportTable(
   if( mhflag ){
     char *incName = file_makename(lemp, ".h");
     fprintf(out,"#include \"%s\"\n", incName); lineno++;
-    rm_free(incName);
+    free(incName);
   }
   tplt_xfer(lemp->name,in,out,&lineno);
 
@@ -4271,7 +4271,7 @@ void ReportTable(
   ** table must be computed before generating the YYNSTATE macro because
   ** we need to know how many states can be eliminated.
   */
-  ax = (struct axset *) rm_calloc(lemp->nxstate*2, sizeof(ax[0]));
+  ax = (struct axset *) calloc(lemp->nxstate*2, sizeof(ax[0]));
   if( ax==0 ){
     fprintf(stderr,"malloc failed\n");
     exit(1);
@@ -4329,7 +4329,7 @@ void ReportTable(
     }
 #endif
   }
-  rm_free(ax);
+  free(ax);
 
   /* Mark rules that are actually used for reduce actions after all
   ** optimizations have been applied
@@ -4908,7 +4908,7 @@ void SetSize(int n)
 /* Allocate a new set */
 char *SetNew(void){
   char *s;
-  s = (char*)rm_calloc( size, 1);
+  s = (char*)calloc( size, 1);
   if( s==0 ){
     extern void memory_error();
     memory_error();
@@ -4919,7 +4919,7 @@ char *SetNew(void){
 /* Deallocate a set */
 void SetFree(char *s)
 {
-  rm_free(s);
+  free(s);
 }
 
 /* Add a new element to the set.  Return TRUE if the element was added
@@ -4978,7 +4978,7 @@ const char *Strsafe(const char *y)
 
   if( y==0 ) return 0;
   z = Strsafe_find(y);
-  if( z==0 && (cpy=(char *)rm_malloc( lemonStrlen(y)+1 ))!=0 ){
+  if( z==0 && (cpy=(char *)malloc( lemonStrlen(y)+1 ))!=0 ){
     lemon_strcpy(cpy,y);
     z = cpy;
     Strsafe_insert(z);
@@ -5014,13 +5014,13 @@ static struct s_x1 *x1a;
 /* Allocate a new associative array */
 void Strsafe_init(void){
   if( x1a ) return;
-  x1a = (struct s_x1*)rm_malloc( sizeof(struct s_x1) );
+  x1a = (struct s_x1*)malloc( sizeof(struct s_x1) );
   if( x1a ){
     x1a->size = 1024;
     x1a->count = 0;
-    x1a->tbl = (x1node*)rm_calloc(1024, sizeof(x1node) + sizeof(x1node*));
+    x1a->tbl = (x1node*)calloc(1024, sizeof(x1node) + sizeof(x1node*));
     if( x1a->tbl==0 ){
-      rm_free(x1a);
+      free(x1a);
       x1a = 0;
     }else{
       int i;
@@ -5055,7 +5055,7 @@ int Strsafe_insert(const char *data)
     struct s_x1 array;
     array.size = arrSize = x1a->size*2;
     array.count = x1a->count;
-    array.tbl = (x1node*)rm_calloc(arrSize, sizeof(x1node) + sizeof(x1node*));
+    array.tbl = (x1node*)calloc(arrSize, sizeof(x1node) + sizeof(x1node*));
     if( array.tbl==0 ) return 0;  /* Fail due to malloc failure */
     array.ht = (x1node**)&(array.tbl[arrSize]);
     for(i=0; i<arrSize; i++) array.ht[i] = 0;
@@ -5070,7 +5070,7 @@ int Strsafe_insert(const char *data)
       newnp->from = &(array.ht[h]);
       array.ht[h] = newnp;
     }
-    rm_free(x1a->tbl);
+    free(x1a->tbl);
     *x1a = array;
   }
   /* Insert the new data */
@@ -5110,7 +5110,7 @@ struct symbol *Symbol_new(const char *x)
 
   sp = Symbol_find(x);
   if( sp==0 ){
-    sp = (struct symbol *)rm_calloc(1, sizeof(struct symbol) );
+    sp = (struct symbol *)calloc(1, sizeof(struct symbol) );
     MemoryCheck(sp);
     sp->name = Strsafe(x);
     sp->type = ISUPPER(*x) ? TERMINAL : NONTERMINAL;
@@ -5181,13 +5181,13 @@ static struct s_x2 *x2a;
 /* Allocate a new associative array */
 void Symbol_init(void){
   if( x2a ) return;
-  x2a = (struct s_x2*)rm_malloc( sizeof(struct s_x2) );
+  x2a = (struct s_x2*)malloc( sizeof(struct s_x2) );
   if( x2a ){
     x2a->size = 128;
     x2a->count = 0;
-    x2a->tbl = (x2node*)rm_calloc(128, sizeof(x2node) + sizeof(x2node*));
+    x2a->tbl = (x2node*)calloc(128, sizeof(x2node) + sizeof(x2node*));
     if( x2a->tbl==0 ){
-      rm_free(x2a);
+      free(x2a);
       x2a = 0;
     }else{
       int i;
@@ -5222,7 +5222,7 @@ int Symbol_insert(struct symbol *data, const char *key)
     struct s_x2 array;
     array.size = arrSize = x2a->size*2;
     array.count = x2a->count;
-    array.tbl = (x2node*)rm_calloc(arrSize, sizeof(x2node) + sizeof(x2node*));
+    array.tbl = (x2node*)calloc(arrSize, sizeof(x2node) + sizeof(x2node*));
     if( array.tbl==0 ) return 0;  /* Fail due to malloc failure */
     array.ht = (x2node**)&(array.tbl[arrSize]);
     for(i=0; i<arrSize; i++) array.ht[i] = 0;
@@ -5238,7 +5238,7 @@ int Symbol_insert(struct symbol *data, const char *key)
       newnp->from = &(array.ht[h]);
       array.ht[h] = newnp;
     }
-    rm_free(x2a->tbl);
+    free(x2a->tbl);
     *x2a = array;
   }
   /* Insert the new data */
@@ -5297,7 +5297,7 @@ struct symbol **Symbol_arrayof()
   int i,arrSize;
   if( x2a==0 ) return 0;
   arrSize = x2a->count;
-  array = (struct symbol **)rm_calloc(arrSize, sizeof(struct symbol *));
+  array = (struct symbol **)calloc(arrSize, sizeof(struct symbol *));
   if( array ){
     for(i=0; i<arrSize; i++) array[i] = x2a->tbl[i].data;
   }
@@ -5345,7 +5345,7 @@ PRIVATE unsigned statehash(struct config *a)
 struct state *State_new()
 {
   struct state *newstate;
-  newstate = (struct state *)rm_calloc(1, sizeof(struct state) );
+  newstate = (struct state *)calloc(1, sizeof(struct state) );
   MemoryCheck(newstate);
   return newstate;
 }
@@ -5378,13 +5378,13 @@ static struct s_x3 *x3a;
 /* Allocate a new associative array */
 void State_init(void){
   if( x3a ) return;
-  x3a = (struct s_x3*)rm_malloc( sizeof(struct s_x3) );
+  x3a = (struct s_x3*)malloc( sizeof(struct s_x3) );
   if( x3a ){
     x3a->size = 128;
     x3a->count = 0;
-    x3a->tbl = (x3node*)rm_calloc(128, sizeof(x3node) + sizeof(x3node*));
+    x3a->tbl = (x3node*)calloc(128, sizeof(x3node) + sizeof(x3node*));
     if( x3a->tbl==0 ){
-      rm_free(x3a);
+      free(x3a);
       x3a = 0;
     }else{
       int i;
@@ -5419,7 +5419,7 @@ int State_insert(struct state *data, struct config *key)
     struct s_x3 array;
     array.size = arrSize = x3a->size*2;
     array.count = x3a->count;
-    array.tbl = (x3node*)rm_calloc(arrSize, sizeof(x3node) + sizeof(x3node*));
+    array.tbl = (x3node*)calloc(arrSize, sizeof(x3node) + sizeof(x3node*));
     if( array.tbl==0 ) return 0;  /* Fail due to malloc failure */
     array.ht = (x3node**)&(array.tbl[arrSize]);
     for(i=0; i<arrSize; i++) array.ht[i] = 0;
@@ -5435,7 +5435,7 @@ int State_insert(struct state *data, struct config *key)
       newnp->from = &(array.ht[h]);
       array.ht[h] = newnp;
     }
-    rm_free(x3a->tbl);
+    free(x3a->tbl);
     *x3a = array;
   }
   /* Insert the new data */
@@ -5476,7 +5476,7 @@ struct state **State_arrayof(void)
   int i,arrSize;
   if( x3a==0 ) return 0;
   arrSize = x3a->count;
-  array = (struct state **)rm_calloc(arrSize, sizeof(struct state *));
+  array = (struct state **)calloc(arrSize, sizeof(struct state *));
   if( array ){
     for(i=0; i<arrSize; i++) array[i] = x3a->tbl[i].data;
   }
@@ -5518,13 +5518,13 @@ static struct s_x4 *x4a;
 /* Allocate a new associative array */
 void Configtable_init(void){
   if( x4a ) return;
-  x4a = (struct s_x4*)rm_malloc( sizeof(struct s_x4) );
+  x4a = (struct s_x4*)malloc( sizeof(struct s_x4) );
   if( x4a ){
     x4a->size = 64;
     x4a->count = 0;
-    x4a->tbl = (x4node*)rm_calloc(64, sizeof(x4node) + sizeof(x4node*));
+    x4a->tbl = (x4node*)calloc(64, sizeof(x4node) + sizeof(x4node*));
     if( x4a->tbl==0 ){
-      rm_free(x4a);
+      free(x4a);
       x4a = 0;
     }else{
       int i;
@@ -5559,7 +5559,7 @@ int Configtable_insert(struct config *data)
     struct s_x4 array;
     array.size = arrSize = x4a->size*2;
     array.count = x4a->count;
-    array.tbl = (x4node*)rm_calloc(arrSize, sizeof(x4node) + sizeof(x4node*));
+    array.tbl = (x4node*)calloc(arrSize, sizeof(x4node) + sizeof(x4node*));
     if( array.tbl==0 ) return 0;  /* Fail due to malloc failure */
     array.ht = (x4node**)&(array.tbl[arrSize]);
     for(i=0; i<arrSize; i++) array.ht[i] = 0;
@@ -5574,7 +5574,7 @@ int Configtable_insert(struct config *data)
       newnp->from = &(array.ht[h]);
       array.ht[h] = newnp;
     }
-    rm_free(x4a->tbl);
+    free(x4a->tbl);
     *x4a = array;
   }
   /* Insert the new data */

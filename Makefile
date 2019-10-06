@@ -19,6 +19,18 @@ $(COMPAT_DIR)/redisearch.so:
 
 $(COMPAT_DIR): compat-build
 
+parsers:
+ifeq ($(FORCE),1)
+	cd src/aggregate/expr ;\
+	rm -f lexer.c parser-toplevel.c parser.c.inc
+	cd src/query_parser ;\
+	rm -f lexer.c parser-toplevel.c parser.c.inc
+endif
+	$(MAKE) -C src/aggregate/expr
+	$(MAKE) -C src/query_parser
+
+.PHONY: parsers
+
 deploydocs:
 	mkdocs gh-deploy
 .PHONY: deploydocs

@@ -431,10 +431,10 @@ static int yyGrowStack(yyParser *p){
   newSize = p->yystksz*2 + 100;
   idx = p->yytos ? (int)(p->yytos - p->yystack) : 0;
   if( p->yystack==&p->yystk0 ){
-    pNew = malloc(newSize*sizeof(pNew[0]));
+    pNew = rm_malloc(newSize*sizeof(pNew[0]));
     if( pNew ) pNew[0] = p->yystk0;
   }else{
-    pNew = realloc(p->yystack, newSize*sizeof(pNew[0]));
+    pNew = rm_realloc(p->yystack, newSize*sizeof(pNew[0]));
   }
   if( pNew ){
     p->yystack = pNew;
@@ -595,7 +595,7 @@ void RSExprParser_ParseFinalize(void *p){
   yyParser *pParser = (yyParser*)p;
   while( pParser->yytos>pParser->yystack ) yy_pop_parser_stack(pParser);
 #if YYSTACKDEPTH<=0
-  if( pParser->yystack!=&pParser->yystk0 ) free(pParser->yystack);
+  if( pParser->yystack!=&pParser->yystk0 ) rm_free(pParser->yystack);
 #endif
 }
 
@@ -1101,7 +1101,7 @@ static YYACTIONTYPE yy_reduce(
 {
     RSFunction cb = RSFunctionRegistry_Get(yymsp[-3].minor.yy0.s, yymsp[-3].minor.yy0.len);
     if (!cb) {
-        asprintf(&ctx->errorMsg, "Unknown function name '%.*s'", yymsp[-3].minor.yy0.len, yymsp[-3].minor.yy0.s);
+        rm_asprintf(&ctx->errorMsg, "Unknown function name '%.*s'", yymsp[-3].minor.yy0.len, yymsp[-3].minor.yy0.s);
         ctx->ok = 0;
         yylhsminor.yy19 = NULL; 
     } else {
@@ -1117,7 +1117,7 @@ static YYACTIONTYPE yy_reduce(
     if (yymsp[0].minor.yy0.len == 4 && !strncmp(yymsp[0].minor.yy0.s, "NULL", 4)) {
         yylhsminor.yy19 = RS_NewNullLiteral();
     } else {
-        asprintf(&ctx->errorMsg, "Unknown symbol '%.*s'", yymsp[0].minor.yy0.len, yymsp[0].minor.yy0.s);
+        rm_asprintf(&ctx->errorMsg, "Unknown symbol '%.*s'", yymsp[0].minor.yy0.len, yymsp[0].minor.yy0.s);
         ctx->ok = 0;
         yylhsminor.yy19 = NULL; 
     }
@@ -1207,7 +1207,7 @@ static void yy_syntax_error(
 #line 38 "parser.y"
   
 
-    asprintf(&ctx->errorMsg, "Syntax error at offset %d near '%.*s'", TOKEN.pos, TOKEN.len, TOKEN.s);
+    rm_asprintf(&ctx->errorMsg, "Syntax error at offset %d near '%.*s'", TOKEN.pos, TOKEN.len, TOKEN.s);
     ctx->ok = 0;
 #line 1213 "parser.c"
 /************ End %syntax_error code ******************************************/

@@ -283,7 +283,7 @@ RSExpr *RSExpr_Parse(const char *expr, size_t len, char **err) {
   }
   RSExprParser_ParseFree(pParser, rm_free);
   if (err) {
-    *err = ctx.errorMsg;
+    *err = ctx.errorMsg ? rm_strdup(ctx.errorMsg) : NULL;
   }
  
   return ctx.root;

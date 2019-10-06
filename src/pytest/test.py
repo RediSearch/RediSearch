@@ -367,7 +367,7 @@ def testCustomStopwords(env):
         'ft.create', 'idx', 'schema', 'foo', 'text'))
 
     # Index with custom stopwords
-    env.assertOk(r.execute_command('ft.create', 'idx2', 'stopwords', 2, 'hello', 'world', 
+    env.assertOk(r.execute_command('ft.create', 'idx2', 'stopwords', 2, 'hello', 'world',
                                    'schema', 'foo', 'text'))
     # Index with NO stopwords
     env.assertOk(r.execute_command('ft.create', 'idx3', 'stopwords', 0,
@@ -700,7 +700,7 @@ def testNot(env):
     # not on env term
     env.assertEqual(r.execute_command(
         'ft.search', 'idx', 'constant -constant', 'nocontent'), [0])
-    
+
     env.assertEqual(r.execute_command(
         'ft.search', 'idx', 'constant -(term0|term1|term2|term3|term4|nothing)', 'nocontent'), [0])
     # env.assertEqual(r.execute_command('ft.search', 'idx', 'constant -(term1 term2)', 'nocontent')[0], N)
@@ -1947,7 +1947,7 @@ def testAlias(env):
     # check that deleting the alias works as expected
     env.expect('ft.aliasDel', 'myIndex').notRaiseError()
     env.expect('ft.search', 'myIndex', 'foo').raiseError()
-    
+
     # create a new index and see if we can use the old name
     env.cmd('ft.create', 'idx3', 'schema', 't1', 'text')
     env.cmd('ft.add', 'idx3', 'doc3', 1.0, 'fields', 't1', 'foo')
@@ -1973,7 +1973,7 @@ def testAlias(env):
     env.assertEqual(1, r)
 
 
-def testPrefixDeletedExpansions(env): 
+def testPrefixDeletedExpansions(env):
     env.skipOnCluster()
     if env.moduleArgs is not None and 'FORK' in env.moduleArgs:
         # This doesn't work on forkgc currently
@@ -1986,10 +1986,10 @@ def testPrefixDeletedExpansions(env):
     for x in range(maxexpansions):
         env.cmd('ft.add', 'idx', 'doc{}'.format(x), 1, 'fields',
                 'txt1', 'term{}'.format(x), 'tag1', 'tag{}'.format(x))
-    
+
     for x in range(maxexpansions):
         env.cmd('ft.del', 'idx', 'doc{}'.format(x))
-    
+
     env.cmd('ft.add', 'idx', 'doc_XXX', 1, 'fields', 'txt1', 'termZZZ', 'tag1', 'tagZZZ')
 
     # r = env.cmd('ft.search', 'idx', 'term*')
@@ -2005,7 +2005,7 @@ def testPrefixDeletedExpansions(env):
         r = env.cmd('ft.search', 'idx', '@txt1:term* @tag1:{tag*}')
         if r[0]:
             break
-    
+
     print 'did {} iterations'.format(iters)
     r = env.cmd('ft.search', 'idx', '@txt1:term* @tag1:{tag*}')
     env.assertEqual([1, 'doc_XXX', ['txt1', 'termZZZ', 'tag1', 'tagZZZ']], r)
@@ -2052,6 +2052,47 @@ def testMod_309(env):
     res = env.cmd('FT.AGGREGATE', 'idx', 'foo')
     env.assertEqual(len(res), 100001)
 
+def testIssue_779(env):
+    # FT.ADD should return NOADD and not change the doc if value < same_value, but it returns OK and makes the change.
+    # Note that "greater than" ">" does not have the same bug.
+
+    env.cmd('FT.CREATE idx2 SCHEMA ot1 TAG')
+    env.cmd('FT.ADD idx2 doc2 1.0 FIELDS newf CAT ot1 4001')
+    env.expect('FT.GET idx2 doc2').equal(["newf", "CAT", "ot1", "4001"])
+
+    # NOADD is expected since 4001 is not < 4000, and no updates to the doc2 is expected as a result
+    env.expect('FT.ADD idx2 doc2 1.0 REPLACE PARTIAL if @ot1<4000 FIELDS newf DOG ot1 4000', 'NOADD')
+    env.expect('FT.GET idx2 doc2').equal(["newf", "CAT", "ot1", "4001"])
+
+    # OK is expected since 4001 < 4002 and the doc2 is updated
+    env.expect('FT.ADD idx2 doc2 1.0 REPLACE PARTIAL if @ot1<4002 FIELDS newf DOG ot1 4002').equal('OK')
+    env.expect('FT.GET idx2 doc2').equal(["newf", "DOG", "ot1", "4002"])
+
+    # OK is NOT expected since 4002 is not < 4002
+    # We expect NOADD and doc2 update; however, we get OK and doc2 updated
+    # After fix, @ot1 implicitly converted to a number, thus we expect NOADD
+    env.expect('FT.ADD idx2 doc2 1.0 REPLACE PARTIAL if @ot1<4002 FIELDS newf FISH ot1 4002').equal('OK')
+    env.expect('FT.GET idx2 doc2').equal(["newf", "FISH", "ot1", "4002"])
+    env.expect('FT.ADD idx2 doc2 1.0 REPLACE PARTIAL FIELDS newf DOG ot1 4002').equal('OK')
+    env.expect('FT.ADD idx2 doc2 1.0 REPLACE PARTIAL if to_number(@ot1)<4002 FIELDS newf FISH ot1 4002').equal('NOADD')
+    env.expect('FT.ADD idx2 doc2 1.0 REPLACE PARTIAL if @ot1<to_str(4002) FIELDS newf FISH ot1 4002').equal('NOADD')
+    env.expect('FT.GET idx2 doc2').equal(["newf", "DOG", "ot1", "4002"])
+
+    # OK and doc2 update is expected since 4002 < 4003
+    env.expect('FT.ADD idx2 doc2 1.0 REPLACE PARTIAL if @ot1<4003 FIELDS newf HORSE ot1 4003').equal('OK')
+    env.expect('FT.GET idx2 doc2').equal(["newf", "HORSE", "ot1", "4003"])
+
+    # Expect NOADD since 4003 is not > 4003
+    env.expect('FT.ADD idx2 doc2 1.0 REPLACE PARTIAL if @ot1>4003 FIELDS newf COW ot1 4003').equal('NOADD')
+    env.expect('FT.ADD idx2 doc2 1.0 REPLACE PARTIAL if 4003<@ot1 FIELDS newf COW ot1 4003').equal('NOADD')
+
+    # Expect OK and doc2 updated since 4003 > 4002
+    env.expect('FT.ADD idx2 doc2 1.0 REPLACE PARTIAL if @ot1>4002 FIELDS newf PIG ot1 4002').equal('OK')
+    env.expect('FT.GET idx2 doc2').equal(["newf", "PIG", "ot1", "4002"])
+
+    # Syntax errors
+    env.expect('FT.ADD idx2 doc2 1.0 REPLACE PARTIAL if @ot1<4-002 FIELDS newf DOG ot1 4002').contains('Syntax error')
+    env.expect('FT.ADD idx2 doc2 1.0 REPLACE PARTIAL if @ot1<to_number(4-002) FIELDS newf DOG ot1 4002').contains('Syntax error')
 
 def grouper(iterable, n, fillvalue=None):
     "Collect data into fixed-length chunks or blocks"
