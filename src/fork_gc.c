@@ -364,7 +364,9 @@ static void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
       }
 
       if (header.sentFieldName) {
-        // If we've repaired at least one entry, send the terminator
+        // If we've repaired at least one entry, send the terminator;
+        // note that "terminator" just means a zero address and not the
+        // "no more strings" terminator in FGC_sendTerminator
         FGC_sendPtrAddr(gc, 0);
       }
 
