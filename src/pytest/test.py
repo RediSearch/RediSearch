@@ -219,12 +219,12 @@ def testGet(env):
     env.assertOk(r.execute_command(
         'ft.create', 'idx', 'schema', 'foo', 'text', 'bar', 'text'))
 
-    env.expect('ft.get').error()
-    env.expect('ft.get', 'idx').error()
-    env.expect('ft.get', 'idx', 'foo', 'bar').error()
-    env.expect('ft.mget').error()
-    env.expect('ft.mget', 'idx').error()
-    env.expect('ft.mget', 'fake_idx').error()
+    env.expect('ft.get').error().contains("wrong number of arguments for 'ft.get' command")
+    env.expect('ft.get', 'idx').error().contains("wrong number of arguments for 'ft.get' command")
+    env.expect('ft.get', 'idx', 'foo', 'bar').error().contains("wrong number of arguments for 'ft.get' command")
+    env.expect('ft.mget').error().contains("wrong number of arguments for 'ft.mget' command")
+    env.expect('ft.mget', 'idx').error().contains("wrong number of arguments for 'ft.mget' command")
+    env.expect('ft.mget', 'fake_idx').error().contains("wrong number of arguments for 'ft.mget' command")
 
     for i in range(100):
         env.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
@@ -237,7 +237,7 @@ def testGet(env):
             ['foo', 'hello world', 'bar', 'wat wat'], res)
         env.assertIsNone(r.execute_command(
             'ft.get', 'idx', 'doc%dsdfsd' % i))
-        env.expect('ft.get', 'no_idx', 'doc%d' % i).error()
+    env.expect('ft.get', 'no_idx', 'doc0').error().contains("Unknown Index name")
 
     rr = r.execute_command(
         'ft.mget', 'idx', *('doc%d' % i for i in range(100)))
@@ -384,8 +384,7 @@ def testDrop(env):
         env.assertListEqual(['doc0', 'doc1', 'doc10', 'doc11', 'doc12', 'doc13', 'doc14', 'doc15', 'doc16', 'doc17', 'doc18', 'doc19', 'doc2', 'doc20', 'doc21', 'doc22', 'doc23', 'doc24', 'doc25', 'doc26', 'doc27', 'doc28', 'doc29', 'doc3', 'doc30', 'doc31', 'doc32', 'doc33', 'doc34', 'doc35', 'doc36', 'doc37', 'doc38', 'doc39', 'doc4', 'doc40', 'doc41', 'doc42', 'doc43', 'doc44', 'doc45', 'doc46', 'doc47', 'doc48', 'doc49', 'doc5', 'doc50', 'doc51', 'doc52', 'doc53',
                               'doc54', 'doc55', 'doc56', 'doc57', 'doc58', 'doc59', 'doc6', 'doc60', 'doc61', 'doc62', 'doc63', 'doc64', 'doc65', 'doc66', 'doc67', 'doc68', 'doc69', 'doc7', 'doc70', 'doc71', 'doc72', 'doc73', 'doc74', 'doc75', 'doc76', 'doc77', 'doc78', 'doc79', 'doc8', 'doc80', 'doc81', 'doc82', 'doc83', 'doc84', 'doc85', 'doc86', 'doc87', 'doc88', 'doc89', 'doc9', 'doc90', 'doc91', 'doc92', 'doc93', 'doc94', 'doc95', 'doc96', 'doc97', 'doc98', 'doc99'], sorted(keys))
 
-    with env.assertResponseError():
-        env.assertOk(env.cmd('FT.DROP', 'idx', 'KEEPDOCS', '666')) 
+    env.expect('FT.DROP', 'idx', 'KEEPDOCS', '666').error().contains("wrong number of arguments for 'FT.DROP' command")
 
 def testCustomStopwords(env):
     r = env
@@ -2344,8 +2343,7 @@ def testOptimize(env):
         env.assertOk(env.cmd('FT.OPTIMIZE', 'idx', '666'))   
     env.expect('FT.OPTIMIZE', 'fake_idx').error()
 
-def testInfo(env):
-    env.cmd('ft.create', 'idx', 'SCHEMA', 'test', 'TEXT', 'SORTABLE')
+def testInfoError(env):
     env.expect('ft.info', 'no_idx').error()
 
 def testConfig(env):

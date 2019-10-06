@@ -118,22 +118,8 @@ def testSynonymUpdateWorngArity(env):
         r.execute_command('ft.synupdate', 'idx', '0')
 
 def testSynonymUpdateUnknownIndex(env):
-    r = env
-    exceptionStr = None
-    try:
-        r.execute_command('ft.synupdate', 'idx', '0', 'child')
-    except Exception as e:
-        exceptionStr = str(e)
-    env.assertEqual(exceptionStr, 'Unknown index name')
-
-def testSynonymUpdateUnknownIndex(env):
-    r = env
-    exceptionStr = None
-    try:
-        r.execute_command('ft.synupdate', 'idx', '10000000000', 'child')
-    except Exception as e:
-        exceptionStr = str(e)
-    env.assertEqual(exceptionStr, 'wrong parameters, id out of range')
+    env.expect('ft.synupdate', 'idx', '0', 'child').error().contains('Unknown index name')
+    env.expect('ft.synupdate', 'idx', '10000000000', 'child').error().contains('wrong parameters, id out of range')
 
 def testSynonymUpdateNotNumberId(env):
     r = env
@@ -215,23 +201,6 @@ def testSynonymsIntensiveLoad(env):
             env.assertEqual(res, [1L, 'doc%d' % i, ['title', 'he is a boy%d' % i, 'body', 'this is a test']])
 
 def testSynonymsForceUpdate(env):
-    exceptionStr = None
-    try:
-        env.execute_command('ft.synforceupdate', 'idx', '0', 'child')
-    except Exception as e:
-        exceptionStr = str(e)
-    env.assertEqual(exceptionStr, 'Unknown index name')
-
-    exceptionStr = None
-    try:
-        env.execute_command('ft.synforceupdate', 'idx', 'olah', 'child')
-    except Exception as e:
-        exceptionStr = str(e)
-    env.assertEqual(exceptionStr, 'wrong parameters, id is not an integer')
-
-    exceptionStr = None
-    try:
-        env.execute_command('ft.synforceupdate', 'idx', '10000000000', 'child')
-    except Exception as e:
-        exceptionStr = str(e)
-    env.assertEqual(exceptionStr, 'wrong parameters, id out of range')
+    env.expect('ft.synforceupdate', 'idx', '0', 'child').error().contains('Unknown index name')
+    env.expect('ft.synforceupdate', 'idx', 'olah', 'child').error().contains('wrong parameters, id is not an integer')
+    env.expect('ft.synforceupdate', 'idx', '10000000000', 'child').error().contains('wrong parameters, id out of range')
