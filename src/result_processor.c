@@ -439,7 +439,7 @@ static int cmpByFields(const void *e1, const void *e2, const void *udata) {
       break;
     }
 
-    int rc = RSValue_Cmp(v1, v2, NULL, NULL);
+    int rc = RSValue_Cmp(v1, v2);
     // take the ascending bit for this property from the ascending bitmap
     ascending = cc->ascendMap & (1 << i) ? 1 : 0;
     if (rc != 0) return ascending ? -rc : rc;

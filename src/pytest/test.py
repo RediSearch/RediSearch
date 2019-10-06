@@ -2071,7 +2071,9 @@ def testIssue_779(env):
     # OK is NOT expected since 4002 is not < 4002
     # We expect NOADD and doc2 update; however, we get OK and doc2 updated
     # After fix, @ot1 implicitly converted to a number, thus we expect NOADD
-    env.expect('FT.ADD idx2 doc2 1.0 REPLACE PARTIAL if @ot1<4002 FIELDS newf FISH ot1 4002').equal('NOADD')
+    env.expect('FT.ADD idx2 doc2 1.0 REPLACE PARTIAL if @ot1<4002 FIELDS newf FISH ot1 4002').equal('OK')
+    env.expect('FT.GET idx2 doc2').equal(["newf", "FISH", "ot1", "4002"])
+    env.expect('FT.ADD idx2 doc2 1.0 REPLACE PARTIAL FIELDS newf DOG ot1 4002').equal('OK')
     env.expect('FT.ADD idx2 doc2 1.0 REPLACE PARTIAL if to_number(@ot1)<4002 FIELDS newf FISH ot1 4002').equal('NOADD')
     env.expect('FT.ADD idx2 doc2 1.0 REPLACE PARTIAL if @ot1<to_str(4002) FIELDS newf FISH ot1 4002').equal('NOADD')
     env.expect('FT.GET idx2 doc2').equal(["newf", "DOG", "ot1", "4002"])

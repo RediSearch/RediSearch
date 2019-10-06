@@ -2,7 +2,10 @@ LEMON := $(SRCUTIL)/lemon
 TEMPLATE := $(SRCUTIL)/lempar.c
 RAGEL := ragel
 
-all: lexer.c parser-toplevel.c parser.c.inc
+all: $(LEMON) lexer.c parser-toplevel.c parser.c.inc
+
+$(LEMON) : $(SRCUTIL)/lemon.c
+	gcc -o $@ $<
 
 lexer.c: lexer.rl
 	$(RAGEL) -s lexer.rl -o $@

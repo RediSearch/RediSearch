@@ -257,38 +257,38 @@ static int evalPredicate(RSExprEvalCtx *ctx, RSPredicate *pred, RSValue *result,
   RSValue *l_ptr = RSValue_Dereference(&l);
   RSValue *r_ptr = RSValue_Dereference(&r);
 
-  int res, rc = EXPR_EVAL_OK;
+  int res;
   if (l_ptr->t == RSValue_Null || r_ptr->t == RSValue_Null) {
     // NULL are not comparable
     res = 0;
   } else
     switch (pred->cond) {
       case RSCondition_Eq:
-        res = RSValue_Equal(&l, &r, &rc, err);
+        res = RSValue_Equal(&l, &r);
         break;
       case RSCondition_Lt:
-        res = RSValue_Cmp(&l, &r, &rc, err) < 0;
+        res = RSValue_Cmp(&l, &r) < 0;
         break;
       /* Less than or equal, <= */
       case RSCondition_Le:
-        res = RSValue_Cmp(&l, &r, &rc, err) <= 0;
+        res = RSValue_Cmp(&l, &r) <= 0;
 
         break;
         /* Greater than, > */
       case RSCondition_Gt:
-        res = RSValue_Cmp(&l, &r, &rc, err) > 0;
+        res = RSValue_Cmp(&l, &r) > 0;
 
         break;
 
       /* Greater than or equal, >= */
       case RSCondition_Ge:
-        res = RSValue_Cmp(&l, &r, &rc, err) >= 0;
+        res = RSValue_Cmp(&l, &r) >= 0;
 
         break;
 
       /* Not equal, != */
       case RSCondition_Ne:
-        res = !RSValue_Equal(&l, &r, &rc, err);
+        res = !RSValue_Equal(&l, &r);
         break;
         /* Logical AND of 2 expressions, && */
       case RSCondition_And:
@@ -306,15 +306,11 @@ static int evalPredicate(RSExprEvalCtx *ctx, RSPredicate *pred, RSValue *result,
         break;
     }
 
-  RSValue_Free(&l);
-  RSValue_Free(&r);
-  if (rc != EXPR_EVAL_OK) {
-	return EXPR_EVAL_ERR;
-  }
-  
   result->numval = res;
   result->t = RSValue_Number;
 
+  RSValue_Free(&l);
+  RSValue_Free(&r);
   return EXPR_EVAL_OK;
 }
 static inline int evalProperty(RSExprEvalCtx *ctx, RSKey *k, RSValue *result, char **err) {
@@ -394,8 +390,8 @@ RSValueType GetExprType(RSExpr *expr, RSSortingTable *tbl) {
       // best effort based on sorting table, default to string
       // safe if tbl is null
       return SortingTable_GetFieldType(tbl, RSKEY(expr->property.key), RSValue_String);
-    }
     default:
       assert(0);
+    }
   }
 }

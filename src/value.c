@@ -444,27 +444,7 @@ static inline int cmp_strings(const char *s1, const char *s2, size_t l1, size_t 
   }
 }
 
-static inline int cmp_numbers(const RSValue *v1, const RSValue *v2) {
-  return v1->numval > v2->numval ? 1 : (v1->numval < v2->numval ? -1 : 0);
-}
-
-static inline int convert_to_number(const RSValue *v, RSValue *vn, int *errcode, char **err) {
-  double d;
-  if (! RSValue_ToNumber(v, &d)) {
-    if (errcode) *errcode = EXPR_EVAL_ERR;
-    const char *s = RSValue_StringPtrLen(v, NULL);
-	if (err) {
-      FMT_ERR(err, "Error converting string '%s' to number", s);
-    }
-    return 0;
-  }
-
-  if (errcode) *errcode = EXPR_EVAL_OK;
-  RSValue_SetNumber(vn, d);
-  return 1;
-}
-
-int RSValue_Cmp(RSValue *v1, RSValue *v2, int *errcode, char **err) {
+int RSValue_Cmp(RSValue *v1, RSValue *v2) {
   if (v1 == NULL && v2 == NULL) {
     return 0;
   }
@@ -483,7 +463,8 @@ int RSValue_Cmp(RSValue *v1, RSValue *v2, int *errcode, char **err) {
   if (v1->t == v2->t) {
     switch (v1->t) {
       case RSValue_Number:
-        return cmp_numbers(v1, v2);
+
+        return v1->numval > v2->numval ? 1 : (v1->numval < v2->numval ? -1 : 0);
       case RSValue_String:
         return cmp_strings(v1->strval.str, v2->strval.str, v1->strval.len, v2->strval.len);
       case RSValue_RedisString: {
@@ -507,31 +488,6 @@ int RSValue_Cmp(RSValue *v1, RSValue *v2, int *errcode, char **err) {
     return 1;
   }
 
-  // if either of the arguments is a number, convert the other one to a number
-  // if, however, error handling is not available, fallback to string comparison
-  do {
-    if (v1->t == RSValue_Number) {
-      RSValue v2n;
-      if (!convert_to_number(v2, &v2n, errcode, err)) {
-        // if it is possible to indicate an error, return
-        if (errcode) return 0;
-        // otherwise, fallback to string comparison
-        break;
-      }
-      return cmp_numbers(v1, &v2n);
-    } else if (v2->t == RSValue_Number) {
-      RSValue v1n;
-      if (!convert_to_number(v1, &v1n, errcode, err)) {
-        // if it is possible to indicate an error, return
-        if (errcode) return 0;
-        // otherwise, fallback to string comparison
-        break;
-      }
-      // otherwise, fallback to string comparison
-      return cmp_numbers(&v1n, v2);
-    }
-  } while(0);
-
   // cast to strings and compare as strings
   char buf1[100], buf2[100];
 
@@ -541,65 +497,8 @@ int RSValue_Cmp(RSValue *v1, RSValue *v2, int *errcode, char **err) {
   return cmp_strings(s1, s2, l1, l2);
 }
 
-int RSValue_Equal(RSValue *v1, RSValue *v2, int *errcode, char **err) {
-  assert(v1);
-  assert(v2);
-  v1 = RSValue_Dereference(v1);
-  v2 = RSValue_Dereference(v2);
-
-  if (v1->t == v2->t) {
-    switch (v1->t) {
-      case RSValue_Number:
-        return cmp_numbers(v1, v2) == 0;
-        
-      case RSValue_String:
-        return cmp_strings(v1->strval.str, v2->strval.str, v1->strval.len, v2->strval.len) == 0;
-        
-      case RSValue_RedisString: {
-        size_t l1, l2;
-        const char *s1 = RedisModule_StringPtrLen(v1->rstrval, &l1);
-        const char *s2 = RedisModule_StringPtrLen(v2->rstrval, &l2);
-        return cmp_strings(s1, s2, l1, l2) == 0;
-      }
-      
-      case RSValue_Null:
-        return 0;
-
-      case RSValue_Array: {
-          if (v1->arrval.len != v2->arrval.len) return 0;
-		  for (uint32_t i = 0; i < v1->arrval.len; i++) {
-              if (! RSValue_Equal(v1->arrval.vals[i], v2->arrval.vals[i], errcode, err)) {
-                  return 0;
-              }
-		  }
-      }
-
-      default:
-        return 0;
-    }
-  }
-
-  if (v1->t == RSValue_Null || v2->t == RSValue_Null) {
-    return 0;
-  }
-
-  // if either of the arguments is a number, convert the other one to a number
-  RSValue vn;
-  if (v1->t == RSValue_Number) {
-    if (!convert_to_number(v2, &vn, NULL, NULL)) return 0;
-    return cmp_numbers(v1, &vn) == 0;
-  } else if (v2->t == RSValue_Number) {
-    if (!convert_to_number(v1, &vn, NULL, NULL)) return 0;
-    return cmp_numbers(&vn, v2) == 0;
-  }
-
-  // cast to strings and compare as strings
-  char buf1[100], buf2[100];
-
-  size_t l1, l2;
-  const char *s1 = RSValue_ConvertStringPtrLen(v1, &l1, buf1, sizeof(buf1));
-  const char *s2 = RSValue_ConvertStringPtrLen(v2, &l2, buf2, sizeof(buf2));
-  return cmp_strings(s1, s2, l1, l2) == 0;
+int RSValue_Equal(RSValue *v1, RSValue *v2) {
+  return RSValue_Cmp(v1, v2) == 0;
 }
 
 /* Based on the value type, serialize the value into redis client response */

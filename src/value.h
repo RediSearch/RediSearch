@@ -111,17 +111,9 @@ static inline void RSValue_MakeReference(RSValue *dst, RSValue *src) {
   };
 }
 /* Return the value itself or its referred value */
-#if 1
 static inline RSValue *RSValue_Dereference(RSValue *v) {
   return v && v->t == RSValue_Reference ? v->ref : v;
 }
-#else
-static inline RSValue *RSValue_Dereference(const RSValue *v) {
-  for (; v && v->t == RSValue_Reference; v = v->ref)
-    ;
-  return (RSValue *)v;
-}
-#endif
 
 /* Wrap a string with length into a value object. Doesn't duplicate the string. Use strdup if
  * the value needs to be detached */
@@ -249,10 +241,10 @@ RSValue *RS_NullVal();
 RSValue *RS_NewValueFromCmdArg(CmdArg *arg);
 
 /* Compare 2 values for sorting */
-int RSValue_Cmp(RSValue *v1, RSValue *v2, int *errcode, char **err);
+int RSValue_Cmp(RSValue *v1, RSValue *v2);
 
 /* Return 1 if the two values are equal */
-int RSValue_Equal(RSValue *v1, RSValue *v2, int *errcode, char **err);
+int RSValue_Equal(RSValue *v1, RSValue *v2);
 
 /* "truth testing" for a value. for a number - not zero. For a string/array - not empty. null is
  * considered false */
