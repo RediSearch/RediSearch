@@ -48,8 +48,7 @@ void DocIdMap_Free(DocIdMap *m);
  * incremental ids to inserted keys.
  *
  * NOTE: Currently there is no deduplication on the table so we do not prevent dual insertion of
- * the
- * same key. This may result in document duplication in results  */
+ * the of same key. This may result in document duplication in results  */
 
 typedef struct {
   DLLIST2 lroot;

@@ -142,19 +142,11 @@ int DocTable_SetPayload(DocTable *t, t_docId docId, const char *data, size_t len
  * vector. Returns 1 on success, 0 if the document does not exist. No further validation is done
  */
 int DocTable_SetSortingVector(DocTable *t, t_docId docId, RSSortingVector *v) {
+  assert(v); // Called from one place and v is check for NULL before
+
   RSDocumentMetadata *dmd = DocTable_Get(t, docId);
   if (!dmd) {
     return 0;
-  }
-
-  /* Null vector means remove the current vector if it exists */
-  if (!v) {
-    if (dmd->sortVector) {
-      SortingVector_Free(dmd->sortVector);
-    }
-    dmd->sortVector = NULL;
-    dmd->flags &= ~Document_HasSortVector;
-    return 1;
   }
 
   /* Set th new vector and the flags accordingly */
@@ -417,14 +409,14 @@ void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
     if ((dmd->flags & Document_HasPayload)) {
       if (!(dmd->flags & Document_Deleted)) {
         dmd->payload = rm_malloc(sizeof(RSPayload));
-        dmd->payload->data = RedisModule_LoadStringBuffer(rdb, &dmd->payload->len);
+        char *tmpPayload = RedisModule_LoadStringBuffer(rdb, &dmd->payload->len);
         char *buf = rm_malloc(dmd->payload->len);
-        memcpy(buf, dmd->payload->data, dmd->payload->len);
-        RedisModule_Free(dmd->payload->data);
+        memcpy(buf, tmpPayload, dmd->payload->len);
+        RedisModule_Free(tmpPayload);
         dmd->payload->data = buf;
         dmd->payload->len--;
         t->memsize += dmd->payload->len + sizeof(RSPayload);
-      } else if ((dmd->flags & Document_Deleted) && (encver == INDEX_MIN_EXPIRE_VERSION)) {
+      } else if (/*(dmd->flags & Document_Deleted) && */(encver == INDEX_MIN_EXPIRE_VERSION)) {
         RedisModule_Free(RedisModule_LoadStringBuffer(rdb, NULL));  // throw this string to garbage
       }
     }

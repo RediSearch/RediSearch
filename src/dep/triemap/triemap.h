@@ -52,7 +52,7 @@ typedef void *(*TrieMapReplaceFunc)(void *oldval, void *newval);
 /* Add a new string to a trie. Returns 1 if the key is new to the trie or 0 if
  * it already existed.
  *
- * If value is given, it is saved as a pyaload inside the trie node.
+ * If value is given, it is saved as a payload inside the trie node.
  * If the key already exists, we replace the old value with the new value, using
  * free() to free the old value.
  *
