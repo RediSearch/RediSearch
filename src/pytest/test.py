@@ -1250,17 +1250,10 @@ def testNumericRange(env):
             'ft.search', 'idx', 'hello kitty @score:[-inf +inf]', "nocontent")
         env.assertEqual(100, res[0])
 
-    with env.assertResponseError():
-        res = env.cmd('ft.search', 'idx', 'score:[1]') 
-
-    with env.assertResponseError():
-        res = env.cmd('ft.search', 'idx', 'hello kitty', 'filter', 'score', 5)
-
-    with env.assertResponseError():
-        res = env.cmd('ft.search', 'idx', 'hello kitty', 'filter', 'score', 5, 'inf')   
-
-    with env.assertResponseError():
-        res = env.cmd('ft.search', 'idx', 'hello kitty', 'filter', 'score', 'inf', 5)   
+    env.expect('ft.search', 'idx', 'score:[1]').error().contains("Syntax error at offset 5 near score")
+    env.expect('ft.search', 'idx', 'hello kitty', 'filter', 'score', 5).error().contains("FILTER requires 3 arguments")
+    env.expect('ft.search', 'idx', 'hello kitty', 'filter', 'score', 5, 'inf').error().contains("Bad upper range: inf")
+    env.expect('ft.search', 'idx', 'hello kitty', 'filter', 'score', 'inf', 5).error().contains("Bad lower range: inf")
 
 def testSuggestions(env):
     r = env
