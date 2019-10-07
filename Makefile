@@ -3,25 +3,25 @@ ROOT=.
 include deps/readies/mk/main
 
 define HELP
-make setup      # install prerequisited (CAUTION: THIS WILL MODIFY YOUR SYSTEM)
-make fetch      # download and prepare dependant modules
+make setup         # install prerequisited (CAUTION: THIS WILL MODIFY YOUR SYSTEM)
+make fetch         # download and prepare dependant modules
 
-make build      # compile and link
-make parsers    # build parsers code
-make clean      # remove build artifacts
-  ALL=1           # remove entire artifacts directory
+make build         # compile and link
+make parsers       # build parsers code
+make clean         # remove build artifacts
+  ALL=1              # remove entire artifacts directory
 
-make test       # run all tests
+make test          # run all tests (via ctest)
   TEST=regex
-make pytest     # run python tests
-  TEST=name      # e.g. TEST=test:testSearch
-  GDB=1          # RLTest interactive debugging
-make c_tests    # run C tests
-make cpp_tests  # run C++ tests
+make pytest        # run python tests (src/pytest)
+  TEST=name          # e.g. TEST=test:testSearch
+  GDB=1              # RLTest interactive debugging
+make c_tests       # run C tests (src/tests)
+make cpp_tests     # run C++ tests (src/cpptests)
 
-make pack       # create installation packages
-make deploy     # copy packages to S3
-make release    # release a version
+make pack          # create installation packages
+make deploy        # copy packages to S3
+make release       # release a version
 
 make docker
 make docker_push
