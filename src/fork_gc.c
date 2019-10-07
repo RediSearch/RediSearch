@@ -10,6 +10,7 @@
 #include <stdbool.h>
 #include <unistd.h>
 #include <sys/wait.h>
+#include <sys/resource.h>
 #include "rwlock.h"
 
 #ifdef __linux__
@@ -938,6 +939,7 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
   gc->retryInterval.tv_sec = RSGlobalConfig.forkGcRunIntervalSec;
 
   if (cpid == 0) {
+    setpriority(PRIO_PROCESS, getpid(), 19);
     // fork process
     close(gc->pipefd[GC_READERFD]);
 #ifdef __linux__
