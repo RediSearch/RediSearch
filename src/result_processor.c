@@ -22,6 +22,10 @@ void QITR_Cleanup(QueryIterator *qitr) {
 void SearchResult_Clear(SearchResult *r) {
   // This won't affect anything if the result is null
   r->score = 0;
+  if (r->scoreExplain) {
+    SEDestroy(r->scoreExplain);
+    r->scoreExplain = NULL;
+  }
   if (r->indexResult) {
     // IndexResult_Free(r->indexResult);
     r->indexResult = NULL;
@@ -164,7 +168,10 @@ static int rpscoreNext(ResultProcessor *base, SearchResult *res) {
 
     // Apply the scoring function
     res->score = self->scorer(&self->scorerCtx, res->indexResult, res->dmd, base->parent->minScore);
-
+    if (self->scorerCtx.scrExp) {
+      res->scoreExplain = (RSScoreExplain *)self->scorerCtx.scrExp;
+      self->scorerCtx.scrExp = rm_calloc(1, sizeof(RSScoreExplain));
+    }
     // If we got the special score RS_SCORE_FILTEROUT - disregard the result and decrease the total
     // number of results (it's been increased by the upstream processor)
     if (res->score == RS_SCORE_FILTEROUT) {
@@ -187,6 +194,8 @@ static void rpscoreFree(ResultProcessor *rp) {
   if (self->scorerFree) {
     self->scorerFree(self->scorerCtx.extdata);
   }
+  rm_free(self->scorerCtx.scrExp);
+  self->scorerCtx.scrExp = NULL;
   rm_free(self);
 }
 
@@ -372,6 +381,11 @@ static int cmpByFields(const void *e1, const void *e2, const void *udata) {
   const SearchResult *h1 = e1, *h2 = e2;
   int ascending = 0;
 
+  QueryError *qerr = NULL;
+  if (self && self->base.parent && self->base.parent->err) {
+  	qerr = self->base.parent->err;
+  }
+ 
   for (size_t i = 0; i < self->fieldcmp.nkeys && i < SORTASCMAP_MAXFIELDS; i++) {
     const RSValue *v1 = RLookup_GetItem(self->fieldcmp.keys[i], &h1->rowdata);
     const RSValue *v2 = RLookup_GetItem(self->fieldcmp.keys[i], &h2->rowdata);
@@ -389,7 +403,7 @@ static int cmpByFields(const void *e1, const void *e2, const void *udata) {
       return ascending ? -rc : rc;
     }
 
-    int rc = RSValue_Cmp(v1, v2);
+    int rc = RSValue_Cmp(v1, v2, qerr);
     // printf("asc? %d Compare: \n", ascending);
     // RSValue_Print(v1);
     // printf(" <=> ");

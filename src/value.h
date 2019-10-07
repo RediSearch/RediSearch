@@ -7,11 +7,13 @@
 #include <errno.h>
 #include <math.h>
 #include <assert.h>
-#include <rmutil/sds.h>
+
+#include "rmutil/sds.h"
 #include "redisearch.h"
 #include "util/fnv.h"
 #include "rmutil/args.h"
 #include "rmalloc.h"
+#include "query_error.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -328,10 +330,10 @@ RSValue *RS_StringArrayT(char **strs, uint32_t sz, RSStringType st);
 RSValue *RS_NullVal();
 
 /* Compare 2 values for sorting */
-int RSValue_Cmp(const RSValue *v1, const RSValue *v2);
+int RSValue_Cmp(const RSValue *v1, const RSValue *v2, QueryError *status);
 
 /* Return 1 if the two values are equal */
-int RSValue_Equal(const RSValue *v1, const RSValue *v2);
+int RSValue_Equal(const RSValue *v1, const RSValue *v2, QueryError *status);
 
 /* "truth testing" for a value. for a number - not zero. For a string/array - not empty. null is
  * considered false */

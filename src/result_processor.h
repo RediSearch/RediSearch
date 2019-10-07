@@ -10,6 +10,7 @@
 #include "search_options.h"
 #include "rlookup.h"
 #include "extension.h"
+#include "score_explain.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -91,6 +92,7 @@ typedef struct {
 
   // not all results have score - TBD
   double score;
+  RSScoreExplain *scoreExplain;
 
   RSDocumentMetadata *dmd;
 
