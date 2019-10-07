@@ -990,6 +990,45 @@ def testAddHash(env):
     env.assertEqual(1, res[0])
     env.assertEqual("doc2", res[1])
 
+def testSafeAddHash(env):
+    if env.is_cluster():
+        raise unittest.SkipTest()
+
+    r = env
+    env.assertOk(r.execute_command('ft.create', 'idx', 'schema',
+                                    'title', 'text', 'weight', 10.0, 'body', 'text', 'price', 'numeric'))
+
+    env.assertTrue(
+        r.hmset('doc1', {"title": "hello world", "body": "lorem ipsum", "price": 2}))
+    env.assertTrue(
+        r.hmset('doc2', {"title": "hello werld", "body": "lorem ipsum", "price": 5}))
+
+    env.assertOk(r.execute_command('ft.safeaddhash', 'idx', 'doc1', 1.0))
+    env.assertOk(r.execute_command('ft.safeaddhash', 'idx', 'doc2', 1.0))
+
+    res = r.execute_command('ft.search', 'idx', "hello", "nocontent")
+    env.assertEqual(3, len(res))
+    env.assertEqual(2, res[0])
+    env.assertEqual("doc1", res[2])
+    env.assertEqual("doc2", res[1])
+
+    res = r.execute_command(
+        'ft.search', 'idx',
+        "hello",
+        "filter", "price", "0", "3"
+        )
+    env.assertEqual(3, len(res))
+    env.assertEqual(1, res[0])
+    env.assertEqual("doc1", res[1])
+    env.assertListEqual(
+        ['body', 'lorem ipsum', 'price', '2', 'title', 'hello world'], res[2])
+
+    res = r.execute_command(
+        'ft.search', 'idx', "hello werld", "nocontent")
+    env.assertEqual(2, len(res))
+    env.assertEqual(1, res[0])
+    env.assertEqual("doc2", res[1])
+
 def testInfields(env):
     r = env
     env.assertOk(r.execute_command(
