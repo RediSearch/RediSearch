@@ -16,6 +16,7 @@
 *.tar
 /site/*
 /build*/
+/venv*/
 srcutil/lemon
 src/query_parser/lemon
 src/dep/gtest
@@ -25,5 +26,6 @@ src/pytest/RLTest
 .vscode/*
 .idea/*
 .project
+.cproject
 VSCODE.DB*
 callgrind.out.*

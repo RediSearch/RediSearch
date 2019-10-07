@@ -1,4 +1,6 @@
 import unittest
+from includes import *
+
 
 def testBasicPoneticCase(env):
     env.assertOk(env.cmd('ft.create', 'idx', 'schema', 'text', 'TEXT', 'PHONETIC', 'dm:en', 'SORTABLE'))

@@ -4,7 +4,7 @@ import itertools
 import os
 from RLTest import Env
 import pprint
-
+from includes import *
 
 def to_dict(res):
     d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
@@ -289,7 +289,7 @@ class TestAggregate():
         res = self.env.cmd('ft.aggregate', 'games', '*', 'GROUPBY', '1', '@brand',
                            'REDUCE', 'sum', 1, '@price', 'as', 'price',
                            'SORTBY', 2, '@price', 'asc', 'MAX', 2)
-        
+
         self.env.assertListEqual([292L, ['brand', 'myiico', 'price', '0.23'], [
                                  'brand', 'crystal dynamics', 'price', '0.25']], res)
 
