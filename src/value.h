@@ -167,8 +167,6 @@ static inline RSValue *RSValue_Dereference(const RSValue *v) {
  * the value needs to be detached */
 RSValue *RS_StringVal(char *str, uint32_t len);
 
-RSValue *RS_StringValFmt(const char *fmt, ...);
-
 /* Same as RS_StringVal but with explicit string type */
 RSValue *RS_StringValT(char *str, uint32_t len, RSStringType t);
 
@@ -187,16 +185,9 @@ static inline RSValue *RS_ConstStringVal(const char *s, size_t n) {
 RSValue *RS_RedisStringVal(RedisModuleString *str);
 
 /**
- *  Create a new value object which increments and owns a reference to the string
- */
-RSValue *RS_OwnRedisStringVal(RedisModuleString *str);
-
-/**
  * Create a new value object which steals a reference to the string
  */
 RSValue *RS_StealRedisStringVal(RedisModuleString *s);
-
-void RSValue_MakeRStringOwner(RSValue *v);
 
 const char *RSValue_TypeName(RSValueType t);
 

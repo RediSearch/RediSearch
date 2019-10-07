@@ -110,15 +110,6 @@ void RSValue_Free(RSValue *v) {
   }
 }
 
-RSValue RS_Value(RSValueType t) {
-  RSValue v = (RSValue){
-      .t = t,
-      .refcount = 1,
-      .allocated = 0,
-  };
-  return v;
-}
-
 inline void RSValue_SetNumber(RSValue *v, double n) {
   v->t = RSValue_Number;
   v->numval = n;
@@ -173,15 +164,6 @@ inline RSValue *RS_StringValT(char *str, uint32_t len, RSStringType t) {
   return v;
 }
 
-RSValue *RS_StringValFmt(const char *fmt, ...) {
-  char *buf;
-  va_list ap;
-  va_start(ap, fmt);
-  rm_vasprintf(&buf, fmt, ap);
-  va_end(ap);
-  return RS_StringVal(buf, strlen(buf));
-}
-
 /* Wrap a redis string value */
 RSValue *RS_RedisStringVal(RedisModuleString *str) {
   RSValue *v = RS_NewValue(RSValue_RedisString);
@@ -189,23 +171,11 @@ RSValue *RS_RedisStringVal(RedisModuleString *str) {
   return v;
 }
 
-RSValue *RS_OwnRedisStringVal(RedisModuleString *str) {
-  RSValue *r = RS_RedisStringVal(str);
-  RSValue_MakeRStringOwner(r);
-  return r;
-}
-
 RSValue *RS_StealRedisStringVal(RedisModuleString *str) {
   RSValue *ret = RS_RedisStringVal(str);
   ret->rstrval = str;
   ret->t = RSValue_OwnRstring;
   return ret;
-}
-
-void RSValue_MakeRStringOwner(RSValue *v) {
-  assert(v->t == RSValue_RedisString);
-  v->t = RSValue_OwnRstring;
-  RedisModule_RetainString(RSDummyContext, v->rstrval);
 }
 
 /* Convert a value to a string value. If the value is already a string value it gets
@@ -238,7 +208,6 @@ void RSValue_ToString(RSValue *dst, RSValue *v) {
 }
 
 RSValue *RSValue_ParseNumber(const char *p, size_t l) {
-
   char *e;
   errno = 0;
   double d = strtod(p, &e);
