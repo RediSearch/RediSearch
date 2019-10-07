@@ -811,7 +811,7 @@ int AlterIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (!AC_AdvanceIfMatch(&ac, "ADD")) {
       return RedisModule_ReplyWithError(ctx, "Unknown action passed to ALTER SCHEMA");
     }
-    if (AC_NumRemaining(&ac) < 2) {
+    if (!AC_NumRemaining(&ac)) {
       return RedisModule_ReplyWithError(ctx, "No fields provided");
     }
     IndexSpec_AddFields(sp, &ac, &status);

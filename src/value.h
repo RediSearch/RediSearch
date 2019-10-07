@@ -120,7 +120,7 @@ static inline RSValue *RSValue_IncrRef(RSValue *v) {
 }
 
 #define RSValue_Decref(v) \
-  if (!--(v)->refcount && (v)->t != RSValue_Null) { \
+  if (!--(v)->refcount) { \
     RSValue_Free(v);      \
   }
 
