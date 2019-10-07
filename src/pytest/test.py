@@ -2630,23 +2630,22 @@ def testErrorOnOpperation(env):
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', '12234556').equal('OK')
 
     err = env.cmd('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', '1 + split()', 'as', 'a')[1]
-    env.assertEqual(type(err), redis.exceptions.ResponseError)
+    env.assertEqual(type(err[0]), redis.exceptions.ResponseError)
 
     err = env.cmd('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'split() + 1', 'as', 'a')[1]
-    env.assertEqual(type(err), redis.exceptions.ResponseError)
+    env.assertEqual(type(err[0]), redis.exceptions.ResponseError)
 
     err = env.cmd('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', '"bad" + "bad"', 'as', 'a')[1]
-    env.assertEqual(type(err), redis.exceptions.ResponseError)
+    env.assertEqual(type(err[0]), redis.exceptions.ResponseError)
 
     err = env.cmd('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'split("bad" + "bad")', 'as', 'a')[1]
-    env.assertEqual(type(err), redis.exceptions.ResponseError)
+    env.assertEqual(type(err[0]), redis.exceptions.ResponseError)
 
     err = env.cmd('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', '!(split("bad" + "bad"))', 'as', 'a')[1]
-    env.assertEqual(type(err), redis.exceptions.ResponseError)
+    env.assertEqual(type(err[0]), redis.exceptions.ResponseError)
 
     err = env.cmd('ft.aggregate', 'idx', '@test:[0..inf]', 'APPLY', '!@test', 'as', 'a')[1]
-    print err
-    env.assertEqual(type(err), redis.exceptions.ResponseError)
+    env.assertEqual(type(err[0]), redis.exceptions.ResponseError)
 
 
 def grouper(iterable, n, fillvalue=None):

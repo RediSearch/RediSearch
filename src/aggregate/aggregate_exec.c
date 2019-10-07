@@ -134,6 +134,7 @@ static int sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
   if (rc == RS_RESULT_OK && nrows++ < limit && !(req->reqflags & QEXEC_F_NOROWS)) {
     nelem += serializeResult(req, outctx, &r);
   } else if (rc == RS_RESULT_ERROR) {
+    RedisModule_ReplyWithArray(outctx, 1);
     QueryError_ReplyAndClear(outctx, req->qiter.err);
     ++nelem;
   }
