@@ -209,30 +209,6 @@ void RLookup_WriteKey(const RLookupKey *key, RLookupRow *row, RSValue *value);
  */
 void RLookup_WriteOwnKey(const RLookupKey *key, RLookupRow *row, RSValue *value);
 
-/**
- * Move data from the source row to the destination row. The source row is cleared.
- * The destination row should be pre-cleared (though its cache may still
- * exist).
- * @param lk lookup common to both rows
- * @param src the source row
- * @param dst the destination row
- */
-void RLookupRow_Move(const RLookup *lk, RLookupRow *src, RLookupRow *dst);
-
-/**
- * Write a value by-name to the lookup table. This is useful for 'dynamic' keys
- * for which it is not necessary to use the boilerplate of getting an explicit
- * key.
- *
- * The reference count of the value will be incremented.
- */
-void RLookup_WriteKeyByName(RLookup *lookup, const char *name, RLookupRow *row, RSValue *value);
-
-/**
- * Like WriteKeyByName, but consumes a refcount
- */
-void RLookup_WriteOwnKeyByName(RLookup *lookup, const char *name, RLookupRow *row, RSValue *value);
-
 /** Get a value from the row, provided the key.
  *
  * This does not actually "search" for the key, but simply performs array
@@ -270,8 +246,6 @@ void RLookupRow_Wipe(RLookupRow *row);
  * when the row object will no longer be used.
  */
 void RLookupRow_Cleanup(RLookupRow *row);
-
-void RLookupRow_Dump(const RLookupRow *row);
 
 typedef enum {
   /* Use keylist (keys/nkeys) for the fields to list */

@@ -139,55 +139,8 @@ void RSExpr_Free(RSExpr *e) {
   rm_free(e);
 }
 
-void RSExpr_Print(const RSExpr *e) {
-  if (!e) {
-    printf("NULL");
-    return;
-  }
-  switch (e->t) {
-    case RSExpr_Literal:
-      RSValue_Print(&e->literal);
-      break;
-    case RSExpr_Function:
-      printf("%s(", e->func.name);
-      for (size_t i = 0; e->func.args != NULL && i < e->func.args->len; i++) {
-        RSExpr_Print(e->func.args->args[i]);
-        if (i < e->func.args->len - 1) printf(", ");
-      }
-      printf(")");
-      break;
-    case RSExpr_Op:
-      printf("(");
-      RSExpr_Print(e->op.left);
-      printf(" %c ", e->op.op);
-      RSExpr_Print(e->op.right);
-      printf(")");
-      break;
-
-    case RSExpr_Predicate:
-      printf("(");
-      RSExpr_Print(e->pred.left);
-      printf(" %s ", RSConditionStrings[e->pred.cond]);
-      RSExpr_Print(e->pred.right);
-      printf(")");
-
-      break;
-    case RSExpr_Property:
-      printf("@%s", e->property.key);
-      break;
-    case RSExpr_Inverted:
-      printf("!");
-      RSExpr_Print(e->inverted.child);
-      break;
-  }
-}
-
 void ExprAST_Free(RSExpr *e) {
   RSExpr_Free(e);
-}
-
-void ExprAST_Print(const RSExpr *e) {
-  RSExpr_Print(e);
 }
 
 RSExpr *ExprAST_Parse(const char *e, size_t n, QueryError *status) {

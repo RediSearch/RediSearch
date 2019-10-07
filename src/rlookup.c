@@ -125,19 +125,6 @@ void RLookup_WriteKey(const RLookupKey *key, RLookupRow *row, RSValue *v) {
   RSValue_IncrRef(v);
 }
 
-void RLookup_WriteKeyByName(RLookup *lookup, const char *name, RLookupRow *dst, RSValue *v) {
-  // Get the key first
-  RLookupKey *k =
-      RLookup_GetKey(lookup, name, RLOOKUP_F_NAMEALLOC | RLOOKUP_F_NOINCREF | RLOOKUP_F_OCREAT);
-  assert(k);
-  RLookup_WriteKey(k, dst, v);
-}
-
-void RLookup_WriteOwnKeyByName(RLookup *lookup, const char *name, RLookupRow *row, RSValue *value) {
-  RLookup_WriteKeyByName(lookup, name, row, value);
-  RSValue_Decref(value);
-}
-
 void RLookupRow_Wipe(RLookupRow *r) {
   for (size_t ii = 0; ii < array_len(r->dyn) && r->ndyn; ++ii) {
     RSValue **vpp = r->dyn + ii;
@@ -158,34 +145,6 @@ void RLookupRow_Cleanup(RLookupRow *r) {
   RLookupRow_Wipe(r);
   if (r->dyn) {
     array_free(r->dyn);
-  }
-}
-
-void RLookupRow_Move(const RLookup *lk, RLookupRow *src, RLookupRow *dst) {
-  for (const RLookupKey *kk = lk->head; kk; kk = kk->next) {
-    RSValue *vv = RLookup_GetItem(kk, src);
-    if (vv) {
-      RLookup_WriteKey(kk, dst, vv);
-    }
-  }
-  RLookupRow_Wipe(src);
-}
-
-void RLookupRow_Dump(const RLookupRow *rr) {
-  printf("Row @%p\n", rr);
-  if (rr->dyn) {
-    printf("  DYN @%p\n", rr->dyn);
-    for (size_t ii = 0; ii < array_len(rr->dyn); ++ii) {
-      printf("  [%lu]: %p\n", ii, rr->dyn[ii]);
-      if (rr->dyn[ii]) {
-        printf("    ");
-        RSValue_Print(rr->dyn[ii]);
-        printf("\n");
-      }
-    }
-  }
-  if (rr->sv) {
-    printf("  SV @%p\n", rr->sv);
   }
 }
 

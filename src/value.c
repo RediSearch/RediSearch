@@ -627,41 +627,6 @@ int RSValue_SendReply(RedisModuleCtx *ctx, const RSValue *v, int isTyped) {
   return REDISMODULE_OK;
 }
 
-void RSValue_Print(const RSValue *v) {
-  FILE *fp = stderr;
-  if (!v) {
-    fprintf(fp, "nil");
-  }
-  switch (v->t) {
-    case RSValue_String:
-      fprintf(fp, "\"%.*s\"", v->strval.len, v->strval.str);
-      break;
-    case RSValue_RedisString:
-    case RSValue_OwnRstring:
-      fprintf(fp, "\"%s\"", RedisModule_StringPtrLen(v->rstrval, NULL));
-      break;
-    case RSValue_Number:
-      fprintf(fp, "%.12g", v->numval);
-      break;
-    case RSValue_Null:
-      fprintf(fp, "NULL");
-      break;
-    case RSValue_Undef:
-      fprintf(fp, "<Undefined>");
-    case RSValue_Array:
-      fprintf(fp, "[");
-      for (uint32_t i = 0; i < v->arrval.len; i++) {
-        RSValue_Print(v->arrval.vals[i]);
-        printf(", ");
-      }
-      fprintf(fp, "]");
-      break;
-    case RSValue_Reference:
-      RSValue_Print(v->ref);
-      break;
-  }
-}
-
 /*
  *  - s: will be parsed as a string
  *  - l: Will be parsed as a long integer

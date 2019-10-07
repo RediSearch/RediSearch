@@ -361,8 +361,6 @@ static inline uint32_t RSValue_ArrayLen(const RSValue *arr) {
 /* Based on the value type, serialize the value into redis client response */
 int RSValue_SendReply(RedisModuleCtx *ctx, const RSValue *v, int typed);
 
-void RSValue_Print(const RSValue *v);
-
 int RSValue_ArrayAssign(RSValue **args, int argc, const char *fmt, ...);
 
 #ifdef __cplusplus

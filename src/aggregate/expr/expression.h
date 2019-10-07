@@ -123,7 +123,6 @@ int ExprAST_GetLookupKeys(RSExpr *root, RLookup *lookup, QueryError *err);
 int ExprEval_Eval(ExprEval *evaluator, RSValue *result);
 
 void ExprAST_Free(RSExpr *expr);
-void ExprAST_Print(const RSExpr *expr);
 RSExpr * ExprAST_Parse(const char *e, size_t n, QueryError *status);
 
 /* Parse an expression string, returning a prased expression tree on success. On failure (syntax
