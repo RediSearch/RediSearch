@@ -102,6 +102,25 @@ RLookupKey *RLookup_GetKey(RLookup *lookup, const char *name, int flags) {
   return RLookup_GetKeyEx(lookup, name, strlen(name), flags);
 }
 
+size_t RLookup_GetLength(RLookup *lookup, const RLookupRow *r, int explicitReturn) {
+  size_t nfields = 0;
+  for (const RLookupKey *kk = lookup->head; kk; kk = kk->next) {
+    if (kk->flags & RLOOKUP_F_HIDDEN) {
+      continue;
+    }
+    if (explicitReturn && (kk->flags & RLOOKUP_F_EXPLICITRETURN) == 0) {
+      continue;
+    }
+    const RSValue *v = RLookup_GetItem(kk, r);
+    if (!v) {
+      continue;
+    }
+
+    ++nfields;
+  }
+  return nfields;
+}
+
 void RLookup_Init(RLookup *lk, IndexSpecCache *spcache) {
   memset(lk, 0, sizeof(*lk));
   if (spcache) {

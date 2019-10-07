@@ -98,22 +98,9 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
 
   if (!(options & QEXEC_F_SEND_NOFIELDS)) {
     count++;
-    size_t nfields = 0;
     RLookup *lk = AGPLN_GetLookup(&req->ap, NULL, AGPLN_GETLOOKUP_LAST);
-    for (const RLookupKey *kk = lk->head; kk; kk = kk->next) {
-      if (kk->flags & RLOOKUP_F_HIDDEN) {
-        continue;
-      }
-      if (req->outFields.explicitReturn && (kk->flags & RLOOKUP_F_EXPLICITRETURN) == 0) {
-        continue;
-      }
-      const RSValue *v = RLookup_GetItem(kk, &r->rowdata);
-      if (!v) {
-        continue;
-      }
 
-      ++nfields;
-    }
+    size_t nfields = RLookup_GetLength(lk, &r->rowdata, req->outFields.explicitReturn);
 
     RedisModule_ReplyWithArray(outctx, nfields * 2);
 
