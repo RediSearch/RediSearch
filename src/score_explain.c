@@ -10,21 +10,21 @@ static void recExplainReply(RedisModuleCtx *ctx, RSScoreExplain *scrExp) {
     RedisModule_ReplyWithArray(ctx, 2);
     RedisModule_ReplyWithSimpleString(ctx, scrExp->str);
     RedisModule_ReplyWithArray(ctx, numChildren);
-    for(int i = 0; i < numChildren; i++) {
+    for (int i = 0; i < numChildren; i++) {
       recExplainReply(ctx, &scrExp->children[i]);
     }
   }
 }
 
 static void recExplainDestroy(RSScoreExplain *scrExp) {
-  for(int i = 0; i < scrExp->numChildren; i++) {
+  for (int i = 0; i < scrExp->numChildren; i++) {
     recExplainDestroy(&scrExp->children[i]);
   }
   rm_free(scrExp->children);
   rm_free(scrExp->str);
 }
 
-void SEReply(RedisModuleCtx *ctx, RSScoreExplain *scrExp){
+void SEReply(RedisModuleCtx *ctx, RSScoreExplain *scrExp) {
   if (scrExp != NULL) {
     recExplainReply(ctx, scrExp);
   }

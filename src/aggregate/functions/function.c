@@ -14,16 +14,6 @@ RSFunction RSFunctionRegistry_Get(const char *name, size_t len) {
   return NULL;
 }
 
-RSValueType RSFunctionRegistry_GetType(const char *name, size_t len) {
-  for (size_t i = 0; i < functions_g.len; i++) {
-    if (len == strlen(functions_g.funcs[i].name) &&
-        !strncasecmp(functions_g.funcs[i].name, name, len)) {
-      return functions_g.funcs[i].retType;
-    }
-  }
-  return RSValue_Null;
-}
-
 int RSFunctionRegistry_RegisterFunction(const char *name, RSFunction f, RSValueType retType) {
   if (functions_g.len + 1 >= functions_g.cap) {
     functions_g.cap += functions_g.cap ? functions_g.cap : 2;

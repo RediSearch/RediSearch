@@ -331,7 +331,7 @@ typedef struct {
   RSIndexStats indexStats;
 
   /** Flags controlling scoring function */
-  void *scrExp; //scoreflags
+  void *scrExp;  // scoreflags
 
   /* The GetSlop() callback. Returns the cumulative "slop" or distance between the query terms,
    * that can be used to factor the result score */

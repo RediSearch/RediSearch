@@ -71,7 +71,7 @@ static int parseCommon(ArgsCursor *ac, FieldList *fields, int isHighlight) {
 
   if (AC_AdvanceIfMatch(ac, "FIELDS")) {
     if (parseFieldList(ac, fields, &fieldPtrs) != 0) {
-      rc = -1;
+      rc = REDISMODULE_ERR;
       goto done;
     }
   }

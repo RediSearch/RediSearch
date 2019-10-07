@@ -23,8 +23,7 @@ void SEReply(RedisModuleCtx *ctx, RSScoreExplain *scrExp);
  */
 void SEDestroy(RSScoreExplain *scrExp);
 
-
 #ifdef __cplusplus
 }
 #endif
-#endif // RS_SCORE_EXPLAIN_H_
+#endif  // RS_SCORE_EXPLAIN_H_
