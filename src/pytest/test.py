@@ -2310,6 +2310,15 @@ def testWrongResultsReturnedBySkipOptimization(env):
     env.expect('ft.add', 'idx', 'doc2', '1.0', 'FIELDS', 'f1', 'moo', 'f2', 'foo').equal('OK')
     env.expect('ft.search', 'idx', 'foo @f2:moo').debugPrint().equal([0L])
 
+
+def testSortkeyUnsortable(env):
+    env.cmd('ft.create', 'idx', 'schema', 'test', 'text')
+    env.cmd('ft.add', 'idx', 'doc1', 1, 'fields', 'test', 'foo')
+    rv = env.cmd('ft.aggregate', 'idx', 'foo', 'withsortkeys',
+        'load', '1', '@test',
+        'sortby', '1', '@test')
+    env.assertEqual([1, '$foo', ['test', 'foo']], rv)
+
 def grouper(iterable, n, fillvalue=None):
     "Collect data into fixed-length chunks or blocks"
     from itertools import izip_longest

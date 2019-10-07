@@ -67,6 +67,7 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
     count++;
     const RSValue *sortkey = getSortKey(req, r);
     RedisModuleString *rskey = NULL;
+  reeval_sortkey:
     if (sortkey) {
       switch (sortkey->t) {
         case RSValue_Number:
@@ -79,11 +80,17 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
           rskey = RedisModule_CreateStringPrintf(outctx, "$%s", sortkey->strval);
           break;
         case RSValue_RedisString:
+        case RSValue_OwnRstring:
           rskey = RedisModule_CreateStringPrintf(outctx, "$%s",
                                                  RedisModule_StringPtrLen(sortkey->rstrval, NULL));
           break;
-        default:
+        case RSValue_Null:
+        case RSValue_Undef:
+        case RSValue_Array:
           break;
+        case RSValue_Reference:
+          sortkey = RSValue_Dereference(sortkey);
+          goto reeval_sortkey;
       }
       if (rskey) {
         RedisModule_ReplyWithString(outctx, rskey);
