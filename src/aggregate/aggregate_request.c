@@ -145,9 +145,6 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
     if ((parseSortby(arng, ac, status, req->reqflags & QEXEC_F_IS_SEARCH)) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
-  } else if (AC_AdvanceIfMatch(ac, "WITHSCHEMA")) {
-    // todo : not used anywhere, we should just remove it
-    req->reqflags |= QEXEC_F_SEND_SCHEMA;
   } else if (AC_AdvanceIfMatch(ac, "ON_TIMEOUT")) {
     if (AC_NumRemaining(ac) < 1) {
       QueryError_SetError(status, QUERY_EPARSEARGS, "Need argument for ON_TIMEOUT");
@@ -271,7 +268,6 @@ static int parseQueryLegacyArgs(ArgsCursor *ac, RSSearchOptions *options, QueryE
     NumericFilter **curpp = array_ensure_tail(&options->legacy.filters, NumericFilter *);
     *curpp = NumericFilter_Parse(ac, status);
     if (!*curpp) {
-      array_pop(options->legacy.filters);
       return ARG_ERROR;
     }
   } else if (AC_AdvanceIfMatch(ac, "GEOFILTER")) {
@@ -443,9 +439,8 @@ int PLNGroupStep_AddReducer(PLN_GroupStep *gstp, const char *name, ArgsCursor *a
   gr->name = name;
   int rv = AC_GetVarArgs(ac, &gr->args);
   if (rv != AC_OK) {
-    array_pop(gstp->reducers);
     QERR_MKBADARGS_AC(status, name, rv);
-    return REDISMODULE_ERR;
+    goto error;
   }
 
   const char *alias = NULL;
@@ -453,9 +448,8 @@ int PLNGroupStep_AddReducer(PLN_GroupStep *gstp, const char *name, ArgsCursor *a
   if (AC_AdvanceIfMatch(ac, "AS")) {
     rv = AC_GetString(ac, &alias, NULL, 0);
     if (rv != AC_OK) {
-      array_pop(gstp->reducers);
       QERR_MKBADARGS_AC(status, "AS", rv);
-      return REDISMODULE_ERR;
+      goto error;
     }
   }
   if (alias == NULL) {
@@ -464,6 +458,10 @@ int PLNGroupStep_AddReducer(PLN_GroupStep *gstp, const char *name, ArgsCursor *a
     gr->alias = rm_strdup(alias);
   }
   return REDISMODULE_OK;
+
+error:
+  array_pop(gstp->reducers);
+  return REDISMODULE_ERR;
 }
 
 static void genericStepFree(PLN_BaseStep *p) {
@@ -924,7 +922,7 @@ static int hasQuerySortby(const AGGPlan *pln) {
  * Builds the implicit pipeline for querying and scoring, and ensures that our
  * subsequent execution stages actually have data to operate on.
  */
-int buildImplicitPipeline(AREQ *req, QueryError *Status) {
+static void buildImplicitPipeline(AREQ *req, QueryError *Status) {
   RedisSearchCtx *sctx = req->sctx;
   req->qiter.conc = &req->conc;
   req->qiter.sctx = sctx;
@@ -946,7 +944,6 @@ int buildImplicitPipeline(AREQ *req, QueryError *Status) {
     rp = getScorerRP(req);
     PUSH_RP();
   }
-  return REDISMODULE_OK;
 }
 
 /**
@@ -1169,7 +1166,10 @@ void AREQ_Free(AREQ *req) {
   }
   if (req->searchopts.legacy.filters) {
     for (size_t ii = 0; ii < array_len(req->searchopts.legacy.filters); ++ii) {
-      NumericFilter_Free(req->searchopts.legacy.filters[ii]);
+      NumericFilter *nf = req->searchopts.legacy.filters[ii];
+      if (nf) {
+        NumericFilter_Free(req->searchopts.legacy.filters[ii]);
+      }
     }
     array_free(req->searchopts.legacy.filters);
   }

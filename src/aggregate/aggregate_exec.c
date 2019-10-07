@@ -294,8 +294,6 @@ static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num) {
   RedisModule_ReplyWithArray(outputCtx, 2);
   sendChunk(req, outputCtx, num);
 
-  assert(!(req->stateflags & QEXEC_S_ERROR));
-
   if (req->stateflags & QEXEC_S_ITERDONE) {
     // Write the count!
     RedisModule_ReplyWithLongLong(outputCtx, 0);

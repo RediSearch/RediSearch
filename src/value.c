@@ -92,7 +92,9 @@ void RSValue_Clear(RSValue *v) {
     case RSValue_OwnRstring:
       RedisModule_FreeString(RSDummyContext, v->rstrval);
       break;
-    default:  // no free
+    case RSValue_Null:
+      return;  // prevent changing global RS_NULL to RSValue_Undef
+    default:   // no free
       break;
   }
 
@@ -408,16 +410,6 @@ RSValue *RSValue_NewArrayEx(RSValue **vals, size_t n, int options) {
   }
 
   return arr;
-}
-
-/* Wrap an array of RSValue objects into an RSValue array object */
-RSValue *RS_ArrVal(RSValue **vals, uint32_t len) {
-
-  RSValue *v = RS_NewValue(RSValue_Array);
-  v->arrval.vals = vals;
-  v->arrval.len = len;
-  v->arrval.staticarray = 0;
-  return v;
 }
 
 RSValue *RS_VStringArray(uint32_t sz, ...) {

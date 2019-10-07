@@ -34,7 +34,7 @@ static int func_matchedTerms(ExprEval *ctx, RSValue *result, RSValue **argv, siz
       for (size_t i = 0; i < n; i++) {
         arr[i] = RS_ConstStringVal(terms[i]->str, terms[i]->len);
       }
-      RSValue *v = RS_ArrVal(arr, n);
+      RSValue *v = RSValue_NewArrayEx(arr, n, RSVAL_ARRAY_ALLOC | RSVAL_ARRAY_NOINCREF);
       RSValue_MakeOwnReference(result, v);
       return EXPR_EVAL_OK;
     }

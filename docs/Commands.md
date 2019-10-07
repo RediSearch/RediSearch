@@ -550,7 +550,7 @@ If **NOCONTENT** was given, we return an array where the first element is the to
 ```
 FT.AGGREGATE  {index_name}
   {query_string}
-  [WITHSCHEMA] [VERBATIM]
+  [VERBATIM]
   [LOAD {nargs} {property} ...]
   [GROUPBY {nargs} {property} ...
     REDUCE {func} {nargs} {arg} ... [AS {name:string}]
