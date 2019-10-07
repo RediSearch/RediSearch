@@ -2303,6 +2303,19 @@ def testIssue_779(env):
     env.expect('FT.ADD idx2 doc2 1.0 REPLACE PARTIAL if @ot1<4-002 FIELDS newf DOG ot1 4002').contains('Syntax error')
     env.expect('FT.ADD idx2 doc2 1.0 REPLACE PARTIAL if @ot1<to_number(4-002) FIELDS newf DOG ot1 4002').contains('Syntax error')
 
+def testDelIndexExternally(env):
+    env.expect('FT.CREATE idx SCHEMA num NUMERIC t TAG g GEO').equal('OK')
+    env.expect('ft.add idx doc1 1.0 FIELDS num 3 t my_tag g', "1,1").equal('OK')
+    
+    env.expect('set nm:idx/num 1').equal('OK')
+    env.expect('ft.add idx doc2 1.0 FIELDS num 3').equal('Could not open numeric index for indexing')
+
+    env.expect('set tag:idx/t 1').equal('OK')
+    env.expect('ft.add idx doc3 1.0 FIELDS t 3').equal('Could not open tag index for indexing')
+
+    env.expect('set geo:idx/g 1 ').equal('OK')
+    env.expect('ft.add idx doc4 1.0 FIELDS g "1,1"').equal('Could not index geo value')
+
 def testWrongResultsReturnedBySkipOptimization(env):
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'f1', 'TEXT', 'f2', 'TEXT').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'f1', 'foo', 'f2', 'bar').equal('OK')
@@ -2647,6 +2660,14 @@ def testErrorOnOpperation(env):
     err = env.cmd('ft.aggregate', 'idx', '@test:[0..inf]', 'APPLY', '!@test', 'as', 'a')[1]
     env.assertEqual(type(err[0]), redis.exceptions.ResponseError)
 
+
+def testSortkeyUnsortable(env):
+    env.cmd('ft.create', 'idx', 'schema', 'test', 'text')
+    env.cmd('ft.add', 'idx', 'doc1', 1, 'fields', 'test', 'foo')
+    rv = env.cmd('ft.aggregate', 'idx', 'foo', 'withsortkeys',
+        'load', '1', '@test',
+        'sortby', '1', '@test')
+    env.assertEqual([1, '$foo', ['test', 'foo']], rv)
 
 def grouper(iterable, n, fillvalue=None):
     "Collect data into fixed-length chunks or blocks"

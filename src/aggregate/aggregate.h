@@ -1,11 +1,11 @@
 #ifndef RS_AGGREGATE_H__
 #define RS_AGGREGATE_H__
-#include <result_processor.h>
-#include <query.h>
+#include "value.h"
+#include "query.h"
 #include "reducer.h"
+#include "result_processor.h"
 #include "expr/expression.h"
 #include "aggregate_plan.h"
-#include <value.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -37,7 +37,10 @@ typedef enum {
   QEXEC_F_TYPED = 0x1000,
 
   /* Send raw document IDs alongside key names. Used for debugging */
-  QEXEC_F_SENDRAWIDS = 0x2000
+  QEXEC_F_SENDRAWIDS = 0x2000,
+
+  /* Flag for scorer function to create explanation strings */
+  QEXEC_F_SEND_SCOREEXPLAIN = 0x4000
 
 } QEFlags;
 

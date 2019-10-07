@@ -451,7 +451,7 @@ FT.SEARCH {index} {query} [NOCONTENT] [VERBATIM] [NOSTOPWORDS] [WITHSCORES] [WIT
   [SLOP {slop}] [INORDER]
   [LANGUAGE {language}]
   [EXPANDER {expander}]
-  [SCORER {scorer}]
+  [SCORER {scorer}] [EXPLAINSCORE]
   [PAYLOAD {payload}]
   [SORTBY {field} [ASC|DESC]]
   [LIMIT offset num]
@@ -519,6 +519,7 @@ FT.SEARCH idx "@text:morphix=>{$phonetic:false}"
 
 - **EXPANDER {expander}**: If set, we will use a custom query expander instead of the stemmer. [See Extensions](Extensions.md).
 - **SCORER {scorer}**: If set, we will use a custom scoring function defined by the user. [See Extensions](Extensions.md).
+- **EXPLAINSCORE**: If set, will return a textual description of how the scores were calculated.
 - **PAYLOAD {payload}**: Add an arbitrary, binary safe payload that will be exposed to custom scoring 
   functions. [See Extensions](Extensions.md).
   

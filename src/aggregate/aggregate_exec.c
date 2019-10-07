@@ -4,6 +4,7 @@
 #include "aggregate.h"
 #include "cursor.h"
 #include "rmutil/util.h"
+#include "score_explain.h"
 
 typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN } CommandType;
 static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num);
@@ -38,13 +39,21 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
   }
 
   if (options & QEXEC_F_SEND_SCORES) {
-    RedisModule_ReplyWithDouble(outctx, r->score);
+    if (!(options & QEXEC_F_SEND_SCOREEXPLAIN)) {
+      RedisModule_ReplyWithDouble(outctx, r->score);
+    } else {
+      RedisModule_ReplyWithArray(outctx, 2);
+      RedisModule_ReplyWithDouble(outctx, r->score);
+      SEReply(outctx, r->scoreExplain);
+    }
     count++;
   }
+
   if (options & QEXEC_F_SENDRAWIDS) {
     RedisModule_ReplyWithLongLong(outctx, r->docId);
     count++;
   }
+
   if (options & QEXEC_F_SEND_PAYLOADS) {
     count++;
     if (dmd && dmd->payload) {
@@ -58,6 +67,7 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
     count++;
     const RSValue *sortkey = getSortKey(req, r);
     RedisModuleString *rskey = NULL;
+  reeval_sortkey:
     if (sortkey) {
       switch (sortkey->t) {
         case RSValue_Number:
@@ -70,11 +80,17 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
           rskey = RedisModule_CreateStringPrintf(outctx, "$%s", sortkey->strval);
           break;
         case RSValue_RedisString:
+        case RSValue_OwnRstring:
           rskey = RedisModule_CreateStringPrintf(outctx, "$%s",
                                                  RedisModule_StringPtrLen(sortkey->rstrval, NULL));
           break;
-        default:
+        case RSValue_Null:
+        case RSValue_Undef:
+        case RSValue_Array:
           break;
+        case RSValue_Reference:
+          sortkey = RSValue_Dereference(sortkey);
+          goto reeval_sortkey;
       }
       if (rskey) {
         RedisModule_ReplyWithString(outctx, rskey);
@@ -89,9 +105,13 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
 
   if (!(options & QEXEC_F_SEND_NOFIELDS)) {
     count++;
-    size_t nfields = 0;
-    REDISMODULE_BEGIN_ARRAY(outctx);
     RLookup *lk = AGPLN_GetLookup(&req->ap, NULL, AGPLN_GETLOOKUP_LAST);
+
+    int excludeFlags = RLOOKUP_F_HIDDEN;
+    int requiredFlags = (req->outFields.explicitReturn ? RLOOKUP_F_EXPLICITRETURN : 0);
+    size_t nfields = RLookup_GetLength(lk, &r->rowdata, requiredFlags, excludeFlags);
+
+    RedisModule_ReplyWithArray(outctx, nfields * 2);
 
     for (const RLookupKey *kk = lk->head; kk; kk = kk->next) {
       if (kk->flags & RLOOKUP_F_HIDDEN) {
@@ -107,11 +127,9 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
         continue;
       }
 
-      nfields++;
-      RedisModule_ReplyWithSimpleString(outctx, kk->name);
+      RedisModule_ReplyWithStringBuffer(outctx, kk->name, strlen(kk->name));
       RSValue_SendReply(outctx, v, req->reqflags & QEXEC_F_TYPED);
     }
-    REDISMODULE_END_ARRAY(outctx, nfields * 2);
   }
   return count;
 }
