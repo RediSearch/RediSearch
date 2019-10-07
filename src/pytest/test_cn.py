@@ -3,6 +3,8 @@
 import redis
 import unittest
 import os
+from includes import *
+
 
 SRCTEXT=os.path.join(os.path.dirname(__file__), '..', 'tests', 'cn_sample.txt')
 GENTXT=os.path.join(os.path.dirname(__file__), '..', 'tests', 'genesis.txt')

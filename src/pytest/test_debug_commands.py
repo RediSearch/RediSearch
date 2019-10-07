@@ -1,4 +1,5 @@
 from RLTest import Env
+from includes import *
 
 
 class TestDebugCommands(object):

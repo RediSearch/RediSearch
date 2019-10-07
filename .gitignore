@@ -16,6 +16,7 @@
 *.tar
 /site/*
 /build*/
+/venv*/
 srcutil/lemon
 src/query_parser/lemon
 src/dep/gtest
@@ -25,3 +26,5 @@ src/pytest/RLTest
 .vscode/*
 .idea/*
 VSCODE.DB*
+.cproject
+.project
