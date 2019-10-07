@@ -93,6 +93,8 @@ void RSValue_Clear(RSValue *v) {
     case RSValue_OwnRstring:
       RedisModule_FreeString(RSDummyContext, v->rstrval);
       break;
+    case RSValue_Null:
+      return; // prevent changing global RS_NULL to RSValue_Undef
     default:  // no free
       break;
   }
