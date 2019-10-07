@@ -106,13 +106,10 @@ size_t RLookup_GetLength(RLookup *lookup, const RLookupRow *r, int requiredFlags
                          int excludeFlags) {
   size_t nfields = 0;
   for (const RLookupKey *kk = lookup->head; kk; kk = kk->next) {
-    if (kk->flags & RLOOKUP_F_HIDDEN) {
+    if (requiredFlags && !(kk->flags & requiredFlags)) {
       continue;
     }
-    if (requiredFlags && !(kk->flags & requiredFlags) == 0) {
-      continue;
-    }
-    if (excludeFlags && (kk->flags & excludeFlags) == 0) {
+    if (excludeFlags && (kk->flags & excludeFlags)) {
       continue;
     }
     const RSValue *v = RLookup_GetItem(kk, r);

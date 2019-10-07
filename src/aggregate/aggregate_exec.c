@@ -100,9 +100,9 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
     count++;
     RLookup *lk = AGPLN_GetLookup(&req->ap, NULL, AGPLN_GETLOOKUP_LAST);
 
-    int excludeFlags = RLOOKUP_F_HIDDEN;
-    int includeFlags = (req->outFields.explicitReturn ? RLOOKUP_F_EXPLICITRETURN : 0);
-    size_t nfields = RLookup_GetLength(lk, &r->rowdata, includeFlags, excludeFlags);
+    int excludeFlags =
+        RLOOKUP_F_HIDDEN | (req->outFields.explicitReturn ? RLOOKUP_F_EXPLICITRETURN : 0);
+    size_t nfields = RLookup_GetLength(lk, &r->rowdata, 0, excludeFlags);
 
     RedisModule_ReplyWithArray(outctx, nfields * 2);
 
