@@ -25,6 +25,11 @@ def testAdd(env):
         env.assertExists(prefix + ':idx/world')
         env.assertExists(prefix + ':idx/lorem')
 
+def testAddErrors(env):
+    env.expect('ft.create', 'idx', 'schema', 'foo', 'text', 'bar', 'numeric', 'sortable').equal('OK')
+    env.expect('ft.add', 'idx', 'doc1', 1, 'redis', 4).error().contains('Unknown keyword `4` provide')
+    
+
 def testConditionalUpdate(env):
     env.assertOk(env.cmd(
         'ft.create', 'idx', 'schema', 'foo', 'text', 'bar', 'numeric', 'sortable'))
@@ -551,6 +556,9 @@ def testPartial(env):
     # Updating non indexed fields doesn't affect search results
     env.assertOk(r.execute_command('ft.add', 'idx', 'doc1', '0.1', 'replace', 'partial',
                                     'fields', 'num', 3, 'extra', 'jorem gipsum'))
+    env.expect('ft.add', 'idx', 'doc12', '0.1', 'replace', 'partial',
+                                    'fields', 'num1', 'redis').equal('OK')
+
     res = r.execute_command(
         'ft.search', 'idx', 'hello world', 'sortby', 'num', 'desc',)
     assertResultsEqual(env, [2L, 'doc1', ['foo', 'hello world', 'num', '3', 'extra', 'jorem gipsum'],
@@ -935,6 +943,16 @@ def testGeo(env):
         res2 = gsearch_inline(
             'heathrow', -0.44155, 51.45865, '5', 'km')
         env.assertListEqual(res, res2)
+
+def testGeoErrors(env):
+    env.expect('ft.create', 'idx', 'schema', 'name', 'text', 'location', 'geo').equal('OK')
+    env.expect('ft.add', 'idx', 'hotel1', 1, 'fields', 'name', '_hotel1', 'location', '1, 1').error().contains('Could not index geo value')
+
+def testTagErrors(env):
+    env.expect("ft.create", "test", "SCHEMA",  "tags", "TAG").equal('OK')
+    env.expect("ft.add", "test", "1", "1", "FIELDS", "tags", "alberta").equal('OK')
+    env.expect("ft.add", "test", "2", "1", "FIELDS", "tags", "ontario. alberta").equal('OK')
+
 
 def testGeoDeletion(env):
     if env.is_cluster():

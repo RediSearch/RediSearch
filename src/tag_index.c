@@ -305,8 +305,6 @@ void TagIndex_RdbSave(RedisModuleIO *rdb, void *value) {
   assert(count == idx->values->cardinality);
   TrieMapIterator_Free(it);
 }
-void TagIndex_Digest(RedisModuleDigest *digest, void *value) {
-}
 
 void TagIndex_Free(void *p) {
   TagIndex *idx = p;

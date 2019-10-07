@@ -223,32 +223,10 @@ void *TrieMapNode_Find(TrieMapNode *n, char *str, tm_len_t len) {
       // let's find a child to continue to
       tm_len_t i = 0;
       TrieMapNode *nextChild = NULL;
-      // if (!(n->flags & TM_NODE_SORTED) && n->numChildren > 2) {
-      //   qsort(__trieMapNode_children(n), n->numChildren, sizeof(TrieMapNode *), __cmp_nodes);
-      //   qsort(__trieMapNode_childKey(n, 0), n->numChildren, 1, __cmp_chars);
-      //   n->flags |= TM_NODE_SORTED;
-      // }
       char *childKeys = __trieMapNode_childKey(n, 0);
       char c = str[offset];
-      // if (n->flags & TM_NODE_SORTED) {
-      //   int bottom = 0, top = n->numChildren - 1;
-
-      //   while (bottom <= top) {
-      //     int mid = (bottom + top) / 2;
-
-      //     char cc = *__trieMapNode_childKey(n, mid);
-      //     if (c == cc) {
-      //       nextChild = __trieMapNode_children(n)[mid];
-      //       break;
-      //     } else if (c < cc) {
-      //       top = mid - 1;
-      //     } else {
-      //       bottom = mid + 1;
-      //     }
-      //   }
-
-      // } else {
       tm_len_t nc = n->numChildren;
+
       while (i < nc) {
         if (str[offset] == childKeys[i]) {
           nextChild = __trieMapNode_children(n)[i];
@@ -256,9 +234,6 @@ void *TrieMapNode_Find(TrieMapNode *n, char *str, tm_len_t len) {
         }
         ++i;
       }
-      //}
-
-      // we couldn't find a matching child
       n = nextChild;
     } else {
       return TRIEMAP_NOTFOUND;
