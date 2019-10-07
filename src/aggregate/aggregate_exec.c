@@ -105,9 +105,13 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
 
   if (!(options & QEXEC_F_SEND_NOFIELDS)) {
     count++;
-    size_t nfields = 0;
-    REDISMODULE_BEGIN_ARRAY(outctx);
     RLookup *lk = AGPLN_GetLookup(&req->ap, NULL, AGPLN_GETLOOKUP_LAST);
+
+    int excludeFlags = RLOOKUP_F_HIDDEN;
+    int requiredFlags = (req->outFields.explicitReturn ? RLOOKUP_F_EXPLICITRETURN : 0);
+    size_t nfields = RLookup_GetLength(lk, &r->rowdata, requiredFlags, excludeFlags);
+
+    RedisModule_ReplyWithArray(outctx, nfields * 2);
 
     for (const RLookupKey *kk = lk->head; kk; kk = kk->next) {
       if (kk->flags & RLOOKUP_F_HIDDEN) {
@@ -122,11 +126,9 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
         continue;
       }
 
-      nfields++;
       RedisModule_ReplyWithStringBuffer(outctx, kk->name, strlen(kk->name));
       RSValue_SendReply(outctx, v, req->reqflags & QEXEC_F_TYPED);
     }
-    REDISMODULE_END_ARRAY(outctx, nfields * 2);
   }
   return count;
 }
