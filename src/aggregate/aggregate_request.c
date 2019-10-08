@@ -247,6 +247,7 @@ static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status
     unsigned mx = 0;
     if ((rv = AC_GetUnsigned(ac, &mx, 0) != AC_OK)) {
       QERR_MKBADARGS_AC(status, "MAX", rv);
+      goto err;
     }
     arng->limit = mx;
   }
