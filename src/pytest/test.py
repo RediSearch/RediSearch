@@ -29,7 +29,7 @@ def testAdd(env):
 def assertEqualIgnoreCluster(env, val1, val2):
     # todo: each test that uses this function should be switch back to env.assertEqual once fix
     # issues on coordinator
-    if env.isCluster:
+    if env.isCluster():
         return
     env.assertEqual(val1, val2)
 
