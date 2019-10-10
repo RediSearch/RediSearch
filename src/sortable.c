@@ -23,7 +23,8 @@ RSSortingVector *NewSortingVector(int len) {
 }
 
 /* Internal compare function between members of the sorting vectors, sorted by sk */
-int RSSortingVector_Cmp(RSSortingVector *self, RSSortingVector *other, RSSortingKey *sk, QueryError *qerr) {
+int RSSortingVector_Cmp(RSSortingVector *self, RSSortingVector *other, RSSortingKey *sk,
+                        QueryError *qerr) {
   RSValue *v1 = self->values[sk->index];
   RSValue *v2 = other->values[sk->index];
   int rc = RSValue_Cmp(v1, v2, qerr);

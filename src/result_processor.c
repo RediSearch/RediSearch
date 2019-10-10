@@ -383,9 +383,9 @@ static int cmpByFields(const void *e1, const void *e2, const void *udata) {
 
   QueryError *qerr = NULL;
   if (self && self->base.parent && self->base.parent->err) {
-  	qerr = self->base.parent->err;
+    qerr = self->base.parent->err;
   }
- 
+
   for (size_t i = 0; i < self->fieldcmp.nkeys && i < SORTASCMAP_MAXFIELDS; i++) {
     const RSValue *v1 = RLookup_GetItem(self->fieldcmp.keys[i], &h1->rowdata);
     const RSValue *v2 = RLookup_GetItem(self->fieldcmp.keys[i], &h2->rowdata);

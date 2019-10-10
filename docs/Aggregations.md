@@ -29,7 +29,7 @@ The aggregate request's syntax is defined as follows:
 FT.AGGREGATE
   {index_name:string}
   {query_string:string}
-  [WITHSCHEMA] [VERBATIM]
+  [VERBATIM]
   [LOAD {nargs:integer} {property:string} ...]
   [GROUPBY
     {nargs:integer} {property:string} ...

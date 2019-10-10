@@ -441,8 +441,9 @@ FIELD_BULK_INDEXER(numericIndexer) {
   if (!rt) {
     RedisModuleString *keyName = IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_NUMERIC);
     rt = bulk->indexDatas[IXFLDPOS_NUMERIC] =
-        OpenNumericIndex(ctx, keyName, &bulk->indexKeys[INDEXFLD_T_NUMERIC]);
+        OpenNumericIndex(ctx, keyName, &bulk->indexKeys[IXFLDPOS_NUMERIC]);
     if (!rt) {
+      QueryError_SetError(status, QUERY_EGENERIC, "Could not open numeric index for indexing");
       return -1;
     }
   }
@@ -490,7 +491,6 @@ FIELD_PREPROCESSOR(tagPreprocessor) {
 }
 
 FIELD_BULK_INDEXER(tagIndexer) {
-  int rc = 0;
   TagIndex *tidx = bulk->indexDatas[IXFLDPOS_TAG];
   if (!tidx) {
     RedisModuleString *kname = IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_TAG);
@@ -498,14 +498,14 @@ FIELD_BULK_INDEXER(tagIndexer) {
         TagIndex_Open(ctx, kname, 1, &bulk->indexKeys[IXFLDPOS_TAG]);
     if (!tidx) {
       QueryError_SetError(status, QUERY_EGENERIC, "Could not open tag index for indexing");
-      rc = -1;
+      return -1;
     }
   }
 
   ctx->spec->stats.invertedSize +=
       TagIndex_Index(tidx, (const char **)fdata->tags, array_len(fdata->tags), aCtx->doc.docId);
   ctx->spec->stats.numRecords++;
-  return rc;
+  return 0;
 }
 
 static PreprocessorFunc preprocessorMap[] = {

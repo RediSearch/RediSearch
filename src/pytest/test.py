@@ -29,6 +29,12 @@ def testAddErrors(env):
     env.expect('ft.create', 'idx', 'schema', 'foo', 'text', 'bar', 'numeric', 'sortable').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', 1, 'redis', 4).error().contains('Unknown keyword `4` provide')
     
+def assertEqualIgnoreCluster(env, val1, val2):
+    # todo: each test that uses this function should be switch back to env.assertEqual once fix
+    # issues on coordinator
+    if env.isCluster():
+        return
+    env.assertEqual(val1, val2)
 
 def testConditionalUpdate(env):
     env.assertOk(env.cmd(
@@ -2311,11 +2317,10 @@ def testOptionalFilter(env):
     for x in range(100):
         env.cmd('ft.add', 'idx', 'doc_{}'.format(x), 1, 'fields', 't1', 'hello world word{}'.format(x))
 
-    print env.cmd('ft.explain', 'idx', '(~@t1:word20)')
+    env.cmd('ft.explain', 'idx', '(~@t1:word20)')
     # print(r)
 
     r = env.cmd('ft.search', 'idx', '~(word20 => {$weight: 2.0})')
-    print(r)
 
 
 def testIssue736(env):
@@ -2444,11 +2449,378 @@ def testIssue_779(env):
     env.expect('FT.ADD idx2 doc2 1.0 REPLACE PARTIAL if @ot1<4-002 FIELDS newf DOG ot1 4002').contains('Syntax error')
     env.expect('FT.ADD idx2 doc2 1.0 REPLACE PARTIAL if @ot1<to_number(4-002) FIELDS newf DOG ot1 4002').contains('Syntax error')
 
+def testDelIndexExternally(env):
+    env.skipOnCluster() # todo: remove once fix on coordinator
+    env.expect('FT.CREATE idx SCHEMA num NUMERIC t TAG g GEO').equal('OK')
+    env.expect('ft.add idx doc1 1.0 FIELDS num 3 t my_tag g', "1,1").equal('OK')
+    
+    env.expect('set nm:idx/num 1').equal('OK')
+    env.expect('ft.add idx doc2 1.0 FIELDS num 3').equal('Could not open numeric index for indexing')
+
+    env.expect('set tag:idx/t 1').equal('OK')
+    env.expect('ft.add idx doc3 1.0 FIELDS t 3').equal('Could not open tag index for indexing')
+
+    env.expect('set geo:idx/g 1 ').equal('OK')
+    env.expect('ft.add idx doc4 1.0 FIELDS g "1,1"').equal('Could not index geo value')
+
 def testWrongResultsReturnedBySkipOptimization(env):
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'f1', 'TEXT', 'f2', 'TEXT').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'f1', 'foo', 'f2', 'bar').equal('OK')
     env.expect('ft.add', 'idx', 'doc2', '1.0', 'FIELDS', 'f1', 'moo', 'f2', 'foo').equal('OK')
     env.expect('ft.search', 'idx', 'foo @f2:moo').debugPrint().equal([0L])
+
+def testErrorWithApply(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
+    env.expect('FT.ADD', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo bar').equal('OK')
+    err = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'split()')[1]
+    env.assertEqual(str(err[0]), 'Invalid number of arguments for split')
+
+def testSummerizeWithAggregateRaiseError(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
+    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo1').equal('OK')
+    env.expect('ft.add', 'idx', 'doc2', '1.0', 'FIELDS', 'test', 'foo2').equal('OK')
+    env.expect('ft.aggregate', 'idx', 'foo2', 'SUMMARIZE', 'FIELDS', '1', 'test',
+               'GROUPBY', '1', '@test', 'REDUCE', 'COUNT', '0').error()
+
+def testSummerizeHighlightParseError(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
+    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo1').equal('OK')
+    env.expect('ft.add', 'idx', 'doc2', '1.0', 'FIELDS', 'test', 'foo2').equal('OK')
+    env.expect('ft.search', 'idx', 'foo2', 'SUMMARIZE', 'FIELDS', 'WITHSCORES').error()
+    env.expect('ft.search', 'idx', 'foo2', 'HIGHLIGHT', 'FIELDS', 'WITHSCORES').error()
+
+def testCursorBadArgument(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
+    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo1').equal('OK')
+    env.expect('ft.add', 'idx', 'doc2', '1.0', 'FIELDS', 'test', 'foo2').equal('OK')
+    env.expect('ft.aggregate', 'idx', '*',
+               'GROUPBY', '1', '@test', 'REDUCE', 'COUNT', '0',
+               'WITHCURSOR', 'COUNT', 'BAD').error()
+
+def testLimitBadArgument(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
+    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo1').equal('OK')
+    env.expect('ft.add', 'idx', 'doc2', '1.0', 'FIELDS', 'test', 'foo2').equal('OK')
+    env.expect('ft.search', 'idx', '*', 'LIMIT', '1').error()
+
+def testOnTimeoutBadArgument(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
+    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo1').equal('OK')
+    env.expect('ft.add', 'idx', 'doc2', '1.0', 'FIELDS', 'test', 'foo2').equal('OK')
+    env.expect('ft.search', 'idx', '*', 'ON_TIMEOUT', 'bad').error()
+
+def testAggregateSortByWrongArgument(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
+    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo1').equal('OK')
+    env.expect('ft.add', 'idx', 'doc2', '1.0', 'FIELDS', 'test', 'foo2').equal('OK')
+    env.expect('ft.aggregate', 'idx', '*', 'SORTBY', 'bad').error()
+
+def testAggregateSortByMaxNumberOfFields(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA',
+               'test1', 'TEXT', 'SORTABLE',
+               'test2', 'TEXT', 'SORTABLE',
+               'test3', 'TEXT', 'SORTABLE',
+               'test4', 'TEXT', 'SORTABLE',
+               'test5', 'TEXT', 'SORTABLE',
+               'test6', 'TEXT', 'SORTABLE',
+               'test7', 'TEXT', 'SORTABLE',
+               'test8', 'TEXT', 'SORTABLE',
+               'test9', 'TEXT', 'SORTABLE'
+               ).equal('OK')
+    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo1').equal('OK')
+    env.expect('ft.add', 'idx', 'doc2', '1.0', 'FIELDS', 'test', 'foo2').equal('OK')
+    env.expect('ft.aggregate', 'idx', '*', 'SORTBY', '9', *['@test%d' % (i + 1) for i in range(9)]).error()
+    args = ['@test%d' % (i + 1) for i in range(8)] + ['bad']
+    env.expect('ft.aggregate', 'idx', '*', 'SORTBY', '9', *args).error()
+    args = ['@test%d' % (i + 1) for i in range(8)] + ['ASC', 'MAX', 'bad']
+    env.expect('ft.aggregate', 'idx', '*', 'SORTBY', '9', *args).error()
+    args = ['@test%d' % (i + 1) for i in range(8)] + ['ASC', 'MAX']
+    env.expect('ft.aggregate', 'idx', '*', 'SORTBY', '9', *args).error()
+
+def testNumericFilterError(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'NUMERIC', 'SORTABLE').equal('OK')
+    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', '1').equal('OK')
+    env.expect('ft.search', 'idx', '*', 'FILTER', 'test', 'bad', '2').error()
+    env.expect('ft.search', 'idx', '*', 'FILTER', 'test', '0', 'bad').error()
+    env.expect('ft.search', 'idx', '*', 'FILTER', 'test', '0').error()
+    env.expect('ft.search', 'idx', '*', 'FILTER', 'test', 'bad').error()
+    env.expect('ft.search', 'idx', '*', 'FILTER', 'test', '0', '2', 'FILTER', 'test', '0', 'bla').error()
+
+def testGeoFilterError(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'NUMERIC', 'SORTABLE').equal('OK')
+    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', '1').equal('OK')
+    env.expect('ft.search', 'idx', '*', 'GEOFILTER', 'test', '1').error()
+    env.expect('ft.search', 'idx', '*', 'GEOFILTER', 'test', 'bad' , '2', '3', 'km').error()
+    env.expect('ft.search', 'idx', '*', 'GEOFILTER', 'test', '1' , 'bad', '3', 'km').error()
+    env.expect('ft.search', 'idx', '*', 'GEOFILTER', 'test', '1' , '2', 'bad', 'km').error()
+    env.expect('ft.search', 'idx', '*', 'GEOFILTER', 'test', '1' , '2', '3', 'bad').error()
+
+def testReducerError(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'NUMERIC', 'SORTABLE').equal('OK')
+    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', '1').equal('OK')
+    env.expect('ft.aggregate', 'idx', '*', 'GROUPBY', '1', '@test', 'REDUCE', 'COUNT', 'bad').error()
+    env.expect('ft.aggregate', 'idx', '*', 'GROUPBY', '1', '@test', 'REDUCE', 'COUNT', '0', 'as').error()
+
+def testGroupbyError(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'NUMERIC', 'SORTABLE').equal('OK')
+    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', '1').equal('OK')
+    env.expect('ft.aggregate', 'idx', '*', 'GROUPBY', '1', '@test', 'REDUCE').error()
+    if not env.isCluster(): # todo: remove once fix on coordinator
+        env.expect('ft.aggregate', 'idx', '*', 'GROUPBY', '1', '@test1').error()
+    env.expect('ft.aggregate', 'idx', '*', 'GROUPBY', '1', '@test', 'REDUCE', 'bad', '0').error()
+    if not env.isCluster(): # todo: remove once fix on coordinator
+        env.expect('ft.aggregate', 'idx', '*', 'GROUPBY', '1', '@test', 'REDUCE', 'SUM', '1', '@test1').error()
+
+def testGroupbyWithSort(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'NUMERIC', 'SORTABLE').equal('OK')
+    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', '1').equal('OK')
+    env.expect('ft.add', 'idx', 'doc2', '1.0', 'FIELDS', 'test', '1').equal('OK')
+    env.expect('ft.add', 'idx', 'doc3', '1.0', 'FIELDS', 'test', '2').equal('OK')
+    env.expect('ft.aggregate', 'idx', '*', 'SORTBY', '2', '@test', 'ASC', 
+               'GROUPBY', '1', '@test', 'REDUCE', 'COUNT', '0', 'as', 'count').equal([2L, ['test', '2', 'count', '1'], ['test', '1', 'count', '2']])
+
+def testApplyError(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
+    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
+    env.expect('ft.aggregate', 'idx', '*', 'APPLY', 'split(@test)', 'as').error()
+
+def testLoadError(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
+    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
+    env.expect('ft.aggregate', 'idx', '*', 'LOAD', 'bad').error()
+    env.expect('ft.aggregate', 'idx', '*', 'LOAD', 'bad', 'test').error()
+    env.expect('ft.aggregate', 'idx', '*', 'LOAD', '2', 'test').error()
+    env.expect('ft.aggregate', 'idx', '*', 'LOAD', '2', '@test').error()
+
+def testMissingArgsError(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
+    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
+    env.expect('ft.aggregate', 'idx').error()
+
+def testUnexistsScorer(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
+    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
+    env.expect('ft.search', 'idx', '*', 'SCORER', 'bad').error()
+
+def testHighlightWithUnknowsProperty(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'TEXT').equal('OK')
+    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
+    env.expect('ft.aggregate', 'idx', '*', 'HIGHLIGHT', 'FIELDS', '1', 'test1').error()
+
+def testBadFilterExpression(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'TEXT').equal('OK')
+    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
+    env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'FILTER', 'blabla').error()
+    if not env.isCluster(): # todo: remove once fix on coordinator
+        env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'FILTER', '@test1 > 1').error()
+
+def testWithSortKeysOnNoneSortableValue(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'TEXT').equal('OK')
+    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
+    env.expect('ft.search', 'idx', '*', 'WITHSORTKEYS', 'SORTBY', 'test').equal([1L, 'doc1', '$foo', ['test', 'foo']])
+
+def testWithWithRawIds(env):
+    env.skipOnCluster() # todo: remove once fix on coordinator
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'TEXT').equal('OK')
+    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
+    env.expect('ft.search', 'idx', '*', 'WITHRAWIDS').equal([1L, 'doc1', 1L, ['test', 'foo']])
+
+def testUnkownIndex(env):
+    env.skipOnCluster() # todo: remove once fix on coordinator
+    env.expect('ft.aggregate').error()
+    env.expect('ft.aggregate', 'idx', '*').error()
+    env.expect('ft.aggregate', 'idx', '*', 'WITHCURSOR').error()
+
+def testExplainError(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'TEXT').equal('OK')
+    env.expect('FT.EXPLAIN', 'idx', '(').error()
+
+def testBadCursor(env):
+    env.expect('FT.CURSOR', 'READ', 'idx').error()
+    env.expect('FT.CURSOR', 'READ', 'idx', '1111').error()
+    env.expect('FT.CURSOR', 'READ', 'idx', 'bad').error()
+    env.expect('FT.CURSOR', 'DROP', 'idx', '1111').error()
+    env.expect('FT.CURSOR', 'bad', 'idx', '1111').error()
+
+def testGroupByWithApplyError(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'TEXT').equal('OK')
+    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
+    err = env.cmd('FT.AGGREGATE', 'idx', '*', 'APPLY', 'split()', 'GROUPBY', '1', '@test', 'REDUCE', 'COUNT', '0', 'AS', 'count')[1]
+    assertEqualIgnoreCluster(env, str(err[0]), 'Invalid number of arguments for split')
+
+def testSubStrErrors(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'TEXT').equal('OK')
+    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
+
+    err = env.cmd('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'matched_terms()', 'as', 'a', 'APPLY', 'substr(@a,0,4)')[1]
+    assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
+
+    env.cmd('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test2', 'APPLY', 'substr("test",3,-2)', 'as', 'a')
+    env.cmd('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test2', 'APPLY', 'substr("test",3,1000)', 'as', 'a')
+    env.cmd('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test2', 'APPLY', 'substr("test",-1,2)', 'as', 'a')
+    env.cmd('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test2', 'APPLY', 'substr("test")', 'as', 'a')
+    env.cmd('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test2', 'APPLY', 'substr(1)', 'as', 'a')
+    env.cmd('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test2', 'APPLY', 'substr("test", "test")', 'as', 'a')
+    env.cmd('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test2', 'APPLY', 'substr("test", "test", "test")', 'as', 'a')
+    env.cmd('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test2', 'APPLY', 'substr("test", "-1", "-1")', 'as', 'a')
+    env.assertTrue(env.isUp())
+
+def testToUpperLower(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'TEXT').equal('OK')
+    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
+    env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'lower(@test)', 'as', 'a').equal([1L, ['test', 'foo', 'a', 'foo']])
+    env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'lower("FOO")', 'as', 'a').equal([1L, ['test', 'foo', 'a', 'foo']])
+    env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'upper(@test)', 'as', 'a').equal([1L, ['test', 'foo', 'a', 'FOO']])
+    env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'upper("foo")', 'as', 'a').equal([1L, ['test', 'foo', 'a', 'FOO']])
+
+    err = env.cmd('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'upper()', 'as', 'a')[1]
+    assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
+    err = env.cmd('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'lower()', 'as', 'a')[1]
+    assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
+
+    env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'upper(1)', 'as', 'a').equal([1L, ['test', 'foo', 'a', None]])
+    env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'lower(1)', 'as', 'a').equal([1L, ['test', 'foo', 'a', None]])
+
+    assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
+    err = env.cmd('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'upper(1,2)', 'as', 'a')[1]
+    assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
+    err = env.cmd('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'lower(1,2)', 'as', 'a')[1]
+    assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
+
+def testMatchedTerms(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'TEXT').equal('OK')
+    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
+    env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'matched_terms()', 'as', 'a').equal([1L, ['test', 'foo', 'a', None]])
+    env.expect('ft.aggregate', 'idx', 'foo', 'LOAD', '1', '@test', 'APPLY', 'matched_terms()', 'as', 'a').equal([1L, ['test', 'foo', 'a', ['foo']]])
+    env.expect('ft.aggregate', 'idx', 'foo', 'LOAD', '1', '@test', 'APPLY', 'matched_terms(100)', 'as', 'a').equal([1L, ['test', 'foo', 'a', ['foo']]])
+    env.expect('ft.aggregate', 'idx', 'foo', 'LOAD', '1', '@test', 'APPLY', 'matched_terms(-100)', 'as', 'a').equal([1L, ['test', 'foo', 'a', ['foo']]])
+    env.expect('ft.aggregate', 'idx', 'foo', 'LOAD', '1', '@test', 'APPLY', 'matched_terms("test")', 'as', 'a').equal([1L, ['test', 'foo', 'a', ['foo']]])
+
+def testStrFormatError(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'TEXT').equal('OK')
+    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
+    err = env.cmd('ft.aggregate', 'idx', 'foo', 'LOAD', '1', '@test', 'APPLY', 'format()', 'as', 'a')[1]
+    assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
+
+    err = env.cmd('ft.aggregate', 'idx', 'foo', 'LOAD', '1', '@test', 'APPLY', 'format("%s")', 'as', 'a')[1]
+    assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
+
+    err = env.cmd('ft.aggregate', 'idx', 'foo', 'LOAD', '1', '@test', 'APPLY', 'format("%", "test")', 'as', 'a')[1]
+    assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
+
+    err = env.cmd('ft.aggregate', 'idx', 'foo', 'LOAD', '1', '@test', 'APPLY', 'format("%b", "test")', 'as', 'a')[1]
+    assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
+
+    err = env.cmd('ft.aggregate', 'idx', 'foo', 'LOAD', '1', '@test', 'APPLY', 'format(5)', 'as', 'a')[1]
+    assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
+
+    env.expect('ft.aggregate', 'idx', 'foo', 'LOAD', '1', '@test', 'APPLY', 'upper(1)', 'as', 'b', 'APPLY', 'format("%s", @b)', 'as', 'a').equal([1L, ['test', 'foo', 'b', None, 'a', '(null)']])
+
+    # working example
+    env.expect('ft.aggregate', 'idx', 'foo', 'APPLY', 'format("%%s-test", "test")', 'as', 'a').equal([1L, ['a', '%s-test']])
+    env.expect('ft.aggregate', 'idx', 'foo', 'APPLY', 'format("%s-test", "test")', 'as', 'a').equal([1L, ['a', 'test-test']])
+
+def testTimeFormatError(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'NUMERIC').equal('OK')
+    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', '12234556').equal('OK')
+
+    err = env.cmd('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'timefmt()', 'as', 'a')[1]
+    assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
+
+    if not env.isCluster(): # todo: remove once fix on coordinator
+        env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'timefmt(@test1)', 'as', 'a').error()
+
+    env.cmd('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'timefmt(@test)', 'as', 'a')
+
+    env.assertTrue(env.isUp())
+
+    err = env.cmd('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'timefmt(@test, 4)', 'as', 'a')[1]
+    assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
+
+    env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'timefmt("awfawf")', 'as', 'a').equal([1L, ['test', '12234556', 'a', None]])
+
+    env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'timefmt(235325153152356426246246246254)', 'as', 'a').equal([1L, ['test', '12234556', 'a', None]])
+
+    env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'timefmt(@test, "%s")' % ('d' * 2048), 'as', 'a').equal([1L, ['test', '12234556', 'a', None]])
+
+    env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'hour("not_number")', 'as', 'a').equal([1L, ['test', '12234556', 'a', None]])
+    env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'minute("not_number")', 'as', 'a').equal([1L, ['test', '12234556', 'a', None]])
+    env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'day("not_number")', 'as', 'a').equal([1L, ['test', '12234556', 'a', None]])
+    env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'month("not_number")', 'as', 'a').equal([1L, ['test', '12234556', 'a', None]])
+    env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'dayofweek("not_number")', 'as', 'a').equal([1L, ['test', '12234556', 'a', None]])
+    env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'dayofmonth("not_number")', 'as', 'a').equal([1L, ['test', '12234556', 'a', None]])
+    env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'dayofyear("not_number")', 'as', 'a').equal([1L, ['test', '12234556', 'a', None]])
+    env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'year("not_number")', 'as', 'a').equal([1L, ['test', '12234556', 'a', None]])
+    env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'monthofyear("not_number")', 'as', 'a').equal([1L, ['test', '12234556', 'a', None]])
+
+def testMonthOfYear(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'NUMERIC').equal('OK')
+    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', '12234556').equal('OK')
+
+    env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'monthofyear(@test)', 'as', 'a').equal([1L, ['test', '12234556', 'a', '4']])
+
+    err = env.cmd('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'monthofyear(@test, 112)', 'as', 'a')[1]
+    assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
+
+    err = env.cmd('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'monthofyear()', 'as', 'a')[1]
+    assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
+
+    env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'monthofyear("bad")', 'as', 'a').equal([1L, ['test', '12234556', 'a', None]])
+
+def testParseTimeErrors(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'NUMERIC').equal('OK')
+    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', '12234556').equal('OK')
+
+    err = env.cmd('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'parse_time()', 'as', 'a')[1]
+    assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
+
+    err = env.cmd('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'parse_time(11)', 'as', 'a')[1]
+    assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
+
+    err = env.cmd('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'parse_time(11,22)', 'as', 'a')[1]
+    assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
+
+    env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'parse_time("%s", "%s")' % ('d' * 2048, 'd' * 2048), 'as', 'a').equal([1L, ['test', '12234556', 'a', None]])
+
+    env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'parse_time("test", "%s")' % ('d' * 2048), 'as', 'a').equal([1L, ['test', '12234556', 'a', None]])
+
+def testMathFunctions(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'NUMERIC').equal('OK')
+    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', '12234556').equal('OK')
+
+    env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'exp(@test)', 'as', 'a').equal([1L, ['test', '12234556', 'a', 'inf']])
+    env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'ceil(@test)', 'as', 'a').equal([1L, ['test', '12234556', 'a', '12234556']])
+
+def testErrorOnOpperation(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'NUMERIC').equal('OK')
+    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', '12234556').equal('OK')
+
+    err = env.cmd('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', '1 + split()', 'as', 'a')[1]
+    assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
+
+    err = env.cmd('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'split() + 1', 'as', 'a')[1]
+    assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
+
+    err = env.cmd('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', '"bad" + "bad"', 'as', 'a')[1]
+    assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
+
+    err = env.cmd('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'split("bad" + "bad")', 'as', 'a')[1]
+    assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
+
+    err = env.cmd('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', '!(split("bad" + "bad"))', 'as', 'a')[1]
+    assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
+
+    err = env.cmd('ft.aggregate', 'idx', '@test:[0..inf]', 'APPLY', '!@test', 'as', 'a')[1]
+    assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
+
+
+def testSortkeyUnsortable(env):
+    env.cmd('ft.create', 'idx', 'schema', 'test', 'text')
+    env.cmd('ft.add', 'idx', 'doc1', 1, 'fields', 'test', 'foo')
+    rv = env.cmd('ft.aggregate', 'idx', 'foo', 'withsortkeys',
+        'load', '1', '@test',
+        'sortby', '1', '@test')
+    env.assertEqual([1, '$foo', ['test', 'foo']], rv)
 
 def grouper(iterable, n, fillvalue=None):
     "Collect data into fixed-length chunks or blocks"

@@ -295,9 +295,6 @@ RSValue *RS_NumVal(double n);
 
 RSValue *RS_Int64Val(int64_t ii);
 
-/* Wrap an array of RSValue objects into an RSValue array object */
-RSValue *RS_ArrVal(RSValue **vals, uint32_t len);
-
 /* Don't increment the refcount of the children */
 #define RSVAL_ARRAY_NOINCREF 0x01
 /* Alloc the underlying array. Absence means the previous array is used */
