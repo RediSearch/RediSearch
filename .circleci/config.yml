@@ -48,6 +48,8 @@ jobs:
   macos:
     macos:
       xcode: 10.2.1
+    environment:
+      - BUILD_DIR: build-macos
     steps: *ci_steps
 
   deploy_snapshots:
