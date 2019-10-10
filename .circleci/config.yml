@@ -1,7 +1,12 @@
-version: 2
+version: 2.1
 
 defaults:
-  ci_steps: &ci_steps
+  default_jobs: &default_jobs
+    - centos
+    - ubuntu
+
+commands:
+  ci_steps:
     - checkout
     - run:
         name: Get Dependencies
@@ -23,27 +28,22 @@ defaults:
           - 'snapshot'
           - 'release'
 
-  default_jobs: &default_jobs
-    - centos
-    - ubuntu
-
-
 jobs:
   ubuntu:
     docker:
       - image: 'redislabsmodules/rmbuilder:latest'
     environment:
       - BUILD_DIR: build-debian
-
-    steps: *ci_steps
+    steps:
+      - ci_steps
   
   centos:
     docker:
       - image: 'redislabsmodules/rmbuildercentos:latest'
     environment:
       - BUILD_DIR: build-el
-
-    steps: *ci_steps
+    steps: 
+      - ci_steps
 
   macos:
     macos:
@@ -51,9 +51,9 @@ jobs:
     environment:
       - BUILD_DIR: build-macos
     steps:
-      run: |
+      - run: |
         brew install cmake
-      <<: *ci_steps
+      - ci_steps
 
   deploy_snapshots:
     docker:
