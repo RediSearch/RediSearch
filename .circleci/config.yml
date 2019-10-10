@@ -53,9 +53,9 @@ jobs:
       - BUILD_DIR: build-macos
     steps:
       - run:
-        name: Get dependencies
-        command: |
-          brew install cmake
+          name: Get dependencies
+          command: |
+            brew install cmake
       - ci_steps
 
   deploy_snapshots:
