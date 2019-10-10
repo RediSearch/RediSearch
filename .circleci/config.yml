@@ -50,7 +50,10 @@ jobs:
       xcode: 10.2.1
     environment:
       - BUILD_DIR: build-macos
-    steps: *ci_steps
+    steps:
+      run: |
+        brew install cmake
+      <<: *ci_steps
 
   deploy_snapshots:
     docker:
