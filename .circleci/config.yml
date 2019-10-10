@@ -20,11 +20,11 @@ commands:
           command: ./.circleci/ci_test.sh
       - run:
           name: Package
-          command: ./.circleci/ci_package.sh
+          command: DISTDIR=~/workspace ./.circleci/ci_package.sh
           environment:
             - PACKAGE_NAME: redisearch-oss
       - persist_to_workspace:
-          root: /workspace
+          root: ~/workspace
           paths:
             - 'snapshot'
             - 'release'
@@ -64,11 +64,11 @@ jobs:
       - image: 'redislabsmodules/rmbuilder:latest'
     steps:
       - attach_workspace:
-          at: /workspace
+          at: ~/workspace
       - run:
           name: Deploy Snapshots to S3
           command: >-
-            for f in /workspace/snapshot/*.zip; do
+            for f in ~/workspace/snapshot/*.zip; do
               aws s3 cp $f s3://redismodules/$PACKAGE_NAME/snapshots/ --acl public-read;
             done
 
@@ -107,12 +107,12 @@ jobs:
       - image: 'redislabsmodules/rmbuilder:latest'
     steps:
       - attach_workspace:
-          at: /workspace
+          at: ~/workspace
       - run:
           name: Deploy Releases to S3
-          command: >-
-            for f in /workspace/release/*.zip; do
-              aws s3 cp $f s3://redismodules/$PACKAGE_NAME/ --acl public-read;
+          command: |
+            for f in ~/workspace/release/*.zip; do
+              aws s3 cp $f s3://redismodules/$PACKAGE_NAME/ --acl public-read
             done
   
   deploy_docs:
@@ -125,9 +125,8 @@ jobs:
           command: mkdocs build
       - run:
           name: Deploy Docs to S3
-          command: >-
-            aws s3 cp site s3://oss.redislabs.com/$WEBSITE_FOLDER/ --acl
-            public-read --recursive
+          command: |
+            aws s3 cp site s3://oss.redislabs.com/$WEBSITE_FOLDER/ --acl public-read --recursive
 
 workflows:
   version: 2
