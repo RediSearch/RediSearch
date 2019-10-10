@@ -28,17 +28,21 @@
 // normalize TF by number of tokens (weighted)
 #define NORM_DOCLEN 2
 
-#define EXPLAIN(exp, fmt, args...)       \
-{ if (exp) {explain(exp, fmt, ##args); }}
+#define EXPLAIN(exp, fmt, args...) \
+  {                                \
+    if (exp) {                     \
+      explain(exp, fmt, ##args);   \
+    }                              \
+  }
 
 static inline void explain(RSScoreExplain *scrExp, char *fmt, ...) {
-  void *tempStr = scrExp->str; 
+  void *tempStr = scrExp->str;
 
   va_list ap;
   va_start(ap, fmt);
-  rm_vasprintf((char ** restrict)&scrExp->str, fmt, ap);
+  rm_vasprintf((char **restrict) & scrExp->str, fmt, ap);
   va_end(ap);
-  
+
   rm_free(tempStr);
 }
 
@@ -52,7 +56,8 @@ static void strExpCreateParent(const ScoringFunctionArgs *ctx, RSScoreExplain **
 }
 
 // recursively calculate tf-idf
-static double tfidfRecursive(const RSIndexResult *r, const RSDocumentMetadata *dmd, RSScoreExplain *scrExp) {
+static double tfidfRecursive(const RSIndexResult *r, const RSDocumentMetadata *dmd,
+                             RSScoreExplain *scrExp) {
   if (r->type == RSResultType_Term) {
     double idf = r->term.term ? r->term.term->idf : 0;
     double res = r->weight * ((double)r->freq) * idf;
@@ -76,7 +81,8 @@ static double tfidfRecursive(const RSIndexResult *r, const RSDocumentMetadata *d
     }
     return r->weight * ret;
   }
-  EXPLAIN(scrExp, "(TFIDF %.2f = Weight %.2f * Frequency %d)", r->weight * (double)r->freq, r->weight, r->freq);
+  EXPLAIN(scrExp, "(TFIDF %.2f = Weight %.2f * Frequency %d)", r->weight * (double)r->freq,
+          r->weight, r->freq);
   return r->weight * (double)r->freq;
 }
 
@@ -101,17 +107,17 @@ static inline double tfIdfInternal(const ScoringFunctionArgs *ctx, const RSIndex
 
   int slop = ctx->GetSlop(h);
   tfidf /= slop;
-  
+
   EXPLAIN(scrExp, "Final TFIDF : words TFIDF %.2f * document score %.2f / norm %d / slop %d",
-            rawTfidf, dmd->score, norm, slop);
-  
+          rawTfidf, dmd->score, norm, slop);
+
   return tfidf;
 }
 
 /* Calculate sum(TF-IDF)*document score for each result, where TF is normalized by maximum frequency
  * in this document*/
 static double TFIDFScorer(const ScoringFunctionArgs *ctx, const RSIndexResult *h,
-                   const RSDocumentMetadata *dmd, double minScore) {
+                          const RSDocumentMetadata *dmd, double minScore) {
   return tfIdfInternal(ctx, h, dmd, minScore, NORM_MAXFREQ);
 }
 
@@ -138,19 +144,20 @@ static double bm25Recursive(const ScoringFunctionArgs *ctx, const RSIndexResult 
   static const float k1 = 1.2;
   double f = (double)r->freq;
   double ret = 0;
-  
+
   if (r->type == RSResultType_Term) {
     double idf = (r->term.term ? r->term.term->idf : 0);
 
     ret = idf * f / (f + k1 * (1.0f - b + b * ctx->indexStats.avgDocLen));
-    EXPLAIN(scrExp, "(%.2f = IDF %.2f * F %d / (F %d + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len %.2f)))", 
-            ret, idf, r->freq, r->freq, ctx->indexStats.avgDocLen);  
+    EXPLAIN(scrExp,
+            "(%.2f = IDF %.2f * F %d / (F %d + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len %.2f)))",
+            ret, idf, r->freq, r->freq, ctx->indexStats.avgDocLen);
   } else if (r->type & (RSResultType_Intersection | RSResultType_Union)) {
     int numChildren = r->agg.numChildren;
     if (!scrExp) {
       for (int i = 0; i < numChildren; i++) {
         ret += bm25Recursive(ctx, r->agg.children[i], dmd, NULL);
-      }    
+      }
     } else {
       scrExp->numChildren = numChildren;
       scrExp->children = rm_calloc(numChildren, sizeof(RSScoreExplain));
@@ -160,10 +167,12 @@ static double bm25Recursive(const ScoringFunctionArgs *ctx, const RSIndexResult 
       EXPLAIN(scrExp, "(Weight %.2f * children BM25 %.2f)", r->weight, ret);
     }
     ret *= r->weight;
-  } else if (f) {   // default for virtual type -just disregard the idf
+  } else if (f) {  // default for virtual type -just disregard the idf
     ret = r->weight * f / (f + k1 * (1.0f - b + b * ctx->indexStats.avgDocLen));
-    EXPLAIN(scrExp, "(%.2f = Weight %.2f * F %d / (F %d + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len %.2f)))", 
-            ret, r->weight, r->freq, r->freq, ctx->indexStats.avgDocLen);
+    EXPLAIN(
+        scrExp,
+        "(%.2f = Weight %.2f * F %d / (F %d + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len %.2f)))",
+        ret, r->weight, r->freq, r->freq, ctx->indexStats.avgDocLen);
   } else {
     EXPLAIN(scrExp, "Frequency 0 -> value 0");
   }
@@ -186,9 +195,9 @@ static double BM25Scorer(const ScoringFunctionArgs *ctx, const RSIndexResult *r,
   }
   int slop = ctx->GetSlop(r);
   score /= slop;
-  
-  EXPLAIN(scrExp, "Final BM25 : words BM25 %.2f * document score %.2f / slop %d",
-          bm25res, dmd->score, slop);
+
+  EXPLAIN(scrExp, "Final BM25 : words BM25 %.2f * document score %.2f / slop %d", bm25res,
+          dmd->score, slop);
 
   return score;
 }
@@ -199,7 +208,7 @@ static double BM25Scorer(const ScoringFunctionArgs *ctx, const RSIndexResult *r,
  *
  ******************************************************************************************/
 static double DocScoreScorer(const ScoringFunctionArgs *ctx, const RSIndexResult *r,
-                      const RSDocumentMetadata *dmd, double minScore) {
+                             const RSDocumentMetadata *dmd, double minScore) {
   RSScoreExplain *scrExp = (RSScoreExplain *)ctx->scrExp;
   EXPLAIN(scrExp, "Document's score is %.2f", dmd->score);
   return dmd->score;
@@ -210,7 +219,8 @@ static double DocScoreScorer(const ScoringFunctionArgs *ctx, const RSIndexResult
  * DISMAX-style scorer
  *
  ******************************************************************************************/
-static double dismaxRecursive(const ScoringFunctionArgs *ctx, const RSIndexResult *r, RSScoreExplain *scrExp) {
+static double dismaxRecursive(const ScoringFunctionArgs *ctx, const RSIndexResult *r,
+                              RSScoreExplain *scrExp) {
   // for terms - we return the term frequency
   double ret = 0;
   switch (r->type) {
@@ -218,7 +228,8 @@ static double dismaxRecursive(const ScoringFunctionArgs *ctx, const RSIndexResul
     case RSResultType_Numeric:
     case RSResultType_Virtual:
       ret = r->freq;
-      EXPLAIN(scrExp, "DISMAX %.2f = Weight %.2f * Frequency %d", r->weight * ret, r->weight, r->freq);
+      EXPLAIN(scrExp, "DISMAX %.2f = Weight %.2f * Frequency %d", r->weight * ret, r->weight,
+              r->freq);
       break;
     // for intersections - we sum up the term scores
     case RSResultType_Intersection:
@@ -232,7 +243,8 @@ static double dismaxRecursive(const ScoringFunctionArgs *ctx, const RSIndexResul
         for (int i = 0; i < r->agg.numChildren; i++) {
           ret += dismaxRecursive(ctx, r->agg.children[i], &scrExp->children[i]);
         }
-        EXPLAIN(scrExp, "%.2f = Weight %.2f * children DISMAX %.2f",  r->weight * ret, r->weight, ret);
+        EXPLAIN(scrExp, "%.2f = Weight %.2f * children DISMAX %.2f", r->weight * ret, r->weight,
+                ret);
       }
       break;
     // for unions - we take the max frequency
@@ -240,14 +252,15 @@ static double dismaxRecursive(const ScoringFunctionArgs *ctx, const RSIndexResul
       if (!scrExp) {
         for (int i = 0; i < r->agg.numChildren; i++) {
           ret = MAX(ret, dismaxRecursive(ctx, r->agg.children[i], NULL));
-        }        
+        }
       } else {
         scrExp->numChildren = r->agg.numChildren;
         scrExp->children = rm_calloc(r->agg.numChildren, sizeof(RSScoreExplain));
         for (int i = 0; i < r->agg.numChildren; i++) {
           ret = MAX(ret, dismaxRecursive(ctx, r->agg.children[i], &scrExp->children[i]));
         }
-        EXPLAIN(scrExp, "%.2f = Weight %.2f * children DISMAX %.2f",  r->weight * ret, r->weight, ret);
+        EXPLAIN(scrExp, "%.2f = Weight %.2f * children DISMAX %.2f", r->weight * ret, r->weight,
+                ret);
       }
       break;
   }
@@ -255,7 +268,7 @@ static double dismaxRecursive(const ScoringFunctionArgs *ctx, const RSIndexResul
 }
 /* Calculate sum(TF-IDF)*document score for each result */
 static double DisMaxScorer(const ScoringFunctionArgs *ctx, const RSIndexResult *h,
-                    const RSDocumentMetadata *dmd, double minScore) {
+                           const RSDocumentMetadata *dmd, double minScore) {
   // printf("score for %d: %f\n", h->docId, dmd->score);
   // if (dmd->score == 0 || h == NULL) return 0;
   return dismaxRecursive(ctx, h, ctx->scrExp);
@@ -291,7 +304,8 @@ static double HammingDistanceScorer(const ScoringFunctionArgs *ctx, const RSInde
     ret += bitsinbyte[(unsigned char)(a[i] ^ b[i])];
   }
   double result = 1.0 / (double)(ret + 1);
-  EXPLAIN(scrExp, "String length is %zu. Bit count is %zu. Result is (1 / count + 1) = %.2f", len, ret, result);
+  EXPLAIN(scrExp, "String length is %zu. Bit count is %zu. Result is (1 / count + 1) = %.2f", len,
+          ret, result);
   // we inverse the distance, and add 1 to make sure a distance of 0 yields a perfect score of 1
   return result;
 }
@@ -325,28 +339,13 @@ static void expandCn(RSQueryExpanderCtx *ctx, RSToken *token) {
   tokVec->top = 0;
   tokenizer->Start(tokenizer, token->str, token->len, 0);
 
-  Token tTok;
+  Token tTok = {0};
   while (tokenizer->Next(tokenizer, &tTok)) {
     char *s = rm_strndup(tTok.tok, tTok.tokLen);
     Vector_Push(tokVec, s);
   }
 
-  // Now expand the token with a phrase
-  if (tokVec->top > 1) {
-    // for (size_t ii = 0; ii < tokVec->top; ++ii) {
-    //   const char *s;
-    //   Vector_Get(tokVec, ii, &s);
-    //   printf("Split => %s\n", s);
-    // }
-    ctx->ExpandTokenWithPhrase(ctx, (const char **)tokVec->data, tokVec->top, token->flags, 1, 0);
-  } else {
-    for (size_t ii = 0; ii < tokVec->top; ++ii) {
-      // Note, top <= 1; but just for simplicity
-      char *s;
-      Vector_Get(tokVec, ii, &s);
-      rm_free(s);
-    }
-  }
+  ctx->ExpandTokenWithPhrase(ctx, (const char **)tokVec->data, tokVec->top, token->flags, 1, 0);
 }
 
 /******************************************************************************************

@@ -20,7 +20,6 @@ typedef enum {
   QEXEC_F_SEND_NOFIELDS = 0x08,  // Don't send the contents of the fields
   QEXEC_F_SEND_PAYLOADS = 0x10,  // Sent the payload set with ADD
   QEXEC_F_IS_CURSOR = 0x20,      // Is a cursor-type query
-  QEXEC_F_SEND_SCHEMA = 0x40,    // Unused for now
 
   /** Don't use concurrent execution */
   QEXEC_F_SAFEMODE = 0x100,
@@ -48,9 +47,6 @@ typedef enum {
 typedef enum {
   /* Received EOF from iterator */
   QEXEC_S_ITERDONE = 0x02,
-
-  /* Has an error */
-  QEXEC_S_ERROR = 0x04
 } QEStateFlags;
 
 typedef struct {
@@ -201,6 +197,8 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status);
  * should write their data using `lksrc` as a reference point.
  */
 Grouper *Grouper_New(const RLookupKey **srckeys, const RLookupKey **dstkeys, size_t n);
+
+void Grouper_Free(Grouper *g);
 
 /**
  * Gets the result processor associated with the grouper.
