@@ -45,6 +45,11 @@ jobs:
 
     steps: *ci_steps
 
+  macos:
+    macos:
+      xcode: 10.2.1
+    steps: *ci_steps
+
   deploy_snapshots:
     docker:
       - image: 'redislabsmodules/rmbuilder:latest'
@@ -127,6 +132,12 @@ workflows:
             tags:
               only: /.*/
       - centos:
+          filters:
+            branches:
+              only: /.*/
+            tags:
+              only: /.*/
+      - macos:
           filters:
             branches:
               only: /.*/
