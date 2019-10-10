@@ -196,7 +196,5 @@ workflows:
              branches:
                only:
                  - master
-             tags:
-               only: /.*/
     jobs:
       - macos
