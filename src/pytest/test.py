@@ -231,6 +231,9 @@ def testGet(env):
     env.expect('ft.mget', 'idx').error().contains("wrong number of arguments for 'ft.mget' command")
     env.expect('ft.mget', 'fake_idx').error().contains("wrong number of arguments for 'ft.mget' command")
 
+    env.expect('ft.get fake_idx foo').error().contains("Unknown Index name")
+    env.expect('ft.mget fake_idx foo').error().contains("Unknown Index name")
+
     for i in range(100):
         env.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
                                         'foo', 'hello world', 'bar', 'wat wat'))
@@ -2474,3 +2477,17 @@ def testConfig(env):
     env.expect('ft.config', 'idx').error()
     env.expect('ft.config', 'help', 'idx').equal([])
     env.expect('ft.config', 'no_such_command', 'idx').equal('No such configuration action')
+
+def testSetPayload(env):
+    env.expect('flushall')
+    env.expect('ft.create idx schema name text').equal('OK')
+    env.expect('ft.add idx hotel 1.0 fields name hilton').equal('OK')
+    env.expect('FT.SETPAYLOAD idx hotel payload').equal('OK')
+    env.expect('FT.SETPAYLOAD idx hotel payload').equal('OK')
+    env.expect('FT.SETPAYLOAD idx fake_hotel').error()          \
+            .contains("wrong number of arguments for 'FT.SETPAYLOAD' command")
+    env.expect('FT.SETPAYLOAD fake_idx hotel payload').error().contains('Unknown Index name')    
+    env.expect('FT.SETPAYLOAD idx fake_hotel payload').error().contains('Document not in index')    
+
+
+    

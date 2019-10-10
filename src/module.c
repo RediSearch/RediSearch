@@ -137,6 +137,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     int nn = 1;
     const FieldSpec *fs = sp->fields + i;
 
+    // RediSearch_api - No coverage
     if (fs->options & FieldSpec_Dynamic) {
       REPLY_KVSTR(nn, "type", "<DYNAMIC>");
       size_t ntypes = 0;
