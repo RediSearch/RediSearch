@@ -152,22 +152,22 @@ workflows:
               only: /.*/
       - debug_asan:
           filters:
-              branches:
-                  only: /.*/
-              tags:
-                  only: /.*/
+            branches:
+              only: /.*/
+            tags:
+              only: /.*/
       - debug_msan:
           filters:
-              branches:
-                  only: /.*/
-              tags:
-                  only: /.*/
+            branches:
+              only: /.*/
+            tags:
+              only: /.*/
       - coverage:
           filters:
-              branches:
-                only: /.*/
-              tags:
-                only: /.*/
+            branches:
+              only: /.*/
+            tags:
+              only: /.*/
       - deploy_snapshots:
           requires: *default_jobs
           filters:
@@ -182,7 +182,6 @@ workflows:
               ignore: /.*/
             tags:
               only: /^v[0-9].*/
-
       - deploy_docs:
           filters:
             branches:
