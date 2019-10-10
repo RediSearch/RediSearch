@@ -884,6 +884,29 @@ def testExact(env):
     env.assertEqual(1, res[0])
     env.assertEqual("doc2", res[1])
 
+
+def testGeoErrors(env):
+    env.expect('flushall')
+    env.expect('ft.create idx schema name text location geo').equal('OK')
+    env.expect('ft.add idx hotel 1.0 fields name hill location -0.1757,51.5156').equal('OK')
+    env.expect('ft.search idx hilton geofilter location -0.1757 51.5156 1 km').equal([0L])
+
+    # Insert error
+    env.expect('ft.add', 'idx', 'hotel1', 1, 'fields', 'name', '_hotel1', 'location', '1, 1').error()   \
+            .contains('Could not index geo value')
+
+    # Query errors
+    env.expect('ft.search idx hilton geofilter location lon 51.5156 1 km').error()   \
+            .contains('Bad arguments for <lon>: Could not convert argument to expected type')
+    env.expect('ft.search idx hilton geofilter location 51.5156 lat 1 km').error()   \
+            .contains('Bad arguments for <lat>: Could not convert argument to expected type')
+    env.expect('ft.search idx hilton geofilter location -0.1757 51.5156 radius km').error()   \
+            .contains('Bad arguments for <radius>: Could not convert argument to expected type')
+    env.expect('ft.search idx hilton geofilter location -0.1757 51.5156 1 fake').error()   \
+            .contains('Unknown distance unit fake')
+    env.expect('ft.search idx hilton geofilter location -0.1757 51.5156 1').error()   \
+            .contains('GEOFILTER requires 5 arguments')
+
 def testGeo(env):
     r = env
     gsearch = lambda query, lon, lat, dist, unit='km': r.execute_command(
@@ -944,15 +967,10 @@ def testGeo(env):
             'heathrow', -0.44155, 51.45865, '5', 'km')
         env.assertListEqual(res, res2)
 
-def testGeoErrors(env):
-    env.expect('ft.create', 'idx', 'schema', 'name', 'text', 'location', 'geo').equal('OK')
-    env.expect('ft.add', 'idx', 'hotel1', 1, 'fields', 'name', '_hotel1', 'location', '1, 1').error().contains('Could not index geo value')
-
 def testTagErrors(env):
     env.expect("ft.create", "test", "SCHEMA",  "tags", "TAG").equal('OK')
     env.expect("ft.add", "test", "1", "1", "FIELDS", "tags", "alberta").equal('OK')
     env.expect("ft.add", "test", "2", "1", "FIELDS", "tags", "ontario. alberta").equal('OK')
-
 
 def testGeoDeletion(env):
     if env.is_cluster():

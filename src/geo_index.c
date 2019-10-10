@@ -84,12 +84,6 @@ void GeoFilter_Free(GeoFilter *gf) {
   rm_free(gf);
 }
 
-static int cmp_docids(const void *p1, const void *p2) {
-  const t_docId *d1 = p1, *d2 = p2;
-
-  return (int)(*d1 - *d2);
-}
-
 static t_docId *geoRangeLoad(const GeoIndex *gi, const GeoFilter *gf, size_t *num) {
   *num = 0;
   t_docId *docIds = NULL;
