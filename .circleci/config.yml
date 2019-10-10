@@ -53,10 +53,10 @@ jobs:
       - BUILD_DIR: build-macos
     steps:
       - run:
-          name: Get dependencies
+          name: Get macOS dependencies
           command: |
             export HOMEBREW_NO_AUTO_UPDATE=1
-            brew install cmake
+            brew install cmake wget
       - ci_steps
 
   deploy_snapshots:
