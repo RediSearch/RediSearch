@@ -187,3 +187,16 @@ workflows:
           filters:
             branches:
               only: master
+
+  nightly:
+    triggers:
+      - schedule:
+          cron: "20 17 * * *"
+          filters:
+             branches:
+               only:
+                 - master
+             tags:
+               only: /.*/
+    jobs:
+      - macos
