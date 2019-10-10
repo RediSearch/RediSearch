@@ -51,8 +51,10 @@ jobs:
     environment:
       - BUILD_DIR: build-macos
     steps:
-      - run: |
-        brew install cmake
+      - run:
+        name: Get dependencies
+        command: |
+          brew install cmake
       - ci_steps
 
   deploy_snapshots:
