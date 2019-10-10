@@ -105,13 +105,13 @@ def testTimeout(env):
     sleep(0.01)
     env.cmd('FT.CURSOR', 'GC', 'idx1', '0')
     env.assertEqual(0, getCursorStats(env, 'idx1')['index_total'])
-
+'''
 def testErrors(env):
     env.expect('ft.create idx schema name text').equal('OK')
     #env.expect('ft.add idx hotel 1.0 fields name hilton').equal('OK')
     env.expect('FT.AGGREGATE idx hilton withcursor').error()       \
         .contains('Index `idx` does not have cursors enabled')
-
+'''
 def testLeaked(env):
     # Test ensures in CursorList_Destroy() checks shutdown with remaining cursors
     loadDocs(env)
