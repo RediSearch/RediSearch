@@ -7,26 +7,27 @@ defaults:
 
 commands:
   ci_steps:
-    - checkout
-    - run:
-        name: Get Dependencies
-        command: ./.circleci/ci_get_deps.sh
-    - run:
-        name: Build
-        command: ./.circleci/ci_build.sh
-    - run:
-        name: Test
-        command: ./.circleci/ci_test.sh
-    - run:
-        name: Package
-        command: ./.circleci/ci_package.sh
-        environment:
-          - PACKAGE_NAME: redisearch-oss
-    - persist_to_workspace:
-        root: /workspace
-        paths:
-          - 'snapshot'
-          - 'release'
+    steps: 
+      - checkout
+      - run:
+          name: Get Dependencies
+          command: ./.circleci/ci_get_deps.sh
+      - run:
+          name: Build
+          command: ./.circleci/ci_build.sh
+      - run:
+          name: Test
+          command: ./.circleci/ci_test.sh
+      - run:
+          name: Package
+          command: ./.circleci/ci_package.sh
+          environment:
+            - PACKAGE_NAME: redisearch-oss
+      - persist_to_workspace:
+          root: /workspace
+          paths:
+            - 'snapshot'
+            - 'release'
 
 jobs:
   ubuntu:
