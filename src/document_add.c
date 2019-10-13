@@ -345,9 +345,11 @@ static int doAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   } else if (rv == AC_ERR_ENOENT) {
     const char *keyword = AC_GetStringNC(&ac, NULL);
     QueryError_SetErrorFmt(&status, QUERY_EADDARGS, "Unknown keyword: `%s`", keyword);
+    goto cleanup;
   } else {
     QueryError_SetErrorFmt(&status, QUERY_EADDARGS, "Error parsing arguments for `%s`: %s",
                            errArg ? errArg->name : "", AC_Strerror(rv));
+    goto cleanup;
   }
 
   if (language && !IsSupportedLanguage(language, strlen(language))) {
