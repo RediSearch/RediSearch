@@ -226,6 +226,12 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   AddDocumentOptions opts = {.donecb = replyCallback};
   QueryError status = {0};
 
+  IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 0);
+  if (!sp) {
+    RedisModule_ReplyWithError(ctx, "Unknown index name");
+    goto cleanup;
+  }
+
   ArgsCursor_InitRString(&ac, argv + 3, argc - 3);
 
   int rv = 0;
@@ -246,11 +252,6 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     canBlock = CheckConcurrentSupport(ctx);
   }
 
-  IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 0);
-  if (!sp) {
-    RedisModule_ReplyWithError(ctx, "Unknown index name");
-    goto cleanup;
-  }
   if (canBlock) {
     canBlock = !(sp->flags & Index_Temporary) && CheckConcurrentSupport(ctx);
   }
