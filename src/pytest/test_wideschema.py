@@ -35,3 +35,6 @@ def testWideSchema(env):
         res = env.cmd('ft.search', 'idx', ' '.join(
             ('token_%d' % (i) for i in range(FIELDS))))
         env.assertEqual(res[0], N)
+    
+    res = env.cmd('ft.info', 'idx')
+    env.assertEqual(res[3][0], 'MAXTEXTFIELDS')
