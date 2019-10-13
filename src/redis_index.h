@@ -21,12 +21,6 @@ InvertedIndex *Redis_OpenInvertedIndexEx(RedisSearchCtx *ctx, const char *term, 
   Redis_OpenInvertedIndexEx(ctx, term, len, isWrite, NULL)
 void Redis_CloseReader(IndexReader *r);
 
-/*
- * Select a random term from the index that matches the index prefix and inveted key format.
- * It tries RANDOMKEY 10 times and returns NULL if it can't find anything.
- */
-const char *Redis_SelectRandomTerm(RedisSearchCtx *ctx, size_t *tlen);
-
 #define TERM_KEY_FORMAT "ft:%s/%.*s"
 #define TERM_KEY_PREFIX "ft:"
 #define SKIPINDEX_KEY_FORMAT "si:%s/%.*s"
@@ -36,9 +30,6 @@ const char *Redis_SelectRandomTerm(RedisSearchCtx *ctx, size_t *tlen);
 #define INVERTED_INDEX_NOFREQFLAG_VER 0
 
 typedef int (*ScanFunc)(RedisModuleCtx *ctx, RedisModuleString *keyName, void *opaque);
-
-/* Scan the keyspace with MATCH for a prefix, and call ScanFunc for each key found */
-int Redis_ScanKeys(RedisModuleCtx *ctx, const char *prefix, ScanFunc f, void *opaque);
 
 /* Optimize the buffers of a speicif term hit */
 int Redis_OptimizeScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaque);

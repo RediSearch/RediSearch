@@ -90,8 +90,6 @@ void InvertedIndex_RdbSave(RedisModuleIO *rdb, void *value) {
     }
   }
 }
-void InvertedIndex_Digest(RedisModuleDigest *digest, void *value) {
-}
 
 unsigned long InvertedIndex_MemUsage(const void *value) {
   const InvertedIndex *idx = value;
@@ -190,90 +188,12 @@ RedisSearchCtx *SearchCtx_Refresh(RedisSearchCtx *sctx, RedisModuleString *keyNa
   return NewSearchCtx(redisCtx, keyName, true);
 }
 
-RedisSearchCtx *NewSearchCtxDefault(RedisModuleCtx *ctx) {
-  RedisSearchCtx *sctx = rm_malloc(sizeof(*sctx));
-  *sctx = (RedisSearchCtx){.redisCtx = ctx};
-  return sctx;
-}
-
 void SearchCtx_Free(RedisSearchCtx *sctx) {
   if (sctx->key_) {
     RedisModule_CloseKey(sctx->key_);
     sctx->key_ = NULL;
   }
   rm_free(sctx);
-}
-/*
- * Select a random term from the index that matches the index prefix and inveted key format.
- * It tries RANDOMKEY 10 times and returns NULL if it can't find anything.
- */
-const char *Redis_SelectRandomTermByIndex(RedisSearchCtx *ctx, size_t *tlen) {
-
-  RedisModuleString *pf = fmtRedisTermKey(ctx, "", 0);
-  size_t pflen;
-  const char *prefix = RedisModule_StringPtrLen(pf, &pflen);
-
-  for (int i = 0; i < 10; i++) {
-    RedisModuleCallReply *rep = RedisModule_Call(ctx->redisCtx, "RANDOMKEY", "");
-    if (rep == NULL || RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_STRING) {
-      break;
-    }
-
-    // get the key and see if it matches the prefix
-    size_t len;
-    const char *kstr = RedisModule_CallReplyStringPtr(rep, &len);
-    if (!strncmp(kstr, prefix, pflen)) {
-      *tlen = len - pflen;
-      return kstr + pflen;
-    }
-  }
-  *tlen = 0;
-  return NULL;
-}
-
-const char *Redis_SelectRandomTerm(RedisSearchCtx *ctx, size_t *tlen) {
-
-  for (int i = 0; i < 5; i++) {
-    RedisModuleCallReply *rep = RedisModule_Call(ctx->redisCtx, "RANDOMKEY", "");
-    if (rep == NULL || RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_STRING) {
-      break;
-    }
-
-    // get the key and see if it matches the prefix
-    size_t len;
-    RedisModuleString *krstr = RedisModule_CreateStringFromCallReply(rep);
-    char *kstr = (char *)RedisModule_StringPtrLen(krstr, &len);
-    if (!strncmp(kstr, TERM_KEY_PREFIX, strlen(TERM_KEY_PREFIX))) {
-      // check to see that the key is indeed an inverted index record
-      RedisModuleKey *k = RedisModule_OpenKey(ctx->redisCtx, krstr, REDISMODULE_READ);
-      if (k == NULL || (RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_EMPTY &&
-                        RedisModule_ModuleTypeGetType(k) != InvertedIndexType)) {
-        continue;
-      }
-      RedisModule_CloseKey(k);
-      size_t offset = strlen(TERM_KEY_PREFIX);
-      char *idx = kstr + offset;
-      while (offset < len && kstr[offset] != '/') {
-        offset++;
-      }
-      if (offset < len) {
-        kstr[offset++] = '\0';
-      }
-      char *term = kstr + offset;
-      *tlen = len - offset;
-      // printf("Found index %s and term %sm len %zd\n", idx, term, *tlen);
-      IndexSpec *sp = IndexSpec_Load(ctx->redisCtx, idx, 1);
-      // printf("Spec: %p\n", sp);
-
-      if (sp == NULL) {
-        continue;
-      }
-      ctx->spec = sp;
-      return term;
-    }
-  }
-
-  return NULL;
 }
 
 static InvertedIndex *openIndexKeysDict(RedisSearchCtx *ctx, RedisModuleString *termKey,
@@ -377,54 +297,6 @@ err:
     RedisModule_FreeString(ctx->redisCtx, termKey);
   }
   return NULL;
-}
-
-int Redis_ScanKeys(RedisModuleCtx *ctx, const char *prefix, ScanFunc f, void *opaque) {
-  long long ptr = 0;
-
-  int num = 0;
-  do {
-    RedisModuleString *sptr = RedisModule_CreateStringFromLongLong(ctx, ptr);
-    RedisModuleCallReply *r =
-        RedisModule_Call(ctx, "SCAN", "scccc", sptr, "MATCH", prefix, "COUNT", "100");
-    RedisModule_FreeString(ctx, sptr);
-    if (r == NULL || RedisModule_CallReplyType(r) == REDISMODULE_REPLY_ERROR) {
-      return num;
-    }
-
-    if (RedisModule_CallReplyLength(r) < 1) {
-      break;
-    }
-
-    sptr = RedisModule_CreateStringFromCallReply(RedisModule_CallReplyArrayElement(r, 0));
-    RedisModule_StringToLongLong(sptr, &ptr);
-    RedisModule_FreeString(ctx, sptr);
-    // printf("ptr: %s %lld\n",
-    // RedisModule_CallReplyStringPtr(RedisModule_CallReplyArrayElement(r, 0),
-    // NULL), ptr);
-    if (RedisModule_CallReplyLength(r) == 2) {
-      RedisModuleCallReply *keys = RedisModule_CallReplyArrayElement(r, 1);
-      size_t nks = RedisModule_CallReplyLength(keys);
-
-      for (size_t i = 0; i < nks; i++) {
-        RedisModuleString *kn =
-            RedisModule_CreateStringFromCallReply(RedisModule_CallReplyArrayElement(keys, i));
-        if (f(ctx, kn, opaque) != REDISMODULE_OK) goto end;
-
-        // RedisModule_FreeString(ctx, kn);
-        if (++num % 10000 == 0) {
-          LG_DEBUG("Scanned %d keys", num);
-        }
-      }
-
-      // RedisModule_FreeCallReply(keys);
-    }
-
-    RedisModule_FreeCallReply(r);
-
-  } while (ptr);
-end:
-  return num;
 }
 
 int Redis_DropScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaque) {
