@@ -272,6 +272,8 @@ def testGet(env):
     r.cmd('ft.del', 'idx', 'coverage') #should write into log. How is it tested?
     res = r.cmd('ft.get', 'idx', 'doc10')
     r.assertEqual(None, res)
+    res = r.cmd('ft.mget', 'idx', 'doc10')
+    r.assertEqual([None], res)
     res = r.cmd('ft.mget', 'idx', 'doc10', 'doc11', 'doc12')
     r.assertIsNone(res[0])
     r.assertIsNone(res[1])
@@ -915,6 +917,12 @@ def testGeoErrors(env):
             .contains('Unknown distance unit fake')
     env.expect('ft.search idx hilton geofilter location -0.1757 51.5156 1').error()   \
             .contains('GEOFILTER requires 5 arguments')
+
+    env.expect('flushall')
+    env.expect('set geo:idx/location foo').equal('OK')
+    env.expect('ft.create idx schema name text location geo').equal('OK')
+    env.expect('ft.add idx hotel 1.0 fields name hill location -0.1757,51.5156').error() \
+            .contains('Could not index geo value')
 
 def testGeo(env):
     r = env
