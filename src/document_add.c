@@ -222,17 +222,15 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return RedisModule_WrongArity(ctx);
   }
 
-  ArgsCursor ac;
-  AddDocumentOptions opts = {.donecb = replyCallback};
-  QueryError status = {0};
-
   IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 0);
   if (!sp) {
-    RedisModule_ReplyWithError(ctx, "Unknown index name");
-    goto cleanup;
+    return RedisModule_ReplyWithError(ctx, "Unknown index name");
   }
 
+  ArgsCursor ac;
+  QueryError status = {0};
   ArgsCursor_InitRString(&ac, argv + 3, argc - 3);
+  AddDocumentOptions opts = {.donecb = replyCallback};
 
   int rv = 0;
   if ((rv = AC_GetDouble(&ac, &opts.score, 0) != AC_OK)) {
