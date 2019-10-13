@@ -1079,7 +1079,7 @@ def testSafeAddHash(env):
     env.expect('ft.safeaddhash idx').error().contains("wrong number of arguments for 'ft.safeaddhash' command")
     env.expect('ft.safeaddhash idx doc3 2.0').error().contains('Score must be between 0 and 1')
     env.expect('ft.safeaddhash idx doc3 -2.0').error().contains('Score must be between 0 and 1')
-    env.expect('ft.safeaddhash idx doc3 1.0 1.0').error().contains('Could not load document')
+    env.expect('ft.safeaddhash idx doc3 1.0 1.0').error().contains('Unknown keyword: `1.0`')
     env.expect('ft.safeaddhash idx doc3 not_a_number').error().contains('Could not parse document score')
     env.expect('ft.safeaddhash idx doc3 1.0 LANGUAGE RediSearch').error().contains('Unknown language: `RediSearch`')
     env.expect('ft.safeaddhash idx doc3 1.0 LANGUAGE RediSearch not_an_arg').error().contains("Unknown keyword: `not_an_arg`")
