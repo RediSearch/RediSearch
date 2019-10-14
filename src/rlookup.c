@@ -102,7 +102,7 @@ RLookupKey *RLookup_GetKey(RLookup *lookup, const char *name, int flags) {
   return RLookup_GetKeyEx(lookup, name, strlen(name), flags);
 }
 
-size_t RLookup_GetLength(RLookup *lookup, const RLookupRow *r, int requiredFlags,
+size_t RLookup_GetLength(const RLookup *lookup, const RLookupRow *r, int requiredFlags,
                          int excludeFlags) {
   size_t nfields = 0;
   for (const RLookupKey *kk = lookup->head; kk; kk = kk->next) {
