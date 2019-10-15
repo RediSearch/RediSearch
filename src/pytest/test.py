@@ -26,9 +26,13 @@ def testAdd(env):
         env.assertExists(prefix + ':idx/lorem')
 
 def testAddErrors(env):
-    env.expect('ft.create', 'idx', 'schema', 'foo', 'text', 'bar', 'numeric', 'sortable').equal('OK')
-    env.expect('ft.add', 'idx', 'doc1', 1, 'redis', 4).error().contains('Unknown keyword `4` provide')
-    
+    env.expect('ft.create idx schema foo text bar numeric sortable').equal('OK')
+    env.expect('ft.add idx doc1 1 redis 4').error().contains('Unknown keyword `4` provide')
+    env.expect('ft.add idx doc1').error().contains("wrong number of arguments for 'ft.add' command")
+    env.expect('ft.add idx doc1 42').error().contains("Score must be between 0 and 1")
+    env.expect('ft.add idx doc1 1.0').error().contains("No field list found")
+    env.expect('ft.add fake_idx doc1 1.0 fields foo bar').error().contains("Unknown index name")
+
 def assertEqualIgnoreCluster(env, val1, val2):
     # todo: each test that uses this function should be switch back to env.assertEqual once fix
     # issues on coordinator
@@ -1036,7 +1040,7 @@ def testAddHash(env):
 
     env.assertOk(r.execute_command('ft.addhash', 'idx', 'doc1', 1.0))
     env.assertOk(r.execute_command('ft.addhash', 'idx', 'doc2', 1.0))
-    env.expect('ft.addhash', 'idx', 'doc3', 1.0, 1.0).error().contains('Could not load document')
+    env.expect('ft.addhash', 'idx', 'doc3', 1.0, 1.0).error().contains('Unknown keyword: `1.0`')
 
     res = r.execute_command('ft.search', 'idx', "hello", "nocontent")
     env.assertEqual(3, len(res))
