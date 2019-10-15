@@ -266,30 +266,6 @@ int RSValue_ToNumber(const RSValue *v, double *d) {
   return 0;
 }
 
-/**
- * Returns the value as a simple opaque buffer
-inline const void *RSValue_ToBuffer(RSValue *value, size_t *outlen) {
-  value = RSValue_Dereference(value);
-
-  switch (value->t) {
-    case RSValue_Number:
-      *outlen = sizeof(value->numval);
-      return &value->numval;
-    case RSValue_String:
-      *outlen = value->strval.len;
-      return value->strval.str;
-    case RSValue_RedisString:
-    case RSValue_OwnRstring:
-      return RedisModule_StringPtrLen(value->rstrval, outlen);
-    case RSValue_Array:
-    case RSValue_Null:
-    default:
-      *outlen = 0;
-      return "";
-  }
-}
- */
-
 // Gets the string pointer and length from the value
 const char *RSValue_StringPtrLen(const RSValue *value, size_t *lenp) {
   value = RSValue_Dereference(value);
