@@ -52,7 +52,7 @@ true or an error if something went wrong.
 
 static int parseDocumentOptions(AddDocumentOptions *opts, ArgsCursor *ac, QueryError *status) {
   // Assume argc and argv are at proper indices
-  int nosave = 0, replace = 0, partial = 0, foundFields = 0;
+  int foundFields = 0;
   opts->fieldsArray = NULL;
   opts->numFieldElems = 0;
   opts->options = 0;
@@ -75,6 +75,8 @@ static int parseDocumentOptions(AddDocumentOptions *opts, ArgsCursor *ac, QueryE
     } else if (rv == AC_ERR_ENOENT) {
       size_t narg;
       const char *s = AC_GetStringNC(ac, &narg);
+
+      // Check if done parsing args options 
       if (!strncasecmp("FIELDS", s, narg)) {
         size_t numRemaining = AC_NumRemaining(ac);
         if (numRemaining % 2 != 0) {
@@ -111,18 +113,6 @@ static int parseDocumentOptions(AddDocumentOptions *opts, ArgsCursor *ac, QueryE
     return REDISMODULE_ERR;
   }
 
-  if (QueryError_HasError(status)) {
-    return REDISMODULE_ERR;
-  }
-  if (partial) {
-    opts->options |= DOCUMENT_ADD_PARTIAL;
-  }
-  if (nosave) {
-    opts->options |= DOCUMENT_ADD_NOSAVE;
-  }
-  if (replace) {
-    opts->options |= DOCUMENT_ADD_REPLACE;
-  }
   return REDISMODULE_OK;
 }
 
