@@ -1143,7 +1143,7 @@ FT.SYNADD <index name> <term1> <term2> ...
 
 Adds a synonym group.
 
-The command is used to create a new synonyms group. The command returns the synonym group id which can later be used to add additional terms to that synonym group. Only documents which was indexed after the adding operation will be effected.
+The command is used to create a new synonyms group. The command returns the synonym group id which can later be used to add additional terms to that synonym group. Only documents which were indexed after the adding operation will be affected.
 
 ---
 
@@ -1159,7 +1159,7 @@ FT.SYNUPDATE <index name> <synonym group id> <term1> <term2> ...
 
 Updates a synonym group.
 
-The command is used to update an existing synonym group with additional terms. Only documents which was indexed after the update will be effected.
+The command is used to update an existing synonym group with additional terms. Only documents which were indexed after the update will be affected.
 
 ---
 
