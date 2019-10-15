@@ -973,6 +973,7 @@ def testAddHash(env):
 
     env.assertOk(r.execute_command('ft.addhash', 'idx', 'doc1', 1.0))
     env.assertOk(r.execute_command('ft.addhash', 'idx', 'doc2', 1.0))
+    env.expect('ft.addhash', 'fake_idx', 'doc3', 1.0, 1.0).error().contains('Unknown keyword: `1.0`')
 
     res = r.execute_command('ft.search', 'idx', "hello", "nocontent")
     env.assertEqual(3, len(res))
