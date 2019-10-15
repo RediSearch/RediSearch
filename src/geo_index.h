@@ -19,16 +19,32 @@ int GeoIndex_AddStrings(GeoIndex *gi, t_docId docId, const char *slon, const cha
 
 void GeoIndex_RemoveEntries(GeoIndex *gi, IndexSpec *sp, t_docId docId);
 
+typedef enum {  // Placeholder for bad/invalid unit
+  GEO_DISTANCE_INVALID = -1,
+#define X_GEO_DISTANCE(X) \
+  X(KM, "km")             \
+  X(M, "m")               \
+  X(FT, "ft")             \
+  X(MI, "mi")
+
+#define X(c, unused) GEO_DISTANCE_##c,
+  X_GEO_DISTANCE(X)
+#undef X
+} GeoDistance;
+
 typedef struct GeoFilter {
   const char *property;
   double lat;
   double lon;
   double radius;
-  const char *unit;
+  GeoDistance unitType;
 } GeoFilter;
 
 /* Create a geo filter from parsed strings and numbers */
 GeoFilter *NewGeoFilter(double lon, double lat, double radius, const char *unit);
+
+GeoDistance GeoDistance_Parse(const char *s);
+const char *GeoDistance_ToString(GeoDistance dist);
 
 /* Make sure that the parameters of the filter make sense - i.e. coordinates are in range, radius is
  * sane, unit is valid. Return 1 if valid, 0 if not, and set the error string into err */

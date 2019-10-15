@@ -1016,7 +1016,8 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
     case QN_GEO:
 
       s = sdscatprintf(s, "GEO %s:{%f,%f --> %f %s", qs->gn.gf->property, qs->gn.gf->lon,
-                       qs->gn.gf->lat, qs->gn.gf->radius, qs->gn.gf->unit);
+                       qs->gn.gf->lat, qs->gn.gf->radius,
+                       GeoDistance_ToString(qs->gn.gf->unitType));
       break;
     case QN_IDS:
 
