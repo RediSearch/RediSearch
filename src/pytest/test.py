@@ -26,6 +26,10 @@ def testAdd(env):
         env.assertExists(prefix + ':idx/world')
         env.assertExists(prefix + ':idx/lorem')
 
+def testAddErrors(env):
+    env.expect('ft.create idx schema foo text bar numeric sortable').equal('OK')
+    env.expect('ft.add idx doc1 1 redis 4').error().contains('Unknown keyword `4` provide')
+
 def assertEqualIgnoreCluster(env, val1, val2):
     # todo: each test that uses this function should be switch back to env.assertEqual once fix
     # issues on coordinator
