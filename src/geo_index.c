@@ -41,8 +41,8 @@ void GeoIndex_RemoveEntries(GeoIndex *gi, IndexSpec *sp, t_docId docId) {
 int GeoFilter_Parse(GeoFilter *gf, ArgsCursor *ac, QueryError *status) {
   gf->lat = 0;
   gf->lon = 0;
-  gf->unit = NULL;
   gf->radius = 0;
+  gf->unitType = GEO_DISTANCE_KM;
 
   if (AC_NumRemaining(ac) < 5) {
     QERR_MKBADARGS_FMT(status, "GEOFILTER requires 5 arguments");
@@ -71,11 +71,9 @@ int GeoFilter_Parse(GeoFilter *gf, ArgsCursor *ac, QueryError *status) {
     return REDISMODULE_ERR;
   }
 
-  gf->unit = AC_GetStringNC(ac, NULL);
-  gf->unit = rm_strdup(gf->unit);
-  if (strcasecmp(gf->unit, "m") && strcasecmp(gf->unit, "km") && strcasecmp(gf->unit, "ft") &&
-      strcasecmp(gf->unit, "mi")) {
-    QERR_MKBADARGS_FMT(status, "Unknown distance unit %s", gf->unit);
+  const char *unitstr = AC_GetStringNC(ac, NULL);
+  if ((gf->unitType = GeoDistance_Parse(unitstr)) == GEO_DISTANCE_INVALID) {
+    QERR_MKBADARGS_FMT(status, "Unknown distance unit %s", unitstr);
     return REDISMODULE_ERR;
   }
 
@@ -84,7 +82,6 @@ int GeoFilter_Parse(GeoFilter *gf, ArgsCursor *ac, QueryError *status) {
 
 void GeoFilter_Free(GeoFilter *gf) {
   if (gf->property) rm_free((char *)gf->property);
-  if (gf->unit) rm_free((char *)gf->unit);
   rm_free(gf);
 }
 
@@ -98,8 +95,9 @@ static t_docId *geoRangeLoad(const GeoIndex *gi, const GeoFilter *gf, size_t *nu
   RedisModuleString *slon = RedisModule_CreateStringPrintf(ctx, "%f", gf->lon);
   RedisModuleString *slat = RedisModule_CreateStringPrintf(ctx, "%f", gf->lat);
   RedisModuleString *srad = RedisModule_CreateStringPrintf(ctx, "%f", gf->radius);
+  const char *unitstr = GeoDistance_ToString(gf->unitType);
   RedisModuleCallReply *rep =
-      RedisModule_Call(ctx, "GEORADIUS", "ssssc", s, slon, slat, srad, gf->unit ? gf->unit : "km");
+      RedisModule_Call(ctx, "GEORADIUS", "ssssc", s, slon, slat, srad, unitstr);
   if (rep == NULL || RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_ARRAY) {
     goto done;
   }
@@ -138,6 +136,26 @@ IndexIterator *NewGeoRangeIterator(GeoIndex *gi, const GeoFilter *gf, double wei
   return ret;
 }
 
+GeoDistance GeoDistance_Parse(const char *s) {
+#define X(c, val)            \
+  if (!strcasecmp(val, s)) { \
+    return GEO_DISTANCE_##c; \
+  }
+  X_GEO_DISTANCE(X)
+#undef X
+  return GEO_DISTANCE_INVALID;
+}
+
+const char *GeoDistance_ToString(GeoDistance d) {
+#define X(c, val)              \
+  if (d == GEO_DISTANCE_##c) { \
+    return val;                \
+  }
+  X_GEO_DISTANCE(X)
+#undef X
+  return "<badunit>";
+}
+
 /* Create a geo filter from parsed strings and numbers */
 GeoFilter *NewGeoFilter(double lon, double lat, double radius, const char *unit) {
   GeoFilter *gf = rm_malloc(sizeof(*gf));
@@ -145,16 +163,19 @@ GeoFilter *NewGeoFilter(double lon, double lat, double radius, const char *unit)
       .lon = lon,
       .lat = lat,
       .radius = radius,
-      .unit = unit,
   };
+  if (unit) {
+    gf->unitType = GeoDistance_Parse(unit);
+  } else {
+    gf->unitType = GEO_DISTANCE_KM;
+  }
   return gf;
 }
 
 /* Make sure that the parameters of the filter make sense - i.e. coordinates are in range, radius is
  * sane, unit is valid. Return 1 if valid, 0 if not, and set the error string into err */
 int GeoFilter_Validate(GeoFilter *gf, QueryError *status) {
-  if (!gf->unit || (strcasecmp(gf->unit, "m") && strcasecmp(gf->unit, "km") &&
-                    strcasecmp(gf->unit, "ft") && strcasecmp(gf->unit, "mi"))) {
+  if (gf->unitType == GEO_DISTANCE_INVALID) {
     QERR_MKSYNTAXERR(status, "Invalid GeoFilter unit");
     return 0;
   }
