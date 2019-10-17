@@ -273,7 +273,7 @@ def testGet(env):
     # Verify that when a document is deleted, GET returns NULL
     r.cmd('ft.del', 'idx', 'doc10') # But we still keep the document
     r.cmd('ft.del', 'idx', 'doc11')
-    r.cmd('ft.del', 'idx', 'coverage') #should write into log. How is it tested?
+    r.cmd('ft.del', 'idx', 'coverage')
     res = r.cmd('ft.get', 'idx', 'doc10')
     r.assertEqual(None, res)
     res = r.cmd('ft.mget', 'idx', 'doc10')

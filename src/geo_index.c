@@ -5,21 +5,22 @@
 
 /* Add a docId to a geoindex key. Right now we just use redis' own GEOADD */
 int GeoIndex_AddStrings(GeoIndex *gi, t_docId docId, const char *slon, const char *slat) {
-  int rv = REDISMODULE_OK;
-
   RedisModuleString *ks = IndexSpec_GetFormattedKey(gi->ctx->spec, gi->sp, INDEXFLD_T_GEO);
   RedisModuleCtx *ctx = gi->ctx->redisCtx;
 
   /* GEOADD key longitude latitude member*/
   RedisModuleCallReply *rep = RedisModule_Call(ctx, "GEOADD", "sccl", ks, slon, slat, docId);
+  if (rep == NULL) {
+    return REDISMODULE_ERR;
+  }
 
   int repType = RedisModule_CallReplyType(rep);
-  if (rep == NULL || repType == REDISMODULE_REPLY_ERROR) {
-    rv = REDISMODULE_ERR;
+  if (repType == REDISMODULE_REPLY_ERROR) {
+    return REDISMODULE_ERR;
   }
 
   RedisModule_FreeCallReply(rep);
-  return rv;
+  return REDISMODULE_OK;
 }
 
 void GeoIndex_RemoveEntries(GeoIndex *gi, IndexSpec *sp, t_docId docId) {
