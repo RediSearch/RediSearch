@@ -15,11 +15,11 @@ int GeoIndex_AddStrings(GeoIndex *gi, t_docId docId, const char *slon, const cha
   }
 
   int repType = RedisModule_CallReplyType(rep);
+  RedisModule_FreeCallReply(rep);
   if (repType == REDISMODULE_REPLY_ERROR) {
     return REDISMODULE_ERR;
   }
 
-  RedisModule_FreeCallReply(rep);
   return REDISMODULE_OK;
 }
 
