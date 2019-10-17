@@ -110,7 +110,7 @@ static void *FGC_recvPtrAddr(ForkGC *fgc) {
 static void FGC_recvFixed(ForkGC *fgc, void *buf, size_t len) {
   while (len) {
     ssize_t nrecvd = read(fgc->pipefd[GC_READERFD], buf, len);
-    if (len > 0) {
+    if (nrecvd > 0) {
       buf += nrecvd;
       len -= nrecvd;
     } else if (nrecvd < 0) {
