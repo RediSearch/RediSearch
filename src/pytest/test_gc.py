@@ -1,6 +1,7 @@
 
 import unittest
 from RLTest import Env
+import platform
 
 
 def testBasicGC(env):
@@ -211,7 +212,7 @@ def testGCThreshold(env):
     env.assertEqual(len(debug_rep), 0)
 
 def testGCShutDownOnExit(env):
-    if env.env == 'existing-env' or env.env == 'enterprise' or env.isCluster():
+    if env.env == 'existing-env' or env.env == 'enterprise' or env.isCluster() or platform.system() == 'Darwin':
         env.skip()
     env = Env(moduleArgs='GC_POLICY FORK FORKGC_SLEEP_BEFORE_EXIT 20')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT', 'SORTABLE').ok()
