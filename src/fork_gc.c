@@ -86,6 +86,8 @@ static void FGC_sendBuffer(ForkGC *fgc, const void *buff, size_t len) {
   }
 }
 
+static void FGC_recvFixed(ForkGC *fgc, void *buf, size_t len);
+
 /**
  * Send instead of a string to indicate that no more buffers are to be received
  */
@@ -95,26 +97,25 @@ static void FGC_sendTerminator(ForkGC *fgc) {
 
 static long long FGC_recvLongLong(ForkGC *fgc) {
   long long ret;
-  ssize_t sizeRead = read(fgc->pipefd[GC_READERFD], &ret, sizeof(ret));
-  if (sizeRead != sizeof(ret)) {
-    return 0;
-  }
+  FGC_recvFixed(fgc, &ret, sizeof ret);
   return ret;
 }
 
 static void *FGC_recvPtrAddr(ForkGC *fgc) {
   void *ret;
-  ssize_t sizeRead = read(fgc->pipefd[GC_READERFD], &ret, sizeof(ret));
-  if (sizeRead != sizeof(ret)) {
-    return 0;
-  }
+  FGC_recvFixed(fgc, &ret, sizeof ret);
   return ret;
 }
 
 static void FGC_recvFixed(ForkGC *fgc, void *buf, size_t len) {
-  ssize_t nrecvd = read(fgc->pipefd[GC_READERFD], buf, len);
-  if (nrecvd != len) {
-    printf("warning: got a bad length when writing to pipe.\r\n");
+  while (len) {
+    ssize_t nrecvd = read(fgc->pipefd[GC_READERFD], buf, len);
+    if (len > 0) {
+      buf += nrecvd;
+      len -= nrecvd;
+    } else if (nrecvd < 0) {
+      printf("Got error while reading from pipe (%s)", strerror(errno));
+    }
   }
 }
 
