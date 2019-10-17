@@ -1412,6 +1412,20 @@ def testSuggestions(env):
     rc = r.execute_command("ft.SUGGET", "ac", "hello")
     env.assertEqual(['hello werld'], rc)
 
+def testSuggestErrors(env):
+    env.expect('ft.SUGADD ac olah 1').equal(1)
+    env.expect('ft.SUGADD ac olah 1 INCR').equal(1)
+    env.expect('ft.SUGADD ac missing').error().contains("wrong number of arguments for 'ft.SUGADD' command")
+    env.expect('ft.SUGADD ac olah not_a_number').error().contains("invalid score")
+    env.expect('ft.SUGADD ac olah 1 PAYLOAD').error().contains('Invalid payload: Expected an argument, but none provided')
+    env.expect('ft.SUGADD ac olah 1 REDIS PAYLOAD payload').error().contains('Unknown argument `REDIS`')
+    env.expect('ft.SUGGET ac olah FUZZ').error().contains("Unrecognized argument: FUZZ")
+    query = 'verylongquery'
+    for _ in range(3):
+        query += query
+    env.expect('ft.SUGGET ac', query).error().contains("Invalid query")
+    env.expect('ft.SUGGET ac', query + query).error().contains("Invalid query length")
+
 def testSuggestPayload(env):
     r = env
     env.assertEqual(1, r.execute_command(
