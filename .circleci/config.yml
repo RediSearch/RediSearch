@@ -1,32 +1,33 @@
-version: 2
+version: 2.1
 
 defaults:
-  ci_steps: &ci_steps
-    - checkout
-    - run:
-        name: Get Dependencies
-        command: ./.circleci/ci_get_deps.sh
-    - run:
-        name: Build
-        command: ./.circleci/ci_build.sh
-    - run:
-        name: Test
-        command: ./.circleci/ci_test.sh
-    - run:
-        name: Package
-        command: ./.circleci/ci_package.sh
-        environment:
-          - PACKAGE_NAME: redisearch-oss
-    - persist_to_workspace:
-        root: /workspace
-        paths:
-          - 'snapshot'
-          - 'release'
-
   default_jobs: &default_jobs
     - centos
     - ubuntu
 
+commands:
+  ci_steps:
+    steps: 
+      - checkout
+      - run:
+          name: Get Dependencies
+          command: ./.circleci/ci_get_deps.sh
+      - run:
+          name: Build
+          command: ./.circleci/ci_build.sh
+      - run:
+          name: Test
+          command: ./.circleci/ci_test.sh
+      - run:
+          name: Package
+          command: DISTDIR=~/workspace ./.circleci/ci_package.sh
+          environment:
+            - PACKAGE_NAME: redisearch-oss
+      - persist_to_workspace:
+          root: ~/workspace
+          paths:
+            - 'snapshot'
+            - 'release'
 
 jobs:
   ubuntu:
@@ -34,27 +35,40 @@ jobs:
       - image: 'redislabsmodules/rmbuilder:latest'
     environment:
       - BUILD_DIR: build-debian
-
-    steps: *ci_steps
+    steps:
+      - ci_steps
   
   centos:
     docker:
       - image: 'redislabsmodules/rmbuildercentos:latest'
     environment:
       - BUILD_DIR: build-el
+    steps: 
+      - ci_steps
 
-    steps: *ci_steps
+  macos:
+    macos:
+      xcode: 10.2.1
+    environment:
+      - BUILD_DIR: build-macos
+    steps:
+      - run:
+          name: Get macOS dependencies
+          command: |
+            export HOMEBREW_NO_AUTO_UPDATE=1
+            brew install cmake wget redis
+      - ci_steps
 
   deploy_snapshots:
     docker:
       - image: 'redislabsmodules/rmbuilder:latest'
     steps:
       - attach_workspace:
-          at: /workspace
+          at: ~/workspace
       - run:
           name: Deploy Snapshots to S3
           command: >-
-            for f in /workspace/snapshot/*.zip; do
+            for f in ~/workspace/snapshot/*.zip; do
               aws s3 cp $f s3://redismodules/$PACKAGE_NAME/snapshots/ --acl public-read;
             done
 
@@ -93,12 +107,12 @@ jobs:
       - image: 'redislabsmodules/rmbuilder:latest'
     steps:
       - attach_workspace:
-          at: /workspace
+          at: ~/workspace
       - run:
           name: Deploy Releases to S3
-          command: >-
-            for f in /workspace/release/*.zip; do
-              aws s3 cp $f s3://redismodules/$PACKAGE_NAME/ --acl public-read;
+          command: |
+            for f in ~/workspace/release/*.zip; do
+              aws s3 cp $f s3://redismodules/$PACKAGE_NAME/ --acl public-read
             done
   
   deploy_docs:
@@ -111,9 +125,8 @@ jobs:
           command: mkdocs build
       - run:
           name: Deploy Docs to S3
-          command: >-
-            aws s3 cp site s3://oss.redislabs.com/$WEBSITE_FOLDER/ --acl
-            public-read --recursive
+          command: |
+            aws s3 cp site s3://oss.redislabs.com/$WEBSITE_FOLDER/ --acl public-read --recursive
 
 workflows:
   version: 2
@@ -132,24 +145,30 @@ workflows:
               only: /.*/
             tags:
               only: /.*/
+      - macos:
+          filters:
+            branches:
+              only: /.*/
+            tags:
+              only: /.*/
       - debug_asan:
           filters:
-              branches:
-                  only: /.*/
-              tags:
-                  only: /.*/
+            branches:
+              only: /.*/
+            tags:
+              only: /.*/
       - debug_msan:
           filters:
-              branches:
-                  only: /.*/
-              tags:
-                  only: /.*/
+            branches:
+              only: /.*/
+            tags:
+              only: /.*/
       - coverage:
           filters:
-              branches:
-                only: /.*/
-              tags:
-                only: /.*/
+            branches:
+              only: /.*/
+            tags:
+              only: /.*/
       - deploy_snapshots:
           requires: *default_jobs
           filters:
@@ -164,8 +183,18 @@ workflows:
               ignore: /.*/
             tags:
               only: /^v[0-9].*/
-
       - deploy_docs:
           filters:
             branches:
               only: master
+
+  nightly:
+    triggers:
+      - schedule:
+          cron: "20 17 * * *"
+          filters:
+             branches:
+               only:
+                 - master
+    jobs:
+      - macos

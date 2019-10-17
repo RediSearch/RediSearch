@@ -33,6 +33,7 @@ def testAddErrors(env):
     env.expect('ft.add idx doc1 1.0').error().contains("No field list found")
     env.expect('ft.add fake_idx doc1 1.0 fields foo bar').error().contains("Unknown index name")
 
+
 def assertEqualIgnoreCluster(env, val1, val2):
     # todo: each test that uses this function should be switch back to env.assertEqual once fix
     # issues on coordinator
@@ -1089,7 +1090,6 @@ def testSafeAddHash(env):
     env.expect('ft.safeaddhash idx doc3 1.0 LANGUAGE RediSearch not_an_arg').error().contains("Unknown keyword: `not_an_arg`")
     #env.expect('ft.safeaddhash', 'idx', 'doc3', '1.0', 'LANGUAGE', 'RediSearch, ""').error().contains("Error parsing arguments for `%s`: %s")
     env.expect('ft.safeaddhash not_idx doc3 1.0').error().contains('Unknown Index name')
-
     res = r.execute_command('ft.search', 'idx', "hello", "nocontent")
     env.assertEqual(3, len(res))
     env.assertEqual(2, res[0])

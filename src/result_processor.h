@@ -157,19 +157,8 @@ typedef struct ResultProcessor {
   void (*Free)(struct ResultProcessor *self);
 } ResultProcessor;
 
-/* Helper function - get the total from a processor, and if the Total callback is NULL, climb up
- * the
- * chain until we find a processor with a Total callback. This allows processors to avoid
- * implementing it if they have no calculations to add to Total (such as deeted/ignored results)
- * */
-size_t ResultProcessor_Total(ResultProcessor *rp);
-
 // Get the index spec from the result processor
 #define RP_SPEC(rpctx) ((rpctx)->parent->sctx->spec)
-// #define RS_NEXT(rp, res) (rp)->Next(rp, res)
-
-#define SEARCHRESULT_CLEAR_KEEPCACHE 0x01
-#define SEARCHRESULT_CLEAR_FREECACHE 0x02
 
 /**
  * This function resets the search result, so that it may be reused again.
