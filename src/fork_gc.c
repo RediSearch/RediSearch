@@ -152,10 +152,6 @@ FGC_recvBuffer(ForkGC *fgc, void **buf, size_t *len) {
   if (FGC_recvBuffer(gc, buf, len) != REDISMODULE_OK) { \
     return REDISMODULE_ERR;                             \
   }
-#define TRY_RECV_BUFFER_GT(gc, buf, len, label)         \
-  if (FGC_recvBuffer(gc, buf, len) != REDISMODULE_OK) { \
-    goto label;                                         \
-  }
 
 typedef struct {
   // Number of blocks prior to repair
@@ -490,9 +486,13 @@ typedef struct {
 
 static int __attribute__((warn_unused_result))
 FGC_recvRepairedBlock(ForkGC *gc, MSG_RepairedBlock *binfo) {
-  TRY_RECV_FIXED(gc, binfo, sizeof(*binfo));
+  if (FGC_recvFixed(gc, binfo, sizeof(*binfo)) != REDISMODULE_OK) {
+    return REDISMODULE_ERR;
+  }
   Buffer *b = &binfo->blk.buf;
-  TRY_RECV_BUFFER(gc, (void **)&b->data, &b->offset);
+  if (FGC_recvBuffer(gc, (void **)&b->data, &b->offset) != REDISMODULE_OK) {
+    return REDISMODULE_ERR;
+  }
   b->cap = b->offset;
   return REDISMODULE_OK;
 }
@@ -500,13 +500,19 @@ FGC_recvRepairedBlock(ForkGC *gc, MSG_RepairedBlock *binfo) {
 static int __attribute__((warn_unused_result))
 FGC_recvInvIdx(ForkGC *gc, InvIdxBuffers *bufs, MSG_IndexInfo *info) {
   size_t nblocksRecvd = 0;
-  TRY_RECV_FIXED(gc, info, sizeof(*info));
-  TRY_RECV_BUFFER(gc, (void **)&bufs->newBlocklist, &bufs->newBlocklistSize);
+  if (FGC_recvFixed(gc, info, sizeof(*info)) != REDISMODULE_OK) {
+    return REDISMODULE_ERR;
+  }
+  if (FGC_recvBuffer(gc, (void **)&bufs->newBlocklist, &bufs->newBlocklistSize) != REDISMODULE_OK) {
+    return REDISMODULE_ERR;
+  }
 
   if (bufs->newBlocklistSize) {
     bufs->newBlocklistSize /= sizeof(*bufs->newBlocklist);
   }
-  TRY_RECV_BUFFER_GT(gc, (void **)&bufs->delBlocks, &bufs->numDelBlocks, error);
+  if (FGC_recvBuffer(gc, (void **)&bufs->delBlocks, &bufs->numDelBlocks) != REDISMODULE_OK) {
+    goto error;
+  }
   bufs->numDelBlocks /= sizeof(*bufs->delBlocks);
   bufs->changedBlocks = rm_malloc(sizeof(*bufs->changedBlocks) * info->nblocksRepaired);
   for (size_t i = 0; i < info->nblocksRepaired; ++i) {
@@ -1075,7 +1081,7 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
 
     gc->execState = FGC_STATE_APPLYING;
     if (FGC_parentHandleFromChild(gc) == REDISMODULE_ERR) {
-      gcrv = 0;
+      gcrv = 1;
     }
     close(gc->pipefd[GC_READERFD]);
     if (FGC_haveRedisFork()) {
