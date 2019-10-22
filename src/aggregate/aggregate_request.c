@@ -356,6 +356,7 @@ AggregateRequest *AggregateRequest_Persist(AggregateRequest *req) {
   if (req->plan->conc) {
     for (size_t i = 0; i < req->plan->conc->numOpenKeys; i++) {
       req->plan->conc->openKeys[i].opts |= ConcurrentKey_SharedKey;
+      req->plan->conc->openKeys[i].opts |= ConcurrentKey_SharedKeyString;
     }
 
     req->plan->conc->ctx = RedisModule_GetThreadSafeContext(NULL);
