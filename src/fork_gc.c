@@ -722,23 +722,25 @@ static bool FGC_parentHandleNumeric(ForkGC *gc, int *ret_val, RedisModuleCtx *rc
     RedisSearchCtx *sctx = NULL;
     MSG_IndexInfo info = {0};
     InvIdxBuffers idxbufs = {0};
-    long long *valuesDeleted;
 
     if (currNode == RECV_PTR_ERROR) {
-      RETURN
+      *ret_val = 0;
+      return 0;
     }
 
     if (FGC_recvInvIdx(gc, &idxbufs, &info) != REDISMODULE_OK) {
-      RETURN;
+      *ret_val = 0;
+      return 0;
     }
 
     // read reduced cardinality size
     long long reduceCardinalitySize = FGC_recvLongLong(gc);
     if (reduceCardinalitySize == RECV_LONG_ERR) {
-      RETURN;
+      *ret_val = 0;
+      return 0;
     }
 
-    valuesDeleted = alloca(reduceCardinalitySize * sizeof(long long));
+    long long valuesDeleted[reduceCardinalitySize];
 
     // read reduced cardinality
     for (int i = 0; i < reduceCardinalitySize; ++i) {
