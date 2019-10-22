@@ -2,6 +2,7 @@
 #include "err.h"
 #include "rmutil/util.h"
 #include "rmutil/strings.h"
+#include "rmutil/args.h"
 #include <string.h>
 #include <stdlib.h>
 #include <limits.h>
@@ -9,34 +10,23 @@
 #include "rmalloc.h"
 
 #define RETURN_ERROR(s) return REDISMODULE_ERR;
+#define RETURN_PARSE_ERROR(rc)                                    \
+  QueryError_SetError(status, QUERY_EPARSEARGS, AC_Strerror(rc)); \
+  return REDISMODULE_ERR;
 
-static int readLongLong(RedisModuleString **argv, size_t argc, size_t *offset, long long *out) {
-  assert(*offset <= argc);
-  if (*offset == argc) {
-    // printf("Missing argument!\n");
-    RETURN_ERROR("Missing argument");
+#define MAYBE_RETURN_PARSE_ERROR(rc) \
+  if (rc != AC_OK) {                 \
+    RETURN_PARSE_ERROR(rc);          \
   }
-  return RedisModule_StringToLongLong(argv[(*offset)++], out);
-}
 
-static int readLongLongLimit(RedisModuleString **argv, size_t argc, size_t *offset, long long *out,
-                             long long minVal, long long maxVal) {
-  if (readLongLong(argv, argc, offset, out) != REDISMODULE_OK) {
-    return REDISMODULE_ERR;
+#define RETURN_STATUS(rc)   \
+  if (rc == AC_OK) {        \
+    return REDISMODULE_OK;  \
+  } else {                  \
+    RETURN_PARSE_ERROR(rc); \
   }
-  if (minVal != LLONG_MIN && *out < minVal) {
-    // printf("TOO SMALL!\n");
-    RETURN_ERROR("Value too small");
-  }
-  if (maxVal != LLONG_MAX && *out > maxVal) {
-    // printf("TOO BIG!!\n");
-    RETURN_ERROR("Value too big");
-  }
-  return REDISMODULE_OK;
-}
 
-#define CONFIG_SETTER(name) \
-  static int name(RSConfig *config, RedisModuleString **argv, size_t argc, size_t *offset)
+#define CONFIG_SETTER(name) static int name(RSConfig *config, ArgsCursor *ac, QueryError *status)
 
 #define CONFIG_GETTER(name) static sds name(const RSConfig *config)
 
@@ -51,11 +41,8 @@ static int readLongLongLimit(RedisModuleString **argv, size_t argc, size_t *offs
 
 // EXTLOAD
 CONFIG_SETTER(setExtLoad) {
-  if (*offset >= argc) {
-    return REDISMODULE_ERR;
-  }
-  config->extLoad = RedisModule_StringPtrLen(argv[(*offset)++], NULL);
-  return REDISMODULE_OK;
+  int acrc = AC_GetString(ac, &config->extLoad, NULL, 0);
+  RETURN_STATUS(acrc);
 }
 
 CONFIG_GETTER(getExtLoad) {
@@ -84,12 +71,8 @@ CONFIG_BOOLEAN_GETTER(getNoGc, enableGC, 1)
 
 // MINPREFIX
 CONFIG_SETTER(setMinPrefix) {
-  long long arg;
-  if (readLongLongLimit(argv, argc, offset, &arg, 1, LLONG_MAX) != REDISMODULE_OK) {
-    return REDISMODULE_ERR;
-  }
-  config->minTermPrefix = arg;
-  return REDISMODULE_OK;
+  int acrc = AC_GetLongLong(ac, &config->minTermPrefix, AC_F_GE1);
+  RETURN_STATUS(acrc);
 }
 
 CONFIG_GETTER(getMinPrefix) {
@@ -98,12 +81,8 @@ CONFIG_GETTER(getMinPrefix) {
 }
 
 CONFIG_SETTER(setForkGCSleep) {
-  long long arg;
-  if (readLongLongLimit(argv, argc, offset, &arg, 0, LLONG_MAX) != REDISMODULE_OK) {
-    return REDISMODULE_ERR;
-  }
-  config->forkGcSleepBeforeExit = arg;
-  return REDISMODULE_OK;
+  int acrc = AC_GetSize(ac, &config->forkGcSleepBeforeExit, AC_F_GE0);
+  RETURN_STATUS(acrc);
 }
 
 CONFIG_GETTER(getForkGCSleep) {
@@ -113,12 +92,8 @@ CONFIG_GETTER(getForkGCSleep) {
 
 // MAXDOCTABLESIZE
 CONFIG_SETTER(setMaxDocTableSize) {
-  long long size;
-  if (readLongLongLimit(argv, argc, offset, &size, 1, MAX_DOC_TABLE_SIZE) != REDISMODULE_OK) {
-    return REDISMODULE_ERR;
-  }
-  config->maxDocTableSize = size;
-  return REDISMODULE_OK;
+  int acrc = AC_GetSize(ac, &config->maxDocTableSize, AC_F_GE1);
+  RETURN_STATUS(acrc);
 }
 
 CONFIG_GETTER(getMaxDocTableSize) {
@@ -128,12 +103,8 @@ CONFIG_GETTER(getMaxDocTableSize) {
 
 // MAXEXPANSIONS
 CONFIG_SETTER(setMaxExpansions) {
-  long long num;
-  if (readLongLongLimit(argv, argc, offset, &num, 1, LLONG_MAX) != REDISMODULE_OK) {
-    return REDISMODULE_ERR;
-  }
-  config->maxPrefixExpansions = num;
-  return REDISMODULE_OK;
+  int acrc = AC_GetLongLong(ac, &config->maxPrefixExpansions, AC_F_GE1);
+  RETURN_STATUS(acrc);
 }
 
 CONFIG_GETTER(getMaxExpansions) {
@@ -143,12 +114,8 @@ CONFIG_GETTER(getMaxExpansions) {
 
 // TIMEOUT
 CONFIG_SETTER(setTimeout) {
-  long long val;
-  if (readLongLongLimit(argv, argc, offset, &val, 0, LLONG_MAX) != REDISMODULE_OK) {
-    return REDISMODULE_ERR;
-  }
-  config->queryTimeoutMS = val;
-  return REDISMODULE_OK;
+  int acrc = AC_GetLongLong(ac, &config->queryTimeoutMS, AC_F_GE0);
+  RETURN_STATUS(acrc);
 }
 
 CONFIG_GETTER(getTimeout) {
@@ -158,14 +125,12 @@ CONFIG_GETTER(getTimeout) {
 
 // INDEX_THREADS
 CONFIG_SETTER(setIndexThreads) {
-  long long val;
-  if (readLongLongLimit(argv, argc, offset, &val, 1, LLONG_MAX) != REDISMODULE_OK) {
-    return REDISMODULE_ERR;
-  }
-  config->indexPoolSize = val;
+  int acrc = AC_GetSize(ac, &config->indexPoolSize, AC_F_GE1);
+  MAYBE_RETURN_PARSE_ERROR(acrc);
   config->poolSizeNoAuto = 1;
   return REDISMODULE_OK;
 }
+
 CONFIG_GETTER(getIndexthreads) {
   sds ss = sdsempty();
   return sdscatprintf(ss, "%lu", config->indexPoolSize);
@@ -173,11 +138,8 @@ CONFIG_GETTER(getIndexthreads) {
 
 // INDEX_THREADS
 CONFIG_SETTER(setSearchThreads) {
-  long long val;
-  if (readLongLongLimit(argv, argc, offset, &val, 1, LLONG_MAX) != REDISMODULE_OK) {
-    return REDISMODULE_ERR;
-  }
-  config->searchPoolSize = val;
+  int acrc = AC_GetSize(ac, &config->searchPoolSize, AC_F_GE1);
+  MAYBE_RETURN_PARSE_ERROR(acrc);
   config->poolSizeNoAuto = 1;
   return REDISMODULE_OK;
 }
@@ -189,12 +151,8 @@ CONFIG_GETTER(getSearchThreads) {
 
 // FRISOINI
 CONFIG_SETTER(setFrisoINI) {
-  if (*offset == argc) {
-    RETURN_ERROR("Missing argument");
-  }
-  const char *path = RedisModule_StringPtrLen(argv[(*offset)++], NULL);
-  config->frisoIni = path;
-  return REDISMODULE_OK;
+  int acrc = AC_GetString(ac, &config->frisoIni, NULL, 0);
+  RETURN_STATUS(acrc);
 }
 CONFIG_GETTER(getFrisoINI) {
   return config->frisoIni ? sdsnew(config->frisoIni) : NULL;
@@ -202,10 +160,10 @@ CONFIG_GETTER(getFrisoINI) {
 
 // ON_TIMEOUT
 CONFIG_SETTER(setOnTimeout) {
-  if (*offset == argc) {
-    RETURN_ERROR("Missing argument");
-  }
-  const char *policy = RedisModule_StringPtrLen(argv[(*offset)++], NULL);
+  const char *policy;
+  int acrc = AC_GetString(ac, &policy, NULL, 0);
+  MAYBE_RETURN_PARSE_ERROR(acrc);
+
   if ((config->timeoutPolicy = TimeoutPolicy_Parse(policy, strlen(policy))) ==
       TimeoutPolicy_Invalid) {
     RETURN_ERROR("Invalid ON_TIMEOUT value");
@@ -219,12 +177,8 @@ CONFIG_GETTER(getOnTimeout) {
 
 // GC_SCANSIZE
 CONFIG_SETTER(setGcScanSize) {
-  long long val;
-  if (readLongLongLimit(argv, argc, offset, &val, 1, LLONG_MAX) != REDISMODULE_OK) {
-    return REDISMODULE_ERR;
-  }
-  config->gcScanSize = val;
-  return REDISMODULE_OK;
+  int acrc = AC_GetSize(ac, &config->gcScanSize, AC_F_GE1);
+  RETURN_STATUS(acrc);
 }
 
 CONFIG_GETTER(getGcScanSize) {
@@ -234,39 +188,23 @@ CONFIG_GETTER(getGcScanSize) {
 
 // MIN_PHONETIC_TERM_LEN
 CONFIG_SETTER(setForkGcInterval) {
-  long long val;
-  if (readLongLongLimit(argv, argc, offset, &val, 1, LLONG_MAX) != REDISMODULE_OK) {
-    return REDISMODULE_ERR;
-  }
-  config->forkGcRunIntervalSec = val;
-  return REDISMODULE_OK;
+  int acrc = AC_GetSize(ac, &config->forkGcRunIntervalSec, AC_F_GE1);
+  RETURN_STATUS(acrc);
 }
 
 CONFIG_SETTER(setForkGcCleanThreshold) {
-  long long val;
-  if (readLongLongLimit(argv, argc, offset, &val, 0, LLONG_MAX) != REDISMODULE_OK) {
-    return REDISMODULE_ERR;
-  }
-  config->forkGcCleanThreshold = val;
-  return REDISMODULE_OK;
+  int acrc = AC_GetSize(ac, &config->forkGcCleanThreshold, 0);
+  RETURN_STATUS(acrc);
 }
 
 CONFIG_SETTER(setForkGcRetryInterval) {
-  long long val;
-  if (readLongLongLimit(argv, argc, offset, &val, 1, LLONG_MAX) != REDISMODULE_OK) {
-    return REDISMODULE_ERR;
-  }
-  config->forkGcRetryInterval = val;
-  return REDISMODULE_OK;
+  int acrc = AC_GetSize(ac, &config->forkGcRetryInterval, AC_F_GE1);
+  RETURN_STATUS(acrc);
 }
 
 CONFIG_SETTER(setMaxResultsToUnsortedMode) {
-  long long val;
-  if (readLongLongLimit(argv, argc, offset, &val, 1, LLONG_MAX) != REDISMODULE_OK) {
-    return REDISMODULE_ERR;
-  }
-  config->maxResultsToUnsortedMode = val;
-  return REDISMODULE_OK;
+  int acrc = AC_GetLongLong(ac, &config->maxResultsToUnsortedMode, AC_F_GE1);
+  RETURN_STATUS(acrc);
 }
 
 CONFIG_GETTER(getForkGcCleanThreshold) {
@@ -290,12 +228,8 @@ CONFIG_GETTER(getMaxResultsToUnsortedMode) {
 }
 
 CONFIG_SETTER(setMinPhoneticTermLen) {
-  long long val;
-  if (readLongLongLimit(argv, argc, offset, &val, 1, LLONG_MAX) != REDISMODULE_OK) {
-    return REDISMODULE_ERR;
-  }
-  config->minPhoneticTermLen = val;
-  return REDISMODULE_OK;
+  int acrc = AC_GetSize(ac, &config->minPhoneticTermLen, AC_F_GE1);
+  RETURN_STATUS(acrc);
 }
 
 CONFIG_GETTER(getMinPhoneticTermLen) {
@@ -304,10 +238,9 @@ CONFIG_GETTER(getMinPhoneticTermLen) {
 }
 
 CONFIG_SETTER(setGcPolicy) {
-  if (*offset == argc) {
-    RETURN_ERROR("Missing argument");
-  }
-  const char *policy = RedisModule_StringPtrLen(argv[(*offset)++], NULL);
+  const char *policy;
+  int acrc = AC_GetString(ac, &policy, NULL, 0);
+  MAYBE_RETURN_PARSE_ERROR(acrc);
   if (!strcasecmp(policy, "DEFAULT") || !strcasecmp(policy, "FORK")) {
     config->gcPolicy = GCPolicy_Fork;
   } else if (!strcasecmp(policy, "LEGACY")) {
@@ -339,6 +272,7 @@ static RSConfigVar *findConfigVar(const RSConfigOptions *config, const char *nam
 
 int ReadConfig(RedisModuleString **argv, int argc, char **err) {
   *err = NULL;
+  QueryError status = {0};
 
   if (getenv("RS_MIN_THREADS")) {
     printf("Setting thread pool sizes to 1\n");
@@ -346,9 +280,10 @@ int ReadConfig(RedisModuleString **argv, int argc, char **err) {
     RSGlobalConfig.indexPoolSize = 1;
     RSGlobalConfig.poolSizeNoAuto = 1;
   }
-  size_t offset = 0;
-  while (offset < argc) {
-    const char *name = RedisModule_StringPtrLen(argv[offset], NULL);
+  ArgsCursor ac = {0};
+  ArgsCursor_InitRString(&ac, argv, argc);
+  while (!AC_IsAtEnd(&ac)) {
+    const char *name = AC_GetStringNC(&ac, NULL);
     RSConfigVar *curVar = findConfigVar(&RSGlobalConfigOptions, name);
     if (curVar == NULL) {
       rm_asprintf(err, "No such configuration option `%s`", name);
@@ -359,9 +294,9 @@ int ReadConfig(RedisModuleString **argv, int argc, char **err) {
       return REDISMODULE_ERR;
     }
 
-    offset++;
-    if (curVar->setValue(&RSGlobalConfig, argv, argc, &offset) != REDISMODULE_OK) {
-      rm_asprintf(err, "%s: Bad value", name);
+    if (curVar->setValue(&RSGlobalConfig, &ac, &status) != REDISMODULE_OK) {
+      *err = rm_strdup(QueryError_GetError(&status));
+      QueryError_ClearError(&status);
       return REDISMODULE_ERR;
     }
     // Mark the option as having been modified
@@ -562,7 +497,11 @@ int RSConfig_SetOption(RSConfig *config, RSConfigOptions *options, const char *n
     QueryError_SetError(status, QUERY_EINVAL, "Not modifiable at runtime");
     return REDISMODULE_ERR;
   }
-  return var->setValue(config, argv, argc, offset);
+  ArgsCursor ac;
+  ArgsCursor_InitRString(&ac, argv + *offset, argc - *offset);
+  int rc = var->setValue(config, &ac, status);
+  *offset += ac.offset;
+  return rc;
 }
 
 const char *TimeoutPolicy_ToString(RSTimeoutPolicy policy) {

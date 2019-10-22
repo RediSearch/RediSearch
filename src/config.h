@@ -96,7 +96,7 @@ typedef struct {
   const char *helpText;
   uint32_t flags;
   // Whether this configuration option can be modified after initial loading
-  int (*setValue)(RSConfig *, RedisModuleString **, size_t argc, size_t *);
+  int (*setValue)(RSConfig *, ArgsCursor *, QueryError *);
   sds (*getValue)(const RSConfig *);
 } RSConfigVar;
 
