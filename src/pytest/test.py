@@ -2870,12 +2870,6 @@ def testOptimize(env):
 def testInfoError(env):
     env.expect('ft.info', 'no_idx').error()
 
-def testConfig(env):
-    env.cmd('ft.create', 'idx', 'SCHEMA', 'test', 'TEXT', 'SORTABLE')
-    env.expect('ft.config', 'idx').error()
-    env.expect('ft.config', 'help', 'idx').equal([])
-    env.expect('ft.config', 'no_such_command', 'idx').equal('No such configuration action')
-
 def testSetPayload(env):
     env.expect('flushall')
     env.expect('ft.create idx schema name text').equal('OK')
