@@ -26,7 +26,6 @@ EOF
 ./lcov-init.sh
 ctest -j20
 ./lcov-capture.sh coverage.info
-#lcov -r coverage.info -o coverage.info "*util*" "*trie*"  
 bash <(curl -s https://codecov.io/bash) -f coverage.info
 lcov -l coverage.info
 genhtml --legend -o report coverage.info > /dev/null 2>&1
