@@ -47,7 +47,8 @@ typedef enum fieldType {
 #define SPEC_SEPARATOR_STR "SEPARATOR"
 
 static const char *SpecTypeNames[] = {[FIELD_FULLTEXT] = SPEC_TEXT_STR,
-                                      [FIELD_NUMERIC] = NUMERIC_STR, [FIELD_GEO] = GEO_STR,
+                                      [FIELD_NUMERIC] = NUMERIC_STR,
+                                      [FIELD_GEO] = GEO_STR,
                                       [FIELD_TAG] = SPEC_TAG_STR};
 
 #define INDEX_SPEC_KEY_PREFIX "idx:"
@@ -261,7 +262,7 @@ int isRdbLoading(RedisModuleCtx *ctx);
 IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, char **err);
 
 /* Start the garbage collection loop on the index spec */
-void IndexSpec_StartGC(RedisModuleCtx *ctx, IndexSpec *sp, float initialHZ);
+void IndexSpec_StartGC(RedisModuleCtx *ctx, IndexSpec *sp, float initialHZ, bool retainSpecName);
 
 /* Same as above but with ordinary strings, to allow unit testing */
 IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, char **err);
@@ -303,7 +304,6 @@ typedef struct {
   /** name of alias lookup key to use */
   const char *alookup;
 } IndexLoadOptions;
-
 
 /**
  * Find and load the index using the specified parameters.

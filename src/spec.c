@@ -129,7 +129,7 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
 
   sp->uniqueId = spec_unique_ids++;
   // Start the garbage collector
-  IndexSpec_StartGC(ctx, sp, GC_DEFAULT_HZ);
+  IndexSpec_StartGC(ctx, sp, GC_DEFAULT_HZ, true);
 
   CursorList_AddSpec(&RSCursors, sp->name, RSCURSORS_DEFAULT_CAPACITY);
 
@@ -806,12 +806,14 @@ IndexSpec *NewIndexSpec(const char *name, size_t numFields) {
 
 /* Start the garbage collection loop on the index spec. The GC removes garbage data left on the
  * index after removing documents */
-void IndexSpec_StartGC(RedisModuleCtx *ctx, IndexSpec *sp, float initialHZ) {
+void IndexSpec_StartGC(RedisModuleCtx *ctx, IndexSpec *sp, float initialHZ, bool retainSpecName) {
   assert(!sp->gc);
   // we will not create a gc thread on temporary index
   if (RSGlobalConfig.enableGC && !(sp->flags & Index_Temporary)) {
     RedisModuleString *keyName = RedisModule_CreateString(ctx, sp->name, strlen(sp->name));
-    RedisModule_RetainString(ctx, keyName);
+    if (retainSpecName) {
+      RedisModule_RetainString(ctx, keyName);
+    }
     sp->gc = GCContext_CreateGC(keyName, initialHZ, sp->uniqueId);
     GCContext_Start(sp->gc);
     RedisModule_Log(ctx, "verbose", "Starting GC for index %s", sp->name);
@@ -986,7 +988,7 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
 
   sp->uniqueId = spec_unique_ids++;
 
-  IndexSpec_StartGC(ctx, sp, GC_DEFAULT_HZ);
+  IndexSpec_StartGC(ctx, sp, GC_DEFAULT_HZ, false);
   RedisModuleString *specKey = RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, sp->name);
   CursorList_AddSpec(&RSCursors, sp->name, RSCURSORS_DEFAULT_CAPACITY);
   RedisModule_FreeString(ctx, specKey);
@@ -1011,6 +1013,7 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
       char *s = RedisModule_LoadStringBuffer(rdb, &dummy);
       int rc = IndexAlias_Add(s, sp, 0, &status);
       assert(rc == REDISMODULE_OK);
+      RedisModule_Free(s);
     }
   }
 
