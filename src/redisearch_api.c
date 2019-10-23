@@ -113,7 +113,7 @@ void RediSearch_TextFieldSetWeight(IndexSpec* sp, RSFieldID id, double w) {
   fs->ftWeight = w;
 }
 
-void RediSearch_TagSetSeparator(IndexSpec* sp, RSFieldID id, char sep) {
+void RediSearch_TagFieldSetSeparator(IndexSpec* sp, RSFieldID id, char sep) {
   FieldSpec* fs = sp->fields + id;
   assert(FIELD_IS(fs, INDEXFLD_T_TAG));
   fs->tagSep = sep;
@@ -367,7 +367,7 @@ static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** err
     goto end;
   }
 
-  it->internal = QAST_Iterate(&it->qast, &options, &sctx, NULL, &status);
+  it->internal = QAST_Iterate(&it->qast, &options, &sctx, NULL);
   if (!it->internal) {
     goto end;
   }

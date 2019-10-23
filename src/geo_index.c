@@ -5,7 +5,6 @@
 
 /* Add a docId to a geoindex key. Right now we just use redis' own GEOADD */
 int GeoIndex_AddStrings(GeoIndex *gi, t_docId docId, const char *slon, const char *slat) {
-
   RedisModuleString *ks = IndexSpec_GetFormattedKey(gi->ctx->spec, gi->sp, INDEXFLD_T_GEO);
   RedisModuleCtx *ctx = gi->ctx->redisCtx;
 
@@ -14,19 +13,24 @@ int GeoIndex_AddStrings(GeoIndex *gi, t_docId docId, const char *slon, const cha
   if (rep == NULL) {
     return REDISMODULE_ERR;
   }
+
   int repType = RedisModule_CallReplyType(rep);
   RedisModule_FreeCallReply(rep);
   if (repType == REDISMODULE_REPLY_ERROR) {
     return REDISMODULE_ERR;
-  } else {
-    return REDISMODULE_OK;
   }
+
+  return REDISMODULE_OK;
 }
 
 void GeoIndex_RemoveEntries(GeoIndex *gi, IndexSpec *sp, t_docId docId) {
   RedisModuleString *ks = IndexSpec_GetFormattedKey(sp, gi->sp, INDEXFLD_T_GEO);
   RedisModuleCtx *ctx = gi->ctx->redisCtx;
   RedisModuleCallReply *rep = RedisModule_Call(ctx, "ZREM", "sl", ks, docId);
+  
+  if (rep == NULL || RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_ERROR) {
+    RedisModule_Log(ctx, "warning", "Document %s was not removed", docId);
+  }
   RedisModule_FreeCallReply(rep);
 }
 
@@ -68,12 +72,12 @@ int GeoFilter_Parse(GeoFilter *gf, ArgsCursor *ac, QueryError *status) {
   }
 
   gf->unit = AC_GetStringNC(ac, NULL);
+  gf->unit = rm_strdup(gf->unit);
   if (strcasecmp(gf->unit, "m") && strcasecmp(gf->unit, "km") && strcasecmp(gf->unit, "ft") &&
       strcasecmp(gf->unit, "mi")) {
     QERR_MKBADARGS_FMT(status, "Unknown distance unit %s", gf->unit);
     return REDISMODULE_ERR;
   }
-  gf->unit = rm_strdup(gf->unit);
 
   return REDISMODULE_OK;
 }
@@ -82,12 +86,6 @@ void GeoFilter_Free(GeoFilter *gf) {
   if (gf->property) rm_free((char *)gf->property);
   if (gf->unit) rm_free((char *)gf->unit);
   rm_free(gf);
-}
-
-static int cmp_docids(const void *p1, const void *p2) {
-  const t_docId *d1 = p1, *d2 = p2;
-
-  return (int)(*d1 - *d2);
 }
 
 static t_docId *geoRangeLoad(const GeoIndex *gi, const GeoFilter *gf, size_t *num) {

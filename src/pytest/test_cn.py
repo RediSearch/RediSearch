@@ -62,6 +62,11 @@ def testTradSimp(env):
     env.assertTrue('那時' in res[2][1])
     env.assertTrue('那时' in res[4][1])
 
+    # Ensure that searching in traditional still gives us the proper results:
+    res = env.cmd('ft.search', 'idx', '那時', 'language', 'chinese', 'highlight')
+    env.assertTrue('那時' in res[2][1])
+    env.assertTrue('那时' in res[4][1])
+
 def testMixedEscapes(env):
     env.cmd('ft.create', 'idx', 'schema', 'txt', 'text')
     env.cmd('ft.add', 'idx', 'doc1', 1.0, 'language', 'chinese', 'fields', 'txt', 'hello\\-world 那时')

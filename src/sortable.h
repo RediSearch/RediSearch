@@ -51,8 +51,6 @@ typedef struct {
   int ascending;
 } RSSortingKey;
 
-void RSSortingKey_Free(RSSortingKey *k);
-
 /* Create a sorting table. */
 RSSortingTable *NewSortingTable();
 
@@ -62,19 +60,12 @@ void SortingTable_Free(RSSortingTable *t);
 /** Adds a field and returns the ID of the newly-inserted field */
 int RSSortingTable_Add(RSSortingTable *tbl, const char *name, RSValueType t);
 
-/* Parse the sorting key of a query from redis arguments. We expect SORTBY {filed} [ASC/DESC]. The
- * default is ASC if not specified.  This function returns 1 if we found sorting args, they are
- * valid and the field name exists */
-int RSSortingTable_ParseKey(RSSortingTable *tbl, RSSortingKey *k, RedisModuleString **argv,
-                            int argc, size_t *offset);
 /* Get the field index by name from the sorting table. Returns -1 if the field was not found */
 int RSSortingTable_GetFieldIdx(RSSortingTable *tbl, const char *field);
 
-/* Get the type of the field by its name. If it doesn't exist, return deflt */
-RSValueType SortingTable_GetFieldType(RSSortingTable *tbl, const char *name, RSValueType delt);
-
 /* Internal compare function between members of the sorting vectors, sorted by sk */
-int RSSortingVector_Cmp(RSSortingVector *self, RSSortingVector *other, RSSortingKey *sk);
+int RSSortingVector_Cmp(RSSortingVector *self, RSSortingVector *other, RSSortingKey *sk,
+                        QueryError *qerr);
 
 /* Put a value in the sorting vector */
 void RSSortingVector_Put(RSSortingVector *tbl, int idx, const void *p, int type);

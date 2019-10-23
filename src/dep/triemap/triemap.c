@@ -227,7 +227,7 @@ void *TrieMapNode_Find(TrieMapNode *n, char *str, tm_len_t len) {
       //   qsort(__trieMapNode_children(n), n->numChildren, sizeof(TrieMapNode *), __cmp_nodes);
       //   qsort(__trieMapNode_childKey(n, 0), n->numChildren, 1, __cmp_chars);
       //   n->flags |= TM_NODE_SORTED;
-      // }
+      // } 
       char *childKeys = __trieMapNode_childKey(n, 0);
       char c = str[offset];
       // if (n->flags & TM_NODE_SORTED) {
@@ -247,8 +247,9 @@ void *TrieMapNode_Find(TrieMapNode *n, char *str, tm_len_t len) {
       //     }
       //   }
 
-      // } else {
+      // } else {      
       tm_len_t nc = n->numChildren;
+
       while (i < nc) {
         if (str[offset] == childKeys[i]) {
           nextChild = __trieMapNode_children(n)[i];
@@ -256,9 +257,6 @@ void *TrieMapNode_Find(TrieMapNode *n, char *str, tm_len_t len) {
         }
         ++i;
       }
-      //}
-
-      // we couldn't find a matching child
       n = nextChild;
     } else {
       return TRIEMAP_NOTFOUND;

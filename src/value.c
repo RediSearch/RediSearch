@@ -1,7 +1,9 @@
+#include <pthread.h>
+
 #include "value.h"
 #include "util/mempool.h"
 #include "module.h"
-#include <pthread.h>
+#include "query_error.h"
 
 ///////////////////////////////////////////////////////////////
 // Variant Values - will be used in documents as well
@@ -90,7 +92,9 @@ void RSValue_Clear(RSValue *v) {
     case RSValue_OwnRstring:
       RedisModule_FreeString(RSDummyContext, v->rstrval);
       break;
-    default:  // no free
+    case RSValue_Null:
+      return;  // prevent changing global RS_NULL to RSValue_Undef
+    default:   // no free
       break;
   }
 
@@ -296,7 +300,6 @@ int RSValue_ToNumber(const RSValue *v, double *d) {
 
 /**
  * Returns the value as a simple opaque buffer
- */
 inline const void *RSValue_ToBuffer(RSValue *value, size_t *outlen) {
   value = RSValue_Dereference(value);
 
@@ -317,6 +320,7 @@ inline const void *RSValue_ToBuffer(RSValue *value, size_t *outlen) {
       return "";
   }
 }
+ */
 
 // Gets the string pointer and length from the value
 const char *RSValue_StringPtrLen(const RSValue *value, size_t *lenp) {
@@ -408,19 +412,6 @@ RSValue *RSValue_NewArrayEx(RSValue **vals, size_t n, int options) {
   return arr;
 }
 
-/* Wrap an array of RSValue objects into an RSValue array object */
-RSValue *RS_ArrVal(RSValue **vals, uint32_t len) {
-
-  RSValue *v = RS_NewValue(RSValue_Array);
-  v->arrval.vals = vals;
-  v->arrval.len = len;
-  v->arrval.staticarray = 0;
-  for (uint32_t i = 0; i < len; i++) {
-    RSValue_IncrRef(v->arrval.vals[i]);
-  }
-  return v;
-}
-
 RSValue *RS_VStringArray(uint32_t sz, ...) {
   RSValue **arr = rm_calloc(sz, sizeof(*arr));
   va_list ap;
@@ -473,32 +464,53 @@ static inline int cmp_strings(const char *s1, const char *s2, size_t l1, size_t 
   }
 }
 
-int RSValue_Cmp(const RSValue *v1, const RSValue *v2) {
+static inline int cmp_numbers(const RSValue *v1, const RSValue *v2) {
+  return v1->numval > v2->numval ? 1 : (v1->numval < v2->numval ? -1 : 0);
+}
+
+static inline int convert_to_number(const RSValue *v, RSValue *vn, QueryError *qerr) {
+  double d;
+  if (!RSValue_ToNumber(v, &d)) {
+    if (!qerr) return 0;
+
+    const char *s = RSValue_StringPtrLen(v, NULL);
+    QueryError_SetErrorFmt(qerr, QUERY_ENOTNUMERIC, "Error converting string '%s' to number", s);
+    return 0;
+  }
+
+  RSValue_SetNumber(vn, d);
+  return 1;
+}
+
+static int RSValue_CmpNC(const RSValue *v1, const RSValue *v2) {
+  switch (v1->t) {
+    case RSValue_Number:
+      return cmp_numbers(v1, v2);
+    case RSValue_String:
+      return cmp_strings(v1->strval.str, v2->strval.str, v1->strval.len, v2->strval.len);
+    case RSValue_RedisString:
+    case RSValue_OwnRstring: {
+      size_t l1, l2;
+      const char *s1 = RedisModule_StringPtrLen(v1->rstrval, &l1);
+      const char *s2 = RedisModule_StringPtrLen(v2->rstrval, &l2);
+      return cmp_strings(s1, s2, l1, l2);
+    }
+    case RSValue_Null:
+      return 0;
+    case RSValue_Array:  // can't compare arrays ATM
+    default:
+      return 0;
+  }
+}
+
+int RSValue_Cmp(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
   assert(v1);
   assert(v2);
   v1 = RSValue_Dereference(v1);
   v2 = RSValue_Dereference(v2);
 
   if (v1->t == v2->t) {
-    switch (v1->t) {
-      case RSValue_Number:
-
-        return v1->numval > v2->numval ? 1 : (v1->numval < v2->numval ? -1 : 0);
-      case RSValue_String:
-        return cmp_strings(v1->strval.str, v2->strval.str, v1->strval.len, v2->strval.len);
-      case RSValue_RedisString:
-      case RSValue_OwnRstring: {
-        size_t l1, l2;
-        const char *s1 = RedisModule_StringPtrLen(v1->rstrval, &l1);
-        const char *s2 = RedisModule_StringPtrLen(v2->rstrval, &l2);
-        return cmp_strings(s1, s2, l1, l2);
-      }
-      case RSValue_Null:
-        return 0;
-      case RSValue_Array:  // can't compare arrays ATM
-      default:
-        return 0;
-    }
+    return RSValue_CmpNC(v1, v2);
   }
 
   // if one of the values is null, the other wins
@@ -507,6 +519,31 @@ int RSValue_Cmp(const RSValue *v1, const RSValue *v2) {
   } else if (v2->t == RSValue_Null) {
     return 1;
   }
+
+  // if either of the arguments is a number, convert the other one to a number
+  // if, however, error handling is not available, fallback to string comparison
+  do {
+    if (v1->t == RSValue_Number) {
+      RSValue v2n;
+      if (!convert_to_number(v2, &v2n, qerr)) {
+        // if it is possible to indicate an error, return
+        if (qerr) return 0;
+        // otherwise, fallback to string comparison
+        break;
+      }
+      return cmp_numbers(v1, &v2n);
+    } else if (v2->t == RSValue_Number) {
+      RSValue v1n;
+      if (!convert_to_number(v1, &v1n, qerr)) {
+        // if it is possible to indicate an error, return
+        if (qerr) return 0;
+        // otherwise, fallback to string comparison
+        break;
+      }
+      // otherwise, fallback to string comparison
+      return cmp_numbers(&v1n, v2);
+    }
+  } while (0);
 
   // cast to strings and compare as strings
   char buf1[100], buf2[100];
@@ -517,8 +554,37 @@ int RSValue_Cmp(const RSValue *v1, const RSValue *v2) {
   return cmp_strings(s1, s2, l1, l2);
 }
 
-int RSValue_Equal(const RSValue *v1, const RSValue *v2) {
-  return RSValue_Cmp(v1, v2) == 0;
+int RSValue_Equal(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
+  assert(v1);
+  assert(v2);
+  v1 = RSValue_Dereference(v1);
+  v2 = RSValue_Dereference(v2);
+
+  if (v1->t == v2->t) {
+    return RSValue_CmpNC(v1, v2) == 0;
+  }
+
+  if (v1->t == RSValue_Null || v2->t == RSValue_Null) {
+    return 0;
+  }
+
+  // if either of the arguments is a number, convert the other one to a number
+  RSValue vn;
+  if (v1->t == RSValue_Number) {
+    if (!convert_to_number(v2, &vn, NULL)) return 0;
+    return cmp_numbers(v1, &vn) == 0;
+  } else if (v2->t == RSValue_Number) {
+    if (!convert_to_number(v1, &vn, NULL)) return 0;
+    return cmp_numbers(&vn, v2) == 0;
+  }
+
+  // cast to strings and compare as strings
+  char buf1[100], buf2[100];
+
+  size_t l1, l2;
+  const char *s1 = RSValue_ConvertStringPtrLen(v1, &l1, buf1, sizeof(buf1));
+  const char *s2 = RSValue_ConvertStringPtrLen(v2, &l2, buf2, sizeof(buf2));
+  return cmp_strings(s1, s2, l1, l2) == 0;
 }
 
 /* Based on the value type, serialize the value into redis client response */

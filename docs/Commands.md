@@ -451,7 +451,7 @@ FT.SEARCH {index} {query} [NOCONTENT] [VERBATIM] [NOSTOPWORDS] [WITHSCORES] [WIT
   [SLOP {slop}] [INORDER]
   [LANGUAGE {language}]
   [EXPANDER {expander}]
-  [SCORER {scorer}]
+  [SCORER {scorer}] [EXPLAINSCORE]
   [PAYLOAD {payload}]
   [SORTBY {field} [ASC|DESC]]
   [LIMIT offset num]
@@ -519,6 +519,7 @@ FT.SEARCH idx "@text:morphix=>{$phonetic:false}"
 
 - **EXPANDER {expander}**: If set, we will use a custom query expander instead of the stemmer. [See Extensions](Extensions.md).
 - **SCORER {scorer}**: If set, we will use a custom scoring function defined by the user. [See Extensions](Extensions.md).
+- **EXPLAINSCORE**: If set, will return a textual description of how the scores were calculated.
 - **PAYLOAD {payload}**: Add an arbitrary, binary safe payload that will be exposed to custom scoring 
   functions. [See Extensions](Extensions.md).
   
@@ -550,7 +551,7 @@ If **NOCONTENT** was given, we return an array where the first element is the to
 ```
 FT.AGGREGATE  {index_name}
   {query_string}
-  [WITHSCHEMA] [VERBATIM]
+  [VERBATIM]
   [LOAD {nargs} {property} ...]
   [GROUPBY {nargs} {property} ...
     REDUCE {func} {nargs} {arg} ... [AS {name:string}]
@@ -1142,7 +1143,7 @@ FT.SYNADD <index name> <term1> <term2> ...
 
 Adds a synonym group.
 
-The command is used to create a new synonyms group. The command returns the synonym group id which can later be used to add additional terms to that synonym group. Only documents which was indexed after the adding operation will be effected.
+The command is used to create a new synonyms group. The command returns the synonym group id which can later be used to add additional terms to that synonym group. Only documents which were indexed after the adding operation will be affected.
 
 ---
 
@@ -1158,7 +1159,7 @@ FT.SYNUPDATE <index name> <synonym group id> <term1> <term2> ...
 
 Updates a synonym group.
 
-The command is used to update an existing synonym group with additional terms. Only documents which was indexed after the update will be effected.
+The command is used to update an existing synonym group with additional terms. Only documents which were indexed after the update will be affected.
 
 ---
 

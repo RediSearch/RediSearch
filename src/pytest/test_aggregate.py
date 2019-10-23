@@ -121,7 +121,6 @@ class TestAggregate():
         self.env.assertEqual(1461, int(row['count_distinctish(title)']))
 
     def testQuantile(self):
-        self.env.skipOnCluster()
         cmd = ['FT.AGGREGATE', 'games', '*',
                'GROUPBY', '1', '@brand',
                'REDUCE', 'QUANTILE', '2', '@price', '0.50', 'AS', 'q50',
@@ -136,11 +135,7 @@ class TestAggregate():
         # TODO: Better samples
         self.env.assertAlmostEqual(14.99, float(row['q50']), delta=3)
         self.env.assertAlmostEqual(70, float(row['q90']), delta=50)
-
-        # This tests the 95th percentile, which is error prone because
-        # so few samples actually exist. I'm disabling it for now so that
-        # there is no breakage in CI
-        # self.env.assertAlmostEqual(110, (float(row['q95'])), delta=50)
+        self.env.assertAlmostEqual(110, (float(row['q95'])), delta=50)
 
     def testStdDev(self):
         cmd = ['FT.AGGREGATE', 'games', '*',

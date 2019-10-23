@@ -502,6 +502,7 @@ int FragmentTermIterator_Next(FragmentTermIterator *iter, FragmentTerm **termInf
   return 1;
 }
 
+// LCOV_EXCL_START debug
 void FragmentList_Dump(const FragmentList *fragList) {
   printf("NumFrags: %u\n", fragList->numFrags);
   for (size_t ii = 0; ii < fragList->numFrags; ++ii) {
@@ -516,3 +517,4 @@ void FragmentList_Dump(const FragmentList *fragList) {
     printf("\n");
   }
 }
+// LCOV_EXCL_STOP

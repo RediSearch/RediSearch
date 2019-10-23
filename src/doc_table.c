@@ -146,16 +146,19 @@ int DocTable_SetSortingVector(DocTable *t, t_docId docId, RSSortingVector *v) {
   if (!dmd) {
     return 0;
   }
-
+  
+  //LCOV_EXCL_START
   /* Null vector means remove the current vector if it exists */
-  if (!v) {
+  /*if (!v) { 
     if (dmd->sortVector) {
       SortingVector_Free(dmd->sortVector);
     }
     dmd->sortVector = NULL;
     dmd->flags &= ~Document_HasSortVector;
     return 1;
-  }
+  }*/
+  //LCOV_EXCL_STOP
+  assert(v); // tested in doAssignIds() 
 
   /* Set th new vector and the flags accordingly */
   dmd->sortVector = v;

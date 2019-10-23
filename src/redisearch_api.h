@@ -226,7 +226,7 @@ MODULE_API_FUNC(void, RediSearch_IndexOptionsSetGCPolicy)(RSIndexOptions* option
   X(DropIndex)                       \
   X(CreateField)                     \
   X(TextFieldSetWeight)              \
-  X(TagSetSeparator)                 \
+  X(TagFieldSetSeparator)            \
   X(CreateDocument)                  \
   X(DeleteDocument)                  \
   X(DocumentAddField)                \

@@ -137,6 +137,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     int nn = 1;
     const FieldSpec *fs = sp->fields + i;
 
+    // RediSearch_api - No coverage
     if (fs->options & FieldSpec_Dynamic) {
       REPLY_KVSTR(nn, "type", "<DYNAMIC>");
       size_t ntypes = 0;
@@ -341,7 +342,7 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
                    MAX_LEV_DISTANCE));
       goto end;
     }
-  }
+  } // LCOV_EXCL_LINE
 
   int nextPos = 0;
   while ((nextPos = RMUtil_ArgExists("TERMS", argv, argc, nextPos + 1))) {
@@ -1030,7 +1031,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_ALTER_CMD, AlterIndexCommand, "write", 1, 1, 1);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_DEBUG, DebugCommand, "readonly", 1, 1, 1);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_DEBUG, DebugCommand, "readonly", 0, 0, 0);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_SPELL_CHECK, SpellCheckCommand, "readonly", 1, 1, 1);
 

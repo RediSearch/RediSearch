@@ -89,9 +89,9 @@ static int parseDocumentOptions(AddDocumentOptions *opts, ArgsCursor *ac, QueryE
         break;
 
       } else {
-        const char *unknown = AC_GetStringNC(ac, NULL);
         QueryError_SetErrorFmt(status, QUERY_EADDARGS, "Unknown keyword `%.*s` provided", (int)narg,
-                               unknown);
+                               s);
+        return REDISMODULE_ERR;
       }
       // Argument not found, that's ok. We'll handle it below
     } else {
@@ -343,11 +343,13 @@ static int doAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   if (rv == AC_OK) {
     // OK. No error
   } else if (rv == AC_ERR_ENOENT) {
-    QueryError_SetErrorFmt(&status, QUERY_EADDARGS, "Unknown keyword: `%s`",
-                           AC_GetStringNC(&ac, NULL));
+    const char *keyword = AC_GetStringNC(&ac, NULL);
+    QueryError_SetErrorFmt(&status, QUERY_EADDARGS, "Unknown keyword: `%s`", keyword);
+    goto cleanup;
   } else {
     QueryError_SetErrorFmt(&status, QUERY_EADDARGS, "Error parsing arguments for `%s`: %s",
                            errArg ? errArg->name : "", AC_Strerror(rv));
+    goto cleanup;
   }
 
   if (language && !IsSupportedLanguage(language, strlen(language))) {

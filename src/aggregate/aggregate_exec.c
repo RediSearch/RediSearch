@@ -4,6 +4,7 @@
 #include "aggregate.h"
 #include "cursor.h"
 #include "rmutil/util.h"
+#include "score_explain.h"
 
 typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN } CommandType;
 static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num);
@@ -12,8 +13,7 @@ static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num);
  * Get the sorting key of the result. This will be the sorting key of the last
  * RLookup registry. Returns NULL if there is no sorting key
  */
-static const RSValue *getSortKey(AREQ *req, const SearchResult *r) {
-  PLN_ArrangeStep *astp = AGPLN_GetArrangeStep(&req->ap);
+static const RSValue *getSortKey(AREQ *req, const SearchResult *r, const PLN_ArrangeStep *astp) {
   if (!astp) {
     return NULL;
   }
@@ -25,7 +25,14 @@ static const RSValue *getSortKey(AREQ *req, const SearchResult *r) {
   }
 }
 
-static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchResult *r) {
+/** Cached variables to avoid serializeResult retrieving these each time */
+typedef struct {
+  const RLookup *lastLk;
+  const PLN_ArrangeStep *lastAstp;
+} cachedVars;
+
+static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchResult *r,
+                              const cachedVars *cv) {
   const uint32_t options = req->reqflags;
   const RSDocumentMetadata *dmd = r->dmd;
   size_t count = 0;
@@ -38,13 +45,21 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
   }
 
   if (options & QEXEC_F_SEND_SCORES) {
-    RedisModule_ReplyWithDouble(outctx, r->score);
+    if (!(options & QEXEC_F_SEND_SCOREEXPLAIN)) {
+      RedisModule_ReplyWithDouble(outctx, r->score);
+    } else {
+      RedisModule_ReplyWithArray(outctx, 2);
+      RedisModule_ReplyWithDouble(outctx, r->score);
+      SEReply(outctx, r->scoreExplain);
+    }
     count++;
   }
+
   if (options & QEXEC_F_SENDRAWIDS) {
     RedisModule_ReplyWithLongLong(outctx, r->docId);
     count++;
   }
+
   if (options & QEXEC_F_SEND_PAYLOADS) {
     count++;
     if (dmd && dmd->payload) {
@@ -56,8 +71,9 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
 
   if ((options & QEXEC_F_SEND_SORTKEYS)) {
     count++;
-    const RSValue *sortkey = getSortKey(req, r);
+    const RSValue *sortkey = getSortKey(req, r, cv->lastAstp);
     RedisModuleString *rskey = NULL;
+  reeval_sortkey:
     if (sortkey) {
       switch (sortkey->t) {
         case RSValue_Number:
@@ -70,11 +86,17 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
           rskey = RedisModule_CreateStringPrintf(outctx, "$%s", sortkey->strval);
           break;
         case RSValue_RedisString:
+        case RSValue_OwnRstring:
           rskey = RedisModule_CreateStringPrintf(outctx, "$%s",
                                                  RedisModule_StringPtrLen(sortkey->rstrval, NULL));
           break;
-        default:
+        case RSValue_Null:
+        case RSValue_Undef:
+        case RSValue_Array:
           break;
+        case RSValue_Reference:
+          sortkey = RSValue_Dereference(sortkey);
+          goto reeval_sortkey;
       }
       if (rskey) {
         RedisModule_ReplyWithString(outctx, rskey);
@@ -88,14 +110,18 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
   }
 
   if (!(options & QEXEC_F_SEND_NOFIELDS)) {
+    const RLookup *lk = cv->lastLk;
     count++;
-    size_t nfields = 0;
-    REDISMODULE_BEGIN_ARRAY(outctx);
-    RLookup *lk = AGPLN_GetLookup(&req->ap, NULL, AGPLN_GETLOOKUP_LAST);
+    int excludeFlags = RLOOKUP_F_HIDDEN;
+    int requiredFlags = (req->outFields.explicitReturn ? RLOOKUP_F_EXPLICITRETURN : 0);
+    size_t nfields = RLookup_GetLength(lk, &r->rowdata, requiredFlags, excludeFlags);
+
+    RedisModule_ReplyWithArray(outctx, nfields * 2);
 
     for (const RLookupKey *kk = lk->head; kk; kk = kk->next) {
       if (kk->flags & RLOOKUP_F_HIDDEN) {
         // printf("Skipping hidden field %s/%p\n", kk->name, kk);
+        // todo: this is a dead code, no one set RLOOKUP_F_HIDDEN
         continue;
       }
       if (req->outFields.explicitReturn && (kk->flags & RLOOKUP_F_EXPLICITRETURN) == 0) {
@@ -106,11 +132,9 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
         continue;
       }
 
-      nfields++;
-      RedisModule_ReplyWithSimpleString(outctx, kk->name);
+      RedisModule_ReplyWithStringBuffer(outctx, kk->name, strlen(kk->name));
       RSValue_SendReply(outctx, v, req->reqflags & QEXEC_F_TYPED);
     }
-    REDISMODULE_END_ARRAY(outctx, nfields * 2);
   }
   return count;
 }
@@ -125,13 +149,21 @@ static int sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
   int rc = RS_RESULT_EOF;
   ResultProcessor *rp = req->qiter.endProc;
 
+  cachedVars cv = {0};
+  cv.lastLk = AGPLN_GetLookup(&req->ap, NULL, AGPLN_GETLOOKUP_LAST);
+  cv.lastAstp = AGPLN_GetArrangeStep(&req->ap);
+
   RedisModule_ReplyWithArray(outctx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
   rc = rp->Next(rp, &r);
   RedisModule_ReplyWithLongLong(outctx, req->qiter.totalResults);
   nelem++;
   if (rc == RS_RESULT_OK && nrows++ < limit && !(req->reqflags & QEXEC_F_NOROWS)) {
-    nelem += serializeResult(req, outctx, &r);
+    nelem += serializeResult(req, outctx, &r, &cv);
+  } else if (rc == RS_RESULT_ERROR) {
+    RedisModule_ReplyWithArray(outctx, 1);
+    QueryError_ReplyAndClear(outctx, req->qiter.err);
+    ++nelem;
   }
 
   SearchResult_Clear(&r);
@@ -141,7 +173,7 @@ static int sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
 
   while (nrows++ < limit && (rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
     if (!(req->reqflags & QEXEC_F_NOROWS)) {
-      nelem += serializeResult(req, outctx, &r);
+      nelem += serializeResult(req, outctx, &r, &cv);
     }
     // Serialize it as a search result
     SearchResult_Clear(&r);
@@ -290,11 +322,6 @@ static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num) {
   RedisModule_ReplyWithArray(outputCtx, 2);
   sendChunk(req, outputCtx, num);
 
-  if (req->stateflags & QEXEC_S_ERROR) {
-    RedisModule_ReplyWithLongLong(outputCtx, 0);
-    goto delcursor;
-  }
-
   if (req->stateflags & QEXEC_S_ITERDONE) {
     // Write the count!
     RedisModule_ReplyWithLongLong(outputCtx, 0);
@@ -329,7 +356,9 @@ static void cursorRead(RedisModuleCtx *ctx, uint64_t cid, size_t count) {
     RedisModule_ReplyWithError(ctx, "Cursor not found");
     return;
   }
+  QueryError status = {0};
   AREQ *req = cursor->execState;
+  req->qiter.err = &status;
   ConcurrentSearchCtx_ReopenKeys(&req->conc);
   runCursor(ctx, cursor, count);
 }
@@ -376,7 +405,6 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     int rc = Cursors_CollectIdle(&RSCursors);
     RedisModule_ReplyWithLongLong(ctx, rc);
   } else {
-    printf("Unknown command %s\n", cmd);
     RedisModule_ReplyWithError(ctx, "Unknown subcommand");
   }
   return REDISMODULE_OK;

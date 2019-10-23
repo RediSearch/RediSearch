@@ -50,7 +50,7 @@ static int evalOp(ExprEval *eval, const RSExprOp *op, RSValue *result) {
   double n1, n2;
   if (!RSValue_ToNumber(&l, &n1) || !RSValue_ToNumber(&r, &n2)) {
 
-    // asprintf(err, "Invalid values for op '%c'", op->op);
+    QueryError_SetError(eval->err, QUERY_ENOTNUMERIC, NULL);
     rc = EXPR_EVAL_ERR;
     goto cleanup;
   }
@@ -76,7 +76,7 @@ static int evalOp(ExprEval *eval, const RSExprOp *op, RSValue *result) {
       res = pow(n1, n2);
       break;
     default:
-      res = NAN;
+      res = NAN;  // todo : we can not really reach here
   }
 
   result->numval = res;
@@ -89,29 +89,30 @@ cleanup:
   return rc;
 }
 
-static int getPredicateBoolean(const RSValue *l, const RSValue *r, RSCondition op) {
+static int getPredicateBoolean(ExprEval *eval, const RSValue *l, const RSValue *r, RSCondition op) {
+  QueryError *qerr = eval ? eval->err : NULL;
   switch (op) {
     case RSCondition_Eq:
-      return RSValue_Equal(l, r);
+      return RSValue_Equal(l, r, qerr);
 
     case RSCondition_Lt:
-      return RSValue_Cmp(l, r) < 0;
+      return RSValue_Cmp(l, r, qerr) < 0;
 
     /* Less than or equal, <= */
     case RSCondition_Le:
-      return RSValue_Cmp(l, r) <= 0;
+      return RSValue_Cmp(l, r, qerr) <= 0;
 
       /* Greater than, > */
     case RSCondition_Gt:
-      return RSValue_Cmp(l, r) > 0;
+      return RSValue_Cmp(l, r, qerr) > 0;
 
     /* Greater than or equal, >= */
     case RSCondition_Ge:
-      return RSValue_Cmp(l, r) >= 0;
+      return RSValue_Cmp(l, r, qerr) >= 0;
 
     /* Not equal, != */
     case RSCondition_Ne:
-      return !RSValue_Equal(l, r);
+      return !RSValue_Equal(l, r, qerr);
 
       /* Logical AND of 2 expressions, && */
     case RSCondition_And:
@@ -141,7 +142,6 @@ static int evalInverted(ExprEval *eval, const RSInverted *vv, RSValue *result) {
 }
 
 static int evalPredicate(ExprEval *eval, const RSPredicate *pred, RSValue *result) {
-
   RSValue l = RSVALUE_STATIC, r = RSVALUE_STATIC;
   int rc = EXPR_EVAL_ERR;
   if (evalInternal(eval, pred->left, &l) == EXPR_EVAL_ERR ||
@@ -152,11 +152,14 @@ static int evalPredicate(ExprEval *eval, const RSPredicate *pred, RSValue *resul
   RSValue *l_ptr = RSValue_Dereference(&l);
   RSValue *r_ptr = RSValue_Dereference(&r);
 
-  int res = getPredicateBoolean(&l, &r, pred->cond);
-
-  result->numval = res;
-  result->t = RSValue_Number;
-  rc = EXPR_EVAL_OK;
+  int res = getPredicateBoolean(eval, &l, &r, pred->cond);
+  if (!eval->err || eval->err->code == QUERY_OK) {
+    result->numval = res;
+    result->t = RSValue_Number;
+    rc = EXPR_EVAL_OK;
+  } else {
+    result->t = RSValue_Undef;
+  }
 
 cleanup:
   RSValue_Clear(&l);
@@ -166,6 +169,7 @@ cleanup:
 
 static int evalProperty(ExprEval *eval, const RSLookupExpr *e, RSValue *res) {
   if (!e->lookupObj) {
+    // todo : this can not happened
     // No lookup object. This means that the key does not exist
     // Note: Because this is evaluated for each row potentially, do not assume
     // that query error is present:
@@ -205,7 +209,7 @@ static int evalInternal(ExprEval *eval, const RSExpr *e, RSValue *res) {
     case RSExpr_Inverted:
       return evalInverted(eval, &e->inverted, res);
   }
-  return EXPR_EVAL_ERR;
+  return EXPR_EVAL_ERR;  // todo: this can not happened
 }
 
 int ExprEval_Eval(ExprEval *evaluator, RSValue *result) {
