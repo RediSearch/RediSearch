@@ -197,17 +197,6 @@ int RSSortingTable_Add(RSSortingTable *tbl, const char *name, RSValueType t) {
   return tbl->len++;
 }
 
-RSValueType SortingTable_GetFieldType(RSSortingTable *tbl, const char *name, RSValueType deflt) {
-  if (tbl) {
-
-    for (int i = 0; i < tbl->len; i++) {
-      if (!strcasecmp(tbl->fields[i].name, name)) {
-        return tbl->fields[i].type;
-      }
-    }
-  }
-  return deflt;
-}
 /* Get the field index by name from the sorting table. Returns -1 if the field was not found */
 int RSSortingTable_GetFieldIdx(RSSortingTable *tbl, const char *field) {
 
@@ -218,42 +207,4 @@ int RSSortingTable_GetFieldIdx(RSSortingTable *tbl, const char *field) {
     }
   }
   return -1;
-}
-
-/* Parse the sorting key of a query from redis arguments. We expect SORTBY {filed} [ASC/DESC]. The
- * default is ASC if not specified.*/
-int RSSortingTable_ParseKey(RSSortingTable *tbl, RSSortingKey *k, RedisModuleString **argv,
-                            int argc, size_t *offset) {
-  const char *field = NULL;
-  k->index = -1;
-  k->ascending = 1;
-  if (!tbl) return REDISMODULE_ERR;
-
-  if (argc == *offset) {
-    return REDISMODULE_ERR;
-  }
-
-  // Parse the field
-  const char *fieldName = RedisModule_StringPtrLen(argv[*offset], NULL);
-  k->index = RSSortingTable_GetFieldIdx(tbl, fieldName);
-  if (k->index == -1) {
-    return REDISMODULE_ERR;
-  }
-
-  if (++*offset == argc) {
-    return REDISMODULE_OK;
-  }
-
-  if (RMUtil_StringEqualsCaseC(argv[*offset], "ASC")) {
-    k->ascending = 1;
-    ++*offset;
-  } else if (RMUtil_StringEqualsCaseC(argv[*offset], "DESC")) {
-    k->ascending = 0;
-    ++*offset;
-  }
-  return REDISMODULE_OK;
-}
-
-void RSSortingKey_Free(RSSortingKey *k) {
-  rm_free(k);
 }

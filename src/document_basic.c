@@ -93,6 +93,7 @@ void Document_MakeStringsOwner(Document *d) {
   d->flags &= ~DOCUMENT_F_OWNREFS;
 }
 
+// TODO remove uncovered and clean DOCUMENT_F_OWNREFS from all code
 void Document_MakeRefOwner(Document *doc) {
   doc->flags |= DOCUMENT_F_OWNREFS;
 }
@@ -244,9 +245,7 @@ int Redis_SaveDocument(RedisSearchCtx *ctx, Document *doc, int options, QueryErr
 }
 
 int Document_ReplyFields(RedisModuleCtx *ctx, Document *doc) {
-  if (!doc) {
-    return REDISMODULE_ERR;
-  }
+  assert(doc);
   RedisModule_ReplyWithArray(ctx, doc->numFields * 2);
   for (size_t j = 0; j < doc->numFields; ++j) {
     RedisModule_ReplyWithStringBuffer(ctx, doc->fields[j].name, strlen(doc->fields[j].name));

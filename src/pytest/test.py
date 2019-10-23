@@ -7,7 +7,6 @@ import random
 import time
 from RLTest import Env
 
-
 def testAdd(env):
     if env.is_cluster():
         raise unittest.SkipTest()
@@ -29,6 +28,10 @@ def testAdd(env):
 def testAddErrors(env):
     env.expect('ft.create idx schema foo text bar numeric sortable').equal('OK')
     env.expect('ft.add idx doc1 1 redis 4').error().contains('Unknown keyword')
+    env.expect('ft.add idx doc1').error().contains("wrong number of arguments for 'ft.add' command")
+    env.expect('ft.add idx doc1 42').error().contains("Score must be between 0 and 1")
+    env.expect('ft.add idx doc1 1.0').error().contains("No field list found")
+    env.expect('ft.add fake_idx doc1 1.0 fields foo bar').error().contains("Unknown index name")
 
 def assertEqualIgnoreCluster(env, val1, val2):
     # todo: each test that uses this function should be switch back to env.assertEqual once fix
@@ -231,6 +234,16 @@ def testGet(env):
     env.assertOk(r.execute_command(
         'ft.create', 'idx', 'schema', 'foo', 'text', 'bar', 'text'))
 
+    env.expect('ft.get').error().contains("wrong number of arguments for 'ft.get' command")
+    env.expect('ft.get', 'idx').error().contains("wrong number of arguments for 'ft.get' command")
+    env.expect('ft.get', 'idx', 'foo', 'bar').error().contains("wrong number of arguments for 'ft.get' command")
+    env.expect('ft.mget').error().contains("wrong number of arguments for 'ft.mget' command")
+    env.expect('ft.mget', 'idx').error().contains("wrong number of arguments for 'ft.mget' command")
+    env.expect('ft.mget', 'fake_idx').error().contains("wrong number of arguments for 'ft.mget' command")
+
+    env.expect('ft.get fake_idx foo').error().contains("Unknown Index name")
+    env.expect('ft.mget fake_idx foo').error().contains("Unknown Index name")
+
     for i in range(100):
         env.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
                                         'foo', 'hello world', 'bar', 'wat wat'))
@@ -242,6 +255,7 @@ def testGet(env):
             ['foo', 'hello world', 'bar', 'wat wat'], res)
         env.assertIsNone(r.execute_command(
             'ft.get', 'idx', 'doc%dsdfsd' % i))
+    env.expect('ft.get', 'no_idx', 'doc0').error().contains("Unknown Index name")
 
     rr = r.execute_command(
         'ft.mget', 'idx', *('doc%d' % i for i in range(100)))
@@ -259,8 +273,11 @@ def testGet(env):
     # Verify that when a document is deleted, GET returns NULL
     r.cmd('ft.del', 'idx', 'doc10') # But we still keep the document
     r.cmd('ft.del', 'idx', 'doc11')
+    r.cmd('ft.del', 'idx', 'coverage')
     res = r.cmd('ft.get', 'idx', 'doc10')
     r.assertEqual(None, res)
+    res = r.cmd('ft.mget', 'idx', 'doc10')
+    r.assertEqual([None], res)
     res = r.cmd('ft.mget', 'idx', 'doc10', 'doc11', 'doc12')
     r.assertIsNone(res[0])
     r.assertIsNone(res[1])
@@ -274,6 +291,8 @@ def testDelete(env):
     for i in range(100):
         env.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
                                         'f', 'hello world'))
+    
+    env.expect('ft.del', 'fake_idx', 'doc1').error()
 
     for i in range(100):
         # the doc hash should exist now
@@ -384,6 +403,8 @@ def testDrop(env):
         keys = r.keys('*')
         env.assertListEqual(['doc0', 'doc1', 'doc10', 'doc11', 'doc12', 'doc13', 'doc14', 'doc15', 'doc16', 'doc17', 'doc18', 'doc19', 'doc2', 'doc20', 'doc21', 'doc22', 'doc23', 'doc24', 'doc25', 'doc26', 'doc27', 'doc28', 'doc29', 'doc3', 'doc30', 'doc31', 'doc32', 'doc33', 'doc34', 'doc35', 'doc36', 'doc37', 'doc38', 'doc39', 'doc4', 'doc40', 'doc41', 'doc42', 'doc43', 'doc44', 'doc45', 'doc46', 'doc47', 'doc48', 'doc49', 'doc5', 'doc50', 'doc51', 'doc52', 'doc53',
                               'doc54', 'doc55', 'doc56', 'doc57', 'doc58', 'doc59', 'doc6', 'doc60', 'doc61', 'doc62', 'doc63', 'doc64', 'doc65', 'doc66', 'doc67', 'doc68', 'doc69', 'doc7', 'doc70', 'doc71', 'doc72', 'doc73', 'doc74', 'doc75', 'doc76', 'doc77', 'doc78', 'doc79', 'doc8', 'doc80', 'doc81', 'doc82', 'doc83', 'doc84', 'doc85', 'doc86', 'doc87', 'doc88', 'doc89', 'doc9', 'doc90', 'doc91', 'doc92', 'doc93', 'doc94', 'doc95', 'doc96', 'doc97', 'doc98', 'doc99'], sorted(keys))
+
+    env.expect('FT.DROP', 'idx', 'KEEPDOCS', '666').error().contains("wrong number of arguments for 'FT.DROP' command")
 
 def testCustomStopwords(env):
     r = env
@@ -507,6 +528,11 @@ def testNoIndex(env):
         'foo', 'text',
         'num', 'numeric', 'sortable', 'noindex',
         'extra', 'text', 'noindex', 'sortable'))
+
+    res = env.cmd('ft.info', 'idx')
+    env.assertEqual(res[5][1][4], 'NOINDEX')
+    env.assertEqual(res[5][2][6], 'NOINDEX')
+
     env.assertOk(r.execute_command('ft.add', 'idx', 'doc1', '0.1', 'fields',
                                     'foo', 'hello world', 'num', 1, 'extra', 'hello lorem ipsum'))
     res = r.execute_command(
@@ -545,6 +571,9 @@ def testPartial(env):
     # Updating non indexed fields doesn't affect search results
     env.assertOk(r.execute_command('ft.add', 'idx', 'doc1', '0.1', 'replace', 'partial',
                                     'fields', 'num', 3, 'extra', 'jorem gipsum'))
+    env.expect('ft.add', 'idx', 'doc12', '0.1', 'replace', 'partial',
+                                    'fields', 'num1', 'redis').equal('OK')
+
     res = r.execute_command(
         'ft.search', 'idx', 'hello world', 'sortby', 'num', 'desc',)
     assertResultsEqual(env, [2L, 'doc1', ['foo', 'hello world', 'num', '3', 'extra', 'jorem gipsum'],
@@ -870,6 +899,35 @@ def testExact(env):
     env.assertEqual(1, res[0])
     env.assertEqual("doc2", res[1])
 
+
+def testGeoErrors(env):
+    env.expect('flushall')
+    env.expect('ft.create idx schema name text location geo').equal('OK')
+    env.expect('ft.add idx hotel 1.0 fields name hill location -0.1757,51.5156').equal('OK')
+    env.expect('ft.search idx hilton geofilter location -0.1757 51.5156 1 km').equal([0L])
+
+    # Insert error
+    env.expect('ft.add', 'idx', 'hotel1', 1, 'fields', 'name', '_hotel1', 'location', '1, 1').error()   \
+            .contains('Could not index geo value')
+
+    # Query errors
+    env.expect('ft.search idx hilton geofilter location lon 51.5156 1 km').error()   \
+            .contains('Bad arguments for <lon>: Could not convert argument to expected type')
+    env.expect('ft.search idx hilton geofilter location 51.5156 lat 1 km').error()   \
+            .contains('Bad arguments for <lat>: Could not convert argument to expected type')
+    env.expect('ft.search idx hilton geofilter location -0.1757 51.5156 radius km').error()   \
+            .contains('Bad arguments for <radius>: Could not convert argument to expected type')
+    env.expect('ft.search idx hilton geofilter location -0.1757 51.5156 1 fake').error()   \
+            .contains('Unknown distance unit fake')
+    env.expect('ft.search idx hilton geofilter location -0.1757 51.5156 1').error()   \
+            .contains('GEOFILTER requires 5 arguments')
+
+    env.expect('flushall')
+    env.expect('set geo:idx/location foo').equal('OK')
+    env.expect('ft.create idx schema name text location geo').equal('OK')
+    env.expect('ft.add idx hotel 1.0 fields name hill location -0.1757,51.5156').error() \
+            .contains('Could not index geo value')
+
 def testGeo(env):
     r = env
     gsearch = lambda query, lon, lat, dist, unit='km': r.execute_command(
@@ -930,6 +988,11 @@ def testGeo(env):
             'heathrow', -0.44155, 51.45865, '5', 'km')
         env.assertListEqual(res, res2)
 
+def testTagErrors(env):
+    env.expect("ft.create", "test", "SCHEMA",  "tags", "TAG").equal('OK')
+    env.expect("ft.add", "test", "1", "1", "FIELDS", "tags", "alberta").equal('OK')
+    env.expect("ft.add", "test", "2", "1", "FIELDS", "tags", "ontario. alberta").equal('OK')
+
 def testGeoDeletion(env):
     if env.is_cluster():
         raise unittest.SkipTest()
@@ -977,8 +1040,55 @@ def testAddHash(env):
 
     env.assertOk(r.execute_command('ft.addhash', 'idx', 'doc1', 1.0))
     env.assertOk(r.execute_command('ft.addhash', 'idx', 'doc2', 1.0))
-    env.expect('ft.addhash', 'fake_idx', 'doc3', 1.0, 1.0).error().contains('Unknown keyword: `1.0`')
+    env.expect('ft.addhash', 'idx', 'doc3', 1.0, 1.0).error().contains('Unknown keyword: `1.0`')
 
+    res = r.execute_command('ft.search', 'idx', "hello", "nocontent")
+    env.assertEqual(3, len(res))
+    env.assertEqual(2, res[0])
+    env.assertEqual("doc1", res[2])
+    env.assertEqual("doc2", res[1])
+
+    res = r.execute_command(
+        'ft.search', 'idx',
+        "hello",
+        "filter", "price", "0", "3"
+        )
+    env.assertEqual(3, len(res))
+    env.assertEqual(1, res[0])
+    env.assertEqual("doc1", res[1])
+    env.assertListEqual(
+        ['body', 'lorem ipsum', 'price', '2', 'title', 'hello world'], res[2])
+
+    res = r.execute_command(
+        'ft.search', 'idx', "hello werld", "nocontent")
+    env.assertEqual(2, len(res))
+    env.assertEqual(1, res[0])
+    env.assertEqual("doc2", res[1])
+
+def testSafeAddHash(env):
+    if env.is_cluster():
+        raise unittest.SkipTest()
+
+    r = env
+    env.assertOk(r.execute_command('ft.create', 'idx', 'schema',
+                                    'title', 'text', 'weight', 10.0, 'body', 'text', 'price', 'numeric'))
+
+    env.assertTrue(
+        r.hmset('doc1', {"title": "hello world", "body": "lorem ipsum", "price": 2}))
+    env.assertTrue(
+        r.hmset('doc2', {"title": "hello werld", "body": "lorem ipsum", "price": 5}))
+
+    env.expect('ft.safeaddhash idx doc1 1.0').equal('OK')
+    env.expect('ft.safeaddhash idx doc2 1.0').equal('OK')
+    env.expect('ft.safeaddhash idx').error().contains("wrong number of arguments for 'ft.safeaddhash' command")
+    env.expect('ft.safeaddhash idx doc3 2.0').error().contains('Score must be between 0 and 1')
+    env.expect('ft.safeaddhash idx doc3 -2.0').error().contains('Score must be between 0 and 1')
+    env.expect('ft.safeaddhash idx doc3 1.0 1.0').error().contains('Unknown keyword: `1.0`')
+    env.expect('ft.safeaddhash idx doc3 not_a_number').error().contains('Could not parse document score')
+    env.expect('ft.safeaddhash idx doc3 1.0 LANGUAGE RediSearch').error().contains('Unknown language: `RediSearch`')
+    env.expect('ft.safeaddhash idx doc3 1.0 LANGUAGE RediSearch not_an_arg').error().contains("Unknown keyword: `not_an_arg`")
+    #env.expect('ft.safeaddhash', 'idx', 'doc3', '1.0', 'LANGUAGE', 'RediSearch, ""').error().contains("Error parsing arguments for `%s`: %s")
+    env.expect('ft.safeaddhash not_idx doc3 1.0').error().contains('Unknown Index name')
     res = r.execute_command('ft.search', 'idx', "hello", "nocontent")
     env.assertEqual(3, len(res))
     env.assertEqual(2, res[0])
@@ -1173,6 +1283,11 @@ def testNumericRange(env):
     r = env
     env.assertOk(r.execute_command(
         'ft.create', 'idx', 'schema', 'title', 'text', 'score', 'numeric', 'price', 'numeric'))
+
+    env.expect('ft.search', 'idx', 'hello kitty', 'filter', 'score', 5).error().contains("FILTER requires 3 arguments")
+    env.expect('ft.search', 'idx', 'hello kitty', 'filter', 'score', 5, 'inf').error().contains("Bad upper range: inf")
+    env.expect('ft.search', 'idx', 'hello kitty', 'filter', 'score', 'inf', 5).error().contains("Bad lower range: inf")
+
     for i in xrange(100):
         env.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1, 'fields',
                                         'title', 'hello kitty', 'score', i, 'price', 100 + 10 * i))
@@ -1295,6 +1410,20 @@ def testSuggestions(env):
 
     rc = r.execute_command("ft.SUGGET", "ac", "hello")
     env.assertEqual(['hello werld'], rc)
+
+def testSuggestErrors(env):
+    env.expect('ft.SUGADD ac olah 1').equal(1)
+    env.expect('ft.SUGADD ac olah 1 INCR').equal(1)
+    env.expect('ft.SUGADD ac missing').error().contains("wrong number of arguments for 'ft.SUGADD' command")
+    env.expect('ft.SUGADD ac olah not_a_number').error().contains("invalid score")
+    env.expect('ft.SUGADD ac olah 1 PAYLOAD').error().contains('Invalid payload: Expected an argument, but none provided')
+    env.expect('ft.SUGADD ac olah 1 REDIS PAYLOAD payload').error().contains('Unknown argument `REDIS`')
+    env.expect('ft.SUGGET ac olah FUZZ').error().contains("Unrecognized argument: FUZZ")
+    query = 'verylongquery'
+    for _ in range(3):
+        query += query
+    env.expect('ft.SUGGET ac', query).error().contains("Invalid query")
+    env.expect('ft.SUGGET ac', query + query).error().contains("Invalid query length")
 
 def testSuggestPayload(env):
     r = env
@@ -1497,6 +1626,8 @@ def testCreationOptions(env):
         for combo in combinations(('NOOFFSETS', 'NOFREQS', 'NOFIELDS', ''), x):
             _test_create_options_real(env, *combo)
 
+    env.expect('ft.create', 'idx').error()
+
 def testInfoCommand(env):
     from itertools import combinations
     r = env
@@ -1554,6 +1685,8 @@ def testInfoCommand(env):
 def testNoStem(env):
     env.cmd('ft.create', 'idx', 'schema', 'body',
              'text', 'name', 'text', 'nostem')
+    res = env.cmd('ft.info', 'idx')
+    env.assertEqual(res[5][1][5], 'NOSTEM')
     for _ in env.retry_with_reload():
         try:
             env.cmd('ft.del', 'idx', 'doc')
@@ -1849,6 +1982,10 @@ def testAlterIndex(env):
         res = env.cmd('FT.SEARCH', 'idx', '@n1:[0 100]')
         env.assertEqual([1, 'docN1', ['n1', '50']], res)
 
+    env.expect('FT.ALTER', 'idx', 'SCHEMA', 'NOT_ADD', 'f2', 'TEXT').error()
+    env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD').error()
+    env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'f2').error()
+
 def testAlterValidation(env):
     # Test that constraints for ALTER comand
     env.cmd('FT.CREATE', 'idx1', 'SCHEMA', 'f0', 'TEXT')
@@ -1990,6 +2127,8 @@ def testAlias(env):
     env.cmd('ft.create', 'idx', 'schema', 't1', 'text')
     env.cmd('ft.create', 'idx2', 'schema', 't1', 'text')
 
+    env.expect('ft.aliasAdd', 'myIndex').raiseError()
+    env.expect('ft.aliasupdate', 'fake_alias', 'imaginary_alias', 'Too_many_args').raiseError()
     env.cmd('ft.aliasAdd', 'myIndex', 'idx')
     env.cmd('ft.add', 'myIndex', 'doc1', 1.0, 'fields', 't1', 'hello')
     r = env.cmd('ft.search', 'idx', 'hello')
@@ -2040,15 +2179,32 @@ def testAlias(env):
     r = env.cmd('ft.aggregate', 'myIndex', 'hello', 'LOAD', '1', '@t1')
     env.assertEqual([1, ['t1', 'hello']], r)
 
-    r = env.cmd('ft.del', 'myIndex', 'doc2')
+    # Test update
+    env.expect('ft.aliasAdd', 'updateIndex', 'idx3')
+    env.expect('ft.aliasUpdate', 'updateIndex', 'fake_idx')
+
+    r = env.cmd('ft.del', 'idx2', 'doc2')
     env.assertEqual(1, r)
+    env.expect('ft.aliasdel').raiseError()
+    env.expect('ft.aliasdel', 'myIndex', 'yourIndex').raiseError()
+    env.expect('ft.aliasdel', 'non_existing_alias').raiseError()
+
 
 def testNoCreate(env):
     env.cmd('ft.create', 'idx', 'schema', 'f1', 'text')
+    env.expect('ft.add', 'idx', 'schema', 'f1').raiseError()
     env.expect('ft.add', 'idx', 'doc1', 1, 'nocreate', 'fields', 'f1', 'hello').raiseError()
     env.expect('ft.add', 'idx', 'doc1', 1, 'replace', 'nocreate', 'fields', 'f1', 'hello').raiseError()
     env.expect('ft.add', 'idx', 'doc1', 1, 'replace', 'fields', 'f1', 'hello').notRaiseError()
     env.expect('ft.add', 'idx', 'doc1', 1, 'replace', 'nocreate', 'fields', 'f1', 'world').notRaiseError()
+
+def testSpellCheck(env):
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'report', 'TEXT')
+    env.cmd('FT.ADD', 'idx', 'doc1', 1.0, 'FIELDS', 'report', 'report content')  
+    rv = env.cmd('FT.SPELLCHECK', 'idx', '111111')
+    env.assertEqual([['TERM', '111111', []]], rv)
+    rv = env.cmd('FT.SPELLCHECK', 'idx', '111111', 'FULLSCOREINFO')
+    env.assertEqual([1L, ['TERM', '111111', []]], rv)
 
 # Standalone functionality
 def testIssue484(env):
@@ -2094,6 +2250,9 @@ def testIssue501(env):
         'TERMS', 'INCLUDE', 'slang', 'TERMS', 'EXCLUDE', 'slang')
     env.assertEqual("qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq", rv[0][1])
     env.assertEqual([], rv[0][2])
+
+    env.expect('FT.SPELLCHECK', 'incidents', 'qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq',
+        'TERMS', 'FAKE_COMMAND', 'slang').error()
 
 def testIssue589(env):
     env.cmd('FT.CREATE', 'incidents', 'SCHEMA', 'report', 'TEXT')
@@ -2698,3 +2857,28 @@ def grouper(iterable, n, fillvalue=None):
 
 def to_dict(r):
     return {r[i]: r[i + 1] for i in range(0, len(r), 2)}
+
+def testOptimize(env):
+    env.cmd('ft.create', 'idx', 'SCHEMA', 'test', 'TEXT', 'SORTABLE')
+    env.cmd('FT.ADD', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo')   
+    env.assertEqual(0, env.cmd('FT.OPTIMIZE', 'idx'))   
+    with env.assertResponseError():
+        env.assertOk(env.cmd('FT.OPTIMIZE', 'idx', '666'))   
+    env.expect('FT.OPTIMIZE', 'fake_idx').error()
+
+def testInfoError(env):
+    env.expect('ft.info', 'no_idx').error()
+
+def testSetPayload(env):
+    env.expect('flushall')
+    env.expect('ft.create idx schema name text').equal('OK')
+    env.expect('ft.add idx hotel 1.0 fields name hilton').equal('OK')
+    env.expect('FT.SETPAYLOAD idx hotel payload').equal('OK')
+    env.expect('FT.SETPAYLOAD idx hotel payload').equal('OK')
+    env.expect('FT.SETPAYLOAD idx fake_hotel').error()          \
+            .contains("wrong number of arguments for 'FT.SETPAYLOAD' command")
+    env.expect('FT.SETPAYLOAD fake_idx hotel payload').error().contains('Unknown Index name')    
+    env.expect('FT.SETPAYLOAD idx fake_hotel payload').error().contains('Document not in index')    
+
+
+    

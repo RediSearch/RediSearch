@@ -1462,6 +1462,7 @@ IndexIterator *NewEmptyIterator(void) {
   return &eofIterator;
 }
 
+// LCOV_EXCL_START unused
 const char *IndexIterator_GetTypeString(const IndexIterator *it) {
   if (it->Free == UnionIterator_Free) {
     return "UNION";
@@ -1481,3 +1482,4 @@ const char *IndexIterator_GetTypeString(const IndexIterator *it) {
     return "Unknown";
   }
 }
+// LCOV_EXCL_STOP

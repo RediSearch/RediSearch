@@ -100,7 +100,6 @@ typedef struct FieldSpec {
 
 void FieldSpec_SetSortable(FieldSpec* fs);
 void FieldSpec_Cleanup(FieldSpec* fs);
-void FieldSpec_Free(FieldSpec* fs);
 
 RSValueType fieldTypeToValueType(FieldType ft);
 

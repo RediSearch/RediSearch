@@ -27,8 +27,8 @@ static inline const char *GCPolicy_ToString(GCPolicy policy) {
       return "sync";
     case GCPolicy_Fork:
       return "fork";
-    default:
-      return "huh?";
+    default:            // LCOV_EXCL_LINE cannot be reached
+      return "huh?";    // LCOV_EXCL_LINE cannot be reached
   }
 }
 
