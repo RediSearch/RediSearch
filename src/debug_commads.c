@@ -74,6 +74,13 @@ DEBUG_COMMAND(DumpTerms) {
   rm_free(it->ctx);
   TrieIterator_Free(it);
 
+  if (sctx->key) {
+    RedisModule_CloseKey(sctx->key);
+  }
+
+  if (sctx->keyName) {
+    RedisModule_FreeString(sctx->redisCtx, sctx->keyName);
+  }
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
 }
@@ -121,6 +128,12 @@ end:
   if (keyp) {
     RedisModule_CloseKey(keyp);
   }
+  if (sctx->key) {
+    RedisModule_CloseKey(sctx->key);
+  }
+  if (sctx->keyName) {
+    RedisModule_FreeString(sctx->redisCtx, sctx->keyName);
+  }
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
 }
@@ -143,6 +156,12 @@ DEBUG_COMMAND(DumpInvertedIndex) {
 end:
   if (keyp) {
     RedisModule_CloseKey(keyp);
+  }
+  if (sctx->key) {
+    RedisModule_CloseKey(sctx->key);
+  }
+  if (sctx->keyName) {
+    RedisModule_FreeString(sctx->redisCtx, sctx->keyName);
   }
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
@@ -178,6 +197,14 @@ DEBUG_COMMAND(NumericIndexSummary) {
 end:
   if (keyp) {
     RedisModule_CloseKey(keyp);
+  }
+
+  if (sctx->key) {
+    RedisModule_CloseKey(sctx->key);
+  }
+
+  if (sctx->keyName) {
+    RedisModule_FreeString(sctx->redisCtx, sctx->keyName);
   }
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
@@ -215,6 +242,14 @@ DEBUG_COMMAND(DumpNumericIndex) {
 end:
   if (keyp) {
     RedisModule_CloseKey(keyp);
+  }
+
+  if (sctx->key) {
+    RedisModule_CloseKey(sctx->key);
+  }
+
+  if (sctx->keyName) {
+    RedisModule_FreeString(sctx->redisCtx, sctx->keyName);
   }
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
@@ -259,6 +294,14 @@ end:
   if (keyp) {
     RedisModule_CloseKey(keyp);
   }
+
+  if (sctx->key) {
+    RedisModule_CloseKey(sctx->key);
+  }
+
+  if (sctx->keyName) {
+    RedisModule_FreeString(sctx->redisCtx, sctx->keyName);
+  }
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
 }
@@ -280,6 +323,13 @@ DEBUG_COMMAND(IdToDocId) {
     RedisModule_ReplyWithStringBuffer(sctx->redisCtx, doc->keyPtr, strlen(doc->keyPtr));
   }
 end:
+  if (sctx->key) {
+    RedisModule_CloseKey(sctx->key);
+  }
+
+  if (sctx->keyName) {
+    RedisModule_FreeString(sctx->redisCtx, sctx->keyName);
+  }
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
 }
@@ -292,6 +342,12 @@ DEBUG_COMMAND(DocIdToId) {
   RSDocumentKey docId = MakeDocKeyR(argv[1]);
   t_docId id = DocTable_GetId(&sctx->spec->docs, docId);
   RedisModule_ReplyWithLongLong(sctx->redisCtx, id);
+  if (sctx->key) {
+    RedisModule_CloseKey(sctx->key);
+  }
+  if (sctx->keyName) {
+    RedisModule_FreeString(sctx->redisCtx, sctx->keyName);
+  }
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
 }

@@ -324,6 +324,8 @@ void AggregateRequest_Run(AggregateRequest *req, RedisModuleCtx *outCtx) {
 }
 
 void AggregateRequest_Free(AggregateRequest *req) {
+  RedisModuleCtx *planCtx = (req->plan && req->plan->conc) ? req->plan->conc->ctx : NULL;
+
   if (req->plan) {
     if (req->plan->opts.fields.numFields) {
       FieldList_Free(&req->plan->opts.fields);
@@ -339,6 +341,9 @@ void AggregateRequest_Free(AggregateRequest *req) {
   }
 
   if (req->isHeapAlloc) {
+    if (planCtx) {
+      RedisModule_FreeThreadSafeContext(planCtx);
+    }
     rm_free(req);
   }
 }
@@ -347,5 +352,17 @@ AggregateRequest *AggregateRequest_Persist(AggregateRequest *req) {
   AggregateRequest *ret = rm_malloc(sizeof(*ret));
   *ret = *req;
   ret->isHeapAlloc = 1;
+
+  if (req->plan->conc) {
+    for (size_t i = 0; i < req->plan->conc->numOpenKeys; i++) {
+      req->plan->conc->openKeys[i].opts |= ConcurrentKey_SharedKey;
+      req->plan->conc->openKeys[i].opts |= ConcurrentKey_SharedKeyString;
+    }
+
+    req->plan->conc->ctx = RedisModule_GetThreadSafeContext(NULL);
+
+    RedisModule_AutoMemory(req->plan->conc->ctx);
+  }
+
   return ret;
 }

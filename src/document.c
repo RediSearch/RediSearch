@@ -593,6 +593,7 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
     if (Redis_LoadDocumentEx(sctx, key, fields, loadFields, &doc, NULL) == REDISMODULE_ERR) {
       SET_ERR(err, "Could not load document");
       array_free(fields);
+      RSExpr_Free(e);
       return REDISMODULE_ERR;
     }
   }

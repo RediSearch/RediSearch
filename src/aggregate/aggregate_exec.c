@@ -83,6 +83,7 @@ void AggregateCommand_ExecAggregateEx(RedisModuleCtx *ctx, RedisModuleString **a
     req = AggregateRequest_Persist(req);
     req->plan->opts.flags |= Search_IsCursor;
     cursor->execState = req;
+
     /* Don't let the context get removed from under our feet */
     if (cmdCtx) {
       ConcurrentCmdCtx_KeepRedisCtx(cmdCtx);
