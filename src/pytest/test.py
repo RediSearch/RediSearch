@@ -33,7 +33,6 @@ def testAddErrors(env):
     env.expect('ft.add idx doc1 1.0').error().contains("No field list found")
     env.expect('ft.add fake_idx doc1 1.0 fields foo bar').error().contains("Unknown index name")
 
-
 def assertEqualIgnoreCluster(env, val1, val2):
     # todo: each test that uses this function should be switch back to env.assertEqual once fix
     # issues on coordinator
