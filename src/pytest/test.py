@@ -2847,6 +2847,15 @@ def testSortkeyUnsortable(env):
         'sortby', '1', '@test')
     env.assertEqual([1, '$foo', ['test', 'foo']], rv)
 
+
+def testIssue919(env):
+    # This only works if the missing field has a lower sortable index
+    # than the present field..
+    env.cmd('ft.create', 'idx', 'schema', 't1', 'text', 'sortable', 'n1', 'numeric', 'sortable')
+    env.cmd('ft.add', 'idx', 'doc1', 1, 'fields', 'n1', 42)
+    rv = env.cmd('ft.search', 'idx', '*', 'sortby', 't1', 'desc')
+    env.assertEqual([1L, 'doc1', ['n1', '42']], rv)
+
 def grouper(iterable, n, fillvalue=None):
     "Collect data into fixed-length chunks or blocks"
     from itertools import izip_longest

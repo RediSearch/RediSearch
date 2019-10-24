@@ -258,6 +258,9 @@ static inline RSValue *RLookup_GetItem(const RLookupKey *key, const RLookupRow *
     if (key->flags & RLOOKUP_F_SVSRC) {
       if (row->sv && row->sv->len > key->svidx) {
         ret = row->sv->values[key->svidx];
+        if (ret != NULL && ret->t == RSValue_Null) {
+          ret = NULL;
+        }
       }
     }
   }
