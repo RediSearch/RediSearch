@@ -502,6 +502,90 @@ end:
   return REDISMODULE_OK;
 }
 
+static void replyDocFlags(const RSDocumentMetadata *dmd, RedisModuleCtx *ctx) {
+  char buf[1024] = {0};
+  sprintf(buf, "(0x%x):", dmd->flags);
+  if (dmd->flags & Document_Deleted) {
+    strcat(buf, "Deleted,");
+  }
+  if (dmd->flags & Document_HasPayload) {
+    strcat(buf, "HasPayload,");
+  }
+  if (dmd->flags & Document_HasSortVector) {
+    strcat(buf, "HasSortVector,");
+  }
+  if (dmd->flags & Document_HasOffsetVector) {
+    strcat(buf, "HasOffsetVector,");
+  }
+  RedisModule_ReplyWithSimpleString(ctx, buf);
+}
+
+static void replySortVector(const RSDocumentMetadata *dmd, RedisSearchCtx *sctx) {
+  RSSortingVector *sv = dmd->sortVector;
+  RedisModule_ReplyWithArray(sctx->redisCtx, REDISMODULE_POSTPONED_ARRAY_LEN);
+  size_t nelem = 0;
+  for (size_t ii = 0; ii < sv->len; ++ii) {
+    if (!sv->values[ii]) {
+      continue;
+    }
+    RedisModule_ReplyWithArray(sctx->redisCtx, 6);
+    RedisModule_ReplyWithSimpleString(sctx->redisCtx, "index");
+    RedisModule_ReplyWithLongLong(sctx->redisCtx, ii);
+    RedisModule_ReplyWithSimpleString(sctx->redisCtx, "field");
+    const FieldSpec *fs = IndexSpec_GetFieldBySortingIndex(sctx->spec, ii);
+    RedisModule_ReplyWithSimpleString(sctx->redisCtx, fs ? fs->name : "!!!???");
+    RedisModule_ReplyWithSimpleString(sctx->redisCtx, "value");
+    RSValue_SendReply(sctx->redisCtx, sv->values[ii], 0);
+    nelem++;
+  }
+  RedisModule_ReplySetArrayLength(sctx->redisCtx, nelem);
+}
+
+/**
+ * FT.DEBUG DOC_INFO <index> <doc>
+ */
+DEBUG_COMMAND(DocInfo) {
+  if (argc < 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+  GET_SEARCH_CTX(argv[0]);
+
+  const RSDocumentMetadata *dmd = DocTable_GetByKeyR(&sctx->spec->docs, argv[1]);
+  if (!dmd) {
+    SearchCtx_Free(sctx);
+    return RedisModule_ReplyWithError(ctx, "Document not found in index");
+  }
+
+  size_t nelem = 0;
+  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+  RedisModule_ReplyWithSimpleString(ctx, "internal_id");
+  RedisModule_ReplyWithLongLong(ctx, dmd->id);
+  nelem += 2;
+  RedisModule_ReplyWithSimpleString(ctx, "flags");
+  replyDocFlags(dmd, ctx);
+  nelem += 2;
+  RedisModule_ReplyWithSimpleString(ctx, "score");
+  RedisModule_ReplyWithDouble(ctx, dmd->score);
+  nelem += 2;
+  RedisModule_ReplyWithSimpleString(ctx, "num_tokens");
+  RedisModule_ReplyWithLongLong(ctx, dmd->len);
+  nelem += 2;
+  RedisModule_ReplyWithSimpleString(ctx, "max_freq");
+  RedisModule_ReplyWithLongLong(ctx, dmd->maxFreq);
+  nelem += 2;
+  RedisModule_ReplyWithSimpleString(ctx, "refcount");
+  RedisModule_ReplyWithLongLong(ctx, dmd->ref_count);
+  nelem += 2;
+  if (dmd->sortVector) {
+    RedisModule_ReplyWithSimpleString(ctx, "sortables");
+    replySortVector(dmd, sctx);
+    nelem += 2;
+  }
+  RedisModule_ReplySetArrayLength(ctx, nelem);
+  SearchCtx_Free(sctx);
+  return REDISMODULE_OK;
+}
+
 typedef struct DebugCommandType {
   char *name;
   int (*callback)(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
@@ -513,6 +597,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex},
                                {"INFO_TAGIDX", InfoTagIndex},
                                {"IDTODOCID", IdToDocId},
                                {"DOCIDTOID", DocIdToId},
+                               {"DOCINFO", DocInfo},
                                {"DUMP_PHONETIC_HASH", DumpPhoneticHash},
                                {"DUMP_TERMS", DumpTerms},
                                {"INVIDX_SUMMARY", InvertedIndexSummary},

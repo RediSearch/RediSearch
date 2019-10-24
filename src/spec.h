@@ -255,6 +255,11 @@ int IndexSpec_CheckPhoneticEnabled(const IndexSpec *sp, t_fieldMask fm);
  * not sortable */
 int IndexSpec_GetFieldSortingIndex(IndexSpec *sp, const char *name, size_t len);
 
+/**
+ * Get the field spec from the sortable index
+ */
+const FieldSpec *IndexSpec_GetFieldBySortingIndex(const IndexSpec *sp, uint16_t idx);
+
 /* Initialize some index stats that might be useful for scoring functions */
 void IndexSpec_GetStats(IndexSpec *sp, RSIndexStats *stats);
 /*
