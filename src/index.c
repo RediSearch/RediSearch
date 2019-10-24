@@ -267,7 +267,9 @@ static inline int UI_ReadSorted(void *ctx, RSIndexResult **hit) {
         // read while we're not at the end and perhaps the flags do not match
         while (rc == INDEXREAD_NOTFOUND) {
           rc = it->Read(it->ctx, &res);
-          it->minId = res->docId;
+          if (res) {
+            it->minId = res->docId;
+          }
         }
       }
 
