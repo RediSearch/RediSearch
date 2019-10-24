@@ -662,6 +662,67 @@ TEST_F(LLApiTest, testNumericFieldWithCT) {
   RediSearch_SetCriteriaTesterThreshold(0);
 }
 
+TEST_F(LLApiTest, testUnionWithEmptyNodes) {
+  RSIndex* index = RediSearch_CreateIndex("index", NULL);
+
+  RSQNode* qn1 = RediSearch_CreateEmptyNode(index);
+  RSQNode* qn2 = RediSearch_CreateEmptyNode(index);
+
+  RSQNode* un = RediSearch_CreateUnionNode(index);
+  RediSearch_QueryNodeAddChild(un, qn1);
+  RediSearch_QueryNodeAddChild(un, qn2);
+
+  RSResultsIterator* iter = RediSearch_GetResultsIterator(un, index);
+  ASSERT_TRUE(iter != NULL);
+
+  size_t len;
+  const char* id = (const char*)RediSearch_ResultsIteratorNext(iter, index, &len);
+  ASSERT_STREQ(id, NULL);
+
+  RediSearch_ResultsIteratorFree(iter);
+  RediSearch_DropIndex(index);
+}
+
+TEST_F(LLApiTest, testIntersectWithEmptyNodes) {
+  RSIndex* index = RediSearch_CreateIndex("index", NULL);
+
+  RSQNode* qn1 = RediSearch_CreateEmptyNode(index);
+  RSQNode* qn2 = RediSearch_CreateEmptyNode(index);
+
+  RSQNode* un = RediSearch_CreateIntersectNode(index, 0);
+  RediSearch_QueryNodeAddChild(un, qn1);
+  RediSearch_QueryNodeAddChild(un, qn2);
+
+  RSResultsIterator* iter = RediSearch_GetResultsIterator(un, index);
+  ASSERT_TRUE(iter != NULL);
+
+  size_t len;
+  const char* id = (const char*)RediSearch_ResultsIteratorNext(iter, index, &len);
+  ASSERT_STREQ(id, NULL);
+
+  RediSearch_ResultsIteratorFree(iter);
+  RediSearch_DropIndex(index);
+}
+
+TEST_F(LLApiTest, testNotNodeWithEmptyNode) {
+  RSIndex* index = RediSearch_CreateIndex("index", NULL);
+
+  RSQNode* qn1 = RediSearch_CreateEmptyNode(index);
+
+  RSQNode* un = RediSearch_CreateNotNode(index);
+  RediSearch_QueryNodeAddChild(un, qn1);
+
+  RSResultsIterator* iter = RediSearch_GetResultsIterator(un, index);
+  ASSERT_TRUE(iter != NULL);
+
+  size_t len;
+  const char* id = (const char*)RediSearch_ResultsIteratorNext(iter, index, &len);
+  ASSERT_STREQ(id, NULL);
+
+  RediSearch_ResultsIteratorFree(iter);
+  RediSearch_DropIndex(index);
+}
+
 TEST_F(LLApiTest, testFreeDocument) {
   auto* d = RediSearch_CreateDocument("doc1", strlen("doc1"), 1, "turkish");
   RediSearch_FreeDocument(d);
