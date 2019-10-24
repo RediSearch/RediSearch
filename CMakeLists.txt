@@ -15,6 +15,10 @@ OPTION(USE_TSAN "Use ThreadSanitizer (clang)" OFF)
 OPTION(USE_REDIS_ALLOCATOR "Use redis allocator" ON)
 OPTION(USE_COVERAGE "Build with coverage" OFF)
 
+IF (RS_MODULE_NAME) 
+    ADD_DEFINITIONS("-DREDISEARCH_MODULE_NAME=\"${RS_MODULE_NAME}\"")
+ENDIF()
+
 INCLUDE(cmake/redisearch_cflags.cmake)
 
 ADD_DEFINITIONS(-UNDEBUG)

@@ -12,6 +12,10 @@ if [ -z "$MODULE_SO" ]; then
     MODULE_SO=$BUILD_DIR/redisearch.so
 fi
 
+if [ -z "$RAMP_YML" ]; then
+    RAMP_YML="ramp.yml"
+fi
+
 # Install my fork of RAMP- need to merge it first
 pip install git+https://github.com/RedisLabs/RAMP@master --upgrade
 
@@ -46,9 +50,9 @@ distdir=$DISTDIR/$subdir
 mkdir -p $distdir
 outname_base=$distdir/$PACKAGE_NAME.$format
 echo "Old outname base: $outname_base"
-outname_base=$(ramp pack -m ramp.yml -o $outname_base --print-filename-only $MODULE_SO)
+outname_base=$(ramp pack -m ${RAMP_YML} -o $outname_base --print-filename-only ${RAMP_ARGS} $MODULE_SO)
 echo "Output is $outname_base"
-ramp pack -m ramp.yml -o $outname_base.zip $MODULE_SO
+ramp pack -m ${RAMP_YML} -o $outname_base.zip $MODULE_SO
 return 0
 }
 
