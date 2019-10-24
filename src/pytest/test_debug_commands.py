@@ -15,6 +15,10 @@ class TestDebugCommands(object):
     def testDebugUnknownSubcommand(self):
         self.env.expect('FT.DEBUG', 'unknown').raiseError().equal('subcommand was not found')
 
+    def testDocInfo(self):
+        rv = self.env.cmd('ft.debug', 'docinfo', 'idx', 'doc1')
+        self.env.assertEqual(['internal_id', 1L, 'flags', '(0xc):HasSortVector,HasOffsetVector,', 'score', '1', 'num_tokens', 1L, 'max_freq', 1L, 'refcount', 1L, 'sortables', [['index', 0L, 'field', 'name', 'value', 'meir'], ['index', 1L, 'field', 'age', 'value', '29'], ['index', 2L, 'field', 't', 'value', 'test']]], rv)
+
     def testDumpInvertedIndex(self):
         self.env.expect('FT.DEBUG', 'dump_invidx', 'idx', 'meir').equal([1])
         self.env.expect('FT.DEBUG', 'DUMP_INVIDX', 'idx', 'meir').equal([1])
