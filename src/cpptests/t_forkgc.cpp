@@ -128,6 +128,50 @@ TEST_F(FGCTest, testRepairLastBlock) {
 }
 
 /**
+ * Test repair midle block while last block is removed on child and modified on parent.
+ * Make sure there is no datalose.
+ */
+TEST_F(FGCTest, testRepairMidleRemoveLast) {
+  RMCK::Context ctx;
+  auto sp = createIndex(ctx);
+  // Delete the first block:
+  unsigned curId = 0;
+  auto iv = getTagInvidx(ctx, sp, "f1", "hello");
+  while (iv->size < 3) {
+    char buf[1024];
+    size_t n = sprintf(buf, "doc%u", curId++);
+    ASSERT_TRUE(RS::addDocument(ctx, sp, buf, "f1", "hello"));
+  }
+
+  char buf[1024];
+  sprintf(buf, "doc%u", curId);
+  ASSERT_TRUE(RS::addDocument(ctx, sp, buf, "f1", "hello"));
+  unsigned next_id = curId + 1;
+
+  /**
+   * In this case, we want to keep `curId`, but we want to delete a 'middle' entry
+   * while appending documents to it..
+   **/
+  auto fgc = reinterpret_cast<ForkGC *>(sp->gc->gcCtx);
+  FGC_WaitAtFork(fgc);
+
+  while (curId > 100) {
+    sprintf(buf, "doc%u", --curId);
+    ASSERT_TRUE(RS::deleteDocument(ctx, sp, buf));
+  }
+
+  FGC_WaitAtApply(fgc);
+
+  sprintf(buf, "doc%u", next_id);
+  ASSERT_TRUE(RS::addDocument(ctx, sp, buf, "f1", "hello"));
+
+  FGC_WaitClear(fgc);
+
+  ASSERT_EQ(2, iv->size);
+  RediSearch_DropIndex(sp);
+}
+
+/**
  * Ensure that removing a middle block while adding to the parent will maintain
  * the parent's changes
  */
