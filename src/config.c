@@ -14,7 +14,7 @@
   QueryError_SetError(status, QUERY_EPARSEARGS, AC_Strerror(rc)); \
   return REDISMODULE_ERR;
 
-#define MAYBE_RETURN_PARSE_ERROR(rc) \
+#define CHECK_RETURN_PARSE_ERROR(rc) \
   if (rc != AC_OK) {                 \
     RETURN_PARSE_ERROR(rc);          \
   }
@@ -92,8 +92,14 @@ CONFIG_GETTER(getForkGCSleep) {
 
 // MAXDOCTABLESIZE
 CONFIG_SETTER(setMaxDocTableSize) {
-  int acrc = AC_GetSize(ac, &config->maxDocTableSize, AC_F_GE1);
-  RETURN_STATUS(acrc);
+  size_t newsize = 0;
+  int acrc = AC_GetSize(ac, &newsize, AC_F_GE1);
+  CHECK_RETURN_PARSE_ERROR(acrc);
+  if (newsize > MAX_DOC_TABLE_SIZE) {
+    QueryError_SetError(status, QUERY_ELIMIT, "Value exceeds maximum possible document table size");
+    return REDISMODULE_ERR;
+  }
+  return REDISMODULE_OK;
 }
 
 CONFIG_GETTER(getMaxDocTableSize) {
@@ -126,7 +132,7 @@ CONFIG_GETTER(getTimeout) {
 // INDEX_THREADS
 CONFIG_SETTER(setIndexThreads) {
   int acrc = AC_GetSize(ac, &config->indexPoolSize, AC_F_GE1);
-  MAYBE_RETURN_PARSE_ERROR(acrc);
+  CHECK_RETURN_PARSE_ERROR(acrc);
   config->poolSizeNoAuto = 1;
   return REDISMODULE_OK;
 }
@@ -139,7 +145,7 @@ CONFIG_GETTER(getIndexthreads) {
 // INDEX_THREADS
 CONFIG_SETTER(setSearchThreads) {
   int acrc = AC_GetSize(ac, &config->searchPoolSize, AC_F_GE1);
-  MAYBE_RETURN_PARSE_ERROR(acrc);
+  CHECK_RETURN_PARSE_ERROR(acrc);
   config->poolSizeNoAuto = 1;
   return REDISMODULE_OK;
 }
@@ -162,7 +168,7 @@ CONFIG_GETTER(getFrisoINI) {
 CONFIG_SETTER(setOnTimeout) {
   const char *policy;
   int acrc = AC_GetString(ac, &policy, NULL, 0);
-  MAYBE_RETURN_PARSE_ERROR(acrc);
+  CHECK_RETURN_PARSE_ERROR(acrc);
 
   if ((config->timeoutPolicy = TimeoutPolicy_Parse(policy, strlen(policy))) ==
       TimeoutPolicy_Invalid) {
@@ -240,7 +246,7 @@ CONFIG_GETTER(getMinPhoneticTermLen) {
 CONFIG_SETTER(setGcPolicy) {
   const char *policy;
   int acrc = AC_GetString(ac, &policy, NULL, 0);
-  MAYBE_RETURN_PARSE_ERROR(acrc);
+  CHECK_RETURN_PARSE_ERROR(acrc);
   if (!strcasecmp(policy, "DEFAULT") || !strcasecmp(policy, "FORK")) {
     config->gcPolicy = GCPolicy_Fork;
   } else if (!strcasecmp(policy, "LEGACY")) {
