@@ -559,19 +559,31 @@ static void checkLastBlock(ForkGC *gc, InvIdxBuffers *idxData, MSG_IndexInfo *in
   }
 
   if (info->lastblkDocsRemoved == info->lastblkNumDocs) {
-    MSG_DeletedBlock *db = idxData->delBlocks + idxData->numDelBlocks - 1;
+    // Last block was deleted entirely while updates on the main process.
+    // We need to remove it from delBlocks list
     idxData->numDelBlocks--;
+
+    // Then We need add it to the newBlocklist.
     idxData->newBlocklistSize++;
     idxData->newBlocklist = rm_realloc(idxData->newBlocklist,
                                        sizeof(*idxData->newBlocklist) * idxData->newBlocklistSize);
     idxData->newBlocklist[idxData->newBlocklistSize - 1] = *lastOld;
   } else {
+    // Last block was modified on the child and on the parent.
+
+    // we need to remove it from changedBlocks
     MSG_RepairedBlock *rb = idxData->changedBlocks + info->nblocksRepaired - 1;
     indexBlock_Free(&rb->blk);
     info->nblocksRepaired--;
-    if (!info->nblocksRepaired) {
-      rm_free(idxData->newBlocklist);
-      idxData->newBlocklist = NULL;
+
+    // Then add it to newBlocklist if newBlocklist is not NULL.
+    // If newBlocklist!=NULL then the last block must be there (it was changed and not deleted)
+    // If newBlocklist==NULL then by decreasing the nblocksOrig by one we make sure to keep the last
+    // block
+    if (idxData->newBlocklist) {
+      idxData->newBlocklist[idxData->newBlocklistSize - 1] = *lastOld;
+    } else {
+      --info->nblocksOrig;
     }
   }
 
