@@ -1,14 +1,17 @@
 def testConfig(env):
+    env.skipOnCluster()
     env.cmd('ft.create', 'idx', 'SCHEMA', 'test', 'TEXT', 'SORTABLE')
     env.expect('ft.config', 'help', 'idx').equal([])
     env.expect('ft.config', 'set', 'MINPREFIX', 1).equal('OK')    
 
 def testConfigErrors(env):
+    env.skipOnCluster()
     env.expect('ft.config', 'set', 'MINPREFIX', 1, 2).equal('EXCESSARGS')    
     env.expect('ft.config', 'no_such_command', 'idx').equal('No such configuration action')
     env.expect('ft.config', 'idx').error().contains("wrong number of arguments for 'ft.config' command")
 
 def testGetConfigOptions(env):
+    env.skipOnCluster()
     assert env.expect('ft.config', 'get', 'EXTLOAD').res[0][0] == 'EXTLOAD'    
     assert env.expect('ft.config', 'get', 'SAFEMODE').res[0][0] == 'SAFEMODE'  
     assert env.expect('ft.config', 'get', 'NOGC').res[0][0] == 'NOGC'  
