@@ -88,6 +88,54 @@ static std::string numToDocid(unsigned id) {
 }
 
 /**
+ * Repair the last block, while adding more documents to it and removing a midle block.
+ * This test should be checked with valgrind as it cause index corruption.
+ */
+TEST_F(FGCTest, testRepairLastBlockWhileRemovingMidle) {
+  RMCK::Context ctx;
+  auto sp = createIndex(ctx);
+  // Delete the first block:
+  unsigned curId = 0;
+  auto iv = getTagInvidx(ctx, sp, "f1", "hello");
+  while (iv->size < 3) {
+    char buf[1024];
+    size_t n = sprintf(buf, "doc%u", curId++);
+    ASSERT_TRUE(RS::addDocument(ctx, sp, buf, "f1", "hello"));
+  }
+
+  /**
+   * In this case, we want to keep `curId`, but we want to delete a 'middle' entry
+   * while appending documents to it..
+   **/
+  char buf[1024];
+  sprintf(buf, "doc%u", curId++);
+  std::string toDel(buf);
+  RS::addDocument(ctx, sp, buf, "f1", "hello");
+
+  auto fgc = reinterpret_cast<ForkGC *>(sp->gc->gcCtx);
+  FGC_WaitAtFork(fgc);
+
+  ASSERT_TRUE(RS::deleteDocument(ctx, sp, buf));
+  ASSERT_TRUE(RS::deleteDocument(ctx, sp, "doc0"));
+
+  // delete an entire block
+  for(int i = 100; i < 200 ; ++i){
+    sprintf(buf, "doc%u", i);
+    ASSERT_TRUE(RS::deleteDocument(ctx, sp, buf));
+  }
+  FGC_WaitAtApply(fgc);
+
+  // Add a document -- this one is to keep
+  sprintf(buf, "doc%u", curId);
+  RS::addDocument(ctx, sp, buf, "f1", "hello");
+  FGC_WaitClear(fgc);
+
+  ASSERT_EQ(1, fgc->stats.gcBlocksDenied);
+  ASSERT_EQ(2, iv->size);
+  RediSearch_DropIndex(sp);
+}
+
+/**
  * Repair the last block, while adding more documents to it...
  */
 TEST_F(FGCTest, testRepairLastBlock) {
