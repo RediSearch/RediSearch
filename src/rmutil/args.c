@@ -57,6 +57,7 @@ static int tryReadAsDouble(ArgsCursor *ac, long long *ll, int flags) {
 }
 
 int AC_GetLongLong(ArgsCursor *ac, long long *ll, int flags) {
+  long long tmpll = 0;
   if (ac->offset == ac->argc) {
     return AC_ERR_NOARG;
   }
@@ -66,29 +67,30 @@ int AC_GetLongLong(ArgsCursor *ac, long long *ll, int flags) {
   // to parse it as a double. This will work if the number is in the format of
   // 3.00, OR if the number is in the format of 3.14 *AND* AC_F_COALESCE is set.
   if (ac->type == AC_TYPE_RSTRING) {
-    if (RedisModule_StringToLongLong(AC_CURRENT(ac), ll) == REDISMODULE_ERR) {
+    if (RedisModule_StringToLongLong(AC_CURRENT(ac), &tmpll) == REDISMODULE_ERR) {
       hasErr = 1;
     }
   } else {
     char *endptr = AC_CURRENT(ac);
-    *ll = strtoll(AC_CURRENT(ac), &endptr, 10);
-    if (*endptr != '\0' || *ll == LLONG_MIN || *ll == LLONG_MAX) {
+    tmpll = strtoll(AC_CURRENT(ac), &endptr, 10);
+    if (*endptr != '\0' || tmpll == LLONG_MIN || tmpll == LLONG_MAX) {
       hasErr = 1;
     }
   }
 
-  if (hasErr && tryReadAsDouble(ac, ll, flags) != AC_OK) {
+  if (hasErr && tryReadAsDouble(ac, &tmpll, flags) != AC_OK) {
     return AC_ERR_PARSE;
   }
 
-  if ((flags & AC_F_GE0) && *ll < 0) {
+  if ((flags & AC_F_GE0) && tmpll < 0) {
     return AC_ERR_ELIMIT;
   }
   // Do validation
-  if ((flags & AC_F_GE1) && *ll < 1) {
+  if ((flags & AC_F_GE1) && tmpll < 1) {
     return AC_ERR_ELIMIT;
   }
   MAYBE_ADVANCE();
+  *ll = tmpll;
   return AC_OK;
 }
 
@@ -115,26 +117,29 @@ GEN_AC_FUNC(AC_GetUnsigned, unsigned, 0, UINT_MAX, 1)
 GEN_AC_FUNC(AC_GetInt, int, INT_MIN, INT_MAX, 0)
 GEN_AC_FUNC(AC_GetU32, uint32_t, 0, UINT32_MAX, 1)
 GEN_AC_FUNC(AC_GetU64, uint64_t, 0, UINT64_MAX, 1)
+GEN_AC_FUNC(AC_GetSize, size_t, 0, SIZE_MAX, 1)
 
 int AC_GetDouble(ArgsCursor *ac, double *d, int flags) {
+  double tmpd = 0;
   if (ac->type == AC_TYPE_RSTRING) {
-    if (RedisModule_StringToDouble(ac->objs[ac->offset], d) != REDISMODULE_OK) {
+    if (RedisModule_StringToDouble(ac->objs[ac->offset], &tmpd) != REDISMODULE_OK) {
       return AC_ERR_PARSE;
     }
   } else {
     char *endptr = AC_CURRENT(ac);
-    *d = strtod(AC_CURRENT(ac), &endptr);
-    if (*endptr != '\0' || *d == HUGE_VAL || *d == -HUGE_VAL) {
+    tmpd = strtod(AC_CURRENT(ac), &endptr);
+    if (*endptr != '\0' || tmpd == HUGE_VAL || tmpd == -HUGE_VAL) {
       return AC_ERR_PARSE;
     }
   }
-  if ((flags & AC_F_GE0) && *d < 0.0) {
+  if ((flags & AC_F_GE0) && tmpd < 0.0) {
     return AC_ERR_ELIMIT;
   }
-  if ((flags & AC_F_GE1) && *d < 1.0) {
+  if ((flags & AC_F_GE1) && tmpd < 1.0) {
     return AC_ERR_ELIMIT;
   }
   MAYBE_ADVANCE();
+  *d = tmpd;
   return AC_OK;
 }
 
