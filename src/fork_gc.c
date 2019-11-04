@@ -843,11 +843,12 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc, RedisModuleCtx *rctx) {
       goto loop_cleanup;
     }
 
-    applyNumIdx(gc, sctx, &ninfo);
-
     if (!ninfo.node->range) {
       gc->stats.gcNumericNodesMissed++;
+      goto loop_cleanup;
     }
+
+    applyNumIdx(gc, sctx, &ninfo);
 
   loop_cleanup:
     if (sctx) {
