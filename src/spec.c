@@ -87,6 +87,15 @@ int IndexSpec_GetFieldSortingIndex(IndexSpec *sp, const char *name, size_t len) 
   return RSSortingTable_GetFieldIdx(sp->sortables, name);
 }
 
+const FieldSpec *IndexSpec_GetFieldBySortingIndex(const IndexSpec *sp, uint16_t idx) {
+  for (size_t ii = 0; ii < sp->numFields; ++ii) {
+    if (sp->fields[ii].options & FieldSpec_Sortable && sp->fields[ii].sortIdx == idx) {
+      return sp->fields + ii;
+    }
+  }
+  return NULL;
+}
+
 const char *GetFieldNameByBit(const IndexSpec *sp, t_fieldMask id) {
   for (int i = 0; i < sp->numFields; i++) {
     if (FIELD_BIT(&sp->fields[i]) == id && FIELD_IS(&sp->fields[i], INDEXFLD_T_FULLTEXT) &&
