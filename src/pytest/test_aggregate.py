@@ -311,7 +311,7 @@ class TestAggregate():
                            'SORTBY', 4, '@price', 'desc', '@brand', 'desc', 'MAX', 5,
                            )
         exp = [2265L,
- ['brand', 'xbox', 'price', '9'],
+ ['brand', 'Xbox', 'price', '9'],
  ['brand', 'turtle beach', 'price', '9'],
  ['brand', 'trust', 'price', '9'],
  ['brand', 'steelseries', 'price', '9'],

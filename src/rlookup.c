@@ -53,6 +53,9 @@ static RLookupKey *genKeyFromSpec(RLookup *lookup, const char *name, int flags) 
     ret->svidx = fs->sortIdx;
   }
   ret->flags |= RLOOKUP_F_DOCSRC;
+  if (fs->types == INDEXFLD_T_NUMERIC) {
+    ret->fieldtype = RLOOKUP_C_DBL;
+  }
   return ret;
 }
 
@@ -266,7 +269,7 @@ static RSValue *replyElemToValue(RedisModuleCallReply *rep, RLookupCoerceType ot
 
     case REDISMODULE_REPLY_INTEGER:
     create_int:
-      if (otype == RLOOKUP_C_STR) {
+      if (otype == RLOOKUP_C_STR || otype == RLOOKUP_C_DBL) {
         goto create_string;
       }
       return RS_Int64Val(RedisModule_CallReplyInteger(rep));
@@ -331,10 +334,12 @@ static int loadIndividualKeys(RLookup *it, RLookupRow *dst, RLookupLoadOptions *
     }
   } else {
     for (const RLookupKey *kk = it->head; kk; kk = kk->next) {
+      /* key is not part of document schema. no need/impossible to 'load' it */
       if (!(kk->flags & RLOOKUP_F_DOCSRC)) {
         continue;
       }
       if (!options->noSortables) {
+        /* wanted a sort key, but field is not sortable */
         if ((options->mode & RLOOKUP_LOAD_SVKEYS) && !(kk->flags & RLOOKUP_F_SVSRC)) {
           continue;
         }
