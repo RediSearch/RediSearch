@@ -577,7 +577,6 @@ static int handleLoad(AREQ *req, ArgsCursor *ac, QueryError *status) {
     QERR_MKBADARGS_AC(status, "LOAD", rc);
     return REDISMODULE_ERR;
   }
-
   PLN_LoadStep *lstp = rm_calloc(1, sizeof(*lstp));
   lstp->base.type = PLN_T_LOAD;
   lstp->base.dtor = loadDtor;
@@ -1082,8 +1081,9 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
             s++;
           }
           const RLookupKey *kk = RLookup_GetKey(curLookup, s, RLOOKUP_F_OEXCL | RLOOKUP_F_OCREAT);
-          if (!kk || (kk->flags & RLOOKUP_F_SVSRC)) {
-            // printf("Ignoring already-loaded key %s\n", s);
+          if (!kk) {
+            // We only get a NULL return if the key already exists, which means
+            // that we don't need to retrieve it again.
             continue;
           }
           lstp->keys[lstp->nkeys++] = kk;
