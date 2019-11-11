@@ -1,4 +1,5 @@
 #include "rlookup.h"
+#include "module.h"
 #include <document.h>
 #include <assert.h>
 #include <util/arr.h>
@@ -245,7 +246,7 @@ static RSValue *hvalToValue(RedisModuleString *src, RLookupCoerceType type) {
     RedisModule_StringToDouble(src, &dd);
     return RS_NumVal(dd);
   } else {
-    return RS_StealRedisStringVal(src);
+    return RS_OwnRedisStringVal(src);
   }
 }
 
@@ -316,6 +317,7 @@ static int getKeyCommon(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOption
 
   // Value has a reference count of 1
   RSValue *rsv = hvalToValue(val, kk->fieldtype);
+  RedisModule_FreeString(RSDummyContext, val);
   RLookup_WriteKey(kk, dst, rsv);
   RSValue_Decref(rsv);
   return REDISMODULE_OK;
