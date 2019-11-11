@@ -34,17 +34,11 @@ static void ForkGc_FDWritePtr(int fd, void *val) {
   assert(size == sizeof(void *));
 }
 
-#define MIN(a, b) (((a) < (b)) ? (a) : (b))
-
 static void ForkGc_FDWriteBuffer(int fd, const char *buff, size_t len) {
-#define BATCH 4
   ForkGc_FDWriteLongLong(fd, len);
   if (len > 0) {
-    while (len > 0) {
-      ssize_t size = write(fd, buff, MIN(len, BATCH));
-      len -= size;
-      buff += size;
-    }
+    ssize_t size = write(fd, buff, len);
+    assert(size == len);
   }
 }
 
@@ -54,6 +48,11 @@ static int ForkGc_FDRead(int fd, void *buff, size_t len) {
     if (l == -1) {
       // we are writing to stdout cause we can not write logs from another thread currently.
       printf("failed reading data from forkgc process");
+      return REDISMODULE_ERR;
+    }
+    if(l == 0){
+      // we are writing to stdout cause we can not write logs from another thread currently.
+      printf("got eof when reading data from forkgc process");
       return REDISMODULE_ERR;
     }
     buff += l;
