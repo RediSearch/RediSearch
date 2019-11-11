@@ -47,12 +47,12 @@ static int ForkGc_FDRead(int fd, void *buff, size_t len) {
     ssize_t l = read(fd, buff, len);
     if (l == -1) {
       // we are writing to stdout cause we can not write logs from another thread currently.
-      printf("failed reading data from forkgc process");
+      printf("failed reading data from forkgc process\r\n");
       return REDISMODULE_ERR;
     }
     if(l == 0){
       // we are writing to stdout cause we can not write logs from another thread currently.
-      printf("got eof when reading data from forkgc process");
+      printf("got eof when reading data from forkgc process\r\n");
       return REDISMODULE_ERR;
     }
     buff += l;
@@ -82,10 +82,14 @@ static void *ForkGc_FDReadPtr(int fd) {
 }
 
 static char *ForkGc_FDReadBuffer(int fd, size_t *len) {
-  *len = ForkGc_FDReadLongLong(fd);
-  if (*len == LONG_ERROR) {
+  long long size = ForkGc_FDReadLongLong(fd);
+  if (size == LONG_ERROR) {
     return PTR_ERROR;
   }
+  if(size > INT_MAX){
+    return PTR_ERROR;
+  }
+  *len = size;
   char *buff = rm_malloc(*len * sizeof(char));
   if (ForkGc_FDRead(fd, buff, *len) != REDISMODULE_OK) {
     rm_free(buff);
@@ -390,12 +394,14 @@ typedef struct {
 } ForkGc_InvertedIndexData;
 
 #define TRY_READ_LONG(fd, val)     \
-  val = ForkGc_FDReadLongLong(fd); \
-  if (val == LONG_ERROR) {         \
+  temp = ForkGc_FDReadLongLong(fd); \
+  if (temp == LONG_ERROR) {         \
     return false;                  \
-  }
+  } \
+  val = temp;
 
 static bool ForkGc_ReadModifiedBlock(ForkGCCtx *gc, ModifiedBlock *blockModified) {
+  long long temp;
   TRY_READ_LONG(gc->pipefd[GC_READERFD], blockModified->blockIndex);
   TRY_READ_LONG(gc->pipefd[GC_READERFD], blockModified->blockOldIndex);
   TRY_READ_LONG(gc->pipefd[GC_READERFD], blockModified->blk.firstId);
@@ -408,11 +414,12 @@ static bool ForkGc_ReadModifiedBlock(ForkGCCtx *gc, ModifiedBlock *blockModified
     return false;
   }
   blockModified->blk.data = rm_malloc(sizeof(Buffer));
-  blockModified->blk.data->offset = ForkGc_FDReadLongLong(gc->pipefd[GC_READERFD]);
-  if (blockModified->blk.data->offset == LONG_ERROR) {
+  temp = ForkGc_FDReadLongLong(gc->pipefd[GC_READERFD]);
+  if (temp == LONG_ERROR) {
     rm_free(blockModified->blk.data);
     return false;
   }
+  blockModified->blk.data->offset = temp;
 
   blockModified->blk.data->cap = cap;
   blockModified->blk.data->data = data;
@@ -420,6 +427,7 @@ static bool ForkGc_ReadModifiedBlock(ForkGCCtx *gc, ModifiedBlock *blockModified
 }
 
 static bool ForkGc_ReadInvertedIndexFromFork(ForkGCCtx *gc, ForkGc_InvertedIndexData *idxData) {
+  long long temp;
   long long blocksRepaired;
   TRY_READ_LONG(gc->pipefd[GC_READERFD], blocksRepaired);
   if (!blocksRepaired) {
@@ -454,7 +462,7 @@ static bool ForkGc_ReadInvertedIndexFromFork(ForkGCCtx *gc, ForkGc_InvertedIndex
   idxData->blocksModified = array_new(ModifiedBlock, blocksModifiedSize);
   for (int i = 0; i < blocksModifiedSize; ++i) {
     ModifiedBlock mb;
-    if (ForkGc_ReadModifiedBlock(gc, &mb)) {
+    if (!ForkGc_ReadModifiedBlock(gc, &mb)) {
       rm_free(idxData->freeBufs);
       if (idxData->blockArrayExists) {
         rm_free(idxData->newBlocksArray);
