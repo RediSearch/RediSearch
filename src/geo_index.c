@@ -27,7 +27,7 @@ void GeoIndex_RemoveEntries(GeoIndex *gi, IndexSpec *sp, t_docId docId) {
   RedisModuleString *ks = IndexSpec_GetFormattedKey(sp, gi->sp, INDEXFLD_T_GEO);
   RedisModuleCtx *ctx = gi->ctx->redisCtx;
   RedisModuleCallReply *rep = RedisModule_Call(ctx, "ZREM", "sl", ks, docId);
-  
+
   if (rep == NULL || RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_ERROR) {
     RedisModule_Log(ctx, "warning", "Document %s was not removed", docId);
   }
