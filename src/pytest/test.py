@@ -2496,7 +2496,7 @@ def testDelIndexExternally(env):
     env.expect('set tag:idx/t 1').equal('OK')
     env.expect('ft.add idx doc3 1.0 FIELDS t 3').equal('Could not open tag index for indexing')
 
-    env.expect('set geo:idx/g 1 ').equal('OK')
+    env.expect('set geo:idx/g 1').equal('OK')
     env.expect('ft.add idx doc4 1.0 FIELDS g "1,1"').equal('Could not index geo value')
 
 def testWrongResultsReturnedBySkipOptimization(env):
