@@ -94,6 +94,16 @@ static Group *createGroup(Grouper *g, const RSValue **groupvals, size_t ngrpvals
   return group;
 }
 
+static void writeGroupValues(const Grouper *g, const Group *gr, SearchResult *r) {
+  for (size_t ii = 0; ii < g->nkeys; ++ii) {
+    const RLookupKey *dstkey = g->dstkeys[ii];
+    RSValue *groupval = RLookup_GetItem(dstkey, &gr->rowdata);
+    if (groupval) {
+      RLookup_WriteKey(dstkey, &r->rowdata, groupval);
+    }
+  }
+}
+
 static int Grouper_rpYield(ResultProcessor *base, SearchResult *r) {
   Grouper *g = (Grouper *)base;
 
@@ -104,19 +114,18 @@ static int Grouper_rpYield(ResultProcessor *base, SearchResult *r) {
     }
 
     Group *gr = kh_value(g->groups, g->iter);
+    // no reducers; just a terminal GROUPBY...
+
+    if (!GROUPER_NREDUCERS(g)) {
+      writeGroupValues(g, gr, r);
+    }
+    // else...
     for (size_t ii = 0; ii < GROUPER_NREDUCERS(g); ++ii) {
       Reducer *rd = g->reducers[ii];
       RSValue *v = rd->Finalize(rd, gr->accumdata[ii]);
       if (v) {
         RLookup_WriteOwnKey(rd->dstkey, &r->rowdata, v);
-
-        for (size_t ii = 0; ii < g->nkeys; ++ii) {
-          const RLookupKey *dstkey = g->dstkeys[ii];
-          RSValue *groupval = RLookup_GetItem(dstkey, &gr->rowdata);
-          if (groupval) {
-            RLookup_WriteKey(dstkey, &r->rowdata, groupval);
-          }
-        }
+        writeGroupValues(g, gr, r);
       } else {
         // FIXME!
         // Error! Couldn't get value? Handle me here!
