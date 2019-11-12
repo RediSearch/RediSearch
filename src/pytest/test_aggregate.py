@@ -426,3 +426,17 @@ def testAggregateGroupByOnEmptyField(env):
                               ['check', None, 'count', '1'], ['check', 'test1', 'count', '1'], ['check', 'test2', 'count', '1']]
     for var in expected:
         env.assertIn(var, res)
+
+def testGroupbyNoReduce(env):
+    env.cmd('ft.create', 'idx', 'SCHEMA', 'primaryName', 'TEXT', 'SORTABLE',
+                'birthYear', 'NUMERIC', 'SORTABLE')
+    
+    for x in range(10):
+        env.cmd('ft.add', 'idx', 'doc{}'.format(x), 1, 'fields',
+            'primaryName', 'sarah number{}'.format(x))
+
+    rv = env.cmd('ft.aggregate', 'idx', 'sarah', 'groupby', 1, '@primaryName')
+    env.assertEqual(11, len(rv))
+    for row in rv[1:]:
+        env.assertEqual('primaryName', row[0])
+        env.assertTrue('sarah' in row[1])
