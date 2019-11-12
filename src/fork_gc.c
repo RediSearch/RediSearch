@@ -47,12 +47,12 @@ static int ForkGc_FDRead(int fd, void *buff, size_t len) {
     ssize_t l = read(fd, buff, len);
     if (l == -1) {
       // we are writing to stdout cause we can not write logs from another thread currently.
-      printf("failed reading data from forkgc process\r\n");
+      printf("failed reading data from forkgc process\n");
       return REDISMODULE_ERR;
     }
     if(l == 0){
       // we are writing to stdout cause we can not write logs from another thread currently.
-      printf("got eof when reading data from forkgc process\r\n");
+      printf("got eof when reading data from forkgc process\n");
       return REDISMODULE_ERR;
     }
     buff += l;
