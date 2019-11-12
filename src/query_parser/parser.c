@@ -1535,7 +1535,13 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 48: /* geo_filter ::= LSQB num num num TERM RSQB */
 {
-    yymsp[-5].minor.yy64 = NewGeoFilter(yymsp[-4].minor.yy83.num, yymsp[-3].minor.yy83.num, yymsp[-2].minor.yy83.num, strdupcase(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len));
+    char buf[16] = {0};
+    if (yymsp[-1].minor.yy0.len < 16) {
+        memcpy(buf, yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len);
+    } else {
+        strcpy(buf, "INVALID");
+    }
+    yymsp[-5].minor.yy64 = NewGeoFilter(yymsp[-4].minor.yy83.num, yymsp[-3].minor.yy83.num, yymsp[-2].minor.yy83.num, buf);
     GeoFilter_Validate(yymsp[-5].minor.yy64, ctx->status);
 }
         break;

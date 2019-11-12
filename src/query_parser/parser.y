@@ -527,7 +527,13 @@ expr(A) ::= modifier(B) COLON geo_filter(C). {
 }
 
 geo_filter(A) ::= LSQB num(B) num(C) num(D) TERM(E) RSQB. [NUMBER] {
-    A = NewGeoFilter(B.num, C.num, D.num, strdupcase(E.s, E.len));
+    char buf[16] = {0};
+    if (E.len < 16) {
+        memcpy(buf, E.s, E.len);
+    } else {
+        strcpy(buf, "INVALID");
+    }
+    A = NewGeoFilter(B.num, C.num, D.num, buf);
     GeoFilter_Validate(A, ctx->status);
 }
 
