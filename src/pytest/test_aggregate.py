@@ -361,6 +361,14 @@ class TestAggregate():
                                  ['brand', 'beyerdynamic', 'top_item', 'beyerdynamic mmx300 pc gaming premium digital headset with microphone', 'top_price', '359.74',
                                      'bottom_item', 'beyerdynamic headzone pc gaming digital surround sound system with mmx300 digital headset with microphone', 'bottom_price', '0'],
                                  ['brand', 'mad catz', 'top_item', 'mad catz s.t.r.i.k.e.7 gaming keyboard', 'top_price', '295.95', 'bottom_item', 'madcatz mov4545 xbox replacement breakaway cable', 'bottom_price', '3.49']]
+        
+        # hack :(
+        def mklower(result):
+            for arr in result[1:]:
+                for x in range(len(arr)):
+                    arr[x] = arr[x].lower()
+        mklower(expected)
+        mklower(res)
         self.env.assertListEqual(expected, res)
 
     def testLoadAfterGroupBy(self):
