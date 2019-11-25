@@ -328,7 +328,7 @@ RSConfigOptions RSGlobalConfigOptions = {
          .flags = RSCONFIGVAR_F_IMMUTABLE},
         {.name = "SAFEMODE",
          .helpText =
-             "Perform all operations in main thread (depricated, use CONCURRENT_WRITE_MODE)",
+             "Perform all operations in main thread (deprecated, use CONCURRENT_WRITE_MODE)",
          .setValue = setSafemode,
          .getValue = getSafemode,
          .flags = RSCONFIGVAR_F_FLAG | RSCONFIGVAR_F_IMMUTABLE},
@@ -432,7 +432,7 @@ void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst) {
 sds RSConfig_GetInfoString(const RSConfig *config) {
   sds ss = sdsempty();
 
-  ss = sdscatprintf(ss, "concurent writes: %s, ", config->concurrentMode ? "ON" : "OFF");
+  ss = sdscatprintf(ss, "concurrent writes: %s, ", config->concurrentMode ? "ON" : "OFF");
   ss = sdscatprintf(ss, "gc: %s, ", config->enableGC ? "ON" : "OFF");
   ss = sdscatprintf(ss, "prefix min length: %lld, ", config->minTermPrefix);
   ss = sdscatprintf(ss, "prefix max expansions: %lld, ", config->maxPrefixExpansions);
