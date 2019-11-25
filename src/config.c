@@ -213,6 +213,11 @@ CONFIG_SETTER(setMaxResultsToUnsortedMode) {
   RETURN_STATUS(acrc);
 }
 
+CONFIG_SETTER(setCursorMaxIdle) {
+  int acrc = AC_GetLongLong(ac, &config->cursorMaxIdle, AC_F_GE1);
+  RETURN_STATUS(acrc);
+}
+
 CONFIG_GETTER(getForkGcCleanThreshold) {
   sds ss = sdsempty();
   return sdscatprintf(ss, "%lu", config->forkGcCleanThreshold);
@@ -231,6 +236,11 @@ CONFIG_GETTER(getForkGcRetryInterval) {
 CONFIG_GETTER(getMaxResultsToUnsortedMode) {
   sds ss = sdsempty();
   return sdscatprintf(ss, "%lld", config->maxResultsToUnsortedMode);
+}
+
+CONFIG_GETTER(getCursorMaxIdle) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%lld", config->cursorMaxIdle);
 }
 
 CONFIG_SETTER(setMinPhoneticTermLen) {
@@ -406,6 +416,11 @@ RSConfigOptions RSGlobalConfigOptions = {
                      "unsorted mode, should be used for debug only.",
          .setValue = setMaxResultsToUnsortedMode,
          .getValue = getMaxResultsToUnsortedMode},
+        {.name = "CURSOR_MAX_IDLE",
+         .helpText = "max idle time allowed to be set for cursor, setting it hight might cause "
+                     "high memory consumption.",
+         .setValue = setCursorMaxIdle,
+         .getValue = getCursorMaxIdle},
         {.name = NULL}}};
 
 void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst) {
