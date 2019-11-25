@@ -61,6 +61,13 @@ CONFIG_SETTER(setSafemode) {
 
 CONFIG_BOOLEAN_GETTER(getSafemode, concurrentMode, 1)
 
+CONFIG_SETTER(setConcurentWriteMode) {
+  config->concurrentMode = 1;
+  return REDISMODULE_OK;
+}
+
+CONFIG_BOOLEAN_GETTER(getConcurentWriteMode, concurrentMode, 0)
+
 // NOGC
 CONFIG_SETTER(setNoGc) {
   config->enableGC = 0;
@@ -330,9 +337,15 @@ RSConfigOptions RSGlobalConfigOptions = {
          .getValue = getExtLoad,
          .flags = RSCONFIGVAR_F_IMMUTABLE},
         {.name = "SAFEMODE",
-         .helpText = "Perform all operations in main thread",
+         .helpText =
+             "Perform all operations in main thread (deprecated, use CONCURRENT_WRITE_MODE)",
          .setValue = setSafemode,
          .getValue = getSafemode,
+         .flags = RSCONFIGVAR_F_FLAG | RSCONFIGVAR_F_IMMUTABLE},
+        {.name = "CONCURRENT_WRITE_MODE",
+         .helpText = "Use multi threads for write operations.",
+         .setValue = setConcurentWriteMode,
+         .getValue = getConcurentWriteMode,
          .flags = RSCONFIGVAR_F_FLAG | RSCONFIGVAR_F_IMMUTABLE},
         {.name = "NOGC",
          .helpText = "Disable garbage collection (for this process)",
@@ -434,7 +447,7 @@ void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst) {
 sds RSConfig_GetInfoString(const RSConfig *config) {
   sds ss = sdsempty();
 
-  ss = sdscatprintf(ss, "concurrency: %s, ", config->concurrentMode ? "ON" : "OFF(SAFEMODE)");
+  ss = sdscatprintf(ss, "concurrent writes: %s, ", config->concurrentMode ? "ON" : "OFF");
   ss = sdscatprintf(ss, "gc: %s, ", config->enableGC ? "ON" : "OFF");
   ss = sdscatprintf(ss, "prefix min length: %lld, ", config->minTermPrefix);
   ss = sdscatprintf(ss, "prefix max expansions: %lld, ", config->maxPrefixExpansions);
