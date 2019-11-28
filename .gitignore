@@ -24,4 +24,6 @@ src/pytest/rmtest2
 src/pytest/RLTest
 .vscode/*
 .idea/*
+.project
 VSCODE.DB*
+callgrind.out.*
