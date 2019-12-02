@@ -177,10 +177,10 @@ callgrind: $(COMPAT_MODULE)
 #----------------------------------------------------------------------------------------------
 
 docs:
-	@mkdocs build
+	$(SHOW)mkdocs build
 
 deploydocs:
-	@mkdocs gh-deploy
+	$(SHOW)mkdocs gh-deploy
 
 .PHONY: docs deploydocs
 
@@ -195,3 +195,4 @@ docker_push: docker
 	docker push redislabs/redisearch:latest
 	docker tag redislabs/redisearch:latest redislabs/redisearch:$(MODULE_VERSION)
 	docker push redislabs/redisearch:$(MODULE_VERSION)
+
