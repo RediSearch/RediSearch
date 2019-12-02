@@ -17,6 +17,8 @@ def testDelReplicate():
     master.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
                                       'f', 'hello world')
 
+  time.sleep(5)
+
   for i in range(10):
     # checking for insertion
     env.assertEqual(['f', 'hello world'], 
