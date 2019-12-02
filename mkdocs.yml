@@ -33,6 +33,7 @@ pages:
     - 'Command Reference': 'Commands.md'
     - 'Configuration': 'Configuring.md'      
     - 'Administration': "Administration.md"
+    - 'Development': "Development.md"
     - Reference:
       - 'Query Syntax': 'Query_Syntax.md'
       - 'Stop-Words': 'Stopwords.md'

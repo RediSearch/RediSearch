@@ -7,9 +7,15 @@ make setup         # install prerequisited (CAUTION: THIS WILL MODIFY YOUR SYSTE
 make fetch         # download and prepare dependant modules
 
 make build         # compile and link
+  DEBUG=1          # build for debugging
+  TEST=1           # enable unit tests
+  WHY=1            # explain CMake decisions (in /tmp/cmake-why)
 make parsers       # build parsers code
 make clean         # remove build artifacts
   ALL=1              # remove entire artifacts directory
+
+make run           # run redis with RediSearch
+  DEBUG=1            # invoke using gdb
 
 make test          # run all tests (via ctest)
   TEST=regex
@@ -19,9 +25,15 @@ make pytest        # run python tests (src/pytest)
 make c_tests       # run C tests (src/tests)
 make cpp_tests     # run C++ tests (src/cpptests)
 
+make callgrind     # produce a call graph
+  REDIS_ARGS="args"
+
 make pack          # create installation packages
 make deploy        # copy packages to S3
 make release       # release a version
+
+make docs          # create documentation
+make deploydocs    # deploy documentation
 
 make docker
 make docker_push
@@ -164,10 +176,13 @@ callgrind: $(COMPAT_MODULE)
 
 #----------------------------------------------------------------------------------------------
 
-deploydocs:
-	mkdocs gh-deploy
+docs:
+	@mkdocs build
 
-.PHONY: deploydocs
+deploydocs:
+	@mkdocs gh-deploy
+
+.PHONY: docs deploydocs
 
 #----------------------------------------------------------------------------------------------
 
