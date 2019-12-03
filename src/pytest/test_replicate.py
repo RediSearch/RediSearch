@@ -20,10 +20,8 @@ def testDelReplicate():
   # Ensure slave is updated
   master.execute_command('set foo bar')
   end = time.time() + 5
-  found = False
   while time.time() < end:
     if slave.execute_command('exists foo'):
-      found = True
       break
     time.sleep(0.01)
 
@@ -43,7 +41,6 @@ def testDelReplicate():
   end = time.time() + 5
   while time.time() < end:
     if not slave.execute_command('exists foo'):
-      found = False
       break
     time.sleep(0.01)
 
