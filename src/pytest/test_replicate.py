@@ -26,6 +26,7 @@ def testDelReplicate():
   master = env.getConnection()
   slave = env.getSlaveConnection() 
 
+  master.execute_command('set foo bar')
   env.assertContains("PONG", master.execute_command("ping"))
   env.assertContains("PONG", slave.execute_command("ping"))  
   env.assertOk(master.execute_command('ft.create', 'idx', 'schema', 'f', 'text'))
@@ -38,7 +39,7 @@ def testDelReplicate():
   try:
     with TimeLimit(5):
       res = slave.execute_command('get foo')
-      while len(res) != 3:
+      while res == None:
         res = slave.execute_command('get foo')
   except Exception:
         env.assertTrue(False, message='Failed waiting for registration to unregister on slave')
