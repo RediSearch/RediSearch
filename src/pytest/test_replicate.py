@@ -38,7 +38,6 @@ def testDelReplicate():
   try:
     with TimeLimit(5):
       res = slave.execute_command('get foo')
-      env.assertEqual('bar', res)
       while len(res) != 3:
         res = slave.execute_command('get foo')
   except Exception:
