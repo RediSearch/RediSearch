@@ -70,7 +70,7 @@ int NumericRange_Add(NumericRange *n, t_docId docId, double value, int checkCard
   if (checkCard) {
     add = 1;
     size_t card = n->card;
-    for (int i = 0; i < __inline_array_len(n->values); i++) {
+    for (int i = 0; i < array_len(n->values); i++) {
 
       if (n->values[i].value == value) {
         add = 0;
