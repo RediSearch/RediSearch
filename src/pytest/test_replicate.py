@@ -5,22 +5,6 @@ import os.path
 from RLTest import Env
 import time
 
-class TimeLimit(object):
-    """
-    A context manager that fires a TimeExpired exception if it does not
-    return within the specified amount of time.
-    """
-    def __init__(self, timeout):
-        self.timeout = timeout
-    def __enter__(self):
-        signal.signal(signal.SIGALRM, self.handler)
-        signal.setitimer(signal.ITIMER_REAL, self.timeout, 0)
-    def __exit__(self, exc_type, exc_value, traceback):
-        signal.setitimer(signal.ITIMER_REAL, 0)
-        signal.signal(signal.SIGALRM, signal.SIG_DFL)
-    def handler(self, signum, frame):
-        raise Exception()   
-
 def testDelReplicate():
   env = Env(useSlaves=True)
   master = env.getConnection()
@@ -35,13 +19,13 @@ def testDelReplicate():
                                       'f', 'hello world')
   # Ensure slave is updated
   master.execute_command('set foo bar')
-  try:
-    with TimeLimit(5):
-      res = slave.execute_command('get foo')
-      while res == None:
-        res = slave.execute_command('get foo')
-  except Exception:
-        env.assertTrue(False, message='Failed waiting for registration to unregister on slave')
+  end = time.time() + 5
+  found = False
+  while time.time() < end:
+    if slave.execute_command('exists foo'):
+      found = True
+      break
+    time.sleep(0.01)
 
   for i in range(10):
     # checking for insertion
@@ -55,14 +39,13 @@ def testDelReplicate():
           'ft.del', 'idx', 'doc%d' % i, 'DD'))
   
   # Ensure slave is updated
-  master.execute_command('set foo baz')
-  try:
-    with TimeLimit(5):
-      res = slave.execute_command('get foo')
-      while len(res) == 'bar':
-        res = slave.execute_command('get foo')
-  except Exception:
-        env.assertTrue(False, message='Failed waiting for registration to unregister on slave')
+  master.execute_command('del foo')
+  end = time.time() + 5
+  while time.time() < end:
+    if not slave.execute_command('exists foo'):
+      found = False
+      break
+    time.sleep(0.01)
 
   for i in range(10):
     # checking for deletion
