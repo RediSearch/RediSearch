@@ -26,7 +26,6 @@ def testDelReplicate():
   master = env.getConnection()
   slave = env.getSlaveConnection() 
 
-  master.execute_command('set foo bar')
   env.assertContains("PONG", master.execute_command("ping"))
   env.assertContains("PONG", slave.execute_command("ping"))  
   env.assertOk(master.execute_command('ft.create', 'idx', 'schema', 'f', 'text'))
