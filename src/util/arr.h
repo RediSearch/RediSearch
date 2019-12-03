@@ -201,6 +201,10 @@ static inline array_t array_ensure_len(array_t arr, size_t len) {
     (arr);                                         \
   })
 
+__header_always_inline uint32_t __inline_array_len(array_t arr) {
+  return arr ? array_hdr(arr)->len : 0;
+}
+
 /* Get the length of the array */
 static inline uint32_t array_len(array_t arr) {
   return arr ? array_hdr(arr)->len : 0;
