@@ -40,7 +40,6 @@ def testDelReplicate():
   env = Env(useSlaves=True)
   master = env.getConnection()
   slave = env.getSlaveConnection() 
-  master.execute_command('FLUSHALL')
   env.assertContains("PONG", master.execute_command("ping"))
   env.assertContains("PONG", slave.execute_command("ping"))  
   env.assertOk(master.execute_command('ft.create', 'idx', 'schema', 'f', 'text'))
@@ -64,7 +63,7 @@ def testDelReplicate():
     env.assertEqual(1, master.execute_command(
           'ft.del', 'idx', 'doc%d' % i, 'DD'))
   
-  ensureMasterSlaveSync(env, slave, ('ft.get', 'idx', 'doc0'), None)
+  checkSlaveSynced(env, slave, ('ft.get', 'idx', 'doc0'), None)
 
   for i in range(10):
     # checking for deletion
