@@ -472,7 +472,7 @@ GEN_CONCURRENT_WRAPPER(CursorCommand, argc >= 4, AggregateCommand_ExecCursor,
 GEN_CONCURRENT_WRAPPER(AggregateCommand, argc >= 3, AggregateCommand_ExecAggregate,
                        CONCURRENT_POOL_SEARCH);
 
-/* FT.DEL {index} {doc_id}
+/* FT.DEL {index} {doc_id} [DD]
  *  Delete a document from the index. Returns 1 if the document was in the index, or 0 if not.
  *
  *  **NOTE**: This does not actually delete the document from the index, just marks it as deleted
@@ -525,7 +525,11 @@ int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       GCContext_OnDelete(sp->gc);
     }
   }
-  RedisModule_Replicate(ctx, "cv", RS_DEL_CMD, "cs", sp->name, argv[2]);
+  if (argc == 3) {
+    RedisModule_Replicate(ctx, RS_DEL_CMD, "cs", sp->name, argv[2]);
+  } else {
+    RedisModule_Replicate(ctx, RS_DEL_CMD, "csc", sp->name, argv[2], "dd");
+  }
   return RedisModule_ReplyWithLongLong(ctx, rc);
 }
 
