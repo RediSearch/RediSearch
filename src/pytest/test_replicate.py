@@ -50,7 +50,7 @@ def testDelReplicate():
     master.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
                                       'f', 'hello world')
 
-  checkSlaveSynced(env, slave, ('ft.get', 'idx', 'doc0'), ['f', 'hello world'])
+  checkSlaveSynced(env, slave, ('ft.get', 'idx', 'doc9'), ['f', 'hello world'])
 
   for i in range(10):
     # checking for insertion
@@ -63,7 +63,7 @@ def testDelReplicate():
     env.assertEqual(1, master.execute_command(
           'ft.del', 'idx', 'doc%d' % i, 'DD'))
   
-  checkSlaveSynced(env, slave, ('ft.get', 'idx', 'doc0'), None)
+  checkSlaveSynced(env, slave, ('ft.get', 'idx', 'doc9'), None)
 
   for i in range(10):
     # checking for deletion
