@@ -579,7 +579,6 @@ int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     QueryError_ClearError(&status);
     return REDISMODULE_OK;
   }
-
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
@@ -639,6 +638,7 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (sp == NULL) {
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
+  Indices_DropIndexSpec(sp->name);
 
   // Optional KEEPDOCS
   int delDocs = 1;
@@ -1056,6 +1056,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASDEL, AliasDelCommand, "readonly", 0, 0, -1);
 #endif
+  RM_TRY(Indices_Init, ctx);
   return REDISMODULE_OK;
 }
 

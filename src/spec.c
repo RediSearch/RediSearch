@@ -21,6 +21,7 @@ const char *(*IndexAlias_GetUserTableName)(RedisModuleCtx *, const char *) = NUL
 
 RedisModuleType *IndexSpecType;
 uint64_t spec_unique_ids = 0;
+static char** spec_names;
 
 static const FieldSpec *getFieldCommon(const IndexSpec *spec, const char *name, size_t len,
                                        int useCase) {
@@ -196,6 +197,10 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
     IndexSpec_OnCreate(sp);
   }
   RedisModule_CloseKey(k);
+  char *index_name = rm_malloc(strlen(sp->name) * sizeof(char *));
+  memcpy(index_name, sp->name, strlen(sp->name) * sizeof(char *));
+  spec_names = array_append(spec_names, index_name);
+
   return sp;
 }
 
@@ -1163,6 +1168,7 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
   }
 
   sp->uniqueId = spec_unique_ids++;
+  spec_names = array_append(spec_names,sp->name);
 
   IndexSpec_StartGC(ctx, sp, GC_DEFAULT_HZ);
   RedisModuleString *specKey = RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, sp->name);
@@ -1250,5 +1256,33 @@ int IndexSpec_RegisterType(RedisModuleCtx *ctx) {
     return REDISMODULE_ERR;
   }
 
+  return REDISMODULE_OK;
+}
+
+int Indices_Init(RedisModuleCtx *ctx){
+  spec_names = array_new(char *, 1);
+  if (spec_names == NULL) {
+    RedisModule_Log(ctx, "error", "Could not create indices name global array");
+    return REDISMODULE_ERR;
+  }
+  return REDISMODULE_OK;
+}
+
+char** Indices_GetAll(){
+ return spec_names;
+}
+
+int Indices_DropIndexSpec(char* name){
+  int pos = -1;
+  for (size_t ii = 0; ii < array_len(spec_names) && pos < 0; ++ii) {
+      if (!strcmp(spec_names[ii], name)) {
+        pos=ii;
+        spec_names = array_del_fast(spec_names,ii);
+      }
+  }
+    
+  if (pos == -1) {
+    return REDISMODULE_ERR;
+  }
   return REDISMODULE_OK;
 }

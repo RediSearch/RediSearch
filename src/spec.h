@@ -390,6 +390,9 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, void *value);
 void IndexSpec_Digest(RedisModuleDigest *digest, void *value);
 int IndexSpec_RegisterType(RedisModuleCtx *ctx);
 void IndexSpec_ClearAliases(IndexSpec *sp);
+int Indices_Init(RedisModuleCtx *ctx);
+char** Indices_GetAll();
+int Indices_DropIndexSpec(char* name);
 // void IndexSpec_Free(void *value);
 
 /*

@@ -370,6 +370,19 @@ DEBUG_COMMAND(GitSha) {
   return REDISMODULE_OK;
 }
 
+DEBUG_COMMAND(Indices) {
+  if (argc < 1) {
+    return RedisModule_WrongArity(ctx);
+  }
+  RedisModule_AutoMemory(ctx);
+  char** spec_names = Indices_GetAll(ctx);
+  RedisModule_ReplyWithArray(ctx,array_len(spec_names));
+  for (size_t i = 0; i < array_len(spec_names); ++i) {
+    RedisModule_ReplyWithSimpleString(ctx, spec_names[i]);
+  }
+  return REDISMODULE_OK;
+}
+
 typedef struct {
   // Whether to enumerate the number of docids per entry
   int countValueEntries;
@@ -605,6 +618,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex},
                                {"GC_FORCEINVOKE", GCForceInvoke},
                                {"GC_FORCEBGINVOKE", GCForceBGInvoke},
                                {"GIT_SHA", GitSha},
+                               {"INDICES", Indices},
                                {NULL, NULL}};
 
 int DebugCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
