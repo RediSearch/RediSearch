@@ -485,6 +485,7 @@ FIELD_BULK_INDEXER(tagIndexer) {
   }
   if (fdata->tags) {
     TagIndex_FreePreprocessedData(fdata->tags);
+    fdata->tags = NULL;
   }
   return rc;
 }
