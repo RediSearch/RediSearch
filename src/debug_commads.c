@@ -371,11 +371,8 @@ DEBUG_COMMAND(GitSha) {
 }
 
 DEBUG_COMMAND(Indices) {
-  if (argc < 1) {
-    return RedisModule_WrongArity(ctx);
-  }
   RedisModule_AutoMemory(ctx);
-  char** spec_names = Indices_GetAll(ctx);
+  char** spec_names = Indices_GetAll();
   RedisModule_ReplyWithArray(ctx,array_len(spec_names));
   for (size_t i = 0; i < array_len(spec_names); ++i) {
     RedisModule_ReplyWithSimpleString(ctx, spec_names[i]);
