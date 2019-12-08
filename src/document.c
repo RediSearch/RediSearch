@@ -304,6 +304,17 @@ void AddDocumentCtx_Submit(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, uint32_
 }
 
 void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
+  /**
+   * Free preprocessed data; this is the only reliable place
+   * to do it
+   */
+  for (size_t ii = 0; ii < aCtx->doc.numFields; ++ii) {
+    if (aCtx->fspecs[ii].name && aCtx->fspecs[ii].type == FIELD_TAG && aCtx->fdatas[ii].tags) {
+      TagIndex_FreePreprocessedData(aCtx->fdatas[ii].tags);
+      aCtx->fdatas[ii].tags = NULL;
+    }
+  }
+
   // Destroy the common fields:
   Document_FreeDetached(&aCtx->doc, aCtx->indexer->redisCtx);
 
@@ -474,6 +485,7 @@ FIELD_BULK_INDEXER(tagIndexer) {
   }
   if (fdata->tags) {
     TagIndex_FreePreprocessedData(fdata->tags);
+    fdata->tags = NULL;
   }
   return rc;
 }
@@ -550,8 +562,8 @@ cleanup:
   return ourRv;
 }
 
-/* Evaluate an IF expression (e.g. IF "@foo == 'bar'") against a document, by getting the properties
- * from the sorting table or from the hash representation of the document.
+/* Evaluate an IF expression (e.g. IF "@foo == 'bar'") against a document, by getting the
+ * properties from the sorting table or from the hash representation of the document.
  *
  * NOTE: This is disconnected from the document indexing flow, and loads the document and discards
  * of it internally

@@ -13,7 +13,7 @@ RSSortingVector *NewSortingVector(int len) {
   if (len > RS_SORTABLES_MAX) {
     return NULL;
   }
-  RSSortingVector *ret = rm_calloc(1, sizeof(RSSortingVector) + len * (sizeof(RSValue)));
+  RSSortingVector *ret = rm_calloc(1, sizeof(RSSortingVector) + len * (sizeof(*ret->values)));
   ret->len = len;
   // set all values to NIL
   for (int i = 0; i < len; i++) {
