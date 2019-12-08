@@ -578,6 +578,11 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
     return REDISMODULE_ERR;
   }
 
+  if (*err) {
+    RSExpr_Free(e);
+    return REDISMODULE_ERR;
+  }
+
   // Get the fields needed to evaluate the expression, so we'll know what to load (if any)
   const char **fields = Expr_GetRequiredFields(e);
 
