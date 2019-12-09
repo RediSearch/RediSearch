@@ -525,7 +525,7 @@ int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       GCContext_OnDelete(sp->gc);
     }
   }
-  if (argc == 3) {
+  if (!delDoc) {
     RedisModule_Replicate(ctx, RS_DEL_CMD, "cs", sp->name, argv[2]);
   } else {
     RedisModule_Replicate(ctx, RS_DEL_CMD, "csc", sp->name, argv[2], "dd");
