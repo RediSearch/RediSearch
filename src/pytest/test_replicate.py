@@ -38,6 +38,7 @@ def checkSlaveSynced(env, slaveConn, command, expected_result, time_out=5):
 
 def testDelReplicate():
   env = Env(useSlaves=True)
+  env.skipOnCluster()
   master = env.getConnection()
   slave = env.getSlaveConnection() 
   env.assertContains("PONG", master.execute_command("ping"))
