@@ -44,13 +44,13 @@ def testDelReplicate():
   env.assertContains("PONG", slave.execute_command("ping"))  
   env.assertOk(master.execute_command('ft.create', 'idx', 'schema', 'f', 'text'))
 
-  checkSlaveSynced(env, slave, ('exists', 'idx:idx'), 1)
+  checkSlaveSynced(env, slave, ('exists', 'idx:idx'), 1, time_out=20)
 
   for i in range(10):
     master.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
                                       'f', 'hello world')
 
-  checkSlaveSynced(env, slave, ('ft.get', 'idx', 'doc9'), ['f', 'hello world'])
+  checkSlaveSynced(env, slave, ('ft.get', 'idx', 'doc9'), ['f', 'hello world'], time_out=20)
 
   for i in range(10):
     # checking for insertion
@@ -63,7 +63,7 @@ def testDelReplicate():
     env.assertEqual(1, master.execute_command(
           'ft.del', 'idx', 'doc%d' % i, 'DD'))
   
-  checkSlaveSynced(env, slave, ('ft.get', 'idx', 'doc9'), None)
+  checkSlaveSynced(env, slave, ('ft.get', 'idx', 'doc9'), None, time_out=20)
 
   for i in range(10):
     # checking for deletion
