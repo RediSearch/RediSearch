@@ -2474,6 +2474,11 @@ def testIssue_779(env):
     env.expect('FT.ADD idx2 doc2 1.0 REPLACE PARTIAL if @ot1<4-002 FIELDS newf DOG ot1 4002').contains('Syntax error')
     env.expect('FT.ADD idx2 doc2 1.0 REPLACE PARTIAL if @ot1<to_number(4-002) FIELDS newf DOG ot1 4002').contains('Syntax error')
 
+def testUnknownSymbolErrorOnConditionalAdd(env):
+    env.expect('FT.CREATE idx SCHEMA f1 TAG f2 NUMERIC NOINDEX f3 TAG NOINDEX').ok()
+    env.expect('ft.add idx doc1 1.0 REPLACE PARTIAL IF @f1<awfwaf FIELDS f1 foo f2 1 f3 boo').ok()
+    env.expect('ft.add idx doc1 1.0 REPLACE PARTIAL IF @f1<awfwaf FIELDS f1 foo f2 1 f3 boo').error().contains('Unknown symbol')
+
 def testDelIndexExternally(env):
     env.skipOnCluster() # todo: remove once fix on coordinator
     env.expect('FT.CREATE idx SCHEMA num NUMERIC t TAG g GEO').equal('OK')

@@ -616,6 +616,11 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
     return REDISMODULE_ERR;
   }
 
+  if (QueryError_HasError(status)) {
+    RSExpr_Free(e);
+    return REDISMODULE_ERR;
+  } 
+
   RLookup lookup_s;
   RLookupRow row = {0};
   IndexSpecCache *spcache = IndexSpec_GetSpecCache(sctx->spec);
