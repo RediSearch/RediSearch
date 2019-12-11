@@ -43,6 +43,14 @@ extern "C" {
 #define array_free_fn rm_free
 #endif
 
+#ifdef _MSC_VER
+#define ARR_FORCEINLINE __forceinline
+#elif defined(__GNUC__)
+#define ARR_FORCEINLINE __inline__ __attribute__((__always_inline__))
+#else
+#define ARR_FORCEINLINE inline
+#endif
+
 typedef struct {
   uint32_t len;
   // TODO: optimize memory by making cap a 16-bit delta from len, and elem_sz 16 bit as well. This
@@ -202,7 +210,7 @@ static inline array_t array_ensure_len(array_t arr, size_t len) {
   })
 
 /* Get the length of the array */
-static inline uint32_t array_len(array_t arr) {
+static ARR_FORCEINLINE uint32_t array_len(array_t arr) {
   return arr ? array_hdr(arr)->len : 0;
 }
 
