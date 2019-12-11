@@ -2483,7 +2483,7 @@ def testIssue_779(env):
 def testUnknownSymbolErrorOnConditionalAdd(env):
     env.expect('FT.CREATE idx SCHEMA f1 TAG f2 NUMERIC NOINDEX f3 TAG NOINDEX').ok()
     env.expect('ft.add idx doc1 1.0 REPLACE PARTIAL IF @f1<awfwaf FIELDS f1 foo f2 1 f3 boo').ok()
-    env.expect('ft.add idx doc1 1.0 REPLACE PARTIAL IF @f1<awfwaf FIELDS f1 foo f2 1 f3 boo').error().contains('Unknown symbol')
+    env.expect('ft.add idx doc1 1.0 REPLACE PARTIAL IF @f1<awfwaf FIELDS f1 foo f2 1 f3 boo').error()
 
 def testDelIndexExternally(env):
     env.skipOnCluster() # todo: remove once fix on coordinator
