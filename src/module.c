@@ -428,7 +428,7 @@ int RSAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int RSSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
-/* FT.DEL {index} {doc_id}
+/* FT.DEL {index} {doc_id} [DD]
  *  Delete a document from the index. Returns 1 if the document was in the index, or 0 if not.
  *
  *  **NOTE**: This does not actually delete the document from the index, just marks it as deleted
@@ -487,7 +487,11 @@ int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (sp->gc) {
       GCContext_OnDelete(sp->gc);
     }
-    RedisModule_Replicate(ctx, RS_DEL_CMD, "cs", sp->name, argv[2]);
+    if (!delDoc) {
+      RedisModule_Replicate(ctx, RS_DEL_CMD, "cs", sp->name, argv[2]);
+    } else {
+      RedisModule_Replicate(ctx, RS_DEL_CMD, "csc", sp->name, argv[2], "dd");
+    }
   }
   return RedisModule_ReplyWithLongLong(ctx, rc);
 }
