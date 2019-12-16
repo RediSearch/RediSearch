@@ -70,7 +70,7 @@ $ redis-server --loadmodule ./redisearch.so ON_TIMEOUT fail
 
 ---
 
-## SAFEMODE
+## SAFEMODE (Depricated, use CONCURRENT_WRITE_MODE instead)
 
 If present in the argument list, RediSearch will turn off concurrency for query processing, and work in a single thread.
 
@@ -278,3 +278,39 @@ $ redis-server --loadmodule ./redisearch.so GC_POLICY FORK FORK_GC_CLEAN_THRESHO
 
 * only to be combined with `GC_POLICY FORK`
 * added in v1.4.16
+
+## CONCURRENT_WRITE_MODE
+
+If enable, writes queries will be performed concurently. Notice that only the tokenization part could really be concurent. The actual writing still require holding the Redis global lock.
+
+### Default
+
+"disable"
+
+### Example
+
+```
+$ redis-server --loadmodule ./redisearch.so CONCURRENT_WRITE_MODE
+```
+
+### Notes
+
+* added in v1.6
+
+## CURSOR_MAX_IDLE
+
+The maximum Idle time (in MS) that can be set to a cursor.
+
+### Default
+
+"300000"
+
+### Example
+
+```
+$ redis-server --loadmodule ./redisearch.so CURSOR_MAX_IDLE 500000
+```
+
+### Notes
+
+* added in v1.6
