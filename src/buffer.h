@@ -115,7 +115,7 @@ static inline size_t Buffer_Reserve(Buffer *buf, size_t n) {
   return 1;
 }
 
-static inline size_t Buffer_Write(BufferWriter *bw, void *data, size_t len) {
+static inline size_t Buffer_Write(BufferWriter *bw, const void *data, size_t len) {
 
   Buffer *buf = bw->buf;
   if (Buffer_Reserve(buf, len)) {
