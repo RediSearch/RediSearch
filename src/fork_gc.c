@@ -360,61 +360,59 @@ static void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
   RedisModuleKey *idxKey = NULL;
   FieldSpec **numericFields = getFieldsByType(sctx->spec, INDEXFLD_T_NUMERIC);
 
-  if (array_len(numericFields) != 0) {
-    for (int i = 0; i < array_len(numericFields); ++i) {
-      RedisModuleString *keyName =
-          IndexSpec_GetFormattedKey(sctx->spec, numericFields[i], INDEXFLD_T_NUMERIC);
-      NumericRangeTree *rt = OpenNumericIndex(sctx, keyName, &idxKey);
+  for (int i = 0; i < array_len(numericFields); ++i) {
+    RedisModuleString *keyName =
+        IndexSpec_GetFormattedKey(sctx->spec, numericFields[i], INDEXFLD_T_NUMERIC);
+    NumericRangeTree *rt = OpenNumericIndex(sctx, keyName, &idxKey);
 
-      NumericRangeTreeIterator *gcIterator = NumericRangeTreeIterator_New(rt);
+    NumericRangeTreeIterator *gcIterator = NumericRangeTreeIterator_New(rt);
 
-      NumericRangeNode *currNode = NULL;
-      tagNumHeader header = {.field = numericFields[i]->name, .uniqueId = rt->uniqueId};
+    NumericRangeNode *currNode = NULL;
+    tagNumHeader header = {.field = numericFields[i]->name, .uniqueId = rt->uniqueId};
 
-      while ((currNode = NumericRangeTreeIterator_Next(gcIterator))) {
-        if (!currNode->range) {
-          continue;
-        }
-
-        CardinalityValue *valuesDeleted = array_new(CardinalityValue, currNode->range->card);
-        for (int i = 0; i < currNode->range->card; ++i) {
-          CardinalityValue valueDeleted;
-          valueDeleted.value = currNode->range->values[i].value;
-          valueDeleted.appearances = 0;
-          valuesDeleted = array_append(valuesDeleted, valueDeleted);
-        }
-
-        header.curPtr = currNode;
-        bool repaired =
-            FGC_childRepairInvidx(gc, sctx, currNode->range->entries, sendNumericTagHeader, &header,
-                                  countDeletedCardinality, valuesDeleted);
-
-        if (repaired) {
-          // send reduced cardinality size
-          FGC_SEND_VAR(gc, currNode->range->card);
-
-          // send reduced cardinality
-          for (size_t i = 0; i < currNode->range->card; ++i) {
-            FGC_SEND_VAR(gc, valuesDeleted[i].appearances);
-          }
-        }
-        array_free(valuesDeleted);
+    while ((currNode = NumericRangeTreeIterator_Next(gcIterator))) {
+      if (!currNode->range) {
+        continue;
       }
 
-      if (header.sentFieldName) {
-        // If we've repaired at least one entry, send the terminator;
-        // note that "terminator" just means a zero address and not the
-        // "no more strings" terminator in FGC_sendTerminator
-        void *pdummy = NULL;
-        FGC_SEND_VAR(gc, pdummy);
+      CardinalityValue *valuesDeleted = array_new(CardinalityValue, currNode->range->card);
+      for (int i = 0; i < currNode->range->card; ++i) {
+        CardinalityValue valueDeleted;
+        valueDeleted.value = currNode->range->values[i].value;
+        valueDeleted.appearances = 0;
+        valuesDeleted = array_append(valuesDeleted, valueDeleted);
       }
 
-      if (idxKey) {
-        RedisModule_CloseKey(idxKey);
-      }
+      header.curPtr = currNode;
+      bool repaired =
+          FGC_childRepairInvidx(gc, sctx, currNode->range->entries, sendNumericTagHeader, &header,
+                                countDeletedCardinality, valuesDeleted);
 
-      NumericRangeTreeIterator_Free(gcIterator);
+      if (repaired) {
+        // send reduced cardinality size
+        FGC_SEND_VAR(gc, currNode->range->card);
+
+        // send reduced cardinality
+        for (size_t i = 0; i < currNode->range->card; ++i) {
+          FGC_SEND_VAR(gc, valuesDeleted[i].appearances);
+        }
+      }
+      array_free(valuesDeleted);
     }
+
+    if (header.sentFieldName) {
+      // If we've repaired at least one entry, send the terminator;
+      // note that "terminator" just means a zero address and not the
+      // "no more strings" terminator in FGC_sendTerminator
+      void *pdummy = NULL;
+      FGC_SEND_VAR(gc, pdummy);
+    }
+
+    if (idxKey) {
+      RedisModule_CloseKey(idxKey);
+    }
+
+    NumericRangeTreeIterator_Free(gcIterator);
   }
 
   // we are done with numeric fields
