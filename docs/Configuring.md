@@ -70,7 +70,9 @@ $ redis-server --loadmodule ./redisearch.so ON_TIMEOUT fail
 
 ---
 
-## SAFEMODE (Depricated, use CONCURRENT_WRITE_MODE instead)
+## SAFEMODE
+
+!! Deprecated in v1.6.  From this version, SAFEMODE is the default.  if you still like to re-enable the concurrent mode for writes, use [CONCURRENT_WRITE_MODE](#CONCURRENT_WRITE_MODE) !!
 
 If present in the argument list, RediSearch will turn off concurrency for query processing, and work in a single thread.
 
@@ -84,6 +86,28 @@ Off (not present)
 ```
 $ redis-server --loadmodule ./redisearch.so SAFEMODE
 ```
+
+### Notes
+
+* deprecated in v1.6
+
+## CONCURRENT_WRITE_MODE
+
+If enabled, write queries will be performed concurrently. For now only the tokenization part is executed concurrently. The actual write operation still requires holding the Redis Global Lock.
+
+### Default
+
+"disable"
+
+### Example
+
+```
+$ redis-server --loadmodule ./redisearch.so CONCURRENT_WRITE_MODE
+```
+
+### Notes
+
+* added in v1.6
 
 ---
 
@@ -99,22 +123,6 @@ None
 
 ```
 $ redis-server --loadmodule ./redisearch.so EXTLOAD ./ext/my_extension.so
-```
-
----
-
-## NOGC
-
-If set, we turn off Garbage Collection for all indexes. This is used mainly for debugging and testing, and should not be set by users.
-
-### Default
-
-Not set
-
-### Example
-
-```
-$ redis-server --loadmodule ./redisearch.so NOGC
 ```
 
 ---
@@ -183,6 +191,26 @@ $ redis-server --loadmodule ./redisearch.so FRISOINI /opt/dict/friso.ini
 
 ---
 
+## CURSOR_MAX_IDLE
+
+The maximum idle time (in ms) that can be set to the [cursor api](Aggregations.md#cursor_api).
+
+### Default
+
+"300000"
+
+### Example
+
+```
+$ redis-server --loadmodule ./redisearch.so CURSOR_MAX_IDLE 500000
+```
+
+### Notes
+
+* added in v1.6
+
+---
+
 ## GC_SCANSIZE
 
 The garbage collection bulk size of the internal gc used for cleaning up the indexes.
@@ -196,8 +224,6 @@ The garbage collection bulk size of the internal gc used for cleaning up the ind
 ```
 $ redis-server --loadmodule ./redisearch.so GC_SCANSIZE 10
 ```
-
----
 
 ## GC_POLICY
 
@@ -222,6 +248,20 @@ $ redis-server --loadmodule ./redisearch.so GC_POLICY LEGACY
 ### Notes
 
 * When the `GC_POLICY` is `FORK` it can be combined with the options below.
+
+## NOGC
+
+If set, we turn off Garbage Collection for all indexes. This is used mainly for debugging and testing, and should not be set by users.
+
+### Default
+
+Not set
+
+### Example
+
+```
+$ redis-server --loadmodule ./redisearch.so NOGC
+```
 
 ## FORK_GC_RUN_INTERVAL
 
@@ -278,39 +318,3 @@ $ redis-server --loadmodule ./redisearch.so GC_POLICY FORK FORK_GC_CLEAN_THRESHO
 
 * only to be combined with `GC_POLICY FORK`
 * added in v1.4.16
-
-## CONCURRENT_WRITE_MODE
-
-If enable, writes queries will be performed concurently. Notice that only the tokenization part could really be concurent. The actual writing still require holding the Redis global lock.
-
-### Default
-
-"disable"
-
-### Example
-
-```
-$ redis-server --loadmodule ./redisearch.so CONCURRENT_WRITE_MODE
-```
-
-### Notes
-
-* added in v1.6
-
-## CURSOR_MAX_IDLE
-
-The maximum Idle time (in MS) that can be set to a cursor.
-
-### Default
-
-"300000"
-
-### Example
-
-```
-$ redis-server --loadmodule ./redisearch.so CURSOR_MAX_IDLE 500000
-```
-
-### Notes
-
-* added in v1.6
