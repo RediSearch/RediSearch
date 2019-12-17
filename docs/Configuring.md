@@ -72,7 +72,7 @@ $ redis-server --loadmodule ./redisearch.so ON_TIMEOUT fail
 
 ## SAFEMODE
 
-!! Deprecated in v1.6.  From this version, SAFEMODE is the default.  if you still like to re-enable the concurrent mode for writes, use [CONCURRENT_WRITE_MODE](#CONCURRENT_WRITE_MODE) !!
+!! Deprecated in v1.6.  From this version, SAFEMODE is the default.  If you still like to re-enable the concurrent mode for writes, use [CONCURRENT_WRITE_MODE](#CONCURRENT_WRITE_MODE) !!
 
 If present in the argument list, RediSearch will turn off concurrency for query processing, and work in a single thread.
 
@@ -97,7 +97,7 @@ If enabled, write queries will be performed concurrently. For now only the token
 
 ### Default
 
-"disable"
+Not set - "disabled"
 
 ### Example
 
