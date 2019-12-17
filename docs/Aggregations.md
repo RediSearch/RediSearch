@@ -488,7 +488,7 @@ cursors have an idle timeout value. If no activity occurs on the cursor before
 the idle timeout, the cursor is deleted. The idle timer resets to 0 whenever
 the cursor is read from using `CURSOR READ`.
 
-The default idle timeout is 30000 milliseconds (or 30 seconds). You can modify
+The default idle timeout is 300000 milliseconds (or 300 seconds). You can modify
 the idle timeout using the `MAXIDLE` keyword when creating the cursor. Note that
 the value cannot exceed the default 30s.
 
