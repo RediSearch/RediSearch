@@ -338,10 +338,15 @@ static void countDeleted(const RSIndexResult *r, const IndexBlock *blk, void *ar
     ht = ctx->delRest = kh_init(cardvals);
   }
   assert(ht);
-  int dummy = 0;
+  int added = 0;
   numUnion u = {r->num.value};
-  khiter_t it = kh_put(cardvals, ht, u.u64, &dummy);
-  kh_val(ht, it)++;
+  khiter_t it = kh_put(cardvals, ht, u.u64, &added);
+  if (!added) {
+    // i.e. already existed
+    kh_val(ht, it)++;
+  } else {
+    kh_val(ht, it) = 0;
+  }
 }
 
 typedef struct {
@@ -826,17 +831,21 @@ error:
 
 static void resetCardinality(NumGcInfo *info, NumericRange *r) {
   khash_t(cardvals) *kh = kh_init(cardvals);
-  int dummy;
+  int added;
   for (size_t ii = 0; ii < info->nrestBlockDel; ++ii) {
     numUnion u = {info->restBlockDeleted[ii].value};
-    khiter_t it = kh_put(cardvals, kh, u.u64, &dummy);
+    khiter_t it = kh_put(cardvals, kh, u.u64, &added);
     kh_val(kh, it) = info->restBlockDeleted[ii].appearances;
   }
   if (!info->idxbufs.lastBlockIgnored) {
     for (size_t ii = 0; ii < info->nlastBlockDel; ++ii) {
       numUnion u = {info->lastBlockDeleted[ii].value};
-      khiter_t it = kh_put(cardvals, kh, u.u64, &dummy);
-      kh_val(kh, it) += info->lastBlockDeleted[ii].appearances;
+      khiter_t it = kh_put(cardvals, kh, u.u64, &added);
+      if (!added) {
+        kh_val(kh, it) += info->lastBlockDeleted[ii].appearances;
+      } else {
+        kh_val(kh, it) = info->lastBlockDeleted[ii].appearances;
+      }
     }
   }
 
