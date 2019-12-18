@@ -59,7 +59,7 @@ typedef struct {
   size_t limit;          /** in: how many index blocks to scan at once */
 
   /** in: Callback to invoke when a document is collected */
-  void (*RepairCallback)(const RSIndexResult *, void *);
+  void (*RepairCallback)(const RSIndexResult *, const IndexBlock *, void *);
   /** argument to pass to callback */
   void *arg;
 } IndexRepairParams;
