@@ -1204,7 +1204,7 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepa
     // this will close the "hole" in the index
     if (!docExists) {
       if (params->RepairCallback) {
-        params->RepairCallback(res, params->arg);
+        params->RepairCallback(res, blk, params->arg);
       }
       if (!frags++) {
         // First invalid doc; copy everything prior to this to the repair

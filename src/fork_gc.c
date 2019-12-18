@@ -12,6 +12,8 @@
 #include <sys/wait.h>
 #include <sys/resource.h>
 #include "rwlock.h"
+#include "util/khash.h"
+#include <float.h>
 
 #ifdef __linux__
 #include <sys/prctl.h>
@@ -191,13 +193,16 @@ typedef struct {
  */
 static bool FGC_childRepairInvidx(ForkGC *gc, RedisSearchCtx *sctx, InvertedIndex *idx,
                                   void (*headerCallback)(ForkGC *, void *), void *hdrarg,
-                                  void (*RepairCallback)(const RSIndexResult *, void *),
-                                  void *arg) {
+                                  IndexRepairParams *params) {
   MSG_RepairedBlock *fixed = array_new(MSG_RepairedBlock, 10);
   MSG_DeletedBlock *deleted = array_new(MSG_DeletedBlock, 10);
   IndexBlock *blocklist = array_new(IndexBlock, idx->size);
   MSG_IndexInfo ixmsg = {.nblocksOrig = idx->size};
+  IndexRepairParams params_s = {0};
   bool rv = false;
+  if (!params) {
+    params = &params_s;
+  }
 
   for (size_t i = 0; i < idx->size; ++i) {
     IndexBlock *blk = idx->blocks + i;
@@ -212,8 +217,7 @@ static bool FGC_childRepairInvidx(ForkGC *gc, RedisSearchCtx *sctx, InvertedInde
     // Capture the pointer address before the block is cleared; otherwise
     // the pointer might be freed!
     void *bufptr = blk->buf.data;
-    IndexRepairParams params = {.RepairCallback = RepairCallback, .arg = arg};
-    int nrepaired = IndexBlock_Repair(blk, &sctx->spec->docs, idx->flags, &params);
+    int nrepaired = IndexBlock_Repair(blk, &sctx->spec->docs, idx->flags, params);
     // We couldn't repair the block - return 0
     if (nrepaired == -1) {
       goto done;
@@ -236,10 +240,10 @@ static bool FGC_childRepairInvidx(ForkGC *gc, RedisSearchCtx *sctx, InvertedInde
       ixmsg.nblocksRepaired++;
     }
 
-    ixmsg.nbytesCollected += params.bytesCollected;
+    ixmsg.nbytesCollected += params->bytesCollected;
     ixmsg.ndocsCollected += nrepaired;
     if (i == idx->size - 1) {
-      ixmsg.lastblkBytesCollected = params.bytesCollected;
+      ixmsg.lastblkBytesCollected = params->bytesCollected;
       ixmsg.lastblkDocsRemoved = nrepaired;
       ixmsg.lastblkNumDocs = blk->numDocs + nrepaired;
     }
@@ -295,7 +299,7 @@ static void FGC_childCollectTerms(ForkGC *gc, RedisSearchCtx *sctx) {
     InvertedIndex *idx = Redis_OpenInvertedIndexEx(sctx, term, strlen(term), 1, &idxKey);
     if (idx) {
       struct iovec iov = {.iov_base = (void *)term, termLen};
-      FGC_childRepairInvidx(gc, sctx, idx, sendHeaderString, &iov, NULL, NULL);
+      FGC_childRepairInvidx(gc, sctx, idx, sendHeaderString, &iov, NULL);
     }
     if (idxKey) {
       RedisModule_CloseKey(idxKey);
@@ -310,14 +314,34 @@ static void FGC_childCollectTerms(ForkGC *gc, RedisSearchCtx *sctx) {
   FGC_sendTerminator(gc);
 }
 
-static void countDeletedCardinality(const RSIndexResult *r, void *arg) {
-  CardinalityValue *valuesDeleted = arg;
-  for (int i = 0; i < array_len(valuesDeleted); ++i) {
-    if (valuesDeleted[i].value == r->num.value) {
-      valuesDeleted[i].appearances++;
-      return;
+KHASH_MAP_INIT_INT64(cardvals, size_t)
+
+typedef struct {
+  const IndexBlock *lastblk;
+  khash_t(cardvals) * delLast;
+  khash_t(cardvals) * delRest;
+} numCbCtx;
+
+typedef union {
+  uint64_t u64;
+  double d48;
+} numUnion;
+
+static void countDeleted(const RSIndexResult *r, const IndexBlock *blk, void *arg) {
+  numCbCtx *ctx = arg;
+  khash_t(cardvals) *ht = NULL;
+  if (blk == ctx->lastblk) {
+    if ((ht = ctx->delLast) == NULL) {
+      ht = ctx->delLast = kh_init(cardvals);
     }
+  } else if ((ht = ctx->delRest) == NULL) {
+    ht = ctx->delRest = kh_init(cardvals);
   }
+  assert(ht);
+  int dummy = 0;
+  numUnion u = {r->num.value};
+  khiter_t it = kh_put(cardvals, ht, u.u64, &dummy);
+  kh_val(ht, it)++;
 }
 
 typedef struct {
@@ -356,6 +380,29 @@ static FGCError recvNumericTagHeader(ForkGC *fgc, char **fieldName, size_t *fiel
   return FGC_COLLECTED;
 }
 
+static void sendKht(ForkGC *gc, const khash_t(cardvals) * kh) {
+  size_t n = 0;
+  if (!kh) {
+    FGC_SEND_VAR(gc, n);
+    return;
+  }
+  n = kh_size(kh);
+  size_t nsent = 0;
+
+  FGC_SEND_VAR(gc, n);
+  for (khiter_t it = kh_begin(kh); it != kh_end(kh); ++it) {
+    if (!kh_exist(kh, it)) {
+      continue;
+    }
+    numUnion u = {kh_key(kh, it)};
+    size_t count = kh_val(kh, it);
+    CardinalityValue cu = {.value = u.d48, .appearances = count};
+    FGC_SEND_VAR(gc, cu);
+    nsent++;
+  }
+  assert(nsent == n);
+}
+
 static void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
   RedisModuleKey *idxKey = NULL;
   FieldSpec **numericFields = getFieldsByType(sctx->spec, INDEXFLD_T_NUMERIC);
@@ -374,30 +421,23 @@ static void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
       if (!currNode->range) {
         continue;
       }
-
-      CardinalityValue *valuesDeleted = array_new(CardinalityValue, currNode->range->card);
-      for (int i = 0; i < currNode->range->card; ++i) {
-        CardinalityValue valueDeleted;
-        valueDeleted.value = currNode->range->values[i].value;
-        valueDeleted.appearances = 0;
-        valuesDeleted = array_append(valuesDeleted, valueDeleted);
-      }
-
+      numCbCtx nctx = {0};
+      InvertedIndex *idx = currNode->range->entries;
+      nctx.lastblk = idx->blocks + idx->size - 1;
+      IndexRepairParams params = {.RepairCallback = countDeleted, .arg = &nctx};
       header.curPtr = currNode;
-      bool repaired =
-          FGC_childRepairInvidx(gc, sctx, currNode->range->entries, sendNumericTagHeader, &header,
-                                countDeletedCardinality, valuesDeleted);
+      bool repaired = FGC_childRepairInvidx(gc, sctx, idx, sendNumericTagHeader, &header, &params);
 
       if (repaired) {
-        // send reduced cardinality size
-        FGC_SEND_VAR(gc, currNode->range->card);
-
-        // send reduced cardinality
-        for (size_t i = 0; i < currNode->range->card; ++i) {
-          FGC_SEND_VAR(gc, valuesDeleted[i].appearances);
-        }
+        sendKht(gc, nctx.delRest);
+        sendKht(gc, nctx.delLast);
       }
-      array_free(valuesDeleted);
+      if (nctx.delRest) {
+        kh_destroy(cardvals, nctx.delRest);
+      }
+      if (nctx.delLast) {
+        kh_destroy(cardvals, nctx.delLast);
+      }
     }
 
     if (header.sentFieldName) {
@@ -440,7 +480,7 @@ static void FGC_childCollectTags(ForkGC *gc, RedisSearchCtx *sctx) {
       while (TrieMapIterator_Next(iter, &ptr, &len, (void **)&value)) {
         header.curPtr = value;
         // send repaired data
-        FGC_childRepairInvidx(gc, sctx, value, sendNumericTagHeader, &header, NULL, NULL);
+        FGC_childRepairInvidx(gc, sctx, value, sendNumericTagHeader, &header, NULL);
       }
 
       // we are done with the current field
@@ -480,6 +520,7 @@ typedef struct {
 
   IndexBlock *newBlocklist;
   size_t newBlocklistSize;
+  int lastBlockIgnored;
 } InvIdxBuffers;
 
 static int __attribute__((warn_unused_result))
@@ -587,6 +628,7 @@ static void checkLastBlock(ForkGC *gc, InvIdxBuffers *idxData, MSG_IndexInfo *in
 
   info->ndocsCollected -= info->lastblkDocsRemoved;
   info->nbytesCollected -= info->lastblkBytesCollected;
+  idxData->lastBlockIgnored = 1;
   gc->stats.gcBlocksDenied++;
 }
 
@@ -727,11 +769,30 @@ cleanup:
 typedef struct {
   // Node in the tree that was GC'd
   NumericRangeNode *node;
-  uint16_t reduceCardinalitySize;
-  size_t *valuesDeleted;
+  CardinalityValue *lastBlockDeleted;
+  CardinalityValue *restBlockDeleted;
+  size_t nlastBlockDel;
+  size_t nrestBlockDel;
   InvIdxBuffers idxbufs;
   MSG_IndexInfo info;
 } NumGcInfo;
+
+static int recvCardvals(ForkGC *fgc, CardinalityValue **tgt, size_t *len) {
+  if (FGC_recvFixed(fgc, len, sizeof(*len)) != REDISMODULE_OK) {
+    return REDISMODULE_ERR;
+  }
+  *len *= sizeof(**tgt);
+  if (!*len) {
+    *tgt = NULL;
+    return REDISMODULE_OK;
+  }
+  *tgt = rm_malloc(sizeof(**tgt) * *len);
+  int rc = FGC_recvFixed(fgc, *tgt, *len);
+  if (rc == REDISMODULE_OK) {
+    *len /= sizeof(**tgt);
+  }
+  return rc;
+}
 
 static FGCError recvNumIdx(ForkGC *gc, NumGcInfo *ninfo) {
   if (FGC_recvFixed(gc, &ninfo->node, sizeof(ninfo->node)) != REDISMODULE_OK) {
@@ -745,18 +806,11 @@ static FGCError recvNumIdx(ForkGC *gc, NumGcInfo *ninfo) {
     goto error;
   }
 
-  // read reduced cardinality size
-  if (FGC_recvFixed(gc, &ninfo->reduceCardinalitySize, sizeof ninfo->reduceCardinalitySize) !=
-      REDISMODULE_OK) {
+  if (recvCardvals(gc, &ninfo->restBlockDeleted, &ninfo->nrestBlockDel) != REDISMODULE_OK) {
     goto error;
   }
-
-  if (ninfo->reduceCardinalitySize) {
-    size_t msize = sizeof(*ninfo->valuesDeleted) * ninfo->reduceCardinalitySize;
-    ninfo->valuesDeleted = rm_malloc(msize);
-    if (FGC_recvFixed(gc, ninfo->valuesDeleted, msize) != REDISMODULE_OK) {
-      goto error;
-    }
+  if (recvCardvals(gc, &ninfo->lastBlockDeleted, &ninfo->nlastBlockDel) != REDISMODULE_OK) {
+    goto error;
   }
 
   return FGC_COLLECTED;
@@ -764,9 +818,53 @@ static FGCError recvNumIdx(ForkGC *gc, NumGcInfo *ninfo) {
 error:
   printf("Error receiving numeric index!\n");
   freeInvIdx(&ninfo->idxbufs, &ninfo->info);
-  rm_free(ninfo->valuesDeleted);
+  rm_free(ninfo->lastBlockDeleted);
+  rm_free(ninfo->restBlockDeleted);
   memset(ninfo, 0, sizeof(*ninfo));
   return FGC_CHILD_ERROR;
+}
+
+static void resetCardinality(NumGcInfo *info, NumericRange *r) {
+  khash_t(cardvals) *kh = kh_init(cardvals);
+  int dummy;
+  for (size_t ii = 0; ii < info->nrestBlockDel; ++ii) {
+    numUnion u = {info->restBlockDeleted[ii].value};
+    khiter_t it = kh_put(cardvals, kh, u.u64, &dummy);
+    kh_val(kh, it) = info->restBlockDeleted[ii].appearances;
+  }
+  if (!info->idxbufs.lastBlockIgnored) {
+    for (size_t ii = 0; ii < info->nlastBlockDel; ++ii) {
+      numUnion u = {info->lastBlockDeleted[ii].value};
+      khiter_t it = kh_put(cardvals, kh, u.u64, &dummy);
+      kh_val(kh, it) += info->lastBlockDeleted[ii].appearances;
+    }
+  }
+
+  size_t n = array_len(r->values);
+  double minVal = -DBL_MAX, maxVal = DBL_MIN, uniqueSum = 0;
+
+  for (size_t ii = 0; ii < array_len(r->values); ++ii) {
+  reeval:;
+    numUnion u = {r->values[ii].value};
+    khiter_t it = kh_get(cardvals, kh, u.u64);
+    if (it != kh_end(kh) && (r->values[ii].appearances -= kh_val(kh, it)) == 0) {
+      // delet this
+      size_t isLast = array_len(r->values) == ii + 1;
+      array_del_fast(r->values, ii);
+      if (!isLast) {
+        goto reeval;
+      }
+    } else {
+      minVal = MIN(minVal, r->values[ii].value);
+      maxVal = MAX(maxVal, r->values[ii].value);
+      uniqueSum += r->values[ii].value;
+    }
+  }
+  kh_destroy(cardvals, kh);
+  r->minVal = minVal;
+  r->maxVal = maxVal;
+  r->unique_sum = uniqueSum;
+  r->card = array_len(r->values);
 }
 
 static void applyNumIdx(ForkGC *gc, RedisSearchCtx *sctx, NumGcInfo *ninfo) {
@@ -774,29 +872,8 @@ static void applyNumIdx(ForkGC *gc, RedisSearchCtx *sctx, NumGcInfo *ninfo) {
   InvIdxBuffers *idxbufs = &ninfo->idxbufs;
   MSG_IndexInfo *info = &ninfo->info;
   FGC_applyInvertedIndex(gc, idxbufs, info, currNode->range->entries);
-
   FGC_updateStats(sctx, gc, info->ndocsCollected, info->nbytesCollected);
-
-  // fixing cardinality
-  uint16_t newCard = 0;
-  CardinalityValue *newCardValues = array_new(CardinalityValue, currNode->range->splitCard);
-  for (int i = 0; i < array_len(currNode->range->values); ++i) {
-    int appearances = currNode->range->values[i].appearances;
-    if (i < ninfo->reduceCardinalitySize) {
-      appearances -= ninfo->valuesDeleted[i];
-    }
-    if (appearances > 0) {
-      CardinalityValue val;
-      val.value = currNode->range->values[i].value;
-      val.appearances = appearances;
-      newCardValues = array_append(newCardValues, val);
-      ++newCard;
-    }
-  }
-  array_free(currNode->range->values);
-  newCardValues = array_trimm_cap(newCardValues, newCard);
-  currNode->range->values = newCardValues;
-  currNode->range->card = newCard;
+  resetCardinality(ninfo, currNode->range);
 }
 
 static FGCError FGC_parentHandleNumeric(ForkGC *gc, RedisModuleCtx *rctx) {
@@ -864,7 +941,9 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc, RedisModuleCtx *rctx) {
       FGC_unlock(gc, rctx);
       hasLock = 0;
     }
-    rm_free(ninfo.valuesDeleted);
+
+    rm_free(ninfo.restBlockDeleted);
+    rm_free(ninfo.lastBlockDeleted);
   }
 
   rm_free(fieldName);
