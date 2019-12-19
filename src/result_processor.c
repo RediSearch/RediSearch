@@ -597,8 +597,12 @@ static RSValue *getValueFromField(RedisModuleString *origval, int typeCode) {
 static void loadExplicitFields(struct loaderCtx *lc, RedisSearchCtx *sctx, RedisModuleString *idstr,
                                const RSDocumentMetadata *dmd, SearchResult *r) {
 
+  bool openFailed = false;
   RedisModuleKey *k = NULL;
-  int triedOpen = 0;
+  k = RedisModule_OpenKey(sctx->redisCtx, idstr, REDISMODULE_READ);
+  if (!k || RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_HASH) {
+    openFailed = true;
+  }
 
   for (size_t ii = 0; ii < lc->numFields; ++ii) {
     const LoadedField *field = lc->fields + ii;
@@ -608,27 +612,22 @@ static void loadExplicitFields(struct loaderCtx *lc, RedisSearchCtx *sctx, Redis
       RSSortingKey k = {.index = field->sortIndex};
       RSValue *v = RSSortingVector_Get(dmd->sortVector, &k);
       if (v) {
-        RSFieldMap_Set(&r->fields, field->name, v);
+        RSFieldMap_Add(&r->fields, field->name, v);
         continue;
       }
     }
     // Otherwise, we need to load from the fieldspec
-    if (triedOpen && !k) {
+    if (openFailed) {
       continue;  // not gonna open the key
-    }
-    k = RedisModule_OpenKey(sctx->redisCtx, idstr, REDISMODULE_READ);
-    triedOpen = 1;
-    if (!k || RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_HASH) {
-      continue;
     }
 
     // Try to get the field
     RedisModuleString *v = NULL;
     int rv = RedisModule_HashGet(k, REDISMODULE_HASH_CFIELDS, field->name, &v, NULL);
     if (rv == REDISMODULE_OK && v) {
-      RSFieldMap_Set(&r->fields, field->name, getValueFromField(v, field->type));
+      RSFieldMap_Add(&r->fields, field->name, getValueFromField(v, field->type));
     } else {
-      RSFieldMap_Set(&r->fields, field->name, RS_NullVal());
+      RSFieldMap_Add(&r->fields, field->name, RS_NullVal());
     }
   }
 
