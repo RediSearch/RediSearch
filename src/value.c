@@ -666,7 +666,7 @@ RSValue *RSFieldMap_GetByKey(RSFieldMap *m, RSKey *k) {
 }
 
 /* Add a filed to the map WITHOUT checking for duplications */
-void RSFieldMap_Add(RSFieldMap **m, const char *key, RSValue *val) {
+inline void RSFieldMap_Add(RSFieldMap **m, const char *key, RSValue *val) {
   RSFieldMap_EnsureCap(m);
   // Creating the field will create a  reference and increase the ref count on val
   FIELDMAP_FIELD(*m, (*m)->len++) = RS_NewField(key, val);
@@ -674,7 +674,7 @@ void RSFieldMap_Add(RSFieldMap **m, const char *key, RSValue *val) {
 
 /* Set a value in the map for a given key, checking for duplicates and replacing the existing
  * value if needed, and appending a new one if needed */
-void RSFieldMap_Set(RSFieldMap **m, const char *key, RSValue *val) {
+inline void RSFieldMap_Set(RSFieldMap **m, const char *key, RSValue *val) {
   key = RSKEY(key);
   if (*m) {
     for (uint16_t i = 0; i < (*m)->len; i++) {
@@ -689,7 +689,6 @@ void RSFieldMap_Set(RSFieldMap **m, const char *key, RSValue *val) {
     }
   }
   RSFieldMap_EnsureCap(m);
-
   // not found - append a new field
   FIELDMAP_FIELD(*m, (*m)->len++) = RS_NewField(key, val);
 }
