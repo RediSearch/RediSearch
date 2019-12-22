@@ -46,6 +46,16 @@ void AggregateCommand_ExecAggregateEx(RedisModuleCtx *ctx, RedisModuleString **a
 
   RedisModule_AutoMemory(ctx);
   RedisSearchCtx *sctx;
+
+  if (settings->cursorLookupName) {
+    IndexLoadOptions lOpts = {.name = {.cstring = settings->cursorLookupName}};
+    IndexSpec *sp = IndexSpec_LoadEx(ctx, &lOpts);
+    if (!sp) {
+      RedisModule_ReplyWithError(ctx, "Unknown Index name");
+      return;
+    }
+  }
+
   if (settings->flags & AGGREGATE_REQUEST_SPECLESS) {
     sctx = NewSearchCtxDefault(ctx);
   } else {

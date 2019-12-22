@@ -2094,6 +2094,12 @@ def testIssue_779(env):
     env.expect('FT.ADD idx2 doc2 1.0 REPLACE PARTIAL if @ot1<4-002 FIELDS newf DOG ot1 4002').contains('Syntax error')
     env.expect('FT.ADD idx2 doc2 1.0 REPLACE PARTIAL if @ot1<to_number(4-002) FIELDS newf DOG ot1 4002').contains('Syntax error')
 
+def testIndexNotRemovedFromCursorListAfterRecreated(env):
+    env.expect('FT.CREATE idx SCHEMA f1 TEXT').ok()
+    env.expect('FT.AGGREGATE idx * WITHCURSOR').equal([[0], 0])
+    env.expect('FT.CREATE idx SCHEMA f1 TEXT').error()
+    env.expect('FT.AGGREGATE idx * WITHCURSOR').equal([[0], 0])
+
 def testUnknownSymbolErrorOnConditionalAdd(env):
     env.expect('FT.CREATE idx SCHEMA f1 TAG f2 NUMERIC NOINDEX f3 TAG NOINDEX').ok()
     env.expect('ft.add idx doc1 1.0 REPLACE PARTIAL IF @f1<awfwaf FIELDS f1 foo f2 1 f3 boo').ok()
