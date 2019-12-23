@@ -142,7 +142,7 @@ size_t gc_RandomTerm(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status) 
     } while (idx != NULL);
   }
   if (totalRemoved) {
-    RedisModule_Log(ctx, "notice", "Garbage collected %zd bytes in %zd records for term '%s'",
+    RedisModule_Log(ctx, "debug", "Garbage collected %zd bytes in %zd records for term '%s'",
                     totalCollected, totalRemoved, term);
   }
   rm_free(term);
