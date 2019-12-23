@@ -941,7 +941,6 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepa
   }
 
   while (!BufferReader_AtEnd(&br)) {
-    static const IndexDecoderCtx empty = {0};
     const char *bufBegin = BufferReader_Current(&br);
     decoder(&br, (IndexDecoderCtx){}, res);
     size_t sz = BufferReader_Current(&br) - bufBegin;
