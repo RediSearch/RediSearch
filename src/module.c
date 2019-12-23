@@ -342,7 +342,7 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
                    MAX_LEV_DISTANCE));
       goto end;
     }
-  } // LCOV_EXCL_LINE
+  }  // LCOV_EXCL_LINE
 
   int nextPos = 0;
   while ((nextPos = RMUtil_ArgExists("TERMS", argv, argc, nextPos + 1))) {
@@ -487,15 +487,11 @@ int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (sp->gc) {
       GCContext_OnDelete(sp->gc);
     }
-<<<<<<< HEAD
-    RedisModule_Replicate(ctx, RS_DEL_CMD, "cs", sp->name, argv[2]);
-=======
     if (!delDoc) {
       RedisModule_Replicate(ctx, RS_DEL_CMD, "cs", sp->name, argv[2]);
     } else {
       RedisModule_Replicate(ctx, RS_DEL_CMD, "csc", sp->name, argv[2], "dd");
     }
->>>>>>> 67477030... Update module.c
   }
   return RedisModule_ReplyWithLongLong(ctx, rc);
 }
