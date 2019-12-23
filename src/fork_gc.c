@@ -705,6 +705,7 @@ static void FGC_applyInvertedIndex(ForkGC *gc, InvIdxBuffers *idxData, MSG_Index
   }
 
   idx->numDocs -= info->ndocsCollected;
+  idx->gcMarker++;
 }
 
 static FGCError FGC_parentHandleTerms(ForkGC *gc, RedisModuleCtx *rctx) {
