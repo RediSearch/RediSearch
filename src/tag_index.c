@@ -151,6 +151,7 @@ static void TagReader_OnReopen(RedisModuleKey *k, void *privdata) {
 
       // reset the state of the reader
       t_docId lastId = ir->lastId;
+      ir->currentBlock = 0;
       ir->br = NewBufferReader(&ir->idx->blocks[ir->currentBlock].buf);
       ir->lastId = 0;
 
