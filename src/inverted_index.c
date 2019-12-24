@@ -114,6 +114,7 @@ void IndexReader_OnReopen(RedisModuleKey *k, void *privdata) {
 
     // reset the state of the reader
     t_docId lastId = ir->lastId;
+    ir->currentBlock = 0;
     ir->br = NewBufferReader(&IR_CURRENT_BLOCK(ir).buf);
     ir->lastId = IR_CURRENT_BLOCK(ir).firstId;
 
