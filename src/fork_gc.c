@@ -50,7 +50,7 @@ static int ForkGc_FDRead(int fd, void *buff, size_t len) {
       printf("failed reading data from forkgc process\n");
       return REDISMODULE_ERR;
     }
-    if(l == 0){
+    if (l == 0) {
       // we are writing to stdout cause we can not write logs from another thread currently.
       printf("got eof when reading data from forkgc process\n");
       return REDISMODULE_ERR;
@@ -86,7 +86,7 @@ static char *ForkGc_FDReadBuffer(int fd, size_t *len) {
   if (size == LONG_ERROR) {
     return PTR_ERROR;
   }
-  if(size > INT_MAX){
+  if (size > INT_MAX) {
     return PTR_ERROR;
   }
   *len = size;
@@ -393,11 +393,11 @@ typedef struct {
   ModifiedBlock *blocksModified;
 } ForkGc_InvertedIndexData;
 
-#define TRY_READ_LONG(fd, val)     \
+#define TRY_READ_LONG(fd, val)      \
   temp = ForkGc_FDReadLongLong(fd); \
   if (temp == LONG_ERROR) {         \
-    return false;                  \
-  } \
+    return false;                   \
+  }                                 \
   val = temp;
 
 static bool ForkGc_ReadModifiedBlock(ForkGCCtx *gc, ModifiedBlock *blockModified) {
@@ -512,6 +512,9 @@ static void ForkGc_FixInvertedIndex(ForkGCCtx *gc, ForkGc_InvertedIndexData *idx
     idx->blocks[blockModified->blockIndex] = blockModified->blk;
   }
   idx->numDocs -= totalDeleted;
+
+  // Increase the GC marker so other queries can tell that we did something
+  ++idx->gcMarker;
 }
 
 #define GC_RET_VAL_SUCCESS 1

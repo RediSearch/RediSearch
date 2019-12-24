@@ -107,23 +107,24 @@ int isRdbLoading(RedisModuleCtx *ctx) {
 
 IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                char **err) {
-  IndexSpec *sp = IndexSpec_ParseRedisArgs(ctx, argv[1], &argv[2], argc - 2, err);
-  if (sp == NULL) {
-    SET_ERR(err, "Could not parse index spec");
-    return NULL;
-  }
-
-  RedisModuleString *keyString = RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, sp->name);
+  const char *specName = RedisModule_StringPtrLen(argv[1], NULL);
+  RedisModuleString *keyString = RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, specName);
   RedisModuleKey *k = RedisModule_OpenKey(ctx, keyString, REDISMODULE_READ | REDISMODULE_WRITE);
 
   // check that the key is empty
   if (k == NULL || (RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_EMPTY)) {
-    if (RedisModule_ModuleTypeGetType(k) != IndexSpecType) {
+    if (k && (RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_MODULE ||
+              RedisModule_ModuleTypeGetType(k) != IndexSpecType)) {
       SET_ERR(err, "Wrong type for index key");
     } else {
       SET_ERR(err, "Index already exists. Drop it first!");
     }
-    IndexSpec_Free(sp);
+    return NULL;
+  }
+
+  IndexSpec *sp = IndexSpec_ParseRedisArgs(ctx, argv[1], &argv[2], argc - 2, err);
+  if (sp == NULL) {
+    SET_ERR(err, "Could not parse index spec");
     return NULL;
   }
 

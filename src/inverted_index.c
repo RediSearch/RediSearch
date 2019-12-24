@@ -94,6 +94,9 @@ void IndexReader_OnReopen(RedisModuleKey *k, void *privdata) {
 
     // reset the state of the reader
     t_docId lastId = ir->lastId;
+    // we must reset the current block to zero as it might be that the currentBlock
+    // is no longer valid if the blocks array change by gc
+    ir->currentBlock = 0;
     ir->br = NewBufferReader(IR_CURRENT_BLOCK(ir).data);
     ir->lastId = IR_CURRENT_BLOCK(ir).firstId;
 
@@ -920,14 +923,13 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepa
 
   t_docId oldFirstBlock = blk->lastId;
   blk->lastId = blk->firstId = 0;
-  Buffer repair = *blk->data;
-  repair.offset = 0;
-
+  Buffer repair = {0};
   BufferReader br = NewBufferReader(blk->data);
   BufferWriter bw = NewBufferWriter(&repair);
 
   RSIndexResult *res = flags == Index_StoreNumeric ? NewNumericResult() : NewTokenRecord(NULL, 1);
-  int frags = 0;
+  size_t frags = 0;
+  int isLastValid = 0;
 
   uint32_t readFlags = flags & INDEX_STORAGE_MASK;
   IndexDecoder decoder = InvertedIndex_GetDecoder(readFlags);
@@ -961,12 +963,15 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepa
       if (params->RepairCallback) {
         params->RepairCallback(res, params->arg);
       }
-      ++frags;
+      if (!frags++) {
+        // First invalid doc; copy everything prior to this to the repair
+        // buffer
+        Buffer_Write(&bw, blk->data->data, bufBegin - blk->data->data);
+      }
       params->bytesCollected += sz;
-    } else {  // valid document
-
-      // If we're already operating in a repaired block, we do nothing if we found no holes yet, or
-      // write back the record at the writer's top end if we've found a hole before
+      isLastValid = 0;
+    } else {
+      // Valid document, but we're rewriting the block:
       if (frags) {
 
         // In this case we are already closing holes, so we need to write back the record at the
@@ -974,24 +979,27 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepa
         if (!blk->lastId) {
           blk->lastId = res->docId;
         }
-        encoder(&bw, res->docId - blk->lastId, res);
-
-      } else {
-        // Nothing to do - this block is not fragmented as of now, so we just advance the writer
-        bw.buf->offset += sz;
-        bw.pos += sz;
+        if (isLastValid) {
+          Buffer_Write(&bw, (char *)bufBegin, sz);
+        } else {
+          encoder(&bw, res->docId - blk->lastId, res);
+        }
       }
 
+      // Update these for every valid document, even for those which
+      // are not repaired
       if (blk->firstId == 0) {
         blk->firstId = res->docId;
       }
       blk->lastId = res->docId;
+      isLastValid = 1;
     }
   }
   if (frags) {
     // If we deleted stuff from this block, we need to change the number of docs and the data
     // pointer
     blk->numDocs -= frags;
+    Buffer_Free(blk->data);
     *blk->data = repair;
     Buffer_Truncate(blk->data, 0);
   }

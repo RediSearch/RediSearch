@@ -743,7 +743,7 @@ int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
   RedisModule_AutoMemory(ctx);
   RedisModule_ReplicateVerbatim(ctx);
-  char *err;
+  char *err = NULL;
 
   IndexSpec *sp = IndexSpec_CreateNew(ctx, argv, argc, &err);
   if (sp == NULL) {
