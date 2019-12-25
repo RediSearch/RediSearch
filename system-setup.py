@@ -22,10 +22,12 @@ class RediSearchSetup(paella.Setup):
         self.install("git cmake wget awscli lcov")
 
     def debian_compat(self):
+        self.install("libatomic1")
         self.install("build-essential")
         self.install("python-psutil")
 
     def redhat_compat(self):
+        self.install("libatomic")
         self.group_install("'Development Tools'")
         self.install("redhat-lsb-core")
 
@@ -34,6 +36,7 @@ class RediSearchSetup(paella.Setup):
         self.install("python2-psutil")
 
     def fedora(self):
+        self.install("libatomic")
         self.group_install("'Development Tools'")
 
     def macosx(self):

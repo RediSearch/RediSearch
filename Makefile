@@ -10,6 +10,7 @@ make build         # compile and link
   DEBUG=1          # build for debugging
   TEST=1           # enable unit tests
   WHY=1            # explain CMake decisions (in /tmp/cmake-why)
+  CMAKE_ARGS       # extra arguments to CMake
 make parsers       # build parsers code
 make clean         # remove build artifacts
   ALL=1              # remove entire artifacts directory
@@ -82,11 +83,11 @@ ifeq ($(WHY),1)
 	@echo CMake log is in /tmp/cmake-why
 endif
 	@mkdir -p $(BINROOT)
-	@cd $(BINROOT) && cmake .. $(CMAKE_TEST) $(CMAKE_DEBUG) $(CMAKE_WHY)
+	@cd $(BINROOT) && cmake .. $(CMAKE_ARGS) $(CMAKE_TEST) $(CMAKE_DEBUG) $(CMAKE_WHY)
 
 $(COMPAT_DIR)/redisearch.so: $(COMPAT_DIR)/Makefile
 	$(MAKE) -C $(BINROOT) -j$(shell nproc)
-	if [ ! -f src/redisearch.so ]; then cd src; ln -s ../$(BINROOT)/redisearch.so; fi
+#	if [ ! -f src/redisearch.so ]; then cd src; ln -s ../$(BINROOT)/redisearch.so; fi
 
 .PHONY: build clean run 
 
@@ -188,11 +189,22 @@ deploydocs:
 
 MODULE_VERSION := $(shell git describe)
 
+DOCKER_ARGS=
+
+ifeq ($(CACHE),0)
+DOCKER_ARGS += --no-cache
+endif
+
+DOCKER_IMAGE ?= redislabs/redisearch
+
 docker:
-	docker build . -t redislabs/redisearch --build-arg=GIT_DESCRIBE_VERSION=$(MODULE_VERSION)
+	docker build . -t $(DOCKER_IMAGE) -f docker/Dockerfile.1 $(DOCKER_ARGS) \
+		--build-arg=GIT_DESCRIBE_VERSION=$(MODULE_VERSION)
 
 docker_push: docker
 	docker push redislabs/redisearch:latest
 	docker tag redislabs/redisearch:latest redislabs/redisearch:$(MODULE_VERSION)
 	docker push redislabs/redisearch:$(MODULE_VERSION)
+
+.PHONY: docker docker_push
 
