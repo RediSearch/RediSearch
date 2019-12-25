@@ -3,6 +3,7 @@
 #include "search_ctx.h"
 #include "aggregate.h"
 #include "cursor.h"
+#include "alias.h"
 
 static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num);
 
@@ -51,8 +52,17 @@ void AggregateCommand_ExecAggregateEx(RedisModuleCtx *ctx, RedisModuleString **a
     IndexLoadOptions lOpts = {.name = {.cstring = settings->cursorLookupName}};
     IndexSpec *sp = IndexSpec_LoadEx(ctx, &lOpts);
     if (!sp) {
-      RedisModule_ReplyWithError(ctx, "Unknown Index name");
-      return;
+      // check if its not alias
+      size_t targetLen = rindex(settings->cursorLookupName, '{') - settings->cursorLookupName;
+      settings->cursorLookupName[targetLen] = '\0';
+      sp = IndexAlias_Get(settings->cursorLookupName);
+      if (!sp) {
+        RedisModule_ReplyWithError(ctx, "Unknown Index name");
+        return;
+      }
+
+      // This is an alias, let return the cursor lookup name
+      settings->cursorLookupName[targetLen] = '{';
     }
   }
 

@@ -42,8 +42,8 @@ ResultProcessor *Aggregate_DefaultChainBuilder(QueryPlan *plan, void *ctx, Query
 
 typedef struct {
   ProcessorChainBuilder pcb;
-  const char *cursorLookupName;  // Override the index name in the SearchCtx
-  int flags;                     // AGGREGATE_REQUEST_XXX
+  char *cursorLookupName;  // Override the index name in the SearchCtx
+  int flags;               // AGGREGATE_REQUEST_XXX
 } AggregateRequestSettings;
 
 /**
