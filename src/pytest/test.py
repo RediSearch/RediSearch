@@ -2902,5 +2902,8 @@ def testSetPayload(env):
     env.expect('FT.SETPAYLOAD fake_idx hotel payload').error().contains('Unknown Index name')    
     env.expect('FT.SETPAYLOAD idx fake_hotel payload').error().contains('Document not in index')    
 
-
-    
+def testIndexNotRemovedFromCursorListAfterRecreated(env):
+    env.expect('FT.CREATE idx SCHEMA f1 TEXT').ok()
+    env.expect('FT.AGGREGATE idx * WITHCURSOR').equal([[0], 0])
+    env.expect('FT.CREATE idx SCHEMA f1 TEXT').error()
+    env.expect('FT.AGGREGATE idx * WITHCURSOR').equal([[0], 0])

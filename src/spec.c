@@ -20,7 +20,7 @@ void (*IndexSpec_OnCreate)(const IndexSpec *) = NULL;
 const char *(*IndexAlias_GetUserTableName)(RedisModuleCtx *, const char *) = NULL;
 
 RedisModuleType *IndexSpecType;
-uint64_t spec_unique_ids = 0;
+static uint64_t spec_unique_ids = 1;
 
 static const FieldSpec *getFieldCommon(const IndexSpec *spec, const char *name, size_t len,
                                        int useCase) {
@@ -654,8 +654,12 @@ static void IndexSpec_FreeInternals(IndexSpec *spec) {
   }
   DocTable_Free(&spec->docs);
 
-  Cursors_PurgeWithName(&RSCursors, spec->name);
-  CursorList_RemoveSpec(&RSCursors, spec->name);
+  if (spec->uniqueId) {
+    // If uniqueid is 0, it means the index was not initialized
+    // and is being freed now during an error.
+    Cursors_PurgeWithName(&RSCursors, spec->name);
+    CursorList_RemoveSpec(&RSCursors, spec->name);
+  }
 
   rm_free(spec->name);
   if (spec->sortables) {
