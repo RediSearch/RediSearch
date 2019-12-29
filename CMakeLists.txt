@@ -20,11 +20,14 @@ IF (RS_MODULE_NAME)
 ENDIF()
 
 INCLUDE(cmake/redisearch_cflags.cmake)
+INCLUDE(cmake/redisearch_debug.cmake)
 
 ADD_DEFINITIONS(-UNDEBUG)
 
 SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${RS_C_FLAGS}")
 SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${RS_CXX_FLAGS}")
+SET(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${RS_EXE_FLAGS}")
+SET(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} ${RS_SO_FLAGS}")
 
 IF(RS_RUN_TESTS)
     ENABLE_TESTING()
@@ -109,7 +112,8 @@ FILE(GLOB RS_SRC
     "src/dep/libnu/*.c"
     "src/dep/miniz/*.c"
     "src/dep/thpool/*.c"
-    "src/dep/triemap/*.c")
+    "src/dep/triemap/*.c"
+    ${RS_DEBUG_SRC})
 
 
 ADD_LIBRARY(rscore OBJECT ${RS_SRC})

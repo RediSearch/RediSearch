@@ -1,30 +1,61 @@
-FROM redislabsmodules/rmbuilder:latest as builder
+# BUILD redisfab/redisearch-${OSNICK}:${VERSION}-${ARCH}
 
-# Build the source
+ARG REDIS_VER=5.0.7
+
+# OSNICK=bionic|stretch|buster
+ARG OSNICK=buster
+
+# OS=debian:buster-slim|debian:stretch-slim|ubuntu:bionic
+ARG OS=debian:buster-slim
+
+# ARCH=x64|arm64v8|arm32v7
+ARG ARCH=x64
+
 ARG GIT_DESCRIBE_VERSION
-ADD . /RSBUILD
-WORKDIR /RSBUILD
-RUN set -ex;\
-    ./srcutil/get_gtest.sh; \
-    rm -rf docker-build; \
-    mkdir docker-build; \
-    cd docker-build; \
-    cmake \
-        -DCMAKE_BUILD_TYPE=RelWithDebInfo ../ \
-        -DGIT_DESCRIBE_VERSION="$GIT_DESCRIBE_VERSION" \
-        -DRS_RUN_TESTS=ON \
-        -DRS_VERBOSE_TESTS=ON; \
-    make -j4; \
-    pip install git+https://github.com/RedisLabsModules/RLTest; \
-    pip install redis-py-cluster; \
-    ctest -V;
 
-# Package the runner
-FROM redis:latest
-ENV LIBDIR /usr/lib/redis/modules
+#----------------------------------------------------------------------------------------------
+FROM redisfab/redis:${REDIS_VER}-${ARCH}-${OSNICK} AS redis
+FROM ${OS} AS builder
+
+ARG OSNICK
+ARG OS
+ARG ARCH
+ARG REDIS_VER
+ARG GIT_DESCRIBE_VERSION
+
+RUN echo "Building for ${OSNICK} (${OS}) for ${ARCH}"
+
+WORKDIR /build
+COPY --from=redis /usr/local/ /usr/local/
+
+ADD . /build
+
+RUN ./deps/readies/bin/getpy2
+RUN ./system-setup.py
+RUN /usr/local/bin/redis-server --version
+RUN make fetch SHOW=1
+RUN make build SHOW=1 CMAKE_ARGS="-DGIT_DESCRIBE_VERSION=${GIT_DESCRIBE_VERSION}"
+
+# ARG PACK=0
+ARG TEST=0
+
+# RUN if [ "$PACK" = "1" ]; then make pack; fi
+RUN if [ "$TEST" = "1" ]; then TEST= make test; fi
+
+#----------------------------------------------------------------------------------------------
+FROM redisfab/redis:${REDIS_VER}-${ARCH}-${OSNICK}
+
+ARG OSNICK
+ARG OS
+ARG ARCH
+ARG REDIS_VER
+# ARG PACK
+
 WORKDIR /data
-RUN set -ex;\
-    mkdir -p "$LIBDIR";
 
-COPY --from=builder /RSBUILD/docker-build/redisearch.so  "$LIBDIR"
+ENV LIBDIR /usr/lib/redis/modules
+RUN mkdir -p "$LIBDIR";
+
+COPY --from=builder /build/build/redisearch.so  "$LIBDIR"
+
 CMD ["redis-server", "--loadmodule", "/usr/lib/redis/modules/redisearch.so"]

@@ -1,5 +1,7 @@
 import os
 import subprocess
+from includes import *
+
 
 REDISEARCH_CACHE_DIR = '/tmp/'
 BASE_RDBS_URL = 'https://s3.amazonaws.com/redismodules/redisearch-enterprise/rdbs/'

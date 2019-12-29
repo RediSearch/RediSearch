@@ -1,3 +1,4 @@
+from includes import *
 
 
 def testBasicFuzzy(env):

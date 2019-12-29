@@ -1,4 +1,5 @@
 import platform
+from includes import *
 
 
 def testWideSchema(env):

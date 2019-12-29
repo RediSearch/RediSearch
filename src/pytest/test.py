@@ -6,6 +6,7 @@ from hotels import hotels
 import random
 import time
 from RLTest import Env
+from includes import *
 
 def testAdd(env):
     if env.is_cluster():

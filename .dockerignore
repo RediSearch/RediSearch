@@ -8,6 +8,6 @@
 **/*.so
 **/*.o
 **/*.a
-.git
+# .git
 site
 build*/

@@ -1,4 +1,5 @@
 import os.path
+from includes import *
 
 
 GENTEXT = os.path.dirname(os.path.abspath(__file__)) + '/../tests/genesis.txt'
