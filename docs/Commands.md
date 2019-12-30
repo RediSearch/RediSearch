@@ -532,9 +532,9 @@ FT.SEARCH idx "@text:morphix=>{$phonetic:false}"
 
 ### Complexity
 
-O(n) for single word queries (though for popular words we save a cache of the top 50 results). `n` is the number of the results in the result set. Finding all the documents that have a specific term is O(1), however, a scan on all those documents is needed to load the documents data from redis hashes and return them.
+O(n) for single word queries. `n` is the number of the results in the result set. Finding all the documents that have a specific term is O(1), however, a scan on all those documents is needed to load the documents data from redis hashes and return them.
 
-Complexity for complex queries changes, but in general it's proportional to the number of words, the number of intersection points between them and the number of results in the result set.
+The time complexity for more complex queries varies, but in general it's proportional to the number of words, the number of intersection points between them and the number of results in the result set.
 
 ### Returns
 
