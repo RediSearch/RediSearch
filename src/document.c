@@ -366,7 +366,7 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
     RSSortingVector_Put(aCtx->sv, fs->sortIdx, (void *)c, RS_SORTABLE_STR);
   }
 
-  if (FieldSpec_IsIndexable(fs)) {
+  if (FieldSpec_IsIndexable(fs) && *c != '\0') {
     ForwardIndexTokenizerCtx tokCtx;
     VarintVectorWriter *curOffsetWriter = NULL;
     RSByteOffsetField *curOffsetField = NULL;
@@ -396,7 +396,7 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
       lastTokPos = newTokPos;
     }
 
-    if (curOffsetField) {
+    if (curOffsetField && *c != '\0') {
       curOffsetField->lastTokPos = lastTokPos;
     }
     aCtx->totalTokens = lastTokPos;
