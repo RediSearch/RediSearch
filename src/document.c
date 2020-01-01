@@ -396,7 +396,7 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
     }
     lastTokPos = tok.pos;
 
-    if (curOffsetField && *c != '\0') {
+    if (curOffsetField) {
       curOffsetField->lastTokPos = lastTokPos;
     }
     aCtx->totalTokens = lastTokPos;
