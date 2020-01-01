@@ -366,7 +366,7 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
     RSSortingVector_Put(aCtx->sv, fs->sortIdx, (void *)c, RS_SORTABLE_STR);
   }
 
-  if (FieldSpec_IsIndexable(fs) && *c != '\0') {
+  if (FieldSpec_IsIndexable(fs)) {
     ForwardIndexTokenizerCtx tokCtx;
     VarintVectorWriter *curOffsetWriter = NULL;
     RSByteOffsetField *curOffsetField = NULL;
