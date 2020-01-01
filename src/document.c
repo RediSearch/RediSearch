@@ -393,8 +393,8 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
     uint32_t newTokPos;
     while (0 != (newTokPos = aCtx->tokenizer->Next(aCtx->tokenizer, &tok))) {
       forwardIndexTokenFunc(&tokCtx, &tok);
-      lastTokPos = newTokPos;
     }
+    lastTokPos = tok.pos;
 
     if (curOffsetField && *c != '\0') {
       curOffsetField->lastTokPos = lastTokPos;
