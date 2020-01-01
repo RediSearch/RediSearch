@@ -173,6 +173,7 @@ def grouper(iterable, n, fillvalue=None):
     return izip_longest(fillvalue=fillvalue, *args)
 
 def testFailedHighlight(env):
+    #test NOINDEX
     env.cmd('ft.create idx SCHEMA f1 TEXT f2 TEXT f3 TEXT NOINDEX')
     env.cmd('ft.add idx doc1 1.0 FIELDS f1 "foo foo foo" f2 "bar bar bar" f3 "baz baz baz"')
     env.assertEqual([1L, 'doc1', ['f1', '"<b>foo</b>', 'foo', 'foo"', 'f2', '"bar', 'bar', 'bar"', 'f3', '"baz', 'baz', 'baz"']],
@@ -182,6 +183,7 @@ def testFailedHighlight(env):
     env.assertEqual([1L, 'doc1', ['f1', '"foo', 'foo', 'foo"', 'f2', '"bar', 'bar', 'bar"', 'f3', '"baz', 'baz', 'baz"']],
         env.cmd('ft.search idx foo highlight fields 1 f3'))
 
+    #test empty string
     env.cmd('ft.create idx2 SCHEMA f1 TEXT f2 TEXT f3 TEXT')
     env.cmd('ft.add idx2 doc2 1.0 FIELDS f1 "foo foo foo" f2 "" f3 "baz baz baz"')
     env.assertEqual([1L, 'doc2', ['f1', '"<b>foo</b>', 'foo', 'foo"', 'f2', '""', 'f3', '"baz', 'baz', 'baz"']],
@@ -191,8 +193,7 @@ def testFailedHighlight(env):
     env.assertEqual([1L, 'doc2', ['f1', '"foo', 'foo', 'foo"', 'f2', '""', 'f3', '"baz', 'baz', 'baz"']],
         env.cmd('ft.search idx2 foo highlight fields 1 f3'))
 
-
-#currently fails as with Unhandled exception: Fields must be specified in FIELD VALUE pairs on ft.add
+    #test stop word list
     env.cmd('ft.create idx3 SCHEMA f1 TEXT f2 TEXT f3 TEXT')
     env.cmd('ft.add', 'idx3', 'doc3', '1.0', 'FIELDS', 'f1', 'foo', 'foo', 'foo', 'f2', 'not', 'f3', 'baz', 'baz', 'baz')
     env.assertEqual([1L, 'doc3', ['f1', '<b>foo</b>', 'foo', 'foo', 'f2', 'not', 'f3', 'baz', 'baz', 'baz']],
@@ -201,6 +202,3 @@ def testFailedHighlight(env):
         env.cmd('ft.search idx3 foo highlight fields 1 f2'))
     env.assertEqual([1L, 'doc3', ['f1', 'foo', 'foo', 'foo', 'f2', 'not', 'f3', 'baz', 'baz', 'baz']],
         env.cmd('ft.search idx3 foo highlight fields 1 f3'))
-
-
-#redis.execute_command('ft.add', 'idx', 'doc5', '1.0', 'FIELDS', 'f1', 'foo', 'foo', 'foo', 'f2', 'not', 'a', 'f3', 'baz', 'baz', 'baz')
