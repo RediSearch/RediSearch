@@ -394,7 +394,7 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
     while (0 != (newTokPos = aCtx->tokenizer->Next(aCtx->tokenizer, &tok))) {
       forwardIndexTokenFunc(&tokCtx, &tok);
     }
-    lastTokPos = tok.pos;
+    lastTokPos = aCtx->tokenizer->ctx.lastOffset;
 
     if (curOffsetField) {
       curOffsetField->lastTokPos = lastTokPos;
