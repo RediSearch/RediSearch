@@ -51,7 +51,7 @@ void AggregateCommand_ExecAggregateEx(RedisModuleCtx *ctx, RedisModuleString **a
   if (settings->cursorLookupName) {
     // if we reached here we came from coordinator and its not holding the GIL
     // so we must acquire the GIL
-    RedisModule_ThreadSafeCtxLock(ctx);
+    RedisModule_ThreadSafeContextLock(ctx);
     IndexLoadOptions lOpts = {.name = {.cstring = settings->cursorLookupName}};
     IndexSpec *sp = IndexSpec_LoadEx(ctx, &lOpts);
     if (!sp) {
@@ -61,14 +61,14 @@ void AggregateCommand_ExecAggregateEx(RedisModuleCtx *ctx, RedisModuleString **a
       sp = IndexAlias_Get(settings->cursorLookupName);
       if (!sp) {
         RedisModule_ReplyWithError(ctx, "Unknown Index name");
-        RedisModule_ThreadSafeCtxUnlock(ctx);
+        RedisModule_ThreadSafeContextUnlock(ctx);
         return;
       }
 
       // This is an alias, let return the cursor lookup name
       settings->cursorLookupName[targetLen] = '{';
     }
-    RedisModule_ThreadSafeCtxUnlock(ctx);
+    RedisModule_ThreadSafeContextUnlock(ctx);
   }
 
   if (settings->flags & AGGREGATE_REQUEST_SPECLESS) {
