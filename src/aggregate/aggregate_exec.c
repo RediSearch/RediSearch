@@ -52,7 +52,10 @@ void AggregateCommand_ExecAggregateEx(RedisModuleCtx *ctx, RedisModuleString **a
     // if we reached here we came from coordinator and its not holding the GIL
     // so we must acquire the GIL
     RedisModule_ThreadSafeContextLock(ctx);
-    IndexLoadOptions lOpts = {.name = {.cstring = settings->cursorLookupName}};
+    IndexLoadOptions lOpts = {
+        .name = {.cstring = settings->cursorLookupName},
+        .flags = INDEXSPEC_LOAD_KEYLESS,
+    };
     IndexSpec *sp = IndexSpec_LoadEx(ctx, &lOpts);
     if (!sp) {
       // check if its not alias
