@@ -589,7 +589,10 @@ static RSValue *getValueFromField(RedisModuleString *origval, int typeCode) {
     case FIELD_TAG:
     case FIELD_GEO:
     default:
-      return RS_RedisStringVal(origval);
+    {
+      char* val = rm_strdup(RedisModule_StringPtrLen(origval, NULL));
+      return RS_StringValC(val);
+    }
       // Just store as a string
   }
 }
@@ -626,6 +629,7 @@ static void loadExplicitFields(struct loaderCtx *lc, RedisSearchCtx *sctx, Redis
     int rv = RedisModule_HashGet(k, REDISMODULE_HASH_CFIELDS, field->name, &v, NULL);
     if (rv == REDISMODULE_OK && v) {
       RSFieldMap_Add(&r->fields, field->name, getValueFromField(v, field->type));
+      RedisModule_FreeString(sctx->redisCtx, v);
     } else {
       RSFieldMap_Add(&r->fields, field->name, RS_NullVal());
     }
