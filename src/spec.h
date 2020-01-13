@@ -40,6 +40,7 @@ extern "C" {
 #define SPEC_NOINDEX_STR "NOINDEX"
 #define SPEC_SEPARATOR_STR "SEPARATOR"
 #define SPEC_MULTITYPE_STR "MULTITYPE"
+#define SPEC_WITHRULES_STR "WITHRULES"
 
 /**
  * If wishing to represent field types positionally, use this
@@ -90,7 +91,10 @@ typedef enum {
   Index_DocIdsOnly = 0x00,
 
   // If any of the fields has phonetics. This is just a cache for quick lookup
-  Index_HasPhonetic = 0x400
+  Index_HasPhonetic = 0x400,
+
+  // Schema/Rule based indexing
+  Index_UseRules = 0x800
 } IndexFlags;
 
 /**

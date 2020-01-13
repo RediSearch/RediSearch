@@ -299,6 +299,10 @@ int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (sp == NULL) {
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
+  if (sp->flags & Index_UseRules) {
+    return RedisModule_ReplyWithError(
+        ctx, "Cannot manually remove documents from index declared using `WITHRULES`");
+  }
 
   int delDoc = 0;
   if (argc == 4 && RMUtil_StringEqualsCaseC(argv[3], "DD")) {

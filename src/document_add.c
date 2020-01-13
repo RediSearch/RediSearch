@@ -251,6 +251,11 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     RedisModule_ReplyWithError(ctx, "Unknown index name");
     goto cleanup;
   }
+  if (sp->flags & Index_UseRules) {
+    RedisModule_ReplyWithError(ctx,
+                               "Cannot manually add documents to index declared using `WITHRULES`");
+    goto cleanup;
+  }
   if (canBlock) {
     canBlock = !(sp->flags & Index_Temporary) && CheckConcurrentSupport(ctx);
   }
@@ -360,6 +365,11 @@ static int doAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
   if (sp == NULL) {
     QueryError_SetErrorFmt(&status, QUERY_EGENERIC, "Unknown Index name");
+    goto cleanup;
+  }
+  if (sp->flags & Index_UseRules) {
+    QueryError_SetErrorFmt(&status, QUERY_EINVAL,
+                           "Cannot manually add documents to index declared using `WITHRULES`");
     goto cleanup;
   }
 
