@@ -94,7 +94,10 @@ typedef enum {
   Index_HasPhonetic = 0x400,
 
   // Schema/Rule based indexing
-  Index_UseRules = 0x800
+  Index_UseRules = 0x800,
+  
+  // Index asynchronously, don't report errors..
+  Index_Async = 0x1000
 } IndexFlags;
 
 /**
