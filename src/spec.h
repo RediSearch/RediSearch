@@ -95,7 +95,7 @@ typedef enum {
 
   // Schema/Rule based indexing
   Index_UseRules = 0x800,
-  
+
   // Index asynchronously, don't report errors..
   Index_Async = 0x1000
 } IndexFlags;
@@ -158,6 +158,7 @@ typedef struct {
 } IndexSpecFmtStrings;
 
 struct DocumentIndexer;
+struct IndexQueue;
 
 struct IndexSpec {
   char *name;
@@ -192,6 +193,7 @@ struct IndexSpec {
   void *getValueCtx;
   char **aliases; // Aliases to self-remove when the index is deleted
   struct DocumentIndexer *indexer;
+  struct IndexQueue *queue;
 };
 
 typedef struct {

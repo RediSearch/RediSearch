@@ -33,18 +33,32 @@ int SchemaRules_AddArgs(SchemaRules *rules, const char *index, const char *name,
                         QueryError *err);
 
 typedef struct {
-  const char *index;
-  const char *language;
-  float score;
-  const void *payload;
+  char *language;
+  void *payload;
   size_t npayload;
+  float score;
+} IndexItemAttrs;
+
+typedef struct {
+  const char *index;
+  IndexItemAttrs attrs;
 } MatchAction;
 
+typedef struct {
+  RedisModuleString *kstr;
+  RedisModuleKey *kobj;
+} RuleKeyItem;
+
 // Check if the given document matches any of the rule sets
-int SchemaRules_Check(const SchemaRules *rules, RedisModuleCtx *ctx, RedisModuleString *keystr,
+int SchemaRules_Check(const SchemaRules *rules, RedisModuleCtx *ctx, RuleKeyItem *item,
                       MatchAction **results, size_t *nresults);
 
 extern SchemaRules *SchemaRules_g;
+
+/**
+ * Submits all the keys in the database for indexing
+ */
+void SchemaRules_ScanAll(const SchemaRules *rules);
 
 /**
  * Initializes the global rule list and subscribes to keyspace events
