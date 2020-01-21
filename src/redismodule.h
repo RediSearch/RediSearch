@@ -168,6 +168,7 @@ typedef struct RedisModuleDict RedisModuleDict;
 typedef struct RedisModuleDictIter RedisModuleDictIter;
 typedef struct RedisModuleCommandFilterCtx RedisModuleCommandFilterCtx;
 typedef struct RedisModuleCommandFilter RedisModuleCommandFilter;
+typedef struct RedisModuleScanCursor RedisModuleScanCursor; // Redis 6.0 only!
 
 typedef int (*RedisModuleCmdFunc)(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 typedef void (*RedisModuleDisconnectFunc)(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc);
@@ -184,6 +185,10 @@ typedef void (*RedisModuleTypeFreeFunc)(void *value);
 typedef void (*RedisModuleClusterMessageReceiver)(RedisModuleCtx *ctx, const char *sender_id, uint8_t type, const unsigned char *payload, uint32_t len);
 typedef void (*RedisModuleTimerProc)(RedisModuleCtx *ctx, void *data);
 typedef void (*RedisModuleCommandFilterFunc)(RedisModuleCommandFilterCtx *filter);
+typedef void (*RedisModuleScanCB)(RedisModuleCtx *ctx, RedisModuleString *keyname,
+                                  RedisModuleKey *key, void *privdata);
+typedef void (*RedisModuleScanKeyCB)(RedisModuleKey *key, RedisModuleString *field,
+                                     RedisModuleString *value, void *privdata);
 
 #define REDISMODULE_TYPE_METHOD_VERSION 2
 typedef struct RedisModuleTypeMethods {
@@ -325,7 +330,13 @@ typedef struct RedisModuleTypeMethods {
     X(RedisModuleString *, DictNext, (RedisModuleCtx *ctx, RedisModuleDictIter *di, void **dataptr)) \
     X(RedisModuleString *, DictPrev, (RedisModuleCtx *ctx, RedisModuleDictIter *di, void **dataptr)) \
     X(int, DictCompareC, (RedisModuleDictIter *di, const char *op, void *key, size_t keylen)) \
-    X(int, DictCompare, (RedisModuleDictIter *di, const char *op, RedisModuleString *key))
+    X(int, DictCompare, (RedisModuleDictIter *di, const char *op, RedisModuleString *key)) \
+    X(RedisModuleScanCursor *, ScanCursorCreate, (void)) \
+    X(void, ScanCursorRestart, (RedisModuleScanCursor*)) \
+    X(void, ScanCursorDestroy, (RedisModuleScanCursor*)) \
+    X(int, Scan, (RedisModuleCtx*, RedisModuleScanCursor*, RedisModuleScanCB, void *)) \
+    X(int, ScanKey, (RedisModuleKey *, RedisModuleScanCursor *, RedisModuleScanKeyCB, void*))
+
 
 /* Experimental APIs */
 
