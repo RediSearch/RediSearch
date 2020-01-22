@@ -42,7 +42,8 @@ extern "C" {
   X(QUERY_EDUPFIELD, "Field was specified twice")                               \
   X(QUERY_EGEOFORMAT, "Invalid lon/lat format. Use \"lon lat\" or \"lon,lat\"") \
   X(QUERY_ENODISTRIBUTE, "Could not distribute the operation")                  \
-  X(QUERY_EUNSUPPTYPE, "Unsupported index type")
+  X(QUERY_EUNSUPPTYPE, "Unsupported index type")                                \
+  X(QUERY_ENOTNUMERIC, "Could not convert value to a number")
 
 typedef enum {
   QUERY_OK = 0,
