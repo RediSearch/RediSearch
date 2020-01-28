@@ -9,7 +9,7 @@ typedef struct {
 
 static void *quantileNewInstance(Reducer *parent) {
   QTLReducer *qt = (QTLReducer *)parent;
-  return NewQuantileStream(&qt->pct, 1, qt->resolution);
+  return NewQuantileStream(&qt->pct, 0, qt->resolution);
 }
 
 static int quantileAdd(Reducer *rbase, void *ctx, const RLookupRow *row) {
