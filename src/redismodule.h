@@ -335,8 +335,8 @@ typedef struct RedisModuleTypeMethods {
     X(void, ScanCursorRestart, (RedisModuleScanCursor*)) \
     X(void, ScanCursorDestroy, (RedisModuleScanCursor*)) \
     X(int, Scan, (RedisModuleCtx*, RedisModuleScanCursor*, RedisModuleScanCB, void *)) \
-    X(int, ScanKey, (RedisModuleKey *, RedisModuleScanCursor *, RedisModuleScanKeyCB, void*))
-
+    X(int, ScanKey, (RedisModuleKey *, RedisModuleScanCursor *, RedisModuleScanKeyCB, void*)) \
+    X(int, PublishMessage, (RedisModuleCtx *,RedisModuleString *,RedisModuleString *))
 
 /* Experimental APIs */
 

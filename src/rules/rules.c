@@ -6,6 +6,8 @@
 #include "util/minmax.h"
 #include "util/arr.h"
 #include "module.h"
+#include "document.h"
+#include "search_ctx.h"
 
 SchemaRules *SchemaRules_Create(void) {
   SchemaRules *rules = rm_calloc(1, sizeof(*rules));
@@ -40,6 +42,37 @@ static int matchPrefix(const SchemaRule *r, RedisModuleCtx *ctx, RuleKeyItem *it
 static int matchExpression(const SchemaRule *r, RedisModuleCtx *ctx, RuleKeyItem *item) {
   // ....
   return 0;
+}
+
+static int indexDocument(RedisModuleCtx *ctx, IndexSpec *sp, RuleKeyItem *item,
+                         const IndexItemAttrs *attrs, QueryError *e) {
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
+  Document d = {0};
+  RSAddDocumentCtx *aCtx = NULL;
+  Document_Init(&d, item->kstr, attrs->score, attrs->language);
+  d.keyobj = item->kobj;
+  d.flags |= DOCUMENT_F_NEVEROWN;
+  int rv = Document_LoadSchemaFields(&d, &sctx);
+  if (rv != REDISMODULE_OK) {
+    QueryError_SetError(e, QUERY_ENODOC, "Couldn't load fields");
+    goto err;
+  }
+  if (!d.numFields) {
+    QueryError_SetError(e, QUERY_ENODOC, "No indexable fields in document");
+    goto err;
+  }
+
+  aCtx = NewAddDocumentCtx(sp, &d, e);
+  if (!aCtx) {
+    goto err;
+  }
+  AddDocumentCtx_Submit(aCtx, &sctx,
+                        DOCUMENT_ADD_REPLACE | DOCUMENT_ADD_NOSAVE | DOCUMENT_ADD_CURTHREAD);
+  return REDISMODULE_OK;
+
+err:
+  Document_Free(&d);
+  return REDISMODULE_ERR;
 }
 
 /**
@@ -96,7 +129,9 @@ static void processKeyItem(RedisModuleCtx *ctx, RuleKeyItem *item, int forceQueu
     if (forceQueue || (spec->flags & Index_Async)) {
       // submit to queue
     } else {
-      // Index immediately...
+      QueryError e = {0};
+      int rc = indexDocument(ctx, spec, item, &results[ii].attrs, &e);
+      assert(rc == REDISMODULE_OK);
     }
   }
 }

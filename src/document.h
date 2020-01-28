@@ -43,6 +43,7 @@ typedef struct {
 
 typedef struct Document {
   RedisModuleString *docKey;
+  RedisModuleKey *keyobj;  // return from OpenKey, used for cache
   DocumentField *fields;
   uint32_t numFields;
   float score;
@@ -69,6 +70,11 @@ typedef struct Document {
  * The document always owns the field array, though.
  */
 #define DOCUMENT_F_OWNSTRINGS 0x02
+
+/**
+ * Never own the contents. Used for fast-track performance
+ */
+#define DOCUMENT_F_NEVEROWN 0x04
 
 /**
  * The document has been moved to another target. This is quicker than
@@ -152,7 +158,7 @@ void Document_LoadPairwiseArgs(Document *doc, RedisModuleString **args, size_t n
 /**
  * Print contents of document to screen
  */
-void Document_Dump(const Document *doc); // LCOV_EXCL_LINE debug
+void Document_Dump(const Document *doc);  // LCOV_EXCL_LINE debug
 /**
  * Free any copied data within the document. anyCtx is any non-NULL
  * RedisModuleCtx. The reason for requiring a context is more related to the
