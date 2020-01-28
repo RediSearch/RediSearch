@@ -233,9 +233,6 @@ DEBUG_COMMAND(DumpNumericIndex) {
   RedisModule_ReplyWithArray(sctx->redisCtx, REDISMODULE_POSTPONED_ARRAY_LEN);
   while ((currNode = NumericRangeTreeIterator_Next(iter))) {
     if (currNode->range) {
-      RedisModule_ReplyWithArray(sctx->redisCtx, 3);
-      RedisModule_ReplyWithStringBuffer(sctx->redisCtx, "unique_sum", strlen("unique_sum"));
-      RedisModule_ReplyWithDouble(sctx->redisCtx, currNode->range->unique_sum);
       IndexReader *reader = NewNumericReader(currNode->range->entries, NULL);
       ReplyReaderResults(reader, sctx->redisCtx);
       ++resultSize;
