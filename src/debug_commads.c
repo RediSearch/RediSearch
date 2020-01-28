@@ -107,7 +107,6 @@ DEBUG_COMMAND(InvertedIndexSummary) {
   REPLY_WITH_LONG_LONG("numberOfBlocks", invidx->size, invIdxBulkLen);
 
   RedisModule_ReplyWithStringBuffer(ctx, "blocks", strlen("blocks"));
-  RedisModule_ReplyWithArray(ctx, invidx->size);
 
   for (uint32_t i = 0; i < invidx->size; ++i) {
     size_t blockBulkLen = 0;
