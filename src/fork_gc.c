@@ -377,7 +377,7 @@ static void ForkGc_CollectGarbage(ForkGCCtx *gc) {
 typedef struct ModifiedBlock {
   long long blockIndex;
   long long blockOldIndex;
-  int numBlocksBefore;
+  int numDocsBefore;
   IndexBlock blk;
 } ModifiedBlock;
 
@@ -407,7 +407,7 @@ static bool ForkGc_ReadModifiedBlock(ForkGCCtx *gc, ModifiedBlock *blockModified
   TRY_READ_LONG(gc->pipefd[GC_READERFD], blockModified->blk.firstId);
   TRY_READ_LONG(gc->pipefd[GC_READERFD], blockModified->blk.lastId);
   TRY_READ_LONG(gc->pipefd[GC_READERFD], blockModified->blk.numDocs);
-  TRY_READ_LONG(gc->pipefd[GC_READERFD], blockModified->numBlocksBefore);
+  TRY_READ_LONG(gc->pipefd[GC_READERFD], blockModified->numDocsBefore);
   size_t cap;
   char *data = ForkGc_FDReadBuffer(gc->pipefd[GC_READERFD], &cap);
   if (data == PTR_ERROR) {
@@ -508,7 +508,7 @@ static void ForkGc_FixInvertedIndex(ForkGCCtx *gc, ForkGc_InvertedIndexData *idx
   size_t totalDeleted = 0;
   for (size_t i = 0; i < array_len(idxData->blocksModified); ++i) {
     ModifiedBlock *blockModified = idxData->blocksModified + i;
-    totalDeleted += blockModified->numBlocksBefore - blockModified->blk.numDocs;
+    totalDeleted += blockModified->numDocsBefore - blockModified->blk.numDocs;
     idx->blocks[blockModified->blockIndex] = blockModified->blk;
   }
   idx->numDocs -= totalDeleted;
@@ -682,6 +682,7 @@ static bool ForkGc_ReadNumericInvertedIndex(ForkGCCtx *gc, int *ret_val, RedisMo
     ForkGc_updateStats(sctx, gc, idxData.docsCollected, idxData.bytesCollected);
 
     // fixing cardinality
+    double unique_sum = 0;
     uint16_t newCard = 0;
     CardinalityValue *newCardValues = array_new(CardinalityValue, currNode->range->splitCard);
     for (int i = 0; i < array_len(currNode->range->values); ++i) {
@@ -695,12 +696,14 @@ static bool ForkGc_ReadNumericInvertedIndex(ForkGCCtx *gc, int *ret_val, RedisMo
         val.appearances = appearances;
         newCardValues = array_append(newCardValues, val);
         ++newCard;
+        unique_sum += val.value;
       }
     }
     array_free(currNode->range->values);
     newCardValues = array_trimm_cap(newCardValues, newCard);
     currNode->range->values = newCardValues;
     currNode->range->card = newCard;
+    currNode->range->unique_sum = unique_sum;
 
   loop_cleanup:
     if (sctx) {

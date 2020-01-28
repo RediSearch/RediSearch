@@ -107,6 +107,7 @@ DEBUG_COMMAND(InvertedIndexSummary) {
   REPLY_WITH_LONG_LONG("numberOfBlocks", invidx->size, invIdxBulkLen);
 
   RedisModule_ReplyWithStringBuffer(ctx, "blocks", strlen("blocks"));
+  RedisModule_ReplyWithArray(ctx, invidx->size);
 
   for (uint32_t i = 0; i < invidx->size; ++i) {
     size_t blockBulkLen = 0;
@@ -232,6 +233,9 @@ DEBUG_COMMAND(DumpNumericIndex) {
   RedisModule_ReplyWithArray(sctx->redisCtx, REDISMODULE_POSTPONED_ARRAY_LEN);
   while ((currNode = NumericRangeTreeIterator_Next(iter))) {
     if (currNode->range) {
+      RedisModule_ReplyWithArray(sctx->redisCtx, 3);
+      RedisModule_ReplyWithStringBuffer(sctx->redisCtx, "unique_sum", strlen("unique_sum"));
+      RedisModule_ReplyWithDouble(sctx->redisCtx, currNode->range->unique_sum);
       IndexReader *reader = NewNumericReader(currNode->range->entries, NULL);
       ReplyReaderResults(reader, sctx->redisCtx);
       ++resultSize;
