@@ -159,6 +159,7 @@ typedef struct {
 
 struct DocumentIndexer;
 struct IndexQueue;
+struct IoQueue;
 
 struct IndexSpec {
   char *name;
@@ -194,6 +195,7 @@ struct IndexSpec {
   char **aliases; // Aliases to self-remove when the index is deleted
   struct DocumentIndexer *indexer;
   struct IndexQueue *queue;
+  struct IoQueue *asyncIndexQueue;
 };
 
 typedef struct {

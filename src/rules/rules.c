@@ -8,6 +8,20 @@
 #include "module.h"
 #include "document.h"
 #include "search_ctx.h"
+#include "queue_ts.h"
+
+typedef struct asyncIndexCtx {
+  RedisModuleCtx *aiCtx;
+
+  pthread_t aiThread;
+
+  size_t interval;
+} asyncIndexCtx;
+
+
+/* May not be the ideal place for it */
+static asyncIndexCtx asyncIndexCtx_g =  { 0 };
+static IoQueue *asyncIndexQueue_g;
 
 SchemaRules *SchemaRules_Create(void) {
   SchemaRules *rules = rm_calloc(1, sizeof(*rules));
@@ -67,7 +81,7 @@ static int indexDocument(RedisModuleCtx *ctx, IndexSpec *sp, RuleKeyItem *item,
     goto err;
   }
   AddDocumentCtx_Submit(aCtx, &sctx,
-                        DOCUMENT_ADD_REPLACE | DOCUMENT_ADD_NOSAVE | DOCUMENT_ADD_CURTHREAD);
+          DOCUMENT_ADD_REPLACE | DOCUMENT_ADD_NOSAVE | DOCUMENT_ADD_CURTHREAD);
   return REDISMODULE_OK;
 
 err:
@@ -128,6 +142,20 @@ static void processKeyItem(RedisModuleCtx *ctx, RuleKeyItem *item, int forceQueu
     // check if spec uses synchronous or asynchronous indexing..
     if (forceQueue || (spec->flags & Index_Async)) {
       // submit to queue
+      // 1. Create a queue per index
+      // 2. Add `item` to queue
+      // Somewhere else
+      // 3. As a callback, index items into the index
+      // 4. Remove items from queue 
+
+
+      // Queue indexes with documents to be indexed
+      // Queue documents to be indexed for each index
+      // Schedule
+
+      // index points to a retained ptr at SchemaRules_g
+      io_queue_push(asyncIndexQueue_g, results[ii].index);
+      io_queue_push(spec->asyncIndexQueue, item); // we do not have the results[ii].attrs. Should save both?
     } else {
       QueryError e = {0};
       int rc = indexDocument(ctx, spec, item, &results[ii].attrs, &e);
@@ -158,4 +186,40 @@ void SchemaRules_ScanAll(const SchemaRules *rules) {
   RedisModuleScanCursor *cursor = RedisModule_ScanCursorCreate();
   RedisModule_Scan(ctx, cursor, scanCallback, NULL);
   RedisModule_ScanCursorDestroy(cursor);
+}
+
+void aiThreadInit(void *privdata) {
+  while(1) {
+    while (io_queue_has_front(asyncIndexQueue_g) == IO_QUEUE_RESULT_TRUE) {
+      // Get index from queue
+      IndexSpec *spec = { 0 };
+      io_queue_front(asyncIndexQueue_g, spec);
+
+      RuleKeyItem *rki = { 0 };
+      while (io_queue_has_front(spec->asyncIndexQueue == IO_QUEUE_RESULT_TRUE)) {
+        io_queue_front(spec->asyncIndexQueue, rki);
+        QueryError e = {0};
+        int rc = indexDocument(asyncIndexCtx_g.aiCtx, spec, rki, NULL/*&results[ii].attrs*/, &e);
+        assert(rc == REDISMODULE_OK);
+      }
+      
+    } 
+    usleep(asyncIndexCtx_g.interval);
+  }
+}
+
+void SchemaRules_InitGlobal(RedisModuleCtx *ctx) {
+  if(IO_QUEUE_RESULT_SUCCESS != io_queue_init(asyncIndexQueue_g, sizeof(char *))) {
+    RedisModule_Log(ctx, "verbose", "%s", "Creation of global async queue for rules failed");
+  }
+  asyncIndexCtx_g.aiCtx = RedisModule_GetThreadSafeContext(NULL);
+  asyncIndexCtx_g.interval = 1000; // interval in milliseconds
+
+  pthread_create(&asyncIndexCtx_g.aiThread, NULL, aiThreadInit, NULL);
+  pthread_detach(asyncIndexCtx_g.aiThread);
+}
+
+void SchemaRules_ShutdownGlobal() {
+  io_queue_clear(asyncIndexQueue_g);
+  RedisModule_FreeThreadSafeContext(asyncIndexCtx_g);
 }

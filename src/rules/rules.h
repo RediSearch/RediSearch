@@ -33,7 +33,7 @@ int SchemaRules_AddArgs(SchemaRules *rules, const char *index, const char *name,
                         QueryError *err);
 
 typedef struct {
-  char *language;
+  char *language; // can be an enum??
   void *payload;
   size_t npayload;
   float score;
