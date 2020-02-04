@@ -69,6 +69,13 @@ CONFIG_SETTER(setNoGc) {
 
 CONFIG_BOOLEAN_GETTER(getNoGc, enableGC, 1)
 
+CONFIG_SETTER(setNoMemPools) {
+  config->noMemPool = 1;
+  return REDISMODULE_OK;
+}
+
+CONFIG_BOOLEAN_GETTER(getNoMemPools, noMemPool, 0)
+
 // MINPREFIX
 CONFIG_SETTER(setMinPrefix) {
   int acrc = AC_GetLongLong(ac, &config->minTermPrefix, AC_F_GE1);
@@ -406,6 +413,11 @@ RSConfigOptions RSGlobalConfigOptions = {
                      "unsorted mode, should be used for debug only.",
          .setValue = setMaxResultsToUnsortedMode,
          .getValue = getMaxResultsToUnsortedMode},
+        {.name = "NO_MEM_POOLS",
+         .helpText = "Set RediSearch to run without memory pools",
+         .setValue = setNoMemPools,
+         .getValue = getNoMemPools,
+         .flags = RSCONFIGVAR_F_IMMUTABLE},
         {.name = NULL}}};
 
 void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst) {

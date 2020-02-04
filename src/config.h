@@ -27,8 +27,8 @@ static inline const char *GCPolicy_ToString(GCPolicy policy) {
       return "sync";
     case GCPolicy_Fork:
       return "fork";
-    default:            // LCOV_EXCL_LINE cannot be reached
-      return "huh?";    // LCOV_EXCL_LINE cannot be reached
+    default:          // LCOV_EXCL_LINE cannot be reached
+      return "huh?";  // LCOV_EXCL_LINE cannot be reached
   }
 }
 
@@ -82,6 +82,8 @@ typedef struct {
   void *chainedConfig;
 
   long long maxResultsToUnsortedMode;
+
+  int noMemPool;
 } RSConfig;
 
 typedef enum {
@@ -159,7 +161,7 @@ sds RSConfig_GetInfoString(const RSConfig *config);
     .gcScanSize = GC_SCANSIZE, .minPhoneticTermLen = DEFAULT_MIN_PHONETIC_TERM_LEN,               \
     .gcPolicy = GCPolicy_Fork, .forkGcRunIntervalSec = DEFAULT_FORK_GC_RUN_INTERVAL,              \
     .forkGcSleepBeforeExit = 0, .maxResultsToUnsortedMode = DEFAULT_MAX_RESULTS_TO_UNSORTED_MODE, \
-    .forkGcRetryInterval = 5, .forkGcCleanThreshold = 0                                           \
+    .forkGcRetryInterval = 5, .forkGcCleanThreshold = 0, .noMemPool = 0,                          \
   }
 
 #endif

@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <pthread.h>
 #include "rmalloc.h"
+#include "config.h"
 
 struct mempool_t {
   void **entries;
@@ -37,7 +38,7 @@ mempool_t *mempool_new(const mempool_options *options) {
       mempoolDisable_g = 0;
     }
   }
-  if (mempoolDisable_g) {
+  if (mempoolDisable_g || RSGlobalConfig.noMemPool) {
     p->cap = 0;
     p->max = 0;
     rm_free(p->entries);
@@ -64,12 +65,13 @@ void *mempool_get(mempool_t *p) {
 }
 
 inline void mempool_release(mempool_t *p, void *ptr) {
+  if (p->entries == NULL || (p->max && p->max <= p->top)) {
+    p->free(ptr);
+    return;
+  }
+
   if (p->top == p->cap) {
-    // This is a limited pool, and we can't outgrow ourselves now, just free the ptr immediately
-    if (p->entries == NULL || (p->max && p->max == p->top)) {
-      p->free(ptr);
-      return;
-    }
+
     // grow the pool
     p->cap += p->cap ? MIN(p->cap, 1024) : 1;
     p->entries = rm_realloc(p->entries, p->cap * sizeof(void *));
