@@ -961,20 +961,12 @@ void DoubleMetaphone(const char *str, char **primary_pp, char **secondary_pp) {
 
   if (secondary->length > 4) SetAt(secondary, 4, '\0');
   if (primary_pp) {
-    if (*primary_pp) {
-      rm_free(*primary_pp);
-      *primary_pp = NULL;
-    }
     if (primary->length > 0) {
       *primary_pp = primary->str;
       primary->free_string_on_destroy = 0;
     }
   }
   if (secondary_pp) {
-    if (*secondary_pp) {
-      rm_free(*secondary_pp);
-      *secondary_pp = NULL;
-    }
     if (secondary->length > 0) {
       *secondary_pp = secondary->str;
       secondary->free_string_on_destroy = 0;
