@@ -154,8 +154,8 @@ static void processKeyItem(RedisModuleCtx *ctx, RuleKeyItem *item, int forceQueu
       // Schedule
 
       // index points to a retained ptr at SchemaRules_g
-      io_queue_push(asyncIndexQueue_g, results[ii].index);
       io_queue_push(spec->asyncIndexQueue, item); // we do not have the results[ii].attrs. Should save both?
+      io_queue_push(asyncIndexQueue_g, spec);
     } else {
       QueryError e = {0};
       int rc = indexDocument(ctx, spec, item, &results[ii].attrs, &e);
@@ -188,21 +188,26 @@ void SchemaRules_ScanAll(const SchemaRules *rules) {
   RedisModule_ScanCursorDestroy(cursor);
 }
 
+int indexBatchSize = 100;
+
 void aiThreadInit(void *privdata) {
   while(1) {
     while (io_queue_has_front(asyncIndexQueue_g) == IO_QUEUE_RESULT_TRUE) {
       // Get index from queue
       IndexSpec *spec = { 0 };
       io_queue_front(asyncIndexQueue_g, spec);
+      io_queue_pop(asyncIndexQueue_g);
 
       RuleKeyItem *rki = { 0 };
-      while (io_queue_has_front(spec->asyncIndexQueue == IO_QUEUE_RESULT_TRUE)) {
+      for (int i = 0; i < indexBatchSize && io_queue_has_front(spec->asyncIndexQueue == IO_QUEUE_RESULT_TRUE); ++i) {
         io_queue_front(spec->asyncIndexQueue, rki);
+        io_queue_pop(spec->asyncIndexQueue);
         QueryError e = {0};
         int rc = indexDocument(asyncIndexCtx_g.aiCtx, spec, rki, NULL/*&results[ii].attrs*/, &e);
+
+        // may change with func API
         assert(rc == REDISMODULE_OK);
-      }
-      
+      }      
     } 
     usleep(asyncIndexCtx_g.interval);
   }
