@@ -119,6 +119,7 @@ jobs:
     docker:
       - image: 'redislabsmodules/rmbuilder:latest'
     steps:
+      - checkout
       - run:
           name: Run QA Automation
           command: |
@@ -144,56 +145,56 @@ workflows:
 
   default_flow:
     jobs:
-      - ubuntu:
-          filters:
-            branches:
-              only: /.*/
-            tags:
-              only: /.*/
-      - centos:
-          filters:
-            branches:
-              only: /.*/
-            tags:
-              only: /.*/
-      - macos:
-          filters:
-            branches:
-              ignore: /.*/
-            tags:
-              only: /^v[0-9].*/
-      - debug_asan:
-          filters:
-            branches:
-              only: /.*/
-            tags:
-              only: /.*/
-      - debug_msan:
-          filters:
-            branches:
-              only: /.*/
-            tags:
-              only: /.*/
-      - coverage:
-          filters:
-            branches:
-              only: /.*/
-            tags:
-              only: /.*/
-      - deploy_snapshots:
-          requires: *default_jobs
-          filters:
-            branches:
-              only:
-                - master
-                - circle-overhaul
-      - deploy_release:
-          requires: *default_jobs
-          filters:
-            branches:
-              ignore: /.*/
-            tags:
-              only: /^v[0-9].*/
+#      - ubuntu:
+#          filters:
+#            branches:
+#              only: /.*/
+#            tags:
+#              only: /.*/
+#      - centos:
+#          filters:
+#            branches:
+#              only: /.*/
+#            tags:
+#              only: /.*/
+#      - macos:
+#          filters:
+#            branches:
+#              ignore: /.*/
+#            tags:
+#              only: /^v[0-9].*/
+#      - debug_asan:
+#          filters:
+#            branches:
+#              only: /.*/
+#            tags:
+#              only: /.*/
+#      - debug_msan:
+#          filters:
+#            branches:
+#              only: /.*/
+#            tags:
+#              only: /.*/
+#      - coverage:
+#          filters:
+#            branches:
+#              only: /.*/
+#            tags:
+#              only: /.*/
+#      - deploy_snapshots:
+#          requires: *default_jobs
+#          filters:
+#            branches:
+#              only:
+#                - master
+#                - circle-overhaul
+#      - deploy_release:
+#          requires: *default_jobs
+#          filters:
+#            branches:
+#              ignore: /.*/
+#            tags:
+#              only: /^v[0-9].*/
       - run_automation:
 #          requires:
 #            - deploy_release
