@@ -1,0 +1,19 @@
+#!/bin/bash
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+
+if [[ -z $QA_AUTOMATION_USERNAME ]]; then
+	echo "Variable QA_AUTOMATION_USERNAME is undefined." >&2
+	exit 1
+fi
+if [[ -z $QA_AUTOMATION_PASS ]]; then
+	echo "Variable QA_AUTOMATION_PASS is undefined." >&2
+	exit 1
+fi
+
+cd $HERE
+curl -f -k \
+	-u "$QA_AUTOMATION_USERNAME":"$QA_AUTOMATION_PASS" \
+	-X POST -H "Content-Type: application/json" \
+	-d '@automation-testing.json' \
+	https://qa-automation-center.redislabs.com/processes

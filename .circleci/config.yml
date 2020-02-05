@@ -114,7 +114,18 @@ jobs:
             for f in ~/workspace/release/*.zip; do
               aws s3 cp $f s3://redismodules/$PACKAGE_NAME/ --acl public-read
             done
-  
+
+  run_automation:
+    docker:
+      - image: 'redislabsmodules/rmbuilder:latest'
+    steps:
+      - run:
+          name: Run QA Automation
+          command: |
+            apt-get -qq update
+            apt-get install -y ca-certificates curl
+            ./tests/qa/run
+
   deploy_docs:
     docker:
       - image: 'redislabsmodules/rmbuilder:latest'
@@ -148,9 +159,9 @@ workflows:
       - macos:
           filters:
             branches:
-              only: /.*/
+              ignore: /.*/
             tags:
-              only: /.*/
+              only: /^v[0-9].*/
       - debug_asan:
           filters:
             branches:
@@ -183,6 +194,19 @@ workflows:
               ignore: /.*/
             tags:
               only: /^v[0-9].*/
+      - run_automation:
+#          requires:
+#            - deploy_release
+          filters:
+            branches:
+              only: /.*/
+            tags:
+              only: /.*/
+#          filters:
+#            branches:
+#              ignore: /.*/
+#            tags:
+#              only: /^v[0-9].*/
       - deploy_docs:
           filters:
             branches:
