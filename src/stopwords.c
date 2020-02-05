@@ -147,3 +147,32 @@ void StopWordList_RdbSave(RedisModuleIO *rdb, StopWordList *sl) {
   }
   TrieMapIterator_Free(it);
 }
+
+void ReplyWithStopWordList(RedisModuleCtx *ctx, struct StopWordList *sl) {
+  RedisModule_ReplyWithSimpleString(ctx, "stop_word_list");
+  /*
+  if (sl == __default_stopwords) {
+    RedisModule_ReplyWithArray(ctx, 1);
+    RedisModule_ReplyWithSimpleString(ctx, "default stop word list");
+    return;    
+  } */
+  if (sl == NULL) {
+    RedisModule_ReplyWithArray(ctx, 1);
+    RedisModule_ReplyWithNull(ctx);
+    return;
+  }
+
+  TrieMapIterator *it = TrieMap_Iterate(sl->m, "", 0);
+  char *str;
+  tm_len_t len;
+  void *ptr;
+  int i = 0;
+
+  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+  while (TrieMapIterator_Next(it, &str, &len, &ptr)) {
+    RedisModule_ReplyWithStringBuffer(ctx, str, len);
+    ++i;
+  }
+  RedisModule_ReplySetArrayLength(ctx, i);
+  TrieMapIterator_Free(it);
+}

@@ -416,9 +416,14 @@ def testCustomStopwords(env):
     # Index with custom stopwords
     env.assertOk(r.execute_command('ft.create', 'idx2', 'stopwords', 2, 'hello', 'world',
                                     'schema', 'foo', 'text'))
+    res = env.cmd('ft.info', 'idx2')
+    env.assertEqual(res[39], ['hello', 'world'])
+
     # Index with NO stopwords
     env.assertOk(r.execute_command('ft.create', 'idx3', 'stopwords', 0,
                                     'schema', 'foo', 'text'))
+    res = env.cmd('ft.info', 'idx3')
+    env.assertEqual(res[39], [])
 
     for idx in ('idx', 'idx2', 'idx3'):
         env.assertOk(r.execute_command(
