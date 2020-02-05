@@ -45,7 +45,7 @@ void StopWordList_RdbSave(RedisModuleIO *rdb, struct StopWordList *sl);
 
 void StopWordList_Ref(struct StopWordList *sl);
 
-void ReplyWithStopWordList(RedisModuleCtx *ctx, struct StopWordList *sl);
+void ReplyWithStopWordsList(RedisModuleCtx *ctx, struct StopWordList *sl);
 
 #ifdef __cplusplus
 }

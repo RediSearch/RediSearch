@@ -220,7 +220,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   n += 2;
 
   if (sp->flags & Index_HasCustomStopwords) {
-    ReplyWithStopWordList(ctx, sp->stopwords);
+    ReplyWithStopWordsList(ctx, sp->stopwords);
     n += 2;
   }
   
