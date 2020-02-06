@@ -384,6 +384,12 @@ class TestAggregate():
                           'LIMIT', 0, 1)
         self.env.assertEqual([292L, ['brand', '', '__generated_aliasminprice', '0']], rv)
 
+        rv = self.env.cmd('ft.aggregate', 'games', '*',
+                          'GROUPBY', 1, '@brand',
+                          'REDUCE', 'MIN', 2, '@price', '@top_price',
+                          'LIMIT', '0', '1')
+        self.env.assertEqual([292L, ['brand', '', '__generated_aliasminprice,top_price', '0']], rv)
+
     # def testLoadAfterSortBy(self):
     #     with self.env.assertResponseError():
     #         self.env.cmd('ft.aggregate', 'games', '*',
