@@ -384,11 +384,11 @@ class TestAggregate():
                           'LIMIT', 0, 1)
         self.env.assertEqual([292L, ['brand', '', '__generated_aliasminprice', '0']], rv)
 
-        rv = self.env.cmd('ft.aggregate', 'games', '*',
+        rv = self.env.cmd('ft.aggregate', 'games', '@brand:(sony|matias|beyerdynamic|(mad catz))',
                           'GROUPBY', 1, '@brand',
-                          'REDUCE', 'MIN', 2, '@price', '@top_price',
-                          'LIMIT', '0', '1')
-        self.env.assertEqual([292L, ['brand', '', '__generated_aliasminprice,top_price', '0']], rv)
+                          'REDUCE', 'FIRST_VALUE', 4, '@title', 'BY', '@price', 'DESC',
+                          'LIMIT', 0, 1)
+        self.env.assertEqual([4L, ['brand', 'sony', '__generated_aliasfirst_valuetitle,by,price,desc', 'sony psp slim &amp; lite 2000 console']], rv)
 
     # def testLoadAfterSortBy(self):
     #     with self.env.assertResponseError():
