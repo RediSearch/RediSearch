@@ -550,6 +550,7 @@ static int rploaderNext(ResultProcessor *base, SearchResult *r) {
   RLookupLoadOptions loadopts = {.sctx = lc->base.parent->sctx,  // lb
                                  .dmd = r->dmd,
                                  .noSortables = 1,
+                                 .forceString = 1,
                                  .status = &status,
                                  .keys = lc->fields,
                                  .nkeys = lc->nfields};
