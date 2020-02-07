@@ -219,6 +219,11 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   Cursors_RenderStats(&RSCursors, sp->name, ctx);
   n += 2;
 
+  if (sp->flags & Index_HasCustomStopwords) {
+    ReplyWithStopWordsList(ctx, sp->stopwords);
+    n += 2;
+  }
+  
   RedisModule_ReplySetArrayLength(ctx, n);
   return REDISMODULE_OK;
 }
