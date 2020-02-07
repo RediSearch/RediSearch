@@ -149,7 +149,7 @@ void StopWordList_RdbSave(RedisModuleIO *rdb, StopWordList *sl) {
 }
 
 void ReplyWithStopWordsList(RedisModuleCtx *ctx, struct StopWordList *sl) {
-  RedisModule_ReplyWithSimpleString(ctx, "stop_word_list");
+  RedisModule_ReplyWithSimpleString(ctx, "stopwords_list");
 
   if (sl == NULL) {
     RedisModule_ReplyWithArray(ctx, 1);
