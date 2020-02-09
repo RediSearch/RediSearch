@@ -178,8 +178,8 @@ static void tokenizerFree(void *p) {
   t->Free(t);
 }
 
-RSTokenizer *GetTokenizer(language_t language, Stemmer *stemmer, StopWordList *stopwords) {
-  if (language == CHINESE) {
+RSTokenizer *GetTokenizer(RSLanguage language, Stemmer *stemmer, StopWordList *stopwords) {
+  if (language == RS_LANG_CHINESE) {
     return GetChineseTokenizer(stemmer, stopwords);
   } else {
     return GetSimpleTokenizer(stemmer, stopwords);

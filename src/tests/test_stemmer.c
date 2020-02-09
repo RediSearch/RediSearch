@@ -6,7 +6,7 @@
 
 int testStemmer() {
 
-  Stemmer *s = NewStemmer(SnowballStemmer, ENGLISH);
+  Stemmer *s = NewStemmer(SnowballStemmer, RS_LANG_ENGLISH);
   ASSERT(s != NULL)
 
   size_t sl;
@@ -43,7 +43,7 @@ int testTokenize() {
   ctx.expectedTokens = expectedToks;
   ctx.expectedStems = expectedStems;
 
-  Stemmer *s = NewStemmer(SnowballStemmer, ENGLISH);
+  Stemmer *s = NewStemmer(SnowballStemmer, RS_LANG_ENGLISH);
   ASSERT(s != NULL)
 
   RSTokenizer *tk = NewSimpleTokenizer(s, DefaultStopWordList(), 0);

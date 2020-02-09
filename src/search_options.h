@@ -78,7 +78,7 @@ typedef enum {
 typedef struct {
   const char *expanderName;
   const char *scorerName;
-  language_t language;
+  RSLanguage language;
 
   uint32_t flags;
   t_fieldMask fieldmask;

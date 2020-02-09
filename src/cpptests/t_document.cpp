@@ -42,9 +42,9 @@ TEST_F(DocumentTest, testClear) {
 TEST_F(DocumentTest, testLoadAll) {
   Document d = {0};
   RMCK::RString docKey("doc1");
-  Document_Init(&d, docKey, 42, FRENCH);
+  Document_Init(&d, docKey, 42, RS_LANG_FRENCH);
   ASSERT_EQ(42, d.score);
-  ASSERT_EQ(FRENCH, d.language);
+  ASSERT_EQ(RS_LANG_FRENCH, d.language);
   // etc...
 
   // Store a document:

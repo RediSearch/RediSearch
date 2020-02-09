@@ -107,8 +107,8 @@ static int parseDocumentOptions(AddDocumentOptions *opts, ArgsCursor *ac, QueryE
     return REDISMODULE_ERR;
   }
 
-  opts->language = GetLanguageEnum(languageStr);
-  if (opts->language == UNSUPPORTED_LANGUAGE) {
+  opts->language = RSLanguage_Find(languageStr);
+  if (opts->language == RS_LANG_UNSUPPORTED) {
     QueryError_SetError(status, QUERY_EADDARGS, "Unsupported language");
     return REDISMODULE_ERR;
   }
@@ -354,8 +354,8 @@ static int doAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     goto cleanup;
   }
 
-  language_t language = GetLanguageEnum(languageStr);
-  if (language == UNSUPPORTED_LANGUAGE) {
+  RSLanguage language = RSLanguage_Find(languageStr);
+  if (language == RS_LANG_UNSUPPORTED) {
     QueryError_SetErrorFmt(&status, QUERY_EADDARGS, "Unknown language: `%s`", languageStr);
     goto cleanup;
   }

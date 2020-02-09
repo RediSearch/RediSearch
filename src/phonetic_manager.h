@@ -8,7 +8,7 @@
 
 typedef struct {
   char* algorithm;
-  //language_t language; // not currently used
+  //RSLanguage language; // not currently used
 } PhoneticManagerCtx;
 
 void PhoneticManager_ExpandPhonetics(PhoneticManagerCtx* ctx, const char* term, size_t len,

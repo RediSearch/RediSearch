@@ -92,7 +92,7 @@ RSTokenizer *NewChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint
  * Retrieves a tokenizer based on the language string. When this tokenizer
  * is no longer needed, return to the pool using Tokenizer_Release()
  */
-RSTokenizer *GetTokenizer(language_t language, Stemmer *stemmer, StopWordList *stopwords);
+RSTokenizer *GetTokenizer(RSLanguage language, Stemmer *stemmer, StopWordList *stopwords);
 RSTokenizer *GetChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords);
 RSTokenizer *GetSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords);
 void Tokenizer_Release(RSTokenizer *t);

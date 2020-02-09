@@ -3,7 +3,7 @@
 #include "rmalloc.h"
 #include "module.h"
 
-void Document_Init(Document *doc, RedisModuleString *docKey, double score, language_t lang) {
+void Document_Init(Document *doc, RedisModuleString *docKey, double score, RSLanguage lang) {
   doc->docKey = docKey;
   doc->score = (float)score;
   doc->numFields = 0;

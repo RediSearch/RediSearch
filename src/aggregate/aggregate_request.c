@@ -365,7 +365,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
   searchOpts->ninkeys = inKeys.argc;
   searchOpts->legacy.infields = (const char **)inFields.objs;
   searchOpts->legacy.ninfields = inFields.argc;
-  searchOpts->language = GetLanguageEnum(languageStr);
+  searchOpts->language = RSLanguage_Find(languageStr);
 
   if (AC_IsInitialized(&returnFields)) {
     ensureSimpleMode(req);
@@ -714,7 +714,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     }
   }
 
-  if (opts->language == UNSUPPORTED_LANGUAGE) {
+  if (opts->language == RS_LANG_UNSUPPORTED) {
     QueryError_SetError(status, QUERY_EINVAL, "No such language");
     return REDISMODULE_ERR;
   }
