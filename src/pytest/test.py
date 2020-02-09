@@ -2873,6 +2873,15 @@ def testIssue919(env):
     rv = env.cmd('ft.search', 'idx', '*', 'sortby', 't1', 'desc')
     env.assertEqual([1L, 'doc1', ['n1', '42']], rv)
 
+
+def testIssue1074(env):
+    # Ensure that sortable fields are returned in their string form from the
+    # document
+    env.cmd('ft.create', 'idx', 'schema', 't1', 'text', 'n1', 'numeric', 'sortable')
+    env.cmd('ft.add', 'idx', 'doc1', 1, 'fields', 't1', 'hello', 'n1', 1581011976800)
+    rv = env.cmd('ft.search', 'idx', '*', 'sortby', 'n1')
+    env.assertEqual([1L, 'doc1', ['n1', '1581011976800', 't1', 'hello']], rv)
+
 def grouper(iterable, n, fillvalue=None):
     "Collect data into fixed-length chunks or blocks"
     from itertools import izip_longest
