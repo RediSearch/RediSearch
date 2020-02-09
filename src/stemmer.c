@@ -6,19 +6,74 @@
 #include "dep/snowball/include/libstemmer.h"
 #include "rmalloc.h"
 
-const char *__supportedLanguages[] = {"arabic",     "danish",   "dutch",     "english", "finnish",
-                                      "french",     "german",   "hungarian", "italian", "norwegian",
-                                      "portuguese", "romanian", "russian",   "spanish", "swedish",
-                                      "tamil",      "turkish",  "chinese",   NULL};
+typedef struct langPair_s
+{
+  const char *str;
+  language_t lang;
+} langPair_t;
 
-int IsSupportedLanguage(const char *language, size_t len) {
-  for (int i = 0; __supportedLanguages[i] != NULL; i++) {
-    if (!strncasecmp(language, __supportedLanguages[i],
-                     MAX(len, strlen(__supportedLanguages[i])))) {
-      return 1;
+langPair_t __langPairs[] = {
+  { "arabic",     ARABIC },
+  { "danish",     DANISH },
+  { "dutch",      DUTCH },
+  { "english",    ENGLISH },
+  { "finnish",    FINNISH },
+  { "french",     FRENCH },
+  { "german",     GERMAN },
+  { "hungarian",  HUNGARIAN },
+  { "italian",    ITALIAN },
+  { "norwegian",  NORWEGIAN },
+  { "portuguese", PORTUGUESE },
+  { "romanian",   ROMANIAN },
+  { "russian",    RUSSIAN },
+  { "spanish",    SPANISH },
+  { "swedish",    SWEDISH },
+  { "tamil",      TAMIL },
+  { "turkish",    TURKISH },
+  { "chinese",    CHINESE },
+  { NULL,         UNSUPPORTED_LANGUAGE }
+};
+
+const char *GetLanguageStr(language_t language) {
+  char *ret = NULL;
+  switch (language) {
+    case ARABIC:      ret = "arabic";     break;
+    case DANISH:      ret = "danish";     break;
+    case DUTCH:       ret = "dutch";      break;
+    case ENGLISH:     ret = "english";    break;
+    case FINNISH:     ret = "finnish";    break;
+    case FRENCH:      ret = "french";     break;
+    case GERMAN:      ret = "german";     break;
+    case HUNGARIAN:   ret = "hungarian";  break;
+    case ITALIAN:     ret = "italian";    break;
+    case NORWEGIAN:   ret = "norwegian";  break;
+    case PORTUGUESE:  ret = "portuguese"; break;
+    case ROMANIAN:    ret = "romanian";   break;
+    case RUSSIAN:     ret = "russian";    break;
+    case SPANISH:     ret = "spanish";    break;
+    case SWEDISH:     ret = "swedish";    break;
+    case TAMIL:       ret = "tamil";      break;
+    case TURKISH:     ret = "turkish";    break;
+    case CHINESE:     ret = "chinese";    break;
+    case UNSUPPORTED_LANGUAGE:  
+    default: break;
+  }
+  return (const char *)ret;
+}
+
+language_t GetLanguageEnum(const char *language) {
+  if (language == NULL)
+    return DEFAULT_LANGUAGE;
+
+  for (int i = 0; __langPairs[i].str != NULL; i++) {
+    // Will save strlen
+    /*if (!strncasecmp(language, __langPairs[i].str,
+                     MAX(len, strlen(__langPairs[i].str)))) {*/
+    if (!strcasecmp(language, __langPairs[i].str)) {
+      return __langPairs[i].lang;
     }
   }
-  return 0;
+  return UNSUPPORTED_LANGUAGE;
 }
 
 struct sbStemmerCtx {
@@ -63,15 +118,16 @@ void __sbstemmer_Free(Stemmer *s) {
   rm_free(s);
 }
 
-static int sbstemmer_Reset(Stemmer *stemmer, StemmerType type, const char *language) {
-  if (type != stemmer->type || stemmer->language == NULL || strcmp(stemmer->language, language)) {
+static int sbstemmer_Reset(Stemmer *stemmer, StemmerType type, language_t language) {
+  if (type != stemmer->type || stemmer->language == UNSUPPORTED_LANGUAGE ||
+                               stemmer->language == language) {
     return 0;
   }
   return 1;
 }
 
-Stemmer *__newSnowballStemmer(const char *language) {
-  struct sb_stemmer *sb = sb_stemmer_new(language, NULL);
+Stemmer *__newSnowballStemmer(language_t language) {
+  struct sb_stemmer *sb = sb_stemmer_new(GetLanguageStr(language), NULL);
   // No stemmer available for this language
   if (!sb) {
     return NULL;
@@ -91,7 +147,7 @@ Stemmer *__newSnowballStemmer(const char *language) {
   return ret;
 }
 
-Stemmer *NewStemmer(StemmerType type, const char *language) {
+Stemmer *NewStemmer(StemmerType type, language_t language) {
   Stemmer *ret = NULL;
   if (type == SnowballStemmer) {
     ret = __newSnowballStemmer(language);
@@ -103,17 +159,11 @@ Stemmer *NewStemmer(StemmerType type, const char *language) {
     return NULL;
   }
 
-  for (const char **s = __supportedLanguages; *s; s++) {
-    if (!strcmp(language, *s)) {
-      ret->language = *s;
-      break;
-    }
-  }
-
+  ret->language = language;
   ret->type = type;
   return ret;
 }
 
-int ResetStemmer(Stemmer *stemmer, StemmerType type, const char *language) {
+int ResetStemmer(Stemmer *stemmer, StemmerType type, language_t language) {
   return stemmer->Reset && stemmer->Reset(stemmer, type, language);
 }

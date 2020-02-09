@@ -76,9 +76,9 @@ typedef enum {
 #define SEARCH_REQUEST_RESULTS_MAX 1000000
 
 typedef struct {
-  const char *language;
   const char *expanderName;
   const char *scorerName;
+  language_t language;
 
   uint32_t flags;
   t_fieldMask fieldmask;

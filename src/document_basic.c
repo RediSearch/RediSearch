@@ -3,7 +3,7 @@
 #include "rmalloc.h"
 #include "module.h"
 
-void Document_Init(Document *doc, RedisModuleString *docKey, double score, const char *lang) {
+void Document_Init(Document *doc, RedisModuleString *docKey, double score, language_t lang) {
   doc->docKey = docKey;
   doc->score = (float)score;
   doc->numFields = 0;
@@ -85,9 +85,6 @@ void Document_MakeStringsOwner(Document *d) {
     void *tmp = rm_malloc(d->payloadSize);
     memcpy(tmp, d->payload, d->payloadSize);
     d->payload = tmp;
-  }
-  if (d->language) {
-    d->language = rm_strdup(d->language);
   }
   d->flags |= DOCUMENT_F_OWNSTRINGS;
   d->flags &= ~DOCUMENT_F_OWNREFS;
@@ -212,9 +209,6 @@ void Document_Free(Document *doc) {
   if (doc->flags & DOCUMENT_F_OWNSTRINGS) {
     if (doc->payload) {
       rm_free((void *)doc->payload);
-    }
-    if (doc->language) {
-      rm_free((void *)doc->language);
     }
   }
 }

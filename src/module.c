@@ -257,7 +257,7 @@ int GetDocumentsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     }
 
     Document doc = {0};
-    Document_Init(&doc, argv[i], 0, NULL);
+    Document_Init(&doc, argv[i], 0, DEFAULT_LANGUAGE);
     if (Document_LoadAllFields(&doc, ctx) == REDISMODULE_ERR) {
       RedisModule_ReplyWithNull(ctx);
     } else {
@@ -289,7 +289,7 @@ int GetSingleDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   }
 
   Document doc = {0};
-  Document_Init(&doc, argv[2], 0, NULL);
+  Document_Init(&doc, argv[2], 0, DEFAULT_LANGUAGE);
 
   if (DocTable_GetIdR(&sctx->spec->docs, argv[2]) == 0 ||
       Document_LoadAllFields(&doc, ctx) == REDISMODULE_ERR) {

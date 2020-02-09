@@ -22,7 +22,7 @@ TEST_F(DocumentTest, testClear) {
   Document d = {0};
   RedisModuleString *s = RedisModule_CreateString(ctx, "foo", 3);
   ASSERT_EQ(1, RMCK::GetRefcount(s));
-  Document_Init(&d, s, 0, NULL);
+  Document_Init(&d, s, 0, DEFAULT_LANGUAGE);
 
   ASSERT_EQ(0, d.flags);
   ASSERT_EQ(s, d.docKey);
@@ -42,9 +42,9 @@ TEST_F(DocumentTest, testClear) {
 TEST_F(DocumentTest, testLoadAll) {
   Document d = {0};
   RMCK::RString docKey("doc1");
-  Document_Init(&d, docKey, 42, "french");
+  Document_Init(&d, docKey, 42, FRENCH);
   ASSERT_EQ(42, d.score);
-  ASSERT_STREQ("french", d.language);
+  ASSERT_EQ(FRENCH, d.language);
   // etc...
 
   // Store a document:
@@ -74,7 +74,7 @@ TEST_F(DocumentTest, testLoadSchema) {
 
   Document d = {0};
   RMCK::RString docKey("doc1");
-  Document_Init(&d, docKey, 1, NULL);
+  Document_Init(&d, docKey, 1, DEFAULT_LANGUAGE);
   int rv = Document_LoadAllFields(&d, ctx);
   ASSERT_EQ(REDISMODULE_ERR, rv);
 

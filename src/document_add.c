@@ -57,12 +57,13 @@ static int parseDocumentOptions(AddDocumentOptions *opts, ArgsCursor *ac, QueryE
   opts->numFieldElems = 0;
   opts->options = 0;
 
+  char *languageStr = NULL;
   ACArgSpec argList[] = {{AC_MKBITFLAG("NOSAVE", &opts->options, DOCUMENT_ADD_NOSAVE)},
                          {AC_MKBITFLAG("REPLACE", &opts->options, DOCUMENT_ADD_REPLACE)},
                          {AC_MKBITFLAG("PARTIAL", &opts->options, DOCUMENT_ADD_PARTIAL)},
                          {AC_MKBITFLAG("NOCREATE", &opts->options, DOCUMENT_ADD_NOCREATE)},
                          {.name = "PAYLOAD", .type = AC_ARGTYPE_RSTRING, .target = &opts->payload},
-                         {.name = "LANGUAGE", .type = AC_ARGTYPE_STRING, .target = &opts->language},
+                         {.name = "LANGUAGE", .type = AC_ARGTYPE_STRING, .target = &languageStr},
                          {.name = "IF", .type = AC_ARGTYPE_STRING, .target = &opts->evalExpr},
                          {.name = NULL}};
 
@@ -106,7 +107,8 @@ static int parseDocumentOptions(AddDocumentOptions *opts, ArgsCursor *ac, QueryE
     return REDISMODULE_ERR;
   }
 
-  if (opts->language && !IsSupportedLanguage(opts->language, strlen(opts->language))) {
+  opts->language = GetLanguageEnum(languageStr);
+  if (opts->language == UNSUPPORTED_LANGUAGE) {
     QueryError_SetError(status, QUERY_EADDARGS, "Unsupported language");
     return REDISMODULE_ERR;
   }
@@ -333,9 +335,9 @@ static int doAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   }
 
   int replace = 0;
-  const char *language = NULL;
+  const char *languageStr = NULL;
   ACArgSpec specs[] =  // Comment to force newline
-      {{.name = "LANGUAGE", .type = AC_ARGTYPE_STRING, .target = &language},
+      {{.name = "LANGUAGE", .type = AC_ARGTYPE_STRING, .target = &languageStr},
        {.name = "REPLACE", .type = AC_ARGTYPE_BOOLFLAG, .target = &replace},
        {.name = NULL}};
   ACArgSpec *errArg = NULL;
@@ -352,8 +354,9 @@ static int doAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     goto cleanup;
   }
 
-  if (language && !IsSupportedLanguage(language, strlen(language))) {
-    QueryError_SetErrorFmt(&status, QUERY_EADDARGS, "Unknown language: `%s`", language);
+  language_t language = GetLanguageEnum(languageStr);
+  if (language == UNSUPPORTED_LANGUAGE) {
+    QueryError_SetErrorFmt(&status, QUERY_EADDARGS, "Unknown language: `%s`", languageStr);
     goto cleanup;
   }
 

@@ -131,7 +131,7 @@ void RediSearch_TagFieldSetCaseSensitive(IndexSpec* sp, RSFieldID id, int enable
 
 RSDoc* RediSearch_CreateDocument(const void* docKey, size_t len, double score, const char* lang) {
   RedisModuleString* docKeyStr = RedisModule_CreateString(NULL, docKey, len);
-  const char* language = lang ? lang : "english";
+  language_t language = lang ? GetLanguageEnum(lang) : DEFAULT_LANGUAGE;
   Document* ret = rm_calloc(1, sizeof(*ret));
   Document_Init(ret, docKeyStr, score, language);
   Document_MakeStringsOwner(ret);

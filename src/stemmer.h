@@ -6,9 +6,31 @@
 extern "C" {
 #endif
 
+typedef enum LANGUAGE {
+  ENGLISH = 0,
+  ARABIC,
+  CHINESE,
+  DANISH,
+  DUTCH,
+  FINNISH,
+  FRENCH,
+  GERMAN,
+  HUNGARIAN,
+  ITALIAN,
+  NORWEGIAN,
+  PORTUGUESE,
+  ROMANIAN,
+  RUSSIAN,
+  SPANISH,
+  SWEDISH,
+  TAMIL,
+  TURKISH,
+  UNSUPPORTED_LANGUAGE 
+} language_t;
+
 typedef enum { SnowballStemmer } StemmerType;
 
-#define DEFAULT_LANGUAGE "english"
+#define DEFAULT_LANGUAGE ENGLISH
 #define STEM_PREFIX '+'
 #define STEMMER_EXPANDER_NAME "stem"
 
@@ -21,18 +43,19 @@ typedef struct stemmer {
 
   // Attempts to reset the stemmer using the given language and type. Returns 0
   // if this stemmer cannot be reused.
-  int (*Reset)(struct stemmer *, StemmerType type, const char *language);
+  int (*Reset)(struct stemmer *, StemmerType type, language_t language);
 
-  const char *language;
+  language_t language;
   StemmerType type;  // Type of stemmer
 } Stemmer;
 
-Stemmer *NewStemmer(StemmerType type, const char *language);
+Stemmer *NewStemmer(StemmerType type, language_t language);
 
-int ResetStemmer(Stemmer *stemmer, StemmerType type, const char *language);
+int ResetStemmer(Stemmer *stemmer, StemmerType type, language_t language);
 
 /* check if a language is supported by our stemmers */
-int IsSupportedLanguage(const char *language, size_t len);
+language_t GetLanguageEnum(const char *language);
+const char *GetLanguageStr(language_t language);
 
 /* Get a stemmer expander instance for registering it */
 void RegisterStemmerExpander();
@@ -40,7 +63,7 @@ void RegisterStemmerExpander();
 /* Snoball Stemmer wrapper implementation */
 const char *__sbstemmer_Stem(void *ctx, const char *word, size_t len, size_t *outlen);
 void __sbstemmer_Free(Stemmer *s);
-Stemmer *__newSnowballStemmer(const char *language);
+Stemmer *__newSnowballStemmer(language_t language);
 
 #ifdef __cplusplus
 }

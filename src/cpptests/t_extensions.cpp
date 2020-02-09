@@ -120,7 +120,7 @@ TEST_F(ExtTest, testQueryExpander) {
   RSSearchOptions opts = {0};
   opts.fieldmask = RS_FIELDMASK_ALL;
   opts.flags = RS_DEFAULT_QUERY_FLAGS;
-  opts.language = "en";
+  opts.language = DEFAULT_LANGUAGE;
   opts.expanderName = EXPANDER_NAME;
   opts.scorerName = SCORER_NAME;
   QueryAST qast = {0};
