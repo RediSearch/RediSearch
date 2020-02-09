@@ -128,6 +128,20 @@ jobs:
           command: |
             aws s3 cp site s3://oss.redislabs.com/$WEBSITE_FOLDER/ --acl public-read --recursive
 
+  run_automation:
+    docker:
+      - image: 'redislabsmodules/rmbuilder:latest'
+    steps:
+      - run:
+          name: Run QA Automation
+          command: >-
+            apt-get update &&
+            apt-get -y install curl &&
+            curl -k -u $QA_AUTOMATION_USERNAME:$QA_AUTOMATION_PASS -X POST
+            -H "Content-Type: application/json"
+            -d '{"service_id":"modules_multiple_rs_versions_cycle", "name":"redisearch automation-testing", "properties":{"sut_version":"5.4.4-7", "email_recipients":"s5i1u4h5a8c8w2d7@redislabs.slack.com", "sut_environments":[], "tools_environment":{}, "module_name": "ft", "modules_version":"$CIRCLE_TAG", "cycle_environments_setup":[{"teardown":true, "name":"trusty-amd64-aws", "concurrency":4}, {"teardown":true, "name":"xenial-amd64-aws", "concurrency":4}, {"teardown":true, "name":"rhel7.5-x86_64-aws", "concurrency":4}]}}'
+            https://qa-automation-center.redislabs.com/processes
+
 workflows:
   version: 2
 
