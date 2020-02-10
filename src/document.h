@@ -207,6 +207,9 @@ struct FieldIndexerData;
 // Document is entirely empty (no sortables, indexables)
 #define ACTX_F_EMPTY 0x40
 
+// Do not send reply on success/failure
+#define ACTX_F_NOREPLY 0x80
+
 struct DocumentIndexer;
 
 /** Context used when indexing documents */

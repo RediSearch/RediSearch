@@ -9,39 +9,17 @@
 #include "document.h"
 #include "search_ctx.h"
 
+SchemaRules *SchemaRules_g = NULL;
+
 SchemaRules *SchemaRules_Create(void) {
   SchemaRules *rules = rm_calloc(1, sizeof(*rules));
   dllist_init(&rules->rules);
+  rules->actions = array_new(MatchAction, 1);
   return rules;
 }
 
-static SchemaIndexAction indexAction_g = {.atype = SCACTION_TYPE_INDEX};
-
-int SchemaRules_AddArgs(SchemaRules *rules, const char *index, const char *name, ArgsCursor *ac,
-                        QueryError *err) {
-  // Let's add a static schema...
-  SchemaPrefixRule *r = rm_calloc(1, sizeof(*r));
-  r->index = rm_strdup(index);
-  r->name = rm_strdup(name);
-  r->rtype = SCRULE_TYPE_KEYPREFIX;
-  r->action = &indexAction_g;
-  dllist_append(&rules->rules, &r->llnode);
-  return REDISMODULE_OK;
-}
-
-static int matchPrefix(const SchemaRule *r, RedisModuleCtx *ctx, RuleKeyItem *item) {
-  SchemaPrefixRule *prule = (SchemaPrefixRule *)r;
-  size_t n;
-  const char *s = RedisModule_StringPtrLen(item->kstr, &n);
-  if (prule->nprefix > n) {
-    return 0;
-  }
-  return strncmp(prule->prefix, s, prule->nprefix) == 0;
-}
-
-static int matchExpression(const SchemaRule *r, RedisModuleCtx *ctx, RuleKeyItem *item) {
-  // ....
-  return 0;
+static void indexCallback(RSAddDocumentCtx *aCtx, RedisModuleCtx *ctx, void *unused) {
+  // dummy
 }
 
 static int indexDocument(RedisModuleCtx *ctx, IndexSpec *sp, RuleKeyItem *item,
@@ -58,7 +36,7 @@ static int indexDocument(RedisModuleCtx *ctx, IndexSpec *sp, RuleKeyItem *item,
     goto err;
   }
   if (!d.numFields) {
-    QueryError_SetError(e, QUERY_ENODOC, "No indexable fields in document");
+    QueryError_SetError(e, QUERY_ENOIDXFIELDS, "No indexable fields in document");
     goto err;
   }
 
@@ -66,51 +44,14 @@ static int indexDocument(RedisModuleCtx *ctx, IndexSpec *sp, RuleKeyItem *item,
   if (!aCtx) {
     goto err;
   }
-  AddDocumentCtx_Submit(aCtx, &sctx,
-                        DOCUMENT_ADD_REPLACE | DOCUMENT_ADD_NOSAVE | DOCUMENT_ADD_CURTHREAD);
+  aCtx->stateFlags |= ACTX_F_NOBLOCK;  // disable "blocking", i.e. threading
+  aCtx->donecb = indexCallback;
+  AddDocumentCtx_Submit(aCtx, &sctx, DOCUMENT_ADD_REPLACE | DOCUMENT_ADD_NOSAVE);
   return REDISMODULE_OK;
 
 err:
   Document_Free(&d);
   return REDISMODULE_ERR;
-}
-
-/**
- * The idea here is to allow multiple rule matching types, and to have a dynamic
- * function table for each rule type
- */
-typedef int (*scruleMatchFn)(const SchemaRule *, RedisModuleCtx *, RuleKeyItem *);
-
-static scruleMatchFn matchfuncs_g[] = {[SCRULE_TYPE_KEYPREFIX] = matchPrefix,
-                                       [SCRULE_TYPE_EXPRESSION] = matchExpression};
-
-int SchemaRules_Check(const SchemaRules *rules, RedisModuleCtx *ctx, RuleKeyItem *item,
-                      MatchAction **results, size_t *nresults) {
-  array_clear(rules->actions);
-  *results = rules->actions;
-
-  DLLIST_FOREACH(it, &rules->rules) {
-    SchemaRule *rule = DLLIST_ITEM(it, SchemaRule, llnode);
-    assert(rule->rtype == SCRULE_TYPE_KEYPREFIX);
-    scruleMatchFn fn = matchfuncs_g[rule->rtype];
-    if (!fn(rule, ctx, item)) {
-      continue;
-    }
-
-    MatchAction *curAction = NULL;
-    for (size_t ii = 0; ii < *nresults; ++ii) {
-      if (!strcmp((*results)[ii].index, rule->index)) {
-        curAction = (*results) + ii;
-      }
-    }
-    if (!curAction) {
-      curAction = array_ensure_tail(results, MatchAction);
-      curAction->index = rule->index;
-    }
-    assert(rule->action->atype == SCACTION_TYPE_INDEX);
-  }
-  *nresults = array_len(*results);
-  return *nresults;
 }
 
 static void processKeyItem(RedisModuleCtx *ctx, RuleKeyItem *item, int forceQueue) {
@@ -119,7 +60,7 @@ static void processKeyItem(RedisModuleCtx *ctx, RuleKeyItem *item, int forceQueu
    * maybe in a different thread?
    */
   MatchAction *results = NULL;
-  size_t nresults;
+  size_t nresults = 0;
   SchemaRules_Check(SchemaRules_g, ctx, item, &results, &nresults);
   for (size_t ii = 0; ii < nresults; ++ii) {
     // submit the document for indexing if sync, async otherwise...
@@ -131,18 +72,61 @@ static void processKeyItem(RedisModuleCtx *ctx, RuleKeyItem *item, int forceQueu
     } else {
       QueryError e = {0};
       int rc = indexDocument(ctx, spec, item, &results[ii].attrs, &e);
+      if (rc != REDISMODULE_OK) {
+        printf("Couldn't index document: %s\n", QueryError_GetError(&e));
+        if (e.code == QUERY_ENOIDXFIELDS) {
+          rc = REDISMODULE_OK;
+        }
+        QueryError_ClearError(&e);
+      }
       assert(rc == REDISMODULE_OK);
     }
   }
 }
 
-static void keyspaceNotificationCallback(RedisModuleCtx *ctx, const char *action,
-                                         RedisModuleString *key) {
+static int hashCallback(RedisModuleCtx *ctx, int unused, const char *action,
+                        RedisModuleString *key) {
+  printf("int:%d, action:%s\n", unused, action);
   RuleKeyItem item = {.kstr = key, .kobj = NULL};
   processKeyItem(ctx, &item, 0);
   if (item.kobj) {
     RedisModule_CloseKey(item.kobj);
   }
+  return REDISMODULE_OK;
+}
+
+static int delCallback(RedisModuleCtx *ctx, int event, const char *action,
+                       RedisModuleString *keyname) {
+  printf("Del Callback!\n");
+  int shouldDelete = 0;
+  if (event & (REDISMODULE_NOTIFY_EVICTED | REDISMODULE_NOTIFY_EXPIRED)) {
+    shouldDelete = 1;
+  } else if (event == REDISMODULE_NOTIFY_GENERIC && *action == 'e') {
+    shouldDelete = 1;
+  }
+  printf("Should delete=%d\n", shouldDelete);
+  if (!shouldDelete) {
+    return REDISMODULE_OK;
+  }
+
+  // TODO: Handle RENAME
+
+  MatchAction *results = NULL;
+  size_t nresults = 0;
+  RuleKeyItem rki = {.kstr = keyname};
+  SchemaRules_Check(SchemaRules_g, ctx, &rki, &results, &nresults);
+  printf("have %lu results\n", nresults);
+  for (size_t ii = 0; ii < nresults; ++ii) {
+    // Remove the document from the index
+    IndexSpec *sp = IndexSpec_Load(ctx, results[ii].index, 1);
+    if (!sp) {
+      continue;
+    }
+    printf("Deleting from docs\n");
+    DocTable_DeleteR(&sp->docs, keyname);
+  }
+
+  return REDISMODULE_OK;
 }
 
 static void scanCallback(RedisModuleCtx *ctx, RedisModuleString *keyname, RedisModuleKey *keyobj,
@@ -158,4 +142,14 @@ void SchemaRules_ScanAll(const SchemaRules *rules) {
   RedisModuleScanCursor *cursor = RedisModule_ScanCursorCreate();
   RedisModule_Scan(ctx, cursor, scanCallback, NULL);
   RedisModule_ScanCursorDestroy(cursor);
+}
+
+void SchemaRules_ReplyAll(const SchemaRules *rules, RedisModuleCtx *ctx) {
+}
+
+void SchemaRules_InitGlobal(void) {
+  SchemaRules_g = SchemaRules_Create();
+  RedisModule_SubscribeToKeyspaceEvents(RSDummyContext, REDISMODULE_NOTIFY_HASH, hashCallback);
+  RedisModule_SubscribeToKeyspaceEvents(
+      RSDummyContext, REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_EXPIRED, delCallback);
 }

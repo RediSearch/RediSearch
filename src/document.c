@@ -245,7 +245,7 @@ void Document_Dump(const Document *doc) {
     printf("  [%lu]: %s => %s\n", ii, doc->fields[ii].name,
            RedisModule_StringPtrLen(doc->fields[ii].text, NULL));
   }
-} 
+}
 // LCOV_EXCL_STOP
 
 static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx);
@@ -618,7 +618,7 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
   if (QueryError_HasError(status)) {
     RSExpr_Free(e);
     return REDISMODULE_ERR;
-  } 
+  }
 
   RLookup lookup_s;
   RLookupRow row = {0};
@@ -628,7 +628,12 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
     goto done;
   }
 
-  RLookupLoadOptions loadopts = {.sctx = sctx, .dmd = dmd, .status = status};
+  RLookupLoadOptions loadopts = {.sctx = sctx,
+                                 .sv = dmd->sortVector,
+                                 .ktype = RLOOKUP_KEY_CSTR,
+                                 .key = {.cstr = dmd->keyPtr},
+                                 .status = status};
+
   if (RLookup_LoadDocument(&lookup_s, &row, &loadopts) != REDISMODULE_OK) {
     // printf("Couldn't load document!\n");
     goto done;

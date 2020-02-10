@@ -18,6 +18,7 @@ REDISMODULE_INIT_SYMBOLS();
 #include "alias.h"
 #include "aggregate/aggregate.h"
 #include "ext/default.h"
+#include "rules/rules.h"
 
 #ifndef RS_NO_ONLOAD
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -150,6 +151,8 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   CursorList_Init(&RSCursors);
 
   IndexAlias_InitGlobal();
+
+  SchemaRules_InitGlobal();
 
   // Register aggregation functions
   RegisterAllFunctions();

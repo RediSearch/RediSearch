@@ -30,6 +30,7 @@
 #include "alias.h"
 #include "module.h"
 #include "info_command.h"
+#include "rules/rules.h"
 
 pthread_rwlock_t RWLock = PTHREAD_RWLOCK_INITIALIZER;
 
@@ -769,6 +770,26 @@ static int AliasUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
   }
 }
 
+static int RuleAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  ArgsCursor ac = {0};
+  ArgsCursor_InitRString(&ac, argv + 1, argc - 1);
+  // INDEX RULENAME MATCHTYPE MATCHEXPR ACTION ACTION-PARAMS
+  if (AC_NumRemaining(&ac) < 5) {
+    return RedisModule_WrongArity(ctx);
+  }
+  const char *idxstr = AC_GetStringNC(&ac, NULL);
+  const char *name = AC_GetStringNC(&ac, NULL);
+  QueryError err = {0};
+  int rc = SchemaRules_AddArgs(SchemaRules_g, idxstr, name, &ac, &err);
+  if (rc != REDISMODULE_OK) {
+    RedisModule_ReplyWithError(ctx, QueryError_GetError(&err));
+    QueryError_ClearError(&err);
+  } else {
+    RedisModule_ReplyWithSimpleString(ctx, "OK");
+  }
+  return REDISMODULE_OK;
+}
+
 int ConfigCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // Not bound to a specific index, so...
   RedisModule_AutoMemory(ctx);
@@ -907,6 +928,8 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   RM_TRY(RedisModule_CreateCommand, ctx, RS_DICT_DUMP, DictDumpCommand, "readonly", 1, 1, 1);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_CONFIG, ConfigCommand, "readonly", 1, 1, 1);
+
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_RULEADD, RuleAddCommand, "readonly", 1, 1, 1);
 
 #ifndef RS_COORDINATOR
   // we are running in a normal mode so we should raise cross slot error on alias commands
