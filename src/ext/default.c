@@ -360,13 +360,13 @@ int StemmerExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
   struct sb_stemmer *sb;
 
   if (!ctx->privdata) {
-    if (!strcasecmp(ctx->language, "chinese")) {
+    if (ctx->language == RS_LANG_CHINESE) {
       expandCn(ctx, token);
       return REDISMODULE_OK;
     } else {
       dd = ctx->privdata = rm_calloc(1, sizeof(*dd));
       dd->isCn = 0;
-      sb = dd->data.latin = sb_stemmer_new(ctx->language, NULL);
+      sb = dd->data.latin = sb_stemmer_new(RSLanguage_ToString(ctx->language), NULL);
     }
   }
 
