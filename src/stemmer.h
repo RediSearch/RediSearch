@@ -6,7 +6,7 @@
 extern "C" {
 #endif
 
-typedef enum LANGUAGE {
+typedef enum {
   RS_LANG_ENGLISH = 0,
   RS_LANG_ARABIC,
   RS_LANG_CHINESE,

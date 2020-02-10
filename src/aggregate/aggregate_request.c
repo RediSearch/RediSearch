@@ -286,7 +286,7 @@ static int parseQueryLegacyArgs(ArgsCursor *ac, RSSearchOptions *options, QueryE
 static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts,
                           AggregatePlan *plan, QueryError *status) {
   // Parse query-specific arguments..
-  char *languageStr = NULL;
+  const char *languageStr = NULL;
   ArgsCursor returnFields = {0};
   ArgsCursor inKeys = {0};
   ArgsCursor inFields = {0};
