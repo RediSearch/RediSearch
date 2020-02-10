@@ -13,7 +13,7 @@ struct SearchOptionsCXX : RSSearchOptions {
     memset(this, 0, sizeof(*this));
     flags = RS_DEFAULT_QUERY_FLAGS;
     fieldmask = RS_FIELDMASK_ALL;
-    language = "en";
+    language = DEFAULT_LANGUAGE;
     stopwords = DefaultStopWordList();
   }
 };

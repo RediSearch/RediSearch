@@ -855,7 +855,7 @@ int QAST_Expand(QueryAST *q, const char *expander, RSSearchOptions *opts, RedisS
   }
   RSQueryExpanderCtx expCtx = {
       .qast = q,
-      .language = (opts && opts->language) ? opts->language : DEFAULT_LANGUAGE,
+      .language = opts->language,
       .handle = sctx,
       .status = status};
 
