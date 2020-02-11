@@ -294,10 +294,24 @@ static int getKeyCommon(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOption
   // In this case, the flag must be obtained via HGET
   if (!*keyobj) {
     RedisModuleCtx *ctx = options->sctx->redisCtx;
-    RedisModuleString *keyName =
-        RedisModule_CreateString(ctx, options->dmd->keyPtr, strlen(options->dmd->keyPtr));
-    *keyobj = RedisModule_OpenKey(ctx, keyName, REDISMODULE_READ);
-    RedisModule_FreeString(ctx, keyName);
+    if (options->ktype == RLOOKUP_KEY_OBJ) {
+      *keyobj = options->key.kobj;
+    } else {
+      RedisModuleString *keyName = NULL;
+      if (options->ktype == RLOOKUP_KEY_CSTR) {
+        keyName = RedisModule_CreateString(ctx, options->key.cstr, strlen(options->key.cstr));
+      } else if (options->ktype == RLOOKUP_KEY_RSTR) {
+        keyName = options->key.rstr;
+      } else {
+        QueryError_SetError(options->status, QUERY_EINVAL,
+                            "Invalid key type requested (this is a bug)");
+        return REDISMODULE_ERR;
+      }
+      *keyobj = RedisModule_OpenKey(ctx, keyName, REDISMODULE_READ);
+      if (options->ktype == RLOOKUP_KEY_CSTR) {
+        RedisModule_FreeString(ctx, keyName);
+      }
+    }
     if (!*keyobj) {
       QueryError_SetCode(options->status, QUERY_ENODOC);
       return REDISMODULE_ERR;
@@ -364,10 +378,20 @@ static int RLookup_HGETALL(RLookup *it, RLookupRow *dst, RLookupLoadOptions *opt
   int rc = REDISMODULE_ERR;
   RedisModuleCallReply *rep = NULL;
   RedisModuleCtx *ctx = options->sctx->redisCtx;
-  RedisModuleString *krstr =
-      RedisModule_CreateString(ctx, options->dmd->keyPtr, sdslen(options->dmd->keyPtr));
-
+  RedisModuleString *krstr = NULL;
+  if (options->ktype == RLOOKUP_KEY_CSTR) {
+    krstr = RedisModule_CreateString(ctx, options->key.cstr, strlen(options->key.cstr));
+  } else if (options->ktype == RLOOKUP_KEY_RSTR) {
+    krstr = options->key.rstr;
+  } else {
+    QueryError_SetError(options->status, QUERY_EINVAL,
+                        "Invalid key specified requested (this is a bug)");
+    return REDISMODULE_ERR;
+  }
   rep = RedisModule_Call(ctx, "HGETALL", "s", krstr);
+  if (options->ktype == RLOOKUP_KEY_RSTR) {
+    RedisModule_FreeString(ctx, krstr);
+  }
 
   if (rep == NULL || RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_ARRAY) {
     goto done;
@@ -396,9 +420,6 @@ static int RLookup_HGETALL(RLookup *it, RLookupRow *dst, RLookupLoadOptions *opt
   rc = REDISMODULE_OK;
 
 done:
-  if (krstr) {
-    RedisModule_FreeString(ctx, krstr);
-  }
   if (rep) {
     RedisModule_FreeCallReply(rep);
   }
@@ -406,10 +427,10 @@ done:
 }
 
 int RLookup_LoadDocument(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options) {
-  if (options->dmd) {
-    dst->sv = options->dmd->sortVector;
+  if (options->sv) {
+    dst->sv = options->sv;
   }
-  if (options->mode & RLOOKUP_LOAD_ALLKEYS) {
+  if (options->mode == RLOOKUP_LOAD_ALLKEYS) {
     return RLookup_HGETALL(it, dst, options);
   } else {
     return loadIndividualKeys(it, dst, options);

@@ -63,7 +63,7 @@ void SchemaRules_ScanAll(const SchemaRules *rules);
 /**
  * Initializes the global rule list and subscribes to keyspace events
  */
-void SchemaRules_InitGlobal(RedisModuleCtx *ctx);
+void SchemaRules_InitGlobal();
 void SchemaRules_ShutdownGlobal();
 
 #ifdef __cplusplus

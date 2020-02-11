@@ -107,6 +107,7 @@ FILE(GLOB RS_SRC
     "src/query_parser/*.c"
     "src/util/*.c"
     "src/trie/*.c"
+    "src/rules/*.c"
     "src/dep/cndict/cndict_data.c"
     "src/dep/hll/*.c"
     "src/dep/libnu/*.c"

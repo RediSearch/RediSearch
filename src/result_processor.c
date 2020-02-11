@@ -548,7 +548,8 @@ static int rploaderNext(ResultProcessor *base, SearchResult *r) {
 
   QueryError status = {0};
   RLookupLoadOptions loadopts = {.sctx = lc->base.parent->sctx,  // lb
-                                 .dmd = r->dmd,
+                                 .ktype = RLOOKUP_KEY_CSTR,
+                                 .key = {.cstr = r->dmd->keyPtr},
                                  .noSortables = 1,
                                  .status = &status,
                                  .keys = lc->fields,

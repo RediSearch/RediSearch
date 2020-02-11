@@ -23,7 +23,7 @@ typedef enum {
   SCACTION_TYPE_GOTO = 0x04,
 } SchemaActionType;
 
-struct SchemaAction;
+typedef struct SchemaAction SchemaAction;
 
 #define SCHEMA_RULE_HEAD \
   DLLIST_node llnode;    \
@@ -32,17 +32,9 @@ struct SchemaAction;
   const char *name;      \
   struct SchemaAction *action;
 
-typedef struct SchemaRule {
+struct SchemaRule {
   SCHEMA_RULE_HEAD;
-} SchemaRule;
-
-#define SCHEMA_ACTION_HEAD \
-  SchemaActionType atype;  \
-  // Nothing here..
-
-typedef struct SchemaAction {
-  SCHEMA_ACTION_HEAD;
-} SchemaAction;
+};
 
 typedef struct {
   SCHEMA_RULE_HEAD
@@ -52,9 +44,10 @@ typedef struct {
 
 typedef struct {
   SCHEMA_RULE_HEAD
-  const char *exprstr;
+  char *exprstr;
   RSExpr *exprobj;
   RSValue *v;
+  RLookup lk;
 } SchemaExprRule;
 
 struct SchemaRules {
@@ -63,8 +56,6 @@ struct SchemaRules {
   MatchAction *actions;
 };
 
-typedef struct SchemaAction SchemaIndexAction;
-
 typedef enum {
   SCATTR_TYPE_LANGUAGE = 0x01,
   SCATTR_TYPE_SCORE = 0x02,
@@ -72,7 +63,14 @@ typedef enum {
 } SchemaAttrType;
 
 typedef struct {
-  SCHEMA_ACTION_HEAD;
-  SchemaAttrType attr;
+  SchemaAttrType type;
   void *value;
-} SchemaSetattrAction;
+} SchemaAttrValue;
+
+struct SchemaAction {
+  SchemaActionType atype;
+  union {
+    SchemaAttrValue *attr;
+    char *goto_;
+  } u;
+};
