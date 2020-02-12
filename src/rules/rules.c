@@ -97,14 +97,12 @@ static int hashCallback(RedisModuleCtx *ctx, int unused, const char *action,
 
 static int delCallback(RedisModuleCtx *ctx, int event, const char *action,
                        RedisModuleString *keyname) {
-  printf("Del Callback!\n");
   int shouldDelete = 0;
   if (event & (REDISMODULE_NOTIFY_EVICTED | REDISMODULE_NOTIFY_EXPIRED)) {
     shouldDelete = 1;
-  } else if (event == REDISMODULE_NOTIFY_GENERIC && *action == 'e') {
+  } else if (event == REDISMODULE_NOTIFY_GENERIC && *action == 'd') {
     shouldDelete = 1;
   }
-  printf("Should delete=%d\n", shouldDelete);
   if (!shouldDelete) {
     return REDISMODULE_OK;
   }
@@ -115,14 +113,12 @@ static int delCallback(RedisModuleCtx *ctx, int event, const char *action,
   size_t nresults = 0;
   RuleKeyItem rki = {.kstr = keyname};
   SchemaRules_Check(SchemaRules_g, ctx, &rki, &results, &nresults);
-  printf("have %lu results\n", nresults);
   for (size_t ii = 0; ii < nresults; ++ii) {
     // Remove the document from the index
     IndexSpec *sp = IndexSpec_Load(ctx, results[ii].index, 1);
     if (!sp) {
       continue;
     }
-    printf("Deleting from docs\n");
     DocTable_DeleteR(&sp->docs, keyname);
   }
 
