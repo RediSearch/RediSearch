@@ -8,6 +8,14 @@
 ///////////////////////////////////////////////////////////////
 // Variant Values - will be used in documents as well
 ///////////////////////////////////////////////////////////////
+static size_t RSValue_NumToString(double dd, char *buf) {
+  long long ll = dd;
+  if (ll == dd) {
+    return sprintf(buf, "%lld", ll);
+  } else {
+    return sprintf(buf, "%.12g", dd);
+  }
+}
 
 typedef struct {
   mempool_t *values;
@@ -224,9 +232,10 @@ void RSValue_ToString(RSValue *dst, RSValue *v) {
       break;
     }
     case RSValue_Number: {
-      char *str;
-      rm_asprintf(&str, "%.12g", v->numval);
-      RSValue_SetString(dst, str, strlen(str));
+      char tmpbuf[128] = {0};
+      RSValue_NumToString(v->numval, tmpbuf);
+      char *buf = rm_strdup(tmpbuf);
+      RSValue_SetString(dst, buf, strlen(buf));
       break;
     }
     case RSValue_Reference:
@@ -598,8 +607,8 @@ int RSValue_SendReply(RedisModuleCtx *ctx, const RSValue *v, int isTyped) {
     case RSValue_OwnRstring:
       return RedisModule_ReplyWithString(ctx, v->rstrval);
     case RSValue_Number: {
-      char buf[128];
-      snprintf(buf, sizeof(buf), "%.12g", v->numval);
+      char buf[128] = {0};
+      RSValue_NumToString(v->numval, buf);
 
       if (isTyped) {
         return RedisModule_ReplyWithError(ctx, buf);
@@ -634,9 +643,12 @@ void RSValue_Print(const RSValue *v) {
     case RSValue_OwnRstring:
       fprintf(fp, "\"%s\"", RedisModule_StringPtrLen(v->rstrval, NULL));
       break;
-    case RSValue_Number:
-      fprintf(fp, "%.12g", v->numval);
+    case RSValue_Number: {
+      char tmp[128] = {0};
+      RSValue_NumToString(v->numval, tmp);
+      fprintf(fp, "%s", tmp);
       break;
+    }
     case RSValue_Null:
       fprintf(fp, "NULL");
       break;
