@@ -85,4 +85,5 @@ TEST_F(ValueTest, testNumericFormat) {
 
   RSValue_SetNumber(v, 1581011976800);
   ASSERT_STREQ("1581011976800", toString(v).c_str());
+  RSValue_Decref(v);
 }
