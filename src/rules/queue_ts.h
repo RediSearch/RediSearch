@@ -24,6 +24,8 @@ THE SOFTWARE.
 
 */
 
+#pragma once
+
 #ifndef IO_QUEUE_H
 #define IO_QUEUE_H
 
@@ -70,8 +72,8 @@ typedef struct IoQueue
 IoQueueResult io_queue_init(IoQueue* io_queue, size_t item_size)
 {
     IO_QUEUE_ASSERT(io_queue);
-    atomic_init(&io_queue->head, NULL);
-    atomic_init(&io_queue->tail, NULL);
+    atomic_init(&io_queue->head, (atomic_uintptr_t)NULL);
+    atomic_init(&io_queue->tail, (atomic_uintptr_t)NULL);
     io_queue->item_size = item_size;
     return IO_QUEUE_RESULT_SUCCESS;
 }
@@ -112,7 +114,7 @@ IoQueueResult io_queue_pop(IoQueue* io_queue)
     assert(io_queue);
     assert(io_queue_has_front(io_queue) == IO_QUEUE_RESULT_TRUE);
     // get the head
-    IoQueueNode* popped = atomic_load(&io_queue->head);
+    IoQueueNode* popped = (IoQueueNode*)atomic_load(&io_queue->head);
     IoQueueNode* compare = popped;
     // set the tail and head to nothing if they are the same
     if (atomic_compare_exchange_strong(&io_queue->tail, &compare, 0))
@@ -133,7 +135,7 @@ IoQueueResult io_queue_pop(IoQueue* io_queue)
             // spin until the pushing thread stores the value
             new_head = (IoQueueNode*)atomic_load(&popped->next);
         }
-        atomic_store(&io_queue->head, new_head);
+        atomic_store(&io_queue->head, (atomic_uintptr_t)new_head);
     }
     // delete the popped node
     free(popped);
@@ -160,16 +162,16 @@ IoQueueResult io_queue_push(IoQueue* io_queue, void* data)
     // swap the new tail with the old
     IoQueueNode* old_tail = (IoQueueNode*)atomic_exchange(
         &io_queue->tail,
-        new_tail
+        (atomic_uintptr_t)new_tail
     );
     // link the old tail to the new
     if (old_tail)
     {
-        atomic_store(&old_tail->next, new_tail);
+        atomic_store(&old_tail->next, (atomic_uintptr_t)new_tail);
     }
     else
     {
-        atomic_store(&io_queue->head, new_tail);
+        atomic_store(&io_queue->head, (atomic_uintptr_t)new_tail);
     }
     return IO_QUEUE_RESULT_SUCCESS;
 }

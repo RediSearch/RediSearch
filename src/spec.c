@@ -15,6 +15,7 @@
 #include "indexer.h"
 #include "alias.h"
 #include "module.h"
+// #include "rules/queue_ts.h"
 
 void (*IndexSpec_OnCreate)(const IndexSpec *) = NULL;
 const char *(*IndexAlias_GetUserTableName)(RedisModuleCtx *, const char *) = NULL;
@@ -679,6 +680,12 @@ static void IndexSpec_FreeInternals(IndexSpec *spec) {
     IndexSpecCache_Decref(spec->spcache);
     spec->spcache = NULL;
   }
+  /*
+  if (spec->asyncIndexQueue) {
+    io_queue_clear(spec->asyncIndexQueue);
+    rm_free(spec->asyncIndexQueue);
+    spec->asyncIndexQueue = NULL;
+  }*/
 
   if (spec->indexStrs) {
     for (size_t ii = 0; ii < spec->numFields; ++ii) {
@@ -941,6 +948,7 @@ IndexSpec *NewIndexSpec(const char *name) {
   sp->maxPrefixExpansions = RSGlobalConfig.maxPrefixExpansions;
   sp->getValue = NULL;
   sp->getValueCtx = NULL;
+  sp->asyncIndexQueue = NULL; // rm_calloc(1, sizeof(*sp->asyncIndexQueue));
   memset(&sp->stats, 0, sizeof(sp->stats));
   return sp;
 }
