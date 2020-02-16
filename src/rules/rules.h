@@ -4,6 +4,9 @@
 #include "redismodule.h"
 #include "rmutil/args.h"
 #include "query_error.h"
+#include "util/dllist.h"
+
+#include <pthread.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -46,8 +49,28 @@ typedef struct {
 
 typedef struct {
   RedisModuleString *kstr;
-  RedisModuleKey *kobj;
+  RedisModuleKey *kobj;     // Necessary? We are appending to the currect idx.
 } RuleKeyItem;
+
+typedef struct asyncIndexCtx {
+  RedisModuleCtx *aiCtx;
+
+  DLLIST indexList;         // List of indexes with documents to be indexed
+
+  size_t interval;          // interval in milliseconds. sleep time when queue is empty
+  size_t indexBatchSize;    // maximum documents to index at once. Prevents starvation   
+
+  pthread_t aiThread;
+  pthread_mutex_t lock;
+} asyncIndexCtx;
+
+typedef struct RuleIndexableDocument {
+  DLLIST_node llnode;
+  RuleKeyItem rki;
+  IndexItemAttrs iia;
+} RuleIndexableDocument;
+
+
 
 // Check if the given document matches any of the rule sets
 int SchemaRules_Check(const SchemaRules *rules, RedisModuleCtx *ctx, RuleKeyItem *item,

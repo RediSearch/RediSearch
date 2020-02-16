@@ -2,6 +2,7 @@
 #define __SPEC_H__
 #include <stdlib.h>
 #include <string.h>
+#include <pthread.h>
 
 #include "default_gc.h"
 #include "redismodule.h"
@@ -162,6 +163,7 @@ struct IndexQueue;
 struct IoQueue;
 
 struct IndexSpec {
+  DLLIST_node llnode;
   char *name;
   FieldSpec *fields;
   int numFields;
@@ -194,8 +196,10 @@ struct IndexSpec {
   void *getValueCtx;
   char **aliases; // Aliases to self-remove when the index is deleted
   struct DocumentIndexer *indexer;
-  struct IndexQueue *queue;
-  struct IoQueue *asyncIndexQueue;
+  // struct IndexQueue *queue;
+  // struct IoQueue *asyncIndexQueue;
+  DLLIST asyncIndexQueue;
+  pthread_mutex_t lock;
 };
 
 typedef struct {

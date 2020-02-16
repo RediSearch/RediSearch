@@ -948,7 +948,8 @@ IndexSpec *NewIndexSpec(const char *name) {
   sp->maxPrefixExpansions = RSGlobalConfig.maxPrefixExpansions;
   sp->getValue = NULL;
   sp->getValueCtx = NULL;
-  sp->asyncIndexQueue = NULL; // rm_calloc(1, sizeof(*sp->asyncIndexQueue));
+  dllist_init(&sp->asyncIndexQueue);
+  pthread_mutex_init(&sp->lock, NULL);
   memset(&sp->stats, 0, sizeof(sp->stats));
   return sp;
 }

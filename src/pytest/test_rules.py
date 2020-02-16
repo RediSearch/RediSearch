@@ -1,5 +1,6 @@
 from RLTest import Env
 import pprint
+import time
 from includes import *
 
 def testCreateRules(env):
@@ -10,6 +11,7 @@ def testCreateRules(env):
     env.cmd('hset', 'user:mnunberg', 'foo', 'bar')
     env.cmd('hset', 'user:mnunberg', 'f1', 'hello world')
 
+    time.sleep(1)
     print env.cmd('ft.search', 'idx', 'hello')
     print("Deleting...")
     env.cmd('del', 'user:mnunberg')
@@ -18,4 +20,6 @@ def testCreateRules(env):
     env.cmd('hset', 'someDoc', 'year', '2019')
     env.cmd('hset', 'someDoc', 'name', 'mark')
     env.cmd('hset', 'someDoc', 'f1', 'goodbye')
+    
+    time.sleep(1)
     print env.cmd('ft.search', 'idx', 'goodbye')
