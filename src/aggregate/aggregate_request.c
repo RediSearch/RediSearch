@@ -387,8 +387,8 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
 }
 
 static char *getReducerAlias(PLN_GroupStep *g, const char *func, const ArgsCursor *args) {
-  sds out = sdsempty();
-  out = sdscatprintf(out, "_G%u_", g->serial++);
+
+  sds out = sdsnew("__generated_alias");
   out = sdscat(out, func);
   // only put parentheses if we actually have args
   char buf[255];
@@ -403,7 +403,7 @@ static char *getReducerAlias(PLN_GroupStep *g, const char *func, const ArgsCurso
     }
     out = sdscatlen(out, s, l);
     if (!AC_IsAtEnd(&tmp)) {
-      out = sdscat(out, "_");
+      out = sdscat(out, ",");
     }
   }
 
