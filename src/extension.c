@@ -5,7 +5,7 @@
 #include "rmalloc.h"
 #include "redismodule.h"
 #include "index_result.h"
-#include "dep/triemap/triemap.h"
+#include "triemap/triemap.h"
 #include "query.h"
 #include <err.h>
 

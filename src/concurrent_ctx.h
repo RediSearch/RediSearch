@@ -1,11 +1,11 @@
 #ifndef RS_CONCERRNT_CTX_
 #define RS_CONCERRNT_CTX_
 
+#include <time.h>
 #include "redisearch.h"
 #include "redismodule.h"
 #include "config.h"
-#include <time.h>
-#include <dep/thpool/thpool.h>
+#include "thpool/thpool.h"
 
 #if defined(__FreeBSD__)
 #define CLOCK_MONOTONIC_RAW CLOCK_MONOTONIC

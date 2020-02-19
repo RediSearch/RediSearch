@@ -1,7 +1,7 @@
 #ifndef __RUNE_UTIL_H__
 #define __RUNE_UTIL_H__
 
-#include "../dep/libnu/libnu.h"
+#include "libnu/libnu.h"
 
 #ifdef __cplusplus
 extern "C" {

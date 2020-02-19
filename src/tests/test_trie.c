@@ -9,7 +9,6 @@
 #include <sys/param.h>
 #include <time.h>
 #include "test_util.h"
-#include "../dep/libnu/libnu.h"
 #include "rmutil/alloc.h"
 
 int count = 0;

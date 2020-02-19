@@ -3,7 +3,6 @@
 
 #include <redisearch.h>
 #include <result_processor.h>
-#include <dep/triemap/triemap.h>
 #include <util/block_alloc.h>
 #include "query_error.h"
 

@@ -6,7 +6,7 @@
 #include "../spec.h"
 #include "../query.h"
 #include "../synonym_map.h"
-#include "../dep/snowball/include/libstemmer.h"
+#include "snowball/include/libstemmer.h"
 #include "default.h"
 #include "../tokenize.h"
 #include "../rmutil/vector.h"
