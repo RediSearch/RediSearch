@@ -2882,6 +2882,21 @@ def testIssue1074(env):
     rv = env.cmd('ft.search', 'idx', '*', 'sortby', 'n1')
     env.assertEqual([1L, 'doc1', ['n1', '1581011976800', 't1', 'hello']], rv)
 
+def testIssue1085(env):
+    env.skipOnCluster()
+    env.cmd('FT.CREATE issue1085 SCHEMA foo TEXT SORTABLE bar NUMERIC SORTABLE')
+    for i in range(1, 10):
+        env.cmd('FT.ADD issue1085 document_%d 1 REPLACE FIELDS foo foo%d bar %d' % (i, i, i))
+    env.expect('FT.SEARCH', 'issue1085', '@bar:[8 8]').equal([1L, 'document_8', ['foo', 'foo8', 'bar', '8']])
+
+    for i in range(1, 10):
+        env.cmd('FT.ADD issue1085 document_8 1 REPLACE FIELDS foo foo8 bar 8')
+
+    env.expect('ft.debug GC_FORCEINVOKE issue1085').equal('DONE')
+
+    env.expect('FT.SEARCH', 'issue1085', '@bar:[8 8]').equal([1, 'document_8', ['foo', 'foo8', 'bar', '8']])
+
+
 def grouper(iterable, n, fillvalue=None):
     "Collect data into fixed-length chunks or blocks"
     from itertools import izip_longest
