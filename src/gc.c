@@ -41,7 +41,8 @@ GCContext* GCContext_CreateGCFromSpec(IndexSpec* sp, float initialHZ, uint64_t u
     default:
       // currently LLAPI only support FORK_GC, in the future we might allow default GC as well.
       // This is why we pass the GC_POLICY to the function.
-      assert(0);
+      //assert(0);
+      RS_LOG_ASSERT(NULL, 0, "Invalid GC policy");
   }
   return ret;
 }
