@@ -389,7 +389,11 @@ static int RLookup_HGETALL(RLookup *it, RLookupRow *dst, RLookupLoadOptions *opt
     if (!options->noSortables && (rlk->flags & RLOOKUP_F_SVSRC)) {
       continue;  // Can load it from the sort vector on demand.
     }
-    RSValue *vptr = replyElemToValue(repv, rlk->fieldtype);
+    RLookupCoerceType ctype = rlk->fieldtype;
+    if (options->forceString) {
+      ctype = RLOOKUP_C_STR;
+    }
+    RSValue *vptr = replyElemToValue(repv, ctype);
     RLookup_WriteOwnKey(rlk, dst, vptr);
   }
 

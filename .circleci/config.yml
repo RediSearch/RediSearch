@@ -148,9 +148,9 @@ workflows:
       - macos:
           filters:
             branches:
-              only: /.*/
+              ignore: /.*/
             tags:
-              only: /.*/
+              only: /^v[0-9].*/
       - debug_asan:
           filters:
             branches:

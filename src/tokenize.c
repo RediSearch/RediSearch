@@ -123,6 +123,10 @@ uint32_t simpleTokenizer_Next(RSTokenizer *base, Token *t) {
 
     if ((ctx->options & TOKENIZE_PHONETICS) && normLen >= RSGlobalConfig.minPhoneticTermLen) {
       // VLA: eww
+      if (t->phoneticsPrimary) {
+        rm_free(t->phoneticsPrimary);
+        t->phoneticsPrimary = NULL;
+      }
       PhoneticManager_ExpandPhonetics(NULL, tok, normLen, &t->phoneticsPrimary, NULL);
     }
 

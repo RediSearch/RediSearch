@@ -830,7 +830,7 @@ error:
   return FGC_CHILD_ERROR;
 }
 
-static void resetCardinality(NumGcInfo *info, NumericRange *r) {
+static void resetCardinality(NumGcInfo *info, NumericRangeNode *currNone) {
   khash_t(cardvals) *kh = kh_init(cardvals);
   int added;
   for (size_t ii = 0; ii < info->nrestBlockDel; ++ii) {
@@ -850,8 +850,9 @@ static void resetCardinality(NumGcInfo *info, NumericRange *r) {
     }
   }
 
+  NumericRange *r = currNone->range;
   size_t n = array_len(r->values);
-  double minVal = -DBL_MAX, maxVal = DBL_MIN, uniqueSum = 0;
+  double minVal = DBL_MAX, maxVal = -DBL_MIN, uniqueSum = 0;
 
   for (size_t ii = 0; ii < array_len(r->values); ++ii) {
   reeval:;
@@ -871,8 +872,13 @@ static void resetCardinality(NumGcInfo *info, NumericRange *r) {
     }
   }
   kh_destroy(cardvals, kh);
-  r->minVal = minVal;
-  r->maxVal = maxVal;
+  // we can only update the min and the max value if the node is a leaf.
+  // otherwise the min and the max also represent its children values and
+  // we can not change it.
+  if (NumericRangeNode_IsLeaf(currNone)) {
+    r->minVal = minVal;
+    r->maxVal = maxVal;
+  }
   r->unique_sum = uniqueSum;
   r->card = array_len(r->values);
 }
@@ -883,7 +889,7 @@ static void applyNumIdx(ForkGC *gc, RedisSearchCtx *sctx, NumGcInfo *ninfo) {
   MSG_IndexInfo *info = &ninfo->info;
   FGC_applyInvertedIndex(gc, idxbufs, info, currNode->range->entries);
   FGC_updateStats(sctx, gc, info->ndocsCollected, info->nbytesCollected);
-  resetCardinality(ninfo, currNode->range);
+  resetCardinality(ninfo, currNode);
 }
 
 static FGCError FGC_parentHandleNumeric(ForkGC *gc, RedisModuleCtx *rctx) {

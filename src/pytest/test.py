@@ -416,9 +416,14 @@ def testCustomStopwords(env):
     # Index with custom stopwords
     env.assertOk(r.execute_command('ft.create', 'idx2', 'stopwords', 2, 'hello', 'world',
                                     'schema', 'foo', 'text'))
+    res = env.cmd('ft.info', 'idx2')
+    env.assertEqual(res[39], ['hello', 'world'])
+
     # Index with NO stopwords
     env.assertOk(r.execute_command('ft.create', 'idx3', 'stopwords', 0,
                                     'schema', 'foo', 'text'))
+    res = env.cmd('ft.info', 'idx3')
+    env.assertEqual(res[39], [])
 
     for idx in ('idx', 'idx2', 'idx3'):
         env.assertOk(r.execute_command(
@@ -2867,6 +2872,30 @@ def testIssue919(env):
     env.cmd('ft.add', 'idx', 'doc1', 1, 'fields', 'n1', 42)
     rv = env.cmd('ft.search', 'idx', '*', 'sortby', 't1', 'desc')
     env.assertEqual([1L, 'doc1', ['n1', '42']], rv)
+
+
+def testIssue1074(env):
+    # Ensure that sortable fields are returned in their string form from the
+    # document
+    env.cmd('ft.create', 'idx', 'schema', 't1', 'text', 'n1', 'numeric', 'sortable')
+    env.cmd('ft.add', 'idx', 'doc1', 1, 'fields', 't1', 'hello', 'n1', 1581011976800)
+    rv = env.cmd('ft.search', 'idx', '*', 'sortby', 'n1')
+    env.assertEqual([1L, 'doc1', ['n1', '1581011976800', 't1', 'hello']], rv)
+
+def testIssue1085(env):
+    env.skipOnCluster()
+    env.cmd('FT.CREATE issue1085 SCHEMA foo TEXT SORTABLE bar NUMERIC SORTABLE')
+    for i in range(1, 10):
+        env.cmd('FT.ADD issue1085 document_%d 1 REPLACE FIELDS foo foo%d bar %d' % (i, i, i))
+    env.expect('FT.SEARCH', 'issue1085', '@bar:[8 8]').equal([1L, 'document_8', ['foo', 'foo8', 'bar', '8']])
+
+    for i in range(1, 10):
+        env.cmd('FT.ADD issue1085 document_8 1 REPLACE FIELDS foo foo8 bar 8')
+
+    env.expect('ft.debug GC_FORCEINVOKE issue1085').equal('DONE')
+
+    env.expect('FT.SEARCH', 'issue1085', '@bar:[8 8]').equal([1, 'document_8', ['foo', 'foo8', 'bar', '8']])
+
 
 def grouper(iterable, n, fillvalue=None):
     "Collect data into fixed-length chunks or blocks"
