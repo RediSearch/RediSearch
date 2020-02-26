@@ -988,7 +988,7 @@ static FGCError FGC_parentHandleTags(ForkGC *gc, RedisModuleCtx *rctx) {
     }
 
     if (value == NULL) {
-      RS_LOG_ASSERT(rctx, status == FGC_COLLECTED, "GC status is COLLECTED");
+      RS_LOG_ASSERT(status == FGC_COLLECTED, "GC status is COLLECTED");
       //assert(status == FGC_COLLECTED);
       break;
     }
@@ -1229,7 +1229,7 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
 #endif
 
 void FGC_WaitAtFork(ForkGC *gc) NO_TSAN_CHECK {
-  RS_LOG_ASSERT(gc->ctx, gc->pauseState == 0, "FGC pause state should be 0");
+  RS_LOG_ASSERT(gc->pauseState == 0, "FGC pause state should be 0");
   //assert(gc->pauseState == 0);
   gc->pauseState = FGC_PAUSED_CHILD;
 
@@ -1240,8 +1240,8 @@ void FGC_WaitAtFork(ForkGC *gc) NO_TSAN_CHECK {
 
 void FGC_WaitAtApply(ForkGC *gc) NO_TSAN_CHECK {
   // Ensure that we're waiting for the child to begin
-  RS_LOG_ASSERT(gc->ctx, gc->pauseState == FGC_PAUSED_CHILD, "FGC pause state should be CHILD");
-  RS_LOG_ASSERT(gc->ctx, gc->execState == FGC_STATE_WAIT_FORK, "FGC exec state should be WAIT_FORK");
+  RS_LOG_ASSERT(gc->pauseState == FGC_PAUSED_CHILD, "FGC pause state should be CHILD");
+  RS_LOG_ASSERT(gc->execState == FGC_STATE_WAIT_FORK, "FGC exec state should be WAIT_FORK");
   //assert(gc->pauseState == FGC_PAUSED_CHILD);
   //assert(gc->execState == FGC_STATE_WAIT_FORK);
 
