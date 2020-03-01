@@ -158,7 +158,7 @@ int DocTable_SetSortingVector(DocTable *t, t_docId docId, RSSortingVector *v) {
     return 1;
   }*/
   //LCOV_EXCL_STOP
-  assert(v); // tested in doAssignIds() 
+  RS_LOG_ASSERT(v, "Sorting vector does not exist"); // tested in doAssignIds() 
 
   /* Set th new vector and the flags accordingly */
   dmd->sortVector = v;
@@ -367,7 +367,7 @@ void DocTable_RdbSave(DocTable *t, RedisModuleIO *rdb) {
       ++elements_written;
     }
   }
-  assert(elements_written + 1 == t->size);
+  RS_LOG_ASSERT((elements_written + 1 == t->size), "Wrong number of written elements");
 }
 
 void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {

@@ -180,7 +180,6 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b, QueryError *stat
   aCtx->specFlags = sp->flags;
   aCtx->indexer = sp->indexer;
   RS_LOG_ASSERT(sp->indexer, "No indexer");
-  //assert(sp->indexer);
   Indexer_Incref(aCtx->indexer);
 
   // Assign the document:
@@ -305,7 +304,6 @@ void AddDocumentCtx_Submit(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, uint32_
   }
 
   RS_LOG_ASSERT(aCtx->client.bc, "No blocked client");
-  //assert(aCtx->client.bc);
   size_t totalSize = 0;
   for (size_t ii = 0; ii < aCtx->doc.numFields; ++ii) {
     const DocumentField *ff = aCtx->doc.fields + ii;
@@ -705,7 +703,6 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
       }
 
       RS_LOG_ASSERT((fs->options & FieldSpec_Dynamic) == 0, "Dynamic field cannot use PARTIAL");
-      //assert((fs->options & FieldSpec_Dynamic) == 0 && "dynamic field cannot use PARTIAL");
 
       switch (fs->types) {
         case INDEXFLD_T_FULLTEXT:
