@@ -56,3 +56,34 @@ TEST_F(ValueTest, testArray) {
 
   RSValue_Decref(arr);
 }
+
+static std::string toString(RSValue *v) {
+  RSValue *tmp = RS_NewValue(RSValue_Undef);
+  RSValue_ToString(tmp, v);
+  size_t n = 0;
+  const char *s = RSValue_StringPtrLen(tmp, &n);
+  std::string ret(s, n);
+  RSValue_Decref(tmp);
+  return ret;
+}
+
+TEST_F(ValueTest, testNumericFormat) {
+  RSValue *v = RS_NumVal(0.01);
+  ASSERT_STREQ("0.01", toString(v).c_str());
+  RSValue_SetNumber(v, 0.001);
+
+  ASSERT_STREQ("0.001", toString(v).c_str());
+  RSValue_SetNumber(v, 0.00123);
+
+  ASSERT_STREQ("0.00123", toString(v).c_str());
+
+  RSValue_SetNumber(v, 0.0012345);
+  ASSERT_STREQ("0.0012345", toString(v).c_str());
+
+  RSValue_SetNumber(v, 0.0000001);
+  ASSERT_STREQ("1e-07", toString(v).c_str());
+
+  RSValue_SetNumber(v, 1581011976800);
+  ASSERT_STREQ("1581011976800", toString(v).c_str());
+  RSValue_Decref(v);
+}
