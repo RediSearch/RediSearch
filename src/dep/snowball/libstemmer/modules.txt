@@ -16,6 +16,7 @@ english         UTF_8,ISO_8859_1        english,en,eng
 finnish         UTF_8,ISO_8859_1        finnish,fi,fin
 french          UTF_8,ISO_8859_1        french,fr,fre,fra
 german          UTF_8,ISO_8859_1        german,de,ger,deu
+hindi           UTF_8                   hindi,hi,hin
 hungarian       UTF_8,ISO_8859_2        hungarian,hu,hun
 italian         UTF_8,ISO_8859_1        italian,it,ita
 norwegian       UTF_8,ISO_8859_1        norwegian,no,nor
