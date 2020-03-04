@@ -1191,14 +1191,31 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
     }
     close(gc->pipefd[GC_READERFD]);
     if (FGC_haveRedisFork()) {
+
       if (gc->type == FGC_TYPE_NOKEYSPACE) {
         // If we are not in key space we still need to acquire the GIL to use the fork api
         RedisModule_ThreadSafeContextLock(ctx);
       }
+
+      if (!FGC_lock(gc, ctx)) {
+        if (gc->type == FGC_TYPE_NOKEYSPACE) {
+          RedisModule_ThreadSafeContextUnlock(ctx);
+        }
+
+        return 0;
+      }
+
+      // KillForkChild must be called when holding the GIL
+      // otherwise it might cause a pipe leak and eventually run
+      // out of file descriptor
       RedisModule_KillForkChild(cpid);
+
       if (gc->type == FGC_TYPE_NOKEYSPACE) {
         RedisModule_ThreadSafeContextUnlock(ctx);
       }
+
+      FGC_unlock(gc, ctx);
+
     } else {
       pid_t id = wait4(cpid, NULL, 0, NULL);
       if (id == -1) {
