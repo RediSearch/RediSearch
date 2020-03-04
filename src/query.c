@@ -854,10 +854,7 @@ int QAST_Expand(QueryAST *q, const char *expander, RSSearchOptions *opts, RedisS
     return REDISMODULE_OK;
   }
   RSQueryExpanderCtx expCtx = {
-      .qast = q,
-      .language = opts->language,
-      .handle = sctx,
-      .status = status};
+      .qast = q, .language = opts->language, .handle = sctx, .status = status};
 
   ExtQueryExpanderCtx *xpc =
       Extensions_GetQueryExpander(&expCtx, expander ? expander : DEFAULT_EXPANDER_NAME);
@@ -893,7 +890,7 @@ void QueryNode_AddChildren(QueryNode *n, QueryNode **children, size_t nchildren)
       }
     }
   } else {
-    array_ensure_append(n->children, children, nchildren, QueryNode *);
+    n->children = array_ensure_append(n->children, children, nchildren, QueryNode *);
   }
 }
 

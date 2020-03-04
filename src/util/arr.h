@@ -134,23 +134,23 @@ static inline array_t array_ensure_len(array_t arr, size_t len) {
 /**
  * Appends elements to the end of the array, creating the array if it does
  * not exist
- * @param arrpp array pointer. Can be NULL
+ * @param arr array pointer. Can be NULL
  * @param src array (i.e. C array) of elements to append
  * @param n length of sec
  * @param T type of the array (for sizeof)
- * @return the array
+ * @return the array. Any variable holding `arr` should be updated to the return value
  */
-#define array_ensure_append(arrpp, src, n, T)      \
-  ({                                               \
-    size_t a__oldlen = 0;                          \
-    if (!arrpp) {                                  \
-      arrpp = array_newlen(T, n);                  \
-    } else {                                       \
-      a__oldlen = array_len(arrpp);                \
-      arrpp = (T *)array_grow(arrpp, n);           \
-    }                                              \
-    memcpy(arrpp + a__oldlen, src, n * sizeof(T)); \
-    arrpp;                                         \
+#define array_ensure_append(arr, src, n, T)      \
+  ({                                             \
+    size_t a__oldlen = 0;                        \
+    if (!arr) {                                  \
+      arr = array_newlen(T, n);                  \
+    } else {                                     \
+      a__oldlen = array_len(arr);                \
+      arr = (T *)array_grow(arr, n);             \
+    }                                            \
+    memcpy(arr + a__oldlen, src, n * sizeof(T)); \
+    arr;                                         \
   })
 
 /**
