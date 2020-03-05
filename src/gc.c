@@ -125,9 +125,9 @@ void GCContext_Stop(GCContext* gc) {
   RedisModule_StopTimer(ctx, gc->timerID, NULL);
   gc->callbacks.onTerm(gc->gcCtx);
   RedisModule_FreeThreadSafeContext(ctx);
-  if (gc->callbacks.kill) {
+  /*if (gc->callbacks.kill) {
     gc->callbacks.kill(gc->gcCtx);
-  }
+  }*/
   rm_free(gc);
 }
 
