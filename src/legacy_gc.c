@@ -417,7 +417,7 @@ int GC_PeriodicCallback(RedisModuleCtx *ctx, void *privdata) {
   if (totalRemoved > 0) {
     gc->hz = MIN(gc->hz * 1.2, GC_MAX_HZ);
   } else {
-    gc->hz = MAX(gc->hz * 0.99, GC_MIN_HZ);
+    gc->hz = MAX(gc->hz * 0.99, GC_MIN_HZ); // why not lower value? we increase in two different places
   }
 
 end:

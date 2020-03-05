@@ -4,11 +4,14 @@
 
 #include "redismodule.h"
 #include "util/dllist.h"
+#include "dep/thpool/thpool.h"
 #include <time.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+extern threadpool gcThreadPools_g;
 
 typedef struct BlockClient {
   DLLIST_node llnode;
@@ -33,7 +36,8 @@ typedef struct GCCallbacks {
 
 typedef struct GCContext {
   void* gcCtx;
-  struct RMUtilTimer* timer;
+  //struct RMUtilTimer* timer;
+  RedisModuleTimerID timerID;
   BlockClients bClients;
   GCCallbacks callbacks;
 } GCContext;
@@ -48,6 +52,9 @@ void GCContext_RenderStats(GCContext* gc, RedisModuleCtx* ctx);
 void GCContext_OnDelete(GCContext* gc);
 void GCContext_ForceInvoke(GCContext* gc, RedisModuleBlockedClient* bc);
 void GCContext_ForceBGInvoke(GCContext* gc);
+
+void GC_ThreadPoolStart();
+void GC_ThreadPoolDestroy();
 
 #ifdef __cplusplus
 }

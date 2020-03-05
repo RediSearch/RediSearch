@@ -1080,6 +1080,7 @@ void __attribute__((destructor)) RediSearch_CleanupModule(void) {
   FunctionRegistry_Free();
   mempool_free_global();
   ConcurrentSearch_ThreadPoolDestroy();
+  GC_ThreadPoolDestroy();
   IndexAlias_DestroyGlobal();
   RedisModule_FreeThreadSafeContext(RSDummyContext);
 }

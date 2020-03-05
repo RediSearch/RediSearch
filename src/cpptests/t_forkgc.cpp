@@ -31,8 +31,8 @@ class FGCTest : public ::testing::Test {
     timespec ts = {0};
     ts.tv_nsec = 5000;  // 500us
     sp->gc->callbacks.getInterval = getTimespecCb;
-    RMUtilTimer_SetInterval(sp->gc->timer, ts);
-    RMUtilTimer_Signal(sp->gc->timer);
+    //RMUtilTimer_SetInterval(sp->gc->timer, ts);
+    //RMUtilTimer_Signal(sp->gc->timer);
     return sp;
   }
 };
