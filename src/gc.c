@@ -76,6 +76,7 @@ static long long getNextPeriod(GCContext* gc) {
 }
 
 static RedisModuleTimerID scheduleNext(RedisModuleCtx* ctx, GCContext* gc) {
+  if (!RedisModule_CreateTimer) return 0;
   long long period = getNextPeriod(gc);
   return RedisModule_CreateTimer(ctx, period, GCContext_Timer_PeriodicCallback, gc);
 }
@@ -132,6 +133,7 @@ void GCContext_Start(GCContext* gc) {
 }
 
 void GCContext_Stop(GCContext* gc) {
+  if (!RedisModule_StopTimer) return;
   RedisModuleCtx* ctx = RedisModule_GetThreadSafeContext(NULL);
   RedisModule_StopTimer(ctx, gc->timerID, NULL);
   gc->callbacks.onTerm(gc->gcCtx);

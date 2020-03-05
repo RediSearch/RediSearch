@@ -44,6 +44,4 @@ int GC_PeriodicCallback(RedisModuleCtx *ctx, void *privdata);
 
 struct timespec GC_GetInterval(void *ctx);
 
-RedisModuleCtx *GC_GetContext(void *ctx);
-
 #endif

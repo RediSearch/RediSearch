@@ -50,7 +50,8 @@ TEST_F(FGCTest, testRemoveLastBlock) {
    * To properly test this; we must ensure that the gc is forked AFTER
    * the deletion, but BEFORE the addition.
    */
-  FGC_WaitAtFork(fgc);
+  //FGC_WaitAtFork(fgc);
+  //sp->gc->callbacks.periodicCallback(ctx, fgc);
   auto rv = RS::deleteDocument(ctx, sp, "doc1");
   ASSERT_TRUE(rv);
 
@@ -58,12 +59,14 @@ TEST_F(FGCTest, testRemoveLastBlock) {
    * This function allows the GC to perform fork(2), but makes it wait
    * before it begins receiving results.
    */
-  FGC_WaitAtApply(fgc);
+  //FGC_WaitAtApply(fgc);
+  sp->gc->callbacks.periodicCallback(ctx, fgc);
 
   ASSERT_TRUE(RS::addDocument(ctx, sp, "doc2", "f1", "hello"));
 
   /** This function allows the gc to receive the results */
-  FGC_WaitClear(fgc);
+  //FGC_WaitClear(fgc);
+  //sp->gc->callbacks.periodicCallback(ctx, fgc);
 
   ASSERT_EQ(1, fgc->stats.gcBlocksDenied);
 
@@ -113,7 +116,8 @@ TEST_F(FGCTest, testRepairLastBlockWhileRemovingMidle) {
   RS::addDocument(ctx, sp, buf, "f1", "hello");
 
   auto fgc = reinterpret_cast<ForkGC *>(sp->gc->gcCtx);
-  FGC_WaitAtFork(fgc);
+  //FGC_WaitAtFork(fgc);
+  //sp->gc->callbacks.periodicCallback(ctx, fgc);
 
   ASSERT_TRUE(RS::deleteDocument(ctx, sp, buf));
   ASSERT_TRUE(RS::deleteDocument(ctx, sp, "doc0"));
@@ -123,12 +127,14 @@ TEST_F(FGCTest, testRepairLastBlockWhileRemovingMidle) {
     sprintf(buf, "doc%u", i);
     ASSERT_TRUE(RS::deleteDocument(ctx, sp, buf));
   }
-  FGC_WaitAtApply(fgc);
+  //FGC_WaitAtApply(fgc);
+  sp->gc->callbacks.periodicCallback(ctx, fgc);
 
   // Add a document -- this one is to keep
   sprintf(buf, "doc%u", curId);
   RS::addDocument(ctx, sp, buf, "f1", "hello");
-  FGC_WaitClear(fgc);
+  //FGC_WaitClear(fgc);
+  //sp->gc->callbacks.periodicCallback(ctx, fgc);
 
   ASSERT_EQ(1, fgc->stats.gcBlocksDenied);
   ASSERT_EQ(2, iv->size);
@@ -160,15 +166,18 @@ TEST_F(FGCTest, testRepairLastBlock) {
   RS::addDocument(ctx, sp, buf, "f1", "hello");
 
   auto fgc = reinterpret_cast<ForkGC *>(sp->gc->gcCtx);
-  FGC_WaitAtFork(fgc);
+  //FGC_WaitAtFork(fgc);
+  //sp->gc->callbacks.periodicCallback(ctx, fgc);
 
   ASSERT_TRUE(RS::deleteDocument(ctx, sp, buf));
-  FGC_WaitAtApply(fgc);
+  //FGC_WaitAtApply(fgc);
+  sp->gc->callbacks.periodicCallback(ctx, fgc);
 
   // Add a document -- this one is to keep
   sprintf(buf, "doc%u", curId);
   RS::addDocument(ctx, sp, buf, "f1", "hello");
-  FGC_WaitClear(fgc);
+  //FGC_WaitClear(fgc);
+  //sp->gc->callbacks.periodicCallback(ctx, fgc);
 
   ASSERT_EQ(1, fgc->stats.gcBlocksDenied);
   ASSERT_EQ(2, iv->size);
@@ -201,19 +210,22 @@ TEST_F(FGCTest, testRepairMidleRemoveLast) {
    * while appending documents to it..
    **/
   auto fgc = reinterpret_cast<ForkGC *>(sp->gc->gcCtx);
-  FGC_WaitAtFork(fgc);
+  //FGC_WaitAtFork(fgc);
+  //sp->gc->callbacks.periodicCallback(ctx, fgc);
 
   while (curId > 100) {
     sprintf(buf, "doc%u", --curId);
     ASSERT_TRUE(RS::deleteDocument(ctx, sp, buf));
   }
 
-  FGC_WaitAtApply(fgc);
+  //FGC_WaitAtApply(fgc);
+  sp->gc->callbacks.periodicCallback(ctx, fgc);
 
   sprintf(buf, "doc%u", next_id);
   ASSERT_TRUE(RS::addDocument(ctx, sp, buf, "f1", "hello"));
 
-  FGC_WaitClear(fgc);
+  //FGC_WaitClear(fgc);
+  //sp->gc->callbacks.periodicCallback(ctx, fgc);
 
   ASSERT_EQ(2, iv->size);
   RediSearch_DropIndex(sp);
@@ -243,12 +255,14 @@ TEST_F(FGCTest, testRemoveMiddleBlock) {
   ASSERT_EQ(3, iv->size);
 
   auto fgc = reinterpret_cast<ForkGC *>(sp->gc->gcCtx);
-  FGC_WaitAtFork(fgc);
+  //FGC_WaitAtFork(fgc);
+  //sp->gc->callbacks.periodicCallback(ctx, fgc);
   for (size_t ii = firstMidId; ii < lastMidId + 1; ++ii) {
     RS::deleteDocument(ctx, sp, numToDocid(ii).c_str());
   }
 
-  FGC_WaitAtApply(fgc);
+  //FGC_WaitAtApply(fgc);
+  sp->gc->callbacks.periodicCallback(ctx, fgc);
   // Add a new document
   unsigned newLastBlockId = curId + 1;
   while (iv->size < 4) {
@@ -260,7 +274,8 @@ TEST_F(FGCTest, testRemoveMiddleBlock) {
   // info. We do -2 and not -1 because we have one new document in the
   // fourth block (as a sentinel)
   const char *pp = iv->blocks[iv->size - 2].buf.data;
-  FGC_WaitClear(fgc);
+  //FGC_WaitClear(fgc);
+  //sp->gc->callbacks.periodicCallback(ctx, fgc);
   ASSERT_EQ(3, iv->size);
 
   // The pointer to the last gc-block, received from the fork
