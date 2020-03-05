@@ -431,13 +431,13 @@ end:
 void GC_OnTerm(void *privdata) {
   GarbageCollectorCtx *gc = privdata;
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
-  RedisModule_ThreadSafeContextLock(ctx);
+  //RedisModule_ThreadSafeContextLock(ctx);
   RedisModule_FreeString(ctx, (RedisModuleString *)gc->keyName);
   for (int i = 0; i < array_len(gc->numericGCCtx); ++i) {
     gc_FreeNumericGcCtx(gc->numericGCCtx[i]);
   }
   array_free(gc->numericGCCtx);
-  RedisModule_ThreadSafeContextUnlock(ctx);
+  //RedisModule_ThreadSafeContextUnlock(ctx);
   RedisModule_FreeThreadSafeContext(ctx);
   rm_free(gc);
 }

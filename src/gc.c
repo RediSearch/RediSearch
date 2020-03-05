@@ -77,7 +77,6 @@ static RedisModuleTimerID scheduleNext(RedisModuleCtx *ctx, GCContext *gc) {
   return RedisModule_CreateTimer(ctx, period, GCContext_Timer_PeriodicCallback, gc);
 }
 
-
 static void internal_PeriodicCallback(void* data) {
   GCContext *gc = data;
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
@@ -93,6 +92,7 @@ static void internal_PeriodicCallback(void* data) {
     gc->callbacks.onTerm(gc->gcCtx);
     RedisModule_ThreadSafeContextUnlock(ctx);
     RedisModule_FreeThreadSafeContext(ctx);
+    rm_free(gc);
     return;
   }
   gc->timerID = scheduleNext(ctx, gc);
@@ -123,10 +123,12 @@ void GCContext_Start(GCContext* gc) {
 void GCContext_Stop(GCContext* gc) {
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
   RedisModule_StopTimer(ctx, gc->timerID, NULL);
+  gc->callbacks.onTerm(gc->gcCtx);
   RedisModule_FreeThreadSafeContext(ctx);
   if (gc->callbacks.kill) {
     gc->callbacks.kill(gc->gcCtx);
   }
+  rm_free(gc);
 }
 
 void GCContext_RenderStats(GCContext* gc, RedisModuleCtx* ctx) {
