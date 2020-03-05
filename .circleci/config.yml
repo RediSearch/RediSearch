@@ -40,7 +40,7 @@ jobs:
   
   centos:
     docker:
-      - image: 'redislabsmodules/rmbuildercentos:latest'
+      - image: redisfab/rmbuilder:5.0.7-x64-centos7
     environment:
       - BUILD_DIR: build-el
     steps: 
