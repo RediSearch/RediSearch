@@ -30,16 +30,17 @@ typedef struct GCCallbacks {
   void (*onTerm)(void* ctx);
 
   // Send a "kill signal" to the GC, requesting it to terminate asynchronously
-  //void (*kill)(void* ctx);
+  // void (*kill)(void* ctx);
   struct timespec (*getInterval)(void* ctx);
 } GCCallbacks;
 
 typedef struct GCContext {
   void* gcCtx;
-  //struct RMUtilTimer* timer;
+  // struct RMUtilTimer* timer;
   RedisModuleTimerID timerID;
   BlockClients bClients;
   GCCallbacks callbacks;
+  int isDestroyed;
 } GCContext;
 
 typedef struct IndexSpec IndexSpec;
