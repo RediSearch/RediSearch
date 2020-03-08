@@ -206,7 +206,7 @@ workflows:
       - run_automation:
           module_version: $CIRCLE_BRANCH
           requires:
-            - deploy_branch
+            - deploy_snapshots
       - run_automation:
           module_version: $CIRCLE_TAG
           requires:
