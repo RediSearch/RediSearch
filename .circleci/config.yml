@@ -116,16 +116,24 @@ jobs:
             done
 
   run_automation:
+    parameters:
+      module_version:
+        type: string
     docker:
       - image: 'redislabsmodules/rmbuilder:latest'
     steps:
       - checkout
       - run:
-          name: Run QA Automation
+          name: Pull Submodules
+          command: git submodule update --init --recursive
+      - run:
+          name: Setup
           command: |
             apt-get -qq update
-            apt-get install -y ca-certificates curl
-            ./tests/qa/run
+            apt-get install -y ca-certificates curl jq
+      - run:
+          name: Run QA Automation
+          command: MODULE_VERSION=<<parameters.module_version>> VERBOSE=1 ./tests/qa/run
 
   deploy_docs:
     docker:
@@ -145,69 +153,64 @@ workflows:
 
   default_flow:
     jobs:
-#      - ubuntu:
-#          filters:
-#            branches:
-#              only: /.*/
-#            tags:
-#              only: /.*/
-#      - centos:
-#          filters:
-#            branches:
-#              only: /.*/
-#            tags:
-#              only: /.*/
-#      - macos:
-#          filters:
-#            branches:
-#              ignore: /.*/
-#            tags:
-#              only: /^v[0-9].*/
-#      - debug_asan:
-#          filters:
-#            branches:
-#              only: /.*/
-#            tags:
-#              only: /.*/
-#      - debug_msan:
-#          filters:
-#            branches:
-#              only: /.*/
-#            tags:
-#              only: /.*/
-#      - coverage:
-#          filters:
-#            branches:
-#              only: /.*/
-#            tags:
-#              only: /.*/
-#      - deploy_snapshots:
-#          requires: *default_jobs
-#          filters:
-#            branches:
-#              only:
-#                - master
-#                - circle-overhaul
-#      - deploy_release:
-#          requires: *default_jobs
-#          filters:
-#            branches:
-#              ignore: /.*/
-#            tags:
-#              only: /^v[0-9].*/
-      - run_automation:
-#          requires:
-#            - deploy_release
+      - ubuntu:
           filters:
             branches:
               only: /.*/
             tags:
               only: /.*/
-#          filters:
-#            branches:
-#              ignore: /.*/
-#            tags:
-#              only: /^v[0-9].*/
+      - centos:
+          filters:
+            branches:
+              only: /.*/
+            tags:
+              only: /.*/
+      - macos:
+          filters:
+            branches:
+              ignore: /.*/
+            tags:
+              only: /^v[0-9].*/
+      - debug_asan:
+          filters:
+            branches:
+              only: /.*/
+            tags:
+              only: /.*/
+      - debug_msan:
+          filters:
+            branches:
+              only: /.*/
+            tags:
+              only: /.*/
+      - coverage:
+          filters:
+            branches:
+              only: /.*/
+            tags:
+              only: /.*/
+      - deploy_snapshots:
+          requires: *default_jobs
+          filters:
+            branches:
+              only:
+                - master
+                - circle-overhaul
+      - deploy_release:
+          requires: *default_jobs
+          filters:
+            branches:
+              ignore: /.*/
+            tags:
+              only: /^v[0-9].*/
+      - run_automation:
+          module_version: $CIRCLE_BRANCH
+          requires:
+            - deploy_branch
+      - run_automation:
+          module_version: $CIRCLE_TAG
+          requires:
+            - deploy_release
       - deploy_docs:
           filters:
             branches:
