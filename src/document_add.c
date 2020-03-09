@@ -244,20 +244,13 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     goto cleanup;
   }
 
-  if (canBlock) {
-    canBlock = CheckConcurrentSupport(ctx);
-  }
-
   IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 0);
   if (!sp) {
     RedisModule_ReplyWithError(ctx, "Unknown index name");
     goto cleanup;
   }
-  if (canBlock) {
-    canBlock = !(sp->flags & Index_Temporary) && CheckConcurrentSupport(ctx);
-  }
 
-  if (!canBlock) {
+  if (!CheckConcurrentSupport(ctx) || (sp->flags & Index_Temporary) || !canBlock) {
     opts.options |= DOCUMENT_ADD_CURTHREAD;
   }
   RedisSearchCtx sctx = {.redisCtx = ctx, .spec = sp};
