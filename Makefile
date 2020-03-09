@@ -127,9 +127,9 @@ run:
 
 test:
 ifneq ($(TEST),)
-	cd $(BINROOT); ctest -R $(TEST)
+	@set -e; cd $(BINROOT); CTEST_OUTPUT_ON_FAILURE=1 ctest -R $(TEST)
 else
-	cd $(BINROOT); ctest
+	@set -e; cd $(BINROOT); ctest
 endif
 
 ifeq ($(GDB),1)

@@ -88,8 +88,8 @@ jobs:
       - checkout
       - run:
           name: Run & build tests
-          command: MASN=1 ./.circleci/ci_diag_san.sh
-  
+          command: MSAN=1 ./.circleci/ci_diag_san.sh
+
   coverage:
     docker:
       - image: redisfab/rmbuilder:5.0.7-x64-buster
