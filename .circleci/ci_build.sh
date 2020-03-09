@@ -4,7 +4,8 @@ set -e
 set -x
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
-cd $HERE/..
+ROOT=$(realpath $HERE/..)
+cd $ROOT
 
 PROJECT_DIR=$PWD
 mkdir -p $BUILD_DIR
@@ -16,6 +17,6 @@ cmake $PROJECT_DIR \
     -RS_VERBOSE_TESTS=1 ${extra_args} \
     ../
 
-[[ -z $CI_CONCURRENCY ]] && CI_CONCURRENCY=$(./deps/readies/bin/nproc)
+[[ -z $CI_CONCURRENCY ]] && CI_CONCURRENCY=$($ROOT/deps/readies/bin/nproc)
 
 make -j$CI_CONCURRENCY
