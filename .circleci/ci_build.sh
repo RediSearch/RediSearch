@@ -6,7 +6,7 @@ set -x
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 cd $HERE/..
 
-[[ -z $CI_CONCURRENCY ] && CI_CONCURRENCY=$(./deps/readies/bin/nproc)
+[[ -z $CI_CONCURRENCY ]] && CI_CONCURRENCY=$(./deps/readies/bin/nproc)
 
 PROJECT_DIR=$PWD
 mkdir -p $BUILD_DIR
