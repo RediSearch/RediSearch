@@ -4,7 +4,8 @@ set -e
 set -x
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
-cd $HERE/..
+ROOT=$(realpath $HERE/..)
+cd $ROOT
 
 ./.circleci/ci_get_deps.sh
 
@@ -14,7 +15,7 @@ cmake .. -DCMAKE_BUILD_TYPE=DEBUG \
     -DRS_RUN_TESTS=ON \
     -DUSE_COVERAGE=ON
 
-[[ -z $CI_CONCURRENCY ]] && CI_CONCURRENCY=$(./deps/readies/bin/nproc)
+[[ -z $CI_CONCURRENCY ]] && CI_CONCURRENCY=$($ROOT/deps/readies/bin/nproc)
 
 make -j$CI_CONCURRENCY
 

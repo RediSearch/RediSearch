@@ -142,9 +142,9 @@ pytest:
 		exit 1 ;\
 	fi
 ifneq ($(TEST),)
-	@cd src/pytest; PYDEBUG=1 RLTest --test $(TEST) $(RLTEST_GDB) -s --module $(abspath $(TARGET))
+	@cd src/pytest; PYDEBUG=1 python -m RLTest --test $(TEST) $(RLTEST_GDB) -s --module $(abspath $(TARGET))
 else
-	@cd src/pytest; RLTest --module $(abspath $(TARGET))
+	@cd src/pytest; python -m RLTest --module $(abspath $(TARGET))
 endif
 
 c_tests:
