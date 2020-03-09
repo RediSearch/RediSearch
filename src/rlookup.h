@@ -316,6 +316,11 @@ typedef struct {
    */
   int noSortables;
 
+  /**
+   * Force string return; don't coerce to native type
+   */
+  int forceString;
+
   struct QueryError *status;
 } RLookupLoadOptions;
 

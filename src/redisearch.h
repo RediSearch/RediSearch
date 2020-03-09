@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <limits.h>
 #include "util/dllist.h"
+#include "stemmer.h"
 
 typedef uint64_t t_docId;
 typedef uint64_t t_offset;
@@ -138,7 +139,7 @@ typedef struct RSQueryExpanderCtx {
   void *privdata;
 
   /* The language of the query. Defaults to "english" */
-  const char *language;
+  RSLanguage language;
 
   /* ExpandToken allows the user to add an expansion of the token in the query, that will be
    * union-merged with the given token in query time. str is the expanded string, len is its

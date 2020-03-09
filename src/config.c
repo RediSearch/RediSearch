@@ -61,6 +61,13 @@ CONFIG_SETTER(setSafemode) {
 
 CONFIG_BOOLEAN_GETTER(getSafemode, concurrentMode, 1)
 
+CONFIG_SETTER(setConcurentWriteMode) {
+  config->concurrentMode = 1;
+  return REDISMODULE_OK;
+}
+
+CONFIG_BOOLEAN_GETTER(getConcurentWriteMode, concurrentMode, 0)
+
 // NOGC
 CONFIG_SETTER(setNoGc) {
   config->enableGC = 0;
@@ -68,6 +75,13 @@ CONFIG_SETTER(setNoGc) {
 }
 
 CONFIG_BOOLEAN_GETTER(getNoGc, enableGC, 1)
+
+CONFIG_SETTER(setNoMemPools) {
+  config->noMemPool = 1;
+  return REDISMODULE_OK;
+}
+
+CONFIG_BOOLEAN_GETTER(getNoMemPools, noMemPool, 0)
 
 // MINPREFIX
 CONFIG_SETTER(setMinPrefix) {
@@ -213,6 +227,11 @@ CONFIG_SETTER(setMaxResultsToUnsortedMode) {
   RETURN_STATUS(acrc);
 }
 
+CONFIG_SETTER(setCursorMaxIdle) {
+  int acrc = AC_GetLongLong(ac, &config->cursorMaxIdle, AC_F_GE1);
+  RETURN_STATUS(acrc);
+}
+
 CONFIG_GETTER(getForkGcCleanThreshold) {
   sds ss = sdsempty();
   return sdscatprintf(ss, "%lu", config->forkGcCleanThreshold);
@@ -231,6 +250,11 @@ CONFIG_GETTER(getForkGcRetryInterval) {
 CONFIG_GETTER(getMaxResultsToUnsortedMode) {
   sds ss = sdsempty();
   return sdscatprintf(ss, "%lld", config->maxResultsToUnsortedMode);
+}
+
+CONFIG_GETTER(getCursorMaxIdle) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%lld", config->cursorMaxIdle);
 }
 
 CONFIG_SETTER(setMinPhoneticTermLen) {
@@ -320,9 +344,15 @@ RSConfigOptions RSGlobalConfigOptions = {
          .getValue = getExtLoad,
          .flags = RSCONFIGVAR_F_IMMUTABLE},
         {.name = "SAFEMODE",
-         .helpText = "Perform all operations in main thread",
+         .helpText =
+             "Perform all operations in main thread (deprecated, use CONCURRENT_WRITE_MODE)",
          .setValue = setSafemode,
          .getValue = getSafemode,
+         .flags = RSCONFIGVAR_F_FLAG | RSCONFIGVAR_F_IMMUTABLE},
+        {.name = "CONCURRENT_WRITE_MODE",
+         .helpText = "Use multi threads for write operations.",
+         .setValue = setConcurentWriteMode,
+         .getValue = getConcurentWriteMode,
          .flags = RSCONFIGVAR_F_FLAG | RSCONFIGVAR_F_IMMUTABLE},
         {.name = "NOGC",
          .helpText = "Disable garbage collection (for this process)",
@@ -406,6 +436,16 @@ RSConfigOptions RSGlobalConfigOptions = {
                      "unsorted mode, should be used for debug only.",
          .setValue = setMaxResultsToUnsortedMode,
          .getValue = getMaxResultsToUnsortedMode},
+        {.name = "CURSOR_MAX_IDLE",
+         .helpText = "max idle time allowed to be set for cursor, setting it hight might cause "
+                     "high memory consumption.",
+         .setValue = setCursorMaxIdle,
+         .getValue = getCursorMaxIdle},
+        {.name = "NO_MEM_POOLS",
+         .helpText = "Set RediSearch to run without memory pools",
+         .setValue = setNoMemPools,
+         .getValue = getNoMemPools,
+         .flags = RSCONFIGVAR_F_IMMUTABLE},
         {.name = NULL}}};
 
 void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst) {
@@ -419,7 +459,7 @@ void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst) {
 sds RSConfig_GetInfoString(const RSConfig *config) {
   sds ss = sdsempty();
 
-  ss = sdscatprintf(ss, "concurrency: %s, ", config->concurrentMode ? "ON" : "OFF(SAFEMODE)");
+  ss = sdscatprintf(ss, "concurrent writes: %s, ", config->concurrentMode ? "ON" : "OFF");
   ss = sdscatprintf(ss, "gc: %s, ", config->enableGC ? "ON" : "OFF");
   ss = sdscatprintf(ss, "prefix min length: %lld, ", config->minTermPrefix);
   ss = sdscatprintf(ss, "prefix max expansions: %lld, ", config->maxPrefixExpansions);

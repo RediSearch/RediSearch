@@ -45,8 +45,8 @@ typedef struct Document {
   RedisModuleString *docKey;
   DocumentField *fields;
   uint32_t numFields;
+  RSLanguage language;
   float score;
-  const char *language;
   t_docId docId;
   const char *payload;
   size_t payloadSize;
@@ -82,7 +82,7 @@ typedef void (*DocumentAddCompleted)(struct RSAddDocumentCtx *, RedisModuleCtx *
 
 typedef struct {
   uint32_t options;                 // DOCUMENT_ADD_XXX
-  const char *language;             // Language document should be indexed as
+  RSLanguage language;              // Language document should be indexed as
   RedisModuleString *payload;       // Arbitrary payload provided on return with WITHPAYLOADS
   RedisModuleString **fieldsArray;  // Field, Value, Field Value
   size_t numFieldElems;             // Number of elements
@@ -109,7 +109,7 @@ void Document_AddFieldC(Document *d, const char *fieldname, const char *val, siz
  * of the data within the document, call Document_Detach on the document (after
  * calling this function).
  */
-void Document_Init(Document *doc, RedisModuleString *docKey, double score, const char *lang);
+void Document_Init(Document *doc, RedisModuleString *docKey, double score, RSLanguage lang);
 void Document_SetPayload(Document *doc, const void *payload, size_t n);
 
 /**

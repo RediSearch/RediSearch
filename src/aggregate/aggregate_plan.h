@@ -112,7 +112,7 @@ typedef struct {
     char *alias;       // Output key
     ArgsCursor args;
   } * reducers;
-  uint32_t serial;  // For automatically generated aliases
+  int idx;
 } PLN_GroupStep;
 
 /**

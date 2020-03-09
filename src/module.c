@@ -219,6 +219,11 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   Cursors_RenderStats(&RSCursors, sp->name, ctx);
   n += 2;
 
+  if (sp->flags & Index_HasCustomStopwords) {
+    ReplyWithStopWordsList(ctx, sp->stopwords);
+    n += 2;
+  }
+  
   RedisModule_ReplySetArrayLength(ctx, n);
   return REDISMODULE_OK;
 }
@@ -252,7 +257,7 @@ int GetDocumentsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     }
 
     Document doc = {0};
-    Document_Init(&doc, argv[i], 0, NULL);
+    Document_Init(&doc, argv[i], 0, DEFAULT_LANGUAGE);
     if (Document_LoadAllFields(&doc, ctx) == REDISMODULE_ERR) {
       RedisModule_ReplyWithNull(ctx);
     } else {
@@ -284,7 +289,7 @@ int GetSingleDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   }
 
   Document doc = {0};
-  Document_Init(&doc, argv[2], 0, NULL);
+  Document_Init(&doc, argv[2], 0, DEFAULT_LANGUAGE);
 
   if (DocTable_GetIdR(&sctx->spec->docs, argv[2]) == 0 ||
       Document_LoadAllFields(&doc, ctx) == REDISMODULE_ERR) {

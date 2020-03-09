@@ -123,6 +123,10 @@ uint32_t simpleTokenizer_Next(RSTokenizer *base, Token *t) {
 
     if ((ctx->options & TOKENIZE_PHONETICS) && normLen >= RSGlobalConfig.minPhoneticTermLen) {
       // VLA: eww
+      if (t->phoneticsPrimary) {
+        rm_free(t->phoneticsPrimary);
+        t->phoneticsPrimary = NULL;
+      }
       PhoneticManager_ExpandPhonetics(NULL, tok, normLen, &t->phoneticsPrimary, NULL);
     }
 
@@ -174,8 +178,8 @@ static void tokenizerFree(void *p) {
   t->Free(t);
 }
 
-RSTokenizer *GetTokenizer(const char *language, Stemmer *stemmer, StopWordList *stopwords) {
-  if (language && strcasecmp(language, "chinese") == 0) {
+RSTokenizer *GetTokenizer(RSLanguage language, Stemmer *stemmer, StopWordList *stopwords) {
+  if (language == RS_LANG_CHINESE) {
     return GetChineseTokenizer(stemmer, stopwords);
   } else {
     return GetSimpleTokenizer(stemmer, stopwords);

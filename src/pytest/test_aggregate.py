@@ -376,6 +376,19 @@ class TestAggregate():
             self.env.cmd('ft.aggregate', 'games', '*',
                          'GROUPBY', 1, '@brand',
                          'LOAD', 1, '@brand')
+    
+    def testReducerGeneratedAliasing(self):
+        rv = self.env.cmd('ft.aggregate', 'games', '*',
+                          'GROUPBY', 1, '@brand',
+                          'REDUCE', 'MIN', 1, '@price',
+                          'LIMIT', 0, 1)
+        self.env.assertEqual([292L, ['brand', '', '__generated_aliasminprice', '0']], rv)
+
+        rv = self.env.cmd('ft.aggregate', 'games', '@brand:(sony|matias|beyerdynamic|(mad catz))',
+                          'GROUPBY', 1, '@brand',
+                          'REDUCE', 'FIRST_VALUE', 4, '@title', 'BY', '@price', 'DESC',
+                          'SORTBY', 2, '@brand', 'ASC')
+        self.env.assertEqual('__generated_aliasfirst_valuetitle,by,price,desc', rv[1][2])
 
     # def testLoadAfterSortBy(self):
     #     with self.env.assertResponseError():

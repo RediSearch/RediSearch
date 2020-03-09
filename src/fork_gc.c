@@ -830,7 +830,7 @@ error:
   return FGC_CHILD_ERROR;
 }
 
-static void resetCardinality(NumGcInfo *info, NumericRange *r) {
+static void resetCardinality(NumGcInfo *info, NumericRangeNode *currNone) {
   khash_t(cardvals) *kh = kh_init(cardvals);
   int added;
   for (size_t ii = 0; ii < info->nrestBlockDel; ++ii) {
@@ -850,8 +850,9 @@ static void resetCardinality(NumGcInfo *info, NumericRange *r) {
     }
   }
 
+  NumericRange *r = currNone->range;
   size_t n = array_len(r->values);
-  double minVal = -DBL_MAX, maxVal = DBL_MIN, uniqueSum = 0;
+  double minVal = DBL_MAX, maxVal = -DBL_MIN, uniqueSum = 0;
 
   for (size_t ii = 0; ii < array_len(r->values); ++ii) {
   reeval:;
@@ -871,8 +872,13 @@ static void resetCardinality(NumGcInfo *info, NumericRange *r) {
     }
   }
   kh_destroy(cardvals, kh);
-  r->minVal = minVal;
-  r->maxVal = maxVal;
+  // we can only update the min and the max value if the node is a leaf.
+  // otherwise the min and the max also represent its children values and
+  // we can not change it.
+  if (NumericRangeNode_IsLeaf(currNone)) {
+    r->minVal = minVal;
+    r->maxVal = maxVal;
+  }
   r->unique_sum = uniqueSum;
   r->card = array_len(r->values);
 }
@@ -883,7 +889,7 @@ static void applyNumIdx(ForkGC *gc, RedisSearchCtx *sctx, NumGcInfo *ninfo) {
   MSG_IndexInfo *info = &ninfo->info;
   FGC_applyInvertedIndex(gc, idxbufs, info, currNode->range->entries);
   FGC_updateStats(sctx, gc, info->ndocsCollected, info->nbytesCollected);
-  resetCardinality(ninfo, currNode->range);
+  resetCardinality(ninfo, currNode);
 }
 
 static FGCError FGC_parentHandleNumeric(ForkGC *gc, RedisModuleCtx *rctx) {
@@ -899,6 +905,7 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc, RedisModuleCtx *rctx) {
   while (status == FGC_COLLECTED) {
     NumGcInfo ninfo = {0};
     RedisSearchCtx *sctx = NULL;
+    RedisModuleKey *idxKey = NULL;
     FGCError status2 = recvNumIdx(gc, &ninfo);
     if (status2 == FGC_DONE) {
       break;
@@ -920,7 +927,6 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc, RedisModuleCtx *rctx) {
     }
     RedisModuleString *keyName =
         IndexSpec_GetFormattedKeyByName(sctx->spec, fieldName, INDEXFLD_T_NUMERIC);
-    RedisModuleKey *idxKey = NULL;
     NumericRangeTree *rt = OpenNumericIndex(sctx, keyName, &idxKey);
 
     if (rt->uniqueId != rtUniqueId) {
@@ -1137,6 +1143,9 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
 
     FGC_unlock(gc, ctx);
 
+    close(gc->pipefd[GC_READERFD]);
+    close(gc->pipefd[GC_WRITERFD]);
+
     return 1;
   }
 
@@ -1185,14 +1194,31 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
     }
     close(gc->pipefd[GC_READERFD]);
     if (FGC_haveRedisFork()) {
+
       if (gc->type == FGC_TYPE_NOKEYSPACE) {
         // If we are not in key space we still need to acquire the GIL to use the fork api
         RedisModule_ThreadSafeContextLock(ctx);
       }
+
+      if (!FGC_lock(gc, ctx)) {
+        if (gc->type == FGC_TYPE_NOKEYSPACE) {
+          RedisModule_ThreadSafeContextUnlock(ctx);
+        }
+
+        return 0;
+      }
+
+      // KillForkChild must be called when holding the GIL
+      // otherwise it might cause a pipe leak and eventually run
+      // out of file descriptor
       RedisModule_KillForkChild(cpid);
+
       if (gc->type == FGC_TYPE_NOKEYSPACE) {
         RedisModule_ThreadSafeContextUnlock(ctx);
       }
+
+      FGC_unlock(gc, ctx);
+
     } else {
       pid_t id = wait4(cpid, NULL, 0, NULL);
       if (id == -1) {

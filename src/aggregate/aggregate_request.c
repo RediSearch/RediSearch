@@ -286,6 +286,7 @@ static int parseQueryLegacyArgs(ArgsCursor *ac, RSSearchOptions *options, QueryE
 static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts,
                           AggregatePlan *plan, QueryError *status) {
   // Parse query-specific arguments..
+  const char *languageStr = NULL;
   ArgsCursor returnFields = {0};
   ArgsCursor inKeys = {0};
   ArgsCursor inFields = {0};
@@ -295,7 +296,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
        .type = AC_ARGTYPE_INT,
        .target = &searchOpts->slop,
        .intflags = AC_F_COALESCE},
-      {.name = "LANGUAGE", .type = AC_ARGTYPE_STRING, .target = &searchOpts->language},
+      {.name = "LANGUAGE", .type = AC_ARGTYPE_STRING, .target = &languageStr},
       {.name = "EXPANDER", .type = AC_ARGTYPE_STRING, .target = &searchOpts->expanderName},
       {.name = "INKEYS", .type = AC_ARGTYPE_SUBARGS, .target = &inKeys},
       {.name = "SCORER", .type = AC_ARGTYPE_STRING, .target = &searchOpts->scorerName},
@@ -364,6 +365,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
   searchOpts->ninkeys = inKeys.argc;
   searchOpts->legacy.infields = (const char **)inFields.objs;
   searchOpts->legacy.ninfields = inFields.argc;
+  searchOpts->language = RSLanguage_Find(languageStr);
 
   if (AC_IsInitialized(&returnFields)) {
     ensureSimpleMode(req);
@@ -385,8 +387,8 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
 }
 
 static char *getReducerAlias(PLN_GroupStep *g, const char *func, const ArgsCursor *args) {
-  sds out = sdsempty();
-  out = sdscatprintf(out, "_G%u_", g->serial++);
+
+  sds out = sdsnew("__generated_alias");
   out = sdscat(out, func);
   // only put parentheses if we actually have args
   char buf[255];
@@ -401,7 +403,7 @@ static char *getReducerAlias(PLN_GroupStep *g, const char *func, const ArgsCurso
     }
     out = sdscatlen(out, s, l);
     if (!AC_IsAtEnd(&tmp)) {
-      out = sdscat(out, "_");
+      out = sdscat(out, ",");
     }
   }
 
@@ -712,8 +714,8 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     }
   }
 
-  if (opts->language && !IsSupportedLanguage(opts->language, strlen(opts->language))) {
-    QueryError_SetErrorFmt(status, QUERY_EINVAL, "No such language %s", opts->language);
+  if (opts->language == RS_LANG_UNSUPPORTED) {
+    QueryError_SetError(status, QUERY_EINVAL, "No such language");
     return REDISMODULE_ERR;
   }
   if (opts->scorerName && Extensions_GetScoringFunction(NULL, opts->scorerName) == NULL) {
