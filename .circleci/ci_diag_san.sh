@@ -17,11 +17,11 @@ extra_flags=""
 if [[ $ASAN == 1 ]]; then
 	mode=asan
     extra_flags="-DUSE_ASAN=ON"
-elif [[ $MASN == 1 ]]; then
-	mode=masn
+elif [[ $MSAN == 1 ]]; then
+	mode=msan
     extra_flags="-DUSE_MSAN=ON -DMSAN_PREFIX=${SAN_PREFIX}"
 else
-    echo "Should define either ASAN=1 or MASN=1"
+    echo "Should define either ASAN=1 or MSAN=1"
     exit 1
 fi
 
