@@ -1,14 +1,15 @@
 #!/bin/bash
+
 set -e
 set -x
 
-if [ -z "$CI_CONCURRENCY" ];
-then
-    CI_CONCURRENCY=8
-fi
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+cd $HERE/..
+
+[[ -z $CI_CONCURRENCY ] && CI_CONCURRENCY=$(./deps/readies/bin/nproc)
 
 PROJECT_DIR=$PWD
-mkdir $BUILD_DIR
+mkdir -p $BUILD_DIR
 cd $BUILD_DIR
 
 cmake $PROJECT_DIR \

@@ -1,17 +1,16 @@
 #!/bin/bash
+
 set -e
 set -x
 
-if [ -z "$CI_CONCURRENCY" ];
-then
-    CI_CONCURRENCY=8
-fi
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+cd $HERE/..
+
+[[ -z $CI_CONCURRENCY ] && CI_CONCURRENCY=$(./deps/readies/bin/nproc)
 
 ./.circleci/ci_get_deps.sh
-apt-get update
-apt-get -y install lcov curl
 
-mkdir build-coverage
+mkdir -p build-coverage
 cd build-coverage
 cmake .. -DCMAKE_BUILD_TYPE=DEBUG \
     -DRS_RUN_TESTS=ON \

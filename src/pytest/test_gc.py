@@ -130,7 +130,7 @@ def testDeleteDocWithGoeField(env):
 
 def testGCIntegrationWithRedisFork(env):
     def wait_for_bgsave(t0):
-        for i in range(40):
+        for i in range(100):
             sleep(0.1)
             t1 = env.execute_command('lastsave')
             if t1 > t0:
