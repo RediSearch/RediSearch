@@ -2940,3 +2940,9 @@ def testIndexNotRemovedFromCursorListAfterRecreated(env):
     env.expect('FT.AGGREGATE idx * WITHCURSOR').equal([[0], 0])
     env.expect('FT.CREATE idx SCHEMA f1 TEXT').error()
     env.expect('FT.AGGREGATE idx * WITHCURSOR').equal([[0], 0])
+
+def testHindiStemmer(env):
+    env.cmd('FT.CREATE', 'idxTest', 'SCHEMA', 'body', 'TEXT')
+    env.cmd('FT.ADD', 'idxTest', 'doc1', 1.0, 'LANGUAGE', 'hindi', 'FIELDS', 'body', u'अँगरेजी अँगरेजों अँगरेज़')
+    res = env.cmd('FT.SEARCH', 'idxTest', u'अँगरेज़')
+    env.assertEqual(u'अँगरेजी अँगरेजों अँगरेज़', unicode(res[2][1], 'utf-8'))
