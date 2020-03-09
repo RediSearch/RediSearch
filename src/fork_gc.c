@@ -619,8 +619,10 @@ static bool ForkGc_ReadNumericInvertedIndex(ForkGCCtx *gc, int *ret_val, RedisMo
 
   NumericRangeNode *currNode = NULL;
   bool shouldReturn = false;
-  RedisModuleString *keyName = NULL;
   while ((currNode = ForkGc_FDReadPtr(gc->pipefd[GC_READERFD]))) {
+
+    RedisModuleString *keyName = NULL;
+    RedisModuleKey *idxKey = NULL;
 
     if (currNode == PTR_ERROR) {
       rm_free(fieldName);
@@ -665,7 +667,6 @@ static bool ForkGc_ReadNumericInvertedIndex(ForkGCCtx *gc, int *ret_val, RedisMo
     }
 
     keyName = fmtRedisNumericIndexKey(sctx, fieldName);
-    RedisModuleKey *idxKey = NULL;
     NumericRangeTree *rt = OpenNumericIndex(sctx, keyName, &idxKey);
 
     if (rt->uniqueId != rtUniqueId) {
@@ -759,8 +760,11 @@ static bool ForkGc_ReadTagIndex(ForkGCCtx *gc, int *ret_val, RedisModuleCtx *rct
   }
   bool shouldReturn = false;
   InvertedIndex *value = NULL;
-  RedisModuleString *keyName = NULL;
   while ((value = ForkGc_FDReadPtr(gc->pipefd[GC_READERFD]))) {
+
+    RedisModuleString *keyName = NULL;
+    RedisModuleKey *idxKey = NULL;
+
     if (value == PTR_ERROR) {
       rm_free(fieldName);
       *ret_val = GC_RET_VAL_PIPE_READ_FAILURE;
@@ -778,7 +782,6 @@ static bool ForkGc_ReadTagIndex(ForkGCCtx *gc, int *ret_val, RedisModuleCtx *rct
       RETURN;
     }
 
-    RedisModuleKey *idxKey = NULL;
     keyName = TagIndex_FormatName(sctx, fieldName);
     TagIndex *tagIdx = TagIndex_Open(sctx->redisCtx, keyName, false, &idxKey);
 
@@ -899,6 +902,10 @@ static int ForkGc_PeriodicCallback(RedisModuleCtx *ctx, void *privdata) {
     // we will retry after timeout.
     gc->interval.tv_sec = RSGlobalConfig.forkGcRetryInterval;
     RedisModule_ThreadSafeContextUnlock(ctx);
+
+    close(gc->pipefd[GC_READERFD]);
+    close(gc->pipefd[GC_WRITERFD]);
+
     return 1;
   }
   // we set the number of deleted document to 0 cause we are going to clean all
