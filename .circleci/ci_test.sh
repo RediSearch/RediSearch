@@ -1,16 +1,19 @@
 #!/bin/bash
+
 set -e
-set -x
+# set -x
 
-PROJECT_DIR=$PWD
-cd $PROJECT_DIR/$BUILD_DIR
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+ROOT=$(realpath $HERE/..)
 
-if [ "$USE_COVERAGE" ]; then
+cd $ROOT/$BUILD_DIR
+
+if [[ ! -z $USE_COVERAGE ]]; then
     ./lcov-init.sh
 fi
 
 ctest -V
-if [ "$USE_COVERAGE" ]; then
-    sudo apt-get install lcov
-    ./lcov-capture.sh ${PROJECT_DIR}/coverage
+if [[ ! -z $USE_COVERAGE ]]; then
+	
+    ./lcov-capture.sh $ROOT/coverage
 fi

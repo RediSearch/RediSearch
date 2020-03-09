@@ -1,7 +1,7 @@
 #!/bin/bash
 
 set -e
-set -x
+# set -x
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 ROOT=$(realpath $HERE/..)
@@ -15,7 +15,9 @@ cmake .. -DCMAKE_BUILD_TYPE=DEBUG \
     -DRS_RUN_TESTS=ON \
     -DUSE_COVERAGE=ON
 
-[[ -z $CI_CONCURRENCY ]] && CI_CONCURRENCY=$($ROOT/deps/readies/bin/nproc)
+if [[ -z $CI_CONCURRENCY ]]; then
+	CI_CONCURRENCY=$($ROOT/deps/readies/bin/nproc)
+fi
 
 make -j$CI_CONCURRENCY
 
