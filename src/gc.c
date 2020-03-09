@@ -138,9 +138,6 @@ void GCContext_Stop(GCContext* gc) {
   RedisModule_StopTimer(ctx, gc->timerID, NULL);
   gc->callbacks.onTerm(gc->gcCtx);
   RedisModule_FreeThreadSafeContext(ctx);
-  /*if (gc->callbacks.kill) {
-    gc->callbacks.kill(gc->gcCtx);
-  }*/
   gc->isDestroyed = 1;
   rm_free(gc);
 }
@@ -174,7 +171,7 @@ void GCContext_ForceBGInvoke(GCContext* gc) {
 
 void GC_ThreadPoolStart() {
   if (gcThreadPools_g == NULL) {
-    gcThreadPools_g = thpool_init(1);
+    gcThreadPools_g = thpool_init(RSGlobalConfig.forkGcThreadPoolSize);
   }
 }
 

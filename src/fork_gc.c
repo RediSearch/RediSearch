@@ -1277,9 +1277,7 @@ void FGC_WaitClear(ForkGC *gc) NO_TSAN_CHECK {
 static void onTerminateCb(void *privdata) {
   ForkGC *gc = privdata;
   if (gc->keyName && gc->type == FGC_TYPE_INKEYSPACE) {
-    //RedisModule_ThreadSafeContextLock(gc->ctx);
     RedisModule_FreeString(gc->ctx, (RedisModuleString *)gc->keyName);
-    //RedisModule_ThreadSafeContextUnlock(gc->ctx);
   }
 
   RedisModule_FreeThreadSafeContext(gc->ctx);
@@ -1306,11 +1304,6 @@ static void statsCb(RedisModuleCtx *ctx, void *gcCtx) {
   }
   RedisModule_ReplySetArrayLength(ctx, n);
 }
-/*
-static void killCb(void *ctx) {
-  ForkGC *gc = ctx;
-  gc->deleting = 1;
-}*/
 
 static void deleteCb(void *ctx) {
   ForkGC *gc = ctx;
@@ -1342,7 +1335,6 @@ ForkGC *FGC_New(const RedisModuleString *k, uint64_t specUniqueId, GCCallbacks *
   callbacks->periodicCallback = periodicCb;
   callbacks->renderStats = statsCb;
   callbacks->getInterval = getIntervalCb;
-  //callbacks->kill = killCb;
   callbacks->onDelete = deleteCb;
 
   return forkGc;

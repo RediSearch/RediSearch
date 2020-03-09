@@ -30,6 +30,7 @@ def testGetConfigOptions(env):
     assert env.expect('ft.config', 'get', 'FORK_GC_RUN_INTERVAL').res[0][0] =='FORK_GC_RUN_INTERVAL'   
     assert env.expect('ft.config', 'get', 'FORK_GC_CLEAN_THRESHOLD').res[0][0] =='FORK_GC_CLEAN_THRESHOLD'  
     assert env.expect('ft.config', 'get', 'FORK_GC_RETRY_INTERVAL').res[0][0] =='FORK_GC_RETRY_INTERVAL'  
+    assert env.expect('ft.config', 'get', 'FORK_GC_THREAD_POOL_SIZE').res[0][0] =='FORK_GC_THREAD_POOL_SIZE'  
     assert env.expect('ft.config', 'get', '_MAX_RESULTS_TO_UNSORTED_MODE').res[0][0] =='_MAX_RESULTS_TO_UNSORTED_MODE'
 
 '''
@@ -57,6 +58,7 @@ def testSetConfigOptions(env):
     env.expect('ft.config', 'set', 'FORK_GC_RUN_INTERVAL', 1).equal('OK')    
     env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 1).equal('OK')    
     env.expect('ft.config', 'set', 'FORK_GC_RETRY_INTERVAL', 1).equal('OK')    
+    env.expect('ft.config', 'set', 'FORK_GC_THREAD_POOL_SIZE', 1).equal('Not modifiable at runtime')    
     env.expect('ft.config', 'set', '_MAX_RESULTS_TO_UNSORTED_MODE', 1).equal('OK')
 
 def testSetConfigOptionsErrors(env):
