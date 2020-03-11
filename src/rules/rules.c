@@ -8,6 +8,14 @@
 #include "module.h"
 #include "document.h"
 #include "search_ctx.h"
+#include "queue_ts.h"
+
+#include <unistd.h>
+
+void *aiThreadInit(void *privdata);
+
+/* May not be the ideal place for it */
+static asyncIndexCtx *asyncIndexCtx_g = NULL;
 
 SchemaRules *SchemaRules_g = NULL;
 
@@ -16,6 +24,21 @@ SchemaRules *SchemaRules_Create(void) {
   dllist_init(&rules->rules);
   rules->actions = array_new(MatchAction, 1);
   return rules;
+}
+
+asyncIndexCtx *AsyncIndexCtx_Create(size_t interval, size_t batchSize) {
+  asyncIndexCtx *ctx = rm_calloc(1, sizeof(*ctx));
+
+  ctx->interval = interval;
+  ctx->indexBatchSize = batchSize;
+  ctx->aiCtx = RedisModule_GetThreadSafeContext(NULL);
+
+  dllist_init(&ctx->indexList);
+
+  // pthread_create(&asyncIndexCtx_g->aiThread, NULL, aiThreadInit, NULL);
+  // pthread_detach(asyncIndexCtx_g->aiThread);
+
+  return ctx;
 }
 
 static void indexCallback(RSAddDocumentCtx *aCtx, RedisModuleCtx *ctx, void *unused) {
@@ -69,6 +92,34 @@ static void processKeyItem(RedisModuleCtx *ctx, RuleKeyItem *item, int forceQueu
     // check if spec uses synchronous or asynchronous indexing..
     if (forceQueue || (spec->flags & Index_Async)) {
       // submit to queue
+      // 1. Create a queue per index
+      // 2. Add `item` to queue
+      // Somewhere else
+      // 3. As a callback, index items into the index
+      // 4. Remove items from queue
+
+      // Queue indexes with documents to be indexed
+      // Queue documents to be indexed for each index
+      // Schedule
+
+      // index points to a retained ptr at SchemaRules_g
+      RuleIndexableDocument *rid = rm_calloc(1, sizeof(*rid));
+      rid->rki = *item;
+      rid->iia = results[ii].attrs;
+
+      // might have to retain additional args
+      RedisModule_RetainString(NULL, item->kstr);
+
+      pthread_mutex_lock(&spec->lock);
+      dllist_prepend(&spec->asyncIndexQueue, &rid->llnode);
+      pthread_mutex_unlock(&spec->lock);
+
+      pthread_mutex_lock(&asyncIndexCtx_g->lock);
+      if (spec->llnode.next == 0) {  // Might be possible to have lock inside `if`
+        dllist_prepend(&asyncIndexCtx_g->indexList, &spec->llnode);
+      }
+      pthread_mutex_unlock(&asyncIndexCtx_g->lock);
+
     } else {
       QueryError e = {0};
       int rc = indexDocument(ctx, spec, item, &results[ii].attrs, &e);
@@ -88,7 +139,7 @@ static int hashCallback(RedisModuleCtx *ctx, int unused, const char *action,
                         RedisModuleString *key) {
   printf("int:%d, action:%s\n", unused, action);
   RuleKeyItem item = {.kstr = key, .kobj = NULL};
-  processKeyItem(ctx, &item, 0);
+  processKeyItem(ctx, &item, 1);
   if (item.kobj) {
     RedisModule_CloseKey(item.kobj);
   }
@@ -140,12 +191,77 @@ void SchemaRules_ScanAll(const SchemaRules *rules) {
   RedisModule_ScanCursorDestroy(cursor);
 }
 
+void *aiThreadInit(void *privdata) {
+  asyncIndexCtx *ctx = asyncIndexCtx_g;
+  RuleIndexableDocument *rid;
+  DLLIST_node *curIdx, *curDoc;
+  DLLIST curList = {0};
+  dllist_init(&curList);
+
+  while (1) {
+    usleep(asyncIndexCtx_g->interval);
+
+    pthread_mutex_lock(&ctx->lock);
+    curIdx = dllist_pop_tail(&ctx->indexList);
+    if (curIdx == NULL) {
+      pthread_mutex_unlock(&ctx->lock);
+      continue;
+    }
+
+    IndexSpec *spec = DLLIST_ITEM(curIdx, IndexSpec, llnode);
+
+    // lock only to extract nodes to local list
+    pthread_mutex_lock(&spec->lock);
+    for (int i = 0; i < ctx->indexBatchSize; ++i) {
+      curDoc = dllist_pop_tail(&spec->asyncIndexQueue);
+      if (curDoc == NULL) break;
+      dllist_append(&curList, curDoc);
+    }
+    pthread_mutex_unlock(&spec->lock);
+    pthread_mutex_unlock(&ctx->lock);
+
+    RedisModule_ThreadSafeContextLock(ctx->aiCtx);
+    while ((DLLIST_IS_EMPTY(&curList)) == false) {
+      curDoc = dllist_pop_tail(&curList);
+      rid = DLLIST_ITEM(curDoc, RuleIndexableDocument, llnode);
+
+      QueryError e = {0};
+      int rc = indexDocument(ctx->aiCtx, spec, &rid->rki, &rid->iia, &e);
+      RedisModule_FreeString(NULL, rid->rki.kstr);
+      // deal with Key when applicable
+      rm_free(rid);
+      assert(rc == REDISMODULE_OK);
+    }
+    RedisModule_ThreadSafeContextUnlock(ctx->aiCtx);
+  }
+}
+
 void SchemaRules_ReplyAll(const SchemaRules *rules, RedisModuleCtx *ctx) {
 }
 
-void SchemaRules_InitGlobal(void) {
+void SchemaRules_InitGlobal(RedisModuleCtx *ctx) {
+  /*
+  asyncRulesQueue_g = rm_calloc(1, sizeof(*asyncRulesQueue_g));
+  if(IO_QUEUE_RESULT_SUCCESS != io_queue_init(asyncRulesQueue_g, sizeof(IndexSpec *))) {
+    RedisModule_Log(ctx, "verbose", "%s", "Creation of global async queue for rules failed");
+  }
+  assert(io_queue_has_front(asyncRulesQueue_g) == IO_QUEUE_RESULT_FALSE); */
+  asyncIndexCtx_g = AsyncIndexCtx_Create(1000, 100);
+
+  pthread_mutex_init(&asyncIndexCtx_g->lock, NULL);
+  // didn't find pthread.c when in function AsyncIndexCtx_Create
+  pthread_create(&asyncIndexCtx_g->aiThread, NULL, aiThreadInit, NULL);
+  pthread_detach(asyncIndexCtx_g->aiThread);
+
   SchemaRules_g = SchemaRules_Create();
   RedisModule_SubscribeToKeyspaceEvents(RSDummyContext, REDISMODULE_NOTIFY_HASH, hashCallback);
   RedisModule_SubscribeToKeyspaceEvents(
       RSDummyContext, REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_EXPIRED, delCallback);
+}
+
+void SchemaRules_ShutdownGlobal() {
+  RedisModule_FreeThreadSafeContext(asyncIndexCtx_g->aiCtx);
+  // use flag to signal thread to exit
+  pthread_mutex_destroy(&asyncIndexCtx_g->lock);
+  rm_free(asyncIndexCtx_g);
 }
