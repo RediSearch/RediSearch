@@ -26,7 +26,7 @@ void *cbWrapper(void *args) {
   return NULL;
 }
 
-void runPeriodicInThread(RedisModuleCtx *ctx, void *fgc, IndexSpec *sp) {
+void runGcThread(RedisModuleCtx *ctx, void *fgc, IndexSpec *sp) {
   pthread_t thread = { 0 };
   args_t args = {.ctx = ctx, .fgc = fgc, .sp = sp};
 
@@ -82,13 +82,13 @@ TEST_F(FGCTest, testRemoveLastBlock) {
    */
   //FGC_WaitAtApply(fgc);
   sleep(2);
-  runPeriodicInThread(ctx, fgc, sp);
+  runGcThread(ctx, fgc, sp);
   ASSERT_TRUE(RS::addDocument(ctx, sp, "doc2", "f1", "hello"));
 
   /** This function allows the gc to receive the results */
   //FGC_WaitClear(fgc);
   //sp->gc->callbacks.periodicCallback(ctx, fgc);
-  runPeriodicInThread(ctx, fgc, sp);
+  runGcThread(ctx, fgc, sp);
   sleep(2);
 
   ASSERT_EQ(1, fgc->stats.gcBlocksDenied);
@@ -194,7 +194,7 @@ TEST_F(FGCTest, testRepairLastBlock) {
 
   ASSERT_TRUE(RS::deleteDocument(ctx, sp, buf));
   //FGC_WaitAtApply(fgc);
-  runPeriodicInThread(ctx, fgc, sp);
+  runGcThread(ctx, fgc, sp);
 
   // Add a document -- this one is to keep
   sprintf(buf, "doc%u", curId);
@@ -242,7 +242,7 @@ TEST_F(FGCTest, testRepairMidleRemoveLast) {
   }
 
   //FGC_WaitAtApply(fgc);
-  runPeriodicInThread(ctx, fgc, sp);
+  runGcThread(ctx, fgc, sp);
 
   sprintf(buf, "doc%u", next_id);
   ASSERT_TRUE(RS::addDocument(ctx, sp, buf, "f1", "hello"));
@@ -285,7 +285,7 @@ TEST_F(FGCTest, testRemoveMiddleBlock) {
   }
 
   //FGC_WaitAtApply(fgc);
-  runPeriodicInThread(ctx, fgc, sp);
+  runGcThread(ctx, fgc, sp);
   // Add a new document
   unsigned newLastBlockId = curId + 1;
   while (iv->size < 4) {
