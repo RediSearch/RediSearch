@@ -905,6 +905,7 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc, RedisModuleCtx *rctx) {
   while (status == FGC_COLLECTED) {
     NumGcInfo ninfo = {0};
     RedisSearchCtx *sctx = NULL;
+    RedisModuleKey *idxKey = NULL;
     FGCError status2 = recvNumIdx(gc, &ninfo);
     if (status2 == FGC_DONE) {
       break;
@@ -926,7 +927,6 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc, RedisModuleCtx *rctx) {
     }
     RedisModuleString *keyName =
         IndexSpec_GetFormattedKeyByName(sctx->spec, fieldName, INDEXFLD_T_NUMERIC);
-    RedisModuleKey *idxKey = NULL;
     NumericRangeTree *rt = OpenNumericIndex(sctx, keyName, &idxKey);
 
     if (rt->uniqueId != rtUniqueId) {
@@ -1143,6 +1143,9 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
 
     FGC_unlock(gc, ctx);
 
+    close(gc->pipefd[GC_READERFD]);
+    close(gc->pipefd[GC_WRITERFD]);
+
     return 1;
   }
 
@@ -1191,14 +1194,31 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
     }
     close(gc->pipefd[GC_READERFD]);
     if (FGC_haveRedisFork()) {
+
       if (gc->type == FGC_TYPE_NOKEYSPACE) {
         // If we are not in key space we still need to acquire the GIL to use the fork api
         RedisModule_ThreadSafeContextLock(ctx);
       }
+
+      if (!FGC_lock(gc, ctx)) {
+        if (gc->type == FGC_TYPE_NOKEYSPACE) {
+          RedisModule_ThreadSafeContextUnlock(ctx);
+        }
+
+        return 0;
+      }
+
+      // KillForkChild must be called when holding the GIL
+      // otherwise it might cause a pipe leak and eventually run
+      // out of file descriptor
       RedisModule_KillForkChild(cpid);
+
       if (gc->type == FGC_TYPE_NOKEYSPACE) {
         RedisModule_ThreadSafeContextUnlock(ctx);
       }
+
+      FGC_unlock(gc, ctx);
+
     } else {
       pid_t id = wait4(cpid, NULL, 0, NULL);
       if (id == -1) {
