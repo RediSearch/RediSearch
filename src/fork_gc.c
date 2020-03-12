@@ -1268,7 +1268,7 @@ void FGC_WaitAtApply(ForkGC *gc) NO_TSAN_CHECK {
 }
 
 void FGC_WaitClear(ForkGC *gc) NO_TSAN_CHECK {
-  gc->pauseState = 0;
+  gc->pauseState = FGC_PAUSED_UNPAUSED;
   while (gc->execState != FGC_STATE_IDLE) {
     usleep(500);
   }
