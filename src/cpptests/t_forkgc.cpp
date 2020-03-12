@@ -25,10 +25,8 @@ pthread_t thread;
 
 void *cbWrapper(void *args) {
   args_t *fgcArgs = (args_t *)args;
-  while (runLoop) {
-    sleep(1);
-    fgcArgs->sp->gc->callbacks.periodicCallback(fgcArgs->ctx, fgcArgs->fgc);
-  }
+  sleep(1);
+  fgcArgs->sp->gc->callbacks.periodicCallback(fgcArgs->ctx, fgcArgs->fgc);
   rm_free(args);
   return NULL;
 }
