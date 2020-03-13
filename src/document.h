@@ -216,10 +216,7 @@ struct DocumentIndexer;
 typedef struct RSAddDocumentCtx {
   struct RSAddDocumentCtx *next;  // Next context in the queue
   Document doc;                   // Document which is being indexed
-  union {
-    RedisModuleBlockedClient *bc;  // Client
-    RedisSearchCtx *sctx;
-  } client;
+  RedisSearchCtx *sctx;
 
   // Forward index. This contains all the terms found in the document
   struct ForwardIndex *fwIdx;
@@ -256,8 +253,6 @@ typedef struct RSAddDocumentCtx {
   DocumentAddCompleted donecb;
   void *donecbData;
 } RSAddDocumentCtx;
-
-#define AddDocumentCtx_IsBlockable(aCtx) (!((aCtx)->stateFlags & ACTX_F_NOBLOCK))
 
 /**
  * Creates a new context used for adding documents. Once created, call
