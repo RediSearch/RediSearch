@@ -42,6 +42,7 @@ extern "C" {
 #define SPEC_SEPARATOR_STR "SEPARATOR"
 #define SPEC_MULTITYPE_STR "MULTITYPE"
 #define SPEC_WITHRULES_STR "WITHRULES"
+#define SPEC_ASYNC_STR "ASYNC"
 
 /**
  * If wishing to represent field types positionally, use this
@@ -162,8 +163,23 @@ struct DocumentIndexer;
 struct IndexQueue;
 struct IoQueue;
 
+#define SDQ_S_IDLE 0x01
+#define SDQ_S_PENDING 0x02
+#define SDQ_S_PROCESSING 0x04
+
+typedef struct {
+  IndexSpec *spec;
+  dict *entries;
+  // How many documents are being actively indexed at the moment
+  volatile size_t nactive;
+  pthread_mutex_t lock;
+  int state; // SDQ_S_xxx
+} SpecDocQueue;
+
+SpecDocQueue* SpecDocQueue_Create(IndexSpec *spec);
+void SpecDocQueue_Free(SpecDocQueue *q);
+
 struct IndexSpec {
-  DLLIST_node llnode;
   char *name;
   FieldSpec *fields;
   int numFields;
@@ -196,10 +212,7 @@ struct IndexSpec {
   void *getValueCtx;
   char **aliases; // Aliases to self-remove when the index is deleted
   struct DocumentIndexer *indexer;
-  // struct IndexQueue *queue;
-  // struct IoQueue *asyncIndexQueue;
-  DLLIST asyncIndexQueue;
-  pthread_mutex_t lock;
+  SpecDocQueue *queue;
 };
 
 typedef struct {

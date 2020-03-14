@@ -10,7 +10,6 @@ def testCreateRules(env):
     env.cmd('hset', 'user:mnunberg', 'foo', 'bar')
     env.cmd('hset', 'user:mnunberg', 'f1', 'hello world')
 
-    time.sleep(1)
     print env.cmd('ft.search', 'idx', 'hello')
     print("Deleting...")
     env.cmd('del', 'user:mnunberg')
@@ -20,5 +19,19 @@ def testCreateRules(env):
     env.cmd('hset', 'someDoc', 'name', 'mark')
     env.cmd('hset', 'someDoc', 'f1', 'goodbye')
 
-    time.sleep(1)
     print env.cmd('ft.search', 'idx', 'goodbye')
+
+def testScanRules(env):
+    for x in range(10000):
+        env.cmd('hset', 'doc{}'.format(x), 'f1', 'hello')
+
+    env.cmd('ft.create', 'idx', 'ASYNC', 'WITHRULES', 'schema', 'f1', 'text')
+    env.cmd('ft.ruleadd', 'idx', 'rule1', 'PREFIX', 'doc', 'INDEX')
+
+    print("SCANSTART")
+    env.cmd('ft.scanstart')
+    while True:
+        rv = env.cmd('ft.queueitems', 'idx')
+        if int(rv) == 0:
+            break
+    print(env.cmd('ft.search', 'idx', 'hello'))

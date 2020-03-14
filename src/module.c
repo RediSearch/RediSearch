@@ -931,6 +931,11 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_RULEADD, RuleAddCommand, "readonly", 1, 1, 1);
 
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_SCANSTART_CMD, SchemaRules_ScanAllCmd, "readonly", 1, 1,
+         1);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_QUEUEITEMS_CMD, SchemaRules_QueueInfoCmd, "readonly", 1,
+         1, 1);
+
 #ifndef RS_COORDINATOR
   // we are running in a normal mode so we should raise cross slot error on alias commands
   RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASADD, AliasAddCommand, "readonly", 1, 2, 1);

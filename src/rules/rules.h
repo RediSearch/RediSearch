@@ -5,6 +5,7 @@
 #include "rmutil/args.h"
 #include "query_error.h"
 #include "util/dllist.h"
+#include "spec.h"
 
 #include <pthread.h>
 
@@ -52,19 +53,25 @@ typedef struct {
   RedisModuleKey *kobj;  // Necessary? We are appending to the currect idx.
 } RuleKeyItem;
 
-typedef struct asyncIndexCtx {
-  RedisModuleCtx *aiCtx;
+typedef enum {
+  AIQ_S_IDLE = 0x00,  // nl
+  AIQ_S_PROCESSING = 0x01,
+  AIQ_S_CANCELLED = 0x02
+} AIQState;
 
-  DLLIST indexList;       // List of indexes with documents to be indexed
-  size_t interval;        // interval in milliseconds. sleep time when queue is empty
-  size_t indexBatchSize;  // maximum documents to index at once. Prevents starvation
+typedef struct {
+  SpecDocQueue **pending;  // List of indexes with documents to be indexed
+  size_t interval;         // interval in milliseconds. sleep time when queue is empty
+  size_t indexBatchSize;   // maximum documents to index at once. Prevents starvation
   pthread_t aiThread;
   pthread_mutex_t lock;
-} asyncIndexCtx;
+  pthread_cond_t cond;
+  volatile AIQState state;
+} AsyncIndexQueue;
 
-typedef struct RuleIndexableDocument {
+typedef struct {
   DLLIST_node llnode;
-  RuleKeyItem rki;
+  RedisModuleString *kstr;
   IndexItemAttrs iia;
 } RuleIndexableDocument;
 
@@ -78,12 +85,29 @@ extern SchemaRules *SchemaRules_g;
  * Submits all the keys in the database for indexing
  */
 void SchemaRules_ScanAll(const SchemaRules *rules);
+int SchemaRules_IndexDocument(RedisModuleCtx *ctx, IndexSpec *sp, RuleKeyItem *item,
+                              const IndexItemAttrs *attrs, QueryError *e);
+
+void SchemaRules_ProcessItem(RedisModuleCtx *ctx, RuleKeyItem *item, int forceQueue);
 
 /**
  * Initializes the global rule list and subscribes to keyspace events
  */
 void SchemaRules_InitGlobal();
 void SchemaRules_ShutdownGlobal();
+void SchemaRules_RegisterIndex(IndexSpec *);
+void SchemaRules_UnregisterIndex(IndexSpec *);
+ssize_t SchemaRules_GetPendingCount(const IndexSpec *spec);
+
+extern AsyncIndexQueue *asyncQueue_g;
+
+AsyncIndexQueue *AIQ_Create(size_t interval, size_t batchSize);
+void AIQ_Destroy(AsyncIndexQueue *aq);
+void AIQ_Submit(AsyncIndexQueue *aq, IndexSpec *spec, MatchAction *result, RuleKeyItem *item);
+
+// actual Redis commands:
+int SchemaRules_ScanAllCmd(RedisModuleCtx *, RedisModuleString **, int);
+int SchemaRules_QueueInfoCmd(RedisModuleCtx *, RedisModuleString **, int);
 
 #ifdef __cplusplus
 }

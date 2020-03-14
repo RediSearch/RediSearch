@@ -15,7 +15,7 @@
 #include "indexer.h"
 #include "alias.h"
 #include "module.h"
-// #include "rules/queue_ts.h"
+#include "rules/rules.h"
 
 void (*IndexSpec_OnCreate)(const IndexSpec *) = NULL;
 const char *(*IndexAlias_GetUserTableName)(RedisModuleCtx *, const char *) = NULL;
@@ -474,6 +474,7 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryE
       {AC_MKUNFLAG(SPEC_NOFREQS_STR, &spec->flags, Index_StoreFreqs)},
       {AC_MKBITFLAG(SPEC_SCHEMA_EXPANDABLE_STR, &spec->flags, Index_WideSchema)},
       {AC_MKBITFLAG(SPEC_WITHRULES_STR, &spec->flags, Index_UseRules)},
+      {AC_MKBITFLAG(SPEC_ASYNC_STR, &spec->flags, Index_Async)},
       // For compatibility
       {.name = "NOSCOREIDX", .target = &dummy, .type = AC_ARGTYPE_BOOLFLAG},
       {.name = SPEC_TEMPORARY_STR, .target = &timeout, .type = AC_ARGTYPE_LLONG},
@@ -514,6 +515,9 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryE
 
   if (!IndexSpec_AddFieldsInternal(spec, &ac, status, 1)) {
     goto failure;
+  }
+  if (spec->flags & Index_UseRules) {
+    SchemaRules_RegisterIndex(spec);
   }
   return spec;
 
@@ -732,7 +736,9 @@ static struct thpool_ *cleanPool = NULL;
 void IndexSpec_Free(void *ctx) {
 
   IndexSpec *spec = ctx;
-
+  if (spec->flags & Index_UseRules) {
+    SchemaRules_UnregisterIndex(spec);
+  }
   if (spec->flags & Index_Temporary) {
     if (!cleanPool) {
       cleanPool = thpool_init(1);
@@ -934,6 +940,21 @@ int IndexSpec_IsStopWord(IndexSpec *sp, const char *term, size_t len) {
   return StopWordList_Contains(sp->stopwords, term, len);
 }
 
+SpecDocQueue *SpecDocQueue_Create(IndexSpec *spec) {
+  SpecDocQueue *q = rm_calloc(1, sizeof(*q));
+  spec->queue = q;
+  q->spec = spec;
+  q->entries = dictCreate(&dictTypeHeapRedisStrings, NULL);
+  pthread_mutex_init(&q->lock, NULL);
+  return q;
+}
+
+void SpecDocQueue_Free(SpecDocQueue *q) {
+  assert(dictSize(q->entries) == 0);
+  q->spec->queue = NULL;
+  rm_free(q);
+}
+
 IndexSpec *NewIndexSpec(const char *name) {
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
   sp->fields = rm_calloc(sizeof(FieldSpec), SPEC_MAX_FIELDS);
@@ -948,8 +969,6 @@ IndexSpec *NewIndexSpec(const char *name) {
   sp->maxPrefixExpansions = RSGlobalConfig.maxPrefixExpansions;
   sp->getValue = NULL;
   sp->getValueCtx = NULL;
-  dllist_init(&sp->asyncIndexQueue);
-  pthread_mutex_init(&sp->lock, NULL);
   memset(&sp->stats, 0, sizeof(sp->stats));
   return sp;
 }
@@ -1208,6 +1227,9 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
     }
   }
   sp->indexer = NewIndexer(sp);
+  if (sp->flags & Index_UseRules) {
+    SchemaRules_RegisterIndex(sp);
+  }
   return sp;
 }
 
