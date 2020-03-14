@@ -15,6 +15,8 @@ typedef enum {
   RSExpr_Literal,
   /* Property from the result (e.g. @foo) */
   RSExpr_Property,
+  /* Meta-property, must be registered */
+  RSExpr_Attribute,
   /* Arithmetic operator, e.g. @foo+@bar */
   RSExpr_Op,
   /* Built-in function call */
@@ -93,6 +95,7 @@ typedef struct RSExpr {
     RSPredicate pred;
     RSLookupExpr property;
     RSInverted inverted;
+    int attribute;
   };
 } RSExpr;
 

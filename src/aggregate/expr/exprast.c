@@ -1,4 +1,5 @@
 #include "exprast.h"
+#include "attribute.h"
 #include <ctype.h>
 
 #define arglist_sizeof(l) (sizeof(RSArgList) + ((l) * sizeof(RSExpr *)))
@@ -99,6 +100,12 @@ RSExpr *RS_NewProp(const char *str, size_t len) {
   return e;
 }
 
+RSExpr *RS_NewAttribute(int code) {
+  RSExpr *e = newExpr(RSExpr_Attribute);
+  e->attribute = code;
+  return e;
+}
+
 RSExpr *RS_NewInverted(RSExpr *child) {
   RSExpr *e = newExpr(RSExpr_Inverted);
   e->inverted.child = child;
@@ -135,6 +142,9 @@ void RSExpr_Free(RSExpr *e) {
       break;
     case RSExpr_Inverted:
       RSExpr_Free(e->inverted.child);
+    case RSExpr_Attribute:
+      // no internal data to free here
+      break;
   }
   rm_free(e);
 }
@@ -178,6 +188,9 @@ void RSExpr_Print(const RSExpr *e) {
     case RSExpr_Inverted:
       printf("!");
       RSExpr_Print(e->inverted.child);
+      break;
+    case RSExpr_Attribute:
+      printf("$%s", Expr_FindAttributeByCode(e->attribute));
       break;
   }
 }
