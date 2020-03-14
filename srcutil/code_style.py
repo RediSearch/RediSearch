@@ -21,6 +21,7 @@ IGNPTRN = [
         'src/dep/cndict/cndict_data.c',
         'src/redismodule.h',
         'src/aggregate/expr/parser.c',
+        'src/aggregate/expr/parser.h',
         'src/query_parser/parser.c',
         'src/query_parser/lexer.c',
         'src/dep/gtest'
