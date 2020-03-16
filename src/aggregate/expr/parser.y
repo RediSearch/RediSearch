@@ -86,13 +86,12 @@ expr(A) ::= ATTRIBUTE(B). {
 }
 
 expr(A) ::= SYMBOL(B) LP arglist(C) RP. {
-    RSFunction cb = RSFunctionRegistry_Get(B.s, B.len);
-    if (!cb) {
-        rm_asprintf(&ctx->errorMsg, "Unknown function name '%.*s'", B.len, B.s);
+    QueryError err = {0};
+    A = RSExpr_GetFnExprNode(B.s, B.len, C, &err);
+    if (A == NULL) {
+        ctx->errorMsg = rm_strdup(QueryError_GetError(&err));
+        QueryError_ClearError(&err);
         ctx->ok = 0;
-        A = NULL; 
-    } else {
-         A = RS_NewFunc(B.s, B.len, C, cb);
     }
 }
 

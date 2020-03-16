@@ -1065,13 +1065,12 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 23: /* expr ::= SYMBOL LP arglist RP */
 {
-    RSFunction cb = RSFunctionRegistry_Get(yymsp[-3].minor.yy0.s, yymsp[-3].minor.yy0.len);
-    if (!cb) {
-        rm_asprintf(&ctx->errorMsg, "Unknown function name '%.*s'", yymsp[-3].minor.yy0.len, yymsp[-3].minor.yy0.s);
+    QueryError err = {0};
+    yylhsminor.yy35 = RSExpr_GetFnExprNode(yymsp[-3].minor.yy0.s, yymsp[-3].minor.yy0.len, yymsp[-1].minor.yy12, &err);
+    if (yylhsminor.yy35 == NULL) {
+        ctx->errorMsg = rm_strdup(QueryError_GetError(&err));
+        QueryError_ClearError(&err);
         ctx->ok = 0;
-        yylhsminor.yy35 = NULL; 
-    } else {
-         yylhsminor.yy35 = RS_NewFunc(yymsp[-3].minor.yy0.s, yymsp[-3].minor.yy0.len, yymsp[-1].minor.yy12, cb);
     }
 }
   yymsp[-3].minor.yy35 = yylhsminor.yy35;

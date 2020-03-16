@@ -24,6 +24,12 @@ typedef enum {
   /* Predicate expression, e.g. @foo == 3 */
   RSExpr_Predicate,
 
+  /**
+   * Special meta function. Unlike normal functions these cannot take
+   * properties.
+   */
+  RSExpr_Metafunc,
+
   /* NOT expression, i.e. !(....) */
   RSExpr_Inverted
 } RSExprType;
@@ -86,6 +92,22 @@ typedef struct {
   const RLookupKey *lookupObj;
 } RSLookupExpr;
 
+typedef enum {
+  EXPR_METAOP_PREFIXMATCH = 0x00,
+  EXPR_METAOP_HASFIELD = 0x01
+} ExprMetaCode;
+
+typedef struct {
+  ExprMetaCode op;
+  union {
+    struct {
+      char *s;
+      size_t n;
+    } prefix;
+    RedisModuleString *hasfield;
+  } u;
+} RSExprMeta;
+
 typedef struct RSExpr {
   RSExprType t;
   union {
@@ -95,6 +117,7 @@ typedef struct RSExpr {
     RSPredicate pred;
     RSLookupExpr property;
     RSInverted inverted;
+    RSExprMeta meta;
     int attribute;
   };
 } RSExpr;
@@ -109,6 +132,9 @@ typedef struct ExprEval {
   const SearchResult *res;
   const RLookupRow *srcrow;
   const RSExpr *root;
+  RedisModuleKey *rmkey;
+  RedisModuleString *krstr;
+  const char *kstr;
   BlkAlloc stralloc; // Optional. YNOT?
 } ExprEval;
 
@@ -134,6 +160,13 @@ RSExpr * ExprAST_Parse(const char *e, size_t n, QueryError *status);
  * err, etc) we set and error in err, and return NULL */
 RSExpr *RSExpr_Parse(const char *expr, size_t len, char **err);
 void RSExpr_Free(RSExpr *e);
+
+RSExpr *RSExpr_GetFnExprNode(const char *name, size_t n, RSArgList *arglist, QueryError *err);
+
+RSExpr *RS_NewMetaOp(const char *name, size_t n, RSArgList *args, QueryError *err);
+void RSMetaOp_Clear(RSExprMeta *m);
+void RSMetaOp_Print(const RSExprMeta *m);
+int RSMetaOp_Eval(ExprEval *e, const RSExprMeta *m, RSValue *out);
 
 /**
  * Helper functions for the evaluator context:
