@@ -43,6 +43,50 @@ static int func_matchedTerms(ExprEval *ctx, RSValue *result, RSValue **argv, siz
   return EXPR_EVAL_OK;
 }
 
+#define SUBSTR_MATCH_PREFIX 1
+#define SUBSTR_MATCH_SUFFIX 2
+#define SUBSTR_MATCH_WHOLE 3
+
+static int substrMatchCommon(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,
+                             QueryError *err, int op, int cased) {
+  RSValue *s = RSValue_Dereference(argv[0]);
+  RSValue *match = RSValue_Dereference(argv[1]);
+
+  if (!RSValue_IsString(s) || !RSValue_IsString(match)) {
+    RSValue_MakeReference(result, RS_NumVal(0));
+    return EXPR_EVAL_OK;
+  }
+
+  size_t nstr, nmatch;
+  const char *sstr = RSValue_StringPtrLen(s, &nstr);
+  const char *mstr = RSValue_StringPtrLen(match, &nmatch);
+  if (nmatch > nstr || (op == SUBSTR_MATCH_WHOLE && nmatch != nstr)) {
+    RSValue_MakeReference(result, RS_NumVal(0));
+    return EXPR_EVAL_OK;
+  }
+  if (op == SUBSTR_MATCH_SUFFIX) {
+    sstr += (nstr - nmatch);
+  }
+  int rv = cased ? strncmp(sstr, mstr, nmatch) : strncasecmp(sstr, mstr, nmatch);
+  RSValue_MakeReference(result, RS_NumVal(!rv));
+  return EXPR_EVAL_OK;
+}
+
+#define GEN_SUBSTR_FUNC(name, op)                                                                 \
+  static int name(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc, QueryError *err) { \
+    VALIDATE_ARGS(#name, 2, 2, err);                                                              \
+    return substrMatchCommon(ctx, result, argv, argc, err, op, 1);                                \
+  }                                                                                               \
+  static int name##_nc(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,               \
+                       QueryError *err) {                                                         \
+    VALIDATE_ARGS(#name "_nc", 2, 2, err);                                                        \
+    return substrMatchCommon(ctx, result, argv, argc, err, op, 0);                                \
+  }
+
+GEN_SUBSTR_FUNC(starts_with, SUBSTR_MATCH_PREFIX)
+GEN_SUBSTR_FUNC(ends_with, SUBSTR_MATCH_SUFFIX)
+GEN_SUBSTR_FUNC(streq, SUBSTR_MATCH_WHOLE)
+
 /* lower(str) */
 static int stringfunc_tolower(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,
                               QueryError *err) {
@@ -308,4 +352,8 @@ void RegisterStringFunctions() {
   RSFunctionRegistry_RegisterFunction("matched_terms", func_matchedTerms, RSValue_Array);
   RSFunctionRegistry_RegisterFunction("to_number", func_to_number, RSValue_Number);
   RSFunctionRegistry_RegisterFunction("to_str", func_to_str, RSValue_String);
+  RSFunctionRegistry_RegisterFunction("starts_with", starts_with, RSValue_Number);
+  RSFunctionRegistry_RegisterFunction("starts_with_nc", starts_with_nc, RSValue_Number);
+  RSFunctionRegistry_RegisterFunction("streq", streq, RSValue_Number);
+  RSFunctionRegistry_RegisterFunction("streq_nc", streq_nc, RSValue_Number);
 }
