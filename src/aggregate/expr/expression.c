@@ -217,6 +217,8 @@ static int evalInternal(ExprEval *eval, const RSExpr *e, RSValue *res) {
       return evalInverted(eval, &e->inverted, res);
     case RSExpr_Attribute:
       return evalAttribute(eval, e->attribute, res);
+    case RSExpr_Metafunc:
+      return RSMetaOp_Eval(eval, &e->meta, res);
   }
   return EXPR_EVAL_ERR;  // todo: this can not happened
 }

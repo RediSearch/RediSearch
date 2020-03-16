@@ -206,6 +206,8 @@ static inline int RSValue_IsString(const RSValue *value) {
                    value->t == RSValue_OwnRstring);
 }
 
+#define RSValue_IsRedisString(v) (v)->t == (RSValue_OwnRstring || (v)->t == RSValue_RedisString)
+
 /* Return 1 if the value is NULL, RSValue_Null or a reference to RSValue_Null */
 static inline int RSValue_IsNull(const RSValue *value) {
   if (!value || value->t == RSValue_Null) return 1;
@@ -381,6 +383,9 @@ int RSValue_ArrayAssign(RSValue **args, int argc, const char *fmt, ...);
 /** Static value pointers. These don't ever get decremented */
 static RSValue __attribute__((unused)) RS_StaticNull = RSVALUE_STATICALLOC_INIT(RSValue_Null);
 static RSValue __attribute__((unused)) RS_StaticUndef = RSVALUE_STATICALLOC_INIT(RSValue_Undef);
+
+extern RSValue *RS_TrueValue;
+extern RSValue *RS_FalseValue;
 
 /**
  * Maximum number of static/cached numeric values. Integral numbers in this range

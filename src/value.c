@@ -759,3 +759,8 @@ const char *RSValue_TypeName(RSValueType t) {
       return "!!UNKNOWN TYPE!!";
   }
 }
+
+static RSValue staticTrue = {.allocated = 0, .t = RSValue_Number, .numval = 1};
+static RSValue staticFalse = {.allocated = 0, .t = RSValue_Number, .numval = 0};
+RSValue *RS_TrueValue = &staticTrue;
+RSValue *RS_FalseValue = &staticFalse;
