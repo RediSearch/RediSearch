@@ -6,7 +6,9 @@ typedef enum {
   // Match a prefix
   SCRULE_TYPE_KEYPREFIX = 0x01,
   // Match an expression
-  SCRULE_TYPE_EXPRESSION = 0x02
+  SCRULE_TYPE_EXPRESSION = 0x02,
+  // Contains a field, but don't check its contents
+  SCRULE_TYPE_HASFIELD = 0x03
 } SchemaRuleType;
 
 typedef enum {
@@ -49,6 +51,11 @@ typedef struct {
   RSValue *v;
   RLookup lk;
 } SchemaExprRule;
+
+typedef struct {
+  SCHEMA_RULE_HEAD
+  RedisModuleString *field;
+} SchemaHasFieldRule;
 
 struct SchemaRules {
   DLLIST rules;

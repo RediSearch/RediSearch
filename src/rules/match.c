@@ -1,5 +1,6 @@
 #include "rules.h"
 #include "ruledefs.h"
+#include "module.h"
 
 static SchemaRule *parsePrefixRule(ArgsCursor *ac, QueryError *err) {
   const char *prefix;
@@ -11,6 +12,19 @@ static SchemaRule *parsePrefixRule(ArgsCursor *ac, QueryError *err) {
   ret->rtype = SCRULE_TYPE_KEYPREFIX;
   ret->prefix = rm_strdup(prefix);
   ret->nprefix = strlen(ret->prefix);
+  return (SchemaRule *)ret;
+}
+
+static SchemaRule *parseHasfieldRule(ArgsCursor *ac, QueryError *err) {
+  const char *field;
+  size_t nfield = 0;
+  if (AC_GetString(ac, &field, &nfield, 0) != AC_OK) {
+    QueryError_SetError(err, QUERY_EPARSEARGS, "Missing field");
+    return NULL;
+  }
+  SchemaHasFieldRule *ret = rm_calloc(1, sizeof(*ret));
+  ret->rtype = SCRULE_TYPE_HASFIELD;
+  ret->field = RedisModule_CreateString(RSDummyContext, field, nfield);
   return (SchemaRule *)ret;
 }
 
@@ -134,6 +148,20 @@ static int matchPrefix(const SchemaRule *r, RedisModuleCtx *ctx, RuleKeyItem *it
   return ret;
 }
 
+static int matchHasfield(const SchemaRule *r, RedisModuleCtx *ctx, RuleKeyItem *item) {
+  SchemaHasFieldRule *hrule = (SchemaHasFieldRule *)r;
+  size_t n;
+  if (!item->kobj) {
+    item->kobj = RedisModule_OpenKey(ctx, item->kstr, REDISMODULE_READ);
+    if (!item->kobj) {
+      return 0;
+    }
+  }
+  int ret = 0;
+  RedisModule_HashGet(item->kobj, REDISMODULE_HASH_EXISTS, hrule->field, &ret);
+  return ret;
+}
+
 int SchemaRules_AddArgs(SchemaRules *rules, const char *index, const char *name, ArgsCursor *ac,
                         QueryError *err) {
   // First argument is the name...
@@ -149,6 +177,8 @@ int SchemaRules_AddArgs(SchemaRules *rules, const char *index, const char *name,
     r = parsePrefixRule(ac, err);
   } else if (!strcasecmp(rtype, "EXPR")) {
     r = parseExprRule(ac, err);
+  } else if (!strcasecmp(rtype, "HASFIELD")) {
+    r = parseHasfieldRule(ac, err);
   } else {
     QueryError_SetErrorFmt(err, QUERY_ENOOPTION, "No such match type `%s`\n", rtype);
     return REDISMODULE_ERR;
@@ -180,7 +210,8 @@ int SchemaRules_AddArgs(SchemaRules *rules, const char *index, const char *name,
 typedef int (*scruleMatchFn)(const SchemaRule *, RedisModuleCtx *, RuleKeyItem *);
 
 static scruleMatchFn matchfuncs_g[] = {[SCRULE_TYPE_KEYPREFIX] = matchPrefix,
-                                       [SCRULE_TYPE_EXPRESSION] = matchExpression};
+                                       [SCRULE_TYPE_EXPRESSION] = matchExpression,
+                                       [SCRULE_TYPE_HASFIELD] = matchHasfield};
 
 int SchemaRules_Check(const SchemaRules *rules, RedisModuleCtx *ctx, RuleKeyItem *item,
                       MatchAction **results, size_t *nresults) {
