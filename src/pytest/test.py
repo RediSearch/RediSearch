@@ -2940,3 +2940,8 @@ def testIndexNotRemovedFromCursorListAfterRecreated(env):
     env.expect('FT.AGGREGATE idx * WITHCURSOR').equal([[0], 0])
     env.expect('FT.CREATE idx SCHEMA f1 TEXT').error()
     env.expect('FT.AGGREGATE idx * WITHCURSOR').equal([[0], 0])
+
+def testSearchNotExistsTagValue(env):
+    # this test basically make sure we are not leaking
+    env.expect('FT.CREATE idx SCHEMA t TAG SORTABLE').ok()
+    env.expect('FT.SEARCH idx @t:{val}').equal([0])
