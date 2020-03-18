@@ -325,7 +325,7 @@ static IndexIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
     rm_free(its);
     return NULL;
   }
-  return NewUnionIterator(its, itsSz, q->docTable, 1, opts->weight);
+  return NewUnionIterator(its, itsSz, q->docTable, 0, opts->weight);
 }
 /* Ealuate a prefix node by expanding all its possible matches and creating one big UNION on all
  * of them */

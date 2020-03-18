@@ -76,3 +76,32 @@ def testFuzzyWithNumbersOnly(env):
     env.expect('ft.create', 'idx', 'schema', 'test', 'TEXT', 'SORTABLE').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', '12345').equal('OK')
     env.expect('ft.search', 'idx', '%%21345%%').equal([1, 'doc1', ['test', '12345']])
+
+def testFuzzyWithSeveralFields0(env):
+    env.expect('ft.create', 'idx1', 'schema', 'test1', 'TEXT').equal('OK')
+    env.expect('ft.add', 'idx1', 'doc1', '1.0', 'FIELDS', 'test1', 'Admin1 Admin').equal('OK')
+    env.expect('ft.search', 'idx1', '%Admin%', 'WITHSCORES', 'HIGHLIGHT').equal([1L, 'doc1', '2', ['test1', '<b>Admin1</b> <b>Admin</b>']])
+
+    env.expect('ft.create', 'idx2', 'schema', 'test1', 'TEXT', 'WEIGHT', '1', 'test2', 'TEXT', 'WEIGHT', '10').equal('OK')
+    env.expect('ft.add', 'idx2', 'doc1', '1.0', 'FIELDS', 'test1', 'Admin1', 'test2', 'xyz').equal('OK')
+    env.expect('ft.add', 'idx2', 'doc2', '1.0', 'FIELDS', 'test1', 'Admin', 'test2', 'Admin1').equal('OK')
+    env.expect('ft.search', 'idx2', '%Admin%', 'WITHSCORES', 'HIGHLIGHT').equal([2L, 
+                        'doc2', '1.2', ['test1', '<b>Admin</b>', 'test2', '<b>Admin1</b>'],
+                        'doc1', '0.10000000000000001', ['test1', '<b>Admin1</b>', 'test2', 'xyz']])
+
+    env.expect('ft.create', 'idx3', 'schema', 'test1', 'TEXT', 'WEIGHT', '1', 'test2', 'TEXT', 'WEIGHT', '10').equal('OK')
+    env.expect('ft.add', 'idx3', 'doc1', '1.0', 'FIELDS', 'test1', 'Admin1', 'test2', 'xyz').equal('OK')
+    env.expect('ft.add', 'idx3', 'doc2', '1.0', 'FIELDS', 'test1', 'Admin', 'test2', 'xyz').equal('OK')
+    env.expect('ft.add', 'idx3', 'doc3', '1.0', 'FIELDS', 'test1', 'Admin', 'test2', 'Admin1').equal('OK')
+    res = env.execute_command('ft.search', 'idx3', '%Admin%', 'WITHSCORES', 'HIGHLIGHT')
+    env.assertEqual(res[3][3], '<b>Admin1</b>')
+    env.expect('ft.search', 'idx3', '%Admin%', 'WITHSCORES', 'HIGHLIGHT').equal([3L,
+                                                'doc3', '1.1000000000000001', ['test1', '<b>Admin</b>', 'test2', '<b>Admin1</b>'],
+                                                'doc2', '0.10000000000000001', ['test1', '<b>Admin</b>', 'test2', 'xyz'],
+                                                'doc1', '0.10000000000000001', ['test1', '<b>Admin1</b>', 'test2', 'xyz']])
+
+    env.expect('ft.create', 'idx4', 'schema', 'test1', 'TEXT', 'WEIGHT', '100', 'test2', 'TEXT', 'WEIGHT', '10').equal('OK')
+    env.expect('ft.add', 'idx4', 'doc1', '1.0', 'FIELDS', 'test1', 'Admin1 admin admid admir admin1 1admin admid', 'test2', 'xyz admid admin1 xyz').equal('OK')
+    env.expect('ft.search', 'idx4', '%Admin%', 'WITHSCORES', 'HIGHLIGHT').equal([1L, 'doc1', '1.7142857142857142', 
+                ['test1', '<b>Admin1</b> <b>admin</b> <b>admid</b> <b>admir</b> <b>admin1</b> <b>1admin</b> <b>admid</b>',
+                 'test2', 'xyz <b>admid</b> <b>admin1</b> xyz']])
