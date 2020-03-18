@@ -22,6 +22,7 @@
 #include "numeric_filter.h"
 #include "util/strconv.h"
 #include "util/arr.h"
+#include "module.h"
 
 #define EFFECTIVE_FIELDMASK(q_, qn_) ((qn_)->opts.fieldMask & (q)->opts->fieldmask)
 
@@ -709,6 +710,9 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
   IndexIterator **total_its = NULL;
 
   if (!idx) {
+    if (k) {
+      RedisModule_CloseKey(k);
+    }
     return NULL;
   }
   // a union stage with one child is the same as the child, so we just return it
@@ -719,8 +723,13 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
       if (q->conc) {
         TagIndex_RegisterConcurrentIterators(idx, q->conc, k, kstr, (array_t *)total_its);
       } else {
+        // no one got responsibility of the key so we need to close it
+        RedisModule_CloseKey(k);
         array_free(total_its);
       }
+    } else {
+      // no one got responsibility of the key so we need to close it
+      RedisModule_CloseKey(k);
     }
     return ret;
   }
@@ -737,6 +746,7 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
   }
   if (n == 0) {
     rm_free(iters);
+    RedisModule_CloseKey(k);
     return NULL;
   }
 
@@ -744,8 +754,13 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
     if (q->conc) {
       TagIndex_RegisterConcurrentIterators(idx, q->conc, k, kstr, (array_t *)total_its);
     } else {
+      // no one to responsibility of the keys lets close it
+      RedisModule_CloseKey(k);
       array_free(total_its);
     }
+  } else {
+    // no one to responsibility of the keys lets close it
+    RedisModule_CloseKey(k);
   }
 
   IndexIterator *ret = NewUnionIterator(iters, n, q->docTable, 0, qn->opts.weight);
@@ -854,10 +869,7 @@ int QAST_Expand(QueryAST *q, const char *expander, RSSearchOptions *opts, RedisS
     return REDISMODULE_OK;
   }
   RSQueryExpanderCtx expCtx = {
-      .qast = q,
-      .language = opts->language,
-      .handle = sctx,
-      .status = status};
+      .qast = q, .language = opts->language, .handle = sctx, .status = status};
 
   ExtQueryExpanderCtx *xpc =
       Extensions_GetQueryExpander(&expCtx, expander ? expander : DEFAULT_EXPANDER_NAME);
