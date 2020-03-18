@@ -724,12 +724,16 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
         TagIndex_RegisterConcurrentIterators(idx, q->conc, k, kstr, (array_t *)total_its);
       } else {
         // no one got responsibility of the key so we need to close it
-        RedisModule_CloseKey(k);
+        if (k) {
+          RedisModule_CloseKey(k);
+        }
         array_free(total_its);
       }
     } else {
       // no one got responsibility of the key so we need to close it
-      RedisModule_CloseKey(k);
+      if (k) {
+        RedisModule_CloseKey(k);
+      }
     }
     return ret;
   }
@@ -746,7 +750,9 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
   }
   if (n == 0) {
     rm_free(iters);
-    RedisModule_CloseKey(k);
+    if (k) {
+      RedisModule_CloseKey(k);
+    }
     return NULL;
   }
 
@@ -755,12 +761,16 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
       TagIndex_RegisterConcurrentIterators(idx, q->conc, k, kstr, (array_t *)total_its);
     } else {
       // no one to responsibility of the keys lets close it
-      RedisModule_CloseKey(k);
+      if (k) {
+        RedisModule_CloseKey(k);
+      }
       array_free(total_its);
     }
   } else {
     // no one to responsibility of the keys lets close it
-    RedisModule_CloseKey(k);
+    if (k) {
+      RedisModule_CloseKey(k);
+    }
   }
 
   IndexIterator *ret = NewUnionIterator(iters, n, q->docTable, 0, qn->opts.weight);
