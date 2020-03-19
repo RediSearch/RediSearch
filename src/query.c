@@ -23,6 +23,7 @@
 #include "util/strconv.h"
 #include "util/arr.h"
 #include "rmutil/rm_assert.h"
+#include "module.h"
 
 #define EFFECTIVE_FIELDMASK(q_, qn_) ((qn_)->opts.fieldMask & (q)->opts->fieldmask)
 
@@ -708,22 +709,23 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
   TagIndex *idx = TagIndex_Open(q->sctx, kstr, 0, &k);
 
   IndexIterator **total_its = NULL;
+  IndexIterator *ret = NULL;
 
   if (!idx) {
-    return NULL;
+    goto done;
   }
   // a union stage with one child is the same as the child, so we just return it
   if (QueryNode_NumChildren(qn) == 1) {
-    IndexIterator *ret =
-        query_EvalSingleTagNode(q, idx, qn->children[0], &total_its, qn->opts.weight);
+    ret = query_EvalSingleTagNode(q, idx, qn->children[0], &total_its, qn->opts.weight);
     if (ret) {
       if (q->conc) {
         TagIndex_RegisterConcurrentIterators(idx, q->conc, k, kstr, (array_t *)total_its);
+        k = NULL;  // we passed ownershit
       } else {
         array_free(total_its);
       }
     }
-    return ret;
+    goto done;
   }
 
   // recursively eval the children
@@ -738,18 +740,24 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
   }
   if (n == 0) {
     rm_free(iters);
-    return NULL;
+    goto done;
   }
 
   if (total_its) {
     if (q->conc) {
       TagIndex_RegisterConcurrentIterators(idx, q->conc, k, kstr, (array_t *)total_its);
+      k = NULL;  // we passed ownershit
     } else {
       array_free(total_its);
     }
   }
 
-  IndexIterator *ret = NewUnionIterator(iters, n, q->docTable, 0, qn->opts.weight);
+  ret = NewUnionIterator(iters, n, q->docTable, 0, qn->opts.weight);
+
+done:
+  if (k) {
+    RedisModule_CloseKey(k);
+  }
   return ret;
 }
 
@@ -855,10 +863,7 @@ int QAST_Expand(QueryAST *q, const char *expander, RSSearchOptions *opts, RedisS
     return REDISMODULE_OK;
   }
   RSQueryExpanderCtx expCtx = {
-      .qast = q,
-      .language = opts->language,
-      .handle = sctx,
-      .status = status};
+      .qast = q, .language = opts->language, .handle = sctx, .status = status};
 
   ExtQueryExpanderCtx *xpc =
       Extensions_GetQueryExpander(&expCtx, expander ? expander : DEFAULT_EXPANDER_NAME);

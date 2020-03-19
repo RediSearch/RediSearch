@@ -2,7 +2,6 @@
 
 import sys
 import os
-import popen2
 import argparse
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "deps/readies"))
@@ -32,7 +31,7 @@ class RediSearchSetup(paella.Setup):
         self.install("redhat-lsb-core")
 
         # uninstall and install psutil (order is important), otherwise RLTest fails
-        self.run("pip uninstall -y psutil")
+        self.run("pip uninstall -y psutil || true")
         self.install("python2-psutil")
 
     def fedora(self):
@@ -40,8 +39,7 @@ class RediSearchSetup(paella.Setup):
         self.group_install("'Development Tools'")
 
     def macosx(self):
-        r, w, e = popen2.popen3('xcode-select -p')
-        if r.readlines() == []:
+        if sh('xcode-select -p') == '':
             fatal("Xcode tools are not installed. Please run xcode-select --install.")
 
     def common_last(self):
