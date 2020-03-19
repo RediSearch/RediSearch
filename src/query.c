@@ -22,6 +22,7 @@
 #include "numeric_filter.h"
 #include "util/strconv.h"
 #include "util/arr.h"
+#include "rmutil/rm_assert.h"
 
 #define EFFECTIVE_FIELDMASK(q_, qn_) ((qn_)->opts.fieldMask & (q)->opts->fieldmask)
 
@@ -330,7 +331,7 @@ static IndexIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
 /* Ealuate a prefix node by expanding all its possible matches and creating one big UNION on all
  * of them */
 static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
-  assert(qn->type == QN_PREFX);
+  RS_LOG_ASSERT(qn->type == QN_PREFX, "query node type should be prefix");
 
   // we allow a minimum of 2 letters in the prefx by default (configurable)
   if (qn->pfx.len < RSGlobalConfig.minTermPrefix) {
@@ -427,7 +428,7 @@ static IndexIterator *Query_EvalLexRangeNode(QueryEvalCtx *q, QueryNode *lx) {
 }
 
 static IndexIterator *Query_EvalFuzzyNode(QueryEvalCtx *q, QueryNode *qn) {
-  assert(qn->type == QN_FUZZY);
+  RS_LOG_ASSERT(qn->type == QN_FUZZY, "query node type should be fuzzy");
 
   Trie *terms = q->sctx->spec->terms;
 
