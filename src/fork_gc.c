@@ -14,6 +14,7 @@
 #include "rwlock.h"
 #include "util/khash.h"
 #include <float.h>
+#include "rmutil/rm_assert.h"
 
 #ifdef __linux__
 #include <sys/prctl.h>

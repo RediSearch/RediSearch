@@ -4,7 +4,6 @@
 #include "redismodule.h"
 #include "rmutil/sds.h"
 #include "query_error.h"
-#include "rm_assert.h"
 
 typedef enum {
   TimeoutPolicy_Default = 0,  // Defer to global config

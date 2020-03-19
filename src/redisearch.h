@@ -6,7 +6,6 @@
 #include <limits.h>
 #include "util/dllist.h"
 #include "stemmer.h"
-#include "rm_assert.h"
 
 typedef uint64_t t_docId;
 typedef uint64_t t_offset;

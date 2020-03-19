@@ -9,6 +9,7 @@
 #include "rmalloc.h"
 #include "spec.h"
 #include "config.h"
+#include "rmutil/rm_assert.h"
 
 /* Creates a new DocTable with a given capacity */
 DocTable NewDocTable(size_t cap, size_t max_size) {

@@ -6,6 +6,7 @@
 #include "rmalloc.h"
 #include <pthread.h>
 #include <assert.h>
+#include "rmutil/rm_assert.h"
 
 static void BlockClients_push(BlockClients* ctx, RedisModuleBlockedClient* bClient) {
   BlockClient* bc = rm_calloc(1, sizeof(BlockClient));

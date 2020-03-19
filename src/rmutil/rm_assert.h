@@ -1,7 +1,7 @@
 #ifndef __REDISEARCH_ASSERT__
 #define __REDISEARCH_ASSERT__
 
-#include "redismodule.h"
+#include <redismodule.h>
 
 #ifdef NDEBUG
 
