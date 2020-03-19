@@ -318,7 +318,7 @@ static int hlp_Next(ResultProcessorCtx *ctx, SearchResult *r) {
       }
     }
   } else if (fields->defaultField.mode != SummarizeMode_None) {
-    for (size_t ii = 0; ii < r->fields->len; ++ii) {
+    for (size_t ii = 0; r->fields && ii < r->fields->len; ++ii) {
       ReturnedField spec = {0};
       normalizeSettings(r->fields->fields[ii].key, NULL, &fields->defaultField, &spec);
       resetIovsArr(&docParams.iovsArr, &numIovsArr, spec.summarizeSettings.numFrags);
