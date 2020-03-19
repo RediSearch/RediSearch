@@ -2,6 +2,7 @@
 #include "err.h"
 #include "util/logging.h"
 #include "commands.h"
+#include "rmutil/rm_assert.h"
 
 /*
 ## FT.ADD <index> <docId> <score> [NOSAVE] [REPLACE] [PARTIAL] [IF <expr>] [LANGUAGE <lang>]
@@ -400,7 +401,7 @@ static int doAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   return REDISMODULE_OK;
 
 cleanup:
-  assert(QueryError_HasError(&status));
+  RS_LOG_ASSERT_FMT(QueryError_HasError(&status), "%s%s", "Hash addition failed: ", status.detail);
   RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
   QueryError_ClearError(&status);
   return REDISMODULE_OK;

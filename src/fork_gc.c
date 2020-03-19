@@ -78,14 +78,14 @@ static void FGC_updateStats(RedisSearchCtx *sctx, ForkGC *gc, size_t recordsRemo
 }
 
 static void FGC_sendFixed(ForkGC *fgc, const void *buff, size_t len) {
-  assert(len > 0);
+  RS_LOG_ASSERT(len > 0, "buffer length cannot be 0");
   ssize_t size = write(fgc->pipefd[GC_WRITERFD], buff, len);
   if (size != len) {
     if (size == -1) {
       perror("write()");
       abort();
     } else {
-      assert(size == len);
+      RS_LOG_ASSERT(size == len, "buffer failed to write");
     }
   }
 }
@@ -338,7 +338,7 @@ static void countDeleted(const RSIndexResult *r, const IndexBlock *blk, void *ar
   } else if ((ht = ctx->delRest) == NULL) {
     ht = ctx->delRest = kh_init(cardvals);
   }
-  assert(ht);
+  RS_LOG_ASSERT(ht, "cardvals should not be NULL");
   int added = 0;
   numUnion u = {r->num.value};
   khiter_t it = kh_put(cardvals, ht, u.u64, &added);
@@ -386,7 +386,7 @@ static FGCError recvNumericTagHeader(ForkGC *fgc, char **fieldName, size_t *fiel
   return FGC_COLLECTED;
 }
 
-static void sendKht(ForkGC *gc, const khash_t(cardvals) * kh) {
+static void sendKht(ForkGC *gc, const khash_t(cardvals) *kh) {
   size_t n = 0;
   if (!kh) {
     FGC_SEND_VAR(gc, n);
@@ -406,7 +406,7 @@ static void sendKht(ForkGC *gc, const khash_t(cardvals) * kh) {
     FGC_SEND_VAR(gc, cu);
     nsent++;
   }
-  assert(nsent == n);
+  RS_LOG_ASSERT(nsent == n, "Not all hashes has been sent");
 }
 
 static void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
@@ -653,7 +653,7 @@ static void FGC_applyInvertedIndex(ForkGC *gc, InvIdxBuffers *idxData, MSG_Index
   rm_free(idxData->delBlocks);
 
   // Ensure the old index is at least as big as the new index' size
-  assert(idx->size >= info->nblocksOrig);
+  RS_LOG_ASSERT(idx->size >= info->nblocksOrig, "Old index should be larger or equal to new index");
 
   if (idxData->newBlocklist) {
     /**
