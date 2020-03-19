@@ -2947,7 +2947,15 @@ def testHindiStemmer(env):
     res = env.cmd('FT.SEARCH', 'idxTest', u'अँगरेज़')
     env.assertEqual(u'अँगरेजी अँगरेजों अँगरेज़', unicode(res[2][1], 'utf-8'))
 
-def testSearchNotExistsTagValue(env):
-    # this test basically make sure we are not leaking
-    env.expect('FT.CREATE idx SCHEMA t TAG SORTABLE').ok()
-    env.expect('FT.SEARCH idx @t:{val}').equal([0])
+def testMOD507(env):
+    env.expect('ft.create idx SCHEMA t1 TEXT').ok()
+
+    for i in range(50):
+        env.expect('ft.add idx doc-%d 1.0 FIELDS t1 foo' % i).ok()
+
+    for i in range(50):
+        env.expect('del doc-%d' % i).equal(1)
+
+    res = env.cmd('FT.SEARCH', 'idx', '*', 'WITHSCORES', 'SUMMARIZE', 'FRAGS', '1', 'LEN', '25', 'HIGHLIGHT', 'TAGS', "<span style='background-color:yellow'>", "</span>")
+
+    env.assertEqual(len(res), 31)
