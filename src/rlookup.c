@@ -368,7 +368,7 @@ static int loadIndividualKeys(RLookup *it, RLookupRow *dst, RLookupLoadOptions *
   rc = REDISMODULE_OK;
 
 done:
-  if (key) {
+  if (key && options->ktype != RLOOKUP_KEY_OBJ) {
     RedisModule_CloseKey(key);
   }
   return rc;

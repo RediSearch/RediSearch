@@ -76,96 +76,6 @@ void AIQ_Submit(AsyncIndexQueue *aq, IndexSpec *spec, MatchAction *result, RuleK
   }
 }
 
-static void scanCallback(RedisModuleCtx *ctx, RedisModuleString *keyname, RedisModuleKey *keyobj,
-                         void *privdata) {
-  // body here should be similar to keyspace notification callback, except that
-  // async is always forced
-  printf("hi: %s\n", RedisModule_StringPtrLen(keyname, NULL));
-  RuleKeyItem item = {.kstr = keyname, .kobj = keyobj};
-  SchemaRules_ProcessItem(ctx, &item, 1);
-}
-
-static void scanRedis6(void) {
-  printf("r6 scan..\n");
-  RedisModuleScanCursor *cursor = RedisModule_ScanCursorCreate();
-  while (RedisModule_Scan(RSDummyContext, cursor, scanCallback, NULL)) {
-    // no body
-  }
-  RedisModule_ScanCursorDestroy(cursor);
-}
-
-static void scanRedis5(void) {
-  printf("r5 scan..\n");
-  char cursorbuf[1024] = {'0', 0};
-  RedisModuleCtx *ctx = RSDummyContext;
-  do {
-    // RedisModuleCallReply *r =
-    //     RedisModule_Call(ctx, "SCAN", "lcccl", cursor, "TYPE", "hash", "COUNT", 100);
-    // printf("cursor: %s\n", cursorbuf);
-    RedisModuleCallReply *r = RedisModule_Call(ctx, "SCAN", "c", cursorbuf);
-
-    assert(r != NULL);
-    assert(RedisModule_CallReplyType(r) == REDISMODULE_REPLY_ARRAY);
-
-    if (RedisModule_CallReplyLength(r) < 2) {
-      RedisModule_FreeCallReply(r);
-      break;
-    }
-
-    // cursor is the first element
-    size_t ncursor = 0;
-    const char *newcur =
-        RedisModule_CallReplyStringPtr(RedisModule_CallReplyArrayElement(r, 0), &ncursor);
-    memcpy(cursorbuf, newcur, ncursor);
-    cursorbuf[ncursor] = 0;
-
-    RedisModuleCallReply *keys = RedisModule_CallReplyArrayElement(r, 1);
-    assert(RedisModule_CallReplyType(keys) == REDISMODULE_REPLY_ARRAY);
-    size_t nelem = RedisModule_CallReplyLength(keys);
-
-    for (size_t ii = 0; ii < nelem; ++ii) {
-      size_t len;
-      const char *kcstr =
-          RedisModule_CallReplyStringPtr(RedisModule_CallReplyArrayElement(keys, ii), &len);
-      RuleKeyItem rki = {.kstr = RedisModule_CreateString(NULL, kcstr, len)};
-      SchemaRules_ProcessItem(ctx, &rki, 1);
-      RedisModule_FreeString(ctx, rki.kstr);
-    }
-    RedisModule_FreeCallReply(r);
-  } while (cursorbuf[0] != '0');
-}
-
-void SchemaRules_ScanAll(const SchemaRules *rules) {
-  if (RedisModule_Scan) {
-    scanRedis6();
-  } else {
-    scanRedis5();
-  }
-}
-
-int SchemaRules_ScanAllCmd(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  // no arguments
-  SchemaRules_ScanAll(SchemaRules_g);
-  return RedisModule_ReplyWithSimpleString(ctx, "OK");
-}
-
-int SchemaRules_QueueInfoCmd(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  if (argc != 2) {
-    return RedisModule_WrongArity(ctx);
-  }
-  const char *idxname = RedisModule_StringPtrLen(argv[1], NULL);
-  IndexSpec *sp = IndexSpec_Load(ctx, idxname, 0);
-  if (!sp) {
-    return RedisModule_ReplyWithError(ctx, "No such index");
-  }
-  if (!(sp->flags & Index_UseRules)) {
-    return RedisModule_ReplyWithError(
-        ctx, "This command can only be used on indexes created using `WITHRULES`");
-  }
-  ssize_t ret = SchemaRules_GetPendingCount(sp);
-  return RedisModule_ReplyWithLongLong(ctx, ret);
-}
-
 static void ms2ts(struct timespec *ts, unsigned long ms) {
   ts->tv_sec = ms / 1000;
   ts->tv_nsec = (ms % 1000) * 1000000;
@@ -181,13 +91,15 @@ static void indexBatch(AsyncIndexQueue *aiq, SpecDocQueue *dq, dict *entries) {
     QueryError err = {0};
     RuleKeyItem rki = {.kstr = rid->kstr};
     RedisModule_ThreadSafeContextLock(RSDummyContext);
-    printf("Indexing..\n");
     int rc = SchemaRules_IndexDocument(RSDummyContext, spec, &rki, &rid->iia, &err);
+    if (rc != REDISMODULE_OK) {
+      printf("Couldn't index (%s): %s\n", RedisModule_StringPtrLen(rid->kstr, NULL),
+             QueryError_GetError(&err));
+    }
     RedisModule_FreeString(NULL, rid->kstr);
     RedisModule_ThreadSafeContextUnlock(RSDummyContext);
     // deal with Key when applicable
     rm_free(rid);
-    assert(rc == REDISMODULE_OK);
   }
   dictReleaseIterator(iter);
 

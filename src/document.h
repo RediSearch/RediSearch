@@ -146,7 +146,7 @@ void Document_Move(Document *dst, Document *src);
  *
  * The document must already have the docKey set
  */
-int Document_LoadSchemaFields(Document *doc, RedisSearchCtx *sctx);
+int Document_LoadSchemaFields(Document *doc, RedisSearchCtx *sctx, QueryError *err);
 
 /**
  * Load all the fields into the document.

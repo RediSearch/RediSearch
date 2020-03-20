@@ -85,7 +85,7 @@ TEST_F(DocumentTest, testLoadSchema) {
   RMCK::hset(ctx, "doc1", "t2", "foobar");
 
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
-  rv = Document_LoadSchemaFields(&d, &sctx);
+  rv = Document_LoadSchemaFields(&d, &sctx, &status);
   ASSERT_EQ(REDISMODULE_OK, rv);
   ASSERT_EQ(2, d.numFields);  // Only a single field
   ASSERT_EQ(NULL, Document_GetField(&d, "somefield"));

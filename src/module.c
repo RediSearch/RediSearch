@@ -787,6 +787,7 @@ static int RuleAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   } else {
     RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
+  SchemaRules_StartScan();
   return REDISMODULE_OK;
 }
 
@@ -930,11 +931,6 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   RM_TRY(RedisModule_CreateCommand, ctx, RS_CONFIG, ConfigCommand, "readonly", 1, 1, 1);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_RULEADD, RuleAddCommand, "readonly", 1, 1, 1);
-
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_SCANSTART_CMD, SchemaRules_ScanAllCmd, "readonly", 1, 1,
-         1);
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_QUEUEITEMS_CMD, SchemaRules_QueueInfoCmd, "readonly", 1,
-         1, 1);
 
 #ifndef RS_COORDINATOR
   // we are running in a normal mode so we should raise cross slot error on alias commands

@@ -81,14 +81,23 @@ int SchemaRules_Check(const SchemaRules *rules, RedisModuleCtx *ctx, RuleKeyItem
 
 extern SchemaRules *SchemaRules_g;
 
-/**
- * Submits all the keys in the database for indexing
- */
-void SchemaRules_ScanAll(const SchemaRules *rules);
+/** Submits all the keys in the database for indexing */
+void SchemaRules_StartScan(void);
+
+/** If scan is in progress */
+int SchemaRules_IsScanRunning(void);
+
+void SchemaRules_ReplySyncInfo(RedisModuleCtx *ctx, IndexSpec *sp);
+
 int SchemaRules_IndexDocument(RedisModuleCtx *ctx, IndexSpec *sp, RuleKeyItem *item,
                               const IndexItemAttrs *attrs, QueryError *e);
 
-void SchemaRules_ProcessItem(RedisModuleCtx *ctx, RuleKeyItem *item, int forceQueue);
+// Add the item to the queue rather than indexing immediately
+#define RULES_PROCESS_F_ASYNC 0x01
+
+// Do not process the item if it already exists within the index
+#define RULES_PROCESS_F_NOREINDEX 0x02
+void SchemaRules_ProcessItem(RedisModuleCtx *ctx, RuleKeyItem *item, int flags);
 
 /**
  * Initializes the global rule list and subscribes to keyspace events

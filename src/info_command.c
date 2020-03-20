@@ -2,6 +2,7 @@
 #include "spec.h"
 #include "inverted_index.h"
 #include "cursor.h"
+#include "rules/rules.h"
 
 static int renderIndexOptions(RedisModuleCtx *ctx, IndexSpec *sp) {
 
@@ -39,11 +40,26 @@ static int renderIndexOptions(RedisModuleCtx *ctx, IndexSpec *sp) {
  */
 int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisModule_AutoMemory(ctx);
-  if (argc < 2) return RedisModule_WrongArity(ctx);
+  ArgsCursor ac = {0};
+  if (argc < 2) {
+    return RedisModule_WrongArity(ctx);
+  }
 
-  IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
+  ArgsCursor_InitRString(&ac, argv + 1, argc - 1);
+  const char *idxname = AC_GetStringNC(&ac, NULL);
+  IndexSpec *sp = IndexSpec_Load(ctx, idxname, 1);
   if (sp == NULL) {
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
+  }
+
+  if (AC_NumRemaining(&ac)) {
+    const char *s = AC_GetStringNC(&ac, NULL);
+    if (!strcasecmp(s, "sync")) {
+      SchemaRules_ReplySyncInfo(ctx, sp);
+      return REDISMODULE_OK;
+    } else {
+      RedisModule_ReplyWithError(ctx, "No such info section");
+    }
   }
 
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);

@@ -247,9 +247,8 @@ static int AddDocumentCtx_ReplaceMerge(RSAddDocumentCtx *aCtx, RedisSearchCtx *s
   size_t oldFieldCount = aCtx->doc.numFields;
 
   Document_Clear(&aCtx->doc);
-  int rv = Document_LoadSchemaFields(&aCtx->doc, sctx);
+  int rv = Document_LoadSchemaFields(&aCtx->doc, sctx, &aCtx->status);
   if (rv != REDISMODULE_OK) {
-    QueryError_SetError(&aCtx->status, QUERY_ENODOC, "Could not load existing document");
     aCtx->donecb(aCtx, sctx->redisCtx, aCtx->donecbData);
     AddDocumentCtx_Free(aCtx);
     return 1;

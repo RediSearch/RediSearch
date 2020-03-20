@@ -35,13 +35,8 @@ int SchemaRules_IndexDocument(RedisModuleCtx *ctx, IndexSpec *sp, RuleKeyItem *i
   Document_Init(&d, item->kstr, attrs->score, attrs->language);
   d.keyobj = item->kobj;
   d.flags |= DOCUMENT_F_NEVEROWN;
-  int rv = Document_LoadSchemaFields(&d, &sctx);
+  int rv = Document_LoadSchemaFields(&d, &sctx, e);
   if (rv != REDISMODULE_OK) {
-    QueryError_SetError(e, QUERY_ENODOC, "Couldn't load fields");
-    goto err;
-  }
-  if (!d.numFields) {
-    QueryError_SetError(e, QUERY_ENOIDXFIELDS, "No indexable fields in document");
     goto err;
   }
 
@@ -59,7 +54,7 @@ err:
   return REDISMODULE_ERR;
 }
 
-void SchemaRules_ProcessItem(RedisModuleCtx *ctx, RuleKeyItem *item, int forceQueue) {
+void SchemaRules_ProcessItem(RedisModuleCtx *ctx, RuleKeyItem *item, int flags) {
   /**
    * Inspect the key, see which indexes match the key, and then perform the appropriate actions,
    * maybe in a different thread?
@@ -72,9 +67,14 @@ void SchemaRules_ProcessItem(RedisModuleCtx *ctx, RuleKeyItem *item, int forceQu
     // submit the document for indexing if sync, async otherwise...
     IndexSpec *spec = IndexSpec_Load(ctx, results[ii].index, 1);
     assert(spec);  // todo handle error...
+
+    if ((flags & RULES_PROCESS_F_NOREINDEX) && DocTable_GetByKeyR(&spec->docs, item->kstr)) {
+      // in SCAN mode and document already exists in the index
+      continue;
+    }
+
     // check if spec uses synchronous or asynchronous indexing..
-    if (forceQueue || (spec->flags & Index_Async)) {
-      printf("Submitting async..\n");
+    if ((flags & RULES_PROCESS_F_ASYNC) || (spec->flags & Index_Async)) {
       AIQ_Submit(asyncQueue_g, spec, results + ii, item);
     } else {
       QueryError e = {0};
@@ -93,7 +93,6 @@ void SchemaRules_ProcessItem(RedisModuleCtx *ctx, RuleKeyItem *item, int forceQu
 
 static int hashCallback(RedisModuleCtx *ctx, int unused, const char *action,
                         RedisModuleString *key) {
-  printf("int:%d, action:%s\n", unused, action);
   RuleKeyItem item = {.kstr = key, .kobj = NULL};
   SchemaRules_ProcessItem(ctx, &item, 0);
   if (item.kobj) {

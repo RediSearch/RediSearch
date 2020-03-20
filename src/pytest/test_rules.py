@@ -28,10 +28,10 @@ def testScanRules(env):
     env.cmd('ft.create', 'idx', 'ASYNC', 'WITHRULES', 'schema', 'f1', 'text')
     env.cmd('ft.ruleadd', 'idx', 'rule1', 'PREFIX', 'doc', 'INDEX')
 
-    print("SCANSTART")
-    env.cmd('ft.scanstart')
+    # print("SCANSTART")
+    # env.cmd('ft.scanstart')
     while True:
-        rv = env.cmd('ft.queueitems', 'idx')
-        if int(rv) == 0:
+        rv = env.cmd('ft.info', 'idx', 'sync')
+        if rv[0] == 'SYNCED':
             break
     print(env.cmd('ft.search', 'idx', 'hello'))
