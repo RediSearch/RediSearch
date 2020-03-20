@@ -114,10 +114,6 @@ AsyncIndexQueue *AIQ_Create(size_t interval, size_t batchSize);
 void AIQ_Destroy(AsyncIndexQueue *aq);
 void AIQ_Submit(AsyncIndexQueue *aq, IndexSpec *spec, MatchAction *result, RuleKeyItem *item);
 
-// actual Redis commands:
-int SchemaRules_ScanAllCmd(RedisModuleCtx *, RedisModuleString **, int);
-int SchemaRules_QueueInfoCmd(RedisModuleCtx *, RedisModuleString **, int);
-
 #ifdef __cplusplus
 }
 #endif
