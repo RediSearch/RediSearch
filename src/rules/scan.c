@@ -1,6 +1,7 @@
 #include "rules.h"
 #include "ruledefs.h"
 #include "module.h"
+#include <sched.h>
 
 #define SCAN_BATCH_SIZE 100
 #define SCAN_MODE_R5 0
@@ -120,6 +121,7 @@ static void *scanThread(void *arg) {
       scanRedis5(&s->cursor);
     }
     RedisModule_ThreadSafeContextUnlock(RSDummyContext);
+    sched_yield();
   }
 
   if (s->cursor.mode == SCAN_MODE_R6 && s->cursor.cursor.r6) {
