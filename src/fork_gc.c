@@ -14,6 +14,7 @@
 #include "rwlock.h"
 #include "util/khash.h"
 #include <float.h>
+#include "module.h"
 
 #ifdef __linux__
 #include <sys/prctl.h>
@@ -1280,7 +1281,7 @@ static void onTerminateCb(void *privdata) {
     RedisModule_FreeString(gc->ctx, (RedisModuleString *)gc->keyName);
   }
 
-  RedisModule_FreeThreadSafeContext(gc->ctx);
+  //RedisModule_FreeThreadSafeContext(gc->ctx);
   rm_free(gc);
 }
 
@@ -1325,7 +1326,7 @@ ForkGC *FGC_New(const RedisModuleString *k, uint64_t specUniqueId, GCCallbacks *
   };
   forkGc->retryInterval.tv_sec = RSGlobalConfig.forkGcRunIntervalSec;
   forkGc->retryInterval.tv_nsec = 0;
-  forkGc->ctx = RedisModule_GetThreadSafeContext(NULL);
+  forkGc->ctx = RSDummyContext;
   if (k) {
     forkGc->keyName = RedisModule_CreateStringFromString(forkGc->ctx, k);
     RedisModule_FreeString(forkGc->ctx, (RedisModuleString *)k);

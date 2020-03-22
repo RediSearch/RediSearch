@@ -130,7 +130,11 @@ void GCContext_Start(GCContext* gc) {
 }
 
 void GCContext_Stop(GCContext* gc) {
-  if (!RedisModule_StopTimer) return;
+  if (!RedisModule_StopTimer) {
+    free(gc->gcCtx);
+    free(gc);
+    return;
+  }
   RedisModuleCtx* ctx = RSDummyContext;
   RedisModule_StopTimer(ctx, gc->timerID, NULL);
   gc->callbacks.onTerm(gc->gcCtx);
