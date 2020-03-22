@@ -91,7 +91,7 @@ static void internal_PeriodicCallback(void* data) {
     rm_free(gc);
     return;
   }
-  RedisModuleCtx* ctx = RedisModule_GetThreadSafeContext(NULL);
+  RedisModuleCtx* ctx = RSDummyContext;
 
   int ret = gc->callbacks.periodicCallback(ctx, gc->gcCtx);
 
@@ -104,13 +104,11 @@ static void internal_PeriodicCallback(void* data) {
   if (!ret) {
     gc->callbacks.onTerm(gc->gcCtx);
     RedisModule_ThreadSafeContextUnlock(ctx);
-    RedisModule_FreeThreadSafeContext(ctx);
     rm_free(gc);
     return;
   }
   gc->timerID = scheduleNext(ctx, gc);
   RedisModule_ThreadSafeContextUnlock(ctx);
-  RedisModule_FreeThreadSafeContext(ctx);
 }
 
 void GCContext_Timer_PeriodicCallback(RedisModuleCtx* ctx, void* data) {
@@ -127,17 +125,15 @@ void GCContext_Timer_PeriodicCallback(RedisModuleCtx* ctx, void* data) {
 
 void GCContext_Start(GCContext* gc) {
   struct timespec interval = gc->callbacks.getInterval(gc->gcCtx);
-  RedisModuleCtx* ctx = RedisModule_GetThreadSafeContext(NULL);
+  RedisModuleCtx* ctx = RSDummyContext;
   gc->timerID = scheduleNext(ctx, gc);
-  RedisModule_FreeThreadSafeContext(ctx);
 }
 
 void GCContext_Stop(GCContext* gc) {
   if (!RedisModule_StopTimer) return;
-  RedisModuleCtx* ctx = RedisModule_GetThreadSafeContext(NULL);
+  RedisModuleCtx* ctx = RSDummyContext;
   RedisModule_StopTimer(ctx, gc->timerID, NULL);
   gc->callbacks.onTerm(gc->gcCtx);
-  RedisModule_FreeThreadSafeContext(ctx);
   gc->isDestroyed = 1;
   rm_free(gc);
 }
@@ -156,17 +152,15 @@ void GCContext_ForceInvoke(GCContext* gc, RedisModuleBlockedClient* bc) {
   BlockClients_push(&gc->bClients, bc);
 
   void* gcCtx;
-  RedisModuleCtx* ctx = RedisModule_GetThreadSafeContext(NULL);
+  RedisModuleCtx* ctx = RSDummyContext;
   RedisModule_StopTimer(ctx, gc->timerID, &gcCtx);
   assert(gc == gcCtx);
   RedisModule_CreateTimer(ctx, 50, GCContext_Timer_PeriodicCallback, gc);
-  RedisModule_FreeThreadSafeContext(ctx);
 }
 
 void GCContext_ForceBGInvoke(GCContext* gc) {
-  RedisModuleCtx* ctx = RedisModule_GetThreadSafeContext(NULL);
+  RedisModuleCtx* ctx = RSDummyContext;
   RedisModule_CreateTimer(ctx, 50, GCContext_Timer_PeriodicCallback, gc);
-  RedisModule_FreeThreadSafeContext(ctx);
 }
 
 void GC_ThreadPoolStart() {
