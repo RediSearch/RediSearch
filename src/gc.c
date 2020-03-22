@@ -150,17 +150,16 @@ void GCContext_OnDelete(GCContext* gc) {
 
 void GCContext_ForceInvoke(GCContext* gc, RedisModuleBlockedClient* bc) {
   BlockClients_push(&gc->bClients, bc);
-
-  void* gcCtx;
-  RedisModuleCtx* ctx = RSDummyContext;
-  RedisModule_StopTimer(ctx, gc->timerID, &gcCtx);
-  assert(gc == gcCtx);
-  RedisModule_CreateTimer(ctx, 50, GCContext_Timer_PeriodicCallback, gc);
+  GCContext_ForceBGInvoke(gc);
 }
 
 void GCContext_ForceBGInvoke(GCContext* gc) {
+  void* gcCtx;
   RedisModuleCtx* ctx = RSDummyContext;
-  RedisModule_CreateTimer(ctx, 50, GCContext_Timer_PeriodicCallback, gc);
+  if (RedisModule_StopTimer(ctx, gc->timerID, &gcCtx) == REDISMODULE_OK) {
+    assert(gc == gcCtx);
+  }
+  thpool_add_work(gcThreadPools_g, internal_PeriodicCallback, gc);
 }
 
 void GC_ThreadPoolStart() {
