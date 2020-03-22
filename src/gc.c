@@ -7,6 +7,7 @@
 #include "module.h"
 #include <pthread.h>
 #include <assert.h>
+#include <unistd.h>
 
 threadpool gcThreadPools_g = NULL;
 
@@ -81,28 +82,53 @@ static RedisModuleTimerID scheduleNext(RedisModuleCtx* ctx, GCContext* gc) {
   return RedisModule_CreateTimer(ctx, period, GCContext_Timer_PeriodicCallback, gc);
 }
 
+static void freeGCInternals(GCContext* gc) {
+  RedisModuleBlockedClient* bClient = BlockClients_pop(&gc->bClients);
+  if (bClient) {
+    RedisModule_UnblockClient(bClient, NULL);
+  }
+  gc->callbacks.onTerm(gc->gcCtx);
+  gc->gcCtx = NULL;
+  rm_free(gc);
+}
+
 static void internal_PeriodicCallback(void* data) {
   if (gc_destroying) {
     return;
   }
-
   GCContext* gc = data;
+  RedisModuleCtx* ctx = RSDummyContext;
+  
   if (gc->isDestroyed) {
-    rm_free(gc);
+    /*
+    if (!gc->gcCtx) {
+      return;
+    }
+    RedisModule_ThreadSafeContextLock(ctx);
+    RedisModuleBlockedClient* bClient = BlockClients_pop(&gc->bClients);
+    if (bClient) {
+      RedisModule_UnblockClient(bClient, NULL);
+    }
+    gc->callbacks.onTerm(gc->gcCtx);
+    RedisModule_ThreadSafeContextUnlock(ctx);
+    gc->gcCtx = NULL;
+    rm_free(gc); */
+    RedisModule_ThreadSafeContextLock(ctx);
+    freeGCInternals(gc);
+    RedisModule_ThreadSafeContextUnlock(ctx);
     return;
   }
-  RedisModuleCtx* ctx = RSDummyContext;
 
   int ret = gc->callbacks.periodicCallback(ctx, gc->gcCtx);
 
   RedisModule_ThreadSafeContextLock(ctx);
-
   RedisModuleBlockedClient* bClient = BlockClients_pop(&gc->bClients);
   if (bClient) {
     RedisModule_UnblockClient(bClient, NULL);
   }
   if (!ret) {
     gc->callbacks.onTerm(gc->gcCtx);
+    gc->gcCtx = NULL;
     RedisModule_ThreadSafeContextUnlock(ctx);
     rm_free(gc);
     return;
@@ -131,15 +157,23 @@ void GCContext_Start(GCContext* gc) {
 
 void GCContext_Stop(GCContext* gc) {
   if (!RedisModule_StopTimer) {
+    // for debug
     free(gc->gcCtx);
     free(gc);
     return;
   }
+  if (!gc->gcCtx) {
+    // GC was released somewhere else
+    return;
+  }
+
   RedisModuleCtx* ctx = RSDummyContext;
-  RedisModule_StopTimer(ctx, gc->timerID, NULL);
-  gc->callbacks.onTerm(gc->gcCtx);
-  gc->isDestroyed = 1;
-  rm_free(gc);
+  if (RedisModule_StopTimer(ctx, gc->timerID, NULL) == REDISMODULE_OK) {
+    freeGCInternals(gc);
+  } else {
+    // gc task is already in thread pool
+    gc->isDestroyed = 1;
+  }
 }
 
 void GCContext_RenderStats(GCContext* gc, RedisModuleCtx* ctx) {
@@ -164,10 +198,12 @@ void GCContext_ForceBGInvoke(GCContext* gc) {
     assert(gc == gcCtx);
   }
   thpool_add_work(gcThreadPools_g, internal_PeriodicCallback, gc);
+  usleep(10000);
 }
 
 void GC_ThreadPoolStart() {
   if (gcThreadPools_g == NULL) {
+    gc_destroying = 0;
     gcThreadPools_g = thpool_init(RSGlobalConfig.forkGcThreadPoolSize);
   }
 }
@@ -176,5 +212,6 @@ void GC_ThreadPoolDestroy() {
   RedisModule_ThreadSafeContextUnlock(RSDummyContext);
   gc_destroying = 1;
   thpool_destroy(gcThreadPools_g);
+  gcThreadPools_g = NULL;
   RedisModule_ThreadSafeContextLock(RSDummyContext);
 }
