@@ -42,8 +42,8 @@ static void freeDocumentContext(void *p) {
 
 #define FIELD_IS_VALID(aCtx, ix) ((aCtx)->fspecs[ix].name != NULL)
 
-static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Document *doc,
-                                      size_t oldFieldCount) {
+static int ACTX_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Document *doc,
+                            size_t oldFieldCount) {
   aCtx->stateFlags &= ~ACTX_F_INDEXABLES;
   aCtx->stateFlags &= ~ACTX_F_TEXTINDEXED;
   aCtx->stateFlags &= ~ACTX_F_OTHERINDEXED;
@@ -159,7 +159,7 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Doc
   return 0;
 }
 
-RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b, QueryError *status) {
+RSAddDocumentCtx *ACTX_New(IndexSpec *sp, Document *b, QueryError *status) {
 
   if (!actxPool_g) {
     mempool_options mopts = {.initialCap = 16,
@@ -175,14 +175,10 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b, QueryError *stat
   QueryError_ClearError(&aCtx->status);
   aCtx->totalTokens = 0;
   aCtx->docFlags = 0;
-  aCtx->sctx = NULL;
-  aCtx->next = NULL;
   aCtx->specFlags = sp->flags;
-  aCtx->indexer = sp->indexer;
-  assert(sp->indexer);
 
   // Assign the document:
-  if (AddDocumentCtx_SetDocument(aCtx, sp, b, aCtx->doc.numFields) != 0) {
+  if (ACTX_SetDocument(aCtx, sp, b, aCtx->doc.numFields) != 0) {
     *status = aCtx->status;
     aCtx->status.detail = NULL;
     mempool_release(actxPool_g, aCtx);
@@ -209,18 +205,6 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b, QueryError *stat
   return aCtx;
 }
 
-static void doReplyFinish(RSAddDocumentCtx *aCtx, RedisModuleCtx *ctx) {
-}
-
-static void threadCallback(void *p) {
-  Document_AddToIndexes(p);
-}
-
-void AddDocumentCtx_Finish(RSAddDocumentCtx *aCtx) {
-  aCtx->donecb(aCtx, aCtx->sctx->redisCtx, aCtx->donecbData);
-  AddDocumentCtx_Free(aCtx);
-}
-
 // How many bytes in a document to warrant it being tokenized in a separate thread
 #define SELF_EXEC_THRESHOLD 1024
 
@@ -235,9 +219,9 @@ void Document_Dump(const Document *doc) {
 }
 // LCOV_EXCL_STOP
 
-static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx);
+static int updateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx);
 
-static int AddDocumentCtx_ReplaceMerge(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
+static int replaceMerge(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
   /**
    * The REPLACE operation contains fields which must be reindexed. This means
    * that a new document ID needs to be assigned, and as a consequence, all
@@ -249,40 +233,37 @@ static int AddDocumentCtx_ReplaceMerge(RSAddDocumentCtx *aCtx, RedisSearchCtx *s
   Document_Clear(&aCtx->doc);
   int rv = Document_LoadSchemaFields(&aCtx->doc, sctx, &aCtx->status);
   if (rv != REDISMODULE_OK) {
-    aCtx->donecb(aCtx, sctx->redisCtx, aCtx->donecbData);
-    AddDocumentCtx_Free(aCtx);
     return 1;
   }
 
   // Keep hold of the new fields.
   Document_MakeStringsOwner(&aCtx->doc);
-  AddDocumentCtx_SetDocument(aCtx, sctx->spec, &aCtx->doc, oldFieldCount);
+  ACTX_SetDocument(aCtx, sctx->spec, &aCtx->doc, oldFieldCount);
   return 0;
 }
 
 static int handlePartialUpdate(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
   // Handle partial update of fields
   if (aCtx->stateFlags & ACTX_F_INDEXABLES) {
-    return AddDocumentCtx_ReplaceMerge(aCtx, sctx);
+    return replaceMerge(aCtx, sctx);
   } else {
     // No indexable fields are updated, we can just update the metadata.
     // Quick update just updates the score, payload and sortable fields of the document.
     // Thus full-reindexing of the document is not required
-    AddDocumentCtx_UpdateNoIndex(aCtx, sctx);
+    updateNoIndex(aCtx, sctx);
     return 1;
   }
 }
 
-void AddDocumentCtx_Submit(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, uint32_t options) {
+int ACTX_Index(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, uint32_t options) {
   aCtx->options = options;
   if ((aCtx->options & DOCUMENT_ADD_PARTIAL) && handlePartialUpdate(aCtx, sctx)) {
-    return;
+    return aCtx->status.code == QUERY_OK ? REDISMODULE_OK : REDISMODULE_ERR;
   }
 
   // We actually modify (!) the strings in the document, so we always require
   // ownership
   Document_MakeStringsOwner(&aCtx->doc);
-  aCtx->sctx = sctx;
 
   size_t totalSize = 0;
   for (size_t ii = 0; ii < aCtx->doc.numFields; ++ii) {
@@ -293,14 +274,18 @@ void AddDocumentCtx_Submit(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, uint32_
       totalSize += n;
     }
   }
-  Document_AddToIndexes(aCtx);
+
+  Indexer tmpidx = {0};
+  Indexer_Init(&tmpidx, sctx);
+  if (Indexer_Add(&tmpidx, aCtx) == REDISMODULE_OK) {
+    Indexer_Index(&tmpidx, NULL, NULL);
+  }
+  Indexer_Destroy(&tmpidx);
+  return aCtx->status.code == QUERY_OK ? REDISMODULE_OK : REDISMODULE_ERR;
 }
 
-void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
-  /**
-   * Free preprocessed data; this is the only reliable place
-   * to do it
-   */
+void ACTX_Free(RSAddDocumentCtx *aCtx) {
+  /** Free preprocessed data; this is the only reliable place to do it */
   for (size_t ii = 0; ii < aCtx->doc.numFields; ++ii) {
     if (FIELD_IS_VALID(aCtx, ii) && FIELD_IS(aCtx->fspecs + ii, INDEXFLD_T_TAG) &&
         aCtx->fdatas[ii].tags) {
@@ -526,7 +511,7 @@ void IndexerBulkCleanup(IndexBulkData *cur, RedisSearchCtx *sctx) {
   }
 }
 
-int Document_AddToIndexes(RSAddDocumentCtx *aCtx) {
+int ACTX_Preprocess(RSAddDocumentCtx *aCtx) {
   Document *doc = &aCtx->doc;
   int ourRv = REDISMODULE_OK;
 
@@ -552,16 +537,9 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx) {
       }
     }
   }
-
-  if (Indexer_Add(aCtx->indexer, aCtx) != 0) {
-    ourRv = REDISMODULE_ERR;
-    goto cleanup;
-  }
-
 cleanup:
   if (ourRv != REDISMODULE_OK) {
     QueryError_SetCode(&aCtx->status, QUERY_EGENERIC);
-    AddDocumentCtx_Finish(aCtx);
   }
   return ourRv;
 }
@@ -635,7 +613,7 @@ done:
   return rc;
 }
 
-static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
+static int updateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
 #define BAIL(s)                                            \
   do {                                                     \
     QueryError_SetError(&aCtx->status, QUERY_EGENERIC, s); \
@@ -705,8 +683,7 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
   }
 
 done:
-  aCtx->donecb(aCtx, sctx->redisCtx, aCtx->donecbData);
-  AddDocumentCtx_Free(aCtx);
+  return aCtx->status.code == QUERY_OK ? REDISMODULE_OK : REDISMODULE_ERR;
 }
 
 DocumentField *Document_GetField(Document *d, const char *fieldName) {

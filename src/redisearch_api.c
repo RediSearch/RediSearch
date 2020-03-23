@@ -28,10 +28,6 @@ IndexSpec* RediSearch_CreateIndex(const char* name, const RSIndexOptions* option
   IndexSpec* spec = NewIndexSpec(name);
   IndexSpec_MakeKeyless(spec);
   spec->flags |= Index_Temporary;  // temporary is so that we will not use threads!!
-  if (!spec->indexer) {
-    spec->indexer = NewIndexer(spec);
-  }
-
   spec->getValue = options->gvcb;
   spec->getValueCtx = options->gvcbData;
   spec->minPrefix = 0;
@@ -184,14 +180,14 @@ typedef struct {
   int hasErr;
 } RSError;
 
-void RediSearch_AddDocDone(RSAddDocumentCtx* aCtx, RedisModuleCtx* ctx, void* err) {
-  RSError* ourErr = err;
+void RediSearch_AddDocDone(RSAddDocumentCtx* aCtx, RSError* ourErr) {
   if (QueryError_HasError(&aCtx->status)) {
     if (ourErr->s) {
       *ourErr->s = rm_strdup(QueryError_GetError(&aCtx->status));
     }
     ourErr->hasErr = aCtx->status.code;
   }
+  ACTX_Free(aCtx);
 }
 
 int RediSearch_IndexAddDocument(IndexSpec* sp, Document* d, int options, char** errs) {
@@ -199,9 +195,7 @@ int RediSearch_IndexAddDocument(IndexSpec* sp, Document* d, int options, char** 
 
   RSError err = {.s = errs};
   QueryError status = {0};
-  RSAddDocumentCtx* aCtx = NewAddDocumentCtx(sp, d, &status);
-  aCtx->donecb = RediSearch_AddDocDone;
-  aCtx->donecbData = &err;
+  RSAddDocumentCtx* aCtx = ACTX_New(sp, d, &status);
   RedisSearchCtx sctx = {.redisCtx = NULL, .spec = sp};
   int exists = !!DocTable_GetIdR(&sp->docs, d->docKey);
   if (exists) {
@@ -211,15 +205,15 @@ int RediSearch_IndexAddDocument(IndexSpec* sp, Document* d, int options, char** 
       if (errs) {
         *errs = rm_strdup("Document already exists");
       }
-      AddDocumentCtx_Free(aCtx);
+      ACTX_Free(aCtx);
       RWLOCK_RELEASE();
       return REDISMODULE_ERR;
     }
   }
 
   options |= DOCUMENT_ADD_NOSAVE;
-  aCtx->stateFlags |= ACTX_F_NOBLOCK;
-  AddDocumentCtx_Submit(aCtx, &sctx, options);
+  ACTX_Index(aCtx, &sctx, options);
+  RediSearch_AddDocDone(aCtx, &err);
   rm_free(d);
 
   RWLOCK_RELEASE();

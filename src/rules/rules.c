@@ -23,35 +23,41 @@ SchemaRules *SchemaRules_Create(void) {
   return rules;
 }
 
-static void indexCallback(RSAddDocumentCtx *aCtx, RedisModuleCtx *ctx, void *unused) {
-  // dummy
-}
-
-int SchemaRules_IndexDocument(RedisModuleCtx *ctx, IndexSpec *sp, RuleKeyItem *item,
-                              const IndexItemAttrs *attrs, QueryError *e) {
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
+RSAddDocumentCtx *SchemaRules_InitACTX(RedisModuleCtx *ctx, IndexSpec *sp, RuleKeyItem *item,
+                                       const IndexItemAttrs *attrs, QueryError *e) {
   Document d = {0};
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
+
   RSAddDocumentCtx *aCtx = NULL;
   Document_Init(&d, item->kstr, attrs->score, attrs->language);
   d.keyobj = item->kobj;
-  d.flags |= DOCUMENT_F_NEVEROWN;
   int rv = Document_LoadSchemaFields(&d, &sctx, e);
   if (rv != REDISMODULE_OK) {
     goto err;
   }
 
-  aCtx = NewAddDocumentCtx(sp, &d, e);
+  aCtx = ACTX_New(sp, &d, e);
   if (!aCtx) {
     goto err;
   }
-  aCtx->stateFlags |= ACTX_F_NOBLOCK;  // disable "blocking", i.e. threading
-  aCtx->donecb = indexCallback;
-  AddDocumentCtx_Submit(aCtx, &sctx, DOCUMENT_ADD_REPLACE | DOCUMENT_ADD_NOSAVE);
-  return REDISMODULE_OK;
+  return aCtx;
 
 err:
   Document_Free(&d);
-  return REDISMODULE_ERR;
+  return NULL;
+}
+
+int SchemaRules_IndexDocument(RedisModuleCtx *ctx, IndexSpec *sp, RuleKeyItem *item,
+                              const IndexItemAttrs *attrs, QueryError *e) {
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
+  RSAddDocumentCtx *aCtx = SchemaRules_InitACTX(ctx, sp, item, attrs, e);
+  if (!aCtx) {
+    return REDISMODULE_ERR;
+  }
+  ACTX_Index(aCtx, &sctx, DOCUMENT_ADD_REPLACE);
+  assert(QueryError_HasError(&aCtx->status) == 0);
+  ACTX_Free(aCtx);
+  return REDISMODULE_OK;
 }
 
 void SchemaRules_ProcessItem(RedisModuleCtx *ctx, RuleKeyItem *item, int flags) {

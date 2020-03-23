@@ -1,6 +1,7 @@
 #include "util/arr.h"
 #include "rules.h"
 #include "module.h"
+#include "indexer.h"
 #include <sys/time.h>
 
 static void *aiThreadInit(void *privdata);
@@ -62,13 +63,16 @@ void AIQ_Submit(AsyncIndexQueue *aq, IndexSpec *spec, MatchAction *result, RuleK
   }
   int flags = dq->state;
   size_t nqueued = dictSize(dq->entries);
+
   if ((flags & (SDQ_S_PENDING | SDQ_S_PROCESSING)) == 0) {
     printf("adding to list of pending indexes...\n");
     // the pending flag isn't set yet, and we aren't processing either,
     // go ahead and add this to the pending array
     aq->pending = array_append(aq->pending, dq);
     dq->state |= SDQ_S_PENDING;
+    IndexSpec_Incref(spec);
   }
+
   pthread_mutex_unlock(&aq->lock);
   if ((flags & SDQ_S_PROCESSING) == 0 && nqueued >= aq->indexBatchSize) {
     printf("signalling thread..\n");
@@ -81,37 +85,65 @@ static void ms2ts(struct timespec *ts, unsigned long ms) {
   ts->tv_nsec = (ms % 1000) * 1000000;
 }
 
+static void freeCallback(RSAddDocumentCtx *ctx, void *unused) {
+  ACTX_Free(ctx);
+}
+
 static void indexBatch(AsyncIndexQueue *aiq, SpecDocQueue *dq, dict *entries) {
   printf("indexBatch!\n");
-  IndexSpec *spec = dq->spec;
+  Indexer idxr = {0};
+  IndexSpec *sp = dq->spec;
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(RSDummyContext, dq->spec);
+  Indexer_Init(&idxr, &sctx);
   dictIterator *iter = dictGetIterator(entries);
   dictEntry *e = NULL;
-  while ((e = dictNext(iter))) {
+  while ((e = dictNext(iter)) && !(sp->flags & Index_Deleted)) {
     RuleIndexableDocument *rid = e->v.val;
     QueryError err = {0};
     RuleKeyItem rki = {.kstr = rid->kstr};
+
     RedisModule_ThreadSafeContextLock(RSDummyContext);
-    int rc = SchemaRules_IndexDocument(RSDummyContext, spec, &rki, &rid->iia, &err);
-    if (rc != REDISMODULE_OK) {
+    RSAddDocumentCtx *aCtx = SchemaRules_InitACTX(RSDummyContext, sp, &rki, &rid->iia, &err);
+    if (!aCtx) {
       printf("Couldn't index (%s): %s\n", RedisModule_StringPtrLen(rid->kstr, NULL),
              QueryError_GetError(&err));
+      continue;
+    }
+    RedisModule_ThreadSafeContextUnlock(RSDummyContext);
+
+    if (Indexer_Add(&idxr, aCtx) != REDISMODULE_OK) {
+      printf("Couldn't index (%s): %s\n", RedisModule_StringPtrLen(rid->kstr, NULL),
+             QueryError_GetError(&aCtx->status));
+      ACTX_Free(aCtx);
     }
     RedisModule_FreeString(NULL, rid->kstr);
-    RedisModule_ThreadSafeContextUnlock(RSDummyContext);
-    // deal with Key when applicable
     rm_free(rid);
+    // deal with Key when applicable
   }
   dictReleaseIterator(iter);
+
+  RedisModule_ThreadSafeContextLock(RSDummyContext);
+  if (sp->flags & Index_Deleted) {
+    Indexer_Iterate(&idxr, freeCallback, NULL);
+  } else {
+    Indexer_Index(&idxr, freeCallback, NULL);
+  }
+  Indexer_Destroy(&idxr);
+  RedisModule_ThreadSafeContextUnlock(RSDummyContext);
 
   // now that we're done, lock the dq and see if we need to place it back into
   // pending again:
   pthread_mutex_lock(&aiq->lock);
   dq->state &= ~SDQ_S_PROCESSING;
+  dq->nactive = 0;
+
   if (dictSize(dq->entries)) {
     dq->state = SDQ_S_PENDING;
     aiq->pending = array_append(aiq->pending, dq);
+  } else {
+    IndexSpec_Decref(dq->spec);
   }
-  dq->nactive = 0;
+
   pthread_mutex_unlock(&aiq->lock);
 }
 

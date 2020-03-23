@@ -191,8 +191,6 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
   if (sp->flags & Index_Temporary) {
     RedisModule_SetExpire(k, sp->timeout * 1000);
   }
-  // Create the indexer
-  sp->indexer = NewIndexer(sp);
   if (IndexSpec_OnCreate) {
     IndexSpec_OnCreate(sp);
   }
@@ -648,9 +646,6 @@ void IndexSpec_FreeWithKey(IndexSpec *sp, RedisModuleCtx *ctx) {
 }
 
 static void IndexSpec_FreeInternals(IndexSpec *spec) {
-  if (spec->indexer) {
-    Indexer_Free(spec->indexer);
-  }
   if (spec->gc) {
     GCContext_Stop(spec->gc);
   }
@@ -733,21 +728,29 @@ static void IndexSpec_FreeAsync(void *data) {
 
 static struct thpool_ *cleanPool = NULL;
 
-void IndexSpec_Free(void *ctx) {
-
-  IndexSpec *spec = ctx;
-  if (spec->flags & Index_UseRules) {
-    SchemaRules_UnregisterIndex(spec);
-  }
-  if (spec->flags & Index_Temporary) {
-    if (!cleanPool) {
-      cleanPool = thpool_init(1);
+size_t IndexSpec_Decref(IndexSpec *spec) {
+  size_t n = --spec->refcount;
+  if (!n) {
+    if (spec->flags & Index_UseRules) {
+      SchemaRules_UnregisterIndex(spec);
+      spec->flags &= ~Index_UseRules;
     }
-    thpool_add_work(cleanPool, IndexSpec_FreeAsync, ctx);
-    return;
-  }
 
-  IndexSpec_FreeInternals(spec);
+    if (spec->flags & Index_Temporary) {
+      if (!cleanPool) {
+        cleanPool = thpool_init(1);
+      }
+      thpool_add_work(cleanPool, IndexSpec_FreeAsync, spec);
+      return n;
+    }
+
+    IndexSpec_FreeInternals(spec);
+  }
+  return n;
+}
+
+void IndexSpec_Free(void *ctx) {
+  IndexSpec_Decref(ctx);
 }
 
 void IndexSpec_FreeSync(IndexSpec *spec) {
@@ -969,6 +972,7 @@ IndexSpec *NewIndexSpec(const char *name) {
   sp->maxPrefixExpansions = RSGlobalConfig.maxPrefixExpansions;
   sp->getValue = NULL;
   sp->getValueCtx = NULL;
+  sp->refcount = 1;
   memset(&sp->stats, 0, sizeof(sp->stats));
   return sp;
 }
@@ -1151,6 +1155,7 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
   sp->sortables = NewSortingTable();
   sp->terms = NULL;
+  sp->refcount = 1;
   sp->docs = DocTable_New(1000);
   sp->name = RedisModule_LoadStringBuffer(rdb, NULL);
   char *tmpName = rm_strdup(sp->name);
@@ -1226,7 +1231,6 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
       assert(rc == REDISMODULE_OK);
     }
   }
-  sp->indexer = NewIndexer(sp);
   if (sp->flags & Index_UseRules) {
     SchemaRules_RegisterIndex(sp);
   }

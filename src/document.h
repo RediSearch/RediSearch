@@ -94,7 +94,6 @@ typedef struct {
   size_t numFieldElems;             // Number of elements
   double score;                     // Score of the document
   const char *evalExpr;             // Only add the document if this expression evaluates to true.
-  DocumentAddCompleted donecb;      // Callback to invoke when operation is done
 } AddDocumentOptions;
 
 void Document_AddField(Document *d, const char *fieldname, RedisModuleString *fieldval,
@@ -178,8 +177,8 @@ void Document_Free(Document *doc);
 #define DOCUMENT_ADD_REPLACE 0x01
 #define DOCUMENT_ADD_PARTIAL 0x02
 #define DOCUMENT_ADD_NOSAVE 0x04
-#define DOCUMENT_ADD_CURTHREAD 0x08  // Perform operation in main thread
-#define DOCUMENT_ADD_NOCREATE 0x10   // Don't create document if not exist (replace ONLY)
+#define DOCUMENT_ADD_REPLYCTX 0x08  // Reply with status messages
+#define DOCUMENT_ADD_NOCREATE 0x10  // Don't create document if not exist (replace ONLY)
 
 struct ForwardIndex;
 struct FieldIndexerData;
@@ -200,10 +199,6 @@ struct FieldIndexerData;
 // The content has sortable fields
 #define ACTX_F_SORTABLES 0x10
 
-// Don't block/unblock the client when indexing. This is the case when the
-// operation is being done from within the context of AOF
-#define ACTX_F_NOBLOCK 0x20
-
 // Document is entirely empty (no sortables, indexables)
 #define ACTX_F_EMPTY 0x40
 
@@ -214,14 +209,10 @@ struct DocumentIndexer;
 
 /** Context used when indexing documents */
 typedef struct RSAddDocumentCtx {
-  struct RSAddDocumentCtx *next;  // Next context in the queue
-  Document doc;                   // Document which is being indexed
-  RedisSearchCtx *sctx;
+  Document doc;  // Document which is being indexed
 
   // Forward index. This contains all the terms found in the document
   struct ForwardIndex *fwIdx;
-
-  struct DocumentIndexer *indexer;
 
   // Sorting vector for the document. If the document has sortable fields, they
   // are added to here as well
@@ -250,8 +241,6 @@ typedef struct RSAddDocumentCtx {
   uint32_t specFlags;    // Cached index flags
   uint8_t options;       // Indexing options - i.e. DOCUMENT_ADD_xxx
   uint8_t stateFlags;    // Indexing state, ACTX_F_xxx
-  DocumentAddCompleted donecb;
-  void *donecbData;
 } RSAddDocumentCtx;
 
 /**
@@ -268,34 +257,18 @@ typedef struct RSAddDocumentCtx {
  *
  * When done, call AddDocumentCtx_Free
  */
-RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *base, QueryError *status);
+RSAddDocumentCtx *ACTX_New(IndexSpec *sp, Document *base, QueryError *status);
 
-/**
- * At this point the context will take over from the caller, and handle sending
- * the replies and so on.
- */
-void AddDocumentCtx_Submit(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, uint32_t options);
+int ACTX_Preprocess(RSAddDocumentCtx *aCtx);
 
-/**
- * Indicate that processing is finished on the current document
- */
-void AddDocumentCtx_Finish(RSAddDocumentCtx *aCtx);
-/**
- * This function will tokenize the document and add the resultant tokens to
- * the relevant inverted indexes. This function should be called from a
- * worker thread (see ConcurrentSearch functions).
- *
- *
- * When this function completes, it will send the reply to the client and
- * unblock the client passed when the context was first created.
- */
-int Document_AddToIndexes(RSAddDocumentCtx *ctx);
+/** Indexes a single document */
+int ACTX_Index(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, uint32_t options);
 
 /**
  * Free the AddDocumentCtx. Should be done once AddToIndexes() completes; or
  * when the client is unblocked.
  */
-void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx);
+void ACTX_Free(RSAddDocumentCtx *aCtx);
 
 /* Evaluate an IF expression (e.g. IF "@foo == 'bar'") against a document, by getting the
  * properties from the sorting table or from the hash representation of the document.

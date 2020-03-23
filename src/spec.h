@@ -99,7 +99,10 @@ typedef enum {
   Index_UseRules = 0x800,
 
   // Index asynchronously, don't report errors..
-  Index_Async = 0x1000
+  Index_Async = 0x1000,
+
+  // Not stored, but an indicator that the index has been removed
+  Index_Deleted = 0x2000
 } IndexFlags;
 
 /**
@@ -200,6 +203,7 @@ struct IndexSpec {
   SynonymMap *smap;
 
   uint64_t uniqueId;
+  size_t refcount;
 
   // cached strings, corresponding to number of fields
   IndexSpecFmtStrings *indexStrs;
@@ -211,7 +215,6 @@ struct IndexSpec {
   RSGetValueCallback getValue;
   void *getValueCtx;
   char **aliases; // Aliases to self-remove when the index is deleted
-  struct DocumentIndexer *indexer;
   SpecDocQueue *queue;
 };
 
@@ -237,6 +240,10 @@ typedef struct IndexSpecCache {
   size_t nfields;
   size_t refcount;
 } IndexSpecCache;
+
+#define IndexSpec_Incref(spec) (spec)->refcount++
+
+size_t IndexSpec_Decref(IndexSpec *spec);
 
 /**
  * Retrieves the current spec cache from the index, incrementing its

@@ -5,6 +5,7 @@
 #include "rmutil/args.h"
 #include "query_error.h"
 #include "util/dllist.h"
+#include "document.h"
 #include "spec.h"
 
 #include <pthread.h>
@@ -89,6 +90,8 @@ int SchemaRules_IsScanRunning(void);
 
 void SchemaRules_ReplySyncInfo(RedisModuleCtx *ctx, IndexSpec *sp);
 
+RSAddDocumentCtx *SchemaRules_InitACTX(RedisModuleCtx *ctx, IndexSpec *sp, RuleKeyItem *item,
+                                       const IndexItemAttrs *attrs, QueryError *e);
 int SchemaRules_IndexDocument(RedisModuleCtx *ctx, IndexSpec *sp, RuleKeyItem *item,
                               const IndexItemAttrs *attrs, QueryError *e);
 

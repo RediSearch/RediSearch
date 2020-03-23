@@ -55,7 +55,6 @@ static int parseDocumentOptions(AddDocumentOptions *opts, ArgsCursor *ac, QueryE
   int nosave = 0, replace = 0, partial = 0, foundFields = 0;
   opts->fieldsArray = NULL;
   opts->numFieldElems = 0;
-  opts->options = 0;
 
   ACArgSpec argList[] = {{AC_MKBITFLAG("NOSAVE", &opts->options, DOCUMENT_ADD_NOSAVE)},
                          {AC_MKBITFLAG("REPLACE", &opts->options, DOCUMENT_ADD_REPLACE)},
@@ -126,11 +125,29 @@ static int parseDocumentOptions(AddDocumentOptions *opts, ArgsCursor *ac, QueryE
   return REDISMODULE_OK;
 }
 
+static void doReplyFinish(RSAddDocumentCtx *aCtx, int options, RedisModuleCtx *ctx) {
+  if (options & DOCUMENT_ADD_REPLYCTX) {
+    if (QueryError_HasError(&aCtx->status)) {
+      if (aCtx->status.code == QUERY_EDOCNOTADDED) {
+        RedisModule_ReplyWithSimpleString(ctx, "NOADD");
+      } else {
+        RedisModule_ReplyWithError(ctx, QueryError_GetError(&aCtx->status));
+      }
+    } else {
+      RedisModule_ReplyWithSimpleString(ctx, "OK");
+    }
+  }
+  ACTX_Free(aCtx);
+}
+
 int RS_AddDocument(RedisSearchCtx *sctx, RedisModuleString *name, const AddDocumentOptions *opts,
                    QueryError *status) {
   int rc = REDISMODULE_ERR;
   // If the ID is 0, then the document does not exist.
   IndexSpec *sp = sctx->spec;
+  RedisModuleCtx *ctx = sctx->redisCtx;
+  Document doc = {0};
+
   int exists = !!DocTable_GetIdR(&sp->docs, name);
   if (exists && !(opts->options & DOCUMENT_ADD_REPLACE)) {
     QueryError_SetError(status, QUERY_EDOCEXISTS, NULL);
@@ -155,9 +172,6 @@ int RS_AddDocument(RedisSearchCtx *sctx, RedisModuleString *name, const AddDocum
     }
   }
 
-  RedisModuleCtx *ctx = sctx->redisCtx;
-  Document doc = {0};
-
   Document_Init(&doc, name, opts->score, opts->language);
   if (opts->payload) {
     size_t npayload = 0;
@@ -180,7 +194,7 @@ int RS_AddDocument(RedisSearchCtx *sctx, RedisModuleString *name, const AddDocum
 
   LG_DEBUG("Adding doc %s with %d fields\n", RedisModule_StringPtrLen(doc.docKey, NULL),
            doc.numFields);
-  RSAddDocumentCtx *aCtx = NewAddDocumentCtx(sp, &doc, status);
+  RSAddDocumentCtx *aCtx = ACTX_New(sp, &doc, status);
   if (aCtx == NULL) {
     Document_Free(&doc);
     goto error;
@@ -192,38 +206,34 @@ int RS_AddDocument(RedisSearchCtx *sctx, RedisModuleString *name, const AddDocum
     // If the document does not exist, remove replace/partial settings
     addOptions &= ~(DOCUMENT_ADD_REPLACE | DOCUMENT_ADD_PARTIAL);
   }
-  if (addOptions & DOCUMENT_ADD_CURTHREAD) {
-    aCtx->stateFlags |= ACTX_F_NOBLOCK;
-  }
 
-  aCtx->donecb = opts->donecb;
-  AddDocumentCtx_Submit(aCtx, sctx, addOptions);
+  ACTX_Index(aCtx, sctx, addOptions);
+  doReplyFinish(aCtx, opts->options, ctx);
   return REDISMODULE_OK;
 
 error:
+  if (opts->options & DOCUMENT_ADD_REPLYCTX) {
+    if (QueryError_HasError(status)) {
+      if (status->code == QUERY_EDOCNOTADDED) {
+        RedisModule_ReplyWithSimpleString(ctx, "NOADD");
+      } else {
+        RedisModule_ReplyWithError(ctx, QueryError_GetError(status));
+      }
+    } else {
+      RedisModule_ReplyWithError(ctx, "Couldn't add document");
+    }
+  }
   return REDISMODULE_ERR;
 }
 
-static void replyCallback(RSAddDocumentCtx *aCtx, RedisModuleCtx *ctx, void *unused) {
-  if (QueryError_HasError(&aCtx->status)) {
-    if (aCtx->status.code == QUERY_EDOCNOTADDED) {
-      RedisModule_ReplyWithError(ctx, "NOADD");
-    } else {
-      RedisModule_ReplyWithError(ctx, QueryError_GetError(&aCtx->status));
-    }
-  } else {
-    RedisModule_ReplyWithSimpleString(ctx, "OK");
-  }
-}
-
-static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int canBlock) {
+static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 4) {
     // cmd, index, document, [arg] ...
     return RedisModule_WrongArity(ctx);
   }
 
   ArgsCursor ac;
-  AddDocumentOptions opts = {.donecb = replyCallback};
+  AddDocumentOptions opts = {.options = DOCUMENT_ADD_REPLYCTX};
   QueryError status = {0};
 
   ArgsCursor_InitRString(&ac, argv + 3, argc - 3);
@@ -242,10 +252,6 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     goto cleanup;
   }
 
-  if (canBlock) {
-    canBlock = CheckConcurrentSupport(ctx);
-  }
-
   IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 0);
   if (!sp) {
     RedisModule_ReplyWithError(ctx, "Unknown index name");
@@ -256,22 +262,10 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
                                "Cannot manually add documents to index declared using `WITHRULES`");
     goto cleanup;
   }
-  if (canBlock) {
-    canBlock = !(sp->flags & Index_Temporary) && CheckConcurrentSupport(ctx);
-  }
 
-  if (!canBlock) {
-    opts.options |= DOCUMENT_ADD_CURTHREAD;
-  }
   RedisSearchCtx sctx = {.redisCtx = ctx, .spec = sp};
   rv = RS_AddDocument(&sctx, argv[2], &opts, &status);
-  if (rv != REDISMODULE_OK) {
-    if (status.code == QUERY_EDOCNOTADDED) {
-      RedisModule_ReplyWithSimpleString(ctx, "NOADD");
-    } else {
-      RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
-    }
-  } else {
+  if (rv == REDISMODULE_OK) {
     // Replicate *here*
     // note: we inject the index name manually so that we eliminate alias
     // lookups on smaller documents
@@ -317,8 +311,7 @@ exists
 
   Returns OK on success, or an error if something went wrong.
 */
-static int doAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                            int isBlockable) {
+static int doAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 4 || argc > 7) {
     return RedisModule_WrongArity(ctx);
   }
@@ -386,24 +379,15 @@ static int doAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   LG_DEBUG("Adding doc %s with %d fields\n", RedisModule_StringPtrLen(doc.docKey, NULL),
            doc.numFields);
 
-  RSAddDocumentCtx *aCtx = NewAddDocumentCtx(sp, &doc, &status);
+  RSAddDocumentCtx *aCtx = ACTX_New(sp, &doc, &status);
   if (aCtx == NULL) {
     Document_Free(&doc);
     return QueryError_ReplyAndClear(ctx, &status);
   }
 
-  aCtx->donecb = replyCallback;
-
-  if (isBlockable) {
-    isBlockable = CheckConcurrentSupport(ctx);
-  }
-
-  if (!isBlockable) {
-    aCtx->stateFlags |= ACTX_F_NOBLOCK;
-  }
-
   RedisModule_Replicate(ctx, RS_SAFEADDHASH_CMD, "v", argv + 1, argc - 1);
-  AddDocumentCtx_Submit(aCtx, &sctx, replace ? DOCUMENT_ADD_REPLACE : 0);
+  ACTX_Index(aCtx, &sctx, replace ? DOCUMENT_ADD_REPLACE : 0);
+  doReplyFinish(aCtx, DOCUMENT_ADD_REPLYCTX, ctx);
   return REDISMODULE_OK;
 
 cleanup:
@@ -414,16 +398,16 @@ cleanup:
 }
 
 int RSAddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  return doAddDocument(ctx, argv, argc, 1);
+  return doAddDocument(ctx, argv, argc);
 }
 int RSSafeAddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  return doAddDocument(ctx, argv, argc, 0);
+  return doAddDocument(ctx, argv, argc);
 }
 
 int RSAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  return doAddHashCommand(ctx, argv, argc, 1);
+  return doAddHashCommand(ctx, argv, argc);
 }
 
 int RSSafeAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  return doAddHashCommand(ctx, argv, argc, 0);
+  return doAddHashCommand(ctx, argv, argc);
 }
