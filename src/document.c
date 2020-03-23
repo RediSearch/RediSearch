@@ -606,7 +606,7 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
   RLookupLoadOptions loadopts = {.sctx = sctx,
                                  .sv = dmd->sortVector,
                                  .ktype = RLOOKUP_KEY_CSTR,
-                                 .key = {.cstr = dmd->keyPtr},
+                                 .key = {.cstr = {.s = dmd->keyPtr, .len = sdslen(dmd->keyPtr)}},
                                  .status = status};
 
   if (RLookup_LoadDocument(&lookup_s, &row, &loadopts) != REDISMODULE_OK) {

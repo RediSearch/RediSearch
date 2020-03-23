@@ -547,13 +547,14 @@ static int rploaderNext(ResultProcessor *base, SearchResult *r) {
   RedisSearchCtx *sctx = lc->base.parent->sctx;
 
   QueryError status = {0};
-  RLookupLoadOptions loadopts = {.sctx = lc->base.parent->sctx,  // lb
-                                 .ktype = RLOOKUP_KEY_CSTR,
-                                 .key = {.cstr = r->dmd->keyPtr},
-                                 .noSortables = 1,
-                                 .status = &status,
-                                 .keys = lc->fields,
-                                 .nkeys = lc->nfields};
+  RLookupLoadOptions loadopts = {
+      .sctx = lc->base.parent->sctx,  // lb
+      .ktype = RLOOKUP_KEY_CSTR,
+      .key = {.cstr = {.s = r->dmd->keyPtr, .len = sdslen(r->dmd->keyPtr)}},
+      .noSortables = 1,
+      .status = &status,
+      .keys = lc->fields,
+      .nkeys = lc->nfields};
   if (isExplicitReturn) {
     loadopts.mode |= RLOOKUP_LOAD_KEYLIST;
   } else {

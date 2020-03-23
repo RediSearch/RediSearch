@@ -299,7 +299,7 @@ static int getKeyCommon(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOption
     } else {
       RedisModuleString *keyName = NULL;
       if (options->ktype == RLOOKUP_KEY_CSTR) {
-        keyName = RedisModule_CreateString(ctx, options->key.cstr, strlen(options->key.cstr));
+        keyName = RedisModule_CreateString(ctx, options->key.cstr.s, options->key.cstr.len);
       } else if (options->ktype == RLOOKUP_KEY_RSTR) {
         keyName = options->key.rstr;
       } else {
@@ -380,7 +380,7 @@ static int RLookup_HGETALL(RLookup *it, RLookupRow *dst, RLookupLoadOptions *opt
   RedisModuleCtx *ctx = options->sctx->redisCtx;
   RedisModuleString *krstr = NULL;
   if (options->ktype == RLOOKUP_KEY_CSTR) {
-    krstr = RedisModule_CreateString(ctx, options->key.cstr, strlen(options->key.cstr));
+    krstr = RedisModule_CreateString(ctx, options->key.cstr.s, options->key.cstr.len);
   } else if (options->ktype == RLOOKUP_KEY_RSTR) {
     krstr = options->key.rstr;
   } else {

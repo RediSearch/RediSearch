@@ -324,7 +324,10 @@ typedef struct {
   int noSortables;
 
   union {
-    const char *cstr;
+    struct {
+      const char *s;
+      size_t len;
+    } cstr;
     RedisModuleString *rstr;
     RedisModuleKey *kobj;
     void *p_;  // private
