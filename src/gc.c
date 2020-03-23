@@ -105,6 +105,9 @@ static void internal_PeriodicCallback(void* data) {
   int ret = gc->callbacks.periodicCallback(ctx, gc->gcCtx);
 
   RedisModule_ThreadSafeContextLock(ctx);
+  if (*gcp == NULL) {
+    return;
+  }
   RedisModuleBlockedClient* bClient = BlockClients_pop(&gc->bClients);
   if (bClient) {
     RedisModule_UnblockClient(bClient, NULL);
