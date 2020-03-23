@@ -1,0 +1,3 @@
+mkdocs==1.0.4
+mkdocs-material==4.6.3
+-e git+https://github.com/RedisLabs/mkdocs-versions-menu.git#egg=mkdocs-versions-menu
