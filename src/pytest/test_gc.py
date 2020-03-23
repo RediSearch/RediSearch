@@ -3,6 +3,7 @@ import unittest
 from RLTest import Env
 import platform
 from includes import *
+from time import sleep
 
 
 def testBasicGC(env):
@@ -218,6 +219,7 @@ def testGCShutDownOnExit(env):
     env = Env(moduleArgs='GC_POLICY FORK FORKGC_SLEEP_BEFORE_EXIT 20')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT', 'SORTABLE').ok()
     env.expect('FT.DEBUG', 'GC_FORCEBGINVOKE', 'idx').ok()
+    sleep(1)
     env.stop()
     env.start()
 

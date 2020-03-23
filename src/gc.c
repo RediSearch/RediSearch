@@ -196,7 +196,9 @@ void GCContext_ForceBGInvoke(GCContext** gcp) {
     assert(gcp == gcCtx);
     thpool_add_work(gcThreadPools_g, internal_PeriodicCallback, gcp);
   }
-  usleep(10000);
+  RedisModule_ThreadSafeContextUnlock(RSDummyContext);
+  usleep(100000);
+  RedisModule_ThreadSafeContextLock(RSDummyContext);
 }
 
 void GC_ThreadPoolStart() {
