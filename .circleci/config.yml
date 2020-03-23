@@ -1,4 +1,4 @@
-version: 2
+version: 2.1
 jobs:
   build:
     docker:
@@ -88,17 +88,26 @@ jobs:
             public-read --recursive --exclude "*" --include "*.zip"
   deploy_docs:
     docker:
-      - image: 'redislabsmodules/rmbuilder:latest'
+      - image: 'python:buster'
     steps:
+      - run:
+          name: Setup executor
+          command: |
+            apt-get -qq update
+            apt-get -q install -y git openssh-client curl ca-certificates make tar gzip wget
+            cd ..; curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"; unzip awscliv2.zip;./aws/install
       - checkout
       - run:
-          name: Build Docs
+          name: Instal dependencies
+          command: pip install -r docs/requirements.txt
+      - run:
+          name: Build docs
           command: mkdocs build
       - run:
           name: Deploy Docs to S3
           command: >-
             aws s3 cp site s3://modules.redislabs.com/redisearch/ --acl
-            public-read --recursive 
+            public-read --recursive
 workflows:
   version: 2
   build_and_package:
@@ -129,8 +138,26 @@ workflows:
             tags:
               only: '/^v[0-9].*/'
           requires:
-            - package_release
+            - deploy_snapshots
+      - run_automation:
+          module_version: $CIRCLE_TAG
+          requires:
+            - deploy_release
+      # TODO: deploy_docs should run only when 'docs/' or 'mkdocs.yml' change
       - deploy_docs:
+        filters:
+          branches:
+            only:
+              - master
+              - /^[0-9]+\.[0-9]+$/
+
+  nightly:
+    triggers:
+      - schedule:
+          cron: "20 17 * * *"
           filters:
-            branches:
-              only: __master__
+             branches:
+               only:
+                 - master
+    jobs:
+      - macos

@@ -10,8 +10,8 @@ markdown_extensions:
   - codehilite
   - toc(permalink=true, separator="_")
   - admonition
-  
-use_directory_urls: true
+
+use_directory_urls: false
 theme:
   name: 'material'
   language: 'en'
@@ -28,7 +28,7 @@ pages:
     - 'Home': 'index.md'
     - 'Quick Start': 'Quick_Start.md'
     - 'Command Reference': 'Commands.md'
-    - 'Configuration': 'Configuring.md'       
+    - 'Configuration': 'Configuring.md'
     - Reference:
       - 'Query Syntax': 'Query_Syntax.md'
       - 'Stop-Words': 'Stopwords.md'
@@ -45,7 +45,7 @@ pages:
       - 'Python API': python_client.md
       - 'Java API': java_client.md
       - 'Go API': go_client.md
-    
+
     - Design Documents:
       - 'Garbage Collection': 'design/gc.md'
     - Articles:
@@ -53,4 +53,6 @@ pages:
 
     - 'Chinese Support': 'Chinese.md'
 
-#google_analytics: ['UA-89573912-1', 'redisearch']
+plugins:
+  - search
+  - versions-menu
