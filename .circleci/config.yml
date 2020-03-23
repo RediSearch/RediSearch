@@ -7,7 +7,7 @@ defaults:
 
 commands:
   ci_steps:
-    steps: 
+    steps:
       - checkout
       - run:
           name: Get Dependencies
@@ -37,13 +37,13 @@ jobs:
       - BUILD_DIR: build-debian
     steps:
       - ci_steps
-  
+
   centos:
     docker:
       - image: 'redislabsmodules/rmbuildercentos:latest'
     environment:
       - BUILD_DIR: build-el
-    steps: 
+    steps:
       - ci_steps
 
   macos:
@@ -89,7 +89,7 @@ jobs:
       - run:
           name: Run & build tests
           command: ./.circleci/ci_diag_san.sh msan
-  
+
   coverage:
     docker:
       - image: redislabsmodules/rmbuilder:latest
@@ -101,7 +101,7 @@ jobs:
       - store_artifacts:
           path: coverage
           destination: coverage
-  
+
   deploy_release:
     docker:
       - image: 'redislabsmodules/rmbuilder:latest'
@@ -114,14 +114,23 @@ jobs:
             for f in ~/workspace/release/*.zip; do
               aws s3 cp $f s3://redismodules/$PACKAGE_NAME/ --acl public-read
             done
-  
+
   deploy_docs:
     docker:
-      - image: 'redislabsmodules/rmbuilder:latest'
+      - image: 'python:buster'
     steps:
+      - run:
+          name: Setup executor
+          command: |
+            apt-get -qq update
+            apt-get -q install -y git openssh-client curl ca-certificates make tar gzip wget
+            cd ..; curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"; unzip awscliv2.zip;./aws/install
       - checkout
       - run:
-          name: Build Docs
+          name: Instal dependencies
+          command: pip install -r docs/requirements.txt
+      - run:
+          name: Build docs
           command: mkdocs build
       - run:
           name: Deploy Docs to S3
@@ -184,9 +193,11 @@ workflows:
             tags:
               only: /^v[0-9].*/
       - deploy_docs:
-          filters:
-            branches:
-              only: master
+        filters:
+          branches:
+            only:
+              - master
+              - /^[0-9]+\.[0-9]+$/
 
   nightly:
     triggers:
