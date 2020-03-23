@@ -12,7 +12,6 @@ REDISMODULE_INIT_SYMBOLS();
 #include "redisearch_api.h"
 #include <assert.h>
 #include <ctype.h>
-#include "concurrent_ctx.h"
 #include "cursor.h"
 #include "extension.h"
 #include "alias.h"
@@ -143,10 +142,6 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   // Init extension mechanism
   Extensions_Init();
 
-  if (RSGlobalConfig.concurrentMode) {
-    ConcurrentSearch_ThreadPoolStart();
-  }
-
   // Init cursors mechanism
   CursorList_Init(&RSCursors);
 
@@ -156,8 +151,6 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
 
   // Register aggregation functions
   RegisterAllFunctions();
-
-  DO_LOG("notice", "Initialized thread pool!");
 
   /* Load extensions if needed */
   if (RSGlobalConfig.extLoad != NULL) {
