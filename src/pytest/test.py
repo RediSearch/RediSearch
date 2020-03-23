@@ -2940,3 +2940,22 @@ def testIndexNotRemovedFromCursorListAfterRecreated(env):
     env.expect('FT.AGGREGATE idx * WITHCURSOR').equal([[0], 0])
     env.expect('FT.CREATE idx SCHEMA f1 TEXT').error()
     env.expect('FT.AGGREGATE idx * WITHCURSOR').equal([[0], 0])
+
+def testHindiStemmer(env):
+    env.cmd('FT.CREATE', 'idxTest', 'SCHEMA', 'body', 'TEXT')
+    env.cmd('FT.ADD', 'idxTest', 'doc1', 1.0, 'LANGUAGE', 'hindi', 'FIELDS', 'body', u'अँगरेजी अँगरेजों अँगरेज़')
+    res = env.cmd('FT.SEARCH', 'idxTest', u'अँगरेज़')
+    env.assertEqual(u'अँगरेजी अँगरेजों अँगरेज़', unicode(res[2][1], 'utf-8'))
+
+def testMOD507(env):
+    env.expect('ft.create idx SCHEMA t1 TEXT').ok()
+
+    for i in range(50):
+        env.expect('ft.add idx doc-%d 1.0 FIELDS t1 foo' % i).ok()
+
+    for i in range(50):
+        env.expect('del doc-%d' % i).equal(1)
+
+    res = env.cmd('FT.SEARCH', 'idx', '*', 'WITHSCORES', 'SUMMARIZE', 'FRAGS', '1', 'LEN', '25', 'HIGHLIGHT', 'TAGS', "<span style='background-color:yellow'>", "</span>")
+
+    env.assertEqual(len(res), 31)

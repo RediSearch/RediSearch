@@ -5,7 +5,7 @@
  *
  * Modules included by this file are: arabic, danish, dutch, english, finnish,
  * french, german, hungarian, italian, norwegian, porter, portuguese,
- * romanian, russian, spanish, swedish, tamil, turkish
+ * romanian, russian, spanish, swedish, tamil, turkish, hindi
  */
 
 #include "../src_c/stem_UTF_8_arabic.h"
@@ -15,6 +15,7 @@
 #include "../src_c/stem_UTF_8_finnish.h"
 #include "../src_c/stem_UTF_8_french.h"
 #include "../src_c/stem_UTF_8_german.h"
+#include "../src_c/stem_UTF_8_hindi.h"
 #include "../src_c/stem_UTF_8_hungarian.h"
 #include "../src_c/stem_UTF_8_italian.h"
 #include "../src_c/stem_UTF_8_norwegian.h"
@@ -73,6 +74,9 @@ static struct stemmer_modules modules[] = {
   {"french", ENC_UTF_8, french_UTF_8_create_env, french_UTF_8_close_env, french_UTF_8_stem},
   {"ger", ENC_UTF_8, german_UTF_8_create_env, german_UTF_8_close_env, german_UTF_8_stem},
   {"german", ENC_UTF_8, german_UTF_8_create_env, german_UTF_8_close_env, german_UTF_8_stem},
+  {"hi", ENC_UTF_8, hindi_UTF_8_create_env, hindi_UTF_8_close_env, hindi_UTF_8_stem},
+  {"hin", ENC_UTF_8, hindi_UTF_8_create_env, hindi_UTF_8_close_env, hindi_UTF_8_stem},
+  {"hindi", ENC_UTF_8, hindi_UTF_8_create_env, hindi_UTF_8_close_env, hindi_UTF_8_stem},
   {"hu", ENC_UTF_8, hungarian_UTF_8_create_env, hungarian_UTF_8_close_env, hungarian_UTF_8_stem},
   {"hun", ENC_UTF_8, hungarian_UTF_8_create_env, hungarian_UTF_8_close_env, hungarian_UTF_8_stem},
   {"hungarian", ENC_UTF_8, hungarian_UTF_8_create_env, hungarian_UTF_8_close_env, hungarian_UTF_8_stem},
@@ -116,6 +120,7 @@ static const char * algorithm_names[] = {
   "finnish", 
   "french", 
   "german", 
+  "hindi", 
   "hungarian", 
   "italian", 
   "norwegian", 
