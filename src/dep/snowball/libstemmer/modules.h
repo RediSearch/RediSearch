@@ -21,6 +21,7 @@
 #include "../src_c/stem_UTF_8_french.h"
 #include "../src_c/stem_ISO_8859_1_german.h"
 #include "../src_c/stem_UTF_8_german.h"
+#include "../src_c/stem_UTF_8_hindi.h"
 #include "../src_c/stem_ISO_8859_2_hungarian.h"
 #include "../src_c/stem_UTF_8_hungarian.h"
 #include "../src_c/stem_ISO_8859_1_italian.h"
@@ -115,6 +116,9 @@ static struct stemmer_modules modules[] = {
   {"ger", ENC_UTF_8, german_UTF_8_create_env, german_UTF_8_close_env, german_UTF_8_stem},
   {"german", ENC_ISO_8859_1, german_ISO_8859_1_create_env, german_ISO_8859_1_close_env, german_ISO_8859_1_stem},
   {"german", ENC_UTF_8, german_UTF_8_create_env, german_UTF_8_close_env, german_UTF_8_stem},
+  {"hi", ENC_UTF_8, hindi_UTF_8_create_env, hindi_UTF_8_close_env, hindi_UTF_8_stem},
+  {"hin", ENC_UTF_8, hindi_UTF_8_create_env, hindi_UTF_8_close_env, hindi_UTF_8_stem},
+  {"hindi", ENC_UTF_8, hindi_UTF_8_create_env, hindi_UTF_8_close_env, hindi_UTF_8_stem},
   {"hu", ENC_ISO_8859_2, hungarian_ISO_8859_2_create_env, hungarian_ISO_8859_2_close_env, hungarian_ISO_8859_2_stem},
   {"hu", ENC_UTF_8, hungarian_UTF_8_create_env, hungarian_UTF_8_close_env, hungarian_UTF_8_stem},
   {"hun", ENC_ISO_8859_2, hungarian_ISO_8859_2_create_env, hungarian_ISO_8859_2_close_env, hungarian_ISO_8859_2_stem},
@@ -185,6 +189,7 @@ static const char * algorithm_names[] = {
   "finnish", 
   "french", 
   "german", 
+  "hindi",
   "hungarian", 
   "italian", 
   "norwegian", 
