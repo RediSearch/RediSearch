@@ -343,7 +343,7 @@ DEBUG_COMMAND(GCForceInvoke) {
   }
   RedisModuleBlockedClient *bc = RedisModule_BlockClient(
       ctx, GCForceInvokeReply, GCForceInvokeReplyTimeout, NULL, INVOKATION_TIMEOUT);
-  GCContext_ForceInvoke(sp->gc, bc);
+  GCContext_ForceInvoke(&sp->gc, bc);
   return REDISMODULE_OK;
 }
 
@@ -356,7 +356,7 @@ DEBUG_COMMAND(GCForceBGInvoke) {
     RedisModule_ReplyWithError(ctx, "Unknown index name");
     return REDISMODULE_OK;
   }
-  GCContext_ForceBGInvoke(sp->gc);
+  GCContext_ForceBGInvoke(&sp->gc);
   RedisModule_ReplyWithSimpleString(ctx, "OK");
   return REDISMODULE_OK;
 }

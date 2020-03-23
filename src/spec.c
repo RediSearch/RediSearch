@@ -646,7 +646,7 @@ static void IndexSpec_FreeInternals(IndexSpec *spec) {
     Indexer_Free(spec->indexer);
   }
   if (spec->gc) {
-    GCContext_Stop(spec->gc);
+    GCContext_Stop(&spec->gc);
   }
 
   if (spec->terms) {
@@ -978,7 +978,7 @@ void IndexSpec_MakeKeyless(IndexSpec *sp) {
 
 void IndexSpec_StartGCFromSpec(IndexSpec *sp, float initialHZ, uint32_t gcPolicy) {
   sp->gc = GCContext_CreateGCFromSpec(sp, initialHZ, sp->uniqueId, gcPolicy);
-  GCContext_Start(sp->gc);
+  GCContext_Start(&sp->gc);
 }
 
 /* Start the garbage collection loop on the index spec. The GC removes garbage data left on the
@@ -989,7 +989,7 @@ void IndexSpec_StartGC(RedisModuleCtx *ctx, IndexSpec *sp, float initialHZ) {
   if (RSGlobalConfig.enableGC && !(sp->flags & Index_Temporary)) {
     RedisModuleString *keyName = RedisModule_CreateString(ctx, sp->name, strlen(sp->name));
     sp->gc = GCContext_CreateGC(keyName, initialHZ, sp->uniqueId);
-    GCContext_Start(sp->gc);
+    GCContext_Start(&sp->gc);
     RedisModule_Log(ctx, "verbose", "Starting GC for index %s", sp->name);
   }
 }

@@ -47,12 +47,12 @@ typedef struct IndexSpec IndexSpec;
 GCContext* GCContext_CreateGCFromSpec(IndexSpec* sp, float initialHZ, uint64_t uniqueId,
                                       uint32_t gcPolicy);
 GCContext* GCContext_CreateGC(RedisModuleString* keyName, float initialHZ, uint64_t uniqueId);
-void GCContext_Start(GCContext* gc);
-void GCContext_Stop(GCContext* gc);
+void GCContext_Start(GCContext** gc);
+void GCContext_Stop(GCContext** gc);
 void GCContext_RenderStats(GCContext* gc, RedisModuleCtx* ctx);
 void GCContext_OnDelete(GCContext* gc);
-void GCContext_ForceInvoke(GCContext* gc, RedisModuleBlockedClient* bc);
-void GCContext_ForceBGInvoke(GCContext* gc);
+void GCContext_ForceInvoke(GCContext** gc, RedisModuleBlockedClient* bc);
+void GCContext_ForceBGInvoke(GCContext** gc);
 
 void GC_ThreadPoolStart();
 void GC_ThreadPoolDestroy();
