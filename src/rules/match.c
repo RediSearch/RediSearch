@@ -190,9 +190,7 @@ int SchemaRules_AddArgs(SchemaRules *rules, const char *index, const char *name,
   }
   const char *astr = NULL;
   if (AC_GetString(ac, &astr, NULL, 0) != AC_OK) {
-    QueryError_SetError(err, QUERY_EPARSEARGS, "Missing action!");
-    // todo: free r
-    return REDISMODULE_ERR;
+    astr = "INDEX";
   }
   r->action = extractAction(astr, ac, err);
   if (r->action == NULL) {

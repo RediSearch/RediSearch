@@ -773,8 +773,8 @@ static int AliasUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
 static int RuleAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   ArgsCursor ac = {0};
   ArgsCursor_InitRString(&ac, argv + 1, argc - 1);
-  // INDEX RULENAME MATCHTYPE MATCHEXPR ACTION ACTION-PARAMS
-  if (AC_NumRemaining(&ac) < 5) {
+  // INDEX RULENAME MATCHTYPE MATCHEXPR [ACTION ACTION-PARAMS]
+  if (AC_NumRemaining(&ac) < 4) {
     return RedisModule_WrongArity(ctx);
   }
   const char *idxstr = AC_GetStringNC(&ac, NULL);

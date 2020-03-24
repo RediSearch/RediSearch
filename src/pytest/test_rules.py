@@ -4,8 +4,8 @@ import time
 
 def testCreateRules(env):
     env.cmd('ft.create', 'idx', 'WITHRULES', 'SCHEMA', 'f1', 'text')  # OK
-    env.cmd('ft.ruleadd', 'idx', 'rule1', 'PREFIX', 'user:', 'INDEX')  # OK
-    env.cmd('ft.ruleadd', 'idx', 'rule2', 'EXPR', '@year>2015', 'INDEX')  # OK
+    env.cmd('ft.ruleadd', 'idx', 'rule1', 'PREFIX', 'user:')  # OK
+    env.cmd('ft.ruleadd', 'idx', 'rule2', 'EXPR', '@year>2015')  # OK
 
     env.cmd('hset', 'user:mnunberg', 'foo', 'bar')
     env.cmd('hset', 'user:mnunberg', 'f1', 'hello world')
@@ -26,7 +26,7 @@ def testScanRules(env):
         env.cmd('hset', 'doc{}'.format(x), 'f1', 'hello')
 
     env.cmd('ft.create', 'idx', 'ASYNC', 'WITHRULES', 'schema', 'f1', 'text')
-    env.cmd('ft.ruleadd', 'idx', 'rule1', 'PREFIX', 'doc', 'INDEX')
+    env.cmd('ft.ruleadd', 'idx', 'rule1', 'PREFIX', 'doc')
 
     # print("SCANSTART")
     # env.cmd('ft.scanstart')
@@ -34,11 +34,12 @@ def testScanRules(env):
         rv = env.cmd('ft.info', 'idx', 'sync')
         if rv[0] == 'SYNCED':
             break
-    print(env.cmd('ft.search', 'idx', 'hello'))
+    rv = env.cmd('ft.search', 'idx', 'hello')
+    env.assertEqual(10000, rv[0])  # Order can be different!
 
 def testPersistence(env):
     env.cmd('ft.create', 'idx', 'WITHRULES', 'SCHEMA', 'f1', 'TEXT')
-    env.cmd('ft.ruleadd', 'idx', 'rule1', 'prefix', 'doc', 'INDEX')
+    env.cmd('ft.ruleadd', 'idx', 'rule1', 'prefix', 'doc')
     env.cmd('save')
     env.restart_and_reload()
     env.cmd('hset', 'doc1', 'f1', 'hello world')
