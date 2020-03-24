@@ -69,13 +69,13 @@ GCContext* GCContext_CreateGC(RedisModuleString* keyName, float initialHZ, uint6
 }
 
 static void stopGC(GCContext* gc) {
-  gc->isStopped = 1;
+  gc->stopped = 1;
   if (gc->callbacks.kill) {
     gc->callbacks.kill(gc->gcCtx);
   }  
 }
 
-void GCContext_Timer_PeriodicCallback(RedisModuleCtx* ctx, void* data);
+static void timerCallback(RedisModuleCtx* ctx, void* data);
 
 static long long getNextPeriod(GCContext* gc) {
   struct timespec interval = gc->callbacks.getInterval(gc->gcCtx);
@@ -83,10 +83,11 @@ static long long getNextPeriod(GCContext* gc) {
   return ms;
 }
 
-static RedisModuleTimerID scheduleNext(RedisModuleCtx* ctx, GCContext* gc) {
+static RedisModuleTimerID scheduleNext(GCContext* gc) {
   if (!RedisModule_CreateTimer) return 0;
+  RedisModuleCtx* ctx = RSDummyContext;
   long long period = getNextPeriod(gc);
-  return RedisModule_CreateTimer(ctx, period, GCContext_Timer_PeriodicCallback, gc);
+  return RedisModule_CreateTimer(ctx, period, timerCallback, gc);
 }
 
 static void freeGCInternals(GCContext* gc) {
@@ -99,11 +100,11 @@ static void freeGCInternals(GCContext* gc) {
   rm_free(gc);
 }
 
-static void internal_PeriodicCallback(void* data) {
+static void threadCallback(void* data) {
   GCContext* gc = data;
   RedisModuleCtx* ctx = RSDummyContext;
 
-  if (gc->isStopped == 1) {
+  if (gc->stopped) {
     return;
   }
 
@@ -114,16 +115,16 @@ static void internal_PeriodicCallback(void* data) {
   if (bClient) {
     RedisModule_UnblockClient(bClient, NULL);
   }
-  if (!ret || gc->isStopped == 1) {
+  if (!ret || gc->stopped) {
     stopGC(gc);
     RedisModule_ThreadSafeContextUnlock(ctx);
     return;
   }
-  gc->timerID = scheduleNext(ctx, gc);
+  gc->timerID = scheduleNext(gc);
   RedisModule_ThreadSafeContextUnlock(ctx);
 }
 
-static void internal_DestroyCallback(void* data) {
+static void destroyCallback(void* data) {
   GCContext* gc = data;
   RedisModuleCtx* ctx = RSDummyContext;
   
@@ -136,22 +137,20 @@ static void internal_DestroyCallback(void* data) {
   rm_free(gc);
 }
 
-void GCContext_Timer_PeriodicCallback(RedisModuleCtx* ctx, void* data) {
+static void timerCallback(RedisModuleCtx* ctx, void* data) {
   if (RedisModule_AvoidReplicaTraffic && RedisModule_AvoidReplicaTraffic()) {
     // If slave traffic is not allow it means that there is a state machine running
     // we do not want to run any GC which might cause a FORK process to start for example).
     // Its better to just avoid it.
     GCContext* gc = data;
-    gc->timerID = scheduleNext(ctx, gc);
+    gc->timerID = scheduleNext(gc);
     return;
   }
-  thpool_add_work(gcThreadPools_g, internal_PeriodicCallback, data);
+  thpool_add_work(gcThreadPools_g, threadCallback, data);
 }
 
 void GCContext_Start(GCContext* gc) {
-  struct timespec interval = gc->callbacks.getInterval(gc->gcCtx);
-  RedisModuleCtx* ctx = RSDummyContext;
-  gc->timerID = scheduleNext(ctx, gc);
+  gc->timerID = scheduleNext(gc);
 }
 
 void GCContext_Stop(GCContext* gc) {
@@ -165,7 +164,7 @@ void GCContext_Stop(GCContext* gc) {
   RedisModuleCtx* ctx = RSDummyContext;
   stopGC(gc);
   RedisModule_StopTimer(ctx, gc->timerID, NULL);
-  thpool_add_work(gcThreadPools_g, internal_DestroyCallback, gc); 
+  thpool_add_work(gcThreadPools_g, destroyCallback, gc); 
 }
 
 void GCContext_RenderStats(GCContext* gc, RedisModuleCtx* ctx) {
@@ -179,21 +178,18 @@ void GCContext_OnDelete(GCContext* gc) {
 }
 
 void GCContext_ForceInvoke(GCContext* gc, RedisModuleBlockedClient* bc) {
-  if (gc->isStopped == 1) return;
+  if (gc->stopped) return;
 
   BlockClients_push(&gc->bClients, bc);
   GCContext_ForceBGInvoke(gc);
 }
 
 void GCContext_ForceBGInvoke(GCContext* gc) {
-  if (gc->isStopped == 1) return;
+  if (gc->stopped) return;
 
-  void* gcCtx;
   RedisModuleCtx* ctx = RSDummyContext;
-  if (RedisModule_StopTimer(ctx, gc->timerID, &gcCtx) == REDISMODULE_OK) {
-    assert(gc == gcCtx);
-  }
-  thpool_add_work(gcThreadPools_g, internal_PeriodicCallback, gc);
+  RedisModule_StopTimer(ctx, gc->timerID, NULL);
+  thpool_add_work(gcThreadPools_g, threadCallback, gc);
 }
 
 void GC_ThreadPoolStart() {

@@ -40,7 +40,7 @@ typedef struct GCContext {
   RedisModuleTimerID timerID;
   BlockClients bClients;
   GCCallbacks callbacks;
-  int isStopped;
+  int stopped;
 } GCContext;
 
 typedef struct IndexSpec IndexSpec;

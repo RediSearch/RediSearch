@@ -320,7 +320,7 @@ $ redis-server --loadmodule ./redisearch.so GC_POLICY FORK FORK_GC_CLEAN_THRESHO
 * added in v1.4.16
 
 
-## FORK_GC_THREAD_POOL_SIZE
+## FORK_GC_THREADPOOL_SIZE
 
 The number of threads in the thread pool of `fork GC`.
 
@@ -331,7 +331,7 @@ The number of threads in the thread pool of `fork GC`.
 ### Example
 
 ```
-$ redis-server --loadmodule ./redisearch.so GC_POLICY FORK FORK_GC_THREAD_POOL_SIZE 4
+$ redis-server --loadmodule ./redisearch.so GC_POLICY FORK FORK_GC_THREADPOOL_SIZE 4
 ```
 
 ### Notes
