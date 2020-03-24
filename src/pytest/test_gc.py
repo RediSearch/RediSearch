@@ -129,14 +129,6 @@ def testDeleteDocWithGoeField(env):
     env.assertFalse(bool(rv))
 
 def testGCIntegrationWithRedisFork(env):
-    def wait_for_bgsave(t0):
-        for i in range(100):
-            sleep(0.1)
-            t1 = env.execute_command('lastsave')
-            if t1 > t0:
-                return t1
-        return t0
-
     if env.env == 'existing-env':
         env.skip()
     if env.env == 'enterprise':
@@ -148,16 +140,8 @@ def testGCIntegrationWithRedisFork(env):
     env.expect('FT.CONFIG', 'SET', 'FORKGC_SLEEP_BEFORE_EXIT', '4').ok()
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT', 'SORTABLE').ok()
     env.expect('FT.ADD', 'idx', 'doc1', 1.0, 'FIELDS', 'title', 'hello world').ok()
-    t0 = env.execute_command('lastsave')
-    sleep(1)
     env.expect('bgsave').true()
-    t1 = wait_for_bgsave(t0)
-    env.assertTrue(t1 > t0)
-    env.cmd('FT.DEBUG', 'GC_FORCEINVOKE', 'idx')
-    sleep(1)
     env.expect('bgsave').true()
-    t2 = wait_for_bgsave(t1)
-    env.assertTrue(t2 > t1)
     env.cmd('FT.CONFIG', 'SET', 'FORKGC_SLEEP_BEFORE_EXIT', '0')
 
 def testGCThreshold(env):
