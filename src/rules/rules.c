@@ -18,7 +18,7 @@ AsyncIndexQueue *asyncQueue_g = NULL;
 
 SchemaRules *SchemaRules_Create(void) {
   SchemaRules *rules = rm_calloc(1, sizeof(*rules));
-  dllist_init(&rules->rules);
+  rules->rules = array_new(SchemaRule *, 8);
   rules->actions = array_new(MatchAction, 1);
   return rules;
 }
@@ -171,4 +171,96 @@ void SchemaRules_UnregisterIndex(IndexSpec *sp) {
     return;
   }
   rindexes_g = array_del_fast(rindexes_g, ix);
+  // Iterate through all the rules which reference this index
+  SchemaRules *rules = SchemaRules_g;
+  for (size_t ii = 0; ii < array_len(rules->rules); ++ii) {
+    if (strcasecmp(rules->rules[ii]->index, sp->name)) {
+      continue;
+    }
+    ARRAY_DEL_ITER(rules->rules, ii);
+  }
+}
+
+#define RULES_CURRENT_VERSION 0
+
+/**
+ * FORMAT:
+ * nrules (int)
+ *  index (str)
+ *  name (str)
+ *  nargs (int)
+ *   arg...
+ */
+
+static void rulesAuxSave(RedisModuleIO *rdb, int when) {
+  if (when != REDISMODULE_AUX_BEFORE_RDB) {
+    return;
+  }
+  SchemaRules *rules = SchemaRules_g;
+  RedisModule_SaveUnsigned(rdb, array_len(rules->rules));
+  DLLIST_node *nn;
+  size_t nrules = array_len(rules->rules);
+  for (size_t ii = 0; ii < nrules; ++ii) {
+    SchemaRule *r = rules->rules[ii];
+    size_t n = array_len(r->rawrule);
+    RedisModule_SaveStringBuffer(rdb, r->index, strlen(r->index));
+    RedisModule_SaveStringBuffer(rdb, r->name, strlen(r->name));
+    RedisModule_SaveUnsigned(rdb, n);
+    for (size_t jj = 0; jj < n; ++jj) {
+      const char *s = r->rawrule[jj];
+      RedisModule_SaveStringBuffer(rdb, s, strlen(s));
+    }
+  }
+}
+
+static int rulesAuxLoad(RedisModuleIO *rdb, int encver, int when) {
+  // Going to assume that the rules are already loaded..
+  if (encver > RULES_CURRENT_VERSION) {
+    return REDISMODULE_ERR;
+  }
+  if (when != REDISMODULE_AUX_BEFORE_RDB) {
+    return REDISMODULE_OK;
+  }
+
+  SchemaRules *rules = SchemaRules_g;
+
+  size_t nrules = RedisModule_LoadUnsigned(rdb);
+  for (size_t ii = 0; ii < nrules; ++ii) {
+    size_t ns;
+    RedisModuleString *index = RedisModule_LoadString(rdb);
+    RedisModuleString *name = RedisModule_LoadString(rdb);
+    size_t nargs = RedisModule_LoadUnsigned(rdb);
+    RedisModuleString **args = rm_malloc(sizeof(*args) * nargs);
+    for (size_t jj = 0; jj < nargs; ++jj) {
+      args[jj] = RedisModule_LoadString(rdb);
+    }
+    ArgsCursor ac = {0};
+    ArgsCursor_InitRString(&ac, args, nargs);
+    QueryError status = {0};
+    int rc = SchemaRules_AddArgs(rules, RedisModule_StringPtrLen(index, NULL),
+                                 RedisModule_StringPtrLen(name, NULL), &ac, &status);
+    if (rc != REDISMODULE_OK) {
+      printf("Couldn't load rules: %s\n", QueryError_GetError(&status));
+    }
+    RedisModule_FreeString(NULL, index);
+    RedisModule_FreeString(NULL, name);
+    for (size_t jj = 0; jj < nargs; ++jj) {
+      RedisModule_FreeString(NULL, args[jj]);
+    }
+    rm_free(args);
+    if (rc != REDISMODULE_OK) {
+      return REDISMODULE_ERR;
+    }
+  }
+  return REDISMODULE_OK;
+}
+
+int SchemaRules_RegisterType(RedisModuleCtx *ctx) {
+  RedisModuleTypeMethods m = {
+      .version = REDISMODULE_TYPE_METHOD_VERSION,
+      .aux_load = rulesAuxLoad,
+      .aux_save = rulesAuxSave,
+      .aux_save_triggers = REDISMODULE_AUX_BEFORE_RDB | REDISMODULE_AUX_AFTER_RDB};
+  RedisModuleType *t = RedisModule_CreateDataType(ctx, "ft_rules0", RULES_CURRENT_VERSION, &m);
+  return t ? REDISMODULE_OK : REDISMODULE_ERR;
 }

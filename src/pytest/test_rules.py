@@ -6,7 +6,7 @@ def testCreateRules(env):
     env.cmd('ft.create', 'idx', 'WITHRULES', 'SCHEMA', 'f1', 'text')  # OK
     env.cmd('ft.ruleadd', 'idx', 'rule1', 'PREFIX', 'user:', 'INDEX')  # OK
     env.cmd('ft.ruleadd', 'idx', 'rule2', 'EXPR', '@year>2015', 'INDEX')  # OK
-    # 
+
     env.cmd('hset', 'user:mnunberg', 'foo', 'bar')
     env.cmd('hset', 'user:mnunberg', 'f1', 'hello world')
 
@@ -35,3 +35,12 @@ def testScanRules(env):
         if rv[0] == 'SYNCED':
             break
     print(env.cmd('ft.search', 'idx', 'hello'))
+
+def testPersistence(env):
+    env.cmd('ft.create', 'idx', 'WITHRULES', 'SCHEMA', 'f1', 'TEXT')
+    env.cmd('ft.ruleadd', 'idx', 'rule1', 'prefix', 'doc', 'INDEX')
+    env.cmd('save')
+    env.restart_and_reload()
+    env.cmd('hset', 'doc1', 'f1', 'hello world')
+    rv = env.cmd('ft.search', 'idx', 'hello')
+    env.assertEqual([1L, 'doc1', ['f1', 'hello world']], rv)

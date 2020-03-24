@@ -107,6 +107,7 @@ void SchemaRules_ProcessItem(RedisModuleCtx *ctx, RuleKeyItem *item, int flags);
  */
 void SchemaRules_InitGlobal();
 void SchemaRules_ShutdownGlobal();
+int SchemaRules_RegisterType(RedisModuleCtx *ctx);
 void SchemaRules_RegisterIndex(IndexSpec *);
 void SchemaRules_UnregisterIndex(IndexSpec *);
 ssize_t SchemaRules_GetPendingCount(const IndexSpec *spec);

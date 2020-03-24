@@ -33,7 +33,7 @@ static int createHasPrefixProp(RSExprMeta *meta, RSArgList *args, QueryError *er
   return REDISMODULE_OK;
 }
 
-struct metaOpMapping {
+static struct metaOpMapping {
   ExprMetaCode op;
   const char *name;
   int (*ctor)(RSExprMeta *, RSArgList *, QueryError *);

@@ -165,6 +165,7 @@ static int matchHasfield(const SchemaRule *r, RedisModuleCtx *ctx, RuleKeyItem *
 int SchemaRules_AddArgs(SchemaRules *rules, const char *index, const char *name, ArgsCursor *ac,
                         QueryError *err) {
   // First argument is the name...
+  size_t beginpos = AC_Tell(ac);
   const char *rtype = NULL;
   int rc = AC_GetString(ac, &rtype, NULL, 0);
   if (rc != AC_OK) {
@@ -199,7 +200,15 @@ int SchemaRules_AddArgs(SchemaRules *rules, const char *index, const char *name,
   }
   r->index = rm_strdup(index);
   r->name = rm_strdup(name);
-  dllist_append(&rules->rules, &r->llnode);
+  r->rawrule = array_new(char *, ac->argc);
+
+  AC_Seek(ac, beginpos);
+  while (AC_NumRemaining(ac)) {
+    char *s = rm_strdup(AC_GetStringNC(ac, NULL));
+    r->rawrule = array_append(r->rawrule, s);
+  }
+  AC_Seek(ac, beginpos);
+  *array_ensure_tail(&rules->rules, SchemaRule *) = r;
   return REDISMODULE_OK;
 }
 
@@ -217,9 +226,9 @@ int SchemaRules_Check(const SchemaRules *rules, RedisModuleCtx *ctx, RuleKeyItem
                       MatchAction **results, size_t *nresults) {
   array_clear(rules->actions);
   *results = rules->actions;
-
-  DLLIST_FOREACH(it, &rules->rules) {
-    SchemaRule *rule = DLLIST_ITEM(it, SchemaRule, llnode);
+  size_t nrules = array_len(rules->rules);
+  for (size_t ii = 0; ii < nrules; ++ii) {
+    SchemaRule *rule = rules->rules[ii];
     scruleMatchFn fn = matchfuncs_g[rule->rtype];
     if (!fn(rule, ctx, item)) {
       continue;

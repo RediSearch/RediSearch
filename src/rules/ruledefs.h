@@ -27,12 +27,12 @@ typedef enum {
 
 typedef struct SchemaAction SchemaAction;
 
-#define SCHEMA_RULE_HEAD \
-  DLLIST_node llnode;    \
-  SchemaRuleType rtype;  \
-  const char *index;     \
-  const char *name;      \
-  struct SchemaAction *action;
+#define SCHEMA_RULE_HEAD       \
+  SchemaRuleType rtype;        \
+  const char *index;           \
+  const char *name;            \
+  struct SchemaAction *action; \
+  char **rawrule;  // Raw text of the rule itself
 
 struct SchemaRule {
   SCHEMA_RULE_HEAD;
@@ -58,7 +58,7 @@ typedef struct {
 } SchemaHasFieldRule;
 
 struct SchemaRules {
-  DLLIST rules;
+  SchemaRule **rules;
   // Cached array...
   MatchAction *actions;
 };

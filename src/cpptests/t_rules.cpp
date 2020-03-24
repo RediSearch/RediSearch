@@ -17,7 +17,7 @@ TEST_F(RulesTest, testBasic) {
   int rc = SchemaRules_AddArgs(rules, "idx", "myrule", &args, &err);
   ASSERT_EQ(REDISMODULE_OK, rc) << QueryError_GetError(&err);
 
-  SchemaRule *r = (SchemaRule *)rules->rules.next;
+  SchemaRule *r = rules->rules[0];
   ASSERT_EQ(SCRULE_TYPE_KEYPREFIX, r->rtype);
   ASSERT_EQ(SCACTION_TYPE_INDEX, r->action->atype);
   SchemaPrefixRule *pr = (SchemaPrefixRule *)r;
