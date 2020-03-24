@@ -91,6 +91,10 @@ int AC_AdvanceBy(ArgsCursor *ac, size_t by);
 // will swallow it up.
 int AC_AdvanceIfMatch(ArgsCursor *ac, const char *arg);
 
+// Seek the cursor to the given position
+void AC_Seek(ArgsCursor *ac, size_t pos);
+#define AC_Tell(ac) (ac)->offset
+
 /**
  * Read the argument list in the format of
  * <NUM_OF_ARGS> <ARG[1]> <ARG[2]> .. <ARG[NUM_OF_ARGS]>
