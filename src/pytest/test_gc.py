@@ -141,6 +141,7 @@ def testGCIntegrationWithRedisFork(env):
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT', 'SORTABLE').ok()
     env.expect('FT.ADD', 'idx', 'doc1', 1.0, 'FIELDS', 'title', 'hello world').ok()
     env.expect('bgsave').true()
+    env.cmd('FT.DEBUG', 'GC_FORCEINVOKE', 'idx')
     env.expect('bgsave').true()
     env.cmd('FT.CONFIG', 'SET', 'FORKGC_SLEEP_BEFORE_EXIT', '0')
 
