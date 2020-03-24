@@ -158,7 +158,7 @@ static int matchHasfield(const SchemaRule *r, RedisModuleCtx *ctx, RuleKeyItem *
     }
   }
   int ret = 0;
-  RedisModule_HashGet(item->kobj, REDISMODULE_HASH_EXISTS, hrule->field, &ret);
+  RedisModule_HashGet(item->kobj, REDISMODULE_HASH_EXISTS, hrule->field, &ret, NULL);
   return ret;
 }
 

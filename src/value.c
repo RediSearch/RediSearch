@@ -68,6 +68,9 @@ RSValue *RS_NewValue(RSValueType t) {
 }
 
 void RSValue_Clear(RSValue *v) {
+  if (v->const_builtin) {
+    return;
+  }
   switch (v->t) {
     case RSValue_String:
       // free strings by allocation strategy
@@ -760,7 +763,7 @@ const char *RSValue_TypeName(RSValueType t) {
   }
 }
 
-static RSValue staticTrue = {.allocated = 0, .t = RSValue_Number, .numval = 1};
-static RSValue staticFalse = {.allocated = 0, .t = RSValue_Number, .numval = 0};
+static RSValue staticTrue = {.allocated = 0, .t = RSValue_Number, .numval = 1, .const_builtin = 1};
+static RSValue staticFalse = {.allocated = 0, .t = RSValue_Number, .numval = 0, .const_builtin = 1};
 RSValue *RS_TrueValue = &staticTrue;
 RSValue *RS_FalseValue = &staticFalse;

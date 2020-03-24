@@ -135,6 +135,7 @@ typedef struct ExprEval {
   RedisModuleKey *rmkey;
   RedisModuleString *krstr;
   const char *kstr;
+  size_t nkstr;
   BlkAlloc stralloc; // Optional. YNOT?
 } ExprEval;
 

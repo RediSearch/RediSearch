@@ -282,7 +282,7 @@ static int getNextEntry(va_list &ap, HashValue::Key &e, void **vpp) {
     return ENTRY_DONE;
   }
   *vpp = va_arg(ap, RedisModuleString *);
-  if (!vpp) {
+  if (!*vpp) {
     return ENTRY_ERROR;
   }
   e.rawkey = kp;
