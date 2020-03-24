@@ -1306,6 +1306,11 @@ static void statsCb(RedisModuleCtx *ctx, void *gcCtx) {
   RedisModule_ReplySetArrayLength(ctx, n);
 }
 
+static void killCb(void *ctx) {
+  ForkGC *gc = ctx;
+  gc->deleting = 1;
+}
+
 static void deleteCb(void *ctx) {
   ForkGC *gc = ctx;
   ++gc->deletedDocsFromLastRun;
@@ -1336,6 +1341,7 @@ ForkGC *FGC_New(const RedisModuleString *k, uint64_t specUniqueId, GCCallbacks *
   callbacks->periodicCallback = periodicCb;
   callbacks->renderStats = statsCb;
   callbacks->getInterval = getIntervalCb;
+  callbacks->kill = killCb;
   callbacks->onDelete = deleteCb;
 
   return forkGc;
