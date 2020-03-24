@@ -115,26 +115,6 @@ jobs:
               aws s3 cp $f s3://redismodules/$PACKAGE_NAME/ --acl public-read
             done
 
-  run_automation:
-    parameters:
-      module_version:
-        type: string
-    docker:
-      - image: 'redislabsmodules/rmbuilder:latest'
-    steps:
-      - checkout
-      - run:
-          name: Pull Submodules
-          command: git submodule update --init --recursive
-      - run:
-          name: Setup
-          command: |
-            apt-get -qq update
-            apt-get install -y ca-certificates curl jq
-      - run:
-          name: Run QA Automation
-          command: MODULE_VERSION=<<parameters.module_version>> VERBOSE=1 ./tests/qa/run
-
   deploy_docs:
     docker:
       - image: 'redislabsmodules/rmbuilder:latest'
@@ -203,14 +183,6 @@ workflows:
               ignore: /.*/
             tags:
               only: /^v[0-9].*/
-      - run_automation:
-          module_version: $CIRCLE_BRANCH
-          requires:
-            - deploy_snapshots
-      - run_automation:
-          module_version: $CIRCLE_TAG
-          requires:
-            - deploy_release
       - deploy_docs:
           filters:
             branches:
