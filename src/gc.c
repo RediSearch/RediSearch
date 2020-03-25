@@ -117,8 +117,11 @@ static void threadCallback(void* data) {
 static void destroyCallback(void* data) {
   GCContext* gc = data;
   RedisModuleCtx* ctx = RSDummyContext;
+  assert(gc->stopped == 1);
 
   RedisModule_ThreadSafeContextLock(ctx);
+  RedisModule_StopTimer(ctx, gc->timerID, NULL);
+
   RedisModuleBlockedClient* bClient;
   while ((bClient = BlockClients_pop(&gc->bClients))) {  
     RedisModule_UnblockClient(bClient, NULL);
@@ -177,10 +180,10 @@ void GCContext_ForceInvoke(GCContext* gc, RedisModuleBlockedClient* bc) {
 }
 
 void GCContext_ForceBGInvoke(GCContext* gc) {
-  if (gc->stopped) return;
-
   RedisModuleCtx* ctx = RSDummyContext;
   RedisModule_StopTimer(ctx, gc->timerID, NULL);
+
+  if (gc->stopped) return;
   thpool_add_work(gcThreadPools_g, threadCallback, gc);
 }
 
