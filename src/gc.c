@@ -90,16 +90,6 @@ static RedisModuleTimerID scheduleNext(GCContext* gc) {
   return RedisModule_CreateTimer(ctx, period, timerCallback, gc);
 }
 
-static void freeGCInternals(GCContext* gc) {
-  RedisModuleBlockedClient* bClient = BlockClients_pop(&gc->bClients);
-  if (bClient) {
-    RedisModule_UnblockClient(bClient, NULL);
-  }
-  gc->callbacks.onTerm(gc->gcCtx);
-  gc->gcCtx = NULL;
-  rm_free(gc);
-}
-
 static void threadCallback(void* data) {
   GCContext* gc = data;
   RedisModuleCtx* ctx = RSDummyContext;
@@ -127,7 +117,8 @@ static void threadCallback(void* data) {
 static void destroyCallback(void* data) {
   GCContext* gc = data;
   RedisModuleCtx* ctx = RSDummyContext;
-  
+
+  RedisModule_ThreadSafeContextLock(ctx);
   RedisModuleBlockedClient* bClient;
   while ((bClient = BlockClients_pop(&gc->bClients))) {  
     RedisModule_UnblockClient(bClient, NULL);
@@ -135,6 +126,7 @@ static void destroyCallback(void* data) {
   
   gc->callbacks.onTerm(gc->gcCtx);
   rm_free(gc);
+  RedisModule_ThreadSafeContextUnlock(ctx);
 }
 
 static void timerCallback(RedisModuleCtx* ctx, void* data) {

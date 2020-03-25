@@ -17,6 +17,7 @@
 #include <unistd.h>
 #include <sys/wait.h>
 #include <stdbool.h>
+#include "module.h"
 
 // convert a frequency to timespec
 struct timespec hzToTimeSpec(float hz) {
@@ -430,15 +431,12 @@ end:
 /* Termination callback for the GC. Called after we stop, and frees up all the resources. */
 void GC_OnTerm(void *privdata) {
   GarbageCollectorCtx *gc = privdata;
-  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
-  //RedisModule_ThreadSafeContextLock(ctx);
+  RedisModuleCtx *ctx = RSDummyContext;
   RedisModule_FreeString(ctx, (RedisModuleString *)gc->keyName);
   for (int i = 0; i < array_len(gc->numericGCCtx); ++i) {
     gc_FreeNumericGcCtx(gc->numericGCCtx[i]);
   }
   array_free(gc->numericGCCtx);
-  //RedisModule_ThreadSafeContextUnlock(ctx);
-  RedisModule_FreeThreadSafeContext(ctx);
   rm_free(gc);
 }
 
