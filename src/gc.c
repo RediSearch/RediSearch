@@ -9,7 +9,7 @@
 #include <assert.h>
 #include <unistd.h>
 
-threadpool gcThreadPools_g = NULL;
+static threadpool gcThreadpool_g = NULL;
 
 static volatile int gc_destroying = 0;
 
@@ -141,7 +141,7 @@ static void timerCallback(RedisModuleCtx* ctx, void* data) {
     gc->timerID = scheduleNext(gc);
     return;
   }
-  thpool_add_work(gcThreadPools_g, threadCallback, data);
+  thpool_add_work(gcThreadpool_g, threadCallback, data);
 }
 
 void GCContext_Start(GCContext* gc) {
@@ -159,7 +159,7 @@ void GCContext_Stop(GCContext* gc) {
   RedisModuleCtx* ctx = RSDummyContext;
   stopGC(gc);
   RedisModule_StopTimer(ctx, gc->timerID, NULL);
-  thpool_add_work(gcThreadPools_g, destroyCallback, gc); 
+  thpool_add_work(gcThreadpool_g, destroyCallback, gc); 
 }
 
 void GCContext_RenderStats(GCContext* gc, RedisModuleCtx* ctx) {
@@ -184,20 +184,20 @@ void GCContext_ForceBGInvoke(GCContext* gc) {
   RedisModule_StopTimer(ctx, gc->timerID, NULL);
 
   if (gc->stopped) return;
-  thpool_add_work(gcThreadPools_g, threadCallback, gc);
+  thpool_add_work(gcThreadpool_g, threadCallback, gc);
 }
 
 void GC_ThreadPoolStart() {
-  if (gcThreadPools_g == NULL) {
-    gcThreadPools_g = thpool_init(1);
+  if (gcThreadpool_g == NULL) {
+    gcThreadpool_g = thpool_init(1);
   }
 }
 
 void GC_ThreadPoolDestroy() {
-  if (gcThreadPools_g != NULL) {
+  if (gcThreadpool_g != NULL) {
     RedisModule_ThreadSafeContextUnlock(RSDummyContext);
-    thpool_destroy(gcThreadPools_g);
-    gcThreadPools_g = NULL;
+    thpool_destroy(gcThreadpool_g);
+    gcThreadpool_g = NULL;
     RedisModule_ThreadSafeContextLock(RSDummyContext);
   }
 }

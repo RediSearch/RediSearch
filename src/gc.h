@@ -11,8 +11,6 @@
 extern "C" {
 #endif
 
-extern threadpool gcThreadPools_g;
-
 typedef struct BlockClient {
   DLLIST_node llnode;
   RedisModuleBlockedClient* bClient;
