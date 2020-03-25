@@ -194,7 +194,7 @@ void GCContext_ForceBGInvoke(GCContext* gc) {
 
 void GC_ThreadPoolStart() {
   if (gcThreadPools_g == NULL) {
-    gcThreadPools_g = thpool_init(RSGlobalConfig.forkGcThreadPoolSize);
+    gcThreadPools_g = thpool_init(1);
   }
 }
 

@@ -222,11 +222,6 @@ CONFIG_SETTER(setForkGcRetryInterval) {
   RETURN_STATUS(acrc);
 }
 
-CONFIG_SETTER(setForkGcThreadPoolSize) {
-  int acrc = AC_GetSize(ac, &config->forkGcThreadPoolSize, AC_F_GE1);
-  RETURN_STATUS(acrc);
-}
-
 CONFIG_SETTER(setMaxResultsToUnsortedMode) {
   int acrc = AC_GetLongLong(ac, &config->maxResultsToUnsortedMode, AC_F_GE1);
   RETURN_STATUS(acrc);
@@ -250,11 +245,6 @@ CONFIG_GETTER(getForkGcInterval) {
 CONFIG_GETTER(getForkGcRetryInterval) {
   sds ss = sdsempty();
   return sdscatprintf(ss, "%lu", config->forkGcRunIntervalSec);
-}
-
-CONFIG_GETTER(getForkGcThreadPoolSize) {
-  sds ss = sdsempty();
-  return sdscatprintf(ss, "%lu", config->forkGcThreadPoolSize);
 }
 
 CONFIG_GETTER(getMaxResultsToUnsortedMode) {
@@ -441,10 +431,6 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "interval (in seconds) in which to retry running the forkgc after failure.",
          .setValue = setForkGcRetryInterval,
          .getValue = getForkGcRetryInterval},
-        {.name = "FORK_GC_THREADPOOL_SIZE",
-         .helpText = "number of threads used for fork gc",
-         .setValue = setForkGcThreadPoolSize,
-         .getValue = getForkGcThreadPoolSize},         
         {.name = "_MAX_RESULTS_TO_UNSORTED_MODE",
          .helpText = "max results for union interator in which the interator will switch to "
                      "unsorted mode, should be used for debug only.",
@@ -484,7 +470,6 @@ sds RSConfig_GetInfoString(const RSConfig *config) {
   ss = sdscatprintf(ss, "max doctable size: %lu, ", config->maxDocTableSize);
   ss = sdscatprintf(ss, "search pool size: %lu, ", config->searchPoolSize);
   ss = sdscatprintf(ss, "index pool size: %lu, ", config->indexPoolSize);
-  ss = sdscatprintf(ss, "fork gc pool size: %lu, ", config->forkGcThreadPoolSize);
 
   if (config->extLoad) {
     ss = sdscatprintf(ss, "ext load: %s, ", config->extLoad);
