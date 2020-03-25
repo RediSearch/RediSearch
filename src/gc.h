@@ -4,7 +4,6 @@
 
 #include "redismodule.h"
 #include "util/dllist.h"
-#include "dep/thpool/thpool.h"
 #include <time.h>
 
 #ifdef __cplusplus
@@ -34,7 +33,6 @@ typedef struct GCCallbacks {
 
 typedef struct GCContext {
   void* gcCtx;
-  // struct RMUtilTimer* timer;
   RedisModuleTimerID timerID;
   BlockClients bClients;
   GCCallbacks callbacks;

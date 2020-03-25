@@ -8,10 +8,9 @@
 #include <pthread.h>
 #include <assert.h>
 #include <unistd.h>
+#include "dep/thpool/thpool.h"
 
 static threadpool gcThreadpool_g = NULL;
-
-static volatile int gc_destroying = 0;
 
 static void BlockClients_push(BlockClients* ctx, RedisModuleBlockedClient* bClient) {
   BlockClient* bc = rm_calloc(1, sizeof(BlockClient));
