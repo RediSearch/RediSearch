@@ -170,4 +170,7 @@ void Cursors_PurgeWithName(CursorList *cl, const char *lookupName);
 void Cursors_RenderStats(CursorList *cl, const char *key, RedisModuleCtx *ctx);
 
 void Cursor_FreeExecState(void *);
+
+void CursorList_GetIndices(CursorList *cl, char ***indicesList, size_t *indicesCount);
+
 #endif

@@ -123,3 +123,9 @@ class TestDebugCommands(object):
 
     def testNumericIndexSummaryWrongArity(self):
         self.env.expect('FT.DEBUG', 'numidx_summary', 'idx1').raiseError()
+
+    def testIndicesList(self):
+        self.env.expect('FT.DEBUG', 'INDICES_LIST').equal(['idx'])
+        self.env.expect('FT.CREATE', 'idx1', 'SCHEMA', 'name', 'TEXT', 'SORTABLE', 'age', 'NUMERIC', 'SORTABLE', 't', 'TAG', 'SORTABLE').ok()
+        self.env.expect('FT.DEBUG', 'INDICES_LIST').equal(['idx', 'idx1'])
+        self.env.expect('FT.DROP', 'idx1').equal('OK')

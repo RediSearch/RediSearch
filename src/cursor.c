@@ -355,3 +355,15 @@ void CursorList_Destroy(CursorList *cl) {
   rm_free(cl->specs);
   pthread_mutex_destroy(&cl->lock);
 }
+
+void CursorList_GetIndices(CursorList *cl, char ***indicesList, size_t *indicesCount) {
+  size_t count = *indicesCount = cl->specsCount;
+  if (!count) {
+    return;
+  }
+
+  char **list = *indicesList = rm_calloc(count, sizeof(*list));
+  for (size_t ii = 0; ii < count; ++ii) {
+    list[ii] = cl->specs[ii]->keyName;
+  }
+}

@@ -6,6 +6,7 @@
 #include "numeric_index.h"
 #include "phonetic_manager.h"
 #include "gc.h"
+#include "cursor.h"
 
 #define DUMP_PHONETIC_HASH "DUMP_PHONETIC_HASH"
 
@@ -586,6 +587,27 @@ DEBUG_COMMAND(DocInfo) {
   return REDISMODULE_OK;
 }
 
+/**
+ * FT.DEBUG INDICES_LIST
+ */
+DEBUG_COMMAND(IndexList) {
+  if (argc != 0) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  size_t indicesCount;
+  char **list = NULL;
+  CursorList_GetIndices(&RSCursors, &list, &indicesCount);
+
+  RedisModule_ReplyWithArray(ctx, indicesCount);
+  for (size_t ii = 0; ii < indicesCount; ++ii) {
+    RedisModule_ReplyWithSimpleString(ctx, list[ii]);
+  }
+
+  rm_free(list);
+  return REDISMODULE_OK;
+}
+
 typedef struct DebugCommandType {
   char *name;
   int (*callback)(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
@@ -604,6 +626,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex},
                                {"NUMIDX_SUMMARY", NumericIndexSummary},
                                {"GC_FORCEINVOKE", GCForceInvoke},
                                {"GC_FORCEBGINVOKE", GCForceBGInvoke},
+                               {"INDICES_LIST", IndexList},
                                {"GIT_SHA", GitSha},
                                {NULL, NULL}};
 
