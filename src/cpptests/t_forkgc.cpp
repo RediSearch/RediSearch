@@ -20,12 +20,10 @@ typedef struct {
   IndexSpec *sp;
 } args_t;
 
-static bool runLoop;
-pthread_t thread;
+static pthread_t thread;
 
 void *cbWrapper(void *args) {
   args_t *fgcArgs = (args_t *)args;
-  sleep(1);
   fgcArgs->sp->gc->callbacks.periodicCallback(fgcArgs->ctx, fgcArgs->fgc);
   rm_free(args);
   return NULL;
@@ -52,14 +50,6 @@ class FGCTest : public ::testing::Test {
     // Let's use a tag field, so that there's only one entry in the tag index
     RediSearch_CreateField(sp, "f1", RSFLDTYPE_TAG, 0);
 
-    // Set the interval timer to something lower, so we don't wait too
-    // long
-    /*
-    timespec ts = {0};
-    ts.tv_nsec = 5000;  // 500us
-    sp->gc->callbacks.getInterval = getTimespecCb;
-    RMUtilTimer_SetInterval(sp->gc->timer, ts);
-    RMUtilTimer_Signal(sp->gc->timer);*/
     return sp;
   }
 };
@@ -72,7 +62,6 @@ TEST_F(FGCTest, testRemoveLastBlock) {
   ASSERT_TRUE(RS::addDocument(ctx, sp, "doc1", "f1", "hello"));
 
   auto fgc = reinterpret_cast<ForkGC *>(sp->gc->gcCtx);
-  runLoop = true;
   runGcThread(ctx, fgc, sp);
 
   /**
@@ -92,7 +81,6 @@ TEST_F(FGCTest, testRemoveLastBlock) {
 
   /** This function allows the gc to receive the results */
   FGC_WaitClear(fgc);
-  runLoop = false;
 
   ASSERT_EQ(1, fgc->stats.gcBlocksDenied);
 
@@ -143,7 +131,6 @@ TEST_F(FGCTest, testRepairLastBlockWhileRemovingMiddle) {
   RS::addDocument(ctx, sp, buf, "f1", "hello");
 
   auto fgc = reinterpret_cast<ForkGC *>(sp->gc->gcCtx);
-  runLoop = true;
   runGcThread(ctx, fgc, sp);
   FGC_WaitAtFork(fgc);
 
@@ -164,7 +151,6 @@ TEST_F(FGCTest, testRepairLastBlockWhileRemovingMiddle) {
 
   ASSERT_EQ(1, fgc->stats.gcBlocksDenied);
   ASSERT_EQ(2, iv->size);
-  runLoop = false;
   RediSearch_DropIndex(sp);
 }
 
@@ -194,7 +180,6 @@ TEST_F(FGCTest, testRepairLastBlock) {
   RS::addDocument(ctx, sp, buf, "f1", "hello");
 
   auto fgc = reinterpret_cast<ForkGC *>(sp->gc->gcCtx);
-  runLoop = true;
   runGcThread(ctx, fgc, sp);
   FGC_WaitAtFork(fgc);
 
@@ -208,7 +193,6 @@ TEST_F(FGCTest, testRepairLastBlock) {
 
   ASSERT_EQ(1, fgc->stats.gcBlocksDenied);
   ASSERT_EQ(2, iv->size);
-  runLoop = false;
   RediSearch_DropIndex(sp);
 }
 
@@ -239,7 +223,6 @@ TEST_F(FGCTest, testRepairMiddleRemoveLast) {
    * while appending documents to it..
    **/
   auto fgc = reinterpret_cast<ForkGC *>(sp->gc->gcCtx);
-  runLoop = true;
   runGcThread(ctx, fgc, sp);
   FGC_WaitAtFork(fgc);
 
@@ -255,7 +238,6 @@ TEST_F(FGCTest, testRepairMiddleRemoveLast) {
 
   FGC_WaitClear(fgc);
   ASSERT_EQ(2, iv->size);
-  runLoop = false;
   RediSearch_DropIndex(sp);
 }
 
@@ -283,7 +265,6 @@ TEST_F(FGCTest, testRemoveMiddleBlock) {
   ASSERT_EQ(3, iv->size);
 
   auto fgc = reinterpret_cast<ForkGC *>(sp->gc->gcCtx);
-  runLoop = true;
   runGcThread(ctx, fgc, sp);
   FGC_WaitAtFork(fgc);
 
@@ -318,6 +299,5 @@ TEST_F(FGCTest, testRemoveMiddleBlock) {
   ASSERT_NE(ss.end(), ss.find(numToDocid(newLastBlockId - 1)));
   ASSERT_NE(ss.end(), ss.find(numToDocid(lastLastBlockId)));
   ASSERT_EQ(0, fgc->stats.gcBlocksDenied);
-  runLoop = false;
   RediSearch_DropIndex(sp);
 }
