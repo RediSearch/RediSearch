@@ -8,7 +8,9 @@ typedef enum {
   // Match an expression
   SCRULE_TYPE_EXPRESSION = 0x02,
   // Contains a field, but don't check its contents
-  SCRULE_TYPE_HASFIELD = 0x03
+  SCRULE_TYPE_HASFIELD = 0x03,
+  // Matches all documents
+  SCRULE_TYPE_MATCHALL = 0x04
 } SchemaRuleType;
 
 typedef enum {

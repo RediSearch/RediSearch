@@ -15,6 +15,12 @@ static SchemaRule *parsePrefixRule(ArgsCursor *ac, QueryError *err) {
   return (SchemaRule *)ret;
 }
 
+static SchemaRule *parseWildcardRule(ArgsCursor *ac, QueryError *err) {
+  SchemaRule *r = rm_calloc(1, sizeof(*r));
+  r->rtype = SCRULE_TYPE_MATCHALL;
+  return r;
+}
+
 static SchemaRule *parseHasfieldRule(ArgsCursor *ac, QueryError *err) {
   const char *field;
   size_t nfield = 0;
@@ -148,6 +154,10 @@ static int matchPrefix(const SchemaRule *r, RedisModuleCtx *ctx, RuleKeyItem *it
   return ret;
 }
 
+static int matchAll(const SchemaRule *r, RedisModuleCtx *ctx, RuleKeyItem *item) {
+  return 1;
+}
+
 static int matchHasfield(const SchemaRule *r, RedisModuleCtx *ctx, RuleKeyItem *item) {
   SchemaHasFieldRule *hrule = (SchemaHasFieldRule *)r;
   size_t n;
@@ -180,6 +190,8 @@ int SchemaRules_AddArgs(SchemaRules *rules, const char *index, const char *name,
     r = parseExprRule(ac, err);
   } else if (!strcasecmp(rtype, "HASFIELD")) {
     r = parseHasfieldRule(ac, err);
+  } else if (!strcasecmp(rtype, "*")) {
+    r = parseWildcardRule(ac, err);
   } else {
     QueryError_SetErrorFmt(err, QUERY_ENOOPTION, "No such match type `%s`\n", rtype);
     return REDISMODULE_ERR;
@@ -218,7 +230,8 @@ typedef int (*scruleMatchFn)(const SchemaRule *, RedisModuleCtx *, RuleKeyItem *
 
 static scruleMatchFn matchfuncs_g[] = {[SCRULE_TYPE_KEYPREFIX] = matchPrefix,
                                        [SCRULE_TYPE_EXPRESSION] = matchExpression,
-                                       [SCRULE_TYPE_HASFIELD] = matchHasfield};
+                                       [SCRULE_TYPE_HASFIELD] = matchHasfield,
+                                       [SCRULE_TYPE_MATCHALL] = matchAll};
 
 int SchemaRules_Check(const SchemaRules *rules, RedisModuleCtx *ctx, RuleKeyItem *item,
                       MatchAction **results, size_t *nresults) {
@@ -226,6 +239,7 @@ int SchemaRules_Check(const SchemaRules *rules, RedisModuleCtx *ctx, RuleKeyItem
   *results = rules->actions;
   size_t nrules = array_len(rules->rules);
   for (size_t ii = 0; ii < nrules; ++ii) {
+  eval_rule:;
     SchemaRule *rule = rules->rules[ii];
     scruleMatchFn fn = matchfuncs_g[rule->rtype];
     if (!fn(rule, ctx, item)) {
@@ -234,6 +248,22 @@ int SchemaRules_Check(const SchemaRules *rules, RedisModuleCtx *ctx, RuleKeyItem
 
     // MatchActions contain the settings, per-index; we first find the result for
     // the given index, and if we can't find it, we create it.
+    switch (rule->action->atype) {
+      case SCACTION_TYPE_ABORT:
+        goto end_match;
+      case SCACTION_TYPE_INDEX:
+      case SCACTION_TYPE_SETATTR:
+        break;
+      case SCACTION_TYPE_GOTO: {
+        for (size_t jj = ii; jj < nrules; ++jj) {
+          if (!strcmp(rule->action->u.goto_, rules->rules[jj]->name)) {
+            ii = jj;
+            goto eval_rule;
+          }
+        }
+        goto next_rule;
+      }
+    }
 
     MatchAction *curAction = NULL;
     for (size_t ii = 0; ii < *nresults; ++ii) {
@@ -248,8 +278,21 @@ int SchemaRules_Check(const SchemaRules *rules, RedisModuleCtx *ctx, RuleKeyItem
       curAction->attrs.score = 0;
       curAction->attrs.npayload = 0;
     }
-    assert(rule->action->atype == SCACTION_TYPE_INDEX);
+    if (rule->action->atype == SCACTION_TYPE_SETATTR) {
+      SchemaAttrValue *attr = rule->action->u.attr;
+      switch (attr->type) {
+        case SCATTR_TYPE_LANGUAGE:
+          curAction->attrs.language = attr->value;
+          break;
+        case SCATTR_TYPE_SCORE:
+          curAction->attrs.score = (float)(uintptr_t)attr->value;
+        default:
+          break;
+      }
+    }
+  next_rule:;
   }
+end_match:
   *nresults = array_len(*results);
   return *nresults;
 }
