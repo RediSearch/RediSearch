@@ -10,34 +10,20 @@
 #include <unistd.h>
 #include "dep/thpool/thpool.h"
 
+#define DEADBEEF (void*)0xBADC0FFEE0DDF00D
+
 static threadpool gcThreadpool_g = NULL;
 
-static void BlockClients_push(BlockClients* ctx, RedisModuleBlockedClient* bClient) {
-  BlockClient* bc = rm_calloc(1, sizeof(BlockClient));
-  bc->bClient = bClient;
-  pthread_mutex_lock(&ctx->lock);
-  dllist_prepend(&ctx->clients, &bc->llnode);
-  pthread_mutex_unlock(&ctx->lock);
-}
-
-static RedisModuleBlockedClient* BlockClients_pop(BlockClients* ctx) {
-  pthread_mutex_lock(&ctx->lock);
-  RedisModuleBlockedClient* ret = NULL;
-  DLLIST_node* nn = dllist_pop_tail(&ctx->clients);
-  if (nn) {
-    BlockClient* bc = DLLIST_ITEM(nn, BlockClient, llnode);
-    ret = bc->bClient;
-    rm_free(bc);
-  }
-  pthread_mutex_unlock(&ctx->lock);
-  return ret;
+static GCTaskCtx *GCTaskCreate(GCContext *gc, RedisModuleBlockedClient* bClient) {
+  GCTaskCtx *task = rm_malloc(sizeof(*task));
+  task->gc = gc;
+  task->bClient = bClient;
+  return task;
 }
 
 GCContext* GCContext_CreateGCFromSpec(IndexSpec* sp, float initialHZ, uint64_t uniqueId,
                                       uint32_t gcPolicy) {
   GCContext* ret = rm_calloc(1, sizeof(GCContext));
-  pthread_mutex_init(&ret->bClients.lock, NULL);
-  dllist_init(&ret->bClients.clients);
   switch (gcPolicy) {
     case GCPolicy_Fork:
       ret->gcCtx = FGC_NewFromSpec(sp, uniqueId, &ret->callbacks);
@@ -53,8 +39,6 @@ GCContext* GCContext_CreateGCFromSpec(IndexSpec* sp, float initialHZ, uint64_t u
 
 GCContext* GCContext_CreateGC(RedisModuleString* keyName, float initialHZ, uint64_t uniqueId) {
   GCContext* ret = rm_calloc(1, sizeof(GCContext));
-  dllist_init(&ret->bClients.clients);
-  pthread_mutex_init(&ret->bClients.lock, NULL);
   switch (RSGlobalConfig.gcPolicy) {
     case GCPolicy_Fork:
       ret->gcCtx = FGC_New(keyName, uniqueId, &ret->callbacks);
@@ -82,38 +66,49 @@ static long long getNextPeriod(GCContext* gc) {
   return ms;
 }
 
-static RedisModuleTimerID scheduleNext(GCContext* gc) {
+static RedisModuleTimerID scheduleNext(GCTaskCtx *task) {
   if (!RedisModule_CreateTimer) return 0;
-  RedisModuleCtx* ctx = RSDummyContext;
-  long long period = getNextPeriod(gc);
-  RedisModule_StopTimer(ctx, gc->timerID, NULL);  // ensures single task
-  return RedisModule_CreateTimer(ctx, period, timerCallback, gc);
+
+  long long period = getNextPeriod(task->gc);
+  return RedisModule_CreateTimer(RSDummyContext, period, timerCallback, task);
 }
 
 static void threadCallback(void* data) {
-  GCContext* gc = data;
+  GCTaskCtx* task= data;
+  GCContext* gc = task->gc;
+  RedisModuleBlockedClient* bc = task->bClient;
   RedisModuleCtx* ctx = RSDummyContext;
 
   if (gc->stopped) {
+    if (bc && bc != DEADBEEF) {
+      RedisModule_ThreadSafeContextLock(ctx);
+      RedisModule_UnblockClient(bc, NULL);
+      RedisModule_ThreadSafeContextUnlock(ctx); 
+    }
+    rm_free(task);
     return;
   }
 
   int ret = gc->callbacks.periodicCallback(ctx, gc->gcCtx);
 
   RedisModule_ThreadSafeContextLock(ctx);
-  RedisModuleBlockedClient* bClient = BlockClients_pop(&gc->bClients);
-  if (bClient) {
-    RedisModule_UnblockClient(bClient, NULL);
+  if (bc) { 
+    if (bc != DEADBEEF) {
+      RedisModule_UnblockClient(bc, NULL);
+    }
+    rm_free(task);
+    goto end;
   }
+
   if (!ret || gc->stopped) {
     stopGC(gc);
-    RedisModule_ThreadSafeContextUnlock(ctx);
-    return;
+    rm_free (task);
+    goto end;
   }
-  // schedule next if not debug 
-  if (!bClient) {
-    gc->timerID = scheduleNext(gc);
-  }
+
+  gc->timerID = scheduleNext(task);
+
+end:
   RedisModule_ThreadSafeContextUnlock(ctx);
 }
 
@@ -122,14 +117,7 @@ static void destroyCallback(void* data) {
   RedisModuleCtx* ctx = RSDummyContext;
   assert(gc->stopped == 1);
 
-  RedisModule_ThreadSafeContextLock(ctx);
-  RedisModule_StopTimer(ctx, gc->timerID, NULL);
-
-  RedisModuleBlockedClient* bClient;
-  while ((bClient = BlockClients_pop(&gc->bClients))) {  
-    RedisModule_UnblockClient(bClient, NULL);
-  }
-  
+  RedisModule_ThreadSafeContextLock(ctx);  
   gc->callbacks.onTerm(gc->gcCtx);
   rm_free(gc);
   RedisModule_ThreadSafeContextUnlock(ctx);
@@ -140,15 +128,16 @@ static void timerCallback(RedisModuleCtx* ctx, void* data) {
     // If slave traffic is not allow it means that there is a state machine running
     // we do not want to run any GC which might cause a FORK process to start for example).
     // Its better to just avoid it.
-    GCContext* gc = data;
-    gc->timerID = scheduleNext(gc);
+    GCTaskCtx* task = data;
+    task->gc->timerID = scheduleNext(task);
     return;
   }
   thpool_add_work(gcThreadpool_g, threadCallback, data);
 }
 
 void GCContext_Start(GCContext* gc) {
-  gc->timerID = scheduleNext(gc);
+  GCTaskCtx* task = GCTaskCreate(gc, NULL);
+  gc->timerID = scheduleNext(task);
 }
 
 void GCContext_Stop(GCContext* gc) {
@@ -161,7 +150,12 @@ void GCContext_Stop(GCContext* gc) {
 
   RedisModuleCtx* ctx = RSDummyContext;
   stopGC(gc);
-  RedisModule_StopTimer(ctx, gc->timerID, NULL);
+  GCTaskCtx *data = NULL;
+
+  if (RedisModule_StopTimer(ctx, gc->timerID, (void**)&data) == REDISMODULE_OK) {
+    assert(data->gc == gc);
+    rm_free(data);  // release task memory
+  }
   thpool_add_work(gcThreadpool_g, destroyCallback, gc); 
 }
 
@@ -175,16 +169,21 @@ void GCContext_OnDelete(GCContext* gc) {
   }
 }
 
-void GCContext_ForceInvoke(GCContext* gc, RedisModuleBlockedClient* bc) {
-  if (gc->stopped) return;
+void GCContext_CommonForceInvoke(GCContext* gc, RedisModuleBlockedClient* bc) {
+  if (gc->stopped) {
+    return;
+  }
 
-  BlockClients_push(&gc->bClients, bc);
-  GCContext_ForceBGInvoke(gc);
+  GCTaskCtx *task = GCTaskCreate(gc, bc);
+  thpool_add_work(gcThreadpool_g, threadCallback, task);
+}
+
+void GCContext_ForceInvoke(GCContext* gc, RedisModuleBlockedClient* bc) {
+  GCContext_CommonForceInvoke(gc, bc);
 }
 
 void GCContext_ForceBGInvoke(GCContext* gc) {
-  if (gc->stopped) return;
-  thpool_add_work(gcThreadpool_g, threadCallback, gc);
+  GCContext_CommonForceInvoke(gc, DEADBEEF);
 }
 
 void GC_ThreadPoolStart() {

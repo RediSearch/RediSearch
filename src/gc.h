@@ -10,16 +10,6 @@
 extern "C" {
 #endif
 
-typedef struct BlockClient {
-  DLLIST_node llnode;
-  RedisModuleBlockedClient* bClient;
-} BlockClient;
-
-typedef struct BlockClients {
-  DLLIST clients;
-  pthread_mutex_t lock;
-} BlockClients;
-
 typedef struct GCCallbacks {
   int (*periodicCallback)(RedisModuleCtx* ctx, void* gcCtx);
   void (*renderStats)(RedisModuleCtx* ctx, void* gc);
@@ -34,10 +24,14 @@ typedef struct GCCallbacks {
 typedef struct GCContext {
   void* gcCtx;
   RedisModuleTimerID timerID;
-  BlockClients bClients;
   GCCallbacks callbacks;
   int stopped;
 } GCContext;
+
+typedef struct GCTaskCtx {
+  GCContext* gc;
+  RedisModuleBlockedClient* bClient;
+} GCTaskCtx;
 
 typedef struct IndexSpec IndexSpec;
 GCContext* GCContext_CreateGCFromSpec(IndexSpec* sp, float initialHZ, uint64_t uniqueId,
