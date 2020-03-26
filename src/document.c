@@ -706,6 +706,7 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
 
       switch (fs->types) {
         case INDEXFLD_T_FULLTEXT:
+        case INDEXFLD_T_TAG:
           RSSortingVector_Put(md->sortVector, idx, (void *)RedisModule_StringPtrLen(f->text, NULL),
                               RS_SORTABLE_STR);
           break;
