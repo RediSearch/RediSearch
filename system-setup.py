@@ -43,11 +43,11 @@ class RediSearchSetup(paella.Setup):
             fatal("Xcode tools are not installed. Please run xcode-select --install.")
 
     def common_last(self):
-        if not self.has_command("ramp"):
-            self.pip_install("git+https://github.com/RedisLabs/RAMP --upgrade")
-        if not self.has_command("RLTest"):
-            self.pip_install("git+https://github.com/RedisLabsModules/RLTest.git@master")
-        self.pip_install("redis-py-cluster")
+        self.run("pip uninstall -y -q redis redis-py-cluster ramp-packer RLTest rmtest semantic-version || true") 
+        # redis-py-cluster should be installed from git due to redis-py dependency
+        self.pip_install("--no-cache-dir git+https://github.com/Grokzen/redis-py-cluster.git@master")
+        self.pip_install("--no-cache-dir git+https://github.com/RedisLabsModules/RLTest.git@master")
+        self.pip_install("--no-cache-dir git+https://github.com/RedisLabs/RAMP@master")
         self.pip_install("pudb")
 
 #----------------------------------------------------------------------------------------------
