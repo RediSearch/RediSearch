@@ -138,6 +138,9 @@ static void timerCallback(RedisModuleCtx* ctx, void* data) {
 void GCContext_Start(GCContext* gc) {
   GCTaskCtx* task = GCTaskCreate(gc, NULL);
   gc->timerID = scheduleNext(task);
+  if (gc->timerID == 0) {
+    rm_free(task);
+  }
 }
 
 void GCContext_Stop(GCContext* gc) {
