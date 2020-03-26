@@ -86,6 +86,7 @@ static RedisModuleTimerID scheduleNext(GCContext* gc) {
   if (!RedisModule_CreateTimer) return 0;
   RedisModuleCtx* ctx = RSDummyContext;
   long long period = getNextPeriod(gc);
+  RedisModule_StopTimer(ctx, gc->timerID, NULL);  // ensures single task
   return RedisModule_CreateTimer(ctx, period, timerCallback, gc);
 }
 
@@ -109,7 +110,10 @@ static void threadCallback(void* data) {
     RedisModule_ThreadSafeContextUnlock(ctx);
     return;
   }
-  gc->timerID = scheduleNext(gc);
+  // schedule next if not debug 
+  if (!bClient) {
+    gc->timerID = scheduleNext(gc);
+  }
   RedisModule_ThreadSafeContextUnlock(ctx);
 }
 
@@ -179,9 +183,6 @@ void GCContext_ForceInvoke(GCContext* gc, RedisModuleBlockedClient* bc) {
 }
 
 void GCContext_ForceBGInvoke(GCContext* gc) {
-  RedisModuleCtx* ctx = RSDummyContext;
-  RedisModule_StopTimer(ctx, gc->timerID, NULL);
-
   if (gc->stopped) return;
   thpool_add_work(gcThreadpool_g, threadCallback, gc);
 }
