@@ -395,6 +395,10 @@ class TestAggregate():
                           'LIMIT', 0, 20000000)
         self.env.assertEqual(2266, len(rv))
 
+        # SEARCH should fail
+        self.env.expect('ft.search', 'games', '*', 'limit', 0, 2000000).error()     \
+                .contains('LIMIT exceeds maximum of 1000000')
+        
     # def testLoadAfterSortBy(self):
     #     with self.env.assertResponseError():
     #         self.env.cmd('ft.aggregate', 'games', '*',
