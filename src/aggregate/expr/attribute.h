@@ -6,7 +6,8 @@ extern "C" {
 #include "result_processor.h"
 #include "value.h"
 
-typedef int (*ExprAttributeCallback)(int code, const SearchResult *, RSValue *out);
+typedef int (*ExprAttributeCallback)(int code, const void *evalctx, const SearchResult *,
+                                     RSValue *out);
 
 /**
  * Register an attribute by name. The returned value is the
@@ -25,6 +26,7 @@ const char *Expr_FindAttributeByCode(int code);
 /** Global init/destroy functions */
 void Expr_AttributesInit(void);
 void Expr_AttributesDestroy(void);
+void Expr_AttributesRegisterAll(void);
 
 ExprAttributeCallback Expr_GetAttributeCallback(int code);
 
