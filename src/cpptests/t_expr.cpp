@@ -58,6 +58,10 @@ struct EvalCtx : ExprEval {
     return res_s;
   }
 
+  const RSValue &realResult() const {
+    return *RSValue_Dereference(&res_s);
+  }
+
   bool boolResult() const {
     return RSValue_BoolTest(&res_s);
   }
@@ -314,4 +318,44 @@ TEST_F(ExprTest, testHasField) {
   ASSERT_EQ(EXPR_EVAL_OK, ectx.eval());
   ASSERT_FALSE(ectx.boolResult());
   RedisModule_CloseKey(keyp);
+}
+
+static void populateDocResult(EvalCtx &e, SearchResult &res, RSDocumentMetadata &dmd) {
+  e.kstr = "foo";
+  e.nkstr = 3;
+  res.dmd = &dmd;
+  res.score = 99;
+  res.docId = 100;
+  dmd.score = 42;
+  e.res = &res;
+}
+
+TEST_F(ExprTest, testAttributes) {
+  SearchResult res;
+  RSDocumentMetadata dmd;
+  EvalCtx ectx("$key=='foo'");
+  ASSERT_TRUE(ectx.root != NULL) << ectx.error();
+  populateDocResult(ectx, res, dmd);
+  ASSERT_EQ(EXPR_EVAL_OK, ectx.eval());
+  ASSERT_TRUE(ectx.boolResult());
+
+  ectx.assign("$doc_score");
+  populateDocResult(ectx, res, dmd);
+
+  ASSERT_TRUE(ectx.root != NULL) << ectx.error();
+  ASSERT_EQ(EXPR_EVAL_OK, ectx.eval());
+  ASSERT_EQ(42, ectx.realResult().numval);
+
+  ectx.assign("$result_score");
+  ASSERT_TRUE(ectx.root != NULL);
+  populateDocResult(ectx, res, dmd);
+  ASSERT_EQ(EXPR_EVAL_OK, ectx.eval());
+
+  ASSERT_EQ(99, ectx.realResult().numval);
+
+  ectx.assign("$internal_id");
+  ASSERT_TRUE(ectx.root != NULL);
+  populateDocResult(ectx, res, dmd);
+  ASSERT_EQ(EXPR_EVAL_OK, ectx.eval());
+  ASSERT_EQ(100, ectx.realResult().numval);
 }

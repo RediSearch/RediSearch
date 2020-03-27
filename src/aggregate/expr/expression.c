@@ -196,7 +196,7 @@ static int evalProperty(ExprEval *eval, const RSLookupExpr *e, RSValue *res) {
 static int evalAttribute(ExprEval *eval, int code, RSValue *res) {
   ExprAttributeCallback cb = Expr_GetAttributeCallback(code);
   assert(cb);
-  return cb(code, eval->res, res);
+  return cb(code, eval, eval->res, res);
 }
 
 static int evalInternal(ExprEval *eval, const RSExpr *e, RSValue *res) {

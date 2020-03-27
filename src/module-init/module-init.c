@@ -16,6 +16,7 @@ REDISMODULE_INIT_SYMBOLS();
 #include "extension.h"
 #include "alias.h"
 #include "aggregate/aggregate.h"
+#include "aggregate/expr/attribute.h"
 #include "ext/default.h"
 #include "rules/rules.h"
 
@@ -151,6 +152,8 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
 
   // Register aggregation functions
   RegisterAllFunctions();
+
+  Expr_AttributesInit();
 
   /* Load extensions if needed */
   if (RSGlobalConfig.extLoad != NULL) {
