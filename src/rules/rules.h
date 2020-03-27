@@ -102,6 +102,9 @@ int SchemaRules_IndexDocument(RedisModuleCtx *ctx, IndexSpec *sp, RuleKeyItem *i
 #define RULES_PROCESS_F_NOREINDEX 0x02
 void SchemaRules_ProcessItem(RedisModuleCtx *ctx, RuleKeyItem *item, int flags);
 
+// Get the number of items which are awaiting indexing
+size_t SchemaRules_QueueSize(void);
+
 /**
  * Initializes the global rule list and subscribes to keyspace events
  */

@@ -222,5 +222,21 @@ ssize_t SchemaRules_GetPendingCount(const IndexSpec *spec) {
   return ret;
 }
 
+size_t SchemaRules_QueueSize(void) {
+  AsyncIndexQueue *aiq = asyncQueue_g;
+  size_t ret = 0;
+  pthread_mutex_lock(&aiq->lock);
+  size_t n = array_len(aiq->pending);
+  for (size_t ii = 0; ii < n; ++ii) {
+    SpecDocQueue *dq = aiq->pending[ii];
+    pthread_mutex_lock(&dq->lock);
+    ret += dictSize(dq->entries);
+    ret += dq->nactive;
+    pthread_mutex_unlock(&dq->lock);
+  }
+  pthread_mutex_unlock(&aiq->lock);
+  return ret;
+}
+
 void SDQ_RemoveDoc(SpecDocQueue *sdq, AsyncIndexQueue *aiq, RedisModuleString *keyname) {
 }
