@@ -1,7 +1,5 @@
 from RLTest import Env
-from packaging import version
 from includes import *
-
 
 class TestDebugCommands(object):
 
@@ -128,17 +126,20 @@ class TestDebugCommands(object):
 
 class TestDebugCommandsLogAssert(object):
     # until added to RLtest
-    def skipOnRedisVersion(self, major, minor, patch):
-        server_ver = version.parse(self.env.cmd('info server').split('\r\n')[1].split(':', 1)[-1])
-        req_version = str(major) + '.' + str(minor) + '.' + str(patch)
-        if version.parse(req_version) > server_ver:
-            self.env.skip()
-
+    def skipOnRedisVersion(self, ver):
+        server_ver = self.env.cmd('info server').split('\r\n')[1].split(':', 1)[-1]
+        server_ver_list = server_ver.split('.')
+        ver_list = ver.split('.')
+        for i in range(3):
+            if ver_list[i] < server_ver_list[i]:
+                self.env.skip()
+            elif ver_list[i] > server_ver_list[i]:
+                break
 
     def __init__(self):
         self.env = Env(testName="testing LogAssert command")
         self.env.skipOnCluster()
-        self.skipOnRedisVersion(5, 0, 7)
+        self.skipOnRedisVersion("5.0.7")
 
     def testLogAssert(self):
         result = False
