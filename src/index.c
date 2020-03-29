@@ -738,8 +738,8 @@ static IndexCriteriaTester *II_GetCriteriaTester(void *ctx) {
       tester = IITER_GET_CRITERIA_TESTER(ic->its[i]);
     }
     if (!tester) {
-      for (int j = 0; j < array_len(ic->testers); j++) {
-        ic->testers[i]->Free(ic->testers[i]);
+      for (int j = 0; j < i; j++) {
+        ic->testers[j]->Free(ic->testers[j]);
       }
       array_free(ic->testers);
       return NULL;
