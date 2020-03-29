@@ -123,3 +123,22 @@ class TestDebugCommands(object):
 
     def testNumericIndexSummaryWrongArity(self):
         self.env.expect('FT.DEBUG', 'numidx_summary', 'idx1').raiseError()
+
+'''
+class TestDebugCommandsLogAssert(object):
+    def __init__(self):
+        self.env = Env(testName="testing debug commands")
+        self.env.skipOnCluster()
+        self.env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT', 'SORTABLE', 'age', 'NUMERIC', 'SORTABLE', 't', 'TAG', 'SORTABLE').ok()
+        self.env.expect('FT.ADD', 'idx', 'doc1', '1.0', 'FIELDS', 'name', 'meir', 'age', '29', 't', 'test').ok()
+
+    def testLogAssert(self):
+        result = False
+        logfile_name = self.env.cmd('config get logfile')[1]
+        self.env.expect('FT.DEBUG', 'LogAssert').error()
+        logfile = open('./logs/' + logfile_name, "r")
+        for line in logfile:
+            if (str(line).__contains__('(7 == 42) failed on /home/ariel/redis/RediSearch/src/debug_commads.c:LogAssert')):
+                result = True
+        self.env.assertEqual(result, True)
+'''

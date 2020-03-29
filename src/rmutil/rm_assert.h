@@ -2,6 +2,8 @@
 #define __REDISEARCH_ASSERT__
 
 #include <redismodule.h>
+#include <assert.h>
+#include <unistd.h>
 
 #ifdef NDEBUG
 
@@ -10,12 +12,12 @@
 
 #else
 
-#define RS_LOG_ASSERT_FMT(condition, fmt, ...)                                      \
-    if (!(condition)) {                                                             \
-        RedisModuleCtx* assertCtx = RedisModule_GetThreadSafeContext(NULL);         \
-        RedisModule_Log(assertCtx, "warning", "File %s, Function %s, Line %d - "    \
-                fmt, __FILE__, __func__, __LINE__, __VA_ARGS__);                    \
-        *((char *)NULL) = 0; /* Crashes server crash report*/                       \
+#define RS_LOG_ASSERT_FMT(condition, fmt, ...)                                          \
+    if (!(condition)) {                                                                 \
+        RedisModuleCtx* assertCtx = RedisModule_GetThreadSafeContext(NULL);             \
+        RedisModule_Log(assertCtx, "warning", "(%s) failed on %s:%s, Line %d - " fmt,   \
+                #condition, __FILE__, __func__, __LINE__, __VA_ARGS__);                 \
+        *((char *)NULL) = 0; /* Crashes server and create a crash report*/              \
     } 
 
 #define RS_LOG_ASSERT(condition, str)  RS_LOG_ASSERT_FMT(condition, str "%s", "")
