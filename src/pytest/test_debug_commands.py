@@ -131,9 +131,9 @@ class TestDebugCommandsLogAssert(object):
         server_ver_list = server_ver.split('.')
         ver_list = ver.split('.')
         for i in range(3):
-            if ver_list[i] < server_ver_list[i]:
+            if ver_list[i] > server_ver_list[i]:
                 self.env.skip()
-            elif ver_list[i] > server_ver_list[i]:
+            elif ver_list[i] < server_ver_list[i]:
                 break
 
     def __init__(self):
