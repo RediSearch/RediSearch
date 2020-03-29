@@ -3,8 +3,7 @@
 
 #include <redismodule.h>
 #include <assert.h>
-#include <unistd.h>
-
+#include "module.h"
 #ifdef NDEBUG
 
 #define RS_LOG_ASSERT(ctx, condition, fmt, ...)    (__ASSERT_VOID_CAST (0))
@@ -14,7 +13,7 @@
 
 #define RS_LOG_ASSERT_FMT(condition, fmt, ...)                                          \
     if (!(condition)) {                                                                 \
-        RedisModuleCtx* assertCtx = RedisModule_GetThreadSafeContext(NULL);             \
+        RedisModuleCtx* assertCtx = RSDummyContext;                                     \
         RedisModule_Log(assertCtx, "warning", "(%s) failed on %s:%s, Line %d - " fmt,   \
                 #condition, __FILE__, __func__, __LINE__, __VA_ARGS__);                 \
         *((char *)NULL) = 0; /* Crashes server and create a crash report*/              \

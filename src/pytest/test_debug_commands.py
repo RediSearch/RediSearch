@@ -124,7 +124,7 @@ class TestDebugCommands(object):
     def testNumericIndexSummaryWrongArity(self):
         self.env.expect('FT.DEBUG', 'numidx_summary', 'idx1').raiseError()
 
-'''
+
 class TestDebugCommandsLogAssert(object):
     def __init__(self):
         self.env = Env(testName="testing debug commands")
@@ -138,7 +138,7 @@ class TestDebugCommandsLogAssert(object):
         self.env.expect('FT.DEBUG', 'LogAssert').error()
         logfile = open('./logs/' + logfile_name, "r")
         for line in logfile:
-            if (str(line).__contains__('(7 == 42) failed on /home/ariel/redis/RediSearch/src/debug_commads.c:LogAssert')):
+            #if (str(line).__contains__('(7 == 42) failed on /home/ariel/redis/RediSearch/src/debug_commads.c:LogAssert')):
+            if (str(line).__contains__('Crashed running the instruction at: 0x')):
                 result = True
         self.env.assertEqual(result, True)
-'''
