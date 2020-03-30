@@ -139,10 +139,6 @@ workflows:
               only: '/^v[0-9].*/'
           requires:
             - deploy_snapshots
-      - run_automation:
-          module_version: $CIRCLE_TAG
-          requires:
-            - deploy_release
       # TODO: deploy_docs should run only when 'docs/' or 'mkdocs.yml' change
       - deploy_docs:
         filters:
@@ -150,6 +146,3 @@ workflows:
             only:
               - master
               - /^[0-9]+\.[0-9]+$/
-
-
-
