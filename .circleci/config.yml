@@ -138,7 +138,7 @@ workflows:
             tags:
               only: '/^v[0-9].*/'
           requires:
-            - deploy_snapshots
+            - package_release
       # TODO: deploy_docs should run only when 'docs/' or 'mkdocs.yml' change
       - deploy_docs:
         filters:
