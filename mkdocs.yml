@@ -8,7 +8,9 @@ google_analytics:
   - 'auto'
 markdown_extensions:
   - codehilite
-  - toc(permalink=true, separator="_")
+  - toc:
+      permalink: True
+      separator: "_"
   - admonition
 
 use_directory_urls: false
