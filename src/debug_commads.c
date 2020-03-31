@@ -588,7 +588,7 @@ DEBUG_COMMAND(DocInfo) {
 }
 
 /**
- * FT.DEBUG INDICES_LIST
+ * FT.DEBUG INDEXES_LIST
  */
 DEBUG_COMMAND(IndexList) {
   if (argc != 0) {
@@ -596,15 +596,15 @@ DEBUG_COMMAND(IndexList) {
   }
 
   size_t indicesCount;
-  char **list = NULL;
-  CursorList_GetIndices(&RSCursors, &list, &indicesCount);
+  char **list = CursorList_GetIndexes(&RSCursors);
+  size_t len = array_len(list);
 
-  RedisModule_ReplyWithArray(ctx, indicesCount);
-  for (size_t ii = 0; ii < indicesCount; ++ii) {
+  RedisModule_ReplyWithArray(ctx, len);
+  for (size_t ii = 0; ii < len; ++ii) {
     RedisModule_ReplyWithSimpleString(ctx, list[ii]);
   }
 
-  rm_free(list);
+  array_free(list);
   return REDISMODULE_OK;
 }
 
@@ -626,7 +626,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex},
                                {"NUMIDX_SUMMARY", NumericIndexSummary},
                                {"GC_FORCEINVOKE", GCForceInvoke},
                                {"GC_FORCEBGINVOKE", GCForceBGInvoke},
-                               {"INDICES_LIST", IndexList},
+                               {"INDEXES_LIST", IndexList},
                                {"GIT_SHA", GitSha},
                                {NULL, NULL}};
 
