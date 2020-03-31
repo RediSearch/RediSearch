@@ -145,7 +145,8 @@ void GCContext_Start(GCContext* gc) {
 
 void GCContext_Stop(GCContext* gc) {
   if (!RedisModule_StopTimer) {
-    // for debug
+    // for fork gc debug
+    RedisModule_FreeThreadSafeContext(((ForkGC *)gc->gcCtx)->ctx);
     free(gc->gcCtx);
     free(gc);
     return;
