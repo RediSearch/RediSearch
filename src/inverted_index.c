@@ -215,7 +215,7 @@ ENCODER(encodeDocIdsOnly) {
  * DeltaType{1,2} Float{3}(=0), Tiny{4}(0) -  NumEncoding{5,6,7} Sign{8}
  */
 
-#define NUM_TINYENC_MASK 0x07  // This flag is set if the number is 'tiny'
+#define NUM_TINYENC_MASK 0x0f  // This flag is set if the number is 'tiny'
 
 typedef struct {
   uint8_t deltaEncoding : 2;
