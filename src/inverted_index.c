@@ -285,7 +285,7 @@ ENCODER(encodeNumeric) {
   const double realVal = res->num.value;
   const float f32Num = absVal;
   uint64_t u64Num = (uint64_t)absVal;
-  const uint8_t tinyNum = ((uint8_t)absVal) & NUM_TINYENC_MASK;
+  const uint8_t tinyNum = ((uint8_t)realVal) & NUM_TINYENC_MASK;
 
   EncodingHeader header = {.storage = 0};
 
