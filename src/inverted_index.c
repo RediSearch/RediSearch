@@ -333,18 +333,13 @@ ENCODER(encodeNumeric) {
   } else {
     // Floating point
     NumEncodingFloat *encFloat = &header.encFloat;
-    if (fabs(absVal - f32Num) < 0.01) {
-      sz += Buffer_Write(bw, (void *)&f32Num, 4);
-      encFloat->isDouble = 0;
-    } else {
-      sz += Buffer_Write(bw, (void *)&absVal, 8);
-      encFloat->isDouble = 1;
-    }
+    sz += Buffer_Write(bw, (void *)&realVal, 8);
+    encFloat->isDouble = 1;
 
     encFloat->isFloat = 1;
-    if (realVal < 0) {
+    /*if (realVal < 0) {
       encFloat->sign = 1;
-    }
+    }*/
   }
 
   *BufferWriter_PtrAt(bw, pos) = header.storage;
