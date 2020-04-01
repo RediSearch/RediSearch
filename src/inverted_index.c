@@ -329,17 +329,22 @@ ENCODER(encodeNumeric) {
     if (realVal == -INFINITY) {
       header.encFloat.sign = 1;
     }
-
   } else {
     // Floating point
     NumEncodingFloat *encFloat = &header.encFloat;
-    sz += Buffer_Write(bw, (void *)&realVal, 8);
-    encFloat->isDouble = 1;
+    if (realVal == f32Num) {
+      sz += Buffer_Write(bw, (void *)&f32Num, 4);
+      encFloat->isDouble = 0;
+    } else {
+      sz += Buffer_Write(bw, (void *)&realVal, 8);
+      encFloat->isDouble = 1;
+    }
 
     encFloat->isFloat = 1;
-    /*if (realVal < 0) {
+
+    if (realVal < 0) {
       encFloat->sign = 1;
-    }*/
+    }
   }
 
   *BufferWriter_PtrAt(bw, pos) = header.storage;
@@ -603,16 +608,13 @@ DECODER(readNumeric) {
 
   if (header.encCommon.isFloat) {
     if (header.encFloat.isInf) {
-      res->num.value = INFINITY;
+      res->num.value = !header.encFloat.sign ? INFINITY : - INFINITY;
     } else if (header.encFloat.isDouble) {
       Buffer_Read(br, &res->num.value, 8);
     } else {
       float f;
       Buffer_Read(br, &f, 4);
       res->num.value = f;
-    }
-    if (header.encFloat.sign) {
-      res->num.value = -res->num.value;
     }
   } else if (header.encTiny.isTiny) {
     // Is embedded into the header
