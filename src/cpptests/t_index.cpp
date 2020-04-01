@@ -518,6 +518,7 @@ static const encodingInfo infos[] = {
     {1503342028.957225, 10},   // 21
     {42.4345, 10},             // 22
     {(float)0.5, 6},           // 23
+    {(float)-0.5, 6},          // 23
     {DBL_MAX, 10},             // 24
     {UINT64_MAX >> 12, 9},     // 25
     {INFINITY, 2},             // 26

@@ -283,7 +283,7 @@ static void dumpEncoding(EncodingHeader header, FILE *fp) {
 ENCODER(encodeNumeric) {
   const double absVal = fabs(res->num.value);
   const double realVal = res->num.value;
-  const float f32Num = absVal;
+  const float f32Num = realVal;
   uint64_t u64Num = (uint64_t)absVal;
   const uint8_t tinyNum = ((uint8_t)absVal) & NUM_TINYENC_MASK;
 
