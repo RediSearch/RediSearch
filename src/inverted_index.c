@@ -284,7 +284,6 @@ ENCODER(encodeNumeric) {
   const double absVal = fabs(res->num.value);
   const double realVal = res->num.value;
   const float f32Num = absVal;
-  uint64_t u64Num = (uint64_t)absVal;
   const uint8_t tinyNum = ((uint8_t)absVal) & NUM_TINYENC_MASK;
 
   EncodingHeader header = {.storage = 0};
@@ -306,21 +305,22 @@ ENCODER(encodeNumeric) {
     header.encTiny.tinyValue = tinyNum;
     header.encTiny.isTiny = 1;
 
-  } else if ((double)(uint64_t)absVal == absVal) {
+  } else if ((double)(int64_t)realVal == realVal) {
     // Is a whole number
-    uint64_t wholeNum = absVal;
+    int64_t i64Num = (uint64_t)realVal;
     NumEncodingInt *encInt = &header.encInt;
 
     if (realVal < 0) {
+      i64Num = -i64Num;
       encInt->sign = 1;
     }
 
     size_t numValueBytes = 0;
     do {
-      sz += Buffer_Write(bw, &u64Num, 1);
+      sz += Buffer_Write(bw, &i64Num, 1);
       numValueBytes++;
-      u64Num >>= 8;
-    } while (u64Num);
+      i64Num >>= 8;
+    } while (i64Num);
     encInt->valueByteCount = numValueBytes - 1;
 
   } else if (!isfinite(realVal)) {
