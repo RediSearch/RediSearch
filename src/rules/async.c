@@ -151,6 +151,16 @@ static int sortPending(const void *a, const void *b) {
   return dictSize(qa->entries) - dictSize(qb->entries);
 }
 
+static volatile int isPaused_g;
+
+void SchemaRules_Pause(void) {
+  isPaused_g = 1;
+}
+void SchemaRules_Resume(void) {
+  isPaused_g = 0;
+  pthread_cond_signal(&asyncQueue_g->cond);
+}
+
 static void *aiThreadInit(void *privdata) {
   AsyncIndexQueue *q = privdata;
   struct timespec base_ts = {0};
@@ -168,7 +178,7 @@ static void *aiThreadInit(void *privdata) {
     pthread_mutex_lock(&q->lock);
     size_t nq;
 
-    while ((nq = array_len(q->pending)) == 0) {
+    while ((nq = array_len(q->pending)) == 0 && !isPaused_g) {
       struct timespec ts = {0};
       struct timeval tv;
       gettimeofday(&tv, NULL);

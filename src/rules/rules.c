@@ -15,6 +15,7 @@ static IndexSpec **rindexes_g = NULL;
 
 SchemaRules *SchemaRules_g = NULL;
 AsyncIndexQueue *asyncQueue_g = NULL;
+static SchemaIndexMode userMode_g = SCRULES_MODE_DEFAULT;
 
 SchemaRules *SchemaRules_Create(void) {
   SchemaRules *rules = rm_calloc(1, sizeof(*rules));
@@ -60,6 +61,16 @@ int SchemaRules_IndexDocument(RedisModuleCtx *ctx, IndexSpec *sp, RuleKeyItem *i
   return REDISMODULE_OK;
 }
 
+static int isAsync(IndexSpec *sp, int flags) {
+  if (userMode_g != SCRULES_MODE_DEFAULT) {
+    return userMode_g == SCRULES_MODE_SYNC ? 0 : 1;
+  }
+  if ((flags & RULES_PROCESS_F_ASYNC) || (sp->flags & Index_Async)) {
+    return 1;
+  }
+  return 0;
+}
+
 void SchemaRules_ProcessItem(RedisModuleCtx *ctx, RuleKeyItem *item, int flags) {
   /**
    * Inspect the key, see which indexes match the key, and then perform the appropriate actions,
@@ -80,7 +91,7 @@ void SchemaRules_ProcessItem(RedisModuleCtx *ctx, RuleKeyItem *item, int flags) 
     }
 
     // check if spec uses synchronous or asynchronous indexing..
-    if ((flags & RULES_PROCESS_F_ASYNC) || (spec->flags & Index_Async)) {
+    if (isAsync(spec, flags)) {
       AIQ_Submit(asyncQueue_g, spec, results + ii, item);
     } else {
       QueryError e = {0};

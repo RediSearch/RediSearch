@@ -116,6 +116,18 @@ int SchemaRules_RegisterType(RedisModuleCtx *ctx);
 void SchemaRules_RegisterIndex(IndexSpec *);
 void SchemaRules_UnregisterIndex(IndexSpec *);
 IndexSpec **SchemaRules_GetRegisteredIndexes(size_t *n);
+void SchemaRules_Pause(void);
+void SchemaRules_Resume(void);
+
+typedef enum {
+  SCRULES_MODE_DEFAULT = 0,  // lb
+  SCRULES_MODE_SYNC,
+  SCRULES_MODE_ASYNC
+} SchemaIndexMode;
+
+/** Change the desired mode; used for testing */
+void SchemaRules_SetMode(SchemaIndexMode mode);
+SchemaIndexMode SchemaRules_GetMode(void);
 
 ssize_t SchemaRules_GetPendingCount(const IndexSpec *spec);
 
