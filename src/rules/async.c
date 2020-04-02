@@ -89,13 +89,13 @@ static void freeCallback(RSAddDocumentCtx *ctx, void *unused) {
   ACTX_Free(ctx);
 }
 
-static void indexBatch(AsyncIndexQueue *aiq, SpecDocQueue *dq, dict *entries) {
+static void indexBatch(AsyncIndexQueue *aiq, SpecDocQueue *dq) {
   printf("indexBatch!\n");
   Indexer idxr = {0};
   IndexSpec *sp = dq->spec;
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(RSDummyContext, dq->spec);
   Indexer_Init(&idxr, &sctx);
-  dictIterator *iter = dictGetIterator(entries);
+  dictIterator *iter = dictGetIterator(dq->active);
   dictEntry *e = NULL;
   while ((e = dictNext(iter)) && !(sp->flags & Index_Deleted)) {
     RuleIndexableDocument *rid = e->v.val;
@@ -135,7 +135,7 @@ static void indexBatch(AsyncIndexQueue *aiq, SpecDocQueue *dq, dict *entries) {
   // pending again:
   pthread_mutex_lock(&aiq->lock);
   dq->state &= ~SDQ_S_PROCESSING;
-  dq->nactive = 0;
+  dictEmpty(dq->active, NULL);
 
   if (dictSize(dq->entries)) {
     dq->state = SDQ_S_PENDING;
@@ -143,7 +143,6 @@ static void indexBatch(AsyncIndexQueue *aiq, SpecDocQueue *dq, dict *entries) {
   } else {
     IndexSpec_Decref(dq->spec);
   }
-
   pthread_mutex_unlock(&aiq->lock);
 }
 
@@ -185,19 +184,25 @@ static void *aiThreadInit(void *privdata) {
     qsort(q->pending, nq, sizeof(*q->pending), sortPending);
     SpecDocQueue *dq = q->pending[nq - 1];
     array_del_fast(q->pending, nq - 1);
+
     dict *oldEntries = dq->entries;
-    dq->entries = newdict;
-    dq->nactive = dictSize(oldEntries);
+    dq->entries = dq->active;
+    dq->active = oldEntries;
     dq->state = SDQ_S_PROCESSING;
+    if (!dq->entries) {
+      dq->entries = newdict;
+      newdict = NULL;
+    }
 
     newdict = NULL;
     pthread_mutex_unlock(&q->lock);
-    indexBatch(q, dq, oldEntries);
+    indexBatch(q, dq);
 
     if (!newdict) {
       newdict = dictCreate(&dictTypeHeapRedisStrings, NULL);
     }
   }
+
   if (newdict) {
     dictRelease(newdict);
   }
@@ -215,7 +220,7 @@ ssize_t SchemaRules_GetPendingCount(const IndexSpec *spec) {
   pthread_mutex_lock(&aiq->lock);
   pthread_mutex_lock(&dq->lock);
 
-  ret = dq->nactive + dictSize(dq->entries);
+  ret = dictSize(dq->active) + dictSize(dq->entries);
 
   pthread_mutex_unlock(&dq->lock);
   pthread_mutex_unlock(&aiq->lock);
@@ -231,7 +236,7 @@ size_t SchemaRules_QueueSize(void) {
     SpecDocQueue *dq = aiq->pending[ii];
     pthread_mutex_lock(&dq->lock);
     ret += dictSize(dq->entries);
-    ret += dq->nactive;
+    ret += dictSize(dq->active);
     pthread_mutex_unlock(&dq->lock);
   }
   pthread_mutex_unlock(&aiq->lock);
@@ -239,4 +244,89 @@ size_t SchemaRules_QueueSize(void) {
 }
 
 void SDQ_RemoveDoc(SpecDocQueue *sdq, AsyncIndexQueue *aiq, RedisModuleString *keyname) {
+}
+
+static void saveDict(dict *d, RedisModuleIO *rdb) {
+  dictIterator *it = dictGetIterator(d);
+  dictEntry *e;
+  while ((e = dictNext(it))) {
+    RedisModule_SaveString(rdb, e->key);
+  }
+  dictReleaseIterator(it);
+}
+
+void AIQ_SaveQueue(AsyncIndexQueue *aq, RedisModuleIO *rdb) {
+  // The _names_ of all the indexes which are pending; followed by the
+  // _names_ of the items in the queue
+  size_t n;
+  IndexSpec **regs = SchemaRules_GetRegisteredIndexes(&n);
+  for (size_t ii = 0; ii < n; ++ii) {
+    IndexSpec *sp = regs[ii];
+    SpecDocQueue *dq = sp->queue;
+    size_t nq = SchemaRules_GetPendingCount(sp);
+    if (nq == 0 || dq == NULL) {
+      continue;
+    }
+    RedisModule_SaveStringBuffer(rdb, sp->name, strlen(sp->name));
+    RedisModule_SaveUnsigned(rdb, nq);
+    if (dq->active) {
+      saveDict(dq->active, rdb);
+    }
+    if (dq->entries) {
+      saveDict(dq->entries, rdb);
+    }
+  }
+  // To finish the list, save the NULL buffer
+  char c = 0;
+  RedisModule_SaveStringBuffer(rdb, &c, 1);
+}
+
+static void addFromRdb(AsyncIndexQueue *aq, IndexSpec *sp, RedisModuleIO *rdb) {
+  size_t n = RedisModule_LoadUnsigned(rdb);
+  for (size_t ii = 0; ii < n; ++ii) {
+    // Get the name
+    RedisModuleString *kstr = RedisModule_LoadString(rdb);
+    RuleKeyItem rki = {.kstr = kstr};
+    MatchAction m = {0};
+    AIQ_Submit(aq, sp, &m, &rki);
+    RedisModule_FreeString(NULL, kstr);
+  }
+}
+
+int AIQ_LoadQueue(AsyncIndexQueue *aq, RedisModuleIO *rdb) {
+  char *indexName = NULL;
+  size_t nbuf = 0;
+  int rv = REDISMODULE_OK;
+  size_t nregs = 0;
+  IndexSpec **regs = SchemaRules_GetRegisteredIndexes(&nregs);
+  while (rv == REDISMODULE_OK) {
+    indexName = RedisModule_LoadStringBuffer(rdb, &nbuf);
+    if (*indexName == 0) {
+      // End of list
+      break;
+    }
+
+    // Find the index/doc queue this is registered to
+    IndexSpec *sp = NULL;
+    for (size_t ii = 0; ii < nregs; ++ii) {
+      size_t nname = strlen(regs[ii]->name);
+      if (nname != nbuf || strncmp(indexName, regs[ii]->name, nbuf)) {
+        continue;
+      }
+      sp = regs[ii];
+      break;
+    }
+
+    if (!sp) {
+      rv = REDISMODULE_ERR;
+      break;  // Couldn't find the index. Not registered
+    }
+    addFromRdb(aq, sp, rdb);
+    rm_free(indexName);
+  }
+
+  if (indexName) {
+    rm_free(indexName);
+  }
+  return rv;
 }

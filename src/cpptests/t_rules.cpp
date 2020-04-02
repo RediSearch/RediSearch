@@ -14,7 +14,7 @@ TEST_F(RulesTest, testBasic) {
   ASSERT_TRUE(rules != NULL);
   ArgsCursorCXX args("PREFIX", "user:", "index");
   QueryError err = {QUERY_OK};
-  int rc = SchemaRules_AddArgs(rules, "idx", "myrule", &args, &err);
+  int rc = SchemaRules_AddArgs("idx", "myrule", &args, &err);
   ASSERT_EQ(REDISMODULE_OK, rc) << QueryError_GetError(&err);
 
   SchemaRule *r = rules->rules[0];

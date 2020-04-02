@@ -780,14 +780,13 @@ static int RuleAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   const char *idxstr = AC_GetStringNC(&ac, NULL);
   const char *name = AC_GetStringNC(&ac, NULL);
   QueryError err = {0};
-  int rc = SchemaRules_AddArgs(SchemaRules_g, idxstr, name, &ac, &err);
+  int rc = SchemaRules_AddArgs(idxstr, name, &ac, &err);
   if (rc != REDISMODULE_OK) {
     RedisModule_ReplyWithError(ctx, QueryError_GetError(&err));
     QueryError_ClearError(&err);
   } else {
     RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
-  SchemaRules_StartScan();
   return REDISMODULE_OK;
 }
 

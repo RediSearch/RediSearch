@@ -107,6 +107,14 @@ static int hashCallback(RedisModuleCtx *ctx, int unused, const char *action,
   return REDISMODULE_OK;
 }
 
+/**
+ * In CRDT, any changes will go through the HASH callback, and it will
+ * come with a simple 'change' event, which _includes_ deletions. The only
+ * way to detect this is to actually open the key and see if it exists or
+ * not. Sad!
+ */
+// static int crdtChangedCallback(...)
+
 static int delCallback(RedisModuleCtx *ctx, int event, const char *action,
                        RedisModuleString *keyname) {
   int shouldDelete = 0;
@@ -181,6 +189,19 @@ void SchemaRules_UnregisterIndex(IndexSpec *sp) {
   }
 }
 
+IndexSpec **SchemaRules_GetRegisteredIndexes(size_t *n) {
+  *n = array_len(rindexes_g);
+  return rindexes_g;
+}
+
+int SchemaRules_AddArgs(const char *index, const char *name, ArgsCursor *ac, QueryError *err) {
+  int rc = SchemaRules_AddArgsInternal(SchemaRules_g, index, name, ac, err);
+  if (rc == REDISMODULE_OK) {
+    SchemaRules_g->revision++;
+    SchemaRules_StartScan();
+  }
+  return rc;
+}
 #define RULES_CURRENT_VERSION 0
 
 /**
@@ -193,12 +214,14 @@ void SchemaRules_UnregisterIndex(IndexSpec *sp) {
  */
 
 static void rulesAuxSave(RedisModuleIO *rdb, int when) {
-  if (when != REDISMODULE_AUX_BEFORE_RDB) {
+  if (when == REDISMODULE_AUX_AFTER_RDB) {
+    AIQ_SaveQueue(asyncQueue_g, rdb);
     return;
   }
+
   SchemaRules *rules = SchemaRules_g;
+  RedisModule_SaveUnsigned(rdb, rules->revision);
   RedisModule_SaveUnsigned(rdb, array_len(rules->rules));
-  DLLIST_node *nn;
   size_t nrules = array_len(rules->rules);
   for (size_t ii = 0; ii < nrules; ++ii) {
     SchemaRule *r = rules->rules[ii];
@@ -218,11 +241,15 @@ static int rulesAuxLoad(RedisModuleIO *rdb, int encver, int when) {
   if (encver > RULES_CURRENT_VERSION) {
     return REDISMODULE_ERR;
   }
-  if (when != REDISMODULE_AUX_BEFORE_RDB) {
-    return REDISMODULE_OK;
+  if (when == REDISMODULE_AUX_AFTER_RDB) {
+    // Handle async queue loading
+    return AIQ_LoadQueue(asyncQueue_g, rdb);
   }
 
+  // Before RDB
+
   SchemaRules *rules = SchemaRules_g;
+  rules->revision = RedisModule_LoadUnsigned(rdb);
 
   size_t nrules = RedisModule_LoadUnsigned(rdb);
   for (size_t ii = 0; ii < nrules; ++ii) {
@@ -237,8 +264,8 @@ static int rulesAuxLoad(RedisModuleIO *rdb, int encver, int when) {
     ArgsCursor ac = {0};
     ArgsCursor_InitRString(&ac, args, nargs);
     QueryError status = {0};
-    int rc = SchemaRules_AddArgs(rules, RedisModule_StringPtrLen(index, NULL),
-                                 RedisModule_StringPtrLen(name, NULL), &ac, &status);
+    int rc = SchemaRules_AddArgsInternal(rules, RedisModule_StringPtrLen(index, NULL),
+                                         RedisModule_StringPtrLen(name, NULL), &ac, &status);
     if (rc != REDISMODULE_OK) {
       printf("Couldn't load rules: %s\n", QueryError_GetError(&status));
     }

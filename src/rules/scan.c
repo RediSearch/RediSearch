@@ -1,6 +1,7 @@
 #include "rules.h"
 #include "ruledefs.h"
 #include "module.h"
+#include "rmutil/util.h"
 #include <sched.h>
 
 #define SCAN_BATCH_SIZE 100
@@ -9,9 +10,9 @@
 
 typedef enum {
   SCAN_STATE_UNINIT = 0,
-  SCAN_STATE_STOPPED,
-  SCAN_STATE_RUNNING,
-  SCAN_STATE_CANCELLED  // lb
+  SCAN_STATE_STOPPED = 1,
+  SCAN_STATE_RUNNING = 2,
+  SCAN_STATE_CANCELLED = 3,  // lb
 } ScanState;
 
 typedef struct {
@@ -28,6 +29,7 @@ typedef struct {
   ScanState state;
   pthread_t thr;
   scanCursor cursor;
+  uint64_t rulesRevision;
 } Scanner;
 
 static Scanner scanner_g;
@@ -143,7 +145,17 @@ void SchemaRules_StartScan(void) {
 
   memset(&scanner_g, 0, sizeof(scanner_g));
   scanner_g.state = SCAN_STATE_RUNNING;
+  scanner_g.rulesRevision = SchemaRules_g->revision;
   pthread_create(&scanner_g.thr, NULL, scanThread, &scanner_g);
+}
+
+uint64_t SchemaRules_ScanRevision(void) {
+  ScanState state = scanner_g.state;
+  if (state == SCAN_STATE_STOPPED || state == SCAN_STATE_UNINIT) {
+    return scanner_g.rulesRevision;
+  } else {
+    return scanner_g.rulesRevision - 1;
+  }
 }
 
 void SchemaRules_ReplySyncInfo(RedisModuleCtx *ctx, IndexSpec *sp) {

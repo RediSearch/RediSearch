@@ -172,9 +172,10 @@ struct IoQueue;
 
 typedef struct {
   IndexSpec *spec;
+  // Entries which are awaiting indexing
+  // Entries which are currently being indexed
   dict *entries;
-  // How many documents are being actively indexed at the moment
-  volatile size_t nactive;
+  dict *active;
   pthread_mutex_t lock;
   int state; // SDQ_S_xxx
 } SpecDocQueue;

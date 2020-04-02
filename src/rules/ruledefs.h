@@ -61,8 +61,12 @@ typedef struct {
 
 struct SchemaRules {
   SchemaRule **rules;
+
   // Cached array...
   MatchAction *actions;
+
+  // Incremented whenever the rules are changed
+  uint64_t revision;
 };
 
 typedef enum {

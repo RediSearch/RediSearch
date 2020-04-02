@@ -34,8 +34,10 @@ void SchemaRules_Free(SchemaRules *rules);
  *
  * Note, this function consumes only a single rule.
  */
-int SchemaRules_AddArgs(SchemaRules *rules, const char *index, const char *name, ArgsCursor *ac,
-                        QueryError *err);
+int SchemaRules_AddArgs(const char *index, const char *name, ArgsCursor *ac, QueryError *err);
+
+int SchemaRules_AddArgsInternal(SchemaRules *rules, const char *index, const char *name,
+                                ArgsCursor *ac, QueryError *err);
 
 typedef struct {
   char *language;  // can be an enum??
@@ -113,6 +115,8 @@ void SchemaRules_ShutdownGlobal();
 int SchemaRules_RegisterType(RedisModuleCtx *ctx);
 void SchemaRules_RegisterIndex(IndexSpec *);
 void SchemaRules_UnregisterIndex(IndexSpec *);
+IndexSpec **SchemaRules_GetRegisteredIndexes(size_t *n);
+
 ssize_t SchemaRules_GetPendingCount(const IndexSpec *spec);
 
 extern AsyncIndexQueue *asyncQueue_g;
@@ -120,6 +124,8 @@ extern AsyncIndexQueue *asyncQueue_g;
 AsyncIndexQueue *AIQ_Create(size_t interval, size_t batchSize);
 void AIQ_Destroy(AsyncIndexQueue *aq);
 void AIQ_Submit(AsyncIndexQueue *aq, IndexSpec *spec, MatchAction *result, RuleKeyItem *item);
+int AIQ_LoadQueue(AsyncIndexQueue *aq, RedisModuleIO *rdb);
+void AIQ_SaveQueue(AsyncIndexQueue *aq, RedisModuleIO *rdb);
 
 #ifdef __cplusplus
 }

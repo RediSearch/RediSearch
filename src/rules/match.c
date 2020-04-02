@@ -172,8 +172,8 @@ static int matchHasfield(const SchemaRule *r, RedisModuleCtx *ctx, RuleKeyItem *
   return ret;
 }
 
-int SchemaRules_AddArgs(SchemaRules *rules, const char *index, const char *name, ArgsCursor *ac,
-                        QueryError *err) {
+int SchemaRules_AddArgsInternal(SchemaRules *rules, const char *index, const char *name,
+                                ArgsCursor *ac, QueryError *err) {
   // First argument is the name...
   size_t beginpos = AC_Tell(ac);
   const char *rtype = NULL;
