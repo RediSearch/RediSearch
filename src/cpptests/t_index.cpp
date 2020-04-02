@@ -518,12 +518,13 @@ static const encodingInfo infos[] = {
     {549755813888.0 - 23, 7},  // 21
     {-549755813888.0, 7},      // 22
     {1503342028.957225, 10},   // 23
-    {42.4345, 6},              // 24
+    {42.4345, 10},             // 24
     {(float)0.5, 6},           // 25
-    {DBL_MAX, 10},             // 26
-    {UINT64_MAX >> 12, 9},     // 27
-    {INFINITY, 2},             // 28
-    {-INFINITY, 2}             // 29
+    {(float)-0.5, 6},          // 26
+    {DBL_MAX, 10},             // 27
+    {UINT64_MAX >> 12, 9},     // 28
+    {INFINITY, 2},             // 29
+    {-INFINITY, 2}             // 30
 };
 
 TEST_F(IndexTest, testNumericEncoding) {

@@ -283,7 +283,7 @@ static void dumpEncoding(EncodingHeader header, FILE *fp) {
 ENCODER(encodeNumeric) {
   const double absVal = fabs(res->num.value);
   const double realVal = res->num.value;
-  const float f32Num = absVal;
+  const float f32Num = realVal;
   uint64_t u64Num = (uint64_t)absVal;
   const uint8_t tinyNum = ((uint8_t)realVal) & NUM_TINYENC_MASK;
 
@@ -329,19 +329,19 @@ ENCODER(encodeNumeric) {
     if (realVal == -INFINITY) {
       header.encFloat.sign = 1;
     }
-
   } else {
     // Floating point
     NumEncodingFloat *encFloat = &header.encFloat;
-    if (fabs(absVal - f32Num) < 0.01) {
+    if (realVal == f32Num) {
       sz += Buffer_Write(bw, (void *)&f32Num, 4);
       encFloat->isDouble = 0;
     } else {
-      sz += Buffer_Write(bw, (void *)&absVal, 8);
+      sz += Buffer_Write(bw, (void *)&realVal, 8);
       encFloat->isDouble = 1;
     }
 
     encFloat->isFloat = 1;
+
     if (realVal < 0) {
       encFloat->sign = 1;
     }
@@ -608,16 +608,13 @@ DECODER(readNumeric) {
 
   if (header.encCommon.isFloat) {
     if (header.encFloat.isInf) {
-      res->num.value = INFINITY;
+      res->num.value = !header.encFloat.sign ? INFINITY : - INFINITY;
     } else if (header.encFloat.isDouble) {
       Buffer_Read(br, &res->num.value, 8);
     } else {
       float f;
       Buffer_Read(br, &f, 4);
       res->num.value = f;
-    }
-    if (header.encFloat.sign) {
-      res->num.value = -res->num.value;
     }
   } else if (header.encTiny.isTiny) {
     // Is embedded into the header
