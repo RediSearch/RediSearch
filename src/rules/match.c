@@ -70,40 +70,41 @@ expr_err:
   return NULL;
 }
 
-static SchemaAction *extractAction(const char *atype, ArgsCursor *ac, QueryError *err) {
-  SchemaAction *ret = rm_calloc(1, sizeof(*ret));
+static int extractAction(const char *atype, SchemaAction *action, ArgsCursor *ac, QueryError *err) {
   if (!strcasecmp(atype, "INDEX")) {
-    ret->atype = SCACTION_TYPE_INDEX;
+    action->atype = SCACTION_TYPE_INDEX;
   } else if (!strcasecmp(atype, "ABORT")) {
-    ret->atype = SCACTION_TYPE_ABORT;
+    action->atype = SCACTION_TYPE_ABORT;
   } else if (!strcasecmp(atype, "GOTO")) {
     const char *target;
     if (AC_GetString(ac, &target, NULL, 0) != AC_OK) {
       QueryError_SetError(err, QUERY_EPARSEARGS, "Missing GOTO target");
-      rm_free(ret);
-      return NULL;
+      return REDISMODULE_ERR;
     }
-    ret->atype = SCACTION_TYPE_GOTO;
-    ret->u.goto_ = rm_strdup(target);
+    action->atype = SCACTION_TYPE_GOTO;
+    action->u.goto_ = rm_strdup(target);
   } else if (!strcasecmp(atype, "SETATTRS")) {
     // pairwise name/value
     ArgsCursor sub_ac = {0};
     if (AC_GetVarArgs(ac, &sub_ac) != AC_OK) {
       QueryError_SetErrorFmt(err, QUERY_EPARSEARGS, "Missing attributes for action");
-      rm_free(ret);
-      return NULL;
+      return REDISMODULE_ERR;
     }
     if (sub_ac.argc % 2) {
       QueryError_SetError(err, QUERY_EPARSEARGS, "Attributes must be specified in k/v pairs");
-      // TODO parse actions
+      for (size_t ii = 0; ii < sub_ac.argc; ii += 2) {
+        const char *attrtype = AC_GetStringNC(&sub_ac, NULL);
+        if (!strcasecmp(attrtype, "LANGUAGE")) {
+          // todo: fill language
+        }
+      }
     }
-    ret->atype = SCACTION_TYPE_SETATTR;
+    action->atype = SCACTION_TYPE_SETATTR;
   } else {
     QueryError_SetErrorFmt(err, QUERY_EPARSEARGS, "Unknown action type `%s`", atype);
-    rm_free(ret);
-    return NULL;
+    return REDISMODULE_ERR;
   }
-  return ret;
+  return REDISMODULE_OK;
 }
 
 static int matchExpression(const SchemaRule *r, RedisModuleCtx *ctx, RuleKeyItem *item) {
@@ -172,6 +173,51 @@ static int matchHasfield(const SchemaRule *r, RedisModuleCtx *ctx, RuleKeyItem *
   return ret;
 }
 
+void SchemaRule_Free(SchemaRule *r) {
+  switch (r->rtype) {
+    case SCRULE_TYPE_EXPRESSION: {
+      SchemaExprRule *serule = (SchemaExprRule *)r;
+      RSExpr_Free(serule->exprobj);
+      rm_free(serule->exprstr);
+      break;
+    }
+    case SCRULE_TYPE_HASFIELD: {
+      SchemaHasFieldRule *hfrule = (SchemaHasFieldRule *)r;
+      rm_free(hfrule->field);
+      break;
+    }
+    case SCRULE_TYPE_KEYPREFIX: {
+      SchemaPrefixRule *prule = (SchemaPrefixRule *)r;
+      rm_free(prule->prefix);
+      break;
+    }
+    case SCRULE_TYPE_MATCHALL:
+      break;
+  }
+
+  size_t n = array_len(r->rawrule);
+  for (size_t ii = 0; ii < n; ++ii) {
+    rm_free(r->rawrule[ii]);
+  }
+  rm_free(r->name);
+  rm_free(r->index);
+  SchemaAction *action = &r->action;
+
+  switch (action->atype) {
+    case SCACTION_TYPE_GOTO:
+      rm_free(action->u.goto_);
+      break;
+    case SCACTION_TYPE_SETATTR:
+      rm_free(action->u.setattr.attrs.language);
+      break;
+    case SCACTION_TYPE_ABORT:
+    case SCACTION_TYPE_INDEX:
+    default:
+      break;
+  }
+  array_free(r->rawrule);
+}
+
 int SchemaRules_AddArgsInternal(SchemaRules *rules, const char *index, const char *name,
                                 ArgsCursor *ac, QueryError *err) {
   // First argument is the name...
@@ -204,8 +250,7 @@ int SchemaRules_AddArgsInternal(SchemaRules *rules, const char *index, const cha
   if (AC_GetString(ac, &astr, NULL, 0) != AC_OK) {
     astr = "INDEX";
   }
-  r->action = extractAction(astr, ac, err);
-  if (r->action == NULL) {
+  if (extractAction(astr, &r->action, ac, err) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
   r->index = rm_strdup(index);
@@ -248,7 +293,7 @@ int SchemaRules_Check(const SchemaRules *rules, RedisModuleCtx *ctx, RuleKeyItem
 
     // MatchActions contain the settings, per-index; we first find the result for
     // the given index, and if we can't find it, we create it.
-    switch (rule->action->atype) {
+    switch (rule->action.atype) {
       case SCACTION_TYPE_ABORT:
         goto end_match;
       case SCACTION_TYPE_INDEX:
@@ -256,7 +301,7 @@ int SchemaRules_Check(const SchemaRules *rules, RedisModuleCtx *ctx, RuleKeyItem
         break;
       case SCACTION_TYPE_GOTO: {
         for (size_t jj = ii; jj < nrules; ++jj) {
-          if (!strcmp(rule->action->u.goto_, rules->rules[jj]->name)) {
+          if (!strcmp(rule->action.u.goto_, rules->rules[jj]->name)) {
             ii = jj;
             goto eval_rule;
           }
@@ -278,16 +323,14 @@ int SchemaRules_Check(const SchemaRules *rules, RedisModuleCtx *ctx, RuleKeyItem
       curAction->attrs.score = 0;
       curAction->attrs.npayload = 0;
     }
-    if (rule->action->atype == SCACTION_TYPE_SETATTR) {
-      SchemaAttrValue *attr = rule->action->u.attr;
-      switch (attr->type) {
-        case SCATTR_TYPE_LANGUAGE:
-          curAction->attrs.language = attr->value;
-          break;
-        case SCATTR_TYPE_SCORE:
-          curAction->attrs.score = (float)(uintptr_t)attr->value;
-        default:
-          break;
+    if (rule->action.atype == SCACTION_TYPE_SETATTR) {
+      const IndexItemAttrs *attr = &rule->action.u.setattr.attrs;
+      int mask = rule->action.u.setattr.mask;
+      if (mask & SCATTR_TYPE_LANGUAGE) {
+        curAction->attrs.language = attr->language;
+      }
+      if (mask & SCATTR_TYPE_SCORE) {
+        curAction->attrs.score = attr->score;
       }
     }
   next_rule:;

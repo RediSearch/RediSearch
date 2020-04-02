@@ -790,6 +790,11 @@ static int RuleAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   return REDISMODULE_OK;
 }
 
+static int RulesSetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  ArgsCursor ac = {0};
+  ArgsCursor_InitRString(&ac, argv + 1, argc - 1);
+}
+
 int ConfigCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // Not bound to a specific index, so...
   RedisModule_AutoMemory(ctx);

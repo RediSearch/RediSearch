@@ -24,6 +24,13 @@ SchemaRules *SchemaRules_Create(void) {
   return rules;
 }
 
+void SchemaRules_Clean(SchemaRules *rules) {
+  size_t n = array_len(rules->rules);
+  for (size_t ii = 0; ii < n; ++ii) {
+    SchemaRule *rule = rules->rules[ii];
+  }
+}
+
 RSAddDocumentCtx *SchemaRules_InitACTX(RedisModuleCtx *ctx, IndexSpec *sp, RuleKeyItem *item,
                                        const IndexItemAttrs *attrs, QueryError *e) {
   Document d = {0};
@@ -203,6 +210,42 @@ void SchemaRules_UnregisterIndex(IndexSpec *sp) {
 IndexSpec **SchemaRules_GetRegisteredIndexes(size_t *n) {
   *n = array_len(rindexes_g);
   return rindexes_g;
+}
+
+int SchemaRules_SetArgs(ArgsCursor *ac, QueryError *err) {
+  size_t n = 0;
+  int rc;
+  if ((rc = AC_GetSize(ac, &n, 0) != AC_OK)) {
+    QERR_MKBADARGS_AC(err, "<num args>", rc);
+    return REDISMODULE_ERR;
+  }
+
+  SchemaRules rules = {0};
+  for (size_t ii = 0; ii < n; ++ii) {
+    ArgsCursor subac = {0};
+    if ((rc = AC_GetVarArgs(ac, &subac)) != AC_OK) {
+      QERR_MKBADARGS_AC_FMT(err, rc, "While parsing rule %u/%u", ii, n);
+      goto done;
+    }
+    if (AC_NumRemaining(&subac) < 4) {
+      QERR_MKBADARGS_FMT(err, "Not enough arguments for rule %u/%u", ii, n);
+      goto done;
+    }
+    const char *name = AC_GetStringNC(&subac, NULL);
+    const char *index = AC_GetStringNC(&subac, NULL);
+    if (SchemaRules_AddArgs(index, name, &subac, err) != REDISMODULE_OK) {
+      goto done;
+    }
+  }
+  SchemaRules *oldrules = SchemaRules_g;
+  SchemaRules_Clean(oldrules);
+
+done:
+  SchemaRules_Clean(&rules);
+  if (QueryError_HasError(err)) {
+    return REDISMODULE_ERR;
+  }
+  return REDISMODULE_OK;
 }
 
 int SchemaRules_AddArgs(const char *index, const char *name, ArgsCursor *ac, QueryError *err) {

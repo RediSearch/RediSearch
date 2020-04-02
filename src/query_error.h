@@ -88,6 +88,9 @@ void QueryError_SetErrorFmt(QueryError *status, QueryErrorCode code, const char 
 #define QERR_MKBADARGS_AC(status, name, rv)                                          \
   QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Bad arguments for %s: %s", name, \
                          AC_Strerror(rv))
+/** Convenience macro to extract the error string of the argument parser */
+#define QERR_MKBADARGS_AC_FMT(status, rv, fmt, ...) \
+  QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, fmt "%s", ##__VA_ARGS__, AC_Strerror(rv))
 
 #define QERR_MKSYNTAXERR(status, ...) QueryError_SetErrorFmt(status, QUERY_ESYNTAX, ##__VA_ARGS__)
 

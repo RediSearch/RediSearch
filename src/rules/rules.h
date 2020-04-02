@@ -20,6 +20,7 @@ typedef struct SchemaRule SchemaRule;
 // Create the rule list. This is usually global..
 SchemaRules *SchemaRules_Create(void);
 void SchemaRules_Free(SchemaRules *rules);
+void SchemaRules_Clean(SchemaRules *rules);
 
 /**
  * Add rules pertaining to an index

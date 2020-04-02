@@ -19,7 +19,7 @@ TEST_F(RulesTest, testBasic) {
 
   SchemaRule *r = rules->rules[0];
   ASSERT_EQ(SCRULE_TYPE_KEYPREFIX, r->rtype);
-  ASSERT_EQ(SCACTION_TYPE_INDEX, r->action->atype);
+  ASSERT_EQ(SCACTION_TYPE_INDEX, r->action.atype);
   SchemaPrefixRule *pr = (SchemaPrefixRule *)r;
   ASSERT_STREQ("user:", pr->prefix);
 

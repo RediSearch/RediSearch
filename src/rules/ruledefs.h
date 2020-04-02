@@ -29,11 +29,22 @@ typedef enum {
 
 typedef struct SchemaAction SchemaAction;
 
-#define SCHEMA_RULE_HEAD       \
-  SchemaRuleType rtype;        \
-  const char *index;           \
-  const char *name;            \
-  struct SchemaAction *action; \
+struct SchemaAction {
+  SchemaActionType atype;
+  union {
+    struct {
+      IndexItemAttrs attrs;
+      int mask;
+    } setattr;
+    char *goto_;
+  } u;
+};
+
+#define SCHEMA_RULE_HEAD      \
+  SchemaRuleType rtype;       \
+  char *index;                \
+  char *name;                 \
+  struct SchemaAction action; \
   char **rawrule;  // Raw text of the rule itself
 
 struct SchemaRule {
@@ -72,18 +83,4 @@ struct SchemaRules {
 typedef enum {
   SCATTR_TYPE_LANGUAGE = 0x01,
   SCATTR_TYPE_SCORE = 0x02,
-  SCATTR_TYPE_PAYLOAD = 0x03
 } SchemaAttrType;
-
-typedef struct {
-  SchemaAttrType type;
-  void *value;
-} SchemaAttrValue;
-
-struct SchemaAction {
-  SchemaActionType atype;
-  union {
-    SchemaAttrValue *attr;
-    char *goto_;
-  } u;
-};
