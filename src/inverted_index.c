@@ -14,10 +14,10 @@
 uint64_t TotalIIBlocks = 0;
 
 // The number of entries in each index block. A new block will be created after every N entries
-#define INDEX_BLOCK_SIZE 100
+#define INDEX_BLOCK_SIZE 1
 
 // Initial capacity (in bytes) of a new block
-#define INDEX_BLOCK_INITIAL_CAP 6
+#define INDEX_BLOCK_INITIAL_CAP 1
 
 // The last block of the index
 #define INDEX_LAST_BLOCK(idx) (idx->blocks[idx->size - 1])
