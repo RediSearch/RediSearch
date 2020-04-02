@@ -282,7 +282,7 @@ static int getNextEntry(va_list &ap, HashValue::Key &e, void **vpp) {
     return ENTRY_DONE;
   }
   *vpp = va_arg(ap, RedisModuleString *);
-  if (!vpp) {
+  if (!*vpp) {
     return ENTRY_ERROR;
   }
   e.rawkey = kp;
@@ -636,6 +636,27 @@ Module::ModuleMap Module::modules;
 std::vector<KVDB *> KVDB::dbs;
 static int RMCK_GetApi(const char *s, void *pp);
 
+/** Keyspace Events */
+std::vector<KeyspaceEventFunction> KeyspaceEvents_g;
+
+void KeyspaceEventFunction::notify(const char *action, int events, const char *key) {
+  RMCK::RString rstring(key);
+  for (auto ff : KeyspaceEvents_g) {
+    if (ff.events & events) {
+      ff.call(action, events, rstring);
+    }
+  }
+}
+
+static int RMCK_SubscribeToKeyspaceEvents(RedisModuleCtx *, int types,
+                                          RedisModuleNotificationFunc cb) {
+  KeyspaceEventFunction fn;
+  fn.fn = cb;
+  fn.events = types;
+  KeyspaceEvents_g.push_back(fn);
+  return REDISMODULE_OK;
+}
+
 /** Misc */
 RedisModuleCtx::~RedisModuleCtx() {
   if (automemory) {
@@ -739,6 +760,8 @@ static void registerApis() {
   REGISTER_API(AutoMemory);
   REGISTER_API(ExportSharedAPI);
   REGISTER_API(GetSharedAPI);
+
+  REGISTER_API(SubscribeToKeyspaceEvents);
 }
 
 static int RMCK_GetApi(const char *s, void *pp) {

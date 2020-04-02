@@ -293,11 +293,15 @@ typedef enum {
   RLOOKUP_LOAD_LKKEYS
 } RLookupLoadFlags;
 
+typedef enum {
+  RLOOKUP_KEY_INVALID = 0,
+  RLOOKUP_KEY_CSTR,  // lb
+  RLOOKUP_KEY_RSTR,
+  RLOOKUP_KEY_OBJ
+} RLookupKeyType;
+
 typedef struct {
   struct RedisSearchCtx *sctx;
-
-  /** Needed for the key name, and perhaps the sortable */
-  const RSDocumentMetadata *dmd;
 
   /** Keys to load. If present, then loadNonCached and loadAllFields is ignored */
   const RLookupKey **keys;
@@ -311,9 +315,12 @@ typedef struct {
   RLookupLoadFlags mode;
 
   /**
-   * Don't use sortables when loading documents. This might be used to ensure
-   * that only the exact document and not a normalized version is employed
+   * Sortables to use for lookup values. If no sortable array is supplied, then
+   * the values will always be loaded from the hash
    */
+  const RSSortingVector *sv;
+
+  // TODO: Still needed?
   int noSortables;
 
   /**
@@ -321,6 +328,16 @@ typedef struct {
    */
   int forceString;
 
+  union {
+    struct {
+      const char *s;
+      size_t len;
+    } cstr;
+    RedisModuleString *rstr;
+    RedisModuleKey *kobj;
+    void *p_;  // private
+  } key;
+  RLookupKeyType ktype;
   struct QueryError *status;
 } RLookupLoadOptions;
 

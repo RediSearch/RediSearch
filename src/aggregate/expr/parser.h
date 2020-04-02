@@ -15,9 +15,10 @@
 #define POW                             15
 #define LP                              16
 #define RP                              17
-#define PROPERTY                        18
-#define SYMBOL                          19
-#define STRING                          20
-#define NUMBER                          21
-#define ARGLIST                         22
-#define COMMA                           23
+#define ATTRIBUTE                       18
+#define PROPERTY                        19
+#define SYMBOL                          20
+#define STRING                          21
+#define NUMBER                          22
+#define ARGLIST                         23
+#define COMMA                           24

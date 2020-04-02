@@ -18,6 +18,7 @@ RSExpr *RS_NewNumberLiteral(double n);
 RSExpr *RS_NewOp(unsigned char op, RSExpr *left, RSExpr *right);
 RSExpr *RS_NewFunc(const char *str, size_t len, RSArgList *args, RSFunction cb);
 RSExpr *RS_NewProp(const char *str, size_t len);
+RSExpr *RS_NewAttribute(int code);
 RSExpr *RS_NewPredicate(RSCondition cond, RSExpr *left, RSExpr *right);
 RSExpr *RS_NewInverted(RSExpr *child);
 #ifdef __cplusplus

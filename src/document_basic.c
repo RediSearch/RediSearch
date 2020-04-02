@@ -60,7 +60,7 @@ void Document_Move(Document *dst, Document *src) {
 }
 
 void Document_MakeStringsOwner(Document *d) {
-  if (d->flags & DOCUMENT_F_OWNSTRINGS) {
+  if (d->flags & (DOCUMENT_F_OWNSTRINGS | DOCUMENT_F_NEVEROWN)) {
     // Already the owner
     return;
   }
@@ -95,15 +95,23 @@ void Document_MakeRefOwner(Document *doc) {
   doc->flags |= DOCUMENT_F_OWNREFS;
 }
 
-int Document_LoadSchemaFields(Document *doc, RedisSearchCtx *sctx) {
-  RedisModuleKey *k = RedisModule_OpenKey(sctx->redisCtx, doc->docKey, REDISMODULE_READ);
-  int rv = REDISMODULE_ERR;
-  if (!k || RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_HASH) {
-    goto done;
+int Document_LoadSchemaFields(Document *doc, RedisSearchCtx *sctx, QueryError *err) {
+  RedisModuleKey *k = doc->keyobj;
+  int rv;
+  if (!k) {
+    k = RedisModule_OpenKey(sctx->redisCtx, doc->docKey, REDISMODULE_READ);
+    rv = REDISMODULE_ERR;
+    if (!k) {
+      printf("OpenKey %s -> NULL\n", RedisModule_StringPtrLen(doc->docKey, NULL));
+      QueryError_SetCode(err, QUERY_ENODOC);
+    } else if (RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_HASH) {
+      QueryError_SetCode(err, QUERY_EREDISKEYTYPE);
+    }
   }
 
   size_t nitems = RedisModule_ValueLength(k);
   if (nitems == 0) {
+    QueryError_SetCode(err, QUERY_ENOIDXFIELDS);
     goto done;
   }
 
@@ -125,7 +133,7 @@ int Document_LoadSchemaFields(Document *doc, RedisSearchCtx *sctx) {
   rv = REDISMODULE_OK;
 
 done:
-  if (k) {
+  if (k && doc->keyobj == NULL) {
     RedisModule_CloseKey(k);
   }
   return rv;

@@ -28,6 +28,7 @@ SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${RS_C_FLAGS}")
 SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${RS_CXX_FLAGS}")
 SET(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${RS_EXE_FLAGS}")
 SET(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} ${RS_SO_FLAGS}")
+SET(CMAKE_C_STANDARD 11)
 
 IF(RS_RUN_TESTS)
     ENABLE_TESTING()
@@ -107,6 +108,7 @@ FILE(GLOB RS_SRC
     "src/query_parser/*.c"
     "src/util/*.c"
     "src/trie/*.c"
+    "src/rules/*.c"
     "src/dep/cndict/cndict_data.c"
     "src/dep/hll/*.c"
     "src/dep/libnu/*.c"

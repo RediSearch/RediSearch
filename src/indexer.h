@@ -6,6 +6,7 @@
 #include "util/block_alloc.h"
 #include "concurrent_ctx.h"
 #include "util/arr.h"
+#include "inverted_index.h"
 // Preprocessors can store field data to this location
 typedef struct FieldIndexerData {
   double numeric;  // i.e. the numeric value of the field
@@ -14,42 +15,22 @@ typedef struct FieldIndexerData {
   char **tags;
 } FieldIndexerData;
 
-typedef struct DocumentIndexer {
-  RSAddDocumentCtx *head;          // first item in the queue
-  RSAddDocumentCtx *tail;          // last item in the queue
-  pthread_mutex_t lock;            // lock - only used when adding or removing items from the queue
-  pthread_cond_t cond;             // condition - used to wait on items added to the queue
-  size_t size;                     // number of items in the queue
-  ConcurrentSearchCtx concCtx;     // GIL locking. This is repopulated with the relevant key data
-  RedisModuleCtx *redisCtx;        // Context for keeping the spec key
-  RedisModuleString *specKeyName;  // Cached, used for opening/closing the spec key.
-  uint64_t specId;                 // Unique spec ID. Used to verify we haven't been replaced
-  int isDbSelected;
-  struct DocumentIndexer *next;  // Next structure in the indexer list
-  KHTable mergeHt;               // Hashtable and block allocator for merging
+typedef struct Indexer {
+  RSAddDocumentCtx **docs;
+  RSAddDocumentCtx **errs;  // documents with errors in them
+  RedisSearchCtx *sctx;
+  KHTable mergeHt;  // Hashtable and block allocator for merging
   BlkAlloc alloc;
-  int options;
-  pthread_t thr;
-  size_t refcount;
-} DocumentIndexer;
+} Indexer;
 
-#define INDEXER_THREADLESS 0x01
+void Indexer_Init(Indexer *bi, RedisSearchCtx *sctx);
+int Indexer_Add(Indexer *bi, RSAddDocumentCtx *ctx);
 
-// Set when the indexer is about to be deleted
-#define INDEXER_STOPPED 0x02
-
-size_t Indexer_Decref(DocumentIndexer *indexer);
-
-size_t Indexer_Incref(DocumentIndexer *indexer);
-
-void Indexer_Free(DocumentIndexer *indexer);
-DocumentIndexer *NewIndexer(IndexSpec *spec);
-
-/**
- * Add a document to the indexing queue. If successful, the indexer now takes
- * ownership of the document context (until it DocumentAddCtx_Finish).
- */
-int Indexer_Add(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx);
+typedef void (*IndexerCallback)(RSAddDocumentCtx *, void *privdata);
+void Indexer_Index(Indexer *bi, IndexerCallback cb, void *data);
+void Indexer_Reset(Indexer *bi);
+void Indexer_Destroy(Indexer *bi);
+void Indexer_Iterate(Indexer *bi, IndexerCallback cb, void *data);
 
 /**
  * Function to preprocess field data. This should do as much stateless processing

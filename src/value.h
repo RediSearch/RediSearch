@@ -90,9 +90,10 @@ typedef struct RSValue {
     // reference to another value
     struct RSValue *ref;
   };
-  RSValueType t : 8;
+  RSValueType t : 7;
   uint32_t refcount : 23;
   uint8_t allocated : 1;
+  uint8_t const_builtin : 1;  // A special constant built-in value that does not change
 
 #ifdef __cplusplus
   RSValue() {
@@ -205,6 +206,8 @@ static inline int RSValue_IsString(const RSValue *value) {
   return value && (value->t == RSValue_String || value->t == RSValue_RedisString ||
                    value->t == RSValue_OwnRstring);
 }
+
+#define RSValue_IsRedisString(v) (v)->t == (RSValue_OwnRstring || (v)->t == RSValue_RedisString)
 
 /* Return 1 if the value is NULL, RSValue_Null or a reference to RSValue_Null */
 static inline int RSValue_IsNull(const RSValue *value) {
@@ -381,6 +384,9 @@ int RSValue_ArrayAssign(RSValue **args, int argc, const char *fmt, ...);
 /** Static value pointers. These don't ever get decremented */
 static RSValue __attribute__((unused)) RS_StaticNull = RSVALUE_STATICALLOC_INIT(RSValue_Null);
 static RSValue __attribute__((unused)) RS_StaticUndef = RSVALUE_STATICALLOC_INIT(RSValue_Undef);
+
+extern RSValue *RS_TrueValue;
+extern RSValue *RS_FalseValue;
 
 /**
  * Maximum number of static/cached numeric values. Integral numbers in this range

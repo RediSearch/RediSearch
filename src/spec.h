@@ -2,6 +2,7 @@
 #define __SPEC_H__
 #include <stdlib.h>
 #include <string.h>
+#include <pthread.h>
 
 #include "default_gc.h"
 #include "redismodule.h"
@@ -40,6 +41,8 @@ extern "C" {
 #define SPEC_NOINDEX_STR "NOINDEX"
 #define SPEC_SEPARATOR_STR "SEPARATOR"
 #define SPEC_MULTITYPE_STR "MULTITYPE"
+#define SPEC_WITHRULES_STR "WITHRULES"
+#define SPEC_ASYNC_STR "ASYNC"
 
 /**
  * If wishing to represent field types positionally, use this
@@ -90,7 +93,16 @@ typedef enum {
   Index_DocIdsOnly = 0x00,
 
   // If any of the fields has phonetics. This is just a cache for quick lookup
-  Index_HasPhonetic = 0x400
+  Index_HasPhonetic = 0x400,
+
+  // Schema/Rule based indexing
+  Index_UseRules = 0x800,
+
+  // Index asynchronously, don't report errors..
+  Index_Async = 0x1000,
+
+  // Not stored, but an indicator that the index has been removed
+  Index_Deleted = 0x2000
 } IndexFlags;
 
 /**
@@ -151,6 +163,25 @@ typedef struct {
 } IndexSpecFmtStrings;
 
 struct DocumentIndexer;
+struct IndexQueue;
+struct IoQueue;
+
+#define SDQ_S_IDLE 0x01
+#define SDQ_S_PENDING 0x02
+#define SDQ_S_PROCESSING 0x04
+
+typedef struct {
+  IndexSpec *spec;
+  // Entries which are awaiting indexing
+  // Entries which are currently being indexed
+  dict *entries;
+  dict *active;
+  pthread_mutex_t lock;
+  int state; // SDQ_S_xxx
+} SpecDocQueue;
+
+SpecDocQueue* SpecDocQueue_Create(IndexSpec *spec);
+void SpecDocQueue_Free(SpecDocQueue *q);
 
 struct IndexSpec {
   char *name;
@@ -173,6 +204,7 @@ struct IndexSpec {
   SynonymMap *smap;
 
   uint64_t uniqueId;
+  size_t refcount;
 
   // cached strings, corresponding to number of fields
   IndexSpecFmtStrings *indexStrs;
@@ -184,7 +216,7 @@ struct IndexSpec {
   RSGetValueCallback getValue;
   void *getValueCtx;
   char **aliases; // Aliases to self-remove when the index is deleted
-  struct DocumentIndexer *indexer;
+  SpecDocQueue *queue;
 };
 
 typedef struct {
@@ -209,6 +241,10 @@ typedef struct IndexSpecCache {
   size_t nfields;
   size_t refcount;
 } IndexSpecCache;
+
+#define IndexSpec_Incref(spec) (spec)->refcount++
+
+size_t IndexSpec_Decref(IndexSpec *spec);
 
 /**
  * Retrieves the current spec cache from the index, incrementing its

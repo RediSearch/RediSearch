@@ -9,19 +9,13 @@
 
 namespace RS {
 
-static void donecb(RSAddDocumentCtx *aCtx, RedisModuleCtx *, void *) {
-  // printf("Finished indexing document. Status: %s\n", QueryError_GetError(&aCtx->status));
-}
-
 template <typename... Ts>
 bool addDocument(RedisModuleCtx *ctx, IndexSpec *sp, const char *docid, Ts... args) {
   RWLOCK_ACQUIRE_WRITE();
   RMCK::ArgvList argv(ctx, args...);
   AddDocumentOptions options = {0};
-  options.options |= DOCUMENT_ADD_CURTHREAD;
   options.numFieldElems = argv.size();
   options.fieldsArray = argv;
-  options.donecb = donecb;
 
   QueryError status = {QueryErrorCode(0)};
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);

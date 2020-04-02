@@ -48,6 +48,7 @@ escaped_character = escape (punct | space | escape);
 string_literal =	(quote . ((any - quote - '\n' )|escaped_character)* . quote) | (squote . ((any - squote - '\n' )|escaped_character)* . squote);
 symbol = alpha.(alnum|'_')* $0;
 property = '@'.(((any - (punct | cntrl | space | escape)) | escaped_character) | '_')+ $ 1;
+attribute = '$'.(((any - (punct | cntrl | space | escape)) | escaped_character) | '_')+ $ 1;
 
 main := |*
 
@@ -73,6 +74,17 @@ main := |*
       fbreak;
     }
   };
+
+  attribute => {
+    tok.pos = ts-ctx.raw;
+    tok.len = te - (ts + 1);
+    tok.s = ts+1;
+    RSExprParser_Parse(pParser, ATTRIBUTE, tok, &ctx);
+    if (!ctx.ok) {
+      fbreak;
+    }
+  };
+
 
   symbol => {
     tok.pos = ts-ctx.raw;

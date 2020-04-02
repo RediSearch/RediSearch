@@ -276,3 +276,8 @@ int AC_ParseArgSpec(ArgsCursor *ac, ACArgSpec *specs, ACArgSpec **errSpec) {
   }
   return AC_OK;
 }
+
+void AC_Seek(ArgsCursor *ac, size_t pos) {
+  assert(pos <= ac->argc);
+  ac->offset = pos;
+}

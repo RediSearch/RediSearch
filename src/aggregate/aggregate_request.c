@@ -780,6 +780,10 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup, Qu
       Grouper_Free(grp);
       return NULL;
     }
+    if (!ReducerOpts_EnsureArgsConsumed(&options)) {
+      Grouper_Free(grp);
+      return NULL;
+    }
 
     // Set the destination key for the grouper!
     RLookupKey *dstkey =

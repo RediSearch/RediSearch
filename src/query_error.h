@@ -43,7 +43,9 @@ extern "C" {
   X(QUERY_EGEOFORMAT, "Invalid lon/lat format. Use \"lon lat\" or \"lon,lat\"") \
   X(QUERY_ENODISTRIBUTE, "Could not distribute the operation")                  \
   X(QUERY_EUNSUPPTYPE, "Unsupported index type")                                \
-  X(QUERY_ENOTNUMERIC, "Could not convert value to a number")
+  X(QUERY_ENOTNUMERIC, "Could not convert value to a number")                   \
+  X(QUERY_ENOIDXFIELDS, "No indexable fields in document")                      \
+  X(QUERY_ENOFUNCTION, "Function does not exist")
 
 typedef enum {
   QUERY_OK = 0,
@@ -86,6 +88,9 @@ void QueryError_SetErrorFmt(QueryError *status, QueryErrorCode code, const char 
 #define QERR_MKBADARGS_AC(status, name, rv)                                          \
   QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Bad arguments for %s: %s", name, \
                          AC_Strerror(rv))
+/** Convenience macro to extract the error string of the argument parser */
+#define QERR_MKBADARGS_AC_FMT(status, rv, fmt, ...) \
+  QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, fmt "%s", ##__VA_ARGS__, AC_Strerror(rv))
 
 #define QERR_MKSYNTAXERR(status, ...) QueryError_SetErrorFmt(status, QUERY_ESYNTAX, ##__VA_ARGS__)
 

@@ -10,6 +10,7 @@
 %right LP.
 %left RP.
 
+%left ATTRIBUTE.
 %left PROPERTY.
 %right SYMBOL.
 %left STRING.
@@ -31,6 +32,7 @@
 %include {
 #include "token.h"
 #include "expression.h"
+#include "attribute.h"
 #include "exprast.h"
 #include "parser.h"
 
@@ -71,14 +73,25 @@ number(A) ::= NUMBER(B). { A = B.numval; }
 number(A) ::= MINUS NUMBER(B). { A = -B.numval; }
 
 expr(A) ::= PROPERTY(B). { A = RS_NewProp(B.s, B.len); }
-expr(A) ::= SYMBOL(B) LP arglist(C) RP. {
-    RSFunction cb = RSFunctionRegistry_Get(B.s, B.len);
-    if (!cb) {
-        rm_asprintf(&ctx->errorMsg, "Unknown function name '%.*s'", B.len, B.s);
+
+expr(A) ::= ATTRIBUTE(B). {
+    int code = Expr_FindAttributeByName(B.s, B.len);
+    if (code < 0) {
+        rm_asprintf(&ctx->errorMsg, "Unknown attribute '%.*s'", B.len, B.s);
         ctx->ok = 0;
-        A = NULL; 
+        A = NULL;
     } else {
-         A = RS_NewFunc(B.s, B.len, C, cb);
+        A = RS_NewAttribute(code);
+    }
+}
+
+expr(A) ::= SYMBOL(B) LP arglist(C) RP. {
+    QueryError err = {0};
+    A = RSExpr_GetFnExprNode(B.s, B.len, C, &err);
+    if (A == NULL) {
+        ctx->errorMsg = rm_strdup(QueryError_GetError(&err));
+        QueryError_ClearError(&err);
+        ctx->ok = 0;
     }
 }
 

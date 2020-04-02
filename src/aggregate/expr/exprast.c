@@ -1,4 +1,5 @@
 #include "exprast.h"
+#include "attribute.h"
 #include <ctype.h>
 
 #define arglist_sizeof(l) (sizeof(RSArgList) + ((l) * sizeof(RSExpr *)))
@@ -99,6 +100,12 @@ RSExpr *RS_NewProp(const char *str, size_t len) {
   return e;
 }
 
+RSExpr *RS_NewAttribute(int code) {
+  RSExpr *e = newExpr(RSExpr_Attribute);
+  e->attribute = code;
+  return e;
+}
+
 RSExpr *RS_NewInverted(RSExpr *child) {
   RSExpr *e = newExpr(RSExpr_Inverted);
   e->inverted.child = child;
@@ -135,6 +142,11 @@ void RSExpr_Free(RSExpr *e) {
       break;
     case RSExpr_Inverted:
       RSExpr_Free(e->inverted.child);
+    case RSExpr_Metafunc:
+      RSMetaOp_Clear(&e->meta);
+    case RSExpr_Attribute:
+      // no internal data to free here
+      break;
   }
   rm_free(e);
 }
@@ -179,6 +191,11 @@ void RSExpr_Print(const RSExpr *e) {
       printf("!");
       RSExpr_Print(e->inverted.child);
       break;
+    case RSExpr_Attribute:
+      printf("$%s", Expr_FindAttributeByCode(e->attribute));
+      break;
+    case RSExpr_Metafunc:
+      RSMetaOp_Print(&e->meta);
   }
 }
 
@@ -200,4 +217,22 @@ RSExpr *ExprAST_Parse(const char *e, size_t n, QueryError *status) {
   }
   rm_free(errtmp);
   return ret;
+}
+
+RSExpr *RSExpr_GetFnExprNode(const char *name, size_t n, RSArgList *arglist, QueryError *err) {
+  RSExpr *e = RS_NewMetaOp(name, n, arglist, err);
+  if (e) {
+    return e;
+  }
+  if (e == NULL && err->code != QUERY_ENOFUNCTION) {
+    return NULL;
+  }
+  QueryError_ClearError(err);
+  RSFunction cb = RSFunctionRegistry_Get(name, n);
+  if (!cb) {
+    QueryError_SetErrorFmt(err, QUERY_ENOFUNCTION, "Unknown function name %.*s", n, name);
+    return NULL;
+  } else {
+    return RS_NewFunc(name, n, arglist, cb);
+  }
 }

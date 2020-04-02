@@ -3,6 +3,9 @@
 #include <aggregate/expr/exprast.h>
 #include <aggregate/functions/function.h>
 #include <util/arr.h>
+#include "redismock/redismock.h"
+#include "redismock/util.h"
+#include "redismodule.h"
 
 class ExprTest : public ::testing::Test {
  public:
@@ -51,12 +54,25 @@ struct EvalCtx : ExprEval {
   EvalCtx operator=(EvalCtx &) = delete;
   EvalCtx(const EvalCtx &) = delete;
 
-  RSValue &result() {
+  const RSValue &result() const {
     return res_s;
+  }
+
+  const RSValue &realResult() const {
+    return *RSValue_Dereference(&res_s);
+  }
+
+  bool boolResult() const {
+    return RSValue_BoolTest(&res_s);
   }
 
   const char *error() const {
     return QueryError_GetError(&status_s);
+  }
+
+  void setKeyname(const char *s) {
+    kstr = s;
+    nkstr = strlen(s);
   }
 
   operator bool() const {
@@ -261,4 +277,85 @@ TEST_F(ExprTest, testPropertyFetch) {
   // RSValue_Print(&ctx.result());
   RLookupRow_Cleanup(&rr);
   RLookup_Cleanup(&lk);
+}
+
+TEST_F(ExprTest, testPrefixMatch) {
+  EvalCtx ctx("hasprefix('foo')");
+  ASSERT_TRUE(ctx.root != NULL);
+  ctx.setKeyname("foobar");
+  int rc = ctx.eval();
+  ASSERT_EQ(EXPR_EVAL_OK, rc);
+  ASSERT_TRUE(ctx.boolResult());
+  ctx.clear();
+
+  ctx.assign("hasprefix('foo')");
+  ctx.setKeyname("FOOBAR");
+  ASSERT_EQ(EXPR_EVAL_OK, ctx.eval());
+  ASSERT_TRUE(ctx.boolResult());
+
+  // Find something that doesn't match
+  ctx.setKeyname("bar");
+  ASSERT_EQ(EXPR_EVAL_OK, ctx.eval());
+  ASSERT_FALSE(ctx.boolResult());
+}
+
+TEST_F(ExprTest, testHasField) {
+  RMCK::Context ctx;
+  RMCK::hset(ctx, "key", "hkey", "hval");
+  RMCK::RString kstr("key");
+  auto keyp = RedisModule_OpenKey(ctx, kstr, REDISMODULE_READ);
+  ASSERT_FALSE(keyp == NULL);
+  EvalCtx ectx("hasfield('hkey')");
+  ASSERT_TRUE(ectx.root != NULL);
+  ectx.rmkey = keyp;
+  ASSERT_EQ(EXPR_EVAL_OK, ectx.eval());
+  ASSERT_TRUE(ectx.boolResult());
+
+  ectx.clear();
+  ectx.assign("hasfield('bar')");
+  ASSERT_TRUE(ectx.root != NULL);
+  ectx.rmkey = keyp;
+  ASSERT_EQ(EXPR_EVAL_OK, ectx.eval());
+  ASSERT_FALSE(ectx.boolResult());
+  RedisModule_CloseKey(keyp);
+}
+
+static void populateDocResult(EvalCtx &e, SearchResult &res, RSDocumentMetadata &dmd) {
+  e.kstr = "foo";
+  e.nkstr = 3;
+  res.dmd = &dmd;
+  res.score = 99;
+  res.docId = 100;
+  dmd.score = 42;
+  e.res = &res;
+}
+
+TEST_F(ExprTest, testAttributes) {
+  SearchResult res;
+  RSDocumentMetadata dmd;
+  EvalCtx ectx("$key=='foo'");
+  ASSERT_TRUE(ectx.root != NULL) << ectx.error();
+  populateDocResult(ectx, res, dmd);
+  ASSERT_EQ(EXPR_EVAL_OK, ectx.eval());
+  ASSERT_TRUE(ectx.boolResult());
+
+  ectx.assign("$doc_score");
+  populateDocResult(ectx, res, dmd);
+
+  ASSERT_TRUE(ectx.root != NULL) << ectx.error();
+  ASSERT_EQ(EXPR_EVAL_OK, ectx.eval());
+  ASSERT_EQ(42, ectx.realResult().numval);
+
+  ectx.assign("$result_score");
+  ASSERT_TRUE(ectx.root != NULL);
+  populateDocResult(ectx, res, dmd);
+  ASSERT_EQ(EXPR_EVAL_OK, ectx.eval());
+
+  ASSERT_EQ(99, ectx.realResult().numval);
+
+  ectx.assign("$internal_id");
+  ASSERT_TRUE(ectx.root != NULL);
+  populateDocResult(ectx, res, dmd);
+  ASSERT_EQ(EXPR_EVAL_OK, ectx.eval());
+  ASSERT_EQ(100, ectx.realResult().numval);
 }

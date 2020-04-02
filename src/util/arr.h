@@ -286,6 +286,12 @@ static void array_free(array_t arr) {
     arr;                                                                          \
   })
 
+#define ARRAY_DEL_ITER(arr, ixvar)  \
+  array_del(arr, ix);               \
+  if (ixvar < array_len(arr) - 1) { \
+    ixvar--;                        \
+  }
+
 /* Remove a specified element from the array, but does not preserve order */
 #define array_del_fast(arr, ix)          \
   ({                                     \
