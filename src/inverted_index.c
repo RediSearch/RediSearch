@@ -282,8 +282,6 @@ static void dumpEncoding(EncodingHeader header, FILE *fp) {
 // 9. Special encoder for numeric values
 ENCODER(encodeNumeric) {
   const double realVal = res->num.value;
-  const float f32Num = realVal;
-  const uint8_t tinyNum = ((uint8_t)realVal) & NUM_TINYENC_MASK;
 
   EncodingHeader header = {.storage = 0};
 
@@ -299,6 +297,7 @@ ENCODER(encodeNumeric) {
   } while (delta);
   header.encCommon.deltaEncoding = numDeltaBytes - 1;
 
+  const uint8_t tinyNum = ((uint8_t)realVal) & NUM_TINYENC_MASK;
   if ((double)tinyNum == realVal) {
     // Number is small enough to fit?
     header.encTiny.tinyValue = tinyNum;
@@ -306,9 +305,9 @@ ENCODER(encodeNumeric) {
 
   } else if ((double)(int64_t)realVal == realVal) {
     // Is a whole number
-    int64_t i64Num = realVal;
     NumEncodingInt *encInt = &header.encInt;
 
+    int64_t i64Num = realVal;
     if (i64Num < 0) {
       i64Num = -i64Num;
       encInt->sign = 1;
@@ -323,14 +322,18 @@ ENCODER(encodeNumeric) {
     encInt->valueByteCount = numValueBytes - 1;
 
   } else if (!isfinite(realVal)) {
+    // infinity
     header.encCommon.isFloat = 1;
     header.encFloat.isInf = 1;
     if (realVal == -INFINITY) {
       header.encFloat.sign = 1;
     }
+
   } else {
     // Floating point
     NumEncodingFloat *encFloat = &header.encFloat;
+
+    const float f32Num = realVal;
     if (realVal == f32Num) {
       sz += Buffer_Write(bw, (void *)&f32Num, 4);
       encFloat->isDouble = 0;
@@ -338,9 +341,7 @@ ENCODER(encodeNumeric) {
       sz += Buffer_Write(bw, (void *)&realVal, 8);
       encFloat->isDouble = 1;
     }
-
     encFloat->isFloat = 1;
-
     if (realVal < 0) {
       encFloat->sign = 1;
     }
