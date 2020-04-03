@@ -25,17 +25,28 @@ typedef enum {
 
   // Goto another named chain
   SCACTION_TYPE_GOTO = 0x04,
+
+  SCACTION_TYPE_LOADATTR = 0x08,
 } SchemaActionType;
 
 typedef struct SchemaAction SchemaAction;
 
+typedef enum {
+  SCATTR_TYPE_LANGUAGE = 0x01,
+  SCATTR_TYPE_SCORE = 0x02,
+} SchemaAttrType;
+
 struct SchemaAction {
   SchemaActionType atype;
   union {
-    struct {
+    struct SchemaSetattrSettings {
       IndexItemAttrs attrs;
       int mask;
     } setattr;
+    struct SchemaLoadattrSettings {
+      RedisModuleString *langfield;
+      RedisModuleString *scorefield;
+    } loadattr;
     char *goto_;
   } u;
 };
@@ -80,7 +91,4 @@ struct SchemaRules {
   uint64_t revision;
 };
 
-typedef enum {
-  SCATTR_TYPE_LANGUAGE = 0x01,
-  SCATTR_TYPE_SCORE = 0x02,
-} SchemaAttrType;
+void SchemaRule_Free(SchemaRule *rule);

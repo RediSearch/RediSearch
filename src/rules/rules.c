@@ -24,11 +24,25 @@ SchemaRules *SchemaRules_Create(void) {
   return rules;
 }
 
-void SchemaRules_Clean(SchemaRules *rules) {
+void SchemaRules_CleanRules(SchemaRules *rules) {
   size_t n = array_len(rules->rules);
   for (size_t ii = 0; ii < n; ++ii) {
     SchemaRule *rule = rules->rules[ii];
+    SchemaRule_Free(rule);
   }
+  array_free(rules->rules);
+  rules->rules = NULL;
+}
+
+void SchemaRules_Clean(SchemaRules *rules) {
+  SchemaRules_CleanRules(rules);
+  rm_free(rules->actions);
+  rules->revision = 0;
+}
+
+void SchemaRules_Free(SchemaRules *rules) {
+  SchemaRules_CleanRules(rules);
+  rm_free(rules);
 }
 
 RSAddDocumentCtx *SchemaRules_InitACTX(RedisModuleCtx *ctx, IndexSpec *sp, RuleKeyItem *item,
@@ -238,7 +252,12 @@ int SchemaRules_SetArgs(ArgsCursor *ac, QueryError *err) {
     }
   }
   SchemaRules *oldrules = SchemaRules_g;
-  SchemaRules_Clean(oldrules);
+  SchemaRules_CleanRules(oldrules);
+  oldrules->rules = rules.rules;
+  oldrules->revision++;
+  SchemaRules_StartScan();
+
+  rules.rules = NULL;
 
 done:
   SchemaRules_Clean(&rules);

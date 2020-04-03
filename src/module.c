@@ -793,6 +793,12 @@ static int RuleAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 static int RulesSetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   ArgsCursor ac = {0};
   ArgsCursor_InitRString(&ac, argv + 1, argc - 1);
+  QueryError status = {0};
+  int rc = SchemaRules_SetArgs(&ac, &status);
+  if (rc != REDISMODULE_OK) {
+    QueryError_ReplyAndClear(ctx, &status);
+  }
+  return REDISMODULE_OK;
 }
 
 int ConfigCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -937,6 +943,8 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   RM_TRY(RedisModule_CreateCommand, ctx, RS_CONFIG, ConfigCommand, "readonly", 1, 1, 1);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_RULEADD, RuleAddCommand, "readonly", 1, 1, 1);
+
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_RULESET, RulesSetCommand, "readonly", 1, 1, 1);
 
 #ifndef RS_COORDINATOR
   // we are running in a normal mode so we should raise cross slot error on alias commands

@@ -21,6 +21,7 @@ typedef struct SchemaRule SchemaRule;
 SchemaRules *SchemaRules_Create(void);
 void SchemaRules_Free(SchemaRules *rules);
 void SchemaRules_Clean(SchemaRules *rules);
+void SchemaRules_CleanRules(SchemaRules *rules);
 
 /**
  * Add rules pertaining to an index
@@ -39,11 +40,10 @@ int SchemaRules_AddArgs(const char *index, const char *name, ArgsCursor *ac, Que
 
 int SchemaRules_AddArgsInternal(SchemaRules *rules, const char *index, const char *name,
                                 ArgsCursor *ac, QueryError *err);
+int SchemaRules_SetArgs(ArgsCursor *ac, QueryError *err);
 
 typedef struct {
-  char *language;  // can be an enum??
-  void *payload;
-  size_t npayload;
+  RSLanguage language;  // can be an enum??
   float score;
 } IndexItemAttrs;
 

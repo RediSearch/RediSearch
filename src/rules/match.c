@@ -90,16 +90,61 @@ static int extractAction(const char *atype, SchemaAction *action, ArgsCursor *ac
       QueryError_SetErrorFmt(err, QUERY_EPARSEARGS, "Missing attributes for action");
       return REDISMODULE_ERR;
     }
-    if (sub_ac.argc % 2) {
-      QueryError_SetError(err, QUERY_EPARSEARGS, "Attributes must be specified in k/v pairs");
-      for (size_t ii = 0; ii < sub_ac.argc; ii += 2) {
-        const char *attrtype = AC_GetStringNC(&sub_ac, NULL);
-        if (!strcasecmp(attrtype, "LANGUAGE")) {
-          // todo: fill language
-        }
+
+    if (AC_NumRemaining(&sub_ac) % 2 != 0) {
+      QueryError_SetError(err, QUERY_EPARSEARGS, "Attributes must be specified in key/value pairs");
+    }
+    const char *langstr = NULL;
+    double score = 0;
+    ACArgSpec specs[] = {
+        {.name = "LANGUAGE", .target = &langstr, .type = AC_ARGTYPE_STRING},
+        {.name = "SCORE", .target = &score, .type = AC_ARGTYPE_DOUBLE, .intflags = AC_F_GE0},
+        {NULL}};
+    ACArgSpec *errspec = NULL;
+    int rc = AC_ParseArgSpec(&sub_ac, specs, &errspec);
+    if (rc != AC_OK) {
+      QueryError_SetErrorFmt(err, QUERY_EPARSEARGS, "Couldn't parse SETATTR arguments: %s",
+                             AC_Strerror(rc));
+    }
+    struct SchemaSetattrSettings *setattr = &action->u.setattr;
+    if (langstr) {
+      if ((setattr->attrs.language = RSLanguage_Find(langstr)) == RS_LANG_UNSUPPORTED) {
+        QueryError_SetErrorFmt(err, QUERY_ENOOPTION, "Language `%s` not supported", langstr);
+        return REDISMODULE_ERR;
       }
+      setattr->mask |= SCATTR_TYPE_LANGUAGE;
+    }
+    if (score) {
+      setattr->attrs.score = score;
+      setattr->mask |= SCATTR_TYPE_SCORE;
     }
     action->atype = SCACTION_TYPE_SETATTR;
+
+  } else if (!strcasecmp(atype, "LOADATTRS")) {
+    struct SchemaLoadattrSettings *lattr = &action->u.loadattr;
+    const char *langstr = NULL;
+    const char *scorestr = NULL;
+    ACArgSpec specs[] = {{.name = "LANGUAGE", .target = &langstr, .type = AC_ARGTYPE_STRING},
+                         {.name = "SCORE", .target = &scorestr, .type = AC_ARGTYPE_STRING},
+                         {NULL}};
+    ArgsCursor sub_ac = {0};
+    if (AC_GetVarArgs(ac, &sub_ac) != AC_OK) {
+      QueryError_SetErrorFmt(err, QUERY_EPARSEARGS, "Missing attributes for action");
+      return REDISMODULE_ERR;
+    }
+    ACArgSpec *errspec = NULL;
+    int rc = AC_ParseArgSpec(&sub_ac, specs, &errspec);
+    if (rc != AC_OK) {
+      QueryError_SetErrorFmt(err, QUERY_EPARSEARGS, "Couldn't parse SETATTR arguments: %s",
+                             AC_Strerror(rc));
+    }
+    if (langstr) {
+      lattr->langfield = RedisModule_CreateString(RSDummyContext, langstr, strlen(langstr));
+    }
+    if (scorestr) {
+      lattr->scorefield = RedisModule_CreateString(RSDummyContext, scorestr, strlen(scorestr));
+    }
+    action->atype = SCACTION_TYPE_LOADATTR;
   } else {
     QueryError_SetErrorFmt(err, QUERY_EPARSEARGS, "Unknown action type `%s`", atype);
     return REDISMODULE_ERR;
@@ -194,28 +239,34 @@ void SchemaRule_Free(SchemaRule *r) {
     case SCRULE_TYPE_MATCHALL:
       break;
   }
-
-  size_t n = array_len(r->rawrule);
-  for (size_t ii = 0; ii < n; ++ii) {
-    rm_free(r->rawrule[ii]);
-  }
-  rm_free(r->name);
-  rm_free(r->index);
   SchemaAction *action = &r->action;
-
   switch (action->atype) {
     case SCACTION_TYPE_GOTO:
       rm_free(action->u.goto_);
       break;
+    case SCACTION_TYPE_LOADATTR:
+      if (action->u.loadattr.scorefield) {
+        RedisModule_FreeString(RSDummyContext, action->u.loadattr.scorefield);
+      }
+      if (action->u.loadattr.langfield) {
+        RedisModule_FreeString(RSDummyContext, action->u.loadattr.langfield);
+      }
     case SCACTION_TYPE_SETATTR:
-      rm_free(action->u.setattr.attrs.language);
-      break;
     case SCACTION_TYPE_ABORT:
     case SCACTION_TYPE_INDEX:
     default:
       break;
   }
+
+  size_t n = array_len(r->rawrule);
+  for (size_t ii = 0; ii < n; ++ii) {
+    rm_free(r->rawrule[ii]);
+  }
   array_free(r->rawrule);
+
+  rm_free(r->name);
+  rm_free(r->index);
+  rm_free(r);
 }
 
 int SchemaRules_AddArgsInternal(SchemaRules *rules, const char *index, const char *name,
@@ -278,6 +329,44 @@ static scruleMatchFn matchfuncs_g[] = {[SCRULE_TYPE_KEYPREFIX] = matchPrefix,
                                        [SCRULE_TYPE_HASFIELD] = matchHasfield,
                                        [SCRULE_TYPE_MATCHALL] = matchAll};
 
+static void loadAttrFields(RuleKeyItem *item, struct SchemaLoadattrSettings *lattr,
+                           MatchAction *curAction) {
+  // Load the key
+  if (!item->kobj) {
+    item->kobj = RedisModule_OpenKey(RSDummyContext, item->kstr, REDISMODULE_READ);
+  }
+  if (!item->kobj) {
+    return;
+  }
+
+  if (lattr->langfield) {
+    RedisModuleString *langstr = NULL;
+    RedisModule_HashGet(item->kobj, 0, lattr->langfield, &langstr, NULL);
+    if (langstr) {
+      RSLanguage lang = RSLanguage_Find(RedisModule_StringPtrLen(langstr, NULL));
+      if (lang != RS_LANG_UNSUPPORTED) {
+        curAction->attrs.language = lang;
+      } else {
+        // Send warning about invalid language?
+      }
+    }
+  }
+
+  if (lattr->scorefield) {
+    RedisModuleString *scorestr = NULL;
+    RedisModule_HashGet(item->kobj, 0, lattr->scorefield, &scorestr, NULL);
+    double d = 0;
+    if (scorestr) {
+      int rc = RedisModule_StringToDouble(scorestr, &d);
+      if (rc == REDISMODULE_OK) {
+        curAction->attrs.score = d;
+      } else {
+        // send warning about bad score
+      }
+    }
+  }
+}
+
 int SchemaRules_Check(const SchemaRules *rules, RedisModuleCtx *ctx, RuleKeyItem *item,
                       MatchAction **results, size_t *nresults) {
   array_clear(rules->actions);
@@ -298,6 +387,7 @@ int SchemaRules_Check(const SchemaRules *rules, RedisModuleCtx *ctx, RuleKeyItem
         goto end_match;
       case SCACTION_TYPE_INDEX:
       case SCACTION_TYPE_SETATTR:
+      case SCACTION_TYPE_LOADATTR:
         break;
       case SCACTION_TYPE_GOTO: {
         for (size_t jj = ii; jj < nrules; ++jj) {
@@ -319,9 +409,8 @@ int SchemaRules_Check(const SchemaRules *rules, RedisModuleCtx *ctx, RuleKeyItem
     if (!curAction) {
       curAction = array_ensure_tail(results, MatchAction);
       curAction->index = rule->index;
-      curAction->attrs.language = NULL;
+      curAction->attrs.language = 0;
       curAction->attrs.score = 0;
-      curAction->attrs.npayload = 0;
     }
     if (rule->action.atype == SCACTION_TYPE_SETATTR) {
       const IndexItemAttrs *attr = &rule->action.u.setattr.attrs;
@@ -332,6 +421,8 @@ int SchemaRules_Check(const SchemaRules *rules, RedisModuleCtx *ctx, RuleKeyItem
       if (mask & SCATTR_TYPE_SCORE) {
         curAction->attrs.score = attr->score;
       }
+    } else if (rule->action.atype == SCACTION_TYPE_LOADATTR) {
+      loadAttrFields(item, &rule->action.u.loadattr, curAction);
     }
   next_rule:;
   }
