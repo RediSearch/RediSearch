@@ -85,13 +85,7 @@ static int extractAction(const char *atype, SchemaAction *action, ArgsCursor *ac
     action->u.goto_ = rm_strdup(target);
   } else if (!strcasecmp(atype, "SETATTRS")) {
     // pairwise name/value
-    ArgsCursor sub_ac = {0};
-    if (AC_GetVarArgs(ac, &sub_ac) != AC_OK) {
-      QueryError_SetErrorFmt(err, QUERY_EPARSEARGS, "Missing attributes for action");
-      return REDISMODULE_ERR;
-    }
-
-    if (AC_NumRemaining(&sub_ac) % 2 != 0) {
+    if (AC_NumRemaining(ac) % 2 != 0) {
       QueryError_SetError(err, QUERY_EPARSEARGS, "Attributes must be specified in key/value pairs");
     }
     const char *langstr = NULL;
@@ -101,7 +95,7 @@ static int extractAction(const char *atype, SchemaAction *action, ArgsCursor *ac
         {.name = "SCORE", .target = &score, .type = AC_ARGTYPE_DOUBLE, .intflags = AC_F_GE0},
         {NULL}};
     ACArgSpec *errspec = NULL;
-    int rc = AC_ParseArgSpec(&sub_ac, specs, &errspec);
+    int rc = AC_ParseArgSpec(ac, specs, &errspec);
     if (rc != AC_OK) {
       QueryError_SetErrorFmt(err, QUERY_EPARSEARGS, "Couldn't parse SETATTR arguments: %s",
                              AC_Strerror(rc));
@@ -127,13 +121,8 @@ static int extractAction(const char *atype, SchemaAction *action, ArgsCursor *ac
     ACArgSpec specs[] = {{.name = "LANGUAGE", .target = &langstr, .type = AC_ARGTYPE_STRING},
                          {.name = "SCORE", .target = &scorestr, .type = AC_ARGTYPE_STRING},
                          {NULL}};
-    ArgsCursor sub_ac = {0};
-    if (AC_GetVarArgs(ac, &sub_ac) != AC_OK) {
-      QueryError_SetErrorFmt(err, QUERY_EPARSEARGS, "Missing attributes for action");
-      return REDISMODULE_ERR;
-    }
     ACArgSpec *errspec = NULL;
-    int rc = AC_ParseArgSpec(&sub_ac, specs, &errspec);
+    int rc = AC_ParseArgSpec(ac, specs, &errspec);
     if (rc != AC_OK) {
       QueryError_SetErrorFmt(err, QUERY_EPARSEARGS, "Couldn't parse SETATTR arguments: %s",
                              AC_Strerror(rc));
