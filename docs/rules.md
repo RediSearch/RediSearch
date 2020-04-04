@@ -17,6 +17,8 @@ complex expression. Whenever any hash is modified, RediSearch will check
 whether or not the hash matches any of the specified rules. If the hash
 matches a rule, it will be (re)indexed accordingly.
 
+## FT.RULEADD
+
 The `FT.RULEADD` command can be used to add a single rule. Each rule
 consists of a name, index, match specifier, and action. The name of the
 rule exists simply to provide a friendly name, in case you wish to
@@ -28,6 +30,7 @@ FT.RULEADD {INDEX} {NAME} HASFIELD {fieldname}
 FT.RULEADD {INDEX} {NAME} EXPR {expression}
 FT.RULEADD {INDEX} ... [ABORT|GOTO]
 FT.RULEADD {INDEX} ... SETATTR [LANGUAGE {language}] [SCORE {score}]
+FT.RULEADD {INDEX} ... LOADATTR [LANGUAGE {lang-field}] [SCORE {score-field}]
 ```
 
 The above prototype shows the variations of the `FT.RULEADD` command.
@@ -90,4 +93,53 @@ subsequent rules from evaluating it.
 
 #### GOTO
 
-The `GOTO` action can skip processing to the given named rule.
+The `GOTO` action can skip processing to the given named rule. This can be
+used to fast-track processing towards more specific rules.
+
+#### SETATTR
+
+The `SETATTR` action takes attribute-value pairs for its arguments; for example,
+to set the language to french for all documents which have a prefix `user:fr:`,
+one can do:
+
+```
+FT.RULEADD ... PREFIX 'user:fr:' SETATTR LANGUAGE french
+```
+
+Supported attributes are `LANGUAGE` and `SCORE`
+
+#### LOADATTR
+
+The `LOADATTR` action takes attribute-field pair. Unlike `SETATTR` which must
+statically assign a language or score based on a rule, `LOADATTR` takes the
+name of the hash field from which the language and score will be read.
+
+```
+FT.RULEADD ... LOADATTR LANGUAGE lang SCORE score
+```
+
+The above example will read the language from the `language` field and the
+score from the `SCORE` field.
+
+## Applying rules to existing hashes
+
+Whenever a new rule is added via `RULEADD`, RediSearch will initiate a
+background scan of all hashes to locate and index any hashes which match
+the new rule. You may continue searching your index at this time, but be
+aware that not all potential matches may be included until the scan is complete.
+
+The `FT.INFO sync` subcommand will return an array of two items; the first is
+a string status and the second is the number of items. If the status string
+is not `SYNCED` then it means the background scan is still in effect.
+
+You can poll `FT.INFO` until the status changes to `SYNCED`.
+
+## Asynchronous Indexing
+
+An index may be declared using the `ASYNC` keyword, e.g.
+
+```
+FT.CREATE idx ASYNC WITHRULES ....
+```
+
+In which case, indexing is performed asynchronously
