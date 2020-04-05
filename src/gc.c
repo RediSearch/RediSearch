@@ -10,12 +10,12 @@
 #include <unistd.h>
 #include "dep/thpool/thpool.h"
 
-#define DEADBEEF (void*)0xBADC0FFEE0DDF00D
+#define DEADBEEF (void*)0xDEADBEEF
 
 static threadpool gcThreadpool_g = NULL;
 
-static GCTaskCtx *GCTaskCreate(GCContext *gc, RedisModuleBlockedClient* bClient) {
-  GCTaskCtx *task = rm_malloc(sizeof(*task));
+static GCTask *GCTaskCreate(GCContext *gc, RedisModuleBlockedClient* bClient) {
+  GCTask *task = rm_malloc(sizeof(*task));
   task->gc = gc;
   task->bClient = bClient;
   return task;
@@ -66,7 +66,7 @@ static long long getNextPeriod(GCContext* gc) {
   return ms;
 }
 
-static RedisModuleTimerID scheduleNext(GCTaskCtx *task) {
+static RedisModuleTimerID scheduleNext(GCTask *task) {
   if (!RedisModule_CreateTimer) return 0;
 
   long long period = getNextPeriod(task->gc);
@@ -74,7 +74,7 @@ static RedisModuleTimerID scheduleNext(GCTaskCtx *task) {
 }
 
 static void threadCallback(void* data) {
-  GCTaskCtx* task= data;
+  GCTask* task= data;
   GCContext* gc = task->gc;
   RedisModuleBlockedClient* bc = task->bClient;
   RedisModuleCtx* ctx = RSDummyContext;
@@ -128,7 +128,7 @@ static void timerCallback(RedisModuleCtx* ctx, void* data) {
     // If slave traffic is not allow it means that there is a state machine running
     // we do not want to run any GC which might cause a FORK process to start for example).
     // Its better to just avoid it.
-    GCTaskCtx* task = data;
+    GCTask* task = data;
     task->gc->timerID = scheduleNext(task);
     return;
   }
@@ -136,9 +136,10 @@ static void timerCallback(RedisModuleCtx* ctx, void* data) {
 }
 
 void GCContext_Start(GCContext* gc) {
-  GCTaskCtx* task = GCTaskCreate(gc, NULL);
+  GCTask* task = GCTaskCreate(gc, NULL);
   gc->timerID = scheduleNext(task);
   if (gc->timerID == 0) {
+    RedisModule_Log(RSDummyContext, "warning", "GC did not schedule next collection");
     rm_free(task);
   }
 }
@@ -154,7 +155,7 @@ void GCContext_Stop(GCContext* gc) {
 
   RedisModuleCtx* ctx = RSDummyContext;
   stopGC(gc);
-  GCTaskCtx *data = NULL;
+  GCTask *data = NULL;
 
   if (RedisModule_StopTimer(ctx, gc->timerID, (void**)&data) == REDISMODULE_OK) {
     assert(data->gc == gc);
@@ -175,10 +176,11 @@ void GCContext_OnDelete(GCContext* gc) {
 
 void GCContext_CommonForceInvoke(GCContext* gc, RedisModuleBlockedClient* bc) {
   if (gc->stopped) {
+    RedisModule_Log(RSDummyContext, "warning", "ForceInvokeGC command received after shut down");
     return;
   }
 
-  GCTaskCtx *task = GCTaskCreate(gc, bc);
+  GCTask *task = GCTaskCreate(gc, bc);
   thpool_add_work(gcThreadpool_g, threadCallback, task);
 }
 

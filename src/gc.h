@@ -28,10 +28,10 @@ typedef struct GCContext {
   int stopped;
 } GCContext;
 
-typedef struct GCTaskCtx {
+typedef struct GCTask {
   GCContext* gc;
   RedisModuleBlockedClient* bClient;
-} GCTaskCtx;
+} GCTask;
 
 typedef struct IndexSpec IndexSpec;
 GCContext* GCContext_CreateGCFromSpec(IndexSpec* sp, float initialHZ, uint64_t uniqueId,
