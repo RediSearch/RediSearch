@@ -2973,6 +2973,9 @@ def testIssue1063(env):
     env.cmd('FT.ADD idx doc1 1.0 FIELDS txt1 10')
     env.expect('FT.GET idx doc1').equal(['txt1', '10'])
 
-    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if !@txt1 FIELDS txt1 11').equal('NOADD')
-    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if !@txt2 FIELDS txt2 11').equal('OK')
+    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if !@txt1 FIELDS txt1 10').equal('NOADD')
+    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if !@txt2 FIELDS txt2 10').equal('OK')
+    env.expect('FT.GET idx doc1').equal(['txt1', '10', 'txt2', '10'])
+    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if @txt1==@txt2 FIELDS txt2 11').equal('OK')
     env.expect('FT.GET idx doc1').equal(['txt1', '10', 'txt2', '11'])
+    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if @txt1==@txt2 FIELDS txt2 11').equal('NOADD')
