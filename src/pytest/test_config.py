@@ -1,3 +1,5 @@
+from RLTest import Env
+
 def testConfig(env):
     env.skipOnCluster()
     env.cmd('ft.create', 'idx', 'SCHEMA', 'test', 'TEXT', 'SORTABLE')
@@ -66,3 +68,11 @@ def testSetConfigOptionsErrors(env):
     env.expect('ft.config', 'set', 'FORKGC_SLEEP_BEFORE_EXIT', 'str').equal('Success (not an error)')    
     env.expect('ft.config', 'set', 'FORKGC_SLEEP_BEFORE_EXIT', 'str').equal('Success (not an error)')    
 '''
+
+def testInitConfig():
+    max_doc_table_size = 123456
+    # extentionPath = os.path.abspath(os.path.dirname(os.path.realpath(__file__)) + '/../tests/ext-example/example.so')
+    env = Env(moduleArgs='MAXDOCTABLESIZE %d' % max_doc_table_size)
+    if env.env == 'existing-env':
+        env.skip()
+    assert env.expect('ft.config', 'get', 'MAXDOCTABLESIZE').equal([['MAXDOCTABLESIZE', '%d' % max_doc_table_size]])
