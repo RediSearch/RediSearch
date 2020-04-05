@@ -245,7 +245,7 @@ CONFIG_GETTER(getForkGcInterval) {
 
 CONFIG_GETTER(getForkGcRetryInterval) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%lu", config->forkGcRunIntervalSec);
+  return sdscatprintf(ss, "%lu", config->forkGcRetryInterval);
 }
 
 CONFIG_GETTER(getMaxResultsToUnsortedMode) {

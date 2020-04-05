@@ -69,10 +69,80 @@ def testSetConfigOptionsErrors(env):
     env.expect('ft.config', 'set', 'FORKGC_SLEEP_BEFORE_EXIT', 'str').equal('Success (not an error)')    
 '''
 
+def testAllConfig(env):
+    res_list = env.cmd('ft.config get *')
+    res_dict = {d[0]: d[1:] for d in res_list}
+    env.assertEqual(res_dict['EXTLOAD'][0], None)
+    env.assertEqual(res_dict['SAFEMODE'][0], 'true')
+    env.assertEqual(res_dict['CONCURRENT_WRITE_MODE'][0], 'false')
+    env.assertEqual(res_dict['NOGC'][0], 'false')
+    env.assertEqual(res_dict['MINPREFIX'][0], '2')
+    env.assertEqual(res_dict['FORKGC_SLEEP_BEFORE_EXIT'][0], '0')
+    env.assertEqual(res_dict['MAXDOCTABLESIZE'][0], '1000000')
+    env.assertEqual(res_dict['MAXEXPANSIONS'][0], '200')
+    env.assertEqual(res_dict['TIMEOUT'][0], '500')
+    env.assertEqual(res_dict['INDEX_THREADS'][0], '8')
+    env.assertEqual(res_dict['SEARCH_THREADS'][0], '20')
+    env.assertEqual(res_dict['FRISOINI'][0], None)
+    env.assertEqual(res_dict['ON_TIMEOUT'][0], 'return')
+    env.assertEqual(res_dict['GCSCANSIZE'][0], '100')
+    env.assertEqual(res_dict['MIN_PHONETIC_TERM_LEN'][0], '3')
+    env.assertEqual(res_dict['GC_POLICY'][0], 'fork')
+    env.assertEqual(res_dict['FORK_GC_RUN_INTERVAL'][0], '10')
+    env.assertEqual(res_dict['FORK_GC_CLEAN_THRESHOLD'][0], '0')
+    env.assertEqual(res_dict['FORK_GC_RETRY_INTERVAL'][0], '5')
+    env.assertEqual(res_dict['_MAX_RESULTS_TO_UNSORTED_MODE'][0], '1000')
+    env.assertEqual(res_dict['CURSOR_MAX_IDLE'][0], '300000')
+    env.assertEqual(res_dict['NO_MEM_POOLS'][0], 'false')
+
 def testInitConfig():
-    max_doc_table_size = 123456
-    # extentionPath = os.path.abspath(os.path.dirname(os.path.realpath(__file__)) + '/../tests/ext-example/example.so')
-    env = Env(moduleArgs='MAXDOCTABLESIZE %d' % max_doc_table_size)
-    if env.env == 'existing-env':
-        env.skip()
-    assert env.expect('ft.config', 'get', 'MAXDOCTABLESIZE').equal([['MAXDOCTABLESIZE', '%d' % max_doc_table_size]])
+    # Numeric arguments
+    def test_arg_num(arg_name, arg_value):
+        env = Env(moduleArgs=arg_name + ' ' + '%d' % arg_value)
+        if env.env == 'existing-env':
+            env.skip()
+        assert env.expect('ft.config', 'get', arg_name).equal([[arg_name, '%d' % arg_value]])
+        env.stop()
+
+    test_arg_num('MAXDOCTABLESIZE', 123456)
+    test_arg_num('TIMEOUT', 5)
+    test_arg_num('MINPREFIX', 3)
+    test_arg_num('FORKGC_SLEEP_BEFORE_EXIT', 5)
+    test_arg_num('MAXEXPANSIONS', 5)
+    test_arg_num('INDEX_THREADS', 3)
+    test_arg_num('SEARCH_THREADS', 3)
+    test_arg_num('GCSCANSIZE', 3)
+    test_arg_num('MIN_PHONETIC_TERM_LEN', 3)
+    test_arg_num('FORK_GC_RUN_INTERVAL', 3)
+    test_arg_num('FORK_GC_CLEAN_THRESHOLD', 3)
+    test_arg_num('FORK_GC_RETRY_INTERVAL', 3)
+    test_arg_num('_MAX_RESULTS_TO_UNSORTED_MODE', 3)
+
+    # True/False arguments
+    def test_arg_true(arg_name):
+        env = Env(moduleArgs=arg_name)
+        if env.env == 'existing-env':
+            env.skip()
+        assert env.expect('ft.config', 'get', arg_name).equal([[arg_name, 'true']])
+        env.stop()
+
+    test_arg_true('NOGC')
+    test_arg_true('SAFEMODE')
+    test_arg_true('CONCURRENT_WRITE_MODE')
+    test_arg_true('NO_MEM_POOLS')
+    
+    # String arguments
+    def test_arg_str(arg_name, arg_value, ret_value=None):
+        if ret_value == None:
+            ret_value = arg_value 
+        env = Env(moduleArgs=arg_name + ' ' + arg_value)
+        if env.env == 'existing-env':
+            env.skip()
+        assert env.expect('ft.config', 'get', arg_name).equal([[arg_name, ret_value]])
+        env.stop()
+
+    test_arg_str('GC_POLICY', 'fork')
+    test_arg_str('GC_POLICY', 'default', 'fork')
+    test_arg_str('GC_POLICY', 'legacy', 'sync')
+    test_arg_str('ON_TIMEOUT', 'fail')
+
