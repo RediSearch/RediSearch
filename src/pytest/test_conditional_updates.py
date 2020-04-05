@@ -30,11 +30,11 @@ def testConditionalUpdateOnNoneExistingNumericField(env):
     env.assertEqual(env.cmd('ft.add', 'idx', 'doc1', 1.0,
                               'REPLACE', 'PARTIAL',
                               'IF', '@id1 != @id2',
-                              'fields', 'id1', '3', 'id2', '4'), 'NOADD')
+                              'fields', 'id1', '3', 'id2', '4'), 'OK')
 
     env.assertOk(env.cmd('ft.add', 'idx', 'doc1', 1.0,
                            'REPLACE', 'PARTIAL',
-                           'IF', '@id1 == 5',
+                           'IF', '@id1 == 3',
                            'fields', 'id1', '3', 'id2', '4'))
 
 def testConditionalUpdateOnNoneExistingTextField(env):
@@ -62,7 +62,7 @@ def testConditionalUpdateOnNoneExistingTextField(env):
     env.assertEqual(env.cmd('ft.add', 'idx', 'doc1', 1.0,
                               'REPLACE', 'PARTIAL',
                               'IF', '@id1 != @id2',
-                              'fields', 'id1', 'some_text', 'id2', 'some_text'), 'NOADD')
+                              'fields', 'id1', 'some_text', 'id2', 'some_text'), 'OK')
 
     env.assertOk(env.cmd('ft.add', 'idx', 'doc1', 1.0,
                            'REPLACE', 'PARTIAL',
@@ -94,7 +94,7 @@ def testConditionalUpdateOnNoneExistingTagField(env):
     env.assertEqual(env.cmd('ft.add', 'idx', 'doc1', 1.0,
                               'REPLACE', 'PARTIAL',
                               'IF', '@id1 != @id2',
-                              'fields', 'id1', 'some_text', 'id2', 'some_text'), 'NOADD')
+                              'fields', 'id1', 'some_text', 'id2', 'some_text'), 'OK')
 
     env.assertOk(env.cmd('ft.add', 'idx', 'doc1', 1.0,
                            'REPLACE', 'PARTIAL',

@@ -522,11 +522,9 @@ int RSValue_Cmp(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
     return RSValue_CmpNC(v1, v2);
   }
 
-  // if one of the values is null, the other wins
-  if (v1->t == RSValue_Null) {
-    return -1;
-  } else if (v2->t == RSValue_Null) {
-    return 1;
+  // if either type are null, return error
+  if (v1->t == RSValue_Null || v2->t == RSValue_Null) {
+    return 0;
   }
 
   // if either of the arguments is a number, convert the other one to a number

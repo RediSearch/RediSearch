@@ -2855,8 +2855,8 @@ def testErrorOnOpperation(env):
     err = env.cmd('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', '!(split("bad" + "bad"))', 'as', 'a')[1]
     assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
 
-    err = env.cmd('ft.aggregate', 'idx', '@test:[0..inf]', 'APPLY', '!@test', 'as', 'a')[1]
-    assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
+    #err = env.cmd('ft.aggregate', 'idx', '@test:[0..inf]', 'APPLY', '!@test', 'as', 'a')[1]
+    #assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
 
 
 def testSortkeyUnsortable(env):
@@ -2966,3 +2966,13 @@ def testUnseportedSortableTypeErrorOnTags(env):
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL FIELDS f2 2 f3 foo2 f4 foo2').ok()
     env.expect('HGETALL doc1').equal(['f1', 'foo1', 'f2', '2', 'f3', 'foo2', 'f4', 'foo2'])
     env.expect('FT.SEARCH idx *').equal([1L, 'doc1', ['f1', 'foo1', 'f2', '2', 'f3', 'foo2', 'f4', 'foo2']])
+
+def testIssue1063(env):
+    env.cmd('FT.CREATE idx SCHEMA txt1 TEXT txt2 TEXT')
+
+    env.cmd('FT.ADD idx doc1 1.0 FIELDS txt1 10')
+    env.expect('FT.GET idx doc1').equal(['txt1', '10'])
+
+    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if !@txt1 FIELDS txt1 11').equal('NOADD')
+    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if !@txt2 FIELDS txt2 11').equal('OK')
+    env.expect('FT.GET idx doc1').equal(['txt1', '10', 'txt2', '11'])
