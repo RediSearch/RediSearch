@@ -113,6 +113,7 @@ CONFIG_SETTER(setMaxDocTableSize) {
     QueryError_SetError(status, QUERY_ELIMIT, "Value exceeds maximum possible document table size");
     return REDISMODULE_ERR;
   }
+  config->maxDocTableSize = newsize;
   return REDISMODULE_OK;
 }
 
