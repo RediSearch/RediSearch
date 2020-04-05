@@ -523,10 +523,17 @@ int RSValue_Cmp(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
   }
 
   // if either type are null, return error
-  if (v1->t == RSValue_Null || v2->t == RSValue_Null) {
+  if (v1->t == RSValue_Undef || v2->t == RSValue_Undef) {
     return 0;
   }
 
+  // if one of the values is null, the other wins
+  if (v1->t == RSValue_Null) {
+    return -1;
+  } else if (v2->t == RSValue_Null) {
+    return 1;
+  }
+  
   // if either of the arguments is a number, convert the other one to a number
   // if, however, error handling is not available, fallback to string comparison
   do {
@@ -571,7 +578,8 @@ int RSValue_Equal(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
     return RSValue_CmpNC(v1, v2) == 0;
   }
 
-  if (v1->t == RSValue_Null || v2->t == RSValue_Null) {
+  if (v1->t == RSValue_Null  || v2->t == RSValue_Null ||
+      v1->t == RSValue_Undef || v2->t == RSValue_Undef) {
     return 0;
   }
 

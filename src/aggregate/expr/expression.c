@@ -184,7 +184,7 @@ static int evalProperty(ExprEval *eval, const RSLookupExpr *e, RSValue *res) {
   if (value) {
     setReferenceValue(res, value);
   } else {
-    res->t = RSValue_Null;
+    res->t = RSValue_Undef;
   }
   return 1;
 }
