@@ -5,7 +5,7 @@
 #include "redismodule.h"
 #include "rmalloc.h"
 #include <pthread.h>
-#include <assert.h>
+#include "rmutil/rm_assert.h"
 
 static void BlockClients_push(BlockClients* ctx, RedisModuleBlockedClient* bClient) {
   BlockClient* bc = rm_calloc(1, sizeof(BlockClient));
@@ -41,7 +41,7 @@ GCContext* GCContext_CreateGCFromSpec(IndexSpec* sp, float initialHZ, uint64_t u
     default:
       // currently LLAPI only support FORK_GC, in the future we might allow default GC as well.
       // This is why we pass the GC_POLICY to the function.
-      assert(0);
+      RS_LOG_ASSERT(0, "Invalid GC policy");
   }
   return ret;
 }
