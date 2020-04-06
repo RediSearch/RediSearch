@@ -48,6 +48,11 @@ void QueryError_SetError(QueryError *status, QueryErrorCode code, const char *er
   }
 }
 
+void QueryError_ResetError(QueryError *status) {
+  status->code = QUERY_OK;
+  status->detail = NULL;
+}
+
 void QueryError_SetCode(QueryError *status, QueryErrorCode code) {
   if (status->code == QUERY_OK) {
     status->code = code;
