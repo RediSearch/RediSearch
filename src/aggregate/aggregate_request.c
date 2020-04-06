@@ -135,7 +135,7 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
     if (arng->limit == 0) {
       // LIMIT 0 0
       req->reqflags |= QEXEC_F_NOROWS;
-    } else if (arng->limit > SEARCH_REQUEST_RESULTS_MAX) {
+    } else if ((arng->limit > SEARCH_REQUEST_RESULTS_MAX) && (req->reqflags & QEXEC_F_IS_SEARCH)) {
       QueryError_SetErrorFmt(status, QUERY_ELIMIT, "LIMIT exceeds maximum of %llu",
                              SEARCH_REQUEST_RESULTS_MAX);
       return ARG_ERROR;
