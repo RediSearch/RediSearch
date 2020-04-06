@@ -2985,10 +2985,10 @@ def testIssue1063(env):
 
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if isnull(@txt1)&&@txt1!=10 FIELDS txt1 10').equal('NOADD')
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if isnull(@txt1)&&@txt1==10 FIELDS txt1 10').equal('NOADD')
-    #env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if isnull(@txt2)&&@txt1!=10 FIELDS txt1 10').equal('NOADD')
+    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if isnull(@txt2)&&@txt1!=10 FIELDS txt1 10').equal('NOADD')
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if isnull(@txt2)&&@txt1==10 FIELDS txt1 10').equal('OK')
 
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if @txt1!=10&&isnull(@txt1) FIELDS txt1 10').equal('NOADD')
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if @txt1==10&&isnull(@txt1) FIELDS txt1 10').equal('NOADD')
-    #env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if @txt1!=10&&isnull(@txt2) FIELDS txt1 10').equal('NOADD')
+    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if @txt1!=10&&isnull(@txt2) FIELDS txt1 10').equal('NOADD')
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if @txt1==10&&isnull(@txt2) FIELDS txt1 10').equal('OK')

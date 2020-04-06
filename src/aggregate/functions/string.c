@@ -304,6 +304,7 @@ int func_is_null(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc, Qu
 
   if (argv[0]->t == RSValue_Undef) {
     ctx->err->code = QUERY_OK;
+    ctx->err->detail = NULL;
     result->t = RSValue_Number;
     result->numval = 1;
   }
