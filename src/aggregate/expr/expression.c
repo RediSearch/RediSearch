@@ -181,11 +181,19 @@ static int evalProperty(ExprEval *eval, const RSLookupExpr *e, RSValue *res) {
 
   /** Find the actual value */
   RSValue *value = RLookup_GetItem(e->lookupObj, eval->srcrow);
-  if (value) {
-    setReferenceValue(res, value);
-  } else {
-    res->t = RSValue_Undef;
+  if (!value) {
+    // for @field condition. w/o right side arg
+    if (!eval->root->pred.right) {
+      res->t = RSValue_Number;
+      res->numval = 0;
+      return 1;
+    }
+    if (eval->err) {
+      QueryError_SetError(eval->err, QUERY_ENOPROPVAL, NULL);
+    }
+    return 0;
   }
+  setReferenceValue(res, value);
   return 1;
 }
 
