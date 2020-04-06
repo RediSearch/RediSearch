@@ -50,6 +50,7 @@ void QueryError_SetError(QueryError *status, QueryErrorCode code, const char *er
 
 void QueryError_ResetError(QueryError *status) {
   status->code = QUERY_OK;
+  rm_free(status->detail);
   status->detail = NULL;
 }
 
