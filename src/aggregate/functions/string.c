@@ -299,6 +299,17 @@ static int stringfunc_split(ExprEval *ctx, RSValue *result, RSValue **argv, size
   return EXPR_EVAL_OK;
 }
 
+int func_is_null(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc, QueryError *err) {
+  VALIDATE_ARGS("isnull", 1, 1, err);
+
+  if (argv[0]->t == RSValue_Undef) {
+    ctx->err->code = QUERY_OK;
+    result->t = RSValue_Number;
+    result->numval = 1;
+  }
+  return EXPR_EVAL_OK;
+}
+
 void RegisterStringFunctions() {
   RSFunctionRegistry_RegisterFunction("lower", stringfunc_tolower, RSValue_String);
   RSFunctionRegistry_RegisterFunction("upper", stringfunc_toupper, RSValue_String);
@@ -308,4 +319,5 @@ void RegisterStringFunctions() {
   RSFunctionRegistry_RegisterFunction("matched_terms", func_matchedTerms, RSValue_Array);
   RSFunctionRegistry_RegisterFunction("to_number", func_to_number, RSValue_Number);
   RSFunctionRegistry_RegisterFunction("to_str", func_to_str, RSValue_String);
+  RSFunctionRegistry_RegisterFunction("isnull", func_is_null, RSValue_Number);
 }

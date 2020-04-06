@@ -18,7 +18,8 @@ static int evalFunc(ExprEval *eval, const RSFunctionExpr *f, RSValue *result) {
   for (size_t ii = 0; ii < nargs; ii++) {
     args[ii] = (RSValue)RSVALUE_STATIC;
     argspp[ii] = &args[ii];
-    if (evalInternal(eval, f->args->args[ii], &args[ii]) == EXPR_EVAL_ERR) {
+    if (evalInternal(eval, f->args->args[ii], &args[ii]) == EXPR_EVAL_ERR &&
+        eval->err->code != QUERY_ENOPROPVAL) {
       // TODO: Free other results
       rc = EXPR_EVAL_ERR;
       goto cleanup;
@@ -149,9 +150,6 @@ static int evalPredicate(ExprEval *eval, const RSPredicate *pred, RSValue *resul
     goto cleanup;
   }
 
-  RSValue *l_ptr = RSValue_Dereference(&l);
-  RSValue *r_ptr = RSValue_Dereference(&r);
-
   int res = getPredicateBoolean(eval, &l, &r, pred->cond);
   if (!eval->err || eval->err->code == QUERY_OK) {
     result->numval = res;
@@ -176,7 +174,7 @@ static int evalProperty(ExprEval *eval, const RSLookupExpr *e, RSValue *res) {
     if (eval->err) {
       QueryError_SetError(eval->err, QUERY_ENOPROPKEY, NULL);
     }
-    return 0;
+    return EXPR_EVAL_ERR;
   }
 
   /** Find the actual value */
@@ -185,11 +183,11 @@ static int evalProperty(ExprEval *eval, const RSLookupExpr *e, RSValue *res) {
     if (eval->err) {
       QueryError_SetError(eval->err, QUERY_ENOPROPVAL, NULL);
     }
-    return 0;
+    return EXPR_EVAL_ERR;
   }
 
   setReferenceValue(res, value);
-  return 1;
+  return EXPR_EVAL_OK;
 }
 
 static int evalInternal(ExprEval *eval, const RSExpr *e, RSValue *res) {
