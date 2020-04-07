@@ -199,20 +199,20 @@ TEST_F(ExprTest, testPredicate) {
   TEST_EVAL("1 != 1", 0);
   TEST_EVAL("1 != 'foo'", 1);
   TEST_EVAL("1 == NULL", 0);
-  TEST_EVAL("1 != NULL", 1);
+  TEST_EVAL("1 != NULL", 0);    // like SQL, this is false
   TEST_EVAL("'foo' == 'foo'", 1);
   TEST_EVAL("'foo' != 'bar'", 1);
   TEST_EVAL("'foo' != 'foo'", 0);
   TEST_EVAL("'foo' < 'goo'", 1);
   TEST_EVAL("@foo == @bar", 0);
   TEST_EVAL("@foo != @bar", 1);
-  TEST_EVAL("@foo != NULL", 1);
+  TEST_EVAL("@foo != NULL", 0); // like SQL, this is false
   TEST_EVAL("@foo < @bar", 1);
   TEST_EVAL("@foo <= @bar", 1);
   TEST_EVAL("@foo >= @bar", 0);
   TEST_EVAL("@foo > @bar", 0);
 
-  TEST_EVAL("NULL == NULL", 1);
+  TEST_EVAL("NULL == NULL", 0); // like SQL, this is false
   TEST_EVAL("0 == NULL", 0);
   TEST_EVAL("1 == 1 && 2 ==2 ", 1);
   TEST_EVAL("1 == 1 && 1 ==2 ", 0);
