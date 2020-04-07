@@ -143,14 +143,24 @@ static int evalInverted(ExprEval *eval, const RSInverted *vv, RSValue *result) {
 }
 
 static int evalPredicate(ExprEval *eval, const RSPredicate *pred, RSValue *result) {
+  int res;
   RSValue l = RSVALUE_STATIC, r = RSVALUE_STATIC;
   int rc = EXPR_EVAL_ERR;
-  if (evalInternal(eval, pred->left, &l) == EXPR_EVAL_ERR ||
-      evalInternal(eval, pred->right, &r) == EXPR_EVAL_ERR) {
+  if (evalInternal(eval, pred->left, &l) == EXPR_EVAL_ERR) {
+    goto cleanup;
+  } else if (pred->cond == RSCondition_Or && RSValue_BoolTest(&l)) {
+    res = 1;
+    goto success;
+  } else if (pred->cond == RSCondition_And && !RSValue_BoolTest(&l)) {
+    res = 0;
+    goto success;
+  } else if (evalInternal(eval, pred->right, &r) == EXPR_EVAL_ERR) {
     goto cleanup;
   }
 
-  int res = getPredicateBoolean(eval, &l, &r, pred->cond);
+  res = getPredicateBoolean(eval, &l, &r, pred->cond);
+
+success:
   if (!eval->err || eval->err->code == QUERY_OK) {
     result->numval = res;
     result->t = RSValue_Number;
