@@ -16,6 +16,7 @@
 #include <unistd.h>
 #include <sys/wait.h>
 #include <stdbool.h>
+#include "module.h"
 #include "rmutil/rm_assert.h"
 
 // convert a frequency to timespec
@@ -417,7 +418,7 @@ int GC_PeriodicCallback(RedisModuleCtx *ctx, void *privdata) {
   if (totalRemoved > 0) {
     gc->hz = MIN(gc->hz * 1.2, GC_MAX_HZ);
   } else {
-    gc->hz = MAX(gc->hz * 0.99, GC_MIN_HZ);
+    gc->hz = MAX(gc->hz * 0.99, GC_MIN_HZ); // why not lower value? we increase in two different places
   }
 
 end:
@@ -430,15 +431,12 @@ end:
 /* Termination callback for the GC. Called after we stop, and frees up all the resources. */
 void GC_OnTerm(void *privdata) {
   GarbageCollectorCtx *gc = privdata;
-  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
-  RedisModule_ThreadSafeContextLock(ctx);
+  RedisModuleCtx *ctx = RSDummyContext;
   RedisModule_FreeString(ctx, (RedisModuleString *)gc->keyName);
   for (int i = 0; i < array_len(gc->numericGCCtx); ++i) {
     gc_FreeNumericGcCtx(gc->numericGCCtx[i]);
   }
   array_free(gc->numericGCCtx);
-  RedisModule_ThreadSafeContextUnlock(ctx);
-  RedisModule_FreeThreadSafeContext(ctx);
   rm_free(gc);
 }
 

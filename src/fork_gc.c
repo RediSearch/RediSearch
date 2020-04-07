@@ -14,6 +14,7 @@
 #include "rwlock.h"
 #include "util/khash.h"
 #include <float.h>
+#include "module.h"
 #include "rmutil/rm_assert.h"
 
 #ifdef __linux__
@@ -1269,7 +1270,7 @@ void FGC_WaitAtApply(ForkGC *gc) NO_TSAN_CHECK {
 }
 
 void FGC_WaitClear(ForkGC *gc) NO_TSAN_CHECK {
-  gc->pauseState = 0;
+  gc->pauseState = FGC_PAUSED_UNPAUSED;
   while (gc->execState != FGC_STATE_IDLE) {
     usleep(500);
   }
@@ -1278,9 +1279,7 @@ void FGC_WaitClear(ForkGC *gc) NO_TSAN_CHECK {
 static void onTerminateCb(void *privdata) {
   ForkGC *gc = privdata;
   if (gc->keyName && gc->type == FGC_TYPE_INKEYSPACE) {
-    RedisModule_ThreadSafeContextLock(gc->ctx);
     RedisModule_FreeString(gc->ctx, (RedisModuleString *)gc->keyName);
-    RedisModule_ThreadSafeContextUnlock(gc->ctx);
   }
 
   RedisModule_FreeThreadSafeContext(gc->ctx);
