@@ -168,7 +168,6 @@ RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName, bool r
   RedisSearchCtx *sctx = rm_malloc(sizeof(*sctx));
   *sctx = (RedisSearchCtx){.spec = sp,  // newline
                            .redisCtx = ctx,
-                           .key_ = loadOpts.keyp,
                            .refcount = 1};
   return sctx;
 }
@@ -501,10 +500,5 @@ int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments, int deleteSpecKey)
 
   // Delete the index spec
   int deleted = 1;
-  if (deleteSpecKey) {
-    deleted = Redis_DeleteKey(
-        ctx->redisCtx,
-        RedisModule_CreateStringPrintf(ctx->redisCtx, INDEX_SPEC_KEY_FMT, ctx->spec->name));
-  }
   return deleted ? REDISMODULE_OK : REDISMODULE_ERR;
 }

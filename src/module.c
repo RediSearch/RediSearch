@@ -513,7 +513,7 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
-  Redis_DropIndex(&sctx, delDocs, true);
+  IndexSpec_Free(sp);
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 

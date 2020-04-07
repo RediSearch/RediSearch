@@ -56,7 +56,6 @@ static const char *SpecTypeNames[] = {[IXFLDPOS_FULLTEXT] = SPEC_TEXT_STR,
                                       [IXFLDPOS_TAG] = SPEC_TAG_STR};
 
 #define INDEX_SPEC_KEY_PREFIX "idx:"
-#define INDEX_SPEC_KEY_FMT INDEX_SPEC_KEY_PREFIX "%s"
 #define INDEX_SPEC_ALIASES "$idx:aliases$"
 
 #define SPEC_MAX_FIELDS 1024
@@ -372,8 +371,6 @@ typedef struct {
     RedisModuleString *rstring;
   } name;
 
-  /** key pointer. you should close this when done with the index */
-  RedisModuleKey *keyp;
   /** name of alias lookup key to use */
   const char *alookup;
 } IndexLoadOptions;
@@ -435,6 +432,9 @@ void IndexSpec_ClearAliases(IndexSpec *sp);
 t_fieldMask IndexSpec_ParseFieldMask(IndexSpec *sp, RedisModuleString **argv, int argc);
 
 void IndexSpec_InitializeSynonym(IndexSpec *sp);
+
+// List of all indexes
+extern dict* RSIndexes_g;
 
 #ifdef __cplusplus
 }

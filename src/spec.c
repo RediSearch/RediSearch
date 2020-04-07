@@ -162,39 +162,21 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
     return NULL;
   }
 
-  RedisModuleString *keyString = RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, sp->name);
-  RedisModuleKey *k = RedisModule_OpenKey(ctx, keyString, REDISMODULE_READ | REDISMODULE_WRITE);
-  RedisModule_FreeString(ctx, keyString);
-
-  // check that the key is empty
-  if (k == NULL || (RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_EMPTY)) {
-    if (RedisModule_ModuleTypeGetType(k) != IndexSpecType) {
-      QueryError_SetCode(status, QUERY_EREDISKEYTYPE);
-    } else {
-      QueryError_SetCode(status, QUERY_EINDEXEXISTS);
-    }
+  if (dictFind(RSIndexes_g, sp->name)) {
+    QueryError_SetCode(status, QUERY_EINDEXEXISTS);
     IndexSpec_Free(sp);
-    if (k) {
-      RedisModule_CloseKey(k);
-    }
     return NULL;
   }
 
   sp->uniqueId = spec_unique_ids++;
+  dictAdd(RSIndexes_g, sp->name, sp);
   // Start the garbage collector
   IndexSpec_StartGC(ctx, sp, GC_DEFAULT_HZ);
-
   CursorList_AddSpec(&RSCursors, sp->name, RSCURSORS_DEFAULT_CAPACITY);
 
-  // set the value in redis
-  RedisModule_ModuleTypeSetValue(k, IndexSpecType, sp);
-  if (sp->flags & Index_Temporary) {
-    RedisModule_SetExpire(k, sp->timeout * 1000);
-  }
   if (IndexSpec_OnCreate) {
     IndexSpec_OnCreate(sp);
   }
-  RedisModule_CloseKey(k);
   return sp;
 }
 
@@ -629,20 +611,7 @@ char *IndexSpec_GetRandomTerm(IndexSpec *sp, size_t sampleSize) {
 }
 
 void IndexSpec_FreeWithKey(IndexSpec *sp, RedisModuleCtx *ctx) {
-  RedisModuleString *s = RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, sp->name);
-  RedisModuleKey *kk = RedisModule_OpenKey(ctx, s, REDISMODULE_WRITE);
-  RedisModule_FreeString(ctx, s);
-  if (kk == NULL || RedisModule_KeyType(kk) != REDISMODULE_KEYTYPE_MODULE ||
-      RedisModule_ModuleTypeGetType(kk) != IndexSpecType) {
-    if (kk != NULL) {
-      RedisModule_CloseKey(kk);
-    }
-    IndexSpec_Free(sp);
-    return;
-  }
-  assert(RedisModule_ModuleTypeGetValue(kk) == sp);
-  RedisModule_DeleteKey(kk);
-  RedisModule_CloseKey(kk);
+  IndexSpec_Free(sp);
 }
 
 static void IndexSpec_FreeInternals(IndexSpec *spec) {
@@ -661,6 +630,7 @@ static void IndexSpec_FreeInternals(IndexSpec *spec) {
     Cursors_PurgeWithName(&RSCursors, spec->name);
     CursorList_RemoveSpec(&RSCursors, spec->name);
   }
+  dictDelete(RSIndexes_g, spec->name);
 
   rm_free(spec->name);
   if (spec->sortables) {
@@ -703,6 +673,7 @@ static void IndexSpec_FreeInternals(IndexSpec *spec) {
     }
     rm_free(spec->fields);
   }
+  printf("Clearing aliases..\n");
   IndexSpec_ClearAliases(spec);
 
   if (spec->keysDict) {
@@ -753,6 +724,8 @@ void IndexSpec_Free(void *ctx) {
   IndexSpec_Decref(ctx);
 }
 
+dict *RSIndexes_g = NULL;
+
 void IndexSpec_FreeSync(IndexSpec *spec) {
   //  todo:
   //  mark I think we only need IndexSpec_FreeInternals, this is called only from the
@@ -772,76 +745,23 @@ void IndexSpec_FreeSync(IndexSpec *spec) {
 
 IndexSpec *IndexSpec_LoadEx(RedisModuleCtx *ctx, IndexLoadOptions *options) {
   IndexSpec *ret = NULL;
-  int modeflags = REDISMODULE_READ | REDISMODULE_WRITE;
 
-  if (options->flags & INDEXSPEC_LOAD_WRITEABLE) {
-    modeflags |= REDISMODULE_WRITE;
-  }
-
-  RedisModuleString *formatted;
-  int isKeynameOwner = 0;
   const char *ixname = NULL;
-
-  if (options->flags & INDEXSPEC_LOAD_KEY_FORMATTED) {
-    formatted = options->name.rstring;
+  if (options->flags & INDEXSPEC_LOAD_KEY_RSTRING) {
+    ixname = RedisModule_StringPtrLen(options->name.rstring, NULL);
   } else {
-    isKeynameOwner = 1;
-    if (options->flags & INDEXSPEC_LOAD_KEY_RSTRING) {
-      ixname = RedisModule_StringPtrLen(options->name.rstring, NULL);
-    } else {
-      ixname = options->name.cstring;
-    }
-    formatted = RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, ixname);
+    ixname = options->name.cstring;
   }
-
-  options->keyp = RedisModule_OpenKey(ctx, formatted, modeflags);
-  // we do not allow empty indexes when loading an existing index
-  if (options->keyp == NULL || RedisModule_KeyType(options->keyp) == REDISMODULE_KEYTYPE_EMPTY) {
-    if (options->keyp) {
-      RedisModule_CloseKey(options->keyp);
-      options->keyp = NULL;
-    }
+  dictEntry *ent = dictFind(RSIndexes_g, ixname);
+  if (!ent) {
     if ((options->flags & INDEXSPEC_LOAD_NOALIAS) || ixname == NULL) {
-      goto done;  // doesn't exist.
+      return NULL;
     }
     IndexSpec *aliasTarget = ret = IndexAlias_Get(ixname);
-    if (aliasTarget && (options->flags & INDEXSPEC_LOAD_KEYLESS) == 0) {
-      if (isKeynameOwner) {
-        RedisModule_FreeString(ctx, formatted);
-      }
-      formatted = RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, ret->name);
-      isKeynameOwner = 1;
-      options->keyp = RedisModule_OpenKey(ctx, formatted, modeflags);
-    }
   } else {
-    if (RedisModule_ModuleTypeGetType(options->keyp) != IndexSpecType) {
-      goto done;
-    }
-    ret = RedisModule_ModuleTypeGetValue(options->keyp);
+    ret = ent->v.val;
   }
 
-  if (!ret) {
-    goto done;
-  }
-  if (ret->flags & Index_Temporary) {
-    mstime_t exp = ret->timeout * 1000;
-    if (modeflags & REDISMODULE_WRITE) {
-      RedisModule_SetExpire(options->keyp, exp);
-    } else {
-      RedisModuleKey *temp = RedisModule_OpenKey(ctx, formatted, REDISMODULE_WRITE);
-      RedisModule_SetExpire(temp, ret->timeout * 1000);
-      RedisModule_CloseKey(temp);
-    }
-  }
-
-done:
-  if (isKeynameOwner) {
-    RedisModule_FreeString(ctx, formatted);
-  }
-  if ((options->flags & INDEXSPEC_LOAD_KEYLESS) && options->keyp) {
-    RedisModule_CloseKey(options->keyp);
-    options->keyp = NULL;
-  }
   return ret;
 }
 
@@ -1203,9 +1123,7 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
   sp->uniqueId = spec_unique_ids++;
 
   IndexSpec_StartGC(ctx, sp, GC_DEFAULT_HZ);
-  RedisModuleString *specKey = RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, sp->name);
   CursorList_AddSpec(&RSCursors, sp->name, RSCURSORS_DEFAULT_CAPACITY);
-  RedisModule_FreeString(ctx, specKey);
 
   sp->smap = NULL;
   if (sp->flags & Index_HasSmap) {

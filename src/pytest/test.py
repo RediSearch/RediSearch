@@ -15,7 +15,6 @@ def testAdd(env):
     r = env
     env.assertOk(r.execute_command(
         'ft.create', 'idx', 'schema', 'title', 'text', 'body', 'text'))
-    env.assertTrue(r.exists('idx:idx'))
     env.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 1.0, 'fields',
                                     'title', 'hello world',
                                     'body', 'lorem ist ipsum'))
