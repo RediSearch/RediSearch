@@ -1068,7 +1068,9 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   return REDISMODULE_OK;
 }
 
+
 void __attribute__((destructor)) RediSearch_CleanupModule(void) {
+#ifdef ASAN_OPTIONS // used in sanitizer
   static int invoked = 0;
   if (invoked || !RS_Initialized) {
     return;
@@ -1083,4 +1085,5 @@ void __attribute__((destructor)) RediSearch_CleanupModule(void) {
   GC_ThreadPoolDestroy();
   IndexAlias_DestroyGlobal();
   RedisModule_FreeThreadSafeContext(RSDummyContext);
+#endif
 }
