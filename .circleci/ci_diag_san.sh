@@ -21,6 +21,8 @@ fi
 mkdir build-${mode}
 cd build-${mode}
 
+export RS_GLOBAL_DTORS
+
 cmake -DCMAKE_BUILD_TYPE=DEBUG \
     -DCMAKE_C_COMPILER=clang \
     -DCMAKE_CXX_COMPILER=clang++ \
