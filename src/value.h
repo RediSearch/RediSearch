@@ -260,6 +260,9 @@ static inline int RSValue_BoolTest(RSValue *v) {
     case RSValue_String:
       return v->strval.len != 0;
     case RSValue_RedisString: {
+      if (v->rstrval == NULL) {
+        return 0;
+      }
       size_t l = 0;
       const char *p = RedisModule_StringPtrLen(v->rstrval, &l);
       return l != 0;

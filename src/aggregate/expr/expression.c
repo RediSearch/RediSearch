@@ -245,10 +245,18 @@ cleanup:
 }
 
 static int evalPredicate(RSExprEvalCtx *ctx, RSPredicate *pred, RSValue *result, char **err) {
-
+  int res;
   RSValue l = RSVALUE_STATIC, r = RSVALUE_STATIC;
   if (RSExpr_Eval(ctx, pred->left, &l, err) == EXPR_EVAL_ERR) {
     return EXPR_EVAL_ERR;
+  }
+  if (pred->cond == RSCondition_Or && RSValue_BoolTest(&l)) {
+    res = 1;
+    goto success;
+  }
+  if (pred->cond == RSCondition_And && !RSValue_BoolTest(&l)) {
+    res = 0;
+    goto success;
   }
   if (pred->right && RSExpr_Eval(ctx, pred->right, &r, err) == EXPR_EVAL_ERR) {
     return EXPR_EVAL_ERR;
@@ -257,7 +265,6 @@ static int evalPredicate(RSExprEvalCtx *ctx, RSPredicate *pred, RSValue *result,
   RSValue *l_ptr = RSValue_Dereference(&l);
   RSValue *r_ptr = RSValue_Dereference(&r);
 
-  int res;
   if (l_ptr->t == RSValue_Null || r_ptr->t == RSValue_Null) {
     // NULL are not comparable
     res = 0;
@@ -306,6 +313,7 @@ static int evalPredicate(RSExprEvalCtx *ctx, RSPredicate *pred, RSValue *result,
         break;
     }
 
+success:
   result->numval = res;
   result->t = RSValue_Number;
 
