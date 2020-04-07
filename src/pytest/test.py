@@ -2952,3 +2952,21 @@ def testUnseportedSortableTypeErrorOnTags(env):
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL FIELDS f2 2 f3 foo2 f4 foo2').ok()
     env.expect('HGETALL doc1').equal(['f1', 'foo1', 'f2', '2', 'f3', 'foo2', 'f4', 'foo2'])
     env.expect('FT.SEARCH idx *').equal([1L, 'doc1', ['f1', 'foo1', 'f2', '2', 'f3', 'foo2', 'f4', 'foo2']])
+
+
+def testIssue1158(env):
+    env.cmd('FT.CREATE idx SCHEMA txt1 TEXT txt2 TEXT txt3 TEXT')
+
+    env.cmd('FT.ADD idx doc1 1.0 FIELDS txt1 10 txt2 num1')
+    env.expect('FT.GET idx doc1').equal(['txt1', '10', 'txt2', 'num1'])
+
+    # only 1st checked (2nd returns an error)
+    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if @txt1||to_number(@txt2)<5 FIELDS txt1 5').equal('OK')
+    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if @txt3&&to_number(@txt2)<5 FIELDS txt1 5').equal('NOADD')
+    
+    # both are checked
+    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if to_number(@txt1)>11||to_number(@txt1)>42 FIELDS txt2 num2').equal('NOADD')
+    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if to_number(@txt1)>11||to_number(@txt1)<42 FIELDS txt2 num2').equal('OK')
+    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if to_number(@txt1)>11&&to_number(@txt1)>42 FIELDS txt2 num2').equal('NOADD')
+    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if to_number(@txt1)>11&&to_number(@txt1)<42 FIELDS txt2 num2').equal('NOADD')
+    env.expect('FT.GET idx doc1').equal(['txt1', '5', 'txt2', 'num2'])
