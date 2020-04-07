@@ -5,8 +5,8 @@
 #include "geo_index.h"
 #include "index.h"
 #include "redis_index.h"
+#include "rmutil/rm_assert.h"
 
-#include <assert.h>
 #include <unistd.h>
 static void Indexer_FreeInternal(DocumentIndexer *indexer);
 
@@ -207,6 +207,8 @@ static int writeMergedEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, 
  * nothing to merge.
  */
 static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
+  RS_LOG_ASSERT(ctx, "ctx shound not be NULL");
+  
   ForwardIndexIterator it = ForwardIndex_Iterate(aCtx->fwIdx);
   ForwardIndexEntry *entry = ForwardIndexIterator_Next(&it);
   IndexEncoder encoder = InvertedIndex_GetEncoder(aCtx->specFlags);
@@ -216,12 +218,10 @@ static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, Re
     RedisModuleKey *idxKey = NULL;
     IndexSpec_AddTerm(ctx->spec, entry->term, entry->len);
 
-    assert(ctx);
-
     InvertedIndex *invidx = Redis_OpenInvertedIndexEx(ctx, entry->term, entry->len, 1, &idxKey);
     if (invidx) {
       entry->docId = aCtx->doc.docId;
-      assert(entry->docId);
+      RS_LOG_ASSERT(entry->docId, "docId should not be 0");
       writeIndexEntry(ctx->spec, invidx, encoder, entry);
     }
     if (idxKey) {
@@ -299,7 +299,7 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
       continue;
     }
 
-    assert(!cur->doc.docId);
+    RS_LOG_ASSERT(!cur->doc.docId, "docId must be 0");
     int rv = makeDocumentId(cur, ctx, cur->options & DOCUMENT_ADD_REPLACE, &cur->status);
     if (rv != 0) {
       cur->stateFlags |= ACTX_F_ERRORED;
@@ -489,7 +489,7 @@ static void *Indexer_Run(void *p) {
 
     RSAddDocumentCtx *cur = indexer->head;
     if (cur == NULL) {
-      assert(SHOULD_STOP(indexer));
+      RS_LOG_ASSERT(SHOULD_STOP(indexer), "indexer was stopped");
       pthread_mutex_unlock(&indexer->lock);
       break;
     }

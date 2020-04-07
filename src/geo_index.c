@@ -2,6 +2,7 @@
 #include "geo_index.h"
 #include "rmutil/util.h"
 #include "rmalloc.h"
+#include "rmutil/rm_assert.h"
 
 /* Add a docId to a geoindex key. Right now we just use redis' own GEOADD */
 int GeoIndex_AddStrings(GeoIndex *gi, t_docId docId, const char *slon, const char *slat) {
@@ -89,7 +90,7 @@ static t_docId *geoRangeLoad(const GeoIndex *gi, const GeoFilter *gf, size_t *nu
   *num = 0;
   t_docId *docIds = NULL;
   RedisModuleString *s = IndexSpec_GetFormattedKey(gi->ctx->spec, gi->sp, INDEXFLD_T_GEO);
-  assert(s);
+  RS_LOG_ASSERT(s, "failed to retrive key");
   /*GEORADIUS key longitude latitude radius m|km|ft|mi */
   RedisModuleCtx *ctx = gi->ctx->redisCtx;
   RedisModuleString *slon = RedisModule_CreateStringPrintf(ctx, "%f", gf->lon);
