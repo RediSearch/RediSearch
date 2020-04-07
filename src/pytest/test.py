@@ -2167,3 +2167,32 @@ def testIssue1158(env):
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if to_number(@txt1)>11&&to_number(@txt1)>42 FIELDS txt2 num2').equal('NOADD')
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if to_number(@txt1)>11&&to_number(@txt1)<42 FIELDS txt2 num2').equal('NOADD')
     env.expect('FT.GET idx doc1').equal(['txt1', '5', 'txt2', 'num2']) 
+
+def testIssue1063(env):
+    env.cmd('FT.CREATE idx SCHEMA txt1 TEXT txt2 TEXT')
+
+    env.cmd('FT.ADD idx doc1 1.0 FIELDS txt1 10')
+    env.expect('FT.GET idx doc1').equal(['txt1', '10'])
+
+    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if isnull(@txt1)||@txt1!=to_str(10) FIELDS txt1 10').equal('NOADD')
+    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if isnull(@txt1)||@txt1==to_str(10) FIELDS txt1 10').equal('OK')
+    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if isnull(@txt2)||@txt1!=to_str(10) FIELDS txt1 10').equal('OK')
+    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if isnull(@txt2)||@txt1==to_str(10) FIELDS txt1 10').equal('OK')
+
+    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if @txt1!=to_str(10)||isnull(@txt1) FIELDS txt1 10').equal('NOADD')
+    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if @txt1==to_str(10)||isnull(@txt1) FIELDS txt1 10').equal('OK')
+    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if @txt1!=to_str(10)||isnull(@txt2) FIELDS txt1 10').equal('OK')
+    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if @txt1==to_str(10)||isnull(@txt2) FIELDS txt1 10').equal('OK')
+
+    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if isnull(@txt1)&&@txt1!=to_str(10) FIELDS txt1 10').equal('NOADD')
+    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if isnull(@txt1)&&@txt1==to_str(10) FIELDS txt1 10').equal('NOADD')
+    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if isnull(@txt2)&&@txt1!=to_str(10) FIELDS txt1 10').equal('NOADD')
+    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if isnull(@txt2)&&@txt1==to_str(10) FIELDS txt1 10').equal('OK')
+
+    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if @txt1!=to_str(10)&&isnull(@txt1) FIELDS txt1 10').equal('NOADD')
+    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if @txt1==to_str(10)&&isnull(@txt1) FIELDS txt1 10').equal('NOADD')
+    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if @txt1!=to_str(10)&&isnull(@txt2) FIELDS txt1 10').equal('NOADD')
+    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if @txt1==to_str(10)&&isnull(@txt2) FIELDS txt1 10').equal('OK')
+
+    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if isnull(to_number(@txt1)) FIELDS txt1 10').equal('NOADD')
+    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if isnull(to_number(@txt2)) FIELDS txt1 10').contains('to_number: cannot convert string')
