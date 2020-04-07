@@ -18,8 +18,7 @@ static int evalFunc(ExprEval *eval, const RSFunctionExpr *f, RSValue *result) {
   for (size_t ii = 0; ii < nargs; ii++) {
     args[ii] = (RSValue)RSVALUE_STATIC;
     argspp[ii] = &args[ii];
-    if (evalInternal(eval, f->args->args[ii], &args[ii]) == EXPR_EVAL_ERR &&
-        eval->err->code != QUERY_ENOPROPVAL) {
+    if (evalInternal(eval, f->args->args[ii], &args[ii]) == EXPR_EVAL_ERR) {
       // TODO: Free other results
       rc = EXPR_EVAL_ERR;
       goto cleanup;
@@ -92,6 +91,13 @@ cleanup:
 
 static int getPredicateBoolean(ExprEval *eval, const RSValue *l, const RSValue *r, RSCondition op) {
   QueryError *qerr = eval ? eval->err : NULL;
+  
+  l = RSValue_Dereference(l);
+  r = RSValue_Dereference(r);
+  if (l->t == RSValue_Null || r->t == RSValue_Null) {
+    return 0;
+  }
+  
   switch (op) {
     case RSCondition_Eq:
       return RSValue_Equal(l, r, qerr);
@@ -131,7 +137,8 @@ static int getPredicateBoolean(ExprEval *eval, const RSValue *l, const RSValue *
 
 static int evalInverted(ExprEval *eval, const RSInverted *vv, RSValue *result) {
   RSValue tmpval = RSVALUE_STATIC;
-  if (evalInternal(eval, vv->child, &tmpval) != EXPR_EVAL_OK) {
+  if (evalInternal(eval, vv->child, &tmpval) != EXPR_EVAL_OK ||
+      tmpval.t == RSValue_Null) {
     return EXPR_EVAL_ERR;
   }
 
@@ -190,11 +197,8 @@ static int evalProperty(ExprEval *eval, const RSLookupExpr *e, RSValue *res) {
   /** Find the actual value */
   RSValue *value = RLookup_GetItem(e->lookupObj, eval->srcrow);
   if (!value) {
-    if (eval->err) {
-      QueryError_SetError(eval->err, QUERY_ENOPROPVAL, NULL);
-    }
     res->t = RSValue_Null;
-    return EXPR_EVAL_ERR;
+    return EXPR_EVAL_OK;
   }
 
   setReferenceValue(res, value);

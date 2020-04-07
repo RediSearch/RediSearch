@@ -2993,8 +2993,14 @@ def testIssue1063(env):
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if @txt1!=10&&isnull(@txt2) FIELDS txt1 10').equal('NOADD')
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if @txt1==10&&isnull(@txt2) FIELDS txt1 10').equal('OK')
 
+    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if isnull("txt1") FIELDS txt1 10').equal('NOADD')
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if isnull(to_number(@txt1)) FIELDS txt1 10').equal('NOADD')
-    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if isnull(to_number(@txt2)) FIELDS txt1 10').equal('NOADD')
+    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if isnull(to_str(@txt1)) FIELDS txt1 10').equal('NOADD')
+    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if isnull(to_number(@txt2)) FIELDS txt1 10').contains('cannot convert')
+    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if isnull(to_str(@txt2)) FIELDS txt1 10').equal('NOADD')
+
+    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if !txt1 FIELDS txt1 10').contains('Missing')
+    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if !txt2 FIELDS txt1 10').contains('Missing')
 
 def testIssue1158(env):
     env.cmd('FT.CREATE idx SCHEMA txt1 TEXT txt2 TEXT txt3 TEXT')
