@@ -302,12 +302,15 @@ static int stringfunc_split(ExprEval *ctx, RSValue *result, RSValue **argv, size
 int func_is_null(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc, QueryError *err) {
   VALIDATE_ARGS("isnull", 1, 1, err);
 
+  if (ctx->err->code == QUERY_ENOPROPVAL) {
+    QueryError_ClearError(ctx->err);
+  }
+
+  result->t = RSValue_Number;
   if (argv[0]->t == RSValue_Null) {
-    if (ctx->err) {
-      QueryError_ClearError(ctx->err);
-    }
-    result->t = RSValue_Number;
     result->numval = 1;
+  } else {
+    result->numval = 0;                       
   }
   return EXPR_EVAL_OK;
 }
