@@ -193,6 +193,7 @@ static int evalProperty(ExprEval *eval, const RSLookupExpr *e, RSValue *res) {
     if (eval->err) {
       QueryError_SetError(eval->err, QUERY_ENOPROPVAL, NULL);
     }
+    res->t = RSValue_Null;
     return EXPR_EVAL_ERR;
   }
 

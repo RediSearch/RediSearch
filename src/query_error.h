@@ -72,9 +72,6 @@ const char *QueryError_Strerror(QueryErrorCode code);
  */
 void QueryError_SetError(QueryError *status, QueryErrorCode code, const char *err);
 
-/** Reset error code to QUERY_OK */
-void QueryError_ResetError(QueryError *status);
-
 /** Set the error code of the query without setting an error string. */
 void QueryError_SetCode(QueryError *status, QueryErrorCode code);
 
