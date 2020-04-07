@@ -394,6 +394,14 @@ class TestAggregateSecondUseCases():
         res = self.env.cmd('ft.aggregate', 'games', '*', 'WITHCURSOR', 'COUNTER', 1000)
         self.env.assertTrue(res[1] != 0)
 
+    def testIssue1125(self):
+        rv = self.env.cmd('ft.aggregate', 'games', '*',
+                            'LIMIT', 0, 20000000)
+        self.env.assertEqual(4531, len(rv))
+
+        # SEARCH should fail
+        self.env.expect('ft.search', 'games', '*', 'limit', 0, 2000000).error()     \
+                .contains('Limit or offset too large')
 
 def TestAggregateGroupByOnEmptyField(env):
     env.cmd('ft.create', 'idx', 'SCHEMA', 'f', 'TEXT', 'SORTABLE', 'test', 'TEXT', 'SORTABLE')
