@@ -15,6 +15,7 @@
 #include "query_error.h"
 #include "field_spec.h"
 #include "util/dict.h"
+#include "rax/rax.h"
 #include "redisearch_api.h"
 
 #ifdef __cplusplus
@@ -100,8 +101,6 @@ typedef enum {
   // Index asynchronously, don't report errors..
   Index_Async = 0x1000,
 
-  // Not stored, but an indicator that the index has been removed
-  Index_Deleted = 0x2000
 } IndexFlags;
 
 /**
@@ -157,10 +156,6 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
 
 #define FIELD_BIT(fs) (((t_fieldMask)1) << (fs)->ftId)
 
-typedef struct {
-  RedisModuleString *types[INDEXFLD_NUM_TYPES];
-} IndexSpecFmtStrings;
-
 struct DocumentIndexer;
 struct IndexQueue;
 struct IoQueue;
@@ -182,6 +177,13 @@ typedef struct {
 SpecDocQueue* SpecDocQueue_Create(IndexSpec *spec);
 void SpecDocQueue_Free(SpecDocQueue *q);
 
+typedef enum {
+  IDX_S_NODELKEYS = 0x01, // Don't delete keys when deleting the index
+  IDX_S_DELETED = 0x02, // Index has been deleted via IndexSpec_Free
+  IDX_S_CREATING = 0x04, // Index is still being created
+  IDX_S_LIBORIGIN = 0x08 // Index created using C API
+} IndexState;
+
 struct IndexSpec {
   char *name;
   FieldSpec *fields;
@@ -189,8 +191,11 @@ struct IndexSpec {
 
   IndexStats stats;
   IndexFlags flags;
-
-  Trie *terms;
+  rax *termsIdx;
+  Trie *terms; // for distance, etc.
+  struct TagIndex **tags;
+  struct NumericRangeTree **nums;
+  struct GeoIndex **geos;
 
   RSSortingTable *sortables;
 
@@ -205,17 +210,16 @@ struct IndexSpec {
   uint64_t uniqueId;
   size_t refcount;
 
-  // cached strings, corresponding to number of fields
-  IndexSpecFmtStrings *indexStrs;
   struct IndexSpecCache *spcache;
+  struct InvertedIndex *cachedInvidx;
   long long timeout;
-  dict *keysDict;
   long long minPrefix;
   long long maxPrefixExpansions;  // -1 unlimited
   RSGetValueCallback getValue;
   void *getValueCtx;
   char **aliases; // Aliases to self-remove when the index is deleted
   SpecDocQueue *queue;
+  IndexState state;
 };
 
 typedef struct {
@@ -324,13 +328,7 @@ void IndexSpec_StartGCFromSpec(IndexSpec *sp, float initialHZ, uint32_t gcPolicy
 IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryError *status);
 FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name);
 
-/** 
- * Indicate that the index spec should use an internal dictionary,rather than
- * the Redis keyspace
- */
-void IndexSpec_MakeKeyless(IndexSpec *sp);
-
-#define IndexSpec_IsKeyless(sp) ((sp)->keysDict != NULL)
+#define IndexSpec_IsKeyless(sp) ((sp)->flags != Index_LibOnly)
 
 /**
  * Gets the next text id from the index. This does not currently
@@ -352,18 +350,6 @@ IndexSpec *IndexSpec_Load(RedisModuleCtx *ctx, const char *name, int openWrite);
 /** The name of the index is in the format of a redis string */
 #define INDEXSPEC_LOAD_KEY_RSTRING 0x04
 
-/**
- * The redis string is formatted, and is not the "plain" index name.
- * Impliest RSTRING
- */
-#define INDEXSPEC_LOAD_KEY_FORMATTED 0x08
-
-/**
- * Don't load or return the key. Should only be used in cases where the
- * spec is not persisted between threads
- */
-#define INDEXSPEC_LOAD_KEYLESS 0x10
-
 typedef struct {
   uint32_t flags;
   union {
@@ -384,7 +370,27 @@ IndexSpec *IndexSpec_LoadEx(RedisModuleCtx *ctx, IndexLoadOptions *options);
 // Global hook called when an index spec is created
 extern void (*IndexSpec_OnCreate)(const IndexSpec *sp);
 
-int IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len);
+struct InvertedIndex *IDX_LoadTerm(IndexSpec *sp, const char *term, size_t n, int flags);
+struct NumericRangeTree *IDX_LoadRange(IndexSpec *sp, const FieldSpec *fs, int flags);
+struct TagIndex *IDX_LoadTags(IndexSpec *sp, const FieldSpec *fs, int flags);
+struct TagIndex *IDX_LoadTagsFieldname(IndexSpec *sp, const char *s, int flags);
+struct NumericRangeTree *IDX_LoadRangeFieldname(IndexSpec *, const char *, int);
+struct GeoIndex* IDX_LoadGeo(IndexSpec *sp, const FieldSpec *fs, int flags);
+struct GeoIndex *IDX_LoadGeoFieldname(IndexSpec *, const char *, int);
+/** Lock the index for reading */
+void IDX_ReadLock(IndexSpec *);
+
+/** Lock the index for writing */
+void IDX_WriteLock(IndexSpec *);
+
+/** Returns false if the index has been dropped (but refcount is still holding it) */
+int IDX_IsAlive(const IndexSpec *);
+
+/** Release and re-acquire the read lock */
+int IDX_YieldRead(IndexSpec *);
+
+/** Release and reacquire the write lock */
+int IDX_YieldWrite(IndexSpec *);
 
 /* Get a random term from the index spec using weighted random. Weighted random is done by sampling
  * N terms from the index and then doing weighted random on them. A sample size of 10-20 should be
@@ -411,10 +417,6 @@ int IndexSpec_ParseStopWords(IndexSpec *sp, RedisModuleString **strs, size_t len
 
 /* Return 1 if a term is a stopword for the specific index */
 int IndexSpec_IsStopWord(IndexSpec *sp, const char *term, size_t len);
-
-/** Returns a string suitable for indexes. This saves on string creation/destruction */
-RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs, FieldType forType);
-RedisModuleString *IndexSpec_GetFormattedKeyByName(IndexSpec *sp, const char *s, FieldType forType);
 
 IndexSpec *NewIndexSpec(const char *name);
 int IndexSpec_AddField(IndexSpec *sp, FieldSpec *fs);

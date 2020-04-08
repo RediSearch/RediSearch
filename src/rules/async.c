@@ -97,7 +97,7 @@ static void indexBatch(AsyncIndexQueue *aiq, SpecDocQueue *dq) {
   Indexer_Init(&idxr, &sctx);
   dictIterator *iter = dictGetIterator(dq->active);
   dictEntry *e = NULL;
-  while ((e = dictNext(iter)) && !(sp->flags & Index_Deleted)) {
+  while ((e = dictNext(iter)) && IDX_IsAlive(sp)) {
     RuleIndexableDocument *rid = e->v.val;
     QueryError err = {0};
     RuleKeyItem rki = {.kstr = rid->kstr};
@@ -123,7 +123,7 @@ static void indexBatch(AsyncIndexQueue *aiq, SpecDocQueue *dq) {
   dictReleaseIterator(iter);
 
   RedisModule_ThreadSafeContextLock(RSDummyContext);
-  if (sp->flags & Index_Deleted) {
+  if (!IDX_IsAlive(sp)) {
     Indexer_Iterate(&idxr, freeCallback, NULL);
   } else {
     Indexer_Index(&idxr, freeCallback, NULL);

@@ -22,9 +22,9 @@ typedef struct {
 /* A callback called after a concurrent context regains execution context. When this happen we need
  * to make sure the key hasn't been deleted or its structure changed, which will render the
  * underlying iterators invalid */
-void NumericRangeIterator_OnReopen(RedisModuleKey *k, void *privdata) {
-  NumericUnionCtx *nu = privdata;
-  NumericRangeTree *t = RedisModule_ModuleTypeGetValue(k);
+static int numYldCallback(IndexSpec *sp, YielderArg *arg, void *idx) {
+  NumericUnionCtx *nu = arg->p;
+  NumericRangeTree *t = idx;
 
   /* If the key has been deleted we'll get a NULL heere, so we just mark ourselves as EOF
    * We simply abort the root iterator which is either a union of many ranges or a single range
@@ -34,9 +34,11 @@ void NumericRangeIterator_OnReopen(RedisModuleKey *k, void *privdata) {
    * For now we will just stop processing this query. This causes the query to return bad results,
    * so in the future we can try an reset the state here
    */
-  if (k == NULL || t == NULL || t->revisionId != nu->lastRevId) {
+  if (t->revisionId != nu->lastRevId) {
     nu->it->Abort(nu->it->ctx);
+    return 0;
   }
+  return 1;
 }
 
 /* Returns 1 if the entire numeric range is contained between min and max */
@@ -388,48 +390,14 @@ IndexIterator *createNumericIterator(const IndexSpec *sp, NumericRangeTree *t,
 }
 
 RedisModuleType *NumericIndexType = NULL;
-#define NUMERICINDEX_KEY_FMT "nm:%s/%s"
 
-RedisModuleString *fmtRedisNumericIndexKey(RedisSearchCtx *ctx, const char *field) {
-  return RedisModule_CreateStringPrintf(ctx->redisCtx, NUMERICINDEX_KEY_FMT, ctx->spec->name,
-                                        field);
-}
-
-static NumericRangeTree *openNumericKeysDict(RedisSearchCtx *ctx, RedisModuleString *keyName,
-                                             int write) {
-  KeysDictValue *kdv = dictFetchValue(ctx->spec->keysDict, keyName);
-  if (kdv) {
-    return kdv->p;
-  }
-  if (!write) {
-    return NULL;
-  }
-  kdv = rm_calloc(1, sizeof(*kdv));
-  kdv->dtor = (void (*)(void *))NumericRangeTree_Free;
-  kdv->p = NewNumericRangeTree();
-  dictAdd(ctx->spec->keysDict, keyName, kdv);
-  return kdv->p;
+static void numFreeCb(YielderArg *a, void *idx) {
+  rm_free(a->p);
 }
 
 struct indexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const NumericFilter *flt,
-                                               ConcurrentSearchCtx *csx) {
-  RedisModuleString *s =
-      IndexSpec_GetFormattedKeyByName(ctx->spec, flt->fieldName, INDEXFLD_T_NUMERIC);
-  if (!s) {
-    return NULL;
-  }
-  RedisModuleKey *key = NULL;
-  NumericRangeTree *t = NULL;
-  if (!ctx->spec->keysDict) {
-    key = RedisModule_OpenKey(ctx->redisCtx, s, REDISMODULE_READ);
-    if (!key || RedisModule_ModuleTypeGetType(key) != NumericIndexType) {
-      return NULL;
-    }
-
-    t = RedisModule_ModuleTypeGetValue(key);
-  } else {
-    t = openNumericKeysDict(ctx, s, 0);
-  }
+                                               Yielder *csx) {
+  NumericRangeTree *t = IDX_LoadRangeFieldname(ctx->spec, flt->fieldName, REDISMODULE_READ);
 
   if (!t) {
     return NULL;
@@ -444,42 +412,9 @@ struct indexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const Numeri
     NumericUnionCtx *uc = rm_malloc(sizeof(*uc));
     uc->lastRevId = t->revisionId;
     uc->it = it;
-    ConcurrentSearch_AddKey(csx, key, REDISMODULE_READ, s, NumericRangeIterator_OnReopen, uc,
-                            rm_free);
+    YLD_Add(csx, numYldCallback, numFreeCb, (YielderArg){.p = uc}, t);
   }
   return it;
-}
-
-NumericRangeTree *OpenNumericIndex(RedisSearchCtx *ctx, RedisModuleString *keyName,
-                                   RedisModuleKey **idxKey) {
-
-  NumericRangeTree *t;
-  if (!ctx->spec->keysDict) {
-    RedisModuleKey *key_s = NULL;
-
-    if (!idxKey) {
-      idxKey = &key_s;
-    }
-
-    *idxKey = RedisModule_OpenKey(ctx->redisCtx, keyName, REDISMODULE_READ | REDISMODULE_WRITE);
-
-    int type = RedisModule_KeyType(*idxKey);
-    if (type != REDISMODULE_KEYTYPE_EMPTY &&
-        RedisModule_ModuleTypeGetType(*idxKey) != NumericIndexType) {
-      return NULL;
-    }
-
-    /* Create an empty value object if the key is currently empty. */
-    if (type == REDISMODULE_KEYTYPE_EMPTY) {
-      t = NewNumericRangeTree();
-      RedisModule_ModuleTypeSetValue((*idxKey), NumericIndexType, t);
-    } else {
-      t = RedisModule_ModuleTypeGetValue(*idxKey);
-    }
-  } else {
-    t = openNumericKeysDict(ctx, keyName, 1);
-  }
-  return t;
 }
 
 void __numericIndex_memUsageCallback(NumericRangeNode *n, void *ctx) {

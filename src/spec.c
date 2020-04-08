@@ -16,6 +16,7 @@
 #include "alias.h"
 #include "module.h"
 #include "rules/rules.h"
+#include "numeric_index.h"
 
 void (*IndexSpec_OnCreate)(const IndexSpec *) = NULL;
 const char *(*IndexAlias_GetUserTableName)(RedisModuleCtx *, const char *) = NULL;
@@ -173,6 +174,7 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
   // Start the garbage collector
   IndexSpec_StartGC(ctx, sp, GC_DEFAULT_HZ);
   CursorList_AddSpec(&RSCursors, sp->name, RSCURSORS_DEFAULT_CAPACITY);
+  sp->state &= ~IDX_S_CREATING;  // Already created
 
   if (IndexSpec_OnCreate) {
     IndexSpec_OnCreate(sp);
@@ -515,14 +517,62 @@ void IndexSpec_GetStats(IndexSpec *sp, RSIndexStats *stats) {
       stats->numDocs ? (double)sp->stats.numRecords / (double)sp->stats.numDocuments : 0;
 }
 
-int IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len) {
-  int isNew = Trie_InsertStringBuffer(sp->terms, (char *)term, len, 1, 1, NULL);
-  if (isNew) {
-    sp->stats.numTerms++;
-    sp->stats.termsSize += len;
+InvertedIndex *IDX_LoadTerm(IndexSpec *sp, const char *term, size_t n, int flags) {
+  if ((flags & REDISMODULE_WRITE) == 0) {
+    void *idx = raxFind(sp->termsIdx, (unsigned char *)term, n);
+    if (idx == raxNotFound) {
+      return NULL;
+    } else {
+      // printf("Returning %p for term %.*s (flags=%d)\n", idx, (int)n, term, flags);
+      return idx;
+    }
   }
-  return isNew;
+
+  // todo: thread local variants for this
+  InvertedIndex *newix = sp->cachedInvidx;
+  if (!newix) {
+    newix = sp->cachedInvidx = NewInvertedIndex(sp->flags, 1);
+  }
+  InvertedIndex *old = NULL;
+  int isNew = raxTryInsert(sp->termsIdx, (unsigned char *)term, n, newix, (void **)&old);
+  if (isNew) {
+    sp->cachedInvidx = NULL;
+    sp->stats.numTerms++;
+    Trie_InsertStringBuffer(sp->terms, term, n, 1, 1, NULL);
+    return newix;
+  } else {
+    return old;
+  }
 }
+
+#define DECLARE_IDXACC_COMMON(base, fnames, type, ctor, fld, T) \
+  T base(IndexSpec *sp, const FieldSpec *fs, int options) {     \
+    if (!FIELD_IS(fs, type)) {                                  \
+      return NULL;                                              \
+    }                                                           \
+    T r = sp->fld[fs->index];                                   \
+    if (r || (options & REDISMODULE_WRITE) == 0) {              \
+      return r;                                                 \
+    }                                                           \
+    r = sp->fld[fs->index] = ctor();                            \
+    return r;                                                   \
+  }                                                             \
+  T fnames(IndexSpec *sp, const char *s, int options) {         \
+    const FieldSpec *fs = IndexSpec_GetField(sp, s, strlen(s)); \
+    if (!fs) {                                                  \
+      return NULL;                                              \
+    }                                                           \
+    return base(sp, fs, options);                               \
+  }
+
+DECLARE_IDXACC_COMMON(IDX_LoadRange, IDX_LoadRangeFieldname, INDEXFLD_T_NUMERIC,
+                      NewNumericRangeTree, nums, NumericRangeTree *)
+
+DECLARE_IDXACC_COMMON(IDX_LoadTags, IDX_LoadTagsFieldname, INDEXFLD_T_TAG, NewTagIndex, tags,
+                      TagIndex *)
+
+DECLARE_IDXACC_COMMON(IDX_LoadGeo, IDX_LoadGeoFieldname, INDEXFLD_T_GEO, GeoIndex_Create, geos,
+                      GeoIndex *)
 
 IndexSpecCache *IndexSpec_GetSpecCache(const IndexSpec *spec) {
   if (!spec->spcache) {
@@ -581,9 +631,8 @@ size_t weightedRandom(double weights[], size_t len) {
  * sampling N terms from the index and then doing weighted random on them. A sample size of 10-20
  * should be enough. Returns NULL if the index is empty */
 char *IndexSpec_GetRandomTerm(IndexSpec *sp, size_t sampleSize) {
-
-  if (sampleSize > sp->terms->size) {
-    sampleSize = sp->terms->size;
+  if (sampleSize > raxSize(sp->termsIdx)) {
+    sampleSize = raxSize(sp->termsIdx);
   }
   if (!sampleSize) return NULL;
 
@@ -615,6 +664,7 @@ void IndexSpec_FreeWithKey(IndexSpec *sp, RedisModuleCtx *ctx) {
 }
 
 static void IndexSpec_FreeInternals(IndexSpec *spec) {
+  Redis_DropIndex(spec, 1);
   if (spec->gc) {
     GCContext_Stop(spec->gc);
   }
@@ -630,7 +680,6 @@ static void IndexSpec_FreeInternals(IndexSpec *spec) {
     Cursors_PurgeWithName(&RSCursors, spec->name);
     CursorList_RemoveSpec(&RSCursors, spec->name);
   }
-  dictDelete(RSIndexes_g, spec->name);
 
   rm_free(spec->name);
   if (spec->sortables) {
@@ -649,48 +698,24 @@ static void IndexSpec_FreeInternals(IndexSpec *spec) {
     IndexSpecCache_Decref(spec->spcache);
     spec->spcache = NULL;
   }
-  /*
-  if (spec->asyncIndexQueue) {
-    io_queue_clear(spec->asyncIndexQueue);
-    rm_free(spec->asyncIndexQueue);
-    spec->asyncIndexQueue = NULL;
-  }*/
 
-  if (spec->indexStrs) {
-    for (size_t ii = 0; ii < spec->numFields; ++ii) {
-      IndexSpecFmtStrings *fmts = spec->indexStrs + ii;
-      for (size_t jj = 0; jj < INDEXFLD_NUM_TYPES; ++jj) {
-        if (fmts->types[jj]) {
-          RedisModule_FreeString(RSDummyContext, fmts->types[jj]);
-        }
-      }
-    }
-    rm_free(spec->indexStrs);
-  }
   if (spec->fields != NULL) {
     for (size_t i = 0; i < spec->numFields; i++) {
       rm_free(spec->fields[i].name);
     }
     rm_free(spec->fields);
   }
-  printf("Clearing aliases..\n");
   IndexSpec_ClearAliases(spec);
-
-  if (spec->keysDict) {
-    dictRelease(spec->keysDict);
-  }
-
   rm_free(spec);
 }
 
 static void IndexSpec_FreeAsync(void *data) {
   IndexSpec *spec = data;
   RedisModuleCtx *threadCtx = RedisModule_GetThreadSafeContext(NULL);
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(threadCtx, spec);
   RedisModule_AutoMemory(threadCtx);
   RedisModule_ThreadSafeContextLock(threadCtx);
 
-  Redis_DropIndex(&sctx, true, false);
+  Redis_DropIndex(spec, true);
   IndexSpec_FreeInternals(spec);
 
   RedisModule_ThreadSafeContextUnlock(threadCtx);
@@ -701,47 +726,39 @@ static struct thpool_ *cleanPool = NULL;
 
 size_t IndexSpec_Decref(IndexSpec *spec) {
   size_t n = --spec->refcount;
-  if (!n) {
-    if (spec->flags & Index_UseRules) {
-      SchemaRules_UnregisterIndex(spec);
-      spec->flags &= ~Index_UseRules;
-    }
-
-    if (spec->flags & Index_Temporary) {
-      if (!cleanPool) {
-        cleanPool = thpool_init(1);
-      }
-      thpool_add_work(cleanPool, IndexSpec_FreeAsync, spec);
-      return n;
-    }
-
-    IndexSpec_FreeInternals(spec);
+  if (n) {
+    return n;
   }
-  return n;
+  if (spec->flags & Index_UseRules) {
+    SchemaRules_UnregisterIndex(spec);
+    spec->flags &= ~Index_UseRules;
+  }
+
+  if (spec->flags & Index_Temporary) {
+    if (!cleanPool) {
+      cleanPool = thpool_init(1);
+    }
+    thpool_add_work(cleanPool, IndexSpec_FreeAsync, spec);
+    return 0;
+  }
+
+  IndexSpec_FreeInternals(spec);
+  return 0;
 }
 
 void IndexSpec_Free(void *ctx) {
+  IndexSpec *sp = ctx;
+  sp->state |= IDX_S_DELETED;
+
+  if (!(sp->state & IDX_S_CREATING)) {
+    dictDelete(RSIndexes_g, sp->name);
+  }
+
+  // Let's delete ourselves from the global index list as well
   IndexSpec_Decref(ctx);
 }
 
 dict *RSIndexes_g = NULL;
-
-void IndexSpec_FreeSync(IndexSpec *spec) {
-  //  todo:
-  //  mark I think we only need IndexSpec_FreeInternals, this is called only from the
-  //  LLAPI and there is no need to drop keys cause its out of the key space.
-  //  Let me know what you think
-
-  //   Need a context for this:
-  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
-  RedisModule_AutoMemory(ctx);
-  if (!IndexSpec_IsKeyless(spec)) {
-    Redis_DropIndex(&sctx, 0, 1);
-  }
-  IndexSpec_FreeInternals(spec);
-  RedisModule_FreeThreadSafeContext(ctx);
-}
 
 IndexSpec *IndexSpec_LoadEx(RedisModuleCtx *ctx, IndexLoadOptions *options) {
   IndexSpec *ret = NULL;
@@ -769,52 +786,7 @@ IndexSpec *IndexSpec_LoadEx(RedisModuleCtx *ctx, IndexLoadOptions *options) {
 IndexSpec *IndexSpec_Load(RedisModuleCtx *ctx, const char *name, int openWrite) {
   IndexLoadOptions lopts = {.flags = openWrite ? INDEXSPEC_LOAD_WRITEABLE : 0,
                             .name = {.cstring = name}};
-  lopts.flags |= INDEXSPEC_LOAD_KEYLESS;
   return IndexSpec_LoadEx(ctx, &lopts);
-}
-
-RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs,
-                                             FieldType forType) {
-  if (!sp->indexStrs) {
-    sp->indexStrs = rm_calloc(SPEC_MAX_FIELDS, sizeof(*sp->indexStrs));
-  }
-
-  size_t typeix = INDEXTYPE_TO_POS(forType);
-
-  RedisModuleString *ret = sp->indexStrs[fs->index].types[typeix];
-  if (!ret) {
-    RedisSearchCtx sctx = {.redisCtx = RSDummyContext, .spec = sp};
-    switch (forType) {
-      case INDEXFLD_T_NUMERIC:
-        ret = fmtRedisNumericIndexKey(&sctx, fs->name);
-        break;
-      case INDEXFLD_T_TAG:
-        ret = TagIndex_FormatName(&sctx, fs->name);
-        break;
-      case INDEXFLD_T_GEO:
-        ret = RedisModule_CreateStringPrintf(RSDummyContext, GEOINDEX_KEY_FMT, sp->name, fs->name);
-        break;
-      case INDEXFLD_T_FULLTEXT:  // Text fields don't get a per-field index
-      default:
-        ret = NULL;
-        abort();
-        break;
-    }
-  }
-  if (!ret) {
-    return NULL;
-  }
-  sp->indexStrs[fs->index].types[typeix] = ret;
-  return ret;
-}
-
-RedisModuleString *IndexSpec_GetFormattedKeyByName(IndexSpec *sp, const char *s,
-                                                   FieldType forType) {
-  const FieldSpec *fs = IndexSpec_GetField(sp, s, strlen(s));
-  if (!fs) {
-    return NULL;
-  }
-  return IndexSpec_GetFormattedKey(sp, fs, forType);
 }
 
 t_fieldMask IndexSpec_ParseFieldMask(IndexSpec *sp, RedisModuleString **argv, int argc) {
@@ -863,6 +835,16 @@ int IndexSpec_IsStopWord(IndexSpec *sp, const char *term, size_t len) {
   return StopWordList_Contains(sp->stopwords, term, len);
 }
 
+int IDX_IsAlive(const IndexSpec *sp) {
+  return !(sp->state & IDX_S_DELETED);
+}
+int IDX_YieldWrite(IndexSpec *sp) {
+  return 1;
+}
+int IDX_YieldRead(IndexSpec *sp) {
+  return 1;
+}
+
 SpecDocQueue *SpecDocQueue_Create(IndexSpec *spec) {
   SpecDocQueue *q = rm_calloc(1, sizeof(*q));
   spec->queue = q;
@@ -887,12 +869,16 @@ IndexSpec *NewIndexSpec(const char *name) {
   sp->docs = DocTable_New(100);
   sp->stopwords = DefaultStopWordList();
   sp->terms = NewTrie();
-  sp->keysDict = NULL;
+  sp->termsIdx = raxNew();
+  sp->nums = array_new(NumericRangeTree *, 8);
+  sp->tags = array_new(TagIndex *, 8);
+  sp->geos = array_new(GeoIndex *, 8);
   sp->minPrefix = RSGlobalConfig.minTermPrefix;
   sp->maxPrefixExpansions = RSGlobalConfig.maxPrefixExpansions;
   sp->getValue = NULL;
   sp->getValueCtx = NULL;
   sp->refcount = 1;
+  sp->state = IDX_S_CREATING;
   memset(&sp->stats, 0, sizeof(sp->stats));
   return sp;
 }
@@ -908,25 +894,14 @@ FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name) {
   fs->sortIdx = -1;
   fs->tagFlags = TAG_FIELD_DEFAULT_FLAGS;
   fs->tagFlags = TAG_FIELD_DEFAULT_SEP;
+
+  // Once everything is done, extend the list of geo/num/tag
+  if (array_len(sp->tags) < sp->numFields) {
+    *array_ensure_tail(&sp->geos, GeoIndex *) = NULL;
+    *array_ensure_tail(&sp->tags, TagIndex *) = NULL;
+    *array_ensure_tail(&sp->nums, NumericRangeTree *) = NULL;
+  }
   return fs;
-}
-
-static dictType invidxDictType = {0};
-static void valFreeCb(void *unused, void *p) {
-  KeysDictValue *kdv = p;
-  if (kdv->dtor) {
-    kdv->dtor(kdv->p);
-  }
-  rm_free(kdv);
-}
-
-void IndexSpec_MakeKeyless(IndexSpec *sp) {
-  // Initialize only once:
-  if (!invidxDictType.valDestructor) {
-    invidxDictType = dictTypeHeapRedisStrings;
-    invidxDictType.valDestructor = valFreeCb;
-  }
-  sp->keysDict = dictCreate(&invidxDictType, NULL);
 }
 
 void IndexSpec_StartGCFromSpec(IndexSpec *sp, float initialHZ, uint32_t gcPolicy) {
@@ -940,8 +915,7 @@ void IndexSpec_StartGC(RedisModuleCtx *ctx, IndexSpec *sp, float initialHZ) {
   assert(!sp->gc);
   // we will not create a gc thread on temporary index
   if (RSGlobalConfig.enableGC && !(sp->flags & Index_Temporary)) {
-    RedisModuleString *keyName = RedisModule_CreateString(ctx, sp->name, strlen(sp->name));
-    sp->gc = GCContext_CreateGC(keyName, initialHZ, sp->uniqueId);
+    sp->gc = GCContext_CreateGC(sp, initialHZ, sp->uniqueId);
     GCContext_Start(sp->gc);
     RedisModule_Log(ctx, "verbose", "Starting GC for index %s", sp->name);
   }
@@ -1074,7 +1048,6 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
   sp->sortables = NewSortingTable();
-  sp->terms = NULL;
   sp->refcount = 1;
   sp->docs = DocTable_New(1000);
   sp->name = RedisModule_LoadStringBuffer(rdb, NULL);
@@ -1082,9 +1055,9 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
   RedisModule_Free(sp->name);
   sp->name = tmpName;
   sp->flags = (IndexFlags)RedisModule_LoadUnsigned(rdb);
-  sp->keysDict = NULL;
   sp->maxPrefixExpansions = RSGlobalConfig.maxPrefixExpansions;
   sp->minPrefix = RSGlobalConfig.minTermPrefix;
+  sp->termsIdx = raxNew();
   if (encver < INDEX_MIN_NOFREQ_VERSION) {
     sp->flags |= Index_StoreFreqs;
   }

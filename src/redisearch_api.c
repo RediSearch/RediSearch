@@ -26,7 +26,7 @@ IndexSpec* RediSearch_CreateIndex(const char* name, const RSIndexOptions* option
     options = &opts_s;
   }
   IndexSpec* spec = NewIndexSpec(name);
-  IndexSpec_MakeKeyless(spec);
+  spec->state |= IDX_S_LIBORIGIN;
   spec->flags |= Index_Temporary;  // temporary is so that we will not use threads!!
   spec->getValue = options->gvcb;
   spec->getValueCtx = options->gvcbData;
@@ -43,8 +43,7 @@ IndexSpec* RediSearch_CreateIndex(const char* name, const RSIndexOptions* option
 
 void RediSearch_DropIndex(IndexSpec* sp) {
   RWLOCK_ACQUIRE_WRITE();
-  dict* d = sp->keysDict;
-  IndexSpec_FreeSync(sp);
+  IndexSpec_Free(sp);
   RWLOCK_RELEASE();
 }
 

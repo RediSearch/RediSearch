@@ -64,19 +64,21 @@ static void scanRedis5(scanCursor *c) {
   size_t nmax = c->n += SCAN_BATCH_SIZE;
 
   do {
-
-    sprintf(cursorbuf, "%lu", c->cursor.r5);
     // RedisModuleCallReply *r =
     //     RedisModule_Call(ctx, "SCAN", "lcccl", cursor, "TYPE", "hash", "COUNT", 100);
-    // printf("cursor: %s\n", cursorbuf);
-    RedisModuleCallReply *r = RedisModule_Call(ctx, "SCAN", "c", cursorbuf);
+    printf("cursor: %s\n", cursorbuf);
+    RedisModuleCallReply *r = NULL;
+    if (c->cursor.r5 == 0) {
+      r = RedisModule_Call(ctx, "SCAN", "");
+    } else {
+      r = RedisModule_Call(ctx, "SCAN", "c", cursorbuf);
+    }
 
-    assert(r != NULL);
-    assert(RedisModule_CallReplyType(r) == REDISMODULE_REPLY_ARRAY);
-
-    if (RedisModule_CallReplyLength(r) < 2) {
+    if (r == NULL || RedisModule_CallReplyLength(r) < 2) {
       c->isDone = 1;
-      RedisModule_FreeCallReply(r);
+      if (r) {
+        RedisModule_FreeCallReply(r);
+      }
       break;
     }
 
@@ -87,6 +89,7 @@ static void scanRedis5(scanCursor *c) {
     memcpy(cursorbuf, newcur, ncursor);
     cursorbuf[ncursor] = 0;
     sscanf(cursorbuf, "%lu", &c->cursor.r5);
+    sprintf(cursorbuf, "%lu", c->cursor.r5);
 
     RedisModuleCallReply *keys = RedisModule_CallReplyArrayElement(r, 1);
     assert(RedisModule_CallReplyType(keys) == REDISMODULE_REPLY_ARRAY);

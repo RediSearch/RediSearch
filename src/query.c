@@ -258,8 +258,8 @@ IndexIterator *Query_EvalTokenNode(QueryEvalCtx *q, QueryNode *qn) {
 
   // printf("Opening reader.. `%s` FieldMask: %llx\n", term->str, EFFECTIVE_FIELDMASK(q, qn));
 
-  IndexReader *ir = Redis_OpenReader(q->sctx, term, q->docTable, isSingleWord,
-                                     EFFECTIVE_FIELDMASK(q, qn), q->conc, qn->opts.weight);
+  IndexReader *ir =
+      IDX_OpenTerm(q->sctx->spec, term, EFFECTIVE_FIELDMASK(q, qn), q->conc, qn->opts.weight);
   if (ir == NULL) {
     Term_Free(term);
     return NULL;
@@ -301,8 +301,8 @@ static IndexIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
     RSQueryTerm *term = NewQueryTerm(&tok, q->tokenId++);
 
     // Open an index reader
-    IndexReader *ir = Redis_OpenReader(q->sctx, term, &q->sctx->spec->docs, 0,
-                                       q->opts->fieldmask & opts->fieldMask, q->conc, 1);
+    IndexReader *ir =
+        IDX_OpenTerm(q->sctx->spec, term, q->opts->fieldmask & opts->fieldMask, q->conc, 1);
 
     rm_free(tok.str);
     if (!ir) {
@@ -383,8 +383,8 @@ static void rangeIterCb(const rune *r, size_t n, void *p) {
   RSToken tok = {0};
   tok.str = runesToStr(r, n, &tok.len);
   RSQueryTerm *term = NewQueryTerm(&tok, ctx->q->tokenId++);
-  IndexReader *ir = Redis_OpenReader(q->sctx, term, &q->sctx->spec->docs, 0,
-                                     q->opts->fieldmask & ctx->opts->fieldMask, q->conc, 1);
+  IndexReader *ir =
+      IDX_OpenTerm(q->sctx->spec, term, q->opts->fieldmask & ctx->opts->fieldMask, q->conc, 1);
   rm_free(tok.str);
   if (!ir) {
     Term_Free(term);
@@ -529,9 +529,12 @@ static IndexIterator *Query_EvalGeofilterNode(QueryEvalCtx *q, QueryGeofilterNod
   if (!fs || !FIELD_IS(fs, INDEXFLD_T_GEO)) {
     return NULL;
   }
+  GeoIndex *gi = IDX_LoadGeo(q->sctx->spec, fs, REDISMODULE_READ);
+  if (!gi) {
+    return NULL;
+  }
 
-  GeoIndex gi = {.ctx = q->sctx, .sp = fs};
-  return NewGeoRangeIterator(&gi, node->gf, weight);
+  return NewGeoRangeIterator(gi, node->gf, weight);
 }
 
 static IndexIterator *Query_EvalIdFilterNode(QueryEvalCtx *q, QueryIdFilterNode *node) {
@@ -698,14 +701,10 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
     return NULL;
   }
   QueryTagNode *node = &qn->tag;
-  RedisModuleKey *k = NULL;
-  const FieldSpec *fs =
-      IndexSpec_GetFieldCase(q->sctx->spec, node->fieldName, strlen(node->fieldName));
-  if (!fs) {
+  TagIndex *idx = IDX_LoadTagsFieldname(q->sctx->spec, node->fieldName, strlen(node->fieldName));
+  if (!idx) {
     return NULL;
   }
-  RedisModuleString *kstr = IndexSpec_GetFormattedKey(q->sctx->spec, fs, INDEXFLD_T_TAG);
-  TagIndex *idx = TagIndex_Open(q->sctx, kstr, 0, &k);
 
   IndexIterator **total_its = NULL;
   IndexIterator *ret = NULL;
@@ -718,8 +717,7 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
     ret = query_EvalSingleTagNode(q, idx, qn->children[0], &total_its, qn->opts.weight);
     if (ret) {
       if (q->conc) {
-        TagIndex_RegisterConcurrentIterators(idx, q->conc, k, kstr, (array_t *)total_its);
-        k = NULL;  // we passed ownershit
+        TagIndex_RegisterConcurrentIterators(idx, q->conc, (array_t *)total_its);
       } else {
         array_free(total_its);
       }
@@ -744,8 +742,8 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
 
   if (total_its) {
     if (q->conc) {
-      TagIndex_RegisterConcurrentIterators(idx, q->conc, k, kstr, (array_t *)total_its);
-      k = NULL;  // we passed ownershit
+      abort();
+      // TagIndex_RegisterConcurrentIterators(idx, q->conc, k, kstr, (array_t *)total_its);
     } else {
       array_free(total_its);
     }
@@ -754,9 +752,6 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
   ret = NewUnionIterator(iters, n, q->docTable, 0, qn->opts.weight);
 
 done:
-  if (k) {
-    RedisModule_CloseKey(k);
-  }
   return ret;
 }
 
@@ -831,7 +826,7 @@ int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions 
 }
 
 IndexIterator *QAST_Iterate(const QueryAST *qast, const RSSearchOptions *opts, RedisSearchCtx *sctx,
-                            ConcurrentSearchCtx *conc) {
+                            Yielder *conc) {
   QueryEvalCtx qectx = {
       .conc = conc,
       .opts = opts,

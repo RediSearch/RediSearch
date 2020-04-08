@@ -398,9 +398,7 @@ FIELD_PREPROCESSOR(numericPreprocessor) {
 FIELD_BULK_INDEXER(numericIndexer) {
   NumericRangeTree *rt = bulk->indexDatas[INDEXTYPE_TO_POS(INDEXFLD_T_NUMERIC)];
   if (!rt) {
-    RedisModuleString *keyName = IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_NUMERIC);
-    rt = bulk->indexDatas[IXFLDPOS_NUMERIC] =
-        OpenNumericIndex(ctx, keyName, &bulk->indexKeys[IXFLDPOS_NUMERIC]);
+    rt = bulk->indexDatas[IXFLDPOS_NUMERIC] = IDX_LoadRange(ctx->spec, fs, REDISMODULE_WRITE);
     if (!rt) {
       QueryError_SetError(status, QUERY_EGENERIC, "Could not open numeric index for indexing");
       return -1;
@@ -425,9 +423,16 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
 }
 
 FIELD_BULK_INDEXER(geoIndexer) {
-  GeoIndex gi = {.ctx = ctx, .sp = fs};
-  int rv = GeoIndex_AddStrings(&gi, aCtx->doc.docId, fdata->geoSlon, fdata->geoSlat);
+  GeoIndex *gi = bulk->indexDatas[IXFLDPOS_GEO];
+  if (!gi) {
+    gi = bulk->indexDatas[IXFLDPOS_GEO] = IDX_LoadGeo(ctx->spec, fs, REDISMODULE_WRITE);
+    if (!gi) {
+      QueryError_SetError(status, QUERY_EGENERIC, "Could not open geo index for indexing");
+      return -1;
+    }
+  }
 
+  int rv = GeoIndex_AddStrings(gi, aCtx->doc.docId, fdata->geoSlon, fdata->geoSlat);
   if (rv == REDISMODULE_ERR) {
     QueryError_SetError(status, QUERY_EGENERIC, "Could not index geo value");
     return -1;
@@ -452,9 +457,7 @@ FIELD_PREPROCESSOR(tagPreprocessor) {
 FIELD_BULK_INDEXER(tagIndexer) {
   TagIndex *tidx = bulk->indexDatas[IXFLDPOS_TAG];
   if (!tidx) {
-    RedisModuleString *kname = IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_TAG);
-    tidx = bulk->indexDatas[IXFLDPOS_TAG] =
-        TagIndex_Open(ctx, kname, 1, &bulk->indexKeys[IXFLDPOS_TAG]);
+    tidx = bulk->indexDatas[IXFLDPOS_TAG] = IDX_LoadTags(ctx->spec, fs, REDISMODULE_WRITE);
     if (!tidx) {
       QueryError_SetError(status, QUERY_EGENERIC, "Could not open tag index for indexing");
       return -1;
@@ -504,11 +507,7 @@ int IndexerBulkAdd(IndexBulkData *bulk, RSAddDocumentCtx *cur, RedisSearchCtx *s
 }
 
 void IndexerBulkCleanup(IndexBulkData *cur, RedisSearchCtx *sctx) {
-  for (size_t ii = 0; ii < INDEXFLD_NUM_TYPES; ++ii) {
-    if (cur->indexKeys[ii]) {
-      RedisModule_CloseKey(cur->indexKeys[ii]);
-    }
-  }
+  // nothing
 }
 
 int ACTX_Preprocess(RSAddDocumentCtx *aCtx) {

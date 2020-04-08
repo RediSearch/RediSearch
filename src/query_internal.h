@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <query_error.h>
 #include <query_node.h>
+#include "yielder.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -30,7 +31,7 @@ typedef struct RSQuery {
 #define QPCTX_ISOK(qpctx) (!QueryError_HasError((qpctx)->status))
 
 typedef struct {
-  ConcurrentSearchCtx *conc;
+  Yielder *conc;
   RedisSearchCtx *sctx;
   const RSSearchOptions *opts;
 

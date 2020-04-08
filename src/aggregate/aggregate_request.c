@@ -741,8 +741,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
       return REDISMODULE_ERR;
     }
   }
-
-  ConcurrentSearchCtx_Init(sctx->redisCtx, &req->conc);
+  YLD_Init(&req->conc, sctx->spec);
   req->rootiter = QAST_Iterate(ast, opts, sctx, &req->conc);
   assert(req->rootiter);
 
@@ -934,7 +933,7 @@ static int hasQuerySortby(const AGGPlan *pln) {
  */
 static void buildImplicitPipeline(AREQ *req, QueryError *Status) {
   RedisSearchCtx *sctx = req->sctx;
-  req->qiter.conc = &req->conc;
+  req->qiter.yld = &req->conc;
   req->qiter.sctx = sctx;
   req->qiter.err = Status;
 
@@ -1158,8 +1157,7 @@ void AREQ_Free(AREQ *req) {
   if (req->searchopts.stopwords) {
     StopWordList_Unref((StopWordList *)req->searchopts.stopwords);
   }
-
-  ConcurrentSearchCtx_Free(&req->conc);
+  YLD_Cleanup(&req->conc);
 
   // Finally, free the context. If we are a cursor, some more
   // cleanup is required since we also now own the

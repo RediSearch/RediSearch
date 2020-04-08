@@ -46,17 +46,17 @@ GCContext* GCContext_CreateGCFromSpec(IndexSpec* sp, float initialHZ, uint64_t u
   return ret;
 }
 
-GCContext* GCContext_CreateGC(RedisModuleString* keyName, float initialHZ, uint64_t uniqueId) {
+GCContext* GCContext_CreateGC(IndexSpec* sp, float initialHZ, uint64_t uniqueId) {
   GCContext* ret = rm_calloc(1, sizeof(GCContext));
   dllist_init(&ret->bClients.clients);
   pthread_mutex_init(&ret->bClients.lock, NULL);
   switch (RSGlobalConfig.gcPolicy) {
     case GCPolicy_Fork:
-      ret->gcCtx = FGC_New(keyName, uniqueId, &ret->callbacks);
+      ret->gcCtx = FGC_New(sp, uniqueId, &ret->callbacks);
       break;
     case GCPolicy_Sync:
     default:
-      ret->gcCtx = NewGarbageCollector(keyName, initialHZ, uniqueId, &ret->callbacks);
+      ret->gcCtx = NewGarbageCollector(sp, initialHZ, uniqueId, &ret->callbacks);
       break;
   }
   return ret;

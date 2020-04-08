@@ -19,12 +19,6 @@ def testAdd(env):
                                     'title', 'hello world',
                                     'body', 'lorem ist ipsum'))
 
-    for _ in r.retry_with_rdb_reload():
-        prefix = 'ft'
-        env.assertExists(prefix + ':idx/hello')
-        env.assertExists(prefix + ':idx/world')
-        env.assertExists(prefix + ':idx/lorem')
-
 def testAddErrors(env):
     env.expect('ft.create idx schema foo text bar numeric sortable').equal('OK')
     env.expect('ft.add idx doc1 1 redis 4').error().contains('Unknown keyword')
@@ -932,13 +926,6 @@ def testGeoErrors(env):
     env.expect('ft.search idx hilton geofilter location -0.1757 51.5156 1').error()   \
             .contains('GEOFILTER requires 5 arguments')
 
-    if not env.isCluster():
-        env.expect('flushall')
-        env.expect('set geo:idx/location foo').equal('OK')
-        env.expect('ft.create idx schema name text location geo').equal('OK')
-        env.expect('ft.add idx hotel 1.0 fields name hill location -0.1757,51.5156').error() \
-                .contains('Could not index geo value')
-
 def testGeo(env):
     r = env
     gsearch = lambda query, lon, lat, dist, unit='km': r.execute_command(
@@ -1019,22 +1006,23 @@ def testGeoDeletion(env):
             'g1', "-0.1757,51.5156",
             'g2', "-0.1757,51.5156",
             't1', "hello")
-
+    k1 = env.cmd('ft.debug', 'geo_keyname', 'idx', 'g1')
+    k2 = env.cmd('ft.debug', 'geo_keyname', 'idx', 'g2')
     # keys are: "geo:idx/g1" and "geo:idx/g2"
-    env.assertEqual(2, env.cmd('zcard', 'geo:idx/g1'))
-    env.assertEqual(2, env.cmd('zcard', 'geo:idx/g2'))
+    env.assertEqual(2, env.cmd('zcard', k1))
+    env.assertEqual(2, env.cmd('zcard', k2))
 
     # Remove the first doc
     env.cmd('ft.del', 'idx', 'doc1')
-    env.assertEqual(1, env.cmd('zcard', 'geo:idx/g1'))
-    env.assertEqual(1, env.cmd('zcard', 'geo:idx/g2'))
+    env.assertEqual(1, env.cmd('zcard', k1))
+    env.assertEqual(1, env.cmd('zcard', k2))
 
     # Replace the other one:
     env.cmd('ft.add', 'idx', 'doc2', 1.0,
             'replace', 'fields',
             't1', 'just text here')
-    env.assertEqual(0, env.cmd('zcard', 'geo:idx/g1'))
-    env.assertEqual(0, env.cmd('zcard', 'geo:idx/g2'))
+    env.assertEqual(0, env.cmd('zcard', k1))
+    env.assertEqual(0, env.cmd('zcard', k2))
 
 def testAddHash(env):
     if env.is_cluster():
@@ -2280,26 +2268,26 @@ def testIssue621(env):
     env.expect('ft.search', 'test', '@uuid:{foo}').equal([1L, 'a', ['uuid', 'foo', 'title', 'bar']])
 
 # Server crash on doc names that conflict with index keys #666
-def testIssue666(env):
-    # We cannot reliably determine that any error will occur in cluster mode
-    # because of the key name
-    env.skipOnCluster()
+# def testIssue666(env):
+#     # We cannot reliably determine that any error will occur in cluster mode
+#     # because of the key name
+#     env.skipOnCluster()
 
-    env.cmd('ft.create', 'foo', 'schema', 'bar', 'text')
-    env.cmd('ft.add', 'foo', 'mydoc', 1, 'fields', 'bar', 'one two three')
+#     env.cmd('ft.create', 'foo', 'schema', 'bar', 'text')
+#     env.cmd('ft.add', 'foo', 'mydoc', 1, 'fields', 'bar', 'one two three')
 
-    # crashes here
-    with env.assertResponseError():
-        env.cmd('ft.add', 'foo', 'ft:foo/two', '1', 'fields', 'bar', 'four five six')
-    # try with replace:
-    with env.assertResponseError():
-        env.cmd('ft.add', 'foo', 'ft:foo/two', '1', 'REPLACE',
-            'FIELDS', 'bar', 'four five six')
-    with env.assertResponseError():
-        env.cmd('ft.add', 'foo', 'idx:foo', '1', 'REPLACE',
-            'FIELDS', 'bar', 'four five six')
+#     # crashes here
+#     with env.assertResponseError():
+#         env.cmd('ft.add', 'foo', 'ft:foo/two', '1', 'fields', 'bar', 'four five six')
+#     # try with replace:
+#     with env.assertResponseError():
+#         env.cmd('ft.add', 'foo', 'ft:foo/two', '1', 'REPLACE',
+#             'FIELDS', 'bar', 'four five six')
+#     with env.assertResponseError():
+#         env.cmd('ft.add', 'foo', 'idx:foo', '1', 'REPLACE',
+#             'FIELDS', 'bar', 'four five six')
 
-    env.cmd('ft.add', 'foo', 'mydoc1', 1, 'fields', 'bar', 'four five six')
+#     env.cmd('ft.add', 'foo', 'mydoc1', 1, 'fields', 'bar', 'four five six')
 
 # 127.0.0.1:6379> flushdb
 # OK
@@ -2492,20 +2480,6 @@ def testUnknownSymbolErrorOnConditionalAdd(env):
     env.expect('FT.CREATE idx SCHEMA f1 TAG f2 NUMERIC NOINDEX f3 TAG NOINDEX').ok()
     env.expect('ft.add idx doc1 1.0 REPLACE PARTIAL IF @f1<awfwaf FIELDS f1 foo f2 1 f3 boo').ok()
     env.expect('ft.add idx doc1 1.0 REPLACE PARTIAL IF @f1<awfwaf FIELDS f1 foo f2 1 f3 boo').error()
-
-def testDelIndexExternally(env):
-    env.skipOnCluster() # todo: remove once fix on coordinator
-    env.expect('FT.CREATE idx SCHEMA num NUMERIC t TAG g GEO').equal('OK')
-    env.expect('ft.add idx doc1 1.0 FIELDS num 3 t my_tag g', "1,1").equal('OK')
-    
-    env.expect('set nm:idx/num 1').equal('OK')
-    env.expect('ft.add idx doc2 1.0 FIELDS num 3').equal('Could not open numeric index for indexing')
-
-    env.expect('set tag:idx/t 1').equal('OK')
-    env.expect('ft.add idx doc3 1.0 FIELDS t 3').equal('Could not open tag index for indexing')
-
-    env.expect('set geo:idx/g 1').equal('OK')
-    env.expect('ft.add idx doc4 1.0 FIELDS g "1,1"').equal('Could not index geo value')
 
 def testWrongResultsReturnedBySkipOptimization(env):
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'f1', 'TEXT', 'f2', 'TEXT').equal('OK')

@@ -116,24 +116,10 @@ size_t TagIndex_Index(TagIndex *idx, const char **values, size_t n, t_docId docI
   return ret;
 }
 
-typedef struct {
-  IndexIterator **its;
-  uint32_t uid;
-} TagConcCtx;
-
-static void TagReader_OnReopen(RedisModuleKey *k, void *privdata) {
-  TagConcCtx *ctx = privdata;
-  IndexIterator **its = ctx->its;
-  TagIndex *idx = NULL;
+static int tagYieldCb(IndexSpec *spec, YielderArg *arg, void *idxp) {
+  IndexIterator **its = arg->p;
+  TagIndex *idx = idxp;
   size_t nits = array_len(its);
-  // If the key has been deleted we'll get a NULL here, so we just mark ourselves as EOF
-  if (k == NULL || RedisModule_ModuleTypeGetType(k) != TagIndexType ||
-      (idx = RedisModule_ModuleTypeGetValue(k))->uniqueId != ctx->uid) {
-    for (size_t ii = 0; ii < nits; ++ii) {
-      its[ii]->Abort(its[ii]->ctx);
-    }
-    return;
-  }
 
   // If the key is valid, we just reset the reader's buffer reader to the current block pointer
   for (size_t ii = 0; ii < nits; ++ii) {
@@ -160,24 +146,17 @@ static void TagReader_OnReopen(RedisModuleKey *k, void *privdata) {
       IR_SkipTo(ir, lastId, &dummy);
     }
   }
+  return 1;
 }
 
-static void concCtxFree(void *p) {
-  TagConcCtx *tctx = p;
-  if (tctx->its) {
-    array_free(tctx->its);
+static void yldFreeCb(YielderArg *arg, void *idxp) {
+  if (arg->p) {
+    array_free(arg->p);
   }
-  rm_free(p);
 }
 
-void TagIndex_RegisterConcurrentIterators(TagIndex *idx, ConcurrentSearchCtx *conc,
-                                          RedisModuleKey *key, RedisModuleString *keyname,
-                                          array_t *iters) {
-  TagConcCtx *tctx = rm_calloc(1, sizeof(*tctx));
-  tctx->uid = idx->uniqueId;
-  tctx->its = (IndexIterator **)iters;
-  ConcurrentSearch_AddKey(conc, key, REDISMODULE_READ, keyname, TagReader_OnReopen, tctx,
-                          concCtxFree);
+void TagIndex_RegisterConcurrentIterators(TagIndex *idx, Yielder *conc, array_t *iters) {
+  YLD_Add(conc, tagYieldCb, yldFreeCb, (YielderArg){.p = iters}, idx);
 }
 
 /* Open an index reader to iterate a tag index for a specific tag. Used at query evaluation time.
@@ -197,60 +176,6 @@ IndexIterator *TagIndex_OpenReader(TagIndex *idx, IndexSpec *sp, const char *val
     return NULL;
   }
   return NewReadIterator(r);
-}
-
-/* Format the key name for a tag index */
-RedisModuleString *TagIndex_FormatName(RedisSearchCtx *sctx, const char *field) {
-  return RedisModule_CreateStringPrintf(sctx->redisCtx, TAG_INDEX_KEY_FMT, sctx->spec->name, field);
-}
-
-static TagIndex *openTagKeyDict(RedisSearchCtx *ctx, RedisModuleString *key, int openWrite) {
-  KeysDictValue *kdv = dictFetchValue(ctx->spec->keysDict, key);
-  if (kdv) {
-    return kdv->p;
-  }
-  if (!openWrite) {
-    return NULL;
-  }
-  kdv = rm_calloc(1, sizeof(*kdv));
-  kdv->p = NewTagIndex();
-  kdv->dtor = TagIndex_Free;
-  dictAdd(ctx->spec->keysDict, key, kdv);
-  return kdv->p;
-}
-
-/* Open the tag index in redis */
-TagIndex *TagIndex_Open(RedisSearchCtx *sctx, RedisModuleString *formattedKey, int openWrite,
-                        RedisModuleKey **keyp) {
-  TagIndex *ret = NULL;
-  if (!sctx->spec->keysDict) {
-    RedisModuleKey *key_s = NULL;
-    if (!keyp) {
-      keyp = &key_s;
-    }
-
-    *keyp = RedisModule_OpenKey(sctx->redisCtx, formattedKey,
-                                REDISMODULE_READ | (openWrite ? REDISMODULE_WRITE : 0));
-
-    int type = RedisModule_KeyType(*keyp);
-    if (type != REDISMODULE_KEYTYPE_EMPTY && RedisModule_ModuleTypeGetType(*keyp) != TagIndexType) {
-      return NULL;
-    }
-
-    /* Create an empty value object if the key is currently empty. */
-    if (type == REDISMODULE_KEYTYPE_EMPTY) {
-      if (openWrite) {
-        ret = NewTagIndex();
-        RedisModule_ModuleTypeSetValue((*keyp), TagIndexType, ret);
-      }
-    } else {
-      ret = RedisModule_ModuleTypeGetValue(*keyp);
-    }
-  } else {
-    ret = openTagKeyDict(sctx, formattedKey, openWrite);
-  }
-
-  return ret;
 }
 
 /* Serialize all the tags in the index to the redis client */

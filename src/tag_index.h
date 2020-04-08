@@ -6,6 +6,7 @@
 #include "document.h"
 #include "value.h"
 #include "geo_index.h"
+#include "yielder.h"
 
 struct InvertedIndex;
 
@@ -92,7 +93,7 @@ extern "C" {
  *
  *
  */
-typedef struct {
+typedef struct TagIndex {
   uint32_t uniqueId;
   TrieMap *values;
 } TagIndex;
@@ -124,12 +125,7 @@ size_t TagIndex_Index(TagIndex *idx, const char **values, size_t n, t_docId docI
 IndexIterator *TagIndex_OpenReader(TagIndex *idx, IndexSpec *sp, const char *value, size_t len,
                                    double weight);
 
-void TagIndex_RegisterConcurrentIterators(TagIndex *idx, ConcurrentSearchCtx *conc,
-                                          RedisModuleKey *key, RedisModuleString *keyname,
-                                          array_t *iters);
-/* Open the tag index key in redis */
-TagIndex *TagIndex_Open(RedisSearchCtx *sctx, RedisModuleString *formattedKey, int openWrite,
-                        RedisModuleKey **keyp);
+void TagIndex_RegisterConcurrentIterators(TagIndex *idx, Yielder *conc, array_t *iters);
 
 struct InvertedIndex *TagIndex_OpenIndex(TagIndex *idx, const char *value, size_t len, int create);
 

@@ -4,7 +4,7 @@
 #include "redisearch.h"
 #include "sortable.h"
 #include "value.h"
-#include "concurrent_ctx.h"
+#include "yielder.h"
 #include "search_ctx.h"
 #include "index_iterator.h"
 #include "search_options.h"
@@ -55,7 +55,7 @@ typedef struct {
   struct ResultProcessor *endProc;
 
   // Concurrent search context for thread switching
-  ConcurrentSearchCtx *conc;
+  Yielder *yld;
 
   // Contains our spec
   RedisSearchCtx *sctx;

@@ -10,6 +10,7 @@
 #include "redis_index.h"
 #include "numeric_filter.h"
 #include "redismodule.h"
+#include "yielder.h"
 
 uint64_t TotalIIBlocks = 0;
 
@@ -88,19 +89,8 @@ static void IR_SetAtEnd(IndexReader *r, int value) {
 
 /* A callback called from the ConcurrentSearchCtx after regaining execution and reopening the
  * underlying term key. We check for changes in the underlying key, or possible deletion of it */
-void IndexReader_OnReopen(RedisModuleKey *k, void *privdata) {
-
-  IndexReader *ir = privdata;
-  // If the key has been deleted we'll get a NULL here, so we just mark ourselves as EOF
-  if (k == NULL || RedisModule_ModuleTypeGetType(k) != InvertedIndexType) {
-    IR_SetAtEnd(ir, 1);
-    ir->idx = NULL;
-    ir->br.buf = NULL;
-    return;
-  }
-
-  // If the key is valid, we just reset the reader's buffer reader to the current block pointer
-  ir->idx = RedisModule_ModuleTypeGetValue(k);
+static int yldCallback(IndexSpec *sp, YielderArg *arg, void *idxp) {
+  IndexReader *ir = idxp;
 
   // the gc marker tells us if there is a chance the keys has undergone GC while we were asleep
   if (ir->gcMarker == ir->idx->gcMarker) {
@@ -122,6 +112,23 @@ void IndexReader_OnReopen(RedisModuleKey *k, void *privdata) {
     RSIndexResult *dummy = NULL;
     IR_SkipTo(ir, lastId, &dummy);
   }
+  return 1;
+}
+
+IndexReader *IDX_OpenTerm(IndexSpec *spec, RSQueryTerm *term, t_fieldMask fieldMask, Yielder *yld,
+                          double weight) {
+
+  InvertedIndex *idx = IDX_LoadTerm(spec, term->str, term->len, REDISMODULE_READ);
+  if (!idx || !idx->numDocs) {
+    // empty index! pass
+    return NULL;
+  }
+
+  IndexReader *ret = NewTermIndexReader(idx, spec, fieldMask, term, weight);
+  if (yld) {
+    YLD_Add(yld, yldCallback, NULL, (YielderArg){}, ret);
+  }
+  return ret;
 }
 
 /******************************************************************************

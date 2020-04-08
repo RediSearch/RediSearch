@@ -30,7 +30,8 @@ typedef struct {
 typedef struct GarbageCollectorCtx GarbageCollectorCtx;
 
 /* Create a new garbage collector, with a string for the index name, and initial frequency */
-GarbageCollectorCtx* NewGarbageCollector(const RedisModuleString *k, float initial_hz, uint64_t spec_unique_id, GCCallbacks* callbacks);
+GarbageCollectorCtx *NewGarbageCollector(IndexSpec *sp, float initial_hz, uint64_t spec_unique_id,
+                                         GCCallbacks *callbacks);
 
 // called externally when the user deletes a document to hint at increasing the HZ
 void GC_OnDelete(void *ctx);

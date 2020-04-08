@@ -26,12 +26,7 @@ typedef enum FGCType { FGC_TYPE_INKEYSPACE, FGC_TYPE_NOKEYSPACE } FGCType;
 
 /* Internal definition of the garbage collector context (each index has one) */
 typedef struct ForkGC {
-
-  // inverted index key name for reopening the index
-  union {
-    const RedisModuleString *keyName;
-    IndexSpec *sp;
-  };
+  IndexSpec *sp;
 
   RedisModuleCtx *ctx;
 
@@ -42,8 +37,6 @@ typedef struct ForkGC {
   // statistics for reporting
   ForkGCStats stats;
 
-  // flag for rdb loading. Set to 1 initially, but unce it's set to 0 we don't need to check anymore
-  int rdbPossiblyLoading;
   // Whether the gc has been requested for deletion
   volatile int deleting;
   int pipefd[2];
@@ -54,7 +47,7 @@ typedef struct ForkGC {
   volatile size_t deletedDocsFromLastRun;
 } ForkGC;
 
-ForkGC *FGC_New(const RedisModuleString *k, uint64_t specUniqueId, GCCallbacks *callbacks);
+ForkGC *FGC_New(IndexSpec *sp, uint64_t specUniqueId, GCCallbacks *callbacks);
 ForkGC *FGC_NewFromSpec(IndexSpec *sp, uint64_t specUniqueId, GCCallbacks *callbacks);
 
 typedef enum {

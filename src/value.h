@@ -98,7 +98,7 @@ typedef struct RSValue {
 #ifdef __cplusplus
   RSValue() {
   }
-  RSValue(RSValueType t_) : ref(NULL), t(t_), refcount(0), allocated(0) {
+  RSValue(RSValueType t_) : ref(NULL), t(t_), refcount(0), allocated(0), const_builtin(0) {
   }
 
 #endif

@@ -111,12 +111,7 @@ static void writeMergedEntries(Indexer *indexer) {
 
       // Open the inverted index:
       ForwardIndexEntry *fwent = merged->head;
-
-      // Add the term to the prefix trie. This only needs to be done once per term
-      IndexSpec_AddTerm(ctx->spec, fwent->term, fwent->len);
-
-      RedisModuleKey *idxKey = NULL;
-      InvertedIndex *invidx = Redis_OpenInvertedIndexEx(ctx, fwent->term, fwent->len, 1, &idxKey);
+      InvertedIndex *invidx = IDX_LoadTerm(ctx->spec, fwent->term, fwent->len, REDISMODULE_WRITE);
 
       if (invidx == NULL) {
         continue;
@@ -124,10 +119,6 @@ static void writeMergedEntries(Indexer *indexer) {
 
       for (; fwent != NULL; fwent = fwent->next) {
         writeEntry(ctx->spec, invidx, encoder, fwent);
-      }
-
-      if (idxKey) {
-        RedisModule_CloseKey(idxKey);
       }
     }
   }
@@ -163,10 +154,8 @@ static void handleReplaceDelete(RedisSearchCtx *sctx, t_docId did) {
     if (!FIELD_IS(fs, INDEXFLD_T_GEO)) {
       continue;
     }
-    // Open the key:
-    RedisModuleString *fmtkey = IndexSpec_GetFormattedKey(sp, fs, INDEXFLD_T_GEO);
-    GeoIndex gi = {.ctx = sctx, .sp = fs};
-    GeoIndex_RemoveEntries(&gi, sp, did);
+    GeoIndex *gi = IDX_LoadGeo(sp, fs, REDISMODULE_WRITE);
+    GeoIndex_RemoveEntries(gi, sp, did);
   }
 }
 

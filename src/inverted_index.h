@@ -9,6 +9,7 @@
 #include "index_result.h"
 #include "spec.h"
 #include "numeric_filter.h"
+#include "yielder.h"
 #include <stdint.h>
 #include <math.h>
 
@@ -170,7 +171,11 @@ size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
  * NULL we will return all the records in the index */
 IndexReader *NewNumericReader(const IndexSpec *sp, InvertedIndex *idx, const NumericFilter *flt);
 
-/* Get the appropriate encoder for an inverted index given its flags. Returns NULL on invalid flags
+IndexReader *IDX_OpenTerm(IndexSpec *spec, RSQueryTerm *term, t_fieldMask fieldMask, Yielder *yld,
+                          double weight);
+
+/* Get the appropriate encoder for an inverted index given its flags. Returns NULL on invalid
+ * flags
  */
 IndexEncoder InvertedIndex_GetEncoder(IndexFlags flags);
 

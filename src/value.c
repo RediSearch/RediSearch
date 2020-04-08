@@ -62,6 +62,7 @@ static inline mempoolThreadPool *getPoolInfo() {
 RSValue *RS_NewValue(RSValueType t) {
   RSValue *v = mempool_get(getPoolInfo()->values);
   v->t = t;
+  v->const_builtin = 0;
   v->refcount = 1;
   v->allocated = 1;
   return v;

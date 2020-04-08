@@ -76,7 +76,7 @@ typedef struct {
   RedisSearchCtx *sctx;
 
   /** Resumable context */
-  ConcurrentSearchCtx conc;
+  Yielder conc;
 
   /** Context for iterating over the queries themselves */
   QueryIterator qiter;

@@ -359,7 +359,7 @@ static void cursorRead(RedisModuleCtx *ctx, uint64_t cid, size_t count) {
   QueryError status = {0};
   AREQ *req = cursor->execState;
   req->qiter.err = &status;
-  ConcurrentSearchCtx_ReopenKeys(&req->conc);
+  YLD_Continue(&req->conc);
   runCursor(ctx, cursor, count);
 }
 

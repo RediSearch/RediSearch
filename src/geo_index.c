@@ -2,14 +2,24 @@
 #include "geo_index.h"
 #include "rmutil/util.h"
 #include "rmalloc.h"
+#include "module.h"
+
+static unsigned geoIdSerial_g = 0;
+// todo: make this extern?
+
+GeoIndex *GeoIndex_Create(void) {
+  GeoIndex *gi = rm_calloc(1, sizeof(*gi));
+  gi->id = ++geoIdSerial_g;
+  rm_asprintf(&gi->keyname, "__search:geo:%u", gi->id);
+  return gi;
+}
 
 /* Add a docId to a geoindex key. Right now we just use redis' own GEOADD */
 int GeoIndex_AddStrings(GeoIndex *gi, t_docId docId, const char *slon, const char *slat) {
-  RedisModuleString *ks = IndexSpec_GetFormattedKey(gi->ctx->spec, gi->sp, INDEXFLD_T_GEO);
-  RedisModuleCtx *ctx = gi->ctx->redisCtx;
-
+  const char *key = gi->keyname;
   /* GEOADD key longitude latitude member*/
-  RedisModuleCallReply *rep = RedisModule_Call(ctx, "GEOADD", "sccl", ks, slon, slat, docId);
+  RedisModuleCallReply *rep =
+      RedisModule_Call(RSDummyContext, "GEOADD", "cccl", gi->keyname, slon, slat, docId);
   if (rep == NULL) {
     return REDISMODULE_ERR;
   }
@@ -24,9 +34,8 @@ int GeoIndex_AddStrings(GeoIndex *gi, t_docId docId, const char *slon, const cha
 }
 
 void GeoIndex_RemoveEntries(GeoIndex *gi, IndexSpec *sp, t_docId docId) {
-  RedisModuleString *ks = IndexSpec_GetFormattedKey(sp, gi->sp, INDEXFLD_T_GEO);
-  RedisModuleCtx *ctx = gi->ctx->redisCtx;
-  RedisModuleCallReply *rep = RedisModule_Call(ctx, "ZREM", "sl", ks, docId);
+  RedisModuleCtx *ctx = RSDummyContext;
+  RedisModuleCallReply *rep = RedisModule_Call(ctx, "ZREM", "cl", gi->keyname, docId);
 
   if (rep == NULL || RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_ERROR) {
     RedisModule_Log(ctx, "warning", "Document %s was not removed", docId);
@@ -88,16 +97,15 @@ void GeoFilter_Free(GeoFilter *gf) {
 static t_docId *geoRangeLoad(const GeoIndex *gi, const GeoFilter *gf, size_t *num) {
   *num = 0;
   t_docId *docIds = NULL;
-  RedisModuleString *s = IndexSpec_GetFormattedKey(gi->ctx->spec, gi->sp, INDEXFLD_T_GEO);
-  assert(s);
+  const char *keyname = gi->keyname;
   /*GEORADIUS key longitude latitude radius m|km|ft|mi */
-  RedisModuleCtx *ctx = gi->ctx->redisCtx;
+  RedisModuleCtx *ctx = RSDummyContext;
   RedisModuleString *slon = RedisModule_CreateStringPrintf(ctx, "%f", gf->lon);
   RedisModuleString *slat = RedisModule_CreateStringPrintf(ctx, "%f", gf->lat);
   RedisModuleString *srad = RedisModule_CreateStringPrintf(ctx, "%f", gf->radius);
   const char *unitstr = GeoDistance_ToString(gf->unitType);
   RedisModuleCallReply *rep =
-      RedisModule_Call(ctx, "GEORADIUS", "ssssc", s, slon, slat, srad, unitstr);
+      RedisModule_Call(ctx, "GEORADIUS", "csssc", gi->keyname, slon, slat, srad, unitstr);
   if (rep == NULL || RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_ARRAY) {
     goto done;
   }

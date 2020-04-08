@@ -8,12 +8,12 @@
 #include "search_ctx.h"
 #include "query_error.h"
 
-typedef struct geoIndex {
-  RedisSearchCtx *ctx;
-  const FieldSpec *sp;
+typedef struct GeoIndex {
+  char *keyname;
+  uint64_t id;
 } GeoIndex;
 
-#define GEOINDEX_KEY_FMT "geo:%s/%s"
+GeoIndex *GeoIndex_Create(void);
 
 int GeoIndex_AddStrings(GeoIndex *gi, t_docId docId, const char *slon, const char *slat);
 

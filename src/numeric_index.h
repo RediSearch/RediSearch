@@ -8,9 +8,9 @@
 #include "index_result.h"
 #include "redismodule.h"
 #include "search_ctx.h"
-#include "concurrent_ctx.h"
 #include "inverted_index.h"
 #include "numeric_filter.h"
+#include "yielder.h"
 
 #define RT_LEAF_CARDINALITY_MAX 500
 
@@ -57,7 +57,7 @@ typedef struct {
 } NumericRangeTreeIterator;
 
 /* The root tree and its metadata */
-typedef struct {
+typedef struct NumericRangeTree {
   NumericRangeNode *root;
   size_t numRanges;
   size_t numEntries;
@@ -76,7 +76,7 @@ struct indexIterator *NewNumericRangeIterator(const IndexSpec *sp, NumericRange 
                                               const NumericFilter *f);
 
 struct indexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const NumericFilter *flt,
-                                               ConcurrentSearchCtx *csx);
+                                               Yielder *y);
 
 /* Add an entry to a numeric range node. Returns the cardinality of the range after the
  * inserstion.
@@ -114,9 +114,6 @@ Vector *NumericRangeTree_Find(NumericRangeTree *t, double min, double max);
 void NumericRangeTree_Free(NumericRangeTree *t);
 
 extern RedisModuleType *NumericIndexType;
-
-NumericRangeTree *OpenNumericIndex(RedisSearchCtx *ctx, RedisModuleString *keyName,
-                                   RedisModuleKey **idxKey);
 
 int NumericIndexType_Register(RedisModuleCtx *ctx);
 void *NumericIndexType_RdbLoad(RedisModuleIO *rdb, int encver);
