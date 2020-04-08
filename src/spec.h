@@ -422,7 +422,6 @@ IndexSpec *NewIndexSpec(const char *name);
 int IndexSpec_AddField(IndexSpec *sp, FieldSpec *fs);
 void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver);
 void IndexSpec_RdbSave(RedisModuleIO *rdb, void *value);
-void IndexSpec_Digest(RedisModuleDigest *digest, void *value);
 int IndexSpec_RegisterType(RedisModuleCtx *ctx);
 void IndexSpec_ClearAliases(IndexSpec *sp);
 // void IndexSpec_Free(void *value);

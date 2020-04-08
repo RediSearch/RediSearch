@@ -1058,6 +1058,8 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
   sp->maxPrefixExpansions = RSGlobalConfig.maxPrefixExpansions;
   sp->minPrefix = RSGlobalConfig.minTermPrefix;
   sp->termsIdx = raxNew();
+  sp->terms = NewTrie();
+
   if (encver < INDEX_MIN_NOFREQ_VERSION) {
     sp->flags |= Index_StoreFreqs;
   }
@@ -1075,16 +1077,6 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
       sp->sortables->fields[fs->sortIdx].type = fieldTypeToValueType(fs->types);
       sp->sortables->len = MAX(sp->sortables->len, fs->sortIdx + 1);
     }
-  }
-
-  IndexStats_RdbLoad(rdb, &sp->stats);
-
-  DocTable_RdbLoad(&sp->docs, rdb, encver);
-  /* For version 3 or up - load the generic trie */
-  if (encver >= 3) {
-    sp->terms = TrieType_GenericLoad(rdb, 0);
-  } else {
-    sp->terms = NewTrie();
   }
 
   if (sp->flags & Index_HasCustomStopwords) {
@@ -1140,11 +1132,6 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, void *value) {
     FieldSpec_RdbSave(rdb, &sp->fields[i]);
   }
 
-  IndexStats_RdbSave(rdb, &sp->stats);
-  DocTable_RdbSave(&sp->docs, rdb);
-  // save trie of terms
-  TrieType_GenericSave(rdb, sp->terms, 0);
-
   // If we have custom stopwords, save them
   if (sp->flags & Index_HasCustomStopwords) {
     StopWordList_RdbSave(rdb, sp->stopwords);
@@ -1165,17 +1152,52 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, void *value) {
   }
 }
 
-void IndexSpec_Digest(RedisModuleDigest *digest, void *value) {
+static void specAuxSave(RedisModuleIO *rdb, int when) {
+  SchemaRules_Save(rdb, when);
+
+  // Save the actual index, rules, etc. before RDB
+  if (when == REDISMODULE_AUX_BEFORE_RDB) {
+    return;
+  }
+  // handle all this _after_ rdb...
+  RedisModule_SaveUnsigned(rdb, dictSize(RSIndexes_g));
+  dictIterator *it = dictGetIterator(RSIndexes_g);
+  dictEntry *e = NULL;
+  while ((e = dictNext(it))) {
+    IndexSpec_RdbSave(rdb, e->v.val);
+  }
+  dictReleaseIterator(it);
+}
+
+static int specAuxLoad(RedisModuleIO *rdb, int encver, int when) {
+  if (when == REDISMODULE_AUX_BEFORE_RDB) {
+    return SchemaRules_Load(rdb, encver, when);
+  }
+
+  size_t n = RedisModule_LoadUnsigned(rdb);
+  for (size_t ii = 0; ii < n; ++ii) {
+    IndexSpec *sp = IndexSpec_RdbLoad(rdb, encver);
+    if (!sp) {
+      return REDISMODULE_ERR;
+    }
+    dictAdd(RSIndexes_g, sp->name, sp);
+  }
+
+  int rc = SchemaRules_Load(rdb, encver, when);
+  if (rc == REDISMODULE_OK) {
+    SchemaRules_StartScan(1);
+  }
+  return rc;
 }
 
 int IndexSpec_RegisterType(RedisModuleCtx *ctx) {
-  RedisModuleTypeMethods tm = {.version = REDISMODULE_TYPE_METHOD_VERSION,
-                               .rdb_load = IndexSpec_RdbLoad,
-                               .rdb_save = IndexSpec_RdbSave,
-                               .aof_rewrite = GenericAofRewrite_DisabledHandler,
-                               .free = IndexSpec_Free};
+  RedisModuleTypeMethods tm = {
+      .version = REDISMODULE_TYPE_METHOD_VERSION,
+      .aux_save = specAuxSave,
+      .aux_load = specAuxLoad,
+      .aux_save_triggers = REDISMODULE_AUX_AFTER_RDB | REDISMODULE_AUX_AFTER_RDB};
 
-  IndexSpecType = RedisModule_CreateDataType(ctx, "ft_index0", INDEX_CURRENT_VERSION, &tm);
+  IndexSpecType = RedisModule_CreateDataType(ctx, "ft_index2", INDEX_CURRENT_VERSION, &tm);
   if (IndexSpecType == NULL) {
     RedisModule_Log(ctx, "error", "Could not create index spec type");
     return REDISMODULE_ERR;

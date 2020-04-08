@@ -86,7 +86,7 @@ int SchemaRules_Check(const SchemaRules *rules, RedisModuleCtx *ctx, RuleKeyItem
 extern SchemaRules *SchemaRules_g;
 
 /** Submits all the keys in the database for indexing */
-void SchemaRules_StartScan(void);
+void SchemaRules_StartScan(int wait);
 
 /** If scan is in progress */
 int SchemaRules_IsScanRunning(void);
@@ -131,6 +131,9 @@ void SchemaRules_SetMode(SchemaIndexMode mode);
 SchemaIndexMode SchemaRules_GetMode(void);
 
 ssize_t SchemaRules_GetPendingCount(const IndexSpec *spec);
+
+void SchemaRules_Save(RedisModuleIO *rdb, int when);
+int SchemaRules_Load(RedisModuleIO *rdb, int encver, int when);
 
 extern AsyncIndexQueue *asyncQueue_g;
 

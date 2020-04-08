@@ -138,7 +138,7 @@ static void *scanThread(void *arg) {
   return NULL;
 }
 
-void SchemaRules_StartScan(void) {
+void SchemaRules_StartScan(int wait) {
   // note: we assume this is called only once from a single thread!
   ScanState oldstate =
       __sync_val_compare_and_swap(&scanner_g.state, SCAN_STATE_RUNNING, SCAN_STATE_CANCELLED);
@@ -150,6 +150,9 @@ void SchemaRules_StartScan(void) {
   scanner_g.state = SCAN_STATE_RUNNING;
   scanner_g.rulesRevision = SchemaRules_g->revision;
   pthread_create(&scanner_g.thr, NULL, scanThread, &scanner_g);
+  if (wait) {
+    pthread_join(scanner_g.thr, NULL);
+  }
 }
 
 uint64_t SchemaRules_ScanRevision(void) {

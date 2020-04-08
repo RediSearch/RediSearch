@@ -255,7 +255,7 @@ int SchemaRules_SetArgs(ArgsCursor *ac, QueryError *err) {
   SchemaRules_CleanRules(oldrules);
   oldrules->rules = rules.rules;
   oldrules->revision++;
-  SchemaRules_StartScan();
+  SchemaRules_StartScan(0);
 
   rules.rules = NULL;
 
@@ -271,7 +271,7 @@ int SchemaRules_AddArgs(const char *index, const char *name, ArgsCursor *ac, Que
   int rc = SchemaRules_AddArgsInternal(SchemaRules_g, index, name, ac, err);
   if (rc == REDISMODULE_OK) {
     SchemaRules_g->revision++;
-    SchemaRules_StartScan();
+    SchemaRules_StartScan(0);
   }
   return rc;
 }
@@ -288,7 +288,7 @@ int SchemaRules_AddArgs(const char *index, const char *name, ArgsCursor *ac, Que
 
 static void rulesAuxSave(RedisModuleIO *rdb, int when) {
   if (when == REDISMODULE_AUX_AFTER_RDB) {
-    AIQ_SaveQueue(asyncQueue_g, rdb);
+    // AIQ_SaveQueue(asyncQueue_g, rdb);
     return;
   }
 
@@ -316,7 +316,8 @@ static int rulesAuxLoad(RedisModuleIO *rdb, int encver, int when) {
   }
   if (when == REDISMODULE_AUX_AFTER_RDB) {
     // Handle async queue loading
-    return AIQ_LoadQueue(asyncQueue_g, rdb);
+    // return AIQ_LoadQueue(asyncQueue_g, rdb);
+    return REDISMODULE_OK;
   }
 
   // Before RDB
@@ -352,15 +353,24 @@ static int rulesAuxLoad(RedisModuleIO *rdb, int encver, int when) {
       return REDISMODULE_ERR;
     }
   }
+  SchemaRules_StartScan(0);
   return REDISMODULE_OK;
 }
 
 int SchemaRules_RegisterType(RedisModuleCtx *ctx) {
-  RedisModuleTypeMethods m = {
-      .version = REDISMODULE_TYPE_METHOD_VERSION,
-      .aux_load = rulesAuxLoad,
-      .aux_save = rulesAuxSave,
-      .aux_save_triggers = REDISMODULE_AUX_BEFORE_RDB | REDISMODULE_AUX_AFTER_RDB};
-  RedisModuleType *t = RedisModule_CreateDataType(ctx, "ft_rules0", RULES_CURRENT_VERSION, &m);
-  return t ? REDISMODULE_OK : REDISMODULE_ERR;
+  // RedisModuleTypeMethods m = {
+  //     .version = REDISMODULE_TYPE_METHOD_VERSION,
+  //     .aux_load = rulesAuxLoad,
+  //     .aux_save = rulesAuxSave,
+  //     .aux_save_triggers = REDISMODULE_AUX_BEFORE_RDB | REDISMODULE_AUX_AFTER_RDB};
+  // RedisModuleType *t = RedisModule_CreateDataType(ctx, "ft_rules0", RULES_CURRENT_VERSION, &m);
+  // return t ? REDISMODULE_OK : REDISMODULE_ERR;
+  return REDISMODULE_OK;
+}
+
+void SchemaRules_Save(RedisModuleIO *rdb, int when) {
+  rulesAuxSave(rdb, when);
+}
+int SchemaRules_Load(RedisModuleIO *rdb, int encver, int when) {
+  return rulesAuxLoad(rdb, encver, when);
 }
