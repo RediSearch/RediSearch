@@ -92,5 +92,9 @@ def testIfQueries(env):
     #check only 1st tested
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if to_number("redis") FIELDS txt word').error()
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if @txt||to_number("redis") FIELDS txt word').equal('OK')
+    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if !@txt||to_number("redis") FIELDS txt word').error()
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if @empty||to_number("redis") FIELDS txt word').error()
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if !@empty||to_number("redis") FIELDS txt word').equal('OK')
+
+    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if !@txt&&to_number("redis") FIELDS txt word').equal('NOADD')
+    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if @empty&&to_number("redis") FIELDS txt word').equal('NOADD')
