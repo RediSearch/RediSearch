@@ -2164,7 +2164,7 @@ def testIssue1058(env):
     env.expect('FT.GET idx doc2').equal(['txt2', 'string', 'txt1', '10'])
     #env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if !@txt1||to_number(@txt1)<11 FIELDS txt1 10').equal('NOADD')
 
-    def testUnseportedSortableTypeErrorOnTags(env):
+def testUnseportedSortableTypeErrorOnTags(env):
     # Issue 1124
     env.expect('FT.CREATE idx SCHEMA f1 TEXT SORTABLE f2 NUMERIC SORTABLE NOINDEX f3 TAG SORTABLE NOINDEX f4 TEXT SORTABLE NOINDEX').ok()
     env.expect('FT.ADD idx doc1 1.0 FIELDS f1 foo1 f2 1 f3 foo1 f4 foo1').ok()
