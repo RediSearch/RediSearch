@@ -20,7 +20,8 @@ static int evalFunc(ExprEval *eval, const RSFunctionExpr *f, RSValue *result) {
     argspp[ii] = &args[ii];
     int internalRes = evalInternal(eval, f->args->args[ii], &args[ii]);
     if (internalRes == EXPR_EVAL_ERR ||
-        (internalRes == EXPR_EVAL_NULL && strcmp(f->name, "isnull"))) {
+        (internalRes == EXPR_EVAL_NULL && 
+        strcmp(f->name, "isnull") && strcmp(f->name, "exists"))) {
       // TODO: Free other results
       goto cleanup;
     }
