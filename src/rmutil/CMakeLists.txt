@@ -4,7 +4,6 @@ ADD_LIBRARY(rmutil OBJECT
     heap.c
     periodic.c
     priority_queue.c
-    sds.c
     strings.c
     util.c
     vector.c)
@@ -21,3 +20,5 @@ FOREACH(n ${TEST_SOURCES})
     _rmutilTest("${test_name}")
 ENDFOREACH()
 
+ADD_LIBRARY(sds OBJECT sds.c)
+SET_TARGET_PROPERTIES(sds PROPERTIES COMPILE_FLAGS "-fvisibility=hidden")

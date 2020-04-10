@@ -86,6 +86,7 @@ ENDIF()
 
 # Set globals here!
 INCLUDE_DIRECTORIES(${PROJECT_SOURCE_DIR}/src)
+INCLUDE_DIRECTORIES(${PROJECT_SOURCE_DIR}/deps)
 ADD_DEFINITIONS(-DREDISMODULE_EXPERIMENTAL_API)
 ADD_DEFINITIONS(-D_GNU_SOURCE)
 
@@ -97,6 +98,7 @@ ADD_SUBDIRECTORY(src/rmutil)
 ADD_SUBDIRECTORY(src/dep/friso)
 ADD_SUBDIRECTORY(src/dep/snowball)
 ADD_SUBDIRECTORY(src/dep/phonetics)
+ADD_SUBDIRECTORY(deps)
 
 FILE(GLOB RS_SRC
     "src/*.c"
@@ -125,7 +127,9 @@ SET(FINAL_OBJECTS
     $<TARGET_OBJECTS:rmutil>
     $<TARGET_OBJECTS:friso>
     $<TARGET_OBJECTS:snowball>
-    $<TARGET_OBJECTS:metaphone>)
+    $<TARGET_OBJECTS:metaphone>
+    $<TARGET_OBJECTS:sds>
+    $<TARGET_OBJECTS:rax>)
 
 ADD_LIBRARY(redisearch SHARED ${FINAL_OBJECTS} src/module-init/module-init.c)
 TARGET_LINK_LIBRARIES(redisearch dl m)
