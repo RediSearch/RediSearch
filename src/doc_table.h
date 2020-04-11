@@ -8,6 +8,7 @@
 #include "sortable.h"
 #include "byte_offsets.h"
 #include "rmutil/sds.h"
+#include "dict/dict.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -28,7 +29,7 @@ static inline RedisModuleString *DMD_CreateKeyString(const RSDocumentMetadata *d
 
 /* Map between external id an incremental id */
 typedef struct {
-  TrieMap *tm;
+  dict *d;
 } DocIdMap;
 
 DocIdMap NewDocIdMap();

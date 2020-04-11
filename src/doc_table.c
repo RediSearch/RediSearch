@@ -4,7 +4,6 @@
 #include <stdio.h>
 #include "redismodule.h"
 #include "util/fnv.h"
-#include "dep/triemap/triemap.h"
 #include "sortable.h"
 #include "rmalloc.h"
 #include "spec.h"
@@ -464,39 +463,80 @@ void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
   t->size -= deletedElements;
 }
 
-DocIdMap NewDocIdMap() {
+typedef struct {
+  uint32_t len;
+  uint8_t isPtr;
+  union {
+    char data[0];
+    const char *ptr;
+  } u;
+} dictBuffer;
 
-  TrieMap *m = NewTrieMap();
-  return (DocIdMap){m};
+#define KLEN_BUF(s) (s)->isPtr ? (s)->u.ptr : &(s)->u.data[0]
+#define KLEN_STATIC(s, n)                  \
+  {                                        \
+    .len = n, .isPtr = 1, .u = {.ptr = s } \
+  }
+
+static void *klenDup(void *privdata, const void *key) {
+  const dictBuffer *orig = key;
+  const char *buf = KLEN_BUF(orig);
+  dictBuffer *newbuf = rm_malloc(sizeof(*orig) + orig->len);
+  newbuf->len = orig->len;
+  newbuf->isPtr = 0;
+  memcpy(newbuf->u.data, buf, newbuf->len);
+  return newbuf;
+}
+
+static int klenCmp(void *priv, const void *a, const void *b) {
+  const dictBuffer *ba = a, *bb = b;
+  if (ba->len != bb->len) {
+    return 0;
+  }
+  const char *s1 = KLEN_BUF(ba), *s2 = KLEN_BUF(bb);
+  return memcmp(s1, s2, ba->len) == 0;
+}
+
+static uint64_t klenHash(const void *data) {
+  const dictBuffer *b = data;
+  return dictGenHashFunction(KLEN_BUF(b), b->len);
+}
+
+static void klenFree(void *priv, void *k) {
+  rm_free(k);
+}
+
+static dictType dictTypeKlen = {
+    .hashFunction = klenHash, .keyDup = klenDup, .keyCompare = klenCmp, .keyDestructor = klenFree};
+
+DocIdMap NewDocIdMap() {
+  return (DocIdMap){dictCreate(&dictTypeKlen, NULL)};
 }
 
 t_docId DocIdMap_Get(const DocIdMap *m, const char *s, size_t n) {
-
-  void *val = TrieMap_Find(m->tm, (char *)s, n);
-  if (val && val != TRIEMAP_NOTFOUND) {
-    return *((t_docId *)val);
+  dictBuffer b = KLEN_STATIC(s, n);
+  dictEntry *e = dictFind(m->d, &b);
+  if (!e) {
+    return 0;
   }
-  return 0;
-}
-
-void *_docIdMap_replace(void *oldval, void *newval) {
-  if (oldval) {
-    rm_free(oldval);
-  }
-  return newval;
+  return e->v.u64;
 }
 
 void DocIdMap_Put(DocIdMap *m, const char *s, size_t n, t_docId docId) {
-
-  t_docId *pd = rm_malloc(sizeof(t_docId));
-  *pd = docId;
-  TrieMap_Add(m->tm, (char *)s, n, pd, _docIdMap_replace);
+  dictBuffer b = KLEN_STATIC(s, n);
+  dictEntry *existing = NULL;
+  dictEntry *e = dictAddRaw(m->d, &b, &existing);
+  if (existing) {
+    e = existing;
+  }
+  e->v.u64 = docId;
 }
 
 void DocIdMap_Free(DocIdMap *m) {
-  TrieMap_Free(m->tm, rm_free);
+  dictRelease(m->d);
 }
 
 int DocIdMap_Delete(DocIdMap *m, const char *s, size_t n) {
-  return TrieMap_Delete(m->tm, (char *)s, n, rm_free);
+  dictBuffer b = KLEN_STATIC(s, n);
+  return dictDelete(m->d, &b) == DICT_OK;
 }
