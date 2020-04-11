@@ -129,7 +129,8 @@ SET(FINAL_OBJECTS
     $<TARGET_OBJECTS:snowball>
     $<TARGET_OBJECTS:metaphone>
     $<TARGET_OBJECTS:sds>
-    $<TARGET_OBJECTS:rax>)
+    $<TARGET_OBJECTS:rax>
+    $<TARGET_OBJECTS:dict>)
 
 ADD_LIBRARY(redisearch SHARED ${FINAL_OBJECTS} src/module-init/module-init.c)
 TARGET_LINK_LIBRARIES(redisearch dl m)

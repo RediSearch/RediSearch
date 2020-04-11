@@ -113,9 +113,6 @@ Vector *NumericRangeTree_Find(NumericRangeTree *t, double min, double max);
 /* Free the tree and all nodes */
 void NumericRangeTree_Free(NumericRangeTree *t);
 
-extern RedisModuleType *NumericIndexType;
-
-int NumericIndexType_Register(RedisModuleCtx *ctx);
 void *NumericIndexType_RdbLoad(RedisModuleIO *rdb, int encver);
 void NumericIndexType_RdbSave(RedisModuleIO *rdb, void *value);
 void NumericIndexType_Digest(RedisModuleDigest *digest, void *value);

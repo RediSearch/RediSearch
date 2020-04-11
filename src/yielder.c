@@ -33,4 +33,6 @@ void YLD_Cleanup(Yielder *y) {
       y->cbs[ii].freecb(&y->cbs[ii].arg, y->cbs[ii].idx);
     }
   }
+  array_free(y->cbs);
+  y->cbs = NULL;
 }

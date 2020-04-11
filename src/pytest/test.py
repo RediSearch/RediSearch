@@ -1964,6 +1964,7 @@ def testAlterIndex(env):
 
     env.cmd('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'f3', 'TEXT', 'SORTABLE')
     for x in range(10):
+        print('adding doc {}'.format(x+3))
         env.cmd('FT.ADD', 'idx', 'doc{}'.format(x + 3), 1.0,
                  'FIELDS', 'f1', 'hello', 'f3', 'val{}'.format(x))
 
@@ -2164,9 +2165,13 @@ def testAlias(env):
     env.cmd('ft.add', 'idx3', 'doc3', 1.0, 'fields', 't1', 'foo')
     env.cmd('ft.aliasAdd', 'myIndex', 'idx3')
     # also, check that this works in rdb save
-    for _ in env.retry_with_rdb_reload():
-        r = env.cmd('ft.search', 'myIndex', 'foo')
-        env.assertEqual([1L, 'doc3', ['t1', 'foo']], r)
+
+    env.cmd('save')
+    env.restart_and_reload()
+
+    # for _ in env.retry_with_rdb_reload():
+    r = env.cmd('ft.search', 'myIndex', 'foo')
+    env.assertEqual([1L, 'doc3', ['t1', 'foo']], r)
 
     # Check that we can move an alias from one index to another
     env.cmd('ft.aliasUpdate', 'myIndex', 'idx2')

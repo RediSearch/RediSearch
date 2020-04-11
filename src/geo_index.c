@@ -14,6 +14,11 @@ GeoIndex *GeoIndex_Create(void) {
   return gi;
 }
 
+void GeoIndex_Free(GeoIndex *gi) {
+  rm_free(gi->keyname);
+  rm_free(gi);
+}
+
 /* Add a docId to a geoindex key. Right now we just use redis' own GEOADD */
 int GeoIndex_AddStrings(GeoIndex *gi, t_docId docId, const char *slon, const char *slat) {
   const char *key = gi->keyname;

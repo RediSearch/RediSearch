@@ -102,7 +102,6 @@ int Document_LoadSchemaFields(Document *doc, RedisSearchCtx *sctx, QueryError *e
     k = RedisModule_OpenKey(sctx->redisCtx, doc->docKey, REDISMODULE_READ);
     rv = REDISMODULE_ERR;
     if (!k) {
-      printf("OpenKey %s -> NULL\n", RedisModule_StringPtrLen(doc->docKey, NULL));
       QueryError_SetCode(err, QUERY_ENODOC);
     } else if (RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_HASH) {
       QueryError_SetCode(err, QUERY_EREDISKEYTYPE);

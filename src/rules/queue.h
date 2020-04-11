@@ -5,7 +5,6 @@
 #include "redismodule.h"
 #include "spec.h"
 #include "rules.h"
-#include "util/dict.h"
 #include "util/minmax_heap.h"
 #include "rmutil/sds.h"
 

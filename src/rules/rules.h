@@ -38,7 +38,7 @@ void SchemaRules_CleanRules(SchemaRules *rules);
  */
 int SchemaRules_AddArgs(const char *index, const char *name, ArgsCursor *ac, QueryError *err);
 
-int SchemaRules_AddArgsInternal(SchemaRules *rules, const char *index, const char *name,
+int SchemaRules_AddArgsInternal(SchemaRules *rules, IndexSpec *spec, const char *name,
                                 ArgsCursor *ac, QueryError *err);
 int SchemaRules_SetArgs(ArgsCursor *ac, QueryError *err);
 
@@ -48,7 +48,7 @@ typedef struct {
 } IndexItemAttrs;
 
 typedef struct {
-  const char *index;
+  IndexSpec *spec;
   IndexItemAttrs attrs;
 } MatchAction;
 
@@ -80,7 +80,7 @@ typedef struct {
 } RuleIndexableDocument;
 
 // Check if the given document matches any of the rule sets
-int SchemaRules_Check(const SchemaRules *rules, RedisModuleCtx *ctx, RuleKeyItem *item,
+int SchemaRules_Check(SchemaRules *rules, RedisModuleCtx *ctx, RuleKeyItem *item,
                       MatchAction **results, size_t *nresults);
 
 extern SchemaRules *SchemaRules_g;
@@ -143,6 +143,21 @@ void AIQ_Submit(AsyncIndexQueue *aq, IndexSpec *spec, MatchAction *result, RuleK
 int AIQ_LoadQueue(AsyncIndexQueue *aq, RedisModuleIO *rdb);
 void AIQ_SaveQueue(AsyncIndexQueue *aq, RedisModuleIO *rdb);
 
+/**
+ * Custom rules:
+ *
+ * Custom rules may be added by other parts of the subsystem.
+ */
+typedef struct SchemaCustomRule SchemaCustomRule;
+typedef struct SchemaCustomCtx SchemaCustomCtx;
+#define SCHEMA_CUSTOM_FIRST 1
+#define SCHEMA_CUSTOM_LAST 0
+
+typedef int (*SchemaCustomCallback)(RedisModuleCtx *, RuleKeyItem *, void *arg, SchemaCustomCtx *);
+
+void SchemaCustomCtx_Index(SchemaCustomCtx *ctx, IndexSpec *spec, RSLanguage language, float score);
+SchemaCustomRule *SchemaRules_AddCustomRule(SchemaCustomCallback cb, void *arg, int pos);
+void SchemaRules_RemoveCustomRule(SchemaCustomRule *p);
 #ifdef __cplusplus
 }
 #endif

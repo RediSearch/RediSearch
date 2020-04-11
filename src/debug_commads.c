@@ -558,6 +558,7 @@ DEBUG_COMMAND(FlushAll) {
   while ((e = dictNext(it))) {
     IndexSpec_Free(e->v.val);
   }
+  dictReleaseIterator(it);
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 

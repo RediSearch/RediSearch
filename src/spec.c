@@ -21,7 +21,6 @@
 void (*IndexSpec_OnCreate)(const IndexSpec *) = NULL;
 const char *(*IndexAlias_GetUserTableName)(RedisModuleCtx *, const char *) = NULL;
 
-RedisModuleType *IndexSpecType;
 static uint64_t spec_unique_ids = 1;
 
 static const FieldSpec *getFieldCommon(const IndexSpec *spec, const char *name, size_t len,
@@ -528,7 +527,6 @@ InvertedIndex *IDX_LoadTerm(IndexSpec *sp, const char *term, size_t n, int flags
     }
   }
 
-  // todo: thread local variants for this
   InvertedIndex *newix = sp->cachedInvidx;
   if (!newix) {
     newix = sp->cachedInvidx = NewInvertedIndex(sp->flags, 1);
@@ -536,9 +534,10 @@ InvertedIndex *IDX_LoadTerm(IndexSpec *sp, const char *term, size_t n, int flags
   InvertedIndex *old = NULL;
   int isNew = raxTryInsert(sp->termsIdx, (unsigned char *)term, n, newix, (void **)&old);
   if (isNew) {
-    sp->cachedInvidx = NULL;
+    assert(!old);
     sp->stats.numTerms++;
     Trie_InsertStringBuffer(sp->terms, term, n, 1, 1, NULL);
+    sp->cachedInvidx = NULL;
     return newix;
   } else {
     return old;
@@ -705,6 +704,37 @@ static void IndexSpec_FreeInternals(IndexSpec *spec) {
     }
     rm_free(spec->fields);
   }
+  for (size_t ii = 0; ii < spec->numFields; ++ii) {
+    if (spec->nums[ii]) {
+      NumericRangeTree_Free(spec->nums[ii]);
+    }
+    if (spec->geos[ii]) {
+      GeoIndex_Free(spec->geos[ii]);
+    }
+    if (spec->tags[ii]) {
+      TagIndex_Free(spec->tags[ii]);
+    }
+  }
+  array_free(spec->nums);
+  array_free(spec->tags);
+  array_free(spec->geos);
+
+  // Free the term indexes
+  raxIterator it = {0};
+  raxStart(&it, spec->termsIdx);
+  raxSeek(&it, "^", "", 0);
+  while (raxNext(&it)) {
+    InvertedIndex_Free(it.data);
+  }
+
+  raxFree(spec->termsIdx);
+  if (spec->queue) {
+    SpecDocQueue_Free(spec->queue);
+  }
+  if (spec->cachedInvidx) {
+    InvertedIndex_Free(spec->cachedInvidx);
+  }
+
   IndexSpec_ClearAliases(spec);
   rm_free(spec);
 }
@@ -760,7 +790,7 @@ void IndexSpec_Free(void *ctx) {
 
 dict *RSIndexes_g = NULL;
 
-IndexSpec *IndexSpec_LoadEx(RedisModuleCtx *ctx, IndexLoadOptions *options) {
+IndexSpec *IndexSpec_LoadEx(void *unused, IndexLoadOptions *options) {
   IndexSpec *ret = NULL;
 
   const char *ixname = NULL;
@@ -783,10 +813,10 @@ IndexSpec *IndexSpec_LoadEx(RedisModuleCtx *ctx, IndexLoadOptions *options) {
 }
 
 /* Load the spec from the saved version */
-IndexSpec *IndexSpec_Load(RedisModuleCtx *ctx, const char *name, int openWrite) {
+IndexSpec *IndexSpec_Load(void *unused, const char *name, int openWrite) {
   IndexLoadOptions lopts = {.flags = openWrite ? INDEXSPEC_LOAD_WRITEABLE : 0,
                             .name = {.cstring = name}};
-  return IndexSpec_LoadEx(ctx, &lopts);
+  return IndexSpec_LoadEx(NULL, &lopts);
 }
 
 t_fieldMask IndexSpec_ParseFieldMask(IndexSpec *sp, RedisModuleString **argv, int argc) {
@@ -855,7 +885,14 @@ SpecDocQueue *SpecDocQueue_Create(IndexSpec *spec) {
 }
 
 void SpecDocQueue_Free(SpecDocQueue *q) {
-  assert(dictSize(q->entries) == 0);
+  assert(q->active == NULL || dictSize(q->active) == 0);
+  assert(q->entries == NULL || dictSize(q->entries) == 0);
+  if (q->entries) {
+    dictRelease(q->entries);
+  }
+  if (q->active) {
+    dictRelease(q->active);
+  }
   q->spec->queue = NULL;
   rm_free(q);
 }
@@ -1049,7 +1086,7 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
   sp->sortables = NewSortingTable();
   sp->refcount = 1;
-  sp->docs = DocTable_New(1000);
+  sp->docs = DocTable_New(100);
   sp->name = RedisModule_LoadStringBuffer(rdb, NULL);
   char *tmpName = rm_strdup(sp->name);
   RedisModule_Free(sp->name);
@@ -1066,6 +1103,14 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
 
   sp->numFields = RedisModule_LoadUnsigned(rdb);
   sp->fields = rm_calloc(sp->numFields, sizeof(FieldSpec));
+  sp->nums = array_newlen(NumericRangeTree *, sp->numFields);
+  sp->tags = array_newlen(TagIndex *, sp->numFields);
+  sp->geos = array_newlen(GeoIndex *, sp->numFields);
+  for (size_t ii = 0; ii < sp->numFields; ++ii) {
+    sp->nums[ii] = NULL;
+    sp->tags[ii] = NULL;
+    sp->geos[ii] = NULL;
+  }
   int maxSortIdx = -1;
   for (int i = 0; i < sp->numFields; i++) {
     FieldSpec *fs = sp->fields + i;
@@ -1150,11 +1195,12 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, void *value) {
   } else {
     RedisModule_SaveUnsigned(rdb, 0);
   }
+  if ((sp->flags & Index_UseRules) == 0) {
+    DocTable_RdbSave(&sp->docs, rdb);
+  }
 }
 
 static void specAuxSave(RedisModuleIO *rdb, int when) {
-  SchemaRules_Save(rdb, when);
-
   // Save the actual index, rules, etc. before RDB
   if (when == REDISMODULE_AUX_BEFORE_RDB) {
     return;
@@ -1167,13 +1213,30 @@ static void specAuxSave(RedisModuleIO *rdb, int when) {
     IndexSpec_RdbSave(rdb, e->v.val);
   }
   dictReleaseIterator(it);
+  SchemaRules_Save(rdb, when);
+}
+
+typedef struct {
+  SchemaCustomRule *rule;
+  DocTable docs;
+  IndexSpec *spec;
+} LegacyRuleParams;
+
+static int customRuleCb(RedisModuleCtx *ctx, RuleKeyItem *item, void *arg, SchemaCustomCtx *cc) {
+  LegacyRuleParams *lrp = arg;
+  RSDocumentMetadata *dmd = DocTable_GetByKeyR(&lrp->docs, item->kstr);
+  if (!dmd) {
+    return 0;
+  }
+  SchemaCustomCtx_Index(cc, lrp->spec, 0, dmd->score);
+  return 1;
 }
 
 static int specAuxLoad(RedisModuleIO *rdb, int encver, int when) {
   if (when == REDISMODULE_AUX_BEFORE_RDB) {
-    return SchemaRules_Load(rdb, encver, when);
+    return REDISMODULE_OK;
   }
-
+  LegacyRuleParams *lrps = array_new(LegacyRuleParams, 8);
   size_t n = RedisModule_LoadUnsigned(rdb);
   for (size_t ii = 0; ii < n; ++ii) {
     IndexSpec *sp = IndexSpec_RdbLoad(rdb, encver);
@@ -1181,24 +1244,48 @@ static int specAuxLoad(RedisModuleIO *rdb, int encver, int when) {
       return REDISMODULE_ERR;
     }
     dictAdd(RSIndexes_g, sp->name, sp);
+    if (!(sp->flags & Index_UseRules)) {
+      LegacyRuleParams *lrp = array_ensure_tail(&lrps, LegacyRuleParams);
+      lrp->spec = sp;
+      lrp->docs = DocTable_New(100);
+      lrp->rule = NULL;
+      DocTable_RdbLoad(&lrp->docs, rdb, encver);
+    }
   }
 
   int rc = SchemaRules_Load(rdb, encver, when);
-  if (rc == REDISMODULE_OK) {
-    SchemaRules_StartScan(1);
+  if (rc != REDISMODULE_OK) {
+    return rc;
   }
+  for (size_t ii = 0; ii < array_len(lrps); ++ii) {
+    SchemaCustomRule *crule =
+        SchemaRules_AddCustomRule(customRuleCb, lrps + ii, SCHEMA_CUSTOM_LAST);
+    assert(crule);
+    lrps[ii].rule = crule;
+  }
+
+  RedisModule_ThreadSafeContextUnlock(RSDummyContext);
+  SchemaRules_StartScan(1);
+  while (SchemaRules_QueueSize()) {
+    usleep(500);
+  }
+  RedisModule_ThreadSafeContextLock(RSDummyContext);
+  for (size_t ii = 0; ii < array_len(lrps); ++ii) {
+    SchemaRules_RemoveCustomRule(lrps[ii].rule);
+    DocTable_Free(&lrps[ii].docs);
+  }
+  array_free(lrps);
   return rc;
 }
 
 int IndexSpec_RegisterType(RedisModuleCtx *ctx) {
-  RedisModuleTypeMethods tm = {
-      .version = REDISMODULE_TYPE_METHOD_VERSION,
-      .aux_save = specAuxSave,
-      .aux_load = specAuxLoad,
-      .aux_save_triggers = REDISMODULE_AUX_AFTER_RDB | REDISMODULE_AUX_AFTER_RDB};
+  RedisModuleTypeMethods tm = {.version = REDISMODULE_TYPE_METHOD_VERSION,
+                               .aux_save = specAuxSave,
+                               .aux_load = specAuxLoad,
+                               .aux_save_triggers = REDISMODULE_AUX_AFTER_RDB};
 
-  IndexSpecType = RedisModule_CreateDataType(ctx, "ft_index2", INDEX_CURRENT_VERSION, &tm);
-  if (IndexSpecType == NULL) {
+  RedisModuleType *t = RedisModule_CreateDataType(ctx, "ft_index2", INDEX_CURRENT_VERSION, &tm);
+  if (t == NULL) {
     RedisModule_Log(ctx, "error", "Could not create index spec type");
     return REDISMODULE_ERR;
   }

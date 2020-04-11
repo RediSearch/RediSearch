@@ -36,7 +36,7 @@ void SchemaRules_CleanRules(SchemaRules *rules) {
 
 void SchemaRules_Clean(SchemaRules *rules) {
   SchemaRules_CleanRules(rules);
-  rm_free(rules->actions);
+  array_free(rules->actions);
   rules->revision = 0;
 }
 
@@ -62,6 +62,7 @@ RSAddDocumentCtx *SchemaRules_InitACTX(RedisModuleCtx *ctx, IndexSpec *sp, RuleK
   if (!aCtx) {
     goto err;
   }
+  aCtx->options |= DOCUMENT_ADD_REPLACE;
   return aCtx;
 
 err:
@@ -100,10 +101,9 @@ void SchemaRules_ProcessItem(RedisModuleCtx *ctx, RuleKeyItem *item, int flags) 
   MatchAction *results = NULL;
   size_t nresults = 0;
   SchemaRules_Check(SchemaRules_g, ctx, item, &results, &nresults);
-
   for (size_t ii = 0; ii < nresults; ++ii) {
     // submit the document for indexing if sync, async otherwise...
-    IndexSpec *spec = IndexSpec_Load(ctx, results[ii].index, 1);
+    IndexSpec *spec = results[ii].spec;
     assert(spec);  // todo handle error...
 
     if ((flags & RULES_PROCESS_F_NOREINDEX) && DocTable_GetByKeyR(&spec->docs, item->kstr)) {
@@ -118,7 +118,8 @@ void SchemaRules_ProcessItem(RedisModuleCtx *ctx, RuleKeyItem *item, int flags) 
       QueryError e = {0};
       int rc = SchemaRules_IndexDocument(ctx, spec, item, &results[ii].attrs, &e);
       if (rc != REDISMODULE_OK) {
-        printf("Couldn't index document: %s\n", QueryError_GetError(&e));
+        RedisModule_Log(ctx, "warning", "Could not index document %s (%s)",
+                        RedisModule_StringPtrLen(item->kstr, NULL), QueryError_GetError(&e));
         if (e.code == QUERY_ENOIDXFIELDS) {
           rc = REDISMODULE_OK;
         }
@@ -214,10 +215,9 @@ void SchemaRules_UnregisterIndex(IndexSpec *sp) {
   // Iterate through all the rules which reference this index
   SchemaRules *rules = SchemaRules_g;
   for (size_t ii = 0; ii < array_len(rules->rules); ++ii) {
-    if (strcasecmp(rules->rules[ii]->index, sp->name)) {
-      continue;
+    if (rules->rules[ii]->spec == sp) {
+      ARRAY_DEL_ITER(rules->rules, ii);
     }
-    ARRAY_DEL_ITER(rules->rules, ii);
   }
 }
 
@@ -268,13 +268,49 @@ done:
 }
 
 int SchemaRules_AddArgs(const char *index, const char *name, ArgsCursor *ac, QueryError *err) {
-  int rc = SchemaRules_AddArgsInternal(SchemaRules_g, index, name, ac, err);
+  IndexSpec *sp = NULL;
+  if (index != NULL && *index != '*') {
+    sp = IndexSpec_Load(NULL, index, 0);
+    if (!sp) {
+      QueryError_SetErrorFmt(err, QUERY_ENOINDEX, "No such index %s", index);
+      return REDISMODULE_ERR;
+    }
+  }
+  int rc = SchemaRules_AddArgsInternal(SchemaRules_g, sp, name, ac, err);
   if (rc == REDISMODULE_OK) {
     SchemaRules_g->revision++;
     SchemaRules_StartScan(0);
   }
   return rc;
 }
+
+SchemaCustomRule *SchemaRules_AddCustomRule(SchemaCustomCallback cb, void *arg, int pos) {
+  SchemaCustomRule *crule = rm_calloc(1, sizeof(*crule));
+  crule->rtype = SCRULE_TYPE_CUSTOM;
+  crule->name = rm_strdup("__custom");
+  crule->check = cb;
+  crule->arg = arg;
+  crule->action.atype = SCACTION_TYPE_CUSTOM;
+  SchemaRules *rules = SchemaRules_g;
+  if (pos == SCHEMA_CUSTOM_FIRST) {
+    array_ensure_prepend(rules->rules, &rules, 1, SchemaRule *);
+  } else {
+    *(array_ensure_tail(&rules->rules, SchemaRule *)) = (SchemaRule *)crule;
+  }
+  return crule;
+}
+
+void SchemaRules_RemoveCustomRule(SchemaCustomRule *r) {
+  SchemaRules *rules = SchemaRules_g;
+  for (size_t ii = 0; ii < array_len(rules->rules); ++ii) {
+    if (rules->rules[ii] == (void *)r) {
+      array_del(rules->rules, ii);
+      break;
+    }
+  }
+  SchemaRule_Free((SchemaRule *)r);
+}
+
 #define RULES_CURRENT_VERSION 0
 
 /**
@@ -287,19 +323,28 @@ int SchemaRules_AddArgs(const char *index, const char *name, ArgsCursor *ac, Que
  */
 
 static void rulesAuxSave(RedisModuleIO *rdb, int when) {
-  if (when == REDISMODULE_AUX_AFTER_RDB) {
+  if (when != REDISMODULE_AUX_AFTER_RDB) {
     // AIQ_SaveQueue(asyncQueue_g, rdb);
     return;
   }
 
   SchemaRules *rules = SchemaRules_g;
   RedisModule_SaveUnsigned(rdb, rules->revision);
-  RedisModule_SaveUnsigned(rdb, array_len(rules->rules));
-  size_t nrules = array_len(rules->rules);
-  for (size_t ii = 0; ii < nrules; ++ii) {
+  size_t nrules = 0;  // count non-custom rules only!
+  for (size_t ii = 0; ii < array_len(rules->rules); ++ii) {
+    if (rules->rules[ii]->rtype != SCRULE_TYPE_CUSTOM) {
+      nrules++;
+    }
+  }
+  RedisModule_SaveUnsigned(rdb, nrules);
+  for (size_t ii = 0; ii < array_len(rules->rules); ++ii) {
     SchemaRule *r = rules->rules[ii];
+    if (r->rtype == SCRULE_TYPE_CUSTOM) {
+      continue;
+    }
     size_t n = array_len(r->rawrule);
-    RedisModule_SaveStringBuffer(rdb, r->index, strlen(r->index));
+    const char *ixname = r->spec ? r->spec->name : "*";
+    RedisModule_SaveStringBuffer(rdb, ixname, strlen(ixname));
     RedisModule_SaveStringBuffer(rdb, r->name, strlen(r->name));
     RedisModule_SaveUnsigned(rdb, n);
     for (size_t jj = 0; jj < n; ++jj) {
@@ -310,19 +355,13 @@ static void rulesAuxSave(RedisModuleIO *rdb, int when) {
 }
 
 static int rulesAuxLoad(RedisModuleIO *rdb, int encver, int when) {
-  // Going to assume that the rules are already loaded..
-  if (encver > RULES_CURRENT_VERSION) {
-    return REDISMODULE_ERR;
-  }
-  if (when == REDISMODULE_AUX_AFTER_RDB) {
-    // Handle async queue loading
-    // return AIQ_LoadQueue(asyncQueue_g, rdb);
+  if (when != REDISMODULE_AUX_AFTER_RDB) {
     return REDISMODULE_OK;
   }
+  // Reset the rules, just in case
+  SchemaRules_Free(SchemaRules_g);
+  SchemaRules *rules = SchemaRules_g = SchemaRules_Create();
 
-  // Before RDB
-
-  SchemaRules *rules = SchemaRules_g;
   rules->revision = RedisModule_LoadUnsigned(rdb);
 
   size_t nrules = RedisModule_LoadUnsigned(rdb);
@@ -338,8 +377,14 @@ static int rulesAuxLoad(RedisModuleIO *rdb, int encver, int when) {
     ArgsCursor ac = {0};
     ArgsCursor_InitRString(&ac, args, nargs);
     QueryError status = {0};
-    int rc = SchemaRules_AddArgsInternal(rules, RedisModule_StringPtrLen(index, NULL),
-                                         RedisModule_StringPtrLen(name, NULL), &ac, &status);
+    IndexSpec *sp = NULL;
+    const char *ixstr = RedisModule_StringPtrLen(index, NULL);
+    if (*ixstr && *ixstr != '*' && (sp = IndexSpec_Load(NULL, ixstr, 0)) == NULL) {
+      printf("Couldn't load index %s\n", ixstr);
+      return REDISMODULE_ERR;
+    }
+    int rc =
+        SchemaRules_AddArgsInternal(rules, sp, RedisModule_StringPtrLen(name, NULL), &ac, &status);
     if (rc != REDISMODULE_OK) {
       printf("Couldn't load rules: %s\n", QueryError_GetError(&status));
     }
@@ -353,7 +398,6 @@ static int rulesAuxLoad(RedisModuleIO *rdb, int encver, int when) {
       return REDISMODULE_ERR;
     }
   }
-  SchemaRules_StartScan(0);
   return REDISMODULE_OK;
 }
 

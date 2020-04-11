@@ -14,7 +14,8 @@ TEST_F(RulesTest, testBasic) {
   ASSERT_TRUE(rules != NULL);
   ArgsCursorCXX args("PREFIX", "user:", "index");
   QueryError err = {QUERY_OK};
-  int rc = SchemaRules_AddArgsInternal(rules, "idx", "myrule", &args, &err);
+  IndexSpec *sp = NewIndexSpec("foo");
+  int rc = SchemaRules_AddArgsInternal(rules, sp, "myrule", &args, &err);
   ASSERT_EQ(REDISMODULE_OK, rc) << QueryError_GetError(&err);
 
   SchemaRule *r = rules->rules[0];
@@ -33,5 +34,5 @@ TEST_F(RulesTest, testBasic) {
   ASSERT_NE(0, matches);
   ASSERT_GT(nactions, 0);
   ASSERT_FALSE(actions == NULL);
-  ASSERT_STREQ("idx", actions[0].index);
+  ASSERT_EQ(sp, actions[0].spec);
 }

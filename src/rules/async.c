@@ -65,7 +65,6 @@ void AIQ_Submit(AsyncIndexQueue *aq, IndexSpec *spec, MatchAction *result, RuleK
   size_t nqueued = dictSize(dq->entries);
 
   if ((flags & (SDQ_S_PENDING | SDQ_S_PROCESSING)) == 0) {
-    printf("adding to list of pending indexes...\n");
     // the pending flag isn't set yet, and we aren't processing either,
     // go ahead and add this to the pending array
     aq->pending = array_append(aq->pending, dq);
@@ -75,7 +74,6 @@ void AIQ_Submit(AsyncIndexQueue *aq, IndexSpec *spec, MatchAction *result, RuleK
 
   pthread_mutex_unlock(&aq->lock);
   if ((flags & SDQ_S_PROCESSING) == 0 && nqueued >= aq->indexBatchSize) {
-    printf("signalling thread..\n");
     pthread_cond_signal(&aq->cond);
   }
 }
@@ -90,7 +88,6 @@ static void freeCallback(RSAddDocumentCtx *ctx, void *unused) {
 }
 
 static void indexBatch(AsyncIndexQueue *aiq, SpecDocQueue *dq) {
-  printf("indexBatch!\n");
   Indexer idxr = {0};
   IndexSpec *sp = dq->spec;
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(RSDummyContext, dq->spec);
@@ -104,16 +101,17 @@ static void indexBatch(AsyncIndexQueue *aiq, SpecDocQueue *dq) {
 
     RedisModule_ThreadSafeContextLock(RSDummyContext);
     RSAddDocumentCtx *aCtx = SchemaRules_InitACTX(RSDummyContext, sp, &rki, &rid->iia, &err);
-    if (!aCtx) {
-      printf("Couldn't index (%s): %s\n", RedisModule_StringPtrLen(rid->kstr, NULL),
-             QueryError_GetError(&err));
-      continue;
-    }
     RedisModule_ThreadSafeContextUnlock(RSDummyContext);
 
+    if (!aCtx) {
+      RedisModule_Log(RSDummyContext, "warning", "Could not index %s (%s)",
+                      RedisModule_StringPtrLen(rid->kstr, NULL), QueryError_GetError(&err));
+      continue;
+    }
+
     if (Indexer_Add(&idxr, aCtx) != REDISMODULE_OK) {
-      printf("Couldn't index (%s): %s\n", RedisModule_StringPtrLen(rid->kstr, NULL),
-             QueryError_GetError(&aCtx->status));
+      RedisModule_Log(RSDummyContext, "warning", "Could not index %s (%s)",
+                      RedisModule_StringPtrLen(rid->kstr, NULL), QueryError_GetError(&err));
       ACTX_Free(aCtx);
     }
     RedisModule_FreeString(NULL, rid->kstr);
@@ -147,8 +145,8 @@ static void indexBatch(AsyncIndexQueue *aiq, SpecDocQueue *dq) {
 }
 
 static int sortPending(const void *a, const void *b) {
-  const SpecDocQueue *qa = a, *qb = b;
-  return dictSize(qa->entries) - dictSize(qb->entries);
+  const SpecDocQueue *const *qa = a, *const *qb = b;
+  return dictSize((*qa)->entries) - dictSize((*qb)->entries);
 }
 
 static volatile int isPaused_g;
@@ -245,8 +243,12 @@ size_t SchemaRules_QueueSize(void) {
   for (size_t ii = 0; ii < n; ++ii) {
     SpecDocQueue *dq = aiq->pending[ii];
     pthread_mutex_lock(&dq->lock);
-    ret += dictSize(dq->entries);
-    ret += dictSize(dq->active);
+    if (dq->entries) {
+      ret += dictSize(dq->entries);
+    }
+    if (dq->active) {
+      ret += dictSize(dq->active);
+    }
     pthread_mutex_unlock(&dq->lock);
   }
   pthread_mutex_unlock(&aiq->lock);

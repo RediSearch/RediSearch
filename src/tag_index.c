@@ -197,8 +197,6 @@ void TagIndex_SerializeValues(TagIndex *idx, RedisModuleCtx *ctx) {
   TrieMapIterator_Free(it);
 }
 
-RedisModuleType *TagIndexType;
-
 void *TagIndex_RdbLoad(RedisModuleIO *rdb, int encver) {
   unsigned long long elems = RedisModule_LoadUnsigned(rdb);
   TagIndex *idx = NewTagIndex();
@@ -252,21 +250,4 @@ size_t TagIndex_MemUsage(const void *value) {
   }
   TrieMapIterator_Free(it);
   return sz;
-}
-
-int TagIndex_RegisterType(RedisModuleCtx *ctx) {
-  RedisModuleTypeMethods tm = {.version = REDISMODULE_TYPE_METHOD_VERSION,
-                               .rdb_load = TagIndex_RdbLoad,
-                               .rdb_save = TagIndex_RdbSave,
-                               .aof_rewrite = GenericAofRewrite_DisabledHandler,
-                               .free = TagIndex_Free,
-                               .mem_usage = TagIndex_MemUsage};
-
-  TagIndexType = RedisModule_CreateDataType(ctx, "ft_tagidx", TAGIDX_CURRENT_VERSION, &tm);
-  if (TagIndexType == NULL) {
-    RedisModule_Log(ctx, "error", "Could not create attribute index type");
-    return REDISMODULE_ERR;
-  }
-
-  return REDISMODULE_OK;
 }

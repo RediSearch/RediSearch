@@ -187,6 +187,7 @@ static int makeDocumentId(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, int repl
   doc->docId =
       DocTable_Put(table, s, n, doc->score, aCtx->docFlags, doc->payload, doc->payloadSize);
   if (doc->docId == 0) {
+    assert(!replace);
     QueryError_SetError(status, QUERY_EDOCEXISTS, NULL);
     return -1;
   }
@@ -206,7 +207,6 @@ static int doAssignId(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
   assert(!cur->doc.docId);
   int rv = makeDocumentId(cur, ctx, cur->options & DOCUMENT_ADD_REPLACE, &cur->status);
   if (rv != 0) {
-    cur->stateFlags |= ACTX_F_ERRORED;
     return REDISMODULE_ERR;
   }
 

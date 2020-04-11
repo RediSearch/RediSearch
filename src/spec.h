@@ -14,7 +14,7 @@
 #include "synonym_map.h"
 #include "query_error.h"
 #include "field_spec.h"
-#include "util/dict.h"
+#include "dict/dict.h"
 #include "rax/rax.h"
 #include "redisearch_api.h"
 
@@ -167,8 +167,8 @@ struct IoQueue;
 typedef struct {
   IndexSpec *spec;
   // Entries which are awaiting indexing
-  // Entries which are currently being indexed
   dict *entries;
+  // Entries which are currently being indexed
   dict *active;
   pthread_mutex_t lock;
   int state; // SDQ_S_xxx
@@ -227,8 +227,6 @@ typedef struct {
   void *p;
 } KeysDictValue;
 
-extern RedisModuleType *IndexSpecType;
-extern RedisModuleType *IndexAliasType;
 /**
  * This lightweight object contains a COPY of the actual index spec.
  * This makes it safe for other modules to use for information such as
@@ -341,7 +339,7 @@ int IndexSpec_AddFields(IndexSpec *sp, ArgsCursor *ac, QueryError *status);
 
 void FieldSpec_Initialize(FieldSpec *sp, FieldType types);
 
-IndexSpec *IndexSpec_Load(RedisModuleCtx *ctx, const char *name, int openWrite);
+IndexSpec *IndexSpec_Load(void *unused, const char *name, int openWrite);
 
 /** Load the index as writeable */
 #define INDEXSPEC_LOAD_WRITEABLE 0x01
@@ -365,7 +363,7 @@ typedef struct {
  * Find and load the index using the specified parameters.
  * @return the index spec, or NULL if the index does not exist
  */
-IndexSpec *IndexSpec_LoadEx(RedisModuleCtx *ctx, IndexLoadOptions *options);
+IndexSpec *IndexSpec_LoadEx(void *unused, IndexLoadOptions *options);
 
 // Global hook called when an index spec is created
 extern void (*IndexSpec_OnCreate)(const IndexSpec *sp);

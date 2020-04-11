@@ -10,7 +10,9 @@ typedef enum {
   // Contains a field, but don't check its contents
   SCRULE_TYPE_HASFIELD = 0x03,
   // Matches all documents
-  SCRULE_TYPE_MATCHALL = 0x04
+  SCRULE_TYPE_MATCHALL = 0x04,
+  // Custom match
+  SCRULE_TYPE_CUSTOM = 0x05
 } SchemaRuleType;
 
 typedef enum {
@@ -26,7 +28,10 @@ typedef enum {
   // Goto another named chain
   SCACTION_TYPE_GOTO = 0x04,
 
-  SCACTION_TYPE_LOADATTR = 0x08,
+  SCACTION_TYPE_LOADATTR = 0x05,
+
+  // Custom rule
+  SCACTION_TYPE_CUSTOM = 0x06
 } SchemaActionType;
 
 typedef struct SchemaAction SchemaAction;
@@ -53,7 +58,7 @@ struct SchemaAction {
 
 #define SCHEMA_RULE_HEAD      \
   SchemaRuleType rtype;       \
-  char *index;                \
+  IndexSpec *spec;            \
   char *name;                 \
   struct SchemaAction action; \
   char **rawrule;  // Raw text of the rule itself
@@ -80,6 +85,16 @@ typedef struct {
   SCHEMA_RULE_HEAD
   RedisModuleString *field;
 } SchemaHasFieldRule;
+
+struct SchemaCustomRule {
+  SCHEMA_RULE_HEAD
+  void *arg;
+  SchemaCustomCallback check;
+};
+
+struct SchemaCustomCtx {
+  MatchAction **action;
+};
 
 struct SchemaRules {
   SchemaRule **rules;

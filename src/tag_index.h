@@ -133,9 +133,6 @@ struct InvertedIndex *TagIndex_OpenIndex(TagIndex *idx, const char *value, size_
 void TagIndex_SerializeValues(TagIndex *idx, RedisModuleCtx *ctx);
 
 #define TAGIDX_CURRENT_VERSION 1
-extern RedisModuleType *TagIndexType;
-/* Register the tag index type in redis */
-int TagIndex_RegisterType(RedisModuleCtx *ctx);
 
 #ifdef __cplusplus
 }

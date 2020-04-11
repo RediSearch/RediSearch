@@ -14,6 +14,7 @@ typedef struct GeoIndex {
 } GeoIndex;
 
 GeoIndex *GeoIndex_Create(void);
+void GeoIndex_Free(GeoIndex *idx);
 
 int GeoIndex_AddStrings(GeoIndex *gi, t_docId docId, const char *slon, const char *slat);
 

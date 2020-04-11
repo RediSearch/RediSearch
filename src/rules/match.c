@@ -2,6 +2,8 @@
 #include "ruledefs.h"
 #include "module.h"
 
+static MatchAction *actionForIndex(IndexSpec *spec, MatchAction **results);
+
 static SchemaRule *parsePrefixRule(ArgsCursor *ac, QueryError *err) {
   const char *prefix;
   if (AC_GetString(ac, &prefix, NULL, 0) != AC_OK) {
@@ -141,7 +143,11 @@ static int extractAction(const char *atype, SchemaAction *action, ArgsCursor *ac
   return REDISMODULE_OK;
 }
 
-static int matchExpression(const SchemaRule *r, RedisModuleCtx *ctx, RuleKeyItem *item) {
+#define MATCHFUNC(name)                                                        \
+  static int name(const SchemaRule *r, RedisModuleCtx *ctx, RuleKeyItem *item, \
+                  MatchAction **results)
+
+MATCHFUNC(matchExpression) {
   SchemaExprRule *e = (SchemaExprRule *)r;
   int rc = 0;
   RLookupRow row = {0};
@@ -178,7 +184,7 @@ done:
   return rc;
 }
 
-static int matchPrefix(const SchemaRule *r, RedisModuleCtx *ctx, RuleKeyItem *item) {
+MATCHFUNC(matchPrefix) {
   SchemaPrefixRule *prule = (SchemaPrefixRule *)r;
   size_t n;
   const char *s = RedisModule_StringPtrLen(item->kstr, &n);
@@ -189,11 +195,11 @@ static int matchPrefix(const SchemaRule *r, RedisModuleCtx *ctx, RuleKeyItem *it
   return ret;
 }
 
-static int matchAll(const SchemaRule *r, RedisModuleCtx *ctx, RuleKeyItem *item) {
+MATCHFUNC(matchAll) {
   return 1;
 }
 
-static int matchHasfield(const SchemaRule *r, RedisModuleCtx *ctx, RuleKeyItem *item) {
+MATCHFUNC(matchHasfield) {
   SchemaHasFieldRule *hrule = (SchemaHasFieldRule *)r;
   size_t n;
   if (!item->kobj) {
@@ -205,6 +211,18 @@ static int matchHasfield(const SchemaRule *r, RedisModuleCtx *ctx, RuleKeyItem *
   int ret = 0;
   RedisModule_HashGet(item->kobj, REDISMODULE_HASH_EXISTS, hrule->field, &ret, NULL);
   return ret;
+}
+
+void SchemaCustomCtx_Index(SchemaCustomCtx *ctx, IndexSpec *spec, RSLanguage lang, float score) {
+  MatchAction *action = actionForIndex(spec, ctx->action);
+  action->attrs.language = lang;
+  action->attrs.score = score;
+}
+
+MATCHFUNC(matchCustom) {
+  SchemaCustomRule *crule = (SchemaCustomRule *)r;
+  SchemaCustomCtx cc = {.action = results};
+  return crule->check(ctx, item, crule->arg, &cc);
 }
 
 void SchemaRule_Free(SchemaRule *r) {
@@ -226,8 +244,10 @@ void SchemaRule_Free(SchemaRule *r) {
       break;
     }
     case SCRULE_TYPE_MATCHALL:
+    case SCRULE_TYPE_CUSTOM:
       break;
   }
+
   SchemaAction *action = &r->action;
   switch (action->atype) {
     case SCACTION_TYPE_GOTO:
@@ -243,22 +263,25 @@ void SchemaRule_Free(SchemaRule *r) {
     case SCACTION_TYPE_SETATTR:
     case SCACTION_TYPE_ABORT:
     case SCACTION_TYPE_INDEX:
-    default:
+    case SCACTION_TYPE_CUSTOM:
       break;
   }
 
-  size_t n = array_len(r->rawrule);
-  for (size_t ii = 0; ii < n; ++ii) {
-    rm_free(r->rawrule[ii]);
+  if (r->rawrule) {
+    size_t n = array_len(r->rawrule);
+    for (size_t ii = 0; ii < n; ++ii) {
+      rm_free(r->rawrule[ii]);
+    }
+    array_free(r->rawrule);
   }
-  array_free(r->rawrule);
-
+  if (r->spec) {
+    IndexSpec_Decref(r->spec);
+  }
   rm_free(r->name);
-  rm_free(r->index);
   rm_free(r);
 }
 
-int SchemaRules_AddArgsInternal(SchemaRules *rules, const char *index, const char *name,
+int SchemaRules_AddArgsInternal(SchemaRules *rules, IndexSpec *spec, const char *name,
                                 ArgsCursor *ac, QueryError *err) {
   // First argument is the name...
   size_t beginpos = AC_Tell(ac);
@@ -293,7 +316,11 @@ int SchemaRules_AddArgsInternal(SchemaRules *rules, const char *index, const cha
   if (extractAction(astr, &r->action, ac, err) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
-  r->index = rm_strdup(index);
+  if (spec) {
+    IndexSpec_Incref(spec);
+    r->spec = spec;
+  }
+
   r->name = rm_strdup(name);
   r->rawrule = array_new(char *, ac->argc);
 
@@ -311,12 +338,14 @@ int SchemaRules_AddArgsInternal(SchemaRules *rules, const char *index, const cha
  * The idea here is to allow multiple rule matching types, and to have a dynamic
  * function table for each rule type
  */
-typedef int (*scruleMatchFn)(const SchemaRule *, RedisModuleCtx *, RuleKeyItem *);
+typedef int (*scruleMatchFn)(const SchemaRule *, RedisModuleCtx *, RuleKeyItem *,
+                             MatchAction **results);
 
 static scruleMatchFn matchfuncs_g[] = {[SCRULE_TYPE_KEYPREFIX] = matchPrefix,
                                        [SCRULE_TYPE_EXPRESSION] = matchExpression,
                                        [SCRULE_TYPE_HASFIELD] = matchHasfield,
-                                       [SCRULE_TYPE_MATCHALL] = matchAll};
+                                       [SCRULE_TYPE_MATCHALL] = matchAll,
+                                       [SCRULE_TYPE_CUSTOM] = matchCustom};
 
 static void loadAttrFields(RuleKeyItem *item, struct SchemaLoadattrSettings *lattr,
                            MatchAction *curAction) {
@@ -356,16 +385,34 @@ static void loadAttrFields(RuleKeyItem *item, struct SchemaLoadattrSettings *lat
   }
 }
 
-int SchemaRules_Check(const SchemaRules *rules, RedisModuleCtx *ctx, RuleKeyItem *item,
+static MatchAction *actionForIndex(IndexSpec *spec, MatchAction **results) {
+  MatchAction *curAction = NULL;
+  size_t n = *results ? array_len(*results) : 0;
+  for (size_t ii = 0; ii < n; ++ii) {
+    if (spec == (*results)[ii].spec) {
+      return (*results) + ii;
+    }
+  }
+
+  if (!curAction) {
+    curAction = array_ensure_tail(results, MatchAction);
+    curAction->spec = spec;
+    curAction->attrs.language = 0;
+    curAction->attrs.score = 0;
+  }
+  return curAction;
+}
+
+int SchemaRules_Check(SchemaRules *rules, RedisModuleCtx *ctx, RuleKeyItem *item,
                       MatchAction **results, size_t *nresults) {
-  array_clear(rules->actions);
   *results = rules->actions;
+  array_clear(*results);
   size_t nrules = array_len(rules->rules);
   for (size_t ii = 0; ii < nrules; ++ii) {
   eval_rule:;
     SchemaRule *rule = rules->rules[ii];
     scruleMatchFn fn = matchfuncs_g[rule->rtype];
-    if (!fn(rule, ctx, item)) {
+    if (!fn(rule, ctx, item, results)) {
       continue;
     }
 
@@ -387,20 +434,12 @@ int SchemaRules_Check(const SchemaRules *rules, RedisModuleCtx *ctx, RuleKeyItem
         }
         goto next_rule;
       }
+      case SCACTION_TYPE_CUSTOM:
+        // Assume already indexed?
+        goto next_rule;
     }
 
-    MatchAction *curAction = NULL;
-    for (size_t ii = 0; ii < *nresults; ++ii) {
-      if (!strcmp((*results)[ii].index, rule->index)) {
-        curAction = (*results) + ii;
-      }
-    }
-    if (!curAction) {
-      curAction = array_ensure_tail(results, MatchAction);
-      curAction->index = rule->index;
-      curAction->attrs.language = 0;
-      curAction->attrs.score = 0;
-    }
+    MatchAction *curAction = actionForIndex(rule->spec, results);
     if (rule->action.atype == SCACTION_TYPE_SETATTR) {
       const IndexItemAttrs *attr = &rule->action.u.setattr.attrs;
       int mask = rule->action.u.setattr.mask;
@@ -417,5 +456,6 @@ int SchemaRules_Check(const SchemaRules *rules, RedisModuleCtx *ctx, RuleKeyItem
   }
 end_match:
   *nresults = array_len(*results);
+  rules->actions = *results;
   return *nresults;
 }

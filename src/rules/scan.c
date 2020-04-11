@@ -12,7 +12,7 @@ typedef enum {
   SCAN_STATE_UNINIT = 0,
   SCAN_STATE_STOPPED = 1,
   SCAN_STATE_RUNNING = 2,
-  SCAN_STATE_CANCELLED = 3,  // lb
+  SCAN_STATE_RESTART = 3,  // lb
 } ScanState;
 
 typedef struct {
@@ -27,7 +27,6 @@ typedef struct {
 
 typedef struct {
   ScanState state;
-  pthread_t thr;
   scanCursor cursor;
   uint64_t rulesRevision;
 } Scanner;
@@ -59,21 +58,20 @@ static void scanRedis6(scanCursor *c) {
 }
 
 static void scanRedis5(scanCursor *c) {
-  char cursorbuf[1024] = {};
+  // char cursorbuf[1024] = {'0', 0};
   RedisModuleCtx *ctx = RSDummyContext;
   size_t nmax = c->n += SCAN_BATCH_SIZE;
 
   do {
-    // RedisModuleCallReply *r =
-    //     RedisModule_Call(ctx, "SCAN", "lcccl", cursor, "TYPE", "hash", "COUNT", 100);
-    printf("cursor: %s\n", cursorbuf);
-    RedisModuleCallReply *r = NULL;
-    if (c->cursor.r5 == 0) {
-      r = RedisModule_Call(ctx, "SCAN", "");
-    } else {
-      r = RedisModule_Call(ctx, "SCAN", "c", cursorbuf);
-    }
-
+    RedisModuleCallReply *r = RedisModule_Call(ctx, "SCAN", "l", c->cursor.r5);
+    // printf("cursor: %s\n", cursorbuf);
+    // RedisModuleCallReply *r = NULL;
+    // r = RedisModule_Call(ctx, "SCAN", "c", cursorbuf);
+    // if (RedisModule_CallReplyType(r) == REDISMODULE_REPLY_STRING ||
+    //     RedisModule_CallReplyType(r) == REDISMODULE_REPLY_ERROR) {
+    //   printf("Got non-aerray in reply: %s\n", RedisModule_CallReplyStringPtr(r, NULL));
+    //   c->isDone = 1;
+    // }
     if (r == NULL || RedisModule_CallReplyLength(r) < 2) {
       c->isDone = 1;
       if (r) {
@@ -82,14 +80,13 @@ static void scanRedis5(scanCursor *c) {
       break;
     }
 
-    // cursor is the first element. ew.
     size_t ncursor = 0;
+    char buf[1024] = {0};
     const char *newcur =
         RedisModule_CallReplyStringPtr(RedisModule_CallReplyArrayElement(r, 0), &ncursor);
-    memcpy(cursorbuf, newcur, ncursor);
-    cursorbuf[ncursor] = 0;
-    sscanf(cursorbuf, "%lu", &c->cursor.r5);
-    sprintf(cursorbuf, "%lu", c->cursor.r5);
+    memcpy(buf, newcur, ncursor);
+    // Read from the numeric reply into the cursor buffer
+    sscanf(buf, "%lu", &c->cursor.r5);
 
     RedisModuleCallReply *keys = RedisModule_CallReplyArrayElement(r, 1);
     assert(RedisModule_CallReplyType(keys) == REDISMODULE_REPLY_ARRAY);
@@ -107,18 +104,30 @@ static void scanRedis5(scanCursor *c) {
     RedisModule_FreeCallReply(r);
     c->n += nelem;
   } while (c->cursor.r5 != 0 && c->n < nmax);
+
+  if (c->cursor.r5 == 0) {
+    c->isDone = 1;
+  }
 }
 
-static void *scanThread(void *arg) {
-  Scanner *s = arg;
+static void initScanner(Scanner *s) {
+  memset(s, 0, sizeof(*s));
+  s->state = SCAN_STATE_RUNNING;
+  s->rulesRevision = SchemaRules_g->revision;
+}
+
+static pthread_mutex_t statelock = PTHREAD_MUTEX_INITIALIZER;
+
+static void scanloop(Scanner *s, int isThread) {
+begin:
   // Initialize the cursor
-  if (RedisModule_Scan) {
+  // if (RedisModule_Scan) {
+  if (0) {
     s->cursor.mode = SCAN_MODE_R6;
   } else {
     s->cursor.mode = SCAN_MODE_R5;
   }
-
-  while (s->state != SCAN_STATE_CANCELLED && !s->cursor.isDone) {
+  while (s->state == SCAN_STATE_RUNNING && !s->cursor.isDone) {
     RedisModule_ThreadSafeContextLock(RSDummyContext);
     if (s->cursor.mode == SCAN_MODE_R6) {
       scanRedis6(&s->cursor);
@@ -132,26 +141,52 @@ static void *scanThread(void *arg) {
   if (s->cursor.mode == SCAN_MODE_R6 && s->cursor.cursor.r6) {
     RedisModule_ScanCursorDestroy(s->cursor.cursor.r6);
   }
-  if (s->state != SCAN_STATE_CANCELLED) {
+
+  pthread_mutex_lock(&statelock);
+
+  if (s->state != SCAN_STATE_RESTART) {
     s->state = SCAN_STATE_STOPPED;
+    pthread_mutex_unlock(&statelock);
+
+  } else {
+    initScanner(s);
+    pthread_mutex_unlock(&statelock);
+    goto begin;
   }
+}
+
+static void *scanThread(void *arg) {
+  Scanner *s = arg;
+  scanloop(s, 1);
   return NULL;
 }
 
 void SchemaRules_StartScan(int wait) {
-  // note: we assume this is called only once from a single thread!
-  ScanState oldstate =
-      __sync_val_compare_and_swap(&scanner_g.state, SCAN_STATE_RUNNING, SCAN_STATE_CANCELLED);
-  if (oldstate == SCAN_STATE_RUNNING) {
-    pthread_join(scanner_g.thr, NULL);
+  Scanner *s = &scanner_g;
+  if (wait) {
+    assert(s->state == SCAN_STATE_UNINIT || s->state == SCAN_STATE_STOPPED);
   }
 
-  memset(&scanner_g, 0, sizeof(scanner_g));
-  scanner_g.state = SCAN_STATE_RUNNING;
-  scanner_g.rulesRevision = SchemaRules_g->revision;
-  pthread_create(&scanner_g.thr, NULL, scanThread, &scanner_g);
+  pthread_mutex_lock(&statelock);
+  int doReturn = 0;
+  if (s->state == SCAN_STATE_RUNNING) {
+    // Thread has not yet exited
+    s->state = SCAN_STATE_RESTART;
+    doReturn = 1;
+  }
+  pthread_mutex_unlock(&statelock);
+  if (doReturn) {
+    return;
+  }
+
+  initScanner(&scanner_g);
+
   if (wait) {
-    pthread_join(scanner_g.thr, NULL);
+    scanloop(s, 0);
+  } else {
+    pthread_t thr;
+    pthread_create(&thr, NULL, scanThread, &scanner_g);
+    pthread_detach(thr);
   }
 }
 
@@ -184,8 +219,8 @@ void SchemaRules_ReplySyncInfo(RedisModuleCtx *ctx, IndexSpec *sp) {
       RedisModule_ReplyWithSimpleString(ctx, "SYNCED");
       RedisModule_ReplyWithLongLong(ctx, 0);
     }
-  } else if (scanner_g.state == SCAN_STATE_CANCELLED) {
-    RedisModule_ReplyWithSimpleString(ctx, "CANCELLED");
+  } else if (scanner_g.state == SCAN_STATE_RESTART) {
+    RedisModule_ReplyWithSimpleString(ctx, "Restarting");
     RedisModule_ReplyWithLongLong(ctx, LLONG_MAX);
   } else {
     abort();  // bad state

@@ -1,5 +1,5 @@
 #include "alias.h"
-#include "util/dict.h"
+#include "dict/dict.h"
 
 AliasTable *AliasTable_g = NULL;
 

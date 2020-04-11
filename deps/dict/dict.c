@@ -50,7 +50,7 @@
 #include "dict.h"
 #include "redismodule.h"
 #include <assert.h>
-#include "../rmalloc.h"
+#include "rmalloc.h"
 
 static uint64_t stringsHashFunction(const void *key){
     return dictGenHashFunction(key, strlen((char*)key));

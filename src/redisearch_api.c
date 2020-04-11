@@ -2,7 +2,7 @@
 #include "field_spec.h"
 #include "document.h"
 #include <assert.h>
-#include "util/dict.h"
+#include "dict/dict.h"
 #include "query_node.h"
 #include "search_options.h"
 #include "query_internal.h"

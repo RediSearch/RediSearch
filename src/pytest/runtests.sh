@@ -46,6 +46,6 @@ if [ -n "$REDIS_VERBOSE" ]; then
     ARGS="${ARGS} --no-output-catch"
 fi
 
-
+ARGS="${ARGS} --cleaner=${SCRIPT_DIR}/cleaner:clean"
 
 exec python -m RLTest $ARGS "$@"

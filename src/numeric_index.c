@@ -389,8 +389,6 @@ IndexIterator *createNumericIterator(const IndexSpec *sp, NumericRangeTree *t,
   return it;
 }
 
-RedisModuleType *NumericIndexType = NULL;
-
 static void numFreeCb(YielderArg *a, void *idx) {
   rm_free(a->p);
 }
@@ -438,23 +436,6 @@ unsigned long NumericIndexType_MemUsage(const void *value) {
 }
 
 #define NUMERIC_INDEX_ENCVER 1
-
-int NumericIndexType_Register(RedisModuleCtx *ctx) {
-
-  RedisModuleTypeMethods tm = {.version = REDISMODULE_TYPE_METHOD_VERSION,
-                               .rdb_load = NumericIndexType_RdbLoad,
-                               .rdb_save = NumericIndexType_RdbSave,
-                               .aof_rewrite = GenericAofRewrite_DisabledHandler,
-                               .free = NumericIndexType_Free,
-                               .mem_usage = NumericIndexType_MemUsage};
-
-  NumericIndexType = RedisModule_CreateDataType(ctx, "numericdx", NUMERIC_INDEX_ENCVER, &tm);
-  if (NumericIndexType == NULL) {
-    return REDISMODULE_ERR;
-  }
-
-  return REDISMODULE_OK;
-}
 
 /* A single entry in a numeric index's single range. Since entries are binned together, each needs
  * to have the exact value */
