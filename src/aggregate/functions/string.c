@@ -302,6 +302,20 @@ static int stringfunc_split(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *ar
   return EXPR_EVAL_OK;
 }
 
+
+static int func_exists(RSFunctionEvalCtx *ctx, RSValue *result, RSValue *argv, int argc,
+                            char **err) {
+  VALIDATE_ARGS("exists", 1, 1, err);
+
+  result->t = RSValue_Number;
+  if (RSValue_BoolTest(&argv[0])) {
+    result->numval = 1;                       
+  } else {
+    result->numval = 0;
+  }
+  return EXPR_EVAL_OK;
+}
+
 void RegisterStringFunctions() {
   RSFunctionRegistry_RegisterFunction("lower", stringfunc_tolower, RSValue_String);
   RSFunctionRegistry_RegisterFunction("upper", stringfunc_toupper, RSValue_String);
@@ -311,4 +325,5 @@ void RegisterStringFunctions() {
   RSFunctionRegistry_RegisterFunction("matched_terms", func_matchedTerms, RSValue_Array);
   RSFunctionRegistry_RegisterFunction("to_number", func_to_number, RSValue_Number);
   RSFunctionRegistry_RegisterFunction("to_str", func_to_str, RSValue_String);
+  RSFunctionRegistry_RegisterFunction("exists", func_exists, RSValue_Number);
 }

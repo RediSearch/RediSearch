@@ -2151,6 +2151,19 @@ def grouper(iterable, n, fillvalue=None):
 def to_dict(r):
     return {r[i]: r[i + 1] for i in range(0, len(r), 2)}
 
+def testIssue1058(env):
+    env.cmd('FT.CREATE idx SCHEMA txt1 TEXT txt2 TEXT')
+
+    env.cmd('FT.ADD idx doc1 1.0 FIELDS txt1 10')
+    env.cmd('FT.ADD idx doc2 1.0 FIELDS txt2 string')
+    env.expect('FT.GET idx doc1').equal(['txt1', '10'])
+    env.expect('FT.GET idx doc2').equal(['txt2', 'string'])
+
+    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if !@txt1 FIELDS txt1 10').equal('NOADD')
+    env.expect('FT.ADD idx doc2 1.0 REPLACE PARTIAL if !@txt1 FIELDS txt1 10').equal('OK')
+    env.expect('FT.GET idx doc2').equal(['txt2', 'string', 'txt1', '10'])
+    #env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if !@txt1||to_number(@txt1)<11 FIELDS txt1 10').equal('NOADD')
+
 def testUnseportedSortableTypeErrorOnTags(env):
     # Issue 1124
     env.expect('FT.CREATE idx SCHEMA f1 TEXT SORTABLE f2 NUMERIC SORTABLE NOINDEX f3 TAG SORTABLE NOINDEX f4 TEXT SORTABLE NOINDEX').ok()
