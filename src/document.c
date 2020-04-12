@@ -446,7 +446,9 @@ FIELD_BULK_INDEXER(numericIndexer) {
       return -1;
     }
   }
-  NumericRangeTree_Add(rt, aCtx->doc.docId, fdata->numeric);
+  size_t sz = NumericRangeTree_Add(rt, aCtx->doc.docId, fdata->numeric);
+  ctx->spec->stats.invertedSize += sz; // TODO: exact amount
+  ctx->spec->stats.numRecords++;
   return 0;
 }
 
