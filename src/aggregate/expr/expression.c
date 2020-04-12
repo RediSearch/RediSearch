@@ -6,6 +6,9 @@ static int evalInternal(ExprEval *eval, const RSExpr *e, RSValue *res);
 static void setReferenceValue(RSValue *dst, RSValue *src) {
   RSValue_MakeReference(dst, src);
 }
+
+extern int func_exists(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc, QueryError *err);
+
 static int evalFunc(ExprEval *eval, const RSFunctionExpr *f, RSValue *result) {
   int rc = EXPR_EVAL_ERR;
 
@@ -18,9 +21,10 @@ static int evalFunc(ExprEval *eval, const RSFunctionExpr *f, RSValue *result) {
   for (size_t ii = 0; ii < nargs; ii++) {
     args[ii] = (RSValue)RSVALUE_STATIC;
     argspp[ii] = &args[ii];
-    if (evalInternal(eval, f->args->args[ii], &args[ii]) == EXPR_EVAL_ERR) {
+    int internalRes = evalInternal(eval, f->args->args[ii], &args[ii]);
+    if (internalRes == EXPR_EVAL_ERR ||
+        (internalRes == EXPR_EVAL_NULL && f->Call != func_exists)) {
       // TODO: Free other results
-      rc = EXPR_EVAL_ERR;
       goto cleanup;
     }
     nusedargs++;
@@ -40,10 +44,10 @@ static int evalOp(ExprEval *eval, const RSExprOp *op, RSValue *result) {
   RSValue l = RSVALUE_STATIC, r = RSVALUE_STATIC;
   int rc = EXPR_EVAL_ERR;
 
-  if (evalInternal(eval, op->left, &l) == EXPR_EVAL_ERR) {
+  if (evalInternal(eval, op->left, &l) != EXPR_EVAL_OK) {
     goto cleanup;
   }
-  if (evalInternal(eval, op->right, &r) == EXPR_EVAL_ERR) {
+  if (evalInternal(eval, op->right, &r) != EXPR_EVAL_OK) {
     goto cleanup;
   }
 
@@ -145,7 +149,7 @@ static int evalPredicate(ExprEval *eval, const RSPredicate *pred, RSValue *resul
   int res;
   RSValue l = RSVALUE_STATIC, r = RSVALUE_STATIC;
   int rc = EXPR_EVAL_ERR;
-  if (evalInternal(eval, pred->left, &l) == EXPR_EVAL_ERR) {
+  if (evalInternal(eval, pred->left, &l) != EXPR_EVAL_OK) {
     goto cleanup;
   } else if (pred->cond == RSCondition_Or && RSValue_BoolTest(&l)) {
     res = 1;
@@ -153,7 +157,7 @@ static int evalPredicate(ExprEval *eval, const RSPredicate *pred, RSValue *resul
   } else if (pred->cond == RSCondition_And && !RSValue_BoolTest(&l)) {
     res = 0;
     goto success;
-  } else if (evalInternal(eval, pred->right, &r) == EXPR_EVAL_ERR) {
+  } else if (evalInternal(eval, pred->right, &r) != EXPR_EVAL_OK) {
     goto cleanup;
   }
 
@@ -183,7 +187,7 @@ static int evalProperty(ExprEval *eval, const RSLookupExpr *e, RSValue *res) {
     if (eval->err) {
       QueryError_SetError(eval->err, QUERY_ENOPROPKEY, NULL);
     }
-    return 0;
+    return EXPR_EVAL_ERR;
   }
 
   /** Find the actual value */
@@ -192,11 +196,12 @@ static int evalProperty(ExprEval *eval, const RSLookupExpr *e, RSValue *res) {
     if (eval->err) {
       QueryError_SetError(eval->err, QUERY_ENOPROPVAL, NULL);
     }
-    return 0;
+    res->t = RSValue_Null;
+    return EXPR_EVAL_NULL;
   }
 
   setReferenceValue(res, value);
-  return 1;
+  return EXPR_EVAL_OK;
 }
 
 static int evalInternal(ExprEval *eval, const RSExpr *e, RSValue *res) {
@@ -308,7 +313,7 @@ static int rpevalCommon(RPEvaluator *pc, SearchResult *r) {
   }
 
   rc = ExprEval_Eval(&pc->eval, pc->val);
-  if (rc == EXPR_EVAL_ERR) {
+  if (rc != EXPR_EVAL_OK) {
     return RS_RESULT_ERROR;
   }
   return RS_RESULT_OK;
