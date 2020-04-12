@@ -32,6 +32,8 @@ void GeoIndex_RemoveEntries(GeoIndex *gi, IndexSpec *sp, t_docId docId) {
   if (rep == NULL || RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_ERROR) {
     RedisModule_Log(ctx, "warning", "Document %s was not removed", docId);
   }
+  sp->stats.invertedSize -= GEO_STORAGE_SIZE; // TODO: exact amount
+  sp->stats.numRecords--;
   RedisModule_FreeCallReply(rep);
 }
 
