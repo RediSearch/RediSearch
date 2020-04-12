@@ -2985,6 +2985,10 @@ def testIssue1158(env):
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if to_number(@txt1)>11&&to_number(@txt1)<42 FIELDS txt2 num2').equal('NOADD')
     env.expect('FT.GET idx doc1').equal(['txt1', '5', 'txt2', 'num2'])
 
+def testIssue1159(env):
+    env.cmd('FT.CREATE idx SCHEMA f1 TAG')
+    for i in range(1000):
+        env.cmd('FT.add idx doc%d 1.0 FIELDS f1 foo' % i)
 
 def testIssue1169(env):
     env.cmd('FT.CREATE idx SCHEMA txt1 TEXT txt2 TEXT')
