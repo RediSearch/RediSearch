@@ -250,10 +250,9 @@ static int evalPredicate(RSExprEvalCtx *ctx, RSPredicate *pred, RSValue *result,
   if (RSExpr_Eval(ctx, pred->left, &l, err) == EXPR_EVAL_ERR) {
     return EXPR_EVAL_ERR;
   }
-  if (pred->cond == RSCondition_And && !(res = RSValue_BoolTest(&l))) {
-    goto success;
-  }
-  if (pred->cond == RSCondition_Or && (res = RSValue_BoolTest(&l))) {
+  res = RSValue_BoolTest(&l);
+  if ((pred->cond == RSCondition_And && !res) ||
+      (pred->cond == RSCondition_Or && res)) {
     goto success;
   }
   if (pred->right && RSExpr_Eval(ctx, pred->right, &r, err) == EXPR_EVAL_ERR) {
