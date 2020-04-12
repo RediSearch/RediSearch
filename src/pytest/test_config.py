@@ -70,6 +70,7 @@ def testSetConfigOptionsErrors(env):
 '''
 
 def testAllConfig(env):
+    env.skipOnCluster()
     res_list = env.cmd('ft.config get *')
     res_dict = {d[0]: d[1:] for d in res_list}
     env.assertEqual(res_dict['EXTLOAD'][0], None)
@@ -97,8 +98,9 @@ def testAllConfig(env):
     #env.assertEqual(res_dict['_MAX_RESULTS_TO_UNSORTED_MODE'][0], '1000')
     #env.assertEqual(res_dict['SAFEMODE'][0], 'true')
 
-def testInitConfig():
+def testInitConfig(env):
     # Numeric arguments
+    env.skipOnCluster()
     def test_arg_num(arg_name, arg_value):
         env = Env(moduleArgs=arg_name + ' ' + '%d' % arg_value)
         if env.env == 'existing-env':
