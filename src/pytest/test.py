@@ -2128,6 +2128,7 @@ def testUnseportedSortableTypeErrorOnTags(env):
     env.expect('FT.SEARCH idx *').equal([1L, 'doc1', ['f1', 'foo1', 'f2', '2', 'f3', 'foo2', 'f4', 'foo2']])
 
 def testMOD507(env):
+    env.skipOnCluster()
     env.expect('ft.create idx SCHEMA t1 TEXT').ok()
 
     for i in range(50):
@@ -2163,11 +2164,3 @@ def testIssue1058(env):
     env.expect('FT.ADD idx doc2 1.0 REPLACE PARTIAL if !@txt1 FIELDS txt1 10').equal('OK')
     env.expect('FT.GET idx doc2').equal(['txt2', 'string', 'txt1', '10'])
     #env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if !@txt1||to_number(@txt1)<11 FIELDS txt1 10').equal('NOADD')
-
-def testUnseportedSortableTypeErrorOnTags(env):
-    # Issue 1124
-    env.expect('FT.CREATE idx SCHEMA f1 TEXT SORTABLE f2 NUMERIC SORTABLE NOINDEX f3 TAG SORTABLE NOINDEX f4 TEXT SORTABLE NOINDEX').ok()
-    env.expect('FT.ADD idx doc1 1.0 FIELDS f1 foo1 f2 1 f3 foo1 f4 foo1').ok()
-    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL FIELDS f2 2 f3 foo2 f4 foo2').ok()
-    env.expect('HGETALL doc1').equal(['f1', 'foo1', 'f2', '2', 'f3', 'foo2', 'f4', 'foo2'])
-    env.expect('FT.SEARCH idx *').equal([1L, 'doc1', ['f1', 'foo1', 'f2', '2', 'f3', 'foo2', 'f4', 'foo2']])
