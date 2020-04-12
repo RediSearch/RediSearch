@@ -2996,3 +2996,35 @@ def testIssue1169(env):
     env.cmd('FT.ADD idx doc1 1.0 FIELDS txt1 foo')
 
     env.expect('FT.AGGREGATE idx foo GROUPBY 1 @txt1 REDUCE FIRST_VALUE 1 @txt2 as test').equal([1L, ['txt1', 'foo', 'test', None]])
+
+def testIssue1184(env):
+    field_types = ['TEXT', 'NUMERIC', 'TAG', 'GEO']
+
+    for ft in field_types:
+        env.assertOk(env.execute_command('FT.CREATE idx SCHEMA  field ' + ft))
+
+        res = env.execute_command('ft.info', 'idx')
+        d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
+        env.assertEqual(d['inverted_sz_mb'], '0')
+        env.assertEqual(d['num_records'], '0') 
+
+
+        value = '3,3' if ft == 'GEO' else '3'
+        env.assertOk(env.execute_command('FT.ADD idx doc0 1 FIELD field ' + value))
+        doc = env.cmd('FT.SEARCH idx *')
+        env.assertEqual(doc, [1L, 'doc0', ['field', value]])
+
+        res = env.execute_command('ft.info', 'idx')
+        d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
+        env.assertGreater(d['inverted_sz_mb'], '0')
+        env.assertEqual(d['num_records'], '1')
+
+        env.assertEqual(env.execute_command('FT.DEL idx doc0'), 1)
+        env.cmd('ft.debug', 'GC_FORCEINVOKE', 'idx')
+
+        res = env.execute_command('ft.info', 'idx')
+        d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
+        env.assertEqual(d['inverted_sz_mb'], '0')
+        env.assertEqual(d['num_records'], '0')
+
+        env.cmd('FT.DROP idx')
