@@ -961,7 +961,10 @@ static void NI_TesterFree(struct IndexCriteriaTester *ct) {
 
 static IndexCriteriaTester *NI_GetCriteriaTester(void *ctx) {
   NotContext *nc = ctx;
-  IndexCriteriaTester *ct = nc->base.GetCriteriaTester(nc->base.ctx);
+  if (!nc->child) {
+    return NULL;
+  }
+  IndexCriteriaTester *ct = IITER_GET_CRITERIA_TESTER(nc->child);
   if (!ct) {
     return NULL;
   }
