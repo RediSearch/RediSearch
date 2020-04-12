@@ -2970,3 +2970,10 @@ def testIssue1158(env):
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if to_number(@txt1)>11&&to_number(@txt1)>42 FIELDS txt2 num2').equal('NOADD')
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if to_number(@txt1)>11&&to_number(@txt1)<42 FIELDS txt2 num2').equal('NOADD')
     env.expect('FT.GET idx doc1').equal(['txt1', '5', 'txt2', 'num2'])
+
+
+def testIssue1169(env):
+    env.cmd('FT.CREATE idx SCHEMA txt1 TEXT txt2 TEXT')
+    env.cmd('FT.ADD idx doc1 1.0 FIELDS txt1 foo')
+
+    env.expect('FT.AGGREGATE idx foo GROUPBY 1 @txt1 REDUCE FIRST_VALUE 1 @txt2 as test').equal([1L, ['txt1', 'foo', 'test', None]])
