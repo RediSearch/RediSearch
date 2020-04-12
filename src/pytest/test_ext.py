@@ -47,5 +47,6 @@ def testExt():
     res = env.execute_command('ft.search', 'idx', 'hello world', 'scorer', 'filterout_scorer')
     env.assertEqual(0, res[0])
 
-    res = env.cmd('ft.config', 'get', 'EXTLOAD')[0][1]
-    env.assertContains('libexample_extension', res)
+    if not env.isCluster():
+        res = env.cmd('ft.config', 'get', 'EXTLOAD')[0][1]
+        env.assertContains('libexample_extension', res)
