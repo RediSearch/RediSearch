@@ -372,6 +372,7 @@ Note that these operators apply only to numeric values and numeric sub expressio
 | format( fmt, ...)                | Use the arguments following `fmt` to format a string. <br />Currently the only format argument supported is `%s` and it applies to all types of arguments. | `format("Hello, %s, you are %s years old", @name, @age)` |
 | matched_terms([max_terms=100])   | Return the query terms that matched for each record (up to 100), as a list. If a limit is specified, we will return the first N matches we find - based on query order. | `matched_terms()`                                        |
 | split(s, [sep=","], [strip=" "]) | Split a string by any character in the string sep, and strip any characters in strip. If only s is specified, we split by commas and strip spaces. The output is an array. | split("foo,bar")                                         |
+| exists(s)                        | Checks whether a field exists in a document.                 | `exists(@field)`                                         |
 
 ### List of date/time APPLY functions
 
