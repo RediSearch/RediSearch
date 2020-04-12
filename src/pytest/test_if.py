@@ -82,43 +82,7 @@ def testIfQueries(env):
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if @empty=="word"&&@txt FIELDS txt word').equal('NOADD')            # ??
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if @empty=="word"&&@empty=="word" FIELDS txt word').equal('NOADD')  # ??
 
-def testIsnull(env):
-    env.cmd('FT.CREATE idx SCHEMA txt TEXT num NUMERIC empty TEXT')
-    env.cmd('FT.ADD idx doc1 1.0 FIELDS txt word num 10')
-    env.expect('FT.GET idx doc1').equal(['txt', 'word', 'num', '10'])
-
-    # test single field
-    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if isnull(@txt) FIELDS txt word').equal('NOADD')
-    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if isnull(@num) FIELDS txt word').equal('NOADD')
-    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if isnull(@empty) FIELDS txt word').equal('OK')
-    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if isnull(@noexist) FIELDS txt word').contains('`noexist` not loaded')
-    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if !isnull(@txt) FIELDS txt word').equal('OK')
-    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if !isnull(@num) FIELDS txt word').equal('OK')
-    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if !isnull(@empty) FIELDS txt word').equal('NOADD')
-    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if !isnull(@noexist) FIELDS txt word').contains('`noexist` not loaded')
-
-    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if isnull(@txt)||isnull(@txt) FIELDS txt word').equal('NOADD')
-    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if isnull(@txt)||isnull(@empty) FIELDS txt word').equal('OK')
-    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if isnull(@empty)||isnull(@txt) FIELDS txt word').equal('OK')
-    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if isnull(@empty)||isnull(@empty) FIELDS txt word').equal('OK')
-
-    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if isnull(@txt)&&isnull(@txt) FIELDS txt word').equal('NOADD')
-    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if isnull(@txt)&&isnull(@empty) FIELDS txt word').equal('NOADD')
-    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if isnull(@empty)&&isnull(@txt) FIELDS txt word').equal('NOADD')
-    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if isnull(@empty)&&isnull(@empty) FIELDS txt word').equal('OK')
-
-    # check no crash
-    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if lower(isnull(@empty)) FIELDS txt word').equal('NOADD')
-    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if upper(isnull(@empty)) FIELDS txt word').equal('NOADD')
-    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if substr(isnull(@empty)) FIELDS txt word').error()
-    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if format(isnull(@empty)) FIELDS txt word').error()
-    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if split(isnull(@empty)) FIELDS txt word').error()
-    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if matched_terms(isnull(@empty)) FIELDS txt word').equal('NOADD')
-    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if to_number(isnull(@empty)) FIELDS txt word').equal('OK')
-    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if to_str(isnull(@empty)) FIELDS txt word').equal('OK')
-    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if isnull(isnull(@empty)) FIELDS txt word').equal('NOADD')
-
-def testExist(env):
+def testExists(env):
     env.cmd('FT.CREATE idx SCHEMA txt TEXT num NUMERIC empty TEXT')
     env.cmd('FT.ADD idx doc1 1.0 FIELDS txt word num 10')
     env.expect('FT.GET idx doc1').equal(['txt', 'word', 'num', '10'])

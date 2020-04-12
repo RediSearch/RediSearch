@@ -6,6 +6,9 @@ static int evalInternal(ExprEval *eval, const RSExpr *e, RSValue *res);
 static void setReferenceValue(RSValue *dst, RSValue *src) {
   RSValue_MakeReference(dst, src);
 }
+
+extern int func_exists(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc, QueryError *err);
+
 static int evalFunc(ExprEval *eval, const RSFunctionExpr *f, RSValue *result) {
   int rc = EXPR_EVAL_ERR;
 
@@ -20,8 +23,7 @@ static int evalFunc(ExprEval *eval, const RSFunctionExpr *f, RSValue *result) {
     argspp[ii] = &args[ii];
     int internalRes = evalInternal(eval, f->args->args[ii], &args[ii]);
     if (internalRes == EXPR_EVAL_ERR ||
-        (internalRes == EXPR_EVAL_NULL && 
-        strcmp(f->name, "isnull") && strcmp(f->name, "exists"))) {
+        (internalRes == EXPR_EVAL_NULL && f->Call != func_exists)) {
       // TODO: Free other results
       goto cleanup;
     }
