@@ -2948,6 +2948,7 @@ def testHindiStemmer(env):
     env.assertEqual(u'अँगरेजी अँगरेजों अँगरेज़', unicode(res[2][1], 'utf-8'))
 
 def testMOD507(env):
+    env.skipOnCluster()
     env.expect('ft.create idx SCHEMA t1 TEXT').ok()
 
     for i in range(50):
