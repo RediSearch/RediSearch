@@ -11,12 +11,13 @@
 
 #define DEBUG_COMMAND(name) static int name(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
-#define GET_SEARCH_CTX(name)                                        \
-  RedisSearchCtx *sctx = NewSearchCtx(ctx, name, true);             \
-  if (!sctx) {                                                      \
-    RedisModule_ReplyWithError(ctx, "Can not create a search ctx"); \
-    return REDISMODULE_OK;                                          \
-  }
+#define GET_SEARCH_CTX(name)                                                     \
+  IndexSpec *sp = IndexSpec_Load(NULL, RedisModule_StringPtrLen(name, NULL), 0); \
+  if (!sp) {                                                                     \
+    return RedisModule_ReplyWithError(ctx, "Index not found");                   \
+  }                                                                              \
+  RedisSearchCtx sctx_s = SEARCH_CTX_STATIC(ctx, sp);                            \
+  RedisSearchCtx *sctx = &sctx_s;
 
 #define REPLY_WITH_LONG_LONG(name, val, len)                  \
   RedisModule_ReplyWithStringBuffer(ctx, name, strlen(name)); \
@@ -365,7 +366,7 @@ DEBUG_COMMAND(GeoKeyname) {
   if (!gi) {
     return RedisModule_ReplyWithError(ctx, "No such field name");
   }
-  return RedisModule_ReplyWithSimpleString(ctx, gi->keyname);
+  return RedisModule_ReplyWithString(ctx, gi->keyname);
 }
 
 /**
@@ -553,12 +554,7 @@ DEBUG_COMMAND(FlushAll) {
   if (argc) {
     return RedisModule_WrongArity(ctx);
   }
-  dictIterator *it = dictGetSafeIterator(RSIndexes_g);
-  dictEntry *e = NULL;
-  while ((e = dictNext(it))) {
-    IndexSpec_Free(e->v.val);
-  }
-  dictReleaseIterator(it);
+  IndexSpec_CleanAll();
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 

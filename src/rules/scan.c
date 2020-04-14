@@ -60,7 +60,7 @@ static void scanRedis6(scanCursor *c) {
 static void scanRedis5(scanCursor *c) {
   // char cursorbuf[1024] = {'0', 0};
   RedisModuleCtx *ctx = RSDummyContext;
-  size_t nmax = c->n += SCAN_BATCH_SIZE;
+  size_t nmax = c->n + SCAN_BATCH_SIZE;
 
   do {
     RedisModuleCallReply *r = RedisModule_Call(ctx, "SCAN", "l", c->cursor.r5);

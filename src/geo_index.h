@@ -9,12 +9,14 @@
 #include "query_error.h"
 
 typedef struct GeoIndex {
-  char *keyname;
-  uint64_t id;
+  RedisModuleString *keyname;
+  int isDeleted;
 } GeoIndex;
 
-GeoIndex *GeoIndex_Create(void);
+GeoIndex *GeoIndex_Create(const char *ixname);
 void GeoIndex_Free(GeoIndex *idx);
+void GeoIndex_RemoveKey(RedisModuleCtx *ctx, GeoIndex *gi);
+void GeoIndex_PrepareKey(RedisModuleCtx *ctx, GeoIndex *gi);
 
 int GeoIndex_AddStrings(GeoIndex *gi, t_docId docId, const char *slon, const char *slat);
 

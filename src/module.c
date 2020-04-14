@@ -18,6 +18,7 @@
 #include "util/logging.h"
 #include "config.h"
 #include "aggregate/aggregate.h"
+#include "aggregate/expr/attribute.h"
 #include "rmalloc.h"
 #include "cursor.h"
 #include "version.h"
@@ -506,11 +507,12 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   // Optional KEEPDOCS
+  int options = IDXFREE_F_DELDOCS;
   if (argc == 3 && RMUtil_StringEqualsCaseC(argv[2], "KEEPDOCS")) {
-    sp->state |= IDX_S_NODELKEYS;
+    options = 0;
   }
 
-  IndexSpec_Free(sp);
+  IndexSpec_FreeEx(sp, options);
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
@@ -954,11 +956,14 @@ void __attribute__((destructor)) RediSearch_CleanupModule(void) {
     return;
   }
   invoked = 1;
+  IndexSpec_CleanAll();
   CursorList_Destroy(&RSCursors);
   Extensions_Free();
   StopWordList_FreeGlobals();
   FunctionRegistry_Free();
   mempool_free_global();
   IndexAlias_DestroyGlobal();
+  Expr_AttributesDestroy();
+  SchemaRules_ShutdownGlobal();
   RedisModule_FreeThreadSafeContext(RSDummyContext);
 }

@@ -400,6 +400,9 @@ char *IndexSpec_GetRandomTerm(IndexSpec *sp, size_t sampleSize);
  */
 void IndexSpec_Free(void *spec);
 
+#define IDXFREE_F_DELDOCS 0x01
+void IndexSpec_FreeEx(IndexSpec *sp, int options);
+
 /**
  * Free the index synchronously. Any keys associated with the index (but not the
  * documents themselves) are freed before this function returns.
@@ -422,6 +425,7 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver);
 void IndexSpec_RdbSave(RedisModuleIO *rdb, void *value);
 int IndexSpec_RegisterType(RedisModuleCtx *ctx);
 void IndexSpec_ClearAliases(IndexSpec *sp);
+void IndexSpec_CleanAll(void);
 // void IndexSpec_Free(void *value);
 
 /*

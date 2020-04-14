@@ -20,7 +20,6 @@ typedef struct SchemaRule SchemaRule;
 // Create the rule list. This is usually global..
 SchemaRules *SchemaRules_Create(void);
 void SchemaRules_Free(SchemaRules *rules);
-void SchemaRules_Clean(SchemaRules *rules);
 void SchemaRules_CleanRules(SchemaRules *rules);
 
 /**
@@ -67,6 +66,7 @@ typedef struct {
   SpecDocQueue **pending;  // List of indexes with documents to be indexed
   size_t interval;         // interval in milliseconds. sleep time when queue is empty
   size_t indexBatchSize;   // maximum documents to index at once. Prevents starvation
+  size_t nactive;          // Number of active items
   pthread_t aiThread;
   pthread_mutex_t lock;
   pthread_cond_t cond;

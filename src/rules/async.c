@@ -16,7 +16,6 @@ AsyncIndexQueue *AIQ_Create(size_t interval, size_t batchSize) {
   pthread_cond_init(&q->cond, NULL);
   // didn't find pthread.c when in function AsyncIndexCtx_Create
   pthread_create(&q->aiThread, NULL, aiThreadInit, q);
-  pthread_detach(q->aiThread);
   return q;
 }
 
@@ -106,7 +105,7 @@ static void indexBatch(AsyncIndexQueue *aiq, SpecDocQueue *dq) {
     if (!aCtx) {
       RedisModule_Log(RSDummyContext, "warning", "Could not index %s (%s)",
                       RedisModule_StringPtrLen(rid->kstr, NULL), QueryError_GetError(&err));
-      continue;
+      goto next_item;
     }
 
     if (Indexer_Add(&idxr, aCtx) != REDISMODULE_OK) {
@@ -114,6 +113,8 @@ static void indexBatch(AsyncIndexQueue *aiq, SpecDocQueue *dq) {
                       RedisModule_StringPtrLen(rid->kstr, NULL), QueryError_GetError(&err));
       ACTX_Free(aCtx);
     }
+
+  next_item:
     RedisModule_FreeString(NULL, rid->kstr);
     rm_free(rid);
     // deal with Key when applicable
@@ -133,6 +134,7 @@ static void indexBatch(AsyncIndexQueue *aiq, SpecDocQueue *dq) {
   // pending again:
   pthread_mutex_lock(&aiq->lock);
   dq->state &= ~SDQ_S_PROCESSING;
+  aiq->nactive -= dictSize(dq->active);
   dictEmpty(dq->active, NULL);
 
   if (dictSize(dq->entries)) {
@@ -184,7 +186,11 @@ static void *aiThreadInit(void *privdata) {
       ts.tv_nsec = (tv.tv_usec * 1000) + base_ts.tv_nsec;
       int rv = pthread_cond_timedwait(&q->cond, &q->lock, &ts);
       assert(rv != EINVAL);
-      // todo: cancel/exit scenarios?
+
+      if (q->state == AIQ_S_CANCELLED) {
+        pthread_mutex_unlock(&q->lock);
+        goto exit_thread;
+      }
     }
 
     // sort in ascending order. The queue with the fewest items comes first.
@@ -197,12 +203,13 @@ static void *aiThreadInit(void *privdata) {
     dq->entries = dq->active;
     dq->active = oldEntries;
     dq->state = SDQ_S_PROCESSING;
+    q->nactive += dictSize(oldEntries);
+
     if (!dq->entries) {
       dq->entries = newdict;
       newdict = NULL;
     }
 
-    newdict = NULL;
     pthread_mutex_unlock(&q->lock);
     indexBatch(q, dq);
 
@@ -210,6 +217,8 @@ static void *aiThreadInit(void *privdata) {
       newdict = dictCreate(&dictTypeHeapRedisStrings, NULL);
     }
   }
+
+exit_thread:
 
   if (newdict) {
     dictRelease(newdict);
@@ -251,6 +260,7 @@ size_t SchemaRules_QueueSize(void) {
     }
     pthread_mutex_unlock(&dq->lock);
   }
+  ret += aiq->nactive;
   pthread_mutex_unlock(&aiq->lock);
   return ret;
 }

@@ -34,14 +34,11 @@ void SchemaRules_CleanRules(SchemaRules *rules) {
   rules->rules = NULL;
 }
 
-void SchemaRules_Clean(SchemaRules *rules) {
-  SchemaRules_CleanRules(rules);
-  array_free(rules->actions);
-  rules->revision = 0;
-}
-
 void SchemaRules_Free(SchemaRules *rules) {
   SchemaRules_CleanRules(rules);
+  array_free(rules->actions);
+  array_free(rules->rules);
+  rules->revision = 0;
   rm_free(rules);
 }
 
@@ -186,8 +183,18 @@ void SchemaRules_InitGlobal(RedisModuleCtx *ctx) {
 }
 
 void SchemaRules_ShutdownGlobal() {
-  AIQ_Destroy(asyncQueue_g);
-  asyncQueue_g = NULL;
+  if (asyncQueue_g) {
+    AIQ_Destroy(asyncQueue_g);
+    asyncQueue_g = NULL;
+  }
+  if (SchemaRules_g) {
+    SchemaRules_Free(SchemaRules_g);
+    SchemaRules_g = NULL;
+  }
+  if (rindexes_g) {
+    array_free(rindexes_g);
+    rindexes_g = NULL;
+  }
 }
 
 void SchemaRules_RegisterIndex(IndexSpec *sp) {
@@ -234,7 +241,7 @@ int SchemaRules_SetArgs(ArgsCursor *ac, QueryError *err) {
     return REDISMODULE_ERR;
   }
 
-  SchemaRules rules = {0};
+  SchemaRules *rules = SchemaRules_Create();
   for (size_t ii = 0; ii < n; ++ii) {
     ArgsCursor subac = {0};
     if ((rc = AC_GetVarArgs(ac, &subac)) != AC_OK) {
@@ -253,14 +260,14 @@ int SchemaRules_SetArgs(ArgsCursor *ac, QueryError *err) {
   }
   SchemaRules *oldrules = SchemaRules_g;
   SchemaRules_CleanRules(oldrules);
-  oldrules->rules = rules.rules;
+  oldrules->rules = rules->rules;
   oldrules->revision++;
   SchemaRules_StartScan(0);
 
-  rules.rules = NULL;
+  rules->rules = NULL;
 
 done:
-  SchemaRules_Clean(&rules);
+  SchemaRules_Free(rules);
   if (QueryError_HasError(err)) {
     return REDISMODULE_ERR;
   }

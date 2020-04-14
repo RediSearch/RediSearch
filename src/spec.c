@@ -155,6 +155,15 @@ int isRdbLoading(RedisModuleCtx *ctx) {
   return isLoading == 1;
 }
 
+static void prepareGeoIndexes(IndexSpec *sp) {
+  for (size_t ii = 0; ii < sp->numFields; ++ii) {
+    if (FIELD_IS(sp->fields + ii, INDEXFLD_T_GEO)) {
+      GeoIndex *geo = IDX_LoadGeo(sp, sp->fields + ii, REDISMODULE_WRITE);
+      GeoIndex_PrepareKey(RSDummyContext, geo);
+    }
+  }
+}
+
 IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                QueryError *status) {
   IndexSpec *sp = IndexSpec_ParseRedisArgs(ctx, argv[1], &argv[2], argc - 2, status);
@@ -174,7 +183,7 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
   IndexSpec_StartGC(ctx, sp, GC_DEFAULT_HZ);
   CursorList_AddSpec(&RSCursors, sp->name, RSCURSORS_DEFAULT_CAPACITY);
   sp->state &= ~IDX_S_CREATING;  // Already created
-
+  prepareGeoIndexes(sp);
   if (IndexSpec_OnCreate) {
     IndexSpec_OnCreate(sp);
   }
@@ -553,7 +562,7 @@ InvertedIndex *IDX_LoadTerm(IndexSpec *sp, const char *term, size_t n, int flags
     if (r || (options & REDISMODULE_WRITE) == 0) {              \
       return r;                                                 \
     }                                                           \
-    r = sp->fld[fs->index] = ctor();                            \
+    r = sp->fld[fs->index] = ctor;                              \
     return r;                                                   \
   }                                                             \
   T fnames(IndexSpec *sp, const char *s, int options) {         \
@@ -565,13 +574,13 @@ InvertedIndex *IDX_LoadTerm(IndexSpec *sp, const char *term, size_t n, int flags
   }
 
 DECLARE_IDXACC_COMMON(IDX_LoadRange, IDX_LoadRangeFieldname, INDEXFLD_T_NUMERIC,
-                      NewNumericRangeTree, nums, NumericRangeTree *)
+                      NewNumericRangeTree(), nums, NumericRangeTree *)
 
-DECLARE_IDXACC_COMMON(IDX_LoadTags, IDX_LoadTagsFieldname, INDEXFLD_T_TAG, NewTagIndex, tags,
+DECLARE_IDXACC_COMMON(IDX_LoadTags, IDX_LoadTagsFieldname, INDEXFLD_T_TAG, NewTagIndex(), tags,
                       TagIndex *)
 
-DECLARE_IDXACC_COMMON(IDX_LoadGeo, IDX_LoadGeoFieldname, INDEXFLD_T_GEO, GeoIndex_Create, geos,
-                      GeoIndex *)
+DECLARE_IDXACC_COMMON(IDX_LoadGeo, IDX_LoadGeoFieldname, INDEXFLD_T_GEO, GeoIndex_Create(sp->name),
+                      geos, GeoIndex *)
 
 IndexSpecCache *IndexSpec_GetSpecCache(const IndexSpec *spec) {
   if (!spec->spcache) {
@@ -663,7 +672,6 @@ void IndexSpec_FreeWithKey(IndexSpec *sp, RedisModuleCtx *ctx) {
 }
 
 static void IndexSpec_FreeInternals(IndexSpec *spec) {
-  Redis_DropIndex(spec, 1);
   if (spec->gc) {
     GCContext_Stop(spec->gc);
   }
@@ -722,7 +730,8 @@ static void IndexSpec_FreeInternals(IndexSpec *spec) {
   // Free the term indexes
   raxIterator it = {0};
   raxStart(&it, spec->termsIdx);
-  raxSeek(&it, "^", "", 0);
+  unsigned char e = 0;
+  raxSeek(&it, "^", &e, 0);
   while (raxNext(&it)) {
     InvertedIndex_Free(it.data);
   }
@@ -745,7 +754,6 @@ static void IndexSpec_FreeAsync(void *data) {
   RedisModule_AutoMemory(threadCtx);
   RedisModule_ThreadSafeContextLock(threadCtx);
 
-  Redis_DropIndex(spec, true);
   IndexSpec_FreeInternals(spec);
 
   RedisModule_ThreadSafeContextUnlock(threadCtx);
@@ -776,12 +784,48 @@ size_t IndexSpec_Decref(IndexSpec *spec) {
   return 0;
 }
 
+static void unregisterSpec(IndexSpec *sp) {
+  dictDelete(RSIndexes_g, sp->name);
+  for (size_t ii = 0; ii < sp->numFields; ++ii) {
+    if (FIELD_IS(sp->fields + ii, INDEXFLD_T_GEO)) {
+      GeoIndex_Free(sp->geos[ii]);
+      sp->geos[ii] = NULL;
+    }
+  }
+}
+
 void IndexSpec_Free(void *ctx) {
+  IndexSpec_FreeEx(ctx, 0);
+}
+
+static void deleteRedisKey(RedisModuleCtx *ctx, RSDocumentMetadata *dmd) {
+  RedisModuleString *s = RedisModule_CreateString(ctx, dmd->keyPtr, sdslen(dmd->keyPtr));
+  RedisModuleKey *k = RedisModule_OpenKey(ctx, s, REDISMODULE_WRITE);
+  if (k != NULL) {
+    RedisModule_DeleteKey(k);
+    RedisModule_CloseKey(k);
+  }
+  RedisModule_FreeString(ctx, s);
+}
+
+void IndexSpec_FreeEx(IndexSpec *ctx, int options) {
   IndexSpec *sp = ctx;
   sp->state |= IDX_S_DELETED;
+  if (sp->state & IDX_S_CREATING) {
+    IndexSpec_Decref(ctx);
+    return;
+  }
 
-  if (!(sp->state & IDX_S_CREATING)) {
-    dictDelete(RSIndexes_g, sp->name);
+  dictDelete(RSIndexes_g, sp->name);
+  // Remove the geo key
+  for (size_t ii = 0; ii < sp->numFields; ++ii) {
+    if (FIELD_IS(sp->fields + ii, INDEXFLD_T_GEO)) {
+      GeoIndex_RemoveKey(RSDummyContext, sp->geos[ii]);
+    }
+  }
+
+  if ((options & IDXFREE_F_DELDOCS) && !(sp->flags & Index_UseRules)) {
+    DOCTABLE_FOREACH((&sp->docs), deleteRedisKey(RSDummyContext, dmd));
   }
 
   // Let's delete ourselves from the global index list as well
@@ -1234,8 +1278,20 @@ static int customRuleCb(RedisModuleCtx *ctx, RuleKeyItem *item, void *arg, Schem
 
 static int specAuxLoad(RedisModuleIO *rdb, int encver, int when) {
   if (when == REDISMODULE_AUX_BEFORE_RDB) {
+    if (!RSIndexes_g) {
+      return REDISMODULE_OK;
+    }
+    dictIterator *it = dictGetSafeIterator(RSIndexes_g);
+    dictEntry *e = NULL;
+    while ((e = dictNext(it))) {
+      IndexSpec_Free(e->v.val);
+    }
+    dictReleaseIterator(it);
+
     return REDISMODULE_OK;
   }
+
+  // Purge every single index from the list...
   LegacyRuleParams *lrps = array_new(LegacyRuleParams, 8);
   size_t n = RedisModule_LoadUnsigned(rdb);
   for (size_t ii = 0; ii < n; ++ii) {
@@ -1243,6 +1299,7 @@ static int specAuxLoad(RedisModuleIO *rdb, int encver, int when) {
     if (!sp) {
       return REDISMODULE_ERR;
     }
+    prepareGeoIndexes(sp);
     dictAdd(RSIndexes_g, sp->name, sp);
     if (!(sp->flags & Index_UseRules)) {
       LegacyRuleParams *lrp = array_ensure_tail(&lrps, LegacyRuleParams);
@@ -1279,10 +1336,11 @@ static int specAuxLoad(RedisModuleIO *rdb, int encver, int when) {
 }
 
 int IndexSpec_RegisterType(RedisModuleCtx *ctx) {
-  RedisModuleTypeMethods tm = {.version = REDISMODULE_TYPE_METHOD_VERSION,
-                               .aux_save = specAuxSave,
-                               .aux_load = specAuxLoad,
-                               .aux_save_triggers = REDISMODULE_AUX_AFTER_RDB};
+  RedisModuleTypeMethods tm = {
+      .version = 2,
+      .aux_save = specAuxSave,
+      .aux_load = specAuxLoad,
+      .aux_save_triggers = REDISMODULE_AUX_AFTER_RDB | REDISMODULE_AUX_BEFORE_RDB};
 
   RedisModuleType *t = RedisModule_CreateDataType(ctx, "ft_index2", INDEX_CURRENT_VERSION, &tm);
   if (t == NULL) {
@@ -1291,4 +1349,14 @@ int IndexSpec_RegisterType(RedisModuleCtx *ctx) {
   }
 
   return REDISMODULE_OK;
+}
+
+void IndexSpec_CleanAll(void) {
+  dictIterator *it = dictGetSafeIterator(RSIndexes_g);
+  dictEntry *e = NULL;
+  while ((e = dictNext(it))) {
+    IndexSpec *sp = e->v.val;
+    IndexSpec_Free(sp);
+  }
+  dictReleaseIterator(it);
 }

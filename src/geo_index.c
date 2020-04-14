@@ -4,27 +4,43 @@
 #include "rmalloc.h"
 #include "module.h"
 
-static unsigned geoIdSerial_g = 0;
-// todo: make this extern?
-
-GeoIndex *GeoIndex_Create(void) {
+GeoIndex *GeoIndex_Create(const char *ixname) {
   GeoIndex *gi = rm_calloc(1, sizeof(*gi));
-  gi->id = ++geoIdSerial_g;
-  rm_asprintf(&gi->keyname, "__search:geo:%u", gi->id);
+  gi->keyname = RedisModule_CreateStringPrintf(RSDummyContext, "_geoidx:%s", ixname);
   return gi;
 }
 
+void GeoIndex_PrepareKey(RedisModuleCtx *ctx, GeoIndex *gi) {
+  GeoIndex_RemoveKey(ctx, gi);
+  gi->isDeleted = 0;
+}
+
+void GeoIndex_RemoveKey(RedisModuleCtx *ctx, GeoIndex *gi) {
+  gi->isDeleted = 1;
+  RedisModuleKey *k = RedisModule_OpenKey(ctx, gi->keyname, REDISMODULE_READ | REDISMODULE_WRITE);
+  if (!k) {
+    return;
+  }
+  RedisModule_DeleteKey(k);
+  RedisModule_CloseKey(k);
+}
+
 void GeoIndex_Free(GeoIndex *gi) {
-  rm_free(gi->keyname);
+  if (gi->keyname) {
+    RedisModule_FreeString(RSDummyContext, gi->keyname);
+  }
   rm_free(gi);
 }
 
 /* Add a docId to a geoindex key. Right now we just use redis' own GEOADD */
 int GeoIndex_AddStrings(GeoIndex *gi, t_docId docId, const char *slon, const char *slat) {
-  const char *key = gi->keyname;
+  if (gi->isDeleted) {
+    return REDISMODULE_ERR;
+  }
+
   /* GEOADD key longitude latitude member*/
   RedisModuleCallReply *rep =
-      RedisModule_Call(RSDummyContext, "GEOADD", "cccl", gi->keyname, slon, slat, docId);
+      RedisModule_Call(RSDummyContext, "GEOADD", "sccl", gi->keyname, slon, slat, docId);
   if (rep == NULL) {
     return REDISMODULE_ERR;
   }
@@ -39,8 +55,11 @@ int GeoIndex_AddStrings(GeoIndex *gi, t_docId docId, const char *slon, const cha
 }
 
 void GeoIndex_RemoveEntries(GeoIndex *gi, IndexSpec *sp, t_docId docId) {
+  if (gi->isDeleted) {
+    return;
+  }
   RedisModuleCtx *ctx = RSDummyContext;
-  RedisModuleCallReply *rep = RedisModule_Call(ctx, "ZREM", "cl", gi->keyname, docId);
+  RedisModuleCallReply *rep = RedisModule_Call(ctx, "ZREM", "sl", gi->keyname, docId);
 
   if (rep == NULL || RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_ERROR) {
     RedisModule_Log(ctx, "warning", "Document %s was not removed", docId);
@@ -100,9 +119,12 @@ void GeoFilter_Free(GeoFilter *gf) {
 }
 
 static t_docId *geoRangeLoad(const GeoIndex *gi, const GeoFilter *gf, size_t *num) {
+  if (gi->isDeleted) {
+    return NULL;
+  }
+
   *num = 0;
   t_docId *docIds = NULL;
-  const char *keyname = gi->keyname;
   /*GEORADIUS key longitude latitude radius m|km|ft|mi */
   RedisModuleCtx *ctx = RSDummyContext;
   RedisModuleString *slon = RedisModule_CreateStringPrintf(ctx, "%f", gf->lon);
@@ -110,7 +132,7 @@ static t_docId *geoRangeLoad(const GeoIndex *gi, const GeoFilter *gf, size_t *nu
   RedisModuleString *srad = RedisModule_CreateStringPrintf(ctx, "%f", gf->radius);
   const char *unitstr = GeoDistance_ToString(gf->unitType);
   RedisModuleCallReply *rep =
-      RedisModule_Call(ctx, "GEORADIUS", "csssc", gi->keyname, slon, slat, srad, unitstr);
+      RedisModule_Call(ctx, "GEORADIUS", "sssscc", gi->keyname, slon, slat, srad, unitstr, "ASC");
   if (rep == NULL || RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_ARRAY) {
     goto done;
   }
