@@ -2167,6 +2167,10 @@ def testIssue1058(env):
 
 
 def testIssue1184(env):
+    if env.moduleArgs is not None and 'FORK' in env.moduleArgs:
+        # This doesn't work on forkgc currently
+        env.skip()
+
     field_types = ['TEXT', 'NUMERIC', 'TAG']
 
     for ft in field_types:
