@@ -389,7 +389,7 @@ static int RLookup_HGETALL(RLookup *it, RLookupRow *dst, RLookupLoadOptions *opt
     return REDISMODULE_ERR;
   }
   rep = RedisModule_Call(ctx, "HGETALL", "s", krstr);
-  if (options->ktype == RLOOKUP_KEY_RSTR) {
+  if (options->ktype == RLOOKUP_KEY_CSTR) {
     RedisModule_FreeString(ctx, krstr);
   }
 
