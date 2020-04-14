@@ -16,7 +16,7 @@ void Expr_AttributesInit(void) {
   initBuiltins();
 }
 
-void Expr_AttributedDestroy(void) {
+void Expr_AttributesDestroy(void) {
   size_t n = array_len(registry_g);
   for (size_t ii = 0; ii < n; ++ii) {
     rm_free(registry_g[ii].name);
