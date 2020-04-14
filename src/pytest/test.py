@@ -2164,3 +2164,36 @@ def testIssue1058(env):
     env.expect('FT.ADD idx doc2 1.0 REPLACE PARTIAL if !@txt1 FIELDS txt1 10').equal('OK')
     env.expect('FT.GET idx doc2').equal(['txt2', 'string', 'txt1', '10'])
     #env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if !@txt1||to_number(@txt1)<11 FIELDS txt1 10').equal('NOADD')
+
+
+def testIssue1184(env):
+    field_types = ['TEXT', 'NUMERIC', 'TAG']
+
+    for ft in field_types:
+        env.assertOk(env.execute_command('FT.CREATE idx SCHEMA  field ' + ft))
+
+        res = env.execute_command('ft.info', 'idx')
+        d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
+        env.assertEqual(d['inverted_sz_mb'], '0')
+        env.assertEqual(d['num_records'], '0') 
+
+
+        value = '42'
+        env.assertOk(env.execute_command('FT.ADD idx doc0 1 FIELD field ' + value))
+        doc = env.cmd('FT.SEARCH idx *')
+        env.assertEqual(doc, [1L, 'doc0', ['field', value]])
+
+        res = env.execute_command('ft.info', 'idx')
+        d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
+        env.assertGreater(d['inverted_sz_mb'], '0')
+        env.assertEqual(d['num_records'], '1')
+
+        env.assertEqual(env.execute_command('FT.DEL idx doc0'), 1)
+        env.cmd('ft.debug', 'GC_FORCEINVOKE', 'idx')
+
+        res = env.execute_command('ft.info', 'idx')
+        d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
+        env.assertEqual(d['inverted_sz_mb'], '0')
+        env.assertEqual(d['num_records'], '0')
+
+        env.cmd('FT.DROP idx')

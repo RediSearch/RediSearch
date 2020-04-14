@@ -426,7 +426,8 @@ FIELD_PREPROCESSOR(numericPreprocessor) {
 FIELD_BULK_INDEXER(numericIndexer) {
   NumericRangeTree *rt = bulk->indexData;
   // NumericRangeTree *rt = OpenNumericIndex(ctx, fs->name, &idxKey);
-  NumericRangeTree_Add(rt, aCtx->doc.docId, fdata->numeric);
+  ctx->spec->stats.invertedSize += NumericRangeTree_Add(rt, aCtx->doc.docId, fdata->numeric);
+  ctx->spec->stats.numRecords++;
   // RedisModule_CloseKey(idxKey);
   return 0;
 }
@@ -487,7 +488,8 @@ FIELD_BULK_INDEXER(tagIndexer) {
     *errorString = "Could not open tag index for indexing";
     rc = -1;
   } else {
-    TagIndex_Index(bulk->indexData, fdata->tags, aCtx->doc.docId);
+    ctx->spec->stats.invertedSize += TagIndex_Index(bulk->indexData, fdata->tags, aCtx->doc.docId);
+    ctx->spec->stats.numRecords++;
   }
   if (fdata->tags) {
     TagIndex_FreePreprocessedData(fdata->tags);

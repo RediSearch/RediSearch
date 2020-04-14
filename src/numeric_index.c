@@ -19,6 +19,11 @@ typedef struct {
   uint32_t lastRevId;
 } NumericUnionCtx;
 
+typedef struct {
+  size_t sz;
+  int changed;
+} NumericRange_AddRv;
+
 /* A callback called after a concurrent context regains execution context. When this happen we need
  * to make sure the key hasn't been deleted or its structure changed, which will render the
  * underlying iterators invalid */
@@ -64,14 +69,12 @@ int NumericRange_Overlaps(NumericRange *n, double min, double max) {
   return rc;
 }
 
-int NumericRange_Add(NumericRange *n, t_docId docId, double value, int checkCard) {
-
+static NumericRange_AddRv NumericRange_Add(NumericRange *n, t_docId docId, double value, int checkCard) {
+  NumericRange_AddRv rv = { 0 };
   int add = 0;
   if (checkCard) {
     add = 1;
-    size_t card = n->card;
     for (int i = 0; i < array_len(n->values); i++) {
-
       if (n->values[i].value == value) {
         add = 0;
         n->values[i].appearances++;
@@ -90,9 +93,9 @@ int NumericRange_Add(NumericRange *n, t_docId docId, double value, int checkCard
     ++n->card;
   }
 
-  InvertedIndex_WriteNumericEntry(n->entries, docId, value);
+  rv.sz = InvertedIndex_WriteNumericEntry(n->entries, docId, value);
 
-  return n->card;
+  return rv;
 }
 
 double NumericRange_Split(NumericRange *n, NumericRangeNode **lp, NumericRangeNode **rp) {
@@ -141,8 +144,8 @@ NumericRangeNode *NewLeafNode(size_t cap, double min, double max, size_t splitCa
   return n;
 }
 
-int NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value) {
-
+static NumericRange_AddRv NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value) {
+  NumericRange_AddRv rv = { 0 };
   if (!NumericRangeNode_IsLeaf(n)) {
     // if this node has already split but retains a range, just add to the range without checking
     // anything
@@ -154,8 +157,8 @@ int NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value) {
     NumericRangeNode **childP = value < n->value ? &n->left : &n->right;
     NumericRangeNode *child = *childP;
     // if the child has split we get 1 in return
-    int rc = NumericRangeNode_Add(child, docId, value);
-    if (rc) {
+    rv = NumericRangeNode_Add(child, docId, value);
+    if (rv.changed) {
       // if there was a split it means our max depth has increased.
       // we are too deep - we don't retain this node's range anymore.
       // this keeps memory footprint in check
@@ -185,11 +188,12 @@ int NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value) {
       }
     }
     // return 1 or 0 to our called, so this is done recursively
-    return rc;
+    return rv;
   }
 
   // if this node is a leaf - we add AND check the cardinality. We only split leaf nodes
-  int card = NumericRange_Add(n->range, docId, value, 1);
+  rv = NumericRange_Add(n->range, docId, value, 1);
+  int card = n->range->card;
 
   // printf("Added %d %f to node %f..%f, card now %zd, size now %zd\n", docId, value,
   // n->range->minVal,
@@ -203,10 +207,10 @@ int NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value) {
     n->value = split;
 
     n->maxDepth = 1;
-    return 1;
+    rv.changed = 1;
   }
 
-  return 0;
+  return rv;
 }
 
 /* Recursively add a node's children to the range. */
@@ -296,7 +300,8 @@ int NumericRangeTree_Add(NumericRangeTree *t, t_docId docId, double value) {
   }
   t->lastDocId = docId;
 
-  int rc = NumericRangeNode_Add(t->root, docId, value);
+  NumericRange_AddRv rv = NumericRangeNode_Add(t->root, docId, value);
+  int rc = rv.changed;
   // rc != 0 means the tree nodes have changed, and concurrent iteration is not allowed now
   // we increment the revision id of the tree, so currently running query iterators on it
   // will abort the next time they get execution context
@@ -306,7 +311,7 @@ int NumericRangeTree_Add(NumericRangeTree *t, t_docId docId, double value) {
   t->numRanges += rc;
   t->numEntries++;
 
-  return rc;
+  return rv.sz;
 }
 
 Vector *NumericRangeTree_Find(NumericRangeTree *t, double min, double max) {
