@@ -92,6 +92,7 @@ def testAllConfig(env):
     env.assertEqual(res_dict['FORK_GC_RETRY_INTERVAL'][0], '5')
     env.assertEqual(res_dict['CURSOR_MAX_IDLE'][0], '300000')
     env.assertEqual(res_dict['NO_MEM_POOLS'][0], 'false')
+    env.assertEqual(res_dict['UNIONQUICKEXIT'][0], 'true')
 
     # skip ctest configured tests
     #env.assertEqual(res_dict['GC_POLICY'][0], 'fork')
@@ -123,17 +124,18 @@ def testInitConfig(env):
     test_arg_num('_MAX_RESULTS_TO_UNSORTED_MODE', 3)
 
     # True/False arguments
-    def test_arg_true(arg_name):
+    def test_arg_bool(arg_name, tf):
         env = Env(moduleArgs=arg_name)
         if env.env == 'existing-env':
             env.skip()
-        assert env.expect('ft.config', 'get', arg_name).equal([[arg_name, 'true']])
+        assert env.expect('ft.config', 'get', arg_name).equal([[arg_name, tf]])
         env.stop()
 
-    test_arg_true('NOGC')
-    test_arg_true('SAFEMODE')
-    test_arg_true('CONCURRENT_WRITE_MODE')
-    test_arg_true('NO_MEM_POOLS')
+    test_arg_bool('NOGC', 'true')
+    test_arg_bool('SAFEMODE', 'true')
+    test_arg_bool('CONCURRENT_WRITE_MODE', 'true')
+    test_arg_bool('NO_MEM_POOLS', 'true')
+    test_arg_bool('UNIONQUICKEXIT', 'false')
     
     # String arguments
     def test_arg_str(arg_name, arg_value, ret_value=None):
