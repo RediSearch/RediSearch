@@ -3,12 +3,12 @@
 #include "varint.h"
 #include "spec.h"
 #include <math.h>
-#include <assert.h>
 #include <limits.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <sys/param.h>
 #include "rmalloc.h"
+#include "rmutil/rm_assert.h"
 
 static int UI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit);
 static inline int UI_ReadUnsorted(void *ctx, RSIndexResult **hit);
@@ -314,7 +314,7 @@ at EOF
 */
 static int UI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
   UnionIterator *ui = ctx;
-  assert(ui->base.mode == MODE_SORTED);
+  RS_LOG_ASSERT(ui->base.mode == MODE_SORTED, "union iterator mode is not MODE_SORTED");
 
   // printf("UI %p skipto %d\n", ui, docId);
 
@@ -738,8 +738,8 @@ static IndexCriteriaTester *II_GetCriteriaTester(void *ctx) {
       tester = IITER_GET_CRITERIA_TESTER(ic->its[i]);
     }
     if (!tester) {
-      for (int j = 0; j < array_len(ic->testers); j++) {
-        ic->testers[i]->Free(ic->testers[i]);
+      for (int j = 0; j < i; j++) {
+        ic->testers[j]->Free(ic->testers[j]);
       }
       array_free(ic->testers);
       return NULL;
@@ -961,7 +961,10 @@ static void NI_TesterFree(struct IndexCriteriaTester *ct) {
 
 static IndexCriteriaTester *NI_GetCriteriaTester(void *ctx) {
   NotContext *nc = ctx;
-  IndexCriteriaTester *ct = nc->base.GetCriteriaTester(nc->base.ctx);
+  if (!nc->child) {
+    return NULL;
+  }
+  IndexCriteriaTester *ct = IITER_GET_CRITERIA_TESTER(nc->child);
   if (!ct) {
     return NULL;
   }
@@ -1091,7 +1094,7 @@ IndexIterator *NewNotIterator(IndexIterator *it, t_docId maxDocId, double weight
 
   if (nc->child && nc->child->mode == MODE_UNSORTED) {
     nc->childCT = IITER_GET_CRITERIA_TESTER(nc->child);
-    assert(nc->childCT);
+    RS_LOG_ASSERT(nc->childCT, "childCT should not be NULL");
     ret->Read = NI_ReadUnsorted;
   }
 
@@ -1307,7 +1310,7 @@ IndexIterator *NewOptionalIterator(IndexIterator *it, t_docId maxDocId, double w
 
   if (nc->child && nc->child->mode == MODE_UNSORTED) {
     nc->childCT = IITER_GET_CRITERIA_TESTER(nc->child);
-    assert(nc->childCT);
+    RS_LOG_ASSERT(nc->childCT, "childCT should not be NULL");
     ret->Read = OI_ReadUnsorted;
   }
   if (!nc->child) {
