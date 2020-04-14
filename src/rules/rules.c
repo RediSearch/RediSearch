@@ -42,14 +42,73 @@ void SchemaRules_Free(SchemaRules *rules) {
   rm_free(rules);
 }
 
+static void loadAttrFields(RuleKeyItem *item, const IndexItemAttrs *iia, Document *d) {
+  if (iia->fldLang) {
+    RedisModuleString *langstr = NULL;
+    RedisModule_HashGet(item->kobj, 0, iia->fldLang, &langstr, NULL);
+    if (langstr) {
+      RSLanguage lang = RSLanguage_Find(RedisModule_StringPtrLen(langstr, NULL));
+      if (lang != RS_LANG_UNSUPPORTED) {
+        d->language = lang;
+      } else {
+        // Send warning about invalid language?
+      }
+    }
+  }
+
+  if (iia->fldScore) {
+    RedisModuleString *scorestr = NULL;
+    RedisModule_HashGet(item->kobj, 0, iia->fldScore, &scorestr, NULL);
+    double dbl = 0;
+    if (scorestr) {
+      int rc = RedisModule_StringToDouble(scorestr, &dbl);
+      if (rc == REDISMODULE_OK) {
+        d->score = dbl;
+      } else {
+        // send warning about bad score
+      }
+    }
+  }
+  if (iia->fldPayload) {
+    RedisModuleString *payload = NULL;
+    RedisModule_HashGet(item->kobj, 0, iia->fldPayload, &payload, NULL);
+    if (payload) {
+      size_t len;
+      const char *buf = RedisModule_StringPtrLen(payload, &len);
+      Document_SetPayload(d, buf, len);
+    }
+  }
+}
+
 RSAddDocumentCtx *SchemaRules_InitACTX(RedisModuleCtx *ctx, IndexSpec *sp, RuleKeyItem *item,
                                        const IndexItemAttrs *attrs, QueryError *e) {
-  Document d = {0};
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
 
   RSAddDocumentCtx *aCtx = NULL;
-  Document_Init(&d, item->kstr, attrs->score, attrs->language);
+  if (!item->kobj) {
+    item->kobj = RedisModule_OpenKey(ctx, item->kstr, REDISMODULE_READ);
+    if (!item->kobj) {
+      QueryError_SetError(e, QUERY_ENODOC, "Could not open document");
+      return NULL;
+    }
+  }
+
+  Document d = {.docKey = item->kstr};
+  Document_MakeStringsOwner(&d);
   d.keyobj = item->kobj;
+  if (attrs->predefMask & SCATTR_TYPE_LANGUAGE) {
+    d.language = attrs->language;
+  }
+  if (attrs->predefMask & SCATTR_TYPE_SCORE) {
+    d.score = attrs->score;
+  }
+  if (attrs->predefMask & SCATTR_TYPE_PAYLOAD) {
+    size_t len;
+    const char *buf = RedisModule_StringPtrLen(attrs->payload, &len);
+    Document_SetPayload(&d, buf, len);
+  }
+  loadAttrFields(item, attrs, &d);
+
   int rv = Document_LoadSchemaFields(&d, &sctx, e);
   if (rv != REDISMODULE_OK) {
     goto err;

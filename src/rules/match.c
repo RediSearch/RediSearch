@@ -347,44 +347,6 @@ static scruleMatchFn matchfuncs_g[] = {[SCRULE_TYPE_KEYPREFIX] = matchPrefix,
                                        [SCRULE_TYPE_MATCHALL] = matchAll,
                                        [SCRULE_TYPE_CUSTOM] = matchCustom};
 
-static void loadAttrFields(RuleKeyItem *item, struct SchemaLoadattrSettings *lattr,
-                           MatchAction *curAction) {
-  // Load the key
-  if (!item->kobj) {
-    item->kobj = RedisModule_OpenKey(RSDummyContext, item->kstr, REDISMODULE_READ);
-  }
-  if (!item->kobj) {
-    return;
-  }
-
-  if (lattr->langfield) {
-    RedisModuleString *langstr = NULL;
-    RedisModule_HashGet(item->kobj, 0, lattr->langfield, &langstr, NULL);
-    if (langstr) {
-      RSLanguage lang = RSLanguage_Find(RedisModule_StringPtrLen(langstr, NULL));
-      if (lang != RS_LANG_UNSUPPORTED) {
-        curAction->attrs.language = lang;
-      } else {
-        // Send warning about invalid language?
-      }
-    }
-  }
-
-  if (lattr->scorefield) {
-    RedisModuleString *scorestr = NULL;
-    RedisModule_HashGet(item->kobj, 0, lattr->scorefield, &scorestr, NULL);
-    double d = 0;
-    if (scorestr) {
-      int rc = RedisModule_StringToDouble(scorestr, &d);
-      if (rc == REDISMODULE_OK) {
-        curAction->attrs.score = d;
-      } else {
-        // send warning about bad score
-      }
-    }
-  }
-}
-
 static MatchAction *actionForIndex(IndexSpec *spec, MatchAction **results) {
   MatchAction *curAction = NULL;
   size_t n = *results ? array_len(*results) : 0;
@@ -397,8 +359,7 @@ static MatchAction *actionForIndex(IndexSpec *spec, MatchAction **results) {
   if (!curAction) {
     curAction = array_ensure_tail(results, MatchAction);
     curAction->spec = spec;
-    curAction->attrs.language = 0;
-    curAction->attrs.score = 0;
+    memset(&curAction->attrs, 0, sizeof(curAction->attrs));
   }
   return curAction;
 }
@@ -450,7 +411,11 @@ int SchemaRules_Check(SchemaRules *rules, RedisModuleCtx *ctx, RuleKeyItem *item
         curAction->attrs.score = attr->score;
       }
     } else if (rule->action.atype == SCACTION_TYPE_LOADATTR) {
-      loadAttrFields(item, &rule->action.u.loadattr, curAction);
+      struct SchemaLoadattrSettings *lattr = &rule->action.u.loadattr;
+      IndexItemAttrs *iia = &curAction->attrs;
+      iia->fldLang = lattr->langfield;
+      iia->fldScore = lattr->scorefield;
+      iia->fldPayload = lattr->scorefield;
     }
   next_rule:;
   }

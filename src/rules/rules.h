@@ -44,6 +44,12 @@ int SchemaRules_SetArgs(ArgsCursor *ac, QueryError *err);
 typedef struct {
   RSLanguage language;  // can be an enum??
   float score;
+  int predefMask;  // Mask of attributes which are predefined
+
+  RedisModuleString *payload;
+  RedisModuleString *fldLang;
+  RedisModuleString *fldScore;
+  RedisModuleString *fldPayload;
 } IndexItemAttrs;
 
 typedef struct {

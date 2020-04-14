@@ -39,6 +39,7 @@ typedef struct SchemaAction SchemaAction;
 typedef enum {
   SCATTR_TYPE_LANGUAGE = 0x01,
   SCATTR_TYPE_SCORE = 0x02,
+  SCATTR_TYPE_PAYLOAD = 0x04
 } SchemaAttrType;
 
 struct SchemaAction {
@@ -51,6 +52,7 @@ struct SchemaAction {
     struct SchemaLoadattrSettings {
       RedisModuleString *langfield;
       RedisModuleString *scorefield;
+      RedisModuleString *payloadfield;
     } loadattr;
     char *goto_;
   } u;

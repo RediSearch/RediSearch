@@ -29,6 +29,32 @@ void AIQ_Destroy(AsyncIndexQueue *aq) {
   rm_free(aq);
 }
 
+#define MAYBE_RETAIN(f)                          \
+  if (f) {                                       \
+    RedisModule_RetainString(RSDummyContext, f); \
+  }
+#define MAYBE_FREE(f)                          \
+  if (f) {                                     \
+    RedisModule_FreeString(RSDummyContext, f); \
+  }
+
+static void copyFieldnames(IndexItemAttrs *iia) {
+  MAYBE_RETAIN(iia->fldLang)
+  MAYBE_RETAIN(iia->fldScore)
+  MAYBE_RETAIN(iia->fldPayload)
+}
+
+static void freeFieldnames(IndexItemAttrs *iia) {
+  MAYBE_FREE(iia->fldLang)
+  MAYBE_FREE(iia->fldScore)
+  MAYBE_FREE(iia->fldPayload)
+}
+
+static void ridFree(RuleIndexableDocument *rid) {
+  freeFieldnames(&rid->iia);
+  rm_free(rid);
+}
+
 void AIQ_Submit(AsyncIndexQueue *aq, IndexSpec *spec, MatchAction *result, RuleKeyItem *item) {
   // submit to queue
   // 1. Create a queue per index
@@ -45,6 +71,8 @@ void AIQ_Submit(AsyncIndexQueue *aq, IndexSpec *spec, MatchAction *result, RuleK
   RuleIndexableDocument *rid = rm_calloc(1, sizeof(*rid));
   rid->kstr = item->kstr;
   rid->iia = result->attrs;
+  copyFieldnames(&rid->iia);
+
   RedisModule_RetainString(NULL, rid->kstr);
   SpecDocQueue *dq = spec->queue;
   if (!dq) {
@@ -56,7 +84,7 @@ void AIQ_Submit(AsyncIndexQueue *aq, IndexSpec *spec, MatchAction *result, RuleK
   if (rv != DICT_OK) {
     // item already exists?
     pthread_mutex_unlock(&aq->lock);
-    rm_free(rid);
+    ridFree(rid);
     RedisModule_FreeString(NULL, item->kstr);
     return;
   }
@@ -116,7 +144,7 @@ static void indexBatch(AsyncIndexQueue *aiq, SpecDocQueue *dq) {
 
   next_item:
     RedisModule_FreeString(NULL, rid->kstr);
-    rm_free(rid);
+    ridFree(rid);
     // deal with Key when applicable
   }
   dictReleaseIterator(iter);
