@@ -159,6 +159,22 @@ $ redis-server --loadmodule ./redisearch.so MAXEXPANSIONS 1000
 
 ---
 
+## UNIONQUICKEXIT
+
+For prefix and fuzzy queries, first term found is used for scoring and highlighting. Disabling this can cause performance issues.
+
+### Default
+
+True
+
+### Example
+
+```
+$ redis-server --loadmodule ./redisearch.so UNIONQUICKEXIT
+```
+
+---
+
 ## MAXDOCTABLESIZE
 
 The maximum size of the internal hash table used for storing the documents.

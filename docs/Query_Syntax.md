@@ -111,11 +111,13 @@ Will be expanded to cover `(hello|help|helm|...) world`.
 
 1. As prefixes can be expanded into many many terms, use them with caution. There is no magic going on, the expansion will create a Union operation of all suffixes.
 
-2. As a protective measure to avoid selecting too many terms, and block redis, which is single threaded, there are two limitations on prefix matching:
+2. As a protective measure to avoid selecting too many terms, and block redis, which is single threaded, there are three limitations on prefix matching:
 
   * Prefixes are limited to 2 letters or more. You can change this number by using the `MINPREFIX` setting on the module command line.
 
   * Expansion is limited to 200 terms or less. You can change this number by using the `MAXEXPANSIONS` setting on the module command line.
+
+  * First term found is used for scoring and highlighting. You can change this behavior by using the `UNIONQUICKEXIT` setting on the module command line.
 
 3. Prefix matching fully supports Unicode and is case insensitive.
 
@@ -134,6 +136,8 @@ Will perform fuzzy matching on 'hello' for all terms where LD is 1.
 As of v1.4.0, the LD of the fuzzy match can be set by the number of '%' surrounding it, so that `%%hello%%` will perform fuzzy matching on 'hello' for all terms where LD is 2.
 
 The maximal LD for fuzzy matching is 3.
+
+First term found is used for scoring and highlighting. You can change this behavior by using the `UNIONQUICKEXIT` setting on the module command line.
 
 ## Wildcard queries
 

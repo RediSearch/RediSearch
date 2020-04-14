@@ -132,6 +132,14 @@ CONFIG_GETTER(getMaxExpansions) {
   return sdscatprintf(ss, "%llu", config->maxPrefixExpansions);
 }
 
+// UNIONQUICKEXIT
+CONFIG_SETTER(setUnionQuickExit) {
+  config->unionQuickExit = 0;
+  return REDISMODULE_OK;
+}
+
+CONFIG_BOOLEAN_GETTER(getUnionQuickExit, unionQuickExit, 0)
+
 // TIMEOUT
 CONFIG_SETTER(setTimeout) {
   int acrc = AC_GetLongLong(ac, &config->queryTimeoutMS, AC_F_GE0);
@@ -377,6 +385,10 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "Maximum prefix expansions to be used in a query",
          .setValue = setMaxExpansions,
          .getValue = getMaxExpansions},
+        {.name = "UNIONQUICKEXIT",
+         .helpText = "More precise score and highlight for fuzzy and prefix",
+         .setValue = setUnionQuickExit,
+         .getValue = getUnionQuickExit},
         {.name = "TIMEOUT",
          .helpText = "Query (search) timeout",
          .setValue = setTimeout,
@@ -463,6 +475,7 @@ sds RSConfig_GetInfoString(const RSConfig *config) {
   ss = sdscatprintf(ss, "gc: %s, ", config->enableGC ? "ON" : "OFF");
   ss = sdscatprintf(ss, "prefix min length: %lld, ", config->minTermPrefix);
   ss = sdscatprintf(ss, "prefix max expansions: %lld, ", config->maxPrefixExpansions);
+  ss = sdscatprintf(ss, "quick exist: %s, ", config->unionQuickExit ? "ON" : "OFF");
   ss = sdscatprintf(ss, "query timeout (ms): %lld, ", config->queryTimeoutMS);
   ss = sdscatprintf(ss, "timeout policy: %s, ", TimeoutPolicy_ToString(config->timeoutPolicy));
   ss = sdscatprintf(ss, "cursor read size: %lld, ", config->cursorReadSize);

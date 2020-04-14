@@ -50,6 +50,9 @@ typedef struct {
   // The maximal number of expansions we allow for a prefix. Default: 200
   long long maxPrefixExpansions;
 
+  // If this is set,  (default: 1, disable with NOGC)
+  int unionQuickExit;
+
   // The maximal amount of time a single query can take before timing out, in milliseconds.
   // 0 means unlimited
   long long queryTimeoutMS;
@@ -153,7 +156,7 @@ sds RSConfig_GetInfoString(const RSConfig *config);
 // default configuration
 #define RS_DEFAULT_CONFIG                                                                         \
   {                                                                                               \
-    .concurrentMode = 0, .extLoad = NULL, .enableGC = 1, .minTermPrefix = 2,                      \
+    .concurrentMode = 0, .extLoad = NULL, .enableGC = 1, .minTermPrefix = 2, .unionQuickExit = 1, \
     .maxPrefixExpansions = 200, .queryTimeoutMS = 500, .timeoutPolicy = TimeoutPolicy_Return,     \
     .cursorReadSize = 1000, .cursorMaxIdle = 300000, .maxDocTableSize = DEFAULT_DOC_TABLE_SIZE,   \
     .searchPoolSize = CONCURRENT_SEARCH_POOL_DEFAULT_SIZE,                                        \

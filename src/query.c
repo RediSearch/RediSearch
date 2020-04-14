@@ -326,7 +326,7 @@ static IndexIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
     rm_free(its);
     return NULL;
   }
-  return NewUnionIterator(its, itsSz, q->docTable, 0, opts->weight);
+  return NewUnionIterator(its, itsSz, q->docTable, RSGlobalConfig.unionQuickExit, opts->weight);
 }
 /* Ealuate a prefix node by expanding all its possible matches and creating one big UNION on all
  * of them */
@@ -423,7 +423,8 @@ static IndexIterator *Query_EvalLexRangeNode(QueryEvalCtx *q, QueryNode *lx) {
     rm_free(ctx.its);
     return NULL;
   } else {
-    return NewUnionIterator(ctx.its, ctx.nits, q->docTable, 1, lx->opts.weight);
+    return NewUnionIterator(ctx.its, ctx.nits, q->docTable, 
+                            RSGlobalConfig.unionQuickExit, lx->opts.weight);
   }
 }
 

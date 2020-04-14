@@ -77,7 +77,8 @@ def testFuzzyWithNumbersOnly(env):
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', '12345').equal('OK')
     env.expect('ft.search', 'idx', '%%21345%%').equal([1, 'doc1', ['test', '12345']])
 
-def testFuzzyWithSeveralFields0(env):
+def testFuzzyWithSeveralFields(env):
+    env.cmd('ft.config set UNIONQUICKEXIT')
     env.expect('ft.create', 'idx1', 'schema', 'test1', 'TEXT').equal('OK')
     env.expect('ft.add', 'idx1', 'doc1', '1.0', 'FIELDS', 'test1', 'Admin1 Admin').equal('OK')
     env.expect('ft.search', 'idx1', '%Admin%', 'WITHSCORES', 'HIGHLIGHT').equal([1L, 'doc1', '2', ['test1', '<b>Admin1</b> <b>Admin</b>']])

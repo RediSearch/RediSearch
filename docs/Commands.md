@@ -1333,6 +1333,7 @@ Setting values in runtime is supported for these configuration options:
 * `NOGC`
 * `MINPREFIX`
 * `MAXEXPANSIONS`
+* `UNIONQUICKEXIT`
 * `TIMEOUT`
 * `ON_TIMEOUT`
 * `MIN_PHONETIC_TERM_LEN`
