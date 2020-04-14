@@ -35,6 +35,26 @@ static int renderIndexOptions(RedisModuleCtx *ctx, IndexSpec *sp) {
   return 2;
 }
 
+static int wildcardInfoCommand(RedisModuleCtx *ctx, ArgsCursor *ac) {
+  // List all the indexes
+  const char *subcommand = "LIST";
+  if (AC_NumRemaining(ac)) {
+    subcommand = AC_GetStringNC(ac, NULL);
+  }
+  if (!strcasecmp(subcommand, "LIST")) {
+    RedisModule_ReplyWithArray(ctx, dictSize(RSIndexes_g));
+    dictIterator *it = dictGetIterator(RSIndexes_g);
+    dictEntry *e = NULL;
+    while ((e = dictNext(it))) {
+      RedisModule_ReplyWithSimpleString(ctx, e->key);
+    }
+    dictReleaseIterator(it);
+  } else {
+    return RedisModule_ReplyWithError(ctx, "Unknown subcommand");
+  }
+  return REDISMODULE_OK;
+}
+
 /* FT.INFO {index}
  *  Provide info and stats about an index
  */
@@ -47,6 +67,9 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   ArgsCursor_InitRString(&ac, argv + 1, argc - 1);
   const char *idxname = AC_GetStringNC(&ac, NULL);
+  if (*idxname == '*') {
+    return wildcardInfoCommand(ctx, &ac);
+  }
   IndexSpec *sp = IndexSpec_Load(ctx, idxname, 1);
   if (sp == NULL) {
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
