@@ -474,8 +474,6 @@ FIELD_BULK_INDEXER(geoIndexer) {
     QueryError_SetError(status, QUERY_EGENERIC, "Could not index geo value");
     return -1;
   }
-  ctx->spec->stats.invertedSize += GEO_STORAGE_SIZE; // TODO: exact amount
-  ctx->spec->stats.numRecords++;
   return 0;
 }
 

@@ -2999,7 +2999,7 @@ def testIssue1169(env):
     env.expect('FT.AGGREGATE idx foo GROUPBY 1 @txt1 REDUCE FIRST_VALUE 1 @txt2 as test').equal([1L, ['txt1', 'foo', 'test', None]])
 
 def testIssue1184(env):
-    field_types = ['TEXT', 'NUMERIC', 'TAG', 'GEO']
+    field_types = ['TEXT', 'NUMERIC', 'TAG']
 
     for ft in field_types:
         env.assertOk(env.execute_command('FT.CREATE idx SCHEMA  field ' + ft))
@@ -3010,7 +3010,7 @@ def testIssue1184(env):
         env.assertEqual(d['num_records'], '0') 
 
 
-        value = '3,3' if ft == 'GEO' else '3'
+        value = '42'
         env.assertOk(env.execute_command('FT.ADD idx doc0 1 FIELD field ' + value))
         doc = env.cmd('FT.SEARCH idx *')
         env.assertEqual(doc, [1L, 'doc0', ['field', value]])

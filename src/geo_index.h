@@ -14,7 +14,6 @@ typedef struct geoIndex {
 } GeoIndex;
 
 #define GEOINDEX_KEY_FMT "geo:%s/%s"
-#define GEO_STORAGE_SIZE 48 // size of GEO on redis
 
 int GeoIndex_AddStrings(GeoIndex *gi, t_docId docId, const char *slon, const char *slat);
 
