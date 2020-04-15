@@ -671,22 +671,35 @@ void IndexSpec_FreeWithKey(IndexSpec *sp, RedisModuleCtx *ctx) {
   IndexSpec_Free(sp);
 }
 
-static void IndexSpec_FreeInternals(IndexSpec *spec) {
-  if (spec->gc) {
-    GCContext_Stop(spec->gc);
+static void IndexSpec_Unregister(IndexSpec *spec) {
+  if (spec->flags & Index_UseRules) {
+    SchemaRules_UnregisterIndex(spec);
   }
 
+  IndexSpec_ClearAliases(spec);
+  Cursors_PurgeWithName(&RSCursors, spec->name);
+  CursorList_RemoveSpec(&RSCursors, spec->name);
+  if (spec->gc) {
+    GCContext_Stop(spec->gc);
+    spec->gc = NULL;
+  }
+
+  dictDelete(RSIndexes_g, spec->name);
+  // Remove the geo key
+  for (size_t ii = 0; ii < spec->numFields; ++ii) {
+    if (FIELD_IS(spec->fields + ii, INDEXFLD_T_GEO)) {
+      GeoIndex_RemoveKey(RSDummyContext, spec->geos[ii]);
+    }
+  }
+}
+
+static void IndexSpec_FreeInternals(IndexSpec *spec) {
   if (spec->terms) {
     TrieType_Free(spec->terms);
   }
   DocTable_Free(&spec->docs);
 
-  if (spec->uniqueId) {
-    // If uniqueid is 0, it means the index was not initialized
-    // and is being freed now during an error.
-    Cursors_PurgeWithName(&RSCursors, spec->name);
-    CursorList_RemoveSpec(&RSCursors, spec->name);
-  }
+  IndexSpec_Unregister(spec);
 
   rm_free(spec->name);
   if (spec->sortables) {
@@ -744,7 +757,6 @@ static void IndexSpec_FreeInternals(IndexSpec *spec) {
     InvertedIndex_Free(spec->cachedInvidx);
   }
 
-  IndexSpec_ClearAliases(spec);
   rm_free(spec);
 }
 
@@ -767,10 +779,6 @@ size_t IndexSpec_Decref(IndexSpec *spec) {
   if (n) {
     return n;
   }
-  if (spec->flags & Index_UseRules) {
-    SchemaRules_UnregisterIndex(spec);
-    spec->flags &= ~Index_UseRules;
-  }
 
   if (spec->flags & Index_Temporary) {
     if (!cleanPool) {
@@ -782,16 +790,6 @@ size_t IndexSpec_Decref(IndexSpec *spec) {
 
   IndexSpec_FreeInternals(spec);
   return 0;
-}
-
-static void unregisterSpec(IndexSpec *sp) {
-  dictDelete(RSIndexes_g, sp->name);
-  for (size_t ii = 0; ii < sp->numFields; ++ii) {
-    if (FIELD_IS(sp->fields + ii, INDEXFLD_T_GEO)) {
-      GeoIndex_Free(sp->geos[ii]);
-      sp->geos[ii] = NULL;
-    }
-  }
 }
 
 void IndexSpec_Free(void *ctx) {
@@ -816,17 +814,11 @@ void IndexSpec_FreeEx(IndexSpec *ctx, int options) {
     return;
   }
 
-  dictDelete(RSIndexes_g, sp->name);
-  // Remove the geo key
-  for (size_t ii = 0; ii < sp->numFields; ++ii) {
-    if (FIELD_IS(sp->fields + ii, INDEXFLD_T_GEO)) {
-      GeoIndex_RemoveKey(RSDummyContext, sp->geos[ii]);
-    }
-  }
-
   if ((options & IDXFREE_F_DELDOCS) && !(sp->flags & Index_UseRules)) {
     DOCTABLE_FOREACH((&sp->docs), deleteRedisKey(RSDummyContext, dmd));
   }
+
+  IndexSpec_Unregister(sp);
 
   // Let's delete ourselves from the global index list as well
   IndexSpec_Decref(ctx);

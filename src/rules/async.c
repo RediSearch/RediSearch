@@ -144,8 +144,10 @@ static void indexBatch(AsyncIndexQueue *aiq, SpecDocQueue *dq) {
 
   next_item:
     RedisModule_FreeString(NULL, rid->kstr);
+    if (rki.kobj) {
+      RedisModule_CloseKey(rki.kobj);
+    }
     ridFree(rid);
-    // deal with Key when applicable
   }
   dictReleaseIterator(iter);
 

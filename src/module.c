@@ -957,6 +957,7 @@ void __attribute__((destructor)) RediSearch_CleanupModule(void) {
   }
   invoked = 1;
   IndexSpec_CleanAll();
+  SchemaRules_ShutdownGlobal();
   CursorList_Destroy(&RSCursors);
   Extensions_Free();
   StopWordList_FreeGlobals();
@@ -964,6 +965,5 @@ void __attribute__((destructor)) RediSearch_CleanupModule(void) {
   mempool_free_global();
   IndexAlias_DestroyGlobal();
   Expr_AttributesDestroy();
-  SchemaRules_ShutdownGlobal();
   RedisModule_FreeThreadSafeContext(RSDummyContext);
 }

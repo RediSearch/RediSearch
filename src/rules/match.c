@@ -230,6 +230,7 @@ void SchemaRule_Free(SchemaRule *r) {
     case SCRULE_TYPE_EXPRESSION: {
       SchemaExprRule *serule = (SchemaExprRule *)r;
       RSExpr_Free(serule->exprobj);
+      RLookup_Cleanup(&serule->lk);
       rm_free(serule->exprstr);
       break;
     }

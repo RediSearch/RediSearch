@@ -281,8 +281,10 @@ void SchemaRules_UnregisterIndex(IndexSpec *sp) {
   // Iterate through all the rules which reference this index
   SchemaRules *rules = SchemaRules_g;
   for (size_t ii = 0; ii < array_len(rules->rules); ++ii) {
-    if (rules->rules[ii]->spec == sp) {
+    SchemaRule *r = rules->rules[ii];
+    if (r->spec == sp) {
       ARRAY_DEL_ITER(rules->rules, ii);
+      SchemaRule_Free(r);
     }
   }
 }
