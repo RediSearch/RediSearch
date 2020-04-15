@@ -41,8 +41,8 @@ def testTagIndex(env):
             res = env.cmd(
                 'ft.search', 'idx', 'hello world @tags:{tag\\ %d|tag %d}' % (n, n + 1), 'nocontent')
             env.assertEqual(2, res[0])
-            env.assertEqual('doc%d' % n, res[2])
-            env.assertEqual('doc%d' % (n + 1), res[1])
+            env.assertIn('doc%d' % n, res)
+            env.assertIn('doc%d' % (n + 1), res)
 
             res = env.cmd(
                 'ft.search', 'idx', 'term%d @tags:{tag %d}' % (n, n), 'nocontent')
