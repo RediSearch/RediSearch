@@ -578,6 +578,15 @@ DEBUG_COMMAND(TTL) {
   return RedisModule_ReplyWithLongLong(ctx, remaining / 1000);
 }
 
+DEBUG_COMMAND(Exists) {
+  if (argc != 1) {
+    return RedisModule_WrongArity(ctx);
+  }
+  IndexLoadOptions lopts = {.flags = INDEXSPEC_LOAD_KEY_RSTRING | INDEXSPEC_LOAD_NOTOUCH,
+                            .name = {.rstring = argv[0]}};
+  return RedisModule_ReplyWithLongLong(ctx, IndexSpec_LoadEx(NULL, &lopts) != NULL);
+}
+
 typedef struct DebugCommandType {
   char *name;
   int (*callback)(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
@@ -600,6 +609,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex},
                                {"GEO_KEYNAME", GeoKeyname},
                                {"FLUSHALL", FlushAll},
                                {"TTL", TTL},
+                               {"EXISTS", Exists},
                                {NULL, NULL}};
 
 int DebugCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
