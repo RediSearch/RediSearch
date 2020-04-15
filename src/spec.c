@@ -572,24 +572,24 @@ InvertedIndex *IDX_LoadTerm(IndexSpec *sp, const char *term, size_t n, int flags
   }
 }
 
-#define DECLARE_IDXACC_COMMON(base, fnames, type, ctor, fld, T) \
-  T base(IndexSpec *sp, const FieldSpec *fs, int options) {     \
-    if (!FIELD_IS(fs, type)) {                                  \
-      return NULL;                                              \
-    }                                                           \
-    T r = sp->fld[fs->index];                                   \
-    if (r || (options & REDISMODULE_WRITE) == 0) {              \
-      return r;                                                 \
-    }                                                           \
-    r = sp->fld[fs->index] = ctor;                              \
-    return r;                                                   \
-  }                                                             \
-  T fnames(IndexSpec *sp, const char *s, int options) {         \
-    const FieldSpec *fs = IndexSpec_GetField(sp, s, strlen(s)); \
-    if (!fs) {                                                  \
-      return NULL;                                              \
-    }                                                           \
-    return base(sp, fs, options);                               \
+#define DECLARE_IDXACC_COMMON(base, fnames, type, ctor, fld, T)     \
+  T base(IndexSpec *sp, const FieldSpec *fs, int options) {         \
+    if (!FIELD_IS(fs, type)) {                                      \
+      return NULL;                                                  \
+    }                                                               \
+    T r = sp->fld[fs->index];                                       \
+    if (r || (options & REDISMODULE_WRITE) == 0) {                  \
+      return r;                                                     \
+    }                                                               \
+    r = sp->fld[fs->index] = ctor;                                  \
+    return r;                                                       \
+  }                                                                 \
+  T fnames(IndexSpec *sp, const char *s, int options) {             \
+    const FieldSpec *fs = IndexSpec_GetFieldCase(sp, s, strlen(s)); \
+    if (!fs) {                                                      \
+      return NULL;                                                  \
+    }                                                               \
+    return base(sp, fs, options);                                   \
   }
 
 DECLARE_IDXACC_COMMON(IDX_LoadRange, IDX_LoadRangeFieldname, INDEXFLD_T_NUMERIC,
