@@ -191,7 +191,9 @@ void SearchCtx_Free(RedisSearchCtx *sctx) {
     RedisModule_CloseKey(sctx->key_);
     sctx->key_ = NULL;
   }
-  rm_free(sctx);
+  if (!sctx->isStatic) {
+    rm_free(sctx);
+  }
 }
 
 int Redis_ScanKeys(RedisModuleCtx *ctx, const char *prefix, ScanFunc f, void *opaque) {
