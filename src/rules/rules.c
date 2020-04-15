@@ -36,6 +36,9 @@ void SchemaRules_CleanRules(SchemaRules *rules) {
 
 void SchemaRules_Free(SchemaRules *rules) {
   SchemaRules_CleanRules(rules);
+  for (size_t ii = 0; ii < array_len(rules->actions); ++ii) {
+    MatchAction_Clear(rules->actions + ii);
+  }
   array_free(rules->actions);
   array_free(rules->rules);
   rules->revision = 0;
@@ -43,9 +46,13 @@ void SchemaRules_Free(SchemaRules *rules) {
 }
 
 static void loadAttrFields(RuleKeyItem *item, const IndexItemAttrs *iia, Document *d) {
-  if (iia->fldLang) {
+  SchemaAttrFieldpack *fp = iia->fp;
+  if (!fp) {
+    return;  // eh?
+  }
+  if (fp->lang) {
     RedisModuleString *langstr = NULL;
-    RedisModule_HashGet(item->kobj, 0, iia->fldLang, &langstr, NULL);
+    RedisModule_HashGet(item->kobj, 0, fp->lang, &langstr, NULL);
     if (langstr) {
       RSLanguage lang = RSLanguage_Find(RedisModule_StringPtrLen(langstr, NULL));
       if (lang != RS_LANG_UNSUPPORTED) {
@@ -56,9 +63,9 @@ static void loadAttrFields(RuleKeyItem *item, const IndexItemAttrs *iia, Documen
     }
   }
 
-  if (iia->fldScore) {
+  if (fp->score) {
     RedisModuleString *scorestr = NULL;
-    RedisModule_HashGet(item->kobj, 0, iia->fldScore, &scorestr, NULL);
+    RedisModule_HashGet(item->kobj, 0, fp->score, &scorestr, NULL);
     double dbl = 0;
     if (scorestr) {
       int rc = RedisModule_StringToDouble(scorestr, &dbl);
@@ -69,9 +76,9 @@ static void loadAttrFields(RuleKeyItem *item, const IndexItemAttrs *iia, Documen
       }
     }
   }
-  if (iia->fldPayload) {
+  if (fp->payload) {
     RedisModuleString *payload = NULL;
-    RedisModule_HashGet(item->kobj, 0, iia->fldPayload, &payload, NULL);
+    RedisModule_HashGet(item->kobj, 0, fp->payload, &payload, NULL);
     if (payload) {
       size_t len;
       const char *buf = RedisModule_StringPtrLen(payload, &len);

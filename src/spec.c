@@ -1264,7 +1264,16 @@ static int customRuleCb(RedisModuleCtx *ctx, RuleKeyItem *item, void *arg, Schem
   if (!dmd) {
     return 0;
   }
-  SchemaCustomCtx_Index(cc, lrp->spec, 0, dmd->score);
+  IndexItemAttrs attrs;
+  if (dmd->score) {
+    attrs.score = dmd->score;
+    attrs.predefMask |= SCATTR_TYPE_SCORE;
+  }
+  if (dmd->payload) {
+    attrs.predefMask |= SCATTR_TYPE_PAYLOAD;
+    attrs.payload = RedisModule_CreateString(RSDummyContext, dmd->payload->data, dmd->payload->len);
+  }
+  SchemaCustomCtx_Index(cc, lrp->spec, &attrs);
   return 1;
 }
 

@@ -41,15 +41,25 @@ int SchemaRules_AddArgsInternal(SchemaRules *rules, IndexSpec *spec, const char 
                                 ArgsCursor *ac, QueryError *err);
 int SchemaRules_SetArgs(ArgsCursor *ac, QueryError *err);
 
-typedef struct {
-  RSLanguage language;  // can be an enum??
-  float score;
-  int predefMask;  // Mask of attributes which are predefined
+typedef enum {
+  SCATTR_TYPE_LANGUAGE = 0x01,
+  SCATTR_TYPE_SCORE = 0x02,
+  SCATTR_TYPE_PAYLOAD = 0x04
+} SchemaAttrType;
 
+typedef enum {
+  SCATTR_FLD_LANGUAGE = 0,
+  SCATTR_FLD_SCORE,
+  SCATTR_FLD_PAYLOAD,
+  SCATTR_FLD_MAX
+} SchemaAttrField;
+
+typedef struct {
+  float score;
+  RSLanguage language : 8;  // can be an enum??
+  uint8_t predefMask;       // Mask of attributes which are predefined
   RedisModuleString *payload;
-  RedisModuleString *fldLang;
-  RedisModuleString *fldScore;
-  RedisModuleString *fldPayload;
+  struct SchemaAttrFieldpack *fp;
 } IndexItemAttrs;
 
 typedef struct {
@@ -161,7 +171,13 @@ typedef struct SchemaCustomCtx SchemaCustomCtx;
 
 typedef int (*SchemaCustomCallback)(RedisModuleCtx *, RuleKeyItem *, void *arg, SchemaCustomCtx *);
 
-void SchemaCustomCtx_Index(SchemaCustomCtx *ctx, IndexSpec *spec, RSLanguage language, float score);
+/**
+ * Declare that the item should be indexed using provided attributes;
+ * Any relevant data is copied. Note that this function does not actually index
+ * the data; indexing will take place per the schema policy
+ */
+void SchemaCustomCtx_Index(SchemaCustomCtx *ctx, IndexSpec *spec, IndexItemAttrs *attrs);
+
 SchemaCustomRule *SchemaRules_AddCustomRule(SchemaCustomCallback cb, void *arg, int pos);
 void SchemaRules_RemoveCustomRule(SchemaCustomRule *p);
 #ifdef __cplusplus

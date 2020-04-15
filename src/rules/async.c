@@ -1,5 +1,7 @@
 #include "util/arr.h"
+#include "util/misc.h"
 #include "rules.h"
+#include "ruledefs.h"
 #include "module.h"
 #include "indexer.h"
 #include <sys/time.h>
@@ -29,29 +31,21 @@ void AIQ_Destroy(AsyncIndexQueue *aq) {
   rm_free(aq);
 }
 
-#define MAYBE_RETAIN(f)                          \
-  if (f) {                                       \
-    RedisModule_RetainString(RSDummyContext, f); \
-  }
-#define MAYBE_FREE(f)                          \
-  if (f) {                                     \
-    RedisModule_FreeString(RSDummyContext, f); \
-  }
-
 static void copyFieldnames(IndexItemAttrs *iia) {
-  MAYBE_RETAIN(iia->fldLang)
-  MAYBE_RETAIN(iia->fldScore)
-  MAYBE_RETAIN(iia->fldPayload)
+  if (iia->fp) {
+    SCAttrFields_Incref(iia->fp);
+  }
 }
 
 static void freeFieldnames(IndexItemAttrs *iia) {
-  MAYBE_FREE(iia->fldLang)
-  MAYBE_FREE(iia->fldScore)
-  MAYBE_FREE(iia->fldPayload)
+  if (iia->fp) {
+    SCAttrFields_Decref(iia->fp);
+  }
 }
 
 static void ridFree(RuleIndexableDocument *rid) {
   freeFieldnames(&rid->iia);
+  RM_XFreeString(rid->iia.payload);
   rm_free(rid);
 }
 
@@ -71,9 +65,11 @@ void AIQ_Submit(AsyncIndexQueue *aq, IndexSpec *spec, MatchAction *result, RuleK
   RuleIndexableDocument *rid = rm_calloc(1, sizeof(*rid));
   rid->kstr = item->kstr;
   rid->iia = result->attrs;
-  copyFieldnames(&rid->iia);
 
-  RedisModule_RetainString(NULL, rid->kstr);
+  copyFieldnames(&rid->iia);
+  RM_XRetainString(rid->iia.payload);
+
+  RedisModule_RetainString(RSDummyContext, rid->kstr);
   SpecDocQueue *dq = spec->queue;
   if (!dq) {
     dq = SpecDocQueue_Create(spec);

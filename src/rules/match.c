@@ -1,6 +1,35 @@
 #include "rules.h"
 #include "ruledefs.h"
 #include "module.h"
+#include "util/misc.h"
+
+void MatchAction_Clear(MatchAction *action) {
+  RM_XFreeString(action->attrs.payload);
+  if (action->attrs.fp) {
+    SCAttrFields_Decref(action->attrs.fp);
+  }
+  memset(action, 0, sizeof(*action));
+}
+
+static void clearActions(MatchAction *actions) {
+  size_t n = array_len(actions);
+  for (size_t ii = 0; ii < n; ++ii) {
+    MatchAction_Clear(actions + ii);
+  }
+  array_clear(actions);
+}
+
+void SCAttrFields_Incref(SchemaAttrFieldpack *fp) {
+  fp->refcount++;
+}
+void SCAttrFields_Decref(SchemaAttrFieldpack *fp) {
+  if (--fp->refcount) {
+    return;
+  }
+  RM_XFreeString(fp->lang);
+  RM_XFreeString(fp->score);
+  RM_XFreeString(fp->payload);
+}
 
 static MatchAction *actionForIndex(IndexSpec *spec, MatchAction **results);
 
@@ -117,11 +146,15 @@ static int extractAction(const char *atype, SchemaAction *action, ArgsCursor *ac
     action->atype = SCACTION_TYPE_SETATTR;
 
   } else if (!strcasecmp(atype, "LOADATTRS")) {
-    struct SchemaLoadattrSettings *lattr = &action->u.loadattr;
+    SchemaAttrFieldpack *lattr = action->u.lattr = rm_calloc(1, sizeof(*action->u.lattr));
+    lattr->refcount = 1;
+
     const char *langstr = NULL;
     const char *scorestr = NULL;
+    const char *payloadstr = NULL;
     ACArgSpec specs[] = {{.name = "LANGUAGE", .target = &langstr, .type = AC_ARGTYPE_STRING},
                          {.name = "SCORE", .target = &scorestr, .type = AC_ARGTYPE_STRING},
+                         {.name = "PAYLOAD", .target = &payloadstr, .type = AC_ARGTYPE_STRING},
                          {NULL}};
     ACArgSpec *errspec = NULL;
     int rc = AC_ParseArgSpec(ac, specs, &errspec);
@@ -129,12 +162,10 @@ static int extractAction(const char *atype, SchemaAction *action, ArgsCursor *ac
       QueryError_SetErrorFmt(err, QUERY_EPARSEARGS, "Couldn't parse SETATTR arguments: %s",
                              AC_Strerror(rc));
     }
-    if (langstr) {
-      lattr->langfield = RedisModule_CreateString(RSDummyContext, langstr, strlen(langstr));
-    }
-    if (scorestr) {
-      lattr->scorefield = RedisModule_CreateString(RSDummyContext, scorestr, strlen(scorestr));
-    }
+#define FROM_CSTR(s) s ? RedisModule_CreateString(RSDummyContext, s, strlen(s)) : NULL;
+    lattr->lang = FROM_CSTR(langstr);
+    lattr->score = FROM_CSTR(scorestr);
+    lattr->payload = FROM_CSTR(payloadstr);
     action->atype = SCACTION_TYPE_LOADATTR;
   } else {
     QueryError_SetErrorFmt(err, QUERY_EPARSEARGS, "Unknown action type `%s`", atype);
@@ -213,10 +244,9 @@ MATCHFUNC(matchHasfield) {
   return ret;
 }
 
-void SchemaCustomCtx_Index(SchemaCustomCtx *ctx, IndexSpec *spec, RSLanguage lang, float score) {
+void SchemaCustomCtx_Index(SchemaCustomCtx *ctx, IndexSpec *spec, IndexItemAttrs *attrs) {
   MatchAction *action = actionForIndex(spec, ctx->action);
-  action->attrs.language = lang;
-  action->attrs.score = score;
+  action->attrs = *attrs;
 }
 
 MATCHFUNC(matchCustom) {
@@ -255,12 +285,9 @@ void SchemaRule_Free(SchemaRule *r) {
       rm_free(action->u.goto_);
       break;
     case SCACTION_TYPE_LOADATTR:
-      if (action->u.loadattr.scorefield) {
-        RedisModule_FreeString(RSDummyContext, action->u.loadattr.scorefield);
-      }
-      if (action->u.loadattr.langfield) {
-        RedisModule_FreeString(RSDummyContext, action->u.loadattr.langfield);
-      }
+      SCAttrFields_Decref(action->u.lattr);
+      action->u.lattr = NULL;
+      break;
     case SCACTION_TYPE_SETATTR:
     case SCACTION_TYPE_ABORT:
     case SCACTION_TYPE_INDEX:
@@ -360,13 +387,16 @@ static MatchAction *actionForIndex(IndexSpec *spec, MatchAction **results) {
   if (!curAction) {
     curAction = array_ensure_tail(results, MatchAction);
     curAction->spec = spec;
-    memset(&curAction->attrs, 0, sizeof(curAction->attrs));
+    curAction->attrs.payload = NULL;
+    curAction->attrs.fp = NULL;
+    curAction->attrs.predefMask = 0;
   }
   return curAction;
 }
 
 int SchemaRules_Check(SchemaRules *rules, RedisModuleCtx *ctx, RuleKeyItem *item,
                       MatchAction **results, size_t *nresults) {
+  clearActions(rules->actions);
   *results = rules->actions;
   array_clear(*results);
   size_t nrules = array_len(rules->rules);
@@ -412,11 +442,8 @@ int SchemaRules_Check(SchemaRules *rules, RedisModuleCtx *ctx, RuleKeyItem *item
         curAction->attrs.score = attr->score;
       }
     } else if (rule->action.atype == SCACTION_TYPE_LOADATTR) {
-      struct SchemaLoadattrSettings *lattr = &rule->action.u.loadattr;
-      IndexItemAttrs *iia = &curAction->attrs;
-      iia->fldLang = lattr->langfield;
-      iia->fldScore = lattr->scorefield;
-      iia->fldPayload = lattr->scorefield;
+      SchemaAttrFieldpack *fp = rule->action.u.lattr;
+      curAction->attrs.fp = fp;
     }
   next_rule:;
   }

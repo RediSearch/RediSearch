@@ -36,11 +36,18 @@ typedef enum {
 
 typedef struct SchemaAction SchemaAction;
 
-typedef enum {
-  SCATTR_TYPE_LANGUAGE = 0x01,
-  SCATTR_TYPE_SCORE = 0x02,
-  SCATTR_TYPE_PAYLOAD = 0x04
-} SchemaAttrType;
+/** Field pack for attributes which are loaded together */
+typedef struct SchemaAttrFieldpack {
+  /**
+   * This can be used on multiple documents in a queue; rather than copy them
+   * individually, we just increment the reference counter
+   */
+  size_t refcount;
+  RedisModuleString *lang, *score, *payload;
+} SchemaAttrFieldpack;
+
+void SCAttrFields_Incref(SchemaAttrFieldpack *);
+void SCAttrFields_Decref(SchemaAttrFieldpack *);
 
 struct SchemaAction {
   SchemaActionType atype;
@@ -49,11 +56,7 @@ struct SchemaAction {
       IndexItemAttrs attrs;
       int mask;
     } setattr;
-    struct SchemaLoadattrSettings {
-      RedisModuleString *langfield;
-      RedisModuleString *scorefield;
-      RedisModuleString *payloadfield;
-    } loadattr;
+    SchemaAttrFieldpack *lattr;
     char *goto_;
   } u;
 };
@@ -109,3 +112,4 @@ struct SchemaRules {
 };
 
 void SchemaRule_Free(SchemaRule *rule);
+void MatchAction_Clear(MatchAction *action);
