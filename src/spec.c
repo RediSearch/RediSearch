@@ -43,6 +43,24 @@ static const FieldSpec *getFieldCommon(const IndexSpec *spec, const char *name, 
   return NULL;
 }
 
+static void expiredCallback(RedisModuleCtx *ctx, void *arg) {
+  IndexSpec *spec = arg;
+  spec->timer = 0;
+  spec->state |= IDX_S_EXPIRED;
+  IndexSpec_FreeEx(spec, 0);
+}
+
+static void resetTimer(IndexSpec *sp) {
+  if (!(sp->flags & Index_Temporary)) {
+    return;
+  }
+
+  if (sp->timer) {
+    RedisModule_StopTimer(RSDummyContext, sp->timer, NULL);
+  }
+  sp->timer = RedisModule_CreateTimer(RSDummyContext, sp->timeout * 1000, expiredCallback, sp);
+}
+
 /*
  * Get a field spec by field name. Case insensitive!
  * Return the field spec if found, NULL if not
@@ -184,6 +202,7 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
   CursorList_AddSpec(&RSCursors, sp->name, RSCURSORS_DEFAULT_CAPACITY);
   sp->state &= ~IDX_S_CREATING;  // Already created
   prepareGeoIndexes(sp);
+  resetTimer(sp);
   if (IndexSpec_OnCreate) {
     IndexSpec_OnCreate(sp);
   }
@@ -681,6 +700,11 @@ static void IndexSpec_Unregister(IndexSpec *spec) {
     spec->gc = NULL;
   }
 
+  if (spec->timer) {
+    RedisModule_StopTimer(RSDummyContext, spec->timer, NULL);
+    spec->timer = 0;
+  }
+
   IndexSpec_ClearAliases(spec);
 
   // This block relies on name-based lookups, in this case we should
@@ -849,6 +873,10 @@ IndexSpec *IndexSpec_LoadEx(void *unused, IndexLoadOptions *options) {
     IndexSpec *aliasTarget = ret = IndexAlias_Get(ixname);
   } else {
     ret = ent->v.val;
+  }
+
+  if (ret && !(options->flags & INDEXSPEC_LOAD_NOTOUCH)) {
+    resetTimer(ret);
   }
 
   return ret;

@@ -5,18 +5,21 @@
 #include "tag_index.h"
 #include "numeric_index.h"
 #include "phonetic_manager.h"
+#include "module.h"
 #include "gc.h"
 
 #define DUMP_PHONETIC_HASH "DUMP_PHONETIC_HASH"
 
 #define DEBUG_COMMAND(name) static int name(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
-#define GET_SEARCH_CTX(name)                                                     \
-  IndexSpec *sp = IndexSpec_Load(NULL, RedisModule_StringPtrLen(name, NULL), 0); \
-  if (!sp) {                                                                     \
-    return RedisModule_ReplyWithError(ctx, "Index not found");                   \
-  }                                                                              \
-  RedisSearchCtx sctx_s = SEARCH_CTX_STATIC(ctx, sp);                            \
+#define GET_SEARCH_CTX(name_)                                                             \
+  IndexLoadOptions lopts = {.flags = INDEXSPEC_LOAD_NOTOUCH | INDEXSPEC_LOAD_KEY_RSTRING, \
+                            .name = {.rstring = name_}};                                  \
+  IndexSpec *sp = IndexSpec_LoadEx(NULL, &lopts);                                         \
+  if (!sp) {                                                                              \
+    return RedisModule_ReplyWithError(ctx, "Index not found");                            \
+  }                                                                                       \
+  RedisSearchCtx sctx_s = SEARCH_CTX_STATIC(ctx, sp);                                     \
   RedisSearchCtx *sctx = &sctx_s;
 
 #define REPLY_WITH_LONG_LONG(name, val, len)                  \
@@ -558,6 +561,24 @@ DEBUG_COMMAND(FlushAll) {
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
+DEBUG_COMMAND(TTL) {
+  if (argc != 1) {
+    return RedisModule_WrongArity(ctx);
+  }
+  GET_SEARCH_CTX(argv[0]);
+  if (sp->timeout <= 0 || sp->timer == 0) {
+    return RedisModule_ReplyWithDouble(ctx, 0);
+  }
+  uint64_t remaining = 0;
+  void *dd = NULL;
+  if (RedisModule_GetTimerInfo(RSDummyContext, sp->timer, &remaining, &dd) != REDISMODULE_OK) {
+    printf("Timer is %lu\n", sp->timer);
+    return RedisModule_ReplyWithError(ctx, "Trouble getting timer info");
+  }
+  remaining /= 1000;
+  return RedisModule_ReplyWithDouble(ctx, remaining);
+}
+
 typedef struct DebugCommandType {
   char *name;
   int (*callback)(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
@@ -579,6 +600,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex},
                                {"GIT_SHA", GitSha},
                                {"GEO_KEYNAME", GeoKeyname},
                                {"FLUSHALL", FlushAll},
+                               {"TTL", TTL},
                                {NULL, NULL}};
 
 int DebugCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {

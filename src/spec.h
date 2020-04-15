@@ -181,7 +181,8 @@ typedef enum {
   IDX_S_NODELKEYS = 0x01, // Don't delete keys when deleting the index
   IDX_S_DELETED = 0x02, // Index has been deleted via IndexSpec_Free
   IDX_S_CREATING = 0x04, // Index is still being created
-  IDX_S_LIBORIGIN = 0x08 // Index created using C API
+  IDX_S_LIBORIGIN = 0x08, // Index created using C API
+  IDX_S_EXPIRED = 0x10
 } IndexState;
 
 struct IndexSpec {
@@ -206,6 +207,7 @@ struct IndexSpec {
   GCContext *gc;
 
   SynonymMap *smap;
+  RedisModuleTimerID timer;
 
   uint64_t uniqueId;
   size_t refcount;
@@ -347,6 +349,8 @@ IndexSpec *IndexSpec_Load(void *unused, const char *name, int openWrite);
 #define INDEXSPEC_LOAD_NOALIAS 0x02
 /** The name of the index is in the format of a redis string */
 #define INDEXSPEC_LOAD_KEY_RSTRING 0x04
+/** Don't update index TTL, for temporary indexes */
+#define INDEXSPEC_LOAD_NOTOUCH 0x08
 
 typedef struct {
   uint32_t flags;
