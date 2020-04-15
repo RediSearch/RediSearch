@@ -25,6 +25,8 @@ def downloadFiles():
     return True
 
 def testRDBCompatibility(env):
+    env.skip() # We aren't compatible with older RDB formats at the moment
+
     env.skipOnCluster()
     dbFileName = env.cmd('config', 'get', 'dbfilename')[1]
     dbDir = env.cmd('config', 'get', 'dir')[1]
