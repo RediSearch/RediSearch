@@ -575,8 +575,7 @@ DEBUG_COMMAND(TTL) {
     printf("Timer is %lu\n", sp->timer);
     return RedisModule_ReplyWithError(ctx, "Trouble getting timer info");
   }
-  remaining /= 1000;
-  return RedisModule_ReplyWithDouble(ctx, remaining);
+  return RedisModule_ReplyWithLongLong(ctx, remaining / 1000);
 }
 
 typedef struct DebugCommandType {
