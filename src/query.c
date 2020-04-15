@@ -742,8 +742,7 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
 
   if (total_its) {
     if (q->conc) {
-      abort();
-      // TagIndex_RegisterConcurrentIterators(idx, q->conc, k, kstr, (array_t *)total_its);
+      TagIndex_RegisterConcurrentIterators(idx, q->conc, (array_t *)total_its);
     } else {
       array_free(total_its);
     }
