@@ -117,4 +117,5 @@ void IndexSpec_ClearAliases(IndexSpec *sp) {
     *pp = NULL;
   }
   array_free(sp->aliases);
+  sp->aliases = NULL;
 }

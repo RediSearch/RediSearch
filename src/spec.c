@@ -676,19 +676,25 @@ static void IndexSpec_Unregister(IndexSpec *spec) {
     SchemaRules_UnregisterIndex(spec);
   }
 
-  IndexSpec_ClearAliases(spec);
-  Cursors_PurgeWithName(&RSCursors, spec->name);
-  CursorList_RemoveSpec(&RSCursors, spec->name);
   if (spec->gc) {
     GCContext_Stop(spec->gc);
     spec->gc = NULL;
   }
 
-  dictDelete(RSIndexes_g, spec->name);
-  // Remove the geo key
-  for (size_t ii = 0; ii < spec->numFields; ++ii) {
-    if (FIELD_IS(spec->fields + ii, INDEXFLD_T_GEO)) {
-      GeoIndex_RemoveKey(RSDummyContext, spec->geos[ii]);
+  IndexSpec_ClearAliases(spec);
+
+  // This block relies on name-based lookups, in this case we should
+  // ensure that our index really exists, and is not an errored index because
+  // of someone trying to create a new index that already exists
+  if (!(spec->state & IDX_S_CREATING)) {
+    Cursors_PurgeWithName(&RSCursors, spec->name);
+    CursorList_RemoveSpec(&RSCursors, spec->name);
+    dictDelete(RSIndexes_g, spec->name);
+    // Remove the geo key
+    for (size_t ii = 0; ii < spec->numFields; ++ii) {
+      if (FIELD_IS(spec->fields + ii, INDEXFLD_T_GEO)) {
+        GeoIndex_RemoveKey(RSDummyContext, spec->geos[ii]);
+      }
     }
   }
 }
@@ -1264,7 +1270,7 @@ static int customRuleCb(RedisModuleCtx *ctx, RuleKeyItem *item, void *arg, Schem
   if (!dmd) {
     return 0;
   }
-  IndexItemAttrs attrs;
+  IndexItemAttrs attrs = {0};
   if (dmd->score) {
     attrs.score = dmd->score;
     attrs.predefMask |= SCATTR_TYPE_SCORE;

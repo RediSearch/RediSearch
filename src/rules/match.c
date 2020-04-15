@@ -397,14 +397,12 @@ static MatchAction *actionForIndex(IndexSpec *spec, MatchAction **results) {
 int SchemaRules_Check(SchemaRules *rules, RedisModuleCtx *ctx, RuleKeyItem *item,
                       MatchAction **results, size_t *nresults) {
   clearActions(rules->actions);
-  *results = rules->actions;
-  array_clear(*results);
   size_t nrules = array_len(rules->rules);
   for (size_t ii = 0; ii < nrules; ++ii) {
   eval_rule:;
     SchemaRule *rule = rules->rules[ii];
     scruleMatchFn fn = matchfuncs_g[rule->rtype];
-    if (!fn(rule, ctx, item, results)) {
+    if (!fn(rule, ctx, item, &rules->actions)) {
       continue;
     }
 
@@ -431,7 +429,7 @@ int SchemaRules_Check(SchemaRules *rules, RedisModuleCtx *ctx, RuleKeyItem *item
         goto next_rule;
     }
 
-    MatchAction *curAction = actionForIndex(rule->spec, results);
+    MatchAction *curAction = actionForIndex(rule->spec, &rules->actions);
     if (rule->action.atype == SCACTION_TYPE_SETATTR) {
       const IndexItemAttrs *attr = &rule->action.u.setattr.attrs;
       int mask = rule->action.u.setattr.mask;
@@ -448,7 +446,7 @@ int SchemaRules_Check(SchemaRules *rules, RedisModuleCtx *ctx, RuleKeyItem *item
   next_rule:;
   }
 end_match:
-  *nresults = array_len(*results);
-  rules->actions = *results;
+  *nresults = array_len(rules->actions);
+  *results = rules->actions;
   return *nresults;
 }
