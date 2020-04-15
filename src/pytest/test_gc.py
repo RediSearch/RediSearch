@@ -122,9 +122,10 @@ def testDeleteDocWithGoeField(env):
         raise unittest.SkipTest()
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'TEXT', 'SORTABLE', 'test2', 'GEO').ok()
     env.expect('FT.ADD', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'checking', 'test2', '1,1').ok()
-    env.expect('zrange', 'geo:idx/test2', '0', '-1').equal(['1'])
+    geokey = env.cmd('ft.debug', 'geo_keyname', 'idx', 'test2')
+    env.expect('zrange', geokey, '0', '-1').equal(['1'])
     env.expect('FT.DEL', 'idx', 'doc1').equal(1)
-    rv = env.cmd('zrange', 'geo:idx/test2', '0', '-1')
+    rv = env.cmd('zrange', geokey, '0', '-1')
     # On newer redis versions, this is a NULL instead of an empty array
     env.assertFalse(bool(rv))
 
