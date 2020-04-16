@@ -487,7 +487,7 @@ IndexSpec *IndexSpec_ParseArgs(const char *name, ArgsCursor *ac, IndexCreateOpti
     if (spec->stopwords) {
       StopWordList_Unref(spec->stopwords);
     }
-    spec->stopwords = NewStopWordListCStr((const char **)acStopwords.objs, acStopwords.argc);
+    spec->stopwords = StopWordList_FromArgs(&acStopwords);
     spec->flags |= Index_HasCustomStopwords;
   }
 
@@ -887,25 +887,6 @@ void IndexSpec_InitializeSynonym(IndexSpec *sp) {
     sp->smap = SynonymMap_New(false);
     sp->flags |= Index_HasSmap;
   }
-}
-
-int IndexSpec_ParseStopWords(IndexSpec *sp, RedisModuleString **strs, size_t len) {
-  // if the index already has custom stopwords, let us free them first
-  if (sp->stopwords) {
-    StopWordList_Unref(sp->stopwords);
-    sp->stopwords = NULL;
-  }
-
-  sp->stopwords = NewStopWordList(strs, len);
-  // on failure we revert to the default stopwords list
-  if (sp->stopwords == NULL) {
-    sp->stopwords = DefaultStopWordList();
-    sp->flags &= ~Index_HasCustomStopwords;
-    return 0;
-  } else {
-    sp->flags |= Index_HasCustomStopwords;
-  }
-  return 1;
 }
 
 int IndexSpec_IsStopWord(IndexSpec *sp, const char *term, size_t len) {

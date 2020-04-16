@@ -163,6 +163,7 @@ struct IoQueue;
 #define SDQ_S_IDLE 0x01
 #define SDQ_S_PENDING 0x02
 #define SDQ_S_PROCESSING 0x04
+#define SDQ_S_RDBLOAD 0x08
 
 typedef struct {
   IndexSpec *spec;
@@ -411,10 +412,6 @@ void IndexSpec_FreeSync(IndexSpec *spec);
 
 /** Delete the redis key from Redis */
 void IndexSpec_FreeWithKey(IndexSpec *spec, RedisModuleCtx *ctx);
-
-/* Parse a new stopword list and set it. If the parsing fails we revert to the default stopword
- * list, and return 0 */
-int IndexSpec_ParseStopWords(IndexSpec *sp, RedisModuleString **strs, size_t len);
 
 /* Return 1 if a term is a stopword for the specific index */
 int IndexSpec_IsStopWord(IndexSpec *sp, const char *term, size_t len);

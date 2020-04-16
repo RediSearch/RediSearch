@@ -3,6 +3,7 @@
 
 #include <stdlib.h>
 #include "redismodule.h"
+#include "rmutil/args.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -31,6 +32,10 @@ struct StopWordList *NewStopWordList(RedisModuleString **strs, size_t len);
 
 /* Create a new stopword list from a list of NULL-terminated C strings */
 struct StopWordList *NewStopWordListCStr(const char **strs, size_t len);
+
+#define StopWordList_FromArgs(ac)                                                               \
+  (ac)->type == AC_TYPE_RSTRING ? NewStopWordList((RedisModuleString **)(ac)->objs, (ac)->argc) \
+                                : NewStopWordListCStr((const char **)(ac)->objs, (ac)->argc)
 
 /* Free a stopword list's memory */
 void StopWordList_Unref(struct StopWordList *sl);
