@@ -107,6 +107,9 @@ extern "C" {
 #define REDISMODULE_NOTIFY_KEY_MISS (1<<11)   /* m */
 #define REDISMODULE_NOTIFY_ALL (REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_STRING | REDISMODULE_NOTIFY_LIST | REDISMODULE_NOTIFY_SET | REDISMODULE_NOTIFY_HASH | REDISMODULE_NOTIFY_ZSET | REDISMODULE_NOTIFY_EXPIRED | REDISMODULE_NOTIFY_EVICTED | REDISMODULE_NOTIFY_STREAM | REDISMODULE_NOTIFY_KEY_MISS)      /* A */
 
+/* RL Extension: */
+#define REDISMODULE_NOTIFY_TRIMMED (1<<30)     /* trimmed by reshard trimming */
+
 
 /* A special pointer that we can use between the core and the module to signal
  * field deletion, and that is impossible to be a valid pointer. */
@@ -191,6 +194,23 @@ typedef void (*RedisModuleScanKeyCB)(RedisModuleKey *key, RedisModuleString *fie
                                      RedisModuleString *value, void *privdata);
 
 #define REDISMODULE_TYPE_METHOD_VERSION 2
+
+/* Server events definitions. */
+#define REDISMODULE_EVENT_REPLICATION_ROLE_CHANGED 0
+#define REDISMODULE_EVENT_PERSISTENCE 1
+#define REDISMODULE_EVENT_FLUSHDB 2
+#define REDISMODULE_EVENT_LOADING 3
+#define REDISMODULE_EVENT_CLIENT_CHANGE 4
+#define REDISMODULE_EVENT_SHUTDOWN 5
+#define REDISMODULE_EVENT_REPLICA_CHANGE 6
+#define REDISMODULE_EVENT_MASTER_LINK_CHANGE 7
+#define REDISMODULE_EVENT_CRON_LOOP 8
+#define REDISMODULE_EVENT_MODULE_CHANGE 9
+#define REDISMODULE_EVENT_LOADING_PROGRESS 10
+
+/* RL Extension: */
+#define REDISMODULE_EVENT_SHARDING 1000
+
 typedef struct RedisModuleTypeMethods {
     uint64_t version;
     RedisModuleTypeLoadFunc rdb_load;
@@ -203,6 +223,102 @@ typedef struct RedisModuleTypeMethods {
     RedisModuleTypeAuxSaveFunc aux_save;
     int aux_save_triggers;
 } RedisModuleTypeMethods;
+
+typedef struct RedisModuleEvent {
+    uint64_t id;        /* REDISMODULE_EVENT_... defines. */
+    uint64_t dataver;   /* Version of the structure we pass as 'data'. */
+} RedisModuleEvent;
+
+typedef void (*RedisModuleEventCallback)(struct RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data);
+
+static const RedisModuleEvent
+    RedisModuleEvent_ReplicationRoleChanged = {
+        REDISMODULE_EVENT_REPLICATION_ROLE_CHANGED,
+        1
+    },
+    RedisModuleEvent_Persistence = {
+        REDISMODULE_EVENT_PERSISTENCE,
+        1
+    },
+    RedisModuleEvent_FlushDB = {
+        REDISMODULE_EVENT_FLUSHDB,
+        1
+    },
+    RedisModuleEvent_Loading = {
+        REDISMODULE_EVENT_LOADING,
+        1
+    },
+    RedisModuleEvent_ClientChange = {
+        REDISMODULE_EVENT_CLIENT_CHANGE,
+        1
+    },
+    RedisModuleEvent_Shutdown = {
+        REDISMODULE_EVENT_SHUTDOWN,
+        1
+    },
+    RedisModuleEvent_ReplicaChange = {
+        REDISMODULE_EVENT_REPLICA_CHANGE,
+        1
+    },
+    RedisModuleEvent_CronLoop = {
+        REDISMODULE_EVENT_CRON_LOOP,
+        1
+    },
+    RedisModuleEvent_MasterLinkChange = {
+        REDISMODULE_EVENT_MASTER_LINK_CHANGE,
+        1
+    },
+    RedisModuleEvent_ModuleChange = {
+        REDISMODULE_EVENT_MODULE_CHANGE,
+        1
+    },
+    RedisModuleEvent_LoadingProgress = {
+        REDISMODULE_EVENT_LOADING_PROGRESS,
+        1
+    },
+    RedisModuleEvent_Sharding = {
+        REDISMODULE_EVENT_SHARDING,
+        1
+    };
+
+/* Those are values that are used for the 'subevent' callback argument. */
+#define REDISMODULE_SUBEVENT_PERSISTENCE_RDB_START 0
+#define REDISMODULE_SUBEVENT_PERSISTENCE_AOF_START 1
+#define REDISMODULE_SUBEVENT_PERSISTENCE_SYNC_RDB_START 2
+#define REDISMODULE_SUBEVENT_PERSISTENCE_ENDED 3
+#define REDISMODULE_SUBEVENT_PERSISTENCE_FAILED 4
+
+#define REDISMODULE_SUBEVENT_LOADING_RDB_START 0
+#define REDISMODULE_SUBEVENT_LOADING_AOF_START 1
+#define REDISMODULE_SUBEVENT_LOADING_REPL_START 2
+#define REDISMODULE_SUBEVENT_LOADING_ENDED 3
+#define REDISMODULE_SUBEVENT_LOADING_FAILED 4
+
+#define REDISMODULE_SUBEVENT_CLIENT_CHANGE_CONNECTED 0
+#define REDISMODULE_SUBEVENT_CLIENT_CHANGE_DISCONNECTED 1
+
+#define REDISMODULE_SUBEVENT_MASTER_LINK_UP 0
+#define REDISMODULE_SUBEVENT_MASTER_LINK_DOWN 1
+
+#define REDISMODULE_SUBEVENT_REPLICA_CHANGE_ONLINE 0
+#define REDISMODULE_SUBEVENT_REPLICA_CHANGE_OFFLINE 1
+
+#define REDISMODULE_EVENT_REPLROLECHANGED_NOW_MASTER 0
+#define REDISMODULE_EVENT_REPLROLECHANGED_NOW_REPLICA 1
+
+#define REDISMODULE_SUBEVENT_FLUSHDB_START 0
+#define REDISMODULE_SUBEVENT_FLUSHDB_END 1
+
+#define REDISMODULE_SUBEVENT_MODULE_LOADED 0
+#define REDISMODULE_SUBEVENT_MODULE_UNLOADED 1
+
+#define REDISMODULE_SUBEVENT_LOADING_PROGRESS_RDB 0
+#define REDISMODULE_SUBEVENT_LOADING_PROGRESS_AOF 1
+
+/* RL Extension: */
+#define REDISMODULE_SUBEVENT_SHARDING_SLOT_RANGE_CHANGED 0
+#define REDISMODULE_SUBEVENT_SHARDING_TRIMMING_STARTED 1
+#define REDISMODULE_SUBEVENT_SHARDING_TRIMMING_ENDED 2
 
 #define REDISMODULE_XAPI_STABLE(X) \
     X(void *, Alloc, (size_t bytes)) \
@@ -336,7 +452,8 @@ typedef struct RedisModuleTypeMethods {
     X(void, ScanCursorDestroy, (RedisModuleScanCursor*)) \
     X(int, Scan, (RedisModuleCtx*, RedisModuleScanCursor*, RedisModuleScanCB, void *)) \
     X(int, ScanKey, (RedisModuleKey *, RedisModuleScanCursor *, RedisModuleScanKeyCB, void*)) \
-    X(int, PublishMessage, (RedisModuleCtx *,RedisModuleString *,RedisModuleString *))
+    X(int, PublishMessage, (RedisModuleCtx *,RedisModuleString *,RedisModuleString *)) \
+    X(int, SubscribeToServerEvent, (RedisModuleCtx *ctx, RedisModuleEvent event, RedisModuleEventCallback callback))
 
 /* Experimental APIs */
 
@@ -384,7 +501,9 @@ typedef struct RedisModuleTypeMethods {
     X(int, AvoidReplicaTraffic, ()) \
     X(int, Fork, (RedisModuleForkDoneHandler cb, void *user_data)) \
     X(int, ExitFromChild, (int retcode)) \
-    X(int, KillForkChild, (int child_pid))
+    X(int, KillForkChild, (int child_pid)) \
+    X(int, ShardingGetKeySlot, (RedisModuleString *keyname)) \
+    X(void, ShardingGetSlotRange, (int *first_slot, int *last_slot))
 
 #ifdef REDISMODULE_EXPERIMENTAL_API
 #define REDISMODULE_XAPI(X) REDISMODULE_XAPI_STABLE(X) REDISMODULE_XAPI_EXPERIMENTAL(X) REDISMODULE_XAPI_ENTERPRISE(X)

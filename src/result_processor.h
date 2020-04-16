@@ -12,6 +12,8 @@
 #include "extension.h"
 #include "score_explain.h"
 
+extern volatile bool verifyDocumentSlotRange;
+
 #ifdef __cplusplus
 extern "C" {
 #endif

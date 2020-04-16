@@ -214,7 +214,8 @@ static int hashCallback(RedisModuleCtx *ctx, int unused, const char *action,
 static int delCallback(RedisModuleCtx *ctx, int event, const char *action,
                        RedisModuleString *keyname) {
   int shouldDelete = 0;
-  if (event & (REDISMODULE_NOTIFY_EVICTED | REDISMODULE_NOTIFY_EXPIRED)) {
+  if (event &
+      (REDISMODULE_NOTIFY_EVICTED | REDISMODULE_NOTIFY_EXPIRED | REDISMODULE_NOTIFY_TRIMMED)) {
     shouldDelete = 1;
   } else if (event == REDISMODULE_NOTIFY_GENERIC && *action == 'd') {
     shouldDelete = 1;
@@ -245,7 +246,9 @@ void SchemaRules_InitGlobal(RedisModuleCtx *ctx) {
   SchemaRules_g = SchemaRules_Create();
   RedisModule_SubscribeToKeyspaceEvents(RSDummyContext, REDISMODULE_NOTIFY_HASH, hashCallback);
   RedisModule_SubscribeToKeyspaceEvents(
-      RSDummyContext, REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_EXPIRED, delCallback);
+      RSDummyContext,
+      REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_EXPIRED | REDISMODULE_NOTIFY_TRIMMED,
+      delCallback);
 }
 
 void SchemaRules_ShutdownGlobal() {
