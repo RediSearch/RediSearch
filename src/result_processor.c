@@ -8,6 +8,8 @@
  *  General Result Processor Helper functions
  ********************************************************************************************************************/
 
+volatile bool verifyDocumentSlotRange = false;
+
 void QITR_Cleanup(QueryIterator *qitr) {
   ResultProcessor *p = qitr->rootProc;
   while (p) {
@@ -87,6 +89,17 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
     dmd = DocTable_Get(&RP_SPEC(base)->docs, r->docId);
     if (!dmd || (dmd->flags & Document_Deleted)) {
       continue;
+    }
+
+    if (verifyDocumentSlotRange) {
+      int firstSlot, secondSlot;
+      RedisModuleString *keyStr;
+      RedisModule_ShardingGetSlotRange(&firstSlot, &secondSlot);
+      keyStr = RedisModule_CreateString(NULL, dmd->keyPtr, strlen(dmd->keyPtr));
+      int slot = RedisModule_ShardingGetKeySlot(keyStr);
+      if (slot < firstSlot || slot > secondSlot) {
+        continue;
+      }
     }
 
     // Increment the total results barring deleted results

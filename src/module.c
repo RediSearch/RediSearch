@@ -31,6 +31,7 @@
 #include "alias.h"
 #include "module.h"
 #include "info_command.h"
+#include "result_processor.h"
 #include "rules/rules.h"
 
 pthread_rwlock_t RWLock = PTHREAD_RWLOCK_INITIALIZER;
@@ -834,6 +835,41 @@ int ConfigCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return REDISMODULE_OK;
 }
 
+void ShardingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
+  /**
+   * On sharding event we need to do couple of things depends on the subevent given:
+   *
+   * 1. REDISMODULE_SUBEVENT_SHARDING_SLOT_RANGE_CHANGED
+   *    On this event we know that the slot range changed and we might have data
+   *    which are no longer belong to this shard, we must ignore it on searches
+   *
+   * 2. REDISMODULE_SUBEVENT_SHARDING_TRIMMING_STARTED
+   *    This event tells us that the trimming process has started and keys will start to be
+   *    deleted, we do not need to do anything on this event
+   *
+   * 3. REDISMODULE_SUBEVENT_SHARDING_TRIMMING_ENDED
+   *    This event tells us that the trimming process has finished, we are not longer
+   *    have data that are not belong to us and its safe to stop checking this on searches.
+   */
+  if (eid.id != REDISMODULE_EVENT_SHARDING) {
+    RedisModule_Log(RSDummyContext, "warning", "Bad event given, ignored.");
+    return;
+  }
+
+  switch (subevent) {
+    case REDISMODULE_SUBEVENT_SHARDING_SLOT_RANGE_CHANGED:
+      verifyDocumentSlotRange = true;
+      break;
+    case REDISMODULE_SUBEVENT_SHARDING_TRIMMING_STARTED:
+      break;
+    case REDISMODULE_SUBEVENT_SHARDING_TRIMMING_ENDED:
+      verifyDocumentSlotRange = false;
+      break;
+    default:
+      RedisModule_Log(RSDummyContext, "warning", "Bad subevent given, ignored.");
+  }
+}
+
 #define RM_TRY(f, ...)                                                         \
   if (f(__VA_ARGS__) == REDISMODULE_ERR) {                                     \
     RedisModule_Log(ctx, "warning", "Could not run " #f "(" #__VA_ARGS__ ")"); \
@@ -851,6 +887,11 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   }
   if (RediSearch_Init(ctx, REDISEARCH_INIT_MODULE) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
+  }
+
+  if (RedisModule_SubscribeToServerEvent) {
+    // we have server events support, lets subscribe to relevan events.
+    RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Sharding, ShardingEvent);
   }
 
   // register trie type
