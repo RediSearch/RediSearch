@@ -437,16 +437,21 @@ int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     return RedisModule_ReplyWithError(ctx, "Cannot create index on db != 0");
   }
 
-  RedisModule_ReplicateVerbatim(ctx);
   QueryError status = {0};
-
-  IndexSpec *sp = IndexSpec_CreateNew(ctx, argv, argc, &status);
+  IndexCreateOptions opts = {0};
+  ArgsCursor ac = {0};
+  ArgsCursor_InitRString(&ac, argv + 2, argc - 2);
+  const char *name = RedisModule_StringPtrLen(argv[1], NULL);
+  IndexSpec *sp = IndexSpec_ParseArgs(name, &ac, &opts, &status);
   if (sp == NULL) {
-    RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
-    QueryError_ClearError(&status);
-    return REDISMODULE_OK;
+    return QueryError_ReplyAndClear(ctx, &status);
+  }
+  if (IndexSpec_Register(sp, &opts, &status) != REDISMODULE_OK) {
+    IndexSpec_Free(sp);
+    return QueryError_ReplyAndClear(ctx, &status);
   }
 
+  RedisModule_Replicate(ctx, RS_CREATE_CMD, "ccv", sp->name, "REPLACE", argv + 2, (size_t)argc - 2);
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 

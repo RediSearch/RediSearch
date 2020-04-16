@@ -19,10 +19,10 @@ TEST_F(AggTest, testBasic) {
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
   QueryError qerr = {QueryErrorCode(0)};
 
-  RMCK::ArgvList args(ctx, "FT.CREATE", "idx", "SCHEMA", "t1", "TEXT", "SORTABLE", "t2", "NUMERIC",
-                      "sortable", "t3", "TEXT");
-  auto spec = IndexSpec_CreateNew(ctx, args, args.size(), &qerr);
-  ASSERT_TRUE(spec);
+  auto spec = RS::createIndex(ctx, "idx", "SCHEMA", "t1", "TEXT", "SORTABLE", "t2", "NUMERIC",
+                              "sortable", "t3", "TEXT");
+  ASSERT_TRUE(spec != NULL);
+  ASSERT_EQ(REDISMODULE_OK, IndexSpec_Register(spec, NULL, &qerr));
 
   // Try to create a document...
   addDocument(ctx, spec, "doc1", "t1", "value one", (const char *)NULL);
@@ -77,7 +77,6 @@ TEST_F(AggTest, testBasic) {
   SearchResult_Destroy(&res);
   AREQ_Free(rr);
   IndexSpec_FreeWithKey(spec, ctx);
-  args.clear();
   aggArgs.clear();
   RedisModule_FreeThreadSafeContext(ctx);
 }

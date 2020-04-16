@@ -3,6 +3,7 @@
 #include "../stopwords.h"
 #include "../extension.h"
 #include "../ext/default.h"
+#include "common.h"
 #include <stdio.h>
 #include <gtest/gtest.h>
 
@@ -83,7 +84,7 @@ TEST_F(QueryTest, testParser) {
                                "body",    "text",  "weight", "2.0",    "bar",
                                "numeric", "loc",   "geo",    "tags",   "tag"};
   QueryError err = {QueryErrorCode(0)};
-  ctx.spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
+  ctx.spec = RS::createIndex("idx", args, sizeof(args) / sizeof(const char *), &err);
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
 
   // test some valid queries
@@ -256,7 +257,7 @@ TEST_F(QueryTest, testPureNegative) {
   static const char *args[] = {"SCHEMA", "title",  "text", "weight", "0.1",    "body",
                                "text",   "weight", "2.0",  "bar",    "numeric"};
   QueryError err = {QueryErrorCode(0)};
-  IndexSpec *spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
+  IndexSpec *spec = RS::createIndex("idx", args, sizeof(args) / sizeof(const char *), &err);
   RedisSearchCtx ctx = SEARCH_CTX_STATIC(NULL, spec);
   for (size_t i = 0; qs[i] != NULL; i++) {
     QASTCXX ast;
@@ -273,7 +274,7 @@ TEST_F(QueryTest, testPureNegative) {
 TEST_F(QueryTest, testGeoQuery) {
   static const char *args[] = {"SCHEMA", "title", "text", "loc", "geo"};
   QueryError err = {QueryErrorCode(0)};
-  IndexSpec *spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
+  IndexSpec *spec = RS::createIndex("idx", args, sizeof(args) / sizeof(const char *), &err);
   RedisSearchCtx ctx = SEARCH_CTX_STATIC(NULL, spec);
   const char *qt = "@title:hello world @loc:[31.52 32.1342 10.01 km]";
   QASTCXX ast;
@@ -298,7 +299,7 @@ TEST_F(QueryTest, testFieldSpec) {
   static const char *args[] = {"SCHEMA", "title",  "text", "weight", "0.1",    "body",
                                "text",   "weight", "2.0",  "bar",    "numeric"};
   QueryError err = {QUERY_OK};
-  IndexSpec *spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
+  IndexSpec *spec = RS::createIndex("idx", args, sizeof(args) / sizeof(const char *), &err);
   RedisSearchCtx ctx = SEARCH_CTX_STATIC(NULL, spec);
   const char *qt = "@title:hello world";
   QASTCXX ast(ctx);
@@ -349,7 +350,7 @@ TEST_F(QueryTest, testFieldSpec) {
 TEST_F(QueryTest, testAttributes) {
   static const char *args[] = {"SCHEMA", "title", "text", "body", "text"};
   QueryError err = {QUERY_OK};
-  IndexSpec *spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
+  IndexSpec *spec = RS::createIndex("idx", args, sizeof(args) / sizeof(const char *), &err);
   RedisSearchCtx ctx = SEARCH_CTX_STATIC(NULL, spec);
 
   const char *qt =
@@ -372,7 +373,7 @@ TEST_F(QueryTest, testAttributes) {
 TEST_F(QueryTest, testTags) {
   static const char *args[] = {"SCHEMA", "title", "text", "tags", "tag", "separator", ";"};
   QueryError err = {QUERY_OK};
-  IndexSpec *spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
+  IndexSpec *spec = RS::createIndex("idx", args, sizeof(args) / sizeof(const char *), &err);
   RedisSearchCtx ctx = SEARCH_CTX_STATIC(NULL, spec);
 
   const char *qt = "@tags:{hello world  |foo| שלום|  lorem\\ ipsum    }";

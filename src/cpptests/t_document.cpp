@@ -2,6 +2,7 @@
 #include "redismock/redismock.h"
 #include "redismock/util.h"
 #include "document.h"
+#include "common.h"
 
 class DocumentTest : public ::testing::Test {
  protected:
@@ -68,8 +69,7 @@ TEST_F(DocumentTest, testLoadAll) {
 TEST_F(DocumentTest, testLoadSchema) {
   // Create a database
   QueryError status = {};
-  RMCK::ArgvList args(ctx, "FT.CREATE", "idx", "SCHEMA", "t1", "TEXT", "t2", "TEXT");
-  auto spec = IndexSpec_CreateNew(ctx, args, args.size(), &status);
+  auto spec = RS::createIndex(ctx, "idx", "SCHEMA", "t1", "TEXT", "t2", "TEXT");
   ASSERT_FALSE(spec == NULL);
 
   Document d = {0};

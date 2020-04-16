@@ -16,6 +16,7 @@
 #include <gtest/gtest.h>
 #include <vector>
 #include <cstdint>
+#include "common.h"
 
 class IndexTest : public ::testing::Test {};
 
@@ -717,7 +718,7 @@ TEST_F(IndexTest, testIndexSpec) {
                         "2.0",       foo,      "text",  "sortable", bar,      "numeric",
                         "sortable",  name,     "text",  "nostem"};
   QueryError err = {QUERY_OK};
-  IndexSpec *s = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
+  IndexSpec *s = RS::createIndex("idx", args, sizeof(args) / sizeof(const char *), &err);
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
   ASSERT_TRUE(s);
   ASSERT_TRUE(s->numFields == 5);
@@ -791,7 +792,7 @@ TEST_F(IndexTest, testIndexSpec) {
   const char *args2[] = {
       "NOOFFSETS", "NOFIELDS", "SCHEMA", title, "text",
   };
-  s = IndexSpec_Parse("idx", args2, sizeof(args2) / sizeof(const char *), &err);
+  s = RS::createIndex("idx", args2, sizeof(args2) / sizeof(const char *), &err);
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
   ASSERT_TRUE(s);
   ASSERT_TRUE(s->numFields == 1);
@@ -803,7 +804,7 @@ TEST_F(IndexTest, testIndexSpec) {
   // User-reported bug
   const char *args3[] = {"SCHEMA", "ha", "NUMERIC", "hb", "TEXT", "WEIGHT", "1", "NOSTEM"};
   QueryError_ClearError(&err);
-  s = IndexSpec_Parse("idx", args3, sizeof(args3) / sizeof(args3[0]), &err);
+  s = RS::createIndex("idx", args3, sizeof(args3) / sizeof(args3[0]), &err);
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
   ASSERT_TRUE(s);
   ASSERT_TRUE(FieldSpec_IsNoStem(s->fields + 1));
@@ -850,7 +851,7 @@ TEST_F(IndexTest, testHugeSpec) {
   fillSchema(args, N);
 
   QueryError err = {QUERY_OK};
-  IndexSpec *s = IndexSpec_Parse("idx", (const char **)&args[0], args.size(), &err);
+  IndexSpec *s = RS::createIndex("idx", (const char **)&args[0], args.size(), &err);
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
   ASSERT_TRUE(s);
   ASSERT_TRUE(s->numFields == N);
@@ -862,7 +863,7 @@ TEST_F(IndexTest, testHugeSpec) {
   fillSchema(args, N);
 
   QueryError_ClearError(&err);
-  s = IndexSpec_Parse("idx", (const char **)&args[0], args.size(), &err);
+  s = RS::createIndex("idx", (const char **)&args[0], args.size(), &err);
   ASSERT_TRUE(s == NULL);
   ASSERT_TRUE(QueryError_HasError(&err));
   ASSERT_STREQ("Too many TEXT fields in schema", QueryError_GetError(&err));

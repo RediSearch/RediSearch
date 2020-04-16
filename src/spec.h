@@ -180,7 +180,7 @@ void SpecDocQueue_Free(SpecDocQueue *q);
 typedef enum {
   IDX_S_NODELKEYS = 0x01, // Don't delete keys when deleting the index
   IDX_S_DELETED = 0x02, // Index has been deleted via IndexSpec_Free
-  IDX_S_CREATING = 0x04, // Index is still being created
+  IDX_S_REGISTERED = 0x04, // Index is still being created
   IDX_S_LIBORIGIN = 0x08, // Index created using C API
   IDX_S_EXPIRED = 0x10
 } IndexState;
@@ -301,31 +301,27 @@ const FieldSpec *IndexSpec_GetFieldBySortingIndex(const IndexSpec *sp, uint16_t 
 
 /* Initialize some index stats that might be useful for scoring functions */
 void IndexSpec_GetStats(IndexSpec *sp, RSIndexStats *stats);
-/*
- * Parse an index spec from redis command arguments.
- * Returns REDISMODULE_ERR if there's a parsing error.
- * The command only receives the relvant part of argv.
- *
- * The format currently is <field> <weight>, <field> <weight> ...
- */
-IndexSpec *IndexSpec_ParseRedisArgs(RedisModuleCtx *ctx, RedisModuleString *name,
-                                    RedisModuleString **argv, int argc, QueryError *status);
 
 FieldSpec **getFieldsByType(IndexSpec *spec, FieldType type);
 int isRdbLoading(RedisModuleCtx *ctx);
-
-/* Create a new index spec from redis arguments, set it in a redis key and start its GC.
- * If an error occurred - we set an error string in err and return NULL.
- */
-IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                               QueryError *status);
 
 /* Start the garbage collection loop on the index spec */
 void IndexSpec_StartGC(RedisModuleCtx *ctx, IndexSpec *sp, float initialHZ);
 void IndexSpec_StartGCFromSpec(IndexSpec *sp, float initialHZ, uint32_t gcPolicy);
 
-/* Same as above but with ordinary strings, to allow unit testing */
-IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryError *status);
+typedef struct {
+  int replace; // Replace the index if it exists
+} IndexCreateOptions;
+
+/**
+ * Create an index spec from arguments. Options contains creation options that
+ * are parsed
+ */
+IndexSpec *IndexSpec_ParseArgs(const char *name, ArgsCursor *ac,
+                               IndexCreateOptions *options, QueryError *status);
+
+int IndexSpec_Register(IndexSpec *sp, const IndexCreateOptions *options, QueryError *err);
+
 FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name);
 
 #define IndexSpec_IsKeyless(sp) ((sp)->flags != Index_LibOnly)

@@ -125,27 +125,6 @@ const char *GetFieldNameByBit(const IndexSpec *sp, t_fieldMask id) {
   return NULL;
 }
 
-/*
-* Parse an index spec from redis command arguments.
-* Returns REDISMODULE_ERR if there's a parsing error.
-* The command only receives the relevant part of argv.
-*
-* The format currently is FT.CREATE {index} [NOOFFSETS] [NOFIELDS] [NOFREQS]
-    SCHEMA {field} [TEXT [WEIGHT {weight}]] | [NUMERIC]
-*/
-IndexSpec *IndexSpec_ParseRedisArgs(RedisModuleCtx *ctx, RedisModuleString *name,
-                                    RedisModuleString **argv, int argc, QueryError *status) {
-
-  const char *args[argc];
-  for (int i = 0; i < argc; i++) {
-    args[i] = RedisModule_StringPtrLen(argv[i], NULL);
-  }
-
-  IndexSpec *ret = IndexSpec_Parse(RedisModule_StringPtrLen(name, NULL), args, argc, status);
-
-  return ret;
-}
-
 FieldSpec **getFieldsByType(IndexSpec *spec, FieldType type) {
 #define FIELDS_ARRAY_CAP 2
   FieldSpec **fields = array_new(FieldSpec *, FIELDS_ARRAY_CAP);
@@ -181,32 +160,32 @@ static void prepareGeoIndexes(IndexSpec *sp) {
     }
   }
 }
+static void IndexSpec_Unregister(IndexSpec *spec);
 
-IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                               QueryError *status) {
-  IndexSpec *sp = IndexSpec_ParseRedisArgs(ctx, argv[1], &argv[2], argc - 2, status);
-  if (sp == NULL) {
-    return NULL;
-  }
-
-  if (dictFind(RSIndexes_g, sp->name)) {
-    QueryError_SetCode(status, QUERY_EINDEXEXISTS);
-    IndexSpec_Free(sp);
-    return NULL;
+int IndexSpec_Register(IndexSpec *sp, const IndexCreateOptions *options, QueryError *status) {
+  dictEntry *e = dictFind(RSIndexes_g, sp->name);
+  if (e) {
+    if (options && options->replace) {
+      IndexSpec_Unregister(e->v.val);
+    } else {
+      QueryError_SetCode(status, QUERY_EINDEXEXISTS);
+      return REDISMODULE_ERR;
+    }
   }
 
   sp->uniqueId = spec_unique_ids++;
   dictAdd(RSIndexes_g, sp->name, sp);
   // Start the garbage collector
-  IndexSpec_StartGC(ctx, sp, GC_DEFAULT_HZ);
+  IndexSpec_StartGC(RSDummyContext, sp, GC_DEFAULT_HZ);
   CursorList_AddSpec(&RSCursors, sp->name, RSCURSORS_DEFAULT_CAPACITY);
-  sp->state &= ~IDX_S_CREATING;  // Already created
   prepareGeoIndexes(sp);
   resetTimer(sp);
   if (IndexSpec_OnCreate) {
     IndexSpec_OnCreate(sp);
   }
-  return sp;
+
+  sp->state |= IDX_S_REGISTERED;  // Already created
+  return REDISMODULE_OK;
 }
 
 char *strtolower(char *str) {
@@ -462,18 +441,17 @@ int IndexSpec_AddFields(IndexSpec *sp, ArgsCursor *ac, QueryError *status) {
   return IndexSpec_AddFieldsInternal(sp, ac, status, 0);
 }
 
-/* The format currently is FT.CREATE {index} [NOOFFSETS] [NOFIELDS]
-    SCHEMA {field} [TEXT [WEIGHT {weight}]] | [NUMERIC]
-  */
-IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryError *status) {
+IndexSpec *IndexSpec_ParseArgs(const char *name, ArgsCursor *ac, IndexCreateOptions *options,
+                               QueryError *status) {
   IndexSpec *spec = NewIndexSpec(name);
-
-  ArgsCursor ac = {0};
   ArgsCursor acStopwords = {0};
+  IndexCreateOptions opts_s = {0};
+  if (!options) {
+    options = &opts_s;
+  }
 
-  ArgsCursor_InitCString(&ac, argv, argc);
   long long timeout = -1;
-  int dummy;
+  int dummy, replace = 0;
 
   ACArgSpec argopts[] = {
       {AC_MKUNFLAG(SPEC_NOOFFSETS_STR, &spec->flags,
@@ -486,12 +464,13 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryE
       {AC_MKBITFLAG(SPEC_ASYNC_STR, &spec->flags, Index_Async)},
       // For compatibility
       {.name = "NOSCOREIDX", .target = &dummy, .type = AC_ARGTYPE_BOOLFLAG},
+      {.name = "REPLACE", .target = &options->replace, .type = AC_ARGTYPE_BOOLFLAG},
       {.name = SPEC_TEMPORARY_STR, .target = &timeout, .type = AC_ARGTYPE_LLONG},
       {.name = SPEC_STOPWORDS_STR, .target = &acStopwords, .type = AC_ARGTYPE_SUBARGS},
       {.name = NULL}};
 
   ACArgSpec *errarg = NULL;
-  int rc = AC_ParseArgSpec(&ac, argopts, &errarg);
+  int rc = AC_ParseArgSpec(ac, argopts, &errarg);
   if (rc != AC_OK) {
     if (rc != AC_ERR_ENOENT) {
       QERR_MKBADARGS_AC(status, errarg->name, rc);
@@ -512,9 +491,9 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryE
     spec->flags |= Index_HasCustomStopwords;
   }
 
-  if (!AC_AdvanceIfMatch(&ac, SPEC_SCHEMA_STR)) {
-    if (AC_NumRemaining(&ac)) {
-      const char *badarg = AC_GetStringNC(&ac, NULL);
+  if (!AC_AdvanceIfMatch(ac, SPEC_SCHEMA_STR)) {
+    if (AC_NumRemaining(ac)) {
+      const char *badarg = AC_GetStringNC(ac, NULL);
       QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Unknown argument `%s`", badarg);
     } else {
       QueryError_SetError(status, QUERY_EPARSEARGS, "No schema found");
@@ -522,7 +501,7 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryE
     goto failure;
   }
 
-  if (!IndexSpec_AddFieldsInternal(spec, &ac, status, 1)) {
+  if (!IndexSpec_AddFieldsInternal(spec, ac, status, 1)) {
     goto failure;
   }
   if (spec->flags & Index_UseRules) {
@@ -710,7 +689,7 @@ static void IndexSpec_Unregister(IndexSpec *spec) {
   // This block relies on name-based lookups, in this case we should
   // ensure that our index really exists, and is not an errored index because
   // of someone trying to create a new index that already exists
-  if (!(spec->state & IDX_S_CREATING)) {
+  if (spec->state & IDX_S_REGISTERED) {
     Cursors_PurgeWithName(&RSCursors, spec->name);
     CursorList_RemoveSpec(&RSCursors, spec->name);
     dictDelete(RSIndexes_g, spec->name);
@@ -720,6 +699,7 @@ static void IndexSpec_Unregister(IndexSpec *spec) {
         GeoIndex_RemoveKey(RSDummyContext, spec->geos[ii]);
       }
     }
+    spec->state &= ~IDX_S_REGISTERED;
   }
 }
 
@@ -839,7 +819,7 @@ static void deleteRedisKey(RedisModuleCtx *ctx, RSDocumentMetadata *dmd) {
 void IndexSpec_FreeEx(IndexSpec *ctx, int options) {
   IndexSpec *sp = ctx;
   sp->state |= IDX_S_DELETED;
-  if (sp->state & IDX_S_CREATING) {
+  if (!(sp->state & IDX_S_REGISTERED)) {
     IndexSpec_Decref(ctx);
     return;
   }
@@ -982,10 +962,7 @@ IndexSpec *NewIndexSpec(const char *name) {
   sp->geos = array_new(GeoIndex *, 8);
   sp->minPrefix = RSGlobalConfig.minTermPrefix;
   sp->maxPrefixExpansions = RSGlobalConfig.maxPrefixExpansions;
-  sp->getValue = NULL;
-  sp->getValueCtx = NULL;
   sp->refcount = 1;
-  sp->state = IDX_S_CREATING;
   memset(&sp->stats, 0, sizeof(sp->stats));
   return sp;
 }
@@ -1232,6 +1209,7 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
   if (sp->flags & Index_UseRules) {
     SchemaRules_RegisterIndex(sp);
   }
+  sp->state |= IDX_S_REGISTERED;
   return sp;
 }
 

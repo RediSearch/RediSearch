@@ -26,15 +26,33 @@ bool addDocument(RedisModuleCtx *ctx, IndexSpec *sp, const char *docid, Ts... ar
 
 bool deleteDocument(RedisModuleCtx *ctx, IndexSpec *sp, const char *docid);
 
-template <typename... Ts>
-IndexSpec *createIndex(RedisModuleCtx *ctx, const char *name, Ts... args) {
-  RMCK::ArgvList argv("FT.CREATE", name, args...);
+static IndexSpec *createIndex(RedisModuleCtx *ctx, const char *name, RMCK::ArgvList &l) {
   QueryError err{QueryErrorCode(0)};
-  IndexSpec *sp = IndexSpec_CreateNew(ctx, argv, argv.size(), &err);
+  ArgsCursor ac = {0};
+  ArgsCursor_InitRString(&ac, l, l.size());
+  AC_Seek(&ac, 2);
+  IndexSpec *sp = IndexSpec_ParseArgs(name, &ac, NULL, &err);
   if (!sp) {
     abort();
   }
   return sp;
+}
+
+template <typename... Ts>
+IndexSpec *createIndex(RedisModuleCtx *ctx, const char *name, Ts... args) {
+  RMCK::ArgvList argv(ctx, "FT.CREATE", name, args...);
+  return createIndex(ctx, name, argv);
+}
+
+static IndexSpec *createIndex(const char *name, const char **argv, size_t argc,
+                              QueryError *err = NULL) {
+  ArgsCursor ac = {0};
+  ArgsCursor_InitCString(&ac, argv, argc);
+  QueryError err_s = {QUERY_OK};
+  if (err == NULL) {
+    err = &err_s;
+  }
+  return IndexSpec_ParseArgs(name, &ac, NULL, err);
 }
 
 std::vector<std::string> search(RSIndex *index, RSQueryNode *qn);
