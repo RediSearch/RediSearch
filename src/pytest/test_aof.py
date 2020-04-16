@@ -7,15 +7,17 @@ def aofTestCommon(env, reloadfn):
         # TODO: Change this attribute in rmtest
 
         env.cmd('ft.create', 'idx', 'schema',
-                'field1', 'text', 'field2', 'numeric')
+                'field1', 'text', 'field2', 'numeric', 'sortable')
         reloadfn()
         for x in range(1, 10):
             env.assertCmdOk('ft.add', 'idx', 'doc{}'.format(x), 1.0 / x, 'fields',
-                            'field1', 'myText{}'.format(x), 'field2', 20 * x)
-        exp = [9L, 'doc1', ['field1', 'myText1', 'field2', '20'], 'doc2', ['field1', 'myText2', 'field2', '40'], 'doc3', ['field1', 'myText3', 'field2', '60'], 'doc4', ['field1', 'myText4', 'field2', '80'], 'doc5', ['field1',
-                                                                                                                                                                                                                        'myText5', 'field2', '100'], 'doc6', ['field1', 'myText6', 'field2', '120'], 'doc7', ['field1', 'myText7', 'field2', '140'], 'doc8', ['field1', 'myText8', 'field2', '160'], 'doc9', ['field1', 'myText9', 'field2', '180']]
+                            'field1', 'myText{}'.format(x), 'field2', 20*x)
+        exp = [9L, 'doc1', ['field2', '20', 'field1', 'myText1'], 'doc2', ['field2', '40', 'field1', 'myText2'], 'doc3', ['field2', '60', 'field1', 'myText3'], 'doc4', ['field2', '80', 'field1', 'myText4'], 'doc5', ['field2', '100', 'field1', 'myText5'], 'doc6', ['field2', '120', 'field1', 'myText6'], 'doc7', ['field2', '140', 'field1', 'myText7'], 'doc8', ['field2', '160', 'field1', 'myText8'], 'doc9', ['field2', '180', 'field1', 'myText9']]
+
+        ret = env.cmd('ft.search', 'idx', 'myt*', 'sortby', 'field2')
+        env.assertEqual(exp, ret)
         reloadfn()
-        ret = env.cmd('ft.search', 'idx', 'myt*')
+        ret = env.cmd('ft.search', 'idx', 'myt*', 'sortby', 'field2')
         env.assertEqual(exp, ret)
 
 
