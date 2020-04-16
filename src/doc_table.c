@@ -157,8 +157,8 @@ int DocTable_SetSortingVector(DocTable *t, t_docId docId, RSSortingVector *v) {
     dmd->flags &= ~Document_HasSortVector;
     return 1;
   }*/
-  //LCOV_EXCL_STOP
-  RS_LOG_ASSERT(v, "Sorting vector does not exist"); // tested in doAssignIds() 
+  // LCOV_EXCL_STOP
+  RS_LOG_ASSERT(v, "Sorting vector does not exist");  // tested in doAssignIds()
 
   /* Set th new vector and the flags accordingly */
   dmd->sortVector = v;

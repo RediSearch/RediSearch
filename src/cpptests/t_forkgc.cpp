@@ -38,7 +38,7 @@ void *cbWrapper(void *args) {
 }
 
 void runGcThread(RedisModuleCtx *ctx, void *fgc, IndexSpec *sp) {
-  thread = { 0 };
+  thread = {0};
   args_t *args = (args_t *)rm_calloc(1, sizeof(*args));
   *args = {.ctx = ctx, .fgc = fgc, .sp = sp};
 
@@ -128,7 +128,6 @@ TEST_F(FGCTest, testRepairLastBlockWhileRemovingMiddle) {
     size_t n = sprintf(buf, "doc%u", curId++);
     ASSERT_TRUE(RS::addDocument(ctx, sp, buf, "f1", "hello"));
   }
-
 
   /**
    * In this case, we want to keep `curId`, but we want to delete a 'middle' entry

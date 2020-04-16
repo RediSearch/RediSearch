@@ -226,7 +226,7 @@ char *FragmentList_HighlightWholeDocS(const FragmentList *fragList, const Highli
   char *docBuf = rm_malloc(docLen + 1);
   RS_LOG_ASSERT(docBuf, "failed malloc of docBuf");
   docBuf[docLen] = '\0';
-  
+
   size_t offset = 0;
   for (size_t ii = 0; ii < niovs; ++ii) {
     memcpy(docBuf + offset, iovs[ii].iov_base, iovs[ii].iov_len);
