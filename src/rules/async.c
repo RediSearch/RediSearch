@@ -71,6 +71,7 @@ void AIQ_Submit(AsyncIndexQueue *aq, IndexSpec *spec, MatchAction *result, RuleK
 
   RedisModule_RetainString(RSDummyContext, rid->kstr);
   SpecDocQueue *dq = spec->queue;
+  assert(dq);
   if (!dq) {
     dq = SpecDocQueue_Create(spec);
   }
@@ -110,7 +111,7 @@ static void freeCallback(RSAddDocumentCtx *ctx, void *unused) {
   ACTX_Free(ctx);
 }
 
-static void indexBatch(AsyncIndexQueue *aiq, SpecDocQueue *dq) {
+static void indexBatch(AsyncIndexQueue *aiq, SpecDocQueue *dq, int lockGil) {
   Indexer idxr = {0};
   IndexSpec *sp = dq->spec;
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(RSDummyContext, dq->spec);
@@ -121,10 +122,13 @@ static void indexBatch(AsyncIndexQueue *aiq, SpecDocQueue *dq) {
     RuleIndexableDocument *rid = e->v.val;
     QueryError err = {0};
     RuleKeyItem rki = {.kstr = rid->kstr};
-
-    RedisModule_ThreadSafeContextLock(RSDummyContext);
+    if (lockGil) {
+      RedisModule_ThreadSafeContextLock(RSDummyContext);
+    }
     RSAddDocumentCtx *aCtx = SchemaRules_InitACTX(RSDummyContext, sp, &rki, &rid->iia, &err);
-    RedisModule_ThreadSafeContextUnlock(RSDummyContext);
+    if (lockGil) {
+      RedisModule_ThreadSafeContextUnlock(RSDummyContext);
+    }
 
     if (!aCtx) {
       RedisModule_Log(RSDummyContext, "warning", "Could not index %s (%s)",
@@ -146,15 +150,22 @@ static void indexBatch(AsyncIndexQueue *aiq, SpecDocQueue *dq) {
     ridFree(rid);
   }
   dictReleaseIterator(iter);
+  if (lockGil) {
+    RedisModule_ThreadSafeContextLock(RSDummyContext);
+  }
 
-  RedisModule_ThreadSafeContextLock(RSDummyContext);
   if (!IDX_IsAlive(sp)) {
     Indexer_Iterate(&idxr, freeCallback, NULL);
   } else {
+    pthread_rwlock_wrlock(&sp->idxlock);
     Indexer_Index(&idxr, freeCallback, NULL);
+    pthread_rwlock_unlock(&sp->idxlock);
   }
+
   Indexer_Destroy(&idxr);
-  RedisModule_ThreadSafeContextUnlock(RSDummyContext);
+  if (lockGil) {
+    RedisModule_ThreadSafeContextUnlock(RSDummyContext);
+  }
 
   // now that we're done, lock the dq and see if we need to place it back into
   // pending again:
@@ -230,14 +241,16 @@ static void *aiThreadInit(void *privdata) {
     dq->active = oldEntries;
     dq->state = SDQ_S_PROCESSING;
     q->nactive += dictSize(oldEntries);
+    // If the
 
     if (!dq->entries) {
       dq->entries = newdict;
       newdict = NULL;
     }
 
+    int shouldLock = !q->nolock;
     pthread_mutex_unlock(&q->lock);
-    indexBatch(q, dq);
+    indexBatch(q, dq, shouldLock);
 
     if (!newdict) {
       newdict = dictCreate(&dictTypeHeapRedisStrings, NULL);
@@ -250,6 +263,12 @@ exit_thread:
     dictRelease(newdict);
   }
   return NULL;
+}
+
+void AIQ_SetMainThread(AsyncIndexQueue *aiq, int enabled) {
+  pthread_mutex_lock(&aiq->lock);
+  aiq->nolock = enabled;
+  pthread_mutex_unlock(&aiq->lock);
 }
 
 ssize_t SchemaRules_GetPendingCount(const IndexSpec *spec) {

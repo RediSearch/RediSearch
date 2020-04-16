@@ -87,6 +87,7 @@ typedef struct {
   pthread_mutex_t lock;
   pthread_cond_t cond;
   volatile AIQState state;
+  int nolock;
 } AsyncIndexQueue;
 
 typedef struct {
@@ -119,6 +120,10 @@ int SchemaRules_IndexDocument(RedisModuleCtx *ctx, IndexSpec *sp, RuleKeyItem *i
 
 // Do not process the item if it already exists within the index
 #define RULES_PROCESS_F_NOREINDEX 0x02
+
+// Indicate that we don't have the GIL
+#define RULES_PROCESS_F_NOGIL 0x04
+
 void SchemaRules_ProcessItem(RedisModuleCtx *ctx, RuleKeyItem *item, int flags);
 
 // Get the number of items which are awaiting indexing
@@ -159,6 +164,22 @@ void AIQ_Submit(AsyncIndexQueue *aq, IndexSpec *spec, MatchAction *result, RuleK
 int AIQ_LoadQueue(AsyncIndexQueue *aq, RedisModuleIO *rdb);
 void AIQ_SaveQueue(AsyncIndexQueue *aq, RedisModuleIO *rdb);
 
+/**
+ * This function should be called when the main thread wishes to poll until
+ * completion of indexing. In order to avoid a deadlock, the queue must not
+ * lock the GIL because it is already held in the main thread (and releasing the
+ * GIL in the main thread is generally considered bad practice).
+ *
+ * This function indicates to the async thread that it does not need to call
+ * the various ContextLock/ContextUnlock functions. Assumptions are:
+ *
+ * 1) Nothing else has access to the associated spec for either read or write
+ * 2) The GIL is implicitly held by the main thread, and so we are immune
+ *    from other threads (for whatever reason) trying to manipulate the data
+ *
+ * In practice, this function is useful only in the context of RDB loading
+ */
+void AIQ_SetMainThread(AsyncIndexQueue *aq, int enable);
 /**
  * Custom rules:
  *

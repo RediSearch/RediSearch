@@ -128,13 +128,17 @@ begin:
     s->cursor.mode = SCAN_MODE_R5;
   }
   while (s->state == SCAN_STATE_RUNNING && !s->cursor.isDone) {
-    RedisModule_ThreadSafeContextLock(RSDummyContext);
+    if (isThread) {
+      RedisModule_ThreadSafeContextLock(RSDummyContext);
+    }
     if (s->cursor.mode == SCAN_MODE_R6) {
       scanRedis6(&s->cursor);
     } else {
       scanRedis5(&s->cursor);
     }
-    RedisModule_ThreadSafeContextUnlock(RSDummyContext);
+    if (isThread) {
+      RedisModule_ThreadSafeContextUnlock(RSDummyContext);
+    }
     sched_yield();
   }
 

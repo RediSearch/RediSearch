@@ -760,13 +760,13 @@ static void IndexSpec_FreeInternals(IndexSpec *spec) {
   }
 
   raxFree(spec->termsIdx);
-  if (spec->queue) {
-    SpecDocQueue_Free(spec->queue);
-  }
+
+  SpecDocQueue_Free(spec->queue);
+
   if (spec->cachedInvidx) {
     InvertedIndex_Free(spec->cachedInvidx);
   }
-
+  pthread_rwlock_destroy(&spec->idxlock);
   rm_free(spec);
 }
 
@@ -928,23 +928,32 @@ void SpecDocQueue_Free(SpecDocQueue *q) {
   rm_free(q);
 }
 
-IndexSpec *NewIndexSpec(const char *name) {
-  IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
-  sp->fields = rm_calloc(sizeof(FieldSpec), SPEC_MAX_FIELDS);
-  sp->sortables = NewSortingTable();
-  sp->flags = INDEX_DEFAULT_FLAGS;
-  sp->name = rm_strdup(name);
+IndexSpec *IDX_CreateEmpty(void) {
+  IndexSpec *sp = rm_calloc(1, sizeof(*sp));
   sp->docs = DocTable_New(100);
-  sp->stopwords = DefaultStopWordList();
-  sp->terms = NewTrie();
-  sp->termsIdx = raxNew();
+  sp->refcount = 1;
+
+  sp->flags = INDEX_DEFAULT_FLAGS;
+  sp->maxPrefixExpansions = RSGlobalConfig.maxPrefixExpansions;
+  sp->minPrefix = RSGlobalConfig.minTermPrefix;
+
+  sp->fields = rm_calloc(sizeof(FieldSpec), SPEC_MAX_FIELDS);
   sp->nums = array_new(NumericRangeTree *, 8);
   sp->tags = array_new(TagIndex *, 8);
   sp->geos = array_new(GeoIndex *, 8);
-  sp->minPrefix = RSGlobalConfig.minTermPrefix;
-  sp->maxPrefixExpansions = RSGlobalConfig.maxPrefixExpansions;
-  sp->refcount = 1;
-  memset(&sp->stats, 0, sizeof(sp->stats));
+
+  sp->termsIdx = raxNew();
+  sp->terms = NewTrie();
+  sp->queue = SpecDocQueue_Create(sp);
+  sp->sortables = NewSortingTable();
+  sp->stopwords = DefaultStopWordList();
+  pthread_rwlock_init(&sp->idxlock, NULL);
+  return sp;
+}
+
+IndexSpec *NewIndexSpec(const char *name) {
+  IndexSpec *sp = IDX_CreateEmpty();
+  sp->name = rm_strdup(name);
   return sp;
 }
 
@@ -1110,35 +1119,27 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
   if (encver < INDEX_MIN_COMPAT_VERSION) {
     return NULL;
   }
+
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
-  IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
-  sp->sortables = NewSortingTable();
-  sp->refcount = 1;
-  sp->docs = DocTable_New(100);
+  IndexSpec *sp = IDX_CreateEmpty();
   sp->name = RedisModule_LoadStringBuffer(rdb, NULL);
-  char *tmpName = rm_strdup(sp->name);
-  RedisModule_Free(sp->name);
-  sp->name = tmpName;
   sp->flags = (IndexFlags)RedisModule_LoadUnsigned(rdb);
-  sp->maxPrefixExpansions = RSGlobalConfig.maxPrefixExpansions;
-  sp->minPrefix = RSGlobalConfig.minTermPrefix;
-  sp->termsIdx = raxNew();
-  sp->terms = NewTrie();
 
   if (encver < INDEX_MIN_NOFREQ_VERSION) {
     sp->flags |= Index_StoreFreqs;
   }
 
   sp->numFields = RedisModule_LoadUnsigned(rdb);
-  sp->fields = rm_calloc(sp->numFields, sizeof(FieldSpec));
-  sp->nums = array_newlen(NumericRangeTree *, sp->numFields);
-  sp->tags = array_newlen(TagIndex *, sp->numFields);
-  sp->geos = array_newlen(GeoIndex *, sp->numFields);
+  assert(sp->numFields < SPEC_MAX_FIELDS);
+  sp->nums = array_ensure_len(sp->nums, sp->numFields);
+  sp->tags = array_ensure_len(sp->tags, sp->numFields);
+  sp->geos = array_ensure_len(sp->geos, sp->numFields);
   for (size_t ii = 0; ii < sp->numFields; ++ii) {
     sp->nums[ii] = NULL;
     sp->tags[ii] = NULL;
     sp->geos[ii] = NULL;
   }
+
   int maxSortIdx = -1;
   for (int i = 0; i < sp->numFields; i++) {
     FieldSpec *fs = sp->fields + i;
@@ -1152,10 +1153,10 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
     }
   }
 
+  // TODO: maybe just call _Register()?
+
   if (sp->flags & Index_HasCustomStopwords) {
     sp->stopwords = StopWordList_RdbLoad(rdb, encver);
-  } else {
-    sp->stopwords = DefaultStopWordList();
   }
 
   sp->uniqueId = spec_unique_ids++;
@@ -1314,13 +1315,13 @@ static int specAuxLoad(RedisModuleIO *rdb, int encver, int when) {
     assert(crule);
     lrps[ii].rule = crule;
   }
-
-  RedisModule_ThreadSafeContextUnlock(RSDummyContext);
+  AIQ_SetMainThread(asyncQueue_g, 1);
   SchemaRules_StartScan(1);
   while (SchemaRules_QueueSize()) {
     usleep(500);
   }
-  RedisModule_ThreadSafeContextLock(RSDummyContext);
+  AIQ_SetMainThread(asyncQueue_g, 0);
+
   for (size_t ii = 0; ii < array_len(lrps); ++ii) {
     SchemaRules_RemoveCustomRule(lrps[ii].rule);
     DocTable_Free(&lrps[ii].docs);

@@ -168,10 +168,13 @@ void SchemaRules_ProcessItem(RedisModuleCtx *ctx, RuleKeyItem *item, int flags) 
     // submit the document for indexing if sync, async otherwise...
     IndexSpec *spec = results[ii].spec;
     assert(spec);  // todo handle error...
-
-    if ((flags & RULES_PROCESS_F_NOREINDEX) && DocTable_GetByKeyR(&spec->docs, item->kstr)) {
-      // in SCAN mode and document already exists in the index
-      continue;
+    if (flags & RULES_PROCESS_F_NOREINDEX) {
+      pthread_rwlock_rdlock(&spec->idxlock);
+      int doContinue = DocTable_GetByKeyR(&spec->docs, item->kstr);
+      pthread_rwlock_unlock(&spec->idxlock);
+      if (doContinue) {
+        continue;
+      }
     }
 
     // check if spec uses synchronous or asynchronous indexing..

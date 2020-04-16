@@ -163,7 +163,6 @@ struct IoQueue;
 #define SDQ_S_IDLE 0x01
 #define SDQ_S_PENDING 0x02
 #define SDQ_S_PROCESSING 0x04
-#define SDQ_S_RDBLOAD 0x08
 
 typedef struct {
   IndexSpec *spec;
@@ -222,6 +221,8 @@ struct IndexSpec {
   void *getValueCtx;
   char **aliases; // Aliases to self-remove when the index is deleted
   SpecDocQueue *queue;
+  // Lock for the index data, e.g. doc table, inverted indexes, etc.
+  pthread_rwlock_t idxlock;
   IndexState state;
 };
 
@@ -417,6 +418,7 @@ void IndexSpec_FreeWithKey(IndexSpec *spec, RedisModuleCtx *ctx);
 int IndexSpec_IsStopWord(IndexSpec *sp, const char *term, size_t len);
 
 IndexSpec *NewIndexSpec(const char *name);
+IndexSpec *IDX_CreateEmpty(void);
 int IndexSpec_AddField(IndexSpec *sp, FieldSpec *fs);
 void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver);
 void IndexSpec_RdbSave(RedisModuleIO *rdb, void *value);
