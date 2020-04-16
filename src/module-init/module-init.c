@@ -47,7 +47,7 @@ static int validateAofSettings(RedisModuleCtx *ctx) {
     return rc;
   }
 
-  // Can't exexcute commands on the loading context, so make a new one
+  // Can't execute commands on the loading context, so make a new one
   RedisModuleCtx *confCtx = RedisModule_GetThreadSafeContext(NULL);
   RedisModuleCallReply *reply =
       RedisModule_Call(confCtx, "CONFIG", "cc", "GET", "aof-use-rdb-preamble");
@@ -142,6 +142,12 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
 
   // Init extension mechanism
   Extensions_Init();
+
+  if (RSGlobalConfig.concurrentMode) {
+    ConcurrentSearch_ThreadPoolStart();
+  }
+
+  GC_ThreadPoolStart();
 
   // Init cursors mechanism
   CursorList_Init(&RSCursors);

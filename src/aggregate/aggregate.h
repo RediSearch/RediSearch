@@ -6,6 +6,7 @@
 #include "result_processor.h"
 #include "expr/expression.h"
 #include "aggregate_plan.h"
+#include "rmutil/rm_assert.h"
 
 #ifdef __cplusplus
 extern "C" {

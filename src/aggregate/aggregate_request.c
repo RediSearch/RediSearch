@@ -18,7 +18,7 @@
  * @param status the error object
  */
 static void ensureSimpleMode(AREQ *areq) {
-  assert(!(areq->reqflags & QEXEC_F_IS_EXTENDED));
+  RS_LOG_ASSERT(!(areq->reqflags & QEXEC_F_IS_EXTENDED), "Single mod test failed");
   areq->reqflags |= QEXEC_F_IS_SEARCH;
 }
 
@@ -743,7 +743,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   }
   YLD_Init(&req->conc, sctx->spec);
   req->rootiter = QAST_Iterate(ast, opts, sctx, &req->conc);
-  assert(req->rootiter);
+  RS_LOG_ASSERT(req->rootiter, "QAST_Iterate failed");
 
   return REDISMODULE_OK;
 }
@@ -830,7 +830,7 @@ static ResultProcessor *getGroupRP(AREQ *req, PLN_GroupStep *gstp, ResultProcess
     if (kklist != NULL) {
       ResultProcessor *rpLoader = RPLoader_New(firstLk, kklist, array_len(kklist));
       array_free(kklist);
-      assert(rpLoader);
+      RS_LOG_ASSERT(rpLoader, "RPLoader_New failed");
       rpUpstream = pushRP(req, rpLoader, rpUpstream);
     }
   }
@@ -900,7 +900,7 @@ static ResultProcessor *getScorerRP(AREQ *req) {
     scargs.scrExp = rm_calloc(1, sizeof(RSScoreExplain));
   }
   ExtScoringFunctionCtx *fns = Extensions_GetScoringFunction(&scargs, scorer);
-  assert(fns);
+  RS_LOG_ASSERT(fns, "Extensions_GetScoringFunction failed");
   IndexSpec_GetStats(req->sctx->spec, &scargs.indexStats);
   scargs.qdata = req->ast.udata;
   scargs.qdatalen = req->ast.udatalen;
@@ -938,7 +938,7 @@ static void buildImplicitPipeline(AREQ *req, QueryError *Status) {
   req->qiter.err = Status;
 
   IndexSpecCache *cache = IndexSpec_GetSpecCache(req->sctx->spec);
-  assert(cache);
+  RS_LOG_ASSERT(cache, "IndexSpec_GetSpecCache failed")
   RLookup *first = AGPLN_GetLookup(&req->ap, NULL, AGPLN_GETLOOKUP_FIRST);
 
   RLookup_Init(first, cache);

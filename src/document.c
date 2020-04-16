@@ -1,5 +1,4 @@
 #include <string.h>
-#include <assert.h>
 #include <inttypes.h>
 
 #include "document.h"
@@ -16,6 +15,7 @@
 #include "indexer.h"
 #include "tag_index.h"
 #include "aggregate/expr/expression.h"
+#include "rmutil/rm_assert.h"
 
 // Memory pool for RSAddDocumentContext contexts
 static mempool_t *actxPool_g = NULL;
@@ -404,7 +404,9 @@ FIELD_BULK_INDEXER(numericIndexer) {
       return -1;
     }
   }
-  NumericRangeTree_Add(rt, aCtx->doc.docId, fdata->numeric);
+  size_t sz = NumericRangeTree_Add(rt, aCtx->doc.docId, fdata->numeric);
+  ctx->spec->stats.invertedSize += sz;  // TODO: exact amount
+  ctx->spec->stats.numRecords++;
   return 0;
 }
 
@@ -659,7 +661,7 @@ static int updateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
         md->sortVector = NewSortingVector(sctx->spec->sortables->len);
       }
 
-      assert((fs->options & FieldSpec_Dynamic) == 0 && "dynamic field cannot use PARTIAL");
+      RS_LOG_ASSERT((fs->options & FieldSpec_Dynamic) == 0, "Dynamic field cannot use PARTIAL");
 
       switch (fs->types) {
         case INDEXFLD_T_FULLTEXT:

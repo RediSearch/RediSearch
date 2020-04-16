@@ -2,7 +2,7 @@
 #include "dep/thpool/thpool.h"
 #include <unistd.h>
 #include <util/arr.h>
-#include <assert.h>
+#include "rmutil/rm_assert.h"
 
 static threadpool *threadpools_g = NULL;
 

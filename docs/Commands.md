@@ -1101,7 +1101,7 @@ Gets the size of an auto-complete suggestion dictionary
 
 ### Example
 ```sql
-FT.SUGDEL ac 
+FT.SUGLEN ac 
 ```
 
 ### Parameters

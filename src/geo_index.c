@@ -3,6 +3,7 @@
 #include "rmutil/util.h"
 #include "rmalloc.h"
 #include "module.h"
+#include "rmutil/rm_assert.h"
 
 GeoIndex *GeoIndex_Create(const char *ixname) {
   GeoIndex *gi = rm_calloc(1, sizeof(*gi));
