@@ -2996,7 +2996,7 @@ def testIssue1184(env):
     field_types = ['TEXT', 'NUMERIC', 'TAG']
 
     for ft in field_types:
-        env.assertOk(env.execute_command('FT.CREATE idx SCHEMA  field ' + ft))
+        env.assertOk(env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'field', ft))
 
         res = env.execute_command('ft.info', 'idx')
         d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
