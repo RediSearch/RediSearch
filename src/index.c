@@ -102,10 +102,9 @@ static void UI_Rewind(void *ctx) {
   }
 }
 
-IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *dt, int quickExit,
-                                double weight) {
-  // create union context
-  UnionIterator *ctx = rm_calloc(1, sizeof(UnionIterator));
+void UnionIterator_Init(IndexIterator *it, IndexIterator **its, size_t num, DocTable *dt,
+                        int quickExit, double weight) {
+  UnionIterator *ctx = (UnionIterator *)it;
   ctx->origits = its;
   ctx->weight = weight;
   ctx->num = num;
@@ -119,7 +118,6 @@ IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *dt, int 
   ctx->currIt = 0;
 
   // bind the union iterator calls
-  IndexIterator *it = &ctx->base;
   it->mode = MODE_SORTED;
   it->ctx = ctx;
   it->GetCriteriaTester = UI_GetCriteriaTester;
@@ -161,8 +159,14 @@ IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *dt, int 
       it->Read = UI_ReadUnsorted;
     }
   }
+}
 
-  return it;
+IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *dt, int quickExit,
+                                double weight) {
+  // create union context
+  UnionIterator *ctx = rm_calloc(1, sizeof(UnionIterator));
+  UnionIterator_Init(&ctx->base, its, num, dt, quickExit, weight);
+  return &ctx->base;
 }
 
 typedef struct {
@@ -405,9 +409,13 @@ static int UI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
 
 void UnionIterator_Free(IndexIterator *itbase) {
   if (itbase == NULL) return;
+  UnionIterator_Clear(itbase);
+  rm_free(itbase);
+}
 
-  UnionIterator *ui = itbase->ctx;
-  for (int i = 0; i < ui->norig; i++) {
+void UnionIterator_Clear(IndexIterator *it) {
+  UnionIterator *ui = (UnionIterator *)it;
+  for (size_t i = 0; i < ui->norig; i++) {
     IndexIterator *it = ui->origits[i];
     if (it) {
       it->Free(it);
@@ -417,7 +425,6 @@ void UnionIterator_Free(IndexIterator *itbase) {
   IndexResult_Free(CURRENT_RECORD(ui));
   rm_free(ui->its);
   rm_free(ui->origits);
-  rm_free(ui);
 }
 
 static size_t UI_Len(void *ctx) {
@@ -1455,3 +1462,22 @@ const char *IndexIterator_GetTypeString(const IndexIterator *it) {
   }
 }
 // LCOV_EXCL_STOP
+
+union IteratorPointer {
+  IndexIterator *base;
+  UnionIterator *ui;
+  IntersectIterator *ii;
+};
+
+IndexIterator **IndexIterator_GetChildren(const IndexIterator *it, size_t *n) {
+  union IteratorPointer ip = {it};
+  if (it->Free == UnionIterator_Free) {
+    *n = ip.ui->num;
+    return ip.ui->its;
+  } else if (it->Free == IntersectIterator_Free) {
+    *n = ip.ii->num;
+    return ip.ii->its;
+  } else {
+    return NULL;
+  }
+}

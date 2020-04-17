@@ -27,6 +27,7 @@ int IndexResult_LoadMetadata(RSIndexResult *h, DocTable *dt);
 
 /* Free a union iterator */
 void UnionIterator_Free(IndexIterator *it);
+void UnionIterator_Clear(IndexIterator *it);
 
 /* Free an intersect iterator */
 void IntersectIterator_Free(IndexIterator *it);
@@ -38,6 +39,9 @@ void ReadIterator_Free(IndexIterator *it);
 It will return each document of the underlying iterators, exactly once */
 IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *t, int quickExit,
                                 double weight);
+
+void UnionIterator_Init(IndexIterator *ui, IndexIterator **its, size_t num, DocTable *t,
+                        int quickExit, double weight);
 
 /* Create a new intersect iterator over the given list of child iterators. If maxSlop is not a
  * negative number, we will allow at most maxSlop intervening positions between the terms. If
@@ -69,6 +73,9 @@ IndexIterator *NewEmptyIterator(void);
 
 /** Return a string containing the type of the iterator */
 const char *IndexIterator_GetTypeString(const IndexIterator *it);
+
+/** Get the children of the iterator. Used for refreshing child iterators */
+IndexIterator **IndexIterator_GetChildren(const IndexIterator *it, size_t *len);
 #ifdef __cplusplus
 }
 #endif

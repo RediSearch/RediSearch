@@ -204,6 +204,9 @@ int IR_Read(void *ctx, RSIndexResult **e);
  */
 int IR_Next(void *ctx);
 
+void IR_Refresh(IndexReader *ir);
+void ReadIterator_Refresh(IndexIterator *it);
+
 /**
  * Skip to a specific document ID in the index, or one position after it
  * @param ctx the index reader

@@ -82,6 +82,8 @@ struct indexIterator *NewNumericRangeIterator(const IndexSpec *sp, NumericRange 
 
 struct indexIterator *NewNumericFilterIterator(IndexSpec *spec, const NumericFilter *flt,
                                                Yielder *y);
+struct indexIterator *NewNumericTreeIterator(const IndexSpec *sp, const NumericRangeTree *rt,
+                                             const NumericFilter *nf);
 
 /* Add an entry to a numeric range node. Returns the cardinality of the range after the
  * inserstion.
@@ -113,7 +115,7 @@ int NumericRangeTree_Add(NumericRangeTree *t, t_docId docId, double value);
 
 /* Recursively find all the leaves under tree's root, that correspond to a given min-max range.
  * Returns a vector with range node pointers. */
-Vector *NumericRangeTree_Find(NumericRangeTree *t, double min, double max);
+Vector *NumericRangeTree_Find(const NumericRangeTree *t, double min, double max);
 
 /* Free the tree and all nodes */
 void NumericRangeTree_Free(NumericRangeTree *t);

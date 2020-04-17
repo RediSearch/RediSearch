@@ -16,11 +16,15 @@
 
 typedef struct {
   IndexIterator *it;
+  const NumericFilter *nf;
   uint32_t lastRevId;
 } NumericUnionCtx;
 
-/* A callback called after a concurrent context regains execution context. When this happen we need
- * to make sure the key hasn't been deleted or its structure changed, which will render the
+static IndexIterator *initTreeIterator(IndexIterator *orig, const IndexSpec *sp,
+                                       const NumericRangeTree *t, const NumericFilter *f);
+
+/* A callback called after a concurrent context regains execution context. When this happen we
+ * need to make sure the key hasn't been deleted or its structure changed, which will render the
  * underlying iterators invalid */
 static int numYldCallback(IndexSpec *sp, YielderArg *arg, void *idx) {
   NumericUnionCtx *nu = arg->p;
@@ -34,9 +38,28 @@ static int numYldCallback(IndexSpec *sp, YielderArg *arg, void *idx) {
    * For now we will just stop processing this query. This causes the query to return bad results,
    * so in the future we can try an reset the state here
    */
+  t_docId lastId = nu->it->LastDocId(nu->it->ctx);
   if (t->revisionId != nu->lastRevId) {
-    nu->it->Abort(nu->it->ctx);
-    return 0;
+    // The actual index itself was split/modified; in this case we need to
+    // recreate the iterator and seek
+    IndexIterator *self = initTreeIterator(nu->it, sp, t, nu->nf);
+    if (!self) {
+      UnionIterator_Clear(nu->it);
+      // Add a single EOF iterator child
+      IndexIterator **itlist = rm_calloc(1, sizeof(*itlist));
+      itlist[0] = NewEmptyIterator();
+      UnionIterator_Init(nu->it, itlist, 1, &sp->docs, 1, 1);
+    } else {
+      RSIndexResult *dummy = NULL;
+      nu->it->SkipTo(nu->it->ctx, lastId, &dummy);
+    }
+  } else {
+    // Structure of numeric tree remains the same
+    size_t niter = 0;
+    IndexIterator **iters = IndexIterator_GetChildren(nu->it, &niter);
+    for (size_t ii = 0; ii < niter; ++ii) {
+      ReadIterator_Refresh(iters[ii]);
+    }
   }
   return 1;
 }
@@ -311,7 +334,7 @@ int NumericRangeTree_Add(NumericRangeTree *t, t_docId docId, double value) {
   return rv.sz;
 }
 
-Vector *NumericRangeTree_Find(NumericRangeTree *t, double min, double max) {
+Vector *NumericRangeTree_Find(const NumericRangeTree *t, double min, double max) {
   return NumericRangeNode_FindRange(t->root, min, max);
 }
 
@@ -346,21 +369,18 @@ IndexIterator *NewNumericRangeIterator(const IndexSpec *sp, NumericRange *nr,
   return NewReadIterator(ir);
 }
 
-/* Create a union iterator from the numeric filter, over all the sub-ranges in the tree that fit
- * the filter */
-IndexIterator *createNumericIterator(const IndexSpec *sp, NumericRangeTree *t,
-                                     const NumericFilter *f) {
-
+static IndexIterator *initTreeIterator(IndexIterator *orig, const IndexSpec *sp,
+                                       const NumericRangeTree *t, const NumericFilter *f) {
+  IndexIterator *ret = NULL;
   Vector *v = NumericRangeTree_Find(t, f->min, f->max);
   if (!v || Vector_Size(v) == 0) {
-    if (v) {
-      Vector_Free(v);
-    }
-    return NULL;
+    goto end;
   }
 
   int n = Vector_Size(v);
   // if we only selected one range - we can just iterate it without union or anything
+  // Disabled for now to support resuming
+  /*
   if (n == 1) {
     NumericRange *rng;
     Vector_Get(v, 0, &rng);
@@ -368,6 +388,7 @@ IndexIterator *createNumericIterator(const IndexSpec *sp, NumericRangeTree *t,
     Vector_Free(v);
     return it;
   }
+  */
 
   // We create a  union iterator, advancing a union on all the selected range,
   // treating them as one consecutive range
@@ -382,11 +403,30 @@ IndexIterator *createNumericIterator(const IndexSpec *sp, NumericRangeTree *t,
 
     its[i] = NewNumericRangeIterator(sp, rng, f);
   }
-  Vector_Free(v);
 
-  IndexIterator *it = NewUnionIterator(its, n, NULL, 1, 1);
+  if (orig == NULL) {
+    ret = NewUnionIterator(its, n, NULL, 1, 1);
+  } else {
+    UnionIterator_Clear(orig);
+    UnionIterator_Init(orig, its, n, NULL, 1, 1);
+    ret = orig;
+  }
 
-  return it;
+end:
+  if (v) {
+    Vector_Free(v);
+  }
+  if (ret == NULL && orig != NULL) {
+    orig->Abort(orig->ctx);
+  }
+  return ret;
+}
+
+/* Create a union iterator from the numeric filter, over all the sub-ranges in the tree that fit
+ * the filter */
+IndexIterator *NewNumericTreeIterator(const IndexSpec *sp, const NumericRangeTree *t,
+                                      const NumericFilter *f) {
+  return initTreeIterator(NULL, sp, t, f);
 }
 
 static void numFreeCb(YielderArg *a, void *idx) {
@@ -401,7 +441,7 @@ struct indexIterator *NewNumericFilterIterator(IndexSpec *spec, const NumericFil
     return NULL;
   }
 
-  IndexIterator *it = createNumericIterator(spec, t, flt);
+  IndexIterator *it = NewNumericTreeIterator(spec, t, flt);
   if (!it) {
     return NULL;
   }
@@ -410,9 +450,14 @@ struct indexIterator *NewNumericFilterIterator(IndexSpec *spec, const NumericFil
     NumericUnionCtx *uc = rm_malloc(sizeof(*uc));
     uc->lastRevId = t->revisionId;
     uc->it = it;
+    uc->nf = flt;
     YLD_Add(csx, numYldCallback, numFreeCb, (YielderArg){.p = uc}, t);
   }
   return it;
+}
+
+IndexIterator *createNumericIterator(IndexSpec *sp, NumericRangeTree *t, const NumericFilter *flt) {
+  return NewNumericTreeIterator(sp, t, flt);
 }
 
 void __numericIndex_memUsageCallback(NumericRangeNode *n, void *ctx) {

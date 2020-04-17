@@ -88,11 +88,7 @@ static void IR_SetAtEnd(IndexReader *r, int value) {
 }
 #define IR_IS_AT_END(ir) (ir)->atEnd_
 
-/* A callback called from the ConcurrentSearchCtx after regaining execution and reopening the
- * underlying term key. We check for changes in the underlying key, or possible deletion of it */
-static int yldCallback(IndexSpec *sp, YielderArg *arg, void *idxp) {
-  IndexReader *ir = idxp;
-
+void IR_Refresh(IndexReader *ir) {
   // the gc marker tells us if there is a chance the keys has undergone GC while we were asleep
   if (ir->gcMarker == ir->idx->gcMarker) {
     // no GC - we just go to the same offset we were at
@@ -113,6 +109,13 @@ static int yldCallback(IndexSpec *sp, YielderArg *arg, void *idxp) {
     RSIndexResult *dummy = NULL;
     IR_SkipTo(ir, lastId, &dummy);
   }
+}
+
+/* A callback called from the ConcurrentSearchCtx after regaining execution and reopening the
+ * underlying term key. We check for changes in the underlying key, or possible deletion of it */
+static int yldCallback(IndexSpec *sp, YielderArg *arg, void *idxp) {
+  IndexReader *ir = idxp;
+  IR_Refresh(ir);
   return 1;
 }
 
@@ -1121,6 +1124,12 @@ void ReadIterator_Free(IndexIterator *it) {
 
   IR_Free(it->ctx);
   rm_free(it);
+}
+
+void ReadIterator_Refresh(IndexIterator *it) {
+  assert(it->Read == IR_Read);
+  IndexReader *self = it->ctx;
+  IR_Refresh(self);
 }
 
 inline t_docId IR_LastDocId(void *ctx) {
