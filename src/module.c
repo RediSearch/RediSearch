@@ -159,13 +159,12 @@ COMMAND_HANDLER(handleSpellcheck) {
     return RedisModule_WrongArity(ctx);
   }
   QueryError status = {0};
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
   size_t len;
   const char *rawQuery = AC_GetStringNC(ac, &len);
   const char **includeDict = NULL, **excludeDict = NULL;
   RSSearchOptions opts = {0};
   QueryAST qast = {0};
-  int rc = QAST_Parse(&qast, &sctx, &opts, rawQuery, len, &status);
+  int rc = QAST_Parse(&qast, sp, &opts, rawQuery, len, &status);
   int replied = 0;
 
   if (rc != REDISMODULE_OK) {
@@ -217,7 +216,7 @@ COMMAND_HANDLER(handleSpellcheck) {
       QERR_MKBADARGS_FMT(&status, "Unknown option %s provided", AC_GetStringNC(ac, NULL));
     }
   }
-
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
   SpellCheckCtx scCtx = {.sctx = &sctx,
                          .includeDict = includeDict,
                          .excludeDict = excludeDict,

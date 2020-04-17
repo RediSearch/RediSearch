@@ -60,7 +60,7 @@ typedef struct {
   Yielder *yld;
 
   // Contains our spec
-  RedisSearchCtx *sctx;
+  IndexSpec *spec;
 
   // the minimal score applicable for a result. It can be used to optimize the scorers
   double minScore;
@@ -160,7 +160,7 @@ typedef struct ResultProcessor {
 } ResultProcessor;
 
 // Get the index spec from the result processor
-#define RP_SPEC(rpctx) ((rpctx)->parent->sctx->spec)
+#define RP_SPEC(rpctx) ((rpctx)->parent->spec)
 
 /**
  * This function resets the search result, so that it may be reused again.

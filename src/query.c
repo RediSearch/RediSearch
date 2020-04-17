@@ -260,7 +260,7 @@ IndexIterator *Query_EvalTokenNode(QueryEvalCtx *q, QueryNode *qn) {
   // printf("Opening reader.. `%s` FieldMask: %llx\n", term->str, EFFECTIVE_FIELDMASK(q, qn));
 
   IndexReader *ir =
-      IDX_OpenTerm(q->sctx->spec, term, EFFECTIVE_FIELDMASK(q, qn), q->conc, qn->opts.weight);
+      IDX_OpenTerm(q->spec, term, EFFECTIVE_FIELDMASK(q, qn), q->conc, qn->opts.weight);
   if (ir == NULL) {
     Term_Free(term);
     return NULL;
@@ -284,7 +284,7 @@ static IndexIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
   int dist = 0;
 
   // an upper limit on the number of expansions is enforced to avoid stuff like "*"
-  size_t maxExpansions = q->sctx->spec->maxPrefixExpansions;
+  size_t maxExpansions = q->spec->maxPrefixExpansions;
   while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, &dist) &&
          (itsSz < maxExpansions || maxExpansions == -1)) {
 
@@ -295,15 +295,11 @@ static IndexIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
         .len = 0,
     };
     tok.str = runesToStr(rstr, slen, &tok.len);
-    if (q->sctx && q->sctx->redisCtx) {
-      RedisModule_Log(q->sctx->redisCtx, "debug", "Found fuzzy expansion: %s %f", tok.str, score);
-    }
 
     RSQueryTerm *term = NewQueryTerm(&tok, q->tokenId++);
 
     // Open an index reader
-    IndexReader *ir =
-        IDX_OpenTerm(q->sctx->spec, term, q->opts->fieldmask & opts->fieldMask, q->conc, 1);
+    IndexReader *ir = IDX_OpenTerm(q->spec, term, q->opts->fieldmask & opts->fieldMask, q->conc, 1);
 
     rm_free(tok.str);
     if (!ir) {
@@ -338,7 +334,7 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
   if (qn->pfx.len < RSGlobalConfig.minTermPrefix) {
     return NULL;
   }
-  Trie *terms = q->sctx->spec->terms;
+  Trie *terms = q->spec->terms;
 
   if (!terms) return NULL;
 
@@ -369,7 +365,7 @@ static void rangeIterCbStrs(const char *r, size_t n, void *p, void *invidx) {
   tok.str = (char *)r;
   tok.len = n;
   RSQueryTerm *term = NewQueryTerm(&tok, ctx->q->tokenId++);
-  IndexReader *ir = NewTermIndexReader(invidx, q->sctx->spec, RS_FIELDMASK_ALL, term, ctx->weight);
+  IndexReader *ir = NewTermIndexReader(invidx, q->spec, RS_FIELDMASK_ALL, term, ctx->weight);
   if (!ir) {
     Term_Free(term);
     return;
@@ -385,7 +381,7 @@ static void rangeIterCb(const rune *r, size_t n, void *p) {
   tok.str = runesToStr(r, n, &tok.len);
   RSQueryTerm *term = NewQueryTerm(&tok, ctx->q->tokenId++);
   IndexReader *ir =
-      IDX_OpenTerm(q->sctx->spec, term, q->opts->fieldmask & ctx->opts->fieldMask, q->conc, 1);
+      IDX_OpenTerm(q->spec, term, q->opts->fieldmask & ctx->opts->fieldMask, q->conc, 1);
   rm_free(tok.str);
   if (!ir) {
     Term_Free(term);
@@ -396,7 +392,7 @@ static void rangeIterCb(const rune *r, size_t n, void *p) {
 }
 
 static IndexIterator *Query_EvalLexRangeNode(QueryEvalCtx *q, QueryNode *lx) {
-  Trie *t = q->sctx->spec->terms;
+  Trie *t = q->spec->terms;
   LexRangeCtx ctx = {.q = q, .opts = &lx->opts};
 
   if (!t) {
@@ -431,7 +427,7 @@ static IndexIterator *Query_EvalLexRangeNode(QueryEvalCtx *q, QueryNode *lx) {
 static IndexIterator *Query_EvalFuzzyNode(QueryEvalCtx *q, QueryNode *qn) {
   RS_LOG_ASSERT(qn->type == QN_FUZZY, "query node type should be fuzzy");
 
-  Trie *terms = q->sctx->spec->terms;
+  Trie *terms = q->spec->terms;
 
   if (!terms) return NULL;
 
@@ -514,23 +510,22 @@ static IndexIterator *Query_EvalOptionalNode(QueryEvalCtx *q, QueryNode *qn) {
 static IndexIterator *Query_EvalNumericNode(QueryEvalCtx *q, QueryNumericNode *node) {
 
   const FieldSpec *fs =
-      IndexSpec_GetField(q->sctx->spec, node->nf->fieldName, strlen(node->nf->fieldName));
+      IndexSpec_GetField(q->spec, node->nf->fieldName, strlen(node->nf->fieldName));
   if (!fs || !FIELD_IS(fs, INDEXFLD_T_NUMERIC)) {
     return NULL;
   }
 
-  return NewNumericFilterIterator(q->sctx, node->nf, q->conc);
+  return NewNumericFilterIterator(q->spec, node->nf, q->conc);
 }
 
 static IndexIterator *Query_EvalGeofilterNode(QueryEvalCtx *q, QueryGeofilterNode *node,
                                               double weight) {
 
-  const FieldSpec *fs =
-      IndexSpec_GetField(q->sctx->spec, node->gf->property, strlen(node->gf->property));
+  const FieldSpec *fs = IndexSpec_GetField(q->spec, node->gf->property, strlen(node->gf->property));
   if (!fs || !FIELD_IS(fs, INDEXFLD_T_GEO)) {
     return NULL;
   }
-  GeoIndex *gi = IDX_LoadGeo(q->sctx->spec, fs, REDISMODULE_READ);
+  GeoIndex *gi = IDX_LoadGeo(q->spec, fs, REDISMODULE_READ);
   if (!gi) {
     return NULL;
   }
@@ -613,7 +608,7 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
   }
 
   // we allow a minimum of 2 letters in the prefx by default (configurable)
-  if (qn->pfx.len < q->sctx->spec->minPrefix) {
+  if (qn->pfx.len < q->spec->minPrefix) {
     return NULL;
   }
   if (!idx || !idx->values) return NULL;
@@ -630,10 +625,10 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
   void *ptr;
 
   // Find all completions of the prefix
-  size_t maxExpansions = q->sctx->spec->maxPrefixExpansions;
+  size_t maxExpansions = q->spec->maxPrefixExpansions;
   while (TrieMapIterator_Next(it, &s, &sl, &ptr) &&
          (itsSz < maxExpansions || maxExpansions == -1)) {
-    IndexIterator *ret = TagIndex_OpenReader(idx, q->sctx->spec, s, sl, 1);
+    IndexIterator *ret = TagIndex_OpenReader(idx, q->spec, s, sl, 1);
     if (!ret) continue;
 
     // Add the reader to the iterator array
@@ -661,7 +656,7 @@ static IndexIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, Qu
   IndexIterator *ret = NULL;
   switch (n->type) {
     case QN_TOKEN: {
-      ret = TagIndex_OpenReader(idx, q->sctx->spec, n->tn.str, n->tn.len, weight);
+      ret = TagIndex_OpenReader(idx, q->spec, n->tn.str, n->tn.len, weight);
       break;
     }
     case QN_PREFX:
@@ -682,7 +677,7 @@ static IndexIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, Qu
 
       sds s = sdsjoin(terms, QueryNode_NumChildren(n), " ");
 
-      ret = TagIndex_OpenReader(idx, q->sctx->spec, s, sdslen(s), weight);
+      ret = TagIndex_OpenReader(idx, q->spec, s, sdslen(s), weight);
       sdsfree(s);
       break;
     }
@@ -702,7 +697,7 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
     return NULL;
   }
   QueryTagNode *node = &qn->tag;
-  TagIndex *idx = IDX_LoadTagsFieldname(q->sctx->spec, node->fieldName, strlen(node->fieldName));
+  TagIndex *idx = IDX_LoadTagsFieldname(q->spec, node->fieldName, strlen(node->fieldName));
   if (!idx) {
     return NULL;
   }
@@ -792,16 +787,17 @@ IndexIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
 
 QueryNode *RSQuery_ParseRaw(QueryParseCtx *);
 
-int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions *opts,
-               const char *q, size_t n, QueryError *status) {
+int QAST_Parse(QueryAST *dst, const IndexSpec *spec, const RSSearchOptions *opts, const char *q,
+               size_t n, QueryError *status) {
   if (!dst->query) {
     dst->query = rm_strndup(q, n);
     dst->nquery = n;
   }
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(RSDummyContext, spec);
   QueryParseCtx qpCtx = {// force multiline
                          .raw = dst->query,
                          .len = dst->nquery,
-                         .sctx = (RedisSearchCtx *)sctx,
+                         .sctx = &sctx,
                          .opts = opts,
                          .status = status};
   dst->root = RSQuery_ParseRaw(&qpCtx);
@@ -825,14 +821,14 @@ int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions 
   return REDISMODULE_OK;
 }
 
-IndexIterator *QAST_Iterate(const QueryAST *qast, const RSSearchOptions *opts, RedisSearchCtx *sctx,
+IndexIterator *QAST_Iterate(const QueryAST *qast, const RSSearchOptions *opts, IndexSpec *spec,
                             Yielder *conc) {
   QueryEvalCtx qectx = {
       .conc = conc,
       .opts = opts,
       .numTokens = qast->numTokens,
-      .docTable = &sctx->spec->docs,
-      .sctx = sctx,
+      .docTable = &spec->docs,
+      .spec = spec,
   };
   IndexIterator *root = Query_EvalNode(&qectx, qast->root);
   if (!root) {
@@ -851,13 +847,14 @@ void QAST_Destroy(QueryAST *q) {
   q->query = NULL;
 }
 
-int QAST_Expand(QueryAST *q, const char *expander, RSSearchOptions *opts, RedisSearchCtx *sctx,
+int QAST_Expand(QueryAST *q, const char *expander, RSSearchOptions *opts, IndexSpec *spec,
                 QueryError *status) {
   if (!q->root) {
     return REDISMODULE_OK;
   }
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(RSDummyContext, spec);
   RSQueryExpanderCtx expCtx = {
-      .qast = q, .language = opts->language, .handle = sctx, .status = status};
+      .qast = q, .language = opts->language, .handle = &sctx, .status = status};
 
   ExtQueryExpanderCtx *xpc =
       Extensions_GetQueryExpander(&expCtx, expander ? expander : DEFAULT_EXPANDER_NAME);

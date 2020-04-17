@@ -44,9 +44,7 @@ TEST_F(AggTest, testBasic) {
   rv = AREQ_Compile(rr, aggArgs, aggArgs.size(), &qerr);
   ASSERT_EQ(REDISMODULE_OK, rv) << QueryError_GetError(&qerr);
   ASSERT_FALSE(QueryError_HasError(&qerr));
-  RedisSearchCtx *sctx = NewSearchCtxC(ctx, spec->name, true);
-  ASSERT_FALSE(sctx == NULL);
-  rv = AREQ_ApplyContext(rr, sctx, &qerr);
+  rv = AREQ_ApplyContext(rr, spec, &qerr);
   ASSERT_EQ(REDISMODULE_OK, rv);
 
   rv = AREQ_BuildPipeline(rr, 0, &qerr);

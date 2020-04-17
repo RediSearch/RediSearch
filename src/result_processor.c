@@ -558,11 +558,11 @@ static int rploaderNext(ResultProcessor *base, SearchResult *r) {
   if (r->dmd == NULL || (r->dmd->flags & Document_Deleted)) {
     return RS_RESULT_OK;
   }
-  RedisSearchCtx *sctx = lc->base.parent->sctx;
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(RSDummyContext, lc->base.parent->spec);
 
   QueryError status = {0};
   RLookupLoadOptions loadopts = {
-      .sctx = lc->base.parent->sctx,  // lb
+      .sctx = &sctx,  // lb
       .ktype = RLOOKUP_KEY_CSTR,
       .key = {.cstr = {.s = r->dmd->keyPtr, .len = sdslen(r->dmd->keyPtr)}},
       .noSortables = 1,

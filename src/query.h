@@ -49,8 +49,8 @@ typedef struct QueryAST {
  * @param len the length of the query string
  * @param status error details set here.
  */
-int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions *sopts,
-               const char *qstr, size_t len, QueryError *status);
+int QAST_Parse(QueryAST *dst, const IndexSpec *spec, const RSSearchOptions *sopts, const char *qstr,
+               size_t len, QueryError *status);
 
 IndexIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n);
 
@@ -82,8 +82,8 @@ void QAST_SetGlobalFilters(QueryAST *ast, const QAST_GlobalFilterOptions *option
  * @param conc Used to save state on the query
  * @return an iterator.
  */
-IndexIterator *QAST_Iterate(const QueryAST *ast, const RSSearchOptions *options,
-                            RedisSearchCtx *sctx, Yielder *conc);
+IndexIterator *QAST_Iterate(const QueryAST *ast, const RSSearchOptions *options, IndexSpec *spec,
+                            Yielder *conc);
 
 /**
  * Expand the query using a pre-registered expander. Query expansion possibly
@@ -94,7 +94,7 @@ IndexIterator *QAST_Iterate(const QueryAST *ast, const RSSearchOptions *options,
  * @param status error detail
  * @return REDISMODULE_OK, or REDISMODULE_ERR with more detail in `status`
  */
-int QAST_Expand(QueryAST *q, const char *expander, RSSearchOptions *opts, RedisSearchCtx *sctx,
+int QAST_Expand(QueryAST *q, const char *expander, RSSearchOptions *opts, IndexSpec *spec,
                 QueryError *status);
 
 /* Return a string representation of the QueryParseCtx parse tree. The string should be freed by the

@@ -393,15 +393,15 @@ static void numFreeCb(YielderArg *a, void *idx) {
   rm_free(a->p);
 }
 
-struct indexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const NumericFilter *flt,
+struct indexIterator *NewNumericFilterIterator(IndexSpec *spec, const NumericFilter *flt,
                                                Yielder *csx) {
-  NumericRangeTree *t = IDX_LoadRangeFieldname(ctx->spec, flt->fieldName, REDISMODULE_READ);
+  NumericRangeTree *t = IDX_LoadRangeFieldname(spec, flt->fieldName, REDISMODULE_READ);
 
   if (!t) {
     return NULL;
   }
 
-  IndexIterator *it = createNumericIterator(ctx->spec, t, flt);
+  IndexIterator *it = createNumericIterator(spec, t, flt);
   if (!it) {
     return NULL;
   }

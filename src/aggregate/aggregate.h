@@ -74,7 +74,7 @@ typedef struct {
   IndexIterator *rootiter;
 
   /** Context, owned by request */
-  RedisSearchCtx *sctx;
+  IndexSpec *spec;
 
   /** Resumable context */
   Yielder conc;
@@ -144,7 +144,7 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
  *
  * Note that this function consumes a refcount even if it fails!
  */
-int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status);
+int AREQ_ApplyContext(AREQ *req, IndexSpec *spec, QueryError *status);
 
 /**
  * Do not create the root result processor. Only process those components

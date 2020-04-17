@@ -662,7 +662,7 @@ error:
   return REDISMODULE_ERR;
 }
 
-static void applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisSearchCtx *sctx) {
+static void applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const IndexSpec *spec) {
   /** The following blocks will set filter options on the entire query */
   if (opts->legacy.filters) {
     for (size_t ii = 0; ii < array_len(opts->legacy.filters); ++ii) {
@@ -680,7 +680,7 @@ static void applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const Redis
   if (opts->inkeys) {
     opts->inids = rm_malloc(sizeof(*opts->inids) * opts->ninkeys);
     for (size_t ii = 0; ii < opts->ninkeys; ++ii) {
-      t_docId did = DocTable_GetId(&sctx->spec->docs, opts->inkeys[ii], strlen(opts->inkeys[ii]));
+      t_docId did = DocTable_GetId(&spec->docs, opts->inkeys[ii], strlen(opts->inkeys[ii]));
       if (did) {
         opts->inids[opts->nids++] = did;
       }
@@ -690,13 +690,13 @@ static void applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const Redis
   }
 }
 
-int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
+int AREQ_ApplyContext(AREQ *req, IndexSpec *spec, QueryError *status) {
   // Sort through the applicable options:
-  IndexSpec *index = sctx->spec;
   RSSearchOptions *opts = &req->searchopts;
-  req->sctx = sctx;
+  req->spec = spec;
+  IndexSpec_Incref(req->spec);
 
-  if ((index->flags & Index_StoreByteOffsets) == 0 && (req->reqflags & QEXEC_F_SEND_HIGHLIGHT)) {
+  if ((spec->flags & Index_StoreByteOffsets) == 0 && (req->reqflags & QEXEC_F_SEND_HIGHLIGHT)) {
     QueryError_SetError(
         status, QUERY_EINVAL,
         "Cannot use highlight/summarize because NOOFSETS was specified at index level");
@@ -709,7 +709,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     opts->fieldmask = 0;
     for (size_t ii = 0; ii < opts->legacy.ninfields; ++ii) {
       const char *s = opts->legacy.infields[ii];
-      t_fieldMask bit = IndexSpec_GetFieldBit(index, s, strlen(s));
+      t_fieldMask bit = IndexSpec_GetFieldBit(spec, s, strlen(s));
       opts->fieldmask |= bit;
     }
   }
@@ -723,26 +723,26 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     return REDISMODULE_ERR;
   }
   if (!(opts->flags & Search_NoStopwrods)) {
-    opts->stopwords = sctx->spec->stopwords;
-    StopWordList_Ref(sctx->spec->stopwords);
+    opts->stopwords = spec->stopwords;
+    StopWordList_Ref(spec->stopwords);
   }
 
   QueryAST *ast = &req->ast;
 
-  int rv = QAST_Parse(ast, sctx, &req->searchopts, req->query, strlen(req->query), status);
+  int rv = QAST_Parse(ast, spec, &req->searchopts, req->query, strlen(req->query), status);
   if (rv != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
 
-  applyGlobalFilters(opts, ast, sctx);
+  applyGlobalFilters(opts, ast, spec);
 
   if (!(opts->flags & Search_Verbatim)) {
-    if (QAST_Expand(ast, opts->expanderName, opts, sctx, status) != REDISMODULE_OK) {
+    if (QAST_Expand(ast, opts->expanderName, opts, spec, status) != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     }
   }
-  YLD_Init(&req->conc, sctx->spec);
-  req->rootiter = QAST_Iterate(ast, opts, sctx, &req->conc);
+  YLD_Init(&req->conc, spec);
+  req->rootiter = QAST_Iterate(ast, opts, spec, &req->conc);
   RS_LOG_ASSERT(req->rootiter, "QAST_Iterate failed");
 
   return REDISMODULE_OK;
@@ -901,7 +901,7 @@ static ResultProcessor *getScorerRP(AREQ *req) {
   }
   ExtScoringFunctionCtx *fns = Extensions_GetScoringFunction(&scargs, scorer);
   RS_LOG_ASSERT(fns, "Extensions_GetScoringFunction failed");
-  IndexSpec_GetStats(req->sctx->spec, &scargs.indexStats);
+  IndexSpec_GetStats(req->spec, &scargs.indexStats);
   scargs.qdata = req->ast.udata;
   scargs.qdatalen = req->ast.udatalen;
   ResultProcessor *rp = RPScorer_New(fns, &scargs);
@@ -932,12 +932,12 @@ static int hasQuerySortby(const AGGPlan *pln) {
  * subsequent execution stages actually have data to operate on.
  */
 static void buildImplicitPipeline(AREQ *req, QueryError *Status) {
-  RedisSearchCtx *sctx = req->sctx;
+  IndexSpec *spec = req->spec;
   req->qiter.yld = &req->conc;
-  req->qiter.sctx = sctx;
+  req->qiter.spec = spec;
   req->qiter.err = Status;
 
-  IndexSpecCache *cache = IndexSpec_GetSpecCache(req->sctx->spec);
+  IndexSpecCache *cache = IndexSpec_GetSpecCache(req->spec);
   RS_LOG_ASSERT(cache, "IndexSpec_GetSpecCache failed")
   RLookup *first = AGPLN_GetLookup(&req->ap, NULL, AGPLN_GETLOOKUP_FIRST);
 
@@ -1163,12 +1163,9 @@ void AREQ_Free(AREQ *req) {
   // cleanup is required since we also now own the
   // detached ("Thread Safe") context.
   RedisModuleCtx *thctx = NULL;
-  if (req->sctx) {
-    if (req->reqflags & QEXEC_F_IS_CURSOR) {
-      thctx = req->sctx->redisCtx;
-      req->sctx->redisCtx = NULL;
-    }
-    SearchCtx_Decref(req->sctx);
+  if (req->spec) {
+    IndexSpec_Decref(req->spec);
+    req->spec = NULL;
   }
   for (size_t ii = 0; ii < req->nargs; ++ii) {
     sdsfree(req->args[ii]);

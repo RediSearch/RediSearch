@@ -201,8 +201,6 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   int rc = REDISMODULE_ERR;
   const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
   *r = AREQ_New();
-  RedisSearchCtx *sctx = NULL;
-  RedisModuleCtx *thctx = NULL;
 
   if (type == COMMAND_SEARCH) {
     (*r)->reqflags |= QEXEC_F_IS_SEARCH;
@@ -217,17 +215,18 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   if ((*r)->reqflags & QEXEC_F_IS_CURSOR) {
     RedisModuleCtx *newctx = RedisModule_GetThreadSafeContext(NULL);
     RedisModule_SelectDb(newctx, RedisModule_GetSelectedDb(ctx));
-    ctx = thctx = newctx;  // In case of error!
+  }
+  IndexLoadOptions lopts = {.flags = INDEXSPEC_LOAD_KEY_RSTRING, .name = {.rstring = argv[1]}};
+  IndexSpec *spec = IndexSpec_LoadEx(NULL, &lopts);
+  if (!spec) {
+    if (!spec) {
+      QueryError_SetErrorFmt(status, QUERY_ENOINDEX, "%s: no such index",
+                             RedisModule_StringPtrLen(argv[1], NULL));
+      goto done;
+    }
   }
 
-  sctx = NewSearchCtxC(ctx, indexname, true);
-  if (!sctx) {
-    QueryError_SetErrorFmt(status, QUERY_ENOINDEX, "%s: no such index", indexname);
-    goto done;
-  }
-
-  rc = AREQ_ApplyContext(*r, sctx, status);
-  thctx = NULL;
+  rc = AREQ_ApplyContext(*r, spec, status);
   // ctx is always assigned after ApplyContext
   if (rc != REDISMODULE_OK) {
     RS_LOG_ASSERT(QueryError_HasError(status), "Query has error");
@@ -240,9 +239,6 @@ done:
   if (rc != REDISMODULE_OK && *r) {
     AREQ_Free(*r);
     *r = NULL;
-    if (thctx) {
-      RedisModule_FreeThreadSafeContext(thctx);
-    }
   }
   return rc;
 }
@@ -263,7 +259,7 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   }
 
   if (r->reqflags & QEXEC_F_IS_CURSOR) {
-    int rc = AREQ_StartCursor(r, ctx, r->sctx->spec->name, &status);
+    int rc = AREQ_StartCursor(r, ctx, r->spec->name, &status);
     if (rc != REDISMODULE_OK) {
       goto error;
     }
@@ -293,7 +289,7 @@ char *RS_GetExplainOutput(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   if (buildRequest(ctx, argv, argc, COMMAND_EXPLAIN, status, &r) != REDISMODULE_OK) {
     return NULL;
   }
-  char *ret = QAST_DumpExplain(&r->ast, r->sctx->spec);
+  char *ret = QAST_DumpExplain(&r->ast, r->spec);
   AREQ_Free(r);
   return ret;
 }

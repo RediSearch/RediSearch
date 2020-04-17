@@ -1,9 +1,15 @@
 #ifndef RS_CONFIG_H_
 #define RS_CONFIG_H_
 
+#include <_types/_uint32_t.h>
+#include <sys/_types/_size_t.h>
+
 #include "redismodule.h"
+#include "rmutil/args.h"
 #include "rmutil/sds.h"
 #include "query_error.h"
+
+struct QueryError;
 
 typedef enum {
   TimeoutPolicy_Default = 0,  // Defer to global config

@@ -32,7 +32,7 @@ typedef struct RSQuery {
 
 typedef struct {
   Yielder *conc;
-  RedisSearchCtx *sctx;
+  IndexSpec *spec;
   const RSSearchOptions *opts;
 
   size_t numTokens;

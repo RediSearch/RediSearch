@@ -80,7 +80,7 @@ typedef struct NumericRangeTree {
 struct indexIterator *NewNumericRangeIterator(const IndexSpec *sp, NumericRange *nr,
                                               const NumericFilter *f);
 
-struct indexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const NumericFilter *flt,
+struct indexIterator *NewNumericFilterIterator(IndexSpec *spec, const NumericFilter *flt,
                                                Yielder *y);
 
 /* Add an entry to a numeric range node. Returns the cardinality of the range after the

@@ -39,7 +39,7 @@ class QASTCXX : public QueryAST {
     QueryError_ClearError(&m_status);
     QAST_Destroy(this);
 
-    int rc = QAST_Parse(this, sctx, &m_opts, s, strlen(s), &m_status);
+    int rc = QAST_Parse(this, sctx->spec, &m_opts, s, strlen(s), &m_status);
     return rc == REDISMODULE_OK && !QueryError_HasError(&m_status) && root != NULL;
   }
 

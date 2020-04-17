@@ -342,14 +342,13 @@ static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** err
   // here we only take the read lock and we will free it when the iterator will be freed
   RWLOCK_ACQUIRE_READ();
 
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(NULL, sp);
   RSSearchOptions options = {0};
   QueryError status = {0};
   RSSearchOptions_Init(&options);
   RS_ApiIter* it = rm_calloc(1, sizeof(*it));
 
   if (input->qtype == QUERY_INPUT_STRING) {
-    if (QAST_Parse(&it->qast, &sctx, &options, input->u.s.qs, input->u.s.n, &status) !=
+    if (QAST_Parse(&it->qast, sp, &options, input->u.s.qs, input->u.s.n, &status) !=
         REDISMODULE_OK) {
       goto end;
     }
@@ -357,11 +356,11 @@ static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** err
     it->qast.root = input->u.qn;
   }
 
-  if (QAST_Expand(&it->qast, NULL, &options, &sctx, &status) != REDISMODULE_OK) {
+  if (QAST_Expand(&it->qast, NULL, &options, sp, &status) != REDISMODULE_OK) {
     goto end;
   }
 
-  it->internal = QAST_Iterate(&it->qast, &options, &sctx, NULL);
+  it->internal = QAST_Iterate(&it->qast, &options, sp, NULL);
   if (!it->internal) {
     goto end;
   }
