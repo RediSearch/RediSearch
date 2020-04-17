@@ -909,6 +909,9 @@ int IR_Read(void *ctx, RSIndexResult **e) {
     // We write the docid as a 32 bit number when decoding it with qint.
     uint32_t delta = *(uint32_t *)&record->docId;
     ir->lastId = record->docId = calculateId(ir->lastId, delta, pos == 0);
+    if (ir->lastId > ir->maxId) {
+      goto eof;
+    }
 
     // The decoder also acts as a filter. A zero return value means that the
     // current record should not be processed.
@@ -973,7 +976,7 @@ int IR_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
     goto eof;
   }
 
-  if (docId > ir->idx->lastId || ir->idx->size == 0) {
+  if (docId > ir->idx->lastId || docId > ir->maxId || ir->idx->size == 0) {
     goto eof;
   }
 
@@ -1031,6 +1034,9 @@ int IR_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
         }
       }
     }
+    if (ir->lastId > ir->maxId) {
+      goto eof;
+    }
     // Found a document that match the field mask and greater or equal the searched docid
     *hit = ir->record;
     return (ir->record->docId == docId) ? INDEXREAD_OK : INDEXREAD_NOTFOUND;
@@ -1063,6 +1069,7 @@ static void IndexReader_Init(const IndexSpec *sp, IndexReader *ret, InvertedInde
   ret->decoderCtx = decoderCtx;
   ret->isValidP = NULL;
   ret->sp = sp;
+  ret->maxId = idx->lastId;
   IR_SetAtEnd(ret, 0);
 }
 

@@ -128,6 +128,13 @@ typedef struct IndexReader {
   /* The decoding function for reading the index */
   IndexDecoderProcs decoders;
 
+  /**
+   * This sets the maximum document ID for iteration. If documents are appended
+   * to the inverted index, we ignore them. This value is assigned once, when
+   * the iterator is opened
+   */
+  t_docId maxId;
+
   /* The record we are decoding into */
   RSIndexResult *record;
 
