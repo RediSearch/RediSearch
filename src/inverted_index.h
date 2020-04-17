@@ -128,9 +128,6 @@ typedef struct IndexReader {
   /* The decoding function for reading the index */
   IndexDecoderProcs decoders;
 
-  /* The number of records read */
-  size_t len;
-
   /* The record we are decoding into */
   RSIndexResult *record;
 
@@ -214,9 +211,6 @@ int IR_Next(void *ctx);
 int IR_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit);
 
 RSIndexResult *IR_Current(void *ctx);
-
-/* The number of docs in an inverted index entry */
-size_t IR_NumDocs(void *ctx);
 
 /* LastDocId of an inverted index stateful reader */
 t_docId IR_LastDocId(void *ctx);
