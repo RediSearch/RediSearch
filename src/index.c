@@ -15,14 +15,12 @@ static inline int UI_ReadUnsorted(void *ctx, RSIndexResult **hit);
 static int UI_ReadSorted(void *ctx, RSIndexResult **hit);
 static size_t UI_NumEstimated(void *ctx);
 static IndexCriteriaTester *UI_GetCriteriaTester(void *ctx);
-static size_t UI_Len(void *ctx);
 
 static int II_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit);
 static int II_ReadUnsorted(void *ctx, RSIndexResult **hit);
 static IndexCriteriaTester *II_GetCriteriaTester(void *ctx);
 static int II_ReadSorted(void *ctx, RSIndexResult **hit);
 static size_t II_NumEstimated(void *ctx);
-static size_t II_Len(void *ctx);
 static t_docId II_LastDocId(void *ctx);
 
 #define CURRENT_RECORD(ii) (ii)->base.current
@@ -131,7 +129,6 @@ IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *dt, int 
   it->SkipTo = UI_SkipTo;
   it->HasNext = NULL;
   it->Free = UnionIterator_Free;
-  it->Len = UI_Len;
   it->Abort = UI_Abort;
   it->Rewind = UI_Rewind;
   UI_SyncIterList(ctx);
@@ -600,7 +597,6 @@ IndexIterator *NewIntersecIterator(IndexIterator **its_, size_t num, DocTable *d
   it->GetCriteriaTester = II_GetCriteriaTester;
   it->Read = II_ReadSorted;
   it->SkipTo = II_SkipTo;
-  it->Len = II_Len;
   it->Free = IntersectIterator_Free;
   it->Abort = II_Abort;
   it->Rewind = II_Rewind;
@@ -852,10 +848,6 @@ static t_docId II_LastDocId(void *ctx) {
   return ((IntersectIterator *)ctx)->lastFoundId;
 }
 
-static size_t II_Len(void *ctx) {
-  return ((IntersectIterator *)ctx)->len;
-}
-
 /* A Not iterator works by wrapping another iterator, and returning OK for misses, and NOTFOUND
  * for hits */
 typedef struct {
@@ -1051,12 +1043,6 @@ static int NI_HasNext(void *ctx) {
   return nc->lastDocId <= nc->maxDocId;
 }
 
-/* Our len is the child's len? TBD it might be better to just return 0 */
-static size_t NI_Len(void *ctx) {
-  NotContext *nc = ctx;
-  return nc->len;
-}
-
 /* Last docId */
 static t_docId NI_LastDocId(void *ctx) {
   NotContext *nc = ctx;
@@ -1084,7 +1070,6 @@ IndexIterator *NewNotIterator(IndexIterator *it, t_docId maxDocId, double weight
   ret->Free = NI_Free;
   ret->HasNext = NI_HasNext;
   ret->LastDocId = NI_LastDocId;
-  ret->Len = NI_Len;
   ret->Read = NI_ReadSorted;
   ret->SkipTo = NI_SkipTo;
   ret->Abort = NI_Abort;
@@ -1259,12 +1244,6 @@ static void OI_Abort(void *ctx) {
   }
 }
 
-/* Our len is the child's len? TBD it might be better to just return 0 */
-static size_t OI_Len(void *ctx) {
-  OptionalMatchContext *nc = ctx;
-  return nc->child ? nc->child->Len(nc->child->ctx) : 0;
-}
-
 /* Last docId */
 static t_docId OI_LastDocId(void *ctx) {
   OptionalMatchContext *nc = ctx;
@@ -1301,7 +1280,6 @@ IndexIterator *NewOptionalIterator(IndexIterator *it, t_docId maxDocId, double w
   ret->Free = OI_Free;
   ret->HasNext = OI_HasNext;
   ret->LastDocId = OI_LastDocId;
-  ret->Len = OI_Len;
   ret->Read = OI_ReadSorted;
   ret->SkipTo = OI_SkipTo;
   ret->Abort = OI_Abort;
@@ -1384,12 +1362,6 @@ static int WI_HasNext(void *ctx) {
   return nc->current <= nc->topId;
 }
 
-/* Our len is the len of the index... */
-static size_t WI_Len(void *ctx) {
-  WildcardIteratorCtx *nc = ctx;
-  return nc->topId;
-}
-
 /* Last docId */
 static t_docId WI_LastDocId(void *ctx) {
   WildcardIteratorCtx *nc = ctx;
@@ -1421,7 +1393,6 @@ IndexIterator *NewWildcardIterator(t_docId maxId) {
   ret->Free = WI_Free;
   ret->HasNext = WI_HasNext;
   ret->LastDocId = WI_LastDocId;
-  ret->Len = WI_Len;
   ret->Read = WI_Read;
   ret->SkipTo = WI_SkipTo;
   ret->Abort = WI_Abort;
@@ -1439,9 +1410,6 @@ static void EOI_Free(struct indexIterator *self) {
 static size_t EOI_NumEstimated(void *ctx) {
   return 0;
 }
-static size_t EOI_Len(void *ctx) {
-  return 0;
-}
 static t_docId EOI_LastDocId(void *ctx) {
   return 0;
 }
@@ -1457,7 +1425,6 @@ static void EOI_Rewind(void *ctx) {
 static IndexIterator eofIterator = {.Read = EOI_Read,
                                     .Free = EOI_Free,
                                     .SkipTo = EOI_SkipTo,
-                                    .Len = EOI_Len,
                                     .LastDocId = EOI_LastDocId,
                                     .NumEstimated = EOI_NumEstimated,
                                     .Abort = EOI_Abort,

@@ -57,10 +57,6 @@ typedef struct indexIterator {
   /* release the iterator's context and free everything needed */
   void (*Free)(struct indexIterator *self);
 
-  /* Return the number of results in this iterator. Used by the query execution
-   * on the top iterator */
-  size_t (*Len)(void *ctx);
-
   /* Abort the execution of the iterator and mark it as EOF. This is used for early aborting in case
    * of data consistency issues due to multi threading */
   void (*Abort)(void *ctx);

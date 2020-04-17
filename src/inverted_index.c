@@ -916,7 +916,6 @@ int IR_Read(void *ctx, RSIndexResult **e) {
       continue;
     }
 
-    ++ir->len;
     *e = record;
     return INDEXREAD_OK;
 
@@ -1050,12 +1049,6 @@ eof:
   return INDEXREAD_EOF;
 }
 
-size_t IR_NumDocs(void *ctx) {
-  IndexReader *ir = ctx;
-  // otherwise we use our counter
-  return ir->len;
-}
-
 static void IndexReader_Init(const IndexSpec *sp, IndexReader *ret, InvertedIndex *idx,
                              IndexDecoderProcs decoder, IndexDecoderCtx decoderCtx,
                              RSIndexResult *record, double weight) {
@@ -1063,7 +1056,6 @@ static void IndexReader_Init(const IndexSpec *sp, IndexReader *ret, InvertedInde
   ret->idx = idx;
   ret->gcMarker = idx->gcMarker;
   ret->record = record;
-  ret->len = 0;
   ret->weight = weight;
   ret->lastId = IR_CURRENT_BLOCK(ret).firstId;
   ret->br = NewBufferReader(&IR_CURRENT_BLOCK(ret).buf);
@@ -1153,7 +1145,6 @@ IndexIterator *NewReadIterator(IndexReader *ir) {
   ri->SkipTo = IR_SkipTo;
   ri->LastDocId = IR_LastDocId;
   ri->Free = ReadIterator_Free;
-  ri->Len = IR_NumDocs;
   ri->Abort = IR_Abort;
   ri->Rewind = IR_Rewind;
   ri->HasNext = NULL;

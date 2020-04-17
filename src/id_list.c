@@ -136,12 +136,6 @@ void IL_Free(struct indexIterator *self) {
   rm_free(self);
 }
 
-/* Return the number of results in this iterator. Used by the query execution
- * on the top iterator */
-size_t IL_Len(void *ctx) {
-  return (size_t)((IdListIterator *)ctx)->size;
-}
-
 static int cmp_docids(const void *p1, const void *p2) {
   const t_docId *d1 = p1, *d2 = p2;
 
@@ -179,7 +173,6 @@ IndexIterator *NewIdListIterator(t_docId *ids, t_offset num, double weight) {
   ret->NumEstimated = IL_NumEstimated;
   ret->Free = IL_Free;
   ret->LastDocId = IL_LastDocId;
-  ret->Len = IL_Len;
   ret->Read = IL_Read;
   ret->SkipTo = IL_SkipTo;
   ret->Abort = IL_Abort;
