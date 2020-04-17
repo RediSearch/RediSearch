@@ -855,8 +855,17 @@ IndexSpec *IndexSpec_LoadEx(void *unused, IndexLoadOptions *options) {
     ret = ent->v.val;
   }
 
-  if (ret && !(options->flags & INDEXSPEC_LOAD_NOTOUCH)) {
-    resetTimer(ret);
+  if (ret) {
+    if (options->flags & INDEXSPEC_LOAD_LOCKED) {
+      if (options->flags & INDEXSPEC_LOAD_WRITEABLE) {
+        pthread_rwlock_wrlock(&ret->idxlock);
+      } else {
+        pthread_rwlock_rdlock(&ret->idxlock);
+      }
+    }
+    if (!(options->flags & INDEXSPEC_LOAD_NOTOUCH)) {
+      resetTimer(ret);
+    }
   }
 
   return ret;

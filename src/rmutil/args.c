@@ -181,6 +181,15 @@ const char *AC_GetStringNC(ArgsCursor *ac, size_t *len) {
   return s;
 }
 
+RedisModuleString *AC_GetRStringNC(ArgsCursor *ac) {
+  assert(ac->type == AC_TYPE_RSTRING);
+  RedisModuleString *ret = NULL;
+  if (AC_GetRString(ac, &ret, 0) != AC_OK) {
+    return NULL;
+  }
+  return ret;
+}
+
 int AC_GetVarArgs(ArgsCursor *ac, ArgsCursor *dst) {
   unsigned nargs;
   int rv = AC_GetUnsigned(ac, &nargs, 0);

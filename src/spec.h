@@ -343,12 +343,18 @@ IndexSpec *IndexSpec_Load(void *unused, const char *name, int openWrite);
 
 /** Load the index as writeable */
 #define INDEXSPEC_LOAD_WRITEABLE 0x01
+
 /** Don't consult the alias table when retrieving the index */
 #define INDEXSPEC_LOAD_NOALIAS 0x02
+
 /** The name of the index is in the format of a redis string */
 #define INDEXSPEC_LOAD_KEY_RSTRING 0x04
+
 /** Don't update index TTL, for temporary indexes */
 #define INDEXSPEC_LOAD_NOTOUCH 0x08
+
+/** Lock the index with the appropriate lock */
+#define INDEXSPEC_LOAD_LOCKED 0x10
 
 typedef struct {
   uint32_t flags;

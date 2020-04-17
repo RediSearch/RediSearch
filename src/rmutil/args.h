@@ -83,6 +83,7 @@ int AC_GetSize(ArgsCursor *ac, size_t *sz, int flags);
 // Gets the string (and optionally the length). If the string does not exist,
 // it returns NULL. Used when caller is sure the arg exists
 const char *AC_GetStringNC(ArgsCursor *ac, size_t *len);
+RedisModuleString *AC_GetRStringNC(ArgsCursor *ac);
 
 int AC_Advance(ArgsCursor *ac);
 int AC_AdvanceBy(ArgsCursor *ac, size_t by);

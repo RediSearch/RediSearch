@@ -159,8 +159,8 @@ static inline RSDocumentMetadata *DocTable_PopR(DocTable *t, RedisModuleString *
   return DocTable_Pop(t, s, n);
 }
 
-static inline RSDocumentMetadata *DocTable_GetByKey(DocTable *dt, const char *key) {
-  t_docId id = DocTable_GetId(dt, key, strlen(key));
+static inline RSDocumentMetadata *DocTable_GetByKey(DocTable *dt, const char *key, size_t n) {
+  t_docId id = DocTable_GetId(dt, key, n);
   if (id == 0) {
     return NULL;
   }
