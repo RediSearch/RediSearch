@@ -542,6 +542,7 @@ typedef struct {
   RLookup *lk;
   const RLookupKey **fields;
   size_t nfields;
+  int lockGil;
 } RPLoader;
 
 static int rploaderNext(ResultProcessor *base, SearchResult *r) {
@@ -575,7 +576,14 @@ static int rploaderNext(ResultProcessor *base, SearchResult *r) {
   } else {
     loadopts.mode |= RLOOKUP_LOAD_ALLKEYS;
   }
+
+  if (lc->lockGil) {
+    RedisModule_ThreadSafeContextLock(RSDummyContext);
+  }
   RLookup_LoadDocument(lc->lk, &r->rowdata, &loadopts);
+  if (lc->lockGil) {
+    RedisModule_ThreadSafeContextUnlock(RSDummyContext);
+  }
   return RS_RESULT_OK;
 }
 
@@ -585,13 +593,14 @@ static void rploaderFree(ResultProcessor *base) {
   rm_free(lc);
 }
 
-ResultProcessor *RPLoader_New(RLookup *lk, const RLookupKey **keys, size_t nkeys) {
+ResultProcessor *RPLoader_New(RLookup *lk, const RLookupKey **keys, size_t nkeys, int lockGil) {
   RPLoader *sc = rm_calloc(1, sizeof(*sc));
   sc->nfields = nkeys;
   sc->fields = rm_calloc(nkeys, sizeof(*sc->fields));
   memcpy(sc->fields, keys, sizeof(*keys) * nkeys);
 
   sc->lk = lk;
+  sc->lockGil = lockGil;
   sc->base.Next = rploaderNext;
   sc->base.Free = rploaderFree;
   sc->base.name = "Loader";

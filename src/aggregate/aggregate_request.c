@@ -742,6 +742,7 @@ int AREQ_ApplyContext(AREQ *req, IndexSpec *spec, QueryError *status) {
     }
   }
   YLD_Init(&req->conc, spec);
+  AREQ_LockIndex(req);
   req->rootiter = QAST_Iterate(ast, opts, spec, &req->conc);
   RS_LOG_ASSERT(req->rootiter, "QAST_Iterate failed");
 
@@ -828,7 +829,8 @@ static ResultProcessor *getGroupRP(AREQ *req, PLN_GroupStep *gstp, ResultProcess
       }
     }
     if (kklist != NULL) {
-      ResultProcessor *rpLoader = RPLoader_New(firstLk, kklist, array_len(kklist));
+      ResultProcessor *rpLoader =
+          RPLoader_New(firstLk, kklist, array_len(kklist), !(req->reqflags & QEXEC_F_SAFEMODE));
       array_free(kklist);
       RS_LOG_ASSERT(rpLoader, "RPLoader_New failed");
       rpUpstream = pushRP(req, rpLoader, rpUpstream);
@@ -982,7 +984,8 @@ int buildOutputPipeline(AREQ *req, QueryError *status) {
       lk->flags |= RLOOKUP_F_EXPLICITRETURN;
     }
   }
-  rp = RPLoader_New(lookup, loadkeys, loadkeys ? array_len(loadkeys) : 0);
+  rp = RPLoader_New(lookup, loadkeys, loadkeys ? array_len(loadkeys) : 0,
+                    !(req->reqflags & QEXEC_F_SAFEMODE));
   if (loadkeys) {
     array_free(loadkeys);
   }
@@ -1094,7 +1097,8 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
           lstp->keys[lstp->nkeys++] = kk;
         }
         if (lstp->nkeys) {
-          rp = RPLoader_New(curLookup, lstp->keys, lstp->nkeys);
+          rp =
+              RPLoader_New(curLookup, lstp->keys, lstp->nkeys, !(req->reqflags & QEXEC_F_SAFEMODE));
           PUSH_RP();
         }
         break;
@@ -1136,6 +1140,21 @@ error:
   return REDISMODULE_ERR;
 }
 
+void AREQ_LockIndex(AREQ *req) {
+  if (req->stateflags & QEXEC_S_IDXLOCKED) {
+    return;
+  }
+  pthread_rwlock_rdlock(&req->spec->idxlock);
+  req->stateflags |= QEXEC_S_IDXLOCKED;
+}
+
+void AREQ_UnlockIndex(AREQ *req) {
+  if (req->stateflags & QEXEC_S_IDXLOCKED) {
+    pthread_rwlock_unlock(&req->spec->idxlock);
+    req->stateflags &= ~QEXEC_S_IDXLOCKED;
+  }
+}
+
 void AREQ_Free(AREQ *req) {
   // First, free the result processors
   ResultProcessor *rp = req->qiter.endProc;
@@ -1162,8 +1181,8 @@ void AREQ_Free(AREQ *req) {
   // Finally, free the context. If we are a cursor, some more
   // cleanup is required since we also now own the
   // detached ("Thread Safe") context.
-  RedisModuleCtx *thctx = NULL;
   if (req->spec) {
+    AREQ_UnlockIndex(req);
     IndexSpec_Decref(req->spec);
     req->spec = NULL;
   }
@@ -1181,9 +1200,6 @@ void AREQ_Free(AREQ *req) {
   }
   rm_free(req->searchopts.inids);
   FieldList_Free(&req->outFields);
-  if (thctx) {
-    RedisModule_FreeThreadSafeContext(thctx);
-  }
   rm_free(req->args);
   rm_free(req);
 }

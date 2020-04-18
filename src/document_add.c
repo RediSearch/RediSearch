@@ -267,7 +267,9 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   }
 
   RedisSearchCtx sctx = {.redisCtx = ctx, .spec = sp};
+  pthread_rwlock_wrlock(&sp->idxlock);
   rv = RS_AddDocument(&sctx, argv[2], &opts, &status);
+  pthread_rwlock_unlock(&sp->idxlock);
   if (rv == REDISMODULE_OK) {
     // Replicate *here*
     // note: we inject the index name manually so that we eliminate alias

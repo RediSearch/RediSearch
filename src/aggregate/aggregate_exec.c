@@ -190,11 +190,6 @@ done:
   return REDISMODULE_OK;
 }
 
-void AREQ_Execute(AREQ *req, RedisModuleCtx *outctx) {
-  sendChunk(req, outctx, -1);
-  AREQ_Free(req);
-}
-
 static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int type,
                         QueryError *status, AREQ **r) {
 
@@ -212,10 +207,6 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   }
 
   // Prepare the query.. this is where the context is applied.
-  if ((*r)->reqflags & QEXEC_F_IS_CURSOR) {
-    RedisModuleCtx *newctx = RedisModule_GetThreadSafeContext(NULL);
-    RedisModule_SelectDb(newctx, RedisModule_GetSelectedDb(ctx));
-  }
   IndexLoadOptions lopts = {.flags = INDEXSPEC_LOAD_KEY_RSTRING, .name = {.rstring = argv[1]}};
   IndexSpec *spec = IndexSpec_LoadEx(NULL, &lopts);
   if (!spec) {
@@ -243,6 +234,26 @@ done:
   return rc;
 }
 
+typedef struct {
+  AREQ *req;
+  RedisModuleBlockedClient *bc;
+} blockedInfo;
+
+static void execfunc(void *arg) {
+  blockedInfo *bi = arg;
+  RedisModuleBlockedClient *bc = bi->bc;
+  AREQ *req = bi->req;
+  rm_free(bi);
+  QueryError status = {0};
+
+  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
+  req->qiter.err = &status;
+  sendChunk(req, ctx, -1);
+  AREQ_Free(req);
+  RedisModule_FreeThreadSafeContext(ctx);
+  RedisModule_UnblockClient(bc, NULL);
+}
+
 static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                              CommandType type) {
   // Index name is argv[1]
@@ -264,8 +275,10 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
       goto error;
     }
   } else {
-    // Execute() will call free when appropriate.
-    AREQ_Execute(r, ctx);
+    blockedInfo *bi = rm_malloc(sizeof(*bi));
+    bi->req = r;
+    bi->bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
+    ConcurrentSearch_ThreadPoolRun(execfunc, bi, CONCURRENT_POOL_SEARCH);
   }
   return REDISMODULE_OK;
 
@@ -294,8 +307,6 @@ char *RS_GetExplainOutput(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   return ret;
 }
 
-static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num);
-
 int AREQ_StartCursor(AREQ *r, RedisModuleCtx *outctx, const char *lookupName, QueryError *err) {
   Cursor *cursor = Cursors_Reserve(&RSCursors, lookupName, r->cursorMaxIdle, err);
   if (cursor == NULL) {
@@ -306,17 +317,44 @@ int AREQ_StartCursor(AREQ *r, RedisModuleCtx *outctx, const char *lookupName, Qu
   return REDISMODULE_OK;
 }
 
-static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num) {
-  AREQ *req = cursor->execState;
+typedef struct {
+  AREQ *req;
+  RedisModuleBlockedClient *bc;
+  Cursor *cursor;
+  size_t count;
+} cursorInfo;
+
+static void cursorFunc(void *arg) {
+  cursorInfo *ci = arg;
+  AREQ *req = ci->req;
+  size_t num = ci->count;
+  Cursor *cursor = ci->cursor;
+  RedisModuleBlockedClient *bc = ci->bc;
+  RedisModuleCtx *outputCtx = RedisModule_GetThreadSafeContext(ci->bc);
+  rm_free(ci);
+
   if (!num) {
     num = req->cursorChunkSize;
     if (!num) {
       num = RSGlobalConfig.cursorReadSize;
     }
   }
+  QueryError status = {0};
   req->cursorChunkSize = num;
+  req->qiter.err = &status;
+
+  AREQ_LockIndex(req);
+  /**
+   * ensure yield and lock the index
+   */
+  if (req->stateflags & QEXEC_S_PAUSED) {
+    YLD_Continue(&req->conc);
+    req->stateflags &= ~QEXEC_S_PAUSED;
+  }
+
   RedisModule_ReplyWithArray(outputCtx, 2);
   sendChunk(req, outputCtx, num);
+  AREQ_UnlockIndex(req);
 
   if (req->stateflags & QEXEC_S_ITERDONE) {
     // Write the count!
@@ -324,12 +362,15 @@ static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num) {
   } else {
     RedisModule_ReplyWithLongLong(outputCtx, cursor->id);
   }
+  RedisModule_FreeThreadSafeContext(outputCtx);
+  RedisModule_UnblockClient(bc, NULL);
 
   if (req->stateflags & QEXEC_S_ITERDONE) {
     goto delcursor;
   } else {
     // Update the idle timeout
     Cursor_Pause(cursor);
+    req->stateflags |= QEXEC_S_PAUSED;
     return;
   }
 
@@ -339,6 +380,15 @@ delcursor:
     cursor->execState = NULL;
   }
   Cursor_Free(cursor);
+}
+
+static void runCursor(RedisModuleCtx *ctx, Cursor *cursor, size_t num) {
+  cursorInfo *ci = rm_calloc(1, sizeof(*ci));
+  ci->cursor = cursor;
+  ci->req = cursor->execState;
+  ci->count = num;
+  ci->bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
+  ConcurrentSearch_ThreadPoolRun(cursorFunc, ci, CONCURRENT_POOL_SEARCH);
 }
 
 /**
@@ -352,9 +402,7 @@ static void cursorRead(RedisModuleCtx *ctx, uint64_t cid, size_t count) {
     RedisModule_ReplyWithError(ctx, "Cursor not found");
     return;
   }
-  QueryError status = {0};
   AREQ *req = cursor->execState;
-  req->qiter.err = &status;
   YLD_Continue(&req->conc);
   runCursor(ctx, cursor, count);
 }

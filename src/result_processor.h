@@ -203,7 +203,7 @@ ResultProcessor *RPPager_New(size_t offset, size_t limit);
  * It fills the result objects' field map with values corresponding to the requested return fields
  *
  *******************************************************************************************************************/
-ResultProcessor *RPLoader_New(RLookup *lk, const RLookupKey **keys, size_t nkeys);
+ResultProcessor *RPLoader_New(RLookup *lk, const RLookupKey **keys, size_t nkeys, int lockGil);
 
 /** Creates a new Highlight processor */
 ResultProcessor *RPHighlighter_New(const RSSearchOptions *searchopts, const FieldList *fields,

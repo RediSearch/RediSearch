@@ -48,6 +48,12 @@ typedef enum {
 typedef enum {
   /* Received EOF from iterator */
   QEXEC_S_ITERDONE = 0x02,
+
+  /* Holding the index rwlock */
+  QEXEC_S_IDXLOCKED = 0x04,
+
+  /* Cursor is paused, needs resume */
+  QEXEC_S_PAUSED = 0x08
 } QEStateFlags;
 
 typedef struct {
@@ -215,6 +221,8 @@ void Grouper_AddReducer(Grouper *g, Reducer *r, RLookupKey *dst);
 
 void AREQ_Execute(AREQ *req, RedisModuleCtx *outctx);
 void AREQ_Free(AREQ *req);
+void AREQ_LockIndex(AREQ *req);
+void AREQ_UnlockIndex(AREQ *req);
 
 /**
  * Start the cursor on the current request
