@@ -863,11 +863,14 @@ void ShardingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent,
 
   switch (subevent) {
     case REDISMODULE_SUBEVENT_SHARDING_SLOT_RANGE_CHANGED:
+      RedisModule_Log(NULL, "notice", "Got slot changed event");
       verifyDocumentSlotRange = true;
       break;
     case REDISMODULE_SUBEVENT_SHARDING_TRIMMING_STARTED:
+      RedisModule_Log(NULL, "notice", "Got trim started event");
       break;
     case REDISMODULE_SUBEVENT_SHARDING_TRIMMING_ENDED:
+      RedisModule_Log(NULL, "notice", "Got trim ended event");
       verifyDocumentSlotRange = false;
       break;
     default:
@@ -896,6 +899,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   if (RedisModule_SubscribeToServerEvent) {
     // we have server events support, lets subscribe to relevan events.
+    RedisModule_Log(NULL, "notice", "Subscribing to shards server events");
     RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Sharding, ShardingEvent);
   }
 
@@ -995,10 +999,10 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASDEL, AliasDelCommand, "readonly", 1, 1, 1);
 #else
   // Cluster is manage outside of module lets trust it and not raise cross slot error.
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASADD, AliasAddCommand, "readonly", 2, 2, 1);
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASUPDATE, AliasUpdateCommand, "readonly", 2, 2, 1);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASADD, AliasAddCommand, "readonly", FIRST_KEY, LAST_KEY, STEPS);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASUPDATE, AliasUpdateCommand, "readonly", FIRST_KEY, LAST_KEY, STEPS);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASDEL, AliasDelCommand, "readonly", 0, 0, -1);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASDEL, AliasDelCommand, "readonly", FIRST_KEY, LAST_KEY, STEPS);
 #endif
   return REDISMODULE_OK;
 }

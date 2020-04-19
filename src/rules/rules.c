@@ -217,6 +217,9 @@ static int hashCallback(RedisModuleCtx *ctx, int unused, const char *action,
 static int delCallback(RedisModuleCtx *ctx, int event, const char *action,
                        RedisModuleString *keyname) {
   int shouldDelete = 0;
+  if(event & REDISMODULE_NOTIFY_TRIMMED){
+    RedisModule_Log(NULL, "warning", "Got trimmed notification");
+  }
   if (event &
       (REDISMODULE_NOTIFY_EVICTED | REDISMODULE_NOTIFY_EXPIRED | REDISMODULE_NOTIFY_TRIMMED)) {
     shouldDelete = 1;

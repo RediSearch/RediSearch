@@ -1158,6 +1158,11 @@ static int OI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
     // reset current pointer since this might have been a prior
     // virt return
     nc->base.current = nc->child->current;
+    if(!nc->base.current){
+      nc->virt->docId = docId;
+      nc->base.current = nc->virt;
+      return INDEXREAD_OK;
+    }
 
   } else if (docId > nc->nextRealId) {
     int rc = nc->child->SkipTo(nc->child->ctx, docId, &nc->base.current);

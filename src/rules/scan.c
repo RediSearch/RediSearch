@@ -62,6 +62,8 @@ static void scanRedis5(scanCursor *c) {
   RedisModuleCtx *ctx = RSDummyContext;
   size_t nmax = c->n + SCAN_BATCH_SIZE;
 
+  RedisModule_Log(NULL, "notice", "Start scanning for keys");
+
   do {
     RedisModuleCallReply *r = RedisModule_Call(ctx, "SCAN", "l", c->cursor.r5);
     // printf("cursor: %s\n", cursorbuf);
@@ -73,6 +75,15 @@ static void scanRedis5(scanCursor *c) {
     //   c->isDone = 1;
     // }
     if (r == NULL || RedisModule_CallReplyLength(r) < 2) {
+      RedisModule_Log(NULL, "warning", "Failed Scan");
+      if(r == NULL){
+        RedisModule_Log(NULL, "warning", "Got a NULL reply");
+      }
+      else if(RedisModule_CallReplyType(r) == REDISMODULE_REPLY_STRING || RedisModule_CallReplyType(r) == REDISMODULE_REPLY_ERROR){
+        size_t len;
+        const char* res = RedisModule_CallReplyStringPtr(r, &len);
+        RedisModule_Log(NULL, "warning", "Scan reply: %.*s", len, res);
+      }
       c->isDone = 1;
       if (r) {
         RedisModule_FreeCallReply(r);
@@ -92,10 +103,13 @@ static void scanRedis5(scanCursor *c) {
     assert(RedisModule_CallReplyType(keys) == REDISMODULE_REPLY_ARRAY);
     size_t nelem = RedisModule_CallReplyLength(keys);
 
+    RedisModule_Log(NULL, "notice", "Found %d elements in scan", nelem);
+
     for (size_t ii = 0; ii < nelem; ++ii) {
       size_t len;
       const char *kcstr =
           RedisModule_CallReplyStringPtr(RedisModule_CallReplyArrayElement(keys, ii), &len);
+      RedisModule_Log(NULL, "debug", "Found key %s", kcstr);
       RuleKeyItem rki = {.kstr = RedisModule_CreateString(NULL, kcstr, len)};
       SchemaRules_ProcessItem(ctx, &rki, RULES_PROCESS_F_NOREINDEX | RULES_PROCESS_F_ASYNC);
       RedisModule_FreeString(ctx, rki.kstr);
