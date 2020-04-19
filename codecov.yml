@@ -3,11 +3,9 @@ coverage:
     project:
       default:
         # basic
-        target: 80%
-        threshold: 1%
+        #target: 80%
+        #threshold: 1%
         base: auto 
-        #flags: 
-        #  - unit
         paths: 
           - "src"
        # advanced
@@ -15,5 +13,5 @@ coverage:
        #   - master
         if_not_found: success
         if_ci_failed: error
-        informational: False
+        informational: True
         only_pulls: false
