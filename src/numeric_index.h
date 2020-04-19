@@ -53,8 +53,8 @@ typedef struct rtNode {
 } NumericRangeNode;
 
 typedef struct {
-  size_t sz : sizeof(size_t) * 8 - 1;
-  size_t changed : 1;
+  int sz;
+  int changed;
 } NRN_AddRv;
 
 typedef struct {
