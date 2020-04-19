@@ -2128,6 +2128,7 @@ def testUnseportedSortableTypeErrorOnTags(env):
     env.expect('FT.SEARCH idx *').equal([1L, 'doc1', ['f1', 'foo1', 'f2', '2', 'f3', 'foo2', 'f4', 'foo2']])
 
 def testMOD507(env):
+    env.skipOnCluster()
     env.expect('ft.create idx SCHEMA t1 TEXT').ok()
 
     for i in range(50):
@@ -2151,3 +2152,15 @@ def grouper(iterable, n, fillvalue=None):
 def to_dict(r):
     return {r[i]: r[i + 1] for i in range(0, len(r), 2)}
 
+def testIssue1058(env):
+    env.cmd('FT.CREATE idx SCHEMA txt1 TEXT txt2 TEXT')
+
+    env.cmd('FT.ADD idx doc1 1.0 FIELDS txt1 10')
+    env.cmd('FT.ADD idx doc2 1.0 FIELDS txt2 string')
+    env.expect('FT.GET idx doc1').equal(['txt1', '10'])
+    env.expect('FT.GET idx doc2').equal(['txt2', 'string'])
+
+    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if !@txt1 FIELDS txt1 10').equal('NOADD')
+    env.expect('FT.ADD idx doc2 1.0 REPLACE PARTIAL if !@txt1 FIELDS txt1 10').equal('OK')
+    env.expect('FT.GET idx doc2').equal(['txt2', 'string', 'txt1', '10'])
+    #env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if !@txt1||to_number(@txt1)<11 FIELDS txt1 10').equal('NOADD')
