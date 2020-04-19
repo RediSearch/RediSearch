@@ -13,7 +13,7 @@
  * If DD (Delete Document) is set, we also delete the document.
  */
 
-static int RS_DelDocument(RedisModuleCtx *ctx, IndexSpec *sp, RedisModuleString *docKey, int delDoc) {
+int RS_DelDocument(RedisModuleCtx *ctx, IndexSpec *sp, RedisModuleString *docKey, int delDoc) {
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
 
   // Get the doc ID
@@ -38,7 +38,6 @@ static int RS_DelDocument(RedisModuleCtx *ctx, IndexSpec *sp, RedisModuleString 
 
     // If needed - delete the actual doc
     if (delDoc) {
-
       RedisModuleKey *dk = RedisModule_OpenKey(ctx, docKey, REDISMODULE_WRITE);
       if (dk && RedisModule_KeyType(dk) == REDISMODULE_KEYTYPE_HASH) {
         RedisModule_DeleteKey(dk);

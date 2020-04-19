@@ -323,6 +323,7 @@ int RSSafeAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
 // Document del function:
 int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+int RS_DelDocument(RedisModuleCtx *ctx, IndexSpec *sp, RedisModuleString *docKey, int delDoc);
 
 int RS_AddDocument(RedisSearchCtx *sctx, RedisModuleString *name, const AddDocumentOptions *opts,
                    QueryError *status);

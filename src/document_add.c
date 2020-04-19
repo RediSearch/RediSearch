@@ -165,13 +165,7 @@ int RS_AddDocument(RedisSearchCtx *sctx, RedisModuleString *name, const AddDocum
   if (exists && (opts->options & DOCUMENT_ADD_REPLACE) && 
                !(opts->options & DOCUMENT_ADD_PARTIAL) &&
                !(opts->options & DOCUMENT_ADD_NOCREATE)) {
-    RedisModuleKey *dk = RedisModule_OpenKey(ctx, name, REDISMODULE_WRITE);
-    if (dk && RedisModule_KeyType(dk) == REDISMODULE_KEYTYPE_HASH) {
-      RedisModule_DeleteKey(dk);
-    } else {
-      RedisModule_Log(ctx, "warning", "Document %s doesn't exist",
-                      RedisModule_StringPtrLen(name, NULL));
-    }
+    RS_DelDocument(ctx, sp, name, 1);
   }
 
   Document doc = {0};
