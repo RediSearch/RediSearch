@@ -132,9 +132,12 @@ static int parseDocumentOptions(AddDocumentOptions *opts, ArgsCursor *ac, QueryE
 int RS_AddDocument(RedisSearchCtx *sctx, RedisModuleString *name, const AddDocumentOptions *opts,
                    QueryError *status) {
   int rc = REDISMODULE_ERR;
+  RedisModuleCtx *ctx = sctx->redisCtx;
   // If the ID is 0, then the document does not exist.
   IndexSpec *sp = sctx->spec;
   int exists = !!DocTable_GetIdR(&sp->docs, name);
+
+  // if replace nonexisting doc
   if (exists && !(opts->options & DOCUMENT_ADD_REPLACE)) {
     QueryError_SetError(status, QUERY_EDOCEXISTS, NULL);
     goto error;
@@ -158,7 +161,19 @@ int RS_AddDocument(RedisSearchCtx *sctx, RedisModuleString *name, const AddDocum
     }
   }
 
-  RedisModuleCtx *ctx = sctx->redisCtx;
+  // if replace not partial, remove current doc hash
+  if (exists && (opts->options & DOCUMENT_ADD_REPLACE) && 
+               !(opts->options & DOCUMENT_ADD_PARTIAL) &&
+               !(opts->options & DOCUMENT_ADD_NOCREATE)) {
+    RedisModuleKey *dk = RedisModule_OpenKey(ctx, name, REDISMODULE_WRITE);
+    if (dk && RedisModule_KeyType(dk) == REDISMODULE_KEYTYPE_HASH) {
+      RedisModule_DeleteKey(dk);
+    } else {
+      RedisModule_Log(ctx, "warning", "Document %s doesn't exist",
+                      RedisModule_StringPtrLen(name, NULL));
+    }
+  }
+
   Document doc = {0};
 
   Document_Init(&doc, name, opts->score, opts->language);

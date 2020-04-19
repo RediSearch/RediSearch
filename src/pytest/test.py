@@ -3029,3 +3029,20 @@ def testIssue1184(env):
         env.assertEqual(d['num_records'], '0')
 
         env.cmd('FT.DROP idx')
+
+def testIssue1193(env):
+    # Remove all fields when replace w/o partial
+    args1 = ['first', 'Redis', 'last', 'Labs', 'country', 'Israel']
+    args2 = ['first', 'RedisLabs']
+
+    env.expect('FT.CREATE idx SCHEMA first TEXT last TEXT').ok()
+    env.expect('FT.ADD idx doc1 1 FIELDS', *args1).ok()
+    env.expect('FT.GET', 'idx', 'doc1').equal(args1)
+    res = env.cmd('FT.SEARCH', 'idx', 'Redis')
+    env.assertEqual(res[2], args1)
+
+    env.expect('FT.ADD idx doc1 1 REPLACE FIELDS', *args2).ok()
+    env.expect('FT.GET', 'idx', 'doc1').equal(args2)
+    res = env.cmd('FT.SEARCH', 'idx', 'RedisLabs')
+    env.assertEqual(res[2], args2)
+
