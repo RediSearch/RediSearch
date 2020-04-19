@@ -45,6 +45,7 @@ int RS_DelDocument(RedisModuleCtx *ctx, IndexSpec *sp, RedisModuleString *docKey
         RedisModule_Log(ctx, "warning", "Document %s doesn't exist",
                         RedisModule_StringPtrLen(docKey, NULL));
       }
+      RedisModule_CloseKey(dk);
     }
 
     // Increment the index's garbage collector's scanning frequency after document deletions
