@@ -370,6 +370,11 @@ DEBUG_COMMAND(GitSha) {
   return REDISMODULE_OK;
 }
 
+DEBUG_COMMAND(LogAssert) {
+  RS_LOG_ASSERT(7 == 42, "DEBUG");
+  return REDISMODULE_OK;
+}
+
 typedef struct {
   // Whether to enumerate the number of docids per entry
   int countValueEntries;
@@ -605,6 +610,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex},
                                {"GC_FORCEINVOKE", GCForceInvoke},
                                {"GC_FORCEBGINVOKE", GCForceBGInvoke},
                                {"GIT_SHA", GitSha},
+                               {"LOGASSERT", LogAssert},
                                {NULL, NULL}};
 
 int DebugCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
