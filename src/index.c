@@ -738,8 +738,8 @@ static IndexCriteriaTester *II_GetCriteriaTester(void *ctx) {
       tester = IITER_GET_CRITERIA_TESTER(ic->its[i]);
     }
     if (!tester) {
-      for (int j = 0; j < array_len(ic->testers); j++) {
-        ic->testers[i]->Free(ic->testers[i]);
+      for (int j = 0; j < i; j++) {
+        ic->testers[j]->Free(ic->testers[j]);
       }
       array_free(ic->testers);
       return NULL;
@@ -961,7 +961,10 @@ static void NI_TesterFree(struct IndexCriteriaTester *ct) {
 
 static IndexCriteriaTester *NI_GetCriteriaTester(void *ctx) {
   NotContext *nc = ctx;
-  IndexCriteriaTester *ct = nc->base.GetCriteriaTester(nc->base.ctx);
+  if (!nc->child) {
+    return NULL;
+  }
+  IndexCriteriaTester *ct = IITER_GET_CRITERIA_TESTER(nc->child);
   if (!ct) {
     return NULL;
   }

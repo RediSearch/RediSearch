@@ -113,6 +113,7 @@ CONFIG_SETTER(setMaxDocTableSize) {
     QueryError_SetError(status, QUERY_ELIMIT, "Value exceeds maximum possible document table size");
     return REDISMODULE_ERR;
   }
+  config->maxDocTableSize = newsize;
   return REDISMODULE_OK;
 }
 
@@ -244,7 +245,7 @@ CONFIG_GETTER(getForkGcInterval) {
 
 CONFIG_GETTER(getForkGcRetryInterval) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%lu", config->forkGcRunIntervalSec);
+  return sdscatprintf(ss, "%lu", config->forkGcRetryInterval);
 }
 
 CONFIG_GETTER(getMaxResultsToUnsortedMode) {

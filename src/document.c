@@ -446,7 +446,9 @@ FIELD_BULK_INDEXER(numericIndexer) {
       return -1;
     }
   }
-  NumericRangeTree_Add(rt, aCtx->doc.docId, fdata->numeric);
+  size_t sz = NumericRangeTree_Add(rt, aCtx->doc.docId, fdata->numeric);
+  ctx->spec->stats.invertedSize += sz; // TODO: exact amount
+  ctx->spec->stats.numRecords++;
   return 0;
 }
 
@@ -706,6 +708,7 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
 
       switch (fs->types) {
         case INDEXFLD_T_FULLTEXT:
+        case INDEXFLD_T_TAG:
           RSSortingVector_Put(md->sortVector, idx, (void *)RedisModule_StringPtrLen(f->text, NULL),
                               RS_SORTABLE_STR);
           break;
