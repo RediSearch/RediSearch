@@ -20,8 +20,8 @@ typedef struct {
 } NumericUnionCtx;
 
 typedef struct {
-  size_t sz : sizeof(size_t) * 8 - 1;
-  size_t changed : 1;
+  int sz;
+  int changed;
 } NumericRange_AddRv;
 
 /* A callback called after a concurrent context regains execution context. When this happen we need
