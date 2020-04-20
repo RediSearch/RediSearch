@@ -540,6 +540,11 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     return REDISMODULE_OK;
 }
 
+static bool RedisModule_IsEnterprise(){
+  return RedisModule_AvoidReplicaTraffic != NULL;
+}
+
+
 #define REDISMODULE__INIT_WITH_NULL(TYPE, NAME, ARGS) \
     TYPE (*RedisModule_##NAME)ARGS = NULL;
 #define REDISMODULE_INIT_SYMBOLS() REDISMODULE_XAPI(REDISMODULE__INIT_WITH_NULL)

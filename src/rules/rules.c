@@ -217,11 +217,11 @@ static int hashCallback(RedisModuleCtx *ctx, int unused, const char *action,
 static int delCallback(RedisModuleCtx *ctx, int event, const char *action,
                        RedisModuleString *keyname) {
   int shouldDelete = 0;
-  if(event & REDISMODULE_NOTIFY_TRIMMED){
-    RedisModule_Log(NULL, "warning", "Got trimmed notification");
+  if (event & REDISMODULE_NOTIFY_TRIMMED) {
+    RedisModule_Log(NULL, "debug", "Got trimmed notification");
+    shouldDelete = 1;
   }
-  if (event &
-      (REDISMODULE_NOTIFY_EVICTED | REDISMODULE_NOTIFY_EXPIRED | REDISMODULE_NOTIFY_TRIMMED)) {
+  if (event & (REDISMODULE_NOTIFY_EVICTED | REDISMODULE_NOTIFY_EXPIRED)) {
     shouldDelete = 1;
   } else if (event == REDISMODULE_NOTIFY_GENERIC && *action == 'd') {
     shouldDelete = 1;
@@ -251,10 +251,15 @@ void SchemaRules_InitGlobal(RedisModuleCtx *ctx) {
 
   SchemaRules_g = SchemaRules_Create();
   RedisModule_SubscribeToKeyspaceEvents(RSDummyContext, REDISMODULE_NOTIFY_HASH, hashCallback);
-  RedisModule_SubscribeToKeyspaceEvents(
-      RSDummyContext,
-      REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_EXPIRED | REDISMODULE_NOTIFY_TRIMMED,
-      delCallback);
+  if (RedisModule_IsEnterprise()) {
+    RedisModule_SubscribeToKeyspaceEvents(
+        RSDummyContext,
+        REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_EXPIRED | REDISMODULE_NOTIFY_TRIMMED,
+        delCallback);
+  } else {
+    RedisModule_SubscribeToKeyspaceEvents(
+        RSDummyContext, REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_EXPIRED, delCallback);
+  }
 }
 
 void SchemaRules_ShutdownGlobal() {
@@ -365,6 +370,7 @@ int SchemaRules_AddArgs(const char *index, const char *name, ArgsCursor *ac, Que
     SchemaRules_g->revision++;
     SchemaRules_StartScan(0);
   }
+  SchemaRules_RegisterIndex(sp);
   return rc;
 }
 

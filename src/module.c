@@ -897,7 +897,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
     return REDISMODULE_ERR;
   }
 
-  if (RedisModule_SubscribeToServerEvent) {
+  if (RedisModule_IsEnterprise() && RedisModule_SubscribeToServerEvent) {
     // we have server events support, lets subscribe to relevan events.
     RedisModule_Log(NULL, "notice", "Subscribing to shards server events");
     RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Sharding, ShardingEvent);
@@ -918,46 +918,63 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   RM_TRY(IndexSpec_RegisterType, ctx);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_ADD_CMD, RSAddDocumentCommand, "write deny-oom", FIRST_KEY, LAST_KEY, STEPS);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_ADD_CMD, RSAddDocumentCommand, "write deny-oom",
+         FIRST_KEY, LAST_KEY, STEPS);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_SAFEADD_CMD, RSSafeAddDocumentCommand, "write deny-oom",
-          FIRST_KEY, LAST_KEY, STEPS);
+         FIRST_KEY, LAST_KEY, STEPS);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_SETPAYLOAD_CMD, SetPayloadCommand, "write deny-oom", FIRST_KEY, LAST_KEY, STEPS);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_SETPAYLOAD_CMD, SetPayloadCommand, "write deny-oom",
+         FIRST_KEY, LAST_KEY, STEPS);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_ADDHASH_CMD, RSAddHashCommand, "write deny-oom", FIRST_KEY, LAST_KEY, STEPS);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_ADDHASH_CMD, RSAddHashCommand, "write deny-oom",
+         FIRST_KEY, LAST_KEY, STEPS);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_SAFEADDHASH_CMD, RSSafeAddHashCommand, "write deny-oom",
-          FIRST_KEY, LAST_KEY, STEPS);
+         FIRST_KEY, LAST_KEY, STEPS);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_DEL_CMD, DeleteCommand, "write", FIRST_KEY, LAST_KEY, STEPS);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_DEL_CMD, DeleteCommand, "write", FIRST_KEY, LAST_KEY,
+         STEPS);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_SEARCH_CMD, RSSearchCommand, "readonly", FIRST_KEY, LAST_KEY, STEPS);
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_AGGREGATE_CMD, RSAggregateCommand, "readonly", FIRST_KEY, LAST_KEY, STEPS);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_SEARCH_CMD, RSSearchCommand, "readonly", FIRST_KEY,
+         LAST_KEY, STEPS);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_AGGREGATE_CMD, RSAggregateCommand, "readonly",
+         FIRST_KEY, LAST_KEY, STEPS);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_GET_CMD, GetSingleDocumentCommand, "readonly", FIRST_KEY, LAST_KEY, STEPS);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_GET_CMD, GetSingleDocumentCommand, "readonly",
+         FIRST_KEY, LAST_KEY, STEPS);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_MGET_CMD, GetDocumentsCommand, "readonly", 0, 0, -1);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_CREATE_CMD, CreateIndexCommand, "write deny-oom", FIRST_KEY, LAST_KEY, STEPS);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_CREATE_CMD, CreateIndexCommand, "write deny-oom",
+         FIRST_KEY, LAST_KEY, STEPS);
   RM_TRY(RedisModule_CreateCommand, ctx, RS_CMD_PREFIX ".OPTIMIZE", OptimizeIndexCommand,
          "write deny-oom", FIRST_KEY, LAST_KEY, STEPS);
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_DROP_CMD, DropIndexCommand, "write", FIRST_KEY, LAST_KEY, STEPS);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_DROP_CMD, DropIndexCommand, "write", FIRST_KEY,
+         LAST_KEY, STEPS);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_INFO_CMD, IndexInfoCommand, "readonly", FIRST_KEY, LAST_KEY, STEPS);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_INFO_CMD, IndexInfoCommand, "readonly", FIRST_KEY,
+         LAST_KEY, STEPS);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_TAGVALS_CMD, TagValsCommand, "readonly", FIRST_KEY, LAST_KEY, STEPS);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_TAGVALS_CMD, TagValsCommand, "readonly", FIRST_KEY,
+         LAST_KEY, STEPS);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_EXPLAIN_CMD, QueryExplainCommand, "readonly", FIRST_KEY, LAST_KEY, STEPS);
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_EXPLAINCLI_CMD, QueryExplainCLICommand, "readonly", FIRST_KEY, LAST_KEY, STEPS);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_EXPLAIN_CMD, QueryExplainCommand, "readonly", FIRST_KEY,
+         LAST_KEY, STEPS);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_EXPLAINCLI_CMD, QueryExplainCLICommand, "readonly",
+         FIRST_KEY, LAST_KEY, STEPS);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_SUGADD_CMD, RSSuggestAddCommand, "write deny-oom", FIRST_KEY, LAST_KEY, STEPS);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_SUGADD_CMD, RSSuggestAddCommand, "write deny-oom",
+         FIRST_KEY, LAST_KEY, STEPS);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_SUGDEL_CMD, RSSuggestDelCommand, "write", FIRST_KEY, LAST_KEY, STEPS);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_SUGDEL_CMD, RSSuggestDelCommand, "write", FIRST_KEY,
+         LAST_KEY, STEPS);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_SUGLEN_CMD, RSSuggestLenCommand, "readonly", FIRST_KEY, LAST_KEY, STEPS);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_SUGLEN_CMD, RSSuggestLenCommand, "readonly", FIRST_KEY,
+         LAST_KEY, STEPS);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_SUGGET_CMD, RSSuggestGetCommand, "readonly", FIRST_KEY, LAST_KEY, STEPS);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_SUGGET_CMD, RSSuggestGetCommand, "readonly", FIRST_KEY,
+         LAST_KEY, STEPS);
 
 #ifndef RS_COORDINATOR
   RM_TRY(RedisModule_CreateCommand, ctx, RS_CURSOR_CMD, RSCursorCommand, "readonly", 2, 2, 1);
@@ -965,31 +982,43 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   RM_TRY(RedisModule_CreateCommand, ctx, RS_CURSOR_CMD, RSCursorCommand, "readonly", 0, 0, -1);
 #endif
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_SYNADD_CMD, SynAddCommand, "write", FIRST_KEY, LAST_KEY, STEPS);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_SYNADD_CMD, SynAddCommand, "write", FIRST_KEY, LAST_KEY,
+         STEPS);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_SYNUPDATE_CMD, SynUpdateCommand, "write", FIRST_KEY, LAST_KEY, STEPS);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_SYNUPDATE_CMD, SynUpdateCommand, "write", FIRST_KEY,
+         LAST_KEY, STEPS);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_SYNFORCEUPDATE_CMD, SynForceUpdateCommand, "write", FIRST_KEY, LAST_KEY, STEPS);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_SYNFORCEUPDATE_CMD, SynForceUpdateCommand, "write",
+         FIRST_KEY, LAST_KEY, STEPS);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_SYNDUMP_CMD, SynDumpCommand, "readonly", FIRST_KEY, LAST_KEY, STEPS);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_SYNDUMP_CMD, SynDumpCommand, "readonly", FIRST_KEY,
+         LAST_KEY, STEPS);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_ALTER_CMD, AlterIndexCommand, "write", FIRST_KEY, LAST_KEY, STEPS);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_ALTER_CMD, AlterIndexCommand, "write", FIRST_KEY,
+         LAST_KEY, STEPS);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_DEBUG, DebugCommand, "readonly", 0, 0, 0);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_SPELL_CHECK, SpellCheckCommand, "readonly", FIRST_KEY, LAST_KEY, STEPS);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_SPELL_CHECK, SpellCheckCommand, "readonly", FIRST_KEY,
+         LAST_KEY, STEPS);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_DICT_ADD, DictAddCommand, "readonly", FIRST_KEY, LAST_KEY, STEPS);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_DICT_ADD, DictAddCommand, "readonly", FIRST_KEY,
+         LAST_KEY, STEPS);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_DICT_DEL, DictDelCommand, "readonly", FIRST_KEY, LAST_KEY, STEPS);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_DICT_DEL, DictDelCommand, "readonly", FIRST_KEY,
+         LAST_KEY, STEPS);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_DICT_DUMP, DictDumpCommand, "readonly", FIRST_KEY, LAST_KEY, STEPS);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_DICT_DUMP, DictDumpCommand, "readonly", FIRST_KEY,
+         LAST_KEY, STEPS);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_CONFIG, ConfigCommand, "readonly", FIRST_KEY, LAST_KEY, STEPS);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_CONFIG, ConfigCommand, "readonly", FIRST_KEY, LAST_KEY,
+         STEPS);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_RULEADD, RuleAddCommand, "readonly", FIRST_KEY, LAST_KEY, STEPS);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_RULEADD, RuleAddCommand, "readonly", FIRST_KEY,
+         LAST_KEY, STEPS);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_RULESET, RulesSetCommand, "readonly", FIRST_KEY, LAST_KEY, STEPS);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_RULESET, RulesSetCommand, "readonly", FIRST_KEY,
+         LAST_KEY, STEPS);
 
 #ifndef RS_COORDINATOR
   // we are running in a normal mode so we should raise cross slot error on alias commands
@@ -999,10 +1028,13 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASDEL, AliasDelCommand, "readonly", 1, 1, 1);
 #else
   // Cluster is manage outside of module lets trust it and not raise cross slot error.
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASADD, AliasAddCommand, "readonly", FIRST_KEY, LAST_KEY, STEPS);
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASUPDATE, AliasUpdateCommand, "readonly", FIRST_KEY, LAST_KEY, STEPS);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASADD, AliasAddCommand, "readonly", FIRST_KEY,
+         LAST_KEY, STEPS);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASUPDATE, AliasUpdateCommand, "readonly", FIRST_KEY,
+         LAST_KEY, STEPS);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASDEL, AliasDelCommand, "readonly", FIRST_KEY, LAST_KEY, STEPS);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASDEL, AliasDelCommand, "readonly", FIRST_KEY,
+         LAST_KEY, STEPS);
 #endif
   return REDISMODULE_OK;
 }
