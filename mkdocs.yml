@@ -67,4 +67,6 @@ nav:
 
 plugins:
   - search
-  - versions-menu
+  - versions-menu:
+      exclude-regexes:
+      - '(1\.8)'
