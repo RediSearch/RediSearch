@@ -64,6 +64,12 @@ static void scanRedis5(scanCursor *c) {
 
   RedisModule_Log(NULL, "notice", "Start scanning for keys");
 
+  RedisModuleCallReply *info = RedisModule_Call(ctx, "info", "c", "KEYSPACE");
+
+  size_t len;
+  const char* infoRes = RedisModule_CallReplyStringPtr(info, &len);
+  RedisModule_Log(NULL, "warning", "info: %.*s", len, infoRes);
+
   do {
     RedisModuleCallReply *r = RedisModule_Call(ctx, "SCAN", "l", c->cursor.r5);
     // printf("cursor: %s\n", cursorbuf);
