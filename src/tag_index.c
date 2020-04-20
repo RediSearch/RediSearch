@@ -6,7 +6,7 @@
 #include "rmutil/util.h"
 #include "util/misc.h"
 #include "util/arr.h"
-#include <assert.h>
+#include "rmutil/rm_assert.h"
 
 static uint32_t tagUniqueId = 0;
 
@@ -282,7 +282,7 @@ void *TagIndex_RdbLoad(RedisModuleIO *rdb, int encver) {
     size_t slen;
     char *s = RedisModule_LoadStringBuffer(rdb, &slen);
     InvertedIndex *inv = InvertedIndex_RdbLoad(rdb, INVERTED_INDEX_ENCVER);
-    assert(inv != NULL);
+    RS_LOG_ASSERT(inv, "loading inverted index from rdb failed");
     TrieMap_Add(idx->values, s, MIN(slen, MAX_TAG_LEN), inv, NULL);
     RedisModule_Free(s);
   }
@@ -303,7 +303,7 @@ void TagIndex_RdbSave(RedisModuleIO *rdb, void *value) {
     InvertedIndex *inv = ptr;
     InvertedIndex_RdbSave(rdb, inv);
   }
-  assert(count == idx->values->cardinality);
+  RS_LOG_ASSERT(count == idx->values->cardinality, "not all inverted indexes save to rdb");
   TrieMapIterator_Free(it);
 }
 

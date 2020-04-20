@@ -2948,6 +2948,7 @@ def testHindiStemmer(env):
     env.assertEqual(u'अँगरेजी अँगरेजों अँगरेज़', unicode(res[2][1], 'utf-8'))
 
 def testMOD507(env):
+    env.skipOnCluster()
     env.expect('ft.create idx SCHEMA t1 TEXT').ok()
 
     for i in range(50):
@@ -2959,3 +2960,72 @@ def testMOD507(env):
     res = env.cmd('FT.SEARCH', 'idx', '*', 'WITHSCORES', 'SUMMARIZE', 'FRAGS', '1', 'LEN', '25', 'HIGHLIGHT', 'TAGS', "<span style='background-color:yellow'>", "</span>")
 
     env.assertEqual(len(res), 31)
+
+def testUnseportedSortableTypeErrorOnTags(env):
+    env.skipOnCluster()
+    env.expect('FT.CREATE idx SCHEMA f1 TEXT SORTABLE f2 NUMERIC SORTABLE NOINDEX f3 TAG SORTABLE NOINDEX f4 TEXT SORTABLE NOINDEX').ok()
+    env.expect('FT.ADD idx doc1 1.0 FIELDS f1 foo1 f2 1 f3 foo1 f4 foo1').ok()
+    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL FIELDS f2 2 f3 foo2 f4 foo2').ok()
+    env.expect('HGETALL doc1').equal(['f1', 'foo1', 'f2', '2', 'f3', 'foo2', 'f4', 'foo2'])
+    env.expect('FT.SEARCH idx *').equal([1L, 'doc1', ['f1', 'foo1', 'f2', '2', 'f3', 'foo2', 'f4', 'foo2']])
+
+
+def testIssue1158(env):
+    env.cmd('FT.CREATE idx SCHEMA txt1 TEXT txt2 TEXT txt3 TEXT')
+
+    env.cmd('FT.ADD idx doc1 1.0 FIELDS txt1 10 txt2 num1')
+    env.expect('FT.GET idx doc1').equal(['txt1', '10', 'txt2', 'num1'])
+
+    # only 1st checked (2nd returns an error)
+    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if @txt1||to_number(@txt2)<5 FIELDS txt1 5').equal('OK')
+    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if @txt3&&to_number(@txt2)<5 FIELDS txt1 5').equal('NOADD')
+    
+    # both are checked
+    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if to_number(@txt1)>11||to_number(@txt1)>42 FIELDS txt2 num2').equal('NOADD')
+    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if to_number(@txt1)>11||to_number(@txt1)<42 FIELDS txt2 num2').equal('OK')
+    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if to_number(@txt1)>11&&to_number(@txt1)>42 FIELDS txt2 num2').equal('NOADD')
+    env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if to_number(@txt1)>11&&to_number(@txt1)<42 FIELDS txt2 num2').equal('NOADD')
+    env.expect('FT.GET idx doc1').equal(['txt1', '5', 'txt2', 'num2'])
+
+def testIssue1159(env):
+    env.cmd('FT.CREATE idx SCHEMA f1 TAG')
+    for i in range(1000):
+        env.cmd('FT.add idx doc%d 1.0 FIELDS f1 foo' % i)
+
+def testIssue1169(env):
+    env.cmd('FT.CREATE idx SCHEMA txt1 TEXT txt2 TEXT')
+    env.cmd('FT.ADD idx doc1 1.0 FIELDS txt1 foo')
+
+    env.expect('FT.AGGREGATE idx foo GROUPBY 1 @txt1 REDUCE FIRST_VALUE 1 @txt2 as test').equal([1L, ['txt1', 'foo', 'test', None]])
+
+def testIssue1184(env):
+    field_types = ['TEXT', 'NUMERIC', 'TAG']
+
+    for ft in field_types:
+        env.assertOk(env.execute_command('FT.CREATE idx SCHEMA  field ' + ft))
+
+        res = env.execute_command('ft.info', 'idx')
+        d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
+        env.assertEqual(d['inverted_sz_mb'], '0')
+        env.assertEqual(d['num_records'], '0') 
+
+
+        value = '42'
+        env.assertOk(env.execute_command('FT.ADD idx doc0 1 FIELD field ' + value))
+        doc = env.cmd('FT.SEARCH idx *')
+        env.assertEqual(doc, [1L, 'doc0', ['field', value]])
+
+        res = env.execute_command('ft.info', 'idx')
+        d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
+        env.assertGreater(d['inverted_sz_mb'], '0')
+        env.assertEqual(d['num_records'], '1')
+
+        env.assertEqual(env.execute_command('FT.DEL idx doc0'), 1)
+        env.cmd('ft.debug', 'GC_FORCEINVOKE', 'idx')
+
+        res = env.execute_command('ft.info', 'idx')
+        d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
+        env.assertEqual(d['inverted_sz_mb'], '0')
+        env.assertEqual(d['num_records'], '0')
+
+        env.cmd('FT.DROP idx')

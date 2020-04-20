@@ -1068,18 +1068,22 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   return REDISMODULE_OK;
 }
 
+
 void __attribute__((destructor)) RediSearch_CleanupModule(void) {
-  static int invoked = 0;
-  if (invoked || !RS_Initialized) {
-    return;
+  if (getenv("RS_GLOBAL_DTORS")) {   // used in sanitizer
+    static int invoked = 0;
+    if (invoked || !RS_Initialized) {
+      return;
+    }
+    invoked = 1;
+    CursorList_Destroy(&RSCursors);
+    Extensions_Free();
+    StopWordList_FreeGlobals();
+    FunctionRegistry_Free();
+    mempool_free_global();
+    ConcurrentSearch_ThreadPoolDestroy();
+    GC_ThreadPoolDestroy();
+    IndexAlias_DestroyGlobal();
+    RedisModule_FreeThreadSafeContext(RSDummyContext);
   }
-  invoked = 1;
-  CursorList_Destroy(&RSCursors);
-  Extensions_Free();
-  StopWordList_FreeGlobals();
-  FunctionRegistry_Free();
-  mempool_free_global();
-  ConcurrentSearch_ThreadPoolDestroy();
-  IndexAlias_DestroyGlobal();
-  RedisModule_FreeThreadSafeContext(RSDummyContext);
 }

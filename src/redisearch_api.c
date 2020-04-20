@@ -1,7 +1,7 @@
 #include "spec.h"
 #include "field_spec.h"
 #include "document.h"
-#include <assert.h>
+#include "rmutil/rm_assert.h"
 #include "util/dict.h"
 #include "query_node.h"
 #include "search_options.h"
@@ -54,7 +54,7 @@ void RediSearch_DropIndex(IndexSpec* sp) {
 
 RSFieldID RediSearch_CreateField(IndexSpec* sp, const char* name, unsigned types,
                                  unsigned options) {
-  assert(types);
+  RS_LOG_ASSERT(types, "types should not be RSFLDTYPE_DEFAULT");
   RWLOCK_ACQUIRE_WRITE();
 
   FieldSpec* fs = IndexSpec_CreateField(sp, name);
@@ -109,19 +109,19 @@ RSFieldID RediSearch_CreateField(IndexSpec* sp, const char* name, unsigned types
 
 void RediSearch_TextFieldSetWeight(IndexSpec* sp, RSFieldID id, double w) {
   FieldSpec* fs = sp->fields + id;
-  assert(FIELD_IS(fs, INDEXFLD_T_FULLTEXT));
+  RS_LOG_ASSERT(FIELD_IS(fs, INDEXFLD_T_FULLTEXT), "types should be INDEXFLD_T_FULLTEXT");
   fs->ftWeight = w;
 }
 
 void RediSearch_TagFieldSetSeparator(IndexSpec* sp, RSFieldID id, char sep) {
   FieldSpec* fs = sp->fields + id;
-  assert(FIELD_IS(fs, INDEXFLD_T_TAG));
+  RS_LOG_ASSERT(FIELD_IS(fs, INDEXFLD_T_TAG), "types should be INDEXFLD_T_TAG");
   fs->tagSep = sep;
 }
 
 void RediSearch_TagFieldSetCaseSensitive(IndexSpec* sp, RSFieldID id, int enable) {
   FieldSpec* fs = sp->fields + id;
-  assert(FIELD_IS(fs, INDEXFLD_T_TAG));
+  RS_LOG_ASSERT(FIELD_IS(fs, INDEXFLD_T_TAG), "types should be INDEXFLD_T_TAG");
   if (enable) {
     fs->tagFlags |= TagField_CaseSensitive;
   } else {
@@ -374,7 +374,7 @@ static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** err
 
   IndexSpec_GetStats(sp, &it->scargs.indexStats);
   ExtScoringFunctionCtx* scoreCtx = Extensions_GetScoringFunction(&it->scargs, DEFAULT_SCORER_NAME);
-  assert(scoreCtx);
+  RS_LOG_ASSERT(scoreCtx, "GetScoringFunction failed");
   it->scorer = scoreCtx->sf;
   it->scorerFree = scoreCtx->ff;
   it->minscore = DBL_MAX;

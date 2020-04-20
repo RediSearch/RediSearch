@@ -35,6 +35,7 @@ static int fvAdd_noSort(Reducer *r, void *ctx, const RLookupRow *srcrow) {
 
   RSValue *val = RLookup_GetItem(fvx->retprop, srcrow);
   if (!val) {
+    fvx->value = RS_NullVal();
     return 1;
   }
   fvx->value = RSValue_IncrRef(val);
