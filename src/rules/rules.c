@@ -7,6 +7,7 @@
 #include "module.h"
 #include "document.h"
 #include "search_ctx.h"
+#include "redis_version.h"
 
 #include <unistd.h>
 
@@ -251,7 +252,7 @@ void SchemaRules_InitGlobal(RedisModuleCtx *ctx) {
 
   SchemaRules_g = SchemaRules_Create();
   RedisModule_SubscribeToKeyspaceEvents(RSDummyContext, REDISMODULE_NOTIFY_HASH, hashCallback);
-  if (RedisModule_IsEnterprise()) {
+  if (IsEnterprise()) {
     RedisModule_SubscribeToKeyspaceEvents(
         RSDummyContext,
         REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_EXPIRED | REDISMODULE_NOTIFY_TRIMMED,

@@ -33,6 +33,7 @@
 #include "info_command.h"
 #include "result_processor.h"
 #include "rules/rules.h"
+#include "redis_version.h"
 
 pthread_rwlock_t RWLock = PTHREAD_RWLOCK_INITIALIZER;
 
@@ -886,6 +887,44 @@ void ShardingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent,
     RedisModule_Log(ctx, "verbose", "Successfully executed " #f);              \
   }
 
+int redisMajorVersion;
+int redisMinorVersion;
+int redisPatchVersion;
+
+int rlecMajorVersion;
+int rlecMinorVersion;
+int rlecPatchVersion;
+int rlecBuild;
+
+static void getRedisVersion() {
+  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
+  RedisModuleCallReply *reply = RedisModule_Call(ctx, "info", "c", "server");
+  assert(RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_STRING);
+  size_t len;
+  const char *replyStr = RedisModule_CallReplyStringPtr(reply, &len);
+
+  int n = sscanf(replyStr, "# Server\nredis_version:%d.%d.%d", &redisMajorVersion,
+                 &redisMinorVersion, &redisPatchVersion);
+
+  assert(n == 3);
+
+  rlecMajorVersion = -1;
+  rlecMinorVersion = -1;
+  rlecPatchVersion = -1;
+  rlecBuild = -1;
+  char *enterpriseStr = strstr(replyStr, "rlec_version:");
+  if (enterpriseStr) {
+    n = sscanf(enterpriseStr, "rlec_version:%d.%d.%d-%d", &rlecMajorVersion, &rlecMinorVersion,
+               &rlecPatchVersion, &rlecBuild);
+    if (n != 4) {
+      RedisModule_Log(NULL, "warning", "Could not extract enterprise version");
+    }
+  }
+
+  RedisModule_FreeCallReply(reply);
+  RedisModule_FreeThreadSafeContext(ctx);
+}
+
 int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   char *err;
   if (ReadConfig(argv, argc, &err) == REDISMODULE_ERR) {
@@ -897,9 +936,24 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
     return REDISMODULE_ERR;
   }
 
-  if (RedisModule_IsEnterprise() && RedisModule_SubscribeToServerEvent) {
+  getRedisVersion();
+  RedisModule_Log(ctx, "notice", "Redis version found by redisearch : %d.%d.%d - %s",
+                  redisMajorVersion, redisMinorVersion, redisPatchVersion,
+                  IsEnterprise() ? "enterprise" : "oss");
+  if (IsEnterprise()) {
+    RedisModule_Log(ctx, "notice", "Redis Enterprise version found by redisearch : %d.%d.%d-%d",
+                    rlecMajorVersion, rlecMinorVersion, rlecPatchVersion, rlecBuild);
+  } else {
+  }
+
+  if (redisMajorVersion < 6) {
+    RedisModule_Log(ctx, "notice", "Redis version is not supported, please use redis 6 or above");
+    return REDISMODULE_ERR;
+  }
+
+  if (IsEnterprise() && RedisModule_SubscribeToServerEvent) {
     // we have server events support, lets subscribe to relevan events.
-    RedisModule_Log(NULL, "notice", "Subscribing to shards server events");
+    RedisModule_Log(ctx, "notice", "Subscribing to shards server events");
     RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Sharding, ShardingEvent);
   }
 
