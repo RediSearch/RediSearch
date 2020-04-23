@@ -101,20 +101,9 @@ expr_err:
   return NULL;
 }
 
-static int extractAction(const char *atype, SchemaAction *action, ArgsCursor *ac, QueryError *err) {
-  if (!strcasecmp(atype, "INDEX")) {
-    action->atype = SCACTION_TYPE_INDEX;
-  } else if (!strcasecmp(atype, "ABORT")) {
-    action->atype = SCACTION_TYPE_ABORT;
-  } else if (!strcasecmp(atype, "GOTO")) {
-    const char *target;
-    if (AC_GetString(ac, &target, NULL, 0) != AC_OK) {
-      QueryError_SetError(err, QUERY_EPARSEARGS, "Missing GOTO target");
-      return REDISMODULE_ERR;
-    }
-    action->atype = SCACTION_TYPE_GOTO;
-    action->u.goto_ = rm_strdup(target);
-  } else if (!strcasecmp(atype, "SETATTRS")) {
+static int parseAttrSettings(ArgsCursor *ac, SchemaAction *action, QueryError *err) {
+  const char *atype = AC_GetStringNC(ac, NULL);
+  if (!strcasecmp(atype, "SETATTRS")) {
     // pairwise name/value
     if (AC_NumRemaining(ac) % 2 != 0) {
       QueryError_SetError(err, QUERY_EPARSEARGS, "Attributes must be specified in key/value pairs");
@@ -144,7 +133,6 @@ static int extractAction(const char *atype, SchemaAction *action, ArgsCursor *ac
       setattr->mask |= SCATTR_TYPE_SCORE;
     }
     action->atype = SCACTION_TYPE_SETATTR;
-
   } else if (!strcasecmp(atype, "LOADATTRS")) {
     SchemaAttrFieldpack *lattr = action->u.lattr = rm_calloc(1, sizeof(*action->u.lattr));
     lattr->refcount = 1;
@@ -167,6 +155,30 @@ static int extractAction(const char *atype, SchemaAction *action, ArgsCursor *ac
     lattr->score = FROM_CSTR(scorestr);
     lattr->payload = FROM_CSTR(payloadstr);
     action->atype = SCACTION_TYPE_LOADATTR;
+  } else {
+    QueryError_SetErrorFmt(err, QUERY_EPARSEARGS, "Bad argument for INDEX", atype);
+  }
+  return REDISMODULE_OK;
+}
+
+static int extractAction(const char *atype, SchemaAction *action, ArgsCursor *ac, QueryError *err) {
+  if (!strcasecmp(atype, "INDEX")) {
+    action->atype = SCACTION_TYPE_INDEX;
+    if (AC_NumRemaining(ac)) {
+      return parseAttrSettings(ac, action, err);
+    }
+  } else if (!strcasecmp(atype, "ABORT")) {
+    action->atype = SCACTION_TYPE_ABORT;
+  } else if (!strcasecmp(atype, "GOTO")) {
+    const char *target;
+    if (AC_GetString(ac, &target, NULL, 0) != AC_OK) {
+      QueryError_SetError(err, QUERY_EPARSEARGS, "Missing GOTO target");
+      return REDISMODULE_ERR;
+    }
+    action->atype = SCACTION_TYPE_GOTO;
+    action->u.goto_ = rm_strdup(target);
+  } else if (!strcasecmp(atype, "LOADATTR") || !strcasecmp(atype, "SETATTR")) {
+    return parseAttrSettings(ac, action, err);
   } else {
     QueryError_SetErrorFmt(err, QUERY_EPARSEARGS, "Unknown action type `%s`", atype);
     return REDISMODULE_ERR;
@@ -200,7 +212,8 @@ MATCHFUNC(matchExpression) {
     goto done;
   }
 
-  ExprEval eval = {.err = &status, .lookup = &e->lk, .srcrow = &row, .root = e->exprobj};
+  ExprEval eval = {
+      .err = &status, .lookup = &e->lk, .srcrow = &row, .root = e->exprobj, .krstr = item->kstr};
   if (ExprEval_Eval(&eval, &rsv) != EXPR_EVAL_OK) {
     // printf("Couldn't evaluate expression: %s\n", QueryError_GetError(&status));
     goto done;

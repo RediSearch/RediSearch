@@ -4,15 +4,14 @@ import time
 import utils
 
 def testCreateRules(env):
-    env.cmd('ft.create', 'idx', 'WITHRULES', 'SCHEMA', 'f1', 'text')  # OK
-    env.cmd('ft.ruleadd', 'idx', 'rule1', 'PREFIX', 'user:')  # OK
-    env.cmd('ft.ruleadd', 'idx', 'rule2', 'EXPR', '@year>2015')  # OK
+    env.cmd('ft.create', 'idx', 'EXPRESSION',
+            'hasprefix("user:")||@year>2015',
+            'SCHEMA', 'f1', 'text')
 
     env.cmd('hset', 'user:mnunberg', 'foo', 'bar')
     env.cmd('hset', 'user:mnunberg', 'f1', 'hello world')
 
     print env.cmd('ft.search', 'idx', 'hello')
-    print("Deleting...")
     env.cmd('del', 'user:mnunberg')
     print env.cmd('ft.search', 'idx', 'hello')
 
@@ -25,9 +24,11 @@ def testCreateRules(env):
 def testScanRules(env):
     for x in range(10000):
         env.cmd('hset', 'doc{}'.format(x), 'f1', 'hello')
+    
+    # One document that should not match..
+    env.cmd('hset', 'dummy', 'f1', 'hello')
 
-    env.cmd('ft.create', 'idx', 'ASYNC', 'WITHRULES', 'schema', 'f1', 'text')
-    env.cmd('ft.ruleadd', 'idx', 'rule1', 'PREFIX', 'doc')
+    env.cmd('ft.create', 'idx', 'EXPRESSION', 'hasprefix("doc")', 'schema', 'f1', 'text')
 
     # print("SCANSTART")
     # env.cmd('ft.scanstart')
@@ -39,8 +40,7 @@ def testScanRules(env):
     env.assertEqual(10000, rv[0])  # Order can be different!
 
 def testPersistence(env):
-    env.cmd('ft.create', 'idx', 'WITHRULES', 'SCHEMA', 'f1', 'TEXT')
-    env.cmd('ft.ruleadd', 'idx', 'rule1', 'prefix', 'doc')
+    env.cmd('ft.create', 'idx', 'EXPRESSION', "hasprefix('doc')", 'SCHEMA', 'f1', 'TEXT')
     utils.dump_and_reload(env)
 
     env.cmd('hset', 'doc1', 'f1', 'hello world')

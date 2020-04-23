@@ -441,17 +441,54 @@ int IndexSpec_AddFields(IndexSpec *sp, ArgsCursor *ac, QueryError *status) {
   return IndexSpec_AddFieldsInternal(sp, ac, status, 0);
 }
 
+typedef struct {
+  char *expr;
+  char *score;
+  char *lang;
+} ruleSettings;
+
+static int applyRuleSettings(IndexSpec *spec, ruleSettings *settings, QueryError *status) {
+#define APPEND_ARG(a) ruleargs = array_append(ruleargs, a)
+  // Create an expression rule type...
+  char **ruleargs = array_new(char *, 6);
+  APPEND_ARG("EXPR");
+  APPEND_ARG(settings->expr);
+  APPEND_ARG("INDEX");
+  if (settings->lang || settings->score) {
+    APPEND_ARG("LOADATTRS");
+    if (settings->lang) {
+      APPEND_ARG("LANGUAGE");
+      APPEND_ARG(settings->lang);
+    }
+    if (settings->score) {
+      APPEND_ARG("SCORE");
+      APPEND_ARG(settings->score);
+    }
+  }
+  ArgsCursor ruleAc = {0};
+  ArgsCursor_InitCString(&ruleAc, (const char **)ruleargs, array_len(ruleargs));
+  int rc = SchemaRules_AddArgsInternal(SchemaRules_g, spec, "__generated__", &ruleAc, status);
+  array_free(ruleargs);
+  ruleargs = NULL;
+  if (rc == REDISMODULE_OK) {
+    SchemaRules_StartScan(0);
+  }
+  return rc;
+}
+
 IndexSpec *IndexSpec_ParseArgs(const char *name, ArgsCursor *ac, IndexCreateOptions *options,
                                QueryError *status) {
   IndexSpec *spec = NewIndexSpec(name);
   ArgsCursor acStopwords = {0};
   IndexCreateOptions opts_s = {0};
+  ruleSettings rulesopts = {0};
   if (!options) {
     options = &opts_s;
   }
 
   long long timeout = -1;
   int dummy, replace = 0;
+  size_t dummy2;
 
   ACArgSpec argopts[] = {
       {AC_MKUNFLAG(SPEC_NOOFFSETS_STR, &spec->flags,
@@ -460,11 +497,16 @@ IndexSpec *IndexSpec_ParseArgs(const char *name, ArgsCursor *ac, IndexCreateOpti
       {AC_MKUNFLAG(SPEC_NOFIELDS_STR, &spec->flags, Index_StoreFieldFlags)},
       {AC_MKUNFLAG(SPEC_NOFREQS_STR, &spec->flags, Index_StoreFreqs)},
       {AC_MKBITFLAG(SPEC_SCHEMA_EXPANDABLE_STR, &spec->flags, Index_WideSchema)},
+
       {AC_MKBITFLAG(SPEC_WITHRULES_STR, &spec->flags, Index_UseRules)},
       {AC_MKBITFLAG(SPEC_ASYNC_STR, &spec->flags, Index_Async)},
+
       // For compatibility
       {.name = "NOSCOREIDX", .target = &dummy, .type = AC_ARGTYPE_BOOLFLAG},
       {.name = "REPLACE", .target = &options->replace, .type = AC_ARGTYPE_BOOLFLAG},
+      {.name = "EXPRESSION", .target = &rulesopts.expr, .len = &dummy2, .type = AC_ARGTYPE_STRING},
+      {.name = "SCORE", .target = &rulesopts.score, .len = &dummy2, .type = AC_ARGTYPE_STRING},
+      {.name = "LANGUAGE", .target = &rulesopts.lang, .len = &dummy2, .type = AC_ARGTYPE_STRING},
       {.name = SPEC_TEMPORARY_STR, .target = &timeout, .type = AC_ARGTYPE_LLONG},
       {.name = SPEC_STOPWORDS_STR, .target = &acStopwords, .type = AC_ARGTYPE_SUBARGS},
       {.name = NULL}};
@@ -504,13 +546,19 @@ IndexSpec *IndexSpec_ParseArgs(const char *name, ArgsCursor *ac, IndexCreateOpti
   if (!IndexSpec_AddFieldsInternal(spec, ac, status, 1)) {
     goto failure;
   }
+  if (rulesopts.expr) {
+    spec->flags |= Index_UseRules;
+  }
+
   if (spec->flags & Index_UseRules) {
     SchemaRules_RegisterIndex(spec);
+    if (rulesopts.expr && applyRuleSettings(spec, &rulesopts, status) != REDISMODULE_OK) {
+      goto failure;
+    }
   }
   return spec;
 
 failure:  // on failure free the spec fields array and return an error
-
   IndexSpec_Free(spec);
   return NULL;
 }

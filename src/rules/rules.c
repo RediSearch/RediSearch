@@ -175,7 +175,7 @@ void SchemaRules_ProcessItem(RedisModuleCtx *ctx, RuleKeyItem *item, int flags) 
     assert(spec);  // todo handle error...
     if (flags & RULES_PROCESS_F_NOREINDEX) {
       pthread_rwlock_rdlock(&spec->idxlock);
-      int doContinue = DocTable_GetByKeyR(&spec->docs, item->kstr);
+      int doContinue = !!DocTable_GetByKeyR(&spec->docs, item->kstr);
       pthread_rwlock_unlock(&spec->idxlock);
       if (doContinue) {
         continue;
@@ -452,11 +452,10 @@ static int rulesAuxLoad(RedisModuleIO *rdb, int encver, int when) {
   if (when != REDISMODULE_AUX_AFTER_RDB) {
     return REDISMODULE_OK;
   }
-  // Reset the rules, just in case
   SchemaRules *rules = SchemaRules_g;
   rules->revision = RedisModule_LoadUnsigned(rdb);
-
   size_t nrules = RedisModule_LoadUnsigned(rdb);
+  printf("Loading %u rules\n", nrules);
   for (size_t ii = 0; ii < nrules; ++ii) {
     size_t ns;
     RedisModuleString *index = RedisModule_LoadString(rdb);
