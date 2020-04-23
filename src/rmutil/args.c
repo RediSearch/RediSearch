@@ -143,6 +143,33 @@ int AC_GetDouble(ArgsCursor *ac, double *d, int flags) {
   return AC_OK;
 }
 
+int AC_GetBool(ArgsCursor *ac, int *out, int flags) {
+  if (!AC_NumRemaining(ac)) {
+    return AC_ERR_NOARG;
+  }
+  int rc = AC_GetInt(ac, out, flags | AC_F_NOADVANCE | AC_F_GE0);
+  if (rc == AC_OK) {
+    MAYBE_ADVANCE();
+    return rc;
+  }
+
+  // Can't be a number
+  rc = AC_OK;
+  if (AC_AdvanceIfMatch(ac, "on") || AC_AdvanceIfMatch(ac, "true") ||
+      AC_AdvanceIfMatch(ac, "yes") || AC_AdvanceIfMatch(ac, "enabled")) {
+    *out = 1;
+  } else if (AC_AdvanceIfMatch(ac, "off") || AC_AdvanceIfMatch(ac, "false") ||
+             AC_AdvanceIfMatch(ac, "no") || AC_AdvanceIfMatch(ac, "disabled")) {
+    *out = 0;
+  } else {
+    rc = AC_ERR_PARSE;
+  }
+  if (rc == AC_OK) {
+    MAYBE_ADVANCE()
+  }
+  return rc;
+}
+
 int AC_GetRString(ArgsCursor *ac, RedisModuleString **s, int flags) {
   assert(ac->type == AC_TYPE_RSTRING);
   if (ac->offset == ac->argc) {

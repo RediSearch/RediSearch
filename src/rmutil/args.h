@@ -79,6 +79,9 @@ int AC_GetDouble(ArgsCursor *ac, double *d, int flags);
 int AC_GetU32(ArgsCursor *ac, uint32_t *u, int flags);
 int AC_GetU64(ArgsCursor *ac, uint64_t *u, int flags);
 int AC_GetSize(ArgsCursor *ac, size_t *sz, int flags);
+// Evaluates the argument for some kind of truth value; either integral,
+// yes/no, on/off, or true/false
+int AC_GetBool(ArgsCursor *ac, int *b, int flags);
 
 // Gets the string (and optionally the length). If the string does not exist,
 // it returns NULL. Used when caller is sure the arg exists
