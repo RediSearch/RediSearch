@@ -16,6 +16,7 @@ static IndexSpec **rindexes_g = NULL;
 SchemaRules *SchemaRules_g = NULL;
 AsyncIndexQueue *asyncQueue_g = NULL;
 static SchemaIndexMode userMode_g = SCRULES_MODE_DEFAULT;
+int SchemaRules_InitialScanStatus_g = 0;
 
 SchemaRules *SchemaRules_Create(void) {
   SchemaRules *rules = rm_calloc(1, sizeof(*rules));
@@ -147,6 +148,10 @@ int SchemaRules_IndexDocument(RedisModuleCtx *ctx, IndexSpec *sp, RuleKeyItem *i
 }
 
 static int isAsync(IndexSpec *sp, int flags) {
+  if (SchemaRules_InitialScanStatus_g == SC_INITSCAN_REQUIRED && !(flags & RULES_PROCESS_F_ASYNC)) {
+    return 0;
+  }
+
   if (userMode_g != SCRULES_MODE_DEFAULT) {
     return userMode_g == SCRULES_MODE_SYNC ? 0 : 1;
   }
@@ -240,7 +245,14 @@ static int delCallback(RedisModuleCtx *ctx, int event, const char *action,
   return REDISMODULE_OK;
 }
 
-void SchemaRules_ReplyAll(const SchemaRules *rules, RedisModuleCtx *ctx) {
+static void rdbLoadedCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent,
+                              void *data) {
+  // RDB is loaded, let's start scanning the indexes..
+  if (subevent != REDISMODULE_SUBEVENT_LOADING_ENDED) {
+    return;
+  }
+  SchemaRules_InitialScanStatus_g = SC_INITSCAN_REQUIRED;
+  SchemaRules_StartScan(RSGlobalConfig.implicitLoadSync);
 }
 
 void SchemaRules_InitGlobal(RedisModuleCtx *ctx) {
@@ -252,6 +264,7 @@ void SchemaRules_InitGlobal(RedisModuleCtx *ctx) {
       RSDummyContext,
       REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_EXPIRED | REDISMODULE_NOTIFY_TRIMMED,
       delCallback);
+  RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Loading, rdbLoadedCallback);
 }
 
 void SchemaRules_ShutdownGlobal() {
@@ -440,9 +453,7 @@ static int rulesAuxLoad(RedisModuleIO *rdb, int encver, int when) {
     return REDISMODULE_OK;
   }
   // Reset the rules, just in case
-  SchemaRules_Free(SchemaRules_g);
-  SchemaRules *rules = SchemaRules_g = SchemaRules_Create();
-
+  SchemaRules *rules = SchemaRules_g;
   rules->revision = RedisModule_LoadUnsigned(rdb);
 
   size_t nrules = RedisModule_LoadUnsigned(rdb);
@@ -498,4 +509,22 @@ void SchemaRules_Save(RedisModuleIO *rdb, int when) {
 }
 int SchemaRules_Load(RedisModuleIO *rdb, int encver, int when) {
   return rulesAuxLoad(rdb, encver, when);
+}
+
+void SchemaRules_ReplyForIndex(RedisModuleCtx *ctx, IndexSpec *sp) {
+  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+  size_t n = 0;
+  SchemaRules *rules = SchemaRules_g;
+  for (size_t ii = 0; ii < array_len(rules->rules); ++ii) {
+    const SchemaRule *r = rules->rules[ii];
+    if (r->spec != sp) {
+      continue;
+    }
+    RedisModule_ReplyWithArray(ctx, array_len(r->rawrule));
+    for (size_t jj = 0; jj < array_len(r->rawrule); ++jj) {
+      RedisModule_ReplyWithSimpleString(ctx, r->rawrule[jj]);
+    }
+    ++n;
+  }
+  RedisModule_ReplySetArrayLength(ctx, n);
 }

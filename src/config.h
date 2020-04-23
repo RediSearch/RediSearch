@@ -43,6 +43,9 @@ typedef struct {
   const char *frisoIni;
   // If this is set, GC is enabled on all indexes (default: 1, disable with NOGC)
   int enableGC;
+  // On load, wait for the initial scan to be completed, so that
+  // there is no need to poll
+  int implicitLoadSync;
 
   // The minimal number of characters we allow expansion for in a prefix search. Default: 2
   long long minTermPrefix;

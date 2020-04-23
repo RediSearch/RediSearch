@@ -149,12 +149,14 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
 
   GC_ThreadPoolStart();
 
+  Indexes_Init(ctx);
+
   // Init cursors mechanism
   CursorList_Init(&RSCursors);
 
   IndexAlias_InitGlobal();
 
-  SchemaRules_InitGlobal();
+  SchemaRules_InitGlobal(ctx);
 
   // Register aggregation functions
   RegisterAllFunctions();

@@ -5,6 +5,7 @@
 #include "cursor.h"
 #include "rmutil/util.h"
 #include "score_explain.h"
+#include "rules/rules.h"
 
 typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN } CommandType;
 static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num);
@@ -252,6 +253,9 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   // Index name is argv[1]
   if (argc < 2) {
     return RedisModule_WrongArity(ctx);
+  }
+  if (SchemaRules_IsLoading()) {
+    return RedisModule_ReplyWithError(ctx, "Data is still being loaded. Try again later");
   }
 
   const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);

@@ -278,11 +278,15 @@ ssize_t SchemaRules_GetPendingCount(const IndexSpec *spec) {
   }
   SpecDocQueue *dq = spec->queue;
   AsyncIndexQueue *aiq = asyncQueue_g;
-  ssize_t ret;
+  ssize_t ret = 0;
   pthread_mutex_lock(&aiq->lock);
   pthread_mutex_lock(&dq->lock);
-
-  ret = dictSize(dq->active) + dictSize(dq->entries);
+  if (dq->active) {
+    ret += dictSize(dq->active);
+  }
+  if (dq->entries) {
+    ret += dictSize(dq->entries);
+  }
 
   pthread_mutex_unlock(&dq->lock);
   pthread_mutex_unlock(&aiq->lock);

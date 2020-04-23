@@ -35,23 +35,18 @@ static int renderIndexOptions(RedisModuleCtx *ctx, IndexSpec *sp) {
   return 2;
 }
 
-static int wildcardInfoCommand(RedisModuleCtx *ctx, ArgsCursor *ac) {
+int ListIndexesCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // List all the indexes
-  const char *subcommand = "LIST";
-  if (AC_NumRemaining(ac)) {
-    subcommand = AC_GetStringNC(ac, NULL);
+  if (argc != 1) {
+    return RedisModule_WrongArity(ctx);
   }
-  if (!strcasecmp(subcommand, "LIST")) {
-    RedisModule_ReplyWithArray(ctx, dictSize(RSIndexes_g));
-    dictIterator *it = dictGetIterator(RSIndexes_g);
-    dictEntry *e = NULL;
-    while ((e = dictNext(it))) {
-      RedisModule_ReplyWithSimpleString(ctx, e->key);
-    }
-    dictReleaseIterator(it);
-  } else {
-    return RedisModule_ReplyWithError(ctx, "Unknown subcommand");
+  RedisModule_ReplyWithArray(ctx, dictSize(RSIndexes_g));
+  dictIterator *it = dictGetIterator(RSIndexes_g);
+  dictEntry *e = NULL;
+  while ((e = dictNext(it))) {
+    RedisModule_ReplyWithSimpleString(ctx, e->key);
   }
+  dictReleaseIterator(it);
   return REDISMODULE_OK;
 }
 
@@ -61,28 +56,15 @@ static int wildcardInfoCommand(RedisModuleCtx *ctx, ArgsCursor *ac) {
 int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisModule_AutoMemory(ctx);
   ArgsCursor ac = {0};
-  if (argc < 2) {
+  if (argc != 2) {
     return RedisModule_WrongArity(ctx);
   }
 
   ArgsCursor_InitRString(&ac, argv + 1, argc - 1);
   const char *idxname = AC_GetStringNC(&ac, NULL);
-  if (*idxname == '*') {
-    return wildcardInfoCommand(ctx, &ac);
-  }
   IndexSpec *sp = IndexSpec_Load(ctx, idxname, 1);
   if (sp == NULL) {
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
-  }
-
-  if (AC_NumRemaining(&ac)) {
-    const char *s = AC_GetStringNC(&ac, NULL);
-    if (!strcasecmp(s, "sync")) {
-      SchemaRules_ReplySyncInfo(ctx, sp);
-      return REDISMODULE_OK;
-    } else {
-      RedisModule_ReplyWithError(ctx, "No such info section");
-    }
   }
 
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
@@ -141,6 +123,19 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       ++nn;
     }
     RedisModule_ReplySetArrayLength(ctx, nn);
+  }
+  n += 2;
+
+  RedisModule_ReplyWithSimpleString(ctx, "rules");
+  SchemaRules_ReplyForIndex(ctx, sp);
+  n += 2;
+
+  // Reply with sync status
+  RedisModule_ReplyWithSimpleString(ctx, "sync_status");
+  if (SchemaRules_IsLoading() || SchemaRules_GetPendingCount(sp)) {
+    RedisModule_ReplyWithSimpleString(ctx, "INDEXING");
+  } else {
+    RedisModule_ReplyWithSimpleString(ctx, "SYNCED");
   }
   n += 2;
 

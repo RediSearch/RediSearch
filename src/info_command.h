@@ -6,6 +6,7 @@
 extern "C" {
 #endif
 int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+int ListIndexesCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 #ifdef __cplusplus
 }
 #endif

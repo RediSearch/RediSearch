@@ -105,8 +105,17 @@ extern SchemaRules *SchemaRules_g;
 /** Submits all the keys in the database for indexing */
 void SchemaRules_StartScan(int wait);
 
-/** If scan is in progress */
-int SchemaRules_IsScanRunning(void);
+typedef enum {
+  // Default state
+  SC_INITSCAN_UNINIT = 0,
+  // Scan required; set after rdb load
+  SC_INITSCAN_REQUIRED,
+  // Scan is done
+  SC_INITSCAN_DONE
+} SCInitScanStatus;
+extern int SchemaRules_InitialScanStatus_g;
+
+#define SchemaRules_IsLoading() (SchemaRules_InitialScanStatus_g == SC_INITSCAN_REQUIRED)
 
 void SchemaRules_ReplySyncInfo(RedisModuleCtx *ctx, IndexSpec *sp);
 
@@ -132,7 +141,7 @@ size_t SchemaRules_QueueSize(void);
 /**
  * Initializes the global rule list and subscribes to keyspace events
  */
-void SchemaRules_InitGlobal();
+void SchemaRules_InitGlobal(RedisModuleCtx *ctx);
 void SchemaRules_ShutdownGlobal();
 int SchemaRules_RegisterType(RedisModuleCtx *ctx);
 void SchemaRules_RegisterIndex(IndexSpec *);
@@ -155,6 +164,7 @@ ssize_t SchemaRules_GetPendingCount(const IndexSpec *spec);
 
 void SchemaRules_Save(RedisModuleIO *rdb, int when);
 int SchemaRules_Load(RedisModuleIO *rdb, int encver, int when);
+void SchemaRules_ReplyForIndex(RedisModuleCtx *ctx, IndexSpec *sp);
 
 extern AsyncIndexQueue *asyncQueue_g;
 

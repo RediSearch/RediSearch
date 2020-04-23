@@ -185,6 +185,8 @@ typedef enum {
   IDX_S_EXPIRED = 0x10
 } IndexState;
 
+struct SpecLegacyInfo;
+
 struct IndexSpec {
   char *name;
   FieldSpec *fields;
@@ -221,6 +223,7 @@ struct IndexSpec {
   void *getValueCtx;
   char **aliases; // Aliases to self-remove when the index is deleted
   SpecDocQueue *queue;
+  struct SpecLegacyInfo *legacy;
   // Lock for the index data, e.g. doc table, inverted indexes, etc.
   pthread_rwlock_t idxlock;
   IndexState state;
@@ -425,7 +428,6 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, void *value);
 int IndexSpec_RegisterType(RedisModuleCtx *ctx);
 void IndexSpec_ClearAliases(IndexSpec *sp);
 void IndexSpec_CleanAll(void);
-// void IndexSpec_Free(void *value);
 
 /*
  * Parse the field mask passed to a query, map field names to a bit mask passed down to the
@@ -434,6 +436,10 @@ void IndexSpec_CleanAll(void);
 t_fieldMask IndexSpec_ParseFieldMask(IndexSpec *sp, RedisModuleString **argv, int argc);
 
 void IndexSpec_InitializeSynonym(IndexSpec *sp);
+
+void Indexes_OnInitScanDone(void);
+void Indexes_OnReindexDone(void);
+void Indexes_Init(RedisModuleCtx *ctx);
 
 // List of all indexes
 extern dict* RSIndexes_g;

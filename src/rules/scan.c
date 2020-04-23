@@ -116,6 +116,14 @@ static void initScanner(Scanner *s) {
   s->rulesRevision = SchemaRules_g->revision;
 }
 
+static void onInitDone(RedisModuleCtx *unused1, void *unused2) {
+  if (SchemaRules_InitialScanStatus_g != SC_INITSCAN_REQUIRED) {
+    return;
+  }
+  SchemaRules_InitialScanStatus_g = SC_INITSCAN_DONE;
+  Indexes_OnInitScanDone();
+}
+
 static pthread_mutex_t statelock = PTHREAD_MUTEX_INITIALIZER;
 
 static void scanloop(Scanner *s, int isThread) {
@@ -146,6 +154,18 @@ begin:
     RedisModule_ScanCursorDestroy(s->cursor.cursor.r6);
   }
 
+  if (s->cursor.isDone && SchemaRules_InitialScanStatus_g == SC_INITSCAN_REQUIRED) {
+    // If the cursor is done, let's do the proper cleanup
+    // but only in the main thread with the GIL locked; this way there
+    // will be no surprises.
+    if (isThread) {
+      RedisModule_ThreadSafeContextLock(NULL);
+    }
+    RedisModule_CreateTimer(RSDummyContext, 0, onInitDone, NULL);
+    if (isThread) {
+      RedisModule_ThreadSafeContextUnlock(NULL);
+    }
+  }
   pthread_mutex_lock(&statelock);
 
   if (s->state != SCAN_STATE_RESTART) {

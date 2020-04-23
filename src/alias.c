@@ -11,7 +11,6 @@ AliasTable *AliasTable_New(void) {
 }
 
 void IndexAlias_InitGlobal(void) {
-  RSIndexes_g = dictCreate(&dictTypeHeapStrings, NULL);
   AliasTable_g = AliasTable_New();
 }
 

@@ -1246,14 +1246,14 @@ static void specAuxSave(RedisModuleIO *rdb, int when) {
   SchemaRules_Save(rdb, when);
 }
 
-typedef struct {
+typedef struct SpecLegacyInfo {
   SchemaCustomRule *rule;
   DocTable docs;
   IndexSpec *spec;
-} LegacyRuleParams;
+} SpecLegacyInfo;
 
 static int customRuleCb(RedisModuleCtx *ctx, RuleKeyItem *item, void *arg, SchemaCustomCtx *cc) {
-  LegacyRuleParams *lrp = arg;
+  SpecLegacyInfo *lrp = arg;
   RSDocumentMetadata *dmd = DocTable_GetByKeyR(&lrp->docs, item->kstr);
   if (!dmd) {
     return 0;
@@ -1271,23 +1271,19 @@ static int customRuleCb(RedisModuleCtx *ctx, RuleKeyItem *item, void *arg, Schem
   return 1;
 }
 
+static SpecLegacyInfo *createLegacyInfo(IndexSpec *parent) {
+  SpecLegacyInfo *sli = rm_calloc(1, sizeof(*sli));
+  sli->docs = DocTable_New(100);
+  sli->spec = parent;
+  sli->rule = SchemaRules_AddCustomRule(customRuleCb, sli, SCHEMA_CUSTOM_LAST);
+  return sli;
+}
+
 static int specAuxLoad(RedisModuleIO *rdb, int encver, int when) {
   if (when == REDISMODULE_AUX_BEFORE_RDB) {
-    if (!RSIndexes_g) {
-      return REDISMODULE_OK;
-    }
-    dictIterator *it = dictGetSafeIterator(RSIndexes_g);
-    dictEntry *e = NULL;
-    while ((e = dictNext(it))) {
-      IndexSpec_Free(e->v.val);
-    }
-    dictReleaseIterator(it);
-
     return REDISMODULE_OK;
   }
 
-  // Purge every single index from the list...
-  LegacyRuleParams *lrps = array_new(LegacyRuleParams, 8);
   size_t n = RedisModule_LoadUnsigned(rdb);
   for (size_t ii = 0; ii < n; ++ii) {
     IndexSpec *sp = IndexSpec_RdbLoad(rdb, encver);
@@ -1297,37 +1293,35 @@ static int specAuxLoad(RedisModuleIO *rdb, int encver, int when) {
     prepareGeoIndexes(sp);
     dictAdd(RSIndexes_g, sp->name, sp);
     if (!(sp->flags & Index_UseRules)) {
-      LegacyRuleParams *lrp = array_ensure_tail(&lrps, LegacyRuleParams);
-      lrp->spec = sp;
-      lrp->docs = DocTable_New(100);
-      lrp->rule = NULL;
-      DocTable_RdbLoad(&lrp->docs, rdb, encver);
+      sp->legacy = createLegacyInfo(sp);
+      DocTable_RdbLoad(&sp->legacy->docs, rdb, encver);
     }
   }
+  return SchemaRules_Load(rdb, encver, when);
+}
 
-  int rc = SchemaRules_Load(rdb, encver, when);
-  if (rc != REDISMODULE_OK) {
-    return rc;
+void Indexes_OnInitScanDone(void) {
+  dictIterator *it = dictGetIterator(RSIndexes_g);
+  dictEntry *e;
+  while ((e = dictNext(it))) {
+    IndexSpec *sp = e->v.val;
+    if (sp->flags & Index_UseRules) {
+      continue;
+    }
+    SpecLegacyInfo *sli = sp->legacy;
+    if (!sli) {
+      continue;
+    }
+    SchemaRules_RemoveCustomRule(sli->rule);
+    DocTable_Free(&sli->docs);
+    rm_free(sli);
+    sp->legacy = NULL;
   }
-  for (size_t ii = 0; ii < array_len(lrps); ++ii) {
-    SchemaCustomRule *crule =
-        SchemaRules_AddCustomRule(customRuleCb, lrps + ii, SCHEMA_CUSTOM_LAST);
-    assert(crule);
-    lrps[ii].rule = crule;
-  }
-  AIQ_SetMainThread(asyncQueue_g, 1);
-  SchemaRules_StartScan(1);
-  while (SchemaRules_QueueSize()) {
-    usleep(500);
-  }
-  AIQ_SetMainThread(asyncQueue_g, 0);
+  dictReleaseIterator(it);
+}
 
-  for (size_t ii = 0; ii < array_len(lrps); ++ii) {
-    SchemaRules_RemoveCustomRule(lrps[ii].rule);
-    DocTable_Free(&lrps[ii].docs);
-  }
-  array_free(lrps);
-  return rc;
+void Indexes_OnReindexDone(void) {
+  // ....
 }
 
 int IndexSpec_RegisterType(RedisModuleCtx *ctx) {
@@ -1354,4 +1348,16 @@ void IndexSpec_CleanAll(void) {
     IndexSpec_Free(sp);
   }
   dictReleaseIterator(it);
+}
+
+static void onFlush(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
+  if (subevent != REDISMODULE_SUBEVENT_FLUSHDB_START) {
+    return;
+  }
+  IndexSpec_CleanAll();
+}
+
+void Indexes_Init(RedisModuleCtx *ctx) {
+  RSIndexes_g = dictCreate(&dictTypeHeapStrings, NULL);
+  RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_FlushDB, onFlush);
 }
