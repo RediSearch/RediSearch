@@ -1,6 +1,7 @@
 from RLTest import Env
 import pprint
 import time
+import utils
 
 def testCreateRules(env):
     env.cmd('ft.create', 'idx', 'WITHRULES', 'SCHEMA', 'f1', 'text')  # OK
@@ -31,17 +32,17 @@ def testScanRules(env):
     # print("SCANSTART")
     # env.cmd('ft.scanstart')
     while True:
-        rv = env.cmd('ft.info', 'idx', 'sync')
-        if rv[0] == 'SYNCED':
+        if utils.is_synced(env):
             break
+        time.sleep(0.01)
     rv = env.cmd('ft.search', 'idx', 'hello')
     env.assertEqual(10000, rv[0])  # Order can be different!
 
 def testPersistence(env):
     env.cmd('ft.create', 'idx', 'WITHRULES', 'SCHEMA', 'f1', 'TEXT')
     env.cmd('ft.ruleadd', 'idx', 'rule1', 'prefix', 'doc')
-    env.cmd('save')
-    env.restart_and_reload()
+    utils.dump_and_reload(env)
+
     env.cmd('hset', 'doc1', 'f1', 'hello world')
     rv = env.cmd('ft.search', 'idx', 'hello')
     env.assertEqual([1L, 'doc1', ['f1', 'hello world']], rv)

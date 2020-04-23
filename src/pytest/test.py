@@ -7,6 +7,7 @@ import random
 import time
 from RLTest import Env
 from includes import *
+import utils
 
 def testAdd(env):
     if env.is_cluster():
@@ -113,7 +114,7 @@ def testUnion(env):
         env.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
                                         'f', 'hello world' if i % 2 == 0 else 'hallo werld'))
 
-    for _ in r.retry_with_rdb_reload():
+    for _ in utils.reloading_iterator(r):
         res = r.execute_command(
             'ft.search', 'idx', 'hello|hallo', 'nocontent', 'limit', '0', '100')
         env.assertEqual(N + 1, len(res))
@@ -164,7 +165,7 @@ def testSearch(env):
     env.assertOk(r.execute_command('ft.add', 'idx', 'doc2', 1.0, 'fields',
                                     'title', 'hello another world',
                                     'body', 'lorem ist ipsum lorem lorem'))
-    for _ in r.retry_with_rdb_reload():
+    for _ in utils.reloading_iterator(r):
 
         res = r.execute_command('ft.search', 'idx', 'hello')
 
@@ -317,7 +318,7 @@ def testDelete(env):
         env.assertIn('doc%d' % i, res)
         env.assertEqual(1, r.execute_command(
             'ft.del', 'idx', 'doc%d' % i))
-    for _ in r.retry_with_rdb_reload():
+    for _ in utils.reloading_iterator(r):
         did = 'rrrr'
         env.assertOk(r.execute_command('ft.add', 'idx', did, 1, 'fields',
                                         'f', 'hello world'))
@@ -351,7 +352,7 @@ def testReplace(env):
     env.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 1.0, 'replace', 'fields',
                                     'f', 'goodbye universe'))
 
-    for _ in r.retry_with_rdb_reload():
+    for _ in utils.reloading_iterator(r):
         # make sure the query for hello world does not return the replaced
         # document
         res = r.execute_command(
@@ -427,7 +428,7 @@ def testCustomStopwords(env):
         env.assertOk(r.execute_command(
             'ft.add', idx, 'doc2', 1.0, 'fields', 'foo', 'to be or not to be'))
 
-    for _ in r.retry_with_rdb_reload():
+    for _ in utils.reloading_iterator(r):
         # Normal index should return results just for 'hello world'
         env.assertEqual([1, 'doc1'],  r.execute_command(
             'ft.search', 'idx', 'hello world', 'nocontent'))
@@ -662,7 +663,7 @@ def testPrefix(env):
     for i in range(N):
         env.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
                                         'foo', 'constant term%d' % (random.randrange(0, 5))))
-    for _ in r.retry_with_rdb_reload():
+    for _ in utils.reloading_iterator(r):
         res = r.execute_command(
             'ft.search', 'idx', 'constant term', 'nocontent')
         env.assertEqual([0], res)
@@ -690,7 +691,7 @@ def testSortBy(env):
     for i in range(N):
         env.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
                                         'foo', 'hello%03d world' % i, 'bar', 100 - i))
-    for _ in r.retry_with_rdb_reload():
+    for _ in utils.reloading_iterator(r):
 
         res = r.execute_command(
             'ft.search', 'idx', 'world', 'nocontent', 'sortby', 'foo')
@@ -819,7 +820,7 @@ def testInKeys(env):
         env.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
                                         'foo', 'hello world'))
 
-    for _ in r.retry_with_rdb_reload():
+    for _ in utils.reloading_iterator(r):
 
         for keys in (
             ['doc%d' % i for i in range(10)], ['doc%d' % i for i in range(0, 30, 2)], [
@@ -943,7 +944,7 @@ def testGeo(env):
         env.assertOk(r.execute_command('ft.add', 'idx', 'hotel{}'.format(i), 1.0, 'fields', 'name',
                                         hotel[0], 'location', '{},{}'.format(hotel[2], hotel[1])))
 
-    for _ in r.retry_with_rdb_reload():
+    for _ in utils.reloading_iterator(r):
         res = r.execute_command('ft.search', 'idx', 'hilton', 'limit', 0, nhotels)
         env.assertEqual(nhotels, res[0])
         res = gsearch('hilton', "-0.1757", "51.5156", '1')
@@ -1295,7 +1296,7 @@ def testNumericRange(env):
         env.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1, 'fields',
                                         'title', 'hello kitty', 'score', i, 'price', 100 + 10 * i))
 
-    for _ in r.retry_with_rdb_reload():
+    for _ in utils.reloading_iterator(r):
         res = r.execute_command('ft.search', 'idx', 'hello kitty', "nocontent",
                                 "filter", "score", 0, 100)
 
@@ -1382,7 +1383,7 @@ def testSuggestions(env):
             'ft.SUGADD', 'ac', term, sz - 1))
         sz += 1
 
-    for _ in r.retry_with_rdb_reload():
+    for _ in utils.reloading_iterator(r):
 
         env.assertEqual(7, r.execute_command('ft.SUGLEN', 'ac'))
 
@@ -1460,7 +1461,7 @@ def testPayload(env):
                                         'payload', 'payload %d' % i,
                                         'fields', 'f', 'hello world'))
 
-    for x in r.retry_with_rdb_reload():
+    for x in utils.reloading_iterator(r):
 
         res = r.execute_command(
             'ft.search', 'idx', 'hello world')
@@ -1543,7 +1544,7 @@ def testReturning(env):
                          'n1', i)
 
     # RETURN 0. Simplest case
-    for x in env.retry_with_reload():
+    for x in utils.reloading_iterator(env):
         res = env.cmd('ft.search', 'idx', 'val*', 'return', '0')
         env.assertEqual(11, len(res))
         env.assertEqual(10, res[0])
@@ -1640,7 +1641,7 @@ def testInfoCommand(env):
     for i in xrange(N):
         env.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1, 'replace', 'fields',
                                         'title', 'hello term%d' % i))
-    for _ in r.retry_with_rdb_reload():
+    for _ in utils.reloading_iterator(r):
 
         res = r.execute_command('ft.info', 'idx')
         d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
@@ -1692,7 +1693,7 @@ def testNoStem(env):
         # todo: change it to be more generic to pass on is_cluster
         res = env.cmd('ft.info', 'idx')
         env.assertEqual(res[5][1][5], 'NOSTEM')
-    for _ in env.retry_with_reload():
+    for _ in utils.reloading_iterator(env):
         try:
             env.cmd('ft.del', 'idx', 'doc')
         except redis.ResponseError:
@@ -1806,7 +1807,7 @@ def testBinaryKeys(env):
     exp = [2L, 'Hello', ['n', '1', 'txt', 'NoBin match'], 'Hello\x00World', ['n', '2', 'txt', 'Bin match']]
     env.assertEqual(exp, res)
 
-    for _ in env.reloading_iterator():
+    for _ in utils.reloading_iterator(env):
         res = env.cmd('ft.search', 'idx', 'match', 'sortby', 'n')
         env.assertEqual(exp, res)
 
@@ -1838,7 +1839,7 @@ def testDuplicateNonspecFields(env):
 def testDuplicateFields(env):
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'txt',
              'TEXT', 'num', 'NUMERIC', 'SORTABLE')
-    for _ in env.retry_with_reload():
+    for _ in utils.reloading_iterator(env):
         # Ensure the index assignment is correct after an rdb load
         with env.assertResponseError():
             env.cmd('FT.ADD', 'idx', 'doc', 1.0, 'FIELDS',
@@ -1965,7 +1966,7 @@ def testAlterIndex(env):
     env.cmd('FT.ADD', 'idx', 'doc1', 1.0, 'FIELDS', 'f1', 'hello', 'f2', 'world')
     env.cmd('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'f2', 'TEXT')
     env.cmd('FT.ADD', 'idx', 'doc2', 1.0, 'FIELDS', 'f1', 'hello', 'f2', 'world')
-    # for _ in env.retry_with_reload():
+    # for _ in utils.reloading_iterator(env):
     # env.cmd('save')
     env.cmd('debug', 'reload')
     return
@@ -1977,7 +1978,7 @@ def testAlterIndex(env):
         env.cmd('FT.ADD', 'idx', 'doc{}'.format(x + 3), 1.0,
                  'FIELDS', 'f1', 'hello', 'f3', 'val{}'.format(x))
 
-    for _ in env.retry_with_reload():
+    for _ in utils.reloading_iterator(env):
         # Test that sortable works
         res = env.cmd('FT.SEARCH', 'idx', 'hello', 'SORTBY', 'f3', 'DESC')
         exp = [12, 'doc12', ['f1', 'hello', 'f3', 'val9'], 'doc11', ['f1', 'hello', 'f3', 'val8'], 'doc10', ['f1', 'hello', 'f3', 'val7'], 'doc9', ['f1', 'hello', 'f3', 'val6'], 'doc8', ['f1', 'hello', 'f3', 'val5'], 'doc7', [
@@ -1989,7 +1990,7 @@ def testAlterIndex(env):
     env.cmd('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'n1', 'NUMERIC')
     env.cmd('FT.ADD', 'idx', 'docN1', 1.0, 'FIELDS', 'n1', 50)
     env.cmd('FT.ADD', 'idx', 'docN2', 1.0, 'FIELDS', 'n1', 250)
-    for _ in env.retry_with_reload():
+    for _ in utils.reloading_iterator(env):
         res = env.cmd('FT.SEARCH', 'idx', '@n1:[0 100]')
         env.assertEqual([1, 'docN1', ['n1', '50']], res)
 
@@ -2014,7 +2015,7 @@ def testAlterValidation(env):
         env.cmd('FT.ALTER', 'idx2', 'SCHEMA', 'ADD', 'f{}'.format(x + 1), 'TEXT')
 
     env.cmd('FT.ADD', 'idx2', 'doc1', 1.0, 'FIELDS', 'f50', 'hello')
-    for _ in env.retry_with_reload():
+    for _ in utils.reloading_iterator(env):
         ret = env.cmd('FT.SEARCH', 'idx2', '@f50:hello')
         env.assertEqual([1, 'doc1', ['f50', 'hello']], ret)
 
@@ -2039,7 +2040,7 @@ def testIssue366_1(env):
     env.hmset('foo', {'textfield': 'blah', 'numfield': 1})
     env.cmd('FT.ADDHASH', 'idx1', 'foo', 1, 'replace')
     env.cmd('FT.DEL', 'idx1', 'foo')
-    for _ in env.retry_with_reload():
+    for _ in utils.reloading_iterator(env):
         pass  # --just ensure it doesn't crash
 
 def testIssue366_2(env):
@@ -2054,7 +2055,7 @@ def testIssue366_2(env):
              'PAYLOAD', '{"hello":"world2"}',
              'REPLACE', 'PARTIAL',
              'FIELDS', 'textfield', 'sometext', 'numfield', 1111)
-    for _ in env.retry_with_reload():
+    for _ in utils.reloading_iterator(env):
         pass  #
 
 def testIssue654(env):
@@ -2070,7 +2071,7 @@ def testReplaceReload(env):
     env.cmd('FT.ADD', 'idx2', 'doc2', 1.0, 'FIELDS', 'textfield', 's1', 'numfield', 99)
     env.cmd('FT.ADD', 'idx2', 'doc2', 1.0, 'REPLACE', 'PARTIAL',
              'FIELDS', 'textfield', 's100', 'numfield', 990)
-    env.dump_and_reload()
+    utils.dump_and_reload(env)
     # RDB Should still be fine
 
     env.cmd('FT.ADD', 'idx2', 'doc2', 1.0, 'REPLACE', 'PARTIAL',
@@ -2094,7 +2095,7 @@ def testIssue417(env):
         command += ['t{}'.format(x), 'numeric', 'sortable']
     command = command[:-1]
     env.cmd(*command)
-    for _ in env.reloading_iterator():
+    for _ in utils.reloading_iterator(env):
         try:
             env.execute_command('FT.ADD', 'idx', 'doc1', '1.0', 'FIELDS', 't0', '1')
         except redis.ResponseError as e:
@@ -2174,20 +2175,10 @@ def testAlias(env):
     env.cmd('ft.add', 'idx3', 'doc3', 1.0, 'fields', 't1', 'foo')
     env.cmd('ft.aliasAdd', 'myIndex', 'idx3')
     # also, check that this works in rdb save
-    print("Before saving")
-    env.cmd('save')
-    print("After saving")
 
-    print("Before reloading...")
-    print env.cmd('ft.info', '*')
-
-    env.restart_and_reload()
-    print env.cmd('keys', '*')
-    print env.cmd('ft.info', '*')
-
-    # for _ in env.retry_with_rdb_reload():
-    r = env.cmd('ft.search', 'myIndex', 'foo')
-    env.assertEqual([1L, 'doc3', ['t1', 'foo']], r)
+    for _ in utils.reloading_iterator(env):
+        r = env.cmd('ft.search', 'myIndex', 'foo')
+        env.assertEqual([1L, 'doc3', ['t1', 'foo']], r)
 
     # Check that we can move an alias from one index to another
     env.cmd('ft.aliasUpdate', 'myIndex', 'idx2')
