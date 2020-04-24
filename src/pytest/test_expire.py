@@ -35,5 +35,5 @@ def testExpire(env):
     #     ttl = int(env.cmd('ft.debug', 'ttl', 'idx'))
     #     time.sleep(1)
     # env.expect('keys', '*').equal([])
-    while env.cmd('ft.info', '*') != []:
+    while env.cmd('ft._list') != []:
         time.sleep(0.5)

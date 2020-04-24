@@ -1,5 +1,5 @@
 from includes import *
-
+import utils
 
 def testBasicSynonymsUseCase(env):
     r = env
@@ -169,7 +169,7 @@ def testSynonymsRdb(env):
     env.assertOk(r.execute_command(
         'ft.create', 'idx', 'schema', 'title', 'text', 'body', 'text'))
     env.assertEqual(r.execute_command('ft.synadd', 'idx', 'boy', 'child', 'offspring'), 0)
-    for _ in env.reloading_iterator():
+    for _ in utils.reloading_iterator(env):
         env.assertEqual(r.execute_command('ft.syndump', 'idx'), ['offspring', [0L], 'child', [0L], 'boy', [0L]])
 
 def testTwoSynonymsSearch(env):
@@ -196,7 +196,7 @@ def testSynonymsIntensiveLoad(env):
         env.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
                                         'title', 'he is a boy%d' % i,
                                         'body', 'this is a test'))
-    for _ in env.reloading_iterator():
+    for _ in utils.reloading_iterator(env):
         for i in range(iterations):
             res = r.execute_command('ft.search', 'idx', 'child%d' % i, 'EXPANDER', 'SYNONYM')
             env.assertEqual(res, [1L, 'doc%d' % i, ['title', 'he is a boy%d' % i, 'body', 'this is a test']])

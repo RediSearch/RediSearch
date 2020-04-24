@@ -1,5 +1,6 @@
 from RLTest import Env
 import random
+import utils
 from includes import *
 
 
@@ -17,13 +18,14 @@ def aofTestCommon(env, reloadfn):
         ret = env.cmd('ft.search', 'idx', 'myt*', 'sortby', 'field2')
         env.assertEqual(exp, ret)
         reloadfn()
+        utils.wait_sync(env)
         ret = env.cmd('ft.search', 'idx', 'myt*', 'sortby', 'field2')
         env.assertEqual(exp, ret)
 
 
 def testAof():
     env = Env(useAof=True)
-    aofTestCommon(env, lambda: env.restart_and_reload())
+    aofTestCommon(env, lambda: utils.restart_and_reload(env))
 
 
 def testRawAof():

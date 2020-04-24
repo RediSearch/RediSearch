@@ -1,5 +1,6 @@
 import math
 from includes import *
+import utils
 
 
 def testHammingScorer(env):
@@ -62,7 +63,7 @@ def testScoreTagIndex(env):
     scorers = ['TFIDF', 'TFIDF.DOCNORM', 'BM25', 'DISMAX', 'DOCSCORE']
     expected_results = results_cluster if env.is_cluster() else results_single
 
-    for _ in env.reloading_iterator():
+    for _ in utils.reloading_iterator(env):
         for i, scorer in enumerate(scorers):
             res = env.cmd('ft.search', 'idx', 'hello world', 'scorer',
                               scorer, 'nocontent', 'withscores', 'limit', 0, 5)

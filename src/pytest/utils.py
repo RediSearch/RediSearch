@@ -20,20 +20,20 @@ def is_synced(e, idx=None):
                 return False
         return True
 
-def _wait_sync(e):
+def wait_sync(e):
     while not is_synced(e):
         time.sleep(0.01)
 
 def restart_and_reload(e):
     e.restart_and_reload()
-    _wait_sync(e)
+    wait_sync(e)
 
 def dump_and_reload(e):
     e.dump_and_reload()
-    _wait_sync(e)
+    wait_sync(e)
 
 
 def reloading_iterator(env):
     for x in env.reloading_iterator():
-        _wait_sync(env)
+        wait_sync(env)
         yield x

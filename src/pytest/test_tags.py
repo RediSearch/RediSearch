@@ -1,4 +1,5 @@
 from includes import *
+import utils
 
 
 def search(env, r, *args):
@@ -14,7 +15,7 @@ def testTagIndex(env):
 
         env.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % n, 1.0, 'fields',
                                        'title', 'hello world term%d' % n, 'tags', 'foo bar,xxx,tag %d' % n))
-    for _ in r.retry_with_rdb_reload():
+    for _ in utils.reloading_iterator(r):
         res = env.cmd('ft.search', 'idx', 'hello world')
         env.assertEqual(10, res[0])
 
@@ -57,7 +58,7 @@ def testSeparator(env):
 
     env.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 1.0, 'fields',
                                    'title', 'hello world', 'tags', 'x:hello world: fooz bar:foo,bar:BOO FAR'))
-    for _ in r.retry_with_rdb_reload():
+    for _ in utils.reloading_iterator(r):
 
         for q in ('@tags:{hello world}', '@tags:{fooz bar}', '@tags:{foo\\,bar}', '@tags:{boo\\ far}', '@tags:{x}'):
             res = env.cmd('ft.search', 'idx', q)
@@ -71,7 +72,7 @@ def testTagPrefix(env):
 
     env.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 1.0, 'fields',
                                    'title', 'hello world', 'tags', 'hello world,hello-world,hell,jell'))
-    for _ in r.retry_with_rdb_reload():
+    for _ in utils.reloading_iterator(r):
 
         for q in ('@tags:{hello world}', '@tags:{hel*}', '@tags:{hello\\-*}', '@tags:{he*}'):
             res = env.cmd('ft.search', 'idx', q)
@@ -85,7 +86,7 @@ def testTagFieldCase(env):
 
     env.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 1.0, 'fields',
                                    'title', 'hello world', 'TAgs', 'HELLO WORLD,FOO BAR'))
-    for _ in r.retry_with_rdb_reload():
+    for _ in utils.reloading_iterator(r):
 
         env.assertListEqual([0], r.execute_command(
             'FT.SEARCH', 'idx', '@tags:{HELLO WORLD}'))
@@ -126,7 +127,7 @@ def testTagVals(env):
 
         env.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % n, 1.0, 'fields',
                                        'tags', ','.join(tags), 'othertags', 'baz %d' % int(n // 2)))
-    for _ in r.retry_with_rdb_reload():
+    for _ in utils.reloading_iterator(r):
         res = r.execute_command('ft.tagvals', 'idx', 'tags')
         env.assertEqual(N * 2 + 1, len(res))
 

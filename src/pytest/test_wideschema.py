@@ -1,5 +1,6 @@
 import platform
 from includes import *
+import utils
 
 
 def testWideSchema(env):
@@ -16,7 +17,7 @@ def testWideSchema(env):
             fields.extend(('field_%d' % i, 'hello token_%d' % i))
         env.assertOk(r.execute_command('ft.add', 'idx',
                                        'doc%d' % n, 1.0, 'fields', *fields))
-    for _ in env.reloading_iterator():
+    for _ in utils.reloading_iterator(env):
         for i in range(FIELDS):
 
             res = env.cmd('ft.search', 'idx', '@field_%d:token_%d' % (i, i), 'NOCONTENT')

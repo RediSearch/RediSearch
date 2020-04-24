@@ -4,6 +4,7 @@ from RLTest import Env
 import platform
 from time import sleep
 from includes import *
+import utils
 
 
 def testBasicGC(env):
@@ -113,7 +114,7 @@ def testDeleteEntireBlock(env):
     for i in range(100):
         # gc is random so we need to do it long enough times for it to work
         env.cmd('ft.debug', 'GC_FORCEINVOKE', 'idx')
-    for _ in env.reloading_iterator():
+    for _ in utils.reloading_iterator(env):
         env.expect('FT.SEARCH', 'idx', '@test:checking @test2:checking250').equal([1L, 'doc250', ['test', 'checking', 'test2', 'checking250']])
 
 
