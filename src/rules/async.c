@@ -127,6 +127,7 @@ static void indexBatch(AsyncIndexQueue *aiq, SpecDocQueue *dq, int lockGil) {
   Indexer_Init(&idxr, &sctx);
   dictIterator *iter = dictGetIterator(dq->active);
   dictEntry *e = NULL;
+
   while ((e = dictNext(iter)) && IDX_IsAlive(sp)) {
     RuleIndexableDocument *rid = e->v.val;
     QueryError err = {0};
@@ -295,6 +296,11 @@ ssize_t SchemaRules_GetPendingCount(const IndexSpec *spec) {
   }
   if (dq->entries) {
     ret += dictSize(dq->entries);
+  }
+
+  if (ret == 0 && dq->state != SDQ_S_IDLE) {
+    // Still pending, somehow
+    ret = 1;
   }
 
   pthread_mutex_unlock(&dq->lock);
