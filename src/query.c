@@ -518,8 +518,11 @@ static IndexIterator *Query_EvalNumericNode(QueryEvalCtx *q, QueryNumericNode *n
   if (!fs || !FIELD_IS(fs, INDEXFLD_T_NUMERIC)) {
     return NULL;
   }
-
-  return NewNumericFilterIterator(q->sctx, node->nf, q->conc);
+  NumericRangeTree *rt = IDX_LoadRange(q->sctx->spec, fs, REDISMODULE_READ);
+  if (!rt) {
+    return NULL;
+  }
+  return NumericTree_GetIterator(rt, q->sctx->spec, node->nf, q->conc);
 }
 
 static IndexIterator *Query_EvalGeofilterNode(QueryEvalCtx *q, QueryGeofilterNode *node,

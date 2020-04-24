@@ -393,24 +393,18 @@ static void numFreeCb(YielderArg *a, void *idx) {
   rm_free(a->p);
 }
 
-struct indexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const NumericFilter *flt,
-                                               Yielder *csx) {
-  NumericRangeTree *t = IDX_LoadRangeFieldname(ctx->spec, flt->fieldName, REDISMODULE_READ);
-
-  if (!t) {
-    return NULL;
-  }
-
-  IndexIterator *it = createNumericIterator(ctx->spec, t, flt);
+IndexIterator *NumericTree_GetIterator(NumericRangeTree *t, IndexSpec *spec,
+                                       const NumericFilter *nf, Yielder *yld) {
+  IndexIterator *it = createNumericIterator(spec, t, nf);
   if (!it) {
     return NULL;
   }
 
-  if (csx) {
+  if (yld) {
     NumericUnionCtx *uc = rm_malloc(sizeof(*uc));
     uc->lastRevId = t->revisionId;
     uc->it = it;
-    YLD_Add(csx, numYldCallback, numFreeCb, (YielderArg){.p = uc}, t);
+    YLD_Add(yld, numYldCallback, numFreeCb, (YielderArg){.p = uc}, t);
   }
   return it;
 }

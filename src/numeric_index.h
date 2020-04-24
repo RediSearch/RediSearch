@@ -80,8 +80,8 @@ typedef struct NumericRangeTree {
 struct indexIterator *NewNumericRangeIterator(const IndexSpec *sp, NumericRange *nr,
                                               const NumericFilter *f);
 
-struct indexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const NumericFilter *flt,
-                                               Yielder *y);
+IndexIterator *NumericTree_GetIterator(NumericRangeTree *t, IndexSpec *spec,
+                                       const NumericFilter *nf, Yielder *yld);
 
 /* Add an entry to a numeric range node. Returns the cardinality of the range after the
  * inserstion.
@@ -98,8 +98,8 @@ NumericRangeNode *NewLeafNode(size_t cap, double min, double max, size_t splitCa
  * Returns 0 if no nodes were split, 1 if we splitted nodes */
 NRN_AddRv NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value);
 
-/* Recursively find all the leaves under a node that correspond to a given min-max range. Returns a
- * vector with range node pointers.  */
+/* Recursively find all the leaves under a node that correspond to a given min-max range. Returns
+ * a vector with range node pointers.  */
 Vector *NumericRangeNode_FindRange(NumericRangeNode *n, double min, double max);
 
 /* Recursively free a node and its children */
