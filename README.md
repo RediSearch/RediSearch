@@ -1,4 +1,6 @@
-[![CircleCI](https://circleci.com/gh/RedisLabsModules/RediSearch/tree/master.svg?style=svg)](https://circleci.com/gh/RedisLabsModules/RediSearch/tree/master)
+[![CircleCI](https://circleci.com/gh/RediSearch/RediSearch/tree/1.4.svg?style=svg)](https://circleci.com/gh/RediSearch/RediSearch/tree/1.4)
+[![Forum](https://img.shields.io/badge/Forum-RediSearch-blue)](https://forum.redislabs.com/c/modules/redisearch/)
+
 
 # RediSearch
 
