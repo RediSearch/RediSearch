@@ -5,67 +5,36 @@
 #include "module.h"
 #include "rmutil/rm_assert.h"
 
-GeoIndex *GeoIndex_Create(const char *ixname) {
+GeoIndex *GeoIndex_Create() {
   GeoIndex *gi = rm_calloc(1, sizeof(*gi));
-  gi->keyname = RedisModule_CreateStringPrintf(RSDummyContext, "_geoidx:%s", ixname);
+  gi->rt = NewNumericRangeTree();
   return gi;
 }
 
-void GeoIndex_PrepareKey(RedisModuleCtx *ctx, GeoIndex *gi) {
-  GeoIndex_RemoveKey(ctx, gi);
-  gi->isDeleted = 0;
-}
-
-void GeoIndex_RemoveKey(RedisModuleCtx *ctx, GeoIndex *gi) {
-  gi->isDeleted = 1;
-  RedisModuleKey *k = RedisModule_OpenKey(ctx, gi->keyname, REDISMODULE_READ | REDISMODULE_WRITE);
-  if (!k) {
-    return;
-  }
-  RedisModule_DeleteKey(k);
-  RedisModule_CloseKey(k);
-}
-
 void GeoIndex_Free(GeoIndex *gi) {
-  if (gi->keyname) {
-    RedisModule_FreeString(RSDummyContext, gi->keyname);
-  }
+  NumericRangeTree_Free(gi->rt);
   rm_free(gi);
 }
+static double calcGeoHash(double lon, double lat);
 
-/* Add a docId to a geoindex key. Right now we just use redis' own GEOADD */
+#define INVALID_GEOHASH -1.0
+
 int GeoIndex_AddStrings(GeoIndex *gi, t_docId docId, const char *slon, const char *slat) {
-  if (gi->isDeleted) {
+  // @ariel: convert to hash
+  char *end1 = NULL, *end2 = NULL;
+  double lon = strtod(slon, &end1);
+  double lat = strtod(slat, &end2);
+  if (*end1 || *end2) {
     return REDISMODULE_ERR;
   }
 
-  /* GEOADD key longitude latitude member*/
-  RedisModuleCallReply *rep =
-      RedisModule_Call(RSDummyContext, "GEOADD", "sccl", gi->keyname, slon, slat, docId);
-  if (rep == NULL) {
+  double geohash = calcGeoHash(lon, lat);
+  if (geohash == INVALID_GEOHASH) {
     return REDISMODULE_ERR;
   }
 
-  int repType = RedisModule_CallReplyType(rep);
-  RedisModule_FreeCallReply(rep);
-  if (repType == REDISMODULE_REPLY_ERROR) {
-    return REDISMODULE_ERR;
-  }
-
+  NumericRangeTree_Add(gi->rt, docId, geohash);
   return REDISMODULE_OK;
-}
-
-void GeoIndex_RemoveEntries(GeoIndex *gi, IndexSpec *sp, t_docId docId) {
-  if (gi->isDeleted) {
-    return;
-  }
-  RedisModuleCtx *ctx = RSDummyContext;
-  RedisModuleCallReply *rep = RedisModule_Call(ctx, "ZREM", "sl", gi->keyname, docId);
-
-  if (rep == NULL || RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_ERROR) {
-    RedisModule_Log(ctx, "warning", "Document %s was not removed", docId);
-  }
-  RedisModule_FreeCallReply(rep);
 }
 
 /* Parse a geo filter from redis arguments. We assume the filter args start at argv[0], and FILTER
@@ -119,56 +88,168 @@ void GeoFilter_Free(GeoFilter *gf) {
   rm_free(gf);
 }
 
-static t_docId *geoRangeLoad(const GeoIndex *gi, const GeoFilter *gf, size_t *num) {
-  if (gi->isDeleted) {
-    return NULL;
-  }
+typedef enum {
+  GEO_DIR_N = 0,
+  // ....
+  GEO_DIR_MAX
+} GeoDirection;
 
-  *num = 0;
-  t_docId *docIds = NULL;
-  /*GEORADIUS key longitude latitude radius m|km|ft|mi */
-  RedisModuleCtx *ctx = RSDummyContext;
-  RedisModuleString *slon = RedisModule_CreateStringPrintf(ctx, "%f", gf->lon);
-  RedisModuleString *slat = RedisModule_CreateStringPrintf(ctx, "%f", gf->lat);
-  RedisModuleString *srad = RedisModule_CreateStringPrintf(ctx, "%f", gf->radius);
-  const char *unitstr = GeoDistance_ToString(gf->unitType);
-  RedisModuleCallReply *rep =
-      RedisModule_Call(ctx, "GEORADIUS", "sssscc", gi->keyname, slon, slat, srad, unitstr, "ASC");
-  if (rep == NULL || RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_ARRAY) {
-    goto done;
-  }
+typedef struct {
+  IndexIterator base;
+  t_docId lastId;
+  const GeoFilter *gf;
+  NumericFilter *filters;
+  IndexIterator *wrapped;  // Union iterator
+} GeoIterator;
 
-  size_t sz = RedisModule_CallReplyLength(rep);
-  docIds = rm_calloc(sz, sizeof(t_docId));
-  for (size_t i = 0; i < sz; i++) {
-    const char *s = RedisModule_CallReplyStringPtr(RedisModule_CallReplyArrayElement(rep, i), NULL);
-    if (!s) continue;
-
-    docIds[i] = (t_docId)atol(s);
-  }
-
-  *num = sz;
-
-done:
-  RedisModule_FreeString(ctx, slon);
-  RedisModule_FreeString(ctx, slat);
-  RedisModule_FreeString(ctx, srad);
-  if (rep) {
-    RedisModule_FreeCallReply(rep);
-  }
-
-  return docIds;
+/**
+ * Generates a geo hash from a given latitude and longtitude
+ */
+static double calcGeoHash(double lon, double lat) {
+  // @ariel: todo
+  return 666;
 }
 
-IndexIterator *NewGeoRangeIterator(GeoIndex *gi, const GeoFilter *gf, double weight) {
-  size_t sz;
-  t_docId *docIds = geoRangeLoad(gi, gf, &sz);
-  if (!docIds) {
-    return NULL;
+/**
+ * Populates the numeric range to search for within a given square direction
+ * specified by `dir`
+ */
+static void populateRange(const GeoFilter *gf, GeoDirection dir, NumericFilter *nf) {
+  // @ariel: todo
+}
+
+/**
+ * Checks if the given coordinate d is within the radius gf
+ */
+static int isWithinRadius(const GeoFilter *gf, double d) {
+  // @ariel: todo
+  return 0;
+}
+
+static int checkResult(const GeoFilter *gf, const RSIndexResult *cur) {
+  for (size_t ii = 0; ii < cur->agg.numChildren; ++ii) {
+    const RSIndexResult *res = cur->agg.children[ii];
+    if (isWithinRadius(gf, res->num.value)) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+static int GI_Read(void *ctx, RSIndexResult **hit) {
+  GeoIterator *gi = ctx;
+  IndexIterator *wrapped = gi->wrapped;
+  RSIndexResult *cur = NULL;
+  int found = 0;
+  while (1) {
+    int rc = wrapped->Read(wrapped->ctx, &cur);
+    if (rc == INDEXREAD_EOF) {
+      IITER_SET_EOF(&gi->base);
+      return rc;
+    }
+    assert(RSIndexResult_IsAggregate(cur));
+    if (checkResult(gi->gf, cur)) {
+      found = 1;
+      break;
+    }
   }
 
-  IndexIterator *ret = NewIdListIterator(docIds, (t_offset)sz, weight);
-  rm_free(docIds);
+  if (found) {
+    *hit = gi->base.current = cur;
+    gi->lastId = cur->docId;
+    return INDEXREAD_OK;
+  } else {
+    *hit = NULL;
+    return INDEXREAD_EOF;
+  }
+}
+
+static int GI_SkipTo(void *ctx, t_docId id, RSIndexResult **hit) {
+  GeoIterator *gi = ctx;
+  IndexIterator *wrapped = gi->wrapped;
+  RSIndexResult *cur = NULL;
+  int rc = wrapped->SkipTo(wrapped->ctx, id, &cur);
+  if (rc == INDEXREAD_EOF) {
+    IITER_SET_EOF(&gi->base);
+    return rc;
+  }
+  if (checkResult(gi->gf, cur)) {
+    gi->lastId = id;
+    *hit = gi->base.current = cur;
+    if (cur->docId == id) {
+      return INDEXREAD_OK;
+    } else {
+      return INDEXREAD_NOTFOUND;
+    }
+  } else {
+    rc = GI_Read(ctx, hit);
+    if (rc == INDEXREAD_OK) {
+      return INDEXREAD_NOTFOUND;
+    }
+    return rc;
+  }
+}
+
+static size_t GI_NumEstimated(void *ctx) {
+  GeoIterator *gi = ctx;
+  return gi->wrapped->NumEstimated(gi->wrapped->ctx);
+}
+static IndexCriteriaTester *GI_GetCriteriaTester(void *ctx) {
+  GeoIterator *gi = ctx;
+  return gi->wrapped->GetCriteriaTester(gi->wrapped->ctx);
+}
+static void GI_Rewind(void *ctx) {
+  GeoIterator *gi = ctx;
+  IITER_CLEAR_EOF(&gi->base);
+  gi->wrapped->Rewind(gi->wrapped->ctx);
+  gi->lastId = 0;
+}
+
+static t_docId GI_LastDocId(void *ctx) {
+  GeoIterator *gi = ctx;
+  return gi->lastId;
+}
+
+static void GI_Abort(void *ctx) {
+  GeoIterator *gi = ctx;
+  gi->wrapped->Abort(gi->wrapped->ctx);
+}
+
+static void GI_Free(IndexIterator *ctx) {
+  GeoIterator *gi = (GeoIterator *)ctx;
+  gi->wrapped->Free(gi->wrapped);
+  rm_free(gi->filters);
+  rm_free(gi);
+}
+
+IndexIterator *NewGeoRangeIterator(GeoIndex *idx, IndexSpec *sp, const GeoFilter *gf, double weight,
+                                   Yielder *yld) {
+  GeoIterator *gi = rm_calloc(1, sizeof(*gi));
+  IndexIterator **subiters = rm_calloc(GEO_DIR_MAX, sizeof(*subiters));
+  gi->filters = rm_calloc(GEO_DIR_MAX, sizeof(*gi->filters));
+  for (size_t ii = 0; ii < GEO_DIR_MAX; ++ii) {
+    NumericFilter nf = {0};
+    populateRange(gf, ii, gi->filters + ii);
+    subiters[ii] = NumericTree_GetIterator(idx->rt, sp, gi->filters + ii, yld);
+    if (!subiters[ii]) {
+      subiters[ii] = NewEmptyIterator();
+    }
+  }
+
+  gi->wrapped = NewUnionIterator(subiters, GEO_DIR_MAX, &sp->docs, 0, weight);
+  IndexIterator *ret = &gi->base;
+  ret->ctx = gi;
+  ret->LastDocId = GI_LastDocId;
+  ret->NumEstimated = GI_NumEstimated;
+  ret->GetCriteriaTester = GI_GetCriteriaTester;
+  ret->Read = GI_Read;
+  ret->SkipTo = GI_SkipTo;
+  ret->Free = GI_Free;
+  ret->Abort = GI_Abort;
+  ret->Rewind = GI_Rewind;
+  ret->GetCurrent = NULL;
+  ret->HasNext = NULL;
+  ret->mode = MODE_SORTED;
   return ret;
 }
 

@@ -148,15 +148,7 @@ static void indexBulkFields(Indexer *indexer) {
 }
 
 static void handleReplaceDelete(RedisSearchCtx *sctx, t_docId did) {
-  IndexSpec *sp = sctx->spec;
-  for (size_t ii = 0; ii < sp->numFields; ++ii) {
-    const FieldSpec *fs = sp->fields + ii;
-    if (!FIELD_IS(fs, INDEXFLD_T_GEO)) {
-      continue;
-    }
-    GeoIndex *gi = IDX_LoadGeo(sp, fs, REDISMODULE_WRITE);
-    GeoIndex_RemoveEntries(gi, sp, did);
-  }
+  // Geo is now indexed..
 }
 
 /** Assigns a document ID to a single document. */

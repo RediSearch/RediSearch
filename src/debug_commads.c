@@ -364,19 +364,6 @@ static void seekTagIterator(TrieMapIterator *it, size_t offset) {
   }
 }
 
-DEBUG_COMMAND(GeoKeyname) {
-  if (argc != 2) {
-    return RedisModule_WrongArity(ctx);
-  }
-  GET_SEARCH_CTX(argv[0]);
-  const char *fname = RedisModule_StringPtrLen(argv[1], NULL);
-  const GeoIndex *gi = IDX_LoadGeoFieldname(sctx->spec, fname, REDISMODULE_READ);
-  if (!gi) {
-    return RedisModule_ReplyWithError(ctx, "No such field name");
-  }
-  return RedisModule_ReplyWithString(ctx, gi->keyname);
-}
-
 /**
  * INFO_TAGIDX <index> <field> [OPTIONS...]
  */
@@ -611,7 +598,6 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex},
                                {"GC_FORCEINVOKE", GCForceInvoke},
                                {"GC_FORCEBGINVOKE", GCForceBGInvoke},
                                {"GIT_SHA", GitSha},
-                               {"GEO_KEYNAME", GeoKeyname},
                                {"FLUSHALL", FlushAll},
                                {"TTL", TTL},
                                {"EXISTS", Exists},

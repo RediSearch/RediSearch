@@ -537,8 +537,7 @@ static IndexIterator *Query_EvalGeofilterNode(QueryEvalCtx *q, QueryGeofilterNod
   if (!gi) {
     return NULL;
   }
-
-  return NewGeoRangeIterator(gi, node->gf, weight);
+  return NewGeoRangeIterator(gi, q->sctx->spec, node->gf, weight, q->conc);
 }
 
 static IndexIterator *Query_EvalIdFilterNode(QueryEvalCtx *q, QueryIdFilterNode *node) {

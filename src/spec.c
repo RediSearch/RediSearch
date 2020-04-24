@@ -153,14 +153,6 @@ int isRdbLoading(RedisModuleCtx *ctx) {
   return isLoading == 1;
 }
 
-static void prepareGeoIndexes(IndexSpec *sp) {
-  for (size_t ii = 0; ii < sp->numFields; ++ii) {
-    if (FIELD_IS(sp->fields + ii, INDEXFLD_T_GEO)) {
-      GeoIndex *geo = IDX_LoadGeo(sp, sp->fields + ii, REDISMODULE_WRITE);
-      GeoIndex_PrepareKey(RSDummyContext, geo);
-    }
-  }
-}
 static void IndexSpec_Unregister(IndexSpec *spec);
 
 int IndexSpec_Register(IndexSpec *sp, const IndexCreateOptions *options, QueryError *status) {
@@ -179,7 +171,6 @@ int IndexSpec_Register(IndexSpec *sp, const IndexCreateOptions *options, QueryEr
   // Start the garbage collector
   IndexSpec_StartGC(RSDummyContext, sp, GC_DEFAULT_HZ);
   CursorList_AddSpec(&RSCursors, sp->name, RSCURSORS_DEFAULT_CAPACITY);
-  prepareGeoIndexes(sp);
   resetTimer(sp);
   if (IndexSpec_OnCreate) {
     IndexSpec_OnCreate(sp);
@@ -626,8 +617,8 @@ DECLARE_IDXACC_COMMON(IDX_LoadRange, IDX_LoadRangeFieldname, INDEXFLD_T_NUMERIC,
 DECLARE_IDXACC_COMMON(IDX_LoadTags, IDX_LoadTagsFieldname, INDEXFLD_T_TAG, NewTagIndex(), tags,
                       TagIndex *)
 
-DECLARE_IDXACC_COMMON(IDX_LoadGeo, IDX_LoadGeoFieldname, INDEXFLD_T_GEO, GeoIndex_Create(sp->name),
-                      geos, GeoIndex *)
+DECLARE_IDXACC_COMMON(IDX_LoadGeo, IDX_LoadGeoFieldname, INDEXFLD_T_GEO, GeoIndex_Create(), geos,
+                      GeoIndex *)
 
 IndexSpecCache *IndexSpec_GetSpecCache(const IndexSpec *spec) {
   if (!spec->spcache) {
@@ -744,12 +735,6 @@ static void IndexSpec_Unregister(IndexSpec *spec) {
     Cursors_PurgeWithName(&RSCursors, spec->name);
     CursorList_RemoveSpec(&RSCursors, spec->name);
     dictDelete(RSIndexes_g, spec->name);
-    // Remove the geo key
-    for (size_t ii = 0; ii < spec->numFields; ++ii) {
-      if (FIELD_IS(spec->fields + ii, INDEXFLD_T_GEO)) {
-        GeoIndex_RemoveKey(RSDummyContext, spec->geos[ii]);
-      }
-    }
     spec->state &= ~IDX_S_REGISTERED;
   }
 }
@@ -1352,7 +1337,6 @@ static int specAuxLoad(RedisModuleIO *rdb, int encver, int when) {
     if (!sp) {
       return REDISMODULE_ERR;
     }
-    prepareGeoIndexes(sp);
     dictAdd(RSIndexes_g, sp->name, sp);
     if (!(sp->flags & Index_UseRules)) {
       sp->legacy = createLegacyInfo(sp);
