@@ -1,8 +1,13 @@
 #!/bin/sh
+set -e
 set -x
 git submodule update --init --recursive
 ./srcutil/get_gtest.sh
 python ./src/pytest/test_rdb_compatibility.py
+
+if [ -e '/etc/redhat-release' ]; then
+    yum remove python-setuptools || true
+fi
 
 pip install wheel
 pip install setuptools --upgrade
