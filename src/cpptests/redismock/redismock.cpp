@@ -657,6 +657,17 @@ static int RMCK_SubscribeToKeyspaceEvents(RedisModuleCtx *, int types,
   return REDISMODULE_OK;
 }
 
+static std::vector<RedisModuleEventCallback> flushCallbacks;
+
+static int RMCK_SubscribeToServerEvent(RedisModuleCtx *ctx, RedisModuleEvent event,
+                                       RedisModuleEventCallback callback) {
+  // Make sure we do flush?
+  if (event.id == REDISMODULE_EVENT_FLUSHDB) {
+    flushCallbacks.push_back(callback);
+  }
+  return REDISMODULE_OK;
+}
+
 /** Misc */
 RedisModuleCtx::~RedisModuleCtx() {
   if (automemory) {
@@ -762,6 +773,7 @@ static void registerApis() {
   REGISTER_API(GetSharedAPI);
 
   REGISTER_API(SubscribeToKeyspaceEvents);
+  REGISTER_API(SubscribeToServerEvent);
 }
 
 static int RMCK_GetApi(const char *s, void *pp) {
@@ -784,7 +796,13 @@ void RMCK_Shutdown(void) {
   for (auto db : KVDB::dbs) {
     delete db;
   }
+  for (auto cb : flushCallbacks) {
+    cb(NULL, RedisModuleEvent_FlushDB, REDISMODULE_SUBEVENT_FLUSHDB_START, NULL);
+  }
   KVDB::dbs.clear();
+  for (auto cb : flushCallbacks) {
+    cb(NULL, RedisModuleEvent_FlushDB, REDISMODULE_SUBEVENT_FLUSHDB_END, NULL);
+  }
 
   for (auto c : Command::commands) {
     delete c.second;

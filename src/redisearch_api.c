@@ -235,7 +235,7 @@ QueryNode* RediSearch_CreateNumericNode(IndexSpec* sp, const char* field, double
                                         int includeMax, int includeMin) {
   QueryNode* ret = NewQueryNode(QN_NUMERIC);
   ret->nn.nf = NewNumericFilter(min, max, includeMin, includeMax);
-  ret->nn.fieldName = rm_strdup(field);
+  ret->nn.nf->fieldName = rm_strdup(field);
   ret->opts.fieldMask = IndexSpec_GetFieldBit(sp, field, strlen(field));
   return ret;
 }

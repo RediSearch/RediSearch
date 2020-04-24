@@ -85,7 +85,6 @@ typedef struct {
 
 /* A node with a numeric filter */
 typedef struct {
-  const char *fieldName;
   struct NumericFilter *nf;
 } QueryNumericNode;
 
