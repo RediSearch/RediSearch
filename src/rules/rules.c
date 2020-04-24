@@ -287,6 +287,7 @@ void SchemaRules_RegisterIndex(IndexSpec *sp) {
     rindexes_g = array_new(IndexSpec *, 1);
   }
   rindexes_g = array_append(rindexes_g, sp);
+  IndexSpec_Incref(sp);
 }
 
 void SchemaRules_UnregisterIndex(IndexSpec *sp) {
@@ -313,6 +314,7 @@ void SchemaRules_UnregisterIndex(IndexSpec *sp) {
       SchemaRule_Free(r);
     }
   }
+  IndexSpec_Decref(sp);
 }
 
 IndexSpec **SchemaRules_GetRegisteredIndexes(size_t *n) {
@@ -455,7 +457,6 @@ static int rulesAuxLoad(RedisModuleIO *rdb, int encver, int when) {
   SchemaRules *rules = SchemaRules_g;
   rules->revision = RedisModule_LoadUnsigned(rdb);
   size_t nrules = RedisModule_LoadUnsigned(rdb);
-  printf("Loading %u rules\n", nrules);
   for (size_t ii = 0; ii < nrules; ++ii) {
     size_t ns;
     RedisModuleString *index = RedisModule_LoadString(rdb);

@@ -112,6 +112,15 @@ static void freeCallback(RSAddDocumentCtx *ctx, void *unused) {
 }
 
 static void indexBatch(AsyncIndexQueue *aiq, SpecDocQueue *dq, int lockGil) {
+#define MAYBE_LOCK_GIL()                               \
+  if (lockGil) {                                       \
+    RedisModule_ThreadSafeContextLock(RSDummyContext); \
+  }
+#define MAYBE_UNLOCK_GIL()                               \
+  if (lockGil) {                                         \
+    RedisModule_ThreadSafeContextUnlock(RSDummyContext); \
+  }
+
   Indexer idxr = {0};
   IndexSpec *sp = dq->spec;
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(RSDummyContext, dq->spec);
@@ -122,13 +131,9 @@ static void indexBatch(AsyncIndexQueue *aiq, SpecDocQueue *dq, int lockGil) {
     RuleIndexableDocument *rid = e->v.val;
     QueryError err = {0};
     RuleKeyItem rki = {.kstr = rid->kstr};
-    if (lockGil) {
-      RedisModule_ThreadSafeContextLock(RSDummyContext);
-    }
+    MAYBE_LOCK_GIL()
     RSAddDocumentCtx *aCtx = SchemaRules_InitACTX(RSDummyContext, sp, &rki, &rid->iia, &err);
-    if (lockGil) {
-      RedisModule_ThreadSafeContextUnlock(RSDummyContext);
-    }
+    MAYBE_UNLOCK_GIL()
 
     if (!aCtx) {
       RedisModule_Log(RSDummyContext, "warning", "Could not index %s (%s)",
@@ -150,9 +155,8 @@ static void indexBatch(AsyncIndexQueue *aiq, SpecDocQueue *dq, int lockGil) {
     ridFree(rid);
   }
   dictReleaseIterator(iter);
-  if (lockGil) {
-    RedisModule_ThreadSafeContextLock(RSDummyContext);
-  }
+
+  MAYBE_LOCK_GIL()
 
   if (!IDX_IsAlive(sp)) {
     Indexer_Iterate(&idxr, freeCallback, NULL);
@@ -163,9 +167,7 @@ static void indexBatch(AsyncIndexQueue *aiq, SpecDocQueue *dq, int lockGil) {
   }
 
   Indexer_Destroy(&idxr);
-  if (lockGil) {
-    RedisModule_ThreadSafeContextUnlock(RSDummyContext);
-  }
+  MAYBE_UNLOCK_GIL()
 
   // now that we're done, lock the dq and see if we need to place it back into
   // pending again:
@@ -173,14 +175,21 @@ static void indexBatch(AsyncIndexQueue *aiq, SpecDocQueue *dq, int lockGil) {
   dq->state &= ~SDQ_S_PROCESSING;
   aiq->nactive -= dictSize(dq->active);
   dictEmpty(dq->active, NULL);
+  int shouldDecref = 0;
 
   if (dictSize(dq->entries)) {
     dq->state = SDQ_S_PENDING;
     aiq->pending = array_append(aiq->pending, dq);
   } else {
-    IndexSpec_Decref(dq->spec);
+    shouldDecref = 1;
   }
   pthread_mutex_unlock(&aiq->lock);
+
+  if (shouldDecref) {
+    MAYBE_LOCK_GIL()
+    IndexSpec_Decref(dq->spec);
+    MAYBE_UNLOCK_GIL()
+  }
 }
 
 static int sortPending(const void *a, const void *b) {

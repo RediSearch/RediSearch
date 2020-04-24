@@ -20,6 +20,7 @@
 
 void (*IndexSpec_OnCreate)(const IndexSpec *) = NULL;
 const char *(*IndexAlias_GetUserTableName)(RedisModuleCtx *, const char *) = NULL;
+static void freeLegacyParams(IndexSpec *sp);
 
 static uint64_t spec_unique_ids = 1;
 
@@ -718,6 +719,8 @@ void IndexSpec_FreeWithKey(IndexSpec *sp, RedisModuleCtx *ctx) {
 }
 
 static void IndexSpec_Unregister(IndexSpec *spec) {
+  freeLegacyParams(spec);
+
   if (spec->flags & Index_UseRules) {
     SchemaRules_UnregisterIndex(spec);
   }
@@ -1327,6 +1330,17 @@ static SpecLegacyInfo *createLegacyInfo(IndexSpec *parent) {
   return sli;
 }
 
+static void freeLegacyParams(IndexSpec *sp) {
+  if (!sp->legacy) {
+    return;
+  }
+  SpecLegacyInfo *sli = sp->legacy;
+  SchemaRules_RemoveCustomRule(sli->rule);
+  DocTable_Free(&sli->docs);
+  rm_free(sli);
+  sp->legacy = NULL;
+}
+
 static int specAuxLoad(RedisModuleIO *rdb, int encver, int when) {
   if (when == REDISMODULE_AUX_BEFORE_RDB) {
     return REDISMODULE_OK;
@@ -1356,14 +1370,7 @@ void Indexes_OnInitScanDone(void) {
     if (sp->flags & Index_UseRules) {
       continue;
     }
-    SpecLegacyInfo *sli = sp->legacy;
-    if (!sli) {
-      continue;
-    }
-    SchemaRules_RemoveCustomRule(sli->rule);
-    DocTable_Free(&sli->docs);
-    rm_free(sli);
-    sp->legacy = NULL;
+    freeLegacyParams(sp);
   }
   dictReleaseIterator(it);
 }
