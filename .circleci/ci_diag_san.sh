@@ -41,6 +41,7 @@ cat >rltest.config <<EOF
 EOF
 
 export ASAN_OPTIONS=detect_odr_violation=0
+export RS_GLOBAL_DTORS=1
 
 # FIXME: Need to change the image once this actually works..
 ln -s /usr/bin/llvm-symbolizer-4.0 /usr/bin/llvm-symbolizer || true
