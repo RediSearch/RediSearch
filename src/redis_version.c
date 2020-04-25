@@ -3,14 +3,14 @@
 #include <assert.h>
 #include <string.h>
 
-int redisMajorVersion;
-int redisMinorVersion;
-int redisPatchVersion;
+int redisMajorVersion = -1;
+int redisMinorVersion = -1;
+int redisPatchVersion = -1;
 
-int rlecMajorVersion;
-int rlecMinorVersion;
-int rlecPatchVersion;
-int rlecBuild;
+int rlecMajorVersion = -1;
+int rlecMinorVersion = -1;
+int rlecPatchVersion = -1;
+int rlecBuild = -1;
 
 void getRedisVersion() {
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
@@ -24,10 +24,6 @@ void getRedisVersion() {
 
   assert(n == 3);
 
-  rlecMajorVersion = -1;
-  rlecMinorVersion = -1;
-  rlecPatchVersion = -1;
-  rlecBuild = -1;
   char *enterpriseStr = strstr(replyStr, "rlec_version:");
   if (enterpriseStr) {
     n = sscanf(enterpriseStr, "rlec_version:%d.%d.%d-%d", &rlecMajorVersion, &rlecMinorVersion,

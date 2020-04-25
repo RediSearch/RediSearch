@@ -554,13 +554,7 @@ void RMCK_ThreadSafeContextUnlock(RedisModuleCtx *) {
   RMCK_GlobalLock.unlock();
 }
 
-RedisModuleCallReply *RMCK_Call(RedisModuleCtx *ctx, const char *cmd, const char *fmt, ...) {
-  // We only support HGETALL for now
-  if (strcasecmp(cmd, "HGETALL") != 0) {
-    return NULL;
-  }
-  va_list ap;
-  va_start(ap, fmt);
+static RedisModuleCallReply *doHgetallCommand(RedisModuleCtx *ctx, va_list &ap, const char *fmt) {
   const char *id = NULL;
   if (*fmt == 'c') {
     id = va_arg(ap, const char *);
@@ -568,7 +562,6 @@ RedisModuleCallReply *RMCK_Call(RedisModuleCtx *ctx, const char *cmd, const char
     RedisModuleString *rid = va_arg(ap, RedisModuleString *);
     id = rid->c_str();
   }
-  va_end(ap);
   if (!id) {
     return NULL;
   }
@@ -588,6 +581,39 @@ RedisModuleCallReply *RMCK_Call(RedisModuleCtx *ctx, const char *cmd, const char
     r->arr.push_back(RedisModuleCallReply(ctx, it.second));
   }
   return r;
+}
+
+static RedisModuleCallReply *doInfoCommand(RedisModuleCtx *ctx, const char *section) {
+  std::string reply("");
+  if (section) {
+    if (!strcasecmp(section, "server")) {
+      reply += "# Server\nredis_version:6.0.0";
+    }
+  }
+  return new RedisModuleCallReply(ctx, reply);
+}
+
+RedisModuleCallReply *RMCK_Call(RedisModuleCtx *ctx, const char *cmd, const char *fmt, ...) {
+  // We only support HGETALL for now
+  va_list ap;
+  va_start(ap, fmt);
+  RedisModuleCallReply *ret = NULL;
+
+  if (strcasecmp(cmd, "HGETALL") == 0) {
+    ret = doHgetallCommand(ctx, ap, fmt);
+  } else if (strcasecmp(cmd, "INFO") == 0) {
+    const char *subcmd = NULL;
+    if (fmt && *fmt) {
+      if (*fmt == 'c') {
+        subcmd = va_arg(ap, const char *);
+      } else if (*fmt == 's') {
+        subcmd = RedisModule_StringPtrLen(va_arg(ap, RedisModuleString *), NULL);
+      }
+    }
+    ret = doInfoCommand(ctx, subcmd);
+  }
+  va_end(ap);
+  return ret;
 }
 
 int RMCK_CallReplyType(RedisModuleCallReply *r) {
