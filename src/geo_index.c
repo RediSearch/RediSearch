@@ -88,17 +88,11 @@ void GeoFilter_Free(GeoFilter *gf) {
   rm_free(gf);
 }
 
-typedef enum {
-  GEO_DIR_N = 0,
-  // ....
-  GEO_DIR_MAX
-} GeoDirection;
-
 typedef struct {
   IndexIterator base;
   t_docId lastId;
   const GeoFilter *gf;
-  NumericFilter *filters;
+  NumericFilter **filters;
   IndexIterator *wrapped;  // Union iterator
 } GeoIterator;
 
@@ -106,30 +100,72 @@ typedef struct {
  * Generates a geo hash from a given latitude and longtitude
  */
 static double calcGeoHash(double lon, double lat) {
-  // @ariel: todo
-  return 666;
+  double res;
+  int rv = encodeGeo(lon, lat, &res);
+  if (rv == 0) {
+    return -1;
+  }
+  return res;
 }
+
+/**
+ * Convert different units to meters
+ */
+static double extractUnitFactor(GeoDistance unit) {
+  double rv;
+  switch (unit) {
+    case GEO_DISTANCE_M:
+      rv = 1;
+      break;
+    case GEO_DISTANCE_KM:
+      rv = 1000;
+      break;
+    case GEO_DISTANCE_FT:
+      rv = 0.3048;
+      break;
+    case GEO_DISTANCE_MI:
+      rv = 1609.34;
+      break;  
+    default:
+      rv = -1;
+      assert(0);
+      break;
+  }
+  return rv;
+}
+
 
 /**
  * Populates the numeric range to search for within a given square direction
  * specified by `dir`
  */
-static void populateRange(const GeoFilter *gf, GeoDirection dir, NumericFilter *nf) {
-  // @ariel: todo
+static int populateRange(const GeoFilter *gf, GeoHashRange *ranges) {
+  double xy[2] = {gf->lon, gf->lat};
+
+  double radius_meters = gf->radius * extractUnitFactor(gf->unitType);
+  if (radius_meters < 0) {
+    return -1;
+  }
+  calcRanges(gf->lon, gf->lat, radius_meters, ranges);
+  return 0;
 }
 
 /**
  * Checks if the given coordinate d is within the radius gf
  */
-static int isWithinRadius(const GeoFilter *gf, double d) {
-  // @ariel: todo
-  return 0;
+static int isWithinRadius(const GeoFilter *gf, double d, double *distance) {
+  double xy[2];
+  decodeGeo(d, xy);
+  int rv = isWithinRadiusLonLat(gf->lon, gf->lat, xy[0], xy[1], gf->radius, distance);
+  return rv;
 }
 
 static int checkResult(const GeoFilter *gf, const RSIndexResult *cur) {
   for (size_t ii = 0; ii < cur->agg.numChildren; ++ii) {
     const RSIndexResult *res = cur->agg.children[ii];
-    if (isWithinRadius(gf, res->num.value)) {
+    double distance;
+    if (isWithinRadius(gf, res->num.value, &distance)) {
+      // TODO: use distance to sort
       return 1;
     }
   }
@@ -224,19 +260,27 @@ static void GI_Free(IndexIterator *ctx) {
 
 IndexIterator *NewGeoRangeIterator(GeoIndex *idx, IndexSpec *sp, const GeoFilter *gf, double weight,
                                    Yielder *yld) {
+  GeoHashRange ranges[GEO_RANGE_COUNT] = {0};
+  populateRange(gf, ranges);
+
+  int numericFilterCount = 0;
   GeoIterator *gi = rm_calloc(1, sizeof(*gi));
-  IndexIterator **subiters = rm_calloc(GEO_DIR_MAX, sizeof(*subiters));
-  gi->filters = rm_calloc(GEO_DIR_MAX, sizeof(*gi->filters));
-  for (size_t ii = 0; ii < GEO_DIR_MAX; ++ii) {
-    NumericFilter nf = {0};
-    populateRange(gf, ii, gi->filters + ii);
-    subiters[ii] = NumericTree_GetIterator(idx->rt, sp, gi->filters + ii, yld);
-    if (!subiters[ii]) {
-      subiters[ii] = NewEmptyIterator();
+  IndexIterator **subiters = rm_calloc(GEO_RANGE_COUNT, sizeof(*subiters));
+  gi->filters = rm_calloc(GEO_RANGE_COUNT, sizeof(*gi->filters));
+  for (size_t ii = 0; ii < GEO_RANGE_COUNT; ++ii) {
+    if (ranges[ii].min != ranges[ii].max) {
+      gi->filters[numericFilterCount] = 
+          NewNumericFilter(ranges[ii].min, ranges[ii].max, 1, 1);
+      subiters[numericFilterCount] = 
+          NumericTree_GetIterator(idx->rt, sp, gi->filters[numericFilterCount], yld);
+      if (!subiters[numericFilterCount]) {
+        subiters[numericFilterCount] = NewEmptyIterator();
+      }
+      numericFilterCount++;
     }
   }
 
-  gi->wrapped = NewUnionIterator(subiters, GEO_DIR_MAX, &sp->docs, 0, weight);
+  gi->wrapped = NewUnionIterator(subiters, numericFilterCount, &sp->docs, 0, weight);
   IndexIterator *ret = &gi->base;
   ret->ctx = gi;
   ret->LastDocId = GI_LastDocId;

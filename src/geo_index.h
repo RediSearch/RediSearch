@@ -8,6 +8,7 @@
 #include "search_ctx.h"
 #include "query_error.h"
 #include "numeric_index.h"
+#include "../deps/geo/rs_geo.h"
 
 typedef struct GeoIndex {
   NumericRangeTree *rt;
