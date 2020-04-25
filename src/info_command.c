@@ -54,7 +54,6 @@ int ListIndexesCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
  *  Provide info and stats about an index
  */
 int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  RedisModule_AutoMemory(ctx);
   ArgsCursor ac = {0};
   if (argc != 2) {
     return RedisModule_WrongArity(ctx);

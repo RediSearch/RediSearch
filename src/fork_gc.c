@@ -1018,8 +1018,6 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
 
   int gcrv = 1;
 
-  RedisModule_AutoMemory(ctx);
-
   pid_t cpid;
   TimeSample ts;
 
