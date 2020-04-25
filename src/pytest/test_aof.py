@@ -10,6 +10,7 @@ def aofTestCommon(env, reloadfn):
         env.cmd('ft.create', 'idx', 'schema',
                 'field1', 'text', 'field2', 'numeric', 'sortable')
         reloadfn()
+        utils.wait_sync(env)
         for x in range(1, 10):
             env.assertCmdOk('ft.add', 'idx', 'doc{}'.format(x), 1.0 / x, 'fields',
                             'field1', 'myText{}'.format(x), 'field2', 20*x)
