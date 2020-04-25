@@ -908,7 +908,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   } else {
   }
 
-  if (redisMajorVersion < 6) {
+  if (redisMajorVersion < 6 && !(redisMajorVersion == 5 && redisMinorVersion == 9)) {
     RedisModule_Log(ctx, "notice", "Redis version is not supported, please use redis 6 or above");
     return REDISMODULE_ERR;
   }
