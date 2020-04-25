@@ -8,6 +8,39 @@
 
 static void *aiThreadInit(void *privdata);
 
+static void ridFree(RuleIndexableDocument *rid);
+
+SpecDocQueue *SpecDocQueue_Create(IndexSpec *spec) {
+  SpecDocQueue *q = rm_calloc(1, sizeof(*q));
+  spec->queue = q;
+  q->spec = spec;
+  q->entries = dictCreate(&dictTypeHeapRedisStrings, NULL);
+  pthread_mutex_init(&q->lock, NULL);
+  return q;
+}
+
+static void cleanQueueDict(dict *d) {
+  dictIterator *it = dictGetIterator(d);
+  dictEntry *e;
+  while ((e = dictNext(it)) != NULL) {
+    ridFree(e->v.val);
+  }
+  dictReleaseIterator(it);
+}
+
+void SpecDocQueue_Free(SpecDocQueue *q) {
+  if (q->entries) {
+    cleanQueueDict(q->entries);
+    dictRelease(q->entries);
+  }
+  if (q->active) {
+    cleanQueueDict(q->active);
+    dictRelease(q->active);
+  }
+  q->spec->queue = NULL;
+  rm_free(q);
+}
+
 AsyncIndexQueue *AIQ_Create(size_t interval, size_t batchSize) {
   AsyncIndexQueue *q = rm_calloc(1, sizeof(*q));
 
@@ -27,6 +60,9 @@ void AIQ_Destroy(AsyncIndexQueue *aq) {
   pthread_join(aq->aiThread, NULL);
   pthread_mutex_destroy(&aq->lock);
   pthread_cond_destroy(&aq->cond);
+  for (size_t ii = 0; ii < array_len(aq->pending); ++ii) {
+    IndexSpec_Decref(aq->pending[ii]->spec);
+  }
   array_free(aq->pending);
   rm_free(aq);
 }
@@ -46,6 +82,7 @@ static void freeFieldnames(IndexItemAttrs *iia) {
 static void ridFree(RuleIndexableDocument *rid) {
   freeFieldnames(&rid->iia);
   RM_XFreeString(rid->iia.payload);
+  RM_XFreeString(rid->kstr);
   rm_free(rid);
 }
 
@@ -72,9 +109,6 @@ void AIQ_Submit(AsyncIndexQueue *aq, IndexSpec *spec, MatchAction *result, RuleK
   RedisModule_RetainString(RSDummyContext, rid->kstr);
   SpecDocQueue *dq = spec->queue;
   assert(dq);
-  if (!dq) {
-    dq = SpecDocQueue_Create(spec);
-  }
 
   pthread_mutex_lock(&aq->lock);
   int rv = dictAdd(dq->entries, rid->kstr, rid);
@@ -127,12 +161,27 @@ static void indexBatch(AsyncIndexQueue *aiq, SpecDocQueue *dq, int lockGil) {
   Indexer_Init(&idxr, &sctx);
   dictIterator *iter = dictGetIterator(dq->active);
   dictEntry *e = NULL;
+  int isIdxDead = 0;
 
-  while ((e = dictNext(iter)) && IDX_IsAlive(sp)) {
+  while ((e = dictNext(iter))) {
     RuleIndexableDocument *rid = e->v.val;
     QueryError err = {0};
     RuleKeyItem rki = {.kstr = rid->kstr};
     MAYBE_LOCK_GIL()
+
+    /**
+     * It's possible that the index was freed in between iterations. If this
+     * happens, we need to continue iterating and freeing all the items in
+     * the queue
+     */
+    if (!isIdxDead && !IDX_IsAlive(sp)) {
+      isIdxDead = 1;
+    }
+    if (isIdxDead) {
+      ridFree(rid);
+      MAYBE_UNLOCK_GIL()
+      continue;
+    }
     RSAddDocumentCtx *aCtx = SchemaRules_InitACTX(RSDummyContext, sp, &rki, &rid->iia, &err);
     MAYBE_UNLOCK_GIL()
 
@@ -149,17 +198,18 @@ static void indexBatch(AsyncIndexQueue *aiq, SpecDocQueue *dq, int lockGil) {
     }
 
   next_item:
-    RedisModule_FreeString(NULL, rid->kstr);
     if (rki.kobj) {
       RedisModule_CloseKey(rki.kobj);
     }
     ridFree(rid);
   }
   dictReleaseIterator(iter);
+  int shouldDecref = 0;
 
   MAYBE_LOCK_GIL()
 
   if (!IDX_IsAlive(sp)) {
+    shouldDecref = 1;
     Indexer_Iterate(&idxr, freeCallback, NULL);
   } else {
     pthread_rwlock_wrlock(&sp->idxlock);
@@ -176,9 +226,8 @@ static void indexBatch(AsyncIndexQueue *aiq, SpecDocQueue *dq, int lockGil) {
   dq->state &= ~SDQ_S_PROCESSING;
   aiq->nactive -= dictSize(dq->active);
   dictEmpty(dq->active, NULL);
-  int shouldDecref = 0;
 
-  if (dictSize(dq->entries)) {
+  if (dictSize(dq->entries) && !shouldDecref) {
     dq->state = SDQ_S_PENDING;
     aiq->pending = array_append(aiq->pending, dq);
   } else {
@@ -298,7 +347,7 @@ ssize_t SchemaRules_GetPendingCount(const IndexSpec *spec) {
     ret += dictSize(dq->entries);
   }
 
-  if (ret == 0 && dq->state != SDQ_S_IDLE) {
+  if (ret == 0 && dq->state & (SDQ_S_PENDING | SDQ_S_PROCESSING)) {
     // Still pending, somehow
     ret = 1;
   }

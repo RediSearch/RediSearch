@@ -160,7 +160,6 @@ struct DocumentIndexer;
 struct IndexQueue;
 struct IoQueue;
 
-#define SDQ_S_IDLE 0x01
 #define SDQ_S_PENDING 0x02
 #define SDQ_S_PROCESSING 0x04
 

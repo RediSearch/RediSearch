@@ -957,28 +957,6 @@ int IDX_YieldRead(IndexSpec *sp) {
   return 1;
 }
 
-SpecDocQueue *SpecDocQueue_Create(IndexSpec *spec) {
-  SpecDocQueue *q = rm_calloc(1, sizeof(*q));
-  spec->queue = q;
-  q->spec = spec;
-  q->entries = dictCreate(&dictTypeHeapRedisStrings, NULL);
-  pthread_mutex_init(&q->lock, NULL);
-  return q;
-}
-
-void SpecDocQueue_Free(SpecDocQueue *q) {
-  assert(q->active == NULL || dictSize(q->active) == 0);
-  assert(q->entries == NULL || dictSize(q->entries) == 0);
-  if (q->entries) {
-    dictRelease(q->entries);
-  }
-  if (q->active) {
-    dictRelease(q->active);
-  }
-  q->spec->queue = NULL;
-  rm_free(q);
-}
-
 IndexSpec *IDX_CreateEmpty(void) {
   IndexSpec *sp = rm_calloc(1, sizeof(*sp));
   sp->docs = DocTable_New(100);
