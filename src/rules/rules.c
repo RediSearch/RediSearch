@@ -16,7 +16,6 @@ static IndexSpec **rindexes_g = NULL;
 
 SchemaRules *SchemaRules_g = NULL;
 AsyncIndexQueue *asyncQueue_g = NULL;
-static SchemaIndexMode userMode_g = SCRULES_MODE_DEFAULT;
 int SchemaRules_InitialScanStatus_g = 0;
 
 SchemaRules *SchemaRules_Create(void) {
@@ -153,9 +152,6 @@ static int isAsync(IndexSpec *sp, int flags) {
     return 0;
   }
 
-  if (userMode_g != SCRULES_MODE_DEFAULT) {
-    return userMode_g == SCRULES_MODE_SYNC ? 0 : 1;
-  }
   if ((flags & RULES_PROCESS_F_ASYNC) || (sp->flags & Index_Async)) {
     return 1;
   }
@@ -532,4 +528,8 @@ void SchemaRules_ReplyForIndex(RedisModuleCtx *ctx, IndexSpec *sp) {
     ++n;
   }
   RedisModule_ReplySetArrayLength(ctx, n);
+}
+
+size_t SchemaRules_IncrRevision(void) {
+  return ++SchemaRules_g->revision;
 }

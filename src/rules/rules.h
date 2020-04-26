@@ -41,6 +41,8 @@ int SchemaRules_AddArgsInternal(SchemaRules *rules, IndexSpec *spec, const char 
                                 ArgsCursor *ac, QueryError *err);
 int SchemaRules_SetArgs(ArgsCursor *ac, QueryError *err);
 
+size_t SchemaRules_IncrRevision(void);
+
 typedef enum {
   SCATTR_TYPE_LANGUAGE = 0x01,
   SCATTR_TYPE_SCORE = 0x02,
@@ -72,12 +74,6 @@ typedef struct {
   RedisModuleKey *kobj;  // Necessary? We are appending to the currect idx.
 } RuleKeyItem;
 
-typedef enum {
-  AIQ_S_IDLE = 0x00,  // nl
-  AIQ_S_PROCESSING = 0x01,
-  AIQ_S_CANCELLED = 0x02
-} AIQState;
-
 typedef struct {
   SpecDocQueue **pending;  // List of indexes with documents to be indexed
   size_t interval;         // interval in milliseconds. sleep time when queue is empty
@@ -86,7 +82,7 @@ typedef struct {
   pthread_t aiThread;
   pthread_mutex_t lock;
   pthread_cond_t cond;
-  volatile AIQState state;
+  int isCancelled;
   int nolock;
 } AsyncIndexQueue;
 
@@ -149,16 +145,6 @@ void SchemaRules_UnregisterIndex(IndexSpec *);
 IndexSpec **SchemaRules_GetRegisteredIndexes(size_t *n);
 void SchemaRules_Pause(void);
 void SchemaRules_Resume(void);
-
-typedef enum {
-  SCRULES_MODE_DEFAULT = 0,  // lb
-  SCRULES_MODE_SYNC,
-  SCRULES_MODE_ASYNC
-} SchemaIndexMode;
-
-/** Change the desired mode; used for testing */
-void SchemaRules_SetMode(SchemaIndexMode mode);
-SchemaIndexMode SchemaRules_GetMode(void);
 
 ssize_t SchemaRules_GetPendingCount(const IndexSpec *spec);
 

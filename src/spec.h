@@ -181,7 +181,8 @@ typedef enum {
   IDX_S_DELETED = 0x02, // Index has been deleted via IndexSpec_Free
   IDX_S_REGISTERED = 0x04, // Index is still being created
   IDX_S_LIBORIGIN = 0x08, // Index created using C API
-  IDX_S_EXPIRED = 0x10
+  IDX_S_EXPIRED = 0x10,
+  IDX_S_SCANNING = 0x20 // Index/reindex operation in progress
 } IndexState;
 
 struct SpecLegacyInfo;
@@ -223,6 +224,20 @@ struct IndexSpec {
   char **aliases; // Aliases to self-remove when the index is deleted
   SpecDocQueue *queue;
   struct SpecLegacyInfo *legacy;
+
+  /**
+   * The version of the rules we expect to be in sync with. This is set whenever
+   * a rule is added which affects the index. The global rules revision counter
+   * is incremented and this variable is set to that variable. Additionally,
+   * the index's state is set to IDX_S_INDEXING.
+   * 
+   * When the scan is complete, we get the callback (Indexes_OnScanDone), which
+   * is called with the rules revision number which was processed. When this
+   * happens, if the revision number is greater or equal to the minimum rules
+   * version; the IDX_S_INDEXING flag is unset.
+  */
+  uint64_t minRulesVersion;
+
   // Lock for the index data, e.g. doc table, inverted indexes, etc.
   pthread_rwlock_t idxlock;
   IndexState state;
@@ -436,8 +451,7 @@ t_fieldMask IndexSpec_ParseFieldMask(IndexSpec *sp, RedisModuleString **argv, in
 
 void IndexSpec_InitializeSynonym(IndexSpec *sp);
 
-void Indexes_OnInitScanDone(void);
-void Indexes_OnReindexDone(void);
+void Indexes_OnScanDone(uint64_t revision);
 void Indexes_Init(RedisModuleCtx *ctx);
 
 // List of all indexes

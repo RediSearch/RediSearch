@@ -472,6 +472,8 @@ static int applyRuleSettings(IndexSpec *spec, ruleSettings *settings, QueryError
   array_free(ruleargs);
   ruleargs = NULL;
   if (rc == REDISMODULE_OK) {
+    spec->minRulesVersion = SchemaRules_IncrRevision();
+    spec->state |= IDX_S_SCANNING;
     SchemaRules_StartScan(0);
   }
   return rc;
@@ -1340,21 +1342,17 @@ static int specAuxLoad(RedisModuleIO *rdb, int encver, int when) {
   return SchemaRules_Load(rdb, encver, when);
 }
 
-void Indexes_OnInitScanDone(void) {
+void Indexes_OnScanDone(uint64_t revision) {
   dictIterator *it = dictGetIterator(RSIndexes_g);
   dictEntry *e;
   while ((e = dictNext(it))) {
     IndexSpec *sp = e->v.val;
-    if (sp->flags & Index_UseRules) {
-      continue;
+    if (revision >= sp->minRulesVersion) {
+      sp->state &= ~IDX_S_SCANNING;
     }
     freeLegacyParams(sp);
   }
   dictReleaseIterator(it);
-}
-
-void Indexes_OnReindexDone(void) {
-  // ....
 }
 
 int IndexSpec_RegisterType(RedisModuleCtx *ctx) {

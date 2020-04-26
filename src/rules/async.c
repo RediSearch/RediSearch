@@ -55,7 +55,7 @@ AsyncIndexQueue *AIQ_Create(size_t interval, size_t batchSize) {
 }
 
 void AIQ_Destroy(AsyncIndexQueue *aq) {
-  aq->state = AIQ_S_CANCELLED;
+  aq->isCancelled = 1;
   pthread_cond_signal(&aq->cond);
   pthread_join(aq->aiThread, NULL);
   pthread_mutex_destroy(&aq->lock);
@@ -268,7 +268,7 @@ static void *aiThreadInit(void *privdata) {
      * Wait until the specified interval expires, OR when we are signalled with
      * a given amount of items.
      */
-    if (q->state == AIQ_S_CANCELLED) {
+    if (q->isCancelled) {
       break;
     }
     pthread_mutex_lock(&q->lock);
@@ -283,7 +283,7 @@ static void *aiThreadInit(void *privdata) {
       int rv = pthread_cond_timedwait(&q->cond, &q->lock, &ts);
       assert(rv != EINVAL);
 
-      if (q->state == AIQ_S_CANCELLED) {
+      if (q->isCancelled) {
         pthread_mutex_unlock(&q->lock);
         goto exit_thread;
       }
@@ -349,6 +349,9 @@ ssize_t SchemaRules_GetPendingCount(const IndexSpec *spec) {
 
   if (ret == 0 && dq->state & (SDQ_S_PENDING | SDQ_S_PROCESSING)) {
     // Still pending, somehow
+    ret = 1;
+  }
+  if (ret == 0 && (spec->state & IDX_S_SCANNING)) {
     ret = 1;
   }
 
