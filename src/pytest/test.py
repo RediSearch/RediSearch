@@ -912,7 +912,9 @@ def testGeoErrors(env):
     env.expect('ft.search idx hilton geofilter location -0.1757 51.5156 1 km').equal([0L])
 
     # Insert error
-    env.expect('ft.add', 'idx', 'hotel1', 1, 'fields', 'name', '_hotel1', 'location', '1, 1').error()   \
+    env.expect('ft.add', 'idx', 'hotel1', 1, 'fields', 'name', '_hotel1', 'location', '1, redis').error()   \
+            .contains('Could not index geo value')
+    env.expect('ft.add', 'idx', 'hotel1', 1, 'fields', 'name', '_hotel1', 'location', 'redis, 1').error()   \
             .contains('Could not index geo value')
 
     # Query errors
