@@ -74,8 +74,11 @@ static void calcAllNeighbors(GeoHashRadius n, double lon, double lat,
       continue;
     }
 
-    scoresOfGeoHashBox(neighbors[i], (GeoHashFix52Bits *)&ranges[i].min, 
-                                     (GeoHashFix52Bits *)&ranges[i].max);
+    GeoHashFix52Bits min, max;
+    scoresOfGeoHashBox(neighbors[i], &min, &max);
+    ranges[i].min = min;
+    ranges[i].max = max;
+    
     last_processed = i;
   }
 }

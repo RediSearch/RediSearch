@@ -2,7 +2,7 @@
 #define __RS_GEO_H__
 
 #include "geohash_helper.h"
-#include "../../src/geo_index.h"
+#include "geo_index.h"
 
 #define GEO_RANGE_COUNT 9
 

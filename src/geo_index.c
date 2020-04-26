@@ -103,7 +103,7 @@ static double calcGeoHash(double lon, double lat) {
   double res;
   int rv = encodeGeo(lon, lat, &res);
   if (rv == 0) {
-    return -1;
+    return INVALID_GEOHASH;
   }
   return res;
 }
