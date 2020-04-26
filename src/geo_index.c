@@ -161,9 +161,12 @@ static int isWithinRadius(const GeoFilter *gf, double d, double *distance) {
 }
 
 static int checkResult(const GeoFilter *gf, const RSIndexResult *cur) {
+  double distance;
+  if (cur->type == RSResultType_Numeric) {
+    return isWithinRadius(gf, cur->num.value, &distance);
+  }
   for (size_t ii = 0; ii < cur->agg.numChildren; ++ii) {
     const RSIndexResult *res = cur->agg.children[ii];
-    double distance;
     if (isWithinRadius(gf, res->num.value, &distance)) {
       // TODO: use distance to sort
       return 1;
@@ -265,6 +268,7 @@ IndexIterator *NewGeoRangeIterator(GeoIndex *idx, IndexSpec *sp, const GeoFilter
 
   int numericFilterCount = 0;
   GeoIterator *gi = rm_calloc(1, sizeof(*gi));
+  gi->gf = gf;
   IndexIterator **subiters = rm_calloc(GEO_RANGE_COUNT, sizeof(*subiters));
   gi->filters = rm_calloc(GEO_RANGE_COUNT, sizeof(*gi->filters));
   for (size_t ii = 0; ii < GEO_RANGE_COUNT; ++ii) {
