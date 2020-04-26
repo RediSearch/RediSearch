@@ -156,7 +156,8 @@ static int populateRange(const GeoFilter *gf, GeoHashRange *ranges) {
 static int isWithinRadius(const GeoFilter *gf, double d, double *distance) {
   double xy[2];
   decodeGeo(d, xy);
-  int rv = isWithinRadiusLonLat(gf->lon, gf->lat, xy[0], xy[1], gf->radius, distance);
+  double radius_meters = gf->radius * extractUnitFactor(gf->unitType);
+  int rv = isWithinRadiusLonLat(gf->lon, gf->lat, xy[0], xy[1], radius_meters, distance);
   return rv;
 }
 
