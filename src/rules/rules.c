@@ -495,13 +495,6 @@ static int rulesAuxLoad(RedisModuleIO *rdb, int encver, int when) {
 }
 
 int SchemaRules_RegisterType(RedisModuleCtx *ctx) {
-  // RedisModuleTypeMethods m = {
-  //     .version = REDISMODULE_TYPE_METHOD_VERSION,
-  //     .aux_load = rulesAuxLoad,
-  //     .aux_save = rulesAuxSave,
-  //     .aux_save_triggers = REDISMODULE_AUX_BEFORE_RDB | REDISMODULE_AUX_AFTER_RDB};
-  // RedisModuleType *t = RedisModule_CreateDataType(ctx, "ft_rules0", RULES_CURRENT_VERSION, &m);
-  // return t ? REDISMODULE_OK : REDISMODULE_ERR;
   return REDISMODULE_OK;
 }
 

@@ -113,8 +113,6 @@ extern int SchemaRules_InitialScanStatus_g;
 
 #define SchemaRules_IsLoading() (SchemaRules_InitialScanStatus_g == SC_INITSCAN_REQUIRED)
 
-void SchemaRules_ReplySyncInfo(RedisModuleCtx *ctx, IndexSpec *sp);
-
 RSAddDocumentCtx *SchemaRules_InitACTX(RedisModuleCtx *ctx, IndexSpec *sp, RuleKeyItem *item,
                                        const IndexItemAttrs *attrs, QueryError *e);
 int SchemaRules_IndexDocument(RedisModuleCtx *ctx, IndexSpec *sp, RuleKeyItem *item,

@@ -139,31 +139,3 @@ void SchemaRules_StartScan(int wait) {
     pthread_detach(thr);
   }
 }
-
-void SchemaRules_ReplySyncInfo(RedisModuleCtx *ctx, IndexSpec *sp) {
-  if (!(sp->flags & Index_UseRules)) {
-    RedisModule_ReplyWithError(
-        ctx, "This command can only be used on indexes created using `WITHRULES`");
-    return;
-  }
-
-  RedisModule_ReplyWithArray(ctx, 2);
-  if (scanner_g.state == SCAN_STATE_RUNNING) {
-    RedisModule_ReplyWithSimpleString(ctx, "SCANNING");
-    RedisModule_ReplyWithLongLong(ctx, LLONG_MAX);
-  } else if (scanner_g.state == SCAN_STATE_STOPPED || scanner_g.state == SCAN_STATE_UNINIT) {
-    ssize_t ret = SchemaRules_GetPendingCount(sp);
-    if (ret) {
-      RedisModule_ReplyWithSimpleString(ctx, "INDEXING");
-      RedisModule_ReplyWithLongLong(ctx, ret);
-    } else {
-      RedisModule_ReplyWithSimpleString(ctx, "SYNCED");
-      RedisModule_ReplyWithLongLong(ctx, 0);
-    }
-  } else if (scanner_g.state == SCAN_STATE_RESTART) {
-    RedisModule_ReplyWithSimpleString(ctx, "Restarting");
-    RedisModule_ReplyWithLongLong(ctx, LLONG_MAX);
-  } else {
-    abort();  // bad state
-  }
-}
