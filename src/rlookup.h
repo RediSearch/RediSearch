@@ -121,7 +121,10 @@ typedef struct {
    * How many values actually exist in dyn. Note that this
    * is not the length of the array!
    */
-  size_t ndyn;
+  uint32_t ndyn;
+
+  // User set the key via SetRedisKey
+  uint8_t externalKey;
 } RLookupRow;
 
 #define RLOOKUP_F_OEXCL 0x01   // Error if name exists already
@@ -249,23 +252,7 @@ void RLookup_WriteOwnKeyByName(RLookup *lookup, const char *name, RLookupRow *ro
  * @param row the row data which contains the value
  * @return the value if found, NULL otherwise.
  */
-static inline RSValue *RLookup_GetItem(const RLookupKey *key, const RLookupRow *row) {
-  RSValue *ret = NULL;
-  if (row->dyn && array_len(row->dyn) > key->dstidx) {
-    ret = row->dyn[key->dstidx];
-  }
-  if (!ret) {
-    if (key->flags & RLOOKUP_F_SVSRC) {
-      if (row->sv && row->sv->len > key->svidx) {
-        ret = row->sv->values[key->svidx];
-        if (ret != NULL && ret->t == RSValue_Null) {
-          ret = NULL;
-        }
-      }
-    }
-  }
-  return ret;
-}
+RSValue *RLookup_GetItem(const RLookupKey *key, const RLookupRow *row);
 
 /**
  * Wipes the row, retaining its memory but decrefing any included values.
@@ -281,6 +268,8 @@ void RLookupRow_Wipe(RLookupRow *row);
 void RLookupRow_Cleanup(RLookupRow *row);
 
 void RLookupRow_Dump(const RLookupRow *row);
+
+void RLookupRow_SetRedisKey(RLookupRow *row, RedisModuleKey *key);
 
 typedef enum {
   /* Use keylist (keys/nkeys) for the fields to list */

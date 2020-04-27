@@ -196,22 +196,22 @@ MATCHFUNC(matchExpression) {
   RLookupRow row = {0};
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, NULL);
   QueryError status = {0};
-  RLookupLoadOptions loadopts = {
-      .sctx = &sctx, .status = &status, .mode = RLOOKUP_LOAD_LKKEYS, .noSortables = 1};
-  if (item->kobj) {
-    loadopts.ktype = RLOOKUP_KEY_OBJ;
-    loadopts.key.kobj = item->kobj;
-  } else {
-    loadopts.ktype = RLOOKUP_KEY_RSTR;
-    loadopts.key.rstr = item->kstr;
+  if (!item->kobj) {
+    item->kobj = RedisModule_OpenKey(ctx, item->kstr, REDISMODULE_READ);
+    if (item->kobj == NULL) {
+      QueryError_SetCode(&status, QUERY_ENODOC);
+      goto done;
+    } else if (RedisModule_KeyType(item->kobj) != REDISMODULE_KEYTYPE_HASH) {
+      QueryError_SetCode(&status, QUERY_EREDISKEYTYPE);
+      goto done;
+    }
   }
+  RLookupRow_SetRedisKey(&row, item->kobj);
   RSValue rsv = RSVALUE_STATIC;
 
-  if (RLookup_LoadDocument(&e->lk, &row, &loadopts) != REDISMODULE_OK) {
-    // printf("Couldn't load document: %s\n", QueryError_GetError(&status));
-    goto done;
-  }
-
+  // TODO: Use a single RLookupRow for the entire match chain; this way expressions
+  // for different indexes which reference the same properties don't have to
+  // reload the document
   ExprEval eval = {
       .err = &status, .lookup = &e->lk, .srcrow = &row, .root = e->exprobj, .krstr = item->kstr};
   if (ExprEval_Eval(&eval, &rsv) != EXPR_EVAL_OK) {

@@ -4,6 +4,8 @@
 #include "rmutil/rm_assert.h"
 #include <util/arr.h>
 
+static RSValue *emptyValue = (void *)0xdeadbeef;
+
 static RLookupKey *createNewKey(RLookup *lookup, const char *name, size_t n, int flags,
                                 uint16_t idx) {
   RLookupKey *ret = rm_calloc(1, sizeof(*ret));
@@ -116,7 +118,7 @@ size_t RLookup_GetLength(const RLookup *lookup, const RLookupRow *r, int require
     if (excludeFlags && (kk->flags & excludeFlags)) {
       continue;
     }
-    const RSValue *v = RLookup_GetItem(kk, r);
+    const RSValue *v = RLookup_GetItem(kk, (RLookupRow *)r);
     if (!v) {
       continue;
     }
@@ -136,12 +138,14 @@ void RLookup_Init(RLookup *lk, IndexSpecCache *spcache) {
 void RLookup_WriteOwnKey(const RLookupKey *key, RLookupRow *row, RSValue *v) {
   // Find the pointer to write to ...
   RSValue **vptr = array_ensure_at(&row->dyn, key->dstidx, RSValue *);
-  if (*vptr) {
+  if (*vptr && *vptr != emptyValue) {
     RSValue_Decref(*vptr);
     row->ndyn--;
   }
   *vptr = v;
-  row->ndyn++;
+  if (v != emptyValue) {
+    row->ndyn++;
+  }
 }
 
 void RLookup_WriteKey(const RLookupKey *key, RLookupRow *row, RSValue *v) {
@@ -166,13 +170,15 @@ void RLookupRow_Wipe(RLookupRow *r) {
   for (size_t ii = 0; ii < array_len(r->dyn) && r->ndyn; ++ii) {
     RSValue **vpp = r->dyn + ii;
     if (*vpp) {
-      RSValue_Decref(*vpp);
+      if (*vpp != emptyValue) {
+        RSValue_Decref(*vpp);
+        r->ndyn--;
+      }
       *vpp = NULL;
-      r->ndyn--;
     }
   }
   r->sv = NULL;
-  if (r->rmkey) {
+  if (r->rmkey && !r->externalKey) {
     RedisModule_CloseKey(r->rmkey);
     r->rmkey = NULL;
   }
@@ -439,4 +445,35 @@ int RLookup_LoadDocument(RLookup *it, RLookupRow *dst, RLookupLoadOptions *optio
   } else {
     return loadIndividualKeys(it, dst, options);
   }
+}
+
+RSValue *RLookup_GetItem(const RLookupKey *key, const RLookupRow *row) {
+  RSValue *ret = NULL;
+  if (row->dyn && array_len(row->dyn) > key->dstidx) {
+    ret = row->dyn[key->dstidx];
+    if (ret) {
+      return ret == emptyValue ? NULL : ret;
+    }
+  }
+  if ((key->flags & RLOOKUP_F_SVSRC) && row->sv && row->sv->len > key->svidx) {
+    ret = row->sv->values[key->svidx];
+    if (ret != NULL && ret->t == RSValue_Null) {
+      ret = NULL;
+    }
+  }
+
+  if (row->rmkey && (key->flags & RLOOKUP_F_DOCSRC)) {
+    RLookupLoadOptions lopts = {.noSortables = 1};
+    getKeyCommon(key, row, &lopts, &row->rmkey);
+    if (!row->dyn[key->dstidx]) {
+      ((RLookupRow *)row)->dyn[key->dstidx] = emptyValue;
+    }
+    return RLookup_GetItem(key, row);
+  }
+  return ret;
+}
+
+void RLookupRow_SetRedisKey(RLookupRow *row, RedisModuleKey *key) {
+  row->rmkey = key;
+  row->externalKey = 1;
 }
