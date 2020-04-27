@@ -355,6 +355,7 @@ void CursorList_Destroy(CursorList *cl) {
     rm_free(sp);
   }
   rm_free(cl->specs);
+  Array_Free(&cl->idle);
   pthread_mutex_destroy(&cl->lock);
   memset(cl, 0, sizeof(*cl));
 }
