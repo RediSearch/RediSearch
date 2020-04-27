@@ -11,6 +11,10 @@ static int createHasfieldProp(RSExprMeta *meta, RSArgList *args, QueryError *err
   RSValue_ToString(&v, &args->args[0]->literal);
   size_t n;
   const char *s = RSValue_StringPtrLen(&v, &n);
+  if (*s == '@') {
+    s++;
+    n--;
+  }
   meta->u.hasfield = RedisModule_CreateString(RSDummyContext, s, n);
   RSValue_Clear(&v);
   return REDISMODULE_OK;
