@@ -24,15 +24,17 @@ TEST_F(RulesTest, testBasic) {
   SchemaPrefixRule *pr = (SchemaPrefixRule *)r;
   ASSERT_STREQ("user:", pr->prefix);
 
-  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
   MatchAction *actions = NULL;
   size_t nactions = 0;
   RuleKeyItem rki;
   const char *docname = "user:mnunberg";
-  rki.kstr = RedisModule_CreateString(ctx, docname, strlen(docname));
-  int matches = SchemaRules_Check(rules, ctx, &rki, &actions, &nactions);
+  rki.kstr = RedisModule_CreateString(RSDummyContext, docname, strlen(docname));
+  int matches = SchemaRules_Check(rules, RSDummyContext, &rki, &actions, &nactions);
+  RedisModule_FreeString(RSDummyContext, rki.kstr);
   ASSERT_NE(0, matches);
   ASSERT_GT(nactions, 0);
   ASSERT_FALSE(actions == NULL);
   ASSERT_EQ(sp, actions[0].spec);
+  SchemaRules_Free(rules);
+  IndexSpec_Free(sp);
 }

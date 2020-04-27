@@ -5,6 +5,7 @@
 #include "redismock/util.h"
 #include "redismock/internal.h"
 #include "common.h"
+#include "spec.h"
 
 extern "C" {
 static int my_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -24,6 +25,7 @@ class MyEnvironment : public ::testing::Environment {
   }
 
   virtual void TearDown() {
+    IndexSpec_CleanAll();
     RMCK_Shutdown();
     RediSearch_CleanupModule();
   }
