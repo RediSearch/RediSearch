@@ -52,6 +52,11 @@ struct GarbageCollectorCtx {
   bool noLockMode;
 };
 
+static void legacyGcKill(void *p) {
+  GarbageCollectorCtx *ctx = p;
+  ctx->sp = NULL;
+}
+
 /* Create a new garbage collector, with a string for the index name, and initial frequency */
 GarbageCollectorCtx *NewGarbageCollector(IndexSpec *sp, float initialHZ, uint64_t specUniqueId,
                                          GCCallbacks *callbacks) {
@@ -70,6 +75,7 @@ GarbageCollectorCtx *NewGarbageCollector(IndexSpec *sp, float initialHZ, uint64_
   callbacks->periodicCallback = GC_PeriodicCallback;
   callbacks->renderStats = GC_RenderStats;
   callbacks->getInterval = GC_GetInterval;
+  callbacks->kill = legacyGcKill;
 
   return gcCtx;
 }
@@ -309,6 +315,10 @@ end:
  * random) */
 int GC_PeriodicCallback(RedisModuleCtx *ctx, void *privdata) {
   GarbageCollectorCtx *gc = privdata;
+  if (!gc->sp) {
+    return 0;
+  }
+
   RS_LOG_ASSERT(gc, "GC ctx should not be NULL");
 
   int status = SPEC_STATUS_OK;
