@@ -88,6 +88,7 @@ class TestDebugCommands(object):
             .equal(['num_values', 1L, 'values', [['value', 'test', 'num_entries', 1L, 'num_blocks', 1L, 'entries', [1L]]]] )
         self.env.expect('FT.DEBUG', 'INFO_TAGIDX', 'idx', 't', 'count_value_entries', 'limit', '1') \
             .equal(['num_values', 1L, 'values', [['value', 'test', 'num_entries', 1L, 'num_blocks', 1L]]])
+        self.env.expect('FT.DEBUG', 'INFO_TAGIDX', 'idx', 't', 'count_value_entries', 'limit', 'abc').raiseError()
 
     def testInfoTagIndexWrongArity(self):
         self.env.expect('FT.DEBUG', 'info_tagidx', 'idx').raiseError()
@@ -114,6 +115,7 @@ class TestDebugCommands(object):
 
     def testIdToDocIdOnUnexistingId(self):
         self.env.expect('FT.DEBUG', 'idtodocid', 'idx', '2').raiseError().equal('document was removed')
+        self.env.expect('FT.DEBUG', 'idtodocid', 'idx', 'docId').raiseError().equal('bad id given')
 
     def testDumpPhoneticHash(self):
         self.env.expect('FT.DEBUG', 'dump_phonetic_hash', 'test').equal(['<TST', '<TST'])
@@ -168,7 +170,11 @@ class TestDebugCommands(object):
 
     def testNumericIndexInvalidKeyType(self):
         self.env.expect('FT.DEBUG', 'numidx_summary', 'foo').raiseError()
-'''
+
+    def testGitSha(self):
+        self.env.expect('FT.DEBUG', 'git_sha', 'foo').notRaiseError()
+
+
 class TestDebugCommandsLogAssert(object):
     # until added to RLtest
     def skipOnRedisVersion(self, ver):
@@ -195,4 +201,3 @@ class TestDebugCommandsLogAssert(object):
             if (str(line).__contains__('(7 == 42) failed on /home/ariel/redis/RediSearch/src/debug_commads.c:LogAssert')):
                 result = True
         self.env.assertEqual(result, True)
-'''
