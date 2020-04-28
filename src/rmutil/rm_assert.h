@@ -12,6 +12,7 @@
 #else
 
 #pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wpragmas"
 #pragma GCC diagnostic ignored "-Wnull-dereference"
 static inline void doNullDeref(void) {
   *((char*)NULL) = 0;
