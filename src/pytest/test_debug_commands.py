@@ -18,10 +18,15 @@ class TestDebugCommands(object):
         self.env.expect('FT.DEBUG', 'unknown').raiseError().equal('subcommand was not found')
 
     def testDebugHelp(self):
+        err_msg = "wrong number of arguments for 'FT.DEBUG' command"
         help_list = ['DUMP_INVIDX', 'DUMP_NUMIDX', 'DUMP_TAGIDX', 'INFO_TAGIDX', 'IDTODOCID', 'DOCIDTOID', 'DOCINFO',
                     'DUMP_PHONETIC_HASH', 'DUMP_TERMS', 'INVIDX_SUMMARY', 'NUMIDX_SUMMARY',
                     'GC_FORCEINVOKE', 'GC_FORCEBGINVOKE', 'GIT_SHA', 'LOGASSERT']
         self.env.expect('FT.DEBUG', 'help').equal(help_list)
+
+        # 'GIT_SHA', 'LOGASSERT' do not return err_msg
+        for cmd in help_list[:-2]:
+            self.env.expect('FT.DEBUG', cmd).raiseError().equal(err_msg)
 
     def testDocInfo(self):
         rv = self.env.cmd('ft.debug', 'docinfo', 'idx', 'doc1')
@@ -77,6 +82,24 @@ class TestDebugCommands(object):
     def testInfoTagIndex(self):
         self.env.expect('FT.DEBUG', 'info_tagidx', 'idx', 't').equal(['num_values', 1L])
         self.env.expect('FT.DEBUG', 'INFO_TAGIDX', 'idx', 't').equal(['num_values', 1L])
+        self.env.expect('FT.DEBUG', 'INFO_TAGIDX', 'idx', 't', 'dump_id_entries').equal(['num_values', 1L, 'values', []])
+        self.env.expect('FT.DEBUG', 'INFO_TAGIDX', 'idx', 't', 'count_value_entries').equal(['num_values', 1L, 'values', []])
+        self.env.expect('FT.DEBUG', 'INFO_TAGIDX', 'idx', 't', 'dump_id_entries', 'limit', '1') \
+            .equal(['num_values', 1L, 'values', [['value', 'test', 'num_entries', 1L, 'num_blocks', 1L, 'entries', [1L]]]] )
+        self.env.expect('FT.DEBUG', 'INFO_TAGIDX', 'idx', 't', 'count_value_entries', 'limit', '1') \
+            .equal(['num_values', 1L, 'values', [['value', 'test', 'num_entries', 1L, 'num_blocks', 1L]]])
+
+    def testInfoTagIndexWrongArity(self):
+        self.env.expect('FT.DEBUG', 'info_tagidx', 'idx').raiseError()
+
+    def testInfoUnexistsTagIndex(self):
+        self.env.expect('FT.DEBUG', 'info_tagidx', 'idx', 't1').raiseError()
+
+    def testInfoTagIndexInvalidKeyType(self):
+        self.env.expect('FT.DEBUG', 'info_tagidx', 'foo', 't1').raiseError()
+
+    def testInfoTagIndexInvalidSchema(self):
+        self.env.expect('FT.DEBUG', 'info_tagidx', 'idx1', 't').raiseError()
 
     def testDocIdToId(self):
         self.env.expect('FT.DEBUG', 'docidtoid', 'idx', 'doc1').equal(1)
@@ -145,7 +168,7 @@ class TestDebugCommands(object):
 
     def testNumericIndexInvalidKeyType(self):
         self.env.expect('FT.DEBUG', 'numidx_summary', 'foo').raiseError()
-
+'''
 class TestDebugCommandsLogAssert(object):
     # until added to RLtest
     def skipOnRedisVersion(self, ver):
@@ -172,3 +195,4 @@ class TestDebugCommandsLogAssert(object):
             if (str(line).__contains__('(7 == 42) failed on /home/ariel/redis/RediSearch/src/debug_commads.c:LogAssert')):
                 result = True
         self.env.assertEqual(result, True)
+'''
