@@ -77,7 +77,7 @@ jobs:
 
   debug_asan:
     docker:
-      - image: 'mnunberg/rmbuilder-san:latest'
+      - image: 'mnunberg/rmbuilder-san:redis6'
     steps:
       - checkout
       - run:
@@ -86,7 +86,7 @@ jobs:
 
   debug_msan:
     docker:
-      - image: 'mnunberg/rmbuilder-san:latest'
+      - image: 'mnunberg/rmbuilder-san:redis6'
     steps:
       - checkout
       - run:
