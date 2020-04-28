@@ -40,7 +40,7 @@ jobs:
   
   centos:
     docker:
-      - image: 'redisfab/rmbuilder:6.0-rc3-x64-centos7'
+      - image: 'mnunberg/rmbuilder-centos-redis6-rc3'
     environment:
       - BUILD_DIR: build-el
     steps: 
