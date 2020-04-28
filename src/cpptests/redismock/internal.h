@@ -104,6 +104,13 @@ class HashValue : public Value {
     }
     Key(int, void *);
     std::string makeKey() const;
+    const char *get_cstr() const {
+      if (flags & REDISMODULE_HASH_CFIELDS) {
+        return cstr;
+      } else {
+        return RedisModule_StringPtrLen(reinterpret_cast<const RedisModuleString *>(rawkey), NULL);
+      }
+    }
   };
 
   HashValue(const std::string &k) : Value(k, REDISMODULE_KEYTYPE_HASH) {

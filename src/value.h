@@ -90,9 +90,10 @@ typedef struct RSValue {
     // reference to another value
     struct RSValue *ref;
   };
-  RSValueType t : 8;
+  RSValueType t : 7;
   uint32_t refcount : 23;
   uint8_t allocated : 1;
+  uint8_t const_builtin : 1;  // A special constant built-in value that does not change
 
 #ifdef __cplusplus
   RSValue() {

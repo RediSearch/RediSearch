@@ -25,7 +25,9 @@ static int createHasPrefixProp(RSExprMeta *meta, RSArgList *args, QueryError *er
   RSValue_ToString(&v, &args->args[0]->literal);
   size_t n;
   const char *s = RSValue_StringPtrLen(&v, &n);
-  meta->u.prefix.s = rm_strdup(s);
+  meta->u.prefix.s = rm_malloc(n + 1);
+  memcpy(meta->u.prefix.s, s, n);
+  meta->u.prefix.s[n] = 0;
   meta->u.prefix.n = n;
   RSValue_Clear(&v);
   return REDISMODULE_OK;
@@ -47,6 +49,7 @@ RSExpr *RS_NewMetaOp(const char *name, size_t n, RSArgList *args, QueryError *er
     if (!strncasecmp(name, mm->name, n)) {
       break;
     }
+    mm++;
   }
   if (!mm->name) {
     QueryError_SetError(err, QUERY_ENOFUNCTION, "No such function");
@@ -54,6 +57,7 @@ RSExpr *RS_NewMetaOp(const char *name, size_t n, RSArgList *args, QueryError *er
   }
   e = rm_calloc(1, sizeof(*e));
   e->t = RSExpr_Metafunc;
+  e->meta.op = mm->op;
   if (mm->ctor(&e->meta, args, err) != REDISMODULE_OK) {
     rm_free(e);
     return NULL;
@@ -63,22 +67,23 @@ RSExpr *RS_NewMetaOp(const char *name, size_t n, RSArgList *args, QueryError *er
 
 static void evalPrefix(ExprEval *e, const RSExprMeta *m, RSValue *out) {
   const char *name = e->kstr;
+  size_t nname = e->nkstr;
   if (!e->kstr) {
     if (e->krstr) {
-      name = RedisModule_StringPtrLen(e->krstr, NULL);
+      name = RedisModule_StringPtrLen(e->krstr, &nname);
     } else if (e->res && e->res->dmd) {
       name = e->res->dmd->keyPtr;
+      nname = sdslen(e->res->dmd->keyPtr);
     }
   }
-  if (!name) {
+  if (!name || nname < m->u.prefix.n) {
     RSValue_MakeReference(out, RS_FalseValue);
     return;
   }
-  if (!strncasecmp(m->u.prefix.s, name, m->u.prefix.n)) {
-    RSValue_MakeReference(out, RS_TrueValue);
-  } else {
-    RSValue_MakeReference(out, RS_FalseValue);
-  }
+  int rv = strncasecmp(m->u.prefix.s, name, m->u.prefix.n);
+  // printf("Comparing %.*s <-> %.*s => %d\n", (int)nname, name, (int)m->u.prefix.n, m->u.prefix.s,
+  //        rv);
+  RSValue_MakeReference(out, rv ? RS_FalseValue : RS_TrueValue);
 }
 
 static void evalField(ExprEval *e, const RSExprMeta *m, RSValue *out) {
@@ -90,8 +95,10 @@ static void evalField(ExprEval *e, const RSExprMeta *m, RSValue *out) {
     RSValue_MakeReference(out, RS_FalseValue);
     return;
   }
+
   int exists = 0;
-  RedisModule_HashGet(kk, REDISMODULE_HASH_EXISTS, m->u.hasfield, &exists);
+  int rv = RedisModule_HashGet(kk, REDISMODULE_HASH_EXISTS, m->u.hasfield, &exists, NULL);
+  assert(rv == REDISMODULE_OK);
   RSValue_MakeReference(out, exists ? RS_TrueValue : RS_FalseValue);
 }
 
@@ -103,6 +110,8 @@ int RSMetaOp_Eval(ExprEval *e, const RSExprMeta *m, RSValue *out) {
     case EXPR_METAOP_HASFIELD:
       evalField(e, m, out);
       break;
+    default:
+      abort();
   }
   return EXPR_EVAL_OK;
 }
