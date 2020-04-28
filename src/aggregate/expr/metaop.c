@@ -62,6 +62,7 @@ RSExpr *RS_NewMetaOp(const char *name, size_t n, RSArgList *args, QueryError *er
     rm_free(e);
     return NULL;
   }
+  RSArgList_Free(args);
   return e;
 }
 
