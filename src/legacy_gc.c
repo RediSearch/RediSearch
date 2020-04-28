@@ -315,14 +315,14 @@ end:
  * random) */
 int GC_PeriodicCallback(RedisModuleCtx *ctx, void *privdata) {
   GarbageCollectorCtx *gc = privdata;
-  if (!gc->sp) {
-    return 0;
-  }
-
   RS_LOG_ASSERT(gc, "GC ctx should not be NULL");
 
   int status = SPEC_STATUS_OK;
   RedisModule_ThreadSafeContextLock(ctx);
+  if (!gc->sp) {
+    RedisModule_ThreadSafeContextUnlock(ctx);
+    return 0;
+  }
 
   assert(gc);
 
