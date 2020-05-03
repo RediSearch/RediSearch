@@ -354,14 +354,15 @@ AggregateRequest *AggregateRequest_Persist(AggregateRequest *req) {
   ret->isHeapAlloc = 1;
 
   if (req->plan->conc) {
-    for (size_t i = 0; i < req->plan->conc->numOpenKeys; i++) {
-      req->plan->conc->openKeys[i].opts |= ConcurrentKey_SharedKey;
-      req->plan->conc->openKeys[i].opts |= ConcurrentKey_SharedKeyString;
-    }
-
     req->plan->conc->ctx = RedisModule_GetThreadSafeContext(NULL);
 
     RedisModule_AutoMemory(req->plan->conc->ctx);
+
+    for (size_t i = 0; i < req->plan->conc->numOpenKeys; i++) {
+      RedisModule_RetainString(req->plan->conc->ctx, req->plan->conc->openKeys[i].keyName);
+      req->plan->conc->openKeys[i].opts &= ~ConcurrentKey_SharedKey;
+      req->plan->conc->openKeys[i].opts &= ~ConcurrentKey_SharedKeyString;
+    }
   }
 
   return ret;

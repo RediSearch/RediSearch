@@ -199,7 +199,7 @@ static inline int ResultProcessor_Next(ResultProcessor *rp, SearchResult *res, i
   do {
 
     // If we can switch - we check the concurrent context switch BEFORE calling the upstream
-    if (allowSwitching && cxc) {
+    if (allowSwitching && cxc && cxc->allowSwitching) {
       CONCURRENT_CTX_TICK(cxc);
       // need to abort - return EOF
       if (rp->ctx.qxc->state == QPState_Aborted) {

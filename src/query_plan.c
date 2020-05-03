@@ -274,7 +274,9 @@ QueryPlan *Query_BuildPlan(RedisSearchCtx *ctx, QueryParseCtx *parsedQuery, RSSe
                            QueryError *status) {
   QueryPlan *plan = rm_calloc(1, sizeof(*plan));
   plan->ctx = ctx;
-  plan->conc = opts->concurrentMode ? rm_malloc(sizeof(*plan->conc)) : NULL;
+  // we need to always create the concurent ctx for cursors but we will not switch on safemode
+  plan->conc = rm_malloc(sizeof(*plan->conc));
+  plan->conc->allowSwitching = opts->concurrentMode;
   plan->opts = opts ? *opts : RS_DEFAULT_SEARCHOPTS;
   if (plan->opts.timeoutMS == 0) {
     plan->opts.timeoutMS = RSGlobalConfig.queryTimeoutMS;
