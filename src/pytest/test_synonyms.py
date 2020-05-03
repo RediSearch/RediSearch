@@ -205,3 +205,14 @@ def testSynonymsForceUpdate(env):
     env.expect('ft.synforceupdate', 'idx', '0', 'child').error().contains('Unknown index name')
     env.expect('ft.synforceupdate', 'idx', 'olah', 'child').error().contains('wrong parameters, id is not an integer')
     env.expect('ft.synforceupdate', 'idx', '10000000000', 'child').error().contains('wrong parameters, id out of range')
+
+def testSynonymsLowerCase(env):
+    env.expect('FT.CREATE lowcase schema foo text').ok()
+    env.expect('FT.SYNADD lowcase HELLO SHALOM AHALAN').equal(0)
+    env.expect('FT.SYNADD lowcase hello shalom ahalan').equal(1)
+    env.expect('FT.SYNDUMP lowcase').equal(['hello', [0L, 1L], 'shalom', [0L, 1L], 'ahalan', [0L, 1L]])
+    env.expect('FT.ADD lowcase doc1 1 FIELDS foo hello').ok()
+    env.expect('FT.ADD lowcase doc2 1 FIELDS foo HELLO').ok()
+    res = [2L, 'doc2', ['foo', 'HELLO'], 'doc1', ['foo', 'hello']]
+    env.expect('FT.SEARCH lowcase SHALOM').equal(res)
+    env.expect('FT.SEARCH lowcase shalom').equal(res)

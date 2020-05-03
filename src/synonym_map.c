@@ -92,10 +92,12 @@ void SynonymMap_Free(SynonymMap* smap) {
   rm_free(smap);
 }
 
+char *strtolower(char *str); // in spec.c
+
 static const char** SynonymMap_RedisStringArrToArr(RedisModuleString** synonyms, size_t size) {
   const char** arr = rm_malloc(sizeof(char*) * size);
   for (size_t i = 0; i < size; ++i) {
-    arr[i] = RedisModule_StringPtrLen(synonyms[i], NULL);
+    arr[i] = strtolower(RedisModule_StringPtrLen(synonyms[i], NULL));
   }
   return arr;
 }
