@@ -2152,7 +2152,7 @@ def testMOD547(env):
     res = env.cmd('FT.AGGREGATE idx foo WITHCURSOR COUNT 500')
 
     for i in range(1000):
-        env.cmd('FT.del idx doc%i' % i)
+        env.cmd('FT.DEL idx doc%i' % i)
 
     env.cmd('ft.debug GC_FORCEINVOKE idx')    
 
