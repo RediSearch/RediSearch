@@ -66,7 +66,17 @@ def testAddRule(env):
     env.cmd('hset dan country Israel f1 field')
     env.expect('ft.search idx field')   \
             .equal([1L, 'dan', ['country', 'Israel', 'f1', 'field']])
-
+    
+    # Should not work like this
+    # What is the exact API?
+    '''
+    # WILDCARD
+    # TODO fix
+    env.expect('ft.ruleadd idx hasFieldRule * INDEX').ok()
+    env.cmd('hset any f1 wc')
+    env.expect('ft.search idx wc')   \
+            .equal([1L, 'any', ['f1', 'wc']])
+    '''
     #EXPR - prefix
     env.expect('ft.ruleadd idx useExprPrefix EXPR hasprefix("loc")').ok()
     env.cmd('hset loc:usa f1 exprPrefix')
@@ -78,15 +88,36 @@ def testAddRule(env):
     env.cmd('hset field f1 exprHasField user_id 1234')
     env.expect('ft.search idx exprHasField')   \
             .equal([1L, 'field', ['f1', 'exprHasField', 'user_id', '1234']])
+    
+    #crash
     '''
     #EXPR - condition
     env.expect('ft.ruleadd idx useCond EXPR @zipcode<1000').ok()
     env.cmd('hset cond f1 exprCond zipcode 666')
     env.expect('ft.search idx exprCond')   \
-            .equal([1L, 'field', ['f1', 'exprCond', 'zipcode', '1234']])
+            .equal([1L, 'cond', ['f1', 'exprCond', 'zipcode', '666']])
     '''
 
-def testAttributes(env):
+def testArgsError(env):
+    # no index
+    env.expect('ft.ruleadd idx prefixRule PREFIX redis').error().equal('No such index idx')
+
+    env.expect('ft.create idx SCHEMA f1 text').ok()
+
+    error_msg = "wrong number of arguments for 'ft.ruleadd' command"
+    env.expect('ft.ruleadd idx prefixRule PREFIX').error().equal(error_msg)
+    env.expect('ft.ruleadd idx hasFieldRule HASFIELD').error().equal(error_msg)
+    env.expect('ft.ruleadd idx hasFieldRule *').error().equal(error_msg)
+    env.expect('ft.ruleadd idx useExprPrefix EXPR').error().equal(error_msg)
+
+    env.expect('ft.ruleadd idx errorRule MADEUP rule').error().equal('No such match type `MADEUP`\n')
+    env.expect('ft.ruleadd idx errorRule EXPR').error().equal(error_msg)
+    env.expect('ft.ruleadd idx errorRule EXPR hasfield()').error().equal('hasfield needs one argument')
+    # hasfield -> hasprefix
+    #env.expect('ft.ruleadd idx errorRule EXPR hasprefix()').error().equal('hasprefix needs one argument')
+    env.expect('ft.ruleadd idx errorRule EXPR wrong("field")').error().equal('Unknown function name wrong')
+
+def testSetAttributes(env):
     # test score
     env.expect('ft.create idx SCHEMA f1 text').ok()
     env.expect('ft.ruleadd idx score HASFIELD name SETATTR SCORE 1').ok()
@@ -97,5 +128,40 @@ def testAttributes(env):
     # correct .equal([1L, 'setAttr1', '1', ['f1', 'scoreAttr', 'name', 'rule']])
 
     # test language
+    # TODO: how?
+
+def testSetAttributes(env):
+    # test score
+    env.expect('ft.create idx SCHEMA f1 text').ok()
+    env.expect('ft.ruleadd idx score HASFIELD name LOADATTR SCORE score').ok()
+    env.cmd('hset setAttr1 f1 scoreAttr name rule score 1')
+    env.cmd('hset setAttr2 f1 scoreAttr name rule score .5')
+    env.expect('ft.search idx scoreAttr WITHSCORES')   \
+    #        .equal([2L, 'setAttr2', '.5', ['f1', 'scoreAttr', 'name', 'rule', 'score', '.5'],
+    #                    'setAttr1', '1', ['f1', 'scoreAttr', 'name', 'rule', 'score', '1']])
+
+    # test language
     # TODO
 
+def testAttributeError(env):
+    '''
+    env.expect('ft.create idx SCHEMA f1 text').ok()
+    env.expect('ft.ruleadd idx score HASFIELD name SETATTR SCORE').error().equal(1)
+    env.expect('ft.ruleadd idx score HASFIELD name SETATTR SCORE -1').error().equal(1)
+    env.expect('ft.ruleadd idx score HASFIELD name SETATTR SCORE 2').error().equal(1)
+    env.expect('ft.ruleadd idx score HASFIELD name SETATTR LANGUAGE').error().equal(1)
+    env.expect('ft.ruleadd idx score HASFIELD name SETATTR LANGUAGE hebrew').error().equal(1)
+
+    env.expect('ft.ruleadd idx score HASFIELD name LOADATTR SCORE').error().equal(1)
+    env.expect('ft.ruleadd idx score HASFIELD name LOADATTR SCORE -1').error().equal(1)
+    env.expect('ft.ruleadd idx score HASFIELD name LOADATTR SCORE 2').error().equal(1)
+    env.expect('ft.ruleadd idx score HASFIELD name LOADATTR LANGUAGE').error().equal(1)
+    env.expect('ft.ruleadd idx score HASFIELD name LOADATTR LANGUAGE hebrew').error().equal(1)
+    '''
+
+def testInvalidType(env):
+    env.cmd('set doc1 bar')
+    env.expect('ft.create idx SCHEMA foo text').ok()
+    env.expect('ft.ruleadd idx hasFieldRule HASFIELD baz').ok()
+    env.expect('hset doc1 foo bar baz xyz').error() \
+            .equal('WRONGTYPE Operation against a key holding the wrong kind of value')
