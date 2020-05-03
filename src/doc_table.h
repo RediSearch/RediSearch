@@ -8,6 +8,7 @@
 #include "sortable.h"
 #include "byte_offsets.h"
 #include "rmutil/sds.h"
+#include "util/dict.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -66,6 +67,7 @@ typedef struct {
 
   DMDChain *buckets;
   DocIdMap dim;
+  dict *tempDmdDict;
 } DocTable;
 
 /* increasing the ref count of the given dmd */

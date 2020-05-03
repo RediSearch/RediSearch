@@ -152,7 +152,7 @@ void Document_LoadPairwiseArgs(Document *doc, RedisModuleString **args, size_t n
 /**
  * Print contents of document to screen
  */
-void Document_Dump(const Document *doc); // LCOV_EXCL_LINE debug
+void Document_Dump(const Document *doc);  // LCOV_EXCL_LINE debug
 /**
  * Free any copied data within the document. anyCtx is any non-NULL
  * RedisModuleCtx. The reason for requiring a context is more related to the
@@ -200,6 +200,8 @@ struct FieldIndexerData;
 
 // Document is entirely empty (no sortables, indexables)
 #define ACTX_F_EMPTY 0x40
+
+#define ACTX_F_NOFREEDOC 0x80
 
 struct DocumentIndexer;
 
