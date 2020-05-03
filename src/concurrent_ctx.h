@@ -70,6 +70,7 @@ typedef struct {
   ConcurrentKeyCtx *openKeys;
   uint32_t numOpenKeys;
   uint32_t isLocked;
+  int allowSwitching;
 } ConcurrentSearchCtx;
 
 /** The maximal size of the concurrent query thread pool. Since only one thread is operational at a

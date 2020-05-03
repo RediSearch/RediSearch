@@ -5,6 +5,7 @@ import unittest
 from hotels import hotels
 import random
 import time
+from RLTest import Env
 
 
 def testAdd(env):
@@ -2140,6 +2141,22 @@ def testMOD507(env):
     res = env.cmd('FT.SEARCH', 'idx', '*', 'WITHSCORES', 'SUMMARIZE', 'FRAGS', '1', 'LEN', '25', 'HIGHLIGHT', 'TAGS', "<span style='background-color:yellow'>", "</span>")
 
     env.assertEqual(len(res), 31)
+
+def testMOD547(env):
+    env = Env(moduleArgs='SAFEMODE GC_POLICY FORK')
+    env.skipOnCluster()
+    env.expect('FT.CREATE idx SCHEMA t TEXT').equal('OK')
+    for i in range(1000):
+        env.cmd('FT.add idx doc%d 1.0 FIELDS t foo' % i)
+
+    res = env.cmd('FT.AGGREGATE idx foo WITHCURSOR COUNT 500')
+
+    for i in range(1000):
+        env.cmd('FT.del idx doc%i' % i)
+
+    env.cmd('ft.debug GC_FORCEINVOKE idx')    
+
+    env.cmd('FT.CURSOR read idx %d' % res[1])
 
 def grouper(iterable, n, fillvalue=None):
     "Collect data into fixed-length chunks or blocks"
