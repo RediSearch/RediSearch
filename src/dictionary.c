@@ -1,39 +1,23 @@
 #include "dictionary.h"
 #include "redismodule.h"
 #include "rmalloc.h"
+#include "util/dict.h"
 
-Trie *SpellCheck_OpenDict(RedisModuleCtx *ctx, const char *dictName, int mode, RedisModuleKey **k) {
-  RedisModuleString *keyName = RedisModule_CreateStringPrintf(ctx, DICT_KEY_FMT, dictName);
+dict *spellCheckDicts;
 
-  *k = RedisModule_OpenKey(ctx, keyName, mode);
-
-  RedisModule_FreeString(ctx, keyName);
-
-  int type = RedisModule_KeyType(*k);
-  if (type == REDISMODULE_KEYTYPE_EMPTY) {
-    Trie *t = NULL;
-    if (mode == REDISMODULE_WRITE) {
-      t = NewTrie();
-      RedisModule_ModuleTypeSetValue(*k, TrieType, t);
-    } else {
-      RedisModule_CloseKey(*k);
-    }
-    return t;
+Trie *SpellCheck_OpenDict(RedisModuleCtx *ctx, const char *dictName, int mode) {
+  Trie *t = dictFetchValue(spellCheckDicts, dictName);
+  if (!t && mode == REDISMODULE_WRITE) {
+    t = NewTrie();
+    dictAdd(spellCheckDicts, (char *)dictName, t);
   }
-
-  if (type != REDISMODULE_KEYTYPE_MODULE || RedisModule_ModuleTypeGetType(*k) != TrieType) {
-    RedisModule_CloseKey(*k);
-    return NULL;
-  }
-
-  return RedisModule_ModuleTypeGetValue(*k);
+  return t;
 }
 
 int Dictionary_Add(RedisModuleCtx *ctx, const char *dictName, RedisModuleString **values, int len,
                    char **err) {
   int valuesAdded = 0;
-  RedisModuleKey *k = NULL;
-  Trie *t = SpellCheck_OpenDict(ctx, dictName, REDISMODULE_WRITE, &k);
+  Trie *t = SpellCheck_OpenDict(ctx, dictName, REDISMODULE_WRITE);
   if (t == NULL) {
     *err = "could not open dict key";
     return -1;
@@ -43,16 +27,13 @@ int Dictionary_Add(RedisModuleCtx *ctx, const char *dictName, RedisModuleString 
     valuesAdded += Trie_Insert(t, values[i], 1, 1, NULL);
   }
 
-  RedisModule_CloseKey(k);
-
   return valuesAdded;
 }
 
 int Dictionary_Del(RedisModuleCtx *ctx, const char *dictName, RedisModuleString **values, int len,
                    char **err) {
   int valuesDeleted = 0;
-  RedisModuleKey *k = NULL;
-  Trie *t = SpellCheck_OpenDict(ctx, dictName, REDISMODULE_WRITE, &k);
+  Trie *t = SpellCheck_OpenDict(ctx, dictName, REDISMODULE_WRITE);
   if (t == NULL) {
     *err = "could not open dict key";
     return -1;
@@ -64,18 +45,11 @@ int Dictionary_Del(RedisModuleCtx *ctx, const char *dictName, RedisModuleString 
     valuesDeleted += Trie_Delete(t, (char *)val, len);
   }
 
-  if (t->size == 0) {
-    RedisModule_DeleteKey(k);
-  }
-
-  RedisModule_CloseKey(k);
-
   return valuesDeleted;
 }
 
 int Dictionary_Dump(RedisModuleCtx *ctx, const char *dictName, char **err) {
-  RedisModuleKey *k = NULL;
-  Trie *t = SpellCheck_OpenDict(ctx, dictName, REDISMODULE_READ, &k);
+  Trie *t = SpellCheck_OpenDict(ctx, dictName, REDISMODULE_READ);
   if (t == NULL) {
     *err = "could not open dict key";
     return -1;
@@ -98,8 +72,6 @@ int Dictionary_Dump(RedisModuleCtx *ctx, const char *dictName, char **err) {
   DFAFilter_Free(it->ctx);
   rm_free(it->ctx);
   TrieIterator_Free(it);
-
-  RedisModule_CloseKey(k);
 
   return 1;
 }
@@ -158,5 +130,62 @@ int DictAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModule_ReplyWithLongLong(ctx, retVal);
   }
 
+  return REDISMODULE_OK;
+}
+
+static int SpellCheckDictAuxLoad(RedisModuleIO *rdb, int encver, int when) {
+  if (when == REDISMODULE_AUX_BEFORE_RDB) {
+    dictIterator *iter = dictGetIterator(spellCheckDicts);
+    dictEntry *entry;
+    while ((entry = dictNext(iter))) {
+      Trie *val = dictGetVal(entry);
+      TrieType_Free(val);
+    }
+    dictReleaseIterator(iter);
+    dictEmpty(spellCheckDicts, NULL);
+    return REDISMODULE_OK;
+  }
+  size_t len = RedisModule_LoadUnsigned(rdb);
+  for (size_t i = 0; i < len; i++) {
+    size_t keyLen;
+    char *key = RedisModule_LoadStringBuffer(rdb, &keyLen);
+    Trie *val = TrieType_GenericLoad(rdb, false);
+    dictAdd(spellCheckDicts, key, val);
+  }
+  return REDISMODULE_OK;
+}
+
+static void SpellCheckDictAuxSave(RedisModuleIO *rdb, int when) {
+  if (when == REDISMODULE_AUX_BEFORE_RDB) {
+    return;
+  }
+  RedisModule_SaveUnsigned(rdb, dictSize(spellCheckDicts));
+  dictIterator *iter = dictGetIterator(spellCheckDicts);
+  dictEntry *entry;
+  while ((entry = dictNext(iter))) {
+    const char *key = dictGetKey(entry);
+    RedisModule_SaveStringBuffer(rdb, key, strlen(key) + 1 /* we save the /0*/);
+    Trie *val = dictGetVal(entry);
+    TrieType_GenericSave(rdb, val, false);
+  }
+  dictReleaseIterator(iter);
+}
+
+#define SPELL_CHECK_ENCVER_CURRENT 1
+RedisModuleType *SpellCheckDictType;
+
+int DictRegister(RedisModuleCtx *ctx) {
+  spellCheckDicts = dictCreate(&dictTypeHeapStrings, NULL);
+  RedisModuleTypeMethods spellCheckDictType = {
+      .version = REDISMODULE_TYPE_METHOD_VERSION,
+      .aux_load = SpellCheckDictAuxLoad,
+      .aux_save = SpellCheckDictAuxSave,
+      .aux_save_triggers = REDISMODULE_AUX_BEFORE_RDB | REDISMODULE_AUX_AFTER_RDB,
+  };
+  SpellCheckDictType =
+      RedisModule_CreateDataType(ctx, "scdtype00", SPELL_CHECK_ENCVER_CURRENT, &spellCheckDictType);
+  if (SpellCheckDictType == NULL) {
+    return REDISMODULE_ERR;
+  }
   return REDISMODULE_OK;
 }

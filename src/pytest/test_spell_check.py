@@ -170,6 +170,11 @@ def testSpellCheckResultsOrder():
     env.cmd('ft.add', 'idx', 'doc2', 1.0, 'FIELDS', 'name', 'Hila', 'body', 'body2')
     env.expect('ft.spellcheck', 'idx', 'Elioh Hilh').equal([['TERM', 'elioh', [['0.5', 'elior']]], ['TERM', 'hilh', [['0.5', 'hila']]]])
 
+def testSpellCheckDictReleadRDB():
+    env = Env()
+    env.expect('FT.DICTADD test 1 2 3').equal(3L)
+    for _ in env.retry_with_rdb_reload():
+        env.expect('FT.DICTDUMP test').equal(['1', '2', '3'])
 
 def testSpellCheckIssue437():
     env = Env()
