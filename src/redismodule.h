@@ -168,6 +168,7 @@ typedef struct RedisModuleDict RedisModuleDict;
 typedef struct RedisModuleDictIter RedisModuleDictIter;
 typedef struct RedisModuleCommandFilterCtx RedisModuleCommandFilterCtx;
 typedef struct RedisModuleCommandFilter RedisModuleCommandFilter;
+typedef struct RedisModuleScanCursor RedisModuleScanCursor;
 
 typedef int (*RedisModuleCmdFunc)(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 typedef void (*RedisModuleDisconnectFunc)(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc);
@@ -184,6 +185,9 @@ typedef void (*RedisModuleTypeFreeFunc)(void *value);
 typedef void (*RedisModuleClusterMessageReceiver)(RedisModuleCtx *ctx, const char *sender_id, uint8_t type, const unsigned char *payload, uint32_t len);
 typedef void (*RedisModuleTimerProc)(RedisModuleCtx *ctx, void *data);
 typedef void (*RedisModuleCommandFilterFunc)(RedisModuleCommandFilterCtx *filter);
+typedef void (*RedisModuleScanCB)(RedisModuleCtx *ctx, RedisModuleString *keyname, RedisModuleKey *key, void *privdata);
+typedef void (*RedisModuleScanKeyCB)(RedisModuleKey *key, RedisModuleString *field, RedisModuleString *value, void *privdata);
+
 
 #define REDISMODULE_TYPE_METHOD_VERSION 2
 typedef struct RedisModuleTypeMethods {
@@ -198,6 +202,107 @@ typedef struct RedisModuleTypeMethods {
     RedisModuleTypeAuxSaveFunc aux_save;
     int aux_save_triggers;
 } RedisModuleTypeMethods;
+
+/* Server events definitions. */
+#define REDISMODULE_EVENT_REPLICATION_ROLE_CHANGED 0
+#define REDISMODULE_EVENT_PERSISTENCE 1
+#define REDISMODULE_EVENT_FLUSHDB 2
+#define REDISMODULE_EVENT_LOADING 3
+#define REDISMODULE_EVENT_CLIENT_CHANGE 4
+#define REDISMODULE_EVENT_SHUTDOWN 5
+#define REDISMODULE_EVENT_REPLICA_CHANGE 6
+#define REDISMODULE_EVENT_MASTER_LINK_CHANGE 7
+#define REDISMODULE_EVENT_CRON_LOOP 8
+#define REDISMODULE_EVENT_MODULE_CHANGE 9
+#define REDISMODULE_EVENT_LOADING_PROGRESS 10
+
+typedef struct RedisModuleEvent {
+    uint64_t id;        /* REDISMODULE_EVENT_... defines. */
+    uint64_t dataver;   /* Version of the structure we pass as 'data'. */
+} RedisModuleEvent;
+
+struct RedisModuleCtx;
+typedef void (*RedisModuleEventCallback)(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data);
+
+static const RedisModuleEvent
+    RedisModuleEvent_ReplicationRoleChanged = {
+        REDISMODULE_EVENT_REPLICATION_ROLE_CHANGED,
+        1
+    },
+    RedisModuleEvent_Persistence = {
+        REDISMODULE_EVENT_PERSISTENCE,
+        1
+    },
+    RedisModuleEvent_FlushDB = {
+        REDISMODULE_EVENT_FLUSHDB,
+        1
+    },
+    RedisModuleEvent_Loading = {
+        REDISMODULE_EVENT_LOADING,
+        1
+    },
+    RedisModuleEvent_ClientChange = {
+        REDISMODULE_EVENT_CLIENT_CHANGE,
+        1
+    },
+    RedisModuleEvent_Shutdown = {
+        REDISMODULE_EVENT_SHUTDOWN,
+        1
+    },
+    RedisModuleEvent_ReplicaChange = {
+        REDISMODULE_EVENT_REPLICA_CHANGE,
+        1
+    },
+    RedisModuleEvent_CronLoop = {
+        REDISMODULE_EVENT_CRON_LOOP,
+        1
+    },
+    RedisModuleEvent_MasterLinkChange = {
+        REDISMODULE_EVENT_MASTER_LINK_CHANGE,
+        1
+    },
+    RedisModuleEvent_ModuleChange = {
+        REDISMODULE_EVENT_MODULE_CHANGE,
+        1
+    },
+    RedisModuleEvent_LoadingProgress = {
+        REDISMODULE_EVENT_LOADING_PROGRESS,
+        1
+    };
+
+/* Those are values that are used for the 'subevent' callback argument. */
+#define REDISMODULE_SUBEVENT_PERSISTENCE_RDB_START 0
+#define REDISMODULE_SUBEVENT_PERSISTENCE_AOF_START 1
+#define REDISMODULE_SUBEVENT_PERSISTENCE_SYNC_RDB_START 2
+#define REDISMODULE_SUBEVENT_PERSISTENCE_ENDED 3
+#define REDISMODULE_SUBEVENT_PERSISTENCE_FAILED 4
+
+#define REDISMODULE_SUBEVENT_LOADING_RDB_START 0
+#define REDISMODULE_SUBEVENT_LOADING_AOF_START 1
+#define REDISMODULE_SUBEVENT_LOADING_REPL_START 2
+#define REDISMODULE_SUBEVENT_LOADING_ENDED 3
+#define REDISMODULE_SUBEVENT_LOADING_FAILED 4
+
+#define REDISMODULE_SUBEVENT_CLIENT_CHANGE_CONNECTED 0
+#define REDISMODULE_SUBEVENT_CLIENT_CHANGE_DISCONNECTED 1
+
+#define REDISMODULE_SUBEVENT_MASTER_LINK_UP 0
+#define REDISMODULE_SUBEVENT_MASTER_LINK_DOWN 1
+
+#define REDISMODULE_SUBEVENT_REPLICA_CHANGE_ONLINE 0
+#define REDISMODULE_SUBEVENT_REPLICA_CHANGE_OFFLINE 1
+
+#define REDISMODULE_EVENT_REPLROLECHANGED_NOW_MASTER 0
+#define REDISMODULE_EVENT_REPLROLECHANGED_NOW_REPLICA 1
+
+#define REDISMODULE_SUBEVENT_FLUSHDB_START 0
+#define REDISMODULE_SUBEVENT_FLUSHDB_END 1
+
+#define REDISMODULE_SUBEVENT_MODULE_LOADED 0
+#define REDISMODULE_SUBEVENT_MODULE_UNLOADED 1
+
+#define REDISMODULE_SUBEVENT_LOADING_PROGRESS_RDB 0
+#define REDISMODULE_SUBEVENT_LOADING_PROGRESS_AOF 1
 
 #define REDISMODULE_XAPI_STABLE(X) \
     X(void *, Alloc, (size_t bytes)) \
@@ -368,7 +473,13 @@ typedef struct RedisModuleTypeMethods {
     X(const RedisModuleString *, CommandFilterArgGet, (RedisModuleCommandFilterCtx *fctx, int pos)) \
     X(int, CommandFilterArgInsert, (RedisModuleCommandFilterCtx *fctx, int pos, RedisModuleString *arg)) \
     X(int, CommandFilterArgReplace, (RedisModuleCommandFilterCtx *fctx, int pos, RedisModuleString *arg)) \
-    X(int, CommandFilterArgDelete, (RedisModuleCommandFilterCtx *fctx, int pos))
+    X(int, CommandFilterArgDelete, (RedisModuleCommandFilterCtx *fctx, int pos)) \
+    X(RedisModuleScanCursor *, ScanCursorCreate, ()) \
+    X(void, ScanCursorRestart, (RedisModuleScanCursor *cursor)) \
+    X(void, ScanCursorDestroy, (RedisModuleScanCursor *cursor)) \
+    X(int, Scan, (RedisModuleCtx *ctx, RedisModuleScanCursor *cursor, RedisModuleScanCB fn, void *privdata)) \
+    X(int, ScanKey, (RedisModuleKey *key, RedisModuleScanCursor *cursor, RedisModuleScanKeyCB fn, void *privdata)) \
+    X(int, SubscribeToServerEvent, (RedisModuleCtx *ctx, RedisModuleEvent event, RedisModuleEventCallback callback))
 
 #define REDISMODULE_XAPI_ENTERPRISE(X) \
     X(int, AvoidReplicaTraffic, ()) \

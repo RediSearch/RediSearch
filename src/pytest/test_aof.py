@@ -16,7 +16,8 @@ def aofTestCommon(env, reloadfn):
                                                                                                                                                                                                                         'myText5', 'field2', '100'], 'doc6', ['field1', 'myText6', 'field2', '120'], 'doc7', ['field1', 'myText7', 'field2', '140'], 'doc8', ['field1', 'myText8', 'field2', '160'], 'doc9', ['field1', 'myText9', 'field2', '180']]
         reloadfn()
         ret = env.cmd('ft.search', 'idx', 'myt*')
-        env.assertEqual(exp, ret)
+        for r in ret:
+            env.assertIn(r, exp)
 
 
 def testAof():
