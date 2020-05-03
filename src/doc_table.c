@@ -13,13 +13,16 @@
 
 /* Creates a new DocTable with a given capacity */
 DocTable NewDocTable(size_t cap, size_t max_size) {
-  DocTable ret = {.size = 1,
-                  .cap = cap,
-                  .maxDocId = 0,
-                  .memsize = 0,
-                  .sortablesSize = 0,
-                  .maxSize = max_size,
-                  .dim = NewDocIdMap()};
+  DocTable ret = {
+      .size = 1,
+      .cap = cap,
+      .maxDocId = 0,
+      .memsize = 0,
+      .sortablesSize = 0,
+      .maxSize = max_size,
+      .dim = NewDocIdMap(),
+      .tempDmdDict = NULL,
+  };
   ret.buckets = rm_calloc(cap, sizeof(*ret.buckets));
   return ret;
 }
@@ -158,8 +161,8 @@ int DocTable_SetSortingVector(DocTable *t, t_docId docId, RSSortingVector *v) {
     dmd->flags &= ~Document_HasSortVector;
     return 1;
   }*/
-  //LCOV_EXCL_STOP
-  RS_LOG_ASSERT(v, "Sorting vector does not exist"); // tested in doAssignIds() 
+  // LCOV_EXCL_STOP
+  RS_LOG_ASSERT(v, "Sorting vector does not exist");  // tested in doAssignIds()
 
   /* Set th new vector and the flags accordingly */
   dmd->sortVector = v;
@@ -208,14 +211,27 @@ t_docId DocTable_Put(DocTable *t, const char *s, size_t n, double score, u_char 
 
   sds keyPtr = sdsnewlen(s, n);
 
-  RSDocumentMetadata *dmd = rm_calloc(1, sizeof(RSDocumentMetadata));
-  dmd->keyPtr = keyPtr;
-  dmd->score = score;
-  dmd->flags = flags;
-  dmd->payload = dpl;
-  dmd->maxFreq = 1;
-  dmd->id = docId;
-  dmd->sortVector = NULL;
+  RSDocumentMetadata *dmd = NULL;
+  if (t->tempDmdDict) {
+    RedisModuleString *keyRedisStr = RedisModule_CreateString(NULL, s, n);
+    dmd = dictFetchValue(t->tempDmdDict, keyRedisStr);
+    if (dmd) {
+      dictDelete(t->tempDmdDict, keyRedisStr);
+      dmd->id = docId;
+      dmd->sortVector = NULL;
+    }
+    RedisModule_FreeString(NULL, keyRedisStr);
+  }
+  if (!dmd) {
+    dmd = rm_calloc(1, sizeof(RSDocumentMetadata));
+    dmd->keyPtr = keyPtr;
+    dmd->score = score;
+    dmd->flags = flags;
+    dmd->payload = dpl;
+    dmd->maxFreq = 1;
+    dmd->id = docId;
+    dmd->sortVector = NULL;
+  }
 
   DocTable_Set(t, docId, dmd);
   ++t->size;
@@ -329,8 +345,6 @@ RSDocumentMetadata *DocTable_Pop(DocTable *t, const char *s, size_t n) {
 void DocTable_RdbSave(DocTable *t, RedisModuleIO *rdb) {
 
   RedisModule_SaveUnsigned(rdb, t->size);
-  RedisModule_SaveUnsigned(rdb, t->maxDocId);
-  RedisModule_SaveUnsigned(rdb, t->maxSize);
 
   uint32_t elements_written = 0;
   for (uint32_t i = 0; i < t->cap; ++i) {
@@ -340,7 +354,6 @@ void DocTable_RdbSave(DocTable *t, RedisModuleIO *rdb) {
     DLLIST2_FOREACH(it, &t->buckets[i].lroot) {
       const RSDocumentMetadata *dmd = DLLIST2_ITEM(it, RSDocumentMetadata, llnode);
       RedisModule_SaveStringBuffer(rdb, dmd->keyPtr, sdslen(dmd->keyPtr));
-      RedisModule_SaveUnsigned(rdb, dmd->id);
       RedisModule_SaveUnsigned(rdb, dmd->flags);
       RedisModule_SaveUnsigned(rdb, dmd->maxFreq);
       RedisModule_SaveUnsigned(rdb, dmd->len);
@@ -354,9 +367,9 @@ void DocTable_RdbSave(DocTable *t, RedisModuleIO *rdb) {
         }
       }
 
-      if (dmd->flags & Document_HasSortVector) {
-        SortingVector_RdbSave(rdb, dmd->sortVector);
-      }
+      //      if (dmd->flags & Document_HasSortVector) {
+      //        SortingVector_RdbSave(rdb, dmd->sortVector);
+      //      }
 
       if (dmd->flags & Document_HasOffsetVector) {
         Buffer tmp;
@@ -373,29 +386,29 @@ void DocTable_RdbSave(DocTable *t, RedisModuleIO *rdb) {
 
 void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
   long long deletedElements = 0;
-  t->size = RedisModule_LoadUnsigned(rdb);
-  t->maxDocId = RedisModule_LoadUnsigned(rdb);
-  if (encver >= INDEX_MIN_COMPACTED_DOCTABLE_VERSION) {
-    t->maxSize = RedisModule_LoadUnsigned(rdb);
-  } else {
-    t->maxSize = MIN(RSGlobalConfig.maxDocTableSize, t->maxDocId);
-  }
+  size_t size = RedisModule_LoadUnsigned(rdb);
+  //  t->maxDocId = RedisModule_LoadUnsigned(rdb);
+  //  if (encver >= INDEX_MIN_COMPACTED_DOCTABLE_VERSION) {
+  //    t->maxSize = RedisModule_LoadUnsigned(rdb);
+  //  } else {
+  //    t->maxSize = MIN(RSGlobalConfig.maxDocTableSize, t->maxDocId);
+  //  }
 
-  if (t->maxDocId > t->maxSize) {
-    /**
-     * If the maximum doc id is greater than the maximum cap size
-     * then it means there is a possibility that any index under maxId can
-     * be accessed. However, it is possible that this bucket does not have
-     * any documents inside it (and thus might not be populated below), but
-     * could still be accessed for simple queries (e.g. get, exist). Ensure
-     * we don't have to rely on Set/Put to ensure the doc table array.
-     */
-    t->cap = t->maxSize;
-    rm_free(t->buckets);
-    t->buckets = rm_calloc(t->cap, sizeof(*t->buckets));
-  }
+  //  if (t->maxDocId > t->maxSize) {
+  //    /**
+  //     * If the maximum doc id is greater than the maximum cap size
+  //     * then it means there is a possibility that any index under maxId can
+  //     * be accessed. However, it is possible that this bucket does not have
+  //     * any documents inside it (and thus might not be populated below), but
+  //     * could still be accessed for simple queries (e.g. get, exist). Ensure
+  //     * we don't have to rely on Set/Put to ensure the doc table array.
+  //     */
+  //    t->cap = t->maxSize;
+  //    rm_free(t->buckets);
+  //    t->buckets = rm_calloc(t->cap, sizeof(*t->buckets));
+  //  }
 
-  for (size_t i = 1; i < t->size; i++) {
+  for (size_t i = 1; i < size; i++) {
     size_t len;
 
     RSDocumentMetadata *dmd = rm_calloc(1, sizeof(RSDocumentMetadata));
@@ -404,7 +417,8 @@ void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
       // Previous versions would encode the NUL byte
       len--;
     }
-    dmd->id = encver < INDEX_MIN_COMPACTED_DOCTABLE_VERSION ? i : RedisModule_LoadUnsigned(rdb);
+    //    dmd->id = encver < INDEX_MIN_COMPACTED_DOCTABLE_VERSION ? i :
+    //    RedisModule_LoadUnsigned(rdb);
     dmd->keyPtr = sdsnewlen(tmpPtr, len);
     RedisModule_Free(tmpPtr);
 
@@ -439,10 +453,10 @@ void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
       }
     }
     dmd->sortVector = NULL;
-    if (dmd->flags & Document_HasSortVector) {
-      dmd->sortVector = SortingVector_RdbLoad(rdb, encver);
-      t->sortablesSize += RSSortingVector_GetMemorySize(dmd->sortVector);
-    }
+    //    if (dmd->flags & Document_HasSortVector) {
+    //      dmd->sortVector = SortingVector_RdbLoad(rdb, encver);
+    //      t->sortablesSize += RSSortingVector_GetMemorySize(dmd->sortVector);
+    //    }
 
     if (dmd->flags & Document_HasOffsetVector) {
       size_t nTmp = 0;
@@ -454,15 +468,17 @@ void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
     }
 
     if (dmd->flags & Document_Deleted) {
-      ++deletedElements;
       DMD_Free(dmd);
     } else {
-      DocIdMap_Put(&t->dim, dmd->keyPtr, sdslen(dmd->keyPtr), dmd->id);
-      DocTable_Set(t, dmd->id, dmd);
-      t->memsize += sizeof(RSDocumentMetadata) + len;
+      RedisModuleString *keyRedisStr =
+          RedisModule_CreateString(NULL, dmd->keyPtr, sdslen(dmd->keyPtr));
+      dictAdd(t->tempDmdDict, keyRedisStr, dmd);
+      RedisModule_FreeString(NULL, keyRedisStr);
+      //      DocIdMap_Put(&t->dim, dmd->keyPtr, sdslen(dmd->keyPtr), dmd->id);
+      //      DocTable_Set(t, dmd->id, dmd);
+      //      t->memsize += sizeof(RSDocumentMetadata) + len;
     }
   }
-  t->size -= deletedElements;
 }
 
 DocIdMap NewDocIdMap() {

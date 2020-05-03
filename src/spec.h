@@ -61,6 +61,8 @@ static const char *SpecTypeNames[] = {[IXFLDPOS_FULLTEXT] = SPEC_TEXT_STR,
 // The threshold after which we move to a special encoding for wide fields
 #define SPEC_WIDEFIELD_THRESHOLD 32
 
+extern dict *specDict;
+
 typedef struct {
   size_t numDocuments;
   size_t numTerms;
@@ -107,11 +109,14 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
   (Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets | Index_StoreNumeric | \
    Index_WideSchema)
 
-#define INDEX_CURRENT_VERSION 15
+#define INDEX_CURRENT_VERSION 16
+#define INDEX_MIN_COMPAT_VERSION 16
 
 // Those versions contains doc table as array, we modified it to be array of linked lists
+// todo: decide if we need to keep this, currently I keep it if one day we will find a way to
+//       load old rdb versions
 #define INDEX_MIN_COMPACTED_DOCTABLE_VERSION 12
-#define INDEX_MIN_COMPAT_VERSION 2
+
 // Versions below this always store the frequency
 #define INDEX_MIN_NOFREQ_VERSION 6
 // Versions below this encode field ids as the actual value,
@@ -183,7 +188,7 @@ struct IndexSpec {
   long long maxPrefixExpansions;  // -1 unlimited
   RSGetValueCallback getValue;
   void *getValueCtx;
-  char **aliases; // Aliases to self-remove when the index is deleted
+  char **aliases;  // Aliases to self-remove when the index is deleted
   struct DocumentIndexer *indexer;
 };
 
@@ -289,7 +294,7 @@ void IndexSpec_StartGCFromSpec(IndexSpec *sp, float initialHZ, uint32_t gcPolicy
 IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryError *status);
 FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name);
 
-/** 
+/**
  * Indicate that the index spec should use an internal dictionary,rather than
  * the Redis keyspace
  */
@@ -362,6 +367,7 @@ char *IndexSpec_GetRandomTerm(IndexSpec *sp, size_t sampleSize);
  * and should be on the request's stack
  */
 void IndexSpec_Free(void *spec);
+void IndexSpec_FreeInternals(IndexSpec *spec);
 
 /**
  * Free the index synchronously. Any keys associated with the index (but not the
@@ -385,8 +391,8 @@ RedisModuleString *IndexSpec_GetFormattedKeyByName(IndexSpec *sp, const char *s,
 
 IndexSpec *NewIndexSpec(const char *name);
 int IndexSpec_AddField(IndexSpec *sp, FieldSpec *fs);
-void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver);
-void IndexSpec_RdbSave(RedisModuleIO *rdb, void *value);
+int IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, int when);
+void IndexSpec_RdbSave(RedisModuleIO *rdb, int when);
 void IndexSpec_Digest(RedisModuleDigest *digest, void *value);
 int IndexSpec_RegisterType(RedisModuleCtx *ctx);
 void IndexSpec_ClearAliases(IndexSpec *sp);

@@ -47,8 +47,6 @@ def testDelReplicate():
   env.assertTrue(slave.execute_command("ping"))
   env.assertOk(master.execute_command('ft.create', 'idx', 'schema', 'f', 'text'))
 
-  checkSlaveSynced(env, slave, ('exists', 'idx:idx'), 1, time_out=20)
-
   for i in range(10):
     master.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
                                       'f', 'hello world')

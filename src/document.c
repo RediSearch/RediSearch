@@ -245,7 +245,7 @@ void Document_Dump(const Document *doc) {
     printf("  [%lu]: %s => %s\n", ii, doc->fields[ii].name,
            RedisModule_StringPtrLen(doc->fields[ii].text, NULL));
   }
-} 
+}
 // LCOV_EXCL_STOP
 
 static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx);
@@ -335,7 +335,9 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
   }
 
   // Destroy the common fields:
-  Document_Free(&aCtx->doc);
+  if (!(aCtx->stateFlags && ACTX_F_NOFREEDOC)) {
+    Document_Free(&aCtx->doc);
+  }
 
   if (aCtx->sv) {
     SortingVector_Free(aCtx->sv);
@@ -447,7 +449,7 @@ FIELD_BULK_INDEXER(numericIndexer) {
     }
   }
   size_t sz = NumericRangeTree_Add(rt, aCtx->doc.docId, fdata->numeric);
-  ctx->spec->stats.invertedSize += sz; // TODO: exact amount
+  ctx->spec->stats.invertedSize += sz;  // TODO: exact amount
   ctx->spec->stats.numRecords++;
   return 0;
 }
@@ -620,7 +622,7 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
   if (QueryError_HasError(status)) {
     RSExpr_Free(e);
     return REDISMODULE_ERR;
-  } 
+  }
 
   RLookup lookup_s;
   RLookupRow row = {0};

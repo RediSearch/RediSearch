@@ -223,7 +223,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     ReplyWithStopWordsList(ctx, sp->stopwords);
     n += 2;
   }
-  
+
   RedisModule_ReplySetArrayLength(ctx, n);
   return REDISMODULE_OK;
 }
@@ -969,7 +969,11 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
     return REDISMODULE_ERR;
   }
 
+  specDict = dictCreate(&dictTypeHeapStrings, NULL);
+
   // register trie type
+  RM_TRY(DictRegister, ctx);
+
   RM_TRY(TrieType_Register, ctx);
 
   RM_TRY(IndexSpec_RegisterType, ctx);
@@ -1068,9 +1072,8 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   return REDISMODULE_OK;
 }
 
-
 void __attribute__((destructor)) RediSearch_CleanupModule(void) {
-  if (getenv("RS_GLOBAL_DTORS")) {   // used in sanitizer
+  if (getenv("RS_GLOBAL_DTORS")) {  // used in sanitizer
     static int invoked = 0;
     if (invoked || !RS_Initialized) {
       return;

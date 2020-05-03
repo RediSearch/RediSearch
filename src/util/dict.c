@@ -58,8 +58,9 @@ static uint64_t stringsHashFunction(const void *key){
 
 static uint64_t redisStringsHashFunction(const void *key){
   const RedisModuleString* keyStr = key;
-  const char* str = RedisModule_StringPtrLen(keyStr, NULL);
-  return stringsHashFunction(str);
+  size_t len;
+  const char* str = RedisModule_StringPtrLen(keyStr, &len);
+  return dictGenHashFunction(str, len);
 }
 
 static int stringsKeyCompare(void *privdata, const void *key1, const void *key2){

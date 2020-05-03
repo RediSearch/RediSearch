@@ -232,17 +232,13 @@ static bool SpellCheck_ReplyTermSuggestions(SpellCheckCtx *scCtx, char *term, si
   // searching the term on the exclude list, if its there we just return false
   // because there is no need to return suggestions on it.
   for (int i = 0; i < array_len(scCtx->excludeDict); ++i) {
-    RedisModuleKey *k = NULL;
-    Trie *t =
-        SpellCheck_OpenDict(scCtx->sctx->redisCtx, scCtx->excludeDict[i], REDISMODULE_READ, &k);
+    Trie *t = SpellCheck_OpenDict(scCtx->sctx->redisCtx, scCtx->excludeDict[i], REDISMODULE_READ);
     if (t == NULL) {
       continue;
     }
     if (SpellCheck_IsTermExistsInTrie(t, term, len, NULL)) {
-      RedisModule_CloseKey(k);
       return false;
     }
-    RedisModule_CloseKey(k);
   }
 
   RS_Suggestions *s = RS_SuggestionsCreate();
@@ -253,14 +249,11 @@ static bool SpellCheck_ReplyTermSuggestions(SpellCheckCtx *scCtx, char *term, si
 
   // searching the term on the include list for more suggestions.
   for (int i = 0; i < array_len(scCtx->includeDict); ++i) {
-    RedisModuleKey *k = NULL;
-    Trie *t =
-        SpellCheck_OpenDict(scCtx->sctx->redisCtx, scCtx->includeDict[i], REDISMODULE_READ, &k);
+    Trie *t = SpellCheck_OpenDict(scCtx->sctx->redisCtx, scCtx->includeDict[i], REDISMODULE_READ);
     if (t == NULL) {
       continue;
     }
     SpellCheck_FindSuggestions(scCtx, t, term, len, fieldMask, s, 0);
-    RedisModule_CloseKey(k);
   }
 
   SpellCheck_SendReplyOnTerm(scCtx->sctx->redisCtx, term, len, s,
@@ -273,15 +266,13 @@ static bool SpellCheck_ReplyTermSuggestions(SpellCheckCtx *scCtx, char *term, si
 
 static bool SpellCheck_CheckDictExistence(SpellCheckCtx *scCtx, const char *dict) {
 #define BUFF_SIZE 1000
-  RedisModuleKey *k = NULL;
-  Trie *t = SpellCheck_OpenDict(scCtx->sctx->redisCtx, dict, REDISMODULE_READ, &k);
+  Trie *t = SpellCheck_OpenDict(scCtx->sctx->redisCtx, dict, REDISMODULE_READ);
   if (t == NULL) {
     char buff[BUFF_SIZE];
     snprintf(buff, BUFF_SIZE, "Dict does not exist: %s", dict);
     RedisModule_ReplyWithError(scCtx->sctx->redisCtx, buff);
     return false;
   }
-  RedisModule_CloseKey(k);
   return true;
 }
 
