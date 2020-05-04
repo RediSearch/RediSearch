@@ -101,12 +101,16 @@ expr_err:
   return NULL;
 }
 
-static int parseAttrSettings(ArgsCursor *ac, SchemaAction *action, QueryError *err) {
-  const char *atype = AC_GetStringNC(ac, NULL);
-  if (!strcasecmp(atype, "SETATTRS")) {
+static int parseAttrSettings(ArgsCursor *ac, SchemaAction *action, const char *atype,
+                             QueryError *err) {
+  if (atype == NULL) {
+    atype = AC_GetStringNC(ac, NULL);
+  }
+  if (!strcasecmp(atype, "SETATTRS") || !strcasecmp(atype, "SETATTR")) {
     // pairwise name/value
     if (AC_NumRemaining(ac) % 2 != 0) {
       QueryError_SetError(err, QUERY_EPARSEARGS, "Attributes must be specified in key/value pairs");
+      return REDISMODULE_ERR;
     }
     const char *langstr = NULL;
     double score = 0;
@@ -119,6 +123,7 @@ static int parseAttrSettings(ArgsCursor *ac, SchemaAction *action, QueryError *e
     if (rc != AC_OK) {
       QueryError_SetErrorFmt(err, QUERY_EPARSEARGS, "Couldn't parse SETATTR arguments: %s",
                              AC_Strerror(rc));
+      return REDISMODULE_ERR;
     }
     struct SchemaSetattrSettings *setattr = &action->u.setattr;
     if (langstr) {
@@ -133,7 +138,7 @@ static int parseAttrSettings(ArgsCursor *ac, SchemaAction *action, QueryError *e
       setattr->mask |= SCATTR_TYPE_SCORE;
     }
     action->atype = SCACTION_TYPE_SETATTR;
-  } else if (!strcasecmp(atype, "LOADATTRS")) {
+  } else if (!strcasecmp(atype, "LOADATTRS") || !strcasecmp(atype, "LOADATTR")) {
     SchemaAttrFieldpack *lattr = action->u.lattr = rm_calloc(1, sizeof(*action->u.lattr));
     lattr->refcount = 1;
 
@@ -149,6 +154,7 @@ static int parseAttrSettings(ArgsCursor *ac, SchemaAction *action, QueryError *e
     if (rc != AC_OK) {
       QueryError_SetErrorFmt(err, QUERY_EPARSEARGS, "Couldn't parse SETATTR arguments: %s",
                              AC_Strerror(rc));
+      return REDISMODULE_ERR;
     }
 #define FROM_CSTR(s) s ? RedisModule_CreateString(RSDummyContext, s, strlen(s)) : NULL;
     lattr->lang = FROM_CSTR(langstr);
@@ -156,7 +162,8 @@ static int parseAttrSettings(ArgsCursor *ac, SchemaAction *action, QueryError *e
     lattr->payload = FROM_CSTR(payloadstr);
     action->atype = SCACTION_TYPE_LOADATTR;
   } else {
-    QueryError_SetErrorFmt(err, QUERY_EPARSEARGS, "Bad argument for INDEX", atype);
+    QueryError_SetErrorFmt(err, QUERY_EPARSEARGS, "Bad argument %s for INDEX", atype);
+    return REDISMODULE_ERR;
   }
   return REDISMODULE_OK;
 }
@@ -165,7 +172,7 @@ static int extractAction(const char *atype, SchemaAction *action, ArgsCursor *ac
   if (!strcasecmp(atype, "INDEX")) {
     action->atype = SCACTION_TYPE_INDEX;
     if (AC_NumRemaining(ac)) {
-      return parseAttrSettings(ac, action, err);
+      return parseAttrSettings(ac, action, NULL, err);
     }
   } else if (!strcasecmp(atype, "ABORT")) {
     action->atype = SCACTION_TYPE_ABORT;
@@ -177,8 +184,9 @@ static int extractAction(const char *atype, SchemaAction *action, ArgsCursor *ac
     }
     action->atype = SCACTION_TYPE_GOTO;
     action->u.goto_ = rm_strdup(target);
-  } else if (!strcasecmp(atype, "LOADATTR") || !strcasecmp(atype, "SETATTR")) {
-    return parseAttrSettings(ac, action, err);
+  } else if (!strcasecmp(atype, "LOADATTRS") || !strcasecmp(atype, "SETATTRS") ||
+             !strcasecmp(atype, "SETATTR") || !strcasecmp(atype, "LOADATTR")) {
+    return parseAttrSettings(ac, action, atype, err);
   } else {
     QueryError_SetErrorFmt(err, QUERY_EPARSEARGS, "Unknown action type `%s`", atype);
     return REDISMODULE_ERR;
