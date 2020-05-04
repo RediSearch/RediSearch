@@ -55,8 +55,6 @@ char *TagIndex_SepString(char sep, char **s, size_t *toklen) {
   return start;
 }
 
-char *strtolower(char *str);
-
 /* Preprocess a document tag field, returning a vector of all tags split from the content */
 char **TagIndex_Preprocess(char sep, TagFieldFlags flags, const DocumentField *data) {
   size_t sz;

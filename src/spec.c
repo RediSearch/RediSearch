@@ -199,15 +199,6 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
   return sp;
 }
 
-char *strtolower(char *str) {
-  char *p = str;
-  while (*p) {
-    *p = tolower(*p);
-    p++;
-  }
-  return str;
-}
-
 static bool checkPhoneticAlgorithmAndLang(const char *matcher) {
   if (strlen(matcher) != 5) {
     return false;
