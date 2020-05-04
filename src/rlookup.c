@@ -465,8 +465,8 @@ RSValue *RLookup_GetItem(const RLookupKey *key, const RLookupRow *row) {
   if (row->rmkey && (key->flags & RLOOKUP_F_DOCSRC)) {
     RLookupLoadOptions lopts = {.noSortables = 1};
     getKeyCommon(key, row, &lopts, &row->rmkey);
-    if (!row->dyn[key->dstidx]) {
-      ((RLookupRow *)row)->dyn[key->dstidx] = emptyValue;
+    if (row->dyn == NULL || row->dyn[key->dstidx] == NULL) {
+      RLookup_WriteOwnKey(key, row, emptyValue);
     }
     return RLookup_GetItem(key, row);
   }
