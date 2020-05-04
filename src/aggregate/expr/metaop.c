@@ -22,7 +22,7 @@ static int createHasfieldProp(RSExprMeta *meta, RSArgList *args, QueryError *err
 
 static int createHasPrefixProp(RSExprMeta *meta, RSArgList *args, QueryError *err) {
   if (args->len != 1) {
-    QueryError_SetError(err, QUERY_EPARSEARGS, "hasfield needs one argument");
+    QueryError_SetError(err, QUERY_EPARSEARGS, "hasprefix needs one argument");
     return REDISMODULE_ERR;
   }
   RSValue v = {{0}};
