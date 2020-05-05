@@ -82,11 +82,14 @@ int AC_GetLongLong(ArgsCursor *ac, long long *ll, int flags) {
     return AC_ERR_PARSE;
   }
 
+  // Do validation
   if ((flags & AC_F_GE0) && tmpll < 0) {
     return AC_ERR_ELIMIT;
   }
-  // Do validation
   if ((flags & AC_F_GE1) && tmpll < 1) {
+    return AC_ERR_ELIMIT;
+  }
+  if ((flags & AC_F_0TO1) && (tmpll < 0 || tmpll > 1)) {
     return AC_ERR_ELIMIT;
   }
   MAYBE_ADVANCE();
@@ -136,6 +139,9 @@ int AC_GetDouble(ArgsCursor *ac, double *d, int flags) {
     return AC_ERR_ELIMIT;
   }
   if ((flags & AC_F_GE1) && tmpd < 1.0) {
+    return AC_ERR_ELIMIT;
+  }
+  if ((flags & AC_F_0TO1) && (tmpd < 0.0 || tmpd > 1.0)) {
     return AC_ERR_ELIMIT;
   }
   MAYBE_ADVANCE();

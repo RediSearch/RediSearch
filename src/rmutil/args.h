@@ -66,6 +66,7 @@ typedef enum {
 #define AC_F_GE0 0x200        // Must be >= 0 (no negative)
 #define AC_F_NOADVANCE 0x400  // Don't advance cursor position
 #define AC_F_COALESCE 0x800   // Coalesce non-integral input
+#define AC_F_0TO1 0x1000      // Must be >=0 and <=1
 
 // These functions return AC_OK or an error code on error. Note that the
 // output value is not guaranteed to remain untouched in the case of an error

@@ -116,7 +116,7 @@ static int parseAttrSettings(ArgsCursor *ac, SchemaAction *action, const char *a
     double score = 0;
     ACArgSpec specs[] = {
         {.name = "LANGUAGE", .target = &langstr, .type = AC_ARGTYPE_STRING},
-        {.name = "SCORE", .target = &score, .type = AC_ARGTYPE_DOUBLE, .intflags = AC_F_GE0},
+        {.name = "SCORE", .target = &score, .type = AC_ARGTYPE_DOUBLE, .intflags = AC_F_0TO1},
         {NULL}};
     ACArgSpec *errspec = NULL;
     int rc = AC_ParseArgSpec(ac, specs, &errspec);
