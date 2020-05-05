@@ -209,8 +209,7 @@ def testSynonymsForceUpdate(env):
 def testSynonymsLowerCase(env):
     env.expect('FT.CREATE lowcase schema foo text').ok()
     env.expect('FT.SYNADD lowcase HELLO SHALOM AHALAN').equal(0)
-    env.expect('FT.SYNADD lowcase hello shalom ahalan').equal(1)
-    env.expect('FT.SYNDUMP lowcase').equal(['hello', [0L, 1L], 'shalom', [0L, 1L], 'ahalan', [0L, 1L]])
+    env.expect('FT.SYNDUMP lowcase').equal(['hello', [0L], 'shalom', [0L], 'ahalan', [0L]])
     env.expect('FT.ADD lowcase doc1 1 FIELDS foo hello').ok()
     env.expect('FT.ADD lowcase doc2 1 FIELDS foo HELLO').ok()
     res = [2L, 'doc2', ['foo', 'HELLO'], 'doc1', ['foo', 'hello']]
