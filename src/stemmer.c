@@ -2,7 +2,6 @@
 #include <string.h>
 #include <stdio.h>
 #include <sys/param.h>
-#include <assert.h>
 #include "dep/snowball/include/libstemmer.h"
 #include "rmalloc.h"
 

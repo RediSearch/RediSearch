@@ -2,6 +2,7 @@
 #include "stemmer.h"
 #include "rmalloc.h"
 #include "module.h"
+#include "rmutil/rm_assert.h"
 
 void Document_Init(Document *doc, RedisModuleString *docKey, double score, RSLanguage lang) {
   doc->docKey = docKey;
@@ -37,7 +38,7 @@ void Document_AddField(Document *d, const char *fieldname, RedisModuleString *fi
 
 void Document_AddFieldC(Document *d, const char *fieldname, const char *val, size_t vallen,
                         uint32_t typemask) {
-  assert(d->flags & DOCUMENT_F_OWNSTRINGS);
+  RS_LOG_ASSERT(d->flags & DOCUMENT_F_OWNSTRINGS, "Document should own strings");
   DocumentField *f = addFieldCommon(d, fieldname, typemask);
   f->text = RedisModule_CreateString(RSDummyContext, val, vallen);
 }
@@ -239,7 +240,7 @@ int Redis_SaveDocument(RedisSearchCtx *ctx, Document *doc, int options, QueryErr
 }
 
 int Document_ReplyFields(RedisModuleCtx *ctx, Document *doc) {
-  assert(doc);
+  RS_LOG_ASSERT(doc, "doc is NULL");
   RedisModule_ReplyWithArray(ctx, doc->numFields * 2);
   for (size_t j = 0; j < doc->numFields; ++j) {
     RedisModule_ReplyWithStringBuffer(ctx, doc->fields[j].name, strlen(doc->fields[j].name));

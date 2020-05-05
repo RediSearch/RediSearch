@@ -3,6 +3,7 @@
 #include "extension.h"
 #include <util/minmax_heap.h>
 #include "ext/default.h"
+#include "rmutil/rm_assert.h"
 
 /*******************************************************************************************************************
  *  General Result Processor Helper functions
@@ -585,6 +586,6 @@ ResultProcessor *RPLoader_New(RLookup *lk, const RLookupKey **keys, size_t nkeys
 void RP_DumpChain(const ResultProcessor *rp) {
   for (; rp; rp = rp->upstream) {
     printf("RP(%s) @%p\n", rp->name, rp);
-    assert(rp->upstream != rp);
+    RS_LOG_ASSERT(rp->upstream != rp, "ResultProcessor should be different then upstream");
   }
 }
