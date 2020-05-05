@@ -158,7 +158,7 @@ static const int query_start = 8;
 static const int query_first_final = 8;
 static const int query_error = -1;
 
-static const int query_en_main = 6;
+static const int query_en_main = 8;
 
 
 /* #line 239 "lexer.rl" */
