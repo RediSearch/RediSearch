@@ -24,7 +24,7 @@ void RSQuery_ParseFree(void *p, void (*freeProc)(void *));
 machine query;
 
 inf = ['+\-']? 'inf' $ 3;
-number = '-'? digit+('.' digit+)? $ 2;
+number = '-'? digit+('.' digit+)? (('E'|'e') '-'? digit+)? $ 2;
 
 quote = '"';
 or = '|';
