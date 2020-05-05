@@ -129,12 +129,12 @@ void SynonymMap_Update(SynonymMap* smap, const char** synonyms, size_t size, uin
   RS_LOG_ASSERT(!smap->is_read_only, "SynonymMap should not be read only");
   int ret;
   for (size_t i = 0; i < size; i++) {
-    synonyms[i] = strtolower(rm_strdup(synonyms[i]));
+    char *syn_str = strtolower(rm_strdup(synonyms[i]));
     khiter_t k =
-        kh_get(SynMapKhid, smap->h_table, calculate_hash(synonyms[i], strlen(synonyms[i])));
+        kh_get(SynMapKhid, smap->h_table, calculate_hash(syn_str, strlen(syn_str)));
     if (k == kh_end(smap->h_table)) {
-      k = kh_put(SynMapKhid, smap->h_table, calculate_hash(synonyms[i], strlen(synonyms[i])), &ret);
-      kh_value(smap->h_table, k) = TermData_New(synonyms[i]);
+      k = kh_put(SynMapKhid, smap->h_table, calculate_hash(syn_str, strlen(syn_str)), &ret);
+      kh_value(smap->h_table, k) = TermData_New(syn_str);
     }
     TermData_AddId(kh_value(smap->h_table, k), id);
   }
