@@ -118,21 +118,21 @@ def testSetAttributes(env):
     env.expect('ft.ruleadd idx score HASFIELD name SETATTR SCORE 1').ok()
     env.cmd('hset setAttr1 f1 scoreAttr name rule')
     env.cmd('hset setAttr2 f1 \"longer string scoreAttr\" name rule')
-    env.expect('ft.search idx scoreAttr WITHSCORES').equal([1L, 'setAttr1', '0', ['f1', 'scoreAttr', 'name', 'rule']])
-    correct .equal([1L, 'setAttr1', '1', ['f1', 'scoreAttr', 'name', 'rule']])
+    env.expect('ft.search idx scoreAttr WITHSCORES') \
+        .equal([1L, 'setAttr1', '1', ['f1', 'scoreAttr', 'name', 'rule']])
 
     # test language
     # TODO: how?
 
-def testSetAttributes(env):
+def testLoadAttributes(env):
     # test score
     env.expect('ft.create idx SCHEMA f1 text').ok()
     env.expect('ft.ruleadd idx score HASFIELD name LOADATTR SCORE score').ok()
     env.cmd('hset setAttr1 f1 scoreAttr name rule score 1')
     env.cmd('hset setAttr2 f1 scoreAttr name rule score .5')
-    info_1 = utils.to_dict(env.cmd('ft.debug', 'docinfo', 'idx', 'setAttr1'))
+    info_1 = utils.to_dict(env.cmd('ft.debug docinfo idx setAttr1'))
     env.assertEqual('1', info_1['score'])
-    info_2 = utils.to_dict(env.cmd('ft.debug', 'docinfo', 'idx', 'setAttr2'))
+    info_2 = utils.to_dict(env.cmd('ft.debug docinfo idx setAttr2'))
     env.assertEqual('0.5', info_2['score'])
 
     # test language
@@ -142,15 +142,13 @@ def testAttributeError(env):
     env.expect('ft.create idx SCHEMA f1 text').ok()
     env.expect('ft.ruleadd idx score HASFIELD name SETATTR SCORE').error().equal("Attributes must be specified in key/value pairs")
     env.expect('ft.ruleadd idx score HASFIELD name SETATTR SCORE -1').error()
-    env.expect('ft.ruleadd idx score HASFIELD name SETATTR SCORE 2').ok()
+    env.expect('ft.ruleadd idx score HASFIELD name SETATTR SCORE 2').error()
     env.expect('ft.ruleadd idx score HASFIELD name SETATTR LANGUAGE').error()
     env.expect('ft.ruleadd idx score HASFIELD name SETATTR LANGUAGE hebrew').error()
 
+    # field name doesn't matter. holds value
     env.expect('ft.ruleadd idx score HASFIELD name LOADATTR SCORE').error()
-    env.expect('ft.ruleadd idx score HASFIELD name LOADATTR SCORE -1').ok()
-    env.expect('ft.ruleadd idx score HASFIELD name LOADATTR SCORE 2').ok()
     env.expect('ft.ruleadd idx score HASFIELD name LOADATTR LANGUAGE').error()
-    env.expect('ft.ruleadd idx score HASFIELD name LOADATTR LANGUAGE hebrew')
 
 def testInvalidType(env):
     env.cmd('set doc1 bar')
