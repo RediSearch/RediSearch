@@ -334,7 +334,6 @@ OK or an error.
 FT.ALIASADD {name} {index}
 FT.ALIASUPDATE {name} {index}
 FT.ALIASDEL {name}
-FT.ALTER {index} ALIAS DEL {alias}
 ```
 
 The `FT.ALIASADD` and `FT.ALIASDEL` commands will add or remove an alias from
