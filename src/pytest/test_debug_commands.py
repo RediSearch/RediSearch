@@ -18,7 +18,6 @@ class TestDebugCommands(object):
         self.env.expect('FT.DEBUG', 'unknown').raiseError().equal('subcommand was not found')
 
     def testDebugHelp(self):
-        self.env.skipOnCluster()
         err_msg = "wrong number of arguments for 'FT.DEBUG' command"
         help_list = ['DUMP_INVIDX', 'DUMP_NUMIDX', 'DUMP_TAGIDX', 'INFO_TAGIDX', 'IDTODOCID', 'DOCIDTOID', 'DOCINFO',
                     'DUMP_PHONETIC_HASH', 'DUMP_TERMS', 'INVIDX_SUMMARY', 'NUMIDX_SUMMARY',
@@ -62,7 +61,6 @@ class TestDebugCommands(object):
         self.env.expect('FT.DEBUG', 'dump_numidx', 'idx1', 'age').raiseError()
 
     def testDumpNumericIndexInvalidKeyType(self):
-        self.env.skipOnCluster()
         self.env.expect('FT.DEBUG', 'dump_numidx', 'foo', 'age').raiseError()
 
     def testDumpTagIndex(self):
@@ -191,7 +189,6 @@ class TestDebugCommandsLogAssert(object):
 
     def __init__(self):
         self.env = Env(testName="testing LogAssert command")
-        self.env.skipOnCluster()
         self.skipOnRedisVersion("5.0.7")
 
     def testLogAssert(self):
