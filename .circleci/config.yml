@@ -32,7 +32,7 @@ commands:
 jobs:
   ubuntu:
     docker:
-      - image: 'redisfab/rmbuilder:6.0-rc3-x64-buster'
+      - image: 'redisfab/rmbuilder:6.0.1-x64-buster'
     environment:
       - BUILD_DIR: build-debian
     steps:
@@ -64,7 +64,7 @@ jobs:
 
   deploy_snapshots:
     docker:
-      - image: 'redisfab/rmbuilder:6.0-rc3-x64-buster'
+      - image: 'redisfab/rmbuilder:6.0.1-x64-buster'
     steps:
       - attach_workspace:
           at: ~/workspace
@@ -95,7 +95,7 @@ jobs:
 
   coverage:
     docker:
-      - image: redisfab/rmbuilder:6.0-rc3-x64-buster
+      - image: redisfab/rmbuilder:6.0.1-x64-buster
     steps:
       - checkout
       - run:
@@ -107,7 +107,7 @@ jobs:
 
   deploy_release:
     docker:
-      - image: 'redisfab/rmbuilder:6.0-rc3-x64-buster'
+      - image: 'redisfab/rmbuilder:6.0.1-x64-buster'
     steps:
       - attach_workspace:
           at: ~/workspace
