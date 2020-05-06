@@ -16,8 +16,8 @@ FOREACH(n ${PY_TEST_FILES})
         COMMAND ${baseCommand} "-t" "${n}"
         WORKING_DIRECTORY ${PROJECT_BINARY_DIR})
 
-    ADD_TEST(NAME "PY_${test_name}_SAFEMODE"
-        COMMAND ${baseCommand} "-t" "${n}" "--module-args=SAFEMODE"
+    ADD_TEST(NAME "PY_${test_name}_CONCURRENT_WRITE_MODE"
+        COMMAND ${baseCommand} "-t" "${n}" "--module-args=CONCURRENT_WRITE_MODE"
         WORKING_DIRECTORY ${PROJECT_BINARY_DIR})
 
     ADD_TEST(NAME "PY_${test_name}_legacygc"
