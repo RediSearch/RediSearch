@@ -50,7 +50,7 @@ distdir=$DISTDIR/$subdir
 mkdir -p $distdir
 outname_base=$distdir/$PACKAGE_NAME.$format
 echo "Old outname base: $outname_base"
-outname_base=$(ramp pack -m ${RAMP_YML} -o $outname_base --print-filename-only ${RAMP_ARGS} $MODULE_SO)
+outname_base=$(python -m RAMP.ramp pack -m ${RAMP_YML} -o $outname_base --print-filename-only ${RAMP_ARGS} $MODULE_SO)
 echo "Output is $outname_base"
 python -m RAMP.ramp pack -m ${RAMP_YML} -o $outname_base.zip $MODULE_SO
 return 0
