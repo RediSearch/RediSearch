@@ -135,6 +135,8 @@ void SynonymMap_Update(SynonymMap* smap, const char** synonyms, size_t size, uin
     if (k == kh_end(smap->h_table)) {
       k = kh_put(SynMapKhid, smap->h_table, calculate_hash(syn_str, strlen(syn_str)), &ret);
       kh_value(smap->h_table, k) = TermData_New(syn_str);
+    } else {
+      rm_free(syn_str);
     }
     TermData_AddId(kh_value(smap->h_table, k), id);
   }
