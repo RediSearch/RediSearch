@@ -53,8 +53,8 @@ typedef struct rtNode {
 } NumericRangeNode;
 
 typedef struct {
-  size_t sz;
-  int changed;
+  uint32_t sz;
+  uint32_t changed;
 } NRN_AddRv;
 
 typedef struct {
@@ -109,7 +109,7 @@ void NumericRangeNode_Free(NumericRangeNode *n);
 NumericRangeTree *NewNumericRangeTree();
 
 /* Add a value to a tree. Returns 0 if no nodes were split, 1 if we splitted nodes */
-int NumericRangeTree_Add(NumericRangeTree *t, t_docId docId, double value);
+size_t NumericRangeTree_Add(NumericRangeTree *t, t_docId docId, double value);
 
 /* Recursively find all the leaves under tree's root, that correspond to a given min-max range.
  * Returns a vector with range node pointers. */
