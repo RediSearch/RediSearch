@@ -106,7 +106,7 @@ def testArgsError(env):
     env.expect('ft.ruleadd idx hasFieldRule *').error().equal(error_msg)
     env.expect('ft.ruleadd idx useExprPrefix EXPR').error().equal(error_msg)
 
-    env.expect('ft.ruleadd idx errorRule MADEUP rule').error().equal('No such match type `MADEUP`\n')
+    env.expect('ft.ruleadd idx errorRule MADEUP rule').error().equal('No such match type `MADEUP`')
     env.expect('ft.ruleadd idx errorRule EXPR').error().equal(error_msg)
     env.expect('ft.ruleadd idx errorRule EXPR hasfield()').error().equal('hasfield needs one argument')
     # hasfield -> hasprefix
@@ -118,8 +118,9 @@ def testSetAttributes(env):
     env.expect('ft.create idx SCHEMA f1 text').ok()
     env.expect('ft.ruleadd idx score HASFIELD name SETATTR SCORE 1').ok()
     env.cmd('hset setAttr1 f1 scoreAttr name rule')
-    env.expect('ft.search idx scoreAttr WITHSCORES') \
-    #    .equal([1L, 'setAttr1', '1', ['f1', 'scoreAttr', 'name', 'rule']])
+    env.cmd('hset setAttr2 f1 \"longer string scoreAttr\" name rule')
+    info = utils.to_dict(env.cmd('ft.debug', 'docinfo', 'idx', 'setAttr1'))
+    env.assertEqual('1', info['score'])
 
     # test language
     # TODO: how?
@@ -133,7 +134,7 @@ def testLoadAttributes(env):
     info_1 = utils.to_dict(env.cmd('ft.debug docinfo idx setAttr1'))
     env.assertEqual('1', info_1['score'])
     info_2 = utils.to_dict(env.cmd('ft.debug docinfo idx setAttr2'))
-    #env.assertEqual('0.5', info_2['score'])
+    env.assertEqual('0.5', info_2['score'])
 
     # test language
     # TODO

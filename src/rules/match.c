@@ -351,7 +351,7 @@ int SchemaRules_AddArgsInternal(SchemaRules *rules, IndexSpec *spec, const char 
   } else if (!strcasecmp(rtype, "*")) {
     r = parseWildcardRule(ac, err);
   } else {
-    QueryError_SetErrorFmt(err, QUERY_ENOOPTION, "No such match type `%s`\n", rtype);
+    QueryError_SetErrorFmt(err, QUERY_ENOOPTION, "No such match type `%s`", rtype);
     return REDISMODULE_ERR;
   }
 
@@ -460,8 +460,10 @@ int SchemaRules_Check(SchemaRules *rules, RedisModuleCtx *ctx, RuleKeyItem *item
       if (mask & SCATTR_TYPE_SCORE) {
         curAction->attrs.score = attr->score;
       }
+      curAction->attrs.predefMask = mask;
     } else if (rule->action.atype == SCACTION_TYPE_LOADATTR) {
       SchemaAttrFieldpack *fp = rule->action.u.lattr;
+      SCAttrFields_Incref(fp);
       curAction->attrs.fp = fp;
     }
   next_rule:;
