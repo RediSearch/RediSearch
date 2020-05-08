@@ -75,6 +75,7 @@ static void loadAttrFields(RuleKeyItem *item, const IndexItemAttrs *iia, Documen
       } else {
         // send warning about bad score
       }
+      RedisModule_FreeString(RSDummyContext, scorestr);
     }
   }
   if (fp->payload) {
@@ -84,6 +85,7 @@ static void loadAttrFields(RuleKeyItem *item, const IndexItemAttrs *iia, Documen
       size_t len;
       const char *buf = RedisModule_StringPtrLen(payload, &len);
       Document_SetPayload(d, buf, len);
+      RedisModule_FreeString(RSDummyContext, payload);
     }
   }
 }
@@ -371,13 +373,16 @@ int SchemaRules_AddArgs(const char *index, const char *name, ArgsCursor *ac, Que
       QueryError_SetErrorFmt(err, QUERY_ENOINDEX, "No such index %s", index);
       return REDISMODULE_ERR;
     }
+    if (!(sp->flags & Index_UseRules)) {
+      QueryError_SetError(err, QUERY_EBADATTR, "Index not declared with rules");
+      return REDISMODULE_ERR;
+    }
   }
   int rc = SchemaRules_AddArgsInternal(SchemaRules_g, sp, name, ac, err);
   if (rc == REDISMODULE_OK) {
     SchemaRules_g->revision++;
     SchemaRules_StartScan(0);
   }
-  SchemaRules_RegisterIndex(sp);
   return rc;
 }
 

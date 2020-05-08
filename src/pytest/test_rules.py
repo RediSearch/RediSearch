@@ -52,7 +52,7 @@ def testPersistence(env):
     env.assertEqual([1L, 'doc1', ['f1', 'hello world']], rv)
 
 def testAddRule(env):
-    env.expect('ft.create idx SCHEMA f1 text').ok()
+    env.expect('ft.create idx WITHRULES SCHEMA f1 text').ok()
 
     #PREFIX
     env.expect('ft.ruleadd idx prefixRule PREFIX user:').ok()
@@ -115,7 +115,7 @@ def testArgsError(env):
 
 def testSetAttributes(env):
     # test score
-    env.expect('ft.create idx SCHEMA f1 text').ok()
+    env.expect('ft.create idx WITHRULES SCHEMA f1 text').ok()
     env.expect('ft.ruleadd idx score HASFIELD name SETATTR SCORE 1').ok()
     env.cmd('hset setAttr1 f1 scoreAttr name rule')
     env.cmd('hset setAttr2 f1 \"longer string scoreAttr\" name rule')
@@ -127,7 +127,7 @@ def testSetAttributes(env):
 
 def testLoadAttributes(env):
     # test score
-    env.expect('ft.create idx SCHEMA f1 text').ok()
+    env.expect('ft.create idx WITHRULES SCHEMA f1 text').ok()
     env.expect('ft.ruleadd idx score HASFIELD name LOADATTR SCORE score').ok()
     env.cmd('hset setAttr1 f1 scoreAttr name rule score 1')
     env.cmd('hset setAttr2 f1 scoreAttr name rule score .5')
@@ -140,7 +140,7 @@ def testLoadAttributes(env):
     # TODO
 
 def testAttributeError(env):
-    env.expect('ft.create idx SCHEMA f1 text').ok()
+    env.expect('ft.create idx WITHRULES SCHEMA f1 text').ok()
     env.expect('ft.ruleadd idx score HASFIELD name SETATTR SCORE').error().equal("Attributes must be specified in key/value pairs")
     env.expect('ft.ruleadd idx score HASFIELD name SETATTR SCORE -1').error()
     env.expect('ft.ruleadd idx score HASFIELD name SETATTR SCORE 2').error()
@@ -153,7 +153,7 @@ def testAttributeError(env):
 
 def testInvalidType(env):
     env.cmd('set doc1 bar')
-    env.expect('ft.create idx SCHEMA foo text').ok()
+    env.expect('ft.create idx WITHRULES SCHEMA foo text').ok()
     env.expect('ft.ruleadd idx hasFieldRule HASFIELD baz').ok()
     env.expect('hset doc1 foo bar baz xyz').error() \
             .equal('WRONGTYPE Operation against a key holding the wrong kind of value')
