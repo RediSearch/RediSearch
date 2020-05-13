@@ -1,8 +1,12 @@
 #ifndef SRC_DICTIONARY_H_
 #define SRC_DICTIONARY_H_
 
-#define DICT_KEY_PREFIX "dict:"
+#ifdef FORCE_CROS_SLOT_VALIDATION
 #define DICT_KEY_FMT DICT_KEY_PREFIX "%s"
+#else
+#define DICT_KEY_FMT DICT_KEY_PREFIX "dict:%s"
+#endif
+
 
 #include "trie/trie_type.h"
 
