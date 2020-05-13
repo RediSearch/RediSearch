@@ -97,7 +97,12 @@ typedef struct {
   TrieMap *values;
 } TagIndex;
 
+#ifdef FORCE_CROS_SLOT_VALIDATION
+#define TAG_INDEX_KEY_FMT "tag:{%s}/%s"
+#else
 #define TAG_INDEX_KEY_FMT "tag:%s/%s"
+#endif
+
 /* Format the key name for a tag index */
 RedisModuleString *TagIndex_FormatName(RedisSearchCtx *sctx, const char *field);
 
