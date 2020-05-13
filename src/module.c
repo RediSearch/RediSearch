@@ -1065,18 +1065,24 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   RM_TRY(RedisModule_CreateCommand, ctx, RS_CONFIG, ConfigCommand, "readonly", 1, 1, 1);
 
 #ifdef FORCE_CROS_SLOT_VALIDATION
-  // we are running in a normal mode so we should raise cross slot error on alias commands
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASADD, AliasAddCommand, "readonly", 1, 2, 1);
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASUPDATE, AliasUpdateCommand, "readonly", 1, 2, 1);
-
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASDEL, AliasDelCommand, "readonly", 1, 1, 1);
+#define ALIAS_ADD_UPDATE_FIRST_KEY 1
+#define ALIAS_ADD_UPDATE_LAST_KEY 2
+#define ALIAS_ADD_UPDATE_STEPS 1
+#define ALIAS_DEL_FIRST_KEY 1
+#define ALIAS_DEL_LAST_KEY 1
+#define ALIAS_DEL_STEPS 1
 #else
-  // Cluster is manage outside of module lets trust it and not raise cross slot error.
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASADD, AliasAddCommand, "readonly", 2, 2, 1);
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASUPDATE, AliasUpdateCommand, "readonly", 2, 2, 1);
-
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASDEL, AliasDelCommand, "readonly", 0, 0, -1);
+#define ALIAS_ADD_UPDATE_FIRST_KEY 2
+#define ALIAS_ADD_UPDATE_LAST_KEY 2
+#define ALIAS_ADD_UPDATE_STEPS 1
+#define ALIAS_DEL_FIRST_KEY 0
+#define ALIAS_DEL_LAST_KEY 0
+#define ALIAS_DEL_STEPS -1
 #endif
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASADD, AliasAddCommand, "readonly", ALIAS_ADD_UPDATE_FIRST_KEY, ALIAS_ADD_UPDATE_LAST_KEY, ALIAS_ADD_UPDATE_STEPS);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASUPDATE, AliasUpdateCommand, "readonly", ALIAS_ADD_UPDATE_FIRST_KEY, ALIAS_ADD_UPDATE_LAST_KEY, ALIAS_ADD_UPDATE_STEPS);
+
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASDEL, AliasDelCommand, "readonly", ALIAS_DEL_FIRST_KEY, ALIAS_DEL_LAST_KEY, ALIAS_DEL_STEPS);
   return REDISMODULE_OK;
 }
 
