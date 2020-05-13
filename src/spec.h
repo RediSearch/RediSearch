@@ -53,7 +53,11 @@ static const char *SpecTypeNames[] = {[IXFLDPOS_FULLTEXT] = SPEC_TEXT_STR,
                                       [IXFLDPOS_TAG] = SPEC_TAG_STR};
 
 #define INDEX_SPEC_KEY_PREFIX "idx:"
+#ifdef FORCE_CROS_SLOT_VALIDATION
 #define INDEX_SPEC_KEY_FMT INDEX_SPEC_KEY_PREFIX "{%s}"
+#else
+#define INDEX_SPEC_KEY_FMT INDEX_SPEC_KEY_PREFIX "%s"
+#endif
 #define INDEX_SPEC_ALIASES "$idx:aliases$"
 
 #define SPEC_MAX_FIELDS 1024
