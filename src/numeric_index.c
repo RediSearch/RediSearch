@@ -389,7 +389,11 @@ IndexIterator *createNumericIterator(const IndexSpec *sp, NumericRangeTree *t,
 }
 
 RedisModuleType *NumericIndexType = NULL;
+#ifdef FORCE_CROS_SLOT_VALIDATION
+#define NUMERICINDEX_KEY_FMT "nm:{%s}/%s"
+#else
 #define NUMERICINDEX_KEY_FMT "nm:%s/%s"
+#endif
 
 RedisModuleString *fmtRedisNumericIndexKey(RedisSearchCtx *ctx, const char *field) {
   return RedisModule_CreateStringPrintf(ctx->redisCtx, NUMERICINDEX_KEY_FMT, ctx->spec->name,

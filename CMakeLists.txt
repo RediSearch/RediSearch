@@ -14,9 +14,14 @@ OPTION(USE_MSAN "Use MemorySanitizer (clang)" OFF)
 OPTION(USE_TSAN "Use ThreadSanitizer (clang)" OFF)
 OPTION(USE_REDIS_ALLOCATOR "Use redis allocator" ON)
 OPTION(USE_COVERAGE "Build with coverage" OFF)
+OPTION(FORCE_CROS_SLOT "Build with cross slot validation" OFF)
 
 IF (RS_MODULE_NAME) 
     ADD_DEFINITIONS("-DREDISEARCH_MODULE_NAME=\"${RS_MODULE_NAME}\"")
+ENDIF()
+
+IF (FORCE_CROS_SLOT)
+    ADD_DEFINITIONS("-DFORCE_CROS_SLOT_VALIDATION")
 ENDIF()
 
 INCLUDE(cmake/redisearch_cflags.cmake)

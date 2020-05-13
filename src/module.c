@@ -980,29 +980,41 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   RM_TRY(NumericIndexType_Register, ctx);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_ADD_CMD, RSAddDocumentCommand, "write deny-oom", 1, 1,
+#ifdef FORCE_CROS_SLOT_VALIDATION
+#define FIRST_KEY 1
+#define LAST_KEY 2
+#else
+#define FIRST_KEY 1
+#define LAST_KEY 1
+#endif
+
+
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_ADD_CMD, RSAddDocumentCommand, "write deny-oom", FIRST_KEY, LAST_KEY,
          1);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_SAFEADD_CMD, RSSafeAddDocumentCommand, "write deny-oom",
-         1, 1, 1);
+      FIRST_KEY, LAST_KEY, 1);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_SETPAYLOAD_CMD, SetPayloadCommand, "write deny-oom", 1,
-         1, 1);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_SETPAYLOAD_CMD, SetPayloadCommand, "write deny-oom", FIRST_KEY, LAST_KEY, 1);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_ADDHASH_CMD, RSAddHashCommand, "write deny-oom", 1, 1,
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_ADDHASH_CMD, RSAddHashCommand, "write deny-oom", FIRST_KEY, LAST_KEY,
          1);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_SAFEADDHASH_CMD, RSSafeAddHashCommand, "write deny-oom",
-         1, 1, 1);
+      FIRST_KEY, LAST_KEY, 1);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_DEL_CMD, DeleteCommand, "write", 1, 1, 1);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_DEL_CMD, DeleteCommand, "write", FIRST_KEY, LAST_KEY, 1);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_SEARCH_CMD, RSSearchCommand, "readonly", 1, 1, 1);
   RM_TRY(RedisModule_CreateCommand, ctx, RS_AGGREGATE_CMD, RSAggregateCommand, "readonly", 1, 1, 1);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_GET_CMD, GetSingleDocumentCommand, "readonly", 1, 1, 1);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_GET_CMD, GetSingleDocumentCommand, "readonly", FIRST_KEY, LAST_KEY, 1);
 
+#ifdef FORCE_CROS_SLOT_VALIDATION
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_MGET_CMD, GetDocumentsCommand, "readonly", 1, -1, 1);
+#else
   RM_TRY(RedisModule_CreateCommand, ctx, RS_MGET_CMD, GetDocumentsCommand, "readonly", 0, 0, -1);
+#endif
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_CREATE_CMD, CreateIndexCommand, "write deny-oom", 1, 1,
          1);
@@ -1052,19 +1064,25 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_CONFIG, ConfigCommand, "readonly", 1, 1, 1);
 
-#ifndef RS_COORDINATOR
-  // we are running in a normal mode so we should raise cross slot error on alias commands
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASADD, AliasAddCommand, "readonly", 1, 2, 1);
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASUPDATE, AliasUpdateCommand, "readonly", 1, 2, 1);
-
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASDEL, AliasDelCommand, "readonly", 1, 1, 1);
+#ifdef FORCE_CROS_SLOT_VALIDATION
+#define ALIAS_ADD_UPDATE_FIRST_KEY 1
+#define ALIAS_ADD_UPDATE_LAST_KEY 2
+#define ALIAS_ADD_UPDATE_STEPS 1
+#define ALIAS_DEL_FIRST_KEY 1
+#define ALIAS_DEL_LAST_KEY 1
+#define ALIAS_DEL_STEPS 1
 #else
-  // Cluster is manage outside of module lets trust it and not raise cross slot error.
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASADD, AliasAddCommand, "readonly", 2, 2, 1);
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASUPDATE, AliasUpdateCommand, "readonly", 2, 2, 1);
-
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASDEL, AliasDelCommand, "readonly", 0, 0, -1);
+#define ALIAS_ADD_UPDATE_FIRST_KEY 2
+#define ALIAS_ADD_UPDATE_LAST_KEY 2
+#define ALIAS_ADD_UPDATE_STEPS 1
+#define ALIAS_DEL_FIRST_KEY 0
+#define ALIAS_DEL_LAST_KEY 0
+#define ALIAS_DEL_STEPS -1
 #endif
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASADD, AliasAddCommand, "readonly", ALIAS_ADD_UPDATE_FIRST_KEY, ALIAS_ADD_UPDATE_LAST_KEY, ALIAS_ADD_UPDATE_STEPS);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASUPDATE, AliasUpdateCommand, "readonly", ALIAS_ADD_UPDATE_FIRST_KEY, ALIAS_ADD_UPDATE_LAST_KEY, ALIAS_ADD_UPDATE_STEPS);
+
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASDEL, AliasDelCommand, "readonly", ALIAS_DEL_FIRST_KEY, ALIAS_DEL_LAST_KEY, ALIAS_DEL_STEPS);
   return REDISMODULE_OK;
 }
 
