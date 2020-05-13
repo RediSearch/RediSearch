@@ -13,7 +13,12 @@ typedef struct geoIndex {
   const FieldSpec *sp;
 } GeoIndex;
 
+
+#ifdef FORCE_CROS_SLOT_VALIDATION
+#define GEOINDEX_KEY_FMT "geo:{%s}/%s"
+#else
 #define GEOINDEX_KEY_FMT "geo:%s/%s"
+#endif
 
 int GeoIndex_AddStrings(GeoIndex *gi, t_docId docId, const char *slon, const char *slat);
 

@@ -125,20 +125,30 @@ int InvertedIndex_RegisterType(RedisModuleCtx *ctx) {
  * TODO: Add index name to it
  */
 RedisModuleString *fmtRedisTermKey(RedisSearchCtx *ctx, const char *term, size_t len) {
+#ifdef FORCE_CROS_SLOT_VALIDATION
+  char buf_s[1024] = {"ft:{"};
+  size_t offset = 4;
+  size_t extraCharsLen = 12;
+#else
   char buf_s[1024] = {"ft:"};
   size_t offset = 3;
+  size_t extraCharsLen = 10;
+#endif
   size_t nameLen = strlen(ctx->spec->name);
 
   char *buf, *bufDyn = NULL;
-  if (nameLen + len + 10 > sizeof(buf_s)) {
+  if (nameLen + len + extraCharsLen > sizeof(buf_s)) {
     buf = bufDyn = rm_calloc(1, nameLen + len + 10);
-    strcpy(buf, "ft:");
+    strcpy(buf, "ft:{");
   } else {
     buf = buf_s;
   }
 
   memcpy(buf + offset, ctx->spec->name, nameLen);
   offset += nameLen;
+#ifdef FORCE_CROS_SLOT_VALIDATION
+  buf[offset++] = '}';
+#endif
   buf[offset++] = '/';
   memcpy(buf + offset, term, len);
   offset += len;
