@@ -2,9 +2,9 @@
 #define SRC_DICTIONARY_H_
 
 #ifdef FORCE_CROS_SLOT_VALIDATION
-#define DICT_KEY_FMT DICT_KEY_PREFIX "%s"
+#define DICT_KEY_FMT "%s"
 #else
-#define DICT_KEY_FMT DICT_KEY_PREFIX "dict:%s"
+#define DICT_KEY_FMT "dict:%s"
 #endif
 
 
