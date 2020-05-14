@@ -127,7 +127,7 @@ static int getPredicateBoolean(ExprEval *eval, const RSValue *l, const RSValue *
       return RSValue_BoolTest(l) || RSValue_BoolTest(r);
 
     default:
-      RS_LOG_ASSERT(0, "invalid RSCondition");
+      assert("Unknown predicate received" && 0);
       return 0;
   }
 }

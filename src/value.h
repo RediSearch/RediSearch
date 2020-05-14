@@ -6,6 +6,7 @@
 #include <stdarg.h>
 #include <errno.h>
 #include <math.h>
+#include <assert.h>
 
 #include "rmutil/sds.h"
 #include "redisearch.h"
@@ -13,7 +14,6 @@
 #include "rmutil/args.h"
 #include "rmalloc.h"
 #include "query_error.h"
-#include "rmutil/rm_assert.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -144,7 +144,7 @@ void RSValue_SetConstString(RSValue *v, const char *str, size_t len);
 
 #ifndef __cplusplus
 static inline void RSValue_MakeReference(RSValue *dst, RSValue *src) {
-  RS_LOG_ASSERT(src, "RSvalue is missing");
+  assert(src);
   RSValue_Clear(dst);
   dst->t = RSValue_Reference;
   dst->ref = RSValue_IncrRef(src);

@@ -6,6 +6,7 @@
 #include <ctype.h>
 #include <stdlib.h>
 #include <strings.h>
+#include <assert.h>
 #include "phonetic_manager.h"
 
 typedef struct {

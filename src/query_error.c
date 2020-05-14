@@ -1,15 +1,15 @@
 #include "query_error.h"
-#include "rmutil/rm_assert.h"
+#include <assert.h>
 #include "rmalloc.h"
 
 void QueryError_Init(QueryError *qerr) {
-  RS_LOG_ASSERT(qerr, "QueryError should not be NULL");
+  assert(qerr);
   qerr->code = QUERY_OK;
   qerr->detail = NULL;
 }
 
 void QueryError_FmtUnknownArg(QueryError *err, ArgsCursor *ac, const char *name) {
-  RS_LOG_ASSERT(!AC_IsAtEnd(ac), "cursor should not be at the end");
+  assert(!AC_IsAtEnd(ac));
   const char *s;
   size_t n;
   if (AC_GetString(ac, &s, &n, AC_F_NOADVANCE) != AC_OK) {
@@ -38,7 +38,7 @@ void QueryError_SetError(QueryError *status, QueryErrorCode code, const char *er
   if (status->code != QUERY_OK) {
     return;
   }
-  RS_LOG_ASSERT(!status->detail, "detail of error is missing");
+  assert(!status->detail);
   status->code = code;
 
   if (err) {

@@ -4,6 +4,7 @@
 #include "util/logging.h"
 #include <stdio.h>
 #include <sys/param.h>
+#include <assert.h>
 #include "rmalloc.h"
 
 typedef struct {

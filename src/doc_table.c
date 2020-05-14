@@ -9,7 +9,6 @@
 #include "rmalloc.h"
 #include "spec.h"
 #include "config.h"
-#include "rmutil/rm_assert.h"
 
 /* Creates a new DocTable with a given capacity */
 DocTable NewDocTable(size_t cap, size_t max_size) {
@@ -158,8 +157,8 @@ int DocTable_SetSortingVector(DocTable *t, t_docId docId, RSSortingVector *v) {
     dmd->flags &= ~Document_HasSortVector;
     return 1;
   }*/
-  //LCOV_EXCL_STOP
-  RS_LOG_ASSERT(v, "Sorting vector does not exist"); // tested in doAssignIds() 
+  // LCOV_EXCL_STOP
+  assert(v);  // tested in doAssignIds()
 
   /* Set th new vector and the flags accordingly */
   dmd->sortVector = v;
@@ -368,7 +367,7 @@ void DocTable_RdbSave(DocTable *t, RedisModuleIO *rdb) {
       ++elements_written;
     }
   }
-  RS_LOG_ASSERT((elements_written + 1 == t->size), "Wrong number of written elements");
+  assert(elements_written + 1 == t->size);
 }
 
 void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {

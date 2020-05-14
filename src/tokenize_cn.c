@@ -4,7 +4,7 @@
 #include "dep/friso/friso.h"
 #include "cndict_loader.h"
 #include "util/minmax.h"
-#include "rmutil/rm_assert.h"
+#include <assert.h>
 #include "rmalloc.h"
 
 static friso_config_t config_g;
@@ -130,7 +130,7 @@ static uint32_t cnTokenizer_Next(RSTokenizer *base, Token *t) {
     friso_token_t tok = config_g->next_token(friso_g, config_g, self->fTask);
     if (tok == NULL) {
       if (useEscBuf) {
-        RS_LOG_ASSERT(tokInit, "should not get here");
+        assert(tokInit);
         t->tokLen = self->nescapebuf;
         t->tok = self->escapebuf;
         return t->pos;

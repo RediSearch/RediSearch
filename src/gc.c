@@ -7,9 +7,7 @@
 #include "module.h"
 #include <pthread.h>
 #include <assert.h>
-#include <unistd.h>
 #include "dep/thpool/thpool.h"
-#include "rmutil/rm_assert.h"
 
 #define DEADBEEF (void*)0xDEADBEEF
 
@@ -33,7 +31,7 @@ GCContext* GCContext_CreateGCFromSpec(IndexSpec* sp, float initialHZ, uint64_t u
     default:
       // currently LLAPI only support FORK_GC, in the future we might allow default GC as well.
       // This is why we pass the GC_POLICY to the function.
-      RS_LOG_ASSERT(0, "Invalid GC policy");
+      assert(0);
   }
   return ret;
 }

@@ -1,7 +1,6 @@
 #include "synonym_map.h"
 #include "rmalloc.h"
 #include "util/fnv.h"
-#include "rmutil/rm_assert.h"
 
 #define INITIAL_CAPACITY 2
 #define SYNONYM_PREFIX "~"
@@ -126,7 +125,7 @@ uint32_t SynonymMap_Add(SynonymMap* smap, const char** synonyms, size_t size) {
 }
 
 void SynonymMap_Update(SynonymMap* smap, const char** synonyms, size_t size, uint32_t id) {
-  RS_LOG_ASSERT(!smap->is_read_only, "SynonymMap should not be read only");
+  assert(!smap->is_read_only);
   int ret;
   for (size_t i = 0; i < size; i++) {
     khiter_t k =
@@ -166,7 +165,7 @@ TermData** SynonymMap_DumpAllTerms(SynonymMap* smap, size_t* size) {
 
 size_t SynonymMap_IdToStr(uint32_t id, char* buff, size_t len) {
   int bytes_written = snprintf(buff, len, SYNONYM_PREFIX "%d", id);
-  RS_LOG_ASSERT(bytes_written >= 0 && bytes_written < len, "buffer is not big enough");
+  assert(bytes_written >= 0 && bytes_written < len && "buffer is not big enough");
   return bytes_written;
 }
 
@@ -187,7 +186,7 @@ static SynonymMap* SynonymMap_GenerateReadOnlyCopy(SynonymMap* smap) {
 }
 
 SynonymMap* SynonymMap_GetReadOnlyCopy(SynonymMap* smap) {
-  RS_LOG_ASSERT(!smap->is_read_only, "SynonymMap should not be read only");
+  assert(!smap->is_read_only);
   if (!smap->read_only_copy) {
     // create a new read only copy and return it
     smap->read_only_copy = SynonymMap_GenerateReadOnlyCopy(smap);

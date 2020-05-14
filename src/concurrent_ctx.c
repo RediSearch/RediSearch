@@ -2,7 +2,7 @@
 #include "dep/thpool/thpool.h"
 #include <unistd.h>
 #include <util/arr.h>
-#include "rmutil/rm_assert.h"
+#include <assert.h>
 
 static threadpool *threadpools_g = NULL;
 
@@ -233,7 +233,7 @@ void ConcurrentSearch_AddKey(ConcurrentSearchCtx *ctx, RedisModuleKey *key, int 
 }
 
 void ConcurrentSearchCtx_Lock(ConcurrentSearchCtx *ctx) {
-  RS_LOG_ASSERT(!ctx->isLocked, "Redis GIL shouldn't be locked");
+  assert(!ctx->isLocked);
   RedisModule_ThreadSafeContextLock(ctx->ctx);
   ctx->isLocked = 1;
   ConcurrentSearchCtx_ReopenKeys(ctx);

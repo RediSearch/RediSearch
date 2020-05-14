@@ -6,6 +6,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <limits.h>
+#include <assert.h>
 #include "rmalloc.h"
 
 #define RETURN_ERROR(s) return REDISMODULE_ERR;

@@ -3,12 +3,12 @@
 #include "varint.h"
 #include "spec.h"
 #include <math.h>
+#include <assert.h>
 #include <limits.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <sys/param.h>
 #include "rmalloc.h"
-#include "rmutil/rm_assert.h"
 
 static int UI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit);
 static inline int UI_ReadUnsorted(void *ctx, RSIndexResult **hit);
@@ -314,7 +314,7 @@ at EOF
 */
 static int UI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
   UnionIterator *ui = ctx;
-  RS_LOG_ASSERT(ui->base.mode == MODE_SORTED, "union iterator mode is not MODE_SORTED");
+  assert(ui->base.mode == MODE_SORTED);
 
   // printf("UI %p skipto %d\n", ui, docId);
 
@@ -1094,7 +1094,7 @@ IndexIterator *NewNotIterator(IndexIterator *it, t_docId maxDocId, double weight
 
   if (nc->child && nc->child->mode == MODE_UNSORTED) {
     nc->childCT = IITER_GET_CRITERIA_TESTER(nc->child);
-    RS_LOG_ASSERT(nc->childCT, "childCT should not be NULL");
+    assert(nc->childCT);
     ret->Read = NI_ReadUnsorted;
   }
 
@@ -1310,7 +1310,7 @@ IndexIterator *NewOptionalIterator(IndexIterator *it, t_docId maxDocId, double w
 
   if (nc->child && nc->child->mode == MODE_UNSORTED) {
     nc->childCT = IITER_GET_CRITERIA_TESTER(nc->child);
-    RS_LOG_ASSERT(nc->childCT, "childCT should not be NULL");
+    assert(nc->childCT);
     ret->Read = OI_ReadUnsorted;
   }
   if (!nc->child) {

@@ -1,5 +1,6 @@
 #include "buffer.h"
 #include "rmalloc.h"
+#include <assert.h>
 #include <sys/param.h>
 
 void Buffer_Grow(Buffer *buf, size_t extraLen) {

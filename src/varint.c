@@ -1,4 +1,5 @@
 #include "varint.h"
+#include <assert.h>
 #include <ctype.h>
 #include <stdint.h>
 #include <stdio.h>

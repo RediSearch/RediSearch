@@ -4,7 +4,6 @@
 #include <arpa/inet.h>  // htonl, etc.
 #include <stdint.h>
 #include "rmalloc.h"
-#include "rmutil/rm_assert.h"
 
 extern const char ChineseDict[];
 extern const size_t ChineseDictCompressedLength;
@@ -76,7 +75,7 @@ int ChineseDictLoad(friso_dic_t d) {
   const char *inbuf = ChineseDict;
   version = htonl(*(uint32_t *)inbuf);
   inbuf += 4;
-  RS_LOG_ASSERT(version == 0, "Chinese dictionary version should be 0");
+  assert(version == 0);
 
   // First load the symbol..
   char *expanded = rm_malloc(ChineseDictFullLength);
@@ -89,6 +88,7 @@ int ChineseDictLoad(friso_dic_t d) {
     printf("SrcLen|DstLen: 0%lx\n", dstLen | ChineseDictCompressedLength);
     abort();
   }
+  assert(rv == MZ_OK);
 
   // Now, let's see if we can read the records...
   Buffer tmpBuf;
