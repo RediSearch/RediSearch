@@ -59,7 +59,7 @@ Official (Redis Labs) and community Clients:
 * Prefix matching, fuzzy matching and exact phrase search in full-text queries.
 * Support for DM phonetic matching
 * Auto-complete suggestions (with fuzzy prefix suggestions).
-* Stemming based query expansion in [many languages](https://oss.redislabs.com/redisearch/Stemming/) (using [Snowball](http://snowballstem.org/)).
+* Stemming based query expansion in [many languages](https://oss.redislabs.com/redisearch/Stemming.html) (using [Snowball](http://snowballstem.org/)).
 * Support for logographic (Chinese, etc.) tokenization and querying (using [Friso](https://github.com/lionsoul2014/friso))
 * Limiting searches to specific document fields (up to 128 fields supported).
 * Numeric filters and ranges.
