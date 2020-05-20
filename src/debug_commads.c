@@ -371,7 +371,7 @@ DEBUG_COMMAND(GitSha) {
 }
 
 DEBUG_COMMAND(LogAssert) {
-  RS_LOG_ASSERT(7 == 42, "DEBUG");
+  RS_LOG_ASSERT(7 == 42, "False: 7 == 42");
   return REDISMODULE_OK;
 }
 
