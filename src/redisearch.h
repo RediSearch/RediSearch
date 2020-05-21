@@ -52,7 +52,7 @@ typedef enum {
 
   // Whether this document has any kind of 'on-demand'
   // deletable field; this means any kind of numeric or geo
-  Document_HasOnDemandDeletable = 0x10
+  // Document_HasOnDemandDeletable = 0x10
 } RSDocumentFlags;
 
 /* RSDocumentMetadata describes metadata stored about a document in the index (not the document

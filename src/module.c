@@ -463,6 +463,7 @@ int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     // ID does not exist.
   }
 
+  // TODO
   for (size_t i = 0; i < sp->numFields; ++i) {
     FieldSpec *fs = sp->fields + i;
     if (!FIELD_IS(fs, INDEXFLD_T_GEO)) {

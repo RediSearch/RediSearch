@@ -3,6 +3,9 @@
 #include "rmutil/util.h"
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
+#include "numeric_index.h"
+
+static double extractUnitFactor(GeoDistance unit);
 
 /* Add a docId to a geoindex key. Right now we just use redis' own GEOADD */
 int GeoIndex_AddStrings(GeoIndex *gi, t_docId docId, const char *slon, const char *slat) {
@@ -125,7 +128,8 @@ done:
   return docIds;
 }
 
-IndexIterator *NewGeoRangeIterator(GeoIndex *gi, const GeoFilter *gf, double weight) {
+// TODO
+/*IndexIterator *NewGeoRangeIterator(GeoIndex *gi, const GeoFilter *gf, double weight) {
   size_t sz;
   t_docId *docIds = geoRangeLoad(gi, gf, &sz);
   if (!docIds) {
@@ -135,6 +139,28 @@ IndexIterator *NewGeoRangeIterator(GeoIndex *gi, const GeoFilter *gf, double wei
   IndexIterator *ret = NewIdListIterator(docIds, (t_offset)sz, weight);
   rm_free(docIds);
   return ret;
+}*/
+
+IndexIterator *NewGeoRangeIterator(RedisSearchCtx *ctx, const GeoFilter *gf) {
+  GeoHashRange ranges[GEO_RANGE_COUNT] = {0};
+  double radius_meter = gf->radius * extractUnitFactor(gf->unitType);
+  calcRanges(gf->lon, gf->lat, radius_meter, ranges);
+
+  int iterCount = 0;
+  IndexIterator **iters = rm_calloc(GEO_RANGE_COUNT, sizeof(*iters));
+  for (size_t ii = 0; ii < GEO_RANGE_COUNT; ++ii) {
+    if (ranges[ii].min != ranges[ii].max) {
+      NumericFilter *filt = NewNumericFilter(ranges[ii].min, ranges[ii].max, 1, 1);
+      filt->fieldName = rm_strdup(gf->property);
+      iters[iterCount++] = NewNumericFilterIterator(ctx, filt, NULL);
+    }
+  }
+  iters = rm_realloc(iters, iterCount * sizeof(*iters));
+  IndexIterator *it = NewUnionIterator(iters, iterCount, NULL, 1, 1);
+  if (!it) {
+    return NULL;
+  }
+  return it;
 }
 
 GeoDistance GeoDistance_Parse(const char *s) {
@@ -157,6 +183,7 @@ const char *GeoDistance_ToString(GeoDistance d) {
   return "<badunit>";
 }
 
+// TODO
 /* Create a geo filter from parsed strings and numbers */
 GeoFilter *NewGeoFilter(double lon, double lat, double radius, const char *unit) {
   GeoFilter *gf = rm_malloc(sizeof(*gf));
@@ -194,4 +221,84 @@ int GeoFilter_Validate(GeoFilter *gf, QueryError *status) {
   }
 
   return 1;
+}
+
+/*****************************************************************************/
+
+
+/**
+ * Generates a geo hash from a given latitude and longtitude
+ */
+double calcGeoHash(double lon, double lat) {
+  double res;
+  int rv = encodeGeo(lon, lat, &res);
+  if (rv == 0) {
+    return INVALID_GEOHASH;
+  }
+  return res;
+}
+
+/**
+ * Convert different units to meters
+ */
+static double extractUnitFactor(GeoDistance unit) {
+  double rv;
+  switch (unit) {
+    case GEO_DISTANCE_M:
+      rv = 1;
+      break;
+    case GEO_DISTANCE_KM:
+      rv = 1000;
+      break;
+    case GEO_DISTANCE_FT:
+      rv = 0.3048;
+      break;
+    case GEO_DISTANCE_MI:
+      rv = 1609.34;
+      break;
+    default:
+      rv = -1;
+      assert(0);
+      break;
+  }
+  return rv;
+}
+
+/**
+ * Populates the numeric range to search for within a given square direction
+ * specified by `dir`
+ */
+static int populateRange(const GeoFilter *gf, GeoHashRange *ranges) {
+  double xy[2] = {gf->lon, gf->lat};
+
+  double radius_meters = gf->radius * extractUnitFactor(gf->unitType);
+  if (radius_meters < 0) {
+    return -1;
+  }
+  calcRanges(gf->lon, gf->lat, radius_meters, ranges);
+  return 0;
+}
+
+/**
+ * Checks if the given coordinate d is within the radius gf
+ */
+static int isWithinRadius(const GeoFilter *gf, double d, double *distance) {
+  double xy[2];
+  decodeGeo(d, xy);
+  double radius_meters = gf->radius * extractUnitFactor(gf->unitType);
+  int rv = isWithinRadiusLonLat(gf->lon, gf->lat, xy[0], xy[1], radius_meters, distance);
+  return rv;
+}
+
+static int checkResult(const GeoFilter *gf, const RSIndexResult *cur) {
+  double distance;
+  if (cur->type == RSResultType_Numeric) {
+    return isWithinRadius(gf, cur->num.value, &distance);
+  }
+  for (size_t ii = 0; ii < cur->agg.numChildren; ++ii) {
+    if (checkResult(gf, cur->agg.children[ii])) {
+      return 1;
+    }
+  }
+  return 0;
 }

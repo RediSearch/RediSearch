@@ -410,13 +410,13 @@ static void sendKht(ForkGC *gc, const khash_t(cardvals) *kh) {
   RS_LOG_ASSERT(nsent == n, "Not all hashes has been sent");
 }
 
-static void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
+static void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx) { // ADD INDEXFLD_T ??
   RedisModuleKey *idxKey = NULL;
-  FieldSpec **numericFields = getFieldsByType(sctx->spec, INDEXFLD_T_NUMERIC);
+  FieldSpec **numericFields = getFieldsByType(sctx->spec, INDEXFLD_T_NUMERIC | INDEXFLD_T_GEO);
 
   for (int i = 0; i < array_len(numericFields); ++i) {
     RedisModuleString *keyName =
-        IndexSpec_GetFormattedKey(sctx->spec, numericFields[i], INDEXFLD_T_NUMERIC);
+        IndexSpec_GetFormattedKey(sctx->spec, numericFields[i], INDEXFLD_T_NUMERIC); // TODO??
     NumericRangeTree *rt = OpenNumericIndex(sctx, keyName, &idxKey);
 
     NumericRangeTreeIterator *gcIterator = NumericRangeTreeIterator_New(rt);
@@ -927,8 +927,8 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc, RedisModuleCtx *rctx) {
       status = FGC_PARENT_ERROR;
       goto loop_cleanup;
     }
-    RedisModuleString *keyName =
-        IndexSpec_GetFormattedKeyByName(sctx->spec, fieldName, INDEXFLD_T_NUMERIC);
+    RedisModuleString *keyName = 
+        IndexSpec_GetFormattedKeyByName(sctx->spec, fieldName, INDEXFLD_T_NUMERIC); // TODO??
     NumericRangeTree *rt = OpenNumericIndex(sctx, keyName, &idxKey);
 
     if (rt->uniqueId != rtUniqueId) {

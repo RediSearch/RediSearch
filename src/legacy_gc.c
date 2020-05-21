@@ -288,7 +288,7 @@ end:
   return totalRemoved;
 }
 
-size_t gc_NumericIndex(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status) {
+size_t gc_NumericIndex(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status) { // ADD INDEXFLD_T ??
   size_t totalRemoved = 0;
   RedisModuleKey *idxKey = NULL;
   FieldSpec **numericFields = NULL;

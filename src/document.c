@@ -112,10 +112,10 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Doc
         // has non-text but indexable fields
         hasOtherFields = 1;
       }
-
-      if (FIELD_CHKIDX(f->indexAs, INDEXFLD_T_GEO)) {
+      // TODO
+      /*if (FIELD_CHKIDX(f->indexAs, INDEXFLD_T_GEO)) {
         aCtx->docFlags = Document_HasOnDemandDeletable;
-      }
+      }*/
     }
   }
 
@@ -455,6 +455,7 @@ FIELD_BULK_INDEXER(numericIndexer) {
 }
 
 FIELD_PREPROCESSOR(geoPreprocessor) {
+  // TODO: streamline
   const char *c = RedisModule_StringPtrLen(field->text, NULL);
   char *pos = strpbrk(c, " ,");
   if (!pos) {
@@ -463,8 +464,21 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
   }
   *pos = '\0';
   pos++;
-  fdata->geoSlon = c;
-  fdata->geoSlat = pos;
+  //fdata->geoSlon = c;
+  //fdata->geoSlat = pos;
+
+  char *end1 = NULL, *end2 = NULL;
+  double lon = strtod(c, &end1);
+  double lat = strtod(pos, &end2);
+  if (*end1 || *end2) {
+    return REDISMODULE_ERR;
+  }
+
+  double geohash = calcGeoHash(lon, lat);
+  if (geohash == INVALID_GEOHASH) {
+    return REDISMODULE_ERR;
+  }
+  fdata->numeric = geohash;
   return 0;
 }
 
@@ -476,6 +490,24 @@ FIELD_BULK_INDEXER(geoIndexer) {
     QueryError_SetError(status, QUERY_EGENERIC, "Could not index geo value");
     return -1;
   }
+  return 0;
+}
+
+// TODO: consider using numericIndexer
+FIELD_BULK_INDEXER(geoNumericIndexer) { // TODO: change to INDEXFLD_T_NUMERIC?
+  NumericRangeTree *rt = bulk->indexDatas[INDEXTYPE_TO_POS(INDEXFLD_T_GEO)];
+  if (!rt) {
+    RedisModuleString *keyName = IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_GEO);
+    rt = bulk->indexDatas[IXFLDPOS_GEO] =
+        OpenNumericIndex(ctx, keyName, &bulk->indexKeys[IXFLDPOS_GEO]);
+    if (!rt) {
+      QueryError_SetError(status, QUERY_EGENERIC, "Could not open geo index for indexing");
+      return -1;
+    }
+  }
+  size_t sz = NumericRangeTree_Add(rt, aCtx->doc.docId, fdata->numeric);
+  ctx->spec->stats.invertedSize += sz;  // TODO: exact amount
+  ctx->spec->stats.numRecords++;
   return 0;
 }
 
@@ -533,7 +565,7 @@ int IndexerBulkAdd(IndexBulkData *bulk, RSAddDocumentCtx *cur, RedisSearchCtx *s
           rc = numericIndexer(bulk, cur, sctx, field, fs, fdata, status);
           break;
         case IXFLDPOS_GEO:
-          rc = geoIndexer(bulk, cur, sctx, field, fs, fdata, status);
+          rc = geoNumericIndexer(bulk, cur, sctx, field, fs, fdata, status);
           break;
         case IXFLDPOS_FULLTEXT:
           break;

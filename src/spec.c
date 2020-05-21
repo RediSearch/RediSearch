@@ -787,7 +787,7 @@ RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs,
   if (!sp->indexStrs) {
     sp->indexStrs = rm_calloc(SPEC_MAX_FIELDS, sizeof(*sp->indexStrs));
   }
-
+  // geo vs num
   size_t typeix = INDEXTYPE_TO_POS(forType);
 
   RedisModuleString *ret = sp->indexStrs[fs->index].types[typeix];
@@ -800,8 +800,9 @@ RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs,
       case INDEXFLD_T_TAG:
         ret = TagIndex_FormatName(&sctx, fs->name);
         break;
-      case INDEXFLD_T_GEO:
-        ret = RedisModule_CreateStringPrintf(RSDummyContext, GEOINDEX_KEY_FMT, sp->name, fs->name);
+      case INDEXFLD_T_GEO: // TODO?? change the name
+        ret = fmtRedisNumericIndexKey(&sctx, fs->name);
+        //ret = RedisModule_CreateStringPrintf(RSDummyContext, GEOINDEX_KEY_FMT, sp->name, fs->name);
         break;
       case INDEXFLD_T_FULLTEXT:  // Text fields don't get a per-field index
       default:

@@ -531,8 +531,9 @@ static IndexIterator *Query_EvalGeofilterNode(QueryEvalCtx *q, QueryGeofilterNod
     return NULL;
   }
 
-  GeoIndex gi = {.ctx = q->sctx, .sp = fs};
-  return NewGeoRangeIterator(&gi, node->gf, weight);
+  //GeoIndex gi = {.ctx = q->sctx, .sp = fs};
+  return NewGeoRangeIterator(q->sctx, node->gf);
+
 }
 
 static IndexIterator *Query_EvalIdFilterNode(QueryEvalCtx *q, QueryIdFilterNode *node) {
