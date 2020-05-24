@@ -60,6 +60,6 @@ IndexIterator *NewGeoRangeIterator(RedisSearchCtx *ctx, const GeoFilter *gf);
 
 #define INVALID_GEOHASH -1.0
 double calcGeoHash(double lon, double lat);
-
+int isWithinRadius(const GeoFilter *gf, double d, double *distance);
 
 #endif

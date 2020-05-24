@@ -102,6 +102,7 @@ bool isWithinRadiusLonLat(double lon1, double lat1,
   return true;
 }
                          
+/*
 int isWithinRadius(double center, double point, double radius, double *distance) {
   double xyCenter[2], xyPoint[2];
   decodeGeo(center, xyCenter);
@@ -110,7 +111,6 @@ int isWithinRadius(double center, double point, double radius, double *distance)
                                     radius, distance);
 }
 
-/*
 IndexIterator *NewGeoRangeIterator(GeoIndex *gi, const GeoFilter *gf, double weight) {
   GeoHashRange ranges[GEO_RANGE_COUNT] = {0};
   calcRanges(gf, ranges);

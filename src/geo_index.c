@@ -146,17 +146,18 @@ IndexIterator *NewGeoRangeIterator(RedisSearchCtx *ctx, const GeoFilter *gf) {
   double radius_meter = gf->radius * extractUnitFactor(gf->unitType);
   calcRanges(gf->lon, gf->lat, radius_meter, ranges);
 
-  int iterCount = 0;
   IndexIterator **iters = rm_calloc(GEO_RANGE_COUNT, sizeof(*iters));
   for (size_t ii = 0; ii < GEO_RANGE_COUNT; ++ii) {
     if (ranges[ii].min != ranges[ii].max) {
       NumericFilter *filt = NewNumericFilter(ranges[ii].min, ranges[ii].max, 1, 1);
       filt->fieldName = rm_strdup(gf->property);
-      iters[iterCount++] = NewNumericFilterIterator(ctx, filt, NULL, INDEXFLD_T_GEO);
+      filt->geoFilter = gf;
+      iters[ii] = NewNumericFilterIterator(ctx, filt, NULL, INDEXFLD_T_GEO);
+    } else {
+      iters[ii] = NewEmptyIterator();
     }
   }
-  iters = rm_realloc(iters, iterCount * sizeof(*iters));
-  IndexIterator *it = NewUnionIterator(iters, iterCount, NULL, 1, 1);
+  IndexIterator *it = NewUnionIterator(iters, GEO_RANGE_COUNT, NULL, 1, 1);
   if (!it) {
     return NULL;
   }
@@ -282,7 +283,7 @@ static int populateRange(const GeoFilter *gf, GeoHashRange *ranges) {
 /**
  * Checks if the given coordinate d is within the radius gf
  */
-static int isWithinRadius(const GeoFilter *gf, double d, double *distance) {
+int isWithinRadius(const GeoFilter *gf, double d, double *distance) {
   double xy[2];
   decodeGeo(d, xy);
   double radius_meters = gf->radius * extractUnitFactor(gf->unitType);

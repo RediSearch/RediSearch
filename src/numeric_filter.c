@@ -89,5 +89,6 @@ NumericFilter *NewNumericFilter(double min, double max, int inclusiveMin, int in
   f->fieldName = NULL;
   f->inclusiveMax = inclusiveMax;
   f->inclusiveMin = inclusiveMin;
+  f->geoFilter = NULL;
   return f;
 }
