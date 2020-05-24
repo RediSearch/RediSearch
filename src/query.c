@@ -519,7 +519,7 @@ static IndexIterator *Query_EvalNumericNode(QueryEvalCtx *q, QueryNumericNode *n
     return NULL;
   }
 
-  return NewNumericFilterIterator(q->sctx, node->nf, q->conc);
+  return NewNumericFilterIterator(q->sctx, node->nf, q->conc, INDEXFLD_T_NUMERIC);
 }
 
 static IndexIterator *Query_EvalGeofilterNode(QueryEvalCtx *q, QueryGeofilterNode *node,

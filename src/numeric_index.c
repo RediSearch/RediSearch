@@ -413,9 +413,9 @@ static NumericRangeTree *openNumericKeysDict(RedisSearchCtx *ctx, RedisModuleStr
 }
 
 struct indexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const NumericFilter *flt,
-                                               ConcurrentSearchCtx *csx) {
+                                               ConcurrentSearchCtx *csx, FieldType forType) {
   RedisModuleString *s =
-      IndexSpec_GetFormattedKeyByName(ctx->spec, flt->fieldName, INDEXFLD_T_NUMERIC);
+      IndexSpec_GetFormattedKeyByName(ctx->spec, flt->fieldName, forType);
   if (!s) {
     return NULL;
   }

@@ -646,6 +646,10 @@ DECODER(readNumeric) {
   return 1;
 }
 
+DECODER(readGeoNumeric) {
+
+}
+
 DECODER(readFreqs) {
   qint_decode2(br, (uint32_t *)&res->docId, &res->freq);
   return 1;

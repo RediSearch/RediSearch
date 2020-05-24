@@ -152,7 +152,7 @@ IndexIterator *NewGeoRangeIterator(RedisSearchCtx *ctx, const GeoFilter *gf) {
     if (ranges[ii].min != ranges[ii].max) {
       NumericFilter *filt = NewNumericFilter(ranges[ii].min, ranges[ii].max, 1, 1);
       filt->fieldName = rm_strdup(gf->property);
-      iters[iterCount++] = NewNumericFilterIterator(ctx, filt, NULL);
+      iters[iterCount++] = NewNumericFilterIterator(ctx, filt, NULL, INDEXFLD_T_GEO);
     }
   }
   iters = rm_realloc(iters, iterCount * sizeof(*iters));
