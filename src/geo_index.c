@@ -153,7 +153,8 @@ IndexIterator *NewGeoRangeIterator(RedisSearchCtx *ctx, const GeoFilter *gf) {
       filt->fieldName = rm_strdup(gf->property);
       filt->geoFilter = gf;
       iters[ii] = NewNumericFilterIterator(ctx, filt, NULL, INDEXFLD_T_GEO);
-    } else {
+    }
+    if (iters[ii] == NULL) {
       iters[ii] = NewEmptyIterator();
     }
   }

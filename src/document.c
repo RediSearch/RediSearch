@@ -438,7 +438,7 @@ FIELD_PREPROCESSOR(numericPreprocessor) {
 }
 
 FIELD_BULK_INDEXER(numericIndexer) {
-  NumericRangeTree *rt = bulk->indexDatas[INDEXTYPE_TO_POS(INDEXFLD_T_NUMERIC)];
+  NumericRangeTree *rt = bulk->indexDatas[IXFLDPOS_NUMERIC];
   if (!rt) {
     RedisModuleString *keyName = IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_NUMERIC);
     rt = bulk->indexDatas[IXFLDPOS_NUMERIC] =
@@ -481,7 +481,7 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
   fdata->numeric = geohash;
   return 0;
 }
-
+/*
 FIELD_BULK_INDEXER(geoIndexer) {
   GeoIndex gi = {.ctx = ctx, .sp = fs};
   int rv = GeoIndex_AddStrings(&gi, aCtx->doc.docId, fdata->geoSlon, fdata->geoSlat);
@@ -495,11 +495,11 @@ FIELD_BULK_INDEXER(geoIndexer) {
 
 // TODO: consider using numericIndexer
 FIELD_BULK_INDEXER(geoNumericIndexer) { // TODO: change to INDEXFLD_T_NUMERIC?
-  NumericRangeTree *rt = bulk->indexDatas[INDEXTYPE_TO_POS(INDEXFLD_T_GEO)];
+  NumericRangeTree *rt = bulk->indexDatas[IXFLDPOS_NUMERIC];
   if (!rt) {
-    RedisModuleString *keyName = IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_GEO);
-    rt = bulk->indexDatas[IXFLDPOS_GEO] =
-        OpenNumericIndex(ctx, keyName, &bulk->indexKeys[IXFLDPOS_GEO]);
+    RedisModuleString *keyName = IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_NUMERIC);
+    rt = bulk->indexDatas[IXFLDPOS_NUMERIC] =
+        OpenNumericIndex(ctx, keyName, &bulk->indexKeys[IXFLDPOS_NUMERIC]);
     if (!rt) {
       QueryError_SetError(status, QUERY_EGENERIC, "Could not open geo index for indexing");
       return -1;
@@ -510,7 +510,7 @@ FIELD_BULK_INDEXER(geoNumericIndexer) { // TODO: change to INDEXFLD_T_NUMERIC?
   ctx->spec->stats.numRecords++;
   return 0;
 }
-
+*/
 FIELD_PREPROCESSOR(tagPreprocessor) {
   fdata->tags = TagIndex_Preprocess(fs->tagSep, fs->tagFlags, field);
 
@@ -562,10 +562,8 @@ int IndexerBulkAdd(IndexBulkData *bulk, RSAddDocumentCtx *cur, RedisSearchCtx *s
           rc = tagIndexer(bulk, cur, sctx, field, fs, fdata, status);
           break;
         case IXFLDPOS_NUMERIC:
-          rc = numericIndexer(bulk, cur, sctx, field, fs, fdata, status);
-          break;
         case IXFLDPOS_GEO:
-          rc = geoNumericIndexer(bulk, cur, sctx, field, fs, fdata, status);
+          rc = numericIndexer(bulk, cur, sctx, field, fs, fdata, status);
           break;
         case IXFLDPOS_FULLTEXT:
           break;

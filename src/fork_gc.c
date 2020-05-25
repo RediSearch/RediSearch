@@ -410,13 +410,13 @@ static void sendKht(ForkGC *gc, const khash_t(cardvals) *kh) {
   RS_LOG_ASSERT(nsent == n, "Not all hashes has been sent");
 }
 
-static void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx) { // ADD INDEXFLD_T ??
+static void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
   RedisModuleKey *idxKey = NULL;
   FieldSpec **numericFields = getFieldsByType(sctx->spec, INDEXFLD_T_NUMERIC | INDEXFLD_T_GEO);
 
   for (int i = 0; i < array_len(numericFields); ++i) {
     RedisModuleString *keyName =
-        IndexSpec_GetFormattedKey(sctx->spec, numericFields[i], INDEXFLD_T_NUMERIC); // TODO??
+        IndexSpec_GetFormattedKey(sctx->spec, numericFields[i], INDEXFLD_T_NUMERIC);
     NumericRangeTree *rt = OpenNumericIndex(sctx, keyName, &idxKey);
 
     NumericRangeTreeIterator *gcIterator = NumericRangeTreeIterator_New(rt);

@@ -918,9 +918,9 @@ def testGeoErrors(env):
     env.expect('ft.add idx hotel 1.0 fields name hill location -0.1757,51.5156').equal('OK')
     env.expect('ft.search idx hilton geofilter location -0.1757 51.5156 1 km').equal([0L])
 
-    # Insert error
-    env.expect('ft.add', 'idx', 'hotel1', 1, 'fields', 'name', '_hotel1', 'location', '1, 1').error()   \
-            .contains('Could not index geo value')
+    # Insert error - works fine with out of keyspace implementation
+    # env.expect('ft.add', 'idx', 'hotel1', 1, 'fields', 'name', '_hotel1', 'location', '1, 1').error()   \
+    #        .contains('Could not index geo value')
 
     # Query errors
     env.expect('ft.search idx hilton geofilter location lon 51.5156 1 km').error()   \
@@ -933,13 +933,6 @@ def testGeoErrors(env):
             .contains('Unknown distance unit fake')
     env.expect('ft.search idx hilton geofilter location -0.1757 51.5156 1').error()   \
             .contains('GEOFILTER requires 5 arguments')
-
-    if not env.isCluster():
-        env.expect('flushall')
-        env.expect('set geo:idx/location foo').equal('OK')
-        env.expect('ft.create idx schema name text location geo').equal('OK')
-        env.expect('ft.add idx hotel 1.0 fields name hill location -0.1757,51.5156').error() \
-                .contains('Could not index geo value')
 
 def testGeo(env):
     r = env
@@ -961,7 +954,6 @@ def testGeo(env):
         env.assertEqual(len(hotels), res[0])
 
         res = gsearch('hilton', "-0.1757", "51.5156", '1')
-        print res
         env.assertEqual(3, res[0])
         env.assertIn('hotel2', res)
         env.assertIn('hotel21', res)
@@ -971,14 +963,11 @@ def testGeo(env):
 
         res = gsearch('hilton', "-0.1757", "51.5156", '10')
         env.assertEqual(14, res[0])
-        env.assertIn('hotel93', res)
-        env.assertIn('hotel92', res)
-        env.assertIn('hotel69', res)
 
         res2 = gsearch('hilton', "-0.1757", "51.5156", '10000', 'm')
-        #env.assertListEqual(res, res2)
+        env.assertEqual(len(res), len(res2))
         res2 = gsearch_inline('hilton', "-0.1757", "51.5156", '10')
-        #env.assertListEqual(res, res2)
+        env.assertEqual(len(res), len(res2))
 
         res = gsearch('heathrow', -0.44155, 51.45865, '10', 'm')
         env.assertEqual(1, res[0])
@@ -993,7 +982,7 @@ def testGeo(env):
         res2 = gsearch_inline(
             'heathrow', -0.44155, 51.45865, '10', 'km')
         env.assertEqual(5, res2[0])
-        #env.assertListEqual(res, res2)
+        env.assertEqual(len(res), len(res2))
 
         res = gsearch('heathrow', -0.44155, 51.45865, '5', 'km')
         env.assertEqual(3, res[0])
@@ -1022,22 +1011,29 @@ def testGeoDeletion(env):
             'g1', "-0.1757,51.5156",
             'g2', "-0.1757,51.5156",
             't1', "hello")
+    env.cmd('ft.add', 'idx', 'doc3', 1.0, 'fields',
+            'g1', "-0.1757,51.5156",
+            't1', "hello")
 
     # keys are: "geo:idx/g1" and "geo:idx/g2"
-    env.assertEqual(2, env.cmd('zcard', 'geo:idx/g1'))
-    env.assertEqual(2, env.cmd('zcard', 'geo:idx/g2'))
+    env.assertEqual(3, len(env.cmd('FT.DEBUG DUMP_NUMIDX idx g1')[0]))
+    env.assertEqual(2, len(env.cmd('FT.DEBUG DUMP_NUMIDX idx g2')[0]))
 
     # Remove the first doc
     env.cmd('ft.del', 'idx', 'doc1')
-    env.assertEqual(1, env.cmd('zcard', 'geo:idx/g1'))
-    env.assertEqual(1, env.cmd('zcard', 'geo:idx/g2'))
+    for _ in range(10):
+        env.cmd('ft.debug', 'gc_forceinvoke', 'idx')
+    env.assertEqual(2, len(env.cmd('FT.DEBUG DUMP_NUMIDX idx g1')[0]))
+    env.assertEqual(1, len(env.cmd('FT.DEBUG DUMP_NUMIDX idx g2')[0]))
 
     # Replace the other one:
     env.cmd('ft.add', 'idx', 'doc2', 1.0,
             'replace', 'fields',
             't1', 'just text here')
-    env.assertEqual(0, env.cmd('zcard', 'geo:idx/g1'))
-    env.assertEqual(0, env.cmd('zcard', 'geo:idx/g2'))
+    for _ in range(10):
+        env.cmd('ft.debug', 'gc_forceinvoke', 'idx')
+    env.assertEqual(1, len(env.cmd('FT.DEBUG DUMP_NUMIDX idx g1')[0]))
+    env.assertEqual(0, len(env.cmd('FT.DEBUG DUMP_NUMIDX idx g2')[0]))
 
 def testAddHash(env):
     if env.is_cluster():
