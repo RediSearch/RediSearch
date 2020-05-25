@@ -15,7 +15,7 @@
     if (!(condition)) {                                                                 \
         RedisModuleCtx* assertCtx = RSDummyContext;                                     \
         RedisModule_Log(assertCtx, "warning", fmt, __VA_ARGS__);                        \
-        assert(condition); /* Crashes server and create a crash report*/              \
+        RedisModule_Assert(condition); /* Crashes server and create a crash report*/           \
     } 
 
 #define RS_LOG_ASSERT(condition, str)  RS_LOG_ASSERT_FMT(condition, str "%s", "")
