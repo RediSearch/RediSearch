@@ -112,10 +112,6 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Doc
         // has non-text but indexable fields
         hasOtherFields = 1;
       }
-      // TODO
-      /*if (FIELD_CHKIDX(f->indexAs, INDEXFLD_T_GEO)) {
-        aCtx->docFlags = Document_HasOnDemandDeletable;
-      }*/
     }
   }
 
@@ -464,8 +460,6 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
   }
   *pos = '\0';
   pos++;
-  //fdata->geoSlon = c;
-  //fdata->geoSlat = pos;
 
   char *end1 = NULL, *end2 = NULL;
   double lon = strtod(c, &end1);
@@ -481,36 +475,7 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
   fdata->numeric = geohash;
   return 0;
 }
-/*
-FIELD_BULK_INDEXER(geoIndexer) {
-  GeoIndex gi = {.ctx = ctx, .sp = fs};
-  int rv = GeoIndex_AddStrings(&gi, aCtx->doc.docId, fdata->geoSlon, fdata->geoSlat);
 
-  if (rv == REDISMODULE_ERR) {
-    QueryError_SetError(status, QUERY_EGENERIC, "Could not index geo value");
-    return -1;
-  }
-  return 0;
-}
-
-// TODO: consider using numericIndexer
-FIELD_BULK_INDEXER(geoNumericIndexer) { // TODO: change to INDEXFLD_T_NUMERIC?
-  NumericRangeTree *rt = bulk->indexDatas[IXFLDPOS_NUMERIC];
-  if (!rt) {
-    RedisModuleString *keyName = IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_NUMERIC);
-    rt = bulk->indexDatas[IXFLDPOS_NUMERIC] =
-        OpenNumericIndex(ctx, keyName, &bulk->indexKeys[IXFLDPOS_NUMERIC]);
-    if (!rt) {
-      QueryError_SetError(status, QUERY_EGENERIC, "Could not open geo index for indexing");
-      return -1;
-    }
-  }
-  size_t sz = NumericRangeTree_Add(rt, aCtx->doc.docId, fdata->numeric);
-  ctx->spec->stats.invertedSize += sz;  // TODO: exact amount
-  ctx->spec->stats.numRecords++;
-  return 0;
-}
-*/
 FIELD_PREPROCESSOR(tagPreprocessor) {
   fdata->tags = TagIndex_Preprocess(fs->tagSep, fs->tagFlags, field);
 
