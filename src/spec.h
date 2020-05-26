@@ -405,6 +405,7 @@ void IndexSpec_ClearAliases(IndexSpec *sp);
 t_fieldMask IndexSpec_ParseFieldMask(IndexSpec *sp, RedisModuleString **argv, int argc);
 
 void IndexSpec_InitializeSynonym(IndexSpec *sp);
+void Indexes_Init(RedisModuleCtx *ctx);
 
 #ifdef __cplusplus
 }

@@ -1354,3 +1354,25 @@ int IndexSpec_RegisterType(RedisModuleCtx *ctx) {
 
   return REDISMODULE_OK;
 }
+
+void IndexSpec_CleanAll(void) {
+  dictIterator *it = dictGetSafeIterator(specDict);
+  dictEntry *e = NULL;
+  while ((e = dictNext(it))) {
+    IndexSpec *sp = e->v.val;
+    IndexSpec_Free(sp);
+  }
+  dictReleaseIterator(it);
+}
+
+static void onFlush(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
+  if (subevent != REDISMODULE_SUBEVENT_FLUSHDB_START) {
+    return;
+  }
+  IndexSpec_CleanAll();
+}
+
+void Indexes_Init(RedisModuleCtx *ctx) {
+  specDict = dictCreate(&dictTypeHeapStrings, NULL);
+  RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_FlushDB, onFlush);
+}
