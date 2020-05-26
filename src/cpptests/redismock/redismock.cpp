@@ -686,6 +686,9 @@ static int RMCK_ExportSharedAPI(RedisModuleCtx *, const char *name, void *funcpt
 static void *RMCK_GetSharedAPI(RedisModuleCtx *, const char *name) {
   return fnregistry[name];
 }
+static long long RMCK_Milliseconds(RedisModuleCtx *, const char *name) {
+  return (long long)time(NULL);
+}
 
 static void registerApis() {
   REGISTER_API(GetApi);
@@ -739,6 +742,7 @@ static void registerApis() {
   REGISTER_API(AutoMemory);
   REGISTER_API(ExportSharedAPI);
   REGISTER_API(GetSharedAPI);
+  REGISTER_API(Milliseconds);
 }
 
 static int RMCK_GetApi(const char *s, void *pp) {
