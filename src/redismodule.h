@@ -295,6 +295,7 @@ typedef struct RedisModuleTypeMethods {
     X(float, LoadFloat, (RedisModuleIO *io)) \
     X(void, Log, (RedisModuleCtx *ctx, const char *level, const char *fmt, ...)) \
     X(void, LogIOError, (RedisModuleIO *io, const char *levelstr, const char *fmt, ...)) \
+    X(void, _Assert, (const char *estr, const char *file, int line)) \
     X(int, StringAppendBuffer, (RedisModuleCtx *ctx, RedisModuleString *str, const char *buf, size_t len)) \
     X(void, RetainString, (RedisModuleCtx *ctx, RedisModuleString *str)) \
     X(int, StringCompare, (RedisModuleString *a, RedisModuleString *b)) \
@@ -413,6 +414,8 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
 #define REDISMODULE__INIT_WITH_NULL(TYPE, NAME, ARGS) \
     TYPE (*RedisModule_##NAME)ARGS = NULL;
 #define REDISMODULE_INIT_SYMBOLS() REDISMODULE_XAPI(REDISMODULE__INIT_WITH_NULL)
+
+#define RedisModule_Assert(_e) ((_e)?(void)0 : (RedisModule__Assert(#_e,__FILE__,__LINE__),exit(1)))
 
 #else
 

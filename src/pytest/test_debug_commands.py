@@ -21,11 +21,11 @@ class TestDebugCommands(object):
         err_msg = "wrong number of arguments for 'FT.DEBUG' command"
         help_list = ['DUMP_INVIDX', 'DUMP_NUMIDX', 'DUMP_TAGIDX', 'INFO_TAGIDX', 'IDTODOCID', 'DOCIDTOID', 'DOCINFO',
                     'DUMP_PHONETIC_HASH', 'DUMP_TERMS', 'INVIDX_SUMMARY', 'NUMIDX_SUMMARY',
-                    'GC_FORCEINVOKE', 'GC_FORCEBGINVOKE', 'GIT_SHA', 'LOGASSERT']
+                    'GC_FORCEINVOKE', 'GC_FORCEBGINVOKE', 'GIT_SHA']
         self.env.expect('FT.DEBUG', 'help').equal(help_list)
 
-        # 'GIT_SHA', 'LOGASSERT' do not return err_msg
-        for cmd in help_list[:-2]:
+        # 'GIT_SHA' do not return err_msg
+        for cmd in help_list[:-1]:
             self.env.expect('FT.DEBUG', cmd).raiseError().equal(err_msg)
 
     def testDocInfo(self):
@@ -173,30 +173,3 @@ class TestDebugCommands(object):
 
     def testGitSha(self):
         self.env.expect('FT.DEBUG', 'git_sha', 'foo').notRaiseError()
-
-
-class TestDebugCommandsLogAssert(object):
-    # until added to RLtest
-    def skipOnRedisVersion(self, ver):
-        server_ver = self.env.cmd('info server').split('\r\n')[1].split(':', 1)[-1]
-        server_ver_list = server_ver.split('.')
-        ver_list = ver.split('.')
-        for i in range(3):
-            if ver_list[i] > server_ver_list[i]:
-                self.env.skip()
-            elif ver_list[i] < server_ver_list[i]:
-                break
-
-    def __init__(self):
-        self.env = Env(testName="testing LogAssert command")
-        self.skipOnRedisVersion("5.0.7")
-
-    def testLogAssert(self):
-        result = False
-        logfile_name = self.env.cmd('config get logfile')[1]
-        self.env.expect('FT.DEBUG', 'LogAssert').error()
-        logfile = open(self.env.logDir + '/' + logfile_name, "r")
-        for line in logfile:
-            if (str(line).__contains__('(7 == 42) failed on /home/ariel/redis/RediSearch/src/debug_commads.c:LogAssert')):
-                result = True
-        self.env.assertEqual(result, True)
