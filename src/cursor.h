@@ -29,7 +29,7 @@ typedef struct Cursor {
   void *execState;
 
   /** Time when this cursor will no longer be valid, in nanos */
-  uint64_t nextTimeoutNs;
+  uint64_t nextTimeoutMs;
 
   /** ID of this cursor */
   uint64_t id;
@@ -75,7 +75,7 @@ typedef struct CursorList {
    * Next timeout - set to the lowest entry.
    * This is used as a hint to avoid excessive sweeps.
    */
-  uint64_t nextIdleTimeoutNs;
+  uint64_t nextIdleTimeoutMs;
 } CursorList;
 
 // This resides in the background as a global. We could in theory make this
@@ -119,7 +119,7 @@ void CursorList_Destroy(CursorList *cl);
 
 #define RSCURSORS_DEFAULT_CAPACITY 128
 #define RSCURSORS_SWEEP_INTERVAL 500                /* GC Every 500 requests */
-#define RSCURSORS_SWEEP_THROTTLE (1 * (1000000000)) /* Throttle, in NS */
+#define RSCURSORS_SWEEP_THROTTLE (1 * (1000)) /* Throttle, in NS */
 
 /**
  * Add an index spec to the cursor list. This has the effect of adding the
