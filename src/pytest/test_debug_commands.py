@@ -21,11 +21,11 @@ class TestDebugCommands(object):
         err_msg = "wrong number of arguments for 'FT.DEBUG' command"
         help_list = ['DUMP_INVIDX', 'DUMP_NUMIDX', 'DUMP_TAGIDX', 'INFO_TAGIDX', 'IDTODOCID', 'DOCIDTOID', 'DOCINFO',
                     'DUMP_PHONETIC_HASH', 'DUMP_TERMS', 'INVIDX_SUMMARY', 'NUMIDX_SUMMARY',
-                    'GC_FORCEINVOKE', 'GC_FORCEBGINVOKE', 'GIT_SHA', 'LOGASSERT']
+                    'GC_FORCEINVOKE', 'GC_FORCEBGINVOKE', 'INDEXES_LIST', 'GIT_SHA', 'LOGASSERT']
         self.env.expect('FT.DEBUG', 'help').equal(help_list)
 
         # 'GIT_SHA', 'LOGASSERT' do not return err_msg
-        for cmd in help_list[:-2]:
+        for cmd in help_list[:-3]:
             self.env.expect('FT.DEBUG', cmd).raiseError().equal(err_msg)
 
     def testDocInfo(self):
@@ -174,7 +174,7 @@ class TestDebugCommands(object):
         self.env.expect('FT.DEBUG', 'INDEXES_LIST').equal(['idx', 'idx1'])
         self.env.expect('FT.DROP', 'idx1').equal('OK')
 
-        def testNumericIndexInvalidKeyType(self):
+    def testNumericIndexInvalidKeyType(self):
         self.env.expect('FT.DEBUG', 'numidx_summary', 'foo').raiseError()
 
     def testGitSha(self):
