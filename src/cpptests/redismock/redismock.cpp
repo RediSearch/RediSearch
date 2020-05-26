@@ -636,6 +636,38 @@ Module::ModuleMap Module::modules;
 std::vector<KVDB *> KVDB::dbs;
 static int RMCK_GetApi(const char *s, void *pp);
 
+/** Keyspace Events */
+std::vector<KeyspaceEventFunction> KeyspaceEvents_g;
+
+void KeyspaceEventFunction::notify(const char *action, int events, const char *key) {
+  RMCK::RString rstring(key);
+  for (auto ff : KeyspaceEvents_g) {
+    if (ff.events & events) {
+      ff.call(action, events, rstring);
+    }
+  }
+}
+
+static int RMCK_SubscribeToKeyspaceEvents(RedisModuleCtx *, int types,
+                                          RedisModuleNotificationFunc cb) {
+  KeyspaceEventFunction fn;
+  fn.fn = cb;
+  fn.events = types;
+  KeyspaceEvents_g.push_back(fn);
+  return REDISMODULE_OK;
+}
+
+static std::vector<RedisModuleEventCallback> flushCallbacks;
+
+static int RMCK_SubscribeToServerEvent(RedisModuleCtx *ctx, RedisModuleEvent event,
+                                       RedisModuleEventCallback callback) {
+  // Make sure we do flush?
+  if (event.id == REDISMODULE_EVENT_FLUSHDB) {
+    flushCallbacks.push_back(callback);
+  }
+  return REDISMODULE_OK;
+}
+
 /** Misc */
 RedisModuleCtx::~RedisModuleCtx() {
   if (automemory) {
@@ -739,6 +771,9 @@ static void registerApis() {
   REGISTER_API(AutoMemory);
   REGISTER_API(ExportSharedAPI);
   REGISTER_API(GetSharedAPI);
+
+  REGISTER_API(SubscribeToKeyspaceEvents);
+  REGISTER_API(SubscribeToServerEvent);
 }
 
 static int RMCK_GetApi(const char *s, void *pp) {
