@@ -807,11 +807,11 @@ RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs,
         abort();
         break;
     }
+    if (!ret) {
+      return NULL;
+    }
+    sp->indexStrs[fs->index].types[typeix] = ret;
   }
-  if (!ret) {
-    return NULL;
-  }
-  sp->indexStrs[fs->index].types[typeix] = ret;
   return ret;
 }
 

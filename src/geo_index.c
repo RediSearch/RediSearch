@@ -3,7 +3,6 @@
 #include "rmutil/util.h"
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
-#include "numeric_index.h"
 
 static double extractUnitFactor(GeoDistance unit);
 
@@ -55,6 +54,13 @@ int GeoFilter_Parse(GeoFilter *gf, ArgsCursor *ac, QueryError *status) {
 
 void GeoFilter_Free(GeoFilter *gf) {
   if (gf->property) rm_free((char *)gf->property);
+  if (gf->numericFilters) {
+    for (int i = 0; i < GEO_RANGE_COUNT; ++i) {
+      if (gf->numericFilters[i])
+        NumericFilter_Free(gf->numericFilters[i]);
+    }
+  }
+  rm_free(gf->numericFilters);
   rm_free(gf);
 }
 
@@ -103,10 +109,12 @@ IndexIterator *NewGeoRangeIterator(RedisSearchCtx *ctx, const GeoFilter *gf) {
   calcRanges(gf->lon, gf->lat, radius_meter, ranges);
 
   IndexIterator **iters = rm_calloc(GEO_RANGE_COUNT, sizeof(*iters));
+  ((GeoFilter *)gf)->numericFilters = rm_calloc(GEO_RANGE_COUNT, sizeof(*gf->numericFilters));
   size_t itersCount = 0;
   for (size_t ii = 0; ii < GEO_RANGE_COUNT; ++ii) {
     if (ranges[ii].min != ranges[ii].max) {
-      NumericFilter *filt = NewNumericFilter(ranges[ii].min, ranges[ii].max, 1, 1);
+      NumericFilter *filt = gf->numericFilters[ii] =
+              NewNumericFilter(ranges[ii].min, ranges[ii].max, 1, 1);
       filt->fieldName = rm_strdup(gf->property);
       filt->geoFilter = gf;
       struct indexIterator *numIter = NewNumericFilterIterator(ctx, filt, NULL, INDEXFLD_T_GEO);

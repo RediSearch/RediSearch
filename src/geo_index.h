@@ -8,6 +8,7 @@
 #include "search_ctx.h"
 #include "query_error.h"
 #include "dep/geo/rs_geo.h"
+#include "numeric_index.h"
 
 typedef struct geoIndex {
   RedisSearchCtx *ctx;
@@ -35,6 +36,7 @@ typedef struct GeoFilter {
   double lon;
   double radius;
   GeoDistance unitType;
+  NumericFilter **numericFilters;
 } GeoFilter;
 
 /* Create a geo filter from parsed strings and numbers */
