@@ -496,7 +496,7 @@ the cursor is read from using `CURSOR READ`.
 
 The default idle timeout is 300000 milliseconds (or 300 seconds). You can modify
 the idle timeout using the `MAXIDLE` keyword when creating the cursor. Note that
-the value cannot exceed the default 30s.
+the value cannot exceed the default 300s.
 
 ```
 FT.AGGREGATE idx query WITHCURSOR MAXIDLE 10000
