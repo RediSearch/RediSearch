@@ -336,7 +336,8 @@ IndexIterator *NewNumericRangeIterator(const IndexSpec *sp, NumericRange *nr,
                                        const NumericFilter *f) {
 
   // if this range is at either end of the filter, we need to check each record
-  if (NumericFilter_Match(f, nr->minVal) && NumericFilter_Match(f, nr->maxVal)) {
+  if (NumericFilter_Match(f, nr->minVal) && NumericFilter_Match(f, nr->maxVal) &&
+      f->geoFilter == NULL) {
     // make the filter NULL so the reader will ignore it
     f = NULL;
   }
@@ -413,9 +414,9 @@ static NumericRangeTree *openNumericKeysDict(RedisSearchCtx *ctx, RedisModuleStr
 }
 
 struct indexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const NumericFilter *flt,
-                                               ConcurrentSearchCtx *csx) {
+                                               ConcurrentSearchCtx *csx, FieldType forType) {
   RedisModuleString *s =
-      IndexSpec_GetFormattedKeyByName(ctx->spec, flt->fieldName, INDEXFLD_T_NUMERIC);
+      IndexSpec_GetFormattedKeyByName(ctx->spec, flt->fieldName, forType);
   if (!s) {
     return NULL;
   }

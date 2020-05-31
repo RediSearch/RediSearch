@@ -4,36 +4,7 @@
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
 
-/* Add a docId to a geoindex key. Right now we just use redis' own GEOADD */
-int GeoIndex_AddStrings(GeoIndex *gi, t_docId docId, const char *slon, const char *slat) {
-  RedisModuleString *ks = IndexSpec_GetFormattedKey(gi->ctx->spec, gi->sp, INDEXFLD_T_GEO);
-  RedisModuleCtx *ctx = gi->ctx->redisCtx;
-
-  /* GEOADD key longitude latitude member*/
-  RedisModuleCallReply *rep = RedisModule_Call(ctx, "GEOADD", "sccl", ks, slon, slat, docId);
-  if (rep == NULL) {
-    return REDISMODULE_ERR;
-  }
-
-  int repType = RedisModule_CallReplyType(rep);
-  RedisModule_FreeCallReply(rep);
-  if (repType == REDISMODULE_REPLY_ERROR) {
-    return REDISMODULE_ERR;
-  }
-
-  return REDISMODULE_OK;
-}
-
-void GeoIndex_RemoveEntries(GeoIndex *gi, IndexSpec *sp, t_docId docId) {
-  RedisModuleString *ks = IndexSpec_GetFormattedKey(sp, gi->sp, INDEXFLD_T_GEO);
-  RedisModuleCtx *ctx = gi->ctx->redisCtx;
-  RedisModuleCallReply *rep = RedisModule_Call(ctx, "ZREM", "sl", ks, docId);
-
-  if (rep == NULL || RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_ERROR) {
-    RedisModule_Log(ctx, "warning", "Document %s was not removed", docId);
-  }
-  RedisModule_FreeCallReply(rep);
-}
+static double extractUnitFactor(GeoDistance unit);
 
 /* Parse a geo filter from redis arguments. We assume the filter args start at argv[0], and FILTER
  * is not passed to us.
@@ -83,6 +54,13 @@ int GeoFilter_Parse(GeoFilter *gf, ArgsCursor *ac, QueryError *status) {
 
 void GeoFilter_Free(GeoFilter *gf) {
   if (gf->property) rm_free((char *)gf->property);
+  if (gf->numericFilters) {
+    for (int i = 0; i < GEO_RANGE_COUNT; ++i) {
+      if (gf->numericFilters[i])
+        NumericFilter_Free(gf->numericFilters[i]);
+    }
+    rm_free(gf->numericFilters);
+  }
   rm_free(gf);
 }
 
@@ -125,16 +103,40 @@ done:
   return docIds;
 }
 
-IndexIterator *NewGeoRangeIterator(GeoIndex *gi, const GeoFilter *gf, double weight) {
-  size_t sz;
-  t_docId *docIds = geoRangeLoad(gi, gf, &sz);
-  if (!docIds) {
-    return NULL;
+IndexIterator *NewGeoRangeIterator(RedisSearchCtx *ctx, const GeoFilter *gf) {
+  GeoHashRange ranges[GEO_RANGE_COUNT] = {0};
+  double radius_meter = gf->radius * extractUnitFactor(gf->unitType);
+  calcRanges(gf->lon, gf->lat, radius_meter, ranges);
+
+  IndexIterator **iters = rm_calloc(GEO_RANGE_COUNT, sizeof(*iters));
+  ((GeoFilter *)gf)->numericFilters = rm_calloc(GEO_RANGE_COUNT, sizeof(*gf->numericFilters));
+  size_t itersCount = 0;
+  for (size_t ii = 0; ii < GEO_RANGE_COUNT; ++ii) {
+    if (ranges[ii].min != ranges[ii].max) {
+      NumericFilter *filt = gf->numericFilters[ii] =
+              NewNumericFilter(ranges[ii].min, ranges[ii].max, 1, 1);
+      filt->fieldName = rm_strdup(gf->property);
+      filt->geoFilter = gf;
+      struct indexIterator *numIter = NewNumericFilterIterator(ctx, filt, NULL, INDEXFLD_T_GEO);
+      if (numIter != NULL) {
+        iters[itersCount++] = numIter;
+      }
+    }
   }
 
-  IndexIterator *ret = NewIdListIterator(docIds, (t_offset)sz, weight);
-  rm_free(docIds);
-  return ret;
+  if (itersCount == 0) {
+    rm_free(iters);
+    return NULL;
+  } else if (itersCount == 1) {
+    IndexIterator *it = iters[0];
+    rm_free(iters);
+    return it;
+  }
+  IndexIterator *it = NewUnionIterator(iters, itersCount, NULL, 1, 1);
+  if (!it) {
+    return NULL;
+  }
+  return it;
 }
 
 GeoDistance GeoDistance_Parse(const char *s) {
@@ -194,4 +196,81 @@ int GeoFilter_Validate(GeoFilter *gf, QueryError *status) {
   }
 
   return 1;
+}
+
+/**
+ * Generates a geo hash from a given latitude and longtitude
+ */
+double calcGeoHash(double lon, double lat) {
+  double res;
+  int rv = encodeGeo(lon, lat, &res);
+  if (rv == 0) {
+    return INVALID_GEOHASH;
+  }
+  return res;
+}
+
+/**
+ * Convert different units to meters
+ */
+static double extractUnitFactor(GeoDistance unit) {
+  double rv;
+  switch (unit) {
+    case GEO_DISTANCE_M:
+      rv = 1;
+      break;
+    case GEO_DISTANCE_KM:
+      rv = 1000;
+      break;
+    case GEO_DISTANCE_FT:
+      rv = 0.3048;
+      break;
+    case GEO_DISTANCE_MI:
+      rv = 1609.34;
+      break;
+    default:
+      rv = -1;
+      assert(0);
+      break;
+  }
+  return rv;
+}
+
+/**
+ * Populates the numeric range to search for within a given square direction
+ * specified by `dir`
+ */
+static int populateRange(const GeoFilter *gf, GeoHashRange *ranges) {
+  double xy[2] = {gf->lon, gf->lat};
+
+  double radius_meters = gf->radius * extractUnitFactor(gf->unitType);
+  if (radius_meters < 0) {
+    return -1;
+  }
+  calcRanges(gf->lon, gf->lat, radius_meters, ranges);
+  return 0;
+}
+
+/**
+ * Checks if the given coordinate d is within the radius gf
+ */
+int isWithinRadius(const GeoFilter *gf, double d, double *distance) {
+  double xy[2];
+  decodeGeo(d, xy);
+  double radius_meters = gf->radius * extractUnitFactor(gf->unitType);
+  int rv = isWithinRadiusLonLat(gf->lon, gf->lat, xy[0], xy[1], radius_meters, distance);
+  return rv;
+}
+
+static int checkResult(const GeoFilter *gf, const RSIndexResult *cur) {
+  double distance;
+  if (cur->type == RSResultType_Numeric) {
+    return isWithinRadius(gf, cur->num.value, &distance);
+  }
+  for (size_t ii = 0; ii < cur->agg.numChildren; ++ii) {
+    if (checkResult(gf, cur->agg.children[ii])) {
+      return 1;
+    }
+  }
+  return 0;
 }

@@ -7,6 +7,8 @@
 #include "index_iterator.h"
 #include "search_ctx.h"
 #include "query_error.h"
+#include "dep/geo/rs_geo.h"
+#include "numeric_index.h"
 
 typedef struct geoIndex {
   RedisSearchCtx *ctx;
@@ -14,10 +16,6 @@ typedef struct geoIndex {
 } GeoIndex;
 
 #define GEOINDEX_KEY_FMT "geo:%s/%s"
-
-int GeoIndex_AddStrings(GeoIndex *gi, t_docId docId, const char *slon, const char *slat);
-
-void GeoIndex_RemoveEntries(GeoIndex *gi, IndexSpec *sp, t_docId docId);
 
 typedef enum {  // Placeholder for bad/invalid unit
   GEO_DISTANCE_INVALID = -1,
@@ -38,6 +36,7 @@ typedef struct GeoFilter {
   double lon;
   double radius;
   GeoDistance unitType;
+  NumericFilter **numericFilters;
 } GeoFilter;
 
 /* Create a geo filter from parsed strings and numbers */
@@ -53,6 +52,12 @@ int GeoFilter_Validate(GeoFilter *f, QueryError *status);
 /* Parse a geo filter from redis arguments. We assume the filter args start at argv[0] */
 int GeoFilter_Parse(GeoFilter *gf, ArgsCursor *ac, QueryError *status);
 void GeoFilter_Free(GeoFilter *gf);
-IndexIterator *NewGeoRangeIterator(GeoIndex *gi, const GeoFilter *gf, double weight);
+IndexIterator *NewGeoRangeIterator(RedisSearchCtx *ctx, const GeoFilter *gf);
+
+/*****************************************************************************/
+
+#define INVALID_GEOHASH -1.0
+double calcGeoHash(double lon, double lat);
+int isWithinRadius(const GeoFilter *gf, double d, double *distance);
 
 #endif

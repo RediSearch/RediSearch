@@ -81,7 +81,7 @@ struct indexIterator *NewNumericRangeIterator(const IndexSpec *sp, NumericRange 
                                               const NumericFilter *f);
 
 struct indexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const NumericFilter *flt,
-                                               ConcurrentSearchCtx *csx);
+                                               ConcurrentSearchCtx *csx, FieldType forType);
 
 /* Add an entry to a numeric range node. Returns the cardinality of the range after the
  * inserstion.
