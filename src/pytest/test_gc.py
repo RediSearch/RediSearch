@@ -52,8 +52,7 @@ def testBasicGCWithEmptyInvIdx(env):
     # check that the gc collected the deleted docs
     env.assertEqual(env.cmd('ft.debug', 'DUMP_INVIDX', 'idx', 'world'), [])
 
-
-def testNumerciGCIntensive(env):
+def testNumericGCIntensive(env):
     if env.isCluster():
         raise unittest.SkipTest()
     NumberOfDocs = 1000
@@ -74,6 +73,26 @@ def testNumerciGCIntensive(env):
             # if r2 is greater then 900 its on the last block and fork GC does not clean the last block
             env.assertTrue(r2 % 2 == 0 or r2 > 900)
 
+def testGeoGCIntensive(env):
+    if env.isCluster():
+        raise unittest.SkipTest()
+    NumberOfDocs = 1000
+    env.assertOk(env.cmd('ft.create', 'idx', 'schema', 'g', 'geo'))
+
+    for i in range(NumberOfDocs):
+        env.assertOk(env.cmd('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields', 'g', '12.34,56.78'))
+
+    for i in range(0, NumberOfDocs, 2):
+        env.assertEqual(env.cmd('ft.del', 'idx', 'doc%d' % i), 1)
+
+    for i in range(100):
+        env.cmd('ft.debug', 'GC_FORCEINVOKE', 'idx')
+
+    res = env.cmd('ft.debug', 'DUMP_NUMIDX', 'idx', 'g')
+    for r1 in res:
+        for r2 in r1:
+            # if r2 is greater then 900 its on the last block and fork GC does not clean the last block
+            env.assertTrue(r2 % 2 == 0 or r2 > 900)
 
 def testTagGC(env):
     if env.isCluster():
@@ -119,18 +138,6 @@ def testDeleteEntireBlock(env):
         env.cmd('ft.debug', 'GC_FORCEINVOKE', 'idx')
     for _ in env.reloading_iterator():
         env.expect('FT.SEARCH', 'idx', '@test:checking @test2:checking250').equal([1L, 'doc250', ['test', 'checking', 'test2', 'checking250']])
-
-
-def testDeleteDocWithGoeField(env):
-    if env.isCluster():
-        raise unittest.SkipTest()
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'TEXT', 'SORTABLE', 'test2', 'GEO').ok()
-    env.expect('FT.ADD', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'checking', 'test2', '1,1').ok()
-    env.expect('zrange', 'geo:idx/test2', '0', '-1').equal(['1'])
-    env.expect('FT.DEL', 'idx', 'doc1').equal(1)
-    rv = env.cmd('zrange', 'geo:idx/test2', '0', '-1')
-    # On newer redis versions, this is a NULL instead of an empty array
-    env.assertFalse(bool(rv))
 
 def testGCIntegrationWithRedisFork(env):
     if env.env == 'existing-env':
