@@ -198,7 +198,7 @@ endif
 DOCKER_IMAGE ?= redislabs/redisearch
 
 docker:
-	docker build . -t $(DOCKER_IMAGE) -f docker/Dockerfile.1 $(DOCKER_ARGS) \
+	docker build . -t $(DOCKER_IMAGE) -f docker/Dockerfile $(DOCKER_ARGS) \
 		--build-arg=GIT_DESCRIBE_VERSION=$(MODULE_VERSION)
 
 docker_push: docker

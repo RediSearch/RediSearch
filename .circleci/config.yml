@@ -32,7 +32,7 @@ commands:
 jobs:
   ubuntu:
     docker:
-      - image: 'redislabsmodules/rmbuilder:latest'
+      - image: 'redisfab/rmbuilder:6.0.1-x64-buster'
     environment:
       - BUILD_DIR: build-debian
     steps:
@@ -40,7 +40,7 @@ jobs:
   
   centos:
     docker:
-      - image: 'redislabsmodules/rmbuildercentos:latest'
+      - image: 'mnunberg/rmbuilder-centos-redis6-rc3'
     environment:
       - BUILD_DIR: build-el
     steps: 
@@ -56,12 +56,15 @@ jobs:
           name: Get macOS dependencies
           command: |
             export HOMEBREW_NO_AUTO_UPDATE=1
-            brew install cmake wget redis
+            brew install cmake wget &&
+            git clone git://github.com/antirez/redis -b 6.0 &&
+            cd redis &&
+            make install -j20
       - ci_steps
 
   deploy_snapshots:
     docker:
-      - image: 'redislabsmodules/rmbuilder:latest'
+      - image: 'redisfab/rmbuilder:6.0.1-x64-buster'
     steps:
       - attach_workspace:
           at: ~/workspace
@@ -74,7 +77,7 @@ jobs:
 
   debug_asan:
     docker:
-      - image: 'mnunberg/rmbuilder-san:latest'
+      - image: 'mnunberg/rmbuilder-san:redis6'
     steps:
       - checkout
       - run:
@@ -83,7 +86,7 @@ jobs:
 
   debug_msan:
     docker:
-      - image: 'mnunberg/rmbuilder-san:latest'
+      - image: 'mnunberg/rmbuilder-san:redis6'
     steps:
       - checkout
       - run:
@@ -92,7 +95,7 @@ jobs:
   
   coverage:
     docker:
-      - image: redislabsmodules/rmbuilder:latest
+      - image: redisfab/rmbuilder:6.0.1-x64-buster
     steps:
       - checkout
       - run:
@@ -104,7 +107,7 @@ jobs:
   
   deploy_release:
     docker:
-      - image: 'redislabsmodules/rmbuilder:latest'
+      - image: 'redisfab/rmbuilder:6.0.1-x64-buster'
     steps:
       - attach_workspace:
           at: ~/workspace
