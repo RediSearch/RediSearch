@@ -970,8 +970,6 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
     return REDISMODULE_ERR;
   }
 
-  specDict = dictCreate(&dictTypeHeapStrings, NULL);
-
   // register trie type
   RM_TRY(DictRegister, ctx);
 
