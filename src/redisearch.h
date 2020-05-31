@@ -49,10 +49,6 @@ typedef enum {
   Document_HasPayload = 0x02,
   Document_HasSortVector = 0x04,
   Document_HasOffsetVector = 0x08,
-
-  // Whether this document has any kind of 'on-demand'
-  // deletable field; this means any kind of numeric or geo
-  Document_HasOnDemandDeletable = 0x10
 } RSDocumentFlags;
 
 /* RSDocumentMetadata describes metadata stored about a document in the index (not the document
