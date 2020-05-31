@@ -59,8 +59,8 @@ void GeoFilter_Free(GeoFilter *gf) {
       if (gf->numericFilters[i])
         NumericFilter_Free(gf->numericFilters[i]);
     }
+    rm_free(gf->numericFilters);
   }
-  rm_free(gf->numericFilters);
   rm_free(gf);
 }
 
@@ -122,6 +122,15 @@ IndexIterator *NewGeoRangeIterator(RedisSearchCtx *ctx, const GeoFilter *gf) {
         iters[itersCount++] = numIter;
       }
     }
+  }
+
+  if (itersCount == 0) {
+    rm_free(iters);
+    return NULL;
+  } else if (itersCount == 1) {
+    IndexIterator *it = iters[0];
+    rm_free(iters);
+    return it;
   }
   IndexIterator *it = NewUnionIterator(iters, itersCount, NULL, 1, 1);
   if (!it) {

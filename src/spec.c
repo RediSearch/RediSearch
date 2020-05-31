@@ -807,9 +807,7 @@ RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs,
         abort();
         break;
     }
-    if (!ret) {
-      return NULL;
-    }
+    RS_LOG_ASSERT(ret, "Failed to create index string");
     sp->indexStrs[fs->index].types[typeix] = ret;
   }
   return ret;
