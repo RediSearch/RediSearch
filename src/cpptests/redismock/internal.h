@@ -324,4 +324,14 @@ struct RedisModuleCallReply {
   }
 };
 
+struct KeyspaceEventFunction {
+  RedisModuleNotificationFunc fn;
+  int events;
+  void call(const char *action, int events, RedisModuleString *k) {
+    RedisModuleCtx ctx;
+    fn(&ctx, events, action, k);
+  }
+  static void notify(const char *action, int events, const char *key);
+};
+
 #endif
