@@ -941,13 +941,14 @@ def testGeoErrors(env):
         env.expect('ft.add idx hotel 1.0 fields name hill location -0.1757,51.5156').error() \
                 .contains('Could not index geo value')
 
+
 def testGeo(env):
     r = env
     gsearch = lambda query, lon, lat, dist, unit='km': r.execute_command(
-        'ft.search', 'idx', query, 'geofilter', 'location', lon, lat, dist, unit)
+        'ft.search', 'idx', query, 'geofilter', 'location', lon, lat, dist, unit, 'LIMIT', 0, 20)
 
     gsearch_inline = lambda query, lon, lat, dist, unit='km': r.execute_command(
-        'ft.search', 'idx', '{} @location:[{} {} {} {}]'.format(query,  lon, lat, dist, unit))
+        'ft.search', 'idx', '{} @location:[{} {} {} {}]'.format(query,  lon, lat, dist, unit), 'LIMIT', 0, 20)
 
     env.assertOk(r.execute_command('ft.create', 'idx',
                                     'schema', 'name', 'text', 'location', 'geo'))
@@ -961,24 +962,20 @@ def testGeo(env):
         env.assertEqual(len(hotels), res[0])
 
         res = gsearch('hilton', "-0.1757", "51.5156", '1')
-        print res
         env.assertEqual(3, res[0])
-        env.assertEqual('hotel2', res[5])
-        env.assertEqual('hotel21', res[3])
-        env.assertEqual('hotel79', res[1])
+        env.assertIn('hotel2', res)
+        env.assertIn('hotel21', res)
+        env.assertIn('hotel79', res)
         res2 = gsearch_inline('hilton', "-0.1757", "51.5156", '1')
         env.assertListEqual(res, res2)
 
         res = gsearch('hilton', "-0.1757", "51.5156", '10')
         env.assertEqual(14, res[0])
-        env.assertEqual('hotel93', res[1])
-        env.assertEqual('hotel92', res[3])
-        env.assertEqual('hotel79', res[5])
 
         res2 = gsearch('hilton', "-0.1757", "51.5156", '10000', 'm')
-        env.assertListEqual(res, res2)
+        env.assertListEqual(sorted(res), sorted(res2))
         res2 = gsearch_inline('hilton', "-0.1757", "51.5156", '10')
-        env.assertListEqual(res, res2)
+        env.assertListEqual(sorted(res), sorted(res2))
 
         res = gsearch('heathrow', -0.44155, 51.45865, '10', 'm')
         env.assertEqual(1, res[0])
@@ -992,15 +989,16 @@ def testGeo(env):
         env.assertIn('hotel94', res)
         res2 = gsearch_inline(
             'heathrow', -0.44155, 51.45865, '10', 'km')
-        env.assertListEqual(res, res2)
+        env.assertEqual(5, res2[0])
+        env.assertListEqual(sorted(res), sorted(res2))
 
         res = gsearch('heathrow', -0.44155, 51.45865, '5', 'km')
         env.assertEqual(3, res[0])
         env.assertIn('hotel94', res)
         res2 = gsearch_inline(
             'heathrow', -0.44155, 51.45865, '5', 'km')
-        env.assertListEqual(res, res2)
-
+        env.assertListEqual(sorted(res), sorted(res2))
+        
 def testTagErrors(env):
     env.expect("ft.create", "test", "SCHEMA",  "tags", "TAG").equal('OK')
     env.expect("ft.add", "test", "1", "1", "FIELDS", "tags", "alberta").equal('OK')

@@ -39,6 +39,7 @@ def checkSlaveSynced(env, slaveConn, command, expected_result, time_out=5):
 
 def testDelReplicate():
   env = Env(useSlaves=True, forceTcp=True)
+  env.skip()
   env.skipOnCluster()
 
   master = env.getConnection()
