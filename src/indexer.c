@@ -236,20 +236,6 @@ static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, Re
   }
 }
 
-static void handleReplaceDelete(RedisSearchCtx *sctx, t_docId did) {
-  IndexSpec *sp = sctx->spec;
-  for (size_t ii = 0; ii < sp->numFields; ++ii) {
-    const FieldSpec *fs = sp->fields + ii;
-    if (!FIELD_IS(fs, INDEXFLD_T_GEO)) {
-      continue;
-    }
-    // Open the key:
-    RedisModuleString *fmtkey = IndexSpec_GetFormattedKey(sp, fs, INDEXFLD_T_GEO);
-    GeoIndex gi = {.ctx = sctx, .sp = fs};
-    GeoIndex_RemoveEntries(&gi, sp, did);
-  }
-}
-
 /** Assigns a document ID to a single document. */
 static int makeDocumentId(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, int replace,
                           QueryError *status) {
@@ -262,10 +248,6 @@ static int makeDocumentId(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, int repl
       // decrease the number of documents in the index stats only if the document was there
       --spec->stats.numDocuments;
       aCtx->oldMd = dmd;
-      if (dmd->flags & Document_HasOnDemandDeletable) {
-        // Delete all on-demand fields.. this means geo,but could mean other things..
-        handleReplaceDelete(sctx, dmd->id);
-      }
       if (sctx->spec->gc) {
         GCContext_OnDelete(sctx->spec->gc);
       }

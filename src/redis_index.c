@@ -461,9 +461,7 @@ static int Redis_DeleteKey(RedisModuleCtx *ctx, RedisModuleString *s) {
 }
 
 int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments, int deleteSpecKey) {
-
   if (deleteDocuments) {
-
     DocTable *dt = &ctx->spec->docs;
     DOCTABLE_FOREACH(dt, Redis_DeleteKey(ctx->redisCtx, DMD_CreateKeyString(dmd, ctx->redisCtx)));
   }
@@ -477,9 +475,6 @@ int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments, int deleteSpecKey)
     }
     if (FIELD_IS(fs, INDEXFLD_T_TAG)) {
       Redis_DeleteKey(ctx->redisCtx, IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_TAG));
-    }
-    if (FIELD_IS(fs, INDEXFLD_T_GEO)) {
-      Redis_DeleteKey(ctx->redisCtx, IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_GEO));
     }
   }
 

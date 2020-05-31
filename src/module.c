@@ -463,15 +463,6 @@ int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     // ID does not exist.
   }
 
-  for (size_t i = 0; i < sp->numFields; ++i) {
-    FieldSpec *fs = sp->fields + i;
-    if (!FIELD_IS(fs, INDEXFLD_T_GEO)) {
-      continue;
-    }
-    GeoIndex gi = {.ctx = &sctx, .sp = fs};
-    GeoIndex_RemoveEntries(&gi, sctx.spec, id);
-  }
-
   int rc = DocTable_DeleteR(&sp->docs, docKey);
   if (rc) {
     sp->stats.numDocuments--;
