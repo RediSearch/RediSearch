@@ -29,6 +29,7 @@ void SCAttrFields_Decref(SchemaAttrFieldpack *fp) {
   RM_XFreeString(fp->lang);
   RM_XFreeString(fp->score);
   RM_XFreeString(fp->payload);
+  rm_free(fp);
 }
 
 static MatchAction *actionForIndex(IndexSpec *spec, MatchAction **results);
@@ -152,6 +153,7 @@ static int parseAttrSettings(ArgsCursor *ac, SchemaAction *action, const char *a
     ACArgSpec *errspec = NULL;
     int rc = AC_ParseArgSpec(ac, specs, &errspec);
     if (rc != AC_OK) {
+      rm_free(lattr);
       QueryError_SetErrorFmt(err, QUERY_EPARSEARGS, "Couldn't parse SETATTR arguments: %s",
                              AC_Strerror(rc));
       return REDISMODULE_ERR;
@@ -363,6 +365,7 @@ int SchemaRules_AddArgsInternal(SchemaRules *rules, IndexSpec *spec, const char 
     astr = "INDEX";
   }
   if (extractAction(astr, &r->action, ac, err) != REDISMODULE_OK) {
+    SchemaRule_Free(r);
     return REDISMODULE_ERR;
   }
   if (spec) {
