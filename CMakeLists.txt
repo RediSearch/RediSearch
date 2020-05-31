@@ -113,6 +113,7 @@ FILE(GLOB RS_SRC
     "src/dep/miniz/*.c"
     "src/dep/thpool/*.c"
     "src/dep/triemap/*.c"
+    "src/dep/geo/*.c"
     ${RS_DEBUG_SRC})
 
 

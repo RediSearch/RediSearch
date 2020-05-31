@@ -112,10 +112,6 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Doc
         // has non-text but indexable fields
         hasOtherFields = 1;
       }
-
-      if (FIELD_CHKIDX(f->indexAs, INDEXFLD_T_GEO)) {
-        aCtx->docFlags = Document_HasOnDemandDeletable;
-      }
     }
   }
 
@@ -438,7 +434,7 @@ FIELD_PREPROCESSOR(numericPreprocessor) {
 }
 
 FIELD_BULK_INDEXER(numericIndexer) {
-  NumericRangeTree *rt = bulk->indexDatas[INDEXTYPE_TO_POS(INDEXFLD_T_NUMERIC)];
+  NumericRangeTree *rt = bulk->indexDatas[IXFLDPOS_NUMERIC];
   if (!rt) {
     RedisModuleString *keyName = IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_NUMERIC);
     rt = bulk->indexDatas[IXFLDPOS_NUMERIC] =
@@ -455,6 +451,7 @@ FIELD_BULK_INDEXER(numericIndexer) {
 }
 
 FIELD_PREPROCESSOR(geoPreprocessor) {
+  // TODO: streamline
   const char *c = RedisModule_StringPtrLen(field->text, NULL);
   char *pos = strpbrk(c, " ,");
   if (!pos) {
@@ -463,19 +460,19 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
   }
   *pos = '\0';
   pos++;
-  fdata->geoSlon = c;
-  fdata->geoSlat = pos;
-  return 0;
-}
 
-FIELD_BULK_INDEXER(geoIndexer) {
-  GeoIndex gi = {.ctx = ctx, .sp = fs};
-  int rv = GeoIndex_AddStrings(&gi, aCtx->doc.docId, fdata->geoSlon, fdata->geoSlat);
-
-  if (rv == REDISMODULE_ERR) {
-    QueryError_SetError(status, QUERY_EGENERIC, "Could not index geo value");
-    return -1;
+  char *end1 = NULL, *end2 = NULL;
+  double lon = strtod(c, &end1);
+  double lat = strtod(pos, &end2);
+  if (*end1 || *end2) {
+    return REDISMODULE_ERR;
   }
+
+  double geohash = calcGeoHash(lon, lat);
+  if (geohash == INVALID_GEOHASH) {
+    return REDISMODULE_ERR;
+  }
+  fdata->numeric = geohash;
   return 0;
 }
 
@@ -530,10 +527,8 @@ int IndexerBulkAdd(IndexBulkData *bulk, RSAddDocumentCtx *cur, RedisSearchCtx *s
           rc = tagIndexer(bulk, cur, sctx, field, fs, fdata, status);
           break;
         case IXFLDPOS_NUMERIC:
-          rc = numericIndexer(bulk, cur, sctx, field, fs, fdata, status);
-          break;
         case IXFLDPOS_GEO:
-          rc = geoIndexer(bulk, cur, sctx, field, fs, fdata, status);
+          rc = numericIndexer(bulk, cur, sctx, field, fs, fdata, status);
           break;
         case IXFLDPOS_FULLTEXT:
           break;
