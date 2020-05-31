@@ -142,6 +142,8 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   // Init extension mechanism
   Extensions_Init();
 
+  Indexes_Init(ctx);
+
   if (RSGlobalConfig.concurrentMode) {
     ConcurrentSearch_ThreadPoolStart();
   }
