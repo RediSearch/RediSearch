@@ -103,7 +103,7 @@ def testTimeout(env):
     # Maximum idle of 1ms
     q1 = ['FT.AGGREGATE', 'idx1', '*', 'LOAD', '1', '@f1', 'WITHCURSOR', 'COUNT', 10, 'MAXIDLE', 1]
     resp = env.cmd(*q1)
-    exptime = time() + 1.5
+    exptime = time() + 2.5
     rv = 1
     while time() < exptime:
         sleep(0.01)
