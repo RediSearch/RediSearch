@@ -1,12 +1,15 @@
 #include "cursor.h"
+#include <time.h>
 #include "rmutil/rm_assert.h"
 #include <err.h>
 
 #define Cursor_IsIdle(cur) ((cur)->pos != -1)
 CursorList RSCursors;
 
-static uint64_t curTimeMilliS() {
-  return (uint64_t)RedisModule_Milliseconds();
+static uint64_t curTimeNs() {
+  struct timespec tv;
+  clock_gettime(CLOCK_MONOTONIC, &tv);
+  return tv.tv_nsec + (tv.tv_sec * 1000000000);
 }
 
 static void CursorList_Lock(CursorList *cl) {
@@ -49,8 +52,8 @@ static void Cursor_RemoveFromIdle(Cursor *cur) {
   }
 
   Array_Resize(idle, sizeof(Cursor *) * (n - 1));
-  if (cur->nextTimeoutMs == cur->parent->nextIdleTimeoutMs) {
-    cur->parent->nextIdleTimeoutMs = 0;
+  if (cur->nextTimeoutNs == cur->parent->nextIdleTimeoutNs) {
+    cur->parent->nextIdleTimeoutNs = 0;
   }
   cur->pos = -1;
 }
@@ -101,7 +104,7 @@ typedef struct {
 
 static void cursorGcCb(CursorList *cl, Cursor *cur, void *arg) {
   cursorGcCtx *ctx = arg;
-  if (cur->nextTimeoutMs <= ctx->now) {
+  if (cur->nextTimeoutNs <= ctx->now) {
     Cursor_RemoveFromIdle(cur);
     Cursor_FreeInternal(cur, kh_get(cursors, cl->lookup, cur->id));
     ctx->numCollected++;
@@ -120,10 +123,10 @@ static void cursorGcCb(CursorList *cl, Cursor *cur, void *arg) {
  * Garbage collection is throttled within a given interval as well.
  */
 static int Cursors_GCInternal(CursorList *cl, int force) {
-  uint64_t now = curTimeMilliS();
-  if (cl->nextIdleTimeoutMs && cl->nextIdleTimeoutMs > now) {
+  uint64_t now = curTimeNs();
+  if (cl->nextIdleTimeoutNs && cl->nextIdleTimeoutNs > now) {
     return -1;
-  } else if (!force && (now - cl->lastCollect < RSCURSORS_SWEEP_THROTTLE)) {
+  } else if (!force && now - cl->lastCollect < RSCURSORS_SWEEP_THROTTLE) {
     return -1;
   }
 
@@ -224,13 +227,13 @@ done:
 
 int Cursor_Pause(Cursor *cur) {
   CursorList *cl = cur->parent;
-  cur->nextTimeoutMs = curTimeMilliS() + (uint64_t)cur->timeoutIntervalMs;
+  cur->nextTimeoutNs = curTimeNs() + ((uint64_t)cur->timeoutIntervalMs * 1000000);
 
   CursorList_Lock(cl);
   CursorList_IncrCounter(cl);
 
-  if (cur->nextTimeoutMs < cl->nextIdleTimeoutMs || cl->nextIdleTimeoutMs == 0) {
-    cl->nextIdleTimeoutMs = cur->nextTimeoutMs;
+  if (cur->nextTimeoutNs < cl->nextIdleTimeoutNs || cl->nextIdleTimeoutNs == 0) {
+    cl->nextIdleTimeoutNs = cur->nextTimeoutNs;
   }
 
   /* Add to idle list */
