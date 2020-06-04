@@ -167,7 +167,7 @@ void CursorList_RemoveSpec(CursorList *cl, const char *k) {
 }
 
 static void CursorList_IncrCounter(CursorList *cl) {
-  if (++cl->counter % RSCURSORS_SWEEP_INTERVAL) {
+  if (++cl->counter % RSCURSORS_SWEEP_INTERVAL == 0) {
     Cursors_GCInternal(cl, 0);
   }
 }
