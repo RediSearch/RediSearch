@@ -1,24 +1,30 @@
 #!/bin/bash
+
 set -e
 set -x
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+ROOT=$(cd $HERE/..; pwd)
+cd $ROOT
 
 ./.circleci/ci_get_deps.sh
 
 SAN_PREFIX=/opt/san
 
-mode=$1
 extra_flags=""
 
-if [ "$mode" == "asan" ]; then
+if [[ $ASAN == 1 ]]; then
+	mode=asan
     extra_flags="-DUSE_ASAN=ON"
-elif [ "$mode" == "msan" ]; then
+elif [[ $MSAN == 1 ]]; then
+	mode=msan
     extra_flags="-DUSE_MSAN=ON -DMSAN_PREFIX=${SAN_PREFIX}"
 else
-    echo "Mode must be 'asan' or 'msan'"
+    echo "Should define either ASAN=1 or MSAN=1"
     exit 1
 fi
 
-mkdir build-${mode}
+mkdir -p build-${mode}
 cd build-${mode}
 
 cmake -DCMAKE_BUILD_TYPE=DEBUG \
@@ -28,7 +34,11 @@ cmake -DCMAKE_BUILD_TYPE=DEBUG \
     $extra_flags \
     ..
 
-make -j20 # should build ok
+if [[ -z $CI_CONCURRENCY ]]; then
+	CI_CONCURRENCY=$($ROOT/deps/readies/bin/nproc)
+fi
+
+make -j$CI_CONCURRENCY
 
 ## Add some configuration options to our rltest file
 
@@ -44,6 +54,6 @@ export ASAN_OPTIONS=detect_odr_violation=0
 export RS_GLOBAL_DTORS=1
 
 # FIXME: Need to change the image once this actually works..
-ln -s /usr/bin/llvm-symbolizer-4.0 /usr/bin/llvm-symbolizer || true
+ln -sf /usr/bin/llvm-symbolizer-4.0 /usr/bin/llvm-symbolizer || true
 
-ctest --output-on-failure -j20
+ctest --output-on-failure -j$CI_CONCURRENCY

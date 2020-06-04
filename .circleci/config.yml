@@ -48,7 +48,7 @@ jobs:
 
   macos:
     macos:
-      xcode: 10.2.1
+      xcode: 11.1.0
     environment:
       - BUILD_DIR: build-macos
     steps:
@@ -82,7 +82,7 @@ jobs:
       - checkout
       - run:
           name: Run & build tests
-          command: ./.circleci/ci_diag_san.sh asan
+          command: ASAN=1 ./.circleci/ci_diag_san.sh
 
   debug_msan:
     docker:
@@ -91,7 +91,7 @@ jobs:
       - checkout
       - run:
           name: Run & build tests
-          command: ./.circleci/ci_diag_san.sh msan
+          command: MSAN=1 ./.circleci/ci_diag_san.sh
 
   coverage:
     docker:
