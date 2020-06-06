@@ -62,9 +62,9 @@ jobs:
           at: ~/workspace
       - run:
           name: Deploy Snapshots to S3
-          command: >-
+          command: |
             for f in ~/workspace/snapshot/*.zip; do
-              aws s3 cp $f s3://redismodules/$PACKAGE_NAME/snapshots/ --acl public-read;
+              aws s3 cp $f s3://redismodules/$PACKAGE_NAME/snapshots/ --acl public-read
             done
 
   debug_asan:
