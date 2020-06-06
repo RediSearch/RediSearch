@@ -37,6 +37,7 @@ cmake -DCMAKE_BUILD_TYPE=DEBUG \
 if [[ -z $CI_CONCURRENCY ]]; then
 	CI_CONCURRENCY=$($ROOT/deps/readies/bin/nproc)
 fi
+CI_CONCURRENCY=20
 
 make -j$CI_CONCURRENCY
 
