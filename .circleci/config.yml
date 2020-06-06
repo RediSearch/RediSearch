@@ -75,7 +75,6 @@ jobs:
       - run:
           name: Run & build tests
           command: ASAN=1 ./.circleci/ci_diag_san.sh
-          no_output_timeout: 30m
 
   debug_msan:
     docker:
@@ -85,7 +84,6 @@ jobs:
       - run:
           name: Run & build tests
           command: MSAN=1 ./.circleci/ci_diag_san.sh
-          no_output_timeout: 30m
 
   coverage:
     docker:
@@ -189,8 +187,7 @@ workflows:
       - centos:
           <<: *on-any-branch
       - macos:
-          #@@ <<: *on-version-tags
-          <<: *on-any-branch
+          <<: *on-version-tags
       - debug_asan:
           <<: *on-any-branch
       - debug_msan:
