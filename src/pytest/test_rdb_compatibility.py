@@ -25,6 +25,7 @@ def downloadFiles():
     return True
 
 def testRDBCompatibility(env):
+    # temp skip for out-of-index
     env.skip()
     env.skipOnCluster()
     dbFileName = env.cmd('config', 'get', 'dbfilename')[1]

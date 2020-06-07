@@ -3,8 +3,10 @@ import unittest
 
 
 def testExpire(env):
-    #if env.isCluster():
-    raise unittest.SkipTest()
+    # temp skip for out-of-index
+    env.SkipTest()
+    if env.isCluster():
+        raise unittest.SkipTest()
     env.cmd('ft.create', 'idx', 'TEMPORARY', '4', 'SCHEMA', 'test', 'TEXT', 'SORTABLE')
     ttl = env.cmd('ttl', 'idx:idx')
     env.assertTrue(ttl > 2)
