@@ -4,7 +4,8 @@ import unittest
 
 def testExpire(env):
     # temp skip for out-of-index
-    env.SkipTest()
+    raise unittest.SkipTest()
+
     if env.isCluster():
         raise unittest.SkipTest()
     env.cmd('ft.create', 'idx', 'TEMPORARY', '4', 'SCHEMA', 'test', 'TEXT', 'SORTABLE')
