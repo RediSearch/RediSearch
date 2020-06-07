@@ -74,7 +74,6 @@ def testAllConfig(env):
     res_list = env.cmd('ft.config get *')
     res_dict = {d[0]: d[1:] for d in res_list}
     env.assertEqual(res_dict['EXTLOAD'][0], None)
-    env.assertEqual(res_dict['CONCURRENT_WRITE_MODE'][0], 'false')
     env.assertEqual(res_dict['NOGC'][0], 'false')
     env.assertEqual(res_dict['MINPREFIX'][0], '2')
     env.assertEqual(res_dict['FORKGC_SLEEP_BEFORE_EXIT'][0], '0')

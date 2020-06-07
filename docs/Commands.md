@@ -334,7 +334,6 @@ OK or an error.
 FT.ALIASADD {name} {index}
 FT.ALIASUPDATE {name} {index}
 FT.ALIASDEL {name}
-FT.ALTER {index} ALIAS DEL {alias}
 ```
 
 The `FT.ALIASADD` and `FT.ALIASDEL` commands will add or remove an alias from
@@ -504,7 +503,7 @@ FT.SEARCH idx "@text:morphix=>{$phonetic:false}"
 - **SUMMARIZE ...**: Use this option to return only the sections of the field which contain the 
   matched text.
   See [Highlighting](Highlight.md) for more details
-- **HIGHLIGHT ...**: Use this option to format occurrences of matched text. See [Highligting](Highlight.md) for more
+- **HIGHLIGHT ...**: Use this option to format occurrences of matched text. See [Highlighting](Highlight.md) for more
   details
 - **SLOP {slop}**: If set, we allow a maximum of N intervening number of unmatched offsets between 
   phrase terms. (i.e the slop for exact phrases is 0)

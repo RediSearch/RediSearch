@@ -2999,8 +2999,9 @@ def testIssue1169(env):
     env.expect('FT.AGGREGATE idx foo GROUPBY 1 @txt1 REDUCE FIRST_VALUE 1 @txt2 as test').equal([1L, ['txt1', 'foo', 'test', None]])
 
 def testIssue1184(env):
-    field_types = ['TEXT', 'NUMERIC', 'TAG']
+    env.skipOnCluster()
 
+    field_types = ['TEXT', 'NUMERIC', 'TAG']
     for ft in field_types:
         env.assertOk(env.execute_command('FT.CREATE idx SCHEMA  field ' + ft))
 
@@ -3029,3 +3030,17 @@ def testIssue1184(env):
         env.assertEqual(d['num_records'], '0')
 
         env.cmd('FT.DROP idx')
+
+def testIssue1208(env):
+    env.cmd('FT.CREATE idx SCHEMA n NUMERIC')
+    env.cmd('FT.ADD idx doc1 1 FIELDS n 1.0321e5')
+    env.cmd('FT.ADD idx doc2 1 FIELDS n 101.11')
+    env.cmd('FT.ADD idx doc3 1 FIELDS n 0.0011')
+    env.expect('FT.SEARCH', 'idx', '@n:[1.1432E3 inf]').equal([1L, 'doc1', ['n', '1.0321e5']])
+    env.expect('FT.SEARCH', 'idx', '@n:[-1.12E-3 1.12E-1]').equal([1L, 'doc3', ['n', '0.0011']])
+    res = [3L, 'doc3', ['n', '0.0011'], 'doc2', ['n', '101.11'], 'doc1', ['n', '1.0321e5']]
+    env.expect('FT.SEARCH', 'idx', '@n:[-inf inf]').equal(res)
+
+    env.expect('FT.ADD idx doc3 1 REPLACE PARTIAL IF @n>42e3 FIELDS n 100').equal('NOADD')
+    env.expect('FT.ADD idx doc3 1 REPLACE PARTIAL IF @n<42e3 FIELDS n 100').ok()
+    print env.cmd('FT.SEARCH', 'idx', '@n:[-inf inf]')

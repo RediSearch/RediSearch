@@ -190,7 +190,7 @@ NRN_AddRv NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value)
   }
 
   // if this node is a leaf - we add AND check the cardinality. We only split leaf nodes
-  rv.sz = NumericRange_Add(n->range, docId, value, 1);
+  rv.sz = (uint32_t)NumericRange_Add(n->range, docId, value, 1);
   int card = n->range->card;
   // printf("Added %d %f to node %f..%f, card now %zd, size now %zd\n", docId, value,
   // n->range->minVal,
@@ -288,7 +288,7 @@ NumericRangeTree *NewNumericRangeTree() {
   return ret;
 }
 
-int NumericRangeTree_Add(NumericRangeTree *t, t_docId docId, double value) {
+size_t NumericRangeTree_Add(NumericRangeTree *t, t_docId docId, double value) {
 
   // Do not allow duplicate entries. This might happen due to indexer bugs and we need to protect
   // from it

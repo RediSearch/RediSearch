@@ -13,7 +13,7 @@ markdown_extensions:
       separator: "_"
   - admonition
 
-use_directory_urls: false
+use_directory_urls: true
 theme:
   name: 'material'
   language: 'en'

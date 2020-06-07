@@ -506,7 +506,7 @@ Will set the limit for 10 seconds.
 
 ### Other cursor commands
 
-Cursors can be explicity deleted using the `CURSOR DEL` command, e.g.
+Cursors can be explicitly deleted using the `CURSOR DEL` command, e.g.
 
 ```
 FT.CURSOR DEL idx 342459320
