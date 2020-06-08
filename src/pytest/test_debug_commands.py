@@ -167,9 +167,3 @@ class TestDebugCommands(object):
 
     def testNumericIndexSummaryWrongArity(self):
         self.env.expect('FT.DEBUG', 'numidx_summary', 'idx1').raiseError()
-
-    def testNumericIndexInvalidKeyType(self):
-        self.env.expect('FT.DEBUG', 'numidx_summary', 'foo').raiseError()
-
-    def testGitSha(self):
-        self.env.expect('FT.DEBUG', 'git_sha', 'foo').notRaiseError()
