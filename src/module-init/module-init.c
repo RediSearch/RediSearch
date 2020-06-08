@@ -103,11 +103,12 @@ static int initAsLibrary(RedisModuleCtx *ctx) {
   // This is copy/pasted from redismodule.h
   // We don't use RedisModule_Init, since this also changes the attributes
   // of the provided ctx, which is probably owned by another module
+  /*
   RedisModule_GetApiFunctionType getapifuncptr = (RedisModule_GetApiFunctionType)((void **)ctx)[0];
 #define X(TYPE, NAME, ARGS) getapifuncptr("RedisModule_" #NAME, (void *)&RedisModule_##NAME);
   REDISMODULE_XAPI(X)
 #undef X
-
+*/
   // Disable concurrent mode:
   RSGlobalConfig.concurrentMode = 0;
   return REDISMODULE_OK;
