@@ -41,9 +41,9 @@ def testDelReplicate():
   env.skipOnCluster()
 
   master = env.getConnection()
-  slave = env.getSlaveConnection() 
-  env.assertContains("PONG", master.execute_command("ping"))
-  env.assertContains("PONG", slave.execute_command("ping"))  
+  slave = env.getSlaveConnection()
+  env.assertTrue(master.execute_command("ping"))
+  env.assertTrue(slave.execute_command("ping"))
   env.assertOk(master.execute_command('ft.create', 'idx', 'schema', 'f', 'text'))
 
   checkSlaveSynced(env, slave, ('exists', 'idx:idx'), 1, time_out=20)
@@ -56,20 +56,20 @@ def testDelReplicate():
 
   for i in range(10):
     # checking for insertion
-    env.assertEqual(['f', 'hello world'], 
+    env.assertEqual(['f', 'hello world'],
       master.execute_command('ft.get', 'idx', 'doc%d' % i))
-    env.assertEqual(['f', 'hello world'], 
+    env.assertEqual(['f', 'hello world'],
       slave.execute_command('ft.get', 'idx', 'doc%d' % i))
 
     # deleting
     env.assertEqual(1, master.execute_command(
           'ft.del', 'idx', 'doc%d' % i, 'DD'))
-  
+
   checkSlaveSynced(env, slave, ('ft.get', 'idx', 'doc9'), None, time_out=20)
 
   for i in range(10):
     # checking for deletion
-    env.assertEqual(None, 
+    env.assertEqual(None,
       master.execute_command('ft.get', 'idx', 'doc%d' % i))
-    env.assertEqual(None, 
+    env.assertEqual(None,
       slave.execute_command('ft.get', 'idx', 'doc%d' % i))
