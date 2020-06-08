@@ -8,6 +8,7 @@ from includes import *
 def testBasicGC(env):
     if env.isCluster():
         raise unittest.SkipTest()
+    env.assertOk(env.execute_command('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0))
     env.assertOk(env.cmd('ft.create', 'idx', 'schema', 'title', 'text', 'id', 'numeric', 't', 'tag'))
     for i in range(101):
         env.assertOk(env.cmd('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
@@ -36,6 +37,7 @@ def testBasicGCWithEmptyInvIdx(env):
     if env.moduleArgs is not None and 'GC_POLICY LEGACY' in env.moduleArgs:
         # this test is not relevent for legacy gc cause its not squeshing inverted index
         raise unittest.SkipTest()
+    env.assertOk(env.execute_command('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0))
     env.assertOk(env.cmd('ft.create', 'idx', 'schema', 'title', 'text'))
     env.assertOk(env.cmd('ft.add', 'idx', 'doc1', 1.0, 'fields',
                          'title', 'hello world'))
@@ -76,6 +78,8 @@ def testTagGC(env):
     if env.isCluster():
         raise unittest.SkipTest()
     NumberOfDocs = 101
+
+    env.assertOk(env.execute_command('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0))
     env.assertOk(env.cmd('ft.create', 'idx', 'schema', 't', 'tag'))
 
     for i in range(NumberOfDocs):
