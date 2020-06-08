@@ -306,7 +306,7 @@ The `fork GC` will only start to clean when the number of not cleaned documents 
 
 ### Default
 
-"0"
+"100"
 
 ### Example
 
