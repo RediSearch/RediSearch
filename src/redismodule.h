@@ -696,10 +696,6 @@ typedef int (*RedisModule_GetApiFunctionType)(const char *name, void *pp);
 #pragma push_macro("X")
 #define X(TYPE, NAME, ARGS) \
      __attribute__ ((weak)) TYPE (*RedisModule_##NAME) ARGS = NULL;
-/*
-#define X(TYPE, NAME, ARGS) \
-     extern TYPE (*RedisModule_##NAME) ARGS;
-*/
 REDISMODULE_XAPI(X)
 #undef X
 #pragma pop_macro("X")
@@ -723,12 +719,6 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     RedisModule_SetModuleAttribs(ctx,name,ver,apiver);
     return REDISMODULE_OK;
 }
-
-/*
-#define REDISMODULE__INIT_WITH_NULL(TYPE, NAME, ARGS) \
-    TYPE (*RedisModule_##NAME)ARGS = NULL;
-#define REDISMODULE_INIT_SYMBOLS() REDISMODULE_XAPI(REDISMODULE__INIT_WITH_NULL)
-*/
 
 #define RedisModule_Assert(_e) ((_e)?(void)0 : (RedisModule__Assert(#_e,__FILE__,__LINE__),exit(1)))
 
