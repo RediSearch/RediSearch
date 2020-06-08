@@ -3002,8 +3002,8 @@ def testIssue1184(env):
     env.skipOnCluster()
 
     field_types = ['TEXT', 'NUMERIC', 'TAG']
+    env.assertOk(env.execute_command('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0))
     for ft in field_types:
-        env.assertOk(env.execute_command('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0))
         env.assertOk(env.execute_command('FT.CREATE idx SCHEMA  field ' + ft))
 
         res = env.execute_command('ft.info', 'idx')
