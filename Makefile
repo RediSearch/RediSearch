@@ -74,6 +74,9 @@ endif
 #----------------------------------------------------------------------------------------------
 
 include $(MK)/defs
+
+MK_CUSTOM_CLEAN=1
+
 include $(MK)/rules
 
 $(COMPAT_MODULE): $(BINROOT)/redisearch.so
@@ -112,6 +115,13 @@ endif
 	$(MAKE) -C src/query_parser
 
 .PHONY: parsers
+
+#----------------------------------------------------------------------------------------------
+
+setup:
+	@echo Setting up system...
+	$(SHOW)./deps/readies/bin/getpy2
+	$(SHOW)./system-setup.py 
 
 #----------------------------------------------------------------------------------------------
 
