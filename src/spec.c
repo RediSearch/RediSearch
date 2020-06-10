@@ -473,7 +473,7 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryE
       {.name = "EXPRESSION", .target = &rulesopts.expr, .len = &dummy2, .type = AC_ARGTYPE_STRING},
       {.name = "SCORE", .target = &rulesopts.score, .len = &dummy2, .type = AC_ARGTYPE_STRING},
       {.name = "LANGUAGE", .target = &rulesopts.lang, .len = &dummy2, .type = AC_ARGTYPE_STRING},
-      {.name = "PAYLOAD", .target = &rulesopts.payload, .len = &dummy, .type = AC_ARGTYPE_STRING},
+      {.name = "PAYLOAD", .target = &rulesopts.payload, .len = &dummy2, .type = AC_ARGTYPE_STRING},
       {.name = SPEC_TEMPORARY_STR, .target = &timeout, .type = AC_ARGTYPE_LLONG},
       {.name = SPEC_STOPWORDS_STR, .target = &acStopwords, .type = AC_ARGTYPE_SUBARGS},
       {.name = NULL}};
@@ -493,7 +493,7 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryE
   spec->timeout = timeout;
 
   if (rulesopts.expr) {
-    if (Rule_EvalExpression(spec, &rulesopts, status) != REDISMODULE_OK) {
+    if ((spec->rule = Rule_Create(spec, &rulesopts, status)) == NULL) {
       goto failure;
     }
   }
@@ -677,6 +677,10 @@ void IndexSpec_FreeInternals(IndexSpec *spec) {
   if (spec->stopwords) {
     StopWordList_Unref(spec->stopwords);
     spec->stopwords = NULL;
+  }
+  if (spec->rule) {
+    Rule_free(spec->rule);
+    spec->rule = NULL;
   }
 
   if (spec->smap) {

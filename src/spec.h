@@ -15,6 +15,7 @@
 #include "field_spec.h"
 #include "util/dict.h"
 #include "redisearch_api.h"
+#include "rules.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -190,6 +191,8 @@ struct IndexSpec {
   void *getValueCtx;
   char **aliases;  // Aliases to self-remove when the index is deleted
   struct DocumentIndexer *indexer;
+
+  SchemaRule *rule;
 };
 
 typedef struct {
