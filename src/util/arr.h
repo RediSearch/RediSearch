@@ -136,7 +136,7 @@ static inline array_t array_ensure_len(array_t arr, size_t len) {
  * not exist
  * @param arrpp array pointer. Can be NULL
  * @param src array (i.e. C array) of elements to append
- * @param n length of sec
+ * @param n length of src
  * @param T type of the array (for sizeof)
  * @return the array
  */
