@@ -13,14 +13,13 @@ typedef struct {
 } ruleSettings;
 
 typedef struct {
-  IndexSpec *spec;
   RSExpr *expression;
   ruleSettings setting;
 } SchemaRule;
 
 extern IndexSpec *SchemaRules_g;
 
-SchemaRule *Rule_Create(IndexSpec *spec, ruleSettings *rulesopts, QueryError *status);
+SchemaRule *Rule_Create(ruleSettings *rulesopts, QueryError *status);
 void Rule_free(SchemaRule *);
 
 #endif // RULES_RULES_H
