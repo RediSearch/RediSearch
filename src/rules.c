@@ -1,10 +1,9 @@
 #include "rules.h"
 #include "aggregate/expr/expression.h"
-#include "spec.h"
 
 IndexSpec *SchemaRules_g;
 
-SchemaRule *Rule_Create(IndexSpec *spec, ruleSettings *rulesopts, QueryError *status) {
+SchemaRule *Rule_Create(ruleSettings *rulesopts, QueryError *status) {
     RSExpr *e = ExprAST_Parse(rulesopts->expr, strlen(rulesopts->expr), status);
     if (!e) {
       return NULL;
@@ -26,7 +25,6 @@ SchemaRule *Rule_Create(IndexSpec *spec, ruleSettings *rulesopts, QueryError *st
       rule->setting.payload = rm_strdup(rulesopts->payload);
     }
 
-    SchemaRules_g = array_ensure_append(SchemaRules_g, spec, 1, IndexSpec);
     return rule;
 }
 
