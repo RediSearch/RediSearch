@@ -493,9 +493,10 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryE
   spec->timeout = timeout;
 
   if (rulesopts.expr) {
-    if ((spec->rule = Rule_Create(spec, &rulesopts, status)) == NULL) {
+    if ((spec->rule = Rule_Create(&rulesopts, status)) == NULL) {
       goto failure;
     }
+    SchemaRules_g = array_ensure_append(SchemaRules_g, spec, 1, IndexSpec);
   }
 
   if (AC_IsInitialized(&acStopwords)) {
