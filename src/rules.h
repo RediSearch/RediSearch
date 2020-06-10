@@ -1,9 +1,8 @@
 #ifndef RULES_RULES_H
 #define RULES_RULES_H
 
-#include "query_error.h"
-typedef struct RSExpr RSExpr;
-typedef struct IndexSpec IndexSpec;
+#include "aggregate/expr/expression.h"
+//#include "spec.h"
 
 typedef struct {
   char *expr;
@@ -13,13 +12,13 @@ typedef struct {
 } ruleSettings;
 
 typedef struct {
+  IndexSpec *spec;
   RSExpr *expression;
   ruleSettings setting;
 } SchemaRule;
 
-extern IndexSpec *SchemaRules_g;
+SchemaRule *SchemaRules_g;
 
-SchemaRule *Rule_Create(ruleSettings *rulesopts, QueryError *status);
-void Rule_free(SchemaRule *);
+int Rule_EvalExpression(IndexSpec *spec, ruleSettings *rulesopts, QueryError *status);
 
 #endif // RULES_RULES_H

@@ -473,7 +473,7 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryE
       {.name = "EXPRESSION", .target = &rulesopts.expr, .len = &dummy2, .type = AC_ARGTYPE_STRING},
       {.name = "SCORE", .target = &rulesopts.score, .len = &dummy2, .type = AC_ARGTYPE_STRING},
       {.name = "LANGUAGE", .target = &rulesopts.lang, .len = &dummy2, .type = AC_ARGTYPE_STRING},
-      {.name = "PAYLOAD", .target = &rulesopts.payload, .len = &dummy2, .type = AC_ARGTYPE_STRING},
+      {.name = "PAYLOAD", .target = &rulesopts.payload, .len = &dummy, .type = AC_ARGTYPE_STRING},
       {.name = SPEC_TEMPORARY_STR, .target = &timeout, .type = AC_ARGTYPE_LLONG},
       {.name = SPEC_STOPWORDS_STR, .target = &acStopwords, .type = AC_ARGTYPE_SUBARGS},
       {.name = NULL}};
@@ -493,10 +493,9 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryE
   spec->timeout = timeout;
 
   if (rulesopts.expr) {
-    if ((spec->rule = Rule_Create(&rulesopts, status)) == NULL) {
+    if (Rule_EvalExpression(spec, &rulesopts, status) != REDISMODULE_OK) {
       goto failure;
     }
-    SchemaRules_g = array_ensure_append(SchemaRules_g, spec, 1, IndexSpec);
   }
 
   if (AC_IsInitialized(&acStopwords)) {
