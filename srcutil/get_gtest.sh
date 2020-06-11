@@ -21,6 +21,6 @@ if [ ! -e $tarball ]; then
 fi
 
 cd $DESTDIR
-tar -xzf $tarball
+tar -xzf $tarball --no-same-owner
 rm -f gtest
 ln -s $GTEST_TOPDIR gtest

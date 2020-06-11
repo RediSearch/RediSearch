@@ -6,7 +6,6 @@
 #include "trie/trie_type.h"
 #include <math.h>
 #include <ctype.h>
-#include <assert.h>
 #include "rmalloc.h"
 #include "config.h"
 #include "cursor.h"
@@ -15,6 +14,7 @@
 #include "indexer.h"
 #include "alias.h"
 #include "module.h"
+#include "rmutil/rm_assert.h"
 
 void (*IndexSpec_OnCreate)(const IndexSpec *) = NULL;
 const char *(*IndexAlias_GetUserTableName)(RedisModuleCtx *, const char *) = NULL;
@@ -636,7 +636,7 @@ void IndexSpec_FreeWithKey(IndexSpec *sp, RedisModuleCtx *ctx) {
     IndexSpec_Free(sp);
     return;
   }
-  assert(RedisModule_ModuleTypeGetValue(kk) == sp);
+  RS_LOG_ASSERT(RedisModule_ModuleTypeGetValue(kk) == sp, "IndexSpecs should be identical");
   RedisModule_DeleteKey(kk);
   RedisModule_CloseKey(kk);
 }
@@ -984,7 +984,7 @@ void IndexSpec_StartGCFromSpec(IndexSpec *sp, float initialHZ, uint32_t gcPolicy
 /* Start the garbage collection loop on the index spec. The GC removes garbage data left on the
  * index after removing documents */
 void IndexSpec_StartGC(RedisModuleCtx *ctx, IndexSpec *sp, float initialHZ) {
-  assert(!sp->gc);
+  RS_LOG_ASSERT(!sp->gc, "GC already exists");
   // we will not create a gc thread on temporary index
   if (RSGlobalConfig.enableGC && !(sp->flags & Index_Temporary)) {
     RedisModuleString *keyName = RedisModule_CreateString(ctx, sp->name, strlen(sp->name));
@@ -1067,7 +1067,7 @@ static void FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
   f->sortIdx = RedisModule_LoadSigned(rdb);
 
   if (encver < INDEX_MIN_MULTITYPE_VERSION) {
-    assert(f->types <= IDXFLD_LEGACY_MAX);
+    RS_LOG_ASSERT(f->types <= IDXFLD_LEGACY_MAX, "field type should be string or numeric");
     f->types = fieldTypeMap[f->types];
   }
 
@@ -1082,7 +1082,7 @@ static void FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
     // Load the separator
     size_t l;
     char *s = RedisModule_LoadStringBuffer(rdb, &l);
-    assert(l == 1);
+    RS_LOG_ASSERT(l == 1, "buffer length should be 1");
     f->tagSep = *s;
     RedisModule_Free(s);
   }
@@ -1143,7 +1143,7 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
     FieldSpec_RdbLoad(rdb, sp->fields + i, encver);
     sp->fields[i].index = i;
     if (FieldSpec_IsSortable(fs)) {
-      assert(fs->sortIdx < RS_SORTABLES_MAX);
+      RS_LOG_ASSERT(fs->sortIdx < RS_SORTABLES_MAX, "sorting index is too large");
       sp->sortables->fields[fs->sortIdx].name = fs->name;
       sp->sortables->fields[fs->sortIdx].type = fieldTypeToValueType(fs->types);
       sp->sortables->len = MAX(sp->sortables->len, fs->sortIdx + 1);
@@ -1194,7 +1194,7 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
       char *s = RedisModule_LoadStringBuffer(rdb, &dummy);
       int rc = IndexAlias_Add(s, sp, 0, &status);
       RedisModule_Free(s);
-      assert(rc == REDISMODULE_OK);
+      RS_LOG_ASSERT(rc == REDISMODULE_OK, "adding alias to index failed");
     }
   }
   sp->indexer = NewIndexer(sp);

@@ -14,8 +14,55 @@ static timespec getTimespecCb(void *) {
   return ts;
 }
 
+typedef struct {
+  RedisModuleCtx *ctx;
+  void *fgc;
+  IndexSpec *sp;
+} args_t;
+
+static pthread_t thread;
+
+void *cbWrapper(void *args) {
+  args_t *fgcArgs = (args_t *)args;
+  ForkGC *fgc = reinterpret_cast<ForkGC *>(fgcArgs->sp->gc->gcCtx);
+
+  // sync thread
+  while (fgc->pauseState != FGC_PAUSED_CHILD) {
+    usleep(500);
+  }
+
+  // run ForkGC
+  fgcArgs->sp->gc->callbacks.periodicCallback(fgcArgs->ctx, fgcArgs->fgc);
+  rm_free(args);
+  return NULL;
+}
+
+void runGcThread(RedisModuleCtx *ctx, void *fgc, IndexSpec *sp) {
+  thread = { 0 };
+  args_t *args = (args_t *)rm_calloc(1, sizeof(*args));
+  *args = {.ctx = ctx, .fgc = fgc, .sp = sp};
+
+  pthread_create(&thread, NULL, cbWrapper, args);
+}
+
 class FGCTest : public ::testing::Test {
  protected:
+  RMCK::Context ctx;
+  IndexSpec *sp;
+  ForkGC *fgc;
+
+  void SetUp() override {
+    sp = createIndex(ctx);
+    RSGlobalConfig.forkGcCleanThreshold = 0;
+    fgc = reinterpret_cast<ForkGC *>(sp->gc->gcCtx);
+    runGcThread(ctx, fgc, sp);
+  }
+
+  void TearDown() override {
+    RediSearch_DropIndex(sp);
+    pthread_join(thread, NULL);
+  }
+
   IndexSpec *createIndex(RedisModuleCtx *ctx) {
     RSIndexOptions opts = {0};
     opts.gcPolicy = GC_POLICY_FORK;
@@ -26,26 +73,14 @@ class FGCTest : public ::testing::Test {
     // Let's use a tag field, so that there's only one entry in the tag index
     RediSearch_CreateField(sp, "f1", RSFLDTYPE_TAG, 0);
 
-    // Set the interval timer to something lower, so we don't wait too
-    // long
-    timespec ts = {0};
-    ts.tv_nsec = 5000;  // 500us
-    sp->gc->callbacks.getInterval = getTimespecCb;
-    RMUtilTimer_SetInterval(sp->gc->timer, ts);
-    RMUtilTimer_Signal(sp->gc->timer);
     return sp;
   }
 };
 
 TEST_F(FGCTest, testRemoveLastBlock) {
-  RMCK::Context ctx;
-  auto sp = createIndex(ctx);
 
   // Add a document
   ASSERT_TRUE(RS::addDocument(ctx, sp, "doc1", "f1", "hello"));
-
-  auto fgc = reinterpret_cast<ForkGC *>(sp->gc->gcCtx);
-
   /**
    * To properly test this; we must ensure that the gc is forked AFTER
    * the deletion, but BEFORE the addition.
@@ -59,16 +94,12 @@ TEST_F(FGCTest, testRemoveLastBlock) {
    * before it begins receiving results.
    */
   FGC_WaitAtApply(fgc);
-
   ASSERT_TRUE(RS::addDocument(ctx, sp, "doc2", "f1", "hello"));
 
   /** This function allows the gc to receive the results */
   FGC_WaitClear(fgc);
 
   ASSERT_EQ(1, fgc->stats.gcBlocksDenied);
-
-  // By now, the gc should be resumed.
-  RediSearch_DropIndex(sp);
 }
 
 static InvertedIndex *getTagInvidx(RedisModuleCtx *ctx, IndexSpec *sp, const char *field,
@@ -88,12 +119,10 @@ static std::string numToDocid(unsigned id) {
 }
 
 /**
- * Repair the last block, while adding more documents to it and removing a midle block.
+ * Repair the last block, while adding more documents to it and removing a middle block.
  * This test should be checked with valgrind as it cause index corruption.
  */
-TEST_F(FGCTest, testRepairLastBlockWhileRemovingMidle) {
-  RMCK::Context ctx;
-  auto sp = createIndex(ctx);
+TEST_F(FGCTest, testRepairLastBlockWhileRemovingMiddle) {
   // Delete the first block:
   unsigned curId = 0;
   auto iv = getTagInvidx(ctx, sp, "f1", "hello");
@@ -102,6 +131,7 @@ TEST_F(FGCTest, testRepairLastBlockWhileRemovingMidle) {
     size_t n = sprintf(buf, "doc%u", curId++);
     ASSERT_TRUE(RS::addDocument(ctx, sp, buf, "f1", "hello"));
   }
+
 
   /**
    * In this case, we want to keep `curId`, but we want to delete a 'middle' entry
@@ -112,7 +142,6 @@ TEST_F(FGCTest, testRepairLastBlockWhileRemovingMidle) {
   std::string toDel(buf);
   RS::addDocument(ctx, sp, buf, "f1", "hello");
 
-  auto fgc = reinterpret_cast<ForkGC *>(sp->gc->gcCtx);
   FGC_WaitAtFork(fgc);
 
   ASSERT_TRUE(RS::deleteDocument(ctx, sp, buf));
@@ -132,15 +161,12 @@ TEST_F(FGCTest, testRepairLastBlockWhileRemovingMidle) {
 
   ASSERT_EQ(1, fgc->stats.gcBlocksDenied);
   ASSERT_EQ(2, iv->size);
-  RediSearch_DropIndex(sp);
 }
 
 /**
  * Repair the last block, while adding more documents to it...
  */
 TEST_F(FGCTest, testRepairLastBlock) {
-  RMCK::Context ctx;
-  auto sp = createIndex(ctx);
   // Delete the first block:
   unsigned curId = 0;
   auto iv = getTagInvidx(ctx, sp, "f1", "hello");
@@ -159,7 +185,6 @@ TEST_F(FGCTest, testRepairLastBlock) {
   std::string toDel(buf);
   RS::addDocument(ctx, sp, buf, "f1", "hello");
 
-  auto fgc = reinterpret_cast<ForkGC *>(sp->gc->gcCtx);
   FGC_WaitAtFork(fgc);
 
   ASSERT_TRUE(RS::deleteDocument(ctx, sp, buf));
@@ -172,16 +197,13 @@ TEST_F(FGCTest, testRepairLastBlock) {
 
   ASSERT_EQ(1, fgc->stats.gcBlocksDenied);
   ASSERT_EQ(2, iv->size);
-  RediSearch_DropIndex(sp);
 }
 
 /**
- * Test repair midle block while last block is removed on child and modified on parent.
+ * Test repair middle block while last block is removed on child and modified on parent.
  * Make sure there is no datalose.
  */
-TEST_F(FGCTest, testRepairMidleRemoveLast) {
-  RMCK::Context ctx;
-  auto sp = createIndex(ctx);
+TEST_F(FGCTest, testRepairMiddleRemoveLast) {
   // Delete the first block:
   unsigned curId = 0;
   auto iv = getTagInvidx(ctx, sp, "f1", "hello");
@@ -200,7 +222,6 @@ TEST_F(FGCTest, testRepairMidleRemoveLast) {
    * In this case, we want to keep `curId`, but we want to delete a 'middle' entry
    * while appending documents to it..
    **/
-  auto fgc = reinterpret_cast<ForkGC *>(sp->gc->gcCtx);
   FGC_WaitAtFork(fgc);
 
   while (curId > 100) {
@@ -214,9 +235,7 @@ TEST_F(FGCTest, testRepairMidleRemoveLast) {
   ASSERT_TRUE(RS::addDocument(ctx, sp, buf, "f1", "hello"));
 
   FGC_WaitClear(fgc);
-
   ASSERT_EQ(2, iv->size);
-  RediSearch_DropIndex(sp);
 }
 
 /**
@@ -224,8 +243,6 @@ TEST_F(FGCTest, testRepairMidleRemoveLast) {
  * the parent's changes
  */
 TEST_F(FGCTest, testRemoveMiddleBlock) {
-  RMCK::Context ctx;
-  auto sp = createIndex(ctx);
   // Delete the first block:
   unsigned curId = 0;
   InvertedIndex *iv = getTagInvidx(ctx, sp, "f1", "hello");
@@ -242,8 +259,8 @@ TEST_F(FGCTest, testRemoveMiddleBlock) {
   unsigned lastMidId = curId - 1;
   ASSERT_EQ(3, iv->size);
 
-  auto fgc = reinterpret_cast<ForkGC *>(sp->gc->gcCtx);
   FGC_WaitAtFork(fgc);
+
   for (size_t ii = firstMidId; ii < lastMidId + 1; ++ii) {
     RS::deleteDocument(ctx, sp, numToDocid(ii).c_str());
   }
@@ -261,6 +278,7 @@ TEST_F(FGCTest, testRemoveMiddleBlock) {
   // fourth block (as a sentinel)
   const char *pp = iv->blocks[iv->size - 2].buf.data;
   FGC_WaitClear(fgc);
+
   ASSERT_EQ(3, iv->size);
 
   // The pointer to the last gc-block, received from the fork
@@ -274,6 +292,4 @@ TEST_F(FGCTest, testRemoveMiddleBlock) {
   ASSERT_NE(ss.end(), ss.find(numToDocid(newLastBlockId - 1)));
   ASSERT_NE(ss.end(), ss.find(numToDocid(lastLastBlockId)));
   ASSERT_EQ(0, fgc->stats.gcBlocksDenied);
-
-  RediSearch_DropIndex(sp);
 }

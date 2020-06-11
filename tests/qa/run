@@ -1,0 +1,44 @@
+#!/bin/bash
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+ROOT=$HERE/../..
+
+if [[ -z $QA_AUTOMATION_USERNAME ]]; then
+	echo "Variable QA_AUTOMATION_USERNAME is undefined." >&2
+	exit 1
+fi
+if [[ -z $QA_AUTOMATION_PASS ]]; then
+	echo "Variable QA_AUTOMATION_PASS is undefined." >&2
+	exit 1
+fi
+
+export MODULE_VERSION=${MODULE_VERSION:-master}
+
+results() {
+	echo "$JSON" | jq "$1" | cut -d\" -f2
+}
+
+cd $HERE
+
+json_in=$(mktemp /tmp/automation-testing.json.XXXX)
+$ROOT/deps/readies/bin/xtx -e MODULE_VERSION automation-testing.json > $json_in
+[[ $VERBOSE == 1 ]] && cat $json_in
+
+JSON=$(curl -sk \
+	-u "$QA_AUTOMATION_USERNAME":"$QA_AUTOMATION_PASS" \
+	-X POST -H "Content-Type: application/json" \
+	-d @$json_in \
+	https://qa-automation-center.redislabs.com/processes 2>&1)
+rc=$?
+rm $json_in
+status=$(results .status)
+if [[ $rc == 0 && $status == success ]]; then
+	id=$(results .data[0])
+	echo "Tests running."
+	echo "Results: https://qa-automation-center.redislabs.com/ui#dashboard/flow/$id"
+	exit 0
+else
+	err=$(results .message)
+	echo "Error: $err"
+	exit 1
+fi

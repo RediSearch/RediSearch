@@ -1,5 +1,6 @@
 #include "field_spec.h"
 #include "rmalloc.h"
+#include "rmutil/rm_assert.h"
 
 RSValueType fieldTypeToValueType(FieldType ft) {
   switch (ft) {
@@ -23,6 +24,6 @@ void FieldSpec_Cleanup(FieldSpec* fs) {
 }
 
 void FieldSpec_SetSortable(FieldSpec* fs) {
-  assert(!(fs->options & FieldSpec_Dynamic) && "dynamic fields cannot be sortable");
+  RS_LOG_ASSERT(!(fs->options & FieldSpec_Dynamic), "dynamic fields cannot be sortable");
   fs->options |= FieldSpec_Sortable;
 }

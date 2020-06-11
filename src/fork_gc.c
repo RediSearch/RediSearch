@@ -14,6 +14,8 @@
 #include "rwlock.h"
 #include "util/khash.h"
 #include <float.h>
+#include "module.h"
+#include "rmutil/rm_assert.h"
 
 #ifdef __linux__
 #include <sys/prctl.h>
@@ -77,14 +79,14 @@ static void FGC_updateStats(RedisSearchCtx *sctx, ForkGC *gc, size_t recordsRemo
 }
 
 static void FGC_sendFixed(ForkGC *fgc, const void *buff, size_t len) {
-  assert(len > 0);
+  RS_LOG_ASSERT(len > 0, "buffer length cannot be 0");
   ssize_t size = write(fgc->pipefd[GC_WRITERFD], buff, len);
   if (size != len) {
     if (size == -1) {
       perror("write()");
       abort();
     } else {
-      assert(size == len);
+      RS_LOG_ASSERT(size == len, "buffer failed to write");
     }
   }
 }
@@ -337,7 +339,7 @@ static void countDeleted(const RSIndexResult *r, const IndexBlock *blk, void *ar
   } else if ((ht = ctx->delRest) == NULL) {
     ht = ctx->delRest = kh_init(cardvals);
   }
-  assert(ht);
+  RS_LOG_ASSERT(ht, "cardvals should not be NULL");
   int added = 0;
   numUnion u = {r->num.value};
   khiter_t it = kh_put(cardvals, ht, u.u64, &added);
@@ -385,7 +387,7 @@ static FGCError recvNumericTagHeader(ForkGC *fgc, char **fieldName, size_t *fiel
   return FGC_COLLECTED;
 }
 
-static void sendKht(ForkGC *gc, const khash_t(cardvals) * kh) {
+static void sendKht(ForkGC *gc, const khash_t(cardvals) *kh) {
   size_t n = 0;
   if (!kh) {
     FGC_SEND_VAR(gc, n);
@@ -405,7 +407,7 @@ static void sendKht(ForkGC *gc, const khash_t(cardvals) * kh) {
     FGC_SEND_VAR(gc, cu);
     nsent++;
   }
-  assert(nsent == n);
+  RS_LOG_ASSERT(nsent == n, "Not all hashes has been sent");
 }
 
 static void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
@@ -652,7 +654,7 @@ static void FGC_applyInvertedIndex(ForkGC *gc, InvIdxBuffers *idxData, MSG_Index
   rm_free(idxData->delBlocks);
 
   // Ensure the old index is at least as big as the new index' size
-  assert(idx->size >= info->nblocksOrig);
+  RS_LOG_ASSERT(idx->size >= info->nblocksOrig, "Old index should be larger or equal to new index");
 
   if (idxData->newBlocklist) {
     /**
@@ -830,7 +832,7 @@ error:
   return FGC_CHILD_ERROR;
 }
 
-static void resetCardinality(NumGcInfo *info, NumericRange *r) {
+static void resetCardinality(NumGcInfo *info, NumericRangeNode *currNone) {
   khash_t(cardvals) *kh = kh_init(cardvals);
   int added;
   for (size_t ii = 0; ii < info->nrestBlockDel; ++ii) {
@@ -850,8 +852,9 @@ static void resetCardinality(NumGcInfo *info, NumericRange *r) {
     }
   }
 
+  NumericRange *r = currNone->range;
   size_t n = array_len(r->values);
-  double minVal = -DBL_MAX, maxVal = DBL_MIN, uniqueSum = 0;
+  double minVal = DBL_MAX, maxVal = -DBL_MIN, uniqueSum = 0;
 
   for (size_t ii = 0; ii < array_len(r->values); ++ii) {
   reeval:;
@@ -871,8 +874,13 @@ static void resetCardinality(NumGcInfo *info, NumericRange *r) {
     }
   }
   kh_destroy(cardvals, kh);
-  r->minVal = minVal;
-  r->maxVal = maxVal;
+  // we can only update the min and the max value if the node is a leaf.
+  // otherwise the min and the max also represent its children values and
+  // we can not change it.
+  if (NumericRangeNode_IsLeaf(currNone)) {
+    r->minVal = minVal;
+    r->maxVal = maxVal;
+  }
   r->unique_sum = uniqueSum;
   r->card = array_len(r->values);
 }
@@ -883,7 +891,7 @@ static void applyNumIdx(ForkGC *gc, RedisSearchCtx *sctx, NumGcInfo *ninfo) {
   MSG_IndexInfo *info = &ninfo->info;
   FGC_applyInvertedIndex(gc, idxbufs, info, currNode->range->entries);
   FGC_updateStats(sctx, gc, info->ndocsCollected, info->nbytesCollected);
-  resetCardinality(ninfo, currNode->range);
+  resetCardinality(ninfo, currNode);
 }
 
 static FGCError FGC_parentHandleNumeric(ForkGC *gc, RedisModuleCtx *rctx) {
@@ -899,6 +907,7 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc, RedisModuleCtx *rctx) {
   while (status == FGC_COLLECTED) {
     NumGcInfo ninfo = {0};
     RedisSearchCtx *sctx = NULL;
+    RedisModuleKey *idxKey = NULL;
     FGCError status2 = recvNumIdx(gc, &ninfo);
     if (status2 == FGC_DONE) {
       break;
@@ -920,7 +929,6 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc, RedisModuleCtx *rctx) {
     }
     RedisModuleString *keyName =
         IndexSpec_GetFormattedKeyByName(sctx->spec, fieldName, INDEXFLD_T_NUMERIC);
-    RedisModuleKey *idxKey = NULL;
     NumericRangeTree *rt = OpenNumericIndex(sctx, keyName, &idxKey);
 
     if (rt->uniqueId != rtUniqueId) {
@@ -982,7 +990,7 @@ static FGCError FGC_parentHandleTags(ForkGC *gc, RedisModuleCtx *rctx) {
     }
 
     if (value == NULL) {
-      assert(status == FGC_COLLECTED);
+      RS_LOG_ASSERT(status == FGC_COLLECTED, "GC status is COLLECTED");
       break;
     }
 
@@ -1137,6 +1145,9 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
 
     FGC_unlock(gc, ctx);
 
+    close(gc->pipefd[GC_READERFD]);
+    close(gc->pipefd[GC_WRITERFD]);
+
     return 1;
   }
 
@@ -1185,14 +1196,31 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
     }
     close(gc->pipefd[GC_READERFD]);
     if (FGC_haveRedisFork()) {
+
       if (gc->type == FGC_TYPE_NOKEYSPACE) {
         // If we are not in key space we still need to acquire the GIL to use the fork api
         RedisModule_ThreadSafeContextLock(ctx);
       }
+
+      if (!FGC_lock(gc, ctx)) {
+        if (gc->type == FGC_TYPE_NOKEYSPACE) {
+          RedisModule_ThreadSafeContextUnlock(ctx);
+        }
+
+        return 0;
+      }
+
+      // KillForkChild must be called when holding the GIL
+      // otherwise it might cause a pipe leak and eventually run
+      // out of file descriptor
       RedisModule_KillForkChild(cpid);
+
       if (gc->type == FGC_TYPE_NOKEYSPACE) {
         RedisModule_ThreadSafeContextUnlock(ctx);
       }
+
+      FGC_unlock(gc, ctx);
+
     } else {
       pid_t id = wait4(cpid, NULL, 0, NULL);
       if (id == -1) {
@@ -1222,7 +1250,7 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
 #endif
 
 void FGC_WaitAtFork(ForkGC *gc) NO_TSAN_CHECK {
-  assert(gc->pauseState == 0);
+  RS_LOG_ASSERT(gc->pauseState == 0, "FGC pause state should be 0");
   gc->pauseState = FGC_PAUSED_CHILD;
 
   while (gc->execState != FGC_STATE_WAIT_FORK) {
@@ -1232,8 +1260,8 @@ void FGC_WaitAtFork(ForkGC *gc) NO_TSAN_CHECK {
 
 void FGC_WaitAtApply(ForkGC *gc) NO_TSAN_CHECK {
   // Ensure that we're waiting for the child to begin
-  assert(gc->pauseState == FGC_PAUSED_CHILD);
-  assert(gc->execState == FGC_STATE_WAIT_FORK);
+  RS_LOG_ASSERT(gc->pauseState == FGC_PAUSED_CHILD, "FGC pause state should be CHILD");
+  RS_LOG_ASSERT(gc->execState == FGC_STATE_WAIT_FORK, "FGC exec state should be WAIT_FORK");
 
   gc->pauseState = FGC_PAUSED_PARENT;
   while (gc->execState != FGC_STATE_WAIT_APPLY) {
@@ -1242,7 +1270,7 @@ void FGC_WaitAtApply(ForkGC *gc) NO_TSAN_CHECK {
 }
 
 void FGC_WaitClear(ForkGC *gc) NO_TSAN_CHECK {
-  gc->pauseState = 0;
+  gc->pauseState = FGC_PAUSED_UNPAUSED;
   while (gc->execState != FGC_STATE_IDLE) {
     usleep(500);
   }
@@ -1251,9 +1279,7 @@ void FGC_WaitClear(ForkGC *gc) NO_TSAN_CHECK {
 static void onTerminateCb(void *privdata) {
   ForkGC *gc = privdata;
   if (gc->keyName && gc->type == FGC_TYPE_INKEYSPACE) {
-    RedisModule_ThreadSafeContextLock(gc->ctx);
     RedisModule_FreeString(gc->ctx, (RedisModuleString *)gc->keyName);
-    RedisModule_ThreadSafeContextUnlock(gc->ctx);
   }
 
   RedisModule_FreeThreadSafeContext(gc->ctx);

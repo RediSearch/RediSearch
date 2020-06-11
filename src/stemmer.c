@@ -2,7 +2,6 @@
 #include <string.h>
 #include <stdio.h>
 #include <sys/param.h>
-#include <assert.h>
 #include "dep/snowball/include/libstemmer.h"
 #include "rmalloc.h"
 
@@ -20,6 +19,7 @@ langPair_t __langPairs[] = {
   { "finnish",    RS_LANG_FINNISH },
   { "french",     RS_LANG_FRENCH },
   { "german",     RS_LANG_GERMAN },
+  { "hindi",      RS_LANG_HINDI },
   { "hungarian",  RS_LANG_HUNGARIAN },
   { "italian",    RS_LANG_ITALIAN },
   { "norwegian",  RS_LANG_NORWEGIAN },
@@ -44,6 +44,7 @@ const char *RSLanguage_ToString(RSLanguage language) {
     case  RS_LANG_FINNISH:     ret = "finnish";    break;
     case  RS_LANG_FRENCH:      ret = "french";     break;
     case  RS_LANG_GERMAN:      ret = "german";     break;
+    case  RS_LANG_HINDI:       ret = "hindi";      break;
     case  RS_LANG_HUNGARIAN:   ret = "hungarian";  break;
     case  RS_LANG_ITALIAN:     ret = "italian";    break;
     case  RS_LANG_NORWEGIAN:   ret = "norwegian";  break;

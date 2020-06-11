@@ -10,16 +10,6 @@
 extern "C" {
 #endif
 
-typedef struct BlockClient {
-  DLLIST_node llnode;
-  RedisModuleBlockedClient* bClient;
-} BlockClient;
-
-typedef struct BlockClients {
-  DLLIST clients;
-  pthread_mutex_t lock;
-} BlockClients;
-
 typedef struct GCCallbacks {
   int (*periodicCallback)(RedisModuleCtx* ctx, void* gcCtx);
   void (*renderStats)(RedisModuleCtx* ctx, void* gc);
@@ -33,10 +23,15 @@ typedef struct GCCallbacks {
 
 typedef struct GCContext {
   void* gcCtx;
-  struct RMUtilTimer* timer;
-  BlockClients bClients;
+  RedisModuleTimerID timerID;
   GCCallbacks callbacks;
+  int stopped;
 } GCContext;
+
+typedef struct GCTask {
+  GCContext* gc;
+  RedisModuleBlockedClient* bClient;
+} GCTask;
 
 typedef struct IndexSpec IndexSpec;
 GCContext* GCContext_CreateGCFromSpec(IndexSpec* sp, float initialHZ, uint64_t uniqueId,
@@ -48,6 +43,9 @@ void GCContext_RenderStats(GCContext* gc, RedisModuleCtx* ctx);
 void GCContext_OnDelete(GCContext* gc);
 void GCContext_ForceInvoke(GCContext* gc, RedisModuleBlockedClient* bc);
 void GCContext_ForceBGInvoke(GCContext* gc);
+
+void GC_ThreadPoolStart();
+void GC_ThreadPoolDestroy();
 
 #ifdef __cplusplus
 }

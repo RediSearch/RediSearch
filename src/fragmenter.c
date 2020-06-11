@@ -5,7 +5,7 @@
 #include <ctype.h>
 #include <float.h>
 #include <sys/uio.h>
-#include <assert.h>
+#include "rmutil/rm_assert.h"
 
 // Estimated characters per token
 #define EST_CHARS_PER_TOK 6
@@ -125,7 +125,7 @@ static void addToIov(const char *s, size_t n, Array *b) {
     return;
   }
   struct iovec *iov = Array_Add(b, sizeof(*iov));
-  assert(iov);
+  RS_LOG_ASSERT(iov, "failed to create iov");
   iov->iov_base = (void *)s;
   iov->iov_len = n;
 }
@@ -224,9 +224,9 @@ char *FragmentList_HighlightWholeDocS(const FragmentList *fragList, const Highli
   }
 
   char *docBuf = rm_malloc(docLen + 1);
+  RS_LOG_ASSERT(docBuf, "failed malloc of docBuf");
   docBuf[docLen] = '\0';
-
-  assert(docBuf);
+  
   size_t offset = 0;
   for (size_t ii = 0; ii < niovs; ++ii) {
     memcpy(docBuf + offset, iovs[ii].iov_base, iovs[ii].iov_len);

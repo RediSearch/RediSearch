@@ -7,7 +7,7 @@ defaults:
 
 commands:
   ci_steps:
-    steps: 
+    steps:
       - checkout
       - run:
           name: Get Dependencies
@@ -26,73 +26,68 @@ commands:
       - persist_to_workspace:
           root: ~/workspace
           paths:
-            - 'snapshot'
-            - 'release'
+            - snapshot
+            - release
 
 jobs:
   ubuntu:
     docker:
-      - image: 'redislabsmodules/rmbuilder:latest'
+      - image: redisfab/rmbuilder:6.0.1-x64-buster
     environment:
       - BUILD_DIR: build-debian
     steps:
       - ci_steps
-  
+
   centos:
     docker:
-      - image: 'redislabsmodules/rmbuildercentos:latest'
+      - image: redisfab/rmbuilder:6.0.1-x64-centos7
     environment:
       - BUILD_DIR: build-el
-    steps: 
+    steps:
       - ci_steps
 
   macos:
     macos:
-      xcode: 10.2.1
+      xcode: 11.3.0
     environment:
       - BUILD_DIR: build-macos
     steps:
-      - run:
-          name: Get macOS dependencies
-          command: |
-            export HOMEBREW_NO_AUTO_UPDATE=1
-            brew install cmake wget redis
       - ci_steps
 
   deploy_snapshots:
     docker:
-      - image: 'redislabsmodules/rmbuilder:latest'
+      - image: redisfab/rmbuilder:6.0.1-x64-buster
     steps:
       - attach_workspace:
           at: ~/workspace
       - run:
           name: Deploy Snapshots to S3
-          command: >-
+          command: |
             for f in ~/workspace/snapshot/*.zip; do
-              aws s3 cp $f s3://redismodules/$PACKAGE_NAME/snapshots/ --acl public-read;
+              aws s3 cp $f s3://redismodules/$PACKAGE_NAME/snapshots/ --acl public-read
             done
 
   debug_asan:
     docker:
-      - image: 'mnunberg/rmbuilder-san:latest'
+      - image: 'mnunberg/rmbuilder-san:redis6'
     steps:
       - checkout
       - run:
           name: Run & build tests
-          command: ./.circleci/ci_diag_san.sh asan
+          command: ASAN=1 ./.circleci/ci_diag_san.sh
 
   debug_msan:
     docker:
-      - image: 'mnunberg/rmbuilder-san:latest'
+      - image: 'mnunberg/rmbuilder-san:redis6'
     steps:
       - checkout
       - run:
           name: Run & build tests
-          command: ./.circleci/ci_diag_san.sh msan
-  
+          command: MSAN=1 ./.circleci/ci_diag_san.sh
+
   coverage:
     docker:
-      - image: redislabsmodules/rmbuilder:latest
+      - image: redisfab/rmbuilder:6.0.1-x64-buster
     steps:
       - checkout
       - run:
@@ -101,10 +96,10 @@ jobs:
       - store_artifacts:
           path: coverage
           destination: coverage
-  
+
   deploy_release:
     docker:
-      - image: 'redislabsmodules/rmbuilder:latest'
+      - image: redisfab/rmbuilder:6.0.1-x64-buster
     steps:
       - attach_workspace:
           at: ~/workspace
@@ -114,19 +109,73 @@ jobs:
             for f in ~/workspace/release/*.zip; do
               aws s3 cp $f s3://redismodules/$PACKAGE_NAME/ --acl public-read
             done
-  
+
   deploy_docs:
     docker:
-      - image: 'redislabsmodules/rmbuilder:latest'
+      - image: 'python:buster'
     steps:
+      - run:
+          name: Setup executor
+          command: |
+            apt-get -qq update
+            apt-get -q install -y git openssh-client curl ca-certificates make tar gzip wget
+            cd ..; curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"; unzip awscliv2.zip;./aws/install
       - checkout
       - run:
-          name: Build Docs
+          name: Instal dependencies
+          command: pip install -r docs/requirements.txt
+      - run:
+          name: Build docs
           command: mkdocs build
       - run:
           name: Deploy Docs to S3
           command: |
             aws s3 cp site s3://oss.redislabs.com/$WEBSITE_FOLDER/ --acl public-read --recursive
+
+
+on-any-branch: &on-any-branch
+  filters:
+    branches:
+      only: /.*/
+    tags:
+      only: /.*/
+
+never: &never
+  filters:
+    branches:
+      ignore: /.*/
+    tags:
+      ignore: /.*/
+
+on-master: &on-master
+  filters:
+    branches:
+      only: master
+
+on-version-tags: &on-version-tags
+  filters:
+    branches:
+      ignore: /.*/
+    tags:
+      only: /^v[0-9].*/
+
+on-master-and-version-tags: &on-master-and-version-tags
+  filters:
+    branches:
+      only:
+        - master
+    tags:
+      only: /^v[0-9].*/
+
+on-master-and-version-branches: &on-master-and-version-branches
+  filters:
+    branches:
+      only:
+        - master
+        - /^[0-9]+\.[0-9]+$/
+    tags:
+      ignore: /.*/
+
 
 workflows:
   version: 2
@@ -134,59 +183,25 @@ workflows:
   default_flow:
     jobs:
       - ubuntu:
-          filters:
-            branches:
-              only: /.*/
-            tags:
-              only: /.*/
+          <<: *on-any-branch
       - centos:
-          filters:
-            branches:
-              only: /.*/
-            tags:
-              only: /.*/
+          <<: *on-any-branch
       - macos:
-          filters:
-            branches:
-              ignore: /.*/
-            tags:
-              only: /^v[0-9].*/
+          <<: *on-version-tags
       - debug_asan:
-          filters:
-            branches:
-              only: /.*/
-            tags:
-              only: /.*/
+          <<: *on-any-branch
       - debug_msan:
-          filters:
-            branches:
-              only: /.*/
-            tags:
-              only: /.*/
+          <<: *on-any-branch
       - coverage:
-          filters:
-            branches:
-              only: /.*/
-            tags:
-              only: /.*/
+          <<: *on-any-branch
       - deploy_snapshots:
           requires: *default_jobs
-          filters:
-            branches:
-              only:
-                - master
-                - circle-overhaul
+          <<: *on-master
       - deploy_release:
           requires: *default_jobs
-          filters:
-            branches:
-              ignore: /.*/
-            tags:
-              only: /^v[0-9].*/
+          <<: *on-version-tags
       - deploy_docs:
-          filters:
-            branches:
-              only: master
+          <<: *on-master-and-version-branches
 
   nightly:
     triggers:

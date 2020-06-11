@@ -209,7 +209,7 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   }
 
   if (AREQ_Compile(*r, argv + 2, argc - 2, status) != REDISMODULE_OK) {
-    assert(QueryError_HasError(status));
+    RS_LOG_ASSERT(QueryError_HasError(status), "Query has error");
     goto done;
   }
 
@@ -230,7 +230,7 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   thctx = NULL;
   // ctx is always assigned after ApplyContext
   if (rc != REDISMODULE_OK) {
-    assert(QueryError_HasError(status));
+    RS_LOG_ASSERT(QueryError_HasError(status), "Query has error");
     goto done;
   }
 

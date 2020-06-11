@@ -350,6 +350,12 @@ For numeric expressions and properties, we support addition (`+`), subtraction (
 
 Note that these operators apply only to numeric values and numeric sub expressions. Any attempt to multiply a string by a number, for instance, will result in a NULL output.
 
+### List of field APPLY functions
+
+| Function | Description                                                  | Example            |
+| -------- | ------------------------------------------------------------ | ------------------ |
+| exists(s)| Checks whether a field exists in a document.                 | `exists(@field)`   |
+
 ### List of numeric APPLY functions
 
 | Function | Description                                                  | Example            |
@@ -500,7 +506,7 @@ Will set the limit for 10 seconds.
 
 ### Other cursor commands
 
-Cursors can be explicity deleted using the `CURSOR DEL` command, e.g.
+Cursors can be explicitly deleted using the `CURSOR DEL` command, e.g.
 
 ```
 FT.CURSOR DEL idx 342459320

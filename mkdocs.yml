@@ -12,8 +12,8 @@ markdown_extensions:
       permalink: True
       separator: "_"
   - admonition
-  
-use_directory_urls: false
+
+use_directory_urls: true
 theme:
   name: 'material'
   language: 'en'
@@ -27,42 +27,44 @@ theme:
     code: 'Roboto Mono'
   feature:
     tabs: false
-pages:
-    - 'Home': 'index.md'
-    - 'Quick Start': 'Quick_Start.md'
-    - 'Command Reference': 'Commands.md'
-    - 'Configuration': 'Configuring.md'      
-    - 'Administration': "Administration.md"
-    - 'Development': "Development.md"
-    - Reference:
-      - 'Query Syntax': 'Query_Syntax.md'
-      - 'Stop-Words': 'Stopwords.md'
-      - 'Aggregations': 'Aggregations.md'
-      - 'Tokenization and Escaping': 'Escaping.md'
-      - 'Sortable Values': 'Sorting.md'
-      - 'Tag Fields': 'Tags.md'
-      - 'Highlighting Results': Highlight.md
-      - 'Scoring Documents': 'Scoring.md'
-      - 'Extension API': Extensions.md
-      - 'Stemming Support': Stemming.md
-      - 'Synonyms Support': Synonyms.md
-      - 'Document Payloads': payloads.md
-      - 'Spelling Correction': Spellcheck.md
-      - 'Phonetic Matching': Phonetic_Matching.md
-    - Clients:
-      - 'Client Libraries': 'Clients.md'
-      - 'Python API': python_client.md
-      - 'Java API': java_client.md
-      - 'Go API': go_client.md
-    
-    - Design Documents:
-      - 'Garbage Collection': 'design/gc.md'
-    - Articles:
-      - 'Multi-Threading in RediSearch': Threading.md
 
-    - 'Chinese Support': 'Chinese.md'
-    
-    - 'Contributor agreement': contrib.md
+nav:
+  - 'Home': 'index.md'
+  - 'Quick Start': 'Quick_Start.md'
+  - 'Command Reference': 'Commands.md'
+  - 'Configuration': 'Configuring.md'
+  - 'Administration': "Administration.md"
+  - 'Development': "Development.md"
+  - Reference:
+    - 'Query Syntax': 'Query_Syntax.md'
+    - 'Stop-Words': 'Stopwords.md'
+    - 'Aggregations': 'Aggregations.md'
+    - 'Tokenization and Escaping': 'Escaping.md'
+    - 'Sortable Values': 'Sorting.md'
+    - 'Tag Fields': 'Tags.md'
+    - 'Highlighting Results': Highlight.md
+    - 'Scoring Documents': 'Scoring.md'
+    - 'Extension API': Extensions.md
+    - 'Stemming Support': Stemming.md
+    - 'Synonyms Support': Synonyms.md
+    - 'Document Payloads': payloads.md
+    - 'Spelling Correction': Spellcheck.md
+    - 'Phonetic Matching': Phonetic_Matching.md
+  - Clients:
+    - 'Client Libraries': 'Clients.md'
+    - 'Python API': python_client.md
+    - 'Java API': java_client.md
+    - 'Go API': go_client.md
 
+  - Design Documents:
+    - 'Garbage Collection': 'design/gc.md'
+  - Articles:
+    - 'Multi-Threading in RediSearch': Threading.md
 
-#google_analytics: ['UA-89573912-1', 'redisearch']
+  - 'Chinese Support': 'Chinese.md'
+
+  - 'Contributor agreement': contrib.md
+
+plugins:
+  - search
+  - versions-menu

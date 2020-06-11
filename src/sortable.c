@@ -1,6 +1,6 @@
 #include <stdlib.h>
 #include <stdio.h>
-#include <assert.h>
+#include "rmutil/rm_assert.h"
 #include "dep/libnu/libnu.h"
 #include "rmutil/util.h"
 #include "rmutil/strings.h"
@@ -191,7 +191,7 @@ void SortingTable_Free(RSSortingTable *t) {
 }
 
 int RSSortingTable_Add(RSSortingTable *tbl, const char *name, RSValueType t) {
-  assert(tbl->len < RS_SORTABLES_MAX);
+  RS_LOG_ASSERT(tbl->len < RS_SORTABLES_MAX, "sorting table is too large");
   tbl->fields[tbl->len].name = name;
   tbl->fields[tbl->len].type = t;
   return tbl->len++;

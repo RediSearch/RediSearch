@@ -1,7 +1,7 @@
 #include "rlookup.h"
 #include "module.h"
 #include <document.h>
-#include <assert.h>
+#include "rmutil/rm_assert.h"
 #include <util/arr.h>
 
 static RLookupKey *createNewKey(RLookup *lookup, const char *name, size_t n, int flags,
@@ -153,7 +153,7 @@ void RLookup_WriteKeyByName(RLookup *lookup, const char *name, RLookupRow *dst, 
   // Get the key first
   RLookupKey *k =
       RLookup_GetKey(lookup, name, RLOOKUP_F_NAMEALLOC | RLOOKUP_F_NOINCREF | RLOOKUP_F_OCREAT);
-  assert(k);
+  RS_LOG_ASSERT(k, "failed to get key");
   RLookup_WriteKey(k, dst, v);
 }
 

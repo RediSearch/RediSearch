@@ -2,6 +2,7 @@
 #include "err.h"
 #include "util/logging.h"
 #include "commands.h"
+#include "rmutil/rm_assert.h"
 
 /*
 ## FT.ADD <index> <docId> <score> [NOSAVE] [REPLACE] [PARTIAL] [IF <expr>] [LANGUAGE <lang>]
@@ -41,9 +42,9 @@ English.
    If an unsupported language is sent, the command returns an error.
    The supported languages are:
 
-   > "arabic",  "danish",    "dutch",   "english",   "finnish",    "french",
-   > "german",  "hungarian", "italian", "norwegian", "portuguese", "romanian",
-   > "russian", "spanish",   "swedish", "tamil",     "turkish"
+   > "arabic",  "danish",    "dutch",     "english",   "finnish",    "french",
+   > "german",  "hindi",     "hungarian", "italian",   "norwegian",  "portuguese", "romanian",
+   > "russian", "spanish",   "swedish",   "tamil",     "turkish"
 
 
 Returns OK on success, NOADD if the document was not added due to an IF expression not evaluating to
@@ -244,20 +245,13 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     goto cleanup;
   }
 
-  if (canBlock) {
-    canBlock = CheckConcurrentSupport(ctx);
-  }
-
   IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 0);
   if (!sp) {
     RedisModule_ReplyWithError(ctx, "Unknown index name");
     goto cleanup;
   }
-  if (canBlock) {
-    canBlock = !(sp->flags & Index_Temporary) && CheckConcurrentSupport(ctx);
-  }
 
-  if (!canBlock) {
+  if (!CheckConcurrentSupport(ctx) || (sp->flags & Index_Temporary) || !canBlock) {
     opts.options |= DOCUMENT_ADD_CURTHREAD;
   }
   RedisSearchCtx sctx = {.redisCtx = ctx, .spec = sp};
@@ -307,7 +301,7 @@ exists
         The supported languages are:
 
         > "arabic",  "danish",    "dutch",   "english",   "finnish", "french",
-        > "german",  "hungarian", "italian", "norwegian", "portuguese",
+        > "german",  "hungarian",  "hindi",  "italian", "norwegian", "portuguese",
 "romanian",
         > "russian", "spanish",   "swedish", "tamil",     "turkish"
 
@@ -400,7 +394,7 @@ static int doAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   return REDISMODULE_OK;
 
 cleanup:
-  assert(QueryError_HasError(&status));
+  RS_LOG_ASSERT_FMT(QueryError_HasError(&status), "%s%s", "Hash addition failed: ", status.detail);
   RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
   QueryError_ClearError(&status);
   return REDISMODULE_OK;

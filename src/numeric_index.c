@@ -64,7 +64,7 @@ int NumericRange_Overlaps(NumericRange *n, double min, double max) {
   return rc;
 }
 
-int NumericRange_Add(NumericRange *n, t_docId docId, double value, int checkCard) {
+size_t NumericRange_Add(NumericRange *n, t_docId docId, double value, int checkCard) {
 
   int add = 0;
   if (checkCard) {
@@ -90,9 +90,7 @@ int NumericRange_Add(NumericRange *n, t_docId docId, double value, int checkCard
     ++n->card;
   }
 
-  InvertedIndex_WriteNumericEntry(n->entries, docId, value);
-
-  return n->card;
+  return InvertedIndex_WriteNumericEntry(n->entries, docId, value);
 }
 
 double NumericRange_Split(NumericRange *n, NumericRangeNode **lp, NumericRangeNode **rp) {
@@ -141,21 +139,24 @@ NumericRangeNode *NewLeafNode(size_t cap, double min, double max, size_t splitCa
   return n;
 }
 
-int NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value) {
-
+NRN_AddRv NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value) {
+  NRN_AddRv rv = {.sz = 0, .changed = 0};
   if (!NumericRangeNode_IsLeaf(n)) {
     // if this node has already split but retains a range, just add to the range without checking
     // anything
     if (n->range) {
-      NumericRange_Add(n->range, docId, value, 0);
+      // Not leaf so should not add??
+      /* sz += */ NumericRange_Add(n->range, docId, value, 0);
+      // should continue after??
     }
 
     // recursively add to its left or right child.
     NumericRangeNode **childP = value < n->value ? &n->left : &n->right;
     NumericRangeNode *child = *childP;
     // if the child has split we get 1 in return
-    int rc = NumericRangeNode_Add(child, docId, value);
-    if (rc) {
+    rv = NumericRangeNode_Add(child, docId, value);
+
+    if (rv.changed) {
       // if there was a split it means our max depth has increased.
       // we are too deep - we don't retain this node's range anymore.
       // this keeps memory footprint in check
@@ -185,17 +186,17 @@ int NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value) {
       }
     }
     // return 1 or 0 to our called, so this is done recursively
-    return rc;
+    return rv;
   }
 
   // if this node is a leaf - we add AND check the cardinality. We only split leaf nodes
-  int card = NumericRange_Add(n->range, docId, value, 1);
-
+  rv.sz = (uint32_t)NumericRange_Add(n->range, docId, value, 1);
+  int card = n->range->card;
   // printf("Added %d %f to node %f..%f, card now %zd, size now %zd\n", docId, value,
   // n->range->minVal,
   //        n->range->maxVal, card, n->range->entries->numDocs);
   if (card >= n->range->splitCard ||
-      (n->range->entries->numDocs > NR_MAXRANGE_SIZE && n->range->card > 1)) {
+      (n->range->entries->numDocs > NR_MAXRANGE_SIZE && card > 1)) {
 
     // split this node but don't delete its range
     double split = NumericRange_Split(n->range, &n->left, &n->right);
@@ -203,10 +204,10 @@ int NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value) {
     n->value = split;
 
     n->maxDepth = 1;
-    return 1;
+    rv.changed = 1;
   }
 
-  return 0;
+  return rv;
 }
 
 /* Recursively add a node's children to the range. */
@@ -287,7 +288,7 @@ NumericRangeTree *NewNumericRangeTree() {
   return ret;
 }
 
-int NumericRangeTree_Add(NumericRangeTree *t, t_docId docId, double value) {
+size_t NumericRangeTree_Add(NumericRangeTree *t, t_docId docId, double value) {
 
   // Do not allow duplicate entries. This might happen due to indexer bugs and we need to protect
   // from it
@@ -296,17 +297,17 @@ int NumericRangeTree_Add(NumericRangeTree *t, t_docId docId, double value) {
   }
   t->lastDocId = docId;
 
-  int rc = NumericRangeNode_Add(t->root, docId, value);
+  NRN_AddRv rv = NumericRangeNode_Add(t->root, docId, value);
   // rc != 0 means the tree nodes have changed, and concurrent iteration is not allowed now
   // we increment the revision id of the tree, so currently running query iterators on it
   // will abort the next time they get execution context
-  if (rc) {
+  if (rv.changed) {
     t->revisionId++;
   }
-  t->numRanges += rc;
+  t->numRanges += rv.changed;
   t->numEntries++;
 
-  return rc;
+  return rv.sz;
 }
 
 Vector *NumericRangeTree_Find(NumericRangeTree *t, double min, double max) {

@@ -1,6 +1,6 @@
 #include "cursor.h"
 #include <time.h>
-#include <assert.h>
+#include "rmutil/rm_assert.h"
 #include <err.h>
 
 #define Cursor_IsIdle(cur) ((cur)->pos != -1)
@@ -61,10 +61,12 @@ static void Cursor_RemoveFromIdle(Cursor *cur) {
 /* Doesn't lock - simply deallocates and decrements */
 static void Cursor_FreeInternal(Cursor *cur, khiter_t khi) {
   /* Decrement the used count */
-  assert(khi != kh_end(cur->parent->lookup));
-  assert(kh_get(cursors, cur->parent->lookup, cur->id) != kh_end(cur->parent->lookup));
+  RS_LOG_ASSERT(khi != kh_end(cur->parent->lookup), "Iterator shouldn't be at end of cursor list");
+  RS_LOG_ASSERT(kh_get(cursors, cur->parent->lookup, cur->id) != kh_end(cur->parent->lookup),
+                                                    "Cursor was not found");
   kh_del(cursors, cur->parent->lookup, khi);
-  assert(kh_get(cursors, cur->parent->lookup, cur->id) == kh_end(cur->parent->lookup));
+  RS_LOG_ASSERT(kh_get(cursors, cur->parent->lookup, cur->id) == kh_end(cur->parent->lookup),
+                                                    "Failed to delete cursor");
   cur->specInfo->used--;
   if (cur->execState) {
     Cursor_FreeExecState(cur->execState);
@@ -165,7 +167,7 @@ void CursorList_RemoveSpec(CursorList *cl, const char *k) {
 }
 
 static void CursorList_IncrCounter(CursorList *cl) {
-  if (++cl->counter % RSCURSORS_SWEEP_INTERVAL) {
+  if (++cl->counter % RSCURSORS_SWEEP_INTERVAL == 0) {
     Cursors_GCInternal(cl, 0);
   }
 }

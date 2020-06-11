@@ -140,4 +140,9 @@ def testTagVals(env):
         env.expect('ft.tagvals', 'fake_idx', 'tags').raiseError()
         env.expect('ft.tagvals', 'idx', 'fake_tags').raiseError()
         env.expect('ft.tagvals', 'idx', 'title').raiseError()
+
+def testSearchNotExistsTagValue(env):
+    # this test basically make sure we are not leaking
+    env.expect('FT.CREATE idx SCHEMA t TAG SORTABLE').ok()
+    env.expect('FT.SEARCH idx @t:{val}').equal([0])
         

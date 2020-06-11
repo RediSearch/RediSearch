@@ -9,6 +9,7 @@
 #include "rmalloc.h"
 #include "spec.h"
 #include "config.h"
+#include "rmutil/rm_assert.h"
 
 /* Creates a new DocTable with a given capacity */
 DocTable NewDocTable(size_t cap, size_t max_size) {
@@ -146,10 +147,10 @@ int DocTable_SetSortingVector(DocTable *t, t_docId docId, RSSortingVector *v) {
   if (!dmd) {
     return 0;
   }
-  
-  //LCOV_EXCL_START
+
+  // LCOV_EXCL_START
   /* Null vector means remove the current vector if it exists */
-  /*if (!v) { 
+  /*if (!v) {
     if (dmd->sortVector) {
       SortingVector_Free(dmd->sortVector);
     }
@@ -158,7 +159,7 @@ int DocTable_SetSortingVector(DocTable *t, t_docId docId, RSSortingVector *v) {
     return 1;
   }*/
   //LCOV_EXCL_STOP
-  assert(v); // tested in doAssignIds() 
+  RS_LOG_ASSERT(v, "Sorting vector does not exist"); // tested in doAssignIds() 
 
   /* Set th new vector and the flags accordingly */
   dmd->sortVector = v;
@@ -367,7 +368,7 @@ void DocTable_RdbSave(DocTable *t, RedisModuleIO *rdb) {
       ++elements_written;
     }
   }
-  assert(elements_written + 1 == t->size);
+  RS_LOG_ASSERT((elements_written + 1 == t->size), "Wrong number of written elements");
 }
 
 void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
@@ -390,6 +391,7 @@ void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
      * we don't have to rely on Set/Put to ensure the doc table array.
      */
     t->cap = t->maxSize;
+    rm_free(t->buckets);
     t->buckets = rm_calloc(t->cap, sizeof(*t->buckets));
   }
 

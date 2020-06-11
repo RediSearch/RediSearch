@@ -1,4 +1,4 @@
-from time import sleep
+from time import sleep, time
 import unittest
 from redis import ResponseError
 from includes import *
@@ -102,10 +102,16 @@ def testTimeout(env):
     loadDocs(env, idx='idx1')
     # Maximum idle of 1ms
     q1 = ['FT.AGGREGATE', 'idx1', '*', 'LOAD', '1', '@f1', 'WITHCURSOR', 'COUNT', 10, 'MAXIDLE', 1]
-    resp = env.cmd( * q1)
-    sleep(0.01)
-    env.cmd('FT.CURSOR', 'GC', 'idx1', '0')
-    env.assertEqual(0, getCursorStats(env, 'idx1')['index_total'])
+    resp = env.cmd(*q1)
+    exptime = time() + 2.5
+    rv = 1
+    while time() < exptime:
+        sleep(0.01)
+        env.cmd('FT.CURSOR', 'GC', 'idx1', '0')
+        rv = getCursorStats(env, 'idx1')['index_total']
+        if not rv:
+            break
+    env.assertEqual(0, rv)
 '''
 def testErrors(env):
     env.expect('ft.create idx schema name text').equal('OK')

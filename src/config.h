@@ -148,12 +148,12 @@ sds RSConfig_GetInfoString(const RSConfig *config);
 #define CONCURRENT_INDEX_MAX_POOL_SIZE 200  // Maximum number of threads to create
 #define GC_SCANSIZE 100
 #define DEFAULT_MIN_PHONETIC_TERM_LEN 3
-#define DEFAULT_FORK_GC_RUN_INTERVAL 10
+#define DEFAULT_FORK_GC_RUN_INTERVAL 30
 #define DEFAULT_MAX_RESULTS_TO_UNSORTED_MODE 1000
 // default configuration
 #define RS_DEFAULT_CONFIG                                                                         \
   {                                                                                               \
-    .concurrentMode = 1, .extLoad = NULL, .enableGC = 1, .minTermPrefix = 2,                      \
+    .concurrentMode = 0, .extLoad = NULL, .enableGC = 1, .minTermPrefix = 2,                      \
     .maxPrefixExpansions = 200, .queryTimeoutMS = 500, .timeoutPolicy = TimeoutPolicy_Return,     \
     .cursorReadSize = 1000, .cursorMaxIdle = 300000, .maxDocTableSize = DEFAULT_DOC_TABLE_SIZE,   \
     .searchPoolSize = CONCURRENT_SEARCH_POOL_DEFAULT_SIZE,                                        \
@@ -161,7 +161,7 @@ sds RSConfig_GetInfoString(const RSConfig *config);
     .gcScanSize = GC_SCANSIZE, .minPhoneticTermLen = DEFAULT_MIN_PHONETIC_TERM_LEN,               \
     .gcPolicy = GCPolicy_Fork, .forkGcRunIntervalSec = DEFAULT_FORK_GC_RUN_INTERVAL,              \
     .forkGcSleepBeforeExit = 0, .maxResultsToUnsortedMode = DEFAULT_MAX_RESULTS_TO_UNSORTED_MODE, \
-    .forkGcRetryInterval = 5, .forkGcCleanThreshold = 0, .noMemPool = 0,                          \
+    .forkGcRetryInterval = 5, .forkGcCleanThreshold = 100, .noMemPool = 0,                          \
   }
 
 #endif

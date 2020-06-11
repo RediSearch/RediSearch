@@ -1,5 +1,6 @@
 #include "alias.h"
 #include "util/dict.h"
+#include "rmutil/rm_assert.h"
 
 AliasTable *AliasTable_g = NULL;
 
@@ -31,7 +32,7 @@ int AliasTable_Add(AliasTable *table, const char *alias, IndexSpec *spec, int op
     QueryError_SetError(error, QUERY_EINDEXEXISTS, "Alias already exists");
     return REDISMODULE_ERR;
   }
-  assert(e->key != alias);
+  RS_LOG_ASSERT(e->key != alias, "Alias should be different than key");
   e->v.val = spec;
   if (!(options & INDEXALIAS_NO_BACKREF)) {
     char *duped = rm_strdup(alias);
@@ -70,7 +71,7 @@ int AliasTable_Del(AliasTable *table, const char *alias, IndexSpec *spec, int op
     spec->aliases = array_del_fast(spec->aliases, idx);
   }
   int rc = dictDelete(table->d, alias);
-  assert(rc == DICT_OK);
+  RS_LOG_ASSERT(rc == DICT_OK, "Dictionary delete failed");
   if (table->on_del) {
     table->on_del(alias, spec);
   }
@@ -110,7 +111,7 @@ void IndexSpec_ClearAliases(IndexSpec *sp) {
     char **pp = sp->aliases + ii;
     QueryError e = {0};
     int rc = IndexAlias_Del(*pp, sp, INDEXALIAS_NO_BACKREF, &e);
-    assert(rc == REDISMODULE_OK);
+    RS_LOG_ASSERT(rc == REDISMODULE_OK, "Alias delete has failed");
     rm_free(*pp);
     // set to NULL so IndexAlias_Del skips over this
     *pp = NULL;

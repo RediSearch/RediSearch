@@ -111,6 +111,7 @@ typedef struct ExprEval {
 
 #define EXPR_EVAL_ERR 0
 #define EXPR_EVAL_OK 1
+#define EXPR_EVAL_NULL 2
 
 /**
  * Scan through the expression and generate any required lookups for the keys.

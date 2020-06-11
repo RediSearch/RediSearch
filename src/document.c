@@ -1,5 +1,4 @@
 #include <string.h>
-#include <assert.h>
 #include <inttypes.h>
 
 #include "document.h"
@@ -16,6 +15,7 @@
 #include "indexer.h"
 #include "tag_index.h"
 #include "aggregate/expr/expression.h"
+#include "rmutil/rm_assert.h"
 
 // Memory pool for RSAddDocumentContext contexts
 static mempool_t *actxPool_g = NULL;
@@ -179,7 +179,7 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b, QueryError *stat
   aCtx->next = NULL;
   aCtx->specFlags = sp->flags;
   aCtx->indexer = sp->indexer;
-  assert(sp->indexer);
+  RS_LOG_ASSERT(sp->indexer, "No indexer");
   Indexer_Incref(aCtx->indexer);
 
   // Assign the document:
@@ -303,7 +303,7 @@ void AddDocumentCtx_Submit(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, uint32_
     aCtx->client.sctx = sctx;
   }
 
-  assert(aCtx->client.bc);
+  RS_LOG_ASSERT(aCtx->client.bc, "No blocked client");
   size_t totalSize = 0;
   for (size_t ii = 0; ii < aCtx->doc.numFields; ++ii) {
     const DocumentField *ff = aCtx->doc.fields + ii;
@@ -446,7 +446,9 @@ FIELD_BULK_INDEXER(numericIndexer) {
       return -1;
     }
   }
-  NumericRangeTree_Add(rt, aCtx->doc.docId, fdata->numeric);
+  size_t sz = NumericRangeTree_Add(rt, aCtx->doc.docId, fdata->numeric);
+  ctx->spec->stats.invertedSize += sz; // TODO: exact amount
+  ctx->spec->stats.numRecords++;
   return 0;
 }
 
@@ -702,10 +704,11 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
         md->sortVector = NewSortingVector(sctx->spec->sortables->len);
       }
 
-      assert((fs->options & FieldSpec_Dynamic) == 0 && "dynamic field cannot use PARTIAL");
+      RS_LOG_ASSERT((fs->options & FieldSpec_Dynamic) == 0, "Dynamic field cannot use PARTIAL");
 
       switch (fs->types) {
         case INDEXFLD_T_FULLTEXT:
+        case INDEXFLD_T_TAG:
           RSSortingVector_Put(md->sortVector, idx, (void *)RedisModule_StringPtrLen(f->text, NULL),
                               RS_SORTABLE_STR);
           break;

@@ -1,0 +1,27 @@
+{
+  "service_id": "single_module_test_cycle_sanity_and_extended",
+  "name": "redisearch automation-testing",
+  "properties": {
+    "sut_version": "5.4.14",
+    "email_recipients": "s5i1u4h5a8c8w2d7@redislabs.slack.com",
+    "sut_environments": [
+    ],
+    "tools_environment": {
+    },
+    "module_name": "RediSearchEnterprise",
+    "module_version": "{{MODULE_VERSION}}",
+    "cycle_environments_setup": [
+      {
+        "teardown": true,
+        "name": "xenial-amd64-aws",
+        "concurrency": 1
+      },
+      {
+        "teardown": true,
+        "name": "bionic-amd64-aws",
+        "concurrency": 1
+      }
+    ]
+  }
+}
+

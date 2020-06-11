@@ -5,7 +5,7 @@
 #
 # Modules included by this file are: arabic, danish, dutch, english, finnish,
 # french, german, hungarian, italian, norwegian, porter, portuguese,
-# romanian, russian, spanish, swedish, tamil, turkish
+# romanian, russian, spanish, swedish, tamil, turkish, hindi
 
 snowball_sources= \
   src_c/stem_UTF_8_arabic.c \
@@ -41,6 +41,7 @@ snowball_sources= \
   src_c/stem_UTF_8_swedish.c \
   src_c/stem_UTF_8_tamil.c \
   src_c/stem_UTF_8_turkish.c \
+  src_c/stem_UTF_8_hindi.c \
   runtime/api.c \
   runtime/utilities.c \
   libstemmer/libstemmer.c
@@ -79,6 +80,7 @@ snowball_headers= \
   src_c/stem_UTF_8_swedish.h \
   src_c/stem_UTF_8_tamil.h \
   src_c/stem_UTF_8_turkish.h \
+  src_c/stem_UTF_8_hindi.h \
   include/libstemmer.h \
   libstemmer/modules.h \
   runtime/api.h \

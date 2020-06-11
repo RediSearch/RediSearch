@@ -403,11 +403,14 @@ DEBUG_COMMAND(InfoTagIndex) {
   if (argc < 2) {
     return RedisModule_WrongArity(ctx);
   }
-  GET_SEARCH_CTX(argv[0]);
+   GET_SEARCH_CTX(argv[0]);
   DumpOptions options = {0};
   ACArgSpec argspecs[] = {{.name = "count_value_entries",
                            .type = AC_ARGTYPE_BOOLFLAG,
                            .target = &options.countValueEntries},
+                          {.name = "dump_id_entries",
+                           .type = AC_ARGTYPE_BOOLFLAG,
+                           .target = &options.dumpIdEntries},
                           {.name = "prefix", .type = AC_ARGTYPE_STRING, .target = &options.prefix},
                           {.name = "offset", .type = AC_ARGTYPE_UINT, .target = &options.offset},
                           {.name = "limit", .type = AC_ARGTYPE_UINT, .target = &options.limit},
@@ -448,7 +451,7 @@ DEBUG_COMMAND(InfoTagIndex) {
     goto reply_done;
   }
 
-  size_t limit = options.limit ? options.limit : -1;
+  size_t limit = options.limit ? options.limit : 0;
   TrieMapIterator *iter = TrieMap_Iterate(idx->values, "", 0);
   char *tag;
   tm_len_t len;
@@ -469,21 +472,17 @@ DEBUG_COMMAND(InfoTagIndex) {
 
     RedisModule_ReplyWithSimpleString(ctx, "value");
     RedisModule_ReplyWithStringBuffer(ctx, tag, len);
-    nsubelem += 2;
 
     RedisModule_ReplyWithSimpleString(ctx, "num_entries");
     RedisModule_ReplyWithLongLong(ctx, iv->numDocs);
-    nsubelem += 2;
 
     RedisModule_ReplyWithSimpleString(ctx, "num_blocks");
     RedisModule_ReplyWithLongLong(ctx, iv->size);
-    nsubelem += 2;
 
     if (options.dumpIdEntries) {
       RedisModule_ReplyWithSimpleString(ctx, "entries");
       IndexReader *reader = NewTermIndexReader(iv, NULL, RS_FIELDMASK_ALL, NULL, 1);
       ReplyReaderResults(reader, sctx->redisCtx);
-      nsubelem += 2;
     }
 
     RedisModule_ReplySetArrayLength(ctx, nsubelem);

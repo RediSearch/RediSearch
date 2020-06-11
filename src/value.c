@@ -4,6 +4,7 @@
 #include "util/mempool.h"
 #include "module.h"
 #include "query_error.h"
+#include "rmutil/rm_assert.h"
 
 ///////////////////////////////////////////////////////////////
 // Variant Values - will be used in documents as well
@@ -165,7 +166,7 @@ inline void RSValue_SetConstString(RSValue *v, const char *str, size_t len) {
 /* Wrap a string with length into a value object. Doesn't duplicate the string. Use strdup if
  * the value needs to be detached */
 inline RSValue *RS_StringVal(char *str, uint32_t len) {
-  assert(len <= (UINT32_MAX >> 4));
+  RS_LOG_ASSERT(len <= (UINT32_MAX >> 4), "string length exceeds limit");
   RSValue *v = RS_NewValue(RSValue_String);
   v->strval.str = str;
   v->strval.len = len;
@@ -212,7 +213,7 @@ RSValue *RS_StealRedisStringVal(RedisModuleString *str) {
 }
 
 void RSValue_MakeRStringOwner(RSValue *v) {
-  assert(v->t == RSValue_RedisString);
+  RS_LOG_ASSERT(v->t == RSValue_RedisString, "RSvalue type should be string");
   v->t = RSValue_OwnRstring;
   RedisModule_RetainString(RSDummyContext, v->rstrval);
 }
@@ -513,8 +514,7 @@ static int RSValue_CmpNC(const RSValue *v1, const RSValue *v2) {
 }
 
 int RSValue_Cmp(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
-  assert(v1);
-  assert(v2);
+  RS_LOG_ASSERT(v1 && v2, "missing RSvalue");
   v1 = RSValue_Dereference(v1);
   v2 = RSValue_Dereference(v2);
 
@@ -564,8 +564,7 @@ int RSValue_Cmp(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
 }
 
 int RSValue_Equal(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
-  assert(v1);
-  assert(v2);
+  RS_LOG_ASSERT(v1 && v2, "missing RSvalue");
   v1 = RSValue_Dereference(v1);
   v2 = RSValue_Dereference(v2);
 

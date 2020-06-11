@@ -10,6 +10,7 @@
 #include "redis_index.h"
 #include "numeric_filter.h"
 #include "redismodule.h"
+#include "rmutil/rm_assert.h"
 
 uint64_t TotalIIBlocks = 0;
 
@@ -804,7 +805,7 @@ static int IR_TestNumeric(IndexCriteriaTester *ct, t_docId id) {
   const char *externalId = DocTable_GetKey((DocTable *)&sp->docs, id, &len);
   double doubleValue;
   int ret = sp->getValue(sp->getValueCtx, irct->nf.fieldName, externalId, NULL, &doubleValue);
-  assert(ret == RSVALTYPE_DOUBLE);
+  RS_LOG_ASSERT(ret == RSVALTYPE_DOUBLE, "RSvalue type should be a double");
   return ((irct->nf.min < doubleValue || (irct->nf.inclusiveMin && irct->nf.min == doubleValue)) &&
           (irct->nf.max > doubleValue || (irct->nf.inclusiveMax && irct->nf.max == doubleValue)));
 }
@@ -828,7 +829,7 @@ static int IR_TestTerm(IndexCriteriaTester *ct, t_docId id) {
     }
     char *strValue;
     int ret = sp->getValue(sp->getValueCtx, field->name, externalId, &strValue, NULL);
-    assert(ret == RSVALTYPE_STRING);
+    RS_LOG_ASSERT(ret == RSVALTYPE_STRING, "RSvalue type should be a string");
     if (strcmp(irct->tf.term, strValue) == 0) {
       return 1;
     }

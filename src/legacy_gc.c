@@ -2,7 +2,6 @@
 #define RS_GC_C_
 
 #include <math.h>
-#include <assert.h>
 #include <sys/param.h>
 #include "inverted_index.h"
 #include "redis_index.h"
@@ -17,6 +16,8 @@
 #include <unistd.h>
 #include <sys/wait.h>
 #include <stdbool.h>
+#include "module.h"
+#include "rmutil/rm_assert.h"
 
 // convert a frequency to timespec
 struct timespec hzToTimeSpec(float hz) {
@@ -165,7 +166,7 @@ static NumericRangeNode *NextGcNode(NumericFieldGCCtx *numericGcCtx) {
         return node;
       }
     }
-    assert(!runFromStart);
+    RS_LOG_ASSERT(!runFromStart, "Second iterator should return result");
     NumericRangeTreeIterator_Free(numericGcCtx->gcIterator);
     numericGcCtx->gcIterator = NumericRangeTreeIterator_New(numericGcCtx->rt);
     runFromStart = true;
@@ -308,8 +309,8 @@ size_t gc_NumericIndex(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status
 
   if (array_len(numericFields) != array_len(gc->numericGCCtx)) {
     // add all numeric fields to our gc
-    assert(array_len(numericFields) >
-           array_len(gc->numericGCCtx));  // it is not possible to remove fields
+    RS_LOG_ASSERT(array_len(numericFields) > array_len(gc->numericGCCtx),
+                  "it is not possible to remove fields");
     gc_FreeNumericGcCtxArray(gc);
     for (int i = 0; i < array_len(numericFields); ++i) {
       RedisModuleString *keyName =
@@ -317,7 +318,7 @@ size_t gc_NumericIndex(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status
       NumericRangeTree *rt = OpenNumericIndex(sctx, keyName, &idxKey);
       // if we could not open the numeric field we probably have a
       // corruption in our data, better to know it now.
-      assert(rt);
+      RS_LOG_ASSERT(rt, "numeric index failed to open");
       gc->numericGCCtx = array_append(gc->numericGCCtx, gc_NewNumericGcCtx(rt));
       if (idxKey) RedisModule_CloseKey(idxKey);
     }
@@ -335,7 +336,8 @@ size_t gc_NumericIndex(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status
 
   if (numericGcCtx->rt != rt || numericGcCtx->revisionId != numericGcCtx->rt->revisionId) {
     // memory or revision changed, recreating our numeric gc ctx
-    assert(numericGcCtx->rt != rt || numericGcCtx->revisionId < numericGcCtx->rt->revisionId);
+    RS_LOG_ASSERT(numericGcCtx->rt != rt || numericGcCtx->revisionId < numericGcCtx->rt->revisionId,
+                      "NumericRangeTree or revisionId are inncorrect");
     gc->numericGCCtx[randomIndex] = gc_NewNumericGcCtx(rt);
     gc_FreeNumericGcCtx(numericGcCtx);
     numericGcCtx = gc->numericGCCtx[randomIndex];
@@ -382,12 +384,11 @@ end:
  * random) */
 int GC_PeriodicCallback(RedisModuleCtx *ctx, void *privdata) {
   GarbageCollectorCtx *gc = privdata;
+  RS_LOG_ASSERT(gc, "GC ctx should not be NULL");
 
   int status = SPEC_STATUS_OK;
   RedisModule_AutoMemory(ctx);
   RedisModule_ThreadSafeContextLock(ctx);
-
-  assert(gc);
 
   // Check if RDB is loading - not needed after the first time we find out that rdb is not reloading
   if (gc->rdbPossiblyLoading) {
@@ -417,7 +418,7 @@ int GC_PeriodicCallback(RedisModuleCtx *ctx, void *privdata) {
   if (totalRemoved > 0) {
     gc->hz = MIN(gc->hz * 1.2, GC_MAX_HZ);
   } else {
-    gc->hz = MAX(gc->hz * 0.99, GC_MIN_HZ);
+    gc->hz = MAX(gc->hz * 0.99, GC_MIN_HZ); // why not lower value? we increase in two different places
   }
 
 end:
@@ -430,15 +431,12 @@ end:
 /* Termination callback for the GC. Called after we stop, and frees up all the resources. */
 void GC_OnTerm(void *privdata) {
   GarbageCollectorCtx *gc = privdata;
-  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
-  RedisModule_ThreadSafeContextLock(ctx);
+  RedisModuleCtx *ctx = RSDummyContext;
   RedisModule_FreeString(ctx, (RedisModuleString *)gc->keyName);
   for (int i = 0; i < array_len(gc->numericGCCtx); ++i) {
     gc_FreeNumericGcCtx(gc->numericGCCtx[i]);
   }
   array_free(gc->numericGCCtx);
-  RedisModule_ThreadSafeContextUnlock(ctx);
-  RedisModule_FreeThreadSafeContext(ctx);
   rm_free(gc);
 }
 

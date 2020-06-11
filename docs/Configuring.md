@@ -56,7 +56,7 @@ The response policy for queries that exceed the `TIMEOUT` setting.
 The policy can be one of the following:
 
 * **RETURN**: this policy will return the top results accumulated by the query until it timed out.
-* **FAIL**: will return an error when the query exeeds the timeout value.
+* **FAIL**: will return an error when the query exceeds the timeout value.
 
 ### Default
 
@@ -306,7 +306,7 @@ The `fork GC` will only start to clean when the number of not cleaned documents 
 
 ### Default
 
-"0"
+"100"
 
 ### Example
 

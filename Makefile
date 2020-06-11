@@ -7,7 +7,7 @@ make setup         # install prerequisited (CAUTION: THIS WILL MODIFY YOUR SYSTE
 make fetch         # download and prepare dependant modules
 
 make build         # compile and link
-  DEBUG=1          # build for debugging
+  DEBUG=1          # build for debugging (implies TEST=1)
   TEST=1           # enable unit tests
   WHY=1            # explain CMake decisions (in /tmp/cmake-why)
   CMAKE_ARGS       # extra arguments to CMake
@@ -23,8 +23,8 @@ make test          # run all tests (via ctest)
 make pytest        # run python tests (src/pytest)
   TEST=name          # e.g. TEST=test:testSearch
   GDB=1              # RLTest interactive debugging
-make c_tests       # run C tests (src/tests)
-make cpp_tests     # run C++ tests (src/cpptests)
+make c_tests       # run C tests (from src/tests)
+make cpp_tests     # run C++ tests (from src/cpptests)
 
 make callgrind     # produce a call graph
   REDIS_ARGS="args"
@@ -57,6 +57,7 @@ TARGET=$(COMPAT_MODULE)
 
 ifeq ($(DEBUG),1)
 CMAKE_BUILD_TYPE=DEBUG
+TEST ?= 1
 else
 CMAKE_BUILD_TYPE=RelWithDebInfo
 endif
@@ -127,9 +128,9 @@ run:
 
 test:
 ifneq ($(TEST),)
-	cd $(BINROOT); ctest -R $(TEST)
+	@set -e; cd $(BINROOT); CTEST_OUTPUT_ON_FAILURE=1 ctest -R $(TEST)
 else
-	cd $(BINROOT); ctest
+	@set -e; cd $(BINROOT); ctest
 endif
 
 ifeq ($(GDB),1)
@@ -142,9 +143,9 @@ pytest:
 		exit 1 ;\
 	fi
 ifneq ($(TEST),)
-	@cd src/pytest; PYDEBUG=1 RLTest --test $(TEST) $(RLTEST_GDB) -s --module $(abspath $(TARGET))
+	@cd src/pytest; PYDEBUG=1 python -m RLTest --test $(TEST) $(RLTEST_GDB) -s --module $(abspath $(TARGET))
 else
-	@cd src/pytest; RLTest --module $(abspath $(TARGET))
+	@cd src/pytest; python -m RLTest --module $(abspath $(TARGET))
 endif
 
 c_tests:
@@ -198,7 +199,7 @@ endif
 DOCKER_IMAGE ?= redislabs/redisearch
 
 docker:
-	docker build . -t $(DOCKER_IMAGE) -f docker/Dockerfile.1 $(DOCKER_ARGS) \
+	docker build . -t $(DOCKER_IMAGE) -f docker/Dockerfile $(DOCKER_ARGS) \
 		--build-arg=GIT_DESCRIBE_VERSION=$(MODULE_VERSION)
 
 docker_push: docker
