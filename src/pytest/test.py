@@ -2999,8 +2999,10 @@ def testIssue1169(env):
     env.expect('FT.AGGREGATE idx foo GROUPBY 1 @txt1 REDUCE FIRST_VALUE 1 @txt2 as test').equal([1L, ['txt1', 'foo', 'test', None]])
 
 def testIssue1184(env):
-    field_types = ['TEXT', 'NUMERIC', 'TAG']
+    env.skipOnCluster()
 
+    field_types = ['TEXT', 'NUMERIC', 'TAG']
+    env.assertOk(env.execute_command('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0))
     for ft in field_types:
         env.assertOk(env.execute_command('FT.CREATE idx SCHEMA  field ' + ft))
 
