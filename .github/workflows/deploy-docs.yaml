@@ -1,0 +1,38 @@
+name: Deploy docs to website
+
+on:
+  push:
+    branches:
+      - master
+      - '[0-9]+.[0-9]+'
+    paths:
+      - 'mkdocs.yml'
+      - 'docs/**'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2.1.1
+    - name: Set up Python 3.x
+      uses: actions/setup-python@v1
+      with:
+        python-version: '3.x'
+    - name: Display Python version
+      run: python -c "import sys; print(sys.version)"
+    - name: Install docs dependencies
+      run: pip install -r docs/requirements.txt
+    - name: Get entire project
+      run: git fetch -t
+    - name: Build docs
+      run: mkdocs build
+    - uses: jakejarvis/s3-sync-action@v0.5.1
+      with:
+        args: --acl public-read --follow-symlinks
+      env:
+        AWS_S3_BUCKET: ${{ secrets.DOCS_AWS_S3_BUCKET }}
+        AWS_ACCESS_KEY_ID: ${{ secrets.DOCS_AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.DOCS_AWS_SECRET_ACCESS_KEY }}
+        DEST_DIR: ${{ secrets.DOCS_AWS_S3_DIR }}
+        SOURCE_DIR: 'site'
