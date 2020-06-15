@@ -493,6 +493,7 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryE
   spec->timeout = timeout;
 
   if (rulesopts.expr) {
+    BB;
     if ((spec->rule = Rule_Create(&rulesopts, status)) == NULL) {
       goto failure;
     }
@@ -1100,7 +1101,7 @@ static void IndexSpec_ScanCallback(RedisModuleCtx *ctx, RedisModuleString *keyna
   Document doc = {0};
   Document_Init(&doc, keyname, 1.0, RS_LANG_ENGLISH);
   if (Document_LoadAllFields(&doc, ctx) != REDISMODULE_OK) {
-    RedisModule_Log(ctx, "warning", "Failed loading document %*.s", keynameCStrLen, keynameCStr);
+    RedisModule_Log(ctx, "warning", "Failed loading document %*.s", (int) keynameCStrLen, keynameCStr);
     Document_Free(&doc);
     return;
   }

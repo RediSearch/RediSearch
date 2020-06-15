@@ -3,7 +3,6 @@
 #include "assert.h"
 #include "redismodule.h"
 #include "alloc.h"
-REDISMODULE_INIT_SYMBOLS();
 
 int cmp(void *a, void *b) {
   int *__a = (int *)a;
