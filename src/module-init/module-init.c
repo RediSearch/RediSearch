@@ -1,11 +1,5 @@
 #include "redismodule.h"
 
-#ifndef RS_NO_ONLOAD
-#pragma GCC visibility push(default)
-REDISMODULE_INIT_SYMBOLS();
-#pragma GCC visibility pop
-#endif
-
 #include "module.h"
 #include "version.h"
 #include "config.h"
@@ -107,6 +101,153 @@ static int initAsLibrary(RedisModuleCtx *ctx) {
 int RS_Initialized = 0;
 RedisModuleCtx *RSDummyContext = NULL;
 
+int UpdateIndexWithHash(RedisModuleCtx *ctx, IndexSpec *spec, RedisModuleString *key) {
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
+  Document doc = {0};
+  // TODO: get language and score from spec->rule->setting
+  Document_Init(&doc, key, 1, DEFAULT_LANGUAGE);
+  if (Document_LoadAllFields(&doc, ctx) != REDISMODULE_OK) {
+    Document_Free(&doc);
+    return RedisModule_ReplyWithError(ctx, "Could not load document");
+  }
+  QueryError status = {0};
+  RSAddDocumentCtx *aCtx = NewAddDocumentCtx(spec, &doc, &status);
+  AddDocumentCtx_Submit(aCtx, &sctx, DOCUMENT_ADD_PARTIAL);
+  return REDISMODULE_OK;
+}
+
+typedef struct EvalRec {
+  RLookup lk;
+  RLookupRow row;
+  QueryError status;
+  ExprEval ee;
+  RSValue res;
+} EvalRec;
+
+int EvalRec_Init(EvalRec *r, const char *expr) {
+  RLookup _lk = {0};
+  r->lk = _lk;
+  RLookup_Init(&r->lk, NULL);
+  RLookupRow _row = {0};
+  r->row = _row;
+  QueryError _status = {0};
+  r->status = _status;
+
+  r->ee.lookup = &r->lk;
+  r->ee.srcrow = &r->row;
+  r->ee.err = &r->status;
+  
+  if (!expr) {
+  	r->ee.root = NULL;
+  } else {
+    r->ee.root = ExprAST_Parse(expr, strlen(expr), r->ee.err);
+    if (r->ee.root == NULL) {
+  	  return REDISMODULE_ERR;
+    }
+  }
+  
+  return REDISMODULE_OK;
+}
+
+void EvalRec_Destroy(EvalRec *r) {
+  if (r->ee.root) {
+    ExprAST_Free((RSExpr *) r->ee.root);
+  }
+}
+
+RLookupKey *EvalRec_Set(EvalRec *r, const char *name, RSValue *val) {
+  RLookupKey *lkk = RLookup_GetKey(&r->lk, name, RLOOKUP_F_OCREAT);
+  if (lkk != NULL) {
+    RLookup_WriteOwnKey(lkk, &r->row, val);
+  }
+  return lkk;
+}
+
+int RLookup_GetHash(RLookup *it, RLookupRow *dst, RedisModuleCtx *ctx, RedisModuleString *key);
+
+int EvalRec_AddHash(EvalRec *r, RedisModuleCtx *ctx, RedisModuleString *key) {
+  return RLookup_GetHash(&r->lk, &r->row, ctx, key);
+}
+
+int EvalRec_Eval(EvalRec *r) {
+  if (ExprAST_GetLookupKeys((RSExpr *) r->ee.root, (RLookup *) r->ee.lookup, r->ee.err) != EXPR_EVAL_OK) {
+    return REDISMODULE_ERR;
+  }
+  return ExprEval_Eval(&r->ee, &r->res);
+}
+
+int EvalRec_EvalExpr(EvalRec *r, const char *expr) {
+  r->ee.root = ExprAST_Parse(expr, strlen(expr), r->ee.err);
+  if (r->ee.root == NULL) {
+	  return REDISMODULE_ERR;
+  }
+  if (ExprAST_GetLookupKeys((RSExpr *) r->ee.root, (RLookup *) r->ee.lookup, r->ee.err) != EXPR_EVAL_OK) {
+    return REDISMODULE_ERR;
+  }
+  return ExprEval_Eval(&r->ee, &r->res);
+}
+
+IndexSpec *SchemaIndex_FindByKey(RedisModuleCtx *ctx, RedisModuleString *key) {
+  BB;
+  
+  EvalRec r;
+  EvalRec_Init(&r, NULL);
+  EvalRec_AddHash(&r, ctx, key);
+  RLookupRow_Dump(&r.row);
+
+  for (size_t i = 0; i < array_len(SchemaRules_g); i++) {
+    IndexSpec *spec = &SchemaRules_g[i];
+    if (EvalRec_EvalExpr(&r, spec->rule->setting.expr) == EXPR_EVAL_OK) {
+      int b = RSValue_BoolTest(&r.res);
+      if (b) {
+        EvalRec_Destroy(&r);
+        return spec;
+      }
+    }
+    EvalRec_Destroy(&r);
+  }
+  return NULL;
+}
+
+static int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) {
+  BB;
+  static const char *hset_event = 0, *hmset_event;
+  bool hset = false, hmset = false;
+  if (event == hset_event) {
+    hset = true;
+  } else if (event == hmset_event) {
+    hmset = true;
+  } else {
+    if (!strcmp(event, "hset")) {
+      hset = true;
+      hset_event = event;
+    } else if (!strcmp(event, "hmset")) {
+      hmset = true;
+      hmset_event = event;
+    }
+  }
+
+  const char *key_cp = RedisModule_StringPtrLen(key, NULL);
+  if (hset) {
+    RedisModule_Log(ctx, "notice", "key %s: event %s", key_cp, event);
+    IndexSpec *spec = SchemaIndex_FindByKey(ctx, key);
+    if (spec) {
+      UpdateIndexWithHash(ctx, spec, key);
+    }
+  }
+
+  if (hmset) {
+    RedisModule_Log(ctx, "notice", "key %s: event %s", key_cp, event);
+  }
+
+  return REDISMODULE_OK;
+}
+
+static void Initialize_KeyspaceNotifications(RedisModuleCtx *ctx) {
+  RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_HASH, HashNotificationCallback);
+  //RedisModule_NotifyKeyspaceEvent(ctx, REDISMODULE_NOTIFY_HASH, , RedisModuleString *key)
+}
+
 int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
 #define DO_LOG(...)                               \
   if (ctx && (mode != REDISEARCH_INIT_LIBRARY)) { \
@@ -169,5 +310,8 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
     DO_LOG("warning", "Could not register default extension");
     return REDISMODULE_ERR;
   }
+
+  Initialize_KeyspaceNotifications(ctx);
+
   return REDISMODULE_OK;
 }

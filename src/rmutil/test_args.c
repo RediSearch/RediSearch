@@ -6,8 +6,6 @@
 #include "test.h"
 #include "args.h"
 
-REDISMODULE_INIT_SYMBOLS();
-
 int testCArgs() {
   ArgsCursor ac;
   const char *args[] = {"hello",  "stringArg",   "goodbye",        "666", "cute", "3.14",
