@@ -3,7 +3,6 @@
 #include "doc_table.h"
 
 IndexSpec *SchemaRules_g;
-DocTable SchemaDocs_g;
 
 SchemaRule *Rule_Create(ruleSettings *rulesopts, QueryError *status) {
     RSExpr *e = ExprAST_Parse(rulesopts->expr, strlen(rulesopts->expr), status);
