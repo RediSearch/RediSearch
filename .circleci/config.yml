@@ -110,28 +110,6 @@ jobs:
               aws s3 cp $f s3://redismodules/$PACKAGE_NAME/ --acl public-read
             done
 
-  deploy_docs:
-    docker:
-      - image: 'python:buster'
-    steps:
-      - run:
-          name: Setup executor
-          command: |
-            apt-get -qq update
-            apt-get -q install -y git openssh-client curl ca-certificates make tar gzip wget
-            cd ..; curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"; unzip awscliv2.zip;./aws/install
-      - checkout
-      - run:
-          name: Instal dependencies
-          command: pip install -r docs/requirements.txt
-      - run:
-          name: Build docs
-          command: mkdocs build
-      - run:
-          name: Deploy Docs to S3
-          command: |
-            aws s3 cp site s3://oss.redislabs.com/$WEBSITE_FOLDER/ --acl public-read --recursive
-
 
 on-any-branch: &on-any-branch
   filters:
@@ -200,8 +178,6 @@ workflows:
       - deploy_release:
           requires: *default_jobs
           <<: *on-version-tags
-      - deploy_docs:
-          <<: *on-master-and-version-branches
 
   nightly:
     triggers:
