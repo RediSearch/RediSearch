@@ -312,6 +312,23 @@ int func_exists(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc, Que
   return EXPR_EVAL_OK;
 }
 
+static int stringfunc_prefix(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc, QueryError *err) {
+  VALIDATE_ARGS("prefix", 2, 2, err);
+  VALIDATE_ARG_ISSTRING("prefix", argv, 0);
+  VALIDATE_ARG_ISSTRING("prefix", argv, 1);
+
+  RSValue *pref = RSValue_Dereference(argv[0]);
+  RSValue *str = RSValue_Dereference(argv[1]);
+  
+  size_t n;
+  char *p_pref = (char *)RSValue_StringPtrLen(pref, &n);
+  char *p_str = (char *)RSValue_StringPtrLen(str, NULL);
+  result->t = RSValue_Number;
+  result->numval = strncmp(p_pref, p_str, n) == 0;
+  return EXPR_EVAL_OK;
+}
+
+
 void RegisterStringFunctions() {
   RSFunctionRegistry_RegisterFunction("lower", stringfunc_tolower, RSValue_String);
   RSFunctionRegistry_RegisterFunction("upper", stringfunc_toupper, RSValue_String);
@@ -322,4 +339,5 @@ void RegisterStringFunctions() {
   RSFunctionRegistry_RegisterFunction("to_number", func_to_number, RSValue_Number);
   RSFunctionRegistry_RegisterFunction("to_str", func_to_str, RSValue_String);
   RSFunctionRegistry_RegisterFunction("exists", func_exists, RSValue_Number);
+  RSFunctionRegistry_RegisterFunction("prefix", stringfunc_prefix, RSValue_Number);
 }

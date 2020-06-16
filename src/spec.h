@@ -398,6 +398,7 @@ int IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, int when);
 void IndexSpec_RdbSave(RedisModuleIO *rdb, int when);
 void IndexSpec_Digest(RedisModuleDigest *digest, void *value);
 int IndexSpec_RegisterType(RedisModuleCtx *ctx);
+int IndexSpec_UpdateWithHash(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key);
 void IndexSpec_ClearAliases(IndexSpec *sp);
 // void IndexSpec_Free(void *value);
 
@@ -409,6 +410,7 @@ t_fieldMask IndexSpec_ParseFieldMask(IndexSpec *sp, RedisModuleString **argv, in
 
 void IndexSpec_InitializeSynonym(IndexSpec *sp);
 void Indexes_Init(RedisModuleCtx *ctx);
+void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key);
 
 #ifdef __cplusplus
 }
