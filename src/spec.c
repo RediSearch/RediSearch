@@ -496,7 +496,7 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryE
     if ((spec->rule = Rule_Create(&rulesopts, status)) == NULL) {
       goto failure;
     }
-    SchemaRules_g = array_ensure_append(SchemaRules_g, &spec, 1, IndexSpec*);
+    SchemaRules_g = array_ensure_append(SchemaRules_g, &spec, 1, IndexSpec *);
   }
 
   if (AC_IsInitialized(&acStopwords)) {
@@ -814,7 +814,7 @@ RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs,
     RedisSearchCtx sctx = {.redisCtx = RSDummyContext, .spec = sp};
     switch (forType) {
       case INDEXFLD_T_NUMERIC:
-      case INDEXFLD_T_GEO: // TODO?? change the name
+      case INDEXFLD_T_GEO:  // TODO?? change the name
         ret = fmtRedisNumericIndexKey(&sctx, fs->name);
         break;
       case INDEXFLD_T_TAG:
@@ -1100,7 +1100,8 @@ static void IndexSpec_ScanCallback(RedisModuleCtx *ctx, RedisModuleString *keyna
   Document doc = {0};
   Document_Init(&doc, keyname, 1.0, RS_LANG_ENGLISH);
   if (Document_LoadAllFields(&doc, ctx) != REDISMODULE_OK) {
-    RedisModule_Log(ctx, "warning", "Failed loading document %*.s", (int) keynameCStrLen, keynameCStr);
+    RedisModule_Log(ctx, "warning", "Failed loading document %*.s", (int)keynameCStrLen,
+                    keynameCStr);
     Document_Free(&doc);
     return;
   }
@@ -1382,6 +1383,7 @@ int IndexSpec_UpdateWithHash(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleSt
   QueryError status = {0};
   // int rc = Redis_SaveDocument(&sctx, &doc, 0, &status);
   RSAddDocumentCtx *aCtx = NewAddDocumentCtx(spec, &doc, &status);
+  aCtx->stateFlags |= ACTX_F_NOBLOCK;
   AddDocumentCtx_Submit(aCtx, &sctx, DOCUMENT_ADD_PARTIAL);
   return REDISMODULE_OK;
 }
@@ -1414,14 +1416,14 @@ void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
   EvalCtx_AddHash(&r, ctx, key);
   EvalCtx_Set(&r, "__key", RS_RedisStringVal(key));
 
-#ifdef DEBUG  
+#ifdef DEBUG
   RLookupKey *k = RLookup_GetKey(&r.lk, "__key", 0);
   RSValue *v = RLookup_GetItem(k, &r.row);
   const char *x = RSValue_StringPtrLen(v, NULL);
   k = RLookup_GetKey(&r.lk, "name", 0);
   v = RLookup_GetItem(k, &r.row);
   x = RSValue_StringPtrLen(v, NULL);
-#endif // DEBUG
+#endif  // DEBUG
 
   for (size_t i = 0; i < array_len(SchemaRules_g); i++) {
     IndexSpec *spec = SchemaRules_g[i];
