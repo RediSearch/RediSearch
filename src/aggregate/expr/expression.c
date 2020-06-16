@@ -1,5 +1,8 @@
 #include "expression.h"
 #include "result_processor.h"
+#include "rlookup.h"
+
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 static int evalInternal(ExprEval *eval, const RSExpr *e, RSValue *res);
 
@@ -280,6 +283,71 @@ char *ExprEval_Strndup(ExprEval *ctx, const char *str, size_t len) {
   ret[len] = '\0';
   return ret;
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+int EvalCtx_Init(EvalCtx *r, const char *expr) {
+  RLookup _lk = {0};
+  r->lk = _lk;
+  RLookup_Init(&r->lk, NULL);
+  RLookupRow _row = {0};
+  r->row = _row;
+  QueryError _status = {0};
+  r->status = _status;
+
+  r->ee.lookup = &r->lk;
+  r->ee.srcrow = &r->row;
+  r->ee.err = &r->status;
+  
+  if (!expr) {
+  	r->ee.root = NULL;
+  } else {
+    r->ee.root = ExprAST_Parse(expr, strlen(expr), r->ee.err);
+    if (r->ee.root == NULL) {
+  	  return REDISMODULE_ERR;
+    }
+  }
+  
+  return REDISMODULE_OK;
+}
+
+void EvalCtx_Destroy(EvalCtx *r) {
+  if (r->ee.root) {
+    ExprAST_Free((RSExpr *) r->ee.root);
+  }
+}
+
+RLookupKey *EvalCtx_Set(EvalCtx *r, const char *name, RSValue *val) {
+  RLookupKey *lkk = RLookup_GetKey(&r->lk, name, RLOOKUP_F_OCREAT);
+  if (lkk != NULL) {
+    RLookup_WriteOwnKey(lkk, &r->row, val);
+  }
+  return lkk;
+}
+
+int EvalCtx_AddHash(EvalCtx *r, RedisModuleCtx *ctx, RedisModuleString *key) {
+  return RLookup_GetHash(&r->lk, &r->row, ctx, key);
+}
+
+int EvalCtx_Eval(EvalCtx *r) {
+  if (ExprAST_GetLookupKeys((RSExpr *) r->ee.root, (RLookup *) r->ee.lookup, r->ee.err) != EXPR_EVAL_OK) {
+    return REDISMODULE_ERR;
+  }
+  return ExprEval_Eval(&r->ee, &r->res);
+}
+
+int EvalCtx_EvalExpr(EvalCtx *r, const char *expr) {
+  r->ee.root = ExprAST_Parse(expr, strlen(expr), r->ee.err);
+  if (r->ee.root == NULL) {
+	  return REDISMODULE_ERR;
+  }
+  if (ExprAST_GetLookupKeys((RSExpr *) r->ee.root, (RLookup *) r->ee.lookup, r->ee.err) != EXPR_EVAL_OK) {
+    return REDISMODULE_ERR;
+  }
+  return ExprEval_Eval(&r->ee, &r->res);
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 /**
  * ResultProcessor type which evaluates expressions

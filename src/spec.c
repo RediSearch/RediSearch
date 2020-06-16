@@ -493,11 +493,10 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryE
   spec->timeout = timeout;
 
   if (rulesopts.expr) {
-    BB;
     if ((spec->rule = Rule_Create(&rulesopts, status)) == NULL) {
       goto failure;
     }
-    SchemaRules_g = array_ensure_append(SchemaRules_g, spec, 1, IndexSpec);
+    SchemaRules_g = array_ensure_append(SchemaRules_g, &spec, 1, IndexSpec*);
   }
 
   if (AC_IsInitialized(&acStopwords)) {
@@ -1371,6 +1370,22 @@ int IndexSpec_RegisterType(RedisModuleCtx *ctx) {
   return REDISMODULE_OK;
 }
 
+int IndexSpec_UpdateWithHash(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key) {
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
+  Document doc = {0};
+  // TODO: get language and score from spec->rule->setting
+  Document_Init(&doc, key, 1, DEFAULT_LANGUAGE);
+  if (Document_LoadSchemaFields(&doc, &sctx) != REDISMODULE_OK) {
+    Document_Free(&doc);
+    return RedisModule_ReplyWithError(ctx, "Could not load document");
+  }
+  QueryError status = {0};
+  // int rc = Redis_SaveDocument(&sctx, &doc, 0, &status);
+  RSAddDocumentCtx *aCtx = NewAddDocumentCtx(spec, &doc, &status);
+  AddDocumentCtx_Submit(aCtx, &sctx, DOCUMENT_ADD_PARTIAL);
+  return REDISMODULE_OK;
+}
+
 void IndexSpec_CleanAll(void) {
   dictIterator *it = dictGetSafeIterator(specDict);
   dictEntry *e = NULL;
@@ -1391,4 +1406,30 @@ static void onFlush(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent
 void Indexes_Init(RedisModuleCtx *ctx) {
   specDict = dictCreate(&dictTypeHeapStrings, NULL);
   RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_FlushDB, onFlush);
+}
+
+void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key) {
+  EvalCtx r;
+  EvalCtx_Init(&r, NULL);
+  EvalCtx_AddHash(&r, ctx, key);
+  EvalCtx_Set(&r, "__key", RS_RedisStringVal(key));
+
+#ifdef DEBUG  
+  RLookupKey *k = RLookup_GetKey(&r.lk, "__key", 0);
+  RSValue *v = RLookup_GetItem(k, &r.row);
+  const char *x = RSValue_StringPtrLen(v, NULL);
+  k = RLookup_GetKey(&r.lk, "name", 0);
+  v = RLookup_GetItem(k, &r.row);
+  x = RSValue_StringPtrLen(v, NULL);
+#endif // DEBUG
+
+  for (size_t i = 0; i < array_len(SchemaRules_g); i++) {
+    IndexSpec *spec = SchemaRules_g[i];
+    if (EvalCtx_EvalExpr(&r, spec->rule->setting.expr) == EXPR_EVAL_OK) {
+      if (RSValue_BoolTest(&r.res)) {
+        IndexSpec_UpdateWithHash(spec, ctx, key);
+      }
+    }
+  }
+  EvalCtx_Destroy(&r);
 }

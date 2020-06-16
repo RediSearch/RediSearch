@@ -1,8 +1,9 @@
 #include "function.h"
-#include <aggregate/expr/expression.h>
+#include "aggregate/expr/expression.h"
 #include <math.h>
 #include <err.h>
 
+#if 0
 
 static int stringfunc_prefix(ExprEval *ctx, RSValue *result,
                                 RSValue **argv, size_t argc, QueryError *err) {
@@ -12,8 +13,8 @@ static int stringfunc_prefix(ExprEval *ctx, RSValue *result,
   return REDISMODULE_OK;
 }
 
-
-
 void RegisterRulesFunctions() {
   RSFunctionRegistry_RegisterFunction("prefix", stringfunc_prefix, RSValue_Number);
 }
+
+#endif

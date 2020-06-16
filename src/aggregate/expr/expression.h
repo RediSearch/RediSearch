@@ -1,9 +1,9 @@
 #ifndef RS_AGG_EXPRESSION_H_
 #define RS_AGG_EXPRESSION_H_
 
-#include <redisearch.h>
-#include <value.h>
-#include <aggregate/functions/function.h>
+#include "redisearch.h"
+#include "value.h"
+#include "aggregate/functions/function.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -112,6 +112,25 @@ typedef struct ExprEval {
 #define EXPR_EVAL_ERR 0
 #define EXPR_EVAL_OK 1
 #define EXPR_EVAL_NULL 2
+
+/**
+ * Alternative expression execution context/evaluator.
+ */
+
+typedef struct EvalCtx {
+  RLookup lk;
+  RLookupRow row;
+  QueryError status;
+  ExprEval ee;
+  RSValue res;
+} EvalCtx;
+
+int EvalCtx_Init(EvalCtx *r, const char *expr);
+void EvalCtx_Destroy(EvalCtx *r);
+RLookupKey *EvalCtx_Set(EvalCtx *r, const char *name, RSValue *val);
+int EvalCtx_AddHash(EvalCtx *r, RedisModuleCtx *ctx, RedisModuleString *key);
+int EvalCtx_Eval(EvalCtx *r);
+int EvalCtx_EvalExpr(EvalCtx *r, const char *expr);
 
 /**
  * Scan through the expression and generate any required lookups for the keys.
