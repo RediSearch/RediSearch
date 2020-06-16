@@ -359,6 +359,11 @@ static inline const RLookupKey *RLookup_FindKeyWith(const RLookup *l, uint32_t f
   return NULL;
 }
 
+/**
+ * Initialize the lookup with fields from hash.
+ */
+int RLookup_GetHash(RLookup *it, RLookupRow *dst, RedisModuleCtx *ctx, RedisModuleString *key);
+
 #ifdef __cplusplus
 }
 #endif

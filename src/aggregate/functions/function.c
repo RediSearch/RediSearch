@@ -30,7 +30,7 @@ void RegisterAllFunctions() {
   RegisterMathFunctions();
   RegisterDateFunctions();
   RegisterStringFunctions();
-  RegisterRulesFunctions();
+  // RegisterRulesFunctions();
 }
 
 void FunctionRegistry_Free(void) {
