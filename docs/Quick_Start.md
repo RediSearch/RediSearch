@@ -7,6 +7,16 @@
 docker run -p 6379:6379 redislabs/redisearch:latest
 ```
 
+## Download and running binaries
+
+First download the pre-compiled version from [RedisLabs download center](https://redislabs.com/download-center/modules/).
+
+Next, run Redis with RediSearch: 
+
+```
+$ redis-server --loadmodule /path/to/module/src/redisearch.so
+```
+
 ## Building and running from source
 
 First, clone the git repo:
