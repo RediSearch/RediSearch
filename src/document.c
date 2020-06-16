@@ -207,7 +207,9 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b, QueryError *stat
 }
 
 static void doReplyFinish(RSAddDocumentCtx *aCtx, RedisModuleCtx *ctx) {
-  aCtx->donecb(aCtx, ctx, aCtx->donecbData);
+  if (aCtx->donecb) {
+    aCtx->donecb(aCtx, ctx, aCtx->donecbData);
+  }
   Indexer_Decref(aCtx->indexer);
   AddDocumentCtx_Free(aCtx);
 }
