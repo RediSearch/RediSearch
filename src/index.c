@@ -604,7 +604,6 @@ IndexIterator *NewIntersecIterator(IndexIterator **its_, size_t num, DocTable *d
   it->Free = IntersectIterator_Free;
   it->Abort = II_Abort;
   it->Rewind = II_Rewind;
-  it->GetCurrent = NULL;
   it->HasNext = NULL;
   it->mode = MODE_SORTED;
   II_SortChildren(ctx);
@@ -978,6 +977,7 @@ static IndexCriteriaTester *NI_GetCriteriaTester(void *ctx) {
 static size_t NI_NumEstimated(void *ctx) {
   NotContext *nc = ctx;
   return nc->maxDocId;
+  return SIZE_MAX;
 }
 
 static int NI_ReadUnsorted(void *ctx, RSIndexResult **hit) {
@@ -1089,7 +1089,6 @@ IndexIterator *NewNotIterator(IndexIterator *it, t_docId maxDocId, double weight
   ret->SkipTo = NI_SkipTo;
   ret->Abort = NI_Abort;
   ret->Rewind = NI_Rewind;
-  ret->GetCurrent = NULL;
   ret->mode = MODE_SORTED;
 
   if (nc->child && nc->child->mode == MODE_UNSORTED) {
@@ -1135,7 +1134,7 @@ static int OI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
   //  nc->maxDocId, nc->lastDocId);
 
   int found = 0;
-  if (nc->lastDocId > nc->maxDocId) {
+  if (docId > nc->maxDocId) {
     return INDEXREAD_EOF;
   }
 

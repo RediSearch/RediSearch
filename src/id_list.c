@@ -187,6 +187,5 @@ IndexIterator *NewIdListIterator(t_docId *ids, t_offset num, double weight) {
   ret->mode = MODE_SORTED;
 
   ret->HasNext = NULL;
-  ret->GetCurrent = NULL;
   return ret;
 }
