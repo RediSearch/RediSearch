@@ -10,27 +10,25 @@
 # and also hides the details of how this module is run (`python -m RLTest`).
 
 # Uncomment following line to see what shell script is doing
-set -x
+# set -x
 
-SCRIPT_DIR=$( cd ${0%/*} && pwd -P )
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 
 # If current directory has RLTest in it, then we're good to go
-if [ -d "${SCRIPT_DIR}/RLTest" ]; then
+if [[ -d $HERE/RLTest ]]; then
     true
     # Do nothing - tests are already loaded
 fi
 
-
-if [ -n "$RLTEST" ]; then
+if [[ -n $RLTEST ]]; then
     # Specifically search for it in the specified location
     PYTHONPATH="$PYTHONPATH:$RLTEST"
 else
     # Assume there is a sibling directory called `RLTest`
-    PYTHONPATH="$PYTHONPATH:$SCRIPT_DIR"
+    PYTHONPATH="$PYTHONPATH:$HERE"
 fi
 
 export PYTHONPATH
-
 
 # See if there is a configuration file in the current directory. Use it
 # if it exists
@@ -38,14 +36,12 @@ export PYTHONPATH
 # ARGS="--clear-logs"
 # ARGS="--unix"
 
-if [ -e rltest.config ]; then
+if [[ -e rltest.config ]]; then
     ARGS="@rltest.config ${ARGS}"
 fi
 
-if [ -n "$REDIS_VERBOSE" ]; then
+if [[ -n $REDIS_VERBOSE ]]; then
     ARGS="${ARGS} --no-output-catch"
 fi
-
-
 
 exec python -m RLTest $ARGS "$@"
