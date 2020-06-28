@@ -113,6 +113,8 @@ typedef struct ExprEval {
 #define EXPR_EVAL_OK 1
 #define EXPR_EVAL_NULL 2
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+
 /**
  * Alternative expression execution context/evaluator.
  */
@@ -159,6 +161,8 @@ char *ExprEval_Strndup(ExprEval *ev, const char *s, size_t n);
 
 /** Cleans up the allocator */
 void ExprEval_Cleanup(ExprEval *ev);
+
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 /**
  * Creates a new result processor in the form of a projector. The projector will

@@ -72,6 +72,8 @@ int TrieMap_Add(TrieMap *t, char *str, tm_len_t len, void *value, TrieMapReplace
  */
 void *TrieMap_Find(TrieMap *t, char *str, tm_len_t len);
 
+int TrieMap_FindPrefixes(TrieMap *t, const char *str, tm_len_t len, void **results);
+
 /* Mark a node as deleted. It also optimizes the trie by merging nodes if
  * needed. If freeCB is given, it will be used to free the value of the deleted
  * node. If it doesn't, we simply call free() */

@@ -1,23 +1,49 @@
 import unittest
 from includes import *
 
-def testHashes1(env):
-    env.cmd('ft.create', 'things', 
-            'EXPRESSION', 'prefix("thing:", @__key)',
+def testHashes_filter1(env):
+    env.cmd('ft.create', 'things',
+            'ON', 'HASH',
+            'FILTER', 'startswith(@__key, "thing:")',
             'SCHEMA', 'name', 'text')
 
     env.cmd('hset', 'thing:bar', 'name', 'foo')
 
     env.expect('ft.search', 'things', 'foo') \
-            .equal([1L, 'thing:bar', ['name', 'foo']])
+       .equal([1L, 'thing:bar', ['name', 'foo']])
 
-def testHashes2(env):
-    env.cmd('ft.create', 'stuff', 
-            'EXPRESSION', 'prefix("stuff:", @__key)',
+def testHashes_prefix1(env):
+    env.cmd('ft.create', 'things',
+            'ON', 'HASH',
+            'PREFIX', '1', 'thing:',
+            'SCHEMA', 'name', 'text')
+
+    env.cmd('hset', 'thing:bar', 'name', 'foo')
+
+    env.expect('ft.search', 'things', 'foo') \
+       .equal([1L, 'thing:bar', ['name', 'foo']])
+
+def testHashes_prefix2(env):
+    env.cmd('ft.create', 'things',
+            'ON', 'HASH',
+            'PREFIX', '2', 'this:', 'that:',
+            'SCHEMA', 'name', 'text')
+
+    env.cmd('hset', 'this:foo', 'name', 'foo')
+    env.cmd('hset', 'that:foo', 'name', 'foo')
+
+    env.expect('ft.search', 'things', 'foo') \
+       .equal([2L, 'that:foo', ['name', 'foo'], 'this:foo', ['name', 'foo']])
+
+def testHashes_filter2(env):
+    env.cmd('ft.create', 'stuff',
+            'ON', 'HASH',
+            'FILTER', 'startswith(@__key, "stuff:")',
             'SCHEMA', 'name', 'text', 'age', 'numeric')
 
-    env.cmd('ft.create', 'things', 
-            'EXPRESSION', 'prefix("thing:", @__key)',
+    env.cmd('ft.create', 'things',
+            'ON', 'HASH',
+            'FILTER', 'startswith(@__key, "thing:")',
             'SCHEMA', 'name', 'text', 'age', 'numeric')
 
     env.cmd('hset', 'thing:bar', 'name', 'foo')
@@ -25,4 +51,55 @@ def testHashes2(env):
     env.cmd('hset', 'thing:bar', 'age', '42')
 
     env.expect('ft.search', 'things', 'foo') \
-            .equal([1L, 'thing:bar', ['name', 'foo', 'age', '42']])
+       .equal([1L, 'thing:bar', ['name', 'foo', 'age', '42']])
+
+def testHashes_prefix3(env):
+    env.cmd('ft.create', 'stuff',
+            'ON', 'HASH',
+            'PREFIX', '1', 'stuff:',
+            'SCHEMA', 'name', 'text', 'age', 'numeric')
+
+    env.cmd('ft.create', 'things',
+            'ON', 'HASH',
+            'PREFIX', '1', 'thing:',
+            'SCHEMA', 'name', 'text', 'age', 'numeric')
+
+    env.cmd('hset', 'thing:bar', 'name', 'foo')
+    env.cmd('hset', 'object:jojo', 'name', 'vivi')
+    env.cmd('hset', 'thing:bar', 'age', '42')
+
+    env.expect('ft.search', 'things', 'foo') \
+       .equal([1L, 'thing:bar', ['name', 'foo', 'age', '42']])
+
+def testHashes_del(env):
+    env.cmd('ft.create', 'things',
+            'ON', 'HASH',
+            'PREFIX', '1', 'thing:',
+            'SCHEMA', 'name', 'text')
+
+    env.expect('ft.search', 'things', 'foo') \
+       .equal([0L])
+
+    env.cmd('hset', 'thing:bar', 'name', 'foo')
+
+    env.expect('ft.search', 'things', 'foo') \
+       .equal([1L, 'thing:bar', ['name', 'foo']])
+
+    env.cmd('del', 'thing:bar')
+
+    env.expect('ft.search', 'things', 'foo') \
+       .equal([0L])
+
+def testHashes_flush(env):
+    env.cmd('ft.create', 'things',
+            'ON', 'HASH',
+            'PREFIX', '1', 'thing:',
+            'FILTER', 'startswith(@__key, "thing:")',
+            'SCHEMA', 'name', 'text')
+
+    env.cmd('FLUSHALL')
+
+    env.cmd('hset', 'thing:bar', 'name', 'foo')
+
+    env.expect('ft.search', 'things', 'foo') \
+       .equal('things: no such index')
