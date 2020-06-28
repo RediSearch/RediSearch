@@ -485,7 +485,6 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryE
       {.name = SPEC_STOPWORDS_STR, .target = &acStopwords, .type = AC_ARGTYPE_SUBARGS},
       {.name = NULL}};
 
-  BB;
   ACArgSpec *errarg = NULL;
   int rc = AC_ParseArgSpec(&ac, argopts, &errarg);
   if (rc != AC_OK) {

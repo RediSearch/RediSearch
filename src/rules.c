@@ -49,7 +49,6 @@ error:
 }
 
 void SchemaRule_Free(SchemaRule *rule) {
-  BB;
   SchemaPrefixes_RemoveSpec(rule->spec);
   SchemaRules_RemoveSpecRules(rule->spec);
 
