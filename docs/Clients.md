@@ -12,6 +12,7 @@ While it is possible and simple to use the raw Redis commands API, in most cases
 | Java | [JRediSearch](https://github.com/RediSearch/JRediSearch) | Redis Labs | BSD | |
 | Java | [lettusearch](https://github.com/RediSearch/lettusearch) | Redis Labs | Apache-2.0 | |
 | Java | [spring-redisearch](https://github.com/RediSearch/spring-redisearch) | Redis Labs | Apache-2.0 | |
+| Java | [redis-modules-java](https://github.com/dengliming/redis-modules-java) | dengliming | Apache-2.0 | redisearch module of redis-modules-java|
 | Go | [redisearch-go](https://github.com/RediSearch/redisearch-go) | Redis Labs | BSD |  | 
 | JavaScript | [RedRediSearch](https://github.com/stockholmux/redredisearch) | Kyle J. Davis | MIT | Partial API, compatible with [Reds](https://github.com/tj/reds) |
 | JavaScript | [redis-redisearch](https://github.com/stockholmux/node_redis-redisearch) | Kyle J. Davis | MIT | |
