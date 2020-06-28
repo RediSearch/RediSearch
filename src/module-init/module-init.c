@@ -142,7 +142,8 @@ static int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *e
 }
 
 static void Initialize_KeyspaceNotifications(RedisModuleCtx *ctx) {
-  RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_HASH, HashNotificationCallback);
+  RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_HASH,
+    HashNotificationCallback);
   //RedisModule_NotifyKeyspaceEvent(ctx, REDISMODULE_NOTIFY_HASH, , RedisModuleString *key)
 }
 
