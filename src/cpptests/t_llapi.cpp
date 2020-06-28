@@ -727,3 +727,17 @@ TEST_F(LLApiTest, testFreeDocument) {
   auto* d = RediSearch_CreateDocument("doc1", strlen("doc1"), 1, "turkish");
   RediSearch_FreeDocument(d);
 }
+
+TEST_F(LLApiTest, duplicateFieldAdd) {
+  RSIndex* index = RediSearch_CreateIndex("index", NULL);
+
+  // adding text field to the index
+  RediSearch_CreateField(index, FIELD_NAME_1, RSFLDTYPE_FULLTEXT, RSFLDOPT_NONE);
+
+  // adding document to the index
+  RSDoc* d = RediSearch_CreateDocument(DOCID1, strlen(DOCID1), 1.0, NULL);
+  RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, "some test to field", RSFLDTYPE_DEFAULT);
+  RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, "some test to same field", RSFLDTYPE_DEFAULT);
+  RediSearch_SpecAddDocument(index, d);
+  RediSearch_FreeDocument(d);
+}
