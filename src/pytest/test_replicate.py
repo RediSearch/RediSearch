@@ -40,14 +40,13 @@ def checkSlaveSynced(env, slaveConn, command, expected_result, time_out=5):
 def testDelReplicate():
   env = Env(useSlaves=True, forceTcp=True)
   # temp skip for out-of-index
-  env.skip()
   env.skipOnCluster()
 
   master = env.getConnection()
   slave = env.getSlaveConnection()
   env.assertTrue(master.execute_command("ping"))
   env.assertTrue(slave.execute_command("ping"))
-  env.assertOk(master.execute_command('ft.create', 'idx', 'schema', 'f', 'text'))
+  env.assertOk(master.execute_command('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'schema', 'f', 'text'))
 
   for i in range(10):
     master.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',

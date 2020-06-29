@@ -104,7 +104,7 @@ def testHashes_flush(env):
     env.expect('ft.search', 'things', 'foo') \
        .equal('things: no such index')
 
-def testHashes_notExist(env):
+def testHashesNotExist(env):
     env.cmd('ft.create', 'things',
             'ON', 'HASH',
             'PREFIX', '1', 'thing:',
@@ -120,3 +120,37 @@ def testHashes_sortable(env):
                 'FILTER', 'startswith(@__key, "")',
                 'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo1').equal('OK')
+
+def testDuplicateFields(env):
+    env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+            'SCHEMA', 'txt', 'TEXT', 'num', 'NUMERIC', 'SORTABLE')
+    for _ in env.retry_with_reload():
+        # Ensure the index assignment is correct after an rdb load
+        with env.assertResponseError():
+            env.cmd('FT.ADD', 'idx', 'doc', 1.0, 'FIELDS',
+                     'txt', 'foo', 'txt', 'bar', 'txt', 'baz')
+
+def testReplace(env):
+    r = env
+
+    env.expect('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'schema', 'f', 'text')
+
+    env.expect('HSET', 'doc1', 'f', 'hello world').equal(1)
+    env.expect('HSET', 'doc2', 'f', 'hello world').equal(1)
+    res = r.execute_command('ft.search', 'idx', 'hello world')
+    env.assertEqual(2, res[0])
+
+    # now replace doc1 with a different content
+    env.expect('HSET', 'doc1', 'f', 'goodbye universe').equal(0)
+
+    for _ in r.retry_with_rdb_reload():
+        # make sure the query for hello world does not return the replaced
+        # document
+        res = r.execute_command('ft.search', 'idx', 'hello world', 'nocontent')
+        env.assertEqual(1, res[0])
+        env.assertEqual('doc2', res[1])
+
+        # search for the doc's new content
+        res = r.execute_command('ft.search', 'idx', 'goodbye universe', 'nocontent')
+        env.assertEqual(1, res[0])
+        env.assertEqual('doc1', res[1])
