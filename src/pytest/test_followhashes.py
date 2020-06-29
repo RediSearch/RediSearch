@@ -154,3 +154,8 @@ def testReplace(env):
         res = r.execute_command('ft.search', 'idx', 'goodbye universe', 'nocontent')
         env.assertEqual(1, res[0])
         env.assertEqual('doc1', res[1])
+
+def testSortable(env):
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+                'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
+    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo1').equal('OK')

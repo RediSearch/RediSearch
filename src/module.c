@@ -255,15 +255,7 @@ int GetDocumentsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
       RedisModule_ReplyWithNull(ctx);
       continue;
     }
-
-    Document doc = {0};
-    Document_Init(&doc, argv[i], 0, DEFAULT_LANGUAGE);
-    if (Document_LoadAllFields(&doc, ctx) == REDISMODULE_ERR) {
-      RedisModule_ReplyWithNull(ctx);
-    } else {
-      Document_ReplyFields(ctx, &doc);
-      Document_Free(&doc);
-    }
+    Document_ReplyAllFields(ctx, argv[i]);
   }
 
   SearchCtx_Free(sctx);
@@ -288,15 +280,10 @@ int GetSingleDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
 
-  Document doc = {0};
-  Document_Init(&doc, argv[2], 0, DEFAULT_LANGUAGE);
-
-  if (DocTable_GetIdR(&sctx->spec->docs, argv[2]) == 0 ||
-      Document_LoadAllFields(&doc, ctx) == REDISMODULE_ERR) {
+  if (DocTable_GetIdR(&sctx->spec->docs, argv[2]) == 0) {
     RedisModule_ReplyWithNull(ctx);
   } else {
-    Document_ReplyFields(ctx, &doc);
-    Document_Free(&doc);
+    Document_ReplyAllFields(ctx, argv[2]);
   }
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
@@ -437,59 +424,28 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
  *  Delete a document from the index. Returns 1 if the document was in the index, or 0 if not.
  *
  *  **NOTE**: This does not actually delete the document from the index, just marks it as deleted
- * If DD (Delete Document) is set, we also delete the document.
+ *  If DD (Delete Document) is set, we also delete the document.
+ *  Since v2.0, document is deleted by default.
  */
 int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisModule_AutoMemory(ctx);
 
-  if (argc < 3 || argc > 4) return RedisModule_WrongArity(ctx);
+  if (argc != 3) return RedisModule_WrongArity(ctx);
   IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
   if (sp == NULL) {
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
 
-  int delDoc = 0;
-  if (argc == 4 && RMUtil_StringEqualsCaseC(argv[3], "DD")) {
-    delDoc = 1;
+  RedisModuleCallReply *rep = NULL;
+  RedisModuleString *doc_id = argv[2];
+  rep = RedisModule_Call(ctx, "DEL", "s", doc_id);
+  if (rep == NULL || RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_INTEGER || 
+      RedisModule_CallReplyInteger(rep) != 1) {
+    return RedisModule_ReplyWithError(ctx, "Document was not found");
   }
 
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
-  RedisModuleString *docKey = argv[2];
-
-  // Get the doc ID
-  t_docId id = DocTable_GetIdR(&sp->docs, docKey);
-  if (id == 0) {
-    return RedisModule_ReplyWithLongLong(ctx, 0);
-    // ID does not exist.
-  }
-
-  int rc = DocTable_DeleteR(&sp->docs, docKey);
-  if (rc) {
-    sp->stats.numDocuments--;
-
-    // If needed - delete the actual doc
-    if (delDoc) {
-
-      RedisModuleKey *dk = RedisModule_OpenKey(ctx, argv[2], REDISMODULE_WRITE);
-      if (dk && RedisModule_KeyType(dk) == REDISMODULE_KEYTYPE_HASH) {
-        RedisModule_DeleteKey(dk);
-      } else {
-        RedisModule_Log(ctx, "warning", "Document %s doesn't exist",
-                        RedisModule_StringPtrLen(argv[2], NULL));
-      }
-    }
-
-    // Increment the index's garbage collector's scanning frequency after document deletions
-    if (sp->gc) {
-      GCContext_OnDelete(sp->gc);
-    }
-    if (!delDoc) {
-      RedisModule_Replicate(ctx, RS_DEL_CMD, "cs", sp->name, argv[2]);
-    } else {
-      RedisModule_Replicate(ctx, RS_DEL_CMD, "csc", sp->name, argv[2], "dd");
-    }
-  }
-  return RedisModule_ReplyWithLongLong(ctx, rc);
+  RedisModule_Replicate(ctx, RS_DEL_CMD, "cs", argv[1], doc_id);
+  return RedisModule_ReplyWithLongLong(ctx, 1);
 }
 
 /* FT.TAGVALS {idx} {field}

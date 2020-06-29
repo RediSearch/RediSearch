@@ -177,6 +177,43 @@ done:
   return rc;
 }
 
+int Document_ReplyAllFields(RedisModuleCtx *ctx, RedisModuleString *id) {
+  int rc = REDISMODULE_ERR;
+  RedisModuleCallReply *rep = NULL;
+
+  rep = RedisModule_Call(ctx, "HGETALL", "s", id);
+  if (rep == NULL || RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_ARRAY) {
+    goto done;
+  }
+
+  size_t len = RedisModule_CallReplyLength(rep);
+  RS_LOG_ASSERT(len % 2 == 0, "Number of elements must be even");
+  // Zero means the document does not exist in redis
+  if (len == 0) {
+    goto done;
+  }
+
+  size_t elen;
+  RedisModuleCallReply *e;
+  RedisModule_ReplyWithArray(ctx, len);
+  for (size_t i = 0; i < len; ++i) {
+    e = RedisModule_CallReplyArrayElement(rep, i);
+    const char *str = RedisModule_CallReplyStringPtr(e, &elen);
+    if (elen != 0) {
+      RedisModule_ReplyWithStringBuffer(ctx, str, elen);
+    } else {
+      RedisModule_ReplyWithNull(ctx);
+    }
+  }
+  rc = REDISMODULE_OK;
+
+done:
+  if (rep) {
+    RedisModule_FreeCallReply(rep);
+  }
+  return rc;
+}
+
 void Document_LoadPairwiseArgs(Document *d, RedisModuleString **args, size_t nargs) {
   d->fields = rm_calloc(nargs / 2, sizeof(*d->fields));
   d->numFields = nargs / 2;
@@ -270,7 +307,7 @@ int Redis_SaveDocument(RedisSearchCtx *ctx, const AddDocumentOptions *opts, Quer
     arguments = array_append(arguments, opts->payload);
   }
 
-  RedisModule_Call(RSDummyContext, "HSET", "!v", arguments, array_len(arguments));
+  RedisModule_Call(ctx->redisCtx, "HSET", "!v", arguments, array_len(arguments));
   
   array_free(arguments);
 
