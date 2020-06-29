@@ -319,6 +319,7 @@ int Redis_SaveDocument(RedisSearchCtx *ctx, const AddDocumentOptions *opts, Quer
 
 /* Serialzie the document's fields to a redis client */
 int Document_ReplyFields(RedisModuleCtx *ctx, Document *doc);
+int Document_ReplyAllFields(RedisModuleCtx *ctx, RedisModuleString *id);
 
 DocumentField *Document_GetField(Document *d, const char *fieldName);
 

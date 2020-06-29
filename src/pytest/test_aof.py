@@ -10,7 +10,7 @@ def aofTestCommon(env, reloadfn):
                 'field1', 'text', 'field2', 'numeric')
         reloadfn()
         for x in range(1, 10):
-            env.assertCmdOk('ft.add', 'idx', 'doc{}'.format(x), 1.0 / x, 'fields',
+            env.assertCmdOk('ft.add', 'idx', 'doc{}'.format(x), 1.0, 'fields',
                             'field1', 'myText{}'.format(x), 'field2', 20 * x)
         exp = [9L, 'doc1', ['field1', 'myText1', 'field2', '20'], 'doc2', ['field1', 'myText2', 'field2', '40'], 'doc3', ['field1', 'myText3', 'field2', '60'], 'doc4', ['field1', 'myText4', 'field2', '80'], 'doc5', ['field1',
                                                                                                                                                                                                                         'myText5', 'field2', '100'], 'doc6', ['field1', 'myText6', 'field2', '120'], 'doc7', ['field1', 'myText7', 'field2', '140'], 'doc8', ['field1', 'myText8', 'field2', '160'], 'doc9', ['field1', 'myText9', 'field2', '180']]
@@ -18,7 +18,6 @@ def aofTestCommon(env, reloadfn):
         ret = env.cmd('ft.search', 'idx', 'myt*')
         for r in ret:
             env.assertIn(r, exp)
-
 
 def testAof():
     env = Env(useAof=True)

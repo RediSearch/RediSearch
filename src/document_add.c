@@ -171,7 +171,10 @@ int RS_AddDocument(RedisSearchCtx *sctx, RedisModuleString *name, const AddDocum
     }
   }
 
-  RedisModuleCtx *ctx = sctx->redisCtx;
+  // remove doc entirely if not partial update
+  if (exists && opts->options & DOCUMENT_ADD_REPLACE && !(opts->options & DOCUMENT_ADD_PARTIAL)) {
+    RedisModule_Call(sctx->redisCtx, "DEL", "s", opts->keyStr);
+  }
 
   RedisSearchCtx sctx_s = SEARCH_CTX_STATIC(sctx->redisCtx, sp);
   rc = Redis_SaveDocument(&sctx_s, opts, status);
