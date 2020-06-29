@@ -112,8 +112,7 @@ def testHashesNotExist(env):
             'SCHEMA', 'txt', 'text')
 
     env.cmd('hset', 'thing:bar', 'not_text', 'foo')
-
-    env.expect('ft.search', 'things', 'foo').equal([])
+    env.expect('ft.search', 'things', 'foo').equal([0L])
 
 def testDuplicateFields(env):
     env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',

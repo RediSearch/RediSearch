@@ -90,18 +90,18 @@ RSLanguage SchemaRule_HashLang(const SchemaRule *rule, RedisModuleKey *key, cons
 double SchemaRule_HashScore(const SchemaRule *rule, RedisModuleKey *key, const char *kname) {
   RedisModuleString *score_rms = NULL;
   if (!rule->score_field) {
-    return 0;
+    return 1.0;
   }
   int rv = RedisModule_HashGet(key, REDISMODULE_HASH_CFIELDS, rule->score_field, &score_rms, NULL);
   if (rv != REDISMODULE_OK) {
     RedisModule_Log(NULL, "warning", "invalid field %s for key %s", rule->lang_field, kname);
-    return 0;
+    return 1.0;
   }
   double score;
   rv = RedisModule_StringToDouble(score_rms, &score);
   if (rv == REDISMODULE_OK) {
     RedisModule_Log(NULL, "warning", "invalid score for for key %s", kname);
-    return 0;
+    return 1.0;
   }
   return score;
 }
