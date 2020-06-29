@@ -2,7 +2,7 @@ from RLTest import Env
 
 
 def testIfQueries(env):
-    env.cmd('FT.CREATE idx SCHEMA txt TEXT num NUMERIC empty TEXT')
+    env.cmd('FT.CREATE idx ON HASH FILTER startswith(@__key,"") SCHEMA txt TEXT num NUMERIC empty TEXT')
     env.cmd('FT.ADD idx doc1 1.0 FIELDS txt word num 10')
     env.expect('FT.GET idx doc1').equal(['txt', 'word', 'num', '10'])
 
@@ -83,7 +83,7 @@ def testIfQueries(env):
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if @empty=="word"&&@empty=="word" FIELDS txt word').equal('NOADD')  # ??
 
 def testExists(env):
-    env.cmd('FT.CREATE idx SCHEMA txt TEXT num NUMERIC empty TEXT')
+    env.cmd('FT.CREATE idx ON HASH FILTER startswith(@__key,"") SCHEMA txt TEXT num NUMERIC empty TEXT')
     env.cmd('FT.ADD idx doc1 1.0 FIELDS txt word num 10')
     env.expect('FT.GET idx doc1').equal(['txt', 'word', 'num', '10'])
 

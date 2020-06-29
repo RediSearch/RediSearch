@@ -89,6 +89,10 @@ typedef struct {
   double score;                     // Score of the document
   const char *evalExpr;             // Only add the document if this expression evaluates to true.
   DocumentAddCompleted donecb;      // Callback to invoke when operation is done
+  
+  RedisModuleString *keyStr;        // key name for HSET
+  RedisModuleString *scoreStr;      // score string for HSET
+  RedisModuleString *languageStr;   // Language string for HSET
 } AddDocumentOptions;
 
 void Document_AddField(Document *d, const char *fieldname, RedisModuleString *fieldval,
@@ -148,6 +152,7 @@ int Document_LoadSchemaFields(Document *doc, RedisSearchCtx *sctx);
 int Document_LoadAllFields(Document *doc, RedisModuleCtx *ctx);
 
 void Document_LoadPairwiseArgs(Document *doc, RedisModuleString **args, size_t nargs);
+void Document_LoadHSetParams(Document *d, const AddDocumentOptions *opts);
 
 /**
  * Print contents of document to screen
@@ -310,7 +315,7 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
 /**
  * Save a document in the index. Used for returning contents in search results.
  */
-int Redis_SaveDocument(RedisSearchCtx *ctx, Document *doc, int options, QueryError *status);
+int Redis_SaveDocument(RedisSearchCtx *ctx, const AddDocumentOptions *opts, QueryError *status);
 
 /* Serialzie the document's fields to a redis client */
 int Document_ReplyFields(RedisModuleCtx *ctx, Document *doc);
@@ -325,6 +330,9 @@ int RSSafeAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
 int RS_AddDocument(RedisSearchCtx *sctx, RedisModuleString *name, const AddDocumentOptions *opts,
                    QueryError *status);
+
+void freeGlobalAddStrings();
+
 #ifdef __cplusplus
 }
 #endif
