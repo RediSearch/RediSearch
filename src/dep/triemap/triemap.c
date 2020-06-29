@@ -266,7 +266,8 @@ void *TrieMapNode_Find(TrieMapNode *n, char *str, tm_len_t len) {
   return TRIEMAP_NOTFOUND;
 }
 
-int TrieMapNode_FindPrefixes(TrieMapNode *node, const char *str, tm_len_t len, void **results) {
+int TrieMapNode_FindPrefixes(TrieMapNode *node, const char *str, tm_len_t len, arrayof(void*) *results) {
+  array_clear(results);
   tm_len_t offset = 0;
   while (node && (offset < len || len == 0)) {
     tm_len_t node_offset = 0;
@@ -279,19 +280,19 @@ int TrieMapNode_FindPrefixes(TrieMapNode *node, const char *str, tm_len_t len, v
     // no match
     if (node_offset != nlen) {
       return array_len(*results);
-	  }
+    }
 
     // at the end of both strings
     if (offset == len) {
       // If this is a terminal, non deleted node
       if (__trieMapNode_isTerminal(node) && !__trieMapNode_isDeleted(node)) {
-        *results = array_ensure_append(*results, &node->value, 1, void*);
+        *results = array_ensure_append_1(*results, node->value);
       }
       return array_len(*results);
     }
 
     if (node->value) {
-      *results = array_ensure_append(*results, &node->value, 1, void*);
+      *results = array_ensure_append_1(*results, node->value);
     }
 
     // reached end of node's string but not of the search string
@@ -372,7 +373,7 @@ void *TrieMap_Find(TrieMap *t, char *str, tm_len_t len) {
   return TrieMapNode_Find(t->root, str, len);
 }
 
-int TrieMap_FindPrefixes(TrieMap *t, const char *str, tm_len_t len, void **results) {
+int TrieMap_FindPrefixes(TrieMap *t, const char *str, tm_len_t len, arrayof(void*) *results) {
   return TrieMapNode_FindPrefixes(t->root, str, len, results);
 }
 

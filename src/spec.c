@@ -460,9 +460,8 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryE
   long long timeout = -1;
   int dummy;
   size_t dummy2;
-  SchemaRule rule = {0};
   SchemaRuleArgs rule_args = {0};
-  ArgsCursor prefixes = {0};
+  ArgsCursor rule_prefixes = {0};
   
   ACArgSpec argopts[] = {
       {AC_MKUNFLAG(SPEC_NOOFFSETS_STR, &spec->flags,
@@ -475,12 +474,12 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryE
 
       // For compatibility
       {.name = "NOSCOREIDX", .target = &dummy, .type = AC_ARGTYPE_BOOLFLAG},
-      {.name = "ON", .target = &rule.type, .len = &dummy2, .type = AC_ARGTYPE_STRING},
-      {.name = "PREFIX", .target = &prefixes, .type = AC_ARGTYPE_SUBARGS},
-      {.name = "FILTER", .target = &rule.filter, .len = &dummy2, .type = AC_ARGTYPE_STRING},
-      {.name = "SCORE", .target = &rule.score, .len = &dummy2, .type = AC_ARGTYPE_DOUBLE},
-      {.name = "LANGUAGE", .target = &rule_args.lang, .len = &dummy2, .type = AC_ARGTYPE_STRING},
-      {.name = "PAYLOAD", .target = &rule.payload, .len = &dummy2, .type = AC_ARGTYPE_STRING},
+      {.name = "ON", .target = &rule_args.type, .len = &dummy2, .type = AC_ARGTYPE_STRING},
+      {.name = "PREFIX", .target = &rule_prefixes, .type = AC_ARGTYPE_SUBARGS},
+      {.name = "FILTER", .target = &rule_args.filter_exp_str, .len = &dummy2, .type = AC_ARGTYPE_STRING},
+      {.name = "SCORE", .target = &rule_args.score_field, .len = &dummy2, .type = AC_ARGTYPE_STRING},
+      {.name = "LANGUAGE", .target = &rule_args.lang_field, .len = &dummy2, .type = AC_ARGTYPE_STRING},
+      {.name = "PAYLOAD", .target = &rule_args.payload_field, .len = &dummy2, .type = AC_ARGTYPE_STRING},
       {.name = SPEC_TEMPORARY_STR, .target = &timeout, .type = AC_ARGTYPE_LLONG},
       {.name = SPEC_STOPWORDS_STR, .target = &acStopwords, .type = AC_ARGTYPE_SUBARGS},
       {.name = NULL}};
@@ -499,11 +498,10 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryE
   }
   spec->timeout = timeout;
 
-  rule_args.prefixes = (const char **) prefixes.objs;
-  rule_args.nprefixes = prefixes.argc;
-
-  if (rule.filter || prefixes.argc > 0) {
-    spec->rule = SchemaRule_Create(&rule, &rule_args, spec, status);
+  if (rule_args.filter_exp_str || rule_prefixes.argc > 0) {
+    rule_args.nprefixes = rule_prefixes.argc;
+    rule_args.prefixes = (const char **) rule_prefixes.objs;
+    spec->rule = SchemaRule_Create(&rule_args, spec, status);
     if (!spec->rule) {
       goto failure;
     }
@@ -1385,10 +1383,17 @@ int IndexSpec_RegisterType(RedisModuleCtx *ctx) {
 }
 
 int IndexSpec_UpdateWithHash(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key) {
+  if (!spec->rule) {
+    RedisModule_Log(ctx, "warning", "Index spec %s: no rule found", spec->name);
+    return REDISMODULE_ERR;
+  }
+
+#ifdef DEBUG
+  const char *key_p = RedisModule_StringPtrLen(key, &n);
+#endif
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
   Document doc = {0};
-  // TODO: get language and score from spec->rule->setting
-  Document_Init(&doc, key, 1, DEFAULT_LANGUAGE);
+  Document_Init(&doc, key, 0, DEFAULT_LANGUAGE);
   if (Document_LoadSchemaFields(&doc, &sctx) != REDISMODULE_OK) {
     Document_Free(&doc);
     return RedisModule_ReplyWithError(ctx, "Could not load document");
@@ -1465,8 +1470,8 @@ dict *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisModuleString *ke
 
   size_t n;
   const char *key_p = RedisModule_StringPtrLen(key, &n);
-  SchemaPrefixNode **prefixes = 0;
-  int nprefixes = TrieMap_FindPrefixes(ScemaPrefixes_g, key_p, n, (void **) &prefixes);
+  arrayof(SchemaPrefixNode*) prefixes = 0;
+  int nprefixes = TrieMap_FindPrefixes(ScemaPrefixes_g, key_p, n, (arrayof(void*)*) &prefixes);
   for (int i = 0; i < array_len(prefixes); ++i) {
     SchemaPrefixNode *node = prefixes[i];
     for (int j = 0; j < array_len(node->index_specs); ++j) {
@@ -1479,10 +1484,10 @@ dict *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisModuleString *ke
 
   for (size_t i = 0; i < array_len(SchemaRules_g); i++) {
 	SchemaRule *rule = SchemaRules_g[i];
-    if (! rule->filter) {
+    if (! rule->filter_exp_str) {
       continue;
     }
-    if (EvalCtx_EvalExpr(&r, rule->filter) == EXPR_EVAL_OK) {
+    if (EvalCtx_EvalExpr(&r, rule->filter_exp_str) == EXPR_EVAL_OK) {
       IndexSpec *spec = rule->spec;
       if (RSValue_BoolTest(&r.res) && ! dictFind(specs, spec->name)) {
         dictAdd(specs, spec->name, spec);

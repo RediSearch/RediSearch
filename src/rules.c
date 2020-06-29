@@ -2,18 +2,19 @@
 #include "aggregate/expr/expression.h"
 #include "spec.h"
 
-SchemaRule **SchemaRules_g;
+arrayof(SchemaRule*) SchemaRules_g;
 TrieMap *ScemaPrefixes_g;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-SchemaRule *SchemaRule_Create(SchemaRule *rule0, SchemaRuleArgs *args, IndexSpec *spec, QueryError *status) {
+SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, IndexSpec *spec, QueryError *status) {
   SchemaRule *rule = rm_calloc(1, sizeof(*rule));
-  memcpy(rule, rule0, sizeof(*rule));
 
-  rule->type = rm_strdup(rule->type);
-  rule->filter = rule0->filter ? rm_strdup(rule->filter) : NULL;
-  rule->payload = rule0->payload ? rm_strdup(rule->payload) : NULL;
+  rule->type = rm_strdup(args->type);
+  rule->filter_exp_str = args->filter_exp_str ? rm_strdup(args->filter_exp_str) : NULL;
+  rule->lang_field = args->lang_field ? rm_strdup(args->lang_field) : NULL;
+  rule->score_field = args->score_field ? rm_strdup(args->score_field) : NULL;
+  rule->payload_field = args->payload_field ? rm_strdup(args->payload_field) : NULL;
 
   for (int i = 0; i < args->nprefixes; ++i) {
     const char *p = rm_strdup(args->prefixes[i]);
@@ -22,18 +23,12 @@ SchemaRule *SchemaRule_Create(SchemaRule *rule0, SchemaRuleArgs *args, IndexSpec
 
   rule->spec = spec;
 
-  if (rule->filter) {
-    RSExpr *e = ExprAST_Parse(rule->filter, strlen(rule->filter), status);
+  if (rule->filter_exp_str) {
+    RSExpr *e = ExprAST_Parse(rule->filter_exp_str, strlen(rule->filter_exp_str), status);
     if (!e) {
       QueryError_SetError(status, QUERY_EADDARGS, "Invalid expression");
       goto error;
     }
-  }
-
-  rule->lang = RSLanguage_Find(args->lang);
-  if (rule->lang == RS_LANG_UNSUPPORTED) {
-    QueryError_SetError(status, QUERY_EADDARGS, "Unsupported language");
-    goto error;
   }
 
   for (int i = 0; i < array_len(rule->prefixes); ++i) {
@@ -53,9 +48,9 @@ void SchemaRule_Free(SchemaRule *rule) {
   SchemaRules_RemoveSpecRules(rule->spec);
 
   rm_free((void*) rule->type);
-  rm_free((void*) rule->filter);
+  rm_free((void*) rule->filter_exp_str);
   array_free_ex(rule->prefixes, rm_free(*(char **)ptr));
-  ExprAST_Free(rule->expression);
+  ExprAST_Free(rule->filter_exp);
   rm_free((void*) rule);
 }
 
@@ -70,6 +65,52 @@ void SchemaRules_RemoveSpecRules(IndexSpec *spec) {
     }
   }
 }
+
+//---------------------------------------------------------------------------------------------
+
+RSLanguage SchemaRule_HashLang(const SchemaRule *rule, RedisModuleKey *key, const char *kname) {
+  RedisModuleString *lang_rms = NULL;
+  if (!rule->lang_field) {
+    return DEFAULT_LANGUAGE;
+  }
+  int rv = RedisModule_HashGet(key, REDISMODULE_HASH_CFIELDS, rule->lang_field, &lang_rms, NULL);
+  if (rv != REDISMODULE_OK) {
+    RedisModule_Log(NULL, "warning", "invalid field %s for key %s", rule->lang_field, kname);
+    return DEFAULT_LANGUAGE;
+  }
+  const char *lang_s = (const char *) RedisModule_StringPtrLen(lang_rms, NULL); 
+  RSLanguage lang = RSLanguage_Find(lang_s);
+  if (lang == RS_LANG_UNSUPPORTED) {
+    RedisModule_Log(NULL, "warning", "invalid language for for key %s", kname);
+    return DEFAULT_LANGUAGE;
+  }
+  return lang;
+}
+
+double SchemaRule_HashScore(const SchemaRule *rule, RedisModuleKey *key, const char *kname) {
+  RedisModuleString *score_rms = NULL;
+  if (!rule->score_field) {
+    return 0;
+  }
+  int rv = RedisModule_HashGet(key, REDISMODULE_HASH_CFIELDS, rule->score_field, &score_rms, NULL);
+  if (rv != REDISMODULE_OK) {
+    RedisModule_Log(NULL, "warning", "invalid field %s for key %s", rule->lang_field, kname);
+    return 0;
+  }
+  double score;
+  rv = RedisModule_StringToDouble(score_rms, &score);
+  if (rv == REDISMODULE_OK) {
+    RedisModule_Log(NULL, "warning", "invalid score for for key %s", kname);
+    return 0;
+  }
+  return score;
+}
+
+/*
+array(char) SchemaRule_HashPayload(const SchemaRule *rule, RedisModuleKey *key, const char *kname) {
+
+}
+*/
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -88,7 +129,7 @@ void SchemaPrefixes_Add(const char *prefix, IndexSpec *index) {
     TrieMap_Add(ScemaPrefixes_g, (char *) prefix, strlen(prefix), node, NULL);
   } else {
     SchemaPrefixNode *node = (SchemaPrefixNode *) p;
-    node->index_specs = array_ensure_append(node->index_specs, &index, 1, IndexSpec*);
+    node->index_specs = array_ensure_append_1(node->index_specs, index);
   }
 }
 
@@ -121,7 +162,7 @@ SchemaPrefixNode *SchemaPrefixNode_Create(const char *prefix, IndexSpec *index) 
   SchemaPrefixNode *node = rm_calloc(1, sizeof(*node));
   node->prefix = prefix;
   node->index_specs = NULL;
-  node->index_specs = array_ensure_append(node->index_specs, &index, 1, IndexSpec*);
+  node->index_specs = array_ensure_append_1(node->index_specs, index);
   return node;
 }
 

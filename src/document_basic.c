@@ -108,11 +108,18 @@ int Document_LoadSchemaFields(Document *doc, RedisSearchCtx *sctx) {
     goto done;
   }
 
+  IndexSpec *spec = sctx->spec;
+  SchemaRule *rule = spec->rule;
+  if (rule) {
+    const char *keyname = (const char *) RedisModule_StringPtrLen(doc->docKey, NULL); 
+    doc->language = SchemaRule_HashLang(rule, k, keyname);
+    doc->score = SchemaRule_HashScore(rule, k, keyname);
+  }
+
   Document_MakeStringsOwner(doc);
   doc->fields = rm_calloc(nitems, sizeof(*doc->fields));
-
-  for (size_t ii = 0; ii < sctx->spec->numFields; ++ii) {
-    const char *fname = sctx->spec->fields[ii].name;
+  for (size_t ii = 0; ii < spec->numFields; ++ii) {
+    const char *fname = spec->fields[ii].name;
     RedisModuleString *v = NULL;
     RedisModule_HashGet(k, REDISMODULE_HASH_CFIELDS, fname, &v, NULL);
     if (v == NULL) {
@@ -120,8 +127,8 @@ int Document_LoadSchemaFields(Document *doc, RedisSearchCtx *sctx) {
     }
     size_t oix = doc->numFields++;
     doc->fields[oix].name = rm_strdup(fname);
-    doc->fields[oix].text =
-        v;  // HashGet gives us `v` with a refcount of 1, meaning we're the only owner
+    // HashGet gives us `v` with a refcount of 1, meaning we're the only owner
+    doc->fields[oix].text = v;
   }
   rv = REDISMODULE_OK;
 

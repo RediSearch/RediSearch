@@ -7,6 +7,7 @@
 #include "query_error.h"
 #include "dep/triemap/triemap.h"
 #include "stemmer.h"
+#include "util/arr.h"
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -14,28 +15,35 @@ struct RSExpr;
 struct IndexSpec;
 
 typedef struct {
+  const char *type;
   const char **prefixes;
   int nprefixes;
-  char *lang;
+  char *filter_exp_str;
+  char *lang_field;
+  char *score_field;
+  char *payload_field;
 } SchemaRuleArgs;
 
 typedef struct SchemaRule {
-  const char *type; // HASH, JSON, etc.
-  const char **prefixes; // util_arr
-  char *filter;
   struct IndexSpec *spec;
-  struct RSExpr *expression;
-  RSLanguage lang;
-  double score;
-  char *payload;
+  const char *type; // HASH, JSON, etc.
+  arrayof(const char *) prefixes;
+  char *filter_exp_str;
+  struct RSExpr *filter_exp;
+  char *lang_field;
+  char *score_field;
+  char *payload_field;
 } SchemaRule;
 
-extern SchemaRule **SchemaRules_g; // util_arr
+extern arrayof(SchemaRule*) SchemaRules_g;
 
-SchemaRule *SchemaRule_Create(SchemaRule *rule0, SchemaRuleArgs *ags,
-  struct IndexSpec *spec, QueryError *status);
+SchemaRule *SchemaRule_Create(SchemaRuleArgs *ags, struct IndexSpec *spec, QueryError *status);
 void SchemaRule_Free(SchemaRule *);
 void SchemaRules_RemoveSpecRules(struct IndexSpec *spec);
+
+RSLanguage SchemaRule_HashLang(const SchemaRule *rule, RedisModuleKey *key, const char *kname);
+double SchemaRule_HashScore(const SchemaRule *rule, RedisModuleKey *key, const char *kname);
+arrayof(char) SchemaRule_HashPayload(const SchemaRule *rule, RedisModuleKey *key, const char *kname);
 
 //---------------------------------------------------------------------------------------------
 

@@ -60,6 +60,8 @@ typedef struct {
   char buf[];
 } array_hdr_t;
 
+#define arrayof(T) T*
+
 typedef void *array_t;
 /* Internal - calculate the array size for allocations */
 #define array_sizeof(hdr) (sizeof(array_hdr_t) + hdr->cap * hdr->elem_sz)
@@ -152,6 +154,9 @@ static inline array_t array_ensure_len(array_t arr, size_t len) {
     memcpy(arrpp + a__oldlen, src, n * sizeof(T)); \
     arrpp;                                         \
   })
+
+#define array_ensure_append_1(arrpp, src) array_ensure_append(arrpp, &(src), 1, __typeof__(*arrpp))
+#define array_ensure_append_n(arrpp, src, n) array_ensure_append(arrpp, src, n, __typeof__(*arrpp))
 
 /**
  * Does the same thing as ensure_append, but the added elements are
