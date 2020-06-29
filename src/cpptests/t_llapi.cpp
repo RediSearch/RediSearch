@@ -735,9 +735,13 @@ TEST_F(LLApiTest, duplicateFieldAdd) {
   RediSearch_CreateField(index, FIELD_NAME_1, RSFLDTYPE_FULLTEXT, RSFLDOPT_NONE);
 
   // adding document to the index
-  RSDoc* d = RediSearch_CreateDocument(DOCID1, strlen(DOCID1), 1.0, NULL);
+  Document* d = RediSearch_CreateDocumentSimple("doc1");
+
+  // adding same field twice
   RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, "some test to field", RSFLDTYPE_DEFAULT);
   RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, "some test to same field", RSFLDTYPE_DEFAULT);
   RediSearch_SpecAddDocument(index, d);
-  RediSearch_FreeDocument(d);
+  ASSERT_FALSE(RediSearch_DocumentExists(index, "doc1", strlen("doc1")));
+
+  RediSearch_DropIndex(index);
 }
