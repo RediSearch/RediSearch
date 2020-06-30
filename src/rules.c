@@ -100,9 +100,13 @@ double SchemaRule_HashScore(const SchemaRule *rule, RedisModuleKey *key, const c
     RedisModule_Log(NULL, "warning", "invalid field %s for key %s", rule->lang_field, kname);
     return _default;
   }
+  // score of 1.0 is not saved in hash
+  if (score_rms == NULL) {
+    return _default;
+  }
   double score;
   rv = RedisModule_StringToDouble(score_rms, &score);
-  if (rv == REDISMODULE_OK) {
+  if (rv != REDISMODULE_OK) {
     RedisModule_Log(NULL, "warning", "invalid score for for key %s", kname);
     return _default;
   }

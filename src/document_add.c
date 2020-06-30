@@ -359,9 +359,9 @@ static int doAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     Document_Free(&doc);
     return QueryError_ReplyAndClear(ctx, &status);
   }
-
-  aCtx->donecb = replyCallback;
-
+  if (aCtx->donecb) {
+    aCtx->donecb = replyCallback;
+  }
   if (isBlockable) {
     isBlockable = CheckConcurrentSupport(ctx);
   }

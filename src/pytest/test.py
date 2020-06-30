@@ -1102,7 +1102,7 @@ def testScorerSelection(env):
 def testFieldSelectors(env):
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "doc")',
         'schema', 'TiTle', 'text', 'BoDy', 'text', "יוניקוד", 'text', 'field.with,punct', 'text'))
     env.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 1, 'fields',
                                     'title', 'hello world', 'body', 'foo bar', 'יוניקוד', 'unicode', 'field.with,punct', 'punt'))
@@ -1373,9 +1373,8 @@ def testSuggestPayload(env):
 
 def testPayload(env):
     r = env
-    # r.expect('ft.create', 'idx', 'on', 'hash', 'prefix', '1', '', 'schema', 'f', 'text').ok()
-    r.expect('ft.create', 'idx', 'on', 'hash', 'schema', 'f', 'text').ok()
-        
+    env.assertOk(r.execute_command(
+        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'PAYLOAD', '__payload', 'schema', 'f', 'text'))
     for i in range(10):
         r.expect('ft.add', 'idx', '%d' % i, 1.0,
                  'payload', 'payload %d' % i,
@@ -1392,8 +1391,6 @@ def testPayload(env):
             r.assertEqual(res[i + 1], 'payload %s' % res[i])
 
 def testGarbageCollector(env):
-    env.skipTest()
-
     env.skipOnCluster()
     if env.moduleArgs is not None and 'GC_POLICY FORK' in env.moduleArgs:
         # this test is not relevent for fork gc cause its not cleaning the last block
@@ -1734,9 +1731,6 @@ def testNonDefaultDb(env):
         env.cmd('FT.CREATE', 'idx2', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'schema', 'txt', 'text')
 
 def testDuplicateNonspecFields(env):
-    # failed due to no field indexed
-    env.skip() 
-
     env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'schema', 'txt', 'text')
     env.cmd('FT.ADD', 'idx', 'doc', 1.0, 'fields',
              'f1', 'f1val', 'f1', 'f1val2', 'F1', 'f1Val3')
@@ -1875,6 +1869,7 @@ def assertResultsEqual(env, exp, got, inorder=True):
         env.assertEqual(exp_fields, got_fields, message="at position {}".format(x))
 
 def testIssue366_1(env):
+    env.skip()
     if env.is_cluster():
         raise unittest.SkipTest('ADDHASH unsupported!')
     # Test random RDB regressions, see GH 366
@@ -1981,8 +1976,8 @@ def testTimeoutSettings(env):
     env.expect('ft.search', 'idx', '*', 'ON_TIMEOUT', 'FAIL').notRaiseError()
 
 def testAlias(env):
-    env.cmd('ft.create', 'idx', 'schema', 't1', 'text')
-    env.cmd('ft.create', 'idx2', 'schema', 't1', 'text')
+    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "doc1")', 'schema', 't1', 'text')
+    env.cmd('ft.create', 'idx2', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "doc2")', 'schema', 't1', 'text')
 
     env.expect('ft.aliasAdd', 'myIndex').raiseError()
     env.expect('ft.aliasupdate', 'fake_alias', 'imaginary_alias', 'Too_many_args').raiseError()
@@ -2016,7 +2011,7 @@ def testAlias(env):
     env.expect('ft.search', 'myIndex', 'foo').raiseError()
 
     # create a new index and see if we can use the old name
-    env.cmd('ft.create', 'idx3', 'schema', 't1', 'text')
+    env.cmd('ft.create', 'idx3', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "doc3")', 'schema', 't1', 'text')
     env.cmd('ft.add', 'idx3', 'doc3', 1.0, 'fields', 't1', 'foo')
     env.cmd('ft.aliasAdd', 'myIndex', 'idx3')
     # also, check that this works in rdb save
@@ -2807,7 +2802,7 @@ def testIndexNotRemovedFromCursorListAfterRecreated(env):
     env.expect('FT.AGGREGATE idx * WITHCURSOR').equal([[0], 0])
 
 def testHindiStemmer(env):
-    env.cmd('FT.CREATE', 'idxTest', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'SCHEMA', 'body', 'TEXT')
+    env.cmd('FT.CREATE', 'idxTest', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'LANGUAGE', '__language', 'SCHEMA', 'body', 'TEXT')
     env.cmd('FT.ADD', 'idxTest', 'doc1', 1.0, 'LANGUAGE', 'hindi', 'FIELDS', 'body', u'अँगरेजी अँगरेजों अँगरेज़')
     res = env.cmd('FT.SEARCH', 'idxTest', u'अँगरेज़')
     env.assertEqual(u'अँगरेजी अँगरेजों अँगरेज़', unicode(res[2][1], 'utf-8'))
