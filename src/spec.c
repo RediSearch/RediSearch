@@ -1385,18 +1385,24 @@ int IndexSpec_RegisterType(RedisModuleCtx *ctx) {
   return REDISMODULE_OK;
 }
 
+int IndexSpec_DeleteHash(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key);
+
 int IndexSpec_UpdateWithHash(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key) {
   if (!spec->rule) {
     RedisModule_Log(ctx, "warning", "Index spec %s: no rule found", spec->name);
     return REDISMODULE_ERR;
   }
 
-#ifdef DEBUG
-  const char *key_p = RedisModule_StringPtrLen(key, &n);
-#endif
+  // Needed to allow hash updates (remove overrwritten fields)
+  const char *key_p = RedisModule_StringPtrLen(key, NULL);
+  bool doc_exists = DocTable_GetIdR(&spec->docs, key) != 0;
+  if (IndexSpec_DeleteHash(spec, ctx, key) != REDISMODULE_OK && doc_exists) {
+    RedisModule_Log(ctx, "warning", "Index spec %s: could not remove key %s", spec->name, key_p);
+  }
+
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
   Document doc = {0};
-  Document_Init(&doc, key, 0, DEFAULT_LANGUAGE);
+  Document_Init(&doc, key, 1.0, DEFAULT_LANGUAGE);
   if (Document_LoadSchemaFields(&doc, &sctx) != REDISMODULE_OK) {
     Document_Free(&doc);
     return RedisModule_ReplyWithError(ctx, "Could not load document");
@@ -1455,17 +1461,16 @@ void Indexes_Init(RedisModuleCtx *ctx) {
 }
 
 dict *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key) {
-  EvalCtx r;
-  EvalCtx_Init(&r, NULL);
-  EvalCtx_AddHash(&r, ctx, key);
-  EvalCtx_Set(&r, "__key", RS_RedisStringVal(key));
+  EvalCtx *r = EvalCtx_Create();
+  EvalCtx_AddHash(r, ctx, key);
+  EvalCtx_Set(r, "__key", RS_RedisStringVal(key));
 
 #ifdef DEBUG
-  RLookupKey *k = RLookup_GetKey(&r.lk, "__key", 0);
-  RSValue *v = RLookup_GetItem(k, &r.row);
+  RLookupKey *k = RLookup_GetKey(&r->lk, "__key", 0);
+  RSValue *v = RLookup_GetItem(k, &r->row);
   const char *x = RSValue_StringPtrLen(v, NULL);
-  k = RLookup_GetKey(&r.lk, "name", 0);
-  v = RLookup_GetItem(k, &r.row);
+  k = RLookup_GetKey(&r->lk, "name", 0);
+  v = RLookup_GetItem(k, &r->row);
   x = RSValue_StringPtrLen(v, NULL);
 #endif  // DEBUG
 
@@ -1486,19 +1491,19 @@ dict *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisModuleString *ke
   }
 
   for (size_t i = 0; i < array_len(SchemaRules_g); i++) {
-	SchemaRule *rule = SchemaRules_g[i];
-    if (! rule->filter_exp_str) {
+    SchemaRule *rule = SchemaRules_g[i];
+    if (! rule->filter_exp) {
       continue;
     }
-    if (EvalCtx_EvalExpr(&r, rule->filter_exp_str) == EXPR_EVAL_OK) {
+    if (EvalCtx_EvalExpr(r, rule->filter_exp) == EXPR_EVAL_OK) {
       IndexSpec *spec = rule->spec;
-      if (RSValue_BoolTest(&r.res) && ! dictFind(specs, spec->name)) {
+      if (RSValue_BoolTest(&r->res) && ! dictFind(specs, spec->name)) {
         dictAdd(specs, spec->name, spec);
       }
     }
   }
 
-  EvalCtx_Destroy(&r);
+  EvalCtx_Destroy(r);
 
   return specs;
 }

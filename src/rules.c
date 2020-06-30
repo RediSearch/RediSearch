@@ -24,8 +24,8 @@ SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, IndexSpec *spec, QueryError 
   rule->spec = spec;
 
   if (rule->filter_exp_str) {
-    RSExpr *e = ExprAST_Parse(rule->filter_exp_str, strlen(rule->filter_exp_str), status);
-    if (!e) {
+    rule->filter_exp = ExprAST_Parse(rule->filter_exp_str, strlen(rule->filter_exp_str), status);
+    if (!rule->filter_exp) {
       QueryError_SetError(status, QUERY_EADDARGS, "Invalid expression");
       goto error;
     }
@@ -49,8 +49,10 @@ void SchemaRule_Free(SchemaRule *rule) {
 
   rm_free((void*) rule->type);
   rm_free((void*) rule->filter_exp_str);
+  if (rule->filter_exp) {
+    ExprAST_Free((RSExpr *) rule->filter_exp);
+  }
   array_free_ex(rule->prefixes, rm_free(*(char **)ptr));
-  ExprAST_Free(rule->filter_exp);
   rm_free((void*) rule);
 }
 
@@ -152,15 +154,11 @@ void SchemaPrefixes_RemoveSpec(IndexSpec *spec) {
     if (!node) {
       return;
     }
-    int j = -1;
     for (int i = 0; i < array_len(node->index_specs); ++i) {
       if (node->index_specs[i] == spec) {
-        j = i;
+        array_del_fast(node->index_specs, i);
         break;
       }
-    }
-    if (j != -1) {
-      array_del_fast(node->index_specs, j);
     }
   }
   TrieMapIterator_Free(it); 

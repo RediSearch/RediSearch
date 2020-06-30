@@ -1,9 +1,6 @@
 
 #pragma once
 
-#ifndef RULES_RULES_H
-#define RULES_RULES_H
-
 #include "query_error.h"
 #include "dep/triemap/triemap.h"
 #include "stemmer.h"
@@ -63,5 +60,3 @@ SchemaPrefixNode *SchemaPrefixNode_Create(const char *prefix, struct IndexSpec *
 void SchemaPrefixNode_Free(SchemaPrefixNode*);
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
-
-#endif // RULES_RULES_H

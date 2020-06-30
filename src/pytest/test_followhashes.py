@@ -127,7 +127,7 @@ def testPayload(env):
 
     for _ in env.retry_with_rdb_reload():
         env.expect('ft.search', 'things', 'foo') \
-        .equal([1L, 'thing:foo', ['name', 'foo', 'payload', 'stuff']])
+           .equal([1L, 'thing:foo', ['name', 'foo', 'payload', 'stuff']])
 
         env.expect('ft.search', 'things', 'foo', 'withpayloads') \
            .equal([1L, 'thing:foo', 'stuff', ['name', 'foo', 'payload', 'stuff']])
@@ -135,24 +135,23 @@ def testPayload(env):
 def testDuplicateFields(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
                'SCHEMA', 'txt', 'TEXT', 'num', 'NUMERIC', 'SORTABLE').ok()
-    for _ in env.retry_with_reload():
-        # Ensure the index assignment is correct after an rdb load
-        with env.assertResponseError():
-            env.cmd('FT.ADD', 'idx', 'doc', 1.0,
-                    'FIELDS', 'txt', 'foo', 'txt', 'bar', 'txt', 'baz')
+    env.cmd('FT.ADD', 'idx', 'doc', 1.0,
+            'FIELDS', 'txt', 'foo', 'txt', 'bar', 'txt', 'baz')
+    env.expect('ft.search', 'idx', 'baz').equal([1L, 'doc', ['txt', 'baz']])
+    env.expect('ft.search', 'idx', 'foo').equal([0L])
 
 def testReplace(env):
     r = env
 
-    env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'f', 'text').ok()
+    r.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'f', 'text').ok()
 
-    env.expect('HSET', 'doc1', 'f', 'hello world').equal(1)
-    env.expect('HSET', 'doc2', 'f', 'hello world').equal(1)
+    r.expect('HSET', 'doc1', 'f', 'hello world').equal(1)
+    r.expect('HSET', 'doc2', 'f', 'hello world').equal(1)
     res = r.execute_command('ft.search', 'idx', 'hello world')
-    env.assertEqual(2, res[0])
+    r.assertEqual(2, res[0])
 
     # now replace doc1 with a different content
-    env.expect('HSET', 'doc1', 'f', 'goodbye universe').equal(0)
+    r.expect('HSET', 'doc1', 'f', 'goodbye universe').equal(0)
 
     for _ in r.retry_with_rdb_reload():
         # make sure the query for hello world does not return the replaced document
