@@ -498,15 +498,18 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryE
   }
   spec->timeout = timeout;
 
-  if (rule_args.filter_exp_str || rule_prefixes.argc > 0) {
+  if (rule_prefixes.argc > 0) {
     rule_args.nprefixes = rule_prefixes.argc;
     rule_args.prefixes = (const char **) rule_prefixes.objs;
-    spec->rule = SchemaRule_Create(&rule_args, spec, status);
-    if (!spec->rule) {
-      goto failure;
-    }
   } else {
-    spec->rule = NULL;
+    rule_args.nprefixes = 1;
+    static const char *empty_prefix[] = {""};
+    rule_args.prefixes = empty_prefix;
+  }
+
+  spec->rule = SchemaRule_Create(&rule_args, spec, status);
+  if (!spec->rule) {
+    goto failure;
   }
 
   if (AC_IsInitialized(&acStopwords)) {

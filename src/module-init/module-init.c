@@ -130,11 +130,15 @@ static int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *e
 
   const char *key_cp = RedisModule_StringPtrLen(key, NULL);
   if (hset || hmset || hdel) {
+#ifdef _DEBUG
     RedisModule_Log(ctx, "notice", "key %s: event %s", key_cp, event);
+#endif
     Indexes_UpdateMatchingWithSchemaRules(ctx, key);
   }
   if (del) {
+#ifdef _DEBUG
     RedisModule_Log(ctx, "notice", "key %s: event %s", key_cp, event);
+#endif
     Indexes_DeleteMatchingWithSchemaRules(ctx, key);
   }
 

@@ -1,7 +1,7 @@
 import unittest
 from includes import *
 
-def testHashes_filter1(env):
+def testFilter1(env):
     env.cmd('ft.create', 'things',
             'ON', 'HASH',
             'FILTER', 'startswith(@__key, "thing:")',
@@ -12,9 +12,21 @@ def testHashes_filter1(env):
     env.expect('ft.search', 'things', 'foo') \
        .equal([1L, 'thing:bar', ['name', 'foo']])
 
-def testHashes_prefix1(env):
-    env.cmd('ft.create', 'things',
-            'ON', 'HASH',
+def testPrefix0a(env):
+    env.cmd('ft.create', 'things', 'ON', 'HASH',
+            'PREFIX', '1', '',
+            'SCHEMA', 'name', 'text')
+
+    env.cmd('hset', 'thing:bar', 'name', 'foo')
+    env.expect('ft.search', 'things', 'foo').equal([1L, 'thing:bar', ['name', 'foo']])
+
+def testPrefix0b(env):
+    env.cmd('ft.create', 'things', 'ON', 'HASH', 'SCHEMA', 'name', 'text')
+    env.cmd('hset', 'thing:bar', 'name', 'foo')
+    env.expect('ft.search', 'things', 'foo').equal([1L, 'thing:bar', ['name', 'foo']])
+
+def testPrefix1(env):
+    env.cmd('ft.create', 'things', 'ON', 'HASH',
             'PREFIX', '1', 'thing:',
             'SCHEMA', 'name', 'text')
 
@@ -23,9 +35,8 @@ def testHashes_prefix1(env):
     env.expect('ft.search', 'things', 'foo') \
        .equal([1L, 'thing:bar', ['name', 'foo']])
 
-def testHashes_prefix2(env):
-    env.cmd('ft.create', 'things',
-            'ON', 'HASH',
+def testPrefix2(env):
+    env.cmd('ft.create', 'things', 'ON', 'HASH',
             'PREFIX', '2', 'this:', 'that:',
             'SCHEMA', 'name', 'text')
 
@@ -35,14 +46,12 @@ def testHashes_prefix2(env):
     env.expect('ft.search', 'things', 'foo') \
        .equal([2L, 'that:foo', ['name', 'foo'], 'this:foo', ['name', 'foo']])
 
-def testHashes_filter2(env):
-    env.cmd('ft.create', 'stuff',
-            'ON', 'HASH',
+def testFilter2(env):
+    env.cmd('ft.create', 'stuff', 'ON', 'HASH',
             'FILTER', 'startswith(@__key, "stuff:")',
             'SCHEMA', 'name', 'text', 'age', 'numeric')
 
-    env.cmd('ft.create', 'things',
-            'ON', 'HASH',
+    env.cmd('ft.create', 'things', 'ON', 'HASH',
             'FILTER', 'startswith(@__key, "thing:")',
             'SCHEMA', 'name', 'text', 'age', 'numeric')
 
@@ -53,14 +62,13 @@ def testHashes_filter2(env):
     env.expect('ft.search', 'things', 'foo') \
        .equal([1L, 'thing:bar', ['name', 'foo', 'age', '42']])
 
-def testHashes_prefix3(env):
+def testPrefix3(env):
     env.cmd('ft.create', 'stuff',
             'ON', 'HASH',
             'PREFIX', '1', 'stuff:',
             'SCHEMA', 'name', 'text', 'age', 'numeric')
 
-    env.cmd('ft.create', 'things',
-            'ON', 'HASH',
+    env.cmd('ft.create', 'things', 'ON', 'HASH',
             'PREFIX', '1', 'thing:',
             'SCHEMA', 'name', 'text', 'age', 'numeric')
 
@@ -71,9 +79,8 @@ def testHashes_prefix3(env):
     env.expect('ft.search', 'things', 'foo') \
        .equal([1L, 'thing:bar', ['name', 'foo', 'age', '42']])
 
-def testHashes_del(env):
-    env.cmd('ft.create', 'things',
-            'ON', 'HASH',
+def testDel(env):
+    env.cmd('ft.create', 'things', 'ON', 'HASH',
             'PREFIX', '1', 'thing:',
             'SCHEMA', 'name', 'text')
 
@@ -90,9 +97,8 @@ def testHashes_del(env):
     env.expect('ft.search', 'things', 'foo') \
        .equal([0L])
 
-def testHashes_flush(env):
-    env.cmd('ft.create', 'things',
-            'ON', 'HASH',
+def testFlush(env):
+    env.cmd('ft.create', 'things', 'ON', 'HASH',
             'PREFIX', '1', 'thing:',
             'FILTER', 'startswith(@__key, "thing:")',
             'SCHEMA', 'name', 'text')
@@ -101,12 +107,10 @@ def testHashes_flush(env):
 
     env.cmd('hset', 'thing:bar', 'name', 'foo')
 
-    env.expect('ft.search', 'things', 'foo') \
-       .equal('things: no such index')
+    env.expect('ft.search', 'things', 'foo').equal('things: no such index')
 
-def testHashesNotExist(env):
-    env.cmd('ft.create', 'things',
-            'ON', 'HASH',
+def testNotExist(env):
+    env.cmd('ft.create', 'things', 'ON', 'HASH',
             'PREFIX', '1', 'thing:',
             'FILTER', 'startswith(@__key, "thing:")',
             'SCHEMA', 'txt', 'text')
@@ -114,19 +118,33 @@ def testHashesNotExist(env):
     env.cmd('hset', 'thing:bar', 'not_text', 'foo')
     env.expect('ft.search', 'things', 'foo').equal([0L])
 
+def testPayload(env):
+    env.expect('ft.create', 'things', 'ON', 'HASH',
+                'PREFIX', '1', 'thing:',
+                'PAYLOAD', 'payload',
+                'SCHEMA', 'name', 'text').ok()
+    env.cmd('hset', 'thing:foo', 'name', 'foo', 'payload', 'stuff')
+
+    for _ in env.retry_with_rdb_reload():
+        env.expect('ft.search', 'things', 'foo') \
+        .equal([1L, 'thing:foo', ['name', 'foo', 'payload', 'stuff']])
+
+        env.expect('ft.search', 'things', 'foo', 'withpayloads') \
+           .equal([1L, 'thing:foo', 'stuff', ['name', 'foo', 'payload', 'stuff']])
+
 def testDuplicateFields(env):
-    env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
-            'SCHEMA', 'txt', 'TEXT', 'num', 'NUMERIC', 'SORTABLE')
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
+               'SCHEMA', 'txt', 'TEXT', 'num', 'NUMERIC', 'SORTABLE').ok()
     for _ in env.retry_with_reload():
         # Ensure the index assignment is correct after an rdb load
         with env.assertResponseError():
-            env.cmd('FT.ADD', 'idx', 'doc', 1.0, 'FIELDS',
-                     'txt', 'foo', 'txt', 'bar', 'txt', 'baz')
+            env.cmd('FT.ADD', 'idx', 'doc', 1.0,
+                    'FIELDS', 'txt', 'foo', 'txt', 'bar', 'txt', 'baz')
 
 def testReplace(env):
     r = env
 
-    env.expect('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'schema', 'f', 'text')
+    env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'f', 'text').ok()
 
     env.expect('HSET', 'doc1', 'f', 'hello world').equal(1)
     env.expect('HSET', 'doc2', 'f', 'hello world').equal(1)
@@ -137,18 +155,12 @@ def testReplace(env):
     env.expect('HSET', 'doc1', 'f', 'goodbye universe').equal(0)
 
     for _ in r.retry_with_rdb_reload():
-        # make sure the query for hello world does not return the replaced
-        # document
-        res = r.execute_command('ft.search', 'idx', 'hello world', 'nocontent')
-        env.assertEqual(1, res[0])
-        env.assertEqual('doc2', res[1])
+        # make sure the query for hello world does not return the replaced document
+        r.expect('ft.search', 'idx', 'hello world', 'nocontent').equal([1, 'doc2'])
 
         # search for the doc's new content
-        res = r.execute_command('ft.search', 'idx', 'goodbye universe', 'nocontent')
-        env.assertEqual(1, res[0])
-        env.assertEqual('doc1', res[1])
+        r.expect('ft.search', 'idx', 'goodbye universe', 'nocontent').equal([1, 'doc1'])
 
 def testSortable(env):
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
-                'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
-    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo1').equal('OK')
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').ok()
+    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo1').ok()

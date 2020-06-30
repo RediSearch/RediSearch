@@ -1373,27 +1373,23 @@ def testSuggestPayload(env):
 
 def testPayload(env):
     r = env
-    env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'schema', 'f', 'text'))
+    # r.expect('ft.create', 'idx', 'on', 'hash', 'prefix', '1', '', 'schema', 'f', 'text').ok()
+    r.expect('ft.create', 'idx', 'on', 'hash', 'schema', 'f', 'text').ok()
+        
     for i in range(10):
-
-        env.assertOk(r.execute_command('ft.add', 'idx', '%d' % i, 1.0,
-                                        'payload', 'payload %d' % i,
-                                        'fields', 'f', 'hello world'))
+        r.expect('ft.add', 'idx', '%d' % i, 1.0,
+                 'payload', 'payload %d' % i,
+                 'fields', 'f', 'hello world').ok()
 
     for x in r.retry_with_rdb_reload():
+        res = r.execute_command('ft.search', 'idx', 'hello world')
+        r.assertEqual(21, len(res))
 
-        res = r.execute_command(
-            'ft.search', 'idx', 'hello world')
-        env.assertEqual(21, len(res))
-
-        res = r.execute_command(
-            'ft.search', 'idx', 'hello world', 'withpayloads')
-
-        env.assertEqual(31, len(res))
-        env.assertEqual(10, res[0])
+        res = r.execute_command('ft.search', 'idx', 'hello world', 'withpayloads')
+        r.assertEqual(31, len(res))
+        r.assertEqual(10, res[0])
         for i in range(1, 30, 3):
-            env.assertEqual(res[i + 1], 'payload %s' % res[i])
+            r.assertEqual(res[i + 1], 'payload %s' % res[i])
 
 def testGarbageCollector(env):
     env.skipTest()

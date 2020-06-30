@@ -43,7 +43,7 @@ void SchemaRules_RemoveSpecRules(struct IndexSpec *spec);
 
 RSLanguage SchemaRule_HashLang(const SchemaRule *rule, RedisModuleKey *key, const char *kname);
 double SchemaRule_HashScore(const SchemaRule *rule, RedisModuleKey *key, const char *kname);
-arrayof(char) SchemaRule_HashPayload(const SchemaRule *rule, RedisModuleKey *key, const char *kname);
+RedisModuleString *SchemaRule_HashPayload(const SchemaRule *rule, RedisModuleKey *key, const char *kname);
 
 //---------------------------------------------------------------------------------------------
 

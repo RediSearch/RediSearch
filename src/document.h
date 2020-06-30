@@ -84,7 +84,7 @@ typedef struct {
   uint32_t options;                 // DOCUMENT_ADD_XXX
   RSLanguage language;              // Language document should be indexed as
   RedisModuleString *payload;       // Arbitrary payload provided on return with WITHPAYLOADS
-  RedisModuleString **fieldsArray;  // Field, Value, Field Value
+  arrayof(RedisModuleString*) fieldsArray;  // Field, Value, Field Value
   size_t numFieldElems;             // Number of elements
   double score;                     // Score of the document
   const char *evalExpr;             // Only add the document if this expression evaluates to true.

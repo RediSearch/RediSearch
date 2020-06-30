@@ -114,6 +114,10 @@ int Document_LoadSchemaFields(Document *doc, RedisSearchCtx *sctx) {
     const char *keyname = (const char *) RedisModule_StringPtrLen(doc->docKey, NULL); 
     doc->language = SchemaRule_HashLang(rule, k, keyname);
     doc->score = SchemaRule_HashScore(rule, k, keyname);
+    RedisModuleString *payload_rms = SchemaRule_HashPayload(rule, k, keyname);
+    if (payload_rms) {
+      doc->payload = (const char *) rm_strdup(RedisModule_StringPtrLen(payload_rms, &doc->payloadSize));
+    }
   }
 
   Document_MakeStringsOwner(doc);
@@ -287,10 +291,10 @@ int Redis_SaveDocument(RedisSearchCtx *ctx, const AddDocumentOptions *opts, Quer
   }
 
   // create an array for key + all field/value + score/language/payload
-  RedisModuleString** arguments = array_new(RedisModuleString*, 1 + opts->numFieldElems + 6);
+  arrayof(RedisModuleString*) arguments = array_new(RedisModuleString*, 1 + opts->numFieldElems + 6);
 
   arguments = array_append(arguments, opts->keyStr);
-  arguments = array_ensure_append(arguments, opts->fieldsArray, opts->numFieldElems, RedisModuleString*);
+  arguments = array_ensure_append_n(arguments, opts->fieldsArray, opts->numFieldElems);
 
   if (opts->score != 1.0) {
     arguments = array_append(arguments, globalAddRSstrings[0]);

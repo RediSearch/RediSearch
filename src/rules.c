@@ -35,7 +35,7 @@ SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, IndexSpec *spec, QueryError 
     SchemaPrefixes_Add(rule->prefixes[i], spec);
   }
 
-  SchemaRules_g = array_ensure_append(SchemaRules_g, &rule, 1, SchemaRule*);
+  SchemaRules_g = array_ensure_append_1(SchemaRules_g, rule);
   return rule;
 
 error:
@@ -69,10 +69,10 @@ void SchemaRules_RemoveSpecRules(IndexSpec *spec) {
 //---------------------------------------------------------------------------------------------
 
 RSLanguage SchemaRule_HashLang(const SchemaRule *rule, RedisModuleKey *key, const char *kname) {
-  RedisModuleString *lang_rms = NULL;
   if (!rule->lang_field) {
     return DEFAULT_LANGUAGE;
   }
+  RedisModuleString *lang_rms = NULL;
   int rv = RedisModule_HashGet(key, REDISMODULE_HASH_CFIELDS, rule->lang_field, &lang_rms, NULL);
   if (rv != REDISMODULE_OK) {
     RedisModule_Log(NULL, "warning", "invalid field %s for key %s", rule->lang_field, kname);
@@ -88,29 +88,35 @@ RSLanguage SchemaRule_HashLang(const SchemaRule *rule, RedisModuleKey *key, cons
 }
 
 double SchemaRule_HashScore(const SchemaRule *rule, RedisModuleKey *key, const char *kname) {
-  RedisModuleString *score_rms = NULL;
+  double _default = 1.0;
   if (!rule->score_field) {
-    return 1.0;
+    return _default;
   }
+  RedisModuleString *score_rms = NULL;
   int rv = RedisModule_HashGet(key, REDISMODULE_HASH_CFIELDS, rule->score_field, &score_rms, NULL);
   if (rv != REDISMODULE_OK) {
     RedisModule_Log(NULL, "warning", "invalid field %s for key %s", rule->lang_field, kname);
-    return 1.0;
+    return _default;
   }
   double score;
   rv = RedisModule_StringToDouble(score_rms, &score);
   if (rv == REDISMODULE_OK) {
     RedisModule_Log(NULL, "warning", "invalid score for for key %s", kname);
-    return 1.0;
+    return _default;
   }
   return score;
 }
 
-/*
-array(char) SchemaRule_HashPayload(const SchemaRule *rule, RedisModuleKey *key, const char *kname) {
-
+RedisModuleString *SchemaRule_HashPayload(const SchemaRule *rule, RedisModuleKey *key, const char *kname) {
+  const char *payload_field = rule->payload_field ? rule->payload_field : "__payload";
+  RedisModuleString *payload_rms = NULL;
+  int rv = RedisModule_HashGet(key, REDISMODULE_HASH_CFIELDS, payload_field, &payload_rms, NULL);
+  if (rv != REDISMODULE_OK) {
+    RedisModule_Log(NULL, "warning", "invalid field %s for key %s", rule->lang_field, kname);
+    return NULL;
+  }
+  return payload_rms;
 }
-*/
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -122,14 +128,15 @@ void SchemaPrefixes_Free() {
   TrieMap_Free(ScemaPrefixes_g, NULL);
 }
 
-void SchemaPrefixes_Add(const char *prefix, IndexSpec *index) {
-  void *p = TrieMap_Find(ScemaPrefixes_g, (char *)prefix, strlen(prefix));
+void SchemaPrefixes_Add(const char *prefix, IndexSpec *spec) {
+  size_t nprefix = strlen(prefix);
+  void *p = TrieMap_Find(ScemaPrefixes_g, (char *) prefix, nprefix);
   if (p == TRIEMAP_NOTFOUND) {
-    SchemaPrefixNode *node = SchemaPrefixNode_Create(prefix, index);
-    TrieMap_Add(ScemaPrefixes_g, (char *) prefix, strlen(prefix), node, NULL);
+    SchemaPrefixNode *node = SchemaPrefixNode_Create(prefix, spec);
+    TrieMap_Add(ScemaPrefixes_g, (char *) prefix, nprefix, node, NULL);
   } else {
     SchemaPrefixNode *node = (SchemaPrefixNode *) p;
-    node->index_specs = array_ensure_append_1(node->index_specs, index);
+    node->index_specs = array_ensure_append_1(node->index_specs, spec);
   }
 }
 
@@ -138,9 +145,12 @@ void SchemaPrefixes_RemoveSpec(IndexSpec *spec) {
   while (true) {
     char *p;
     tm_len_t len;
-    SchemaPrefixNode *node;
+    SchemaPrefixNode *node = NULL;
     if (!TrieMapIterator_Next(it, &p, &len, (void **) &node)) {
       break;
+    }
+    if (!node) {
+      return;
     }
     int j = -1;
     for (int i = 0; i < array_len(node->index_specs); ++i) {
