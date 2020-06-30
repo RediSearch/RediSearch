@@ -267,7 +267,8 @@ void *TrieMapNode_Find(TrieMapNode *n, char *str, tm_len_t len) {
 }
 
 int TrieMapNode_FindPrefixes(TrieMapNode *node, const char *str, tm_len_t len, arrayof(void*) *results) {
-  array_clear(results);
+  array_clear(*results);
+
   tm_len_t offset = 0;
   while (node && (offset < len || len == 0)) {
     tm_len_t node_offset = 0;
