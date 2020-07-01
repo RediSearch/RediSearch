@@ -23,6 +23,15 @@ Creates an index with the given spec. The index name will be used in all the key
     
         You can always use the `NOFIELDS` option and not encode field information into the index, for saving space, if you do not need filtering by text fields. This will still allow filtering by numeric and geo fields.
 
+!!! info "Note on running in clustered databases"
+        
+        When having several indices in a clustered database, you need to tag the index key and the document key to ensure they reside on the same shard.
+        ```sql
+        FT.CREATE {idx} ...
+        FT.ADD {idx} {idx}:docid ...
+        ```
+        When Running in RediSearch in Redis Enterprise, there is the ability to span the index across shards.  In this case the above does not apply.
+
 #### Example
 ```sql
 FT.CREATE idx SCHEMA name TEXT SORTABLE age NUMERIC SORTABLE myTag TAG SORTABLE
