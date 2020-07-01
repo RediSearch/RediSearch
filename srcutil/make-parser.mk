@@ -1,3 +1,4 @@
+SRCUTIL ?= .
 LEMON := $(SRCUTIL)/lemon
 TEMPLATE := $(SRCUTIL)/lempar.c
 RAGEL := ragel
@@ -14,4 +15,4 @@ clean:
 	rm -f  $(SRCUTIL)/lexer.c  $(SRCUTIL)/parser.c
 
 $(LEMON):  $(SRCUTIL)/lemon.c  $(SRCUTIL)/lempar.c
-	gcc -o $(LEMON) lemon.c
+	gcc -o $(LEMON) $(SRCUTIL)/lemon.c
