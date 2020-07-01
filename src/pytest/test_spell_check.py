@@ -188,7 +188,7 @@ def testSpellCheckDictReleadRDB():
 
 def testSpellCheckIssue437():
     env = Env()
-    env.cmd('ft.create', 'incidents', 'SCHEMA', 'report', 'text')
+    env.cmd('ft.create', 'incidents', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'SCHEMA', 'report', 'text')
     env.cmd('FT.DICTADD', 'slang', 'timmies', 'toque', 'toonie', 'serviette', 'kerfuffle', 'chesterfield')
     env.expect('FT.SPELLCHECK', 'incidents',
                'Tooni toque kerfuffle', 'TERMS',
