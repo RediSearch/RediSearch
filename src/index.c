@@ -977,7 +977,6 @@ static IndexCriteriaTester *NI_GetCriteriaTester(void *ctx) {
 static size_t NI_NumEstimated(void *ctx) {
   NotContext *nc = ctx;
   return nc->maxDocId;
-  return SIZE_MAX;
 }
 
 static int NI_ReadUnsorted(void *ctx, RSIndexResult **hit) {
