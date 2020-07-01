@@ -15,13 +15,17 @@ def testBasicPoneticCase(env):
 
 def testBasicPoneticWrongDeclaration(env):
     with env.assertResponseError():
-        env.cmd('ft.create', 'idx', 'schema', 'text', 'TEXT', 'PHONETIC', 'something', 'SORTABLE')
+        env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+                'schema', 'text', 'TEXT', 'PHONETIC', 'something', 'SORTABLE')
     with env.assertResponseError():
-        env.cmd('ft.create', 'idx', 'schema', 'text', 'TEXT', 'PHONETIC', 'kk:tt', 'SORTABLE')
+        env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+                'schema', 'text', 'TEXT', 'PHONETIC', 'kk:tt', 'SORTABLE')
     with env.assertResponseError():
-        env.cmd('ft.create', 'idx', 'schema', 'text', 'TEXT', 'PHONETIC', 'dm:tt', 'SORTABLE')
+        env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+                'schema', 'text', 'TEXT', 'PHONETIC', 'dm:tt', 'SORTABLE')
     with env.assertResponseError():
-        env.cmd('ft.create', 'idx', 'schema', 'text', 'TEXT', 'PHONETIC', 'll:en', 'SORTABLE')
+        env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+                'schema', 'text', 'TEXT', 'PHONETIC', 'll:en', 'SORTABLE')
 
 def testPoneticOnNonePhoneticField(env):
     env.assertOk(env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',

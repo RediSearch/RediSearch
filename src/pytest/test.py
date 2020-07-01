@@ -1089,7 +1089,7 @@ def testInfields(env):
 def testScorerSelection(env):
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'schema', 'title', 'text', 'body', 'text'))
+        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'schema', 'title', 'text', 'body', 'text'))
 
     # this is the default scorer
     res = r.execute_command(
@@ -1731,10 +1731,10 @@ def testNonDefaultDb(env):
         env.cmd('FT.CREATE', 'idx2', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'schema', 'txt', 'text')
 
 def testDuplicateNonspecFields(env):
-    env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'schema', 'txt', 'text')
-    env.cmd('FT.ADD', 'idx', 'doc', 1.0, 'fields',
-             'f1', 'f1val', 'f1', 'f1val2', 'F1', 'f1Val3')
-
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'schema', 'txt', 'text').ok()
+    env.expect('FT.ADD', 'idx', 'doc', 1.0, 'fields',
+                'f1', 'f1val', 'f1', 'f1val2', 'F1', 'f1Val3').ok()
+    # comment: fail due to partial update. No fields to index
     res = env.cmd('ft.get', 'idx', 'doc')
     res = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
     env.assertTrue(res['f1'] in ('f1val', 'f1val2'))
@@ -1930,7 +1930,7 @@ def testReplaceReload(env):
 # // reload from ...
 # r.execute_command('FT.ADD idx doc1 1.0 FIELDS t0 1')
 def testIssue417(env):
-    command = ['ft.create', 'idx', 'schema']
+    command = ['ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'schema']
     for x in range(255):
         command += ['t{}'.format(x), 'numeric', 'sortable']
     command = command[:-1]
@@ -2267,7 +2267,6 @@ def testIssue_866(env):
     env.expect('ft.sugget', 'sug', '').equal(['test123', 'test456'])
 
 def testMod_309(env):
-    env.skip()
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
     for i in range(100000):
         env.expect('FT.ADD', 'idx', 'doc%d'%i, '1.0', 'FIELDS', 'test', 'foo')
@@ -2535,7 +2534,7 @@ def testUnkownIndex(env):
     env.expect('ft.aggregate', 'idx', '*', 'WITHCURSOR').error()
 
 def testExplainError(env):
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'TEXT').equal('OK')
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'SCHEMA', 'test', 'TEXT').equal('OK')
     env.expect('FT.EXPLAIN', 'idx', '(').error()
 
 def testBadCursor(env):
