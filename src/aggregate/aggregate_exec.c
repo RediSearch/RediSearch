@@ -83,7 +83,7 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
           break;
         case RSValue_String:
           /* Serialize string - by prepending "$" to it */
-          rskey = RedisModule_CreateStringPrintf(outctx, "$%s", sortkey->strval);
+          rskey = RedisModule_CreateStringPrintf(outctx, "$%s", sortkey->strval.str);
           break;
         case RSValue_RedisString:
         case RSValue_OwnRstring:

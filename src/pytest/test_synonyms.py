@@ -4,7 +4,8 @@ from includes import *
 def testBasicSynonymsUseCase(env):
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'schema', 'title', 'text', 'body', 'text'))
+        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+        'schema', 'title', 'text', 'body', 'text'))
     env.assertEqual(r.execute_command('ft.synadd', 'idx', 'boy', 'child'), 0)
 
     env.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 1.0, 'fields',
@@ -17,7 +18,8 @@ def testBasicSynonymsUseCase(env):
 def testTermOnTwoSynonymsGroup(env):
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'schema', 'title', 'text', 'body', 'text'))
+        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+        'schema', 'title', 'text', 'body', 'text'))
     env.assertEqual(r.execute_command('ft.synadd', 'idx', 'boy', 'child'), 0)
     env.assertEqual(r.execute_command('ft.synadd', 'idx', 'boy', 'offspring'), 1)
 
@@ -33,7 +35,8 @@ def testTermOnTwoSynonymsGroup(env):
 def testSynonymGroupWithThreeSynonyms(env):
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'schema', 'title', 'text', 'body', 'text'))
+        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+        'schema', 'title', 'text', 'body', 'text'))
     env.assertEqual(r.execute_command('ft.synadd', 'idx', 'boy', 'child', 'offspring'), 0)
 
     env.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 1.0, 'fields',
@@ -48,7 +51,8 @@ def testSynonymGroupWithThreeSynonyms(env):
 def testSynonymWithMultipleDocs(env):
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'schema', 'title', 'text', 'body', 'text'))
+        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+        'schema', 'title', 'text', 'body', 'text'))
     env.assertEqual(r.execute_command('ft.synadd', 'idx', 'boy', 'child', 'offspring'), 0)
 
     env.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 1.0, 'fields',
@@ -65,7 +69,8 @@ def testSynonymWithMultipleDocs(env):
 def testSynonymUpdate(env):
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'schema', 'title', 'text', 'body', 'text'))
+        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+        'schema', 'title', 'text', 'body', 'text'))
     env.assertEqual(r.execute_command('ft.synadd', 'idx', 'boy', 'child', 'offspring'), 0)
     env.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 1.0, 'fields',
                                     'title', 'he is a baby',
@@ -84,7 +89,8 @@ def testSynonymUpdate(env):
 def testSynonymDump(env):
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'schema', 'title', 'text', 'body', 'text'))
+        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+        'schema', 'title', 'text', 'body', 'text'))
     env.assertEqual(r.execute_command('ft.synadd', 'idx', 'boy', 'child', 'offspring'), 0)
     env.assertEqual(r.execute_command('ft.synadd', 'idx', 'baby', 'child'), 1)
     env.assertEqual(r.execute_command('ft.synadd', 'idx', 'tree', 'wood'), 2)
@@ -175,7 +181,8 @@ def testSynonymsRdb(env):
 def testTwoSynonymsSearch(env):
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'schema', 'title', 'text', 'body', 'text'))
+        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+        'schema', 'title', 'text', 'body', 'text'))
     env.assertEqual(r.execute_command('ft.synadd', 'idx', 'boy', 'child', 'offspring'), 0)
     env.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 1.0, 'fields',
                                     'title', 'he is a boy child boy',
@@ -189,7 +196,8 @@ def testSynonymsIntensiveLoad(env):
     iterations = 1000
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'schema', 'title', 'text', 'body', 'text'))
+        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+        'schema', 'title', 'text', 'body', 'text'))
     for i in range(iterations):
         env.assertEqual(r.execute_command('ft.synadd', 'idx', 'boy%d' % i, 'child%d' % i, 'offspring%d' % i), i)
     for i in range(iterations):

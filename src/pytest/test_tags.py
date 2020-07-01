@@ -8,7 +8,7 @@ def search(env, r, *args):
 def testTagIndex(env):
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'schema', 'title', 'text', 'tags', 'tag'))
+        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")','schema', 'title', 'text', 'tags', 'tag'))
     N = 10
     for n in range(N):
 
@@ -54,7 +54,8 @@ def testTagIndex(env):
 def testSeparator(env):
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'schema', 'title', 'text', 'tags', 'tag', 'separator', ':'))
+        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+        'schema', 'title', 'text', 'tags', 'tag', 'separator', ':'))
 
     env.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 1.0, 'fields',
                                    'title', 'hello world', 'tags', 'x:hello world: fooz bar:foo,bar:BOO FAR'))
@@ -68,7 +69,8 @@ def testSeparator(env):
 def testTagPrefix(env):
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'schema', 'title', 'text', 'tags', 'tag', 'separator', ','))
+        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+        'schema', 'title', 'text', 'tags', 'tag', 'separator', ','))
 
     env.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 1.0, 'fields',
                                    'title', 'hello world', 'tags', 'hello world,hello-world,hell,jell'))
@@ -82,7 +84,8 @@ def testTagPrefix(env):
 def testTagFieldCase(env):
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'schema', 'title', 'text', 'TAgs', 'tag'))
+        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+        'schema', 'title', 'text', 'TAgs', 'tag'))
 
     env.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 1.0, 'fields',
                                    'title', 'hello world', 'TAgs', 'HELLO WORLD,FOO BAR'))
@@ -115,7 +118,8 @@ def testInvalidSyntax(env):
 def testTagVals(env):
     r = env
     r.execute_command(
-        'ft.create', 'idx', 'schema', 'title', 'text', 'tags', 'tag', 'othertags', 'tag')
+        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+        'schema', 'title', 'text', 'tags', 'tag', 'othertags', 'tag')
 
     N = 100
     alltags = set()
