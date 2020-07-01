@@ -286,7 +286,9 @@ char *ExprEval_Strndup(ExprEval *ctx, const char *str, size_t len) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-int EvalCtx_Init(EvalCtx *r, const char *expr) {
+EvalCtx *EvalCtx_Create() {
+  EvalCtx *r = rm_calloc(1, sizeof(EvalCtx));
+
   RLookup _lk = {0};
   r->lk = _lk;
   RLookup_Init(&r->lk, NULL);
@@ -298,24 +300,42 @@ int EvalCtx_Init(EvalCtx *r, const char *expr) {
   r->ee.lookup = &r->lk;
   r->ee.srcrow = &r->row;
   r->ee.err = &r->status;
-  
+
+  return r;
+}
+
+EvalCtx *EvalCtx_FromExpr(RSExpr *expr) {
+  EvalCtx *r = EvalCtx_Create();
+  r->_expr = expr;
+  r->_own_expr = false;
+  return r;
+}
+
+EvalCtx *EvalCtx_FromString(const char *expr) {
+  EvalCtx *r = EvalCtx_Create();
   if (!expr) {
   	r->ee.root = NULL;
   } else {
-    r->ee.root = ExprAST_Parse(expr, strlen(expr), r->ee.err);
+    r->_expr = ExprAST_Parse(expr, strlen(expr), r->ee.err);
     if (r->ee.root == NULL) {
-  	  return REDISMODULE_ERR;
+  	  goto error;
     }
+    r->_own_expr = true;
   }
-  
-  return REDISMODULE_OK;
+  return r;
+
+error:
+  EvalCtx_Destroy(r);
+  return NULL;
 }
 
 void EvalCtx_Destroy(EvalCtx *r) {
-  if (r->ee.root) {
-    ExprAST_Free((RSExpr *) r->ee.root);
+  if (r->_expr && r->_own_expr) {
+    ExprAST_Free((RSExpr *) r->_expr);
   }
 }
+
+//---------------------------------------------------------------------------------------------
 
 RLookupKey *EvalCtx_Set(EvalCtx *r, const char *name, RSValue *val) {
   RLookupKey *lkk = RLookup_GetKey(&r->lk, name, RLOOKUP_F_OCREAT);
@@ -329,22 +349,37 @@ int EvalCtx_AddHash(EvalCtx *r, RedisModuleCtx *ctx, RedisModuleString *key) {
   return RLookup_GetHash(&r->lk, &r->row, ctx, key);
 }
 
+//---------------------------------------------------------------------------------------------
+
 int EvalCtx_Eval(EvalCtx *r) {
+  if (!r->_expr) {
+    return REDISMODULE_ERR;
+  }
+  r->ee.root = r->_expr;
   if (ExprAST_GetLookupKeys((RSExpr *) r->ee.root, (RLookup *) r->ee.lookup, r->ee.err) != EXPR_EVAL_OK) {
     return REDISMODULE_ERR;
   }
   return ExprEval_Eval(&r->ee, &r->res);
 }
 
-int EvalCtx_EvalExpr(EvalCtx *r, const char *expr) {
-  r->ee.root = ExprAST_Parse(expr, strlen(expr), r->ee.err);
-  if (r->ee.root == NULL) {
-	  return REDISMODULE_ERR;
+int EvalCtx_EvalExpr(EvalCtx *r, RSExpr *expr) {
+  if (r->_expr && r->_own_expr) {
+    ExprAST_Free(r->_expr);
   }
-  if (ExprAST_GetLookupKeys((RSExpr *) r->ee.root, (RLookup *) r->ee.lookup, r->ee.err) != EXPR_EVAL_OK) {
-    return REDISMODULE_ERR;
+  r->_expr = expr;
+  r->_own_expr = false;
+
+  return EvalCtx_Eval(r);
+}
+
+int EvalCtx_EvalExprStr(EvalCtx *r, const char *expr) {
+  if (r->_expr && r->_own_expr) {
+    ExprAST_Free(r->_expr);
   }
-  return ExprEval_Eval(&r->ee, &r->res);
+  r->_expr = ExprAST_Parse(expr, strlen(expr), r->ee.err);
+  r->_own_expr = true;
+
+  return EvalCtx_Eval(r);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

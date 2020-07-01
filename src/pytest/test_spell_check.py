@@ -49,7 +49,8 @@ def testDictDumpOnNoneExistingKey():
 
 def testBasicSpellCheck():
     env = Env()
-    env.cmd('ft.create', 'idx', 'SCHEMA', 'name', 'TEXT', 'body', 'TEXT')
+    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+            'SCHEMA', 'name', 'TEXT', 'body', 'TEXT')
     env.cmd('ft.add', 'idx', 'doc1', 1.0, 'FIELDS', 'name', 'name1', 'body', 'body1')
     env.cmd('ft.add', 'idx', 'doc2', 1.0, 'FIELDS', 'name', 'name2', 'body', 'body2')
     env.cmd('ft.add', 'idx', 'doc3', 1.0, 'FIELDS', 'name', 'name2', 'body', 'name2')
@@ -61,7 +62,8 @@ def testBasicSpellCheck():
 
 def testBasicSpellCheckWithNoResult():
     env = Env()
-    env.cmd('ft.create', 'idx', 'SCHEMA', 'name', 'TEXT', 'body', 'TEXT')
+    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+            'SCHEMA', 'name', 'TEXT', 'body', 'TEXT')
     env.cmd('ft.add', 'idx', 'doc1', 1.0, 'FIELDS', 'name', 'name1', 'body', 'body1')
     env.cmd('ft.add', 'idx', 'doc2', 1.0, 'FIELDS', 'name', 'name2', 'body', 'body2')
     env.cmd('ft.add', 'idx', 'doc3', 1.0, 'FIELDS', 'name', 'name2', 'body', 'name2')
@@ -70,7 +72,8 @@ def testBasicSpellCheckWithNoResult():
 
 def testSpellCheckOnExistingTerm():
     env = Env()
-    env.cmd('ft.create', 'idx', 'SCHEMA', 'name', 'TEXT', 'body', 'TEXT')
+    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+            'SCHEMA', 'name', 'TEXT', 'body', 'TEXT')
     env.cmd('ft.add', 'idx', 'doc1', 1.0, 'FIELDS', 'name', 'name', 'body', 'body1')
     env.cmd('ft.add', 'idx', 'doc2', 1.0, 'FIELDS', 'name', 'name2', 'body', 'body2')
     env.cmd('ft.add', 'idx', 'doc3', 1.0, 'FIELDS', 'name', 'name2', 'body', 'name2')
@@ -80,7 +83,8 @@ def testSpellCheckOnExistingTerm():
 def testSpellCheckWithIncludeDict():
     env = Env()
     env.cmd('ft.dictadd', 'dict', 'name3', 'name4', 'name5')
-    env.cmd('ft.create', 'idx', 'SCHEMA', 'name', 'TEXT', 'body', 'TEXT')
+    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+            'SCHEMA', 'name', 'TEXT', 'body', 'TEXT')
     env.cmd('ft.add', 'idx', 'doc1', 1.0, 'FIELDS', 'name', 'name1', 'body', 'body1')
     env.cmd('ft.add', 'idx', 'doc2', 1.0, 'FIELDS', 'name', 'name2', 'body', 'body2')
     env.cmd('ft.add', 'idx', 'doc3', 1.0, 'FIELDS', 'name', 'name2', 'body', 'name2')
@@ -99,7 +103,8 @@ def testSpellCheckWithIncludeDict():
 def testSpellCheckWithDuplications():
     env = Env()
     env.cmd('ft.dictadd', 'dict', 'name1', 'name4', 'name5')
-    env.cmd('ft.create', 'idx', 'SCHEMA', 'name', 'TEXT', 'body', 'TEXT')
+    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+            'SCHEMA', 'name', 'TEXT', 'body', 'TEXT')
     env.cmd('ft.add', 'idx', 'doc1', 1.0, 'FIELDS', 'name', 'name1', 'body', 'body1')
     env.cmd('ft.add', 'idx', 'doc2', 1.0, 'FIELDS', 'name', 'name2', 'body', 'body2')
     env.cmd('ft.add', 'idx', 'doc3', 1.0, 'FIELDS', 'name', 'name2', 'body', 'name2')
@@ -112,7 +117,8 @@ def testSpellCheckWithDuplications():
 def testSpellCheckExcludeDict():
     env = Env()
     env.cmd('ft.dictadd', 'dict', 'name')
-    env.cmd('ft.create', 'idx', 'SCHEMA', 'name', 'TEXT', 'body', 'TEXT')
+    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+            'SCHEMA', 'name', 'TEXT', 'body', 'TEXT')
     env.cmd('ft.add', 'idx', 'doc1', 1.0, 'FIELDS', 'name', 'name1', 'body', 'body1')
     env.cmd('ft.add', 'idx', 'doc2', 1.0, 'FIELDS', 'name', 'name2', 'body', 'body2')
     env.cmd('ft.add', 'idx', 'doc3', 1.0, 'FIELDS', 'name', 'name2', 'body', 'name2')
@@ -128,7 +134,8 @@ def testSpellCheckNoneExistingIndex():
 def testSpellCheckWrongArity():
     env = Env()
     env.cmd('ft.dictadd', 'dict', 'name')
-    env.cmd('ft.create', 'idx', 'SCHEMA', 'name', 'TEXT', 'body', 'TEXT')
+    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+            'SCHEMA', 'name', 'TEXT', 'body', 'TEXT')
     env.cmd('ft.add', 'idx', 'doc1', 1.0, 'FIELDS', 'name', 'name1', 'body', 'body1')
     env.cmd('ft.add', 'idx', 'doc2', 1.0, 'FIELDS', 'name', 'name2', 'body', 'body2')
     env.cmd('ft.add', 'idx', 'doc3', 1.0, 'FIELDS', 'name', 'name2', 'body', 'name2')
@@ -139,7 +146,8 @@ def testSpellCheckWrongArity():
 def testSpellCheckBadFormat():
     env = Env()
     env.cmd('ft.dictadd', 'dict', 'name')
-    env.cmd('ft.create', 'idx', 'SCHEMA', 'name', 'TEXT', 'body', 'TEXT')
+    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+            'SCHEMA', 'name', 'TEXT', 'body', 'TEXT')
     env.cmd('ft.add', 'idx', 'doc1', 1.0, 'FIELDS', 'name', 'name1', 'body', 'body1')
     env.cmd('ft.add', 'idx', 'doc2', 1.0, 'FIELDS', 'name', 'name2', 'body', 'body2')
     env.cmd('ft.add', 'idx', 'doc3', 1.0, 'FIELDS', 'name', 'name2', 'body', 'name2')
@@ -154,7 +162,8 @@ def testSpellCheckBadFormat():
 
 def testSpellCheckNoneExistingDicts():
     env = Env()
-    env.cmd('ft.create', 'idx', 'SCHEMA', 'name', 'TEXT', 'body', 'TEXT')
+    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+            'SCHEMA', 'name', 'TEXT', 'body', 'TEXT')
     env.cmd('ft.add', 'idx', 'doc1', 1.0, 'FIELDS', 'name', 'name1', 'body', 'body1')
     env.cmd('ft.add', 'idx', 'doc2', 1.0, 'FIELDS', 'name', 'name2', 'body', 'body2')
     env.cmd('ft.add', 'idx', 'doc3', 1.0, 'FIELDS', 'name', 'name2', 'body', 'name2')
@@ -165,7 +174,8 @@ def testSpellCheckNoneExistingDicts():
 def testSpellCheckResultsOrder():
     env = Env()
     env.cmd('ft.dictadd', 'dict', 'name')
-    env.cmd('ft.create', 'idx', 'SCHEMA', 'name', 'TEXT', 'body', 'TEXT')
+    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+            'SCHEMA', 'name', 'TEXT', 'body', 'TEXT')
     env.cmd('ft.add', 'idx', 'doc1', 1.0, 'FIELDS', 'name', 'Elior', 'body', 'body1')
     env.cmd('ft.add', 'idx', 'doc2', 1.0, 'FIELDS', 'name', 'Hila', 'body', 'body2')
     env.expect('ft.spellcheck', 'idx', 'Elioh Hilh').equal([['TERM', 'elioh', [['0.5', 'elior']]], ['TERM', 'hilh', [['0.5', 'hila']]]])

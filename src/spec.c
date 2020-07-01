@@ -17,6 +17,7 @@
 #include "rmutil/rm_assert.h"
 #include "aggregate/expr/expression.h"
 #include "rules.h"
+#include "commands.h"
 
 void (*IndexSpec_OnCreate)(const IndexSpec *) = NULL;
 const char *(*IndexAlias_GetUserTableName)(RedisModuleCtx *, const char *) = NULL;
@@ -456,11 +457,12 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryE
   ArgsCursor acStopwords = {0};
 
   ArgsCursor_InitCString(&ac, argv, argc);
-  ruleSettings rulesopts = {0};
   long long timeout = -1;
   int dummy;
   size_t dummy2;
-
+  SchemaRuleArgs rule_args = {0};
+  ArgsCursor rule_prefixes = {0};
+  
   ACArgSpec argopts[] = {
       {AC_MKUNFLAG(SPEC_NOOFFSETS_STR, &spec->flags,
                    Index_StoreTermOffsets | Index_StoreByteOffsets)},
@@ -468,12 +470,16 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryE
       {AC_MKUNFLAG(SPEC_NOFIELDS_STR, &spec->flags, Index_StoreFieldFlags)},
       {AC_MKUNFLAG(SPEC_NOFREQS_STR, &spec->flags, Index_StoreFreqs)},
       {AC_MKBITFLAG(SPEC_SCHEMA_EXPANDABLE_STR, &spec->flags, Index_WideSchema)},
+      {AC_MKBITFLAG(SPEC_ASYNC_STR, &spec->flags, Index_Async)},
+
       // For compatibility
       {.name = "NOSCOREIDX", .target = &dummy, .type = AC_ARGTYPE_BOOLFLAG},
-      {.name = "EXPRESSION", .target = &rulesopts.expr, .len = &dummy2, .type = AC_ARGTYPE_STRING},
-      {.name = "SCORE", .target = &rulesopts.score, .len = &dummy2, .type = AC_ARGTYPE_STRING},
-      {.name = "LANGUAGE", .target = &rulesopts.lang, .len = &dummy2, .type = AC_ARGTYPE_STRING},
-      {.name = "PAYLOAD", .target = &rulesopts.payload, .len = &dummy2, .type = AC_ARGTYPE_STRING},
+      {.name = "ON", .target = &rule_args.type, .len = &dummy2, .type = AC_ARGTYPE_STRING},
+      {.name = "PREFIX", .target = &rule_prefixes, .type = AC_ARGTYPE_SUBARGS},
+      {.name = "FILTER", .target = &rule_args.filter_exp_str, .len = &dummy2, .type = AC_ARGTYPE_STRING},
+      {.name = "SCORE", .target = &rule_args.score_field, .len = &dummy2, .type = AC_ARGTYPE_STRING},
+      {.name = "LANGUAGE", .target = &rule_args.lang_field, .len = &dummy2, .type = AC_ARGTYPE_STRING},
+      {.name = "PAYLOAD", .target = &rule_args.payload_field, .len = &dummy2, .type = AC_ARGTYPE_STRING},
       {.name = SPEC_TEMPORARY_STR, .target = &timeout, .type = AC_ARGTYPE_LLONG},
       {.name = SPEC_STOPWORDS_STR, .target = &acStopwords, .type = AC_ARGTYPE_SUBARGS},
       {.name = NULL}};
@@ -492,11 +498,18 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryE
   }
   spec->timeout = timeout;
 
-  if (rulesopts.expr) {
-    if ((spec->rule = Rule_Create(&rulesopts, status)) == NULL) {
-      goto failure;
-    }
-    SchemaRules_g = array_ensure_append(SchemaRules_g, &spec, 1, IndexSpec *);
+  if (rule_prefixes.argc > 0) {
+    rule_args.nprefixes = rule_prefixes.argc;
+    rule_args.prefixes = (const char **) rule_prefixes.objs;
+  } else {
+    rule_args.nprefixes = 1;
+    static const char *empty_prefix[] = {""};
+    rule_args.prefixes = empty_prefix;
+  }
+
+  spec->rule = SchemaRule_Create(&rule_args, spec, status);
+  if (!spec->rule) {
+    goto failure;
   }
 
   if (AC_IsInitialized(&acStopwords)) {
@@ -520,10 +533,10 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryE
   if (!IndexSpec_AddFieldsInternal(spec, &ac, status, 1)) {
     goto failure;
   }
+
   return spec;
 
 failure:  // on failure free the spec fields array and return an error
-
   IndexSpec_Free(spec);
   return NULL;
 }
@@ -670,6 +683,11 @@ void IndexSpec_FreeInternals(IndexSpec *spec) {
     CursorList_RemoveSpec(&RSCursors, spec->name);
   }
 
+  if (spec->rule) {
+    SchemaRule_Free(spec->rule);
+    spec->rule = NULL;
+  }
+
   rm_free(spec->name);
   if (spec->sortables) {
     SortingTable_Free(spec->sortables);
@@ -678,10 +696,6 @@ void IndexSpec_FreeInternals(IndexSpec *spec) {
   if (spec->stopwords) {
     StopWordList_Unref(spec->stopwords);
     spec->stopwords = NULL;
-  }
-  if (spec->rule) {
-    Rule_free(spec->rule);
-    spec->rule = NULL;
   }
 
   if (spec->smap) {
@@ -1371,20 +1385,55 @@ int IndexSpec_RegisterType(RedisModuleCtx *ctx) {
   return REDISMODULE_OK;
 }
 
+int IndexSpec_DeleteHash(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key);
+
 int IndexSpec_UpdateWithHash(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key) {
+  if (!spec->rule) {
+    RedisModule_Log(ctx, "warning", "Index spec %s: no rule found", spec->name);
+    return REDISMODULE_ERR;
+  }
+
+  // Needed to allow hash updates (remove overrwritten fields)
+  const char *key_p = RedisModule_StringPtrLen(key, NULL);
+  bool doc_exists = DocTable_GetIdR(&spec->docs, key) != 0;
+  if (IndexSpec_DeleteHash(spec, ctx, key) != REDISMODULE_OK && doc_exists) {
+    RedisModule_Log(ctx, "warning", "Index spec %s: could not remove key %s", spec->name, key_p);
+  }
+
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
   Document doc = {0};
-  // TODO: get language and score from spec->rule->setting
-  Document_Init(&doc, key, 1, DEFAULT_LANGUAGE);
+  Document_Init(&doc, key, 1.0, DEFAULT_LANGUAGE);
   if (Document_LoadSchemaFields(&doc, &sctx) != REDISMODULE_OK) {
     Document_Free(&doc);
     return RedisModule_ReplyWithError(ctx, "Could not load document");
   }
   QueryError status = {0};
-  // int rc = Redis_SaveDocument(&sctx, &doc, 0, &status);
   RSAddDocumentCtx *aCtx = NewAddDocumentCtx(spec, &doc, &status);
   aCtx->stateFlags |= ACTX_F_NOBLOCK;
   AddDocumentCtx_Submit(aCtx, &sctx, DOCUMENT_ADD_PARTIAL);
+  return REDISMODULE_OK;
+}
+
+int IndexSpec_DeleteHash(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key) {
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
+
+  // Get the doc ID
+  t_docId id = DocTable_GetIdR(&spec->docs, key);
+  if (id == 0) {
+    return RedisModule_ReplyWithLongLong(ctx, 0);
+    // ID does not exist.
+  }
+
+  int rc = DocTable_DeleteR(&spec->docs, key);
+  if (rc) {
+    spec->stats.numDocuments--;
+
+    // Increment the index's garbage collector's scanning frequency after document deletions
+    if (spec->gc) {
+      GCContext_OnDelete(spec->gc);
+    }
+    RedisModule_Replicate(ctx, RS_DEL_CMD, "cs", spec->name, key);
+  }
   return REDISMODULE_OK;
 }
 
@@ -1408,30 +1457,84 @@ static void onFlush(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent
 void Indexes_Init(RedisModuleCtx *ctx) {
   specDict = dictCreate(&dictTypeHeapStrings, NULL);
   RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_FlushDB, onFlush);
+  SchemaPrefixes_Create();
 }
 
-void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key) {
-  EvalCtx r;
-  EvalCtx_Init(&r, NULL);
-  EvalCtx_AddHash(&r, ctx, key);
-  EvalCtx_Set(&r, "__key", RS_RedisStringVal(key));
+dict *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key) {
+  EvalCtx *r = EvalCtx_Create();
+  EvalCtx_AddHash(r, ctx, key);
+  EvalCtx_Set(r, "__key", RS_RedisStringVal(key));
 
 #ifdef DEBUG
-  RLookupKey *k = RLookup_GetKey(&r.lk, "__key", 0);
-  RSValue *v = RLookup_GetItem(k, &r.row);
+  RLookupKey *k = RLookup_GetKey(&r->lk, "__key", 0);
+  RSValue *v = RLookup_GetItem(k, &r->row);
   const char *x = RSValue_StringPtrLen(v, NULL);
-  k = RLookup_GetKey(&r.lk, "name", 0);
-  v = RLookup_GetItem(k, &r.row);
+  k = RLookup_GetKey(&r->lk, "name", 0);
+  v = RLookup_GetItem(k, &r->row);
   x = RSValue_StringPtrLen(v, NULL);
 #endif  // DEBUG
 
-  for (size_t i = 0; i < array_len(SchemaRules_g); i++) {
-    IndexSpec *spec = SchemaRules_g[i];
-    if (EvalCtx_EvalExpr(&r, spec->rule->setting.expr) == EXPR_EVAL_OK) {
-      if (RSValue_BoolTest(&r.res)) {
-        IndexSpec_UpdateWithHash(spec, ctx, key);
+  dict *specs = dictCreate(&dictTypeHeapStrings, NULL);
+
+  size_t n;
+  const char *key_p = RedisModule_StringPtrLen(key, &n);
+  arrayof(SchemaPrefixNode*) prefixes = 0;
+  int nprefixes = TrieMap_FindPrefixes(ScemaPrefixes_g, key_p, n, (arrayof(void*)*) &prefixes);
+  for (int i = 0; i < array_len(prefixes); ++i) {
+    SchemaPrefixNode *node = prefixes[i];
+    for (int j = 0; j < array_len(node->index_specs); ++j) {
+      IndexSpec *spec = node->index_specs[j];
+      if (! dictFind(specs, node->prefix)) {
+        dictAdd(specs, spec->name, spec);
       }
     }
   }
-  EvalCtx_Destroy(&r);
+  array_free(prefixes);
+
+  for (size_t i = 0; i < array_len(SchemaRules_g); i++) {
+    SchemaRule *rule = SchemaRules_g[i];
+    if (! rule->filter_exp) {
+      continue;
+    }
+    if (EvalCtx_EvalExpr(r, rule->filter_exp) == EXPR_EVAL_OK) {
+      IndexSpec *spec = rule->spec;
+      if (RSValue_BoolTest(&r->res) && ! dictFind(specs, spec->name)) {
+        dictAdd(specs, spec->name, spec);
+      }
+    }
+  }
+
+  EvalCtx_Destroy(r);
+
+  return specs;
+}
+
+void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key) {
+  dict *specs = Indexes_FindMatchingSchemaRules(ctx, key);
+
+  dictIterator *di = dictGetIterator(specs);
+  dictEntry *ent = dictNext(di);
+  while (ent) {
+    IndexSpec *spec = (IndexSpec *) ent->v.val;
+    IndexSpec_UpdateWithHash(spec, ctx, key);
+    ent = dictNext(di);
+  }
+  dictReleaseIterator(di);
+
+  dictRelease(specs);
+}
+
+void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key) {
+  dict *specs = Indexes_FindMatchingSchemaRules(ctx, key);
+
+  dictIterator *di = dictGetIterator(specs);
+  dictEntry *ent = dictNext(di);
+  while (ent) {
+    IndexSpec *spec = (IndexSpec *) ent->v.val;
+    IndexSpec_DeleteHash(spec, ctx, key);
+    ent = dictNext(di);
+  }
+  dictReleaseIterator(di);
+
+  dictRelease(specs);
 }
