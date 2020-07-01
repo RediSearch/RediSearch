@@ -151,7 +151,8 @@ def testGCIntegrationWithRedisFork(env):
     if env.cmd('FT.CONFIG', 'GET', 'GC_POLICY')[0][1] != 'fork':
         raise unittest.SkipTest()
     env.expect('FT.CONFIG', 'SET', 'FORKGC_SLEEP_BEFORE_EXIT', '4').ok()
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT', 'SORTABLE').ok()
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+               'SCHEMA', 'title', 'TEXT', 'SORTABLE').ok()
     env.expect('FT.ADD', 'idx', 'doc1', 1.0, 'FIELDS', 'title', 'hello world').ok()
     env.expect('bgsave').true()
     env.cmd('FT.DEBUG', 'GC_FORCEINVOKE', 'idx')

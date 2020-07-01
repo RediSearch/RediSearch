@@ -96,10 +96,11 @@ def testSynonymDump(env):
     env.assertEqual(r.execute_command('ft.synadd', 'idx', 'tree', 'wood'), 2)
     env.assertEqual(r.execute_command('ft.syndump', 'idx'), ['baby', [1L], 'offspring', [0L], 'wood', [2L], 'tree', [2L], 'child', [0L, 1L], 'boy', [0L]])
 
-def testSynonymAddWorngArity(env):
+def testSynonymAddWrongArity(env):
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'schema', 'title', 'text', 'body', 'text'))
+        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+        'schema', 'title', 'text', 'body', 'text'))
     exceptionStr = None
     try:
         r.execute_command('ft.synadd', 'idx')
@@ -119,7 +120,8 @@ def testSynonymAddUnknownIndex(env):
 def testSynonymUpdateWorngArity(env):
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'schema', 'title', 'text', 'body', 'text'))
+        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+        'schema', 'title', 'text', 'body', 'text'))
     r.execute_command('ft.synadd', 'idx', 'boy', 'child')
     with env.assertResponseError(contained='wrong number of arguments'):
         r.execute_command('ft.synupdate', 'idx', '0')
@@ -140,7 +142,8 @@ def testSynonymUpdateNotNumberId(env):
 def testSynonymUpdateOutOfRangeId(env):
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'schema', 'title', 'text', 'body', 'text'))
+        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+        'schema', 'title', 'text', 'body', 'text'))
     r.execute_command('ft.synadd', 'idx', 'boy', 'child')
     exceptionStr = None
     try:
@@ -152,7 +155,8 @@ def testSynonymUpdateOutOfRangeId(env):
 def testSynonymDumpWorngArity(env):
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'schema', 'title', 'text', 'body', 'text'))
+        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+        'schema', 'title', 'text', 'body', 'text'))
     r.execute_command('ft.synadd', 'idx', 'boy', 'child')
     exceptionStr = None
     try:
@@ -173,7 +177,8 @@ def testSynonymUnknownIndex(env):
 def testSynonymsRdb(env):
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'schema', 'title', 'text', 'body', 'text'))
+        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+        'schema', 'title', 'text', 'body', 'text'))
     env.assertEqual(r.execute_command('ft.synadd', 'idx', 'boy', 'child', 'offspring'), 0)
     for _ in env.reloading_iterator():
         env.assertEqual(r.execute_command('ft.syndump', 'idx'), ['offspring', [0L], 'child', [0L], 'boy', [0L]])

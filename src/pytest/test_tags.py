@@ -106,13 +106,16 @@ def testInvalidSyntax(env):
     # invalid syntax
     with env.assertResponseError():
         r.execute_command(
-            'ft.create', 'idx', 'schema', 'title', 'text', 'tags', 'tag', 'separator')
+            'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+            'schema', 'title', 'text', 'tags', 'tag', 'separator')
     with env.assertResponseError():
         r.execute_command(
-            'ft.create', 'idx', 'schema', 'title', 'text', 'tags', 'tag', 'separator', "foo")
+            'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+            'schema', 'title', 'text', 'tags', 'tag', 'separator', "foo")
     with env.assertResponseError():
         r.execute_command(
-            'ft.create', 'idx', 'schema', 'title', 'text', 'tags', 'tag', 'separator', "")
+            'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+            'schema', 'title', 'text', 'tags', 'tag', 'separator', "")
 
 
 def testTagVals(env):
@@ -148,6 +151,6 @@ def testTagVals(env):
 
 def testSearchNotExistsTagValue(env):
     # this test basically make sure we are not leaking
-    env.expect('FT.CREATE idx SCHEMA t TAG SORTABLE').ok()
+    env.expect('FT.CREATE idx ON HASH FILTER startswith(@__key,"") SCHEMA t TAG SORTABLE').ok()
     env.expect('FT.SEARCH idx @t:{val}').equal([0])
         
