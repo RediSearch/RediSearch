@@ -10,6 +10,8 @@
 extern "C" {
 #endif
 
+struct IndexSpec;
+
 typedef struct GCCallbacks {
   int (*periodicCallback)(RedisModuleCtx* ctx, void* gcCtx);
   void (*renderStats)(RedisModuleCtx* ctx, void* gc);
@@ -33,8 +35,7 @@ typedef struct GCTask {
   RedisModuleBlockedClient* bClient;
 } GCTask;
 
-typedef struct IndexSpec IndexSpec;
-GCContext* GCContext_CreateGCFromSpec(IndexSpec* sp, float initialHZ, uint64_t uniqueId,
+GCContext* GCContext_CreateGCFromSpec(struct IndexSpec* sp, float initialHZ, uint64_t uniqueId,
                                       uint32_t gcPolicy);
 GCContext* GCContext_CreateGC(RedisModuleString* keyName, float initialHZ, uint64_t uniqueId);
 void GCContext_Start(GCContext* gc);

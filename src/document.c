@@ -727,7 +727,9 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
   }
 
 done:
-  aCtx->donecb(aCtx, sctx->redisCtx, aCtx->donecbData);
+  if (aCtx->donecb) {
+    aCtx->donecb(aCtx, sctx->redisCtx, aCtx->donecbData);
+  }
   AddDocumentCtx_Free(aCtx);
 }
 

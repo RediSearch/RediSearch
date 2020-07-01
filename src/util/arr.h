@@ -60,13 +60,15 @@ typedef struct {
   char buf[];
 } array_hdr_t;
 
+#define arrayof(T) T*
+
 typedef void *array_t;
 /* Internal - calculate the array size for allocations */
-#define array_sizeof(hdr) (sizeof(array_hdr_t) + hdr->cap * hdr->elem_sz)
+#define array_sizeof(hdr) (sizeof(array_hdr_t) + (hdr)->cap * (hdr)->elem_sz)
 /* Internal - get a pointer to the array header */
-#define array_hdr(arr) ((array_hdr_t *)(((char *)arr) - sizeof(array_hdr_t)))
+#define array_hdr(arr) ((array_hdr_t *)(((char *)(arr)) - sizeof(array_hdr_t)))
 /* Interanl - get a pointer to an element inside the array at a given index */
-#define array_elem(arr, idx) (*((void **)((char *)arr + (idx * array_hdr(arr)->elem_sz))))
+#define array_elem(arr, idx) (*((void **)((char *)(arr) + ((idx) * array_hdr(arr)->elem_sz))))
 
 static inline uint32_t array_len(array_t arr);
 
@@ -152,6 +154,9 @@ static inline array_t array_ensure_len(array_t arr, size_t len) {
     memcpy(arrpp + a__oldlen, src, n * sizeof(T)); \
     arrpp;                                         \
   })
+
+#define array_ensure_append_1(arrpp, src) array_ensure_append(arrpp, &(src), 1, __typeof__(*arrpp))
+#define array_ensure_append_n(arrpp, src, n) array_ensure_append(arrpp, src, n, __typeof__(*arrpp))
 
 /**
  * Does the same thing as ensure_append, but the added elements are
@@ -240,7 +245,16 @@ static void array_free(array_t arr) {
   }
 }
 
-#define array_clear(arr) array_hdr(arr)->len = 0
+#define array_clear(arr) \
+  ({                                                                    \
+    if (!arr) {                                                         \
+      arr = array_new(__typeof__(*arr), 1);                             \
+    } else {                                                            \
+      array_hdr(arr)->len = 0;                                          \
+    }                                                                   \
+    arr;                                                                \
+  })
+
 
 /* Repeate the code in "blk" for each element in the array, and give it the name of "as".
  * e.g:

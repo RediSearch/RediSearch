@@ -41,6 +41,7 @@ extern "C" {
 #define SPEC_NOINDEX_STR "NOINDEX"
 #define SPEC_SEPARATOR_STR "SEPARATOR"
 #define SPEC_MULTITYPE_STR "MULTITYPE"
+#define SPEC_ASYNC_STR "ASYNC"
 
 /**
  * If wishing to represent field types positionally, use this
@@ -93,7 +94,8 @@ typedef enum {
   Index_DocIdsOnly = 0x00,
 
   // If any of the fields has phonetics. This is just a cache for quick lookup
-  Index_HasPhonetic = 0x400
+  Index_HasPhonetic = 0x400,
+  Index_Async = 0x800
 } IndexFlags;
 
 /**
@@ -158,7 +160,7 @@ typedef struct {
 
 struct DocumentIndexer;
 
-struct IndexSpec {
+typedef struct IndexSpec {
   char *name;
   FieldSpec *fields;
   int numFields;
@@ -193,7 +195,7 @@ struct IndexSpec {
   struct DocumentIndexer *indexer;
 
   SchemaRule *rule;
-};
+} IndexSpec;
 
 typedef struct {
   void (*dtor)(void *p);
@@ -411,6 +413,7 @@ t_fieldMask IndexSpec_ParseFieldMask(IndexSpec *sp, RedisModuleString **argv, in
 void IndexSpec_InitializeSynonym(IndexSpec *sp);
 void Indexes_Init(RedisModuleCtx *ctx);
 void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key);
+void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key);
 
 #ifdef __cplusplus
 }

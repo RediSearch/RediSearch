@@ -7,6 +7,8 @@
 #include <string.h>
 #include <stdbool.h>
 
+#include "util/arr.h"
+
 typedef uint16_t tm_len_t;
 
 #define TM_NODE_DELETED 0x01
@@ -71,6 +73,8 @@ int TrieMap_Add(TrieMap *t, char *str, tm_len_t len, void *value, TrieMapReplace
  * comparing to it, becase NULL can be a valid result.
  */
 void *TrieMap_Find(TrieMap *t, char *str, tm_len_t len);
+
+int TrieMap_FindPrefixes(TrieMap *t, const char *str, tm_len_t len, arrayof(void*) *results);
 
 /* Mark a node as deleted. It also optimizes the trie by merging nodes if
  * needed. If freeCB is given, it will be used to free the value of the deleted
