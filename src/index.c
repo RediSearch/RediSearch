@@ -1133,12 +1133,13 @@ static int OI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
   //  nc->maxDocId, nc->lastDocId);
 
   int found = 0;
-  if (docId > nc->maxDocId) {
-    return INDEXREAD_EOF;
-  }
 
   // Set the current ID
   nc->lastDocId = docId;
+  
+  if (nc->lastDocId > nc->maxDocId) {
+    return INDEXREAD_EOF;
+  }
 
   if (!nc->child) {
     nc->virt->docId = docId;
