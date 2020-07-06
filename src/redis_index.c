@@ -460,12 +460,7 @@ static int Redis_DeleteKey(RedisModuleCtx *ctx, RedisModuleString *s) {
   return 0;
 }
 
-int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments, int deleteSpecKey) {
-  if (deleteDocuments) {
-    DocTable *dt = &ctx->spec->docs;
-    DOCTABLE_FOREACH(dt, Redis_DeleteKey(ctx->redisCtx, DMD_CreateKeyString(dmd, ctx->redisCtx)));
-  }
-
+int Redis_DropIndex(RedisSearchCtx *ctx, int deleteSpecKey) {
   // todo: delete this after we get the geo field out of key space
   // Delete the numeric, tag, and geo indexes which reside on separate keys
   for (size_t i = 0; i < ctx->spec->numFields; i++) {

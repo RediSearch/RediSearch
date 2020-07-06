@@ -9,6 +9,7 @@ from includes import *
 def testBasicGC(env):
     if env.isCluster():
         raise unittest.SkipTest()
+    env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 1).equal('OK')
     env.assertOk(env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
                          'schema', 'title', 'text', 'id', 'numeric', 't', 'tag'))
     for i in range(101):
@@ -38,6 +39,7 @@ def testBasicGCWithEmptyInvIdx(env):
     if env.moduleArgs is not None and 'GC_POLICY LEGACY' in env.moduleArgs:
         # this test is not relevent for legacy gc cause its not squeshing inverted index
         raise unittest.SkipTest()
+    env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 1).equal('OK')
     env.assertOk(env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
                          'schema', 'title', 'text'))
     env.assertOk(env.cmd('ft.add', 'idx', 'doc1', 1.0, 'fields',
@@ -100,6 +102,7 @@ def testTagGC(env):
     if env.isCluster():
         raise unittest.SkipTest()
     NumberOfDocs = 101
+    env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 1).equal('OK')
     env.assertOk(env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 
                          'schema', 't', 'tag'))
 
@@ -118,7 +121,6 @@ def testTagGC(env):
         for r2 in r1[1]:
             # if r2 is greater then 100 its on the last block and fork GC does not clean the last block
             env.assertTrue(r2 % 2 == 0 or r2 > 100)
-
 
 def testDeleteEntireBlock(env):
     if env.isCluster():
