@@ -282,8 +282,8 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
  */
 int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisModule_AutoMemory(ctx);
-
-  if (argc != 3) return RedisModule_WrongArity(ctx);
+  // allow 'DD' for back support and ignore it.
+  if (argc < 3 || argc > 4) return RedisModule_WrongArity(ctx);
   IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
   if (sp == NULL) {
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
@@ -449,14 +449,8 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
 
-  // Optional KEEPDOCS
-  int delDocs = 1;
-  if (argc == 3 && RMUtil_StringEqualsCaseC(argv[2], "KEEPDOCS")) {
-    delDocs = 0;
-  }
-
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
-  Redis_DropIndex(&sctx, delDocs, true);
+  Redis_DropIndex(&sctx, true);
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 

@@ -51,7 +51,7 @@ def testDelReplicate():
   for i in range(10):
     master.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
                                       'f', 'hello world')
-
+  time.sleep(0.01)
   checkSlaveSynced(env, slave, ('ft.get', 'idx', 'doc9'), ['f', 'hello world'], time_out=20)
 
   for i in range(10):
