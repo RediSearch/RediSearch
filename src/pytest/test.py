@@ -175,18 +175,13 @@ def testSearch(env):
     env.assertOk(r.execute_command('ft.add', 'idx', 'doc2', 1.0, 'fields',
                                     'title', 'hello another world',
                                     'body', 'lorem ist ipsum lorem lorem'))
+    # order of documents might change after reload
     for _ in r.retry_with_rdb_reload():
-
         res = r.execute_command('ft.search', 'idx', 'hello')
-
-        env.assertTrue(len(res) == 5)
-        env.assertEqual(res[0], 2L)
-        env.assertEqual(res[1], "doc2")
-        env.assertTrue(isinstance(res[2], list))
-        env.assertTrue('title' in res[2])
-        env.assertTrue('hello another world' in res[2])
-        env.assertEqual(res[3], "doc1")
-        env.assertTrue('hello world' in res[4])
+        expected = ['doc2', ['title', 'hello another world', 'body', 'lorem ist ipsum lorem lorem'],
+                    'doc1', ['title', 'hello world', 'body', 'lorem ist ipsum', '__score', '0.5']]
+        for item in expected:
+            env.assertIn(item, res)
 
         # Test empty query
         res = r.execute_command('ft.search', 'idx', '')
@@ -196,18 +191,20 @@ def testSearch(env):
         res = r.execute_command(
             'ft.search', 'idx', 'hello', 'nocontent')
         env.assertTrue(len(res) == 3)
+        expected = ['doc2', 'doc1']
         env.assertEqual(res[0], 2L)
-        env.assertEqual(res[1], "doc2")
-        env.assertEqual(res[2], "doc1")
+        for item in expected:
+            env.assertIn(item, res)
 
         # Test searching WITHSCORES
-        res = r.execute_command(
-            'ft.search', 'idx', 'hello', 'WITHSCORES')
+        res = r.execute_command('ft.search', 'idx', 'hello', 'WITHSCORES')
+
+        print res
         env.assertEqual(len(res), 7)
         env.assertEqual(res[0], 2L)
-        env.assertEqual(res[1], "doc2")
+        for item in expected:
+            env.assertIn(item, res)
         env.assertTrue(float(res[2]) > 0)
-        env.assertEqual(res[4], "doc1")
         env.assertTrue(float(res[5]) > 0)
 
         # Test searching WITHSCORES NOCONTENT
@@ -215,9 +212,9 @@ def testSearch(env):
             'ft.search', 'idx', 'hello', 'WITHSCORES', 'NOCONTENT')
         env.assertEqual(len(res), 5)
         env.assertEqual(res[0], 2L)
-        env.assertEqual(res[1], "doc2")
+        for item in expected:
+            env.assertIn(item, res)
         env.assertTrue(float(res[2]) > 0)
-        env.assertEqual(res[3], "doc1")
         env.assertTrue(float(res[4]) > 0)
 
 def testGet(env):
@@ -265,7 +262,7 @@ def testGet(env):
     # Verify that when a document is deleted, GET returns NULL
     r.cmd('ft.del', 'idx', 'doc10') # But we still keep the document
     r.cmd('ft.del', 'idx', 'doc11')
-    env.expect('ft.del', 'idx', 'coverage').error()
+    assert r.cmd('ft.del', 'idx', 'coverage') == 0
     res = r.cmd('ft.get', 'idx', 'doc10')
     r.assertEqual(None, res)
     res = r.cmd('ft.mget', 'idx', 'doc10')
@@ -291,6 +288,9 @@ def testDelete(env):
         r.expect('ft.get', 'idx', 'doc%d' % i).notRaiseError()
         # Delete the actual docs only half of the time
         env.assertEqual(1, r.execute_command(
+           'ft.del', 'idx', 'doc%d' % i, 'DD' if i % 2 == 0 else ''))
+        # second delete should return 0
+        env.assertEqual(0, r.execute_command(
             'ft.del', 'idx', 'doc%d' % i))
         # second delete should return 0
         
@@ -322,11 +322,11 @@ def testDelete(env):
         env.assertOk(r.execute_command('ft.add', 'idx', did, 1, 'fields',
                                         'f', 'hello world'))
         env.assertEqual(1, r.execute_command('ft.del', 'idx', did))
-        #env.assertEqual(0, r.execute_command('ft.del', 'idx', did))
+        env.assertEqual(0, r.execute_command('ft.del', 'idx', did))
         env.assertOk(r.execute_command('ft.add', 'idx', did, 1, 'fields',
                                         'f', 'hello world'))
         env.assertEqual(1, r.execute_command('ft.del', 'idx', did))
-        #env.assertEqual(0, r.execute_command('ft.del', 'idx', did))
+        env.assertEqual(0, r.execute_command('ft.del', 'idx', did))
 
 def testReplace(env):
     r = env
@@ -999,12 +999,11 @@ def testTagErrors(env):
     env.expect("ft.add", "test", "2", "1", "FIELDS", "tags", "ontario. alberta").equal('OK')
 
 def testGeoDeletion(env):
-    raise unittest.SkipTest()
-
     if env.is_cluster():
         raise unittest.SkipTest()
         # Can't properly test if deleted on cluster
 
+    env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).ok()
     env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'schema',
             'g1', 'geo', 'g2', 'geo', 't1', 'text')
     env.cmd('ft.add', 'idx', 'doc1', 1.0, 'fields',
@@ -1748,37 +1747,13 @@ def testDuplicateNonspecFields(env):
     env.assertEqual('f1Val3', res['F1'])
 
 def testDuplicateFields(env):
-    # allowed. only latest field will be saved and indexed
-    env.skip()
-
+    # As of RS 2.0 it is allowed. only latest field will be saved and indexed
     env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
             'SCHEMA', 'txt', 'TEXT', 'num', 'NUMERIC', 'SORTABLE')
-    for _ in env.retry_with_reload():
-        # Ensure the index assignment is correct after an rdb load
-        with env.assertResponseError():
-            env.cmd('FT.ADD', 'idx', 'doc', 1.0, 'FIELDS',
-                     'txt', 'foo', 'txt', 'bar', 'txt', 'baz')
 
-        # Try add hash
-        env.hmset('newDoc', {'txt': 'foo', 'Txt': 'bar', 'txT': 'baz'})
-        # Get the actual value:
-
-        from redis import ResponseError
-        if not env.is_cluster():
-            with env.assertResponseError(contained='twice'):
-                env.cmd('FT.ADDHASH', 'idx', 'newDoc', 1.0)
-
-        # Try with REPLACE
-        with env.assertResponseError():
-            env.cmd('FT.ADD', 'idx', 'doc2', 1.0, 'REPLACE', 'FIELDS',
-                     'txt', 'foo', 'txt', 'bar')
-
-        # With replace partial
-        env.cmd('FT.ADD', 'idx', 'doc2', 1.0, 'REPLACE',
-                 'PARTIAL', 'FIELDS', 'num', 42)
-        with env.assertResponseError():
-            env.cmd('FT.ADD', 'idx', 'doc2', 1.0, 'REPLACE',
-                     'PARTIAL', 'FIELDS', 'num', 42, 'num', 32)
+    env.expect('FT.ADD', 'idx', 'doc', 1.0, 'FIELDS',
+        'txt', 'foo', 'txt', 'bar', 'txt', 'baz').ok()
+    env.expect('FT.SEARCH idx *').equal([1L, 'doc', ['txt', 'baz']])
 
 def testDuplicateSpec(env):
     with env.assertResponseError():
@@ -1874,19 +1849,6 @@ def assertResultsEqual(env, exp, got, inorder=True):
         got_fields = to_dict(got_fields)
         exp_fields = to_dict(exp_fields)
         env.assertEqual(exp_fields, got_fields, message="at position {}".format(x))
-
-def testIssue366_1(env):
-    env.skip()
-    if env.is_cluster():
-        raise unittest.SkipTest('ADDHASH unsupported!')
-    # Test random RDB regressions, see GH 366
-    env.cmd('FT.CREATE', 'idx1', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
-            'SCHEMA', 'textfield', 'TEXT', 'numfield', 'NUMERIC')
-    env.hmset('foo', {'textfield': 'blah', 'numfield': 1})
-    env.cmd('FT.ADDHASH', 'idx1', 'foo', 1, 'replace')
-    env.cmd('FT.DEL', 'idx1', 'foo')
-    for _ in env.retry_with_reload():
-        pass  # --just ensure it doesn't crash
 
 def testIssue366_2(env):
     # FT.CREATE atest SCHEMA textfield TEXT numfield NUMERIC
@@ -2167,8 +2129,6 @@ def testIssue621(env):
 # Could not connect to Redis at 127.0.0.1:6379: Connection refused
 
 def testPrefixDeletedExpansions(env):
-    raise unittest.SkipTest()
-
     env.skipOnCluster()
 
     env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'schema', 'txt1', 'text', 'tag1', 'tag')
@@ -2340,21 +2300,6 @@ def testUnknownSymbolErrorOnConditionalAdd(env):
     env.expect('FT.CREATE idx ON HASH FILTER startswith(@__key,"") SCHEMA f1 TAG f2 NUMERIC NOINDEX f3 TAG NOINDEX').ok()
     env.expect('ft.add idx doc1 1.0 REPLACE PARTIAL IF @f1<awfwaf FIELDS f1 foo f2 1 f3 boo').ok()
     env.expect('ft.add idx doc1 1.0 REPLACE PARTIAL IF @f1<awfwaf FIELDS f1 foo f2 1 f3 boo').error()
-
-# this test is not relevant anymore as index is out of key space
-# def testDelIndexExternally(env):
-#     env.skipOnCluster() # todo: remove once fix on coordinator
-#     env.expect('FT.CREATE idx SCHEMA num NUMERIC t TAG g GEO').equal('OK')
-#     env.expect('ft.add idx doc1 1.0 FIELDS num 3 t my_tag g', "1,1").equal('OK')
-    
-#     env.expect('set nm:idx/num 1').equal('OK')
-#     env.expect('ft.add idx doc2 1.0 FIELDS num 3').equal('Could not open numeric index for indexing')
-
-#     env.expect('set tag:idx/t 1').equal('OK')
-#     env.expect('ft.add idx doc3 1.0 FIELDS t 3').equal('Could not open tag index for indexing')
-
-#     env.expect('set geo:idx/g 1').equal('OK')
-#     env.expect('ft.add idx doc4 1.0 FIELDS g "1,1"').equal('Could not index geo value')
 
 def testWrongResultsReturnedBySkipOptimization(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 
@@ -2904,3 +2849,17 @@ def testIssue1184(env):
 
         env.cmd('FT.DROP idx')
         env.cmd('DEL doc0')
+
+def testIssue1208(env):
+    env.cmd('FT.CREATE idx ON HASH SCHEMA n NUMERIC')
+    env.cmd('FT.ADD idx doc1 1 FIELDS n 1.0321e5')
+    env.cmd('FT.ADD idx doc2 1 FIELDS n 101.11')
+    env.cmd('FT.ADD idx doc3 1 FIELDS n 0.0011')
+    env.expect('FT.SEARCH', 'idx', '@n:[1.1432E3 inf]').equal([1L, 'doc1', ['n', '1.0321e5']])
+    env.expect('FT.SEARCH', 'idx', '@n:[-1.12E-3 1.12E-1]').equal([1L, 'doc3', ['n', '0.0011']])
+    res = [3L, 'doc3', ['n', '0.0011'], 'doc2', ['n', '101.11'], 'doc1', ['n', '1.0321e5']]
+    env.expect('FT.SEARCH', 'idx', '@n:[-inf inf]').equal(res)
+
+    env.expect('FT.ADD idx doc3 1 REPLACE PARTIAL IF @n>42e3 FIELDS n 100').equal('NOADD')
+    env.expect('FT.ADD idx doc3 1 REPLACE PARTIAL IF @n<42e3 FIELDS n 100').ok()
+    print env.cmd('FT.SEARCH', 'idx', '@n:[-inf inf]')

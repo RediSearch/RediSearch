@@ -230,8 +230,6 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     goto cleanup;
   }
 
-  opts.options |= DOCUMENT_ADD_CURTHREAD;
-
   RedisSearchCtx sctx = {.redisCtx = ctx, .spec = sp};
   rv = RS_AddDocument(&sctx, argv[2], &opts, &status);
   if (rv != REDISMODULE_OK) {
@@ -246,7 +244,7 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     // lookups on smaller documents
     // RedisModule_Replicate(ctx, RS_SAFEADD_CMD, "cv", sp->name, argv + 2, argc - 2);
 
-    // TODO: Should replicate HSET? 
+    // RS 2.0 - HSET replicates using `!v` 
     RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
 
