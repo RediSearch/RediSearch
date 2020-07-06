@@ -187,6 +187,7 @@ int Document_ReplyAllFields(RedisModuleCtx *ctx, RedisModuleString *id) {
 
   rep = RedisModule_Call(ctx, "HGETALL", "s", id);
   if (rep == NULL || RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_ARRAY) {
+    RedisModule_ReplyWithArray(ctx, 0);
     goto done;
   }
 
@@ -194,6 +195,7 @@ int Document_ReplyAllFields(RedisModuleCtx *ctx, RedisModuleString *id) {
   RS_LOG_ASSERT(len % 2 == 0, "Number of elements must be even");
   // Zero means the document does not exist in redis
   if (len == 0) {
+    RedisModule_ReplyWithArray(ctx, 0);
     goto done;
   }
 
@@ -262,10 +264,10 @@ void Document_Free(Document *doc) {
   }
 }
 
-static RedisModuleString **globalAddRSstrings = NULL;
+#define globalAddRSstringsSize 3
+static RedisModuleString *globalAddRSstrings[globalAddRSstringsSize] = {0};
 
 static void initGlobalAddStrings() {
-  globalAddRSstrings = rm_malloc(3 * sizeof(*globalAddRSstrings));
   const char *Sscore = "__score";
   const char *Slang = "__language";
   const char *Spayload = "__payload";
@@ -276,17 +278,16 @@ static void initGlobalAddStrings() {
 }
 
 void freeGlobalAddStrings() {
-  if (globalAddRSstrings == NULL) return;
+  if (globalAddRSstrings[0] == NULL) return;
 
   for (size_t i = 0; i < 3; ++i) {
     RedisModule_FreeString(NULL, globalAddRSstrings[i]);
+    globalAddRSstrings[i] = NULL;
   }
-  rm_free(globalAddRSstrings);
-  globalAddRSstrings = NULL;
 }
 
 int Redis_SaveDocument(RedisSearchCtx *ctx, const AddDocumentOptions *opts, QueryError *status) {
-  if (!globalAddRSstrings) {
+  if (globalAddRSstrings[0] == NULL) {
     initGlobalAddStrings();
   }
 

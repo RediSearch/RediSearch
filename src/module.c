@@ -294,10 +294,10 @@ int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   rep = RedisModule_Call(ctx, "DEL", "s", doc_id);
   if (rep == NULL || RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_INTEGER || 
       RedisModule_CallReplyInteger(rep) != 1) {
-    return RedisModule_ReplyWithError(ctx, "Document was not found");
+    return RedisModule_ReplyWithLongLong(ctx, 0);
   }
 
-  RedisModule_Replicate(ctx, RS_DEL_CMD, "cs", argv[1], doc_id);
+  RedisModule_Replicate(ctx, RS_DEL_CMD, "ss", argv[1], doc_id);
   return RedisModule_ReplyWithLongLong(ctx, 1);
 }
 

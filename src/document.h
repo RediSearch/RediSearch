@@ -177,8 +177,7 @@ void Document_Free(Document *doc);
 #define DOCUMENT_ADD_REPLACE 0x01
 #define DOCUMENT_ADD_PARTIAL 0x02
 #define DOCUMENT_ADD_NOSAVE 0x04
-#define DOCUMENT_ADD_CURTHREAD 0x08  // Perform operation in main thread
-#define DOCUMENT_ADD_NOCREATE 0x10   // Don't create document if not exist (replace ONLY)
+#define DOCUMENT_ADD_NOCREATE 0x08   // Don't create document if not exist (replace ONLY)
 
 struct ForwardIndex;
 struct FieldIndexerData;
