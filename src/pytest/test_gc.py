@@ -9,7 +9,7 @@ from includes import *
 def testBasicGC(env):
     if env.isCluster():
         raise unittest.SkipTest()
-    env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 1).equal('OK')
+    env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
     env.assertOk(env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
                          'schema', 'title', 'text', 'id', 'numeric', 't', 'tag'))
     for i in range(101):
@@ -39,7 +39,7 @@ def testBasicGCWithEmptyInvIdx(env):
     if env.moduleArgs is not None and 'GC_POLICY LEGACY' in env.moduleArgs:
         # this test is not relevent for legacy gc cause its not squeshing inverted index
         raise unittest.SkipTest()
-    env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 1).equal('OK')
+    env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
     env.assertOk(env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
                          'schema', 'title', 'text'))
     env.assertOk(env.cmd('ft.add', 'idx', 'doc1', 1.0, 'fields',
@@ -58,6 +58,7 @@ def testNumericGCIntensive(env):
     if env.isCluster():
         raise unittest.SkipTest()
     NumberOfDocs = 1000
+    env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
     env.assertOk(env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
                          'schema', 'id', 'numeric'))
 
@@ -80,6 +81,7 @@ def testGeoGCIntensive(env):
     if env.isCluster():
         raise unittest.SkipTest()
     NumberOfDocs = 1000
+    env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
     env.assertOk(env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
                          'schema', 'g', 'geo'))
 
@@ -102,7 +104,7 @@ def testTagGC(env):
     if env.isCluster():
         raise unittest.SkipTest()
     NumberOfDocs = 101
-    env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 1).equal('OK')
+    env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
     env.assertOk(env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 
                          'schema', 't', 'tag'))
 
@@ -125,6 +127,7 @@ def testTagGC(env):
 def testDeleteEntireBlock(env):
     if env.isCluster():
         raise unittest.SkipTest()
+    env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
                'SCHEMA', 'test', 'TEXT', 'SORTABLE', 'test2', 'TEXT', 'SORTABLE', ).ok()
     # creating 5 blocks on 'checking' inverted index
@@ -144,6 +147,7 @@ def testDeleteEntireBlock(env):
         env.expect('FT.SEARCH', 'idx', '@test:checking @test2:checking250').equal([1L, 'doc250', ['test', 'checking', 'test2', 'checking250']])
 
 def testGCIntegrationWithRedisFork(env):
+    env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
     if env.env == 'existing-env':
         env.skip()
     if env.env == 'enterprise':
@@ -231,6 +235,7 @@ def testGCThreshold(env):
     env.assertEqual(len(debug_rep), 0)
 
 def testGCShutDownOnExit(env):
+    env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
     if env.env == 'existing-env' or env.env == 'enterprise' or env.isCluster() or platform.system() == 'Darwin':
         env.skip()
     env = Env(moduleArgs='GC_POLICY FORK FORKGC_SLEEP_BEFORE_EXIT 20')

@@ -1,52 +1,67 @@
 import unittest
 from includes import *
 
+def getConnectionByEnv(env):
+    conn = None
+    if env.env == 'oss-cluster':
+        conn = env.envRunner.getClusterConnection()
+    else:
+        conn = env.getConnection()
+    return conn
+
 def testFilter1(env):
+    conn = getConnectionByEnv(env)
     env.cmd('ft.create', 'things',
             'ON', 'HASH',
             'FILTER', 'startswith(@__key, "thing:")',
             'SCHEMA', 'name', 'text')
 
-    env.cmd('hset', 'thing:bar', 'name', 'foo')
+    conn.execute_command('hset', 'thing:bar', 'name', 'foo')
 
     env.expect('ft.search', 'things', 'foo') \
        .equal([1L, 'thing:bar', ['name', 'foo']])
 
 def testPrefix0a(env):
+    conn = getConnectionByEnv(env)
     env.cmd('ft.create', 'things', 'ON', 'HASH',
             'PREFIX', '1', '',
             'SCHEMA', 'name', 'text')
 
-    env.cmd('hset', 'thing:bar', 'name', 'foo')
+    conn.execute_command('hset', 'thing:bar', 'name', 'foo')
     env.expect('ft.search', 'things', 'foo').equal([1L, 'thing:bar', ['name', 'foo']])
 
 def testPrefix0b(env):
+    conn = getConnectionByEnv(env)
     env.cmd('ft.create', 'things', 'ON', 'HASH', 'SCHEMA', 'name', 'text')
-    env.cmd('hset', 'thing:bar', 'name', 'foo')
+    conn.execute_command('hset', 'thing:bar', 'name', 'foo')
     env.expect('ft.search', 'things', 'foo').equal([1L, 'thing:bar', ['name', 'foo']])
 
 def testPrefix1(env):
+    conn = getConnectionByEnv(env)
     env.cmd('ft.create', 'things', 'ON', 'HASH',
             'PREFIX', '1', 'thing:',
             'SCHEMA', 'name', 'text')
 
-    env.cmd('hset', 'thing:bar', 'name', 'foo')
+    conn.execute_command('hset', 'thing:bar', 'name', 'foo')
 
     env.expect('ft.search', 'things', 'foo') \
        .equal([1L, 'thing:bar', ['name', 'foo']])
 
 def testPrefix2(env):
+    conn = getConnectionByEnv(env)
     env.cmd('ft.create', 'things', 'ON', 'HASH',
             'PREFIX', '2', 'this:', 'that:',
             'SCHEMA', 'name', 'text')
 
-    env.cmd('hset', 'this:foo', 'name', 'foo')
-    env.cmd('hset', 'that:foo', 'name', 'foo')
+    conn.execute_command('hset', 'this:foo', 'name', 'foo')
+    conn.execute_command('hset', 'that:foo', 'name', 'foo')
 
-    env.expect('ft.search', 'things', 'foo') \
-       .equal([2L, 'that:foo', ['name', 'foo'], 'this:foo', ['name', 'foo']])
+    res = env.cmd('ft.search', 'things', 'foo')
+    env.assertIn('that:foo', res)
+    env.assertIn('this:foo', res)
 
 def testFilter2(env):
+    conn = getConnectionByEnv(env)
     env.cmd('ft.create', 'stuff', 'ON', 'HASH',
             'FILTER', 'startswith(@__key, "stuff:")',
             'SCHEMA', 'name', 'text', 'age', 'numeric')
@@ -55,14 +70,15 @@ def testFilter2(env):
             'FILTER', 'startswith(@__key, "thing:")',
             'SCHEMA', 'name', 'text', 'age', 'numeric')
 
-    env.cmd('hset', 'thing:bar', 'name', 'foo')
-    env.cmd('hset', 'object:jojo', 'name', 'vivi')
-    env.cmd('hset', 'thing:bar', 'age', '42')
+    conn.execute_command('hset', 'thing:bar', 'name', 'foo')
+    conn.execute_command('hset', 'object:jojo', 'name', 'vivi')
+    conn.execute_command('hset', 'thing:bar', 'age', '42')
 
     env.expect('ft.search', 'things', 'foo') \
        .equal([1L, 'thing:bar', ['name', 'foo', 'age', '42']])
 
 def testPrefix3(env):
+    conn = getConnectionByEnv(env)
     env.cmd('ft.create', 'stuff',
             'ON', 'HASH',
             'PREFIX', '1', 'stuff:',
@@ -72,14 +88,15 @@ def testPrefix3(env):
             'PREFIX', '1', 'thing:',
             'SCHEMA', 'name', 'text', 'age', 'numeric')
 
-    env.cmd('hset', 'thing:bar', 'name', 'foo')
-    env.cmd('hset', 'object:jojo', 'name', 'vivi')
-    env.cmd('hset', 'thing:bar', 'age', '42')
+    conn.execute_command('hset', 'thing:bar', 'name', 'foo')
+    conn.execute_command('hset', 'object:jojo', 'name', 'vivi')
+    conn.execute_command('hset', 'thing:bar', 'age', '42')
 
     env.expect('ft.search', 'things', 'foo') \
        .equal([1L, 'thing:bar', ['name', 'foo', 'age', '42']])
 
 def testDel(env):
+    conn = getConnectionByEnv(env)
     env.cmd('ft.create', 'things', 'ON', 'HASH',
             'PREFIX', '1', 'thing:',
             'SCHEMA', 'name', 'text')
@@ -87,43 +104,46 @@ def testDel(env):
     env.expect('ft.search', 'things', 'foo') \
        .equal([0L])
 
-    env.cmd('hset', 'thing:bar', 'name', 'foo')
+    conn.execute_command('hset', 'thing:bar', 'name', 'foo')
 
     env.expect('ft.search', 'things', 'foo') \
        .equal([1L, 'thing:bar', ['name', 'foo']])
 
-    env.cmd('del', 'thing:bar')
+    conn.execute_command('del', 'thing:bar')
 
     env.expect('ft.search', 'things', 'foo') \
        .equal([0L])
 
 def testFlush(env):
+    conn = getConnectionByEnv(env)
     env.cmd('ft.create', 'things', 'ON', 'HASH',
             'PREFIX', '1', 'thing:',
             'FILTER', 'startswith(@__key, "thing:")',
             'SCHEMA', 'name', 'text')
 
-    env.cmd('FLUSHALL')
+    conn.execute_command('FLUSHALL')
 
-    env.cmd('hset', 'thing:bar', 'name', 'foo')
+    conn.execute_command('hset', 'thing:bar', 'name', 'foo')
 
     env.expect('ft.search', 'things', 'foo').equal('things: no such index')
 
 def testNotExist(env):
+    conn = getConnectionByEnv(env)
     env.cmd('ft.create', 'things', 'ON', 'HASH',
             'PREFIX', '1', 'thing:',
             'FILTER', 'startswith(@__key, "thing:")',
             'SCHEMA', 'txt', 'text')
 
-    env.cmd('hset', 'thing:bar', 'not_text', 'foo')
+    conn.execute_command('hset', 'thing:bar', 'not_text', 'foo')
     env.expect('ft.search', 'things', 'foo').equal([0L])
 
 def testPayload(env):
+    conn = getConnectionByEnv(env)
     env.expect('ft.create', 'things', 'ON', 'HASH',
                 'PREFIX', '1', 'thing:',
                 'PAYLOAD', 'payload',
                 'SCHEMA', 'name', 'text').ok()
-    env.cmd('hset', 'thing:foo', 'name', 'foo', 'payload', 'stuff')
+    conn.execute_command('hset', 'thing:foo', 'name', 'foo', 'payload', 'stuff')
 
     for _ in env.retry_with_rdb_reload():
         env.expect('ft.search', 'things', 'foo') \
@@ -141,17 +161,21 @@ def testDuplicateFields(env):
     env.expect('ft.search', 'idx', 'foo').equal([0L])
 
 def testReplace(env):
+    conn = getConnectionByEnv(env)
     r = env
 
     r.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'f', 'text').ok()
 
-    r.expect('HSET', 'doc1', 'f', 'hello world').equal(1)
-    r.expect('HSET', 'doc2', 'f', 'hello world').equal(1)
+    res = conn.execute_command('HSET', 'doc1', 'f', 'hello world')
+    env.assertEqual(res, 1)
+    res = conn.execute_command('HSET', 'doc2', 'f', 'hello world')
+    env.assertEqual(res, 1)
     res = r.execute_command('ft.search', 'idx', 'hello world')
     r.assertEqual(2, res[0])
 
     # now replace doc1 with a different content
-    r.expect('HSET', 'doc1', 'f', 'goodbye universe').equal(0)
+    res = conn.execute_command('HSET', 'doc1', 'f', 'goodbye universe')
+    env.assertEqual(res, 0)
 
     for _ in r.retry_with_rdb_reload():
         # make sure the query for hello world does not return the replaced document
