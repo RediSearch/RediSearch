@@ -2819,7 +2819,7 @@ def testHindiStemmer(env):
     env.assertEqual(u'अँगरेजी अँगरेजों अँगरेज़', unicode(res[2][1], 'utf-8'))
 
 def testMOD507(env):
-    env.skipOnCluster()
+    env.skip() # no longer relevant when following hashes as the del command will also delete the document from the index
     env.expect('ft.create idx ON HASH FILTER startswith(@__key,"") SCHEMA t1 TEXT').ok()
 
     for i in range(50):

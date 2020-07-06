@@ -63,7 +63,7 @@ def testDelReplicate():
 
     # deleting
     env.assertEqual(1, master.execute_command(
-          'ft.del', 'idx', 'doc%d' % i, 'DD'))
+          'ft.del', 'idx', 'doc%d' % i))
 
   checkSlaveSynced(env, slave, ('ft.get', 'idx', 'doc9'), None, time_out=20)
 
