@@ -1183,6 +1183,7 @@ void IndexSpec_ScanAndReindexSpec(void *notused) {
   dictReleaseIterator(iter);
 
   //  RedisModule_ThreadSafeContextUnlock(ctx);
+  RedisModule_FreeThreadSafeContext(ctx);
 }
 
 void IndexSpec_ScanAndReindex() {
