@@ -130,9 +130,13 @@ void SchemaPrefixes_Create() {
   ScemaPrefixes_g = NewTrieMap();
 }
 
+static void freePrefixNode(void *ctx) {
+  SchemaPrefixNode *node = ctx;
+  array_free_ex(node->index_specs, NULL);
+}
+
 void SchemaPrefixes_Free() {
-  // free all nodes specs
-  TrieMap_Free(ScemaPrefixes_g, NULL);
+  TrieMap_Free(ScemaPrefixes_g, freePrefixNode);
 }
 
 void SchemaPrefixes_Add(const char *prefix, IndexSpec *spec) {
@@ -174,7 +178,6 @@ void SchemaPrefixes_RemoveSpec(IndexSpec *spec) {
 SchemaPrefixNode *SchemaPrefixNode_Create(const char *prefix, IndexSpec *index) {
   SchemaPrefixNode *node = rm_calloc(1, sizeof(*node));
   node->prefix = prefix;
-  node->index_specs = NULL;
   node->index_specs = array_ensure_append_1(node->index_specs, index);
   return node;
 }

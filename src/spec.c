@@ -1411,6 +1411,7 @@ int IndexSpec_UpdateWithHash(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleSt
   RSAddDocumentCtx *aCtx = NewAddDocumentCtx(spec, &doc, &status);
   aCtx->stateFlags |= ACTX_F_NOBLOCK;
   AddDocumentCtx_Submit(aCtx, &sctx, DOCUMENT_ADD_PARTIAL);
+  Document_Free(&doc);
   return REDISMODULE_OK;
 }
 
@@ -1464,7 +1465,8 @@ dict *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisModuleString *ke
   EvalCtx *r = EvalCtx_Create();
   // check r for null?
   EvalCtx_AddHash(r, ctx, key);
-  EvalCtx_Set(r, "__key", RS_RedisStringVal(key));
+  RSValue *keyRSV = RS_RedisStringVal(key);
+  EvalCtx_Set(r, "__key", keyRSV);
 
 #ifdef DEBUG
   RLookupKey *k = RLookup_GetKey(&r->lk, "__key", 0);
@@ -1505,6 +1507,7 @@ dict *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisModuleString *ke
     }
   }
 
+  RSValue_Free(keyRSV);
   EvalCtx_Destroy(r);
 
   return specs;
