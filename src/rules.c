@@ -71,6 +71,7 @@ void SchemaRules_RemoveSpecRules(IndexSpec *spec) {
 //---------------------------------------------------------------------------------------------
 
 RSLanguage SchemaRule_HashLang(const SchemaRule *rule, RedisModuleKey *key, const char *kname) {
+  RSLanguage lang = DEFAULT_LANGUAGE;
   if (!rule->lang_field) {
     return DEFAULT_LANGUAGE;
   }
@@ -78,38 +79,42 @@ RSLanguage SchemaRule_HashLang(const SchemaRule *rule, RedisModuleKey *key, cons
   int rv = RedisModule_HashGet(key, REDISMODULE_HASH_CFIELDS, rule->lang_field, &lang_rms, NULL);
   if (rv != REDISMODULE_OK) {
     RedisModule_Log(NULL, "warning", "invalid field %s for key %s", rule->lang_field, kname);
-    return DEFAULT_LANGUAGE;
+    goto done;
   }
   const char *lang_s = (const char *) RedisModule_StringPtrLen(lang_rms, NULL); 
-  RSLanguage lang = RSLanguage_Find(lang_s);
+  lang = RSLanguage_Find(lang_s);
   if (lang == RS_LANG_UNSUPPORTED) {
     RedisModule_Log(NULL, "warning", "invalid language for for key %s", kname);
-    return DEFAULT_LANGUAGE;
+    lang = DEFAULT_LANGUAGE;
   }
+done:
+  RedisModule_FreeString(NULL, lang_rms);
   return lang;
 }
 
 double SchemaRule_HashScore(const SchemaRule *rule, RedisModuleKey *key, const char *kname) {
-  double _default = 1.0;
+  double score = 1.0;
   if (!rule->score_field) {
-    return _default;
+    return score;
   }
   RedisModuleString *score_rms = NULL;
   int rv = RedisModule_HashGet(key, REDISMODULE_HASH_CFIELDS, rule->score_field, &score_rms, NULL);
   if (rv != REDISMODULE_OK) {
     RedisModule_Log(NULL, "warning", "invalid field %s for key %s", rule->lang_field, kname);
-    return _default;
+    goto done;
   }
   // score of 1.0 is not saved in hash
   if (score_rms == NULL) {
-    return _default;
+    return score;
   }
-  double score;
+
   rv = RedisModule_StringToDouble(score_rms, &score);
   if (rv != REDISMODULE_OK) {
     RedisModule_Log(NULL, "warning", "invalid score for for key %s", kname);
-    return _default;
+    score = 1.0;
   }
+done:  
+  RedisModule_FreeString(NULL, score_rms);
   return score;
 }
 
@@ -119,6 +124,7 @@ RedisModuleString *SchemaRule_HashPayload(const SchemaRule *rule, RedisModuleKey
   int rv = RedisModule_HashGet(key, REDISMODULE_HASH_CFIELDS, payload_field, &payload_rms, NULL);
   if (rv != REDISMODULE_OK) {
     RedisModule_Log(NULL, "warning", "invalid field %s for key %s", rule->lang_field, kname);
+    if (payload_rms != NULL) RedisModule_FreeString(NULL, payload_rms);
     return NULL;
   }
   return payload_rms;
