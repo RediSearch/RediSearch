@@ -1508,7 +1508,6 @@ dict *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisModuleString *ke
     }
   }
 
-  RSValue_Free(keyRSV); // RLookup_WriteOwnKey??
   EvalCtx_Destroy(r);
 
   return specs;
