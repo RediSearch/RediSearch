@@ -312,8 +312,12 @@ int Redis_SaveDocument(RedisSearchCtx *ctx, const AddDocumentOptions *opts, Quer
     arguments = array_append(arguments, opts->payload);
   }
 
-  RedisModule_Call(ctx->redisCtx, "HSET", "!v", arguments, array_len(arguments));
-  
+  RedisModuleCallReply *rep = NULL;
+  rep = RedisModule_Call(ctx->redisCtx, "HSET", "!v", arguments, array_len(arguments));
+  if (rep) {
+    RedisModule_FreeCallReply(rep);
+  }
+
   array_free(arguments);
 
   return REDISMODULE_OK;

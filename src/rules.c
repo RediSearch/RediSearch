@@ -131,6 +131,7 @@ void SchemaPrefixes_Create() {
 }
 
 void SchemaPrefixes_Free() {
+  // free all nodes specs
   TrieMap_Free(ScemaPrefixes_g, NULL);
 }
 

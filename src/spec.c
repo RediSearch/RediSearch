@@ -1462,6 +1462,7 @@ void Indexes_Init(RedisModuleCtx *ctx) {
 
 dict *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key) {
   EvalCtx *r = EvalCtx_Create();
+  // check r for null?
   EvalCtx_AddHash(r, ctx, key);
   EvalCtx_Set(r, "__key", RS_RedisStringVal(key));
 
