@@ -9,8 +9,18 @@ TrieMap *ScemaPrefixes_g;
 
 SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, IndexSpec *spec, QueryError *status) {
   SchemaRule *rule = rm_calloc(1, sizeof(*rule));
+  if (args->type) {
+    if (!strcasecmp(args->type, "HASH")) {
+      rule->type = SchemaRuleType_Hash;
+    } else {
+      QueryError_SetError(status, QUERY_EADDARGS, "Invalid rule type");
+      goto error;
+    }
+  } else {
+      QueryError_SetError(status, QUERY_EADDARGS, "No rule type given");
+      goto error;
+  }
 
-  rule->type = rm_strdup(args->type);
   rule->filter_exp_str = args->filter_exp_str ? rm_strdup(args->filter_exp_str) : NULL;
   rule->lang_field = args->lang_field ? rm_strdup(args->lang_field) : NULL;
   rule->score_field = args->score_field ? rm_strdup(args->score_field) : NULL;
@@ -18,7 +28,7 @@ SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, IndexSpec *spec, QueryError 
 
   for (int i = 0; i < args->nprefixes; ++i) {
     const char *p = rm_strdup(args->prefixes[i]);
-    rule->prefixes = array_ensure_append(rule->prefixes, &p, 1, const char*);
+    rule->prefixes = array_ensure_append_1(rule->prefixes, p);
   }
 
   rule->spec = spec;
@@ -47,7 +57,6 @@ void SchemaRule_Free(SchemaRule *rule) {
   SchemaPrefixes_RemoveSpec(rule->spec);
   SchemaRules_RemoveSpecRules(rule->spec);
 
-  rm_free((void*) rule->type);
   rm_free((void*) rule->filter_exp_str);
   if (rule->filter_exp) {
     ExprAST_Free((RSExpr *) rule->filter_exp);

@@ -11,8 +11,15 @@
 struct RSExpr;
 struct IndexSpec;
 
+typedef enum {
+  SchameRuleType_Any,
+  SchemaRuleType_Hash
+} SchemaRuleType;
+
+//---------------------------------------------------------------------------------------------
+
 typedef struct {
-  const char *type;
+  const char *type; // HASH, JSON, etc.
   const char **prefixes;
   int nprefixes;
   char *filter_exp_str;
@@ -22,8 +29,8 @@ typedef struct {
 } SchemaRuleArgs;
 
 typedef struct SchemaRule {
+  SchemaRuleType type;
   struct IndexSpec *spec;
-  const char *type; // HASH, JSON, etc.
   arrayof(const char *) prefixes;
   char *filter_exp_str;
   struct RSExpr *filter_exp;
