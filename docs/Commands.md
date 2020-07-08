@@ -26,10 +26,12 @@ Creates an index with the given spec. The index name will be used in all the key
 !!! info "Note on running in clustered databases"
         
         When having several indices in a clustered database, you need to tag the index key and the document key to ensure they reside on the same shard.
-        ```sql
+        
+	```
         FT.CREATE {idx} ...
         FT.ADD {idx} {idx}:docid ...
         ```
+	
         When Running in RediSearch in Redis Enterprise, there is the ability to span the index across shards.  In this case the above does not apply.
 
 #### Example
