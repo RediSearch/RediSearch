@@ -111,6 +111,8 @@ int Document_LoadSchemaFields(Document *doc, RedisSearchCtx *sctx) {
 
   IndexSpec *spec = sctx->spec;
   SchemaRule *rule = spec->rule;
+  Document_MakeStringsOwner(doc);
+  
   if (rule) {
     const char *keyname = (const char *) RedisModule_StringPtrLen(doc->docKey, NULL); 
     doc->language = SchemaRule_HashLang(rctx, rule, k, keyname);
@@ -122,7 +124,6 @@ int Document_LoadSchemaFields(Document *doc, RedisSearchCtx *sctx) {
     }
   }
 
-  Document_MakeStringsOwner(doc);
   doc->fields = rm_calloc(nitems, sizeof(*doc->fields));
   for (size_t ii = 0; ii < spec->numFields; ++ii) {
     const char *fname = spec->fields[ii].name;

@@ -145,7 +145,8 @@ void SchemaPrefixes_Create() {
 
 static void freePrefixNode(void *ctx) {
   SchemaPrefixNode *node = ctx;
-  array_free_ex(node->index_specs, NULL);
+  array_free(node->index_specs);
+  rm_free(node);
 }
 
 void SchemaPrefixes_Free() {
@@ -193,10 +194,6 @@ SchemaPrefixNode *SchemaPrefixNode_Create(const char *prefix, IndexSpec *index) 
   node->prefix = prefix;
   node->index_specs = array_ensure_append_1(node->index_specs, index);
   return node;
-}
-
-void SchemaPrefixNode_Free(SchemaPrefixNode *node) {
-  array_free(node->index_specs);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
