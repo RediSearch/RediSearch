@@ -1146,6 +1146,8 @@ static void IndexSpec_ScanCallback(RedisModuleCtx *ctx, RedisModuleString *keyna
   }
   dictReleaseIterator(iter);
 
+  // doc was set DEAD in Document_Moved and was not freed since it set as NOFREEDOC
+  doc.flags &= ~DOCUMENT_F_DEAD;
   Document_Free(&doc);
 }
 
@@ -1413,6 +1415,9 @@ int IndexSpec_UpdateWithHash(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleSt
   RSAddDocumentCtx *aCtx = NewAddDocumentCtx(spec, &doc, &status);
   aCtx->stateFlags |= ACTX_F_NOBLOCK;
   AddDocumentCtx_Submit(aCtx, &sctx, DOCUMENT_ADD_REPLACE);
+
+  // doc was set DEAD in Document_Moved and was not freed since it set as NOFREEDOC
+  doc.flags &= ~DOCUMENT_F_DEAD;
   Document_Free(&doc);
   return REDISMODULE_OK;
 }

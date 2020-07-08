@@ -48,6 +48,9 @@ void SchemaRule_Free(SchemaRule *rule) {
   SchemaRules_RemoveSpecRules(rule->spec);
 
   rm_free((void*) rule->type);
+  rm_free((void*) rule->lang_field);
+  rm_free((void*) rule->score_field);
+  rm_free((void*) rule->payload_field);
   rm_free((void*) rule->filter_exp_str);
   if (rule->filter_exp) {
     ExprAST_Free((RSExpr *) rule->filter_exp);
