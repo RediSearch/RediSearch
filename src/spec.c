@@ -1183,6 +1183,7 @@ void IndexSpec_ScanAndReindexSpec(void *notused) {
   dictReleaseIterator(iter);
 
   //  RedisModule_ThreadSafeContextUnlock(ctx);
+  RedisModule_ScanCursorDestroy(cursor);
   RedisModule_FreeThreadSafeContext(ctx);
 }
 
@@ -1411,7 +1412,7 @@ int IndexSpec_UpdateWithHash(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleSt
   QueryError status = {0};
   RSAddDocumentCtx *aCtx = NewAddDocumentCtx(spec, &doc, &status);
   aCtx->stateFlags |= ACTX_F_NOBLOCK;
-  AddDocumentCtx_Submit(aCtx, &sctx, DOCUMENT_ADD_PARTIAL);
+  AddDocumentCtx_Submit(aCtx, &sctx, DOCUMENT_ADD_REPLACE);
   Document_Free(&doc);
   return REDISMODULE_OK;
 }
