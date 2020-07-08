@@ -894,6 +894,7 @@ void __attribute__((destructor)) RediSearch_CleanupModule(void) {
     GC_ThreadPoolDestroy();
     IndexAlias_DestroyGlobal();
     freeGlobalAddStrings();
+    SpellCheck_DictDestroy();
     RedisModule_FreeThreadSafeContext(RSDummyContext);
   }
 }

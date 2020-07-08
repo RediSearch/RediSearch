@@ -7,6 +7,7 @@
 #include "trie/trie_type.h"
 
 Trie* SpellCheck_OpenDict(RedisModuleCtx* ctx, const char* dictName, int mode);
+void SpellCheck_DictDestroy();
 
 int Dictionary_Add(RedisModuleCtx* ctx, const char* dictName, RedisModuleString** values, int len,
                    char** err);
