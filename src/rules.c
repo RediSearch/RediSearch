@@ -73,12 +73,12 @@ void SchemaRules_RemoveSpecRules(IndexSpec *spec) {
 
 //---------------------------------------------------------------------------------------------
 
-RSLanguage SchemaRule_HashLang(const SchemaRule *rule, RedisModuleKey *key, const char *kname) {
+RSLanguage SchemaRule_HashLang(RedisModuleCtx *rctx, const SchemaRule *rule, RedisModuleKey *key, const char *kname) {
   RSLanguage lang = DEFAULT_LANGUAGE;
-  if (!rule->lang_field) {
-    return DEFAULT_LANGUAGE;
-  }
   RedisModuleString *lang_rms = NULL;
+  if (!rule->lang_field) {
+    goto done;
+  }
   int rv = RedisModule_HashGet(key, REDISMODULE_HASH_CFIELDS, rule->lang_field, &lang_rms, NULL);
   if (rv != REDISMODULE_OK) {
     RedisModule_Log(NULL, "warning", "invalid field %s for key %s", rule->lang_field, kname);
@@ -91,16 +91,18 @@ RSLanguage SchemaRule_HashLang(const SchemaRule *rule, RedisModuleKey *key, cons
     lang = DEFAULT_LANGUAGE;
   }
 done:
-  RedisModule_FreeString(NULL, lang_rms);
+  if (lang_rms) {
+    RedisModule_FreeString(rctx, lang_rms);
+  }
   return lang;
 }
 
-double SchemaRule_HashScore(const SchemaRule *rule, RedisModuleKey *key, const char *kname) {
+double SchemaRule_HashScore(RedisModuleCtx *rctx, const SchemaRule *rule, RedisModuleKey *key, const char *kname) {
   double score = 1.0;
-  if (!rule->score_field) {
-    return score;
-  }
   RedisModuleString *score_rms = NULL;
+  if (!rule->score_field) {
+    goto done;
+  }
   int rv = RedisModule_HashGet(key, REDISMODULE_HASH_CFIELDS, rule->score_field, &score_rms, NULL);
   if (rv != REDISMODULE_OK) {
     RedisModule_Log(NULL, "warning", "invalid field %s for key %s", rule->lang_field, kname);
@@ -108,7 +110,7 @@ double SchemaRule_HashScore(const SchemaRule *rule, RedisModuleKey *key, const c
   }
   // score of 1.0 is not saved in hash
   if (score_rms == NULL) {
-    return score;
+    goto done;
   }
 
   rv = RedisModule_StringToDouble(score_rms, &score);
@@ -116,18 +118,20 @@ double SchemaRule_HashScore(const SchemaRule *rule, RedisModuleKey *key, const c
     RedisModule_Log(NULL, "warning", "invalid score for for key %s", kname);
     score = 1.0;
   }
-done:  
-  RedisModule_FreeString(NULL, score_rms);
+done:
+  if (score_rms) {
+    RedisModule_FreeString(rctx, score_rms);
+  }
   return score;
 }
 
-RedisModuleString *SchemaRule_HashPayload(const SchemaRule *rule, RedisModuleKey *key, const char *kname) {
-  const char *payload_field = rule->payload_field ? rule->payload_field : "__payload";
+RedisModuleString *SchemaRule_HashPayload(RedisModuleCtx *rctx, const SchemaRule *rule, RedisModuleKey *key, const char *kname) {
   RedisModuleString *payload_rms = NULL;
+  const char *payload_field = rule->payload_field ? rule->payload_field : "__payload";
   int rv = RedisModule_HashGet(key, REDISMODULE_HASH_CFIELDS, payload_field, &payload_rms, NULL);
   if (rv != REDISMODULE_OK) {
     RedisModule_Log(NULL, "warning", "invalid field %s for key %s", rule->lang_field, kname);
-    if (payload_rms != NULL) RedisModule_FreeString(NULL, payload_rms);
+    if (payload_rms != NULL) RedisModule_FreeString(rctx, payload_rms);
     return NULL;
   }
   return payload_rms;
