@@ -1089,6 +1089,7 @@ static void IndexStats_RdbSave(RedisModuleIO *rdb, IndexStats *stats) {
   RedisModule_SaveUnsigned(rdb, stats->termsSize);
 }
 
+// todo: the final solution will scan in background
 static threadpool reindexPool = NULL;
 
 static bool IndexSpec_ShouldIndex(IndexSpec *sp, RedisModuleString *keyName, RedisModuleKey *key) {
@@ -1190,9 +1191,9 @@ void IndexSpec_ScanAndReindexSpec(void *notused) {
 }
 
 void IndexSpec_ScanAndReindex() {
-  if (!reindexPool) {
+  /*if (!reindexPool) {
     reindexPool = thpool_init(1);
-  }
+  }*/
 
   // todo: the final solution will scan in background
   IndexSpec_ScanAndReindexSpec(NULL);

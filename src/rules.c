@@ -105,7 +105,7 @@ double SchemaRule_HashScore(RedisModuleCtx *rctx, const SchemaRule *rule, RedisM
   }
   int rv = RedisModule_HashGet(key, REDISMODULE_HASH_CFIELDS, rule->score_field, &score_rms, NULL);
   if (rv != REDISMODULE_OK) {
-    RedisModule_Log(NULL, "warning", "invalid field %s for key %s", rule->lang_field, kname);
+    RedisModule_Log(NULL, "warning", "invalid field %s for key %s", rule->score_field, kname);
     goto done;
   }
   // score of 1.0 is not saved in hash
@@ -130,7 +130,7 @@ RedisModuleString *SchemaRule_HashPayload(RedisModuleCtx *rctx, const SchemaRule
   const char *payload_field = rule->payload_field ? rule->payload_field : "__payload";
   int rv = RedisModule_HashGet(key, REDISMODULE_HASH_CFIELDS, payload_field, &payload_rms, NULL);
   if (rv != REDISMODULE_OK) {
-    RedisModule_Log(NULL, "warning", "invalid field %s for key %s", rule->lang_field, kname);
+    RedisModule_Log(NULL, "warning", "invalid field %s for key %s", rule->payload_field, kname);
     if (payload_rms != NULL) RedisModule_FreeString(rctx, payload_rms);
     return NULL;
   }

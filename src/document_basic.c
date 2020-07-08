@@ -118,6 +118,7 @@ int Document_LoadSchemaFields(Document *doc, RedisSearchCtx *sctx) {
     RedisModuleString *payload_rms = SchemaRule_HashPayload(rctx, rule, k, keyname);
     if (payload_rms) {
       doc->payload = (const char *) rm_strdup(RedisModule_StringPtrLen(payload_rms, &doc->payloadSize));
+      RedisModule_FreeString(rctx, payload_rms);
     }
   }
 
