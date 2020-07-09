@@ -9,6 +9,11 @@ def getConnectionByEnv(env):
         conn = env.getConnection()
     return conn
 
+def testSyntax1(env):
+    conn = getConnectionByEnv(env)
+    env.expect('ft.create', 'things',
+            'SCHEMA', 'name', 'text').equal('No rule type given')
+
 def testFilter1(env):
     conn = getConnectionByEnv(env)
     env.cmd('ft.create', 'things',
