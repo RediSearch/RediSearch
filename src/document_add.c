@@ -59,13 +59,14 @@ static int parseDocumentOptions(AddDocumentOptions *opts, ArgsCursor *ac, QueryE
   opts->options = 0;
 
   char *languageStr = NULL;
-  ACArgSpec argList[] = {{AC_MKBITFLAG("REPLACE", &opts->options, DOCUMENT_ADD_REPLACE)},
-                         {AC_MKBITFLAG("PARTIAL", &opts->options, DOCUMENT_ADD_PARTIAL)},
-                         {AC_MKBITFLAG("NOCREATE", &opts->options, DOCUMENT_ADD_NOCREATE)},
-                         {.name = "PAYLOAD", .type = AC_ARGTYPE_RSTRING, .target = &opts->payload},
-                         {.name = "LANGUAGE", .type = AC_ARGTYPE_RSTRING, .target = &opts->languageStr},
-                         {.name = "IF", .type = AC_ARGTYPE_STRING, .target = &opts->evalExpr},
-                         {.name = NULL}};
+  ACArgSpec argList[] = {
+      {AC_MKBITFLAG("REPLACE", &opts->options, DOCUMENT_ADD_REPLACE)},
+      {AC_MKBITFLAG("PARTIAL", &opts->options, DOCUMENT_ADD_PARTIAL)},
+      {AC_MKBITFLAG("NOCREATE", &opts->options, DOCUMENT_ADD_NOCREATE)},
+      {.name = "PAYLOAD", .type = AC_ARGTYPE_RSTRING, .target = &opts->payload},
+      {.name = "LANGUAGE", .type = AC_ARGTYPE_RSTRING, .target = &opts->languageStr},
+      {.name = "IF", .type = AC_ARGTYPE_STRING, .target = &opts->evalExpr},
+      {.name = NULL}};
 
   while (!AC_IsAtEnd(ac)) {
     int rv = 0;
@@ -173,7 +174,10 @@ int RS_AddDocument(RedisSearchCtx *sctx, RedisModuleString *name, const AddDocum
 
   // remove doc entirely if not partial update
   if (exists && opts->options & DOCUMENT_ADD_REPLACE && !(opts->options & DOCUMENT_ADD_PARTIAL)) {
-    RedisModule_Call(sctx->redisCtx, "DEL", "s", opts->keyStr);
+    RedisModuleCallReply *reply = RedisModule_Call(sctx->redisCtx, "DEL", "s", opts->keyStr);
+    if (reply) {
+      RedisModule_FreeCallReply(reply);
+    }
   }
 
   RedisSearchCtx sctx_s = SEARCH_CTX_STATIC(sctx->redisCtx, sp);
@@ -203,9 +207,7 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   }
 
   ArgsCursor ac;
-  AddDocumentOptions opts = {.keyStr = argv[2],
-                             .scoreStr = argv[3],
-                             .donecb = replyCallback};
+  AddDocumentOptions opts = {.keyStr = argv[2], .scoreStr = argv[3], .donecb = replyCallback};
   QueryError status = {0};
 
   ArgsCursor_InitRString(&ac, argv + 3, argc - 3);
@@ -244,7 +246,7 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     // lookups on smaller documents
     // RedisModule_Replicate(ctx, RS_SAFEADD_CMD, "cv", sp->name, argv + 2, argc - 2);
 
-    // RS 2.0 - HSET replicates using `!v` 
+    // RS 2.0 - HSET replicates using `!v`
     RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
 

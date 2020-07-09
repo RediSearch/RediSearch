@@ -133,16 +133,25 @@ int DictAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return REDISMODULE_OK;
 }
 
+static void Dictionary_Clear() {
+  dictIterator *iter = dictGetIterator(spellCheckDicts);
+  dictEntry *entry;
+  while ((entry = dictNext(iter))) {
+    Trie *val = dictGetVal(entry);
+    TrieType_Free(val);
+  }
+  dictReleaseIterator(iter);
+  dictEmpty(spellCheckDicts, NULL);
+}
+
+void Dictionary_Free() {
+  Dictionary_Clear();
+  dictRelease(spellCheckDicts);
+}
+
 static int SpellCheckDictAuxLoad(RedisModuleIO *rdb, int encver, int when) {
   if (when == REDISMODULE_AUX_BEFORE_RDB) {
-    dictIterator *iter = dictGetIterator(spellCheckDicts);
-    dictEntry *entry;
-    while ((entry = dictNext(iter))) {
-      Trie *val = dictGetVal(entry);
-      TrieType_Free(val);
-    }
-    dictReleaseIterator(iter);
-    dictEmpty(spellCheckDicts, NULL);
+    Dictionary_Clear();
     return REDISMODULE_OK;
   }
   size_t len = RedisModule_LoadUnsigned(rdb);
@@ -151,6 +160,7 @@ static int SpellCheckDictAuxLoad(RedisModuleIO *rdb, int encver, int when) {
     char *key = RedisModule_LoadStringBuffer(rdb, &keyLen);
     Trie *val = TrieType_GenericLoad(rdb, false);
     dictAdd(spellCheckDicts, key, val);
+    RedisModule_Free(key);
   }
   return REDISMODULE_OK;
 }
