@@ -16,6 +16,9 @@ typedef enum {
   SchemaRuleType_Hash
 } SchemaRuleType;
 
+const char *SchemaRuleType_ToString(SchemaRuleType type);
+int SchemaRuleType_Parse(const char *type_str, SchemaRuleType *type, QueryError *status);
+
 //---------------------------------------------------------------------------------------------
 
 typedef struct {
@@ -43,6 +46,8 @@ extern arrayof(SchemaRule*) SchemaRules_g;
 
 SchemaRule *SchemaRule_Create(SchemaRuleArgs *ags, struct IndexSpec *spec, QueryError *status);
 void SchemaRule_Free(SchemaRule *);
+
+void SchemaRules_Create();
 void SchemaRules_RemoveSpecRules(struct IndexSpec *spec);
 
 RSLanguage SchemaRule_HashLang(const SchemaRule *rule, RedisModuleKey *key, const char *kname);
@@ -60,7 +65,7 @@ void SchemaPrefixes_RemoveSpec(struct IndexSpec *spec);
 
 typedef struct {
   const char *prefix;
-  struct IndexSpec **index_specs; // util_arr
+  arrayof(struct IndexSpec*) index_specs;
 } SchemaPrefixNode;
 
 SchemaPrefixNode *SchemaPrefixNode_Create(const char *prefix, struct IndexSpec *index);

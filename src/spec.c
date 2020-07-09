@@ -1450,6 +1450,7 @@ void Indexes_Init(RedisModuleCtx *ctx) {
   specDict = dictCreate(&dictTypeHeapStrings, NULL);
   RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_FlushDB, onFlush);
   SchemaPrefixes_Create();
+  SchemaRules_Create();
 }
 
 dict *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key) {
@@ -1470,7 +1471,7 @@ dict *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisModuleString *ke
 
   size_t n;
   const char *key_p = RedisModule_StringPtrLen(key, &n);
-  arrayof(SchemaPrefixNode*) prefixes = 0;
+  arrayof(SchemaPrefixNode*) prefixes = array_new(SchemaPrefixNode*, 1);
   int nprefixes = TrieMap_FindPrefixes(ScemaPrefixes_g, key_p, n, (arrayof(void*)*) &prefixes);
   for (int i = 0; i < array_len(prefixes); ++i) {
     SchemaPrefixNode *node = prefixes[i];
