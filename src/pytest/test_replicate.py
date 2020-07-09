@@ -46,7 +46,7 @@ def testDelReplicate():
   slave = env.getSlaveConnection()
   env.assertTrue(master.execute_command("ping"))
   env.assertTrue(slave.execute_command("ping"))
-  env.assertOk(master.execute_command('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'schema', 'f', 'text'))
+  env.assertOk(master.execute_command('ft.create', 'idx', 'ON', 'HASH', 'schema', 'f', 'text'))
   #checkSlaveSynced(env, slave, ('exists', 'idx:idx'), 1, time_out=20)
 
   for i in range(10):

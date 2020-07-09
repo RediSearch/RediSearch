@@ -3,7 +3,7 @@ from includes import *
 
 
 def testBasicPoneticCase(env):
-    env.assertOk(env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+    env.assertOk(env.cmd('ft.create', 'idx', 'ON', 'HASH',
                          'schema', 'text', 'TEXT', 'PHONETIC', 'dm:en', 'SORTABLE'))
     env.assertOk(env.cmd('ft.add', 'idx', 'doc1', 1.0, 'fields',
                            'text', 'morfix'))
@@ -15,20 +15,20 @@ def testBasicPoneticCase(env):
 
 def testBasicPoneticWrongDeclaration(env):
     with env.assertResponseError():
-        env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+        env.cmd('ft.create', 'idx', 'ON', 'HASH',
                 'schema', 'text', 'TEXT', 'PHONETIC', 'something', 'SORTABLE')
     with env.assertResponseError():
-        env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+        env.cmd('ft.create', 'idx', 'ON', 'HASH',
                 'schema', 'text', 'TEXT', 'PHONETIC', 'kk:tt', 'SORTABLE')
     with env.assertResponseError():
-        env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+        env.cmd('ft.create', 'idx', 'ON', 'HASH',
                 'schema', 'text', 'TEXT', 'PHONETIC', 'dm:tt', 'SORTABLE')
     with env.assertResponseError():
-        env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+        env.cmd('ft.create', 'idx', 'ON', 'HASH',
                 'schema', 'text', 'TEXT', 'PHONETIC', 'll:en', 'SORTABLE')
 
 def testPoneticOnNonePhoneticField(env):
-    env.assertOk(env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+    env.assertOk(env.cmd('ft.create', 'idx', 'ON', 'HASH',
                          'schema', 'text', 'TEXT', 'PHONETIC', 'dm:en', 'SORTABLE', 'text1', 'TEXT', 'SORTABLE'))
     env.assertOk(env.cmd('ft.add', 'idx', 'doc1', 1.0, 'fields',
                            'text', 'morfix',
@@ -45,7 +45,7 @@ def testPoneticOnNonePhoneticField(env):
         env.cmd('ft.search', 'idx', '@text1:morphix=>{$phonetic:false}')
 
 def testPoneticWithAggregation(env):
-    env.assertOk(env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+    env.assertOk(env.cmd('ft.create', 'idx', 'ON', 'HASH',
                          'schema', 'text', 'TEXT', 'PHONETIC', 'dm:en', 'SORTABLE', 'text1', 'TEXT', 'SORTABLE'))
     env.assertOk(env.cmd('ft.add', 'idx', 'doc1', 1.0, 'fields',
                            'text', 'morfix',
@@ -66,7 +66,7 @@ def testPoneticWithAggregation(env):
 def testPoneticWithSchemaAlter(env):
     #remove support 2.0
     env.skip()
-    env.assertOk(env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+    env.assertOk(env.cmd('ft.create', 'idx', 'ON', 'HASH',
                          'schema', 'text', 'TEXT', 'PHONETIC', 'dm:en', 'SORTABLE', 'text1', 'TEXT', 'SORTABLE'))
     env.assertOk(env.cmd('ft.alter', 'idx', 'SCHEMA', 'ADD', 'text2', 'TEXT', 'PHONETIC', 'dm:en'))
 
@@ -82,7 +82,7 @@ def testPoneticWithSchemaAlter(env):
     env.assertEquals(env.cmd('ft.search', 'idx', '@text2:fonetic=>{$phonetic:true}'), [1L, 'doc1', ['text', 'morfix', 'text1', 'check', 'text2', 'phonetic']])
 
 def testPoneticWithSmallTerm(env):
-    env.assertOk(env.cmd('ft.create', 'complainants', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+    env.assertOk(env.cmd('ft.create', 'complainants', 'ON', 'HASH',
                          'SCHEMA', 'name', 'text', 'PHONETIC', 'dm:en', 'almamater', 'text', 'PHONETIC', 'dm:en'))
 
     env.assertOk(env.cmd('ft.add', 'complainants', 'foo64', 1.0, 'FIELDS', 'name', 'jon smith', 'almamater', 'Trent'))
@@ -92,7 +92,7 @@ def testPoneticWithSmallTerm(env):
     env.assertEqual(res, [2L, 'foo64', ['name', 'jon smith', 'almamater', 'Trent'], 'foo65', ['name', 'john jones', 'almamater', 'Toronto']])
 
 def testPoneticOnNumbers(env):
-    env.assertOk(env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+    env.assertOk(env.cmd('ft.create', 'idx', 'ON', 'HASH',
                          'SCHEMA', 'test', 'TEXT', 'PHONETIC', 'dm:en'))
     env.assertOk(env.cmd('ft.add', 'idx', 'doc1', 1.0, 'FIELDS', 'test', 'this is 2015 test'))
     env.assertOk(env.cmd('ft.add', 'idx', 'doc2', 1.0, 'FIELDS', 'test', 'this is 04 test'))

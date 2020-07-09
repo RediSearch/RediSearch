@@ -28,7 +28,7 @@ from includes import *
 #         env.assertExists(prefix + ':idx/lorem')
 
 def testAddErrors(env):
-    env.expect('ft.create idx ON HASH FILTER startswith(@__key,"") schema foo text bar numeric sortable').equal('OK')
+    env.expect('ft.create idx ON HASH schema foo text bar numeric sortable').equal('OK')
     env.expect('ft.add idx doc1 1 redis 4').error().contains('Unknown keyword')
     env.expect('ft.add idx doc1').error().contains("wrong number of arguments")
     env.expect('ft.add idx doc1 42').error().contains("Score must be between 0 and 1")
@@ -44,7 +44,7 @@ def assertEqualIgnoreCluster(env, val1, val2):
 
 def testConditionalUpdate(env):
     env.assertOk(env.cmd(
-        'ft.create', 'idx','ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 
+        'ft.create', 'idx','ON', 'HASH',
         'schema', 'foo', 'text', 'bar', 'numeric', 'sortable'))
     env.assertOk(env.cmd('ft.add', 'idx', '1', '1',
                            'fields', 'foo', 'hello', 'bar', '123'))
@@ -75,7 +75,7 @@ def testUnionIdList(env):
     r = env
     N = 100
     env.assertOk(r.execute_command(
-        "ft.create", "test", 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 
+        "ft.create", "test", 'ON', 'HASH',
         "SCHEMA",  "tags", "TAG", "waypoint", "GEO"))
     env.assertOk(r.execute_command(
         "ft.add", "test", "1", "1", "FIELDS", "tags", "alberta", "waypoint", "-113.524,53.5244"))
@@ -89,7 +89,7 @@ def testUnionIdList(env):
     env.assertEqual(res, [2, '2', '1'])
 
 def testAttributes(env):
-    env.assertOk(env.cmd('ft.create', 'idx','ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 
+    env.assertOk(env.cmd('ft.create', 'idx','ON', 'HASH',
                          'schema', 'title', 'text', 'body', 'text'))
     env.assertOk(env.cmd('ft.add', 'idx', 'doc1', 1.0, 'fields',
                                             'title', 't1 t2', 'body', 't3 t4 t5'))
@@ -117,7 +117,7 @@ def testUnion(env):
     N = 100
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx','ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'schema', 'f', 'text'))
+        'ft.create', 'idx','ON', 'HASH', 'schema', 'f', 'text'))
     for i in range(N):
 
         env.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
@@ -167,7 +167,7 @@ def testUnion(env):
 def testSearch(env):
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 
+        'ft.create', 'idx', 'ON', 'HASH',
         'schema', 'title', 'text', 'weight', 10.0, 'body', 'text'))
     env.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 0.5, 'fields',
                                     'title', 'hello world',
@@ -220,7 +220,7 @@ def testSearch(env):
 def testGet(env):
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+        'ft.create', 'idx', 'ON', 'HASH',
         'schema', 'foo', 'text', 'bar', 'text'))
 
     env.expect('ft.get').error().contains("wrong number of arguments")
@@ -275,7 +275,7 @@ def testGet(env):
 def testDelete(env):
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'schema', 'f', 'text'))
+        'ft.create', 'idx', 'ON', 'HASH', 'schema', 'f', 'text'))
 
     for i in range(100):
         env.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
@@ -332,7 +332,7 @@ def testReplace(env):
     r = env
 
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'schema', 'f', 'text'))
+        'ft.create', 'idx', 'ON', 'HASH', 'schema', 'f', 'text'))
 
     env.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 1.0, 'fields',
                                     'f', 'hello world'))
@@ -368,7 +368,7 @@ def testReplace(env):
 def testDrop(env):
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'schema', 'f', 'text', 'n', 'numeric', 't', 'tag', 'g', 'geo'))
+        'ft.create', 'idx', 'ON', 'HASH', 'schema', 'f', 'text', 'n', 'numeric', 't', 'tag', 'g', 'geo'))
 
     for i in range(100):
         env.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
@@ -386,7 +386,7 @@ def testDrop(env):
 
     # Now do the same with KEEPDOCS
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 
+        'ft.create', 'idx', 'ON', 'HASH',
         'schema', 'f', 'text', 'n', 'numeric', 't', 'tag', 'g', 'geo'))
 
     for i in range(100):
@@ -408,17 +408,17 @@ def testCustomStopwords(env):
     r = env
     # Index with default stopwords
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'schema', 'foo', 'text'))
+        'ft.create', 'idx', 'ON', 'HASH', 'schema', 'foo', 'text'))
 
     # Index with custom stopwords
-    env.assertOk(r.execute_command('ft.create', 'idx2', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'stopwords', 2, 'hello', 'world',
+    env.assertOk(r.execute_command('ft.create', 'idx2', 'ON', 'HASH', 'stopwords', 2, 'hello', 'world',
                                     'schema', 'foo', 'text'))
     if not env.isCluster:
         res = env.cmd('ft.info', 'idx2')
         env.assertEqual(res[39], ['hello', 'world'])
 
     # Index with NO stopwords
-    env.assertOk(r.execute_command('ft.create', 'idx3', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'stopwords', 0,
+    env.assertOk(r.execute_command('ft.create', 'idx3', 'ON', 'HASH', 'stopwords', 0,
                                     'schema', 'foo', 'text'))
     
     if not env.isCluster:
@@ -453,7 +453,7 @@ def testCustomStopwords(env):
 def testStopwords(env):
     # This test was taken from Python's tests, and failed due to some changes
     # made earlier
-    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'stopwords', 3, 'foo',
+    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'stopwords', 3, 'foo',
              'bar', 'baz', 'schema', 'txt', 'text')
     env.cmd('ft.add', 'idx', 'doc1', 1.0, 'fields', 'txt', 'foo bar')
     env.cmd('ft.add', 'idx', 'doc2', 1.0, 'fields', 'txt', 'hello world')
@@ -465,7 +465,7 @@ def testStopwords(env):
 
 def testNoStopwords(env):
     # This test taken from Java's test suite
-    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'schema', 'title', 'text')
+    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text')
     for i in range(100):
         env.cmd('ft.add', 'idx', 'doc{}'.format(i), 1.0, 'fields',
                  'title', 'hello world' if i % 2 == 0 else 'hello worlds')
@@ -483,7 +483,7 @@ def testNoStopwords(env):
 def testOptional(env):
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'schema', 'foo', 'text'))
+        'ft.create', 'idx', 'ON', 'HASH', 'schema', 'foo', 'text'))
     env.assertOk(r.execute_command('ft.add', 'idx',
                                     'doc1', 1.0, 'fields', 'foo', 'hello wat woot'))
     env.assertOk(r.execute_command('ft.add', 'idx', 'doc2',
@@ -510,7 +510,7 @@ def testExplain(env):
 
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+        'ft.create', 'idx', 'ON', 'HASH',
         'schema', 'foo', 'text', 'bar', 'numeric', 'sortable'))
     q = '(hello world) "what what" hello|world @bar:[10 100]|@bar:[200 300]'
     res = r.execute_command('ft.explain', 'idx', q)
@@ -531,7 +531,7 @@ def testExplain(env):
 def testNoIndex(env):
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'schema',
+        'ft.create', 'idx', 'ON', 'HASH', 'schema',
         'foo', 'text',
         'num', 'numeric', 'sortable', 'noindex',
         'extra', 'text', 'noindex', 'sortable'))
@@ -560,7 +560,7 @@ def testNoIndex(env):
 def testPartial(env):
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',  'SCORE', '__score',
+        'ft.create', 'idx', 'ON', 'HASH',  'SCORE', '__score',
         'schema',
         'foo', 'text',
         'num', 'numeric', 'sortable', 'noindex',
@@ -624,7 +624,7 @@ def testPartial(env):
 def testPaging(env):
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'schema', 'foo', 'text', 'bar', 'numeric', 'sortable'))
+        'ft.create', 'idx', 'ON', 'HASH', 'schema', 'foo', 'text', 'bar', 'numeric', 'sortable'))
     N = 100
     for i in range(N):
         env.assertOk(r.execute_command('ft.add', 'idx', '%d' % i, 1, 'fields',
@@ -664,7 +664,7 @@ def testPaging(env):
 def testPrefix(env):
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'schema', 'foo', 'text'))
+        'ft.create', 'idx', 'ON', 'HASH', 'schema', 'foo', 'text'))
     N = 100
     for i in range(N):
         env.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
@@ -692,7 +692,7 @@ def testPrefix(env):
 def testSortBy(env):
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'schema', 'foo', 'text', 'sortable', 'bar', 'numeric', 'sortable'))
+        'ft.create', 'idx', 'ON', 'HASH', 'schema', 'foo', 'text', 'sortable', 'bar', 'numeric', 'sortable'))
     N = 100
     for i in range(N):
         env.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
@@ -733,7 +733,7 @@ def testSortBy(env):
 def testNot(env):
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'schema', 'foo', 'text'))
+        'ft.create', 'idx', 'ON', 'HASH', 'schema', 'foo', 'text'))
     N = 10
     for i in range(N):
         env.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
@@ -780,7 +780,7 @@ def testNot(env):
 def testNestedIntersection(env):
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+        'ft.create', 'idx', 'ON', 'HASH',
         'schema', 'a', 'text', 'b', 'text', 'c', 'text', 'd', 'text'))
     for i in range(20):
         env.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
@@ -821,7 +821,7 @@ def testNestedIntersection(env):
 def testInKeys(env):
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'schema', 'foo', 'text'))
+        'ft.create', 'idx', 'ON', 'HASH', 'schema', 'foo', 'text'))
 
     for i in range(200):
         env.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
@@ -851,7 +851,7 @@ def testInKeys(env):
 def testSlopInOrder(env):
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'schema', 'title', 'text'))
+        'ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text'))
     env.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 1, 'fields',
                                     'title', 't1 t2'))
     env.assertOk(r.execute_command('ft.add', 'idx', 'doc2', 1, 'fields',
@@ -891,7 +891,7 @@ def testSlopInOrder(env):
 def testExact(env):
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+        'ft.create', 'idx', 'ON', 'HASH',
         'schema', 'title', 'text', 'weight', 10.0, 'body', 'text'))
     env.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 0.5, 'fields',
                                     'title', 'hello world',
@@ -915,7 +915,7 @@ def testExact(env):
 
 def testGeoErrors(env):
     env.expect('flushall')
-    env.expect('ft.create idx ON HASH FILTER startswith(@__key,"") schema name text location geo').equal('OK')
+    env.expect('ft.create idx ON HASH schema name text location geo').equal('OK')
     env.expect('ft.add idx hotel 1.0 fields name hill location -0.1757,51.5156').equal('OK')
     env.expect('ft.search idx hilton geofilter location -0.1757 51.5156 1 km').equal([0L])
 
@@ -943,7 +943,7 @@ def testGeo(env):
     gsearch_inline = lambda query, lon, lat, dist, unit='km': r.execute_command(
         'ft.search', 'idx', '{} @location:[{} {} {} {}]'.format(query,  lon, lat, dist, unit), 'LIMIT', 0, 20)
 
-    env.assertOk(r.execute_command('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+    env.assertOk(r.execute_command('ft.create', 'idx', 'ON', 'HASH',
                                     'schema', 'name', 'text', 'location', 'geo'))
 
     for i, hotel in enumerate(hotels):
@@ -993,7 +993,7 @@ def testGeo(env):
         env.assertListEqual(sorted(res), sorted(res2))
 
 def testTagErrors(env):
-    env.expect("ft.create", "test", 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 
+    env.expect("ft.create", "test", 'ON', 'HASH',
                 "SCHEMA",  "tags", "TAG").equal('OK')
     env.expect("ft.add", "test", "1", "1", "FIELDS", "tags", "alberta").equal('OK')
     env.expect("ft.add", "test", "2", "1", "FIELDS", "tags", "ontario. alberta").equal('OK')
@@ -1004,7 +1004,7 @@ def testGeoDeletion(env):
         # Can't properly test if deleted on cluster
 
     env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).ok()
-    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'schema',
+    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema',
             'g1', 'geo', 'g2', 'geo', 't1', 'text')
     env.cmd('ft.add', 'idx', 'doc1', 1.0, 'fields',
             'g1', "-0.1757,51.5156",
@@ -1041,7 +1041,7 @@ def testGeoDeletion(env):
 def testInfields(env):
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+        'ft.create', 'idx', 'ON', 'HASH',
         'schema', 'title', 'text', 'weight', 10.0, 'body', 'text', 'weight', 1.0))
     env.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 0.5, 'fields',
                                     'title', 'hello world',
@@ -1093,7 +1093,7 @@ def testInfields(env):
 def testScorerSelection(env):
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'schema', 'title', 'text', 'body', 'text'))
+        'ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'body', 'text'))
 
     # this is the default scorer
     res = r.execute_command(
@@ -1106,7 +1106,7 @@ def testScorerSelection(env):
 def testFieldSelectors(env):
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "doc")',
+        'ft.create', 'idx', 'ON', 'HASH', 'PREFIX', 1, 'doc',
         'schema', 'TiTle', 'text', 'BoDy', 'text', "יוניקוד", 'text', 'field.with,punct', 'text'))
     env.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 1, 'fields',
                                     'title', 'hello world', 'body', 'foo bar', 'יוניקוד', 'unicode', 'field.with,punct', 'punt'))
@@ -1150,7 +1150,7 @@ def testFieldSelectors(env):
 def testStemming(env):
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'schema', 'title', 'text'))
+        'ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text'))
     env.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 0.5, 'fields',
                                     'title', 'hello kitty'))
     env.assertOk(r.execute_command('ft.add', 'idx', 'doc2', 1.0, 'fields',
@@ -1174,7 +1174,7 @@ def testStemming(env):
 def testExpander(env):
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'schema', 'title', 'text'))
+        'ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text'))
     env.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 0.5, 'fields',
                                     'title', 'hello kitty'))
     res = r.execute_command(
@@ -1210,7 +1210,7 @@ def testExpander(env):
 def testNumericRange(env):
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'schema', 'title', 'text', 'score', 'numeric', 'price', 'numeric'))
+        'ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'score', 'numeric', 'price', 'numeric'))
 
     env.expect('ft.search', 'idx', 'hello kitty', 'filter', 'score', 5).error().contains("FILTER requires 3 arguments")
     env.expect('ft.search', 'idx', 'hello kitty', 'filter', 'score', 5, 'inf').error().contains("Bad upper range: inf")
@@ -1378,7 +1378,7 @@ def testSuggestPayload(env):
 def testPayload(env):
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'PAYLOAD', '__payload', 'schema', 'f', 'text'))
+        'ft.create', 'idx', 'ON', 'HASH', 'PAYLOAD', '__payload', 'schema', 'f', 'text'))
     for i in range(10):
         r.expect('ft.add', 'idx', '%d' % i, 1.0,
                  'payload', 'payload %d' % i,
@@ -1402,7 +1402,7 @@ def testGarbageCollector(env):
     N = 100
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'schema', 'foo', 'text'))
+        'ft.create', 'idx', 'ON', 'HASH', 'schema', 'foo', 'text'))
     for i in range(N):
 
         env.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0,
@@ -1452,7 +1452,7 @@ def testGarbageCollector(env):
         env.assertEqual([0], res)
 
 def testReturning(env):
-    env.assertCmdOk('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'schema',
+    env.assertCmdOk('ft.create', 'idx', 'ON', 'HASH', 'schema',
                      'f1', 'text',
                      'f2', 'text',
                      'n1', 'numeric', 'sortable',
@@ -1510,7 +1510,7 @@ def _test_create_options_real(env, *options):
     except:
         pass
 
-    options = ['idx'] + options + ['ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'schema', 'f1', 'text', 'f2', 'text']
+    options = ['idx'] + options + ['ON', 'HASH', 'schema', 'f1', 'text', 'f2', 'text']
     env.assertCmdOk('ft.create', *options)
     for i in range(10):
         env.assertCmdOk('ft.add', 'idx', 'doc{}'.format(
@@ -1557,7 +1557,7 @@ def testInfoCommand(env):
     from itertools import combinations
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'NOFIELDS', 'schema', 'title', 'text'))
+        'ft.create', 'idx', 'ON', 'HASH', 'NOFIELDS', 'schema', 'title', 'text'))
     N = 50
     for i in xrange(N):
         env.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1, 'replace', 'fields',
@@ -1593,7 +1593,7 @@ def testInfoCommand(env):
                 env.cmd('ft.drop', 'idx')
             except:
                 pass
-            env.assertCmdOk('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', *options)
+            env.assertCmdOk('ft.create', 'idx', 'ON', 'HASH', *options)
             info = env.cmd('ft.info', 'idx')
             ix = info.index('index_options')
             env.assertFalse(ix == -1)
@@ -1608,7 +1608,7 @@ def testInfoCommand(env):
                 env.assertTrue(option in opts)
 
 def testNoStem(env):
-    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+    env.cmd('ft.create', 'idx', 'ON', 'HASH',
             'schema', 'body', 'text', 'name', 'text', 'nostem')
     if not env.isCluster():
         # todo: change it to be more generic to pass on is_cluster
@@ -1633,14 +1633,14 @@ def testNoStem(env):
 
 def testSortbyMissingField(env):
     # GH Issue 131
-    env.cmd('ft.create', 'ix', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'schema', 'txt',
+    env.cmd('ft.create', 'ix', 'ON', 'HASH', 'schema', 'txt',
              'text', 'num', 'numeric', 'sortable')
     env.cmd('ft.add', 'ix', 'doc1', 1.0, 'fields', 'txt', 'foo')
     env.cmd('ft.search', 'ix', 'foo', 'sortby', 'num')
 
 def testParallelIndexing(env):
     # GH Issue 207
-    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'schema', 'txt', 'text')
+    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 'txt', 'text')
     from threading import Thread
     env.getConnection()
     ndocs = 100
@@ -1662,7 +1662,7 @@ def testParallelIndexing(env):
 
 def testDoubleAdd(env):
     # Tests issue #210
-    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'schema', 'txt', 'text')
+    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 'txt', 'text')
     env.cmd('ft.add', 'idx', 'doc1', 1.0, 'fields', 'txt', 'hello world')
     with env.assertResponseError():
         env.cmd('ft.add', 'idx', 'doc1', 1.0,
@@ -1683,7 +1683,7 @@ def testConcurrentErrors(env):
     from multiprocessing import Process
     import random
 
-    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'schema', 'txt', 'text')
+    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 'txt', 'text')
     docs_per_thread = 100
     num_threads = 50
 
@@ -1711,7 +1711,7 @@ def testConcurrentErrors(env):
     env.assertEqual(100, int(d['num_docs']))
 
 def testBinaryKeys(env):
-    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'schema', 'txt', 'text')
+    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 'txt', 'text')
     # Insert a document
     env.cmd('ft.add', 'idx', 'Hello', 1.0, 'fields', 'txt', 'NoBin match')
     env.cmd('ft.add', 'idx', 'Hello\x00World', 1.0, 'fields', 'txt', 'Bin match')
@@ -1726,7 +1726,7 @@ def testNonDefaultDb(env):
         raise unittest.SkipTest()
 
     # Should be ok
-    env.cmd('FT.CREATE', 'idx1', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'schema', 'txt', 'text')
+    env.cmd('FT.CREATE', 'idx1', 'ON', 'HASH', 'schema', 'txt', 'text')
     try:
         env.cmd('SELECT 1')
     except redis.ResponseError:
@@ -1734,10 +1734,10 @@ def testNonDefaultDb(env):
 
     # Should fail
     with env.assertResponseError():
-        env.cmd('FT.CREATE', 'idx2', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'schema', 'txt', 'text')
+        env.cmd('FT.CREATE', 'idx2', 'ON', 'HASH', 'schema', 'txt', 'text')
 
 def testDuplicateNonspecFields(env):
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'schema', 'txt', 'text').ok()
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'schema', 'txt', 'text').ok()
     env.expect('FT.ADD', 'idx', 'doc', 1.0, 'fields',
                 'txt', 'foo', 'f1', 'f1val', 'f1', 'f1val2', 'F1', 'f1Val3').ok()
     res = env.cmd('ft.get', 'idx', 'doc')
@@ -1748,7 +1748,7 @@ def testDuplicateNonspecFields(env):
 
 def testDuplicateFields(env):
     # As of RS 2.0 it is allowed. only latest field will be saved and indexed
-    env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+    env.cmd('FT.CREATE', 'idx', 'ON', 'HASH',
             'SCHEMA', 'txt', 'TEXT', 'num', 'NUMERIC', 'SORTABLE')
 
     env.expect('FT.ADD', 'idx', 'doc', 1.0, 'FIELDS',
@@ -1757,13 +1757,13 @@ def testDuplicateFields(env):
 
 def testDuplicateSpec(env):
     with env.assertResponseError():
-        env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+        env.cmd('FT.CREATE', 'idx', 'ON', 'HASH',
                 'SCHEMA', 'f1', 'text', 'n1', 'numeric', 'f1', 'text')
 
 def testSortbyMissingFieldSparse(env):
     # Note, the document needs to have one present sortable field in
     # order for the indexer to give it a sort vector
-    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+    env.cmd('ft.create', 'idx', 'ON', 'HASH',
             'SCHEMA', 'lastName', 'text', 'SORTABLE', 'firstName', 'text', 'SORTABLE')
     env.cmd('ft.add', 'idx', 'doc1', 1.0, 'fields', 'lastName', 'mark')
     res = env.cmd('ft.search', 'idx', 'mark', 'WITHSORTKEYS', "SORTBY",
@@ -1776,7 +1776,7 @@ def testLuaAndMulti(env):
     if env.is_cluster():
         raise unittest.SkipTest()
     # Ensure we can work in Lua and Multi environments without crashing
-    env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'SCHEMA', 'f1', 'text', 'n1', 'numeric')
+    env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'f1', 'text', 'n1', 'numeric')
     env.cmd('HMSET', 'hashDoc', 'f1', 'v1', 'n1', 4)
     env.cmd('HMSET', 'hashDoc2', 'f1', 'v1', 'n1', 5)
 
@@ -1795,7 +1795,7 @@ def testLuaAndMulti(env):
     pl.execute()
 
 def testLanguageField(env):
-    env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'SCHEMA', 'language', 'TEXT')
+    env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'language', 'TEXT')
     env.cmd('FT.ADD', 'idx', 'doc1', 1.0,
              'FIELDS', 'language', 'gibberish')
     res = env.cmd('FT.SEARCH', 'idx', 'gibberish')
@@ -1809,7 +1809,7 @@ def testLanguageField(env):
 
 def testUninitSortvector(env):
     # This would previously crash
-    env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'SCHEMA', 'f1', 'TEXT')
+    env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'f1', 'TEXT')
     for x in range(2000):
         env.cmd('FT.ADD', 'idx', 'doc{}'.format(
             x), 1.0, 'FIELDS', 'f1', 'HELLO')
@@ -1928,7 +1928,7 @@ def testIssue366_2(env):
     # FT.ADD atest anId 1 PAYLOAD '{"hello":"world"}' FIELDS textfield sometext numfield 1234
     # FT.ADD atest anId 1 PAYLOAD '{"hello":"world2"}' REPLACE PARTIAL FIELDS numfield 1111
     # shutdown
-    env.cmd('FT.CREATE', 'idx1', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+    env.cmd('FT.CREATE', 'idx1', 'ON', 'HASH',
             'SCHEMA', 'textfield', 'TEXT', 'numfield', 'NUMERIC')
     env.cmd('FT.ADD', 'idx1', 'doc1', 1, 'PAYLOAD', '{"hello":"world"}',
              'FIELDS', 'textfield', 'sometext', 'numfield', 1234)
@@ -1941,13 +1941,13 @@ def testIssue366_2(env):
 
 def testIssue654(env):
     # Crashes during FILTER
-    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'schema', 'id', 'numeric')
+    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 'id', 'numeric')
     env.cmd('ft.add', 'idx', 1, 1, 'fields', 'id', 1)
     env.cmd('ft.add', 'idx', 2, 1, 'fields', 'id', 2)
     res = env.cmd('ft.search', 'idx', '*', 'filter', '@version', 0, 2)
 
 def testReplaceReload(env):
-    env.cmd('FT.CREATE', 'idx2', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+    env.cmd('FT.CREATE', 'idx2', 'ON', 'HASH',
             'SCHEMA', 'textfield', 'TEXT', 'numfield', 'NUMERIC')
     # Create a document and then replace it.
     env.cmd('FT.ADD', 'idx2', 'doc2', 1.0, 'FIELDS', 'textfield', 's1', 'numfield', 99)
@@ -1972,7 +1972,7 @@ def testReplaceReload(env):
 # // reload from ...
 # r.execute_command('FT.ADD idx doc1 1.0 FIELDS t0 1')
 def testIssue417(env):
-    command = ['ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'schema']
+    command = ['ft.create', 'idx', 'ON', 'HASH', 'schema']
     for x in range(255):
         command += ['t{}'.format(x), 'numeric', 'sortable']
     command = command[:-1]
@@ -1990,7 +1990,7 @@ def testIssue417(env):
 # >FT.SEARCH myIdx "no-as"
 # (error) Unknown Index name
 def testIssue422(env):
-    env.cmd('ft.create', 'myIdx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'schema',
+    env.cmd('ft.create', 'myIdx', 'ON', 'HASH', 'schema',
              'title', 'TEXT', 'WEIGHT', '5.0',
              'body', 'TEXT',
              'url', 'TEXT')
@@ -1999,7 +1999,7 @@ def testIssue422(env):
     env.assertEqual([0], rv)
 
 def testIssue446(env):
-    env.cmd('ft.create', 'myIdx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'schema',
+    env.cmd('ft.create', 'myIdx', 'ON', 'HASH', 'schema',
              'title', 'TEXT', 'SORTABLE')
     env.cmd('ft.add', 'myIdx', 'doc1', '1.0', 'fields', 'title', 'hello world', 'body', 'lorem ipsum', 'url', '"www.google.com')
     rv = env.cmd('ft.search', 'myIdx', 'hello', 'limit', '0', '0')
@@ -2012,14 +2012,14 @@ def testIssue446(env):
 
 
 def testTimeoutSettings(env):
-    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'schema', 't1', 'text')
+    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 't1', 'text')
     env.expect('ft.search', 'idx', '*', 'ON_TIMEOUT', 'BLAHBLAH').raiseError()
     env.expect('ft.search', 'idx', '*', 'ON_TIMEOUT', 'RETURN').notRaiseError()
     env.expect('ft.search', 'idx', '*', 'ON_TIMEOUT', 'FAIL').notRaiseError()
 
 def testAlias(env):
-    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "doc1")', 'schema', 't1', 'text')
-    env.cmd('ft.create', 'idx2', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "doc2")', 'schema', 't1', 'text')
+    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'PREFIX', 1, 'doc1', 'schema', 't1', 'text')
+    env.cmd('ft.create', 'idx2', 'ON', 'HASH', 'PREFIX', 1, 'doc2', 'schema', 't1', 'text')
 
     env.expect('ft.aliasAdd', 'myIndex').raiseError()
     env.expect('ft.aliasupdate', 'fake_alias', 'imaginary_alias', 'Too_many_args').raiseError()
@@ -2055,7 +2055,7 @@ def testAlias(env):
     env.expect('ft.search', 'myIndex', 'foo').raiseError()
 
     # create a new index and see if we can use the old name
-    env.cmd('ft.create', 'idx3', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "doc3")', 'schema', 't1', 'text')
+    env.cmd('ft.create', 'idx3', 'ON', 'HASH', 'PREFIX', 1, 'doc3', 'schema', 't1', 'text')
     env.cmd('ft.add', 'idx3', 'doc3', 1.0, 'fields', 't1', 'foo')
     env.cmd('ft.aliasAdd', 'myIndex', 'idx3')
     # also, check that this works in rdb save
@@ -2087,7 +2087,7 @@ def testAlias(env):
 
 
 def testNoCreate(env):
-    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'schema', 'f1', 'text')
+    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 'f1', 'text')
     env.expect('ft.add', 'idx', 'schema', 'f1').raiseError()
     env.expect('ft.add', 'idx', 'doc1', 1, 'nocreate', 'fields', 'f1', 'hello').raiseError()
     env.expect('ft.add', 'idx', 'doc1', 1, 'replace', 'nocreate', 'fields', 'f1', 'hello').raiseError()
@@ -2095,8 +2095,8 @@ def testNoCreate(env):
     env.expect('ft.add', 'idx', 'doc1', 1, 'replace', 'nocreate', 'fields', 'f1', 'world').notRaiseError()
 
 def testSpellCheck(env):
-    env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'SCHEMA', 'report', 'TEXT')
-    env.cmd('FT.ADD', 'idx', 'doc1', 1.0, 'FIELDS', 'report', 'report content')  
+    env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'report', 'TEXT')
+    env.cmd('FT.ADD', 'idx', 'doc1', 1.0, 'FIELDS', 'report', 'report content') 
     rv = env.cmd('FT.SPELLCHECK', 'idx', '111111')
     env.assertEqual([['TERM', '111111', []]], rv)
     if not env.isCluster():
@@ -2121,7 +2121,7 @@ def testIssue484(env):
 # 127.0.0.1:6379> "FT.ADD" "productSearch1" "GUID5" "1.0" "REPLACE" "FIELDS" "productid" "3" "categoryid" "cars" "color" "blue" "categoryType" 0
 # OK
 # 127.0.0.1:6379>  FT.AGGREGATE productSearch1 * load 2 @color @categoryid APPLY "split(format(\"%s-%s\",@color,@categoryid),\"-\")" as value GROUPBY 1 @value REDUCE COUNT 0 as value_count
-    env.cmd('ft.create', 'productSearch1', 'noscoreidx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'schema', 'productid',
+    env.cmd('ft.create', 'productSearch1', 'noscoreidx', 'ON', 'HASH', 'schema', 'productid',
             'text', 'categoryid', 'text', 'color', 'text', 'timestamp', 'numeric')
     env.cmd('ft.add', 'productSearch1', 'GUID1', '1.0', 'REPLACE', 'FIELDS', 'productid', '1', 'categoryid', 'cars', 'color', 'blue', 'categoryType', 0)
     env.cmd('ft.add', 'productSearch1', 'GUID2', '1.0', 'REPLACE', 'FIELDS', 'productid', '1', 'categoryid', 'small cars', 'color', 'white', 'categoryType', 0)
@@ -2140,7 +2140,7 @@ def testIssue484(env):
         env.assertIn(var, res)
 
 def testIssue501(env):
-    env.cmd('FT.CREATE', 'incidents', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'SCHEMA', 'report', 'TEXT')
+    env.cmd('FT.CREATE', 'incidents', 'ON', 'HASH', 'SCHEMA', 'report', 'TEXT')
     env.cmd('FT.ADD', 'incidents', 'doc1', 1.0, 'FIELDS', 'report', 'report content')
     env.cmd('FT.DICTADD', 'slang', 'timmies', 'toque', 'toonie', 'serviette', 'kerfuffle', 'chesterfield')
     rv = env.cmd('FT.SPELLCHECK', 'incidents', 'qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq',
@@ -2152,12 +2152,12 @@ def testIssue501(env):
         'TERMS', 'FAKE_COMMAND', 'slang').error()
 
 def testIssue589(env):
-    env.cmd('FT.CREATE', 'incidents', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'SCHEMA', 'report', 'TEXT')
+    env.cmd('FT.CREATE', 'incidents', 'ON', 'HASH', 'SCHEMA', 'report', 'TEXT')
     env.cmd('FT.ADD', 'incidents', 'doc1', 1.0, 'FIELDS', 'report', 'report content')
     env.expect('FT.SPELLCHECK', 'incidents', 'report :').error().contains("Syntax error at offset")
 
 def testIssue621(env):
-    env.expect('ft.create', 'test', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'SCHEMA', 'uuid', 'TAG', 'title', 'TEXT').equal('OK')
+    env.expect('ft.create', 'test', 'ON', 'HASH', 'SCHEMA', 'uuid', 'TAG', 'title', 'TEXT').equal('OK')
     env.expect('ft.add', 'test', 'a', '1', 'REPLACE', 'PARTIAL', 'FIELDS', 'uuid', 'foo', 'title', 'bar').equal('OK')
     env.expect('ft.add', 'test', 'a', '1', 'REPLACE', 'PARTIAL', 'FIELDS', 'title', 'bar').equal('OK')
     env.expect('ft.search', 'test', '@uuid:{foo}').equal([1L, 'a', ['uuid', 'foo', 'title', 'bar', '__score', '1']])
@@ -2203,7 +2203,7 @@ def testIssue621(env):
 def testPrefixDeletedExpansions(env):
     env.skipOnCluster()
 
-    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'schema', 'txt1', 'text', 'tag1', 'tag')
+    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 'txt1', 'text', 'tag1', 'tag')
     # get the number of maximum expansions
     maxexpansions = int(env.cmd('ft.config', 'get', 'MAXEXPANSIONS')[0][1])
 
@@ -2236,7 +2236,7 @@ def testPrefixDeletedExpansions(env):
 
 
 def testOptionalFilter(env):
-    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'schema', 't1', 'text')
+    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 't1', 'text')
     for x in range(100):
         env.cmd('ft.add', 'idx', 'doc_{}'.format(x), 1, 'fields', 't1', 'hello world word{}'.format(x))
 
@@ -2250,7 +2250,7 @@ def testIssue736(env):
     #for new RS 2.0 ft.add does not return certian errors
     env.skip()
     # 1. create the schema, we need a tag field
-    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 
+    env.cmd('ft.create', 'idx', 'ON', 'HASH',
             'schema', 't1', 'text', 'n2', 'numeric', 't2', 'tag')
     # 2. create a single document to initialize at least one RSAddDocumentCtx
     env.cmd('ft.add', 'idx', 'doc1', 1, 'fields', 't1', 'hello', 't2', 'foo, bar')
@@ -2264,14 +2264,14 @@ def testIssue736(env):
 
 def testCriteriaTesterDeactivated():
     env = Env(moduleArgs='_MAX_RESULTS_TO_UNSORTED_MODE 1')
-    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'schema', 't1', 'text')
+    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 't1', 'text')
     env.cmd('ft.add', 'idx', 'doc1', 1, 'fields', 't1', 'hello1 hey hello2')
     env.cmd('ft.add', 'idx', 'doc2', 1, 'fields', 't1', 'hello2 hey')
     env.cmd('ft.add', 'idx', 'doc3', 1, 'fields', 't1', 'hey')
     env.expect('ft.search', 'idx', '(hey hello1)|(hello2 hey)').equal([2L, 'doc1', ['t1', 'hello1 hey hello2'], 'doc2', ['t1', 'hello2 hey']])
 
 def testIssue828(env):
-    env.cmd('ft.create', 'beers', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'SCHEMA',
+    env.cmd('ft.create', 'beers', 'ON', 'HASH', 'SCHEMA',
         'name', 'TEXT', 'PHONETIC', 'dm:en',
         'style', 'TAG', 'SORTABLE',
         'abv', 'NUMERIC', 'SORTABLE')
@@ -2282,14 +2282,14 @@ def testIssue828(env):
     env.assertEqual('OK', rv)
 
 def testIssue862(env):
-    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'SCHEMA', 'test', 'TEXT', 'SORTABLE')
+    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT', 'SORTABLE')
     rv = env.cmd("FT.ADD", "idx", "doc1", "1.0", "FIELDS", "test", "foo")
     env.assertEqual('OK', rv)
     env.cmd("FT.SEARCH", "idx", "foo", 'WITHSORTKEYS')
     env.assertTrue(env.isUp())
 
 def testIssue_884(env):
-    env.expect('FT.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'STOPWORDS', '0', 'SCHEMA', 'title', 'text', 'weight',
+    env.expect('FT.create', 'idx', 'ON', 'HASH', 'STOPWORDS', '0', 'SCHEMA', 'title', 'text', 'weight',
                '50', 'subtitle', 'text', 'weight', '10', 'author', 'text', 'weight',
                '10', 'description', 'text', 'weight', '20').equal('OK')
 
@@ -2318,14 +2318,14 @@ def testIssue_848(env):
     env.expect('FT.SEARCH', 'idx', 'foo', 'SORTBY', 'test2', 'ASC').equal([2L, 'doc1', ['test1', 'foo'], 'doc2', ['test2', 'bar', 'test1', 'foo']])
 
 def testMod_309(env):
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
     for i in range(100000):
         env.expect('FT.ADD', 'idx', 'doc%d'%i, '1.0', 'FIELDS', 'test', 'foo').equal('OK')
     res = env.cmd('FT.AGGREGATE', 'idx', 'foo')
     env.assertEqual(len(res), 100001)
 
 def testIssue_865(env):
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'SCHEMA', '1', 'TEXT', 'SORTABLE').equal('OK')
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', '1', 'TEXT', 'SORTABLE').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', '1', 'foo1').equal('OK')
     env.expect('ft.add', 'idx', 'doc2', '1.0', 'FIELDS', '1', 'foo2').equal('OK')
     env.expect('ft.search', 'idx', 'foo*', 'SORTBY', '1', 'ASC').equal([2, 'doc1', ['1', 'foo1'], 'doc2', ['1', 'foo2']])
@@ -2339,7 +2339,7 @@ def testIssue_779(env):
     # FT.ADD should return NOADD and not change the doc if value < same_value, but it returns OK and makes the change.
     # Note that "greater than" ">" does not have the same bug.
 
-    env.cmd('FT.CREATE idx2 ON HASH FILTER startswith(@__key,"") SCHEMA ot1 TAG')
+    env.cmd('FT.CREATE idx2 ON HASH SCHEMA ot1 TAG')
     env.cmd('FT.ADD idx2 doc2 1.0 FIELDS newf CAT ot1 4001')
     env.expect('FT.GET idx2 doc2').equal(["newf", "CAT", "ot1", "4001"])
 
@@ -2376,43 +2376,38 @@ def testIssue_779(env):
     env.expect('FT.ADD idx2 doc2 1.0 REPLACE PARTIAL if @ot1<to_number(4-002) FIELDS newf DOG ot1 4002').contains('Syntax error')
 
 def testUnknownSymbolErrorOnConditionalAdd(env):
-    env.expect('FT.CREATE idx ON HASH FILTER startswith(@__key,"") SCHEMA f1 TAG f2 NUMERIC NOINDEX f3 TAG NOINDEX').ok()
+    env.expect('FT.CREATE idx ON HASH SCHEMA f1 TAG f2 NUMERIC NOINDEX f3 TAG NOINDEX').ok()
     env.expect('ft.add idx doc1 1.0 REPLACE PARTIAL IF @f1<awfwaf FIELDS f1 foo f2 1 f3 boo').ok()
     env.expect('ft.add idx doc1 1.0 REPLACE PARTIAL IF @f1<awfwaf FIELDS f1 foo f2 1 f3 boo').error()
 
 def testWrongResultsReturnedBySkipOptimization(env):
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 
-                'SCHEMA', 'f1', 'TEXT', 'f2', 'TEXT').equal('OK')
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'f1', 'TEXT', 'f2', 'TEXT').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'f1', 'foo', 'f2', 'bar').equal('OK')
     env.expect('ft.add', 'idx', 'doc2', '1.0', 'FIELDS', 'f1', 'moo', 'f2', 'foo').equal('OK')
     env.expect('ft.search', 'idx', 'foo @f2:moo').debugPrint().equal([0L])
 
 def testErrorWithApply(env):
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
-                'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
     env.expect('FT.ADD', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo bar').equal('OK')
     err = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'split()')[1]
     env.assertEqual(str(err[0]), 'Invalid number of arguments for split')
 
 def testSummerizeWithAggregateRaiseError(env):
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
-                'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo1').equal('OK')
     env.expect('ft.add', 'idx', 'doc2', '1.0', 'FIELDS', 'test', 'foo2').equal('OK')
     env.expect('ft.aggregate', 'idx', 'foo2', 'SUMMARIZE', 'FIELDS', '1', 'test',
                'GROUPBY', '1', '@test', 'REDUCE', 'COUNT', '0').error()
 
 def testSummerizeHighlightParseError(env):
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 
-                'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo1').equal('OK')
     env.expect('ft.add', 'idx', 'doc2', '1.0', 'FIELDS', 'test', 'foo2').equal('OK')
     env.expect('ft.search', 'idx', 'foo2', 'SUMMARIZE', 'FIELDS', 'WITHSCORES').error()
     env.expect('ft.search', 'idx', 'foo2', 'HIGHLIGHT', 'FIELDS', 'WITHSCORES').error()
 
 def testCursorBadArgument(env):
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 
-                'SCHEMA', 'test', 'TEXT').equal('OK')
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo1').equal('OK')
     env.expect('ft.add', 'idx', 'doc2', '1.0', 'FIELDS', 'test', 'foo2').equal('OK')
     env.expect('ft.aggregate', 'idx', '*',
@@ -2420,28 +2415,25 @@ def testCursorBadArgument(env):
                'WITHCURSOR', 'COUNT', 'BAD').error()
 
 def testLimitBadArgument(env):
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
-                'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo1').equal('OK')
     env.expect('ft.add', 'idx', 'doc2', '1.0', 'FIELDS', 'test', 'foo2').equal('OK')
     env.expect('ft.search', 'idx', '*', 'LIMIT', '1').error()
 
 def testOnTimeoutBadArgument(env):
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
-                'SCHEMA', 'test', 'TEXT').equal('OK')
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo1').equal('OK')
     env.expect('ft.add', 'idx', 'doc2', '1.0', 'FIELDS', 'test', 'foo2').equal('OK')
     env.expect('ft.search', 'idx', '*', 'ON_TIMEOUT', 'bad').error()
 
 def testAggregateSortByWrongArgument(env):
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
-                'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo1').equal('OK')
     env.expect('ft.add', 'idx', 'doc2', '1.0', 'FIELDS', 'test', 'foo2').equal('OK')
     env.expect('ft.aggregate', 'idx', '*', 'SORTBY', 'bad').error()
 
 def testAggregateSortByMaxNumberOfFields(env):
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'SCHEMA',
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA',
                'test1', 'TEXT', 'SORTABLE',
                'test2', 'TEXT', 'SORTABLE',
                'test3', 'TEXT', 'SORTABLE',
@@ -2463,8 +2455,7 @@ def testAggregateSortByMaxNumberOfFields(env):
     env.expect('ft.aggregate', 'idx', '*', 'SORTBY', '9', *args).error()
 
 def testNumericFilterError(env):
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
-                'SCHEMA', 'test', 'NUMERIC', 'SORTABLE').equal('OK')
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'NUMERIC', 'SORTABLE').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', '1').equal('OK')
     env.expect('ft.search', 'idx', '*', 'FILTER', 'test', 'bad', '2').error()
     env.expect('ft.search', 'idx', '*', 'FILTER', 'test', '0', 'bad').error()
@@ -2473,8 +2464,7 @@ def testNumericFilterError(env):
     env.expect('ft.search', 'idx', '*', 'FILTER', 'test', '0', '2', 'FILTER', 'test', '0', 'bla').error()
 
 def testGeoFilterError(env):
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
-                'SCHEMA', 'test', 'NUMERIC', 'SORTABLE').equal('OK')
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'NUMERIC', 'SORTABLE').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', '1').equal('OK')
     env.expect('ft.search', 'idx', '*', 'GEOFILTER', 'test', '1').error()
     env.expect('ft.search', 'idx', '*', 'GEOFILTER', 'test', 'bad' , '2', '3', 'km').error()
@@ -2483,15 +2473,13 @@ def testGeoFilterError(env):
     env.expect('ft.search', 'idx', '*', 'GEOFILTER', 'test', '1' , '2', '3', 'bad').error()
 
 def testReducerError(env):
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
-                'SCHEMA', 'test', 'NUMERIC', 'SORTABLE').equal('OK')
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'NUMERIC', 'SORTABLE').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', '1').equal('OK')
     env.expect('ft.aggregate', 'idx', '*', 'GROUPBY', '1', '@test', 'REDUCE', 'COUNT', 'bad').error()
     env.expect('ft.aggregate', 'idx', '*', 'GROUPBY', '1', '@test', 'REDUCE', 'COUNT', '0', 'as').error()
 
 def testGroupbyError(env):
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 
-                'SCHEMA', 'test', 'NUMERIC', 'SORTABLE').equal('OK')
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'NUMERIC', 'SORTABLE').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', '1').equal('OK')
     env.expect('ft.aggregate', 'idx', '*', 'GROUPBY', '1', '@test', 'REDUCE').error()
     if not env.isCluster(): # todo: remove once fix on coordinator
@@ -2501,8 +2489,7 @@ def testGroupbyError(env):
         env.expect('ft.aggregate', 'idx', '*', 'GROUPBY', '1', '@test', 'REDUCE', 'SUM', '1', '@test1').error()
 
 def testGroupbyWithSort(env):
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
-                'SCHEMA', 'test', 'NUMERIC', 'SORTABLE').equal('OK')
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'NUMERIC', 'SORTABLE').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', '1').equal('OK')
     env.expect('ft.add', 'idx', 'doc2', '1.0', 'FIELDS', 'test', '1').equal('OK')
     env.expect('ft.add', 'idx', 'doc3', '1.0', 'FIELDS', 'test', '2').equal('OK')
@@ -2510,14 +2497,12 @@ def testGroupbyWithSort(env):
                'GROUPBY', '1', '@test', 'REDUCE', 'COUNT', '0', 'as', 'count').equal([2L, ['test', '2', 'count', '1'], ['test', '1', 'count', '2']])
 
 def testApplyError(env):
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
-                'SCHEMA', 'test', 'TEXT').equal('OK')
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
     env.expect('ft.aggregate', 'idx', '*', 'APPLY', 'split(@test)', 'as').error()
 
 def testLoadError(env):
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
-                'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
     env.expect('ft.aggregate', 'idx', '*', 'LOAD', 'bad').error()
     env.expect('ft.aggregate', 'idx', '*', 'LOAD', 'bad', 'test').error()
@@ -2525,41 +2510,35 @@ def testLoadError(env):
     env.expect('ft.aggregate', 'idx', '*', 'LOAD', '2', '@test').error()
 
 def testMissingArgsError(env):
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
-                'SCHEMA', 'test', 'TEXT').equal('OK')
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
     env.expect('ft.aggregate', 'idx').error()
 
 def testUnexistsScorer(env):
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
-                'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
     env.expect('ft.search', 'idx', '*', 'SCORER', 'bad').error()
 
 def testHighlightWithUnknowsProperty(env):
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
-                'SCHEMA', 'test', 'TEXT').equal('OK')
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
     env.expect('ft.aggregate', 'idx', '*', 'HIGHLIGHT', 'FIELDS', '1', 'test1').error()
 
 def testBadFilterExpression(env):
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
-                'SCHEMA', 'test', 'TEXT').equal('OK')
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
     env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'FILTER', 'blabla').error()
     if not env.isCluster(): # todo: remove once fix on coordinator
         env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'FILTER', '@test1 > 1').error()
 
 def testWithSortKeysOnNoneSortableValue(env):
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
-                'SCHEMA', 'test', 'TEXT').equal('OK')
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
     env.expect('ft.search', 'idx', '*', 'WITHSORTKEYS', 'SORTBY', 'test').equal([1L, 'doc1', '$foo', ['test', 'foo']])
 
 def testWithWithRawIds(env):
     env.skipOnCluster() # todo: remove once fix on coordinator
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
-                'SCHEMA', 'test', 'TEXT').equal('OK')
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
     env.expect('ft.search', 'idx', '*', 'WITHRAWIDS').equal([1L, 'doc1', 1L, ['test', 'foo']])
 
@@ -2570,7 +2549,7 @@ def testUnkownIndex(env):
     env.expect('ft.aggregate', 'idx', '*', 'WITHCURSOR').error()
 
 def testExplainError(env):
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'SCHEMA', 'test', 'TEXT').equal('OK')
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
     env.expect('FT.EXPLAIN', 'idx', '(').error()
 
 def testBadCursor(env):
@@ -2581,13 +2560,13 @@ def testBadCursor(env):
     env.expect('FT.CURSOR', 'bad', 'idx', '1111').error()
 
 def testGroupByWithApplyError(env):
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'SCHEMA', 'test', 'TEXT').equal('OK')
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
     err = env.cmd('FT.AGGREGATE', 'idx', '*', 'APPLY', 'split()', 'GROUPBY', '1', '@test', 'REDUCE', 'COUNT', '0', 'AS', 'count')[1]
     assertEqualIgnoreCluster(env, str(err[0]), 'Invalid number of arguments for split')
 
 def testSubStrErrors(env):
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'SCHEMA', 'test', 'TEXT').equal('OK')
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
 
     err = env.cmd('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'matched_terms()', 'as', 'a', 'APPLY', 'substr(@a,0,4)')[1]
@@ -2604,7 +2583,7 @@ def testSubStrErrors(env):
     env.assertTrue(env.isUp())
 
 def testToUpperLower(env):
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'SCHEMA', 'test', 'TEXT').equal('OK')
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
     env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'lower(@test)', 'as', 'a').equal([1L, ['test', 'foo', 'a', 'foo']])
     env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'lower("FOO")', 'as', 'a').equal([1L, ['test', 'foo', 'a', 'foo']])
@@ -2626,7 +2605,7 @@ def testToUpperLower(env):
     assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
 
 def testMatchedTerms(env):
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'SCHEMA', 'test', 'TEXT').equal('OK')
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
     env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'matched_terms()', 'as', 'a').equal([1L, ['test', 'foo', 'a', None]])
     env.expect('ft.aggregate', 'idx', 'foo', 'LOAD', '1', '@test', 'APPLY', 'matched_terms()', 'as', 'a').equal([1L, ['test', 'foo', 'a', ['foo']]])
@@ -2635,7 +2614,7 @@ def testMatchedTerms(env):
     env.expect('ft.aggregate', 'idx', 'foo', 'LOAD', '1', '@test', 'APPLY', 'matched_terms("test")', 'as', 'a').equal([1L, ['test', 'foo', 'a', ['foo']]])
 
 def testStrFormatError(env):
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'SCHEMA', 'test', 'TEXT').equal('OK')
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
     err = env.cmd('ft.aggregate', 'idx', 'foo', 'LOAD', '1', '@test', 'APPLY', 'format()', 'as', 'a')[1]
     assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
@@ -2659,7 +2638,7 @@ def testStrFormatError(env):
     env.expect('ft.aggregate', 'idx', 'foo', 'APPLY', 'format("%s-test", "test")', 'as', 'a').equal([1L, ['a', 'test-test']])
 
 def testTimeFormatError(env):
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'SCHEMA', 'test', 'NUMERIC').equal('OK')
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'NUMERIC').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', '12234556').equal('OK')
 
     err = env.cmd('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'timefmt()', 'as', 'a')[1]
@@ -2692,7 +2671,7 @@ def testTimeFormatError(env):
     env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'monthofyear("not_number")', 'as', 'a').equal([1L, ['test', '12234556', 'a', None]])
 
 def testMonthOfYear(env):
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'SCHEMA', 'test', 'NUMERIC').equal('OK')
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'NUMERIC').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', '12234556').equal('OK')
 
     env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'monthofyear(@test)', 'as', 'a').equal([1L, ['test', '12234556', 'a', '4']])
@@ -2706,7 +2685,7 @@ def testMonthOfYear(env):
     env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'monthofyear("bad")', 'as', 'a').equal([1L, ['test', '12234556', 'a', None]])
 
 def testParseTimeErrors(env):
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'SCHEMA', 'test', 'NUMERIC').equal('OK')
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'NUMERIC').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', '12234556').equal('OK')
 
     err = env.cmd('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'parse_time()', 'as', 'a')[1]
@@ -2723,14 +2702,14 @@ def testParseTimeErrors(env):
     env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'parse_time("test", "%s")' % ('d' * 2048), 'as', 'a').equal([1L, ['test', '12234556', 'a', None]])
 
 def testMathFunctions(env):
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'SCHEMA', 'test', 'NUMERIC').equal('OK')
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'NUMERIC').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', '12234556').equal('OK')
 
     env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'exp(@test)', 'as', 'a').equal([1L, ['test', '12234556', 'a', 'inf']])
     env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'ceil(@test)', 'as', 'a').equal([1L, ['test', '12234556', 'a', '12234556']])
 
 def testErrorOnOpperation(env):
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'SCHEMA', 'test', 'NUMERIC').equal('OK')
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'NUMERIC').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', '12234556').equal('OK')
 
     err = env.cmd('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', '1 + split()', 'as', 'a')[1]
@@ -2753,7 +2732,7 @@ def testErrorOnOpperation(env):
 
 
 def testSortkeyUnsortable(env):
-    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'schema', 'test', 'text')
+    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 'test', 'text')
     env.cmd('ft.add', 'idx', 'doc1', 1, 'fields', 'test', 'foo')
     rv = env.cmd('ft.aggregate', 'idx', 'foo', 'withsortkeys',
         'load', '1', '@test',
@@ -2764,7 +2743,7 @@ def testSortkeyUnsortable(env):
 def testIssue919(env):
     # This only works if the missing field has a lower sortable index
     # than the present field..
-    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+    env.cmd('ft.create', 'idx', 'ON', 'HASH',
             'schema', 't1', 'text', 'sortable', 'n1', 'numeric', 'sortable')
     env.cmd('ft.add', 'idx', 'doc1', 1, 'fields', 'n1', 42)
     rv = env.cmd('ft.search', 'idx', '*', 'sortby', 't1', 'desc')
@@ -2774,7 +2753,7 @@ def testIssue919(env):
 def testIssue1074(env):
     # Ensure that sortable fields are returned in their string form from the
     # document
-    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+    env.cmd('ft.create', 'idx', 'ON', 'HASH',
             'schema', 't1', 'text', 'n1', 'numeric', 'sortable')
     env.cmd('ft.add', 'idx', 'doc1', 1, 'fields', 't1', 'hello', 'n1', 1581011976800)
     rv = env.cmd('ft.search', 'idx', '*', 'sortby', 'n1')
@@ -2782,7 +2761,7 @@ def testIssue1074(env):
 
 def testIssue1085(env):
     env.skipOnCluster()
-    env.cmd('FT.CREATE issue1085 ON HASH FILTER startswith(@__key,"") SCHEMA foo TEXT SORTABLE bar NUMERIC SORTABLE')
+    env.cmd('FT.CREATE issue1085 ON HASH SCHEMA foo TEXT SORTABLE bar NUMERIC SORTABLE')
     for i in range(1, 10):
         env.cmd('FT.ADD issue1085 document_%d 1 REPLACE FIELDS foo foo%d bar %d' % (i, i, i))
     env.expect('FT.SEARCH', 'issue1085', '@bar:[8 8]').equal([1L, 'document_8', ['foo', 'foo8', 'bar', '8']])
@@ -2808,7 +2787,7 @@ def to_dict(r):
 
 def testOptimize(env):
     env.skipOnCluster()
-    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'SCHEMA', 'test', 'TEXT', 'SORTABLE')
+    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT', 'SORTABLE')
     env.cmd('FT.ADD', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo')   
     env.assertEqual(0, env.cmd('FT.OPTIMIZE', 'idx'))   
     with env.assertResponseError():
@@ -2821,7 +2800,7 @@ def testInfoError(env):
 def testSetPayload(env):
     env.skipOnCluster()
     env.expect('flushall')
-    env.expect('ft.create idx ON HASH FILTER startswith(@__key,"") schema name text').equal('OK')
+    env.expect('ft.create idx ON HASH schema name text').equal('OK')
     env.expect('ft.add idx hotel 1.0 fields name hilton').equal('OK')
     env.expect('FT.SETPAYLOAD idx hotel payload').equal('OK')
     env.expect('FT.SETPAYLOAD idx hotel payload').equal('OK')
@@ -2831,20 +2810,20 @@ def testSetPayload(env):
     env.expect('FT.SETPAYLOAD idx fake_hotel payload').error().contains('Document not in index')    
 
 def testIndexNotRemovedFromCursorListAfterRecreated(env):
-    env.expect('FT.CREATE idx ON HASH FILTER startswith(@__key,"") SCHEMA f1 TEXT').ok()
+    env.expect('FT.CREATE idx ON HASH SCHEMA f1 TEXT').ok()
     env.expect('FT.AGGREGATE idx * WITHCURSOR').equal([[0], 0])
-    env.expect('FT.CREATE idx ON HASH FILTER startswith(@__key,"") SCHEMA f1 TEXT').error()
+    env.expect('FT.CREATE idx ON HASH SCHEMA f1 TEXT').error()
     env.expect('FT.AGGREGATE idx * WITHCURSOR').equal([[0], 0])
 
 def testHindiStemmer(env):
-    env.cmd('FT.CREATE', 'idxTest', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'LANGUAGE', '__language', 'SCHEMA', 'body', 'TEXT')
+    env.cmd('FT.CREATE', 'idxTest', 'ON', 'HASH', 'LANGUAGE', '__language', 'SCHEMA', 'body', 'TEXT')
     env.cmd('FT.ADD', 'idxTest', 'doc1', 1.0, 'LANGUAGE', 'hindi', 'FIELDS', 'body', u'अँगरेजी अँगरेजों अँगरेज़')
     res = env.cmd('FT.SEARCH', 'idxTest', u'अँगरेज़')
     env.assertEqual(u'अँगरेजी अँगरेजों अँगरेज़', unicode(res[2][1], 'utf-8'))
 
 def testMOD507(env):
     env.skipOnCluster()
-    env.expect('ft.create idx ON HASH FILTER startswith(@__key,"") SCHEMA t1 TEXT').ok()
+    env.expect('ft.create idx ON HASH SCHEMA t1 TEXT').ok()
 
     for i in range(50):
         env.expect('ft.add idx doc-%d 1.0 FIELDS t1 foo' % i).ok()
@@ -2859,7 +2838,7 @@ def testMOD507(env):
 
 def testUnseportedSortableTypeErrorOnTags(env):
     env.skipOnCluster()
-    env.expect('FT.CREATE idx ON HASH FILTER startswith(@__key,"") SCHEMA f1 TEXT SORTABLE f2 NUMERIC SORTABLE NOINDEX f3 TAG SORTABLE NOINDEX f4 TEXT SORTABLE NOINDEX').ok()
+    env.expect('FT.CREATE idx ON HASH SCHEMA f1 TEXT SORTABLE f2 NUMERIC SORTABLE NOINDEX f3 TAG SORTABLE NOINDEX f4 TEXT SORTABLE NOINDEX').ok()
     env.expect('FT.ADD idx doc1 1.0 FIELDS f1 foo1 f2 1 f3 foo1 f4 foo1').ok()
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL FIELDS f2 2 f3 foo2 f4 foo2').ok()
     env.expect('HGETALL doc1').equal(['f1', 'foo1', 'f2', '2', 'f3', 'foo2', 'f4', 'foo2', '__score', '1.0'])
@@ -2867,7 +2846,7 @@ def testUnseportedSortableTypeErrorOnTags(env):
 
 
 def testIssue1158(env):
-    env.cmd('FT.CREATE idx ON HASH FILTER startswith(@__key,"") SCHEMA txt1 TEXT txt2 TEXT txt3 TEXT')
+    env.cmd('FT.CREATE idx ON HASH SCHEMA txt1 TEXT txt2 TEXT txt3 TEXT')
 
     env.cmd('FT.ADD idx doc1 1.0 FIELDS txt1 10 txt2 num1')
     env.expect('FT.GET idx doc1').equal(['txt1', '10', 'txt2', 'num1'])
@@ -2884,12 +2863,12 @@ def testIssue1158(env):
     env.expect('FT.GET idx doc1').equal(['txt1', '5', 'txt2', 'num2', '__score', '1.0'])
 
 def testIssue1159(env):
-    env.cmd('FT.CREATE idx ON HASH FILTER startswith(@__key,"") SCHEMA f1 TAG')
+    env.cmd('FT.CREATE idx ON HASH SCHEMA f1 TAG')
     for i in range(1000):
         env.cmd('FT.add idx doc%d 1.0 FIELDS f1 foo' % i)
 
 def testIssue1169(env):
-    env.cmd('FT.CREATE idx ON HASH FILTER startswith(@__key,"") SCHEMA txt1 TEXT txt2 TEXT')
+    env.cmd('FT.CREATE idx ON HASH SCHEMA txt1 TEXT txt2 TEXT')
     env.cmd('FT.ADD idx doc1 1.0 FIELDS txt1 foo')
 
     env.expect('FT.AGGREGATE idx foo GROUPBY 1 @txt1 REDUCE FIRST_VALUE 1 @txt2 as test').equal([1L, ['txt1', 'foo', 'test', None]])
@@ -2900,7 +2879,7 @@ def testIssue1184(env):
     field_types = ['TEXT', 'NUMERIC', 'TAG']
     env.assertOk(env.execute_command('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0))
     for ft in field_types:
-        env.assertOk(env.execute_command('FT.CREATE idx ON HASH FILTER startswith(@__key,"") SCHEMA  field ' + ft))
+        env.assertOk(env.execute_command('FT.CREATE idx ON HASH SCHEMA  field ' + ft))
 
         res = env.execute_command('ft.info', 'idx')
         d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}

@@ -15,7 +15,7 @@ GAMES_JSON = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'games.jso
 
 
 def add_values(env, number_of_iterations=1):
-    env.execute_command('FT.CREATE', 'games', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+    env.execute_command('FT.CREATE', 'games', 'ON', 'HASH',
                         'SCHEMA', 'title', 'TEXT', 'SORTABLE',
                         'brand', 'TEXT', 'NOSTEM', 'SORTABLE',
                         'description', 'TEXT', 'price', 'NUMERIC', 'SORTABLE',
@@ -447,7 +447,7 @@ def grouper(iterable, n, fillvalue=None):
     return izip_longest(fillvalue=fillvalue, *args)
 
 def testAggregateGroupByOnEmptyField(env):
-    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+    env.cmd('ft.create', 'idx', 'ON', 'HASH',
             'SCHEMA', 'f', 'TEXT', 'SORTABLE', 'test', 'TEXT', 'SORTABLE')
     env.cmd('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'f', 'field', 'test', 'test1,test2,test3')
     env.cmd('ft.add', 'idx', 'doc2', '1.0', 'FIELDS', 'f', 'field', 'test', '')
@@ -460,7 +460,7 @@ def testAggregateGroupByOnEmptyField(env):
         env.assertIn(var, res)
 
 def testGroupbyNoReduce(env):
-    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+    env.cmd('ft.create', 'idx', 'ON', 'HASH',
             'SCHEMA', 'primaryName', 'TEXT', 'SORTABLE',
             'birthYear', 'NUMERIC', 'SORTABLE')
     

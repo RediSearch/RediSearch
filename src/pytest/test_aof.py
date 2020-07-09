@@ -6,8 +6,7 @@ from includes import *
 def aofTestCommon(env, reloadfn):
         # TODO: Change this attribute in rmtest
 
-        env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'schema',
-                'field1', 'text', 'field2', 'numeric')
+        env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 'field1', 'text', 'field2', 'numeric')
         reloadfn()
         for x in range(1, 10):
             env.assertCmdOk('ft.add', 'idx', 'doc{}'.format(x), 1.0, 'fields',
@@ -33,7 +32,7 @@ def testRawAof():
 
 def testRewriteAofSortables():
     env = Env(useAof=True)
-    env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+    env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 
             'schema', 'field1', 'TEXT', 'SORTABLE', 'num1', 'NUMERIC', 'SORTABLE')
     env.cmd('FT.ADD', 'idx', 'doc', 1.0,
             'FIELDS', 'field1', 'Hello World')
@@ -55,7 +54,7 @@ def testRewriteAofSortables():
 
 def testAofRewriteSortkeys():
     env = Env(useAof=True)
-    env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+    env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 
             'SCHEMA', 'foo', 'TEXT', 'SORTABLE', 'bar', 'TAG')
     env.cmd('FT.ADD', 'idx', '1', '1', 'FIELDS', 'foo', 'A', 'bar', '1')
     env.cmd('FT.ADD', 'idx', '2', '1', 'fields', 'foo', 'B', 'bar', '1')
@@ -72,7 +71,7 @@ def testAofRewriteSortkeys():
 
 def testAofRewriteTags():
     env = Env(useAof=True)
-    env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+    env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 
             'SCHEMA', 'foo', 'TEXT', 'SORTABLE', 'bar', 'TAG')
     env.cmd('FT.ADD', 'idx', '1', '1', 'FIELDS', 'foo', 'A', 'bar', '1')
     env.cmd('FT.ADD', 'idx', '2', '1', 'fields', 'foo', 'B', 'bar', '1')
@@ -89,7 +88,7 @@ def testAofRewriteTags():
     env.cmd('del', '2')
 
     # Try to create it again - should work!
-    env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+    env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 
             'SCHEMA', 'foo', 'TEXT', 'SORTABLE', 'bar', 'TAG')
     env.cmd('FT.ADD', 'idx', '1', '1', 'FIELDS', 'foo', 'A', 'bar', '1')
     env.cmd('FT.ADD', 'idx', '2', '1', 'fields', 'foo', 'B', 'bar', '1')

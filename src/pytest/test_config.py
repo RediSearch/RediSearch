@@ -2,7 +2,7 @@ from RLTest import Env
 
 def testConfig(env):
     env.skipOnCluster()
-    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'SCHEMA', 'test', 'TEXT', 'SORTABLE')
+    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT', 'SORTABLE')
     env.expect('ft.config', 'help', 'idx').equal([])
     env.expect('ft.config', 'set', 'MINPREFIX', 1).equal('OK')
 

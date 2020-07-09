@@ -20,7 +20,7 @@ GEN_CN_T = """
 
 def testCn(env):
     text = open(SRCTEXT).read()
-    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'LANGUAGE', '__language',
+    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'LANGUAGE', '__language',
             'schema', 'txt', 'text')
     env.cmd('ft.add', 'idx', 'doc1', 1.0, 'LANGUAGE', 'CHINESE', 'FIELDS', 'txt', text)
     res = env.cmd('ft.search', 'idx', '之旅', 'SUMMARIZE', 'HIGHLIGHT', 'LANGUAGE', 'chinese')
@@ -49,7 +49,7 @@ def testMixedHighlight(env):
     txt = r"""
 Redis支持主从同步。数据可以从主服务器向任意数量的从服务器上同步，从服务器可以是关联其他从服务器的主服务器。这使得Redis可执行单层树复制。从盘可以有意无意的对数据进行写操作。由于完全实现了发布/订阅机制，使得从数据库在任何地方同步树时，可订阅一个频道并接收主服务器完整的消息发布记录。同步对读取操作的可扩展性和数据冗余很有帮助。[8]
 """
-    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'LANGUAGE', '__language',
+    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'LANGUAGE', '__language',
             'schema', 'txt', 'text')
     env.cmd('ft.add', 'idx', 'doc1', 1.0, 'language', 'chinese', 'fields', 'txt', txt)
     # Should not crash!
@@ -57,7 +57,7 @@ Redis支持主从同步。数据可以从主服务器向任意数量的从服务
 
 def testTradSimp(env):
     # Ensure that traditional chinese characters get converted to their simplified variants
-    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'LANGUAGE', '__language',
+    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'LANGUAGE', '__language',
             'schema', 'txt', 'text')
 
     env.cmd('ft.add', 'idx', 'genS', 1.0, 'language', 'chinese', 'fields', 'txt', GEN_CN_S)
@@ -77,7 +77,7 @@ def testTradSimp(env):
     env.assertTrue('那时' in res[4][1])
 
 def testMixedEscapes(env):
-    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'LANGUAGE', '__language',
+    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'LANGUAGE', '__language',
             'schema', 'txt', 'text')
     env.cmd('ft.add', 'idx', 'doc1', 1.0, 'language', 'chinese', 'fields', 'txt', 'hello\\-world 那时')
     env.cmd('ft.add', 'idx', 'doc2', 1.0, 'fields', 'txt', 'hello\\-world')
