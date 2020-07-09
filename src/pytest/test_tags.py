@@ -8,7 +8,7 @@ def search(env, r, *args):
 def testTagIndex(env):
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")','schema', 'title', 'text', 'tags', 'tag'))
+        'ft.create', 'idx', 'ON', 'HASH','schema', 'title', 'text', 'tags', 'tag'))
     N = 10
     for n in range(N):
 
@@ -54,7 +54,7 @@ def testTagIndex(env):
 def testSeparator(env):
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+        'ft.create', 'idx', 'ON', 'HASH',
         'schema', 'title', 'text', 'tags', 'tag', 'separator', ':'))
 
     env.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 1.0, 'fields',
@@ -69,7 +69,7 @@ def testSeparator(env):
 def testTagPrefix(env):
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+        'ft.create', 'idx', 'ON', 'HASH',
         'schema', 'title', 'text', 'tags', 'tag', 'separator', ','))
 
     env.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 1.0, 'fields',
@@ -84,7 +84,7 @@ def testTagPrefix(env):
 def testTagFieldCase(env):
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+        'ft.create', 'idx', 'ON', 'HASH',
         'schema', 'title', 'text', 'TAgs', 'tag'))
 
     env.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 1.0, 'fields',
@@ -106,22 +106,22 @@ def testInvalidSyntax(env):
     # invalid syntax
     with env.assertResponseError():
         r.execute_command(
-            'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+            'ft.create', 'idx', 'ON', 'HASH',
             'schema', 'title', 'text', 'tags', 'tag', 'separator')
     with env.assertResponseError():
         r.execute_command(
-            'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+            'ft.create', 'idx', 'ON', 'HASH',
             'schema', 'title', 'text', 'tags', 'tag', 'separator', "foo")
     with env.assertResponseError():
         r.execute_command(
-            'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+            'ft.create', 'idx', 'ON', 'HASH',
             'schema', 'title', 'text', 'tags', 'tag', 'separator', "")
 
 
 def testTagVals(env):
     r = env
     r.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+        'ft.create', 'idx', 'ON', 'HASH',
         'schema', 'title', 'text', 'tags', 'tag', 'othertags', 'tag')
 
     N = 100
@@ -151,6 +151,5 @@ def testTagVals(env):
 
 def testSearchNotExistsTagValue(env):
     # this test basically make sure we are not leaking
-    env.expect('FT.CREATE idx ON HASH FILTER startswith(@__key,"") SCHEMA t TAG SORTABLE').ok()
+    env.expect('FT.CREATE idx ON HASH SCHEMA t TAG SORTABLE').ok()
     env.expect('FT.SEARCH idx @t:{val}').equal([0])
-        

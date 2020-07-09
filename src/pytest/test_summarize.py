@@ -7,7 +7,7 @@ GENTEXT = os.path.dirname(os.path.abspath(__file__)) + '/../tests/genesis.txt'
 
 def setupGenesis(env):
     txt = open(GENTEXT, 'r').read()
-    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+    env.cmd('ft.create', 'idx', 'ON', 'HASH',
             'schema', 'txt', 'text')
     env.cmd('ft.add', 'idx', 'gen1', 1.0, 'fields', 'txt', txt)
 
@@ -72,7 +72,7 @@ def testSummarizationMultiField(env):
     p1 = "Redis is an open-source in-memory database project implementing a networked, in-memory key-value store with optional durability. Redis supports different kinds of abstract data structures, such as strings, lists, maps, sets, sorted sets, hyperloglogs, bitmaps and spatial indexes. The project is mainly developed by Salvatore Sanfilippo and is currently sponsored by Redis Labs.[4] Redis Labs creates and maintains the official Redis Enterprise Pack."
     p2 = "Redis typically holds the whole dataset in memory. Versions up to 2.4 could be configured to use what they refer to as virtual memory[19] in which some of the dataset is stored on disk, but this feature is deprecated. Persistence is now achieved in two different ways: one is called snapshotting, and is a semi-persistent durability mode where the dataset is asynchronously transferred from memory to disk from time to time, written in RDB dump format. Since version 1.1 the safer alternative is AOF, an append-only file (a journal) that is written as operations modifying the dataset in memory are processed. Redis is able to rewrite the append-only file in the background in order to avoid an indefinite growth of the journal."
 
-    env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+    env.cmd('FT.CREATE', 'idx', 'ON', 'HASH',
             'SCHEMA', 'txt1', 'TEXT', 'txt2', 'TEXT')
     env.cmd('FT.ADD', 'idx', 'redis', 1.0,
              'FIELDS', 'txt1', p1, 'txt2', p2)
@@ -95,13 +95,13 @@ def testSummarizationMultiField(env):
 
 
 def testSummarizationDisabled(env):
-    env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'NOOFFSETS', 'SCHEMA', 'body', 'TEXT')
+    env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'NOOFFSETS', 'SCHEMA', 'body', 'TEXT')
     env.cmd('FT.ADD', 'idx', 'doc', 1.0, 'FIELDS', 'body', 'hello world')
     with env.assertResponseError():
         res = env.cmd('FT.SEARCH', 'idx', 'hello',
                        'SUMMARIZE', 'FIELDS', 1, 'body')
 
-    env.cmd('FT.CREATE', 'idx2', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'NOHL', 'SCHEMA', 'body', 'TEXT')
+    env.cmd('FT.CREATE', 'idx2', 'ON', 'HASH', 'NOHL', 'SCHEMA', 'body', 'TEXT')
     env.cmd('FT.ADD', 'idx2', 'doc2', 1.0, 'FIELDS', 'body', 'hello world')
     with env.assertResponseError():
         res = env.cmd('FT.SEARCH', 'idx2', 'hello',
@@ -109,7 +109,7 @@ def testSummarizationDisabled(env):
 
 def testSummarizationNoSave(env):
     env.skip()
-    env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'SCHEMA', 'body', 'TEXT')
+    env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'body', 'TEXT')
     env.cmd('FT.ADD', 'idx', 'doc', 1.0, 'NOSAVE',
              'fields', 'body', 'hello world')
     res = env.cmd('FT.SEARCH', 'idx', 'hello',
@@ -118,7 +118,7 @@ def testSummarizationNoSave(env):
     env.assertEqual([1L, 'doc', []], res)
 
 def testSummarizationMeta(env):
-    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'schema', 'foo',
+    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 'foo',
              'text', 'bar', 'text', 'baz', 'text')
     env.cmd('ft.add', 'idx', 'doc1', 1.0, 'fields', 'foo',
              'pill', 'bar', 'pillow', 'baz', 'piller')
@@ -142,7 +142,7 @@ def testSummarizationMeta(env):
 def testOverflow1(env):
     #"FT.CREATE" "netflix" "SCHEMA" "title" "TEXT" "WEIGHT" "1" "rating" "TEXT" "WEIGHT" "1" "level" "TEXT" "WEIGHT" "1" "description" "TEXT" "WEIGHT" "1" "year" "NUMERIC" "uscore" "NUMERIC" "usize" "NUMERIC"
     #FT.ADD" "netflix" "15ad80086ccc7f" "1" "FIELDS" "title" "The Vampire Diaries" "rating" "TV-14" "level" "Parents strongly cautioned. May be unsuitable for children ages 14 and under." "description" "90" "year" "2017" "uscore" "91" "usize" "80"
-    env.cmd('FT.CREATE', 'netflix', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'SCHEMA', 'title', 'TEXT', 'rating', 'TEXT', 'leve', 'TEXT', 'description', 'TEXT', 'year', 'NUMERIC', 'uscore', 'NUMERIC', 'usize', 'NUMERIC')
+    env.cmd('FT.CREATE', 'netflix', 'ON', 'HASH', 'SCHEMA', 'title', 'TEXT', 'rating', 'TEXT', 'leve', 'TEXT', 'description', 'TEXT', 'year', 'NUMERIC', 'uscore', 'NUMERIC', 'usize', 'NUMERIC')
     env.cmd('FT.ADD', "netflix", "15ad80086ccc7f", "1.0", "FIELDS", "title", "The Vampire Diaries", "rating", "TV-14", "level",
         "Parents strongly cautioned. May be unsuitable for children ages 14 and under.",
         "description", "90", "year", "2017", "uscore", "91", "usize", "80")
@@ -156,7 +156,7 @@ def testIssue364(env):
     # FT.CREATE testset "SCHEMA" "permit_timestamp" "NUMERIC" "SORTABLE" "job_category" "TEXT" "NOSTEM" "address" "TEXT" "NOSTEM"  "neighbourhood" "TAG" "SORTABLE" "description" "TEXT"  "building_type" "TEXT" "WEIGHT" "20" "NOSTEM" "SORTABLE"     "work_type" "TEXT" "NOSTEM" "SORTABLE"     "floor_area" "NUMERIC" "SORTABLE"     "construction_value" "NUMERIC" "SORTABLE"     "zoning" "TAG"     "units_added" "NUMERIC" "SORTABLE"     "location" "GEO"
     # ft.add testset 109056573-002 1 fields building_type "Retail and Shops" description "To change the use from a Restaurant to a Personal Service Shop (Great Clips)"
     # FT.SEARCH testset retail RETURN 1 description SUMMARIZE LIMIT 0 1
-    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'SCHEMA', 'building_type', 'TEXT', 'description', 'TEXT')
+    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'SCHEMA', 'building_type', 'TEXT', 'description', 'TEXT')
     env.cmd('ft.add', 'idx', 'doc1', '1.0', 'FIELDS',
              'building_type', 'Retail and Shops',
              'description', 'To change the use from a Restaurant to a Personal Service Shop (Great Clips)')
@@ -178,7 +178,7 @@ def grouper(iterable, n, fillvalue=None):
 
 def testFailedHighlight(env):
     #test NOINDEX
-    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "doc1")',
+    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'PREFIX', 1, 'doc1',
             'SCHEMA', 'f1', 'TEXT', 'f2', 'TEXT', 'f3', 'TEXT', 'NOINDEX')
     env.cmd('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'f1', 'foo foo foo', 'f2', 'bar bar bar', 'f3', 'baz baz baz')
     env.assertEqual([1L, 'doc1', ['f1', 'foo foo foo', 'f2', 'bar bar bar', 'f3', 'baz baz baz']],
@@ -191,7 +191,7 @@ def testFailedHighlight(env):
         env.cmd('ft.search idx foo highlight fields 1 f3'))
 
     #test empty string
-    env.cmd('ft.create', 'idx2', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "doc2")',
+    env.cmd('ft.create', 'idx2', 'ON', 'HASH', 'PREFIX', 1, 'doc2',
             'SCHEMA', 'f1', 'TEXT', 'f2', 'TEXT', 'f3', 'TEXT')
     env.cmd('ft.add', 'idx2', 'doc2', '1.0', 'FIELDS', 'f1', 'foo foo foo', 'f2', '', 'f3', 'baz baz baz')
     env.assertEqual([1L, 'doc2', ['f1', '<b>foo</b> <b>foo</b> <b>foo</b>', 'f2', '', 'f3', 'baz baz baz']],
@@ -202,7 +202,7 @@ def testFailedHighlight(env):
         env.cmd('ft.search idx2 foo highlight fields 1 f3'))
 
     #test stop word list
-    env.cmd('ft.create', 'idx3', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "doc3")',
+    env.cmd('ft.create', 'idx3', 'ON', 'HASH', 'PREFIX', 1, 'doc3',
             'SCHEMA', 'f1', 'TEXT', 'f2', 'TEXT', 'f3', 'TEXT')
     env.cmd('ft.add', 'idx3', 'doc3', '1.0', 'FIELDS', 'f1', 'foo foo foo', 'f2', 'not a', 'f3', 'baz baz baz')
     env.assertEqual([1L, 'doc3', ['f1', '<b>foo</b> <b>foo</b> <b>foo</b>', 'f2', 'not a', 'f3', 'baz baz baz']],

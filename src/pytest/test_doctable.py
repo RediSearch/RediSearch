@@ -6,7 +6,7 @@ from RLTest import Env
 def testDocTable():
     env = Env(moduleArgs='MAXDOCTABLESIZE 100')
     env.assertOk(env.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'schema', 'title', 'text', 'body', 'text'))
+        'ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'body', 'text'))
     # doc table size is 100 so insearting 1000 docs should gives us 10 docs in each bucket
     for i in range(1000):
         env.assertOk(env.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',

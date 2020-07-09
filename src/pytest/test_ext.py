@@ -38,7 +38,7 @@ def testExt():
 
     N = 100
     env.assertOk(env.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'schema', 'f', 'text'))
+        'ft.create', 'idx', 'ON', 'HASH', 'schema', 'f', 'text'))
     for i in range(N):
         env.assertOk(env.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
                                          'f', 'hello world'))

@@ -49,7 +49,7 @@ def testDictDumpOnNoneExistingKey():
 
 def testBasicSpellCheck():
     env = Env()
-    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+    env.cmd('ft.create', 'idx', 'ON', 'HASH',
             'SCHEMA', 'name', 'TEXT', 'body', 'TEXT')
     env.cmd('ft.add', 'idx', 'doc1', 1.0, 'FIELDS', 'name', 'name1', 'body', 'body1')
     env.cmd('ft.add', 'idx', 'doc2', 1.0, 'FIELDS', 'name', 'name2', 'body', 'body2')
@@ -62,7 +62,7 @@ def testBasicSpellCheck():
 
 def testBasicSpellCheckWithNoResult():
     env = Env()
-    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+    env.cmd('ft.create', 'idx', 'ON', 'HASH',
             'SCHEMA', 'name', 'TEXT', 'body', 'TEXT')
     env.cmd('ft.add', 'idx', 'doc1', 1.0, 'FIELDS', 'name', 'name1', 'body', 'body1')
     env.cmd('ft.add', 'idx', 'doc2', 1.0, 'FIELDS', 'name', 'name2', 'body', 'body2')
@@ -72,7 +72,7 @@ def testBasicSpellCheckWithNoResult():
 
 def testSpellCheckOnExistingTerm():
     env = Env()
-    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+    env.cmd('ft.create', 'idx', 'ON', 'HASH',
             'SCHEMA', 'name', 'TEXT', 'body', 'TEXT')
     env.cmd('ft.add', 'idx', 'doc1', 1.0, 'FIELDS', 'name', 'name', 'body', 'body1')
     env.cmd('ft.add', 'idx', 'doc2', 1.0, 'FIELDS', 'name', 'name2', 'body', 'body2')
@@ -83,7 +83,7 @@ def testSpellCheckOnExistingTerm():
 def testSpellCheckWithIncludeDict():
     env = Env()
     env.cmd('ft.dictadd', 'dict', 'name3', 'name4', 'name5')
-    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+    env.cmd('ft.create', 'idx', 'ON', 'HASH',
             'SCHEMA', 'name', 'TEXT', 'body', 'TEXT')
     env.cmd('ft.add', 'idx', 'doc1', 1.0, 'FIELDS', 'name', 'name1', 'body', 'body1')
     env.cmd('ft.add', 'idx', 'doc2', 1.0, 'FIELDS', 'name', 'name2', 'body', 'body2')
@@ -103,7 +103,7 @@ def testSpellCheckWithIncludeDict():
 def testSpellCheckWithDuplications():
     env = Env()
     env.cmd('ft.dictadd', 'dict', 'name1', 'name4', 'name5')
-    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+    env.cmd('ft.create', 'idx', 'ON', 'HASH',
             'SCHEMA', 'name', 'TEXT', 'body', 'TEXT')
     env.cmd('ft.add', 'idx', 'doc1', 1.0, 'FIELDS', 'name', 'name1', 'body', 'body1')
     env.cmd('ft.add', 'idx', 'doc2', 1.0, 'FIELDS', 'name', 'name2', 'body', 'body2')
@@ -117,7 +117,7 @@ def testSpellCheckWithDuplications():
 def testSpellCheckExcludeDict():
     env = Env()
     env.cmd('ft.dictadd', 'dict', 'name')
-    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+    env.cmd('ft.create', 'idx', 'ON', 'HASH',
             'SCHEMA', 'name', 'TEXT', 'body', 'TEXT')
     env.cmd('ft.add', 'idx', 'doc1', 1.0, 'FIELDS', 'name', 'name1', 'body', 'body1')
     env.cmd('ft.add', 'idx', 'doc2', 1.0, 'FIELDS', 'name', 'name2', 'body', 'body2')
@@ -134,7 +134,7 @@ def testSpellCheckNoneExistingIndex():
 def testSpellCheckWrongArity():
     env = Env()
     env.cmd('ft.dictadd', 'dict', 'name')
-    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+    env.cmd('ft.create', 'idx', 'ON', 'HASH',
             'SCHEMA', 'name', 'TEXT', 'body', 'TEXT')
     env.cmd('ft.add', 'idx', 'doc1', 1.0, 'FIELDS', 'name', 'name1', 'body', 'body1')
     env.cmd('ft.add', 'idx', 'doc2', 1.0, 'FIELDS', 'name', 'name2', 'body', 'body2')
@@ -146,7 +146,7 @@ def testSpellCheckWrongArity():
 def testSpellCheckBadFormat():
     env = Env()
     env.cmd('ft.dictadd', 'dict', 'name')
-    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+    env.cmd('ft.create', 'idx', 'ON', 'HASH',
             'SCHEMA', 'name', 'TEXT', 'body', 'TEXT')
     env.cmd('ft.add', 'idx', 'doc1', 1.0, 'FIELDS', 'name', 'name1', 'body', 'body1')
     env.cmd('ft.add', 'idx', 'doc2', 1.0, 'FIELDS', 'name', 'name2', 'body', 'body2')
@@ -162,7 +162,7 @@ def testSpellCheckBadFormat():
 
 def testSpellCheckNoneExistingDicts():
     env = Env()
-    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+    env.cmd('ft.create', 'idx', 'ON', 'HASH',
             'SCHEMA', 'name', 'TEXT', 'body', 'TEXT')
     env.cmd('ft.add', 'idx', 'doc1', 1.0, 'FIELDS', 'name', 'name1', 'body', 'body1')
     env.cmd('ft.add', 'idx', 'doc2', 1.0, 'FIELDS', 'name', 'name2', 'body', 'body2')
@@ -174,7 +174,7 @@ def testSpellCheckNoneExistingDicts():
 def testSpellCheckResultsOrder():
     env = Env()
     env.cmd('ft.dictadd', 'dict', 'name')
-    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+    env.cmd('ft.create', 'idx', 'ON', 'HASH',
             'SCHEMA', 'name', 'TEXT', 'body', 'TEXT')
     env.cmd('ft.add', 'idx', 'doc1', 1.0, 'FIELDS', 'name', 'Elior', 'body', 'body1')
     env.cmd('ft.add', 'idx', 'doc2', 1.0, 'FIELDS', 'name', 'Hila', 'body', 'body2')
@@ -188,7 +188,7 @@ def testSpellCheckDictReleadRDB():
 
 def testSpellCheckIssue437():
     env = Env()
-    env.cmd('ft.create', 'incidents', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'SCHEMA', 'report', 'text')
+    env.cmd('ft.create', 'incidents', 'ON', 'HASH', 'SCHEMA', 'report', 'text')
     env.cmd('FT.DICTADD', 'slang', 'timmies', 'toque', 'toonie', 'serviette', 'kerfuffle', 'chesterfield')
     env.expect('FT.SPELLCHECK', 'incidents',
                'Tooni toque kerfuffle', 'TERMS',

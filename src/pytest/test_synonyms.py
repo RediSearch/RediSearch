@@ -4,7 +4,7 @@ from includes import *
 def testBasicSynonymsUseCase(env):
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+        'ft.create', 'idx', 'ON', 'HASH',
         'schema', 'title', 'text', 'body', 'text'))
     env.assertEqual(r.execute_command('ft.synadd', 'idx', 'boy', 'child'), 0)
 
@@ -18,7 +18,7 @@ def testBasicSynonymsUseCase(env):
 def testTermOnTwoSynonymsGroup(env):
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+        'ft.create', 'idx', 'ON', 'HASH',
         'schema', 'title', 'text', 'body', 'text'))
     env.assertEqual(r.execute_command('ft.synadd', 'idx', 'boy', 'child'), 0)
     env.assertEqual(r.execute_command('ft.synadd', 'idx', 'boy', 'offspring'), 1)
@@ -35,7 +35,7 @@ def testTermOnTwoSynonymsGroup(env):
 def testSynonymGroupWithThreeSynonyms(env):
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+        'ft.create', 'idx', 'ON', 'HASH',
         'schema', 'title', 'text', 'body', 'text'))
     env.assertEqual(r.execute_command('ft.synadd', 'idx', 'boy', 'child', 'offspring'), 0)
 
@@ -51,7 +51,7 @@ def testSynonymGroupWithThreeSynonyms(env):
 def testSynonymWithMultipleDocs(env):
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+        'ft.create', 'idx', 'ON', 'HASH',
         'schema', 'title', 'text', 'body', 'text'))
     env.assertEqual(r.execute_command('ft.synadd', 'idx', 'boy', 'child', 'offspring'), 0)
 
@@ -69,7 +69,7 @@ def testSynonymWithMultipleDocs(env):
 def testSynonymUpdate(env):
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+        'ft.create', 'idx', 'ON', 'HASH',
         'schema', 'title', 'text', 'body', 'text'))
     env.assertEqual(r.execute_command('ft.synadd', 'idx', 'boy', 'child', 'offspring'), 0)
     env.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 1.0, 'fields',
@@ -89,7 +89,7 @@ def testSynonymUpdate(env):
 def testSynonymDump(env):
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+        'ft.create', 'idx', 'ON', 'HASH',
         'schema', 'title', 'text', 'body', 'text'))
     env.assertEqual(r.execute_command('ft.synadd', 'idx', 'boy', 'child', 'offspring'), 0)
     env.assertEqual(r.execute_command('ft.synadd', 'idx', 'baby', 'child'), 1)
@@ -99,7 +99,7 @@ def testSynonymDump(env):
 def testSynonymAddWrongArity(env):
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+        'ft.create', 'idx', 'ON', 'HASH',
         'schema', 'title', 'text', 'body', 'text'))
     exceptionStr = None
     try:
@@ -120,7 +120,7 @@ def testSynonymAddUnknownIndex(env):
 def testSynonymUpdateWorngArity(env):
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+        'ft.create', 'idx', 'ON', 'HASH',
         'schema', 'title', 'text', 'body', 'text'))
     r.execute_command('ft.synadd', 'idx', 'boy', 'child')
     with env.assertResponseError(contained='wrong number of arguments'):
@@ -142,7 +142,7 @@ def testSynonymUpdateNotNumberId(env):
 def testSynonymUpdateOutOfRangeId(env):
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+        'ft.create', 'idx', 'ON', 'HASH',
         'schema', 'title', 'text', 'body', 'text'))
     r.execute_command('ft.synadd', 'idx', 'boy', 'child')
     exceptionStr = None
@@ -155,7 +155,7 @@ def testSynonymUpdateOutOfRangeId(env):
 def testSynonymDumpWorngArity(env):
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+        'ft.create', 'idx', 'ON', 'HASH',
         'schema', 'title', 'text', 'body', 'text'))
     r.execute_command('ft.synadd', 'idx', 'boy', 'child')
     exceptionStr = None
@@ -177,7 +177,7 @@ def testSynonymUnknownIndex(env):
 def testSynonymsRdb(env):
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+        'ft.create', 'idx', 'ON', 'HASH',
         'schema', 'title', 'text', 'body', 'text'))
     env.assertEqual(r.execute_command('ft.synadd', 'idx', 'boy', 'child', 'offspring'), 0)
     for _ in env.reloading_iterator():
@@ -186,7 +186,7 @@ def testSynonymsRdb(env):
 def testTwoSynonymsSearch(env):
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+        'ft.create', 'idx', 'ON', 'HASH',
         'schema', 'title', 'text', 'body', 'text'))
     env.assertEqual(r.execute_command('ft.synadd', 'idx', 'boy', 'child', 'offspring'), 0)
     env.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 1.0, 'fields',
@@ -201,7 +201,7 @@ def testSynonymsIntensiveLoad(env):
     iterations = 1000
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
+        'ft.create', 'idx', 'ON', 'HASH',
         'schema', 'title', 'text', 'body', 'text'))
     for i in range(iterations):
         env.assertEqual(r.execute_command('ft.synadd', 'idx', 'boy%d' % i, 'child%d' % i, 'offspring%d' % i), i)

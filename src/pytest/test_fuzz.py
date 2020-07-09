@@ -32,7 +32,7 @@ def generate_random_doc(env, num_tokens=100):
 
 def createIndex(env, r):
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'schema', 'txt', 'text'))
+        'ft.create', 'idx', 'ON', 'HASH', 'schema', 'txt', 'text'))
 
     for i in xrange(1000):
         did, tokens = generate_random_doc(env)

@@ -6,7 +6,7 @@ import time
 from includes import *
 
 def testConditionalUpdateOnNoneExistingNumericField(env):
-    env.assertOk(env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'schema', 'id1', 'numeric', 'SORTABLE'))
+    env.assertOk(env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 'id1', 'numeric', 'SORTABLE'))
     env.assertOk(env.cmd('ft.add', 'idx', 'doc1', 1.0, 'fields', 'id1', '5'))
 
     # adding field to the schema
@@ -38,7 +38,7 @@ def testConditionalUpdateOnNoneExistingNumericField(env):
                            'fields', 'id1', '3', 'id2', '4'))
 
 def testConditionalUpdateOnNoneExistingTextField(env):
-    env.assertOk(env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'schema', 'id1', 'text', 'SORTABLE'))
+    env.assertOk(env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 'id1', 'text', 'SORTABLE'))
     env.assertOk(env.cmd('ft.add', 'idx', 'doc1', 1.0, 'fields', 'id1', 'some_text'))
 
     # adding field to the schema
@@ -70,7 +70,7 @@ def testConditionalUpdateOnNoneExistingTextField(env):
                            'fields', 'id1', 'some_text', 'id2', 'some_text'))
 
 def testConditionalUpdateOnNoneExistingTagField(env):
-    env.assertOk(env.cmd('ft.create', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'schema', 'id1', 'tag', 'SORTABLE'))
+    env.assertOk(env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 'id1', 'tag', 'SORTABLE'))
     env.assertOk(env.cmd('ft.add', 'idx', 'doc1', 1.0, 'fields', 'id1', 'some_text'))
 
     # adding field to the schema
