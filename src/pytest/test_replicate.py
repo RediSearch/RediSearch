@@ -26,7 +26,7 @@ class TimeLimit(object):
     def handler(self, signum, frame):
         raise TimeoutException()
 
-def checkSlaveSynced(env, slaveConn, command, expected_result, time_out=20):
+def checkSlaveSynced(env, slaveConn, command, expected_result, time_out=5):
   try:
     with TimeLimit(time_out):
       res = slaveConn.execute_command(*command)
