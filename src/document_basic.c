@@ -97,8 +97,7 @@ void Document_MakeRefOwner(Document *doc) {
 }
 
 int Document_LoadSchemaFields(Document *doc, RedisSearchCtx *sctx) {
-  RedisModuleCtx *rctx = sctx->redisCtx;
-  RedisModuleKey *k = RedisModule_OpenKey(rctx, doc->docKey, REDISMODULE_READ);
+  RedisModuleKey *k = RedisModule_OpenKey(sctx->redisCtx, doc->docKey, REDISMODULE_READ);
   int rv = REDISMODULE_ERR;
   if (!k || RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_HASH) {
     goto done;
@@ -111,19 +110,21 @@ int Document_LoadSchemaFields(Document *doc, RedisSearchCtx *sctx) {
 
   IndexSpec *spec = sctx->spec;
   SchemaRule *rule = spec->rule;
-  Document_MakeStringsOwner(doc);
-  
+  RedisModuleString *payload_rms = NULL;
   if (rule) {
-    const char *keyname = (const char *) RedisModule_StringPtrLen(doc->docKey, NULL); 
-    doc->language = SchemaRule_HashLang(rctx, rule, k, keyname);
-    doc->score = SchemaRule_HashScore(rctx, rule, k, keyname);
-    RedisModuleString *payload_rms = SchemaRule_HashPayload(rctx, rule, k, keyname);
+    const char *keyname = (const char *)RedisModule_StringPtrLen(doc->docKey, NULL);
+    doc->language = SchemaRule_HashLang(rule, k, keyname);
+    doc->score = SchemaRule_HashScore(rule, k, keyname);
+    payload_rms = SchemaRule_HashPayload(rule, k, keyname);
     if (payload_rms) {
-      doc->payload = (const char *) rm_strdup(RedisModule_StringPtrLen(payload_rms, &doc->payloadSize));
-      RedisModule_FreeString(rctx, payload_rms);
+      doc->payload = RedisModule_StringPtrLen(payload_rms, &doc->payloadSize);
     }
   }
 
+  Document_MakeStringsOwner(doc);
+  if (payload_rms) {
+    RedisModule_FreeString(sctx->redisCtx, payload_rms);
+  }
   doc->fields = rm_calloc(nitems, sizeof(*doc->fields));
   for (size_t ii = 0; ii < spec->numFields; ++ii) {
     const char *fname = spec->fields[ii].name;
@@ -275,9 +276,9 @@ static void initGlobalAddStrings() {
   const char *Slang = "__language";
   const char *Spayload = "__payload";
 
-  globalAddRSstrings[0] = RedisModule_CreateString(NULL, Sscore, strlen(Sscore)); 
-  globalAddRSstrings[1] = RedisModule_CreateString(NULL, Slang, strlen(Slang)); 
-  globalAddRSstrings[2] = RedisModule_CreateString(NULL, Spayload, strlen(Spayload)); 
+  globalAddRSstrings[0] = RedisModule_CreateString(NULL, Sscore, strlen(Sscore));
+  globalAddRSstrings[1] = RedisModule_CreateString(NULL, Slang, strlen(Slang));
+  globalAddRSstrings[2] = RedisModule_CreateString(NULL, Spayload, strlen(Spayload));
 }
 
 void freeGlobalAddStrings() {
@@ -295,7 +296,8 @@ int Redis_SaveDocument(RedisSearchCtx *ctx, const AddDocumentOptions *opts, Quer
   }
 
   // create an array for key + all field/value + score/language/payload
-  arrayof(RedisModuleString*) arguments = array_new(RedisModuleString*, 1 + opts->numFieldElems + 6);
+  arrayof(RedisModuleString *) arguments =
+      array_new(RedisModuleString *, 1 + opts->numFieldElems + 6);
 
   arguments = array_append(arguments, opts->keyStr);
   arguments = array_ensure_append_n(arguments, opts->fieldsArray, opts->numFieldElems);

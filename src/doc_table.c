@@ -21,7 +21,6 @@ DocTable NewDocTable(size_t cap, size_t max_size) {
       .sortablesSize = 0,
       .maxSize = max_size,
       .dim = NewDocIdMap(),
-      .tempDmdDict = NULL,
   };
   ret.buckets = rm_calloc(cap, sizeof(*ret.buckets));
   return ret;
@@ -212,16 +211,6 @@ t_docId DocTable_Put(DocTable *t, const char *s, size_t n, double score, u_char 
   sds keyPtr = sdsnewlen(s, n);
 
   RSDocumentMetadata *dmd = NULL;
-  if (t->tempDmdDict) {
-    RedisModuleString *keyRedisStr = RedisModule_CreateString(NULL, s, n);
-    dmd = dictFetchValue(t->tempDmdDict, keyRedisStr);
-    if (dmd) {
-      dictDelete(t->tempDmdDict, keyRedisStr);
-      dmd->id = docId;
-      dmd->sortVector = NULL;
-    }
-    RedisModule_FreeString(NULL, keyRedisStr);
-  }
   if (!dmd) {
     dmd = rm_calloc(1, sizeof(RSDocumentMetadata));
     dmd->keyPtr = keyPtr;
@@ -472,7 +461,6 @@ void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
     } else {
       RedisModuleString *keyRedisStr =
           RedisModule_CreateString(NULL, dmd->keyPtr, sdslen(dmd->keyPtr));
-      dictAdd(t->tempDmdDict, keyRedisStr, dmd);
       RedisModule_FreeString(NULL, keyRedisStr);
       //      DocIdMap_Put(&t->dim, dmd->keyPtr, sdslen(dmd->keyPtr), dmd->id);
       //      DocTable_Set(t, dmd->id, dmd);

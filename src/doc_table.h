@@ -67,7 +67,6 @@ typedef struct {
 
   DMDChain *buckets;
   DocIdMap dim;
-  dict *tempDmdDict;
 } DocTable;
 
 /* increasing the ref count of the given dmd */
