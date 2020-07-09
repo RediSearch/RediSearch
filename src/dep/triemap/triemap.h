@@ -40,6 +40,7 @@ typedef struct {
   // ... here come the first letters of each child childChars[]
   // ... now come the children, to be accessed with __trieMapNode_children
 } TrieMapNode;
+
 #pragma pack()
 
 typedef struct {
@@ -74,6 +75,8 @@ int TrieMap_Add(TrieMap *t, char *str, tm_len_t len, void *value, TrieMapReplace
  */
 void *TrieMap_Find(TrieMap *t, char *str, tm_len_t len);
 
+/* Find nodes that have a given prefix. Results are placed in an array.
+ */
 int TrieMap_FindPrefixes(TrieMap *t, const char *str, tm_len_t len, arrayof(void*) *results);
 
 /* Mark a node as deleted. It also optimizes the trie by merging nodes if
