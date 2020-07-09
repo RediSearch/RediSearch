@@ -1392,14 +1392,6 @@ int IndexSpec_UpdateWithHash(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleSt
     RedisModule_Log(ctx, "warning", "Index spec %s: no rule found", spec->name);
     return REDISMODULE_ERR;
   }
-
-  // Needed to allow hash updates (remove overrwritten fields)
-  const char *key_p = RedisModule_StringPtrLen(key, NULL);
-  bool doc_exists = DocTable_GetIdR(&spec->docs, key) != 0;
-  if (IndexSpec_DeleteHash(spec, ctx, key) != REDISMODULE_OK && doc_exists) {
-    RedisModule_Log(ctx, "warning", "Index spec %s: could not remove key %s", spec->name, key_p);
-  }
-
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
   Document doc = {0};
   Document_Init(&doc, key, 1.0, DEFAULT_LANGUAGE);
@@ -1410,7 +1402,7 @@ int IndexSpec_UpdateWithHash(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleSt
   QueryError status = {0};
   RSAddDocumentCtx *aCtx = NewAddDocumentCtx(spec, &doc, &status);
   aCtx->stateFlags |= ACTX_F_NOBLOCK;
-  AddDocumentCtx_Submit(aCtx, &sctx, DOCUMENT_ADD_PARTIAL);
+  AddDocumentCtx_Submit(aCtx, &sctx, DOCUMENT_ADD_REPLACE);
   return REDISMODULE_OK;
 }
 
@@ -1458,6 +1450,7 @@ void Indexes_Init(RedisModuleCtx *ctx) {
   specDict = dictCreate(&dictTypeHeapStrings, NULL);
   RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_FlushDB, onFlush);
   SchemaPrefixes_Create();
+  SchemaRules_Create();
 }
 
 dict *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key) {
@@ -1478,7 +1471,7 @@ dict *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisModuleString *ke
 
   size_t n;
   const char *key_p = RedisModule_StringPtrLen(key, &n);
-  arrayof(SchemaPrefixNode*) prefixes = 0;
+  arrayof(SchemaPrefixNode*) prefixes = array_new(SchemaPrefixNode*, 1);
   int nprefixes = TrieMap_FindPrefixes(ScemaPrefixes_g, key_p, n, (arrayof(void*)*) &prefixes);
   for (int i = 0; i < array_len(prefixes); ++i) {
     SchemaPrefixNode *node = prefixes[i];
