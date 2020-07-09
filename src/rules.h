@@ -11,8 +11,18 @@
 struct RSExpr;
 struct IndexSpec;
 
+typedef enum {
+  SchameRuleType_Any,
+  SchemaRuleType_Hash
+} SchemaRuleType;
+
+const char *SchemaRuleType_ToString(SchemaRuleType type);
+int SchemaRuleType_Parse(const char *type_str, SchemaRuleType *type, QueryError *status);
+
+//---------------------------------------------------------------------------------------------
+
 typedef struct {
-  const char *type;
+  const char *type; // HASH, JSON, etc.
   const char **prefixes;
   int nprefixes;
   char *filter_exp_str;
@@ -22,8 +32,8 @@ typedef struct {
 } SchemaRuleArgs;
 
 typedef struct SchemaRule {
+  SchemaRuleType type;
   struct IndexSpec *spec;
-  const char *type; // HASH, JSON, etc.
   arrayof(const char *) prefixes;
   char *filter_exp_str;
   struct RSExpr *filter_exp;
@@ -36,6 +46,8 @@ extern arrayof(SchemaRule*) SchemaRules_g;
 
 SchemaRule *SchemaRule_Create(SchemaRuleArgs *ags, struct IndexSpec *spec, QueryError *status);
 void SchemaRule_Free(SchemaRule *);
+
+void SchemaRules_Create();
 void SchemaRules_RemoveSpecRules(struct IndexSpec *spec);
 
 RSLanguage SchemaRule_HashLang(const SchemaRule *rule, RedisModuleKey *key, const char *kname);
@@ -53,7 +65,7 @@ void SchemaPrefixes_RemoveSpec(struct IndexSpec *spec);
 
 typedef struct {
   const char *prefix;
-  struct IndexSpec **index_specs; // util_arr
+  arrayof(struct IndexSpec*) index_specs;
 } SchemaPrefixNode;
 
 SchemaPrefixNode *SchemaPrefixNode_Create(const char *prefix, struct IndexSpec *index);
