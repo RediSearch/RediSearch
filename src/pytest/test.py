@@ -1920,6 +1920,9 @@ def testAlterValidation(env):
     # test with no fields!
     env.assertRaises(redis.ResponseError, env.cmd, 'FT.ALTER', 'idx2', 'SCHEMA', 'ADD')
 
+    # test with no fields!
+    env.assertRaises(redis.ResponseError, env.cmd, 'FT.ALTER', 'idx2', 'SCHEMA', 'ADD')
+
 def testIssue366_2(env):
     # FT.CREATE atest SCHEMA textfield TEXT numfield NUMERIC
     # FT.ADD atest anId 1 PAYLOAD '{"hello":"world"}' FIELDS textfield sometext numfield 1234

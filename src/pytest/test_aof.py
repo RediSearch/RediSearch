@@ -85,6 +85,9 @@ def testAofRewriteTags():
     # Try to drop the schema
     env.cmd('FT.DROP', 'idx')
 
+    env.cmd('del', '1')
+    env.cmd('del', '2')
+
     # Try to create it again - should work!
     env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
             'SCHEMA', 'foo', 'TEXT', 'SORTABLE', 'bar', 'TAG')

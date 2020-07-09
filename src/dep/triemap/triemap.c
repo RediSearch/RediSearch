@@ -227,7 +227,7 @@ void *TrieMapNode_Find(TrieMapNode *n, char *str, tm_len_t len) {
       //   qsort(__trieMapNode_children(n), n->numChildren, sizeof(TrieMapNode *), __cmp_nodes);
       //   qsort(__trieMapNode_childKey(n, 0), n->numChildren, 1, __cmp_chars);
       //   n->flags |= TM_NODE_SORTED;
-      // } 
+      // }
       char *childKeys = __trieMapNode_childKey(n, 0);
       char c = str[offset];
       // if (n->flags & TM_NODE_SORTED) {
@@ -247,7 +247,7 @@ void *TrieMapNode_Find(TrieMapNode *n, char *str, tm_len_t len) {
       //     }
       //   }
 
-      // } else {      
+      // } else {
       tm_len_t nc = n->numChildren;
 
       while (i < nc) {
@@ -266,7 +266,8 @@ void *TrieMapNode_Find(TrieMapNode *n, char *str, tm_len_t len) {
   return TRIEMAP_NOTFOUND;
 }
 
-int TrieMapNode_FindPrefixes(TrieMapNode *node, const char *str, tm_len_t len, arrayof(void*) *results) {
+int TrieMapNode_FindPrefixes(TrieMapNode *node, const char *str, tm_len_t len,
+                             arrayof(void *) * results) {
   *results = array_clear(*results);
 
   tm_len_t offset = 0;
@@ -287,13 +288,13 @@ int TrieMapNode_FindPrefixes(TrieMapNode *node, const char *str, tm_len_t len, a
     if (offset == len) {
       // If this is a terminal, non deleted node
       if (__trieMapNode_isTerminal(node) && !__trieMapNode_isDeleted(node)) {
-        *results = array_ensure_append_1(*results, node->value);
+        *results = array_append(*results, node->value);
       }
       return array_len(*results);
     }
 
     if (node->value) {
-      *results = array_ensure_append_1(*results, node->value);
+      *results = array_append(*results, node->value);
     }
 
     // reached end of node's string but not of the search string
@@ -374,7 +375,7 @@ void *TrieMap_Find(TrieMap *t, char *str, tm_len_t len) {
   return TrieMapNode_Find(t->root, str, len);
 }
 
-int TrieMap_FindPrefixes(TrieMap *t, const char *str, tm_len_t len, arrayof(void*) *results) {
+int TrieMap_FindPrefixes(TrieMap *t, const char *str, tm_len_t len, arrayof(void *) * results) {
   return TrieMapNode_FindPrefixes(t->root, str, len, results);
 }
 
