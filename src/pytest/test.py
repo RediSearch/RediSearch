@@ -1108,10 +1108,11 @@ def testFieldSelectors(env):
     env.assertOk(r.execute_command(
         'ft.create', 'idx', 'ON', 'HASH', 'PREFIX', 1, 'doc',
         'schema', 'TiTle', 'text', 'BoDy', 'text', "יוניקוד", 'text', 'field.with,punct', 'text'))
+    #todo: document as breaking change, ft.add fields name are not case insentive
     env.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 1, 'fields',
-                                    'title', 'hello world', 'body', 'foo bar', 'יוניקוד', 'unicode', 'field.with,punct', 'punt'))
+                                    'TiTle', 'hello world', 'BoDy', 'foo bar', 'יוניקוד', 'unicode', 'field.with,punct', 'punt'))
     env.assertOk(r.execute_command('ft.add', 'idx', 'doc2', 0.5, 'fields',
-                                    'body', 'hello world', 'title', 'foo bar', 'יוניקוד', 'unicode', 'field.with,punct', 'punt'))
+                                    'BoDy', 'hello world', 'TiTle', 'foo bar', 'יוניקוד', 'unicode', 'field.with,punct', 'punt'))
 
     res = r.execute_command(
         'ft.search', 'idx', '@title:hello world', 'nocontent')
@@ -1129,23 +1130,23 @@ def testFieldSelectors(env):
     env.assertEqual(res, [0])
     res = r.execute_command(
         'ft.search', 'idx', '@BoDy:(hello|foo) @Title:(world|bar)', 'nocontent')
-    env.assertEqual(res, [2, 'doc1', 'doc2'])
+    env.assertEqual(sorted(res), sorted([2, 'doc1', 'doc2']))
 
     res = r.execute_command(
         'ft.search', 'idx', '@body:(hello|foo world|bar)', 'nocontent')
-    env.assertEqual(res, [2, 'doc1', 'doc2'])
+    env.assertEqual(sorted(res), sorted([2, 'doc1', 'doc2']))
 
     res = r.execute_command(
         'ft.search', 'idx', '@body|title:(hello world)', 'nocontent')
-    env.assertEqual(res, [2, 'doc1', 'doc2'])
+    env.assertEqual(sorted(res), sorted([2, 'doc1', 'doc2']))
 
     res = r.execute_command(
         'ft.search', 'idx', '@יוניקוד:(unicode)', 'nocontent')
-    env.assertEqual(res, [2, 'doc1', 'doc2'])
+    env.assertEqual(sorted(res), sorted([2, 'doc1', 'doc2']))
 
     res = r.execute_command(
         'ft.search', 'idx', '@field\\.with\\,punct:(punt)', 'nocontent')
-    env.assertEqual(res, [2, 'doc1', 'doc2'])
+    env.assertEqual(sorted(res), sorted([2, 'doc1', 'doc2']))
 
 def testStemming(env):
     r = env
@@ -2819,7 +2820,8 @@ def testHindiStemmer(env):
     env.cmd('FT.CREATE', 'idxTest', 'ON', 'HASH', 'LANGUAGE', '__language', 'SCHEMA', 'body', 'TEXT')
     env.cmd('FT.ADD', 'idxTest', 'doc1', 1.0, 'LANGUAGE', 'hindi', 'FIELDS', 'body', u'अँगरेजी अँगरेजों अँगरेज़')
     res = env.cmd('FT.SEARCH', 'idxTest', u'अँगरेज़')
-    env.assertEqual(u'अँगरेजी अँगरेजों अँगरेज़', unicode(res[2][1], 'utf-8'))
+    res1 = {res[2][i]:res[2][i + 1] for i in range(0, len(res[2]), 2)}
+    env.assertEqual(u'अँगरेजी अँगरेजों अँगरेज़', unicode(res1['body'], 'utf-8'))
 
 def testMOD507(env):
     env.skipOnCluster()
