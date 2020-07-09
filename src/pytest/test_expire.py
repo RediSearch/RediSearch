@@ -3,6 +3,7 @@ import unittest
 
 
 def testExpire(env):
+    env.skip() # todo: uncomment when we implement TEMPORARY indexes
     if env.isCluster():
         raise unittest.SkipTest()
     env.cmd('ft.create', 'idx', 'TEMPORARY', '4', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT', 'SORTABLE')
