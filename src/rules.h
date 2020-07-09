@@ -38,10 +38,12 @@ SchemaRule *SchemaRule_Create(SchemaRuleArgs *ags, struct IndexSpec *spec, Query
 void SchemaRule_Free(SchemaRule *);
 void SchemaRules_RemoveSpecRules(struct IndexSpec *spec);
 
-RSLanguage SchemaRule_HashLang(const SchemaRule *rule, RedisModuleKey *key, const char *kname);
-double SchemaRule_HashScore(const SchemaRule *rule, RedisModuleKey *key, const char *kname);
-RedisModuleString *SchemaRule_HashPayload(const SchemaRule *rule, RedisModuleKey *key,
-                                          const char *kname);
+RSLanguage SchemaRule_HashLang(RedisModuleCtx *rctx, const SchemaRule *rule, RedisModuleKey *key,
+                               const char *kname);
+double SchemaRule_HashScore(RedisModuleCtx *rctx, const SchemaRule *rule, RedisModuleKey *key,
+                            const char *kname);
+RedisModuleString *SchemaRule_HashPayload(RedisModuleCtx *rctx, const SchemaRule *rule,
+                                          RedisModuleKey *key, const char *kname);
 
 void SchemaRule_RdbSave(SchemaRule *rule, RedisModuleIO *rdb);
 int SchemaRule_RdbLoad(struct IndexSpec *sp, RedisModuleIO *rdb, int encver);

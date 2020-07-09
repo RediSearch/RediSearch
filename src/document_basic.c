@@ -111,20 +111,18 @@ int Document_LoadSchemaFields(Document *doc, RedisSearchCtx *sctx) {
   IndexSpec *spec = sctx->spec;
   SchemaRule *rule = spec->rule;
   RedisModuleString *payload_rms = NULL;
+  Document_MakeStringsOwner(doc);
   if (rule) {
     const char *keyname = (const char *)RedisModule_StringPtrLen(doc->docKey, NULL);
-    doc->language = SchemaRule_HashLang(rule, k, keyname);
-    doc->score = SchemaRule_HashScore(rule, k, keyname);
-    payload_rms = SchemaRule_HashPayload(rule, k, keyname);
+    doc->language = SchemaRule_HashLang(sctx->redisCtx, rule, k, keyname);
+    doc->score = SchemaRule_HashScore(sctx->redisCtx, rule, k, keyname);
+    payload_rms = SchemaRule_HashPayload(sctx->redisCtx, rule, k, keyname);
     if (payload_rms) {
-      doc->payload = RedisModule_StringPtrLen(payload_rms, &doc->payloadSize);
+      doc->payload = rm_strdup(RedisModule_StringPtrLen(payload_rms, &doc->payloadSize));
+      RedisModule_FreeString(sctx->redisCtx, payload_rms);
     }
   }
 
-  Document_MakeStringsOwner(doc);
-  if (payload_rms) {
-    RedisModule_FreeString(sctx->redisCtx, payload_rms);
-  }
   doc->fields = rm_calloc(nitems, sizeof(*doc->fields));
   for (size_t ii = 0; ii < spec->numFields; ++ii) {
     const char *fname = spec->fields[ii].name;
