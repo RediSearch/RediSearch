@@ -1850,6 +1850,76 @@ def assertResultsEqual(env, exp, got, inorder=True):
         exp_fields = to_dict(exp_fields)
         env.assertEqual(exp_fields, got_fields, message="at position {}".format(x))
 
+def testAlterIndex(env):
+    env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'f1', 'TEXT')
+    env.cmd('FT.ADD', 'idx', 'doc1', 1.0, 'FIELDS', 'f1', 'hello', 'f2', 'world')
+    env.cmd('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'f2', 'TEXT')
+    env.cmd('FT.ADD', 'idx', 'doc2', 1.0, 'FIELDS', 'f1', 'hello', 'f2', 'world')
+
+    # RS 2.0 reindex and after reload both documents are found
+    #for _ in env.retry_with_reload():
+    ret = env.cmd('FT.SEARCH', 'idx', 'world')
+    env.assertEqual([1, 'doc2', ['f1', 'hello', 'f2', 'world']], ret)
+
+    env.cmd('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'f3', 'TEXT', 'SORTABLE')
+    for x in range(10):
+        env.cmd('FT.ADD', 'idx', 'doc{}'.format(x + 3), 1.0,
+                 'FIELDS', 'f1', 'hello', 'f3', 'val{}'.format(x))
+
+    for _ in env.retry_with_reload():
+        # Test that sortable works
+        res = env.cmd('FT.SEARCH', 'idx', 'hello', 'SORTBY', 'f3', 'DESC')
+        exp = [12, 'doc12', ['f1', 'hello', 'f3', 'val9'], 'doc11', ['f1', 'hello', 'f3', 'val8'], 'doc10', ['f1', 'hello', 'f3', 'val7'], 'doc9', ['f1', 'hello', 'f3', 'val6'], 'doc8', ['f1', 'hello', 'f3', 'val5'], 'doc7', [
+                'f1', 'hello', 'f3', 'val4'], 'doc6', ['f1', 'hello', 'f3', 'val3'], 'doc5', ['f1', 'hello', 'f3', 'val2'], 'doc4', ['f1', 'hello', 'f3', 'val1'], 'doc3', ['f1', 'hello', 'f3', 'val0']]
+
+        assertResultsEqual(env, exp, res)
+
+    # Test that we can add a numeric field
+    env.cmd('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'n1', 'NUMERIC')
+    env.cmd('FT.ADD', 'idx', 'docN1', 1.0, 'FIELDS', 'n1', 50)
+    env.cmd('FT.ADD', 'idx', 'docN2', 1.0, 'FIELDS', 'n1', 250)
+    for _ in env.retry_with_reload():
+        res = env.cmd('FT.SEARCH', 'idx', '@n1:[0 100]')
+        env.assertEqual([1, 'docN1', ['n1', '50']], res)
+
+    env.expect('FT.ALTER', 'idx', 'SCHEMA', 'NOT_ADD', 'f2', 'TEXT').error()
+    env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD').error()
+    env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'f2').error()
+
+def testAlterValidation(env):
+    # Test that constraints for ALTER comand
+    env.cmd('FT.CREATE', 'idx1', 'ON', 'HASH', 'SCHEMA', 'f0', 'TEXT')
+    for x in range(1, 32):
+        env.cmd('FT.ALTER', 'idx1', 'SCHEMA', 'ADD', 'f{}'.format(x), 'TEXT')
+    # OK for now.
+
+    # Should be too many indexes
+    env.assertRaises(redis.ResponseError, env.cmd, 'FT.ALTER',
+                      'idx1', 'SCHEMA', 'ADD', 'tooBig', 'TEXT')
+
+    env.cmd('FT.CREATE', 'idx2', 'MAXTEXTFIELDS', 'ON', 'HASH', 'SCHEMA', 'f0', 'TEXT')
+    # print env.cmd('FT.INFO', 'idx2')
+    for x in range(1, 50):
+        env.cmd('FT.ALTER', 'idx2', 'SCHEMA', 'ADD', 'f{}'.format(x + 1), 'TEXT')
+
+    env.cmd('FT.ADD', 'idx2', 'doc1', 1.0, 'FIELDS', 'f50', 'hello')
+    for _ in env.retry_with_reload():
+        ret = env.cmd('FT.SEARCH', 'idx2', '@f50:hello')
+        env.assertEqual([1, 'doc1', ['f50', 'hello']], ret)
+
+    env.cmd('FT.CREATE', 'idx3', 'ON', 'HASH', 'SCHEMA', 'f0', 'text')
+    # Try to alter the index with garbage
+    env.assertRaises(redis.ResponseError, env.cmd, 'FT.ALTER', 'idx3',
+                      'SCHEMA', 'ADD', 'f1', 'TEXT', 'f2', 'garbage')
+    ret = to_dict(env.cmd('ft.info', 'idx3'))
+    env.assertEqual(1, len(ret['fields']))
+
+    env.assertRaises(redis.ResponseError, env.cmd, 'FT.ALTER',
+                      'nonExist', 'SCHEMA', 'ADD', 'f1', 'TEXT')
+
+    # test with no fields!
+    env.assertRaises(redis.ResponseError, env.cmd, 'FT.ALTER', 'idx2', 'SCHEMA', 'ADD')
+
 def testIssue366_2(env):
     # FT.CREATE atest SCHEMA textfield TEXT numfield NUMERIC
     # FT.ADD atest anId 1 PAYLOAD '{"hello":"world"}' FIELDS textfield sometext numfield 1234
@@ -2238,10 +2308,17 @@ def testIssue_866(env):
     env.expect('ft.sugdel', 'sug', 'test').equal(0)
     env.expect('ft.sugget', 'sug', '').equal(['test123', 'test456'])
 
+def testIssue_848(env):
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test1', 'TEXT', 'SORTABLE').equal('OK')
+    env.expect('FT.ADD', 'idx', 'doc1', '1.0', 'FIELDS', 'test1', 'foo').equal('OK')
+    env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'test2', 'TEXT', 'SORTABLE').equal('OK')
+    env.expect('FT.ADD', 'idx', 'doc2', '1.0', 'FIELDS', 'test1', 'foo', 'test2', 'bar').equal('OK')
+    env.expect('FT.SEARCH', 'idx', 'foo', 'SORTBY', 'test2', 'ASC').equal([2L, 'doc1', ['test1', 'foo'], 'doc2', ['test2', 'bar', 'test1', 'foo']])
+
 def testMod_309(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
     for i in range(100000):
-        env.expect('FT.ADD', 'idx', 'doc%d'%i, '1.0', 'FIELDS', 'test', 'foo')
+        env.expect('FT.ADD', 'idx', 'doc%d'%i, '1.0', 'FIELDS', 'test', 'foo').equal('OK')
     res = env.cmd('FT.AGGREGATE', 'idx', 'foo')
     env.assertEqual(len(res), 100001)
 

@@ -146,6 +146,7 @@ void SchemaPrefixes_Create() {
 static void freePrefixNode(void *ctx) {
   SchemaPrefixNode *node = ctx;
   array_free(node->index_specs);
+  rm_free(node->prefix);
   rm_free(node);
 }
 
@@ -191,7 +192,7 @@ void SchemaPrefixes_RemoveSpec(IndexSpec *spec) {
 
 SchemaPrefixNode *SchemaPrefixNode_Create(const char *prefix, IndexSpec *index) {
   SchemaPrefixNode *node = rm_calloc(1, sizeof(*node));
-  node->prefix = prefix;
+  node->prefix = rm_strdup(prefix);
   node->index_specs = array_ensure_append_1(node->index_specs, index);
   return node;
 }
