@@ -462,7 +462,7 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryE
   size_t dummy2;
   SchemaRuleArgs rule_args = {0};
   ArgsCursor rule_prefixes = {0};
-  
+
   ACArgSpec argopts[] = {
       {AC_MKUNFLAG(SPEC_NOOFFSETS_STR, &spec->flags,
                    Index_StoreTermOffsets | Index_StoreByteOffsets)},
@@ -476,10 +476,22 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryE
       {.name = "NOSCOREIDX", .target = &dummy, .type = AC_ARGTYPE_BOOLFLAG},
       {.name = "ON", .target = &rule_args.type, .len = &dummy2, .type = AC_ARGTYPE_STRING},
       {.name = "PREFIX", .target = &rule_prefixes, .type = AC_ARGTYPE_SUBARGS},
-      {.name = "FILTER", .target = &rule_args.filter_exp_str, .len = &dummy2, .type = AC_ARGTYPE_STRING},
-      {.name = "SCORE", .target = &rule_args.score_field, .len = &dummy2, .type = AC_ARGTYPE_STRING},
-      {.name = "LANGUAGE", .target = &rule_args.lang_field, .len = &dummy2, .type = AC_ARGTYPE_STRING},
-      {.name = "PAYLOAD", .target = &rule_args.payload_field, .len = &dummy2, .type = AC_ARGTYPE_STRING},
+      {.name = "FILTER",
+       .target = &rule_args.filter_exp_str,
+       .len = &dummy2,
+       .type = AC_ARGTYPE_STRING},
+      {.name = "SCORE",
+       .target = &rule_args.score_field,
+       .len = &dummy2,
+       .type = AC_ARGTYPE_STRING},
+      {.name = "LANGUAGE",
+       .target = &rule_args.lang_field,
+       .len = &dummy2,
+       .type = AC_ARGTYPE_STRING},
+      {.name = "PAYLOAD",
+       .target = &rule_args.payload_field,
+       .len = &dummy2,
+       .type = AC_ARGTYPE_STRING},
       {.name = SPEC_TEMPORARY_STR, .target = &timeout, .type = AC_ARGTYPE_LLONG},
       {.name = SPEC_STOPWORDS_STR, .target = &acStopwords, .type = AC_ARGTYPE_SUBARGS},
       {.name = NULL}};
@@ -500,7 +512,7 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryE
 
   if (rule_prefixes.argc > 0) {
     rule_args.nprefixes = rule_prefixes.argc;
-    rule_args.prefixes = (const char **) rule_prefixes.objs;
+    rule_args.prefixes = (const char **)rule_prefixes.objs;
   } else {
     rule_args.nprefixes = 1;
     static const char *empty_prefix[] = {""};
@@ -1089,11 +1101,8 @@ static void IndexStats_RdbSave(RedisModuleIO *rdb, IndexStats *stats) {
   RedisModule_SaveUnsigned(rdb, stats->termsSize);
 }
 
+// todo: the final solution will scan in background
 static threadpool reindexPool = NULL;
-
-static bool IndexSpec_ShouldIndex(IndexSpec *sp, RedisModuleString *keyName, RedisModuleKey *key) {
-  return (sp->docs.tempDmdDict && (dictFetchValue(sp->docs.tempDmdDict, keyName) != NULL));
-}
 
 static void IndexSpec_DoneIndexingCallabck(struct RSAddDocumentCtx *docCtx, RedisModuleCtx *ctx,
                                            void *pd) {
@@ -1107,46 +1116,50 @@ static void IndexSpec_ScanCallback(RedisModuleCtx *ctx, RedisModuleString *keyna
     return;
   }
 
-  size_t keynameCStrLen;
-  const char *keynameCStr = RedisModule_StringPtrLen(keyname, &keynameCStrLen);
+  Indexes_UpdateMatchingWithSchemaRules(ctx, keyname);
 
-  // load the document, todo: use the key itself with scan api.
-  Document doc = {0};
-  Document_Init(&doc, keyname, 1.0, RS_LANG_ENGLISH);
-  if (Document_LoadAllFields(&doc, ctx) != REDISMODULE_OK) {
-    RedisModule_Log(ctx, "warning", "Failed loading document %*.s", (int)keynameCStrLen,
-                    keynameCStr);
-    Document_Free(&doc);
-    return;
-  }
-
-  QueryError status = {0};
-
-  dictIterator *iter = dictGetIterator(specDict);
-  dictEntry *entry = NULL;
-  while ((entry = dictNext(iter))) {
-    IndexSpec *sp = dictGetVal(entry);
-    if (IndexSpec_ShouldIndex(sp, keyname, key)) {
-
-      RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
-
-      RSAddDocumentCtx *aCtx = NewAddDocumentCtx(sp, &doc, &status);
-      if (aCtx == NULL) {
-        // todo: handle this error
-        continue;
-      }
-
-      aCtx->donecb = IndexSpec_DoneIndexingCallabck;
-
-      aCtx->stateFlags |= ACTX_F_NOBLOCK;
-      aCtx->stateFlags |= ACTX_F_NOFREEDOC;
-
-      AddDocumentCtx_Submit(aCtx, &sctx, DOCUMENT_ADD_REPLACE);
-    }
-  }
-  dictReleaseIterator(iter);
-
-  Document_Free(&doc);
+  //  size_t keynameCStrLen;
+  //  const char *keynameCStr = RedisModule_StringPtrLen(keyname, &keynameCStrLen);
+  //
+  //  // load the document, todo: use the key itself with scan api.
+  //  Document doc = {0};
+  //  Document_Init(&doc, keyname, 1.0, RS_LANG_ENGLISH);
+  //  if (Document_LoadAllFields(&doc, ctx) != REDISMODULE_OK) {
+  //    RedisModule_Log(ctx, "warning", "Failed loading document %*.s", (int)keynameCStrLen,
+  //                    keynameCStr);
+  //    Document_Free(&doc);
+  //    return;
+  //  }
+  //
+  //  QueryError status = {0};
+  //
+  //  dictIterator *iter = dictGetIterator(specDict);
+  //  dictEntry *entry = NULL;
+  //  while ((entry = dictNext(iter))) {
+  //    IndexSpec *sp = dictGetVal(entry);
+  //    if (IndexSpec_ShouldIndex(sp, keyname, key)) {
+  //
+  //      RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
+  //
+  //      RSAddDocumentCtx *aCtx = NewAddDocumentCtx(sp, &doc, &status);
+  //      if (aCtx == NULL) {
+  //        // todo: handle this error
+  //        continue;
+  //      }
+  //
+  //      aCtx->donecb = IndexSpec_DoneIndexingCallabck;
+  //
+  //      aCtx->stateFlags |= ACTX_F_NOBLOCK;
+  //      aCtx->stateFlags |= ACTX_F_NOFREEDOC;
+  //
+  //      AddDocumentCtx_Submit(aCtx, &sctx, DOCUMENT_ADD_REPLACE);
+  //    }
+  //  }
+  //  dictReleaseIterator(iter);
+  //
+  //  // doc was set DEAD in Document_Moved and was not freed since it set as NOFREEDOC
+  //  doc.flags &= ~DOCUMENT_F_DEAD;
+  //  Document_Free(&doc);
 }
 
 void IndexSpec_ScanAndReindexSpec(void *notused) {
@@ -1158,37 +1171,15 @@ void IndexSpec_ScanAndReindexSpec(void *notused) {
     //    RedisModule_ThreadSafeContextLock(ctx);
   }
 
-  // we need to free the tempDmdDict in each spec
-  dictIterator *iter = dictGetIterator(specDict);
-  dictEntry *entry = NULL;
-  while ((entry = dictNext(iter))) {
-    IndexSpec *sp = dictGetVal(entry);
-    if (sp->docs.tempDmdDict) {
-      if (dictSize(sp->docs.tempDmdDict) > 0) {
-        RedisModule_Log(
-            ctx, "warning",
-            "Found spec which has documents on tempDmdDict, this should not happened.s");
-        dictIterator *dmdIter = dictGetIterator(sp->docs.tempDmdDict);
-        dictEntry *dmdEntry = NULL;
-        while ((dmdEntry = dictNext(dmdIter))) {
-          RSDocumentMetadata *dmd = dictGetVal(entry);
-          DMD_Free(dmd);
-        }
-        dictReleaseIterator(dmdIter);
-      }
-      dictRelease(sp->docs.tempDmdDict);
-      sp->docs.tempDmdDict = NULL;
-    }
-  }
-  dictReleaseIterator(iter);
-
   //  RedisModule_ThreadSafeContextUnlock(ctx);
+  RedisModule_ScanCursorDestroy(cursor);
+  RedisModule_FreeThreadSafeContext(ctx);
 }
 
 void IndexSpec_ScanAndReindex() {
-  if (!reindexPool) {
+  /*if (!reindexPool) {
     reindexPool = thpool_init(1);
-  }
+  }*/
 
   // todo: the final solution will scan in background
   IndexSpec_ScanAndReindexSpec(NULL);
@@ -1213,7 +1204,6 @@ int IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, int when) {
     sp->sortables = NewSortingTable();
     sp->terms = NULL;
     sp->docs = DocTable_New(1000);
-    sp->docs.tempDmdDict = dictCreate(&dictTypeHeapRedisStrings, NULL);
     sp->name = RedisModule_LoadStringBuffer(rdb, NULL);
     char *tmpName = rm_strdup(sp->name);
     RedisModule_Free(sp->name);
@@ -1242,7 +1232,12 @@ int IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, int when) {
 
     //    IndexStats_RdbLoad(rdb, &sp->stats);
 
-    DocTable_RdbLoad(&sp->docs, rdb, encver);
+    if (SchemaRule_RdbLoad(sp, rdb, encver) != REDISMODULE_OK) {
+      IndexSpec_Free(sp);
+      return REDISMODULE_ERR;
+    }
+
+    //    DocTable_RdbLoad(&sp->docs, rdb, encver);
     sp->terms = NewTrie();
     /* For version 3 or up - load the generic trie */
     //  if (encver >= 3) {
@@ -1310,8 +1305,10 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, int when) {
       FieldSpec_RdbSave(rdb, &sp->fields[i]);
     }
 
+    SchemaRule_RdbSave(sp->rule, rdb);
+
     //    IndexStats_RdbSave(rdb, &sp->stats);
-    DocTable_RdbSave(&sp->docs, rdb);
+    //    DocTable_RdbSave(&sp->docs, rdb);
     //    // save trie of terms
     //    TrieType_GenericSave(rdb, sp->terms, 0);
 
@@ -1403,6 +1400,10 @@ int IndexSpec_UpdateWithHash(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleSt
   RSAddDocumentCtx *aCtx = NewAddDocumentCtx(spec, &doc, &status);
   aCtx->stateFlags |= ACTX_F_NOBLOCK;
   AddDocumentCtx_Submit(aCtx, &sctx, DOCUMENT_ADD_REPLACE);
+
+  // doc was set DEAD in Document_Moved and was not freed since it set as NOFREEDOC
+  doc.flags &= ~DOCUMENT_F_DEAD;
+  Document_Free(&doc);
   return REDISMODULE_OK;
 }
 
@@ -1455,8 +1456,10 @@ void Indexes_Init(RedisModuleCtx *ctx) {
 
 dict *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key) {
   EvalCtx *r = EvalCtx_Create();
+  // check r for null?
   EvalCtx_AddHash(r, ctx, key);
-  EvalCtx_Set(r, "__key", RS_RedisStringVal(key));
+  RSValue *keyRSV = RS_RedisStringVal(key);
+  EvalCtx_Set(r, "__key", keyRSV);
 
 #ifdef DEBUG
   RLookupKey *k = RLookup_GetKey(&r->lk, "__key", 0);
@@ -1471,13 +1474,13 @@ dict *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisModuleString *ke
 
   size_t n;
   const char *key_p = RedisModule_StringPtrLen(key, &n);
-  arrayof(SchemaPrefixNode*) prefixes = array_new(SchemaPrefixNode*, 1);
-  int nprefixes = TrieMap_FindPrefixes(ScemaPrefixes_g, key_p, n, (arrayof(void*)*) &prefixes);
+  arrayof(SchemaPrefixNode *) prefixes = array_new(SchemaPrefixNode *, 1);
+  int nprefixes = TrieMap_FindPrefixes(ScemaPrefixes_g, key_p, n, (arrayof(void *) *)&prefixes);
   for (int i = 0; i < array_len(prefixes); ++i) {
     SchemaPrefixNode *node = prefixes[i];
     for (int j = 0; j < array_len(node->index_specs); ++j) {
       IndexSpec *spec = node->index_specs[j];
-      if (! dictFind(specs, node->prefix)) {
+      if (!dictFind(specs, node->prefix)) {
         dictAdd(specs, spec->name, spec);
       }
     }
@@ -1486,12 +1489,12 @@ dict *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisModuleString *ke
 
   for (size_t i = 0; i < array_len(SchemaRules_g); i++) {
     SchemaRule *rule = SchemaRules_g[i];
-    if (! rule->filter_exp) {
+    if (!rule->filter_exp) {
       continue;
     }
     if (EvalCtx_EvalExpr(r, rule->filter_exp) == EXPR_EVAL_OK) {
       IndexSpec *spec = rule->spec;
-      if (RSValue_BoolTest(&r->res) && ! dictFind(specs, spec->name)) {
+      if (RSValue_BoolTest(&r->res) && !dictFind(specs, spec->name)) {
         dictAdd(specs, spec->name, spec);
       }
     }
@@ -1508,7 +1511,7 @@ void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
   dictIterator *di = dictGetIterator(specs);
   dictEntry *ent = dictNext(di);
   while (ent) {
-    IndexSpec *spec = (IndexSpec *) ent->v.val;
+    IndexSpec *spec = (IndexSpec *)ent->v.val;
     IndexSpec_UpdateWithHash(spec, ctx, key);
     ent = dictNext(di);
   }
@@ -1523,7 +1526,7 @@ void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
   dictIterator *di = dictGetIterator(specs);
   dictEntry *ent = dictNext(di);
   while (ent) {
-    IndexSpec *spec = (IndexSpec *) ent->v.val;
+    IndexSpec *spec = (IndexSpec *)ent->v.val;
     IndexSpec_DeleteHash(spec, ctx, key);
     ent = dictNext(di);
   }

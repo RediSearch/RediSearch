@@ -33,7 +33,6 @@ def testRawAof():
 
 def testRewriteAofSortables():
     env = Env(useAof=True)
-    env.skip() # we are skipping this test for now and we handle it when we add the rdb save/load support
     env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
             'schema', 'field1', 'TEXT', 'SORTABLE', 'num1', 'NUMERIC', 'SORTABLE')
     env.cmd('FT.ADD', 'idx', 'doc', 1.0,
@@ -56,7 +55,6 @@ def testRewriteAofSortables():
 
 def testAofRewriteSortkeys():
     env = Env(useAof=True)
-    env.skip() # we are skipping this test for now and we handle it when we add the rdb save/load support
     env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
             'SCHEMA', 'foo', 'TEXT', 'SORTABLE', 'bar', 'TAG')
     env.cmd('FT.ADD', 'idx', '1', '1', 'FIELDS', 'foo', 'A', 'bar', '1')
@@ -74,7 +72,6 @@ def testAofRewriteSortkeys():
 
 def testAofRewriteTags():
     env = Env(useAof=True)
-    env.skip() # we are skipping this test for now and we handle it when we add the rdb save/load support
     env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
             'SCHEMA', 'foo', 'TEXT', 'SORTABLE', 'bar', 'TAG')
     env.cmd('FT.ADD', 'idx', '1', '1', 'FIELDS', 'foo', 'A', 'bar', '1')
@@ -87,6 +84,9 @@ def testAofRewriteTags():
 
     # Try to drop the schema
     env.cmd('FT.DROP', 'idx')
+
+    env.cmd('del', '1')
+    env.cmd('del', '2')
 
     # Try to create it again - should work!
     env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'startswith(@__key, "")',
