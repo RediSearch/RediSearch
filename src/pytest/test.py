@@ -2820,7 +2820,8 @@ def testHindiStemmer(env):
     env.cmd('FT.CREATE', 'idxTest', 'ON', 'HASH', 'LANGUAGE', '__language', 'SCHEMA', 'body', 'TEXT')
     env.cmd('FT.ADD', 'idxTest', 'doc1', 1.0, 'LANGUAGE', 'hindi', 'FIELDS', 'body', u'अँगरेजी अँगरेजों अँगरेज़')
     res = env.cmd('FT.SEARCH', 'idxTest', u'अँगरेज़')
-    env.assertEqual(u'अँगरेजी अँगरेजों अँगरेज़', unicode(res[2][1], 'utf-8'))
+    res1 = {res[2][i]:res[2][i + 1] for i in range(0, len(res[2]), 2)}
+    env.assertEqual(u'अँगरेजी अँगरेजों अँगरेज़', unicode(res1['body'], 'utf-8'))
 
 def testMOD507(env):
     env.skipOnCluster()

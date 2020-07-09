@@ -75,8 +75,10 @@ def testTradSimp(env):
 
     # Ensure that searching in traditional still gives us the proper results:
     res = env.cmd('ft.search', 'idx', '那時', 'language', 'chinese', 'highlight')
-    env.assertTrue('那時' in res[2][1])
-    env.assertTrue('那时' in res[4][1])
+    res1 = {res[2][i]:res[2][i + 1] for i in range(0, len(res[2]), 2)}
+    res2 = {res[4][i]:res[4][i + 1] for i in range(0, len(res[4]), 2)}
+    env.assertTrue('那時' in res1['txt'])
+    env.assertTrue('那时' in res2['txt'])
 
 def testMixedEscapes(env):
     env.cmd('ft.create', 'idx', 'ON', 'HASH', 'LANGUAGE', '__language',
