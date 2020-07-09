@@ -75,7 +75,6 @@ int RSFunctionRegistry_RegisterFunction(const char *name, RSFunction f, RSValueT
 void RegisterMathFunctions();
 void RegisterStringFunctions();
 void RegisterDateFunctions();
-void RegisterRulesFunctions();
 void RegisterAllFunctions();
 
 void FunctionRegistry_Free(void);
