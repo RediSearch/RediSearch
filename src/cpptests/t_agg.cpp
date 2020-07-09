@@ -19,8 +19,10 @@ TEST_F(AggTest, testBasic) {
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
   QueryError qerr = {QueryErrorCode(0)};
 
-  RMCK::ArgvList args(ctx, "FT.CREATE", "idx", "SCHEMA", "t1", "TEXT", "SORTABLE", "t2", "NUMERIC",
+  RMCK::ArgvList args(ctx, "FT.CREATE", "idx", "ON", "HASH", 
+                      "SCHEMA", "t1", "TEXT", "SORTABLE", "t2", "NUMERIC",
                       "sortable", "t3", "TEXT");
+  BB;  
   auto spec = IndexSpec_CreateNew(ctx, args, args.size(), &qerr);
   ASSERT_TRUE(spec);
 

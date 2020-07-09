@@ -184,7 +184,9 @@ int RS_AddDocument(RedisSearchCtx *sctx, RedisModuleString *name, const AddDocum
   rc = Redis_SaveDocument(&sctx_s, opts, status);
 
 done:
-  RedisModule_CloseKey(k);
+  if (k) {
+    RedisModule_CloseKey(k);
+  }
   return rc;
 }
 
