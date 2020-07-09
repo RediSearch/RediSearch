@@ -22,7 +22,6 @@ TEST_F(AggTest, testBasic) {
   RMCK::ArgvList args(ctx, "FT.CREATE", "idx", "ON", "HASH", 
                       "SCHEMA", "t1", "TEXT", "SORTABLE", "t2", "NUMERIC",
                       "sortable", "t3", "TEXT");
-  BB;  
   auto spec = IndexSpec_CreateNew(ctx, args, args.size(), &qerr);
   ASSERT_TRUE(spec);
 
