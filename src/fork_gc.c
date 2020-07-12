@@ -387,7 +387,7 @@ static FGCError recvNumericTagHeader(ForkGC *fgc, char **fieldName, size_t *fiel
   return FGC_COLLECTED;
 }
 
-static void sendKht(ForkGC *gc, const khash_t(cardvals) *kh) {
+static void sendKht(ForkGC *gc, const khash_t(cardvals) * kh) {
   size_t n = 0;
   if (!kh) {
     FGC_SEND_VAR(gc, n);
@@ -1081,7 +1081,7 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
   if (gc->deleting) {
     return 0;
   }
-  if (gc->deletedDocsFromLastRun < RSGlobalConfig.forkGcCleanThreshold) {
+  if (gc->deletedDocsFromLastRun < gc->cleanThreshold) {
     return 1;
   }
 
@@ -1332,6 +1332,7 @@ ForkGC *FGC_New(const RedisModuleString *k, uint64_t specUniqueId, GCCallbacks *
   };
   forkGc->retryInterval.tv_sec = RSGlobalConfig.forkGcRunIntervalSec;
   forkGc->retryInterval.tv_nsec = 0;
+  forkGc->cleanThreshold = RSGlobalConfig.forkGcCleanThreshold;
   forkGc->ctx = RedisModule_GetThreadSafeContext(NULL);
   if (k) {
     forkGc->keyName = RedisModule_CreateStringFromString(forkGc->ctx, k);
@@ -1348,9 +1349,13 @@ ForkGC *FGC_New(const RedisModuleString *k, uint64_t specUniqueId, GCCallbacks *
   return forkGc;
 }
 
-ForkGC *FGC_NewFromSpec(IndexSpec *sp, uint64_t specUniqueId, GCCallbacks *callbacks) {
+ForkGC *FGC_NewFromSpec(IndexSpec *sp, uint64_t specUniqueId, GCCallbacks *callbacks,
+                        size_t cleanThreshold, size_t runInterval) {
   ForkGC *ctx = FGC_New(NULL, specUniqueId, callbacks);
   ctx->sp = sp;
   ctx->type = FGC_TYPE_NOKEYSPACE;
+  ctx->retryInterval.tv_sec = runInterval;
+  ctx->retryInterval.tv_nsec = 0;
+  ctx->cleanThreshold = cleanThreshold;
   return ctx;
 }

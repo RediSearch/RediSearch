@@ -21,7 +21,11 @@ int RediSearch_GetCApiVersion() {
 }
 
 IndexSpec* RediSearch_CreateIndex(const char* name, const RSIndexOptions* options) {
-  RSIndexOptions opts_s = {.gcPolicy = GC_POLICY_FORK};
+  RSIndexOptions opts_s = {
+      .gcPolicy = GC_POLICY_FORK,
+      .gcCleanThreshold = RSGlobalConfig.forkGcCleanThreshold,
+      .gcRunInterval = RSGlobalConfig.forkGcRunIntervalSec,
+  };
   if (!options) {
     options = &opts_s;
   }
@@ -40,7 +44,8 @@ IndexSpec* RediSearch_CreateIndex(const char* name, const RSIndexOptions* option
     spec->docs.maxSize = DOCID_MAX;
   }
   if (options->gcPolicy != GC_POLICY_NONE) {
-    IndexSpec_StartGCFromSpec(spec, GC_DEFAULT_HZ, options->gcPolicy);
+    IndexSpec_StartGCFromSpec(spec, options->gcPolicy, options->gcCleanThreshold,
+                              options->gcRunInterval);
   }
   return spec;
 }
@@ -461,7 +466,9 @@ void RediSearch_ResultsIteratorReset(RS_ApiIter* iter) {
 
 RSIndexOptions* RediSearch_CreateIndexOptions() {
   RSIndexOptions* ret = rm_calloc(1, sizeof(RSIndexOptions));
-  ret->gcPolicy = GC_POLICY_NONE;
+  ret->gcPolicy = GC_POLICY_FORK;
+  ret->gcCleanThreshold = RSGlobalConfig.forkGcCleanThreshold;
+  ret->gcRunInterval = RSGlobalConfig.forkGcRunIntervalSec;
   return ret;
 }
 
@@ -481,6 +488,14 @@ void RediSearch_IndexOptionsSetFlags(RSIndexOptions* options, uint32_t flags) {
 
 void RediSearch_IndexOptionsSetGCPolicy(RSIndexOptions* options, int policy) {
   options->gcPolicy = policy;
+}
+
+void RediSearch_IndexOptionsSetGCCleanThreshold(RSIndexOptions* options, size_t cleanThreshold) {
+  options->gcCleanThreshold = cleanThreshold;
+}
+
+void RediSearch_IndexOptionsSetGCRunInterval(RSIndexOptions* options, size_t runInterval) {
+  options->gcRunInterval = runInterval;
 }
 
 #define REGISTER_API(name)                                                          \

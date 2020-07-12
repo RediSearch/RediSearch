@@ -54,10 +54,12 @@ typedef struct ForkGC {
 
   struct timespec retryInterval;
   volatile size_t deletedDocsFromLastRun;
+  size_t cleanThreshold;
 } ForkGC;
 
 ForkGC *FGC_New(const RedisModuleString *k, uint64_t specUniqueId, GCCallbacks *callbacks);
-ForkGC *FGC_NewFromSpec(struct IndexSpec *sp, uint64_t specUniqueId, GCCallbacks *callbacks);
+ForkGC *FGC_NewFromSpec(struct IndexSpec *sp, uint64_t specUniqueId, GCCallbacks *callbacks,
+                        size_t cleanThreshold, size_t runInterval);
 
 typedef enum {
   // Normal "open" state. No pausing will happen
