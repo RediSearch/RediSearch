@@ -263,6 +263,8 @@ MODULE_API_FUNC(void, RediSearch_IndexOptionsSetGCRunInterval)
   X(IterateQuery)                    \
   X(ResultsIteratorGetScore)         \
   X(IndexOptionsSetGCPolicy)         \
+  X(IndexOptionsSetGCCleanThreshold) \
+  X(IndexOptionsSetGCRunInterval)    \
   X(SetCriteriaTesterThreshold)
 
 #define REDISEARCH_MODULE_INIT_FUNCTION(name)                                  \
