@@ -381,8 +381,11 @@ DEBUG_COMMAND(ttl) {
     return REDISMODULE_OK;
   }
 
-  uint64_t remaining;
-  RedisModule_GetTimerInfo(RSDummyContext, sp->timerId, &remaining, NULL);
+  uint64_t remaining = 0;
+  if (RedisModule_GetTimerInfo(RSDummyContext, sp->timerId, &remaining, NULL) != REDISMODULE_OK) {
+    RedisModule_ReplyWithError(ctx, "Timer is not set");
+    return REDISMODULE_OK;
+  }
   RedisModule_ReplyWithLongLong(ctx, remaining / 1000);  // return the results in seconds
   return REDISMODULE_OK;
 }
