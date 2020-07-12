@@ -6,7 +6,10 @@ class TestDebugCommands(object):
     def __init__(self):
         self.env = Env(testName="testing debug commands")
         self.env.skipOnCluster()
-        self.env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT', 'SORTABLE', 'age', 'NUMERIC', 'SORTABLE', 't', 'TAG', 'SORTABLE').ok()
+        self.env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA',
+                        'name', 'TEXT', 'SORTABLE',
+                        'age', 'NUMERIC', 'SORTABLE', 
+                        't', 'TAG', 'SORTABLE').ok()
         self.env.expect('FT.ADD', 'idx', 'doc1', '1.0', 'FIELDS', 'name', 'meir', 'age', '29', 't', 'test').ok()
         self.env.cmd('SET', 'foo', 'bar')
 
@@ -167,9 +170,3 @@ class TestDebugCommands(object):
 
     def testNumericIndexSummaryWrongArity(self):
         self.env.expect('FT.DEBUG', 'numidx_summary', 'idx1').raiseError()
-
-    def testNumericIndexInvalidKeyType(self):
-        self.env.expect('FT.DEBUG', 'numidx_summary', 'foo').raiseError()
-
-    def testGitSha(self):
-        self.env.expect('FT.DEBUG', 'git_sha', 'foo').notRaiseError()

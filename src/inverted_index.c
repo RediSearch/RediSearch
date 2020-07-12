@@ -11,6 +11,7 @@
 #include "numeric_filter.h"
 #include "redismodule.h"
 #include "rmutil/rm_assert.h"
+#include "geo_index.h"
 
 uint64_t TotalIIBlocks = 0;
 
@@ -638,9 +639,13 @@ DECODER(readNumeric) {
 
   NumericFilter *f = ctx->ptr;
   if (f) {
-    int rv = NumericFilter_Match(f, res->num.value);
-    // printf("Checking against filter: %d\n", rv);
-    return rv;
+    if (f->geoFilter == NULL) {  
+      int rv = NumericFilter_Match(f, res->num.value);
+      // printf("Checking against filter: %d\n", rv);
+      return rv;
+    } else {
+      return isWithinRadius(f->geoFilter, res->num.value, NULL);
+    }
   }
   // printf("Field matches.. hurray!\n");
   return 1;

@@ -10,8 +10,8 @@ TARGET_LINK_LIBRARIES(rstest gtest redisearch redismock)
 SET_PROPERTY(TARGET rstest PROPERTY CXX_STANDARD 11)
 ADD_DEPENDENCIES(rstest example_extension)
 
-ADD_TEST(NAME rstest COMMAND rstest)
-SET_TESTS_PROPERTIES(rstest PROPERTIES
-    ENVIRONMENT "EXT_TEST_PATH=$<TARGET_FILE:example_extension>"
-)
-ADD_DEFINITIONS(-DEXT_TEST_PATH="$<TARGET_FILE:example_extension>")
+#ADD_TEST(NAME rstest COMMAND rstest)
+#SET_TESTS_PROPERTIES(rstest PROPERTIES
+#    ENVIRONMENT "EXT_TEST_PATH=$<TARGET_FILE:example_extension>"
+#)
+#ADD_DEFINITIONS(-DEXT_TEST_PATH="$<TARGET_FILE:example_extension>")

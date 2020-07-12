@@ -25,6 +25,7 @@ make pytest        # run python tests (src/pytest)
   GDB=1              # RLTest interactive debugging
 make c_tests       # run C tests (from src/tests)
 make cpp_tests     # run C++ tests (from src/cpptests)
+  TEST=name          # e.g. TEST=FGCTest.testRemoveLastBlock
 
 make callgrind     # produce a call graph
   REDIS_ARGS="args"
@@ -74,6 +75,9 @@ endif
 #----------------------------------------------------------------------------------------------
 
 include $(MK)/defs
+
+MK_CUSTOM_CLEAN=1
+
 include $(MK)/rules
 
 $(COMPAT_MODULE): $(BINROOT)/redisearch.so
@@ -115,6 +119,13 @@ endif
 
 #----------------------------------------------------------------------------------------------
 
+setup:
+	@echo Setting up system...
+	$(SHOW)./deps/readies/bin/getpy2
+	$(SHOW)./system-setup.py 
+
+#----------------------------------------------------------------------------------------------
+
 fetch:
 	-git submodule update --init --recursive
 	./srcutil/get_gtest.sh
@@ -148,11 +159,27 @@ else
 	@cd src/pytest; python -m RLTest --module $(abspath $(TARGET))
 endif
 
+ifeq ($(GDB),1)
+GDB_CMD=gdb -ex r --args 
+else
+GDB_CMD=
+endif
+
 c_tests:
-	find $(BINROOT)/src/tests -name "test_*" -type f -executable -exec {} \;
+	set -e ;\
+	cd src/tests ;\
+	find $(abspath $(BINROOT)/src/tests) -name "test_*" -type f -executable -exec ${GDB_CMD} {} \;
 
 cpp_tests:
-	$(BINROOT)/src/cpptests/rstest
+ifeq ($(TEST),)
+	set -e ;\
+	cd src/tests ;\
+	$(GDB_CMD) $(abspath $(BINROOT)/src/cpptests/rstest)
+else
+	set -e ;\
+	cd src/tests ;\
+	$(GDB_CMD) $(abspath $(BINROOT)/src/cpptests/rstest) --gtest_filter=$(TEST)
+endif
 
 .PHONY: test pytest c_tests cpp_tests
 

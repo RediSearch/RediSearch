@@ -8,7 +8,7 @@ def testWideSchema(env):
     FIELDS = 128 if platform.architecture()[0] == '64bit' else 64
     for i in range(FIELDS):
         schema.extend(('field_%d' % i, 'TEXT'))
-    env.assertOk(env.cmd('ft.create', 'idx', 'schema', *schema))
+    env.assertOk(env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', *schema))
     N = 10
     for n in range(N):
         fields = []

@@ -3,9 +3,10 @@ import unittest
 
 
 def testExpire(env):
+    env.skip() # todo: uncomment when we implement TEMPORARY indexes
     if env.isCluster():
         raise unittest.SkipTest()
-    env.cmd('ft.create', 'idx', 'TEMPORARY', '4', 'SCHEMA', 'test', 'TEXT', 'SORTABLE')
+    env.cmd('ft.create', 'idx', 'TEMPORARY', '4', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT', 'SORTABLE')
     ttl = env.cmd('ttl', 'idx:idx')
     env.assertTrue(ttl > 2)
 

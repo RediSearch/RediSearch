@@ -15,6 +15,7 @@
 #include "field_spec.h"
 #include "util/dict.h"
 #include "redisearch_api.h"
+#include "rules.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -40,6 +41,7 @@ extern "C" {
 #define SPEC_NOINDEX_STR "NOINDEX"
 #define SPEC_SEPARATOR_STR "SEPARATOR"
 #define SPEC_MULTITYPE_STR "MULTITYPE"
+#define SPEC_ASYNC_STR "ASYNC"
 
 /**
  * If wishing to represent field types positionally, use this
@@ -60,6 +62,8 @@ static const char *SpecTypeNames[] = {[IXFLDPOS_FULLTEXT] = SPEC_TEXT_STR,
 #define SPEC_MAX_FIELD_ID (sizeof(t_fieldMask) * 8)
 // The threshold after which we move to a special encoding for wide fields
 #define SPEC_WIDEFIELD_THRESHOLD 32
+
+extern dict *specDict;
 
 typedef struct {
   size_t numDocuments;
@@ -90,7 +94,8 @@ typedef enum {
   Index_DocIdsOnly = 0x00,
 
   // If any of the fields has phonetics. This is just a cache for quick lookup
-  Index_HasPhonetic = 0x400
+  Index_HasPhonetic = 0x400,
+  Index_Async = 0x800
 } IndexFlags;
 
 /**
@@ -107,11 +112,14 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
   (Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets | Index_StoreNumeric | \
    Index_WideSchema)
 
-#define INDEX_CURRENT_VERSION 15
+#define INDEX_CURRENT_VERSION 16
+#define INDEX_MIN_COMPAT_VERSION 16
 
 // Those versions contains doc table as array, we modified it to be array of linked lists
+// todo: decide if we need to keep this, currently I keep it if one day we will find a way to
+//       load old rdb versions
 #define INDEX_MIN_COMPACTED_DOCTABLE_VERSION 12
-#define INDEX_MIN_COMPAT_VERSION 2
+
 // Versions below this always store the frequency
 #define INDEX_MIN_NOFREQ_VERSION 6
 // Versions below this encode field ids as the actual value,
@@ -152,7 +160,7 @@ typedef struct {
 
 struct DocumentIndexer;
 
-struct IndexSpec {
+typedef struct IndexSpec {
   char *name;
   FieldSpec *fields;
   int numFields;
@@ -183,9 +191,11 @@ struct IndexSpec {
   long long maxPrefixExpansions;  // -1 unlimited
   RSGetValueCallback getValue;
   void *getValueCtx;
-  char **aliases; // Aliases to self-remove when the index is deleted
+  char **aliases;  // Aliases to self-remove when the index is deleted
   struct DocumentIndexer *indexer;
-};
+
+  SchemaRule *rule;
+} IndexSpec;
 
 typedef struct {
   void (*dtor)(void *p);
@@ -289,7 +299,7 @@ void IndexSpec_StartGCFromSpec(IndexSpec *sp, float initialHZ, uint32_t gcPolicy
 IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryError *status);
 FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name);
 
-/** 
+/**
  * Indicate that the index spec should use an internal dictionary,rather than
  * the Redis keyspace
  */
@@ -362,6 +372,7 @@ char *IndexSpec_GetRandomTerm(IndexSpec *sp, size_t sampleSize);
  * and should be on the request's stack
  */
 void IndexSpec_Free(void *spec);
+void IndexSpec_FreeInternals(IndexSpec *spec);
 
 /**
  * Free the index synchronously. Any keys associated with the index (but not the
@@ -385,10 +396,11 @@ RedisModuleString *IndexSpec_GetFormattedKeyByName(IndexSpec *sp, const char *s,
 
 IndexSpec *NewIndexSpec(const char *name);
 int IndexSpec_AddField(IndexSpec *sp, FieldSpec *fs);
-void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver);
-void IndexSpec_RdbSave(RedisModuleIO *rdb, void *value);
+int IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, int when);
+void IndexSpec_RdbSave(RedisModuleIO *rdb, int when);
 void IndexSpec_Digest(RedisModuleDigest *digest, void *value);
 int IndexSpec_RegisterType(RedisModuleCtx *ctx);
+int IndexSpec_UpdateWithHash(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key);
 void IndexSpec_ClearAliases(IndexSpec *sp);
 // void IndexSpec_Free(void *value);
 
@@ -399,6 +411,9 @@ void IndexSpec_ClearAliases(IndexSpec *sp);
 t_fieldMask IndexSpec_ParseFieldMask(IndexSpec *sp, RedisModuleString **argv, int argc);
 
 void IndexSpec_InitializeSynonym(IndexSpec *sp);
+void Indexes_Init(RedisModuleCtx *ctx);
+void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key);
+void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key);
 
 #ifdef __cplusplus
 }

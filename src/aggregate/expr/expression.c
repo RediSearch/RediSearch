@@ -1,5 +1,8 @@
 #include "expression.h"
 #include "result_processor.h"
+#include "rlookup.h"
+
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 static int evalInternal(ExprEval *eval, const RSExpr *e, RSValue *res);
 
@@ -280,6 +283,109 @@ char *ExprEval_Strndup(ExprEval *ctx, const char *str, size_t len) {
   ret[len] = '\0';
   return ret;
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+EvalCtx *EvalCtx_Create() {
+  EvalCtx *r = rm_calloc(1, sizeof(EvalCtx));
+
+  RLookup _lk = {0};
+  r->lk = _lk;
+  RLookup_Init(&r->lk, NULL);
+  RLookupRow _row = {0};
+  r->row = _row;
+  QueryError _status = {0};
+  r->status = _status;
+
+  r->ee.lookup = &r->lk;
+  r->ee.srcrow = &r->row;
+  r->ee.err = &r->status;
+
+  return r;
+}
+
+EvalCtx *EvalCtx_FromExpr(RSExpr *expr) {
+  EvalCtx *r = EvalCtx_Create();
+  r->_expr = expr;
+  r->_own_expr = false;
+  return r;
+}
+
+EvalCtx *EvalCtx_FromString(const char *expr) {
+  EvalCtx *r = EvalCtx_Create();
+  if (!expr) {
+  	r->ee.root = NULL;
+  } else {
+    r->_expr = ExprAST_Parse(expr, strlen(expr), r->ee.err);
+    if (r->ee.root == NULL) {
+  	  goto error;
+    }
+    r->_own_expr = true;
+  }
+  return r;
+
+error:
+  EvalCtx_Destroy(r);
+  return NULL;
+}
+
+void EvalCtx_Destroy(EvalCtx *r) {
+  if (r->_expr && r->_own_expr) {
+    ExprAST_Free((RSExpr *) r->_expr);
+  }
+  RLookupRow_Cleanup(&r->row);
+  RLookup_Cleanup(&r->lk);
+  rm_free(r);
+}
+
+//---------------------------------------------------------------------------------------------
+
+RLookupKey *EvalCtx_Set(EvalCtx *r, const char *name, RSValue *val) {
+  RLookupKey *lkk = RLookup_GetKey(&r->lk, name, RLOOKUP_F_OCREAT);
+  if (lkk != NULL) {
+    RLookup_WriteOwnKey(lkk, &r->row, val);
+  }
+  return lkk;
+}
+
+int EvalCtx_AddHash(EvalCtx *r, RedisModuleCtx *ctx, RedisModuleString *key) {
+  return RLookup_GetHash(&r->lk, &r->row, ctx, key);
+}
+
+//---------------------------------------------------------------------------------------------
+
+int EvalCtx_Eval(EvalCtx *r) {
+  if (!r->_expr) {
+    return REDISMODULE_ERR;
+  }
+  r->ee.root = r->_expr;
+  if (ExprAST_GetLookupKeys((RSExpr *) r->ee.root, (RLookup *) r->ee.lookup, r->ee.err) != EXPR_EVAL_OK) {
+    return REDISMODULE_ERR;
+  }
+  return ExprEval_Eval(&r->ee, &r->res);
+}
+
+int EvalCtx_EvalExpr(EvalCtx *r, RSExpr *expr) {
+  if (r->_expr && r->_own_expr) {
+    ExprAST_Free(r->_expr);
+  }
+  r->_expr = expr;
+  r->_own_expr = false;
+
+  return EvalCtx_Eval(r);
+}
+
+int EvalCtx_EvalExprStr(EvalCtx *r, const char *expr) {
+  if (r->_expr && r->_own_expr) {
+    ExprAST_Free(r->_expr);
+  }
+  r->_expr = ExprAST_Parse(expr, strlen(expr), r->ee.err);
+  r->_own_expr = true;
+
+  return EvalCtx_Eval(r);
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 /**
  * ResultProcessor type which evaluates expressions
