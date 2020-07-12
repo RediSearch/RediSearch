@@ -161,6 +161,9 @@ int isRdbLoading(RedisModuleCtx *ctx) {
 
 static void IndexSpec_TimedOut(RedisModuleCtx *ctx, void *data) {
   IndexSpec *sp = data;
+  // we need to delete the spec from the specDict, as far as the user see it,
+  // this spec was deleted and its memory will be freed in a background thread.
+  dictDelete(specDict, sp->name);
   sp->isTimerSet = false;
   IndexSpec_Free(sp);
 }
