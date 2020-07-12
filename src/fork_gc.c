@@ -1080,7 +1080,8 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
   if (gc->deleting) {
     return 0;
   }
-  size_t cleanThreshold = gc->type == FGC_TYPE_NOKEYSPACE ? gc->cleanThreshold : RSGlobalConfig.forkGcCleanThreshold;
+  size_t cleanThreshold =
+      gc->type == FGC_TYPE_NOKEYSPACE ? gc->cleanThreshold : RSGlobalConfig.forkGcCleanThreshold;
   if (gc->deletedDocsFromLastRun < cleanThreshold) {
     return 1;
   }
