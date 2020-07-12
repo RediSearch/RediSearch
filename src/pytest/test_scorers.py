@@ -163,3 +163,22 @@ def testDisMaxScorerExplanation(env):
             ['DISMAX 10.00 = Weight 1.00 * Frequency 10', 'DISMAX 10.00 = Weight 1.00 * Frequency 10']])
     env.assertEqual(res[8][1], ['20.00 = Weight 1.00 * children DISMAX 20.00',
             ['DISMAX 10.00 = Weight 1.00 * Frequency 10', 'DISMAX 10.00 = Weight 1.00 * Frequency 10']])
+
+def testScoreReplace(env):
+    #conn = getConnectionByEnv(env)
+    env.expect('ft.create idx ON HASH schema f text').ok()
+
+    env.expect('HSET doc1 f redisearch').equal(1)
+    env.expect('HSET doc1 f redisearch').equal(0)
+    env.expect('FT.SEARCH idx redisearch withscores nocontent').equal([1L, 'doc1', '1'])
+    env.expect('HSET doc1 f redisearch').equal(0)
+    env.expect('FT.SEARCH idx redisearch withscores nocontent').equal([1L, 'doc1', '0'])
+    env.expect('ft.config set FORK_GC_CLEAN_THRESHOLD 0').ok()
+    env.expect('ft.debug GC_FORCEINVOKE idx').equal('DONE')
+    env.expect('FT.SEARCH idx redisearch withscores nocontent').equal([1L, 'doc1', '1'])
+
+def testScoreDecimal(env):
+    env.expect('ft.create idx ON HASH schema title text').ok()
+    env.expect('ft.add idx doc1 0.01 fields title hello').ok()
+    res = env.cmd('ft.search idx hello withscores nocontent')
+    env.assertLess(float(res[2]), 1)

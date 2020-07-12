@@ -41,9 +41,9 @@ SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, IndexSpec *spec, QueryError 
   }
 
   rule->filter_exp_str = args->filter_exp_str ? rm_strdup(args->filter_exp_str) : NULL;
-  rule->lang_field = args->lang_field ? rm_strdup(args->lang_field) : NULL;
-  rule->score_field = args->score_field ? rm_strdup(args->score_field) : NULL;
-  rule->payload_field = args->payload_field ? rm_strdup(args->payload_field) : NULL;
+  rule->lang_field = rm_strdup(args->lang_field ? args->lang_field : "__language");
+  rule->score_field = rm_strdup(args->score_field ? args->score_field : "__score");
+  rule->payload_field = rm_strdup(args->payload_field ? args->payload_field : "__payload");
 
   rule->prefixes = array_new(const char *, 1);
   for (int i = 0; i < args->nprefixes; ++i) {
