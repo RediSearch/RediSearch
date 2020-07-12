@@ -33,6 +33,7 @@ typedef struct GCTask {
   RedisModuleBlockedClient* bClient;
 } GCTask;
 
+typedef struct IndexSpec IndexSpec;
 GCContext* GCContext_CreateGCFromSpec(struct IndexSpec* sp, uint64_t uniqueId, uint32_t gcPolicy,
                                       size_t cleanThreshold, size_t runInterval);
 GCContext* GCContext_CreateGC(RedisModuleString* keyName, float initialHZ, uint64_t uniqueId);
