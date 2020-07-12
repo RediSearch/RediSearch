@@ -74,6 +74,8 @@ struct RSIdxOptions {
   void* gvcbData;
   uint32_t flags;
   int gcPolicy;
+  size_t gcCleanThreshold;
+  size_t gcRunInterval;
 };
 
 /**
@@ -215,6 +217,12 @@ MODULE_API_FUNC(void, RediSearch_ResultsIteratorReset)(RSResultsIterator* iter);
 MODULE_API_FUNC(double, RediSearch_ResultsIteratorGetScore)(const RSResultsIterator* it);
 
 MODULE_API_FUNC(void, RediSearch_IndexOptionsSetGCPolicy)(RSIndexOptions* options, int policy);
+
+MODULE_API_FUNC(void, RediSearch_IndexOptionsSetGCCleanThreshold)
+(RSIndexOptions* options, size_t cleanThreshold);
+
+MODULE_API_FUNC(void, RediSearch_IndexOptionsSetGCRunInterval)
+(RSIndexOptions* options, size_t runInterval);
 
 #define RS_XAPIFUNC(X)               \
   X(GetCApiVersion)                  \

@@ -976,8 +976,9 @@ void IndexSpec_MakeKeyless(IndexSpec *sp) {
   sp->keysDict = dictCreate(&invidxDictType, NULL);
 }
 
-void IndexSpec_StartGCFromSpec(IndexSpec *sp, float initialHZ, uint32_t gcPolicy) {
-  sp->gc = GCContext_CreateGCFromSpec(sp, initialHZ, sp->uniqueId, gcPolicy);
+void IndexSpec_StartGCFromSpec(IndexSpec *sp, uint32_t gcPolicy, size_t cleanThreshold,
+                               size_t runInterval) {
+  sp->gc = GCContext_CreateGCFromSpec(sp, sp->uniqueId, gcPolicy, cleanThreshold, runInterval);
   GCContext_Start(sp->gc);
 }
 
