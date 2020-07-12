@@ -1,15 +1,13 @@
-#!/bin/sh
+#!/bin/bash
+
 set -x
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+ROOT=$(cd $HERE/..; pwd)
+cd $ROOT
+
 git submodule update --init --recursive
+./deps/readies/bin/getpy2
+./system-setup.py
 ./srcutil/get_gtest.sh
 python ./src/pytest/test_rdb_compatibility.py
-
-pip install wheel
-pip install setuptools --upgrade
-wget -q https://bootstrap.pypa.io/get-pip.py -O /tmp/get-pip.py
-python /tmp/get-pip.py
-python -m pip install --upgrade setuptools
-python -m pip uninstall -y -q redis redis-py-cluster ramp-packer RLTest rmtest semantic-version
-python -m pip install --no-cache-dir git+https://github.com/Grokzen/redis-py-cluster.git@master
-python -m pip install --no-cache-dir git+https://github.com/RedisLabsModules/RLTest.git@master
-python -m pip install --no-cache-dir git+https://github.com/RedisLabs/RAMP@master
