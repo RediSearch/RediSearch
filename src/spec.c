@@ -159,6 +159,12 @@ int isRdbLoading(RedisModuleCtx *ctx) {
   return isLoading == 1;
 }
 
+static void IndexSpec_TimedOut(RedisModuleCtx *ctx, void *data) {
+  IndexSpec *sp = data;
+  sp->isTimerSet = false;
+  IndexSpec_Free(sp);
+}
+
 IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                QueryError *status) {
   const char *specName = RedisModule_StringPtrLen(argv[1], NULL);
@@ -179,10 +185,10 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
 
   CursorList_AddSpec(&RSCursors, sp->name, RSCURSORS_DEFAULT_CAPACITY);
 
-  //  todo : handle expire
-  //  if (sp->flags & Index_Temporary) {
-  //    RedisModule_SetExpire(k, sp->timeout * 1000);
-  //  }
+  if (sp->flags & Index_Temporary) {
+    sp->timerId = RedisModule_CreateTimer(RSDummyContext, sp->timeout, IndexSpec_TimedOut, sp);
+    sp->isTimerSet = true;
+  }
 
   // Create the indexer
   sp->indexer = NewIndexer(sp);
@@ -508,7 +514,7 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryE
   if (timeout != -1) {
     spec->flags |= Index_Temporary;
   }
-  spec->timeout = timeout;
+  spec->timeout = timeout * 1000;  // convert to ms
 
   if (rule_prefixes.argc > 0) {
     rule_args.nprefixes = rule_prefixes.argc;
@@ -676,6 +682,11 @@ void IndexSpec_FreeWithKey(IndexSpec *sp, RedisModuleCtx *ctx) {
 void IndexSpec_FreeInternals(IndexSpec *spec) {
   dictDelete(specDict, spec->name);
 
+  if (spec->isTimerSet) {
+    RedisModule_StopTimer(RSDummyContext, spec->timerId, NULL);
+    spec->isTimerSet = false;
+  }
+
   if (spec->indexer) {
     Indexer_Free(spec->indexer);
   }
@@ -812,8 +823,11 @@ IndexSpec *IndexSpec_LoadEx(RedisModuleCtx *ctx, IndexLoadOptions *options) {
     }
   }
 
-  if (ret->flags & Index_Temporary) {
-    // TODO: hadle expiration here
+  if ((ret->flags & Index_Temporary) && !(options->flags & INDEXSPEC_LOAD_NOTIMERUPDATE)) {
+    if (ret->isTimerSet) {
+      RedisModule_StopTimer(RSDummyContext, ret->timerId, NULL);
+    }
+    ret->timerId = RedisModule_CreateTimer(RSDummyContext, ret->timeout, IndexSpec_TimedOut, ret);
   }
 
   return ret;
@@ -927,6 +941,11 @@ IndexSpec *NewIndexSpec(const char *name) {
   sp->maxPrefixExpansions = RSGlobalConfig.maxPrefixExpansions;
   sp->getValue = NULL;
   sp->getValueCtx = NULL;
+
+  sp->timeout = 0;
+  sp->isTimerSet = false;
+  sp->timerId = 0;
+
   memset(&sp->stats, 0, sizeof(sp->stats));
   return sp;
 }
@@ -1173,6 +1192,21 @@ void IndexSpec_ScanAndReindexSpec(void *notused) {
 
   //  RedisModule_ThreadSafeContextUnlock(ctx);
   RedisModule_ScanCursorDestroy(cursor);
+
+  // set the timers for temporary indexes:
+  dictIterator *iter = dictGetIterator(specDict);
+  dictEntry *entry = NULL;
+  while ((entry = dictNext(iter))) {
+    IndexSpec *sp = dictGetVal(entry);
+    if (!(sp->flags & Index_Temporary)) {
+      continue;
+    }
+
+    sp->timerId = RedisModule_CreateTimer(RSDummyContext, sp->timeout, IndexSpec_TimedOut, sp);
+    sp->isTimerSet = true;
+  }
+  dictReleaseIterator(iter);
+
   RedisModule_FreeThreadSafeContext(ctx);
 }
 
