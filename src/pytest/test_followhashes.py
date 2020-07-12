@@ -13,6 +13,26 @@ def testSyntax1(env):
     conn = getConnectionByEnv(env)
     env.expect('ft.create', 'things',
             'SCHEMA', 'name', 'text').equal('No rule type given')
+            
+    env.expect('ft.create', 'idx', 
+               'ONfoo*',
+            'SCHEMA', 'foo', 'text').equal('No rule type given')
+            
+    env.expect('ft.create', 'idx2',
+            'LANGUAGE', 'eng' 
+            'SCHEMA', 'foo', 'text').equal('No rule type given')
+            
+    env.expect('ft.create', 'idx2',
+            'SCORE', '1.0' 
+            'SCHEMA', 'foo', 'text').equal('No rule type given')
+            
+    env.expect('ft.create', 'idx2',
+            'PAYLOAD', 'awfw' 
+            'SCHEMA', 'foo', 'text').equal('No rule type given')
+            
+    env.expect('ft.create', 'idx2',
+            'FILTER', 'a' 
+            'SCHEMA', 'foo', 'text').equal('No rule type given')
 
 def testFilter1(env):
     conn = getConnectionByEnv(env)
