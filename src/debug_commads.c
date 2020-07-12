@@ -383,7 +383,8 @@ DEBUG_COMMAND(ttl) {
 
   uint64_t remaining = 0;
   if (RedisModule_GetTimerInfo(RSDummyContext, sp->timerId, &remaining, NULL) != REDISMODULE_OK) {
-    RedisModule_ReplyWithError(ctx, "Timer is not set");
+    RedisModule_ReplyWithLongLong(ctx, 0);  // timer was called but free operation is async so its
+                                            // gone be free each moment. lets return 0 timeout.
     return REDISMODULE_OK;
   }
   RedisModule_ReplyWithLongLong(ctx, remaining / 1000);  // return the results in seconds
