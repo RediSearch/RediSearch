@@ -1205,6 +1205,7 @@ void IndexSpec_ScanAndReindexSpec(void *notused) {
     sp->timerId = RedisModule_CreateTimer(RSDummyContext, sp->timeout, IndexSpec_TimedOut, sp);
     sp->isTimerSet = true;
   }
+  dictReleaseIterator(iter);
 
   RedisModule_FreeThreadSafeContext(ctx);
 }
