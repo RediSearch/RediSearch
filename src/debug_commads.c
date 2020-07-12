@@ -6,6 +6,7 @@
 #include "numeric_index.h"
 #include "phonetic_manager.h"
 #include "gc.h"
+#include "module.h"
 
 #define DUMP_PHONETIC_HASH "DUMP_PHONETIC_HASH"
 
@@ -361,6 +362,31 @@ DEBUG_COMMAND(GCForceBGInvoke) {
   return REDISMODULE_OK;
 }
 
+DEBUG_COMMAND(ttl) {
+  if (argc < 1) {
+    return RedisModule_WrongArity(ctx);
+  }
+  IndexLoadOptions lopts = {.flags = INDEXSPEC_LOAD_NOTIMERUPDATE,
+                            .name = {.cstring = RedisModule_StringPtrLen(argv[0], NULL)}};
+  lopts.flags |= INDEXSPEC_LOAD_KEYLESS;
+  IndexSpec *sp = IndexSpec_LoadEx(ctx, &lopts);
+
+  if (!sp) {
+    RedisModule_ReplyWithError(ctx, "Unknown index name");
+    return REDISMODULE_OK;
+  }
+
+  if (!(sp->flags & Index_Temporary)) {
+    RedisModule_ReplyWithError(ctx, "Index is not temporary");
+    return REDISMODULE_OK;
+  }
+
+  uint64_t remaining;
+  RedisModule_GetTimerInfo(RSDummyContext, sp->timerId, &remaining, NULL);
+  RedisModule_ReplyWithLongLong(ctx, remaining / 1000);  // return the results in seconds
+  return REDISMODULE_OK;
+}
+
 DEBUG_COMMAND(GitSha) {
 #ifdef RS_GIT_SHA
   RedisModule_ReplyWithStringBuffer(ctx, RS_GIT_SHA, strlen(RS_GIT_SHA));
@@ -403,18 +429,17 @@ DEBUG_COMMAND(InfoTagIndex) {
   if (argc < 2) {
     return RedisModule_WrongArity(ctx);
   }
-   GET_SEARCH_CTX(argv[0]);
+  GET_SEARCH_CTX(argv[0]);
   DumpOptions options = {0};
-  ACArgSpec argspecs[] = {{.name = "count_value_entries",
-                           .type = AC_ARGTYPE_BOOLFLAG,
-                           .target = &options.countValueEntries},
-                          {.name = "dump_id_entries",
-                           .type = AC_ARGTYPE_BOOLFLAG,
-                           .target = &options.dumpIdEntries},
-                          {.name = "prefix", .type = AC_ARGTYPE_STRING, .target = &options.prefix},
-                          {.name = "offset", .type = AC_ARGTYPE_UINT, .target = &options.offset},
-                          {.name = "limit", .type = AC_ARGTYPE_UINT, .target = &options.limit},
-                          {NULL}};
+  ACArgSpec argspecs[] = {
+      {.name = "count_value_entries",
+       .type = AC_ARGTYPE_BOOLFLAG,
+       .target = &options.countValueEntries},
+      {.name = "dump_id_entries", .type = AC_ARGTYPE_BOOLFLAG, .target = &options.dumpIdEntries},
+      {.name = "prefix", .type = AC_ARGTYPE_STRING, .target = &options.prefix},
+      {.name = "offset", .type = AC_ARGTYPE_UINT, .target = &options.offset},
+      {.name = "limit", .type = AC_ARGTYPE_UINT, .target = &options.limit},
+      {NULL}};
   RedisModuleKey *keyp = NULL;
   ArgsCursor ac = {0};
   ACArgSpec *errSpec = NULL;
@@ -604,6 +629,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex},
                                {"GC_FORCEINVOKE", GCForceInvoke},
                                {"GC_FORCEBGINVOKE", GCForceBGInvoke},
                                {"GIT_SHA", GitSha},
+                               {"TTL", ttl},
                                {NULL, NULL}};
 
 int DebugCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
