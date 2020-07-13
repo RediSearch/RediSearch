@@ -743,5 +743,6 @@ TEST_F(LLApiTest, duplicateFieldAdd) {
   RediSearch_SpecAddDocument(index, d);
   ASSERT_FALSE(RediSearch_DocumentExists(index, "doc1", strlen("doc1")));
 
+  RediSearch_FreeDocument(d);
   RediSearch_DropIndex(index);
 }
