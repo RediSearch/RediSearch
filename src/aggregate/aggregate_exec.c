@@ -110,6 +110,7 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
   }
 
   if (!(options & QEXEC_F_SEND_NOFIELDS)) {
+    assert(req->sctx && req->sctx->spec && req->sctx->spec->rule);
     const RLookup *lk = cv->lastLk;
     count++;
     
