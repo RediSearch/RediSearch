@@ -102,10 +102,13 @@ RSLanguage SchemaRule_HashLang(RedisModuleCtx *rctx, const SchemaRule *rule, Red
     RedisModule_Log(NULL, "warning", "invalid field %s for key %s", rule->lang_field, kname);
     goto done;
   }
+  if (lang_rms == NULL) {
+    goto done;
+  }
   const char *lang_s = (const char *)RedisModule_StringPtrLen(lang_rms, NULL);
   lang = RSLanguage_Find(lang_s);
   if (lang == RS_LANG_UNSUPPORTED) {
-    RedisModule_Log(NULL, "warning", "invalid language for for key %s", kname);
+    RedisModule_Log(NULL, "warning", "invalid language for key %s", kname);
     lang = DEFAULT_LANGUAGE;
   }
 done:
@@ -134,7 +137,7 @@ double SchemaRule_HashScore(RedisModuleCtx *rctx, const SchemaRule *rule, RedisM
 
   rv = RedisModule_StringToDouble(score_rms, &score);
   if (rv != REDISMODULE_OK) {
-    RedisModule_Log(NULL, "warning", "invalid score for for key %s", kname);
+    RedisModule_Log(NULL, "warning", "invalid score for key %s", kname);
     score = 1.0;
   }
 done:
