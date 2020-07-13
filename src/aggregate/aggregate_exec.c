@@ -112,14 +112,14 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
   if (!(options & QEXEC_F_SEND_NOFIELDS)) {
     const RLookup *lk = cv->lastLk;
     count++;
-    int excludeFlags = RLOOKUP_F_HIDDEN;
-    int requiredFlags = (req->outFields.explicitReturn ? RLOOKUP_F_EXPLICITRETURN : 0);
-    size_t nfields = RLookup_GetLength(lk, &r->rowdata, requiredFlags, excludeFlags);
-
-    RedisModule_ReplyWithArray(outctx, nfields * 2);
-
+    
+    size_t nfields = 0;
+    RedisModule_ReplyWithArray(outctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+    SchemaRule *rule = req->sctx->spec->rule;
     for (const RLookupKey *kk = lk->head; kk; kk = kk->next) {
-      if (kk->flags & RLOOKUP_F_HIDDEN) {
+      if (kk->flags & RLOOKUP_F_HIDDEN ||
+          (rule->lang_field && strcasecmp(kk->name, rule->lang_field) == 0) ||
+          (rule->score_field && strcasecmp(kk->name, rule->score_field) == 0)) {
         // printf("Skipping hidden field %s/%p\n", kk->name, kk);
         // todo: this is a dead code, no one set RLOOKUP_F_HIDDEN
         continue;
@@ -134,7 +134,9 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
 
       RedisModule_ReplyWithStringBuffer(outctx, kk->name, strlen(kk->name));
       RSValue_SendReply(outctx, v, req->reqflags & QEXEC_F_TYPED);
+      nfields += 2;
     }
+    RedisModule_ReplySetArrayLength(outctx, nfields);
   }
   return count;
 }

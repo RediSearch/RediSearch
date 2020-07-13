@@ -179,7 +179,7 @@ def testSearch(env):
     for _ in r.retry_with_rdb_reload():
         res = r.execute_command('ft.search', 'idx', 'hello')
         expected = ['doc2', ['title', 'hello another world', 'body', 'lorem ist ipsum lorem lorem'],
-                    'doc1', ['title', 'hello world', 'body', 'lorem ist ipsum', '__score', '0.5']]
+                    'doc1', ['title', 'hello world', 'body', 'lorem ist ipsum']]
         for item in expected:
             env.assertIn(item, res)
 
@@ -586,8 +586,8 @@ def testPartial(env):
 
     res = r.execute_command(
         'ft.search', 'idx', 'hello world', 'sortby', 'num', 'desc',)
-    assertResultsEqual(env, [2L, 'doc1', ['foo', 'hello world', 'num', '3', '__score', '0.1', 'extra', 'jorem gipsum'],
-        'doc2', ['foo', 'hello world', 'num', '2', '__score', '0.1', 'extra', 'abba']], res)
+    assertResultsEqual(env, [2L, 'doc1', ['foo', 'hello world', 'num', '3','extra', 'jorem gipsum'],
+        'doc2', ['foo', 'hello world', 'num', '2', 'extra', 'abba']], res)
     res = r.execute_command(
         'ft.search', 'idx', 'hello', 'nocontent', 'withscores')
     # Updating only indexed field affects search results
@@ -2161,7 +2161,7 @@ def testIssue621(env):
     env.expect('ft.create', 'test', 'ON', 'HASH', 'SCHEMA', 'uuid', 'TAG', 'title', 'TEXT').equal('OK')
     env.expect('ft.add', 'test', 'a', '1', 'REPLACE', 'PARTIAL', 'FIELDS', 'uuid', 'foo', 'title', 'bar').equal('OK')
     env.expect('ft.add', 'test', 'a', '1', 'REPLACE', 'PARTIAL', 'FIELDS', 'title', 'bar').equal('OK')
-    env.expect('ft.search', 'test', '@uuid:{foo}').equal([1L, 'a', ['uuid', 'foo', 'title', 'bar', '__score', '1']])
+    env.expect('ft.search', 'test', '@uuid:{foo}').equal([1L, 'a', ['uuid', 'foo', 'title', 'bar']])
 
 # Server crash on doc names that conflict with index keys #666
 # again this test is not relevant cause index is out of key space
@@ -2844,7 +2844,7 @@ def testUnseportedSortableTypeErrorOnTags(env):
     env.expect('FT.ADD idx doc1 1.0 FIELDS f1 foo1 f2 1 f3 foo1 f4 foo1').ok()
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL FIELDS f2 2 f3 foo2 f4 foo2').ok()
     env.expect('HGETALL doc1').equal(['f1', 'foo1', 'f2', '2', 'f3', 'foo2', 'f4', 'foo2', '__score', '1.0'])
-    env.expect('FT.SEARCH idx *').equal([1L, 'doc1', ['f1', 'foo1', 'f2', '2', 'f3', 'foo2', 'f4', 'foo2', '__score', '1.0']])
+    env.expect('FT.SEARCH idx *').equal([1L, 'doc1', ['f1', 'foo1', 'f2', '2', 'f3', 'foo2', 'f4', 'foo2']])
 
 
 def testIssue1158(env):
