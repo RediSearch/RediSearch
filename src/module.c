@@ -1105,5 +1105,6 @@ void __attribute__((destructor)) RediSearch_CleanupModule(void) {
     GC_ThreadPoolDestroy();
     IndexAlias_DestroyGlobal();
     RedisModule_FreeThreadSafeContext(RSDummyContext);
+    RediSearch_Destory();
   }
 }
