@@ -4,9 +4,14 @@
 #include <pthread.h>
 
 extern pthread_rwlock_t RWLock;
+extern pthread_key_t _lockKey;
 
-#define RWLOCK_ACQUIRE_READ() pthread_rwlock_rdlock(&RWLock)
-#define RWLOCK_ACQUIRE_WRITE() pthread_rwlock_wrlock(&RWLock)
-#define RWLOCK_RELEASE() pthread_rwlock_unlock(&RWLock)
+void RediSearch_LockRead();
+void RediSearch_LockWrite();
+void RediSearch_LockRelease();
+
+#define RWLOCK_ACQUIRE_READ() RediSearch_LockRead()
+#define RWLOCK_ACQUIRE_WRITE() RediSearch_LockWrite()
+#define RWLOCK_RELEASE() RediSearch_LockRelease()
 
 #endif /* SRC_RWLOCK_H_ */
