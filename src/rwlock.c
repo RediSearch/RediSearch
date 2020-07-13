@@ -75,8 +75,10 @@ void RediSearch_LockRelease() {
 }
 
 void RediSearch_LockDestory() {
+  pthread_mutex_lock(&rwLockMutex);
   for (size_t i = 0; i < array_len(rwlocks); ++i) {
     rm_free(rwlocks[i]);
   }
   array_free(rwlocks);
+  pthread_mutex_unlock(&rwLockMutex);
 }
