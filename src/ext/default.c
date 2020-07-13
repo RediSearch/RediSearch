@@ -482,10 +482,10 @@ int DefaultExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
     } else {
       t_fieldMask fm = (*ctx->currentNode)->opts.fieldMask;
       for (size_t ii = 0; ii < ctx->handle->spec->numFields; ++ii) {
-        if (!(fm & (t_fieldMask)1 << ii)) {
+        const FieldSpec *fs = ctx->handle->spec->fields + ii;
+        if (!(fm & FIELD_BIT(fs))) {
           continue;
         }
-        const FieldSpec *fs = ctx->handle->spec->fields + ii;
         if (FieldSpec_IsPhonetics(fs)) {
           isValid = 1;
         }
