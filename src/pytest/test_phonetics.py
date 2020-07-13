@@ -88,8 +88,8 @@ def testPoneticOnNumbers(env):
     env.assertEqual(res, [1L, 'doc2', ['test', 'this is 04 test']])
 
 def testIssue1313(env):
-    env.expect('FT.CREATE test ON HASH SCHEMA topic2 TEXT NOINDEX topic TEXT PHONETIC dm:en').ok()
+    env.expect('FT.CREATE test SCHEMA topic2 TEXT NOINDEX topic TEXT PHONETIC dm:en').ok()
     env.expect('FT.SEARCH', 'test', '@topic:(tmp)=>{$phonetic:true}').equal([0])
 
-    env.expect('FT.CREATE test1 ON HASH SCHEMA topic TEXT PHONETIC dm:en topic2 TEXT NOINDEX').ok()
+    env.expect('FT.CREATE test1 SCHEMA topic TEXT PHONETIC dm:en topic2 TEXT NOINDEX').ok()
     env.expect('FT.SEARCH', 'test1', '@topic:(tmp)=>{$phonetic: true}').equal([0])
