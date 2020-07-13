@@ -123,9 +123,7 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
     RedisModule_Log(ctx, ##__VA_ARGS__);          \
   }
 
-  int err = pthread_key_create(&_lockKey, NULL);
-  if (err) {
-    DO_LOG("warning", "could not initialize rwlock thread local");
+  if (RediSearch_LockInit(ctx) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
 

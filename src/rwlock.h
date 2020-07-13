@@ -2,9 +2,12 @@
 #define SRC_RWLOCK_H_
 
 #include <pthread.h>
+#include "redismodule.h"
 
 extern pthread_rwlock_t RWLock;
 extern pthread_key_t _lockKey;
+
+int RediSearch_LockInit(RedisModuleCtx *ctx);
 
 void RediSearch_LockRead();
 void RediSearch_LockWrite();
