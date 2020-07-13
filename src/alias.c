@@ -1,4 +1,5 @@
 #include "alias.h"
+#include "spec.h"
 #include "util/dict.h"
 #include "rmutil/rm_assert.h"
 

@@ -11,17 +11,17 @@ class ExprTest : public ::testing::Test {
   }
 };
 
-struct EvalCtx : ExprEval {
+struct TEvalCtx : ExprEval {
   QueryError status_s = {QueryErrorCode(0)};
   RSValue res_s = {RSValue_Null};
 
-  EvalCtx(const char *s) {
+  TEvalCtx(const char *s) {
     lookup = NULL;
     root = NULL;
     assign(s);
   }
 
-  EvalCtx(RSExpr *root_) {
+  TEvalCtx(RSExpr *root_) {
     err = &status_s;
     lookup = NULL;
     root = root_;
@@ -48,8 +48,8 @@ struct EvalCtx : ExprEval {
     return ExprEval_Eval(this, &res_s);
   }
 
-  EvalCtx operator=(EvalCtx &) = delete;
-  EvalCtx(const EvalCtx &) = delete;
+  TEvalCtx operator=(TEvalCtx &) = delete;
+  TEvalCtx(const TEvalCtx &) = delete;
 
   RSValue &result() {
     return res_s;
@@ -75,7 +75,7 @@ struct EvalCtx : ExprEval {
     }
   }
 
-  ~EvalCtx() {
+  ~TEvalCtx() {
     clear();
   }
 };
@@ -85,7 +85,7 @@ TEST_F(ExprTest, testExpr) {
   RSExpr *r = RS_NewNumberLiteral(4);
   RSExpr *op = RS_NewOp('+', l, r);
   QueryError status = {QueryErrorCode(0)};
-  EvalCtx eval(op);
+  TEvalCtx eval(op);
 
   int rc = eval.eval();
   ASSERT_EQ(EXPR_EVAL_OK, rc);
@@ -104,7 +104,7 @@ TEST_F(ExprTest, testParser) {
   // ExprAST_Print(root);
   // printf("\n");
 
-  EvalCtx eval(root);
+  TEvalCtx eval(root);
   int rc = eval.eval();
   ASSERT_EQ(EXPR_EVAL_OK, rc);
   ASSERT_EQ(RSValue_Number, eval.result().t);
@@ -130,7 +130,7 @@ TEST_F(ExprTest, testGetFields) {
 
 TEST_F(ExprTest, testFunction) {
   const char *e = "floor(log2(35) + sqrt(4) % 10) - abs(-5/20)";
-  EvalCtx ctx(e);
+  TEvalCtx ctx(e);
   // ExprAST_Print(ctx.root);
   int rc = ctx.eval();
   if (rc != EXPR_EVAL_OK) {
@@ -161,7 +161,7 @@ static EvalResult testEval(const char *e, RLookup *lk, RLookupRow *rr, QueryErro
     return EvalResult::failure(status);
   }
 
-  EvalCtx ctx(root);
+  TEvalCtx ctx(root);
   ctx.lookup = lk;
   ctx.bindLookupKeys();
   ctx.srcrow = rr;
@@ -230,7 +230,7 @@ TEST_F(ExprTest, testPredicate) {
 }
 
 TEST_F(ExprTest, testNull) {
-  EvalCtx ctx("NULL");
+  TEvalCtx ctx("NULL");
   ASSERT_TRUE(ctx) << ctx.error();
   int rc = ctx.eval();
   ASSERT_EQ(EXPR_EVAL_OK, rc) << ctx.error();
@@ -241,7 +241,7 @@ TEST_F(ExprTest, testNull) {
 }
 
 TEST_F(ExprTest, testPropertyFetch) {
-  EvalCtx ctx("log(@foo) + 2*sqrt(@bar)");
+  TEvalCtx ctx("log(@foo) + 2*sqrt(@bar)");
   RLookup lk;
   RLookup_Init(&lk, NULL);
   RLookupRow rr = {0};

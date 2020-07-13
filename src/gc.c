@@ -1,3 +1,7 @@
+#include <pthread.h>
+#include <assert.h>
+#include <unistd.h>
+
 #include "gc.h"
 #include "fork_gc.h"
 #include "default_gc.h"
@@ -5,9 +9,7 @@
 #include "redismodule.h"
 #include "rmalloc.h"
 #include "module.h"
-#include <pthread.h>
-#include <assert.h>
-#include <unistd.h>
+#include "spec.h"
 #include "dep/thpool/thpool.h"
 #include "rmutil/rm_assert.h"
 

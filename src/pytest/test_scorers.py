@@ -3,7 +3,8 @@ from includes import *
 
 
 def testHammingScorer(env):
-    env.assertOk(env.cmd('ft.create', 'idx', 'schema', 'title', 'text'))
+    env.assertOk(env.cmd('ft.create', 'idx', 'ON', 'HASH', 'SCORE', '__score',
+                         'schema', 'title', 'text'))
 
     for i in range(16):
         env.assertOk(env.cmd('ft.add', 'idx', 'doc%d' % i, 1,
@@ -25,7 +26,8 @@ def testHammingScorer(env):
 
 def testScoreTagIndex(env):
     env.assertOk(env.cmd(
-        'ft.create', 'idx', 'schema', 'title', 'text', 'weight', 10, 'body', 'text'))
+        'ft.create', 'idx', 'ON', 'HASH', 'SCORE', '__score',
+        'schema', 'title', 'text', 'weight', 10, 'body', 'text'))
     N = 25
     for n in range(N):
 
@@ -73,7 +75,8 @@ def testScoreTagIndex(env):
 
 def testDocscoreScorerExplanation(env):
     env.assertOk(env.cmd(
-        'ft.create', 'idx', 'schema', 'title', 'text', 'weight', 10, 'body', 'text'))
+        'ft.create', 'idx', 'ON', 'HASH', 'SCORE', '__score',
+        'schema', 'title', 'text', 'weight', 10, 'body', 'text'))
     env.assertOk(env.cmd(
         'ft.add', 'idx', 'doc1', 0.5, 'fields', 'title', 'hello world',' body', 'lorem ist ipsum'))
     env.assertOk(env.cmd(
@@ -88,7 +91,8 @@ def testDocscoreScorerExplanation(env):
 
 def testTFIDFScorerExplanation(env):
     env.assertOk(env.cmd(
-        'ft.create', 'idx', 'schema', 'title', 'text', 'weight', 10, 'body', 'text'))
+        'ft.create', 'idx', 'ON', 'HASH', 'SCORE', '__score',
+        'schema', 'title', 'text', 'weight', 10, 'body', 'text'))
     env.assertOk(env.cmd(
         'ft.add', 'idx', 'doc1', 0.5, 'fields', 'title', 'hello world',' body', 'lorem ist ipsum'))
     env.assertOk(env.cmd(
@@ -112,7 +116,8 @@ def testTFIDFScorerExplanation(env):
 
 def testBM25ScorerExplanation(env):
     env.assertOk(env.cmd(
-        'ft.create', 'idx', 'schema', 'title', 'text', 'weight', 10, 'body', 'text'))
+        'ft.create', 'idx', 'ON', 'HASH', 'SCORE', '__score',
+        'schema', 'title', 'text', 'weight', 10, 'body', 'text'))
     env.assertOk(env.cmd(
         'ft.add', 'idx', 'doc1', 0.5, 'fields', 'title', 'hello world',' body', 'lorem ist ipsum'))
     env.assertOk(env.cmd(
@@ -142,7 +147,8 @@ def testBM25ScorerExplanation(env):
 
 def testDisMaxScorerExplanation(env):
     env.assertOk(env.cmd(
-        'ft.create', 'idx', 'schema', 'title', 'text', 'weight', 10, 'body', 'text'))
+        'ft.create', 'idx', 'ON', 'HASH', 'SCORE', '__score',
+        'schema', 'title', 'text', 'weight', 10, 'body', 'text'))
     env.assertOk(env.cmd(
         'ft.add', 'idx', 'doc1', 0.5, 'fields', 'title', 'hello world',' body', 'lorem ist ipsum'))
     env.assertOk(env.cmd(
@@ -157,3 +163,22 @@ def testDisMaxScorerExplanation(env):
             ['DISMAX 10.00 = Weight 1.00 * Frequency 10', 'DISMAX 10.00 = Weight 1.00 * Frequency 10']])
     env.assertEqual(res[8][1], ['20.00 = Weight 1.00 * children DISMAX 20.00',
             ['DISMAX 10.00 = Weight 1.00 * Frequency 10', 'DISMAX 10.00 = Weight 1.00 * Frequency 10']])
+
+def testScoreReplace(env):
+    #conn = getConnectionByEnv(env)
+    env.expect('ft.create idx ON HASH schema f text').ok()
+
+    env.expect('HSET doc1 f redisearch').equal(1)
+    env.expect('HSET doc1 f redisearch').equal(0)
+    env.expect('FT.SEARCH idx redisearch withscores nocontent').equal([1L, 'doc1', '1'])
+    env.expect('HSET doc1 f redisearch').equal(0)
+    env.expect('FT.SEARCH idx redisearch withscores nocontent').equal([1L, 'doc1', '0'])
+    env.expect('ft.config set FORK_GC_CLEAN_THRESHOLD 0').ok()
+    env.expect('ft.debug GC_FORCEINVOKE idx').equal('DONE')
+    env.expect('FT.SEARCH idx redisearch withscores nocontent').equal([1L, 'doc1', '1'])
+
+def testScoreDecimal(env):
+    env.expect('ft.create idx ON HASH schema title text').ok()
+    env.expect('ft.add idx doc1 0.01 fields title hello').ok()
+    res = env.cmd('ft.search idx hello withscores nocontent')
+    env.assertLess(float(res[2]), 1)

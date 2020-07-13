@@ -4,7 +4,7 @@ from includes import *
 def testBasicFuzzy(env):
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'schema', 'title', 'text', 'body', 'text'))
+        'ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'body', 'text'))
     env.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 1.0, 'fields',
                                     'title', 'hello world',
                                     'body', 'this is a test'))
@@ -13,14 +13,14 @@ def testBasicFuzzy(env):
     env.assertEqual(res, [1L, 'doc1', ['title', 'hello world', 'body', 'this is a test']])
 
 def testLdLimit(env):
-    env.cmd('ft.create', 'idx', 'schema', 'title', 'text', 'body', 'text')
+    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'body', 'text')
     env.cmd('ft.add', 'idx', 'doc1', 1.0, 'fields', 'title', 'hello world')
     env.assertEqual([1L, 'doc1', ['title', 'hello world']], env.cmd('ft.search', 'idx', '%word%'))  # should be ok
     env.assertEqual([0L], env.cmd('ft.search', 'idx', r'%sword%'))  # should return nothing
     env.assertEqual([1L, 'doc1', ['title', 'hello world']], env.cmd('ft.search', 'idx', r'%%sword%%'))
 
 def testStopwords(env):
-    env.cmd('ft.create', 'idx', 'schema', 't1', 'text')
+    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 't1', 'text')
     for t in ('iwth', 'ta', 'foo', 'rof', 'whhch', 'witha'):
         env.cmd('ft.add', 'idx', t, 1.0, 'fields', 't1', t)
 
@@ -39,7 +39,7 @@ def testStopwords(env):
 def testFuzzyMultipleResults(env):
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'schema', 'title', 'text', 'body', 'text'))
+        'ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'body', 'text'))
     env.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 1.0, 'fields',
                                     'title', 'hello world',
                                     'body', 'this is a test'))
@@ -60,7 +60,7 @@ def testFuzzySyntaxError(env):
     r = env
     unallowChars = ('*', '$', '~', '&', '@', '!')
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'schema', 'title', 'text', 'body', 'text'))
+        'ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'body', 'text'))
     env.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 1.0, 'fields',
                                     'title', 'hello world',
                                     'body', 'this is a test'))
@@ -73,6 +73,6 @@ def testFuzzySyntaxError(env):
         env.assertTrue('Syntax error' in error)
 
 def testFuzzyWithNumbersOnly(env):
-    env.expect('ft.create', 'idx', 'schema', 'test', 'TEXT', 'SORTABLE').equal('OK')
+    env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'test', 'TEXT', 'SORTABLE').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', '12345').equal('OK')
     env.expect('ft.search', 'idx', '%%21345%%').equal([1, 'doc1', ['test', '12345']])

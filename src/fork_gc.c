@@ -412,7 +412,7 @@ static void sendKht(ForkGC *gc, const khash_t(cardvals) *kh) {
 
 static void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
   RedisModuleKey *idxKey = NULL;
-  FieldSpec **numericFields = getFieldsByType(sctx->spec, INDEXFLD_T_NUMERIC);
+  FieldSpec **numericFields = getFieldsByType(sctx->spec, INDEXFLD_T_NUMERIC | INDEXFLD_T_GEO);
 
   for (int i = 0; i < array_len(numericFields); ++i) {
     RedisModuleString *keyName =
