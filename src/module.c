@@ -29,6 +29,7 @@
 #include "redisearch_api.h"
 #include "alias.h"
 #include "module.h"
+#include "rwlock.h"
 
 #define LOAD_INDEX(ctx, srcname, write)                                                     \
   ({                                                                                        \
