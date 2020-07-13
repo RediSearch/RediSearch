@@ -29,8 +29,7 @@
 #include "redisearch_api.h"
 #include "alias.h"
 #include "module.h"
-
-pthread_rwlock_t RWLock = PTHREAD_RWLOCK_INITIALIZER;
+#include "rwlock.h"
 
 #define LOAD_INDEX(ctx, srcname, write)                                                     \
   ({                                                                                        \
@@ -223,7 +222,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     ReplyWithStopWordsList(ctx, sp->stopwords);
     n += 2;
   }
-  
+
   RedisModule_ReplySetArrayLength(ctx, n);
   return REDISMODULE_OK;
 }
@@ -988,27 +987,29 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 #define LAST_KEY 1
 #endif
 
-
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_ADD_CMD, RSAddDocumentCommand, "write deny-oom", FIRST_KEY, LAST_KEY,
-         1);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_ADD_CMD, RSAddDocumentCommand, "write deny-oom",
+         FIRST_KEY, LAST_KEY, 1);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_SAFEADD_CMD, RSSafeAddDocumentCommand, "write deny-oom",
-      FIRST_KEY, LAST_KEY, 1);
+         FIRST_KEY, LAST_KEY, 1);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_SETPAYLOAD_CMD, SetPayloadCommand, "write deny-oom", FIRST_KEY, LAST_KEY, 1);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_SETPAYLOAD_CMD, SetPayloadCommand, "write deny-oom",
+         FIRST_KEY, LAST_KEY, 1);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_ADDHASH_CMD, RSAddHashCommand, "write deny-oom", FIRST_KEY, LAST_KEY,
-         1);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_ADDHASH_CMD, RSAddHashCommand, "write deny-oom",
+         FIRST_KEY, LAST_KEY, 1);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_SAFEADDHASH_CMD, RSSafeAddHashCommand, "write deny-oom",
-      FIRST_KEY, LAST_KEY, 1);
+         FIRST_KEY, LAST_KEY, 1);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_DEL_CMD, DeleteCommand, "write", FIRST_KEY, LAST_KEY, 1);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_DEL_CMD, DeleteCommand, "write", FIRST_KEY, LAST_KEY,
+         1);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_SEARCH_CMD, RSSearchCommand, "readonly", 1, 1, 1);
   RM_TRY(RedisModule_CreateCommand, ctx, RS_AGGREGATE_CMD, RSAggregateCommand, "readonly", 1, 1, 1);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_GET_CMD, GetSingleDocumentCommand, "readonly", FIRST_KEY, LAST_KEY, 1);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_GET_CMD, GetSingleDocumentCommand, "readonly",
+         FIRST_KEY, LAST_KEY, 1);
 
 #ifdef FORCE_CROS_SLOT_VALIDATION
   RM_TRY(RedisModule_CreateCommand, ctx, RS_MGET_CMD, GetDocumentsCommand, "readonly", 1, -1, 1);
@@ -1079,16 +1080,18 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 #define ALIAS_DEL_LAST_KEY 0
 #define ALIAS_DEL_STEPS -1
 #endif
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASADD, AliasAddCommand, "readonly", ALIAS_ADD_UPDATE_FIRST_KEY, ALIAS_ADD_UPDATE_LAST_KEY, ALIAS_ADD_UPDATE_STEPS);
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASUPDATE, AliasUpdateCommand, "readonly", ALIAS_ADD_UPDATE_FIRST_KEY, ALIAS_ADD_UPDATE_LAST_KEY, ALIAS_ADD_UPDATE_STEPS);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASADD, AliasAddCommand, "readonly",
+         ALIAS_ADD_UPDATE_FIRST_KEY, ALIAS_ADD_UPDATE_LAST_KEY, ALIAS_ADD_UPDATE_STEPS);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASUPDATE, AliasUpdateCommand, "readonly",
+         ALIAS_ADD_UPDATE_FIRST_KEY, ALIAS_ADD_UPDATE_LAST_KEY, ALIAS_ADD_UPDATE_STEPS);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASDEL, AliasDelCommand, "readonly", ALIAS_DEL_FIRST_KEY, ALIAS_DEL_LAST_KEY, ALIAS_DEL_STEPS);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASDEL, AliasDelCommand, "readonly",
+         ALIAS_DEL_FIRST_KEY, ALIAS_DEL_LAST_KEY, ALIAS_DEL_STEPS);
   return REDISMODULE_OK;
 }
 
-
 void __attribute__((destructor)) RediSearch_CleanupModule(void) {
-  if (getenv("RS_GLOBAL_DTORS")) {   // used in sanitizer
+  if (getenv("RS_GLOBAL_DTORS")) {  // used in sanitizer
     static int invoked = 0;
     if (invoked || !RS_Initialized) {
       return;
@@ -1103,5 +1106,6 @@ void __attribute__((destructor)) RediSearch_CleanupModule(void) {
     GC_ThreadPoolDestroy();
     IndexAlias_DestroyGlobal();
     RedisModule_FreeThreadSafeContext(RSDummyContext);
+    RediSearch_LockDestory();
   }
 }
