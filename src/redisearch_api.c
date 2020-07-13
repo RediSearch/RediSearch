@@ -200,6 +200,13 @@ int RediSearch_IndexAddDocument(IndexSpec* sp, Document* d, int options, char** 
   RSError err = {.s = errs};
   QueryError status = {0};
   RSAddDocumentCtx* aCtx = NewAddDocumentCtx(sp, d, &status);
+  if (aCtx == NULL) {
+    if (status.detail) {
+      QueryError_ClearError(&status);
+    }
+    RWLOCK_RELEASE();
+    return REDISMODULE_ERR;
+  }
   aCtx->donecb = RediSearch_AddDocDone;
   aCtx->donecbData = &err;
   RedisSearchCtx sctx = {.redisCtx = NULL, .spec = sp};
