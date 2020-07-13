@@ -53,3 +53,8 @@ void RediSearch_LockRelease() {
     rwData->type = lockType_None;
   }
 }
+
+void RediSearch_LockDestory() {
+  rwlockThreadLocal* rwData = RediSearch_GetLockThreadData();
+  rm_free(rwData);
+}
