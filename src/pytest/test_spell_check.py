@@ -24,6 +24,7 @@ def testDictDeleteOnFlush():
     env = Env()
     env.expect('ft.dictadd', 'dict', 'term1', 'term2', 'term3').equal(3)
     env.expect('FLUSHALL').equal(True)
+    env.expect('ft.dictdump', 'dict').equal([])
     env.expect('ft.dictadd', 'dict', 'term4', 'term5', 'term6').equal(3)
     env.expect('ft.dictdump', 'dict').equal(['term4', 'term5', 'term6'])
 
