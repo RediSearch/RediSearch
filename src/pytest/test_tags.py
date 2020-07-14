@@ -148,7 +148,7 @@ def testSearchNotExistsTagValue(env):
     env.expect('FT.SEARCH idx @t:{val}').equal([0])
 
 def testIssue1305(env):
-    env.expect('FT.CREATE myIdx SCHEMA title TAG').ok()
+    env.expect('FT.CREATE myIdx ON HASH SCHEMA title TAG').ok()
     env.expect('FT.ADD myIdx doc2 1.0 FIELDS title "work"').ok()
     env.expect('FT.ADD myIdx doc2 1.0 FIELDS title "hello"').error()
     env.expect('FT.ADD myIdx doc3 1.0 FIELDS title "hello"').ok()
