@@ -133,7 +133,7 @@ int DictAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return REDISMODULE_OK;
 }
 
-static void Dictionary_Clear() {
+void Dictionary_Clear() {
   dictIterator *iter = dictGetIterator(spellCheckDicts);
   dictEntry *entry;
   while ((entry = dictNext(iter))) {

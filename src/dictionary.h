@@ -14,6 +14,7 @@ int Dictionary_Add(RedisModuleCtx* ctx, const char* dictName, RedisModuleString*
 int Dictionary_Del(RedisModuleCtx* ctx, const char* dictName, RedisModuleString** values, int len,
                    char** err);
 
+void Dictionary_Clear();
 void Dictionary_Free();
 
 int Dictionary_Dump(RedisModuleCtx* ctx, const char* dictName, char** err);
