@@ -148,7 +148,7 @@ typedef struct IndexReader {
   double weight;
 } IndexReader;
 
-void IndexReader_OnReopen(RedisModuleKey *k, void *privdata);
+void IndexReader_OnReopen(void *privdata);
 
 /* An index encoder is a callback that writes records to the index. It accepts a pre-calculated
  * delta for encoding */

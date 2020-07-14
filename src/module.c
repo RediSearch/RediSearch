@@ -743,6 +743,24 @@ int ConfigCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return REDISMODULE_OK;
 }
 
+int IndexList(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  if (argc != 1) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  RedisModule_ReplyWithArray(ctx, dictSize(specDict));
+
+  dictIterator *iter = dictGetIterator(specDict);
+  dictEntry *entry = NULL;
+  while ((entry = dictNext(iter))) {
+    IndexSpec *spec = dictGetVal(entry);
+    RedisModule_ReplyWithCString(ctx, spec->name);
+  }
+  dictReleaseIterator(iter);
+
+  return REDISMODULE_OK;
+}
+
 #define RM_TRY(f, ...)                                                         \
   if (f(__VA_ARGS__) == REDISMODULE_ERR) {                                     \
     RedisModule_Log(ctx, "warning", "Could not run " #f "(" #__VA_ARGS__ ")"); \
@@ -786,6 +804,8 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 #define INDEX_DOC_CMD_ARGS 0, 0, 0
 #endif
 
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_INDEX_LIST_CMD, IndexList, "readonly", 0, 0, 0);
+
   RM_TRY(RedisModule_CreateCommand, ctx, RS_ADD_CMD, RSAddDocumentCommand, "write deny-oom",
          INDEX_DOC_CMD_ARGS);
 
@@ -815,8 +835,8 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   // in case not coordinator is defined, all docs and index name should go to the same slot
   RM_TRY(RedisModule_CreateCommand, ctx, RS_MGET_CMD, GetDocumentsCommand, "readonly", 1, -1, 1);
 #else
-  // in case coordinator is defined, only docs should go to the same slot
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_MGET_CMD, GetDocumentsCommand, "readonly", 2, -1, 1);
+  // in case coordinator is defined, do not force cross slot validation
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_MGET_CMD, GetDocumentsCommand, "readonly", 0, 0, 0);
 #endif
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_CREATE_CMD, CreateIndexCommand, "write deny-oom",

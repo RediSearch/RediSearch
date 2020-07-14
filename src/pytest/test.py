@@ -7,6 +7,7 @@ import random
 import time
 from RLTest import Env
 from includes import *
+from common import getConnectionByEnv
 
 # this tests is not longer relevant
 # def testAdd(env):
@@ -387,7 +388,7 @@ def testDrop(env):
 
     # RS2 does not drop docs on ft.drop
     env.assertEqual(100, len(keys))
-    env.expect('flushall').equal(True)
+    env.flush()
 
     # Now do the same with KEEPDOCS
     env.assertOk(r.execute_command(
@@ -1512,8 +1513,8 @@ def _test_create_options_real(env, *options):
     try:
         env.cmd('ft.drop', 'idx')
         # RS 2.0 ft.drop does not remove documents
-        env.expect('flushall').equal(True)
-    except:
+        env.flush()
+    except Exception as e:
         pass
 
     options = ['idx'] + options + ['ON', 'HASH', 'schema', 'f1', 'text', 'f2', 'text']
@@ -2024,6 +2025,7 @@ def testTimeoutSettings(env):
     env.expect('ft.search', 'idx', '*', 'ON_TIMEOUT', 'FAIL').notRaiseError()
 
 def testAlias(env):
+    conn = getConnectionByEnv(env)
     env.cmd('ft.create', 'idx', 'ON', 'HASH', 'PREFIX', 1, 'doc1', 'schema', 't1', 'text')
     env.cmd('ft.create', 'idx2', 'ON', 'HASH', 'PREFIX', 1, 'doc2', 'schema', 't1', 'text')
 
@@ -2042,7 +2044,7 @@ def testAlias(env):
     # now delete the index
     env.cmd('ft.drop', 'myIndex')
     # RS2 does not delete doc on ft.drop
-    env.cmd('DEL', 'doc1')
+    conn.execute_command('DEL', 'doc1')
 
     # index list should be cleared now. This can be tested by trying to alias
     # the old alias to different index
@@ -2329,6 +2331,18 @@ def testMod_309(env):
         env.expect('FT.ADD', 'idx', 'doc%d'%i, '1.0', 'FIELDS', 'test', 'foo').equal('OK')
     res = env.cmd('FT.AGGREGATE', 'idx', 'foo')
     env.assertEqual(len(res), 100001)
+
+def testMod_309_with_cursor(env):
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
+    for i in range(100000):
+        env.expect('FT.ADD', 'idx', 'doc%d'%i, '1.0', 'FIELDS', 'test', 'foo').equal('OK')
+    res = env.cmd('FT.AGGREGATE', 'idx', 'foo', 'WITHCURSOR')
+    l = len(res[0]) - 1 # do not count the number of results (the first element in the results)
+    cursor = res[1]
+    while cursor != 0:
+        r, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', str(cursor))
+        l += (len(r) - 1)
+    env.assertEqual(l, 100000)
 
 def testIssue_865(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', '1', 'TEXT', 'SORTABLE').equal('OK')
@@ -2914,6 +2928,18 @@ def testIssue1184(env):
 
         env.cmd('FT.DROP idx')
         env.cmd('DEL doc0')
+
+def testIndexListCommand(env):
+    env.expect('FT.CREATE idx1 ON HASH SCHEMA n NUMERIC').ok()
+    env.expect('FT.CREATE idx2 ON HASH SCHEMA n NUMERIC').ok()
+    res = env.cmd('FT._LIST')
+    env.assertEqual(set(res), set(['idx1', 'idx2']))
+    env.expect('FT.DROP idx1').ok()
+    env.expect('FT._LIST').equal(['idx2'])
+    env.expect('FT.CREATE idx3 ON HASH SCHEMA n NUMERIC').ok()
+    res = env.cmd('FT._LIST')
+    env.assertEqual(set(res), set(['idx2', 'idx3']))
+
 
 def testIssue1208(env):
     env.cmd('FT.CREATE idx ON HASH SCHEMA n NUMERIC')
