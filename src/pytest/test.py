@@ -2910,6 +2910,18 @@ def testIssue1184(env):
         env.cmd('FT.DROP idx')
         env.cmd('DEL doc0')
 
+def testIndexListCommand(env):
+    env.expect('FT.CREATE idx1 ON HASH SCHEMA n NUMERIC').ok()
+    env.expect('FT.CREATE idx2 ON HASH SCHEMA n NUMERIC').ok()
+    res = env.cmd('FT._LIST')
+    env.assertEqual(set(res), set(['idx1', 'idx2']))
+    env.expect('FT.DROP idx1').ok()
+    env.expect('FT._LIST').equal(['idx2'])
+    env.expect('FT.CREATE idx3 ON HASH SCHEMA n NUMERIC').ok()
+    res = env.cmd('FT._LIST')
+    env.assertEqual(set(res), set(['idx2', 'idx3']))
+
+
 def testIssue1208(env):
     env.cmd('FT.CREATE idx ON HASH SCHEMA n NUMERIC')
     env.cmd('FT.ADD idx doc1 1 FIELDS n 1.0321e5')
