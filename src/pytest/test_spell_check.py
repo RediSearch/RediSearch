@@ -20,6 +20,13 @@ def testDictDelete():
     env.expect('ft.dictdel', 'dict', 'term3').equal(1)
     env.expect('keys', '*').equal([])
 
+def testDictDeleteOnFlush():
+    env = Env()
+    env.expect('ft.dictadd', 'dict', 'term1', 'term2', 'term3').equal(3)
+    env.expect('FLUSHALL').equal(True)
+    env.expect('ft.dictdump', 'dict').error().contains('could not open dict')
+    env.expect('ft.dictadd', 'dict', 'term4', 'term5', 'term6').equal(3)
+    env.expect('ft.dictdump', 'dict').equal(['term4', 'term5', 'term6'])
 
 def testDictDeleteWrongArity():
     env = Env()
