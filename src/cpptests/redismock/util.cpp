@@ -6,7 +6,6 @@ using namespace RMCK;
 
 std::vector<RedisModuleString *> RMCK::CreateArgv(RedisModuleCtx *ctx, const char *s, ...) {
   std::vector<RedisModuleString *> ll;
-  printf("%p\n", RedisModule_CreateString);
   ll.push_back(RedisModule_CreateString(ctx, s, strlen(s)));
   va_list ap;
   va_start(ap, s);
