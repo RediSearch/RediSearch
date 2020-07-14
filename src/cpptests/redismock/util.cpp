@@ -6,6 +6,7 @@ using namespace RMCK;
 
 std::vector<RedisModuleString *> RMCK::CreateArgv(RedisModuleCtx *ctx, const char *s, ...) {
   std::vector<RedisModuleString *> ll;
+  printf("%p\n", RedisModule_CreateString);
   ll.push_back(RedisModule_CreateString(ctx, s, strlen(s)));
   va_list ap;
   va_start(ap, s);
@@ -55,4 +56,17 @@ bool RMCK::hset(RedisModuleCtx *ctx, const char *rkey, const char *hkey, const c
 
 void RMCK::flushdb(RedisModuleCtx *ctx) {
   ctx->db->clear();
+}
+
+extern "C" {
+static int my_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  if (RedisModule_Init(ctx, "dummy", 0, REDISMODULE_APIVER_1) == REDISMODULE_ERR) {
+    return REDISMODULE_ERR;
+  }
+  return REDISMODULE_OK;
+}
+}
+
+void RMCK::init() {
+  RMCK_Bootstrap(my_OnLoad, NULL, 0);
 }
