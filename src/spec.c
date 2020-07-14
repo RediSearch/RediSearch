@@ -18,6 +18,7 @@
 #include "aggregate/expr/expression.h"
 #include "rules.h"
 #include "commands.h"
+#include "dictionary.h"
 
 void (*IndexSpec_OnCreate)(const IndexSpec *) = NULL;
 const char *(*IndexAlias_GetUserTableName)(RedisModuleCtx *, const char *) = NULL;
@@ -1482,6 +1483,7 @@ static void onFlush(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent
     return;
   }
   IndexSpec_CleanAll();
+  Dictionary_Clear();
 }
 
 void Indexes_Init(RedisModuleCtx *ctx) {
