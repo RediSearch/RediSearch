@@ -273,6 +273,11 @@ def testGet(env):
     r.assertIsNone(res[1])
     r.assertTrue(not not res[2])
 
+    env.expect('ft.add idx doc 0.1 language arabic payload redislabs fields foo foo').ok()
+    env.expect('ft.get idx doc').equal(['foo', 'foo'])
+    env.expect('hgetall doc').equal(['foo', 'foo', '__score', '0.1', '__language', 'arabic', '__payload', 'redislabs'])
+
+
 def testDelete(env):
     r = env
     env.assertOk(r.execute_command(
@@ -2364,7 +2369,7 @@ def testIssue_779(env):
 
     # OK is expected since 4001 < 4002 and the doc2 is updated
     env.expect('FT.ADD idx2 doc2 1.0 REPLACE PARTIAL if @ot1<4002 FIELDS newf DOG ot1 4002').equal('OK')
-    env.expect('FT.GET idx2 doc2').equal(["newf", "DOG", "ot1", "4002", '__score', '1.0'])
+    env.expect('FT.GET idx2 doc2').equal(["newf", "DOG", "ot1", "4002"])
 
     # OK is NOT expected since 4002 is not < 4002
     # We expect NOADD and doc2 update; however, we get OK and doc2 updated
@@ -2372,11 +2377,11 @@ def testIssue_779(env):
     env.expect('FT.ADD idx2 doc2 1.0 REPLACE PARTIAL if @ot1<4002 FIELDS newf FISH ot1 4002').equal('NOADD')
     env.expect('FT.ADD idx2 doc2 1.0 REPLACE PARTIAL if to_number(@ot1)<4002 FIELDS newf FISH ot1 4002').equal('NOADD')
     env.expect('FT.ADD idx2 doc2 1.0 REPLACE PARTIAL if @ot1<to_str(4002) FIELDS newf FISH ot1 4002').equal('NOADD')
-    env.expect('FT.GET idx2 doc2').equal(["newf", "DOG", "ot1", "4002", '__score', '1.0'])
+    env.expect('FT.GET idx2 doc2').equal(["newf", "DOG", "ot1", "4002"])
 
     # OK and doc2 update is expected since 4002 < 4003
     env.expect('FT.ADD idx2 doc2 1.0 REPLACE PARTIAL if @ot1<4003 FIELDS newf HORSE ot1 4003').equal('OK')
-    env.expect('FT.GET idx2 doc2').equal(["newf", "HORSE", "ot1", "4003", '__score', '1.0'])
+    env.expect('FT.GET idx2 doc2').equal(["newf", "HORSE", "ot1", "4003"])
 
     # Expect NOADD since 4003 is not > 4003
     env.expect('FT.ADD idx2 doc2 1.0 REPLACE PARTIAL if @ot1>4003 FIELDS newf COW ot1 4003').equal('NOADD')
@@ -2384,7 +2389,7 @@ def testIssue_779(env):
 
     # Expect OK and doc2 updated since 4003 > 4002
     env.expect('FT.ADD idx2 doc2 1.0 REPLACE PARTIAL if @ot1>4002 FIELDS newf PIG ot1 4002').equal('OK')
-    env.expect('FT.GET idx2 doc2').equal(["newf", "PIG", "ot1", "4002", '__score', '1.0'])
+    env.expect('FT.GET idx2 doc2').equal(["newf", "PIG", "ot1", "4002"])
 
     # Syntax errors
     env.expect('FT.ADD idx2 doc2 1.0 REPLACE PARTIAL if @ot1<4-002 FIELDS newf DOG ot1 4002').contains('Syntax error')
@@ -2876,7 +2881,7 @@ def testIssue1158(env):
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if to_number(@txt1)>11||to_number(@txt1)<42 FIELDS txt2 num2').equal('OK')
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if to_number(@txt1)>11&&to_number(@txt1)>42 FIELDS txt2 num2').equal('NOADD')
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if to_number(@txt1)>11&&to_number(@txt1)<42 FIELDS txt2 num2').equal('NOADD')
-    env.expect('FT.GET idx doc1').equal(['txt1', '5', 'txt2', 'num2', '__score', '1.0'])
+    env.expect('FT.GET idx doc1').equal(['txt1', '5', 'txt2', 'num2'])
 
 def testIssue1159(env):
     env.cmd('FT.CREATE idx ON HASH SCHEMA f1 TAG')
