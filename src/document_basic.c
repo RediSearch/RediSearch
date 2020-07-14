@@ -207,9 +207,9 @@ int Document_ReplyAllFields(RedisModuleCtx *ctx, IndexSpec *spec, RedisModuleStr
   size_t numElems = 0;
 
 
-  size_t lang_len = strlen(rule->lang_field);
-  size_t score_len = strlen(rule->score_field);
-  size_t payload_len = strlen(rule->payload_field);
+  size_t lang_len = rule->lang_field ? strlen(rule->lang_field) : 0;
+  size_t score_len = rule->score_field ? strlen(rule->score_field) : 0;
+  size_t payload_len = rule->payload_field ? strlen(rule->payload_field) : 0;
   
   for (size_t i = 0; i < hashLen; i += 2) {
     // parse field
