@@ -182,7 +182,7 @@ done:
   return rc;
 }
 
-int Document_ReplyAllFields(RedisModuleCtx *ctx, RedisModuleString *id) {
+int Document_ReplyAllFields(RedisModuleCtx *ctx, IndexSpec *spec, RedisModuleString *id) {
   int rc = REDISMODULE_ERR;
   RedisModuleCallReply *rep = NULL;
 
@@ -192,26 +192,42 @@ int Document_ReplyAllFields(RedisModuleCtx *ctx, RedisModuleString *id) {
     goto done;
   }
 
-  size_t len = RedisModule_CallReplyLength(rep);
-  RS_LOG_ASSERT(len % 2 == 0, "Number of elements must be even");
+  size_t hashLen = RedisModule_CallReplyLength(rep);
+  RS_LOG_ASSERT(hashLen % 2 == 0, "Number of elements must be even");
   // Zero means the document does not exist in redis
-  if (len == 0) {
+  if (hashLen == 0) {
     RedisModule_ReplyWithArray(ctx, 0);
     goto done;
   }
 
-  size_t elen;
+  size_t strLen;
   RedisModuleCallReply *e;
-  RedisModule_ReplyWithArray(ctx, len);
-  for (size_t i = 0; i < len; ++i) {
+  SchemaRule *rule = spec->rule;
+  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+  size_t numElems = 0;
+  for (size_t i = 0; i < hashLen; i += 2) {
+    // parse field
     e = RedisModule_CallReplyArrayElement(rep, i);
-    const char *str = RedisModule_CallReplyStringPtr(e, &elen);
-    if (elen != 0) {
-      RedisModule_ReplyWithStringBuffer(ctx, str, elen);
+    const char *str = RedisModule_CallReplyStringPtr(e, &strLen);
+    RS_LOG_ASSERT(strLen > 0, "field string cannot be empty");
+    if ((rule->lang_field && strncasecmp(str, rule->lang_field, strlen(rule->lang_field)) == 0) ||
+        (rule->score_field && strncasecmp(str, rule->score_field, strlen(rule->score_field)) == 0) ||
+        (rule->payload_field && strncasecmp(str, rule->payload_field, strlen(rule->payload_field)) == 0)) {
+      continue;
+    }
+    RedisModule_ReplyWithStringBuffer(ctx, str, strLen);
+
+    // parse value
+    e = RedisModule_CallReplyArrayElement(rep, i + 1);
+    str = RedisModule_CallReplyStringPtr(e, &strLen);
+    if (strLen != 0) {
+      RedisModule_ReplyWithStringBuffer(ctx, str, strLen);
     } else {
       RedisModule_ReplyWithNull(ctx);
     }
+    numElems += 2;
   }
+  RedisModule_ReplySetArrayLength(ctx, numElems);
   rc = REDISMODULE_OK;
 
 done:
