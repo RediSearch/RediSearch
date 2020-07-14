@@ -153,5 +153,7 @@ def testIssue1305(env):
     env.expect('FT.ADD myIdx doc2 1.0 FIELDS title "hello"').error()
     env.expect('FT.ADD myIdx doc3 1.0 FIELDS title "hello"').ok()
     env.expect('FT.ADD myIdx doc1 1.0 FIELDS title "hello,work"').ok()
-    res = [3L, 'doc1', 'inf', ['title', '"hello,work"'], 'doc3', 'inf', ['title', '"hello"'], 'doc2', 'inf', ['title', '"work"']]
-    env.expect('ft.search', 'myIdx', '~@title:{wor} ~@title:{hell}', 'WITHSCORES').equal(res)
+    expectedRes = {'doc1' : ['inf', ['title', '"hello,work"']], 'doc3' : ['inf', ['title', '"hello"']], 'doc2' : ['inf', ['title', '"work"']]}
+    res = env.cmd('ft.search', 'myIdx', '~@title:{wor} ~@title:{hell}', 'WITHSCORES')[1:]
+    res = {res[i]:res[i + 1: i + 3] for i in range(0, len(res), 3)}
+    env.assertEqual(res, expectedRes)
