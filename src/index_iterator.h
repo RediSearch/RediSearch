@@ -34,8 +34,6 @@ typedef struct indexIterator {
 
   int mode;
 
-  RSIndexResult *(*GetCurrent)(void *ctx);
-
   size_t (*NumEstimated)(void *ctx);
 
   IndexCriteriaTester *(*GetCriteriaTester)(void *ctx);
@@ -85,20 +83,10 @@ typedef struct indexIterator {
 //   }
 // }
 #define IITER_HAS_NEXT(ii) ((ii)->isValid ? 1 : (ii)->HasNext ? (ii)->HasNext((ii)->ctx) : 0)
-#define IITER_CURRENT_RECORD(ii) \
-  ((ii)->current ? (ii)->current : ((ii)->GetCurrent ? (ii)->GetCurrent((ii)->ctx) : NULL))
+#define IITER_CURRENT_RECORD(ii) ((ii)->current ? (ii)->current : 0)
 #define IITER_NUM_ESTIMATED(ii) ((ii)->NumEstimated ? (ii)->NumEstimated((ii)->ctx) : 0)
 #define IITER_GET_CRITERIA_TESTER(ii) \
   ((ii)->GetCriteriaTester ? (ii)->GetCriteriaTester((ii)->ctx) : NULL)
-// static inline RSIndexResult *IITER_CURRENT_RECORD(IndexIterator *ii) {
-//   if (ii->current) {
-//     return ii->current;
-//   } else if (ii->GetCurrent) {
-//     return ii->GetCurrent(ii->ctx);
-//   } else {
-//     return NULL;
-//   }
-// }
 
 #define IITER_SET_EOF(ii) (ii)->isValid = 0
 #define IITER_CLEAR_EOF(ii) (ii)->isValid = 1
