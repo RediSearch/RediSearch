@@ -143,7 +143,6 @@ def testDeleteEntireBlock(env):
         env.expect('FT.SEARCH', 'idx', '@test:checking @test2:checking250').equal([1L, 'doc250', ['test', 'checking', 'test2', 'checking250']])
 
 def testGCIntegrationWithRedisFork(env):
-    env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
     if env.env == 'existing-env':
         env.skip()
     if env.env == 'enterprise':
@@ -152,6 +151,7 @@ def testGCIntegrationWithRedisFork(env):
         raise unittest.SkipTest()
     if env.cmd('FT.CONFIG', 'GET', 'GC_POLICY')[0][1] != 'fork':
         raise unittest.SkipTest()
+    env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
     env.expect('FT.CONFIG', 'SET', 'FORKGC_SLEEP_BEFORE_EXIT', '4').ok()
     env.assertOk(env.execute_command('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0))
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'title', 'TEXT', 'SORTABLE').ok()
@@ -230,9 +230,9 @@ def testGCThreshold(env):
     env.assertEqual(len(debug_rep), 0)
 
 def testGCShutDownOnExit(env):
-    env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
     if env.env == 'existing-env' or env.env == 'enterprise' or env.isCluster() or platform.system() == 'Darwin':
         env.skip()
+    env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
     env = Env(moduleArgs='GC_POLICY FORK FORKGC_SLEEP_BEFORE_EXIT 20')
     env.assertOk(env.execute_command('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0))
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH',

@@ -124,9 +124,7 @@ size_t TagIndex_Index(TagIndex *idx, const char **values, size_t n, t_docId docI
 IndexIterator *TagIndex_OpenReader(TagIndex *idx, IndexSpec *sp, const char *value, size_t len,
                                    double weight);
 
-void TagIndex_RegisterConcurrentIterators(TagIndex *idx, ConcurrentSearchCtx *conc,
-                                          RedisModuleKey *key, RedisModuleString *keyname,
-                                          array_t *iters);
+void TagIndex_RegisterConcurrentIterators(TagIndex *idx, ConcurrentSearchCtx *conc, array_t *iters);
 /* Open the tag index key in redis */
 TagIndex *TagIndex_Open(RedisSearchCtx *sctx, RedisModuleString *formattedKey, int openWrite,
                         RedisModuleKey **keyp);

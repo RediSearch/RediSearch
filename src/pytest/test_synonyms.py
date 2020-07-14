@@ -163,7 +163,7 @@ def testSynonymDumpWorngArity(env):
         r.execute_command('ft.syndump')
     except Exception as e:
         exceptionStr = str(e)
-    env.assertEqual(exceptionStr, 'wrong number of arguments for \'ft.syndump\' command')
+    env.assertIn('wrong number of arguments', exceptionStr)
 
 def testSynonymUnknownIndex(env):
     r = env

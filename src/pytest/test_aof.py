@@ -1,6 +1,7 @@
 from RLTest import Env
 import random
 from includes import *
+from common import getConnectionByEnv
 
 
 def aofTestCommon(env, reloadfn):
@@ -71,6 +72,7 @@ def testAofRewriteSortkeys():
 
 def testAofRewriteTags():
     env = Env(useAof=True)
+    conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 
             'SCHEMA', 'foo', 'TEXT', 'SORTABLE', 'bar', 'TAG')
     env.cmd('FT.ADD', 'idx', '1', '1', 'FIELDS', 'foo', 'A', 'bar', '1')
@@ -84,8 +86,8 @@ def testAofRewriteTags():
     # Try to drop the schema
     env.cmd('FT.DROP', 'idx')
 
-    env.cmd('del', '1')
-    env.cmd('del', '2')
+    conn.execute_command('del', '1')
+    conn.execute_command('del', '2')
 
     # Try to create it again - should work!
     env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 
