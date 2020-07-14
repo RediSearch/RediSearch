@@ -865,7 +865,7 @@ FT.GET {index} {doc id}
 
 !!! warning "This command is deprecated". Use HGETALL instead.
 
-Returns the contents of a document as insereted but removes attribute fields(score/language/Payload) if present.
+Returns content of a document as inserted without attribute fields (score/language/payload).
 
 If the document does not exist or is not a HASH object, we return a NULL reply
 
@@ -897,7 +897,7 @@ FT.MGET {index} {docId} ...
 
 !!! warning "This command is deprecated". Use HGETALL instead.
 
-Returns the contents of a document as insereted but removes attribute fields(score/language/Payload) if present.
+Returns content of a document as inserted without attribute fields (score/language/payload).
 
 In addition, it allows simpler implementation of fetching documents in clustered mode.
 
