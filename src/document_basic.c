@@ -205,14 +205,20 @@ int Document_ReplyAllFields(RedisModuleCtx *ctx, IndexSpec *spec, RedisModuleStr
   SchemaRule *rule = spec->rule;
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
   size_t numElems = 0;
+
+
+  size_t lang_len = strlen(rule->lang_field);
+  size_t score_len = strlen(rule->score_field);
+  size_t payload_len = strlen(rule->payload_field);
+  
   for (size_t i = 0; i < hashLen; i += 2) {
     // parse field
     e = RedisModule_CallReplyArrayElement(rep, i);
     const char *str = RedisModule_CallReplyStringPtr(e, &strLen);
     RS_LOG_ASSERT(strLen > 0, "field string cannot be empty");
-    if ((rule->lang_field && strncasecmp(str, rule->lang_field, strlen(rule->lang_field)) == 0) ||
-        (rule->score_field && strncasecmp(str, rule->score_field, strlen(rule->score_field)) == 0) ||
-        (rule->payload_field && strncasecmp(str, rule->payload_field, strlen(rule->payload_field)) == 0)) {
+    if ((lang_len == strLen && strncasecmp(str, rule->lang_field, strLen) == 0) ||
+        (score_len == strLen && strncasecmp(str, rule->score_field, strLen) == 0) ||
+        (payload_len == strLen && strncasecmp(str, rule->payload_field, strLen) == 0)) {
       continue;
     }
     RedisModule_ReplyWithStringBuffer(ctx, str, strLen);
