@@ -108,11 +108,23 @@ int Document_LoadSchemaFields(Document *doc, RedisSearchCtx *sctx) {
     goto done;
   }
 
+  IndexSpec *spec = sctx->spec;
+  SchemaRule *rule = spec->rule;
+  assert(rule);
+  RedisModuleString *payload_rms = NULL;
   Document_MakeStringsOwner(doc);
-  doc->fields = rm_calloc(nitems, sizeof(*doc->fields));
+  const char *keyname = (const char *)RedisModule_StringPtrLen(doc->docKey, NULL);
+  doc->language = SchemaRule_HashLang(sctx->redisCtx, rule, k, keyname);
+  doc->score = SchemaRule_HashScore(sctx->redisCtx, rule, k, keyname);
+  payload_rms = SchemaRule_HashPayload(sctx->redisCtx, rule, k, keyname);
+  if (payload_rms) {
+    doc->payload = rm_strdup(RedisModule_StringPtrLen(payload_rms, &doc->payloadSize));
+    RedisModule_FreeString(sctx->redisCtx, payload_rms);
+  }
 
-  for (size_t ii = 0; ii < sctx->spec->numFields; ++ii) {
-    const char *fname = sctx->spec->fields[ii].name;
+  doc->fields = rm_calloc(nitems, sizeof(*doc->fields));
+  for (size_t ii = 0; ii < spec->numFields; ++ii) {
+    const char *fname = spec->fields[ii].name;
     RedisModuleString *v = NULL;
     RedisModule_HashGet(k, REDISMODULE_HASH_CFIELDS, fname, &v, NULL);
     if (v == NULL) {
@@ -120,8 +132,8 @@ int Document_LoadSchemaFields(Document *doc, RedisSearchCtx *sctx) {
     }
     size_t oix = doc->numFields++;
     doc->fields[oix].name = rm_strdup(fname);
-    doc->fields[oix].text =
-        v;  // HashGet gives us `v` with a refcount of 1, meaning we're the only owner
+    // HashGet gives us `v` with a refcount of 1, meaning we're the only owner
+    doc->fields[oix].text = v;
   }
   rv = REDISMODULE_OK;
 
@@ -160,6 +172,45 @@ int Document_LoadAllFields(Document *doc, RedisModuleCtx *ctx) {
     const char *name = RedisModule_CallReplyStringPtr(k, &nlen);
     doc->fields[n].name = rm_strndup(name, nlen);
     doc->fields[n].text = RedisModule_CreateStringFromCallReply(v);
+  }
+  rc = REDISMODULE_OK;
+
+done:
+  if (rep) {
+    RedisModule_FreeCallReply(rep);
+  }
+  return rc;
+}
+
+int Document_ReplyAllFields(RedisModuleCtx *ctx, RedisModuleString *id) {
+  int rc = REDISMODULE_ERR;
+  RedisModuleCallReply *rep = NULL;
+
+  rep = RedisModule_Call(ctx, "HGETALL", "s", id);
+  if (rep == NULL || RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_ARRAY) {
+    RedisModule_ReplyWithArray(ctx, 0);
+    goto done;
+  }
+
+  size_t len = RedisModule_CallReplyLength(rep);
+  RS_LOG_ASSERT(len % 2 == 0, "Number of elements must be even");
+  // Zero means the document does not exist in redis
+  if (len == 0) {
+    RedisModule_ReplyWithArray(ctx, 0);
+    goto done;
+  }
+
+  size_t elen;
+  RedisModuleCallReply *e;
+  RedisModule_ReplyWithArray(ctx, len);
+  for (size_t i = 0; i < len; ++i) {
+    e = RedisModule_CallReplyArrayElement(rep, i);
+    const char *str = RedisModule_CallReplyStringPtr(e, &elen);
+    if (elen != 0) {
+      RedisModule_ReplyWithStringBuffer(ctx, str, elen);
+    } else {
+      RedisModule_ReplyWithNull(ctx);
+    }
   }
   rc = REDISMODULE_OK;
 
@@ -214,28 +265,63 @@ void Document_Free(Document *doc) {
   }
 }
 
-int Redis_SaveDocument(RedisSearchCtx *ctx, Document *doc, int options, QueryError *status) {
-  RedisModuleKey *k =
-      RedisModule_OpenKey(ctx->redisCtx, doc->docKey, REDISMODULE_WRITE | REDISMODULE_READ);
-  if (k == NULL || (RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_EMPTY &&
-                    RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_HASH)) {
-    QueryError_SetError(status, QUERY_EREDISKEYTYPE, NULL);
-    if (k) {
-      RedisModule_CloseKey(k);
-    }
-    return REDISMODULE_ERR;
+#define globalAddRSstringsSize 3
+static RedisModuleString *globalAddRSstrings[globalAddRSstringsSize] = {0};
+
+static void initGlobalAddStrings() {
+  const char *Sscore = "__score";
+  const char *Slang = "__language";
+  const char *Spayload = "__payload";
+
+  globalAddRSstrings[0] = RedisModule_CreateString(NULL, Sscore, strlen(Sscore));
+  globalAddRSstrings[1] = RedisModule_CreateString(NULL, Slang, strlen(Slang));
+  globalAddRSstrings[2] = RedisModule_CreateString(NULL, Spayload, strlen(Spayload));
+}
+
+void freeGlobalAddStrings() {
+  if (globalAddRSstrings[0] == NULL) return;
+
+  for (size_t i = 0; i < 3; ++i) {
+    RedisModule_FreeString(NULL, globalAddRSstrings[i]);
+    globalAddRSstrings[i] = NULL;
   }
-  if ((options & REDIS_SAVEDOC_NOCREATE) && RedisModule_KeyType(k) == REDISMODULE_KEYTYPE_EMPTY) {
-    RedisModule_CloseKey(k);
-    QueryError_SetError(status, QUERY_ENODOC, "Document does not exist");
-    return REDISMODULE_ERR;
+}
+
+int Redis_SaveDocument(RedisSearchCtx *ctx, const AddDocumentOptions *opts, QueryError *status) {
+  if (globalAddRSstrings[0] == NULL) {
+    initGlobalAddStrings();
   }
 
-  for (int i = 0; i < doc->numFields; i++) {
-    RedisModule_HashSet(k, REDISMODULE_HASH_CFIELDS, doc->fields[i].name, doc->fields[i].text,
-                        NULL);
+  // create an array for key + all field/value + score/language/payload
+  arrayof(RedisModuleString *) arguments =
+      array_new(RedisModuleString *, 1 + opts->numFieldElems + 6);
+
+  arguments = array_append(arguments, opts->keyStr);
+  arguments = array_ensure_append_n(arguments, opts->fieldsArray, opts->numFieldElems);
+
+  if (opts->score != 1.0 || (opts->options & DOCUMENT_ADD_PARTIAL)) {
+    arguments = array_append(arguments, globalAddRSstrings[0]);
+    arguments = array_append(arguments, opts->scoreStr);
   }
-  RedisModule_CloseKey(k);
+
+  if (opts->languageStr) {
+    arguments = array_append(arguments, globalAddRSstrings[1]);
+    arguments = array_append(arguments, opts->languageStr);
+  }
+
+  if (opts->payload) {
+    arguments = array_append(arguments, globalAddRSstrings[2]);
+    arguments = array_append(arguments, opts->payload);
+  }
+
+  RedisModuleCallReply *rep = NULL;
+  rep = RedisModule_Call(ctx->redisCtx, "HSET", "!v", arguments, array_len(arguments));
+  if (rep) {
+    RedisModule_FreeCallReply(rep);
+  }
+
+  array_free(arguments);
+
   return REDISMODULE_OK;
 }
 

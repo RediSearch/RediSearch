@@ -148,12 +148,12 @@ RedisModuleString *fmtRedisTermKey(RedisSearchCtx *ctx, const char *term, size_t
 }
 
 RedisModuleString *fmtRedisSkipIndexKey(RedisSearchCtx *ctx, const char *term, size_t len) {
-  return RedisModule_CreateStringPrintf(ctx->redisCtx, SKIPINDEX_KEY_FORMAT, ctx->spec->name, len,
+  return RedisModule_CreateStringPrintf(ctx->redisCtx, SKIPINDEX_KEY_FORMAT, ctx->spec->name, (int) len,
                                         term);
 }
 
 RedisModuleString *fmtRedisScoreIndexKey(RedisSearchCtx *ctx, const char *term, size_t len) {
-  return RedisModule_CreateStringPrintf(ctx->redisCtx, SCOREINDEX_KEY_FORMAT, ctx->spec->name, len,
+  return RedisModule_CreateStringPrintf(ctx->redisCtx, SCOREINDEX_KEY_FORMAT, ctx->spec->name, (int) len,
                                         term);
 }
 
@@ -460,32 +460,8 @@ static int Redis_DeleteKey(RedisModuleCtx *ctx, RedisModuleString *s) {
   return 0;
 }
 
-int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments, int deleteSpecKey) {
-
-  if (deleteDocuments) {
-
-    DocTable *dt = &ctx->spec->docs;
-    DOCTABLE_FOREACH(dt, Redis_DeleteKey(ctx->redisCtx, DMD_CreateKeyString(dmd, ctx->redisCtx)));
-  }
-
-  rune *rstr = NULL;
-  t_len slen = 0;
-  float score = 0;
-  int dist = 0;
-  size_t termLen;
-
-  TrieIterator *it = Trie_Iterate(ctx->spec->terms, "", 0, 0, 1);
-  while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, &dist)) {
-    char *res = runesToStr(rstr, slen, &termLen);
-    RedisModuleString *keyName = fmtRedisTermKey(ctx, res, strlen(res));
-    Redis_DropScanHandler(ctx->redisCtx, keyName, ctx);
-    RedisModule_FreeString(ctx->redisCtx, keyName);
-    rm_free(res);
-  }
-  DFAFilter_Free(it->ctx);
-  rm_free(it->ctx);
-  TrieIterator_Free(it);
-
+int Redis_DropIndex(RedisSearchCtx *ctx, int deleteSpecKey) {
+  // todo: delete this after we get the geo field out of key space
   // Delete the numeric, tag, and geo indexes which reside on separate keys
   for (size_t i = 0; i < ctx->spec->numFields; i++) {
     const FieldSpec *fs = ctx->spec->fields + i;
@@ -495,17 +471,11 @@ int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments, int deleteSpecKey)
     if (FIELD_IS(fs, INDEXFLD_T_TAG)) {
       Redis_DeleteKey(ctx->redisCtx, IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_TAG));
     }
-    if (FIELD_IS(fs, INDEXFLD_T_GEO)) {
-      Redis_DeleteKey(ctx->redisCtx, IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_GEO));
-    }
   }
 
   // Delete the index spec
-  int deleted = 1;
   if (deleteSpecKey) {
-    deleted = Redis_DeleteKey(
-        ctx->redisCtx,
-        RedisModule_CreateStringPrintf(ctx->redisCtx, INDEX_SPEC_KEY_FMT, ctx->spec->name));
+    IndexSpec_FreeInternals(ctx->spec);
   }
-  return deleted ? REDISMODULE_OK : REDISMODULE_ERR;
+  return REDISMODULE_OK;
 }

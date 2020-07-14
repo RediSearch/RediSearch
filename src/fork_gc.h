@@ -9,6 +9,8 @@
 extern "C" {
 #endif
 
+struct IndexSpec;
+
 typedef struct {
   // total bytes collected by the GC
   size_t totalCollected;
@@ -30,7 +32,7 @@ typedef struct ForkGC {
   // inverted index key name for reopening the index
   union {
     const RedisModuleString *keyName;
-    IndexSpec *sp;
+    struct IndexSpec *sp;
   };
 
   RedisModuleCtx *ctx;
@@ -55,7 +57,7 @@ typedef struct ForkGC {
 } ForkGC;
 
 ForkGC *FGC_New(const RedisModuleString *k, uint64_t specUniqueId, GCCallbacks *callbacks);
-ForkGC *FGC_NewFromSpec(IndexSpec *sp, uint64_t specUniqueId, GCCallbacks *callbacks);
+ForkGC *FGC_NewFromSpec(struct IndexSpec *sp, uint64_t specUniqueId, GCCallbacks *callbacks);
 
 typedef enum {
   // Normal "open" state. No pausing will happen

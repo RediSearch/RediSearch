@@ -18,7 +18,6 @@ bool addDocument(RedisModuleCtx *ctx, IndexSpec *sp, const char *docid, Ts... ar
   RWLOCK_ACQUIRE_WRITE();
   RMCK::ArgvList argv(ctx, args...);
   AddDocumentOptions options = {0};
-  options.options |= DOCUMENT_ADD_CURTHREAD;
   options.numFieldElems = argv.size();
   options.fieldsArray = argv;
   options.donecb = donecb;

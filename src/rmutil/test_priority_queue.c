@@ -3,7 +3,6 @@
 #include "priority_queue.h"
 #include "redismodule.h"
 #include "alloc.h"
-REDISMODULE_INIT_SYMBOLS();
 
 int cmp(void *i1, void *i2) {
   int *__i1 = (int *)i1;

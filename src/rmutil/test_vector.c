@@ -3,7 +3,6 @@
 #include "test.h"
 #include "redismodule.h"
 #include "alloc.h"
-REDISMODULE_INIT_SYMBOLS();
 
 int testVector() {
   RMUTil_InitAlloc();
