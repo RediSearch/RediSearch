@@ -220,7 +220,7 @@ def testSynonymsForceUpdate(env):
     env.expect('ft.synforceupdate', 'idx', '10000000000', 'child').error().contains('wrong parameters, id out of range')
 
 def testSynonymsLowerCase(env):
-    env.expect('FT.CREATE lowcase schema foo text').ok()
+    env.expect('FT.CREATE lowcase ON HASH SCHEMA foo text').ok()
     env.expect('FT.SYNADD lowcase HELLO SHALOM AHALAN').equal(0)
     env.expect('FT.SYNDUMP lowcase').equal(['hello', [0L], 'shalom', [0L], 'ahalan', [0L]])
     env.expect('FT.ADD lowcase doc1 1 FIELDS foo hello').ok()
