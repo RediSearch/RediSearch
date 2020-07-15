@@ -176,6 +176,7 @@ workflows:
           <<: *on-master
       - deploy_release:
           requires: *default_jobs
+          <<: *on-version-tags 
 
   nightly:
     triggers:
