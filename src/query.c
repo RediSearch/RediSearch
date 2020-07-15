@@ -717,7 +717,7 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
     ret = query_EvalSingleTagNode(q, idx, qn->children[0], &total_its, qn->opts.weight);
     if (ret) {
       if (q->conc) {
-        TagIndex_RegisterConcurrentIterators(idx, q->conc, k, kstr, (array_t *)total_its);
+        TagIndex_RegisterConcurrentIterators(idx, q->conc, (array_t *)total_its);
         k = NULL;  // we passed ownershit
       } else {
         array_free(total_its);
@@ -743,7 +743,7 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
 
   if (total_its) {
     if (q->conc) {
-      TagIndex_RegisterConcurrentIterators(idx, q->conc, k, kstr, (array_t *)total_its);
+      TagIndex_RegisterConcurrentIterators(idx, q->conc, (array_t *)total_its);
       k = NULL;  // we passed ownershit
     } else {
       array_free(total_its);

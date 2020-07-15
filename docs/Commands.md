@@ -863,9 +863,9 @@ FT.GET {index} {doc id}
 
 ### Description
 
-Returns the full contents of a document.
+!!! warning "This command is deprecated". Use HGETALL instead.
 
-Currently it is equivalent to HGETALL, but this is future-proof and will allow us to change the internal representation of documents inside Redis in the future. In addition, it allows simpler implementation of fetching documents in clustered mode.
+Returns content of a document as inserted without attribute fields (score/language/payload).
 
 If the document does not exist or is not a HASH object, we return a NULL reply
 
@@ -895,10 +895,10 @@ FT.MGET {index} {docId} ...
 
 ### Description
 
-Returns the full contents of multiple documents. 
+!!! warning "This command is deprecated". Use HGETALL instead.
 
-Currently it is equivalent to calling multiple HGETALL commands, although faster. 
-This command is also future-proof and will allow us to change the internal representation of documents inside Redis in the future. 
+Returns content of a document as inserted without attribute fields (score/language/payload).
+
 In addition, it allows simpler implementation of fetching documents in clustered mode.
 
 We return an array with exactly the same number of elements as the number of keys sent to the command. 

@@ -41,9 +41,9 @@ SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, IndexSpec *spec, QueryError 
   }
 
   rule->filter_exp_str = args->filter_exp_str ? rm_strdup(args->filter_exp_str) : NULL;
-  rule->lang_field = args->lang_field ? rm_strdup(args->lang_field) : NULL;
-  rule->score_field = args->score_field ? rm_strdup(args->score_field) : NULL;
-  rule->payload_field = args->payload_field ? rm_strdup(args->payload_field) : NULL;
+  rule->lang_field = rm_strdup(args->lang_field ? args->lang_field : "__language");
+  rule->score_field = rm_strdup(args->score_field ? args->score_field : "__score");
+  rule->payload_field = rm_strdup(args->payload_field ? args->payload_field : "__payload");
 
   rule->prefixes = array_new(const char *, 1);
   for (int i = 0; i < args->nprefixes; ++i) {
@@ -102,10 +102,13 @@ RSLanguage SchemaRule_HashLang(RedisModuleCtx *rctx, const SchemaRule *rule, Red
     RedisModule_Log(NULL, "warning", "invalid field %s for key %s", rule->lang_field, kname);
     goto done;
   }
+  if (lang_rms == NULL) {
+    goto done;
+  }
   const char *lang_s = (const char *)RedisModule_StringPtrLen(lang_rms, NULL);
   lang = RSLanguage_Find(lang_s);
   if (lang == RS_LANG_UNSUPPORTED) {
-    RedisModule_Log(NULL, "warning", "invalid language for for key %s", kname);
+    RedisModule_Log(NULL, "warning", "invalid language for key %s", kname);
     lang = DEFAULT_LANGUAGE;
   }
 done:
@@ -134,7 +137,7 @@ double SchemaRule_HashScore(RedisModuleCtx *rctx, const SchemaRule *rule, RedisM
 
   rv = RedisModule_StringToDouble(score_rms, &score);
   if (rv != REDISMODULE_OK) {
-    RedisModule_Log(NULL, "warning", "invalid score for for key %s", kname);
+    RedisModule_Log(NULL, "warning", "invalid score for key %s", kname);
     score = 1.0;
   }
 done:

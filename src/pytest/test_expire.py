@@ -3,35 +3,36 @@ import unittest
 
 
 def testExpire(env):
-    env.skip() # todo: uncomment when we implement TEMPORARY indexes
     if env.isCluster():
         raise unittest.SkipTest()
     env.cmd('ft.create', 'idx', 'TEMPORARY', '4', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT', 'SORTABLE')
-    ttl = env.cmd('ttl', 'idx:idx')
+    ttl = env.cmd('ft.debug', 'TTL', 'idx')
     env.assertTrue(ttl > 2)
 
     while ttl > 2:
-        ttl = env.cmd('ttl', 'idx:idx')
+        ttl = env.cmd('ft.debug', 'TTL', 'idx')
         time.sleep(1)
     env.cmd('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'this is a simple test')
-    ttl = env.cmd('ttl', 'idx:idx')
+    ttl = env.cmd('ft.debug', 'TTL', 'idx')
     env.assertTrue(ttl > 2)
 
     while ttl > 2:
-        ttl = env.cmd('ttl', 'idx:idx')
+        ttl = env.cmd('ft.debug', 'TTL', 'idx')
         time.sleep(1)
     env.cmd('ft.search', 'idx', 'simple')
-    ttl = env.cmd('ttl', 'idx:idx')
+    ttl = env.cmd('ft.debug', 'TTL', 'idx')
     env.assertTrue(ttl > 2)
 
     while ttl > 2:
-        ttl = env.cmd('ttl', 'idx:idx')
+        ttl = env.cmd('ft.debug', 'TTL', 'idx')
         time.sleep(1)
     env.cmd('ft.aggregate', 'idx', 'simple', 'LOAD', '1', '@test')
-    ttl = env.cmd('ttl', 'idx:idx')
+    ttl = env.cmd('ft.debug', 'TTL', 'idx')
     env.assertTrue(ttl > 2)
 
-    while ttl != -2:
-        ttl = env.cmd('ttl', 'idx:idx')
-        time.sleep(1)
-    env.expect('keys', '*').equal([])
+    try:
+        while True:
+            ttl = env.cmd('ft.debug', 'TTL', 'idx')
+            time.sleep(1)
+    except Exception as e:
+        env.assertEqual(str(e), 'Unknown index name')

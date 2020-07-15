@@ -7,6 +7,7 @@ import random
 import time
 from RLTest import Env
 from includes import *
+from common import getConnectionByEnv
 
 # this tests is not longer relevant
 # def testAdd(env):
@@ -179,7 +180,7 @@ def testSearch(env):
     for _ in r.retry_with_rdb_reload():
         res = r.execute_command('ft.search', 'idx', 'hello')
         expected = ['doc2', ['title', 'hello another world', 'body', 'lorem ist ipsum lorem lorem'],
-                    'doc1', ['title', 'hello world', 'body', 'lorem ist ipsum', '__score', '0.5']]
+                    'doc1', ['title', 'hello world', 'body', 'lorem ist ipsum']]
         for item in expected:
             env.assertIn(item, res)
 
@@ -271,6 +272,11 @@ def testGet(env):
     r.assertIsNone(res[0])
     r.assertIsNone(res[1])
     r.assertTrue(not not res[2])
+
+    env.expect('ft.add idx doc 0.1 language arabic payload redislabs fields foo foo').ok()
+    env.expect('ft.get idx doc').equal(['foo', 'foo'])
+    env.expect('hgetall doc').equal(['foo', 'foo', '__score', '0.1', '__language', 'arabic', '__payload', 'redislabs'])
+
 
 def testDelete(env):
     r = env
@@ -382,7 +388,7 @@ def testDrop(env):
 
     # RS2 does not drop docs on ft.drop
     env.assertEqual(100, len(keys))
-    env.expect('flushall').equal(True)
+    env.flush()
 
     # Now do the same with KEEPDOCS
     env.assertOk(r.execute_command(
@@ -586,8 +592,8 @@ def testPartial(env):
 
     res = r.execute_command(
         'ft.search', 'idx', 'hello world', 'sortby', 'num', 'desc',)
-    assertResultsEqual(env, [2L, 'doc1', ['foo', 'hello world', 'num', '3', '__score', '0.1', 'extra', 'jorem gipsum'],
-        'doc2', ['foo', 'hello world', 'num', '2', '__score', '0.1', 'extra', 'abba']], res)
+    assertResultsEqual(env, [2L, 'doc1', ['foo', 'hello world', 'num', '3','extra', 'jorem gipsum'],
+        'doc2', ['foo', 'hello world', 'num', '2', 'extra', 'abba']], res)
     res = r.execute_command(
         'ft.search', 'idx', 'hello', 'nocontent', 'withscores')
     # Updating only indexed field affects search results
@@ -1507,8 +1513,8 @@ def _test_create_options_real(env, *options):
     try:
         env.cmd('ft.drop', 'idx')
         # RS 2.0 ft.drop does not remove documents
-        env.expect('flushall').equal(True)
-    except:
+        env.flush()
+    except Exception as e:
         pass
 
     options = ['idx'] + options + ['ON', 'HASH', 'schema', 'f1', 'text', 'f2', 'text']
@@ -2019,6 +2025,7 @@ def testTimeoutSettings(env):
     env.expect('ft.search', 'idx', '*', 'ON_TIMEOUT', 'FAIL').notRaiseError()
 
 def testAlias(env):
+    conn = getConnectionByEnv(env)
     env.cmd('ft.create', 'idx', 'ON', 'HASH', 'PREFIX', 1, 'doc1', 'schema', 't1', 'text')
     env.cmd('ft.create', 'idx2', 'ON', 'HASH', 'PREFIX', 1, 'doc2', 'schema', 't1', 'text')
 
@@ -2037,7 +2044,7 @@ def testAlias(env):
     # now delete the index
     env.cmd('ft.drop', 'myIndex')
     # RS2 does not delete doc on ft.drop
-    env.cmd('DEL', 'doc1')
+    conn.execute_command('DEL', 'doc1')
 
     # index list should be cleared now. This can be tested by trying to alias
     # the old alias to different index
@@ -2161,7 +2168,7 @@ def testIssue621(env):
     env.expect('ft.create', 'test', 'ON', 'HASH', 'SCHEMA', 'uuid', 'TAG', 'title', 'TEXT').equal('OK')
     env.expect('ft.add', 'test', 'a', '1', 'REPLACE', 'PARTIAL', 'FIELDS', 'uuid', 'foo', 'title', 'bar').equal('OK')
     env.expect('ft.add', 'test', 'a', '1', 'REPLACE', 'PARTIAL', 'FIELDS', 'title', 'bar').equal('OK')
-    env.expect('ft.search', 'test', '@uuid:{foo}').equal([1L, 'a', ['uuid', 'foo', 'title', 'bar', '__score', '1']])
+    env.expect('ft.search', 'test', '@uuid:{foo}').equal([1L, 'a', ['uuid', 'foo', 'title', 'bar']])
 
 # Server crash on doc names that conflict with index keys #666
 # again this test is not relevant cause index is out of key space
@@ -2325,6 +2332,18 @@ def testMod_309(env):
     res = env.cmd('FT.AGGREGATE', 'idx', 'foo')
     env.assertEqual(len(res), 100001)
 
+def testMod_309_with_cursor(env):
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
+    for i in range(100000):
+        env.expect('FT.ADD', 'idx', 'doc%d'%i, '1.0', 'FIELDS', 'test', 'foo').equal('OK')
+    res = env.cmd('FT.AGGREGATE', 'idx', 'foo', 'WITHCURSOR')
+    l = len(res[0]) - 1 # do not count the number of results (the first element in the results)
+    cursor = res[1]
+    while cursor != 0:
+        r, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', str(cursor))
+        l += (len(r) - 1)
+    env.assertEqual(l, 100000)
+
 def testIssue_865(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', '1', 'TEXT', 'SORTABLE').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', '1', 'foo1').equal('OK')
@@ -2350,7 +2369,7 @@ def testIssue_779(env):
 
     # OK is expected since 4001 < 4002 and the doc2 is updated
     env.expect('FT.ADD idx2 doc2 1.0 REPLACE PARTIAL if @ot1<4002 FIELDS newf DOG ot1 4002').equal('OK')
-    env.expect('FT.GET idx2 doc2').equal(["newf", "DOG", "ot1", "4002", '__score', '1.0'])
+    env.expect('FT.GET idx2 doc2').equal(["newf", "DOG", "ot1", "4002"])
 
     # OK is NOT expected since 4002 is not < 4002
     # We expect NOADD and doc2 update; however, we get OK and doc2 updated
@@ -2358,11 +2377,11 @@ def testIssue_779(env):
     env.expect('FT.ADD idx2 doc2 1.0 REPLACE PARTIAL if @ot1<4002 FIELDS newf FISH ot1 4002').equal('NOADD')
     env.expect('FT.ADD idx2 doc2 1.0 REPLACE PARTIAL if to_number(@ot1)<4002 FIELDS newf FISH ot1 4002').equal('NOADD')
     env.expect('FT.ADD idx2 doc2 1.0 REPLACE PARTIAL if @ot1<to_str(4002) FIELDS newf FISH ot1 4002').equal('NOADD')
-    env.expect('FT.GET idx2 doc2').equal(["newf", "DOG", "ot1", "4002", '__score', '1.0'])
+    env.expect('FT.GET idx2 doc2').equal(["newf", "DOG", "ot1", "4002"])
 
     # OK and doc2 update is expected since 4002 < 4003
     env.expect('FT.ADD idx2 doc2 1.0 REPLACE PARTIAL if @ot1<4003 FIELDS newf HORSE ot1 4003').equal('OK')
-    env.expect('FT.GET idx2 doc2').equal(["newf", "HORSE", "ot1", "4003", '__score', '1.0'])
+    env.expect('FT.GET idx2 doc2').equal(["newf", "HORSE", "ot1", "4003"])
 
     # Expect NOADD since 4003 is not > 4003
     env.expect('FT.ADD idx2 doc2 1.0 REPLACE PARTIAL if @ot1>4003 FIELDS newf COW ot1 4003').equal('NOADD')
@@ -2370,7 +2389,7 @@ def testIssue_779(env):
 
     # Expect OK and doc2 updated since 4003 > 4002
     env.expect('FT.ADD idx2 doc2 1.0 REPLACE PARTIAL if @ot1>4002 FIELDS newf PIG ot1 4002').equal('OK')
-    env.expect('FT.GET idx2 doc2').equal(["newf", "PIG", "ot1", "4002", '__score', '1.0'])
+    env.expect('FT.GET idx2 doc2').equal(["newf", "PIG", "ot1", "4002"])
 
     # Syntax errors
     env.expect('FT.ADD idx2 doc2 1.0 REPLACE PARTIAL if @ot1<4-002 FIELDS newf DOG ot1 4002').contains('Syntax error')
@@ -2844,7 +2863,7 @@ def testUnseportedSortableTypeErrorOnTags(env):
     env.expect('FT.ADD idx doc1 1.0 FIELDS f1 foo1 f2 1 f3 foo1 f4 foo1').ok()
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL FIELDS f2 2 f3 foo2 f4 foo2').ok()
     env.expect('HGETALL doc1').equal(['f1', 'foo1', 'f2', '2', 'f3', 'foo2', 'f4', 'foo2', '__score', '1.0'])
-    env.expect('FT.SEARCH idx *').equal([1L, 'doc1', ['f1', 'foo1', 'f2', '2', 'f3', 'foo2', 'f4', 'foo2', '__score', '1.0']])
+    env.expect('FT.SEARCH idx *').equal([1L, 'doc1', ['f1', 'foo1', 'f2', '2', 'f3', 'foo2', 'f4', 'foo2']])
 
 
 def testIssue1158(env):
@@ -2862,7 +2881,7 @@ def testIssue1158(env):
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if to_number(@txt1)>11||to_number(@txt1)<42 FIELDS txt2 num2').equal('OK')
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if to_number(@txt1)>11&&to_number(@txt1)>42 FIELDS txt2 num2').equal('NOADD')
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if to_number(@txt1)>11&&to_number(@txt1)<42 FIELDS txt2 num2').equal('NOADD')
-    env.expect('FT.GET idx doc1').equal(['txt1', '5', 'txt2', 'num2', '__score', '1.0'])
+    env.expect('FT.GET idx doc1').equal(['txt1', '5', 'txt2', 'num2'])
 
 def testIssue1159(env):
     env.cmd('FT.CREATE idx ON HASH SCHEMA f1 TAG')
@@ -2909,6 +2928,18 @@ def testIssue1184(env):
 
         env.cmd('FT.DROP idx')
         env.cmd('DEL doc0')
+
+def testIndexListCommand(env):
+    env.expect('FT.CREATE idx1 ON HASH SCHEMA n NUMERIC').ok()
+    env.expect('FT.CREATE idx2 ON HASH SCHEMA n NUMERIC').ok()
+    res = env.cmd('FT._LIST')
+    env.assertEqual(set(res), set(['idx1', 'idx2']))
+    env.expect('FT.DROP idx1').ok()
+    env.expect('FT._LIST').equal(['idx2'])
+    env.expect('FT.CREATE idx3 ON HASH SCHEMA n NUMERIC').ok()
+    res = env.cmd('FT._LIST')
+    env.assertEqual(set(res), set(['idx2', 'idx3']))
+
 
 def testIssue1208(env):
     env.cmd('FT.CREATE idx ON HASH SCHEMA n NUMERIC')

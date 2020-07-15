@@ -185,7 +185,12 @@ typedef struct IndexSpec {
   // cached strings, corresponding to number of fields
   IndexSpecFmtStrings *indexStrs;
   struct IndexSpecCache *spcache;
+
+  // For index expiretion
   long long timeout;
+  RedisModuleTimerID timerId;
+  bool isTimerSet;
+
   dict *keysDict;
   long long minPrefix;
   long long maxPrefixExpansions;  // -1 unlimited
@@ -338,6 +343,8 @@ IndexSpec *IndexSpec_Load(RedisModuleCtx *ctx, const char *name, int openWrite);
  * spec is not persisted between threads
  */
 #define INDEXSPEC_LOAD_KEYLESS 0x10
+
+#define INDEXSPEC_LOAD_NOTIMERUPDATE 0x20
 
 typedef struct {
   uint32_t flags;

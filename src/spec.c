@@ -18,6 +18,7 @@
 #include "aggregate/expr/expression.h"
 #include "rules.h"
 #include "commands.h"
+#include "dictionary.h"
 
 void (*IndexSpec_OnCreate)(const IndexSpec *) = NULL;
 const char *(*IndexAlias_GetUserTableName)(RedisModuleCtx *, const char *) = NULL;
@@ -60,10 +61,10 @@ const FieldSpec *IndexSpec_GetFieldCase(const IndexSpec *spec, const char *name,
 }
 
 t_fieldMask IndexSpec_GetFieldBit(IndexSpec *spec, const char *name, size_t len) {
-  const FieldSpec *sp = IndexSpec_GetField(spec, name, len);
-  if (!sp || !FIELD_IS(sp, INDEXFLD_T_FULLTEXT) || !FieldSpec_IsIndexable(sp)) return 0;
+  const FieldSpec *fs = IndexSpec_GetField(spec, name, len);
+  if (!fs || !FIELD_IS(fs, INDEXFLD_T_FULLTEXT) || !FieldSpec_IsIndexable(fs)) return 0;
 
-  return FIELD_BIT(sp);
+  return FIELD_BIT(fs);
 }
 
 int IndexSpec_CheckPhoneticEnabled(const IndexSpec *sp, t_fieldMask fm) {
@@ -159,6 +160,15 @@ int isRdbLoading(RedisModuleCtx *ctx) {
   return isLoading == 1;
 }
 
+static void IndexSpec_TimedOut(RedisModuleCtx *ctx, void *data) {
+  IndexSpec *sp = data;
+  // we need to delete the spec from the specDict, as far as the user see it,
+  // this spec was deleted and its memory will be freed in a background thread.
+  dictDelete(specDict, sp->name);
+  sp->isTimerSet = false;
+  IndexSpec_Free(sp);
+}
+
 IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                QueryError *status) {
   const char *specName = RedisModule_StringPtrLen(argv[1], NULL);
@@ -179,10 +189,10 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
 
   CursorList_AddSpec(&RSCursors, sp->name, RSCURSORS_DEFAULT_CAPACITY);
 
-  //  todo : handle expire
-  //  if (sp->flags & Index_Temporary) {
-  //    RedisModule_SetExpire(k, sp->timeout * 1000);
-  //  }
+  if (sp->flags & Index_Temporary) {
+    sp->timerId = RedisModule_CreateTimer(RSDummyContext, sp->timeout, IndexSpec_TimedOut, sp);
+    sp->isTimerSet = true;
+  }
 
   // Create the indexer
   sp->indexer = NewIndexer(sp);
@@ -213,13 +223,13 @@ static bool checkPhoneticAlgorithmAndLang(const char *matcher) {
   return langauge_found;
 }
 
-static int parseTextField(FieldSpec *sp, ArgsCursor *ac, QueryError *status) {
+static int parseTextField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
   int rc;
   // this is a text field
   // init default weight and type
   while (!AC_IsAtEnd(ac)) {
     if (AC_AdvanceIfMatch(ac, SPEC_NOSTEM_STR)) {
-      sp->options |= FieldSpec_NoStemming;
+      fs->options |= FieldSpec_NoStemming;
       continue;
 
     } else if (AC_AdvanceIfMatch(ac, SPEC_WEIGHT_STR)) {
@@ -228,7 +238,7 @@ static int parseTextField(FieldSpec *sp, ArgsCursor *ac, QueryError *status) {
         QERR_MKBADARGS_AC(status, "weight", rc);
         return 0;
       }
-      sp->ftWeight = d;
+      fs->ftWeight = d;
       continue;
 
     } else if (AC_AdvanceIfMatch(ac, SPEC_PHONETIC_STR)) {
@@ -251,7 +261,7 @@ static int parseTextField(FieldSpec *sp, ArgsCursor *ac, QueryError *status) {
             "Portuguese (pt) and Spanish (es)");
         return 0;
       }
-      sp->options |= FieldSpec_Phonetics;
+      fs->options |= FieldSpec_Phonetics;
       continue;
 
     } else {
@@ -261,33 +271,33 @@ static int parseTextField(FieldSpec *sp, ArgsCursor *ac, QueryError *status) {
   return 1;
 }
 
-void FieldSpec_Initialize(FieldSpec *sp, FieldType types) {
-  sp->types |= types;
-  if (FIELD_IS(sp, INDEXFLD_T_TAG)) {
-    sp->tagFlags = TAG_FIELD_DEFAULT_FLAGS;
-    sp->tagSep = TAG_FIELD_DEFAULT_SEP;
+void FieldSpec_Initialize(FieldSpec *fs, FieldType types) {
+  fs->types |= types;
+  if (FIELD_IS(fs, INDEXFLD_T_TAG)) {
+    fs->tagFlags = TAG_FIELD_DEFAULT_FLAGS;
+    fs->tagSep = TAG_FIELD_DEFAULT_SEP;
   }
 }
 
 /* Parse a field definition from argv, at *offset. We advance offset as we progress.
  *  Returns 1 on successful parse, 0 otherwise */
-static int parseFieldSpec(ArgsCursor *ac, FieldSpec *sp, QueryError *status) {
+static int parseFieldSpec(ArgsCursor *ac, FieldSpec *fs, QueryError *status) {
   if (AC_IsAtEnd(ac)) {
-    QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Field `%s` does not have a type", sp->name);
+    QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Field `%s` does not have a type", fs->name);
     return 0;
   }
 
   if (AC_AdvanceIfMatch(ac, SPEC_TEXT_STR)) {
-    FieldSpec_Initialize(sp, INDEXFLD_T_FULLTEXT);
-    if (!parseTextField(sp, ac, status)) {
+    FieldSpec_Initialize(fs, INDEXFLD_T_FULLTEXT);
+    if (!parseTextField(fs, ac, status)) {
       goto error;
     }
   } else if (AC_AdvanceIfMatch(ac, NUMERIC_STR)) {
-    FieldSpec_Initialize(sp, INDEXFLD_T_NUMERIC);
+    FieldSpec_Initialize(fs, INDEXFLD_T_NUMERIC);
   } else if (AC_AdvanceIfMatch(ac, GEO_STR)) {  // geo field
-    FieldSpec_Initialize(sp, INDEXFLD_T_GEO);
+    FieldSpec_Initialize(fs, INDEXFLD_T_GEO);
   } else if (AC_AdvanceIfMatch(ac, SPEC_TAG_STR)) {  // tag field
-    FieldSpec_Initialize(sp, INDEXFLD_T_TAG);
+    FieldSpec_Initialize(fs, INDEXFLD_T_TAG);
     if (AC_AdvanceIfMatch(ac, SPEC_SEPARATOR_STR)) {
       if (AC_IsAtEnd(ac)) {
         QueryError_SetError(status, QUERY_EPARSEARGS, SPEC_SEPARATOR_STR " requires an argument");
@@ -299,19 +309,19 @@ static int parseFieldSpec(ArgsCursor *ac, FieldSpec *sp, QueryError *status) {
                                "Tag separator must be a single character. Got `%s`", sep);
         goto error;
       }
-      sp->tagSep = *sep;
+      fs->tagSep = *sep;
     }
   } else {  // not numeric and not text - nothing more supported currently
-    QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Invalid field type for field `%s`", sp->name);
+    QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Invalid field type for field `%s`", fs->name);
     goto error;
   }
 
   while (!AC_IsAtEnd(ac)) {
     if (AC_AdvanceIfMatch(ac, SPEC_SORTABLE_STR)) {
-      FieldSpec_SetSortable(sp);
+      FieldSpec_SetSortable(fs);
       continue;
     } else if (AC_AdvanceIfMatch(ac, SPEC_NOINDEX_STR)) {
-      sp->options |= FieldSpec_NotIndexable;
+      fs->options |= FieldSpec_NotIndexable;
       continue;
     } else {
       break;
@@ -322,9 +332,9 @@ static int parseFieldSpec(ArgsCursor *ac, FieldSpec *sp, QueryError *status) {
 error:
   if (!QueryError_HasError(status)) {
     QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Could not parse schema for field `%s`",
-                           sp->name);
+                           fs->name);
   }
-  FieldSpec_Cleanup(sp);
+  FieldSpec_Cleanup(fs);
   return 0;
 }
 
@@ -499,7 +509,7 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryE
   if (timeout != -1) {
     spec->flags |= Index_Temporary;
   }
-  spec->timeout = timeout;
+  spec->timeout = timeout * 1000;  // convert to ms
 
   if (rule_prefixes.argc > 0) {
     rule_args.nprefixes = rule_prefixes.argc;
@@ -667,6 +677,11 @@ void IndexSpec_FreeWithKey(IndexSpec *sp, RedisModuleCtx *ctx) {
 void IndexSpec_FreeInternals(IndexSpec *spec) {
   dictDelete(specDict, spec->name);
 
+  if (spec->isTimerSet) {
+    RedisModule_StopTimer(RSDummyContext, spec->timerId, NULL);
+    spec->isTimerSet = false;
+  }
+
   if (spec->indexer) {
     Indexer_Free(spec->indexer);
   }
@@ -803,8 +818,11 @@ IndexSpec *IndexSpec_LoadEx(RedisModuleCtx *ctx, IndexLoadOptions *options) {
     }
   }
 
-  if (ret->flags & Index_Temporary) {
-    // TODO: hadle expiration here
+  if ((ret->flags & Index_Temporary) && !(options->flags & INDEXSPEC_LOAD_NOTIMERUPDATE)) {
+    if (ret->isTimerSet) {
+      RedisModule_StopTimer(RSDummyContext, ret->timerId, NULL);
+    }
+    ret->timerId = RedisModule_CreateTimer(RSDummyContext, ret->timeout, IndexSpec_TimedOut, ret);
   }
 
   return ret;
@@ -918,6 +936,11 @@ IndexSpec *NewIndexSpec(const char *name) {
   sp->maxPrefixExpansions = RSGlobalConfig.maxPrefixExpansions;
   sp->getValue = NULL;
   sp->getValueCtx = NULL;
+
+  sp->timeout = 0;
+  sp->isTimerSet = false;
+  sp->timerId = 0;
+
   memset(&sp->stats, 0, sizeof(sp->stats));
   return sp;
 }
@@ -1164,6 +1187,21 @@ void IndexSpec_ScanAndReindexSpec(void *notused) {
 
   //  RedisModule_ThreadSafeContextUnlock(ctx);
   RedisModule_ScanCursorDestroy(cursor);
+
+  // set the timers for temporary indexes:
+  dictIterator *iter = dictGetIterator(specDict);
+  dictEntry *entry = NULL;
+  while ((entry = dictNext(iter))) {
+    IndexSpec *sp = dictGetVal(entry);
+    if (!(sp->flags & Index_Temporary)) {
+      continue;
+    }
+
+    sp->timerId = RedisModule_CreateTimer(RSDummyContext, sp->timeout, IndexSpec_TimedOut, sp);
+    sp->isTimerSet = true;
+  }
+  dictReleaseIterator(iter);
+
   RedisModule_FreeThreadSafeContext(ctx);
 }
 
@@ -1436,6 +1474,7 @@ static void onFlush(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent
     return;
   }
   IndexSpec_CleanAll();
+  Dictionary_Clear();
 }
 
 void Indexes_Init(RedisModuleCtx *ctx) {
