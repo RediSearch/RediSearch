@@ -107,7 +107,7 @@ int GetDocumentsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
       RedisModule_ReplyWithNull(ctx);
       continue;
     }
-    Document_ReplyAllFields(ctx, argv[i]);
+    Document_ReplyAllFields(ctx, sctx->spec, argv[i]);
   }
 
   SearchCtx_Free(sctx);
@@ -135,7 +135,7 @@ int GetSingleDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   if (DocTable_GetIdR(&sctx->spec->docs, argv[2]) == 0) {
     RedisModule_ReplyWithNull(ctx);
   } else {
-    Document_ReplyAllFields(ctx, argv[2]);
+    Document_ReplyAllFields(ctx, sctx->spec, argv[2]);
   }
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
