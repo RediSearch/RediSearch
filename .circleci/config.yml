@@ -110,20 +110,6 @@ jobs:
               aws s3 cp $f s3://redismodules/$PACKAGE_NAME/ --acl public-read
             done
   
-  deploy_docs:
-    docker:
-      - image: 'redislabsmodules/rmbuilder:latest'
-    steps:
-      - checkout
-      - run:
-          name: Build Docs
-          command: mkdocs build
-      - run:
-          name: Deploy Docs to S3
-          command: |
-            aws s3 cp site s3://oss.redislabs.com/$WEBSITE_FOLDER/ --acl public-read --recursive
-
-
 on-any-branch: &on-any-branch
   filters:
     branches:
@@ -190,9 +176,7 @@ workflows:
           <<: *on-master
       - deploy_release:
           requires: *default_jobs
-          <<: *on-version-tags
-      - deploy_docs:
-          <<: *on-master-and-version-branches
+          <<: *on-version-tags 
 
   nightly:
     triggers:
