@@ -1030,7 +1030,7 @@ def testGeoDeletion(env):
 
     # Remove the first doc
     env.cmd('ft.del', 'idx', 'doc1')
-    for _ in range(10):
+    for _ in range(100):
         env.cmd('ft.debug', 'gc_forceinvoke', 'idx')
     env.assertEqual(2, len(env.cmd('FT.DEBUG DUMP_NUMIDX idx g1')[0]))
     env.assertEqual(1, len(env.cmd('FT.DEBUG DUMP_NUMIDX idx g2')[0]))
@@ -1039,7 +1039,7 @@ def testGeoDeletion(env):
     env.cmd('ft.add', 'idx', 'doc2', 1.0,
             'replace', 'fields',
             't1', 'just text here')
-    for _ in range(10):
+    for _ in range(100):
         env.cmd('ft.debug', 'gc_forceinvoke', 'idx')
     env.assertEqual(1, len(env.cmd('FT.DEBUG DUMP_NUMIDX idx g1')[0]))
     env.assertEqual(0, len(env.cmd('FT.DEBUG DUMP_NUMIDX idx g2')[0]))
