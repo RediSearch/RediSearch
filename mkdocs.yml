@@ -6,6 +6,10 @@ repo_url: https://github.com/RedisLabsModules/RediSearch
 google_analytics:
   - 'UA-89573912-1'
   - 'auto'
+
+extra_javascript:
+  - gtm.js
+
 markdown_extensions:
   - codehilite
   - toc(permalink=true, separator="_")
