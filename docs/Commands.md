@@ -5,6 +5,12 @@
 ### Format
 ```
   FT.CREATE {index} 
+    ON {structure} 
+       [PREFIX {count} {prefix} [{prefix} ..]
+       [FILTER {filter}]
+       [LANGUAGE {lang_field}]
+       [SCORE {score_field}]
+       [PAYLOAD {payload_field}]
     [MAXTEXTFIELDS] [TEMPORARY {seconds}] [NOOFFSETS] [NOHL] [NOFIELDS] [NOFREQS]
     [STOPWORDS {num} {stopword} ...]
     SCHEMA {field} [TEXT [NOSTEM] [WEIGHT {weight}] [PHONETIC {matcher}] | NUMERIC | GEO | TAG [SEPARATOR {sep}] ] [SORTABLE][NOINDEX] ...
@@ -40,6 +46,41 @@ FT.CREATE idx SCHEMA name TEXT SORTABLE age NUMERIC SORTABLE myTag TAG SORTABLE
 ### Parameters
 
 * **index**: the index name to create. If it exists the old spec will be overwritten
+
+* **ON {structure}** currently supports only HASH
+
+* **PREFIX {count} {prefix}** tells the index which keys it should index. You can add several prefixes to index. Since the argument is optional, the default is * (all keys)
+
+* **FILTER {filter}** is a filter expression with the full RediSearch aggregation expression language. It is possible to use @__key to access the key that was just added/changed
+
+* **LANGUAGE {lang_field}**: If set indicates the document field that should be used to as the document language, 
+  we use a stemmer for the supplied language during indexing. Default to English. 
+  If an unsupported language is sent, the command returns an error. 
+  The supported languages are:
+
+    > "arabic",  "danish",    "dutch",   "english",   "finnish",    "french",
+    > "german",  "hungarian", "italian", "norwegian", "portuguese", "romanian",
+    > "russian", "spanish",   "swedish", "tamil",     "turkish"
+    > "chinese"
+
+  If indexing a Chinese language document, you must set the language to `chinese`
+  in order for Chinese characters to be tokenized properly.
+
+  #### Adding Chinese Documents
+
+  When adding Chinese-language documents, `LANGUAGE chinese` should be set in
+  order for the indexer to properly tokenize the terms. If the default language
+  is used then search terms will be extracted based on punctuation characters and
+  whitespace. The Chinese language tokenizer makes use of a segmentation algorithm
+  (via [Friso](https://github.com/lionsoul2014/friso)) which segments texts and
+  checks it against a predefined dictionary. See [Stemming](Stemming.md) for more
+  information.
+
+* **SCORE {score_field}**: If set indicates the document field that should be used as the document's rank based on the user's ranking. 
+  Ranking must be between 0.0 and 1.0. If not set the default score is 1.
+
+* **PAYLOAD {payload_field}**: If set indicates the document field that should be used as a binary safe payload string to the document, 
+  that can be evaluated at query time by a custom scoring function, or retrieved to the client.
 
 * **MAXTEXTFIELDS**: For efficiency, RediSearch encodes indexes differently if they are
   created with less than 32 text fields. This option forces RediSearch to encode indexes as if
