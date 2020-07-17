@@ -282,52 +282,6 @@ A special status `NOADD` is returned if an `IF` condition evaluated to false.
 FT.ADD will actually create a hash in Redis with the given fields and value. This means that if the hash already exists, it will override with the new values. Moreover, if you try to add a document with the same id to two different indexes one of them will override the other and you will get wrong responses from one of the indexes.
 For this reason, it is recommended to create global unique documents ids (this can e.g. be achieved by adding the index name to the document id as prefix).
 
-## FT.ADDHASH
-
-### Format
-
-```
- FT.ADDHASH {index} {docId} {score} [LANGUAGE language] [REPLACE]
-```
-
-### Description
-
-Adds a document to the index from an existing HASH key in Redis.
-
-#### Example
-```sql
-FT.ADDHASH idx hash1 1.0 REPLACE
-```
-
-### Parameters
-
-- **index**: The Fulltext index name. The index must be first created with FT.CREATE
-
--  **docId**: The document's id. This has to be an existing HASH key in Redis that will hold the fields 
-    the index needs.
-
-- **score**: The document's rank based on the user's ranking. This must be between 0.0 and 1.0. 
-  If you don't have a score just set it to 1
-
-- **REPLACE**: If set, we will do an UPSERT style insertion - and delete an older version of the document if it exists.
-
-- **LANGUAGE language**: If set, we use a stemmer for the supplied language during indexing. Defaults 
-  to English. 
-  If an unsupported language is sent, the command returns an error. 
-  The supported languages are:
-
-  > "arabic",  "danish",    "dutch",   "english",   "finnish",    "french",
-  > "german",  "hungarian", "italian", "norwegian", "portuguese", "romanian",
-  > "russian", "spanish",   "swedish", "tamil",     "turkish"
-
-### Complexity
-
-O(n), where n is the number of tokens in the document
-
-### Returns
-
-OK on success, or an error if something went wrong.
-
 ---
 
 ## FT.ALTER SCHEMA ADD
