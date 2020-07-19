@@ -2927,12 +2927,13 @@ def testIssue1184(env):
 def testIndexListCommand(env):
     env.expect('FT.CREATE idx1 ON HASH SCHEMA n NUMERIC').ok()
     env.expect('FT.CREATE idx2 ON HASH SCHEMA n NUMERIC').ok()
-    res = env.cmd('FT._LIST')
+    res = env.cmd('FT._LIST')[0][1]
     env.assertEqual(set(res), set(['idx1', 'idx2']))
     env.expect('FT.DROP idx1').ok()
-    env.expect('FT._LIST').equal(['idx2'])
+    res = env.cmd('FT._LIST')[0][1]
+    env.assertEqual(set(res), set(['idx2']))
     env.expect('FT.CREATE idx3 ON HASH SCHEMA n NUMERIC').ok()
-    res = env.cmd('FT._LIST')
+    res = env.cmd('FT._LIST')[0][1]
     env.assertEqual(set(res), set(['idx2', 'idx3']))
 
 
