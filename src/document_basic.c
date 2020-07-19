@@ -269,9 +269,9 @@ void Document_Free(Document *doc) {
 static RedisModuleString *globalAddRSstrings[globalAddRSstringsSize] = {0};
 
 static void initGlobalAddStrings() {
-  const char *Sscore = "__score";
-  const char *Slang = "__language";
-  const char *Spayload = "__payload";
+  const char *Sscore = SCORE_DEFAULT_FIELD;
+  const char *Slang = LANG_DEFAULT_FIELD;
+  const char *Spayload = PAYLOAD_DEFAULT_FIELD;
 
   globalAddRSstrings[0] = RedisModule_CreateString(NULL, Sscore, strlen(Sscore));
   globalAddRSstrings[1] = RedisModule_CreateString(NULL, Slang, strlen(Slang));

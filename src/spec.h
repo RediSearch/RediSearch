@@ -21,6 +21,10 @@
 extern "C" {
 #endif
 
+#define SCORE_DEFAULT_FIELD "__score"
+#define LANG_DEFAULT_FIELD "__language"
+#define PAYLOAD_DEFAULT_FIELD "__payload"
+
 #define NUMERIC_STR "NUMERIC"
 #define GEO_STR "GEO"
 
@@ -64,6 +68,8 @@ static const char *SpecTypeNames[] = {[IXFLDPOS_FULLTEXT] = SPEC_TEXT_STR,
 #define SPEC_WIDEFIELD_THRESHOLD 32
 
 extern dict *specDict;
+extern dict *legacySpecDict;
+extern bool isLoading;
 
 typedef struct {
   size_t numDocuments;
@@ -114,6 +120,8 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
 
 #define INDEX_CURRENT_VERSION 16
 #define INDEX_MIN_COMPAT_VERSION 16
+
+#define INDEX_LEGACY_MIN_COMPAT_VERSION 2
 
 // Those versions contains doc table as array, we modified it to be array of linked lists
 // todo: decide if we need to keep this, currently I keep it if one day we will find a way to
@@ -401,10 +409,13 @@ int IndexSpec_IsStopWord(IndexSpec *sp, const char *term, size_t len);
 RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs, FieldType forType);
 RedisModuleString *IndexSpec_GetFormattedKeyByName(IndexSpec *sp, const char *s, FieldType forType);
 
+int IndexSpec_Upgrade(RedisModuleCtx *ctx, IndexSpec *sp, const char *prefix);
 IndexSpec *NewIndexSpec(const char *name);
 int IndexSpec_AddField(IndexSpec *sp, FieldSpec *fs);
-int IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, int when);
-void IndexSpec_RdbSave(RedisModuleIO *rdb, int when);
+void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver);
+int IndexSpec_RdbLoadAux(RedisModuleIO *rdb, int encver, int when);
+void IndexSpec_RdbSave(RedisModuleIO *rdb, void *value);
+void IndexSpec_RdbSaveAux(RedisModuleIO *rdb, int when);
 void IndexSpec_Digest(RedisModuleDigest *digest, void *value);
 int IndexSpec_RegisterType(RedisModuleCtx *ctx);
 int IndexSpec_UpdateWithHash(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key);

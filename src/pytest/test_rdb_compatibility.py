@@ -26,7 +26,6 @@ def downloadFiles():
 
 def testRDBCompatibility(env):
     # temp skip for out-of-index
-    env.skip()
     env.skipOnCluster()
     dbFileName = env.cmd('config', 'get', 'dbfilename')[1]
     dbDir = env.cmd('config', 'get', 'dir')[1]
@@ -46,6 +45,7 @@ def testRDBCompatibility(env):
         except OSError:
             pass
         os.symlink(filePath, rdbFilePath)
+        print(rdbFilePath)
         env.start()
         env.cmd('flushall')
         env.assertTrue(env.checkExitCode())

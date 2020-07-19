@@ -46,8 +46,10 @@ int Redis_OptimizeScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *
 /* Drop the index and all the associated keys */
 int Redis_DropIndex(RedisSearchCtx *ctx, int deleteSpecKey);
 
+int Redis_DeleteKey(RedisModuleCtx *ctx, RedisModuleString *s);
+
 /* Drop all the index's internal keys using this scan handler */
-int Redis_DropScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaque);
+void Redis_DropScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaque);
 
 /* Collect memory stas on the index */
 int Redis_StatsScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaque);

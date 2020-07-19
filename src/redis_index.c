@@ -148,13 +148,13 @@ RedisModuleString *fmtRedisTermKey(RedisSearchCtx *ctx, const char *term, size_t
 }
 
 RedisModuleString *fmtRedisSkipIndexKey(RedisSearchCtx *ctx, const char *term, size_t len) {
-  return RedisModule_CreateStringPrintf(ctx->redisCtx, SKIPINDEX_KEY_FORMAT, ctx->spec->name, (int) len,
-                                        term);
+  return RedisModule_CreateStringPrintf(ctx->redisCtx, SKIPINDEX_KEY_FORMAT, ctx->spec->name,
+                                        (int)len, term);
 }
 
 RedisModuleString *fmtRedisScoreIndexKey(RedisSearchCtx *ctx, const char *term, size_t len) {
-  return RedisModule_CreateStringPrintf(ctx->redisCtx, SCOREINDEX_KEY_FORMAT, ctx->spec->name, (int) len,
-                                        term);
+  return RedisModule_CreateStringPrintf(ctx->redisCtx, SCOREINDEX_KEY_FORMAT, ctx->spec->name,
+                                        (int)len, term);
 }
 
 RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName, bool resetTTL) {
@@ -427,7 +427,7 @@ end:
   return num;
 }
 
-int Redis_DropScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaque) {
+void Redis_DropScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaque) {
   // extract the term from the key
   RedisSearchCtx *sctx = opaque;
   RedisModuleString *pf = fmtRedisTermKey(sctx, "", 0);
@@ -441,16 +441,16 @@ int Redis_DropScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaq
   RedisModuleString *sck = fmtRedisScoreIndexKey(sctx, k, len - pflen);
   RedisModuleString *sik = fmtRedisSkipIndexKey(sctx, k, len - pflen);
 
-  RedisModule_Call(ctx, "DEL", "sss", kn, sck, sik);
+  RedisModuleCallReply *rep = RedisModule_Call(ctx, "DEL", "sss", kn, sck, sik);
 
   RedisModule_FreeString(ctx, sck);
   RedisModule_FreeString(ctx, sik);
-  // free(term);
-
-  return REDISMODULE_OK;
+  if (rep) {
+    RedisModule_FreeCallReply(rep);
+  }
 }
 
-static int Redis_DeleteKey(RedisModuleCtx *ctx, RedisModuleString *s) {
+int Redis_DeleteKey(RedisModuleCtx *ctx, RedisModuleString *s) {
   RedisModuleKey *k = RedisModule_OpenKey(ctx, s, REDISMODULE_WRITE);
   if (k != NULL) {
     RedisModule_DeleteKey(k);

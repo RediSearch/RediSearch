@@ -743,15 +743,50 @@ int ConfigCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return REDISMODULE_OK;
 }
 
-int IndexList(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+static int IndexUpgrade(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  const char *indexName = RedisModule_StringPtrLen(argv[1], NULL);
+  const char *prefix = RedisModule_StringPtrLen(argv[2], NULL);
+
+  IndexSpec *sp = dictFetchValue(legacySpecDict, indexName);
+  if (!sp) {
+    RedisModule_ReplyWithError(ctx, "-ERR no such legacy index");
+  }
+
+  IndexSpec_Upgrade(ctx, sp, prefix);
+
+  RedisModule_ReplyWithCString(ctx, "OK");
+
+  return REDISMODULE_OK;
+}
+
+static int IndexList(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc != 1) {
     return RedisModule_WrongArity(ctx);
   }
 
+  RedisModule_ReplyWithArray(ctx, 2);
+  RedisModule_ReplyWithArray(ctx, 2);
+  RedisModule_ReplyWithCString(ctx, "Rule base indexes");
   RedisModule_ReplyWithArray(ctx, dictSize(specDict));
 
   dictIterator *iter = dictGetIterator(specDict);
   dictEntry *entry = NULL;
+  while ((entry = dictNext(iter))) {
+    IndexSpec *spec = dictGetVal(entry);
+    RedisModule_ReplyWithCString(ctx, spec->name);
+  }
+  dictReleaseIterator(iter);
+
+  RedisModule_ReplyWithArray(ctx, 2);
+  RedisModule_ReplyWithCString(ctx, "Legacy indexes");
+  RedisModule_ReplyWithArray(ctx, dictSize(legacySpecDict));
+
+  iter = dictGetIterator(legacySpecDict);
+  entry = NULL;
   while ((entry = dictNext(iter))) {
     IndexSpec *spec = dictGetVal(entry);
     RedisModule_ReplyWithCString(ctx, spec->name);
@@ -805,6 +840,8 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 #endif
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_INDEX_LIST_CMD, IndexList, "readonly", 0, 0, 0);
+
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_INDEX_UPGRADE_CMD, IndexUpgrade, "readonly", 0, 0, 0);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_ADD_CMD, RSAddDocumentCommand, "write deny-oom",
          INDEX_DOC_CMD_ARGS);

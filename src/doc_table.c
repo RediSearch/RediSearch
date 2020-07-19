@@ -375,29 +375,29 @@ void DocTable_RdbSave(DocTable *t, RedisModuleIO *rdb) {
 
 void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
   long long deletedElements = 0;
-  size_t size = RedisModule_LoadUnsigned(rdb);
-  //  t->maxDocId = RedisModule_LoadUnsigned(rdb);
-  //  if (encver >= INDEX_MIN_COMPACTED_DOCTABLE_VERSION) {
-  //    t->maxSize = RedisModule_LoadUnsigned(rdb);
-  //  } else {
-  //    t->maxSize = MIN(RSGlobalConfig.maxDocTableSize, t->maxDocId);
-  //  }
+  t->size = RedisModule_LoadUnsigned(rdb);
+  t->maxDocId = RedisModule_LoadUnsigned(rdb);
+  if (encver >= INDEX_MIN_COMPACTED_DOCTABLE_VERSION) {
+    t->maxSize = RedisModule_LoadUnsigned(rdb);
+  } else {
+    t->maxSize = MIN(RSGlobalConfig.maxDocTableSize, t->maxDocId);
+  }
 
-  //  if (t->maxDocId > t->maxSize) {
-  //    /**
-  //     * If the maximum doc id is greater than the maximum cap size
-  //     * then it means there is a possibility that any index under maxId can
-  //     * be accessed. However, it is possible that this bucket does not have
-  //     * any documents inside it (and thus might not be populated below), but
-  //     * could still be accessed for simple queries (e.g. get, exist). Ensure
-  //     * we don't have to rely on Set/Put to ensure the doc table array.
-  //     */
-  //    t->cap = t->maxSize;
-  //    rm_free(t->buckets);
-  //    t->buckets = rm_calloc(t->cap, sizeof(*t->buckets));
-  //  }
+  if (t->maxDocId > t->maxSize) {
+    /**
+     * If the maximum doc id is greater than the maximum cap size
+     * then it means there is a possibility that any index under maxId can
+     * be accessed. However, it is possible that this bucket does not have
+     * any documents inside it (and thus might not be populated below), but
+     * could still be accessed for simple queries (e.g. get, exist). Ensure
+     * we don't have to rely on Set/Put to ensure the doc table array.
+     */
+    t->cap = t->maxSize;
+    rm_free(t->buckets);
+    t->buckets = rm_calloc(t->cap, sizeof(*t->buckets));
+  }
 
-  for (size_t i = 1; i < size; i++) {
+  for (size_t i = 1; i < t->size; i++) {
     size_t len;
 
     RSDocumentMetadata *dmd = rm_calloc(1, sizeof(RSDocumentMetadata));
@@ -406,8 +406,7 @@ void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
       // Previous versions would encode the NUL byte
       len--;
     }
-    //    dmd->id = encver < INDEX_MIN_COMPACTED_DOCTABLE_VERSION ? i :
-    //    RedisModule_LoadUnsigned(rdb);
+    dmd->id = encver < INDEX_MIN_COMPACTED_DOCTABLE_VERSION ? i : RedisModule_LoadUnsigned(rdb);
     dmd->keyPtr = sdsnewlen(tmpPtr, len);
     RedisModule_Free(tmpPtr);
 
@@ -442,10 +441,10 @@ void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
       }
     }
     dmd->sortVector = NULL;
-    //    if (dmd->flags & Document_HasSortVector) {
-    //      dmd->sortVector = SortingVector_RdbLoad(rdb, encver);
-    //      t->sortablesSize += RSSortingVector_GetMemorySize(dmd->sortVector);
-    //    }
+    if (dmd->flags & Document_HasSortVector) {
+      dmd->sortVector = SortingVector_RdbLoad(rdb, encver);
+      t->sortablesSize += RSSortingVector_GetMemorySize(dmd->sortVector);
+    }
 
     if (dmd->flags & Document_HasOffsetVector) {
       size_t nTmp = 0;
@@ -457,16 +456,15 @@ void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
     }
 
     if (dmd->flags & Document_Deleted) {
+      ++deletedElements;
       DMD_Free(dmd);
     } else {
-      RedisModuleString *keyRedisStr =
-          RedisModule_CreateString(NULL, dmd->keyPtr, sdslen(dmd->keyPtr));
-      RedisModule_FreeString(NULL, keyRedisStr);
-      //      DocIdMap_Put(&t->dim, dmd->keyPtr, sdslen(dmd->keyPtr), dmd->id);
-      //      DocTable_Set(t, dmd->id, dmd);
-      //      t->memsize += sizeof(RSDocumentMetadata) + len;
+      DocIdMap_Put(&t->dim, dmd->keyPtr, sdslen(dmd->keyPtr), dmd->id);
+      DocTable_Set(t, dmd->id, dmd);
+      t->memsize += sizeof(RSDocumentMetadata) + len;
     }
   }
+  t->size -= deletedElements;
 }
 
 DocIdMap NewDocIdMap() {
