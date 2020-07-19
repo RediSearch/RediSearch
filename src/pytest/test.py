@@ -1777,6 +1777,24 @@ def testSortbyMissingFieldSparse(env):
                    "firstName", "ASC", "limit", 0, 100)
     # commented because we don't filter out exclusive sortby fields
     # env.assertEqual([1L, 'doc1', None, ['lastName', 'mark']], res)
+    
+
+def testSortbyCaseInsensitive(env):
+    # SORTBY fileds should be CaseInsensitive
+    env.cmd('ft.create', 'idx', 'ON', 'HASH',
+            'SCHEMA', 'lastName', 'text', 'SORTABLE', 'firstName', 'text')
+    env.cmd('ft.add', 'idx', 'doc1', 1.0, 'fields',  'firstName', 'Joe1', 'lastName', 'Pal')
+    env.cmd('ft.add', 'idx', 'doc2', 1.0, 'fields',  'firstName', 'Joe2', 'lastName', 'Tal')
+    
+    # sorting SORTABLE field
+    res = env.cmd('ft.search', 'idx', '@firstname:Joe* @lastname:Pal',
+                   "SORTBY", "firstname", "ASC", "limit", 0, 2)
+    env.assertEqual([1L, 'doc1', ['firstname', 'Joe1', 'lastName', 'Pal']], res)
+    
+    # sorting not-SORTABLE field
+    res = env.cmd('ft.search', 'idx', '@firstname:Joe*',
+                   "SORTBY", "LASTNAME", "ASC", "limit", 0, 2)
+    env.assertEqual([2L, 'doc1', ['LASTNAME', 'Pal', 'firstName', 'Joe1'], 'doc2', ['LASTNAME', 'Tal', 'firstName', 'Joe2']], res)
 
 def testLuaAndMulti(env):
     env.skip() # addhash isn't supported
