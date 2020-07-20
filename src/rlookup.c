@@ -3,6 +3,7 @@
 #include <document.h>
 #include "rmutil/rm_assert.h"
 #include <util/arr.h>
+#include <strings.h>
 
 static RLookupKey *createNewKey(RLookup *lookup, const char *name, size_t n, int flags,
                                 uint16_t idx) {
@@ -35,7 +36,7 @@ static RLookupKey *genKeyFromSpec(RLookup *lookup, const char *name, int flags) 
 
   const FieldSpec *fs = NULL;
   for (size_t ii = 0; ii < cc->nfields; ++ii) {
-    if (!strcmp(cc->fields[ii].name, name)) {
+    if (!strcasecmp(cc->fields[ii].name, name)) {
       fs = cc->fields + ii;
       break;
     }
@@ -66,7 +67,7 @@ RLookupKey *RLookup_GetKeyEx(RLookup *lookup, const char *name, size_t n, int fl
 
   for (RLookupKey *kk = lookup->head; kk; kk = kk->next) {
     size_t origlen = strlen(kk->name);
-    if (origlen == n && !strncmp(kk->name, name, origlen)) {
+    if (origlen == n && !strncasecmp(kk->name, name, origlen)) {
       if (flags & RLOOKUP_F_OEXCL) {
         return NULL;
       }
