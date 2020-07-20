@@ -60,6 +60,8 @@ bool hset(RedisModuleCtx *ctx, const char *rkey, const char *hkey, const char *v
 /** Clears the database associated with the context */
 void flushdb(RedisModuleCtx *);
 
+void init();
+
 std::vector<RedisModuleString *> CreateArgv(RedisModuleCtx *, const char *s, ...);
 std::vector<RedisModuleString *> CreateArgv(RedisModuleCtx *, const char **s, size_t n);
 
