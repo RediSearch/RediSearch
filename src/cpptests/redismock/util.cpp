@@ -56,3 +56,16 @@ bool RMCK::hset(RedisModuleCtx *ctx, const char *rkey, const char *hkey, const c
 void RMCK::flushdb(RedisModuleCtx *ctx) {
   ctx->db->clear();
 }
+
+extern "C" {
+static int my_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  if (RedisModule_Init(ctx, "dummy", 0, REDISMODULE_APIVER_1) == REDISMODULE_ERR) {
+    return REDISMODULE_ERR;
+  }
+  return REDISMODULE_OK;
+}
+}
+
+void RMCK::init() {
+  RMCK_Bootstrap(my_OnLoad, NULL, 0);
+}

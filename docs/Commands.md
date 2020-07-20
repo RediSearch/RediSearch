@@ -526,7 +526,7 @@ FT.SEARCH idx "@text:morphix=>{$phonetic:false}"
 - **PAYLOAD {payload}**: Add an arbitrary, binary safe payload that will be exposed to custom scoring 
   functions. [See Extensions](Extensions.md).
   
-- **SORTBY {field} [ASC|DESC]**: If specified, and field is a [sortable field](Sorting.md), the results 
+- **SORTBY {field} [ASC|DESC]**: If specified, the results 
   are ordered by the value of this field. This applies to both text and numeric fields.
 - **LIMIT first num**: If the parameters appear after the query, we limit the results to 
   the offset and number of results given. The default is 0 10.
