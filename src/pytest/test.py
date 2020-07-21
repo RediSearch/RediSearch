@@ -3075,3 +3075,9 @@ def testScoreLangPayloadAreReturnedIfCaseNotMatchToSpecialFields(env):
     env.cmd('FT.CREATE idx ON HASH SCHEMA n NUMERIC SORTABLE')
     env.cmd('hset doc1 n 1.0 __Language eng __Score 1 __Payload 10')
     env.expect('ft.search', 'idx', '@n:[0 2]').equal([1L, 'doc1', ['n', '1.0', '__Language', 'eng', '__Score', '1', '__Payload', '10']])
+
+def testReturnSameFieldDifferentCase(env):
+    env.cmd('FT.CREATE idx ON HASH SCHEMA n NUMERIC SORTABLE N NUMERIC SORTABLE')
+    env.cmd('hset doc1 n 1.0 N 2.0')
+    env.expect('ft.search', 'idx', '@n:[0 2]', 'RETURN', '2', 'n', 'N').equal([1L, 'doc1', ['n', '1', 'N', '2']])
+
