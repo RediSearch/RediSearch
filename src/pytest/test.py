@@ -3014,3 +3014,64 @@ def testFieldsCaseSensetive(env):
     # make sure aggregation sortby are case sensitive
     env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'sortby', '1', '@n').equal([2L, ['n', '1'], ['n', '1.1']])
     env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'sortby', '1', '@N').error().contains('not loaded')
+
+def testSortedFieldsCaseSensetive(env):
+    env.cmd('FT.CREATE idx ON HASH SCHEMA n NUMERIC SORTABLE f TEXT SORTABLE t TAG SORTABLE g GEO SORTABLE')
+
+    # make sure text fields are case sesitive
+    env.cmd('hset doc1 F test')
+    env.cmd('hset doc2 f test')
+    env.expect('ft.search idx @f:test').equal([1L, 'doc2', ['f', 'test']])
+    env.expect('ft.search idx @F:test').equal([0])
+
+    # make sure numeric fields are case sesitive
+    env.cmd('hset doc3 N 1.0')
+    env.cmd('hset doc4 n 1.0')
+    env.expect('ft.search', 'idx', '@n:[0 2]').equal([1L, 'doc4', ['n', '1.0']])
+    env.expect('ft.search', 'idx', '@N:[0 2]').equal([0])
+
+    # make sure tag fields are case sesitive
+    env.cmd('hset doc5 T tag')
+    env.cmd('hset doc6 t tag')
+    env.expect('ft.search', 'idx', '@t:{tag}').equal([1L, 'doc6', ['t', 'tag']])
+    env.expect('ft.search', 'idx', '@T:{tag}').equal([0])
+
+    # make sure geo fields are case sesitive
+    env.cmd('hset doc8 G -113.524,53.5244')
+    env.cmd('hset doc9 g -113.524,53.5244')
+    env.expect('ft.search', 'idx', '@g:[-113.52 53.52 20 mi]').equal([1L, 'doc9', ['g', '-113.524,53.5244']])
+    env.expect('ft.search', 'idx', '@G:[-113.52 53.52 20 mi]').equal([0])
+
+    # make sure search filter are case sensitive
+    env.expect('ft.search', 'idx', '@n:[0 2]', 'FILTER', 'n', 0, 2).equal([1L, 'doc4', ['n', '1.0']])
+    env.expect('ft.search', 'idx', '@n:[0 2]', 'FILTER', 'N', 0, 2).equal([0])
+
+    # make sure RETURN are case sensitive
+    env.expect('ft.search', 'idx', '@n:[0 2]', 'RETURN', '1', 'n').equal([1L, 'doc4', ['n', '1']])
+    env.expect('ft.search', 'idx', '@n:[0 2]', 'RETURN', '1', 'N').equal([1L, 'doc4', []])
+
+    # make sure SORTBY are case sensitive
+    env.cmd('hset doc7 n 1.1')
+    env.expect('ft.search', 'idx', '@n:[0 2]', 'SORTBY', 'n').equal([2L, 'doc4', ['n', '1.0'], 'doc7', ['n', '1.1']])
+    env.expect('ft.search', 'idx', '@n:[0 2]', 'SORTBY', 'N').error().contains('not loaded nor in schema')
+
+    # make sure aggregation apply are case sensitive
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'apply', '@n', 'as', 'r').equal([1L, ['n', '1', 'r', '1'], ['n', '1.1', 'r', '1.1']])
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'apply', '@N', 'as', 'r').error().contains('not loaded in pipeline')
+
+    # make sure aggregation filter are case sensitive
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'filter', '@n==1.0').equal([1L, ['n', '1']])
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'filter', '@N==1.0').error().contains('not loaded in pipeline')
+
+    # make sure aggregation groupby are case sensitive
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'groupby', '1', '@n', 'reduce', 'count', 0, 'as', 'count').equal([2L, ['n', '1', 'count', '1'], ['n', '1.1', 'count', '1']])
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'groupby', '1', '@N', 'reduce', 'count', 0, 'as', 'count').error().contains('No such property')
+
+    # make sure aggregation sortby are case sensitive
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'sortby', '1', '@n').equal([2L, ['n', '1'], ['n', '1.1']])
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'sortby', '1', '@N').error().contains('not loaded')
+
+def testScoreLangPayloadAreReturnedIfCaseNotMatchToSpecialFields(env):
+    env.cmd('FT.CREATE idx ON HASH SCHEMA n NUMERIC SORTABLE')
+    env.cmd('hset doc1 n 1.0 __Language eng __Score 1 __Payload 10')
+    env.expect('ft.search', 'idx', '@n:[0 2]').equal([1L, 'doc1', ['n', '1.0', '__Language', 'eng', '__Score', '1', '__Payload', '10']])
