@@ -1158,29 +1158,29 @@ def testFieldSelectors(env):
                                     'BoDy', 'hello world', 'TiTle', 'foo bar', 'יוניקוד', 'unicode', 'field.with,punct', 'punt'))
 
     res = r.execute_command(
-        'ft.search', 'idx', '@title:hello world', 'nocontent')
+        'ft.search', 'idx', '@TiTle:hello world', 'nocontent')
     env.assertEqual(res, [1, 'doc1'])
     res = r.execute_command(
-        'ft.search', 'idx', '@body:hello world', 'nocontent')
+        'ft.search', 'idx', '@BoDy:hello world', 'nocontent')
     env.assertEqual(res, [1, 'doc2'])
 
     res = r.execute_command(
-        'ft.search', 'idx', '@body:hello @title:world', 'nocontent')
+        'ft.search', 'idx', '@BoDy:hello @TiTle:world', 'nocontent')
     env.assertEqual(res, [0])
 
     res = r.execute_command(
-        'ft.search', 'idx', '@body:hello world @title:world', 'nocontent')
+        'ft.search', 'idx', '@BoDy:hello world @TiTle:world', 'nocontent')
     env.assertEqual(res, [0])
     res = r.execute_command(
-        'ft.search', 'idx', '@BoDy:(hello|foo) @Title:(world|bar)', 'nocontent')
+        'ft.search', 'idx', '@BoDy:(hello|foo) @TiTle:(world|bar)', 'nocontent')
     env.assertEqual(sorted(res), sorted([2, 'doc1', 'doc2']))
 
     res = r.execute_command(
-        'ft.search', 'idx', '@body:(hello|foo world|bar)', 'nocontent')
+        'ft.search', 'idx', '@BoDy:(hello|foo world|bar)', 'nocontent')
     env.assertEqual(sorted(res), sorted([2, 'doc1', 'doc2']))
 
     res = r.execute_command(
-        'ft.search', 'idx', '@body|title:(hello world)', 'nocontent')
+        'ft.search', 'idx', '@BoDy|TiTle:(hello world)', 'nocontent')
     env.assertEqual(sorted(res), sorted([2, 'doc1', 'doc2']))
 
     res = r.execute_command(
@@ -2991,3 +2991,134 @@ def testIssue1208(env):
     env.expect('FT.ADD idx doc3 1 REPLACE PARTIAL IF @n>42e3 FIELDS n 100').equal('NOADD')
     env.expect('FT.ADD idx doc3 1 REPLACE PARTIAL IF @n<42e3 FIELDS n 100').ok()
     print env.cmd('FT.SEARCH', 'idx', '@n:[-inf inf]')
+
+def testFieldsCaseSensetive(env):
+    conn = getConnectionByEnv(env)
+    env.cmd('FT.CREATE idx ON HASH SCHEMA n NUMERIC f TEXT t TAG g GEO')
+
+    # make sure text fields are case sesitive
+    conn.execute_command('hset', 'doc1', 'F', 'test')
+    conn.execute_command('hset', 'doc2', 'f', 'test')
+    env.expect('ft.search idx @f:test').equal([1L, 'doc2', ['f', 'test']])
+    env.expect('ft.search idx @F:test').equal([0])
+
+    # make sure numeric fields are case sesitive
+    conn.execute_command('hset doc3 N 1.0')
+    conn.execute_command('hset doc4 n 1.0')
+    env.expect('ft.search', 'idx', '@n:[0 2]').equal([1L, 'doc4', ['n', '1.0']])
+    env.expect('ft.search', 'idx', '@N:[0 2]').equal([0])
+
+    # make sure tag fields are case sesitive
+    conn.execute_command('hset doc5 T tag')
+    conn.execute_command('hset doc6 t tag')
+    env.expect('ft.search', 'idx', '@t:{tag}').equal([1L, 'doc6', ['t', 'tag']])
+    env.expect('ft.search', 'idx', '@T:{tag}').equal([0])
+
+    # make sure geo fields are case sesitive
+    conn.execute_command('hset doc8 G -113.524,53.5244')
+    conn.execute_command('hset doc9 g -113.524,53.5244')
+    env.expect('ft.search', 'idx', '@g:[-113.52 53.52 20 mi]').equal([1L, 'doc9', ['g', '-113.524,53.5244']])
+    env.expect('ft.search', 'idx', '@G:[-113.52 53.52 20 mi]').equal([0])
+
+    # make sure search filter are case sensitive
+    env.expect('ft.search', 'idx', '@n:[0 2]', 'FILTER', 'n', 0, 2).equal([1L, 'doc4', ['n', '1.0']])
+    env.expect('ft.search', 'idx', '@n:[0 2]', 'FILTER', 'N', 0, 2).equal([0])
+
+    # make sure RETURN are case sensitive
+    env.expect('ft.search', 'idx', '@n:[0 2]', 'RETURN', '1', 'n').equal([1L, 'doc4', ['n', '1']])
+    env.expect('ft.search', 'idx', '@n:[0 2]', 'RETURN', '1', 'N').equal([1L, 'doc4', []])
+
+    # make sure SORTBY are case sensitive
+    conn.execute_command('hset doc7 n 1.1')
+    env.expect('ft.search', 'idx', '@n:[0 2]', 'SORTBY', 'n').equal([2L, 'doc4', ['n', '1.0'], 'doc7', ['n', '1.1']])
+    env.expect('ft.search', 'idx', '@n:[0 2]', 'SORTBY', 'N').error().contains('not loaded nor in schema')
+
+    # make sure aggregation load are case sensitive
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n').equal([1L, ['n', '1'], ['n', '1.1']])
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@N').equal([1L, [], []])
+
+    # make sure aggregation apply are case sensitive
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'apply', '@n', 'as', 'r').equal([1L, ['n', '1', 'r', '1'], ['n', '1.1', 'r', '1.1']])
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'apply', '@N', 'as', 'r').error().contains('not loaded in pipeline')
+
+    # make sure aggregation filter are case sensitive
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'filter', '@n==1.0').equal([1L, ['n', '1']])
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'filter', '@N==1.0').error().contains('not loaded in pipeline')
+
+    # make sure aggregation groupby are case sensitive
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'groupby', '1', '@n', 'reduce', 'count', 0, 'as', 'count').equal([2L, ['n', '1', 'count', '1'], ['n', '1.1', 'count', '1']])
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'groupby', '1', '@N', 'reduce', 'count', 0, 'as', 'count').error().contains('No such property')
+
+    # make sure aggregation sortby are case sensitive
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'sortby', '1', '@n').equal([2L, ['n', '1'], ['n', '1.1']])
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'sortby', '1', '@N').error().contains('not loaded')
+
+def testSortedFieldsCaseSensetive(env):
+    conn = getConnectionByEnv(env)
+    env.cmd('FT.CREATE idx ON HASH SCHEMA n NUMERIC SORTABLE f TEXT SORTABLE t TAG SORTABLE g GEO SORTABLE')
+
+    # make sure text fields are case sesitive
+    conn.execute_command('hset doc1 F test')
+    conn.execute_command('hset doc2 f test')
+    env.expect('ft.search idx @f:test').equal([1L, 'doc2', ['f', 'test']])
+    env.expect('ft.search idx @F:test').equal([0])
+
+    # make sure numeric fields are case sesitive
+    conn.execute_command('hset doc3 N 1.0')
+    conn.execute_command('hset doc4 n 1.0')
+    env.expect('ft.search', 'idx', '@n:[0 2]').equal([1L, 'doc4', ['n', '1.0']])
+    env.expect('ft.search', 'idx', '@N:[0 2]').equal([0])
+
+    # make sure tag fields are case sesitive
+    conn.execute_command('hset doc5 T tag')
+    conn.execute_command('hset doc6 t tag')
+    env.expect('ft.search', 'idx', '@t:{tag}').equal([1L, 'doc6', ['t', 'tag']])
+    env.expect('ft.search', 'idx', '@T:{tag}').equal([0])
+
+    # make sure geo fields are case sesitive
+    conn.execute_command('hset doc8 G -113.524,53.5244')
+    conn.execute_command('hset doc9 g -113.524,53.5244')
+    env.expect('ft.search', 'idx', '@g:[-113.52 53.52 20 mi]').equal([1L, 'doc9', ['g', '-113.524,53.5244']])
+    env.expect('ft.search', 'idx', '@G:[-113.52 53.52 20 mi]').equal([0])
+
+    # make sure search filter are case sensitive
+    env.expect('ft.search', 'idx', '@n:[0 2]', 'FILTER', 'n', 0, 2).equal([1L, 'doc4', ['n', '1.0']])
+    env.expect('ft.search', 'idx', '@n:[0 2]', 'FILTER', 'N', 0, 2).equal([0])
+
+    # make sure RETURN are case sensitive
+    env.expect('ft.search', 'idx', '@n:[0 2]', 'RETURN', '1', 'n').equal([1L, 'doc4', ['n', '1']])
+    env.expect('ft.search', 'idx', '@n:[0 2]', 'RETURN', '1', 'N').equal([1L, 'doc4', []])
+
+    # make sure SORTBY are case sensitive
+    conn.execute_command('hset doc7 n 1.1')
+    env.expect('ft.search', 'idx', '@n:[0 2]', 'SORTBY', 'n').equal([2L, 'doc4', ['n', '1.0'], 'doc7', ['n', '1.1']])
+    env.expect('ft.search', 'idx', '@n:[0 2]', 'SORTBY', 'N').error().contains('not loaded nor in schema')
+
+    # make sure aggregation apply are case sensitive
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'apply', '@n', 'as', 'r').equal([1L, ['n', '1', 'r', '1'], ['n', '1.1', 'r', '1.1']])
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'apply', '@N', 'as', 'r').error().contains('not loaded in pipeline')
+
+    # make sure aggregation filter are case sensitive
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'filter', '@n==1.0').equal([1L, ['n', '1']])
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'filter', '@N==1.0').error().contains('not loaded in pipeline')
+
+    # make sure aggregation groupby are case sensitive
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'groupby', '1', '@n', 'reduce', 'count', 0, 'as', 'count').equal([2L, ['n', '1', 'count', '1'], ['n', '1.1', 'count', '1']])
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'groupby', '1', '@N', 'reduce', 'count', 0, 'as', 'count').error().contains('No such property')
+
+    # make sure aggregation sortby are case sensitive
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'sortby', '1', '@n').equal([2L, ['n', '1'], ['n', '1.1']])
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'sortby', '1', '@N').error().contains('not loaded')
+
+def testScoreLangPayloadAreReturnedIfCaseNotMatchToSpecialFields(env):
+    conn = getConnectionByEnv(env)
+    env.cmd('FT.CREATE idx ON HASH SCHEMA n NUMERIC SORTABLE')
+    conn.execute_command('hset doc1 n 1.0 __Language eng __Score 1 __Payload 10')
+    env.expect('ft.search', 'idx', '@n:[0 2]').equal([1L, 'doc1', ['n', '1.0', '__Language', 'eng', '__Score', '1', '__Payload', '10']])
+
+def testReturnSameFieldDifferentCase(env):
+    conn = getConnectionByEnv(env)
+    env.cmd('FT.CREATE idx ON HASH SCHEMA n NUMERIC SORTABLE N NUMERIC SORTABLE')
+    conn.execute_command('hset doc1 n 1.0 N 2.0')
+    env.expect('ft.search', 'idx', '@n:[0 2]', 'RETURN', '2', 'n', 'N').equal([1L, 'doc1', ['n', '1', 'N', '2']])
+
