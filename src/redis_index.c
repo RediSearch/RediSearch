@@ -460,15 +460,13 @@ static int Redis_DeleteKey(RedisModuleCtx *ctx, RedisModuleString *s) {
   return 0;
 }
 
-int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments, int deleteSpecKey) {
+int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments) {
   if (deleteDocuments) {
     DocTable *dt = &ctx->spec->docs;
     DOCTABLE_FOREACH(dt, Redis_DeleteKey(ctx->redisCtx, DMD_CreateKeyString(dmd, ctx->redisCtx)));
   }
   
-  // Delete the index spec
-  if (deleteSpecKey) {
-    IndexSpec_FreeInternals(ctx->spec);
-  }
+  IndexSpec_FreeInternals(ctx->spec);
+
   return REDISMODULE_OK;
 }

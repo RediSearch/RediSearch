@@ -766,8 +766,7 @@ static void IndexSpec_FreeAsync(void *data) {
   RedisModule_AutoMemory(threadCtx);
   RedisModule_ThreadSafeContextLock(threadCtx);
 
-  Redis_DropIndex(&sctx, true, false);
-  IndexSpec_FreeInternals(spec);
+  Redis_DropIndex(&sctx, true);
 
   RedisModule_ThreadSafeContextUnlock(threadCtx);
   RedisModule_FreeThreadSafeContext(threadCtx);
@@ -801,7 +800,7 @@ void IndexSpec_FreeSync(IndexSpec *spec) {
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
   RedisModule_AutoMemory(ctx);
   if (!IndexSpec_IsKeyless(spec)) {
-    Redis_DropIndex(&sctx, false, true);
+    Redis_DropIndex(&sctx, false);
   }
   IndexSpec_FreeInternals(spec);
   RedisModule_FreeThreadSafeContext(ctx);
