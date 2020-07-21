@@ -923,6 +923,38 @@ Array Reply: An array with exactly the same number of elements as the number of 
 
 ---
 
+## FT.DELETE
+
+### Format
+
+```
+FT.DELETE {index} [DD]
+```
+
+### Description
+
+Deletes the index. 
+
+By default, FT.DELETE does not delete the document hashes associated with the index. Adding the DD option deletes the hashes as well.
+
+Since RediSearch 2.0
+
+### Example
+```sql
+FT.DELETE idx DD 
+```
+
+### Parameters
+
+- **index**: The Fulltext index name. The index must be first created with FT.CREATE
+- **DD**: If set, the drop operation will delete the actual document hashes.
+
+### Returns
+
+Status Reply: OK on success.
+
+---
+
 ## FT.DROP
 
 ### Format
@@ -933,7 +965,9 @@ FT.DROP {index} [KEEPDOCS]
 
 ### Description
 
-Deletes all the keys associated with the index. 
+!!! warning "This command is deprecated"
+
+Deletes the index and all the keys associated with it. 
 
 By default, DROP deletes the document hashes as well, but adding the KEEPDOCS option keeps the documents in place, ready for re-indexing.
 

@@ -43,8 +43,12 @@ int Redis_ScanKeys(RedisModuleCtx *ctx, const char *prefix, ScanFunc f, void *op
 /* Optimize the buffers of a speicif term hit */
 int Redis_OptimizeScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaque);
 
-/* Drop the index and all the associated keys */
-int Redis_DropIndex(RedisSearchCtx *ctx, int deleteSpecKey);
+/* Drop the index and all the associated keys.
+ *
+ * If deleteDocuments is non zero, we will delete the saved documents (if they exist).
+ * Only set this if there are no other indexes in the same redis instance.
+ */
+int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments, int deleteSpecKey);
 
 /* Drop all the index's internal keys using this scan handler */
 int Redis_DropScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaque);
