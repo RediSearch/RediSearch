@@ -1121,29 +1121,29 @@ def testFieldSelectors(env):
                                     'BoDy', 'hello world', 'TiTle', 'foo bar', 'יוניקוד', 'unicode', 'field.with,punct', 'punt'))
 
     res = r.execute_command(
-        'ft.search', 'idx', '@title:hello world', 'nocontent')
+        'ft.search', 'idx', '@TiTle:hello world', 'nocontent')
     env.assertEqual(res, [1, 'doc1'])
     res = r.execute_command(
-        'ft.search', 'idx', '@body:hello world', 'nocontent')
+        'ft.search', 'idx', '@BoDy:hello world', 'nocontent')
     env.assertEqual(res, [1, 'doc2'])
 
     res = r.execute_command(
-        'ft.search', 'idx', '@body:hello @title:world', 'nocontent')
+        'ft.search', 'idx', '@BoDy:hello @TiTle:world', 'nocontent')
     env.assertEqual(res, [0])
 
     res = r.execute_command(
-        'ft.search', 'idx', '@body:hello world @title:world', 'nocontent')
+        'ft.search', 'idx', '@BoDy:hello world @TiTle:world', 'nocontent')
     env.assertEqual(res, [0])
     res = r.execute_command(
-        'ft.search', 'idx', '@BoDy:(hello|foo) @Title:(world|bar)', 'nocontent')
+        'ft.search', 'idx', '@BoDy:(hello|foo) @TiTle:(world|bar)', 'nocontent')
     env.assertEqual(sorted(res), sorted([2, 'doc1', 'doc2']))
 
     res = r.execute_command(
-        'ft.search', 'idx', '@body:(hello|foo world|bar)', 'nocontent')
+        'ft.search', 'idx', '@BoDy:(hello|foo world|bar)', 'nocontent')
     env.assertEqual(sorted(res), sorted([2, 'doc1', 'doc2']))
 
     res = r.execute_command(
-        'ft.search', 'idx', '@body|title:(hello world)', 'nocontent')
+        'ft.search', 'idx', '@BoDy|TiTle:(hello world)', 'nocontent')
     env.assertEqual(sorted(res), sorted([2, 'doc1', 'doc2']))
 
     res = r.execute_command(
