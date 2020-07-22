@@ -7,7 +7,7 @@ ROOT=$(cd $HERE/..; pwd)
 cd $ROOT
 
 git submodule update --init --recursive
-./deps/readies/bin/getpy2
+PIP=1 FORCE=1 ./deps/readies/bin/getpy2
 ./system-setup.py
 ./srcutil/get_gtest.sh
 python ./src/pytest/test_rdb_compatibility.py

@@ -19,7 +19,7 @@ class RediSearchSetup(paella.Setup):
         self.pip_install("wheel")
         self.pip_install("setuptools --upgrade")
 
-        self.install("git cmake wget awscli lcov")
+        self.install("git cmake wget lcov")
 
     def debian_compat(self):
         self.install("libatomic1")
@@ -31,13 +31,17 @@ class RediSearchSetup(paella.Setup):
         self.install("libatomic")
         self.group_install("'Development Tools'")
         self.install("cmake3")
-        self.run("ln -s `command -v cmake3` /usr/local/bin/cmake")
+        self.run("ln -sf `command -v cmake3` /usr/local/bin/cmake")
 
         self.install("centos-release-scl")
         self.install("devtoolset-8")
         self.run("cp /opt/rh/devtoolset-8/enable /etc/profile.d/scl-devtoolset-8.sh")
         paella.mkdir_p("%s/profile.d" % ROOT)
         self.run("cp /opt/rh/devtoolset-8/enable %s/profile.d/scl-devtoolset-8.sh" % ROOT)
+
+        # fix setuptools
+        self.run("yum remove -y python-setuptools || true")
+        self.pip_install("-IU --force-reinstall setuptools")
 
         # uninstall and install psutil (order is important), otherwise RLTest fails
         self.run("pip uninstall -y psutil || true")
@@ -47,7 +51,7 @@ class RediSearchSetup(paella.Setup):
         self.install("libatomic")
         self.group_install("'Development Tools'")
         self.install("cmake")
-        self.run("ln -s `command -v cmake3` /usr/local/bin/cmake")
+        self.run("ln -sf `command -v cmake3` /usr/local/bin/cmake")
 
     def macosx(self):
         if sh('xcode-select -p') == '':
@@ -63,7 +67,7 @@ class RediSearchSetup(paella.Setup):
         self.pip_install("--no-cache-dir git+https://github.com/Grokzen/redis-py-cluster.git@master")
         self.pip_install("--no-cache-dir git+https://github.com/RedisLabsModules/RLTest.git@master")
         self.pip_install("--no-cache-dir git+https://github.com/RedisLabs/RAMP@master")
-        self.pip_install("pudb")
+        self.pip_install("pudb awscli")
 
         self.pip3_install("-r %s/deps/readies/paella/requirements.txt" % ROOT)
 
