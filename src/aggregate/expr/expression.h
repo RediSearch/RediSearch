@@ -1,9 +1,9 @@
 #ifndef RS_AGG_EXPRESSION_H_
 #define RS_AGG_EXPRESSION_H_
 
-#include <redisearch.h>
-#include <value.h>
-#include <aggregate/functions/function.h>
+#include "redisearch.h"
+#include "value.h"
+#include "aggregate/functions/function.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -113,6 +113,32 @@ typedef struct ExprEval {
 #define EXPR_EVAL_OK 1
 #define EXPR_EVAL_NULL 2
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+/**
+ * Alternative expression execution context/evaluator.
+ */
+
+typedef struct EvalCtx {
+  RLookup lk;
+  RLookupRow row;
+  QueryError status;
+  ExprEval ee;
+  RSValue res;
+  RSExpr *_expr;
+  bool _own_expr;
+} EvalCtx;
+
+EvalCtx *EvalCtx_Create();
+EvalCtx *EvalCtx_FromExpr(RSExpr *expr);
+EvalCtx *EvalCtx_FromString(const char *exprstr);
+void EvalCtx_Destroy(EvalCtx *r);
+RLookupKey *EvalCtx_Set(EvalCtx *r, const char *name, RSValue *val);
+int EvalCtx_AddHash(EvalCtx *r, RedisModuleCtx *ctx, RedisModuleString *key);
+int EvalCtx_Eval(EvalCtx *r);
+int EvalCtx_EvalExpr(EvalCtx *r, RSExpr *expr);
+int EvalCtx_EvalExprStr(EvalCtx *r, const char *exprstr);
+
 /**
  * Scan through the expression and generate any required lookups for the keys.
  * @param root Root iterator for scan start
@@ -140,6 +166,8 @@ char *ExprEval_Strndup(ExprEval *ev, const char *s, size_t n);
 
 /** Cleans up the allocator */
 void ExprEval_Cleanup(ExprEval *ev);
+
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 /**
  * Creates a new result processor in the form of a projector. The projector will

@@ -22,22 +22,7 @@ typedef struct {
 /* A callback called after a concurrent context regains execution context. When this happen we need
  * to make sure the key hasn't been deleted or its structure changed, which will render the
  * underlying iterators invalid */
-void NumericRangeIterator_OnReopen(RedisModuleKey *k, void *privdata) {
-  NumericUnionCtx *nu = privdata;
-  NumericRangeTree *t = RedisModule_ModuleTypeGetValue(k);
-
-  /* If the key has been deleted we'll get a NULL heere, so we just mark ourselves as EOF
-   * We simply abort the root iterator which is either a union of many ranges or a single range
-   *
-   * If the numeric range tree has chained (split, nodes deleted, etc) since we last closed it,
-   * We cannot continue iterating it, since the underlying pointers might be screwed.
-   * For now we will just stop processing this query. This causes the query to return bad results,
-   * so in the future we can try an reset the state here
-   */
-  if (k == NULL || t == NULL || t->revisionId != nu->lastRevId) {
-    nu->it->Abort(nu->it->ctx);
-  }
-}
+void NumericRangeIterator_OnReopen(void *privdata) {}
 
 /* Returns 1 if the entire numeric range is contained between min and max */
 static inline int NumericRange_Contained(NumericRange *n, double min, double max) {
@@ -336,7 +321,8 @@ IndexIterator *NewNumericRangeIterator(const IndexSpec *sp, NumericRange *nr,
                                        const NumericFilter *f) {
 
   // if this range is at either end of the filter, we need to check each record
-  if (NumericFilter_Match(f, nr->minVal) && NumericFilter_Match(f, nr->maxVal)) {
+  if (NumericFilter_Match(f, nr->minVal) && NumericFilter_Match(f, nr->maxVal) &&
+      f->geoFilter == NULL) {
     // make the filter NULL so the reader will ignore it
     f = NULL;
   }
@@ -413,9 +399,9 @@ static NumericRangeTree *openNumericKeysDict(RedisSearchCtx *ctx, RedisModuleStr
 }
 
 struct indexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const NumericFilter *flt,
-                                               ConcurrentSearchCtx *csx) {
+                                               ConcurrentSearchCtx *csx, FieldType forType) {
   RedisModuleString *s =
-      IndexSpec_GetFormattedKeyByName(ctx->spec, flt->fieldName, INDEXFLD_T_NUMERIC);
+      IndexSpec_GetFormattedKeyByName(ctx->spec, flt->fieldName, forType);
   if (!s) {
     return NULL;
   }
@@ -445,8 +431,7 @@ struct indexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const Numeri
     NumericUnionCtx *uc = rm_malloc(sizeof(*uc));
     uc->lastRevId = t->revisionId;
     uc->it = it;
-    ConcurrentSearch_AddKey(csx, key, REDISMODULE_READ, s, NumericRangeIterator_OnReopen, uc,
-                            rm_free);
+    ConcurrentSearch_AddKey(csx, NumericRangeIterator_OnReopen, uc, rm_free);
   }
   return it;
 }

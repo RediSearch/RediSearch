@@ -512,27 +512,24 @@ static IndexIterator *Query_EvalOptionalNode(QueryEvalCtx *q, QueryNode *qn) {
 }
 
 static IndexIterator *Query_EvalNumericNode(QueryEvalCtx *q, QueryNumericNode *node) {
-
   const FieldSpec *fs =
       IndexSpec_GetField(q->sctx->spec, node->nf->fieldName, strlen(node->nf->fieldName));
   if (!fs || !FIELD_IS(fs, INDEXFLD_T_NUMERIC)) {
     return NULL;
   }
 
-  return NewNumericFilterIterator(q->sctx, node->nf, q->conc);
+  return NewNumericFilterIterator(q->sctx, node->nf, q->conc, INDEXFLD_T_NUMERIC);
 }
 
 static IndexIterator *Query_EvalGeofilterNode(QueryEvalCtx *q, QueryGeofilterNode *node,
                                               double weight) {
-
   const FieldSpec *fs =
       IndexSpec_GetField(q->sctx->spec, node->gf->property, strlen(node->gf->property));
   if (!fs || !FIELD_IS(fs, INDEXFLD_T_GEO)) {
     return NULL;
   }
 
-  GeoIndex gi = {.ctx = q->sctx, .sp = fs};
-  return NewGeoRangeIterator(&gi, node->gf, weight);
+  return NewGeoRangeIterator(q->sctx, node->gf);
 }
 
 static IndexIterator *Query_EvalIdFilterNode(QueryEvalCtx *q, QueryIdFilterNode *node) {
@@ -700,8 +697,7 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
   }
   QueryTagNode *node = &qn->tag;
   RedisModuleKey *k = NULL;
-  const FieldSpec *fs =
-      IndexSpec_GetFieldCase(q->sctx->spec, node->fieldName, strlen(node->fieldName));
+  const FieldSpec *fs = IndexSpec_GetField(q->sctx->spec, node->fieldName, strlen(node->fieldName));
   if (!fs) {
     return NULL;
   }
@@ -719,7 +715,7 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
     ret = query_EvalSingleTagNode(q, idx, qn->children[0], &total_its, qn->opts.weight);
     if (ret) {
       if (q->conc) {
-        TagIndex_RegisterConcurrentIterators(idx, q->conc, k, kstr, (array_t *)total_its);
+        TagIndex_RegisterConcurrentIterators(idx, q->conc, (array_t *)total_its);
         k = NULL;  // we passed ownershit
       } else {
         array_free(total_its);
@@ -745,7 +741,7 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
 
   if (total_its) {
     if (q->conc) {
-      TagIndex_RegisterConcurrentIterators(idx, q->conc, k, kstr, (array_t *)total_its);
+      TagIndex_RegisterConcurrentIterators(idx, q->conc, (array_t *)total_its);
       k = NULL;  // we passed ownershit
     } else {
       array_free(total_its);

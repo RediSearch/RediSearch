@@ -6,19 +6,22 @@
 
 #include "trie/trie_type.h"
 
-Trie *SpellCheck_OpenDict(RedisModuleCtx *ctx, const char *dictName, int mode, RedisModuleKey **k);
+Trie* SpellCheck_OpenDict(RedisModuleCtx* ctx, const char* dictName, int mode);
 
-int Dictionary_Add(RedisModuleCtx* ctx, const char* dictName, RedisModuleString** values,
-                       int len, char** err);
+int Dictionary_Add(RedisModuleCtx* ctx, const char* dictName, RedisModuleString** values, int len,
+                   char** err);
 
-int Dictionary_Del(RedisModuleCtx* ctx, const char* dictName, RedisModuleString** values,
-                       int len, char** err);
+int Dictionary_Del(RedisModuleCtx* ctx, const char* dictName, RedisModuleString** values, int len,
+                   char** err);
+
+void Dictionary_Clear();
+void Dictionary_Free();
 
 int Dictionary_Dump(RedisModuleCtx* ctx, const char* dictName, char** err);
 
-int DictDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
-int DictDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
-int DictAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
-
+int DictDumpCommand(RedisModuleCtx* ctx, RedisModuleString** argv, int argc);
+int DictDelCommand(RedisModuleCtx* ctx, RedisModuleString** argv, int argc);
+int DictAddCommand(RedisModuleCtx* ctx, RedisModuleString** argv, int argc);
+int DictRegister(RedisModuleCtx* ctx);
 
 #endif /* SRC_DICTIONARY_H_ */

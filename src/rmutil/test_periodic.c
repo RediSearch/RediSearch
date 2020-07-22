@@ -6,8 +6,6 @@
 #include "test.h"
 #include "alloc.h"
 
-REDISMODULE_INIT_SYMBOLS();
-
 int timerCb(RedisModuleCtx *ctx, void *p) {
   int *x = p;
   (*x)++;

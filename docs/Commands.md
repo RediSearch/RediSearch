@@ -23,6 +23,15 @@ Creates an index with the given spec. The index name will be used in all the key
     
         You can always use the `NOFIELDS` option and not encode field information into the index, for saving space, if you do not need filtering by text fields. This will still allow filtering by numeric and geo fields.
 
+!!! info "Note on running in clustered databases"
+        
+        When having several indices in a clustered database, you need to tag the index key and the document key to ensure they reside on the same shard.
+        ```sql
+        FT.CREATE {idx} ...
+        FT.ADD {idx} {idx}:docid ...
+        ```
+        When Running in RediSearch in Redis Enterprise, there is the ability to span the index across shards.  In this case the above does not apply.
+
 #### Example
 ```sql
 FT.CREATE idx SCHEMA name TEXT SORTABLE age NUMERIC SORTABLE myTag TAG SORTABLE
@@ -522,7 +531,7 @@ FT.SEARCH idx "@text:morphix=>{$phonetic:false}"
 - **PAYLOAD {payload}**: Add an arbitrary, binary safe payload that will be exposed to custom scoring 
   functions. [See Extensions](Extensions.md).
   
-- **SORTBY {field} [ASC|DESC]**: If specified, and field is a [sortable field](Sorting.md), the results 
+- **SORTBY {field} [ASC|DESC]**: If specified, the results 
   are ordered by the value of this field. This applies to both text and numeric fields.
 - **LIMIT first num**: If the parameters appear after the query, we limit the results to 
   the offset and number of results given. The default is 0 10.
@@ -854,9 +863,9 @@ FT.GET {index} {doc id}
 
 ### Description
 
-Returns the full contents of a document.
+!!! warning "This command is deprecated". Use HGETALL instead.
 
-Currently it is equivalent to HGETALL, but this is future-proof and will allow us to change the internal representation of documents inside Redis in the future. In addition, it allows simpler implementation of fetching documents in clustered mode.
+Returns content of a document as inserted without attribute fields (score/language/payload).
 
 If the document does not exist or is not a HASH object, we return a NULL reply
 
@@ -886,10 +895,10 @@ FT.MGET {index} {docId} ...
 
 ### Description
 
-Returns the full contents of multiple documents. 
+!!! warning "This command is deprecated". Use HGETALL instead.
 
-Currently it is equivalent to calling multiple HGETALL commands, although faster. 
-This command is also future-proof and will allow us to change the internal representation of documents inside Redis in the future. 
+Returns content of a document as inserted without attribute fields (score/language/payload).
+
 In addition, it allows simpler implementation of fetching documents in clustered mode.
 
 We return an array with exactly the same number of elements as the number of keys sent to the command. 
@@ -914,6 +923,38 @@ Array Reply: An array with exactly the same number of elements as the number of 
 
 ---
 
+## FT.DELETE
+
+### Format
+
+```
+FT.DELETE {index} [DD]
+```
+
+### Description
+
+Deletes the index. 
+
+By default, FT.DELETE does not delete the document hashes associated with the index. Adding the DD option deletes the hashes as well.
+
+Since RediSearch 2.0
+
+### Example
+```sql
+FT.DELETE idx DD 
+```
+
+### Parameters
+
+- **index**: The Fulltext index name. The index must be first created with FT.CREATE
+- **DD**: If set, the drop operation will delete the actual document hashes.
+
+### Returns
+
+Status Reply: OK on success.
+
+---
+
 ## FT.DROP
 
 ### Format
@@ -924,7 +965,9 @@ FT.DROP {index} [KEEPDOCS]
 
 ### Description
 
-Deletes all the keys associated with the index. 
+!!! warning "This command is deprecated"
+
+Deletes the index and all the keys associated with it. 
 
 By default, DROP deletes the document hashes as well, but adding the KEEPDOCS option keeps the documents in place, ready for re-indexing.
 

@@ -360,6 +360,47 @@ done:
   return rc;
 }
 
+int RLookup_GetHash(RLookup *it, RLookupRow *dst, RedisModuleCtx *ctx, RedisModuleString *key) {
+  int rc = REDISMODULE_ERR;
+  RedisModuleCallReply *rep = RedisModule_Call(ctx, "HGETALL", "s", key);
+
+  if (rep == NULL || RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_ARRAY) {
+    goto done;
+  }
+
+  size_t len = RedisModule_CallReplyLength(rep);
+  // Zero means the document does not exist in redis
+  if (len == 0) {
+    goto done;
+  }
+
+  for (size_t i = 0; i < len; i += 2) {
+    size_t klen = 0;
+    RedisModuleCallReply *repk = RedisModule_CallReplyArrayElement(rep, i);
+    RedisModuleCallReply *repv = RedisModule_CallReplyArrayElement(rep, i + 1);
+
+    const char *kstr = RedisModule_CallReplyStringPtr(repk, &klen);
+    RLookupKey *rlk = RLookup_GetKeyEx(it, kstr, klen, RLOOKUP_F_OCREAT | RLOOKUP_F_NAMEALLOC);
+    if (rlk->flags & RLOOKUP_F_SVSRC) {
+      continue;  // Can load it from the sort vector on demand.
+    }
+    RLookupCoerceType ctype = rlk->fieldtype;
+    if (1 /*options->forceString*/) {
+      ctype = RLOOKUP_C_STR;
+    }
+    RSValue *vptr = replyElemToValue(repv, ctype);
+    RLookup_WriteOwnKey(rlk, dst, vptr);
+  }
+
+  rc = REDISMODULE_OK;
+
+done:
+  if (rep) {
+    RedisModule_FreeCallReply(rep);
+  }
+  return rc;
+}
+
 static int RLookup_HGETALL(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options) {
   int rc = REDISMODULE_ERR;
   RedisModuleCallReply *rep = NULL;

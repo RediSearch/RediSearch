@@ -32,19 +32,14 @@
  *
  */
 
-typedef void (*ConcurrentReopenCallback)(RedisModuleKey *k, void *ctx);
+typedef void (*ConcurrentReopenCallback)(void *ctx);
 
 /* ConcurrentKeyCtx is a reference to a key that's being held open during concurrent execution and
  * needs to be reopened after yielding and gaining back execution. See ConcurrentSearch_AddKey for
  * more details */
 typedef struct {
-  RedisModuleKey *key;
-  RedisModuleString *keyName;
-  int sharedKey;
   void *privdata;
   ConcurrentReopenCallback cb;
-  // redis key open flags
-  int keyFlags;
   // A custom callback to free privdata. If NULL we don't do anything
   void (*freePrivData)(void *);
 } ConcurrentKeyCtx;
@@ -93,8 +88,7 @@ typedef struct {
  * We register the key, the flags to reopen it, a string holding its name for reopening, a callback
  * for notification, and private callback data. if freePrivDataCallback is provided, we will call it
  * when the context is freed to release the private data. If NULL is passed, we do nothing */
-void ConcurrentSearch_AddKey(ConcurrentSearchCtx *ctx, RedisModuleKey *key, int openFlags,
-                             RedisModuleString *keyName, ConcurrentReopenCallback cb,
+void ConcurrentSearch_AddKey(ConcurrentSearchCtx *ctx, ConcurrentReopenCallback cb,
                              void *privdata, void (*freePrivDataCallback)(void *));
 
 /**
@@ -107,7 +101,6 @@ void ConcurrentSearch_AddKey(ConcurrentSearchCtx *ctx, RedisModuleKey *key, int 
  */
 static inline void ConcurrentSearch_SetKey(ConcurrentSearchCtx *ctx, RedisModuleString *keyName,
                                            void *privdata) {
-  ctx->openKeys[0].keyName = keyName;
   ctx->openKeys[0].privdata = privdata;
 }
 
@@ -136,8 +129,7 @@ void ConcurrentSearchCtx_Init(RedisModuleCtx *rctx, ConcurrentSearchCtx *ctx);
  * Initialize a concurrent context to contain a single key. This key can be swapped
  * out via SetKey()
  */
-void ConcurrentSearchCtx_InitSingle(ConcurrentSearchCtx *ctx, RedisModuleCtx *rctx, int mode,
-                                    ConcurrentReopenCallback cb);
+void ConcurrentSearchCtx_InitSingle(ConcurrentSearchCtx *ctx, RedisModuleCtx *rctx, ConcurrentReopenCallback cb);
 
 /** Reset the clock variables in the concurrent search context */
 void ConcurrentSearchCtx_ResetClock(ConcurrentSearchCtx *ctx);

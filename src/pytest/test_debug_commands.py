@@ -6,7 +6,10 @@ class TestDebugCommands(object):
     def __init__(self):
         self.env = Env(testName="testing debug commands")
         self.env.skipOnCluster()
-        self.env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT', 'SORTABLE', 'age', 'NUMERIC', 'SORTABLE', 't', 'TAG', 'SORTABLE').ok()
+        self.env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA',
+                        'name', 'TEXT', 'SORTABLE',
+                        'age', 'NUMERIC', 'SORTABLE', 
+                        't', 'TAG', 'SORTABLE').ok()
         self.env.expect('FT.ADD', 'idx', 'doc1', '1.0', 'FIELDS', 'name', 'meir', 'age', '29', 't', 'test').ok()
         self.env.cmd('SET', 'foo', 'bar')
 
@@ -21,11 +24,13 @@ class TestDebugCommands(object):
         err_msg = "wrong number of arguments for 'FT.DEBUG' command"
         help_list = ['DUMP_INVIDX', 'DUMP_NUMIDX', 'DUMP_TAGIDX', 'INFO_TAGIDX', 'IDTODOCID', 'DOCIDTOID', 'DOCINFO',
                     'DUMP_PHONETIC_HASH', 'DUMP_TERMS', 'INVIDX_SUMMARY', 'NUMIDX_SUMMARY',
-                    'GC_FORCEINVOKE', 'GC_FORCEBGINVOKE', 'GIT_SHA']
+                    'GC_FORCEINVOKE', 'GC_FORCEBGINVOKE', 'GIT_SHA', 'TTL']
         self.env.expect('FT.DEBUG', 'help').equal(help_list)
 
-        # 'GIT_SHA' do not return err_msg
-        for cmd in help_list[:-1]:
+        for cmd in help_list:
+            if cmd == 'GIT_SHA':
+                # 'GIT_SHA' do not return err_msg
+                 continue
             self.env.expect('FT.DEBUG', cmd).raiseError().equal(err_msg)
 
     def testDocInfo(self):
@@ -167,9 +172,3 @@ class TestDebugCommands(object):
 
     def testNumericIndexSummaryWrongArity(self):
         self.env.expect('FT.DEBUG', 'numidx_summary', 'idx1').raiseError()
-
-    def testNumericIndexInvalidKeyType(self):
-        self.env.expect('FT.DEBUG', 'numidx_summary', 'foo').raiseError()
-
-    def testGitSha(self):
-        self.env.expect('FT.DEBUG', 'git_sha', 'foo').notRaiseError()

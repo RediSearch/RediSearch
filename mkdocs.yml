@@ -6,6 +6,10 @@ repo_name: RediSearch/RediSearch
 google_analytics:
   - 'UA-92003007-1'
   - 'auto'
+
+extra_javascript:
+  - gtm.js
+
 markdown_extensions:
   - codehilite
   - toc:
@@ -68,3 +72,4 @@ nav:
 plugins:
   - search
   - versions-menu
+

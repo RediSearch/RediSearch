@@ -11,6 +11,7 @@
 #include "numeric_filter.h"
 #include "redismodule.h"
 #include "rmutil/rm_assert.h"
+#include "geo_index.h"
 
 uint64_t TotalIIBlocks = 0;
 
@@ -89,20 +90,9 @@ static void IR_SetAtEnd(IndexReader *r, int value) {
 
 /* A callback called from the ConcurrentSearchCtx after regaining execution and reopening the
  * underlying term key. We check for changes in the underlying key, or possible deletion of it */
-void IndexReader_OnReopen(RedisModuleKey *k, void *privdata) {
+void IndexReader_OnReopen(void *privdata) {
 
   IndexReader *ir = privdata;
-  // If the key has been deleted we'll get a NULL here, so we just mark ourselves as EOF
-  if (k == NULL || RedisModule_ModuleTypeGetType(k) != InvertedIndexType) {
-    IR_SetAtEnd(ir, 1);
-    ir->idx = NULL;
-    ir->br.buf = NULL;
-    return;
-  }
-
-  // If the key is valid, we just reset the reader's buffer reader to the current block pointer
-  ir->idx = RedisModule_ModuleTypeGetValue(k);
-
   // the gc marker tells us if there is a chance the keys has undergone GC while we were asleep
   if (ir->gcMarker == ir->idx->gcMarker) {
     // no GC - we just go to the same offset we were at
@@ -638,9 +628,13 @@ DECODER(readNumeric) {
 
   NumericFilter *f = ctx->ptr;
   if (f) {
-    int rv = NumericFilter_Match(f, res->num.value);
-    // printf("Checking against filter: %d\n", rv);
-    return rv;
+    if (f->geoFilter == NULL) {  
+      int rv = NumericFilter_Match(f, res->num.value);
+      // printf("Checking against filter: %d\n", rv);
+      return rv;
+    } else {
+      return isWithinRadius(f->geoFilter, res->num.value, NULL);
+    }
   }
   // printf("Field matches.. hurray!\n");
   return 1;
