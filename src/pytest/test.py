@@ -2993,6 +2993,9 @@ def testIssue1208(env):
     print env.cmd('FT.SEARCH', 'idx', '@n:[-inf inf]')
 
 def testFieldsCaseSensetive(env):
+    # this test will not pass on coordinator coorently as if one shard return empty results coordinator
+    # will not reflect the errors
+    env.skipOnCluster()
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE idx ON HASH SCHEMA n NUMERIC f TEXT t TAG g GEO')
 
@@ -3054,6 +3057,9 @@ def testFieldsCaseSensetive(env):
     env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'sortby', '1', '@N').error().contains('not loaded')
 
 def testSortedFieldsCaseSensetive(env):
+    # this test will not pass on coordinator coorently as if one shard return empty results coordinator
+    # will not reflect the errors
+    env.skipOnCluster()
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE idx ON HASH SCHEMA n NUMERIC SORTABLE f TEXT SORTABLE t TAG SORTABLE g GEO SORTABLE')
 
