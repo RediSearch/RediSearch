@@ -302,7 +302,7 @@ indexing. Existing documents will not be reindexed.
 !!! note
     Depending on how the index was created, you may be limited by the amount of additional text
     fields which can be added to an existing index. If the current index contains less than 32
-    text fields, then `SCHEMA ADD` will only be able to add up to 32 fields (meaning that the
+    text fields, then `SCHEMA ADD` will only be able to add fields up to 32 total fields (meaning that the
     index will only ever be able to contain 32 total text fields). If you wish for the index to
     contain more than 32 fields, create it with the `MAXTEXTFIELDS` option.
 
@@ -918,6 +918,38 @@ Array Reply: An array with exactly the same number of elements as the number of 
 
 ---
 
+## FT.DELETE
+
+### Format
+
+```
+FT.DELETE {index} [DD]
+```
+
+### Description
+
+Deletes the index. 
+
+By default, FT.DELETE does not delete the document hashes associated with the index. Adding the DD option deletes the hashes as well.
+
+Since RediSearch 2.0
+
+### Example
+```sql
+FT.DELETE idx DD 
+```
+
+### Parameters
+
+- **index**: The Fulltext index name. The index must be first created with FT.CREATE
+- **DD**: If set, the drop operation will delete the actual document hashes.
+
+### Returns
+
+Status Reply: OK on success.
+
+---
+
 ## FT.DROP
 
 ### Format
@@ -928,7 +960,9 @@ FT.DROP {index} [KEEPDOCS]
 
 ### Description
 
-Deletes all the keys associated with the index. 
+!!! warning "This command is deprecated"
+
+Deletes the index and all the keys associated with it. 
 
 By default, DROP deletes the document hashes as well, but adding the KEEPDOCS option keeps the documents in place, ready for re-indexing.
 

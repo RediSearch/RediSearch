@@ -248,11 +248,6 @@ IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec);
  */
 const FieldSpec *IndexSpec_GetField(const IndexSpec *spec, const char *name, size_t len);
 
-/**
- * Case-sensitive version of GetField()
- */
-const FieldSpec *IndexSpec_GetFieldCase(const IndexSpec *spec, const char *name, size_t n);
-
 const char *GetFieldNameByBit(const IndexSpec *sp, t_fieldMask id);
 
 /* Get the field bitmask id of a text field by name. Return 0 if the field is not found or is not a

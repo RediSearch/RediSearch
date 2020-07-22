@@ -429,11 +429,13 @@ int OptimizeIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
 /*
  * FT.DROP <index> [KEEPDOCS]
- * Deletes all the keys associated with the index.
+ * FT.DELETE <index> [DD]
+ * Deletes index and possibly all the keys associated with the index.
  * If no other data is on the redis instance, this is equivalent to FLUSHDB,
  * apart from the fact that the index specification is not deleted.
  *
- * If KEEPDOCS exists, we do not delete the actual docs
+ * FT.DROP, deletes all keys by default. If KEEPDOCS exists, we do not delete the actual docs
+ * FT.DELETE, keeps all keys by default. If DD exists, we delete the actual docs
  */
 int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // at least one field, and number of field/text args must be even
@@ -448,8 +450,23 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
 
+  int delDocs;
+  if (RMUtil_StringEqualsCaseC(argv[0], "FT.DROP") ||
+      // checking for RSCoordinator
+      RMUtil_StringEqualsCaseC(argv[0], "_FT.DROP")) {
+    delDocs = 1;
+    if (argc == 3 && RMUtil_StringEqualsCaseC(argv[2], "KEEPDOCS")) {
+      delDocs = 0;
+    }
+  } else { // FT.DELETE
+    delDocs = 0;
+    if (argc == 3 && RMUtil_StringEqualsCaseC(argv[2], "DD")) {
+      delDocs = 1;
+    }
+  }
+
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
-  Redis_DropIndex(&sctx, true);
+  Redis_DropIndex(&sctx, delDocs);
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
@@ -844,6 +861,8 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   RM_TRY(RedisModule_CreateCommand, ctx, RS_CMD_PREFIX ".OPTIMIZE", OptimizeIndexCommand,
          "write deny-oom", 1, 1, 1);  // todo: depricate
   RM_TRY(RedisModule_CreateCommand, ctx, RS_DROP_CMD, DropIndexCommand, "write",
+         INDEX_ONLY_CMD_ARGS);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_DELETE_CMD, DropIndexCommand, "write",
          INDEX_ONLY_CMD_ARGS);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_INFO_CMD, IndexInfoCommand, "readonly",

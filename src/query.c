@@ -530,7 +530,6 @@ static IndexIterator *Query_EvalGeofilterNode(QueryEvalCtx *q, QueryGeofilterNod
   }
 
   return NewGeoRangeIterator(q->sctx, node->gf);
-
 }
 
 static IndexIterator *Query_EvalIdFilterNode(QueryEvalCtx *q, QueryIdFilterNode *node) {
@@ -698,8 +697,7 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
   }
   QueryTagNode *node = &qn->tag;
   RedisModuleKey *k = NULL;
-  const FieldSpec *fs =
-      IndexSpec_GetFieldCase(q->sctx->spec, node->fieldName, strlen(node->fieldName));
+  const FieldSpec *fs = IndexSpec_GetField(q->sctx->spec, node->fieldName, strlen(node->fieldName));
   if (!fs) {
     return NULL;
   }

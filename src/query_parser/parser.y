@@ -434,14 +434,14 @@ modifier(A) ::= MODIFIER(B) . {
 
 modifierlist(A) ::= modifier(B) OR term(C). {
     A = NewVector(char *, 2);
-    char *s = strdupcase(B.s, B.len);
+    char *s = rm_strndup(B.s, B.len);
     Vector_Push(A, s);
-    s = strdupcase(C.s, C.len);
+    s = rm_strndup(C.s, C.len);
     Vector_Push(A, s);
 }
 
 modifierlist(A) ::= modifierlist(B) OR term(C). {
-    char *s = strdupcase(C.s, C.len);
+    char *s = rm_strndup(C.s, C.len);
     Vector_Push(B, s);
     A = B;
 }
