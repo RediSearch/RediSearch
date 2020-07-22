@@ -450,7 +450,7 @@ int Redis_DropScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaq
   return REDISMODULE_OK;
 }
 
-static int Redis_DeleteKey(RedisModuleCtx *ctx, RedisModuleString *s) {
+int Redis_DeleteKey(RedisModuleCtx *ctx, RedisModuleString *s) {
   RedisModuleKey *k = RedisModule_OpenKey(ctx, s, REDISMODULE_WRITE);
   if (k != NULL) {
     RedisModule_DeleteKey(k);
@@ -459,6 +459,8 @@ static int Redis_DeleteKey(RedisModuleCtx *ctx, RedisModuleString *s) {
   }
   return 0;
 }
+
+#if 0
 
 int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments) {
   if (deleteDocuments) {
@@ -470,3 +472,5 @@ int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments) {
 
   return REDISMODULE_OK;
 }
+
+#endif // 0

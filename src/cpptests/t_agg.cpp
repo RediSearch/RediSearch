@@ -15,6 +15,8 @@
 class AggTest : public ::testing::Test {};
 using RS::addDocument;
 
+#if 0
+
 TEST_F(AggTest, testBasic) {
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
   QueryError qerr = {QueryErrorCode(0)};
@@ -82,6 +84,8 @@ TEST_F(AggTest, testBasic) {
   aggArgs.clear();
   RedisModule_FreeThreadSafeContext(ctx);
 }
+
+#endif // 0
 
 class RPMock : public ResultProcessor {
  public:

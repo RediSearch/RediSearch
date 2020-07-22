@@ -200,6 +200,11 @@ typedef struct IndexSpec {
   struct DocumentIndexer *indexer;
 
   SchemaRule *rule;
+
+  bool isReindexing;
+  size_t keysIndexed, keysTotal;
+  bool isDropped;
+  bool cascadeDelete;
 } IndexSpec;
 
 typedef struct {
@@ -369,21 +374,23 @@ int IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len);
  * N terms from the index and then doing weighted random on them. A sample size of 10-20 should be
  * enough */
 char *IndexSpec_GetRandomTerm(IndexSpec *sp, size_t sampleSize);
+
 /*
- * Free an indexSpec. This doesn't free the spec itself as it's not allocated by the parser
- * and should be on the request's stack
+ * Free an indexSpec.
  */
-void IndexSpec_Free(void *spec);
-void IndexSpec_FreeInternals(IndexSpec *spec);
+void IndexSpec_Free(IndexSpec *spec);
+//void IndexSpec_FreeInternals(IndexSpec *spec);
 
 /**
  * Free the index synchronously. Any keys associated with the index (but not the
  * documents themselves) are freed before this function returns.
  */
-void IndexSpec_FreeSync(IndexSpec *spec);
+//void IndexSpec_FreeSync(IndexSpec *spec);
 
+#if 0
 /** Delete the redis key from Redis */
 void IndexSpec_FreeWithKey(IndexSpec *spec, RedisModuleCtx *ctx);
+#endif // 0
 
 /* Parse a new stopword list and set it. If the parsing fails we revert to the default stopword
  * list, and return 0 */

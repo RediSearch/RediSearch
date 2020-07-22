@@ -65,6 +65,8 @@ TEST_F(DocumentTest, testLoadAll) {
   Document_Free(&d);
 }
 
+#if 0
+
 TEST_F(DocumentTest, testLoadSchema) {
   // Create a database
   QueryError status = {};
@@ -104,3 +106,5 @@ TEST_F(DocumentTest, testLoadSchema) {
   Document_Free(&d);
   IndexSpec_FreeWithKey(spec, ctx);
 }
+
+#endif // 0

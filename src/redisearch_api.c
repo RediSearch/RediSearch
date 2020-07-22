@@ -47,8 +47,7 @@ IndexSpec* RediSearch_CreateIndex(const char* name, const RSIndexOptions* option
 
 void RediSearch_DropIndex(IndexSpec* sp) {
   RWLOCK_ACQUIRE_WRITE();
-  dict* d = sp->keysDict;
-  IndexSpec_FreeSync(sp);
+  IndexSpec_Free(sp);
   RWLOCK_RELEASE();
 }
 
