@@ -3003,20 +3003,20 @@ def testFieldsCaseSensetive(env):
     env.expect('ft.search idx @F:test').equal([0])
 
     # make sure numeric fields are case sesitive
-    conn.execute_command('hset doc3 N 1.0')
-    conn.execute_command('hset doc4 n 1.0')
+    conn.execute_command('hset', 'doc3', 'N', '1.0')
+    conn.execute_command('hset', 'doc4', 'n', '1.0')
     env.expect('ft.search', 'idx', '@n:[0 2]').equal([1L, 'doc4', ['n', '1.0']])
     env.expect('ft.search', 'idx', '@N:[0 2]').equal([0])
 
     # make sure tag fields are case sesitive
-    conn.execute_command('hset doc5 T tag')
-    conn.execute_command('hset doc6 t tag')
+    conn.execute_command('hset', 'doc5', 'T', 'tag')
+    conn.execute_command('hset', 'doc6', 't', 'tag')
     env.expect('ft.search', 'idx', '@t:{tag}').equal([1L, 'doc6', ['t', 'tag']])
     env.expect('ft.search', 'idx', '@T:{tag}').equal([0])
 
     # make sure geo fields are case sesitive
-    conn.execute_command('hset doc8 G -113.524,53.5244')
-    conn.execute_command('hset doc9 g -113.524,53.5244')
+    conn.execute_command('hset', 'doc8', 'G', '-113.524,53.5244')
+    conn.execute_command('hset', 'doc9', 'g', '-113.524,53.5244')
     env.expect('ft.search', 'idx', '@g:[-113.52 53.52 20 mi]').equal([1L, 'doc9', ['g', '-113.524,53.5244']])
     env.expect('ft.search', 'idx', '@G:[-113.52 53.52 20 mi]').equal([0])
 
@@ -3029,7 +3029,7 @@ def testFieldsCaseSensetive(env):
     env.expect('ft.search', 'idx', '@n:[0 2]', 'RETURN', '1', 'N').equal([1L, 'doc4', []])
 
     # make sure SORTBY are case sensitive
-    conn.execute_command('hset doc7 n 1.1')
+    conn.execute_command('hset', 'doc7', 'n', '1.1')
     env.expect('ft.search', 'idx', '@n:[0 2]', 'SORTBY', 'n').equal([2L, 'doc4', ['n', '1.0'], 'doc7', ['n', '1.1']])
     env.expect('ft.search', 'idx', '@n:[0 2]', 'SORTBY', 'N').error().contains('not loaded nor in schema')
 
@@ -3058,26 +3058,26 @@ def testSortedFieldsCaseSensetive(env):
     env.cmd('FT.CREATE idx ON HASH SCHEMA n NUMERIC SORTABLE f TEXT SORTABLE t TAG SORTABLE g GEO SORTABLE')
 
     # make sure text fields are case sesitive
-    conn.execute_command('hset doc1 F test')
-    conn.execute_command('hset doc2 f test')
+    conn.execute_command('hset', 'doc1', 'F', 'test')
+    conn.execute_command('hset', 'doc2', 'f', 'test')
     env.expect('ft.search idx @f:test').equal([1L, 'doc2', ['f', 'test']])
     env.expect('ft.search idx @F:test').equal([0])
 
     # make sure numeric fields are case sesitive
-    conn.execute_command('hset doc3 N 1.0')
-    conn.execute_command('hset doc4 n 1.0')
+    conn.execute_command('hset', 'doc3', 'N', '1.0')
+    conn.execute_command('hset', 'doc4', 'n', '1.0')
     env.expect('ft.search', 'idx', '@n:[0 2]').equal([1L, 'doc4', ['n', '1.0']])
     env.expect('ft.search', 'idx', '@N:[0 2]').equal([0])
 
     # make sure tag fields are case sesitive
-    conn.execute_command('hset doc5 T tag')
-    conn.execute_command('hset doc6 t tag')
+    conn.execute_command('hset', 'doc5', 'T', 'tag')
+    conn.execute_command('hset', 'doc6', 't', 'tag')
     env.expect('ft.search', 'idx', '@t:{tag}').equal([1L, 'doc6', ['t', 'tag']])
     env.expect('ft.search', 'idx', '@T:{tag}').equal([0])
 
     # make sure geo fields are case sesitive
-    conn.execute_command('hset doc8 G -113.524,53.5244')
-    conn.execute_command('hset doc9 g -113.524,53.5244')
+    conn.execute_command('hset', 'doc8', 'G', '-113.524,53.5244')
+    conn.execute_command('hset', 'doc9', 'g', '-113.524,53.5244')
     env.expect('ft.search', 'idx', '@g:[-113.52 53.52 20 mi]').equal([1L, 'doc9', ['g', '-113.524,53.5244']])
     env.expect('ft.search', 'idx', '@G:[-113.52 53.52 20 mi]').equal([0])
 
@@ -3090,7 +3090,7 @@ def testSortedFieldsCaseSensetive(env):
     env.expect('ft.search', 'idx', '@n:[0 2]', 'RETURN', '1', 'N').equal([1L, 'doc4', []])
 
     # make sure SORTBY are case sensitive
-    conn.execute_command('hset doc7 n 1.1')
+    conn.execute_command('hset', 'doc7', 'n', '1.1')
     env.expect('ft.search', 'idx', '@n:[0 2]', 'SORTBY', 'n').equal([2L, 'doc4', ['n', '1.0'], 'doc7', ['n', '1.1']])
     env.expect('ft.search', 'idx', '@n:[0 2]', 'SORTBY', 'N').error().contains('not loaded nor in schema')
 
@@ -3113,12 +3113,12 @@ def testSortedFieldsCaseSensetive(env):
 def testScoreLangPayloadAreReturnedIfCaseNotMatchToSpecialFields(env):
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE idx ON HASH SCHEMA n NUMERIC SORTABLE')
-    conn.execute_command('hset doc1 n 1.0 __Language eng __Score 1 __Payload 10')
+    conn.execute_command('hset', 'doc1', 'n', '1.0', '__Language', 'eng', '__Score', '1', '__Payload', '10')
     env.expect('ft.search', 'idx', '@n:[0 2]').equal([1L, 'doc1', ['n', '1.0', '__Language', 'eng', '__Score', '1', '__Payload', '10']])
 
 def testReturnSameFieldDifferentCase(env):
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE idx ON HASH SCHEMA n NUMERIC SORTABLE N NUMERIC SORTABLE')
-    conn.execute_command('hset doc1 n 1.0 N 2.0')
+    conn.execute_command('hset', 'doc1', 'n', '1.0', 'N', '2.0')
     env.expect('ft.search', 'idx', '@n:[0 2]', 'RETURN', '2', 'n', 'N').equal([1L, 'doc1', ['n', '1', 'N', '2']])
 
