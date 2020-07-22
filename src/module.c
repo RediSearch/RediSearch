@@ -451,7 +451,9 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   int delDocs;
-  if (RMUtil_StringEqualsCaseC(argv[0], "FT.DROP")) {
+  if (RMUtil_StringEqualsCaseC(argv[0], "FT.DROP") ||
+      // checking for RSCoordinator
+      RMUtil_StringEqualsCaseC(argv[0], "_FT.DROP")) {
     delDocs = 1;
     if (argc == 3 && RMUtil_StringEqualsCaseC(argv[2], "KEEPDOCS")) {
       delDocs = 0;
