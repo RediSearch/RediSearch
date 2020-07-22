@@ -28,37 +28,26 @@ static uint64_t spec_unique_ids = 1;
 
 dict *specDict;
 
-static const FieldSpec *getFieldCommon(const IndexSpec *spec, const char *name, size_t len,
-                                       int useCase) {
+static const FieldSpec *getFieldCommon(const IndexSpec *spec, const char *name, size_t len) {
   for (size_t i = 0; i < spec->numFields; i++) {
     if (len != strlen(spec->fields[i].name)) {
       continue;
     }
     const FieldSpec *fs = spec->fields + i;
-    if (useCase) {
-      if (!strncmp(fs->name, name, len)) {
-        return fs;
-      }
-    } else {
-      if (!strncasecmp(fs->name, name, len)) {
-        return fs;
-      }
+    if (!strncmp(fs->name, name, len)) {
+      return fs;
     }
   }
   return NULL;
 }
 
 /*
- * Get a field spec by field name. Case insensitive!
+ * Get a field spec by field name. Case sensetive!
  * Return the field spec if found, NULL if not
  */
 const FieldSpec *IndexSpec_GetField(const IndexSpec *spec, const char *name, size_t len) {
-  return getFieldCommon(spec, name, len, 0);
+  return getFieldCommon(spec, name, len);
 };
-
-const FieldSpec *IndexSpec_GetFieldCase(const IndexSpec *spec, const char *name, size_t n) {
-  return getFieldCommon(spec, name, n, 1);
-}
 
 t_fieldMask IndexSpec_GetFieldBit(IndexSpec *spec, const char *name, size_t len) {
   const FieldSpec *fs = IndexSpec_GetField(spec, name, len);
@@ -766,8 +755,7 @@ static void IndexSpec_FreeAsync(void *data) {
   RedisModule_AutoMemory(threadCtx);
   RedisModule_ThreadSafeContextLock(threadCtx);
 
-  Redis_DropIndex(&sctx, false);
-  IndexSpec_FreeInternals(spec);
+  Redis_DropIndex(&sctx, true);
 
   RedisModule_ThreadSafeContextUnlock(threadCtx);
   RedisModule_FreeThreadSafeContext(threadCtx);
@@ -801,7 +789,7 @@ void IndexSpec_FreeSync(IndexSpec *spec) {
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
   RedisModule_AutoMemory(ctx);
   if (!IndexSpec_IsKeyless(spec)) {
-    Redis_DropIndex(&sctx, 1);
+    Redis_DropIndex(&sctx, false);
   }
   IndexSpec_FreeInternals(spec);
   RedisModule_FreeThreadSafeContext(ctx);

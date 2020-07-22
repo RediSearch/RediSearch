@@ -57,7 +57,7 @@ void FieldList_Free(FieldList *fields) {
 ReturnedField *FieldList_GetCreateField(FieldList *fields, const char *name) {
   size_t foundIndex = -1;
   for (size_t ii = 0; ii < fields->numFields; ++ii) {
-    if (!strcasecmp(fields->fields[ii].name, name)) {
+    if (!strcmp(fields->fields[ii].name, name)) {
       return fields->fields + ii;
     }
   }
