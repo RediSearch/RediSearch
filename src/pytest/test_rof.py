@@ -1,4 +1,4 @@
-def createRdb(env):
+def createRdb(env, q):
   r = env.getConnection().pipeline()
 
   a_list = ['A', 'DSL', 'for', 'Abstract', 'Data', 'Types.', 'Redis', 'is', 'a', 'DSL', '(Domain', 'Specific', 'Language)', 'that', 'manipulates', 'abstract', 'data', 'types', 'and', 'implemented', 'as', 'a', 'TCP', 'daemon.', 'Commands', 'manipulate', 'a', 'key', 'space', 'where', 'keys', 'are', 'binary-safe', 'strings', 'and', 'values', 'are', 'different', 'kinds', 'of', 'abstract', 'data', 'types.', 'Every', 'data', 'type', 'represents', 'an', 'abstract', 'version', 'of', 'a', 'fundamental', 'data', 'structure.', 'For', 'instance', 'Redis', 'Lists', 'are', 'an', 'abstract', 'representation', 'of', 'linked', 'lists.', 'In', 'Redis,', 'the', 'essence', 'of', 'a', 'data', 'type', 'isnt', 'just', 'the', 'kind', 'of', 'operations', 'that', 'the', 'data', 'types', 'support,', 'but', 'also', 'the', 'space', 'and', 'time', 'complexity', 'of', 'the', 'data', 'type', 'and', 'the', 'operations', 'performed', 'upon', 'it.']
@@ -21,10 +21,16 @@ def createRdb(env):
               i+=1
               if i % 10000 == 0:
                 r.execute()
-              if i == 5000000:
+              if i == q:
+                r.execute()
                 return
 
 def testRoF(env):
-  #if env.cmd('info big') == '':
-  #  env.skip()
-  createRdb(env)
+  if env.cmd('info big') == '':
+    env.skip()
+  q = 100000
+  createRdb(env, q)
+
+  for _ in env.retry_with_rdb_reload():
+    env.expect('ft.search rof * limit 0 0').equal([q])
+
