@@ -307,7 +307,7 @@ indexing. Existing documents will not be reindexed.
 !!! note
     Depending on how the index was created, you may be limited by the amount of additional text
     fields which can be added to an existing index. If the current index contains less than 32
-    text fields, then `SCHEMA ADD` will only be able to add up to 32 fields (meaning that the
+    text fields, then `SCHEMA ADD` will only be able to add fields up to 32 total fields (meaning that the
     index will only ever be able to contain 32 total text fields). If you wish for the index to
     contain more than 32 fields, create it with the `MAXTEXTFIELDS` option.
 
