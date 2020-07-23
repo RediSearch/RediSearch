@@ -11,28 +11,25 @@ def getConnectionByEnv(env):
 
 def testSyntax1(env):
     conn = getConnectionByEnv(env)
-    env.expect('ft.create', 'things',
-            'SCHEMA', 'name', 'text').equal('No rule type given')
-            
     env.expect('ft.create', 'idx', 
                'ONfoo*',
-            'SCHEMA', 'foo', 'text').equal('No rule type given')
+            'SCHEMA', 'foo', 'text').equal('Unknown argument `ONfoo*`')
             
     env.expect('ft.create', 'idx2',
             'LANGUAGE', 'eng' 
-            'SCHEMA', 'foo', 'text').equal('No rule type given')
+            'SCHEMA', 'foo', 'text').equal('Unknown argument `foo`')
             
     env.expect('ft.create', 'idx2',
             'SCORE', '1.0' 
-            'SCHEMA', 'foo', 'text').equal('No rule type given')
+            'SCHEMA', 'foo', 'text').equal('Unknown argument `foo`')
             
     env.expect('ft.create', 'idx2',
             'PAYLOAD', 'awfw' 
-            'SCHEMA', 'foo', 'text').equal('No rule type given')
+            'SCHEMA', 'foo', 'text').equal('Unknown argument `foo`')
             
     env.expect('ft.create', 'idx2',
             'FILTER', 'a' 
-            'SCHEMA', 'foo', 'text').equal('No rule type given')
+            'SCHEMA', 'foo', 'text').equal("Unknown symbol 'aSCHEMA'")
 
 def testFilter1(env):
     conn = getConnectionByEnv(env)
@@ -215,6 +212,5 @@ def testSortable(env):
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo1').equal('OK')
 
 def testMissingArgs(env):
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'txt', 'TEXT', 'num', 'NUMERIC').error()
     env.expect('FT.CREATE', 'idx', 'ON', 'SCHEMA', 'txt', 'TEXT', 'num', 'NUMERIC').error()
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'SCHEMA', 'txt', 'TEXT', 'num', 'NUMERIC').error()
