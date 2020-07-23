@@ -86,6 +86,22 @@ void SchemaRule_Free(SchemaRule *rule) {
 
 //---------------------------------------------------------------------------------------------
 
+static SchemaPrefixNode *SchemaPrefixNode_Create(const char *prefix, IndexSpec *index) {
+  SchemaPrefixNode *node = rm_calloc(1, sizeof(*node));
+  node->prefix = rm_strdup(prefix);
+  node->index_specs = array_new(IndexSpec *, 1);
+  node->index_specs = array_append(node->index_specs, index);
+  return node;
+}
+
+static void SchemaPrefixNode_Free(SchemaPrefixNode *node) {
+  array_free(node->index_specs);
+  rm_free(node->prefix);
+  rm_free(node);
+}
+
+//---------------------------------------------------------------------------------------------
+
 RSLanguage SchemaRule_HashLang(RedisModuleCtx *rctx, const SchemaRule *rule, RedisModuleKey *key,
                                const char *kname) {
   RSLanguage lang = DEFAULT_LANGUAGE;
@@ -267,10 +283,7 @@ void SchemaPrefixes_Create() {
 }
 
 static void freePrefixNode(void *ctx) {
-  SchemaPrefixNode *node = ctx;
-  array_free(node->index_specs);
-  rm_free(node->prefix);
-  rm_free(node);
+  SchemaPrefixNode_Free(ctx);
 }
 
 void SchemaPrefixes_Free() {
@@ -309,20 +322,6 @@ void SchemaPrefixes_RemoveSpec(IndexSpec *spec) {
     }
   }
   TrieMapIterator_Free(it);
-}
-
-//---------------------------------------------------------------------------------------------
-
-SchemaPrefixNode *SchemaPrefixNode_Create(const char *prefix, IndexSpec *index) {
-  SchemaPrefixNode *node = rm_calloc(1, sizeof(*node));
-  node->prefix = rm_strdup(prefix);
-  node->index_specs = array_new(IndexSpec *, 1);
-  node->index_specs = array_append(node->index_specs, index);
-  return node;
-}
-
-void SchemaPrefixNode_Free(SchemaPrefixNode *node) {
-  freePrefixNode(node);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

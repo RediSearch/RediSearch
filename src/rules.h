@@ -71,7 +71,4 @@ typedef struct {
   arrayof(struct IndexSpec *) index_specs;
 } SchemaPrefixNode;
 
-SchemaPrefixNode *SchemaPrefixNode_Create(const char *prefix, struct IndexSpec *index);
-void SchemaPrefixNode_Free(SchemaPrefixNode *);
-
 ///////////////////////////////////////////////////////////////////////////////////////////////
