@@ -460,8 +460,6 @@ int Redis_DeleteKey(RedisModuleCtx *ctx, RedisModuleString *s) {
   return 0;
 }
 
-#if 0
-
 int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments) {
   if (deleteDocuments) {
     DocTable *dt = &ctx->spec->docs;
@@ -473,4 +471,3 @@ int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments) {
   return REDISMODULE_OK;
 }
 
-#endif // 0

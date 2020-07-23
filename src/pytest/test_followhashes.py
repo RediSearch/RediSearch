@@ -1,5 +1,6 @@
 import unittest
 from includes import *
+from common import waitForIndex
 
 def getConnectionByEnv(env):
     conn = None
@@ -171,6 +172,7 @@ def testPayload(env):
     conn.execute_command('hset', 'thing:foo', 'name', 'foo', 'payload', 'stuff')
 
     for _ in env.retry_with_rdb_reload():
+        waitForIndex(env, 'things')
         env.expect('ft.search', 'things', 'foo') \
            .equal([1L, 'thing:foo', ['name', 'foo', 'payload', 'stuff']])
 
@@ -203,6 +205,7 @@ def testReplace(env):
     env.assertEqual(res, 0)
 
     for _ in r.retry_with_rdb_reload():
+        waitForIndex(env, 'idx')
         # make sure the query for hello world does not return the replaced document
         r.expect('ft.search', 'idx', 'hello world', 'nocontent').equal([1, 'doc2'])
 

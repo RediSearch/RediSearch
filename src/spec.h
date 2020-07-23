@@ -203,7 +203,7 @@ typedef struct IndexSpec {
 
   bool isReindexing;
   size_t keysIndexed, keysTotal;
-  bool isDropped;
+  //bool isDropped;
   bool cascadeDelete;
 } IndexSpec;
 
@@ -379,13 +379,13 @@ char *IndexSpec_GetRandomTerm(IndexSpec *sp, size_t sampleSize);
  * Free an indexSpec.
  */
 void IndexSpec_Free(IndexSpec *spec);
-//void IndexSpec_FreeInternals(IndexSpec *spec);
+void IndexSpec_FreeInternals(IndexSpec *spec);
 
 /**
  * Free the index synchronously. Any keys associated with the index (but not the
  * documents themselves) are freed before this function returns.
  */
-//void IndexSpec_FreeSync(IndexSpec *spec);
+void IndexSpec_FreeSync(IndexSpec *spec);
 
 #if 0
 /** Delete the redis key from Redis */

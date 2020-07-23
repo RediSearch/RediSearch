@@ -125,6 +125,7 @@ def testUnion(env):
                                         'f', 'hello world' if i % 2 == 0 else 'hallo werld'))
 
     for _ in r.retry_with_rdb_reload():
+        waitForIndex(r, 'idx')
         res = r.execute_command(
             'ft.search', 'idx', 'hello|hallo', 'nocontent', 'limit', '0', '100')
         env.assertEqual(N + 1, len(res))
@@ -161,23 +162,22 @@ def testUnion(env):
         env.assertEqual(50, res[0])
 
         res = r.execute_command(
-            'ft.search', 'idx', '(hello world)|((hello world)|(hallo world|werld) | hello world werld)', 'nocontent', 'verbatim', 'limit', '0', '100')
+            'ft.search', 'idx', '(hello world)|((hello world)|(hallo world|werld) | hello world werld)',
+            'nocontent', 'verbatim', 'limit', '0', '100')
         env.assertEqual(101, len(res))
         env.assertEqual(100, res[0])
 
 def testSearch(env):
     r = env
-    env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH',
-        'schema', 'title', 'text', 'weight', 10.0, 'body', 'text'))
-    env.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 0.5, 'fields',
-                                    'title', 'hello world',
-                                    'body', 'lorem ist ipsum'))
-    env.assertOk(r.execute_command('ft.add', 'idx', 'doc2', 1.0, 'fields',
-                                    'title', 'hello another world',
-                                    'body', 'lorem ist ipsum lorem lorem'))
+    r.expect('ft.create', 'idx', 'ON', 'HASH',
+             'schema', 'title', 'text', 'weight', 10.0, 'body', 'text').ok()
+    r.expect('ft.add', 'idx', 'doc1', 0.5,
+             'fields','title', 'hello world', 'body', 'lorem ist ipsum').ok()
+    r.expect('ft.add', 'idx', 'doc2', 1.0,
+             'fields', 'title', 'hello another world', 'body', 'lorem ist ipsum lorem lorem').ok()
     # order of documents might change after reload
     for _ in r.retry_with_rdb_reload():
+        waitForIndex(env, 'idx')
         res = r.execute_command('ft.search', 'idx', 'hello')
         expected = ['doc2', ['title', 'hello another world', 'body', 'lorem ist ipsum lorem lorem'],
                     'doc1', ['title', 'hello world', 'body', 'lorem ist ipsum']]
@@ -324,6 +324,7 @@ def testDelete(env):
         env.assertEqual(1, r.execute_command(
             'ft.del', 'idx', 'doc%d' % i))
     for _ in r.retry_with_rdb_reload():
+        waitForIndex(env, 'idx')
         did = 'rrrr'
         env.assertOk(r.execute_command('ft.add', 'idx', did, 1, 'fields',
                                         'f', 'hello world'))
@@ -358,6 +359,7 @@ def testReplace(env):
                                     'f', 'goodbye universe'))
 
     for _ in r.retry_with_rdb_reload():
+        waitForIndex(env, 'idx')
         # make sure the query for hello world does not return the replaced
         # document
         res = r.execute_command(
@@ -411,39 +413,36 @@ def testDrop(env):
 
 def testDelete(env):
     r = env
-    env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH', 'schema', 'f', 'text', 'n', 'numeric', 't', 'tag', 'g', 'geo'))
+    r.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'f', 'text', 'n', 'numeric', 't', 'tag', 'g', 'geo').ok()
 
     for i in range(100):
-        env.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
-                                        'f', 'hello world', 'n', 666, 't', 'foo bar',
-                                        'g', '19.04,47.497'))
+        r.expect('ft.add', 'idx', 'doc%d' % i, 1.0,
+                 'fields', 'f', 'hello world', 'n', 666, 't', 'foo bar',
+                 'g', '19.04,47.497').ok()
     keys = r.keys('*')
     env.assertGreaterEqual(len(keys), 100)
 
-    env.assertOk(r.execute_command('ft.delete', 'idx', 'dd'))
+    r.expect('ft.delete', 'idx', 'dd').ok()
     keys = r.keys('*')
 
     env.assertEqual(0, len(keys))
     env.flush()
 
     # Now do the same with KEEPDOCS
-    env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH',
-        'schema', 'f', 'text', 'n', 'numeric', 't', 'tag', 'g', 'geo'))
+    env.expect('ft.create', 'idx', 'ON', 'HASH',
+               'schema', 'f', 'text', 'n', 'numeric', 't', 'tag', 'g', 'geo').ok()
 
     for i in range(100):
-        env.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
-                                        'f', 'hello world', 'n', 666, 't', 'foo bar',
-                                        'g', '19.04,47.497'))
+        r.expect('ft.add', 'idx', 'doc%d' % i, 1.0,
+                 'fields', 'f', 'hello world', 'n', 666, 't', 'foo bar',
+                 'g', '19.04,47.497').ok()
     keys = r.keys('*')
     env.assertGreaterEqual(len(keys), 100)
 
     if not env.is_cluster():
-        env.assertOk(r.execute_command('ft.delete', 'idx'))
+        r.expect('ft.delete', 'idx').ok()
         keys = r.keys('*')
-        env.assertListEqual(['doc0', 'doc1', 'doc10', 'doc11', 'doc12', 'doc13', 'doc14', 'doc15', 'doc16', 'doc17', 'doc18', 'doc19', 'doc2', 'doc20', 'doc21', 'doc22', 'doc23', 'doc24', 'doc25', 'doc26', 'doc27', 'doc28', 'doc29', 'doc3', 'doc30', 'doc31', 'doc32', 'doc33', 'doc34', 'doc35', 'doc36', 'doc37', 'doc38', 'doc39', 'doc4', 'doc40', 'doc41', 'doc42', 'doc43', 'doc44', 'doc45', 'doc46', 'doc47', 'doc48', 'doc49', 'doc5', 'doc50', 'doc51', 'doc52', 'doc53',
-                              'doc54', 'doc55', 'doc56', 'doc57', 'doc58', 'doc59', 'doc6', 'doc60', 'doc61', 'doc62', 'doc63', 'doc64', 'doc65', 'doc66', 'doc67', 'doc68', 'doc69', 'doc7', 'doc70', 'doc71', 'doc72', 'doc73', 'doc74', 'doc75', 'doc76', 'doc77', 'doc78', 'doc79', 'doc8', 'doc80', 'doc81', 'doc82', 'doc83', 'doc84', 'doc85', 'doc86', 'doc87', 'doc88', 'doc89', 'doc9', 'doc90', 'doc91', 'doc92', 'doc93', 'doc94', 'doc95', 'doc96', 'doc97', 'doc98', 'doc99'], sorted(keys))
+        env.assertListEqual(sorted("doc%d" %k for k in range(100)), sorted(keys))
 
     env.expect('FT.Delete', 'idx', 'dd', '666').error().contains("wrong number of arguments")
 
@@ -475,6 +474,7 @@ def testCustomStopwords(env):
         'ft.add', 'idx', 'doc2', 1.0, 'fields', 'foo', 'to be or not to be'))
 
     for _ in r.retry_with_rdb_reload():
+        waitForIndex(r, 'idx')
         # Normal index should return results just for 'hello world'
         env.assertEqual([1, 'doc1'],  r.execute_command(
             'ft.search', 'idx', 'hello world', 'nocontent'))
@@ -872,7 +872,7 @@ def testInKeys(env):
                                         'foo', 'hello world'))
 
     for _ in r.retry_with_rdb_reload():
-
+        waitForIndex(env, 'idx')
         for keys in (
             ['doc%d' % i for i in range(10)], ['doc%d' % i for i in range(0, 30, 2)], [
                 'doc%d' % i for i in range(99, 0, -5)]
@@ -995,6 +995,7 @@ def testGeo(env):
                                         hotel[0], 'location', '{},{}'.format(hotel[2], hotel[1])))
 
     for _ in r.retry_with_rdb_reload():
+        waitForIndex(env, 'idx')
         res = r.execute_command('ft.search', 'idx', 'hilton')
         env.assertEqual(len(hotels), res[0])
 
@@ -1266,6 +1267,7 @@ def testNumericRange(env):
                                         'title', 'hello kitty', 'score', i, 'price', 100 + 10 * i))
 
     for _ in r.retry_with_rdb_reload():
+        waitForIndex(env, 'idx')
         res = r.execute_command('ft.search', 'idx', 'hello kitty', "nocontent",
                                 "filter", "score", 0, 100)
 
@@ -1353,7 +1355,6 @@ def testSuggestions(env):
         sz += 1
 
     for _ in r.retry_with_rdb_reload():
-
         env.assertEqual(7, r.execute_command('ft.SUGLEN', 'ac'))
 
         # search not fuzzy
@@ -1430,6 +1431,7 @@ def testPayload(env):
                  'fields', 'f', 'hello world').ok()
 
     for x in r.retry_with_rdb_reload():
+        waitForIndex(env, 'idx')
         res = r.execute_command('ft.search', 'idx', 'hello world')
         r.assertEqual(21, len(res))
 
@@ -1608,6 +1610,7 @@ def testInfoCommand(env):
         env.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1, 'replace', 'fields',
                                         'title', 'hello term%d' % i))
     for _ in r.retry_with_rdb_reload():
+        waitForIndex(env, 'idx')
 
         res = r.execute_command('ft.info', 'idx')
         d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
@@ -1913,7 +1916,6 @@ def testAlterIndex(env):
 
     for _ in env.retry_with_reload():
         # Test that sortable works
-        waitForIndex(env, 'idx')
         res = env.cmd('FT.SEARCH', 'idx', 'hello', 'SORTBY', 'f3', 'DESC')
         exp = [12, 'doc12', ['f1', 'hello', 'f3', 'val9'], 'doc11', ['f1', 'hello', 'f3', 'val8'],
                    'doc10', ['f1', 'hello', 'f3', 'val7'], 'doc9',  ['f1', 'hello', 'f3', 'val6'],
@@ -1952,6 +1954,7 @@ def testAlterValidation(env):
 
     env.cmd('FT.ADD', 'idx2', 'doc1', 1.0, 'FIELDS', 'f50', 'hello')
     for _ in env.retry_with_reload():
+        waitForIndex(env, 'idx2')
         ret = env.cmd('FT.SEARCH', 'idx2', '@f50:hello')
         env.assertEqual([1, 'doc1', ['f50', 'hello']], ret)
 
@@ -2109,6 +2112,7 @@ def testAlias(env):
     env.cmd('ft.aliasAdd', 'myIndex', 'idx3')
     # also, check that this works in rdb save
     for _ in env.retry_with_rdb_reload():
+        waitForIndex(env, 'myIndex')
         r = env.cmd('ft.search', 'myIndex', 'foo')
         env.assertEqual([1L, 'doc3', ['t1', 'foo']], r)
 
@@ -2994,7 +2998,7 @@ def testIssue1208(env):
 
     env.expect('FT.ADD idx doc3 1 REPLACE PARTIAL IF @n>42e3 FIELDS n 100').equal('NOADD')
     env.expect('FT.ADD idx doc3 1 REPLACE PARTIAL IF @n<42e3 FIELDS n 100').ok()
-    print env.cmd('FT.SEARCH', 'idx', '@n:[-inf inf]')
+    # print env.cmd('FT.SEARCH', 'idx', '@n:[-inf inf]')
 
 def testFieldsCaseSensetive(env):
     # this test will not pass on coordinator coorently as if one shard return empty results coordinator

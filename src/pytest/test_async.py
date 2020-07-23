@@ -50,9 +50,4 @@ def testDeleteIndex(env):
 
     r.expect('ft.create', 'idx', 'ON', 'HASH', 'ASYNC', 'schema', 'name', 'text').ok()
     r.expect('ft.drop', 'idx').ok()
-
-    r.expect('ft.info', idx).equal('')
-    #waitForIndex(r, 'idx')
-    #for _ in r.retry_with_rdb_reload():
-    #    res = r.execute_command('ft.search', 'idx', 'doe', 'nocontent')
-    #    env.assertEqual(N, res[0])
+    r.expect('ft.info', 'idx').equal('Unknown Index name')

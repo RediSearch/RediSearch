@@ -1,4 +1,5 @@
 from includes import *
+from common import waitForIndex
 
 def search(env, r, *args):
     return r.execute_command('ft.search', *args)
@@ -13,6 +14,7 @@ def testTagIndex(env):
         env.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % n, 1.0, 'fields',
                                        'title', 'hello world term%d' % n, 'tags', 'foo bar,xxx,tag %d' % n))
     for _ in r.retry_with_rdb_reload():
+        waitForIndex(r, 'idx')
         res = env.cmd('ft.search', 'idx', 'hello world')
         env.assertEqual(10, res[0])
 
