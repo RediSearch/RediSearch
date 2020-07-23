@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 import unittest
 from includes import *
 
@@ -17,7 +19,7 @@ def testSyntax1(env):
             
     env.expect('ft.create', 'idx2',
             'LANGUAGE', 'eng' 
-            'SCHEMA', 'foo', 'text').equal('Unknown argument `foo`')
+            'SCHEMA', 'foo', 'text').equal('Invalid language')
             
     env.expect('ft.create', 'idx2',
             'SCORE', '1.0' 
@@ -214,3 +216,32 @@ def testSortable(env):
 def testMissingArgs(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'SCHEMA', 'txt', 'TEXT', 'num', 'NUMERIC').error()
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'FILTER', 'SCHEMA', 'txt', 'TEXT', 'num', 'NUMERIC').error()
+
+def testWrongArgs(env):
+    env.expect('FT.CREATE', 'idx', 'SCORE', 'SCHEMA', 'txt', 'TEXT', 'num', 'NUMERIC').error()
+    env.expect('FT.CREATE', 'idx', 'SCORE', 10, 'SCHEMA', 'txt', 'TEXT', 'num', 'NUMERIC').error()
+    env.expect('FT.CREATE', 'idx', 'LANGUAGE', 'SCHEMA', 'txt', 'TEXT', 'num', 'NUMERIC').error()
+    env.expect('FT.CREATE', 'idx', 'LANGUAGE', 'none', 'SCHEMA', 'txt', 'TEXT', 'num', 'NUMERIC').error()
+
+def testLanguageDefaultAndField(env):
+    env.cmd('FT.CREATE', 'idxTest1', 'LANGUAGE_FIELD', '__language', 'SCHEMA', 'body', 'TEXT')
+    env.cmd('FT.ADD', 'idxTest1', 'doc1', 1.0, 'LANGUAGE', 'hindi', 'FIELDS', 'body', u'अँगरेजी अँगरेजों अँगरेज़')
+    res = env.cmd('FT.SEARCH', 'idxTest1', u'अँगरेज़')
+    res1 = {res[2][i]:res[2][i + 1] for i in range(0, len(res[2]), 2)}
+    env.assertEqual(u'अँगरेजी अँगरेजों अँगरेज़', unicode(res1['body'], 'utf-8'))
+
+    # test for default langauge
+    env.cmd('FT.CREATE', 'idxTest2', 'LANGUAGE', 'hindi', 'SCHEMA', 'body', 'TEXT')
+    env.cmd('FT.ADD', 'idxTest2', 'doc2', 1.0, 'FIELDS', 'body', u'अँगरेजी अँगरेजों अँगरेज़')
+    res = env.cmd('FT.SEARCH', 'idxTest2', u'अँगरेज़')
+    res1 = {res[2][i]:res[2][i + 1] for i in range(0, len(res[2]), 2)}
+    env.assertEqual(u'अँगरेजी अँगरेजों अँगरेज़', unicode(res1['body'], 'utf-8'))
+
+def testScoreDecimal(env):
+    env.expect('ft.create idx1 SCORE 0.5 schema title text').ok()
+    env.expect('ft.create idx2 SCORE_FIELD score schema title text').ok()
+    env.expect('hset doc1 title hello score 0.25').equal(2)
+    res = env.cmd('ft.search idx1 hello withscores nocontent')
+    env.assertEqual(float(res[2]), 0.5)
+    res = env.cmd('ft.search idx2 hello withscores nocontent')
+    env.assertEqual(float(res[2]), 0.25)
