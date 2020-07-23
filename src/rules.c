@@ -243,6 +243,8 @@ int SchemaRule_RdbLoad(IndexSpec *sp, RedisModuleIO *rdb, int encver) {
     QueryError_ClearError(&status);
     ret = REDISMODULE_ERR;
   } else {
+    rule->score_default = RedisModule_LoadDouble(rdb);
+    rule->lang_default = RedisModule_LoadUnsigned(rdb);
     sp->rule = rule;
   }
 
@@ -298,6 +300,8 @@ void SchemaRule_RdbSave(SchemaRule *rule, RedisModuleIO *rdb) {
   } else {
     RedisModule_SaveUnsigned(rdb, 0);
   }
+  RedisModule_SaveDouble(rdb, rule->score_default);
+  RedisModule_SaveUnsigned(rdb, rule->lang_default);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
