@@ -19,11 +19,7 @@ const char *SchemaRuleType_ToString(SchemaRuleType type) {
 }
 
 int SchemaRuleType_Parse(const char *type_str, SchemaRuleType *type, QueryError *status) {
-  if (!type_str) {
-    QueryError_SetError(status, QUERY_EADDARGS, "No rule type given");
-    return REDISMODULE_ERR;
-  }
-  if (!strcasecmp(type_str, "HASH")) {
+  if (!type_str || !strcasecmp(type_str, "HASH")) {
     *type = SchemaRuleType_Hash;
     return REDISMODULE_OK;
   }
@@ -326,7 +322,7 @@ SchemaPrefixNode *SchemaPrefixNode_Create(const char *prefix, IndexSpec *index) 
 }
 
 void SchemaPrefixNode_Free(SchemaPrefixNode *node) {
-  array_free(node->index_specs);
+  freePrefixNode(node);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
