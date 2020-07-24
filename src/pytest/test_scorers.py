@@ -1,6 +1,6 @@
 import math
 from includes import *
-from common import getConnectionByEnv
+from common import getConnectionByEnv, waitForIndex
 
 
 def testHammingScorer(env):
@@ -66,6 +66,7 @@ def testScoreTagIndex(env):
     expected_results = results_cluster if env.is_cluster() else results_single
 
     for _ in env.reloading_iterator():
+        waitForIndex(env, 'idx')
         for i, scorer in enumerate(scorers):
             res = env.cmd('ft.search', 'idx', 'hello world', 'scorer',
                               scorer, 'nocontent', 'withscores', 'limit', 0, 5)

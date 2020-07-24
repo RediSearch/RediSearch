@@ -1511,6 +1511,7 @@ def testReturning(env):
 
     # RETURN 0. Simplest case
     for x in env.retry_with_reload():
+        waitForIndex(env, 'idx')
         res = env.cmd('ft.search', 'idx', 'val*', 'return', '0')
         env.assertEqual(11, len(res))
         env.assertEqual(10, res[0])
@@ -1764,6 +1765,7 @@ def testBinaryKeys(env):
     env.cmd('ft.add', 'idx', 'Hello', 1.0, 'fields', 'txt', 'NoBin match')
     env.cmd('ft.add', 'idx', 'Hello\x00World', 1.0, 'fields', 'txt', 'Bin match')
     for _ in env.reloading_iterator():
+        waitForIndex(env, 'idx')
         exp = [2L, 'Hello\x00World', ['txt', 'Bin match'], 'Hello', ['txt', 'NoBin match']]
         res = env.cmd('ft.search', 'idx', 'match')
         for r in res:
@@ -1915,6 +1917,7 @@ def testAlterIndex(env):
                  'FIELDS', 'f1', 'hello', 'f3', 'val{}'.format(x))
 
     for _ in env.retry_with_reload():
+        waitForIndex(env, 'idx')
         # Test that sortable works
         res = env.cmd('FT.SEARCH', 'idx', 'hello', 'SORTBY', 'f3', 'DESC')
         exp = [12, 'doc12', ['f1', 'hello', 'f3', 'val9'], 'doc11', ['f1', 'hello', 'f3', 'val8'],

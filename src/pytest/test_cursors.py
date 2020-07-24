@@ -11,10 +11,15 @@ def to_dict(res):
 
 
 def loadDocs(env, count=100, idx='idx', text='hello world'):
-    env.cmd('FT.CREATE', idx, 'ON', 'HASH', 'SCHEMA', 'f1', 'TEXT')
+    env.cmd('FT.CREATE', idx, 'ON', 'HASH', 'prefix', 1, idx, 'SCHEMA', 'f1', 'TEXT')
     for x in range(count):
         cmd = ['FT.ADD', idx, '{}_doc{}'.format(idx, x), 1.0, 'FIELDS', 'f1', text]
         env.cmd(*cmd)
+    r1 = env.cmd('ft.search', idx, text)
+    r2 = list(set(map(lambda x: x[1], filter(lambda x: isinstance(x, list), r1))))
+    env.assertEqual([text], r2)
+    r3 = env.cmd('ft.info', idx)
+    env.assertEqual(count, int(r3[r3.index('num_docs') + 1]))
 
 def exhaustCursor(env, idx, resp, *args):
     first, cid = resp
@@ -52,6 +57,8 @@ def testMultipleIndexes(env):
     q1 = ['FT.AGGREGATE', 'idx1', '*', 'LOAD', 1, '@f1', 'WITHCURSOR', 'COUNT', 10 ]
     q2 = q1[::]
     q2[1] = 'idx2'
+    waitForIndex(env, 'idx1')
+    waitForIndex(env, 'idx2')
     r1 = exhaustCursor(env, 'idx1', env.cmd( * q1))
     r2 = exhaustCursor(env, 'idx2', env.cmd( * q2))
     env.assertEqual(11, len(r1[0][0]))
