@@ -1273,7 +1273,7 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
   }
 
   while (RedisModule_Scan(ctx, cursor, (RedisModuleScanCB) Indexes_ScanProc, scanner)) {
-    if (scanner->scannedKeys % REINDEX_BATCH_SIZE >= 0) {
+    if (scanner->scannedKeys % REINDEX_BATCH_SIZE > 0) {
       continue;
     }
 
@@ -1782,7 +1782,7 @@ void IndexSpec_UpdateMatchingWithSchemaRules(IndexSpec *sp, RedisModuleCtx *ctx,
   //}
   dict *specs = Indexes_FindMatchingSchemaRules(ctx, key);
   if (! dictFind(specs, sp->name)) {
-    return;
+    goto end;
   }
 
   dictIterator *di = dictGetIterator(specs);
@@ -1795,7 +1795,7 @@ void IndexSpec_UpdateMatchingWithSchemaRules(IndexSpec *sp, RedisModuleCtx *ctx,
     ent = dictNext(di);
   }
   dictReleaseIterator(di);
-
+end:
   dictRelease(specs);
 }
 
