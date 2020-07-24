@@ -199,8 +199,6 @@ def testSearch(env):
 
         # Test searching WITHSCORES
         res = r.execute_command('ft.search', 'idx', 'hello', 'WITHSCORES')
-
-        print res
         env.assertEqual(len(res), 7)
         env.assertEqual(res[0], 2L)
         for item in expected:
@@ -209,8 +207,7 @@ def testSearch(env):
         env.assertTrue(float(res[5]) > 0)
 
         # Test searching WITHSCORES NOCONTENT
-        res = r.execute_command(
-            'ft.search', 'idx', 'hello', 'WITHSCORES', 'NOCONTENT')
+        res = r.execute_command('ft.search', 'idx', 'hello', 'WITHSCORES', 'NOCONTENT')
         env.assertEqual(len(res), 5)
         env.assertEqual(res[0], 2L)
         for item in expected:
@@ -742,7 +739,7 @@ def testSortBy(env):
         env.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
                                         'foo', 'hello%03d world' % i, 'bar', 100 - i))
     for _ in r.retry_with_rdb_reload():
-
+        waitForIndex(r, 'idx')
         res = r.execute_command(
             'ft.search', 'idx', 'world', 'nocontent', 'sortby', 'foo')
         env.assertEqual([100L, 'doc0', 'doc1', 'doc2', 'doc3',
@@ -1337,10 +1334,8 @@ def testNumericRange(env):
 
 def testSuggestions(env):
     r = env
-    env.assertEqual(1, r.execute_command(
-        'ft.SUGADD', 'ac', 'hello world', 1))
-    env.assertEqual(1, r.execute_command(
-        'ft.SUGADD', 'ac', 'hello world', 1, 'INCR'))
+    r.expect('ft.SUGADD', 'ac', 'hello world', 1).equal(1)
+    r.expect('ft.SUGADD', 'ac', 'hello world', 1, 'INCR').equal(1)
 
     res = r.execute_command("FT.SUGGET", "ac", "hello")
     env.assertEqual(1, len(res))
@@ -1350,40 +1345,33 @@ def testSuggestions(env):
              "yellow world", "wazzup", "herp", "derp"]
     sz = 2
     for term in terms:
-        env.assertEqual(sz, r.execute_command(
-            'ft.SUGADD', 'ac', term, sz - 1))
+        r.expect('ft.SUGADD', 'ac', term, sz - 1).equal(sz)
         sz += 1
 
     for _ in r.retry_with_rdb_reload():
-        env.assertEqual(7, r.execute_command('ft.SUGLEN', 'ac'))
+        r.expect('ft.SUGLEN', 'ac').equal(7)
 
         # search not fuzzy
-        env.assertEqual(["hello world", "hello werld"],
-                         r.execute_command("ft.SUGGET", "ac", "hello"))
+        r.expect("ft.SUGGET", "ac", "hello").equal(["hello world", "hello werld"])
 
         # print  r.execute_command("ft.SUGGET", "ac", "hello", "FUZZY", "MAX", "1", "WITHSCORES")
         # search fuzzy - shuold yield more results
-        env.assertEqual(['hello world', 'hello werld', 'yellow world', 'hallo world'],
-                         r.execute_command("ft.SUGGET", "ac", "hello", "FUZZY"))
+        r.expect("ft.SUGGET", "ac", "hello", "FUZZY")\
+         .equal(['hello world', 'hello werld', 'yellow world', 'hallo world'])
 
         # search fuzzy with limit of 1
-        env.assertEqual(['hello world'],
-                         r.execute_command("ft.SUGGET", "ac", "hello", "FUZZY", "MAX", "1"))
+        r.expect("ft.SUGGET", "ac", "hello", "FUZZY", "MAX", "1").equal(['hello world'])
 
         # scores should return on WITHSCORES
-        rc = r.execute_command(
-            "ft.SUGGET", "ac", "hello", "WITHSCORES")
-        env.assertEqual(4, len(rc))
-        env.assertTrue(float(rc[1]) > 0)
-        env.assertTrue(float(rc[3]) > 0)
+        res = r.execute_command("ft.SUGGET", "ac", "hello", "WITHSCORES")
+        env.assertEqual(4, len(res))
+        env.assertTrue(float(res[1]) > 0)
+        env.assertTrue(float(res[3]) > 0)
 
-    rc = r.execute_command("ft.SUGDEL", "ac", "hello world")
-    env.assertEqual(1L, rc)
-    rc = r.execute_command("ft.SUGDEL", "ac", "world")
-    env.assertEqual(0L, rc)
+    r.expect("ft.SUGDEL", "ac", "hello world").equal(1L)
+    r.expect("ft.SUGDEL", "ac", "world").equal(0L)
 
-    rc = r.execute_command("ft.SUGGET", "ac", "hello")
-    env.assertEqual(['hello werld'], rc)
+    r.expect("ft.SUGGET", "ac", "hello").equal(['hello werld'])
 
 def testSuggestErrors(env):
     env.expect('ft.SUGADD ac olah 1').equal(1)
@@ -1664,6 +1652,7 @@ def testNoStem(env):
         res = env.cmd('ft.info', 'idx')
         env.assertEqual(res[5][1][5], 'NOSTEM')
     for _ in env.retry_with_reload():
+        waitForIndex(env, 'idx')
         try:
             env.cmd('ft.del', 'idx', 'doc')
         except redis.ResponseError:
@@ -1791,7 +1780,6 @@ def testDuplicateNonspecFields(env):
     env.expect('FT.ADD', 'idx', 'doc', 1.0, 'fields',
                 'txt', 'foo', 'f1', 'f1val', 'f1', 'f1val2', 'F1', 'f1Val3').ok()
     res = env.cmd('ft.get', 'idx', 'doc')
-    print res
     res = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
     env.assertTrue(res['f1'] in ('f1val', 'f1val2'))
     env.assertEqual('f1Val3', res['F1'])
@@ -2286,7 +2274,7 @@ def testPrefixDeletedExpansions(env):
         if r[0]:
             break
 
-    print 'did {} iterations'.format(iters)
+    # print 'did {} iterations'.format(iters)
     r = env.cmd('ft.search', 'idx', '@txt1:term* @tag1:{tag*}')
     env.assertEqual([1, 'doc_XXX', ['txt1', 'termZZZ', 'tag1', 'tagZZZ']], r)
 

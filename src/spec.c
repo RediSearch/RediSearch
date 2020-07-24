@@ -799,11 +799,11 @@ void IndexSpec_FreeInternals(IndexSpec *spec) {
 static void IndexSpec_FreeTask(IndexSpec *spec) {
   RedisModule_Log(NULL, "notice", "Freeing index %s in background", spec->name);
 
-  while (spec->isReindexing) {
+  /*while (spec->isReindexing) {
     sched_yield();
     sleep(0.1);
   }
-  IndexSpec_FreeSync(spec);
+  IndexSpec_FreeSync(spec);*/
 
   RedisModuleCtx *threadCtx = RedisModule_GetThreadSafeContext(NULL);
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(threadCtx, spec);
@@ -819,7 +819,7 @@ static void IndexSpec_FreeTask(IndexSpec *spec) {
 static struct thpool_ *cleanPool = NULL;
 
 void IndexSpec_Free(IndexSpec *spec) {
-  if (!!(spec->flags & Index_Temporary) || spec->isReindexing) {
+  if (spec->flags & Index_Temporary) {
     if (!cleanPool) {
       cleanPool = thpool_init(1);
     }
@@ -827,7 +827,7 @@ void IndexSpec_Free(IndexSpec *spec) {
     return;
   }
 
-  IndexSpec_FreeSync(spec);
+  IndexSpec_FreeInternals(spec);
 }
 
 //---------------------------------------------------------------------------------------------
