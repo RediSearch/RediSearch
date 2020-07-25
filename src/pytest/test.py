@@ -1920,6 +1920,7 @@ def testAlterIndex(env):
     env.cmd('FT.ADD', 'idx', 'docN1', 1.0, 'FIELDS', 'n1', 50)
     env.cmd('FT.ADD', 'idx', 'docN2', 1.0, 'FIELDS', 'n1', 250)
     for _ in env.retry_with_reload():
+        waitForIndex(env, 'idx')
         res = env.cmd('FT.SEARCH', 'idx', '@n1:[0 100]')
         env.assertEqual([1, 'docN1', ['n1', '50']], res)
 

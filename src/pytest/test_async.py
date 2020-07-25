@@ -31,6 +31,9 @@ def testCreateIndex(env):
     env.assertEqual(N, res[0])
 
 def testAlterIndex(env):
+    if env.is_cluster():
+        raise unittest.SkipTest()
+
     r = env
     N = 10000
     for i in range(N):

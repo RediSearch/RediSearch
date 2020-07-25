@@ -411,7 +411,7 @@ void IndexSpec_Digest(RedisModuleDigest *digest, void *value);
 int IndexSpec_RegisterType(RedisModuleCtx *ctx);
 int IndexSpec_UpdateWithHash(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key);
 void IndexSpec_ClearAliases(IndexSpec *sp);
-// void IndexSpec_Free(void *value);
+void IndexSpec_Free(void *value);
 
 /*
  * Parse the field mask passed to a query, map field names to a bit mask passed down to the
