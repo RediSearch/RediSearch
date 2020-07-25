@@ -1642,6 +1642,7 @@ int IndexSpec_UpdateWithHash(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleSt
     RedisModule_Log(ctx, "warning", "Index spec %s: no rule found", spec->name);
     return REDISMODULE_ERR;
   }
+
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
   Document doc = {0};
   Document_Init(&doc, key, 1.0, DEFAULT_LANGUAGE);
@@ -1651,7 +1652,7 @@ int IndexSpec_UpdateWithHash(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleSt
   }
   QueryError status = {0};
   RSAddDocumentCtx *aCtx = NewAddDocumentCtx(spec, &doc, &status);
-  aCtx->stateFlags |= ACTX_F_NOBLOCK;
+  aCtx->stateFlags |= ACTX_F_NOBLOCK | ACTX_F_NOFREEDOC;
   AddDocumentCtx_Submit(aCtx, &sctx, DOCUMENT_ADD_REPLACE);
 
   // doc was set DEAD in Document_Moved and was not freed since it set as NOFREEDOC
@@ -1717,14 +1718,17 @@ dict *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisModuleString *ke
   RSValue *keyRSV = RS_RedisStringVal(key);
   EvalCtx_Set(r, "__key", keyRSV);
 
-#ifdef DEBUG
+#if defined(_DEBUG)
   RLookupKey *k = RLookup_GetKey(&r->lk, "__key", 0);
   RSValue *v = RLookup_GetItem(k, &r->row);
   const char *x = RSValue_StringPtrLen(v, NULL);
+  RedisModule_Log(NULL, "notice", "Indexes_FindMatchingSchemaRules: x=%s", x);
   k = RLookup_GetKey(&r->lk, "name", 0);
-  v = RLookup_GetItem(k, &r->row);
-  x = RSValue_StringPtrLen(v, NULL);
-#endif  // DEBUG
+  if (k) {
+    v = RLookup_GetItem(k, &r->row);
+    x = RSValue_StringPtrLen(v, NULL);
+  }
+#endif  // _DEBUG
 
   dict *specs = dictCreate(&dictTypeHeapStrings, NULL);
 
