@@ -2441,7 +2441,7 @@ def testWrongResultsReturnedBySkipOptimization(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'f1', 'TEXT', 'f2', 'TEXT').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'f1', 'foo', 'f2', 'bar').equal('OK')
     env.expect('ft.add', 'idx', 'doc2', '1.0', 'FIELDS', 'f1', 'moo', 'f2', 'foo').equal('OK')
-    env.expect('ft.search', 'idx', 'foo @f2:moo').debugPrint().equal([0L])
+    env.expect('ft.search', 'idx', 'foo @f2:moo').equal([0L])
 
 def testErrorWithApply(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')

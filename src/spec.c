@@ -1289,9 +1289,11 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
       dictReleaseIterator(iter);
     }
 
+#if 0
     RedisModule_ThreadSafeContextUnlock(ctx);
     sched_yield();
     RedisModule_ThreadSafeContextLock(ctx);
+#endif // 0
 
 /*    if (sp && sp->isDropped) {
       RedisModule_Log(ctx, "notice", "Scanning index %s in background: aborted - index dropped", sp->name);
