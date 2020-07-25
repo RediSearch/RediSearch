@@ -1,4 +1,5 @@
 from includes import *
+from common import waitForIndex
 
 
 def testBasicSynonymsUseCase(env):
