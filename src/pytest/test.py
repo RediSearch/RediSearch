@@ -2020,6 +2020,7 @@ def testIssue417(env):
     command = command[:-1]
     env.cmd(*command)
     for _ in env.reloading_iterator():
+        waitForIndex(env, 'idx')
         try:
             env.execute_command('FT.ADD', 'idx', 'doc1', '1.0', 'FIELDS', 't0', '1')
         except redis.ResponseError as e:

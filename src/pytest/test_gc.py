@@ -4,6 +4,7 @@ from RLTest import Env
 import platform
 from time import sleep
 from includes import *
+from common import waitForIndex
 
 
 def testBasicGC(env):
@@ -140,6 +141,7 @@ def testDeleteEntireBlock(env):
         # gc is random so we need to do it long enough times for it to work
         env.cmd('ft.debug', 'GC_FORCEINVOKE', 'idx')
     for _ in env.reloading_iterator():
+        waitForIndex(env, 'idx')
         env.expect('FT.SEARCH', 'idx', '@test:checking @test2:checking250').equal([1L, 'doc250', ['test', 'checking', 'test2', 'checking250']])
 
 def testGCIntegrationWithRedisFork(env):

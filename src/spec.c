@@ -1718,12 +1718,13 @@ dict *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisModuleString *ke
   RSValue *keyRSV = RS_RedisStringVal(key);
   EvalCtx_Set(r, "__key", keyRSV);
 
-#if defined(_DEBUG)
+#if defined(_DEBUG) && 0
   RLookupKey *k = RLookup_GetKey(&r->lk, "__key", 0);
   RSValue *v = RLookup_GetItem(k, &r->row);
   const char *x = RSValue_StringPtrLen(v, NULL);
   RedisModule_Log(NULL, "notice", "Indexes_FindMatchingSchemaRules: x=%s", x);
-  k = RLookup_GetKey(&r->lk, "name", 0);
+  const char *f = "name";
+  k = RLookup_GetKey(&r->lk, f, 0);
   if (k) {
     v = RLookup_GetItem(k, &r->row);
     x = RSValue_StringPtrLen(v, NULL);
