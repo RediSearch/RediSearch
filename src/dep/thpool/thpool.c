@@ -418,11 +418,8 @@ static void jobqueue_push(jobqueue* jobqueue_p, struct job* newjob) {
 }
 
 /* Get first job from queue(removes it from queue)
-<<<<<<< HEAD
  *
  * Notice: Caller MUST hold a mutex
-=======
->>>>>>> da2c0fe45e43ce0937f272c8cd2704bdc0afb490
  */
 static struct job* jobqueue_pull(jobqueue* jobqueue_p) {
 

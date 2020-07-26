@@ -159,9 +159,13 @@ int isRdbLoading(RedisModuleCtx *ctx) {
 static void IndexSpec_TimedOutProc(RedisModuleCtx *ctx, IndexSpec *sp) {
   // we need to delete the spec from the specDict, as far as the user see it,
   // this spec was deleted and its memory will be freed in a background thread.
+  RedisModule_Log(NULL, "notice", "Freeing index %s by timer", sp->name);
+
   dictDelete(specDict, sp->name);
   sp->isTimerSet = false;
   IndexSpec_Free(sp);
+
+  RedisModule_Log(NULL, "notice", "Freeing index by timer: done");
 }
 
 static void IndexSpec_SetTimeoutTimer(IndexSpec *sp) {
@@ -794,20 +798,16 @@ void IndexSpec_FreeInternals(IndexSpec *spec) {
 
 //---------------------------------------------------------------------------------------------
 
-static void IndexSpec_FreeTask(const char *spec_name) {
-  RedisModule_Log(NULL, "notice", "Freeing index %s in background", spec_name);
+static void IndexSpec_FreeTask(IndexSpec *spec) {
+  RedisModule_Log(NULL, "notice", "Freeing index %s in background", spec->name);
 
   RedisModuleCtx *threadCtx = RedisModule_GetThreadSafeContext(NULL);
   RedisModule_AutoMemory(threadCtx);
   RedisModule_ThreadSafeContextLock(threadCtx);
 
-  IndexSpec *spec = dictFetchValue(specDict, spec_name);;
-  if (spec) {
-    RedisSearchCtx sctx = SEARCH_CTX_STATIC(threadCtx, spec);
-    Redis_DropIndex(&sctx, true);
-  }
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(threadCtx, spec);
+  Redis_DropIndex(&sctx, spec->cascadeDelete);
 
-  rm_free((void *) spec_name);
   RedisModule_ThreadSafeContextUnlock(threadCtx);
   RedisModule_FreeThreadSafeContext(threadCtx);
 }
@@ -819,7 +819,7 @@ void IndexSpec_Free(IndexSpec *spec) {
     if (!cleanPool) {
       cleanPool = thpool_init(1);
     }
-    thpool_add_work(cleanPool, (thpool_proc) IndexSpec_FreeTask, rm_strdup(spec->name));
+    thpool_add_work(cleanPool, (thpool_proc) IndexSpec_FreeTask, spec));
     return;
   }
 
@@ -1010,7 +1010,7 @@ IndexSpec *NewIndexSpec(const char *name) {
   sp->keysIndexed = 0;
   sp->keysTotal = 0;
 
-  sp->cascadeDelete = true; //@@ TODO: true for temp indexed
+  sp->cascadeDelete = true;
 
   memset(&sp->stats, 0, sizeof(sp->stats));
   return sp;
@@ -1299,7 +1299,6 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
       dictReleaseIterator(iter);
     }
 
-#if 0
     scanner->spec_opt = sp = NULL;
 
     RedisModule_ThreadSafeContextUnlock(ctx);
@@ -1315,7 +1314,6 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
       }
       scanner->spec_opt = sp;
     }
-#endif // 0
   }
 
   if (sp) {
@@ -1335,10 +1333,11 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
   RedisModule_Log(ctx, "notice", "Scanning indexes in background: done (scanned=%ld)", scanner->totalKeys);
 
 end:
+  IndexesScanner_Free(scanner);
+
   RedisModule_ThreadSafeContextUnlock(ctx);
   RedisModule_ScanCursorDestroy(cursor);
 
-  IndexesScanner_Free(scanner);
   RedisModule_FreeThreadSafeContext(ctx);
 }
 
