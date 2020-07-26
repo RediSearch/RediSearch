@@ -461,7 +461,7 @@ int Redis_DeleteKey(RedisModuleCtx *ctx, RedisModuleString *s) {
 }
 
 int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments) {
-  if (deleteDocuments) {
+  if (deleteDocuments || !!(ctx->spec->flags & Index_Temporary)) {
     DocTable *dt = &ctx->spec->docs;
     DOCTABLE_FOREACH(dt, Redis_DeleteKey(ctx->redisCtx, DMD_CreateKeyString(dmd, ctx->redisCtx)));
   }
