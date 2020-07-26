@@ -819,7 +819,7 @@ void IndexSpec_Free(IndexSpec *spec) {
     if (!cleanPool) {
       cleanPool = thpool_init(1);
     }
-    thpool_add_work(cleanPool, (thpool_proc) IndexSpec_FreeTask, spec));
+    thpool_add_work(cleanPool, (thpool_proc) IndexSpec_FreeTask, spec);
     return;
   }
 
