@@ -31,6 +31,7 @@ RedisModuleType *IndexSpecType;
 static uint64_t spec_unique_ids = 1;
 
 dict *specDict;
+size_t pending_global_indexing_ops = 0;
 
 //---------------------------------------------------------------------------------------------
 
@@ -1014,7 +1015,7 @@ IndexSpec *NewIndexSpec(const char *name) {
   sp->isTimerSet = false;
   sp->timerId = 0;
 
-  sp->isReindexing = false;
+  sp->pending_indexing_ops = 0;
   sp->keysIndexed = 0;
   sp->keysTotal = 0;
 
@@ -1219,16 +1220,21 @@ static IndexesScanner *IndexesScanner_New(IndexSpec *spec_opt) {
   scanner->totalKeys = RedisModule_DbSize(ctx);
   RedisModule_FreeThreadSafeContext(ctx);
   if (spec_opt) {
-    spec_opt->isReindexing = true;
+    __sync_fetch_and_add(&spec_opt->pending_indexing_ops, 1);
     spec_opt->keysIndexed = 0;
     spec_opt->keysTotal = scanner->totalKeys;
+  } else {
+    __sync_fetch_and_add(&pending_global_indexing_ops, 1);
   }
   return scanner;
 }
 
 void IndexesScanner_Free(IndexesScanner *scanner) {
   if (scanner->spec_name_opt) {
+    __sync_fetch_and_sub(&scanner->spec_opt->pending_indexing_ops, 1);
     rm_free((void *) scanner->spec_name_opt);
+  } else {
+    __sync_fetch_and_sub(&pending_global_indexing_ops, 1);
   }
   rm_free(scanner);
 }
@@ -1326,14 +1332,12 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
 
   if (sp) {
     sp->keysTotal = sp->keysIndexed = scanner->totalKeys;
-    sp->isReindexing = false;
   } else {
     dictIterator *iter = dictGetIterator(specDict);
     dictEntry *entry = NULL;
     while ((entry = dictNext(iter))) {
       IndexSpec *sp = dictGetVal(entry);
       sp->keysTotal = sp->keysIndexed = scanner->totalKeys;
-      sp->isReindexing = false;
     }
     dictReleaseIterator(iter);
   }
@@ -1376,13 +1380,13 @@ static void IndexSpec_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname,
 static void IndexSpec_ScanAndReindexSync(IndexSpec *sp) {
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
 
-  sp->isReindexing = true;
+  __sync_fetch_and_add(&sp->pending_indexing_ops, 1);
   RedisModuleScanCursor *cursor = RedisModule_ScanCursorCreate();
   while (RedisModule_Scan(ctx, cursor, (RedisModuleScanCB) IndexSpec_ScanProc, sp)) {
   }
   RedisModule_ScanCursorDestroy(cursor);
   sp->keysTotal = sp->keysIndexed = RedisModule_DbSize(ctx);;
-  sp->isReindexing = false;
+  __sync_fetch_and_sub(&sp->pending_indexing_ops, 1);
 
   RedisModule_FreeThreadSafeContext(ctx);
 }
@@ -1413,7 +1417,6 @@ void Indexes_ScanAndReindexSync() {
   while ((entry = dictNext(iter))) {
     IndexSpec *sp = dictGetVal(entry);
     sp->keysTotal = sp->keysIndexed = scanner->totalKeys;
-    sp->isReindexing = false;
   }
   dictReleaseIterator(iter);
 
@@ -1537,7 +1540,7 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
   sp->indexer = NewIndexer(sp);
   dictAdd(specDict, sp->name, sp);
 
-  sp->isReindexing = true;
+  sp->pending_indexing_ops = 0;
   sp->keysIndexed = 0;
   sp->keysTotal = 0;
 

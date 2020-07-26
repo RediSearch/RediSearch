@@ -201,9 +201,8 @@ typedef struct IndexSpec {
 
   SchemaRule *rule;
 
-  bool isReindexing;
+  size_t pending_indexing_ops;
   size_t keysIndexed, keysTotal;
-  //bool isDropped;
   bool cascadeDelete;
 } IndexSpec;
 

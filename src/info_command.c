@@ -132,9 +132,9 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
               (float)sp->stats.offsetVecRecords / (float)sp->stats.numRecords);
   REPLY_KVNUM(n, "offset_bits_per_record_avg",
               8.0F * (float)sp->stats.offsetVecsSize / (float)sp->stats.offsetVecRecords);
-  REPLY_KVNUM(n, "indexing", sp->isReindexing);
+  REPLY_KVNUM(n, "indexing", pending_global_indexing_ops + sp->pending_indexing_ops > 0);
   REPLY_KVNUM(n, "percent_indexed", 
-              sp->isReindexing ? (sp->keysTotal > 0 ? sp->keysIndexed / sp->keysTotal : 0) : 1.0);
+              pending_global_indexing_ops + sp->pending_indexing_ops > 0 ? (sp->keysTotal > 0 ? sp->keysIndexed / sp->keysTotal : 0) : 1.0);
 
   if (sp->gc) {
     RedisModule_ReplyWithSimpleString(ctx, "gc_stats");
