@@ -614,7 +614,7 @@ static RedisModuleCallReply *RMCK_CallHgelall(RedisModuleCtx *ctx, const char *c
 RedisModuleCallReply *RMCK_Call(RedisModuleCtx *ctx, const char *cmd, const char *fmt, ...) {
   // We only support HGETALL for now
   va_list ap;
-  RedisModuleCallReply *reply;
+  RedisModuleCallReply *reply = NULL;
   va_start(ap, fmt);
   if (strcasecmp(cmd, "HGETALL") == 0) {
     reply = RMCK_CallHgelall(ctx, cmd, fmt, ap);
