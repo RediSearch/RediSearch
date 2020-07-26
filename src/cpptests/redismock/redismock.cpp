@@ -566,6 +566,7 @@ static RedisModuleCallReply *RMCK_CallHset(RedisModuleCtx *ctx, const char *cmd,
   if (!v) {
     v = new HashValue(RedisModule_StringPtrLen(args[0], NULL));
     ctx->db->set(v);
+    v->decref();
   }
   HashValue *hv = static_cast<HashValue *>(v);
   for (size_t i = 1; i < argLen; i += 2) {
