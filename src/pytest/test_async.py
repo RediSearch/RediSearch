@@ -14,6 +14,9 @@ def getConnectionByEnv(env):
     return conn
 
 def testCreateIndex(env):
+    if env.is_cluster():
+        raise unittest.SkipTest()
+
     r = env
     N = 1000
     for i in range(N):
@@ -41,6 +44,9 @@ def testAlterIndex(env):
     env.assertEqual(N, res[0])
 
 def testDeleteIndex(env):
+    if env.is_cluster():
+        raise unittest.SkipTest()
+
     r = env
     N = 100
     for i in range(N):
