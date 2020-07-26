@@ -26,6 +26,8 @@ typedef struct {
   char *lang_field;
   char *score_field;
   char *payload_field;
+  char *lang_default;
+  char *score_default;
 } SchemaRuleArgs;
 
 typedef struct SchemaRule {
@@ -37,6 +39,8 @@ typedef struct SchemaRule {
   char *lang_field;
   char *score_field;
   char *payload_field;
+  double score_default;
+  RSLanguage lang_default;
 } SchemaRule;
 
 extern arrayof(SchemaRule *) SchemaRules_g;
