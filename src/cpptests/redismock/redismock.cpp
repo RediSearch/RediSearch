@@ -654,7 +654,7 @@ RedisModuleString *RMCK_CreateStringFromCallReply(RedisModuleCallReply *r) {
     case REDISMODULE_REPLY_STRING:
       return RedisModule_CreateString(r->ctx, r->s.c_str(), r->s.size());
     case REDISMODULE_REPLY_INTEGER:
-      return RedisModule_CreateStringPrintf(r->ctx, "%ll", r->ll);
+      return RedisModule_CreateStringPrintf(r->ctx, "%lld", r->ll);
     default:
       return NULL;
   }
