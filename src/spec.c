@@ -1299,7 +1299,7 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
       dictReleaseIterator(iter);
     }
 
-#if 1
+#if 0
     scanner->spec_opt = sp = NULL;
 
     RedisModule_ThreadSafeContextUnlock(ctx);
@@ -1315,7 +1315,7 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
       }
       scanner->spec_opt = sp;
     }
-#endif
+#endif // 0
   }
 
   if (sp) {
