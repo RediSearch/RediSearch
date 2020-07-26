@@ -136,7 +136,7 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   }
 
   sds confstr = RSConfig_GetInfoString(&RSGlobalConfig);
-  DO_LOG("notice", confstr);
+  DO_LOG("notice", "%s", confstr);
   sdsfree(confstr);
 
   // Init extension mechanism
