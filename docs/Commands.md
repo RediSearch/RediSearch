@@ -8,8 +8,10 @@
     ON {structure} 
        [PREFIX {count} {prefix} [{prefix} ..]
        [FILTER {filter}]
-       [LANGUAGE {lang_field}]
-       [SCORE {score_field}]
+       [LANGUAGE {default_lang}]
+       [LANGUAGE_FIELD {lang_field}]
+       [SCORE {default_score}]
+       [SCORE_FIELD {score_field}]
        [PAYLOAD {payload_field}]
     [MAXTEXTFIELDS] [TEMPORARY {seconds}] [NOOFFSETS] [NOHL] [NOFIELDS] [NOFREQS]
     [STOPWORDS {num} {stopword} ...]
@@ -53,8 +55,9 @@ FT.CREATE idx SCHEMA name TEXT SORTABLE age NUMERIC SORTABLE myTag TAG SORTABLE
 
 * **FILTER {filter}** is a filter expression with the full RediSearch aggregation expression language. It is possible to use @__key to access the key that was just added/changed
 
-* **LANGUAGE {lang_field}**: If set indicates the document field that should be used to as the document language, 
-  we use a stemmer for the supplied language during indexing. Default to English. 
+* **LANGUAGE {default_lang}**: If set indicates the default language for documents in the index. Default to English.
+* **LANGUAGE_FIELD {lang_field}**: If set indicates the document field that should be used as the document language.
+  A stemmer is used for the supplied language during indexing.
   If an unsupported language is sent, the command returns an error. 
   The supported languages are:
 
@@ -76,7 +79,8 @@ FT.CREATE idx SCHEMA name TEXT SORTABLE age NUMERIC SORTABLE myTag TAG SORTABLE
   checks it against a predefined dictionary. See [Stemming](Stemming.md) for more
   information.
 
-* **SCORE {score_field}**: If set indicates the document field that should be used as the document's rank based on the user's ranking. 
+* **SCORE {default_score}**: If set indicates the default score for documents in the index. Default score is 1.0.
+* **SCORE_FIELD {score_field}**: If set indicates the document field that should be used as the document's rank based on the user's ranking. 
   Ranking must be between 0.0 and 1.0. If not set the default score is 1.
 
 * **PAYLOAD {payload_field}**: If set indicates the document field that should be used as a binary safe payload string to the document, 
