@@ -614,16 +614,19 @@ static RedisModuleCallReply *RMCK_CallHgelall(RedisModuleCtx *ctx, const char *c
 RedisModuleCallReply *RMCK_Call(RedisModuleCtx *ctx, const char *cmd, const char *fmt, ...) {
   // We only support HGETALL for now
   va_list ap;
+  RedisModuleCallReply *reply;
   va_start(ap, fmt);
   if (strcasecmp(cmd, "HGETALL") == 0) {
-    return RMCK_CallHgelall(ctx, cmd, fmt, ap);
+    reply = RMCK_CallHgelall(ctx, cmd, fmt, ap);
   }
 
   if (strcasecmp(cmd, "HSET") == 0) {
-    return RMCK_CallHset(ctx, cmd, fmt, ap);
+    reply = RMCK_CallHset(ctx, cmd, fmt, ap);
   }
 
-  return NULL;
+  va_end(ap);
+
+  return reply;
 }
 
 int RMCK_CallReplyType(RedisModuleCallReply *r) {
