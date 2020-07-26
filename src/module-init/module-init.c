@@ -1,11 +1,5 @@
 #include "redismodule.h"
 
-#ifndef RS_NO_ONLOAD
-#pragma GCC visibility push(default)
-REDISMODULE_INIT_SYMBOLS();
-#pragma GCC visibility pop
-#endif
-
 #include "module.h"
 #include "version.h"
 #include "config.h"
@@ -16,6 +10,7 @@ REDISMODULE_INIT_SYMBOLS();
 #include "cursor.h"
 #include "extension.h"
 #include "alias.h"
+#include "notifications.h"
 #include "aggregate/aggregate.h"
 #include "ext/default.h"
 
@@ -99,15 +94,6 @@ static int initAsModule(RedisModuleCtx *ctx) {
 }
 
 static int initAsLibrary(RedisModuleCtx *ctx) {
-  // Ensure Redis symbols are initialized as well!.
-  // This is copy/pasted from redismodule.h
-  // We don't use RedisModule_Init, since this also changes the attributes
-  // of the provided ctx, which is probably owned by another module
-  RedisModule_GetApiFunctionType getapifuncptr = (RedisModule_GetApiFunctionType)((void **)ctx)[0];
-#define X(TYPE, NAME, ARGS) getapifuncptr("RedisModule_" #NAME, (void *)&RedisModule_##NAME);
-  REDISMODULE_XAPI(X)
-#undef X
-
   // Disable concurrent mode:
   RSGlobalConfig.concurrentMode = 0;
   return REDISMODULE_OK;
@@ -117,10 +103,12 @@ int RS_Initialized = 0;
 RedisModuleCtx *RSDummyContext = NULL;
 
 int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
-#define DO_LOG(...)                               \
-  if (ctx && (mode != REDISEARCH_INIT_LIBRARY)) { \
-    RedisModule_Log(ctx, ##__VA_ARGS__);          \
-  }
+#define DO_LOG(...) \
+  do { \
+    if (ctx && (mode != REDISEARCH_INIT_LIBRARY)) { \
+      RedisModule_Log(ctx, ##__VA_ARGS__); \
+    } \
+  } while (false)
 
   // Print version string!
   DO_LOG("notice", "RediSearch version %d.%d.%d (Git=%s)", REDISEARCH_VERSION_MAJOR,
@@ -141,6 +129,8 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
 
   // Init extension mechanism
   Extensions_Init();
+
+  Indexes_Init(ctx);
 
   if (RSGlobalConfig.concurrentMode) {
     ConcurrentSearch_ThreadPoolStart();
@@ -176,5 +166,8 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
     DO_LOG("warning", "Could not register default extension");
     return REDISMODULE_ERR;
   }
+
+  Initialize_KeyspaceNotifications(ctx);
+
   return REDISMODULE_OK;
 }

@@ -301,7 +301,7 @@ size_t gc_NumericIndex(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status
   }
   IndexSpec *spec = sctx->spec;
   // find all the numeric fields
-  numericFields = getFieldsByType(spec, INDEXFLD_T_NUMERIC);
+  numericFields = getFieldsByType(spec, INDEXFLD_T_NUMERIC | INDEXFLD_T_GEO);
 
   if (array_len(numericFields) == 0) {
     goto end;

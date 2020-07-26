@@ -1,7 +1,7 @@
 #include "rs_geo.h"
 
 int encodeGeo(double lon, double lat, double *bits) {
-    GeoHashBits hash = { .bits = (uint64_t)*bits, .step = GEO_STEP_MAX };
+    GeoHashBits hash;
     int rv = geohashEncodeWGS84(lon, lat, GEO_STEP_MAX, &hash);
     *bits = (double)geohashAlign52Bits(hash);
     return rv;

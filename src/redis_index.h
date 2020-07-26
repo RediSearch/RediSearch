@@ -45,10 +45,10 @@ int Redis_OptimizeScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *
 
 /* Drop the index and all the associated keys.
  *
- *  If deleteDocuments is non zero, we will delete the saved documents (if they exist).
- *  Only set this if there are no other indexes in the same redis instance.
+ * If deleteDocuments is non zero, we will delete the saved documents (if they exist).
+ * Only set this if there are no other indexes in the same redis instance.
  */
-int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments, int deleteSpecKey);
+int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments);
 
 /* Drop all the index's internal keys using this scan handler */
 int Redis_DropScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaque);

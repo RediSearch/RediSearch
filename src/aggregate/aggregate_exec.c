@@ -83,7 +83,7 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
           break;
         case RSValue_String:
           /* Serialize string - by prepending "$" to it */
-          rskey = RedisModule_CreateStringPrintf(outctx, "$%s", sortkey->strval);
+          rskey = RedisModule_CreateStringPrintf(outctx, "$%s", sortkey->strval.str);
           break;
         case RSValue_RedisString:
         case RSValue_OwnRstring:
@@ -112,16 +112,19 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
   if (!(options & QEXEC_F_SEND_NOFIELDS)) {
     const RLookup *lk = cv->lastLk;
     count++;
-    int excludeFlags = RLOOKUP_F_HIDDEN;
-    int requiredFlags = (req->outFields.explicitReturn ? RLOOKUP_F_EXPLICITRETURN : 0);
-    size_t nfields = RLookup_GetLength(lk, &r->rowdata, requiredFlags, excludeFlags);
 
-    RedisModule_ReplyWithArray(outctx, nfields * 2);
-
+    size_t nfields = 0;
+    RedisModule_ReplyWithArray(outctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+    SchemaRule *rule = req->sctx ? req->sctx->spec->rule : NULL;
     for (const RLookupKey *kk = lk->head; kk; kk = kk->next) {
       if (kk->flags & RLOOKUP_F_HIDDEN) {
-        // printf("Skipping hidden field %s/%p\n", kk->name, kk);
         // todo: this is a dead code, no one set RLOOKUP_F_HIDDEN
+        continue;
+      }
+      // on coordinator, we reach this code without sctx or rule,
+      // we trust the shards to not send those fields.
+      if (rule && ((rule->lang_field && strcmp(kk->name, rule->lang_field) == 0) ||
+                   (rule->score_field && strcmp(kk->name, rule->score_field) == 0))) {
         continue;
       }
       if (req->outFields.explicitReturn && (kk->flags & RLOOKUP_F_EXPLICITRETURN) == 0) {
@@ -134,7 +137,9 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
 
       RedisModule_ReplyWithStringBuffer(outctx, kk->name, strlen(kk->name));
       RSValue_SendReply(outctx, v, req->reqflags & QEXEC_F_TYPED);
+      nfields += 2;
     }
+    RedisModule_ReplySetArrayLength(outctx, nfields);
   }
   return count;
 }

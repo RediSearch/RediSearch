@@ -1,14 +1,12 @@
 from includes import *
 
-
 def search(env, r, *args):
     return r.execute_command('ft.search', *args)
-
 
 def testTagIndex(env):
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'schema', 'title', 'text', 'tags', 'tag'))
+        'ft.create', 'idx', 'ON', 'HASH','schema', 'title', 'text', 'tags', 'tag'))
     N = 10
     for n in range(N):
 
@@ -41,7 +39,8 @@ def testTagIndex(env):
             res = env.cmd(
                 'ft.search', 'idx', 'hello world @tags:{tag\\ %d|tag %d}' % (n, n + 1), 'nocontent')
             env.assertEqual(2, res[0])
-            env.assertEqual('doc%d' % n, res[2])
+            res = sorted(res[1:])
+            env.assertEqual('doc%d' % n, res[0])
             env.assertEqual('doc%d' % (n + 1), res[1])
 
             res = env.cmd(
@@ -49,11 +48,11 @@ def testTagIndex(env):
             env.assertEqual(1, res[0])
             env.assertEqual('doc%d' % n, res[1])
 
-
 def testSeparator(env):
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'schema', 'title', 'text', 'tags', 'tag', 'separator', ':'))
+        'ft.create', 'idx', 'ON', 'HASH',
+        'schema', 'title', 'text', 'tags', 'tag', 'separator', ':'))
 
     env.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 1.0, 'fields',
                                    'title', 'hello world', 'tags', 'x:hello world: fooz bar:foo,bar:BOO FAR'))
@@ -63,11 +62,11 @@ def testSeparator(env):
             res = env.cmd('ft.search', 'idx', q)
             env.assertEqual(1, res[0])
 
-
 def testTagPrefix(env):
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'schema', 'title', 'text', 'tags', 'tag', 'separator', ','))
+        'ft.create', 'idx', 'ON', 'HASH',
+        'schema', 'title', 'text', 'tags', 'tag', 'separator', ','))
 
     env.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 1.0, 'fields',
                                    'title', 'hello world', 'tags', 'hello world,hello-world,hell,jell'))
@@ -77,11 +76,11 @@ def testTagPrefix(env):
             res = env.cmd('ft.search', 'idx', q)
             env.assertEqual(res[0], 1)
 
-
 def testTagFieldCase(env):
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'schema', 'title', 'text', 'TAgs', 'tag'))
+        'ft.create', 'idx', 'ON', 'HASH',
+        'schema', 'title', 'text', 'TAgs', 'tag'))
 
     env.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 1.0, 'fields',
                                    'title', 'hello world', 'TAgs', 'HELLO WORLD,FOO BAR'))
@@ -96,25 +95,27 @@ def testTagFieldCase(env):
         env.assertListEqual([0], r.execute_command(
             'FT.SEARCH', 'idx', '@TAGS:{foo bar}', 'NOCONTENT'))
 
-
 def testInvalidSyntax(env):
     r = env
     # invalid syntax
     with env.assertResponseError():
         r.execute_command(
-            'ft.create', 'idx', 'schema', 'title', 'text', 'tags', 'tag', 'separator')
+            'ft.create', 'idx', 'ON', 'HASH',
+            'schema', 'title', 'text', 'tags', 'tag', 'separator')
     with env.assertResponseError():
         r.execute_command(
-            'ft.create', 'idx', 'schema', 'title', 'text', 'tags', 'tag', 'separator', "foo")
+            'ft.create', 'idx', 'ON', 'HASH',
+            'schema', 'title', 'text', 'tags', 'tag', 'separator', "foo")
     with env.assertResponseError():
         r.execute_command(
-            'ft.create', 'idx', 'schema', 'title', 'text', 'tags', 'tag', 'separator', "")
-
+            'ft.create', 'idx', 'ON', 'HASH',
+            'schema', 'title', 'text', 'tags', 'tag', 'separator', "")
 
 def testTagVals(env):
     r = env
     r.execute_command(
-        'ft.create', 'idx', 'schema', 'title', 'text', 'tags', 'tag', 'othertags', 'tag')
+        'ft.create', 'idx', 'ON', 'HASH',
+        'schema', 'title', 'text', 'tags', 'tag', 'othertags', 'tag')
 
     N = 100
     alltags = set()
@@ -143,6 +144,16 @@ def testTagVals(env):
 
 def testSearchNotExistsTagValue(env):
     # this test basically make sure we are not leaking
-    env.expect('FT.CREATE idx SCHEMA t TAG SORTABLE').ok()
+    env.expect('FT.CREATE idx ON HASH SCHEMA t TAG SORTABLE').ok()
     env.expect('FT.SEARCH idx @t:{val}').equal([0])
-        
+
+def testIssue1305(env):
+    env.expect('FT.CREATE myIdx ON HASH SCHEMA title TAG').ok()
+    env.expect('FT.ADD myIdx doc2 1.0 FIELDS title "work"').ok()
+    env.expect('FT.ADD myIdx doc2 1.0 FIELDS title "hello"').error()
+    env.expect('FT.ADD myIdx doc3 1.0 FIELDS title "hello"').ok()
+    env.expect('FT.ADD myIdx doc1 1.0 FIELDS title "hello,work"').ok()
+    expectedRes = {'doc1' : ['inf', ['title', '"hello,work"']], 'doc3' : ['inf', ['title', '"hello"']], 'doc2' : ['inf', ['title', '"work"']]}
+    res = env.cmd('ft.search', 'myIdx', '~@title:{wor} ~@title:{hell}', 'WITHSCORES')[1:]
+    res = {res[i]:res[i + 1: i + 3] for i in range(0, len(res), 3)}
+    env.assertEqual(res, expectedRes)

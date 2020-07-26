@@ -5,6 +5,14 @@
 ### Format
 ```
   FT.CREATE {index} 
+    ON {structure} 
+       [PREFIX {count} {prefix} [{prefix} ..]
+       [FILTER {filter}]
+       [LANGUAGE {default_lang}]
+       [LANGUAGE_FIELD {lang_field}]
+       [SCORE {default_score}]
+       [SCORE_FIELD {score_field}]
+       [PAYLOAD {payload_field}]
     [MAXTEXTFIELDS] [TEMPORARY {seconds}] [NOOFFSETS] [NOHL] [NOFIELDS] [NOFREQS]
     [STOPWORDS {num} {stopword} ...]
     SCHEMA {field} [TEXT [NOSTEM] [WEIGHT {weight}] [PHONETIC {matcher}] | NUMERIC | GEO | TAG [SEPARATOR {sep}] ] [SORTABLE][NOINDEX] ...
@@ -23,6 +31,15 @@ Creates an index with the given spec. The index name will be used in all the key
     
         You can always use the `NOFIELDS` option and not encode field information into the index, for saving space, if you do not need filtering by text fields. This will still allow filtering by numeric and geo fields.
 
+!!! info "Note on running in clustered databases"
+        
+        When having several indices in a clustered database, you need to tag the index key and the document key to ensure they reside on the same shard.
+        ```sql
+        FT.CREATE {idx} ...
+        FT.ADD {idx} {idx}:docid ...
+        ```
+        When Running in RediSearch in Redis Enterprise, there is the ability to span the index across shards.  In this case the above does not apply.
+
 #### Example
 ```sql
 FT.CREATE idx SCHEMA name TEXT SORTABLE age NUMERIC SORTABLE myTag TAG SORTABLE
@@ -31,6 +48,43 @@ FT.CREATE idx SCHEMA name TEXT SORTABLE age NUMERIC SORTABLE myTag TAG SORTABLE
 ### Parameters
 
 * **index**: the index name to create. If it exists the old spec will be overwritten
+
+* **ON {structure}** currently supports only HASH
+
+* **PREFIX {count} {prefix}** tells the index which keys it should index. You can add several prefixes to index. Since the argument is optional, the default is * (all keys)
+
+* **FILTER {filter}** is a filter expression with the full RediSearch aggregation expression language. It is possible to use @__key to access the key that was just added/changed
+
+* **LANGUAGE {default_lang}**: If set indicates the default language for documents in the index. Default to English.
+* **LANGUAGE_FIELD {lang_field}**: If set indicates the document field that should be used as the document language.
+  A stemmer is used for the supplied language during indexing.
+  If an unsupported language is sent, the command returns an error. 
+  The supported languages are:
+
+    > "arabic",  "danish",    "dutch",   "english",   "finnish",    "french",
+    > "german",  "hungarian", "italian", "norwegian", "portuguese", "romanian",
+    > "russian", "spanish",   "swedish", "tamil",     "turkish"
+    > "chinese"
+
+  If indexing a Chinese language document, you must set the language to `chinese`
+  in order for Chinese characters to be tokenized properly.
+
+  #### Adding Chinese Documents
+
+  When adding Chinese-language documents, `LANGUAGE chinese` should be set in
+  order for the indexer to properly tokenize the terms. If the default language
+  is used then search terms will be extracted based on punctuation characters and
+  whitespace. The Chinese language tokenizer makes use of a segmentation algorithm
+  (via [Friso](https://github.com/lionsoul2014/friso)) which segments texts and
+  checks it against a predefined dictionary. See [Stemming](Stemming.md) for more
+  information.
+
+* **SCORE {default_score}**: If set indicates the default score for documents in the index. Default score is 1.0.
+* **SCORE_FIELD {score_field}**: If set indicates the document field that should be used as the document's rank based on the user's ranking. 
+  Ranking must be between 0.0 and 1.0. If not set the default score is 1.
+
+* **PAYLOAD {payload_field}**: If set indicates the document field that should be used as a binary safe payload string to the document, 
+  that can be evaluated at query time by a custom scoring function, or retrieved to the client.
 
 * **MAXTEXTFIELDS**: For efficiency, RediSearch encodes indexes differently if they are
   created with less than 32 text fields. This option forces RediSearch to encode indexes as if
@@ -232,52 +286,6 @@ A special status `NOADD` is returned if an `IF` condition evaluated to false.
 FT.ADD will actually create a hash in Redis with the given fields and value. This means that if the hash already exists, it will override with the new values. Moreover, if you try to add a document with the same id to two different indexes one of them will override the other and you will get wrong responses from one of the indexes.
 For this reason, it is recommended to create global unique documents ids (this can e.g. be achieved by adding the index name to the document id as prefix).
 
-## FT.ADDHASH
-
-### Format
-
-```
- FT.ADDHASH {index} {docId} {score} [LANGUAGE language] [REPLACE]
-```
-
-### Description
-
-Adds a document to the index from an existing HASH key in Redis.
-
-#### Example
-```sql
-FT.ADDHASH idx hash1 1.0 REPLACE
-```
-
-### Parameters
-
-- **index**: The Fulltext index name. The index must be first created with FT.CREATE
-
--  **docId**: The document's id. This has to be an existing HASH key in Redis that will hold the fields 
-    the index needs.
-
-- **score**: The document's rank based on the user's ranking. This must be between 0.0 and 1.0. 
-  If you don't have a score just set it to 1
-
-- **REPLACE**: If set, we will do an UPSERT style insertion - and delete an older version of the document if it exists.
-
-- **LANGUAGE language**: If set, we use a stemmer for the supplied language during indexing. Defaults 
-  to English. 
-  If an unsupported language is sent, the command returns an error. 
-  The supported languages are:
-
-  > "arabic",  "danish",    "dutch",   "english",   "finnish",    "french",
-  > "german",  "hungarian", "italian", "norwegian", "portuguese", "romanian",
-  > "russian", "spanish",   "swedish", "tamil",     "turkish"
-
-### Complexity
-
-O(n), where n is the number of tokens in the document
-
-### Returns
-
-OK on success, or an error if something went wrong.
-
 ---
 
 ## FT.ALTER SCHEMA ADD
@@ -298,7 +306,7 @@ indexing. Existing documents will not be reindexed.
 !!! note
     Depending on how the index was created, you may be limited by the amount of additional text
     fields which can be added to an existing index. If the current index contains less than 32
-    text fields, then `SCHEMA ADD` will only be able to add up to 32 fields (meaning that the
+    text fields, then `SCHEMA ADD` will only be able to add fields up to 32 total fields (meaning that the
     index will only ever be able to contain 32 total text fields). If you wish for the index to
     contain more than 32 fields, create it with the `MAXTEXTFIELDS` option.
 
@@ -522,7 +530,7 @@ FT.SEARCH idx "@text:morphix=>{$phonetic:false}"
 - **PAYLOAD {payload}**: Add an arbitrary, binary safe payload that will be exposed to custom scoring 
   functions. [See Extensions](Extensions.md).
   
-- **SORTBY {field} [ASC|DESC]**: If specified, and field is a [sortable field](Sorting.md), the results 
+- **SORTBY {field} [ASC|DESC]**: If specified, the results 
   are ordered by the value of this field. This applies to both text and numeric fields.
 - **LIMIT first num**: If the parameters appear after the query, we limit the results to 
   the offset and number of results given. The default is 0 10.
@@ -854,9 +862,9 @@ FT.GET {index} {doc id}
 
 ### Description
 
-Returns the full contents of a document.
+!!! warning "This command is deprecated". Use HGETALL instead.
 
-Currently it is equivalent to HGETALL, but this is future-proof and will allow us to change the internal representation of documents inside Redis in the future. In addition, it allows simpler implementation of fetching documents in clustered mode.
+Returns content of a document as inserted without attribute fields (score/language/payload).
 
 If the document does not exist or is not a HASH object, we return a NULL reply
 
@@ -886,10 +894,10 @@ FT.MGET {index} {docId} ...
 
 ### Description
 
-Returns the full contents of multiple documents. 
+!!! warning "This command is deprecated". Use HGETALL instead.
 
-Currently it is equivalent to calling multiple HGETALL commands, although faster. 
-This command is also future-proof and will allow us to change the internal representation of documents inside Redis in the future. 
+Returns content of a document as inserted without attribute fields (score/language/payload).
+
 In addition, it allows simpler implementation of fetching documents in clustered mode.
 
 We return an array with exactly the same number of elements as the number of keys sent to the command. 
@@ -914,6 +922,38 @@ Array Reply: An array with exactly the same number of elements as the number of 
 
 ---
 
+## FT.DELETE
+
+### Format
+
+```
+FT.DELETE {index} [DD]
+```
+
+### Description
+
+Deletes the index. 
+
+By default, FT.DELETE does not delete the document hashes associated with the index. Adding the DD option deletes the hashes as well.
+
+Since RediSearch 2.0
+
+### Example
+```sql
+FT.DELETE idx DD 
+```
+
+### Parameters
+
+- **index**: The Fulltext index name. The index must be first created with FT.CREATE
+- **DD**: If set, the drop operation will delete the actual document hashes.
+
+### Returns
+
+Status Reply: OK on success.
+
+---
+
 ## FT.DROP
 
 ### Format
@@ -924,7 +964,9 @@ FT.DROP {index} [KEEPDOCS]
 
 ### Description
 
-Deletes all the keys associated with the index. 
+!!! warning "This command is deprecated"
+
+Deletes the index and all the keys associated with it. 
 
 By default, DROP deletes the document hashes as well, but adding the KEEPDOCS option keeps the documents in place, ready for re-indexing.
 

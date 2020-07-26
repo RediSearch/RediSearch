@@ -59,14 +59,14 @@ static int parseDocumentOptions(AddDocumentOptions *opts, ArgsCursor *ac, QueryE
   opts->options = 0;
 
   char *languageStr = NULL;
-  ACArgSpec argList[] = {{AC_MKBITFLAG("NOSAVE", &opts->options, DOCUMENT_ADD_NOSAVE)},
-                         {AC_MKBITFLAG("REPLACE", &opts->options, DOCUMENT_ADD_REPLACE)},
-                         {AC_MKBITFLAG("PARTIAL", &opts->options, DOCUMENT_ADD_PARTIAL)},
-                         {AC_MKBITFLAG("NOCREATE", &opts->options, DOCUMENT_ADD_NOCREATE)},
-                         {.name = "PAYLOAD", .type = AC_ARGTYPE_RSTRING, .target = &opts->payload},
-                         {.name = "LANGUAGE", .type = AC_ARGTYPE_STRING, .target = &languageStr},
-                         {.name = "IF", .type = AC_ARGTYPE_STRING, .target = &opts->evalExpr},
-                         {.name = NULL}};
+  ACArgSpec argList[] = {
+      {AC_MKBITFLAG("REPLACE", &opts->options, DOCUMENT_ADD_REPLACE)},
+      {AC_MKBITFLAG("PARTIAL", &opts->options, DOCUMENT_ADD_PARTIAL)},
+      {AC_MKBITFLAG("NOCREATE", &opts->options, DOCUMENT_ADD_NOCREATE)},
+      {.name = "PAYLOAD", .type = AC_ARGTYPE_RSTRING, .target = &opts->payload},
+      {.name = "LANGUAGE", .type = AC_ARGTYPE_RSTRING, .target = &opts->languageStr},
+      {.name = "IF", .type = AC_ARGTYPE_STRING, .target = &opts->evalExpr},
+      {.name = NULL}};
 
   while (!AC_IsAtEnd(ac)) {
     int rv = 0;
@@ -108,10 +108,12 @@ static int parseDocumentOptions(AddDocumentOptions *opts, ArgsCursor *ac, QueryE
     return REDISMODULE_ERR;
   }
 
-  opts->language = RSLanguage_Find(languageStr);
-  if (opts->language == RS_LANG_UNSUPPORTED) {
-    QueryError_SetError(status, QUERY_EADDARGS, "Unsupported language");
-    return REDISMODULE_ERR;
+  if (opts->languageStr != NULL) {
+    opts->language = RSLanguage_Find(RedisModule_StringPtrLen(opts->languageStr, NULL));
+    if (opts->language == RS_LANG_UNSUPPORTED) {
+      QueryError_SetError(status, QUERY_EADDARGS, "Unsupported language");
+      return REDISMODULE_ERR;
+    }
   }
 
   if (QueryError_HasError(status)) {
@@ -119,9 +121,6 @@ static int parseDocumentOptions(AddDocumentOptions *opts, ArgsCursor *ac, QueryE
   }
   if (partial) {
     opts->options |= DOCUMENT_ADD_PARTIAL;
-  }
-  if (nosave) {
-    opts->options |= DOCUMENT_ADD_NOSAVE;
   }
   if (replace) {
     opts->options |= DOCUMENT_ADD_REPLACE;
@@ -132,12 +131,27 @@ static int parseDocumentOptions(AddDocumentOptions *opts, ArgsCursor *ac, QueryE
 int RS_AddDocument(RedisSearchCtx *sctx, RedisModuleString *name, const AddDocumentOptions *opts,
                    QueryError *status) {
   int rc = REDISMODULE_ERR;
-  // If the ID is 0, then the document does not exist.
   IndexSpec *sp = sctx->spec;
-  int exists = !!DocTable_GetIdR(&sp->docs, name);
+
+  int exists;
+  RedisModuleKey *k = RedisModule_OpenKey(sctx->redisCtx, name, REDISMODULE_READ);
+  if (k == NULL || RedisModule_KeyType(k) == REDISMODULE_KEYTYPE_EMPTY) {
+    exists = 0;
+  } else if (RedisModule_KeyType(k) == REDISMODULE_KEYTYPE_HASH) {
+    exists = 1;
+  } else {
+    QueryError_SetError(status, QUERY_EREDISKEYTYPE, NULL);
+    goto done;
+  }
+
+  if (!exists && (opts->options & DOCUMENT_ADD_NOCREATE)) {
+    QueryError_SetError(status, QUERY_ENODOC, "Document does not exist");
+    goto done;
+  }
+
   if (exists && !(opts->options & DOCUMENT_ADD_REPLACE)) {
     QueryError_SetError(status, QUERY_EDOCEXISTS, NULL);
-    goto error;
+    goto done;
   }
 
   // handle update condition, only if the document exists
@@ -146,7 +160,7 @@ int RS_AddDocument(RedisSearchCtx *sctx, RedisModuleString *name, const AddDocum
     if (Document_EvalExpression(sctx, name, opts->evalExpr, &res, status) == REDISMODULE_OK) {
       if (res == 0) {
         QueryError_SetError(status, QUERY_EDOCNOTADDED, NULL);
-        goto error;
+        goto done;
       }
     } else {
       printf("Eval failed! (%s)\n", opts->evalExpr);
@@ -154,57 +168,26 @@ int RS_AddDocument(RedisSearchCtx *sctx, RedisModuleString *name, const AddDocum
         QueryError_ClearError(status);
         QueryError_SetCode(status, QUERY_EDOCNOTADDED);
       }
-      goto error;
+      goto done;
     }
   }
 
-  RedisModuleCtx *ctx = sctx->redisCtx;
-  Document doc = {0};
-
-  Document_Init(&doc, name, opts->score, opts->language);
-  if (opts->payload) {
-    size_t npayload = 0;
-    const char *payload = RedisModule_StringPtrLen(opts->payload, &npayload);
-    Document_SetPayload(&doc, payload, npayload);
-  }
-  Document_LoadPairwiseArgs(&doc, opts->fieldsArray, opts->numFieldElems);
-
-  if (!(opts->options & DOCUMENT_ADD_NOSAVE)) {
-    int saveopts = 0;
-    if (opts->options & DOCUMENT_ADD_NOCREATE) {
-      saveopts |= REDIS_SAVEDOC_NOCREATE;
-    }
-    RedisSearchCtx sctx_s = SEARCH_CTX_STATIC(sctx->redisCtx, sp);
-    if (Redis_SaveDocument(&sctx_s, &doc, saveopts, status) != REDISMODULE_OK) {
-      Document_Free(&doc);
-      goto error;
+  // remove doc entirely if not partial update
+  if (exists && opts->options & DOCUMENT_ADD_REPLACE && !(opts->options & DOCUMENT_ADD_PARTIAL)) {
+    RedisModuleCallReply *reply = RedisModule_Call(sctx->redisCtx, "DEL", "s", opts->keyStr);
+    if (reply) {
+      RedisModule_FreeCallReply(reply);
     }
   }
 
-  LG_DEBUG("Adding doc %s with %d fields\n", RedisModule_StringPtrLen(doc.docKey, NULL),
-           doc.numFields);
-  RSAddDocumentCtx *aCtx = NewAddDocumentCtx(sp, &doc, status);
-  if (aCtx == NULL) {
-    Document_Free(&doc);
-    goto error;
+  RedisSearchCtx sctx_s = SEARCH_CTX_STATIC(sctx->redisCtx, sp);
+  rc = Redis_SaveDocument(&sctx_s, opts, status);
+
+done:
+  if (k) {
+    RedisModule_CloseKey(k);
   }
-
-  uint32_t addOptions = opts->options;
-
-  if (!exists) {
-    // If the document does not exist, remove replace/partial settings
-    addOptions &= ~(DOCUMENT_ADD_REPLACE | DOCUMENT_ADD_PARTIAL);
-  }
-  if (addOptions & DOCUMENT_ADD_CURTHREAD) {
-    aCtx->stateFlags |= ACTX_F_NOBLOCK;
-  }
-
-  aCtx->donecb = opts->donecb;
-  AddDocumentCtx_Submit(aCtx, sctx, addOptions);
-  return REDISMODULE_OK;
-
-error:
-  return REDISMODULE_ERR;
+  return rc;
 }
 
 static void replyCallback(RSAddDocumentCtx *aCtx, RedisModuleCtx *ctx, void *unused) {
@@ -226,7 +209,7 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   }
 
   ArgsCursor ac;
-  AddDocumentOptions opts = {.donecb = replyCallback};
+  AddDocumentOptions opts = {.keyStr = argv[2], .scoreStr = argv[3], .donecb = replyCallback};
   QueryError status = {0};
 
   ArgsCursor_InitRString(&ac, argv + 3, argc - 3);
@@ -251,9 +234,6 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     goto cleanup;
   }
 
-  if (!CheckConcurrentSupport(ctx) || (sp->flags & Index_Temporary) || !canBlock) {
-    opts.options |= DOCUMENT_ADD_CURTHREAD;
-  }
   RedisSearchCtx sctx = {.redisCtx = ctx, .spec = sp};
   rv = RS_AddDocument(&sctx, argv[2], &opts, &status);
   if (rv != REDISMODULE_OK) {
@@ -266,136 +246,13 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     // Replicate *here*
     // note: we inject the index name manually so that we eliminate alias
     // lookups on smaller documents
-    RedisModule_Replicate(ctx, RS_SAFEADD_CMD, "cv", sp->name, argv + 2, argc - 2);
+    // RedisModule_Replicate(ctx, RS_SAFEADD_CMD, "cv", sp->name, argv + 2, argc - 2);
+
+    // RS 2.0 - HSET replicates using `!v`
+    RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
 
 cleanup:
-  QueryError_ClearError(&status);
-  return REDISMODULE_OK;
-}
-
-/* FT.ADDHASH <index> <docId> <score> [LANGUAGE <lang>] [REPLACE]
-*  Index a document that's already saved in redis as a HASH object, unrelated to
-* the module.
-*  This will not modify the document, just add it to the index if it is not
-* already there.
-
-## Parameters:
-
-      - index: The Fulltext index name. The index must be first created with
-        FT.CREATE
-
-      - docId: The document's id, that must be a HASH key already in redis.
-
-      - score: The document's rank based on the user's ranking. This must be
-        between 0.0 and 1.0.
-        If you don't have a score just set it to 1
-
-      - REPLACE: If set, we will do an update and delete an older version of the document if it
-exists
-
-      - LANGUAGE lang: If set, we use a stemmer for the supplied langauge during
-      indexing. Defaults to
-      English.
-        If an unsupported language is sent, the command returns an error.
-        The supported languages are:
-
-        > "arabic",  "danish",    "dutch",   "english",   "finnish", "french",
-        > "german",  "hungarian",  "hindi",  "italian", "norwegian", "portuguese",
-"romanian",
-        > "russian", "spanish",   "swedish", "tamil",     "turkish"
-
-
-  Returns OK on success, or an error if something went wrong.
-*/
-static int doAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                            int isBlockable) {
-  if (argc < 4 || argc > 7) {
-    return RedisModule_WrongArity(ctx);
-  }
-
-  QueryError status = {0};
-  ArgsCursor ac = {0};
-  ArgsCursor_InitRString(&ac, argv + 3, argc - 3);
-  double ds;
-  int rv = 0;
-
-  if ((rv = AC_GetDouble(&ac, &ds, 0)) != AC_OK) {
-    QueryError_SetError(&status, QUERY_EADDARGS, "Could not parse document score");
-    goto cleanup;
-  } else if (ds < 0 || ds > 1.0) {
-    QueryError_SetError(&status, QUERY_EADDARGS, "Score must be between 0 and 1");
-    goto cleanup;
-  }
-
-  int replace = 0;
-  const char *languageStr = NULL;
-  ACArgSpec specs[] =  // Comment to force newline
-      {{.name = "LANGUAGE", .type = AC_ARGTYPE_STRING, .target = &languageStr},
-       {.name = "REPLACE", .type = AC_ARGTYPE_BOOLFLAG, .target = &replace},
-       {.name = NULL}};
-  ACArgSpec *errArg = NULL;
-  rv = AC_ParseArgSpec(&ac, specs, &errArg);
-  if (rv == AC_OK) {
-    // OK. No error
-  } else if (rv == AC_ERR_ENOENT) {
-    const char *keyword = AC_GetStringNC(&ac, NULL);
-    QueryError_SetErrorFmt(&status, QUERY_EADDARGS, "Unknown keyword: `%s`", keyword);
-    goto cleanup;
-  } else {
-    QueryError_SetErrorFmt(&status, QUERY_EADDARGS, "Error parsing arguments for `%s`: %s",
-                           errArg ? errArg->name : "", AC_Strerror(rv));
-    goto cleanup;
-  }
-
-  RSLanguage language = RSLanguage_Find(languageStr);
-  if (language == RS_LANG_UNSUPPORTED) {
-    QueryError_SetErrorFmt(&status, QUERY_EADDARGS, "Unknown language: `%s`", languageStr);
-    goto cleanup;
-  }
-
-  IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
-  if (sp == NULL) {
-    QueryError_SetErrorFmt(&status, QUERY_EGENERIC, "Unknown Index name");
-    goto cleanup;
-  }
-
-  // Load the document score
-
-  Document doc = {0};
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
-  Document_Init(&doc, argv[2], ds, language);
-  if (Document_LoadAllFields(&doc, ctx) != REDISMODULE_OK) {
-    Document_Free(&doc);
-    return RedisModule_ReplyWithError(ctx, "Could not load document");
-  }
-
-  LG_DEBUG("Adding doc %s with %d fields\n", RedisModule_StringPtrLen(doc.docKey, NULL),
-           doc.numFields);
-
-  RSAddDocumentCtx *aCtx = NewAddDocumentCtx(sp, &doc, &status);
-  if (aCtx == NULL) {
-    Document_Free(&doc);
-    return QueryError_ReplyAndClear(ctx, &status);
-  }
-
-  aCtx->donecb = replyCallback;
-
-  if (isBlockable) {
-    isBlockable = CheckConcurrentSupport(ctx);
-  }
-
-  if (!isBlockable) {
-    aCtx->stateFlags |= ACTX_F_NOBLOCK;
-  }
-
-  RedisModule_Replicate(ctx, RS_SAFEADDHASH_CMD, "v", argv + 1, argc - 1);
-  AddDocumentCtx_Submit(aCtx, &sctx, replace ? DOCUMENT_ADD_REPLACE : 0);
-  return REDISMODULE_OK;
-
-cleanup:
-  RS_LOG_ASSERT_FMT(QueryError_HasError(&status), "%s%s", "Hash addition failed: ", status.detail);
-  RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
   QueryError_ClearError(&status);
   return REDISMODULE_OK;
 }
@@ -405,12 +262,4 @@ int RSAddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 }
 int RSSafeAddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return doAddDocument(ctx, argv, argc, 0);
-}
-
-int RSAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  return doAddHashCommand(ctx, argv, argc, 1);
-}
-
-int RSSafeAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  return doAddHashCommand(ctx, argv, argc, 0);
 }

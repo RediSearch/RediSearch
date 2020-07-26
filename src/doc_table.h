@@ -8,6 +8,7 @@
 #include "sortable.h"
 #include "byte_offsets.h"
 #include "rmutil/sds.h"
+#include "util/dict.h"
 
 #ifdef __cplusplus
 extern "C" {

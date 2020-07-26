@@ -15,6 +15,10 @@
 #include "alias.h"
 #include "module.h"
 #include "rmutil/rm_assert.h"
+#include "aggregate/expr/expression.h"
+#include "rules.h"
+#include "commands.h"
+#include "dictionary.h"
 
 void (*IndexSpec_OnCreate)(const IndexSpec *) = NULL;
 const char *(*IndexAlias_GetUserTableName)(RedisModuleCtx *, const char *) = NULL;
@@ -22,43 +26,34 @@ const char *(*IndexAlias_GetUserTableName)(RedisModuleCtx *, const char *) = NUL
 RedisModuleType *IndexSpecType;
 static uint64_t spec_unique_ids = 1;
 
-static const FieldSpec *getFieldCommon(const IndexSpec *spec, const char *name, size_t len,
-                                       int useCase) {
+dict *specDict;
+
+static const FieldSpec *getFieldCommon(const IndexSpec *spec, const char *name, size_t len) {
   for (size_t i = 0; i < spec->numFields; i++) {
     if (len != strlen(spec->fields[i].name)) {
       continue;
     }
     const FieldSpec *fs = spec->fields + i;
-    if (useCase) {
-      if (!strncmp(fs->name, name, len)) {
-        return fs;
-      }
-    } else {
-      if (!strncasecmp(fs->name, name, len)) {
-        return fs;
-      }
+    if (!strncmp(fs->name, name, len)) {
+      return fs;
     }
   }
   return NULL;
 }
 
 /*
- * Get a field spec by field name. Case insensitive!
+ * Get a field spec by field name. Case sensetive!
  * Return the field spec if found, NULL if not
  */
 const FieldSpec *IndexSpec_GetField(const IndexSpec *spec, const char *name, size_t len) {
-  return getFieldCommon(spec, name, len, 0);
+  return getFieldCommon(spec, name, len);
 };
 
-const FieldSpec *IndexSpec_GetFieldCase(const IndexSpec *spec, const char *name, size_t n) {
-  return getFieldCommon(spec, name, n, 1);
-}
-
 t_fieldMask IndexSpec_GetFieldBit(IndexSpec *spec, const char *name, size_t len) {
-  const FieldSpec *sp = IndexSpec_GetField(spec, name, len);
-  if (!sp || !FIELD_IS(sp, INDEXFLD_T_FULLTEXT) || !FieldSpec_IsIndexable(sp)) return 0;
+  const FieldSpec *fs = IndexSpec_GetField(spec, name, len);
+  if (!fs || !FIELD_IS(fs, INDEXFLD_T_FULLTEXT) || !FieldSpec_IsIndexable(fs)) return 0;
 
-  return FIELD_BIT(sp);
+  return FIELD_BIT(fs);
 }
 
 int IndexSpec_CheckPhoneticEnabled(const IndexSpec *sp, t_fieldMask fm) {
@@ -154,30 +149,28 @@ int isRdbLoading(RedisModuleCtx *ctx) {
   return isLoading == 1;
 }
 
+static void IndexSpec_TimedOut(RedisModuleCtx *ctx, void *data) {
+  IndexSpec *sp = data;
+  // we need to delete the spec from the specDict, as far as the user see it,
+  // this spec was deleted and its memory will be freed in a background thread.
+  dictDelete(specDict, sp->name);
+  sp->isTimerSet = false;
+  IndexSpec_Free(sp);
+}
+
 IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                QueryError *status) {
+  const char *specName = RedisModule_StringPtrLen(argv[1], NULL);
+  if (dictFetchValue(specDict, specName)) {
+    QueryError_SetCode(status, QUERY_EINDEXEXISTS);
+    return NULL;
+  }
   IndexSpec *sp = IndexSpec_ParseRedisArgs(ctx, argv[1], &argv[2], argc - 2, status);
   if (sp == NULL) {
     return NULL;
   }
 
-  RedisModuleString *keyString = RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, sp->name);
-  RedisModuleKey *k = RedisModule_OpenKey(ctx, keyString, REDISMODULE_READ | REDISMODULE_WRITE);
-  RedisModule_FreeString(ctx, keyString);
-
-  // check that the key is empty
-  if (k == NULL || (RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_EMPTY)) {
-    if (RedisModule_ModuleTypeGetType(k) != IndexSpecType) {
-      QueryError_SetCode(status, QUERY_EREDISKEYTYPE);
-    } else {
-      QueryError_SetCode(status, QUERY_EINDEXEXISTS);
-    }
-    IndexSpec_Free(sp);
-    if (k) {
-      RedisModule_CloseKey(k);
-    }
-    return NULL;
-  }
+  dictAdd(specDict, (char *)specName, sp);
 
   sp->uniqueId = spec_unique_ids++;
   // Start the garbage collector
@@ -185,17 +178,16 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
 
   CursorList_AddSpec(&RSCursors, sp->name, RSCURSORS_DEFAULT_CAPACITY);
 
-  // set the value in redis
-  RedisModule_ModuleTypeSetValue(k, IndexSpecType, sp);
   if (sp->flags & Index_Temporary) {
-    RedisModule_SetExpire(k, sp->timeout * 1000);
+    sp->timerId = RedisModule_CreateTimer(RSDummyContext, sp->timeout, IndexSpec_TimedOut, sp);
+    sp->isTimerSet = true;
   }
+
   // Create the indexer
   sp->indexer = NewIndexer(sp);
   if (IndexSpec_OnCreate) {
     IndexSpec_OnCreate(sp);
   }
-  RedisModule_CloseKey(k);
   return sp;
 }
 
@@ -229,13 +221,13 @@ static bool checkPhoneticAlgorithmAndLang(const char *matcher) {
   return langauge_found;
 }
 
-static int parseTextField(FieldSpec *sp, ArgsCursor *ac, QueryError *status) {
+static int parseTextField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
   int rc;
   // this is a text field
   // init default weight and type
   while (!AC_IsAtEnd(ac)) {
     if (AC_AdvanceIfMatch(ac, SPEC_NOSTEM_STR)) {
-      sp->options |= FieldSpec_NoStemming;
+      fs->options |= FieldSpec_NoStemming;
       continue;
 
     } else if (AC_AdvanceIfMatch(ac, SPEC_WEIGHT_STR)) {
@@ -244,7 +236,7 @@ static int parseTextField(FieldSpec *sp, ArgsCursor *ac, QueryError *status) {
         QERR_MKBADARGS_AC(status, "weight", rc);
         return 0;
       }
-      sp->ftWeight = d;
+      fs->ftWeight = d;
       continue;
 
     } else if (AC_AdvanceIfMatch(ac, SPEC_PHONETIC_STR)) {
@@ -267,7 +259,7 @@ static int parseTextField(FieldSpec *sp, ArgsCursor *ac, QueryError *status) {
             "Portuguese (pt) and Spanish (es)");
         return 0;
       }
-      sp->options |= FieldSpec_Phonetics;
+      fs->options |= FieldSpec_Phonetics;
       continue;
 
     } else {
@@ -277,33 +269,33 @@ static int parseTextField(FieldSpec *sp, ArgsCursor *ac, QueryError *status) {
   return 1;
 }
 
-void FieldSpec_Initialize(FieldSpec *sp, FieldType types) {
-  sp->types |= types;
-  if (FIELD_IS(sp, INDEXFLD_T_TAG)) {
-    sp->tagFlags = TAG_FIELD_DEFAULT_FLAGS;
-    sp->tagSep = TAG_FIELD_DEFAULT_SEP;
+void FieldSpec_Initialize(FieldSpec *fs, FieldType types) {
+  fs->types |= types;
+  if (FIELD_IS(fs, INDEXFLD_T_TAG)) {
+    fs->tagFlags = TAG_FIELD_DEFAULT_FLAGS;
+    fs->tagSep = TAG_FIELD_DEFAULT_SEP;
   }
 }
 
 /* Parse a field definition from argv, at *offset. We advance offset as we progress.
  *  Returns 1 on successful parse, 0 otherwise */
-static int parseFieldSpec(ArgsCursor *ac, FieldSpec *sp, QueryError *status) {
+static int parseFieldSpec(ArgsCursor *ac, FieldSpec *fs, QueryError *status) {
   if (AC_IsAtEnd(ac)) {
-    QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Field `%s` does not have a type", sp->name);
+    QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Field `%s` does not have a type", fs->name);
     return 0;
   }
 
   if (AC_AdvanceIfMatch(ac, SPEC_TEXT_STR)) {
-    FieldSpec_Initialize(sp, INDEXFLD_T_FULLTEXT);
-    if (!parseTextField(sp, ac, status)) {
+    FieldSpec_Initialize(fs, INDEXFLD_T_FULLTEXT);
+    if (!parseTextField(fs, ac, status)) {
       goto error;
     }
   } else if (AC_AdvanceIfMatch(ac, NUMERIC_STR)) {
-    FieldSpec_Initialize(sp, INDEXFLD_T_NUMERIC);
+    FieldSpec_Initialize(fs, INDEXFLD_T_NUMERIC);
   } else if (AC_AdvanceIfMatch(ac, GEO_STR)) {  // geo field
-    FieldSpec_Initialize(sp, INDEXFLD_T_GEO);
+    FieldSpec_Initialize(fs, INDEXFLD_T_GEO);
   } else if (AC_AdvanceIfMatch(ac, SPEC_TAG_STR)) {  // tag field
-    FieldSpec_Initialize(sp, INDEXFLD_T_TAG);
+    FieldSpec_Initialize(fs, INDEXFLD_T_TAG);
     if (AC_AdvanceIfMatch(ac, SPEC_SEPARATOR_STR)) {
       if (AC_IsAtEnd(ac)) {
         QueryError_SetError(status, QUERY_EPARSEARGS, SPEC_SEPARATOR_STR " requires an argument");
@@ -315,19 +307,19 @@ static int parseFieldSpec(ArgsCursor *ac, FieldSpec *sp, QueryError *status) {
                                "Tag separator must be a single character. Got `%s`", sep);
         goto error;
       }
-      sp->tagSep = *sep;
+      fs->tagSep = *sep;
     }
   } else {  // not numeric and not text - nothing more supported currently
-    QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Invalid field type for field `%s`", sp->name);
+    QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Invalid field type for field `%s`", fs->name);
     goto error;
   }
 
   while (!AC_IsAtEnd(ac)) {
     if (AC_AdvanceIfMatch(ac, SPEC_SORTABLE_STR)) {
-      FieldSpec_SetSortable(sp);
+      FieldSpec_SetSortable(fs);
       continue;
     } else if (AC_AdvanceIfMatch(ac, SPEC_NOINDEX_STR)) {
-      sp->options |= FieldSpec_NotIndexable;
+      fs->options |= FieldSpec_NotIndexable;
       continue;
     } else {
       break;
@@ -338,9 +330,9 @@ static int parseFieldSpec(ArgsCursor *ac, FieldSpec *sp, QueryError *status) {
 error:
   if (!QueryError_HasError(status)) {
     QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Could not parse schema for field `%s`",
-                           sp->name);
+                           fs->name);
   }
-  FieldSpec_Cleanup(sp);
+  FieldSpec_Cleanup(fs);
   return 0;
 }
 
@@ -458,12 +450,17 @@ int IndexSpec_AddFields(IndexSpec *sp, ArgsCursor *ac, QueryError *status) {
 IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryError *status) {
   IndexSpec *spec = NewIndexSpec(name);
 
+  IndexSpec_MakeKeyless(spec);
+
   ArgsCursor ac = {0};
   ArgsCursor acStopwords = {0};
 
   ArgsCursor_InitCString(&ac, argv, argc);
   long long timeout = -1;
   int dummy;
+  size_t dummy2;
+  SchemaRuleArgs rule_args = {0};
+  ArgsCursor rule_prefixes = {0};
 
   ACArgSpec argopts[] = {
       {AC_MKUNFLAG(SPEC_NOOFFSETS_STR, &spec->flags,
@@ -472,8 +469,36 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryE
       {AC_MKUNFLAG(SPEC_NOFIELDS_STR, &spec->flags, Index_StoreFieldFlags)},
       {AC_MKUNFLAG(SPEC_NOFREQS_STR, &spec->flags, Index_StoreFreqs)},
       {AC_MKBITFLAG(SPEC_SCHEMA_EXPANDABLE_STR, &spec->flags, Index_WideSchema)},
+      {AC_MKBITFLAG(SPEC_ASYNC_STR, &spec->flags, Index_Async)},
+
       // For compatibility
       {.name = "NOSCOREIDX", .target = &dummy, .type = AC_ARGTYPE_BOOLFLAG},
+      {.name = "ON", .target = &rule_args.type, .len = &dummy2, .type = AC_ARGTYPE_STRING},
+      {.name = "PREFIX", .target = &rule_prefixes, .type = AC_ARGTYPE_SUBARGS},
+      {.name = "FILTER",
+       .target = &rule_args.filter_exp_str,
+       .len = &dummy2,
+       .type = AC_ARGTYPE_STRING},
+      {.name = "SCORE",
+       .target = &rule_args.score_default,
+       .len = &dummy2,
+       .type = AC_ARGTYPE_STRING},
+      {.name = "SCORE_FIELD",
+       .target = &rule_args.score_field,
+       .len = &dummy2,
+       .type = AC_ARGTYPE_STRING},
+      {.name = "LANGUAGE",
+       .target = &rule_args.lang_default,
+       .len = &dummy2,
+       .type = AC_ARGTYPE_STRING},
+      {.name = "LANGUAGE_FIELD",
+       .target = &rule_args.lang_field,
+       .len = &dummy2,
+       .type = AC_ARGTYPE_STRING},
+      {.name = "PAYLOAD",
+       .target = &rule_args.payload_field,
+       .len = &dummy2,
+       .type = AC_ARGTYPE_STRING},
       {.name = SPEC_TEMPORARY_STR, .target = &timeout, .type = AC_ARGTYPE_LLONG},
       {.name = SPEC_STOPWORDS_STR, .target = &acStopwords, .type = AC_ARGTYPE_SUBARGS},
       {.name = NULL}};
@@ -490,7 +515,21 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryE
   if (timeout != -1) {
     spec->flags |= Index_Temporary;
   }
-  spec->timeout = timeout;
+  spec->timeout = timeout * 1000;  // convert to ms
+
+  if (rule_prefixes.argc > 0) {
+    rule_args.nprefixes = rule_prefixes.argc;
+    rule_args.prefixes = (const char **)rule_prefixes.objs;
+  } else {
+    rule_args.nprefixes = 1;
+    static const char *empty_prefix[] = {""};
+    rule_args.prefixes = empty_prefix;
+  }
+
+  spec->rule = SchemaRule_Create(&rule_args, spec, status);
+  if (!spec->rule) {
+    goto failure;
+  }
 
   if (AC_IsInitialized(&acStopwords)) {
     if (spec->stopwords) {
@@ -513,10 +552,10 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryE
   if (!IndexSpec_AddFieldsInternal(spec, &ac, status, 1)) {
     goto failure;
   }
+
   return spec;
 
 failure:  // on failure free the spec fields array and return an error
-
   IndexSpec_Free(spec);
   return NULL;
 }
@@ -641,7 +680,14 @@ void IndexSpec_FreeWithKey(IndexSpec *sp, RedisModuleCtx *ctx) {
   RedisModule_CloseKey(kk);
 }
 
-static void IndexSpec_FreeInternals(IndexSpec *spec) {
+void IndexSpec_FreeInternals(IndexSpec *spec) {
+  dictDelete(specDict, spec->name);
+
+  if (spec->isTimerSet) {
+    RedisModule_StopTimer(RSDummyContext, spec->timerId, NULL);
+    spec->isTimerSet = false;
+  }
+
   if (spec->indexer) {
     Indexer_Free(spec->indexer);
   }
@@ -659,6 +705,11 @@ static void IndexSpec_FreeInternals(IndexSpec *spec) {
     // and is being freed now during an error.
     Cursors_PurgeWithName(&RSCursors, spec->name);
     CursorList_RemoveSpec(&RSCursors, spec->name);
+  }
+
+  if (spec->rule) {
+    SchemaRule_Free(spec->rule);
+    spec->rule = NULL;
   }
 
   rm_free(spec->name);
@@ -712,8 +763,7 @@ static void IndexSpec_FreeAsync(void *data) {
   RedisModule_AutoMemory(threadCtx);
   RedisModule_ThreadSafeContextLock(threadCtx);
 
-  Redis_DropIndex(&sctx, true, false);
-  IndexSpec_FreeInternals(spec);
+  Redis_DropIndex(&sctx, true);
 
   RedisModule_ThreadSafeContextUnlock(threadCtx);
   RedisModule_FreeThreadSafeContext(threadCtx);
@@ -747,7 +797,7 @@ void IndexSpec_FreeSync(IndexSpec *spec) {
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
   RedisModule_AutoMemory(ctx);
   if (!IndexSpec_IsKeyless(spec)) {
-    Redis_DropIndex(&sctx, 0, 1);
+    Redis_DropIndex(&sctx, false);
   }
   IndexSpec_FreeInternals(spec);
   RedisModule_FreeThreadSafeContext(ctx);
@@ -755,76 +805,31 @@ void IndexSpec_FreeSync(IndexSpec *spec) {
 
 IndexSpec *IndexSpec_LoadEx(RedisModuleCtx *ctx, IndexLoadOptions *options) {
   IndexSpec *ret = NULL;
-  int modeflags = REDISMODULE_READ | REDISMODULE_WRITE;
-
-  if (options->flags & INDEXSPEC_LOAD_WRITEABLE) {
-    modeflags |= REDISMODULE_WRITE;
-  }
-
-  RedisModuleString *formatted;
-  int isKeynameOwner = 0;
   const char *ixname = NULL;
 
-  if (options->flags & INDEXSPEC_LOAD_KEY_FORMATTED) {
-    formatted = options->name.rstring;
+  if (options->flags & INDEXSPEC_LOAD_KEY_RSTRING) {
+    ixname = RedisModule_StringPtrLen(options->name.rstring, NULL);
   } else {
-    isKeynameOwner = 1;
-    if (options->flags & INDEXSPEC_LOAD_KEY_RSTRING) {
-      ixname = RedisModule_StringPtrLen(options->name.rstring, NULL);
-    } else {
-      ixname = options->name.cstring;
-    }
-    formatted = RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, ixname);
+    ixname = options->name.cstring;
   }
 
-  options->keyp = RedisModule_OpenKey(ctx, formatted, modeflags);
-  // we do not allow empty indexes when loading an existing index
-  if (options->keyp == NULL || RedisModule_KeyType(options->keyp) == REDISMODULE_KEYTYPE_EMPTY) {
-    if (options->keyp) {
-      RedisModule_CloseKey(options->keyp);
-      options->keyp = NULL;
-    }
-    if ((options->flags & INDEXSPEC_LOAD_NOALIAS) || ixname == NULL) {
-      goto done;  // doesn't exist.
-    }
-    IndexSpec *aliasTarget = ret = IndexAlias_Get(ixname);
-    if (aliasTarget && (options->flags & INDEXSPEC_LOAD_KEYLESS) == 0) {
-      if (isKeynameOwner) {
-        RedisModule_FreeString(ctx, formatted);
-      }
-      formatted = RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, ret->name);
-      isKeynameOwner = 1;
-      options->keyp = RedisModule_OpenKey(ctx, formatted, modeflags);
-    }
-  } else {
-    if (RedisModule_ModuleTypeGetType(options->keyp) != IndexSpecType) {
-      goto done;
-    }
-    ret = RedisModule_ModuleTypeGetValue(options->keyp);
-  }
-
+  ret = dictFetchValue(specDict, ixname);
   if (!ret) {
-    goto done;
-  }
-  if (ret->flags & Index_Temporary) {
-    mstime_t exp = ret->timeout * 1000;
-    if (modeflags & REDISMODULE_WRITE) {
-      RedisModule_SetExpire(options->keyp, exp);
-    } else {
-      RedisModuleKey *temp = RedisModule_OpenKey(ctx, formatted, REDISMODULE_WRITE);
-      RedisModule_SetExpire(temp, ret->timeout * 1000);
-      RedisModule_CloseKey(temp);
+    if (!(options->flags & INDEXSPEC_LOAD_NOALIAS)) {
+      ret = IndexAlias_Get(ixname);
+    }
+    if (!ret) {
+      return NULL;
     }
   }
 
-done:
-  if (isKeynameOwner) {
-    RedisModule_FreeString(ctx, formatted);
+  if ((ret->flags & Index_Temporary) && !(options->flags & INDEXSPEC_LOAD_NOTIMERUPDATE)) {
+    if (ret->isTimerSet) {
+      RedisModule_StopTimer(RSDummyContext, ret->timerId, NULL);
+    }
+    ret->timerId = RedisModule_CreateTimer(RSDummyContext, ret->timeout, IndexSpec_TimedOut, ret);
   }
-  if ((options->flags & INDEXSPEC_LOAD_KEYLESS) && options->keyp) {
-    RedisModule_CloseKey(options->keyp);
-    options->keyp = NULL;
-  }
+
   return ret;
 }
 
@@ -849,13 +854,11 @@ RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs,
     RedisSearchCtx sctx = {.redisCtx = RSDummyContext, .spec = sp};
     switch (forType) {
       case INDEXFLD_T_NUMERIC:
+      case INDEXFLD_T_GEO:  // TODO?? change the name
         ret = fmtRedisNumericIndexKey(&sctx, fs->name);
         break;
       case INDEXFLD_T_TAG:
         ret = TagIndex_FormatName(&sctx, fs->name);
-        break;
-      case INDEXFLD_T_GEO:
-        ret = RedisModule_CreateStringPrintf(RSDummyContext, GEOINDEX_KEY_FMT, sp->name, fs->name);
         break;
       case INDEXFLD_T_FULLTEXT:  // Text fields don't get a per-field index
       default:
@@ -863,11 +866,9 @@ RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs,
         abort();
         break;
     }
+    RS_LOG_ASSERT(ret, "Failed to create index string");
+    sp->indexStrs[fs->index].types[typeix] = ret;
   }
-  if (!ret) {
-    return NULL;
-  }
-  sp->indexStrs[fs->index].types[typeix] = ret;
   return ret;
 }
 
@@ -940,6 +941,11 @@ IndexSpec *NewIndexSpec(const char *name) {
   sp->maxPrefixExpansions = RSGlobalConfig.maxPrefixExpansions;
   sp->getValue = NULL;
   sp->getValueCtx = NULL;
+
+  sp->timeout = 0;
+  sp->isTimerSet = false;
+  sp->timerId = 0;
+
   memset(&sp->stats, 0, sizeof(sp->stats));
   return sp;
 }
@@ -1114,79 +1120,189 @@ static void IndexStats_RdbSave(RedisModuleIO *rdb, IndexStats *stats) {
   RedisModule_SaveUnsigned(rdb, stats->termsSize);
 }
 
-void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
-  if (encver < INDEX_MIN_COMPAT_VERSION) {
-    return NULL;
-  }
-  RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
-  IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
-  sp->sortables = NewSortingTable();
-  sp->terms = NULL;
-  sp->docs = DocTable_New(1000);
-  sp->name = RedisModule_LoadStringBuffer(rdb, NULL);
-  char *tmpName = rm_strdup(sp->name);
-  RedisModule_Free(sp->name);
-  sp->name = tmpName;
-  sp->flags = (IndexFlags)RedisModule_LoadUnsigned(rdb);
-  sp->keysDict = NULL;
-  sp->maxPrefixExpansions = RSGlobalConfig.maxPrefixExpansions;
-  sp->minPrefix = RSGlobalConfig.minTermPrefix;
-  if (encver < INDEX_MIN_NOFREQ_VERSION) {
-    sp->flags |= Index_StoreFreqs;
+// todo: the final solution will scan in background
+static threadpool reindexPool = NULL;
+
+static void IndexSpec_DoneIndexingCallabck(struct RSAddDocumentCtx *docCtx, RedisModuleCtx *ctx,
+                                           void *pd) {
+}
+
+static void IndexSpec_ScanCallback(RedisModuleCtx *ctx, RedisModuleString *keyname,
+                                   RedisModuleKey *key, void *privdata) {
+  if (!key) {
+    // todo: on ROF the key might not be in the ram and we will not get it here, we will need to
+    // hanlde it.
+    return;
   }
 
-  sp->numFields = RedisModule_LoadUnsigned(rdb);
-  sp->fields = rm_calloc(sp->numFields, sizeof(FieldSpec));
-  int maxSortIdx = -1;
-  for (int i = 0; i < sp->numFields; i++) {
-    FieldSpec *fs = sp->fields + i;
-    FieldSpec_RdbLoad(rdb, sp->fields + i, encver);
-    sp->fields[i].index = i;
-    if (FieldSpec_IsSortable(fs)) {
-      RS_LOG_ASSERT(fs->sortIdx < RS_SORTABLES_MAX, "sorting index is too large");
-      sp->sortables->fields[fs->sortIdx].name = fs->name;
-      sp->sortables->fields[fs->sortIdx].type = fieldTypeToValueType(fs->types);
-      sp->sortables->len = MAX(sp->sortables->len, fs->sortIdx + 1);
+  Indexes_UpdateMatchingWithSchemaRules(ctx, keyname);
+
+  //  size_t keynameCStrLen;
+  //  const char *keynameCStr = RedisModule_StringPtrLen(keyname, &keynameCStrLen);
+  //
+  //  // load the document, todo: use the key itself with scan api.
+  //  Document doc = {0};
+  //  Document_Init(&doc, keyname, 1.0, RS_LANG_ENGLISH);
+  //  if (Document_LoadAllFields(&doc, ctx) != REDISMODULE_OK) {
+  //    RedisModule_Log(ctx, "warning", "Failed loading document %*.s", (int)keynameCStrLen,
+  //                    keynameCStr);
+  //    Document_Free(&doc);
+  //    return;
+  //  }
+  //
+  //  QueryError status = {0};
+  //
+  //  dictIterator *iter = dictGetIterator(specDict);
+  //  dictEntry *entry = NULL;
+  //  while ((entry = dictNext(iter))) {
+  //    IndexSpec *sp = dictGetVal(entry);
+  //    if (IndexSpec_ShouldIndex(sp, keyname, key)) {
+  //
+  //      RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
+  //
+  //      RSAddDocumentCtx *aCtx = NewAddDocumentCtx(sp, &doc, &status);
+  //      if (aCtx == NULL) {
+  //        // todo: handle this error
+  //        continue;
+  //      }
+  //
+  //      aCtx->donecb = IndexSpec_DoneIndexingCallabck;
+  //
+  //      aCtx->stateFlags |= ACTX_F_NOBLOCK;
+  //      aCtx->stateFlags |= ACTX_F_NOFREEDOC;
+  //
+  //      AddDocumentCtx_Submit(aCtx, &sctx, DOCUMENT_ADD_REPLACE);
+  //    }
+  //  }
+  //  dictReleaseIterator(iter);
+  //
+  //  // doc was set DEAD in Document_Moved and was not freed since it set as NOFREEDOC
+  //  doc.flags &= ~DOCUMENT_F_DEAD;
+  //  Document_Free(&doc);
+}
+
+void IndexSpec_ScanAndReindexSpec(void *notused) {
+  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
+  RedisModuleScanCursor *cursor = RedisModule_ScanCursorCreate();
+  //  RedisModule_ThreadSafeContextLock(ctx);
+  while (RedisModule_Scan(ctx, cursor, IndexSpec_ScanCallback, NULL)) {
+    //    RedisModule_ThreadSafeContextUnlock(ctx);
+    //    RedisModule_ThreadSafeContextLock(ctx);
+  }
+
+  //  RedisModule_ThreadSafeContextUnlock(ctx);
+  RedisModule_ScanCursorDestroy(cursor);
+
+  // set the timers for temporary indexes:
+  dictIterator *iter = dictGetIterator(specDict);
+  dictEntry *entry = NULL;
+  while ((entry = dictNext(iter))) {
+    IndexSpec *sp = dictGetVal(entry);
+    if (!(sp->flags & Index_Temporary)) {
+      continue;
     }
+
+    sp->timerId = RedisModule_CreateTimer(RSDummyContext, sp->timeout, IndexSpec_TimedOut, sp);
+    sp->isTimerSet = true;
+  }
+  dictReleaseIterator(iter);
+
+  RedisModule_FreeThreadSafeContext(ctx);
+}
+
+void IndexSpec_ScanAndReindex() {
+  /*if (!reindexPool) {
+    reindexPool = thpool_init(1);
+  }*/
+
+  // todo: the final solution will scan in background
+  IndexSpec_ScanAndReindexSpec(NULL);
+  //  thpool_add_work(reindexPool, IndexSpec_ScanAndReindexSpec, NULL);
+}
+
+int IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, int when) {
+  if (when == REDISMODULE_AUX_BEFORE_RDB) {
+    return REDISMODULE_OK;
   }
 
-  IndexStats_RdbLoad(rdb, &sp->stats);
+  if (encver < INDEX_MIN_COMPAT_VERSION) {
+    return REDISMODULE_OK;
+  }
 
-  DocTable_RdbLoad(&sp->docs, rdb, encver);
-  /* For version 3 or up - load the generic trie */
-  if (encver >= 3) {
-    sp->terms = TrieType_GenericLoad(rdb, 0);
-  } else {
+  size_t nIndexes = RedisModule_LoadUnsigned(rdb);
+  for (size_t i = 0; i < nIndexes; ++i) {
+    RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
+    IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
+    IndexSpec_MakeKeyless(sp);
+
+    sp->sortables = NewSortingTable();
+    sp->terms = NULL;
+    sp->docs = DocTable_New(1000);
+    sp->name = RedisModule_LoadStringBuffer(rdb, NULL);
+    char *tmpName = rm_strdup(sp->name);
+    RedisModule_Free(sp->name);
+    sp->name = tmpName;
+    sp->flags = (IndexFlags)RedisModule_LoadUnsigned(rdb);
+    sp->maxPrefixExpansions = RSGlobalConfig.maxPrefixExpansions;
+    sp->minPrefix = RSGlobalConfig.minTermPrefix;
+    if (encver < INDEX_MIN_NOFREQ_VERSION) {
+      sp->flags |= Index_StoreFreqs;
+    }
+
+    sp->numFields = RedisModule_LoadUnsigned(rdb);
+    sp->fields = rm_calloc(sp->numFields, sizeof(FieldSpec));
+    int maxSortIdx = -1;
+    for (int i = 0; i < sp->numFields; i++) {
+      FieldSpec *fs = sp->fields + i;
+      FieldSpec_RdbLoad(rdb, sp->fields + i, encver);
+      sp->fields[i].index = i;
+      if (FieldSpec_IsSortable(fs)) {
+        RS_LOG_ASSERT(fs->sortIdx < RS_SORTABLES_MAX, "sorting index is too large");
+        sp->sortables->fields[fs->sortIdx].name = fs->name;
+        sp->sortables->fields[fs->sortIdx].type = fieldTypeToValueType(fs->types);
+        sp->sortables->len = MAX(sp->sortables->len, fs->sortIdx + 1);
+      }
+    }
+
+    //    IndexStats_RdbLoad(rdb, &sp->stats);
+
+    if (SchemaRule_RdbLoad(sp, rdb, encver) != REDISMODULE_OK) {
+      IndexSpec_Free(sp);
+      return REDISMODULE_ERR;
+    }
+
+    //    DocTable_RdbLoad(&sp->docs, rdb, encver);
     sp->terms = NewTrie();
-  }
+    /* For version 3 or up - load the generic trie */
+    //  if (encver >= 3) {
+    //    sp->terms = TrieType_GenericLoad(rdb, 0);
+    //  } else {
+    //    sp->terms = NewTrie();
+    //  }
 
-  if (sp->flags & Index_HasCustomStopwords) {
-    sp->stopwords = StopWordList_RdbLoad(rdb, encver);
-  } else {
-    sp->stopwords = DefaultStopWordList();
-  }
+    if (sp->flags & Index_HasCustomStopwords) {
+      sp->stopwords = StopWordList_RdbLoad(rdb, encver);
+    } else {
+      sp->stopwords = DefaultStopWordList();
+    }
 
-  sp->uniqueId = spec_unique_ids++;
+    sp->uniqueId = spec_unique_ids++;
 
-  IndexSpec_StartGC(ctx, sp, GC_DEFAULT_HZ);
-  RedisModuleString *specKey = RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, sp->name);
-  CursorList_AddSpec(&RSCursors, sp->name, RSCURSORS_DEFAULT_CAPACITY);
-  RedisModule_FreeString(ctx, specKey);
+    IndexSpec_StartGC(ctx, sp, GC_DEFAULT_HZ);
+    RedisModuleString *specKey = RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, sp->name);
+    CursorList_AddSpec(&RSCursors, sp->name, RSCURSORS_DEFAULT_CAPACITY);
+    RedisModule_FreeString(ctx, specKey);
 
-  sp->smap = NULL;
-  if (sp->flags & Index_HasSmap) {
-    sp->smap = SynonymMap_RdbLoad(rdb, encver);
-  }
-  if (IndexSpec_OnCreate) {
-    IndexSpec_OnCreate(sp);
-  }
-  if (encver < INDEX_MIN_EXPIRE_VERSION) {
-    sp->timeout = -1;
-  } else {
+    sp->smap = NULL;
+    if (sp->flags & Index_HasSmap) {
+      sp->smap = SynonymMap_RdbLoad(rdb, encver);
+    }
+    if (IndexSpec_OnCreate) {
+      IndexSpec_OnCreate(sp);
+    }
+
     sp->timeout = RedisModule_LoadUnsigned(rdb);
-  }
 
-  if (encver >= INDEX_MIN_ALIAS_VERSION) {
     size_t narr = RedisModule_LoadUnsigned(rdb);
     for (size_t ii = 0; ii < narr; ++ii) {
       QueryError status;
@@ -1196,57 +1312,98 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
       RedisModule_Free(s);
       RS_LOG_ASSERT(rc == REDISMODULE_OK, "adding alias to index failed");
     }
+
+    sp->indexer = NewIndexer(sp);
+    dictAdd(specDict, sp->name, sp);
   }
-  sp->indexer = NewIndexer(sp);
-  return sp;
+  return REDISMODULE_OK;
 }
 
-void IndexSpec_RdbSave(RedisModuleIO *rdb, void *value) {
-
-  IndexSpec *sp = value;
-  // we save the name plus the null terminator
-  RedisModule_SaveStringBuffer(rdb, sp->name, strlen(sp->name) + 1);
-  RedisModule_SaveUnsigned(rdb, (uint)sp->flags);
-
-  RedisModule_SaveUnsigned(rdb, sp->numFields);
-  for (int i = 0; i < sp->numFields; i++) {
-    FieldSpec_RdbSave(rdb, &sp->fields[i]);
+void IndexSpec_RdbSave(RedisModuleIO *rdb, int when) {
+  if (when == REDISMODULE_AUX_BEFORE_RDB) {
+    return;
   }
 
-  IndexStats_RdbSave(rdb, &sp->stats);
-  DocTable_RdbSave(&sp->docs, rdb);
-  // save trie of terms
-  TrieType_GenericSave(rdb, sp->terms, 0);
+  RedisModule_SaveUnsigned(rdb, dictSize(specDict));
 
-  // If we have custom stopwords, save them
-  if (sp->flags & Index_HasCustomStopwords) {
-    StopWordList_RdbSave(rdb, sp->stopwords);
-  }
+  dictIterator *iter = dictGetIterator(specDict);
+  dictEntry *entry = NULL;
+  while ((entry = dictNext(iter))) {
+    IndexSpec *sp = dictGetVal(entry);
+    // we save the name plus the null terminator
+    RedisModule_SaveStringBuffer(rdb, sp->name, strlen(sp->name) + 1);
+    RedisModule_SaveUnsigned(rdb, (uint)sp->flags);
 
-  if (sp->flags & Index_HasSmap) {
-    SynonymMap_RdbSave(rdb, sp->smap);
-  }
-  RedisModule_SaveUnsigned(rdb, sp->timeout);
-
-  if (sp->aliases) {
-    RedisModule_SaveUnsigned(rdb, array_len(sp->aliases));
-    for (size_t ii = 0; ii < array_len(sp->aliases); ++ii) {
-      RedisModule_SaveStringBuffer(rdb, sp->aliases[ii], strlen(sp->aliases[ii]) + 1);
+    RedisModule_SaveUnsigned(rdb, sp->numFields);
+    for (int i = 0; i < sp->numFields; i++) {
+      FieldSpec_RdbSave(rdb, &sp->fields[i]);
     }
-  } else {
-    RedisModule_SaveUnsigned(rdb, 0);
+
+    SchemaRule_RdbSave(sp->rule, rdb);
+
+    //    IndexStats_RdbSave(rdb, &sp->stats);
+    //    DocTable_RdbSave(&sp->docs, rdb);
+    //    // save trie of terms
+    //    TrieType_GenericSave(rdb, sp->terms, 0);
+
+    // If we have custom stopwords, save them
+    if (sp->flags & Index_HasCustomStopwords) {
+      StopWordList_RdbSave(rdb, sp->stopwords);
+    }
+
+    if (sp->flags & Index_HasSmap) {
+      SynonymMap_RdbSave(rdb, sp->smap);
+    }
+
+    RedisModule_SaveUnsigned(rdb, sp->timeout);
+
+    if (sp->aliases) {
+      RedisModule_SaveUnsigned(rdb, array_len(sp->aliases));
+      for (size_t ii = 0; ii < array_len(sp->aliases); ++ii) {
+        RedisModule_SaveStringBuffer(rdb, sp->aliases[ii], strlen(sp->aliases[ii]) + 1);
+      }
+    } else {
+      RedisModule_SaveUnsigned(rdb, 0);
+    }
   }
+
+  dictReleaseIterator(iter);
 }
 
 void IndexSpec_Digest(RedisModuleDigest *digest, void *value) {
 }
 
+static void IndexSpec_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent,
+                                   void *data) {
+  if (subevent == REDISMODULE_SUBEVENT_LOADING_RDB_START ||
+      subevent == REDISMODULE_SUBEVENT_LOADING_AOF_START ||
+      subevent == REDISMODULE_SUBEVENT_LOADING_REPL_START) {
+    IndexSpec **specs = array_new(IndexSpec *, 10);
+    dictIterator *iter = dictGetIterator(specDict);
+    dictEntry *entry = NULL;
+    while ((entry = dictNext(iter))) {
+      IndexSpec *sp = dictGetVal(entry);
+      specs = array_append(specs, sp);
+    }
+    dictReleaseIterator(iter);
+
+    for (size_t i = 0; i < array_len(specs); ++i) {
+      IndexSpec_FreeInternals(specs[i]);
+    }
+    array_free(specs);
+  } else if (subevent == REDISMODULE_SUBEVENT_LOADING_ENDED) {
+    IndexSpec_ScanAndReindex();
+  }
+}
+
 int IndexSpec_RegisterType(RedisModuleCtx *ctx) {
-  RedisModuleTypeMethods tm = {.version = REDISMODULE_TYPE_METHOD_VERSION,
-                               .rdb_load = IndexSpec_RdbLoad,
-                               .rdb_save = IndexSpec_RdbSave,
-                               .aof_rewrite = GenericAofRewrite_DisabledHandler,
-                               .free = IndexSpec_Free};
+  RedisModuleTypeMethods tm = {
+      .version = REDISMODULE_TYPE_METHOD_VERSION,
+      .aux_load = IndexSpec_RdbLoad,
+      .aux_save = IndexSpec_RdbSave,
+      .aof_rewrite = GenericAofRewrite_DisabledHandler,
+      .aux_save_triggers = REDISMODULE_AUX_BEFORE_RDB | REDISMODULE_AUX_AFTER_RDB,
+  };
 
   IndexSpecType = RedisModule_CreateDataType(ctx, "ft_index0", INDEX_CURRENT_VERSION, &tm);
   if (IndexSpecType == NULL) {
@@ -1254,5 +1411,161 @@ int IndexSpec_RegisterType(RedisModuleCtx *ctx) {
     return REDISMODULE_ERR;
   }
 
+  RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Loading, IndexSpec_LoadingEvent);
+
   return REDISMODULE_OK;
+}
+
+int IndexSpec_DeleteHash(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key);
+
+int IndexSpec_UpdateWithHash(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key) {
+  if (!spec->rule) {
+    RedisModule_Log(ctx, "warning", "Index spec %s: no rule found", spec->name);
+    return REDISMODULE_ERR;
+  }
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
+  Document doc = {0};
+  Document_Init(&doc, key, 1.0, DEFAULT_LANGUAGE);
+  if (Document_LoadSchemaFields(&doc, &sctx) != REDISMODULE_OK) {
+    Document_Free(&doc);
+    return RedisModule_ReplyWithError(ctx, "Could not load document");
+  }
+  QueryError status = {0};
+  RSAddDocumentCtx *aCtx = NewAddDocumentCtx(spec, &doc, &status);
+  aCtx->stateFlags |= ACTX_F_NOBLOCK;
+  AddDocumentCtx_Submit(aCtx, &sctx, DOCUMENT_ADD_REPLACE);
+
+  // doc was set DEAD in Document_Moved and was not freed since it set as NOFREEDOC
+  doc.flags &= ~DOCUMENT_F_DEAD;
+  Document_Free(&doc);
+  return REDISMODULE_OK;
+}
+
+int IndexSpec_DeleteHash(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key) {
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
+
+  // Get the doc ID
+  t_docId id = DocTable_GetIdR(&spec->docs, key);
+  if (id == 0) {
+    return RedisModule_ReplyWithLongLong(ctx, 0);
+    // ID does not exist.
+  }
+
+  int rc = DocTable_DeleteR(&spec->docs, key);
+  if (rc) {
+    spec->stats.numDocuments--;
+
+    // Increment the index's garbage collector's scanning frequency after document deletions
+    if (spec->gc) {
+      GCContext_OnDelete(spec->gc);
+    }
+    RedisModule_Replicate(ctx, RS_DEL_CMD, "cs", spec->name, key);
+  }
+  return REDISMODULE_OK;
+}
+
+void IndexSpec_CleanAll(void) {
+  dictIterator *it = dictGetSafeIterator(specDict);
+  dictEntry *e = NULL;
+  while ((e = dictNext(it))) {
+    IndexSpec *sp = e->v.val;
+    IndexSpec_Free(sp);
+  }
+  dictReleaseIterator(it);
+}
+
+static void onFlush(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
+  if (subevent != REDISMODULE_SUBEVENT_FLUSHDB_START) {
+    return;
+  }
+  IndexSpec_CleanAll();
+  Dictionary_Clear();
+}
+
+void Indexes_Init(RedisModuleCtx *ctx) {
+  specDict = dictCreate(&dictTypeHeapStrings, NULL);
+  RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_FlushDB, onFlush);
+  SchemaPrefixes_Create();
+  SchemaRules_Create();
+}
+
+dict *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key) {
+  EvalCtx *r = EvalCtx_Create();
+  // check r for null?
+  EvalCtx_AddHash(r, ctx, key);
+  RSValue *keyRSV = RS_RedisStringVal(key);
+  EvalCtx_Set(r, "__key", keyRSV);
+
+#ifdef DEBUG
+  RLookupKey *k = RLookup_GetKey(&r->lk, "__key", 0);
+  RSValue *v = RLookup_GetItem(k, &r->row);
+  const char *x = RSValue_StringPtrLen(v, NULL);
+  k = RLookup_GetKey(&r->lk, "name", 0);
+  v = RLookup_GetItem(k, &r->row);
+  x = RSValue_StringPtrLen(v, NULL);
+#endif  // DEBUG
+
+  dict *specs = dictCreate(&dictTypeHeapStrings, NULL);
+
+  size_t n;
+  const char *key_p = RedisModule_StringPtrLen(key, &n);
+  arrayof(SchemaPrefixNode *) prefixes = array_new(SchemaPrefixNode *, 1);
+  int nprefixes = TrieMap_FindPrefixes(ScemaPrefixes_g, key_p, n, (arrayof(void *) *)&prefixes);
+  for (int i = 0; i < array_len(prefixes); ++i) {
+    SchemaPrefixNode *node = prefixes[i];
+    for (int j = 0; j < array_len(node->index_specs); ++j) {
+      IndexSpec *spec = node->index_specs[j];
+      if (!dictFind(specs, node->prefix)) {
+        dictAdd(specs, spec->name, spec);
+      }
+    }
+  }
+  array_free(prefixes);
+
+  for (size_t i = 0; i < array_len(SchemaRules_g); i++) {
+    SchemaRule *rule = SchemaRules_g[i];
+    if (!rule->filter_exp) {
+      continue;
+    }
+    if (EvalCtx_EvalExpr(r, rule->filter_exp) == EXPR_EVAL_OK) {
+      IndexSpec *spec = rule->spec;
+      if (RSValue_BoolTest(&r->res) && !dictFind(specs, spec->name)) {
+        dictAdd(specs, spec->name, spec);
+      }
+    }
+  }
+
+  EvalCtx_Destroy(r);
+
+  return specs;
+}
+
+void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key) {
+  dict *specs = Indexes_FindMatchingSchemaRules(ctx, key);
+
+  dictIterator *di = dictGetIterator(specs);
+  dictEntry *ent = dictNext(di);
+  while (ent) {
+    IndexSpec *spec = (IndexSpec *)ent->v.val;
+    IndexSpec_UpdateWithHash(spec, ctx, key);
+    ent = dictNext(di);
+  }
+  dictReleaseIterator(di);
+
+  dictRelease(specs);
+}
+
+void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key) {
+  dict *specs = Indexes_FindMatchingSchemaRules(ctx, key);
+
+  dictIterator *di = dictGetIterator(specs);
+  dictEntry *ent = dictNext(di);
+  while (ent) {
+    IndexSpec *spec = (IndexSpec *)ent->v.val;
+    IndexSpec_DeleteHash(spec, ctx, key);
+    ent = dictNext(di);
+  }
+  dictReleaseIterator(di);
+
+  dictRelease(specs);
 }

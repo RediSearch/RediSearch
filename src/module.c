@@ -107,15 +107,7 @@ int GetDocumentsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
       RedisModule_ReplyWithNull(ctx);
       continue;
     }
-
-    Document doc = {0};
-    Document_Init(&doc, argv[i], 0, DEFAULT_LANGUAGE);
-    if (Document_LoadAllFields(&doc, ctx) == REDISMODULE_ERR) {
-      RedisModule_ReplyWithNull(ctx);
-    } else {
-      Document_ReplyFields(ctx, &doc);
-      Document_Free(&doc);
-    }
+    Document_ReplyAllFields(ctx, sctx->spec, argv[i]);
   }
 
   SearchCtx_Free(sctx);
@@ -140,15 +132,10 @@ int GetSingleDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
 
-  Document doc = {0};
-  Document_Init(&doc, argv[2], 0, DEFAULT_LANGUAGE);
-
-  if (DocTable_GetIdR(&sctx->spec->docs, argv[2]) == 0 ||
-      Document_LoadAllFields(&doc, ctx) == REDISMODULE_ERR) {
+  if (DocTable_GetIdR(&sctx->spec->docs, argv[2]) == 0) {
     RedisModule_ReplyWithNull(ctx);
   } else {
-    Document_ReplyFields(ctx, &doc);
-    Document_Free(&doc);
+    Document_ReplyAllFields(ctx, sctx->spec, argv[2]);
   }
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
@@ -289,68 +276,28 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
  *  Delete a document from the index. Returns 1 if the document was in the index, or 0 if not.
  *
  *  **NOTE**: This does not actually delete the document from the index, just marks it as deleted
- * If DD (Delete Document) is set, we also delete the document.
+ *  If DD (Delete Document) is set, we also delete the document.
+ *  Since v2.0, document is deleted by default.
  */
 int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisModule_AutoMemory(ctx);
-
+  // allow 'DD' for back support and ignore it.
   if (argc < 3 || argc > 4) return RedisModule_WrongArity(ctx);
   IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
   if (sp == NULL) {
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
 
-  int delDoc = 0;
-  if (argc == 4 && RMUtil_StringEqualsCaseC(argv[3], "DD")) {
-    delDoc = 1;
-  }
-
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
-  RedisModuleString *docKey = argv[2];
-
-  // Get the doc ID
-  t_docId id = DocTable_GetIdR(&sp->docs, docKey);
-  if (id == 0) {
+  RedisModuleCallReply *rep = NULL;
+  RedisModuleString *doc_id = argv[2];
+  rep = RedisModule_Call(ctx, "DEL", "s", doc_id);
+  if (rep == NULL || RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_INTEGER ||
+      RedisModule_CallReplyInteger(rep) != 1) {
     return RedisModule_ReplyWithLongLong(ctx, 0);
-    // ID does not exist.
   }
 
-  for (size_t i = 0; i < sp->numFields; ++i) {
-    FieldSpec *fs = sp->fields + i;
-    if (!FIELD_IS(fs, INDEXFLD_T_GEO)) {
-      continue;
-    }
-    GeoIndex gi = {.ctx = &sctx, .sp = fs};
-    GeoIndex_RemoveEntries(&gi, sctx.spec, id);
-  }
-
-  int rc = DocTable_DeleteR(&sp->docs, docKey);
-  if (rc) {
-    sp->stats.numDocuments--;
-
-    // If needed - delete the actual doc
-    if (delDoc) {
-
-      RedisModuleKey *dk = RedisModule_OpenKey(ctx, argv[2], REDISMODULE_WRITE);
-      if (dk && RedisModule_KeyType(dk) == REDISMODULE_KEYTYPE_HASH) {
-        RedisModule_DeleteKey(dk);
-      } else {
-        RedisModule_Log(ctx, "warning", "Document %s doesn't exist",
-                        RedisModule_StringPtrLen(argv[2], NULL));
-      }
-    }
-
-    // Increment the index's garbage collector's scanning frequency after document deletions
-    if (sp->gc) {
-      GCContext_OnDelete(sp->gc);
-    }
-    if (!delDoc) {
-      RedisModule_Replicate(ctx, RS_DEL_CMD, "cs", sp->name, argv[2]);
-    } else {
-      RedisModule_Replicate(ctx, RS_DEL_CMD, "csc", sp->name, argv[2], "dd");
-    }
-  }
-  return RedisModule_ReplyWithLongLong(ctx, rc);
+  RedisModule_Replicate(ctx, RS_DEL_CMD, "ss", argv[1], doc_id);
+  return RedisModule_ReplyWithLongLong(ctx, 1);
 }
 
 /* FT.TAGVALS {idx} {field}
@@ -482,11 +429,13 @@ int OptimizeIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
 /*
  * FT.DROP <index> [KEEPDOCS]
- * Deletes all the keys associated with the index.
+ * FT.DELETE <index> [DD]
+ * Deletes index and possibly all the keys associated with the index.
  * If no other data is on the redis instance, this is equivalent to FLUSHDB,
  * apart from the fact that the index specification is not deleted.
  *
- * If KEEPDOCS exists, we do not delete the actual docs
+ * FT.DROP, deletes all keys by default. If KEEPDOCS exists, we do not delete the actual docs
+ * FT.DELETE, keeps all keys by default. If DD exists, we delete the actual docs
  */
 int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // at least one field, and number of field/text args must be even
@@ -501,14 +450,23 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
 
-  // Optional KEEPDOCS
-  int delDocs = 1;
-  if (argc == 3 && RMUtil_StringEqualsCaseC(argv[2], "KEEPDOCS")) {
+  int delDocs;
+  if (RMUtil_StringEqualsCaseC(argv[0], "FT.DROP") ||
+      // checking for RSCoordinator
+      RMUtil_StringEqualsCaseC(argv[0], "_FT.DROP")) {
+    delDocs = 1;
+    if (argc == 3 && RMUtil_StringEqualsCaseC(argv[2], "KEEPDOCS")) {
+      delDocs = 0;
+    }
+  } else {  // FT.DELETE
     delDocs = 0;
+    if (argc == 3 && RMUtil_StringEqualsCaseC(argv[2], "DD")) {
+      delDocs = 1;
+    }
   }
 
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
-  Redis_DropIndex(&sctx, delDocs, true);
+  Redis_DropIndex(&sctx, delDocs);
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
@@ -802,6 +760,24 @@ int ConfigCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return REDISMODULE_OK;
 }
 
+int IndexList(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  if (argc != 1) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  RedisModule_ReplyWithArray(ctx, dictSize(specDict));
+
+  dictIterator *iter = dictGetIterator(specDict);
+  dictEntry *entry = NULL;
+  while ((entry = dictNext(iter))) {
+    IndexSpec *spec = dictGetVal(entry);
+    RedisModule_ReplyWithCString(ctx, spec->name);
+  }
+  dictReleaseIterator(iter);
+
+  return REDISMODULE_OK;
+}
+
 #define RM_TRY(f, ...)                                                         \
   if (f(__VA_ARGS__) == REDISMODULE_ERR) {                                     \
     RedisModule_Log(ctx, "warning", "Could not run " #f "(" #__VA_ARGS__ ")"); \
@@ -822,6 +798,8 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   }
 
   // register trie type
+  RM_TRY(DictRegister, ctx);
+
   RM_TRY(TrieType_Register, ctx);
 
   RM_TRY(IndexSpec_RegisterType, ctx);
@@ -832,43 +810,65 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   RM_TRY(NumericIndexType_Register, ctx);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_ADD_CMD, RSAddDocumentCommand, "write deny-oom", 1, 1,
-         1);
+#ifndef RS_COORDINATOR
+// on a none coordinator version (for RS light/lite) we want to raise cross slot if
+// the index and the document do not go to the same shard
+#define INDEX_ONLY_CMD_ARGS 1, 1, 1
+#define INDEX_DOC_CMD_ARGS 1, 2, 1
+#else
+// on coordinator we do not want to raise a move error so we do not specify any key
+#define INDEX_ONLY_CMD_ARGS 0, 0, 0
+#define INDEX_DOC_CMD_ARGS 0, 0, 0
+#endif
+
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_INDEX_LIST_CMD, IndexList, "readonly", 0, 0, 0);
+
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_ADD_CMD, RSAddDocumentCommand, "write deny-oom",
+         INDEX_DOC_CMD_ARGS);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_SAFEADD_CMD, RSSafeAddDocumentCommand, "write deny-oom",
-         1, 1, 1);
+         INDEX_DOC_CMD_ARGS);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_SETPAYLOAD_CMD, SetPayloadCommand, "write deny-oom", 1,
-         1, 1);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_SETPAYLOAD_CMD, SetPayloadCommand, "write deny-oom",
+         INDEX_DOC_CMD_ARGS);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_ADDHASH_CMD, RSAddHashCommand, "write deny-oom", 1, 1,
-         1);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_DEL_CMD, DeleteCommand, "write", INDEX_DOC_CMD_ARGS);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_SAFEADDHASH_CMD, RSSafeAddHashCommand, "write deny-oom",
-         1, 1, 1);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_SEARCH_CMD, RSSearchCommand, "readonly",
+         INDEX_ONLY_CMD_ARGS);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_AGGREGATE_CMD, RSAggregateCommand, "readonly",
+         INDEX_ONLY_CMD_ARGS);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_DEL_CMD, DeleteCommand, "write", 1, 1, 1);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_GET_CMD, GetSingleDocumentCommand, "readonly",
+         INDEX_DOC_CMD_ARGS);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_SEARCH_CMD, RSSearchCommand, "readonly", 1, 1, 1);
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_AGGREGATE_CMD, RSAggregateCommand, "readonly", 1, 1, 1);
+#ifndef RS_COORDINATOR
+  // in case not coordinator is defined, all docs and index name should go to the same slot
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_MGET_CMD, GetDocumentsCommand, "readonly", 1, -1, 1);
+#else
+  // in case coordinator is defined, do not force cross slot validation
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_MGET_CMD, GetDocumentsCommand, "readonly", 0, 0, 0);
+#endif
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_GET_CMD, GetSingleDocumentCommand, "readonly", 1, 1, 1);
-
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_MGET_CMD, GetDocumentsCommand, "readonly", 0, 0, -1);
-
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_CREATE_CMD, CreateIndexCommand, "write deny-oom", 1, 1,
-         1);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_CREATE_CMD, CreateIndexCommand, "write deny-oom",
+         INDEX_ONLY_CMD_ARGS);
   RM_TRY(RedisModule_CreateCommand, ctx, RS_CMD_PREFIX ".OPTIMIZE", OptimizeIndexCommand,
-         "write deny-oom", 1, 1, 1);
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_DROP_CMD, DropIndexCommand, "write", 1, 1, 1);
+         "write deny-oom", 1, 1, 1);  // todo: depricate
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_DROP_CMD, DropIndexCommand, "write",
+         INDEX_ONLY_CMD_ARGS);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_DELETE_CMD, DropIndexCommand, "write",
+         INDEX_ONLY_CMD_ARGS);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_INFO_CMD, IndexInfoCommand, "readonly", 1, 1, 1);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_INFO_CMD, IndexInfoCommand, "readonly",
+         INDEX_ONLY_CMD_ARGS);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_TAGVALS_CMD, TagValsCommand, "readonly", 1, 1, 1);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_TAGVALS_CMD, TagValsCommand, "readonly",
+         INDEX_ONLY_CMD_ARGS);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_EXPLAIN_CMD, QueryExplainCommand, "readonly", 1, 1, 1);
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_EXPLAINCLI_CMD, QueryExplainCLICommand, "readonly", 1,
-         1, 1);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_EXPLAIN_CMD, QueryExplainCommand, "readonly",
+         INDEX_ONLY_CMD_ARGS);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_EXPLAINCLI_CMD, QueryExplainCLICommand, "readonly",
+         INDEX_ONLY_CMD_ARGS);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_SUGADD_CMD, RSSuggestAddCommand, "write deny-oom", 1, 1,
          1);
@@ -879,31 +879,42 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_SUGGET_CMD, RSSuggestGetCommand, "readonly", 1, 1, 1);
 
+#ifndef RS_COORDINATOR
   RM_TRY(RedisModule_CreateCommand, ctx, RS_CURSOR_CMD, RSCursorCommand, "readonly", 2, 2, 1);
+#else
+  // we do not want to raise a move error on cluster with coordinator
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_CURSOR_CMD, RSCursorCommand, "readonly", 0, 0, 0);
+#endif
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_SYNADD_CMD, SynAddCommand, "write", 1, 1, 1);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_SYNADD_CMD, SynAddCommand, "write",
+         INDEX_ONLY_CMD_ARGS);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_SYNUPDATE_CMD, SynUpdateCommand, "write", 1, 1, 1);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_SYNUPDATE_CMD, SynUpdateCommand, "write",
+         INDEX_ONLY_CMD_ARGS);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_SYNFORCEUPDATE_CMD, SynForceUpdateCommand, "write", 1,
-         1, 1);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_SYNFORCEUPDATE_CMD, SynForceUpdateCommand, "write",
+         INDEX_ONLY_CMD_ARGS);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_SYNDUMP_CMD, SynDumpCommand, "readonly", 1, 1, 1);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_SYNDUMP_CMD, SynDumpCommand, "readonly",
+         INDEX_ONLY_CMD_ARGS);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_ALTER_CMD, AlterIndexCommand, "write", 1, 1, 1);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_ALTER_CMD, AlterIndexCommand, "write",
+         INDEX_ONLY_CMD_ARGS);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_DEBUG, DebugCommand, "readonly", 0, 0, 0);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_SPELL_CHECK, SpellCheckCommand, "readonly", 1, 1, 1);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_SPELL_CHECK, SpellCheckCommand, "readonly",
+         INDEX_ONLY_CMD_ARGS);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_DICT_ADD, DictAddCommand, "readonly", 1, 1, 1);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_DICT_ADD, DictAddCommand, "readonly", 0, 0, 0);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_DICT_DEL, DictDelCommand, "readonly", 1, 1, 1);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_DICT_DEL, DictDelCommand, "readonly", 0, 0, 0);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_DICT_DUMP, DictDumpCommand, "readonly", 1, 1, 1);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_DICT_DUMP, DictDumpCommand, "readonly", 0, 0, 0);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_CONFIG, ConfigCommand, "readonly", 1, 1, 1);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_CONFIG, ConfigCommand, "readonly", 0, 0, 0);
 
+// alias is a special case, we can not use the INDEX_ONLY_CMD_ARGS/INDEX_DOC_CMD_ARGS macros
 #ifndef RS_COORDINATOR
   // we are running in a normal mode so we should raise cross slot error on alias commands
   RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASADD, AliasAddCommand, "readonly", 1, 2, 1);
@@ -912,10 +923,10 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASDEL, AliasDelCommand, "readonly", 1, 1, 1);
 #else
   // Cluster is manage outside of module lets trust it and not raise cross slot error.
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASADD, AliasAddCommand, "readonly", 2, 2, 1);
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASUPDATE, AliasUpdateCommand, "readonly", 2, 2, 1);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASADD, AliasAddCommand, "readonly", 0, 0, 0);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASUPDATE, AliasUpdateCommand, "readonly", 0, 0, 0);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASDEL, AliasDelCommand, "readonly", 0, 0, -1);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASDEL, AliasDelCommand, "readonly", 0, 0, 0);
 #endif
   return REDISMODULE_OK;
 }
@@ -935,6 +946,9 @@ void __attribute__((destructor)) RediSearch_CleanupModule(void) {
     ConcurrentSearch_ThreadPoolDestroy();
     GC_ThreadPoolDestroy();
     IndexAlias_DestroyGlobal();
+    freeGlobalAddStrings();
+    SchemaPrefixes_Free();
     RedisModule_FreeThreadSafeContext(RSDummyContext);
+    Dictionary_Free();
   }
 }

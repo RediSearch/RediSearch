@@ -227,7 +227,7 @@ void *TrieMapNode_Find(TrieMapNode *n, char *str, tm_len_t len) {
       //   qsort(__trieMapNode_children(n), n->numChildren, sizeof(TrieMapNode *), __cmp_nodes);
       //   qsort(__trieMapNode_childKey(n, 0), n->numChildren, 1, __cmp_chars);
       //   n->flags |= TM_NODE_SORTED;
-      // } 
+      // }
       char *childKeys = __trieMapNode_childKey(n, 0);
       char c = str[offset];
       // if (n->flags & TM_NODE_SORTED) {
@@ -247,7 +247,7 @@ void *TrieMapNode_Find(TrieMapNode *n, char *str, tm_len_t len) {
       //     }
       //   }
 
-      // } else {      
+      // } else {
       tm_len_t nc = n->numChildren;
 
       while (i < nc) {
@@ -264,6 +264,58 @@ void *TrieMapNode_Find(TrieMapNode *n, char *str, tm_len_t len) {
   }
 
   return TRIEMAP_NOTFOUND;
+}
+
+int TrieMapNode_FindPrefixes(TrieMapNode *node, const char *str, tm_len_t len,
+                             arrayof(void *) * results) {
+  *results = array_clear(*results);
+
+  tm_len_t offset = 0;
+  while (node && (offset < len || len == 0)) {
+    tm_len_t node_offset = 0;
+    tm_len_t nlen = node->len;
+    while (offset < len && node_offset < nlen && str[offset] == node->str[node_offset]) {
+      offset++;
+      node_offset++;
+    }
+
+    // no match
+    if (node_offset != nlen) {
+      return array_len(*results);
+    }
+
+    // at the end of both strings
+    if (offset == len) {
+      // If this is a terminal, non deleted node
+      if (__trieMapNode_isTerminal(node) && !__trieMapNode_isDeleted(node)) {
+        *results = array_append(*results, node->value);
+      }
+      return array_len(*results);
+    }
+
+    if (node->value) {
+      *results = array_append(*results, node->value);
+    }
+
+    // reached end of node's string but not of the search string
+    // find a child to continue to
+    tm_len_t i = 0;
+    TrieMapNode *nextChild = NULL;
+    char *childKeys = __trieMapNode_childKey(node, 0);
+    char c = str[offset];
+    tm_len_t nc = node->numChildren;
+
+    while (i < nc) {
+      if (str[offset] == childKeys[i]) {
+        nextChild = __trieMapNode_children(node)[i];
+        break;
+      }
+      ++i;
+    }
+    node = nextChild;
+  }
+
+  return array_len(*results);
 }
 
 /* Find a node by string. Return the node matching the string even if it is not
@@ -321,6 +373,10 @@ TrieMapNode *TrieMapNode_FindNode(TrieMapNode *n, char *str, tm_len_t len, tm_le
 
 void *TrieMap_Find(TrieMap *t, char *str, tm_len_t len) {
   return TrieMapNode_Find(t->root, str, len);
+}
+
+int TrieMap_FindPrefixes(TrieMap *t, const char *str, tm_len_t len, arrayof(void *) * results) {
+  return TrieMapNode_FindPrefixes(t->root, str, len, results);
 }
 
 /* If a node has a single child after delete, we can merged them. This
