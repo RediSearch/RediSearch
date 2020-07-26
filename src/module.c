@@ -458,7 +458,7 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (argc == 3 && RMUtil_StringEqualsCaseC(argv[2], "KEEPDOCS")) {
       delDocs = 0;
     }
-  } else { // FT.DELETE
+  } else {  // FT.DELETE
     delDocs = 0;
     if (argc == 3 && RMUtil_StringEqualsCaseC(argv[2], "DD")) {
       delDocs = 1;
@@ -830,12 +830,6 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
          INDEX_DOC_CMD_ARGS);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_SETPAYLOAD_CMD, SetPayloadCommand, "write deny-oom",
-         INDEX_DOC_CMD_ARGS);
-
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_ADDHASH_CMD, RSAddHashCommand, "write deny-oom",
-         INDEX_DOC_CMD_ARGS);
-
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_SAFEADDHASH_CMD, RSSafeAddHashCommand, "write deny-oom",
          INDEX_DOC_CMD_ARGS);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_DEL_CMD, DeleteCommand, "write", INDEX_DOC_CMD_ARGS);

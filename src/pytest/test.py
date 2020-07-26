@@ -600,7 +600,7 @@ def testNoIndex(env):
 def testPartial(env):
     r = env
     env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH',  'SCORE', '__score',
+        'ft.create', 'idx', 'ON', 'HASH',  'SCORE_FIELD', '__score',
         'schema',
         'foo', 'text',
         'num', 'numeric', 'sortable', 'noindex',
@@ -2874,7 +2874,7 @@ def testIndexNotRemovedFromCursorListAfterRecreated(env):
     env.expect('FT.AGGREGATE idx * WITHCURSOR').equal([[0], 0])
 
 def testHindiStemmer(env):
-    env.cmd('FT.CREATE', 'idxTest', 'ON', 'HASH', 'LANGUAGE', '__language', 'SCHEMA', 'body', 'TEXT')
+    env.cmd('FT.CREATE', 'idxTest', 'LANGUAGE_FIELD', '__language', 'SCHEMA', 'body', 'TEXT')
     env.cmd('FT.ADD', 'idxTest', 'doc1', 1.0, 'LANGUAGE', 'hindi', 'FIELDS', 'body', u'अँगरेजी अँगरेजों अँगरेज़')
     res = env.cmd('FT.SEARCH', 'idxTest', u'अँगरेज़')
     res1 = {res[2][i]:res[2][i + 1] for i in range(0, len(res[2]), 2)}
