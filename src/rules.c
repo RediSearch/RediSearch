@@ -235,6 +235,8 @@ int SchemaRule_RdbLoad(IndexSpec *sp, RedisModuleIO *rdb, int encver) {
   if (RedisModule_LoadUnsigned(rdb)) {
     args.payload_field = RedisModule_LoadStringBuffer(rdb, &len);
   }
+  double score_default = RedisModule_LoadDouble(rdb);
+  RSLanguage lang_default = RedisModule_LoadUnsigned(rdb);
 
   QueryError status = {0};
   SchemaRule *rule = SchemaRule_Create(&args, sp, &status);
@@ -243,8 +245,8 @@ int SchemaRule_RdbLoad(IndexSpec *sp, RedisModuleIO *rdb, int encver) {
     QueryError_ClearError(&status);
     ret = REDISMODULE_ERR;
   } else {
-    rule->score_default = RedisModule_LoadDouble(rdb);
-    rule->lang_default = RedisModule_LoadUnsigned(rdb);
+    rule->score_default = score_default;
+    rule->lang_default = lang_default;
     sp->rule = rule;
   }
 
