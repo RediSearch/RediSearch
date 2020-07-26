@@ -3,6 +3,7 @@ import random
 import time
 
 from includes import *
+from common import waitForIndex
 
 def getConnectionByEnv(env):
     conn = None
@@ -12,13 +13,6 @@ def getConnectionByEnv(env):
         conn = env.getConnection()
     return conn
 
-def waitForIndex(env, idx):
-    while True:
-        res = env.execute_command('ft.info', idx)
-        if int(res[res.index('indexing') + 1]) == 0:
-            break
-        time.sleep(0.1)
-    
 def testCreateIndex(env):
     r = env
     N = 1000
@@ -41,7 +35,7 @@ def testAlterIndex(env):
 
     r.expect('ft.create', 'idx', 'ON', 'HASH', 'ASYNC', 'schema', 'name', 'text').ok()
     env.cmd('ft.alter', 'idx', 'schema', 'add', 'age', 'numeric')
-    # the following wait operation might not catch both background scans
+    # note the two background scans
     waitForIndex(r, 'idx')
     res = r.execute_command('ft.search', 'idx', '@age: [10 inf]', 'nocontent')
     env.assertEqual(N, res[0])
@@ -55,3 +49,4 @@ def testDeleteIndex(env):
     r.expect('ft.create', 'idx', 'ON', 'HASH', 'ASYNC', 'schema', 'name', 'text').ok()
     r.expect('ft.drop', 'idx').ok()
     r.expect('ft.info', 'idx').equal('Unknown Index name')
+    # time.sleep(1)

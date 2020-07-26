@@ -1231,8 +1231,10 @@ static IndexesScanner *IndexesScanner_New(IndexSpec *spec_opt) {
 
 void IndexesScanner_Free(IndexesScanner *scanner) {
   if (scanner->spec_name_opt) {
-    __sync_fetch_and_sub(&scanner->spec_opt->pending_indexing_ops, 1);
     rm_free((void *) scanner->spec_name_opt);
+    if (scanner->spec_opt) {
+      __sync_fetch_and_sub(&scanner->spec_opt->pending_indexing_ops, 1);
+    }
   } else {
     __sync_fetch_and_sub(&pending_global_indexing_ops, 1);
   }
