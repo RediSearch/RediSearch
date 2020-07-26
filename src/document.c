@@ -333,7 +333,7 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
   }
 
   // Destroy the common fields:
-  if (!(aCtx->stateFlags && ACTX_F_NOFREEDOC)) {
+  if (!(aCtx->stateFlags & ACTX_F_NOFREEDOC)) {
     Document_Free(&aCtx->doc);
   }
 

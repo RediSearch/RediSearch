@@ -227,7 +227,6 @@ int RediSearch_IndexAddDocument(IndexSpec* sp, Document* d, int options, char** 
   options |= DOCUMENT_ADD_NOSAVE;
   aCtx->stateFlags |= ACTX_F_NOBLOCK;
   AddDocumentCtx_Submit(aCtx, &sctx, options);
-  Document_Free(d);
   rm_free(d);
 
   RWLOCK_RELEASE();
