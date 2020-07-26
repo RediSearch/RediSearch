@@ -64,6 +64,7 @@ static const char *SpecTypeNames[] = {[IXFLDPOS_FULLTEXT] = SPEC_TEXT_STR,
 #define SPEC_WIDEFIELD_THRESHOLD 32
 
 extern dict *specDict;
+extern size_t pending_global_indexing_ops;
 
 typedef struct {
   size_t numDocuments;
