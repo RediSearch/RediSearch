@@ -232,6 +232,8 @@ def testLanguageDefaultAndField(env):
     env.cmd('HSET', 'doc1', 'lang', 'hindi', 'body', u'अँगरेजी अँगरेजों अँगरेज़')
     
     for _ in env.retry_with_rdb_reload():
+        waitForIndex(env, 'idxTest1')
+        waitForIndex(env, 'idxTest2')
         #test for language field
         res = env.cmd('FT.SEARCH', 'idxTest1', u'अँगरेज़')
         res1 = {res[2][i]:res[2][i + 1] for i in range(0, len(res[2]), 2)}
@@ -247,6 +249,8 @@ def testScoreDecimal(env):
     env.expect('HSET doc1 title hello score 0.25').equal(2)
 
     for _ in env.retry_with_rdb_reload():
+        waitForIndex(env, 'idx1')
+        waitForIndex(env, 'idx2')
         res = env.cmd('ft.search idx1 hello withscores nocontent')
         env.assertEqual(float(res[2]), 0.5)
         res = env.cmd('ft.search idx2 hello withscores nocontent')

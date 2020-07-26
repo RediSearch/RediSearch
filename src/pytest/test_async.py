@@ -41,6 +41,7 @@ def testAlterIndex(env):
 
     r.expect('ft.create', 'idx', 'ON', 'HASH', 'ASYNC', 'schema', 'name', 'text').ok()
     env.cmd('ft.alter', 'idx', 'schema', 'add', 'age', 'numeric')
+    # the following wait operation might not catch both background scans
     waitForIndex(r, 'idx')
     res = r.execute_command('ft.search', 'idx', '@age: [10 inf]', 'nocontent')
     env.assertEqual(N, res[0])
