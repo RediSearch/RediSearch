@@ -4,6 +4,8 @@
 #include "redisearch_api.h"
 #include "fork_gc.h"
 #include "tag_index.h"
+#include "rules.h"
+#include "query_error.h"
 #include "inverted_index.h"
 #include "rwlock.h"
 #include <set>
@@ -38,7 +40,7 @@ void *cbWrapper(void *args) {
 }
 
 void runGcThread(RedisModuleCtx *ctx, void *fgc, IndexSpec *sp) {
-  thread = { 0 };
+  thread = {0};
   args_t *args = (args_t *)rm_calloc(1, sizeof(*args));
   *args = {.ctx = ctx, .fgc = fgc, .sp = sp};
 
@@ -72,6 +74,16 @@ class FGCTest : public ::testing::Test {
 
     // Let's use a tag field, so that there's only one entry in the tag index
     RediSearch_CreateField(sp, "f1", RSFLDTYPE_TAG, 0);
+
+    const char *pref = "";
+    SchemaRuleArgs args = {0};
+    args.type = "HASH";
+    args.prefixes = &pref;
+    args.nprefixes = 1;
+
+    QueryError status = {};
+
+    sp->rule = SchemaRule_Create(&args, sp, &status);
 
     return sp;
   }
@@ -131,7 +143,6 @@ TEST_F(FGCTest, testRepairLastBlockWhileRemovingMiddle) {
     size_t n = sprintf(buf, "doc%u", curId++);
     ASSERT_TRUE(RS::addDocument(ctx, sp, buf, "f1", "hello"));
   }
-
 
   /**
    * In this case, we want to keep `curId`, but we want to delete a 'middle' entry
