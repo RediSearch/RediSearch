@@ -236,9 +236,11 @@ def testLanguageDefaultAndField(env):
         env.assertEqual(u'अँगरेजी अँगरेजों अँगरेज़', unicode(res1['body'], 'utf-8'))
 
 def testScoreDecimal(env):
+    conn = getConnectionByEnv(env)
     env.expect('FT.CREATE idx1 SCORE 0.5 schema title text').ok()
     env.expect('FT.CREATE idx2 SCORE_FIELD score schema title text').ok()
-    env.expect('HSET doc1 title hello score 0.25').equal(2)
+    res = conn.execute_command('HSET doc1 title hello score 0.25')
+    env.assertEqual(res, 2)
 
     for _ in env.retry_with_rdb_reload():
         waitForIndex(env, 'idx1')
