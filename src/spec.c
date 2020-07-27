@@ -1613,9 +1613,12 @@ int IndexSpec_UpdateWithHash(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleSt
   }
   QueryError status = {0};
   RSAddDocumentCtx *aCtx = NewAddDocumentCtx(spec, &doc, &status);
-  aCtx->stateFlags |= ACTX_F_NOBLOCK;
+  aCtx->stateFlags |= ACTX_F_NOBLOCK | ACTX_F_NOFREEDOC;
   AddDocumentCtx_Submit(aCtx, &sctx, DOCUMENT_ADD_REPLACE);
 
+  // doc was set DEAD in Document_Moved and was not freed since it set as NOFREEDOC
+  doc.flags &= ~DOCUMENT_F_DEAD;
+  Document_Free(&doc);
   return REDISMODULE_OK;
 }
 
