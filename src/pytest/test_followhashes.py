@@ -2,19 +2,11 @@
 
 import unittest
 from includes import *
-from common import waitForIndex
-
-def getConnectionByEnv(env):
-    conn = None
-    if env.env == 'oss-cluster':
-        conn = env.envRunner.getClusterConnection()
-    else:
-        conn = env.getConnection()
-    return conn
+from common import getConnectionByEnv, waitForIndex
 
 def testSyntax1(env):
     conn = getConnectionByEnv(env)
-    env.expect('ft.create', 'idx', 
+    env.expect('ft.create', 'idx',
                'ONfoo*',
             'SCHEMA', 'foo', 'text').equal('Unknown argument `ONfoo*`')
             
