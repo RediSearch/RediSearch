@@ -387,11 +387,6 @@ void IndexSpec_FreeInternals(IndexSpec *spec);
  */
 void IndexSpec_FreeSync(IndexSpec *spec);
 
-#if 0
-/** Delete the redis key from Redis */
-void IndexSpec_FreeWithKey(IndexSpec *spec, RedisModuleCtx *ctx);
-#endif // 0
-
 /* Parse a new stopword list and set it. If the parsing fails we revert to the default stopword
  * list, and return 0 */
 int IndexSpec_ParseStopWords(IndexSpec *sp, RedisModuleString **strs, size_t len);

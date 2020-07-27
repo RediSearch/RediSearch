@@ -31,15 +31,9 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event, R
 
   const char *key_cp = RedisModule_StringPtrLen(key, NULL);
   if (hset || hmset || hdel) {
-#if defined(_DEBUG) && 0
-    RedisModule_Log(ctx, "notice", "key %s: event %s", key_cp, event);
-#endif
     Indexes_UpdateMatchingWithSchemaRules(ctx, key);
   }
   if (del) {
-#if defined(_DEBUG) && 0
-    RedisModule_Log(ctx, "notice", "key %s: event %s", key_cp, event);
-#endif
     Indexes_DeleteMatchingWithSchemaRules(ctx, key);
   }
 
@@ -48,6 +42,5 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event, R
 
 void Initialize_KeyspaceNotifications(RedisModuleCtx *ctx) {
   RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_HASH,
-    HashNotificationCallback);
-  //RedisModule_NotifyKeyspaceEvent(ctx, REDISMODULE_NOTIFY_HASH, , RedisModuleString *key)
+                                        HashNotificationCallback);
 }

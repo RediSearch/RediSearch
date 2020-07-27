@@ -160,13 +160,17 @@ int isRdbLoading(RedisModuleCtx *ctx) {
 static void IndexSpec_TimedOutProc(RedisModuleCtx *ctx, IndexSpec *sp) {
   // we need to delete the spec from the specDict, as far as the user see it,
   // this spec was deleted and its memory will be freed in a background thread.
+#ifdef _DEBUG
   RedisModule_Log(NULL, "notice", "Freeing index %s by timer", sp->name);
+#endif
 
   dictDelete(specDict, sp->name);
   sp->isTimerSet = false;
   IndexSpec_Free(sp);
 
+#ifdef _DEBUG
   RedisModule_Log(NULL, "notice", "Freeing index by timer: done");
+#endif
 }
 
 static void IndexSpec_SetTimeoutTimer(IndexSpec *sp) {
@@ -220,13 +224,11 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
     IndexSpec_OnCreate(sp);
   }
 
-  // TODO: decide whether to start counting before or after reindexing (after would lead 
-  // to different timeouts in sync/async)
   if (sp->flags & Index_Temporary) {
     IndexSpec_SetTimeoutTimer(sp);
+  } else {
+    IndexSpec_ScanAndReindex(sp);
   }
-
-  IndexSpec_ScanAndReindex(sp);
 
   return sp;
 }
@@ -704,29 +706,6 @@ char *IndexSpec_GetRandomTerm(IndexSpec *sp, size_t sampleSize) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-#if 0
-
-void IndexSpec_FreeWithKey(IndexSpec *sp, RedisModuleCtx *ctx) {
-  RedisModuleString *s = RedisModule_CreateStringPrintf(ctx, INDEX_SPEC_KEY_FMT, sp->name);
-  RedisModuleKey *kk = RedisModule_OpenKey(ctx, s, REDISMODULE_WRITE);
-  RedisModule_FreeString(ctx, s);
-  if (kk == NULL || RedisModule_KeyType(kk) != REDISMODULE_KEYTYPE_MODULE ||
-      RedisModule_ModuleTypeGetType(kk) != IndexSpecType) {
-    if (kk != NULL) {
-      RedisModule_CloseKey(kk);
-    }
-    IndexSpec_Free(sp);
-    return;
-  }
-  RS_LOG_ASSERT(RedisModule_ModuleTypeGetValue(kk) == sp, "IndexSpecs should be identical");
-  RedisModule_DeleteKey(kk);
-  RedisModule_CloseKey(kk);
-}
-
-#endif // 0
-
-//---------------------------------------------------------------------------------------------
-
 void IndexSpec_FreeInternals(IndexSpec *spec) {
   dictDelete(specDict, spec->name);
   SchemaRules_RemoveSpecRules(spec);
@@ -808,7 +787,9 @@ void IndexSpec_FreeInternals(IndexSpec *spec) {
 //---------------------------------------------------------------------------------------------
 
 static void IndexSpec_FreeTask(IndexSpec *spec) {
+#ifdef _DEBUG
   RedisModule_Log(NULL, "notice", "Freeing index %s in background", spec->name);
+#endif
 
   RedisModuleCtx *threadCtx = RedisModule_GetThreadSafeContext(NULL);
   RedisModule_AutoMemory(threadCtx);
@@ -848,7 +829,8 @@ void IndexSpec_FreeSync(IndexSpec *spec) {
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
   RedisModule_AutoMemory(ctx);
 
-  Redis_DropIndex(&sctx, spec->cascadeDelete);
+  //@@ TODO: this is called by llapi, provide an explicit argument for cascasedelete
+  Redis_DropIndex(&sctx, false);
   RedisModule_FreeThreadSafeContext(ctx);
 }
 
@@ -1172,8 +1154,6 @@ static void FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
   }
 }
 
-#if 0
-
 static void IndexStats_RdbLoad(RedisModuleIO *rdb, IndexStats *stats) {
   stats->numDocuments = RedisModule_LoadUnsigned(rdb);
   stats->numTerms = RedisModule_LoadUnsigned(rdb);
@@ -1199,8 +1179,6 @@ static void IndexStats_RdbSave(RedisModuleIO *rdb, IndexStats *stats) {
   RedisModule_SaveUnsigned(rdb, stats->offsetVecRecords);
   RedisModule_SaveUnsigned(rdb, stats->termsSize);
 }
-
-#endif // 0
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -1270,8 +1248,6 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname,
 
 //---------------------------------------------------------------------------------------------
 
-#define REINDEX_BATCH_SIZE 100
-
 static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
   RS_LOG_ASSERT(scanner, "invalid IndexesScanner");
 
@@ -1294,15 +1270,7 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
     RedisModule_Log(ctx, "notice", "Scanning indexes in background");
   }
 
-  if (!sp) {
-    Indexes_SetTempSpecsTimers();
-  }
-
   while (RedisModule_Scan(ctx, cursor, (RedisModuleScanCB) Indexes_ScanProc, scanner)) {
-    if (scanner->scannedKeys % REINDEX_BATCH_SIZE > 0) {
-      continue;
-    }
-
     if (sp) {
       sp->keysIndexed = scanner->scannedKeys;
     } else {
@@ -1347,6 +1315,10 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
   RedisModule_Log(ctx, "notice", "Scanning indexes in background: done (scanned=%ld)", scanner->totalKeys);
 
 end:
+  if (!scanner->spec_name_opt) {
+    Indexes_SetTempSpecsTimers();
+  }
+
   IndexesScanner_Free(scanner);
 
   RedisModule_ThreadSafeContextUnlock(ctx);
@@ -1361,21 +1333,22 @@ static void IndexSpec_ScanAndReindexAsync(IndexSpec *sp) {
   if (!reindexPool) {
     reindexPool = thpool_init(1);
   }
+#ifdef _DEBUG
   RedisModule_Log(NULL, "notice", "Register index %s for async scan", sp->name);
+#endif
   IndexesScanner *scanner = IndexesScanner_New(sp);
   thpool_add_work(reindexPool, (thpool_proc) Indexes_ScanAndReindexTask, scanner);
 }
 
 //---------------------------------------------------------------------------------------------
 
+#if 0
+
+// todo: remove if not used
+
 static void IndexSpec_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname,
                                    RedisModuleKey *key, IndexSpec *sp) {
-  if (!key) {
-    // todo: on ROF the key might not be in the ram and we will not get it here, we will need to
-    // hanlde it.
-    return; // TODO: remove this as keys are loaded by name
-  }
-
+  // TODO: pass key (if not null) to avoid lookup
   IndexSpec_UpdateMatchingWithSchemaRules(sp, ctx, keyname);
 }
 
@@ -1386,47 +1359,14 @@ static void IndexSpec_ScanAndReindexSync(IndexSpec *sp) {
   RedisModuleScanCursor *cursor = RedisModule_ScanCursorCreate();
   while (RedisModule_Scan(ctx, cursor, (RedisModuleScanCB) IndexSpec_ScanProc, sp)) {
   }
+  if (!sp) {
+    Indexes_SetTempSpecsTimers();
+  }
+
   RedisModule_ScanCursorDestroy(cursor);
   sp->keysTotal = sp->keysIndexed = RedisModule_DbSize(ctx);;
   __sync_fetch_and_sub(&sp->pending_indexing_ops, 1);
 
-  RedisModule_FreeThreadSafeContext(ctx);
-}
-
-//---------------------------------------------------------------------------------------------
-
-#if 0
-
-void Indexes_ScanAndReindexSync() {
-  IndexesScanner *scanner = IndexesScanner_New(NULL);
-  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
-  RedisModuleScanCursor *cursor = RedisModule_ScanCursorCreate();
-
-  Indexes_SetTempSpecsTimers();
-
-  while (RedisModule_Scan(ctx, cursor, (RedisModuleScanCB) Indexes_ScanProc, scanner)) {
-    dictIterator *iter = dictGetIterator(specDict);
-    dictEntry *entry = NULL;
-    while ((entry = dictNext(iter))) {
-      IndexSpec *sp = dictGetVal(entry);
-      sp->keysIndexed = scanner->scannedKeys;
-    }
-    dictReleaseIterator(iter);
-  }
-
-  dictIterator *iter = dictGetIterator(specDict);
-  dictEntry *entry = NULL;
-  while ((entry = dictNext(iter))) {
-    IndexSpec *sp = dictGetVal(entry);
-    sp->keysTotal = sp->keysIndexed = scanner->totalKeys;
-  }
-  dictReleaseIterator(iter);
-
-  RedisModule_Log(ctx, "notice", "Scanning indexes in background: done (scanned=%ld)", scanner->totalKeys);
-
-  RedisModule_ScanCursorDestroy(cursor);
-
-  rm_free(scanner);
   RedisModule_FreeThreadSafeContext(ctx);
 }
 
@@ -1435,12 +1375,10 @@ void Indexes_ScanAndReindexSync() {
 //---------------------------------------------------------------------------------------------
 
 static void IndexSpec_ScanAndReindex(IndexSpec *sp) {
-  if (sp->flags & Index_Async) {
-    IndexSpec_ScanAndReindexAsync(sp);
+  if (sp->flags & Index_Temporary) {
+    return;
   }
-  else {
-    IndexSpec_ScanAndReindexSync(sp);
-  }
+  IndexSpec_ScanAndReindexAsync(sp);
 }
 
 void Indexes_ScanAndReindex() {
@@ -1675,12 +1613,9 @@ int IndexSpec_UpdateWithHash(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleSt
   }
   QueryError status = {0};
   RSAddDocumentCtx *aCtx = NewAddDocumentCtx(spec, &doc, &status);
-  aCtx->stateFlags |= ACTX_F_NOBLOCK | ACTX_F_NOFREEDOC;
+  aCtx->stateFlags |= ACTX_F_NOBLOCK;
   AddDocumentCtx_Submit(aCtx, &sctx, DOCUMENT_ADD_REPLACE);
 
-  // doc was set DEAD in Document_Moved and was not freed since it set as NOFREEDOC
-  doc.flags &= ~DOCUMENT_F_DEAD;
-  Document_Free(&doc);
   return REDISMODULE_OK;
 }
 
