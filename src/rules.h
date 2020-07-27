@@ -5,7 +5,9 @@
 #include "dep/triemap/triemap.h"
 #include "stemmer.h"
 #include "util/arr.h"
-
+#ifdef __cplusplus
+extern "C" {
+#endif
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 struct RSExpr;
@@ -26,6 +28,8 @@ typedef struct {
   char *lang_field;
   char *score_field;
   char *payload_field;
+  char *lang_default;
+  char *score_default;
 } SchemaRuleArgs;
 
 typedef struct SchemaRule {
@@ -37,6 +41,8 @@ typedef struct SchemaRule {
   char *lang_field;
   char *score_field;
   char *payload_field;
+  double score_default;
+  RSLanguage lang_default;
 } SchemaRule;
 
 extern arrayof(SchemaRule *) SchemaRules_g;
@@ -71,4 +77,7 @@ typedef struct {
   arrayof(struct IndexSpec *) index_specs;
 } SchemaPrefixNode;
 
+#ifdef __cplusplus
+}
+#endif
 ///////////////////////////////////////////////////////////////////////////////////////////////

@@ -480,10 +480,18 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryE
        .len = &dummy2,
        .type = AC_ARGTYPE_STRING},
       {.name = "SCORE",
+       .target = &rule_args.score_default,
+       .len = &dummy2,
+       .type = AC_ARGTYPE_STRING},
+      {.name = "SCORE_FIELD",
        .target = &rule_args.score_field,
        .len = &dummy2,
        .type = AC_ARGTYPE_STRING},
       {.name = "LANGUAGE",
+       .target = &rule_args.lang_default,
+       .len = &dummy2,
+       .type = AC_ARGTYPE_STRING},
+      {.name = "LANGUAGE_FIELD",
        .target = &rule_args.lang_field,
        .len = &dummy2,
        .type = AC_ARGTYPE_STRING},
@@ -1427,9 +1435,6 @@ int IndexSpec_UpdateWithHash(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleSt
   aCtx->stateFlags |= ACTX_F_NOBLOCK;
   AddDocumentCtx_Submit(aCtx, &sctx, DOCUMENT_ADD_REPLACE);
 
-  // doc was set DEAD in Document_Moved and was not freed since it set as NOFREEDOC
-  doc.flags &= ~DOCUMENT_F_DEAD;
-  Document_Free(&doc);
   return REDISMODULE_OK;
 }
 

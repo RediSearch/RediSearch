@@ -99,7 +99,7 @@ int testFragmentize() {
     size_t niovs = ARRAY_GETSIZE_AS(&contexts[ii], struct iovec);
     for (size_t jj = 0; jj < niovs; ++jj) {
       const struct iovec *iov = iovs + jj;
-      printf("%.*s", (int)iov->iov_len, iov->iov_base);
+      printf("%.*s", (int)iov->iov_len, (char *)iov->iov_base);
     }
     printf(" ... ");
   }
