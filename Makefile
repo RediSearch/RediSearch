@@ -145,7 +145,7 @@ else
 endif
 
 ifeq ($(GDB),1)
-RLTEST_GDB=-i --debugger=cgdb
+RLTEST_GDB=-i
 endif
 
 pytest:
@@ -160,7 +160,7 @@ else
 endif
 
 ifeq ($(GDB),1)
-GDB_CMD=cgdb -ex r --args
+GDB_CMD=gdb -ex r --args
 else
 GDB_CMD=
 endif

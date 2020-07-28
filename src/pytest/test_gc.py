@@ -13,6 +13,7 @@ def testBasicGC(env):
     env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
     env.assertOk(env.cmd('ft.create', 'idx', 'ON', 'HASH',
                          'schema', 'title', 'text', 'id', 'numeric', 't', 'tag'))
+    waitForIndex(env, 'idx')
     for i in range(101):
         env.assertOk(env.cmd('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
                              'title', 'hello world',
@@ -42,6 +43,7 @@ def testBasicGCWithEmptyInvIdx(env):
         raise unittest.SkipTest()
     env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
     env.assertOk(env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text'))
+    waitForIndex(env, 'idx')
     env.assertOk(env.cmd('ft.add', 'idx', 'doc1', 1.0, 'fields',
                          'title', 'hello world'))
 
@@ -60,6 +62,7 @@ def testNumericGCIntensive(env):
     NumberOfDocs = 1000
     env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
     env.assertOk(env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 'id', 'numeric'))
+    waitForIndex(env, 'idx')
 
     for i in range(NumberOfDocs):
         env.assertOk(env.cmd('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields', 'id', '1'))
@@ -82,6 +85,7 @@ def testGeoGCIntensive(env):
     NumberOfDocs = 1000
     env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
     env.assertOk(env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 'g', 'geo'))
+    waitForIndex(env, 'idx')
 
     for i in range(NumberOfDocs):
         env.assertOk(env.cmd('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields', 'g', '12.34,56.78'))
@@ -104,6 +108,7 @@ def testTagGC(env):
     NumberOfDocs = 101
     env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
     env.assertOk(env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 't', 'tag'))
+    waitForIndex(env, 'idx')
 
     for i in range(NumberOfDocs):
         env.assertOk(env.cmd('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields', 't', '1'))
@@ -127,6 +132,7 @@ def testDeleteEntireBlock(env):
     env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
                'SCHEMA', 'test', 'TEXT', 'SORTABLE', 'test2', 'TEXT', 'SORTABLE', ).ok()
+    waitForIndex(env, 'idx')
     # creating 5 blocks on 'checking' inverted index
     for i in range(700):
         env.expect('FT.ADD', 'idx', 'doc%d' % i, '1.0', 'FIELDS', 'test', 'checking', 'test2', 'checking%d' % i).ok()
@@ -157,6 +163,7 @@ def testGCIntegrationWithRedisFork(env):
     env.expect('FT.CONFIG', 'SET', 'FORKGC_SLEEP_BEFORE_EXIT', '4').ok()
     env.assertOk(env.execute_command('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0))
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'title', 'TEXT', 'SORTABLE').ok()
+    waitForIndex(env, 'idx')
     env.expect('FT.ADD', 'idx', 'doc1', 1.0, 'FIELDS', 'title', 'hello world').ok()
     env.expect('bgsave').true()
     env.cmd('FT.DEBUG', 'GC_FORCEINVOKE', 'idx')
@@ -171,6 +178,7 @@ def testGCThreshold(env):
 
     env = Env(moduleArgs='GC_POLICY FORK FORK_GC_CLEAN_THRESHOLD 1000')
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'title', 'TEXT', 'SORTABLE').ok()
+    waitForIndex(env, 'idx')
     for i in range(1000):
         env.expect('FT.ADD', 'idx', 'doc%d' % i, '1.0', 'FIELDS', 'title', 'foo').ok()
 
@@ -237,11 +245,12 @@ def testGCShutDownOnExit(env):
     env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
     env = Env(moduleArgs='GC_POLICY FORK FORKGC_SLEEP_BEFORE_EXIT 20')
     env.assertOk(env.execute_command('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0))
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
-               'SCHEMA', 'title', 'TEXT', 'SORTABLE').ok()
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'title', 'TEXT', 'SORTABLE').ok()
+    waitForIndex(env, 'idx')
     env.expect('FT.DEBUG', 'GC_FORCEBGINVOKE', 'idx').ok()
     env.stop()
     env.start()
 
     # make sure server started successfully
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'title', 'TEXT', 'SORTABLE').ok()
+    waitForIndex(env, 'idx')

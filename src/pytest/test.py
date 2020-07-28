@@ -1411,8 +1411,7 @@ def testSuggestPayload(env):
 
 def testPayload(env):
     r = env
-    env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH', 'PAYLOAD', '__payload', 'schema', 'f', 'text'))
+    env.expect('ft.create', 'idx', 'ON', 'HASH', 'PAYLOAD', '__payload', 'schema', 'f', 'text').ok()
     for i in range(10):
         r.expect('ft.add', 'idx', '%d' % i, 1.0,
                  'payload', 'payload %d' % i,
@@ -1436,12 +1435,11 @@ def testGarbageCollector(env):
         raise unittest.SkipTest()
     N = 100
     r = env
-    env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH', 'schema', 'foo', 'text'))
+    r.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'foo', 'text').ok()
+    waitForIndex(r, 'idx')
     for i in range(N):
-
-        env.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0,
-                                        'fields', 'foo', ' '.join(('term%d' % random.randrange(0, 10) for i in range(10)))))
+        r.expect('ft.add', 'idx', 'doc%d' % i, 1.0,
+                 'fields', 'foo', ' '.join(('term%d' % random.randrange(0, 10) for i in range(10)))).ok()
 
     def get_stats(r):
         res = r.execute_command('ft.info', 'idx')
@@ -1459,8 +1457,7 @@ def testGarbageCollector(env):
 
     initialIndexSize = float(stats['inverted_sz_mb']) * 1024 * 1024
     for i in range(N):
-        env.assertEqual(1, r.execute_command(
-            'ft.del', 'idx', 'doc%d' % i))
+        r.expect('ft.del', 'idx', 'doc%d' % i).equal(1)
 
     for _ in range(100):
         # gc is random so we need to do it long enough times for it to work

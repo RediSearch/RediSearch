@@ -1,5 +1,7 @@
 from RLTest import Env
 from includes import *
+from common import waitForIndex
+
 
 class TestDebugCommands(object):
 
@@ -10,6 +12,7 @@ class TestDebugCommands(object):
                         'name', 'TEXT', 'SORTABLE',
                         'age', 'NUMERIC', 'SORTABLE', 
                         't', 'TAG', 'SORTABLE').ok()
+        waitForIndex(self.env, 'idx')
         self.env.expect('FT.ADD', 'idx', 'doc1', '1.0', 'FIELDS', 'name', 'meir', 'age', '29', 't', 'test').ok()
         self.env.cmd('SET', 'foo', 'bar')
 
