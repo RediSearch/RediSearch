@@ -24,6 +24,11 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+static void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, IndexSpec *sp);
+static void FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver);
+void IndexSpec_UpdateMatchingWithSchemaRules(IndexSpec *sp, RedisModuleCtx *ctx, RedisModuleString *key);
+int IndexSpec_DeleteHash(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key);
+
 void (*IndexSpec_OnCreate)(const IndexSpec *) = NULL;
 const char *(*IndexAlias_GetUserTableName)(RedisModuleCtx *, const char *) = NULL;
 
@@ -196,8 +201,6 @@ static void Indexes_SetTempSpecsTimers() {
 
 //---------------------------------------------------------------------------------------------
 
-static void IndexSpec_ScanAndReindex(IndexSpec *sp);
-
 IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                QueryError *status) {
   const char *specName = RedisModule_StringPtrLen(argv[1], NULL);
@@ -227,15 +230,13 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
   if (sp->flags & Index_Temporary) {
     IndexSpec_SetTimeoutTimer(sp);
   } else {
-    IndexSpec_ScanAndReindex(sp);
+    IndexSpec_ScanAndReindex(ctx, sp);
   }
 
   return sp;
 }
 
 //---------------------------------------------------------------------------------------------
-
-static void FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver);
 
 static bool checkPhoneticAlgorithmAndLang(const char *matcher) {
   if (strlen(matcher) != 5) {
@@ -477,10 +478,10 @@ reset:
   return 0;
 }
 
-int IndexSpec_AddFields(IndexSpec *sp, ArgsCursor *ac, QueryError *status) {
+int IndexSpec_AddFields(IndexSpec *sp, RedisModuleCtx *ctx, ArgsCursor *ac, QueryError *status) {
   int rc = IndexSpec_AddFieldsInternal(sp, ac, status, 0);
   if (rc) {
-    IndexSpec_ScanAndReindex(sp);
+    IndexSpec_ScanAndReindex(ctx, sp);
   }
   return rc;
 }
@@ -1227,8 +1228,6 @@ static void IndexSpec_DoneIndexingCallabck(struct RSAddDocumentCtx *docCtx, Redi
 
 //---------------------------------------------------------------------------------------------
 
-void IndexSpec_UpdateMatchingWithSchemaRules(IndexSpec *sp, RedisModuleCtx *ctx, RedisModuleString *key);
-
 static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname,
                              RedisModuleKey *key, IndexesScanner *scanner) {
   if (!key) {
@@ -1374,11 +1373,25 @@ static void IndexSpec_ScanAndReindexSync(IndexSpec *sp) {
 
 //---------------------------------------------------------------------------------------------
 
-static void IndexSpec_ScanAndReindex(IndexSpec *sp) {
+static void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, IndexSpec *sp) {
   if (sp->flags & Index_Temporary) {
     return;
   }
-  IndexSpec_ScanAndReindexAsync(sp);
+/*  bool own_ctx;
+  if (!ctx) {
+    own_ctx = true;
+    ctx = RedisModule_GetThreadSafeContext(NULL);
+  } else {
+    own_ctx = false;
+  }*/
+
+  size_t nkeys = RedisModule_DbSize(ctx);
+  if (nkeys > 0) {
+    IndexSpec_ScanAndReindexAsync(sp);
+  }
+  /*if (own_ctx) {
+    RedisModule_FreeThreadSafeContext(ctx);
+  }*/
 }
 
 void Indexes_ScanAndReindex() {
@@ -1596,8 +1609,6 @@ int IndexSpec_RegisterType(RedisModuleCtx *ctx) {
   return REDISMODULE_OK;
 }
 
-int IndexSpec_DeleteHash(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key);
-
 int IndexSpec_UpdateWithHash(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key) {
   if (!spec->rule) {
     RedisModule_Log(ctx, "warning", "Index spec %s: no rule found", spec->name);
@@ -1697,12 +1708,14 @@ dict *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisModuleString *ke
   size_t n;
   const char *key_p = RedisModule_StringPtrLen(key, &n);
   arrayof(SchemaPrefixNode *) prefixes = array_new(SchemaPrefixNode *, 1);
+  // collect specs that their name is prefixed by the key name
+  // `prefixes` includes list of arrays of specs, one for each prefix of key name
   int nprefixes = TrieMap_FindPrefixes(ScemaPrefixes_g, key_p, n, (arrayof(void *) *)&prefixes);
   for (int i = 0; i < array_len(prefixes); ++i) {
     SchemaPrefixNode *node = prefixes[i];
     for (int j = 0; j < array_len(node->index_specs); ++j) {
       IndexSpec *spec = node->index_specs[j];
-      if (!dictFind(specs, node->prefix)) {
+      if (!dictFind(specs, spec->name)) {
         dictAdd(specs, spec->name, spec);
       }
     }
@@ -1716,8 +1729,8 @@ dict *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisModuleString *ke
     }
     if (EvalCtx_EvalExpr(r, rule->filter_exp) == EXPR_EVAL_OK) {
       IndexSpec *spec = rule->spec;
-      if (RSValue_BoolTest(&r->res) && !dictFind(specs, spec->name)) {
-        dictAdd(specs, spec->name, spec);
+      if (! RSValue_BoolTest(&r->res) && dictFind(specs, spec->name)) {
+        dictDelete(specs, spec->name);
       }
     }
   }

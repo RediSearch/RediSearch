@@ -1889,6 +1889,7 @@ def testAlterIndex(env):
     env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'f1', 'TEXT')
     env.cmd('FT.ADD', 'idx', 'doc1', 1.0, 'FIELDS', 'f1', 'hello', 'f2', 'world')
     env.cmd('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'f2', 'TEXT')
+    waitForIndex(env, 'idx')
     env.cmd('FT.ADD', 'idx', 'doc2', 1.0, 'FIELDS', 'f1', 'hello', 'f2', 'world')
 
     # RS 2.0 reindex and after reload both documents are found
