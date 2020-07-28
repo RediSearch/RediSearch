@@ -250,13 +250,28 @@ def testScoreDecimal(env):
         res = env.cmd('ft.search idx2 hello withscores nocontent')
         env.assertEqual(float(res[2]), 0.25)
 
+def testMultiFilters1(env):
+    env.expect('FT.CREATE', 'test', 'ON', 'HASH',
+               'PREFIX', '2', 'student:', 'pupil:',
+               'FILTER', 'startswith(@__key, "student:")',
+               'SCHEMA', 'first', 'TEXT', 'last', 'TEXT', 'age', 'NUMERIC').ok()
+    env.expect('HSET', 'student:yes1', 'first', 'yes1', 'last', 'yes1', 'age', '17').equal(3)
+    env.expect('HSET', 'student:yes2', 'first', 'yes2', 'last', 'yes2', 'age', '15').equal(3)
+    env.expect('HSET', 'pupil:no1', 'first', 'no1', 'last', 'no1', 'age', '17').equal(3)
+    env.expect('HSET', 'pupil:no2', 'first', 'no2', 'last', 'no2', 'age', '15').equal(3)
+    res = [2L, 'student:yes2', ['first', 'yes2', 'last', 'yes2', 'age', '15'],
+               'student:yes1', ['first', 'yes1', 'last', 'yes1', 'age', '17']]
+    env.expect('ft.search test *').equal(res)
+
 def testMultiFilters2(env):
-    env.expect('FT.CREATE test ON HASH \
-                FILTER (@age>16) \
-                SCHEMA first TEXT last TEXT age NUMERIC').ok()
-    env.expect('HSET student:yes1 first yes1 second yes1 age 17').equal(3)
-    env.expect('HSET student:no1 first no1 second no1 age 15').equal(3)
-    env.expect('HSET pupil:yes2 first yes2 second yes2 age 17').equal(3)
-    env.expect('HSET pupil:no2 first no2 second no2 age 15').equal(3)
-    env.expect('ft.search test *').equal([2L, 'pupil:yes2', ['first', 'yes2', 'second', 'yes2', 'age', '17'], 
-                                              'student:yes1', ['first', 'yes1', 'second', 'yes1', 'age', '17']])
+    env.expect('FT.CREATE', 'test', 'ON', 'HASH',
+               'PREFIX', '2', 'student:', 'pupil:',
+               'FILTER', '@age > 16',
+               'SCHEMA', 'first', 'TEXT', 'last', 'TEXT', 'age', 'NUMERIC').ok()
+    env.expect('HSET', 'student:yes1', 'first', 'yes1', 'last', 'yes1', 'age', '17').equal(3)
+    env.expect('HSET', 'student:no1', 'first', 'no1', 'last', 'no1', 'age', '15').equal(3)
+    env.expect('HSET', 'pupil:yes2', 'first', 'yes2', 'last', 'yes2', 'age', '17').equal(3)
+    env.expect('HSET', 'pupil:no2', 'first', 'no2', 'last', 'no2', 'age', '15').equal(3)
+    res = [2L, 'pupil:yes2', ['first', 'yes2', 'last', 'yes2', 'age', '17'], 
+               'student:yes1', ['first', 'yes1', 'last', 'yes1', 'age', '17']]
+    env.expect('ft.search test *').equal(res)
