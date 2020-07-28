@@ -709,7 +709,7 @@ char *IndexSpec_GetRandomTerm(IndexSpec *sp, size_t sampleSize) {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 void IndexSpec_FreeInternals(IndexSpec *spec) {
-  if (dictFetchValue(spec->name) == spec) {
+  if (dictFetchValue(specDict, spec->name) == spec) {
     dictDelete(specDict, spec->name);
   }
   SchemaRules_RemoveSpecRules(spec);

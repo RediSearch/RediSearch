@@ -17,7 +17,7 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
   }
 
   static const char *hset_event = 0, *hmset_event = 0, *del_event = 0, *hdel_event = 0,
-                    *trimmed_event = 0, *restore_event = 0, expired_event = 0;
+                    *trimmed_event = 0, *restore_event = 0, *expired_event = 0;
   bool hset = false, hmset = false, del = false, hdel = false, trimmed = false, restore = false,
        expired = false;
 
