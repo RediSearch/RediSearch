@@ -160,7 +160,7 @@ else
 endif
 
 ifeq ($(GDB),1)
-GDB_CMD=gdb -ex r --args 
+GDB_CMD=gdb -ex r --args
 else
 GDB_CMD=
 endif

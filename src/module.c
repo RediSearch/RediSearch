@@ -634,7 +634,7 @@ int AlterIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (!AC_NumRemaining(&ac)) {
       return RedisModule_ReplyWithError(ctx, "No fields provided");
     }
-    IndexSpec_AddFields(sp, &ac, &status);
+    IndexSpec_AddFields(sp, ctx, &ac, &status);
   }
 
   if (QueryError_HasError(&status)) {

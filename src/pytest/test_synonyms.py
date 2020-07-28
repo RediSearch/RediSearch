@@ -1,4 +1,5 @@
 from includes import *
+from common import waitForIndex
 
 
 def testBasicSynonymsUseCase(env):
@@ -181,6 +182,7 @@ def testSynonymsRdb(env):
         'schema', 'title', 'text', 'body', 'text'))
     env.assertEqual(r.execute_command('ft.synadd', 'idx', 'boy', 'child', 'offspring'), 0)
     for _ in env.reloading_iterator():
+        waitForIndex(env, 'idx')
         env.assertEqual(r.execute_command('ft.syndump', 'idx'), ['offspring', [0L], 'child', [0L], 'boy', [0L]])
 
 def testTwoSynonymsSearch(env):
@@ -210,6 +212,7 @@ def testSynonymsIntensiveLoad(env):
                                         'title', 'he is a boy%d' % i,
                                         'body', 'this is a test'))
     for _ in env.reloading_iterator():
+        waitForIndex(r, 'idx')
         for i in range(iterations):
             res = r.execute_command('ft.search', 'idx', 'child%d' % i, 'EXPANDER', 'SYNONYM')
             env.assertEqual(res, [1L, 'doc%d' % i, ['title', 'he is a boy%d' % i, 'body', 'this is a test']])

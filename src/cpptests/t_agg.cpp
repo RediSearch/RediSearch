@@ -15,6 +15,9 @@
 class AggTest : public ::testing::Test {};
 using RS::addDocument;
 
+#ifdef HAVE_RM_SCANCURSOR_CREATE
+//@@ TODO: avoid background indexing so cursor won't be needed
+
 TEST_F(AggTest, testBasic) {
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
   QueryError qerr = {QueryErrorCode(0)};
@@ -77,11 +80,13 @@ TEST_F(AggTest, testBasic) {
 
   SearchResult_Destroy(&res);
   AREQ_Free(rr);
-  IndexSpec_FreeWithKey(spec, ctx);
+  IndexSpec_Free(spec);
   args.clear();
   aggArgs.clear();
   RedisModule_FreeThreadSafeContext(ctx);
 }
+
+#endif // HAVE_RM_SCANCURSOR_CREATE
 
 class RPMock : public ResultProcessor {
  public:

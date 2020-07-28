@@ -2,18 +2,11 @@
 
 import unittest
 from includes import *
-
-def getConnectionByEnv(env):
-    conn = None
-    if env.env == 'oss-cluster':
-        conn = env.envRunner.getClusterConnection()
-    else:
-        conn = env.getConnection()
-    return conn
+from common import getConnectionByEnv, waitForIndex, sortedResults
 
 def testSyntax1(env):
     conn = getConnectionByEnv(env)
-    env.expect('ft.create', 'idx', 
+    env.expect('ft.create', 'idx',
                'ONfoo*',
             'SCHEMA', 'foo', 'text').equal('Unknown argument `ONfoo*`')
             
@@ -170,6 +163,7 @@ def testPayload(env):
     conn.execute_command('hset', 'thing:foo', 'name', 'foo', 'payload', 'stuff')
 
     for _ in env.retry_with_rdb_reload():
+        waitForIndex(env, 'things')
         env.expect('ft.search', 'things', 'foo') \
            .equal([1L, 'thing:foo', ['name', 'foo', 'payload', 'stuff']])
 
@@ -202,6 +196,7 @@ def testReplace(env):
     env.assertEqual(res, 0)
 
     for _ in r.retry_with_rdb_reload():
+        waitForIndex(env, 'idx')
         # make sure the query for hello world does not return the replaced document
         r.expect('ft.search', 'idx', 'hello world', 'nocontent').equal([1, 'doc2'])
 
@@ -224,11 +219,14 @@ def testWrongArgs(env):
     env.expect('FT.CREATE', 'idx', 'LANGUAGE', 'none', 'SCHEMA', 'txt', 'TEXT', 'num', 'NUMERIC').error().contains('Invalid language')
 
 def testLanguageDefaultAndField(env):
+    conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE', 'idxTest1', 'LANGUAGE_FIELD', 'lang', 'SCHEMA', 'body', 'TEXT')
     env.cmd('FT.CREATE', 'idxTest2', 'LANGUAGE', 'hindi', 'SCHEMA', 'body', 'TEXT')
-    env.cmd('HSET', 'doc1', 'lang', 'hindi', 'body', u'अँगरेजी अँगरेजों अँगरेज़')
+    conn.execute_command('HSET', 'doc1', 'lang', 'hindi', 'body', u'अँगरेजी अँगरेजों अँगरेज़')
     
     for _ in env.retry_with_rdb_reload():
+        waitForIndex(env, 'idxTest1')
+        waitForIndex(env, 'idxTest2')
         #test for language field
         res = env.cmd('FT.SEARCH', 'idxTest1', u'अँगरेज़')
         res1 = {res[2][i]:res[2][i + 1] for i in range(0, len(res[2]), 2)}
@@ -239,12 +237,46 @@ def testLanguageDefaultAndField(env):
         env.assertEqual(u'अँगरेजी अँगरेजों अँगरेज़', unicode(res1['body'], 'utf-8'))
 
 def testScoreDecimal(env):
-    env.expect('FT.CREATE idx1 SCORE 0.5 schema title text').ok()
-    env.expect('FT.CREATE idx2 SCORE_FIELD score schema title text').ok()
-    env.expect('HSET doc1 title hello score 0.25').equal(2)
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx1', 'SCORE', '0.5', 'schema', 'title', 'text').ok()
+    env.expect('FT.CREATE', 'idx2', 'SCORE_FIELD', 'score', 'schema', 'title', 'text').ok()
+    res = conn.execute_command('HSET', 'doc1', 'title', 'hello', 'score', '0.25')
+    env.assertEqual(res, 2)
 
     for _ in env.retry_with_rdb_reload():
-        res = env.cmd('ft.search idx1 hello withscores nocontent')
+        waitForIndex(env, 'idx1')
+        waitForIndex(env, 'idx2')
+        res = env.cmd('ft.search', 'idx1', 'hello', 'withscores', 'nocontent')
         env.assertEqual(float(res[2]), 0.5)
-        res = env.cmd('ft.search idx2 hello withscores nocontent')
+        res = env.cmd('ft.search', 'idx2', 'hello', 'withscores', 'nocontent')
         env.assertEqual(float(res[2]), 0.25)
+
+def testMultiFilters1(env):
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'test', 'ON', 'HASH',
+               'PREFIX', '2', 'student:', 'pupil:',
+               'FILTER', 'startswith(@__key, "student:")',
+               'SCHEMA', 'first', 'TEXT', 'last', 'TEXT', 'age', 'NUMERIC').ok()
+    conn.execute_command('HSET', 'student:yes1', 'first', 'yes1', 'last', 'yes1', 'age', '17')
+    conn.execute_command('HSET', 'student:yes2', 'first', 'yes2', 'last', 'yes2', 'age', '15')
+    conn.execute_command('HSET', 'pupil:no1', 'first', 'no1', 'last', 'no1', 'age', '17')
+    conn.execute_command('HSET', 'pupil:no2', 'first', 'no2', 'last', 'no2', 'age', '15')
+    res1 = [2L, 'student:yes2', ['first', 'yes2', 'last', 'yes2', 'age', '15'],
+                'student:yes1', ['first', 'yes1', 'last', 'yes1', 'age', '17']]
+    res = env.cmd('ft.search test *')
+    env.assertEqual(sortedResults(res), sortedResults(res1))
+
+def testMultiFilters2(env):
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'test', 'ON', 'HASH',
+               'PREFIX', '2', 'student:', 'pupil:',
+               'FILTER', '@age > 16',
+               'SCHEMA', 'first', 'TEXT', 'last', 'TEXT', 'age', 'NUMERIC').ok()
+    conn.execute_command('HSET', 'student:yes1', 'first', 'yes1', 'last', 'yes1', 'age', '17')
+    conn.execute_command('HSET', 'student:no1', 'first', 'no1', 'last', 'no1', 'age', '15')
+    conn.execute_command('HSET', 'pupil:yes2', 'first', 'yes2', 'last', 'yes2', 'age', '17')
+    conn.execute_command('HSET', 'pupil:no2', 'first', 'no2', 'last', 'no2', 'age', '15')
+    res1 = [2L, 'pupil:yes2', ['first', 'yes2', 'last', 'yes2', 'age', '17'], 
+                'student:yes1', ['first', 'yes1', 'last', 'yes1', 'age', '17']]
+    res = env.cmd('ft.search test *')
+    env.assertEqual(sortedResults(res), sortedResults(res1))

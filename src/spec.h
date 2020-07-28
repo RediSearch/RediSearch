@@ -64,6 +64,7 @@ static const char *SpecTypeNames[] = {[IXFLDPOS_FULLTEXT] = SPEC_TEXT_STR,
 #define SPEC_WIDEFIELD_THRESHOLD 32
 
 extern dict *specDict;
+extern size_t pending_global_indexing_ops;
 
 typedef struct {
   size_t numDocuments;
@@ -200,6 +201,10 @@ typedef struct IndexSpec {
   struct DocumentIndexer *indexer;
 
   SchemaRule *rule;
+
+  size_t pending_indexing_ops;
+  size_t keysIndexed, keysTotal;
+  bool cascadeDelete;
 } IndexSpec;
 
 typedef struct {
@@ -314,7 +319,7 @@ void IndexSpec_MakeKeyless(IndexSpec *sp);
 int IndexSpec_CreateTextId(const IndexSpec *sp);
 
 /* Add fields to a redis schema */
-int IndexSpec_AddFields(IndexSpec *sp, ArgsCursor *ac, QueryError *status);
+int IndexSpec_AddFields(IndexSpec *sp, RedisModuleCtx *ctx, ArgsCursor *ac, QueryError *status);
 
 void FieldSpec_Initialize(FieldSpec *sp, FieldType types);
 
@@ -369,11 +374,11 @@ int IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len);
  * N terms from the index and then doing weighted random on them. A sample size of 10-20 should be
  * enough */
 char *IndexSpec_GetRandomTerm(IndexSpec *sp, size_t sampleSize);
+
 /*
- * Free an indexSpec. This doesn't free the spec itself as it's not allocated by the parser
- * and should be on the request's stack
+ * Free an indexSpec.
  */
-void IndexSpec_Free(void *spec);
+void IndexSpec_Free(IndexSpec *spec);
 void IndexSpec_FreeInternals(IndexSpec *spec);
 
 /**
@@ -381,9 +386,6 @@ void IndexSpec_FreeInternals(IndexSpec *spec);
  * documents themselves) are freed before this function returns.
  */
 void IndexSpec_FreeSync(IndexSpec *spec);
-
-/** Delete the redis key from Redis */
-void IndexSpec_FreeWithKey(IndexSpec *spec, RedisModuleCtx *ctx);
 
 /* Parse a new stopword list and set it. If the parsing fails we revert to the default stopword
  * list, and return 0 */
@@ -404,7 +406,6 @@ void IndexSpec_Digest(RedisModuleDigest *digest, void *value);
 int IndexSpec_RegisterType(RedisModuleCtx *ctx);
 int IndexSpec_UpdateWithHash(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key);
 void IndexSpec_ClearAliases(IndexSpec *sp);
-// void IndexSpec_Free(void *value);
 
 /*
  * Parse the field mask passed to a query, map field names to a bit mask passed down to the
