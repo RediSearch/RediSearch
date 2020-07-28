@@ -2,7 +2,7 @@
 
 import unittest
 from includes import *
-from common import getConnectionByEnv, waitForIndex
+from common import getConnectionByEnv, waitForIndex, sortedResults
 
 def testSyntax1(env):
     conn = getConnectionByEnv(env)
@@ -261,9 +261,10 @@ def testMultiFilters1(env):
     conn.execute_command('HSET', 'student:yes2', 'first', 'yes2', 'last', 'yes2', 'age', '15')
     conn.execute_command('HSET', 'pupil:no1', 'first', 'no1', 'last', 'no1', 'age', '17')
     conn.execute_command('HSET', 'pupil:no2', 'first', 'no2', 'last', 'no2', 'age', '15')
-    res = [2L, 'student:yes2', ['first', 'yes2', 'last', 'yes2', 'age', '15'],
-               'student:yes1', ['first', 'yes1', 'last', 'yes1', 'age', '17']]
-    env.expect('ft.search test *').equal(res)
+    res1 = [2L, 'student:yes2', ['first', 'yes2', 'last', 'yes2', 'age', '15'],
+                'student:yes1', ['first', 'yes1', 'last', 'yes1', 'age', '17']]
+    res = env.cmd('ft.search test *')
+    env.assertEqual(sortedResults(res), sortedResults(res1))
 
 def testMultiFilters2(env):
     conn = getConnectionByEnv(env)
@@ -275,6 +276,7 @@ def testMultiFilters2(env):
     conn.execute_command('HSET', 'student:no1', 'first', 'no1', 'last', 'no1', 'age', '15')
     conn.execute_command('HSET', 'pupil:yes2', 'first', 'yes2', 'last', 'yes2', 'age', '17')
     conn.execute_command('HSET', 'pupil:no2', 'first', 'no2', 'last', 'no2', 'age', '15')
-    res = [2L, 'pupil:yes2', ['first', 'yes2', 'last', 'yes2', 'age', '17'], 
-               'student:yes1', ['first', 'yes1', 'last', 'yes1', 'age', '17']]
-    env.expect('ft.search test *').equal(res)
+    res1 = [2L, 'pupil:yes2', ['first', 'yes2', 'last', 'yes2', 'age', '17'], 
+                'student:yes1', ['first', 'yes1', 'last', 'yes1', 'age', '17']]
+    res = env.cmd('ft.search test *')
+    env.assertEqual(sortedResults(res), sortedResults(res1))
