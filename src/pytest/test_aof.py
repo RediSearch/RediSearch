@@ -1,7 +1,7 @@
 from RLTest import Env
 import random
 from includes import *
-from common import getConnectionByEnv
+from common import getConnectionByEnv, waitForIndex
 
 
 def aofTestCommon(env, reloadfn):
@@ -64,6 +64,7 @@ def testAofRewriteSortkeys():
                       'RETURN', '1', 'foo', 'WITHSORTKEYS')
 
     env.restart_and_reload()
+    waitForIndex(env, 'idx')
     res_got = env.cmd('FT.SEARCH', 'idx', '@bar:{1}', 'SORTBY', 'foo', 'ASC',
                       'RETURN', '1', 'foo', 'WITHSORTKEYS')
 

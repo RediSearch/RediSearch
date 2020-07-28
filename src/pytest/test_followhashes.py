@@ -219,9 +219,10 @@ def testWrongArgs(env):
     env.expect('FT.CREATE', 'idx', 'LANGUAGE', 'none', 'SCHEMA', 'txt', 'TEXT', 'num', 'NUMERIC').error().contains('Invalid language')
 
 def testLanguageDefaultAndField(env):
+    conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE', 'idxTest1', 'LANGUAGE_FIELD', 'lang', 'SCHEMA', 'body', 'TEXT')
     env.cmd('FT.CREATE', 'idxTest2', 'LANGUAGE', 'hindi', 'SCHEMA', 'body', 'TEXT')
-    env.cmd('HSET', 'doc1', 'lang', 'hindi', 'body', u'अँगरेजी अँगरेजों अँगरेज़')
+    conn.execute_command('HSET', 'doc1', 'lang', 'hindi', 'body', u'अँगरेजी अँगरेजों अँगरेज़')
     
     for _ in env.retry_with_rdb_reload():
         waitForIndex(env, 'idxTest1')
@@ -237,41 +238,43 @@ def testLanguageDefaultAndField(env):
 
 def testScoreDecimal(env):
     conn = getConnectionByEnv(env)
-    env.expect('FT.CREATE idx1 SCORE 0.5 schema title text').ok()
-    env.expect('FT.CREATE idx2 SCORE_FIELD score schema title text').ok()
-    res = conn.execute_command('HSET doc1 title hello score 0.25')
+    env.expect('FT.CREATE', 'idx1', 'SCORE', '0.5', 'schema', 'title', 'text').ok()
+    env.expect('FT.CREATE', 'idx2', 'SCORE_FIELD', 'score', 'schema', 'title', 'text').ok()
+    res = conn.execute_command('HSET', 'doc1', 'title', 'hello', 'score', '0.25')
     env.assertEqual(res, 2)
 
     for _ in env.retry_with_rdb_reload():
         waitForIndex(env, 'idx1')
         waitForIndex(env, 'idx2')
-        res = env.cmd('ft.search idx1 hello withscores nocontent')
+        res = env.cmd('ft.search', 'idx1', 'hello', 'withscores', 'nocontent')
         env.assertEqual(float(res[2]), 0.5)
-        res = env.cmd('ft.search idx2 hello withscores nocontent')
+        res = env.cmd('ft.search', 'idx2', 'hello', 'withscores', 'nocontent')
         env.assertEqual(float(res[2]), 0.25)
 
 def testMultiFilters1(env):
+    conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'test', 'ON', 'HASH',
                'PREFIX', '2', 'student:', 'pupil:',
                'FILTER', 'startswith(@__key, "student:")',
                'SCHEMA', 'first', 'TEXT', 'last', 'TEXT', 'age', 'NUMERIC').ok()
-    env.expect('HSET', 'student:yes1', 'first', 'yes1', 'last', 'yes1', 'age', '17').equal(3)
-    env.expect('HSET', 'student:yes2', 'first', 'yes2', 'last', 'yes2', 'age', '15').equal(3)
-    env.expect('HSET', 'pupil:no1', 'first', 'no1', 'last', 'no1', 'age', '17').equal(3)
-    env.expect('HSET', 'pupil:no2', 'first', 'no2', 'last', 'no2', 'age', '15').equal(3)
+    conn.execute_command('HSET', 'student:yes1', 'first', 'yes1', 'last', 'yes1', 'age', '17')
+    conn.execute_command('HSET', 'student:yes2', 'first', 'yes2', 'last', 'yes2', 'age', '15')
+    conn.execute_command('HSET', 'pupil:no1', 'first', 'no1', 'last', 'no1', 'age', '17')
+    conn.execute_command('HSET', 'pupil:no2', 'first', 'no2', 'last', 'no2', 'age', '15')
     res = [2L, 'student:yes2', ['first', 'yes2', 'last', 'yes2', 'age', '15'],
                'student:yes1', ['first', 'yes1', 'last', 'yes1', 'age', '17']]
     env.expect('ft.search test *').equal(res)
 
 def testMultiFilters2(env):
+    conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'test', 'ON', 'HASH',
                'PREFIX', '2', 'student:', 'pupil:',
                'FILTER', '@age > 16',
                'SCHEMA', 'first', 'TEXT', 'last', 'TEXT', 'age', 'NUMERIC').ok()
-    env.expect('HSET', 'student:yes1', 'first', 'yes1', 'last', 'yes1', 'age', '17').equal(3)
-    env.expect('HSET', 'student:no1', 'first', 'no1', 'last', 'no1', 'age', '15').equal(3)
-    env.expect('HSET', 'pupil:yes2', 'first', 'yes2', 'last', 'yes2', 'age', '17').equal(3)
-    env.expect('HSET', 'pupil:no2', 'first', 'no2', 'last', 'no2', 'age', '15').equal(3)
+    conn.execute_command('HSET', 'student:yes1', 'first', 'yes1', 'last', 'yes1', 'age', '17')
+    conn.execute_command('HSET', 'student:no1', 'first', 'no1', 'last', 'no1', 'age', '15')
+    conn.execute_command('HSET', 'pupil:yes2', 'first', 'yes2', 'last', 'yes2', 'age', '17')
+    conn.execute_command('HSET', 'pupil:no2', 'first', 'no2', 'last', 'no2', 'age', '15')
     res = [2L, 'pupil:yes2', ['first', 'yes2', 'last', 'yes2', 'age', '17'], 
                'student:yes1', ['first', 'yes1', 'last', 'yes1', 'age', '17']]
     env.expect('ft.search test *').equal(res)
