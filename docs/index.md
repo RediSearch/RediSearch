@@ -32,9 +32,9 @@ Official and community client libraries in Python, Java, JavaScript, Ruby, Go, C
 
 See the [Clients page](Clients.md) for the full list.
 
-## Cluster Support and Commercial Version
+## Cluster Support
 
-RediSearch has a distributed cluster version that can scale to billions of documents and hundreds of servers. However, it is only available as part of Redis Labs Enterprise. We also offer official commercial support for RediSearch. See the [Redis Labs Website](https://redislabs.com/redis-enterprise/technology/redis-search/#sds) for more info and contact information. 
+RediSearch has a distributed cluster version that can scale to billions of documents and hundreds of servers. We also offer official commercial support for RediSearch. See the [Redis Labs Website](https://redislabs.com/redis-enterprise/technology/redis-search/#sds) for more info and contact information. 
 
 ## Primary Features
 
@@ -59,8 +59,10 @@ RediSearch has a distributed cluster version that can scale to billions of docum
 
 ## References
 ### Videos
+1. [RediSearch? - RedisConf 2020] (https://youtu.be/9R29LLWquME)
 1. [RediSearch Overview - RedisConf 2019](https://youtu.be/AwnEhr9BO74) 
 1. [RediSearch & CRDT - Redis Day Tel Aviv 2019](https://youtu.be/OGC6Mx9E3jU)
+
 
 ### Course
 * [RU201: RediSearch](https://university.redislabs.com/courses/ru201/) - An online RediSearch course from [Redis University](https://university.redislabs.com/).
@@ -70,6 +72,8 @@ RediSearch has a distributed cluster version that can scale to billions of docum
 1. [Mastering RediSearch / Part II](https://redislabs.com/blog/mastering-redisearch-part-ii/)
 1. [Mastering RediSearch / Part III](https://redislabs.com/blog/mastering-redisearch-part-iii/)
 1. [Search Benchmarking: RediSearch vs. Elasticsearch](https://redislabs.com/blog/search-benchmarking-redisearch-vs-elasticsearch/)
+1. [RediSearch Version 1.6 Adds Features, Improves Performance](https://redislabs.com/blog/redisearch-version-1-6-adds-features-improves-performance/)
+1. [RediSearch 1.6 Boosts Performance Up to 64%](https://redislabs.com/blog/redisearch-1-6-boosts-performance-up-to-64/)
 
 ## Mailing List / Forum
 
