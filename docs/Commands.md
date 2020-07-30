@@ -1174,6 +1174,8 @@ This command is deprecated.
 
 ## FT.SYNADD
 
+!!! warning "This command is not longer supported on versions 2.0 and above, use FT.SYNUPDATE directly."
+
 ### Format
 
 ```
@@ -1200,7 +1202,7 @@ FT.SYNUPDATE <index name> <synonym group id> <term1> <term2> ...
 
 Updates a synonym group.
 
-The command is used to update an existing synonym group with additional terms. Only documents which were indexed after the update will be affected.
+The command is used to create or update a synonym group with additional terms. Only documents which were indexed after the update will be affected.
 
 ---
 
