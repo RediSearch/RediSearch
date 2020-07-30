@@ -22,7 +22,6 @@ def sortedResults(res):
 
     y = []
     data = []
-    i = 0
     for x in res:
         y.append(x)
         if len(y) == 2:

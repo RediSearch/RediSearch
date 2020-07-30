@@ -40,9 +40,9 @@ int Dictionary_Del(RedisModuleCtx *ctx, const char *dictName, RedisModuleString 
   }
 
   for (int i = 0; i < len; ++i) {
-    size_t len;
-    const char *val = RedisModule_StringPtrLen(values[i], &len);
-    valuesDeleted += Trie_Delete(t, (char *)val, len);
+    size_t valLen;
+    const char *val = RedisModule_StringPtrLen(values[i], &valLen);
+    valuesDeleted += Trie_Delete(t, (char *)val, valLen);
   }
 
   return valuesDeleted;
