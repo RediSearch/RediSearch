@@ -419,7 +419,7 @@ def testDelete(env):
     keys = r.keys('*')
     env.assertGreaterEqual(len(keys), 100)
 
-    r.expect('ft.delete', 'idx', 'dd').ok()
+    r.expect('FT.DROPINDEX', 'idx', 'dd').ok()
     keys = r.keys('*')
 
     env.assertEqual(0, len(keys))
@@ -437,11 +437,11 @@ def testDelete(env):
     env.assertGreaterEqual(len(keys), 100)
 
     if not env.is_cluster():
-        r.expect('ft.delete', 'idx').ok()
+        r.expect('FT.DROPINDEX', 'idx').ok()
         keys = r.keys('*')
         env.assertListEqual(sorted("doc%d" %k for k in range(100)), sorted(keys))
 
-    env.expect('FT.Delete', 'idx', 'dd', '666').error().contains("wrong number of arguments")
+    env.expect('FT.DROPINDEX', 'idx', 'dd', '666').error().contains("wrong number of arguments")
 
 def testCustomStopwords(env):
     r = env
