@@ -280,3 +280,36 @@ def testMultiFilters2(env):
                 'student:yes1', ['first', 'yes1', 'last', 'yes1', 'age', '17']]
     res = env.cmd('ft.search test *')
     env.assertEqual(sortedResults(res), sortedResults(res1))
+
+def testInfo(env):
+    env.expect('FT.CREATE', 'test', 'ON', 'HASH',
+               'PREFIX', '2', 'student:', 'pupil:',
+               'FILTER', '@age > 16',
+               'language', 'hindi',
+               'language_field', 'lang',
+               'score', '0.5',
+               'score_field', 'score',
+               'payload', 'pl',
+               'SCHEMA', 't', 'TEXT').ok()
+    res_actual = env.cmd('FT.INFO test')
+    res_expected = ['key_type', 'HASH', 
+                    'prefixes', ['student:', 'pupil:'],
+                    'filter', '@age > 16',
+                    'default_language', 'hindi',
+                    'language_field', 'lang',
+                    'default_score', '0.5',
+                    'score_field', 'score',
+                    'payload_field', 'pl']
+    env.assertEqual(res_actual[5], res_expected)
+
+    env.expect('ft.drop test').ok()
+
+    env.expect('FT.CREATE', 'test', 'SCHEMA', 't', 'TEXT').ok()
+    res_actual = env.cmd('FT.INFO test')
+    res_expected = ['key_type', 'HASH',
+                    'prefixes', [''],
+                    'language_field', '__language',
+                    'default_score', '1',
+                    'score_field', '__score',
+                    'payload_field', '__payload']
+    env.assertEqual(res_actual[5], res_expected)
