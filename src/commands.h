@@ -2,16 +2,15 @@
 #define RS_COMMANDS_H_
 
 /** RS_CMD_PREFIX can be defined with -D from the Makefile */
-#ifdef RS_CMD_PREFIX
-#define RS_CMD_WRITE_PREFIX RS_CMD_PREFIX
-#define RS_CMD_READ_PREFIX RS_CMD_PREFIX
-#else
-#ifndef RS_CMD_WRITE_PREFIX
+#ifdef RS_CLUSTER_ENTERPRISE
 #define RS_CMD_WRITE_PREFIX "FT"
-#endif
-#ifndef RS_CMD_READ_PREFIX
+#define RS_CMD_READ_PREFIX "_FT"
+#elif defined(RS_CLUSTER_OSS)
+#define RS_CMD_WRITE_PREFIX "_FT"
+#define RS_CMD_READ_PREFIX "_FT"
+#else
+#define RS_CMD_WRITE_PREFIX "FT"
 #define RS_CMD_READ_PREFIX "FT"
-#endif
 #endif
 
 // write commands
