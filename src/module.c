@@ -446,13 +446,13 @@ int OptimizeIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
 /*
  * FT.DROP <index> [KEEPDOCS]
- * FT.DELETE <index> [DD]
+ * FT.DROPINDEX <index> [DD]
  * Deletes index and possibly all the keys associated with the index.
  * If no other data is on the redis instance, this is equivalent to FLUSHDB,
  * apart from the fact that the index specification is not deleted.
  *
  * FT.DROP, deletes all keys by default. If KEEPDOCS exists, we do not delete the actual docs
- * FT.DELETE, keeps all keys by default. If DD exists, we delete the actual docs
+ * FT.DROPINDEX, keeps all keys by default. If DD exists, we delete the actual docs
  */
 int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // at least one field, and number of field/text args must be even
@@ -473,7 +473,7 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (argc == 3 && RMUtil_StringEqualsCaseC(argv[2], "KEEPDOCS")) {
       delDocs = 0;
     }
-  } else {  // FT.DELETE
+  } else {  // FT.DROPINDEX
     delDocs = 0;
     if (argc == 3 && RMUtil_StringEqualsCaseC(argv[2], "DD")) {
       delDocs = 1;
@@ -487,7 +487,7 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       RMUtil_StringEqualsCaseC(argv[0], "_FT.DROP")) {
     RedisModule_Replicate(ctx, RS_DROP_IF_X_CMD, "v", argv + 1, argc - 1);
   } else {
-    RedisModule_Replicate(ctx, RS_DELETE_IF_X_CMD, "v", argv + 1, argc - 1);
+    RedisModule_Replicate(ctx, RS_DROP_INDEX_IF_X_CMD, "v", argv + 1, argc - 1);
   }
 
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
@@ -507,7 +507,7 @@ int DropIfExistsIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   if (RMUtil_StringEqualsCaseC(argv[0], RS_DROP_IF_X_CMD)) {
     argv[0] = RedisModule_CreateString(ctx, RS_DROP_CMD, strlen(RS_DROP_CMD));
   } else {
-    argv[0] = RedisModule_CreateString(ctx, RS_DELETE_CMD, strlen(RS_DELETE_CMD));
+    argv[0] = RedisModule_CreateString(ctx, RS_DROP_INDEX_CMD, strlen(RS_DROP_INDEX_CMD));
   }
   int ret = DropIndexCommand(ctx, argv, argc);
   RedisModule_FreeString(ctx, argv[0]);
@@ -900,11 +900,11 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_DROP_CMD, DropIndexCommand, "write",
          INDEX_ONLY_CMD_ARGS);
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_DELETE_CMD, DropIndexCommand, "write",
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_DROP_INDEX_CMD, DropIndexCommand, "write",
          INDEX_ONLY_CMD_ARGS);
   RM_TRY(RedisModule_CreateCommand, ctx, RS_DROP_IF_X_CMD, DropIfExistsIndexCommand, "write",
          INDEX_ONLY_CMD_ARGS);
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_DELETE_IF_X_CMD, DropIfExistsIndexCommand, "write",
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_DROP_INDEX_IF_X_CMD, DropIfExistsIndexCommand, "write",
          INDEX_ONLY_CMD_ARGS);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_INFO_CMD, IndexInfoCommand, "readonly",
