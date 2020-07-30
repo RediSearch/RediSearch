@@ -34,6 +34,52 @@ static int renderIndexOptions(RedisModuleCtx *ctx, IndexSpec *sp) {
   return 2;
 }
 
+static int renderIndexDefinitions(RedisModuleCtx *ctx, IndexSpec *sp) {
+  int n = 0;
+  SchemaRule *rule = sp->rule; 
+  RedisModule_ReplyWithSimpleString(ctx, "index_definition");
+  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+
+  REPLY_KVSTR(n, "key_type", SchemaRuleType_ToString(rule->type));
+
+  int num_prefixes = array_len(rule->prefixes);
+  if (num_prefixes) {
+    RedisModule_ReplyWithSimpleString(ctx, "prefixes");
+    RedisModule_ReplyWithArray(ctx, num_prefixes);
+    for (int i = 0; i < num_prefixes; ++i) {
+      RedisModule_ReplyWithSimpleString(ctx, rule->prefixes[i]);
+    }
+    n += 2;
+  }
+
+  if (rule->filter_exp_str) {
+    REPLY_KVSTR(n, "filter", rule->filter_exp_str);
+  }
+
+  if (rule->lang_default) {
+    REPLY_KVSTR(n, "default_language", RSLanguage_ToString(rule->lang_default));
+  }
+
+  if (rule->lang_field) {
+    REPLY_KVSTR(n, "language_field", rule->lang_field);
+  }
+
+  if (rule->score_default) {
+    REPLY_KVNUM(n, "default_score", rule->score_default);
+  }
+
+  if (rule->lang_field) {
+    REPLY_KVSTR(n, "score_field", rule->score_field);
+  }
+
+  if (rule->payload_field) {
+    REPLY_KVSTR(n, "payload_field", rule->payload_field);
+  }
+
+  RedisModule_ReplySetArrayLength(ctx, n);
+  return 2;
+}
+
 /* FT.INFO {index}
  *  Provide info and stats about an index
  */
@@ -52,6 +98,8 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   REPLY_KVSTR(n, "index_name", sp->name);
 
   n += renderIndexOptions(ctx, sp);
+
+  n += renderIndexDefinitions(ctx, sp);
 
   RedisModule_ReplyWithSimpleString(ctx, "fields");
   RedisModule_ReplyWithArray(ctx, sp->numFields);
