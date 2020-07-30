@@ -3138,15 +3138,12 @@ def testDropIfX(env):
 def testDeleteIfX(env):
     env.expect('FT._DELETEIFX idx').ok()
 
-def to_dict(res):
-    d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
-    return d
-
 def testAlterIfNX(env):
     env.expect('FT.CREATE idx ON HASH SCHEMA n NUMERIC').ok()
     env.expect('FT._ALTERIFNX idx SCHEMA ADD n1 NUMERIC').ok()
     env.expect('FT._ALTERIFNX idx SCHEMA ADD n1 NUMERIC').ok()
-    res = to_dict(env.cmd('ft.info idx'))['fields']
+    res = env.cmd('ft.info idx')
+    res = {res[i]: res[i + 1] for i in range(0, len(res), 2)}['fields']
     env.assertEqual(res, [['n', 'type', 'NUMERIC'], ['n1', 'type', 'NUMERIC']])
 
 def testAliasAddIfNX(env):
