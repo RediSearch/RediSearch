@@ -16,7 +16,7 @@ static TermData* TermData_New(char* term) {
 
 static void TermData_Free(TermData* t_data) {
   rm_free(t_data->term);
-  for(size_t i = 0 ; i < array_len(t_data->groupIds) ; ++i){
+  for (size_t i = 0; i < array_len(t_data->groupIds); ++i) {
     rm_free(t_data->groupIds[i]);
   }
   array_free(t_data->groupIds);
@@ -43,7 +43,7 @@ static void TermData_AddId(TermData* t_data, const char* id) {
 static TermData* TermData_Copy(TermData* t_data) {
   TermData* copy = TermData_New(rm_strdup(t_data->term));
   for (int i = 0; i < array_len(t_data->groupIds); ++i) {
-    TermData_AddId(copy, t_data->groupIds[i]);
+    TermData_AddId(copy, t_data->groupIds[i] + 1 /*we do not need the ~*/);
   }
   return copy;
 }
@@ -53,7 +53,8 @@ static void TermData_RdbSave(RedisModuleIO* rdb, TermData* t_data) {
   RedisModule_SaveStringBuffer(rdb, t_data->term, strlen(t_data->term) + 1);
   RedisModule_SaveUnsigned(rdb, array_len(t_data->groupIds));
   for (int i = 0; i < array_len(t_data->groupIds); ++i) {
-    RedisModule_SaveStringBuffer(rdb, t_data->groupIds[0], strlen(t_data->groupIds[0]) + /*for \0*/ 1);
+    RedisModule_SaveStringBuffer(rdb, t_data->groupIds[0],
+                                 strlen(t_data->groupIds[0]) + /*for \0*/ 1);
   }
 }
 
@@ -65,13 +66,13 @@ static TermData* TermData_RdbLoad(RedisModuleIO* rdb, int encver) {
   uint64_t ids_len = RedisModule_LoadUnsigned(rdb);
   for (int i = 0; i < ids_len; ++i) {
     char* groupId = NULL;
-    if(encver <= INDEX_MIN_WITH_SYNONYMS_INT_GROUP_ID){
+    if (encver <= INDEX_MIN_WITH_SYNONYMS_INT_GROUP_ID) {
       uint64_t id = RedisModule_LoadUnsigned(rdb);
       rm_asprintf(&groupId, "%ld", id);
-    }else{
+    } else {
       groupId = RedisModule_LoadStringBuffer(rdb, NULL);
     }
-    TermData_AddId(t_data, groupId);
+    TermData_AddId(t_data, groupId + 1 /* ~ is not needed*/);
     rm_free(groupId);
   }
   return t_data;
@@ -96,7 +97,7 @@ void SynonymMap_Free(SynonymMap* smap) {
   TermData* t_data;
   dictIterator* iter = dictGetIterator(smap->h_table);
   dictEntry* entry = NULL;
-  while((entry = dictNext(iter))){
+  while ((entry = dictNext(iter))) {
     TermData* t_data = dictGetVal(entry);
     TermData_Free(t_data);
   }
@@ -116,7 +117,8 @@ static const char** SynonymMap_RedisStringArrToArr(RedisModuleString** synonyms,
   return arr;
 }
 
-void SynonymMap_UpdateRedisStr(SynonymMap* smap, RedisModuleString** synonyms, size_t size, const char* groupId) {
+void SynonymMap_UpdateRedisStr(SynonymMap* smap, RedisModuleString** synonyms, size_t size,
+                               const char* groupId) {
   const char** arr = SynonymMap_RedisStringArrToArr(synonyms, size);
   SynonymMap_Update(smap, arr, size, groupId);
   rm_free(arr);
@@ -131,7 +133,7 @@ void SynonymMap_Update(SynonymMap* smap, const char** synonyms, size_t size, con
   int ret;
   for (size_t i = 0; i < size; i++) {
     TermData* termData = dictFetchValue(smap->h_table, synonyms[i]);
-    if(!termData){
+    if (!termData) {
       termData = TermData_New(rm_strdup(synonyms[i]));
       dictAdd(smap->h_table, (char*)synonyms[i], termData);
     }
@@ -156,7 +158,7 @@ TermData** SynonymMap_DumpAllTerms(SynonymMap* smap, size_t* size) {
   int j = 0;
   dictIterator* iter = dictGetIterator(smap->h_table);
   dictEntry* entry = NULL;
-  while((entry = dictNext(iter))){
+  while ((entry = dictNext(iter))) {
     TermData* val = dictGetVal(entry);
     dump[j++] = val;
   }
@@ -173,7 +175,7 @@ static SynonymMap* SynonymMap_GenerateReadOnlyCopy(SynonymMap* smap) {
   SynonymMap* read_only_smap = SynonymMap_New(true);
   dictIterator* iter = dictGetIterator(smap->h_table);
   dictEntry* entry = NULL;
-  while((entry = dictNext(iter))){
+  while ((entry = dictNext(iter))) {
     char* key = dictGetKey(entry);
     TermData* val = dictGetVal(entry);
     SynonymMap_CopyEntry(read_only_smap, key, val);
@@ -200,7 +202,7 @@ void SynonymMap_RdbSave(RedisModuleIO* rdb, void* value) {
   RedisModule_SaveUnsigned(rdb, dictSize(smap->h_table));
   dictIterator* iter = dictGetIterator(smap->h_table);
   dictEntry* entry = NULL;
-  while((entry = dictNext(iter))){
+  while ((entry = dictNext(iter))) {
     TermData* val = dictGetVal(entry);
     TermData_RdbSave(rdb, val);
   }
@@ -210,12 +212,12 @@ void SynonymMap_RdbSave(RedisModuleIO* rdb, void* value) {
 void* SynonymMap_RdbLoad(RedisModuleIO* rdb, int encver) {
   int ret;
   SynonymMap* smap = SynonymMap_New(false);
-  if(encver <= INDEX_MIN_WITH_SYNONYMS_INT_GROUP_ID){
+  if (encver <= INDEX_MIN_WITH_SYNONYMS_INT_GROUP_ID) {
     size_t unused = RedisModule_LoadUnsigned(rdb);
   }
   uint64_t smap_kh_size = RedisModule_LoadUnsigned(rdb);
   for (int i = 0; i < smap_kh_size; ++i) {
-    if(encver <= INDEX_MIN_WITH_SYNONYMS_INT_GROUP_ID){
+    if (encver <= INDEX_MIN_WITH_SYNONYMS_INT_GROUP_ID) {
       uint64_t unudes = RedisModule_LoadUnsigned(rdb);
     }
     TermData* t_data = TermData_RdbLoad(rdb, encver);

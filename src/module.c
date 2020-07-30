@@ -483,10 +483,10 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
   Redis_DropIndex(&sctx, delDocs);
 
-  if(RMUtil_StringEqualsCaseC(argv[0], "FT.DROP") ||
-      RMUtil_StringEqualsCaseC(argv[0], "_FT.DROP")){
+  if (RMUtil_StringEqualsCaseC(argv[0], "FT.DROP") ||
+      RMUtil_StringEqualsCaseC(argv[0], "_FT.DROP")) {
     RedisModule_Replicate(ctx, RS_DROP_IF_X_CMD, "v", argv + 1, argc - 1);
-  }else{
+  } else {
     RedisModule_Replicate(ctx, RS_DELETE_IF_X_CMD, "v", argv + 1, argc - 1);
   }
 
@@ -500,13 +500,13 @@ int DropIfExistsIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   }
 
   IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 0);
-  if(!sp){
+  if (!sp) {
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
   RedisModuleString *oldCommand = argv[0];
-  if(RMUtil_StringEqualsCaseC(argv[0], RS_DROP_IF_X_CMD)){
+  if (RMUtil_StringEqualsCaseC(argv[0], RS_DROP_IF_X_CMD)) {
     argv[0] = RedisModule_CreateString(ctx, RS_DROP_CMD, strlen(RS_DROP_CMD));
-  }else{
+  } else {
     argv[0] = RedisModule_CreateString(ctx, RS_DELETE_CMD, strlen(RS_DELETE_CMD));
   }
   int ret = DropIndexCommand(ctx, argv, argc);
@@ -527,23 +527,6 @@ int SynAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return REDISMODULE_OK;
 }
 
-int SynUpdateCommandInternal(RedisModuleCtx *ctx, RedisModuleString *indexName, const char* groupId,
-                             RedisModuleString **synonyms, size_t size) {
-  IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(indexName, NULL), 0);
-  if (!sp) {
-    RedisModule_ReplyWithError(ctx, "Unknown index name");
-    return REDISMODULE_OK;
-  }
-
-  IndexSpec_InitializeSynonym(sp);
-
-  SynonymMap_UpdateRedisStr(sp->smap, synonyms, size, groupId);
-
-  RedisModule_ReplyWithSimpleString(ctx, "OK");
-
-  return REDISMODULE_OK;
-}
-
 /**
  * FT.SYNUPDATE <index> <id> <term1> <term2> ...
  *
@@ -554,11 +537,23 @@ int SynUpdateCommandInternal(RedisModuleCtx *ctx, RedisModuleString *indexName, 
 int SynUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 4) return RedisModule_WrongArity(ctx);
 
-  const char* id = RedisModule_StringPtrLen(argv[2], NULL);
+  const char *id = RedisModule_StringPtrLen(argv[2], NULL);
+
+  IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 0);
+  if (!sp) {
+    RedisModule_ReplyWithError(ctx, "Unknown index name");
+    return REDISMODULE_OK;
+  }
+
+  IndexSpec_InitializeSynonym(sp);
+
+  SynonymMap_UpdateRedisStr(sp->smap, argv + 3, argc - 3, id);
+
+  RedisModule_ReplyWithSimpleString(ctx, "OK");
 
   RedisModule_ReplicateVerbatim(ctx);
 
-  return SynUpdateCommandInternal(ctx, argv[1], id, argv + 3, argc - 3);
+  return REDISMODULE_OK;
 }
 
 /**
@@ -597,7 +592,9 @@ int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModule_ReplyWithStringBuffer(ctx, t_data->term, strlen(t_data->term));
     RedisModule_ReplyWithArray(ctx, array_len(t_data->groupIds));
     for (size_t j = 0; j < array_len(t_data->groupIds); ++j) {
-      RedisModule_ReplyWithStringBuffer(ctx, t_data->groupIds[j], strlen(t_data->groupIds[j]));
+      // do not return the ~
+      RedisModule_ReplyWithStringBuffer(ctx, t_data->groupIds[j] + 1,
+                                        strlen(t_data->groupIds[j] + 1));
     }
   }
 
@@ -606,7 +603,8 @@ int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return REDISMODULE_OK;
 }
 
-static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool ifnx) {
+static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                                     bool ifnx) {
   ArgsCursor ac = {0};
   ArgsCursor_InitRString(&ac, argv + 1, argc - 1);
 
@@ -631,7 +629,7 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
     if (!AC_NumRemaining(&ac)) {
       return RedisModule_ReplyWithError(ctx, "No fields provided");
     }
-    if(ifnx){
+    if (ifnx) {
       const char *fieldName;
       size_t fieldNameSize;
 
@@ -672,15 +670,16 @@ static int aliasAddCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
     QueryError_SetError(error, QUERY_ENOINDEX, "Unknown index name (or name is an alias itself)");
     return REDISMODULE_ERR;
   }
-  const char* alias = RedisModule_StringPtrLen(argv[1], NULL);
+  const char *alias = RedisModule_StringPtrLen(argv[1], NULL);
   IndexSpec *sp = IndexAlias_Get(alias);
-  if(skipIfExists && sptmp == sp){
+  if (skipIfExists && sptmp == sp) {
     return REDISMODULE_OK;
   }
   return IndexAlias_Add(alias, sptmp, 0, error);
 }
 
-static int AliasAddCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool ifNx) {
+static int AliasAddCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                                 bool ifNx) {
   if (argc != 3) {
     return RedisModule_WrongArity(ctx);
   }
@@ -893,8 +892,8 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_CREATE_CMD, CreateIndexCommand, "write deny-oom",
          INDEX_ONLY_CMD_ARGS);
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_CREATE_IF_NX_CMD, CreateIndexIfNotExistsCommand, "write deny-oom",
-           INDEX_ONLY_CMD_ARGS);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_CREATE_IF_NX_CMD, CreateIndexIfNotExistsCommand,
+         "write deny-oom", INDEX_ONLY_CMD_ARGS);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_CMD_WRITE_PREFIX ".OPTIMIZE", OptimizeIndexCommand,
          "write deny-oom", 1, 1, 1);  // todo: depricate
@@ -904,11 +903,9 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   RM_TRY(RedisModule_CreateCommand, ctx, RS_DELETE_CMD, DropIndexCommand, "write",
          INDEX_ONLY_CMD_ARGS);
   RM_TRY(RedisModule_CreateCommand, ctx, RS_DROP_IF_X_CMD, DropIfExistsIndexCommand, "write",
-           INDEX_ONLY_CMD_ARGS);
-    RM_TRY(RedisModule_CreateCommand, ctx, RS_DELETE_IF_X_CMD, DropIfExistsIndexCommand, "write",
-           INDEX_ONLY_CMD_ARGS);
-
-
+         INDEX_ONLY_CMD_ARGS);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_DELETE_IF_X_CMD, DropIfExistsIndexCommand, "write",
+         INDEX_ONLY_CMD_ARGS);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_INFO_CMD, IndexInfoCommand, "readonly",
          INDEX_ONLY_CMD_ARGS);
@@ -937,7 +934,6 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   RM_TRY(RedisModule_CreateCommand, ctx, RS_CURSOR_CMD, RSCursorCommand, "readonly", 0, 0, 0);
 #endif
 
-
   // todo: what to do with this?
   RM_TRY(RedisModule_CreateCommand, ctx, RS_SYNADD_CMD, SynAddCommand, "write",
          INDEX_ONLY_CMD_ARGS);
@@ -948,11 +944,10 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   RM_TRY(RedisModule_CreateCommand, ctx, RS_SYNDUMP_CMD, SynDumpCommand, "readonly",
          INDEX_ONLY_CMD_ARGS);
 
-
   RM_TRY(RedisModule_CreateCommand, ctx, RS_ALTER_CMD, AlterIndexCommand, "write",
          INDEX_ONLY_CMD_ARGS);
   RM_TRY(RedisModule_CreateCommand, ctx, RS_ALTER_IF_NX_CMD, AlterIndexIfNXCommand, "write",
-           INDEX_ONLY_CMD_ARGS);
+         INDEX_ONLY_CMD_ARGS);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_DEBUG, DebugCommand, "readonly", 0, 0, 0);
 
@@ -971,19 +966,23 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 #ifndef RS_COORDINATOR
   // we are running in a normal mode so we should raise cross slot error on alias commands
   RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASADD, AliasAddCommand, "readonly", 1, 2, 1);
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASADD_IF_NX, AliasAddCommandIfNX, "readonly", 1, 2, 1);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASADD_IF_NX, AliasAddCommandIfNX, "readonly", 1, 2,
+         1);
   RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASUPDATE, AliasUpdateCommand, "readonly", 1, 2, 1);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASDEL, AliasDelCommand, "readonly", 1, 1, 1);
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASDEL_IF_EX, AliasDelIfExCommand,  "readonly", 1, 1, 1);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASDEL_IF_EX, AliasDelIfExCommand, "readonly", 1, 1,
+         1);
 #else
   // Cluster is manage outside of module lets trust it and not raise cross slot error.
   RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASADD, AliasAddCommand, "readonly", 0, 0, 0);
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASADD_IF_NX, AliasAddCommandIfNX, "readonly", 0, 0, 0);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASADD_IF_NX, AliasAddCommandIfNX, "readonly", 0, 0,
+         0);
   RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASUPDATE, AliasUpdateCommand, "readonly", 0, 0, 0);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASDEL, AliasDelCommand, "readonly", 0, 0, 0);
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASDEL_IF_EX, AliasDelIfExCommand,  "readonly", 0, 0, 0);
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_ALIASDEL_IF_EX, AliasDelIfExCommand, "readonly", 0, 0,
+         0);
 #endif
   return REDISMODULE_OK;
 }
