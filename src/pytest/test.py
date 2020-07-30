@@ -3128,3 +3128,28 @@ def testReturnSameFieldDifferentCase(env):
     conn.execute_command('hset', 'doc1', 'n', '1.0', 'N', '2.0')
     env.expect('ft.search', 'idx', '@n:[0 2]', 'RETURN', '2', 'n', 'N').equal([1L, 'doc1', ['n', '1', 'N', '2']])
 
+def testCreateIfNX(env):
+    env.expect('FT._CREATEIFNX idx ON HASH SCHEMA n NUMERIC SORTABLE N NUMERIC SORTABLE').ok()
+    env.expect('FT._CREATEIFNX idx ON HASH SCHEMA n NUMERIC SORTABLE N NUMERIC SORTABLE').ok()
+
+def testDropIfX(env):
+    env.expect('FT._DROPIFX idx').ok()
+
+def testDeleteIfX(env):
+    env.expect('FT._DELETEIFX idx').ok()
+
+def testAlterIfNX(env):
+    env.expect('FT.CREATE idx ON HASH SCHEMA n NUMERIC').ok()
+    env.expect('FT._ALTERIFNX idx SCHEMA ADD n1 NUMERIC').ok()
+    env.expect('FT._ALTERIFNX idx SCHEMA ADD n1 NUMERIC').ok()
+    res = env.cmd('ft.info idx')
+    env.assertEqual(res[3], [['n', 'type', 'NUMERIC'], ['n1', 'type', 'NUMERIC']])
+
+def testAliasAddIfNX(env):
+    env.expect('FT.CREATE idx ON HASH SCHEMA n NUMERIC').ok()
+    env.expect('FT._ALIASADDIFNX a1 idx').ok()
+    env.expect('FT._ALIASADDIFNX a1 idx').ok()
+
+def testAliasDelIfX(env):
+    env.expect('FT._ALIASDELIFX a1').ok()
+
