@@ -523,41 +523,21 @@ int DropIfExistsIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
  * the given terms and return its id.
  */
 int SynAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  if (argc < 3) return RedisModule_WrongArity(ctx);
-
-  IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 0);
-  if (!sp) {
-    RedisModule_ReplyWithError(ctx, "Unknown index name");
-    return REDISMODULE_OK;
-  }
-
-  RedisModule_ReplicateVerbatim(ctx);
-
-  IndexSpec_InitializeSynonym(sp);
-
-  uint32_t id = SynonymMap_AddRedisStr(sp->smap, argv + 2, argc - 2);
-
-  RedisModule_ReplyWithLongLong(ctx, id);
-
+  RedisModule_ReplyWithError(ctx, "No longer suppoted, use FT.SYNUPDATE");
   return REDISMODULE_OK;
 }
 
-int SynUpdateCommandInternal(RedisModuleCtx *ctx, RedisModuleString *indexName, long long id,
-                             RedisModuleString **synonyms, size_t size, bool checkIdSanity) {
+int SynUpdateCommandInternal(RedisModuleCtx *ctx, RedisModuleString *indexName, const char* groupId,
+                             RedisModuleString **synonyms, size_t size) {
   IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(indexName, NULL), 0);
   if (!sp) {
     RedisModule_ReplyWithError(ctx, "Unknown index name");
     return REDISMODULE_OK;
   }
 
-  if (checkIdSanity && (!sp->smap || id >= SynonymMap_GetMaxId(sp->smap))) {
-    RedisModule_ReplyWithError(ctx, "given id does not exists");
-    return REDISMODULE_OK;
-  }
-
   IndexSpec_InitializeSynonym(sp);
 
-  SynonymMap_UpdateRedisStr(sp->smap, synonyms, size, id);
+  SynonymMap_UpdateRedisStr(sp->smap, synonyms, size, groupId);
 
   RedisModule_ReplyWithSimpleString(ctx, "OK");
 
@@ -574,39 +554,11 @@ int SynUpdateCommandInternal(RedisModuleCtx *ctx, RedisModuleString *indexName, 
 int SynUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 4) return RedisModule_WrongArity(ctx);
 
-  long long id;
-  if (RedisModule_StringToLongLong(argv[2], &id) != REDISMODULE_OK) {
-    RedisModule_ReplyWithError(ctx, "wrong parameters, id is not an integer");
-    return REDISMODULE_OK;
-  }
-
-  if (id < 0 || id > UINT32_MAX) {
-    RedisModule_ReplyWithError(ctx, "wrong parameters, id out of range");
-    return REDISMODULE_OK;
-  }
+  const char* id = RedisModule_StringPtrLen(argv[2], NULL);
 
   RedisModule_ReplicateVerbatim(ctx);
 
-  return SynUpdateCommandInternal(ctx, argv[1], id, argv + 3, argc - 3, true);
-}
-
-int SynForceUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  if (argc < 4) return RedisModule_WrongArity(ctx);
-
-  long long id;
-  if (RedisModule_StringToLongLong(argv[2], &id) != REDISMODULE_OK) {
-    RedisModule_ReplyWithError(ctx, "wrong parameters, id is not an integer");
-    return REDISMODULE_OK;
-  }
-
-  if (id < 0 || id > UINT32_MAX) {
-    RedisModule_ReplyWithError(ctx, "wrong parameters, id out of range");
-    return REDISMODULE_OK;
-  }
-
-  RedisModule_ReplicateVerbatim(ctx);
-
-  return SynUpdateCommandInternal(ctx, argv[1], id, argv + 3, argc - 3, false);
+  return SynUpdateCommandInternal(ctx, argv[1], id, argv + 3, argc - 3);
 }
 
 /**
@@ -643,9 +595,9 @@ int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   for (int i = 0; i < size; ++i) {
     TermData *t_data = terms_data[i];
     RedisModule_ReplyWithStringBuffer(ctx, t_data->term, strlen(t_data->term));
-    RedisModule_ReplyWithArray(ctx, array_len(t_data->ids));
-    for (size_t j = 0; j < array_len(t_data->ids); ++j) {
-      RedisModule_ReplyWithLongLong(ctx, t_data->ids[j]);
+    RedisModule_ReplyWithArray(ctx, array_len(t_data->groupIds));
+    for (size_t j = 0; j < array_len(t_data->groupIds); ++j) {
+      RedisModule_ReplyWithStringBuffer(ctx, t_data->groupIds[j], strlen(t_data->groupIds[j]));
     }
   }
 
@@ -991,9 +943,6 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
          INDEX_ONLY_CMD_ARGS);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_SYNUPDATE_CMD, SynUpdateCommand, "write",
-         INDEX_ONLY_CMD_ARGS);
-
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_SYNFORCEUPDATE_CMD, SynForceUpdateCommand, "write",
          INDEX_ONLY_CMD_ARGS);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_SYNDUMP_CMD, SynDumpCommand, "readonly",

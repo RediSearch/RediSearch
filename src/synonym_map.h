@@ -2,7 +2,7 @@
 #ifndef SRC_SYNONYM_MAP_H_
 #define SRC_SYNONYM_MAP_H_
 
-#include "util/khash.h"
+#include "util/dict.h"
 #include "redismodule.h"
 #include "util/arr.h"
 #include <stdbool.h>
@@ -14,19 +14,15 @@
  */
 typedef struct {
   char* term;
-  uint32_t* ids;
+  char** groupIds;
 } TermData;
-
-static const int SynMapKhid = 90;
-KHASH_MAP_INIT_INT64(SynMapKhid, TermData*);
 
 /**
  * The synonym map data structure
  */
 typedef struct SynonymMap_s {
   uint32_t ref_count;
-  uint32_t curr_id;
-  khash_t(SynMapKhid) * h_table;
+  dict* h_table;
   bool is_read_only;
   struct SynonymMap_s* read_only_copy;
 } SynonymMap;
@@ -44,28 +40,13 @@ SynonymMap* SynonymMap_New(bool is_read_only);
 void SynonymMap_Free(SynonymMap* smap);
 
 /**
- * Synonym groups ids are increasing uint32_t.
- * Return the max id i.e the next id which will be given to the next synonym group.
- */
-uint32_t SynonymMap_GetMaxId(SynonymMap* smap);
-
-/**
- * Add new synonym group
- * smap - the synonym map
- * synonyms - RedisModuleString array contains the terms to add to the synonym map
- * size - RedisModuleString array size
- */
-uint32_t SynonymMap_AddRedisStr(SynonymMap* smap, RedisModuleString** synonyms, size_t size);
-
-/**
  * Updating an already existing synonym group
  * smap - the synonym map
  * synonyms - RedisModuleString array contains the terms to add to the synonym map
  * size - RedisModuleString array size
  * id - the synoym group id to update
  */
-void SynonymMap_UpdateRedisStr(SynonymMap* smap, RedisModuleString** synonyms, size_t size,
-                               uint32_t id);
+void SynonymMap_UpdateRedisStr(SynonymMap* smap, RedisModuleString** synonyms, size_t size, const char* groupId);
 
 /**
  * Add new synonym group
@@ -73,7 +54,7 @@ void SynonymMap_UpdateRedisStr(SynonymMap* smap, RedisModuleString** synonyms, s
  * synonyms - char* array contains the terms to add to the synonym map
  * size - char* array size
  */
-uint32_t SynonymMap_Add(SynonymMap* smap, const char** synonyms, size_t size);
+void SynonymMap_Add(SynonymMap* smap, const char* groupId, const char** synonyms, size_t size);
 
 /**
  * Updating an already existing synonym group
@@ -82,7 +63,7 @@ uint32_t SynonymMap_Add(SynonymMap* smap, const char** synonyms, size_t size);
  * size - char* array size
  * id - the synoym group id to update
  */
-void SynonymMap_Update(SynonymMap* smap, const char** synonyms, size_t size, uint32_t id);
+void SynonymMap_Update(SynonymMap* smap, const char** synonyms, size_t size, const char* groupId);
 
 /**
  * Return all the ids of a given term
