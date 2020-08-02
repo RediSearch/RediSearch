@@ -537,7 +537,7 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryE
        .target = &rule_args.lang_field,
        .len = &dummy2,
        .type = AC_ARGTYPE_STRING},
-      {.name = "PAYLOAD",
+      {.name = "PAYLOAD_FIELD",
        .target = &rule_args.payload_field,
        .len = &dummy2,
        .type = AC_ARGTYPE_STRING},
