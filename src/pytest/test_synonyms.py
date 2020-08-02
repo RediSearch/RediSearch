@@ -14,7 +14,8 @@ def testBasicSynonymsUseCase(env):
                                     'body', 'this is a test'))
 
     res = r.execute_command('ft.search', 'idx', 'child', 'EXPANDER', 'SYNONYM')
-    env.assertEqual(res, [1L, 'doc1', ['title', 'he is a boy', 'body', 'this is a test']])
+    env.assertEqual(res[0:2], [1L, 'doc1'])
+    env.assertEqual(set(res[2]), set(['title', 'he is a boy', 'body', 'this is a test']))
 
 def testTermOnTwoSynonymsGroup(env):
     r = env
@@ -29,9 +30,13 @@ def testTermOnTwoSynonymsGroup(env):
                                     'body', 'this is a test'))
 
     res = r.execute_command('ft.search', 'idx', 'child', 'EXPANDER', 'SYNONYM')
-    env.assertEqual(res, [1L, 'doc1', ['title', 'he is a boy', 'body', 'this is a test']])
+
+    env.assertEqual(res[0:2], [1L, 'doc1'])
+    env.assertEqual(set(res[2]), set(['title', 'he is a boy', 'body', 'this is a test']))
+
     res = r.execute_command('ft.search', 'idx', 'offspring', 'EXPANDER', 'SYNONYM')
-    env.assertEqual(res, [1L, 'doc1', ['title', 'he is a boy', 'body', 'this is a test']])
+    env.assertEqual(res[0:2], [1L, 'doc1'])
+    env.assertEqual(set(res[2]), set(['title', 'he is a boy', 'body', 'this is a test']))
 
 def testSynonymGroupWithThreeSynonyms(env):
     r = env
@@ -45,9 +50,11 @@ def testSynonymGroupWithThreeSynonyms(env):
                                     'body', 'this is a test'))
 
     res = r.execute_command('ft.search', 'idx', 'child', 'EXPANDER', 'SYNONYM')
-    env.assertEqual(res, [1L, 'doc1', ['title', 'he is a boy', 'body', 'this is a test']])
+    env.assertEqual(res[0:2], [1L, 'doc1',])
+    env.assertEqual(set(res[2]), set(['title', 'he is a boy', 'body', 'this is a test']))
     res = r.execute_command('ft.search', 'idx', 'offspring', 'EXPANDER', 'SYNONYM')
-    env.assertEqual(res, [1L, 'doc1', ['title', 'he is a boy', 'body', 'this is a test']])
+    env.assertEqual(res[0:2], [1L, 'doc1'])
+    env.assertEqual(set(res[2]), set(['title', 'he is a boy', 'body', 'this is a test']))
 
 def testSynonymWithMultipleDocs(env):
     r = env
@@ -65,7 +72,12 @@ def testSynonymWithMultipleDocs(env):
                                     'body', 'the child sister'))
 
     res = r.execute_command('ft.search', 'idx', 'offspring', 'EXPANDER', 'SYNONYM')
-    env.assertEqual(res, [2L, 'doc2', ['title', 'she is a girl', 'body', 'the child sister'], 'doc1', ['title', 'he is a boy', 'body', 'this is a test']])
+    env.assertEqual(res[0], 2L)
+    env.assertEqual(res[1], 'doc2')
+    env.assertEqual(set(res[2]), set(['title', 'she is a girl', 'body', 'the child sister']))
+    env.assertEqual(res[3], 'doc1')
+    env.assertEqual(set(res[4]), set(['title', 'he is a boy', 'body', 'this is a test']))
+    
 
 def testSynonymUpdate(env):
     r = env
@@ -85,7 +97,8 @@ def testSynonymUpdate(env):
 
     res = r.execute_command('ft.search', 'idx', 'child', 'EXPANDER', 'SYNONYM')
     # synonyms are applied from the moment they were added, previuse docs are not reindexed
-    env.assertEqual(res, [1L, 'doc2', ['title', 'he is another baby', 'body', 'another test']])
+    env.assertEqual(res[0:2], [1L, 'doc2'])
+    env.assertEqual(set(res[2]), set(['title', 'he is another baby', 'body', 'another test']))
 
 def testSynonymDump(env):
     r = env
@@ -157,7 +170,8 @@ def testTwoSynonymsSearch(env):
 
     res = r.execute_command('ft.search', 'idx', 'offspring offspring', 'EXPANDER', 'SYNONYM')
     # synonyms are applied from the moment they were added, previuse docs are not reindexed
-    env.assertEqual(res, [1L, 'doc1', ['title', 'he is a boy child boy', 'body', 'another test']])
+    env.assertEqual(res[0:2], [1L, 'doc1'])
+    env.assertEqual(set(res[2]), set(['title', 'he is a boy child boy', 'body', 'another test']))
 
 def testSynonymsIntensiveLoad(env):
     iterations = 1000
@@ -175,4 +189,5 @@ def testSynonymsIntensiveLoad(env):
         waitForIndex(r, 'idx')
         for i in range(iterations):
             res = r.execute_command('ft.search', 'idx', 'child%d' % i, 'EXPANDER', 'SYNONYM')
-            env.assertEqual(res, [1L, 'doc%d' % i, ['title', 'he is a boy%d' % i, 'body', 'this is a test']])
+            env.assertEqual(res[0:2], [1L, 'doc%d' % i])
+            env.assertEqual(set(res[2]), set(['title', 'he is a boy%d' % i, 'body', 'this is a test']))
