@@ -1233,10 +1233,12 @@ static void IndexSpec_DoneIndexingCallabck(struct RSAddDocumentCtx *docCtx, Redi
 
 static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, RedisModuleKey *key,
                              IndexesScanner *scanner) {
-  if (!key) {
-    // todo: on ROF the key might not be in the ram and we will not get it here, we will need to
-    // hanlde it.
-    return;  // TODO: remove this as keys are loaded by name
+  if (key) {
+    if (RedisModule_KeyType(key) == REDISMODULE_KEYTYPE_EMPTY) {
+      // this is only possible on crdb database, enpty keys are toombstone
+      // and we should just ignore them
+      return;
+    }
   }
 
   IndexSpec *sp = scanner->spec_opt;
