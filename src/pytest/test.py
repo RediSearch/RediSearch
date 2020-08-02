@@ -1411,7 +1411,7 @@ def testSuggestPayload(env):
 
 def testPayload(env):
     r = env
-    env.expect('ft.create', 'idx', 'ON', 'HASH', 'PAYLOAD', '__payload', 'schema', 'f', 'text').ok()
+    env.expect('ft.create', 'idx', 'ON', 'HASH', 'PAYLOAD_FIELD', '__payload', 'schema', 'f', 'text').ok()
     for i in range(10):
         r.expect('ft.add', 'idx', '%d' % i, 1.0,
                  'payload', 'payload %d' % i,
