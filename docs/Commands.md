@@ -12,7 +12,7 @@
        [LANGUAGE_FIELD {lang_field}]
        [SCORE {default_score}]
        [SCORE_FIELD {score_field}]
-       [PAYLOAD {payload_field}]
+       [PAYLOAD_FIELD {payload_field}]
     [MAXTEXTFIELDS] [TEMPORARY {seconds}] [NOOFFSETS] [NOHL] [NOFIELDS] [NOFREQS]
     [STOPWORDS {num} {stopword} ...]
     SCHEMA {field} [TEXT [NOSTEM] [WEIGHT {weight}] [PHONETIC {matcher}] | NUMERIC | GEO | TAG [SEPARATOR {sep}] ] [SORTABLE][NOINDEX] ...
@@ -83,7 +83,7 @@ FT.CREATE idx SCHEMA name TEXT SORTABLE age NUMERIC SORTABLE myTag TAG SORTABLE
 * **SCORE_FIELD {score_field}**: If set indicates the document field that should be used as the document's rank based on the user's ranking. 
   Ranking must be between 0.0 and 1.0. If not set the default score is 1.
 
-* **PAYLOAD {payload_field}**: If set indicates the document field that should be used as a binary safe payload string to the document, 
+* **PAYLOAD_FIELD {payload_field}**: If set indicates the document field that should be used as a binary safe payload string to the document, 
   that can be evaluated at query time by a custom scoring function, or retrieved to the client.
 
 * **MAXTEXTFIELDS**: For efficiency, RediSearch encodes indexes differently if they are

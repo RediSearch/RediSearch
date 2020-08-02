@@ -19,7 +19,7 @@ def testSyntax1(env):
             'SCHEMA', 'foo', 'text').equal('Unknown argument `foo`')
             
     env.expect('ft.create', 'idx2',
-            'PAYLOAD', 'awfw' 
+            'PAYLOAD_FIELD', 'awfw' 
             'SCHEMA', 'foo', 'text').equal('Unknown argument `foo`')
             
     env.expect('ft.create', 'idx2',
@@ -158,7 +158,7 @@ def testPayload(env):
     conn = getConnectionByEnv(env)
     env.expect('ft.create', 'things', 'ON', 'HASH',
                 'PREFIX', '1', 'thing:',
-                'PAYLOAD', 'payload',
+                'PAYLOAD_FIELD', 'payload',
                 'SCHEMA', 'name', 'text').ok()
     conn.execute_command('hset', 'thing:foo', 'name', 'foo', 'payload', 'stuff')
 
@@ -289,7 +289,7 @@ def testInfo(env):
                'language_field', 'lang',
                'score', '0.5',
                'score_field', 'score',
-               'payload', 'pl',
+               'payload_field', 'pl',
                'SCHEMA', 't', 'TEXT').ok()
     res_actual = env.cmd('FT.INFO test')
     res_expected = ['key_type', 'HASH', 
