@@ -301,7 +301,7 @@ FT.ALTER {index} SCHEMA ADD {field} {options} ...
 Adds a new field to the index.
 
 Adding a field to the index will cause any future document updates to use the new field when
-indexing. Existing documents will not be reindexed.
+indexing and reindexing of existing documents.
 
 !!! note
     Depending on how the index was created, you may be limited by the amount of additional text
