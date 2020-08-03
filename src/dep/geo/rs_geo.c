@@ -42,20 +42,20 @@ static void scoresOfGeoHashBox(GeoHashBits hash, GeoHashFix52Bits *min, GeoHashF
 }
 
 /* Search all eight neighbors + self geohash box */
-static void calcAllNeighbors(GeoHashRadius n, double lon, double lat,
+static void calcAllNeighbors(GeoHashRadius *n, double lon, double lat,
                                 double radius, GeoHashRange *ranges) {
   GeoHashBits neighbors[GEO_RANGE_COUNT];
   unsigned int i, last_processed = 0;
 
-  neighbors[0] = n.hash;
-  neighbors[1] = n.neighbors.north;
-  neighbors[2] = n.neighbors.south;
-  neighbors[3] = n.neighbors.east;
-  neighbors[4] = n.neighbors.west;
-  neighbors[5] = n.neighbors.north_east;
-  neighbors[6] = n.neighbors.north_west;
-  neighbors[7] = n.neighbors.south_east;
-  neighbors[8] = n.neighbors.south_west;
+  neighbors[0] = n->hash;
+  neighbors[1] = n->neighbors.north;
+  neighbors[2] = n->neighbors.south;
+  neighbors[3] = n->neighbors.east;
+  neighbors[4] = n->neighbors.west;
+  neighbors[5] = n->neighbors.north_east;
+  neighbors[6] = n->neighbors.north_west;
+  neighbors[7] = n->neighbors.south_east;
+  neighbors[8] = n->neighbors.south_west;
 
   /* For each neighbor (*and* our own hashbox), get all the matching
     * members and add them to the potential result list. */
@@ -90,7 +90,7 @@ void calcRanges(double longitude, double latitude, double radius_meters,
   GeoHashRadius georadius =
     geohashGetAreasByRadiusWGS84(longitude, latitude, radius_meters);
   
-  calcAllNeighbors(georadius, longitude, latitude, radius_meters, ranges);
+  calcAllNeighbors(&georadius, longitude, latitude, radius_meters, ranges);
 }
 
 bool isWithinRadiusLonLat(double lon1, double lat1,

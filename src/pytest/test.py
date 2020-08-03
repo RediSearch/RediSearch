@@ -419,7 +419,7 @@ def testDelete(env):
     keys = r.keys('*')
     env.assertGreaterEqual(len(keys), 100)
 
-    r.expect('ft.delete', 'idx', 'dd').ok()
+    r.expect('FT.DROPINDEX', 'idx', 'dd').ok()
     keys = r.keys('*')
 
     env.assertEqual(0, len(keys))
@@ -437,11 +437,11 @@ def testDelete(env):
     env.assertGreaterEqual(len(keys), 100)
 
     if not env.is_cluster():
-        r.expect('ft.delete', 'idx').ok()
+        r.expect('FT.DROPINDEX', 'idx').ok()
         keys = r.keys('*')
         env.assertListEqual(sorted("doc%d" %k for k in range(100)), sorted(keys))
 
-    env.expect('FT.Delete', 'idx', 'dd', '666').error().contains("wrong number of arguments")
+    env.expect('FT.DROPINDEX', 'idx', 'dd', '666').error().contains("wrong number of arguments")
 
 def testCustomStopwords(env):
     r = env
@@ -579,8 +579,8 @@ def testNoIndex(env):
     if not env.isCluster():
         # to specific check on cluster, todo : change it to be generic enough
         res = env.cmd('ft.info', 'idx')
-        env.assertEqual(res[5][1][4], 'NOINDEX')
-        env.assertEqual(res[5][2][6], 'NOINDEX')
+        env.assertEqual(res[7][1][4], 'NOINDEX')
+        env.assertEqual(res[7][2][6], 'NOINDEX')
 
     env.assertOk(r.execute_command('ft.add', 'idx', 'doc1', '0.1', 'fields',
                                     'foo', 'hello world', 'num', 1, 'extra', 'hello lorem ipsum'))
@@ -1411,7 +1411,7 @@ def testSuggestPayload(env):
 
 def testPayload(env):
     r = env
-    env.expect('ft.create', 'idx', 'ON', 'HASH', 'PAYLOAD', '__payload', 'schema', 'f', 'text').ok()
+    env.expect('ft.create', 'idx', 'ON', 'HASH', 'PAYLOAD_FIELD', '__payload', 'schema', 'f', 'text').ok()
     for i in range(10):
         r.expect('ft.add', 'idx', '%d' % i, 1.0,
                  'payload', 'payload %d' % i,
@@ -1647,7 +1647,7 @@ def testNoStem(env):
     if not env.isCluster():
         # todo: change it to be more generic to pass on is_cluster
         res = env.cmd('ft.info', 'idx')
-        env.assertEqual(res[5][1][5], 'NOSTEM')
+        env.assertEqual(res[7][1][5], 'NOSTEM')
     for _ in env.retry_with_reload():
         waitForIndex(env, 'idx')
         try:

@@ -6,7 +6,7 @@
 #define INITIAL_CAPACITY 2
 #define SYNONYM_PREFIX "~"
 
-static const uint64_t calculate_hash(const char* str, size_t len) {
+static uint64_t calculate_hash(const char* str, size_t len) {
   return fnv_64a_buf((void*)str, len, 0);
 }
 
