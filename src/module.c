@@ -20,7 +20,6 @@
 #include "aggregate/aggregate.h"
 #include "rmalloc.h"
 #include "cursor.h"
-#include "version.h"
 #include "debug_commads.h"
 #include "spell_check.h"
 #include "dictionary.h"

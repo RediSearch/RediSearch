@@ -276,7 +276,7 @@ parse_error:
     return RedisModule_ReplyWithError(ctx, "Invalid query");
   }
   // if we also need to return scores, we need double the records
-  unsigned mul = 1;
+  size_t mul = 1;
   mul = options.withScores ? mul + 1 : mul;
   mul = options.withPayloads ? mul + 1 : mul;
   RedisModule_ReplyWithArray(ctx, Vector_Size(res) * mul);

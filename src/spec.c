@@ -1482,10 +1482,10 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
 
   size_t narr = RedisModule_LoadUnsigned(rdb);
   for (size_t ii = 0; ii < narr; ++ii) {
-    QueryError status;
+    QueryError _status;
     size_t dummy;
     char *s = RedisModule_LoadStringBuffer(rdb, &dummy);
-    int rc = IndexAlias_Add(s, sp, 0, &status);
+    int rc = IndexAlias_Add(s, sp, 0, &_status);
     RedisModule_Free(s);
     RS_LOG_ASSERT(rc == REDISMODULE_OK, "adding alias to index failed");
   }
