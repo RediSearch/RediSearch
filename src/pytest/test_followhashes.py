@@ -313,3 +313,27 @@ def testInfo(env):
                     'score_field', '__score',
                     'payload_field', '__payload']
     env.assertEqual(res_actual[5], res_expected)
+
+def testPartial(env):
+    env.expect('FT.CREATE idx SCHEMA test TEXT').equal('OK')
+    env.expect('HSET doc1 test foo').equal(1)
+    env.expect('FT.DEBUG docidtoid idx doc1').equal(1)
+    env.expect('HSET doc1 testtest foo').equal(1)
+    env.expect('FT.DEBUG docidtoid idx doc1').equal(1)
+    env.expect('HSET doc1 test bar').equal(0)
+    env.expect('FT.DEBUG docidtoid idx doc1').equal(2)
+
+    env.expect('HMSET doc2 test foo').ok()
+    env.expect('FT.DEBUG docidtoid idx doc2').equal(3)
+    env.expect('HMSET doc2 testtest foo').ok()
+    env.expect('FT.DEBUG docidtoid idx doc2').equal(3)
+    env.expect('HMSET doc2 test bar').ok()
+    env.expect('FT.DEBUG docidtoid idx doc2').equal(4)
+
+def testHDel(env):
+    env.expect('FT.CREATE idx SCHEMA test1 TEXT test2 TEXT').equal('OK')
+    env.expect('HSET doc1 test1 foo test2 bar').equal(2)
+    env.expect('FT.DEBUG docidtoid idx doc1').equal(1)
+    env.expect('HDEL doc1 test1 foo').equal(1)
+    env.expect('FT.DEBUG docidtoid idx doc1').equal(2)
+

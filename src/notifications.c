@@ -2,6 +2,19 @@
 #include "notifications.h"
 #include "spec.h"
 
+extern RedisModuleCtx *RSDummyContext;
+char **hashFields = NULL;
+
+static void freeHashFields() {
+  if (hashFields != NULL) {
+    for (size_t i = 0; hashFields[i] != NULL; ++i) {
+      rm_free(hashFields[i]);
+    }
+    rm_free(hashFields);
+    hashFields = NULL;
+  }
+}
+
 int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) {
 
 #define CHECK_CACHED_EVENT(E) \
@@ -31,16 +44,70 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event, R
 
   const char *key_cp = RedisModule_StringPtrLen(key, NULL);
   if (hset || hmset || hdel) {
-    Indexes_UpdateMatchingWithSchemaRules(ctx, key);
+    Indexes_UpdateMatchingWithSchemaRules(ctx, key, hashFields);
   }
   if (del) {
-    Indexes_DeleteMatchingWithSchemaRules(ctx, key);
+    Indexes_DeleteMatchingWithSchemaRules(ctx, key, hashFields);
   }
 
+  freeHashFields();
+
   return REDISMODULE_OK;
+}
+
+/*****************************************************************************/
+
+void CommandFilterCallback(RedisModuleCommandFilterCtx *filter) {
+  int numArgs = RedisModule_CommandFilterArgsCount(filter);
+  if (numArgs < 3) return;
+
+  bool hset = false;
+
+  size_t len;
+  const RedisModuleString *cmd = RedisModule_CommandFilterArgGet(filter, 0);
+  const char *cmdStr = RedisModule_StringPtrLen(cmd, &len);
+
+  if (!strcasecmp("HSET", cmdStr) || !strcasecmp("HMSET", cmdStr)) {
+    if (numArgs % 2 != 0) return;
+    hset = true;
+  } else if (!strcasecmp("HDEL", cmdStr)) {
+    // Nothing to do
+  } else {
+    return;
+  }
+  freeHashFields();
+
+  const RedisModuleString *keyStr = RedisModule_CommandFilterArgGet(filter, 1);
+  RedisModuleString *copyKeyStr = RedisModule_CreateStringFromString(RSDummyContext, keyStr);
+
+  RedisModuleKey *k = RedisModule_OpenKey(RSDummyContext, copyKeyStr, REDISMODULE_READ);
+  if (!k || RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_HASH) {
+    // key does not exist or is not a hash, nothing to do
+    goto done;
+  }
+
+
+  // HSET receives field&value, HDEL receives field
+  int cmdFactor = hset ? 2 : 1;
+  int fieldsNum = (numArgs - 2) / cmdFactor;
+  hashFields = (char **)rm_calloc(fieldsNum + 1, sizeof(*hashFields));
+
+  for (size_t i = 0; i < fieldsNum; ++i) {
+    const RedisModuleString *field = RedisModule_CommandFilterArgGet(filter, 2 + i * cmdFactor);
+    const char *fieldStr = RedisModule_StringPtrLen(field, &len);
+    hashFields[i] = rm_strdup(fieldStr);
+  }
+
+done:
+  RedisModule_FreeString(RSDummyContext, copyKeyStr);
+  RedisModule_CloseKey(k);
 }
 
 void Initialize_KeyspaceNotifications(RedisModuleCtx *ctx) {
   RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_HASH,
                                         HashNotificationCallback);
+}
+
+void Initialize_CommandFilter(RedisModuleCtx *ctx) {
+  RedisModule_RegisterCommandFilter(ctx, CommandFilterCallback, 0);
 }

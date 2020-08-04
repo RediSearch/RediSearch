@@ -1240,7 +1240,7 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname,
   if (sp) {
     IndexSpec_UpdateMatchingWithSchemaRules(sp, ctx, keyname);
   } else {
-    Indexes_UpdateMatchingWithSchemaRules(ctx, keyname);
+    Indexes_UpdateMatchingWithSchemaRules(ctx, keyname, NULL);
   }
   ++scanner->scannedKeys;
 }
@@ -1740,14 +1740,36 @@ dict *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisModuleString *ke
   return specs;
 }
 
-void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key) {
+static bool hashFieldChanged(IndexSpec *spec, char **hashFields) {
+  if(hashFields == NULL) {
+    return true;
+  }
+
+  for (size_t i = 0; hashFields[i] != NULL; ++i) {
+    for (size_t j = 0; j < spec->numFields; ++j) {
+      if (!strcmp(hashFields[i], spec->fields[j].name)) {
+        return true;
+      }
+    }
+    if (!strcmp(hashFields[i], spec->rule->lang_field) ||
+        !strcmp(hashFields[i], spec->rule->score_field) ||
+        !strcmp(hashFields[i], spec->rule->payload_field)) {
+          return true;
+    }    
+  }
+  return false;
+}
+
+void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key, char **hashFields) {
   dict *specs = Indexes_FindMatchingSchemaRules(ctx, key);
 
   dictIterator *di = dictGetIterator(specs);
   dictEntry *ent = dictNext(di);
   while (ent) {
     IndexSpec *spec = (IndexSpec *)ent->v.val;
-    IndexSpec_UpdateWithHash(spec, ctx, key);
+    if (hashFieldChanged(spec, hashFields)) {
+      IndexSpec_UpdateWithHash(spec, ctx, key);
+    }
     ent = dictNext(di);
   }
   dictReleaseIterator(di);
@@ -1775,14 +1797,16 @@ end:
   dictRelease(specs);
 }
 
-void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key) {
+void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key, char **hashFields) {
   dict *specs = Indexes_FindMatchingSchemaRules(ctx, key);
 
   dictIterator *di = dictGetIterator(specs);
   dictEntry *ent = dictNext(di);
   while (ent) {
     IndexSpec *spec = (IndexSpec *)ent->v.val;
-    IndexSpec_DeleteHash(spec, ctx, key);
+    if (hashFieldChanged(spec, hashFields)) {
+      IndexSpec_DeleteHash(spec, ctx, key);
+    }
     ent = dictNext(di);
   }
   dictReleaseIterator(di);
