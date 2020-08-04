@@ -1,8 +1,12 @@
 INCLUDE (CTest)
 
+IF (NOT RS_TEST_MODULE_SO)
+    SET(RS_TEST_MODULE_SO $<TARGET_FILE:redisearch>)
+ENDIF()
+
 FUNCTION(RSTEST name)
     ADD_EXECUTABLE("${name}" "${name}.c")
-    TARGET_LINK_LIBRARIES("${name}" redisearch apistubs)
+    TARGET_LINK_LIBRARIES("${name}" ${RS_TEST_MODULE_SO} m apistubs)
     ADD_TEST(NAME "${name}" COMMAND "${name}" WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
 ENDFUNCTION()
 
