@@ -173,6 +173,14 @@ RS_Suggestion **spellCheck_GetSuggestions(RS_Suggestions *s) {
   return ret;
 }
 
+static double spellCheck_GetMaxScore(RS_Suggestion **suggestions) {
+  double ret = 0;
+  for (size_t i = 0; i < array_len(suggestions); ++i) {
+    ret = MAX(ret, suggestions[i]->score);
+  }
+  return ret;
+}
+
 void SpellCheck_SendReplyOnTerm(RedisModuleCtx *ctx, char *term, size_t len, RS_Suggestions *s,
                                 uint64_t totalDocNumber) {
 #define TERM "TERM"
@@ -181,13 +189,14 @@ void SpellCheck_SendReplyOnTerm(RedisModuleCtx *ctx, char *term, size_t len, RS_
   RedisModule_ReplyWithStringBuffer(ctx, term, len);
 
   RS_Suggestion **suggestions = spellCheck_GetSuggestions(s);
+  double maxScore = spellCheck_GetMaxScore(suggestions);
 
   for (int i = 0; i < array_len(suggestions); ++i) {
     if (suggestions[i]->score == -1) {
       suggestions[i]->score = 0;
     } else {
       if (totalDocNumber > 0) {
-        suggestions[i]->score = (suggestions[i]->score) / totalDocNumber;
+        suggestions[i]->score = (suggestions[i]->score) / maxScore; //max score
       }
     }
   }

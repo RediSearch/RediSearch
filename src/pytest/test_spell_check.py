@@ -63,9 +63,9 @@ def testBasicSpellCheck():
     env.cmd('ft.add', 'idx', 'doc2', 1.0, 'FIELDS', 'name', 'name2', 'body', 'body2')
     env.cmd('ft.add', 'idx', 'doc3', 1.0, 'FIELDS', 'name', 'name2', 'body', 'name2')
     env.expect('ft.spellcheck', 'idx', 'name').equal([['TERM', 'name',
-                                                     [['0.66666666666666663', 'name2'], ['0.33333333333333331', 'name1']]]])
+                                                     [['1', 'name2'], ['0.5', 'name1']]]])
     if not env.isCluster():
-        env.expect('ft.spellcheck', 'idx', '@body:name').equal([['TERM', 'name', [['0.66666666666666663', 'name2']]]])
+        env.expect('ft.spellcheck', 'idx', '@body:name').equal([['TERM', 'name', [['1', 'name2']]]])
 
 
 def testBasicSpellCheckWithNoResult():
@@ -97,13 +97,13 @@ def testSpellCheckWithIncludeDict():
     env.cmd('ft.add', 'idx', 'doc2', 1.0, 'FIELDS', 'name', 'name2', 'body', 'body2')
     env.cmd('ft.add', 'idx', 'doc3', 1.0, 'FIELDS', 'name', 'name2', 'body', 'name2')
     env.expect('ft.spellcheck', 'idx', 'name', 'TERMS', 'INCLUDE', 'dict').equal([['TERM', 'name',
-                                                                                   [['0.66666666666666663', 'name2'],
-                                                                                    ['0.33333333333333331', 'name1'],
+                                                                                   [['1', 'name2'],
+                                                                                    ['0.5', 'name1'],
                                                                                     ['0', 'name3'], ['0', 'name4'],
                                                                                     ['0', 'name5']]]])
     env.expect('ft.spellcheck', 'idx', 'name', 'TERMS', 'include', 'dict').equal([['TERM', 'name',
-                                                                                   [['0.66666666666666663', 'name2'],
-                                                                                    ['0.33333333333333331', 'name1'],
+                                                                                   [['1', 'name2'],
+                                                                                    ['0.5', 'name1'],
                                                                                     ['0', 'name3'], ['0', 'name4'],
                                                                                     ['0', 'name5']]]])
 
@@ -117,8 +117,8 @@ def testSpellCheckWithDuplications():
     env.cmd('ft.add', 'idx', 'doc2', 1.0, 'FIELDS', 'name', 'name2', 'body', 'body2')
     env.cmd('ft.add', 'idx', 'doc3', 1.0, 'FIELDS', 'name', 'name2', 'body', 'name2')
     env.expect('ft.spellcheck', 'idx', 'name', 'TERMS', 'INCLUDE', 'dict').equal([['TERM', 'name',
-                                                                                   [['0.66666666666666663', 'name2'],
-                                                                                    ['0.33333333333333331', 'name1'],
+                                                                                   [['1', 'name2'],
+                                                                                    ['0.5', 'name1'],
                                                                                     ['0', 'name4'], ['0', 'name5']]]])
 
 
@@ -186,7 +186,7 @@ def testSpellCheckResultsOrder():
     waitForIndex(env, 'idx')
     env.cmd('ft.add', 'idx', 'doc1', 1.0, 'FIELDS', 'name', 'Elior', 'body', 'body1')
     env.cmd('ft.add', 'idx', 'doc2', 1.0, 'FIELDS', 'name', 'Hila', 'body', 'body2')
-    env.expect('ft.spellcheck', 'idx', 'Elioh Hilh').equal([['TERM', 'elioh', [['0.5', 'elior']]], ['TERM', 'hilh', [['0.5', 'hila']]]])
+    env.expect('ft.spellcheck', 'idx', 'Elioh Hilh').equal([['TERM', 'elioh', [['1', 'elior']]], ['TERM', 'hilh', [['1', 'hila']]]])
 
 def testSpellCheckDictReleadRDB():
     env = Env()
