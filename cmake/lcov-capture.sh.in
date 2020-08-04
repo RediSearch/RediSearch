@@ -11,8 +11,8 @@ ${LCOV} -r ${INFO_FILE} -o ${INFO_FILE} \
     '/Applications/*' \
     '/usr/*' \
     '@PROJECT_SOURCE_DIR@/src/dep/*' \
-    '@PROJECT_SOURCE_DIR@/src/cpptests/*' \
-    '@PROJECT_SOURCE_DIR@/src/tests/*' \
+    '@PROJECT_SOURCE_DIR@/tests/cpptests/*' \
+    '@PROJECT_SOURCE_DIR@/tests/tests/*' \
     '*/sds.c' '*/sds.h'
 
 echo "Wrote coverage report to ${INFO_FILE}"

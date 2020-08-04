@@ -9,5 +9,4 @@ cd $ROOT
 git submodule update --init --recursive
 PIP=1 FORCE=1 ./deps/readies/bin/getpy2
 ./system-setup.py
-./srcutil/get_gtest.sh
-python ./src/pytest/test_rdb_compatibility.py
+python ./tests/pytest/test_rdb_compatibility.py

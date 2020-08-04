@@ -13,7 +13,7 @@ Extensions should be compiled into .so files, and loaded into RediSearch on init
 
 * Compiling 
 
-    Extensions should be compiled and linked as dynamic libraries. An example Makefile for an extension [can be found here](https://github.com/RediSearch/RediSearch/blob/master/src/tests/ext-example/Makefile). 
+    Extensions should be compiled and linked as dynamic libraries. An example Makefile for an extension [can be found here](https://github.com/RediSearch/RediSearch/blob/master/tests/tests/ext-example/Makefile). 
 
     That folder also contains an example extension that is used for testing and can be taken as a skeleton for implementing your own extension.
 

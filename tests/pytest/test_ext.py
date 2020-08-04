@@ -7,7 +7,7 @@ from RLTest import Env
 if 'EXT_TEST_PATH' in os.environ:
     EXTPATH = os.environ['EXT_TEST_PATH']
 else:
-    EXTPATH = 'src/tests/libexample_extension'
+    EXTPATH = 'tests/tests/libexample_extension'
     if sys.platform.lower() == 'darwin':
         EXTPATH += '.dylib'
     else:

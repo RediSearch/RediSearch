@@ -1,7 +1,7 @@
-#include "../stemmer.h"
-#include "../tokenize.h"
+#include "../../src/stemmer.h"
+#include "../../src/tokenize.h"
 #include "test_util.h"
-#include "../rmutil/alloc.h"
+#include "../../src/rmutil/alloc.h"
 #include <string.h>
 
 int testStemmer() {
