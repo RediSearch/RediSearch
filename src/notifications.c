@@ -21,17 +21,28 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
   bool hset = false, hmset = false, del = false, hdel = false, trimmed = false, restore = false,
        expired = false, change = false;
 
-  // todo:
-  // we need to also handle changed event comes from crdt, changed means
-  // the hash changed, we need to try read it to know if it was deleted or not.
+  // clang-format off
 
-  CHECK_CACHED_EVENT(hset)
-  else CHECK_CACHED_EVENT(hmset) else CHECK_CACHED_EVENT(del) else CHECK_CACHED_EVENT(hdel) else CHECK_CACHED_EVENT(
-      trimmed) else CHECK_CACHED_EVENT(restore) else CHECK_CACHED_EVENT(expired) else CHECK_CACHED_EVENT(change) else {
-    CHECK_AND_CACHE_EVENT(hset)
-    else CHECK_AND_CACHE_EVENT(hmset) else CHECK_AND_CACHE_EVENT(del) else CHECK_AND_CACHE_EVENT(hdel) else CHECK_AND_CACHE_EVENT(
-        trimmed) else CHECK_AND_CACHE_EVENT(restore) else CHECK_AND_CACHE_EVENT(expired) else CHECK_AND_CACHE_EVENT(change)
+       CHECK_CACHED_EVENT(hset)
+  else CHECK_CACHED_EVENT(hmset)
+  else CHECK_CACHED_EVENT(del)
+  else CHECK_CACHED_EVENT(hdel)
+  else CHECK_CACHED_EVENT(trimmed)
+  else CHECK_CACHED_EVENT(restore)
+  else CHECK_CACHED_EVENT(expired)
+  else CHECK_CACHED_EVENT(change)
+  else {
+         CHECK_AND_CACHE_EVENT(hset)
+    else CHECK_AND_CACHE_EVENT(hmset)
+    else CHECK_AND_CACHE_EVENT(del)
+    else CHECK_AND_CACHE_EVENT(hdel)
+    else CHECK_AND_CACHE_EVENT(trimmed)
+    else CHECK_AND_CACHE_EVENT(restore)
+    else CHECK_AND_CACHE_EVENT(expired)
+    else CHECK_AND_CACHE_EVENT(change)
   }
+
+  // clang-format on
 
   if (hset || hmset || hdel || restore) {
     Indexes_UpdateMatchingWithSchemaRules(ctx, key);
