@@ -110,6 +110,8 @@ int DictDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   } else {
     RedisModule_ReplyWithLongLong(ctx, retVal);
   }
+
+  RedisModule_ReplicateVerbatim(ctx);
   return REDISMODULE_OK;
 }
 
@@ -129,6 +131,8 @@ int DictAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   } else {
     RedisModule_ReplyWithLongLong(ctx, retVal);
   }
+
+  RedisModule_ReplicateVerbatim(ctx);
 
   return REDISMODULE_OK;
 }

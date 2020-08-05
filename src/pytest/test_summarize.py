@@ -1,6 +1,6 @@
 import os.path
 from includes import *
-from common import waitForIndex
+from common import waitForIndex,toSortedFlatList
 
 
 GENTEXT = os.path.dirname(os.path.abspath(__file__)) + '/../tests/genesis.txt'
@@ -176,7 +176,7 @@ def testIssue364(env):
 
     ret = env.cmd('FT.SEARCH', 'idx', 'retail', 'RETURN', 1, 'description', 'SUMMARIZE')
     expected = [2L, 'doc2', ['description', 'To change the use from a Restaurant to a Personal Service Shop (Great Clips) at the'], 'doc1', ['description', 'To change the use from a Restaurant to a Personal Service Shop (Great Clips)']]
-    env.assertEqual(expected, ret)
+    env.assertEqual(toSortedFlatList(expected), toSortedFlatList(ret))
 
 def grouper(iterable, n, fillvalue=None):
     "Collect data into fixed-length chunks or blocks"
@@ -191,35 +191,35 @@ def testFailedHighlight(env):
             'SCHEMA', 'f1', 'TEXT', 'f2', 'TEXT', 'f3', 'TEXT', 'NOINDEX')
     waitForIndex(env, 'idx')
     env.cmd('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'f1', 'foo foo foo', 'f2', 'bar bar bar', 'f3', 'baz baz baz')
-    env.assertEqual([1L, 'doc1', ['f1', 'foo foo foo', 'f2', 'bar bar bar', 'f3', 'baz baz baz']],
-        env.cmd('ft.search idx foo'))
-    env.assertEqual([1L, 'doc1', ['f1', '<b>foo</b> <b>foo</b> <b>foo</b>', 'f2', 'bar bar bar', 'f3', 'baz baz baz']],
-        env.cmd('ft.search', 'idx', 'foo', 'highlight', 'fields', '1', 'f1'))
-    env.assertEqual([1L, 'doc1', ['f2', 'bar bar bar', 'f1', 'foo foo foo', 'f3', 'baz baz baz']],
-        env.cmd('ft.search idx foo highlight fields 1 f2'))
-    env.assertEqual([1L, 'doc1', ['f3', 'baz baz baz', 'f1', 'foo foo foo', 'f2', 'bar bar bar']],
-        env.cmd('ft.search idx foo highlight fields 1 f3'))
+    env.assertEqual(toSortedFlatList([1L, 'doc1', ['f1', 'foo foo foo', 'f2', 'bar bar bar', 'f3', 'baz baz baz']]),
+        toSortedFlatList(env.cmd('ft.search idx foo')))
+    env.assertEqual(toSortedFlatList([1L, 'doc1', ['f1', '<b>foo</b> <b>foo</b> <b>foo</b>', 'f2', 'bar bar bar', 'f3', 'baz baz baz']]),
+        toSortedFlatList(env.cmd('ft.search', 'idx', 'foo', 'highlight', 'fields', '1', 'f1')))
+    env.assertEqual(toSortedFlatList([1L, 'doc1', ['f2', 'bar bar bar', 'f1', 'foo foo foo', 'f3', 'baz baz baz']]),
+        toSortedFlatList(env.cmd('ft.search idx foo highlight fields 1 f2')))
+    env.assertEqual(toSortedFlatList([1L, 'doc1', ['f3', 'baz baz baz', 'f1', 'foo foo foo', 'f2', 'bar bar bar']]),
+        toSortedFlatList(env.cmd('ft.search idx foo highlight fields 1 f3')))
 
     #test empty string
     env.cmd('ft.create', 'idx2', 'ON', 'HASH', 'PREFIX', 1, 'doc2',
             'SCHEMA', 'f1', 'TEXT', 'f2', 'TEXT', 'f3', 'TEXT')
     waitForIndex(env, 'idx')
     env.cmd('ft.add', 'idx2', 'doc2', '1.0', 'FIELDS', 'f1', 'foo foo foo', 'f2', '', 'f3', 'baz baz baz')
-    env.assertEqual([1L, 'doc2', ['f1', '<b>foo</b> <b>foo</b> <b>foo</b>', 'f2', '', 'f3', 'baz baz baz']],
-        env.cmd('ft.search idx2 foo highlight fields 1 f1'))
-    env.assertEqual([1L, 'doc2', ['f2', '', 'f1', 'foo foo foo', 'f3', 'baz baz baz']],
-        env.cmd('ft.search idx2 foo highlight fields 1 f2'))
-    env.assertEqual([1L, 'doc2', ['f3', 'baz baz baz', 'f1', 'foo foo foo', 'f2', '']],
-        env.cmd('ft.search idx2 foo highlight fields 1 f3'))
+    env.assertEqual(toSortedFlatList([1L, 'doc2', ['f1', '<b>foo</b> <b>foo</b> <b>foo</b>', 'f2', '', 'f3', 'baz baz baz']]),
+        toSortedFlatList(env.cmd('ft.search idx2 foo highlight fields 1 f1')))
+    env.assertEqual(toSortedFlatList([1L, 'doc2', ['f2', '', 'f1', 'foo foo foo', 'f3', 'baz baz baz']]),
+        toSortedFlatList(env.cmd('ft.search idx2 foo highlight fields 1 f2')))
+    env.assertEqual(toSortedFlatList([1L, 'doc2', ['f3', 'baz baz baz', 'f1', 'foo foo foo', 'f2', '']]),
+        toSortedFlatList(env.cmd('ft.search idx2 foo highlight fields 1 f3')))
 
     #test stop word list
     env.cmd('ft.create', 'idx3', 'ON', 'HASH', 'PREFIX', 1, 'doc3',
             'SCHEMA', 'f1', 'TEXT', 'f2', 'TEXT', 'f3', 'TEXT')
     waitForIndex(env, 'idx')
     env.cmd('ft.add', 'idx3', 'doc3', '1.0', 'FIELDS', 'f1', 'foo foo foo', 'f2', 'not a', 'f3', 'baz baz baz')
-    env.assertEqual([1L, 'doc3', ['f1', '<b>foo</b> <b>foo</b> <b>foo</b>', 'f2', 'not a', 'f3', 'baz baz baz']],
-        env.cmd('ft.search idx3 foo highlight fields 1 f1'))
-    env.assertEqual([1L, 'doc3', ['f2', 'not a', 'f1', 'foo foo foo', 'f3', 'baz baz baz']],
-        env.cmd('ft.search idx3 foo highlight fields 1 f2'))
-    env.assertEqual([1L, 'doc3', ['f3', 'baz baz baz', 'f1', 'foo foo foo', 'f2', 'not a']],
-        env.cmd('ft.search idx3 foo highlight fields 1 f3'))
+    env.assertEqual(toSortedFlatList([1L, 'doc3', ['f1', '<b>foo</b> <b>foo</b> <b>foo</b>', 'f2', 'not a', 'f3', 'baz baz baz']]),
+        toSortedFlatList(env.cmd('ft.search idx3 foo highlight fields 1 f1')))
+    env.assertEqual(toSortedFlatList([1L, 'doc3', ['f2', 'not a', 'f1', 'foo foo foo', 'f3', 'baz baz baz']]),
+        toSortedFlatList(env.cmd('ft.search idx3 foo highlight fields 1 f2')))
+    env.assertEqual(toSortedFlatList([1L, 'doc3', ['f3', 'baz baz baz', 'f1', 'foo foo foo', 'f2', 'not a']]),
+        toSortedFlatList(env.cmd('ft.search idx3 foo highlight fields 1 f3')))

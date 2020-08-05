@@ -60,7 +60,7 @@ typedef struct {
   char buf[];
 } array_hdr_t;
 
-#define arrayof(T) T*
+#define arrayof(T) T *
 
 typedef void *array_t;
 /* Internal - calculate the array size for allocations */
@@ -68,7 +68,7 @@ typedef void *array_t;
 /* Internal - get a pointer to the array header */
 #define array_hdr(arr) ((array_hdr_t *)(((char *)(arr)) - sizeof(array_hdr_t)))
 /* Interanl - get a pointer to an element inside the array at a given index */
-#define array_elem(arr, idx) (*((void **)((char *)(arr) + ((idx) * array_hdr(arr)->elem_sz))))
+#define array_elem(arr, idx) (*((void **)((char *)(arr) + ((idx)*array_hdr(arr)->elem_sz))))
 
 static inline uint32_t array_len(array_t arr);
 
@@ -245,16 +245,15 @@ static void array_free(array_t arr) {
   }
 }
 
-#define array_clear(arr) \
-  ({                                                                    \
-    if (!arr) {                                                         \
-      arr = array_new(__typeof__(*arr), 1);                             \
-    } else {                                                            \
-      array_hdr(arr)->len = 0;                                          \
-    }                                                                   \
-    arr;                                                                \
+#define array_clear(arr)                    \
+  ({                                        \
+    if (!arr) {                             \
+      arr = array_new(__typeof__(*arr), 1); \
+    } else {                                \
+      array_hdr(arr)->len = 0;              \
+    }                                       \
+    arr;                                    \
   })
-
 
 /* Repeate the code in "blk" for each element in the array, and give it the name of "as".
  * e.g:

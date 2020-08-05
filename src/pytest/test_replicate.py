@@ -42,6 +42,11 @@ def testDelReplicate():
 
   env.skipOnCluster()
 
+  ## on existing env we can not get a slave connection
+  ## so we can no test it
+  if env.env == 'existing-env':
+        env.skip()
+
   master = env.getConnection()
   slave = env.getSlaveConnection()
   env.assertTrue(master.execute_command("ping"))

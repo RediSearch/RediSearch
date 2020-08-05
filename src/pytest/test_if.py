@@ -4,7 +4,8 @@ from RLTest import Env
 def testIfQueries(env):
     env.cmd('FT.CREATE idx ON HASH SCHEMA txt TEXT num NUMERIC empty TEXT')
     env.cmd('FT.ADD idx doc1 1.0 FIELDS txt word num 10')
-    env.expect('FT.GET idx doc1').equal(['txt', 'word', 'num', '10'])
+    res = env.cmd('FT.GET idx doc1')
+    env.assertEqual(set(res), set(['txt', 'word', 'num', '10']))
 
     # test single field
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if @txt FIELDS txt word').equal('OK')
@@ -85,7 +86,8 @@ def testIfQueries(env):
 def testExists(env):
     env.cmd('FT.CREATE idx ON HASH SCHEMA txt TEXT num NUMERIC empty TEXT')
     env.cmd('FT.ADD idx doc1 1.0 FIELDS txt word num 10')
-    env.expect('FT.GET idx doc1').equal(['txt', 'word', 'num', '10'])
+    res = env.cmd('FT.GET idx doc1')
+    env.assertEqual(set(res), set(['txt', 'word', 'num', '10']))
 
     # test single field
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if exists(@txt) FIELDS txt word').equal('OK')
