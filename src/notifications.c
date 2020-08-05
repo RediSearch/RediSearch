@@ -106,7 +106,6 @@ void CommandFilterCallback(RedisModuleCommandFilterCtx *filter) {
     goto done;
   }
 
-
   // HSET receives field&value, HDEL receives field
   int cmdFactor = hset ? 2 : 1;
   int fieldsNum = (numArgs - 2) / cmdFactor;
