@@ -1745,6 +1745,7 @@ static bool hashFieldChanged(IndexSpec *spec, RedisModuleString **hashFields) {
     return true;
   }
 
+  // TODO: improve implementation to avoid O(n^2)
   for (size_t i = 0; hashFields[i] != NULL; ++i) {
     const char *field = RedisModule_StringPtrLen(hashFields[i], NULL);
     for (size_t j = 0; j < spec->numFields; ++j) {
