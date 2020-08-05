@@ -17,7 +17,7 @@ void QueryError_FmtUnknownArg(QueryError *err, ArgsCursor *ac, const char *name)
     n = strlen(s);
   }
 
-  QueryError_SetErrorFmt(err, QUERY_EPARSEARGS, "Unknown argument `%.*s` at position %u for %s",
+  QueryError_SetErrorFmt(err, QUERY_EPARSEARGS, "Unknown argument `%.*s` at position %lu for %s",
                          (int)n, s, ac->offset, name);
 }
 
