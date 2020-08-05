@@ -138,7 +138,7 @@ IF (RS_BUILD_COORDINATOR)
     target_compile_definitions(redisearch-oss PRIVATE RS_NO_ONLOAD RS_CLUSTER_OSS)
     SET_TARGET_PROPERTIES(redisearch-oss PROPERTIES OUTPUT_NAME "redisearch-oss")
 
-    # SET(RS_TEST_MODULE_LIB $<TARGET_FILE:redisearch-oss>)
+    # SET(RS_TEST_MODULE redisearch-oss)
     # SET(RS_TEST_MODULE_SO $<TARGET_FILE:redisearch-oss>)
 
     ADD_LIBRARY(redisearch-enterprise STATIC ${RS_SRC} ${FINAL_OBJECTS} src/module-init/module-init.c)
@@ -155,7 +155,7 @@ ELSEIF (RS_BUILD_STATIC)
     SET_TARGET_PROPERTIES(redisearch PROPERTIES PREFIX "")
     SET_TARGET_PROPERTIES(redisearch PROPERTIES SUFFIX ".so")
 
-	SET(RS_TEST_MODULE_LIB $<TARGET_FILE:redisearchS>)
+	SET(RS_TEST_MODULE redisearchS)
     SET(RS_TEST_MODULE_SO $<TARGET_FILE:redisearch>)
 
 ELSE ()
