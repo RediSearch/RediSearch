@@ -415,8 +415,8 @@ t_fieldMask IndexSpec_ParseFieldMask(IndexSpec *sp, RedisModuleString **argv, in
 
 void IndexSpec_InitializeSynonym(IndexSpec *sp);
 void Indexes_Init(RedisModuleCtx *ctx);
-void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key, char **hashFields);
-void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key, char **hashFields);
+void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key, RedisModuleString **hashFields);
+void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key, RedisModuleString **hashFields);
 
 #ifdef __cplusplus
 }

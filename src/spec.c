@@ -1740,27 +1740,28 @@ dict *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisModuleString *ke
   return specs;
 }
 
-static bool hashFieldChanged(IndexSpec *spec, char **hashFields) {
+static bool hashFieldChanged(IndexSpec *spec, RedisModuleString **hashFields) {
   if(hashFields == NULL) {
     return true;
   }
 
   for (size_t i = 0; hashFields[i] != NULL; ++i) {
+    const char *field = RedisModule_StringPtrLen(hashFields[i], NULL);
     for (size_t j = 0; j < spec->numFields; ++j) {
-      if (!strcmp(hashFields[i], spec->fields[j].name)) {
+      if (!strcmp(field, spec->fields[j].name)) {
         return true;
       }
     }
-    if (!strcmp(hashFields[i], spec->rule->lang_field) ||
-        !strcmp(hashFields[i], spec->rule->score_field) ||
-        !strcmp(hashFields[i], spec->rule->payload_field)) {
+    if (!strcmp(field, spec->rule->lang_field) ||
+        !strcmp(field, spec->rule->score_field) ||
+        !strcmp(field, spec->rule->payload_field)) {
           return true;
     }    
   }
   return false;
 }
 
-void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key, char **hashFields) {
+void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key, RedisModuleString **hashFields) {
   dict *specs = Indexes_FindMatchingSchemaRules(ctx, key);
 
   dictIterator *di = dictGetIterator(specs);
@@ -1797,7 +1798,7 @@ end:
   dictRelease(specs);
 }
 
-void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key, char **hashFields) {
+void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key, RedisModuleString **hashFields) {
   dict *specs = Indexes_FindMatchingSchemaRules(ctx, key);
 
   dictIterator *di = dictGetIterator(specs);

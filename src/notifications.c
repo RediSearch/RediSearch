@@ -3,12 +3,12 @@
 #include "spec.h"
 
 extern RedisModuleCtx *RSDummyContext;
-char **hashFields = NULL;
+RedisModuleString **hashFields = NULL;
 
 static void freeHashFields() {
   if (hashFields != NULL) {
     for (size_t i = 0; hashFields[i] != NULL; ++i) {
-      rm_free(hashFields[i]);
+      RedisModule_FreeString(RSDummyContext, hashFields[i]);
     }
     rm_free(hashFields);
     hashFields = NULL;
@@ -90,12 +90,12 @@ void CommandFilterCallback(RedisModuleCommandFilterCtx *filter) {
   // HSET receives field&value, HDEL receives field
   int cmdFactor = hset ? 2 : 1;
   int fieldsNum = (numArgs - 2) / cmdFactor;
-  hashFields = (char **)rm_calloc(fieldsNum + 1, sizeof(*hashFields));
+  hashFields = (RedisModuleString **)rm_calloc(fieldsNum + 1, sizeof(*hashFields));
 
   for (size_t i = 0; i < fieldsNum; ++i) {
-    const RedisModuleString *field = RedisModule_CommandFilterArgGet(filter, 2 + i * cmdFactor);
-    const char *fieldStr = RedisModule_StringPtrLen(field, &len);
-    hashFields[i] = rm_strdup(fieldStr);
+    RedisModuleString *field = (RedisModuleString *)RedisModule_CommandFilterArgGet(filter, 2 + i * cmdFactor);
+    RedisModule_RetainString(RSDummyContext, field);
+    hashFields[i] = field;
   }
 
 done:
