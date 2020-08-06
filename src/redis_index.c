@@ -433,6 +433,7 @@ int Redis_DropScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaq
   RedisModuleString *pf = fmtRedisTermKey(sctx, "", 0);
   size_t pflen, len;
   RedisModule_StringPtrLen(pf, &pflen);
+  RedisModule_FreeString(sctx->redisCtx, pf);
 
   char *k = (char *)RedisModule_StringPtrLen(kn, &len);
   k += pflen;
@@ -441,7 +442,10 @@ int Redis_DropScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaq
   RedisModuleString *sck = fmtRedisScoreIndexKey(sctx, k, len - pflen);
   RedisModuleString *sik = fmtRedisSkipIndexKey(sctx, k, len - pflen);
 
-  RedisModule_Call(ctx, "DEL", "sss", kn, sck, sik);
+  RedisModuleCallReply *rep = RedisModule_Call(ctx, "DEL", "sss", kn, sck, sik);
+  if (rep) {
+    RedisModule_FreeCallReply(rep);
+  }
 
   RedisModule_FreeString(ctx, sck);
   RedisModule_FreeString(ctx, sik);
