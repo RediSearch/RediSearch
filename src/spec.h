@@ -116,6 +116,8 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
 #define INDEX_CURRENT_VERSION 17
 #define INDEX_MIN_COMPAT_VERSION 17
 
+#define LEGACY_INDEX_MAX_VERSION 16
+#define LEGACY_INDEX_MIN_VERSION 2
 #define INDEX_MIN_WITH_SYNONYMS_INT_GROUP_ID 16
 
 // Those versions contains doc table as array, we modified it to be array of linked lists

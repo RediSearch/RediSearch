@@ -37,6 +37,7 @@ RedisModuleType *IndexSpecType;
 static uint64_t spec_unique_ids = 1;
 
 dict *specDict;
+dict *legacySpecDict;
 size_t pending_global_indexing_ops = 0;
 
 //---------------------------------------------------------------------------------------------
@@ -808,6 +809,12 @@ static void IndexSpec_FreeTask(IndexSpec *spec) {
 
 static struct thpool_ *cleanPool = NULL;
 
+void IndexSpec_LegacyFree(void *spec) {
+  // free legacy index do nothing, it will be called only
+  // when the index key will be deleted and we keep the legacy
+  // index pointer in the legacySpecDict so we will free it when needed
+}
+
 void IndexSpec_Free(IndexSpec *spec) {
   if (spec->flags & Index_Temporary) {
     if (!cleanPool) {
@@ -1400,6 +1407,67 @@ static void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, IndexSpec *sp) {
   }*/
 }
 
+void IndexSpec_DropLegacyIndexFromKeySpace(IndexSpec *sp) {
+  RedisSearchCtx ctx = SEARCH_CTX_STATIC(RSDummyContext, sp);
+
+  rune *rstr = NULL;
+  t_len slen = 0;
+  float score = 0;
+  int dist = 0;
+  size_t termLen;
+
+  TrieIterator *it = Trie_Iterate(ctx.spec->terms, "", 0, 0, 1);
+  while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, &dist)) {
+    char *res = runesToStr(rstr, slen, &termLen);
+    RedisModuleString *keyName = fmtRedisTermKey(&ctx, res, strlen(res));
+    Redis_DropScanHandler(ctx.redisCtx, keyName, &ctx);
+    RedisModule_FreeString(ctx.redisCtx, keyName);
+    rm_free(res);
+  }
+  DFAFilter_Free(it->ctx);
+  rm_free(it->ctx);
+  TrieIterator_Free(it);
+
+  // Delete the numeric, tag, and geo indexes which reside on separate keys
+  for (size_t i = 0; i < ctx.spec->numFields; i++) {
+    const FieldSpec *fs = ctx.spec->fields + i;
+    if (FIELD_IS(fs, INDEXFLD_T_NUMERIC)) {
+      Redis_DeleteKey(ctx.redisCtx, IndexSpec_GetFormattedKey(ctx.spec, fs, INDEXFLD_T_NUMERIC));
+    }
+    if (FIELD_IS(fs, INDEXFLD_T_TAG)) {
+      Redis_DeleteKey(ctx.redisCtx, IndexSpec_GetFormattedKey(ctx.spec, fs, INDEXFLD_T_TAG));
+    }
+    if (FIELD_IS(fs, INDEXFLD_T_GEO)) {
+      Redis_DeleteKey(ctx.redisCtx, IndexSpec_GetFormattedKey(ctx.spec, fs, INDEXFLD_T_GEO));
+    }
+  }
+  Redis_DeleteKey(ctx.redisCtx,
+                  RedisModule_CreateStringPrintf(ctx.redisCtx, INDEX_SPEC_KEY_FMT, ctx.spec->name));
+}
+
+void IndexSpec_AddRuleToLegacyIndex(IndexSpec *sp) {
+}
+
+void Indexes_UpgradeLegacyIndexes() {
+  dictIterator *iter = dictGetIterator(legacySpecDict);
+  dictEntry *entry = NULL;
+  while ((entry = dictNext(iter))) {
+    IndexSpec *sp = dictGetVal(entry);
+    IndexSpec_DropLegacyIndexFromKeySpace(sp);
+
+    // recreate the doctable
+    DocTable_Free(&sp->docs);
+    sp->docs = DocTable_New(1000);
+
+    // clear index stats
+    memset(&sp->stats, 0, sizeof(sp->stats));
+
+    // put the new index in the specDict
+    dictAdd(specDict, sp->name, sp);
+  }
+  dictReleaseIterator(iter);
+}
+
 void Indexes_ScanAndReindex() {
   if (!reindexPool) {
     reindexPool = thpool_init(1);
@@ -1517,6 +1585,117 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
   return sp;
 }
 
+void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
+  if (encver < LEGACY_INDEX_MIN_VERSION || encver > LEGACY_INDEX_MAX_VERSION) {
+    return NULL;
+  }
+  RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
+  IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
+  IndexSpec_MakeKeyless(sp);
+  sp->sortables = NewSortingTable();
+  sp->terms = NULL;
+  sp->docs = DocTable_New(1000);
+  sp->name = RedisModule_LoadStringBuffer(rdb, NULL);
+  char *tmpName = rm_strdup(sp->name);
+  RedisModule_Free(sp->name);
+  sp->name = tmpName;
+  sp->flags = (IndexFlags)RedisModule_LoadUnsigned(rdb);
+  sp->maxPrefixExpansions = RSGlobalConfig.maxPrefixExpansions;
+  sp->minPrefix = RSGlobalConfig.minTermPrefix;
+  if (encver < INDEX_MIN_NOFREQ_VERSION) {
+    sp->flags |= Index_StoreFreqs;
+  }
+
+  sp->numFields = RedisModule_LoadUnsigned(rdb);
+  sp->fields = rm_calloc(sp->numFields, sizeof(FieldSpec));
+  int maxSortIdx = -1;
+  for (int i = 0; i < sp->numFields; i++) {
+    FieldSpec *fs = sp->fields + i;
+    FieldSpec_RdbLoad(rdb, sp->fields + i, encver);
+    sp->fields[i].index = i;
+    if (FieldSpec_IsSortable(fs)) {
+      assert(fs->sortIdx < RS_SORTABLES_MAX);
+      sp->sortables->fields[fs->sortIdx].name = fs->name;
+      sp->sortables->fields[fs->sortIdx].type = fieldTypeToValueType(fs->types);
+      sp->sortables->len = MAX(sp->sortables->len, fs->sortIdx + 1);
+    }
+  }
+
+  IndexStats_RdbLoad(rdb, &sp->stats);
+
+  DocTable_LegacyRdbLoad(&sp->docs, rdb, encver);
+  /* For version 3 or up - load the generic trie */
+  if (encver >= 3) {
+    sp->terms = TrieType_GenericLoad(rdb, 0);
+  } else {
+    sp->terms = NewTrie();
+  }
+
+  if (sp->flags & Index_HasCustomStopwords) {
+    sp->stopwords = StopWordList_RdbLoad(rdb, encver);
+  } else {
+    sp->stopwords = DefaultStopWordList();
+  }
+
+  sp->uniqueId = spec_unique_ids++;
+
+  sp->smap = NULL;
+  if (sp->flags & Index_HasSmap) {
+    sp->smap = SynonymMap_RdbLoad(rdb, encver);
+  }
+  if (IndexSpec_OnCreate) {
+    IndexSpec_OnCreate(sp);
+  }
+  if (encver < INDEX_MIN_EXPIRE_VERSION) {
+    sp->timeout = -1;
+  } else {
+    sp->timeout = RedisModule_LoadUnsigned(rdb);
+  }
+
+  if (encver >= INDEX_MIN_ALIAS_VERSION) {
+    size_t narr = RedisModule_LoadUnsigned(rdb);
+    for (size_t ii = 0; ii < narr; ++ii) {
+      QueryError status;
+      size_t dummy;
+      char *s = RedisModule_LoadStringBuffer(rdb, &dummy);
+      int rc = IndexAlias_Add(s, sp, 0, &status);
+      RedisModule_Free(s);
+      assert(rc == REDISMODULE_OK);
+    }
+  }
+  sp->indexer = NewIndexer(sp);
+
+  // start the gc and add the spec to the cursor list
+  IndexSpec_StartGC(RSDummyContext, sp, GC_DEFAULT_HZ);
+  CursorList_AddSpec(&RSCursors, sp->name, RSCURSORS_DEFAULT_CAPACITY);
+
+  // todo: add rule according to the definition of the config values
+  //       if no config found or the rule creation failed, fail the rdb loading.
+  // currently lets just put a simple rule of index all hashes
+  const char *prefix = "";
+  SchemaRuleArgs rule_args = {
+      .type = "hash",
+      .prefixes = &prefix,
+      .nprefixes = 1,
+      .filter_exp_str = NULL,
+      .lang_field = NULL,
+      .score_field = NULL,
+      .payload_field = NULL,
+      .lang_default = NULL,
+      .score_default = NULL,
+  };
+  QueryError status;
+  sp->rule = SchemaRule_Create(&rule_args, sp, &status);
+
+  dictAdd(legacySpecDict, sp->name, sp);
+  return sp;
+}
+
+void IndexSpec_LegacyRdbSave(RedisModuleIO *rdb, void *value) {
+  // we do not save legacy indexes
+  return;
+}
+
 int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when) {
 
   if (encver < INDEX_MIN_COMPAT_VERSION) {
@@ -1594,7 +1773,14 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
       subevent == REDISMODULE_SUBEVENT_LOADING_AOF_START ||
       subevent == REDISMODULE_SUBEVENT_LOADING_REPL_START) {
     Indexes_Free();
+    legacySpecDict = dictCreate(&dictTypeHeapStrings, NULL);
   } else if (subevent == REDISMODULE_SUBEVENT_LOADING_ENDED) {
+    Indexes_UpgradeLegacyIndexes();
+
+    // we do not need the legacy dict specs anymore
+    dictRelease(legacySpecDict);
+    legacySpecDict = NULL;
+
     Indexes_ScanAndReindex();
   }
 }
@@ -1602,8 +1788,11 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
 int IndexSpec_RegisterType(RedisModuleCtx *ctx) {
   RedisModuleTypeMethods tm = {
       .version = REDISMODULE_TYPE_METHOD_VERSION,
+      .rdb_load = IndexSpec_LegacyRdbLoad,
+      .rdb_save = IndexSpec_LegacyRdbSave,
       .aux_load = Indexes_RdbLoad,
       .aux_save = Indexes_RdbSave,
+      .free = IndexSpec_LegacyFree,
       .aof_rewrite = GenericAofRewrite_DisabledHandler,
       .aux_save_triggers = REDISMODULE_AUX_BEFORE_RDB,
   };
