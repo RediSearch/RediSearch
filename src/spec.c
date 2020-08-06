@@ -22,6 +22,8 @@
 #include "commands.h"
 #include "dictionary.h"
 
+#define INITIAL_DOC_TABLE_SIZE 1000
+
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 static void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, IndexSpec *sp);
@@ -995,7 +997,7 @@ IndexSpec *NewIndexSpec(const char *name) {
   sp->sortables = NewSortingTable();
   sp->flags = INDEX_DEFAULT_FLAGS;
   sp->name = rm_strdup(name);
-  sp->docs = DocTable_New(100);
+  sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
   sp->stopwords = DefaultStopWordList();
   sp->terms = NewTrie();
   sp->keysDict = NULL;
@@ -1447,9 +1449,6 @@ void IndexSpec_DropLegacyIndexFromKeySpace(IndexSpec *sp) {
   RedisModule_FreeString(ctx.redisCtx, str);
 }
 
-void IndexSpec_AddRuleToLegacyIndex(IndexSpec *sp) {
-}
-
 void Indexes_UpgradeLegacyIndexes() {
   dictIterator *iter = dictGetIterator(legacySpecDict);
   dictEntry *entry = NULL;
@@ -1459,7 +1458,7 @@ void Indexes_UpgradeLegacyIndexes() {
 
     // recreate the doctable
     DocTable_Free(&sp->docs);
-    sp->docs = DocTable_New(1000);
+    sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
 
     // clear index stats
     memset(&sp->stats, 0, sizeof(sp->stats));
@@ -1489,7 +1488,7 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
 
   sp->sortables = NewSortingTable();
   sp->terms = NULL;
-  sp->docs = DocTable_New(1000);
+  sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
   sp->name = RedisModule_LoadStringBuffer(rdb, NULL);
   char *tmpName = rm_strdup(sp->name);
   RedisModule_Free(sp->name);
@@ -1596,7 +1595,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   IndexSpec_MakeKeyless(sp);
   sp->sortables = NewSortingTable();
   sp->terms = NULL;
-  sp->docs = DocTable_New(1000);
+  sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
   sp->name = RedisModule_LoadStringBuffer(rdb, NULL);
   char *tmpName = rm_strdup(sp->name);
   RedisModule_Free(sp->name);
