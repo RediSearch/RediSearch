@@ -340,6 +340,7 @@ int DocTable_Replace(DocTable *t, const char *from_str, size_t from_len,
   DocIdMap_Delete(&t->dim, from_str, from_len);
   DocIdMap_Put(&t->dim, to_str, to_len, id);
   RSDocumentMetadata *dmd = DocTable_Get(t, id);
+  sdsfree(dmd->keyPtr);
   dmd->keyPtr = sdsnewlen(to_str, to_len);                                    
   return REDISMODULE_OK;                   
 }
