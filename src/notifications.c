@@ -101,11 +101,6 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event, R
 /*****************************************************************************/
 
 void CommandFilterCallback(RedisModuleCommandFilterCtx *filter) {
-  int numArgs = RedisModule_CommandFilterArgsCount(filter);
-  if (numArgs < 3) return;
-
-  bool hset = false;
-
   size_t len;
   const RedisModuleString *cmd = RedisModule_CommandFilterArgGet(filter, 0);
   const char *cmdStr = RedisModule_StringPtrLen(cmd, &len);
@@ -113,11 +108,18 @@ void CommandFilterCallback(RedisModuleCommandFilterCtx *filter) {
     return;
   }
 
+  int numArgs = RedisModule_CommandFilterArgsCount(filter);
+  if (numArgs < 3) {
+    return;
+  }
+  int cmdFactor = 1;
+
   // HSETNX does not fire keyspace event if hash exists. No need to keep fields
   if (!strcasecmp("HSET", cmdStr) || !strcasecmp("HMSET", cmdStr) || !strcasecmp("HSETNX", cmdStr) ||
       !strcasecmp("HINCRBY", cmdStr) || !strcasecmp("HINCRBYFLOAT", cmdStr)) {
     if (numArgs % 2 != 0) return;
-    hset = true;
+    // HSET receives field&value, HDEL receives field
+    cmdFactor = 2;
   } else if (!strcasecmp("HDEL", cmdStr)) {
     // Nothing to do
   } else {
@@ -135,8 +137,6 @@ void CommandFilterCallback(RedisModuleCommandFilterCtx *filter) {
     goto done;
   }
 
-  // HSET receives field&value, HDEL receives field
-  int cmdFactor = hset ? 2 : 1;
   int fieldsNum = (numArgs - 2) / cmdFactor;
   hashFields = (RedisModuleString **)rm_calloc(fieldsNum + 1, sizeof(*hashFields));
 
