@@ -131,6 +131,44 @@ def testDel(env):
     env.expect('ft.search', 'things', 'foo') \
        .equal([0L])
 
+def testSet(env):
+    conn = getConnectionByEnv(env)
+    env.cmd('ft.create', 'things',
+            'PREFIX', '1', 'thing:',
+            'SCHEMA', 'name', 'text')
+
+    env.expect('ft.search', 'things', 'foo') \
+       .equal([0L])
+
+    conn.execute_command('hset', 'thing:bar', 'name', 'foo')
+
+    env.expect('ft.search', 'things', 'foo') \
+       .equal([1L, 'thing:bar', ['name', 'foo']])
+
+    env.expect('Set', 'thing:bar', "bye bye").equal(1)
+
+    env.expect('ft.search', 'things', 'foo') \
+       .equal([0L])
+
+def testRename(env):
+    conn = getConnectionByEnv(env)
+    env.cmd('ft.create', 'things',
+            'PREFIX', '1', 'thing:',
+            'SCHEMA', 'name', 'text')
+
+    env.expect('ft.search', 'things', 'foo') \
+       .equal([0L])
+
+    conn.execute_command('hset', 'thing:bar', 'name', 'foo')
+
+    env.expect('ft.search', 'things', 'foo') \
+       .equal([1L, 'thing:bar', ['name', 'foo']])
+
+    env.expect('RENAME', 'thing:bar', "thing:foo").equal(1)
+
+    env.expect('ft.search', 'things', 'foo') \
+       .equal([1L, 'thing:foo', ['name', 'foo']])
+
 def testFlush(env):
     conn = getConnectionByEnv(env)
     env.cmd('ft.create', 'things', 'ON', 'HASH',

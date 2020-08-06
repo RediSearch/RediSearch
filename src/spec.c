@@ -1811,4 +1811,24 @@ void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
   dictRelease(specs);
 }
 
+void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *from_key, 
+                                                                 RedisModuleString *to_key) {
+  dict *specs = Indexes_FindMatchingSchemaRules(ctx, from_key);
+
+  size_t from_len, to_len;
+  const char *from_str = RedisModule_StringPtrLen(from_key, &from_len);
+  const char *to_str = RedisModule_StringPtrLen(to_key, &to_len);
+
+  dictIterator *di = dictGetIterator(specs);
+  dictEntry *ent = dictNext(di);
+  while (ent) {
+    IndexSpec *spec = (IndexSpec *)ent->v.val;
+    DocTable_Replace(&spec->docs, from_str, from_len, to_str, to_len);
+    ent = dictNext(di);
+  }
+  
+  dictReleaseIterator(di);
+
+  dictRelease(specs);                                                    
+}
 ///////////////////////////////////////////////////////////////////////////////////////////////
