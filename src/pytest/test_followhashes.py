@@ -152,22 +152,19 @@ def testSet(env):
 
 def testRename(env):
     conn = getConnectionByEnv(env)
-    env.cmd('ft.create', 'things',
-            'PREFIX', '1', 'thing:',
-            'SCHEMA', 'name', 'text')
+    env.cmd('ft.create things PREFIX 1 thing: SCHEMA name text')
+    env.expect('ft.search things foo').equal([0L])
 
-    env.expect('ft.search', 'things', 'foo') \
-       .equal([0L])
+    conn.execute_command('hset thing:bar name foo')
+    env.expect('ft.search things foo').equal([1L, 'thing:bar', ['name', 'foo']])
 
-    conn.execute_command('hset', 'thing:bar', 'name', 'foo')
+    env.expect('RENAME thing:bar thing:foo').ok()
+    env.expect('ft.search things foo').equal([1L, 'thing:foo', ['name', 'foo']])
 
-    env.expect('ft.search', 'things', 'foo') \
-       .equal([1L, 'thing:bar', ['name', 'foo']])
-
-    env.expect('RENAME', 'thing:bar', "thing:foo").equal(1)
-
-    env.expect('ft.search', 'things', 'foo') \
-       .equal([1L, 'thing:foo', ['name', 'foo']])
+    env.cmd('ft.create otherthings PREFIX 1 otherthing: SCHEMA name text')
+    env.expect('RENAME thing:foo otherthing:foo').ok()
+    env.expect('ft.search things foo').equal([0L])
+    env.expect('ft.search otherthings foo').equal([1L, 'otherthing:foo', ['name', 'foo']])
 
 def testFlush(env):
     conn = getConnectionByEnv(env)
@@ -220,7 +217,7 @@ def testReplace(env):
     conn = getConnectionByEnv(env)
     r = env
 
-    r.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'f', 'text').ok()
+    r.expect('ft.create idx prefix schema f text').ok()
 
     res = conn.execute_command('HSET', 'doc1', 'f', 'hello world')
     env.assertEqual(res, 1)
