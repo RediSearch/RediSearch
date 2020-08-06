@@ -29,31 +29,40 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event, R
     E##_event = event; \
   }
 
-  static const char *hset_event = 0, *hmset_event = 0, *del_event = 0,
-                    *hdel_event = 0, *set_event = 0,
+  static const char *hset_event = 0, *hmset_event = 0, *hsetnx_event = 0,
+                    *hincrby_event = 0, *hincrbyfloat_event = 0, *hdel_event = 0,
+                    *del_event = 0, *set_event = 0,
                     *rename_from_event = 0, *rename_to_event = 0;
-  bool hset = false, hmset = false, del = false, hdel = false, set = false,
+  bool hset = false, hmset = false, hsetnx = false,
+       hincrby = false, hincrbyfloat = false, hdel = false,
+       del = false, set = false,
        rename_from = false, rename_to = false;
 
        CHECK_CACHED_EVENT(hset)
   else CHECK_CACHED_EVENT(hmset)
-  else CHECK_CACHED_EVENT(del)
+  else CHECK_CACHED_EVENT(hsetnx)
+  else CHECK_CACHED_EVENT(hincrby)
+  else CHECK_CACHED_EVENT(hincrbyfloat)
   else CHECK_CACHED_EVENT(hdel)
+  else CHECK_CACHED_EVENT(del)
   else CHECK_CACHED_EVENT(set)
   else CHECK_CACHED_EVENT(rename_from)
   else CHECK_CACHED_EVENT(rename_to)
   else {
          CHECK_AND_CACHE_EVENT(hset)
     else CHECK_AND_CACHE_EVENT(hmset)
-    else CHECK_AND_CACHE_EVENT(del)
+    else CHECK_AND_CACHE_EVENT(hsetnx)
+    else CHECK_AND_CACHE_EVENT(hincrby)
+    else CHECK_AND_CACHE_EVENT(hincrbyfloat)
     else CHECK_AND_CACHE_EVENT(hdel)
+    else CHECK_AND_CACHE_EVENT(del)
     else CHECK_AND_CACHE_EVENT(set)
     else CHECK_AND_CACHE_EVENT(rename_from)
     else CHECK_AND_CACHE_EVENT(rename_to)
   }
 
   const char *key_cp = RedisModule_StringPtrLen(key, NULL);
-  if (hset || hmset || hdel) {
+  if (hset || hmset || hsetnx || hincrby || hincrbyfloat || hdel) {
     Indexes_UpdateMatchingWithSchemaRules(ctx, key, hashFields);
   }
   if (del || set) {
@@ -83,8 +92,13 @@ void CommandFilterCallback(RedisModuleCommandFilterCtx *filter) {
   size_t len;
   const RedisModuleString *cmd = RedisModule_CommandFilterArgGet(filter, 0);
   const char *cmdStr = RedisModule_StringPtrLen(cmd, &len);
+  if (*cmdStr != 'H' && *cmdStr != 'h') {
+    return;
+  }
 
-  if (!strcasecmp("HSET", cmdStr) || !strcasecmp("HMSET", cmdStr)) {
+  // HSETNX does not fire keyspace event if hash exists. No need to keep fields
+  if (!strcasecmp("HSET", cmdStr) || !strcasecmp("HMSET", cmdStr) || !strcasecmp("HSETNX", cmdStr) ||
+      !strcasecmp("HINCRBY", cmdStr) || !strcasecmp("HINCRBYFLOAT", cmdStr)) {
     if (numArgs % 2 != 0) return;
     hset = true;
   } else if (!strcasecmp("HDEL", cmdStr)) {
@@ -92,6 +106,7 @@ void CommandFilterCallback(RedisModuleCommandFilterCtx *filter) {
   } else {
     return;
   }
+
   freeHashFields();
 
   const RedisModuleString *keyStr = RedisModule_CommandFilterArgGet(filter, 1);
