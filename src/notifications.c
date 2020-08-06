@@ -34,14 +34,14 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
                     *hincrby_event = 0, *hincrbyfloat_event = 0, *hdel_event = 0,
                     *del_event = 0, *set_event = 0,
                     *rename_from_event = 0, *rename_to_event = 0,
-                    *trimmed_event = 0, *restore_event = 0, *expired_event = 0, *change_event = 0;
+                    *trimmed_event = 0, *restore_event = 0, *expire_event = 0, *change_event = 0;
 
   bool hset = false, hmset = false, hsetnx = false,
        hincrby = false, hincrbyfloat = false, hdel = false,
        del = false, set = false,
        rename_from = false, rename_to = false,
        trimmed = false, restore = false,
-       expired = false, change = false;
+       expire = false, change = false;
   // clang-format off
 
        CHECK_CACHED_EVENT(hset)
@@ -56,7 +56,7 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
   else CHECK_CACHED_EVENT(rename_to)
   else CHECK_CACHED_EVENT(trimmed)
   else CHECK_CACHED_EVENT(restore)
-  else CHECK_CACHED_EVENT(expired)
+  else CHECK_CACHED_EVENT(expire)
   else CHECK_CACHED_EVENT(change)
   else {
          CHECK_AND_CACHE_EVENT(hset)
@@ -71,7 +71,7 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
     else CHECK_AND_CACHE_EVENT(rename_to)
     else CHECK_AND_CACHE_EVENT(trimmed)
     else CHECK_AND_CACHE_EVENT(restore)
-    else CHECK_AND_CACHE_EVENT(expired)
+    else CHECK_AND_CACHE_EVENT(expire)
     else CHECK_AND_CACHE_EVENT(change)
   }
 
@@ -79,7 +79,7 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
   if (hset || hmset || hsetnx || hincrby || hincrbyfloat || hdel || restore) {
     Indexes_UpdateMatchingWithSchemaRules(ctx, key, hashFields);
   }
-  if (del || set || trimmed || expired) {
+  if (del || set || trimmed || expire) {
     Indexes_DeleteMatchingWithSchemaRules(ctx, key, hashFields);
   }
   if (rename_from) {

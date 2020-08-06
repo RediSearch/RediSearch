@@ -3,6 +3,7 @@
 import unittest
 from includes import *
 from common import getConnectionByEnv, waitForIndex, sortedResults, toSortedFlatList
+from time import sleep
 
 def testSyntax1(env):
     conn = getConnectionByEnv(env)
@@ -413,4 +414,21 @@ def testHDel(env):
     env.expect('HDEL doc1 test3').equal(1)
     env.expect('FT.DEBUG docidtoid idx doc1').equal(2)
     env.expect('FT.SEARCH idx bar').equal([1L, 'doc1', ['test2', 'bar']])
-    
+
+def testRestore(env):
+    env.expect('FT.CREATE idx SCHEMA test TEXT').equal('OK')
+    env.expect('HSET doc1 test foo').equal(1)
+    env.expect('FT.SEARCH idx foo').equal([1L, 'doc1', ['test', 'foo']])
+    dump = env.cmd('dump doc1')
+    env.expect('DEL doc1').equal(1)
+    env.expect('FT.SEARCH idx foo').equal([0L])
+    env.expect('RESTORE', 'doc1', 0, dump)
+    env.expect('FT.SEARCH idx foo').equal([1L, 'doc1', ['test', 'foo']])
+
+def testExpire(env):
+    env.expect('FT.CREATE idx SCHEMA test TEXT').equal('OK')
+    env.expect('HSET doc1 test foo').equal(1)
+    env.expect('FT.SEARCH idx foo').equal([1L, 'doc1', ['test', 'foo']])
+    env.expect('EXPIRE doc1 1').equal(1)
+    sleep(1.1)
+    env.expect('FT.SEARCH idx foo').equal([0L])
