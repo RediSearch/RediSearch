@@ -1441,8 +1441,10 @@ void IndexSpec_DropLegacyIndexFromKeySpace(IndexSpec *sp) {
       Redis_DeleteKey(ctx.redisCtx, IndexSpec_GetFormattedKey(ctx.spec, fs, INDEXFLD_T_GEO));
     }
   }
-  Redis_DeleteKey(ctx.redisCtx,
-                  RedisModule_CreateStringPrintf(ctx.redisCtx, INDEX_SPEC_KEY_FMT, ctx.spec->name));
+  RedisModuleString *str =
+      RedisModule_CreateStringPrintf(ctx.redisCtx, INDEX_SPEC_KEY_FMT, ctx.spec->name);
+  Redis_DeleteKey(ctx.redisCtx, str);
+  RedisModule_FreeString(ctx.redisCtx, str);
 }
 
 void IndexSpec_AddRuleToLegacyIndex(IndexSpec *sp) {
