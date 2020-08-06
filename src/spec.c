@@ -1818,22 +1818,39 @@ void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
 
 void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *from_key, 
                                                                  RedisModuleString *to_key) {
-  dict *specs = Indexes_FindMatchingSchemaRules(ctx, from_key);
+  dict *from_specs = Indexes_FindMatchingSchemaRules(ctx, from_key);
+  dict *to_specs = Indexes_FindMatchingSchemaRules(ctx, to_key);
 
   size_t from_len, to_len;
   const char *from_str = RedisModule_StringPtrLen(from_key, &from_len);
   const char *to_str = RedisModule_StringPtrLen(to_key, &to_len);
 
-  dictIterator *di = dictGetIterator(specs);
+  dictIterator *di = dictGetIterator(from_specs);
   dictEntry *ent = dictNext(di);
   while (ent) {
     IndexSpec *spec = (IndexSpec *)ent->v.val;
-    DocTable_Replace(&spec->docs, from_str, from_len, to_str, to_len);
+    if (dictFind(to_specs, spec->name)) {
+      DocTable_Replace(&spec->docs, from_str, from_len, to_str, to_len);
+      dictDelete(to_specs, spec->name);
+    } else {
+      IndexSpec_DeleteHash(spec, ctx, from_key);
+    }
     ent = dictNext(di);
   }
-  
   dictReleaseIterator(di);
-
-  dictRelease(specs);                                                    
+  dictRelease(from_specs);
+  
+  // add to a different index
+  if (dictSize(to_specs) > 0) {
+    di = dictGetIterator(to_specs);
+    dictEntry *ent = dictNext(di);
+    while (ent) {
+      IndexSpec *spec = (IndexSpec *)ent->v.val;
+      IndexSpec_UpdateWithHash(spec, ctx, to_key);
+      ent = dictNext(di);
+    }
+    dictReleaseIterator(di);
+    dictRelease(to_specs);
+  }
 }
 ///////////////////////////////////////////////////////////////////////////////////////////////
