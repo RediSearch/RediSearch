@@ -173,7 +173,7 @@ RS_Suggestion **spellCheck_GetSuggestions(RS_Suggestions *s) {
   return ret;
 }
 
-static double spellCheck_GetMaxScore(arrayof(RS_Suggestion) *suggestions) {
+static double spellCheck_GetMaxScore(arrayof(RS_Suggestion *)suggestions) {
   double ret = 0;
   for (size_t i = 0; i < array_len(suggestions); ++i) {
     ret = MAX(ret, suggestions[i]->score);
@@ -188,7 +188,7 @@ void SpellCheck_SendReplyOnTerm(RedisModuleCtx *ctx, char *term, size_t len, RS_
   RedisModule_ReplyWithStringBuffer(ctx, TERM, strlen(TERM));
   RedisModule_ReplyWithStringBuffer(ctx, term, len);
 
-  arrayof(RS_Suggestion) *suggestions = spellCheck_GetSuggestions(s);
+  arrayof(RS_Suggestion *)suggestions = spellCheck_GetSuggestions(s);
   double maxScore = spellCheck_GetMaxScore(suggestions);
 
   for (int i = 0; i < array_len(suggestions); ++i) {
