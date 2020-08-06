@@ -16,27 +16,33 @@ static void freeHashFields() {
   }
 }
 
-int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) {
+int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
+                             RedisModuleString *key) {
 
 #define CHECK_CACHED_EVENT(E) \
-  if (event == E##_event) { \
-    E = true; \
+  if (event == E##_event) {   \
+    E = true;                 \
   }
 
 #define CHECK_AND_CACHE_EVENT(E) \
-  if (!strcmp(event, #E)) { \
-    E = true; \
-    E##_event = event; \
+  if (!strcmp(event, #E)) {      \
+    E = true;                    \
+    E##_event = event;           \
   }
 
   static const char *hset_event = 0, *hmset_event = 0, *hsetnx_event = 0,
                     *hincrby_event = 0, *hincrbyfloat_event = 0, *hdel_event = 0,
                     *del_event = 0, *set_event = 0,
-                    *rename_from_event = 0, *rename_to_event = 0;
+                    *rename_from_event = 0, *rename_to_event = 0,
+                    *trimmed_event = 0, *restore_event = 0, *expired_event = 0, *change_event = 0;
+
   bool hset = false, hmset = false, hsetnx = false,
        hincrby = false, hincrbyfloat = false, hdel = false,
        del = false, set = false,
-       rename_from = false, rename_to = false;
+       rename_from = false, rename_to = false,
+       trimmed = false, restore = false,
+       expired = false, change = false;
+  // clang-format off
 
        CHECK_CACHED_EVENT(hset)
   else CHECK_CACHED_EVENT(hmset)
@@ -48,6 +54,10 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event, R
   else CHECK_CACHED_EVENT(set)
   else CHECK_CACHED_EVENT(rename_from)
   else CHECK_CACHED_EVENT(rename_to)
+  else CHECK_CACHED_EVENT(trimmed)
+  else CHECK_CACHED_EVENT(restore)
+  else CHECK_CACHED_EVENT(expired)
+  else CHECK_CACHED_EVENT(change)
   else {
          CHECK_AND_CACHE_EVENT(hset)
     else CHECK_AND_CACHE_EVENT(hmset)
@@ -59,18 +69,30 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event, R
     else CHECK_AND_CACHE_EVENT(set)
     else CHECK_AND_CACHE_EVENT(rename_from)
     else CHECK_AND_CACHE_EVENT(rename_to)
+    else CHECK_AND_CACHE_EVENT(trimmed)
+    else CHECK_AND_CACHE_EVENT(restore)
+    else CHECK_AND_CACHE_EVENT(expired)
+    else CHECK_AND_CACHE_EVENT(change)
   }
 
   const char *key_cp = RedisModule_StringPtrLen(key, NULL);
-  if (hset || hmset || hsetnx || hincrby || hincrbyfloat || hdel) {
+  if (hset || hmset || hsetnx || hincrby || hincrbyfloat || hdel || restore) {
     Indexes_UpdateMatchingWithSchemaRules(ctx, key, hashFields);
   }
-  if (del || set) {
+  if (del || set || trimmed || expired) {
     Indexes_DeleteMatchingWithSchemaRules(ctx, key, hashFields);
   }
   if (rename_from) {
     // Notification rename_to is called right after rename_from so this is safe.  
     global_RenameFromKey = key;
+  } else if (change) {
+    RedisModuleKey *kp = RedisModule_OpenKey(ctx, key, REDISMODULE_READ);
+    if (!kp || RedisModule_KeyType(kp) == REDISMODULE_KEYTYPE_EMPTY) {
+      // in crdt empty key means that key was deleted
+      Indexes_DeleteMatchingWithSchemaRules(ctx, key, hashFields);
+    } else {
+      Indexes_UpdateMatchingWithSchemaRules(ctx, key, hashFields);
+    }
   }
   if (rename_to) {
     Indexes_ReplaceMatchingWithSchemaRules(ctx, global_RenameFromKey, key);
@@ -136,7 +158,8 @@ done:
 
 void Initialize_KeyspaceNotifications(RedisModuleCtx *ctx) {
   RedisModule_SubscribeToKeyspaceEvents(ctx,
-    REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_HASH | REDISMODULE_NOTIFY_STRING,
+    REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_HASH |
+    REDISMODULE_NOTIFY_STRING | REDISMODULE_NOTIFY_TRIMMED,
     HashNotificationCallback);
 }
 

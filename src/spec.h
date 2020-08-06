@@ -113,8 +113,10 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
   (Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets | Index_StoreNumeric | \
    Index_WideSchema)
 
-#define INDEX_CURRENT_VERSION 16
-#define INDEX_MIN_COMPAT_VERSION 16
+#define INDEX_CURRENT_VERSION 17
+#define INDEX_MIN_COMPAT_VERSION 17
+
+#define INDEX_MIN_WITH_SYNONYMS_INT_GROUP_ID 16
 
 // Those versions contains doc table as array, we modified it to be array of linked lists
 // todo: decide if we need to keep this, currently I keep it if one day we will find a way to

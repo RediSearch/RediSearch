@@ -140,7 +140,9 @@ def testDeleteEntireBlock(env):
     # delete docs in the midle of the inverted index, make sure the binary search are not braken
     for i in range(400, 501):
         env.expect('FT.DEL', 'idx', 'doc%d' % i).equal(1)
-    env.expect('FT.SEARCH', 'idx', '@test:checking @test2:checking250').equal([1L, 'doc250', ['test', 'checking', 'test2', 'checking250']])
+    res = env.cmd('FT.SEARCH', 'idx', '@test:checking @test2:checking250')
+    env.assertEqual(res[0:2],[1L, 'doc250'])
+    env.assertEqual(set(res[2]), set(['test', 'checking', 'test2', 'checking250']))
 
     # actually clean the inverted index, make sure the binary search are not braken, check also after rdb reload
     for i in range(100):
@@ -148,7 +150,9 @@ def testDeleteEntireBlock(env):
         env.cmd('ft.debug', 'GC_FORCEINVOKE', 'idx')
     for _ in env.reloading_iterator():
         waitForIndex(env, 'idx')
-        env.expect('FT.SEARCH', 'idx', '@test:checking @test2:checking250').equal([1L, 'doc250', ['test', 'checking', 'test2', 'checking250']])
+        res = env.cmd('FT.SEARCH', 'idx', '@test:checking @test2:checking250')
+        env.assertEqual(res[0:2],[1L, 'doc250'])
+        env.assertEqual(set(res[2]), set(['test', 'checking', 'test2', 'checking250']))        
 
 def testGCIntegrationWithRedisFork(env):
     if env.env == 'existing-env':

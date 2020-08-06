@@ -247,9 +247,8 @@ int forwardIndexTokenFunc(void *ctx, const Token *tokInfo) {
     if (t_data) {
       char synonym_buff[SYNONYM_BUFF_LEN];
       size_t synonym_len;
-      for (int i = 0; i < array_len(t_data->ids); ++i) {
-        synonym_len = SynonymMap_IdToStr(t_data->ids[i], synonym_buff, SYNONYM_BUFF_LEN);
-        ForwardIndex_HandleToken(tokCtx->idx, synonym_buff, synonym_len, tokInfo->pos,
+      for (int i = 0; i < array_len(t_data->groupIds); ++i) {
+        ForwardIndex_HandleToken(tokCtx->idx, t_data->groupIds[i], strlen(t_data->groupIds[i]), tokInfo->pos,
                                  tokCtx->fieldScore, tokCtx->fieldId, TOKOPT_F_COPYSTR);
       }
     }

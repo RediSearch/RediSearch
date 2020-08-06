@@ -103,7 +103,7 @@ int Document_LoadSchemaFields(Document *doc, RedisSearchCtx *sctx) {
     goto done;
   }
 
-  size_t nitems = RedisModule_ValueLength(k);
+  size_t nitems = sctx->spec->numFields;
   if (nitems == 0) {
     goto done;
   }
@@ -132,8 +132,10 @@ int Document_LoadSchemaFields(Document *doc, RedisSearchCtx *sctx) {
     }
     size_t oix = doc->numFields++;
     doc->fields[oix].name = rm_strdup(fname);
-    // HashGet gives us `v` with a refcount of 1, meaning we're the only owner
-    doc->fields[oix].text = v;
+
+    // on crdt the return value might be the underline value, we must copy it!!!
+    doc->fields[oix].text = RedisModule_CreateStringFromString(sctx->redisCtx, v);
+    RedisModule_FreeString(sctx->redisCtx, v);
   }
   rv = REDISMODULE_OK;
 
@@ -206,11 +208,10 @@ int Document_ReplyAllFields(RedisModuleCtx *ctx, IndexSpec *spec, RedisModuleStr
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
   size_t numElems = 0;
 
-
   size_t lang_len = rule->lang_field ? strlen(rule->lang_field) : 0;
   size_t score_len = rule->score_field ? strlen(rule->score_field) : 0;
   size_t payload_len = rule->payload_field ? strlen(rule->payload_field) : 0;
-  
+
   for (size_t i = 0; i < hashLen; i += 2) {
     // parse field
     e = RedisModule_CallReplyArrayElement(rep, i);
@@ -337,11 +338,18 @@ int Redis_SaveDocument(RedisSearchCtx *ctx, const AddDocumentOptions *opts, Quer
   }
 
   RedisModuleCallReply *rep = NULL;
+  // crdt assumes that it gets its own copy of the arguments so lets give it to them
+  for (size_t i = 0; i < array_len(arguments); ++i) {
+    arguments[i] = RedisModule_CreateStringFromString(ctx->redisCtx, arguments[i]);
+  }
   rep = RedisModule_Call(ctx->redisCtx, "HSET", "!v", arguments, array_len(arguments));
   if (rep) {
     RedisModule_FreeCallReply(rep);
   }
 
+  for (size_t i = 0; i < array_len(arguments); ++i) {
+    RedisModule_FreeString(ctx->redisCtx, arguments[i]);
+  }
   array_free(arguments);
 
   return REDISMODULE_OK;

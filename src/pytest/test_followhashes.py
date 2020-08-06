@@ -2,7 +2,7 @@
 
 import unittest
 from includes import *
-from common import getConnectionByEnv, waitForIndex, sortedResults
+from common import getConnectionByEnv, waitForIndex, sortedResults, toSortedFlatList
 
 def testSyntax1(env):
     conn = getConnectionByEnv(env)
@@ -199,11 +199,11 @@ def testPayload(env):
 
     for _ in env.retry_with_rdb_reload():
         waitForIndex(env, 'things')
-        env.expect('ft.search', 'things', 'foo') \
-           .equal([1L, 'thing:foo', ['name', 'foo', 'payload', 'stuff']])
+        res = env.cmd('ft.search', 'things', 'foo')
+        env.assertEqual(toSortedFlatList(res), toSortedFlatList([1L, 'thing:foo', ['name', 'foo', 'payload', 'stuff']]))
 
-        env.expect('ft.search', 'things', 'foo', 'withpayloads') \
-           .equal([1L, 'thing:foo', 'stuff', ['name', 'foo', 'payload', 'stuff']])
+        res = env.cmd('ft.search', 'things', 'foo', 'withpayloads')
+        env.assertEqual(toSortedFlatList(res), toSortedFlatList([1L, 'thing:foo', 'stuff', ['name', 'foo', 'payload', 'stuff']]))
 
 def testDuplicateFields(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
@@ -299,7 +299,7 @@ def testMultiFilters1(env):
     res1 = [2L, 'student:yes2', ['first', 'yes2', 'last', 'yes2', 'age', '15'],
                 'student:yes1', ['first', 'yes1', 'last', 'yes1', 'age', '17']]
     res = env.cmd('ft.search test *')
-    env.assertEqual(sortedResults(res), sortedResults(res1))
+    env.assertEqual(toSortedFlatList(res), toSortedFlatList(res1))
 
 def testMultiFilters2(env):
     conn = getConnectionByEnv(env)
@@ -314,7 +314,7 @@ def testMultiFilters2(env):
     res1 = [2L, 'pupil:yes2', ['first', 'yes2', 'last', 'yes2', 'age', '17'], 
                 'student:yes1', ['first', 'yes1', 'last', 'yes1', 'age', '17']]
     res = env.cmd('ft.search test *')
-    env.assertEqual(sortedResults(res), sortedResults(res1))
+    env.assertEqual(toSortedFlatList(res), toSortedFlatList(res1))
 
 def testInfo(env):
     env.expect('FT.CREATE', 'test', 'ON', 'HASH',

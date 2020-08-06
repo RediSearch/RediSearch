@@ -1,7 +1,7 @@
 from RLTest import Env
 import random
 from includes import *
-from common import getConnectionByEnv, waitForIndex
+from common import getConnectionByEnv, waitForIndex, toSortedFlatList
 
 
 def aofTestCommon(env, reloadfn):
@@ -20,9 +20,9 @@ def aofTestCommon(env, reloadfn):
                    'doc9', ['field1', 'myText9', 'field2', '180']]
     
         reloadfn()
+        waitForIndex(env, 'idx')
         ret = env.cmd('ft.search', 'idx', 'myt*')
-        for r in ret:
-            env.assertIn(r, exp)
+        env.assertEqual(toSortedFlatList(ret), toSortedFlatList(exp))
 
 def testAof():
     env = Env(useAof=True)
