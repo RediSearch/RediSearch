@@ -1850,7 +1850,7 @@ void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStri
       ent = dictNext(di);
     }
     dictReleaseIterator(di);
-    dictRelease(to_specs);
   }
+  dictRelease(to_specs);
 }
 ///////////////////////////////////////////////////////////////////////////////////////////////

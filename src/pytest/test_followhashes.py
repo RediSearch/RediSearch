@@ -217,7 +217,7 @@ def testReplace(env):
     conn = getConnectionByEnv(env)
     r = env
 
-    r.expect('ft.create idx prefix schema f text').ok()
+    r.expect('ft.create idx schema f text').ok()
 
     res = conn.execute_command('HSET', 'doc1', 'f', 'hello world')
     env.assertEqual(res, 1)
