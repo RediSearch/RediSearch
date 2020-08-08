@@ -3,22 +3,29 @@
 #include "inverted_index.h"
 #include "cursor.h"
 
-#define REPLY_KVNUM(n, k, v)                   \
-  RedisModule_ReplyWithSimpleString(ctx, k);   \
-  RedisModule_ReplyWithDouble(ctx, (double)v); \
-  n += 2
-#define REPLY_KVSTR(n, k, v)                 \
-  RedisModule_ReplyWithSimpleString(ctx, k); \
-  RedisModule_ReplyWithSimpleString(ctx, v); \
-  n += 2
+#define REPLY_KVNUM(n, k, v)                       \
+  do {                                             \
+    RedisModule_ReplyWithSimpleString(ctx, (k));   \
+    RedisModule_ReplyWithDouble(ctx, (double)(v)); \
+    n += 2;                                        \
+  } while (0)
+
+#define REPLY_KVSTR(n, k, v)                     \
+  do {                                           \
+    RedisModule_ReplyWithSimpleString(ctx, (k)); \
+    RedisModule_ReplyWithSimpleString(ctx, (v)); \
+  n += 2;                                        \
+  } while (0)
 
 static int renderIndexOptions(RedisModuleCtx *ctx, IndexSpec *sp) {
 
-#define ADD_NEGATIVE_OPTION(flag, str)                        \
-  if (!(sp->flags & flag)) {                                  \
-    RedisModule_ReplyWithStringBuffer(ctx, str, strlen(str)); \
-    n++;                                                      \
-  }
+#define ADD_NEGATIVE_OPTION(flag, str)                            \
+  do {                                                            \
+    if (!(sp->flags & (flag))) {                                  \
+      RedisModule_ReplyWithStringBuffer(ctx, (str), strlen(str)); \
+      n++;                                                        \
+    }                                                             \
+  } while (0)
 
   RedisModule_ReplyWithSimpleString(ctx, "index_options");
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
@@ -180,9 +187,22 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
               (float)sp->stats.offsetVecRecords / (float)sp->stats.numRecords);
   REPLY_KVNUM(n, "offset_bits_per_record_avg",
               8.0F * (float)sp->stats.offsetVecsSize / (float)sp->stats.offsetVecRecords);
-  REPLY_KVNUM(n, "indexing", pending_global_indexing_ops + sp->pending_indexing_ops > 0);
-  REPLY_KVNUM(n, "percent_indexed", 
-              pending_global_indexing_ops + sp->pending_indexing_ops > 0 ? (sp->keysTotal > 0 ? sp->keysIndexed / sp->keysTotal : 0) : 1.0);
+
+  REPLY_KVNUM(n, "indexing", !!global_spec_scanner || sp->scan_in_progress);
+
+  double percent_indexed;
+  IndexesScanner *scanner = global_spec_scanner ? global_spec_scanner : sp->scanner;
+  if (scanner || sp->scan_in_progress) {
+    if (scanner) {
+      percent_indexed = scanner->totalKeys > 0 ? (double) scanner->scannedKeys / scanner->totalKeys : 0;
+    } else {
+      percent_indexed = 0;
+    }
+  } else {
+    percent_indexed = 1.0;
+  }
+
+  REPLY_KVNUM(n, "percent_indexed", percent_indexed);
 
   if (sp->gc) {
     RedisModule_ReplyWithSimpleString(ctx, "gc_stats");

@@ -1,5 +1,6 @@
 #ifndef __SPEC_H__
 #define __SPEC_H__
+
 #include <stdlib.h>
 #include <string.h>
 
@@ -20,6 +21,11 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+struct IndexesScanner;
+struct DocumentIndexer;
 
 #define NUMERIC_STR "NUMERIC"
 #define GEO_STR "GEO"
@@ -60,11 +66,13 @@ static const char *SpecTypeNames[] = {[IXFLDPOS_FULLTEXT] = SPEC_TEXT_STR,
 
 #define SPEC_MAX_FIELDS 1024
 #define SPEC_MAX_FIELD_ID (sizeof(t_fieldMask) * 8)
+
 // The threshold after which we move to a special encoding for wide fields
 #define SPEC_WIDEFIELD_THRESHOLD 32
 
 extern dict *specDict;
 extern size_t pending_global_indexing_ops;
+extern struct IndexesScanner *global_spec_scanner;
 
 typedef struct {
   size_t numDocuments;
@@ -161,7 +169,7 @@ typedef struct {
   RedisModuleString *types[INDEXFLD_NUM_TYPES];
 } IndexSpecFmtStrings;
 
-struct DocumentIndexer;
+//---------------------------------------------------------------------------------------------
 
 typedef struct IndexSpec {
   char *name;
@@ -204,9 +212,11 @@ typedef struct IndexSpec {
 
   SchemaRule *rule;
 
-  size_t pending_indexing_ops;
-  size_t keysIndexed, keysTotal;
-  bool cascadeDelete;
+  struct IndexesScanner *scanner;
+  // can be true even if scanner == NULL, in case of a scan being cancelled
+  // in favor on a newer, pending scan
+  bool scan_in_progress;
+  bool cascadeDelete; // remove keys when removing spec
 } IndexSpec;
 
 typedef struct {
@@ -216,6 +226,7 @@ typedef struct {
 
 extern RedisModuleType *IndexSpecType;
 extern RedisModuleType *IndexAliasType;
+
 /**
  * This lightweight object contains a COPY of the actual index spec.
  * This makes it safe for other modules to use for information such as
@@ -255,7 +266,7 @@ IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec);
  */
 const FieldSpec *IndexSpec_GetField(const IndexSpec *spec, const char *name, size_t len);
 
-const char *GetFieldNameByBit(const IndexSpec *sp, t_fieldMask id);
+const char *IndexSpec_GetFieldNameByBit(const IndexSpec *sp, t_fieldMask id);
 
 /* Get the field bitmask id of a text field by name. Return 0 if the field is not found or is not a
  * text field */
@@ -279,6 +290,7 @@ const FieldSpec *IndexSpec_GetFieldBySortingIndex(const IndexSpec *sp, uint16_t 
 
 /* Initialize some index stats that might be useful for scoring functions */
 void IndexSpec_GetStats(IndexSpec *sp, RSIndexStats *stats);
+
 /*
  * Parse an index spec from redis command arguments.
  * Returns REDISMODULE_ERR if there's a parsing error.
@@ -314,6 +326,8 @@ void IndexSpec_MakeKeyless(IndexSpec *sp);
 
 #define IndexSpec_IsKeyless(sp) ((sp)->keysDict != NULL)
 
+void IndexesScanner_Cancel(struct IndexesScanner *scanner, bool still_in_progress);
+
 /**
  * Gets the next text id from the index. This does not currently
  * modify the index
@@ -324,6 +338,8 @@ int IndexSpec_CreateTextId(const IndexSpec *sp);
 int IndexSpec_AddFields(IndexSpec *sp, RedisModuleCtx *ctx, ArgsCursor *ac, QueryError *status);
 
 void FieldSpec_Initialize(FieldSpec *sp, FieldType types);
+
+//---------------------------------------------------------------------------------------------
 
 IndexSpec *IndexSpec_Load(RedisModuleCtx *ctx, const char *name, int openWrite);
 
@@ -366,6 +382,8 @@ typedef struct {
  * @return the index spec, or NULL if the index does not exist
  */
 IndexSpec *IndexSpec_LoadEx(RedisModuleCtx *ctx, IndexLoadOptions *options);
+
+//---------------------------------------------------------------------------------------------
 
 // Global hook called when an index spec is created
 extern void (*IndexSpec_OnCreate)(const IndexSpec *sp);
@@ -416,11 +434,25 @@ void IndexSpec_ClearAliases(IndexSpec *sp);
 t_fieldMask IndexSpec_ParseFieldMask(IndexSpec *sp, RedisModuleString **argv, int argc);
 
 void IndexSpec_InitializeSynonym(IndexSpec *sp);
+
+//---------------------------------------------------------------------------------------------
+
+typedef struct IndexesScanner {
+  IndexSpec *spec_opt;
+  size_t scannedKeys, totalKeys;
+  bool cancelled;
+} IndexesScanner;
+
+//---------------------------------------------------------------------------------------------
+
 void Indexes_Init(RedisModuleCtx *ctx);
 void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key);
 void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key);
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+
 #ifdef __cplusplus
 }
 #endif
-#endif
+
+#endif // __SPEC_H__
