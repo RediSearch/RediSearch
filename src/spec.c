@@ -786,6 +786,9 @@ void IndexSpec_FreeInternals(IndexSpec *spec) {
     dictRelease(spec->keysDict);
   }
 
+  if (spec->scanner) {
+    spec->scanner->cancelled = true;
+  }
   rm_free(spec);
 }
 
@@ -1283,13 +1286,6 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
     RedisModule_ThreadSafeContextLock(ctx);
 
     if (scanner->cancelled) {
-      sp = scanner->spec_opt;
-      if (sp) {
-        RedisModule_Log(ctx, "notice", "Scanning indexes in background: aborted (index %s dropped)",
-                        sp->name);
-      } else {
-        RedisModule_Log(ctx, "notice", "Scanning indexes in background: aborted");
-      }
       goto end;
     }
   }

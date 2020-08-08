@@ -282,6 +282,8 @@ def testMultiFilters2(env):
     env.assertEqual(toSortedFlatList(res), toSortedFlatList(res1))
 
 def testInfo(env):
+    env.skipOnCluster()
+
     env.expect('FT.CREATE', 'test', 'ON', 'HASH',
                'PREFIX', '2', 'student:', 'pupil:',
                'FILTER', '@age > 16',
