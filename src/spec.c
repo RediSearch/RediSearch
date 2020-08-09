@@ -787,6 +787,7 @@ void IndexSpec_FreeInternals(IndexSpec *spec) {
 
   if (spec->scanner) {
     spec->scanner->cancelled = true;
+    spec->scanner->spec = NULL;
   }
   rm_free(spec);
 }
@@ -1221,7 +1222,7 @@ static IndexesScanner *IndexesScanner_New(IndexSpec *spec) {
 void IndexesScanner_Free(IndexesScanner *scanner) {
   if (global_spec_scanner == scanner) {
     global_spec_scanner = NULL;
-  } else {
+  } else if (!scanner->cancelled) {
     if (scanner->spec && scanner->spec->scanner == scanner) {
       scanner->spec->scanner = NULL;
       scanner->spec->scan_in_progress = false;
