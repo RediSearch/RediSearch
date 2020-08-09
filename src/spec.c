@@ -37,7 +37,6 @@ RedisModuleType *IndexSpecType;
 static uint64_t spec_unique_ids = 1;
 
 dict *specDict;
-//size_t pending_global_indexing_ops = 0;
 IndexesScanner *global_spec_scanner = NULL;
 
 //---------------------------------------------------------------------------------------------
@@ -1191,42 +1190,55 @@ static void IndexStats_RdbSave(RedisModuleIO *rdb, IndexStats *stats) {
 
 static threadpool reindexPool = NULL;
 
-static IndexesScanner *IndexesScanner_New(IndexSpec *spec_opt) {
-  if (!spec_opt && global_spec_scanner) {
+static IndexesScanner *IndexesScanner_New(IndexSpec *spec) {
+  if (!spec && global_spec_scanner) {
     return NULL;
   }
   IndexesScanner *scanner = rm_calloc(1, sizeof(IndexesScanner));
-  scanner->spec_opt = spec_opt;
+  scanner->global = !spec;
+  scanner->spec = spec;
   scanner->scannedKeys = 0;
   scanner->cancelled = false;
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
   scanner->totalKeys = RedisModule_DbSize(ctx);
   RedisModule_FreeThreadSafeContext(ctx);
 
-  if (spec_opt) {
+  if (spec) {
     // scan already in progress?
-    if (spec_opt->scanner) {
-      IndexesScanner_Cancel(spec_opt->scanner, true);
+    if (spec->scanner) {
+      // cancel ongoing scan, keep on_progress indicator on
+      IndexesScanner_Cancel(spec->scanner, true);
     }
-    spec_opt->scan_in_progress = true;
+    spec->scanner = scanner;
+    spec->scan_in_progress = true;
   } else {
     global_spec_scanner = scanner;
   }
+
   return scanner;
 }
 
 void IndexesScanner_Free(IndexesScanner *scanner) {
   if (global_spec_scanner == scanner) {
     global_spec_scanner = NULL;
+  } else {
+    if (scanner->spec && scanner->spec->scanner == scanner) {
+      scanner->spec->scanner = NULL;
+      scanner->spec->scan_in_progress = false;
+    }
   }
-  IndexesScanner_Cancel(scanner, false);
+
   rm_free(scanner);
 }
 
 void IndexesScanner_Cancel(IndexesScanner *scanner, bool still_in_progress) {
-  if (scanner->spec_opt) {
-    scanner->spec_opt->scan_in_progress = still_in_progress;
-    scanner->spec_opt = NULL;
+  if (scanner->cancelled) {
+    return;
+  }
+  if (!scanner->global && scanner->spec) {
+    scanner->spec->scan_in_progress = still_in_progress;
+    scanner->spec->scanner = NULL;
+    scanner->spec = NULL;
   }
   scanner->cancelled = true;
 }
@@ -1249,11 +1261,13 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
     }
   }
 
-  IndexSpec *sp = scanner->spec_opt;
-  if (sp) {
-    IndexSpec_UpdateMatchingWithSchemaRules(sp, ctx, keyname);
-  } else {
+  if (scanner->cancelled) {
+    return;
+  }
+  if (scanner->global) {
     Indexes_UpdateMatchingWithSchemaRules(ctx, keyname);
+  } else {
+    IndexSpec_UpdateMatchingWithSchemaRules(scanner->spec, ctx, keyname);
   }
   ++scanner->scannedKeys;
 }
@@ -1270,17 +1284,13 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
   if (scanner->cancelled) {
     goto end;
   }
-
-  IndexSpec *sp = scanner->spec_opt;
-  if (sp) {
-    RedisModule_Log(ctx, "notice", "Scanning index %s in background", sp->name);
-  } else {
+  if (scanner->global) {
     RedisModule_Log(ctx, "notice", "Scanning indexes in background");
+  } else {
+    RedisModule_Log(ctx, "notice", "Scanning index %s in background", scanner->spec->name);
   }
 
   while (RedisModule_Scan(ctx, cursor, (RedisModuleScanCB) Indexes_ScanProc, scanner)) {
-    sp = NULL;
-
     RedisModule_ThreadSafeContextUnlock(ctx);
     sched_yield();
     RedisModule_ThreadSafeContextLock(ctx);
@@ -1294,7 +1304,7 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
                   scanner->totalKeys);
 
 end:
-  if (!scanner->cancelled && !scanner->spec_opt) {
+  if (!scanner->cancelled && scanner->global) {
     Indexes_SetTempSpecsTimers();
   }
 
@@ -1317,6 +1327,15 @@ static void IndexSpec_ScanAndReindexAsync(IndexSpec *sp) {
 #endif
   IndexesScanner *scanner = IndexesScanner_New(sp);
   thpool_add_work(reindexPool, (thpool_proc)Indexes_ScanAndReindexTask, scanner);
+}
+
+void ReindexPool_ThreadPoolDestroy() {
+  if (reindexPool != NULL) {
+    RedisModule_ThreadSafeContextUnlock(RSDummyContext);
+    thpool_destroy(reindexPool);
+    reindexPool = NULL;
+    RedisModule_ThreadSafeContextLock(RSDummyContext);
+  }
 }
 
 //---------------------------------------------------------------------------------------------

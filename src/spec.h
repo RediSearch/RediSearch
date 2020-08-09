@@ -438,7 +438,8 @@ void IndexSpec_InitializeSynonym(IndexSpec *sp);
 //---------------------------------------------------------------------------------------------
 
 typedef struct IndexesScanner {
-  IndexSpec *spec_opt;
+  bool global;
+  IndexSpec *spec;
   size_t scannedKeys, totalKeys;
   bool cancelled;
 } IndexesScanner;
