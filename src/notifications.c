@@ -1,4 +1,4 @@
-
+#include "config.h"
 #include "notifications.h"
 #include "spec.h"
 
@@ -202,5 +202,7 @@ void Initialize_KeyspaceNotifications(RedisModuleCtx *ctx) {
 }
 
 void Initialize_CommandFilter(RedisModuleCtx *ctx) {
-  RedisModule_RegisterCommandFilter(ctx, CommandFilterCallback, 0);
+  if (RSGlobalConfig.filterCommands) {
+    RedisModule_RegisterCommandFilter(ctx, CommandFilterCallback, 0);
+  }
 }

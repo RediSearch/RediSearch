@@ -84,6 +84,8 @@ typedef struct {
   long long maxResultsToUnsortedMode;
 
   int noMemPool;
+
+  int filterCommands;
 } RSConfig;
 
 typedef enum {
@@ -161,7 +163,7 @@ sds RSConfig_GetInfoString(const RSConfig *config);
     .gcScanSize = GC_SCANSIZE, .minPhoneticTermLen = DEFAULT_MIN_PHONETIC_TERM_LEN,               \
     .gcPolicy = GCPolicy_Fork, .forkGcRunIntervalSec = DEFAULT_FORK_GC_RUN_INTERVAL,              \
     .forkGcSleepBeforeExit = 0, .maxResultsToUnsortedMode = DEFAULT_MAX_RESULTS_TO_UNSORTED_MODE, \
-    .forkGcRetryInterval = 5, .forkGcCleanThreshold = 100, .noMemPool = 0,                          \
+    .forkGcRetryInterval = 5, .forkGcCleanThreshold = 100, .noMemPool = 0, .filterCommands = 0,   \
   }
 
 #endif
