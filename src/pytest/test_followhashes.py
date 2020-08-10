@@ -4,6 +4,7 @@ import unittest
 from includes import *
 from common import getConnectionByEnv, waitForIndex, sortedResults, toSortedFlatList
 from time import sleep
+from RLTest import Env
 
 def testSyntax1(env):
     conn = getConnectionByEnv(env)
@@ -368,6 +369,10 @@ def testCreateDropCreate(env):
        .equal([1L, 'thing:bar', ['name', 'foo']])
 
 def testPartial(env):
+    if env.env == 'existing-env':
+        env.skip()
+    env = Env(moduleArgs='FILTER_COMMANDS 1')
+
     # HSET
     env.expect('FT.CREATE idx SCHEMA test TEXT').equal('OK')
     env.expect('HSET doc1 test foo').equal(1)
@@ -423,6 +428,10 @@ def testPartial(env):
                                              'doc1', ['test', 'bar', 'testtest', 'foo']])
 
 def testHDel(env):
+    if env.env == 'existing-env':
+        env.skip()
+    env = Env(moduleArgs='FILTER_COMMANDS 1')
+
     env.expect('FT.CREATE idx SCHEMA test1 TEXT test2 TEXT').equal('OK')
     env.expect('HSET doc1 test1 foo test2 bar test3 baz').equal(3)
     env.expect('FT.DEBUG docidtoid idx doc1').equal(1)
