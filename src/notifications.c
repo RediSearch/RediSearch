@@ -16,7 +16,8 @@ static void freeHashFields() {
   }
 }
 
-int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) {
+int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
+                             RedisModuleString *key) {
 
 #define CHECK_CACHED_EVENT(E) \
   if (event == E##_event) {   \
@@ -49,6 +50,10 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event, R
   else CHECK_CACHED_EVENT(hincrby)
   else CHECK_CACHED_EVENT(hincrbyfloat)
   else CHECK_CACHED_EVENT(hdel)
+  else CHECK_CACHED_EVENT(del)
+  else CHECK_CACHED_EVENT(set)
+  else CHECK_CACHED_EVENT(rename_from)
+  else CHECK_CACHED_EVENT(rename_to)
   else CHECK_CACHED_EVENT(trimmed)
   else CHECK_CACHED_EVENT(restore)
   else CHECK_CACHED_EVENT(expire)
@@ -64,6 +69,10 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event, R
     else CHECK_AND_CACHE_EVENT(hincrby)
     else CHECK_AND_CACHE_EVENT(hincrbyfloat)
     else CHECK_AND_CACHE_EVENT(hdel)
+    else CHECK_AND_CACHE_EVENT(del)
+    else CHECK_AND_CACHE_EVENT(set)
+    else CHECK_AND_CACHE_EVENT(rename_from)
+    else CHECK_AND_CACHE_EVENT(rename_to)
     else CHECK_AND_CACHE_EVENT(trimmed)
     else CHECK_AND_CACHE_EVENT(restore)
     else CHECK_AND_CACHE_EVENT(expire)
@@ -79,7 +88,8 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event, R
   }
   if (del || set || trimmed || expire) {
     Indexes_DeleteMatchingWithSchemaRules(ctx, key, hashFields);
-  } else if (change) {
+  }
+  if (change) {
     RedisModuleKey *kp = RedisModule_OpenKey(ctx, key, REDISMODULE_READ);
     if (!kp || RedisModule_KeyType(kp) == REDISMODULE_KEYTYPE_EMPTY) {
       // in crdt empty key means that key was deleted
@@ -87,6 +97,10 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event, R
     } else {
       Indexes_UpdateMatchingWithSchemaRules(ctx, key, hashFields);
     }
+  }
+  if (rename_from) {
+    // Notification rename_to is called right after rename_from so this is safe.  
+    global_RenameFromKey = key;
   }
   if (rename_from) {
     // Notification rename_to is called right after rename_from so this is safe.  
