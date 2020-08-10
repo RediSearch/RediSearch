@@ -986,6 +986,8 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   return REDISMODULE_OK;
 }
 
+void ReindexPool_ThreadPoolDestroy();
+
 void __attribute__((destructor)) RediSearch_CleanupModule(void) {
   if (getenv("RS_GLOBAL_DTORS")) {  // used in sanitizer
     static int invoked = 0;
@@ -999,6 +1001,7 @@ void __attribute__((destructor)) RediSearch_CleanupModule(void) {
     FunctionRegistry_Free();
     mempool_free_global();
     ConcurrentSearch_ThreadPoolDestroy();
+    ReindexPool_ThreadPoolDestroy();
     GC_ThreadPoolDestroy();
     IndexAlias_DestroyGlobal();
     freeGlobalAddStrings();

@@ -8,23 +8,23 @@ def testSyntax1(env):
     conn = getConnectionByEnv(env)
     env.expect('ft.create', 'idx',
                'ONfoo*',
-            'SCHEMA', 'foo', 'text').equal('Unknown argument `ONfoo*`')
-            
+               'SCHEMA', 'foo', 'text').equal('Unknown argument `ONfoo*`')
+
     env.expect('ft.create', 'idx2',
-            'LANGUAGE', 'eng' 
-            'SCHEMA', 'foo', 'text').equal('Invalid language')
-            
+               'LANGUAGE', 'eng'
+               'SCHEMA', 'foo', 'text').equal('Invalid language')
+
     env.expect('ft.create', 'idx2',
-            'SCORE', '1.0' 
-            'SCHEMA', 'foo', 'text').equal('Unknown argument `foo`')
-            
+               'SCORE', '1.0'
+               'SCHEMA', 'foo', 'text').equal('Unknown argument `foo`')
+
     env.expect('ft.create', 'idx2',
-            'PAYLOAD_FIELD', 'awfw' 
-            'SCHEMA', 'foo', 'text').equal('Unknown argument `foo`')
-            
+               'PAYLOAD_FIELD', 'awfw'
+               'SCHEMA', 'foo', 'text').equal('Unknown argument `foo`')
+
     env.expect('ft.create', 'idx2',
-            'FILTER', 'a' 
-            'SCHEMA', 'foo', 'text').equal("Unknown symbol 'aSCHEMA'")
+               'FILTER', 'a'
+               'SCHEMA', 'foo', 'text').equal("Unknown symbol 'aSCHEMA'")
 
 def testFilter1(env):
     conn = getConnectionByEnv(env)
@@ -223,7 +223,7 @@ def testLanguageDefaultAndField(env):
     env.cmd('FT.CREATE', 'idxTest1', 'LANGUAGE_FIELD', 'lang', 'SCHEMA', 'body', 'TEXT')
     env.cmd('FT.CREATE', 'idxTest2', 'LANGUAGE', 'hindi', 'SCHEMA', 'body', 'TEXT')
     conn.execute_command('HSET', 'doc1', 'lang', 'hindi', 'body', u'अँगरेजी अँगरेजों अँगरेज़')
-    
+
     for _ in env.retry_with_rdb_reload():
         waitForIndex(env, 'idxTest1')
         waitForIndex(env, 'idxTest2')
@@ -276,12 +276,14 @@ def testMultiFilters2(env):
     conn.execute_command('HSET', 'student:no1', 'first', 'no1', 'last', 'no1', 'age', '15')
     conn.execute_command('HSET', 'pupil:yes2', 'first', 'yes2', 'last', 'yes2', 'age', '17')
     conn.execute_command('HSET', 'pupil:no2', 'first', 'no2', 'last', 'no2', 'age', '15')
-    res1 = [2L, 'pupil:yes2', ['first', 'yes2', 'last', 'yes2', 'age', '17'], 
+    res1 = [2L, 'pupil:yes2', ['first', 'yes2', 'last', 'yes2', 'age', '17'],
                 'student:yes1', ['first', 'yes1', 'last', 'yes1', 'age', '17']]
     res = env.cmd('ft.search test *')
     env.assertEqual(toSortedFlatList(res), toSortedFlatList(res1))
 
 def testInfo(env):
+    env.skipOnCluster()
+
     env.expect('FT.CREATE', 'test', 'ON', 'HASH',
                'PREFIX', '2', 'student:', 'pupil:',
                'FILTER', '@age > 16',
@@ -292,7 +294,7 @@ def testInfo(env):
                'payload_field', 'pl',
                'SCHEMA', 't', 'TEXT').ok()
     res_actual = env.cmd('FT.INFO test')
-    res_expected = ['key_type', 'HASH', 
+    res_expected = ['key_type', 'HASH',
                     'prefixes', ['student:', 'pupil:'],
                     'filter', '@age > 16',
                     'default_language', 'hindi',
@@ -313,3 +315,18 @@ def testInfo(env):
                     'score_field', '__score',
                     'payload_field', '__payload']
     env.assertEqual(res_actual[5], res_expected)
+
+def testCreateDropCreate(env):
+    conn = getConnectionByEnv(env)
+    conn.execute_command('hset', 'thing:bar', 'name', 'foo')
+    env.expect('ft.create', 'things', 'ON', 'HASH',
+               'PREFIX', '1', 'thing:', 'SCHEMA', 'name', 'text').ok()
+    waitForIndex(conn, 'things')
+    env.expect('ft.search', 'things', 'foo') \
+       .equal([1L, 'thing:bar', ['name', 'foo']])
+    env.expect('ft.dropindex things').ok()
+    env.expect('ft.create', 'things', 'ON', 'HASH',
+               'PREFIX', '1', 'thing:', 'SCHEMA', 'name', 'text').ok()
+    waitForIndex(conn, 'things')
+    env.expect('ft.search', 'things', 'foo') \
+       .equal([1L, 'thing:bar', ['name', 'foo']])
