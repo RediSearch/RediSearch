@@ -449,10 +449,8 @@ int SynonymExpand(RSQueryExpanderCtx *ctx, RSToken *token) {
     return REDISMODULE_OK;
   }
 
-  for (int i = 0; i < array_len(t_data->ids); ++i) {
-    char buff[BUFF_LEN];
-    int len = SynonymMap_IdToStr(t_data->ids[i], buff, BUFF_LEN);
-    ctx->ExpandToken(ctx, rm_strdup((const char *)buff), len, 0x0);
+  for (int i = 0; i < array_len(t_data->groupIds); ++i) {
+    ctx->ExpandToken(ctx, rm_strdup(t_data->groupIds[i]), strlen(t_data->groupIds[i]), 0x0);
   }
   return REDISMODULE_OK;
 }

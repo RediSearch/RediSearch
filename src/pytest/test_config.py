@@ -71,6 +71,10 @@ def testSetConfigOptionsErrors(env):
 
 def testAllConfig(env):
     env.skipOnCluster()
+    ## on existing env the pre tests might change the config
+    ## so no point of testing it
+    if env.env == 'existing-env':
+        env.skip()
     res_list = env.cmd('ft.config get *')
     res_dict = {d[0]: d[1:] for d in res_list}
     env.assertEqual(res_dict['EXTLOAD'][0], None)

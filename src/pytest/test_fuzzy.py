@@ -10,7 +10,8 @@ def testBasicFuzzy(env):
                                     'body', 'this is a test'))
 
     res = r.execute_command('ft.search', 'idx', '%word%')
-    env.assertEqual(res, [1L, 'doc1', ['title', 'hello world', 'body', 'this is a test']])
+    env.assertEqual(res[0:2], [1L, 'doc1'])
+    env.assertEqual(set(res[2]), set(['title', 'hello world', 'body', 'this is a test']))
 
 def testLdLimit(env):
     env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'body', 'text')
@@ -54,7 +55,13 @@ def testFuzzyMultipleResults(env):
                                     'body', 'this is a test'))
 
     res = r.execute_command('ft.search', 'idx', '%word%')
-    env.assertEqual(res, [3L, 'doc3', ['title', 'hello ward', 'body', 'this is a test'], 'doc2', ['title', 'hello word', 'body', 'this is a test'], 'doc1', ['title', 'hello world', 'body', 'this is a test']])
+    env.assertEqual(res[0], 3L)
+    env.assertEqual(res[1], 'doc3')
+    env.assertEqual(set(res[2]), set(['title', 'hello ward', 'body', 'this is a test']))
+    env.assertEqual(res[3], 'doc2')
+    env.assertEqual(set(res[4]), set(['title', 'hello word', 'body', 'this is a test']))
+    env.assertEqual(res[5], 'doc1')
+    env.assertEqual(set(res[6]), set(['title', 'hello world', 'body', 'this is a test']))
 
 def testFuzzySyntaxError(env):
     r = env
