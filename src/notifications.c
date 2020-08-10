@@ -6,6 +6,23 @@ RedisModuleString *global_RenameFromKey = NULL;
 extern RedisModuleCtx *RSDummyContext;
 RedisModuleString **hashFields = NULL;
 
+typedef enum {
+  hset_cmd,
+  hmset_cmd,  
+  hsetnx_cmd,
+  hincrby_cmd,  
+  hincrbyfloat_cmd,  
+  hdel_cmd,
+  del_cmd,  
+  set_cmd,
+  rename_from_cmd,  
+  rename_to_cmd,
+  trimmed_cmd,  
+  restore_cmd,
+  expire_cmd,  
+  change_cmd,
+} RedisCmd;
+
 static void freeHashFields() {
   if (hashFields != NULL) {
     for (size_t i = 0; hashFields[i] != NULL; ++i) {
@@ -21,14 +38,17 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
 
 #define CHECK_CACHED_EVENT(E) \
   if (event == E##_event) {   \
-    E = true;                 \
+    redisCommand = E##_cmd;    \
   }
 
 #define CHECK_AND_CACHE_EVENT(E) \
   if (!strcmp(event, #E)) {      \
-    E = true;                    \
+    redisCommand = E##_cmd;       \
     E##_event = event;           \
   }
+
+  int redisCommand = 0;
+  RedisModuleKey *kp;
 
   static const char *hset_event = 0, *hmset_event = 0, *hsetnx_event = 0,
                     *hincrby_event = 0, *hincrbyfloat_event = 0, *hdel_event = 0,
@@ -36,12 +56,6 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
                     *rename_from_event = 0, *rename_to_event = 0,
                     *trimmed_event = 0, *restore_event = 0, *expire_event = 0, *change_event = 0;
 
-  bool hset = false, hmset = false, hsetnx = false,
-       hincrby = false, hincrbyfloat = false, hdel = false,
-       del = false, set = false,
-       rename_from = false, rename_to = false,
-       trimmed = false, restore = false,
-       expire = false, change = false;
   // clang-format off
 
        CHECK_CACHED_EVENT(hset)
@@ -83,31 +97,43 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
     else CHECK_AND_CACHE_EVENT(rename_to)
   }
 
-  if (hset || hmset || hsetnx || hincrby || hincrbyfloat || hdel || restore) {
-    Indexes_UpdateMatchingWithSchemaRules(ctx, key, hashFields);
-  }
-  if (del || set || trimmed || expire) {
-    Indexes_DeleteMatchingWithSchemaRules(ctx, key, hashFields);
-  }
-  if (change) {
-    RedisModuleKey *kp = RedisModule_OpenKey(ctx, key, REDISMODULE_READ);
-    if (!kp || RedisModule_KeyType(kp) == REDISMODULE_KEYTYPE_EMPTY) {
-      // in crdt empty key means that key was deleted
-      Indexes_DeleteMatchingWithSchemaRules(ctx, key, hashFields);
-    } else {
+  switch (redisCommand) {
+    case hset_cmd:
+    case hmset_cmd:
+    case hsetnx_cmd:
+    case hincrby_cmd:
+    case hincrbyfloat_cmd:
+    case hdel_cmd:
+    case restore_cmd:
       Indexes_UpdateMatchingWithSchemaRules(ctx, key, hashFields);
-    }
-  }
-  if (rename_from) {
-    // Notification rename_to is called right after rename_from so this is safe.  
-    global_RenameFromKey = key;
-  }
-  if (rename_from) {
-    // Notification rename_to is called right after rename_from so this is safe.  
-    global_RenameFromKey = key;
-  }
-  if (rename_to) {
-    Indexes_ReplaceMatchingWithSchemaRules(ctx, global_RenameFromKey, key);
+      break;
+
+    case del_cmd:
+    case set_cmd:
+    case trimmed_cmd:
+    case expire_cmd:
+      Indexes_DeleteMatchingWithSchemaRules(ctx, key, hashFields);
+      break;
+
+    case change_cmd:
+      kp = RedisModule_OpenKey(ctx, key, REDISMODULE_READ);
+      if (!kp || RedisModule_KeyType(kp) == REDISMODULE_KEYTYPE_EMPTY) {
+        // in crdt empty key means that key was deleted
+        Indexes_DeleteMatchingWithSchemaRules(ctx, key, hashFields);
+      } else {
+        Indexes_UpdateMatchingWithSchemaRules(ctx, key, hashFields);
+      }
+      RedisModule_CloseKey(kp);
+      break;
+
+    case rename_from_cmd:
+      // Notification rename_to is called right after rename_from so this is safe.  
+      global_RenameFromKey = key;
+      break;
+
+    case rename_to_cmd:
+      Indexes_ReplaceMatchingWithSchemaRules(ctx, global_RenameFromKey, key);
+      break;
   }
 
   freeHashFields();
