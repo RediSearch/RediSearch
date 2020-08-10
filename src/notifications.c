@@ -38,12 +38,12 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
 
 #define CHECK_CACHED_EVENT(E) \
   if (event == E##_event) {   \
-    redisCommand = E##_cmd;    \
+    redisCommand = E##_cmd;   \
   }
 
 #define CHECK_AND_CACHE_EVENT(E) \
   if (!strcmp(event, #E)) {      \
-    redisCommand = E##_cmd;       \
+    redisCommand = E##_cmd;      \
     E##_event = event;           \
   }
 
