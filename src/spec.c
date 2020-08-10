@@ -1262,7 +1262,7 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
     }
   }
 
-  IndexSpec *sp = scanner->spec_opt;
+  IndexSpec *sp = scanner->spec;
   if (sp) {
     IndexSpec_UpdateMatchingWithSchemaRules(sp, ctx, keyname);
   } else {
