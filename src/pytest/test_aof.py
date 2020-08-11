@@ -6,10 +6,10 @@ from common import getConnectionByEnv, waitForIndex, toSortedFlatList
 
 def aofTestCommon(env, reloadfn):
         # TODO: Change this attribute in rmtest
-
+        conn = getConnectionByEnv(env)
         env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 'field1', 'text', 'field2', 'numeric')
         for x in range(1, 10):
-            env.expect('hset', 'doc{}'.format(x), 'field1', 'myText{}'.format(x), 'field2', 20 * x).equal(2)
+            conn.execute_command('hset', 'doc{}'.format(x), 'field1', 'myText{}'.format(x), 'field2', 20 * x)
 
         reloadfn()
         waitForIndex(env, 'idx')
