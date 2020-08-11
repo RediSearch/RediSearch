@@ -168,6 +168,7 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   }
 
   Initialize_KeyspaceNotifications(ctx);
+  Initialize_CommandFilter(ctx);
 
   return REDISMODULE_OK;
 }

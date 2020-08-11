@@ -4,3 +4,4 @@
 
 int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key);
 void Initialize_KeyspaceNotifications(RedisModuleCtx *ctx);
+void Initialize_CommandFilter(RedisModuleCtx *ctx);

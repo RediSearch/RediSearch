@@ -318,3 +318,22 @@ $ redis-server --loadmodule ./redisearch.so GC_POLICY FORK FORK_GC_CLEAN_THRESHO
 
 * only to be combined with `GC_POLICY FORK`
 * added in v1.4.16
+
+## FILTER_COMMANDS
+
+Enable/disable redis command filter. The filter optimizes updating fields in hashes
+and may avoid reindexing of the hash if changed field are not part of schema.  
+
+### Default
+
+"0"
+
+### Example
+
+```
+$ redis-server --loadmodule ./redisearch.so FILTER_COMMANDS 1
+```
+
+### Notes
+
+* added in v2.0.0

@@ -1262,13 +1262,11 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
     }
   }
 
-  if (scanner->cancelled) {
-    return;
-  }
-  if (scanner->global) {
-    Indexes_UpdateMatchingWithSchemaRules(ctx, keyname);
+  IndexSpec *sp = scanner->spec;
+  if (sp) {
+    IndexSpec_UpdateMatchingWithSchemaRules(sp, ctx, keyname);
   } else {
-    IndexSpec_UpdateMatchingWithSchemaRules(scanner->spec, ctx, keyname);
+    Indexes_UpdateMatchingWithSchemaRules(ctx, keyname, NULL);
   }
   ++scanner->scannedKeys;
 }
@@ -1736,14 +1734,39 @@ dict *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisModuleString *ke
   return specs;
 }
 
-void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key) {
+static bool hashFieldChanged(IndexSpec *spec, RedisModuleString **hashFields) {
+  if(hashFields == NULL) {
+    return true;
+  }
+
+  // TODO: improve implementation to avoid O(n^2)
+  for (size_t i = 0; hashFields[i] != NULL; ++i) {
+    const char *field = RedisModule_StringPtrLen(hashFields[i], NULL);
+    for (size_t j = 0; j < spec->numFields; ++j) {
+      if (!strcmp(field, spec->fields[j].name)) {
+        return true;
+      }
+    }
+    // optimize. change of score and payload fields just require an update of the doc table
+    if (!strcmp(field, spec->rule->lang_field) ||
+        !strcmp(field, spec->rule->score_field) ||
+        !strcmp(field, spec->rule->payload_field)) {
+          return true;
+    }    
+  }
+  return false;
+}
+
+void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key, RedisModuleString **hashFields) {
   dict *specs = Indexes_FindMatchingSchemaRules(ctx, key);
 
   dictIterator *di = dictGetIterator(specs);
   dictEntry *ent = dictNext(di);
   while (ent) {
     IndexSpec *spec = (IndexSpec *)ent->v.val;
-    IndexSpec_UpdateWithHash(spec, ctx, key);
+    if (hashFieldChanged(spec, hashFields)) {
+      IndexSpec_UpdateWithHash(spec, ctx, key);
+    }
     ent = dictNext(di);
   }
   dictReleaseIterator(di);
@@ -1772,14 +1795,16 @@ end:
   dictRelease(specs);
 }
 
-void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key) {
+void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key, RedisModuleString **hashFields) {
   dict *specs = Indexes_FindMatchingSchemaRules(ctx, key);
 
   dictIterator *di = dictGetIterator(specs);
   dictEntry *ent = dictNext(di);
   while (ent) {
     IndexSpec *spec = (IndexSpec *)ent->v.val;
-    IndexSpec_DeleteHash(spec, ctx, key);
+    if (hashFieldChanged(spec, hashFields)) {
+      IndexSpec_DeleteHash(spec, ctx, key);
+    }
     ent = dictNext(di);
   }
   dictReleaseIterator(di);
@@ -1787,4 +1812,41 @@ void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
   dictRelease(specs);
 }
 
+void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *from_key, 
+                                                                 RedisModuleString *to_key) {
+  dict *from_specs = Indexes_FindMatchingSchemaRules(ctx, from_key);
+  dict *to_specs = Indexes_FindMatchingSchemaRules(ctx, to_key);
+
+  size_t from_len, to_len;
+  const char *from_str = RedisModule_StringPtrLen(from_key, &from_len);
+  const char *to_str = RedisModule_StringPtrLen(to_key, &to_len);
+
+  dictIterator *di = dictGetIterator(from_specs);
+  dictEntry *ent = dictNext(di);
+  while (ent) {
+    IndexSpec *spec = (IndexSpec *)ent->v.val;
+    if (dictFind(to_specs, spec->name)) {
+      DocTable_Replace(&spec->docs, from_str, from_len, to_str, to_len);
+      dictDelete(to_specs, spec->name);
+    } else {
+      IndexSpec_DeleteHash(spec, ctx, from_key);
+    }
+    ent = dictNext(di);
+  }
+  dictReleaseIterator(di);
+  dictRelease(from_specs);
+  
+  // add to a different index
+  if (dictSize(to_specs) > 0) {
+    di = dictGetIterator(to_specs);
+    dictEntry *ent = dictNext(di);
+    while (ent) {
+      IndexSpec *spec = (IndexSpec *)ent->v.val;
+      IndexSpec_UpdateWithHash(spec, ctx, to_key);
+      ent = dictNext(di);
+    }
+    dictReleaseIterator(di);
+  }
+  dictRelease(to_specs);
+}
 ///////////////////////////////////////////////////////////////////////////////////////////////

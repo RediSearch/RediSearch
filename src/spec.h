@@ -447,10 +447,10 @@ typedef struct IndexesScanner {
 //---------------------------------------------------------------------------------------------
 
 void Indexes_Init(RedisModuleCtx *ctx);
-void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key);
-void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key);
-
-///////////////////////////////////////////////////////////////////////////////////////////////
+void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key, RedisModuleString **hashFields);
+void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key, RedisModuleString **hashFields);
+void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *from_key, 
+                                                                 RedisModuleString *to_key);
 
 #ifdef __cplusplus
 }

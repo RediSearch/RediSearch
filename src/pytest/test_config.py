@@ -33,6 +33,7 @@ def testGetConfigOptions(env):
     assert env.expect('ft.config', 'get', 'FORK_GC_CLEAN_THRESHOLD').res[0][0] =='FORK_GC_CLEAN_THRESHOLD'
     assert env.expect('ft.config', 'get', 'FORK_GC_RETRY_INTERVAL').res[0][0] =='FORK_GC_RETRY_INTERVAL'
     assert env.expect('ft.config', 'get', '_MAX_RESULTS_TO_UNSORTED_MODE').res[0][0] =='_MAX_RESULTS_TO_UNSORTED_MODE'
+    assert env.expect('ft.config', 'get', 'FILTER_COMMANDS').res[0][0] =='FILTER_COMMANDS'
 
 '''
 
@@ -95,6 +96,7 @@ def testAllConfig(env):
     env.assertEqual(res_dict['FORK_GC_RETRY_INTERVAL'][0], '5')
     env.assertEqual(res_dict['CURSOR_MAX_IDLE'][0], '300000')
     env.assertEqual(res_dict['NO_MEM_POOLS'][0], 'false')
+    env.assertEqual(res_dict['FILTER_COMMANDS'][0], 'false')
 
     # skip ctest configured tests
     #env.assertEqual(res_dict['GC_POLICY'][0], 'fork')
@@ -152,3 +154,5 @@ def testInitConfig(env):
     test_arg_str('GC_POLICY', 'default', 'fork')
     test_arg_str('GC_POLICY', 'legacy', 'sync')
     test_arg_str('ON_TIMEOUT', 'fail')
+    test_arg_str('FILTER_COMMANDS', '0', 'false')
+    test_arg_str('FILTER_COMMANDS', '1', 'true')
