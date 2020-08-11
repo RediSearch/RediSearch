@@ -373,7 +373,7 @@ def testPartial(env):
     if env.env == 'existing-env':
         env.skip()
     env.skipOnCluster()
-    env = Env(moduleArgs='FILTER_COMMANDS 1')
+    env = Env(moduleArgs='PARTIAL_INDEXED_DOCS 1')
 
     # HSET
     env.expect('FT.CREATE idx SCHEMA test TEXT').equal('OK')
@@ -433,7 +433,7 @@ def testHDel(env):
     if env.env == 'existing-env':
         env.skip()
     env.skipOnCluster()
-    env = Env(moduleArgs='FILTER_COMMANDS 1')
+    env = Env(moduleArgs='PARTIAL_INDEXED_DOCS 1')
 
     env.expect('FT.CREATE idx SCHEMA test1 TEXT test2 TEXT').equal('OK')
     env.expect('HSET doc1 test1 foo test2 bar test3 baz').equal(3)
