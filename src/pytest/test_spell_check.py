@@ -116,10 +116,16 @@ def testSpellCheckWithDuplications():
     env.cmd('ft.add', 'idx', 'doc1', 1.0, 'FIELDS', 'name', 'name1', 'body', 'body1')
     env.cmd('ft.add', 'idx', 'doc2', 1.0, 'FIELDS', 'name', 'name2', 'body', 'body2')
     env.cmd('ft.add', 'idx', 'doc3', 1.0, 'FIELDS', 'name', 'name2', 'body', 'name2')
+    env.cmd('ft.add', 'idx', 'doc4', 1.0, 'FIELDS', 'name', 'name2', 'body', 'name5')
+    env.cmd('ft.add', 'idx', 'doc5', 1.0, 'FIELDS', 'name', 'name2', 'body', 'name5')
+    env.cmd('ft.add', 'idx', 'doc6', 1.0, 'FIELDS', 'name', 'name2', 'body', 'name5')
+    env.cmd('ft.add', 'idx', 'doc7', 1.0, 'FIELDS', 'name', 'name2', 'body', 'name5')
+    env.cmd('ft.add', 'idx', 'doc8', 1.0, 'FIELDS', 'name', 'name2', 'body', 'name5')
     env.expect('ft.spellcheck', 'idx', 'name', 'TERMS', 'INCLUDE', 'dict').equal([['TERM', 'name',
-                                                                                   [['1', 'name2'],
-                                                                                    ['0.5', 'name1'],
-                                                                                    ['0', 'name4'], ['0', 'name5']]]])
+                                                                                 [['1', 'name2'],
+                                                                                 ['0.7142857142857143', 'name5'],
+                                                                                 ['0.14285714285714285', 'name1'],
+                                                                                 ['0', 'name4']]]] )
 
 
 def testSpellCheckExcludeDict():

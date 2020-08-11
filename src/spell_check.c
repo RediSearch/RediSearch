@@ -189,19 +189,12 @@ void SpellCheck_SendReplyOnTerm(RedisModuleCtx *ctx, char *term, size_t len, RS_
   RedisModule_ReplyWithStringBuffer(ctx, term, len);
 
   arrayof(RS_Suggestion *)suggestions = spellCheck_GetSuggestions(s);
-  double maxScore = spellCheck_GetMaxScore(suggestions);
-
-  for (int i = 0; i < array_len(suggestions); ++i) {
-    if (suggestions[i]->score == -1) {
-      suggestions[i]->score = 0;
-    } else {
-      if (totalDocNumber > 0) {
-        suggestions[i]->score = (suggestions[i]->score) / maxScore;
-      }
-    }
-  }
-
   qsort(suggestions, array_len(suggestions), sizeof(RS_Suggestion *), RS_SuggestionCompare);
+  
+  double maxScore = 1;
+  if (array_len(suggestions) > 0) {
+    maxScore = MAX(suggestions[0]->score, 1);
+  }
 
   if (array_len(suggestions) == 0) {
     // no results found, we return an empty array
@@ -210,7 +203,7 @@ void SpellCheck_SendReplyOnTerm(RedisModuleCtx *ctx, char *term, size_t len, RS_
     RedisModule_ReplyWithArray(ctx, array_len(suggestions));
     for (int i = 0; i < array_len(suggestions); ++i) {
       RedisModule_ReplyWithArray(ctx, 2);
-      RedisModule_ReplyWithDouble(ctx, suggestions[i]->score);
+      RedisModule_ReplyWithDouble(ctx, suggestions[i]->score > 0 ? suggestions[i]->score / maxScore : 0);
       RedisModule_ReplyWithStringBuffer(ctx, suggestions[i]->suggestion, suggestions[i]->len);
     }
   }

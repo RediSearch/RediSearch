@@ -8,7 +8,7 @@
 #define FOUND_TERM_IN_INDEX "term exists in index"
 
 typedef struct RS_Suggestion {
-  double score;
+  long long score;
   char *suggestion;
   size_t len;
 } RS_Suggestion;
