@@ -452,6 +452,8 @@ void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
 void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *from_key, 
                                                                  RedisModuleString *to_key);
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+
 #ifdef __cplusplus
 }
 #endif

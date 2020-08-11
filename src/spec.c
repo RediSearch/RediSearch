@@ -1262,11 +1262,13 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
     }
   }
 
-  IndexSpec *sp = scanner->spec;
-  if (sp) {
-    IndexSpec_UpdateMatchingWithSchemaRules(sp, ctx, keyname);
-  } else {
+  if (scanner->cancelled) {
+    return;
+  }
+  if (scanner->global) {
     Indexes_UpdateMatchingWithSchemaRules(ctx, keyname, NULL);
+  } else {
+    IndexSpec_UpdateMatchingWithSchemaRules(scanner->spec, ctx, keyname);
   }
   ++scanner->scannedKeys;
 }
@@ -1764,7 +1766,7 @@ void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
   dictEntry *ent = dictNext(di);
   while (ent) {
     IndexSpec *spec = (IndexSpec *)ent->v.val;
-    if (hashFieldChanged(spec, hashFields)) {
+    if (!hashFields || hashFieldChanged(spec, hashFields)) {
       IndexSpec_UpdateWithHash(spec, ctx, key);
     }
     ent = dictNext(di);
@@ -1802,7 +1804,7 @@ void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
   dictEntry *ent = dictNext(di);
   while (ent) {
     IndexSpec *spec = (IndexSpec *)ent->v.val;
-    if (hashFieldChanged(spec, hashFields)) {
+    if (!hashFields || hashFieldChanged(spec, hashFields)) {
       IndexSpec_DeleteHash(spec, ctx, key);
     }
     ent = dictNext(di);
