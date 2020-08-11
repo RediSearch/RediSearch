@@ -1,4 +1,4 @@
-
+from collections import Iterable
 import time
 
 def getConnectionByEnv(env):
@@ -15,6 +15,18 @@ def waitForIndex(env, idx):
         if int(res[res.index('indexing') + 1]) == 0:
             break
         time.sleep(0.1)
+
+def toSortedFlatList(res):
+    if isinstance(res, str):
+        return [res]    
+    if isinstance(res, Iterable):
+        finalList = []
+        for e in res:
+            finalList += toSortedFlatList(e)
+        return sorted(finalList)
+    return [res]
+
+
 
 def sortedResults(res):
     n = res[0]

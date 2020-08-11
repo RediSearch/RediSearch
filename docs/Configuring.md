@@ -318,3 +318,22 @@ $ redis-server --loadmodule ./redisearch.so GC_POLICY FORK FORK_GC_CLEAN_THRESHO
 
 * only to be combined with `GC_POLICY FORK`
 * added in v1.4.16
+
+## PARTIAL_INDEXED_DOCS
+
+Enable/disable redis command filter. The filter optimizes partial updates of hashes
+and may avoid reindexing of the hash if changed fields are not part of schema.  
+
+### Default
+
+"0"
+
+### Example
+
+```
+$ redis-server --loadmodule ./redisearch.so PARTIAL_INDEXED_DOCS 1
+```
+
+### Notes
+
+* added in v2.0.0

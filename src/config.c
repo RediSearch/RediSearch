@@ -286,6 +286,13 @@ CONFIG_GETTER(getGcPolicy) {
   return sdsnew(GCPolicy_ToString(config->gcPolicy));
 }
 
+CONFIG_SETTER(setFilterCommand) {
+  int acrc = AC_GetInt(ac, &config->filterCommands, AC_F_GE0);
+  RETURN_STATUS(acrc);
+}
+
+CONFIG_BOOLEAN_GETTER(getFilterCommand, filterCommands, 0)
+
 RSConfig RSGlobalConfig = RS_DEFAULT_CONFIG;
 
 static RSConfigVar *findConfigVar(const RSConfigOptions *config, const char *name) {
@@ -445,6 +452,11 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "Set RediSearch to run without memory pools",
          .setValue = setNoMemPools,
          .getValue = getNoMemPools,
+         .flags = RSCONFIGVAR_F_IMMUTABLE},
+        {.name = "PARTIAL_INDEXED_DOCS",
+         .helpText = "Enable commands filter which optimize indexing on partial hash updates",
+         .setValue = setFilterCommand,
+         .getValue = getFilterCommand,
          .flags = RSCONFIGVAR_F_IMMUTABLE},
         {.name = NULL}}};
 

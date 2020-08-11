@@ -7,7 +7,7 @@ import random
 import time
 from RLTest import Env
 from includes import *
-from common import getConnectionByEnv, waitForIndex
+from common import getConnectionByEnv, waitForIndex, toSortedFlatList
 
 # this tests is not longer relevant
 # def testAdd(env):
@@ -179,10 +179,9 @@ def testSearch(env):
     for _ in r.retry_with_rdb_reload():
         waitForIndex(env, 'idx')
         res = r.execute_command('ft.search', 'idx', 'hello')
-        expected = ['doc2', ['title', 'hello another world', 'body', 'lorem ist ipsum lorem lorem'],
+        expected = [2L, 'doc2', ['title', 'hello another world', 'body', 'lorem ist ipsum lorem lorem'],
                     'doc1', ['title', 'hello world', 'body', 'lorem ist ipsum']]
-        for item in expected:
-            env.assertIn(item, res)
+        env.assertEqual(toSortedFlatList(res), toSortedFlatList(expected))
 
         # Test empty query
         res = r.execute_command('ft.search', 'idx', '')
@@ -238,8 +237,7 @@ def testGet(env):
     for i in range(100):
         res = r.execute_command('ft.get', 'idx', 'doc%d' % i)
         env.assertIsNotNone(res)
-        env.assertListEqual(
-            ['foo', 'hello world', 'bar', 'wat wat'], res)
+        env.assertEqual(set(['foo', 'hello world', 'bar', 'wat wat']), set(res))
         env.assertIsNone(r.execute_command(
             'ft.get', 'idx', 'doc%dsdfsd' % i))
     env.expect('ft.get', 'no_idx', 'doc0').error().contains("Unknown Index name")
@@ -249,8 +247,7 @@ def testGet(env):
     env.assertEqual(len(rr), 100)
     for res in rr:
         env.assertIsNotNone(res)
-        env.assertListEqual(
-            ['foo', 'hello world', 'bar', 'wat wat'], res)
+        env.assertEqual(set(['foo', 'hello world', 'bar', 'wat wat']), set(res))
     rr = r.execute_command(
         'ft.mget', 'idx', *('doc-%d' % i for i in range(100)))
     env.assertEqual(len(rr), 100)
@@ -272,7 +269,8 @@ def testGet(env):
 
     env.expect('ft.add idx doc 0.1 language arabic payload redislabs fields foo foo').ok()
     env.expect('ft.get idx doc').equal(['foo', 'foo'])
-    env.expect('hgetall doc').equal(['foo', 'foo', '__score', '0.1', '__language', 'arabic', '__payload', 'redislabs'])
+    res = env.cmd('hgetall doc')
+    env.assertEqual(set(res), set(['foo', 'foo', '__score', '0.1', '__language', 'arabic', '__payload', 'redislabs']))
 
 
 def testDelete(env):
@@ -1894,7 +1892,8 @@ def testAlterIndex(env):
 
     # RS 2.0 reindex and after reload both documents are found
     # for _ in env.retry_with_reload():
-    env.expect('FT.SEARCH', 'idx', 'world').equal([2L, 'doc2', ['f1', 'hello', 'f2', 'world'], 'doc1', ['f1', 'hello', 'f2', 'world']])
+    res = env.cmd('FT.SEARCH', 'idx', 'world')
+    env.assertEqual(toSortedFlatList(res), toSortedFlatList([2L, 'doc2', ['f1', 'hello', 'f2', 'world'], 'doc1', ['f1', 'hello', 'f2', 'world']]))
     # env.assertEqual([1, 'doc2', ['f1', 'hello', 'f2', 'world']], ret)
 
     env.cmd('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'f3', 'TEXT', 'SORTABLE')
@@ -2204,7 +2203,8 @@ def testIssue621(env):
     env.expect('ft.create', 'test', 'ON', 'HASH', 'SCHEMA', 'uuid', 'TAG', 'title', 'TEXT').equal('OK')
     env.expect('ft.add', 'test', 'a', '1', 'REPLACE', 'PARTIAL', 'FIELDS', 'uuid', 'foo', 'title', 'bar').equal('OK')
     env.expect('ft.add', 'test', 'a', '1', 'REPLACE', 'PARTIAL', 'FIELDS', 'title', 'bar').equal('OK')
-    env.expect('ft.search', 'test', '@uuid:{foo}').equal([1L, 'a', ['uuid', 'foo', 'title', 'bar']])
+    res = env.cmd('ft.search', 'test', '@uuid:{foo}')
+    env.assertEqual(toSortedFlatList(res), toSortedFlatList([1L, 'a', ['uuid', 'foo', 'title', 'bar']]))
 
 # Server crash on doc names that conflict with index keys #666
 # again this test is not relevant cause index is out of key space
@@ -2276,7 +2276,7 @@ def testPrefixDeletedExpansions(env):
 
     # print 'did {} iterations'.format(iters)
     r = env.cmd('ft.search', 'idx', '@txt1:term* @tag1:{tag*}')
-    env.assertEqual([1, 'doc_XXX', ['txt1', 'termZZZ', 'tag1', 'tagZZZ']], r)
+    env.assertEqual(toSortedFlatList([1, 'doc_XXX', ['txt1', 'termZZZ', 'tag1', 'tagZZZ']]), toSortedFlatList(r))
 
 
 def testOptionalFilter(env):
@@ -2397,15 +2397,18 @@ def testIssue_779(env):
 
     env.cmd('FT.CREATE idx2 ON HASH SCHEMA ot1 TAG')
     env.cmd('FT.ADD idx2 doc2 1.0 FIELDS newf CAT ot1 4001')
-    env.expect('FT.GET idx2 doc2').equal(["newf", "CAT", "ot1", "4001"])
+    res = env.cmd('FT.GET idx2 doc2')
+    env.assertEqual(toSortedFlatList(res), toSortedFlatList(["newf", "CAT", "ot1", "4001"]))
 
     # NOADD is expected since 4001 is not < 4000, and no updates to the doc2 is expected as a result
     env.expect('FT.ADD idx2 doc2 1.0 REPLACE PARTIAL if @ot1<4000 FIELDS newf DOG ot1 4000', 'NOADD')
-    env.expect('FT.GET idx2 doc2').equal(["newf", "CAT", "ot1", "4001"])
+    res = env.cmd('FT.GET idx2 doc2')
+    env.assertEqual(toSortedFlatList(res), toSortedFlatList(["newf", "CAT", "ot1", "4001"]))
 
     # OK is expected since 4001 < 4002 and the doc2 is updated
     env.expect('FT.ADD idx2 doc2 1.0 REPLACE PARTIAL if @ot1<4002 FIELDS newf DOG ot1 4002').equal('OK')
-    env.expect('FT.GET idx2 doc2').equal(["newf", "DOG", "ot1", "4002"])
+    res = env.cmd('FT.GET idx2 doc2')
+    env.assertEqual(toSortedFlatList(res), toSortedFlatList(["newf", "DOG", "ot1", "4002"]))
 
     # OK is NOT expected since 4002 is not < 4002
     # We expect NOADD and doc2 update; however, we get OK and doc2 updated
@@ -2413,11 +2416,13 @@ def testIssue_779(env):
     env.expect('FT.ADD idx2 doc2 1.0 REPLACE PARTIAL if @ot1<4002 FIELDS newf FISH ot1 4002').equal('NOADD')
     env.expect('FT.ADD idx2 doc2 1.0 REPLACE PARTIAL if to_number(@ot1)<4002 FIELDS newf FISH ot1 4002').equal('NOADD')
     env.expect('FT.ADD idx2 doc2 1.0 REPLACE PARTIAL if @ot1<to_str(4002) FIELDS newf FISH ot1 4002').equal('NOADD')
-    env.expect('FT.GET idx2 doc2').equal(["newf", "DOG", "ot1", "4002"])
+    res = env.cmd('FT.GET idx2 doc2')
+    env.assertEqual(toSortedFlatList(res), toSortedFlatList(["newf", "DOG", "ot1", "4002"]))
 
     # OK and doc2 update is expected since 4002 < 4003
     env.expect('FT.ADD idx2 doc2 1.0 REPLACE PARTIAL if @ot1<4003 FIELDS newf HORSE ot1 4003').equal('OK')
-    env.expect('FT.GET idx2 doc2').equal(["newf", "HORSE", "ot1", "4003"])
+    res = env.cmd('FT.GET idx2 doc2')
+    env.assertEqual(toSortedFlatList(res), toSortedFlatList(["newf", "HORSE", "ot1", "4003"]))
 
     # Expect NOADD since 4003 is not > 4003
     env.expect('FT.ADD idx2 doc2 1.0 REPLACE PARTIAL if @ot1>4003 FIELDS newf COW ot1 4003').equal('NOADD')
@@ -2425,7 +2430,8 @@ def testIssue_779(env):
 
     # Expect OK and doc2 updated since 4003 > 4002
     env.expect('FT.ADD idx2 doc2 1.0 REPLACE PARTIAL if @ot1>4002 FIELDS newf PIG ot1 4002').equal('OK')
-    env.expect('FT.GET idx2 doc2').equal(["newf", "PIG", "ot1", "4002"])
+    res = env.cmd('FT.GET idx2 doc2')
+    env.assertEqual(toSortedFlatList(res), toSortedFlatList(["newf", "PIG", "ot1", "4002"]))
 
     # Syntax errors
     env.expect('FT.ADD idx2 doc2 1.0 REPLACE PARTIAL if @ot1<4-002 FIELDS newf DOG ot1 4002').contains('Syntax error')
@@ -2821,14 +2827,16 @@ def testIssue1085(env):
     env.cmd('FT.CREATE issue1085 ON HASH SCHEMA foo TEXT SORTABLE bar NUMERIC SORTABLE')
     for i in range(1, 10):
         env.cmd('FT.ADD issue1085 document_%d 1 REPLACE FIELDS foo foo%d bar %d' % (i, i, i))
-    env.expect('FT.SEARCH', 'issue1085', '@bar:[8 8]').equal([1L, 'document_8', ['foo', 'foo8', 'bar', '8']])
+    res = env.cmd('FT.SEARCH', 'issue1085', '@bar:[8 8]')
+    env.assertEqual(toSortedFlatList(res), toSortedFlatList([1L, 'document_8', ['foo', 'foo8', 'bar', '8']]))
 
     for i in range(1, 10):
         env.cmd('FT.ADD issue1085 document_8 1 REPLACE FIELDS foo foo8 bar 8')
 
     env.expect('ft.debug GC_FORCEINVOKE issue1085').equal('DONE')
 
-    env.expect('FT.SEARCH', 'issue1085', '@bar:[8 8]').equal([1, 'document_8', ['foo', 'foo8', 'bar', '8']])
+    res = env.cmd('FT.SEARCH', 'issue1085', '@bar:[8 8]')
+    env.assertEqual(toSortedFlatList(res), toSortedFlatList([1, 'document_8', ['foo', 'foo8', 'bar', '8']]))
 
 
 def grouper(iterable, n, fillvalue=None):
@@ -2899,15 +2907,18 @@ def testUnseportedSortableTypeErrorOnTags(env):
     env.expect('FT.CREATE idx ON HASH SCHEMA f1 TEXT SORTABLE f2 NUMERIC SORTABLE NOINDEX f3 TAG SORTABLE NOINDEX f4 TEXT SORTABLE NOINDEX').ok()
     env.expect('FT.ADD idx doc1 1.0 FIELDS f1 foo1 f2 1 f3 foo1 f4 foo1').ok()
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL FIELDS f2 2 f3 foo2 f4 foo2').ok()
-    env.expect('HGETALL doc1').equal(['f1', 'foo1', 'f2', '2', 'f3', 'foo2', 'f4', 'foo2', '__score', '1.0'])
-    env.expect('FT.SEARCH idx *').equal([1L, 'doc1', ['f1', 'foo1', 'f2', '2', 'f3', 'foo2', 'f4', 'foo2']])
+    res = env.cmd('HGETALL doc1')
+    env.assertEqual(toSortedFlatList(res), toSortedFlatList(['f1', 'foo1', 'f2', '2', 'f3', 'foo2', 'f4', 'foo2', '__score', '1.0']))
+    res = env.cmd('FT.SEARCH idx *')
+    env.assertEqual(toSortedFlatList(res), toSortedFlatList([1L, 'doc1', ['f1', 'foo1', 'f2', '2', 'f3', 'foo2', 'f4', 'foo2']]))
 
 
 def testIssue1158(env):
     env.cmd('FT.CREATE idx ON HASH SCHEMA txt1 TEXT txt2 TEXT txt3 TEXT')
 
     env.cmd('FT.ADD idx doc1 1.0 FIELDS txt1 10 txt2 num1')
-    env.expect('FT.GET idx doc1').equal(['txt1', '10', 'txt2', 'num1'])
+    res = env.cmd('FT.GET idx doc1')
+    env.assertEqual(toSortedFlatList(res), toSortedFlatList(['txt1', '10', 'txt2', 'num1']))
 
     # only 1st checked (2nd returns an error)
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if @txt1||to_number(@txt2)<5 FIELDS txt1 5').equal('OK')
@@ -2918,7 +2929,8 @@ def testIssue1158(env):
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if to_number(@txt1)>11||to_number(@txt1)<42 FIELDS txt2 num2').equal('OK')
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if to_number(@txt1)>11&&to_number(@txt1)>42 FIELDS txt2 num2').equal('NOADD')
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if to_number(@txt1)>11&&to_number(@txt1)<42 FIELDS txt2 num2').equal('NOADD')
-    env.expect('FT.GET idx doc1').equal(['txt1', '5', 'txt2', 'num2'])
+    res = env.cmd('FT.GET idx doc1')
+    env.assertEqual(toSortedFlatList(res), toSortedFlatList(['txt1', '5', 'txt2', 'num2']))
 
 def testIssue1159(env):
     env.cmd('FT.CREATE idx ON HASH SCHEMA f1 TAG')
@@ -3120,11 +3132,38 @@ def testScoreLangPayloadAreReturnedIfCaseNotMatchToSpecialFields(env):
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE idx ON HASH SCHEMA n NUMERIC SORTABLE')
     conn.execute_command('hset', 'doc1', 'n', '1.0', '__Language', 'eng', '__Score', '1', '__Payload', '10')
-    env.expect('ft.search', 'idx', '@n:[0 2]').equal([1L, 'doc1', ['n', '1.0', '__Language', 'eng', '__Score', '1', '__Payload', '10']])
+    res = env.cmd('ft.search', 'idx', '@n:[0 2]')
+    env.assertEqual(toSortedFlatList(res), toSortedFlatList([1L, 'doc1', ['n', '1.0', '__Language', 'eng', '__Score', '1', '__Payload', '10']]))
 
 def testReturnSameFieldDifferentCase(env):
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE idx ON HASH SCHEMA n NUMERIC SORTABLE N NUMERIC SORTABLE')
     conn.execute_command('hset', 'doc1', 'n', '1.0', 'N', '2.0')
     env.expect('ft.search', 'idx', '@n:[0 2]', 'RETURN', '2', 'n', 'N').equal([1L, 'doc1', ['n', '1', 'N', '2']])
+
+def testCreateIfNX(env):
+    env.expect('FT._CREATEIFNX idx ON HASH SCHEMA n NUMERIC SORTABLE N NUMERIC SORTABLE').ok()
+    env.expect('FT._CREATEIFNX idx ON HASH SCHEMA n NUMERIC SORTABLE N NUMERIC SORTABLE').ok()
+
+def testDropIfX(env):
+    env.expect('FT._DROPIFX idx').ok()
+
+def testDeleteIfX(env):
+    env.expect('FT._DROPINDEXIFX idx').ok()
+
+def testAlterIfNX(env):
+    env.expect('FT.CREATE idx ON HASH SCHEMA n NUMERIC').ok()
+    env.expect('FT._ALTERIFNX idx SCHEMA ADD n1 NUMERIC').ok()
+    env.expect('FT._ALTERIFNX idx SCHEMA ADD n1 NUMERIC').ok()
+    res = env.cmd('ft.info idx')
+    res = {res[i]: res[i + 1] for i in range(0, len(res), 2)}['fields']
+    env.assertEqual(res, [['n', 'type', 'NUMERIC'], ['n1', 'type', 'NUMERIC']])
+
+def testAliasAddIfNX(env):
+    env.expect('FT.CREATE idx ON HASH SCHEMA n NUMERIC').ok()
+    env.expect('FT._ALIASADDIFNX a1 idx').ok()
+    env.expect('FT._ALIASADDIFNX a1 idx').ok()
+
+def testAliasDelIfX(env):
+    env.expect('FT._ALIASDELIFX a1').ok()
 

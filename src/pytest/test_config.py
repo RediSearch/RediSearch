@@ -33,6 +33,7 @@ def testGetConfigOptions(env):
     assert env.expect('ft.config', 'get', 'FORK_GC_CLEAN_THRESHOLD').res[0][0] =='FORK_GC_CLEAN_THRESHOLD'
     assert env.expect('ft.config', 'get', 'FORK_GC_RETRY_INTERVAL').res[0][0] =='FORK_GC_RETRY_INTERVAL'
     assert env.expect('ft.config', 'get', '_MAX_RESULTS_TO_UNSORTED_MODE').res[0][0] =='_MAX_RESULTS_TO_UNSORTED_MODE'
+    assert env.expect('ft.config', 'get', 'PARTIAL_INDEXED_DOCS').res[0][0] =='PARTIAL_INDEXED_DOCS'
 
 '''
 
@@ -71,6 +72,10 @@ def testSetConfigOptionsErrors(env):
 
 def testAllConfig(env):
     env.skipOnCluster()
+    ## on existing env the pre tests might change the config
+    ## so no point of testing it
+    if env.env == 'existing-env':
+        env.skip()
     res_list = env.cmd('ft.config get *')
     res_dict = {d[0]: d[1:] for d in res_list}
     env.assertEqual(res_dict['EXTLOAD'][0], None)
@@ -91,6 +96,7 @@ def testAllConfig(env):
     env.assertEqual(res_dict['FORK_GC_RETRY_INTERVAL'][0], '5')
     env.assertEqual(res_dict['CURSOR_MAX_IDLE'][0], '300000')
     env.assertEqual(res_dict['NO_MEM_POOLS'][0], 'false')
+    env.assertEqual(res_dict['PARTIAL_INDEXED_DOCS'][0], 'false')
 
     # skip ctest configured tests
     #env.assertEqual(res_dict['GC_POLICY'][0], 'fork')
@@ -148,3 +154,5 @@ def testInitConfig(env):
     test_arg_str('GC_POLICY', 'default', 'fork')
     test_arg_str('GC_POLICY', 'legacy', 'sync')
     test_arg_str('ON_TIMEOUT', 'fail')
+    test_arg_str('PARTIAL_INDEXED_DOCS', '0', 'false')
+    test_arg_str('PARTIAL_INDEXED_DOCS', '1', 'true')
