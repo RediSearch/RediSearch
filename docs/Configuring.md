@@ -218,9 +218,9 @@ and may avoid reindexing of the hash if changed fields are not part of schema.
 
 ### Considerations
 
-The Redis command filter will be executed upon each Redis Command.  Though it checks for 
-on the first character (H) of the command, this will introduce a small increase in 
-latency.  This configuration is best used with partial indexed documents where the non 
+The Redis command filter will be executed upon each Redis Command.  Though the filter is
+optimised, this will introduce a small increase in latency on all commands.  
+This configuration is therefore best used with partial indexed documents where the non-
 indexed fields are updated frequently.
 
 ### Default
