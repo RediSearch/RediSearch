@@ -153,6 +153,7 @@ def testSet(env):
        .equal([0L])
 
 def testRename(env):
+    env.skipOnCluster()
     conn = getConnectionByEnv(env)
     env.cmd('ft.create things PREFIX 1 thing: SCHEMA name text')
     env.expect('ft.search things foo').equal([0L])
@@ -371,7 +372,8 @@ def testCreateDropCreate(env):
 def testPartial(env):
     if env.env == 'existing-env':
         env.skip()
-    env = Env(moduleArgs='FILTER_COMMANDS 1')
+    env.skipOnCluster()
+    env = Env(moduleArgs='PARTIAL_INDEXED_DOCS 1')
 
     # HSET
     env.expect('FT.CREATE idx SCHEMA test TEXT').equal('OK')
@@ -430,7 +432,8 @@ def testPartial(env):
 def testHDel(env):
     if env.env == 'existing-env':
         env.skip()
-    env = Env(moduleArgs='FILTER_COMMANDS 1')
+    env.skipOnCluster()
+    env = Env(moduleArgs='PARTIAL_INDEXED_DOCS 1')
 
     env.expect('FT.CREATE idx SCHEMA test1 TEXT test2 TEXT').equal('OK')
     env.expect('HSET doc1 test1 foo test2 bar test3 baz').equal(3)
@@ -442,6 +445,9 @@ def testHDel(env):
     env.expect('FT.SEARCH idx bar').equal([1L, 'doc1', ['test2', 'bar']])
 
 def testRestore(env):
+    if env.env == 'existing-env':
+        env.skip()
+    env.skipOnCluster()
     env.expect('FT.CREATE idx SCHEMA test TEXT').equal('OK')
     env.expect('HSET doc1 test foo').equal(1)
     env.expect('FT.SEARCH idx foo').equal([1L, 'doc1', ['test', 'foo']])
@@ -452,9 +458,10 @@ def testRestore(env):
     env.expect('FT.SEARCH idx foo').equal([1L, 'doc1', ['test', 'foo']])
 
 def testExpire(env):
+    conn = getConnectionByEnv(env)
     env.expect('FT.CREATE idx SCHEMA test TEXT').equal('OK')
-    env.expect('HSET doc1 test foo').equal(1)
+    conn.execute_command('HSET', 'doc1', 'test', 'foo')
     env.expect('FT.SEARCH idx foo').equal([1L, 'doc1', ['test', 'foo']])
-    env.expect('EXPIRE doc1 1').equal(1)
+    conn.execute_command('EXPIRE', 'doc1', '1')
     sleep(1.1)
     env.expect('FT.SEARCH idx foo').equal([0L])
