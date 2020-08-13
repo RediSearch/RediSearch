@@ -158,6 +158,4 @@ def testInitConfig(env):
     test_arg_str('PARTIAL_INDEXED_DOCS', '0', 'false')
     test_arg_str('PARTIAL_INDEXED_DOCS', '1', 'true')
     test_arg_str('MAXSEARCHRESULTS', '100', '100')
-    test_arg_str('MAXSEARCHRESULTS', '-1', '18446744073709551615')
-
-    
+    test_arg_str('MAXSEARCHRESULTS', '-1', 'unlimited')

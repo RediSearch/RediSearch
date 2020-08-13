@@ -135,6 +135,9 @@ CONFIG_SETTER(setMaxSearchResults) {
 
 CONFIG_GETTER(getMaxSearchResults) {
   sds ss = sdsempty();
+  if (config->maxSearchResults == UINT64_MAX) {
+    return sdscatprintf(ss, "unlimited"); 
+  }
   return sdscatprintf(ss, "%lu", config->maxSearchResults);
 }
 
@@ -501,7 +504,9 @@ sds RSConfig_GetInfoString(const RSConfig *config) {
   ss = sdscatprintf(ss, "cursor read size: %lld, ", config->cursorReadSize);
   ss = sdscatprintf(ss, "cursor max idle (ms): %lld, ", config->cursorMaxIdle);
   ss = sdscatprintf(ss, "max doctable size: %lu, ", config->maxDocTableSize);
-  ss = sdscatprintf(ss, "max number of search results: %lu, ", config->maxSearchResults);
+  ss = sdscatprintf(ss, "max number of search results: ");
+  ss = (config->maxSearchResults == UINT64_MAX) ? // value for MaxSearchResults
+        sdscatprintf(ss, "unlimited, ") : sdscatprintf(ss, " %lu, ", config->maxSearchResults);
   ss = sdscatprintf(ss, "search pool size: %lu, ", config->searchPoolSize);
   ss = sdscatprintf(ss, "index pool size: %lu, ", config->indexPoolSize);
 
