@@ -19,7 +19,8 @@ typedef enum {
   rename_to_cmd,
   trimmed_cmd,  
   restore_cmd,
-  expire_cmd,  
+  expired_cmd,  
+  evicted_cmd,  
   change_cmd,
 } RedisCmd;
 
@@ -54,7 +55,8 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
                     *hincrby_event = 0, *hincrbyfloat_event = 0, *hdel_event = 0,
                     *del_event = 0, *set_event = 0,
                     *rename_from_event = 0, *rename_to_event = 0,
-                    *trimmed_event = 0, *restore_event = 0, *expire_event = 0, *change_event = 0;
+                    *trimmed_event = 0, *restore_event = 0, *expired_event = 0, 
+                    *evicted_event = 0, *change_event = 0;
 
   // clang-format off
 
@@ -70,7 +72,8 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
   else CHECK_CACHED_EVENT(rename_to)
   else CHECK_CACHED_EVENT(trimmed)
   else CHECK_CACHED_EVENT(restore)
-  else CHECK_CACHED_EVENT(expire)
+  else CHECK_CACHED_EVENT(expired)
+  else CHECK_CACHED_EVENT(evicted)
   else CHECK_CACHED_EVENT(change)
   else CHECK_CACHED_EVENT(del)
   else CHECK_CACHED_EVENT(set)
@@ -89,7 +92,8 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
     else CHECK_AND_CACHE_EVENT(rename_to)
     else CHECK_AND_CACHE_EVENT(trimmed)
     else CHECK_AND_CACHE_EVENT(restore)
-    else CHECK_AND_CACHE_EVENT(expire)
+    else CHECK_AND_CACHE_EVENT(expired)
+    else CHECK_AND_CACHE_EVENT(evicted)
     else CHECK_AND_CACHE_EVENT(change)
     else CHECK_AND_CACHE_EVENT(del)
     else CHECK_AND_CACHE_EVENT(set)
@@ -111,7 +115,8 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
     case del_cmd:
     case set_cmd:
     case trimmed_cmd:
-    case expire_cmd:
+    case expired_cmd:
+    case evicted_cmd:
       Indexes_DeleteMatchingWithSchemaRules(ctx, key, hashFields);
       break;
 
@@ -197,7 +202,8 @@ done:
 void Initialize_KeyspaceNotifications(RedisModuleCtx *ctx) {
   RedisModule_SubscribeToKeyspaceEvents(ctx,
     REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_HASH |
-    REDISMODULE_NOTIFY_TRIMMED | REDISMODULE_NOTIFY_STRING,
+    REDISMODULE_NOTIFY_TRIMMED | REDISMODULE_NOTIFY_STRING |
+    REDISMODULE_NOTIFY_EXPIRED | REDISMODULE_NOTIFY_EVICTED,
     HashNotificationCallback);
 }
 
