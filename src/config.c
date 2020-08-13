@@ -121,6 +121,23 @@ CONFIG_GETTER(getMaxDocTableSize) {
   return sdscatprintf(ss, "%lu", config->maxDocTableSize);
 }
 
+// MAXSEARCHRESULTS
+CONFIG_SETTER(setMaxSearchResults) {  
+  long long newsize = 0;
+  int acrc = AC_GetLongLong(ac, &newsize, 0);
+  CHECK_RETURN_PARSE_ERROR(acrc);
+  if (newsize == -1) {
+    newsize = UINT64_MAX;
+  }
+  config->maxSearchResults = newsize;
+  return REDISMODULE_OK;
+}
+
+CONFIG_GETTER(getMaxSearchResults) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%lu", config->maxSearchResults);
+}
+
 // MAXEXPANSIONS
 CONFIG_SETTER(setMaxExpansions) {
   int acrc = AC_GetLongLong(ac, &config->maxPrefixExpansions, AC_F_GE1);
@@ -380,6 +397,10 @@ RSConfigOptions RSGlobalConfigOptions = {
          .setValue = setMaxDocTableSize,
          .getValue = getMaxDocTableSize,
          .flags = RSCONFIGVAR_F_IMMUTABLE},
+        {.name = "MAXSEARCHRESULTS",
+         .helpText = "Maximum number of results from ft.search command",
+         .setValue = setMaxSearchResults,
+         .getValue = getMaxSearchResults},
         {.name = "MAXEXPANSIONS",
          .helpText = "Maximum prefix expansions to be used in a query",
          .setValue = setMaxExpansions,
@@ -480,6 +501,7 @@ sds RSConfig_GetInfoString(const RSConfig *config) {
   ss = sdscatprintf(ss, "cursor read size: %lld, ", config->cursorReadSize);
   ss = sdscatprintf(ss, "cursor max idle (ms): %lld, ", config->cursorMaxIdle);
   ss = sdscatprintf(ss, "max doctable size: %lu, ", config->maxDocTableSize);
+  ss = sdscatprintf(ss, "max number of search results: %lu, ", config->maxSearchResults);
   ss = sdscatprintf(ss, "search pool size: %lu, ", config->searchPoolSize);
   ss = sdscatprintf(ss, "index pool size: %lu, ", config->indexPoolSize);
 
