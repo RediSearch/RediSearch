@@ -463,10 +463,13 @@ def testExpire(env):
     conn.execute_command('HSET', 'doc1', 'test', 'foo')
     env.expect('FT.SEARCH idx foo').equal([1L, 'doc1', ['test', 'foo']])
     conn.execute_command('EXPIRE', 'doc1', '1')
-    sleep(1.1)
+    sleep(0.8)
+    env.expect('FT.SEARCH idx foo').equal([1L, 'doc1', ['test', 'foo']])
+    sleep(0.3)
     env.expect('FT.SEARCH idx foo').equal([0L])
 
 def testEvicted(env):
+    env.skipOnCluster()
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE idx SCHEMA test TEXT').equal('OK')
 
@@ -477,10 +480,8 @@ def testEvicted(env):
             sub = line.split(':')
             memory = int(sub[1])
 
-    print memory
     conn.execute_command('CONFIG', 'SET', 'MAXMEMORY-POLICY', 'ALLKEYS-RANDOM')
     conn.execute_command('CONFIG', 'SET', 'MAXMEMORY', memory + 10000)
-    print conn.execute_command('INFO MEMORY')
     for i in range(100):
         env.expect('HSET', 'doc{}'.format(i), 'test', 'foo').equal(1)
     res = env.cmd('FT.SEARCH idx foo limit 0 0')
