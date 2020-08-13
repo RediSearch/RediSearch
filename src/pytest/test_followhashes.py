@@ -463,9 +463,8 @@ def testExpire(env):
     conn.execute_command('HSET', 'doc1', 'test', 'foo')
     env.expect('FT.SEARCH idx foo').equal([1L, 'doc1', ['test', 'foo']])
     conn.execute_command('EXPIRE', 'doc1', '1')
-    sleep(0.8)
     env.expect('FT.SEARCH idx foo').equal([1L, 'doc1', ['test', 'foo']])
-    sleep(0.3)
+    sleep(1.1)
     env.expect('FT.SEARCH idx foo').equal([0L])
 
 def testEvicted(env):
