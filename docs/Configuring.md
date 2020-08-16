@@ -175,6 +175,23 @@ $ redis-server --loadmodule ./redisearch.so MAXDOCTABLESIZE 3000000
 
 ---
 
+## MAXSEARCHRESULTS
+
+The maximum number of results to be returned by FT.SEARCH command if LIMIT is used.
+Setting value to `-1` will remove the limit. 
+
+### Default
+
+1000000
+
+### Example
+
+```
+$ redis-server --loadmodule ./redisearch.so MAXSEARCHRESULTS 3000000
+```
+
+---
+
 ## FRISOINI {file_name}
 
 If present, we load the custom Chinese dictionary from the specified path. See [Using custom dictionaries](Chinese.md#using_custom_dictionaries) for more details.
