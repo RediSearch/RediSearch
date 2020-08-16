@@ -17,4 +17,5 @@ def test_1414(env):
   env.expect('ft.add idx doc 1 fields foo hello bar world').ok()
   env.expect('ft.search idx * limit 0 1234567').error().contains('LIMIT exceeds maximum of 1000000') 
   env.expect('FT.CONFIG set MAXSEARCHRESULTS -1').equal('OK')
-  env.expect('ft.search idx * limit 0 1234567').equal([1L, 'doc', ['foo', 'hello', 'bar', 'world']])
+  env.expect('ft.search idx * limit 0 1234567').equal([1L, 'doc', ['foo', 'hello', 'bar', 'world']]) 
+  
