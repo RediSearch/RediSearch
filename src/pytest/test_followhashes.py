@@ -485,3 +485,53 @@ def testEvicted(env):
         env.expect('HSET', 'doc{}'.format(i), 'test', 'foo').equal(1)
     res = env.cmd('FT.SEARCH idx foo limit 0 0')
     env.assertLess(res[0], 100)
+
+def testExpiredDuringSearch(env):
+  N = 100
+  env.expect('FT.CREATE idx SCHEMA txt1 TEXT').ok()
+  for i in range(N):
+    env.expect('HSET', 'doc%d' % i, 'txt1', 'hello%i' % i, 'txt2', 'world').equal(2)
+    env.expect('PEXPIRE doc%d 100' % i).equal(1)
+  env.expect('FT.SEARCH idx hello* limit 0 0').equal([N])
+  env.expect('HGETALL doc99').equal(['txt1', 'hello99', 'txt2', 'world'])
+  sleep(.1)
+  
+  # after expiry before cleanup (if key was clean, query would have returned an empty result)
+  # Receives results between 0 and `N`
+  # after search with `nocontent`, some expired item will remain.
+  # after seatch with content, all keys are access and being actively expired
+  res = env.cmd('FT.SEARCH idx hello* nocontent limit 0 100')
+  env.assertLess(res[0], N)
+  env.assertGreater(res[0], 0)
+
+  res = env.cmd('FT.SEARCH idx hello* limit 0 100')
+  env.assertLess(res[0], N)
+  env.assertGreater(res[0], 0)  
+  for i in range (2,20,2):
+    env.assertEqual(res[i], [])
+
+  env.expect('FT.SEARCH idx hello*').equal([0])
+
+def testExpiredDuringAggregate(env):
+  N = 100
+  env.expect('FT.CREATE idx SCHEMA txt1 TEXT SORTABLE').ok()
+  for i in range(N):
+    env.expect('HSET', 'doc%d' % i, 'txt1', 'hello%i' % i, 'txt2', 'world').equal(2)
+    env.expect('PEXPIRE doc%d 100' % i).equal(1)
+  env.expect('FT.SEARCH idx hello* limit 0 0').equal([N])
+  env.expect('HGETALL doc99').equal(['txt1', 'hello99', 'txt2', 'world'])
+  sleep(.1)
+
+  # after expiry before cleanup (if key was clean, query would have returned an empty result)
+  # Receives results between 0 and `N`
+  # after search with `nocontent`, some expired item will remain.
+  # after seatch with content, all keys are access and being actively expired
+  res = env.cmd('FT.AGGREGATE idx hello* GROUPBY 1 @txt1 REDUCE count 0 AS COUNT')
+  env.assertLess(int(res[0]), N)
+  env.assertGreater(int(res[0]), 0)
+
+  res = env.cmd('FT.AGGREGATE idx hello* LOAD 1 @txt1 GROUPBY 1 @txt1 REDUCE count 0 AS COUNT')
+  env.assertLess(res[0], N)
+  env.assertGreater(res[0], 0)
+
+  env.expect('FT.AGGREGATE idx hello* LOAD 1 @txt1 GROUPBY 1 @txt1 REDUCE count 0 AS COUNT').equal([0])
