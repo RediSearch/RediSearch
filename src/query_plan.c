@@ -239,6 +239,10 @@ static int queryPlan_ValidateNode(QueryNode *node, QueryParseCtx *q, void *ctx) 
   }
   if (node->opts.fieldMask != RS_FIELDMASK_ALL && node->opts.phonetic != PHONETIC_DEFAULT) {
     char *fieldName = GetFieldNameByBit(q->sctx->spec, node->opts.fieldMask);
+    if (!fieldName) {
+      QueryError_SetError(status, QUERY_EBADATTR, PHONETIC_ERR_STR);
+      return 0;
+    }
     FieldSpec *fieldSpec = IndexSpec_GetField(q->sctx->spec, fieldName, strlen(fieldName));
     if (!(fieldSpec->options & FieldSpec_Phonetics)) {
       QueryError_SetError(status, QUERY_EBADATTR, PHONETIC_ERR_STR);
