@@ -10,3 +10,11 @@ def test_1304(env):
   env.expect('FT.CREATE idx SCHEMA txt1 TEXT').equal('OK')
   env.expect('FT.EXPLAIN idx -20*').equal('PREFIX{-20*}\n')
   env.expect('FT.EXPLAIN idx -\\20*').equal('NOT{\n  PREFIX{20*}\n}\n')
+
+def test_1414(env):
+  env.expect('FT.CREATE idx SCHEMA txt1 TEXT').equal('OK')
+  env.expect('ft.add idx doc 1 fields foo hello bar world').ok()
+  env.expect('ft.search idx * limit 0 1234567').error().contains('LIMIT exceeds maximum of 1000000') 
+  env.expect('FT.CONFIG set MAXSEARCHRESULTS -1').equal('OK')
+  env.expect('ft.search idx * limit 0 1234567').equal([1L, 'doc', ['foo', 'hello', 'bar', 'world']]) 
+  
