@@ -1680,8 +1680,12 @@ void Indexes_Init(RedisModuleCtx *ctx) {
 }
 
 dict *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key) {
+  dict *specs = dictCreate(&dictTypeHeapStrings, NULL);
+  if (array_len(SchemaRules_g) == 0) {
+    return specs;
+  }
+
   EvalCtx *r = EvalCtx_Create();
-  // check r for null?
   EvalCtx_AddHash(r, ctx, key);
   RSValue *keyRSV = RS_RedisStringVal(key);
   EvalCtx_Set(r, "__key", keyRSV);
@@ -1699,7 +1703,6 @@ dict *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisModuleString *ke
   }
 #endif  // _DEBUG
 
-  dict *specs = dictCreate(&dictTypeHeapStrings, NULL);
 
   size_t n;
   const char *key_p = RedisModule_StringPtrLen(key, &n);
