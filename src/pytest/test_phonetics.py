@@ -84,3 +84,7 @@ def testPoneticOnNumbers(env):
     env.assertOk(env.cmd('ft.add', 'idx', 'doc2', 1.0, 'FIELDS', 'test', 'this is 04 test'))
     res = env.cmd('ft.search', 'idx', '04')
     env.assertEqual(res, [1L, 'doc2', ['test', 'this is 04 test']])
+
+def testPoneticOnUnexitField(env):
+    env.assertOk(env.cmd('FT.CREATE idx SCHEMA t TEXT'))
+    env.expect('FT.SEARCH idx @a:foo=>{$phonetic:true;}').error()
