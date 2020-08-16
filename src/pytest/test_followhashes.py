@@ -495,7 +495,7 @@ def testExpiredDuringSearch(env):
     env.expect('PEXPIRE doc%d 100' % i).equal(1)
   env.expect('FT.SEARCH idx hello* limit 0 0').equal([N])
   env.expect('HGETALL doc99').equal(['txt1', 'hello99', 'txt2', 'world'])
-  sleep(.1)
+  sleep(.01)
   
   # after expiry before cleanup (if key was clean, query would have returned an empty result)
   # Receives results between 0 and `N`
@@ -521,7 +521,7 @@ def testExpiredDuringAggregate(env):
     env.expect('PEXPIRE doc%d 100' % i).equal(1)
   env.expect('FT.SEARCH idx hello* limit 0 0').equal([N])
   env.expect('HGETALL doc99').equal(['txt1', 'hello99', 'txt2', 'world'])
-  sleep(.1)
+  sleep(.01)
 
   # after expiry before cleanup (if key was clean, query would have returned an empty result)
   # Receives results between 0 and `N`
