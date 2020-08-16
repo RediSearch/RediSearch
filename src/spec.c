@@ -1685,11 +1685,6 @@ dict *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisModuleString *ke
     return specs;
   }
 
-  EvalCtx *r = EvalCtx_Create();
-  EvalCtx_AddHash(r, ctx, key);
-  RSValue *keyRSV = RS_RedisStringVal(key);
-  EvalCtx_Set(r, "__key", keyRSV);
-
 #if defined(_DEBUG) && 0
   RLookupKey *k = RLookup_GetKey(&r->lk, "__key", 0);
   RSValue *v = RLookup_GetItem(k, &r->row);
@@ -1702,7 +1697,6 @@ dict *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisModuleString *ke
     x = RSValue_StringPtrLen(v, NULL);
   }
 #endif  // _DEBUG
-
 
   size_t n;
   const char *key_p = RedisModule_StringPtrLen(key, &n);
@@ -1721,11 +1715,21 @@ dict *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisModuleString *ke
   }
   array_free(prefixes);
 
+  EvalCtx *r = NULL;
   for (size_t i = 0; i < array_len(SchemaRules_g); i++) {
     SchemaRule *rule = SchemaRules_g[i];
     if (!rule->filter_exp) {
       continue;
     }
+
+    if (!r) {
+      // load hash only if required
+      r = EvalCtx_Create();
+      EvalCtx_AddHash(r, ctx, key);
+      RSValue *keyRSV = RS_RedisStringVal(key);
+      EvalCtx_Set(r, "__key", keyRSV);
+    }
+
     if (EvalCtx_EvalExpr(r, rule->filter_exp) == EXPR_EVAL_OK) {
       IndexSpec *spec = rule->spec;
       if (!RSValue_BoolTest(&r->res) && dictFind(specs, spec->name)) {
@@ -1734,7 +1738,9 @@ dict *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisModuleString *ke
     }
   }
 
-  EvalCtx_Destroy(r);
+  if (r) {
+    EvalCtx_Destroy(r);
+  }
 
   return specs;
 }
