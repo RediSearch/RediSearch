@@ -1680,11 +1680,10 @@ void Indexes_Init(RedisModuleCtx *ctx) {
 }
 
 dict *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key) {
-  EvalCtx *r = EvalCtx_Create();
-  // check r for null?
-  EvalCtx_AddHash(r, ctx, key);
-  RSValue *keyRSV = RS_RedisStringVal(key);
-  EvalCtx_Set(r, "__key", keyRSV);
+  dict *specs = dictCreate(&dictTypeHeapStrings, NULL);
+  if (array_len(SchemaRules_g) == 0) {
+    return specs;
+  }
 
 #if defined(_DEBUG) && 0
   RLookupKey *k = RLookup_GetKey(&r->lk, "__key", 0);
@@ -1698,8 +1697,6 @@ dict *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisModuleString *ke
     x = RSValue_StringPtrLen(v, NULL);
   }
 #endif  // _DEBUG
-
-  dict *specs = dictCreate(&dictTypeHeapStrings, NULL);
 
   size_t n;
   const char *key_p = RedisModule_StringPtrLen(key, &n);
@@ -1718,11 +1715,21 @@ dict *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisModuleString *ke
   }
   array_free(prefixes);
 
+  EvalCtx *r = NULL;
   for (size_t i = 0; i < array_len(SchemaRules_g); i++) {
     SchemaRule *rule = SchemaRules_g[i];
     if (!rule->filter_exp) {
       continue;
     }
+
+    if (!r) {
+      // load hash only if required
+      r = EvalCtx_Create();
+      EvalCtx_AddHash(r, ctx, key);
+      RSValue *keyRSV = RS_RedisStringVal(key);
+      EvalCtx_Set(r, "__key", keyRSV);
+    }
+
     if (EvalCtx_EvalExpr(r, rule->filter_exp) == EXPR_EVAL_OK) {
       IndexSpec *spec = rule->spec;
       if (!RSValue_BoolTest(&r->res) && dictFind(specs, spec->name)) {
@@ -1731,7 +1738,9 @@ dict *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisModuleString *ke
     }
   }
 
-  EvalCtx_Destroy(r);
+  if (r) {
+    EvalCtx_Destroy(r);
+  }
 
   return specs;
 }
