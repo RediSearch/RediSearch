@@ -872,7 +872,8 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   // and we will get the normal ft.safeadd/ft.del command.
   RM_TRY(RedisModule_CreateCommand, ctx, LEGACY_RS_SAFEADD_CMD, RSSafeAddDocumentCommand,
          "write deny-oom", INDEX_DOC_CMD_ARGS);
-
+  RM_TRY(RedisModule_CreateCommand, ctx, LEGACY_RS_DEL_CMD, DeleteCommand, "write",
+         INDEX_DOC_CMD_ARGS);
 #endif
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_SAFEADD_CMD, RSSafeAddDocumentCommand, "write deny-oom",
