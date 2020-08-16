@@ -44,7 +44,7 @@ lsqb = '[';
 escape = '\\';
 escaped_character = escape (punct | space | escape);
 term = (((any - (punct | cntrl | space | escape)) | escaped_character) | '_')+  $ 0 ;
-prefix = term.star $1;
+prefix = (term.star | number.star) $1;
 mod = '@'.term $ 1;
 attr = '$'.term $ 1;
 

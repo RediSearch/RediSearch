@@ -10,8 +10,10 @@ Note: There is a different mechanism for tokenizing text and tag fields, this do
 
 2. Escaping separators in both queries and documents is done by prepending a backslash to any separator. e.g. the text `hello\-world hello-world` will be tokenized as `[hello-world, hello, world]`. **NOTE** that in most languages you will need an extra backslash when formatting the document or query, to signify an actual backslash, so the actual text in redis-cli for example, will be entered as `hello\\-world`. 
 
-2. Underscores (`_`) are not used as separators in either document or query. So the text `hello_world` will remain as is after tokenization. 
+3. Underscores (`_`) are not used as separators in either document or query. So the text `hello_world` will remain as is after tokenization. 
 
-3. Repeating spaces or punctuation marks are stripped. 
+4. Repeating spaces or punctuation marks are stripped. 
 
-4. In Latin characters, everything gets converted to lowercase. 
+5. In Latin characters, everything gets converted to lowercase. 
+
+6. A backslash before the first digit will tokenize it as a term. This will translate `-` sign as NOT which otherwise will make the number negative. Add a backslash before `.` if you are searching for a float. (ex. -20 -> {-20} vs -\20 -> {NOT{20}})

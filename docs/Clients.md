@@ -20,3 +20,10 @@ While it is possible and simple to use the raw Redis commands API, in most cases
 | Ruby on Rails | [redi_search_rails](https://github.com/dmitrypol/redi_search_rails)  | Dmitry Polyakovsky | MIT | |
 | Ruby | [redisearch-rb](https://github.com/vruizext/redisearch-rb) | Victor Ruiz | MIT | |
 | Ruby | [redi_search](https://github.com/npezza93/redi_search) | Nick Pezza | MIT | Also works with Ruby on Rails |
+
+
+## Other available Libraries
+
+| Language | Library | Author | License | Comments |
+|---|---|---|---|---|
+| Rust | [redisearch-api-rs](https://github.com/RediSearch/redisearch-api-rs) | Redis Labs | BSD | API for Redis Modules written in Rust |
