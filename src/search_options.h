@@ -72,9 +72,6 @@ typedef enum {
 
 #define RS_DEFAULT_QUERY_FLAGS 0x00
 
-// maximum results you can get in one query
-#define SEARCH_REQUEST_RESULTS_MAX 1000000
-
 typedef struct {
   const char *expanderName;
   const char *scorerName;
