@@ -64,6 +64,7 @@ typedef struct {
   long long timeoutPolicy;
 
   size_t maxDocTableSize;
+  size_t maxSearchResults;
   size_t searchPoolSize;
   size_t indexPoolSize;
   int poolSizeNoAuto;  // Don't auto-detect pool size
@@ -150,6 +151,8 @@ sds RSConfig_GetInfoString(const RSConfig *config);
 #define DEFAULT_MIN_PHONETIC_TERM_LEN 3
 #define DEFAULT_FORK_GC_RUN_INTERVAL 30
 #define DEFAULT_MAX_RESULTS_TO_UNSORTED_MODE 1000
+#define SEARCH_REQUEST_RESULTS_MAX 1000000
+
 // default configuration
 #define RS_DEFAULT_CONFIG                                                                         \
   {                                                                                               \
@@ -162,6 +165,7 @@ sds RSConfig_GetInfoString(const RSConfig *config);
     .gcPolicy = GCPolicy_Fork, .forkGcRunIntervalSec = DEFAULT_FORK_GC_RUN_INTERVAL,              \
     .forkGcSleepBeforeExit = 0, .maxResultsToUnsortedMode = DEFAULT_MAX_RESULTS_TO_UNSORTED_MODE, \
     .forkGcRetryInterval = 5, .forkGcCleanThreshold = 100, .noMemPool = 0,                          \
+    .maxSearchResults = SEARCH_REQUEST_RESULTS_MAX,                                               \
   }
 
 #endif
