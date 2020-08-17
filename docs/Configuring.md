@@ -228,6 +228,34 @@ $ redis-server --loadmodule ./redisearch.so CURSOR_MAX_IDLE 500000
 
 ---
 
+## PARTIAL_INDEXED_DOCS
+
+Enable/disable Redis command filter. The filter optimizes partial updates of hashes
+and may avoid reindexing of the hash if changed fields are not part of schema. 
+
+### Considerations
+
+The Redis command filter will be executed upon each Redis Command.  Though the filter is
+optimised, this will introduce a small increase in latency on all commands.  
+This configuration is therefore best used with partial indexed documents where the non-
+indexed fields are updated frequently.
+
+### Default
+
+"0"
+
+### Example
+
+```
+$ redis-server --loadmodule ./redisearch.so PARTIAL_INDEXED_DOCS 1
+```
+
+### Notes
+
+* added in v2.0.0
+
+---
+
 ## GC_SCANSIZE
 
 The garbage collection bulk size of the internal gc used for cleaning up the indexes.
@@ -335,22 +363,3 @@ $ redis-server --loadmodule ./redisearch.so GC_POLICY FORK FORK_GC_CLEAN_THRESHO
 
 * only to be combined with `GC_POLICY FORK`
 * added in v1.4.16
-
-## PARTIAL_INDEXED_DOCS
-
-Enable/disable redis command filter. The filter optimizes partial updates of hashes
-and may avoid reindexing of the hash if changed fields are not part of schema.  
-
-### Default
-
-"0"
-
-### Example
-
-```
-$ redis-server --loadmodule ./redisearch.so PARTIAL_INDEXED_DOCS 1
-```
-
-### Notes
-
-* added in v2.0.0
