@@ -5,7 +5,7 @@
 ### Format
 ```
   FT.CREATE {index} 
-    ON {structure} 
+    [ON {structure}]
        [PREFIX {count} {prefix} [{prefix} ..]
        [FILTER {filter}]
        [LANGUAGE {default_lang}]
@@ -49,7 +49,7 @@ FT.CREATE idx SCHEMA name TEXT SORTABLE age NUMERIC SORTABLE myTag TAG SORTABLE
 
 * **index**: the index name to create. If it exists the old spec will be overwritten
 
-* **ON {structure}** currently supports only HASH
+* **ON {structure}** currently supports only HASH (default)
 
 * **PREFIX {count} {prefix}** tells the index which keys it should index. You can add several prefixes to index. Since the argument is optional, the default is * (all keys)
 
