@@ -258,3 +258,21 @@ def testGCShutDownOnExit(env):
     # make sure server started successfully
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'title', 'TEXT', 'SORTABLE').ok()
     waitForIndex(env, 'idx')
+
+def testGFreeEmpryTerms(env):
+    if env.env == 'existing-env' or env.env == 'enterprise' or env.isCluster():
+        env.skip()
+
+    env = Env(moduleArgs='GC_POLICY FORK')
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 't', 'TEXT').ok()
+
+    for i in range(200):
+        env.expect('hset', 'doc%d'%i, 't', 'foo')
+
+    for i in range(200):
+        env.expect('del', 'doc%d'%i)
+
+    env.expect('FT.DEBUG', 'DUMP_TERMS', 'idx').equal(['foo'])
+    env.expect('FT.DEBUG', 'GC_FORCEINVOKE', 'idx')
+    env.expect('FT.DEBUG', 'DUMP_TERMS', 'idx').equal([])
+

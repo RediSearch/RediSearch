@@ -387,7 +387,7 @@ static FGCError recvNumericTagHeader(ForkGC *fgc, char **fieldName, size_t *fiel
   return FGC_COLLECTED;
 }
 
-static void sendKht(ForkGC *gc, const khash_t(cardvals) *kh) {
+static void sendKht(ForkGC *gc, const khash_t(cardvals) * kh) {
   size_t n = 0;
   if (!kh) {
     FGC_SEND_VAR(gc, n);
@@ -753,6 +753,18 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc, RedisModuleCtx *rctx) {
 
   FGC_applyInvertedIndex(gc, &idxbufs, &info, idx);
   FGC_updateStats(sctx, gc, info.ndocsCollected, info.nbytesCollected);
+
+  if (idx->numDocs == 0) {
+    // inverted index was cleaned entirely lets free it
+    RedisModuleString *termKey = fmtRedisTermKey(sctx, term, len);
+    size_t formatedTremLen;
+    const char *formatedTrem = RedisModule_StringPtrLen(termKey, &formatedTremLen);
+    if (sctx->spec->keysDict) {
+      dictDelete(sctx->spec->keysDict, termKey);
+    }
+    Trie_Delete(sctx->spec->terms, term, len);
+    RedisModule_FreeString(sctx->redisCtx, termKey);
+  }
 
 cleanup:
 
