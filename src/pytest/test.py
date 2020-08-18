@@ -2365,13 +2365,20 @@ def testMod_309(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
     for i in range(100000):
         env.expect('FT.ADD', 'idx', 'doc%d'%i, '1.0', 'FIELDS', 'test', 'foo').equal('OK')
+    res = env.cmd('FT.AGGREGATE', 'idx', 'foo')
+    env.assertEqual(len(res), 100001)
     res = env.cmd('FT.AGGREGATE', 'idx', 'foo', 'WITHDOCID')
     env.assertEqual(len(res), 100001)
 
-def testMod_309_with_cursor(env):
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
-    for i in range(100000):
-        env.expect('FT.ADD', 'idx', 'doc%d'%i, '1.0', 'FIELDS', 'test', 'foo').equal('OK')
+    # with cursor
+    res = env.cmd('FT.AGGREGATE', 'idx', 'foo', 'WITHCURSOR')
+    l = len(res[0]) - 1 # do not count the number of results (the first element in the results)
+    cursor = res[1]
+    while cursor != 0:
+        r, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', str(cursor))
+        l += (len(r) - 1)
+    env.assertEqual(l, 100000)
+
     res = env.cmd('FT.AGGREGATE', 'idx', 'foo', 'WITHCURSOR', 'WITHDOCID')
     l = len(res[0]) - 1 # do not count the number of results (the first element in the results)
     cursor = res[1]
