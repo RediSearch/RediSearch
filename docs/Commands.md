@@ -558,7 +558,7 @@ If **NOCONTENT** was given, we return an array where the first element is the to
 ```
 FT.AGGREGATE  {index_name}
   {query_string}
-  [VERBATIM] [WITHDOCID]
+  [VERBATIM]
   [LOAD {nargs} {property} ...]
   [GROUPBY {nargs} {property} ...
     REDUCE {func} {nargs} {arg} ... [AS {name:string}]
@@ -628,8 +628,6 @@ FT.AGGREGATE idx "@url:\"about.html\""
 
 * **FILTER {expr}**. Filter the results using predicate expressions relating to values in each result. 
   They are is applied post-query and relate to the current state of the pipeline. 
-
-* **WITHDOCID**. Adds the Redis HASH key name with query. If results are grouped, no ID is returned. (Since RediSearch 2.0).
 
 ### Complexity
 

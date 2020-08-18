@@ -25,5 +25,5 @@ def test_agg_with_ids(env):
   env.expect('HSET b text1 world').equal(1)
   
   search_res = env.cmd('FT.SEARCH idx * NOCONTENT')[1:]
-  agg_res = env.cmd('FT.AGGREGATE idx * WITHDOCID')[1:]
+  agg_res = env.cmd('FT.AGGREGATE idx *')[1:]
   env.assertEqual(sorted(search_res), sorted(agg_res))

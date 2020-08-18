@@ -37,15 +37,11 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
   const RSDocumentMetadata *dmd = r->dmd;
   size_t count = 0;
 
-  // for backward compatibility. If no doc name and no fields, return an empty array.
-  bool replyDocId = false;
-
-  if (dmd && ((options & QEXEC_F_IS_SEARCH) || (options & QEXEC_F_WITH_DOC_ID))) {
+  if (dmd) {
     size_t n;
     const char *s = DMD_KeyPtrLen(dmd, &n);
     RedisModule_ReplyWithStringBuffer(outctx, s, n);
     count++;
-    replyDocId = true;
   }
 
   if (options & QEXEC_F_SEND_SCORES) {
@@ -114,7 +110,8 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
   }
 
   bool fieldsExist = cv->lastLk->rowlen > 0;
-  if (!replyDocId || (fieldsExist && !(options & QEXEC_F_SEND_NOFIELDS))) {
+  if ((fieldsExist && !(options & QEXEC_F_SEND_NOFIELDS)) || 
+      (!fieldsExist && !dmd)) { // do not print an empty content on ft.aggregate
     const RLookup *lk = cv->lastLk;
     count++;
 

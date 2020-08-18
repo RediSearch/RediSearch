@@ -40,7 +40,7 @@ def testCursors(env):
     resp = exhaustCursor(env, 'idx', resp)
     env.assertEqual(1, len(resp)) # Only one response
     env.assertEqual(0, resp[0][1])
-    env.assertEqual(101, len(resp[0][0]))
+    env.assertEqual(201, len(resp[0][0]))
 
     # Check info and see if there are other cursors
     info = getCursorStats(env)
@@ -62,8 +62,8 @@ def testMultipleIndexes(env):
     waitForIndex(env, 'idx2')
     r1 = exhaustCursor(env, 'idx1', env.cmd( * q1))
     r2 = exhaustCursor(env, 'idx2', env.cmd( * q2))
-    env.assertEqual(11, len(r1[0][0]))
-    env.assertEqual(11, len(r2[0][0]))
+    env.assertEqual(21, len(r1[0][0]))
+    env.assertEqual(21, len(r2[0][0]))
     # Compare last results
     last1 = r1[0][0][10]
     last2 = r2[0][0][10]

@@ -51,10 +51,10 @@ def testPoneticWithAggregation(env):
     env.assertOk(env.cmd('ft.add', 'idx', 'doc1', 1.0, 'fields',
                            'text', 'morfix',
                            'text1', 'phonetic'))
-
-    env.assertEquals(env.cmd('ft.aggregate', 'idx', 'morphix', 'LOAD', 2, '@text', '@text1'), [1L, ['text', 'morfix', 'text1', 'phonetic']])
-    env.assertEquals(env.cmd('ft.aggregate', 'idx', '@text:morphix', 'LOAD', 2, '@text', '@text1'), [1L, ['text', 'morfix', 'text1', 'phonetic']])
-    env.assertEquals(env.cmd('ft.aggregate', 'idx', 'phonetic', 'LOAD', 2, '@text', '@text1'), [1L, ['text', 'morfix', 'text1', 'phonetic']])
+    res = [1L, 'doc1', ['text', 'morfix', 'text1', 'phonetic']]
+    env.assertEquals(env.cmd('ft.aggregate', 'idx', 'morphix', 'LOAD', 2, '@text', '@text1'), res)
+    env.assertEquals(env.cmd('ft.aggregate', 'idx', '@text:morphix', 'LOAD', 2, '@text', '@text1'), res)
+    env.assertEquals(env.cmd('ft.aggregate', 'idx', 'phonetic', 'LOAD', 2, '@text', '@text1'), res)
     env.assertEquals(env.cmd('ft.aggregate', 'idx', '@text1:morphix', 'LOAD', 2, '@text', '@text1'), [0L])
     if not env.is_cluster():
         with env.assertResponseError():
