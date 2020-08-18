@@ -42,7 +42,7 @@ class TestAggregate():
         add_values(self.env)
 
     def testGroupBy(self):
-        cmd = ['ft.aggregate', 'games', '*',
+        cmd = ['ft.aggregate', 'games', '*', 'WITHDOCID', 
                'GROUPBY', '1', '@brand',
                'REDUCE', 'count', '0', 'AS', 'count',
                'SORTBY', 2, '@count', 'desc',
@@ -56,7 +56,7 @@ class TestAggregate():
                                     ['brand', 'logitech', 'count', '35']], res)
 
     def testMinMax(self):
-        cmd = ['ft.aggregate', 'games', 'sony',
+        cmd = ['ft.aggregate', 'games', 'sony', 'WITHDOCID',
                'GROUPBY', '1', '@brand',
                'REDUCE', 'count', '0',
                'REDUCE', 'min', '1', '@price', 'as', 'minPrice',
@@ -76,7 +76,7 @@ class TestAggregate():
         self.env.assertEqual(695, int(float(row['maxPrice'])))
 
     def testAvg(self):
-        cmd = ['ft.aggregate', 'games', 'sony',
+        cmd = ['ft.aggregate', 'games', 'sony', 'WITHDOCID',
                'GROUPBY', '1', '@brand',
                'REDUCE', 'avg', '1', '@price', 'AS', 'avg_price',
                'REDUCE', 'count', '0',
@@ -101,7 +101,7 @@ class TestAggregate():
         self.env.assertEqual(17, int(float(first_row['avgPrice'])))
 
     def testCountDistinct(self):
-        cmd = ['FT.AGGREGATE', 'games', '*',
+        cmd = ['FT.AGGREGATE', 'games', '*', 'WITHDOCID',
                'GROUPBY', '1', '@brand',
                'REDUCE', 'COUNT_DISTINCT', '1', '@title', 'AS', 'count_distinct(title)',
                'REDUCE', 'COUNT', '0'
@@ -111,7 +111,7 @@ class TestAggregate():
         row = to_dict(res[0])
         self.env.assertEqual(1484, int(row['count_distinct(title)']))
 
-        cmd = ['FT.AGGREGATE', 'games', '*',
+        cmd = ['FT.AGGREGATE', 'games', '*', 'WITHDOCID',
                'GROUPBY', '1', '@brand',
                'REDUCE', 'COUNT_DISTINCTISH', '1', '@title', 'AS', 'count_distinctish(title)',
                'REDUCE', 'COUNT', '0'
@@ -122,7 +122,7 @@ class TestAggregate():
         self.env.assertEqual(1461, int(row['count_distinctish(title)']))
 
     def testQuantile(self):
-        cmd = ['FT.AGGREGATE', 'games', '*',
+        cmd = ['FT.AGGREGATE', 'games', '*', 'WITHDOCID',
                'GROUPBY', '1', '@brand',
                'REDUCE', 'QUANTILE', '2', '@price', '0.50', 'AS', 'q50',
                'REDUCE', 'QUANTILE', '2', '@price', '0.90', 'AS', 'q90',
@@ -139,7 +139,7 @@ class TestAggregate():
         self.env.assertAlmostEqual(110, (float(row['q95'])), delta=50)
 
     def testStdDev(self):
-        cmd = ['FT.AGGREGATE', 'games', '*',
+        cmd = ['FT.AGGREGATE', 'games', '*', 'WITHDOCID',
                'GROUPBY', '1', '@brand',
                'REDUCE', 'STDDEV', '1', '@price', 'AS', 'stddev(price)',
                'REDUCE', 'AVG', '1', '@price', 'AS', 'avgPrice',
@@ -156,7 +156,7 @@ class TestAggregate():
         self.env.assertEqual(29, int(float(row['avgPrice'])))
 
     def testParseTime(self):
-        cmd = ['FT.AGGREGATE', 'games', '*',
+        cmd = ['FT.AGGREGATE', 'games', '*', 'WITHDOCID',
                'GROUPBY', '1', '@brand',
                'REDUCE', 'COUNT', '0', 'AS', 'count',
                'APPLY', 'timefmt(1517417144)', 'AS', 'dt',
@@ -168,7 +168,8 @@ class TestAggregate():
                               '2018-01-31T16:45:44Z', 'parsed_dt', '1517417144'], res[1])
 
     def testRandomSample(self):
-        cmd = ['FT.AGGREGATE', 'games', '*', 'GROUPBY', '1', '@brand',
+        cmd = ['FT.AGGREGATE', 'games', '*', 'WITHDOCID',
+               'GROUPBY', '1', '@brand',
                'REDUCE', 'COUNT', '0', 'AS', 'num',
                'REDUCE', 'RANDOM_SAMPLE', '2', '@price', '10',
                'SORTBY', '2', '@num', 'DESC', 'MAX', '10']
@@ -180,7 +181,7 @@ class TestAggregate():
             self.env.assertLessEqual(len(row[5]), 10)
 
     def testTimeFunctions(self):
-        cmd = ['FT.AGGREGATE', 'games', '*',
+        cmd = ['FT.AGGREGATE', 'games', '*', 'WITHDOCID',
 
                'APPLY', '1517417144', 'AS', 'dt',
                'APPLY', 'timefmt(@dt)', 'AS', 'timefmt',
@@ -193,13 +194,19 @@ class TestAggregate():
                'APPLY', 'dayofyear(@dt)', 'AS', 'dayofyear',
                'APPLY', 'year(@dt)', 'AS', 'year',
 
-               'LIMIT', '0', '1']
+               'LIMIT', '0', '2']
         res = self.env.cmd(*cmd)
-        self.env.assertListEqual([1L, ['dt', '1517417144', 'timefmt', '2018-01-31T16:45:44Z', 'day', '1517356800', 'hour', '1517414400',
-                                       'minute', '1517417100', 'month', '1514764800', 'dayofweek', '3', 'dayofmonth', '31', 'dayofyear', '30', 'year', '2018']], res)
+        self.env.assertListEqual([1L, '0984529527',
+                                            ['dt', '1517417144', 'timefmt', '2018-01-31T16:45:44Z',
+                                             'day', '1517356800', 'hour', '1517414400', 'minute', '1517417100', 'month', '1514764800',
+                                             'dayofweek', '3', 'dayofmonth', '31', 'dayofyear', '30', 'year', '2018'],
+                                      '1574571931',
+                                            ['dt', '1517417144', 'timefmt', '2018-01-31T16:45:44Z',
+                                             'day', '1517356800', 'hour', '1517414400', 'minute', '1517417100', 'month', '1514764800',
+                                             'dayofweek', '3', 'dayofmonth', '31', 'dayofyear', '30', 'year', '2018']], res)
 
     def testStringFormat(self):
-        cmd = ['FT.AGGREGATE', 'games', '@brand:sony',
+        cmd = ['FT.AGGREGATE', 'games', '@brand:sony', 'WITHDOCID',
                'GROUPBY', '2', '@title', '@brand',
                'REDUCE', 'COUNT', '0',
                'REDUCE', 'MAX', '1', '@price', 'AS', 'price',
@@ -213,7 +220,7 @@ class TestAggregate():
             self.env.assertEqual(expected, row['titleBrand'])
 
     def testSum(self):
-        cmd = ['ft.aggregate', 'games', '*',
+        cmd = ['ft.aggregate', 'games', '*', 'WITHDOCID',
                'GROUPBY', '1', '@brand',
                'REDUCE', 'count', '0', 'AS', 'count',
                'REDUCE', 'sum', 1, '@price', 'AS', 'sum(price)',
@@ -231,7 +238,7 @@ class TestAggregate():
                              ['brand', 'steelseries', 'count', '37', 'sum(price)', '1851.12']], res)
 
     def testFilter(self):
-        cmd = ['ft.aggregate', 'games', '*',
+        cmd = ['ft.aggregate', 'games', '*', 'WITHDOCID',
                'GROUPBY', '1', '@brand',
                'REDUCE', 'count', '0', 'AS', 'count',
                'FILTER', '@count > 5'
@@ -242,7 +249,7 @@ class TestAggregate():
             row = to_dict(row)
             self.env.assertGreater(int(row['count']), 5)
 
-        cmd = ['ft.aggregate', 'games', '*',
+        cmd = ['ft.aggregate', 'games', '*', 'WITHDOCID',
                'GROUPBY', '1', '@brand',
                'REDUCE', 'count', '0', 'AS', 'count',
                'FILTER', '@count < 5',
@@ -256,7 +263,7 @@ class TestAggregate():
             self.env.assertGreater(int(row['count']), 2)
 
     def testToList(self):
-        cmd = ['ft.aggregate', 'games', '*',
+        cmd = ['ft.aggregate', 'games', '*', 'WITHDOCID',
                'GROUPBY', '1', '@brand',
                'REDUCE', 'count_distinct', '1', '@price', 'as', 'count',
                'REDUCE', 'tolist', 1, '@price', 'as', 'prices',
@@ -270,7 +277,8 @@ class TestAggregate():
             self.env.assertEqual(int(row['count']), len(row['prices']))
 
     def testSortBy(self):
-        res = self.env.cmd('ft.aggregate', 'games', '*', 'GROUPBY', '1', '@brand',
+        res = self.env.cmd('ft.aggregate', 'games', '*', 'WITHDOCID',
+                           'GROUPBY', '1', '@brand',
                            'REDUCE', 'sum', 1, '@price', 'as', 'price',
                            'SORTBY', 2, '@price', 'desc',
                            'LIMIT', '0', '2')
@@ -278,7 +286,8 @@ class TestAggregate():
         self.env.assertListEqual([292L, ['brand', '', 'price', '44780.69'], [
                                  'brand', 'mad catz', 'price', '3973.48']], res)
 
-        res = self.env.cmd('ft.aggregate', 'games', '*', 'GROUPBY', '1', '@brand',
+        res = self.env.cmd('ft.aggregate', 'games', '*', 'WITHDOCID',
+                           'GROUPBY', '1', '@brand',
                            'REDUCE', 'sum', 1, '@price', 'as', 'price',
                            'SORTBY', 2, '@price', 'asc',
                            'LIMIT', '0', '2')
@@ -287,7 +296,8 @@ class TestAggregate():
                                  'brand', 'crystal dynamics', 'price', '0.25']], res)
 
         # Test MAX with limit higher than it
-        res = self.env.cmd('ft.aggregate', 'games', '*', 'GROUPBY', '1', '@brand',
+        res = self.env.cmd('ft.aggregate', 'games', '*', 'WITHDOCID',
+                           'GROUPBY', '1', '@brand',
                            'REDUCE', 'sum', 1, '@price', 'as', 'price',
                            'SORTBY', 2, '@price', 'asc', 'MAX', 2)
 
@@ -295,7 +305,8 @@ class TestAggregate():
                                  'brand', 'crystal dynamics', 'price', '0.25']], res)
 
         # Test Sorting by multiple properties
-        res = self.env.cmd('ft.aggregate', 'games', '*', 'GROUPBY', '1', '@brand',
+        res = self.env.cmd('ft.aggregate', 'games', '*', 'WITHDOCID',
+                           'GROUPBY', '1', '@brand',
                            'REDUCE', 'sum', 1, '@price', 'as', 'price',
                            'APPLY', '(@price % 10)', 'AS', 'price',
                            'SORTBY', 4, '@price', 'asc', '@brand', 'desc', 'MAX', 10,
@@ -307,48 +318,49 @@ class TestAggregate():
         pass
 
     def testNoGroup(self):
-        res = self.env.cmd('ft.aggregate', 'games', '*', 'LOAD', '2', '@brand', '@price',
+        res = self.env.cmd('ft.aggregate', 'games', '*', 'WITHDOCID', 'LOAD', '2', '@brand', '@price',
                            'APPLY', 'floor(sqrt(@price)) % 10', 'AS', 'price',
                            'SORTBY', 4, '@price', 'desc', '@brand', 'desc', 'MAX', 5,
                            )
-        exp = [2265L,
- ['brand', 'Xbox', 'price', '9'],
- ['brand', 'turtle beach', 'price', '9'],
- ['brand', 'trust', 'price', '9'],
- ['brand', 'steelseries', 'price', '9'],
- ['brand', 'speedlink', 'price', '9']]
-        # exp = [2265L, ['brand', 'Xbox', 'price', '9'], ['brand', 'Turtle Beach', 'price', '9'], [
-                            #  'brand', 'Trust', 'price', '9'], ['brand', 'SteelSeries', 'price', '9'], ['brand', 'Speedlink', 'price', '9']]
-        self.env.assertListEqual(exp[1], res[1])
+        exp = [2265L, 
+              'B00IE3WL6G', ['brand', 'Xbox', 'price', '9'],
+              'B00CPS59CE', ['brand', 'Turtle Beach', 'price', '9'],
+              'B000FS5TKI', ['brand', 'Trust', 'price', '9'],
+              'B009F7G0AI', ['brand', 'SteelSeries', 'price', '9'],
+              'B0046ZSY7Q',['brand', 'Speedlink', 'price', '9']]
+        self.env.assertListEqual(exp, res)
 
     def testLoad(self):
-        res = self.env.cmd('ft.aggregate', 'games', '*',
+        res = self.env.cmd('ft.aggregate', 'games', '*', 'WITHDOCID',
                            'LOAD', '3', '@brand', '@price', '@nonexist',
                            'SORTBY', 2, '@price', 'DESC', 'MAX', 2)
-        exp = [3L, ['brand', '', 'price', '759.12'], ['brand', 'Sony', 'price', '695.8']]
-        self.env.assertEqual(exp[1], res[1])
+        exp = [2265L, 'B00006JJIC', ['brand', '', 'price', '759.12'], 'B000F6W1AG', ['brand', 'Sony', 'price', '695.8']]
+        self.env.assertEqual(exp, res)
 
     def testSplit(self):
-        res = self.env.cmd('ft.aggregate', 'games', '*', 'APPLY', 'split("hello world,  foo,,,bar,", ",", " ")', 'AS', 'strs',
+        res = self.env.cmd('ft.aggregate', 'games', '*', 'WITHDOCID',
+                           'APPLY', 'split("hello world,  foo,,,bar,", ",", " ")', 'AS', 'strs',
                            'APPLY', 'split("hello world,  foo,,,bar,", " ", ",")', 'AS', 'strs2',
                            'APPLY', 'split("hello world,  foo,,,bar,", "", "")', 'AS', 'strs3',
                            'APPLY', 'split("hello world,  foo,,,bar,")', 'AS', 'strs4',
                            'APPLY', 'split("hello world,  foo,,,bar,",",")', 'AS', 'strs5',
                            'APPLY', 'split("")', 'AS', 'empty',
-                           'LIMIT', '0', '1'
+                           'LIMIT', '0', '2'
                            )
-        # print "Got {} results".format(len(res))
-        # return
-        # pprint.pprint(res)
-        self.env.assertListEqual([1L, ['strs', ['hello world', 'foo', 'bar'],
-                                       'strs2', ['hello', 'world', 'foo,,,bar'],
-                                       'strs3', ['hello world,  foo,,,bar,'],
-                                       'strs4', ['hello world', 'foo', 'bar'],
-                                       'strs5', ['hello world', 'foo', 'bar'],
-                                       'empty', []]], res)
+                           
+        self.env.assertListEqual([1L, '0984529527', ['strs', ['hello world', 'foo', 'bar'],
+                                                     'strs2', ['hello', 'world', 'foo,,,bar'],
+                                                     'strs3', ['hello world,  foo,,,bar,'],
+                                                     'strs4', ['hello world', 'foo', 'bar'],
+                                                     'strs5', ['hello world', 'foo', 'bar'], 'empty', []],
+                                      '1574571931', ['strs', ['hello world', 'foo', 'bar'],
+                                                     'strs2', ['hello', 'world', 'foo,,,bar'],
+                                                     'strs3', ['hello world,  foo,,,bar,'],
+                                                     'strs4', ['hello world', 'foo', 'bar'],
+                                                     'strs5', ['hello world', 'foo', 'bar'], 'empty', []]], res)
 
     def testFirstValue(self):
-        res = self.env.cmd('ft.aggregate', 'games', '@brand:(sony|matias|beyerdynamic|(mad catz))',
+        res = self.env.cmd('ft.aggregate', 'games', '@brand:(sony|matias|beyerdynamic|(mad catz))', 'WITHDOCID',
                            'GROUPBY', 1, '@brand',
                            'REDUCE', 'FIRST_VALUE', 4, '@title', 'BY', '@price', 'DESC', 'AS', 'top_item',
                            'REDUCE', 'FIRST_VALUE', 4, '@price', 'BY', '@price', 'DESC', 'AS', 'top_price',
@@ -374,25 +386,25 @@ class TestAggregate():
 
     def testLoadAfterGroupBy(self):
         with self.env.assertResponseError():
-            self.env.cmd('ft.aggregate', 'games', '*',
+            self.env.cmd('ft.aggregate', 'games', '*', 'WITHDOCID',
                          'GROUPBY', 1, '@brand',
                          'LOAD', 1, '@brand')
     
     def testReducerGeneratedAliasing(self):
-        rv = self.env.cmd('ft.aggregate', 'games', '*',
+        rv = self.env.cmd('ft.aggregate', 'games', '*', 'WITHDOCID',
                           'GROUPBY', 1, '@brand',
                           'REDUCE', 'MIN', 1, '@price',
                           'LIMIT', 0, 1)
         self.env.assertEqual([292L, ['brand', '', '__generated_aliasminprice', '0']], rv)
 
-        rv = self.env.cmd('ft.aggregate', 'games', '@brand:(sony|matias|beyerdynamic|(mad catz))',
+        rv = self.env.cmd('ft.aggregate', 'games', '@brand:(sony|matias|beyerdynamic|(mad catz))', 'WITHDOCID',
                           'GROUPBY', 1, '@brand',
                           'REDUCE', 'FIRST_VALUE', 4, '@title', 'BY', '@price', 'DESC',
                           'SORTBY', 2, '@brand', 'ASC')
         self.env.assertEqual('__generated_aliasfirst_valuetitle,by,price,desc', rv[1][2])
 
     def testIssue1125(self):
-        rv = self.env.cmd('ft.aggregate', 'games', '*',
+        rv = self.env.cmd('ft.aggregate', 'games', '*', 'WITHDOCID',
                           'LIMIT', 0, 20000000)
         self.env.assertEqual(2266, len(rv))
 
@@ -431,12 +443,12 @@ class TestAggregateSecondUseCases():
         add_values(self.env, 2)
 
     def testSimpleAggregate(self):
-        res = self.env.cmd('ft.aggregate', 'games', '*')
+        res = self.env.cmd('ft.aggregate', 'games', '*', 'WITHDOCID')
         self.env.assertIsNotNone(res)
         self.env.assertEqual(len(res), 4531)
 
     def testSimpleAggregateWithCursor(self):
-        res = self.env.cmd('ft.aggregate', 'games', '*', 'WITHCURSOR', 'COUNT', 1000)
+        res = self.env.cmd('ft.aggregate', 'games', '*', 'WITHDOCID', 'WITHCURSOR', 'COUNT', 1000)
         self.env.assertTrue(res[1] != 0)
 
 def grouper(iterable, n, fillvalue=None):
@@ -451,7 +463,7 @@ def testAggregateGroupByOnEmptyField(env):
             'SCHEMA', 'f', 'TEXT', 'SORTABLE', 'test', 'TEXT', 'SORTABLE')
     env.cmd('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'f', 'field', 'test', 'test1,test2,test3')
     env.cmd('ft.add', 'idx', 'doc2', '1.0', 'FIELDS', 'f', 'field', 'test', '')
-    res = env.cmd('ft.aggregate', 'idx', 'field', 'APPLY', 'split(@test)', 'as', 'check',
+    res = env.cmd('ft.aggregate', 'idx', 'field', 'WITHDOCID', 'APPLY', 'split(@test)', 'as', 'check',
                   'GROUPBY', '1', '@check', 'REDUCE', 'COUNT', '0', 'as', 'count')
 
     expected = [4L, ['check', 'test3', 'count', '1'],
@@ -468,7 +480,7 @@ def testGroupbyNoReduce(env):
         env.cmd('ft.add', 'idx', 'doc{}'.format(x), 1, 'fields',
             'primaryName', 'sarah number{}'.format(x))
 
-    rv = env.cmd('ft.aggregate', 'idx', 'sarah', 'groupby', 1, '@primaryName')
+    rv = env.cmd('ft.aggregate', 'idx', 'sarah', 'WITHDOCID', 'groupby', 1, '@primaryName')
     env.assertEqual(11, len(rv))
     for row in rv[1:]:
         env.assertEqual('primaryName', row[0])

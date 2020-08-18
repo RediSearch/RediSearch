@@ -19,3 +19,11 @@ def test_1414(env):
   env.expect('FT.CONFIG set MAXSEARCHRESULTS -1').equal('OK')
   env.expect('ft.search idx * limit 0 1234567').equal([1L, 'doc', ['foo', 'hello', 'bar', 'world']]) 
   
+def test_agg_with_ids(env):
+  env.expect('FT.CREATE idx SCHEMA txt1 TEXT').equal('OK')
+  env.expect('HSET a text1 hello').equal(1)
+  env.expect('HSET b text1 world').equal(1)
+  
+  search_res = env.cmd('FT.SEARCH idx * NOCONTENT')[1:]
+  agg_res = env.cmd('FT.AGGREGATE idx * WITHDOCID')[1:]
+  env.assertEqual(sorted(search_res), sorted(agg_res))

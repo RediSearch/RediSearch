@@ -37,7 +37,7 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
   const RSDocumentMetadata *dmd = r->dmd;
   size_t count = 0;
 
-  if (dmd && (options & QEXEC_F_IS_SEARCH)) {
+  if (dmd && ((options & QEXEC_F_IS_SEARCH) || (options & QEXEC_F_WITH_DOC_ID))) {
     size_t n;
     const char *s = DMD_KeyPtrLen(dmd, &n);
     RedisModule_ReplyWithStringBuffer(outctx, s, n);
@@ -109,7 +109,8 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
     }
   }
 
-  if (!(options & QEXEC_F_SEND_NOFIELDS)) {
+  bool fieldsExist = cv->lastLk->rowlen > 0;
+  if (fieldsExist && !(options & QEXEC_F_SEND_NOFIELDS)) {
     const RLookup *lk = cv->lastLk;
     count++;
 
