@@ -121,6 +121,26 @@ CONFIG_GETTER(getMaxDocTableSize) {
   return sdscatprintf(ss, "%lu", config->maxDocTableSize);
 }
 
+// MAXSEARCHRESULTS
+CONFIG_SETTER(setMaxSearchResults) {
+  long long newsize = 0;
+  int acrc = AC_GetLongLong(ac, &newsize, 0);
+  CHECK_RETURN_PARSE_ERROR(acrc);
+  if (newsize == -1) {
+    newsize = UINT64_MAX;
+  }
+  config->maxSearchResults = newsize;
+  return REDISMODULE_OK;
+}
+
+CONFIG_GETTER(getMaxSearchResults) {
+  sds ss = sdsempty();
+  if (config->maxSearchResults == UINT64_MAX) {
+    return sdscatprintf(ss, "unlimited");
+  }
+  return sdscatprintf(ss, "%lu", config->maxSearchResults);
+}
+
 // MAXEXPANSIONS
 CONFIG_SETTER(setMaxExpansions) {
   int acrc = AC_GetLongLong(ac, &config->maxPrefixExpansions, AC_F_GE1);
@@ -286,6 +306,13 @@ CONFIG_GETTER(getGcPolicy) {
   return sdsnew(GCPolicy_ToString(config->gcPolicy));
 }
 
+CONFIG_SETTER(setFilterCommand) {
+  int acrc = AC_GetInt(ac, &config->filterCommands, AC_F_GE0);
+  RETURN_STATUS(acrc);
+}
+
+CONFIG_BOOLEAN_GETTER(getFilterCommand, filterCommands, 0)
+
 RSConfig RSGlobalConfig = RS_DEFAULT_CONFIG;
 
 static RSConfigVar *findConfigVar(const RSConfigOptions *config, const char *name) {
@@ -373,6 +400,10 @@ RSConfigOptions RSGlobalConfigOptions = {
          .setValue = setMaxDocTableSize,
          .getValue = getMaxDocTableSize,
          .flags = RSCONFIGVAR_F_IMMUTABLE},
+        {.name = "MAXSEARCHRESULTS",
+         .helpText = "Maximum number of results from ft.search command",
+         .setValue = setMaxSearchResults,
+         .getValue = getMaxSearchResults},
         {.name = "MAXEXPANSIONS",
          .helpText = "Maximum prefix expansions to be used in a query",
          .setValue = setMaxExpansions,
@@ -446,6 +477,11 @@ RSConfigOptions RSGlobalConfigOptions = {
          .setValue = setNoMemPools,
          .getValue = getNoMemPools,
          .flags = RSCONFIGVAR_F_IMMUTABLE},
+        {.name = "PARTIAL_INDEXED_DOCS",
+         .helpText = "Enable commands filter which optimize indexing on partial hash updates",
+         .setValue = setFilterCommand,
+         .getValue = getFilterCommand,
+         .flags = RSCONFIGVAR_F_IMMUTABLE},
         {.name = NULL}}};
 
 void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst) {
@@ -468,6 +504,11 @@ sds RSConfig_GetInfoString(const RSConfig *config) {
   ss = sdscatprintf(ss, "cursor read size: %lld, ", config->cursorReadSize);
   ss = sdscatprintf(ss, "cursor max idle (ms): %lld, ", config->cursorMaxIdle);
   ss = sdscatprintf(ss, "max doctable size: %lu, ", config->maxDocTableSize);
+  ss = sdscatprintf(ss, "max number of search results: ");
+  ss = (config->maxSearchResults == UINT64_MAX)
+           ?  // value for MaxSearchResults
+           sdscatprintf(ss, "unlimited, ")
+           : sdscatprintf(ss, " %lu, ", config->maxSearchResults);
   ss = sdscatprintf(ss, "search pool size: %lu, ", config->searchPoolSize);
   ss = sdscatprintf(ss, "index pool size: %lu, ", config->indexPoolSize);
 

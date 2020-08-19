@@ -103,11 +103,11 @@ int RS_Initialized = 0;
 RedisModuleCtx *RSDummyContext = NULL;
 
 int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
-#define DO_LOG(...) \
-  do { \
+#define DO_LOG(...)                                 \
+  do {                                              \
     if (ctx && (mode != REDISEARCH_INIT_LIBRARY)) { \
-      RedisModule_Log(ctx, ##__VA_ARGS__); \
-    } \
+      RedisModule_Log(ctx, ##__VA_ARGS__);          \
+    }                                               \
   } while (false)
 
   // Print version string!
@@ -168,6 +168,7 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   }
 
   Initialize_KeyspaceNotifications(ctx);
+  Initialize_CommandFilter(ctx);
 
   return REDISMODULE_OK;
 }

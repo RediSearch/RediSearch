@@ -331,6 +331,20 @@ RSDocumentMetadata *DocTable_Pop(DocTable *t, const char *s, size_t n) {
   return NULL;
 }
 
+int DocTable_Replace(DocTable *t, const char *from_str, size_t from_len, const char *to_str,
+                     size_t to_len) {
+  t_docId id = DocIdMap_Get(&t->dim, from_str, from_len);
+  if (id == 0) {
+    return REDISMODULE_ERR;
+  }
+  DocIdMap_Delete(&t->dim, from_str, from_len);
+  DocIdMap_Put(&t->dim, to_str, to_len, id);
+  RSDocumentMetadata *dmd = DocTable_Get(t, id);
+  sdsfree(dmd->keyPtr);
+  dmd->keyPtr = sdsnewlen(to_str, to_len);
+  return REDISMODULE_OK;
+}
+
 void DocTable_RdbSave(DocTable *t, RedisModuleIO *rdb) {
 
   RedisModule_SaveUnsigned(rdb, t->size);

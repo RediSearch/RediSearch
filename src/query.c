@@ -951,7 +951,7 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       while (fm) {
         t_fieldMask bit = (fm & 1) << i;
         if (bit) {
-          const char *f = GetFieldNameByBit(spec, bit);
+          const char *f = IndexSpec_GetFieldNameByBit(spec, bit);
           s = sdscatprintf(s, "%s%s", n ? "|" : "", f ? f : "n/a");
           n++;
         }

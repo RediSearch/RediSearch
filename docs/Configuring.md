@@ -175,6 +175,23 @@ $ redis-server --loadmodule ./redisearch.so MAXDOCTABLESIZE 3000000
 
 ---
 
+## MAXSEARCHRESULTS
+
+The maximum number of results to be returned by FT.SEARCH command if LIMIT is used.
+Setting value to `-1` will remove the limit. 
+
+### Default
+
+1000000
+
+### Example
+
+```
+$ redis-server --loadmodule ./redisearch.so MAXSEARCHRESULTS 3000000
+```
+
+---
+
 ## FRISOINI {file_name}
 
 If present, we load the custom Chinese dictionary from the specified path. See [Using custom dictionaries](Chinese.md#using_custom_dictionaries) for more details.
@@ -208,6 +225,34 @@ $ redis-server --loadmodule ./redisearch.so CURSOR_MAX_IDLE 500000
 ### Notes
 
 * added in v1.6
+
+---
+
+## PARTIAL_INDEXED_DOCS
+
+Enable/disable Redis command filter. The filter optimizes partial updates of hashes
+and may avoid reindexing of the hash if changed fields are not part of schema. 
+
+### Considerations
+
+The Redis command filter will be executed upon each Redis Command.  Though the filter is
+optimised, this will introduce a small increase in latency on all commands.  
+This configuration is therefore best used with partial indexed documents where the non-
+indexed fields are updated frequently.
+
+### Default
+
+"0"
+
+### Example
+
+```
+$ redis-server --loadmodule ./redisearch.so PARTIAL_INDEXED_DOCS 1
+```
+
+### Notes
+
+* added in v2.0.0
 
 ---
 

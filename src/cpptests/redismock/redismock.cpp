@@ -697,6 +697,11 @@ static int RMCK_SubscribeToKeyspaceEvents(RedisModuleCtx *, int types,
   return REDISMODULE_OK;
 }
 
+static int RMCK_RegisterCommandFilter(RedisModuleCtx *ctx, RedisModuleCommandFilterFunc callback,
+                                      int flags) {
+  return REDISMODULE_OK;
+}
+
 static std::vector<RedisModuleEventCallback> flushCallbacks;
 
 static int RMCK_SubscribeToServerEvent(RedisModuleCtx *ctx, RedisModuleEvent event,
@@ -814,6 +819,7 @@ static void registerApis() {
 
   REGISTER_API(SubscribeToKeyspaceEvents);
   REGISTER_API(SubscribeToServerEvent);
+  REGISTER_API(RegisterCommandFilter);
 }
 
 static int RMCK_GetApi(const char *s, void *pp) {
