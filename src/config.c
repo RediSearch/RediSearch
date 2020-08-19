@@ -399,6 +399,7 @@ CONFIG_SETTER(setUpgradeIndex) {
 }
 
 CONFIG_GETTER(getUpgradeIndex) {
+  return sdsnew("Upgrade config for upgrading");
 }
 
 CONFIG_BOOLEAN_GETTER(getFilterCommand, filterCommands, 0)
