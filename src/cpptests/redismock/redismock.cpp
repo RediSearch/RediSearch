@@ -554,13 +554,35 @@ void RMCK_ThreadSafeContextUnlock(RedisModuleCtx *) {
   RMCK_GlobalLock.unlock();
 }
 
-RedisModuleCallReply *RMCK_Call(RedisModuleCtx *ctx, const char *cmd, const char *fmt, ...) {
-  // We only support HGETALL for now
-  if (strcasecmp(cmd, "HGETALL") != 0) {
-    return NULL;
+static RedisModuleCallReply *RMCK_CallHset(RedisModuleCtx *ctx, const char *cmd, const char *fmt,
+                                           va_list ap) {
+  if (strcmp(fmt, "!v") != 0) {
+    return NULL;  // we support only !v for now
   }
-  va_list ap;
-  va_start(ap, fmt);
+
+  RedisModuleString **args = va_arg(ap, RedisModuleString **);
+  size_t argLen = va_arg(ap, size_t) - 1;
+  Value *v = ctx->db->get(args[0]);
+  if (!v) {
+    v = new HashValue(RedisModule_StringPtrLen(args[0], NULL));
+    ctx->db->set(v);
+    v->decref();
+  }
+  HashValue *hv = static_cast<HashValue *>(v);
+  for (size_t i = 1; i < argLen; i += 2) {
+    RedisModuleString *field = args[i];
+    RedisModuleString *val = args[i + 1];
+    HashValue::Key e(0);
+    e.rstr = field;
+    hv->hset(e, val);
+  }
+
+  RMCK_Notify("hset", REDISMODULE_NOTIFY_HASH, RedisModule_StringPtrLen(args[0], NULL));
+  return NULL;
+}
+
+static RedisModuleCallReply *RMCK_CallHgelall(RedisModuleCtx *ctx, const char *cmd, const char *fmt,
+                                              va_list ap) {
   const char *id = NULL;
   if (*fmt == 'c') {
     id = va_arg(ap, const char *);
@@ -568,7 +590,7 @@ RedisModuleCallReply *RMCK_Call(RedisModuleCtx *ctx, const char *cmd, const char
     RedisModuleString *rid = va_arg(ap, RedisModuleString *);
     id = rid->c_str();
   }
-  va_end(ap);
+
   if (!id) {
     return NULL;
   }
@@ -588,6 +610,24 @@ RedisModuleCallReply *RMCK_Call(RedisModuleCtx *ctx, const char *cmd, const char
     r->arr.push_back(RedisModuleCallReply(ctx, it.second));
   }
   return r;
+}
+
+RedisModuleCallReply *RMCK_Call(RedisModuleCtx *ctx, const char *cmd, const char *fmt, ...) {
+  // We only support HGETALL for now
+  va_list ap;
+  RedisModuleCallReply *reply = NULL;
+  va_start(ap, fmt);
+  if (strcasecmp(cmd, "HGETALL") == 0) {
+    reply = RMCK_CallHgelall(ctx, cmd, fmt, ap);
+  }
+
+  if (strcasecmp(cmd, "HSET") == 0) {
+    reply = RMCK_CallHset(ctx, cmd, fmt, ap);
+  }
+
+  va_end(ap);
+
+  return reply;
 }
 
 int RMCK_CallReplyType(RedisModuleCallReply *r) {
@@ -618,7 +658,7 @@ RedisModuleString *RMCK_CreateStringFromCallReply(RedisModuleCallReply *r) {
     case REDISMODULE_REPLY_STRING:
       return RedisModule_CreateString(r->ctx, r->s.c_str(), r->s.size());
     case REDISMODULE_REPLY_INTEGER:
-      return RedisModule_CreateStringPrintf(r->ctx, "%ll", r->ll);
+      return RedisModule_CreateStringPrintf(r->ctx, "%lld", r->ll);
     default:
       return NULL;
   }
@@ -654,6 +694,11 @@ static int RMCK_SubscribeToKeyspaceEvents(RedisModuleCtx *, int types,
   fn.fn = cb;
   fn.events = types;
   KeyspaceEvents_g.push_back(fn);
+  return REDISMODULE_OK;
+}
+
+static int RMCK_RegisterCommandFilter(RedisModuleCtx *ctx,
+                          RedisModuleCommandFilterFunc callback, int flags) {
   return REDISMODULE_OK;
 }
 
@@ -774,6 +819,7 @@ static void registerApis() {
 
   REGISTER_API(SubscribeToKeyspaceEvents);
   REGISTER_API(SubscribeToServerEvent);
+  REGISTER_API(RegisterCommandFilter);
 }
 
 static int RMCK_GetApi(const char *s, void *pp) {
@@ -785,6 +831,11 @@ static int RMCK_GetApi(const char *s, void *pp) {
 }
 
 extern "C" {
+
+void RMCK_Notify(const char *action, int events, const char *key) {
+  KeyspaceEventFunction::notify("hset", REDISMODULE_NOTIFY_HASH, key);
+}
+
 void RMCK_Bootstrap(RMCKModuleLoadFunction fn, const char **s, size_t n) {
   // Create the context:
   RedisModuleCtx ctxTmp;

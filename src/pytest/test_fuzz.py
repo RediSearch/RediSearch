@@ -1,6 +1,7 @@
 import random
 import time
 from includes import *
+from common import waitForIndex
 
 
 _tokens = {}
@@ -31,8 +32,8 @@ def generate_random_doc(env, num_tokens=100):
     return _docId - 1, tokens
 
 def createIndex(env, r):
-    env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'ON', 'HASH', 'schema', 'txt', 'text'))
+    r.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'txt', 'text').ok()
+    waitForIndex(r, 'idx')
 
     for i in xrange(1000):
         did, tokens = generate_random_doc(env)

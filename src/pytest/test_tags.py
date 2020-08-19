@@ -1,4 +1,5 @@
 from includes import *
+from common import waitForIndex
 
 def search(env, r, *args):
     return r.execute_command('ft.search', *args)
@@ -13,6 +14,7 @@ def testTagIndex(env):
         env.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % n, 1.0, 'fields',
                                        'title', 'hello world term%d' % n, 'tags', 'foo bar,xxx,tag %d' % n))
     for _ in r.retry_with_rdb_reload():
+        waitForIndex(r, 'idx')
         res = env.cmd('ft.search', 'idx', 'hello world')
         env.assertEqual(10, res[0])
 
@@ -57,7 +59,7 @@ def testSeparator(env):
     env.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 1.0, 'fields',
                                    'title', 'hello world', 'tags', 'x:hello world: fooz bar:foo,bar:BOO FAR'))
     for _ in r.retry_with_rdb_reload():
-
+        waitForIndex(r, 'idx')
         for q in ('@tags:{hello world}', '@tags:{fooz bar}', '@tags:{foo\\,bar}', '@tags:{boo\\ far}', '@tags:{x}'):
             res = env.cmd('ft.search', 'idx', q)
             env.assertEqual(1, res[0])
@@ -71,7 +73,7 @@ def testTagPrefix(env):
     env.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 1.0, 'fields',
                                    'title', 'hello world', 'tags', 'hello world,hello-world,hell,jell'))
     for _ in r.retry_with_rdb_reload():
-
+        waitForIndex(r, 'idx')
         for q in ('@tags:{hello world}', '@tags:{hel*}', '@tags:{hello\\-*}', '@tags:{he*}'):
             res = env.cmd('ft.search', 'idx', q)
             env.assertEqual(res[0], 1)
@@ -85,7 +87,7 @@ def testTagFieldCase(env):
     env.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 1.0, 'fields',
                                    'title', 'hello world', 'TAgs', 'HELLO WORLD,FOO BAR'))
     for _ in r.retry_with_rdb_reload():
-
+        waitForIndex(r, 'idx')
         env.assertListEqual([0], r.execute_command(
             'FT.SEARCH', 'idx', '@tags:{HELLO WORLD}'))
         env.assertListEqual([1, 'doc1'], r.execute_command(
@@ -128,6 +130,7 @@ def testTagVals(env):
         env.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % n, 1.0, 'fields',
                                        'tags', ','.join(tags), 'othertags', 'baz %d' % int(n // 2)))
     for _ in r.retry_with_rdb_reload():
+        waitForIndex(r, 'idx')
         res = r.execute_command('ft.tagvals', 'idx', 'tags')
         env.assertEqual(N * 2 + 1, len(res))
 

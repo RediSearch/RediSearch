@@ -1,42 +1,42 @@
 import math
 from includes import *
-from common import getConnectionByEnv
+from common import getConnectionByEnv, waitForIndex
 
 
 def testHammingScorer(env):
-    env.assertOk(env.cmd('ft.create', 'idx', 'ON', 'HASH', 'SCORE_FIELD', '__score',
-                         'schema', 'title', 'text'))
+    env.expect('ft.create', 'idx', 'ON', 'HASH', 'SCORE_FIELD', '__score', 'schema', 'title', 'text').ok()
+    waitForIndex(env, 'idx')
 
     for i in range(16):
-        env.assertOk(env.cmd('ft.add', 'idx', 'doc%d' % i, 1,
-                                        'payload', ('%x' % i) * 8,
-                                        'fields', 'title', 'hello world'))
+        env.expect('ft.add', 'idx', 'doc%d' % i, 1,
+                   'payload', ('%x' % i) * 8,
+                   'fields', 'title', 'hello world').ok()
     for i in range(16):
         res = env.cmd('ft.search', 'idx', '*', 'PAYLOAD', ('%x' % i) * 8,
-                                'SCORER', 'HAMMING', 'WITHSCORES', 'WITHPAYLOADS')
+                      'SCORER', 'HAMMING', 'WITHSCORES', 'WITHPAYLOADS')
         env.assertEqual(res[1], 'doc%d' % i)
         env.assertEqual(res[2], '1')
         # test with payload of different length
         res = env.cmd('ft.search', 'idx', '*', 'PAYLOAD', ('%x' % i) * 7,
-                       'SCORER', 'HAMMING', 'WITHSCORES', 'WITHPAYLOADS')
+                      'SCORER', 'HAMMING', 'WITHSCORES', 'WITHPAYLOADS')
         env.assertEqual(res[2], '0')
         # test with no payload
         res = env.cmd('ft.search', 'idx', '*',
-                       'SCORER', 'HAMMING', 'WITHSCORES', 'WITHPAYLOADS')
+                      'SCORER', 'HAMMING', 'WITHSCORES', 'WITHPAYLOADS')
         env.assertEqual(res[2], '0')
 
 def testScoreTagIndex(env):
-    env.assertOk(env.cmd(
-        'ft.create', 'idx', 'ON', 'HASH', 'SCORE_FIELD', '__score',
-        'schema', 'title', 'text', 'weight', 10, 'body', 'text'))
+    env.expect('ft.create', 'idx', 'ON', 'HASH', 'SCORE_FIELD', '__score',
+               'schema', 'title', 'text', 'weight', 10, 'body', 'text').ok()
+    waitForIndex(env, 'idx')
     N = 25
     for n in range(N):
 
         sc = math.sqrt(float(N - n + 10) / float(N + 10))
         # print n, sc
 
-        env.assertOk(env.cmd('ft.add', 'idx', 'doc%d' % n, sc, 'fields',
-                               'title', 'hello world ' * n, 'body', 'lorem ipsum ' * n))
+        env.expect('ft.add', 'idx', 'doc%d' % n, sc, 'fields',
+                   'title', 'hello world ' * n, 'body', 'lorem ipsum ' * n).ok()
     results_single = [
         [24L, 'doc1', 1.97, 'doc2', 1.94, 'doc3',
             1.91, 'doc4', 1.88, 'doc5', 1.85],
@@ -66,6 +66,7 @@ def testScoreTagIndex(env):
     expected_results = results_cluster if env.is_cluster() else results_single
 
     for _ in env.reloading_iterator():
+        waitForIndex(env, 'idx')
         for i, scorer in enumerate(scorers):
             res = env.cmd('ft.search', 'idx', 'hello world', 'scorer',
                               scorer, 'nocontent', 'withscores', 'limit', 0, 5)
@@ -75,15 +76,12 @@ def testScoreTagIndex(env):
             env.assertListEqual(expected_results[i], res)
 
 def testDocscoreScorerExplanation(env):
-    env.assertOk(env.cmd(
-        'ft.create', 'idx', 'ON', 'HASH', 'SCORE_FIELD', '__score',
-        'schema', 'title', 'text', 'weight', 10, 'body', 'text'))
-    env.assertOk(env.cmd(
-        'ft.add', 'idx', 'doc1', 0.5, 'fields', 'title', 'hello world',' body', 'lorem ist ipsum'))
-    env.assertOk(env.cmd(
-        'ft.add', 'idx', 'doc2', 1, 'fields', 'title', 'hello another world',' body', 'lorem ist ipsum lorem lorem'))
-    env.assertOk(env.cmd(
-        'ft.add', 'idx', 'doc3', 0.1, 'fields', 'title', 'hello yet another world',' body', 'lorem ist ipsum lorem lorem'))    
+    env.expect('ft.create', 'idx', 'ON', 'HASH', 'SCORE_FIELD', '__score',
+               'schema', 'title', 'text', 'weight', 10, 'body', 'text').ok()
+    waitForIndex(env, 'idx')
+    env.expect('ft.add', 'idx', 'doc1', 0.5, 'fields', 'title', 'hello world',' body', 'lorem ist ipsum').ok()
+    env.expect('ft.add', 'idx', 'doc2', 1, 'fields', 'title', 'hello another world',' body', 'lorem ist ipsum lorem lorem').ok()
+    env.expect('ft.add', 'idx', 'doc3', 0.1, 'fields', 'title', 'hello yet another world',' body', 'lorem ist ipsum lorem lorem').ok()
     res = env.cmd('ft.search', 'idx', 'hello world', 'withscores', 'EXPLAINSCORE', 'scorer', 'DOCSCORE')
     env.assertEqual(res[0], 3L)
     env.assertEqual(res[2][1], "Document's score is 1.00")
@@ -91,15 +89,12 @@ def testDocscoreScorerExplanation(env):
     env.assertEqual(res[8][1], "Document's score is 0.10")
 
 def testTFIDFScorerExplanation(env):
-    env.assertOk(env.cmd(
-        'ft.create', 'idx', 'ON', 'HASH', 'SCORE_FIELD', '__score',
-        'schema', 'title', 'text', 'weight', 10, 'body', 'text'))
-    env.assertOk(env.cmd(
-        'ft.add', 'idx', 'doc1', 0.5, 'fields', 'title', 'hello world',' body', 'lorem ist ipsum'))
-    env.assertOk(env.cmd(
-        'ft.add', 'idx', 'doc2', 1, 'fields', 'title', 'hello another world',' body', 'lorem ist ipsum lorem lorem'))
-    env.assertOk(env.cmd(
-        'ft.add', 'idx', 'doc3', 0.1, 'fields', 'title', 'hello yet another world',' body', 'lorem ist ipsum lorem lorem'))    
+    env.expect('ft.create', 'idx', 'ON', 'HASH', 'SCORE_FIELD', '__score',
+               'schema', 'title', 'text', 'weight', 10, 'body', 'text').ok()
+    waitForIndex(env, 'idx')
+    env.expect('ft.add', 'idx', 'doc1', 0.5, 'fields', 'title', 'hello world',' body', 'lorem ist ipsum').ok()
+    env.expect('ft.add', 'idx', 'doc2', 1, 'fields', 'title', 'hello another world',' body', 'lorem ist ipsum lorem lorem').ok()
+    env.expect('ft.add', 'idx', 'doc3', 0.1, 'fields', 'title', 'hello yet another world',' body', 'lorem ist ipsum lorem lorem').ok()
     res = env.cmd('ft.search', 'idx', 'hello world', 'withscores', 'EXPLAINSCORE')
     env.assertEqual(res[0], 3L)
     env.assertEqual(res[2][1],['Final TFIDF : words TFIDF 20.00 * document score 1.00 / norm 10 / slop 2',
@@ -116,15 +111,12 @@ def testTFIDFScorerExplanation(env):
                                 '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)']]]])
 
 def testBM25ScorerExplanation(env):
-    env.assertOk(env.cmd(
-        'ft.create', 'idx', 'ON', 'HASH', 'SCORE_FIELD', '__score',
-        'schema', 'title', 'text', 'weight', 10, 'body', 'text'))
-    env.assertOk(env.cmd(
-        'ft.add', 'idx', 'doc1', 0.5, 'fields', 'title', 'hello world',' body', 'lorem ist ipsum'))
-    env.assertOk(env.cmd(
-        'ft.add', 'idx', 'doc2', 1, 'fields', 'title', 'hello another world',' body', 'lorem ist ipsum lorem lorem'))
-    env.assertOk(env.cmd(
-        'ft.add', 'idx', 'doc3', 0.1, 'fields', 'title', 'hello yet another world',' body', 'lorem ist ipsum lorem lorem'))    
+    env.expect('ft.create', 'idx', 'ON', 'HASH', 'SCORE_FIELD', '__score',
+               'schema', 'title', 'text', 'weight', 10, 'body', 'text').ok()
+    waitForIndex(env, 'idx')
+    env.expect('ft.add', 'idx', 'doc1', 0.5, 'fields', 'title', 'hello world',' body', 'lorem ist ipsum').ok()
+    env.expect('ft.add', 'idx', 'doc2', 1, 'fields', 'title', 'hello another world',' body', 'lorem ist ipsum lorem lorem').ok()
+    env.expect('ft.add', 'idx', 'doc3', 0.1, 'fields', 'title', 'hello yet another world',' body', 'lorem ist ipsum lorem lorem').ok()
     res = env.cmd('ft.search', 'idx', 'hello world', 'withscores', 'EXPLAINSCORE', 'scorer', 'BM25')
     env.assertEqual(res[0], 3L)
     if env.isCluster():
@@ -147,15 +139,12 @@ def testBM25ScorerExplanation(env):
 
 
 def testDisMaxScorerExplanation(env):
-    env.assertOk(env.cmd(
-        'ft.create', 'idx', 'ON', 'HASH', 'SCORE_FIELD', '__score',
-        'schema', 'title', 'text', 'weight', 10, 'body', 'text'))
-    env.assertOk(env.cmd(
-        'ft.add', 'idx', 'doc1', 0.5, 'fields', 'title', 'hello world',' body', 'lorem ist ipsum'))
-    env.assertOk(env.cmd(
-        'ft.add', 'idx', 'doc2', 1, 'fields', 'title', 'hello another world',' body', 'lorem ist ipsum lorem lorem'))
-    env.assertOk(env.cmd(
-        'ft.add', 'idx', 'doc3', 0.1, 'fields', 'title', 'hello yet another world',' body', 'lorem ist ipsum lorem lorem'))    
+    env.expect('ft.create', 'idx', 'ON', 'HASH', 'SCORE_FIELD', '__score',
+               'schema', 'title', 'text', 'weight', 10, 'body', 'text').ok()
+    waitForIndex(env, 'idx')
+    env.expect('ft.add', 'idx', 'doc1', 0.5, 'fields', 'title', 'hello world',' body', 'lorem ist ipsum').ok()
+    env.expect('ft.add', 'idx', 'doc2', 1, 'fields', 'title', 'hello another world',' body', 'lorem ist ipsum lorem lorem').ok()
+    env.expect('ft.add', 'idx', 'doc3', 0.1, 'fields', 'title', 'hello yet another world',' body', 'lorem ist ipsum lorem lorem').ok()
     res = env.cmd('ft.search', 'idx', 'hello world', 'withscores', 'EXPLAINSCORE', 'scorer', 'DISMAX')
     env.assertEqual(res[0], 3L)
     env.assertEqual(res[2][1], ['20.00 = Weight 1.00 * children DISMAX 20.00',
@@ -168,7 +157,7 @@ def testDisMaxScorerExplanation(env):
 def testScoreReplace(env):
     conn = getConnectionByEnv(env)
     env.expect('ft.create idx ON HASH schema f text').ok()
-
+    waitForIndex(env, 'idx')
     conn.execute_command('HSET', 'doc1', 'f', 'redisearch')
     conn.execute_command('HSET', 'doc1', 'f', 'redisearch')
     env.expect('FT.SEARCH idx redisearch withscores nocontent').equal([1L, 'doc1', '1'])
@@ -181,6 +170,7 @@ def testScoreReplace(env):
 
 def testScoreDecimal(env):
     env.expect('ft.create idx ON HASH schema title text').ok()
+    waitForIndex(env, 'idx')
     env.expect('ft.add idx doc1 0.01 fields title hello').ok()
     res = env.cmd('ft.search idx hello withscores nocontent')
     env.assertLess(float(res[2]), 1)

@@ -5,7 +5,9 @@
 #include "dep/triemap/triemap.h"
 #include "stemmer.h"
 #include "util/arr.h"
-
+#ifdef __cplusplus
+extern "C" {
+#endif
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 struct RSExpr;
@@ -75,4 +77,7 @@ typedef struct {
   arrayof(struct IndexSpec *) index_specs;
 } SchemaPrefixNode;
 
+#ifdef __cplusplus
+}
+#endif
 ///////////////////////////////////////////////////////////////////////////////////////////////

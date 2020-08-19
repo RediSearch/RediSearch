@@ -64,7 +64,8 @@ threadpool thpool_init(int num_threads);
  * @param  arg_p         pointer to an argument
  * @return 0 on successs, -1 otherwise.
  */
-int thpool_add_work(threadpool, void (*function_p)(void*), void* arg_p);
+typedef void (*thpool_proc)(void*);
+int thpool_add_work(threadpool, thpool_proc function_p, void* arg_p);
 
 
 /**
