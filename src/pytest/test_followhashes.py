@@ -506,8 +506,8 @@ def testExpiredDuringSearch(env):
 
   res = env.cmd('FT.SEARCH idx hello* limit 0 100')
   env.assertLess(res[0], N)
-  for i in range (2,len(res),2):
-    env.assertEqual(res[i], [])
+  for i in range (0,len(res)):
+    env.assertNotEqual(res[i], [])
 
   env.expect('FT.SEARCH idx hello*').equal([0])
 
@@ -526,7 +526,7 @@ def testExpiredDuringAggregate(env):
   # after seatch with content, all keys are access and being actively expired
   env.expect('HGETALL doc1') #ensure at least 1 hash is expired
   res = env.cmd('FT.AGGREGATE idx hello* GROUPBY 1 @txt1 REDUCE count 0 AS COUNT')
-  env.assertLess(int(res[0]), N)
+  env.assertLess(res[0], N)
 
   res = env.cmd('FT.AGGREGATE idx hello* LOAD 1 @txt1 GROUPBY 1 @txt1 REDUCE count 0 AS COUNT')
   env.assertLess(res[0], N)
