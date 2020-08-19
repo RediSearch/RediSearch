@@ -13,7 +13,7 @@
        [SCORE {default_score}]
        [SCORE_FIELD {score_field}]
        [PAYLOAD_FIELD {payload_field}]
-    [MAXTEXTFIELDS] [TEMPORARY {seconds}] [NOOFFSETS] [NOHL] [NOFIELDS] [NOFREQS]
+    [MAXTEXTFIELDS] [TEMPORARY {seconds}] [NOOFFSETS] [NOHL] [NOFIELDS] [NOFREQS] [NOINITIALSCAN]
     [STOPWORDS {num} {stopword} ...]
     SCHEMA {field} [TEXT [NOSTEM] [WEIGHT {weight}] [PHONETIC {matcher}] | NUMERIC | GEO | TAG [SEPARATOR {sep}] ] [SORTABLE][NOINDEX] ...
 ```
@@ -113,6 +113,8 @@ FT.CREATE idx SCHEMA name TEXT SORTABLE age NUMERIC SORTABLE myTag TAG SORTABLE
     If not set, we take the default list of stopwords. 
 
     If **{num}** is set to 0, the index will not have stopwords.
+
+* **NOINITIALSCAN**: If set, we do not scan and index. 
 
 * **SCHEMA {field} {options...}**: After the SCHEMA keyword we define the index fields. They
   can be numeric, textual or geographical. For textual fields we optionally specify a weight.
