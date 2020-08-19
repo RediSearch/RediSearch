@@ -10,6 +10,8 @@ extern "C" {
 #endif
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+#define RULE_TYPE_HASH "HASH"
+
 struct RSExpr;
 struct IndexSpec;
 
@@ -47,7 +49,7 @@ typedef struct SchemaRule {
 
 extern arrayof(SchemaRule *) SchemaRules_g;
 
-SchemaRule *SchemaRule_Create(SchemaRuleArgs *ags, struct IndexSpec *spec, QueryError *status);
+SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, struct IndexSpec *spec, QueryError *status);
 void SchemaRule_Free(SchemaRule *);
 
 void SchemaRules_Create();

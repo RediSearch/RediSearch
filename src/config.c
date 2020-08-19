@@ -7,6 +7,9 @@
 #include <stdlib.h>
 #include <limits.h>
 #include "rmalloc.h"
+#include "rules.h"
+#include "spec.h"
+#include "util/dict.h"
 
 #define RETURN_ERROR(s) return REDISMODULE_ERR;
 #define RETURN_PARSE_ERROR(rc)                                    \
@@ -311,6 +314,93 @@ CONFIG_SETTER(setFilterCommand) {
   RETURN_STATUS(acrc);
 }
 
+CONFIG_SETTER(setUpgradeIndex) {
+  size_t dummy2;
+  const char *indexName;
+  SchemaRuleArgs *rule = NULL;
+  int acrc = AC_GetString(ac, &indexName, NULL, 0);
+
+  CHECK_RETURN_PARSE_ERROR(acrc);
+
+  if (dictFetchValue(legacySpecRules, indexName)) {
+    QueryError_SetError(status, QUERY_EPARSEARGS,
+                        "Upgrade index definition was given more then once on the same index");
+    return REDISMODULE_ERR;
+  }
+
+  rule = rm_calloc(1, sizeof(*rule));
+
+  ArgsCursor rule_prefixes = {0};
+
+  ACArgSpec argopts[] = {
+      {.name = "PREFIX", .target = &rule_prefixes, .type = AC_ARGTYPE_SUBARGS},
+      {.name = "FILTER",
+       .target = &rule->filter_exp_str,
+       .len = &dummy2,
+       .type = AC_ARGTYPE_STRING},
+      {.name = "SCORE", .target = &rule->score_default, .len = &dummy2, .type = AC_ARGTYPE_STRING},
+      {.name = "SCORE_FIELD",
+       .target = &rule->score_field,
+       .len = &dummy2,
+       .type = AC_ARGTYPE_STRING},
+      {.name = "LANGUAGE",
+       .target = &rule->lang_default,
+       .len = &dummy2,
+       .type = AC_ARGTYPE_STRING},
+      {.name = "LANGUAGE_FIELD",
+       .target = &rule->lang_field,
+       .len = &dummy2,
+       .type = AC_ARGTYPE_STRING},
+      {.name = "PAYLOAD_FIELD",
+       .target = &rule->payload_field,
+       .len = &dummy2,
+       .type = AC_ARGTYPE_STRING},
+  };
+
+  ACArgSpec *errarg = NULL;
+  int rc = AC_ParseArgSpec(ac, argopts, &errarg);
+  // AC_ERR_ENOENT is OK it means that we got the next configuration element
+  // and we can stop
+  if (rc != AC_OK && rc != AC_ERR_ENOENT) {
+    if (rc != AC_ERR_ENOENT) {
+      QERR_MKBADARGS_AC(status, errarg->name, rc);
+      rm_free(rule);
+      return REDISMODULE_ERR;
+    }
+  }
+
+  if (rule_prefixes.argc > 0) {
+    rule->nprefixes = rule_prefixes.argc;
+    rule->prefixes = rm_malloc(rule->nprefixes * sizeof(char *));
+    for (size_t i = 0; i < rule->nprefixes; ++i) {
+      rule->prefixes[i] = rm_strdup(RedisModule_StringPtrLen(rule_prefixes.objs[i], NULL));
+    }
+  } else {
+    rule->nprefixes = 1;
+    rule->prefixes = rm_malloc(sizeof(char *));
+    rule->prefixes[0] = rm_strdup("");
+  }
+
+  // duplicate all rule arguments so it will leave after this function finish
+#define DUP_IF_NEEDED(arg) \
+  if (arg) arg = rm_strdup(arg)
+  DUP_IF_NEEDED(rule->filter_exp_str);
+  DUP_IF_NEEDED(rule->lang_default);
+  DUP_IF_NEEDED(rule->lang_field);
+  DUP_IF_NEEDED(rule->payload_field);
+  DUP_IF_NEEDED(rule->score_default);
+  DUP_IF_NEEDED(rule->score_field);
+  rule->type = rm_strdup(RULE_TYPE_HASH);
+
+  // add rule to rules dictionary
+  dictAdd(legacySpecRules, (char *)indexName, rule);
+
+  return REDISMODULE_OK;
+}
+
+CONFIG_GETTER(getUpgradeIndex) {
+}
+
 CONFIG_BOOLEAN_GETTER(getFilterCommand, filterCommands, 0)
 
 RSConfig RSGlobalConfig = RS_DEFAULT_CONFIG;
@@ -481,6 +571,12 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "Enable commands filter which optimize indexing on partial hash updates",
          .setValue = setFilterCommand,
          .getValue = getFilterCommand,
+         .flags = RSCONFIGVAR_F_IMMUTABLE},
+        {.name = "UPGRADE_INDEX",
+         .helpText =
+             "Relevant only when loading an v1.x rdb, specify argument for upgrading the index.",
+         .setValue = setUpgradeIndex,
+         .getValue = getUpgradeIndex,
          .flags = RSCONFIGVAR_F_IMMUTABLE},
         {.name = NULL}}};
 

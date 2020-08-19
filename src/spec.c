@@ -42,6 +42,7 @@ dict *specDict;
 IndexesScanner *global_spec_scanner = NULL;
 size_t pending_global_indexing_ops = 0;
 dict *legacySpecDict;
+dict *legacySpecRules;
 
 //---------------------------------------------------------------------------------------------
 
@@ -1577,16 +1578,16 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   if (encver < LEGACY_INDEX_MIN_VERSION || encver > LEGACY_INDEX_MAX_VERSION) {
     return NULL;
   }
+  char *name = RedisModule_LoadStringBuffer(rdb, NULL);
+
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
   IndexSpec_MakeKeyless(sp);
   sp->sortables = NewSortingTable();
   sp->terms = NULL;
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
-  sp->name = RedisModule_LoadStringBuffer(rdb, NULL);
-  char *tmpName = rm_strdup(sp->name);
-  RedisModule_Free(sp->name);
-  sp->name = tmpName;
+  sp->name = rm_strdup(name);
+  RedisModule_Free(name);
   sp->flags = (IndexFlags)RedisModule_LoadUnsigned(rdb);
   sp->maxPrefixExpansions = RSGlobalConfig.maxPrefixExpansions;
   sp->minPrefix = RSGlobalConfig.minTermPrefix;
@@ -1653,27 +1654,43 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   }
   sp->indexer = NewIndexer(sp);
 
+  SchemaRuleArgs *rule_args = dictFetchValue(legacySpecRules, sp->name);
+  if (!rule_args) {
+    RedisModule_LogIOError(rdb, "warning",
+                           "Could not find upgrade definition for legacy index '%s'", sp->name);
+    IndexSpec_Free(sp);
+    return NULL;
+  }
+
+  QueryError status;
+  sp->rule = SchemaRule_Create(rule_args, sp, &status);
+  if (!sp->rule) {
+    RedisModule_LogIOError(rdb, "warning", "Failed creating rule for legacy index '%s', error='%s'",
+                           sp->name, QueryError_GetError(&status));
+    IndexSpec_Free(sp);
+    return NULL;
+  }
+
+  // free rule_args
+#define FREE_IF_NEEDED(arg) \
+  if (arg) rm_free(arg)
+  FREE_IF_NEEDED(rule_args->filter_exp_str);
+  FREE_IF_NEEDED(rule_args->lang_default);
+  FREE_IF_NEEDED(rule_args->lang_field);
+  FREE_IF_NEEDED(rule_args->payload_field);
+  FREE_IF_NEEDED(rule_args->score_default);
+  FREE_IF_NEEDED(rule_args->score_field);
+  FREE_IF_NEEDED((char *)rule_args->type);
+  for (size_t i = 0; i < rule_args->nprefixes; ++i) {
+    rm_free((char *)rule_args->prefixes[i]);
+  }
+  rm_free(rule_args->prefixes);
+  rm_free(rule_args);
+  dictDelete(legacySpecRules, sp->name);
+
   // start the gc and add the spec to the cursor list
   IndexSpec_StartGC(RSDummyContext, sp, GC_DEFAULT_HZ);
   CursorList_AddSpec(&RSCursors, sp->name, RSCURSORS_DEFAULT_CAPACITY);
-
-  // todo: add rule according to the definition of the config values
-  //       if no config found or the rule creation failed, fail the rdb loading.
-  // currently lets just put a simple rule of index all hashes
-  const char *prefix = "";
-  SchemaRuleArgs rule_args = {
-      .type = "hash",
-      .prefixes = &prefix,
-      .nprefixes = 1,
-      .filter_exp_str = NULL,
-      .lang_field = NULL,
-      .score_field = NULL,
-      .payload_field = NULL,
-      .lang_default = NULL,
-      .score_default = NULL,
-  };
-  QueryError status;
-  sp->rule = SchemaRule_Create(&rule_args, sp, &status);
 
   dictAdd(legacySpecDict, sp->name, sp);
   return sp;

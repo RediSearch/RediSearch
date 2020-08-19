@@ -2,6 +2,7 @@ import os
 import subprocess
 from includes import *
 from common import waitForIndex
+from RLTest import Env
 
 
 REDISEARCH_CACHE_DIR = '/tmp/'
@@ -25,8 +26,11 @@ def downloadFiles():
             return False
     return True
 
-def testRDBCompatibility(env):
+def testRDBCompatibility():
     # temp skip for out-of-index
+
+    env = Env(moduleArgs='UPGRADE_INDEX idx PREFIX 1 tt LANGUAGE french LANGUAGE_FIELD MyLang SCORE 0.5 SCORE_FIELD MyScore PAYLOAD_FIELD MyPayload')
+
     env.skipOnCluster()
     dbFileName = env.cmd('config', 'get', 'dbfilename')[1]
     dbDir = env.cmd('config', 'get', 'dir')[1]
@@ -50,6 +54,9 @@ def testRDBCompatibility(env):
         waitForIndex(env, 'idx')
         env.expect('FT.SEARCH idx * LIMIT 0 0').equal([1000])
         env.expect('DBSIZE').equal(1000)
+        res = env.cmd('FT.INFO idx')
+        res = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
+        env.assertEqual(res['index_definition'], ['key_type', 'HASH', 'prefixes', ['tt'], 'default_language', 'french', 'language_field', 'MyLang', 'default_score', '0.5', 'score_field', 'MyScore', 'payload_field', 'MyPayload'])
         env.cmd('flushall')
         env.assertTrue(env.checkExitCode())
 

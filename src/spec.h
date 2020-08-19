@@ -73,6 +73,7 @@ static const char *SpecTypeNames[] = {[IXFLDPOS_FULLTEXT] = SPEC_TEXT_STR,
 extern dict *specDict;
 extern size_t pending_global_indexing_ops;
 extern struct IndexesScanner *global_spec_scanner;
+extern dict *legacySpecRules;
 
 typedef struct {
   size_t numDocuments;

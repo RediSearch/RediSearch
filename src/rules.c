@@ -19,7 +19,7 @@ const char *SchemaRuleType_ToString(SchemaRuleType type) {
 }
 
 int SchemaRuleType_Parse(const char *type_str, SchemaRuleType *type, QueryError *status) {
-  if (!type_str || !strcasecmp(type_str, "HASH")) {
+  if (!type_str || !strcasecmp(type_str, RULE_TYPE_HASH)) {
     *type = SchemaRuleType_Hash;
     return REDISMODULE_OK;
   }
@@ -48,12 +48,12 @@ SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, IndexSpec *spec, QueryError 
     if (args->score_default == endptr || score < 0 || score > 1) {
       QueryError_SetError(status, QUERY_EADDARGS, "Invalid score");
       goto error;
-    } 
+    }
     rule->score_default = score;
   } else {
     rule->score_default = 1.0;
   }
-  
+
   if (args->lang_default) {
     RSLanguage lang = RSLanguage_Find(args->lang_default);
     if (lang == RS_LANG_UNSUPPORTED) {
