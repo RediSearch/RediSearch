@@ -506,7 +506,7 @@ def testExpiredDuringSearch(env):
 
   res = env.cmd('FT.SEARCH idx hello* limit 0 100')
   env.assertLess(res[0], N)
-  for i in range (2,20,2):
+  for i in range (2,len(res),2):
     env.assertEqual(res[i], [])
 
   env.expect('FT.SEARCH idx hello*').equal([0])
