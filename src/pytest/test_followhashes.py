@@ -480,11 +480,12 @@ def testEvicted(env):
             memory = int(sub[1])
 
     conn.execute_command('CONFIG', 'SET', 'MAXMEMORY-POLICY', 'ALLKEYS-RANDOM')
-    conn.execute_command('CONFIG', 'SET', 'MAXMEMORY', memory + 10000)
-    for i in range(100):
+    conn.execute_command('CONFIG', 'SET', 'MAXMEMORY', memory + 50000)
+    for i in range(1000):
         env.expect('HSET', 'doc{}'.format(i), 'test', 'foo').equal(1)
     res = env.cmd('FT.SEARCH idx foo limit 0 0')
-    env.assertLess(res[0], 100)
+    env.assertLess(res[0], 1000)
+    env.assertGreater(res[0], 0)
 
 def testNoInitialScan(env):
     env.expect('flushall')
