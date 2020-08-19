@@ -1255,6 +1255,8 @@ Each misspelled term, in turn, is a 3-element array consisting of the constant s
 
 Each element in the spelling corrections array consists of the score of the suggestion and the suggestion itself. The suggestions array, per misspelled term, is ordered in descending order by score.
 
+The score is calculated by dividing the number of documents in which the suggested term exists, by the total number of documents in the index. Results can be normalized by dividing scores by the highest score.
+
 ### Example output
 
 ```
