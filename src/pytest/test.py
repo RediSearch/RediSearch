@@ -3164,3 +3164,9 @@ def testAliasAddIfNX(env):
 def testAliasDelIfX(env):
     env.expect('FT._ALIASDELIFX a1').ok()
 
+def testEmptyDoc(env):
+    env.expect('FT.CREATE idx SCHEMA t TEXT').ok()
+    env.expect('HSET doc t foo').equal(1)
+    env.expect('FT.SEARCH idx *').equal([1L, 'doc', ['t', 'foo']] )
+    env.expect('DEL doc').equal(1)
+    env.expect('FT.SEARCH idx *').equal([0L])
