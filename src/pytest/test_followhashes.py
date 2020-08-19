@@ -494,12 +494,13 @@ def testExpiredDuringSearch(env):
     env.expect('PEXPIRE doc%d 100' % i).equal(1)
   env.expect('FT.SEARCH idx hello* limit 0 0').equal([N])
   env.expect('HGETALL doc99').equal(['txt1', 'hello99', 'txt2', 'world'])
-  sleep(.01)
+  sleep(.1)
   
   # after expiry before cleanup (if key was clean, query would have returned an empty result)
   # Receives results between 0 and `N`
   # after search with `nocontent`, some expired item will remain.
   # after seatch with content, all keys are access and being actively expired
+  env.expect('HGETALL doc1') #ensure at least 1 hash is expired
   res = env.cmd('FT.SEARCH idx hello* nocontent limit 0 100')
   env.assertLess(res[0], N)
   env.assertGreater(res[0], 0)
@@ -520,12 +521,13 @@ def testExpiredDuringAggregate(env):
     env.expect('PEXPIRE doc%d 100' % i).equal(1)
   env.expect('FT.SEARCH idx hello* limit 0 0').equal([N])
   env.expect('HGETALL doc99').equal(['txt1', 'hello99', 'txt2', 'world'])
-  sleep(.01)
+  sleep(.1)
 
   # after expiry before cleanup (if key was clean, query would have returned an empty result)
   # Receives results between 0 and `N`
   # after search with `nocontent`, some expired item will remain.
   # after seatch with content, all keys are access and being actively expired
+  env.expect('HGETALL doc1') #ensure at least 1 hash is expired
   res = env.cmd('FT.AGGREGATE idx hello* GROUPBY 1 @txt1 REDUCE count 0 AS COUNT')
   env.assertLess(int(res[0]), N)
   env.assertGreater(int(res[0]), 0)
