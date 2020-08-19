@@ -500,7 +500,7 @@ def testExpiredDuringSearch(env):
   # after expiry before cleanup (if key was clean, query would have returned an empty result)
   # Receives results between 0 and `N`
   # after search with `nocontent`, some expired item will remain.
-  # after seatch with content, all keys are access and being actively expired
+  # after search with content, all keys are access and being actively expired
   env.expect('HGETALL doc1') #ensure at least 1 hash is expired
   res = env.cmd('FT.SEARCH idx hello* nocontent limit 0 100')
   env.assertLess(res[0], N)
@@ -524,7 +524,7 @@ def testExpiredDuringAggregate(env):
 
   # after expiry before cleanup (if key was clean, query would have returned an empty result)
   # Receives results between 0 and `N`
-  # after seatch with content, all keys are access and being actively expired
+  # after search with content, all keys are access and being actively expired
   env.expect('HGETALL doc1') #ensure at least 1 hash is expired
   res = env.cmd('FT.AGGREGATE idx hello* GROUPBY 1 @txt1 REDUCE count 0 AS COUNT')
   env.assertLess(res[0], N)
