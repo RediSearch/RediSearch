@@ -487,51 +487,42 @@ def testEvicted(env):
     env.assertLess(res[0], 1000)
     env.assertGreater(res[0], 0)
 
+def createExpire(env, N):
+  env.cmd('FLUSHALL')
+  env.expect('FT.CREATE idx SCHEMA txt1 TEXT n NUMERIC').ok()
+  env.expect('HSET', 'doc', 'txt1', 'hello', 'n', 0).equal(2)
+  for i in range(N - 1):
+    env.expect('HSET', 'doc%d' % i, 'txt1', 'hello%i' % i, 'n', i)
+    env.expect('PEXPIRE doc%d 100' % i)
+
+  env.expect('FT.SEARCH', 'idx', 'hello* @n:[10 100]', 'limit', '0', '0').equal([N - 11])
+  env.expect('HGETALL doc42').equal(['txt1', 'hello42', 'n', '42'])
+  sleep(0.2)
+  env.expect('HGETALL doc42').equal([])
+
 def testExpiredDuringSearch(env):
   N = 100
-  env.expect('FT.CREATE idx SCHEMA txt1 TEXT').ok()
-  env.expect('HSET', 'doc', 'txt1', 'hello', 'txt2', 'world').equal(2)
-  for i in range(N - 1):
-    env.expect('HSET', 'doc%d' % i, 'txt1', 'hello%i' % i, 'txt2', 'world').equal(2)
-    env.expect('PEXPIRE doc%d 500' % i).equal(1)
-
-  env.expect('FT.SEARCH idx hello* limit 0 0').equal([N])
-  env.expect('HGETALL doc42').equal(['txt1', 'hello42', 'txt2', 'world'])
-  sleep(0.5)
+  createExpire(env, N)
+  env.expect('FT.SEARCH', 'idx', 'hello* @n:[10 100]', 'nocontent', 'limit', '0', '0').equal([0])
   
-  # after search with `nocontent`, some expired item will remain.
-  # after search with content, all keys are access and being actively expired
-  env.expect('HGETALL doc1') #ensure at least 1 hash is expired
-  res = env.cmd('FT.SEARCH idx hello* nocontent limit 0 100')
-  env.assertLess(res[0], N)
-
-  res = env.cmd('FT.SEARCH idx hello* limit 0 100')
-  env.assertLess(res[0], N)
-  env.assertLess(len(res), 2 * N)
-
-  env.expect('FT.SEARCH idx hello*').equal([1L, 'doc', ['txt1', 'hello', 'txt2', 'world']])
+  createExpire(env, N)
+  env.expect('FT.SEARCH', 'idx', 'hello*|@n:[10 100]', 'limit', '0', '0').equal([1L])
+  
+  createExpire(env, N)
+  env.expect('FT.SEARCH idx hello*').equal([1L, 'doc', ['txt1', 'hello', 'n', '0']])
 
 def testExpiredDuringAggregate(env):
   N = 100
-  env.expect('FT.CREATE idx SCHEMA txt1 TEXT SORTABLE').ok()
-  env.expect('HSET', 'doc', 'txt1', 'hello', 'txt2', 'world').equal(2)
-  for i in range(N-1):
-    env.expect('HSET', 'doc%d' % i, 'txt1', 'hello%i' % i, 'txt2', 'world').equal(2)
-    env.expect('PEXPIRE doc%d 500' % i).equal(1)
+  res = [1L, ['txt1', 'hello', 'COUNT', '1']]
+  
+  createExpire(env, N)
+  env.expect('FT.AGGREGATE idx hello* GROUPBY 1 @txt1 REDUCE count 0 AS COUNT').equal(res)
 
-  env.expect('FT.SEARCH idx hello* limit 0 0').equal([N])
-  env.expect('HGETALL doc42').equal(['txt1', 'hello42', 'txt2', 'world'])
-  sleep(.5)
+  createExpire(env, N)
+  env.expect('FT.AGGREGATE idx hello* LOAD 1 @txt1 GROUPBY 1 @txt1 REDUCE count 0 AS COUNT').equal(res)
 
-  # after search with content, all keys are access and being actively expired
-  env.expect('HGETALL doc1') #ensure at least 1 hash is expired
-  res = env.cmd('FT.AGGREGATE idx hello* GROUPBY 1 @txt1 REDUCE count 0 AS COUNT')
-  env.assertLess(res[0], N)
-
-  res = env.cmd('FT.AGGREGATE idx hello* LOAD 1 @txt1 GROUPBY 1 @txt1 REDUCE count 0 AS COUNT')
-  env.assertLess(res[0], N)
-
-  env.expect('FT.AGGREGATE idx hello* LOAD 1 @txt1 GROUPBY 1 @txt1 REDUCE count 0 AS COUNT').equal([1L, ['txt1', 'hello', 'COUNT', '1']])
+  createExpire(env, N)
+  env.expect('FT.AGGREGATE idx @txt1:hello* LOAD 1 @txt1 GROUPBY 1 @txt1 REDUCE count 0 AS COUNT').equal(res)
 
 def testNoInitialScan(env):
     env.expect('flushall')
