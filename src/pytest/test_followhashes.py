@@ -497,7 +497,7 @@ def createExpire(env, N):
 
   env.expect('FT.SEARCH', 'idx', 'hello* @n:[10 100]', 'limit', '0', '0').equal([N - 11])
   env.expect('HGETALL doc42').equal(['txt1', 'hello42', 'n', '42'])
-  sleep(0.2)
+  sleep(0.3)
   env.expect('HGETALL doc42').equal([])
 
 def testExpiredDuringSearch(env):
