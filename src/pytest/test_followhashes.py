@@ -490,12 +490,14 @@ def testEvicted(env):
 def testExpiredDuringSearch(env):
   N = 100
   env.expect('FT.CREATE idx SCHEMA txt1 TEXT').ok()
-  for i in range(N):
+  env.expect('HSET', 'doc', 'txt1', 'hello', 'txt2', 'world').equal(2)
+  for i in range(N - 1):
     env.expect('HSET', 'doc%d' % i, 'txt1', 'hello%i' % i, 'txt2', 'world').equal(2)
     env.expect('PEXPIRE doc%d 500' % i).equal(1)
+
   env.expect('FT.SEARCH idx hello* limit 0 0').equal([N])
-  env.expect('HGETALL doc99').equal(['txt1', 'hello99', 'txt2', 'world'])
-  sleep(.5)
+  env.expect('HGETALL doc42').equal(['txt1', 'hello42', 'txt2', 'world'])
+  sleep(0.5)
   
   # after expiry before cleanup (if key was clean, query would have returned an empty result)
   # Receives results between 0 and `N`
@@ -507,19 +509,20 @@ def testExpiredDuringSearch(env):
 
   res = env.cmd('FT.SEARCH idx hello* limit 0 100')
   env.assertLess(res[0], N)
-  for i in range (0,len(res)):
-    env.assertNotEqual(res[i], [])
+  env.assertLess(len(res), 2 * N)
 
-  env.expect('FT.SEARCH idx hello*').equal([0])
+  env.expect('FT.SEARCH idx hello*').equal([1L, 'doc', ['txt1', 'hello', 'txt2', 'world']])
 
 def testExpiredDuringAggregate(env):
   N = 100
   env.expect('FT.CREATE idx SCHEMA txt1 TEXT SORTABLE').ok()
-  for i in range(N):
+  env.expect('HSET', 'doc', 'txt1', 'hello', 'txt2', 'world').equal(2)
+  for i in range(N-1):
     env.expect('HSET', 'doc%d' % i, 'txt1', 'hello%i' % i, 'txt2', 'world').equal(2)
     env.expect('PEXPIRE doc%d 500' % i).equal(1)
+
   env.expect('FT.SEARCH idx hello* limit 0 0').equal([N])
-  env.expect('HGETALL doc99').equal(['txt1', 'hello99', 'txt2', 'world'])
+  env.expect('HGETALL doc42').equal(['txt1', 'hello42', 'txt2', 'world'])
   sleep(.5)
 
   # after expiry before cleanup (if key was clean, query would have returned an empty result)
@@ -532,4 +535,4 @@ def testExpiredDuringAggregate(env):
   res = env.cmd('FT.AGGREGATE idx hello* LOAD 1 @txt1 GROUPBY 1 @txt1 REDUCE count 0 AS COUNT')
   env.assertLess(res[0], N)
 
-  env.expect('FT.AGGREGATE idx hello* LOAD 1 @txt1 GROUPBY 1 @txt1 REDUCE count 0 AS COUNT').equal([0])
+  env.expect('FT.AGGREGATE idx hello* LOAD 1 @txt1 GROUPBY 1 @txt1 REDUCE count 0 AS COUNT').equal([1L, ['txt1', 'hello', 'COUNT', '1']])
