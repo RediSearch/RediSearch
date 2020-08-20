@@ -1747,19 +1747,21 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
     dictRelease(legacySpecDict);
     legacySpecDict = NULL;
 
-    dictIterator *iter = dictGetIterator(legacySpecRules);
-    dictEntry *entry = NULL;
-    while ((entry = dictNext(iter))) {
-      char *indexName = dictGetKey(entry);
-      SchemaRuleArgs *rule_args = dictGetVal(entry);
-      RedisModule_Log(ctx, "warning", "Index %s was defined for upgrade but was not found",
-                      indexName);
-      SchemaRuleArgs_Free(rule_args);
+    if (legacySpecRules) {
+      dictIterator *iter = dictGetIterator(legacySpecRules);
+      dictEntry *entry = NULL;
+      while ((entry = dictNext(iter))) {
+        char *indexName = dictGetKey(entry);
+        SchemaRuleArgs *rule_args = dictGetVal(entry);
+        RedisModule_Log(ctx, "warning", "Index %s was defined for upgrade but was not found",
+                        indexName);
+        SchemaRuleArgs_Free(rule_args);
+      }
+      dictReleaseIterator(iter);
+      dictEmpty(legacySpecRules, NULL);
+      dictRelease(legacySpecRules);
+      legacySpecRules = NULL;
     }
-    dictReleaseIterator(iter);
-    dictEmpty(legacySpecRules, NULL);
-    dictRelease(legacySpecRules);
-    legacySpecRules = NULL;
 
     Indexes_ScanAndReindex();
   }
