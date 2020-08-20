@@ -1,4 +1,4 @@
-# Upgrade to 2.0
+# Upgrade to 2.0 when running in Redis OSS
 
 v2 of RediSearch reachitects the way indices are kept in sync with the data. Instead of using `FT.ADD` command to index documents, RediSearch 2.0 follows hashes that match the index description regardless of the way those were inserted or changed on Redis (hset, hincr, hdel). The index description will filter hashes on a prefix of the key, but also allow you to construct more fine grained filters with the `FILTER` option.  This index description can be defined on index creation ([ft.create](Commands.md#ftcreate)). 
 

@@ -40,7 +40,7 @@ nav:
   - 'Development': "Development.md"
   - Administration:
     - 'General administration': "Administration.md"
-    - 'Upgrade to 2.0': Upgrade_to_2.0.md
+    - 'Upgrade to 2.0 when running in Redis OSS': Upgrade_to_2.0.md
   - Reference:
     - 'Query Syntax': 'Query_Syntax.md'
     - 'Stop-Words': 'Stopwords.md'
