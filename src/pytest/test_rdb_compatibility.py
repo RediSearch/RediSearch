@@ -12,7 +12,9 @@ RDBS = [
     'redisearch_1.2.0.rdb',
     'redisearch_1.4.0.rdb',
     'redisearch_1.4.6.rdb',
-    'redisearch_1.4.11.rdb'
+    'redisearch_1.4.11.rdb',
+    'redisearch_1.6.13.rdb',
+    'redisearch_1.8.1.rdb'
 ]
 
 def downloadFiles():
