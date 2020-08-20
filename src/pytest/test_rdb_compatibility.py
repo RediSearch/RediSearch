@@ -14,6 +14,7 @@ RDBS = [
     'redisearch_1.4.6.rdb',
     'redisearch_1.4.11.rdb',
     'redisearch_1.6.13.rdb',
+    'redisearch_1.6.13_with_synonyms.rdb',
     'redisearch_1.8.1.rdb'
 ]
 
@@ -59,6 +60,10 @@ def testRDBCompatibility():
         res = env.cmd('FT.INFO idx')
         res = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
         env.assertEqual(res['index_definition'], ['key_type', 'HASH', 'prefixes', ['tt'], 'default_language', 'french', 'language_field', 'MyLang', 'default_score', '0.5', 'score_field', 'MyScore', 'payload_field', 'MyPayload'])
+        if fileName == 'redisearch_1.6.13_with_synonyms.rdb':
+            res = env.cmd('FT.SYNDUMP idx')
+            res = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
+            env.assertEqual(res, {'term2': ['0'], 'term1': ['0']})
         env.cmd('flushall')
         env.assertTrue(env.checkExitCode())
 
