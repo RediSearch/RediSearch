@@ -54,6 +54,7 @@ nav:
     - 'Document Payloads': payloads.md
     - 'Spelling Correction': Spellcheck.md
     - 'Phonetic Matching': Phonetic_Matching.md
+    - 'Upgrade to 2.0': Upgrade_to_2.0.md
   - Clients:
     - 'Client Libraries': 'Clients.md'
     - 'Python API': python_client.md
