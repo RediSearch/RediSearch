@@ -48,6 +48,7 @@ struct DocumentIndexer;
 #define SPEC_SEPARATOR_STR "SEPARATOR"
 #define SPEC_MULTITYPE_STR "MULTITYPE"
 #define SPEC_ASYNC_STR "ASYNC"
+#define SPEC_NOINITIALSCAN_STR "NOINITIALSCAN"
 
 /**
  * If wishing to represent field types positionally, use this
@@ -105,7 +106,8 @@ typedef enum {
 
   // If any of the fields has phonetics. This is just a cache for quick lookup
   Index_HasPhonetic = 0x400,
-  Index_Async = 0x800
+  Index_Async = 0x800,
+  Index_NoInitialScan = 0x1000,
 } IndexFlags;
 
 /**

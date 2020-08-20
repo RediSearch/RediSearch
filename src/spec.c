@@ -233,12 +233,14 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
     IndexSpec_OnCreate(sp);
   }
 
+  // set timout on temporary index
   if (sp->flags & Index_Temporary) {
     IndexSpec_SetTimeoutTimer(sp);
-  } else {
-    IndexSpec_ScanAndReindex(ctx, sp);
   }
 
+  if (!(sp->flags & Index_NoInitialScan)) {
+    IndexSpec_ScanAndReindex(ctx, sp);
+  }
   return sp;
 }
 
@@ -518,6 +520,7 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryE
       {AC_MKUNFLAG(SPEC_NOFREQS_STR, &spec->flags, Index_StoreFreqs)},
       {AC_MKBITFLAG(SPEC_SCHEMA_EXPANDABLE_STR, &spec->flags, Index_WideSchema)},
       {AC_MKBITFLAG(SPEC_ASYNC_STR, &spec->flags, Index_Async)},
+      {AC_MKBITFLAG(SPEC_NOINITIALSCAN_STR, &spec->flags, Index_NoInitialScan)},
 
       // For compatibility
       {.name = "NOSCOREIDX", .target = &dummy, .type = AC_ARGTYPE_BOOLFLAG},
@@ -1385,10 +1388,6 @@ static void IndexSpec_ScanAndReindexSync(IndexSpec *sp) {
 //---------------------------------------------------------------------------------------------
 
 static void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, IndexSpec *sp) {
-  if (sp->flags & Index_Temporary) {
-    return;
-  }
-
   size_t nkeys = RedisModule_DbSize(ctx);
   if (nkeys > 0) {
     IndexSpec_ScanAndReindexAsync(sp);
