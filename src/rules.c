@@ -29,6 +29,24 @@ int SchemaRuleType_Parse(const char *type_str, SchemaRuleType *type, QueryError 
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+void SchemaRuleArgs_Free(SchemaRuleArgs *rule_args) {
+  // free rule_args
+#define FREE_IF_NEEDED(arg) \
+  if (arg) rm_free(arg)
+  FREE_IF_NEEDED(rule_args->filter_exp_str);
+  FREE_IF_NEEDED(rule_args->lang_default);
+  FREE_IF_NEEDED(rule_args->lang_field);
+  FREE_IF_NEEDED(rule_args->payload_field);
+  FREE_IF_NEEDED(rule_args->score_default);
+  FREE_IF_NEEDED(rule_args->score_field);
+  FREE_IF_NEEDED((char *)rule_args->type);
+  for (size_t i = 0; i < rule_args->nprefixes; ++i) {
+    rm_free((char *)rule_args->prefixes[i]);
+  }
+  rm_free(rule_args->prefixes);
+  rm_free(rule_args);
+}
+
 SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, IndexSpec *spec, QueryError *status) {
   SchemaRule *rule = rm_calloc(1, sizeof(*rule));
 

@@ -320,7 +320,10 @@ CONFIG_SETTER(setUpgradeIndex) {
   SchemaRuleArgs *rule = NULL;
   int acrc = AC_GetString(ac, &indexName, NULL, 0);
 
-  CHECK_RETURN_PARSE_ERROR(acrc);
+  if (acrc != AC_OK) {
+    QueryError_SetError(status, QUERY_EPARSEARGS, "Index name was not given to upgrade argument");
+    return REDISMODULE_ERR;
+  }
 
   if (dictFetchValue(legacySpecRules, indexName)) {
     QueryError_SetError(status, QUERY_EPARSEARGS,
@@ -333,28 +336,7 @@ CONFIG_SETTER(setUpgradeIndex) {
   ArgsCursor rule_prefixes = {0};
 
   ACArgSpec argopts[] = {
-      {.name = "PREFIX", .target = &rule_prefixes, .type = AC_ARGTYPE_SUBARGS},
-      {.name = "FILTER",
-       .target = &rule->filter_exp_str,
-       .len = &dummy2,
-       .type = AC_ARGTYPE_STRING},
-      {.name = "SCORE", .target = &rule->score_default, .len = &dummy2, .type = AC_ARGTYPE_STRING},
-      {.name = "SCORE_FIELD",
-       .target = &rule->score_field,
-       .len = &dummy2,
-       .type = AC_ARGTYPE_STRING},
-      {.name = "LANGUAGE",
-       .target = &rule->lang_default,
-       .len = &dummy2,
-       .type = AC_ARGTYPE_STRING},
-      {.name = "LANGUAGE_FIELD",
-       .target = &rule->lang_field,
-       .len = &dummy2,
-       .type = AC_ARGTYPE_STRING},
-      {.name = "PAYLOAD_FIELD",
-       .target = &rule->payload_field,
-       .len = &dummy2,
-       .type = AC_ARGTYPE_STRING},
+      SPEC_FOLLOW_HASH_ARGS_DEF(rule){.name = NULL},
   };
 
   ACArgSpec *errarg = NULL;

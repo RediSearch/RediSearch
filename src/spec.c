@@ -525,32 +525,8 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryE
       // For compatibility
       {.name = "NOSCOREIDX", .target = &dummy, .type = AC_ARGTYPE_BOOLFLAG},
       {.name = "ON", .target = &rule_args.type, .len = &dummy2, .type = AC_ARGTYPE_STRING},
-      {.name = "PREFIX", .target = &rule_prefixes, .type = AC_ARGTYPE_SUBARGS},
-      {.name = "FILTER",
-       .target = &rule_args.filter_exp_str,
-       .len = &dummy2,
-       .type = AC_ARGTYPE_STRING},
-      {.name = "SCORE",
-       .target = &rule_args.score_default,
-       .len = &dummy2,
-       .type = AC_ARGTYPE_STRING},
-      {.name = "SCORE_FIELD",
-       .target = &rule_args.score_field,
-       .len = &dummy2,
-       .type = AC_ARGTYPE_STRING},
-      {.name = "LANGUAGE",
-       .target = &rule_args.lang_default,
-       .len = &dummy2,
-       .type = AC_ARGTYPE_STRING},
-      {.name = "LANGUAGE_FIELD",
-       .target = &rule_args.lang_field,
-       .len = &dummy2,
-       .type = AC_ARGTYPE_STRING},
-      {.name = "PAYLOAD_FIELD",
-       .target = &rule_args.payload_field,
-       .len = &dummy2,
-       .type = AC_ARGTYPE_STRING},
-      {.name = SPEC_TEMPORARY_STR, .target = &timeout, .type = AC_ARGTYPE_LLONG},
+      SPEC_FOLLOW_HASH_ARGS_DEF(&rule_args){
+          .name = SPEC_TEMPORARY_STR, .target = &timeout, .type = AC_ARGTYPE_LLONG},
       {.name = SPEC_STOPWORDS_STR, .target = &acStopwords, .type = AC_ARGTYPE_SUBARGS},
       {.name = NULL}};
 
@@ -1670,21 +1646,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
     return NULL;
   }
 
-  // free rule_args
-#define FREE_IF_NEEDED(arg) \
-  if (arg) rm_free(arg)
-  FREE_IF_NEEDED(rule_args->filter_exp_str);
-  FREE_IF_NEEDED(rule_args->lang_default);
-  FREE_IF_NEEDED(rule_args->lang_field);
-  FREE_IF_NEEDED(rule_args->payload_field);
-  FREE_IF_NEEDED(rule_args->score_default);
-  FREE_IF_NEEDED(rule_args->score_field);
-  FREE_IF_NEEDED((char *)rule_args->type);
-  for (size_t i = 0; i < rule_args->nprefixes; ++i) {
-    rm_free((char *)rule_args->prefixes[i]);
-  }
-  rm_free(rule_args->prefixes);
-  rm_free(rule_args);
+  SchemaRuleArgs_Free(rule_args);
   dictDelete(legacySpecRules, sp->name);
 
   // start the gc and add the spec to the cursor list
@@ -1784,6 +1746,20 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
     // we do not need the legacy dict specs anymore
     dictRelease(legacySpecDict);
     legacySpecDict = NULL;
+
+    dictIterator *iter = dictGetIterator(legacySpecRules);
+    dictEntry *entry = NULL;
+    while ((entry = dictNext(iter))) {
+      char *indexName = dictGetKey(entry);
+      SchemaRuleArgs *rule_args = dictGetVal(entry);
+      RedisModule_Log(ctx, "warning", "Index %s was defined for upgrade but was not found",
+                      indexName);
+      SchemaRuleArgs_Free(rule_args);
+    }
+    dictReleaseIterator(iter);
+    dictEmpty(legacySpecRules, NULL);
+    dictRelease(legacySpecRules);
+    legacySpecRules = NULL;
 
     Indexes_ScanAndReindex();
   }

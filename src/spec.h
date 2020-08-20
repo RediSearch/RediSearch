@@ -50,6 +50,33 @@ struct DocumentIndexer;
 #define SPEC_ASYNC_STR "ASYNC"
 #define SPEC_NOINITIALSCAN_STR "NOINITIALSCAN"
 
+#define SPEC_FOLLOW_HASH_ARGS_DEF(rule)                                     \
+  {.name = "PREFIX", .target = &rule_prefixes, .type = AC_ARGTYPE_SUBARGS}, \
+      {.name = "FILTER",                                                    \
+       .target = &(rule)->filter_exp_str,                                   \
+       .len = &dummy2,                                                      \
+       .type = AC_ARGTYPE_STRING},                                          \
+      {.name = "SCORE",                                                     \
+       .target = &(rule)->score_default,                                    \
+       .len = &dummy2,                                                      \
+       .type = AC_ARGTYPE_STRING},                                          \
+      {.name = "SCORE_FIELD",                                               \
+       .target = &(rule)->score_field,                                      \
+       .len = &dummy2,                                                      \
+       .type = AC_ARGTYPE_STRING},                                          \
+      {.name = "LANGUAGE",                                                  \
+       .target = &(rule)->lang_default,                                     \
+       .len = &dummy2,                                                      \
+       .type = AC_ARGTYPE_STRING},                                          \
+      {.name = "LANGUAGE_FIELD",                                            \
+       .target = &(rule)->lang_field,                                       \
+       .len = &dummy2,                                                      \
+       .type = AC_ARGTYPE_STRING},                                          \
+      {.name = "PAYLOAD_FIELD",                                             \
+       .target = &(rule)->payload_field,                                    \
+       .len = &dummy2,                                                      \
+       .type = AC_ARGTYPE_STRING},
+
 /**
  * If wishing to represent field types positionally, use this
  * enum. Since field types are a bitmask, it's pointless to waste
