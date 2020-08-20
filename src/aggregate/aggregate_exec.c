@@ -109,8 +109,7 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
     }
   }
 
-  bool fieldsExist = !!cv->lastLk->head;
-  if (fieldsExist && !(options & QEXEC_F_SEND_NOFIELDS)) {
+  if (!(options & QEXEC_F_SEND_NOFIELDS)) {
     const RLookup *lk = cv->lastLk;
     count++;
 

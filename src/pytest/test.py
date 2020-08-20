@@ -2366,7 +2366,7 @@ def testMod_309(env):
     for i in range(100000):
         env.expect('FT.ADD', 'idx', 'doc%d'%i, '1.0', 'FIELDS', 'test', 'foo').equal('OK')
     res = env.cmd('FT.AGGREGATE', 'idx', 'foo')
-    env.assertEqual(len(res), 1)
+    env.assertEqual(len(res), 100001)
 
     # test with cursor
     res = env.cmd('FT.AGGREGATE', 'idx', 'foo', 'WITHCURSOR')
@@ -2375,7 +2375,7 @@ def testMod_309(env):
     while cursor != 0:
         r, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', str(cursor))
         l += (len(r) - 1)
-    env.assertEqual(l, 0)
+    env.assertEqual(l, 100000)
 
 def testIssue_865(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', '1', 'TEXT', 'SORTABLE').equal('OK')

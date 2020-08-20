@@ -394,7 +394,7 @@ class TestAggregate():
     def testIssue1125(self):
         rv = self.env.cmd('ft.aggregate', 'games', '*',
                           'LIMIT', 0, 20000000)
-        self.env.assertEqual(rv, [1L])
+        self.env.assertEqual(2266, len(rv))
 
         # SEARCH should fail
         self.env.expect('ft.search', 'games', '*', 'limit', 0, 2000000).error()     \
@@ -433,7 +433,7 @@ class TestAggregateSecondUseCases():
     def testSimpleAggregate(self):
         res = self.env.cmd('ft.aggregate', 'games', '*')
         self.env.assertIsNotNone(res)
-        self.env.assertEqual(res, [1L])
+        self.env.assertEqual(len(res), 4531)
 
     def testSimpleAggregateWithCursor(self):
         res = self.env.cmd('ft.aggregate', 'games', '*', 'WITHCURSOR', 'COUNT', 1000)
