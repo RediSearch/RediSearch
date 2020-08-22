@@ -561,10 +561,7 @@ static int rploaderNext(ResultProcessor *base, SearchResult *r) {
     loadopts.mode |= RLOOKUP_LOAD_ALLKEYS;
   }
 
-  if (RLookup_LoadDocument(lc->lk, &r->rowdata, &loadopts) != REDISMODULE_OK) {
-    // document is empty - discard result
-    base->parent->totalResults--;
-  }
+  RLookup_LoadDocument(lc->lk, &r->rowdata, &loadopts);
 
   return RS_RESULT_OK;
 }
