@@ -3,22 +3,29 @@
 #include "inverted_index.h"
 #include "cursor.h"
 
-#define REPLY_KVNUM(n, k, v)                   \
-  RedisModule_ReplyWithSimpleString(ctx, k);   \
-  RedisModule_ReplyWithDouble(ctx, (double)v); \
-  n += 2
-#define REPLY_KVSTR(n, k, v)                 \
-  RedisModule_ReplyWithSimpleString(ctx, k); \
-  RedisModule_ReplyWithSimpleString(ctx, v); \
-  n += 2
+#define REPLY_KVNUM(n, k, v)                       \
+  do {                                             \
+    RedisModule_ReplyWithSimpleString(ctx, (k));   \
+    RedisModule_ReplyWithDouble(ctx, (double)(v)); \
+    n += 2;                                        \
+  } while (0)
+
+#define REPLY_KVSTR(n, k, v)                     \
+  do {                                           \
+    RedisModule_ReplyWithSimpleString(ctx, (k)); \
+    RedisModule_ReplyWithSimpleString(ctx, (v)); \
+    n += 2;                                      \
+  } while (0)
 
 static int renderIndexOptions(RedisModuleCtx *ctx, IndexSpec *sp) {
 
-#define ADD_NEGATIVE_OPTION(flag, str)                        \
-  if (!(sp->flags & flag)) {                                  \
-    RedisModule_ReplyWithStringBuffer(ctx, str, strlen(str)); \
-    n++;                                                      \
-  }
+#define ADD_NEGATIVE_OPTION(flag, str)                            \
+  do {                                                            \
+    if (!(sp->flags & (flag))) {                                  \
+      RedisModule_ReplyWithStringBuffer(ctx, (str), strlen(str)); \
+      n++;                                                        \
+    }                                                             \
+  } while (0)
 
   RedisModule_ReplyWithSimpleString(ctx, "index_options");
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
@@ -30,6 +37,52 @@ static int renderIndexOptions(RedisModuleCtx *ctx, IndexSpec *sp) {
     RedisModule_ReplyWithSimpleString(ctx, SPEC_SCHEMA_EXPANDABLE_STR);
     n++;
   }
+  RedisModule_ReplySetArrayLength(ctx, n);
+  return 2;
+}
+
+static int renderIndexDefinitions(RedisModuleCtx *ctx, IndexSpec *sp) {
+  int n = 0;
+  SchemaRule *rule = sp->rule;
+  RedisModule_ReplyWithSimpleString(ctx, "index_definition");
+  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+
+  REPLY_KVSTR(n, "key_type", SchemaRuleType_ToString(rule->type));
+
+  int num_prefixes = array_len(rule->prefixes);
+  if (num_prefixes) {
+    RedisModule_ReplyWithSimpleString(ctx, "prefixes");
+    RedisModule_ReplyWithArray(ctx, num_prefixes);
+    for (int i = 0; i < num_prefixes; ++i) {
+      RedisModule_ReplyWithSimpleString(ctx, rule->prefixes[i]);
+    }
+    n += 2;
+  }
+
+  if (rule->filter_exp_str) {
+    REPLY_KVSTR(n, "filter", rule->filter_exp_str);
+  }
+
+  if (rule->lang_default) {
+    REPLY_KVSTR(n, "default_language", RSLanguage_ToString(rule->lang_default));
+  }
+
+  if (rule->lang_field) {
+    REPLY_KVSTR(n, "language_field", rule->lang_field);
+  }
+
+  if (rule->score_default) {
+    REPLY_KVNUM(n, "default_score", rule->score_default);
+  }
+
+  if (rule->lang_field) {
+    REPLY_KVSTR(n, "score_field", rule->score_field);
+  }
+
+  if (rule->payload_field) {
+    REPLY_KVSTR(n, "payload_field", rule->payload_field);
+  }
+
   RedisModule_ReplySetArrayLength(ctx, n);
   return 2;
 }
@@ -52,6 +105,8 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   REPLY_KVSTR(n, "index_name", sp->name);
 
   n += renderIndexOptions(ctx, sp);
+
+  n += renderIndexDefinitions(ctx, sp);
 
   RedisModule_ReplyWithSimpleString(ctx, "fields");
   RedisModule_ReplyWithArray(ctx, sp->numFields);
@@ -132,6 +187,23 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
               (float)sp->stats.offsetVecRecords / (float)sp->stats.numRecords);
   REPLY_KVNUM(n, "offset_bits_per_record_avg",
               8.0F * (float)sp->stats.offsetVecsSize / (float)sp->stats.offsetVecRecords);
+
+  REPLY_KVNUM(n, "indexing", !!global_spec_scanner || sp->scan_in_progress);
+
+  double percent_indexed;
+  IndexesScanner *scanner = global_spec_scanner ? global_spec_scanner : sp->scanner;
+  if (scanner || sp->scan_in_progress) {
+    if (scanner) {
+      percent_indexed =
+          scanner->totalKeys > 0 ? (double)scanner->scannedKeys / scanner->totalKeys : 0;
+    } else {
+      percent_indexed = 0;
+    }
+  } else {
+    percent_indexed = 1.0;
+  }
+
+  REPLY_KVNUM(n, "percent_indexed", percent_indexed);
 
   if (sp->gc) {
     RedisModule_ReplyWithSimpleString(ctx, "gc_stats");

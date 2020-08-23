@@ -45,7 +45,7 @@ endef
 
 COMPAT_MODULE := src/redisearch.so
 
-COMPAT_DIR := build
+COMPAT_DIR ?= build
 
 BINROOT=$(COMPAT_DIR)
 BINDIR=$(COMPAT_DIR)
@@ -100,7 +100,7 @@ clean:
 ifeq ($(ALL),1)
 	rm -rf $(BINROOT)
 else
-	$(MAKE) -C build clean
+	$(MAKE) -C $(BINROOT) clean
 endif
 
 #----------------------------------------------------------------------------------------------
@@ -160,7 +160,7 @@ else
 endif
 
 ifeq ($(GDB),1)
-GDB_CMD=gdb -ex r --args 
+GDB_CMD=gdb -ex r --args
 else
 GDB_CMD=
 endif

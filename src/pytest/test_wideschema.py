@@ -1,5 +1,6 @@
 import platform
 from includes import *
+from common import waitForIndex
 
 
 def testWideSchema(env):
@@ -17,6 +18,7 @@ def testWideSchema(env):
         env.assertOk(r.execute_command('ft.add', 'idx',
                                        'doc%d' % n, 1.0, 'fields', *fields))
     for _ in env.reloading_iterator():
+        waitForIndex(r, 'idx')
         for i in range(FIELDS):
 
             res = env.cmd('ft.search', 'idx', '@field_%d:token_%d' % (i, i), 'NOCONTENT')

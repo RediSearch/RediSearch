@@ -21,10 +21,14 @@ bool addDocument(RedisModuleCtx *ctx, IndexSpec *sp, const char *docid, Ts... ar
   options.numFieldElems = argv.size();
   options.fieldsArray = argv;
   options.donecb = donecb;
+  options.keyStr = RedisModule_CreateString(ctx, docid, strlen(docid));
+  options.score = 1.0;
+  options.options = DOCUMENT_ADD_REPLACE;
 
   QueryError status = {QueryErrorCode(0)};
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
   int rv = RS_AddDocument(&sctx, RMCK::RString(docid), &options, &status);
+  RedisModule_FreeString(ctx, options.keyStr);
   RWLOCK_RELEASE();
   return rv == REDISMODULE_OK;
 }

@@ -17,3 +17,4 @@ capabilities:
     - persistence_rdb
     - clustering
     - replica_of
+    - flash

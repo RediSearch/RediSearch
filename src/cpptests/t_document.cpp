@@ -65,6 +65,9 @@ TEST_F(DocumentTest, testLoadAll) {
   Document_Free(&d);
 }
 
+#ifdef HAVE_RM_SCANCURSOR_CREATE
+//@@ TODO: avoid background indexing so cursor won't be needed
+
 TEST_F(DocumentTest, testLoadSchema) {
   // Create a database
   QueryError status = {};
@@ -102,5 +105,7 @@ TEST_F(DocumentTest, testLoadSchema) {
 
   ASSERT_EQ(DOCUMENT_F_OWNSTRINGS, d.flags);
   Document_Free(&d);
-  IndexSpec_FreeWithKey(spec, ctx);
+  IndexSpec_Free(spec);
 }
+
+#endif // HAVE_RM_SCANCURSOR_CREATE

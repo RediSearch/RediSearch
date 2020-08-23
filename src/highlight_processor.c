@@ -137,7 +137,7 @@ static char *trimField(const ReturnedField *fieldInfo, const char *docStr, size_
   // Number of desired fragments times the number of context words in each fragments,
   // in characters (estWordSize)
   size_t headLen =
-      fieldInfo->summarizeSettings.contextLen * fieldInfo->summarizeSettings.numFrags * estWordSize;
+      estWordSize * fieldInfo->summarizeSettings.contextLen * fieldInfo->summarizeSettings.numFrags;
   headLen += estWordSize;  // Because we trim off a word when finding the toksep
   headLen = Min(headLen, *docLen);
 

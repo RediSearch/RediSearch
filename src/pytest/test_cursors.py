@@ -2,6 +2,7 @@ from time import sleep, time
 import unittest
 from redis import ResponseError
 from includes import *
+from common import waitForIndex
 
 
 def to_dict(res):
@@ -10,10 +11,16 @@ def to_dict(res):
 
 
 def loadDocs(env, count=100, idx='idx', text='hello world'):
-    env.cmd('FT.CREATE', idx, 'ON', 'HASH', 'SCHEMA', 'f1', 'TEXT')
+    env.expect('FT.CREATE', idx, 'ON', 'HASH', 'prefix', 1, idx, 'SCHEMA', 'f1', 'TEXT').ok()
+    waitForIndex(env, idx)
     for x in range(count):
         cmd = ['FT.ADD', idx, '{}_doc{}'.format(idx, x), 1.0, 'FIELDS', 'f1', text]
         env.cmd(*cmd)
+    r1 = env.cmd('ft.search', idx, text)
+    r2 = list(set(map(lambda x: x[1], filter(lambda x: isinstance(x, list), r1))))
+    env.assertEqual([text], r2)
+    r3 = env.cmd('ft.info', idx)
+    env.assertEqual(count, int(r3[r3.index('num_docs') + 1]))
 
 def exhaustCursor(env, idx, resp, *args):
     first, cid = resp
@@ -51,6 +58,8 @@ def testMultipleIndexes(env):
     q1 = ['FT.AGGREGATE', 'idx1', '*', 'LOAD', 1, '@f1', 'WITHCURSOR', 'COUNT', 10 ]
     q2 = q1[::]
     q2[1] = 'idx2'
+    waitForIndex(env, 'idx1')
+    waitForIndex(env, 'idx2')
     r1 = exhaustCursor(env, 'idx1', env.cmd( * q1))
     r2 = exhaustCursor(env, 'idx2', env.cmd( * q2))
     env.assertEqual(11, len(r1[0][0]))
@@ -99,6 +108,9 @@ def testCapacities(env):
     env.cmd('FT.CURSOR', 'DEL', 'idx1', c[-1])
 
 def testTimeout(env):
+    # currently this test is only valid on one shard because coordinator creates more cursor which are not clean
+    # with the same timeout
+    env.skipOnCluster() 
     loadDocs(env, idx='idx1')
     # Maximum idle of 1ms
     q1 = ['FT.AGGREGATE', 'idx1', '*', 'LOAD', '1', '@f1', 'WITHCURSOR', 'COUNT', 10, 'MAXIDLE', 1]

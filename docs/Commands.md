@@ -5,13 +5,15 @@
 ### Format
 ```
   FT.CREATE {index} 
-    ON {structure} 
+    [ON {structure}]
        [PREFIX {count} {prefix} [{prefix} ..]
        [FILTER {filter}]
-       [LANGUAGE {lang_field}]
-       [SCORE {score_field}]
-       [PAYLOAD {payload_field}]
-    [MAXTEXTFIELDS] [TEMPORARY {seconds}] [NOOFFSETS] [NOHL] [NOFIELDS] [NOFREQS]
+       [LANGUAGE {default_lang}]
+       [LANGUAGE_FIELD {lang_field}]
+       [SCORE {default_score}]
+       [SCORE_FIELD {score_field}]
+       [PAYLOAD_FIELD {payload_field}]
+    [MAXTEXTFIELDS] [TEMPORARY {seconds}] [NOOFFSETS] [NOHL] [NOFIELDS] [NOFREQS] [NOINITIALSCAN]
     [STOPWORDS {num} {stopword} ...]
     SCHEMA {field} [TEXT [NOSTEM] [WEIGHT {weight}] [PHONETIC {matcher}] | NUMERIC | GEO | TAG [SEPARATOR {sep}] ] [SORTABLE][NOINDEX] ...
 ```
@@ -47,14 +49,15 @@ FT.CREATE idx SCHEMA name TEXT SORTABLE age NUMERIC SORTABLE myTag TAG SORTABLE
 
 * **index**: the index name to create. If it exists the old spec will be overwritten
 
-* **ON {structure}** currently supports only HASH
+* **ON {structure}** currently supports only HASH (default)
 
 * **PREFIX {count} {prefix}** tells the index which keys it should index. You can add several prefixes to index. Since the argument is optional, the default is * (all keys)
 
 * **FILTER {filter}** is a filter expression with the full RediSearch aggregation expression language. It is possible to use @__key to access the key that was just added/changed
 
-* **LANGUAGE {lang_field}**: If set indicates the document field that should be used to as the document language, 
-  we use a stemmer for the supplied language during indexing. Default to English. 
+* **LANGUAGE {default_lang}**: If set indicates the default language for documents in the index. Default to English.
+* **LANGUAGE_FIELD {lang_field}**: If set indicates the document field that should be used as the document language.
+  A stemmer is used for the supplied language during indexing.
   If an unsupported language is sent, the command returns an error. 
   The supported languages are:
 
@@ -76,10 +79,11 @@ FT.CREATE idx SCHEMA name TEXT SORTABLE age NUMERIC SORTABLE myTag TAG SORTABLE
   checks it against a predefined dictionary. See [Stemming](Stemming.md) for more
   information.
 
-* **SCORE {score_field}**: If set indicates the document field that should be used as the document's rank based on the user's ranking. 
+* **SCORE {default_score}**: If set indicates the default score for documents in the index. Default score is 1.0.
+* **SCORE_FIELD {score_field}**: If set indicates the document field that should be used as the document's rank based on the user's ranking. 
   Ranking must be between 0.0 and 1.0. If not set the default score is 1.
 
-* **PAYLOAD {payload_field}**: If set indicates the document field that should be used as a binary safe payload string to the document, 
+* **PAYLOAD_FIELD {payload_field}**: If set indicates the document field that should be used as a binary safe payload string to the document, 
   that can be evaluated at query time by a custom scoring function, or retrieved to the client.
 
 * **MAXTEXTFIELDS**: For efficiency, RediSearch encodes indexes differently if they are
@@ -109,6 +113,8 @@ FT.CREATE idx SCHEMA name TEXT SORTABLE age NUMERIC SORTABLE myTag TAG SORTABLE
     If not set, we take the default list of stopwords. 
 
     If **{num}** is set to 0, the index will not have stopwords.
+
+* **NOINITIALSCAN**: If set, we do not scan and index. 
 
 * **SCHEMA {field} {options...}**: After the SCHEMA keyword we define the index fields. They
   can be numeric, textual or geographical. For textual fields we optionally specify a weight.
@@ -169,8 +175,7 @@ OK or an error
 ### Format
 
 ```
-FT.ADD {index} {docId} {score} 
-  [NOSAVE]
+FT.ADD {index} {docId} {score}
   [REPLACE [PARTIAL] [NOCREATE]]
   [LANGUAGE {language}] 
   [PAYLOAD {payload}]
@@ -201,8 +206,6 @@ FT.ADD idx doc1 1.0 FIELDS title "hello world"
 
 - **score**: The document's rank based on the user's ranking. This must be between 0.0 and 1.0. 
   If you don't have a score just set it to 1
-
-- **NOSAVE**: If set to true, we will not save the actual document in the database and only index it.
 
 - **REPLACE**: If set, we will do an UPSERT style insertion - and delete an older version of the
   document if it exists. 
@@ -297,7 +300,7 @@ FT.ALTER {index} SCHEMA ADD {field} {options} ...
 Adds a new field to the index.
 
 Adding a field to the index will cause any future document updates to use the new field when
-indexing. Existing documents will not be reindexed.
+indexing and reindexing of existing documents.
 
 !!! note
     Depending on how the index was created, you may be limited by the amount of additional text
@@ -918,25 +921,25 @@ Array Reply: An array with exactly the same number of elements as the number of 
 
 ---
 
-## FT.DELETE
+## FT.DROPINDEX
 
 ### Format
 
 ```
-FT.DELETE {index} [DD]
+FT.DROPINDEX {index} [DD]
 ```
 
 ### Description
 
 Deletes the index. 
 
-By default, FT.DELETE does not delete the document hashes associated with the index. Adding the DD option deletes the hashes as well.
+By default, FT.DROPINDEX does not delete the document hashes associated with the index. Adding the DD option deletes the hashes as well.
 
 Since RediSearch 2.0
 
 ### Example
 ```sql
-FT.DELETE idx DD 
+FT.DROPINDEX idx DD 
 ```
 
 ### Parameters
@@ -1170,6 +1173,8 @@ This command is deprecated.
 
 ## FT.SYNADD
 
+!!! warning "This command is not longer supported on versions 2.0 and above, use FT.SYNUPDATE directly."
+
 ### Format
 
 ```
@@ -1196,7 +1201,7 @@ FT.SYNUPDATE <index name> <synonym group id> <term1> <term2> ...
 
 Updates a synonym group.
 
-The command is used to update an existing synonym group with additional terms. Only documents which were indexed after the update will be affected.
+The command is used to create or update a synonym group with additional terms. Only documents which were indexed after the update will be affected.
 
 ---
 

@@ -19,7 +19,7 @@ const char *SchemaRuleType_ToString(SchemaRuleType type) {
 }
 
 int SchemaRuleType_Parse(const char *type_str, SchemaRuleType *type, QueryError *status) {
-  if (!type_str || !strcasecmp(type_str, "HASH")) {
+  if (!type_str || !strcasecmp(type_str, RULE_TYPE_HASH)) {
     *type = SchemaRuleType_Hash;
     return REDISMODULE_OK;
   }
@@ -28,6 +28,24 @@ int SchemaRuleType_Parse(const char *type_str, SchemaRuleType *type, QueryError 
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
+
+void SchemaRuleArgs_Free(SchemaRuleArgs *rule_args) {
+  // free rule_args
+#define FREE_IF_NEEDED(arg) \
+  if (arg) rm_free(arg)
+  FREE_IF_NEEDED(rule_args->filter_exp_str);
+  FREE_IF_NEEDED(rule_args->lang_default);
+  FREE_IF_NEEDED(rule_args->lang_field);
+  FREE_IF_NEEDED(rule_args->payload_field);
+  FREE_IF_NEEDED(rule_args->score_default);
+  FREE_IF_NEEDED(rule_args->score_field);
+  FREE_IF_NEEDED((char *)rule_args->type);
+  for (size_t i = 0; i < rule_args->nprefixes; ++i) {
+    rm_free((char *)rule_args->prefixes[i]);
+  }
+  rm_free(rule_args->prefixes);
+  rm_free(rule_args);
+}
 
 SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, IndexSpec *spec, QueryError *status) {
   SchemaRule *rule = rm_calloc(1, sizeof(*rule));
@@ -40,6 +58,30 @@ SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, IndexSpec *spec, QueryError 
   rule->lang_field = rm_strdup(args->lang_field ? args->lang_field : "__language");
   rule->score_field = rm_strdup(args->score_field ? args->score_field : "__score");
   rule->payload_field = rm_strdup(args->payload_field ? args->payload_field : "__payload");
+
+  if (args->score_default) {
+    double score;
+    char *endptr = {0};
+    score = strtod(args->score_default, &endptr);
+    if (args->score_default == endptr || score < 0 || score > 1) {
+      QueryError_SetError(status, QUERY_EADDARGS, "Invalid score");
+      goto error;
+    }
+    rule->score_default = score;
+  } else {
+    rule->score_default = 1.0;
+  }
+
+  if (args->lang_default) {
+    RSLanguage lang = RSLanguage_Find(args->lang_default);
+    if (lang == RS_LANG_UNSUPPORTED) {
+      QueryError_SetError(status, QUERY_EADDARGS, "Invalid language");
+      goto error;
+    }
+    rule->lang_default = lang;
+  } else {
+    rule->lang_default = DEFAULT_LANGUAGE;
+  }
 
   rule->prefixes = array_new(const char *, 1);
   for (int i = 0; i < args->nprefixes; ++i) {
@@ -104,7 +146,7 @@ static void SchemaPrefixNode_Free(SchemaPrefixNode *node) {
 
 RSLanguage SchemaRule_HashLang(RedisModuleCtx *rctx, const SchemaRule *rule, RedisModuleKey *key,
                                const char *kname) {
-  RSLanguage lang = DEFAULT_LANGUAGE;
+  RSLanguage lang = rule->lang_default;
   RedisModuleString *lang_rms = NULL;
   if (!rule->lang_field) {
     goto done;
@@ -121,7 +163,7 @@ RSLanguage SchemaRule_HashLang(RedisModuleCtx *rctx, const SchemaRule *rule, Red
   lang = RSLanguage_Find(lang_s);
   if (lang == RS_LANG_UNSUPPORTED) {
     RedisModule_Log(NULL, "warning", "invalid language for key %s", kname);
-    lang = DEFAULT_LANGUAGE;
+    lang = rule->lang_default;
   }
 done:
   if (lang_rms) {
@@ -132,7 +174,7 @@ done:
 
 double SchemaRule_HashScore(RedisModuleCtx *rctx, const SchemaRule *rule, RedisModuleKey *key,
                             const char *kname) {
-  double score = 1.0;
+  double score = rule->score_default;
   RedisModuleString *score_rms = NULL;
   if (!rule->score_field) {
     goto done;
@@ -150,7 +192,7 @@ double SchemaRule_HashScore(RedisModuleCtx *rctx, const SchemaRule *rule, RedisM
   rv = RedisModule_StringToDouble(score_rms, &score);
   if (rv != REDISMODULE_OK) {
     RedisModule_Log(NULL, "warning", "invalid score for key %s", kname);
-    score = 1.0;
+    score = rule->score_default;
   }
 done:
   if (score_rms) {
@@ -211,6 +253,8 @@ int SchemaRule_RdbLoad(IndexSpec *sp, RedisModuleIO *rdb, int encver) {
   if (RedisModule_LoadUnsigned(rdb)) {
     args.payload_field = RedisModule_LoadStringBuffer(rdb, &len);
   }
+  double score_default = RedisModule_LoadDouble(rdb);
+  RSLanguage lang_default = RedisModule_LoadUnsigned(rdb);
 
   QueryError status = {0};
   SchemaRule *rule = SchemaRule_Create(&args, sp, &status);
@@ -219,6 +263,8 @@ int SchemaRule_RdbLoad(IndexSpec *sp, RedisModuleIO *rdb, int encver) {
     QueryError_ClearError(&status);
     ret = REDISMODULE_ERR;
   } else {
+    rule->score_default = score_default;
+    rule->lang_default = lang_default;
     sp->rule = rule;
   }
 
@@ -274,6 +320,8 @@ void SchemaRule_RdbSave(SchemaRule *rule, RedisModuleIO *rdb) {
   } else {
     RedisModule_SaveUnsigned(rdb, 0);
   }
+  RedisModule_SaveDouble(rdb, rule->score_default);
+  RedisModule_SaveUnsigned(rdb, rule->lang_default);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

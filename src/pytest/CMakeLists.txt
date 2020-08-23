@@ -1,8 +1,12 @@
 # Find all the Python files with test_* in them
 
-IF (NOT RS_TEST_MODULE_SO)
-    SET(RS_TEST_MODULE_SO $<TARGET_FILE:redisearch>)
+IF (NOT RS_TEST_MODULE)
+    SET(RS_TEST_MODULE redisearch)
 ENDIF()
+IF (NOT RS_TEST_MODULE_SO)
+    SET(RS_TEST_MODULE_SO $<TARGET_FILE:${RS_TEST_MODULE}>)
+ENDIF()
+
 IF (RS_VERBOSE_TESTS)
     LIST(APPEND RS_TEST_ARGS "-s")
 ENDIF()

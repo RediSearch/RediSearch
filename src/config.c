@@ -7,6 +7,9 @@
 #include <stdlib.h>
 #include <limits.h>
 #include "rmalloc.h"
+#include "rules.h"
+#include "spec.h"
+#include "util/dict.h"
 
 #define RETURN_ERROR(s) return REDISMODULE_ERR;
 #define RETURN_PARSE_ERROR(rc)                                    \
@@ -119,6 +122,26 @@ CONFIG_SETTER(setMaxDocTableSize) {
 CONFIG_GETTER(getMaxDocTableSize) {
   sds ss = sdsempty();
   return sdscatprintf(ss, "%lu", config->maxDocTableSize);
+}
+
+// MAXSEARCHRESULTS
+CONFIG_SETTER(setMaxSearchResults) {
+  long long newsize = 0;
+  int acrc = AC_GetLongLong(ac, &newsize, 0);
+  CHECK_RETURN_PARSE_ERROR(acrc);
+  if (newsize == -1) {
+    newsize = UINT64_MAX;
+  }
+  config->maxSearchResults = newsize;
+  return REDISMODULE_OK;
+}
+
+CONFIG_GETTER(getMaxSearchResults) {
+  sds ss = sdsempty();
+  if (config->maxSearchResults == UINT64_MAX) {
+    return sdscatprintf(ss, "unlimited");
+  }
+  return sdscatprintf(ss, "%lu", config->maxSearchResults);
 }
 
 // MAXEXPANSIONS
@@ -286,6 +309,83 @@ CONFIG_GETTER(getGcPolicy) {
   return sdsnew(GCPolicy_ToString(config->gcPolicy));
 }
 
+CONFIG_SETTER(setFilterCommand) {
+  int acrc = AC_GetInt(ac, &config->filterCommands, AC_F_GE0);
+  RETURN_STATUS(acrc);
+}
+
+CONFIG_SETTER(setUpgradeIndex) {
+  size_t dummy2;
+  const char *indexName;
+  SchemaRuleArgs *rule = NULL;
+  int acrc = AC_GetString(ac, &indexName, NULL, 0);
+
+  if (acrc != AC_OK) {
+    QueryError_SetError(status, QUERY_EPARSEARGS, "Index name was not given to upgrade argument");
+    return REDISMODULE_ERR;
+  }
+
+  if (dictFetchValue(legacySpecRules, indexName)) {
+    QueryError_SetError(status, QUERY_EPARSEARGS,
+                        "Upgrade index definition was given more then once on the same index");
+    return REDISMODULE_ERR;
+  }
+
+  rule = rm_calloc(1, sizeof(*rule));
+
+  ArgsCursor rule_prefixes = {0};
+
+  ACArgSpec argopts[] = {
+      SPEC_FOLLOW_HASH_ARGS_DEF(rule){.name = NULL},
+  };
+
+  ACArgSpec *errarg = NULL;
+  int rc = AC_ParseArgSpec(ac, argopts, &errarg);
+  // AC_ERR_ENOENT is OK it means that we got the next configuration element
+  // and we can stop
+  if (rc != AC_OK && rc != AC_ERR_ENOENT) {
+    if (rc != AC_ERR_ENOENT) {
+      QERR_MKBADARGS_AC(status, errarg->name, rc);
+      rm_free(rule);
+      return REDISMODULE_ERR;
+    }
+  }
+
+  if (rule_prefixes.argc > 0) {
+    rule->nprefixes = rule_prefixes.argc;
+    rule->prefixes = rm_malloc(rule->nprefixes * sizeof(char *));
+    for (size_t i = 0; i < rule->nprefixes; ++i) {
+      rule->prefixes[i] = rm_strdup(RedisModule_StringPtrLen(rule_prefixes.objs[i], NULL));
+    }
+  } else {
+    rule->nprefixes = 1;
+    rule->prefixes = rm_malloc(sizeof(char *));
+    rule->prefixes[0] = rm_strdup("");
+  }
+
+  // duplicate all rule arguments so it will leave after this function finish
+#define DUP_IF_NEEDED(arg) \
+  if (arg) arg = rm_strdup(arg)
+  DUP_IF_NEEDED(rule->filter_exp_str);
+  DUP_IF_NEEDED(rule->lang_default);
+  DUP_IF_NEEDED(rule->lang_field);
+  DUP_IF_NEEDED(rule->payload_field);
+  DUP_IF_NEEDED(rule->score_default);
+  DUP_IF_NEEDED(rule->score_field);
+  rule->type = rm_strdup(RULE_TYPE_HASH);
+
+  // add rule to rules dictionary
+  dictAdd(legacySpecRules, (char *)indexName, rule);
+
+  return REDISMODULE_OK;
+}
+
+CONFIG_GETTER(getUpgradeIndex) {
+  return sdsnew("Upgrade config for upgrading");
+}
+
+CONFIG_BOOLEAN_GETTER(getFilterCommand, filterCommands, 0)
+
 RSConfig RSGlobalConfig = RS_DEFAULT_CONFIG;
 
 static RSConfigVar *findConfigVar(const RSConfigOptions *config, const char *name) {
@@ -373,6 +473,10 @@ RSConfigOptions RSGlobalConfigOptions = {
          .setValue = setMaxDocTableSize,
          .getValue = getMaxDocTableSize,
          .flags = RSCONFIGVAR_F_IMMUTABLE},
+        {.name = "MAXSEARCHRESULTS",
+         .helpText = "Maximum number of results from ft.search command",
+         .setValue = setMaxSearchResults,
+         .getValue = getMaxSearchResults},
         {.name = "MAXEXPANSIONS",
          .helpText = "Maximum prefix expansions to be used in a query",
          .setValue = setMaxExpansions,
@@ -446,6 +550,17 @@ RSConfigOptions RSGlobalConfigOptions = {
          .setValue = setNoMemPools,
          .getValue = getNoMemPools,
          .flags = RSCONFIGVAR_F_IMMUTABLE},
+        {.name = "PARTIAL_INDEXED_DOCS",
+         .helpText = "Enable commands filter which optimize indexing on partial hash updates",
+         .setValue = setFilterCommand,
+         .getValue = getFilterCommand,
+         .flags = RSCONFIGVAR_F_IMMUTABLE},
+        {.name = "UPGRADE_INDEX",
+         .helpText =
+             "Relevant only when loading an v1.x rdb, specify argument for upgrading the index.",
+         .setValue = setUpgradeIndex,
+         .getValue = getUpgradeIndex,
+         .flags = RSCONFIGVAR_F_IMMUTABLE},
         {.name = NULL}}};
 
 void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst) {
@@ -468,6 +583,11 @@ sds RSConfig_GetInfoString(const RSConfig *config) {
   ss = sdscatprintf(ss, "cursor read size: %lld, ", config->cursorReadSize);
   ss = sdscatprintf(ss, "cursor max idle (ms): %lld, ", config->cursorMaxIdle);
   ss = sdscatprintf(ss, "max doctable size: %lu, ", config->maxDocTableSize);
+  ss = sdscatprintf(ss, "max number of search results: ");
+  ss = (config->maxSearchResults == UINT64_MAX)
+           ?  // value for MaxSearchResults
+           sdscatprintf(ss, "unlimited, ")
+           : sdscatprintf(ss, " %lu, ", config->maxSearchResults);
   ss = sdscatprintf(ss, "search pool size: %lu, ", config->searchPoolSize);
   ss = sdscatprintf(ss, "index pool size: %lu, ", config->indexPoolSize);
 
