@@ -44,6 +44,10 @@ size_t pending_global_indexing_ops = 0;
 dict *legacySpecDict;
 dict *legacySpecRules;
 
+Version redisVersion;
+Version rlecVersion;
+bool isCrdt;
+
 //---------------------------------------------------------------------------------------------
 
 static const FieldSpec *getFieldCommon(const IndexSpec *spec, const char *name, size_t len) {
@@ -1733,6 +1737,36 @@ void Indexes_RdbSave(RedisModuleIO *rdb, int when) {
 void IndexSpec_Digest(RedisModuleDigest *digest, void *value) {
 }
 
+// from this version we will have the loaded notification which means that scan
+// will no longer be needed
+Version noScanVersion = {
+    .majorVersion = 6,
+    .minorVersion = 0,
+    .patchVersion = 7,
+};
+
+int CompareVestions(Version v1, Version v2) {
+  if (v1.majorVersion < v2.majorVersion) {
+    return -1;
+  } else if (v1.majorVersion > v2.majorVersion) {
+    return 1;
+  }
+
+  if (v1.minorVersion < v2.minorVersion) {
+    return -1;
+  } else if (v1.minorVersion > v2.minorVersion) {
+    return 1;
+  }
+
+  if (v1.patchVersion < v2.patchVersion) {
+    return -1;
+  } else if (v1.patchVersion > v2.patchVersion) {
+    return 1;
+  }
+
+  return 0;
+}
+
 static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent,
                                  void *data) {
   if (subevent == REDISMODULE_SUBEVENT_LOADING_RDB_START ||
@@ -1741,6 +1775,7 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
     Indexes_Free();
     legacySpecDict = dictCreate(&dictTypeHeapStrings, NULL);
   } else if (subevent == REDISMODULE_SUBEVENT_LOADING_ENDED) {
+    int hasLegacyIndexes = dictSize(legacySpecDict);
     Indexes_UpgradeLegacyIndexes();
 
     // we do not need the legacy dict specs anymore
@@ -1763,7 +1798,12 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
       legacySpecRules = NULL;
     }
 
-    Indexes_ScanAndReindex();
+    if (hasLegacyIndexes || CompareVestions(redisVersion, noScanVersion) < 0) {
+      Indexes_ScanAndReindex();
+    } else {
+      RedisModule_Log(ctx, "warning",
+                      "Skip background reindex scan, redis version contains loaded event.");
+    }
   }
 }
 
