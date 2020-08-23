@@ -913,7 +913,12 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
                     "Redis version is to old, please upgrade to redis %d.%d.%d and above.",
                     supportedVersion.majorVersion, supportedVersion.minorVersion,
                     supportedVersion.patchVersion);
-    return REDISMODULE_ERR;
+
+    // On memory sanity check do not failed the start
+    // because our redis version there is old.
+    if (!getenv("RS_GLOBAL_DTORS")) {
+      return REDISMODULE_ERR;
+    }
   }
 
   if (RediSearch_Init(ctx, REDISEARCH_INIT_MODULE) != REDISMODULE_OK) {
