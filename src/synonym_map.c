@@ -135,6 +135,7 @@ void SynonymMap_Update(SynonymMap* smap, const char** synonyms, size_t size, con
     char *lowerSynonym = strtolower(rm_strdup(synonyms[i]));
     TermData* termData = dictFetchValue(smap->h_table, lowerSynonym);
     if (termData) {
+      // if term exists in dictionary, we should release the lower cased string
       rm_free(lowerSynonym);
     } else {
       termData = TermData_New(lowerSynonym); //strtolower
