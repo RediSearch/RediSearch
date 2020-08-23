@@ -488,8 +488,8 @@ def testEvicted(env):
     env.assertGreater(res[0], 0)
 
 def testNoInitialScan(env):
-    env.expect('flushall')
-    env.expect('HSET a test hello text world').equal(2)
+    conn = getConnectionByEnv(env)
+    conn.execute_command('HSET', 'a', 'test', 'hello', 'text', 'world')
     
     #Regular
     env.expect('FT.CREATE idx SCHEMA test TEXT').equal('OK')
