@@ -53,8 +53,8 @@ static void TermData_RdbSave(RedisModuleIO* rdb, TermData* t_data) {
   RedisModule_SaveStringBuffer(rdb, t_data->term, strlen(t_data->term) + 1);
   RedisModule_SaveUnsigned(rdb, array_len(t_data->groupIds));
   for (int i = 0; i < array_len(t_data->groupIds); ++i) {
-    RedisModule_SaveStringBuffer(rdb, t_data->groupIds[0],
-                                 strlen(t_data->groupIds[0]) + /*for \0*/ 1);
+    RedisModule_SaveStringBuffer(rdb, t_data->groupIds[i] + 1 /* do not save the ~ */,
+                                 strlen(t_data->groupIds[i]));
   }
 }
 
@@ -72,7 +72,7 @@ static TermData* TermData_RdbLoad(RedisModuleIO* rdb, int encver) {
     } else {
       groupId = RedisModule_LoadStringBuffer(rdb, NULL);
     }
-    TermData_AddId(t_data, groupId + 1 /* ~ is not needed*/);
+    TermData_AddId(t_data, groupId);
     rm_free(groupId);
   }
   return t_data;
