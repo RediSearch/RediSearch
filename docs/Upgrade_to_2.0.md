@@ -23,6 +23,6 @@ redis-server --loadmodule redisearch.so UPGRADE_INDEX idx PREFIX 1 idx:
 ## Upgrade Limitations
 
 The way that the upgrade process works behind the scenes is that it redefines the index with the `on hash` index description given in the configuration and then reindexes the data. This comes with some limitations:
-* If `NOSAVE` was used, than it's not possible to upgrade because the data do not exist for the reindexing.
+* If `NOSAVE` was used, then it's not possible to upgrade because the data for reindexing does not exist.
 * If you have multiple indices, you must find a way by for RediSearch to be able to identify which hashes belongs to which index. You can do it either with prefix or with filter.
 * If you have hashes that are not indexed, you will need to find a way so that RediSearch will be able to identify only the hashes that need to be indexed. Again this can be done using prefix or with filter.
