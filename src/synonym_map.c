@@ -132,10 +132,13 @@ void SynonymMap_Update(SynonymMap* smap, const char** synonyms, size_t size, con
   RS_LOG_ASSERT(!smap->is_read_only, "SynonymMap should not be read only");
   int ret;
   for (size_t i = 0; i < size; i++) {
-    TermData* termData = dictFetchValue(smap->h_table, synonyms[i]);
-    if (!termData) {
-      termData = TermData_New(strtolower(rm_strdup(synonyms[i])));
-      dictAdd(smap->h_table, (char*)synonyms[i], termData);
+    char *lowerSynonym = strtolower(rm_strdup(synonyms[i]));
+    TermData* termData = dictFetchValue(smap->h_table, lowerSynonym);
+    if (termData) {
+      rm_free(lowerSynonym);
+    } else {
+      termData = TermData_New(lowerSynonym); //strtolower
+      dictAdd(smap->h_table, lowerSynonym, termData);
     }
     TermData_AddId(termData, groupId);
   }
