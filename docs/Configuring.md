@@ -370,7 +370,7 @@ This configuration is a special configuration introduced to upgrade indices from
 
 ### Default
 
-There is no default for index name, the other arguments have the same defaults as on [ft.create api](Commands.md#ftcreate)
+There is no default for index name, and the other arguments have the same defaults as on [ft.create api](Commands.md#ftcreate)
 
 ### Example
 
