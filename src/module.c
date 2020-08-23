@@ -891,6 +891,9 @@ int CheckSupportedVestion() {
 
 int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   char *err;
+
+  legacySpecRules = dictCreate(&dictTypeHeapStrings, NULL);
+
   if (ReadConfig(argv, argc, &err) == REDISMODULE_ERR) {
     RedisModule_Log(ctx, "warning", "Invalid Configurations: %s", err);
     rm_free(err);

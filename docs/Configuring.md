@@ -363,3 +363,22 @@ $ redis-server --loadmodule ./redisearch.so GC_POLICY FORK FORK_GC_CLEAN_THRESHO
 
 * only to be combined with `GC_POLICY FORK`
 * added in v1.4.16
+
+## UPGRADE_INDEX
+
+This configuration is a special configuration introduced to upgrade indices from v1.x RediSearch versions, further referred to as 'legacy indices.' This configuration option needs to be given for each legacy index, followed by the index name and all valid option for the index description ( also referred to as the `ON` arguments for following hashes) as described on [ft.create api](Commands.md#ftcreate). See [Upgrade to 2.0](Upgrade_to_2.0.md) for more information.
+
+### Default
+
+There is no default for index name, and the other arguments have the same defaults as on [ft.create api](Commands.md#ftcreate)
+
+### Example
+
+```
+$ redis-server --loadmodule ./redisearch.so UPGRADE_INDEX idx PREFIX 1 tt LANGUAGE french LANGUAGE_FIELD MyLang SCORE 0.5 SCORE_FIELD MyScore PAYLOAD_FIELD MyPayload UPGRADE_INDEX idx1
+```
+
+### Notes
+
+* If the RDB file does not contain a legacy index that's specified in the configuration, a warning message will be added to the log file and loading will continue.
+* If the RDB file contains a legacy index that wasn't specified in the configuration loading will fail and the server won't start.

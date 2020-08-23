@@ -14,7 +14,7 @@
   do {                                           \
     RedisModule_ReplyWithSimpleString(ctx, (k)); \
     RedisModule_ReplyWithSimpleString(ctx, (v)); \
-  n += 2;                                        \
+    n += 2;                                      \
   } while (0)
 
 static int renderIndexOptions(RedisModuleCtx *ctx, IndexSpec *sp) {
@@ -43,7 +43,7 @@ static int renderIndexOptions(RedisModuleCtx *ctx, IndexSpec *sp) {
 
 static int renderIndexDefinitions(RedisModuleCtx *ctx, IndexSpec *sp) {
   int n = 0;
-  SchemaRule *rule = sp->rule; 
+  SchemaRule *rule = sp->rule;
   RedisModule_ReplyWithSimpleString(ctx, "index_definition");
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
@@ -194,7 +194,8 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   IndexesScanner *scanner = global_spec_scanner ? global_spec_scanner : sp->scanner;
   if (scanner || sp->scan_in_progress) {
     if (scanner) {
-      percent_indexed = scanner->totalKeys > 0 ? (double) scanner->scannedKeys / scanner->totalKeys : 0;
+      percent_indexed =
+          scanner->totalKeys > 0 ? (double)scanner->scannedKeys / scanner->totalKeys : 0;
     } else {
       percent_indexed = 0;
     }

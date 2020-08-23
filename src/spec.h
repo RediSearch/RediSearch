@@ -50,6 +50,33 @@ struct DocumentIndexer;
 #define SPEC_ASYNC_STR "ASYNC"
 #define SPEC_NOINITIALSCAN_STR "NOINITIALSCAN"
 
+#define SPEC_FOLLOW_HASH_ARGS_DEF(rule)                                     \
+  {.name = "PREFIX", .target = &rule_prefixes, .type = AC_ARGTYPE_SUBARGS}, \
+      {.name = "FILTER",                                                    \
+       .target = &(rule)->filter_exp_str,                                   \
+       .len = &dummy2,                                                      \
+       .type = AC_ARGTYPE_STRING},                                          \
+      {.name = "SCORE",                                                     \
+       .target = &(rule)->score_default,                                    \
+       .len = &dummy2,                                                      \
+       .type = AC_ARGTYPE_STRING},                                          \
+      {.name = "SCORE_FIELD",                                               \
+       .target = &(rule)->score_field,                                      \
+       .len = &dummy2,                                                      \
+       .type = AC_ARGTYPE_STRING},                                          \
+      {.name = "LANGUAGE",                                                  \
+       .target = &(rule)->lang_default,                                     \
+       .len = &dummy2,                                                      \
+       .type = AC_ARGTYPE_STRING},                                          \
+      {.name = "LANGUAGE_FIELD",                                            \
+       .target = &(rule)->lang_field,                                       \
+       .len = &dummy2,                                                      \
+       .type = AC_ARGTYPE_STRING},                                          \
+      {.name = "PAYLOAD_FIELD",                                             \
+       .target = &(rule)->payload_field,                                    \
+       .len = &dummy2,                                                      \
+       .type = AC_ARGTYPE_STRING},
+
 /**
  * If wishing to represent field types positionally, use this
  * enum. Since field types are a bitmask, it's pointless to waste
@@ -74,6 +101,7 @@ static const char *SpecTypeNames[] = {[IXFLDPOS_FULLTEXT] = SPEC_TEXT_STR,
 extern dict *specDict;
 extern size_t pending_global_indexing_ops;
 extern struct IndexesScanner *global_spec_scanner;
+extern dict *legacySpecRules;
 
 typedef struct {
   size_t numDocuments;
@@ -140,6 +168,8 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
 #define INDEX_CURRENT_VERSION 17
 #define INDEX_MIN_COMPAT_VERSION 17
 
+#define LEGACY_INDEX_MAX_VERSION 16
+#define LEGACY_INDEX_MIN_VERSION 2
 #define INDEX_MIN_WITH_SYNONYMS_INT_GROUP_ID 16
 
 // Those versions contains doc table as array, we modified it to be array of linked lists
