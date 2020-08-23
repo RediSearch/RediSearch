@@ -8,19 +8,19 @@ RedisModuleString **hashFields = NULL;
 
 typedef enum {
   hset_cmd,
-  hmset_cmd,  
+  hmset_cmd,
   hsetnx_cmd,
-  hincrby_cmd,  
-  hincrbyfloat_cmd,  
+  hincrby_cmd,
+  hincrbyfloat_cmd,
   hdel_cmd,
-  del_cmd,  
+  del_cmd,
   set_cmd,
-  rename_from_cmd,  
+  rename_from_cmd,
   rename_to_cmd,
-  trimmed_cmd,  
+  trimmed_cmd,
   restore_cmd,
-  expired_cmd,  
-  evicted_cmd,  
+  expired_cmd,
+  evicted_cmd,
   change_cmd,
 } RedisCmd;
 
@@ -51,12 +51,10 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
   int redisCommand = 0;
   RedisModuleKey *kp;
 
-  static const char *hset_event = 0, *hmset_event = 0, *hsetnx_event = 0,
-                    *hincrby_event = 0, *hincrbyfloat_event = 0, *hdel_event = 0,
-                    *del_event = 0, *set_event = 0,
-                    *rename_from_event = 0, *rename_to_event = 0,
-                    *trimmed_event = 0, *restore_event = 0, *expired_event = 0, 
-                    *evicted_event = 0, *change_event = 0;
+  static const char *hset_event = 0, *hmset_event = 0, *hsetnx_event = 0, *hincrby_event = 0,
+                    *hincrbyfloat_event = 0, *hdel_event = 0, *del_event = 0, *set_event = 0,
+                    *rename_from_event = 0, *rename_to_event = 0, *trimmed_event = 0,
+                    *restore_event = 0, *expired_event = 0, *evicted_event = 0, *change_event = 0;
 
   // clang-format off
 
