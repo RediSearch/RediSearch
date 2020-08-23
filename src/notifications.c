@@ -105,7 +105,7 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
 
   switch (redisCommand) {
     case loaded_cmd:
-      // on loaded event the key is stuck allocated so to use it to load the
+      // on loaded event the key is stack allocated so to use it to load the
       // document we must copy it
       key = RedisModule_CreateStringFromString(ctx, key);
       // notice, not break is ok here, we want to continue.
