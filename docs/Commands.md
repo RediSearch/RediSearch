@@ -175,8 +175,7 @@ OK or an error
 ### Format
 
 ```
-FT.ADD {index} {docId} {score} 
-  [NOSAVE]
+FT.ADD {index} {docId} {score}
   [REPLACE [PARTIAL] [NOCREATE]]
   [LANGUAGE {language}] 
   [PAYLOAD {payload}]
@@ -207,8 +206,6 @@ FT.ADD idx doc1 1.0 FIELDS title "hello world"
 
 - **score**: The document's rank based on the user's ranking. This must be between 0.0 and 1.0. 
   If you don't have a score just set it to 1
-
-- **NOSAVE**: If set to true, we will not save the actual document in the database and only index it.
 
 - **REPLACE**: If set, we will do an UPSERT style insertion - and delete an older version of the
   document if it exists. 
