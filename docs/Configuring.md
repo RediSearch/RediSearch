@@ -381,4 +381,4 @@ $ redis-server --loadmodule ./redisearch.so UPGRADE_INDEX idx PREFIX 1 tt LANGUA
 ### Notes
 
 * If the RDB file does not contain a legacy index that's specified in the configuration, a warning message will be added to the log file and loading will continue.
-* If the rdb contains a legacy index which was not specified with this configuration, the rdb loading will fail and the server will not start.
+* If the RDB file contains a legacy index that wasn't specified in the configuration loading will fail and the server won't start.
