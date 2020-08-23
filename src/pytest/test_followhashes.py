@@ -489,7 +489,7 @@ def testEvicted(env):
 
 def testNoInitialScan(env):
     conn = getConnectionByEnv(env)
-    conn.execute_command('HSET a test hello text world')
+    conn.execute_command('HSET', 'a', 'test', 'hello', 'text', 'world')
     
     #Regular
     env.expect('FT.CREATE idx SCHEMA test TEXT').equal('OK')
