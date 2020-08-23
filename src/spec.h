@@ -109,6 +109,20 @@ typedef enum {
   Index_NoInitialScan = 0x1000,
 } IndexFlags;
 
+// redis version (its here because most file include it with no problem,
+// we should introduce proper common.h file)
+
+typedef struct Version {
+  int majorVersion;
+  int minorVersion;
+  int patchVersion;
+  int buildVersion;  // if not exits then its zero
+} Version;
+
+extern Version redisVersion;
+extern Version rlecVersion;
+extern bool isCrdt;
+
 /**
  * This "ID" type is independent of the field mask, and is used to distinguish
  * between one field and another field. For now, the ID is the position in
@@ -218,7 +232,7 @@ typedef struct IndexSpec {
   // can be true even if scanner == NULL, in case of a scan being cancelled
   // in favor on a newer, pending scan
   bool scan_in_progress;
-  bool cascadeDelete; // remove keys when removing spec
+  bool cascadeDelete;  // remove keys when removing spec
 } IndexSpec;
 
 typedef struct {
@@ -244,6 +258,11 @@ typedef struct IndexSpecCache {
   size_t nfields;
   size_t refcount;
 } IndexSpecCache;
+
+/**
+ * compare redis versions
+ */
+int CompareVestions(Version v1, Version v2);
 
 /**
  * Retrieves the current spec cache from the index, incrementing its
@@ -449,10 +468,12 @@ typedef struct IndexesScanner {
 //---------------------------------------------------------------------------------------------
 
 void Indexes_Init(RedisModuleCtx *ctx);
-void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key, RedisModuleString **hashFields);
-void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key, RedisModuleString **hashFields);
-void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *from_key, 
-                                                                 RedisModuleString *to_key);
+void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key,
+                                           RedisModuleString **hashFields);
+void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key,
+                                           RedisModuleString **hashFields);
+void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *from_key,
+                                            RedisModuleString *to_key);
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -460,4 +481,4 @@ void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStri
 }
 #endif
 
-#endif // __SPEC_H__
+#endif  // __SPEC_H__

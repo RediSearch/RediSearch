@@ -39,6 +39,10 @@ static uint64_t spec_unique_ids = 1;
 dict *specDict;
 IndexesScanner *global_spec_scanner = NULL;
 
+Version redisVersion;
+Version rlecVersion;
+bool isCrdt;
+
 //---------------------------------------------------------------------------------------------
 
 static const FieldSpec *getFieldCommon(const IndexSpec *spec, const char *name, size_t len) {
@@ -1294,7 +1298,7 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
     RedisModule_Log(ctx, "notice", "Scanning index %s in background", scanner->spec->name);
   }
 
-  while (RedisModule_Scan(ctx, cursor, (RedisModuleScanCB) Indexes_ScanProc, scanner)) {
+  while (RedisModule_Scan(ctx, cursor, (RedisModuleScanCB)Indexes_ScanProc, scanner)) {
     RedisModule_ThreadSafeContextUnlock(ctx);
     sched_yield();
     RedisModule_ThreadSafeContextLock(ctx);
@@ -1392,7 +1396,7 @@ void Indexes_ScanAndReindex() {
   IndexesScanner *scanner = IndexesScanner_New(NULL);
   // check no global scan is in progress
   if (scanner) {
-    thpool_add_work(reindexPool, (thpool_proc) Indexes_ScanAndReindexTask, scanner);
+    thpool_add_work(reindexPool, (thpool_proc)Indexes_ScanAndReindexTask, scanner);
   }
 }
 
@@ -1573,6 +1577,36 @@ void Indexes_RdbSave(RedisModuleIO *rdb, int when) {
 void IndexSpec_Digest(RedisModuleDigest *digest, void *value) {
 }
 
+// from this version we will have the loaded notification which means that scan
+// will no longer be needed
+Version noScanVersion = {
+    .majorVersion = 6,
+    .minorVersion = 0,
+    .patchVersion = 7,
+};
+
+int CompareVestions(Version v1, Version v2) {
+  if (v1.majorVersion < v2.majorVersion) {
+    return -1;
+  } else if (v1.majorVersion > v2.majorVersion) {
+    return 1;
+  }
+
+  if (v1.minorVersion < v2.minorVersion) {
+    return -1;
+  } else if (v1.minorVersion > v2.minorVersion) {
+    return 1;
+  }
+
+  if (v1.patchVersion < v2.patchVersion) {
+    return -1;
+  } else if (v1.patchVersion > v2.patchVersion) {
+    return 1;
+  }
+
+  return 0;
+}
+
 static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent,
                                  void *data) {
   if (subevent == REDISMODULE_SUBEVENT_LOADING_RDB_START ||
@@ -1580,7 +1614,12 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
       subevent == REDISMODULE_SUBEVENT_LOADING_REPL_START) {
     Indexes_Free();
   } else if (subevent == REDISMODULE_SUBEVENT_LOADING_ENDED) {
-    Indexes_ScanAndReindex();
+    // todo: when merging with upgrade PR, make sure to scan if there are indexes to upgrade.
+    if (CompareVestions(redisVersion, noScanVersion) < 0) {
+      Indexes_ScanAndReindex();
+    } else {
+      RedisModule_Log(NULL, "notice", "Skip scanning, RediSearch version supports loading event.");
+    }
   }
 }
 
@@ -1745,7 +1784,7 @@ dict *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisModuleString *ke
 }
 
 static bool hashFieldChanged(IndexSpec *spec, RedisModuleString **hashFields) {
-  if(hashFields == NULL) {
+  if (hashFields == NULL) {
     return true;
   }
 
@@ -1758,16 +1797,16 @@ static bool hashFieldChanged(IndexSpec *spec, RedisModuleString **hashFields) {
       }
     }
     // optimize. change of score and payload fields just require an update of the doc table
-    if (!strcmp(field, spec->rule->lang_field) ||
-        !strcmp(field, spec->rule->score_field) ||
+    if (!strcmp(field, spec->rule->lang_field) || !strcmp(field, spec->rule->score_field) ||
         !strcmp(field, spec->rule->payload_field)) {
-          return true;
-    }    
+      return true;
+    }
   }
   return false;
 }
 
-void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key, RedisModuleString **hashFields) {
+void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key,
+                                           RedisModuleString **hashFields) {
   dict *specs = Indexes_FindMatchingSchemaRules(ctx, key);
 
   dictIterator *di = dictGetIterator(specs);
@@ -1805,7 +1844,8 @@ end:
   dictRelease(specs);
 }
 
-void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key, RedisModuleString **hashFields) {
+void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key,
+                                           RedisModuleString **hashFields) {
   dict *specs = Indexes_FindMatchingSchemaRules(ctx, key);
 
   dictIterator *di = dictGetIterator(specs);
@@ -1822,8 +1862,8 @@ void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
   dictRelease(specs);
 }
 
-void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *from_key, 
-                                                                 RedisModuleString *to_key) {
+void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *from_key,
+                                            RedisModuleString *to_key) {
   dict *from_specs = Indexes_FindMatchingSchemaRules(ctx, from_key);
   dict *to_specs = Indexes_FindMatchingSchemaRules(ctx, to_key);
 
@@ -1845,7 +1885,7 @@ void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStri
   }
   dictReleaseIterator(di);
   dictRelease(from_specs);
-  
+
   // add to a different index
   if (dictSize(to_specs) > 0) {
     di = dictGetIterator(to_specs);
