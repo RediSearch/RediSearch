@@ -49,6 +49,7 @@ int Redis_OptimizeScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *
  * Only set this if there are no other indexes in the same redis instance.
  */
 int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments);
+int Redis_DeleteKey(RedisModuleCtx *ctx, RedisModuleString *s);
 
 /* Drop all the index's internal keys using this scan handler */
 int Redis_DropScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaque);

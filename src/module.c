@@ -1,3 +1,4 @@
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -825,13 +826,105 @@ int IndexList(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModule_Log(ctx, "verbose", "Successfully executed " #f);              \
   }
 
+Version supportedVersion = {
+    .majorVersion = 6,
+    .minorVersion = 0,
+    .patchVersion = 0,
+};
+
+static void GetRedisVersion() {
+  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
+  RedisModuleCallReply *reply = RedisModule_Call(ctx, "info", "c", "server");
+  if (!reply) {
+    // could not get version, it can only happened when running the tests.
+    // set redis version to supported version.
+    redisVersion = supportedVersion;
+    RedisModule_FreeThreadSafeContext(ctx);
+    return;
+  }
+  RedisModule_Assert(RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_STRING);
+  size_t len;
+  const char *replyStr = RedisModule_CallReplyStringPtr(reply, &len);
+
+  int n = sscanf(replyStr, "# Server\nredis_version:%d.%d.%d", &redisVersion.majorVersion,
+                 &redisVersion.minorVersion, &redisVersion.patchVersion);
+
+  RedisModule_Assert(n == 3);
+
+  rlecVersion.majorVersion = -1;
+  rlecVersion.minorVersion = -1;
+  rlecVersion.patchVersion = -1;
+  rlecVersion.buildVersion = -1;
+  char *enterpriseStr = strstr(replyStr, "rlec_version:");
+  if (enterpriseStr) {
+    n = sscanf(enterpriseStr, "rlec_version:%d.%d.%d-%d", &rlecVersion.majorVersion,
+               &rlecVersion.minorVersion, &rlecVersion.buildVersion, &rlecVersion.patchVersion);
+    if (n != 4) {
+      RedisModule_Log(NULL, "warning", "Could not extract enterprise version");
+    }
+  }
+
+  RedisModule_FreeCallReply(reply);
+
+  isCrdt = true;
+  reply = RedisModule_Call(ctx, "CRDT.CONFIG", "cc", "GET", "active-gc");
+  if (!reply || RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_ERROR) {
+    isCrdt = false;
+  }
+
+  if (reply) {
+    RedisModule_FreeCallReply(reply);
+  }
+
+  RedisModule_FreeThreadSafeContext(ctx);
+}
+
+static inline int IsEnterprise() {
+  return rlecVersion.majorVersion != -1;
+}
+
+int CheckSupportedVestion() {
+  if (CompareVestions(redisVersion, supportedVersion) < 0) {
+    return REDISMODULE_ERR;
+  }
+  return REDISMODULE_OK;
+}
+
 int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   char *err;
+
+  legacySpecRules = dictCreate(&dictTypeHeapStrings, NULL);
+
   if (ReadConfig(argv, argc, &err) == REDISMODULE_ERR) {
     RedisModule_Log(ctx, "warning", "Invalid Configurations: %s", err);
     rm_free(err);
     return REDISMODULE_ERR;
   }
+
+  GetRedisVersion();
+
+  RedisModule_Log(ctx, "notice", "Redis version found by RedisSearch : %d.%d.%d - %s",
+                  redisVersion.majorVersion, redisVersion.minorVersion, redisVersion.patchVersion,
+                  IsEnterprise() ? (isCrdt ? "enterprise-crdt" : "enterprise") : "oss");
+  if (IsEnterprise()) {
+    RedisModule_Log(ctx, "notice", "Redis Enterprise version found by RedisSearch : %d.%d.%d-%d",
+                    rlecVersion.majorVersion, rlecVersion.minorVersion, rlecVersion.patchVersion,
+                    rlecVersion.buildVersion);
+  }
+
+  if (CheckSupportedVestion() != REDISMODULE_OK) {
+    RedisModule_Log(ctx, "warning",
+                    "Redis version is to old, please upgrade to redis %d.%d.%d and above.",
+                    supportedVersion.majorVersion, supportedVersion.minorVersion,
+                    supportedVersion.patchVersion);
+
+    // On memory sanity check do not failed the start
+    // because our redis version there is old.
+    if (!getenv("RS_GLOBAL_DTORS")) {
+      return REDISMODULE_ERR;
+    }
+  }
+
   if (RediSearch_Init(ctx, REDISEARCH_INIT_MODULE) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }

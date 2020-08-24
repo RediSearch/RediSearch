@@ -19,7 +19,7 @@ const char *SchemaRuleType_ToString(SchemaRuleType type) {
 }
 
 int SchemaRuleType_Parse(const char *type_str, SchemaRuleType *type, QueryError *status) {
-  if (!type_str || !strcasecmp(type_str, "HASH")) {
+  if (!type_str || !strcasecmp(type_str, RULE_TYPE_HASH)) {
     *type = SchemaRuleType_Hash;
     return REDISMODULE_OK;
   }
@@ -28,6 +28,24 @@ int SchemaRuleType_Parse(const char *type_str, SchemaRuleType *type, QueryError 
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
+
+void SchemaRuleArgs_Free(SchemaRuleArgs *rule_args) {
+  // free rule_args
+#define FREE_IF_NEEDED(arg) \
+  if (arg) rm_free(arg)
+  FREE_IF_NEEDED(rule_args->filter_exp_str);
+  FREE_IF_NEEDED(rule_args->lang_default);
+  FREE_IF_NEEDED(rule_args->lang_field);
+  FREE_IF_NEEDED(rule_args->payload_field);
+  FREE_IF_NEEDED(rule_args->score_default);
+  FREE_IF_NEEDED(rule_args->score_field);
+  FREE_IF_NEEDED((char *)rule_args->type);
+  for (size_t i = 0; i < rule_args->nprefixes; ++i) {
+    rm_free((char *)rule_args->prefixes[i]);
+  }
+  rm_free(rule_args->prefixes);
+  rm_free(rule_args);
+}
 
 SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, IndexSpec *spec, QueryError *status) {
   SchemaRule *rule = rm_calloc(1, sizeof(*rule));
@@ -48,12 +66,12 @@ SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, IndexSpec *spec, QueryError 
     if (args->score_default == endptr || score < 0 || score > 1) {
       QueryError_SetError(status, QUERY_EADDARGS, "Invalid score");
       goto error;
-    } 
+    }
     rule->score_default = score;
   } else {
     rule->score_default = 1.0;
   }
-  
+
   if (args->lang_default) {
     RSLanguage lang = RSLanguage_Find(args->lang_default);
     if (lang == RS_LANG_UNSUPPORTED) {

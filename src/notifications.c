@@ -8,20 +8,21 @@ RedisModuleString **hashFields = NULL;
 
 typedef enum {
   hset_cmd,
-  hmset_cmd,  
+  hmset_cmd,
   hsetnx_cmd,
-  hincrby_cmd,  
-  hincrbyfloat_cmd,  
+  hincrby_cmd,
+  hincrbyfloat_cmd,
   hdel_cmd,
-  del_cmd,  
+  del_cmd,
   set_cmd,
-  rename_from_cmd,  
+  rename_from_cmd,
   rename_to_cmd,
-  trimmed_cmd,  
+  trimmed_cmd,
   restore_cmd,
-  expired_cmd,  
-  evicted_cmd,  
+  expired_cmd,
+  evicted_cmd,
   change_cmd,
+  loaded_cmd,
 } RedisCmd;
 
 static void freeHashFields() {
@@ -51,12 +52,11 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
   int redisCommand = 0;
   RedisModuleKey *kp;
 
-  static const char *hset_event = 0, *hmset_event = 0, *hsetnx_event = 0,
-                    *hincrby_event = 0, *hincrbyfloat_event = 0, *hdel_event = 0,
-                    *del_event = 0, *set_event = 0,
-                    *rename_from_event = 0, *rename_to_event = 0,
-                    *trimmed_event = 0, *restore_event = 0, *expired_event = 0, 
-                    *evicted_event = 0, *change_event = 0;
+  static const char *hset_event = 0, *hmset_event = 0, *hsetnx_event = 0, *hincrby_event = 0,
+                    *hincrbyfloat_event = 0, *hdel_event = 0, *del_event = 0, *set_event = 0,
+                    *rename_from_event = 0, *rename_to_event = 0, *trimmed_event = 0,
+                    *restore_event = 0, *expired_event = 0, *evicted_event = 0, *change_event = 0,
+                    *loaded_event = 0;
 
   // clang-format off
 
@@ -79,6 +79,7 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
   else CHECK_CACHED_EVENT(set)
   else CHECK_CACHED_EVENT(rename_from)
   else CHECK_CACHED_EVENT(rename_to)
+  else CHECK_CACHED_EVENT(loaded)
   else {
          CHECK_AND_CACHE_EVENT(hset)
     else CHECK_AND_CACHE_EVENT(hmset)
@@ -99,9 +100,15 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
     else CHECK_AND_CACHE_EVENT(set)
     else CHECK_AND_CACHE_EVENT(rename_from)
     else CHECK_AND_CACHE_EVENT(rename_to)
+    else CHECK_AND_CACHE_EVENT(loaded)
   }
 
   switch (redisCommand) {
+    case loaded_cmd:
+      // on loaded event the key is stack allocated so to use it to load the
+      // document we must copy it
+      key = RedisModule_CreateStringFromString(ctx, key);
+      // notice, not break is ok here, we want to continue.
     case hset_cmd:
     case hmset_cmd:
     case hsetnx_cmd:
@@ -110,6 +117,9 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
     case hdel_cmd:
     case restore_cmd:
       Indexes_UpdateMatchingWithSchemaRules(ctx, key, hashFields);
+      if(redisCommand == loaded_cmd){
+        RedisModule_FreeString(ctx, key);
+      }
       break;
 
     case del_cmd:
@@ -122,10 +132,12 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
 
     case change_cmd:
       kp = RedisModule_OpenKey(ctx, key, REDISMODULE_READ);
-      if (!kp || RedisModule_KeyType(kp) == REDISMODULE_KEYTYPE_EMPTY) {
+      if (!kp || RedisModule_KeyType(kp) != REDISMODULE_KEYTYPE_HASH) {
         // in crdt empty key means that key was deleted
         Indexes_DeleteMatchingWithSchemaRules(ctx, key, hashFields);
       } else {
+        // todo: here we will open the key again, we can optimize it by
+        //       somehow passing the key pointer
         Indexes_UpdateMatchingWithSchemaRules(ctx, key, hashFields);
       }
       RedisModule_CloseKey(kp);
@@ -203,7 +215,8 @@ void Initialize_KeyspaceNotifications(RedisModuleCtx *ctx) {
   RedisModule_SubscribeToKeyspaceEvents(ctx,
     REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_HASH |
     REDISMODULE_NOTIFY_TRIMMED | REDISMODULE_NOTIFY_STRING |
-    REDISMODULE_NOTIFY_EXPIRED | REDISMODULE_NOTIFY_EVICTED,
+    REDISMODULE_NOTIFY_EXPIRED | REDISMODULE_NOTIFY_EVICTED |
+    REDISMODULE_NOTIFY_LOADED,
     HashNotificationCallback);
 }
 

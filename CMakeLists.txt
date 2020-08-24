@@ -135,19 +135,19 @@ SET(FINAL_OBJECTS
 
 IF (RS_BUILD_COORDINATOR)
     ADD_LIBRARY(redisearch-oss STATIC ${RS_SRC} ${FINAL_OBJECTS} src/module-init/module-init.c)
-    target_compile_definitions(redisearch-oss PRIVATE RS_NO_ONLOAD RS_CLUSTER_OSS)
+    target_compile_definitions(redisearch-oss PRIVATE RS_NO_ONLOAD RS_NO_RMAPI RS_CLUSTER_OSS)
     SET_TARGET_PROPERTIES(redisearch-oss PROPERTIES OUTPUT_NAME "redisearch-oss")
 
     # SET(RS_TEST_MODULE redisearch-oss)
     # SET(RS_TEST_MODULE_SO $<TARGET_FILE:redisearch-oss>)
 
     ADD_LIBRARY(redisearch-enterprise STATIC ${RS_SRC} ${FINAL_OBJECTS} src/module-init/module-init.c)
-    target_compile_definitions(redisearch-enterprise PRIVATE RS_NO_ONLOAD RS_CLUSTER_ENTERPRISE)
+    target_compile_definitions(redisearch-enterprise PRIVATE RS_NO_ONLOAD RS_NO_RMAPI RS_CLUSTER_ENTERPRISE)
     SET_TARGET_PROPERTIES(redisearch-enterprise PROPERTIES OUTPUT_NAME "redisearch-enterprise")
 
 ELSEIF (RS_BUILD_STATIC)
     ADD_LIBRARY(redisearchS STATIC ${FINAL_OBJECTS} src/module-init/module-init.c)
-    SET_TARGET_PROPERTIES(redisearchS PROPERTIES COMPILE_DEFINITIONS RS_NO_ONLOAD)
+    SET_TARGET_PROPERTIES(redisearchS PROPERTIES COMPILE_DEFINITIONS RS_NO_ONLOAD RS_NO_RMAPI)
     SET_TARGET_PROPERTIES(redisearchS PROPERTIES OUTPUT_NAME "redisearch")
 
     ADD_LIBRARY(redisearch SHARED ${FINAL_OBJECTS} src/module-init/module-init.c)
