@@ -533,34 +533,41 @@ typedef struct {
 
 static int rploaderNext(ResultProcessor *base, SearchResult *r) {
   RPLoader *lc = (RPLoader *)base;
-  int rc = base->upstream->Next(base->upstream, r);
-  if (rc != RS_RESULT_OK) {
-    return rc;
-  }
+  do {
+    int rc = base->upstream->Next(base->upstream, r);
+    if (rc != RS_RESULT_OK) {
+      return rc;
+    }
 
-  int isExplicitReturn = !!lc->nfields;
+    int isExplicitReturn = !!lc->nfields;
 
-  // Current behavior skips entire result if document does not exist.
-  // I'm unusre if that's intentional or an oversight.
-  if (r->dmd == NULL || (r->dmd->flags & Document_Deleted)) {
-    return RS_RESULT_OK;
-  }
-  RedisSearchCtx *sctx = lc->base.parent->sctx;
+    // Current behavior skips entire result if document does not exist.
+    // I'm unusre if that's intentional or an oversight.
+    if (r->dmd == NULL || (r->dmd->flags & Document_Deleted)) {
+      return RS_RESULT_OK;
+    }
+    RedisSearchCtx *sctx = lc->base.parent->sctx;
 
-  QueryError status = {0};
-  RLookupLoadOptions loadopts = {.sctx = lc->base.parent->sctx,  // lb
-                                 .dmd = r->dmd,
-                                 .noSortables = 1,
-                                 .forceString = 1,
-                                 .status = &status,
-                                 .keys = lc->fields,
-                                 .nkeys = lc->nfields};
-  if (isExplicitReturn) {
-    loadopts.mode |= RLOOKUP_LOAD_KEYLIST;
-  } else {
-    loadopts.mode |= RLOOKUP_LOAD_ALLKEYS;
-  }
-  RLookup_LoadDocument(lc->lk, &r->rowdata, &loadopts);
+    QueryError status = {0};
+    RLookupLoadOptions loadopts = {.sctx = lc->base.parent->sctx,  // lb
+                                  .dmd = r->dmd,
+                                  .noSortables = 1,
+                                  .forceString = 1,
+                                  .status = &status,
+                                  .keys = lc->fields,
+                                  .nkeys = lc->nfields};
+    if (isExplicitReturn) {
+      loadopts.mode |= RLOOKUP_LOAD_KEYLIST;
+    } else {
+      loadopts.mode |= RLOOKUP_LOAD_ALLKEYS;
+    }
+    if (RLookup_LoadDocument(lc->lk, &r->rowdata, &loadopts) != REDISMODULE_OK) {
+      base->parent->totalResults--;
+      SearchResult_Clear(r);
+      continue;
+    }
+    break;
+  } while(1);
   return RS_RESULT_OK;
 }
 
