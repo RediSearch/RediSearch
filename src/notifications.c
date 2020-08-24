@@ -132,10 +132,12 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
 
     case change_cmd:
       kp = RedisModule_OpenKey(ctx, key, REDISMODULE_READ);
-      if (!kp || RedisModule_KeyType(kp) == REDISMODULE_KEYTYPE_EMPTY) {
+      if (!kp || RedisModule_KeyType(kp) != REDISMODULE_KEYTYPE_HASH) {
         // in crdt empty key means that key was deleted
         Indexes_DeleteMatchingWithSchemaRules(ctx, key, hashFields);
       } else {
+        // todo: here we will open the key again, we can optimize it by
+        //       somehow passing the key pointer
         Indexes_UpdateMatchingWithSchemaRules(ctx, key, hashFields);
       }
       RedisModule_CloseKey(kp);
