@@ -132,7 +132,8 @@ void SynonymMap_Update(SynonymMap* smap, const char** synonyms, size_t size, con
   RS_LOG_ASSERT(!smap->is_read_only, "SynonymMap should not be read only");
   int ret;
   for (size_t i = 0; i < size; i++) {
-    char *lowerSynonym = strtolower(rm_strdup(synonyms[i]));
+    char *lowerSynonym = rm_strdup(synonyms[i]);
+    strtolower(lowerSynonym);
     TermData* termData = dictFetchValue(smap->h_table, lowerSynonym);
     if (termData) {
       // if term exists in dictionary, we should release the lower cased string
