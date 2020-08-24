@@ -5,6 +5,7 @@
 #include <sys/errno.h>
 #include <math.h>
 #include <string.h>
+#include <ctype.h>
 /* Strconv - common simple string conversion utils */
 
 // Case insensitive string equal
@@ -54,6 +55,15 @@ static int ParseBoolean(const char *arg, int *res) {
   }
 
   return 0;
+}
+
+static char *strtolower(char *str) {
+  char *p = str;
+  while (*p) {
+    *p = tolower(*p);
+    p++;
+  }
+  return str;
 }
 
 #endif
