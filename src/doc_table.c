@@ -331,6 +331,20 @@ RSDocumentMetadata *DocTable_Pop(DocTable *t, const char *s, size_t n) {
   return NULL;
 }
 
+int DocTable_Replace(DocTable *t, const char *from_str, size_t from_len, const char *to_str,
+                     size_t to_len) {
+  t_docId id = DocIdMap_Get(&t->dim, from_str, from_len);
+  if (id == 0) {
+    return REDISMODULE_ERR;
+  }
+  DocIdMap_Delete(&t->dim, from_str, from_len);
+  DocIdMap_Put(&t->dim, to_str, to_len, id);
+  RSDocumentMetadata *dmd = DocTable_Get(t, id);
+  sdsfree(dmd->keyPtr);
+  dmd->keyPtr = sdsnewlen(to_str, to_len);
+  return REDISMODULE_OK;
+}
+
 void DocTable_RdbSave(DocTable *t, RedisModuleIO *rdb) {
 
   RedisModule_SaveUnsigned(rdb, t->size);
@@ -371,6 +385,100 @@ void DocTable_RdbSave(DocTable *t, RedisModuleIO *rdb) {
     }
   }
   RS_LOG_ASSERT((elements_written + 1 == t->size), "Wrong number of written elements");
+}
+
+void DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
+  long long deletedElements = 0;
+  t->size = RedisModule_LoadUnsigned(rdb);
+  t->maxDocId = RedisModule_LoadUnsigned(rdb);
+  if (encver >= INDEX_MIN_COMPACTED_DOCTABLE_VERSION) {
+    t->maxSize = RedisModule_LoadUnsigned(rdb);
+  } else {
+    t->maxSize = MIN(RSGlobalConfig.maxDocTableSize, t->maxDocId);
+  }
+
+  if (t->maxDocId > t->maxSize) {
+    /**
+     * If the maximum doc id is greater than the maximum cap size
+     * then it means there is a possibility that any index under maxId can
+     * be accessed. However, it is possible that this bucket does not have
+     * any documents inside it (and thus might not be populated below), but
+     * could still be accessed for simple queries (e.g. get, exist). Ensure
+     * we don't have to rely on Set/Put to ensure the doc table array.
+     */
+    t->cap = t->maxSize;
+    rm_free(t->buckets);
+    t->buckets = rm_calloc(t->cap, sizeof(*t->buckets));
+  }
+
+  for (size_t i = 1; i < t->size; i++) {
+    size_t len;
+
+    RSDocumentMetadata *dmd = rm_calloc(1, sizeof(RSDocumentMetadata));
+    char *tmpPtr = RedisModule_LoadStringBuffer(rdb, &len);
+    if (encver < INDEX_MIN_BINKEYS_VERSION) {
+      // Previous versions would encode the NUL byte
+      len--;
+    }
+    dmd->id = encver < INDEX_MIN_COMPACTED_DOCTABLE_VERSION ? i : RedisModule_LoadUnsigned(rdb);
+    dmd->keyPtr = sdsnewlen(tmpPtr, len);
+    RedisModule_Free(tmpPtr);
+
+    dmd->flags = RedisModule_LoadUnsigned(rdb);
+    dmd->maxFreq = 1;
+    dmd->len = 1;
+    if (encver > 1) {
+      dmd->maxFreq = RedisModule_LoadUnsigned(rdb);
+    }
+    if (encver >= INDEX_MIN_DOCLEN_VERSION) {
+      dmd->len = RedisModule_LoadUnsigned(rdb);
+    } else {
+      // In older versions, default the len to max freq to avoid division by zero.
+      dmd->len = dmd->maxFreq;
+    }
+
+    dmd->score = RedisModule_LoadFloat(rdb);
+    dmd->payload = NULL;
+    // read payload if set
+    if ((dmd->flags & Document_HasPayload)) {
+      if (!(dmd->flags & Document_Deleted)) {
+        dmd->payload = rm_malloc(sizeof(RSPayload));
+        dmd->payload->data = RedisModule_LoadStringBuffer(rdb, &dmd->payload->len);
+        char *buf = rm_malloc(dmd->payload->len);
+        memcpy(buf, dmd->payload->data, dmd->payload->len);
+        RedisModule_Free(dmd->payload->data);
+        dmd->payload->data = buf;
+        dmd->payload->len--;
+        t->memsize += dmd->payload->len + sizeof(RSPayload);
+      } else if ((dmd->flags & Document_Deleted) && (encver == INDEX_MIN_EXPIRE_VERSION)) {
+        RedisModule_Free(RedisModule_LoadStringBuffer(rdb, NULL));  // throw this string to garbage
+      }
+    }
+    dmd->sortVector = NULL;
+    if (dmd->flags & Document_HasSortVector) {
+      dmd->sortVector = SortingVector_RdbLoad(rdb, encver);
+      t->sortablesSize += RSSortingVector_GetMemorySize(dmd->sortVector);
+    }
+
+    if (dmd->flags & Document_HasOffsetVector) {
+      size_t nTmp = 0;
+      char *tmp = RedisModule_LoadStringBuffer(rdb, &nTmp);
+      Buffer *bufTmp = Buffer_Wrap(tmp, nTmp);
+      dmd->byteOffsets = LoadByteOffsets(bufTmp);
+      rm_free(bufTmp);
+      RedisModule_Free(tmp);
+    }
+
+    if (dmd->flags & Document_Deleted) {
+      ++deletedElements;
+      DMD_Free(dmd);
+    } else {
+      DocIdMap_Put(&t->dim, dmd->keyPtr, sdslen(dmd->keyPtr), dmd->id);
+      DocTable_Set(t, dmd->id, dmd);
+      t->memsize += sizeof(RSDocumentMetadata) + len;
+    }
+  }
+  t->size -= deletedElements;
 }
 
 void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {

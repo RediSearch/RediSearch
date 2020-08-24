@@ -167,6 +167,10 @@ static inline RSDocumentMetadata *DocTable_GetByKey(DocTable *dt, const char *ke
   return DocTable_Get(dt, id);
 }
 
+/* Change name of document hash in the same spec without reindexing */
+int DocTable_Replace(DocTable *t, const char *from_str, size_t from_len, const char *to_str,
+                     size_t to_len);
+
 /* don't use this function directly. Use DMD_Decref */
 void DMD_Free(RSDocumentMetadata *);
 
@@ -179,6 +183,8 @@ static inline void DMD_Decref(RSDocumentMetadata *dmd) {
 
 /* Save the table to RDB. Called from the owning index */
 void DocTable_RdbSave(DocTable *t, RedisModuleIO *rdb);
+
+void DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver);
 
 /* Load the table from RDB */
 void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb, int encver);

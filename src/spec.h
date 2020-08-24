@@ -48,6 +48,34 @@ struct DocumentIndexer;
 #define SPEC_SEPARATOR_STR "SEPARATOR"
 #define SPEC_MULTITYPE_STR "MULTITYPE"
 #define SPEC_ASYNC_STR "ASYNC"
+#define SPEC_NOINITIALSCAN_STR "NOINITIALSCAN"
+
+#define SPEC_FOLLOW_HASH_ARGS_DEF(rule)                                     \
+  {.name = "PREFIX", .target = &rule_prefixes, .type = AC_ARGTYPE_SUBARGS}, \
+      {.name = "FILTER",                                                    \
+       .target = &(rule)->filter_exp_str,                                   \
+       .len = &dummy2,                                                      \
+       .type = AC_ARGTYPE_STRING},                                          \
+      {.name = "SCORE",                                                     \
+       .target = &(rule)->score_default,                                    \
+       .len = &dummy2,                                                      \
+       .type = AC_ARGTYPE_STRING},                                          \
+      {.name = "SCORE_FIELD",                                               \
+       .target = &(rule)->score_field,                                      \
+       .len = &dummy2,                                                      \
+       .type = AC_ARGTYPE_STRING},                                          \
+      {.name = "LANGUAGE",                                                  \
+       .target = &(rule)->lang_default,                                     \
+       .len = &dummy2,                                                      \
+       .type = AC_ARGTYPE_STRING},                                          \
+      {.name = "LANGUAGE_FIELD",                                            \
+       .target = &(rule)->lang_field,                                       \
+       .len = &dummy2,                                                      \
+       .type = AC_ARGTYPE_STRING},                                          \
+      {.name = "PAYLOAD_FIELD",                                             \
+       .target = &(rule)->payload_field,                                    \
+       .len = &dummy2,                                                      \
+       .type = AC_ARGTYPE_STRING},
 
 /**
  * If wishing to represent field types positionally, use this
@@ -73,6 +101,7 @@ static const char *SpecTypeNames[] = {[IXFLDPOS_FULLTEXT] = SPEC_TEXT_STR,
 extern dict *specDict;
 extern size_t pending_global_indexing_ops;
 extern struct IndexesScanner *global_spec_scanner;
+extern dict *legacySpecRules;
 
 typedef struct {
   size_t numDocuments;
@@ -104,8 +133,23 @@ typedef enum {
 
   // If any of the fields has phonetics. This is just a cache for quick lookup
   Index_HasPhonetic = 0x400,
-  Index_Async = 0x800
+  Index_Async = 0x800,
+  Index_NoInitialScan = 0x1000,
 } IndexFlags;
+
+// redis version (its here because most file include it with no problem,
+// we should introduce proper common.h file)
+
+typedef struct Version {
+  int majorVersion;
+  int minorVersion;
+  int patchVersion;
+  int buildVersion;  // if not exits then its zero
+} Version;
+
+extern Version redisVersion;
+extern Version rlecVersion;
+extern bool isCrdt;
 
 /**
  * This "ID" type is independent of the field mask, and is used to distinguish
@@ -124,6 +168,8 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
 #define INDEX_CURRENT_VERSION 17
 #define INDEX_MIN_COMPAT_VERSION 17
 
+#define LEGACY_INDEX_MAX_VERSION 16
+#define LEGACY_INDEX_MIN_VERSION 2
 #define INDEX_MIN_WITH_SYNONYMS_INT_GROUP_ID 16
 
 // Those versions contains doc table as array, we modified it to be array of linked lists
@@ -216,7 +262,7 @@ typedef struct IndexSpec {
   // can be true even if scanner == NULL, in case of a scan being cancelled
   // in favor on a newer, pending scan
   bool scan_in_progress;
-  bool cascadeDelete; // remove keys when removing spec
+  bool cascadeDelete;  // remove keys when removing spec
 } IndexSpec;
 
 typedef struct {
@@ -242,6 +288,11 @@ typedef struct IndexSpecCache {
   size_t nfields;
   size_t refcount;
 } IndexSpecCache;
+
+/**
+ * compare redis versions
+ */
+int CompareVestions(Version v1, Version v2);
 
 /**
  * Retrieves the current spec cache from the index, incrementing its
@@ -447,8 +498,12 @@ typedef struct IndexesScanner {
 //---------------------------------------------------------------------------------------------
 
 void Indexes_Init(RedisModuleCtx *ctx);
-void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key);
-void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key);
+void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key,
+                                           RedisModuleString **hashFields);
+void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key,
+                                           RedisModuleString **hashFields);
+void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *from_key,
+                                            RedisModuleString *to_key);
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -456,4 +511,4 @@ void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
 }
 #endif
 
-#endif // __SPEC_H__
+#endif  // __SPEC_H__

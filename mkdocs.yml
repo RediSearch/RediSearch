@@ -37,8 +37,10 @@ nav:
   - 'Quick Start': 'Quick_Start.md'
   - 'Command Reference': 'Commands.md'
   - 'Configuration': 'Configuring.md'
-  - 'Administration': "Administration.md"
   - 'Development': "Development.md"
+  - Administration:
+    - 'General administration': "Administration.md"
+    - 'Upgrade to 2.0 when running in Redis OSS': Upgrade_to_2.0.md
   - Reference:
     - 'Query Syntax': 'Query_Syntax.md'
     - 'Stop-Words': 'Stopwords.md'

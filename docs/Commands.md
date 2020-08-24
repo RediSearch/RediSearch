@@ -5,7 +5,7 @@
 ### Format
 ```
   FT.CREATE {index} 
-    ON {structure} 
+    [ON {structure}]
        [PREFIX {count} {prefix} [{prefix} ..]
        [FILTER {filter}]
        [LANGUAGE {default_lang}]
@@ -13,7 +13,7 @@
        [SCORE {default_score}]
        [SCORE_FIELD {score_field}]
        [PAYLOAD_FIELD {payload_field}]
-    [MAXTEXTFIELDS] [TEMPORARY {seconds}] [NOOFFSETS] [NOHL] [NOFIELDS] [NOFREQS]
+    [MAXTEXTFIELDS] [TEMPORARY {seconds}] [NOOFFSETS] [NOHL] [NOFIELDS] [NOFREQS] [NOINITIALSCAN]
     [STOPWORDS {num} {stopword} ...]
     SCHEMA {field} [TEXT [NOSTEM] [WEIGHT {weight}] [PHONETIC {matcher}] | NUMERIC | GEO | TAG [SEPARATOR {sep}] ] [SORTABLE][NOINDEX] ...
 ```
@@ -49,7 +49,7 @@ FT.CREATE idx ON HASH PREFIX 1 doc: SCHEMA name TEXT SORTABLE age NUMERIC SORTAB
 
 * **index**: the index name to create. If it exists the old spec will be overwritten
 
-* **ON {structure}** currently supports only HASH
+* **ON {structure}** currently supports only HASH (default)
 
 * **PREFIX {count} {prefix}** tells the index which keys it should index. You can add several prefixes to index. Since the argument is optional, the default is * (all keys)
 
@@ -114,6 +114,8 @@ FT.CREATE idx ON HASH PREFIX 1 doc: SCHEMA name TEXT SORTABLE age NUMERIC SORTAB
 
     If **{num}** is set to 0, the index will not have stopwords.
 
+* **NOINITIALSCAN**: If set, we do not scan and index. 
+
 * **SCHEMA {field} {options...}**: After the SCHEMA keyword we define the index fields. They
   can be numeric, textual or geographical. For textual fields we optionally specify a weight.
   The default weight is 1.0.
@@ -173,8 +175,7 @@ OK or an error
 ### Format
 
 ```
-FT.ADD {index} {docId} {score} 
-  [NOSAVE]
+FT.ADD {index} {docId} {score}
   [REPLACE [PARTIAL] [NOCREATE]]
   [LANGUAGE {language}] 
   [PAYLOAD {payload}]
@@ -205,8 +206,6 @@ FT.ADD idx doc1 1.0 FIELDS title "hello world"
 
 - **score**: The document's rank based on the user's ranking. This must be between 0.0 and 1.0. 
   If you don't have a score just set it to 1
-
-- **NOSAVE**: If set to true, we will not save the actual document in the database and only index it.
 
 - **REPLACE**: If set, we will do an UPSERT style insertion - and delete an older version of the
   document if it exists. 

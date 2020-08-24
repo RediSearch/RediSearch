@@ -338,17 +338,21 @@ int Redis_SaveDocument(RedisSearchCtx *ctx, const AddDocumentOptions *opts, Quer
   }
 
   RedisModuleCallReply *rep = NULL;
-  // crdt assumes that it gets its own copy of the arguments so lets give it to them
-  for (size_t i = 0; i < array_len(arguments); ++i) {
-    arguments[i] = RedisModule_CreateStringFromString(ctx->redisCtx, arguments[i]);
+  if (isCrdt) {
+    // crdt assumes that it gets its own copy of the arguments so lets give it to them
+    for (size_t i = 0; i < array_len(arguments); ++i) {
+      arguments[i] = RedisModule_CreateStringFromString(ctx->redisCtx, arguments[i]);
+    }
   }
   rep = RedisModule_Call(ctx->redisCtx, "HSET", "!v", arguments, array_len(arguments));
   if (rep) {
     RedisModule_FreeCallReply(rep);
   }
 
-  for (size_t i = 0; i < array_len(arguments); ++i) {
-    RedisModule_FreeString(ctx->redisCtx, arguments[i]);
+  if (isCrdt) {
+    for (size_t i = 0; i < array_len(arguments); ++i) {
+      RedisModule_FreeString(ctx->redisCtx, arguments[i]);
+    }
   }
   array_free(arguments);
 
