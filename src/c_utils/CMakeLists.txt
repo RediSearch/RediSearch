@@ -6,7 +6,10 @@ ENDIF()
 
 IF (RS_RUN_TESTS)
     ADD_EXECUTABLE(sizes sizes.cpp)
-    ADD_EXECUTABLE(apibench apibench.cpp)
+    TARGET_COMPILE_DEFINITIONS(sizes PRIVATE REDISMODULE_MAIN)
     TARGET_LINK_LIBRARIES(sizes ${RS_TEST_MODULE} apistubs dl)
+	
+    ADD_EXECUTABLE(apibench apibench.cpp)
+    TARGET_COMPILE_DEFINITIONS(apibench PRIVATE REDISMODULE_MAIN)
     TARGET_LINK_LIBRARIES(apibench ${RS_TEST_MODULE} redismock apistubs dl)
 ENDIF()
