@@ -174,7 +174,8 @@ workflows:
           <<: *on-any-branch
       - deploy_snapshots:
           requires: *default_jobs
-          <<: *on-master
+          # <<: *on-master
+          <<: *on-any-branch
       - deploy_release:
           requires: *default_jobs
           <<: *on-version-tags
