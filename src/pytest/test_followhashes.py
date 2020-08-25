@@ -490,12 +490,13 @@ def testEvicted(env):
 def createExpire(env, N):
   env.cmd('FLUSHALL')
   env.expect('FT.CREATE idx SCHEMA txt1 TEXT n NUMERIC').ok()
-  env.expect('HSET', 'doc', 'txt1', 'hello', 'n', 0).equal(2)
   for i in range(N - 1):
     env.expect('HSET', 'doc%d' % i, 'txt1', 'hello%i' % i, 'n', i)
     env.expect('PEXPIRE doc%d 50' % i)
+  env.expect('HSET', 'foo', 'txt1', 'hello', 'n', 0).equal(2)
+  env.expect('HSET', 'bar', 'txt1', 'hello', 'n', 20).equal(2)
   waitForIndex(env, 'idx')
-  env.expect('FT.SEARCH', 'idx', 'hello* @n:[10 100]', 'limit', '0', '0').equal([N - 11])
+  env.expect('FT.SEARCH', 'idx', 'hello* @n:[10 100]', 'limit', '0', '0').equal([N - 10])
   env.expect('HGETALL doc42').equal(['txt1', 'hello42', 'n', '42'])
   sleep(0.05)
   env.expect('HGETALL doc42').equal([])
@@ -503,20 +504,20 @@ def createExpire(env, N):
 def testExpiredDuringSearch(env):
   N = 100
   createExpire(env, N)
-  env.expect('FT.SEARCH', 'idx', 'hello* @n:[10 100]', 'nocontent', 'limit', '0', '0').noEqual([1L])
+  env.expect('FT.SEARCH', 'idx', 'hello*', 'nocontent', 'limit', '0', '5') \
+            .equal([100L, 'bar', 'foo', 'doc98', 'doc97', 'doc96'])
   
   createExpire(env, N)
-  env.expect('FT.SEARCH', 'idx', 'hello*|@n:[10 100]', 'limit', '0', '0').equal([1L])
-  
-  createExpire(env, N)
-  env.expect('FT.SEARCH idx hello*').equal([1L, 'doc', ['txt1', 'hello', 'n', '0']])
+  env.expect('FT.SEARCH', 'idx', 'hello*', 'limit', '0', '5')   \
+            .equal([100L, 'bar', ['txt1', 'hello', 'n', '20'], 'foo', ['txt1', 'hello', 'n', '0']])
 
 def testExpiredDuringAggregate(env):
   N = 100
-  res = [1L, ['txt1', 'hello', 'COUNT', '1']]
+  res = [1L, ['txt1', 'hello', 'COUNT', '2']]
   
   createExpire(env, N)
-  env.expect('FT.AGGREGATE idx hello*').equal([1L, []])
+  _res = env.cmd('FT.AGGREGATE idx hello*')
+  env.assertEqual(len(_res), 101)
 
   createExpire(env, N)
   env.expect('FT.AGGREGATE idx hello* GROUPBY 1 @txt1 REDUCE count 0 AS COUNT').equal(res)
