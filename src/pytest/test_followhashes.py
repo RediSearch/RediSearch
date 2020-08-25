@@ -518,5 +518,5 @@ def testWrongFieldType(env):
     res_actual = env.cmd('FT.INFO idx')
     env.assertEqual(res_actual[36], 'hash_indexing_failures')
     env.assertEqual(res_actual[37], '1')
-    env.assertContains(res_actual, 'hash_indexing_failures')
+    env.assertContains('hash_indexing_failures', res_actual)
     
