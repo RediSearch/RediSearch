@@ -504,12 +504,13 @@ def createExpire(env, N):
 def testExpiredDuringSearch(env):
   N = 100
   createExpire(env, N)
-  env.expect('FT.SEARCH', 'idx', 'hello*', 'nocontent', 'limit', '0', '5') \
-            .equal([101L, 'bar', 'foo', 'doc99', 'doc98', 'doc97'])
-  
+  res = env.cmd('FT.SEARCH', 'idx', 'hello*', 'nocontent', 'limit', '0', '5')
+  env.assertEqual(toSortedFlatList(res[1:]), toSortedFlatList(['bar', 'foo', 'doc99', 'doc98', 'doc97']))
+
   createExpire(env, N)
-  env.expect('FT.SEARCH', 'idx', 'hello*', 'limit', '0', '5')   \
-            .equal([101L, 'bar', ['txt1', 'hello', 'n', '20'], 'foo', ['txt1', 'hello', 'n', '0']])
+  res = env.cmd('FT.SEARCH', 'idx', 'hello*', 'limit', '0', '5')
+  env.assertEqual(toSortedFlatList(res[1:]), toSortedFlatList(['bar', ['txt1', 'hello', 'n', '20'], 
+                                                               'foo', ['txt1', 'hello', 'n', '0']]))
 
 def testExpiredDuringAggregate(env):
   N = 100
