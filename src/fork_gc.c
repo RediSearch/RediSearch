@@ -1141,6 +1141,9 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
       RedisModule_ThreadSafeContextUnlock(ctx);
     }
 
+    close(gc->pipefd[GC_READERFD]);
+    close(gc->pipefd[GC_WRITERFD]);
+
     return 0;
   }
 
