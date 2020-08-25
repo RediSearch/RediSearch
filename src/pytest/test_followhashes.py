@@ -528,19 +528,19 @@ def testExpiredDuringAggregate(env):
   env.expect('FT.AGGREGATE idx @txt1:hello* LOAD 1 @txt1 GROUPBY 1 @txt1 REDUCE count 0 AS COUNT').equal(res)
 
 def testNoInitialScan(env):
-    env.expect('flushall')
-    env.expect('HSET a test hello text world').equal(2)
+    conn = getConnectionByEnv(env)
+    conn.execute_command('HSET', 'a', 'test', 'hello', 'text', 'world')
     
-    #Regular
-    env.expect('FT.CREATE idx SCHEMA test TEXT').equal('OK')
+    # Regular
+    env.expect('FT.CREATE idx SCHEMA test TEXT').ok()
     waitForIndex(env, 'idx')
     env.expect('FT.SEARCH idx hello').equal([1L, 'a', ['test', 'hello', 'text', 'world']])
-    #NoInitialIndex
-    env.expect('FT.CREATE idx_no_scan NOINITIALSCAN SCHEMA test TEXT').equal('OK')
+    # NoInitialIndex
+    env.expect('FT.CREATE idx_no_scan NOINITIALSCAN SCHEMA test TEXT').ok()
     waitForIndex(env, 'idx_no_scan')
     env.expect('FT.SEARCH idx_no_scan hello').equal([0L])
     # Temporary
-    env.expect('FT.CREATE temp_idx TEMPORARY 10 SCHEMA test TEXT').equal('OK')
+    env.expect('FT.CREATE temp_idx TEMPORARY 10 SCHEMA test TEXT').ok()
     waitForIndex(env, 'temp_idx')
     env.expect('FT.SEARCH temp_idx hello').equal([1L, 'a', ['test', 'hello', 'text', 'world']])
     # Temporary & NoInitialIndex

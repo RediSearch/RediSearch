@@ -1,3 +1,8 @@
+
+#ifndef RS_NO_RMAPI
+#define REDISMODULE_MAIN
+#endif
+
 #include "redismodule.h"
 
 #include "module.h"
