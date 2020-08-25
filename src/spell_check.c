@@ -176,7 +176,6 @@ RS_Suggestion **spellCheck_GetSuggestions(RS_Suggestions *s) {
 void SpellCheck_SendReplyOnTerm(RedisModuleCtx *ctx, char *term, size_t len, RS_Suggestions *s,
                                 uint64_t totalDocNumber) {
 #define TERM "TERM"
-  RS_LOG_ASSERT(totalDocNumber, "index must have docs");
   RedisModule_ReplyWithArray(ctx, 3);
   RedisModule_ReplyWithStringBuffer(ctx, TERM, strlen(TERM));
   RedisModule_ReplyWithStringBuffer(ctx, term, len);
@@ -189,6 +188,7 @@ void SpellCheck_SendReplyOnTerm(RedisModuleCtx *ctx, char *term, size_t len, RS_
     // no results found, we return an empty array
     RedisModule_ReplyWithArray(ctx, 0);
   } else {
+    RS_LOG_ASSERT(totalDocNumber, "suggestions mean index has docs");
     RedisModule_ReplyWithArray(ctx, array_len(suggestions));
     for (int i = 0; i < array_len(suggestions); ++i) {
       RedisModule_ReplyWithArray(ctx, 2);
