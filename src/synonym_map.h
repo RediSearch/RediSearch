@@ -5,6 +5,7 @@
 #include "util/dict.h"
 #include "redismodule.h"
 #include "util/arr.h"
+#include "util/strconv.h"
 #include <stdbool.h>
 
 /**
