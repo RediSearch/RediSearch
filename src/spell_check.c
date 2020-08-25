@@ -188,7 +188,9 @@ void SpellCheck_SendReplyOnTerm(RedisModuleCtx *ctx, char *term, size_t len, RS_
     // no results found, we return an empty array
     RedisModule_ReplyWithArray(ctx, 0);
   } else {
-    RS_LOG_ASSERT(totalDocNumber, "suggestions mean index has docs");
+    if (totalDocNumber == 0) { // Can happen with FT.DICTADD
+      totalDocNumber = 1;
+    }
     RedisModule_ReplyWithArray(ctx, array_len(suggestions));
     for (int i = 0; i < array_len(suggestions); ++i) {
       RedisModule_ReplyWithArray(ctx, 2);
