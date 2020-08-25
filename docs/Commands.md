@@ -688,76 +688,6 @@ String Response. A string representing the execution plan (see above example).
 
 ---
 
-## FT.GET
-
-### Format
-
-```
-FT.GET {index} {doc id}
-```
-
-### Description
-
-!!! warning "This command is deprecated". Use HGETALL instead.
-
-Returns content of a document as inserted without attribute fields (score/language/payload).
-
-If the document does not exist or is not a HASH object, we return a NULL reply
-
-### Example
-```sql
-FT.GET idx doc1 
-```
-
-### Parameters
-
-- **index**: The index name. The index must be first created with FT.CREATE
-- **documentId**: The id of the document as inserted to the index
-
-### Returns
-
-Array Reply: Key-value pairs of field names and values of the document
-
----
-
-## FT.MGET
-
-### Format
-
-```
-FT.MGET {index} {docId} ...
-```
-
-### Description
-
-!!! warning "This command is deprecated". Use HGETALL instead.
-
-Returns content of a document as inserted without attribute fields (score/language/payload).
-
-In addition, it allows simpler implementation of fetching documents in clustered mode.
-
-We return an array with exactly the same number of elements as the number of keys sent to the command. 
-
-Each element, in turn, is an array of key-value pairs representing the document. 
-
-If a document is not found or is not a valid HASH object, its place in the parent array is filled with a Null reply object.
-
-### Example
-```sql
-FT.MGET idx doc1 doc2
-```
-
-### Parameters
-
-- **index**: The Fulltext index name. The index must be first created with FT.CREATE
-- **documentIds**: The ids of the requested documents as inserted to the index
-
-### Returns
-
-Array Reply: An array with exactly the same number of elements as the number of keys sent to the command.  Each element in it is either an array representing the document or Null if it was not found.
-
----
-
 ## FT.DROPINDEX
 
 ### Format
@@ -953,24 +883,6 @@ FT.SUGLEN ac
 ### Returns
 
 Integer Reply: the current size of the suggestion dictionary.
-
----
-
-## FT.SYNADD
-
-!!! warning "This command is not longer supported on versions 2.0 and above, use FT.SYNUPDATE directly."
-
-### Format
-
-```
-FT.SYNADD <index name> <term1> <term2> ...
-```
-
-### Description
-
-Adds a synonym group.
-
-The command is used to create a new synonyms group. The command returns the synonym group id which can later be used to add additional terms to that synonym group. Only documents which were indexed after the adding operation will be affected.
 
 ---
 
@@ -1367,5 +1279,93 @@ FT.DROP idx KEEPDOCS
 ### Returns
 
 Status Reply: OK on success.
+
+---
+
+## FT.GET
+
+### Format
+
+```
+FT.GET {index} {doc id}
+```
+
+### Description
+
+!!! warning "This command is deprecated". Use HGETALL instead.
+
+Returns content of a document as inserted without attribute fields (score/language/payload).
+
+If the document does not exist or is not a HASH object, we return a NULL reply
+
+### Example
+```sql
+FT.GET idx doc1 
+```
+
+### Parameters
+
+- **index**: The index name. The index must be first created with FT.CREATE
+- **documentId**: The id of the document as inserted to the index
+
+### Returns
+
+Array Reply: Key-value pairs of field names and values of the document
+
+---
+
+## FT.MGET
+
+### Format
+
+```
+FT.MGET {index} {docId} ...
+```
+
+### Description
+
+!!! warning "This command is deprecated". Use HGETALL instead.
+
+Returns content of a document as inserted without attribute fields (score/language/payload).
+
+In addition, it allows simpler implementation of fetching documents in clustered mode.
+
+We return an array with exactly the same number of elements as the number of keys sent to the command. 
+
+Each element, in turn, is an array of key-value pairs representing the document. 
+
+If a document is not found or is not a valid HASH object, its place in the parent array is filled with a Null reply object.
+
+### Example
+```sql
+FT.MGET idx doc1 doc2
+```
+
+### Parameters
+
+- **index**: The Fulltext index name. The index must be first created with FT.CREATE
+- **documentIds**: The ids of the requested documents as inserted to the index
+
+### Returns
+
+Array Reply: An array with exactly the same number of elements as the number of keys sent to the command.  Each element in it is either an array representing the document or Null if it was not found.
+
+---
+
+## FT.SYNADD
+
+!!! warning "This command is not longer supported on versions 2.0 and above, use FT.SYNUPDATE directly."
+
+### Format
+
+```
+FT.SYNADD <index name> <term1> <term2> ...
+```
+
+### Description
+
+Adds a synonym group.
+
+The command is used to create a new synonyms group. The command returns the synonym group id which can later be used to add additional terms to that synonym group. Only documents which were indexed after the adding operation will be affected.
 
 ---
