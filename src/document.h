@@ -250,6 +250,7 @@ typedef struct RSAddDocumentCtx {
   uint32_t specFlags;    // Cached index flags
   uint8_t options;       // Indexing options - i.e. DOCUMENT_ADD_xxx
   uint8_t stateFlags;    // Indexing state, ACTX_F_xxx
+  IndexStats *stats;
   DocumentAddCompleted donecb;
   void *donecbData;
 } RSAddDocumentCtx;

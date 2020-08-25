@@ -507,3 +507,16 @@ def testNoInitialScan(env):
     env.expect('FT.CREATE temp_idx_no_scan NOINITIALSCAN TEMPORARY 10 SCHEMA test TEXT').equal('OK')
     waitForIndex(env, 'temp_idx_no_scan')
     env.expect('FT.SEARCH temp_idx_no_scan hello').equal([0L])
+
+def testWrongFieldType(env):
+    env.expect('FT.CREATE idx SCHEMA t TEXT n NUMERIC').ok()
+    env.expect('HSET a t hello n 42').equal(2)
+    env.expect('HSET b t hello n world').equal(2)
+
+    env.expect('FT.SEARCH idx hello').equal([1L, 'a', ['t', 'hello', 'n', '42']])
+
+    res_actual = env.cmd('FT.INFO idx')
+    env.assertEqual(res_actual[36], 'hash_indexing_failures')
+    env.assertEqual(res_actual[37], '1')
+    env.assertContains(res_actual, 'hash_indexing_failures')
+    

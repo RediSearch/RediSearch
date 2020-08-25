@@ -175,6 +175,7 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b, QueryError *stat
   aCtx->next = NULL;
   aCtx->specFlags = sp->flags;
   aCtx->indexer = sp->indexer;
+  aCtx->stats = &sp->stats;
   RS_LOG_ASSERT(sp->indexer, "No indexer");
   Indexer_Incref(aCtx->indexer);
 
@@ -573,6 +574,7 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx) {
 
       PreprocessorFunc pp = preprocessorMap[ii];
       if (pp(aCtx, &doc->fields[i], fs, fdata, &aCtx->status) != 0) {
+        ++aCtx->stats->indexFailures;
         ourRv = REDISMODULE_ERR;
         goto cleanup;
       }

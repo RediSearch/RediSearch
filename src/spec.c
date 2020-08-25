@@ -1166,6 +1166,7 @@ static void IndexStats_RdbLoad(RedisModuleIO *rdb, IndexStats *stats) {
   stats->offsetVecsSize = RedisModule_LoadUnsigned(rdb);
   stats->offsetVecRecords = RedisModule_LoadUnsigned(rdb);
   stats->termsSize = RedisModule_LoadUnsigned(rdb);
+  //stats->indexFailures = RedisModule_LoadUnsigned(rdb);
 }
 
 static void IndexStats_RdbSave(RedisModuleIO *rdb, IndexStats *stats) {
@@ -1179,6 +1180,7 @@ static void IndexStats_RdbSave(RedisModuleIO *rdb, IndexStats *stats) {
   RedisModule_SaveUnsigned(rdb, stats->offsetVecsSize);
   RedisModule_SaveUnsigned(rdb, stats->offsetVecRecords);
   RedisModule_SaveUnsigned(rdb, stats->termsSize);
+  //RedisModule_SaveUnsigned(rdb, stats->indexFailures);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
