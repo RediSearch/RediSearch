@@ -168,125 +168,6 @@ O(1)
 ### Returns
 OK or an error
 
----
-
-## FT.ADD 
-
-### Format
-
-```
-FT.ADD {index} {docId} {score}
-  [REPLACE [PARTIAL] [NOCREATE]]
-  [LANGUAGE {language}] 
-  [PAYLOAD {payload}]
-  [IF {condition}]
-  FIELDS {field} {value} [{field} {value}...]
-```
-
-### Description
-
-Adds a document to the index.
-
-#### Example
-```sql
-FT.ADD idx doc1 1.0 FIELDS title "hello world"
-```
-
-### Parameters
-
-- **index**: The Fulltext index name. The index must be first created with FT.CREATE
-
-- **docId**: The document's id that will be returned from searches. 
-
-!!! note "Notes on docId"
-
-        The same docId cannot be added twice to the same index.
-    
-        The same docId can be added to multiple indices, but a single document with that docId is saved in the database.
-
-- **score**: The document's rank based on the user's ranking. This must be between 0.0 and 1.0. 
-  If you don't have a score just set it to 1
-
-- **REPLACE**: If set, we will do an UPSERT style insertion - and delete an older version of the
-  document if it exists. 
-
-- **PARTIAL** (only applicable with REPLACE): If set, you do not have to specify all fields for
-  reindexing. Fields not given to the command will be loaded from the current version of the
-  document. Also, if only non-indexable fields, score or payload are set - we do not do a full
-  re-indexing of the document, and this will be a lot faster.
-
-- **NOCREATE** (only applicable with REPLACE): If set, the document is only updated
-  and reindexed if it already exists. If the document does not exist, an error
-  will be returned.
-
-- **FIELDS**: Following the FIELDS specifier, we are looking for pairs of  `{field} {value}` to be
-  indexed. Each field will be scored based on the index spec given in `FT.CREATE`. 
-  Passing fields that are not in the index spec will make them be stored as part of the document,
-  or ignored if NOSAVE is set 
-
-- **PAYLOAD {payload}**: Optionally set a binary safe payload string to the document, 
-  that can be evaluated at query time by a custom scoring function, or retrieved to the client.
-
-- **IF {condition}**: (Applicable only in conjunction with `REPLACE` and optionally `PARTIAL`). 
-  Update the document only if a boolean expression applies to the document **before the update**, 
-  e.g. `FT.ADD idx doc 1 REPLACE IF "@timestamp < 23323234234"`. 
-
-  The expression is evaluated atomically before the update, ensuring that the update will happen only if it is true.
-
-  See [Aggregations](Aggregations.md) for more details on the expression language. 
-
-- **LANGUAGE language**: If set, we use a stemmer for the supplied language during indexing. Default
-  to English. 
-  If an unsupported language is sent, the command returns an error. 
-  The supported languages are:
-
-    > "arabic",  "danish",    "dutch",   "english",   "finnish",    "french",
-    > "german",  "hungarian", "italian", "norwegian", "portuguese", "romanian",
-    > "russian", "spanish",   "swedish", "tamil",     "turkish"
-    > "chinese"
-
-  If indexing a Chinese language document, you must set the language to `chinese`
-  in order for Chinese characters to be tokenized properly.
-
-### Adding Chinese Documents
-
-When adding Chinese-language documents, `LANGUAGE chinese` should be set in
-order for the indexer to properly tokenize the terms. If the default language
-is used then search terms will be extracted based on punctuation characters and
-whitespace. The Chinese language tokenizer makes use of a segmentation algorithm
-(via [Friso](https://github.com/lionsoul2014/friso)) which segments texts and
-checks it against a predefined dictionary. See [Stemming](Stemming.md) for more
-information.
-
-### Complexity
-
-O(n), where n is the number of tokens in the document
-
-### Returns
-
-OK on success, or an error if something went wrong.
-
-A special status `NOADD` is returned if an `IF` condition evaluated to false.
-
-!!! warning "FT.ADD with REPLACE and PARTIAL"
-        
-        By default, FT.ADD does not allow updating the document, and will fail if it already exists in the index.
-    
-        However, updating the document is possible with the REPLACE and REPLACE PARTIAL options.
-    
-        **REPLACE**: On its own, sets the document to the new values, and reindexes it. Any fields not given will not be loaded from the current version of the document.
-    
-        **REPLACE PARTIAL**: When both arguments are used, we can update just part of the document fields, and the rest will be loaded before reindexing. Not only that, but if only the score, payload and non-indexed fields (using NOINDEX) are updated, we will not actually reindex the document, just update its metadata internally, which is a lot faster and does not create index garbage.
-
----
-
-### Warning!!!
-
-FT.ADD will actually create a hash in Redis with the given fields and value. This means that if the hash already exists, it will override with the new values. Moreover, if you try to add a document with the same id to two different indexes one of them will override the other and you will get wrong responses from one of the indexes.
-For this reason, it is recommended to create global unique documents ids (this can e.g. be achieved by adding the index name to the document id as prefix).
-
----
-
 ## FT.ALTER SCHEMA ADD
 
 ### Format
@@ -807,50 +688,6 @@ String Response. A string representing the execution plan (see above example).
 
 ---
 
-## FT.DEL
-
-### Format
-
-```
-FT.DEL {index} {doc_id} [DD]
-```
-
-### Description
-
-Deletes a document from the index. Returns 1 if the document was in the index, or 0 if not. 
-
-After deletion, the document can be re-added to the index. It will get a different internal id and will be a new document from the index's POV.
-
-!!! warning "FT.DEL does not delete the actual document By default!"
-        
-        Since RediSearch regards documents as separate entities to the index and allows things like adding existing documents or indexing without saving the document - by default FT.DEL only deletes the reference to the document from the index, not the actual Redis HASH key where the document is stored. 
-    
-        Specifying **DD** (Delete Document) after the document ID, will make RediSearch also delete the actual document **if it is in the index**.
-        
-        Alternatively, you can just send an extra **DEL {doc_id}** to redis and delete the document directly. You can run both of them in a MULTI transaction.
-
-### Example
-```sql
-FT.DEL idx doc1 
-```
-
-### Parameters
-
-- **index**: The index name. The index must be first created with FT.CREATE
-- **doc_id**: the id of the document to be deleted. It does not actually delete the HASH key in which 
-  the document is stored. Use DEL to do that manually if needed.
-
-
-### Complexity
-
-O(1)
-
-### Returns
-
-Integer Reply: 1 if the document was deleted, 0 if not.
-
----
-
 ## FT.GET
 
 ### Format
@@ -946,41 +783,6 @@ FT.DROPINDEX idx DD
 
 - **index**: The Fulltext index name. The index must be first created with FT.CREATE
 - **DD**: If set, the drop operation will delete the actual document hashes.
-
-### Returns
-
-Status Reply: OK on success.
-
----
-
-## FT.DROP
-
-### Format
-
-```
-FT.DROP {index} [KEEPDOCS]
-```
-
-### Description
-
-!!! warning "This command is deprecated"
-
-Deletes the index and all the keys associated with it. 
-
-By default, DROP deletes the document hashes as well, but adding the KEEPDOCS option keeps the documents in place, ready for re-indexing.
-
-If no other data is on the Redis instance, this is equivalent to FLUSHDB, apart from the fact
-that the index specification is not deleted.
-
-### Example
-```sql
-FT.DROP idx KEEPDOCS 
-```
-
-### Parameters
-
-- **index**: The Fulltext index name. The index must be first created with FT.CREATE
-- **KEEPDOCS**: If set, the drop operation will not delete the actual document hashes.
 
 ### Returns
 
@@ -1151,23 +953,6 @@ FT.SUGLEN ac
 ### Returns
 
 Integer Reply: the current size of the suggestion dictionary.
-
----
-
-## FT.OPTIMIZE
-
-!!! warning "This command is deprecated"
-    Index optimizations are done by the internal garbage collector in the background. Client libraries should not implement this command and remove it if they haven't already.
-
-### Format
-
-```
-FT.OPTIMIZE {index}
-```
-
-### Description
-
-This command is deprecated. 
 
 ---
 
@@ -1367,11 +1152,8 @@ Retrieves, describes and sets runtime configuration options.
 
 * **option**: the name of the configuration option, or '*' for all.
 * **value**: a value for the configuration option.
-
 For details about the configuration options refer to [Configuring](Configuring.md).
-
 Setting values in runtime is supported for these configuration options:
-
 * `NOGC`
 * `MINPREFIX`
 * `MAXEXPANSIONS`
@@ -1384,3 +1166,206 @@ Setting values in runtime is supported for these configuration options:
 When provided with a valid option name, the `GET` subcommand returns a string with the current option's value. An array containing an array for each configuration option, consisting of the option's name and current value, is returned when '*' is provided.
 
 The `SET` subcommand returns 'OK' for valid runtime-settable option names and values.
+
+
+---
+
+## FT.ADD 
+
+### Format
+
+```
+FT.ADD {index} {docId} {score}
+  [REPLACE [PARTIAL] [NOCREATE]]
+  [LANGUAGE {language}] 
+  [PAYLOAD {payload}]
+  [IF {condition}]
+  FIELDS {field} {value} [{field} {value}...]
+```
+
+### Description
+
+!!! warning "This command is deprecated and act as simpe redis HSET, the document created will be indexed only if it matches one or some indexes definitions (as defined on [ft.create](Commands.md#ftcreate))", Use HSET instead.
+
+Adds a document to the index.
+
+#### Example
+```sql
+FT.ADD idx doc1 1.0 FIELDS title "hello world"
+```
+
+### Parameters
+
+- **index**: The Fulltext index name. The index must be first created with FT.CREATE
+
+- **docId**: The document's id that will be returned from searches. 
+
+!!! note "Notes on docId"
+
+        The same docId cannot be added twice to the same index.
+    
+        The same docId can be added to multiple indices, but a single document with that docId is saved in the database.
+
+- **score**: The document's rank based on the user's ranking. This must be between 0.0 and 1.0. 
+  If you don't have a score just set it to 1
+
+- **REPLACE**: If set, we will do an UPSERT style insertion - and delete an older version of the
+  document if it exists. 
+
+- **PARTIAL** (only applicable with REPLACE): If set, you do not have to specify all fields for
+  reindexing. Fields not given to the command will be loaded from the current version of the
+  document. Also, if only non-indexable fields, score or payload are set - we do not do a full
+  re-indexing of the document, and this will be a lot faster.
+
+- **NOCREATE** (only applicable with REPLACE): If set, the document is only updated
+  and reindexed if it already exists. If the document does not exist, an error
+  will be returned.
+
+- **FIELDS**: Following the FIELDS specifier, we are looking for pairs of  `{field} {value}` to be
+  indexed. Each field will be scored based on the index spec given in `FT.CREATE`. 
+  Passing fields that are not in the index spec will make them be stored as part of the document,
+  or ignored if NOSAVE is set 
+
+- **PAYLOAD {payload}**: Optionally set a binary safe payload string to the document, 
+  that can be evaluated at query time by a custom scoring function, or retrieved to the client.
+
+- **IF {condition}**: (Applicable only in conjunction with `REPLACE` and optionally `PARTIAL`). 
+  Update the document only if a boolean expression applies to the document **before the update**, 
+  e.g. `FT.ADD idx doc 1 REPLACE IF "@timestamp < 23323234234"`. 
+
+  The expression is evaluated atomically before the update, ensuring that the update will happen only if it is true.
+
+  See [Aggregations](Aggregations.md) for more details on the expression language. 
+
+- **LANGUAGE language**: If set, we use a stemmer for the supplied language during indexing. Default
+  to English. 
+  If an unsupported language is sent, the command returns an error. 
+  The supported languages are:
+
+    > "arabic",  "danish",    "dutch",   "english",   "finnish",    "french",
+    > "german",  "hungarian", "italian", "norwegian", "portuguese", "romanian",
+    > "russian", "spanish",   "swedish", "tamil",     "turkish"
+    > "chinese"
+
+  If indexing a Chinese language document, you must set the language to `chinese`
+  in order for Chinese characters to be tokenized properly.
+
+### Adding Chinese Documents
+
+When adding Chinese-language documents, `LANGUAGE chinese` should be set in
+order for the indexer to properly tokenize the terms. If the default language
+is used then search terms will be extracted based on punctuation characters and
+whitespace. The Chinese language tokenizer makes use of a segmentation algorithm
+(via [Friso](https://github.com/lionsoul2014/friso)) which segments texts and
+checks it against a predefined dictionary. See [Stemming](Stemming.md) for more
+information.
+
+### Complexity
+
+O(n), where n is the number of tokens in the document
+
+### Returns
+
+OK on success, or an error if something went wrong.
+
+A special status `NOADD` is returned if an `IF` condition evaluated to false.
+
+!!! warning "FT.ADD with REPLACE and PARTIAL"
+        
+        By default, FT.ADD does not allow updating the document, and will fail if it already exists in the index.
+    
+        However, updating the document is possible with the REPLACE and REPLACE PARTIAL options.
+    
+        **REPLACE**: On its own, sets the document to the new values, and reindexes it. Any fields not given will not be loaded from the current version of the document.
+    
+        **REPLACE PARTIAL**: When both arguments are used, we can update just part of the document fields, and the rest will be loaded before reindexing. Not only that, but if only the score, payload and non-indexed fields (using NOINDEX) are updated, we will not actually reindex the document, just update its metadata internally, which is a lot faster and does not create index garbage.
+
+---
+
+### Warning!!!
+
+FT.ADD will actually create a hash in Redis with the given fields and value. This means that if the hash already exists, it will override with the new values. Moreover, if you try to add a document with the same id to two different indexes one of them will override the other and you will get wrong responses from one of the indexes.
+For this reason, it is recommended to create global unique documents ids (this can e.g. be achieved by adding the index name to the document id as prefix).
+
+---
+
+## FT.DEL
+
+### Format
+
+```
+FT.DEL {index} {doc_id} [DD]
+```
+
+### Description
+
+!!! warning "This command is deprecated and act as simpe redis DEL, the deleted document will be deleted from all the indexes it indexed on", Use DEL instead.
+
+Deletes a document from the index. Returns 1 if the document was in the index, or 0 if not. 
+
+After deletion, the document can be re-added to the index. It will get a different internal id and will be a new document from the index's POV.
+
+!!! warning "FT.DEL does not delete the actual document By default!"
+        
+        Since RediSearch regards documents as separate entities to the index and allows things like adding existing documents or indexing without saving the document - by default FT.DEL only deletes the reference to the document from the index, not the actual Redis HASH key where the document is stored. 
+    
+        Specifying **DD** (Delete Document) after the document ID, will make RediSearch also delete the actual document **if it is in the index**.
+        
+        Alternatively, you can just send an extra **DEL {doc_id}** to redis and delete the document directly. You can run both of them in a MULTI transaction.
+
+### Example
+```sql
+FT.DEL idx doc1 
+```
+
+### Parameters
+
+- **index**: The index name. The index must be first created with FT.CREATE
+- **doc_id**: the id of the document to be deleted. It does not actually delete the HASH key in which 
+  the document is stored. Use DEL to do that manually if needed.
+
+
+### Complexity
+
+O(1)
+
+### Returns
+
+Integer Reply: 1 if the document was deleted, 0 if not.
+
+---
+
+## FT.DROP
+
+### Format
+
+```
+FT.DROP {index} [KEEPDOCS]
+```
+
+### Description
+
+!!! warning "This command is deprecated", use FT.DROPINDEX instead
+
+Deletes the index and all the keys associated with it. 
+
+By default, DROP deletes the document hashes as well, but adding the KEEPDOCS option keeps the documents in place, ready for re-indexing.
+
+If no other data is on the Redis instance, this is equivalent to FLUSHDB, apart from the fact
+that the index specification is not deleted.
+
+### Example
+```sql
+FT.DROP idx KEEPDOCS 
+```
+
+### Parameters
+
+- **index**: The Fulltext index name. The index must be first created with FT.CREATE
+- **KEEPDOCS**: If set, the drop operation will not delete the actual document hashes.
+
+### Returns
+
+Status Reply: OK on success.
+
+---

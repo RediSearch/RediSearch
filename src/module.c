@@ -408,42 +408,6 @@ int CreateIndexIfNotExistsCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
   return CreateIndexCommand(ctx, argv, argc);
 }
 
-/* FT.OPTIMIZE <index>
- *  After the index is built (and doesn't need to be updated again withuot a
- * complete rebuild)
- *  we can optimize memory consumption by trimming all index buffers to their
- * actual size.
- *
- *  Warning 1: This will delete score indexes for small words (n < 5000), so
- * updating the index
- * after
- *  optimizing it might lead to screwed up results (TODO: rebuild score indexes
- * if needed).
- *  The simple solution to that is to call optimize again after adding
- * documents
- * to the index.
- *
- *  Warning 2: This blocks redis for a long time. Do not run it on production
- * instances
- *
- */
-int OptimizeIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  // at least one field, and number of field/text args must be even
-  if (argc != 2) {
-    return RedisModule_WrongArity(ctx);
-  }
-
-  RedisModule_AutoMemory(ctx);
-
-  IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 0);
-  if (sp == NULL) {
-    return RedisModule_ReplyWithError(ctx, "Unknown Index name");
-  }
-
-  // DEPRECATED - we now don't do anything.  The GC optimizes the index in the background
-  return RedisModule_ReplyWithLongLong(ctx, 0);
-}
-
 /*
  * FT.DROP <index> [KEEPDOCS]
  * FT.DROPINDEX <index> [DD]
@@ -997,9 +961,6 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
          INDEX_ONLY_CMD_ARGS);
   RM_TRY(RedisModule_CreateCommand, ctx, RS_CREATE_IF_NX_CMD, CreateIndexIfNotExistsCommand,
          "write deny-oom", INDEX_ONLY_CMD_ARGS);
-
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_CMD_WRITE_PREFIX ".OPTIMIZE", OptimizeIndexCommand,
-         "write deny-oom", 1, 1, 1);  // todo: depricate
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_DROP_CMD, DropIndexCommand, "write",
          INDEX_ONLY_CMD_ARGS);
