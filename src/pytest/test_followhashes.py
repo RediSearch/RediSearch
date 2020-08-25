@@ -512,10 +512,12 @@ def testHsetPartialSchema(env):
     env.expect('FT.CREATE idx SCHEMA t TEXT n NUMERIC').ok()
     env.expect('HSET', 'a', 't', 'hello', 'n', 'world').equal(2)
     env.expect('HSET', 'b', 't', 'hello', 'n', '43').equal(2)
-    env.expect('HSET', 'c', 'hello', 'hello', '43', '43').equal(2)
-    env.expect('FT.SEARCH', 'idx', 'hello').equal([2L, 'b', ['t', 'hello', 'n', '43'], 'a', ['t', 'hello', 'n', 'world']])
-    env.expect('FT.SEARCH', 'idx', '@n:[1 100]').equal([1L, 'b', ['t', 'hello', 'n', '43']])
-    env.expect('FT.SEARCH', 'idx', '@n:[0 100]').equal([1L, 'b', ['t', 'hello', 'n', '43']])
+    env.expect('HSET', 'c', 'n', 'world', 't', 'hello').equal(2)
+    env.expect('HSET', 'd', 'n', '43', 't', 'hello').equal(2)
+    env.expect('FT.SEARCH', 'idx', 'hello').equal([4L, 'd', ['n', '43', 't', 'hello'], 'c', ['n', 'world', 't', 'hello'],
+                                                       'b', ['n', '43', 't', 'hello'], 'a', ['n', 'world', 't', 'hello']])
+    env.expect('FT.SEARCH', 'idx', '@n:[1 100]').equal([2L, 'd', ['n', '43', 't', 'hello'], 'b', ['n', '43', 't', 'hello']])
+    env.expect('FT.SEARCH', 'idx', '@n:[0 100]').equal([2L, 'd', ['n', '43', 't', 'hello'], 'b', ['n', '43', 't', 'hello']])
     env.expect('FT.SEARCH', 'idx', 'world').equal([0L])
     env.expect('FT.SEARCH', 'idx', '43').equal([0L])
     

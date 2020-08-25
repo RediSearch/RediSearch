@@ -581,13 +581,8 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx) {
           DocumentField tmp = doc->fields[i];
           doc->fields[i] = doc->fields[lastField];
           doc->fields[lastField] = tmp;
+          --i;
         }
-        //if (doc->flags & DOCUMENT_F_OWNSTRINGS) {
-        //  rm_free((void *)doc->fields[lastField].name);
-        //}
-        //if (doc->fields[lastField].text) {
-        //  RedisModule_FreeString(RSDummyContext, doc->fields[lastField].text);
-        //}
         --doc->numFields;
         continue;
       }
