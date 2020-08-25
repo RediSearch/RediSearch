@@ -20,6 +20,8 @@
 // Memory pool for RSAddDocumentContext contexts
 static mempool_t *actxPool_g = NULL;
 
+extern RedisModuleCtx *RSDummyContext;
+
 // For documentation, see these functions' definitions
 static void *allocDocumentContext(void) {
   // See if there's one in the pool?
@@ -573,8 +575,21 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx) {
 
       PreprocessorFunc pp = preprocessorMap[ii];
       if (pp(aCtx, &doc->fields[i], fs, fdata, &aCtx->status) != 0) {
-        ourRv = REDISMODULE_ERR;
-        goto cleanup;
+        // field failed to index. we remove the field from doc and continue
+        uint32_t lastField = doc->numFields - 1;
+        if (i < lastField) {
+          DocumentField tmp = doc->fields[i];
+          doc->fields[i] = doc->fields[lastField];
+          doc->fields[lastField] = tmp;
+        }
+        //if (doc->flags & DOCUMENT_F_OWNSTRINGS) {
+        //  rm_free((void *)doc->fields[lastField].name);
+        //}
+        //if (doc->fields[lastField].text) {
+        //  RedisModule_FreeString(RSDummyContext, doc->fields[lastField].text);
+        //}
+        --doc->numFields;
+        continue;
       }
     }
   }

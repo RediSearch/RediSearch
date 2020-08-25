@@ -507,3 +507,15 @@ def testNoInitialScan(env):
     env.expect('FT.CREATE temp_idx_no_scan NOINITIALSCAN TEMPORARY 10 SCHEMA test TEXT').equal('OK')
     waitForIndex(env, 'temp_idx_no_scan')
     env.expect('FT.SEARCH temp_idx_no_scan hello').equal([0L])
+
+def testHsetPartialSchema(env):
+    env.expect('FT.CREATE idx SCHEMA t TEXT n NUMERIC').ok()
+    env.expect('HSET', 'a', 't', 'hello', 'n', 'world').equal(2)
+    env.expect('HSET', 'b', 't', 'hello', 'n', '43').equal(2)
+    env.expect('HSET', 'c', 'hello', 'hello', '43', '43').equal(2)
+    env.expect('FT.SEARCH', 'idx', 'hello').equal([2L, 'b', ['t', 'hello', 'n', '43'], 'a', ['t', 'hello', 'n', 'world']])
+    env.expect('FT.SEARCH', 'idx', '@n:[1 100]').equal([1L, 'b', ['t', 'hello', 'n', '43']])
+    env.expect('FT.SEARCH', 'idx', '@n:[0 100]').equal([1L, 'b', ['t', 'hello', 'n', '43']])
+    env.expect('FT.SEARCH', 'idx', 'world').equal([0L])
+    env.expect('FT.SEARCH', 'idx', '43').equal([0L])
+    
