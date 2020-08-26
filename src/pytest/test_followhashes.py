@@ -497,9 +497,9 @@ def createExpire(env, N):
   env.expect('HSET', 'bar', 'txt1', 'hello', 'n', 20).equal(2)
   waitForIndex(env, 'idx')
   env.expect('FT.SEARCH', 'idx', 'hello*', 'limit', '0', '0').noEqual([2L])
-  env.expect('HGETALL doc42').equal(['txt1', 'hello42', 'n', '42'])
+  env.expect('HGETALL doc99').equal(['txt1', 'hello99', 'n', '99'])
   sleep(0.1)
-  env.expect('HGETALL doc42').equal([])
+  env.expect('HGETALL doc99').equal([])
 
 def testExpiredDuringSearch(env):
   N = 100
