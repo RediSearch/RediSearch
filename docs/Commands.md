@@ -1119,7 +1119,7 @@ FT.ADD idx doc1 1.0 FIELDS title "hello world"
         The same docId can be added to multiple indices, but a single document with that docId is saved in the database.
 
 - **score**: The document's rank based on the user's ranking. This must be between 0.0 and 1.0. 
-  If you don't have a score just set it to 1
+  On v2.0 this will be translated to a '__score' field in the created hash.
 
 - **REPLACE**: If set, we will do an UPSERT style insertion - and delete an older version of the
   document if it exists. 
@@ -1140,6 +1140,7 @@ FT.ADD idx doc1 1.0 FIELDS title "hello world"
 
 - **PAYLOAD {payload}**: Optionally set a binary safe payload string to the document, 
   that can be evaluated at query time by a custom scoring function, or retrieved to the client.
+  On v2.0 this will be translated to a '__payload' field in the created hash.
 
 - **IF {condition}**: (Applicable only in conjunction with `REPLACE` and optionally `PARTIAL`). 
   Update the document only if a boolean expression applies to the document **before the update**, 
@@ -1161,6 +1162,7 @@ FT.ADD idx doc1 1.0 FIELDS title "hello world"
 
   If indexing a Chinese language document, you must set the language to `chinese`
   in order for Chinese characters to be tokenized properly.
+  On v2.0 this will be translated to a '__language' field in the created hash.
 
 ### Adding Chinese Documents
 
@@ -1196,8 +1198,7 @@ A special status `NOADD` is returned if an `IF` condition evaluated to false.
 
 ### Warning!!!
 
-FT.ADD will actually create a hash in Redis with the given fields and value. This means that if the hash already exists, it will override with the new values. Moreover, if you try to add a document with the same id to two different indexes one of them will override the other and you will get wrong responses from one of the indexes.
-For this reason, it is recommended to create global unique documents ids (this can e.g. be achieved by adding the index name to the document id as prefix).
+FT.ADD will actually create a hash in Redis with the given fields and value. This means that if the hash already exists, it will override with the new values.
 
 ---
 
@@ -1215,15 +1216,8 @@ FT.DEL {index} {doc_id} [DD]
 
 Deletes a document from the index. Returns 1 if the document was in the index, or 0 if not. 
 
-After deletion, the document can be re-added to the index. It will get a different internal id and will be a new document from the index's POV.
-
-!!! warning "FT.DEL does not delete the actual document By default!"
-        
-        Since RediSearch regards documents as separate entities to the index and allows things like adding existing documents or indexing without saving the document - by default FT.DEL only deletes the reference to the document from the index, not the actual Redis HASH key where the document is stored. 
-    
-        Specifying **DD** (Delete Document) after the document ID, will make RediSearch also delete the actual document **if it is in the index**.
-        
-        Alternatively, you can just send an extra **DEL {doc_id}** to redis and delete the document directly. You can run both of them in a MULTI transaction.
+!!! warning "since v2.0, the [DD] option is not longer support, deleting a document means to also delete the hash from redis"
+!!! warning "since v2.0, deleting a document from one index will cause this document to be deleted from all the indexes contains it"
 
 ### Example
 ```sql
