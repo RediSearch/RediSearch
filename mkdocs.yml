@@ -64,9 +64,6 @@ nav:
 
   - Design Documents:
     - 'Garbage Collection': 'design/gc.md'
-  - Articles:
-    - 'Multi-Threading in RediSearch': Threading.md
-
   - 'Chinese Support': 'Chinese.md'
 
   - 'Contributor agreement': contrib.md

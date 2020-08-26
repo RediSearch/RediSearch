@@ -55,7 +55,7 @@ OK
 
 ## Adding documents to the index
 ```
-127.0.0.1:6379> FT.ADD myIdx doc1 1.0 FIELDS title "hello world" body "lorem ipsum" url "http://redis.io" 
+127.0.0.1:6379> HSET doc1 title "hello world" body "lorem ipsum" url "http://redis.io" 
 OK
 ```
 
@@ -80,7 +80,7 @@ OK
 ## Dropping the index
 
 ```
-127.0.0.1:6379> FT.DROP myIdx
+127.0.0.1:6379> FT.DROPINDEX myIdx
 OK
 ```
 
