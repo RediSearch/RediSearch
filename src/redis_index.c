@@ -148,13 +148,13 @@ RedisModuleString *fmtRedisTermKey(RedisSearchCtx *ctx, const char *term, size_t
 }
 
 RedisModuleString *fmtRedisSkipIndexKey(RedisSearchCtx *ctx, const char *term, size_t len) {
-  return RedisModule_CreateStringPrintf(ctx->redisCtx, SKIPINDEX_KEY_FORMAT, ctx->spec->name, (int) len,
-                                        term);
+  return RedisModule_CreateStringPrintf(ctx->redisCtx, SKIPINDEX_KEY_FORMAT, ctx->spec->name,
+                                        (int)len, term);
 }
 
 RedisModuleString *fmtRedisScoreIndexKey(RedisSearchCtx *ctx, const char *term, size_t len) {
-  return RedisModule_CreateStringPrintf(ctx->redisCtx, SCOREINDEX_KEY_FORMAT, ctx->spec->name, (int) len,
-                                        term);
+  return RedisModule_CreateStringPrintf(ctx->redisCtx, SCOREINDEX_KEY_FORMAT, ctx->spec->name,
+                                        (int)len, term);
 }
 
 RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName, bool resetTTL) {
@@ -433,6 +433,7 @@ int Redis_DropScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaq
   RedisModuleString *pf = fmtRedisTermKey(sctx, "", 0);
   size_t pflen, len;
   RedisModule_StringPtrLen(pf, &pflen);
+  RedisModule_FreeString(sctx->redisCtx, pf);
 
   char *k = (char *)RedisModule_StringPtrLen(kn, &len);
   k += pflen;
@@ -441,7 +442,10 @@ int Redis_DropScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaq
   RedisModuleString *sck = fmtRedisScoreIndexKey(sctx, k, len - pflen);
   RedisModuleString *sik = fmtRedisSkipIndexKey(sctx, k, len - pflen);
 
-  RedisModule_Call(ctx, "DEL", "sss", kn, sck, sik);
+  RedisModuleCallReply *rep = RedisModule_Call(ctx, "DEL", "sss", kn, sck, sik);
+  if (rep) {
+    RedisModule_FreeCallReply(rep);
+  }
 
   RedisModule_FreeString(ctx, sck);
   RedisModule_FreeString(ctx, sik);
@@ -450,7 +454,7 @@ int Redis_DropScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaq
   return REDISMODULE_OK;
 }
 
-static int Redis_DeleteKey(RedisModuleCtx *ctx, RedisModuleString *s) {
+int Redis_DeleteKey(RedisModuleCtx *ctx, RedisModuleString *s) {
   RedisModuleKey *k = RedisModule_OpenKey(ctx, s, REDISMODULE_WRITE);
   if (k != NULL) {
     RedisModule_DeleteKey(k);
@@ -466,8 +470,7 @@ int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments) {
     DocTable *dt = &spec->docs;
     DOCTABLE_FOREACH(dt, Redis_DeleteKey(ctx->redisCtx, DMD_CreateKeyString(dmd, ctx->redisCtx)));
   }
-  
+
   IndexSpec_FreeInternals(spec);
   return REDISMODULE_OK;
 }
-

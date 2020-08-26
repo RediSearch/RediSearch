@@ -697,8 +697,8 @@ static int RMCK_SubscribeToKeyspaceEvents(RedisModuleCtx *, int types,
   return REDISMODULE_OK;
 }
 
-static int RMCK_RegisterCommandFilter(RedisModuleCtx *ctx,
-                          RedisModuleCommandFilterFunc callback, int flags) {
+static int RMCK_RegisterCommandFilter(RedisModuleCtx *ctx, RedisModuleCommandFilterFunc callback,
+                                      int flags) {
   return REDISMODULE_OK;
 }
 

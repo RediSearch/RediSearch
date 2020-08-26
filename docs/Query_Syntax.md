@@ -93,7 +93,7 @@ Tag clauses can be combined into any sub-clause, used as negative expressions, o
 
 ## Geo filters in query
 
-As of version 0.21, it is possible to add geo radius queries directly into the query language  with the syntax `@field:[{lon} {lat} {radius} {m|km|mi|ft}]`. This filters the result to a given radius from a lon,lat point, defined in meters, kilometers, miles or feet. See Redis' own [`GEORADIUS`](https://redis.io/commands/georadiys) command for more details as it is used internally for that).
+As of version 0.21, it is possible to add geo radius queries directly into the query language  with the syntax `@field:[{lon} {lat} {radius} {m|km|mi|ft}]`. This filters the result to a given radius from a lon,lat point, defined in meters, kilometers, miles or feet. See Redis' own [`GEORADIUS`](https://redis.io/commands/georadius) command for more details as it is used internally for that).
 
 Radius filters can be added into the query just like numeric filters. For example, in a database of businesses, looking for Chinese restaurants near San Francisco (within a 5km radius) would be expressed as: `chinese restaurant @location:[-122.41 37.77 5 km]`.
 

@@ -250,6 +250,7 @@ def testGCShutDownOnExit(env):
     env.start()
 
     # make sure server started successfully
+    env.cmd('flushall')
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'title', 'TEXT', 'SORTABLE').ok()
     waitForIndex(env, 'idx')
 
