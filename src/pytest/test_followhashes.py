@@ -504,8 +504,9 @@ def createExpire(env, N):
 def testExpiredDuringSearch(env):
   N = 100
   createExpire(env, N)
-  res = env.cmd('FT.SEARCH', 'idx', 'hello*', 'nocontent', 'limit', '0', '5')
-  env.assertEqual(toSortedFlatList(res[1:3]), toSortedFlatList(['bar', 'foo']))
+  res = env.cmd('FT.SEARCH', 'idx', 'hello*', 'nocontent', 'limit', '0', '200')
+  env.assertGreater(103, len(res))
+  env.assertLess(1, len(res))
 
   createExpire(env, N)
   res = env.cmd('FT.SEARCH', 'idx', 'hello*', 'limit', '0', '5')
