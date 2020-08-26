@@ -12,6 +12,7 @@
 #include "redismodule.h"
 #include "rmutil/rm_assert.h"
 #include "geo_index.h"
+#include "module.h"
 
 uint64_t TotalIIBlocks = 0;
 
@@ -93,6 +94,22 @@ static void IR_SetAtEnd(IndexReader *r, int value) {
 void IndexReader_OnReopen(void *privdata) {
 
   IndexReader *ir = privdata;
+  if (ir->record->type == RSResultType_Term) {
+    // we need to reopen the inverted index to make sure its stil valid.
+    // the GC might have deleted it by now.
+    RedisSearchCtx sctx = (RedisSearchCtx)SEARCH_CTX_STATIC(RSDummyContext, (IndexSpec *)ir->sp);
+    InvertedIndex *idx = Redis_OpenInvertedIndexEx(&sctx, ir->record->term.term->str,
+                                                   ir->record->term.term->len, 0, NULL);
+    if (!idx || ir->idx != idx) {
+      // the inverted index was collected entirely by GC, lets stop searching.
+      // notice, it might be that a new inverted index was created, we will not
+      // continue read those results and we are not promise that documents
+      // that was added during cursor life will be returned by the cursor.
+      IR_Abort(ir);
+      return;
+    }
+  }
+
   // the gc marker tells us if there is a chance the keys has undergone GC while we were asleep
   if (ir->gcMarker == ir->idx->gcMarker) {
     // no GC - we just go to the same offset we were at
@@ -628,7 +645,7 @@ DECODER(readNumeric) {
 
   NumericFilter *f = ctx->ptr;
   if (f) {
-    if (f->geoFilter == NULL) {  
+    if (f->geoFilter == NULL) {
       int rv = NumericFilter_Match(f, res->num.value);
       // printf("Checking against filter: %d\n", rv);
       return rv;
