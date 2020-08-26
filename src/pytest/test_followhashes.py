@@ -492,13 +492,13 @@ def createExpire(env, N):
   env.expect('FT.CREATE idx SCHEMA txt1 TEXT n NUMERIC').ok()
   for i in range(N):
     env.expect('HSET', 'doc%d' % i, 'txt1', 'hello%i' % i, 'n', i)
-    env.expect('PEXPIRE doc%d 50' % i)
+    env.expect('PEXPIRE doc%d 100' % i)
   env.expect('HSET', 'foo', 'txt1', 'hello', 'n', 0).equal(2)
   env.expect('HSET', 'bar', 'txt1', 'hello', 'n', 20).equal(2)
   waitForIndex(env, 'idx')
   env.expect('FT.SEARCH', 'idx', 'hello*', 'limit', '0', '0').noEqual([2L])
   env.expect('HGETALL doc42').equal(['txt1', 'hello42', 'n', '42'])
-  sleep(0.05)
+  sleep(0.1)
   env.expect('HGETALL doc42').equal([])
 
 def testExpiredDuringSearch(env):
