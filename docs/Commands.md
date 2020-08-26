@@ -189,7 +189,7 @@ Adds a document to the index.
 
 #### Example
 ```sql
-FT.ADD idx doc1 1.0 FIELDS title "hello world"
+FT.ADD idx doc1 1.0 FIELDS title "hello world" price 21.35 tags foo,bar,baz geographical 1.23,4.56
 ```
 
 ### Parameters
