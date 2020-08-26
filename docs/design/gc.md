@@ -52,6 +52,6 @@ Numeric indexes are now a tree of inverted indexes with a special encoding of (d
 
 Information about FORK GC can be found in this [blog](https://redislabs.com/blog/increased-garbage-collection-performance-redisearch-1-4-1/)
 
-
+Since v1.6 the FORK GC is the default GC policy and was proven very efficient both in cleaning the index and not reduce query and indexing performance (even for a very write internsive use-cases)
 
 
