@@ -81,6 +81,8 @@ jobs:
       - run:
           name: Run & build tests
           command: ASAN=1 ./.circleci/ci_diag_san.sh
+      - store_artifacts:
+          path: build-asan/logs
 
   debug_msan:
     docker:
@@ -90,6 +92,8 @@ jobs:
       - run:
           name: Run & build tests
           command: MSAN=1 ./.circleci/ci_diag_san.sh
+      - store_artifacts:
+          path: build-msan/logs
 
   coverage:
     docker:
