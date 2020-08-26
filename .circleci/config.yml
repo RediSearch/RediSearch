@@ -17,7 +17,9 @@ commands:
           command: ./.circleci/ci_build.sh
       - run:
           name: Test
-          command: ./.circleci/ci_test.sh
+          command: |
+            ln -s $BUILD_DIR test-logs
+            ./.circleci/ci_test.sh
       - run:
           name: Package
           command: DISTDIR=~/workspace ./.circleci/ci_package.sh
@@ -29,7 +31,7 @@ commands:
             - snapshot
             - release
       - store_artifacts:
-          path: src/pytest/logs
+          path: test-logs
 
 jobs:
   ubuntu:
@@ -94,12 +96,14 @@ jobs:
       - checkout
       - run:
           name: Build & Test
-          command: ./.circleci/ci_coverage.sh
+          command: |
+            ln -s build-coverage/logs test-logs
+            ./.circleci/ci_coverage.sh
       - store_artifacts:
           path: coverage
           destination: coverage
       - store_artifacts:
-          path: src/pytest/logs
+          path: test-logs
 
   deploy_release:
     docker:
