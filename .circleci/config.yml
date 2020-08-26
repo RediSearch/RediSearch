@@ -28,6 +28,8 @@ commands:
           paths:
             - snapshot
             - release
+      - store_artifacts:
+          path: src/pytest/logs
 
 jobs:
   ubuntu:
@@ -96,6 +98,8 @@ jobs:
       - store_artifacts:
           path: coverage
           destination: coverage
+      - store_artifacts:
+          path: src/pytest/logs
 
   deploy_release:
     docker:
