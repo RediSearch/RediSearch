@@ -114,7 +114,7 @@ typedef struct {
   size_t offsetVecsSize;
   size_t offsetVecRecords;
   size_t termsSize;
-  size_t indexFailures;
+  size_t indexingFailures;
 } IndexStats;
 
 typedef enum {

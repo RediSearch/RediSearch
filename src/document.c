@@ -19,7 +19,7 @@
 
 // Memory pool for RSAddDocumentContext contexts
 static mempool_t *actxPool_g = NULL;
-
+extern RedisModuleCtx *RSDummyContext;
 // For documentation, see these functions' definitions
 static void *allocDocumentContext(void) {
   // See if there's one in the pool?
@@ -175,7 +175,8 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b, QueryError *stat
   aCtx->next = NULL;
   aCtx->specFlags = sp->flags;
   aCtx->indexer = sp->indexer;
-  aCtx->stats = &sp->stats;
+  aCtx->spec = sp;
+  aCtx->specId = sp->uniqueId;
   RS_LOG_ASSERT(sp->indexer, "No indexer");
   Indexer_Incref(aCtx->indexer);
 
@@ -574,7 +575,15 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx) {
 
       PreprocessorFunc pp = preprocessorMap[ii];
       if (pp(aCtx, &doc->fields[i], fs, fdata, &aCtx->status) != 0) {
-        ++aCtx->stats->indexFailures;
+        if (!AddDocumentCtx_IsBlockable(aCtx)) {
+          ++aCtx->spec->stats.indexingFailures;
+        } else {
+          RedisModule_ThreadSafeContextLock(RSDummyContext);
+          if (aCtx->spec->uniqueId == aCtx->specId) {
+            ++aCtx->spec->stats.indexingFailures;
+          }
+          RedisModule_ThreadSafeContextUnlock(RSDummyContext);
+        }
         ourRv = REDISMODULE_ERR;
         goto cleanup;
       }
