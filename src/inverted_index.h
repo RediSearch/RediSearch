@@ -182,6 +182,8 @@ IndexEncoder InvertedIndex_GetEncoder(IndexFlags flags);
 IndexReader *NewTermIndexReader(InvertedIndex *idx, IndexSpec *sp, t_fieldMask fieldMask,
                                 RSQueryTerm *term, double weight);
 
+void IR_Abort(void *ctx);
+
 /* free an index reader */
 void IR_Free(IndexReader *ir);
 

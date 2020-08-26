@@ -205,6 +205,19 @@ callgrind: $(COMPAT_MODULE)
 
 #----------------------------------------------------------------------------------------------
 
+RAMP_VARIANT=$(subst release,,$(FLAVOR))$(_VARIANT.string)
+
+RAMP.release:=$(shell JUST_PRINT=1 RAMP=1 DEPS=0 RELEASE=1 SNAPSHOT=0 VARIANT=$(RAMP_VARIANT) ./pack.sh)
+RAMP.snapshot:=$(shell JUST_PRINT=1 RAMP=1 DEPS=0 RELEASE=0 SNAPSHOT=1 VARIANT=$(RAMP_VARIANT) ./pack.sh)
+
+artifacts/release/$(RAMP.release) artifacts/snapshot/$(RAMP.snapshot): $(TARGET) ramp.yml
+	@echo Packing module...
+	$(SHOW)RAMP=1 DEPS=0 VARIANT=$(RAMP_VARIANT) ./pack.sh $(TARGET)
+
+pack: artifacts/release/$(RAMP.release) artifacts/snapshot/$(RAMP.snapshot)
+
+#----------------------------------------------------------------------------------------------
+
 docs:
 	$(SHOW)mkdocs build
 
