@@ -3158,3 +3158,29 @@ def testAliasAddIfNX(env):
 def testAliasDelIfX(env):
     env.expect('FT._ALIASDELIFX a1').ok()
 
+def testInvertedIndexWasEntirelyDeletedDuringCursor():
+    env = Env(moduleArgs='GC_POLICY FORK FORK_GC_CLEAN_THRESHOLD 1')
+
+    env.skipOnCluster()
+
+    env.expect('FT.CREATE idx SCHEMA t TEXT').ok()
+    env.expect('HSET doc1 t foo').equal(1)
+    env.expect('HSET doc2 t foo').equal(1)
+
+    res, cursor = env.cmd('FT.AGGREGATE idx foo WITHCURSOR COUNT 1')
+    env.assertEqual(res, [1L, []])
+
+    # delete both documents and run the GC to clean 'foo' inverted index
+    env.expect('DEL doc1').equal(1)
+    env.expect('DEL doc2').equal(1)
+
+    env.cmd('FT.DEBUG GC_FORCEINVOKE idx')
+
+    # make sure the inverted index was cleaned
+    env.expect('FT.DEBUG DUMP_INVIDX idx foo').error().contains('not find the inverted index')
+
+    # read from the cursor
+    res, cursor = env.cmd('FT.CURSOR READ idx %d' % cursor)
+
+    env.assertEqual(res, [0L])
+    env.assertEqual(cursor, 0)
