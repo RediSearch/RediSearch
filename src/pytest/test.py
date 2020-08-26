@@ -3167,10 +3167,10 @@ def testAliasAddIfNX(env):
 def testAliasDelIfX(env):
     env.expect('FT._ALIASDELIFX a1').ok()
 
-def testInvertedIndexWasEntirelyDeletedDuringCursor(env):
-    env.skipOnCluster()
+def testInvertedIndexWasEntirelyDeletedDuringCursor():
+    env = Env(moduleArgs='GC_POLICY FORK FORK_GC_CLEAN_THRESHOLD 1')
 
-    env.expect('FT.CONFIG SET FORK_GC_CLEAN_THRESHOLD 1').ok()
+    env.skipOnCluster()
 
     env.expect('FT.CREATE idx SCHEMA t TEXT').ok()
     env.expect('HSET doc1 t foo').equal(1)
