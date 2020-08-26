@@ -181,8 +181,7 @@ HSET {hash} {field} {value} [{field} {value} ...]
 ### Description
 
 Since RediSearch v2.0, native redis commands are used to add, update and delete hashes.
-RediSearch `2.0` treats the hash in the same manner a document was treated in `1.x`.
-If a field fails to be indexed, the whole document is not indexed. The number of field which failed to index is in `FT.INFO`.
+If a field fails to be indexed (for example, if a numeric fields gets a string value) the whole document is not indexed. `FT.INFO` provides the number of document-indexing-failures under `hash_indexing_failures`.
 
 ---
 
