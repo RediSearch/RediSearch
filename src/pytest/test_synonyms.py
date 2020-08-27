@@ -1,5 +1,5 @@
 from includes import *
-from common import waitForIndex
+from common import waitForIndex, toSortedFlatList
 
 
 def testBasicSynonymsUseCase(env):
@@ -191,3 +191,14 @@ def testSynonymsIntensiveLoad(env):
             res = r.execute_command('ft.search', 'idx', 'child%d' % i, 'EXPANDER', 'SYNONYM')
             env.assertEqual(res[0:2], [1L, 'doc%d' % i])
             env.assertEqual(set(res[2]), set(['title', 'he is a boy%d' % i, 'body', 'this is a test']))
+
+def testSynonymsLowerCase(env):
+    env.expect('FT.CREATE lowcase ON HASH SCHEMA foo text').ok()
+    env.expect('FT.SYNUPDATE lowcase id1 HELLO SHALOM AHALAN').ok()
+    dump = env.cmd('FT.SYNDUMP lowcase')
+    env.assertEqual(toSortedFlatList(dump), toSortedFlatList((['ahalan', ['id1'], 'shalom', ['id1'], 'hello', ['id1']])))
+    env.expect('FT.ADD lowcase doc1 1 FIELDS foo hello').ok()
+    env.expect('FT.ADD lowcase doc2 1 FIELDS foo HELLO').ok()
+    res = [2L, 'doc2', ['foo', 'HELLO'], 'doc1', ['foo', 'hello']]
+    env.expect('FT.SEARCH lowcase SHALOM').equal(res)
+    env.expect('FT.SEARCH lowcase shalom').equal(res)
