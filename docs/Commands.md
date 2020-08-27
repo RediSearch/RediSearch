@@ -429,6 +429,8 @@ The time complexity for more complex queries varies, but in general it's proport
 
 If **NOCONTENT** was given, we return an array where the first element is the total number of results, and the rest of the members are document ids.
 
+In some rare cases, result count might not equal the number of documents. This may happen if a docement has expired since the query was initiated.
+
 ---
 
 ## FT.AGGREGATE 
