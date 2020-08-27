@@ -52,14 +52,6 @@ void Document_SetPayload(Document *d, const void *p, size_t n) {
   }
 }
 
-void Document_Move(Document *dst, Document *src) {
-  if (dst == src) {
-    return;
-  }
-  *dst = *src;
-  src->flags |= DOCUMENT_F_DEAD;
-}
-
 void Document_MakeStringsOwner(Document *d) {
   if (d->flags & DOCUMENT_F_OWNSTRINGS) {
     // Already the owner
@@ -273,10 +265,6 @@ void Document_Clear(Document *d) {
 }
 
 void Document_Free(Document *doc) {
-  if (doc->flags & DOCUMENT_F_DEAD) {
-    return;
-  }
-
   Document_Clear(doc);
   if (doc->flags & (DOCUMENT_F_OWNREFS | DOCUMENT_F_OWNSTRINGS)) {
     RedisModule_FreeString(RSDummyContext, doc->docKey);

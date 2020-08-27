@@ -1696,7 +1696,7 @@ void Indexes_RdbSave(RedisModuleIO *rdb, int when) {
     IndexSpec *sp = dictGetVal(entry);
     // we save the name plus the null terminator
     RedisModule_SaveStringBuffer(rdb, sp->name, strlen(sp->name) + 1);
-    RedisModule_SaveUnsigned(rdb, (uint)sp->flags);
+    RedisModule_SaveUnsigned(rdb, (uint64_t)sp->flags);
 
     RedisModule_SaveUnsigned(rdb, sp->numFields);
     for (int i = 0; i < sp->numFields; i++) {
@@ -1848,8 +1848,6 @@ int IndexSpec_UpdateWithHash(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleSt
   aCtx->stateFlags |= ACTX_F_NOBLOCK | ACTX_F_NOFREEDOC;
   AddDocumentCtx_Submit(aCtx, &sctx, DOCUMENT_ADD_REPLACE);
 
-  // doc was set DEAD in Document_Moved and was not freed since it set as NOFREEDOC
-  doc.flags &= ~DOCUMENT_F_DEAD;
   Document_Free(&doc);
   return REDISMODULE_OK;
 }
