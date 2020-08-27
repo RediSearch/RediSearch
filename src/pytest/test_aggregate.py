@@ -473,21 +473,3 @@ def testGroupbyNoReduce(env):
     for row in rv[1:]:
         env.assertEqual('primaryName', row[0])
         env.assertTrue('sarah' in row[1])
-
-from hotels import hotels
-def testGeo(env):
-    env.expect('ft.create', 'idx', 'schema', 'name', 'text', 'location', 'geo').ok()
-
-    for i, hotel in enumerate(hotels):
-        env.expect('ft.add', 'idx', 'hotel{}'.format(i), 1.0, 'fields', 'name',
-                    hotel[0], 'location', '{},{}'.format(hotel[2], hotel[1])).ok()
-
-    res = [102L, ['distance', '0'], ['distance', '95.43'], ['distance', '399.66'], ['distance', '1896.44'],
-                 ['distance', '2018.14'], ['distance', '2073.48'], ['distance', '2640.42'],
-                 ['distance', '2715.46'], ['distance', '3657.74'], ['distance', '4047.96']]
-
-    env.expect('ft.aggregate', 'idx', 'hilton',
-               'LOAD', '1', '@location',
-               'APPLY', 'distance(@location,-0.15036,51.50566)', 'AS', 'distance',
-               'GROUPBY', '1', '@distance',
-               'SORTBY', 2, '@distance', 'ASC').equal(res)
