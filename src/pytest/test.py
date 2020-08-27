@@ -2368,10 +2368,7 @@ def testMod_309(env):
     res = env.cmd('FT.AGGREGATE', 'idx', 'foo')
     env.assertEqual(len(res), 100001)
 
-def testMod_309_with_cursor(env):
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
-    for i in range(100000):
-        env.expect('FT.ADD', 'idx', 'doc%d'%i, '1.0', 'FIELDS', 'test', 'foo').equal('OK')
+    # test with cursor
     res = env.cmd('FT.AGGREGATE', 'idx', 'foo', 'WITHCURSOR')
     l = len(res[0]) - 1 # do not count the number of results (the first element in the results)
     cursor = res[1]
@@ -3167,3 +3164,40 @@ def testAliasAddIfNX(env):
 def testAliasDelIfX(env):
     env.expect('FT._ALIASDELIFX a1').ok()
 
+def testEmptyDoc(env):
+    env.expect('FT.CREATE idx SCHEMA t TEXT').ok()
+    env.expect('FT.ADD idx doc1 1 FIELDS t foo').ok()
+    env.expect('FT.ADD idx doc2 1 FIELDS t foo').ok()
+    env.expect('FT.ADD idx doc3 1 FIELDS t foo').ok()
+    env.expect('FT.ADD idx doc4 1 FIELDS t foo').ok()
+    env.expect('FT.SEARCH idx * limit 0 0').equal([4])
+    env.expect('DEL doc1').equal(1)
+    env.expect('DEL doc3').equal(1)
+    env.expect('FT.SEARCH idx *').equal([2L, 'doc4', ['t', 'foo'], 'doc2', ['t', 'foo']])
+
+def testInvertedIndexWasEntirelyDeletedDuringCursor():
+    env = Env(moduleArgs='GC_POLICY FORK FORK_GC_CLEAN_THRESHOLD 1')
+
+    env.skipOnCluster()
+
+    env.expect('FT.CREATE idx SCHEMA t TEXT').ok()
+    env.expect('HSET doc1 t foo').equal(1)
+    env.expect('HSET doc2 t foo').equal(1)
+
+    res, cursor = env.cmd('FT.AGGREGATE idx foo WITHCURSOR COUNT 1')
+    env.assertEqual(res, [1L, []])
+
+    # delete both documents and run the GC to clean 'foo' inverted index
+    env.expect('DEL doc1').equal(1)
+    env.expect('DEL doc2').equal(1)
+
+    env.cmd('FT.DEBUG GC_FORCEINVOKE idx')
+
+    # make sure the inverted index was cleaned
+    env.expect('FT.DEBUG DUMP_INVIDX idx foo').error().contains('not find the inverted index')
+
+    # read from the cursor
+    res, cursor = env.cmd('FT.CURSOR READ idx %d' % cursor)
+
+    env.assertEqual(res, [0L])
+    env.assertEqual(cursor, 0)

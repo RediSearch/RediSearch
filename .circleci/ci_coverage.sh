@@ -26,7 +26,7 @@ cat >rltest.config <<EOF
 EOF
 
 ./lcov-init.sh
-ctest -j$CI_CONCURRENCY
+ctest --output-on-failure -j$CI_CONCURRENCY
 ./lcov-capture.sh coverage.info
 bash <(curl -s https://codecov.io/bash) -f coverage.info
 lcov -l coverage.info
