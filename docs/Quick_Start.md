@@ -48,15 +48,15 @@ For more elaborate build instructions, see the [Development page](Development.md
 ## Creating an index with fields and weights (default weight is 1.0)
 
 ```
-127.0.0.1:6379> FT.CREATE myIdx SCHEMA title TEXT WEIGHT 5.0 body TEXT url TEXT
+127.0.0.1:6379> FT.CREATE myIdx ON HASH PREFIX 1 doc: SCHEMA title TEXT WEIGHT 5.0 body TEXT url TEXT
 OK 
 
 ```
 
 ## Adding documents to the index
 ```
-127.0.0.1:6379> HSET doc1 title "hello world" body "lorem ipsum" url "http://redis.io" 
-OK
+127.0.0.1:6379> hset doc:1 title "hello world" body "lorem ipsum" url "http://redis.io" 
+(integer) 3
 ```
 
 ## Searching the index
@@ -64,7 +64,7 @@ OK
 ```
 127.0.0.1:6379> FT.SEARCH myIdx "hello world" LIMIT 0 10
 1) (integer) 1
-2) "doc1"
+2) "doc:1"
 3) 1) "title"
    2) "hello world"
    3) "body"
@@ -80,7 +80,7 @@ OK
 ## Dropping the index
 
 ```
-127.0.0.1:6379> FT.DROPINDEX myIdx
+127.0.0.1:6379> FT.DROPINDEX myIdx 
 OK
 ```
 

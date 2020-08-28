@@ -19,7 +19,7 @@
 ```
 
 ### Description
-Creates an index with the given spec. The index name will be used in all the key names so keep it short!
+Creates an index with the given spec.
 
 !!! warning "Note on field number limits"
         
@@ -35,14 +35,14 @@ Creates an index with the given spec. The index name will be used in all the key
         
         When having several indices in a clustered database, you need to tag the index key and the document key to ensure they reside on the same shard.
         ```sql
-        FT.CREATE {idx} ...
-        FT.ADD {idx} {idx}:docid ...
+        FT.CREATE {idx} ... PREFIX 1 doc: ...
+        HSET {idx} doc:1{idx} ...
         ```
-        When Running in RediSearch in Redis Enterprise, there is the ability to span the index across shards.  In this case the above does not apply.
+        When Running RediSearch in clustered database, there is the ability to span the index across shards.  In this case the above does not apply.
 
 #### Example
 ```sql
-FT.CREATE idx SCHEMA name TEXT SORTABLE age NUMERIC SORTABLE myTag TAG SORTABLE
+FT.CREATE idx ON HASH PREFIX 1 doc: SCHEMA name TEXT SORTABLE age NUMERIC SORTABLE myTag TAG SORTABLE
 ```
 
 ### Parameters
