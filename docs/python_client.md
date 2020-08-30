@@ -30,9 +30,6 @@ res = client.search("search engine")
 print res.total # "1"
 print res.docs[0].title
 
-# Searching with snippets
-res = client.search("search engine", snippet_sizes = {'body': 50})
-
 # Searching with complex parameters:
 q = Query("search engine").verbatim().no_content().paging(0,5)
 res = client.search(q)
@@ -296,8 +293,6 @@ Search the index for a given query, and return a result of documents
 
 - **query**: the search query. Either a text for simple queries with default parameters, or a Query object for complex queries.
              See RediSearch's documentation on query format
-- **snippet_sizes**: A dictionary of {field: snippet_size} used to trim and format the result. e.g.e {'body': 500}
-
 
 ## Class BatchIndexer
 A batch indexer allows you to automatically batch

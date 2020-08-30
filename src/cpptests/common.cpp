@@ -1,19 +1,22 @@
-#include <redismodule.h>
-#include <gtest/gtest.h>
-#include <module.h>
-#include <version.h>
+
+#include "redismodule.h"
+#include "module.h"
+#include "version.h"
+#include "cpptests/common.h"
 #include "redismock/util.h"
 #include "redismock/internal.h"
-#include "common.h"
+
+#include "gtest/gtest.h"
 
 extern "C" {
 static int my_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
-  if (RedisModule_Init(ctx, "ft", REDISEARCH_MODULE_VERSION, REDISMODULE_APIVER_1) ==
+  if (RedisModule_Init(ctx, REDISEARCH_MODULE_NAME, REDISEARCH_MODULE_VERSION, REDISMODULE_APIVER_1) ==
       REDISMODULE_ERR)
     return REDISMODULE_ERR;
   return RediSearch_InitModuleInternal(ctx, argv, argc);
 }
+
 }
 
 class MyEnvironment : public ::testing::Environment {

@@ -487,6 +487,49 @@ def testEvicted(env):
     env.assertLess(res[0], 1000)
     env.assertGreater(res[0], 0)
 
+def createExpire(env, N):
+  env.cmd('FLUSHALL')
+  env.expect('FT.CREATE idx SCHEMA txt1 TEXT n NUMERIC').ok()
+  for i in range(N):
+    env.expect('HSET', 'doc%d' % i, 'txt1', 'hello%i' % i, 'n', i)
+    env.expect('PEXPIRE doc%d 100' % i)
+  env.expect('HSET', 'foo', 'txt1', 'hello', 'n', 0).equal(2)
+  env.expect('HSET', 'bar', 'txt1', 'hello', 'n', 20).equal(2)
+  waitForIndex(env, 'idx')
+  env.expect('FT.SEARCH', 'idx', 'hello*', 'limit', '0', '0').noEqual([2L])
+  env.expect('HGETALL doc99').equal(['txt1', 'hello99', 'n', '99'])
+  sleep(0.1)
+  env.expect('HGETALL doc99').equal([])
+
+def testExpiredDuringSearch(env):
+  N = 100
+  createExpire(env, N)
+  res = env.cmd('FT.SEARCH', 'idx', 'hello*', 'nocontent', 'limit', '0', '200')
+  env.assertGreater(103, len(res))
+  env.assertLess(1, len(res))
+
+  createExpire(env, N)
+  res = env.cmd('FT.SEARCH', 'idx', 'hello*', 'limit', '0', '5')
+  env.assertEqual(toSortedFlatList(res[1:]), toSortedFlatList(['bar', ['txt1', 'hello', 'n', '20'], 
+                                                               'foo', ['txt1', 'hello', 'n', '0']]))
+
+def testExpiredDuringAggregate(env):
+  N = 100
+  res = [1L, ['txt1', 'hello', 'COUNT', '2']]
+  
+  createExpire(env, N)
+  _res = env.cmd('FT.AGGREGATE idx hello*')
+  env.assertGreater(len(_res), 2)
+
+  createExpire(env, N)
+  env.expect('FT.AGGREGATE idx hello* GROUPBY 1 @txt1 REDUCE count 0 AS COUNT').equal(res)
+
+  createExpire(env, N)
+  env.expect('FT.AGGREGATE idx hello* LOAD 1 @txt1 GROUPBY 1 @txt1 REDUCE count 0 AS COUNT').equal(res)
+
+  createExpire(env, N)
+  env.expect('FT.AGGREGATE idx @txt1:hello* LOAD 1 @txt1 GROUPBY 1 @txt1 REDUCE count 0 AS COUNT').equal(res)
+
 def testNoInitialScan(env):
     conn = getConnectionByEnv(env)
     conn.execute_command('HSET', 'a', 'test', 'hello', 'text', 'world')

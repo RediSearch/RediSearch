@@ -19,7 +19,7 @@
 ```
 
 ### Description
-Creates an index with the given spec. The index name will be used in all the key names so keep it short!
+Creates an index with the given spec.
 
 !!! warning "Note on field number limits"
         
@@ -35,14 +35,14 @@ Creates an index with the given spec. The index name will be used in all the key
         
         When having several indices in a clustered database, you need to tag the index key and the document key to ensure they reside on the same shard.
         ```sql
-        FT.CREATE {idx} ...
-        FT.ADD {idx} {idx}:docid ...
+        FT.CREATE {idx} ... PREFIX 1 doc: ...
+        HSET {idx} doc:1{idx} ...
         ```
-        When Running in RediSearch in Redis Enterprise, there is the ability to span the index across shards.  In this case the above does not apply.
+        When Running RediSearch in clustered database, there is the ability to span the index across shards.  In this case the above does not apply.
 
 #### Example
 ```sql
-FT.CREATE idx SCHEMA name TEXT SORTABLE age NUMERIC SORTABLE myTag TAG SORTABLE
+FT.CREATE idx ON HASH PREFIX 1 doc: SCHEMA name TEXT SORTABLE age NUMERIC SORTABLE myTag TAG SORTABLE
 ```
 
 ### Parameters
@@ -564,6 +564,8 @@ The time complexity for more complex queries varies, but in general it's proport
 **Array reply,** where the first element is the total number of results, and then pairs of document id, and a nested array of field/value. 
 
 If **NOCONTENT** was given, we return an array where the first element is the total number of results, and the rest of the members are document ids.
+
+In some rare cases, result count might not equal the number of documents. This may happen if a docement has expired since the query was initiated.
 
 ---
 
@@ -1270,6 +1272,8 @@ An array, in which each element represents a misspelled term from the query. The
 Each misspelled term, in turn, is a 3-element array consisting of the constant string "TERM", the term itself and an array of suggestions for spelling corrections.
 
 Each element in the spelling corrections array consists of the score of the suggestion and the suggestion itself. The suggestions array, per misspelled term, is ordered in descending order by score.
+
+The score is calculated by dividing the number of documents in which the suggested term exists, by the total number of documents in the index. Results can be normalized by dividing scores by the highest score.
 
 ### Example output
 

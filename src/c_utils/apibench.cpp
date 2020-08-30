@@ -1,14 +1,14 @@
+#include "redisearch.h"
+#include "module.h"
+#include "version.h"
+#include "redisearch_api.h"
+#include "cpptests/redismock/redismock.h"
+
 #include <cstdio>
 #include <cstdlib>
 #include <chrono>
 #include <cstring>
 #include <cassert>
-
-#include <redisearch.h>
-#include <module.h>
-#include <version.h>
-#include <redisearch_api.h>
-#include <cpptests/redismock/redismock.h>
 
 #define NUM_DOCS 5000000UL  // 10M
 #define NUM_ITER 100UL
@@ -19,11 +19,12 @@ extern "C" {
 
 static int my_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
-  if (RedisModule_Init(ctx, "ft", REDISEARCH_MODULE_VERSION, REDISMODULE_APIVER_1) ==
+  if (RedisModule_Init(ctx, REDISEARCH_MODULE_NAME, REDISEARCH_MODULE_VERSION, REDISMODULE_APIVER_1) ==
       REDISMODULE_ERR)
     return REDISMODULE_ERR;
   return RediSearch_InitModuleInternal(ctx, argv, argc);
 }
+
 }
 
 int main(int, char **) {
