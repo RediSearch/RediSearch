@@ -35,6 +35,7 @@ static void freeDocumentContext(void *p) {
 
   rm_free(aCtx->fspecs);
   rm_free(aCtx->fdatas);
+  rm_free(aCtx->specName);
   rm_free(aCtx);
 }
 
@@ -177,7 +178,14 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b, QueryError *stat
   aCtx->indexer = sp->indexer;
   aCtx->spec = sp;
   if (aCtx->specFlags & Index_Async) {
-    aCtx->specName = rm_strdup(sp->name);
+    size_t len = strlen(sp->name) + 1;
+    if (aCtx->specName == NULL) {
+      aCtx->specName = rm_malloc(len);
+    } else if (len > aCtx->specNameLen) {
+      aCtx->specName = rm_realloc(aCtx->specName, len);
+      aCtx->specNameLen = len;
+    } 
+    strncpy(aCtx->specName, sp->name, len);
     aCtx->specId = sp->uniqueId;
   }
   RS_LOG_ASSERT(sp->indexer, "No indexer");
@@ -363,7 +371,6 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
     aCtx->oldMd = NULL;
   }
 
-  rm_free(aCtx->specName);
   ByteOffsetWriter_Cleanup(&aCtx->offsetsWriter);
   QueryError_ClearError(&aCtx->status);
 
@@ -583,7 +590,7 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx) {
           ++aCtx->spec->stats.indexingFailures;
         } else {
           RedisModule_ThreadSafeContextLock(RSDummyContext);
-          IndexSpec *spec = dictFetchValue(specDict_g, aCtx->specName);
+          IndexSpec *spec = IndexSpec_Load(RSDummyContext, aCtx->specName, 0);
           if (spec && aCtx->specId == spec->uniqueId) {
             ++spec->stats.indexingFailures;
           }
