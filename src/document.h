@@ -219,6 +219,7 @@ typedef struct RSAddDocumentCtx {
   } client;
 
   IndexSpec *spec;
+  char *specName;
   uint64_t specId;
 
   // Forward index. This contains all the terms found in the document

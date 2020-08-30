@@ -176,7 +176,10 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b, QueryError *stat
   aCtx->specFlags = sp->flags;
   aCtx->indexer = sp->indexer;
   aCtx->spec = sp;
-  aCtx->specId = sp->uniqueId;
+  if (aCtx->specFlags & Index_Async) {
+    aCtx->specName = rm_strdup(sp->name);
+    aCtx->specId = sp->uniqueId;
+  }
   RS_LOG_ASSERT(sp->indexer, "No indexer");
   Indexer_Incref(aCtx->indexer);
 
@@ -360,6 +363,7 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
     aCtx->oldMd = NULL;
   }
 
+  rm_free(aCtx->specName);
   ByteOffsetWriter_Cleanup(&aCtx->offsetsWriter);
   QueryError_ClearError(&aCtx->status);
 
@@ -579,8 +583,9 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx) {
           ++aCtx->spec->stats.indexingFailures;
         } else {
           RedisModule_ThreadSafeContextLock(RSDummyContext);
-          if (aCtx->spec->uniqueId == aCtx->specId) {
-            ++aCtx->spec->stats.indexingFailures;
+          IndexSpec *spec = dictFetchValue(specDict_g, aCtx->specName);
+          if (spec && aCtx->specId == spec->uniqueId) {
+            ++spec->stats.indexingFailures;
           }
           RedisModule_ThreadSafeContextUnlock(RSDummyContext);
         }
