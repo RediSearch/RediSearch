@@ -400,11 +400,14 @@ Note that these operators apply only to numeric values and numeric sub expressio
 | Function | Description                                                  | Example            |
 | -------- | ------------------------------------------------------------ | ------------------ |
 | geodistance(field,field)        | Return distance in meters.    | `geodistance(@field1,@field2)`       |
-| geodistance(field,lon,lat)      | Return distance in meters.    | `geodistance(@field,1.2,-3.4)`       |
 | geodistance(field,"lon,lat")    | Return distance in meters.    | `geodistance(@field,"1.2,-3.4")`     |
-| geodistance(lon,lat,field)      | Return distance in meters.    | `geodistance(1.2,-3.4,@field)`       |
+| geodistance(field,lon,lat)      | Return distance in meters.    | `geodistance(@field,1.2,-3.4)`       |
 | geodistance("lon,lat",field)    | Return distance in meters.    | `geodistance("1.2,-3.4",@field)`     |
 | geodistance("lon,lat","lon,lat")| Return distance in meters.    | `geodistance("1.2,-3.4","5.6,-7.8")` |
+| geodistance("lon,lat",lon,lat)  | Return distance in meters.    | `geodistance("1.2,-3.4",5.6,-7.8)`   |
+| geodistance(lon,lat,field)      | Return distance in meters.    | `geodistance(1.2,-3.4,@field)`       |
+| geodistance(lon,lat,"lon,lat")  | Return distance in meters.    | `geodistance(1.2,-3.4,"5.6,-7.8")`   |
+| geodistance(lon,lat,"lon,lat")  | Return distance in meters.    | `geodistance(1.2,-3.4,5.6,-7.8)`     |
 * Note: Geo field must be preloaded using `LOAD`.
 
 ## FILTER expressions
