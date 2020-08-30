@@ -81,18 +81,18 @@ struct RSAddDocumentCtx;
 typedef void (*DocumentAddCompleted)(struct RSAddDocumentCtx *, RedisModuleCtx *, void *);
 
 typedef struct {
-  uint32_t options;                 // DOCUMENT_ADD_XXX
-  RSLanguage language;              // Language document should be indexed as
-  RedisModuleString *payload;       // Arbitrary payload provided on return with WITHPAYLOADS
-  arrayof(RedisModuleString*) fieldsArray;  // Field, Value, Field Value
-  size_t numFieldElems;             // Number of elements
-  double score;                     // Score of the document
-  const char *evalExpr;             // Only add the document if this expression evaluates to true.
-  DocumentAddCompleted donecb;      // Callback to invoke when operation is done
-  
-  RedisModuleString *keyStr;        // key name for HSET
-  RedisModuleString *scoreStr;      // score string for HSET
-  RedisModuleString *languageStr;   // Language string for HSET
+  uint32_t options;            // DOCUMENT_ADD_XXX
+  RSLanguage language;         // Language document should be indexed as
+  RedisModuleString *payload;  // Arbitrary payload provided on return with WITHPAYLOADS
+  arrayof(RedisModuleString *) fieldsArray;  // Field, Value, Field Value
+  size_t numFieldElems;                      // Number of elements
+  double score;                              // Score of the document
+  const char *evalExpr;         // Only add the document if this expression evaluates to true.
+  DocumentAddCompleted donecb;  // Callback to invoke when operation is done
+
+  RedisModuleString *keyStr;       // key name for HSET
+  RedisModuleString *scoreStr;     // score string for HSET
+  RedisModuleString *languageStr;  // Language string for HSET
 } AddDocumentOptions;
 
 void Document_AddField(Document *d, const char *fieldname, RedisModuleString *fieldval,
@@ -177,7 +177,7 @@ void Document_Free(Document *doc);
 #define DOCUMENT_ADD_REPLACE 0x01
 #define DOCUMENT_ADD_PARTIAL 0x02
 #define DOCUMENT_ADD_NOSAVE 0x04
-#define DOCUMENT_ADD_NOCREATE 0x08   // Don't create document if not exist (replace ONLY)
+#define DOCUMENT_ADD_NOCREATE 0x08  // Don't create document if not exist (replace ONLY)
 
 struct ForwardIndex;
 struct FieldIndexerData;
@@ -217,6 +217,11 @@ typedef struct RSAddDocumentCtx {
     RedisModuleBlockedClient *bc;  // Client
     RedisSearchCtx *sctx;
   } client;
+
+  IndexSpec *spec;
+  char *specName;
+  size_t specNameLen;
+  uint64_t specId;
 
   // Forward index. This contains all the terms found in the document
   struct ForwardIndex *fwIdx;

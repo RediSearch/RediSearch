@@ -401,7 +401,7 @@ int CreateIndexIfNotExistsCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
   }
 
   const char *specName = RedisModule_StringPtrLen(argv[1], NULL);
-  if (dictFetchValue(specDict, specName)) {
+  if (dictFetchValue(specDict_g, specName)) {
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
 
@@ -769,9 +769,9 @@ int IndexList(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_WrongArity(ctx);
   }
 
-  RedisModule_ReplyWithArray(ctx, dictSize(specDict));
+  RedisModule_ReplyWithArray(ctx, dictSize(specDict_g));
 
-  dictIterator *iter = dictGetIterator(specDict);
+  dictIterator *iter = dictGetIterator(specDict_g);
   dictEntry *entry = NULL;
   while ((entry = dictNext(iter))) {
     IndexSpec *spec = dictGetVal(entry);

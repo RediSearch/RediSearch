@@ -306,6 +306,8 @@ Returns information and statistics on the index. Returned values include:
 28) "1.20
 29) offset_bits_per_record_avg
 30) "8.00
+31) hash_indexing_failures
+32) "3
 ```
 
 ### Parameters
