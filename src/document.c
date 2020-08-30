@@ -19,7 +19,7 @@
 
 // Memory pool for RSAddDocumentContext contexts
 static mempool_t *actxPool_g = NULL;
-
+extern RedisModuleCtx *RSDummyContext;
 // For documentation, see these functions' definitions
 static void *allocDocumentContext(void) {
   // See if there's one in the pool?
@@ -35,6 +35,7 @@ static void freeDocumentContext(void *p) {
 
   rm_free(aCtx->fspecs);
   rm_free(aCtx->fdatas);
+  rm_free(aCtx->specName);
   rm_free(aCtx);
 }
 
@@ -175,6 +176,18 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b, QueryError *stat
   aCtx->next = NULL;
   aCtx->specFlags = sp->flags;
   aCtx->indexer = sp->indexer;
+  aCtx->spec = sp;
+  if (aCtx->specFlags & Index_Async) {
+    size_t len = strlen(sp->name) + 1;
+    if (aCtx->specName == NULL) {
+      aCtx->specName = rm_malloc(len);
+    } else if (len > aCtx->specNameLen) {
+      aCtx->specName = rm_realloc(aCtx->specName, len);
+      aCtx->specNameLen = len;
+    } 
+    strncpy(aCtx->specName, sp->name, len);
+    aCtx->specId = sp->uniqueId;
+  }
   RS_LOG_ASSERT(sp->indexer, "No indexer");
   Indexer_Incref(aCtx->indexer);
 
@@ -573,6 +586,16 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx) {
 
       PreprocessorFunc pp = preprocessorMap[ii];
       if (pp(aCtx, &doc->fields[i], fs, fdata, &aCtx->status) != 0) {
+        if (!AddDocumentCtx_IsBlockable(aCtx)) {
+          ++aCtx->spec->stats.indexingFailures;
+        } else {
+          RedisModule_ThreadSafeContextLock(RSDummyContext);
+          IndexSpec *spec = IndexSpec_Load(RSDummyContext, aCtx->specName, 0);
+          if (spec && aCtx->specId == spec->uniqueId) {
+            ++spec->stats.indexingFailures;
+          }
+          RedisModule_ThreadSafeContextUnlock(RSDummyContext);
+        }
         ourRv = REDISMODULE_ERR;
         goto cleanup;
       }

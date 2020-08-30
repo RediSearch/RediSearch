@@ -218,6 +218,11 @@ typedef struct RSAddDocumentCtx {
     RedisSearchCtx *sctx;
   } client;
 
+  IndexSpec *spec;
+  char *specName;
+  size_t specNameLen;
+  uint64_t specId;
+
   // Forward index. This contains all the terms found in the document
   struct ForwardIndex *fwIdx;
 
