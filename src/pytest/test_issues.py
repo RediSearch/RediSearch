@@ -7,6 +7,7 @@ def test_1282(env):
   env.expect('FT.SEARCH idx', '~bar ~foo').equal([1L, 'doc1', ['txt1', 'foo']])
 
 def test_1414(env):
+  env.skipOnCluster()
   env.expect('FT.CREATE idx SCHEMA txt1 TEXT').equal('OK')
   env.expect('ft.add idx doc 1 fields foo hello bar world').ok()
   env.expect('ft.search idx * limit 0 1234567').error().contains('LIMIT exceeds maximum of 1000000') 
