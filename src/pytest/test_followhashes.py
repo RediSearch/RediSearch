@@ -133,6 +133,25 @@ def testDel(env):
     env.expect('ft.search', 'things', 'foo') \
        .equal([0L])
 
+def testUnlink(env):
+    conn = getConnectionByEnv(env)
+    env.cmd('ft.create', 'things', 'ON', 'HASH',
+            'PREFIX', '1', 'thing:',
+            'SCHEMA', 'name', 'text')
+
+    env.expect('ft.search', 'things', 'foo') \
+       .equal([0L])
+
+    conn.execute_command('hset', 'thing:bar', 'name', 'foo')
+
+    env.expect('ft.search', 'things', 'foo') \
+       .equal([1L, 'thing:bar', ['name', 'foo']])
+
+    conn.execute_command('unlink', 'thing:bar')
+
+    env.expect('ft.search', 'things', 'foo') \
+       .equal([0L])
+
 def testSet(env):
     conn = getConnectionByEnv(env)
     env.cmd('ft.create', 'things',
