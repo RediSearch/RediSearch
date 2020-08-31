@@ -111,35 +111,38 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
 
   if (!(options & QEXEC_F_SEND_NOFIELDS)) {
     const RLookup *lk = cv->lastLk;
-    count++;
 
-    size_t nfields = 0;
-    RedisModule_ReplyWithArray(outctx, REDISMODULE_POSTPONED_ARRAY_LEN);
-    SchemaRule *rule = req->sctx ? req->sctx->spec->rule : NULL;
-    for (const RLookupKey *kk = lk->head; kk; kk = kk->next) {
-      if (kk->flags & RLOOKUP_F_HIDDEN) {
-        // todo: this is a dead code, no one set RLOOKUP_F_HIDDEN
-        continue;
-      }
-      // on coordinator, we reach this code without sctx or rule,
-      // we trust the shards to not send those fields.
-      if (rule && ((rule->lang_field && strcmp(kk->name, rule->lang_field) == 0) ||
-                   (rule->score_field && strcmp(kk->name, rule->score_field) == 0))) {
-        continue;
-      }
-      if (req->outFields.explicitReturn && (kk->flags & RLOOKUP_F_EXPLICITRETURN) == 0) {
-        continue;
-      }
-      const RSValue *v = RLookup_GetItem(kk, &r->rowdata);
-      if (!v) {
-        continue;
-      }
+    if (lk->head) {
+      count++;
+      size_t nfields = 0;
 
-      RedisModule_ReplyWithStringBuffer(outctx, kk->name, strlen(kk->name));
-      RSValue_SendReply(outctx, v, req->reqflags & QEXEC_F_TYPED);
-      nfields += 2;
+      RedisModule_ReplyWithArray(outctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+      SchemaRule *rule = req->sctx ? req->sctx->spec->rule : NULL;
+      for (const RLookupKey *kk = lk->head; kk; kk = kk->next) {
+        if (kk->flags & RLOOKUP_F_HIDDEN) {
+          // todo: this is a dead code, no one set RLOOKUP_F_HIDDEN
+          continue;
+        }
+        // on coordinator, we reach this code without sctx or rule,
+        // we trust the shards to not send those fields.
+        if (rule && ((rule->lang_field && strcmp(kk->name, rule->lang_field) == 0) ||
+                    (rule->score_field && strcmp(kk->name, rule->score_field) == 0))) {
+          continue;
+        }
+        if (req->outFields.explicitReturn && (kk->flags & RLOOKUP_F_EXPLICITRETURN) == 0) {
+          continue;
+        }
+        const RSValue *v = RLookup_GetItem(kk, &r->rowdata);
+        if (!v) {
+          continue;
+        }
+
+        RedisModule_ReplyWithStringBuffer(outctx, kk->name, strlen(kk->name));
+        RSValue_SendReply(outctx, v, req->reqflags & QEXEC_F_TYPED);
+        nfields += 2;
+      }
+      RedisModule_ReplySetArrayLength(outctx, nfields);
     }
-    RedisModule_ReplySetArrayLength(outctx, nfields);
   }
   return count;
 }

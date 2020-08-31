@@ -544,8 +544,7 @@ def testExpiredDuringAggregate(env):
   res = [1L, ['txt1', 'hello', 'COUNT', '2']]
   
   createExpire(env, N)
-  _res = env.cmd('FT.AGGREGATE idx hello*')
-  env.assertGreater(len(_res), 2)
+  env.expect('FT.AGGREGATE idx hello*').equal([1L])
 
   createExpire(env, N)
   env.expect('FT.AGGREGATE idx hello* GROUPBY 1 @txt1 REDUCE count 0 AS COUNT').equal(res)
