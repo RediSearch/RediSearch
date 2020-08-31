@@ -79,6 +79,7 @@ def testAllConfig(env):
     env.assertEqual(res_dict['MINPREFIX'][0], '2')
     env.assertEqual(res_dict['FORKGC_SLEEP_BEFORE_EXIT'][0], '0')
     env.assertEqual(res_dict['MAXDOCTABLESIZE'][0], '1000000')
+    env.assertEqual(res_dict['MAXSEARCHRESULTS'][0], '1000000')
     env.assertEqual(res_dict['MAXEXPANSIONS'][0], '200')
     env.assertEqual(res_dict['TIMEOUT'][0], '500')
     env.assertEqual(res_dict['INDEX_THREADS'][0], '8')
@@ -149,3 +150,5 @@ def testInitConfig(env):
     test_arg_str('GC_POLICY', 'default', 'fork')
     test_arg_str('GC_POLICY', 'legacy', 'sync')
     test_arg_str('ON_TIMEOUT', 'fail')
+    test_arg_str('MAXSEARCHRESULTS', '100', '100')
+    test_arg_str('MAXSEARCHRESULTS', '-1', 'unlimited')
