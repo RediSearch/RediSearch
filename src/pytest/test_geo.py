@@ -1,12 +1,13 @@
 from RLTest import Env
+from common import getConnectionByEnv
 
 def testGeoHset(env):
+  conn = getConnectionByEnv(env)
   env.expect('FT.CREATE idx SCHEMA g GEO').ok()
-  env.expect('HSET geo1 g 1.23 4.56').error().contains('wrong number of arguments for HMSET')
-  env.expect('HSET geo2 g 1.23,4.56').equal(1)
-  env.expect('HSET geo3 g "1.23,4.56"').equal(1)
-  env.expect('HSET geo4 g \"1.23,4.56\"').equal(1)
-  env.expect('HSET geo5 g \\"1.23,4.56\\"').equal(1)
+  conn.execute_command('HSET', 'geo2', 'g', '1.23,4.56')
+  conn.execute_command('HSET', 'geo3', 'g', '"1.23,4.56"')
+  conn.execute_command('HSET', 'geo4', 'g', '\"1.23,4.56\"')
+  conn.execute_command('HSET', 'geo5', 'g', '\\"1.23,4.56\\"')
   env.expect('FT.SEARCH', 'idx', '@g:[1.23 4.56 1 km]').equal([1L, 'geo2', ['g', '1.23,4.56']])
 
 def testGeoFtAdd(env):
