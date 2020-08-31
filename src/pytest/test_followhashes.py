@@ -528,7 +528,7 @@ def testExpiredDuringSearch(env):
   env.assertLess(1, len(res))
 
   createExpire(env, N)
-  res = env.cmd('FT.SEARCH', 'idx', 'hello*', 'limit', '0', '5')
+  res = env.cmd('FT.SEARCH', 'idx', 'hello*', 'limit', '0', '200')
   env.assertEqual(toSortedFlatList(res[1:]), toSortedFlatList(['bar', ['txt1', 'hello', 'n', '20'], 
                                                                'foo', ['txt1', 'hello', 'n', '0']]))
 
