@@ -567,6 +567,8 @@ If **NOCONTENT** was given, we return an array where the first element is the to
 
 In some rare cases, result count might not equal the number of documents. This may happen if a docement has expired since the query was initiated.
 
+**Note** - If a hash expiry time is reached after the start of the query process, the hash will be counted in the total number of results but name and content of the hash would not be returned.
+
 ---
 
 ## FT.AGGREGATE 
@@ -654,6 +656,8 @@ Non-deterministic. Depends on the query and aggregations performed, but it is us
 ### Returns
 
 Array Response. Each row is an array and represents a single aggregate result.
+
+**Note** - If a hash expiry time is reached after the start of the query process, the hash will be return as an empty array.
 
 ### Example output
 
