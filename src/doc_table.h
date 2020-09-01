@@ -74,7 +74,7 @@ typedef struct {
   if (md) ++md->ref_count;
 
 #define DOCTABLE_FOREACH(dt, code)                                           \
-  for (size_t i = 1; i < dt->cap; ++i) {                                     \
+  for (size_t i = 0; i < dt->cap; ++i) {                                     \
     DMDChain *chain = &dt->buckets[i];                                       \
     if (DLLIST2_IS_EMPTY(&chain->lroot)) {                                   \
       continue;                                                              \
