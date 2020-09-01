@@ -455,17 +455,23 @@ int Redis_DropScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaq
 }
 
 int Redis_DeleteKey(RedisModuleCtx *ctx, RedisModuleString *s) {
-  RedisModuleKey *k = RedisModule_OpenKey(ctx, s, REDISMODULE_WRITE);
-  if (k != NULL) {
-    RedisModule_DeleteKey(k);
-    RedisModule_CloseKey(k);
-    return 1;
-  }
-  return 0;
+  RedisModuleCallReply *rep = RedisModule_Call(ctx, "DEL", "s", s);
+  RedisModule_Assert(RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_INTEGER);
+  long long res = RedisModule_CallReplyInteger(rep);
+  RedisModule_FreeCallReply(rep);
+  return res;
 }
 
 int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments) {
+
   IndexSpec *spec = ctx->spec;
+
+  // We must first remove the spec from the rules and
+  // prefixes trie so we will not get notifications about
+  // documents that we are deleting
+  SchemaRules_RemoveSpecRules(spec);
+  SchemaPrefixes_RemoveSpec(spec);
+
   if (deleteDocuments || !!(spec->flags & Index_Temporary)) {
     DocTable *dt = &spec->docs;
     DOCTABLE_FOREACH(dt, Redis_DeleteKey(ctx->redisCtx, DMD_CreateKeyString(dmd, ctx->redisCtx)));
