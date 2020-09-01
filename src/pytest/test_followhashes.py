@@ -114,6 +114,23 @@ def testPrefix3(env):
     env.expect('ft.search', 'things', 'foo') \
        .equal([1L, 'thing:bar', ['name', 'foo', 'age', '42']])
 
+def testIdxField(env):
+    conn = getConnectionByEnv(env)
+    env.cmd('ft.create', 'idx1',
+            'ON', 'HASH',
+            'FILTER', '@indexName=="idx1"',
+            'SCHEMA', 'name', 'text', 'indexName', 'text')
+    env.cmd('ft.create', 'idx2',
+            'ON', 'HASH',
+            'FILTER', '@indexName=="idx2"',
+            'SCHEMA', 'name', 'text', 'indexName', 'text')
+
+    conn.execute_command('hset', 'doc1', 'name', 'foo', 'indexName', 'idx1')
+    conn.execute_command('hset', 'doc2', 'name', 'bar', 'indexName', 'idx2')
+
+    env.expect('ft.search', 'idx1', '*').equal([1L, 'doc1', ['name', 'foo', 'indexName', 'idx1']])
+    env.expect('ft.search', 'idx2', '*').equal([1L, 'doc2', ['name', 'bar', 'indexName', 'idx2']])
+
 def testDel(env):
     conn = getConnectionByEnv(env)
     env.cmd('ft.create', 'things', 'ON', 'HASH',

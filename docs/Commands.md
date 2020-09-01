@@ -53,7 +53,7 @@ FT.CREATE idx ON HASH PREFIX 1 doc: SCHEMA name TEXT SORTABLE age NUMERIC SORTAB
 
 * **PREFIX {count} {prefix}** tells the index which keys it should index. You can add several prefixes to index. Since the argument is optional, the default is * (all keys)
 
-* **FILTER {filter}** is a filter expression with the full RediSearch aggregation expression language. It is possible to use @__key to access the key that was just added/changed
+* **FILTER {filter}** is a filter expression with the full RediSearch aggregation expression language. It is possible to use @__key to access the key that was just added/changed. A field can be used to set field name by passing `'FILTER @indexName=="myindexname"'`
 
 * **LANGUAGE {default_lang}**: If set indicates the default language for documents in the index. Default to English.
 * **LANGUAGE_FIELD {lang_field}**: If set indicates the document field that should be used as the document language.
@@ -194,10 +194,13 @@ If a value in a hash does not match the schema type for that field, indexing of 
 Complete list of redis commands which might modify the index:
   HSET, HMSET, HSETNX, HINCRBY, HINCRBYFLOAT, HDEL, DEL, SET, RENAME_FROM, RENAME_TO, TRIMMED, RESTORE, EXPIRED, EVICTED, CHANGE, LOADED
 
+If `LANGUAGE_FIELD`, `SCORE_FIELD`, or `PAYLOAD_FIELD` were used with `FT.CREATE`, the document will extract the properties. A field can be used to get the name of the index it belongs to.
+
 #### Example
 ```sql
-HSET doc1 cs101 "hello world" number 3.141 geopoint 39.721717,21.630616 tags foo,bar,baz
+HSET doc1 cs101 "hello world" number 3.141 geopoint 39.721717,21.630616 tags foo,bar,baz 
 HSET doc2 cs201 "foo bar baz" number 2.718 geopoint "31.433363,35.331942" tags foo,bar,baz
+HSET doc3 Name "RedisLabs" indexName "myindexname" 
 ```
 
 ---
