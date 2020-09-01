@@ -1840,20 +1840,19 @@ int IndexSpec_UpdateWithHash(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleSt
   Document doc = {0};
   Document_Init(&doc, key, 1.0, DEFAULT_LANGUAGE);
   if (Document_LoadSchemaFields(&doc, &sctx) != REDISMODULE_OK) {
-    Document_Free(&doc);
-    return RedisModule_ReplyWithError(ctx, "Could not load document");
-  }
-  if (doc.numFields > 0) {
-    QueryError status = {0};
-    RSAddDocumentCtx *aCtx = NewAddDocumentCtx(spec, &doc, &status);
-    aCtx->stateFlags |= ACTX_F_NOBLOCK | ACTX_F_NOFREEDOC;
-    AddDocumentCtx_Submit(aCtx, &sctx, DOCUMENT_ADD_REPLACE);
-    // doc was set DEAD in Document_Moved and was not freed since it set as NOFREEDOC
-    doc.flags &= ~DOCUMENT_F_DEAD;
-  } else {
-    // no fields. possibly HDEL remove the last field from doc
+    // if a key does not exit or is not a hash (empty hashes are deleted by redis)ma
     IndexSpec_DeleteHash(spec, ctx, key);
+    Document_Free(&doc);
+    return REDISMODULE_OK;
   }
+
+  QueryError status = {0};
+  RSAddDocumentCtx *aCtx = NewAddDocumentCtx(spec, &doc, &status);
+  aCtx->stateFlags |= ACTX_F_NOBLOCK | ACTX_F_NOFREEDOC;
+  AddDocumentCtx_Submit(aCtx, &sctx, DOCUMENT_ADD_REPLACE);
+  // doc was set DEAD in Document_Moved and was not freed since it set as NOFREEDOC
+  doc.flags &= ~DOCUMENT_F_DEAD;
+
   Document_Free(&doc);
   return REDISMODULE_OK;
 }
