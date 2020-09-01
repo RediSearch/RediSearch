@@ -47,7 +47,7 @@ IndexSpec* RediSearch_CreateIndex(const char* name, const RSIndexOptions* option
 
 void RediSearch_DropIndex(IndexSpec* sp) {
   RWLOCK_ACQUIRE_WRITE();
-  IndexSpec_FreeSync(sp);
+  IndexSpec_FreeInternals(sp);
   RWLOCK_RELEASE();
 }
 

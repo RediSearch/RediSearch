@@ -1843,7 +1843,7 @@ int IndexSpec_UpdateWithHash(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleSt
   if (Document_LoadSchemaFields(&doc, &sctx) != REDISMODULE_OK || doc.numFields == 0) {
     IndexSpec_DeleteHash(spec, ctx, key);
     Document_Free(&doc);
-    return REDISMODULE_OK;
+    return REDISMODULE_ERR;
   }
 
   QueryError status = {0};
@@ -1863,7 +1863,7 @@ int IndexSpec_DeleteHash(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString
   // Get the doc ID
   t_docId id = DocTable_GetIdR(&spec->docs, key);
   if (id == 0) {
-    return RedisModule_ReplyWithLongLong(ctx, 0);
+    return REDISMODULE_ERR;
     // ID does not exist.
   }
 
@@ -1875,7 +1875,6 @@ int IndexSpec_DeleteHash(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString
     if (spec->gc) {
       GCContext_OnDelete(spec->gc);
     }
-    RedisModule_Replicate(ctx, RS_DEL_CMD, "cs", spec->name, key);
   }
   return REDISMODULE_OK;
 }

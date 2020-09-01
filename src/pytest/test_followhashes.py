@@ -566,3 +566,16 @@ def testWrongFieldType(env):
     res_actual = {res_actual[i]: res_actual[i + 1] for i in range(0, len(res_actual), 2)}
     env.assertEqual(str(res_actual['hash_indexing_failures']), '1')
     
+def testDocIndexedInTwoIndexes():
+    env = Env(moduleArgs='MAXDOCTABLESIZE 50')
+    env.skipOnCluster()
+    env.expect('FT.CREATE idx1 SCHEMA t TEXT').ok()
+    env.expect('FT.CREATE idx2 SCHEMA t TEXT').ok()
+
+    for i in range(1000):
+        env.expect('HSET', 'doc%d' % i, 't', 'foo').equal(1L)
+
+    env.expect('FT.DROPINDEX idx2 DD').ok()
+    env.expect('FT.SEARCH idx1 foo').equal([0L])
+
+    env.expect('FT.DROPINDEX idx1 DD').ok()
