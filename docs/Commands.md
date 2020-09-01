@@ -168,6 +168,40 @@ O(1)
 ### Returns
 OK or an error
 
+---
+
+## HSET/HSETNX/HDEL/HINCRBY/HDECRBY
+
+### Format
+
+```
+HSET {hash} {field} {value} [{field} {value} ...]
+```
+
+### Description
+
+Since RediSearch v2.0, native redis commands are used to add, update or delete hashes using [HSET](https://redis.io/commands/hset), [HINCRBY](https://redis.io/commands/hincrby), [HDEL](https://redis.io/commands/hdel) or other hash commands which alter the hash.
+
+If a hash is modified, all matching indexes are updated automatically. Deletion of a hash by redis, whether by calling `DEL`, expiring a hash or evicting one, is handled automatically as well.
+
+If a field fails to be indexed (for example, if a numeric fields gets a string value) the whole document is not indexed. `FT.INFO` provides the number of document-indexing-failures under `hash_indexing_failures`.
+
+RediSearch will reindex a hash whenever any of the fields was modified. If module flag `PARTIAL_INDEXED_DOCS` (???should we change the name to `ENABLE_FILTER`??) is set to `1`, only a change to fields in the index schema will trigger reindexing. 
+Beware - enabling this feature will slow the whole server by a few points. Only use if hashes are updated often in fields that are not in schema.
+
+If a value in a hash does not match the schema type for that field, indexing of the hash will fail. The number of 'failed' document is under `hash_indexing_failures` at `FT.INFO`.
+
+Complete list of redis commands which might modify the index:
+  HSET, HMSET, HSETNX, HINCRBY, HINCRBYFLOAT, HDEL, DEL, SET, RENAME_FROM, RENAME_TO, TRIMMED, RESTORE, EXPIRED, EVICTED, CHANGE, LOADED
+
+#### Example
+```sql
+HSET doc1 cs101 "hello world" number 3.141 geopoint 39.721717,21.630616 tags foo,bar,baz
+HSET doc2 cs201 "foo bar baz" number 2.718 geopoint "31.433363,35.331942" tags foo,bar,baz
+```
+
+---
+
 ## FT.ALTER SCHEMA ADD
 
 ### Format
@@ -208,38 +242,6 @@ O(1)
 ### Returns
 
 OK or an error.
-
-
----
-
-## HSET/HSETNX/HDEL/HINCRBY/HDECRBY
-
-### Format
-
-```
-HSET {hash} {field} {value} [{field} {value} ...]
-```
-
-### Description
-
-Since RediSearch v2.0, native redis commands are used to add, update or delete hashes using [HSET](https://redis.io/commands/hset), [HINCRBY](https://redis.io/commands/hincrby), [HDEL](https://redis.io/commands/hdel) or other hash commands which alter the hash.
-
-If a hash is modified, all matching indexes are updated automatically. Deletion of a hash by redis, whether by calling `DEL`, expiring a hash or evicting one, is handled automatically as well.
-
-If a field fails to be indexed (for example, if a numeric fields gets a string value) the whole document is not indexed. `FT.INFO` provides the number of document-indexing-failures under `hash_indexing_failures`.
-
-RediSearch will reindex a hash whenever any of the fields was modified. If module flag `PARTIAL_INDEXED_DOCS` (???should we change the name to `ENABLE_FILTER`??) is set to `1`, only a change to fields in the index schema will trigger reindexing. 
-Beware - enabling this feature will slow the whole server by a few points. Only use if hashes are updated often in fields that are not in schema.
-
-If a value in a hash does not match the schema type for that field, indexing of the hash will fail. The number of 'failed' document is under `hash_indexing_failures` at `FT.INFO`.
-
-Complete list of redis commands which might modify the index:
-  HSET, HMSET, HSETNX, HINCRBY, HINCRBYFLOAT, HDEL, DEL, SET, RENAME_FROM, RENAME_TO, TRIMMED, RESTORE, EXPIRED, EVICTED, CHANGE, LOADED
-
-#### Example
-```sql
-HSET doc1 cs101 "hello world" number 3.141 geopoint 39.7217,21.6306 tags foo,bar,baz
-```
 
 ---
 
@@ -553,8 +555,6 @@ Non-deterministic. Depends on the query and aggregations performed, but it is us
 ### Returns
 
 Array Response. Each row is an array and represents a single aggregate result.
-
-**Note** - If a hash expiry time is reached after the start of the query process, the hash will be return as an empty array.
 
 ### Example output
 
