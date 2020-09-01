@@ -1843,13 +1843,17 @@ int IndexSpec_UpdateWithHash(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleSt
     Document_Free(&doc);
     return RedisModule_ReplyWithError(ctx, "Could not load document");
   }
-  QueryError status = {0};
-  RSAddDocumentCtx *aCtx = NewAddDocumentCtx(spec, &doc, &status);
-  aCtx->stateFlags |= ACTX_F_NOBLOCK | ACTX_F_NOFREEDOC;
-  AddDocumentCtx_Submit(aCtx, &sctx, DOCUMENT_ADD_REPLACE);
-
-  // doc was set DEAD in Document_Moved and was not freed since it set as NOFREEDOC
-  doc.flags &= ~DOCUMENT_F_DEAD;
+  if (doc.numFields > 0) {
+    QueryError status = {0};
+    RSAddDocumentCtx *aCtx = NewAddDocumentCtx(spec, &doc, &status);
+    aCtx->stateFlags |= ACTX_F_NOBLOCK | ACTX_F_NOFREEDOC;
+    AddDocumentCtx_Submit(aCtx, &sctx, DOCUMENT_ADD_REPLACE);
+    // doc was set DEAD in Document_Moved and was not freed since it set as NOFREEDOC
+    doc.flags &= ~DOCUMENT_F_DEAD;
+  } else {
+    // no fields. possibly HDEL remove the last field from doc
+    IndexSpec_DeleteHash(spec, ctx, key);
+  }
   Document_Free(&doc);
   return REDISMODULE_OK;
 }
