@@ -133,25 +133,6 @@ def testDel(env):
     env.expect('ft.search', 'things', 'foo') \
        .equal([0L])
 
-def testUnlink(env):
-    conn = getConnectionByEnv(env)
-    env.cmd('ft.create', 'things', 'ON', 'HASH',
-            'PREFIX', '1', 'thing:',
-            'SCHEMA', 'name', 'text')
-
-    env.expect('ft.search', 'things', 'foo') \
-       .equal([0L])
-
-    conn.execute_command('hset', 'thing:bar', 'name', 'foo')
-
-    env.expect('ft.search', 'things', 'foo') \
-       .equal([1L, 'thing:bar', ['name', 'foo']])
-
-    conn.execute_command('unlink', 'thing:bar')
-
-    env.expect('ft.search', 'things', 'foo') \
-       .equal([0L])
-
 def testSet(env):
     conn = getConnectionByEnv(env)
     env.cmd('ft.create', 'things',
@@ -507,18 +488,25 @@ def testEvicted(env):
     env.assertGreater(res[0], 0)
 
 def createExpire(env, N):
-  env.cmd('FLUSHALL')
+  env.flush()
+  conn = getConnectionByEnv(env)
   env.expect('FT.CREATE idx SCHEMA txt1 TEXT n NUMERIC').ok()
   for i in range(N):
-    env.expect('HSET', 'doc%d' % i, 'txt1', 'hello%i' % i, 'n', i)
-    env.expect('PEXPIRE doc%d 100' % i)
-  env.expect('HSET', 'foo', 'txt1', 'hello', 'n', 0).equal(2)
-  env.expect('HSET', 'bar', 'txt1', 'hello', 'n', 20).equal(2)
+    conn.execute_command('HSET', 'doc%d' % i, 'txt1', 'hello%i' % i, 'n', i)
+    conn.execute_command('PEXPIRE', 'doc%d' % i, '100')
+  conn.execute_command('HSET', 'foo', 'txt1', 'hello', 'n', 0)
+  conn.execute_command('HSET', 'bar', 'txt1', 'hello', 'n', 20)
   waitForIndex(env, 'idx')
   env.expect('FT.SEARCH', 'idx', 'hello*', 'limit', '0', '0').noEqual([2L])
-  env.expect('HGETALL doc99').equal(['txt1', 'hello99', 'n', '99'])
+  res = conn.execute_command('HGETALL', 'doc99')
+  if type(res) is list:
+    res = {res[i]:res[i + 1] for i in range(0, len(res), 2)}
+  env.assertEqual(res, {'txt1': 'hello99', 'n': '99'})
   sleep(0.1)
-  env.expect('HGETALL doc99').equal([])
+  res = conn.execute_command('HGETALL', 'doc99')
+  if isinstance(res, list):
+    res = {res[i]:res[i + 1] for i in range(0, len(res), 2)}
+  env.assertEqual(res, {})
 
 def testExpiredDuringSearch(env):
   N = 100
@@ -571,14 +559,14 @@ def testNoInitialScan(env):
     env.expect('FT.SEARCH temp_idx_no_scan hello').equal([0L])
 
 def testWrongFieldType(env):
+    conn = getConnectionByEnv(env)
     env.expect('FT.CREATE idx SCHEMA t TEXT n NUMERIC').ok()
-    env.expect('HSET a t hello n 42').equal(2)
-    env.expect('HSET b t hello n world').equal(2)
+    conn.execute_command('HSET', 'a', 't', 'hello', 'n', '42')
+    conn.execute_command('HSET', 'b', 't', 'hello', 'n', 'world')
 
     env.expect('FT.SEARCH idx hello').equal([1L, 'a', ['t', 'hello', 'n', '42']])
 
     res_actual = env.cmd('FT.INFO idx')
-    env.assertEqual(res_actual[36], 'hash_indexing_failures')
-    env.assertEqual(res_actual[37], '1')
-    env.assertContains('hash_indexing_failures', res_actual)
+    res_actual = {res_actual[i]: res_actual[i + 1] for i in range(0, len(res_actual), 2)}
+    env.assertEqual(str(res_actual['hash_indexing_failures']), '1')
     

@@ -3156,14 +3156,15 @@ def testAliasDelIfX(env):
     env.expect('FT._ALIASDELIFX a1').ok()
 
 def testEmptyDoc(env):
+    conn = getConnectionByEnv(env)
     env.expect('FT.CREATE idx SCHEMA t TEXT').ok()
     env.expect('FT.ADD idx doc1 1 FIELDS t foo').ok()
     env.expect('FT.ADD idx doc2 1 FIELDS t foo').ok()
     env.expect('FT.ADD idx doc3 1 FIELDS t foo').ok()
     env.expect('FT.ADD idx doc4 1 FIELDS t foo').ok()
     env.expect('FT.SEARCH idx * limit 0 0').equal([4])
-    env.expect('DEL doc1').equal(1)
-    env.expect('DEL doc3').equal(1)
+    conn.execute_command('DEL', 'doc1')
+    conn.execute_command('DEL', 'doc3')
     env.expect('FT.SEARCH idx *').equal([2L, 'doc4', ['t', 'foo'], 'doc2', ['t', 'foo']])
 
 def testInvertedIndexWasEntirelyDeletedDuringCursor():
