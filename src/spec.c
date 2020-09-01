@@ -1839,8 +1839,8 @@ int IndexSpec_UpdateWithHash(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleSt
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
   Document doc = {0};
   Document_Init(&doc, key, 1.0, DEFAULT_LANGUAGE);
-  if (Document_LoadSchemaFields(&doc, &sctx) != REDISMODULE_OK) {
-    // if a key does not exit or is not a hash (empty hashes are deleted by redis)ma
+  // if a key does not exit, is not a hash or has no fields in index schema
+  if (Document_LoadSchemaFields(&doc, &sctx) != REDISMODULE_OK || doc.numFields == 0) {
     IndexSpec_DeleteHash(spec, ctx, key);
     Document_Free(&doc);
     return REDISMODULE_OK;
