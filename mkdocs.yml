@@ -37,7 +37,9 @@ nav:
   - 'Quick Start': 'Quick_Start.md'
   - 'Command Reference': 'Commands.md'
   - 'Configuration': 'Configuring.md'
-  - 'Development': "Development.md"
+  - 'Development': 'Development.md'
+  - 'Clients': 'Clients.md'
+  
   - Administration:
     - 'General administration': "Administration.md"
     - 'Upgrade to 2.0 when running in Redis OSS': Upgrade_to_2.0.md
@@ -56,11 +58,6 @@ nav:
     - 'Document Payloads': payloads.md
     - 'Spelling Correction': Spellcheck.md
     - 'Phonetic Matching': Phonetic_Matching.md
-  - Clients:
-    - 'Client Libraries': 'Clients.md'
-    - 'Python API': python_client.md
-    - 'Java API': java_client.md
-    - 'Go API': go_client.md
 
   - Design Documents:
     - 'Garbage Collection': 'design/gc.md'
