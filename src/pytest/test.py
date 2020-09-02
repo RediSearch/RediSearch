@@ -2847,15 +2847,6 @@ def grouper(iterable, n, fillvalue=None):
 def to_dict(r):
     return {r[i]: r[i + 1] for i in range(0, len(r), 2)}
 
-def testOptimize(env):
-    env.skipOnCluster()
-    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT', 'SORTABLE')
-    env.cmd('FT.ADD', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo')
-    env.assertEqual(0, env.cmd('FT.OPTIMIZE', 'idx'))
-    with env.assertResponseError():
-        env.assertOk(env.cmd('FT.OPTIMIZE', 'idx', '666'))
-    env.expect('FT.OPTIMIZE', 'fake_idx').error()
-
 def testInfoError(env):
     env.expect('ft.info', 'no_idx').error()
 

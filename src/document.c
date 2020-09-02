@@ -184,7 +184,7 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b, QueryError *stat
     } else if (len > aCtx->specNameLen) {
       aCtx->specName = rm_realloc(aCtx->specName, len);
       aCtx->specNameLen = len;
-    } 
+    }
     strncpy(aCtx->specName, sp->name, len);
     aCtx->specId = sp->uniqueId;
   }
