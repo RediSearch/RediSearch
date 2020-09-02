@@ -3183,8 +3183,9 @@ def testInvertedIndexWasEntirelyDeletedDuringCursor():
     env.assertEqual(cursor, 0)
 
 def testNegativeOnly(env):
+    conn = getConnectionByEnv(env)
     env.expect('FT.CREATE idx SCHEMA t TEXT').ok()
-    env.expect('HSET doc1 not foo').equal(1)
+    conn.execute_command('HSET', 'doc1', 'not', 'foo')
 
     env.expect('FT.SEARCH idx *').equal([1L, 'doc1', ['not', 'foo']])
     env.expect('FT.SEARCH', 'idx', '-bar').equal([1L, 'doc1', ['not', 'foo']])
