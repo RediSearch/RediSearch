@@ -94,7 +94,7 @@ FT.CREATE idx ON HASH PREFIX 1 doc: SCHEMA name TEXT SORTABLE age NUMERIC SORTAB
 * **NOOFFSETS**: If set, we do not store term offsets for documents (saves memory, does not
   allow exact searches or highlighting). Implies `NOHL`.
 
-* **TEMPORARY**: Create a lightweight temporary index which will expire after the specified period of inactivity. The internal idle timer is reset whenever the index is searched or added to. Because such indexes are lightweight, you can create thousands of such indexes without negative performance implications.
+* **TEMPORARY**: Create a lightweight temporary index which will expire after the specified period of inactivity. The internal idle timer is reset whenever the index is searched or added to. Because such indexes are lightweight, you can create thousands of such indexes without negative performance implications and therefore you should consider using `NOINITIALSCAN` to avoid costly scanning.
 
 * **NOHL**: Conserves storage space and memory by disabling highlighting support. If set, we do
   not store corresponding byte offsets for term positions. `NOHL` is also implied by `NOOFFSETS`.
@@ -186,7 +186,6 @@ If a hash is modified, all matching indexes are updated automatically. Deletion 
 
 If a field fails to be indexed (for example, if a numeric fields gets a string value) the whole document is not indexed. `FT.INFO` provides the number of document-indexing-failures under `hash_indexing_failures`.
 
-RediSearch will reindex a hash whenever any of the fields was modified. If module flag `PARTIAL_INDEXED_DOCS` (???should we change the name to `ENABLE_FILTER`??) is set to `1`, only a change to fields in the index schema will trigger reindexing. 
 Beware - enabling this feature will slow the whole server by a few points. Only use if hashes are updated often in fields that are not in schema.
 
 If a value in a hash does not match the schema type for that field, indexing of the hash will fail. The number of 'failed' document is under `hash_indexing_failures` at `FT.INFO`.
