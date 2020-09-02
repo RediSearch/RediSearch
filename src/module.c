@@ -42,44 +42,6 @@ pthread_rwlock_t RWLock = PTHREAD_RWLOCK_INITIALIZER;
     sptmp;                                                                                  \
   })
 
-/* FT.SETPAYLOAD {index} {docId} {payload} */
-int SetPayloadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-
-  // nosave must be at place 4 and we must have at least 7 fields
-  if (argc != 4) {
-    return RedisModule_WrongArity(ctx);
-  }
-  RedisModule_ReplicateVerbatim(ctx);
-
-  RedisModule_AutoMemory(ctx);
-
-  IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
-  if (sp == NULL) {
-    RedisModule_ReplyWithError(ctx, "Unknown Index name");
-    goto cleanup;
-  }
-
-  /* Find the document by its key */
-  t_docId docId = DocTable_GetIdR(&sp->docs, argv[2]);
-  if (docId == 0) {
-    RedisModule_ReplyWithError(ctx, "Document not in index");
-    goto cleanup;
-  }
-
-  size_t mdlen;
-  const char *md = RedisModule_StringPtrLen(argv[3], &mdlen);
-
-  if (DocTable_SetPayload(&sp->docs, docId, md, mdlen) == 0) {
-    RedisModule_ReplyWithError(ctx, "Could not set payload ¯\\_(ツ)_/¯");
-    goto cleanup;
-  }
-
-  RedisModule_ReplyWithSimpleString(ctx, "OK");
-cleanup:
-
-  return REDISMODULE_OK;
-}
-
 /* FT.MGET {index} {key} ...
  * Get document(s) by their id.
  * Currentlt it just performs HGETALL, but it's a future proof alternative allowing us to later on
@@ -934,9 +896,6 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 #endif
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_SAFEADD_CMD, RSSafeAddDocumentCommand, "write deny-oom",
-         INDEX_DOC_CMD_ARGS);
-
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_SETPAYLOAD_CMD, SetPayloadCommand, "write deny-oom",
          INDEX_DOC_CMD_ARGS);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_DEL_CMD, DeleteCommand, "write", INDEX_DOC_CMD_ARGS);
