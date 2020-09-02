@@ -509,16 +509,32 @@ def testNoInitialScan(env):
     env.expect('FT.SEARCH temp_idx_no_scan hello').equal([0L])
 
 def testHsetPartialSchema(env):
+    env.skipOnCluster()
+    res_2 = [2L, 'd', ['t', 'hello', 'n', '43'], 'b', ['t', 'hello', 'n', '43']]
+    res_4 = [4L, 'd', ['t', 'hello', 'n', '43'], 'c', ['t', 'hello', 'n', 'world'],
+                 'b', ['t', 'hello', 'n', '43'], 'a', ['t', 'hello', 'n', 'world']]
+
     env.expect('FT.CREATE idx SCHEMA t TEXT n NUMERIC').ok()
     env.expect('HSET', 'a', 't', 'hello', 'n', 'world').equal(2)
     env.expect('HSET', 'b', 't', 'hello', 'n', '43').equal(2)
     env.expect('HSET', 'c', 't', 'hello', 'n', 'world').equal(2)
     env.expect('HSET', 'd', 't', 'hello', 'n', '43').equal(2)
-    env.expect('FT.SEARCH', 'idx', 'hello').equal([4L, 'd', ['t', 'hello', 'n', '43'], 'c', ['t', 'hello', 'n', 'world'],
-                                                       'b', ['t', 'hello', 'n', '43'], 'a', ['t', 'hello', 'n', 'world']])
-    env.expect('FT.SEARCH', 'idx', '@n:[1 100]').equal([2L, 'd', ['t', 'hello', 'n', '43'], 'b', ['t', 'hello', 'n', '43']])
+    env.expect('FT.SEARCH', 'idx', 'hello').equal(res_4)
+    env.expect('FT.SEARCH', 'idx', '@n:[1 100]').equal(res_2)
     # System indexed string as `0` prior to the fix of removing problematic fields
-    env.expect('FT.SEARCH', 'idx', '@n:[0 100]').equal([2L, 'd', ['t', 'hello', 'n', '43'], 'b', ['t', 'hello', 'n', '43']])
+    env.expect('FT.SEARCH', 'idx', '@n:[0 100]').equal(res_2)
     env.expect('FT.SEARCH', 'idx', 'world').equal([0L])
     env.expect('FT.SEARCH', 'idx', '43').equal([0L])
     
+    # Now test with SKIP flag
+    env.expect('FLUSHALL').equal(1)
+    env.expect('FT.CONFIG', 'SET', 'SCHEMA_MISMATCH_POLICY', 'SKIP').ok()
+
+    env.expect('FT.CREATE idx SCHEMA t TEXT n NUMERIC').ok()
+    env.expect('HSET', 'a', 't', 'hello', 'n', 'world').equal(2)
+    env.expect('HSET', 'b', 't', 'hello', 'n', '43').equal(2)
+    env.expect('HSET', 'c', 't', 'hello', 'n', 'world').equal(2)
+    env.expect('HSET', 'd', 't', 'hello', 'n', '43').equal(2)
+
+    # Only 2 results received due to mismatch between schema and hash field types
+    env.expect('FT.SEARCH', 'idx', 'hello').equal(res_2)

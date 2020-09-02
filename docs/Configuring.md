@@ -382,3 +382,25 @@ $ redis-server --loadmodule ./redisearch.so UPGRADE_INDEX idx PREFIX 1 tt LANGUA
 
 * If the RDB file does not contain a legacy index that's specified in the configuration, a warning message will be added to the log file and loading will continue.
 * If the RDB file contains a legacy index that wasn't specified in the configuration loading will fail and the server won't start.
+
+## SCHEMA_MISMATCH_POLICY
+
+The policy for case where a value type in hash field does not match schema field type in the schema. 
+
+* **PARTIAL**   : The indexing process will skip mismatch fields but will index all other data.
+
+* **SKIP**      : The hash will not be indexed.
+
+### Default
+
+"PARTIAL"
+
+### Example
+
+```
+$ redis-server --loadmodule ./redisearch.so SCHEMA_MISMATCH_POLICY SKIP
+```
+
+### Notes
+
+* Added in v2.0.0

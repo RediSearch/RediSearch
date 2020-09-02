@@ -13,8 +13,14 @@ typedef enum {
 } RSTimeoutPolicy;
 
 typedef enum { GCPolicy_Fork = 0, GCPolicy_Sync } GCPolicy;
+typedef enum { 
+  SchemaMismatchPolicy_Partial,
+  SchemaMismatchPolicy_Skip,
+  SchemaMismatchPolicy_Block,
+} SchemaMismatchPolicy;
 
 const char *TimeoutPolicy_ToString(RSTimeoutPolicy);
+static const char *SchemaMismatchPolicy_ToString(SchemaMismatchPolicy policy);
 
 /**
  * Returns TimeoutPolicy_Invalid if the string could not be parsed
@@ -83,6 +89,8 @@ typedef struct {
   void *chainedConfig;
 
   long long maxResultsToUnsortedMode;
+
+  int schemaMismatchPolicy;
 
   int noMemPool;
 
@@ -168,6 +176,7 @@ sds RSConfig_GetInfoString(const RSConfig *config);
     .forkGcSleepBeforeExit = 0, .maxResultsToUnsortedMode = DEFAULT_MAX_RESULTS_TO_UNSORTED_MODE, \
     .forkGcRetryInterval = 5, .forkGcCleanThreshold = 100, .noMemPool = 0, .filterCommands = 0,   \
     .maxSearchResults = SEARCH_REQUEST_RESULTS_MAX,                                               \
+     .schemaMismatchPolicy = SchemaMismatchPolicy_Partial,                                   \
   }
 
 #endif

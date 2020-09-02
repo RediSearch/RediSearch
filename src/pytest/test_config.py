@@ -159,3 +159,6 @@ def testInitConfig(env):
     test_arg_str('PARTIAL_INDEXED_DOCS', '1', 'true')
     test_arg_str('MAXSEARCHRESULTS', '100', '100')
     test_arg_str('MAXSEARCHRESULTS', '-1', 'unlimited')
+    test_arg_str('SCHEMA_MISMATCH_POLICY', 'PARTIAL', 'partial')
+    test_arg_str('SCHEMA_MISMATCH_POLICY', 'SKIP', 'skip')
+    test_arg_str('SCHEMA_MISMATCH_POLICY', 'BLOCK', 'block')

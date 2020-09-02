@@ -309,6 +309,27 @@ CONFIG_GETTER(getGcPolicy) {
   return sdsnew(GCPolicy_ToString(config->gcPolicy));
 }
 
+CONFIG_SETTER(setSchemaMismatchPolicy) {
+  const char *policy;
+  int acrc = AC_GetString(ac, &policy, NULL, 0);
+  CHECK_RETURN_PARSE_ERROR(acrc);
+  if (!strcasecmp(policy, "DEFAULT") || !strcasecmp(policy, "PARTIAL")) {
+    config->schemaMismatchPolicy = SchemaMismatchPolicy_Partial;
+  } else if (!strcasecmp(policy, "SKIP")) {
+    config->schemaMismatchPolicy = SchemaMismatchPolicy_Skip;
+  } else if (!strcasecmp(policy, "BLOCK")) {
+    config->schemaMismatchPolicy = SchemaMismatchPolicy_Block;
+  } else {
+    RETURN_ERROR("Invalid Schema Mismatch Policy value");
+    return REDISMODULE_ERR;
+  }
+  return REDISMODULE_OK;
+}
+
+CONFIG_GETTER(getSchemaMismatchPolicy) {
+  return sdsnew(SchemaMismatchPolicy_ToString(config->schemaMismatchPolicy));
+}
+
 CONFIG_SETTER(setFilterCommand) {
   int acrc = AC_GetInt(ac, &config->filterCommands, AC_F_GE0);
   RETURN_STATUS(acrc);
@@ -561,6 +582,10 @@ RSConfigOptions RSGlobalConfigOptions = {
          .setValue = setUpgradeIndex,
          .getValue = getUpgradeIndex,
          .flags = RSCONFIGVAR_F_IMMUTABLE},
+        {.name = "SCHEMA_MISMATCH_POLICY",
+         .helpText = "policy when a field in a hash does not match field type in schema",
+         .setValue = setSchemaMismatchPolicy,
+         .getValue = getSchemaMismatchPolicy,},
         {.name = NULL}}};
 
 void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst) {
@@ -688,5 +713,19 @@ RSTimeoutPolicy TimeoutPolicy_Parse(const char *s, size_t n) {
     return TimeoutPolicy_Fail;
   } else {
     return TimeoutPolicy_Invalid;
+  }
+}
+
+
+static const char *SchemaMismatchPolicy_ToString(SchemaMismatchPolicy policy) {
+  switch (policy) {
+    case SchemaMismatchPolicy_Partial:
+      return "partial";
+    case SchemaMismatchPolicy_Skip:
+      return "skip";
+    case SchemaMismatchPolicy_Block:
+      return "block";
+    default:          // LCOV_EXCL_LINE cannot be reached
+      return "huh?";  // LCOV_EXCL_LINE cannot be reached
   }
 }

@@ -574,6 +574,14 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx) {
 
       PreprocessorFunc pp = preprocessorMap[ii];
       if (pp(aCtx, &doc->fields[i], fs, fdata, &aCtx->status) != 0) {
+        if (RSGlobalConfig.schemaMismatchPolicy == SchemaMismatchPolicy_Skip) {
+          ourRv = REDISMODULE_ERR;
+          goto cleanup;
+        } else if (RSGlobalConfig.schemaMismatchPolicy == SchemaMismatchPolicy_Block){
+          // TODO: fail HSET
+        }
+
+        // Our policy is SchemaMismatchPolicy_Partial
         // field failed to index. we remove the field from doc and continue
         /*
          * TODO: once we fix issue of two documents copies, we should
