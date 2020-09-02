@@ -137,18 +137,11 @@ def testDel(env):
             'PREFIX', '1', 'thing:',
             'SCHEMA', 'name', 'text')
 
-    env.expect('ft.search', 'things', 'foo') \
-       .equal([0L])
-
+    env.expect('ft.search', 'things', 'foo').equal([0L])
     conn.execute_command('hset', 'thing:bar', 'name', 'foo')
-
-    env.expect('ft.search', 'things', 'foo') \
-       .equal([1L, 'thing:bar', ['name', 'foo']])
-
+    env.expect('ft.search', 'things', 'foo').equal([1L, 'thing:bar', ['name', 'foo']])
     conn.execute_command('del', 'thing:bar')
-
-    env.expect('ft.search', 'things', 'foo') \
-       .equal([0L])
+    env.expect('ft.search', 'things', 'foo').equal([0L])
 
 def testSet(env):
     conn = getConnectionByEnv(env)
@@ -453,6 +446,7 @@ def testHDel(env):
     env = Env(moduleArgs='PARTIAL_INDEXED_DOCS 1')
 
     env.expect('FT.CREATE idx SCHEMA test1 TEXT test2 TEXT').equal('OK')
+    env.expect('FT.CREATE idx2 SCHEMA test1 TEXT test2 TEXT').equal('OK')
     env.expect('HSET doc1 test1 foo test2 bar test3 baz').equal(3)
     env.expect('FT.DEBUG docidtoid idx doc1').equal(1)
     env.expect('HDEL doc1 test1').equal(1)
@@ -460,6 +454,8 @@ def testHDel(env):
     env.expect('HDEL doc1 test3').equal(1)
     env.expect('FT.DEBUG docidtoid idx doc1').equal(2)
     env.expect('FT.SEARCH idx bar').equal([1L, 'doc1', ['test2', 'bar']])
+    env.expect('HDEL doc1 test2').equal(1)
+    env.expect('FT.SEARCH idx bar').equal([0L])
 
 def testRestore(env):
     if env.env == 'existing-env':
