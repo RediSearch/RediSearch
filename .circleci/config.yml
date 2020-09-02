@@ -32,7 +32,7 @@ commands:
 jobs:
   ubuntu:
     docker:
-      - image: redisfab/rmbuilder:6.0.6-x64-buster
+      - image: redisfab/rmbuilder:6.0.7-x64-buster
     environment:
       - BUILD_DIR: build-debian
     steps:
@@ -42,7 +42,7 @@ jobs:
 
   centos:
     docker:
-      - image: redisfab/rmbuilder:6.0.6-x64-centos7
+      - image: redisfab/rmbuilder:6.0.7-x64-centos7
     environment:
       - BUILD_DIR: build-el
     steps:
@@ -62,7 +62,7 @@ jobs:
 
   deploy_snapshots:
     docker:
-      - image: redisfab/rmbuilder:6.0.6-x64-buster
+      - image: redisfab/rmbuilder:6.0.7-x64-buster
     steps:
       - attach_workspace:
           at: ~/workspace
@@ -97,7 +97,7 @@ jobs:
 
   coverage:
     docker:
-      - image: redisfab/rmbuilder:6.0.6-x64-buster
+      - image: redisfab/rmbuilder:6.0.7-x64-buster
     steps:
       - checkout
       - run:
@@ -111,7 +111,7 @@ jobs:
 
   deploy_release:
     docker:
-      - image: redisfab/rmbuilder:6.0.6-x64-buster
+      - image: redisfab/rmbuilder:6.0.7-x64-buster
     steps:
       - attach_workspace:
           at: ~/workspace
@@ -177,7 +177,8 @@ workflows:
       - centos:
           <<: *on-any-branch
       - macos:
-          <<: *on-version-tags
+          #@@ <<: *on-version-tags
+          <<: *on-any-branch
       - debug_asan:
           <<: *on-any-branch
       - debug_msan:
