@@ -604,6 +604,7 @@ def testHsetPartialSchema(env):
     
 def testWrongFieldType(env):
     conn = getConnectionByEnv(env)
+    env.expect('FT.CONFIG', 'SET', 'SCHEMA_MISMATCH_POLICY', 'SKIP').ok()
     env.expect('FT.CREATE idx SCHEMA t TEXT n NUMERIC').ok()
     conn.execute_command('HSET', 'a', 't', 'hello', 'n', '42')
     conn.execute_command('HSET', 'b', 't', 'hello', 'n', 'world')
