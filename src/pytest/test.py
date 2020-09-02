@@ -2847,29 +2847,8 @@ def grouper(iterable, n, fillvalue=None):
 def to_dict(r):
     return {r[i]: r[i + 1] for i in range(0, len(r), 2)}
 
-def testOptimize(env):
-    env.skipOnCluster()
-    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT', 'SORTABLE')
-    env.cmd('FT.ADD', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo')
-    env.assertEqual(0, env.cmd('FT.OPTIMIZE', 'idx'))
-    with env.assertResponseError():
-        env.assertOk(env.cmd('FT.OPTIMIZE', 'idx', '666'))
-    env.expect('FT.OPTIMIZE', 'fake_idx').error()
-
 def testInfoError(env):
     env.expect('ft.info', 'no_idx').error()
-
-def testSetPayload(env):
-    env.skipOnCluster()
-    env.expect('flushall')
-    env.expect('ft.create idx ON HASH schema name text').equal('OK')
-    env.expect('ft.add idx hotel 1.0 fields name hilton').equal('OK')
-    env.expect('FT.SETPAYLOAD idx hotel payload').equal('OK')
-    env.expect('FT.SETPAYLOAD idx hotel payload').equal('OK')
-    env.expect('FT.SETPAYLOAD idx fake_hotel').error()          \
-            .contains("wrong number of arguments for 'FT.SETPAYLOAD' command")
-    env.expect('FT.SETPAYLOAD fake_idx hotel payload').error().contains('Unknown Index name')
-    env.expect('FT.SETPAYLOAD idx fake_hotel payload').error().contains('Document not in index')
 
 def testIndexNotRemovedFromCursorListAfterRecreated(env):
     env.expect('FT.CREATE idx ON HASH SCHEMA f1 TEXT').ok()

@@ -42,44 +42,6 @@ pthread_rwlock_t RWLock = PTHREAD_RWLOCK_INITIALIZER;
     sptmp;                                                                                  \
   })
 
-/* FT.SETPAYLOAD {index} {docId} {payload} */
-int SetPayloadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-
-  // nosave must be at place 4 and we must have at least 7 fields
-  if (argc != 4) {
-    return RedisModule_WrongArity(ctx);
-  }
-  RedisModule_ReplicateVerbatim(ctx);
-
-  RedisModule_AutoMemory(ctx);
-
-  IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
-  if (sp == NULL) {
-    RedisModule_ReplyWithError(ctx, "Unknown Index name");
-    goto cleanup;
-  }
-
-  /* Find the document by its key */
-  t_docId docId = DocTable_GetIdR(&sp->docs, argv[2]);
-  if (docId == 0) {
-    RedisModule_ReplyWithError(ctx, "Document not in index");
-    goto cleanup;
-  }
-
-  size_t mdlen;
-  const char *md = RedisModule_StringPtrLen(argv[3], &mdlen);
-
-  if (DocTable_SetPayload(&sp->docs, docId, md, mdlen) == 0) {
-    RedisModule_ReplyWithError(ctx, "Could not set payload ¯\\_(ツ)_/¯");
-    goto cleanup;
-  }
-
-  RedisModule_ReplyWithSimpleString(ctx, "OK");
-cleanup:
-
-  return REDISMODULE_OK;
-}
-
 /* FT.MGET {index} {key} ...
  * Get document(s) by their id.
  * Currentlt it just performs HGETALL, but it's a future proof alternative allowing us to later on
@@ -406,42 +368,6 @@ int CreateIndexIfNotExistsCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
   }
 
   return CreateIndexCommand(ctx, argv, argc);
-}
-
-/* FT.OPTIMIZE <index>
- *  After the index is built (and doesn't need to be updated again withuot a
- * complete rebuild)
- *  we can optimize memory consumption by trimming all index buffers to their
- * actual size.
- *
- *  Warning 1: This will delete score indexes for small words (n < 5000), so
- * updating the index
- * after
- *  optimizing it might lead to screwed up results (TODO: rebuild score indexes
- * if needed).
- *  The simple solution to that is to call optimize again after adding
- * documents
- * to the index.
- *
- *  Warning 2: This blocks redis for a long time. Do not run it on production
- * instances
- *
- */
-int OptimizeIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  // at least one field, and number of field/text args must be even
-  if (argc != 2) {
-    return RedisModule_WrongArity(ctx);
-  }
-
-  RedisModule_AutoMemory(ctx);
-
-  IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 0);
-  if (sp == NULL) {
-    return RedisModule_ReplyWithError(ctx, "Unknown Index name");
-  }
-
-  // DEPRECATED - we now don't do anything.  The GC optimizes the index in the background
-  return RedisModule_ReplyWithLongLong(ctx, 0);
 }
 
 /*
@@ -972,9 +898,6 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   RM_TRY(RedisModule_CreateCommand, ctx, RS_SAFEADD_CMD, RSSafeAddDocumentCommand, "write deny-oom",
          INDEX_DOC_CMD_ARGS);
 
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_SETPAYLOAD_CMD, SetPayloadCommand, "write deny-oom",
-         INDEX_DOC_CMD_ARGS);
-
   RM_TRY(RedisModule_CreateCommand, ctx, RS_DEL_CMD, DeleteCommand, "write", INDEX_DOC_CMD_ARGS);
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_SEARCH_CMD, RSSearchCommand, "readonly",
@@ -997,9 +920,6 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
          INDEX_ONLY_CMD_ARGS);
   RM_TRY(RedisModule_CreateCommand, ctx, RS_CREATE_IF_NX_CMD, CreateIndexIfNotExistsCommand,
          "write deny-oom", INDEX_ONLY_CMD_ARGS);
-
-  RM_TRY(RedisModule_CreateCommand, ctx, RS_CMD_WRITE_PREFIX ".OPTIMIZE", OptimizeIndexCommand,
-         "write deny-oom", 1, 1, 1);  // todo: depricate
 
   RM_TRY(RedisModule_CreateCommand, ctx, RS_DROP_CMD, DropIndexCommand, "write",
          INDEX_ONLY_CMD_ARGS);
