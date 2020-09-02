@@ -1840,7 +1840,7 @@ int IndexSpec_UpdateWithHash(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleSt
   Document doc = {0};
   Document_Init(&doc, key, 1.0, DEFAULT_LANGUAGE);
   // if a key does not exit, is not a hash or has no fields in index schema
-  if (Document_LoadSchemaFields(&doc, &sctx) != REDISMODULE_OK || doc.numFields == 0) {
+  if (Document_LoadSchemaFields(&doc, &sctx) != REDISMODULE_OK) {
     IndexSpec_DeleteHash(spec, ctx, key);
     Document_Free(&doc);
     return REDISMODULE_ERR;
