@@ -2850,18 +2850,6 @@ def to_dict(r):
 def testInfoError(env):
     env.expect('ft.info', 'no_idx').error()
 
-def testSetPayload(env):
-    env.skipOnCluster()
-    env.expect('flushall')
-    env.expect('ft.create idx ON HASH schema name text').equal('OK')
-    env.expect('ft.add idx hotel 1.0 fields name hilton').equal('OK')
-    env.expect('FT.SETPAYLOAD idx hotel payload').equal('OK')
-    env.expect('FT.SETPAYLOAD idx hotel payload').equal('OK')
-    env.expect('FT.SETPAYLOAD idx fake_hotel').error()          \
-            .contains("wrong number of arguments for 'FT.SETPAYLOAD' command")
-    env.expect('FT.SETPAYLOAD fake_idx hotel payload').error().contains('Unknown Index name')
-    env.expect('FT.SETPAYLOAD idx fake_hotel payload').error().contains('Document not in index')
-
 def testIndexNotRemovedFromCursorListAfterRecreated(env):
     env.expect('FT.CREATE idx ON HASH SCHEMA f1 TEXT').ok()
     env.expect('FT.AGGREGATE idx * WITHCURSOR').equal([[0], 0])
