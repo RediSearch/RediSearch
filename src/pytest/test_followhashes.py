@@ -114,24 +114,34 @@ def testPrefix3(env):
     env.expect('ft.search', 'things', 'foo') \
        .equal([1L, 'thing:bar', ['name', 'foo', 'age', '42']])
 
+def testIdxField(env):
+    conn = getConnectionByEnv(env)
+    env.cmd('ft.create', 'idx1',
+            'ON', 'HASH',
+            'FILTER', '@indexName=="idx1"',
+            'SCHEMA', 'name', 'text', 'indexName', 'text')
+    env.cmd('ft.create', 'idx2',
+            'ON', 'HASH',
+            'FILTER', '@indexName=="idx2"',
+            'SCHEMA', 'name', 'text', 'indexName', 'text')
+
+    conn.execute_command('hset', 'doc1', 'name', 'foo', 'indexName', 'idx1')
+    conn.execute_command('hset', 'doc2', 'name', 'bar', 'indexName', 'idx2')
+
+    env.expect('ft.search', 'idx1', '*').equal([1L, 'doc1', ['name', 'foo', 'indexName', 'idx1']])
+    env.expect('ft.search', 'idx2', '*').equal([1L, 'doc2', ['name', 'bar', 'indexName', 'idx2']])
+
 def testDel(env):
     conn = getConnectionByEnv(env)
     env.cmd('ft.create', 'things', 'ON', 'HASH',
             'PREFIX', '1', 'thing:',
             'SCHEMA', 'name', 'text')
 
-    env.expect('ft.search', 'things', 'foo') \
-       .equal([0L])
-
+    env.expect('ft.search', 'things', 'foo').equal([0L])
     conn.execute_command('hset', 'thing:bar', 'name', 'foo')
-
-    env.expect('ft.search', 'things', 'foo') \
-       .equal([1L, 'thing:bar', ['name', 'foo']])
-
+    env.expect('ft.search', 'things', 'foo').equal([1L, 'thing:bar', ['name', 'foo']])
     conn.execute_command('del', 'thing:bar')
-
-    env.expect('ft.search', 'things', 'foo') \
-       .equal([0L])
+    env.expect('ft.search', 'things', 'foo').equal([0L])
 
 def testSet(env):
     conn = getConnectionByEnv(env)
@@ -436,6 +446,7 @@ def testHDel(env):
     env = Env(moduleArgs='PARTIAL_INDEXED_DOCS 1')
 
     env.expect('FT.CREATE idx SCHEMA test1 TEXT test2 TEXT').equal('OK')
+    env.expect('FT.CREATE idx2 SCHEMA test1 TEXT test2 TEXT').equal('OK')
     env.expect('HSET doc1 test1 foo test2 bar test3 baz').equal(3)
     env.expect('FT.DEBUG docidtoid idx doc1').equal(1)
     env.expect('HDEL doc1 test1').equal(1)
@@ -443,6 +454,8 @@ def testHDel(env):
     env.expect('HDEL doc1 test3').equal(1)
     env.expect('FT.DEBUG docidtoid idx doc1').equal(2)
     env.expect('FT.SEARCH idx bar').equal([1L, 'doc1', ['test2', 'bar']])
+    env.expect('HDEL doc1 test2').equal(1)
+    env.expect('FT.SEARCH idx bar').equal([0L])
 
 def testRestore(env):
     if env.env == 'existing-env':
@@ -486,6 +499,56 @@ def testEvicted(env):
     res = env.cmd('FT.SEARCH idx foo limit 0 0')
     env.assertLess(res[0], 1000)
     env.assertGreater(res[0], 0)
+
+def createExpire(env, N):
+  env.flush()
+  conn = getConnectionByEnv(env)
+  env.expect('FT.CREATE idx SCHEMA txt1 TEXT n NUMERIC').ok()
+  for i in range(N):
+    conn.execute_command('HSET', 'doc%d' % i, 'txt1', 'hello%i' % i, 'n', i)
+    conn.execute_command('PEXPIRE', 'doc%d' % i, '100')
+  conn.execute_command('HSET', 'foo', 'txt1', 'hello', 'n', 0)
+  conn.execute_command('HSET', 'bar', 'txt1', 'hello', 'n', 20)
+  waitForIndex(env, 'idx')
+  env.expect('FT.SEARCH', 'idx', 'hello*', 'limit', '0', '0').noEqual([2L])
+  res = conn.execute_command('HGETALL', 'doc99')
+  if type(res) is list:
+    res = {res[i]:res[i + 1] for i in range(0, len(res), 2)}
+  env.assertEqual(res, {'txt1': 'hello99', 'n': '99'})
+  sleep(0.1)
+  res = conn.execute_command('HGETALL', 'doc99')
+  if isinstance(res, list):
+    res = {res[i]:res[i + 1] for i in range(0, len(res), 2)}
+  env.assertEqual(res, {})
+
+def testExpiredDuringSearch(env):
+  N = 100
+  createExpire(env, N)
+  res = env.cmd('FT.SEARCH', 'idx', 'hello*', 'nocontent', 'limit', '0', '200')
+  env.assertGreater(103, len(res))
+  env.assertLess(1, len(res))
+
+  createExpire(env, N)
+  res = env.cmd('FT.SEARCH', 'idx', 'hello*', 'limit', '0', '200')
+  env.assertEqual(toSortedFlatList(res[1:]), toSortedFlatList(['bar', ['txt1', 'hello', 'n', '20'], 
+                                                               'foo', ['txt1', 'hello', 'n', '0']]))
+
+def testExpiredDuringAggregate(env):
+  N = 100
+  res = [1L, ['txt1', 'hello', 'COUNT', '2']]
+  
+  createExpire(env, N)
+  _res = env.cmd('FT.AGGREGATE idx hello*')
+  env.assertGreater(len(_res), 2)
+
+  createExpire(env, N)
+  env.expect('FT.AGGREGATE idx hello* GROUPBY 1 @txt1 REDUCE count 0 AS COUNT').equal(res)
+
+  createExpire(env, N)
+  env.expect('FT.AGGREGATE idx hello* LOAD 1 @txt1 GROUPBY 1 @txt1 REDUCE count 0 AS COUNT').equal(res)
+
+  createExpire(env, N)
+  env.expect('FT.AGGREGATE idx @txt1:hello* LOAD 1 @txt1 GROUPBY 1 @txt1 REDUCE count 0 AS COUNT').equal(res)
 
 def testNoInitialScan(env):
     conn = getConnectionByEnv(env)
@@ -538,3 +601,29 @@ def testHsetPartialSchema(env):
 
     # Only 2 results received due to mismatch between schema and hash field types
     env.expect('FT.SEARCH', 'idx', 'hello').equal(res_2)
+    
+def testWrongFieldType(env):
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE idx SCHEMA t TEXT n NUMERIC').ok()
+    conn.execute_command('HSET', 'a', 't', 'hello', 'n', '42')
+    conn.execute_command('HSET', 'b', 't', 'hello', 'n', 'world')
+
+    env.expect('FT.SEARCH idx hello').equal([1L, 'a', ['t', 'hello', 'n', '42']])
+
+    res_actual = env.cmd('FT.INFO idx')
+    res_actual = {res_actual[i]: res_actual[i + 1] for i in range(0, len(res_actual), 2)}
+    env.assertEqual(str(res_actual['hash_indexing_failures']), '1')
+    
+def testDocIndexedInTwoIndexes():
+    env = Env(moduleArgs='MAXDOCTABLESIZE 50')
+    env.skipOnCluster()
+    env.expect('FT.CREATE idx1 SCHEMA t TEXT').ok()
+    env.expect('FT.CREATE idx2 SCHEMA t TEXT').ok()
+
+    for i in range(1000):
+        env.expect('HSET', 'doc%d' % i, 't', 'foo').equal(1L)
+
+    env.expect('FT.DROPINDEX idx2 DD').ok()
+    env.expect('FT.SEARCH idx1 foo').equal([0L])
+
+    env.expect('FT.DROPINDEX idx1 DD').ok()

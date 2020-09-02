@@ -250,7 +250,7 @@ static inline int UI_ReadSorted(void *ctx, RSIndexResult **hit) {
   do {
 
     // find the minimal iterator
-    t_docId minDocId = UINT32_MAX;
+    t_docId minDocId = UINT64_MAX;
     IndexIterator *minIt = NULL;
     numActive = 0;
     int rc = INDEXREAD_EOF;
@@ -1136,7 +1136,7 @@ static int OI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
 
   // Set the current ID
   nc->lastDocId = docId;
-  
+
   if (nc->lastDocId > nc->maxDocId) {
     return INDEXREAD_EOF;
   }

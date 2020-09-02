@@ -2368,10 +2368,7 @@ def testMod_309(env):
     res = env.cmd('FT.AGGREGATE', 'idx', 'foo')
     env.assertEqual(len(res), 100001)
 
-def testMod_309_with_cursor(env):
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
-    for i in range(100000):
-        env.expect('FT.ADD', 'idx', 'doc%d'%i, '1.0', 'FIELDS', 'test', 'foo').equal('OK')
+    # test with cursor
     res = env.cmd('FT.AGGREGATE', 'idx', 'foo', 'WITHCURSOR')
     l = len(res[0]) - 1 # do not count the number of results (the first element in the results)
     cursor = res[1]
@@ -2850,29 +2847,8 @@ def grouper(iterable, n, fillvalue=None):
 def to_dict(r):
     return {r[i]: r[i + 1] for i in range(0, len(r), 2)}
 
-def testOptimize(env):
-    env.skipOnCluster()
-    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT', 'SORTABLE')
-    env.cmd('FT.ADD', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo')
-    env.assertEqual(0, env.cmd('FT.OPTIMIZE', 'idx'))
-    with env.assertResponseError():
-        env.assertOk(env.cmd('FT.OPTIMIZE', 'idx', '666'))
-    env.expect('FT.OPTIMIZE', 'fake_idx').error()
-
 def testInfoError(env):
     env.expect('ft.info', 'no_idx').error()
-
-def testSetPayload(env):
-    env.skipOnCluster()
-    env.expect('flushall')
-    env.expect('ft.create idx ON HASH schema name text').equal('OK')
-    env.expect('ft.add idx hotel 1.0 fields name hilton').equal('OK')
-    env.expect('FT.SETPAYLOAD idx hotel payload').equal('OK')
-    env.expect('FT.SETPAYLOAD idx hotel payload').equal('OK')
-    env.expect('FT.SETPAYLOAD idx fake_hotel').error()          \
-            .contains("wrong number of arguments for 'FT.SETPAYLOAD' command")
-    env.expect('FT.SETPAYLOAD fake_idx hotel payload').error().contains('Unknown Index name')
-    env.expect('FT.SETPAYLOAD idx fake_hotel payload').error().contains('Document not in index')
 
 def testIndexNotRemovedFromCursorListAfterRecreated(env):
     env.expect('FT.CREATE idx ON HASH SCHEMA f1 TEXT').ok()
@@ -3167,6 +3143,18 @@ def testAliasAddIfNX(env):
 def testAliasDelIfX(env):
     env.expect('FT._ALIASDELIFX a1').ok()
 
+def testEmptyDoc(env):
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE idx SCHEMA t TEXT').ok()
+    env.expect('FT.ADD idx doc1 1 FIELDS t foo').ok()
+    env.expect('FT.ADD idx doc2 1 FIELDS t foo').ok()
+    env.expect('FT.ADD idx doc3 1 FIELDS t foo').ok()
+    env.expect('FT.ADD idx doc4 1 FIELDS t foo').ok()
+    env.expect('FT.SEARCH idx * limit 0 0').equal([4])
+    conn.execute_command('DEL', 'doc1')
+    conn.execute_command('DEL', 'doc3')
+    env.expect('FT.SEARCH idx *').equal([2L, 'doc4', ['t', 'foo'], 'doc2', ['t', 'foo']])
+
 def testInvertedIndexWasEntirelyDeletedDuringCursor():
     env = Env(moduleArgs='GC_POLICY FORK FORK_GC_CLEAN_THRESHOLD 1')
 
@@ -3193,3 +3181,10 @@ def testInvertedIndexWasEntirelyDeletedDuringCursor():
 
     env.assertEqual(res, [0L])
     env.assertEqual(cursor, 0)
+
+def testNegativeOnly(env):
+    env.expect('FT.CREATE idx SCHEMA t TEXT').ok()
+    env.expect('HSET doc1 not foo').equal(1)
+
+    env.expect('FT.SEARCH idx *').equal([1L, 'doc1', ['not', 'foo']])
+    env.expect('FT.SEARCH', 'idx', '-bar').equal([1L, 'doc1', ['not', 'foo']])

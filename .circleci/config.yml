@@ -32,19 +32,23 @@ commands:
 jobs:
   ubuntu:
     docker:
-      - image: redisfab/rmbuilder:6.0.1-x64-buster
+      - image: redisfab/rmbuilder:6.0.6-x64-buster
     environment:
       - BUILD_DIR: build-debian
     steps:
       - ci_steps
+      - store_artifacts:
+          path: build-debian/logs
 
   centos:
     docker:
-      - image: redisfab/rmbuilder:6.0.1-x64-centos7
+      - image: redisfab/rmbuilder:6.0.6-x64-centos7
     environment:
       - BUILD_DIR: build-el
     steps:
       - ci_steps
+      - store_artifacts:
+          path: build-el/logs
 
   macos:
     macos:
@@ -53,10 +57,12 @@ jobs:
       - BUILD_DIR: build-macos
     steps:
       - ci_steps
+      - store_artifacts:
+          path: build-macos/logs
 
   deploy_snapshots:
     docker:
-      - image: redisfab/rmbuilder:6.0.1-x64-buster
+      - image: redisfab/rmbuilder:6.0.6-x64-buster
     steps:
       - attach_workspace:
           at: ~/workspace
@@ -75,6 +81,8 @@ jobs:
       - run:
           name: Run & build tests
           command: ASAN=1 ./.circleci/ci_diag_san.sh
+      - store_artifacts:
+          path: build-asan/logs
 
   debug_msan:
     docker:
@@ -84,10 +92,12 @@ jobs:
       - run:
           name: Run & build tests
           command: MSAN=1 ./.circleci/ci_diag_san.sh
+      - store_artifacts:
+          path: build-msan/logs
 
   coverage:
     docker:
-      - image: redisfab/rmbuilder:6.0.1-x64-buster
+      - image: redisfab/rmbuilder:6.0.6-x64-buster
     steps:
       - checkout
       - run:
@@ -96,10 +106,12 @@ jobs:
       - store_artifacts:
           path: coverage
           destination: coverage
+      - store_artifacts:
+          path: build-coverage/logs
 
   deploy_release:
     docker:
-      - image: redisfab/rmbuilder:6.0.1-x64-buster
+      - image: redisfab/rmbuilder:6.0.6-x64-buster
     steps:
       - attach_workspace:
           at: ~/workspace
