@@ -94,7 +94,11 @@ FT.CREATE idx ON HASH PREFIX 1 doc: SCHEMA name TEXT SORTABLE age NUMERIC SORTAB
 * **NOOFFSETS**: If set, we do not store term offsets for documents (saves memory, does not
   allow exact searches or highlighting). Implies `NOHL`.
 
-* **TEMPORARY**: Create a lightweight temporary index which will expire after the specified period of inactivity. The internal idle timer is reset whenever the index is searched or added to. Because such indexes are lightweight, you can create thousands of such indexes without negative performance implications and therefore you should consider using `NOINITIALSCAN` to avoid costly scanning. When dropped, a temporary index does not delete the hashes as they may have been indexed in several indexes. Adding the `DD` flag will delete the hashes as well.
+* **TEMPORARY**: Create a lightweight temporary index which will expire after the specified period of inactivity. The internal idle timer is reset whenever the index is searched or added to. Because such indexes are lightweight, you can create thousands of such indexes without negative performance implications and therefore you should consider using `NOINITIALSCAN` to avoid costly scanning. 
+
+!!! warning "Note about deleting a temporary index"
+
+      When dropped, a temporary index does not delete the hashes as they may have been indexed in several indexes. Adding the `DD` flag will delete the hashes as well.
 
 * **NOHL**: Conserves storage space and memory by disabling highlighting support. If set, we do
   not store corresponding byte offsets for term positions. `NOHL` is also implied by `NOOFFSETS`.
