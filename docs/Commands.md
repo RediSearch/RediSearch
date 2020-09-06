@@ -22,23 +22,20 @@
 Creates an index with the given spec.
 
 !!! warning "Note on field number limits"
-        
-        RediSearch supports up to 1024 fields per schema, out of which at most 128 can be TEXT fields.
-    
-        On 32 bit builds, at most 64 fields can be TEXT fields.
-    
-        Note that the more fields you have, the larger your index will be, as each additional 8 fields require one extra byte per index record to encode.
-    
-        You can always use the `NOFIELDS` option and not encode field information into the index, for saving space, if you do not need filtering by text fields. This will still allow filtering by numeric and geo fields.
+    RediSearch supports up to 1024 fields per schema, out of which at most 128 can be TEXT fields.
+    On 32 bit builds, at most 64 fields can be TEXT fields.
+    Note that the more fields you have, the larger your index will be, as each additional 8 fields require one extra byte per index record to encode.
+    You can always use the `NOFIELDS` option and not encode field information into the index, for saving space, if you do not need filtering by text fields. This will still allow filtering by numeric and geo fields.
 
 !!! info "Note on running in clustered databases"
-        
-        When having several indices in a clustered database, you need to tag the index key and the document key to ensure they reside on the same shard.
-        ```sql
-        FT.CREATE {idx} ... PREFIX 1 doc: ...
-        HSET {idx} doc:1{idx} ...
-        ```
-        When Running RediSearch in clustered database, there is the ability to span the index across shards.  In this case the above does not apply.
+    When having several indices in a clustered database, you need to tag the index key and the document key to ensure they reside on the same shard.
+    
+    ```sql
+    FT.CREATE {idx} ... PREFIX 1 doc: ...
+    HSET {idx} doc:1{idx} ...
+    ```
+    
+    When Running RediSearch in clustered database, there is the ability to span the index across shards. In this case the above does not apply.
 
 #### Example
 ```sql
@@ -57,17 +54,19 @@ FT.CREATE idx ON HASH PREFIX 1 doc: SCHEMA name TEXT SORTABLE age NUMERIC SORTAB
 
 * **LANGUAGE {default_lang}**: If set indicates the default language for documents in the index. Default to English.
 * **LANGUAGE_FIELD {lang_field}**: If set indicates the document field that should be used as the document language.
-  A stemmer is used for the supplied language during indexing.
-  If an unsupported language is sent, the command returns an error. 
-  The supported languages are:
+
+!!! info "Supported languages"
+    A stemmer is used for the supplied language during indexing.
+    If an unsupported language is sent, the command returns an error. 
+    The supported languages are:
 
     > "arabic",  "danish",    "dutch",   "english",   "finnish",    "french",
     > "german",  "hungarian", "italian", "norwegian", "portuguese", "romanian",
     > "russian", "spanish",   "swedish", "tamil",     "turkish"
     > "chinese"
 
-  If indexing a Chinese language document, you must set the language to `chinese`
-  in order for Chinese characters to be tokenized properly.
+    If indexing a Chinese language document, you must set the language to `chinese`
+    in order for Chinese characters to be tokenized properly.
 
   #### Adding Chinese Documents
 
@@ -97,8 +96,7 @@ FT.CREATE idx ON HASH PREFIX 1 doc: SCHEMA name TEXT SORTABLE age NUMERIC SORTAB
 * **TEMPORARY**: Create a lightweight temporary index which will expire after the specified period of inactivity. The internal idle timer is reset whenever the index is searched or added to. Because such indexes are lightweight, you can create thousands of such indexes without negative performance implications and therefore you should consider using `NOINITIALSCAN` to avoid costly scanning. 
 
 !!! warning "Note about deleting a temporary index"
-
-      When dropped, a temporary index does not delete the hashes as they may have been indexed in several indexes. Adding the `DD` flag will delete the hashes as well.
+    When dropped, a temporary index does not delete the hashes as they may have been indexed in several indexes. Adding the `DD` flag will delete the hashes as well.
 
 * **NOHL**: Conserves storage space and memory by disabling highlighting support. If set, we do
   not store corresponding byte offsets for term positions. `NOHL` is also implied by `NOOFFSETS`.
@@ -192,12 +190,13 @@ If a field fails to be indexed (for example, if a numeric fields gets a string v
 
 Beware - enabling this feature will slow the whole server by a few points. Only use if hashes are updated often in fields that are not in schema.
 
-If a value in a hash does not match the schema type for that field, indexing of the hash will fail. The number of 'failed' document is under `hash_indexing_failures` at `FT.INFO`.
-
-Complete list of redis commands which might modify the index:
-  HSET, HMSET, HSETNX, HINCRBY, HINCRBYFLOAT, HDEL, DEL, SET, RENAME_FROM, RENAME_TO, TRIMMED, RESTORE, EXPIRED, EVICTED, CHANGE, LOADED
-
 If `LANGUAGE_FIELD`, `SCORE_FIELD`, or `PAYLOAD_FIELD` were used with `FT.CREATE`, the document will extract the properties. A field can be used to get the name of the index it belongs to.
+
+!!! warning "Schema mismatch"
+    If a value in a hash does not match the schema type for that field, indexing of the hash will fail. The number of 'failed' document is under `hash_indexing_failures` at `FT.INFO`.
+
+!!! info "Complete list of redis commands which might modify the index:"
+    HSET, HMSET, HSETNX, HINCRBY, HINCRBYFLOAT, HDEL, DEL, SET, RENAME_FROM, RENAME_TO, TRIMMED, RESTORE, EXPIRED, EVICTED, CHANGE, LOADED
 
 #### Example
 ```sql
@@ -399,7 +398,7 @@ FT.SEARCH idx "@text:morphix=>{$phonetic:false}"
 - **index**: The index name. The index must be first created with `FT.CREATE`.
 - **query**: the text query to search. If it's more than a single word, put it in quotes.
   Refer to [query syntax](Query_Syntax.md) for more details. 
-  
+
 - **NOCONTENT**: If it appears after the query, we only return the document ids and not 
   the content. This is useful if RediSearch is only an index on an external document collection
 - **VERBATIM**: if set, we do not try to use stemming for query expansion but search the query terms 
@@ -412,7 +411,7 @@ FT.SEARCH idx "@text:morphix=>{$phonetic:false}"
 - **WITHSORTKEYS**: Only relevant in conjunction with **SORTBY**. Returns the value of the sorting key,
   right after the id and score and /or payload if requested. This is usually not needed by users, and 
   exists for distributed search coordination purposes.
-  
+
 - **FILTER numeric_field min max**: If set, and numeric_field is defined as a numeric field in 
   FT.CREATE, we will limit results to those having numeric values ranging between min and max.
   min and max follow ZRANGE syntax, and can be **-inf**, **+inf** and use `(` for exclusive ranges. 
@@ -425,10 +424,10 @@ FT.SEARCH idx "@text:morphix=>{$phonetic:false}"
   the first argument must be the length of the list, and greater than zero.
   Non-existent keys are ignored - unless all the keys are non-existent.
 - **INFIELDS {num} {field} ...**: If set, filter the results to ones appearing only in specific
-  fields of the document, like title or URL. num is the number of specified field arguments  
-  
+  fields of the document, like title or URL. num is the number of specified field arguments
+
 - **RETURN {num} {field} ...**: Use this keyword to limit which fields from the document are returned.
-  `num` is the number of fields following the keyword. If `num` is 0, it acts like `NOCONTENT`.  
+  `num` is the number of fields following the keyword. If `num` is 0, it acts like `NOCONTENT`.
 - **SUMMARIZE ...**: Use this option to return only the sections of the field which contain the 
   matched text.
   See [Highlighting](Highlight.md) for more details
@@ -455,8 +454,9 @@ FT.SEARCH idx "@text:morphix=>{$phonetic:false}"
   are ordered by the value of this field. This applies to both text and numeric fields.
 - **LIMIT first num**: If the parameters appear after the query, we limit the results to 
   the offset and number of results given. The default is 0 10.
-  Note that you can use `LIMIT 0 0` to count the number of documents in
-  the resultset without actually returning them.
+
+!!! note
+    `LIMIT 0 0` can be used to count the number of documents in the resultset without actually returning them.
 
 ### Complexity
 
@@ -472,7 +472,8 @@ If **NOCONTENT** was given, we return an array where the first element is the to
 
 In some rare cases, result count might not equal the number of documents. This may happen if a docement has expired since the query was initiated.
 
-**Note** - If a hash expiry time is reached after the start of the query process, the hash will be counted in the total number of results but name and content of the hash would not be returned.
+!!! note "Expiration of hashes during a search query" 
+    If a hash expiry time is reached after the start of the query process, the hash will be counted in the total number of results but name and content of the hash would not be returned.
 
 ---
 
@@ -481,7 +482,7 @@ In some rare cases, result count might not equal the number of documents. This m
 ### Format
 
 ```
-FT.AGGREGATE  {index_name}
+FT.AGGREGATE {index_name}
   {query_string}
   [VERBATIM]
   [LOAD {nargs} {property} ...]
@@ -664,7 +665,8 @@ O(1)
 
 String Response. A string representing the execution plan (see above example). 
 
-**Note**: You should use `redis-cli --raw` to properly read line-breaks in the returned response.
+!!! tip 
+    You should use `redis-cli --raw` to properly read line-breaks in the returned response.
 
 ---
 
@@ -780,12 +782,9 @@ Returns the distinct tags indexed in a [Tag field](Tags.md).
 This is useful if your tag field indexes things like cities, categories, etc.
 
 !!! warning "Limitations"
-
-      There is no paging or sorting, the tags are not alphabetically sorted. 
-    
-      This command only operates on [Tag fields](Tags.md).  
-    
-      The strings return lower-cased and stripped of whitespaces, but otherwise unchanged.
+    There is no paging or sorting, the tags are not alphabetically sorted. 
+    This command only operates on [Tag fields](Tags.md).
+    The strings return lower-cased and stripped of whitespaces, but otherwise unchanged.
       
 ### Example
 ```sql
@@ -1144,7 +1143,8 @@ FT.ADD {index} {docId} {score}
 
 ### Description
 
-!!! warning "This command is deprecated and act as simpe redis HSET, the document created will be indexed only if it matches one or some indexes definitions (as defined on [ft.create](Commands.md#ftcreate))", Use HSET instead.
+!!! warning "Deprecation warning"
+    This command is deprecated and act as simpe redis HSET, the document created will be indexed only if it matches one or some indexes definitions (as defined on [ft.create](Commands.md#ftcreate)), Use HSET instead.
 
 Adds a document to the index.
 
@@ -1160,10 +1160,8 @@ FT.ADD idx doc1 1.0 FIELDS title "hello world"
 - **docId**: The document's id that will be returned from searches. 
 
 !!! note "Notes on docId"
-
-        The same docId cannot be added twice to the same index.
-    
-        The same docId can be added to multiple indices, but a single document with that docId is saved in the database.
+    The same docId cannot be added twice to the same index.
+    The same docId can be added to multiple indices, but a single document with that docId is saved in the database.
 
 - **score**: The document's rank based on the user's ranking. This must be between 0.0 and 1.0. 
   On v2.0 this will be translated to a '__score' field in the created hash.
@@ -1180,7 +1178,7 @@ FT.ADD idx doc1 1.0 FIELDS title "hello world"
   and reindexed if it already exists. If the document does not exist, an error
   will be returned.
 
-- **FIELDS**: Following the FIELDS specifier, we are looking for pairs of  `{field} {value}` to be
+- **FIELDS**: Following the FIELDS specifier, we are looking for pairs of `{field} {value}` to be
   indexed. Each field will be scored based on the index spec given in `FT.CREATE`. 
   Passing fields that are not in the index spec will make them be stored as part of the document,
   or ignored if NOSAVE is set 
@@ -1232,20 +1230,15 @@ OK on success, or an error if something went wrong.
 A special status `NOADD` is returned if an `IF` condition evaluated to false.
 
 !!! warning "FT.ADD with REPLACE and PARTIAL"
-        
-        By default, FT.ADD does not allow updating the document, and will fail if it already exists in the index.
-    
-        However, updating the document is possible with the REPLACE and REPLACE PARTIAL options.
-    
-        **REPLACE**: On its own, sets the document to the new values, and reindexes it. Any fields not given will not be loaded from the current version of the document.
-    
-        **REPLACE PARTIAL**: When both arguments are used, we can update just part of the document fields, and the rest will be loaded before reindexing. Not only that, but if only the score, payload and non-indexed fields (using NOINDEX) are updated, we will not actually reindex the document, just update its metadata internally, which is a lot faster and does not create index garbage.
+    By default, FT.ADD does not allow updating the document, and will fail if it already exists in the index.
+    However, updating the document is possible with the REPLACE and REPLACE PARTIAL options.
+    **REPLACE**: On its own, sets the document to the new values, and reindexes it. Any fields not given will not be loaded from the current version of the document.
+    **REPLACE PARTIAL**: When both arguments are used, we can update just part of the document fields, and the rest will be loaded before reindexing. Not only that, but if only the score, payload and non-indexed fields (using NOINDEX) are updated, we will not actually reindex the document, just update its metadata internally, which is a lot faster and does not create index garbage.
 
 ---
 
-### Warning!!!
-
-FT.ADD will actually create a hash in Redis with the given fields and value. This means that if the hash already exists, it will override with the new values.
+!!! warning "Overwriting other keys"
+    FT.ADD will actually create a hash in Redis with the given fields and value. This means that if the hash already exists, it will override with the new values.
 
 ---
 
@@ -1259,7 +1252,8 @@ FT.DEL {index} {doc_id} [DD]
 
 ### Description
 
-!!! warning "This command is deprecated and act as simpe redis DEL, the deleted document will be deleted from all the indexes it indexed on", Use DEL instead.
+!!! warning "Deprecation warning"
+    This command is deprecated and act as simpe redis DEL, the deleted document will be deleted from all the indexes it indexed on", Use DEL instead.
 
 Deletes a document from the index. Returns 1 if the document was in the index, or 0 if not. 
 
@@ -1298,7 +1292,8 @@ FT.DROP {index} [KEEPDOCS]
 
 ### Description
 
-!!! warning "This command is deprecated", use FT.DROPINDEX instead
+!!! warning "Deprecation warning"
+    This command is deprecated, use FT.DROPINDEX instead.
 
 Deletes the index and all the keys associated with it. 
 
@@ -1333,7 +1328,8 @@ FT.GET {index} {doc id}
 
 ### Description
 
-!!! warning "This command is deprecated". Use HGETALL instead.
+!!! warning "Deprecation warning"
+    This command is deprecated. Use HGETALL instead.
 
 Returns content of a document as inserted without attribute fields (score/language/payload).
 
@@ -1365,7 +1361,8 @@ FT.MGET {index} {docId} ...
 
 ### Description
 
-!!! warning "This command is deprecated". Use HGETALL instead.
+!!! warning "Deprecation warning"
+    This command is deprecated. Use HGETALL instead.
 
 Returns content of a document as inserted without attribute fields (score/language/payload).
 
@@ -1389,13 +1386,14 @@ FT.MGET idx doc1 doc2
 
 ### Returns
 
-Array Reply: An array with exactly the same number of elements as the number of keys sent to the command.  Each element in it is either an array representing the document or Null if it was not found.
+Array Reply: An array with exactly the same number of elements as the number of keys sent to the command. Each element in it is either an array representing the document or Null if it was not found.
 
 ---
 
 ## FT.SYNADD
 
-!!! warning "This command is not longer supported on versions 2.0 and above, use FT.SYNUPDATE directly."
+!!! warning "Deprecation warning"
+    This command is not longer supported on versions 2.0 and above, use FT.SYNUPDATE directly.
 
 ### Format
 
