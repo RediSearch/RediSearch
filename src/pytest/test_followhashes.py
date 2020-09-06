@@ -573,15 +573,15 @@ def testNoInitialScan(env):
 
 def testHsetPartialSchema(env):
     env.skipOnCluster()
-    res_2 = [2L, 'd', ['t', 'hello', 'n', '43'], 'b', ['t', 'hello', 'n', '43']]
-    res_4 = [4L, 'd', ['t', 'hello', 'n', '43'], 'c', ['t', 'hello', 'n', 'world'],
-                 'b', ['t', 'hello', 'n', '43'], 'a', ['t', 'hello', 'n', 'world']]
+    res_2 = [2L, 'd', ['n', '43', 't', 'hello'], 'b', ['n', '43', 't', 'hello']]
+    res_4 = [4L, 'd', ['n', '43', 't', 'hello'], 'c', ['n', 'world', 't', 'hello'],
+                 'b', ['n', '43', 't', 'hello'], 'a', ['n', 'world', 't', 'hello']]
 
     env.expect('FT.CREATE idx SCHEMA t TEXT n NUMERIC').ok()
     env.expect('HSET', 'a', 't', 'hello', 'n', 'world').equal(2)
     env.expect('HSET', 'b', 't', 'hello', 'n', '43').equal(2)
-    env.expect('HSET', 'c', 't', 'hello', 'n', 'world').equal(2)
-    env.expect('HSET', 'd', 't', 'hello', 'n', '43').equal(2)
+    env.expect('HSET', 'c', 'n', 'world', 't', 'hello').equal(2)
+    env.expect('HSET', 'd', 'n', '43'   , 't', 'hello').equal(2)
     env.expect('FT.SEARCH', 'idx', 'hello').equal(res_4)
     env.expect('FT.SEARCH', 'idx', '@n:[1 100]').equal(res_2)
     # System indexed string as `0` prior to the fix of removing problematic fields
@@ -596,8 +596,8 @@ def testHsetPartialSchema(env):
     env.expect('FT.CREATE idx SCHEMA t TEXT n NUMERIC').ok()
     env.expect('HSET', 'a', 't', 'hello', 'n', 'world').equal(2)
     env.expect('HSET', 'b', 't', 'hello', 'n', '43').equal(2)
-    env.expect('HSET', 'c', 't', 'hello', 'n', 'world').equal(2)
-    env.expect('HSET', 'd', 't', 'hello', 'n', '43').equal(2)
+    env.expect('HSET', 'c', 'n', 'world', 't', 'hello').equal(2)
+    env.expect('HSET', 'd', 'n', '43'   , 't', 'hello').equal(2)
 
     # Only 2 results received due to mismatch between schema and hash field types
     env.expect('FT.SEARCH', 'idx', 'hello').equal(res_2)

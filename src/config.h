@@ -176,7 +176,7 @@ sds RSConfig_GetInfoString(const RSConfig *config);
     .forkGcSleepBeforeExit = 0, .maxResultsToUnsortedMode = DEFAULT_MAX_RESULTS_TO_UNSORTED_MODE, \
     .forkGcRetryInterval = 5, .forkGcCleanThreshold = 100, .noMemPool = 0, .filterCommands = 0,   \
     .maxSearchResults = SEARCH_REQUEST_RESULTS_MAX,                                               \
-     .schemaMismatchPolicy = SchemaMismatchPolicy_Partial,                                   \
+    .schemaMismatchPolicy = SchemaMismatchPolicy_Partial,                                         \
   }
 
 #endif
