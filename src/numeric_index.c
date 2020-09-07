@@ -33,6 +33,13 @@ static inline int NumericRange_Contained(NumericRange *n, double min, double max
   return rc;
 }
 
+/* Free Numeric range */
+static void NumericRange_Free(NumericRange *range) {
+  InvertedIndex_Free(range->entries);
+  array_free(range->values);
+  rm_free(range);
+}
+
 /* Returns 1 if min and max are both inside the range. this is the opposite of _Within */
 static inline int NumericRange_Contains(NumericRange *n, double min, double max) {
   if (!n) return 0;
@@ -50,7 +57,6 @@ int NumericRange_Overlaps(NumericRange *n, double min, double max) {
 }
 
 size_t NumericRange_Add(NumericRange *n, t_docId docId, double value, int checkCard) {
-
   int add = 0;
   if (checkCard) {
     add = 1;
@@ -79,7 +85,6 @@ size_t NumericRange_Add(NumericRange *n, t_docId docId, double value, int checkC
 }
 
 double NumericRange_Split(NumericRange *n, NumericRangeNode **lp, NumericRangeNode **rp) {
-
   double split = (n->unique_sum) / (double)n->card;
 
   // printf("split point :%f\n", split);
@@ -146,9 +151,7 @@ NRN_AddRv NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value)
       // we are too deep - we don't retain this node's range anymore.
       // this keeps memory footprint in check
       if (++n->maxDepth > NR_MAX_DEPTH && n->range) {
-        InvertedIndex_Free(n->range->entries);
-        array_free(n->range->values);
-        rm_free(n->range);
+        NumericRange_Free(n->range);
         n->range = NULL;
       }
 
@@ -185,9 +188,11 @@ NRN_AddRv NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value)
 
     // split this node but don't delete its range
     double split = NumericRange_Split(n->range, &n->left, &n->right);
+    // children hold all data. range of parent can be removed
+    NumericRange_Free(n->range);
+    n->range = NULL;
 
     n->value = split;
-
     n->maxDepth = 1;
     rv.changed = 1;
   }
@@ -245,9 +250,7 @@ Vector *NumericRangeNode_FindRange(NumericRangeNode *n, double min, double max) 
 void NumericRangeNode_Free(NumericRangeNode *n) {
   if (!n) return;
   if (n->range) {
-    InvertedIndex_Free(n->range->entries);
-    array_free(n->range->values);
-    rm_free(n->range);
+    NumericRange_Free(n->range);
     n->range = NULL;
   }
 

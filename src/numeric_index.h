@@ -88,7 +88,7 @@ struct indexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const Numeri
  * No deduplication is done */
 size_t NumericRange_Add(NumericRange *r, t_docId docId, double value, int checkCard);
 
-/* Split n into two ranges, lp for left, and rp for right. We split by the median score */
+/* Split n into two ranges, lp for left, and rp for right. We split by an average (??) score */
 double NumericRange_Split(NumericRange *n, NumericRangeNode **lp, NumericRangeNode **rp);
 
 /* Create a new range node with the given capacity, minimum and maximum values */
