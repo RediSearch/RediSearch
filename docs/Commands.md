@@ -466,9 +466,7 @@ The time complexity for more complex queries varies, but in general it's proport
 
 If **NOCONTENT** was given, we return an array where the first element is the total number of results, and the rest of the members are document ids.
 
-In some rare cases, result count might not equal the number of documents. This may happen if a docement has expired since the query was initiated.
-
-**Note** - If a hash expiry time is reached after the start of the query process, the hash will be counted in the total number of results but name and content of the hash would not be returned.
+**Note** - If a hash expiry time is reached after the start of the query process, the hash will be counted in the total number of results but won't appear in the result set
 
 ---
 
