@@ -33,6 +33,7 @@ def test_1502(env):
   
   env.expect('FT.ALTER idx1 SKIPINITIALSCAN SCHEMA ADD bar TEXT').ok()
   env.expect('FT.ALTER idx2 SCHEMA ADD bar TEXT').ok()
+  waitForIndex(env, 'idx2')
 
   env.expect('ft.search idx1 *').equal([0L]) 
   env.expect('ft.search idx2 *').equal([1L, 'a', ['bar', 'hello']]) 
