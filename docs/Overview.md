@@ -137,7 +137,7 @@ The main differences between tag fields and full-text fields are:
 
 ### Geo index
 
-Geo indexes utilize Redis' own geo-indexing capabilities. In query time, the geographical part of the query (a radius filter) is sent to Redis, returning only the ids of documents that are within that radius. 
+Geo indexes utilize Redis' own geo-indexing capabilities. In query time, the geographical part of the query (a radius filter) is sent to Redis, returning only the ids of documents that are within that radius. Longitude and latitude should be passed as one string `lon,lat`. For example, `1.23,4.56`.
 
 ### Auto-complete
 
