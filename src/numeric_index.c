@@ -19,6 +19,12 @@ typedef struct {
   uint32_t lastRevId;
 } NumericUnionCtx;
 
+static void swapNumericRange(NumericRange **r1, NumericRange **r2) {
+  NumericRange *temp = *r1;
+  *r1 = *r2;
+  *r2 = temp;
+}
+
 /* A callback called after a concurrent context regains execution context. When this happen we need
  * to make sure the key hasn't been deleted or its structure changed, which will render the
  * underlying iterators invalid */
@@ -132,14 +138,6 @@ NumericRangeNode *NewLeafNode(size_t cap, double min, double max, size_t splitCa
 NRN_AddRv NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value) {
   NRN_AddRv rv = {.sz = 0, .changed = 0};
   if (!NumericRangeNode_IsLeaf(n)) {
-    // if this node has already split but retains a range, just add to the range without checking
-    // anything
-    if (n->range) {
-      // Not leaf so should not add??
-      /* sz += */ NumericRange_Add(n->range, docId, value, 0);
-      // should continue after??
-    }
-
     // recursively add to its left or right child.
     NumericRangeNode **childP = value < n->value ? &n->left : &n->right;
     NumericRangeNode *child = *childP;
@@ -147,19 +145,14 @@ NRN_AddRv NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value)
     rv = NumericRangeNode_Add(child, docId, value);
 
     if (rv.changed) {
-      // if there was a split it means our max depth has increased.
-      // we are too deep - we don't retain this node's range anymore.
-      // this keeps memory footprint in check
-      if (++n->maxDepth > NR_MAX_DEPTH && n->range) {
-        NumericRange_Free(n->range);
-        n->range = NULL;
-      }
+      ++n->maxDepth;
 
       // check if we need to rebalance the child.
       // To ease the rebalance we don't rebalance the root
       // nor do we rebalance nodes that are with ranges (n->maxDepth > NR_MAX_DEPTH)
       if ((child->right->maxDepth - child->left->maxDepth) > NR_MAX_DEPTH) {  // role to the left
         NumericRangeNode *right = child->right;
+        swapNumericRange(&right->range, &child->range);
         child->right = right->left;
         right->left = child;
         --child->maxDepth;
@@ -167,6 +160,7 @@ NRN_AddRv NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value)
       } else if ((child->left->maxDepth - child->right->maxDepth) >
                  NR_MAX_DEPTH) {  // role to the right
         NumericRangeNode *left = child->left;
+        swapNumericRange(&left->range, &child->range);
         child->left = left->right;
         left->right = child;
         --child->maxDepth;
@@ -604,7 +598,6 @@ static void numericIndex_rdbSaveCallback(NumericRangeNode *n, void *ctx) {
   }
 }
 void NumericIndexType_RdbSave(RedisModuleIO *rdb, void *value) {
-
   NumericRangeTree *t = value;
   struct niRdbSaveCtx ctx = {rdb};
 

@@ -954,6 +954,7 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc, RedisModuleCtx *rctx) {
     }
 
     applyNumIdx(gc, sctx, &ninfo);
+    rt->numEntries -= ninfo.info.ndocsCollected;
 
   loop_cleanup:
     if (sctx) {
