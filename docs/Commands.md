@@ -13,7 +13,7 @@
        [SCORE {default_score}]
        [SCORE_FIELD {score_field}]
        [PAYLOAD_FIELD {payload_field}]
-    [MAXTEXTFIELDS] [TEMPORARY {seconds}] [NOOFFSETS] [NOHL] [NOFIELDS] [NOFREQS] [NOINITIALSCAN]
+    [MAXTEXTFIELDS] [TEMPORARY {seconds}] [NOOFFSETS] [NOHL] [NOFIELDS] [NOFREQS] [SKIPINITIALSCAN]
     [STOPWORDS {num} {stopword} ...]
     SCHEMA {field} [TEXT [NOSTEM] [WEIGHT {weight}] [PHONETIC {matcher}] | NUMERIC | GEO | TAG [SEPARATOR {sep}] ] [SORTABLE][NOINDEX] ...
 ```
@@ -94,7 +94,7 @@ FT.CREATE idx ON HASH PREFIX 1 doc: SCHEMA name TEXT SORTABLE age NUMERIC SORTAB
 * **NOOFFSETS**: If set, we do not store term offsets for documents (saves memory, does not
   allow exact searches or highlighting). Implies `NOHL`.
 
-* **TEMPORARY**: Create a lightweight temporary index which will expire after the specified period of inactivity. The internal idle timer is reset whenever the index is searched or added to. Because such indexes are lightweight, you can create thousands of such indexes without negative performance implications and therefore you should consider using `NOINITIALSCAN` to avoid costly scanning.
+* **TEMPORARY**: Create a lightweight temporary index which will expire after the specified period of inactivity. The internal idle timer is reset whenever the index is searched or added to. Because such indexes are lightweight, you can create thousands of such indexes without negative performance implications and therefore you should consider using `SKIPINITIALSCAN` to avoid costly scanning.
 
 * **NOHL**: Conserves storage space and memory by disabling highlighting support. If set, we do
   not store corresponding byte offsets for term positions. `NOHL` is also implied by `NOOFFSETS`.
@@ -114,7 +114,7 @@ FT.CREATE idx ON HASH PREFIX 1 doc: SCHEMA name TEXT SORTABLE age NUMERIC SORTAB
 
     If **{num}** is set to 0, the index will not have stopwords.
 
-* **NOINITIALSCAN**: If set, we do not scan and index. 
+* **SKIPINITIALSCAN**: If set, we do not scan and index. 
 
 * **SCHEMA {field} {options...}**: After the SCHEMA keyword we define the index fields. They
   can be numeric, textual or geographical. For textual fields we optionally specify a weight.
