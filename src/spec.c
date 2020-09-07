@@ -490,9 +490,10 @@ reset:
   return 0;
 }
 
-int IndexSpec_AddFields(IndexSpec *sp, RedisModuleCtx *ctx, ArgsCursor *ac, QueryError *status) {
+int IndexSpec_AddFields(IndexSpec *sp, RedisModuleCtx *ctx, ArgsCursor *ac,
+                                       bool initialScan, QueryError *status) {
   int rc = IndexSpec_AddFieldsInternal(sp, ac, status, 0);
-  if (rc) {
+  if (rc && initialScan) {
     IndexSpec_ScanAndReindex(ctx, sp);
   }
   return rc;

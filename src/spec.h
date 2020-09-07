@@ -387,7 +387,8 @@ void IndexesScanner_Cancel(struct IndexesScanner *scanner, bool still_in_progres
 int IndexSpec_CreateTextId(const IndexSpec *sp);
 
 /* Add fields to a redis schema */
-int IndexSpec_AddFields(IndexSpec *sp, RedisModuleCtx *ctx, ArgsCursor *ac, QueryError *status);
+int IndexSpec_AddFields(IndexSpec *sp, RedisModuleCtx *ctx, ArgsCursor *ac,
+                                       bool initialScan, QueryError *status);
 
 void FieldSpec_Initialize(FieldSpec *sp, FieldType types);
 
