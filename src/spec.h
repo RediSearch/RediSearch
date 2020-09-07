@@ -48,7 +48,7 @@ struct DocumentIndexer;
 #define SPEC_SEPARATOR_STR "SEPARATOR"
 #define SPEC_MULTITYPE_STR "MULTITYPE"
 #define SPEC_ASYNC_STR "ASYNC"
-#define SPEC_NOINITIALSCAN_STR "NOINITIALSCAN"
+#define SPEC_SKIPINITIALSCAN_STR "SKIPINITIALSCAN"
 
 #define SPEC_FOLLOW_HASH_ARGS_DEF(rule)                                     \
   {.name = "PREFIX", .target = &rule_prefixes, .type = AC_ARGTYPE_SUBARGS}, \
@@ -135,7 +135,7 @@ typedef enum {
   // If any of the fields has phonetics. This is just a cache for quick lookup
   Index_HasPhonetic = 0x400,
   Index_Async = 0x800,
-  Index_NoInitialScan = 0x1000,
+  Index_SkipInitialScan = 0x1000,
 } IndexFlags;
 
 // redis version (its here because most file include it with no problem,
