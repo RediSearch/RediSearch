@@ -341,14 +341,8 @@ ENCODER(encodeNumeric) {
   } else {
     // Floating point
     NumEncodingFloat *encFloat = &header.encFloat;
-    if (fabs(absVal - f32Num) < 0.01) {
-      sz += Buffer_Write(bw, (void *)&f32Num, 4);
-      encFloat->isDouble = 0;
-    } else {
-      sz += Buffer_Write(bw, (void *)&absVal, 8);
-      encFloat->isDouble = 1;
-    }
-
+    sz += Buffer_Write(bw, (void *)&absVal, 8);
+    encFloat->isDouble = 1;
     encFloat->isFloat = 1;
     if (realVal < 0) {
       encFloat->sign = 1;
@@ -619,10 +613,6 @@ DECODER(readNumeric) {
       res->num.value = INFINITY;
     } else if (header.encFloat.isDouble) {
       Buffer_Read(br, &res->num.value, 8);
-    } else {
-      float f;
-      Buffer_Read(br, &f, 4);
-      res->num.value = f;
     }
     if (header.encFloat.sign) {
       res->num.value = -res->num.value;

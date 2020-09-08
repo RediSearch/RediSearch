@@ -516,8 +516,8 @@ static const encodingInfo infos[] = {
     {549755813888.0 - 23, 7},  // 19
     {-549755813888.0, 7},      // 20
     {1503342028.957225, 10},   // 21
-    {42.4345, 6},              // 22
-    {(float)0.5, 6},           // 23
+    {42.4345, 10},             // 22
+    {(float)0.5, 10},          // 23
     {DBL_MAX, 10},             // 24
     {UINT64_MAX >> 12, 9},     // 25
     {INFINITY, 2},             // 26
@@ -532,6 +532,9 @@ TEST_F(IndexTest, testNumericEncoding) {
   for (size_t ii = 0; ii < numInfos; ii++) {
     // printf("\n[%lu]: Expecting Val=%lf, Sz=%lu\n", ii, infos[ii].value, infos[ii].size);
     size_t sz = InvertedIndex_WriteNumericEntry(idx, ii + 1, infos[ii].value);
+    if (infos[ii].size!= sz) {  
+      printf("%f %lu %lu\n",infos[ii].value, infos[ii].size, sz);
+    }
     ASSERT_EQ(infos[ii].size, sz);
   }
 
