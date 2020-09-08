@@ -13,7 +13,7 @@
        [SCORE {default_score}]
        [SCORE_FIELD {score_field}]
        [PAYLOAD_FIELD {payload_field}]
-    [MAXTEXTFIELDS] [TEMPORARY {seconds}] [NOOFFSETS] [NOHL] [NOFIELDS] [NOFREQS] [NOINITIALSCAN]
+    [MAXTEXTFIELDS] [TEMPORARY {seconds}] [NOOFFSETS] [NOHL] [NOFIELDS] [NOFREQS] [SKIPINITIALSCAN]
     [STOPWORDS {num} {stopword} ...]
     SCHEMA {field} [TEXT [NOSTEM] [WEIGHT {weight}] [PHONETIC {matcher}] | NUMERIC | GEO | TAG [SEPARATOR {sep}] ] [SORTABLE][NOINDEX] ...
 ```
@@ -93,7 +93,7 @@ FT.CREATE idx ON HASH PREFIX 1 doc: SCHEMA name TEXT SORTABLE age NUMERIC SORTAB
 * **NOOFFSETS**: If set, we do not store term offsets for documents (saves memory, does not
   allow exact searches or highlighting). Implies `NOHL`.
 
-* **TEMPORARY**: Create a lightweight temporary index which will expire after the specified period of inactivity. The internal idle timer is reset whenever the index is searched or added to. Because such indexes are lightweight, you can create thousands of such indexes without negative performance implications and therefore you should consider using `NOINITIALSCAN` to avoid costly scanning. 
+* **TEMPORARY**: Create a lightweight temporary index which will expire after the specified period of inactivity. The internal idle timer is reset whenever the index is searched or added to. Because such indexes are lightweight, you can create thousands of such indexes without negative performance implications and therefore you should consider using `SKIPINITIALSCAN` to avoid costly scanning. 
 
 !!! warning "Note about deleting a temporary index"
     When dropped, a temporary index does not delete the hashes as they may have been indexed in several indexes. Adding the `DD` flag will delete the hashes as well.
@@ -116,7 +116,7 @@ FT.CREATE idx ON HASH PREFIX 1 doc: SCHEMA name TEXT SORTABLE age NUMERIC SORTAB
 
     If **{num}** is set to 0, the index will not have stopwords.
 
-* **NOINITIALSCAN**: If set, we do not scan and index. 
+* **SKIPINITIALSCAN**: If set, we do not scan and index. 
 
 * **SCHEMA {field} {options...}**: After the SCHEMA keyword we define the index fields. They
   can be numeric, textual or geographical. For textual fields we optionally specify a weight.
@@ -469,8 +469,6 @@ The time complexity for more complex queries varies, but in general it's proport
 **Array reply,** where the first element is the total number of results, and then pairs of document id, and a nested array of field/value. 
 
 If **NOCONTENT** was given, we return an array where the first element is the total number of results, and the rest of the members are document ids.
-
-In some rare cases, result count might not equal the number of documents. This may happen if a docement has expired since the query was initiated.
 
 !!! note "Expiration of hashes during a search query" 
     If a hash expiry time is reached after the start of the query process, the hash will be counted in the total number of results but name and content of the hash would not be returned.

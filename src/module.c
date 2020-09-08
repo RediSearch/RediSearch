@@ -548,6 +548,11 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
   }
 
+  bool initialScan = true;
+  if (AC_AdvanceIfMatch(&ac, SPEC_SKIPINITIALSCAN_STR)) {
+    initialScan = false;
+  }
+
   if (AC_AdvanceIfMatch(&ac, "SCHEMA")) {
     if (!AC_AdvanceIfMatch(&ac, "ADD")) {
       return RedisModule_ReplyWithError(ctx, "Unknown action passed to ALTER SCHEMA");
@@ -565,7 +570,7 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
         return RedisModule_ReplyWithSimpleString(ctx, "OK");
       }
     }
-    IndexSpec_AddFields(sp, ctx, &ac, &status);
+    IndexSpec_AddFields(sp, ctx, &ac, initialScan, &status);
   }
 
   if (QueryError_HasError(&status)) {
