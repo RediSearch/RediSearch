@@ -2922,9 +2922,11 @@ def testIssue1169(env):
 def testIssue1184(env):
     env.skipOnCluster()
 
+    count = 1000
     field_types = ['TEXT', 'NUMERIC', 'TAG']
     env.assertOk(env.execute_command('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0))
     for ft in field_types:
+        print ft
         env.assertOk(env.execute_command('FT.CREATE idx ON HASH SCHEMA  field ' + ft))
 
         res = env.execute_command('ft.info', 'idx')
@@ -2934,16 +2936,17 @@ def testIssue1184(env):
 
 
         value = '42'
-        env.assertOk(env.execute_command('FT.ADD idx doc0 1 FIELD field ' + value))
-        doc = env.cmd('FT.SEARCH idx *')
-        env.assertEqual(doc, [1L, 'doc0', ['field', value]])
+        for i in range (count):
+            env.execute_command('FT.ADD idx doc%d 1 FIELD field %d' % (i, i))
+        env.expect('FT.SEARCH idx * LIMIT 0 0').equal([count])
+        #env.assertEqual(doc, [1L, 'doc0', ['field', value]])
 
         res = env.execute_command('ft.info', 'idx')
         d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
         env.assertGreater(d['inverted_sz_mb'], '0')
-        env.assertEqual(d['num_records'], '1')
-
-        env.assertEqual(env.execute_command('FT.DEL idx doc0'), 1)
+        env.assertEqual(d['num_records'], str(count))
+        for i in range(count):
+            env.expect('FT.DEL idx doc%d' % i, 1)
         env.cmd('ft.debug', 'GC_FORCEINVOKE', 'idx')
 
         res = env.execute_command('ft.info', 'idx')
@@ -2952,7 +2955,6 @@ def testIssue1184(env):
         env.assertEqual(d['num_records'], '0')
 
         env.cmd('FT.DROP idx')
-        env.cmd('DEL doc0')
 
 def testIndexListCommand(env):
     env.expect('FT.CREATE idx1 ON HASH SCHEMA n NUMERIC').ok()

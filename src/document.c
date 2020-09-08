@@ -459,9 +459,9 @@ FIELD_BULK_INDEXER(numericIndexer) {
       return -1;
     }
   }
-  size_t sz = NumericRangeTree_Add(rt, aCtx->doc.docId, fdata->numeric);
-  ctx->spec->stats.invertedSize += sz;  // TODO: exact amount
-  ctx->spec->stats.numRecords++;
+  NRN_AddRv rv = NumericRangeTree_Add(rt, aCtx->doc.docId, fdata->numeric);
+  ctx->spec->stats.invertedSize += rv.sz;
+  ctx->spec->stats.numRecords += rv.entries;
   return 0;
 }
 

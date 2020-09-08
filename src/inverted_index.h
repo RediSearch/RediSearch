@@ -174,6 +174,12 @@ IndexReader *NewNumericReader(const IndexSpec *sp, InvertedIndex *idx, const Num
  */
 IndexEncoder InvertedIndex_GetEncoder(IndexFlags flags);
 
+/* Get size in bytes of inverted index */
+size_t InvertedIndex_GetSize(InvertedIndex *idx);
+
+/* Get the number of doc IDs in the inverted index */
+size_t InvertedIndex_GetNumDocs(InvertedIndex *idx);
+
 /* Create a new index reader on an inverted index buffer,
  * optionally with a skip index, docTable and scoreIndex.
  * If singleWordMode is set to 1, we ignore the skip index and use the score

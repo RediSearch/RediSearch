@@ -104,17 +104,17 @@ extern struct IndexesScanner *global_spec_scanner;
 extern dict *legacySpecRules;
 
 typedef struct {
-  size_t numDocuments;
-  size_t numTerms;
-  size_t numRecords;
-  size_t invertedSize;
-  size_t invertedCap;
-  size_t skipIndexesSize;
-  size_t scoreIndexesSize;
-  size_t offsetVecsSize;
-  size_t offsetVecRecords;
-  size_t termsSize;
-  size_t indexingFailures;
+  unsigned long long numDocuments;
+  unsigned long long numTerms;
+  unsigned long long numRecords;
+  unsigned long long invertedSize;
+  unsigned long long invertedCap;
+  unsigned long long skipIndexesSize;
+  unsigned long long scoreIndexesSize;
+  unsigned long long offsetVecsSize;
+  unsigned long long offsetVecRecords;
+  unsigned long long termsSize;
+  unsigned long long indexingFailures;
 } IndexStats;
 
 typedef enum {

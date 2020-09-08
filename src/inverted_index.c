@@ -1299,3 +1299,19 @@ int InvertedIndex_Repair(InvertedIndex *idx, DocTable *dt, uint32_t startBlock,
 
   return startBlock < idx->size ? startBlock : 0;
 }
+
+size_t InvertedIndex_GetSize(InvertedIndex *idx) {
+  size_t sum = 0;
+  for (size_t i = 0; i < idx->size; ++i) {
+    sum += idx->blocks[i].buf.offset;
+  }
+  return sum;
+}
+
+size_t InvertedIndex_GetNumDocs(InvertedIndex *idx) {
+  size_t sum = 0;
+  for (size_t i = 0; i < idx->size; ++i) {
+    sum += idx->blocks[i].numDocs;
+  }
+  return sum;
+}

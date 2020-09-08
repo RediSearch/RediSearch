@@ -163,8 +163,8 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   REPLY_KVNUM(n, "num_docs", sp->stats.numDocuments);
   REPLY_KVNUM(n, "max_doc_id", sp->docs.maxDocId);
   REPLY_KVNUM(n, "num_terms", sp->stats.numTerms);
-  REPLY_KVNUM(n, "num_records", sp->stats.numRecords);
-  REPLY_KVNUM(n, "inverted_sz_mb", sp->stats.invertedSize / (float)0x100000);
+  REPLY_KVNUM(n, "num_records", (signed long long)sp->stats.numRecords);
+  REPLY_KVNUM(n, "inverted_sz_mb", (signed long long)sp->stats.invertedSize / (float)0x100000);
   REPLY_KVNUM(n, "total_inverted_index_blocks", TotalIIBlocks);
   // REPLY_KVNUM(n, "inverted_cap_mb", sp->stats.invertedCap / (float)0x100000);
 
