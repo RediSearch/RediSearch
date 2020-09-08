@@ -706,6 +706,7 @@ static void FGC_applyInvertedIndex(ForkGC *gc, InvIdxBuffers *idxData, MSG_Index
     idx->blocks[blockModified->newix] = blockModified->blk;
   }
 
+  // idx->size -= idxData->numDelBlocks;
   idx->numDocs -= info->ndocsCollected;
   idx->gcMarker++;
 }

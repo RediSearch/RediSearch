@@ -10,8 +10,8 @@
 #include "util/misc.h"
 //#include "tests/time_sample.h"
 #define NR_EXPONENT 4
-#define NR_MAXRANGE_CARD 2
-#define NR_MAXRANGE_SIZE 4
+#define NR_MAXRANGE_CARD 2500
+#define NR_MAXRANGE_SIZE 10000
 #define NR_MAX_DEPTH 2
 
 typedef struct {
@@ -296,7 +296,7 @@ NRN_AddRv NumericRangeTree_Add(NumericRangeTree *t, t_docId docId, double value)
     t->revisionId++;
     t->numRanges++;
   }
-  t->numEntries += rv.entries;
+  t->numEntries ++; // todo: check `+= rv.entries`
 
   return rv;
 }
@@ -480,7 +480,7 @@ void __numericIndex_memUsageCallback(NumericRangeNode *n, void *ctx) {
 
   if (n->range) {
     *sz += sizeof(NumericRange);
-    *sz += n->range->card * sizeof(double);
+    *sz += array_len(n->range->values) * sizeof(CardinalityValue);
     if (n->range->entries) {
       *sz += InvertedIndex_MemUsage(n->range->entries);
     }
