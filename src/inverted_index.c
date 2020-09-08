@@ -95,7 +95,7 @@ void IndexReader_OnReopen(void *privdata) {
 
   IndexReader *ir = privdata;
   if (ir->record->type == RSResultType_Term) {
-    // we need to reopen the inverted index to make sure its stil valid.
+    // we need to reopen the inverted index to make sure its still valid.
     // the GC might have deleted it by now.
     RedisSearchCtx sctx = (RedisSearchCtx)SEARCH_CTX_STATIC(RSDummyContext, (IndexSpec *)ir->sp);
     InvertedIndex *idx = Redis_OpenInvertedIndexEx(&sctx, ir->record->term.term->str,
@@ -613,6 +613,11 @@ DECODER(readNumeric) {
       res->num.value = INFINITY;
     } else if (header.encFloat.isDouble) {
       Buffer_Read(br, &res->num.value, 8);
+    } else {
+      // TODO: remove float entirely
+      float f;
+      Buffer_Read(br, &f, 4);
+      res->num.value = f;
     }
     if (header.encFloat.sign) {
       res->num.value = -res->num.value;
@@ -620,7 +625,6 @@ DECODER(readNumeric) {
   } else if (header.encTiny.isTiny) {
     // Is embedded into the header
     res->num.value = header.encTiny.tinyValue;
-
   } else {
     // Is a whole number
     uint64_t num = 0;
@@ -850,7 +854,7 @@ IndexCriteriaTester *IR_GetCriteriaTester(void *ctx) {
     return NULL;  // CriteriaTester is not supported!!!
   }
   if (ir->decoders.decoder == readNumeric) {
-    // for now, if the iterator did not took the numric filter
+    // for now, if the iterator did not took the numeric filter
     // we will avoid using the CT.
     // TODO: save the numeric filter in the numeric iterator to support CT anyway.
     if (!ir->decoderCtx.ptr) {
@@ -988,7 +992,7 @@ int IR_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
    * continuously.
    *
    * The seeker function saves CPU by avoiding unnecessary function
-   * calls and pointer derefences/accesses if the requested ID is
+   * calls and pointer dereferences/accesses if the requested ID is
    * not found. Because less checking is required
    *
    * We:
@@ -1254,7 +1258,7 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepa
     // first id so the binary search on the block will still working.
     // The last_id will turn zero indicating there is no records in
     // this block. We will not save empty blocks in rdb and also we
-    // will not read empty block from rdb (in case we read a corrunpted
+    // will not read empty block from rdb (in case we read a corrupted
     // rdb from older versions).
     blk->firstId = oldFirstBlock;
   }
