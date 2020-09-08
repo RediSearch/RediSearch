@@ -3189,3 +3189,10 @@ def testNegativeOnly(env):
 
     env.expect('FT.SEARCH idx *').equal([1L, 'doc1', ['not', 'foo']])
     env.expect('FT.SEARCH', 'idx', '-bar').equal([1L, 'doc1', ['not', 'foo']])
+
+def testNotOnly(env):
+  conn = getConnectionByEnv(env)
+  conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'txt1', 'TEXT')
+  conn.execute_command('HSET', 'a', 'txt1', 'hello', 'txt2', 'world')
+  conn.execute_command('HSET', 'b', 'txt1', 'world', 'txt2', 'hello')
+  env.expect('ft.search idx !world').equal([1L, 'b', ['txt1', 'world', 'txt2', 'hello']])

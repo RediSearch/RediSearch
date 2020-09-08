@@ -118,6 +118,7 @@ def testIdxField(env):
     conn = getConnectionByEnv(env)
     env.cmd('ft.create', 'idx1',
             'ON', 'HASH',
+            'PREFIX', 1, 'doc',
             'FILTER', '@indexName=="idx1"',
             'SCHEMA', 'name', 'text', 'indexName', 'text')
     env.cmd('ft.create', 'idx2',
@@ -596,3 +597,15 @@ def testDocIndexedInTwoIndexes():
     env.expect('FT.SEARCH idx1 foo').equal([0L])
 
     env.expect('FT.DROPINDEX idx1 DD').ok()
+
+def testCountry(env):
+    conn = getConnectionByEnv(env)
+    env.cmd('ft.create', 'idx1',
+            'PREFIX', 1, 'address:',
+            'FILTER', '@country=="usa"',
+            'SCHEMA', 'business', 'text', 'country', 'text')
+
+    conn.execute_command('hset', 'address:1', 'business', 'foo', 'country', 'usa')
+    conn.execute_command('hset', 'address:2', 'business', 'bar', 'country', 'israel')
+
+    env.expect('ft.search', 'idx1', '*').equal([1L, 'address:1', ['business', 'foo', 'country', 'usa']])
