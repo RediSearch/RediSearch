@@ -20,10 +20,3 @@ def test_1414(env):
   env.expect('ft.search idx * limit 0 1234567').error().contains('LIMIT exceeds maximum of 1000000') 
   env.expect('FT.CONFIG set MAXSEARCHRESULTS -1').equal('OK')
   env.expect('ft.search idx * limit 0 1234567').equal([1L, 'doc', ['foo', 'hello', 'bar', 'world']]) 
-  
-def testNotOnly(env):
-  conn = getConnectionByEnv(env)
-  conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'txt1', 'TEXT')
-  conn.execute_command('HSET', 'a', 'txt1', 'hello', 'txt2', 'world')
-  conn.execute_command('HSET', 'b', 'txt1', 'world', 'txt2', 'hello')
-  env.expect('ft.search idx !world').equal([1L, 'b', ['txt1', 'world', 'txt2', 'hello']])
