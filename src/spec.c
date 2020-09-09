@@ -26,7 +26,6 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-static void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, IndexSpec *sp);
 static void FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver);
 void IndexSpec_UpdateMatchingWithSchemaRules(IndexSpec *sp, RedisModuleCtx *ctx,
                                              RedisModuleString *key);
@@ -1368,7 +1367,7 @@ static void IndexSpec_ScanAndReindexSync(IndexSpec *sp) {
 
 //---------------------------------------------------------------------------------------------
 
-static void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, IndexSpec *sp) {
+void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, IndexSpec *sp) {
   size_t nkeys = RedisModule_DbSize(ctx);
   if (nkeys > 0) {
     IndexSpec_ScanAndReindexAsync(sp);
