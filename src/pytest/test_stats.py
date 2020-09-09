@@ -29,6 +29,7 @@ def check_not_empty(env, idx):
 ##########################################################################
 
 def testRandom(env):
+    env.skipOnCluster()
     conn = getConnectionByEnv(env)
 
     idx = 'idx'
@@ -100,6 +101,7 @@ def testRandom(env):
 
 
 def testMemoryAfterDrop(env):
+    env.skipOnCluster()
     idx_count = 100
     doc_count = 50
     divide_by = 1000000   # ensure limits of geo are not exceeded 
