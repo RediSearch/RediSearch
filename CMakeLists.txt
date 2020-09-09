@@ -164,6 +164,7 @@ ELSE ()
     IF (NOT APPLE)
         ADD_CUSTOM_COMMAND(TARGET redisearch POST_BUILD
             COMMAND objcopy --only-keep-debug $<TARGET_FILE:redisearch> $<TARGET_FILE:redisearch>.debug
+            COMMAND objcopy --add-gnu-debuglink $<TARGET_FILE:redisearch>.debug $<TARGET_FILE:redisearch>
             COMMAND ${CMAKE_STRIP} -g $<TARGET_FILE:redisearch>) 
     ENDIF()
 ENDIF()
