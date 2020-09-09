@@ -69,7 +69,7 @@ class RediSearchSetup(paella.Setup):
         self.pip_install("--no-cache-dir git+https://github.com/RedisLabs/RAMP@master")
         self.pip_install("pudb awscli")
 
-        self.pip3_install("-r %s/deps/readies/paella/requirements.txt" % ROOT)
+        self.pip_install("-r %s/deps/readies/paella/requirements.txt" % ROOT)
 
 #----------------------------------------------------------------------------------------------
 

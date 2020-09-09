@@ -16,6 +16,7 @@
 *.tar
 /site/*
 /build*/
+/artifacts/
 /venv*/
 srcutil/lemon
 src/query_parser/lemon
