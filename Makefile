@@ -222,7 +222,7 @@ PACK_ARGS=\
 	RAMP_YAML=$(RAMP_YAML) \
 	RAMP_ARGS=$(RAMP_ARGS)
 
-artifacts/$(RAMP.release) : $(RAMP_YAML)
+artifacts/$(RAMP.release) : $(TARGET) $(RAMP_YAML)
 	@echo Packing module...
 	$(SHOW)$(PACK_ARGS) ./pack.sh $(TARGET)
 

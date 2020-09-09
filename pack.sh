@@ -83,7 +83,7 @@ fi
 
 #----------------------------------------------------------------------------------------------
 
-PACKAGE_NAME=${PACKAGE_NAME:-redisearch}
+PACKAGE_NAME=${PACKAGE_NAME:-redisearch-oss}
 
 DEP_NAMES="debug"
 
@@ -101,7 +101,7 @@ pack_ramp() {
 		local packdir=.
 		local s3base=""
 	else
-		local verspec=${BRANCH}${VARIANT}
+		local verspec=${BRANCH}${VARIANT}-snapshot
 		local packdir=snapshots
 		local s3base=snapshots/
 	fi
