@@ -5,6 +5,7 @@ import os
 from RLTest import Env
 import pprint
 from includes import *
+from common import getConnectionByEnv, waitForIndex, sortedResults, toSortedFlatList
 
 def to_dict(res):
     d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
@@ -475,8 +476,8 @@ def testGroupbyNoReduce(env):
         env.assertTrue('sarah' in row[1])
 
 def testStartsWith(env):
-    conn = env.getConnection(env)
-    conn.execute_command('ft.create', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE')    
+    conn = getConnectionByEnv(env)
+    env.execute_command('ft.create', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE')    
     conn.execute_command('hset', 'doc1', 't', 'aa')
     conn.execute_command('hset', 'doc2', 't', 'aaa')
     conn.execute_command('hset', 'doc3', 't', 'ab')
