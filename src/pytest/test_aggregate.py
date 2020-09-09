@@ -456,7 +456,7 @@ def testAggregateGroupByOnEmptyField(env):
                   'GROUPBY', '1', '@check', 'REDUCE', 'COUNT', '0', 'as', 'count')
 
     expected = [4L, ['check', 'test3', 'count', '1'],
-                              ['check', None, 'count', '1'], ['check', 'test1', 'count', '1'], ['check', 'test2', 'count', '1']]
+                    ['check', None, 'count', '1'], ['check', 'test1', 'count', '1'], ['check', 'test2', 'count', '1']]
     for var in expected:
         env.assertIn(var, res)
 
@@ -482,5 +482,7 @@ def testStartsWith(env):
     conn.execute_command('hset', 'doc2', 't', 'aaa')
     conn.execute_command('hset', 'doc3', 't', 'ab')
 
-    env.expect('ft.aggregate', 'idx', '*', 'load', 1, 't', 'apply', 'startswith(@t, "aa")', 'as', 'prefix') \
-        .equal([1L, ['t', 'aa', 'prefix', '1'], ['t', 'aaa', 'prefix', '1'], ['t', 'ab', 'prefix', '0']])
+    res = env.cmd('ft.aggregate', 'idx', '*', 'load', 1, 't', 'apply', 'startswith(@t, "aa")', 'as', 'prefix')
+    env.assertEqual(toSortedFlatList(res), toSortedFlatList([1L, ['t', 'aa', 'prefix', '1'], \
+                                                                 ['t', 'aaa', 'prefix', '1'], \
+                                                                 ['t', 'ab', 'prefix', '0']]))
