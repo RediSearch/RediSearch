@@ -379,6 +379,7 @@ void IndexSpec_MakeKeyless(IndexSpec *sp);
 #define IndexSpec_IsKeyless(sp) ((sp)->keysDict != NULL)
 
 void IndexesScanner_Cancel(struct IndexesScanner *scanner, bool still_in_progress);
+void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, IndexSpec *sp);
 
 /**
  * Gets the next text id from the index. This does not currently
