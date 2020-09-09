@@ -11,3 +11,4 @@
 # .git
 site
 build*/
+/artifacts/
