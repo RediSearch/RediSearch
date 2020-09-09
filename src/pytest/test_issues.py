@@ -1,3 +1,5 @@
+from common import getConnectionByEnv, waitForIndex, sortedResults, toSortedFlatList
+
 def test_1282(env):
   env.expect('FT.CREATE idx ON HASH SCHEMA txt1 TEXT').equal('OK')
   env.expect('FT.ADD idx doc1 1.0 FIELDS txt1 foo').equal('OK')
@@ -19,3 +21,19 @@ def test_1414(env):
   env.expect('FT.CONFIG set MAXSEARCHRESULTS -1').equal('OK')
   env.expect('ft.search idx * limit 0 1234567').equal([1L, 'doc', ['foo', 'hello', 'bar', 'world']]) 
   
+def test_1502(env):
+  conn = getConnectionByEnv(env)
+  conn.execute_command('HSET', 'a', 'bar', 'hello')
+
+  env.expect('FT.CREATE idx1 SKIPINITIALSCAN SCHEMA foo TEXT').ok()
+  env.expect('FT.CREATE idx2 SKIPINITIALSCAN SCHEMA foo TEXT').ok()
+  
+  env.expect('ft.search idx1 *').equal([0L]) 
+  env.expect('ft.search idx2 *').equal([0L]) 
+  
+  env.expect('FT.ALTER idx1 SKIPINITIALSCAN SCHEMA ADD bar TEXT').ok()
+  env.expect('FT.ALTER idx2 SCHEMA ADD bar TEXT').ok()
+  waitForIndex(env, 'idx2')
+
+  env.expect('ft.search idx1 *').equal([0L]) 
+  env.expect('ft.search idx2 *').equal([1L, 'a', ['bar', 'hello']]) 
