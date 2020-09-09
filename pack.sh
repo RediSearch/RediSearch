@@ -157,8 +157,7 @@ pack_deps() {
 	
 	local depdir=$(cat $ARTDIR/$dep.dir)
 
-	# local platform="$OS-$OSNICK-$ARCH"
-	local platform="$OS-$ARCH-$OSNICK"
+	local platform="$OS-$OSNICK-$ARCH"
 	
 	local stem=${PACKAGE_NAME}-${dep}.${platform}
 	local fq_package=$stem.${SEMVER}${VARIANT}.tgz
@@ -196,20 +195,18 @@ if [[ ! -z $VARIANT ]]; then
 	VARIANT=-${VARIANT}
 fi
 
-# RELEASE_ramp=${PACKAGE_NAME}.$OS-$OSNICK-$ARCH.$SEMVER${VARIANT}.zip
-RELEASE_ramp=${PACKAGE_NAME}.$OS-$ARCH-$OSNICK.$SEMVER${VARIANT}.zip
-# SNAPSHOT_ramp=${PACKAGE_NAME}.$OS-$OSNICK-$ARCH.${BRANCH}${VARIANT}.zip
-SNAPSHOT_ramp=${PACKAGE_NAME}.$OS-$ARCH-$OSNICK.${BRANCH}${VARIANT}.zip
+RELEASE_ramp=${PACKAGE_NAME}.$OS-$OSNICK-$ARCH.$SEMVER${VARIANT}.zip
+SNAPSHOT_ramp=${PACKAGE_NAME}.$OS-$OSNICK-$ARCH.${BRANCH}${VARIANT}-snapshot.zip
 
 if [[ $JUST_PRINT == 1 ]]; then
 	if [[ $RAMP == 1 ]]; then
 		[[ $RELEASE == 1 ]] && echo $RELEASE_ramp
 		[[ $SNAPSHOT == 1 ]] && echo $SNAPSHOT_ramp
 	fi
-	if [[ $DEPS == 1 ]]; then
-		[[ $RELEASE == 1 ]] && echo $RELEASE_deps
-		[[ $SNAPSHOT == 1 ]] && echo $SNAPSHOT_deps
-	fi
+	# if [[ $DEPS == 1 ]]; then
+	# 	[[ $RELEASE == 1 ]] && echo $RELEASE_deps
+	# 	[[ $SNAPSHOT == 1 ]] && echo $SNAPSHOT_deps
+	# fi
 	exit 0
 fi
 
