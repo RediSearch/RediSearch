@@ -5,6 +5,7 @@ import os
 from RLTest import Env
 import pprint
 from includes import *
+from common import getConnectionByEnv, waitForIndex, sortedResults, toSortedFlatList
 
 def to_dict(res):
     d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
@@ -455,7 +456,7 @@ def testAggregateGroupByOnEmptyField(env):
                   'GROUPBY', '1', '@check', 'REDUCE', 'COUNT', '0', 'as', 'count')
 
     expected = [4L, ['check', 'test3', 'count', '1'],
-                              ['check', None, 'count', '1'], ['check', 'test1', 'count', '1'], ['check', 'test2', 'count', '1']]
+                    ['check', None, 'count', '1'], ['check', 'test1', 'count', '1'], ['check', 'test2', 'count', '1']]
     for var in expected:
         env.assertIn(var, res)
 
@@ -475,11 +476,13 @@ def testGroupbyNoReduce(env):
         env.assertTrue('sarah' in row[1])
 
 def testStartsWith(env):
-    conn = env.getConnection(env)
-    conn.execute_command('ft.create', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE')    
+    conn = getConnectionByEnv(env)
+    env.execute_command('ft.create', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE')    
     conn.execute_command('hset', 'doc1', 't', 'aa')
     conn.execute_command('hset', 'doc2', 't', 'aaa')
     conn.execute_command('hset', 'doc3', 't', 'ab')
 
-    env.expect('ft.aggregate', 'idx', '*', 'load', 1, 't', 'apply', 'startswith(@t, "aa")', 'as', 'prefix') \
-        .equal([1L, ['t', 'aa', 'prefix', '1'], ['t', 'aaa', 'prefix', '1'], ['t', 'ab', 'prefix', '0']])
+    res = env.cmd('ft.aggregate', 'idx', '*', 'load', 1, 't', 'apply', 'startswith(@t, "aa")', 'as', 'prefix')
+    env.assertEqual(toSortedFlatList(res), toSortedFlatList([1L, ['t', 'aa', 'prefix', '1'], \
+                                                                 ['t', 'aaa', 'prefix', '1'], \
+                                                                 ['t', 'ab', 'prefix', '0']]))
