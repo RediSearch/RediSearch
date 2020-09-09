@@ -20,11 +20,11 @@ commands:
           command: ./.circleci/ci_test.sh
       - run:
           name: Package
-          command: make pack
+          command: COMPAT_DIR=$BUILD_DIR make pack
           environment:
             - PACKAGE_NAME: redisearch-oss
       - persist_to_workspace:
-          root: atrifacts
+          root: artifacts
           paths:
             - '*.zip'
             - '*.tgz'

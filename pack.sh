@@ -174,7 +174,7 @@ pack_deps() {
 	mkdir -p $ARTDIR/snapshots
 	cd $ARTDIR/snapshots
 	if [[ ! -z $BRANCH ]]; then
-		local snap_package=$stem.${BRANCH}${VARIANT}.tgz
+		local snap_package=$stem.${BRANCH}${VARIANT}-snapshot.tgz
 		ln -sf ../$fq_package $snap_package
 		ln -sf ../$fq_package.sha256 $snap_package.sha256
 	fi
