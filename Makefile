@@ -52,7 +52,10 @@ BINDIR=$(COMPAT_DIR)
 
 SRCDIR=src
 
-TARGET=$(COMPAT_MODULE)
+TARGET=$(BINDIR)/redisearch.so
+
+PACKAGE_NAME ?= redisearch-oss
+export PACKAGE_NAME
 
 #----------------------------------------------------------------------------------------------
 
@@ -207,14 +210,23 @@ callgrind: $(COMPAT_MODULE)
 
 RAMP_VARIANT=$(subst release,,$(FLAVOR))$(_VARIANT.string)
 
-RAMP.release:=$(shell JUST_PRINT=1 RAMP=1 DEPS=0 RELEASE=1 SNAPSHOT=0 VARIANT=$(RAMP_VARIANT) ./pack.sh)
-RAMP.snapshot:=$(shell JUST_PRINT=1 RAMP=1 DEPS=0 RELEASE=0 SNAPSHOT=1 VARIANT=$(RAMP_VARIANT) ./pack.sh)
+RAMP.release:=$(shell JUST_PRINT=1 RAMP=1 DEPS=0 RELEASE=1 SNAPSHOT=0 VARIANT=$(RAMP_VARIANT) PACKAGE_NAME=$(PACKAGE_NAME) ./pack.sh)
+RAMP.snapshot:=$(shell JUST_PRINT=1 RAMP=1 DEPS=0 RELEASE=0 SNAPSHOT=1 VARIANT=$(RAMP_VARIANT) PACKAGE_NAME=$(PACKAGE_NAME) ./pack.sh)
 
-artifacts/release/$(RAMP.release) artifacts/snapshot/$(RAMP.snapshot): $(TARGET) ramp.yml
+RAMP_YAML ?= ramp.yml
+
+PACK_ARGS=\
+	VARIANT=$(RAMP_VARIANT) \
+	ARTDIR=$(ROOT)/artifacts \
+	PACKAGE_NAME=$(PACKAGE_NAME) \
+	RAMP_YAML=$(RAMP_YAML) \
+	RAMP_ARGS=$(RAMP_ARGS)
+
+artifacts/$(RAMP.release) : $(RAMP_YAML)
 	@echo Packing module...
-	$(SHOW)RAMP=1 DEPS=0 VARIANT=$(RAMP_VARIANT) ./pack.sh $(TARGET)
+	$(SHOW)$(PACK_ARGS) ./pack.sh $(TARGET)
 
-pack: artifacts/release/$(RAMP.release) artifacts/snapshot/$(RAMP.snapshot)
+pack: artifacts/$(RAMP.release)
 
 #----------------------------------------------------------------------------------------------
 

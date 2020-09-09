@@ -20,14 +20,16 @@ commands:
           command: ./.circleci/ci_test.sh
       - run:
           name: Package
-          command: DISTDIR=~/workspace ./.circleci/ci_package.sh
+          command: make pack
           environment:
             - PACKAGE_NAME: redisearch-oss
       - persist_to_workspace:
-          root: ~/workspace
+          root: atrifacts
           paths:
-            - snapshot
-            - release
+            - *.zip
+            - *.tgz
+            - snapshots/*.zip
+            - snapshots/*.tgz
 
 jobs:
   ubuntu:
@@ -69,7 +71,8 @@ jobs:
       - run:
           name: Deploy Snapshots to S3
           command: |
-            for f in ~/workspace/snapshot/*.zip; do
+            cd ~/workspace/snapshots
+            for f in *.zip *.tgz; do
               aws s3 cp $f s3://redismodules/$PACKAGE_NAME/snapshots/ --acl public-read
             done
 
@@ -118,7 +121,8 @@ jobs:
       - run:
           name: Deploy Releases to S3
           command: |
-            for f in ~/workspace/release/*.zip; do
+            cd ~/workspace
+            for f in *.zip *.tgz; do
               aws s3 cp $f s3://redismodules/$PACKAGE_NAME/ --acl public-read
             done
 
@@ -186,7 +190,8 @@ workflows:
           <<: *on-any-branch
       - deploy_snapshots:
           requires: *default_jobs
-          <<: *on-master
+          #@ <<: *on-master
+          <<: *on-any-branch
       - deploy_release:
           requires: *default_jobs
           <<: *on-version-tags
