@@ -161,9 +161,11 @@ ELSE ()
     SET_TARGET_PROPERTIES(redisearch PROPERTIES PREFIX "")
     SET_TARGET_PROPERTIES(redisearch PROPERTIES SUFFIX ".so")
 
-    ADD_CUSTOM_COMMAND(TARGET redisearch POST_BUILD
-        COMMAND objcopy --only-keep-debug $<TARGET_FILE:redisearch> $<TARGET_FILE:redisearch>.debug
-        COMMAND ${CMAKE_STRIP} -g $<TARGET_FILE:redisearch>) 
+    IF (NOT APPLE)
+        ADD_CUSTOM_COMMAND(TARGET redisearch POST_BUILD
+            COMMAND objcopy --only-keep-debug $<TARGET_FILE:redisearch> $<TARGET_FILE:redisearch>.debug
+            COMMAND ${CMAKE_STRIP} -g $<TARGET_FILE:redisearch>) 
+    ENDIF()
 ENDIF()
 
 IF (APPLE) 
