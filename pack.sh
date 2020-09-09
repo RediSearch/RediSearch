@@ -92,8 +92,7 @@ DEP_NAMES="debug"
 pack_ramp() {
 	cd $ROOT
 
-	# local platform="$OS-$OSNICK-$ARCH"
-	local platform="$OS-$ARCH-$OSNICK"
+	local platform="$OS-$OSNICK-$ARCH"
 	local stem=${PACKAGE_NAME}.${platform}
 
 	if [[ $SNAPSHOT == 0 ]]; then
