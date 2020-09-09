@@ -22,7 +22,8 @@ typedef struct {
 /* A callback called after a concurrent context regains execution context. When this happen we need
  * to make sure the key hasn't been deleted or its structure changed, which will render the
  * underlying iterators invalid */
-void NumericRangeIterator_OnReopen(void *privdata) {}
+void NumericRangeIterator_OnReopen(void *privdata) {
+}
 
 /* Returns 1 if the entire numeric range is contained between min and max */
 static inline int NumericRange_Contained(NumericRange *n, double min, double max) {
@@ -75,10 +76,13 @@ size_t NumericRange_Add(NumericRange *n, t_docId docId, double value, int checkC
     ++n->card;
   }
 
-  return InvertedIndex_WriteNumericEntry(n->entries, docId, value);
+  size_t size = InvertedIndex_WriteNumericEntry(n->entries, docId, value);
+  n->invertedIndexSize += size;
+  return size;
 }
 
-double NumericRange_Split(NumericRange *n, NumericRangeNode **lp, NumericRangeNode **rp) {
+double NumericRange_Split(NumericRange *n, NumericRangeNode **lp, NumericRangeNode **rp,
+                          NRN_AddRv *rv) {
 
   double split = (n->unique_sum) / (double)n->card;
 
@@ -91,8 +95,9 @@ double NumericRange_Split(NumericRange *n, NumericRangeNode **lp, NumericRangeNo
   RSIndexResult *res = NULL;
   IndexReader *ir = NewNumericReader(NULL, n->entries, NULL);
   while (INDEXREAD_OK == IR_Read(ir, &res)) {
-    NumericRange_Add(res->num.value < split ? (*lp)->range : (*rp)->range, res->docId,
-                     res->num.value, 1);
+    rv->sz += NumericRange_Add(res->num.value < split ? (*lp)->range : (*rp)->range, res->docId,
+                               res->num.value, 1);
+    ++rv->numRecords;
   }
   IR_Free(ir);
 
@@ -113,26 +118,30 @@ NumericRangeNode *NewLeafNode(size_t cap, double min, double max, size_t splitCa
   n->maxDepth = 0;
   n->range = rm_malloc(sizeof(NumericRange));
 
-  *n->range = (NumericRange){.minVal = min,
-                             .maxVal = max,
-                             .unique_sum = 0,
-                             .card = 0,
-                             .splitCard = splitCard,
-                             .values = array_new(CardinalityValue, 1),
-                             //.values = rm_calloc(splitCard, sizeof(CardinalityValue)),
-                             .entries = NewInvertedIndex(Index_StoreNumeric, 1)};
+  *n->range = (NumericRange){
+      .minVal = min,
+      .maxVal = max,
+      .unique_sum = 0,
+      .card = 0,
+      .splitCard = splitCard,
+      .values = array_new(CardinalityValue, 1),
+      //.values = rm_calloc(splitCard, sizeof(CardinalityValue)),
+      .entries = NewInvertedIndex(Index_StoreNumeric, 1),
+      .invertedIndexSize = 0,
+  };
   return n;
 }
 
 NRN_AddRv NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value) {
-  NRN_AddRv rv = {.sz = 0, .changed = 0};
+  NRN_AddRv rv = {.sz = 0, .changed = 0, .numRecords = 0};
   if (!NumericRangeNode_IsLeaf(n)) {
     // if this node has already split but retains a range, just add to the range without checking
     // anything
+    size_t s = 0;
+    size_t nRecords = 0;
     if (n->range) {
-      // Not leaf so should not add??
-      /* sz += */ NumericRange_Add(n->range, docId, value, 0);
-      // should continue after??
+      s += NumericRange_Add(n->range, docId, value, 0);
+      ++nRecords;
     }
 
     // recursively add to its left or right child.
@@ -140,12 +149,16 @@ NRN_AddRv NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value)
     NumericRangeNode *child = *childP;
     // if the child has split we get 1 in return
     rv = NumericRangeNode_Add(child, docId, value);
+    rv.sz += s;
+    rv.numRecords += nRecords;
 
     if (rv.changed) {
       // if there was a split it means our max depth has increased.
       // we are too deep - we don't retain this node's range anymore.
       // this keeps memory footprint in check
       if (++n->maxDepth > NR_MAX_DEPTH && n->range) {
+        rv.sz -= n->range->invertedIndexSize;
+        rv.numRecords -= n->range->entries->numDocs;
         InvertedIndex_Free(n->range->entries);
         array_free(n->range->values);
         rm_free(n->range);
@@ -176,15 +189,15 @@ NRN_AddRv NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value)
 
   // if this node is a leaf - we add AND check the cardinality. We only split leaf nodes
   rv.sz = (uint32_t)NumericRange_Add(n->range, docId, value, 1);
+  ++rv.numRecords;
   int card = n->range->card;
   // printf("Added %d %f to node %f..%f, card now %zd, size now %zd\n", docId, value,
   // n->range->minVal,
   //        n->range->maxVal, card, n->range->entries->numDocs);
-  if (card >= n->range->splitCard ||
-      (n->range->entries->numDocs > NR_MAXRANGE_SIZE && card > 1)) {
+  if (card >= n->range->splitCard || (n->range->entries->numDocs > NR_MAXRANGE_SIZE && card > 1)) {
 
     // split this node but don't delete its range
-    double split = NumericRange_Split(n->range, &n->left, &n->right);
+    double split = NumericRange_Split(n->range, &n->left, &n->right, &rv);
 
     n->value = split;
 
@@ -273,12 +286,12 @@ NumericRangeTree *NewNumericRangeTree() {
   return ret;
 }
 
-size_t NumericRangeTree_Add(NumericRangeTree *t, t_docId docId, double value) {
+NRN_AddRv NumericRangeTree_Add(NumericRangeTree *t, t_docId docId, double value) {
 
   // Do not allow duplicate entries. This might happen due to indexer bugs and we need to protect
   // from it
   if (docId <= t->lastDocId) {
-    return 0;
+    return (NRN_AddRv){0, 0, 0};
   }
   t->lastDocId = docId;
 
@@ -292,7 +305,7 @@ size_t NumericRangeTree_Add(NumericRangeTree *t, t_docId docId, double value) {
   t->numRanges += rv.changed;
   t->numEntries++;
 
-  return rv.sz;
+  return rv;
 }
 
 Vector *NumericRangeTree_Find(NumericRangeTree *t, double min, double max) {
@@ -400,8 +413,7 @@ static NumericRangeTree *openNumericKeysDict(RedisSearchCtx *ctx, RedisModuleStr
 
 struct indexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const NumericFilter *flt,
                                                ConcurrentSearchCtx *csx, FieldType forType) {
-  RedisModuleString *s =
-      IndexSpec_GetFormattedKeyByName(ctx->spec, flt->fieldName, forType);
+  RedisModuleString *s = IndexSpec_GetFormattedKeyByName(ctx->spec, flt->fieldName, forType);
   if (!s) {
     return NULL;
   }

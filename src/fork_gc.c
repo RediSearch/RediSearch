@@ -207,6 +207,7 @@ static bool FGC_childRepairInvidx(ForkGC *gc, RedisSearchCtx *sctx, InvertedInde
   }
 
   for (size_t i = 0; i < idx->size; ++i) {
+    params->bytesCollected = 0;
     IndexBlock *blk = idx->blocks + i;
     if (blk->lastId - blk->firstId > UINT32_MAX) {
       // Skip over blocks which have a wide variation. In the future we might
@@ -902,7 +903,10 @@ static void applyNumIdx(ForkGC *gc, RedisSearchCtx *sctx, NumGcInfo *ninfo) {
   InvIdxBuffers *idxbufs = &ninfo->idxbufs;
   MSG_IndexInfo *info = &ninfo->info;
   FGC_applyInvertedIndex(gc, idxbufs, info, currNode->range->entries);
+
+  currNode->range->invertedIndexSize -= info->nbytesCollected;
   FGC_updateStats(sctx, gc, info->ndocsCollected, info->nbytesCollected);
+
   resetCardinality(ninfo, currNode);
 }
 

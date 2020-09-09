@@ -35,6 +35,8 @@ typedef struct {
 
   double unique_sum;
 
+  size_t invertedIndexSize;
+
   u_int16_t card;
   uint32_t splitCard;
   CardinalityValue *values;
@@ -53,7 +55,8 @@ typedef struct rtNode {
 } NumericRangeNode;
 
 typedef struct {
-  uint32_t sz;
+  int sz;
+  int numRecords;
   uint32_t changed;
 } NRN_AddRv;
 
@@ -89,7 +92,8 @@ struct indexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const Numeri
 size_t NumericRange_Add(NumericRange *r, t_docId docId, double value, int checkCard);
 
 /* Split n into two ranges, lp for left, and rp for right. We split by the median score */
-double NumericRange_Split(NumericRange *n, NumericRangeNode **lp, NumericRangeNode **rp);
+double NumericRange_Split(NumericRange *n, NumericRangeNode **lp, NumericRangeNode **rp,
+                          NRN_AddRv *rv);
 
 /* Create a new range node with the given capacity, minimum and maximum values */
 NumericRangeNode *NewLeafNode(size_t cap, double min, double max, size_t splitCard);
@@ -109,7 +113,7 @@ void NumericRangeNode_Free(NumericRangeNode *n);
 NumericRangeTree *NewNumericRangeTree();
 
 /* Add a value to a tree. Returns 0 if no nodes were split, 1 if we splitted nodes */
-size_t NumericRangeTree_Add(NumericRangeTree *t, t_docId docId, double value);
+NRN_AddRv NumericRangeTree_Add(NumericRangeTree *t, t_docId docId, double value);
 
 /* Recursively find all the leaves under tree's root, that correspond to a given min-max range.
  * Returns a vector with range node pointers. */
