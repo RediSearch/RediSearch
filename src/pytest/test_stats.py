@@ -32,6 +32,9 @@ def testRandom(env):
     env.skipOnCluster()
     conn = getConnectionByEnv(env)
 
+    if env.cmd('FT.CONFIG', 'GET', 'GC_POLICY')[0][1] != 'fork':
+        env.skip()
+
     idx = 'idx'
     count = 10000
     cleaning_loops = 10
@@ -102,6 +105,10 @@ def testRandom(env):
 
 def testMemoryAfterDrop(env):
     env.skipOnCluster()
+
+    if env.cmd('FT.CONFIG', 'GET', 'GC_POLICY')[0][1] != 'fork':
+        env.skip()
+
     idx_count = 100
     doc_count = 50
     divide_by = 1000000   # ensure limits of geo are not exceeded 
@@ -135,6 +142,9 @@ def testMemoryAfterDrop(env):
 
 def testIssue1497(env):
     env.skipOnCluster()
+
+    if env.cmd('FT.CONFIG', 'GET', 'GC_POLICY')[0][1] != 'fork':
+        env.skip()
 
     count = 110
     divide_by = 1000000   # ensure limits of geo are not exceeded 
