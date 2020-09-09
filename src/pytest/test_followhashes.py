@@ -118,6 +118,7 @@ def testIdxField(env):
     conn = getConnectionByEnv(env)
     env.cmd('ft.create', 'idx1',
             'ON', 'HASH',
+            'PREFIX', 1, 'doc',
             'FILTER', '@indexName=="idx1"',
             'SCHEMA', 'name', 'text', 'indexName', 'text')
     env.cmd('ft.create', 'idx2',
@@ -550,7 +551,7 @@ def testExpiredDuringAggregate(env):
   createExpire(env, N)
   env.expect('FT.AGGREGATE idx @txt1:hello* LOAD 1 @txt1 GROUPBY 1 @txt1 REDUCE count 0 AS COUNT').equal(res)
 
-def testNoInitialScan(env):
+def testSkipInitialScan(env):
     conn = getConnectionByEnv(env)
     conn.execute_command('HSET', 'a', 'test', 'hello', 'text', 'world')
     
@@ -558,8 +559,8 @@ def testNoInitialScan(env):
     env.expect('FT.CREATE idx SCHEMA test TEXT').ok()
     waitForIndex(env, 'idx')
     env.expect('FT.SEARCH idx hello').equal([1L, 'a', ['test', 'hello', 'text', 'world']])
-    # NoInitialIndex
-    env.expect('FT.CREATE idx_no_scan NOINITIALSCAN SCHEMA test TEXT').ok()
+    # SkipInitialIndex
+    env.expect('FT.CREATE idx_no_scan SKIPINITIALSCAN SCHEMA test TEXT').ok()
     waitForIndex(env, 'idx_no_scan')
     env.expect('FT.SEARCH idx_no_scan hello').equal([0L])
     # Temporary
@@ -567,7 +568,7 @@ def testNoInitialScan(env):
     waitForIndex(env, 'temp_idx')
     env.expect('FT.SEARCH temp_idx hello').equal([1L, 'a', ['test', 'hello', 'text', 'world']])
     # Temporary & NoInitialIndex
-    env.expect('FT.CREATE temp_idx_no_scan NOINITIALSCAN TEMPORARY 10 SCHEMA test TEXT').equal('OK')
+    env.expect('FT.CREATE temp_idx_no_scan SKIPINITIALSCAN TEMPORARY 10 SCHEMA test TEXT').equal('OK')
     waitForIndex(env, 'temp_idx_no_scan')
     env.expect('FT.SEARCH temp_idx_no_scan hello').equal([0L])
 
@@ -596,3 +597,15 @@ def testDocIndexedInTwoIndexes():
     env.expect('FT.SEARCH idx1 foo').equal([0L])
 
     env.expect('FT.DROPINDEX idx1 DD').ok()
+
+def testCountry(env):
+    conn = getConnectionByEnv(env)
+    env.cmd('ft.create', 'idx1',
+            'PREFIX', 1, 'address:',
+            'FILTER', '@country=="usa"',
+            'SCHEMA', 'business', 'text', 'country', 'text')
+
+    conn.execute_command('hset', 'address:1', 'business', 'foo', 'country', 'usa')
+    conn.execute_command('hset', 'address:2', 'business', 'bar', 'country', 'israel')
+
+    env.expect('ft.search', 'idx1', '*').equal([1L, 'address:1', ['business', 'foo', 'country', 'usa']])
