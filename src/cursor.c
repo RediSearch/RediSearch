@@ -290,33 +290,32 @@ int Cursor_Free(Cursor *cur) {
   return Cursors_Purge(cur->parent, cur->id);
 }
 
-void Cursors_RenderStats(CursorList *cl, const char *name, RedisModuleCtx *ctx) {
+int Cursors_RenderStats(CursorList *cl, const char *name, RedisModuleCtx *ctx) {
   CursorList_Lock(cl);
   CursorSpecInfo *info = findInfo(cl, name, NULL);
-  size_t n = 0;
+  if (!info) {
+    CursorList_Unlock(cl);
+    return REDISEARCH_ERR;
+  }
 
-  /** Output total information */
-  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+  RedisModule_ReplyWithSimpleString(ctx, "cursor_stats");
+
+  RedisModule_ReplyWithArray(ctx, 8);
+
   RedisModule_ReplyWithSimpleString(ctx, "global_idle");
   RedisModule_ReplyWithLongLong(ctx, ARRAY_GETSIZE_AS(&cl->idle, Cursor **));
-  n += 2;
 
   RedisModule_ReplyWithSimpleString(ctx, "global_total");
   RedisModule_ReplyWithLongLong(ctx, kh_size(cl->lookup));
-  n += 2;
 
-  if (info) {
-    RedisModule_ReplyWithSimpleString(ctx, "index_capacity");
-    RedisModule_ReplyWithLongLong(ctx, info->cap);
-    n += 2;
+  RedisModule_ReplyWithSimpleString(ctx, "index_capacity");
+  RedisModule_ReplyWithLongLong(ctx, info->cap);
 
-    RedisModule_ReplyWithSimpleString(ctx, "index_total");
-    RedisModule_ReplyWithLongLong(ctx, info->used);
-    n += 2;
-  }
+  RedisModule_ReplyWithSimpleString(ctx, "index_total");
+  RedisModule_ReplyWithLongLong(ctx, info->used);
 
-  RedisModule_ReplySetArrayLength(ctx, n);
   CursorList_Unlock(cl);
+  return REDISEARCH_OK;
 }
 
 static void purgeCb(CursorList *cl, Cursor *cur, void *arg) {
