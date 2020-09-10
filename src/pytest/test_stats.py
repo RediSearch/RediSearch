@@ -28,20 +28,23 @@ def check_not_empty(env, idx):
 
 ##########################################################################
 
-def testRandom(env):
-    env.skipOnCluster()
+def runTestWithSeed(env, s=None):
     conn = getConnectionByEnv(env)
 
-    if env.cmd('FT.CONFIG', 'GET', 'GC_POLICY')[0][1] != 'fork':
-        env.skip()
+    env.expect('FLUSHALL')
+    if s == None:
+        s = time()
+    env.debugPrint('seed: %s' % str(s), force=True)    
+    seed(s)
 
     idx = 'idx'
     count = 10000
-    cleaning_loops = 10
+    cleaning_loops = 5
     loop_count = count / cleaning_loops
 
     ### test increasing integers
     env.expect('ft.config set FORK_GC_CLEAN_THRESHOLD 0').ok()
+    
     env.expect('FT.CREATE idx SCHEMA n NUMERIC').ok()
     check_empty(env, idx)
 
@@ -68,7 +71,8 @@ def testRandom(env):
     env.expect('FLUSHALL')
     env.expect('FT.CREATE idx SCHEMA n NUMERIC').ok()
     for i in range(count):
-        conn.execute_command('HSET', 'doc%d' % i, 'n', int(random() * count / 10))
+        temp = int(random() * count / 10)
+        conn.execute_command('HSET', 'doc%d' % i, 'n', temp)
 
     env.expect('FT.SEARCH idx * LIMIT 0 0').equal([count])
     check_not_empty(env, idx)
@@ -77,15 +81,14 @@ def testRandom(env):
         check_not_empty(env, idx)
         for ii in range(loop_count):
             conn.execute_command('DEL', 'doc%d' % int(loop_count * i + ii))
-        for jj in range(10):
-            env.expect('FT.DEBUG', 'GC_FORCEINVOKE', 'idx')
+        env.expect('FT.DEBUG', 'GC_FORCEINVOKE', 'idx')
     check_empty(env, idx)
 
     for i in range(count):
         env.expect('FT.SEARCH', 'idx', '@n:[%d,%d]' % (i, i))#.equal([0L])
     check_empty(env, idx)
 
-    ### test random floats
+    ## test random floats
     env.expect('FLUSHALL')
     env.expect('FT.CREATE idx SCHEMA n NUMERIC').ok()
     for i in range(count):
@@ -102,6 +105,15 @@ def testRandom(env):
             env.expect('FT.DEBUG', 'GC_FORCEINVOKE', 'idx')
     check_empty(env, idx)
 
+def testRandom(env):
+    env.skipOnCluster()
+
+    if env.cmd('FT.CONFIG', 'GET', 'GC_POLICY')[0][1] != 'fork':
+        env.skip()
+
+    runTestWithSeed(env, 2)
+
+    runTestWithSeed(env)
 
 def testMemoryAfterDrop(env):
     env.skipOnCluster()
