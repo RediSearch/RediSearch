@@ -15,6 +15,7 @@ markdown_extensions:
   - toc:
       permalink: True
       separator: "_"
+      toc_depth: 2
   - admonition
 
 use_directory_urls: true
