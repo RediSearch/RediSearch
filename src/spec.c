@@ -26,7 +26,6 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-static void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, IndexSpec *sp);
 static void FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver);
 void IndexSpec_UpdateMatchingWithSchemaRules(IndexSpec *sp, RedisModuleCtx *ctx,
                                              RedisModuleString *key);
@@ -242,7 +241,7 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
     IndexSpec_SetTimeoutTimer(sp);
   }
 
-  if (!(sp->flags & Index_NoInitialScan)) {
+  if (!(sp->flags & Index_SkipInitialScan)) {
     IndexSpec_ScanAndReindex(ctx, sp);
   }
   return sp;
@@ -490,9 +489,10 @@ reset:
   return 0;
 }
 
-int IndexSpec_AddFields(IndexSpec *sp, RedisModuleCtx *ctx, ArgsCursor *ac, QueryError *status) {
+int IndexSpec_AddFields(IndexSpec *sp, RedisModuleCtx *ctx, ArgsCursor *ac,
+                                       bool initialScan, QueryError *status) {
   int rc = IndexSpec_AddFieldsInternal(sp, ac, status, 0);
-  if (rc) {
+  if (rc && initialScan) {
     IndexSpec_ScanAndReindex(ctx, sp);
   }
   return rc;
@@ -524,7 +524,7 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryE
       {AC_MKUNFLAG(SPEC_NOFREQS_STR, &spec->flags, Index_StoreFreqs)},
       {AC_MKBITFLAG(SPEC_SCHEMA_EXPANDABLE_STR, &spec->flags, Index_WideSchema)},
       {AC_MKBITFLAG(SPEC_ASYNC_STR, &spec->flags, Index_Async)},
-      {AC_MKBITFLAG(SPEC_NOINITIALSCAN_STR, &spec->flags, Index_NoInitialScan)},
+      {AC_MKBITFLAG(SPEC_SKIPINITIALSCAN_STR, &spec->flags, Index_SkipInitialScan)},
 
       // For compatibility
       {.name = "NOSCOREIDX", .target = &dummy, .type = AC_ARGTYPE_BOOLFLAG},
@@ -1367,7 +1367,7 @@ static void IndexSpec_ScanAndReindexSync(IndexSpec *sp) {
 
 //---------------------------------------------------------------------------------------------
 
-static void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, IndexSpec *sp) {
+void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, IndexSpec *sp) {
   size_t nkeys = RedisModule_DbSize(ctx);
   if (nkeys > 0) {
     IndexSpec_ScanAndReindexAsync(sp);

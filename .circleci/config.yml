@@ -20,19 +20,21 @@ commands:
           command: ./.circleci/ci_test.sh
       - run:
           name: Package
-          command: DISTDIR=~/workspace ./.circleci/ci_package.sh
+          command: COMPAT_DIR=$BUILD_DIR make pack
           environment:
             - PACKAGE_NAME: redisearch-oss
       - persist_to_workspace:
-          root: ~/workspace
+          root: artifacts
           paths:
-            - snapshot
-            - release
+            - '*.zip'
+            - '*.tgz'
+            - snapshots/*.zip
+            - snapshots/*.tgz
 
 jobs:
   ubuntu:
     docker:
-      - image: redisfab/rmbuilder:6.0.6-x64-buster
+      - image: redisfab/rmbuilder:6.0.7-x64-buster
     environment:
       - BUILD_DIR: build-debian
     steps:
@@ -42,7 +44,7 @@ jobs:
 
   centos:
     docker:
-      - image: redisfab/rmbuilder:6.0.6-x64-centos7
+      - image: redisfab/rmbuilder:6.0.7-x64-centos7
     environment:
       - BUILD_DIR: build-el
     steps:
@@ -62,14 +64,15 @@ jobs:
 
   deploy_snapshots:
     docker:
-      - image: redisfab/rmbuilder:6.0.6-x64-buster
+      - image: redisfab/rmbuilder:6.0.7-x64-buster
     steps:
       - attach_workspace:
           at: ~/workspace
       - run:
           name: Deploy Snapshots to S3
           command: |
-            for f in ~/workspace/snapshot/*.zip; do
+            cd ~/workspace/snapshots
+            for f in *.zip *.tgz; do
               aws s3 cp $f s3://redismodules/$PACKAGE_NAME/snapshots/ --acl public-read
             done
 
@@ -97,7 +100,7 @@ jobs:
 
   coverage:
     docker:
-      - image: redisfab/rmbuilder:6.0.6-x64-buster
+      - image: redisfab/rmbuilder:6.0.7-x64-buster
     steps:
       - checkout
       - run:
@@ -111,14 +114,15 @@ jobs:
 
   deploy_release:
     docker:
-      - image: redisfab/rmbuilder:6.0.6-x64-buster
+      - image: redisfab/rmbuilder:6.0.7-x64-buster
     steps:
       - attach_workspace:
           at: ~/workspace
       - run:
           name: Deploy Releases to S3
           command: |
-            for f in ~/workspace/release/*.zip; do
+            cd ~/workspace
+            for f in *.zip *.tgz; do
               aws s3 cp $f s3://redismodules/$PACKAGE_NAME/ --acl public-read
             done
 

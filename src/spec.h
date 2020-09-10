@@ -48,7 +48,7 @@ struct DocumentIndexer;
 #define SPEC_SEPARATOR_STR "SEPARATOR"
 #define SPEC_MULTITYPE_STR "MULTITYPE"
 #define SPEC_ASYNC_STR "ASYNC"
-#define SPEC_NOINITIALSCAN_STR "NOINITIALSCAN"
+#define SPEC_SKIPINITIALSCAN_STR "SKIPINITIALSCAN"
 
 #define SPEC_FOLLOW_HASH_ARGS_DEF(rule)                                     \
   {.name = "PREFIX", .target = &rule_prefixes, .type = AC_ARGTYPE_SUBARGS}, \
@@ -135,7 +135,7 @@ typedef enum {
   // If any of the fields has phonetics. This is just a cache for quick lookup
   Index_HasPhonetic = 0x400,
   Index_Async = 0x800,
-  Index_NoInitialScan = 0x1000,
+  Index_SkipInitialScan = 0x1000,
 } IndexFlags;
 
 // redis version (its here because most file include it with no problem,
@@ -379,6 +379,7 @@ void IndexSpec_MakeKeyless(IndexSpec *sp);
 #define IndexSpec_IsKeyless(sp) ((sp)->keysDict != NULL)
 
 void IndexesScanner_Cancel(struct IndexesScanner *scanner, bool still_in_progress);
+void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, IndexSpec *sp);
 
 /**
  * Gets the next text id from the index. This does not currently
@@ -387,7 +388,8 @@ void IndexesScanner_Cancel(struct IndexesScanner *scanner, bool still_in_progres
 int IndexSpec_CreateTextId(const IndexSpec *sp);
 
 /* Add fields to a redis schema */
-int IndexSpec_AddFields(IndexSpec *sp, RedisModuleCtx *ctx, ArgsCursor *ac, QueryError *status);
+int IndexSpec_AddFields(IndexSpec *sp, RedisModuleCtx *ctx, ArgsCursor *ac,
+                                       bool initialScan, QueryError *status);
 
 void FieldSpec_Initialize(FieldSpec *sp, FieldType types);
 

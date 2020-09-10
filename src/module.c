@@ -454,11 +454,11 @@ int SynAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 }
 
 /**
- * FT.SYNUPDATE <index> <id> <term1> <term2> ...
+ * FT.SYNUPDATE <index> <group id> [SKIPINITIALSCAN] <term1> <term2> ...
  *
  * Update an already existing synonym group with the given terms.
- * Its only to add new terms to a synonym group.
- * return true on success.
+ * It can be used only to add new terms to a synonym group.
+ * Returns `OK` on success.
  */
 int SynUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 4) return RedisModule_WrongArity(ctx);
@@ -471,9 +471,21 @@ int SynUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return REDISMODULE_OK;
   }
 
+  bool initialScan = true;
+  int offset = 3;
+  int loc = RMUtil_ArgIndex(SPEC_SKIPINITIALSCAN_STR, &argv[3], 1);
+  if (loc == 0) { // if doesn't exist, `-1` is returned
+    initialScan = false;
+    offset = 4;
+  }
+  
   IndexSpec_InitializeSynonym(sp);
 
-  SynonymMap_UpdateRedisStr(sp->smap, argv + 3, argc - 3, id);
+  SynonymMap_UpdateRedisStr(sp->smap, argv + offset, argc - offset, id);
+
+  if (initialScan) {
+    IndexSpec_ScanAndReindex(ctx, sp);
+  }
 
   RedisModule_ReplyWithSimpleString(ctx, "OK");
 
@@ -548,6 +560,11 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
   }
 
+  bool initialScan = true;
+  if (AC_AdvanceIfMatch(&ac, SPEC_SKIPINITIALSCAN_STR)) {
+    initialScan = false;
+  }
+
   if (AC_AdvanceIfMatch(&ac, "SCHEMA")) {
     if (!AC_AdvanceIfMatch(&ac, "ADD")) {
       return RedisModule_ReplyWithError(ctx, "Unknown action passed to ALTER SCHEMA");
@@ -565,7 +582,7 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
         return RedisModule_ReplyWithSimpleString(ctx, "OK");
       }
     }
-    IndexSpec_AddFields(sp, ctx, &ac, &status);
+    IndexSpec_AddFields(sp, ctx, &ac, initialScan, &status);
   }
 
   if (QueryError_HasError(&status)) {

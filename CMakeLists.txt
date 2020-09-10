@@ -6,7 +6,7 @@ IF(POLICY CMP0026)
     CMAKE_POLICY(SET CMP0026 OLD)
 ENDIF()
 IF(POLICY CMP0045)
-	cmake_policy(SET CMP0045 OLD)
+    cmake_policy(SET CMP0045 OLD)
 ENDIF()
 
 
@@ -33,7 +33,7 @@ SET(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${RS_EXE_FLAGS}")
 SET(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} ${RS_SO_FLAGS}")
 
 IF (RS_BUILD_COORDINATOR)
-	SET(RS_RUN_TESTS OFF)
+    SET(RS_RUN_TESTS OFF)
 ENDIF()
 
 IF(RS_RUN_TESTS)
@@ -127,19 +127,16 @@ FILE(GLOB RS_SRC
 ADD_LIBRARY(rscore OBJECT ${RS_SRC})
 
 SET(FINAL_OBJECTS
-	$<TARGET_OBJECTS:rscore>
-	$<TARGET_OBJECTS:rmutil>
-	$<TARGET_OBJECTS:friso>
-	$<TARGET_OBJECTS:snowball>
-	$<TARGET_OBJECTS:metaphone>)
+    $<TARGET_OBJECTS:rscore>
+    $<TARGET_OBJECTS:rmutil>
+    $<TARGET_OBJECTS:friso>
+    $<TARGET_OBJECTS:snowball>
+    $<TARGET_OBJECTS:metaphone>)
 
 IF (RS_BUILD_COORDINATOR)
     ADD_LIBRARY(redisearch-oss STATIC ${RS_SRC} ${FINAL_OBJECTS} src/module-init/module-init.c)
     target_compile_definitions(redisearch-oss PRIVATE RS_NO_ONLOAD RS_NO_RMAPI RS_CLUSTER_OSS)
     SET_TARGET_PROPERTIES(redisearch-oss PROPERTIES OUTPUT_NAME "redisearch-oss")
-
-    # SET(RS_TEST_MODULE redisearch-oss)
-    # SET(RS_TEST_MODULE_SO $<TARGET_FILE:redisearch-oss>)
 
     ADD_LIBRARY(redisearch-enterprise STATIC ${RS_SRC} ${FINAL_OBJECTS} src/module-init/module-init.c)
     target_compile_definitions(redisearch-enterprise PRIVATE RS_NO_ONLOAD RS_NO_RMAPI RS_CLUSTER_ENTERPRISE)
@@ -155,7 +152,7 @@ ELSEIF (RS_BUILD_STATIC)
     SET_TARGET_PROPERTIES(redisearch PROPERTIES PREFIX "")
     SET_TARGET_PROPERTIES(redisearch PROPERTIES SUFFIX ".so")
 
-	SET(RS_TEST_MODULE redisearchS)
+    SET(RS_TEST_MODULE redisearchS)
     SET(RS_TEST_MODULE_SO $<TARGET_FILE:redisearch>)
 
 ELSE ()
@@ -163,6 +160,13 @@ ELSE ()
     TARGET_LINK_LIBRARIES(redisearch dl m)
     SET_TARGET_PROPERTIES(redisearch PROPERTIES PREFIX "")
     SET_TARGET_PROPERTIES(redisearch PROPERTIES SUFFIX ".so")
+
+    IF (NOT APPLE)
+        ADD_CUSTOM_COMMAND(TARGET redisearch POST_BUILD
+            COMMAND objcopy --only-keep-debug $<TARGET_FILE:redisearch> $<TARGET_FILE:redisearch>.debug
+            COMMAND objcopy --add-gnu-debuglink $<TARGET_FILE:redisearch>.debug $<TARGET_FILE:redisearch>
+            COMMAND ${CMAKE_STRIP} -g $<TARGET_FILE:redisearch>) 
+    ENDIF()
 ENDIF()
 
 IF (APPLE) 

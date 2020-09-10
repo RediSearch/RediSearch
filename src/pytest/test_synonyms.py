@@ -1,5 +1,5 @@
 from includes import *
-from common import waitForIndex, toSortedFlatList
+from common import getConnectionByEnv, waitForIndex, sortedResults, toSortedFlatList
 
 
 def testBasicSynonymsUseCase(env):
@@ -84,12 +84,12 @@ def testSynonymUpdate(env):
     env.assertOk(r.execute_command(
         'ft.create', 'idx', 'ON', 'HASH',
         'schema', 'title', 'text', 'body', 'text'))
-    env.assertEqual(r.execute_command('ft.synupdate', 'idx', 'id1', 'boy', 'child', 'offspring'), 'OK')
+    env.assertEqual(r.execute_command('ft.synupdate', 'idx', 'id1', 'SKIPINITIALSCAN', 'boy', 'child', 'offspring'), 'OK')
     env.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 1.0, 'fields',
                                     'title', 'he is a baby',
                                     'body', 'this is a test'))
 
-    env.assertOk(r.execute_command('ft.synupdate', 'idx', 'id1', 'baby'))
+    env.assertOk(r.execute_command('ft.synupdate', 'idx', 'id1', 'SKIPINITIALSCAN', 'baby'))
 
     env.assertOk(r.execute_command('ft.add', 'idx', 'doc2', 1.0, 'fields',
                                     'title', 'he is another baby',
@@ -202,3 +202,21 @@ def testSynonymsLowerCase(env):
     res = [2L, 'doc2', ['foo', 'HELLO'], 'doc1', ['foo', 'hello']]
     env.expect('FT.SEARCH lowcase SHALOM').equal(res)
     env.expect('FT.SEARCH lowcase shalom').equal(res)
+
+def testSkipInitialIndex(env):
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE idx1 SCHEMA foo text').ok()
+    env.expect('FT.CREATE idx2 SCHEMA foo text').ok()
+    conn.execute_command('HSET', 'doc1', 'foo', 'bar')
+
+    env.expect('FT.SEARCH idx1 @foo:xyz').equal([0L])
+    env.expect('FT.SEARCH idx2 @foo:xyz').equal([0L])
+
+    env.expect('FT.SYNUPDATE idx1 g1 bar xyz').ok()
+    env.expect('FT.SYNUPDATE idx2 g2 SKIPINITIALSCAN bar xyz').ok()
+
+    waitForIndex(env, 'idx1')
+
+    env.expect('FT.SEARCH idx1 @foo:xyz').equal([1L, 'doc1', ['foo', 'bar']])
+    env.expect('FT.SEARCH idx2 @foo:xyz').equal([0L])
