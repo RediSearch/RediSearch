@@ -1196,7 +1196,6 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepa
   }
 
   params->bytesBeforFix = blk->buf.offset;
-  ;
 
   while (!BufferReader_AtEnd(&br)) {
     static const IndexDecoderCtx empty = {0};
