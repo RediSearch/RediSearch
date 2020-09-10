@@ -208,6 +208,8 @@ static bool FGC_childRepairInvidx(ForkGC *gc, RedisSearchCtx *sctx, InvertedInde
 
   for (size_t i = 0; i < idx->size; ++i) {
     params->bytesCollected = 0;
+    params->bytesBeforFix = 0;
+    params->bytesAfterFix = 0;
     IndexBlock *blk = idx->blocks + i;
     if (blk->lastId - blk->firstId > UINT32_MAX) {
       // Skip over blocks which have a wide variation. In the future we might
@@ -243,7 +245,7 @@ static bool FGC_childRepairInvidx(ForkGC *gc, RedisSearchCtx *sctx, InvertedInde
       ixmsg.nblocksRepaired++;
     }
 
-    ixmsg.nbytesCollected += params->bytesCollected;
+    ixmsg.nbytesCollected += (params->bytesBeforFix - params->bytesAfterFix);
     ixmsg.ndocsCollected += nrepaired;
     if (i == idx->size - 1) {
       ixmsg.lastblkBytesCollected = params->bytesCollected;
