@@ -1195,6 +1195,8 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepa
     return -1;
   }
 
+  params->bytesBeforFix = blk->buf.offset;
+
   while (!BufferReader_AtEnd(&br)) {
     static const IndexDecoderCtx empty = {0};
     const char *bufBegin = BufferReader_Current(&br);
@@ -1268,6 +1270,9 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepa
     // rdb from older versions).
     blk->firstId = oldFirstBlock;
   }
+
+  params->bytesAfterFix = blk->buf.offset;
+
   IndexResult_Free(res);
   return frags;
 }
