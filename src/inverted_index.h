@@ -54,6 +54,8 @@ typedef union {
 typedef void (*RepairCallback)(const RSIndexResult *res, void *arg);
 
 typedef struct {
+  size_t bytesBeforFix;
+  size_t bytesAfterFix;
   size_t bytesCollected; /** out: Number of bytes collected */
   size_t docsCollected;  /** out: Number of documents collected */
   size_t limit;          /** in: how many index blocks to scan at once */
