@@ -1,5 +1,7 @@
 # RediSearch Full Command Documentation
 
+## Create
+
 ### FT.CREATE 
 
 #### Format
@@ -172,6 +174,8 @@ OK or an error
 
 ---
 
+## Insert
+
 ### HSET/HSETNX/HDEL/HINCRBY/HDECRBY
 
 #### Format
@@ -207,160 +211,7 @@ HSET doc3 Name "RedisLabs" indexName "myindexname"
 
 ---
 
-### FT.ALTER SCHEMA ADD
-
-#### Format
-
-```
-FT.ALTER {index} SCHEMA ADD {field} {options} ...
-```
-
-#### Description
-
-Adds a new field to the index.
-
-Adding a field to the index will cause any future document updates to use the new field when
-indexing and reindexing of existing documents.
-
-!!! note
-    Depending on how the index was created, you may be limited by the amount of additional text
-    fields which can be added to an existing index. If the current index contains less than 32
-    text fields, then `SCHEMA ADD` will only be able to add fields up to 32 total fields (meaning that the
-    index will only ever be able to contain 32 total text fields). If you wish for the index to
-    contain more than 32 fields, create it with the `MAXTEXTFIELDS` option.
-
-##### Example
-```sql
-FT.ALTER idx SCHEMA ADD id2 NUMERIC SORTABLE
-```
-
-#### Parameters
-
-* **index**: the index name.
-* **field**: the field name.
-* **options**: the field options - refer to `FT.CREATE` for more information.
-
-#### Complexity
-
-O(1)
-
-#### Returns
-
-OK or an error.
-
----
-
-### FT.ALIASADD
-### FT.ALIASUPDATE
-### FT.ALIASDEL
-
-#### Format
-
-```
-FT.ALIASADD {name} {index}
-FT.ALIASUPDATE {name} {index}
-FT.ALIASDEL {name}
-```
-
-The `FT.ALIASADD` and `FT.ALIASDEL` commands will add or remove an alias from
-an index. Index aliases can be used to refer to actual indexes in data
-commands such as `FT.SEARCH` or `FT.ADD`. This allows an administrator
-to transparently redirect application queries to alternative indexes.
-
-Indexes can have more than one alias, though an alias cannot refer to another
-alias.
-
-The `FT.ALIASUPDATE` command differs from the `FT.ALIASADD` command in that
-it will remove the alias association with a previous index, if any. `FT.ALIASDD`
-will fail, on the other hand, if the alias is already associated with another
-index.
-
-#### Complexity
-
-O(1)
-
-#### Returns
-
-OK or an error.
-
----
-
-### FT.INFO
-
-#### Format
-
-```
-FT.INFO {index} 
-```
-
-#### Description
-
-Returns information and statistics on the index. Returned values include:
-
-* Number of documents.
-* Number of distinct terms.
-* Average bytes per record.
-* Size and capacity of the index buffers.
-
-##### Example
-```bash
-127.0.0.1:6379> ft.info wik{0}
- 1) index_name
- 2) wikipedia
- 3) fields
- 4) 1) 1) title
-       2) type
-       3) FULLTEXT
-       4) weight
-       5) "1"
-    2) 1) body
-       2) type
-       3) FULLTEXT
-       4) weight
-       5) "1"
- 5) num_docs
- 6) "502694"
- 7) num_terms
- 8) "439158"
- 9) num_records
-10) "8098583"
-11) inverted_sz_mb
-12) "45.58
-13) inverted_cap_mb
-14) "56.61
-15) inverted_cap_ovh
-16) "0.19
-17) offset_vectors_sz_mb
-18) "9.27
-19) skip_index_size_mb
-20) "7.35
-21) score_index_size_mb
-22) "30.8
-23) records_per_doc_avg
-24) "16.1
-25) bytes_per_record_avg
-26) "5.90
-27) offsets_per_term_avg
-28) "1.20
-29) offset_bits_per_record_avg
-30) "8.00
-31) hash_indexing_failures
-32) "3
-```
-
-#### Parameters
-
-- **index**: The Fulltext index name. The index must be first created with FT.CREATE
-
-#### Complexity
-
-O(1)
-
-#### Returns
-
-Array Response. A nested array of keys and values.
-
----
+## Search
 
 ### FT.SEARCH 
 
@@ -733,6 +584,53 @@ String Response. A string representing the execution plan (see above example).
 
 ---
 
+## Update
+
+### FT.ALTER SCHEMA ADD
+
+#### Format
+
+```
+FT.ALTER {index} SCHEMA ADD {field} {options} ...
+```
+
+#### Description
+
+Adds a new field to the index.
+
+Adding a field to the index will cause any future document updates to use the new field when
+indexing and reindexing of existing documents.
+
+!!! note
+    Depending on how the index was created, you may be limited by the amount of additional text
+    fields which can be added to an existing index. If the current index contains less than 32
+    text fields, then `SCHEMA ADD` will only be able to add fields up to 32 total fields (meaning that the
+    index will only ever be able to contain 32 total text fields). If you wish for the index to
+    contain more than 32 fields, create it with the `MAXTEXTFIELDS` option.
+
+##### Example
+```sql
+FT.ALTER idx SCHEMA ADD id2 NUMERIC SORTABLE
+```
+
+#### Parameters
+
+* **index**: the index name.
+* **field**: the field name.
+* **options**: the field options - refer to `FT.CREATE` for more information.
+
+#### Complexity
+
+O(1)
+
+#### Returns
+
+OK or an error.
+
+---
+
+## Delete
+
 ### FT.DROPINDEX
 
 #### Format
@@ -764,6 +662,45 @@ FT.DROPINDEX idx DD
 Status Reply: OK on success.
 
 ---
+
+## Alias
+
+### FT.ALIASADD
+### FT.ALIASUPDATE
+### FT.ALIASDEL
+
+#### Format
+
+```
+FT.ALIASADD {name} {index}
+FT.ALIASUPDATE {name} {index}
+FT.ALIASDEL {name}
+```
+
+The `FT.ALIASADD` and `FT.ALIASDEL` commands will add or remove an alias from
+an index. Index aliases can be used to refer to actual indexes in data
+commands such as `FT.SEARCH` or `FT.ADD`. This allows an administrator
+to transparently redirect application queries to alternative indexes.
+
+Indexes can have more than one alias, though an alias cannot refer to another
+alias.
+
+The `FT.ALIASUPDATE` command differs from the `FT.ALIASADD` command in that
+it will remove the alias association with a previous index, if any. `FT.ALIASDD`
+will fail, on the other hand, if the alias is already associated with another
+index.
+
+#### Complexity
+
+O(1)
+
+#### Returns
+
+OK or an error.
+
+---
+
+## Tags
 
 ### FT.TAGVALS
 
@@ -803,6 +740,8 @@ Array Reply: All the distinct tags in the tag index.
 O(n), n being the cardinality of the tag field.
 
 ---
+
+## Suggestions
 
 ### FT.SUGADD
 
@@ -928,6 +867,8 @@ Integer Reply: the current size of the suggestion dictionary.
 
 ---
 
+## Synonym
+
 ### FT.SYNUPDATE
 
 #### Format
@@ -1028,6 +969,7 @@ The score is calculated by dividing the number of documents in which the suggest
 
 ---
 
+## Dictionary
 
 ### FT.DICTADD
 
@@ -1096,6 +1038,87 @@ Returns an array, where each element is term (string).
 
 ---
 
+## Info
+
+### FT.INFO
+
+#### Format
+
+```
+FT.INFO {index} 
+```
+
+#### Description
+
+Returns information and statistics on the index. Returned values include:
+
+* Number of documents.
+* Number of distinct terms.
+* Average bytes per record.
+* Size and capacity of the index buffers.
+
+##### Example
+```bash
+127.0.0.1:6379> ft.info wik{0}
+ 1) index_name
+ 2) wikipedia
+ 3) fields
+ 4) 1) 1) title
+       2) type
+       3) FULLTEXT
+       4) weight
+       5) "1"
+    2) 1) body
+       2) type
+       3) FULLTEXT
+       4) weight
+       5) "1"
+ 5) num_docs
+ 6) "502694"
+ 7) num_terms
+ 8) "439158"
+ 9) num_records
+10) "8098583"
+11) inverted_sz_mb
+12) "45.58
+13) inverted_cap_mb
+14) "56.61
+15) inverted_cap_ovh
+16) "0.19
+17) offset_vectors_sz_mb
+18) "9.27
+19) skip_index_size_mb
+20) "7.35
+21) score_index_size_mb
+22) "30.8
+23) records_per_doc_avg
+24) "16.1
+25) bytes_per_record_avg
+26) "5.90
+27) offsets_per_term_avg
+28) "1.20
+29) offset_bits_per_record_avg
+30) "8.00
+31) hash_indexing_failures
+32) "3
+```
+
+#### Parameters
+
+- **index**: The Fulltext index name. The index must be first created with FT.CREATE
+
+#### Complexity
+
+O(1)
+
+#### Returns
+
+Array Response. A nested array of keys and values.
+
+---
+
+## Configuration
+
 ### FT.CONFIG
 
 #### Format
@@ -1127,8 +1150,9 @@ When provided with a valid option name, the `GET` subcommand returns a string wi
 
 The `SET` subcommand returns 'OK' for valid runtime-settable option names and values.
 
-
 ---
+
+## Deprecated commands
 
 ### FT.ADD 
 
