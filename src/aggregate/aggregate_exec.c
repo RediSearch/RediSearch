@@ -14,7 +14,7 @@ static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num);
  * RLookup registry. Returns NULL if there is no sorting key
  */
 static const RSValue *getSortKey(AREQ *req, const SearchResult *r, const PLN_ArrangeStep *astp) {
-  if (!astp || !(astp->sortkeysLK)) {
+  if (!astp) {
     return NULL;
   }
   const RLookupKey *kk = astp->sortkeysLK[0];
