@@ -1,4 +1,37 @@
-# RediSearch Full Command Documentation
+# RediSearch Commands
+
+| Command | Description |
+| --- | --- |
+| [`FT.CREATE`](#ftcreate) | Creates an index with the given spec |
+| [`FT.ADD`](#ftadd) | Adds a document to the index |
+| [`FT.ADDHASH`](#ftaddhash) | Adds a document to the index from an existing HASH key in Redis |
+| [`FT.ALTER SCHEMA ADD`](#ftalterschemaadd) | Adds a new field to the index |
+| [`FT.ALIASADD`](#ftaliasadd) | Adds an alias to an index (Fails if the alias is associated with another index) |
+| [`FT.ALIASUPDATE`](#ftaliasupdate) | Adds an alias to an index (Removes the alias from other indexes) |
+| [`FT.ALIASDEL`](#ftaliasdel) | Removes an alias from an index |
+| [`FT.INFO`](#ftinfo) | Returns information and statistics on the index |
+| [`FT.SEARCH`](#ftsearch) | Searches the index with a textual query, returning either documents or just ids |
+| [`FT.AGGREGATE`](#ftaggregate) | Runs a search query on an index, and performs aggregate transformations on the results, extracting statistics etc from them |
+| [`FT.EXPLAIN`](#ftexplain) | Returns the execution plan for a complex query |
+| [`FT.EXPLAINCLI`](#ftexplaincli) | Returns the execution plan for a complex query but formatted for easier reading |
+| [`FT.DEL`](#ftdel) | Deletes a document from the index |
+| [`FT.GET`](#ftget) | Returns the full contents of a document (Like HGETALL command) |
+| [`FT.MGET`](#ftmget) | Returns the full contents of a document (Like multiple HGETALL commands) |
+| [`FT.DROP`](#ftdrop) | Deletes all the keys associated with the index |
+| [`FT.TAGVALS`](#fttagvals) | Returns the distinct tags indexed in a Tag field  |
+| [`FT.SUGADD`](#ftsugadd) | Adds a suggestion string to an auto-complete suggestion dictionary |
+| [`FT.SUGGET`](#ftsugget) | Gets completion suggestions for a prefix |
+| [`FT.SUGDEL`](#ftsugdel) | Deletes a string from a suggestion index |
+| [`FT.SUGLEN`](#ftsuglen) | Gets the size of an auto-complete suggestion dictionary|
+| [`FT.OPTIMIZE`](#ftoptimize) | Deprecated |
+| [`FT.SYNADD`](#ftsynadd) | Adds a synonym group |
+| [`FT.SYNUPDATE`](#ftsynupdate) | Updates a synonym group |
+| [`FT.SYNDUMP`](#ftsyndump) | Dumps the contents of a synonym group |
+| [`FT.SPELLCHECK`](#ftspellcheck) | Performs spelling correction on a query, returning suggestions for misspelled terms |
+| [`FT.DICTADD`](#ftdictadd) | Adds terms to a dictionary |
+| [`FT.DICTDEL`](#ftdictdel) | Deletes terms from a dictionary |
+| [`FT.DICTDUMP`](#ftdictdump) |Dumps all terms in the given dictionary |
+| [`FT.CONFIG`](#ftconfig) | Retrieves, describes and sets runtime configuration options |
 
 ## FT.CREATE 
 
