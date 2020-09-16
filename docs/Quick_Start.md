@@ -3,7 +3,7 @@
 
 ## Redis Cloud
 
-RediSearch is available on all Redis Cloud managed services.  Redis Cloud Essentials offers a completely free managed databbases up to 30MB.
+RediSearch is available on all Redis Cloud managed services.  Redis Cloud Essentials offers a completely free managed databases up to 30MB.
 
 [Get started here](https://redislabs.com/try-free/)
 
@@ -19,27 +19,28 @@ First download the pre-compiled version from [RedisLabs download center](https:/
 
 Next, run Redis with RediSearch: 
 
-```
+```sh
 $ redis-server --loadmodule /path/to/module/src/redisearch.so
 ```
 
 ## Building and running from source
 
-First, clone the git repo:
+First, clone the git repo (make sure not to omit the `--recursive` option, to properly clone submodules):
 
-```
+```sh
 git clone --recursive https://github.com/RediSearch/RediSearch.git
 ```
 
-Next, build:
+Next, install dependencies and build:
 
-```
+```sh
+sudo make setup
 make build
 ```
 
 Finally, run Redis with RediSearch:
 
-```
+```sh
 make run
 ```
 
