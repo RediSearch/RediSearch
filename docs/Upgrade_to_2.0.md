@@ -6,7 +6,7 @@
 
 v2 of RediSearch reachitects the way indices are kept in sync with the data. Instead of using `FT.ADD` command to index documents, RediSearch 2.0 follows hashes that match the index description regardless of how those were inserted or changed on Redis (`HSET`, `HINCR`, `HDEL`). The index description will filter hashes on a prefix of the key, and allows you to construct fine-grained filters with the `FILTER` option. This description can be defined during index creation ([ft.create](Commands.md#ftcreate)). 
 
-v1.x indices (further referred to as legacy indices) don't have such index description. That is why you will need to supply their descriptions when upgrading to v2. During the upgrade to v2, you should add the descriptions via the module's configuration soRediSearch 2.0 will be able to load these legacy indexes.
+v1.x indices (further referred to as legacy indices) don't have such index description. That is why you will need to supply their descriptions when upgrading to v2. During the upgrade to v2, you should add the descriptions via the module's configuration so RediSearch 2.0 will be able to load these legacy indexes.
 
 ## UPGRADE_INDEX configuration
 
@@ -23,6 +23,7 @@ redis-server --loadmodule redisearch.so UPGRADE_INDEX idx PREFIX 1 idx:
 ## Upgrade Limitations
 
 The way that the upgrade process works behind the scenes is that it redefines the index with the `on hash` index description given in the configuration and then reindexes the data. This comes with some limitations:
+
 * If `NOSAVE` was used, then it's not possible to upgrade because the data for reindexing does not exist.
 * If you have multiple indices, you need to find the way for RediSearch to identify which hashes belong to which index. You can do it either with a prefix or a filter.
 * If you have hashes that are not indexed, you will need to find a way so that RediSearch will be able to identify only the hashes that need to be indexed. This can be done using a prefix or a filter.
