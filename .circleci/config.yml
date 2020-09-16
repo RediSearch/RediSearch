@@ -31,8 +31,8 @@ commands:
 
   ci_steps:
     steps:
-      - checkout
       - abort_for_docs
+      - checkout
       - run:
           name: Get Dependencies
           command: ./.circleci/ci_get_deps.sh
