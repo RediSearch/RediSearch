@@ -316,7 +316,7 @@ Interval (in seconds) between two consecutive `fork GC` runs.
 
 ### Default
 
-"30"
+"10"
 
 ### Example
 
@@ -353,7 +353,7 @@ The `fork GC` will only start to clean when the number of not cleaned documents 
 
 ### Default
 
-"100"
+"0"
 
 ### Example
 
