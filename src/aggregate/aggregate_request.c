@@ -362,7 +362,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
     }
   }
 
-  if (req->reqflags & QEXEC_F_SEND_SCOREEXPLAIN && !(req->reqflags & QEXEC_F_SEND_SCORES)) {
+  if ((req->reqflags & QEXEC_F_SEND_SCOREEXPLAIN) && !(req->reqflags & QEXEC_F_SEND_SCORES)) {
     QERR_MKBADARGS_FMT(status, "EXPLAINSCORE must be accompanied with WITHSCORES");
     return REDISMODULE_ERR;
   }
