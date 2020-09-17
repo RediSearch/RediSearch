@@ -43,7 +43,7 @@ class TestAggregate():
         add_values(self.env)
 
     def testGroupBy(self):
-        cmd = ['ft.aggregate', 'games', '*',
+        cmd = ['ft.aggregate', 'games', '*', 
                'GROUPBY', '1', '@brand',
                'REDUCE', 'count', '0', 'AS', 'count',
                'SORTBY', 2, '@count', 'desc',
@@ -169,7 +169,8 @@ class TestAggregate():
                               '2018-01-31T16:45:44Z', 'parsed_dt', '1517417144'], res[1])
 
     def testRandomSample(self):
-        cmd = ['FT.AGGREGATE', 'games', '*', 'GROUPBY', '1', '@brand',
+        cmd = ['FT.AGGREGATE', 'games', '*',
+               'GROUPBY', '1', '@brand',
                'REDUCE', 'COUNT', '0', 'AS', 'num',
                'REDUCE', 'RANDOM_SAMPLE', '2', '@price', '10',
                'SORTBY', '2', '@num', 'DESC', 'MAX', '10']
@@ -194,10 +195,16 @@ class TestAggregate():
                'APPLY', 'dayofyear(@dt)', 'AS', 'dayofyear',
                'APPLY', 'year(@dt)', 'AS', 'year',
 
-               'LIMIT', '0', '1']
+               'LIMIT', '0', '2']
         res = self.env.cmd(*cmd)
-        self.env.assertListEqual([1L, ['dt', '1517417144', 'timefmt', '2018-01-31T16:45:44Z', 'day', '1517356800', 'hour', '1517414400',
-                                       'minute', '1517417100', 'month', '1514764800', 'dayofweek', '3', 'dayofmonth', '31', 'dayofyear', '30', 'year', '2018']], res)
+        self.env.assertListEqual([1L, '0984529527',
+                                            ['dt', '1517417144', 'timefmt', '2018-01-31T16:45:44Z',
+                                             'day', '1517356800', 'hour', '1517414400', 'minute', '1517417100', 'month', '1514764800',
+                                             'dayofweek', '3', 'dayofmonth', '31', 'dayofyear', '30', 'year', '2018'],
+                                      '1574571931',
+                                            ['dt', '1517417144', 'timefmt', '2018-01-31T16:45:44Z',
+                                             'day', '1517356800', 'hour', '1517414400', 'minute', '1517417100', 'month', '1514764800',
+                                             'dayofweek', '3', 'dayofmonth', '31', 'dayofyear', '30', 'year', '2018']], res)
 
     def testStringFormat(self):
         cmd = ['FT.AGGREGATE', 'games', '@brand:sony',
@@ -271,7 +278,8 @@ class TestAggregate():
             self.env.assertEqual(int(row['count']), len(row['prices']))
 
     def testSortBy(self):
-        res = self.env.cmd('ft.aggregate', 'games', '*', 'GROUPBY', '1', '@brand',
+        res = self.env.cmd('ft.aggregate', 'games', '*',
+                           'GROUPBY', '1', '@brand',
                            'REDUCE', 'sum', 1, '@price', 'as', 'price',
                            'SORTBY', 2, '@price', 'desc',
                            'LIMIT', '0', '2')
@@ -279,7 +287,8 @@ class TestAggregate():
         self.env.assertListEqual([292L, ['brand', '', 'price', '44780.69'], [
                                  'brand', 'mad catz', 'price', '3973.48']], res)
 
-        res = self.env.cmd('ft.aggregate', 'games', '*', 'GROUPBY', '1', '@brand',
+        res = self.env.cmd('ft.aggregate', 'games', '*',
+                           'GROUPBY', '1', '@brand',
                            'REDUCE', 'sum', 1, '@price', 'as', 'price',
                            'SORTBY', 2, '@price', 'asc',
                            'LIMIT', '0', '2')
@@ -288,7 +297,8 @@ class TestAggregate():
                                  'brand', 'crystal dynamics', 'price', '0.25']], res)
 
         # Test MAX with limit higher than it
-        res = self.env.cmd('ft.aggregate', 'games', '*', 'GROUPBY', '1', '@brand',
+        res = self.env.cmd('ft.aggregate', 'games', '*',
+                           'GROUPBY', '1', '@brand',
                            'REDUCE', 'sum', 1, '@price', 'as', 'price',
                            'SORTBY', 2, '@price', 'asc', 'MAX', 2)
 
@@ -296,7 +306,8 @@ class TestAggregate():
                                  'brand', 'crystal dynamics', 'price', '0.25']], res)
 
         # Test Sorting by multiple properties
-        res = self.env.cmd('ft.aggregate', 'games', '*', 'GROUPBY', '1', '@brand',
+        res = self.env.cmd('ft.aggregate', 'games', '*',
+                           'GROUPBY', '1', '@brand',
                            'REDUCE', 'sum', 1, '@price', 'as', 'price',
                            'APPLY', '(@price % 10)', 'AS', 'price',
                            'SORTBY', 4, '@price', 'asc', '@brand', 'desc', 'MAX', 10,
@@ -312,41 +323,42 @@ class TestAggregate():
                            'APPLY', 'floor(sqrt(@price)) % 10', 'AS', 'price',
                            'SORTBY', 4, '@price', 'desc', '@brand', 'desc', 'MAX', 5,
                            )
-        exp = [2265L,
- ['brand', 'Xbox', 'price', '9'],
- ['brand', 'turtle beach', 'price', '9'],
- ['brand', 'trust', 'price', '9'],
- ['brand', 'steelseries', 'price', '9'],
- ['brand', 'speedlink', 'price', '9']]
-        # exp = [2265L, ['brand', 'Xbox', 'price', '9'], ['brand', 'Turtle Beach', 'price', '9'], [
-                            #  'brand', 'Trust', 'price', '9'], ['brand', 'SteelSeries', 'price', '9'], ['brand', 'Speedlink', 'price', '9']]
-        self.env.assertListEqual(exp[1], res[1])
+        exp = [2265L, 
+              'B00IE3WL6G', ['brand', 'Xbox', 'price', '9'],
+              'B00CPS59CE', ['brand', 'Turtle Beach', 'price', '9'],
+              'B000FS5TKI', ['brand', 'Trust', 'price', '9'],
+              'B009F7G0AI', ['brand', 'SteelSeries', 'price', '9'],
+              'B0046ZSY7Q',['brand', 'Speedlink', 'price', '9']]
+        self.env.assertListEqual(exp, res)
 
     def testLoad(self):
         res = self.env.cmd('ft.aggregate', 'games', '*',
                            'LOAD', '3', '@brand', '@price', '@nonexist',
                            'SORTBY', 2, '@price', 'DESC', 'MAX', 2)
-        exp = [3L, ['brand', '', 'price', '759.12'], ['brand', 'Sony', 'price', '695.8']]
-        self.env.assertEqual(exp[1], res[1])
+        exp = [2265L, 'B00006JJIC', ['brand', '', 'price', '759.12'], 'B000F6W1AG', ['brand', 'Sony', 'price', '695.8']]
+        self.env.assertEqual(exp, res)
 
     def testSplit(self):
-        res = self.env.cmd('ft.aggregate', 'games', '*', 'APPLY', 'split("hello world,  foo,,,bar,", ",", " ")', 'AS', 'strs',
+        res = self.env.cmd('ft.aggregate', 'games', '*',
+                           'APPLY', 'split("hello world,  foo,,,bar,", ",", " ")', 'AS', 'strs',
                            'APPLY', 'split("hello world,  foo,,,bar,", " ", ",")', 'AS', 'strs2',
                            'APPLY', 'split("hello world,  foo,,,bar,", "", "")', 'AS', 'strs3',
                            'APPLY', 'split("hello world,  foo,,,bar,")', 'AS', 'strs4',
                            'APPLY', 'split("hello world,  foo,,,bar,",",")', 'AS', 'strs5',
                            'APPLY', 'split("")', 'AS', 'empty',
-                           'LIMIT', '0', '1'
+                           'LIMIT', '0', '2'
                            )
-        # print "Got {} results".format(len(res))
-        # return
-        # pprint.pprint(res)
-        self.env.assertListEqual([1L, ['strs', ['hello world', 'foo', 'bar'],
-                                       'strs2', ['hello', 'world', 'foo,,,bar'],
-                                       'strs3', ['hello world,  foo,,,bar,'],
-                                       'strs4', ['hello world', 'foo', 'bar'],
-                                       'strs5', ['hello world', 'foo', 'bar'],
-                                       'empty', []]], res)
+                           
+        self.env.assertListEqual([1L, '0984529527', ['strs', ['hello world', 'foo', 'bar'],
+                                                     'strs2', ['hello', 'world', 'foo,,,bar'],
+                                                     'strs3', ['hello world,  foo,,,bar,'],
+                                                     'strs4', ['hello world', 'foo', 'bar'],
+                                                     'strs5', ['hello world', 'foo', 'bar'], 'empty', []],
+                                      '1574571931', ['strs', ['hello world', 'foo', 'bar'],
+                                                     'strs2', ['hello', 'world', 'foo,,,bar'],
+                                                     'strs3', ['hello world,  foo,,,bar,'],
+                                                     'strs4', ['hello world', 'foo', 'bar'],
+                                                     'strs5', ['hello world', 'foo', 'bar'], 'empty', []]], res)
 
     def testFirstValue(self):
         res = self.env.cmd('ft.aggregate', 'games', '@brand:(sony|matias|beyerdynamic|(mad catz))',
@@ -395,7 +407,7 @@ class TestAggregate():
     def testIssue1125(self):
         rv = self.env.cmd('ft.aggregate', 'games', '*',
                           'LIMIT', 0, 20000000)
-        self.env.assertEqual(2266, len(rv))
+        self.env.assertEqual(4531, len(rv))
 
         # SEARCH should fail
         self.env.expect('ft.search', 'games', '*', 'limit', 0, 2000000).error()     \
@@ -434,7 +446,7 @@ class TestAggregateSecondUseCases():
     def testSimpleAggregate(self):
         res = self.env.cmd('ft.aggregate', 'games', '*')
         self.env.assertIsNotNone(res)
-        self.env.assertEqual(len(res), 4531)
+        self.env.assertEqual(len(res), 9061)
 
     def testSimpleAggregateWithCursor(self):
         res = self.env.cmd('ft.aggregate', 'games', '*', 'WITHCURSOR', 'COUNT', 1000)
@@ -483,6 +495,6 @@ def testStartsWith(env):
     conn.execute_command('hset', 'doc3', 't', 'ab')
 
     res = env.cmd('ft.aggregate', 'idx', '*', 'load', 1, 't', 'apply', 'startswith(@t, "aa")', 'as', 'prefix')
-    env.assertEqual(toSortedFlatList(res), toSortedFlatList([1L, ['t', 'aa', 'prefix', '1'], \
-                                                                 ['t', 'aaa', 'prefix', '1'], \
-                                                                 ['t', 'ab', 'prefix', '0']]))
+    env.assertEqual(toSortedFlatList(res), toSortedFlatList([1L, 'doc1', ['t', 'aa', 'prefix', '1'], \
+                                                                 'doc2', ['t', 'aaa', 'prefix', '1'], \
+                                                                 'doc3', ['t', 'ab', 'prefix', '0']]))

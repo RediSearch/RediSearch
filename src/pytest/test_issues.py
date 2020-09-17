@@ -37,3 +37,12 @@ def test_1502(env):
 
   env.expect('ft.search idx1 *').equal([0L]) 
   env.expect('ft.search idx2 *').equal([1L, 'a', ['bar', 'hello']]) 
+  
+def test_agg_with_ids(env):
+  env.expect('FT.CREATE idx SCHEMA txt1 TEXT').equal('OK')
+  env.expect('HSET a text1 hello').equal(1)
+  env.expect('HSET b text1 world').equal(1)
+  
+  search_res = env.cmd('FT.SEARCH idx * NOCONTENT')
+  agg_res = env.cmd('FT.AGGREGATE idx *')
+  env.assertEqual(sorted(search_res)[-2:], sorted(agg_res)[-2:])
