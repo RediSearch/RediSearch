@@ -290,13 +290,9 @@ int Cursor_Free(Cursor *cur) {
   return Cursors_Purge(cur->parent, cur->id);
 }
 
-int Cursors_RenderStats(CursorList *cl, const char *name, RedisModuleCtx *ctx) {
+void Cursors_RenderStats(CursorList *cl, const char *name, RedisModuleCtx *ctx) {
   CursorList_Lock(cl);
   CursorSpecInfo *info = findInfo(cl, name, NULL);
-  if (!info || info->used == 0) {
-    CursorList_Unlock(cl);
-    return REDISEARCH_ERR;
-  }
 
   RedisModule_ReplyWithSimpleString(ctx, "cursor_stats");
 
@@ -315,7 +311,6 @@ int Cursors_RenderStats(CursorList *cl, const char *name, RedisModuleCtx *ctx) {
   RedisModule_ReplyWithLongLong(ctx, info->used);
 
   CursorList_Unlock(cl);
-  return REDISEARCH_OK;
 }
 
 static void purgeCb(CursorList *cl, Cursor *cur, void *arg) {
