@@ -174,3 +174,9 @@ def testScoreDecimal(env):
     env.expect('ft.add idx doc1 0.01 fields title hello').ok()
     res = env.cmd('ft.search idx hello withscores nocontent')
     env.assertLess(float(res[2]), 1)
+
+def testScoreError(env):
+    env.expect('ft.create idx ON HASH schema title text').ok()
+    waitForIndex(env, 'idx')
+    env.expect('ft.add idx doc1 0.01 fields title hello').ok()
+    env.expect('ft.search idx hello EXPLAINSCORE').error().contains('EXPLAINSCORE must be accompanied with WITHSCORES')
