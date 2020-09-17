@@ -198,9 +198,9 @@ Cursor *Cursors_Reserve(CursorList *cl, const char *lookupName, unsigned interva
   }
 
   if (spec->used >= spec->cap) {
+    /** Collect idle cursors now */
     Cursors_GCInternal(cl, 0);
     if (spec->used >= spec->cap) {
-      /** Collect idle cursors now */
       QueryError_SetError(status, QUERY_ELIMIT, "Too many cursors allocated for index");
       goto done;
     }
@@ -293,7 +293,7 @@ int Cursor_Free(Cursor *cur) {
 int Cursors_RenderStats(CursorList *cl, const char *name, RedisModuleCtx *ctx) {
   CursorList_Lock(cl);
   CursorSpecInfo *info = findInfo(cl, name, NULL);
-  if (!info) {
+  if (!info || info->used == 0) {
     CursorList_Unlock(cl);
     return REDISEARCH_ERR;
   }
