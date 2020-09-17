@@ -1052,6 +1052,8 @@ FT.INFO {index}
 
 Returns information and statistics on the index. Returned values include:
 
+- `index_definition`: reflection of `FT.CREATE` command parameters.
+- `fields`: index schema - field names, types, and attributes.
 * Number of documents.
 * Number of distinct terms.
 * Average bytes per record.
