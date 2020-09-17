@@ -1056,7 +1056,10 @@ Returns information and statistics on the index. Returned values include:
 * Number of distinct terms.
 * Average bytes per record.
 * Size and capacity of the index buffers.
-* Indexing state and percentage as well as failures
+* Indexing state and percentage as well as failures:
+  * `indexing`: whether of not the index is being scanned in the background,
+  * `percent_indexed`: progress of background indexing,
+  * `hash_indexing_failures`: number of failures due to operations not compatible with index schema.
 
 Optional
 
