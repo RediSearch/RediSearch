@@ -70,4 +70,4 @@ plugins:
   - search
   - versions-menu:
       exclude-regexes:
-        - v(1\\.8\\.([0-9]+)' 
+        - 'v1\.8\.[0-9]+'
