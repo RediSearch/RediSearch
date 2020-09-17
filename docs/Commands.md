@@ -1052,11 +1052,16 @@ FT.INFO {index}
 
 Returns information and statistics on the index. Returned values include:
 
+* `index_definition`: reflection of `FT.CREATE` command parameters.
+* `fields`: index schema - field names, types, and attributes.
 * Number of documents.
 * Number of distinct terms.
 * Average bytes per record.
 * Size and capacity of the index buffers.
-* Indexing state and percentage as well as failures
+* Indexing state and percentage as well as failures:
+  * `indexing`: whether of not the index is being scanned in the background,
+  * `percent_indexed`: progress of background indexing (1 if complete),
+  * `hash_indexing_failures`: number of failures due to operations not compatible with index schema.
 
 Optional
 
@@ -1076,15 +1081,17 @@ Optional
  6)  1) key_type
      2) HASH
      3) prefixes
-     4) 1) 
-     5) language_field
-     6) __language
-     7) default_score
-     8) "1"
-     9) score_field
-    10) __score
-    11) payload_field
-    12) __payload
+     4) 1) thing:
+     5) filter
+     6) startswith(@__key, "thing:")
+     7) language_field
+     8) __language
+     9) default_score
+    10) "1"
+    11) score_field
+    12) __score
+    13) payload_field
+    14) __payload
  7) fields
  8) 1) 1) title
        2) type
