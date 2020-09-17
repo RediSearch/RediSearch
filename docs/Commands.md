@@ -1060,7 +1060,7 @@ Returns information and statistics on the index. Returned values include:
 * Size and capacity of the index buffers.
 * Indexing state and percentage as well as failures:
   * `indexing`: whether of not the index is being scanned in the background,
-  * `percent_indexed`: progress of background indexing,
+  * `percent_indexed`: progress of background indexing (1 if complete),
   * `hash_indexing_failures`: number of failures due to operations not compatible with index schema.
 
 Optional
