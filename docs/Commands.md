@@ -1060,9 +1060,9 @@ Returns information and statistics on the index. Returned values include:
 
 Optional
 
-* Statistics about the `garbage collector`.
-* Statistics about `cursors`.
-* Statistics about `stopword lists`.
+* Statistics about the `garbage collector` for all options other than NOGC.
+* Statistics about `cursors` if a cursor exists for the index.
+* Statistics about `stopword lists` if a custom stopword list is used.
 
 
 ##### Example
