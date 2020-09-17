@@ -1,6 +1,8 @@
 
 # Quick Start Guide for RediSearch
 
+You can start learning about RediSearch using this [Getting Started Tutorial](https://github.com/RediSearch/redisearch-getting-started). This tutorial will guide you throught various example including a small application that use RediSearch Java, Pythin and Node.js clients.
+
 ## Redis Cloud
 
 RediSearch is available on all Redis Cloud managed services.  Redis Cloud Essentials offers a completely free managed databases up to 30MB.
