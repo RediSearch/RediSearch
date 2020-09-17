@@ -161,7 +161,9 @@ $ redis-server --loadmodule ./redisearch.so MAXEXPANSIONS 1000
 
 ## MAXDOCTABLESIZE
 
-The maximum size of the internal hash table used for storing the documents.
+The maximum size of the internal hash table used for storing the documents. 
+Notice, this configuration doesn't limit the amount of documents that can be stored but only the hash table internal array max size.
+Decreasing this property can decrease the memory overhead in case the index holds a small amount of documents that are constantly updated.
 
 ### Default
 
