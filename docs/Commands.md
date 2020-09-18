@@ -37,7 +37,7 @@ Creates an index with the given spec.
     FT.CREATE idx ... PREFIX 1 doc: ...
     ```
     
-    When Running RediSearch in clustered database, there is the ability to span the index across shards with [RSCoordinator](https://github.com/RedisLabsModules/RSCoordinator). In this case the above does not apply.
+    When Running RediSearch in a clustered database, there is the ability to span the index across shards with [RSCoordinator](https://github.com/RedisLabsModules/RSCoordinator). In this case the above does not apply.
 
 ##### Example
 ```sql
