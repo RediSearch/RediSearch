@@ -30,14 +30,14 @@ Creates an index with the given spec.
     You can always use the `NOFIELDS` option and not encode field information into the index, for saving space, if you do not need filtering by text fields. This will still allow filtering by numeric and geo fields.
 
 !!! info "Note on running in clustered databases"
-    When having several indices in a clustered database, you need to tag the index key and the document key to ensure they reside on the same shard.
+    When having several indices in a clustered database, you need to make sure the documents you want to index reside on the same shard as the index. You can achieve this by having your documents tagged by the index name.
     
     ```sql
-    FT.CREATE {idx} ... PREFIX 1 doc: ...
-    HSET {idx} doc:1{idx} ...
+    HSET doc:1{idx} ...
+    FT.CREATE idx ... PREFIX 1 doc: ...
     ```
     
-    When Running RediSearch in clustered database, there is the ability to span the index across shards. In this case the above does not apply.
+    When Running RediSearch in clustered database, there is the ability to span the index across shards with [RSCoordinator](https://github.com/RedisLabsModules/RSCoordinator). In this case the above does not apply.
 
 ##### Example
 ```sql
