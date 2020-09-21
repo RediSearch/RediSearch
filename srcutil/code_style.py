@@ -66,7 +66,7 @@ else:
     po = Popen(['git', 'status', '--porcelain'] + GIT_STATUS_PATTERNS, stdout=PIPE)
     output, _ = po.communicate()
     po.wait()
-    lines = [line for line in output.split('\n') if line]
+    lines = [line for line in output.decode("utf-8").split('\n') if line]
     files = []
     for line in lines:
         # Check the two letter status
@@ -87,11 +87,11 @@ has_error = False
 for f in files:
     is_skip = False
     if f in IGNOREPATHS:
-        print f + ' [SKIP]'
+        print(f + ' [SKIP]')
         continue
     for p in IGNOREPATHS:
         if f.startswith(p):
-            print f + ' [SKIP]'
+            print(f + ' [SKIP]')
             is_skip = True
             break
 
@@ -100,36 +100,36 @@ for f in files:
 
     cmd = ['clang-format'] + CLANG_ARGS + ['-output-replacements-xml', f]
     if options.verbose:
-        print "Executing", cmd
+        print("Executing", cmd)
     po = Popen(cmd, stdout=PIPE)
     output, _ = po.communicate()
     rv = po.wait()
     if rv != 0:
-        print 'Warning: Could not analyze {}'.format(f)
+        print('Warning: Could not analyze {}'.format(f))
     count = len([line for line in output.split('\n') if line])
     has_changes = count > 3
     if options.dry_run:
         if has_changes:
-            print RED + f + ' [FAIL]' + NC
+            print(RED + f + ' [FAIL]' + NC)
             has_error = True
         else:
-            print GREEN + f + ' [OK]' + NC
+            print(GREEN + f + ' [OK]' + NC)
     else:
         if has_changes:
-            print 'Reformatting ' + f
+            print('Reformatting ' + f)
             cmd = ['clang-format'] + CLANG_ARGS + ['-i', f]
             if options.verbose:
-                print "Executing", cmd
+                print("Executing", cmd)
             po = Popen(cmd)
             po.communicate()
             if po.wait() != 0:
-                print "Warning: Couldn't reformat!"
+                print("Warning: Couldn't reformat!")
 
 if has_error:
     print(
         'Some files were not properly formatted. Run this script ({}) to '
         'format them'.format(__file__))
     if os.environ.get('CODE_STYLE_IGNORE'):
-        print 'Ignoring error because of CODE_STYLE_IGNORE in the environment'
+        print('Ignoring error because of CODE_STYLE_IGNORE in the environment')
     else:
         sys.exit(1)
