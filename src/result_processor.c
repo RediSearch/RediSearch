@@ -320,6 +320,19 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
     return rc;
   }
 
+  // If the data is not in the sorted vector, lets load it.
+  if (!h->rowdata.sv || h->rowdata.sv->len != self->fieldcmp.nkeys) {
+    for (int i = 0; i < self->fieldcmp.nkeys; ++i) {
+      QueryError status = {0};
+      RLookupLoadOptions loadopts = {.sctx = rp->parent->sctx, .dmd = h->dmd,
+                                     .nkeys = self->fieldcmp.nkeys, .keys = &self->fieldcmp.keys[i],
+                                     .status = &status};
+      if (QueryError_HasError(&status)) {
+        return RS_RESULT_ERROR;
+      }
+      RLookup_LoadDocument(NULL, &h->rowdata, &loadopts);
+    }
+  }
   // If the queue is not full - we just push the result into it
   // If the pool size is 0 we always do that, letting the heap grow dynamically
   if (!self->size || self->pq->count + 1 < self->pq->size) {

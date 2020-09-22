@@ -769,6 +769,47 @@ def testSortBy(env):
         env.assertListEqual([100L, 'doc99', '$hello099 world', 'doc98', '$hello098 world', 'doc97', '$hello097 world', 'doc96',
                               '$hello096 world', 'doc95', '$hello095 world'], res)
 
+def testSortByWithoutSortable(env):
+    r = env
+    env.assertOk(r.execute_command(
+        'ft.create', 'idx', 'schema', 'foo', 'text', 'bar', 'numeric'))
+    N = 100
+    for i in range(N):
+        env.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
+                                        'foo', 'hello%03d world' % i, 'bar', 100 - i))
+    for _ in r.retry_with_rdb_reload():
+        waitForIndex(r, 'idx')
+        res = r.execute_command(
+            'ft.search', 'idx', 'world', 'nocontent', 'sortby', 'foo')
+        env.assertEqual([100L, 'doc0', 'doc1', 'doc2', 'doc3',
+                          'doc4', 'doc5', 'doc6', 'doc7', 'doc8', 'doc9'], res)
+        res = r.execute_command(
+            'ft.search', 'idx', 'world', 'nocontent', 'sortby', 'foo', 'desc')
+        env.assertEqual([100L, 'doc99', 'doc98', 'doc97', 'doc96',
+                          'doc95', 'doc94', 'doc93', 'doc92', 'doc91', 'doc90'], res)
+        res = r.execute_command(
+            'ft.search', 'idx', 'world', 'nocontent', 'sortby', 'bar', 'desc')
+        env.assertEqual([100L, 'doc0', 'doc1', 'doc2', 'doc3',
+                          'doc4', 'doc5', 'doc6', 'doc7', 'doc8', 'doc9'], res)
+        res = r.execute_command(
+            'ft.search', 'idx', 'world', 'nocontent', 'sortby', 'bar', 'asc')
+        env.assertEqual([100L, 'doc99', 'doc98', 'doc97', 'doc96',
+                          'doc95', 'doc94', 'doc93', 'doc92', 'doc91', 'doc90'], res)
+
+        res = r.execute_command('ft.search', 'idx', 'world', 'nocontent',
+                                'sortby', 'bar', 'desc', 'withscores', 'limit', '2', '5')
+        env.assertEqual(
+            [100L, 'doc2', '0', 'doc3', '0', 'doc4', '0', 'doc5', '0', 'doc6', '0'], res)
+
+        res = r.execute_command('ft.search', 'idx', 'world', 'nocontent',
+                                'sortby', 'bar', 'desc', 'withsortkeys', 'limit', 0, 5)
+        env.assertListEqual(
+            [100L, 'doc0', '#100', 'doc1', '#99', 'doc2', '#98', 'doc3', '#97', 'doc4', '#96'], res)
+        res = r.execute_command('ft.search', 'idx', 'world', 'nocontent',
+                                'sortby', 'foo', 'desc', 'withsortkeys', 'limit', 0, 5)
+        env.assertListEqual([100L, 'doc99', '$hello099 world', 'doc98', '$hello098 world', 'doc97', '$hello097 world', 'doc96',
+                              '$hello096 world', 'doc95', '$hello095 world'], res)
+
 def testNot(env):
     r = env
     env.assertOk(r.execute_command(
