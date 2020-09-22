@@ -106,7 +106,7 @@ for f in files:
     rv = po.wait()
     if rv != 0:
         print('Warning: Could not analyze {}'.format(f))
-    count = len([line for line in output.split('\n') if line])
+    count = len([line for line in output.decode("utf-8").split('\n') if line])
     has_changes = count > 3
     if options.dry_run:
         if has_changes:
