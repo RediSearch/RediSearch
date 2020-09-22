@@ -3155,6 +3155,12 @@ def testEmptyDoc(env):
     conn.execute_command('DEL', 'doc3')
     env.expect('FT.SEARCH idx *').equal([2L, 'doc4', ['t', 'foo'], 'doc2', ['t', 'foo']])
 
+def testRED47209(env):
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE idx SCHEMA t TEXT').ok()
+    conn.execute_command('hset', 'doc1', 't', 'foo')
+    env.expect('FT.SEARCH idx foo WITHSORTKEYS LIMIT 0 1').equal([1L, 'doc1', None, ['t', 'foo']])
+
 def testInvertedIndexWasEntirelyDeletedDuringCursor():
     env = Env(moduleArgs='GC_POLICY FORK FORK_GC_CLEAN_THRESHOLD 1')
 
