@@ -3042,6 +3042,16 @@ def testIssue1208(env):
     env.expect('FT.ADD idx doc3 1 REPLACE PARTIAL IF @n>42e3 FIELDS n 100').equal('NOADD')
     env.expect('FT.ADD idx doc3 1 REPLACE PARTIAL IF @n<42e3 FIELDS n 100').ok()
 
+def testRED47209(env):
+    env.expect('FT.CREATE idx SCHEMA t TEXT').ok()
+    env.expect('FT.ADD idx doc1 1 FIELDS t foo')
+    if env.isCluster():
+        # on cluster we have WITHSCORES set unconditionally for FT.SEARCH
+        res = [1L, 'doc1', ['t', 'foo']]
+    else:
+        res = [1L, 'doc1', None, ['t', 'foo']]
+    env.expect('FT.SEARCH idx foo WITHSORTKEYS LIMIT 0 1').equal(res)
+
 def testSuggestMax(env):
   for i in range(10):
     env.expect('ft.sugadd', 'sug', 'test%d' % i, i + 1).equal(i + 1)
