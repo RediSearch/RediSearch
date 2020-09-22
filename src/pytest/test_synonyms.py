@@ -145,15 +145,10 @@ def testSynonymUpdateOutOfRangeId(env):
 
 def testSynonymDumpWorngArity(env):
     r = env
-    env.assertOk(r.execute_command(
-        'ft.create', 'idx', 'schema', 'title', 'text', 'body', 'text'))
+    env.expect('ft.create', 'idx', 'schema', 'title', 'text', 'body', 'text').ok()
     r.execute_command('ft.synadd', 'idx', 'boy', 'child')
-    exceptionStr = None
-    try:
-        r.execute_command('ft.syndump')
-    except Exception as e:
-        exceptionStr = str(e)
-    env.assertEqual(exceptionStr, 'wrong number of arguments for \'ft.syndump\' command')
+    env.expect('ft.syndump').error().contains('wrong number of arguments')
+    env.expect('ft.syndump idx foo').error().contains('wrong number of arguments')
 
 def testSynonymUnknownIndex(env):
     r = env
