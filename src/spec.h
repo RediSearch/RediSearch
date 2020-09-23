@@ -266,6 +266,18 @@ typedef struct IndexSpec {
   bool cascadeDelete;  // remove keys when removing spec
 } IndexSpec;
 
+typedef enum SpecOp { SpecOp_Add, SpecOp_Del } SpecOp;
+
+typedef struct SpecOpCtx {
+  IndexSpec *spec;
+  SpecOp op;
+} SpecOpCtx;
+
+typedef struct SpecOpIndexingCtx {
+  dict *specs;
+  SpecOpCtx *specsOps;
+} SpecOpIndexingCtx;
+
 typedef struct {
   void (*dtor)(void *p);
   void *p;
@@ -388,8 +400,8 @@ void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, IndexSpec *sp);
 int IndexSpec_CreateTextId(const IndexSpec *sp);
 
 /* Add fields to a redis schema */
-int IndexSpec_AddFields(IndexSpec *sp, RedisModuleCtx *ctx, ArgsCursor *ac,
-                                       bool initialScan, QueryError *status);
+int IndexSpec_AddFields(IndexSpec *sp, RedisModuleCtx *ctx, ArgsCursor *ac, bool initialScan,
+                        QueryError *status);
 
 void FieldSpec_Initialize(FieldSpec *sp, FieldType types);
 
