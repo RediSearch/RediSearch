@@ -8,6 +8,9 @@
 #include "query_error.h"
 #include "inverted_index.h"
 #include "rwlock.h"
+extern "C" {
+#include "util/dict.h"
+}
 #include <set>
 
 static timespec getTimespecCb(void *) {
@@ -56,6 +59,7 @@ class FGCTest : public ::testing::Test {
   void SetUp() override {
     sp = createIndex(ctx);
     RSGlobalConfig.forkGcCleanThreshold = 0;
+    Spec_AddToDict(sp);
     fgc = reinterpret_cast<ForkGC *>(sp->gc->gcCtx);
     runGcThread(ctx, fgc, sp);
   }

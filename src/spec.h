@@ -99,6 +99,7 @@ static const char *SpecTypeNames[] = {[IXFLDPOS_FULLTEXT] = SPEC_TEXT_STR,
 #define SPEC_WIDEFIELD_THRESHOLD 32
 
 extern dict *specDict_g;
+
 extern size_t pending_global_indexing_ops;
 extern struct IndexesScanner *global_spec_scanner;
 extern dict *legacySpecRules;
@@ -301,6 +302,11 @@ typedef struct IndexSpecCache {
   size_t nfields;
   size_t refcount;
 } IndexSpecCache;
+
+/**
+ * For testing only
+ */
+void Spec_AddToDict(const IndexSpec *spec);
 
 /**
  * compare redis versions

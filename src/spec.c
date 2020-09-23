@@ -608,6 +608,10 @@ int IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len) {
   return isNew;
 }
 
+void Spec_AddToDict(const IndexSpec *sp) {
+  dictAdd(specDict_g, sp->name, sp);
+}
+
 IndexSpecCache *IndexSpec_GetSpecCache(const IndexSpec *spec) {
   if (!spec->spcache) {
     ((IndexSpec *)spec)->spcache = IndexSpec_BuildSpecCache(spec);
