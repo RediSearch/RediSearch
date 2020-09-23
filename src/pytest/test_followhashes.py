@@ -609,3 +609,63 @@ def testCountry(env):
     conn.execute_command('hset', 'address:2', 'business', 'bar', 'country', 'israel')
 
     env.expect('ft.search', 'idx1', '*').equal([1L, 'address:1', ['business', 'foo', 'country', 'usa']])
+
+def testIssue1571(env):
+    conn = getConnectionByEnv(env)
+    env.cmd('ft.create', 'idx',
+            'FILTER', '@index=="yes"',
+            'SCHEMA', 't', 'TEXT')
+
+    conn.execute_command('hset', 'doc1', 't', 'foo1', 'index', 'yes')
+
+    env.expect('ft.search', 'idx', 'foo*').equal([1L, 'doc1', ['t', 'foo1', 'index', 'yes']])
+
+    conn.execute_command('hset', 'doc1', 'index', 'no')
+
+    env.expect('ft.search', 'idx', 'foo*').equal([0L])
+
+    conn.execute_command('hset', 'doc1', 't', 'foo2')
+
+    env.expect('ft.search', 'idx', 'foo*').equal([0L])
+
+    conn.execute_command('hset', 'doc1', 'index', 'yes')
+
+    env.expect('ft.search', 'idx', 'foo*').equal([1L, 'doc1', ['t', 'foo2', 'index', 'yes']])
+
+def testIssue1571WithRename(env):
+    conn = getConnectionByEnv(env)
+    env.cmd('ft.create', 'idx1',
+            'PREFIX', '1', 'idx1',
+            'FILTER', '@index=="yes"',
+            'SCHEMA', 't', 'TEXT')
+    env.cmd('ft.create', 'idx2',
+            'PREFIX', '1', 'idx2',
+            'FILTER', '@index=="yes"',
+            'SCHEMA', 't', 'TEXT')
+
+    conn.execute_command('hset', 'idx1:{doc}1', 't', 'foo1', 'index', 'yes')
+
+    env.expect('ft.search', 'idx1', 'foo*').equal([1L, 'idx1:{doc}1', ['t', 'foo1', 'index', 'yes']])
+    env.expect('ft.search', 'idx2', 'foo*').equal([0L])
+
+    conn.execute_command('rename', 'idx1:{doc}1', 'idx2:{doc}1')
+
+    env.expect('ft.search', 'idx2', 'foo*').equal([1L, 'idx2:{doc}1', ['t', 'foo1', 'index', 'yes']])
+    env.expect('ft.search', 'idx1', 'foo*').equal([0L])
+
+    conn.execute_command('hset', 'idx2:{doc}1', 'index', 'no')
+
+    env.expect('ft.search', 'idx1', 'foo*').equal([0L])
+    env.expect('ft.search', 'idx2', 'foo*').equal([0L])
+
+    conn.execute_command('rename', 'idx2:{doc}1', 'idx1:{doc}1')
+
+    env.expect('ft.search', 'idx1', 'foo*').equal([0L])
+    env.expect('ft.search', 'idx2', 'foo*').equal([0L])
+
+    conn.execute_command('hset', 'idx1:{doc}1', 'index', 'yes')
+
+    env.expect('ft.search', 'idx1', 'foo*').equal([1L, 'idx1:{doc}1', ['t', 'foo1', 'index', 'yes']])
+    env.expect('ft.search', 'idx2', 'foo*').equal([0L])
+
+
