@@ -19,7 +19,7 @@ def add_values(env, number_of_iterations=1):
     env.execute_command('FT.CREATE', 'games', 'ON', 'HASH',
                         'SCHEMA', 'title', 'TEXT', 'SORTABLE',
                         'brand', 'TEXT', 'NOSTEM', 'SORTABLE',
-                        'description', 'TEXT', 'price', 'NUMERIC', 'SORTABLE',
+                        'description', 'TEXT', 'price', 'NUMERIC',
                         'categories', 'TAG')
 
     for i in range(number_of_iterations):
@@ -326,6 +326,15 @@ class TestAggregate():
         res = self.env.cmd('ft.aggregate', 'games', '*',
                            'LOAD', '3', '@brand', '@price', '@nonexist',
                            'SORTBY', 2, '@price', 'DESC', 'MAX', 2)
+        exp = [3L, ['brand', '', 'price', '759.12'], ['brand', 'Sony', 'price', '695.8']]
+        self.env.assertEqual(exp[1], res[1])
+
+    def testLoadImplicit(self):
+        # same as previous
+        res = self.env.cmd('ft.aggregate', 'games', '*',
+                           'LOAD', '2', '@brand', '@nonexist',
+                           'SORTBY', 2, '@brand', 'DESC',
+                           'SORTBY', 2, '@price', 'DESC')
         exp = [3L, ['brand', '', 'price', '759.12'], ['brand', 'Sony', 'price', '695.8']]
         self.env.assertEqual(exp[1], res[1])
 
