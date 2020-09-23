@@ -1952,6 +1952,8 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
         };
         res->specsOps = array_append(res->specsOps, specOp);
         dictEntry *entry = dictAddRaw(specs, spec->name, NULL);
+        // put the location on the specsOps array so we can get it
+        // fast using index name
         entry->v.u64 = array_len(res->specsOps) - 1;
       }
     }
