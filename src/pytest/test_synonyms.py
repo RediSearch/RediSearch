@@ -130,12 +130,9 @@ def testSynonymDumpWorngArity(env):
         'ft.create', 'idx', 'ON', 'HASH',
         'schema', 'title', 'text', 'body', 'text'))
     r.execute_command('ft.synupdate', 'idx', 'id1', 'boy', 'child')
-    exceptionStr = None
-    try:
-        r.execute_command('ft.syndump')
-    except Exception as e:
-        exceptionStr = str(e)
-    env.assertIn('wrong number of arguments', exceptionStr)
+
+    env.expect('ft.syndump').error().contains('wrong number of arguments')
+    env.expect('ft.syndump idx foo').error().contains('wrong number of arguments')
 
 def testSynonymUnknownIndex(env):
     r = env
