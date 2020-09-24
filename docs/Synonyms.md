@@ -25,3 +25,29 @@ For each group id, we add another record to the inverted index called "\~\<id\>"
 Since the indexing is performed in a separate thread, the synonyms map may change during the indexing, which in turn may cause data corruption or crashes during indexing/searches. To solve this issue, we create a read-only copy for indexing purposes. The read-only copy is maintained using ref count.
 
 As long as the synonyms map does not change, the original synonym map holds a reference to its read-only copy so it will not be freed. Once the data inside the synonyms map has changed, the synonyms map decreses the reference count of its read only copy. This ensures that when all the indexers are done using the read only copy, then the read only copy will automatically freed. Also it ensures that the next time an indexer asks for a read-only copy, the synonyms map will create a new copy (contains the new data) and return it.
+
+## Quick example
+
+```
+# Create an index
+> FT.CREATE idx schema t text
+
+# Create a synonym group 
+> FT.SYNUPDATE idx group1 hello world
+
+# Insert documents
+> HSET foo t hello
+(integer) 1
+> HSET bar t world
+(integer) 1
+
+# Search
+> FT.SEARCH idx hello
+1) (integer) 2
+2) "foo"
+3) 1) "t"
+   2) "hello"
+4) "bar"
+5) 1) "t"
+   2) "world"
+```
