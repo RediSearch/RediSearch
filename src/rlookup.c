@@ -316,10 +316,10 @@ static int getKeyCommon(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOption
     rsv = hvalToValue(val, kk->fieldtype);
     RedisModule_FreeString(RSDummyContext, val);
   } else if (!strncmp(kk->name, "__key", strlen("__key"))) {
-    RedisModuleString *keyName = RedisModule_CreateString(RSDummyContext,
+    RedisModuleString *keyName = RedisModule_CreateString(options->sctx->redisCtx,
                                   options->dmd->keyPtr, strlen(options->dmd->keyPtr));
     rsv = hvalToValue(keyName, RLOOKUP_C_STR);
-    RedisModule_FreeString(RSDummyContext, keyName);
+    RedisModule_FreeString(options->sctx->redisCtx, keyName);
   } else {
     return REDISMODULE_OK;
   }
