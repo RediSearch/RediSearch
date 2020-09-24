@@ -2,7 +2,6 @@
 #include "aggregate/expr/expression.h"
 #include "spec.h"
 
-arrayof(SchemaRule *) SchemaRules_g;
 TrieMap *ScemaPrefixes_g;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -103,7 +102,6 @@ SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, IndexSpec *spec, QueryError 
     SchemaPrefixes_Add(rule->prefixes[i], spec);
   }
 
-  SchemaRules_g = array_append(SchemaRules_g, rule);
   return rule;
 
 error:
@@ -113,7 +111,6 @@ error:
 
 void SchemaRule_Free(SchemaRule *rule) {
   SchemaPrefixes_RemoveSpec(rule->spec);
-  SchemaRules_RemoveSpecRules(rule->spec);
 
   rm_free((void *)rule->lang_field);
   rm_free((void *)rule->score_field);
@@ -215,20 +212,6 @@ RedisModuleString *SchemaRule_HashPayload(RedisModuleCtx *rctx, const SchemaRule
 }
 
 //---------------------------------------------------------------------------------------------
-
-void SchemaRules_Create() {
-  SchemaRules_g = array_new(SchemaRule *, 1);
-}
-
-void SchemaRules_RemoveSpecRules(IndexSpec *spec) {
-  for (size_t i = 0; i < array_len(SchemaRules_g); ++i) {
-    SchemaRule *rule = SchemaRules_g[i];
-    if (spec == rule->spec) {
-      array_del_fast(SchemaRules_g, i);
-      return;
-    }
-  }
-}
 
 int SchemaRule_RdbLoad(IndexSpec *sp, RedisModuleIO *rdb, int encver) {
   SchemaRuleArgs args = {0};
