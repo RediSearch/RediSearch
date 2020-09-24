@@ -310,14 +310,21 @@ static int getKeyCommon(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOption
 
   // Get the actual hash value
   RedisModuleString *val = NULL;
+  RSValue *rsv = NULL;
   int rc = RedisModule_HashGet(*keyobj, REDISMODULE_HASH_CFIELDS, kk->name, &val, NULL);
-  if (rc != REDISMODULE_OK || val == NULL) {
+  if (rc == REDISMODULE_OK && val != NULL) {
+    rsv = hvalToValue(val, kk->fieldtype);
+    RedisModule_FreeString(RSDummyContext, val);
+  } else if (!strncmp(kk->name, "__key", strlen("__key"))) {
+    RedisModuleString *keyName = RedisModule_CreateString(RSDummyContext,
+                                  options->dmd->keyPtr, strlen(options->dmd->keyPtr));
+    rsv = hvalToValue(keyName, RLOOKUP_C_STR);
+    RedisModule_FreeString(RSDummyContext, keyName);
+  } else {
     return REDISMODULE_OK;
   }
 
   // Value has a reference count of 1
-  RSValue *rsv = hvalToValue(val, kk->fieldtype);
-  RedisModule_FreeString(RSDummyContext, val);
   RLookup_WriteKey(kk, dst, rsv);
   RSValue_Decref(rsv);
   return REDISMODULE_OK;

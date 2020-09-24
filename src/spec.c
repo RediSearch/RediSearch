@@ -609,7 +609,7 @@ int IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len) {
 }
 
 void Spec_AddToDict(const IndexSpec *sp) {
-  dictAdd(specDict_g, sp->name, sp);
+  dictAdd(specDict_g, sp->name, (void *)sp);
 }
 
 IndexSpecCache *IndexSpec_GetSpecCache(const IndexSpec *spec) {
