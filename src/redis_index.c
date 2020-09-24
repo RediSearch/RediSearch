@@ -466,10 +466,6 @@ int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments) {
 
   IndexSpec *spec = ctx->spec;
 
-  // We must first remove the spec from the rules and
-  // prefixes trie so we will not get notifications about
-  // documents that we are deleting
-  SchemaRules_RemoveSpecRules(spec);
   SchemaPrefixes_RemoveSpec(spec);
 
   if (deleteDocuments || !!(spec->flags & Index_Temporary)) {
