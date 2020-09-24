@@ -324,35 +324,35 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
   size_t nkeys = self->fieldcmp.nkeys;
   if (nkeys && h->dmd) {
     int nloadKeys = 0;
-    const RLookupKey **keys = NULL;
+    const RLookupKey **loadKeys = NULL;
     bool freeKeys = false;
 
     // If there is no sorting vector, load all required fields, else, load missing fields
     if (!h->rowdata.sv) {
-      keys = self->fieldcmp.keys;
+      loadKeys = self->fieldcmp.keys;
       nloadKeys = nkeys;
     } else {
       for (int i = 0; i < nkeys; ++i) {
         if (RLookup_GetItem(self->fieldcmp.keys[i], &h->rowdata) == NULL) {
-          if (!keys) {
-            keys = rm_calloc(nkeys, sizeof(*keys));
+          if (!loadKeys) {
+            loadKeys = rm_calloc(nkeys, sizeof(*loadKeys));
             freeKeys = true;
           }
-          keys[nloadKeys++] = self->fieldcmp.keys[i];
+          loadKeys[nloadKeys++] = self->fieldcmp.keys[i];
         }
       }
     }
 
-    if (keys) {
+    if (loadKeys) {
       QueryError status = {0};
       RLookupLoadOptions loadopts = {.sctx = rp->parent->sctx, .dmd = h->dmd,
-                                    .nkeys = nloadKeys, .keys = keys,
+                                    .nkeys = nloadKeys, .keys = loadKeys,
                                     .status = &status};
       RLookup_LoadDocument(NULL, &h->rowdata, &loadopts);
       if (QueryError_HasError(&status)) {
         return RS_RESULT_ERROR;
       }
-      if (freeKeys) rm_free(keys);
+      if (freeKeys) rm_free(loadKeys);
     }
   }
 
