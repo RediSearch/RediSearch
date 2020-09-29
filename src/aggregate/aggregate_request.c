@@ -254,6 +254,9 @@ static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status
   }
 
   arng->sortAscMap = ascMap;
+  if (arng->sortKeys) {
+    array_free(arng->sortKeys);
+  }
   arng->sortKeys = keys;
   return REDISMODULE_OK;
 err:
