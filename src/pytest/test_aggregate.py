@@ -330,7 +330,6 @@ class TestAggregate():
         self.env.assertEqual(exp[1], res[1])
 
     def testMultiSortBy(self):
-        # same as previous
         res = self.env.cmd('ft.aggregate', 'games', '*',
                            'LOAD', '2', '@brand', '@price',
                            'SORTBY', 2, '@brand', 'DESC',
