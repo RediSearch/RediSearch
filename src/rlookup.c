@@ -1,6 +1,6 @@
 #include "rlookup.h"
 #include "module.h"
-#include <document.h>
+#include "document.h"
 #include "rmutil/rm_assert.h"
 #include <util/arr.h>
 
@@ -315,7 +315,7 @@ static int getKeyCommon(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOption
   if (rc == REDISMODULE_OK && val != NULL) {
     rsv = hvalToValue(val, kk->fieldtype);
     RedisModule_FreeString(RSDummyContext, val);
-  } else if (!strncmp(kk->name, "__key", strlen("__key"))) {
+  } else if (!strncmp(kk->name, UNDERSCORE_KEY, strlen(UNDERSCORE_KEY))) {
     RedisModuleString *keyName = RedisModule_CreateString(options->sctx->redisCtx,
                                   options->dmd->keyPtr, strlen(options->dmd->keyPtr));
     rsv = hvalToValue(keyName, RLOOKUP_C_STR);

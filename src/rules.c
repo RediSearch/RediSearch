@@ -54,9 +54,9 @@ SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, IndexSpec *spec, QueryError 
   }
 
   rule->filter_exp_str = args->filter_exp_str ? rm_strdup(args->filter_exp_str) : NULL;
-  rule->lang_field = rm_strdup(args->lang_field ? args->lang_field : "__language");
-  rule->score_field = rm_strdup(args->score_field ? args->score_field : "__score");
-  rule->payload_field = rm_strdup(args->payload_field ? args->payload_field : "__payload");
+  rule->lang_field = rm_strdup(args->lang_field ? args->lang_field : UNDERSCORE_LANGUAGE);
+  rule->score_field = rm_strdup(args->score_field ? args->score_field : UNDERSCORE_SCORE);
+  rule->payload_field = rm_strdup(args->payload_field ? args->payload_field : UNDERSCORE_PAYLOAD);
 
   if (args->score_default) {
     double score;
@@ -201,7 +201,7 @@ done:
 RedisModuleString *SchemaRule_HashPayload(RedisModuleCtx *rctx, const SchemaRule *rule,
                                           RedisModuleKey *key, const char *kname) {
   RedisModuleString *payload_rms = NULL;
-  const char *payload_field = rule->payload_field ? rule->payload_field : "__payload";
+  const char *payload_field = rule->payload_field ? rule->payload_field : UNDERSCORE_PAYLOAD;
   int rv = RedisModule_HashGet(key, REDISMODULE_HASH_CFIELDS, payload_field, &payload_rms, NULL);
   if (rv != REDISMODULE_OK) {
     RedisModule_Log(NULL, "warning", "invalid field %s for key %s", rule->payload_field, kname);
