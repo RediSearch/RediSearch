@@ -329,6 +329,15 @@ class TestAggregate():
         exp = [3L, ['brand', '', 'price', '759.12'], ['brand', 'Sony', 'price', '695.8']]
         self.env.assertEqual(exp[1], res[1])
 
+    def testMultiSortBy(self):
+        # same as previous
+        res = self.env.cmd('ft.aggregate', 'games', '*',
+                           'LOAD', '2', '@brand', '@price',
+                           'SORTBY', 2, '@brand', 'DESC',
+                           'SORTBY', 2, '@price', 'DESC')
+        exp = [3L, ['brand', '', 'price', '759.12'], ['brand', 'Sony', 'price', '695.8']]
+        self.env.assertEqual(exp[1], res[1])
+
     def testSplit(self):
         res = self.env.cmd('ft.aggregate', 'games', '*', 'APPLY', 'split("hello world,  foo,,,bar,", ",", " ")', 'AS', 'strs',
                            'APPLY', 'split("hello world,  foo,,,bar,", " ", ",")', 'AS', 'strs2',
