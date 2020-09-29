@@ -67,18 +67,13 @@ FT.CREATE idx ON HASH PREFIX 1 doc: SCHEMA name TEXT SORTABLE age NUMERIC SORTAB
     > "russian", "spanish",   "swedish", "tamil",     "turkish"
     > "chinese"
 
-    If indexing a Chinese language document, you must set the language to `chinese`
-    in order for Chinese characters to be tokenized properly.
-
-  ##### Adding Chinese Documents
-
-  When adding Chinese-language documents, `LANGUAGE chinese` should be set in
-  order for the indexer to properly tokenize the terms. If the default language
-  is used then search terms will be extracted based on punctuation characters and
-  whitespace. The Chinese language tokenizer makes use of a segmentation algorithm
-  (via [Friso](https://github.com/lionsoul2014/friso)) which segments texts and
-  checks it against a predefined dictionary. See [Stemming](Stemming.md) for more
-  information.
+    When adding Chinese-language documents, `LANGUAGE chinese` should be set in
+    order for the indexer to properly tokenize the terms. If the default language
+    is used then search terms will be extracted based on punctuation characters and
+    whitespace. The Chinese language tokenizer makes use of a segmentation algorithm
+    (via [Friso](https://github.com/lionsoul2014/friso)) which segments texts and
+    checks it against a predefined dictionary. See [Stemming](Stemming.md) for more
+    information.
 
 * **SCORE {default_score}**: If set indicates the default score for documents in the index. Default score is 1.0.
 * **SCORE_FIELD {score_field}**: If set indicates the document field that should be used as the document's rank based on the user's ranking. 
