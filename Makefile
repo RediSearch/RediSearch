@@ -43,7 +43,7 @@ endef
 
 #----------------------------------------------------------------------------------------------
 
-COMPAT_MODULE := src/redisearch.so
+COMPAT_MODULE := build/redisearch.so
 
 COMPAT_DIR ?= build
 
