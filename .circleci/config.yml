@@ -209,9 +209,11 @@ workflows:
   default_flow:
     jobs:
       - ubuntu:
-          <<: *on-any-branch
+          # <<: *on-any-branch
+          <<: *never
       - centos:
-          <<: *on-any-branch
+          # <<: *on-any-branch
+          <<: *never
       - macos:
           <<: *on-version-tags
       - debug_asan:
@@ -219,7 +221,8 @@ workflows:
       - debug_msan:
           <<: *on-any-branch
       - coverage:
-          <<: *on-any-branch
+          # <<: *on-any-branch
+          <<: *never
       - deploy_snapshots:
           requires: *default_jobs
           <<: *on-master
