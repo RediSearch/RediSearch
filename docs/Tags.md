@@ -4,17 +4,15 @@ RediSearch 0.91 adds a new kind of field - the Tag field. They are similar to fu
 
 The main differences between tag and full-text fields are:
 
-1. An entire tag field index resides in a single Redis key and doesn't have a key per term as the full-text one.
+1. We do not perform stemming on tag indexes.
 
-2. We do not perform stemming on tag indexes.
+2. The tokenization is simpler: The user can determine a separator (defaults to a comma) for multiple tags, and we only do whitespace trimming at the end of tags. Thus, tags can contain spaces, punctuation marks, accents, etc. The only two transformations we perform are lower-casing (for latin languages only as of now), and whitespace trimming.
 
-3. The tokenization is simpler: The user can determine a separator (defaults to a comma) for multiple tags, and we only do whitespace trimming at the end of tags. Thus, tags can contain spaces, punctuation marks, accents, etc. The only two transformations we perform are lower-casing (for latin languages only as of now), and whitespace trimming.
+3. Tags cannot be found from a general full-text search. If a document has a field called "tags" with the values "foo" and "bar", searching for foo or bar without a special tag modifier (see below) will not return this document.
 
-4. Tags cannot be found from a general full-text search. If a document has a field called "tags" with the values "foo" and "bar", searching for foo or bar without a special tag modifier (see below) will not return this document.
+4. The index is much simpler and more compressed: We do not store frequencies, offset vectors of field flags. The index contains only document IDs encoded as deltas. This means that an entry in a tag index is usually one or two bytes long. This makes them very memory efficient and fast.
 
-5. The index is much simpler and more compressed: We do not store frequencies, offset vectors of field flags. The index contains only document IDs encoded as deltas. This means that an entry in a tag index is usually one or two bytes long. This makes them very memory efficient and fast.
-
-6. An unlimited number of tag fields can be created per index, as long as the overall number of fields is under 1024.
+5. An unlimited number of tag fields can be created per index, as long as the overall number of fields is under 1024.
  
 ## Creating a tag field
  
