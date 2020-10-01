@@ -76,6 +76,11 @@ typedef struct Document {
  */
 #define DOCUMENT_F_DEAD 0x08
 
+#define UNDERSCORE_KEY "__key"
+#define UNDERSCORE_SCORE "__score"
+#define UNDERSCORE_PAYLOAD "__payload"
+#define UNDERSCORE_LANGUAGE "__language"
+
 struct RSAddDocumentCtx;
 
 typedef void (*DocumentAddCompleted)(struct RSAddDocumentCtx *, RedisModuleCtx *, void *);

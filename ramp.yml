@@ -10,11 +10,15 @@ min_redis_pack_version: "6.0"
 config_command: "FT.CONFIG SET"
 capabilities:
     - types
-    - no_multi_key
-    - backup_restore
+    - replica_of
     - failover_migrate
     - persistence_aof
     - persistence_rdb
     - clustering
-    - replica_of
+    - backup_restore
+    - reshard_rebalance
     - flash
+    - crdb
+    - eviction_expiry
+    - hash_policy
+

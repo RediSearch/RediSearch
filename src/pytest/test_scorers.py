@@ -176,6 +176,7 @@ def testScoreDecimal(env):
     env.assertLess(float(res[2]), 1)
 
 def testScoreError(env):
+    env.skipOnCluster()
     env.expect('ft.create idx ON HASH schema title text').ok()
     waitForIndex(env, 'idx')
     env.expect('ft.add idx doc1 0.01 fields title hello').ok()

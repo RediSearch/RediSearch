@@ -2,7 +2,6 @@
 #include "aggregate/expr/expression.h"
 #include "spec.h"
 
-arrayof(SchemaRule *) SchemaRules_g;
 TrieMap *ScemaPrefixes_g;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -55,9 +54,9 @@ SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, IndexSpec *spec, QueryError 
   }
 
   rule->filter_exp_str = args->filter_exp_str ? rm_strdup(args->filter_exp_str) : NULL;
-  rule->lang_field = rm_strdup(args->lang_field ? args->lang_field : "__language");
-  rule->score_field = rm_strdup(args->score_field ? args->score_field : "__score");
-  rule->payload_field = rm_strdup(args->payload_field ? args->payload_field : "__payload");
+  rule->lang_field = rm_strdup(args->lang_field ? args->lang_field : UNDERSCORE_LANGUAGE);
+  rule->score_field = rm_strdup(args->score_field ? args->score_field : UNDERSCORE_SCORE);
+  rule->payload_field = rm_strdup(args->payload_field ? args->payload_field : UNDERSCORE_PAYLOAD);
 
   if (args->score_default) {
     double score;
@@ -103,7 +102,6 @@ SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, IndexSpec *spec, QueryError 
     SchemaPrefixes_Add(rule->prefixes[i], spec);
   }
 
-  SchemaRules_g = array_append(SchemaRules_g, rule);
   return rule;
 
 error:
@@ -113,7 +111,6 @@ error:
 
 void SchemaRule_Free(SchemaRule *rule) {
   SchemaPrefixes_RemoveSpec(rule->spec);
-  SchemaRules_RemoveSpecRules(rule->spec);
 
   rm_free((void *)rule->lang_field);
   rm_free((void *)rule->score_field);
@@ -204,7 +201,7 @@ done:
 RedisModuleString *SchemaRule_HashPayload(RedisModuleCtx *rctx, const SchemaRule *rule,
                                           RedisModuleKey *key, const char *kname) {
   RedisModuleString *payload_rms = NULL;
-  const char *payload_field = rule->payload_field ? rule->payload_field : "__payload";
+  const char *payload_field = rule->payload_field ? rule->payload_field : UNDERSCORE_PAYLOAD;
   int rv = RedisModule_HashGet(key, REDISMODULE_HASH_CFIELDS, payload_field, &payload_rms, NULL);
   if (rv != REDISMODULE_OK) {
     RedisModule_Log(NULL, "warning", "invalid field %s for key %s", rule->payload_field, kname);
@@ -215,20 +212,6 @@ RedisModuleString *SchemaRule_HashPayload(RedisModuleCtx *rctx, const SchemaRule
 }
 
 //---------------------------------------------------------------------------------------------
-
-void SchemaRules_Create() {
-  SchemaRules_g = array_new(SchemaRule *, 1);
-}
-
-void SchemaRules_RemoveSpecRules(IndexSpec *spec) {
-  for (size_t i = 0; i < array_len(SchemaRules_g); ++i) {
-    SchemaRule *rule = SchemaRules_g[i];
-    if (spec == rule->spec) {
-      array_del_fast(SchemaRules_g, i);
-      return;
-    }
-  }
-}
 
 int SchemaRule_RdbLoad(IndexSpec *sp, RedisModuleIO *rdb, int encver) {
   SchemaRuleArgs args = {0};

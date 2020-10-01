@@ -99,6 +99,7 @@ static const char *SpecTypeNames[] = {[IXFLDPOS_FULLTEXT] = SPEC_TEXT_STR,
 #define SPEC_WIDEFIELD_THRESHOLD 32
 
 extern dict *specDict_g;
+
 extern size_t pending_global_indexing_ops;
 extern struct IndexesScanner *global_spec_scanner;
 extern dict *legacySpecRules;
@@ -266,6 +267,18 @@ typedef struct IndexSpec {
   bool cascadeDelete;  // remove keys when removing spec
 } IndexSpec;
 
+typedef enum SpecOp { SpecOp_Add, SpecOp_Del } SpecOp;
+
+typedef struct SpecOpCtx {
+  IndexSpec *spec;
+  SpecOp op;
+} SpecOpCtx;
+
+typedef struct SpecOpIndexingCtx {
+  dict *specs;
+  SpecOpCtx *specsOps;
+} SpecOpIndexingCtx;
+
 typedef struct {
   void (*dtor)(void *p);
   void *p;
@@ -289,6 +302,11 @@ typedef struct IndexSpecCache {
   size_t nfields;
   size_t refcount;
 } IndexSpecCache;
+
+/**
+ * For testing only
+ */
+void Spec_AddToDict(const IndexSpec *spec);
 
 /**
  * compare redis versions
@@ -388,8 +406,8 @@ void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, IndexSpec *sp);
 int IndexSpec_CreateTextId(const IndexSpec *sp);
 
 /* Add fields to a redis schema */
-int IndexSpec_AddFields(IndexSpec *sp, RedisModuleCtx *ctx, ArgsCursor *ac,
-                                       bool initialScan, QueryError *status);
+int IndexSpec_AddFields(IndexSpec *sp, RedisModuleCtx *ctx, ArgsCursor *ac, bool initialScan,
+                        QueryError *status);
 
 void FieldSpec_Initialize(FieldSpec *sp, FieldType types);
 
