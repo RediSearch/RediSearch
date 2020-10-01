@@ -320,6 +320,42 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
     return rc;
   }
 
+  // If the data is not in the sorted vector, lets load it.
+  size_t nkeys = self->fieldcmp.nkeys;
+  if (nkeys && h->dmd) {
+    int nloadKeys = 0;
+    const RLookupKey **loadKeys = NULL;
+    bool freeKeys = false;
+
+    // If there is no sorting vector, load all required fields, else, load missing fields
+    if (!h->rowdata.sv) {
+      loadKeys = self->fieldcmp.keys;
+      nloadKeys = nkeys;
+    } else {
+      for (int i = 0; i < nkeys; ++i) {
+        if (RLookup_GetItem(self->fieldcmp.keys[i], &h->rowdata) == NULL) {
+          if (!loadKeys) {
+            loadKeys = rm_calloc(nkeys, sizeof(*loadKeys));
+            freeKeys = true;
+          }
+          loadKeys[nloadKeys++] = self->fieldcmp.keys[i];
+        }
+      }
+    }
+
+    if (loadKeys) {
+      QueryError status = {0};
+      RLookupLoadOptions loadopts = {.sctx = rp->parent->sctx, .dmd = h->dmd,
+                                    .nkeys = nloadKeys, .keys = loadKeys,
+                                    .status = &status};
+      RLookup_LoadDocument(NULL, &h->rowdata, &loadopts);
+      if (QueryError_HasError(&status)) {
+        return RS_RESULT_ERROR;
+      }
+      if (freeKeys) rm_free(loadKeys);
+    }
+  }
+
   // If the queue is not full - we just push the result into it
   // If the pool size is 0 we always do that, letting the heap grow dynamically
   if (!self->size || self->pq->count + 1 < self->pq->size) {
