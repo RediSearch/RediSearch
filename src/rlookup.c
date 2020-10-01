@@ -1,6 +1,6 @@
 #include "rlookup.h"
 #include "module.h"
-#include <document.h>
+#include "document.h"
 #include "rmutil/rm_assert.h"
 #include <util/arr.h>
 
@@ -310,14 +310,21 @@ static int getKeyCommon(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOption
 
   // Get the actual hash value
   RedisModuleString *val = NULL;
+  RSValue *rsv = NULL;
   int rc = RedisModule_HashGet(*keyobj, REDISMODULE_HASH_CFIELDS, kk->name, &val, NULL);
-  if (rc != REDISMODULE_OK || val == NULL) {
+  if (rc == REDISMODULE_OK && val != NULL) {
+    rsv = hvalToValue(val, kk->fieldtype);
+    RedisModule_FreeString(RSDummyContext, val);
+  } else if (!strncmp(kk->name, UNDERSCORE_KEY, strlen(UNDERSCORE_KEY))) {
+    RedisModuleString *keyName = RedisModule_CreateString(options->sctx->redisCtx,
+                                  options->dmd->keyPtr, strlen(options->dmd->keyPtr));
+    rsv = hvalToValue(keyName, RLOOKUP_C_STR);
+    RedisModule_FreeString(options->sctx->redisCtx, keyName);
+  } else {
     return REDISMODULE_OK;
   }
 
   // Value has a reference count of 1
-  RSValue *rsv = hvalToValue(val, kk->fieldtype);
-  RedisModule_FreeString(RSDummyContext, val);
   RLookup_WriteKey(kk, dst, rsv);
   RSValue_Decref(rsv);
   return REDISMODULE_OK;
