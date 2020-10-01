@@ -2308,19 +2308,8 @@ def testPrefixDeletedExpansions(env):
 
     env.cmd('ft.add', 'idx', 'doc_XXX', 1, 'fields', 'txt1', 'termZZZ', 'tag1', 'tagZZZ')
 
-    # r = env.cmd('ft.search', 'idx', 'term*')
-    # print(r)
-    # r = env.cmd('ft.search', 'idx', '@tag1:{tag*}')
-    # print(r)
-
-    tmax = time.time() + 0.5  # 250ms max
-    iters = 0
-    while time.time() < tmax:
-        iters += 1
+    for i in range (10):
         env.cmd('ft.debug', 'gc_forceinvoke', 'idx')
-        r = env.cmd('ft.search', 'idx', '@txt1:term* @tag1:{tag*}')
-        if r[0]:
-            break
 
     # print 'did {} iterations'.format(iters)
     r = env.cmd('ft.search', 'idx', '@txt1:term* @tag1:{tag*}')
