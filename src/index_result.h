@@ -19,7 +19,6 @@ void IndexResult_Init(RSIndexResult *h);
 
 /* Reset the aggregate result's child vector */
 static inline void AggregateResult_Reset(RSIndexResult *r) {
-
   r->docId = 0;
   r->agg.numChildren = 0;
   r->agg.typeMask = (RSResultType)0;
@@ -39,7 +38,6 @@ RSIndexResult *NewTokenRecord(RSQueryTerm *term, double weight);
 
 /* Append a child to an aggregate result */
 static inline void AggregateResult_AddChild(RSIndexResult *parent, RSIndexResult *child) {
-
   RSAggregateResult *agg = &parent->agg;
 
   /* Increase capacity if needed */
@@ -55,6 +53,7 @@ static inline void AggregateResult_AddChild(RSIndexResult *parent, RSIndexResult
   parent->docId = child->docId;
   parent->fieldMask |= child->fieldMask;
 }
+
 /* Create a deep copy of the results that is totall thread safe. This is very slow so use it with
  * caution */
 RSIndexResult *IndexResult_DeepCopy(const RSIndexResult *res);
