@@ -41,17 +41,8 @@ int cmpMinId(const void *e1, const void *e2, const void *udata) {
 
 typedef struct {
   IndexIterator base;
-  /**
-   * We maintain two iterator arrays. One is the original iterator list, and
-   * the other is the list of currently active iterators. When an iterator
-   * reaches EOF, it is set to NULL in the `its` list, but is still retained in
-   * the `origits` list, for the purpose of supporting things like Rewind() and
-   * Free()
-   */
   IndexIterator **its;
-  IndexIterator **origits;
   uint32_t num;
-  uint32_t norig;
   uint32_t currIt;
   t_docId minDocId;
   heap_t *heapMinId;
@@ -79,8 +70,6 @@ static inline t_docId UI_LastDocId(void *ctx) {
 }
 
 static void UI_SyncIterList(UnionIterator *ui) {
-  ui->num = ui->norig;
-  memcpy(ui->its, ui->origits, sizeof(*ui->its) * ui->norig);
   for (size_t ii = 0; ii < ui->num; ++ii) {
     ui->its[ii]->minId = 0;
   }
@@ -118,15 +107,13 @@ IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *dt, int 
                                 double weight) {
   // create union context
   UnionIterator *ctx = rm_calloc(1, sizeof(UnionIterator));
-  ctx->origits = its;
+  ctx->its = its;
   ctx->weight = weight;
   ctx->num = num;
-  ctx->norig = num;
   IITER_CLEAR_EOF(&ctx->base);
   CURRENT_RECORD(ctx) = NewUnionResult(num, weight);
   ctx->len = 0;
   ctx->quickExit = quickExit;
-  ctx->its = rm_calloc(ctx->num, sizeof(*ctx->its));
   ctx->nexpected = 0;
   ctx->currIt = 0;
 
@@ -162,7 +149,7 @@ IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *dt, int 
     // make sure all the children support CriteriaTester
     int ctSupported = 1;
     for (int i = 0; i < ctx->num; ++i) {
-      IndexCriteriaTester *tester = IITER_GET_CRITERIA_TESTER(ctx->origits[i]);
+      IndexCriteriaTester *tester = IITER_GET_CRITERIA_TESTER(ctx->its[i]);
       if (!tester) {
         ctSupported = 0;
         break;
@@ -216,7 +203,7 @@ static IndexCriteriaTester *UI_GetCriteriaTester(void *ctx) {
   UnionIterator *ui = ctx;
   IndexCriteriaTester **children = rm_malloc(ui->num * sizeof(IndexCriteriaTester *));
   for (size_t i = 0; i < ui->num; ++i) {
-    children[i] = IITER_GET_CRITERIA_TESTER(ui->origits[i]);
+    children[i] = IITER_GET_CRITERIA_TESTER(ui->its[i]);
     if (!children[i]) {
       for (size_t j = 0; j < i; j++) {
         children[j]->Free(children[j]);
@@ -243,7 +230,7 @@ static inline int UI_ReadUnsorted(void *ctx, RSIndexResult **hit) {
   int rc = INDEXREAD_OK;
   RSIndexResult *res = NULL;
   while (ui->currIt < ui->num) {
-    rc = ui->origits[ui->currIt]->Read(ui->origits[ui->currIt]->ctx, &res);
+    rc = ui->its[ui->currIt]->Read(ui->its[ui->currIt]->ctx, &res);
     if (rc == INDEXREAD_OK) {
       *hit = res;
       return rc;
@@ -361,8 +348,8 @@ void UnionIterator_Free(IndexIterator *itbase) {
   if (itbase == NULL) return;
 
   UnionIterator *ui = itbase->ctx;
-  for (int i = 0; i < ui->norig; i++) {
-    IndexIterator *it = ui->origits[i];
+  for (int i = 0; i < ui->num; i++) {
+    IndexIterator *it = ui->its[i];
     if (it) {
       it->Free(it);
     }
@@ -371,7 +358,6 @@ void UnionIterator_Free(IndexIterator *itbase) {
   IndexResult_Free(CURRENT_RECORD(ui));
   heap_free(ui->heapMinId);
   rm_free(ui->its);
-  rm_free(ui->origits);
   rm_free(ui);
 }
 
