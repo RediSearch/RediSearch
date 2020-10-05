@@ -609,7 +609,7 @@ int IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len) {
 }
 
 void Spec_AddToDict(const IndexSpec *sp) {
-  dictAdd(specDict_g, sp->name, sp);
+  dictAdd(specDict_g, sp->name, (void *)sp);
 }
 
 IndexSpecCache *IndexSpec_GetSpecCache(const IndexSpec *spec) {
@@ -1923,7 +1923,7 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
   dict *specs = res->specs;
 
 #if defined(_DEBUG) && 0
-  RLookupKey *k = RLookup_GetKey(&r->lk, "__key", 0);
+  RLookupKey *k = RLookup_GetKey(&r->lk, UNDERSCORE_KEY, 0);
   RSValue *v = RLookup_GetItem(k, &r->row);
   const char *x = RSValue_StringPtrLen(v, NULL);
   RedisModule_Log(NULL, "notice", "Indexes_FindMatchingSchemaRules: x=%s", x);
@@ -1975,7 +1975,7 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
         r = EvalCtx_Create();
         EvalCtx_AddHash(r, ctx, keyToReadData);
         RSValue *keyRSV = RS_RedisStringVal(key);
-        EvalCtx_Set(r, "__key", keyRSV);
+        EvalCtx_Set(r, UNDERSCORE_KEY, keyRSV);
       }
 
       if (EvalCtx_EvalExpr(r, rule->filter_exp) == EXPR_EVAL_OK) {

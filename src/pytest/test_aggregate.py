@@ -19,7 +19,7 @@ def add_values(env, number_of_iterations=1):
     env.execute_command('FT.CREATE', 'games', 'ON', 'HASH',
                         'SCHEMA', 'title', 'TEXT', 'SORTABLE',
                         'brand', 'TEXT', 'NOSTEM', 'SORTABLE',
-                        'description', 'TEXT', 'price', 'NUMERIC', 'SORTABLE',
+                        'description', 'TEXT', 'price', 'NUMERIC',
                         'categories', 'TAG')
 
     for i in range(number_of_iterations):
@@ -325,7 +325,32 @@ class TestAggregate():
     def testLoad(self):
         res = self.env.cmd('ft.aggregate', 'games', '*',
                            'LOAD', '3', '@brand', '@price', '@nonexist',
-                           'SORTBY', 2, '@price', 'DESC', 'MAX', 2)
+                           'SORTBY', 2, '@price', 'DESC',
+                           'MAX', 2)
+        exp = [3L, ['brand', '', 'price', '759.12'], ['brand', 'Sony', 'price', '695.8']]
+        self.env.assertEqual(exp[1], res[1])
+        self.env.assertEqual(exp[2], res[2])
+
+    def testLoadWithDocId(self):
+        res = self.env.cmd('ft.aggregate', 'games', '*',
+                           'LOAD', '3', '@brand', '@price', '@__key',
+                           'SORTBY', 2, '@price', 'DESC',
+                           'MAX', 4)
+        exp = [3L, ['brand', '', 'price', '759.12', '__key', 'B00006JJIC'], 
+                   ['brand', 'Sony', 'price', '695.8', '__key', 'B000F6W1AG']]
+        self.env.assertEqual(exp[1], res[1])
+        self.env.assertEqual(exp[2], res[2])
+
+        res = self.env.cmd('ft.aggregate', 'games', '*',
+                           'LOAD', '3', '@brand', '@price', '@__key',
+                           'FILTER', '@__key == "B000F6W1AG"')
+        self.env.assertEqual(res[1], ['brand', 'Sony', 'price', '695.8', '__key', 'B000F6W1AG'])
+
+    def testLoadImplicit(self):
+        # same as previous
+        res = self.env.cmd('ft.aggregate', 'games', '*',
+                           'LOAD', '1', '@brand',
+                           'SORTBY', 2, '@price', 'DESC')
         exp = [3L, ['brand', '', 'price', '759.12'], ['brand', 'Sony', 'price', '695.8']]
         self.env.assertEqual(exp[1], res[1])
 

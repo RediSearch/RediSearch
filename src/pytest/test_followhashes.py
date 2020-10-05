@@ -150,18 +150,11 @@ def testSet(env):
             'PREFIX', '1', 'thing:',
             'SCHEMA', 'name', 'text')
 
-    env.expect('ft.search', 'things', 'foo') \
-       .equal([0L])
-
+    env.expect('ft.search', 'things', 'foo').equal([0L])
     conn.execute_command('hset', 'thing:bar', 'name', 'foo')
-
-    env.expect('ft.search', 'things', 'foo') \
-       .equal([1L, 'thing:bar', ['name', 'foo']])
-
-    env.expect('Set', 'thing:bar', "bye bye").equal(1)
-
-    env.expect('ft.search', 'things', 'foo') \
-       .equal([0L])
+    env.expect('ft.search', 'things', 'foo').equal([1L, 'thing:bar', ['name', 'foo']])
+    env.expect('set', 'thing:bar', "bye bye")
+    env.expect('ft.search', 'things', 'foo').equal([0L])
 
 def testRename(env):
     env.skipOnCluster()
