@@ -29,7 +29,6 @@ static t_docId II_LastDocId(void *ctx);
 #define CURRENT_RECORD(ii) (ii)->base.current
 
 int cmpMinId(const void *e1, const void *e2, const void *udata) {
-  //itMinIdInfo *it1 = e1, *it2 = e2;
   const IndexIterator *it1 = e1, *it2 = e2;
   if (it1->minId < it2->minId) {
     return 1;
@@ -247,28 +246,35 @@ static inline int UI_ReadSorted(void *ctx, RSIndexResult **hit) {
   heap_t *hp = ui->heapMinId;
 
   // nothing to do
-  if (ui->num == 0 || !IITER_HAS_NEXT(&ui->base)) {
+  if (!IITER_HAS_NEXT(&ui->base)) {
     IITER_SET_EOF(&ui->base);
     return INDEXREAD_EOF;
   }
   AggregateResult_Reset(CURRENT_RECORD(ui));
 
+  /*
+   * A min-heap maintains all sub-iterators which are not EOF.
+   * In a loop, the iterator in heap root is checked. If it is valid, it is used,
+   * otherwise, Read() is called on sub-iterator and it is returned into the heap
+   * for future calls.
+   */
   while (heap_count(hp)) {
     it = heap_peek(hp);
     res = IITER_CURRENT_RECORD(it);
     if (it->minId > ui->minDocId && it->minId != 0) {
+      // valid result since id at root of min-heap is higher than union min id
       ui->minDocId = it->minId;
       AggregateResult_AddChild(CURRENT_RECORD(ui), res);
       break;
-    } else {
-      int rc = it->Read(it->ctx, &res);
-      heap_poll(hp);
-      if (res) {
-        // refresh heap with new docId
-        it->minId = res->docId;
-        if (rc != INDEXREAD_EOF) {
-          heap_offer(&hp, it);
-        }
+    }
+    // read the next result and if valid, return the iterator into the heap
+    int rc = it->Read(it->ctx, &res);
+    heap_poll(hp); // return value was already received from heap_peak
+    if (res) {
+      // refresh heap with iterator with updated minId
+      it->minId = res->docId;
+      if (rc != INDEXREAD_EOF) {
+        heap_offer(&hp, it);
       }
     }
   }
@@ -289,8 +295,7 @@ Skip to the given docId, or one place after it
 @param docId docId to seek to
 @param hit an index hit we put our reads into
 @return INDEXREAD_OK if found, INDEXREAD_NOTFOUND if not found, INDEXREAD_EOF
-if
-at EOF
+if at EOF
 */
 static int UI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
   UnionIterator *ui = ctx;
@@ -306,7 +311,6 @@ static int UI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
     return INDEXREAD_EOF;
   }
 
-  // reset the current hitf
   AggregateResult_Reset(CURRENT_RECORD(ui));
   CURRENT_RECORD(ui)->weight = ui->weight;
   int rc = INDEXREAD_EOF;
@@ -316,22 +320,24 @@ static int UI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
 
   while (heap_count(hp)) {
     it = heap_peek(hp);
-    if (it->minId < docId) {
-      heap_poll(hp);
-      if ((rc = it->SkipTo(it->ctx, docId, &res)) == INDEXREAD_EOF) {
-        // iterator was removed from heap
-        continue;
-      }
-      if (res) {
-        it->minId = res->docId;
-        heap_offer(&hp, it);
-      }
-    } else {
+    if (it->minId >= docId) {
       // if the iterator is at or ahead of docId - we avoid reading the entry
       // in this case, we are either past or at the requested docId, no need to actually read
       rc = (it->minId == docId) ? INDEXREAD_OK : INDEXREAD_NOTFOUND;
       AggregateResult_AddChild(CURRENT_RECORD(ui), IITER_CURRENT_RECORD(it));
       break;
+    }
+
+    heap_poll(hp); // return value was already received from heap_peak
+    rc = it->SkipTo(it->ctx, docId, &res);
+    if (rc == INDEXREAD_EOF) {
+      // iterator is not returned to heap
+      continue;
+    }
+    if (res) {
+      // refresh heap with iterator with updated minId
+      it->minId = res->docId;
+      heap_offer(&hp, it);
     }
   }
 
@@ -356,7 +362,7 @@ void UnionIterator_Free(IndexIterator *itbase) {
   }
 
   IndexResult_Free(CURRENT_RECORD(ui));
-  heap_free(ui->heapMinId);
+  if (ui->heapMinId) heap_free(ui->heapMinId);
   rm_free(ui->its);
   rm_free(ui);
 }
@@ -580,7 +586,6 @@ static int II_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
       ic->base.isValid = 0;
       return rc;
     } else if (rc == INDEXREAD_OK) {
-
       // YAY! found!
       AggregateResult_AddChild(ic->base.current, res);
       ic->lastDocId = docId;
