@@ -58,7 +58,7 @@ static void resetMinIdHeap(UnionIterator *ui) {
   heap_clear(hp);
 
   for (int i = 0; i < ui->num; i++) {
-    heap_offer(&hp, ui->its[i]);
+    heap_offerx(hp, ui->its[i]);
   }
   RS_LOG_ASSERT(heap_count(hp) == ui->num,
                 "count should be equal to number of iterators");
@@ -274,7 +274,7 @@ static inline int UI_ReadSorted(void *ctx, RSIndexResult **hit) {
       // refresh heap with iterator with updated minId
       it->minId = res->docId;
       if (rc != INDEXREAD_EOF) {
-        heap_offer(&hp, it);
+        heap_offerx(hp, it);
       }
     }
   }
@@ -337,7 +337,7 @@ static int UI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
     if (res) {
       // refresh heap with iterator with updated minId
       it->minId = res->docId;
-      heap_offer(&hp, it);
+      heap_offerx(hp, it);
     }
   }
 
