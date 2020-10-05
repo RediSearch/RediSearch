@@ -105,7 +105,7 @@ jobs:
 
   debug_asan:
     docker:
-      - image: 'mnunberg/rmbuilder-san:redis6'
+      - image: redisfab/clang:4.0.1-x64-stretch
     steps:
       - abort_for_docs
       - checkout
@@ -117,7 +117,7 @@ jobs:
 
   debug_msan:
     docker:
-      - image: 'mnunberg/rmbuilder-san:redis6'
+      - image: redisfab/clang:4.0.1-x64-stretch
     steps:
       - abort_for_docs
       - checkout
