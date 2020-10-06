@@ -12,8 +12,10 @@
 #include "util/heap.h"
 
 static int UI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit);
+static int UI_SkipToHigh(void *ctx, t_docId docId, RSIndexResult **hit);
 static inline int UI_ReadUnsorted(void *ctx, RSIndexResult **hit);
 static int UI_ReadSorted(void *ctx, RSIndexResult **hit);
+static int UI_ReadSortedHigh(void *ctx, RSIndexResult **hit);
 static size_t UI_NumEstimated(void *ctx);
 static IndexCriteriaTester *UI_GetCriteriaTester(void *ctx);
 static size_t UI_Len(void *ctx);
@@ -145,6 +147,7 @@ IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *dt, int 
   ctx->its = rm_calloc(ctx->num, sizeof(*ctx->its));
   ctx->nexpected = 0;
   ctx->currIt = 0;
+  ctx->heapMinId = NULL;
 
   // bind the union iterator calls
   IndexIterator *it = &ctx->base;
@@ -191,8 +194,9 @@ IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *dt, int 
     }
   }
 
-  if (it->mode == MODE_SORTED) {
-    // TODO: check optimization for small quant
+  if (it->mode == MODE_SORTED && ctx->norig > RSGlobalConfig.minUnionIterHeap) {
+    it->Read = UI_ReadSortedHigh;
+    it->SkipTo = UI_SkipToHigh;
     ctx->heapMinId = rm_malloc(heap_sizeof(num));
     heap_init(ctx->heapMinId, cmpMinId, NULL, num);
     resetMinIdHeap(ctx);
