@@ -370,7 +370,7 @@ static inline int UI_ReadSortedHigh(void *ctx, RSIndexResult **hit) {
       break;
     }
     // read the next result and if valid, return the iterator into the heap
-    int rc = it->Read(it->ctx, &res);
+    int rc = it->SkipTo(it->ctx, ui->minDocId + 1, &res);
     heap_poll(hp); // return value was already received from heap_peak
     if (res) {
       // refresh heap with iterator with updated minId
