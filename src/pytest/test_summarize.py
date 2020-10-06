@@ -90,7 +90,7 @@ def testSummarizationMultiField(env):
     env.assertEqual(1L, res[0])
     env.assertEqual('redis', res[1])
     for term in ['txt1', 'memory database project implementing a networked, in-memory ... by Salvatore Sanfilippo... ', 'txt2',
-                 'dataset in memory. Versions... as virtual memory[19] in... Persistence is now... ']:
+                 'dataset in memory. Versions... as virtual memory[19] in... persistent durability mode where the dataset is asynchronously transferred from memory... ']:
         env.assertIn(term, res[2])
 
 
