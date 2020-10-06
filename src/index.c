@@ -362,21 +362,24 @@ static inline int UI_ReadSortedHigh(void *ctx, RSIndexResult **hit) {
    */
   while (heap_count(hp)) {
     it = heap_peek(hp);
+    t_docId nextValidId = ui->minDocId + 1;
     res = IITER_CURRENT_RECORD(it);
     if (it->minId > ui->minDocId && it->minId != 0) {
       // valid result since id at root of min-heap is higher than union min id
-      ui->minDocId = it->minId;
-      AggregateResult_AddChild(CURRENT_RECORD(ui), res);
       break;
     }
     // read the next result and if valid, return the iterator into the heap
-    int rc = it->SkipTo(it->ctx, ui->minDocId + 1, &res);
+    int rc = it->SkipTo(it->ctx, nextValidId, &res);
     heap_poll(hp); // return value was already received from heap_peak
     if (res) {
       // refresh heap with iterator with updated minId
       it->minId = res->docId;
       if (rc != INDEXREAD_EOF) {
         heap_offerx(hp, it);
+        // after SkipTo, try test again for validity
+        if (it->minId == nextValidId) {
+          break;
+        }
       }
     }
   }
@@ -386,6 +389,8 @@ static inline int UI_ReadSortedHigh(void *ctx, RSIndexResult **hit) {
     return INDEXREAD_EOF;
   }
 
+  ui->minDocId = it->minId;
+  AggregateResult_AddChild(CURRENT_RECORD(ui), res);
   *hit = CURRENT_RECORD(ui);
   return INDEXREAD_OK;
 }
@@ -441,7 +446,6 @@ static int UI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
       if (res) {
         it->minId = res->docId;
       }
-
     } else {
       // if the iterator is ahead of docId - we avoid reading the entry
       // in this case, we are either past or at the requested docId, no need to actually read
@@ -520,8 +524,6 @@ static int UI_SkipToHigh(void *ctx, t_docId docId, RSIndexResult **hit) {
     if (it->minId >= docId) {
       // if the iterator is at or ahead of docId - we avoid reading the entry
       // in this case, we are either past or at the requested docId, no need to actually read
-      rc = (it->minId == docId) ? INDEXREAD_OK : INDEXREAD_NOTFOUND;
-      AggregateResult_AddChild(CURRENT_RECORD(ui), IITER_CURRENT_RECORD(it));
       break;
     }
 
@@ -535,6 +537,9 @@ static int UI_SkipToHigh(void *ctx, t_docId docId, RSIndexResult **hit) {
       // refresh heap with iterator with updated minId
       it->minId = res->docId;
       heap_offerx(hp, it);
+      if (it->minId == docId) {
+        break;
+      }
     }
   }
 
@@ -543,6 +548,8 @@ static int UI_SkipToHigh(void *ctx, t_docId docId, RSIndexResult **hit) {
     return INDEXREAD_EOF;
   }
 
+  rc = (it->minId == docId) ? INDEXREAD_OK : INDEXREAD_NOTFOUND;
+  AggregateResult_AddChild(CURRENT_RECORD(ui), IITER_CURRENT_RECORD(it));
   *hit = CURRENT_RECORD(ui);
   return rc;
 }
