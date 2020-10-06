@@ -91,20 +91,20 @@ static void UI_SyncIterList(UnionIterator *ui) {
 }
 
 /**
- * Removes the exhausted iterator from the active list, so that future	
- * reads will no longer iterate over it	
- */	
-static size_t UI_RemoveExhausted(UnionIterator *it, size_t badix) {	
-  // e.g. assume we have 10 entries, and we want to remove index 8, which means	
-  // one more valid entry at the end. This means we use	
-  // source: its + 8 + 1	
-  // destination: its + 8	
-  // number: it->len (10) - (8) - 1 == 1	
-  memmove(it->its + badix, it->its + badix + 1, sizeof(*it->its) * (it->num - badix - 1));	
-  it->num--;	
-  // Repeat the same index again, because we have a new iterator at the same	
-  // position	
-  return badix - 1;	
+ * Removes the exhausted iterator from the active list, so that future
+ * reads will no longer iterate over it
+ */
+static size_t UI_RemoveExhausted(UnionIterator *it, size_t badix) {
+  // e.g. assume we have 10 entries, and we want to remove index 8, which means
+  // one more valid entry at the end. This means we use
+  // source: its + 8 + 1
+  // destination: its + 8
+  // number: it->len (10) - (8) - 1 == 1
+  memmove(it->its + badix, it->its + badix + 1, sizeof(*it->its) * (it->num - badix - 1));
+  it->num--;
+  // Repeat the same index again, because we have a new iterator at the same
+  // position
+  return badix - 1;
 }
 
 static void UI_Abort(void *ctx) {
@@ -272,7 +272,6 @@ static inline int UI_ReadUnsorted(void *ctx, RSIndexResult **hit) {
   }
   return INDEXREAD_EOF;
 }
-
 
 static inline int UI_ReadSorted(void *ctx, RSIndexResult **hit) {
   UnionIterator *ui = ctx;
