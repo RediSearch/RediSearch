@@ -124,48 +124,51 @@ def testUnion(env):
         env.assertOk(r.execute_command('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields',
                                         'f', 'hello world' if i % 2 == 0 else 'hallo werld'))
 
-    for _ in r.retry_with_rdb_reload():
-        waitForIndex(r, 'idx')
-        res = r.execute_command(
-            'ft.search', 'idx', 'hello|hallo', 'nocontent', 'limit', '0', '100')
-        env.assertEqual(N + 1, len(res))
-        env.assertEqual(N, res[0])
+    for _ in range(2):
+        for _ in r.retry_with_rdb_reload():
+            waitForIndex(r, 'idx')
+            res = r.execute_command(
+                'ft.search', 'idx', 'hello|hallo', 'nocontent', 'limit', '0', '100')
+            env.assertEqual(N + 1, len(res))
+            env.assertEqual(N, res[0])
 
-        res = r.execute_command(
-            'ft.search', 'idx', 'hello|world', 'nocontent', 'limit', '0', '100')
-        env.assertEqual(51, len(res))
-        env.assertEqual(50, res[0])
+            res = r.execute_command(
+                'ft.search', 'idx', 'hello|world', 'nocontent', 'limit', '0', '100')
+            env.assertEqual(51, len(res))
+            env.assertEqual(50, res[0])
 
-        res = r.execute_command('ft.search', 'idx', '(hello|hello)(world|world)',
-                                'nocontent', 'verbatim', 'limit', '0', '100')
-        env.assertEqual(51, len(res))
-        env.assertEqual(50, res[0])
+            res = r.execute_command('ft.search', 'idx', '(hello|hello)(world|world)',
+                                    'nocontent', 'verbatim', 'limit', '0', '100')
+            env.assertEqual(51, len(res))
+            env.assertEqual(50, res[0])
 
-        res = r.execute_command(
-            'ft.search', 'idx', '(hello|hallo)(werld|world)', 'nocontent', 'verbatim', 'limit', '0', '100')
-        env.assertEqual(101, len(res))
-        env.assertEqual(100, res[0])
+            res = r.execute_command(
+                'ft.search', 'idx', '(hello|hallo)(werld|world)', 'nocontent', 'verbatim', 'limit', '0', '100')
+            env.assertEqual(101, len(res))
+            env.assertEqual(100, res[0])
 
-        res = r.execute_command(
-            'ft.search', 'idx', '(hallo|hello)(world|werld)', 'nocontent', 'verbatim', 'limit', '0', '100')
-        env.assertEqual(101, len(res))
-        env.assertEqual(100, res[0])
+            res = r.execute_command(
+                'ft.search', 'idx', '(hallo|hello)(world|werld)', 'nocontent', 'verbatim', 'limit', '0', '100')
+            env.assertEqual(101, len(res))
+            env.assertEqual(100, res[0])
 
-        res = r.execute_command(
-            'ft.search', 'idx', '(hello|werld)(hallo|world)', 'nocontent', 'verbatim', 'limit', '0', '100')
-        env.assertEqual(101, len(res))
-        env.assertEqual(100, res[0])
+            res = r.execute_command(
+                'ft.search', 'idx', '(hello|werld)(hallo|world)', 'nocontent', 'verbatim', 'limit', '0', '100')
+            env.assertEqual(101, len(res))
+            env.assertEqual(100, res[0])
 
-        res = r.execute_command(
-            'ft.search', 'idx', '(hello|hallo) world', 'nocontent', 'verbatim', 'limit', '0', '100')
-        env.assertEqual(51, len(res))
-        env.assertEqual(50, res[0])
+            res = r.execute_command(
+                'ft.search', 'idx', '(hello|hallo) world', 'nocontent', 'verbatim', 'limit', '0', '100')
+            env.assertEqual(51, len(res))
+            env.assertEqual(50, res[0])
 
-        res = r.execute_command(
-            'ft.search', 'idx', '(hello world)|((hello world)|(hallo world|werld) | hello world werld)',
-            'nocontent', 'verbatim', 'limit', '0', '100')
-        env.assertEqual(101, len(res))
-        env.assertEqual(100, res[0])
+            res = r.execute_command(
+                'ft.search', 'idx', '(hello world)|((hello world)|(hallo world|werld) | hello world werld)',
+                'nocontent', 'verbatim', 'limit', '0', '100')
+            env.assertEqual(101, len(res))
+            env.assertEqual(100, res[0])
+        # test new Union Iterator
+        env.cmd('ft.config set UNION_ITERATOR_HEAP 1')
 
 def testSearch(env):
     r = env
