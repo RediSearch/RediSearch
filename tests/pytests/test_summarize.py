@@ -3,7 +3,7 @@ from includes import *
 from common import waitForIndex,toSortedFlatList
 
 
-GENTEXT = os.path.dirname(os.path.abspath(__file__)) + '/../tests/genesis.txt'
+GENTEXT = os.path.dirname(os.path.abspath(__file__)) + '/../ctests/genesis.txt'
 
 
 def setupGenesis(env):

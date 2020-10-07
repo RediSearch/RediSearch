@@ -7,8 +7,8 @@ from includes import *
 from common import waitForIndex
 
 
-SRCTEXT=os.path.join(os.path.dirname(__file__), '..', 'tests', 'cn_sample.txt')
-GENTXT=os.path.join(os.path.dirname(__file__), '..', 'tests', 'genesis.txt')
+SRCTEXT=os.path.join(os.path.dirname(__file__), '..', 'ctests', 'cn_sample.txt')
+GENTXT=os.path.join(os.path.dirname(__file__), '..', 'ctests', 'genesis.txt')
 
 GEN_CN_S = """
 太初，上帝创造了天地。 那时，大地空虚混沌，还没有成形，黑暗笼罩着深渊，上帝的灵运行在水面上。 上帝说：“要有光！”就有了光。 上帝看光是好的，就把光和暗分开， 称光为昼，称暗为夜。晚上过去，早晨到来，这是第一天。 上帝说：“水与水之间要有穹苍，把水分开。” 果然如此。上帝开辟了穹苍，用穹苍将水上下分开。 上帝称穹苍为天空。晚上过去，早晨到来，这是第二天。

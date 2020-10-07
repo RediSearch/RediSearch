@@ -1,8 +1,9 @@
-#include "../extension.h"
-#include "../redisearch.h"
-#include "../query.h"
-#include "../stopwords.h"
-#include "../ext/default.h"
+#include "../../src/extension.h"
+#include "../../src/redisearch.h"
+#include "../../src/query.h"
+#include "../../src/stopwords.h"
+#include "../../src/ext/default.h"
+#include <algorithm>
 #include <gtest/gtest.h>
 
 int myRegisterFunc(RSExtensionCtx *ctx);
