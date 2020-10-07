@@ -20,11 +20,11 @@ make run           # run redis with RediSearch
 
 make test          # run all tests (via ctest)
   TEST=regex
-make pytest        # run python tests (src/pytest)
+make pytest        # run python tests (tests/pytests)
   TEST=name          # e.g. TEST=test:testSearch
   GDB=1              # RLTest interactive debugging
-make c_tests       # run C tests (from src/tests)
-make cpp_tests     # run C++ tests (from src/cpptests)
+make c_tests       # run C tests (from tests/ctests)
+make cpp_tests     # run C++ tests (from tests/cpptests)
   TEST=name          # e.g. TEST=FGCTest.testRemoveLastBlock
 
 make callgrind     # produce a call graph
@@ -131,7 +131,6 @@ setup:
 
 fetch:
 	-git submodule update --init --recursive
-	./srcutil/get_gtest.sh
 
 #----------------------------------------------------------------------------------------------
 
@@ -152,14 +151,15 @@ RLTEST_GDB=-i
 endif
 
 pytest:
+	set -e ;\
 	@if ! command -v redis-server > /dev/null; then \
 		echo "Cannot find redis-server. Aborting." ;\
 		exit 1 ;\
 	fi
 ifneq ($(TEST),)
-	@cd src/pytest; PYDEBUG=1 python -m RLTest --test $(TEST) $(RLTEST_GDB) -s --module $(abspath $(TARGET))
+	@cd tests/pytests; PYDEBUG=1 python -m RLTest --test $(TEST) $(RLTEST_GDB) -s --module $(abspath $(TARGET))
 else
-	@cd src/pytest; python -m RLTest --module $(abspath $(TARGET))
+	@cd tests/pytests; python -m RLTest --module $(abspath $(TARGET))
 endif
 
 ifeq ($(GDB),1)
@@ -169,19 +169,14 @@ GDB_CMD=
 endif
 
 c_tests:
-	set -e ;\
-	cd src/tests ;\
-	find $(abspath $(BINROOT)/src/tests) -name "test_*" -type f -executable -exec ${GDB_CMD} {} \;
+	find $(abspath $(BINROOT)/tests/ctests) -name "test_*" -type f -executable -exec ${GDB_CMD} {} \;
 
 cpp_tests:
 ifeq ($(TEST),)
-	set -e ;\
-	cd src/tests ;\
-	$(GDB_CMD) $(abspath $(BINROOT)/src/cpptests/rstest)
+	find $(abspath $(BINROOT)/tests/cpptests) -name "test_*" -type f -executable -exec ${GDB_CMD} {} \;
 else
 	set -e ;\
-	cd src/tests ;\
-	$(GDB_CMD) $(abspath $(BINROOT)/src/cpptests/rstest) --gtest_filter=$(TEST)
+	$(GDB_CMD) $(abspath $(BINROOT)/tests/cpptests/$(TEST)) --gtest_filter=$(TEST)
 endif
 
 .PHONY: test pytest c_tests cpp_tests

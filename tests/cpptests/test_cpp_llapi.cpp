@@ -1,4 +1,4 @@
-#include "../redisearch_api.h"
+#include "../../src/redisearch_api.h"
 #include <gtest/gtest.h>
 #include <set>
 #include <string>

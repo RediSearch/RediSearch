@@ -1,6 +1,6 @@
-#include "../trie/trie.h"
-#include "../trie/levenshtein.h"
-#include "../trie/rune_util.h"
+#include "../../src/trie/trie.h"
+#include "../../src/trie/levenshtein.h"
+#include "../../src/trie/rune_util.h"
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
@@ -9,7 +9,7 @@
 #include <sys/param.h>
 #include <time.h>
 #include "test_util.h"
-#include "../dep/libnu/libnu.h"
+#include "../../src/dep/libnu/libnu.h"
 #include "rmutil/alloc.h"
 
 int count = 0;
