@@ -1,8 +1,8 @@
-#include "../query.h"
-#include "../query_parser/tokenizer.h"
-#include "../stopwords.h"
-#include "../extension.h"
-#include "../ext/default.h"
+#include "../../src/query.h"
+#include "../../src/query_parser/tokenizer.h"
+#include "../../src/stopwords.h"
+#include "../../src/extension.h"
+#include "../../src/ext/default.h"
 #include <stdio.h>
 #include <gtest/gtest.h>
 
