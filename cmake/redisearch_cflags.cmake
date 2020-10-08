@@ -42,19 +42,24 @@ ELSEIF(USE_MSAN)
     SET(RS_COMMON_FLAGS "${RS_COMMON_FLAGS} -fsanitize=memory \
         -fno-omit-frame-pointer \
         -pie \
-        -fsanitize-memory-track-origins=2")
+        -fsanitize-memory-track-origins=2 \
+        -I${MSAN_PREFIX}/include \
+        ")
 
     SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} \
+        -I${MSAN_PREFIX}/include/c++/v1 \
+        ")
+
+    SET(CMAKE_LD_FLAGS "${CMAKE_LD_FLAGS} \
         -stdlib=libc++ \
         -Wl,-rpath=${MSAN_PREFIX}/lib \
         -L${MSAN_PREFIX}/lib \
         -lc++abi \
-        -I${MSAN_PREFIX}/include \
-        -I${MSAN_PREFIX}/include/c++/v1")
+        ")
 
     SET(CMAKE_LINKER "${CMAKE_C_COMPILER}")
-    SET(RS_EXE_FLAGS "${RS_EXE_FLAGS} -fsanitize=memory")
-    SET(RS_SO_FLAGS "${RS_SO_FLAGS} -fsanitize=memory")
+    SET(RS_EXE_FLAGS "${RS_EXE_FLAGS} -fsanitize=memory ${CMAKE_LD_FLAGS}")
+    SET(RS_SO_FLAGS "${RS_SO_FLAGS} -fsanitize=memory ${CMAKE_LD_FLAGS}")
 ENDIF()
 
 IF (USE_COVERAGE)

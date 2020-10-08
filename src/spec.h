@@ -267,6 +267,8 @@ typedef struct IndexSpec {
   bool cascadeDelete;  // remove keys when removing spec
   
   char *__leak;
+  long *__buf;
+  long __wild;
 } IndexSpec;
 
 typedef enum SpecOp { SpecOp_Add, SpecOp_Del } SpecOp;
