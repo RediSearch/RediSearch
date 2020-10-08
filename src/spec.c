@@ -210,6 +210,8 @@ static void Indexes_SetTempSpecsTimers() {
 
 //---------------------------------------------------------------------------------------------
 
+int __mem;
+
 IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                QueryError *status) {
   const char *specName = RedisModule_StringPtrLen(argv[1], NULL);
@@ -244,7 +246,9 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
   if (!(sp->flags & Index_SkipInitialScan)) {
     IndexSpec_ScanAndReindex(ctx, sp);
   }
-  sp->__leak = strdup("leakleakleakleakleakleakleakleakleakleakleakleakleakleak");
+  sp->__leak = (char *) malloc(512);
+  int x = *(int *)sp->__leak;
+  __mem = x;
   return sp;
 }
 
