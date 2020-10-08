@@ -1,10 +1,5 @@
 version: 2.1
 
-defaults:
-  default_jobs: &default_jobs
-    - centos
-    - ubuntu
-
 commands:
   abort_for_docs:
     steps:
@@ -105,7 +100,7 @@ jobs:
 
   debug_asan:
     docker:
-      - image: redisfab/clang:4.0.1-x64-stretch
+      - image: redisfab/clang:12-x64-stretch
     steps:
       - abort_for_docs
       - checkout
@@ -117,7 +112,7 @@ jobs:
 
   debug_msan:
     docker:
-      - image: redisfab/clang:4.0.1-x64-stretch
+      - image: redisfab/clang:12-x64-stretch
     steps:
       - abort_for_docs
       - checkout
@@ -203,29 +198,37 @@ on-master-and-version-branches: &on-master-and-version-branches
       ignore: /.*/
 
 
+after-builds: &after-builds
+  requires:
+    - centos
+    - ubuntu
+    - xenial
+    - trusty
+
+
 workflows:
   version: 2
 
   default_flow:
     jobs:
-      - ubuntu:
-          <<: *on-any-branch
-      - centos:
-          <<: *on-any-branch
+#      - ubuntu:
+#          <<: *on-any-branch
+#      - centos:
+#          <<: *on-any-branch
       - macos:
           <<: *on-version-tags
       - debug_asan:
           <<: *on-any-branch
       - debug_msan:
           <<: *on-any-branch
-      - coverage:
-          <<: *on-any-branch
-      - deploy_snapshots:
-          requires: *default_jobs
-          <<: *on-master
-      - deploy_release:
-          requires: *default_jobs
-          <<: *on-version-tags
+#      - coverage:
+#          <<: *on-any-branch
+#      - deploy_snapshots:
+#          <<: *after-builds
+#          <<: *on-master
+#      - deploy_release:
+#          <<: *after-builds
+#          <<: *on-version-tags
 
   nightly:
     triggers:

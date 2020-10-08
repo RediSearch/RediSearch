@@ -9,7 +9,7 @@ cd $ROOT
 
 ./.circleci/ci_get_deps.sh
 
-SAN_PREFIX=/opt/san
+SAN_PREFIX=/opt/llvm-project/build-msan
 
 extra_flags=""
 
@@ -24,6 +24,7 @@ else
     exit 1
 fi
 
+rm -rf build-${mode}
 mkdir -p build-${mode}
 cd build-${mode}
 
@@ -46,7 +47,7 @@ make -j$CI_CONCURRENCY
 ## Add some configuration options to our rltest file
 
 cat >rltest.config <<EOF
---oss-redis-path=${SAN_PREFIX}/bin/redis-server-${mode}
+--oss-redis-path=redis-server-${mode}
 --no-output-catch
 --exit-on-failure
 --check-exitcode
@@ -55,8 +56,5 @@ EOF
 
 export ASAN_OPTIONS=detect_odr_violation=0
 export RS_GLOBAL_DTORS=1
-
-# FIXME: Need to change the image once this actually works..
-ln -sf /usr/bin/llvm-symbolizer-4.0 /usr/bin/llvm-symbolizer || true
 
 ctest --output-on-failure -j$CI_CONCURRENCY

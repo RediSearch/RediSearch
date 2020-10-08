@@ -24,16 +24,37 @@ ENDIF()
 
 
 IF (USE_ASAN)
-    SET(RS_COMMON_FLAGS "${RS_COMMON_FLAGS} -fno-omit-frame-pointer -fsanitize=address")
+    SET(RS_COMMON_FLAGS "${RS_COMMON_FLAGS} -fsanitize=address \
+        -fno-omit-frame-pointer \
+        -fno-optimize-sibling-calls \
+        -fsanitize-address-use-after-scope")
+
 ELSEIF(USE_TSAN)
-    SET(RS_COMMON_FLAGS "${RS_COMMON_FLAGS} -fno-omit-frame-pointer -fsanitize=thread -pie")
+    SET(RS_COMMON_FLAGS "${RS_COMMON_FLAGS} -fsanitize=thread \
+        -fno-omit-frame-pointer \
+        -pie")
+
 ELSEIF(USE_MSAN)
-    SET(RS_COMMON_FLAGS "${RS_COMMON_FLAGS} -fno-omit-frame-pointer -fsanitize=memory -fsanitize-memory-track-origins=2")
-    SET(CMAKE_LINKER "${CMAKE_C_COMPILER}")
     IF (NOT MSAN_PREFIX)
         MESSAGE(FATAL_ERROR "Need MSAN_PREFIX")
     ENDIF()
-    SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++ -Wl,-rpath=${MSAN_PREFIX}/lib -L${MSAN_PREFIX}/lib -lc++abi -I${MSAN_PREFIX}/include -I${MSAN_PREFIX}/include/c++/v1")
+
+    SET(RS_COMMON_FLAGS "${RS_COMMON_FLAGS} -fsanitize=memory \
+        -fno-omit-frame-pointer \
+        -pie \
+        -fsanitize-memory-track-origins=2")
+
+    SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} \
+        -stdlib=libc++ \
+        -Wl,-rpath=${MSAN_PREFIX}/lib \
+        -L${MSAN_PREFIX}/lib \
+        -lc++abi \
+        -I${MSAN_PREFIX}/include \
+        -I${MSAN_PREFIX}/include/c++/v1")
+
+    SET(CMAKE_LINKER "${CMAKE_C_COMPILER}")
+    SET(RS_EXE_FLAGS "${RS_EXE_FLAGS} -fsanitize=memory")
+    SET(RS_SO_FLAGS "${RS_SO_FLAGS} -fsanitize=memory")
 ENDIF()
 
 IF (USE_COVERAGE)
