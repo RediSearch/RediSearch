@@ -154,6 +154,17 @@ void *heap_poll(heap_t *h) {
   return item;
 }
 
+static void __heap_replacex(heap_t *h, void *item) {
+  h->array[0] = item;
+
+  /* ensure heap properties */
+  __pushdown(h, 0);
+}
+
+void heap_replace(heap_t *h, void *item) {
+  __heap_replacex(h, item);
+}
+
 void *heap_peek(const heap_t *h) {
   if (0 == heap_count(h)) return NULL;
 
