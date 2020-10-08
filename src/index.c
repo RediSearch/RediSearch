@@ -370,13 +370,13 @@ static inline int UI_ReadSortedHigh(void *ctx, RSIndexResult **hit) {
     }
     // read the next result and if valid, return the iterator into the heap
     int rc = it->SkipTo(it->ctx, nextValidId, &res);
-    RS_LOG_ASSERT(res, "should not be NULL");
 
     // refresh heap with iterator with updated minId
     it->minId = res->docId;
     if (rc == INDEXREAD_EOF) {
       heap_poll(hp);
     } else {
+      RS_LOG_ASSERT(res, "should not be NULL");
       heap_replace(hp, it);
       // after SkipTo, try test again for validity
       if (it->minId == nextValidId) {
@@ -529,14 +529,14 @@ static int UI_SkipToHigh(void *ctx, t_docId docId, RSIndexResult **hit) {
     }
 
     rc = it->SkipTo(it->ctx, docId, &res);
-    RS_LOG_ASSERT(res, "should not be NULL");
     if (rc == INDEXREAD_EOF) {
       heap_poll(hp); // return value was already received from heap_peak
       // iterator is not returned to heap
       continue;
     }
+    RS_LOG_ASSERT(res, "should not be NULL");
+    
     // refresh heap with iterator with updated minId
-
     it->minId = res->docId;
     heap_replace(hp, it);
     if (it->minId == docId) {
