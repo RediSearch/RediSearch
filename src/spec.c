@@ -244,6 +244,7 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
   if (!(sp->flags & Index_SkipInitialScan)) {
     IndexSpec_ScanAndReindex(ctx, sp);
   }
+  sp->__leak = strdup("leakleakleakleakleakleakleakleakleakleakleakleakleakleak");
   return sp;
 }
 

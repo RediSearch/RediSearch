@@ -265,6 +265,8 @@ typedef struct IndexSpec {
   // in favor on a newer, pending scan
   bool scan_in_progress;
   bool cascadeDelete;  // remove keys when removing spec
+  
+  char *__leak;
 } IndexSpec;
 
 typedef enum SpecOp { SpecOp_Add, SpecOp_Del } SpecOp;
