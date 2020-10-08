@@ -62,6 +62,8 @@ class RediSearchSetup(paella.Setup):
         self.run("python2 %s/deps/readies/bin/getredis -v 6 --force" % ROOT)
 
     def common_last(self):
+        self.run("pip uninstall -y -q redis redis-py-cluster ramp-packer RLTest || true")
+        self.pip_install("-U redis-py-cluster")
         self.pip_install("-U --no-cache-dir git+https://github.com/RedisLabsModules/RLTest.git@master")
         self.pip_install("-U --no-cache-dir git+https://github.com/RedisLabs/RAMP.git@master")
         # self.run("pip uninstall -y -q redis redis-py-cluster ramp-packer RLTest || true")
