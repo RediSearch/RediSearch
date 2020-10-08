@@ -13,12 +13,13 @@ def testNewUnionIteratorRead(env):
   num_words = len(words)
   print num_words
   num_docs = 10000
-  num_queries = 1
+  num_queries = 40
   words_per_doc = 4
-  words_per_query = 1200
+  words_per_query = 1000
   pipe_batch = 1000
 
   pl = env.getConnection().pipeline()
+  #env.cmd('ft.config set UNION_ITERATOR_HEAP 100000')
   for i in range(num_docs):
     field_string = words[int(random.random() * num_words)]
     for _ in range(words_per_doc):
@@ -32,7 +33,7 @@ def testNewUnionIteratorRead(env):
   waitForIndex(env, 'idx')
   print 'indexing is done'
   for i in range(num_queries):
-    field_string = '(' + words[int(random.random() * num_words)]
+    field_string = '(ab*|th*)|(no*)|(' + words[int(random.random() * num_words)]
     for j in range(words_per_query):
       field_string += '|' + words[int(random.random() * num_words)]
     field_string += ')'
