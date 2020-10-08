@@ -1146,7 +1146,7 @@ Optional
      4) "14796"
      5) total_cycles
      6) "1"
-     7) avarage_cycle_time_ms
+     7) average_cycle_time_ms
      8) "14796"
      9) last_run_time_ms
     10) "14796"
