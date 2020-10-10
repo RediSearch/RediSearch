@@ -13,13 +13,14 @@
 
 /* Creates a new DocTable with a given capacity */
 DocTable NewDocTable(size_t cap, size_t max_size) {
-  DocTable ret = {.size = 1,
-                  .cap = cap,
-                  .maxDocId = 0,
-                  .memsize = 0,
-                  .sortablesSize = 0,
-                  .maxSize = max_size,
-                  .dim = NewDocIdMap()};
+  DocTable ret = {size: 1,
+                  maxSize: max_size,
+                  maxDocId: 0,
+                  cap: cap,
+                  memsize: 0,
+                  sortablesSize: 0,
+                  buckets: NULL,
+                  dim: NewDocIdMap()};
   ret.buckets = rm_calloc(cap, sizeof(*ret.buckets));
   return ret;
 }

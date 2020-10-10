@@ -33,11 +33,11 @@ typedef enum {  // Placeholder for bad/invalid unit
 } GeoDistance;
 
 typedef struct GeoFilter {
-  const char *property;
-  double lat;
   double lon;
+  double lat;
   double radius;
   GeoDistance unitType;
+  const char *property;
 } GeoFilter;
 
 /* Create a geo filter from parsed strings and numbers */

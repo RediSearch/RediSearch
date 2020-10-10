@@ -192,7 +192,7 @@ IndexIterator *TagIndex_OpenReader(TagIndex *idx, IndexSpec *sp, const char *val
 
   RSToken tok = {.str = (char *)value, .len = len};
   RSQueryTerm *t = NewQueryTerm(&tok, 0);
-  IndexReader *r = NewTermIndexReader(iv, sp, RS_FIELDMASK_ALL, t, weight);
+  IndexReader *r = new TermIndexReader(iv, sp, RS_FIELDMASK_ALL, t, weight);
   if (!r) {
     return NULL;
   }

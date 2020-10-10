@@ -144,17 +144,25 @@ typedef enum {
 /**
  * Helper macro to define bitflag argtype
  */
+#ifdef __cplusplus
+#define AC_MKBITFLAG(name_, target_, bit_) \
+  name: name_, type: AC_ARGTYPE_BITFLAG, target: target_, slicelen: bit_
+
+#define AC_MKUNFLAG(name_, target_, bit_) \
+  name: name_, type: AC_ARGTYPE_UNFLAG, target: target_, slicelen: bit_
+#else
 #define AC_MKBITFLAG(name_, target_, bit_) \
   .name = name_, .target = target_, .type = AC_ARGTYPE_BITFLAG, .slicelen = bit_
 
 #define AC_MKUNFLAG(name_, target_, bit_) \
   .name = name_, .target = target_, .type = AC_ARGTYPE_UNFLAG, .slicelen = bit_
+#endif
 
 typedef struct {
   const char *name;  // Name of the argument
+  ACArgType type;    // Type of argument
   void *target;      // [out] Target pointer, e.g. `int*`, `RedisModuleString**`
   size_t *len;       // [out] Target length pointer. Valid only for strings
-  ACArgType type;    // Type of argument
   int intflags;      // AC_F_COALESCE, etc.
   size_t slicelen;   // When using slice length, set this to the expected slice count
 } ACArgSpec;

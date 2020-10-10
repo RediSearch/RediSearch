@@ -97,7 +97,9 @@ typedef struct RSValue {
 #ifdef __cplusplus
   RSValue() {
   }
-  RSValue(RSValueType t_) : ref(NULL), t(t_), refcount(0), allocated(0) {
+  
+  RSValue(RSValueType t_, uint32_t refcount = 0, uint8_t allocated = 0) : 
+    ref(NULL), t(t_), refcount(refcount), allocated(allocated) {
   }
 
 #endif
@@ -126,23 +128,25 @@ static inline RSValue *RSValue_IncrRef(RSValue *v) {
 
 RSValue *RS_NewValue(RSValueType t);
 
-#ifndef __cplusplus
 static RSValue RS_StaticValue(RSValueType t) {
-  RSValue v = (RSValue){
+#ifdef __cplusplus
+  RSValue v(t, 1, 0);
+#else
+  RSValue v = {
       .t = t,
       .refcount = 1,
       .allocated = 0,
   };
+#endif
   return v;
 }
-#endif
 
 void RSValue_SetNumber(RSValue *v, double n);
 void RSValue_SetString(RSValue *v, char *str, size_t len);
 void RSValue_SetSDS(RSValue *v, sds s);
 void RSValue_SetConstString(RSValue *v, const char *str, size_t len);
 
-#ifndef __cplusplus
+//#ifndef __cplusplus
 static inline void RSValue_MakeReference(RSValue *dst, RSValue *src) {
   RS_LOG_ASSERT(src, "RSvalue is missing");
   RSValue_Clear(dst);
@@ -154,7 +158,7 @@ static inline void RSValue_MakeOwnReference(RSValue *dst, RSValue *src) {
   RSValue_MakeReference(dst, src);
   RSValue_Decref(src);
 }
-#endif
+//#endif
 
 /* Return the value itself or its referred value */
 static inline RSValue *RSValue_Dereference(const RSValue *v) {

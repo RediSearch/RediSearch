@@ -300,7 +300,7 @@ static void FGC_childCollectTerms(ForkGC *gc, RedisSearchCtx *sctx) {
     RedisModuleKey *idxKey = NULL;
     InvertedIndex *idx = Redis_OpenInvertedIndexEx(sctx, term, strlen(term), 1, &idxKey);
     if (idx) {
-      struct iovec iov = {.iov_base = (void *)term, termLen};
+      struct iovec iov = {iov_base: (void *)term, iov_len: termLen};
       FGC_childRepairInvidx(gc, sctx, idx, sendHeaderString, &iov, NULL);
     }
     if (idxKey) {
@@ -657,18 +657,12 @@ static void FGC_applyInvertedIndex(ForkGC *gc, InvIdxBuffers *idxData, MSG_Index
   RS_LOG_ASSERT(idx->size >= info->nblocksOrig, "Old index should be larger or equal to new index");
 
   if (idxData->newBlocklist) {
-    /**
-     * At this point, we check if the last block has had new data added to it,
-     * but was _not_ repaired. We check for a repaired last block in
-     * checkLastBlock().
-     */
+    // At this point, we check if the last block has had new data added to it, but was _not_ repaired.
+    // We check for a repaired last block in checkLastBlock().
 
     if (!info->lastblkDocsRemoved) {
-      /**
-       * Last block was unmodified-- let's prefer the last block's pointer
-       * over our own (which may be stale).
-       * If the last block was repaired, this is handled above
-       */
+      // Last block was unmodified-- let's prefer the last block's pointer over our own (which may be stale).
+      // If the last block was repaired, this is handled above.
       idxData->newBlocklist[idxData->newBlocklistSize - 1] = idx->blocks[info->nblocksOrig - 1];
     }
 
@@ -697,7 +691,7 @@ static void FGC_applyInvertedIndex(ForkGC *gc, InvIdxBuffers *idxData, MSG_Index
     }
     idx->size = newAddedLen;
     if (idx->size == 0) {
-      InvertedIndex_AddBlock(idx, 0);
+      idx->AddBlock(0);
     }
   }
 
@@ -1322,20 +1316,27 @@ static struct timespec getIntervalCb(void *ctx) {
   return gc->retryInterval;
 }
 
-ForkGC *FGC_New(const RedisModuleString *k, uint64_t specUniqueId, GCCallbacks *callbacks) {
-  ForkGC *forkGc = rm_calloc(1, sizeof(*forkGc));
-  *forkGc = (ForkGC){
-      .rdbPossiblyLoading = 1,
-      .specUniqueId = specUniqueId,
-      .type = FGC_TYPE_INKEYSPACE,
-      .deletedDocsFromLastRun = 0,
-  };
-  forkGc->retryInterval.tv_sec = RSGlobalConfig.forkGcRunIntervalSec;
-  forkGc->retryInterval.tv_nsec = 0;
-  forkGc->ctx = RedisModule_GetThreadSafeContext(NULL);
+#if 0
+static void* ForkGC::operator new(std::size_t sz) {
+  return rm_calloc(1, sz);
+}
+
+void ForkGC::operator delete(void* ptr) {
+  rm_free(ptr);
+}
+#endif
+
+void ForkGC::ctor(const RedisModuleString *k, uint64_t specUniqueId, GCCallbacks *callbacks) {
+  rdbPossiblyLoading = 1;
+  specUniqueId = specUniqueId;
+  type = FGC_TYPE_INKEYSPACE;
+  deletedDocsFromLastRun = 0;
+  retryInterval.tv_sec = RSGlobalConfig.forkGcRunIntervalSec;
+  retryInterval.tv_nsec = 0;
+  ctx = RedisModule_GetThreadSafeContext(NULL);
   if (k) {
-    forkGc->keyName = RedisModule_CreateStringFromString(forkGc->ctx, k);
-    RedisModule_FreeString(forkGc->ctx, (RedisModuleString *)k);
+    keyName = RedisModule_CreateStringFromString(ctx, k);
+    RedisModule_FreeString(ctx, (RedisModuleString *)k);
   }
 
   callbacks->onTerm = onTerminateCb;
@@ -1344,13 +1345,14 @@ ForkGC *FGC_New(const RedisModuleString *k, uint64_t specUniqueId, GCCallbacks *
   callbacks->getInterval = getIntervalCb;
   callbacks->kill = killCb;
   callbacks->onDelete = deleteCb;
-
-  return forkGc;
 }
 
-ForkGC *FGC_NewFromSpec(IndexSpec *sp, uint64_t specUniqueId, GCCallbacks *callbacks) {
-  ForkGC *ctx = FGC_New(NULL, specUniqueId, callbacks);
-  ctx->sp = sp;
-  ctx->type = FGC_TYPE_NOKEYSPACE;
-  return ctx;
+ForkGC::ForkGC(const RedisModuleString *k, uint64_t specUniqueId, GCCallbacks *callbacks) {
+  ctor(k, specUniqueId, callbacks);
+}
+
+ForkGC::ForkGC(IndexSpec *spec, uint64_t specUniqueId, GCCallbacks *callbacks) {
+  ctor(NULL, specUniqueId, callbacks);
+  sp = spec;
+  type = FGC_TYPE_NOKEYSPACE;
 }

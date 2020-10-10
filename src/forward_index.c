@@ -85,9 +85,9 @@ ForwardIndex *NewForwardIndex(Document *doc, uint32_t idxFlags) {
   BlkAlloc_Init(&idx->entries);
 
   static const KHTableProcs procs = {
-      .Alloc = allocBucketEntry,
-      .Compare = khtCompare,
-      .Hash = khtHash,
+      Compare: khtCompare,
+      Hash: khtHash,
+      Alloc: allocBucketEntry
   };
 
   size_t termCount = estimtateTermCount(doc);
@@ -96,7 +96,7 @@ ForwardIndex *NewForwardIndex(Document *doc, uint32_t idxFlags) {
   idx->totalFreq = 0;
 
   KHTable_Init(idx->hits, &procs, &idx->entries, termCount);
-  mempool_options options = {.initialCap = termCount, .alloc = vvwAlloc, .free = vvwFree};
+  mempool_options options = { alloc: vvwAlloc, free: vvwFree, initialCap: termCount};
   idx->vvwPool = mempool_new(&options);
 
   ForwardIndex_InitCommon(idx, doc, idxFlags);

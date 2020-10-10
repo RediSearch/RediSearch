@@ -271,8 +271,8 @@ static const RSIndexResult *getIndexResult(ResultProcessor *rp, t_docId docId) {
   if (!it) {
     return NULL;
   }
-  it->Rewind(it->ctx);
-  if (INDEXREAD_OK != it->SkipTo(it->ctx, docId, &ir)) {
+  it->Rewind();
+  if (INDEXREAD_OK != it->SkipTo(docId, &ir)) {
     return NULL;
   }
   return ir;
@@ -302,10 +302,10 @@ static int hlpNext(ResultProcessor *rbase, SearchResult *r) {
     return RS_RESULT_OK;
   }
 
-  hlpDocContext docParams = {.byteOffsets = dmd->byteOffsets,  // nl
-                             .iovsArr = NULL,
-                             .indexResult = ir,
-                             .row = &r->rowdata};
+  hlpDocContext docParams = {byteOffsets: dmd->byteOffsets,  // nl
+                             indexResult: ir,
+                             iovsArr: NULL,
+                             row: &r->rowdata};
 
   if (fields->numFields) {
     for (size_t ii = 0; ii < fields->numFields; ++ii) {

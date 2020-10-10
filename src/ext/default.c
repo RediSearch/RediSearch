@@ -40,7 +40,7 @@ static inline void explain(RSScoreExplain *scrExp, char *fmt, ...) {
 
   va_list ap;
   va_start(ap, fmt);
-  rm_vasprintf((char **restrict) & scrExp->str, fmt, ap);
+  rm_vasprintf((char ** __restrict) & scrExp->str, fmt, ap);
   va_end(ap);
 
   rm_free(tempStr);

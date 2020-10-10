@@ -40,11 +40,11 @@ typedef void (*ConcurrentReopenCallback)(RedisModuleKey *k, void *ctx);
 typedef struct {
   RedisModuleKey *key;
   RedisModuleString *keyName;
-  int sharedKey;
-  void *privdata;
-  ConcurrentReopenCallback cb;
   // redis key open flags
   int keyFlags;
+  ConcurrentReopenCallback cb;
+  int sharedKey;
+  void *privdata;
   // A custom callback to free privdata. If NULL we don't do anything
   void (*freePrivData)(void *);
 } ConcurrentKeyCtx;

@@ -80,8 +80,8 @@ TEST_F(IndexTest, testDistance) {
   tr2->term.offsets = offsetsFromVVW(vw2);
 
   RSIndexResult *res = NewIntersectResult(2, 1);
-  AggregateResult_AddChild(res, tr1);
-  AggregateResult_AddChild(res, tr2);
+  res->AddChild(tr1);
+  res->AddChild(tr2);
 
   int delta = IndexResult_MinOffsetDelta(res);
   ASSERT_EQ(2, delta);
@@ -100,7 +100,7 @@ TEST_F(IndexTest, testDistance) {
   RSIndexResult *tr3 = NewTokenRecord(NULL, 1);
   tr3->docId = 1;
   tr3->term.offsets = offsetsFromVVW(vw3);
-  AggregateResult_AddChild(res, tr3);
+  res->AddChild(tr3);
 
   delta = IndexResult_MinOffsetDelta(res);
   ASSERT_EQ(7, delta);
@@ -172,7 +172,7 @@ TEST_P(IndexFlagsTest, testRWFlags) {
 
   for (int xx = 0; xx < 1; xx++) {
     // printf("si: %d\n", si->len);
-    IndexReader *ir = NewTermIndexReader(idx, NULL, RS_FIELDMASK_ALL, NULL, 1);  //
+    IndexReader *ir = new TermIndexReader(idx, NULL, RS_FIELDMASK_ALL, NULL, 1);  //
     RSIndexResult *h = NULL;
 
     int n = 0;
@@ -249,7 +249,7 @@ int printIntersect(void *ctx, RSIndexResult *hits, int argc) {
 TEST_F(IndexTest, testReadIterator) {
   InvertedIndex *idx = createIndex(10, 1);
 
-  IndexReader *r1 = NewTermIndexReader(idx, NULL, RS_FIELDMASK_ALL, NULL, 1);  //
+  IndexReader *r1 = new TermIndexReader(idx, NULL, RS_FIELDMASK_ALL, NULL, 1);  //
 
   RSIndexResult *h = NULL;
 
@@ -275,8 +275,8 @@ TEST_F(IndexTest, testReadIterator) {
 TEST_F(IndexTest, testUnion) {
   InvertedIndex *w = createIndex(10, 2);
   InvertedIndex *w2 = createIndex(10, 3);
-  IndexReader *r1 = NewTermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL, 1);   //
-  IndexReader *r2 = NewTermIndexReader(w2, NULL, RS_FIELDMASK_ALL, NULL, 1);  //
+  IndexReader *r1 = new TermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL, 1);   //
+  IndexReader *r2 = new TermIndexReader(w2, NULL, RS_FIELDMASK_ALL, NULL, 1);  //
 
   // printf("Reading!\n");
   IndexIterator **irs = (IndexIterator **)calloc(2, sizeof(IndexIterator *));
@@ -314,8 +314,8 @@ TEST_F(IndexTest, testUnion) {
 TEST_F(IndexTest, testWeight) {
   InvertedIndex *w = createIndex(10, 1);
   InvertedIndex *w2 = createIndex(10, 2);
-  IndexReader *r1 = NewTermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL, 0.5);  //
-  IndexReader *r2 = NewTermIndexReader(w2, NULL, RS_FIELDMASK_ALL, NULL, 1);   //
+  IndexReader *r1 = new TermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL, 0.5);  //
+  IndexReader *r2 = new TermIndexReader(w2, NULL, RS_FIELDMASK_ALL, NULL, 1);   //
 
   // printf("Reading!\n");
   IndexIterator **irs = (IndexIterator **)calloc(2, sizeof(IndexIterator *));
@@ -352,8 +352,8 @@ TEST_F(IndexTest, testNot) {
   InvertedIndex *w = createIndex(16, 1);
   // not all numbers that divide by 3
   InvertedIndex *w2 = createIndex(10, 3);
-  IndexReader *r1 = NewTermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL, 1);   //
-  IndexReader *r2 = NewTermIndexReader(w2, NULL, RS_FIELDMASK_ALL, NULL, 1);  //
+  IndexReader *r1 = new TermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL, 1);   //
+  IndexReader *r2 = new TermIndexReader(w2, NULL, RS_FIELDMASK_ALL, NULL, 1);  //
 
   // printf("Reading!\n");
   IndexIterator **irs = (IndexIterator **)calloc(2, sizeof(IndexIterator *));
@@ -379,7 +379,7 @@ TEST_F(IndexTest, testNot) {
 TEST_F(IndexTest, testPureNot) {
   InvertedIndex *w = createIndex(10, 3);
 
-  IndexReader *r1 = NewTermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL, 1);  //
+  IndexReader *r1 = new TermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL, 1);  //
   printf("last id: %llu\n", (unsigned long long)w->lastId);
 
   IndexIterator *ir = NewNotIterator(NewReadIterator(r1), w->lastId + 5, 1);
@@ -402,8 +402,8 @@ TEST_F(IndexTest, DISABLED_testOptional) {
   InvertedIndex *w = createIndex(16, 1);
   // not all numbers that divide by 3
   InvertedIndex *w2 = createIndex(10, 3);
-  IndexReader *r1 = NewTermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL, 1);   //
-  IndexReader *r2 = NewTermIndexReader(w2, NULL, RS_FIELDMASK_ALL, NULL, 1);  //
+  IndexReader *r1 = new TermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL, 1);   //
+  IndexReader *r2 = new TermIndexReader(w2, NULL, RS_FIELDMASK_ALL, NULL, 1);  //
 
   // printf("Reading!\n");
   IndexIterator **irs = (IndexIterator **)calloc(2, sizeof(IndexIterator *));
@@ -559,7 +559,7 @@ TEST_F(IndexTest, testNumericEncoding) {
 TEST_F(IndexTest, testAbort) {
 
   InvertedIndex *w = createIndex(1000, 1);
-  IndexReader *r = NewTermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL, 1);  //
+  IndexReader *r = new TermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL, 1);  //
 
   IndexIterator *it = NewReadIterator(r);
   int n = 0;
@@ -579,8 +579,8 @@ TEST_F(IndexTest, testIntersection) {
 
   InvertedIndex *w = createIndex(100000, 4);
   InvertedIndex *w2 = createIndex(100000, 2);
-  IndexReader *r1 = NewTermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL, 1);   //
-  IndexReader *r2 = NewTermIndexReader(w2, NULL, RS_FIELDMASK_ALL, NULL, 1);  //
+  IndexReader *r1 = new TermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL, 1);   //
+  IndexReader *r2 = new TermIndexReader(w2, NULL, RS_FIELDMASK_ALL, NULL, 1);  //
 
   IndexIterator **irs = (IndexIterator **)calloc(2, sizeof(IndexIterator *));
   irs[0] = NewReadIterator(r1);
@@ -1125,7 +1125,7 @@ TEST_F(IndexTest, testDeltaSplits) {
   InvertedIndex_WriteForwardIndexEntry(idx, enc, &ent);
   ASSERT_EQ(idx->size, 2);
 
-  IndexReader *ir = NewTermIndexReader(idx, NULL, RS_FIELDMASK_ALL, NULL, 1);
+  IndexReader *ir = new TermIndexReader(idx, NULL, RS_FIELDMASK_ALL, NULL, 1);
   RSIndexResult *h = NULL;
   ASSERT_EQ(INDEXREAD_OK, IR_Read(ir, &h));
   ASSERT_EQ(1, h->docId);

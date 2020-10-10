@@ -3,10 +3,11 @@
 #define SRC_FORK_GC_H_
 
 #include "redismodule.h"
+#include "object.h"
 #include "gc.h"
 
 #ifdef __cplusplus
-extern "C" {
+//extern "C" {
 #endif
 
 typedef struct {
@@ -25,7 +26,14 @@ typedef struct {
 typedef enum FGCType { FGC_TYPE_INKEYSPACE, FGC_TYPE_NOKEYSPACE } FGCType;
 
 /* Internal definition of the garbage collector context (each index has one) */
-typedef struct ForkGC {
+struct ForkGC : public Object {
+  ForkGC(const RedisModuleString *k, uint64_t specUniqueId, GCCallbacks *callbacks);
+  ForkGC(IndexSpec *sp, uint64_t specUniqueId, GCCallbacks *callbacks);
+
+  void ctor(const RedisModuleString *k, uint64_t specUniqueId, GCCallbacks *callbacks);
+
+  // static void* operator new(std::size_t sz);
+  // void operator delete(void *ptr);
 
   // inverted index key name for reopening the index
   union {
@@ -52,10 +60,7 @@ typedef struct ForkGC {
 
   struct timespec retryInterval;
   volatile size_t deletedDocsFromLastRun;
-} ForkGC;
-
-ForkGC *FGC_New(const RedisModuleString *k, uint64_t specUniqueId, GCCallbacks *callbacks);
-ForkGC *FGC_NewFromSpec(IndexSpec *sp, uint64_t specUniqueId, GCCallbacks *callbacks);
+};
 
 typedef enum {
   // Normal "open" state. No pausing will happen
@@ -112,7 +117,7 @@ void FGC_WaitAtApply(ForkGC *gc);
 void FGC_WaitClear(ForkGC *gc);
 
 #ifdef __cplusplus
-}
+//}
 #endif
 
 #endif /* SRC_FORK_GC_H_ */

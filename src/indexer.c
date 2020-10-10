@@ -8,11 +8,14 @@
 #include "rmutil/rm_assert.h"
 
 #include <unistd.h>
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+
 static void Indexer_FreeInternal(DocumentIndexer *indexer);
 
 static void writeIndexEntry(IndexSpec *spec, InvertedIndex *idx, IndexEncoder encoder,
-                            ForwardIndexEntry *entry) {
-  size_t sz = InvertedIndex_WriteForwardIndexEntry(idx, encoder, entry);
+                            const ForwardIndexEntry &entry) {
+  size_t sz = idx->WriteForwardIndexEntry(encoder, entry);
 
   // Update index statistics:
 
@@ -23,8 +26,8 @@ static void writeIndexEntry(IndexSpec *spec, InvertedIndex *idx, IndexEncoder en
 
   /* Record the space saved for offset vectors */
   if (spec->flags & Index_StoreTermOffsets) {
-    spec->stats.offsetVecsSize += VVW_GetByteLength(entry->vw);
-    spec->stats.offsetVecRecords += VVW_GetCount(entry->vw);
+    spec->stats.offsetVecsSize += VVW_GetByteLength(entry.vw);
+    spec->stats.offsetVecRecords += VVW_GetCount(entry.vw);
   }
 }
 
@@ -35,11 +38,13 @@ static void writeIndexEntry(IndexSpec *spec, InvertedIndex *idx, IndexEncoder en
 #define MAX_BULK_DOCS 1024
 
 // Entry for the merged dictionary
-typedef struct mergedEntry {
+struct mergedEntry {
   KHTableEntry base;        // Base structure
   ForwardIndexEntry *head;  // First document containing the term
   ForwardIndexEntry *tail;  // Last document containing the term
-} mergedEntry;
+};
+
+//---------------------------------------------------------------------------------------------
 
 // Boilerplate hashtable compare function
 static int mergedCompare(const KHTableEntry *ent, const void *s, size_t n, uint32_t h) {
@@ -68,15 +73,16 @@ static size_t countMerged(mergedEntry *ent) {
   return n;
 }
 
+//---------------------------------------------------------------------------------------------
+
 // Merges all terms in the queue into a single hash table.
 // parentMap is assumed to be a RSAddDocumentCtx*[] of capacity MAX_DOCID_ENTRIES
 //
 // This function returns the first aCtx which lacks its own document ID.
 // This wil be used when actually assigning document IDs later on, so that we
 // don't need to seek the document list again for it.
-static RSAddDocumentCtx *doMerge(RSAddDocumentCtx *aCtx, KHTable *ht,
-                                 RSAddDocumentCtx **parentMap) {
 
+static RSAddDocumentCtx *doMerge(RSAddDocumentCtx *aCtx, KHTable *ht, RSAddDocumentCtx **parentMap) {
   // Counter is to make sure we don't block the CPU if there are many many items
   // in the queue, though in reality the number of iterations is also limited
   // by MAX_DOCID_ENTRIES
@@ -132,14 +138,17 @@ static RSAddDocumentCtx *doMerge(RSAddDocumentCtx *aCtx, KHTable *ht,
   return firstZeroId;
 }
 
+//---------------------------------------------------------------------------------------------
+
 // Writes all the entries in the hash table to the inverted index.
 // parentMap contains the actual mapping between the `docID` field and the actual
 // RSAddDocumentCtx which contains the document itself, which by this time should
 // have been assigned an ID via makeDocumentId()
+
 static int writeMergedEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx,
                               KHTable *ht, RSAddDocumentCtx **parentMap) {
 
-  IndexEncoder encoder = InvertedIndex_GetEncoder(ctx->spec->flags);
+  IndexEncoder encoder = InvertedIndex::GetEncoder(ctx->spec->flags);
   const int isBlocked = AddDocumentCtx_IsBlockable(aCtx);
 
   // This is used as a cache layer, so that we don't need to derefernce the
@@ -184,7 +193,7 @@ static int writeMergedEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, 
 
         // Finally assign the document ID to the entry
         fwent->docId = docId;
-        writeIndexEntry(ctx->spec, invidx, encoder, fwent);
+        writeIndexEntry(ctx->spec, invidx, encoder, *fwent);
       }
 
       if (idxKey) {
@@ -200,18 +209,19 @@ static int writeMergedEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, 
   return 0;
 }
 
-/**
- * Simple implementation, writes all the entries for a single document. This
- * function is used when there is only one item in the queue. In this case
- * it's simpler to forego building the merged dictionary because there is
- * nothing to merge.
- */
+//---------------------------------------------------------------------------------------------
+
+// Simple implementation, writes all the entries for a single document.
+// This function is used when there is only one item in the queue. 
+// In this case it's simpler to forego building the merged dictionary because there is
+// nothing to merge.
+
 static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   RS_LOG_ASSERT(ctx, "ctx shound not be NULL");
   
   ForwardIndexIterator it = ForwardIndex_Iterate(aCtx->fwIdx);
   ForwardIndexEntry *entry = ForwardIndexIterator_Next(&it);
-  IndexEncoder encoder = InvertedIndex_GetEncoder(aCtx->specFlags);
+  IndexEncoder encoder = InvertedIndex::GetEncoder(aCtx->specFlags);
   const int isBlocked = AddDocumentCtx_IsBlockable(aCtx);
 
   while (entry != NULL) {
@@ -222,7 +232,7 @@ static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, Re
     if (invidx) {
       entry->docId = aCtx->doc.docId;
       RS_LOG_ASSERT(entry->docId, "docId should not be 0");
-      writeIndexEntry(ctx->spec, invidx, encoder, entry);
+      writeIndexEntry(ctx->spec, invidx, encoder, *entry);
     }
     if (idxKey) {
       RedisModule_CloseKey(idxKey);
@@ -235,6 +245,8 @@ static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, Re
     }
   }
 }
+
+//---------------------------------------------------------------------------------------------
 
 static void handleReplaceDelete(RedisSearchCtx *sctx, t_docId did) {
   IndexSpec *sp = sctx->spec;
@@ -286,6 +298,8 @@ static int makeDocumentId(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, int repl
   return 0;
 }
 
+//---------------------------------------------------------------------------------------------
+
 /**
  * Performs bulk document ID assignment to all items in the queue.
  * If one item cannot be assigned an ID, it is marked as being errored.
@@ -322,6 +336,8 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
     }
   }
 }
+
+//---------------------------------------------------------------------------------------------
 
 static void indexBulkFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
   // Traverse all fields, seeing if there may be something which can be written!
@@ -361,6 +377,8 @@ static void indexBulkFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
   }
 }
 
+//---------------------------------------------------------------------------------------------
+
 static void reopenCb(RedisModuleKey *k, void *arg) {
   // Index Key
   RedisSearchCtx *ctx = arg;
@@ -376,6 +394,8 @@ static void reopenCb(RedisModuleKey *k, void *arg) {
     ctx->spec = NULL;
   }
 }
+
+//---------------------------------------------------------------------------------------------
 
 // Routines for the merged hash table
 #define ACTX_IS_INDEXED(actx)                                           \
@@ -476,6 +496,8 @@ cleanup:
   }
 }
 
+//---------------------------------------------------------------------------------------------
+
 #define SHOULD_STOP(idxer) ((idxer)->options & INDEXER_STOPPED)
 
 static void *Indexer_Run(void *p) {
@@ -562,7 +584,7 @@ DocumentIndexer *NewIndexer(IndexSpec *spec) {
 
   BlkAlloc_Init(&indexer->alloc);
   static const KHTableProcs procs = {
-      .Alloc = mergedAlloc, .Compare = mergedCompare, .Hash = mergedHash};
+      Compare: mergedCompare, Hash: mergedHash, Alloc: mergedAlloc};
   KHTable_Init(&indexer->mergeHt, &procs, &indexer->alloc, 4096);
 
   if (!(indexer->options & INDEXER_THREADLESS)) {
@@ -583,6 +605,8 @@ DocumentIndexer *NewIndexer(IndexSpec *spec) {
   return indexer;
 }
 
+//---------------------------------------------------------------------------------------------
+
 static void Indexer_FreeInternal(DocumentIndexer *indexer) {
   if (!(indexer->options & INDEXER_THREADLESS)) {
     pthread_cond_destroy(&indexer->cond);
@@ -597,6 +621,8 @@ static void Indexer_FreeInternal(DocumentIndexer *indexer) {
   rm_free(indexer);
 }
 
+//---------------------------------------------------------------------------------------------
+
 size_t Indexer_Decref(DocumentIndexer *indexer) {
   size_t ret = __sync_sub_and_fetch(&indexer->refcount, 1);
   if (!ret) {
@@ -608,9 +634,13 @@ size_t Indexer_Decref(DocumentIndexer *indexer) {
   return ret;
 }
 
+//---------------------------------------------------------------------------------------------
+
 size_t Indexer_Incref(DocumentIndexer *indexer) {
   return ++indexer->refcount;
 }
+
+//---------------------------------------------------------------------------------------------
 
 void Indexer_Free(DocumentIndexer *indexer) {
   if (indexer->options & INDEXER_THREADLESS) {

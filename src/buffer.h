@@ -29,16 +29,16 @@ typedef struct {
  */
 #define RSTRING_S_N(rs) (rs)->s, (rs)->n
 
-typedef struct Buffer {
+struct Buffer {
   char *data;
   size_t cap;
   size_t offset;
-} Buffer;
+};
 
-typedef struct {
+struct BufferReader {
   Buffer *buf;
   size_t pos;
-} BufferReader;
+};
 
 #define BUFFER_READ_BYTE(br) br->buf->data[br->pos++]
 //++b->buf->offset;

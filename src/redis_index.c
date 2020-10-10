@@ -362,7 +362,7 @@ IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, RSQueryTerm *term, DocTable *
     goto err;
   }
 
-  IndexReader *ret = NewTermIndexReader(idx, ctx->spec, fieldMask, term, weight);
+  IndexReader *ret = new TermIndexReader(idx, ctx->spec, fieldMask, term, weight);
   if (csx) {
     ConcurrentSearch_AddKey(csx, k, REDISMODULE_READ, termKey, IndexReader_OnReopen, ret, NULL);
   }

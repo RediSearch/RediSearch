@@ -265,7 +265,11 @@ RSExpr *RSExpr_Parse(const char *expr, size_t len, char **err) {
   const char* ts = ctx.raw;
   const char* te = ctx.raw + ctx.len;
   %% write init;
+#ifdef __cplusplus
+  RSExprToken tok = {s: 0, len: 0, pos: 0, numval: 0};
+#else
   RSExprToken tok = {.len = 0, .pos = 0, .s = 0, .numval = 0};
+#endif
   
   //parseCtx ctx = {.root = NULL, .ok = 1, .errorMsg = NULL, .q = q};
   const char* p = ctx.raw;

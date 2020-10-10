@@ -33,7 +33,7 @@ static void ReplyReaderResults(IndexReader *reader, RedisModuleCtx *ctx) {
   RSIndexResult *r;
   size_t resultSize = 0;
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
-  while (iter->Read(iter->ctx, &r) != INDEXREAD_EOF) {
+  while (iter->Read(&r) != INDEXREAD_EOF) {
     RedisModule_ReplyWithLongLong(ctx, r->docId);
     ++resultSize;
   }
@@ -139,7 +139,7 @@ DEBUG_COMMAND(DumpInvertedIndex) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Can not find the inverted index");
     goto end;
   }
-  IndexReader *reader = NewTermIndexReader(invidx, NULL, RS_FIELDMASK_ALL, NULL, 1);
+  IndexReader *reader = new TermIndexReader(invidx, NULL, RS_FIELDMASK_ALL, NULL, 1);
   ReplyReaderResults(reader, sctx->redisCtx);
 end:
   if (keyp) {
@@ -249,7 +249,7 @@ DEBUG_COMMAND(DumpTagIndex) {
   while (TrieMapIterator_Next(iter, &tag, &len, (void **)&iv)) {
     RedisModule_ReplyWithArray(sctx->redisCtx, 2);
     RedisModule_ReplyWithStringBuffer(sctx->redisCtx, tag, len);
-    IndexReader *reader = NewTermIndexReader(iv, NULL, RS_FIELDMASK_ALL, NULL, 1);
+    IndexReader *reader = new TermIndexReader(iv, NULL, RS_FIELDMASK_ALL, NULL, 1);
     ReplyReaderResults(reader, sctx->redisCtx);
     ++resultSize;
   }
@@ -486,7 +486,7 @@ DEBUG_COMMAND(InfoTagIndex) {
 
     if (options.dumpIdEntries) {
       RedisModule_ReplyWithSimpleString(ctx, "entries");
-      IndexReader *reader = NewTermIndexReader(iv, NULL, RS_FIELDMASK_ALL, NULL, 1);
+      IndexReader *reader = new TermIndexReader(iv, NULL, RS_FIELDMASK_ALL, NULL, 1);
       ReplyReaderResults(reader, sctx->redisCtx);
     }
 

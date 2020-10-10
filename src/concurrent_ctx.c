@@ -223,12 +223,21 @@ void ConcurrentSearch_AddKey(ConcurrentSearchCtx *ctx, RedisModuleKey *key, int 
                              void *privdata, void (*freePrivDataCallback)(void *)) {
   ctx->numOpenKeys++;
   ctx->openKeys = rm_realloc(ctx->openKeys, ctx->numOpenKeys * sizeof(ConcurrentKeyCtx));
+#ifdef __cplusplus
+  ctx->openKeys[ctx->numOpenKeys - 1] = (ConcurrentKeyCtx){key: key,
+                                                           keyName: keyName,
+                                                           keyFlags: openFlags,
+                                                           cb: cb,
+                                                           privdata: privdata,
+                                                           freePrivData: freePrivDataCallback};
+#else
   ctx->openKeys[ctx->numOpenKeys - 1] = (ConcurrentKeyCtx){.key = key,
                                                            .keyName = keyName,
                                                            .keyFlags = openFlags,
                                                            .cb = cb,
                                                            .privdata = privdata,
                                                            .freePrivData = freePrivDataCallback};
+#endif
   RedisModule_RetainString(ctx->ctx, keyName);
 }
 

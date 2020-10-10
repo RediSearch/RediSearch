@@ -1,3 +1,4 @@
+
 #include "redismodule.h"
 #include "redisearch.h"
 #include "search_ctx.h"
@@ -6,13 +7,17 @@
 #include "rmutil/util.h"
 #include "score_explain.h"
 
-typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN } CommandType;
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+enum class CommandType { Aggregate, Search, Explain };
+
 static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num);
 
-/**
- * Get the sorting key of the result. This will be the sorting key of the last
- * RLookup registry. Returns NULL if there is no sorting key
- */
+//---------------------------------------------------------------------------------------------
+
+// Get the sorting key of the result. This will be the sorting key of the last RLookup registry. 
+// Returns NULL if there is no sorting key.
+
 static const RSValue *getSortKey(AREQ *req, const SearchResult *r, const PLN_ArrangeStep *astp) {
   if (!astp) {
     return NULL;
@@ -25,11 +30,16 @@ static const RSValue *getSortKey(AREQ *req, const SearchResult *r, const PLN_Arr
   }
 }
 
-/** Cached variables to avoid serializeResult retrieving these each time */
-typedef struct {
+//---------------------------------------------------------------------------------------------
+
+// Cached variables to avoid serializeResult retrieving these each time
+
+struct cachedVars {
   const RLookup *lastLk;
   const PLN_ArrangeStep *lastAstp;
-} cachedVars;
+};
+
+//---------------------------------------------------------------------------------------------
 
 static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchResult *r,
                               const cachedVars *cv) {
@@ -139,9 +149,10 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
   return count;
 }
 
-/**
- * Sends a chunk of <n> rows, optionally also sending the preamble
- */
+//---------------------------------------------------------------------------------------------
+
+// Sends a chunk of <n> rows, optionally also sending the preamble
+
 static int sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
   size_t nrows = 0;
   size_t nelem = 0;
@@ -190,12 +201,16 @@ done:
   return REDISMODULE_OK;
 }
 
+//---------------------------------------------------------------------------------------------
+
 void AREQ_Execute(AREQ *req, RedisModuleCtx *outctx) {
   sendChunk(req, outctx, -1);
   AREQ_Free(req);
 }
 
-static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int type,
+//---------------------------------------------------------------------------------------------
+
+static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, CommandType type,
                         QueryError *status, AREQ **r) {
 
   int rc = REDISMODULE_ERR;
@@ -204,7 +219,7 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   RedisSearchCtx *sctx = NULL;
   RedisModuleCtx *thctx = NULL;
 
-  if (type == COMMAND_SEARCH) {
+  if (type == CommandType::Search) {
     (*r)->reqflags |= QEXEC_F_IS_SEARCH;
   }
 
@@ -247,6 +262,8 @@ done:
   return rc;
 }
 
+//---------------------------------------------------------------------------------------------
+
 static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                              CommandType type) {
   // Index name is argv[1]
@@ -280,23 +297,29 @@ error:
   return QueryError_ReplyAndClear(ctx, &status);
 }
 
+//---------------------------------------------------------------------------------------------
+
 int RSAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  return execCommandCommon(ctx, argv, argc, COMMAND_AGGREGATE);
+  return execCommandCommon(ctx, argv, argc, CommandType::Aggregate);
 }
 int RSSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  return execCommandCommon(ctx, argv, argc, COMMAND_SEARCH);
+  return execCommandCommon(ctx, argv, argc, CommandType::Search);
 }
+
+//---------------------------------------------------------------------------------------------
 
 char *RS_GetExplainOutput(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                           QueryError *status) {
   AREQ *r = NULL;
-  if (buildRequest(ctx, argv, argc, COMMAND_EXPLAIN, status, &r) != REDISMODULE_OK) {
+  if (buildRequest(ctx, argv, argc, CommandType::Explain, status, &r) != REDISMODULE_OK) {
     return NULL;
   }
   char *ret = QAST_DumpExplain(&r->ast, r->sctx->spec);
   AREQ_Free(r);
   return ret;
 }
+
+//---------------------------------------------------------------------------------------------
 
 static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num);
 
@@ -309,6 +332,8 @@ int AREQ_StartCursor(AREQ *r, RedisModuleCtx *outctx, const char *lookupName, Qu
   runCursor(outctx, cursor, 0);
   return REDISMODULE_OK;
 }
+
+//---------------------------------------------------------------------------------------------
 
 static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num) {
   AREQ *req = cursor->execState;
@@ -363,6 +388,8 @@ static void cursorRead(RedisModuleCtx *ctx, uint64_t cid, size_t count) {
   runCursor(ctx, cursor, count);
 }
 
+//---------------------------------------------------------------------------------------------
+
 int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 4) {
     return RedisModule_WrongArity(ctx);
@@ -409,6 +436,8 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
   return REDISMODULE_OK;
 }
+
+//---------------------------------------------------------------------------------------------
 
 void Cursor_FreeExecState(void *p) {
   AREQ *r = p;

@@ -1,50 +1,56 @@
+
 #include "index_result.h"
 #include "varint.h"
 #include "rmalloc.h"
+
 #include <math.h>
 #include <sys/param.h>
 
-/* Allocate a new aggregate result of a given type with a given capacity*/
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+#if 0
+
+// Allocate a new aggregate result of a given type with a given capacity
 RSIndexResult *__newAggregateResult(size_t cap, RSResultType t, double weight) {
   RSIndexResult *res = rm_new(RSIndexResult);
 
   *res = (RSIndexResult){
-      .type = t,
-      .docId = 0,
-      .freq = 0,
-      .fieldMask = 0,
-      .isCopy = 0,
-      .weight = weight,
-      .agg = (RSAggregateResult){.numChildren = 0,
-                                 .childrenCap = cap,
-                                 .typeMask = 0x0000,
-                                 .children = rm_calloc(cap, sizeof(RSIndexResult *))}};
+      .type: t,
+      .docId: 0,
+      .freq: 0,
+      .fieldMask: 0,
+      .isCopy: 0,
+      .weight: weight,
+      .agg: (RSAggregateResult){.numChildren: 0,
+                                .childrenCap: cap,
+                                .typeMask: 0x0000,
+                                .children: rm_calloc(cap, sizeof(RSIndexResult *))}};
   return res;
 }
 
-/* Allocate a new intersection result with a given capacity*/
+// Allocate a new intersection result with a given capacity
 RSIndexResult *NewIntersectResult(size_t cap, double weight) {
-  return __newAggregateResult(cap, RSResultType_Intersection, weight);
+  return new AggregateResult(RSResultType_Intersection, cap, weight);
 }
 
-/* Allocate a new union result with a given capacity*/
+// Allocate a new union result with a given capacity
 RSIndexResult *NewUnionResult(size_t cap, double weight) {
-  return __newAggregateResult(cap, RSResultType_Union, weight);
+  return new AggregateResult(RSResultType_Union, cap, weight);
 }
 
-/* Allocate a new token record result for a given term */
+// Allocate a new token record result for a given term
 RSIndexResult *NewTokenRecord(RSQueryTerm *term, double weight) {
   RSIndexResult *res = rm_new(RSIndexResult);
 
-  *res = (RSIndexResult){.type = RSResultType_Term,
-                         .docId = 0,
-                         .fieldMask = 0,
-                         .isCopy = 0,
-                         .freq = 0,
-                         .weight = weight,
+  *res = (RSIndexResult){.type: RSResultType_Term,
+                         .docId: 0,
+                         .fieldMask: 0,
+                         .isCopy: 0,
+                         .freq: 0,
+                         .weight: weight,
                          .term = (RSTermRecord){
-                             .term = term,
-                             .offsets = (RSOffsetVector){},
+                             .term: term,
+                             .offsets: (RSOffsetVector){},
                          }};
   return res;
 }
@@ -58,7 +64,6 @@ RSIndexResult *NewNumericResult() {
                          .fieldMask = RS_FIELDMASK_ALL,
                          .freq = 1,
                          .weight = 1,
-
                          .num = (RSNumericRecord){.value = 0}};
   return res;
 }
@@ -72,36 +77,38 @@ RSIndexResult *NewVirtualResult(double weight) {
       .fieldMask = 0,
       .freq = 0,
       .weight = weight,
-
       .isCopy = 0,
   };
   return res;
 }
 
-RSIndexResult *IndexResult_DeepCopy(const RSIndexResult *src) {
-  RSIndexResult *ret = rm_new(RSIndexResult);
-  *ret = *src;
-  ret->isCopy = 1;
+#endif // 0
 
-  switch (src->type) {
+//---------------------------------------------------------------------------------------------
+
+RSIndexResult::RSIndexResult(const RSIndexResult &src) {
+  *this = src;
+  isCopy = 1;
+
+  switch (src.type) {
     // copy aggregate types
     case RSResultType_Intersection:
     case RSResultType_Union:
       // allocate a new child pointer array
-      ret->agg.children = rm_malloc(src->agg.numChildren * sizeof(RSIndexResult *));
-      ret->agg.childrenCap = src->agg.numChildren;
+      agg.children = rm_malloc(src.agg.numChildren * sizeof(RSIndexResult *));
+      agg.childrenCap = agg.numChildren;
       // deep copy recursively all children
-      for (int i = 0; i < src->agg.numChildren; i++) {
-        ret->agg.children[i] = IndexResult_DeepCopy(src->agg.children[i]);
+      for (int i = 0; i < src.agg.numChildren; i++) {
+        agg.children[i] = new RSIndexResult(*src.agg.children[i]);
       }
       break;
 
     // copy term results
     case RSResultType_Term:
       // copy the offset vectors
-      if (src->term.offsets.data) {
-        ret->term.offsets.data = rm_malloc(ret->term.offsets.len);
-        memcpy(ret->term.offsets.data, src->term.offsets.data, ret->term.offsets.len);
+      if (src.term.offsets.data) {
+        term.offsets.data = rm_malloc(term.offsets.len);
+        memcpy(term.offsets.data, src.term.offsets.data, term.offsets.len);
       }
       break;
 
@@ -109,44 +116,47 @@ RSIndexResult *IndexResult_DeepCopy(const RSIndexResult *src) {
     default:
       break;
   }
-  return ret;
 }
 
-void IndexResult_Print(RSIndexResult *r, int depth) {
+//---------------------------------------------------------------------------------------------
+
+void RSIndexResult::Print(int depth) const {
   for (int i = 0; i < depth; i++) printf("  ");
 
-  if (r->type == RSResultType_Term) {
-    printf("Term{%llu: %s},\n", (unsigned long long)r->docId,
-           r->term.term ? r->term.term->str : "nil");
+  if (type == RSResultType_Term) {
+    printf("Term{%llu: %s},\n", (unsigned long long)docId,
+           term.term ? term.term->str : "nil");
     return;
   }
-  if (r->type == RSResultType_Virtual) {
-    printf("Virtual{%llu},\n", (unsigned long long)r->docId);
+  if (type == RSResultType_Virtual) {
+    printf("Virtual{%llu},\n", (unsigned long long)docId);
     return;
   }
-  if (r->type == RSResultType_Numeric) {
-    printf("Numeric{%llu:%f},\n", (unsigned long long)r->docId, r->num.value);
+  if (type == RSResultType_Numeric) {
+    printf("Numeric{%llu:%f},\n", (unsigned long long)docId, num.value);
     return;
   }
-  printf("%s => %llu{ \n", r->type == RSResultType_Intersection ? "Inter" : "Union",
-         (unsigned long long)r->docId);
+  printf("%s => %llu{ \n", type == RSResultType_Intersection ? "Inter" : "Union",
+         (unsigned long long)docId);
 
-  for (int i = 0; i < r->agg.numChildren; i++) {
-
-    IndexResult_Print(r->agg.children[i], depth + 1);
+  for (int i = 0; i < agg.numChildren; i++) {
+    agg.children[i]->Print(depth + 1);
   }
+
   for (int i = 0; i < depth; i++) printf("  ");
 
   printf("},\n");
 
-  // printf("docId: %d, finalScore: %f, flags %x. Terms:\n", r->docId, r->finalScore, r->fieldMask);
+  // printf("docId: %d, finalScore: %f, flags %x. Terms:\n", docId, finalScore, fieldMask);
 
-  // for (int i = 0; i < r->numRecords; i++) {
-  //   printf("\t%s, %d tf %d, flags %x\n", r->records[i].term->str, r->records[i].docId,
-  //          r->records[i].freq, r->records[i].fieldMask);
+  // for (int i = 0; i < numRecords; i++) {
+  //   printf("\t%s, %d tf %d, flags %x\n", records[i].term->str, records[i].docId,
+  //          records[i].freq, records[i].fieldMask);
   // }
   // printf("----------\n");
 }
+
+//---------------------------------------------------------------------------------------------
 
 RSQueryTerm *NewQueryTerm(RSToken *tok, int id) {
   RSQueryTerm *ret = rm_malloc(sizeof(RSQueryTerm));
@@ -158,6 +168,8 @@ RSQueryTerm *NewQueryTerm(RSToken *tok, int id) {
   return ret;
 }
 
+//---------------------------------------------------------------------------------------------
+
 void Term_Free(RSQueryTerm *t) {
   if (t) {
     if (t->str) rm_free(t->str);
@@ -165,16 +177,19 @@ void Term_Free(RSQueryTerm *t) {
   }
 }
 
-void IndexResult_Init(RSIndexResult *h) {
+//---------------------------------------------------------------------------------------------
 
-  h->docId = 0;
-  h->fieldMask = 0;
-  h->freq = 0;
+void RSIndexResult::Init() {
+  docId = 0;
+  fieldMask = 0;
+  freq = 0;
 
-  if (h->type == RSResultType_Intersection || h->type == RSResultType_Union) {
-    h->agg.numChildren = 0;
+  if (type == RSResultType_Intersection || type == RSResultType_Union) {
+    agg.numChildren = 0;
   }
 }
+
+//---------------------------------------------------------------------------------------------
 
 int RSIndexResult_HasOffsets(const RSIndexResult *res) {
   switch (res->type) {
@@ -193,6 +208,8 @@ int RSIndexResult_HasOffsets(const RSIndexResult *res) {
       return 0;
   }
 }
+
+//---------------------------------------------------------------------------------------------
 
 void IndexResult_Free(RSIndexResult *r) {
   if (!r) return;
@@ -221,16 +238,23 @@ void IndexResult_Free(RSIndexResult *r) {
   rm_free(r);
 }
 
+//------------------------------------------------------------------------------`---------------
+
 inline int RSIndexResult_IsAggregate(const RSIndexResult *r) {
   return (r->type & RS_RESULT_AGGREGATE) != 0;
 }
+
 #define __absdelta(x, y) (x > y ? x - y : y - x)
+
+//------------------------------------------------------------------------------`---------------
+
 /**
 Find the minimal distance between members of the vectos.
 e.g. if V1 is {2,4,8} and V2 is {0,5,12}, the distance is 1 - abs(4-5)
 @param vs a list of vector pointers
 @param num the size of the list
 */
+
 int IndexResult_MinOffsetDelta(const RSIndexResult *r) {
   if (!RSIndexResult_IsAggregate(r) || r->agg.numChildren <= 1) {
     return 1;
@@ -285,6 +309,8 @@ int IndexResult_MinOffsetDelta(const RSIndexResult *r) {
   return dist ? sqrt(dist) : agg->numChildren - 1;
 }
 
+//---------------------------------------------------------------------------------------------
+
 void result_GetMatchedTerms(RSIndexResult *r, RSQueryTerm *arr[], size_t cap, size_t *len) {
   if (*len == cap) return;
 
@@ -311,11 +337,15 @@ void result_GetMatchedTerms(RSIndexResult *r, RSQueryTerm *arr[], size_t cap, si
   }
 }
 
+//---------------------------------------------------------------------------------------------
+
 size_t IndexResult_GetMatchedTerms(RSIndexResult *r, RSQueryTerm **arr, size_t cap) {
   size_t arrlen = 0;
   result_GetMatchedTerms(r, arr, cap, &arrlen);
   return arrlen;
 }
+
+//---------------------------------------------------------------------------------------------
 
 int __indexResult_withinRangeInOrder(RSOffsetIterator *iters, uint32_t *positions, int num,
                                      int maxSlop) {
@@ -361,6 +391,8 @@ int __indexResult_withinRangeInOrder(RSOffsetIterator *iters, uint32_t *position
   return 0;
 }
 
+//---------------------------------------------------------------------------------------------
+
 static inline uint32_t _arrayMin(uint32_t *arr, int len, uint32_t *pos) {
   int m = arr[0];
   *pos = 0;
@@ -373,6 +405,8 @@ static inline uint32_t _arrayMin(uint32_t *arr, int len, uint32_t *pos) {
   return m;
 }
 
+//---------------------------------------------------------------------------------------------
+
 static inline uint32_t _arrayMax(uint32_t *arr, int len, uint32_t *pos) {
   int m = arr[0];
   *pos = 0;
@@ -384,6 +418,8 @@ static inline uint32_t _arrayMax(uint32_t *arr, int len, uint32_t *pos) {
   }
   return m;
 }
+
+//---------------------------------------------------------------------------------------------
 
 /* Check the index result for maximal slop, in an unordered fashion.
  * The algorithm is simple - we find the first offsets min and max such that max-min<=maxSlop */
@@ -427,6 +463,8 @@ int __indexResult_withinRangeUnordered(RSOffsetIterator *iters, uint32_t *positi
 
   return 0;
 }
+
+//---------------------------------------------------------------------------------------------
 
 /** Test the result offset vectors to see if they fall within a max "slop" or distance between the
  * terms. That is the total number of non matched offsets between the terms is no bigger than

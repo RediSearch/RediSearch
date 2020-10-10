@@ -49,7 +49,7 @@ void *newOffsetIterator() {
 RSOffsetIterator RSOffsetVector_Iterate(const RSOffsetVector *v, RSQueryTerm *t) {
   if (!__offsetIters) {
     mempool_options options = {
-        .isGlobal = 1, .initialCap = 8, .alloc = newOffsetIterator, .free = rm_free};
+        alloc: newOffsetIterator, free: = rm_free, initialCap: 8, isGlobal: 1 };
     __offsetIters = mempool_new(&options);
   }
   _RSOffsetVectorIterator *it = mempool_get(__offsetIters);

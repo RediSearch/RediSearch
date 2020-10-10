@@ -1,5 +1,7 @@
+
 #ifndef __FORWARD_INDEX_H__
 #define __FORWARD_INDEX_H__
+
 #include "redisearch.h"
 #include "util/block_alloc.h"
 #include "util/khtable.h"
@@ -9,7 +11,9 @@
 #include "tokenize.h"
 #include "document.h"
 
-typedef struct ForwardIndexEntry {
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+struct ForwardIndexEntry {
   struct ForwardIndexEntry *next;
   t_docId docId;
 
@@ -20,12 +24,12 @@ typedef struct ForwardIndexEntry {
   uint32_t len;
   uint32_t hash;
   VarintVectorWriter *vw;
-} ForwardIndexEntry;
+};
 
 // the quantizationn factor used to encode normalized (0..1) frquencies in the index
 #define FREQ_QUANTIZE_FACTOR 0xFFFF
 
-typedef struct ForwardIndex {
+struct ForwardIndex {
   KHTable *hits;
   uint32_t maxFreq;
   uint32_t totalFreq;
@@ -36,15 +40,15 @@ typedef struct ForwardIndex {
   BlkAlloc entries;
   mempool_t *vvwPool;
 
-} ForwardIndex;
+};
 
-typedef struct {
+struct ForwardIndexTokenizerCtx {
   const char *doc;
   VarintVectorWriter *allOffsets;
   ForwardIndex *idx;
   t_fieldId fieldId;
   float fieldScore;
-} ForwardIndexTokenizerCtx;
+};
 
 static inline void ForwardIndexTokenizerCtx_Init(ForwardIndexTokenizerCtx *ctx, ForwardIndex *idx,
                                                  const char *doc, VarintVectorWriter *vvw,
@@ -75,5 +79,7 @@ ForwardIndexEntry *ForwardIndexIterator_Next(ForwardIndexIterator *iter);
 ForwardIndexEntry *ForwardIndex_Find(ForwardIndex *i, const char *s, size_t n, uint32_t hash);
 
 void ForwardIndex_NormalizeFreq(ForwardIndex *, ForwardIndexEntry *);
+
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 #endif

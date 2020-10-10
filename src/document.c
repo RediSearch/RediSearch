@@ -162,10 +162,12 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Doc
 RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b, QueryError *status) {
 
   if (!actxPool_g) {
-    mempool_options mopts = {.initialCap = 16,
-                             .alloc = allocDocumentContext,
-                             .free = freeDocumentContext,
-                             .isGlobal = 1};
+    mempool_options mopts = {
+        alloc: allocDocumentContext,
+        free: freeDocumentContext,
+        initialCap: 16,
+        maxCap: 0,
+        isGlobal: 1};
     actxPool_g = mempool_new(&mopts);
   }
 

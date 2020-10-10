@@ -515,10 +515,10 @@ inline void __tmi_Push(TrieMapIterator *it, TrieMapNode *node) {
     it->stack = rm_realloc(it->stack, it->stackCap * sizeof(__tmi_stackNode));
   }
   it->stack[it->stackOffset++] = (__tmi_stackNode){
-      .childOffset = 0,
-      .stringOffset = 0,
-      .n = node,
-      .state = TM_ITERSTATE_SELF,
+      state: TM_ITERSTATE_SELF,
+      n: node,
+      stringOffset: 0,
+      childOffset: 0
   };
 }
 

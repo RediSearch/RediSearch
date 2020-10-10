@@ -1,98 +1,104 @@
+
 #include "index_result.h"
 #include "index_iterator.h"
 #include "rmalloc.h"
 
-typedef struct {
-  IndexIterator base;
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+struct IdListIterator : public IndexIterator {
   t_docId *docIds;
   t_docId lastDocId;
   t_offset size;
   t_offset offset;
-} IdListIterator;
 
-static inline void setEof(IdListIterator *it, int value) {
-  it->base.isValid = !value;
-}
+  IdListIterator(t_docId *ids, t_offset num, double weight);
+  ~IdListIterator();
 
-static inline int isEof(const IdListIterator *it) {
-  return !it->base.isValid;
-}
+  virtual RSIndexResult *GetCurrent();
+  virtual size_t NumEstimated();
+  virtual IndexCriteriaTester *GetCriteriaTester();
+  virtual int Read(RSIndexResult **e);
+  virtual int SkipTo(t_docId docId, RSIndexResult **hit);
+  virtual t_docId LastDocId();
+  virtual int HasNext();
+  virtual size_t Len();
+  virtual void Abort();
+  virtual void Rewind();
 
-typedef struct {
-  IndexCriteriaTester base;
+  void setEof(int value) { isValid = !value; }
+  int isEof() const { return !isValid; }
+  
+  static int cmp_docids(const t_docId *d1, const t_docId *d2);
+};
+
+//---------------------------------------------------------------------------------------------
+
+struct ILCriteriaTester : public IndexCriteriaTester {
   t_docId *docIds;
   t_offset size;
-} ILCriteriaTester;
 
-static int cmp_docids(const void *p1, const void *p2);
+  ILCriteriaTester(IdListIterator *it);
+  ~ILCriteriaTester();
 
-static int IL_Test(struct IndexCriteriaTester *ct, t_docId id) {
-  ILCriteriaTester *lct = (ILCriteriaTester *)ct;
-  return bsearch((void *)id, lct->docIds, (size_t)lct->size, sizeof(t_docId), cmp_docids) != NULL;
+  int Test(t_docId id);
+};
+
+int ILCriteriaTester::Test(t_docId id) {
+  return bsearch((void *)id, docIds, (size_t)size, sizeof(t_docId), IdListIterator::cmp_docids) != NULL;
 }
 
-static void IL_TesterFree(struct IndexCriteriaTester *ct) {
-  ILCriteriaTester *lct = (ILCriteriaTester *)ct;
-  rm_free(lct->docIds);
-  rm_free(lct);
+ILCriteriaTester::~ILCriteriaTester() {
+  rm_free(docIds);
 }
 
-IndexCriteriaTester *IL_GetCriteriaTester(void *ctx) {
-  IdListIterator *it = ctx;
-  ILCriteriaTester *ct = rm_malloc(sizeof(*ct));
-  ct->docIds = rm_malloc(sizeof(t_docId) * it->size);
-  memcpy(ct->docIds, it->docIds, it->size);
-  ct->size = it->size;
-  ct->base.Test = IL_Test;
-  ct->base.Free = IL_TesterFree;
-  return &ct->base;
+ILCriteriaTester::ILCriteriaTester(IdListIterator *it) {
+  docIds = rm_malloc(sizeof(t_docId) * size);
+  memcpy(docIds, docIds, size);
+  size = it->size;
 }
 
-size_t IL_NumEstimated(void *ctx) {
-  IdListIterator *it = ctx;
-  return (size_t)it->size;
+//---------------------------------------------------------------------------------------------
+
+size_t IdListIterator::NumEstimated() {
+  return size;
 }
 
-/* Read the next entry from the iterator, into hit *e.
- *  Returns INDEXREAD_EOF if at the end */
-int IL_Read(void *ctx, RSIndexResult **r) {
-  IdListIterator *it = ctx;
-  if (isEof(it) || it->offset >= it->size) {
-    setEof(it, 1);
+// Read the next entry from the iterator, into hit *e.
+// Returns INDEXREAD_EOF if at the end */
+int IdListIterator::Read(RSIndexResult **r) {
+  if (isEof() || offset >= size) {
+    setEof(1);
     return INDEXREAD_EOF;
   }
 
-  it->lastDocId = it->docIds[it->offset++];
+  lastDocId = docIds[offset++];
 
   // TODO: Filter here
-  it->base.current->docId = it->lastDocId;
-  *r = it->base.current;
+  current->docId = lastDocId;
+  *r = current;
   return INDEXREAD_OK;
 }
 
-void IL_Abort(void *ctx) {
-  ((IdListIterator *)ctx)->base.isValid = 0;
+void IdListIterator::Abort() {
+  isValid = 0;
 }
 
-/* Skip to a docid, potentially reading the entry into hit, if the docId
- * matches */
-int IL_SkipTo(void *ctx, t_docId docId, RSIndexResult **r) {
-  IdListIterator *it = ctx;
-  if (isEof(it) || it->offset >= it->size) {
+// Skip to a docid, potentially reading the entry into hit, if the docId matches
+int IdListIterator::SkipTo(t_docId docId, RSIndexResult **r) {
+  if (isEof() || offset >= size) {
     return INDEXREAD_EOF;
   }
 
-  if (docId > it->docIds[it->size - 1]) {
-    it->base.isValid = 0;
+  if (docId > docIds[size - 1]) {
+    isValid = 0;
     return INDEXREAD_EOF;
   }
 
-  t_offset top = it->size - 1, bottom = it->offset;
+  t_offset top = size - 1, bottom = offset;
   t_offset i = bottom;
 
   while (bottom <= top) {
-
-    t_docId did = it->docIds[i];
+    t_docId did = docIds[i];
 
     if (did == docId) {
       break;
@@ -105,88 +111,68 @@ int IL_SkipTo(void *ctx, t_docId docId, RSIndexResult **r) {
     }
     i = (bottom + top) / 2;
   }
-  it->offset = i + 1;
-  if (it->offset >= it->size) {
-    setEof(it, 1);
+  offset = i + 1;
+  if (offset >= size) {
+    setEof(1);
   }
 
-  it->lastDocId = it->docIds[i];
-  it->base.current->docId = it->lastDocId;
+  lastDocId = docIds[i];
+  current->docId = lastDocId;
 
-  *r = it->base.current;
+  *r = current;
 
-  if (it->lastDocId == docId) {
+  if (lastDocId == docId) {
     return INDEXREAD_OK;
   }
   return INDEXREAD_NOTFOUND;
 }
 
-/* the last docId read */
-t_docId IL_LastDocId(void *ctx) {
-  return ((IdListIterator *)ctx)->lastDocId;
+// the last docId read
+t_docId IdListIterator::LastDocId() {
+  return lastDocId;
 }
 
-/* release the iterator's context and free everything needed */
-void IL_Free(struct indexIterator *self) {
-  IdListIterator *it = self->ctx;
-  IndexResult_Free(it->base.current);
-  if (it->docIds) {
-    rm_free(it->docIds);
+// release the iterator's context and free everything needed
+IdListIterator::~IdListIterator() {
+  delete current;
+  if (docIds) {
+    rm_free(docIds);
   }
-  rm_free(self);
 }
 
-/* Return the number of results in this iterator. Used by the query execution
- * on the top iterator */
-size_t IL_Len(void *ctx) {
-  return (size_t)((IdListIterator *)ctx)->size;
+// Return the number of results in this iterator. Used by the query execution on the top iterator
+size_t IdListIterator::Len() {
+  return size;
 }
 
-static int cmp_docids(const void *p1, const void *p2) {
-  const t_docId *d1 = p1, *d2 = p2;
-
+static int IdListIterator::cmp_docids(const t_docId *d1, const t_docId *d2) {
   return (int)(*d1 - *d2);
 }
 
-void IL_Rewind(void *p) {
-  IdListIterator *il = p;
-  setEof(il, 0);
-  il->lastDocId = 0;
-  il->base.current->docId = 0;
-  il->offset = 0;
+void IdListIterator::Rewind() {
+  setEof(0);
+  lastDocId = 0;
+  current->docId = 0;
+  offset = 0;
 }
 
-IndexIterator *NewIdListIterator(t_docId *ids, t_offset num, double weight) {
-
+IdListIterator::IdListIterator(t_docId *ids, t_offset num, double weight) {
   // first sort the ids, so the caller will not have to deal with it
-  qsort(ids, (size_t)num, sizeof(t_docId), cmp_docids);
+  qsort(ids, (size_t)num, sizeof(t_docId), (int (*)(const void *, const void*)) cmp_docids);
 
   IdListIterator *it = rm_new(IdListIterator);
 
-  it->size = num;
-  it->docIds = rm_calloc(num, sizeof(t_docId));
-  if (num > 0) memcpy(it->docIds, ids, num * sizeof(t_docId));
-  setEof(it, 0);
-  it->lastDocId = 0;
-  it->base.current = NewVirtualResult(weight);
-  it->base.current->fieldMask = RS_FIELDMASK_ALL;
+  size = num;
+  docIds = rm_calloc(num, sizeof(t_docId));
+  if (num > 0) memcpy(docIds, ids, num * sizeof(t_docId));
+  setEof(0);
+  lastDocId = 0;
+  current = NewVirtualResult(weight);
+  current->fieldMask = RS_FIELDMASK_ALL;
 
-  it->offset = 0;
+  offset = 0;
 
-  IndexIterator *ret = &it->base;
-  ret->ctx = it;
-  ret->GetCriteriaTester = IL_GetCriteriaTester;
-  ret->NumEstimated = IL_NumEstimated;
-  ret->Free = IL_Free;
-  ret->LastDocId = IL_LastDocId;
-  ret->Len = IL_Len;
-  ret->Read = IL_Read;
-  ret->SkipTo = IL_SkipTo;
-  ret->Abort = IL_Abort;
-  ret->Rewind = IL_Rewind;
-  ret->mode = MODE_SORTED;
-
-  ret->HasNext = NULL;
-  ret->GetCurrent = NULL;
-  return ret;
+  mode = Mode::Sorted;
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////

@@ -1,13 +1,16 @@
+
 #include "aggregate.h"
 #include "reducer.h"
 
-#include <query.h>
-#include <extension.h>
-#include <result_processor.h>
-#include <util/arr.h>
-#include <rmutil/util.h>
+#include "query.h"
+#include "extension.h"
+#include "result_processor.h"
+#include "util/arr.h"
+#include "rmutil/util.h"
 #include "ext/default.h"
 #include "extension.h"
+
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 /**
  * Ensures that the user has not requested one of the 'extended' features. Extended
@@ -88,6 +91,17 @@ static void FieldList_RestrictReturn(FieldList *fields) {
 }
 
 static int parseCursorSettings(AREQ *req, ArgsCursor *ac, QueryError *status) {
+#ifdef __cplusplus
+  ACArgSpec specs[] = {{name: "MAXIDLE",
+                        type: AC_ARGTYPE_UINT,
+                        target: &req->cursorMaxIdle,
+                        intflags: AC_F_GE1},
+                       {name: "COUNT",
+                        type: AC_ARGTYPE_UINT,
+                        target: &req->cursorChunkSize,
+                        intflags: AC_F_GE1},
+                       {NULL}};
+#else
   ACArgSpec specs[] = {{.name = "MAXIDLE",
                         .type = AC_ARGTYPE_UINT,
                         .target = &req->cursorMaxIdle,
@@ -97,6 +111,7 @@ static int parseCursorSettings(AREQ *req, ArgsCursor *ac, QueryError *status) {
                         .target = &req->cursorChunkSize,
                         .intflags = AC_F_GE1},
                        {NULL}};
+#endif
 
   int rv;
   ACArgSpec *errArg = NULL;
@@ -291,16 +306,23 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
   ArgsCursor inKeys = {0};
   ArgsCursor inFields = {0};
   ACArgSpec querySpecs[] = {
+#ifdef __cplusplus
+      {name: "INFIELDS", type: AC_ARGTYPE_SUBARGS, target: &inFields},  // Comment
+      {name: "SLOP",     type: AC_ARGTYPE_INT,     target: &searchOpts->slop, intflags: AC_F_COALESCE},
+      {name: "LANGUAGE", type: AC_ARGTYPE_STRING,  target: &languageStr},
+      {name: "EXPANDER", type: AC_ARGTYPE_STRING,  target: &searchOpts->expanderName},
+      {name: "INKEYS",   type: AC_ARGTYPE_SUBARGS, target: &inKeys},
+      {name: "SCORER",   type: AC_ARGTYPE_STRING,  target: &searchOpts->scorerName},
+      {name: "RETURN",   type: AC_ARGTYPE_SUBARGS, target: &returnFields},
+#else
       {.name = "INFIELDS", .type = AC_ARGTYPE_SUBARGS, .target = &inFields},  // Comment
-      {.name = "SLOP",
-       .type = AC_ARGTYPE_INT,
-       .target = &searchOpts->slop,
-       .intflags = AC_F_COALESCE},
+      {.name = "SLOP", .type = AC_ARGTYPE_INT, .target = &searchOpts->slop, .intflags = AC_F_COALESCE},
       {.name = "LANGUAGE", .type = AC_ARGTYPE_STRING, .target = &languageStr},
       {.name = "EXPANDER", .type = AC_ARGTYPE_STRING, .target = &searchOpts->expanderName},
       {.name = "INKEYS", .type = AC_ARGTYPE_SUBARGS, .target = &inKeys},
       {.name = "SCORER", .type = AC_ARGTYPE_STRING, .target = &searchOpts->scorerName},
       {.name = "RETURN", .type = AC_ARGTYPE_SUBARGS, .target = &returnFields},
+#endif
       {AC_MKBITFLAG("INORDER", &searchOpts->flags, Search_InOrder)},
       {AC_MKBITFLAG("VERBATIM", &searchOpts->flags, Search_Verbatim)},
       {AC_MKBITFLAG("WITHSCORES", &req->reqflags, QEXEC_F_SEND_SCORES)},
@@ -309,11 +331,12 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
       {AC_MKBITFLAG("NOCONTENT", &req->reqflags, QEXEC_F_SEND_NOFIELDS)},
       {AC_MKBITFLAG("NOSTOPWORDS", &searchOpts->flags, Search_NoStopwrods)},
       {AC_MKBITFLAG("EXPLAINSCORE", &req->reqflags, QEXEC_F_SEND_SCOREEXPLAIN)},
-      {.name = "PAYLOAD",
-       .type = AC_ARGTYPE_STRING,
-       .target = &req->ast.udata,
-       .len = &req->ast.udatalen},
-      {NULL}};
+#ifdef __cplusplus
+      {name: "PAYLOAD", type: AC_ARGTYPE_STRING, target: &req->ast.udata, len: &req->ast.udatalen},
+#else
+      {.name = "PAYLOAD", .type = AC_ARGTYPE_STRING, .target = &req->ast.udata, .len = &req->ast.udatalen},
+#endif
+      {}};
 
   while (!AC_IsAtEnd(ac)) {
     ACArgSpec *errSpec = NULL;
@@ -1142,7 +1165,7 @@ void AREQ_Free(AREQ *req) {
     rp = next;
   }
   if (req->rootiter) {
-    req->rootiter->Free(req->rootiter);
+    delete req->rootiter;
     req->rootiter = NULL;
   }
 
