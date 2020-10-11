@@ -1038,7 +1038,6 @@ Returns an array, where each element is term (string).
 ### FT.INFO
 
 #### Format
-FT.INFO
 ```
 FT.INFO {index} 
 ```
@@ -1180,6 +1179,35 @@ O(1)
 #### Returns
 
 Array Response. A nested array of keys and values.
+
+---
+
+### FT._LIST
+
+#### Format
+```
+  FT._LIST
+```
+
+#### Description
+
+Returns a list of all existing indexes.
+
+##### Example
+```sql
+FT._LIST
+1) "idx"
+1) "movies"
+1) "imdb"
+```
+
+#### Complexity
+
+O(n) where `n` is the number of indexes in the system.
+
+#### Returns
+
+An array with index names.
 
 ---
 
