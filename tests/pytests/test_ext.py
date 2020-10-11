@@ -17,7 +17,7 @@ EXTPATH = os.path.abspath(EXTPATH)
 
 # Last ditch effort:
 SRCFILE = os.path.dirname(__file__) + '/../ctests/ext-example/example.c'
-INCDIR = os.path.dirname(__file__) + '/../'
+INCDIR = os.path.dirname(__file__) + '/../../src/'
 
 if not os.path.exists(EXTPATH):
     EXTPATH = os.path.abspath('libexample_extension.' + ('dylib' if sys.platform.lower() == 'darwin' else 'so'))
