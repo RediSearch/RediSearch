@@ -1,6 +1,6 @@
 from RLTest import Env
 from includes import *
-from common import waitForIndex
+from common import getConnectionByEnv, waitForIndex, toSortedFlatList
 
 
 def testDictAdd():
@@ -202,3 +202,24 @@ def testSpellCheckIssue437():
                'Tooni toque kerfuffle', 'TERMS',
                'EXCLUDE', 'slang', 'TERMS',
                'INCLUDE', 'slang').equal([['TERM', 'tooni', [['0', 'toonie']]]])
+
+def testSpellCheckLimit(env):
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE test Schema t text')
+    env.cmd('FT.DICTADD hello_dict hi hello helo hallo halo hullo hulo hollu holu hillo hilo hilla hila')
+
+    resAll = env.cmd('FT.SPELLCHECK', 'test', 'hello',
+                     'DISTANCE', '3',
+                     'TERMS', 'INCLUDE', 'hello_dict')
+
+    resLimited = env.cmd('FT.SPELLCHECK', 'test', 'hello',
+                         'DISTANCE', '3',
+                         'LIMIT', '3',
+                         'TERMS', 'INCLUDE', 'hello_dict')
+    env.assertEqual(resAll[0][2][0:3], resLimited[0][2])
+
+    # errors
+    env.expect('FT.SPELLCHECK', 'test', 'hello', 'LIMIT', 'str').error() \
+            .contains('LIMIT arg is given but no OFFSET and NUMBER come after')
+    env.expect('FT.SPELLCHECK', 'test', 'hello', 'LIMIT').error() \
+            .contains('LIMIT arg is given but no OFFSET and NUMBER come after')

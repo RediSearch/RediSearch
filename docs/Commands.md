@@ -900,12 +900,14 @@ The command is used to dump the synonyms data structure. Returns a list of synon
 
 ---
 
+## Dictionary
+
 ### FT.SPELLCHECK 
 
 #### Format
 ```
   FT.SPELLCHECK {index} {query}
-    [DISTANCE dist]
+    [DISTANCE dist] [LIMIT offset]
     [TERMS {INCLUDE | EXCLUDE} {dict} [TERMS ...]]
 ```
 
@@ -924,6 +926,8 @@ See [Query Spelling Correction](Spellcheck.md) for more details.
 * **TERMS**: specifies an inclusion (`INCLUDE`) or exclusion (`EXCLUDE`) custom dictionary named `{dict}`. Refer to [`FT.DICTADD`](Commands.md#ftdictadd), [`FT.DICTDEL`](Commands.md#ftdictdel) and [`FT.DICTDUMP`](Commands.md#ftdictdump) for managing custom dictionaries.
 
 * **DISTANCE**: the maximal Levenshtein distance for spelling suggestions (default: 1, max: 4).
+
+* **LIMIT**: limits the results to the number of results given.
 
 #### Returns
 
@@ -963,8 +967,6 @@ The score is calculated by dividing the number of documents in which the suggest
 ```
 
 ---
-
-## Dictionary
 
 ### FT.DICTADD
 

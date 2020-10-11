@@ -137,6 +137,8 @@ static void SpellCheck_FindSuggestions(SpellCheckCtx *scCtx, Trie *t, const char
   int dist = 0;
   size_t suggestionLen;
 
+  long long number = 0;
+
   TrieIterator *it = Trie_Iterate(t, term, len, (int)scCtx->distance, 0);
   // TrieIterator can be NULL when rune length exceed TRIE_MAX_PREFIX
   if (it == NULL) {
@@ -147,6 +149,10 @@ static void SpellCheck_FindSuggestions(SpellCheckCtx *scCtx, Trie *t, const char
     double score;
     if ((score = SpellCheck_GetScore(scCtx, res, suggestionLen, fieldMask)) != -1) {
       RS_SuggestionsAdd(s, res, suggestionLen, score, incr);
+      if (++number < scCtx->numLimit) {
+        break;
+      }
+      
     }
     rm_free(res);
   }

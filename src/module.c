@@ -148,7 +148,22 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
                    MAX_LEV_DISTANCE));
       goto end;
     }
-  }  // LCOV_EXCL_LINE
+  }
+
+  int limitArgPos = 0;
+  long long numberLimit = LONG_MAX;
+  if ((limitArgPos = RMUtil_ArgExists("LIMIT", argv, argc, 3))) {
+    if (limitArgPos + 2 >= argc) {
+      RedisModule_ReplyWithError(ctx, "LIMIT arg is given but no OFFSET and NUMBER come after");
+      goto end;
+    }
+    if (RedisModule_StringToLongLong(argv[limitArgPos + 1], &numberLimit) != REDISMODULE_OK ||
+        numberLimit < 1) {
+      RedisModule_ReplyWithError(
+          ctx, "bad limit number given, number must not be a negative number");
+      goto end;
+    }
+  }
 
   int nextPos = 0;
   while ((nextPos = RMUtil_ArgExists("TERMS", argv, argc, nextPos + 1))) {
@@ -177,6 +192,7 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
                          .includeDict = includeDict,
                          .excludeDict = excludeDict,
                          .distance = distance,
+                         .numLimit = numberLimit,
                          .fullScoreInfo = fullScoreInfo};
 
   SpellCheck_Reply(&scCtx, &qast);
