@@ -2,7 +2,7 @@
 #include "module.h"
 #include "version.h"
 #include "redisearch_api.h"
-#include "cpptests/redismock/redismock.h"
+#include "../cpptests/redismock/redismock.h"
 
 #include <cstdio>
 #include <cstdlib>
