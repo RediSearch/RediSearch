@@ -18,3 +18,29 @@ def test_1414(env):
   env.expect('ft.search idx * limit 0 1234567').error().contains('LIMIT exceeds maximum of 1000000') 
   env.expect('FT.CONFIG set MAXSEARCHRESULTS -1').equal('OK')
   env.expect('ft.search idx * limit 0 1234567').equal([1L, 'doc', ['foo', 'hello', 'bar', 'world']]) 
+  
+def test_1502(env):
+  conn = getConnectionByEnv(env)
+  conn.execute_command('HSET', 'a', 'bar', 'hello')
+
+  env.expect('FT.CREATE idx1 SKIPINITIALSCAN SCHEMA foo TEXT').ok()
+  env.expect('FT.CREATE idx2 SKIPINITIALSCAN SCHEMA foo TEXT').ok()
+  
+  env.expect('ft.search idx1 *').equal([0L]) 
+  env.expect('ft.search idx2 *').equal([0L]) 
+  
+  env.expect('FT.ALTER idx1 SKIPINITIALSCAN SCHEMA ADD bar TEXT').ok()
+  env.expect('FT.ALTER idx2 SCHEMA ADD bar TEXT').ok()
+  waitForIndex(env, 'idx2')
+
+  env.expect('ft.search idx1 *').equal([0L]) 
+  env.expect('ft.search idx2 *').equal([1L, 'a', ['bar', 'hello']]) 
+
+def test_1601(env):
+  conn = getConnectionByEnv(env)
+  conn.execute_command('FT.CREATE', 'idx:movie', 'SCHEMA', 'title', 'TEXT')
+  conn.execute_command('HSET', 'movie:1', 'title', 'Star Wars: Episode I - The Phantom Menace')
+  conn.execute_command('HSET', 'movie:2', 'title', 'Star Wars: Episodes II - Attack of the Clones')
+  conn.execute_command('HSET', 'movie:3', 'title', 'Star Wars: Episode III - Revenge of the Sith')
+  res = env.cmd('ft.search idx:movie @title:(episode) withscores nocontent')
+  env.assertEqual(toSortedFlatList(res), toSortedFlatList([3L, 'movie:3', '2', 'movie:1', '2', 'movie:2', '1']))
