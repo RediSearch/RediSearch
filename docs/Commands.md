@@ -301,7 +301,7 @@ FT.SEARCH idx "@text:morphix=>{$phonetic:false}"
 - **LIMIT first num**: If the parameters appear after the query, we limit the results to 
   the offset and number of results given. The default is 0 10.
 
-!!! note
+!!! tip
     `LIMIT 0 0` can be used to count the number of documents in the resultset without actually returning them.
 
 #### Complexity
@@ -1197,8 +1197,8 @@ Returns a list of all existing indexes.
 ```sql
 FT._LIST
 1) "idx"
-1) "movies"
-1) "imdb"
+2) "movies"
+3) "imdb"
 ```
 
 #### Complexity
@@ -1208,6 +1208,12 @@ O(n) where `n` is the number of indexes in the system.
 #### Returns
 
 An array with index names.
+
+!!! note "Temporary command"
+    The prefix `_` in the command indicates, this is a temporary command.
+
+    In the future, a `SCAN` type of command will be added, for use when a database
+    contains a large number of indices.
 
 ---
 
