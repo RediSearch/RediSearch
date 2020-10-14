@@ -161,7 +161,9 @@ $ redis-server --loadmodule ./redisearch.so MAXEXPANSIONS 1000
 
 ## MAXDOCTABLESIZE
 
-The maximum size of the internal hash table used for storing the documents.
+The maximum size of the internal hash table used for storing the documents. 
+Notice, this configuration doesn't limit the amount of documents that can be stored but only the hash table internal array max size.
+Decreasing this property can decrease the memory overhead in case the index holds a small amount of documents that are constantly updated.
 
 ### Default
 
@@ -347,7 +349,7 @@ $ redis-server --loadmodule ./redisearch.so GC_POLICY FORK FORK_GC_RETRY_INTERVA
 
 ## FORK_GC_CLEAN_THRESHOLD
 
-The `fork GC` will only start to clean when the number of not cleaned documents is exceeding this threshold, otherwise it will skip this run. The default value is zero for backwards compatibility.  However, it's highly recommended to change it to a higher number.
+The `fork GC` will only start to clean when the number of not cleaned documents is exceeding this threshold, otherwise it will skip this run. While the default value is 100, it's highly recommended to change it to a higher number.
 
 ### Default
 

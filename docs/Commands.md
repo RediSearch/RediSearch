@@ -1,8 +1,10 @@
 # RediSearch Full Command Documentation
 
-## FT.CREATE 
+## Create
 
-### Format
+### FT.CREATE 
+
+#### Format
 ```
   FT.CREATE {index} 
     [ON {structure}]
@@ -13,39 +15,36 @@
        [SCORE {default_score}]
        [SCORE_FIELD {score_field}]
        [PAYLOAD_FIELD {payload_field}]
-    [MAXTEXTFIELDS] [TEMPORARY {seconds}] [NOOFFSETS] [NOHL] [NOFIELDS] [NOFREQS] [NOINITIALSCAN]
+    [MAXTEXTFIELDS] [TEMPORARY {seconds}] [NOOFFSETS] [NOHL] [NOFIELDS] [NOFREQS] [SKIPINITIALSCAN]
     [STOPWORDS {num} {stopword} ...]
     SCHEMA {field} [TEXT [NOSTEM] [WEIGHT {weight}] [PHONETIC {matcher}] | NUMERIC | GEO | TAG [SEPARATOR {sep}] ] [SORTABLE][NOINDEX] ...
 ```
 
-### Description
+#### Description
 Creates an index with the given spec.
 
 !!! warning "Note on field number limits"
-        
-        RediSearch supports up to 1024 fields per schema, out of which at most 128 can be TEXT fields.
-    
-        On 32 bit builds, at most 64 fields can be TEXT fields.
-    
-        Note that the more fields you have, the larger your index will be, as each additional 8 fields require one extra byte per index record to encode.
-    
-        You can always use the `NOFIELDS` option and not encode field information into the index, for saving space, if you do not need filtering by text fields. This will still allow filtering by numeric and geo fields.
+    RediSearch supports up to 1024 fields per schema, out of which at most 128 can be TEXT fields.
+    On 32 bit builds, at most 64 fields can be TEXT fields.
+    Note that the more fields you have, the larger your index will be, as each additional 8 fields require one extra byte per index record to encode.
+    You can always use the `NOFIELDS` option and not encode field information into the index, for saving space, if you do not need filtering by text fields. This will still allow filtering by numeric and geo fields.
 
 !!! info "Note on running in clustered databases"
-        
-        When having several indices in a clustered database, you need to tag the index key and the document key to ensure they reside on the same shard.
-        ```sql
-        FT.CREATE {idx} ... PREFIX 1 doc: ...
-        HSET {idx} doc:1{idx} ...
-        ```
-        When Running RediSearch in clustered database, there is the ability to span the index across shards.  In this case the above does not apply.
+    When having several indices in a clustered database, you need to make sure the documents you want to index reside on the same shard as the index. You can achieve this by having your documents tagged by the index name.
+    
+    ```sql
+    HSET doc:1{idx} ...
+    FT.CREATE idx ... PREFIX 1 doc: ...
+    ```
+    
+    When Running RediSearch in a clustered database, there is the ability to span the index across shards with [RSCoordinator](https://github.com/RedisLabsModules/RSCoordinator). In this case the above does not apply.
 
-#### Example
+##### Example
 ```sql
 FT.CREATE idx ON HASH PREFIX 1 doc: SCHEMA name TEXT SORTABLE age NUMERIC SORTABLE myTag TAG SORTABLE
 ```
 
-### Parameters
+#### Parameters
 
 * **index**: the index name to create. If it exists the old spec will be overwritten
 
@@ -57,27 +56,24 @@ FT.CREATE idx ON HASH PREFIX 1 doc: SCHEMA name TEXT SORTABLE age NUMERIC SORTAB
 
 * **LANGUAGE {default_lang}**: If set indicates the default language for documents in the index. Default to English.
 * **LANGUAGE_FIELD {lang_field}**: If set indicates the document field that should be used as the document language.
-  A stemmer is used for the supplied language during indexing.
-  If an unsupported language is sent, the command returns an error. 
-  The supported languages are:
+
+!!! info "Supported languages"
+    A stemmer is used for the supplied language during indexing.
+    If an unsupported language is sent, the command returns an error. 
+    The supported languages are:
 
     > "arabic",  "danish",    "dutch",   "english",   "finnish",    "french",
     > "german",  "hungarian", "italian", "norwegian", "portuguese", "romanian",
     > "russian", "spanish",   "swedish", "tamil",     "turkish"
     > "chinese"
 
-  If indexing a Chinese language document, you must set the language to `chinese`
-  in order for Chinese characters to be tokenized properly.
-
-  #### Adding Chinese Documents
-
-  When adding Chinese-language documents, `LANGUAGE chinese` should be set in
-  order for the indexer to properly tokenize the terms. If the default language
-  is used then search terms will be extracted based on punctuation characters and
-  whitespace. The Chinese language tokenizer makes use of a segmentation algorithm
-  (via [Friso](https://github.com/lionsoul2014/friso)) which segments texts and
-  checks it against a predefined dictionary. See [Stemming](Stemming.md) for more
-  information.
+    When adding Chinese-language documents, `LANGUAGE chinese` should be set in
+    order for the indexer to properly tokenize the terms. If the default language
+    is used then search terms will be extracted based on punctuation characters and
+    whitespace. The Chinese language tokenizer makes use of a segmentation algorithm
+    (via [Friso](https://github.com/lionsoul2014/friso)) which segments texts and
+    checks it against a predefined dictionary. See [Stemming](Stemming.md) for more
+    information.
 
 * **SCORE {default_score}**: If set indicates the default score for documents in the index. Default score is 1.0.
 * **SCORE_FIELD {score_field}**: If set indicates the document field that should be used as the document's rank based on the user's ranking. 
@@ -94,7 +90,10 @@ FT.CREATE idx ON HASH PREFIX 1 doc: SCHEMA name TEXT SORTABLE age NUMERIC SORTAB
 * **NOOFFSETS**: If set, we do not store term offsets for documents (saves memory, does not
   allow exact searches or highlighting). Implies `NOHL`.
 
-* **TEMPORARY**: Create a lightweight temporary index which will expire after the specified period of inactivity. The internal idle timer is reset whenever the index is searched or added to. Because such indexes are lightweight, you can create thousands of such indexes without negative performance implications and therefore you should consider using `NOINITIALSCAN` to avoid costly scanning.
+* **TEMPORARY**: Create a lightweight temporary index which will expire after the specified period of inactivity. The internal idle timer is reset whenever the index is searched or added to. Because such indexes are lightweight, you can create thousands of such indexes without negative performance implications and therefore you should consider using `SKIPINITIALSCAN` to avoid costly scanning. 
+
+!!! warning "Note about deleting a temporary index"
+    When dropped, a temporary index does not delete the hashes as they may have been indexed in several indexes. Adding the `DD` flag will delete the hashes as well.
 
 * **NOHL**: Conserves storage space and memory by disabling highlighting support. If set, we do
   not store corresponding byte offsets for term positions. `NOHL` is also implied by `NOOFFSETS`.
@@ -114,13 +113,13 @@ FT.CREATE idx ON HASH PREFIX 1 doc: SCHEMA name TEXT SORTABLE age NUMERIC SORTAB
 
     If **{num}** is set to 0, the index will not have stopwords.
 
-* **NOINITIALSCAN**: If set, we do not scan and index. 
+* **SKIPINITIALSCAN**: If set, we do not scan and index. 
 
 * **SCHEMA {field} {options...}**: After the SCHEMA keyword we define the index fields. They
   can be numeric, textual or geographical. For textual fields we optionally specify a weight.
   The default weight is 1.0.
 
-    ### Field Options
+    #### Field Options
 
 
     * **SORTABLE**
@@ -162,23 +161,25 @@ FT.CREATE idx ON HASH PREFIX 1 doc: SCHEMA name TEXT SORTABLE age NUMERIC SORTAB
     
     
 
-### Complexity
+#### Complexity
 O(1)
 
-### Returns
+#### Returns
 OK or an error
 
 ---
 
-## HSET/HSETNX/HDEL/HINCRBY/HDECRBY
+## Insert
 
-### Format
+### HSET/HSETNX/HDEL/HINCRBY/HDECRBY
+
+#### Format
 
 ```
 HSET {hash} {field} {value} [{field} {value} ...]
 ```
 
-### Description
+#### Description
 
 Since RediSearch v2.0, native redis commands are used to add, update or delete hashes using [HSET](https://redis.io/commands/hset), [HINCRBY](https://redis.io/commands/hincrby), [HDEL](https://redis.io/commands/hdel) or other hash commands which alter the hash.
 
@@ -188,14 +189,15 @@ If a field fails to be indexed (for example, if a numeric fields gets a string v
 
 Beware - enabling this feature will slow the whole server by a few points. Only use if hashes are updated often in fields that are not in schema.
 
-If a value in a hash does not match the schema type for that field, indexing of the hash will fail. The number of 'failed' document is under `hash_indexing_failures` at `FT.INFO`.
-
-Complete list of redis commands which might modify the index:
-  HSET, HMSET, HSETNX, HINCRBY, HINCRBYFLOAT, HDEL, DEL, SET, RENAME_FROM, RENAME_TO, TRIMMED, RESTORE, EXPIRED, EVICTED, CHANGE, LOADED
-
 If `LANGUAGE_FIELD`, `SCORE_FIELD`, or `PAYLOAD_FIELD` were used with `FT.CREATE`, the document will extract the properties. A field can be used to get the name of the index it belongs to.
 
-#### Example
+!!! warning "Schema mismatch"
+    If a value in a hash does not match the schema type for that field, indexing of the hash will fail. The number of 'failed' document is under `hash_indexing_failures` at `FT.INFO`.
+
+!!! info "Complete list of redis commands which might modify the index:"
+    HSET, HMSET, HSETNX, HINCRBY, HINCRBYFLOAT, HDEL, DEL, SET, RENAME_FROM, RENAME_TO, TRIMMED, RESTORE, EXPIRED, EVICTED, CHANGE, LOADED
+
+##### Example
 ```sql
 HSET doc1 cs101 "hello world" number 3.141 geopoint 39.721717,21.630616 tags foo,bar,baz 
 HSET doc2 cs201 "foo bar baz" number 2.718 geopoint "31.433363,35.331942" tags foo,bar,baz
@@ -204,164 +206,11 @@ HSET doc3 Name "RedisLabs" indexName "myindexname"
 
 ---
 
-## FT.ALTER SCHEMA ADD
+## Search
 
-### Format
+### FT.SEARCH 
 
-```
-FT.ALTER {index} SCHEMA ADD {field} {options} ...
-```
-
-### Description
-
-Adds a new field to the index.
-
-Adding a field to the index will cause any future document updates to use the new field when
-indexing and reindexing of existing documents.
-
-!!! note
-    Depending on how the index was created, you may be limited by the amount of additional text
-    fields which can be added to an existing index. If the current index contains less than 32
-    text fields, then `SCHEMA ADD` will only be able to add fields up to 32 total fields (meaning that the
-    index will only ever be able to contain 32 total text fields). If you wish for the index to
-    contain more than 32 fields, create it with the `MAXTEXTFIELDS` option.
-
-#### Example
-```sql
-FT.ALTER idx SCHEMA ADD id2 NUMERIC SORTABLE
-```
-
-### Parameters
-
-* **index**: the index name.
-* **field**: the field name.
-* **options**: the field options - refer to `FT.CREATE` for more information.
-
-### Complexity
-
-O(1)
-
-### Returns
-
-OK or an error.
-
----
-
-## FT.ALIASADD
-## FT.ALIASUPDATE
-## FT.ALIASDEL
-
-### Format
-
-```
-FT.ALIASADD {name} {index}
-FT.ALIASUPDATE {name} {index}
-FT.ALIASDEL {name}
-```
-
-The `FT.ALIASADD` and `FT.ALIASDEL` commands will add or remove an alias from
-an index. Index aliases can be used to refer to actual indexes in data
-commands such as `FT.SEARCH` or `FT.ADD`. This allows an administrator
-to transparently redirect application queries to alternative indexes.
-
-Indexes can have more than one alias, though an alias cannot refer to another
-alias.
-
-The `FT.ALIASUPDATE` command differs from the `FT.ALIASADD` command in that
-it will remove the alias association with a previous index, if any. `FT.ALIASDD`
-will fail, on the other hand, if the alias is already associated with another
-index.
-
-### Complexity
-
-O(1)
-
-### Returns
-
-OK or an error.
-
----
-
-## FT.INFO
-
-### Format
-
-```
-FT.INFO {index} 
-```
-
-### Description
-
-Returns information and statistics on the index. Returned values include:
-
-* Number of documents.
-* Number of distinct terms.
-* Average bytes per record.
-* Size and capacity of the index buffers.
-
-#### Example
-```bash
-127.0.0.1:6379> ft.info wik{0}
- 1) index_name
- 2) wikipedia
- 3) fields
- 4) 1) 1) title
-       2) type
-       3) FULLTEXT
-       4) weight
-       5) "1"
-    2) 1) body
-       2) type
-       3) FULLTEXT
-       4) weight
-       5) "1"
- 5) num_docs
- 6) "502694"
- 7) num_terms
- 8) "439158"
- 9) num_records
-10) "8098583"
-11) inverted_sz_mb
-12) "45.58
-13) inverted_cap_mb
-14) "56.61
-15) inverted_cap_ovh
-16) "0.19
-17) offset_vectors_sz_mb
-18) "9.27
-19) skip_index_size_mb
-20) "7.35
-21) score_index_size_mb
-22) "30.8
-23) records_per_doc_avg
-24) "16.1
-25) bytes_per_record_avg
-26) "5.90
-27) offsets_per_term_avg
-28) "1.20
-29) offset_bits_per_record_avg
-30) "8.00
-31) hash_indexing_failures
-32) "3
-```
-
-### Parameters
-
-- **index**: The Fulltext index name. The index must be first created with FT.CREATE
-
-### Complexity
-
-O(1)
-
-### Returns
-
-Array Response. A nested array of keys and values.
-
----
-
-## FT.SEARCH 
-
-### Format
+#### Format
 
 ```
 FT.SEARCH {index} {query} [NOCONTENT] [VERBATIM] [NOSTOPWORDS] [WITHSCORES] [WITHPAYLOADS] [WITHSORTKEYS]
@@ -381,21 +230,21 @@ FT.SEARCH {index} {query} [NOCONTENT] [VERBATIM] [NOSTOPWORDS] [WITHSCORES] [WIT
   [LIMIT offset num]
 ```
 
-### Description
+#### Description
 
 Searches the index with a textual query, returning either documents or just ids.
 
-### Example
+#### Example
 ```sql
 FT.SEARCH idx "@text:morphix=>{$phonetic:false}"
 ```
 
-### Parameters
+#### Parameters
 
 - **index**: The index name. The index must be first created with `FT.CREATE`.
 - **query**: the text query to search. If it's more than a single word, put it in quotes.
   Refer to [query syntax](Query_Syntax.md) for more details. 
-  
+
 - **NOCONTENT**: If it appears after the query, we only return the document ids and not 
   the content. This is useful if RediSearch is only an index on an external document collection
 - **VERBATIM**: if set, we do not try to use stemming for query expansion but search the query terms 
@@ -408,7 +257,7 @@ FT.SEARCH idx "@text:morphix=>{$phonetic:false}"
 - **WITHSORTKEYS**: Only relevant in conjunction with **SORTBY**. Returns the value of the sorting key,
   right after the id and score and /or payload if requested. This is usually not needed by users, and 
   exists for distributed search coordination purposes.
-  
+
 - **FILTER numeric_field min max**: If set, and numeric_field is defined as a numeric field in 
   FT.CREATE, we will limit results to those having numeric values ranging between min and max.
   min and max follow ZRANGE syntax, and can be **-inf**, **+inf** and use `(` for exclusive ranges. 
@@ -421,10 +270,10 @@ FT.SEARCH idx "@text:morphix=>{$phonetic:false}"
   the first argument must be the length of the list, and greater than zero.
   Non-existent keys are ignored - unless all the keys are non-existent.
 - **INFIELDS {num} {field} ...**: If set, filter the results to ones appearing only in specific
-  fields of the document, like title or URL. num is the number of specified field arguments  
-  
+  fields of the document, like title or URL. num is the number of specified field arguments
+
 - **RETURN {num} {field} ...**: Use this keyword to limit which fields from the document are returned.
-  `num` is the number of fields following the keyword. If `num` is 0, it acts like `NOCONTENT`.  
+  `num` is the number of fields following the keyword. If `num` is 0, it acts like `NOCONTENT`.
 - **SUMMARIZE ...**: Use this option to return only the sections of the field which contain the 
   matched text.
   See [Highlighting](Highlight.md) for more details
@@ -451,33 +300,33 @@ FT.SEARCH idx "@text:morphix=>{$phonetic:false}"
   are ordered by the value of this field. This applies to both text and numeric fields.
 - **LIMIT first num**: If the parameters appear after the query, we limit the results to 
   the offset and number of results given. The default is 0 10.
-  Note that you can use `LIMIT 0 0` to count the number of documents in
-  the resultset without actually returning them.
 
-### Complexity
+!!! tip
+    `LIMIT 0 0` can be used to count the number of documents in the resultset without actually returning them.
+
+#### Complexity
 
 O(n) for single word queries. `n` is the number of the results in the result set. Finding all the documents that have a specific term is O(1), however, a scan on all those documents is needed to load the documents data from redis hashes and return them.
 
 The time complexity for more complex queries varies, but in general it's proportional to the number of words, the number of intersection points between them and the number of results in the result set.
 
-### Returns
+#### Returns
 
 **Array reply,** where the first element is the total number of results, and then pairs of document id, and a nested array of field/value. 
 
 If **NOCONTENT** was given, we return an array where the first element is the total number of results, and the rest of the members are document ids.
 
-In some rare cases, result count might not equal the number of documents. This may happen if a docement has expired since the query was initiated.
-
-**Note** - If a hash expiry time is reached after the start of the query process, the hash will be counted in the total number of results but name and content of the hash would not be returned.
+!!! note "Expiration of hashes during a search query" 
+    If a hash expiry time is reached after the start of the query process, the hash will be counted in the total number of results but name and content of the hash would not be returned.
 
 ---
 
-## FT.AGGREGATE 
+### FT.AGGREGATE 
 
-### Format
+#### Format
 
 ```
-FT.AGGREGATE  {index_name}
+FT.AGGREGATE {index_name}
   {query_string}
   [VERBATIM]
   [LOAD {nargs} {property} ...]
@@ -491,11 +340,11 @@ FT.AGGREGATE  {index_name}
   [FILTER {expr}] ...
 ```
 
-### Description
+#### Description
 
 Runs a search query on an index, and performs aggregate transformations on the results, extracting statistics etc from them. See [the full documentation on aggregations](Aggregations.md) for further details.
 
-### Example
+#### Example
 ```sql
 FT.AGGREGATE idx "@url:\"about.html\""
     APPLY "@timestamp - (@timestamp % 86400)" AS day
@@ -504,7 +353,7 @@ FT.AGGREGATE idx "@url:\"about.html\""
     SORTBY 4 @day ASC @country DESC
 ```
 
-### Parameters
+#### Parameters
 
 * **index_name**: The index the query is executed against.
 
@@ -550,15 +399,15 @@ FT.AGGREGATE idx "@url:\"about.html\""
 * **FILTER {expr}**. Filter the results using predicate expressions relating to values in each result. 
   They are is applied post-query and relate to the current state of the pipeline. 
 
-### Complexity
+#### Complexity
 
 Non-deterministic. Depends on the query and aggregations performed, but it is usually linear to the number of results returned. 
 
-### Returns
+#### Returns
 
 Array Response. Each row is an array and represents a single aggregate result.
 
-### Example output
+#### Example output
 
 Here we are counting GitHub events by user (actor), to produce the most active users:
 
@@ -610,21 +459,21 @@ Here we are counting GitHub events by user (actor), to produce the most active u
 
 ---
 
-## FT.EXPLAIN
+### FT.EXPLAIN
 
-### Format
+#### Format
 
 ```
 FT.EXPLAIN {index} {query}
 ```
 
-### Description
+#### Description
 
 Returns the execution plan for a complex query.
 
 In the returned response, a `+` on a term is an indication of stemming. 
 
-### Example
+#### Example
 ```sh
 $ redis-cli --raw
 
@@ -647,38 +496,39 @@ INTERSECT {
 }
 ```
 
-### Parameters
+#### Parameters
 
 - **index**: The index name. The index must be first created with FT.CREATE
 - **query**: The query string, as if sent to FT.SEARCH
 
-### Complexity
+#### Complexity
 
 O(1)
 
-### Returns
+#### Returns
 
 String Response. A string representing the execution plan (see above example). 
 
-**Note**: You should use `redis-cli --raw` to properly read line-breaks in the returned response.
+!!! tip 
+    You should use `redis-cli --raw` to properly read line-breaks in the returned response.
 
 ---
 
-## FT.EXPLAINCLI
+### FT.EXPLAINCLI
 
-### Format
+#### Format
 
 ```
 FT.EXPLAINCLI {index} {query}
 ```
 
-### Description
+#### Description
 
 Returns the execution plan for a complex query but formatted for easier reading without using `redis-cli --raw`.
 
 In the returned response, a `+` on a term is an indication of stemming. 
 
-### Example
+#### Example
 ```sh
 $ redis-cli
 
@@ -714,30 +564,77 @@ $ redis-cli
 29)
 ```
 
-### Parameters
+#### Parameters
 
 - **index**: The index name. The index must be first created with FT.CREATE
 - **query**: The query string, as if sent to FT.SEARCH
 
-### Complexity
+#### Complexity
 
 O(1)
 
-### Returns
+#### Returns
 
 String Response. A string representing the execution plan (see above example). 
 
 ---
 
-## FT.DROPINDEX
+## Update
 
-### Format
+### FT.ALTER SCHEMA ADD
+
+#### Format
+
+```
+FT.ALTER {index} SCHEMA ADD {field} {options} ...
+```
+
+#### Description
+
+Adds a new field to the index.
+
+Adding a field to the index will cause any future document updates to use the new field when
+indexing and reindexing of existing documents.
+
+!!! note
+    Depending on how the index was created, you may be limited by the amount of additional text
+    fields which can be added to an existing index. If the current index contains less than 32
+    text fields, then `SCHEMA ADD` will only be able to add fields up to 32 total fields (meaning that the
+    index will only ever be able to contain 32 total text fields). If you wish for the index to
+    contain more than 32 fields, create it with the `MAXTEXTFIELDS` option.
+
+##### Example
+```sql
+FT.ALTER idx SCHEMA ADD id2 NUMERIC SORTABLE
+```
+
+#### Parameters
+
+* **index**: the index name.
+* **field**: the field name.
+* **options**: the field options - refer to `FT.CREATE` for more information.
+
+#### Complexity
+
+O(1)
+
+#### Returns
+
+OK or an error.
+
+---
+
+## Delete
+
+### FT.DROPINDEX
+
+#### Format
 
 ```
 FT.DROPINDEX {index} [DD]
 ```
 
-### Description
+#### Description
 
 Deletes the index. 
 
@@ -745,83 +642,121 @@ By default, FT.DROPINDEX does not delete the document hashes associated with the
 
 Since RediSearch 2.0
 
-### Example
+#### Example
 ```sql
 FT.DROPINDEX idx DD 
 ```
 
-### Parameters
+#### Parameters
 
 - **index**: The Fulltext index name. The index must be first created with FT.CREATE
 - **DD**: If set, the drop operation will delete the actual document hashes.
 
-### Returns
+#### Returns
 
 Status Reply: OK on success.
 
 ---
 
-## FT.TAGVALS
+## Alias
 
-### Format
+### FT.ALIASADD
+### FT.ALIASUPDATE
+### FT.ALIASDEL
+
+#### Format
+
+```
+FT.ALIASADD {name} {index}
+FT.ALIASUPDATE {name} {index}
+FT.ALIASDEL {name}
+```
+
+The `FT.ALIASADD` and `FT.ALIASDEL` commands will add or remove an alias from
+an index. Index aliases can be used to refer to actual indexes in data
+commands such as `FT.SEARCH` or `FT.ADD`. This allows an administrator
+to transparently redirect application queries to alternative indexes.
+
+Indexes can have more than one alias, though an alias cannot refer to another
+alias.
+
+The `FT.ALIASUPDATE` command differs from the `FT.ALIASADD` command in that
+it will remove the alias association with a previous index, if any. `FT.ALIASDD`
+will fail, on the other hand, if the alias is already associated with another
+index.
+
+#### Complexity
+
+O(1)
+
+#### Returns
+
+OK or an error.
+
+---
+
+## Tags
+
+### FT.TAGVALS
+
+#### Format
 
 ```
 FT.TAGVALS {index} {field_name}
 ```
 
-### Description
+#### Description
 
 Returns the distinct tags indexed in a [Tag field](Tags.md). 
 
 This is useful if your tag field indexes things like cities, categories, etc.
 
 !!! warning "Limitations"
-
-      There is no paging or sorting, the tags are not alphabetically sorted. 
-    
-      This command only operates on [Tag fields](Tags.md).  
-    
-      The strings return lower-cased and stripped of whitespaces, but otherwise unchanged.
+    There is no paging or sorting, the tags are not alphabetically sorted. 
+    This command only operates on [Tag fields](Tags.md).
+    The strings return lower-cased and stripped of whitespaces, but otherwise unchanged.
       
-### Example
+#### Example
 ```sql
 FT.TAGVALS idx myTag 
 ```
 
-### Parameters
+#### Parameters
 
 - **index**: The Fulltext index name. The index must be first created with FT.CREATE
 - **filed_name**: The name of a Tag file defined in the schema.
 
-### Returns
+#### Returns
 
 Array Reply: All the distinct tags in the tag index.
 
-### Complexity
+#### Complexity
 
 O(n), n being the cardinality of the tag field.
 
 ---
 
-## FT.SUGADD
+## Suggestions
 
-### Format
+### FT.SUGADD
+
+#### Format
 
 ```
 FT.SUGADD {key} {string} {score} [INCR] [PAYLOAD {payload}]
 ```
 
-### Description
+#### Description
 
 Adds a suggestion string to an auto-complete suggestion dictionary. This is disconnected from the
 index definitions, and leaves creating and updating suggestions dictionaries to the user.
 
-### Example
+#### Example
 ```sql
 FT.SUGADD ac "hello world" 1
 ```
 
-### Parameters
+#### Parameters
 
 - **key**: the suggestion dictionary key.
 - **string**: the suggestion string we index
@@ -831,30 +766,30 @@ FT.SUGADD ac "hello world" 1
 - **PAYLOAD {payload}**: If set, we save an extra payload with the suggestion, that can be fetched by 
   adding the `WITHPAYLOADS` argument to `FT.SUGGET`.
 
-### Returns
+#### Returns
 
 Integer Reply: the current size of the suggestion dictionary.
 
 ---
 
-## FT.SUGGET
+### FT.SUGGET
 
-### Format
+#### Format
 
 ```
 FT.SUGGET {key} {prefix} [FUZZY] [WITHSCORES] [WITHPAYLOADS] [MAX num]
 ```
 
-### Description
+#### Description
 
 Gets completion suggestions for a prefix.
 
-### Example
+#### Example
 ```sql
 FT.SUGGET ac hell FUZZY MAX 3 WITHSCORES
 ```
 
-### Parameters
+#### Parameters
 
 - **key**: the suggestion dictionary key.
 - **prefix**: the prefix to complete on
@@ -866,92 +801,98 @@ FT.SUGGET ac hell FUZZY MAX 3 WITHSCORES
 - **WITHPAYLOADS**: If set, we return optional payloads saved along with the suggestions. If no 
   payload is present for an entry, we return a Null Reply.
 
-### Returns
+#### Returns
 
 Array Reply: a list of the top suggestions matching the prefix, optionally with score after each entry
 
 ---
 
-## FT.SUGDEL
+### FT.SUGDEL
 
-### Format
+#### Format
 
 ```
 FT.SUGDEL {key} {string}
 ```
 
-### Description
+#### Description
 
 Deletes a string from a suggestion index. 
 
-### Example
+#### Example
 ```sql
 FT.SUGDEL ac "hello world"
 ```
 
-### Parameters
+#### Parameters
 
 - **key**: the suggestion dictionary key.
 - **string**: the string to delete
 
-### Returns
+#### Returns
 
 Integer Reply: 1 if the string was found and deleted, 0 otherwise.
 
 ---
 
-## FT.SUGLEN
+### FT.SUGLEN
 
-### Format
+#### Format
 
 ```
 FT.SUGLEN {key}
 ```
 
-### Description
+#### Description
 
 Gets the size of an auto-complete suggestion dictionary
 
-### Example
+#### Example
 ```sql
 FT.SUGLEN ac 
 ```
 
-### Parameters
+#### Parameters
 
 * **key**: the suggestion dictionary key.
 
-### Returns
+#### Returns
 
 Integer Reply: the current size of the suggestion dictionary.
 
 ---
 
-## FT.SYNUPDATE
+## Synonym
 
-### Format
+### FT.SYNUPDATE
+
+#### Format
 
 ```
-FT.SYNUPDATE <index name> <synonym group id> <term1> <term2> ...
+FT.SYNUPDATE <index name> <synonym group id> [SKIPINITIALSCAN] <term1> <term2> ...
 ```
 
-### Description
+#### Description
 
 Updates a synonym group.
 
 The command is used to create or update a synonym group with additional terms. Only documents which were indexed after the update will be affected.
 
+#### Parameters
+
+* **SKIPINITIALSCAN**: If set, we do not scan and index. 
+
 ---
 
-## FT.SYNDUMP
+### FT.SYNDUMP
 
-### Format
+#### Format
 
 ```
 FT.SYNDUMP <index name>
 ```
 
-### Description
+#### Description
 
 Dumps the contents of a synonym group.
 
@@ -959,22 +900,22 @@ The command is used to dump the synonyms data structure. Returns a list of synon
 
 ---
 
-## FT.SPELLCHECK 
+### FT.SPELLCHECK 
 
-### Format
+#### Format
 ```
   FT.SPELLCHECK {index} {query}
     [DISTANCE dist]
     [TERMS {INCLUDE | EXCLUDE} {dict} [TERMS ...]]
 ```
 
-### Description
+#### Description
 
 Performs spelling correction on a query, returning suggestions for misspelled terms.
 
 See [Query Spelling Correction](Spellcheck.md) for more details.
 
-### Parameters
+#### Parameters
 
 * **index**: the index with the indexed terms.
 
@@ -984,7 +925,7 @@ See [Query Spelling Correction](Spellcheck.md) for more details.
 
 * **DISTANCE**: the maximal Levenshtein distance for spelling suggestions (default: 1, max: 4).
 
-### Returns
+#### Returns
 
 An array, in which each element represents a misspelled term from the query. The misspelled terms are ordered by their order of appearance in the query.
 
@@ -994,7 +935,7 @@ Each element in the spelling corrections array consists of the score of the sugg
 
 The score is calculated by dividing the number of documents in which the suggested term exists, by the total number of documents in the index. Results can be normalized by dividing scores by the highest score.
 
-### Example output
+#### Example output
 
 ```
 1)  1) "TERM"
@@ -1023,87 +964,274 @@ The score is calculated by dividing the number of documents in which the suggest
 
 ---
 
+## Dictionary
 
-## FT.DICTADD
+### FT.DICTADD
 
-### Format
+#### Format
 ```
   FT.DICTADD {dict} {term} [{term} ...]
 ```
 
-### Description
+#### Description
 
 Adds terms to a dictionary.
 
-### Parameters
+#### Parameters
 
 * **dict**: the dictionary name.
 
 * **term**: the term to add to the dictionary.
 
-### Returns
+#### Returns
 
 Returns int, specifically the number of new terms that were added.
 
 ---
 
-## FT.DICTDEL
+### FT.DICTDEL
 
-### Format
+#### Format
 ```
   FT.DICTDEL {dict} {term} [{term} ...]
 ```
 
-### Description
+#### Description
 
 Deletes terms from a dictionary.
 
-### Parameters
+#### Parameters
 
 * **dict**: the dictionary name.
 
 * **term**: the term to delete from the dictionary.
 
-### Returns
+#### Returns
 
 Returns int, specifically the number of terms that were deleted.
 
 ---
 
-## FT.DICTDUMP
+### FT.DICTDUMP
 
-### Format
+#### Format
 ```
   FT.DICTDUMP {dict}
 ```
 
-### Description
+#### Description
 
 Dumps all terms in the given dictionary.
 
-### Parameters
+#### Parameters
 
 * **dict**: the dictionary name.
 
-### Returns
+#### Returns
 
 Returns an array, where each element is term (string).
 
 ---
 
-## FT.CONFIG
+## Info
 
-### Format
+### FT.INFO
+
+#### Format
+```
+FT.INFO {index} 
+```
+
+#### Description
+
+Returns information and statistics on the index. Returned values include:
+
+* `index_definition`: reflection of `FT.CREATE` command parameters.
+* `fields`: index schema - field names, types, and attributes.
+* Number of documents.
+* Number of distinct terms.
+* Average bytes per record.
+* Size and capacity of the index buffers.
+* Indexing state and percentage as well as failures:
+  * `indexing`: whether of not the index is being scanned in the background,
+  * `percent_indexed`: progress of background indexing (1 if complete),
+  * `hash_indexing_failures`: number of failures due to operations not compatible with index schema.
+
+Optional
+
+* Statistics about the `garbage collector` for all options other than NOGC.
+* Statistics about `cursors` if a cursor exists for the index.
+* Statistics about `stopword lists` if a custom stopword list is used.
+
+
+##### Example
+```bash
+127.0.0.1:6379> ft.info wik{0}
+1) index_name
+ 2) wikipedia
+ 3) index_options
+ 4) (empty array)
+ 5) index_definition
+ 6)  1) key_type
+     2) HASH
+     3) prefixes
+     4) 1) thing:
+     5) filter
+     6) startswith(@__key, "thing:")
+     7) language_field
+     8) __language
+     9) default_score
+    10) "1"
+    11) score_field
+    12) __score
+    13) payload_field
+    14) __payload
+ 7) fields
+ 8) 1) 1) title
+       2) type
+       3) TEXT
+       4) WEIGHT
+       5) "1"
+       6) SORTABLE
+    2) 1) body
+       2) type
+       3) TEXT
+       4) WEIGHT
+       5) "1"
+    3) 1) id
+       2) type
+       3) NUMERIC
+    4) 1) subject location
+       2) type
+       3) GEO
+ 9) num_docs
+10) "0"
+11) max_doc_id
+12) "345678"
+13) num_terms
+14) "691356"
+15) num_records
+16) "0"
+17) inverted_sz_mb
+18) "0"
+19) total_inverted_index_blocks
+20) "933290"
+21) offset_vectors_sz_mb
+22) "0.65932846069335938"
+23) doc_table_size_mb
+24) "29.893482208251953"
+25) sortable_values_size_mb
+26) "11.432285308837891"
+27) key_table_size_mb
+28) "1.239776611328125e-05"
+29) records_per_doc_avg
+30) "-nan"
+31) bytes_per_record_avg
+32) "-nan"
+33) offsets_per_term_avg
+34) "inf"
+35) offset_bits_per_record_avg
+36) "8"
+37) hash_indexing_failures
+38) "0"
+39) indexing
+40) "0"
+41) percent_indexed
+42) "1"
+43) gc_stats
+44)  1) bytes_collected
+     2) "4148136"
+     3) total_ms_run
+     4) "14796"
+     5) total_cycles
+     6) "1"
+     7) average_cycle_time_ms
+     8) "14796"
+     9) last_run_time_ms
+    10) "14796"
+    11) gc_numeric_trees_missed
+    12) "0"
+    13) gc_blocks_denied
+    14) "0"
+45) cursor_stats
+46) 1) global_idle
+    2) (integer) 0
+    3) global_total
+    4) (integer) 0
+    5) index_capacity
+    6) (integer) 128
+    7) index_total
+    8) (integer) 0
+47) stopwords_list
+48) 1) "tlv"
+    2) "summer"
+    3) "2020"
+```
+
+#### Parameters
+
+- **index**: The Fulltext index name. The index must be first created with FT.CREATE
+
+#### Complexity
+
+O(1)
+
+#### Returns
+
+Array Response. A nested array of keys and values.
+
+---
+
+### FT._LIST
+
+#### Format
+```
+  FT._LIST
+```
+
+#### Description
+
+Returns a list of all existing indexes.
+
+##### Example
+```sql
+FT._LIST
+1) "idx"
+2) "movies"
+3) "imdb"
+```
+
+#### Complexity
+
+O(n) where `n` is the number of indexes in the system.
+
+#### Returns
+
+An array with index names.
+
+!!! note "Temporary command"
+    The prefix `_` in the command indicates, this is a temporary command.
+
+    In the future, a `SCAN` type of command will be added, for use when a database
+    contains a large number of indices.
+
+---
+
+## Configuration
+
+### FT.CONFIG
+
+#### Format
 ```
   FT.CONFIG <GET|HELP> {option}
   FT.CONFIG SET {option} {value}
 ```
 
-### Description
+#### Description
 
 Retrieves, describes and sets runtime configuration options.
 
-### Parameters
+#### Parameters
 
 * **option**: the name of the configuration option, or '*' for all.
 * **value**: a value for the configuration option.
@@ -1116,18 +1244,19 @@ Setting values in runtime is supported for these configuration options:
 * `ON_TIMEOUT`
 * `MIN_PHONETIC_TERM_LEN`
 
-### Returns
+#### Returns
 
 When provided with a valid option name, the `GET` subcommand returns a string with the current option's value. An array containing an array for each configuration option, consisting of the option's name and current value, is returned when '*' is provided.
 
 The `SET` subcommand returns 'OK' for valid runtime-settable option names and values.
 
-
 ---
 
-## FT.ADD 
+## Deprecated commands
 
-### Format
+### FT.ADD 
+
+#### Format
 
 ```
 FT.ADD {index} {docId} {score}
@@ -1138,28 +1267,27 @@ FT.ADD {index} {docId} {score}
   FIELDS {field} {value} [{field} {value}...]
 ```
 
-### Description
+#### Description
 
-!!! warning "This command is deprecated and act as simpe redis HSET, the document created will be indexed only if it matches one or some indexes definitions (as defined on [ft.create](Commands.md#ftcreate))", Use HSET instead.
+!!! warning "Deprecation warning"
+    This command is deprecated and act as simpe redis HSET, the document created will be indexed only if it matches one or some indexes definitions (as defined on [ft.create](Commands.md#ftcreate)), Use HSET instead.
 
 Adds a document to the index.
 
-#### Example
+##### Example
 ```sql
 FT.ADD idx doc1 1.0 FIELDS title "hello world"
 ```
 
-### Parameters
+#### Parameters
 
 - **index**: The Fulltext index name. The index must be first created with FT.CREATE
 
 - **docId**: The document's id that will be returned from searches. 
 
 !!! note "Notes on docId"
-
-        The same docId cannot be added twice to the same index.
-    
-        The same docId can be added to multiple indices, but a single document with that docId is saved in the database.
+    The same docId cannot be added twice to the same index.
+    The same docId can be added to multiple indices, but a single document with that docId is saved in the database.
 
 - **score**: The document's rank based on the user's ranking. This must be between 0.0 and 1.0. 
   On v2.0 this will be translated to a '__score' field in the created hash.
@@ -1176,7 +1304,7 @@ FT.ADD idx doc1 1.0 FIELDS title "hello world"
   and reindexed if it already exists. If the document does not exist, an error
   will be returned.
 
-- **FIELDS**: Following the FIELDS specifier, we are looking for pairs of  `{field} {value}` to be
+- **FIELDS**: Following the FIELDS specifier, we are looking for pairs of `{field} {value}` to be
   indexed. Each field will be scored based on the index spec given in `FT.CREATE`. 
   Passing fields that are not in the index spec will make them be stored as part of the document,
   or ignored if NOSAVE is set 
@@ -1207,7 +1335,7 @@ FT.ADD idx doc1 1.0 FIELDS title "hello world"
   in order for Chinese characters to be tokenized properly.
   On v2.0 this will be translated to a '__language' field in the created hash.
 
-### Adding Chinese Documents
+#### Adding Chinese Documents
 
 When adding Chinese-language documents, `LANGUAGE chinese` should be set in
 order for the indexer to properly tokenize the terms. If the default language
@@ -1217,84 +1345,81 @@ whitespace. The Chinese language tokenizer makes use of a segmentation algorithm
 checks it against a predefined dictionary. See [Stemming](Stemming.md) for more
 information.
 
-### Complexity
+#### Complexity
 
 O(n), where n is the number of tokens in the document
 
-### Returns
+#### Returns
 
 OK on success, or an error if something went wrong.
 
 A special status `NOADD` is returned if an `IF` condition evaluated to false.
 
 !!! warning "FT.ADD with REPLACE and PARTIAL"
-        
-        By default, FT.ADD does not allow updating the document, and will fail if it already exists in the index.
-    
-        However, updating the document is possible with the REPLACE and REPLACE PARTIAL options.
-    
-        **REPLACE**: On its own, sets the document to the new values, and reindexes it. Any fields not given will not be loaded from the current version of the document.
-    
-        **REPLACE PARTIAL**: When both arguments are used, we can update just part of the document fields, and the rest will be loaded before reindexing. Not only that, but if only the score, payload and non-indexed fields (using NOINDEX) are updated, we will not actually reindex the document, just update its metadata internally, which is a lot faster and does not create index garbage.
+    By default, FT.ADD does not allow updating the document, and will fail if it already exists in the index.
+    However, updating the document is possible with the REPLACE and REPLACE PARTIAL options.
+    **REPLACE**: On its own, sets the document to the new values, and reindexes it. Any fields not given will not be loaded from the current version of the document.
+    **REPLACE PARTIAL**: When both arguments are used, we can update just part of the document fields, and the rest will be loaded before reindexing. Not only that, but if only the score, payload and non-indexed fields (using NOINDEX) are updated, we will not actually reindex the document, just update its metadata internally, which is a lot faster and does not create index garbage.
 
 ---
 
-### Warning!!!
-
-FT.ADD will actually create a hash in Redis with the given fields and value. This means that if the hash already exists, it will override with the new values.
+!!! warning "Overwriting other keys"
+    FT.ADD will actually create a hash in Redis with the given fields and value. This means that if the hash already exists, it will override with the new values.
 
 ---
 
-## FT.DEL
+### FT.DEL
 
-### Format
+#### Format
 
 ```
 FT.DEL {index} {doc_id} [DD]
 ```
 
-### Description
+#### Description
 
-!!! warning "This command is deprecated and act as simpe redis DEL, the deleted document will be deleted from all the indexes it indexed on", Use DEL instead.
+!!! warning "Deprecation warning"
+    This command is deprecated and act as simpe redis DEL, the deleted document will be deleted from all the indexes it indexed on", Use DEL instead.
 
 Deletes a document from the index. Returns 1 if the document was in the index, or 0 if not. 
 
 !!! warning "since v2.0, the [DD] option is not longer support, deleting a document means to also delete the hash from redis"
 !!! warning "since v2.0, deleting a document from one index will cause this document to be deleted from all the indexes contains it"
 
-### Example
+#### Example
 ```sql
 FT.DEL idx doc1 
 ```
 
-### Parameters
+#### Parameters
 
 - **index**: The index name. The index must be first created with FT.CREATE
 - **doc_id**: the id of the document to be deleted. It does not actually delete the HASH key in which 
   the document is stored. Use DEL to do that manually if needed.
 
 
-### Complexity
+#### Complexity
 
 O(1)
 
-### Returns
+#### Returns
 
 Integer Reply: 1 if the document was deleted, 0 if not.
 
 ---
 
-## FT.DROP
+### FT.DROP
 
-### Format
+#### Format
 
 ```
 FT.DROP {index} [KEEPDOCS]
 ```
 
-### Description
+#### Description
 
-!!! warning "This command is deprecated", use FT.DROPINDEX instead
+!!! warning "Deprecation warning"
+    This command is deprecated, use FT.DROPINDEX instead.
 
 Deletes the index and all the keys associated with it. 
 
@@ -1303,65 +1428,67 @@ By default, DROP deletes the document hashes as well, but adding the KEEPDOCS op
 If no other data is on the Redis instance, this is equivalent to FLUSHDB, apart from the fact
 that the index specification is not deleted.
 
-### Example
+#### Example
 ```sql
 FT.DROP idx KEEPDOCS 
 ```
 
-### Parameters
+#### Parameters
 
 - **index**: The Fulltext index name. The index must be first created with FT.CREATE
 - **KEEPDOCS**: If set, the drop operation will not delete the actual document hashes.
 
-### Returns
+#### Returns
 
 Status Reply: OK on success.
 
 ---
 
-## FT.GET
+### FT.GET
 
-### Format
+#### Format
 
 ```
 FT.GET {index} {doc id}
 ```
 
-### Description
+#### Description
 
-!!! warning "This command is deprecated". Use HGETALL instead.
+!!! warning "Deprecation warning"
+    This command is deprecated. Use HGETALL instead.
 
 Returns content of a document as inserted without attribute fields (score/language/payload).
 
 If the document does not exist or is not a HASH object, we return a NULL reply
 
-### Example
+#### Example
 ```sql
 FT.GET idx doc1 
 ```
 
-### Parameters
+#### Parameters
 
 - **index**: The index name. The index must be first created with FT.CREATE
 - **documentId**: The id of the document as inserted to the index
 
-### Returns
+#### Returns
 
 Array Reply: Key-value pairs of field names and values of the document
 
 ---
 
-## FT.MGET
+### FT.MGET
 
-### Format
+#### Format
 
 ```
 FT.MGET {index} {docId} ...
 ```
 
-### Description
+#### Description
 
-!!! warning "This command is deprecated". Use HGETALL instead.
+!!! warning "Deprecation warning"
+    This command is deprecated. Use HGETALL instead.
 
 Returns content of a document as inserted without attribute fields (score/language/payload).
 
@@ -1373,33 +1500,34 @@ Each element, in turn, is an array of key-value pairs representing the document.
 
 If a document is not found or is not a valid HASH object, its place in the parent array is filled with a Null reply object.
 
-### Example
+#### Example
 ```sql
 FT.MGET idx doc1 doc2
 ```
 
-### Parameters
+#### Parameters
 
 - **index**: The Fulltext index name. The index must be first created with FT.CREATE
 - **documentIds**: The ids of the requested documents as inserted to the index
 
-### Returns
+#### Returns
 
-Array Reply: An array with exactly the same number of elements as the number of keys sent to the command.  Each element in it is either an array representing the document or Null if it was not found.
+Array Reply: An array with exactly the same number of elements as the number of keys sent to the command. Each element in it is either an array representing the document or Null if it was not found.
 
 ---
 
-## FT.SYNADD
+### FT.SYNADD
 
-!!! warning "This command is not longer supported on versions 2.0 and above, use FT.SYNUPDATE directly."
+!!! warning "Deprecation warning"
+    This command is not longer supported on versions 2.0 and above, use FT.SYNUPDATE directly.
 
-### Format
+#### Format
 
 ```
 FT.SYNADD <index name> <term1> <term2> ...
 ```
 
-### Description
+#### Description
 
 Adds a synonym group.
 

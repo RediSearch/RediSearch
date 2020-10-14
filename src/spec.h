@@ -48,7 +48,7 @@ struct DocumentIndexer;
 #define SPEC_SEPARATOR_STR "SEPARATOR"
 #define SPEC_MULTITYPE_STR "MULTITYPE"
 #define SPEC_ASYNC_STR "ASYNC"
-#define SPEC_NOINITIALSCAN_STR "NOINITIALSCAN"
+#define SPEC_SKIPINITIALSCAN_STR "SKIPINITIALSCAN"
 
 #define SPEC_FOLLOW_HASH_ARGS_DEF(rule)                                     \
   {.name = "PREFIX", .target = &rule_prefixes, .type = AC_ARGTYPE_SUBARGS}, \
@@ -99,6 +99,7 @@ static const char *SpecTypeNames[] = {[IXFLDPOS_FULLTEXT] = SPEC_TEXT_STR,
 #define SPEC_WIDEFIELD_THRESHOLD 32
 
 extern dict *specDict_g;
+
 extern size_t pending_global_indexing_ops;
 extern struct IndexesScanner *global_spec_scanner;
 extern dict *legacySpecRules;
@@ -135,7 +136,7 @@ typedef enum {
   // If any of the fields has phonetics. This is just a cache for quick lookup
   Index_HasPhonetic = 0x400,
   Index_Async = 0x800,
-  Index_NoInitialScan = 0x1000,
+  Index_SkipInitialScan = 0x1000,
 } IndexFlags;
 
 // redis version (its here because most file include it with no problem,
@@ -266,6 +267,18 @@ typedef struct IndexSpec {
   bool cascadeDelete;  // remove keys when removing spec
 } IndexSpec;
 
+typedef enum SpecOp { SpecOp_Add, SpecOp_Del } SpecOp;
+
+typedef struct SpecOpCtx {
+  IndexSpec *spec;
+  SpecOp op;
+} SpecOpCtx;
+
+typedef struct SpecOpIndexingCtx {
+  dict *specs;
+  SpecOpCtx *specsOps;
+} SpecOpIndexingCtx;
+
 typedef struct {
   void (*dtor)(void *p);
   void *p;
@@ -289,6 +302,11 @@ typedef struct IndexSpecCache {
   size_t nfields;
   size_t refcount;
 } IndexSpecCache;
+
+/**
+ * For testing only
+ */
+void Spec_AddToDict(const IndexSpec *spec);
 
 /**
  * compare redis versions
@@ -379,6 +397,7 @@ void IndexSpec_MakeKeyless(IndexSpec *sp);
 #define IndexSpec_IsKeyless(sp) ((sp)->keysDict != NULL)
 
 void IndexesScanner_Cancel(struct IndexesScanner *scanner, bool still_in_progress);
+void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, IndexSpec *sp);
 
 /**
  * Gets the next text id from the index. This does not currently
@@ -387,7 +406,8 @@ void IndexesScanner_Cancel(struct IndexesScanner *scanner, bool still_in_progres
 int IndexSpec_CreateTextId(const IndexSpec *sp);
 
 /* Add fields to a redis schema */
-int IndexSpec_AddFields(IndexSpec *sp, RedisModuleCtx *ctx, ArgsCursor *ac, QueryError *status);
+int IndexSpec_AddFields(IndexSpec *sp, RedisModuleCtx *ctx, ArgsCursor *ac, bool initialScan,
+                        QueryError *status);
 
 void FieldSpec_Initialize(FieldSpec *sp, FieldType types);
 

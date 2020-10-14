@@ -5,7 +5,7 @@
 #include "redis_index.h"
 #include "numeric_index.h"
 #include "tag_index.h"
-#include "tests/time_sample.h"
+#include "time_sample.h"
 #include <stdlib.h>
 #include <stdbool.h>
 #include <unistd.h>
@@ -207,6 +207,9 @@ static bool FGC_childRepairInvidx(ForkGC *gc, RedisSearchCtx *sctx, InvertedInde
   }
 
   for (size_t i = 0; i < idx->size; ++i) {
+    params->bytesCollected = 0;
+    params->bytesBeforFix = 0;
+    params->bytesAfterFix = 0;
     IndexBlock *blk = idx->blocks + i;
     if (blk->lastId - blk->firstId > UINT32_MAX) {
       // Skip over blocks which have a wide variation. In the future we might
@@ -242,10 +245,10 @@ static bool FGC_childRepairInvidx(ForkGC *gc, RedisSearchCtx *sctx, InvertedInde
       ixmsg.nblocksRepaired++;
     }
 
-    ixmsg.nbytesCollected += params->bytesCollected;
+    ixmsg.nbytesCollected += (params->bytesBeforFix - params->bytesAfterFix);
     ixmsg.ndocsCollected += nrepaired;
     if (i == idx->size - 1) {
-      ixmsg.lastblkBytesCollected = params->bytesCollected;
+      ixmsg.lastblkBytesCollected = ixmsg.nbytesCollected;
       ixmsg.lastblkDocsRemoved = nrepaired;
       ixmsg.lastblkNumDocs = blk->numDocs + nrepaired;
     }
@@ -902,7 +905,10 @@ static void applyNumIdx(ForkGC *gc, RedisSearchCtx *sctx, NumGcInfo *ninfo) {
   InvIdxBuffers *idxbufs = &ninfo->idxbufs;
   MSG_IndexInfo *info = &ninfo->info;
   FGC_applyInvertedIndex(gc, idxbufs, info, currNode->range->entries);
+
+  currNode->range->invertedIndexSize -= info->nbytesCollected;
   FGC_updateStats(sctx, gc, info->ndocsCollected, info->nbytesCollected);
+
   resetCardinality(ninfo, currNode);
 }
 
@@ -1314,7 +1320,7 @@ static void statsCb(RedisModuleCtx *ctx, void *gcCtx) {
     REPLY_KVNUM(n, "bytes_collected", gc->stats.totalCollected);
     REPLY_KVNUM(n, "total_ms_run", gc->stats.totalMSRun);
     REPLY_KVNUM(n, "total_cycles", gc->stats.numCycles);
-    REPLY_KVNUM(n, "avarage_cycle_time_ms", (double)gc->stats.totalMSRun / gc->stats.numCycles);
+    REPLY_KVNUM(n, "average_cycle_time_ms", (double)gc->stats.totalMSRun / gc->stats.numCycles);
     REPLY_KVNUM(n, "last_run_time_ms", (double)gc->stats.lastRunTimeMs);
     REPLY_KVNUM(n, "gc_numeric_trees_missed", (double)gc->stats.gcNumericNodesMissed);
     REPLY_KVNUM(n, "gc_blocks_denied", (double)gc->stats.gcBlocksDenied);

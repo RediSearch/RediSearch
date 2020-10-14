@@ -47,8 +47,6 @@ typedef struct SchemaRule {
   RSLanguage lang_default;
 } SchemaRule;
 
-extern arrayof(SchemaRule *) SchemaRules_g;
-
 /*
  * Free SchemaRuleArgs structure, use this function
  * only if the entire SchemaRuleArgs is heap allocated.
@@ -57,9 +55,6 @@ void SchemaRuleArgs_Free(SchemaRuleArgs *args);
 
 SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, struct IndexSpec *spec, QueryError *status);
 void SchemaRule_Free(SchemaRule *);
-
-void SchemaRules_Create();
-void SchemaRules_RemoveSpecRules(struct IndexSpec *spec);
 
 RSLanguage SchemaRule_HashLang(RedisModuleCtx *rctx, const SchemaRule *rule, RedisModuleKey *key,
                                const char *kname);

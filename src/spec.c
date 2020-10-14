@@ -26,7 +26,6 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-static void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, IndexSpec *sp);
 static void FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver);
 void IndexSpec_UpdateMatchingWithSchemaRules(IndexSpec *sp, RedisModuleCtx *ctx,
                                              RedisModuleString *key);
@@ -242,7 +241,7 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
     IndexSpec_SetTimeoutTimer(sp);
   }
 
-  if (!(sp->flags & Index_NoInitialScan)) {
+  if (!(sp->flags & Index_SkipInitialScan)) {
     IndexSpec_ScanAndReindex(ctx, sp);
   }
   return sp;
@@ -490,9 +489,10 @@ reset:
   return 0;
 }
 
-int IndexSpec_AddFields(IndexSpec *sp, RedisModuleCtx *ctx, ArgsCursor *ac, QueryError *status) {
+int IndexSpec_AddFields(IndexSpec *sp, RedisModuleCtx *ctx, ArgsCursor *ac, bool initialScan,
+                        QueryError *status) {
   int rc = IndexSpec_AddFieldsInternal(sp, ac, status, 0);
-  if (rc) {
+  if (rc && initialScan) {
     IndexSpec_ScanAndReindex(ctx, sp);
   }
   return rc;
@@ -524,7 +524,7 @@ IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryE
       {AC_MKUNFLAG(SPEC_NOFREQS_STR, &spec->flags, Index_StoreFreqs)},
       {AC_MKBITFLAG(SPEC_SCHEMA_EXPANDABLE_STR, &spec->flags, Index_WideSchema)},
       {AC_MKBITFLAG(SPEC_ASYNC_STR, &spec->flags, Index_Async)},
-      {AC_MKBITFLAG(SPEC_NOINITIALSCAN_STR, &spec->flags, Index_NoInitialScan)},
+      {AC_MKBITFLAG(SPEC_SKIPINITIALSCAN_STR, &spec->flags, Index_SkipInitialScan)},
 
       // For compatibility
       {.name = "NOSCOREIDX", .target = &dummy, .type = AC_ARGTYPE_BOOLFLAG},
@@ -606,6 +606,10 @@ int IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len) {
     sp->stats.termsSize += len;
   }
   return isNew;
+}
+
+void Spec_AddToDict(const IndexSpec *sp) {
+  dictAdd(specDict_g, sp->name, (void *)sp);
 }
 
 IndexSpecCache *IndexSpec_GetSpecCache(const IndexSpec *spec) {
@@ -700,7 +704,6 @@ void IndexSpec_FreeInternals(IndexSpec *spec) {
   if (dictFetchValue(specDict_g, spec->name) == spec) {
     dictDelete(specDict_g, spec->name);
   }
-  SchemaRules_RemoveSpecRules(spec);
   SchemaPrefixes_RemoveSpec(spec);
 
   if (spec->isTimerSet) {
@@ -1367,7 +1370,7 @@ static void IndexSpec_ScanAndReindexSync(IndexSpec *sp) {
 
 //---------------------------------------------------------------------------------------------
 
-static void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, IndexSpec *sp) {
+void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, IndexSpec *sp) {
   size_t nkeys = RedisModule_DbSize(ctx);
   if (nkeys > 0) {
     IndexSpec_ScanAndReindexAsync(sp);
@@ -1903,17 +1906,24 @@ void Indexes_Init(RedisModuleCtx *ctx) {
   specDict_g = dictCreate(&dictTypeHeapStrings, NULL);
   RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_FlushDB, onFlush);
   SchemaPrefixes_Create();
-  SchemaRules_Create();
 }
 
-dict *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key) {
-  dict *specs = dictCreate(&dictTypeHeapStrings, NULL);
-  if (array_len(SchemaRules_g) == 0) {
-    return specs;
+SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key,
+                                                   bool runFilters,
+                                                   RedisModuleString *keyToReadData) {
+  if (!keyToReadData) {
+    keyToReadData = key;
   }
+  SpecOpIndexingCtx *res = rm_malloc(sizeof(*res));
+  res->specs = dictCreate(&dictTypeHeapStrings, NULL);
+  res->specsOps = array_new(SpecOpCtx, 10);
+  if (dictSize(specDict_g) == 0) {
+    return res;
+  }
+  dict *specs = res->specs;
 
 #if defined(_DEBUG) && 0
-  RLookupKey *k = RLookup_GetKey(&r->lk, "__key", 0);
+  RLookupKey *k = RLookup_GetKey(&r->lk, UNDERSCORE_KEY, 0);
   RSValue *v = RLookup_GetItem(k, &r->row);
   const char *x = RSValue_StringPtrLen(v, NULL);
   RedisModule_Log(NULL, "notice", "Indexes_FindMatchingSchemaRules: x=%s", x);
@@ -1936,40 +1946,51 @@ dict *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisModuleString *ke
     for (int j = 0; j < array_len(node->index_specs); ++j) {
       IndexSpec *spec = node->index_specs[j];
       if (!dictFind(specs, spec->name)) {
-        dictAdd(specs, spec->name, spec);
+        SpecOpCtx specOp = {
+            .spec = spec,
+            .op = SpecOp_Add,
+        };
+        res->specsOps = array_append(res->specsOps, specOp);
+        dictEntry *entry = dictAddRaw(specs, spec->name, NULL);
+        // put the location on the specsOps array so we can get it
+        // fast using index name
+        entry->v.u64 = array_len(res->specsOps) - 1;
       }
     }
   }
   array_free(prefixes);
 
-  EvalCtx *r = NULL;
-  for (size_t i = 0; i < array_len(SchemaRules_g); i++) {
-    SchemaRule *rule = SchemaRules_g[i];
-    if (!rule->filter_exp) {
-      continue;
-    }
+  if (runFilters) {
 
-    if (!r) {
-      // load hash only if required
-      r = EvalCtx_Create();
-      EvalCtx_AddHash(r, ctx, key);
-      RSValue *keyRSV = RS_RedisStringVal(key);
-      EvalCtx_Set(r, "__key", keyRSV);
-    }
+    EvalCtx *r = NULL;
+    for (size_t i = 0; i < array_len(res->specsOps); ++i) {
+      SpecOpCtx *specOp = res->specsOps + i;
+      SchemaRule *rule = specOp->spec->rule;
+      if (!rule->filter_exp) {
+        continue;
+      }
 
-    if (EvalCtx_EvalExpr(r, rule->filter_exp) == EXPR_EVAL_OK) {
-      IndexSpec *spec = rule->spec;
-      if (!RSValue_BoolTest(&r->res) && dictFind(specs, spec->name)) {
-        dictDelete(specs, spec->name);
+      if (!r) {
+        // load hash only if required
+        r = EvalCtx_Create();
+        EvalCtx_AddHash(r, ctx, keyToReadData);
+        RSValue *keyRSV = RS_RedisStringVal(key);
+        EvalCtx_Set(r, UNDERSCORE_KEY, keyRSV);
+      }
+
+      if (EvalCtx_EvalExpr(r, rule->filter_exp) == EXPR_EVAL_OK) {
+        IndexSpec *spec = rule->spec;
+        if (!RSValue_BoolTest(&r->res) && dictFind(specs, spec->name)) {
+          specOp->op = SpecOp_Del;
+        }
       }
     }
-  }
 
-  if (r) {
-    EvalCtx_Destroy(r);
+    if (r) {
+      EvalCtx_Destroy(r);
+    }
   }
-
-  return specs;
+  return res;
 }
 
 static bool hashFieldChanged(IndexSpec *spec, RedisModuleString **hashFields) {
@@ -1994,98 +2015,105 @@ static bool hashFieldChanged(IndexSpec *spec, RedisModuleString **hashFields) {
   return false;
 }
 
+void Indexes_SpecOpsIndexingCtxFree(SpecOpIndexingCtx *specs) {
+  dictRelease(specs->specs);
+  array_free(specs->specsOps);
+  rm_free(specs);
+}
+
 void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key,
                                            RedisModuleString **hashFields) {
-  dict *specs = Indexes_FindMatchingSchemaRules(ctx, key);
+  SpecOpIndexingCtx *specs = Indexes_FindMatchingSchemaRules(ctx, key, true, NULL);
 
-  dictIterator *di = dictGetIterator(specs);
-  dictEntry *ent = dictNext(di);
-  while (ent) {
-    IndexSpec *spec = (IndexSpec *)ent->v.val;
-    if (!hashFields || hashFieldChanged(spec, hashFields)) {
-      IndexSpec_UpdateWithHash(spec, ctx, key);
+  for (size_t i = 0; i < array_len(specs->specsOps); ++i) {
+    SpecOpCtx *specOp = specs->specsOps + i;
+    if (!hashFields || hashFieldChanged(specOp->spec, hashFields)) {
+      if (specOp->op == SpecOp_Add) {
+        IndexSpec_UpdateWithHash(specOp->spec, ctx, key);
+      } else {
+        IndexSpec_DeleteHash(specOp->spec, ctx, key);
+      }
     }
-    ent = dictNext(di);
   }
-  dictReleaseIterator(di);
 
-  dictRelease(specs);
+  Indexes_SpecOpsIndexingCtxFree(specs);
 }
 
 void IndexSpec_UpdateMatchingWithSchemaRules(IndexSpec *sp, RedisModuleCtx *ctx,
                                              RedisModuleString *key) {
-  dict *specs = Indexes_FindMatchingSchemaRules(ctx, key);
-  if (!dictFind(specs, sp->name)) {
+  SpecOpIndexingCtx *specs = Indexes_FindMatchingSchemaRules(ctx, key, true, NULL);
+  if (!dictFind(specs->specs, sp->name)) {
     goto end;
   }
 
-  dictIterator *di = dictGetIterator(specs);
-  dictEntry *ent = dictNext(di);
-  while (ent) {
-    IndexSpec *spec = (IndexSpec *)ent->v.val;
-    if (spec == sp) {
-      IndexSpec_UpdateWithHash(spec, ctx, key);
+  for (size_t i = 0; i < array_len(specs->specsOps); ++i) {
+    SpecOpCtx *specOp = specs->specsOps + i;
+    if (specOp->spec == sp) {
+      if (specOp->op == SpecOp_Add) {
+        IndexSpec_UpdateWithHash(specOp->spec, ctx, key);
+      } else {
+        IndexSpec_DeleteHash(specOp->spec, ctx, key);
+      }
     }
-    ent = dictNext(di);
   }
-  dictReleaseIterator(di);
 end:
-  dictRelease(specs);
+  Indexes_SpecOpsIndexingCtxFree(specs);
 }
 
 void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key,
                                            RedisModuleString **hashFields) {
-  dict *specs = Indexes_FindMatchingSchemaRules(ctx, key);
+  SpecOpIndexingCtx *specs = Indexes_FindMatchingSchemaRules(ctx, key, false, NULL);
 
-  dictIterator *di = dictGetIterator(specs);
-  dictEntry *ent = dictNext(di);
-  while (ent) {
-    IndexSpec *spec = (IndexSpec *)ent->v.val;
-    if (!hashFields || hashFieldChanged(spec, hashFields)) {
-      IndexSpec_DeleteHash(spec, ctx, key);
+  for (size_t i = 0; i < array_len(specs->specsOps); ++i) {
+    SpecOpCtx *specOp = specs->specsOps + i;
+    if (!hashFields || hashFieldChanged(specOp->spec, hashFields)) {
+      IndexSpec_DeleteHash(specOp->spec, ctx, key);
     }
-    ent = dictNext(di);
   }
-  dictReleaseIterator(di);
 
-  dictRelease(specs);
+  Indexes_SpecOpsIndexingCtxFree(specs);
 }
 
 void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *from_key,
                                             RedisModuleString *to_key) {
-  dict *from_specs = Indexes_FindMatchingSchemaRules(ctx, from_key);
-  dict *to_specs = Indexes_FindMatchingSchemaRules(ctx, to_key);
+  SpecOpIndexingCtx *from_specs = Indexes_FindMatchingSchemaRules(ctx, from_key, true, to_key);
+  SpecOpIndexingCtx *to_specs = Indexes_FindMatchingSchemaRules(ctx, to_key, true, NULL);
 
   size_t from_len, to_len;
   const char *from_str = RedisModule_StringPtrLen(from_key, &from_len);
   const char *to_str = RedisModule_StringPtrLen(to_key, &to_len);
 
-  dictIterator *di = dictGetIterator(from_specs);
-  dictEntry *ent = dictNext(di);
-  while (ent) {
-    IndexSpec *spec = (IndexSpec *)ent->v.val;
-    if (dictFind(to_specs, spec->name)) {
+  for (size_t i = 0; i < array_len(from_specs->specsOps); ++i) {
+    SpecOpCtx *specOp = from_specs->specsOps + i;
+    IndexSpec *spec = specOp->spec;
+    if (specOp->op == SpecOp_Del) {
+      // the document is not in the index from the first place
+      continue;
+    }
+    dictEntry *entry = dictFind(to_specs->specs, spec->name);
+    if (entry) {
       DocTable_Replace(&spec->docs, from_str, from_len, to_str, to_len);
-      dictDelete(to_specs, spec->name);
+      size_t index = entry->v.u64;
+      dictDelete(to_specs->specs, spec->name);
+      array_del_fast(to_specs->specsOps, index);
     } else {
       IndexSpec_DeleteHash(spec, ctx, from_key);
     }
-    ent = dictNext(di);
   }
-  dictReleaseIterator(di);
-  dictRelease(from_specs);
 
   // add to a different index
-  if (dictSize(to_specs) > 0) {
-    di = dictGetIterator(to_specs);
-    dictEntry *ent = dictNext(di);
-    while (ent) {
-      IndexSpec *spec = (IndexSpec *)ent->v.val;
-      IndexSpec_UpdateWithHash(spec, ctx, to_key);
-      ent = dictNext(di);
+  for (size_t i = 0; i < array_len(to_specs->specsOps); ++i) {
+    SpecOpCtx *specOp = to_specs->specsOps + i;
+    if (specOp->op == SpecOp_Del) {
+      // not need to index
+      // also no need to delete because we know that the document is
+      // not in the index because if it was there we would handle it
+      // on the spec from section.
+      continue;
     }
-    dictReleaseIterator(di);
+    IndexSpec_UpdateWithHash(specOp->spec, ctx, to_key);
   }
-  dictRelease(to_specs);
+  Indexes_SpecOpsIndexingCtxFree(from_specs);
+  Indexes_SpecOpsIndexingCtxFree(to_specs);
 }
 ///////////////////////////////////////////////////////////////////////////////////////////////

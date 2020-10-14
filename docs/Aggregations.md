@@ -64,7 +64,8 @@ country, one would specify `SORTBY 6 firstName ASC lastName DESC country ASC`.
 
 * **query_string**: The base filtering query that retrieves the documents. It follows **the exact same syntax** as the search query, including filters, unions, not, optional, etc.
 
-* **LOAD {nargs} {property} …**: Load document fields from the document HASH objects. This should be avoided as a general rule of thumb. Fields needed for aggregations should be stored as **SORTABLE**, where they are available to the aggregation pipeline with very low latency. LOAD hurts the performance of aggregate queries considerably since every processed record needs to execute the equivalent of HMGET against a redis key, which when executed over millions of keys, amounts to very high processing times. 
+* **LOAD {nargs} {property} …**: Load document fields from the document HASH objects. This should be avoided as a general rule of thumb. Fields needed for aggregations should be stored as **SORTABLE**, where they are available to the aggregation pipeline with very low latency. LOAD hurts the performance of aggregate queries considerably since every processed record needs to execute the equivalent of HMGET against a redis key, which when executed over millions of keys, amounts to very high processing times.
+The document ID can be loaded using `@__key`.
 
 * **GROUPBY {nargs} {property}**: Group the results in the pipeline based on one or more properties. Each group should have at least one reducer (See below), a function that handles the group entries, either counting them or performing multiple aggregate operations (see below).
   
@@ -374,7 +375,8 @@ Note that these operators apply only to numeric values and numeric sub expressio
 | -------------------------------- | ------------------------------------------------------------ | -------------------------------------------------------- |
 | upper(s)                         | Return the uppercase conversion of s                         | `upper('hello world')`                                   |
 | lower(s)                         | Return the lowercase conversion of s                         | `lower("HELLO WORLD")`                                   |
-| substr(s, offset, count)         | Return the substring of s, starting at _offset_ and having _count_ characters. <br />If offset is negative, it represents the distance from the end of the string. <br />If count is -1, it means "the rest of the string starting at offset". | `substr("hello", 0, 3)` <br> `substr("hello", -2, -1)`   |
+| startswith(s1,s2)                | Return `1` if s2 is the prefix of s1, `0` otherwise.         | `startswith(@field, "company")`                          |
+| substr(s, offset, count)         | Return the substring of s, starting at _offset_ and having _count_ characters. <br />If offset is negative, it represents the distance from the end of the string. <br />If count is -1, it means "the rest of the string starting at offset". | `substr("hello", 0, 3)` <br> `substr("hello", -2, -1)`  |
 | format( fmt, ...)                | Use the arguments following `fmt` to format a string. <br />Currently the only format argument supported is `%s` and it applies to all types of arguments. | `format("Hello, %s, you are %s years old", @name, @age)` |
 | matched_terms([max_terms=100])   | Return the query terms that matched for each record (up to 100), as a list. If a limit is specified, we will return the first N matches we find - based on query order. | `matched_terms()`                                        |
 | split(s, [sep=","], [strip=" "]) | Split a string by any character in the string sep, and strip any characters in strip. If only s is specified, we split by commas and strip spaces. The output is an array. | split("foo,bar")                                         |
