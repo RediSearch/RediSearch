@@ -250,6 +250,11 @@ CONFIG_SETTER(setMaxResultsToUnsortedMode) {
   RETURN_STATUS(acrc);
 }
 
+CONFIG_SETTER(setMinUnionIteratorHeap) {
+  int acrc = AC_GetLongLong(ac, &config->minUnionIterHeap, AC_F_GE1);
+  RETURN_STATUS(acrc);
+}
+
 CONFIG_SETTER(setCursorMaxIdle) {
   int acrc = AC_GetLongLong(ac, &config->cursorMaxIdle, AC_F_GE1);
   RETURN_STATUS(acrc);
@@ -273,6 +278,11 @@ CONFIG_GETTER(getForkGcRetryInterval) {
 CONFIG_GETTER(getMaxResultsToUnsortedMode) {
   sds ss = sdsempty();
   return sdscatprintf(ss, "%lld", config->maxResultsToUnsortedMode);
+}
+
+CONFIG_GETTER(getMinUnionIteratorHeap) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%lld", config->minUnionIterHeap);
 }
 
 CONFIG_GETTER(getCursorMaxIdle) {
@@ -540,6 +550,11 @@ RSConfigOptions RSGlobalConfigOptions = {
                      "unsorted mode, should be used for debug only.",
          .setValue = setMaxResultsToUnsortedMode,
          .getValue = getMaxResultsToUnsortedMode},
+        {.name = "UNION_ITERATOR_HEAP",
+         .helpText = "minimum number of interators in a union from which the interator will"
+                     "switch to heap based implementation.",
+         .setValue = setMinUnionIteratorHeap,
+         .getValue = getMinUnionIteratorHeap},
         {.name = "CURSOR_MAX_IDLE",
          .helpText = "max idle time allowed to be set for cursor, setting it hight might cause "
                      "high memory consumption.",
