@@ -91,10 +91,10 @@ static inline void DocTable_Set(DocTable *t, t_docId docId, RSDocumentMetadata *
     t->cap = MIN(t->cap, t->maxSize);  // make sure we do not excised maxSize
     t->cap = MAX(t->cap, bucket + 1);  // docs[bucket] needs to be valid, so t->cap > bucket
     t->buckets = rm_realloc(t->buckets, t->cap * sizeof(DMDChain));
-    for (; oldcap < t->cap; oldcap++) {
-      t->buckets[oldcap].lroot.head = NULL;
-      t->buckets[oldcap].lroot.tail = NULL;
-    }
+    
+    // We clear new extra allocation to Null all list pointers
+    size_t memsetSize = (t->cap - oldcap) * sizeof(DMDChain);
+    memset(&t->buckets[oldcap], 0, memsetSize);
   }
 
   DMDChain *chain = &t->buckets[bucket];
