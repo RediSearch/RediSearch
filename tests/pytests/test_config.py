@@ -99,12 +99,12 @@ def testAllConfig(env):
     env.assertEqual(res_dict['CURSOR_MAX_IDLE'][0], '300000')
     env.assertEqual(res_dict['NO_MEM_POOLS'][0], 'false')
     env.assertEqual(res_dict['PARTIAL_INDEXED_DOCS'][0], 'false')
-    env.assertEqual(res_dict['UNION_ITERATOR_HEAP'][0], '20')
 
     # skip ctest configured tests
     #env.assertEqual(res_dict['GC_POLICY'][0], 'fork')
     #env.assertEqual(res_dict['_MAX_RESULTS_TO_UNSORTED_MODE'][0], '1000')
     #env.assertEqual(res_dict['SAFEMODE'][0], 'true')
+    #env.assertEqual(res_dict['UNION_ITERATOR_HEAP'][0], '20')
 
 def testInitConfig(env):
     # Numeric arguments
