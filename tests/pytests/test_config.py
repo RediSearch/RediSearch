@@ -102,7 +102,6 @@ def testAllConfig(env):
     #env.assertEqual(res_dict['GC_POLICY'][0], 'fork')
     #env.assertEqual(res_dict['_MAX_RESULTS_TO_UNSORTED_MODE'][0], '1000')
     #env.assertEqual(res_dict['SAFEMODE'][0], 'true')
-    #env.assertEqual(res_dict['UNION_ITERATOR_HEAP'][0], '20')
 
 def testInitConfig(env):
     # Numeric arguments
@@ -127,7 +126,6 @@ def testInitConfig(env):
     test_arg_num('FORK_GC_CLEAN_THRESHOLD', 3)
     test_arg_num('FORK_GC_RETRY_INTERVAL', 3)
     test_arg_num('_MAX_RESULTS_TO_UNSORTED_MODE', 3)
-    test_arg_num('UNION_ITERATOR_HEAP', 20)
 
     # True/False arguments
     def test_arg_true(arg_name):
