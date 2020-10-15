@@ -46,3 +46,18 @@ def test_1601(env):
   conn.execute_command('HSET', 'movie:3', 'title', 'Star Wars: Episode III - Revenge of the Sith')
   res = env.cmd('ft.search idx:movie @title:(episode) withscores nocontent')
   env.assertEqual(res[0], 3L)
+
+def testMultiSortby(env):
+  conn = getConnectionByEnv(env)
+  conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 'SORTABLE', 't2', 'TEXT', 'SORTABLE', 't3', 'TEXT', 'SORTABLE')
+  conn.execute_command('FT.ADD', 'idx', '1', '1', 'FIELDS', 't1', 'foo', 't2', 'bar', 't3', 'baz')
+  conn.execute_command('FT.ADD', 'idx', '2', '1', 'FIELDS', 't1', 'bar', 't2', 'foo', 't3', 'baz')
+  sortby_t1 = [2L, '2', '1']
+  sortby_t2 = [2L, '1', '2']
+  env.expect('ft.search idx foo nocontent sortby t1 asc').equal(sortby_t1)
+  env.expect('ft.search idx foo nocontent sortby t2 asc').equal(sortby_t2)
+  env.expect('ft.search idx foo nocontent sortby t1 sortby t3').error()\
+    .contains('Multiple SORTBY steps are not allowed. Sort multiple fields in a single step')
+  #TODO: allow multiple sortby steps
+  #env.expect('ft.search idx foo nocontent sortby t1 sortby t3').equal(sortby_t1)
+  #env.expect('ft.search idx foo nocontent sortby t2 sortby t3').equal(sortby_t2)
