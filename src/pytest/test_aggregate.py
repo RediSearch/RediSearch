@@ -418,6 +418,13 @@ class TestAggregate():
                            'REDUCE', 'COUNT', 1).error()        \
                             .contains('Bad arguments for COUNT: Expected an argument, but none provided')
 
+    def testMultiSortBy(self):
+        self.env.expect('ft.aggregate', 'games', '*',
+                           'LOAD', '2', '@brand', '@price',
+                           'SORTBY', 2, '@brand', 'DESC',
+                           'SORTBY', 2, '@price', 'DESC').error()\
+                            .contains('Multiple SORTBY steps are not allowed. Sort multiple fields in a single step')
+  
     # def testLoadAfterSortBy(self):
     #     with self.env.assertResponseError():
     #         self.env.cmd('ft.aggregate', 'games', '*',
