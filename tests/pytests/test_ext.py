@@ -7,7 +7,7 @@ from RLTest import Env
 if 'EXT_TEST_PATH' in os.environ:
     EXTPATH = os.environ['EXT_TEST_PATH']
 else:
-    EXTPATH = 'src/tests/libexample_extension'
+    EXTPATH = 'tests/ctests/libexample_extension'
     if sys.platform.lower() == 'darwin':
         EXTPATH += '.dylib'
     else:
@@ -16,8 +16,8 @@ else:
 EXTPATH = os.path.abspath(EXTPATH)
 
 # Last ditch effort:
-SRCFILE = os.path.dirname(__file__) + '/../tests/ext-example/example.c'
-INCDIR = os.path.dirname(__file__) + '/../'
+SRCFILE = os.path.dirname(__file__) + '/../ctests/ext-example/example.c'
+INCDIR = os.path.dirname(__file__) + '/../../src/'
 
 if not os.path.exists(EXTPATH):
     EXTPATH = os.path.abspath('libexample_extension.' + ('dylib' if sys.platform.lower() == 'darwin' else 'so'))
@@ -30,7 +30,7 @@ def testExt():
         raise Exception("Path ({}) does not exist. "
             "Run from the build directory or set EXT_TEST_PATH in the environment".format(EXTPATH))
 
-    # extentionPath = os.path.abspath(os.path.dirname(os.path.realpath(__file__)) + '/../tests/ext-example/example.so')
+    # extentionPath = os.path.abspath(os.path.dirname(os.path.realpath(__file__)) + '/../ctests/ext-example/example.so')
     env = Env(moduleArgs='EXTLOAD %s' % EXTPATH)
 
     if env.env == 'existing-env':

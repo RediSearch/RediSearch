@@ -3,7 +3,7 @@ from includes import *
 from common import waitForIndex,toSortedFlatList
 
 
-GENTEXT = os.path.dirname(os.path.abspath(__file__)) + '/../tests/genesis.txt'
+GENTEXT = os.path.dirname(os.path.abspath(__file__)) + '/../ctests/genesis.txt'
 
 
 def setupGenesis(env):
@@ -64,9 +64,10 @@ def testPrefixExpansion(env):
 
     # Prefix expansion uses "early exit" strategy, so the term highlighted won't necessarily be the
     # best term
-    env.assertEqual([1L, 'gen1', [
-                     'txt', 'is] one, and they have all one language; and this they <b>begin</b> to do: and now nothing will be restrained from them, which... ']], res)
-    # env.assertEqual([1L, 'gen1', ['txt', 'First Book of Moses, called Genesis {1:1} In the <b>beginning</b> God created the heaven and the earth. {1:2} And the earth... the mighty hunter before the LORD. {10:10} And the <b>beginning</b> of his kingdom was Babel, and Erech, and Accad, and Calneh... is] one, and they have all one language; and this they <b>begin</b> to do: and now nothing will be restrained from them, which... ']], res)
+    possibilities = [[1L, 'gen1', ['txt', 'is] one, and they have all one language; and this they <b>begin</b> to do: and now nothing will be restrained from them, which... ']],
+                     [1L, 'gen1', ['txt', 'First Book of Moses, called Genesis {1:1} In the <b>beginning</b> God created the heaven and the earth. {1:2} And the earth... the mighty hunter before the LORD. {10:10} And the <b>beginning</b> of his kingdom was Babel, and Erech, and Accad, and Calneh... is] one, and they have all one language; and this they <b>begin</b> to do: and now nothing will be restrained from them, which... ']],
+                     [1L, 'gen1', ['txt', '49:3} Reuben, thou [art] my firstborn, my might, and the <b>beginning of</b> my strength, the excellency of dignity, and the excellency... ']]]
+    env.assertIn(res, possibilities)
 
 def testSummarizationMultiField(env):
     p1 = "Redis is an open-source in-memory database project implementing a networked, in-memory key-value store with optional durability. Redis supports different kinds of abstract data structures, such as strings, lists, maps, sets, sorted sets, hyperloglogs, bitmaps and spatial indexes. The project is mainly developed by Salvatore Sanfilippo and is currently sponsored by Redis Labs.[4] Redis Labs creates and maintains the official Redis Enterprise Pack."
