@@ -34,6 +34,8 @@ def testGetConfigOptions(env):
     assert env.expect('ft.config', 'get', 'FORK_GC_RETRY_INTERVAL').res[0][0] =='FORK_GC_RETRY_INTERVAL'
     assert env.expect('ft.config', 'get', '_MAX_RESULTS_TO_UNSORTED_MODE').res[0][0] =='_MAX_RESULTS_TO_UNSORTED_MODE'
     assert env.expect('ft.config', 'get', 'PARTIAL_INDEXED_DOCS').res[0][0] =='PARTIAL_INDEXED_DOCS'
+    assert env.expect('ft.config', 'get', 'UNION_ITERATOR_HEAP').res[0][0] =='UNION_ITERATOR_HEAP'
+
 '''
 
 Config options test. TODO : Fix 'Success (not an error)' parsing wrong error.
@@ -102,6 +104,7 @@ def testAllConfig(env):
     #env.assertEqual(res_dict['GC_POLICY'][0], 'fork')
     #env.assertEqual(res_dict['_MAX_RESULTS_TO_UNSORTED_MODE'][0], '1000')
     #env.assertEqual(res_dict['SAFEMODE'][0], 'true')
+    #env.assertEqual(res_dict['UNION_ITERATOR_HEAP'][0], '20')
 
 def testInitConfig(env):
     # Numeric arguments
@@ -126,6 +129,7 @@ def testInitConfig(env):
     test_arg_num('FORK_GC_CLEAN_THRESHOLD', 3)
     test_arg_num('FORK_GC_RETRY_INTERVAL', 3)
     test_arg_num('_MAX_RESULTS_TO_UNSORTED_MODE', 3)
+    test_arg_num('UNION_ITERATOR_HEAP', 20)
 
     # True/False arguments
     def test_arg_true(arg_name):
