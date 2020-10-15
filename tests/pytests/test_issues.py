@@ -45,7 +45,7 @@ def test_1601(env):
   conn.execute_command('HSET', 'movie:2', 'title', 'Star Wars: Episodes II - Attack of the Clones')
   conn.execute_command('HSET', 'movie:3', 'title', 'Star Wars: Episode III - Revenge of the Sith')
   res = env.cmd('ft.search idx:movie @title:(episode) withscores nocontent')
-  env.assertEqual(toSortedFlatList(res), toSortedFlatList([3L, 'movie:3', '2', 'movie:1', '2', 'movie:2', '1']))
+  env.assertEqual(res[0], 3L)
 
 def testMultiSortby(env):
   conn = getConnectionByEnv(env)
@@ -61,4 +61,3 @@ def testMultiSortby(env):
   #TODO: allow multiple sortby steps
   #env.expect('ft.search idx foo nocontent sortby t1 sortby t3').equal(sortby_t1)
   #env.expect('ft.search idx foo nocontent sortby t2 sortby t3').equal(sortby_t2)
-
