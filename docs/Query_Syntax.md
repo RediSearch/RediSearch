@@ -9,7 +9,7 @@ We support a simple syntax for complex queries with the following rules:
 * Prefix matches (all terms starting with a prefix) are expressed with a `*`. For performance reasons, a minimum prefix length is enforced (2 by default, but is configurable)
 * A special "wildcard query" that returns all results in the index - `*` (cannot be combined with anything else).
 * Selection of specific fields using the syntax `@field:hello world`.
-* Numeric Range matches on numeric fields with the syntax `@field:[{min} {max}]`.
+* Numeric Range matches on numeric fields with the syntax `@field:[{num}]` or `@field:[{min} {max}]`.
 * Geo radius matches on geo fields with the syntax `@field:[{lon} {lat} {radius} {m|km|mi|ft}]`
 * Tag field filters with the syntax `@field:{tag | tag | ...}`. See the full documentation on [tag fields|/Tags].
 * Optional terms or clauses: `foo ~bar` means bar is optional but documents with bar in them will rank higher.
@@ -51,7 +51,7 @@ This will search for documents that have "hello world" either in the body or the
 
 ## Numeric filters in query
 
-If a field in the schema is defined as NUMERIC, it is possible to either use the FILTER argument in the Redis request or filter with it by specifying filtering rules in the query. The syntax is `@field:[{min} {max}]` - e.g. `@price:[100 200]`.
+If a field in the schema is defined as NUMERIC, it is possible to either use the FILTER argument in the Redis request or filter with it by specifying filtering rules in the query. The syntax is `@field:[{num}]` or `@field:[{min} {max}]` - e.g. `@price:[42]` or `@price:[100 200]`.
 
 ### A few notes on numeric predicates
 

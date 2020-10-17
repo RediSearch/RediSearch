@@ -1378,6 +1378,15 @@ def testNumericRange(env):
             'ft.search', 'idx', 'hello kitty @score:[-inf +inf]', "nocontent")
         env.assertEqual(100, res[0])
 
+def testNumericExact(env):
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE idx SCHEMA n NUMERIC').ok()
+    conn.execute_command('HSET', 'doc1', 'n', '2.9')
+    conn.execute_command('HSET', 'doc2', 'n', '3.0')
+    conn.execute_command('HSET', 'doc3', 'n', '3.1')
+
+    env.expect('FT.SEARCH idx @n:[3]').equal([1L, 'doc2', ['n', '3.0']])
+
 def testSuggestions(env):
     r = env
     r.expect('ft.SUGADD', 'ac', 'hello world', 1).equal(1)

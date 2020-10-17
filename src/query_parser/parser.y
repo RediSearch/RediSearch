@@ -516,6 +516,10 @@ numeric_range(A) ::= LSQB num(B) num(C) RSQB. [NUMBER] {
     A = NewNumericFilter(B.num, C.num, B.inclusive, C.inclusive);
 }
 
+numeric_range(A) ::= LSQB num(B) RSQB. [NUMBER] {
+    A = NewNumericFilter(B.num, B.num, 1, 1);
+}
+
 /////////////////////////////////////////////////////////////////
 // Geo Filters
 /////////////////////////////////////////////////////////////////
