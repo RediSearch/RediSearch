@@ -1,6 +1,6 @@
 <img src="img/logo.svg" alt="logo" width="200"/>
 
-# RediSearch - Redis Powered Search Engine
+# RediSearch - Redis Secondary Index & Query Engine
 [![Forum](https://img.shields.io/badge/Forum-RediSearch-blue)](https://forum.redislabs.com/c/modules/redisearch/)
 [![Gitter](https://badges.gitter.im/RedisLabs/RediSearch.svg)](https://gitter.im/RedisLabs/RediSearch?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge)
 
