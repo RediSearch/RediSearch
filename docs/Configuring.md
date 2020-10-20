@@ -157,6 +157,8 @@ The maximum number of expansions we allow for query prefixes. Setting it too hig
 $ redis-server --loadmodule ./redisearch.so MAXPREFIXEXPANSIONS 1000
 ```
 !!! Note "MAXPREFIXEXPANSIONS replaces the deprecated config word MAXEXPANSIONS."
+    
+    RediSearch considers these two configurations as synonyms.  The synonym was added to be more descriptive.
 
 
 ---
