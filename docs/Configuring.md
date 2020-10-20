@@ -143,9 +143,9 @@ $ redis-server --loadmodule ./redisearch.so MINPREFIX 3
 
 ---
 
-## MAXEXPANSIONS
+## MAXPREFIXEXPANSIONS
 
-The maximum number of expansions we allow for query prefixes. Setting it too high can cause performance issues.
+The maximum number of expansions we allow for query prefixes. Setting it too high can cause performance issues. If MAXPREFIXEXPANSIONS is reached, the query will continue with the first acquired results.
 
 ### Default
 
@@ -154,8 +154,12 @@ The maximum number of expansions we allow for query prefixes. Setting it too hig
 ### Example
 
 ```
-$ redis-server --loadmodule ./redisearch.so MAXEXPANSIONS 1000
+$ redis-server --loadmodule ./redisearch.so MAXPREFIXEXPANSIONS 1000
 ```
+!!! Note "MAXPREFIXEXPANSIONS replaces the deprecated config word MAXEXPANSIONS."
+    
+    RediSearch considers these two configurations as synonyms.  The synonym was added to be more descriptive.
+
 
 ---
 
