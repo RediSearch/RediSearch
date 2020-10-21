@@ -8,7 +8,7 @@
 
 # RediSearch
 
-### Full-Text search over Redis by RedisLabs
+## Secondary Index, Query Engine & Full-Text search over Redis by RedisLabs
 <img src="docs/img/logo.svg" alt="logo" width="300"/>
 
 ### See Full Documentation at [https://oss.redislabs.com/redisearch/](https://oss.redislabs.com/redisearch/)

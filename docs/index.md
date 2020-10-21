@@ -1,10 +1,10 @@
 <img src="img/logo.svg" alt="logo" width="200"/>
 
-# RediSearch - Redis Powered Search Engine
+# RediSearch - Redis Secondary Index & Query Engine
 [![Forum](https://img.shields.io/badge/Forum-RediSearch-blue)](https://forum.redislabs.com/c/modules/redisearch/)
 [![Discord](https://img.shields.io/discord/697882427875393627?style=flat-square)](https://discord.gg/xTbqgTB)
 
-RediSearch is a source available Full-Text and Secondary Index engine over Redis, developed by [Redis Labs](http://redislabs.com). 
+RediSearch is a source available Secondary Index, Query Engine and Full-Text Search over Redis, developed by [Redis Labs](http://redislabs.com). 
 
 !!! note "Quick Links:"
     * [Source Code at GitHub](https://github.com/RediSearch/RediSearch).
@@ -20,11 +20,11 @@ RediSearch is a source available Full-Text and Secondary Index engine over Redis
 
 ## Overview
 
-Redisearch implements a search engine on top of Redis, but unlike other Redis 
-search libraries, it does not use internal data structures like sorted sets.
+Redisearch implements a secondery index on top of Redis, but unlike other Redis 
+indexing libraries, it does not use internal data structures like sorted sets.
 
-This also enables more advanced features, like exact phrase matching and numeric filtering for text queries, 
-that are not possible or efficient with traditional Redis search approaches.
+This also enables more advanced features, like multi fields query, aggregation and full text search capabilites like
+exact phrase matching and numeric filtering for text queries, that are not possible or efficient with traditional Redis indexing approaches.
 
 ## Client Libraries
 
@@ -38,6 +38,9 @@ RediSearch has a distributed cluster version that can scale to billions of docum
 
 ## Primary Features
 
+* Secondery Index 
+* Multi fields query
+* Aggregation 
 * Full-Text indexing of multiple fields in documents.
 * Incremental indexing without performance loss.
 * Document ranking (provided manually by the user at index time).
