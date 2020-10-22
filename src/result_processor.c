@@ -409,7 +409,7 @@ static inline int cmpByScore(const void *e1, const void *e2, const void *udata) 
   } else if (h1->score > h2->score) {
     return 1;
   }
-  return h1->docId < h2->docId ? -1 : 1;
+  return h1->docId > h2->docId ? -1 : 1;
 }
 
 /* Compare results for the heap by sorting key */
@@ -450,7 +450,7 @@ static int cmpByFields(const void *e1, const void *e2, const void *udata) {
     if (rc != 0) return ascending ? -rc : rc;
   }
 
-  int rc = h1->docId < h2->docId ? -1 : 1;
+  int rc = h1->docId > h2->docId ? -1 : 1;
   return ascending ? -rc : rc;
 }
 

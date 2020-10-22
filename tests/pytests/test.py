@@ -87,7 +87,7 @@ def testUnionIdList(env):
 
     res = r.execute_command(
         'ft.search', 'test', "@waypoint:[-113.52 53.52 20 mi]|@tags:{ontario}", 'nocontent')
-    env.assertEqual(res, [2, '2', '1'])
+    env.assertEqual(res, [2L, '1', '2'])
 
 def testAttributes(env):
     env.assertOk(env.cmd('ft.create', 'idx','ON', 'HASH',
@@ -529,17 +529,18 @@ def testOptional(env):
     env.assertOk(r.execute_command('ft.add', 'idx', 'doc3',
                                     1.0, 'fields', 'foo', 'hello world werld'))
 
+    expected = [3L, 'doc1', 'doc2', 'doc3']
     res = r.execute_command('ft.search', 'idx', 'hello', 'nocontent')
-    env.assertEqual([3L, 'doc3', 'doc2', 'doc1'], res)
+    env.assertEqual(res, expected)
     res = r.execute_command(
         'ft.search', 'idx', 'hello world', 'nocontent', 'scorer', 'DISMAX')
-    env.assertEqual([2L, 'doc3', 'doc2'], res)
+    env.assertEqual([2L, 'doc2', 'doc3'], res)
     res = r.execute_command(
         'ft.search', 'idx', 'hello ~world', 'nocontent', 'scorer', 'DISMAX')
-    env.assertEqual([3L, 'doc3', 'doc2', 'doc1'], res)
+    env.assertEqual(res, expected)
     res = r.execute_command(
         'ft.search', 'idx', 'hello ~world ~werld', 'nocontent', 'scorer', 'DISMAX')
-    env.assertEqual([3L, 'doc3', 'doc2', 'doc1'], res)
+    env.assertEqual(res, expected)
     res = r.execute_command(
         'ft.search', 'idx', '~world ~werld hello', 'nocontent', 'scorer', 'DISMAX')
     env.assertEqual([3L, 'doc3', 'doc2', 'doc1'], res)
@@ -1612,7 +1613,8 @@ def _test_create_options_real(env, *options):
     if has_offsets:
         docname = res[1]
         if has_freqs:
-            env.assertEqual('doc200', docname)
+            # changed in minminheap PR. TODO: remove
+            env.assertEqual('doc100', docname)
         else:
             env.assertEqual('doc100', docname)
 
@@ -3021,7 +3023,7 @@ def testIssue1208(env):
     env.cmd('FT.ADD idx doc3 1 FIELDS n 0.0011')
     env.expect('FT.SEARCH', 'idx', '@n:[1.1432E3 inf]').equal([1L, 'doc1', ['n', '1.0321e5']])
     env.expect('FT.SEARCH', 'idx', '@n:[-1.12E-3 1.12E-1]').equal([1L, 'doc3', ['n', '0.0011']])
-    res = [3L, 'doc3', ['n', '0.0011'], 'doc2', ['n', '101.11'], 'doc1', ['n', '1.0321e5']]
+    res = [3L, 'doc1', ['n', '1.0321e5'], 'doc2', ['n', '101.11'], 'doc3', ['n', '0.0011']]
     env.expect('FT.SEARCH', 'idx', '@n:[-inf inf]').equal(res)
 
     env.expect('FT.ADD idx doc3 1 REPLACE PARTIAL IF @n>42e3 FIELDS n 100').equal('NOADD')
@@ -3201,7 +3203,7 @@ def testEmptyDoc(env):
     env.expect('FT.SEARCH idx * limit 0 0').equal([4])
     conn.execute_command('DEL', 'doc1')
     conn.execute_command('DEL', 'doc3')
-    env.expect('FT.SEARCH idx *').equal([2L, 'doc4', ['t', 'foo'], 'doc2', ['t', 'foo']])
+    env.expect('FT.SEARCH idx *').equal([2L, 'doc2', ['t', 'foo'], 'doc4', ['t', 'foo']])
 
 def testRED47209(env):
     conn = getConnectionByEnv(env)
