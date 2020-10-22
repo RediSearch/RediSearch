@@ -62,7 +62,7 @@ RediSearch has a distributed cluster version that can scale to billions of docum
 
 ## References
 ### Videos
-1. [RediSearch? - RedisConf 2020] (https://youtu.be/9R29LLWquME)
+1. [RediSearch? - RedisConf 2020](https://youtu.be/9R29LLWquME)
 1. [RediSearch Overview - RedisConf 2019](https://youtu.be/AwnEhr9BO74) 
 1. [RediSearch & CRDT - Redis Day Tel Aviv 2019](https://youtu.be/OGC6Mx9E3jU)
 
