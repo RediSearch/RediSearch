@@ -6,7 +6,7 @@ Learn about RediSearch using this [Getting Started Tutorial](https://github.com/
 
 ## Redis Cloud
 
-RediSearch is available on all Redis Cloud managed services.  Redis Cloud Essentials offers a completely free managed databases up to 30MB.
+RediSearch is available on all Redis Cloud managed services.  Redis Cloud Essentials offers a completely free managed database up to 30MB.
 
 [Get started here](https://redislabs.com/try-free/)
 
