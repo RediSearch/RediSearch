@@ -88,7 +88,7 @@ def testAllConfig(env):
     env.assertEqual(res_dict['MAXSEARCHRESULTS'][0], '1000000')
     env.assertEqual(res_dict['MAXEXPANSIONS'][0], '200')
     env.assertEqual(res_dict['MAXPREFIXEXPANSIONS'][0], '200')
-    env.assertEqual(res_dict['TIMEOUT'][0], '500')
+    env.assertIn(res_dict['TIMEOUT'][0], ['500', '100000'])
     env.assertEqual(res_dict['INDEX_THREADS'][0], '8')
     env.assertEqual(res_dict['SEARCH_THREADS'][0], '20')
     env.assertEqual(res_dict['FRISOINI'][0], None)
