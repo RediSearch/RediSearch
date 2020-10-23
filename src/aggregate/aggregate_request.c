@@ -146,18 +146,6 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
     if ((parseSortby(arng, ac, status, req->reqflags & QEXEC_F_IS_SEARCH)) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
-  } else if (AC_AdvanceIfMatch(ac, "ON_TIMEOUT")) {
-    if (AC_NumRemaining(ac) < 1) {
-      QueryError_SetError(status, QUERY_EPARSEARGS, "Need argument for ON_TIMEOUT");
-      return ARG_ERROR;
-    }
-    const char *policystr = AC_GetStringNC(ac, NULL);
-    req->tmoPolicy = TimeoutPolicy_Parse(policystr, strlen(policystr));
-    if (req->tmoPolicy == TimeoutPolicy_Invalid) {
-      QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "'%s' is not a valid timeout policy",
-                             policystr);
-      return ARG_ERROR;
-    }
   } else if (AC_AdvanceIfMatch(ac, "WITHCURSOR")) {
     if (parseCursorSettings(req, ac, status) != REDISMODULE_OK) {
       return ARG_ERROR;
@@ -952,7 +940,7 @@ static void buildImplicitPipeline(AREQ *req, QueryError *Status) {
 
   RLookup_Init(first, cache);
 
-  ResultProcessor *rp = RPIndexIterator_New(req->rootiter);
+  ResultProcessor *rp = RPIndexIterator_New(req->rootiter, req->timeoutTime);
   ResultProcessor *rpUpstream = NULL;
   req->qiter.rootProc = req->qiter.endProc = rp;
   PUSH_RP();

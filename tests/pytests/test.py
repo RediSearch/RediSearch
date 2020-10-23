@@ -2099,12 +2099,14 @@ def testIssue446(env):
     rv = env.cmd('ft.search', 'myIdx', 'hello', 'limit', '0', '0')
     env.assertEqual([2], rv)
 
-
-def testTimeoutSettings(env):
-    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 't1', 'text')
-    env.expect('ft.search', 'idx', '*', 'ON_TIMEOUT', 'BLAHBLAH').raiseError()
-    env.expect('ft.search', 'idx', '*', 'ON_TIMEOUT', 'RETURN').notRaiseError()
-    env.expect('ft.search', 'idx', '*', 'ON_TIMEOUT', 'FAIL').notRaiseError()
+def testTimeout(env):
+    num_range = 1000
+    env.cmd('ft.config', 'set', 'timeout', '1')
+    env.cmd('ft.create', 'myIdx', 'schema', 't', 'TEXT')
+    for i in range(num_range):
+        env.expect('HSET', 'doc%d'%i, 't', 'aa' + str(i))
+    env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', num_range) \
+                .contains('Timeout limit was reached')
 
 def testAlias(env):
     conn = getConnectionByEnv(env)

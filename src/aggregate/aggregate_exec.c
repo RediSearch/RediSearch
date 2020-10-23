@@ -161,8 +161,18 @@ static int sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
   RedisModule_ReplyWithArray(outctx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
   rc = rp->Next(rp, &r);
-  RedisModule_ReplyWithLongLong(outctx, req->qiter.totalResults);
+  if (rc == RS_RESULT_TIMEDOUT && TimedOut(req->timeoutTime) == RS_RESULT_TIMEDOUT) {
+    if (!(req->reqflags & QEXEC_F_IS_CURSOR)) {
+      RedisModule_ReplyWithSimpleString(outctx, "Timeout limit was reached");
+    } else {
+      rc = RS_RESULT_OK;
+      RedisModule_ReplyWithLongLong(outctx, req->qiter.totalResults);
+    }
+  } else {
+    RedisModule_ReplyWithLongLong(outctx, req->qiter.totalResults);
+  }
   nelem++;
+
   if (rc == RS_RESULT_OK && nrows++ < limit && !(req->reqflags & QEXEC_F_NOROWS)) {
     nelem += serializeResult(req, outctx, &r, &cv);
   } else if (rc == RS_RESULT_ERROR) {
@@ -213,6 +223,14 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     (*r)->reqflags |= QEXEC_F_IS_SEARCH;
   }
 
+  // Save time when query was initiated
+  struct timespec now;
+  struct timespec timeout = {.tv_nsec = ((RSGlobalConfig.queryTimeoutMS % 1000) * 1000000),
+                             .tv_sec = RSGlobalConfig.queryTimeoutMS / 1000 };
+  clock_gettime(CLOCK_MONOTONIC_RAW, &now);
+  timeradd(&now, &timeout, &(*r)->timeoutTime);
+  //printf("sec %ld ms %ld\n", now.tv_sec, now.tv_nsec);
+  
   if (AREQ_Compile(*r, argv + 2, argc - 2, status) != REDISMODULE_OK) {
     RS_LOG_ASSERT(QueryError_HasError(status), "Query has error");
     goto done;
