@@ -161,7 +161,7 @@ static int sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
   RedisModule_ReplyWithArray(outctx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
   rc = rp->Next(rp, &r);
-  if (rc == RS_RESULT_TIMEDOUT && TimedOut(req->timeoutTime) == RS_RESULT_TIMEDOUT) {
+  if (rc == RS_RESULT_TIMEDOUT) {
     if (!(req->reqflags & QEXEC_F_IS_CURSOR)) {
       RedisModule_ReplyWithSimpleString(outctx, "Timeout limit was reached");
     } else {
@@ -222,14 +222,6 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   if (type == COMMAND_SEARCH) {
     (*r)->reqflags |= QEXEC_F_IS_SEARCH;
   }
-
-  // Save time when query was initiated
-  struct timespec now;
-  struct timespec timeout = {.tv_nsec = ((RSGlobalConfig.queryTimeoutMS % 1000) * 1000000),
-                             .tv_sec = RSGlobalConfig.queryTimeoutMS / 1000 };
-  clock_gettime(CLOCK_MONOTONIC_RAW, &now);
-  timeradd(&now, &timeout, &(*r)->timeoutTime);
-  //printf("sec %ld ms %ld\n", now.tv_sec, now.tv_nsec);
   
   if (AREQ_Compile(*r, argv + 2, argc - 2, status) != REDISMODULE_OK) {
     RS_LOG_ASSERT(QueryError_HasError(status), "Query has error");
@@ -248,6 +240,15 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     QueryError_SetErrorFmt(status, QUERY_ENOINDEX, "%s: no such index", indexname);
     goto done;
   }
+
+  // Save time when query was initiated
+  struct timespec now;
+  int32_t queryTimeoutMS = (*r)->reqTimeout ? (*r)->reqTimeout : RSGlobalConfig.queryTimeoutMS;
+  struct timespec timeout = {.tv_nsec = ((queryTimeoutMS % 1000) * 1000000),
+                             .tv_sec = queryTimeoutMS / 1000 };
+  clock_gettime(CLOCK_MONOTONIC_RAW, &now);
+  timeradd(&now, &timeout, &(*r)->timeoutTime);
+  //printf("sec %ld ms %ld\n", now.tv_sec, now.tv_nsec);
 
   rc = AREQ_ApplyContext(*r, sctx, status);
   thctx = NULL;

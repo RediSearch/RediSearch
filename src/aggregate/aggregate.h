@@ -91,6 +91,7 @@ typedef struct {
   uint32_t stateflags;
 
   /** Query timeout in milliseconds */
+  int32_t reqTimeout;
   struct timespec timeoutTime;
 
   /** Cursor settings */

@@ -146,6 +146,15 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
     if ((parseSortby(arng, ac, status, req->reqflags & QEXEC_F_IS_SEARCH)) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
+  } else if (AC_AdvanceIfMatch(ac, "TIMEOUT")) {	
+    if (AC_NumRemaining(ac) < 1) {	
+      QueryError_SetError(status, QUERY_EPARSEARGS, "Need argument for ON_TIMEOUT");	
+      return ARG_ERROR;	
+    }	
+    if (AC_GetInt(ac, &req->reqTimeout, AC_F_GE1) != AC_OK) {	
+      QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "TIMEOUT requires a positive integer");	
+      return ARG_ERROR;	
+    }
   } else if (AC_AdvanceIfMatch(ac, "WITHCURSOR")) {
     if (parseCursorSettings(req, ac, status) != REDISMODULE_OK) {
       return ARG_ERROR;

@@ -2102,11 +2102,16 @@ def testIssue446(env):
 def testTimeout(env):
     num_range = 1000
     env.cmd('ft.config', 'set', 'timeout', '1')
+    env.cmd('ft.config', 'set', 'maxprefixexpansions', num_range)
     env.cmd('ft.create', 'myIdx', 'schema', 't', 'TEXT')
     for i in range(num_range):
         env.expect('HSET', 'doc%d'%i, 't', 'aa' + str(i))
-    env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', num_range) \
+
+    env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*') \
                 .contains('Timeout limit was reached')
+
+    res = env.cmd('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', 1000)
+    env.assertEqual(res[0], num_range)
 
 def testAlias(env):
     conn = getConnectionByEnv(env)
