@@ -222,7 +222,7 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   if (type == COMMAND_SEARCH) {
     (*r)->reqflags |= QEXEC_F_IS_SEARCH;
   }
-  
+
   if (AREQ_Compile(*r, argv + 2, argc - 2, status) != REDISMODULE_OK) {
     RS_LOG_ASSERT(QueryError_HasError(status), "Query has error");
     goto done;

@@ -212,20 +212,17 @@ void RP_DumpChain(const ResultProcessor *rp);
  *            Timeout API
  ****************************************/
 
-# define timercmp(a, b, CMP) 						                \
-  (((a)->tv_sec == (b)->tv_sec) 					              \
-   ? ((a)->tv_nsec CMP (b)->tv_nsec) 					          \
-   : ((a)->tv_sec CMP (b)->tv_sec))
+#define timercmp(a, b, CMP) \
+  (((a)->tv_sec == (b)->tv_sec) ? ((a)->tv_nsec CMP(b)->tv_nsec) : ((a)->tv_sec CMP(b)->tv_sec))
 
-# define timeradd(a, b, result)						              \
-  do {									                                \
-    (result)->tv_sec = (a)->tv_sec + (b)->tv_sec;			  \
-    (result)->tv_nsec = (a)->tv_nsec + (b)->tv_nsec;		\
-    if ((result)->tv_nsec >= 1000000000)					      \
-      {									                                \
-	++(result)->tv_sec;						                        \
-	(result)->tv_nsec -= 1000000000;					            \
-      }									                                \
+#define timeradd(a, b, result)                       \
+  do {                                               \
+    (result)->tv_sec = (a)->tv_sec + (b)->tv_sec;    \
+    (result)->tv_nsec = (a)->tv_nsec + (b)->tv_nsec; \
+    if ((result)->tv_nsec >= 1000000000) {           \
+      ++(result)->tv_sec;                            \
+      (result)->tv_nsec -= 1000000000;               \
+    }                                                \
   } while (0)
 
 static inline int TimedOut(struct timespec timeout) {
