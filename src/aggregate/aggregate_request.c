@@ -148,7 +148,7 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
     }
   } else if (AC_AdvanceIfMatch(ac, "TIMEOUT")) {	
     if (AC_NumRemaining(ac) < 1) {	
-      QueryError_SetError(status, QUERY_EPARSEARGS, "Need argument for ON_TIMEOUT");	
+      QueryError_SetError(status, QUERY_EPARSEARGS, "Need argument for TIMEOUT");	
       return ARG_ERROR;	
     }	
     if (AC_GetInt(ac, &req->reqTimeout, AC_F_GE1) != AC_OK) {	
