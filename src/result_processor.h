@@ -226,17 +226,26 @@ void RP_DumpChain(const ResultProcessor *rp);
   } while (0)
 
 static inline int TimedOut(struct timespec timeout) {
-  if (RSGlobalConfig.queryTimeoutMS > 0) {
-    // Check the elapsed processing time
-    static struct timespec now;
-    clock_gettime(CLOCK_MONOTONIC_RAW, &now);
+  // Check the elapsed processing time
+  static struct timespec now;
+  clock_gettime(CLOCK_MONOTONIC_RAW, &now);
 
-    if (timercmp(&now, &timeout, >=)) {
-      return RS_RESULT_TIMEDOUT;
-    }
+  if (__builtin_expect(timercmp(&now, &timeout, >=), 0)) {
+    return RS_RESULT_TIMEDOUT;
   }
   return RS_RESULT_OK;
 }
+
+static inline void updateTimeout(struct timespec *timeout, int32_t durationNS) {
+  struct timespec now;
+  struct timespec duration = {.tv_nsec = ((durationNS % 1000) * 1000000),
+                             .tv_sec = durationNS / 1000 };
+  clock_gettime(CLOCK_MONOTONIC_RAW, &now);
+  timeradd(&now, &duration, timeout);
+  //printf("sec %ld ms %ld\n", now.tv_sec, now.tv_nsec);
+}
+
+void updateRPIndexTimeout(ResultProcessor *base, struct timespec timeout);
 
 #ifdef __cplusplus
 }

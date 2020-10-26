@@ -2113,8 +2113,20 @@ def testTimeout(env):
     res = env.cmd('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', 1000)
     env.assertEqual(res[0], num_range)
 
+    # test erroneous params
     env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', -1).error()
     env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', 'STR').error()
+
+    # test cursor
+    res = env.cmd('FT.AGGREGATE', 'myIdx', 'aa*', 'WITHCURSOR', 'count', 50, 'timeout', 1)
+    l = len(res[0]) - 1 # do not count the number of results (the first element in the results)
+    cursor = res[1]
+
+    time.sleep(0.01)
+    while cursor != 0:
+        r, cursor = env.cmd('FT.CURSOR', 'READ', 'myIdx', str(cursor))
+        l += (len(r) - 1)
+    env.assertEqual(l, 1000) 
 
 def testAlias(env):
     conn = getConnectionByEnv(env)

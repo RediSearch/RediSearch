@@ -242,13 +242,10 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   }
 
   // Save time when query was initiated
-  struct timespec now;
-  int32_t queryTimeoutMS = (*r)->reqTimeout ? (*r)->reqTimeout : RSGlobalConfig.queryTimeoutMS;
-  struct timespec timeout = {.tv_nsec = ((queryTimeoutMS % 1000) * 1000000),
-                             .tv_sec = queryTimeoutMS / 1000 };
-  clock_gettime(CLOCK_MONOTONIC_RAW, &now);
-  timeradd(&now, &timeout, &(*r)->timeoutTime);
-  //printf("sec %ld ms %ld\n", now.tv_sec, now.tv_nsec);
+  if (!(*r)->reqTimeout) {
+    (*r)->reqTimeout = RSGlobalConfig.queryTimeoutMS;
+  }
+  updateTimeout(&(*r)->timeoutTime, (*r)->reqTimeout);
 
   rc = AREQ_ApplyContext(*r, sctx, status);
   thctx = NULL;
@@ -336,6 +333,11 @@ int AREQ_StartCursor(AREQ *r, RedisModuleCtx *outctx, const char *lookupName, Qu
 
 static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num) {
   AREQ *req = cursor->execState;
+  
+  // update timeout for cursor
+  updateTimeout(&req->timeoutTime, req->reqTimeout);
+  updateRPIndexTimeout(req->qiter.rootProc, req->timeoutTime);
+
   if (!num) {
     num = req->cursorChunkSize;
     if (!num) {
