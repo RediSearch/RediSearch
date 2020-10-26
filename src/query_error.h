@@ -1,14 +1,15 @@
-#ifndef QUERY_ERROR_H
-#define QUERY_ERROR_H
+
+#pragma once
+
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
 #include <stdio.h>
-#include <rmutil/args.h>
+#include <stdexcept>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+#include "rmutil/args.h"
+
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 #define QUERY_XERRS(X)                                                          \
   X(QUERY_EGENERIC, "Generic error evaluating the query")                       \
@@ -53,10 +54,10 @@ typedef enum {
 #undef X
 } QueryErrorCode;
 
-typedef struct QueryError {
+struct QueryError {
   QueryErrorCode code;
   char *detail;
-} QueryError;
+};
 
 /** Initialize QueryError object */
 void QueryError_Init(QueryError *qerr);
@@ -144,7 +145,12 @@ static inline int QueryError_HasError(const QueryError *status) {
 
 void QueryError_MaybeSetCode(QueryError *status, QueryErrorCode code);
 
-#ifdef __cplusplus
-}
-#endif
-#endif  // QUERY_ERROR_H
+//---------------------------------------------------------------------------------------------
+
+class Error : public std::runtime_error {
+public:
+	Error(const char *err) : std::runtime_error(err) {}
+  Error(QueryError *err) : std::runtime_error(err ? err->detail : "Query error") {}
+};
+
+///////////////////////////////////////////////////////////////////////////////////////////////

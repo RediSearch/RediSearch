@@ -443,7 +443,7 @@ TEST_F(IndexTest, testNumericInverted) {
   }
   ASSERT_EQ(75, idx->lastId);
 
-  // printf("written %zd bytes\n", IndexBlock_DataLen(&idx->blocks[0]));
+  // printf("written %zd bytes\n", idx->blocks[0]->DataLen());
 
   IndexReader *ir = NewNumericReader(NULL, idx, NULL);
   IndexIterator *it = NewReadIterator(ir);

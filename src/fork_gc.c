@@ -190,7 +190,7 @@ typedef struct {
 /**
  * headerCallback and hdrarg are invoked before the inverted index is sent, only
  * iff the inverted index was repaired.
- * RepairCallback and its argument are passed directly to IndexBlock_Repair; see
+ * RepairCallback and its argument are passed directly to IndexBlock::Repair; see
  * that function for more details.
  */
 static bool FGC_childRepairInvidx(ForkGC *gc, RedisSearchCtx *sctx, InvertedIndex *idx,
@@ -219,7 +219,7 @@ static bool FGC_childRepairInvidx(ForkGC *gc, RedisSearchCtx *sctx, InvertedInde
     // Capture the pointer address before the block is cleared; otherwise
     // the pointer might be freed!
     void *bufptr = blk->buf.data;
-    int nrepaired = IndexBlock_Repair(blk, &sctx->spec->docs, idx->flags, params);
+    int nrepaired = blk->Repair(&sctx->spec->docs, idx->flags, params);
     // We couldn't repair the block - return 0
     if (nrepaired == -1) {
       goto done;
@@ -272,7 +272,7 @@ static bool FGC_childRepairInvidx(ForkGC *gc, RedisSearchCtx *sctx, InvertedInde
     const MSG_RepairedBlock *msg = fixed + i;
     const IndexBlock *blk = blocklist + msg->newix;
     FGC_sendFixed(gc, msg, sizeof(*msg));
-    FGC_sendBuffer(gc, IndexBlock_DataBuf(blk), IndexBlock_DataLen(blk));
+    FGC_sendBuffer(gc, blk->DataBuf(), blk->DataLen());
   }
   rv = true;
 
@@ -619,7 +619,7 @@ static void checkLastBlock(ForkGC *gc, InvIdxBuffers *idxData, MSG_IndexInfo *in
 
     // we need to remove it from changedBlocks
     MSG_RepairedBlock *rb = idxData->changedBlocks + info->nblocksRepaired - 1;
-    indexBlock_Free(&rb->blk);
+    rb->blk.~IndexBlock();
     info->nblocksRepaired--;
 
     // Then add it to newBlocklist if newBlocklist is not NULL.
@@ -644,7 +644,7 @@ static void FGC_applyInvertedIndex(ForkGC *gc, InvIdxBuffers *idxData, MSG_Index
   checkLastBlock(gc, idxData, info, idx);
   for (size_t i = 0; i < info->nblocksRepaired; ++i) {
     MSG_RepairedBlock *blockModified = idxData->changedBlocks + i;
-    indexBlock_Free(&idx->blocks[blockModified->oldix]);
+    idx->blocks[blockModified->oldix].~IndexBlock();
   }
   for (size_t i = 0; i < idxData->numDelBlocks; ++i) {
     // Blocks that were deleted entirely:

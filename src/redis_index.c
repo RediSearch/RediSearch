@@ -67,8 +67,8 @@ void InvertedIndex_RdbSave(RedisModuleIO *rdb, void *value) {
   RedisModule_SaveUnsigned(rdb, idx->numDocs);
   uint32_t readSize = 0;
   for (uint32_t i = 0; i < idx->size; i++) {
-    IndexBlock *blk = &idx->blocks[i];
-    if (blk->numDocs == 0) {
+    IndexBlock &blk = idx->blocks[i];
+    if (blk.numDocs == 0) {
       continue;
     }
     ++readSize;
@@ -76,15 +76,15 @@ void InvertedIndex_RdbSave(RedisModuleIO *rdb, void *value) {
   RedisModule_SaveUnsigned(rdb, readSize);
 
   for (uint32_t i = 0; i < idx->size; i++) {
-    IndexBlock *blk = &idx->blocks[i];
+    IndexBlock &blk = idx->blocks[i];
     if (blk->numDocs == 0) {
       continue;
     }
-    RedisModule_SaveUnsigned(rdb, blk->firstId);
-    RedisModule_SaveUnsigned(rdb, blk->lastId);
-    RedisModule_SaveUnsigned(rdb, blk->numDocs);
-    if (IndexBlock_DataLen(blk)) {
-      RedisModule_SaveStringBuffer(rdb, IndexBlock_DataBuf(blk), IndexBlock_DataLen(blk));
+    RedisModule_SaveUnsigned(rdb, blk.firstId);
+    RedisModule_SaveUnsigned(rdb, blk.lastId);
+    RedisModule_SaveUnsigned(rdb, blk.numDocs);
+    if (blk.DataLen()) {
+      RedisModule_SaveStringBuffer(rdb, blk.DataBuf(), blk.DataLen());
     } else {
       RedisModule_SaveStringBuffer(rdb, "", 0);
     }
@@ -98,7 +98,7 @@ unsigned long InvertedIndex_MemUsage(const void *value) {
   unsigned long ret = sizeof(InvertedIndex);
   for (size_t i = 0; i < idx->size; i++) {
     ret += sizeof(IndexBlock);
-    ret += IndexBlock_DataLen(&idx->blocks[i]);
+    ret += idx->blocks[i].DataLen();
   }
   return ret;
 }

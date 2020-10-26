@@ -1,6 +1,5 @@
 
-#ifndef __INDEX_ITERATOR_H__
-#define __INDEX_ITERATOR_H__
+#pragma once
 
 #include <stdint.h>
 #include "redisearch.h"
@@ -21,6 +20,8 @@ enum class IndexIteratorMode {
 // #define MODE_SORTED 0
 // #define MODE_UNSORTED 1
 
+class IndexReader;
+
 //---------------------------------------------------------------------------------------------
 
 class IndexCriteriaTester {
@@ -40,13 +41,17 @@ class IndexIterator : public Object {
 public:
   typedef IndexIteratorMode Mode;
 
-  IndexIterator() {}
+  IndexIterator();
+  IndexIterator(IndexReader *ir);
+
   virtual ~IndexIterator();
+
+  //-------------------------------------------------------------------------------------------
 
   // Cached value - used if HasNext() is not set
   uint8_t isValid;
 
-  // void *ctx;
+  IndexReader *ir;
 
   // Used by union iterator. Cached here for performance
   t_docId minId;
@@ -55,6 +60,8 @@ public:
   RSIndexResult *current;
 
   IndexIteratorMode mode;
+
+  //-------------------------------------------------------------------------------------------
 
   virtual RSIndexResult *GetCurrent() { return NULL; }
 
@@ -97,5 +104,3 @@ public:
 #define IITER_CLEAR_EOF(ii) (ii)->isValid = 1
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
-
-#endif

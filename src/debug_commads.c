@@ -7,6 +7,8 @@
 #include "phonetic_manager.h"
 #include "gc.h"
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+
 #define DUMP_PHONETIC_HASH "DUMP_PHONETIC_HASH"
 
 #define DEBUG_COMMAND(name) static int name(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
@@ -28,8 +30,10 @@
   RedisModule_ReplyWithStringBuffer(ctx, val, strlen(val));   \
   bulkLen += 2;
 
+//---------------------------------------------------------------------------------------------
+
 static void ReplyReaderResults(IndexReader *reader, RedisModuleCtx *ctx) {
-  IndexIterator *iter = NewReadIterator(reader);
+  auto iter = reader->NewReadIterator();
   RSIndexResult *r;
   size_t resultSize = 0;
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
@@ -38,8 +42,10 @@ static void ReplyReaderResults(IndexReader *reader, RedisModuleCtx *ctx) {
     ++resultSize;
   }
   RedisModule_ReplySetArrayLength(ctx, resultSize);
-  ReadIterator_Free(iter);
+  delete iter;
 }
+
+//---------------------------------------------------------------------------------------------
 
 static RedisModuleString *getFieldKeyName(IndexSpec *spec, RedisModuleString *fieldNameRS,
                                           FieldType t) {
@@ -50,6 +56,8 @@ static RedisModuleString *getFieldKeyName(IndexSpec *spec, RedisModuleString *fi
   }
   return IndexSpec_GetFormattedKey(spec, fieldSpec, t);
 }
+
+//---------------------------------------------------------------------------------------------
 
 DEBUG_COMMAND(DumpTerms) {
   if (argc != 1) {
@@ -78,6 +86,8 @@ DEBUG_COMMAND(DumpTerms) {
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
 }
+
+//---------------------------------------------------------------------------------------------
 
 DEBUG_COMMAND(InvertedIndexSummary) {
   if (argc != 2) {
@@ -126,6 +136,8 @@ end:
   return REDISMODULE_OK;
 }
 
+//---------------------------------------------------------------------------------------------
+
 DEBUG_COMMAND(DumpInvertedIndex) {
   if (argc != 2) {
     return RedisModule_WrongArity(ctx);
@@ -148,6 +160,8 @@ end:
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
 }
+
+//---------------------------------------------------------------------------------------------
 
 DEBUG_COMMAND(NumericIndexSummary) {
   if (argc != 2) {
@@ -184,6 +198,8 @@ end:
   return REDISMODULE_OK;
 }
 
+//---------------------------------------------------------------------------------------------
+
 DEBUG_COMMAND(DumpNumericIndex) {
   if (argc != 2) {
     return RedisModule_WrongArity(ctx);
@@ -206,7 +222,7 @@ DEBUG_COMMAND(DumpNumericIndex) {
   RedisModule_ReplyWithArray(sctx->redisCtx, REDISMODULE_POSTPONED_ARRAY_LEN);
   while ((currNode = NumericRangeTreeIterator_Next(iter))) {
     if (currNode->range) {
-      IndexReader *reader = NewNumericReader(NULL, currNode->range->entries, NULL);
+      IndexReader *reader = new NumericIndexReader(currNode->range->entries);
       ReplyReaderResults(reader, sctx->redisCtx);
       ++resultSize;
     }
@@ -220,6 +236,8 @@ end:
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
 }
+
+//---------------------------------------------------------------------------------------------
 
 DEBUG_COMMAND(DumpTagIndex) {
   if (argc != 2) {
@@ -264,6 +282,8 @@ end:
   return REDISMODULE_OK;
 }
 
+//---------------------------------------------------------------------------------------------
+
 DEBUG_COMMAND(IdToDocId) {
   if (argc != 2) {
     return RedisModule_WrongArity(ctx);
@@ -285,6 +305,8 @@ end:
   return REDISMODULE_OK;
 }
 
+//---------------------------------------------------------------------------------------------
+
 DEBUG_COMMAND(DocIdToId) {
   if (argc != 2) {
     return RedisModule_WrongArity(ctx);
@@ -297,6 +319,8 @@ DEBUG_COMMAND(DocIdToId) {
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
 }
+
+//---------------------------------------------------------------------------------------------
 
 DEBUG_COMMAND(DumpPhoneticHash) {
   if (argc != 1) {
@@ -319,17 +343,23 @@ DEBUG_COMMAND(DumpPhoneticHash) {
   return REDISMODULE_OK;
 }
 
+//---------------------------------------------------------------------------------------------
+
 static int GCForceInvokeReply(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 #define REPLY "DONE"
   RedisModule_ReplyWithStringBuffer(ctx, REPLY, strlen(REPLY));
   return REDISMODULE_OK;
 }
 
+//---------------------------------------------------------------------------------------------
+
 static int GCForceInvokeReplyTimeout(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 #define ERROR_REPLY "INVOCATION FAILED"
   RedisModule_ReplyWithError(ctx, ERROR_REPLY);
   return REDISMODULE_OK;
 }
+
+//---------------------------------------------------------------------------------------------
 
 DEBUG_COMMAND(GCForceInvoke) {
 #define INVOKATION_TIMEOUT 30000  // gc invocation timeout ms
@@ -347,6 +377,8 @@ DEBUG_COMMAND(GCForceInvoke) {
   return REDISMODULE_OK;
 }
 
+//---------------------------------------------------------------------------------------------
+
 DEBUG_COMMAND(GCForceBGInvoke) {
   if (argc < 1) {
     return RedisModule_WrongArity(ctx);
@@ -361,6 +393,8 @@ DEBUG_COMMAND(GCForceBGInvoke) {
   return REDISMODULE_OK;
 }
 
+//---------------------------------------------------------------------------------------------
+
 DEBUG_COMMAND(GitSha) {
 #ifdef RS_GIT_SHA
   RedisModule_ReplyWithStringBuffer(ctx, RS_GIT_SHA, strlen(RS_GIT_SHA));
@@ -370,10 +404,14 @@ DEBUG_COMMAND(GitSha) {
   return REDISMODULE_OK;
 }
 
+//---------------------------------------------------------------------------------------------
+
 DEBUG_COMMAND(LogAssert) {
   RS_LOG_ASSERT(7 == 42, "DEBUG");
   return REDISMODULE_OK;
 }
+
+//---------------------------------------------------------------------------------------------
 
 typedef struct {
   // Whether to enumerate the number of docids per entry
@@ -400,6 +438,8 @@ static void seekTagIterator(TrieMapIterator *it, size_t offset) {
     }
   }
 }
+
+//---------------------------------------------------------------------------------------------
 
 /**
  * INFO_TAGIDX <index> <field> [OPTIONS...]
@@ -506,6 +546,8 @@ end:
   return REDISMODULE_OK;
 }
 
+//---------------------------------------------------------------------------------------------
+
 static void replyDocFlags(const RSDocumentMetadata *dmd, RedisModuleCtx *ctx) {
   char buf[1024] = {0};
   sprintf(buf, "(0x%x):", dmd->flags);
@@ -523,6 +565,8 @@ static void replyDocFlags(const RSDocumentMetadata *dmd, RedisModuleCtx *ctx) {
   }
   RedisModule_ReplyWithSimpleString(ctx, buf);
 }
+
+//---------------------------------------------------------------------------------------------
 
 static void replySortVector(const RSDocumentMetadata *dmd, RedisSearchCtx *sctx) {
   RSSortingVector *sv = dmd->sortVector;
@@ -544,6 +588,8 @@ static void replySortVector(const RSDocumentMetadata *dmd, RedisSearchCtx *sctx)
   }
   RedisModule_ReplySetArrayLength(sctx->redisCtx, nelem);
 }
+
+//---------------------------------------------------------------------------------------------
 
 /**
  * FT.DEBUG DOC_INFO <index> <doc>
@@ -590,6 +636,8 @@ DEBUG_COMMAND(DocInfo) {
   return REDISMODULE_OK;
 }
 
+//---------------------------------------------------------------------------------------------
+
 typedef struct DebugCommandType {
   char *name;
   int (*callback)(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
@@ -611,6 +659,8 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex},
                                {"GIT_SHA", GitSha},
                                {"LOGASSERT", LogAssert},
                                {NULL, NULL}};
+
+//---------------------------------------------------------------------------------------------
 
 int DebugCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 

@@ -287,7 +287,7 @@ TEST_F(QueryTest, testGeoQuery) {
   QueryNode *gn = n->children[1];
   ASSERT_EQ(gn->type, QN_GEO);
   ASSERT_STREQ(gn->gn.gf->property, "loc");
-  ASSERT_EQ(gn->gn.gf->unitType, GEO_DISTANCE_KM);
+  ASSERT_EQ(gn->gn.gf->unitType, GeoDistance::Unit::KM);
   ASSERT_EQ(gn->gn.gf->lon, 31.52);
   ASSERT_EQ(gn->gn.gf->lat, 32.1342);
   ASSERT_EQ(gn->gn.gf->radius, 10.01);

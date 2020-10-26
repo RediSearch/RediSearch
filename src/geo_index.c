@@ -1,16 +1,20 @@
-#include "index.h"
 #include "geo_index.h"
+#include "index.h"
+
 #include "rmutil/util.h"
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
 
-/* Add a docId to a geoindex key. Right now we just use redis' own GEOADD */
-int GeoIndex_AddStrings(GeoIndex *gi, t_docId docId, const char *slon, const char *slat) {
-  RedisModuleString *ks = IndexSpec_GetFormattedKey(gi->ctx->spec, gi->sp, INDEXFLD_T_GEO);
-  RedisModuleCtx *ctx = gi->ctx->redisCtx;
+///////////////////////////////////////////////////////////////////////////////////////////////
 
-  /* GEOADD key longitude latitude member*/
-  RedisModuleCallReply *rep = RedisModule_Call(ctx, "GEOADD", "sccl", ks, slon, slat, docId);
+// Add a docId to a geoindex key. Right now we just use redis' own GEOADD
+
+int GeoIndex::AddStrings(t_docId docId, const char *slon, const char *slat) {
+  RedisModuleString *ks = IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_GEO);
+  RedisModuleCtx *rctx = ctx->redisCtx;
+
+  // GEOADD key longitude latitude member
+  RedisModuleCallReply *rep = RedisModule_Call(rctx, "GEOADD", "sccl", ks, slon, slat, docId);
   if (rep == NULL) {
     return REDISMODULE_ERR;
   }
@@ -24,81 +28,86 @@ int GeoIndex_AddStrings(GeoIndex *gi, t_docId docId, const char *slon, const cha
   return REDISMODULE_OK;
 }
 
-void GeoIndex_RemoveEntries(GeoIndex *gi, IndexSpec *sp, t_docId docId) {
-  RedisModuleString *ks = IndexSpec_GetFormattedKey(sp, gi->sp, INDEXFLD_T_GEO);
-  RedisModuleCtx *ctx = gi->ctx->redisCtx;
-  RedisModuleCallReply *rep = RedisModule_Call(ctx, "ZREM", "sl", ks, docId);
+//---------------------------------------------------------------------------------------------
+
+void GeoIndex::RemoveEntries(IndexSpec *sp, t_docId docId) {
+  RedisModuleString *ks = IndexSpec_GetFormattedKey(sp, fs, INDEXFLD_T_GEO);
+  RedisModuleCtx *rctx = ctx->redisCtx;
+  RedisModuleCallReply *rep = RedisModule_Call(rctx, "ZREM", "sl", ks, docId);
 
   if (rep == NULL || RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_ERROR) {
-    RedisModule_Log(ctx, "warning", "Document %s was not removed", docId);
+    RedisModule_Log(rctx, "warning", "Document %s was not removed", docId);
   }
   RedisModule_FreeCallReply(rep);
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 /* Parse a geo filter from redis arguments. We assume the filter args start at argv[0], and FILTER
  * is not passed to us.
  * The GEO filter syntax is (FILTER) <property> LONG LAT DIST m|km|ft|mi
  * Returns REDISMODUEL_OK or ERR  */
-int GeoFilter_Parse(GeoFilter *gf, ArgsCursor *ac, QueryError *status) {
-  gf->lat = 0;
-  gf->lon = 0;
-  gf->radius = 0;
-  gf->unitType = GEO_DISTANCE_KM;
+GeoFilter::GeoFilter(ArgsCursor *ac, QueryError *status) {
+  lat = 0;
+  lon = 0;
+  radius = 0;
+  unitType = GeoDistance::Unit::KM;
 
   if (AC_NumRemaining(ac) < 5) {
     QERR_MKBADARGS_FMT(status, "GEOFILTER requires 5 arguments");
-    return REDISMODULE_ERR;
+    throw Error(status);
   }
 
   int rv;
-  if ((rv = AC_GetString(ac, &gf->property, NULL, 0)) != AC_OK) {
+  if ((rv = AC_GetString(ac, &property, NULL, 0)) != AC_OK) {
     QERR_MKBADARGS_AC(status, "<geo property>", rv);
-    return REDISMODULE_ERR;
-  } else {
-    gf->property = rm_strdup(gf->property);
+    throw Error(status);
   }
-  if ((rv = AC_GetDouble(ac, &gf->lon, 0) != AC_OK)) {
+  property = rm_strdup(property);
+
+  if ((rv = AC_GetDouble(ac, &lon, 0) != AC_OK)) {
     QERR_MKBADARGS_AC(status, "<lon>", rv);
-    return REDISMODULE_ERR;
+    throw Error(status);
   }
 
-  if ((rv = AC_GetDouble(ac, &gf->lat, 0)) != AC_OK) {
+  if ((rv = AC_GetDouble(ac, &lat, 0)) != AC_OK) {
     QERR_MKBADARGS_AC(status, "<lat>", rv);
-    return REDISMODULE_ERR;
+    throw Error(status);
   }
 
-  if ((rv = AC_GetDouble(ac, &gf->radius, 0)) != AC_OK) {
+  if ((rv = AC_GetDouble(ac, &radius, 0)) != AC_OK) {
     QERR_MKBADARGS_AC(status, "<radius>", rv);
-    return REDISMODULE_ERR;
+    throw Error(status);
   }
 
   const char *unitstr = AC_GetStringNC(ac, NULL);
-  if ((gf->unitType = GeoDistance_Parse(unitstr)) == GEO_DISTANCE_INVALID) {
+  if ((unitType = GeoDistance(unitstr)) == GeoDistance::Unit::INVALID) {
     QERR_MKBADARGS_FMT(status, "Unknown distance unit %s", unitstr);
-    return REDISMODULE_ERR;
+    throw Error(status);
   }
-
-  return REDISMODULE_OK;
 }
 
-void GeoFilter_Free(GeoFilter *gf) {
-  if (gf->property) rm_free((char *)gf->property);
-  rm_free(gf);
+//---------------------------------------------------------------------------------------------
+
+GeoFilter::~GeoFilter() {
+  if (property) rm_free((char *)property);
 }
 
-static t_docId *geoRangeLoad(const GeoIndex *gi, const GeoFilter *gf, size_t *num) {
-  *num = 0;
+//---------------------------------------------------------------------------------------------
+
+t_docId *GeoIndex::RangeLoad(const GeoFilter &gf, size_t &num) const {
+  num = 0;
   t_docId *docIds = NULL;
-  RedisModuleString *s = IndexSpec_GetFormattedKey(gi->ctx->spec, gi->sp, INDEXFLD_T_GEO);
+  RedisModuleString *s = IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_GEO);
   RS_LOG_ASSERT(s, "failed to retrive key");
-  /*GEORADIUS key longitude latitude radius m|km|ft|mi */
-  RedisModuleCtx *ctx = gi->ctx->redisCtx;
-  RedisModuleString *slon = RedisModule_CreateStringPrintf(ctx, "%f", gf->lon);
-  RedisModuleString *slat = RedisModule_CreateStringPrintf(ctx, "%f", gf->lat);
-  RedisModuleString *srad = RedisModule_CreateStringPrintf(ctx, "%f", gf->radius);
-  const char *unitstr = GeoDistance_ToString(gf->unitType);
+  // GEORADIUS key longitude latitude radius m|km|ft|mi
+  RedisModuleCtx *rctx = ctx->redisCtx;
+  RedisModuleString *slon = RedisModule_CreateStringPrintf(rctx, "%f", gf.lon);
+  RedisModuleString *slat = RedisModule_CreateStringPrintf(rctx, "%f", gf.lat);
+  RedisModuleString *srad = RedisModule_CreateStringPrintf(rctx, "%f", gf.radius);
+  const char *unitstr = gf.unitType.ToString();
   RedisModuleCallReply *rep =
-      RedisModule_Call(ctx, "GEORADIUS", "ssssc", s, slon, slat, srad, unitstr);
+      RedisModule_Call(rctx, "GEORADIUS", "ssssc", s, slon, slat, srad, unitstr);
   if (rep == NULL || RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_ARRAY) {
     goto done;
   }
@@ -112,12 +121,12 @@ static t_docId *geoRangeLoad(const GeoIndex *gi, const GeoFilter *gf, size_t *nu
     docIds[i] = (t_docId)atol(s);
   }
 
-  *num = sz;
+  num = sz;
 
 done:
-  RedisModule_FreeString(ctx, slon);
-  RedisModule_FreeString(ctx, slat);
-  RedisModule_FreeString(ctx, srad);
+  RedisModule_FreeString(rctx, slon);
+  RedisModule_FreeString(rctx, slat);
+  RedisModule_FreeString(rctx, srad);
   if (rep) {
     RedisModule_FreeCallReply(rep);
   }
@@ -125,73 +134,82 @@ done:
   return docIds;
 }
 
-IndexIterator *NewGeoRangeIterator(GeoIndex *gi, const GeoFilter *gf, double weight) {
-  size_t sz;
-  t_docId *docIds = geoRangeLoad(gi, gf, &sz);
+//---------------------------------------------------------------------------------------------
+
+IndexIterator *GeoIndex::NewGeoRangeIterator(const GeoFilter &gf, double weight) {
+  size_t size;
+  t_docId *docIds = GeoIndex::RangeLoad(gf, size);
   if (!docIds) {
     return NULL;
   }
 
-  IndexIterator *ret = NewIdListIterator(docIds, (t_offset)sz, weight);
+  IndexIterator *ret = NewIdListIterator(docIds, (t_offset)size, weight);
   rm_free(docIds);
   return ret;
 }
 
-GeoDistance GeoDistance_Parse(const char *s) {
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+GeoDistance::GeoDistance(const char *s) {
 #define X(c, val)            \
   if (!strcasecmp(val, s)) { \
-    return GEO_DISTANCE_##c; \
+    dist = GeoDistance::Unit::c; \
+    return; \
   }
   X_GEO_DISTANCE(X)
 #undef X
-  return GEO_DISTANCE_INVALID;
+  dist = GeoDistance::Unit::INVALID; //@@ maybe throw
 }
 
-const char *GeoDistance_ToString(GeoDistance d) {
+//---------------------------------------------------------------------------------------------
+
+const char *GeoDistance::ToString() const {
 #define X(c, val)              \
-  if (d == GEO_DISTANCE_##c) { \
+  if (dist == GeoDistance::Unit::c) { \
     return val;                \
   }
   X_GEO_DISTANCE(X)
 #undef X
-  return "<badunit>";
+  return "<badunit>"; //@@ maybe throw
 }
 
-/* Create a geo filter from parsed strings and numbers */
-GeoFilter *NewGeoFilter(double lon, double lat, double radius, const char *unit) {
-  GeoFilter *gf = rm_malloc(sizeof(*gf));
-  *gf = (GeoFilter){
-      .lon = lon,
-      .lat = lat,
-      .radius = radius,
-  };
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+// Create a geo filter from parsed strings and numbers
+
+GeoFilter::GeoFilter(double lon_, double lat_, double radius_, const char *unit) {
+  lon = lon_;
+  lat = lat_;
+  radius = radius_;
+
   if (unit) {
-    gf->unitType = GeoDistance_Parse(unit);
+    unitType = GeoDistance(unit);
   } else {
-    gf->unitType = GEO_DISTANCE_KM;
+    unitType = GeoDistance::Unit::KM;
   }
-  return gf;
 }
+
+//---------------------------------------------------------------------------------------------
 
 /* Make sure that the parameters of the filter make sense - i.e. coordinates are in range, radius is
- * sane, unit is valid. Return 1 if valid, 0 if not, and set the error string into err */
-int GeoFilter_Validate(GeoFilter *gf, QueryError *status) {
-  if (gf->unitType == GEO_DISTANCE_INVALID) {
+ * sane, unit is valid. Return true if valid, false if not, and set the error string into err */
+bool GeoFilter::Validate(QueryError *status) {
+  if (unitType == GeoDistance::Unit::INVALID) {
     QERR_MKSYNTAXERR(status, "Invalid GeoFilter unit");
-    return 0;
+    return false;
   }
 
   // validate lat/lon
-  if (gf->lat > 90 || gf->lat < -90 || gf->lon > 180 || gf->lon < -180) {
+  if (lat > 90 || lat < -90 || lon > 180 || lon < -180) {
     QERR_MKSYNTAXERR(status, "Invalid GeoFilter lat/lon");
-    return 0;
+    return false;
   }
 
   // validate radius
-  if (gf->radius <= 0) {
+  if (radius <= 0) {
     QERR_MKSYNTAXERR(status, "Invalid GeoFilter radius");
-    return 0;
+    return false;
   }
 
-  return 1;
+  return true;
 }

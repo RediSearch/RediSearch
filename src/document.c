@@ -1,5 +1,3 @@
-#include <string.h>
-#include <inttypes.h>
 
 #include "document.h"
 #include "forward_index.h"
@@ -16,6 +14,11 @@
 #include "tag_index.h"
 #include "aggregate/expr/expression.h"
 #include "rmutil/rm_assert.h"
+
+#include <string.h>
+#include <inttypes.h>
+
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 // Memory pool for RSAddDocumentContext contexts
 static mempool_t *actxPool_g = NULL;
@@ -41,6 +44,8 @@ static void freeDocumentContext(void *p) {
 #define DUP_FIELD_ERRSTR "Requested to index field twice"
 
 #define FIELD_IS_VALID(aCtx, ix) ((aCtx)->fspecs[ix].name != NULL)
+
+//---------------------------------------------------------------------------------------------
 
 static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Document *doc,
                                       size_t oldFieldCount) {
@@ -159,6 +164,8 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Doc
   return 0;
 }
 
+//---------------------------------------------------------------------------------------------
+
 RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b, QueryError *status) {
 
   if (!actxPool_g) {
@@ -212,6 +219,8 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b, QueryError *stat
   return aCtx;
 }
 
+//---------------------------------------------------------------------------------------------
+
 static void doReplyFinish(RSAddDocumentCtx *aCtx, RedisModuleCtx *ctx) {
   aCtx->donecb(aCtx, ctx, aCtx->donecbData);
   Indexer_Decref(aCtx->indexer);
@@ -236,6 +245,8 @@ void AddDocumentCtx_Finish(RSAddDocumentCtx *aCtx) {
   }
 }
 
+//---------------------------------------------------------------------------------------------
+
 // How many bytes in a document to warrant it being tokenized in a separate thread
 #define SELF_EXEC_THRESHOLD 1024
 
@@ -249,6 +260,8 @@ void Document_Dump(const Document *doc) {
   }
 } 
 // LCOV_EXCL_STOP
+
+//---------------------------------------------------------------------------------------------
 
 static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx);
 
@@ -275,6 +288,8 @@ static int AddDocumentCtx_ReplaceMerge(RSAddDocumentCtx *aCtx, RedisSearchCtx *s
   AddDocumentCtx_SetDocument(aCtx, sctx->spec, &aCtx->doc, oldFieldCount);
   return 0;
 }
+
+//---------------------------------------------------------------------------------------------
 
 static int handlePartialUpdate(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
   // Handle partial update of fields
@@ -323,6 +338,8 @@ void AddDocumentCtx_Submit(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, uint32_
   }
 }
 
+//---------------------------------------------------------------------------------------------
+
 void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
   /**
    * Free preprocessed data; this is the only reliable place
@@ -366,6 +383,8 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
   mempool_release(actxPool_g, aCtx);
 }
 
+//---------------------------------------------------------------------------------------------
+
 #define FIELD_HANDLER(name)                                                                \
   static int name(RSAddDocumentCtx *aCtx, const DocumentField *field, const FieldSpec *fs, \
                   FieldIndexerData *fdata, QueryError *status)
@@ -380,6 +399,8 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
 #define FIELD_BULK_FINALIZER(name) static void name(IndexBulkData *bulk, RedisSearchCtx *ctx)
 
 #define FIELD_PREPROCESSOR FIELD_HANDLER
+
+//---------------------------------------------------------------------------------------------
 
 FIELD_PREPROCESSOR(fulltextPreprocessor) {
   size_t fl;
@@ -424,6 +445,8 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
   return 0;
 }
 
+//---------------------------------------------------------------------------------------------
+
 FIELD_PREPROCESSOR(numericPreprocessor) {
   if (RedisModule_StringToDouble(field->text, &fdata->numeric) == REDISMODULE_ERR) {
     QueryError_SetCode(status, QUERY_ENOTNUMERIC);
@@ -436,6 +459,8 @@ FIELD_PREPROCESSOR(numericPreprocessor) {
   }
   return 0;
 }
+
+//---------------------------------------------------------------------------------------------
 
 FIELD_BULK_INDEXER(numericIndexer) {
   NumericRangeTree *rt = bulk->indexDatas[INDEXTYPE_TO_POS(INDEXFLD_T_NUMERIC)];
@@ -454,6 +479,8 @@ FIELD_BULK_INDEXER(numericIndexer) {
   return 0;
 }
 
+//---------------------------------------------------------------------------------------------
+
 FIELD_PREPROCESSOR(geoPreprocessor) {
   const char *c = RedisModule_StringPtrLen(field->text, NULL);
   char *pos = strpbrk(c, " ,");
@@ -468,9 +495,11 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
   return 0;
 }
 
+//---------------------------------------------------------------------------------------------
+
 FIELD_BULK_INDEXER(geoIndexer) {
-  GeoIndex gi = {.ctx = ctx, .sp = fs};
-  int rv = GeoIndex_AddStrings(&gi, aCtx->doc.docId, fdata->geoSlon, fdata->geoSlat);
+  GeoIndex gi(ctx, fs);
+  int rv = gi.AddStrings(aCtx->doc.docId, fdata->geoSlon, fdata->geoSlat);
 
   if (rv == REDISMODULE_ERR) {
     QueryError_SetError(status, QUERY_EGENERIC, "Could not index geo value");
@@ -478,6 +507,8 @@ FIELD_BULK_INDEXER(geoIndexer) {
   }
   return 0;
 }
+
+//---------------------------------------------------------------------------------------------
 
 FIELD_PREPROCESSOR(tagPreprocessor) {
   fdata->tags = TagIndex_Preprocess(fs->tagSep, fs->tagFlags, field);
@@ -492,6 +523,8 @@ FIELD_PREPROCESSOR(tagPreprocessor) {
   }
   return 0;
 }
+
+//---------------------------------------------------------------------------------------------
 
 FIELD_BULK_INDEXER(tagIndexer) {
   TagIndex *tidx = bulk->indexDatas[IXFLDPOS_TAG];
@@ -510,6 +543,8 @@ FIELD_BULK_INDEXER(tagIndexer) {
   ctx->spec->stats.numRecords++;
   return 0;
 }
+
+//---------------------------------------------------------------------------------------------
 
 static PreprocessorFunc preprocessorMap[] = {
     // nl break
@@ -547,6 +582,8 @@ int IndexerBulkAdd(IndexBulkData *bulk, RSAddDocumentCtx *cur, RedisSearchCtx *s
   return rc;
 }
 
+//---------------------------------------------------------------------------------------------
+
 void IndexerBulkCleanup(IndexBulkData *cur, RedisSearchCtx *sctx) {
   for (size_t ii = 0; ii < INDEXFLD_NUM_TYPES; ++ii) {
     if (cur->indexKeys[ii]) {
@@ -554,6 +591,8 @@ void IndexerBulkCleanup(IndexBulkData *cur, RedisSearchCtx *sctx) {
     }
   }
 }
+
+//---------------------------------------------------------------------------------------------
 
 int Document_AddToIndexes(RSAddDocumentCtx *aCtx) {
   Document *doc = &aCtx->doc;
@@ -594,6 +633,8 @@ cleanup:
   }
   return ourRv;
 }
+
+//---------------------------------------------------------------------------------------------
 
 /* Evaluate an IF expression (e.g. IF "@foo == 'bar'") against a document, by getting the properties
  * from the sorting table or from the hash representation of the document.
@@ -658,6 +699,8 @@ done:
   RLookup_Cleanup(&lookup_s);
   return rc;
 }
+
+//---------------------------------------------------------------------------------------------
 
 static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
 #define BAIL(s)                                            \
@@ -733,6 +776,8 @@ done:
   aCtx->donecb(aCtx, sctx->redisCtx, aCtx->donecbData);
   AddDocumentCtx_Free(aCtx);
 }
+
+//---------------------------------------------------------------------------------------------
 
 DocumentField *Document_GetField(Document *d, const char *fieldName) {
   if (!d || !fieldName) return NULL;

@@ -220,6 +220,8 @@ struct RSQueryTerm {
 // You can read the offsets by iterating over it with RSOffsetVector_Iterate.
 
 struct RSOffsetVector {
+  RSOffsetVector(char *data, uint32_t len) : data(data), len(len) {}
+  
   char *data;
   uint32_t len;
 };

@@ -61,7 +61,7 @@ static const char *SpecTypeNames[] = {[IXFLDPOS_FULLTEXT] = SPEC_TEXT_STR,
 // The threshold after which we move to a special encoding for wide fields
 #define SPEC_WIDEFIELD_THRESHOLD 32
 
-typedef struct {
+struct IndexStats {
   size_t numDocuments;
   size_t numTerms;
   size_t numRecords;
@@ -72,9 +72,9 @@ typedef struct {
   size_t offsetVecsSize;
   size_t offsetVecRecords;
   size_t termsSize;
-} IndexStats;
+};
 
-typedef enum {
+enum IndexFlags {
   Index_StoreTermOffsets = 0x01,
   Index_StoreFieldFlags = 0x02,
 
@@ -91,7 +91,7 @@ typedef enum {
 
   // If any of the fields has phonetics. This is just a cache for quick lookup
   Index_HasPhonetic = 0x400
-} IndexFlags;
+};
 
 /**
  * This "ID" type is independent of the field mask, and is used to distinguish

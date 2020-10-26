@@ -1,30 +1,36 @@
+
 #include "numeric_filter.h"
+
 #include "rmutil/strings.h"
 #include "rmutil/util.h"
 #include "rmutil/vector.h"
 
-static int parseDoubleRange(const char *s, int *inclusive, double *target, int isMin,
-                            QueryError *status) {
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+int NumericFilter::parseDoubleRange(const char *s, bool &inclusive, double &target, bool isMin,
+                                    QueryError *status) {
   if (isMin && !strcasecmp(s, "-inf")) {
-    *target = NF_NEGATIVE_INFINITY;
+    target = NF_NEGATIVE_INFINITY;
     return REDISMODULE_OK;
   } else if (!isMin && !strcasecmp(s, "+inf")) {
-    *target = NF_INFINITY;
+    target = NF_INFINITY;
     return REDISMODULE_OK;
   }
   if (*s == '(') {
-    *inclusive = 0;
+    inclusive = false;
     s++;
   }
   char *endptr = NULL;
   errno = 0;
   *target = strtod(s, &endptr);
-  if (*endptr != '\0' || *target == HUGE_VAL || *target == -HUGE_VAL) {
+  if (*endptr != '\0' || target == HUGE_VAL || target == -HUGE_VAL) {
     QERR_MKBADARGS_FMT(status, "Bad %s range: %s", isMin ? "lower" : "upper", s);
     return REDISMODULE_ERR;
   }
   return REDISMODULE_OK;
 }
+
+//---------------------------------------------------------------------------------------------
 
 /*
  *  Parse numeric filter arguments, in the form of:
@@ -42,52 +48,56 @@ static int parseDoubleRange(const char *s, int *inclusive, double *target, int i
  *  Returns a numeric filter on success, NULL if there was a problem with the
  * arguments
  */
-NumericFilter *NumericFilter_Parse(ArgsCursor *ac, QueryError *status) {
+
+NumericFilter::NumericFilter(ArgsCursor *ac, QueryError *status) {
   if (AC_NumRemaining(ac) < 3) {
     QERR_MKBADARGS_FMT(status, "FILTER requires 3 arguments");
-    return NULL;
+    throw Error("FILTER requires 3 arguments");
   }
 
-  NumericFilter *nf = rm_calloc(1, sizeof(*nf));
-
   // make sure we have an index spec for this filter and it's indeed numeric
-  nf->inclusiveMax = 1;
-  nf->inclusiveMin = 1;
-  nf->min = 0;
-  nf->max = 0;
-  nf->fieldName = rm_strdup(AC_GetStringNC(ac, NULL));
+  inclusiveMax = true;
+  inclusiveMin = true;
+  min = 0;
+  max = 0;
+  fieldName = rm_strdup(AC_GetStringNC(ac, NULL));
 
   // Parse the min range
   const char *s = AC_GetStringNC(ac, NULL);
-  if (parseDoubleRange(s, &nf->inclusiveMin, &nf->min, 1, status) != REDISMODULE_OK) {
-    NumericFilter_Free(nf);
-    return NULL;
+  if (parseDoubleRange(s, inclusiveMin, min, true, status) != REDISMODULE_OK) {
+    throw Error(status->detail);
   }
   s = AC_GetStringNC(ac, NULL);
-  if (parseDoubleRange(s, &nf->inclusiveMax, &nf->max, 0, status) != REDISMODULE_OK) {
-    NumericFilter_Free(nf);
-    return NULL;
+  if (parseDoubleRange(s, inclusiveMax, max, false, status) != REDISMODULE_OK) {
+    throw Error(status->detail);
   }
-  return nf;
 }
 
-void NumericFilter_Free(NumericFilter *nf) {
-  if (!nf) {
-    return;
+//---------------------------------------------------------------------------------------------
+
+NumericFilter::~NumericFilter() {
+  if (fieldName) {
+    rm_free((char *)fieldName);
   }
-  if (nf->fieldName) {
-    rm_free((char *)nf->fieldName);
-  }
-  rm_free(nf);
 }
 
-NumericFilter *NewNumericFilter(double min, double max, int inclusiveMin, int inclusiveMax) {
-  NumericFilter *f = rm_malloc(sizeof(NumericFilter));
+//---------------------------------------------------------------------------------------------
 
-  f->min = min;
-  f->max = max;
-  f->fieldName = NULL;
-  f->inclusiveMax = inclusiveMax;
-  f->inclusiveMin = inclusiveMin;
-  return f;
+NumericFilter::NumericFilter(double min_, double max_, bool inclusiveMin_, bool inclusiveMax_) {
+  min = min_;
+  max = max_;
+  fieldName = NULL;
+  inclusiveMax = inclusiveMax_;
+  inclusiveMin = inclusiveMin_;
+}
+
+//---------------------------------------------------------------------------------------------
+
+NumericFilter::NumericFilter(const NumericFilter &nf) : min(nf.min), max(nf.max), 
+    inclusiveMin(nf.inclusiveMin), inclusiveMax(nf.inclusiveMax) {
+  if (nf.fieldName) {}
+    fieldName = rm_strdup(nf.fieldName);
+  } else {
+    fieldName = NULL;
+  }
 }

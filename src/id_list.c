@@ -160,8 +160,6 @@ IdListIterator::IdListIterator(t_docId *ids, t_offset num, double weight) {
   // first sort the ids, so the caller will not have to deal with it
   qsort(ids, (size_t)num, sizeof(t_docId), (int (*)(const void *, const void*)) cmp_docids);
 
-  IdListIterator *it = rm_new(IdListIterator);
-
   size = num;
   docIds = rm_calloc(num, sizeof(t_docId));
   if (num > 0) memcpy(docIds, ids, num * sizeof(t_docId));

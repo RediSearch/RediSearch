@@ -9,6 +9,7 @@
 #include "rmutil/util.h"
 #include "ext/default.h"
 #include "extension.h"
+#include "query_error.h"
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -282,14 +283,18 @@ static int parseQueryLegacyArgs(ArgsCursor *ac, RSSearchOptions *options, QueryE
   if (AC_AdvanceIfMatch(ac, "FILTER")) {
     // Numeric filter
     NumericFilter **curpp = array_ensure_tail(&options->legacy.filters, NumericFilter *);
-    *curpp = NumericFilter_Parse(ac, status);
+    try {
+      *curpp = new NumericFilter(ac, status);
+    } catch (Error &x) {
+      *curpp = NULL;
+    }
     if (!*curpp) {
       return ARG_ERROR;
     }
   } else if (AC_AdvanceIfMatch(ac, "GEOFILTER")) {
-    options->legacy.gf = rm_calloc(1, sizeof(*options->legacy.gf));
-    if (GeoFilter_Parse(options->legacy.gf, ac, status) != REDISMODULE_OK) {
-      GeoFilter_Free(options->legacy.gf);
+    try {
+      options->legacy.gf = new GeoFilter(ac, status);
+    } catch (Error &x) {
       return ARG_ERROR;
     }
   } else {
@@ -1198,7 +1203,7 @@ void AREQ_Free(AREQ *req) {
     for (size_t ii = 0; ii < array_len(req->searchopts.legacy.filters); ++ii) {
       NumericFilter *nf = req->searchopts.legacy.filters[ii];
       if (nf) {
-        NumericFilter_Free(req->searchopts.legacy.filters[ii]);
+        delete req->searchopts.legacy.filters[ii];
       }
     }
     array_free(req->searchopts.legacy.filters);

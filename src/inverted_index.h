@@ -1,5 +1,5 @@
-#ifndef __INVERTED_INDEX_H__
-#define __INVERTED_INDEX_H__
+
+#pragma once
 
 #include "redisearch.h"
 #include "buffer.h"
@@ -12,10 +12,6 @@
 
 #include <stdint.h>
 #include <math.h>
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -35,6 +31,8 @@ struct IndexBlock {
   size_t DataLen() const { return buf.offset; }
 
   int Repair(DocTable *dt, IndexFlags flags, struct IndexRepairParams *params);
+
+  bool Matches(t_docId docId) const { return firstId <= docId && docId <= lastId; }
 };
 
 //---------------------------------------------------------------------------------------------
@@ -82,18 +80,20 @@ typedef int (*IndexSeeker)(BufferReader *br, const IndexDecoderCtx *ctx, struct 
 #endif // 0
 
 struct IndexDecoder {
-
   // This context is passed to the decoder callback, and can contain either a pointer or integer.
   // It is intended to relay along any kind of additional configuration information to help the 
-  // decoder determine whether to filter the entry. */
+  // decoder determine whether to filter the entry.
 
-  union Ctx {
-    void *ptr;
-    t_fieldMask num;
-    t_docId matchId;
-  } ctx;
+  union {
+    const NumericFilter *filter;
+    t_fieldMask mask;
+  };
 
   IndexDecoder(uint32_t flags);
+  IndexDecoder(uint32_t flags, t_fieldMask mask);
+  IndexDecoder(uint32_t flags, const NumericFilter *filter);
+
+  void ctor(uint32_t flags);
 
   // Decode a single record from the buffer reader. This function is responsible for:
   // (1) Decoding the record at the given position of br
@@ -104,15 +104,39 @@ struct IndexDecoder {
   // If the record should not be processed, it should not be populated and 0 should be returned.
   // Otherwise, the function should return 1.
 
-  int (*decoder)(BufferReader *br, const IndexDecoder::Ctx *ctx, RSIndexResult *res);
+  int (IndexDecoder::*decoder)(BufferReader *br, RSIndexResult *res);
 
   // Custom implementation of a seeking function. Seek to the specific ID within the index, 
   // or at one position after it.
   // The implementation of this function is optional. 
   // If this is not used, then the decoder() implementation will be used instead.
 
-  int (*seeker)(BufferReader *br, const IndexDecoder::Ctx *ctx, struct IndexReader *ir,
+  int (IndexDecoder::*seeker)(BufferReader *br, struct IndexReader *ir,
     t_docId to, RSIndexResult *res);
+
+#define DECODER(name) \
+  int name(BufferReader *br, RSIndexResult *res)
+
+  DECODER(readFreqsFlags);
+  DECODER(readFreqsFlagsWide);
+  DECODER(readFreqOffsetsFlags);
+  DECODER(readFreqOffsetsFlagsWide);
+  DECODER(readNumeric);
+  DECODER(readFreqs);
+  DECODER(readFlags);
+  DECODER(readFlagsWide);
+  DECODER(readFlagsOffsets);
+  DECODER(readFlagsOffsetsWide);
+  DECODER(readOffsets);
+  DECODER(readFreqsOffsets);
+  DECODER(readDocIdsOnly);
+#undef DECODER
+
+#define SKIPPER(name) \
+  int name(BufferReader *br, IndexReader *ir, t_docId expid, RSIndexResult *res)
+
+  SKIPPER(seekFreqOffsetsFlags);
+#undef SKIPPER
 };
 
 //---------------------------------------------------------------------------------------------
@@ -141,20 +165,23 @@ struct InvertedIndex : Object {
   size_t WriteEntryGeneric(IndexEncoder encoder, t_docId docId, const RSIndexResult &entry);
 
   // Get the appropriate encoder for an inverted index given its flags. Returns NULL on invalid flags
-  IndexEncoder GetEncoder(IndexFlags flags);
+  static IndexEncoder GetEncoder(IndexFlags flags);
 
   // Get the decoder for the index based on the index flags.
   // Used to externally inject the endoder/decoder when reading and writing.
-  IndexDecoder GetDecoder(uint32_t flags);
+  static IndexDecoder GetDecoder(uint32_t flags);
 
   int Repair(DocTable *dt, uint32_t startBlock, struct IndexRepairParams *params);
+
+  // The last block of the index
+  IndexBlock &LastBlock();
 };
 
 //---------------------------------------------------------------------------------------------
 
 // An IndexReader wraps an inverted index record for reading and iteration
 
-struct IndexReader : public Object {
+struct IndexReader : public IndexIterator {
   const IndexSpec *sp;
 
   // the underlying data buffer
@@ -164,6 +191,7 @@ struct IndexReader : public Object {
 
   // last docId, used for delta encoding/decoding
   t_docId lastId;
+
   uint32_t currentBlock;
 
   IndexDecoder decoder;
@@ -174,7 +202,7 @@ struct IndexReader : public Object {
   // The record we are decoding into
   RSIndexResult *record;
 
-  int atEnd_;
+  int atEnd;
 
   // If present, this pointer is updated when the end has been reached.
   // This is an optimization to avoid calling IR_HasNext() each time.
@@ -193,7 +221,7 @@ struct IndexReader : public Object {
     double weight);
 
   // free an index reader
-  ~IndexReader();
+  virtual ~IndexReader();
 
   //-------------------------------------------------------------------------------------------
 
@@ -219,17 +247,30 @@ struct IndexReader : public Object {
   //  - INDEXREAD_EOF if the ID is out of the upper range
 
   int SkipTo(t_docId docId, RSIndexResult **hit);
+  int SkipToBlock(t_docId docId);
+
+  void Abort();
+  void Rewind();
 
   RSIndexResult *Current(void *ctx);
 
   // The number of docs in an inverted index entry
   size_t NumDocs() const;
 
+  size_t NumEstimated() const;
+
   // LastDocId of an inverted index stateful reader
   t_docId LastDocId() const;
 
   // Create a reader iterator that iterates an inverted index record
-  IndexIterator *NewReadIterator(IndexReader *ir);
+  IndexIterator *NewReadIterator();
+
+  void SetAtEnd(int value);
+
+  // current block while reading the index
+  IndexBlock &CurrentBlock();
+
+  void AdvanceBlock();
 };
 
 //---------------------------------------------------------------------------------------------
@@ -248,19 +289,7 @@ class NumericIndexReader : public IndexReader {
 public:
   // Create a new index reader for numeric records, optionally using a given filter.
   // If the filter is NULL we will return all the records in the index.
-  NewNumericReader(InvertedIndex *idx, const IndexSpec *sp, const NumericFilter *flt);
+  NumericIndexReader(InvertedIndex *idx, const IndexSpec *sp = 0, const NumericFilter *flt = 0);
 };
 
-//---------------------------------------------------------------------------------------------
-
-static inline double CalculateIDF(size_t totalDocs, size_t termDocs) {
-  return logb(1.0F + totalDocs / (termDocs ? termDocs : (double)1));
-}
-
 ///////////////////////////////////////////////////////////////////////////////////////////////
-
-#ifdef __cplusplus
-}
-#endif
-
-#endif

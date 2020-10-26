@@ -109,7 +109,7 @@ struct UnionResult : AggregateResult {
 
 //---------------------------------------------------------------------------------------------
 
-struct TokenRecord : RSIndexResult {
+struct TokenResult : public RSIndexResult {
   TokenResult(RSQueryTerm *term_, double weight) {
     type = RSResultType_Term;
     docId = 0;
@@ -123,7 +123,9 @@ struct TokenRecord : RSIndexResult {
   }
 };
 
-struct NumericResult : RSIndexResult {
+//---------------------------------------------------------------------------------------------
+
+struct NumericResult : public RSIndexResult {
   NumericResult() {
     type = RSResultType_Numeric;
     docId = 0;

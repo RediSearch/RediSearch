@@ -257,8 +257,8 @@ static void handleReplaceDelete(RedisSearchCtx *sctx, t_docId did) {
     }
     // Open the key:
     RedisModuleString *fmtkey = IndexSpec_GetFormattedKey(sp, fs, INDEXFLD_T_GEO);
-    GeoIndex gi = {.ctx = sctx, .sp = fs};
-    GeoIndex_RemoveEntries(&gi, sp, did);
+    GeoIndex gi{sctx, fs};
+    gi.RemoveEntries(sp, did);
   }
 }
 
