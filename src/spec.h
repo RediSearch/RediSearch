@@ -152,6 +152,7 @@ typedef struct Version {
 extern Version redisVersion;
 extern Version rlecVersion;
 extern bool isCrdt;
+extern bool isTrimming;
 
 /**
  * This "ID" type is independent of the field mask, and is used to distinguish

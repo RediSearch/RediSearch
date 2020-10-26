@@ -46,6 +46,7 @@ dict *legacySpecRules;
 Version redisVersion;
 Version rlecVersion;
 bool isCrdt;
+bool isTrimming = false;
 
 //---------------------------------------------------------------------------------------------
 
