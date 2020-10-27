@@ -117,7 +117,7 @@ IndexIterator *NewGeoRangeIterator(RedisSearchCtx *ctx, const GeoFilter *gf) {
               NewNumericFilter(ranges[ii].min, ranges[ii].max, 1, 1);
       filt->fieldName = rm_strdup(gf->property);
       filt->geoFilter = gf;
-      struct indexIterator *numIter = NewNumericFilterIterator(ctx, filt, NULL, INDEXFLD_T_GEO);
+      struct indexIterator *numIter = NewNumericSkiplistIterator(ctx, filt, NULL, INDEXFLD_T_GEO);
       if (numIter != NULL) {
         iters[itersCount++] = numIter;
       }

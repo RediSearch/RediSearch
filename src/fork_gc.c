@@ -469,6 +469,60 @@ static void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
   FGC_sendTerminator(gc);
 }
 
+static void FGC_childCollectNumericSkiplist(ForkGC *gc, RedisSearchCtx *sctx) {
+  RedisModuleKey *idxKey = NULL;
+  FieldSpec **numericFields = getFieldsByType(sctx->spec, INDEXFLD_T_NUMERIC | INDEXFLD_T_GEO);
+
+  for (int i = 0; i < array_len(numericFields); ++i) {
+    RedisModuleString *keyName =
+        IndexSpec_GetFormattedKey(sctx->spec, numericFields[i], INDEXFLD_T_NUMERIC);
+    NumericSkiplist *rt = OpenNumericSkiplistIndex(sctx, keyName, &idxKey);
+
+    
+    NumericSkiplistIterator *gcIterator = NumericSkiplistIterator_New(rt);
+
+    NumericSkiplistNode *currNode = NULL;
+    tagNumHeader header = {.field = numericFields[i]->name, .uniqueId = rt->uniqueId};
+
+    while ((currNode = NumericSkiplistIterator_Next(gcIterator))) {
+      numCbCtx nctx = {0};
+      InvertedIndex *idx = currNode->invidx;
+      nctx.lastblk = idx->blocks + idx->size - 1;
+      IndexRepairParams params = {.RepairCallback = countDeleted, .arg = &nctx};
+      header.curPtr = currNode;
+      bool repaired = FGC_childRepairInvidx(gc, sctx, idx, sendNumericTagHeader, &header, &params);
+
+      if (repaired) {
+        sendKht(gc, nctx.delRest);
+        sendKht(gc, nctx.delLast);
+      }
+      if (nctx.delRest) {
+        kh_destroy(cardvals, nctx.delRest);
+      }
+      if (nctx.delLast) {
+        kh_destroy(cardvals, nctx.delLast);
+      }
+    }
+
+    if (header.sentFieldName) {
+      // If we've repaired at least one entry, send the terminator;
+      // note that "terminator" just means a zero address and not the
+      // "no more strings" terminator in FGC_sendTerminator
+      void *pdummy = NULL;
+      FGC_SEND_VAR(gc, pdummy);
+    }
+
+    if (idxKey) {
+      RedisModule_CloseKey(idxKey);
+    }
+
+    NumericSkiplistIterator_Free(gcIterator);
+  }
+
+  // we are done with numeric fields
+  FGC_sendTerminator(gc);
+}
+
 static void FGC_childCollectTags(ForkGC *gc, RedisSearchCtx *sctx) {
   RedisModuleKey *idxKey = NULL;
   FieldSpec **tagFields = getFieldsByType(sctx->spec, INDEXFLD_T_TAG);
@@ -516,7 +570,8 @@ static void FGC_childScanIndexes(ForkGC *gc) {
   }
 
   FGC_childCollectTerms(gc, sctx);
-  FGC_childCollectNumeric(gc, sctx);
+  //FGC_childCollectNumeric(gc, sctx);
+  FGC_childCollectNumericSkiplist(gc, sctx);
   FGC_childCollectTags(gc, sctx);
 
   SearchCtx_Free(sctx);
@@ -800,6 +855,17 @@ typedef struct {
   MSG_IndexInfo info;
 } NumGcInfo;
 
+typedef struct {
+  // Node in the tree that was GC'd
+  NumericSkiplistNode *node;
+  CardinalityValue *lastBlockDeleted;
+  CardinalityValue *restBlockDeleted;
+  size_t nlastBlockDel;
+  size_t nrestBlockDel;
+  InvIdxBuffers idxbufs;
+  MSG_IndexInfo info;
+} NumSkiplistGcInfo;
+
 static int recvCardvals(ForkGC *fgc, CardinalityValue **tgt, size_t *len) {
   if (FGC_recvFixed(fgc, len, sizeof(*len)) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
@@ -818,6 +884,36 @@ static int recvCardvals(ForkGC *fgc, CardinalityValue **tgt, size_t *len) {
 }
 
 static FGCError recvNumIdx(ForkGC *gc, NumGcInfo *ninfo) {
+  if (FGC_recvFixed(gc, &ninfo->node, sizeof(ninfo->node)) != REDISMODULE_OK) {
+    goto error;
+  }
+  if (ninfo->node == NULL) {
+    return FGC_DONE;
+  }
+
+  if (FGC_recvInvIdx(gc, &ninfo->idxbufs, &ninfo->info) != REDISMODULE_OK) {
+    goto error;
+  }
+
+  if (recvCardvals(gc, &ninfo->restBlockDeleted, &ninfo->nrestBlockDel) != REDISMODULE_OK) {
+    goto error;
+  }
+  if (recvCardvals(gc, &ninfo->lastBlockDeleted, &ninfo->nlastBlockDel) != REDISMODULE_OK) {
+    goto error;
+  }
+
+  return FGC_COLLECTED;
+
+error:
+  printf("Error receiving numeric index!\n");
+  freeInvIdx(&ninfo->idxbufs, &ninfo->info);
+  rm_free(ninfo->lastBlockDeleted);
+  rm_free(ninfo->restBlockDeleted);
+  memset(ninfo, 0, sizeof(*ninfo));
+  return FGC_CHILD_ERROR;
+}
+
+static FGCError recvNumSkiplistIdx(ForkGC *gc, NumSkiplistGcInfo *ninfo) {
   if (FGC_recvFixed(gc, &ninfo->node, sizeof(ninfo->node)) != REDISMODULE_OK) {
     goto error;
   }
@@ -912,6 +1008,16 @@ static void applyNumIdx(ForkGC *gc, RedisSearchCtx *sctx, NumGcInfo *ninfo) {
   resetCardinality(ninfo, currNode);
 }
 
+static void applyNumSkiplistIdx(ForkGC *gc, RedisSearchCtx *sctx, NumSkiplistGcInfo *ninfo) {
+  NumericSkiplistNode *currNode = ninfo->node;
+  InvIdxBuffers *idxbufs = &ninfo->idxbufs;
+  MSG_IndexInfo *info = &ninfo->info;
+  FGC_applyInvertedIndex(gc, idxbufs, info, currNode->invidx);
+
+  //currNode->range->invertedIndexSize -= info->nbytesCollected;
+  FGC_updateStats(sctx, gc, info->ndocsCollected, info->nbytesCollected);
+}
+
 static FGCError FGC_parentHandleNumeric(ForkGC *gc, RedisModuleCtx *rctx) {
   int hasLock = 0;
   size_t fieldNameLen;
@@ -960,6 +1066,75 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc, RedisModuleCtx *rctx) {
     }
 
     applyNumIdx(gc, sctx, &ninfo);
+
+  loop_cleanup:
+    if (sctx) {
+      SearchCtx_Free(sctx);
+    }
+    if (status != FGC_COLLECTED) {
+      freeInvIdx(&ninfo.idxbufs, &ninfo.info);
+    } else {
+      rm_free(ninfo.idxbufs.changedBlocks);
+    }
+    if (idxKey) {
+      RedisModule_CloseKey(idxKey);
+    }
+    if (hasLock) {
+      FGC_unlock(gc, rctx);
+      hasLock = 0;
+    }
+
+    rm_free(ninfo.restBlockDeleted);
+    rm_free(ninfo.lastBlockDeleted);
+  }
+
+  rm_free(fieldName);
+  return status;
+}
+
+static FGCError FGC_parentHandleNumericSkiplist(ForkGC *gc, RedisModuleCtx *rctx) {
+  int hasLock = 0;
+  size_t fieldNameLen;
+  char *fieldName = NULL;
+  uint64_t rtUniqueId;
+  FGCError status = recvNumericTagHeader(gc, &fieldName, &fieldNameLen, &rtUniqueId);
+  if (status == FGC_DONE) {
+    return FGC_DONE;
+  }
+
+  while (status == FGC_COLLECTED) {
+    NumSkiplistGcInfo ninfo = {0};
+    RedisSearchCtx *sctx = NULL;
+    RedisModuleKey *idxKey = NULL;
+    FGCError status2 = recvNumSkiplistIdx(gc, &ninfo);
+    if (status2 == FGC_DONE) {
+      break;
+    } else if (status2 != FGC_COLLECTED) {
+      status = status2;
+      break;
+    }
+
+    if (!FGC_lock(gc, rctx)) {
+      status = FGC_PARENT_ERROR;
+      goto loop_cleanup;
+    }
+
+    hasLock = 1;
+    sctx = FGC_getSctx(gc, rctx);
+    if (!sctx || sctx->spec->uniqueId != gc->specUniqueId) {
+      status = FGC_PARENT_ERROR;
+      goto loop_cleanup;
+    }
+    RedisModuleString *keyName =
+        IndexSpec_GetFormattedKeyByName(sctx->spec, fieldName, INDEXFLD_T_NUMERIC);
+    NumericSkiplist *rt = OpenNumericSkiplistIndex(sctx, keyName, &idxKey);
+
+    if (rt->uniqueId != rtUniqueId) {
+      status = FGC_PARENT_ERROR;
+      goto loop_cleanup;
+    }
+
+    applyNumSkiplistIdx(gc, sctx, &ninfo);
 
   loop_cleanup:
     if (sctx) {
@@ -1072,7 +1247,8 @@ int FGC_parentHandleFromChild(ForkGC *gc) {
   }
 
   COLLECT_FROM_CHILD(FGC_parentHandleTerms(gc, gc->ctx));
-  COLLECT_FROM_CHILD(FGC_parentHandleNumeric(gc, gc->ctx));
+  //COLLECT_FROM_CHILD(FGC_parentHandleNumeric(gc, gc->ctx));
+  COLLECT_FROM_CHILD(FGC_parentHandleNumericSkiplist(gc, gc->ctx));
   COLLECT_FROM_CHILD(FGC_parentHandleTags(gc, gc->ctx));
   return REDISMODULE_OK;
 }

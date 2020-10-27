@@ -30,8 +30,6 @@ def downloadFiles():
     return True
 
 def testRDBCompatibility():
-    # temp skip for out-of-index
-
     env = Env(moduleArgs='UPGRADE_INDEX idx PREFIX 1 tt LANGUAGE french LANGUAGE_FIELD MyLang SCORE 0.5 SCORE_FIELD MyScore PAYLOAD_FIELD MyPayload UPGRADE_INDEX idx1')
 
     env.skipOnCluster()

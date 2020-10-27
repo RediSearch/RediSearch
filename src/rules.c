@@ -1,6 +1,7 @@
 #include "rules.h"
 #include "aggregate/expr/expression.h"
 #include "spec.h"
+#include "document.h"
 
 TrieMap *ScemaPrefixes_g;
 

@@ -5,6 +5,7 @@
 #include "forward_index.h"
 #include "numeric_filter.h"
 #include "numeric_index.h"
+#include "numeric_skiplist_index.h"
 #include "rmutil/strings.h"
 #include "rmutil/util.h"
 #include "util/mempool.h"
@@ -449,17 +450,20 @@ FIELD_PREPROCESSOR(numericPreprocessor) {
 }
 
 FIELD_BULK_INDEXER(numericIndexer) {
-  NumericRangeTree *rt = bulk->indexDatas[IXFLDPOS_NUMERIC];
+  NumericSkiplist *rt = bulk->indexDatas[IXFLDPOS_NUMERIC];
+  //NumericRangeTree *rt = bulk->indexDatas[IXFLDPOS_NUMERIC];
   if (!rt) {
     RedisModuleString *keyName = IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_NUMERIC);
     rt = bulk->indexDatas[IXFLDPOS_NUMERIC] =
-        OpenNumericIndex(ctx, keyName, &bulk->indexKeys[IXFLDPOS_NUMERIC]);
+        OpenNumericSkiplistIndex(ctx, keyName, &bulk->indexKeys[IXFLDPOS_NUMERIC]);
+        //OpenNumericIndex(ctx, keyName, &bulk->indexKeys[IXFLDPOS_NUMERIC]);
     if (!rt) {
       QueryError_SetError(status, QUERY_EGENERIC, "Could not open numeric index for indexing");
       return -1;
     }
   }
-  NRN_AddRv rv = NumericRangeTree_Add(rt, aCtx->doc.docId, fdata->numeric);
+  NRN_AddRv rv = NumericSkiplist_Add(rt, aCtx->doc.docId, fdata->numeric);
+  //NRN_AddRv rv = NumericRangeTree_Add(rt, aCtx->doc.docId, fdata->numeric);
   ctx->spec->stats.invertedSize += rv.sz;  // TODO: exact amount
   ctx->spec->stats.numRecords += rv.numRecords;
   return 0;

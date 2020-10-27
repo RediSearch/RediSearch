@@ -55,12 +55,6 @@ typedef struct rtNode {
 } NumericRangeNode;
 
 typedef struct {
-  int sz;
-  int numRecords;
-  uint32_t changed;
-} NRN_AddRv;
-
-typedef struct {
   NumericRangeNode **nodesStack;
 } NumericRangeTreeIterator;
 

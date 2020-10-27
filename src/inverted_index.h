@@ -9,6 +9,7 @@
 #include "index_result.h"
 #include "spec.h"
 #include "numeric_filter.h"
+#include "numeric_skiplist_index.h"
 #include <stdint.h>
 #include <math.h>
 
@@ -164,6 +165,7 @@ size_t InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, IndexEncoder enc
 /* Write a numeric index entry to the index. it includes only a float value and docId. Returns the
  * number of bytes written */
 size_t InvertedIndex_WriteNumericEntry(InvertedIndex *idx, t_docId docId, double value);
+size_t InvertedIndex_WriteNumericSkiplistEntry(InvertedIndex *idx, t_docId docId);
 
 size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder, t_docId docId,
                                        RSIndexResult *entry);
@@ -171,6 +173,7 @@ size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
  * is
  * NULL we will return all the records in the index */
 IndexReader *NewNumericReader(const IndexSpec *sp, InvertedIndex *idx, const NumericFilter *flt);
+IndexReader *NewNumericSkiplistReader(const IndexSpec *sp, NumericSkiplistReaderCtx *nsrc);
 
 /* Get the appropriate encoder for an inverted index given its flags. Returns NULL on invalid flags
  */
