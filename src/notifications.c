@@ -234,11 +234,15 @@ void ShardingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent,
 
   switch (subevent) {
     case REDISMODULE_SUBEVENT_SHARDING_SLOT_RANGE_CHANGED:
+      RedisModule_Log(ctx, "notice", "%s", "Got slot range change event, enter trimming phase.");
       isTrimming = true;
       break;
     case REDISMODULE_SUBEVENT_SHARDING_TRIMMING_STARTED:
+      RedisModule_Log(ctx, "notice", "%s", "Got trimming started event, enter trimming phase.");
+      isTrimming = true;
       break;
     case REDISMODULE_SUBEVENT_SHARDING_TRIMMING_ENDED:
+      RedisModule_Log(ctx, "notice", "%s", "Got trimming ended event, exit trimming phase.");
       isTrimming = false;
       break;
     default:
@@ -256,6 +260,7 @@ void Initialize_KeyspaceNotifications(RedisModuleCtx *ctx) {
 
   if (RedisModule_SubscribeToServerEvent && RedisModule_ShardingGetKeySlot) {
     // we have server events support, lets subscribe to relevan events.
+    RedisModule_Log(ctx, "notice", "%s", "Subscribe to sharding events");
     RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Sharding, ShardingEvent);
   }
 }

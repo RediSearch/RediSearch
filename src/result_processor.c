@@ -96,7 +96,6 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
       int firstSlot, lastSlot;
       RedisModule_ShardingGetSlotRange(&firstSlot, &lastSlot);
       if (firstSlot > slot || lastSlot < slot) {
-        // key is going to be trimmed
         continue;
       }
     }
