@@ -161,7 +161,8 @@ DEBUG_COMMAND(NumericIndexSummary) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
     goto end;
   }
-  NumericRangeTree *rt = OpenNumericIndex(sctx, keyName, &keyp);
+  //NumericRangeTree *rt = OpenNumericIndex(sctx, keyName, &keyp);
+  NumericSkiplist *rt = OpenNumericSkiplistIndex(sctx, keyName, &keyp);
   if (!rt) {
     RedisModule_ReplyWithError(sctx->redisCtx, "can not open numeric field");
     goto end;
@@ -170,7 +171,7 @@ DEBUG_COMMAND(NumericIndexSummary) {
   size_t invIdxBulkLen = 0;
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
-  REPLY_WITH_LONG_LONG("numRanges", rt->numRanges, invIdxBulkLen);
+  REPLY_WITH_LONG_LONG("numInvIdx", rt->numInvIdx, invIdxBulkLen);
   REPLY_WITH_LONG_LONG("numEntries", rt->numEntries, invIdxBulkLen);
   REPLY_WITH_LONG_LONG("lastDocId", rt->lastDocId, invIdxBulkLen);
   REPLY_WITH_LONG_LONG("revisionId", rt->revisionId, invIdxBulkLen);
@@ -214,6 +215,43 @@ DEBUG_COMMAND(DumpNumericIndex) {
   }
   RedisModule_ReplySetArrayLength(sctx->redisCtx, resultSize);
   NumericRangeTreeIterator_Free(iter);
+end:
+  if (keyp) {
+    RedisModule_CloseKey(keyp);
+  }
+  SearchCtx_Free(sctx);
+  return REDISMODULE_OK;
+}
+
+DEBUG_COMMAND(DumpNumericSkiplistIndex) {
+  if (argc != 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+  GET_SEARCH_CTX(argv[0])
+  RedisModuleKey *keyp = NULL;
+  RedisModuleString *keyName = getFieldKeyName(sctx->spec, argv[1], INDEXFLD_T_NUMERIC);
+  if (!keyName) {
+    RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
+    goto end;
+  }
+  NumericSkiplist *rt = OpenNumericSkiplistIndex(sctx, keyName, &keyp);
+  if (!rt) {
+    RedisModule_ReplyWithError(sctx->redisCtx, "can not open numeric field");
+    goto end;
+  }
+  NumericSkiplistNode *currNode;
+  NumericSkiplistIterator *iter = NumericSkiplistIterator_New(rt);
+  size_t resultSize = 0;
+  NumericSkiplistReaderCtx nsrc = {0};
+  RedisModule_ReplyWithArray(sctx->redisCtx, REDISMODULE_POSTPONED_ARRAY_LEN);
+  while ((currNode = NumericSkiplistIterator_Next(iter))) {
+    nsrc.nsn = currNode;
+    IndexReader *reader = NewNumericSkiplistReader(NULL, &nsrc);
+    ReplyReaderResults(reader, sctx->redisCtx);
+    ++resultSize;
+  }
+  RedisModule_ReplySetArrayLength(sctx->redisCtx, resultSize);
+  NumericSkiplistIterator_Free(iter);
 end:
   if (keyp) {
     RedisModule_CloseKey(keyp);
@@ -620,7 +658,8 @@ typedef struct DebugCommandType {
 } DebugCommandType;
 
 DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex},
-                               {"DUMP_NUMIDX", DumpNumericIndex},
+                               //{"DUMP_NUMIDX", DumpNumericIndex},
+                               {"DUMP_NUMIDX", DumpNumericSkiplistIndex},
                                {"DUMP_TAGIDX", DumpTagIndex},
                                {"INFO_TAGIDX", InfoTagIndex},
                                {"IDTODOCID", IdToDocId},

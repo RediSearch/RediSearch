@@ -253,12 +253,18 @@ typedef struct {
   uint8_t specific : 5;
 } NumEncodingCommon;
 
+typedef struct {
+  uint8_t deltaEncoding : 2;
+  uint8_t tinyDelta : 6;
+} EncodingHeaderSkiplist;
+
 typedef union {
   uint8_t storage;
   NumEncodingCommon encCommon;
   NumEncodingInt encInt;
   NumEncodingTiny encTiny;
   NumEncodingFloat encFloat;
+  EncodingHeaderSkiplist encSL;
 } EncodingHeader;
 
 #define NUM_TINY_MAX 0xF  // Mask/Limit for 'Tiny' value
@@ -362,6 +368,33 @@ ENCODER(encodeNumeric) {
   return sz;
 }
 
+// 10. Special encoder for numeric values
+ENCODER(encodeNumericSkiplist) {
+  EncodingHeader header = {.storage = 0};
+
+  size_t pos = BufferWriter_Offset(bw);
+  size_t sz = Buffer_Write(bw, "\0", 1);
+
+  // Write the delta. Use header if it can fit in 6 spare bits
+  // Since first element has delta 0, we save delta + 1
+  if (delta < 63) {
+    header.encSL.tinyDelta = delta + 1;
+  } else {
+    size_t numDeltaBytes = 0;
+    do {
+      sz += Buffer_Write(bw, &delta, 1);
+      numDeltaBytes++;
+      delta >>= 8;
+    } while (delta);
+    header.encSL.deltaEncoding = numDeltaBytes - 1;
+  }
+  *BufferWriter_PtrAt(bw, pos) = header.storage;
+  // printf("== Encoded ==\n");
+  // dumpEncoding(header, stdout);
+
+  return sz;
+}
+
 /* Get the appropriate encoder based on index flags */
 IndexEncoder InvertedIndex_GetEncoder(IndexFlags flags) {
   switch (flags & INDEX_STORAGE_MASK) {
@@ -410,7 +443,8 @@ IndexEncoder InvertedIndex_GetEncoder(IndexFlags flags) {
       return encodeDocIdsOnly;
 
     case Index_StoreNumeric:
-      return encodeNumeric;
+      //return encodeNumeric;
+      return encodeNumericSkiplist;
 
     // invalid encoder - we will fail
     default:
@@ -483,6 +517,12 @@ size_t InvertedIndex_WriteNumericEntry(InvertedIndex *idx, t_docId docId, double
       .num = (RSNumericRecord){.value = value},
   };
   return InvertedIndex_WriteEntryGeneric(idx, encodeNumeric, docId, &rec);
+}
+
+/* Write a numeric entry to the index */
+size_t InvertedIndex_WriteNumericSkiplistEntry(InvertedIndex *idx, t_docId docId) {
+  // Value is not stored in the inverted index thus no need for  
+  return InvertedIndex_WriteEntryGeneric(idx, encodeNumericSkiplist, docId, NULL);
 }
 
 static void IndexReader_AdvanceBlock(IndexReader *ir) {
@@ -657,6 +697,31 @@ DECODER(readNumeric) {
   return 1;
 }
 
+
+// special decoder for decoding numeric results
+DECODER(readNumericSkiplist) {
+  EncodingHeader header;
+  Buffer_Read(br, &header, 1);
+
+  res->docId = 0;
+  if (header.encSL.tinyDelta != 0) {
+    res->docId = header.encSL.tinyDelta - 1;
+  } else {
+    Buffer_Read(br, &res->docId, header.encCommon.deltaEncoding + 1);
+  }
+
+  NumericSkiplistReaderCtx *nsrc = ctx->ptr;
+  if (nsrc) {
+    res->num.value = nsrc->nsn->value;
+    if (nsrc->f && nsrc->f->geoFilter) {
+        return isWithinRadius(nsrc->f->geoFilter, res->num.value, NULL);
+    }
+  }
+
+  // printf("Field matches.. hurray!\n");
+  return 1;
+}
+
 DECODER(readFreqs) {
   qint_decode2(br, (uint32_t *)&res->docId, &res->freq);
   return 1;
@@ -764,7 +829,8 @@ IndexDecoderProcs InvertedIndex_GetDecoder(uint32_t flags) {
       RETURN_DECODERS(readFlagsOffsetsWide, NULL);
 
     case Index_StoreNumeric:
-      RETURN_DECODERS(readNumeric, NULL);
+      //RETURN_DECODERS(readNumeric, NULL);
+      RETURN_DECODERS(readNumericSkiplist, NULL);
 
     default:
       fprintf(stderr, "No decoder for flags %x\n", flags & INDEX_STORAGE_MASK);
@@ -781,6 +847,17 @@ IndexReader *NewNumericReader(const IndexSpec *sp, InvertedIndex *idx, const Num
   IndexDecoderCtx ctx = {.ptr = (void *)flt};
   IndexDecoderProcs procs = {.decoder = readNumeric};
   return NewIndexReaderGeneric(sp, idx, procs, ctx, res, 1);
+}
+
+IndexReader *NewNumericSkiplistReader(const IndexSpec *sp, NumericSkiplistReaderCtx *nsrc) {
+  RSIndexResult *res = NewNumericResult();
+  res->freq = 1;
+  res->fieldMask = RS_FIELDMASK_ALL;
+  res->num.value = 0;
+
+  IndexDecoderCtx ctx = {.ptr = nsrc};
+  IndexDecoderProcs procs = {.decoder = readNumericSkiplist};
+  return NewIndexReaderGeneric(sp, nsrc->nsn->invidx, procs, ctx, res, 1);
 }
 
 static t_docId calculateId(t_docId lastId, uint32_t delta, int isFirst) {
@@ -871,6 +948,11 @@ IndexCriteriaTester *IR_GetCriteriaTester(void *ctx) {
   irct->spec = ir->sp;
   if (ir->decoders.decoder == readNumeric) {
     irct->nf = *(NumericFilter *)ir->decoderCtx.ptr;
+    irct->nf.fieldName = rm_strdup(irct->nf.fieldName);
+    irct->base.Test = IR_TestNumeric;
+    irct->base.Free = IR_TesterFreeNumeric;
+  } else if (ir->decoders.decoder == readNumericSkiplist) {
+    irct->nf = *((NumericSkiplistReaderCtx *)ir->decoderCtx.ptr)->f;
     irct->nf.fieldName = rm_strdup(irct->nf.fieldName);
     irct->base.Test = IR_TestNumeric;
     irct->base.Free = IR_TesterFreeNumeric;
@@ -1109,7 +1191,7 @@ IndexReader *NewTermIndexReader(InvertedIndex *idx, IndexSpec *sp, t_fieldMask f
 }
 
 void IR_Free(IndexReader *ir) {
-
+  //rm_free(ir->decoderCtx.ptr);
   IndexResult_Free(ir->record);
   rm_free(ir);
 }

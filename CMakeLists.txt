@@ -118,6 +118,7 @@ FILE(GLOB RS_SRC
     "src/dep/hll/*.c"
     "src/dep/libnu/*.c"
     "src/dep/miniz/*.c"
+    "src/dep/skiplist/*.c"
     "src/dep/thpool/*.c"
     "src/dep/triemap/*.c"
     "src/dep/geo/*.c"

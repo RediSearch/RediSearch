@@ -161,11 +161,11 @@ class TestDebugCommands(object):
         self.env.expect('FT.DEBUG', 'invidx_summary', 'idx1').raiseError()
 
     def testNumericIdxIndexSummary(self):
-        self.env.expect('FT.DEBUG', 'numidx_summary', 'idx', 'age').equal(['numRanges', 1L, 'numEntries', 1L,
-                                                                           'lastDocId', 1L, 'revisionId', 0L])
+        self.env.expect('FT.DEBUG', 'numidx_summary', 'idx', 'age').equal(['numInvIdx', 1L, 'numEntries', 1L,
+                                                                           'lastDocId', 1L, 'revisionId', 1L])
 
-        self.env.expect('FT.DEBUG', 'NUMIDX_SUMMARY', 'idx', 'age').equal(['numRanges', 1L, 'numEntries', 1L,
-                                                                           'lastDocId', 1L, 'revisionId', 0L])
+        self.env.expect('FT.DEBUG', 'NUMIDX_SUMMARY', 'idx', 'age').equal(['numInvIdx', 1L, 'numEntries', 1L,
+                                                                           'lastDocId', 1L, 'revisionId', 1L])
 
     def testUnexistsNumericIndexSummary(self):
         self.env.expect('FT.DEBUG', 'numidx_summary', 'idx', 'age1').raiseError()

@@ -274,7 +274,6 @@ uint16_t numericTreesUniqueId = 0;
 
 /* Create a new numeric range tree */
 NumericRangeTree *NewNumericRangeTree() {
-#define GC_NODES_INITIAL_SIZE 10
   NumericRangeTree *ret = rm_malloc(sizeof(NumericRangeTree));
 
   ret->root = NewLeafNode(2, NF_NEGATIVE_INFINITY, NF_INFINITY, 2);

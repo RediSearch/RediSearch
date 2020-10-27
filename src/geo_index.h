@@ -8,7 +8,7 @@
 #include "search_ctx.h"
 #include "query_error.h"
 #include "dep/geo/rs_geo.h"
-#include "numeric_index.h"
+#include "numeric_skiplist_index.h"
 
 typedef struct geoIndex {
   RedisSearchCtx *ctx;
