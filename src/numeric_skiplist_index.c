@@ -42,6 +42,7 @@ int NumericSkiplistCompare(void *a, void *b) {
 void NumericSkiplistElementDtor(void *a) {
   NumericSkiplistNode *node = a;
   InvertedIndex_Free(node->invidx);
+  rm_free(a);
 }
 
 /* Create a new numeric range tree */
@@ -82,7 +83,8 @@ NRN_AddRv NumericSkiplist_Add(NumericSkiplist *t, t_docId docId, double value) {
 }
 
 void NumericSkiplist_Free(NumericSkiplist *ns) {
-  slFree(ns->sl);
+  if (ns->sl) slFree(ns->sl);
+  rm_free(ns);
 }
 
 /* Create a union iterator from the numeric filter, over all the sub-ranges in the tree that fit

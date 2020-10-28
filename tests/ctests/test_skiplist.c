@@ -41,6 +41,7 @@ int main(int argc, char **argv) {
   assert(slIteratorNext(iter) == &num[0]);    // 1
   assert(slIteratorNext(iter) == &num[4]);    // 10
   assert(slIteratorNext(iter) == NULL);
+  slIteratorDestroy(iter);
 
   start = -100000;
   end = 5;
@@ -48,6 +49,7 @@ int main(int argc, char **argv) {
   assert(slIteratorNext(iter) == &num[2]);    // -20000
   assert(slIteratorNext(iter) == &num[0]);    // 1
   assert(slIteratorNext(iter) == NULL);
+  slIteratorDestroy(iter);
 
   start = 5;
   end = 100000;
@@ -55,6 +57,7 @@ int main(int argc, char **argv) {
   assert(slIteratorNext(iter) == &num[4]);    // 10
   assert(slIteratorNext(iter) == &num[1]);    // 42
   assert(slIteratorNext(iter) == NULL);
+  slIteratorDestroy(iter);
 
   start = -100000;
   end = 100000;
@@ -64,6 +67,7 @@ int main(int argc, char **argv) {
   assert(slIteratorNext(iter) == &num[4]);    // 10
   assert(slIteratorNext(iter) == &num[1]);    // 42
   assert(slIteratorNext(iter) == NULL);
+  slIteratorDestroy(iter);
 
   // tests for single value
   assert(slDelete(sl, (void *)&num[1], (void **)&out) == 1);  // 42
@@ -85,6 +89,9 @@ int main(int argc, char **argv) {
   iter = slIteratorCreate(sl, &start, &end);
   assert(slIteratorNext(iter) == &num[0]);    // 1
   assert(slIteratorNext(iter) == NULL);
+  slIteratorDestroy(iter);
+
+  slFree(sl);
 
   return 0;
 }

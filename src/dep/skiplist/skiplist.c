@@ -84,15 +84,14 @@ skiplist *slCreate(slCmpFunc cmp, slDestroyFunc dtor) {
  * of the element is freed too, unless node->ele is set to NULL before calling
  * this function. */
 static void slFreeNode(skiplistNode *node, slDestroyFunc dtor) {
-    if (dtor) dtor(node->ele);
+    if (dtor && node->ele) dtor(node->ele);
     rm_free(node);
 }
 
 /* Free a whole skiplist. */
 void slFree(skiplist *sl) {
-    skiplistNode *node = sl->header->level[0].forward, *next;
+    skiplistNode *node = sl->header, *next;
 
-    rm_free(sl->header);
     while(node) {
         next = node->level[0].forward;
         slFreeNode(node, sl->dtor);
@@ -217,7 +216,8 @@ int slDelete(skiplist *sl, void *eleIn, void **eleOut) {
         if (eleOut)
             *eleOut = x->ele;
         else if (sl->dtor)
-            sl->dtor(x->ele);
+            sl->dtor(x);
+        rm_free(x);
         return 1;
     }
     return 0; /* not found */
