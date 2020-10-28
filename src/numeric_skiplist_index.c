@@ -90,7 +90,7 @@ void NumericSkiplist_Free(NumericSkiplist *ns) {
 /* Create a union iterator from the numeric filter, over all the sub-ranges in the tree that fit
  * the filter */
 IndexIterator *createNumericSkiplistUnionIterator(const IndexSpec *sp, NumericSkiplist *t,
-                                                  const NumericFilter *f) {
+                                                  NumericFilter *f) {
   skiplistIterator *iter = slIteratorCreate(t->sl, (void *)&f->min, (void *)&f->max);
   if (!iter) return NULL;
 
@@ -103,6 +103,7 @@ IndexIterator *createNumericSkiplistUnionIterator(const IndexSpec *sp, NumericSk
         continue;
     Vector_Push(v, n);
   }
+  slIteratorDestroy(iter);
 
   if (!v || Vector_Size(v) == 0) {
     if (v) {
@@ -116,7 +117,7 @@ IndexIterator *createNumericSkiplistUnionIterator(const IndexSpec *sp, NumericSk
   if (vectorLen == 1) {
     NumericSkiplistNode *nsn;
     Vector_Get(v, 0, &nsn);
-    NumericSkiplistReaderCtx *nsrc = rm_malloc(sizeof(*nsrc));
+    NumericSkiplistReaderCtx *nsrc = f->nsrc = rm_malloc(sizeof(*nsrc));
     *nsrc = (NumericSkiplistReaderCtx){.nsn = nsn, .f = f};
     IndexReader *ir = NewNumericSkiplistReader(sp, nsrc);
     IndexIterator *it = NewReadIterator(ir);
@@ -134,9 +135,9 @@ IndexIterator *createNumericSkiplistUnionIterator(const IndexSpec *sp, NumericSk
     if (!nsn) { // TODO: delete?
       continue;
     }
-    NumericSkiplistReaderCtx *nsrc = rm_malloc(sizeof(*nsrc));
-    *nsrc = (NumericSkiplistReaderCtx){.nsn = nsn, .f = f};
-    IndexReader *ir = NewNumericSkiplistReader(sp, nsrc);
+    NumericSkiplistReaderCtx *nsrc = f->nsrc = rm_malloc(vectorLen * sizeof(*nsrc));
+    nsrc[i] = (NumericSkiplistReaderCtx){.nsn = nsn, .f = f};
+    IndexReader *ir = NewNumericSkiplistReader(sp, &nsrc[i]);
     its[i] = NewReadIterator(ir);
   }
   Vector_Free(v);
@@ -161,7 +162,7 @@ static NumericSkiplist *openNumericSkiplistKeysDict(RedisSearchCtx *ctx, RedisMo
   return kdv->p;
 }
 
-struct indexIterator *NewNumericSkiplistIterator(RedisSearchCtx *ctx, const NumericFilter *flt,
+struct indexIterator *NewNumericSkiplistIterator(RedisSearchCtx *ctx, NumericFilter *flt,
                                                ConcurrentSearchCtx *csx, FieldType forType) {
   RedisModuleString *s = IndexSpec_GetFormattedKeyByName(ctx->spec, flt->fieldName, forType);
   if (!s) {

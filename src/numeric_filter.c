@@ -78,6 +78,9 @@ void NumericFilter_Free(NumericFilter *nf) {
   if (nf->fieldName) {
     rm_free((char *)nf->fieldName);
   }
+  if (nf->nsrc) {
+    rm_free((void *)nf->nsrc);
+  }
   rm_free(nf);
 }
 
@@ -90,5 +93,6 @@ NumericFilter *NewNumericFilter(double min, double max, int inclusiveMin, int in
   f->inclusiveMax = inclusiveMax;
   f->inclusiveMin = inclusiveMin;
   f->geoFilter = NULL;
+  f->nsrc = NULL;
   return f;
 }

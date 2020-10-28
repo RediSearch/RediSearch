@@ -47,7 +47,7 @@ typedef struct {
 
 #define NumericRangeNode_IsLeaf(n) (n->left == NULL && n->right == NULL)
 
-struct indexIterator *NewNumericSkiplistIterator(RedisSearchCtx *ctx, const NumericFilter *flt,
+struct indexIterator *NewNumericSkiplistIterator(RedisSearchCtx *ctx, NumericFilter *flt,
                                          ConcurrentSearchCtx *csx, FieldType forType);
 
 /* Add a value to a tree. Returns 0 if no nodes were split, 1 if we splitted nodes */

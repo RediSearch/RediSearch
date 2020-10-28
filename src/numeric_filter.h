@@ -19,6 +19,7 @@ typedef struct NumericFilter {
   int inclusiveMin;
   int inclusiveMax;
   const void *geoFilter;
+  void *nsrc;   // NumericSkiplistReaderCtx
 } NumericFilter;
 
 typedef struct {
