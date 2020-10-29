@@ -29,8 +29,7 @@
 #include "redisearch_api.h"
 #include "alias.h"
 #include "module.h"
-
-pthread_rwlock_t RWLock = PTHREAD_RWLOCK_INITIALIZER;
+#include "rwlock.h"
 
 #define LOAD_INDEX(ctx, srcname, write)                                                     \
   ({                                                                                        \
@@ -1083,4 +1082,5 @@ void __attribute__((destructor)) RediSearch_CleanupModule(void) {
   ConcurrentSearch_ThreadPoolDestroy();
   IndexAlias_DestroyGlobal();
   RedisModule_FreeThreadSafeContext(RSDummyContext);
+  RediSearch_LockDestory();
 }
