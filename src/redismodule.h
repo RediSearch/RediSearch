@@ -197,6 +197,9 @@ typedef uint64_t RedisModuleTimerID;
 #define REDISMODULE_EVENT_MODULE_CHANGE 9
 #define REDISMODULE_EVENT_LOADING_PROGRESS 10
 
+/* RL Extension: */
+#define REDISMODULE_EVENT_SHARDING 1000
+
 typedef struct RedisModuleEvent {
     uint64_t id;        /* REDISMODULE_EVENT_... defines. */
     uint64_t dataver;   /* Version of the structure we pass as 'data'. */
@@ -249,6 +252,11 @@ static const RedisModuleEvent
     RedisModuleEvent_LoadingProgress = {
         REDISMODULE_EVENT_LOADING_PROGRESS,
         1
+    },
+    /* RL Extension: */
+    RedisModuleEvent_Sharding = {
+        REDISMODULE_EVENT_SHARDING,
+        1
     };
 
 /* Those are values that are used for the 'subevent' callback argument. */
@@ -284,6 +292,11 @@ static const RedisModuleEvent
 
 #define REDISMODULE_SUBEVENT_LOADING_PROGRESS_RDB 0
 #define REDISMODULE_SUBEVENT_LOADING_PROGRESS_AOF 1
+
+/* RL Extension: */
+#define REDISMODULE_SUBEVENT_SHARDING_SLOT_RANGE_CHANGED 0
+#define REDISMODULE_SUBEVENT_SHARDING_TRIMMING_STARTED 1
+#define REDISMODULE_SUBEVENT_SHARDING_TRIMMING_ENDED 2
 
 /* RedisModuleClientInfo flags. */
 #define REDISMODULE_CLIENTINFO_FLAG_SSL (1<<0)
@@ -717,6 +730,10 @@ REDISMODULE_API int (*RedisModule_AuthenticateClientWithUser)(RedisModuleCtx *ct
 REDISMODULE_API int (*RedisModule_DeauthenticateAndCloseClient)(RedisModuleCtx *ctx, uint64_t client_id) REDISMODULE_ATTR;
 #endif
 
+// enterprise only
+REDISMODULE_API int (*RedisModule_ShardingGetKeySlot)(RedisModuleString *keyname) REDISMODULE_ATTR;
+REDISMODULE_API void (*RedisModule_ShardingGetSlotRange)(int *first_slot, int *last_slot) REDISMODULE_ATTR;
+
 #define RedisModule_IsAOFClient(id) ((id) == CLIENT_ID_AOF)
 
 typedef int (*RedisModule_GetApiFunctionType)(const char *name, void *pp);
@@ -958,6 +975,10 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(AuthenticateClientWithACLUser);
     REDISMODULE_GET_API(AuthenticateClientWithUser);
 #endif
+
+    // enterprise only
+    REDISMODULE_GET_API(ShardingGetKeySlot);
+    REDISMODULE_GET_API(ShardingGetSlotRange);
 
     if (RedisModule_IsModuleNameBusy && RedisModule_IsModuleNameBusy(name)) return REDISMODULE_ERR;
     RedisModule_SetModuleAttribs(ctx,name,ver,apiver);
