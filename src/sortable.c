@@ -53,7 +53,7 @@ char *normalizeStr(const char *str) {
         lo = nu_casemap_read(lo, &u);
         if (u == 0) break;
         lower = nu_utf8_write(u, lower);
-      } while (u != 0 && lower < end);
+      } while (lower < end);
     } else {
       lower = nu_utf8_write(in, lower);
     }

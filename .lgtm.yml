@@ -10,3 +10,9 @@ path_classifiers:
   library:
     - exclude: "**/deps"
     - exclude: "**/src/dep"
+
+queries:
+  - exclude: go
+  - exclude: csharp
+  - exclude: java
+  - exclude: javascript  
