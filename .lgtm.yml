@@ -1,0 +1,12 @@
+# Customize file classifications.                                                        #
+# Results from files under any classifier will be excluded from LGTM                     #
+# statistics.                                                                            #
+##########################################################################################
+
+path_classifiers:
+  generated:
+    - exclude: "**/src/query_parser/lexer.c"
+    - exclude: "**/src/aggregate/expr/lexer.c"
+  library:
+    - exclude: "**/deps"
+    - exclude: "**/src/dep"

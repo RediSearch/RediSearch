@@ -87,8 +87,10 @@ static void extractToken(FragmentList *fragList, const Token *tokInfo,
   for (termId = 0; termId < numTerms; ++termId) {
     const FragmentSearchTerm *cur = terms + termId;
     if (tokInfo->tokLen == cur->len && strncmp(tokInfo->tok, cur->tok, cur->len) == 0) {
+      // found a term
     } else if (tokInfo->stem && tokInfo->stemLen == cur->len &&
                strncmp(tokInfo->stem, cur->tok, cur->len) == 0) {
+      // found stemmed term
     } else {
       continue;
     }

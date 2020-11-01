@@ -3,7 +3,6 @@ import glob
 import os
 import os.path
 import sys
-import shutil
 from argparse import ArgumentParser
 from subprocess import Popen, PIPE
 
