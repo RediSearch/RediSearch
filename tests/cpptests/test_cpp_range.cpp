@@ -7,7 +7,7 @@
 
 extern "C" {
 // declaration for an internal function implemented in numeric_index.c
-IndexIterator *createNumericIterator(const IndexSpec* sp, NumericRangeTree *t, const NumericFilter *f);
+IndexIterator *createNumericIterator(const IndexSpec* sp, NumericRangeSkiplist *nrsl, const NumericFilter *f);
 }
 
 // Helper so we get the same pseudo-random numbers
@@ -21,16 +21,16 @@ unsigned prng() {
 
 class RangeTest : public ::testing::Test {};
 
-TEST_F(RangeTest, testRangeTree) {
-  NumericRangeTree *t = NewNumericRangeTree();
-  ASSERT_TRUE(t != NULL);
+TEST_F(RangeTest, testRangeSkiplist) {
+  NumericRangeSkiplist *nrsl = NewNumericRangeSkiplist();
+  ASSERT_TRUE(nrsl != NULL);
 
   for (size_t i = 0; i < 50000; i++) {
 
-    NumericRangeTree_Add(t, i + 1, (double)(1 + prng() % 5000));
+    NumericRangeSkiplist_Add(nrsl, i + 1, (double)(1 + prng() % 5000));
   }
-  ASSERT_EQ(t->numRanges, 16);
-  ASSERT_EQ(t->numEntries, 50000);
+  ASSERT_EQ(nrsl->numRanges, 16);
+  ASSERT_EQ(nrsl->numEntries, 50000);
 
   struct {
     double min;
@@ -39,7 +39,7 @@ TEST_F(RangeTest, testRangeTree) {
 
   for (int r = 0; rngs[r].min || rngs[r].max; r++) {
 
-    Vector *v = NumericRangeTree_Find(t, rngs[r].min, rngs[r].max);
+    Vector *v = NumericRangeSkiplist_Find(nrsl, rngs[r].min, rngs[r].max);
     ASSERT_TRUE(Vector_Size(v) > 0);
     // printf("Got %d ranges for %f..%f...\n", Vector_Size(v), rngs[r].min, rngs[r].max);
     for (int i = 0; i < Vector_Size(v); i++) {
@@ -52,12 +52,12 @@ TEST_F(RangeTest, testRangeTree) {
     }
     Vector_Free(v);
   }
-  NumericRangeTree_Free(t);
+  NumericRangeSkiplist_Free(nrsl);
 }
 
 TEST_F(RangeTest, testRangeIterator) {
-  NumericRangeTree *t = NewNumericRangeTree();
-  ASSERT_TRUE(t != NULL);
+  NumericRangeSkiplist *nrsl = NewNumericRangeSkiplist();
+  ASSERT_TRUE(nrsl != NULL);
 
   const size_t N = 100000;
   std::vector<double> lookup;
@@ -69,7 +69,7 @@ TEST_F(RangeTest, testRangeIterator) {
     double value = (double)(1 + prng() % (N / 5));
     lookup[docId] = value;
     // printf("Adding %d > %f\n", docId, value);
-    NumericRangeTree_Add(t, docId, value);
+    NumericRangeSkiplist_Add(nrsl, docId, value);
   }
 
   for (size_t i = 0; i < 5; i++) {
@@ -88,7 +88,7 @@ TEST_F(RangeTest, testRangeIterator) {
     }
 
     // printf("Testing range %f..%f, should have %d docs\n", min, max, count);
-    IndexIterator *it = createNumericIterator(NULL, t, flt);
+    IndexIterator *it = createNumericIterator(NULL, nrsl, flt);
 
     int xcount = 0;
     RSIndexResult *res = NULL;
@@ -134,22 +134,22 @@ TEST_F(RangeTest, testRangeIterator) {
     NumericFilter_Free(flt);
   }
 
-  ASSERT_EQ(t->numRanges, 14);
-  ASSERT_EQ(t->numEntries, N);
-  NumericRangeTree_Free(t);
+  ASSERT_EQ(nrsl->numRanges, 14);
+  ASSERT_EQ(nrsl->numEntries, N);
+  NumericRangeSkiplist_Free(nrsl);
 }
 
-// int benchmarkNumericRangeTree() {
-//   NumericRangeTree *t = NewNumericRangeTree();
+// int benchmarkNumericRangeSkiplist() {
+//   NumericRangeSkiplist *nrsl = NewNumericRangeSkiplist();
 //   int count = 1;
 //   for (int i = 0; i < 100000; i++) {
 
-//     count += NumericRangeTree_Add(t, i, (double)(rand() % 500000));
+//     count += NumericRangeSkiplist_Add(nrsl, i, (double)(rand() % 500000));
 //   }
 //   // printf("created %d range leaves\n", count);
 
 //   TIME_SAMPLE_RUN_LOOP(1000, {
-//     Vector *v = NumericRangeTree_Find(t, 1000, 20000);
+//     Vector *v = NumericRangeSkiplist_Find(nrsl, 1000, 20000);
 //     // printf("%d\n", v->top);
 //     Vector_Free(v);
 //   });
@@ -157,7 +157,7 @@ TEST_F(RangeTest, testRangeIterator) {
 //   TimeSample ts;
 
 //   NumericFilter *flt = NewNumericFilter(1000, 50000, 0, 0);
-//   IndexIterator *it = createNumericIterator(t, flt);
+//   IndexIterator *it = createNumericIterator(nrsl, flt);
 //   ASSERT(it->HasNext(it->ctx));
 
 //   // ASSERT_EQUAL(it->Len(it->ctx), N);
@@ -167,7 +167,7 @@ TEST_F(RangeTest, testRangeIterator) {
 
 //   it->Free(it);
 
-//   NumericRangeTree_Free(t);
+//   NumericRangeSkiplist_Free(nrsl);
 //   NumericFilter_Free(flt);
 //   return 0;
 // }

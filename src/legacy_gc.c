@@ -28,9 +28,9 @@ struct timespec hzToTimeSpec(float hz) {
 }
 
 typedef struct NumericFieldGCCtx {
-  NumericRangeTree *rt;
+  NumericRangeSkiplist *nrsl;
   uint32_t revisionId;
-  NumericRangeTreeIterator *gcIterator;
+  NumericSkiplistIterator *gcIterator;
 } NumericFieldGCCtx;
 
 #define NUMERIC_GC_INITIAL_SIZE 4
@@ -50,7 +50,7 @@ struct GarbageCollectorCtx {
   // statistics for reporting
   GCStats stats;
 
-  // flag for rdb loading. Set to 1 initially, but unce it's set to 0 we don't need to check anymore
+  // flag for rdb loading. Set to 1 initially, but once it's set to 0 we don't need to check anymore
   int rdbPossiblyLoading;
 
   NumericFieldGCCtx **numericGCCtx;
@@ -157,18 +157,18 @@ end:
   return totalRemoved;
 }
 
-static NumericRangeNode *NextGcNode(NumericFieldGCCtx *numericGcCtx) {
+static NumericRange *NextGcNode(NumericFieldGCCtx *numericGcCtx) {
   bool runFromStart = false;
-  NumericRangeNode *node = NULL;
+  NumericRange *range = NULL;
   do {
-    while ((node = NumericRangeTreeIterator_Next(numericGcCtx->gcIterator))) {
-      if (node->range) {
-        return node;
+    while ((range = NumericSkiplistIterator_Next(numericGcCtx->gcIterator))) {
+      if (range) {
+        return range;
       }
     }
     RS_LOG_ASSERT(!runFromStart, "Second iterator should return result");
-    NumericRangeTreeIterator_Free(numericGcCtx->gcIterator);
-    numericGcCtx->gcIterator = NumericRangeTreeIterator_New(numericGcCtx->rt);
+    NumericSkiplistIterator_Free(numericGcCtx->gcIterator);
+    numericGcCtx->gcIterator = NumericSkiplistIterator_New(numericGcCtx->nrsl, NULL);
     runFromStart = true;
   } while (true);
 
@@ -176,16 +176,16 @@ static NumericRangeNode *NextGcNode(NumericFieldGCCtx *numericGcCtx) {
   return NULL;
 }
 
-static NumericFieldGCCtx *gc_NewNumericGcCtx(NumericRangeTree *rt) {
+static NumericFieldGCCtx *gc_NewNumericGcCtx(NumericRangeSkiplist *nrsl) {
   NumericFieldGCCtx *ctx = rm_malloc(sizeof(NumericFieldGCCtx));
-  ctx->rt = rt;
-  ctx->revisionId = rt->revisionId;
-  ctx->gcIterator = NumericRangeTreeIterator_New(rt);
+  ctx->nrsl = nrsl;
+  ctx->revisionId = nrsl->revisionId;
+  ctx->gcIterator = NumericSkiplistIterator_New(nrsl, NULL);
   return ctx;
 }
 
 static void gc_FreeNumericGcCtx(NumericFieldGCCtx *ctx) {
-  NumericRangeTreeIterator_Free(ctx->gcIterator);
+  NumericSkiplistIterator_Free(ctx->gcIterator);
   rm_free(ctx);
 }
 
@@ -315,11 +315,11 @@ size_t gc_NumericIndex(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status
     for (int i = 0; i < array_len(numericFields); ++i) {
       RedisModuleString *keyName =
           IndexSpec_GetFormattedKey(spec, numericFields[i], INDEXFLD_T_NUMERIC);
-      NumericRangeTree *rt = OpenNumericIndex(sctx, keyName, &idxKey);
+      NumericRangeSkiplist *nrsl = OpenNumericIndex(sctx, keyName, &idxKey);
       // if we could not open the numeric field we probably have a
       // corruption in our data, better to know it now.
-      RS_LOG_ASSERT(rt, "numeric index failed to open");
-      gc->numericGCCtx = array_append(gc->numericGCCtx, gc_NewNumericGcCtx(rt));
+      RS_LOG_ASSERT(nrsl, "numeric index failed to open");
+      gc->numericGCCtx = array_append(gc->numericGCCtx, gc_NewNumericGcCtx(nrsl));
       if (idxKey) RedisModule_CloseKey(idxKey);
     }
   }
@@ -331,27 +331,27 @@ size_t gc_NumericIndex(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status
   // open the relevent numeric index to check that our pointer is valid
   RedisModuleString *keyName =
       IndexSpec_GetFormattedKey(spec, numericFields[randomIndex], INDEXFLD_T_NUMERIC);
-  NumericRangeTree *rt = OpenNumericIndex(sctx, keyName, &idxKey);
+  NumericRangeSkiplist *nrsl = OpenNumericIndex(sctx, keyName, &idxKey);
   if (idxKey) RedisModule_CloseKey(idxKey);
 
-  if (numericGcCtx->rt != rt || numericGcCtx->revisionId != numericGcCtx->rt->revisionId) {
+  if (numericGcCtx->nrsl != nrsl || numericGcCtx->revisionId != numericGcCtx->nrsl->revisionId) {
     // memory or revision changed, recreating our numeric gc ctx
-    RS_LOG_ASSERT(numericGcCtx->rt != rt || numericGcCtx->revisionId < numericGcCtx->rt->revisionId,
-                      "NumericRangeTree or revisionId are inncorrect");
-    gc->numericGCCtx[randomIndex] = gc_NewNumericGcCtx(rt);
+    RS_LOG_ASSERT(numericGcCtx->nrsl != nrsl || numericGcCtx->revisionId < numericGcCtx->nrsl->revisionId,
+                      "NumericRangeSkiplist or revisionId are inncorrect");
+    gc->numericGCCtx[randomIndex] = gc_NewNumericGcCtx(nrsl);
     gc_FreeNumericGcCtx(numericGcCtx);
     numericGcCtx = gc->numericGCCtx[randomIndex];
   }
 
-  NumericRangeNode *nextNode = NextGcNode(numericGcCtx);
+  NumericRange *range = NextGcNode(numericGcCtx);
 
   int blockNum = 0;
   do {
-    IndexRepairParams params = {.limit = RSGlobalConfig.gcScanSize, .arg = nextNode->range};
+    IndexRepairParams params = {.limit = RSGlobalConfig.gcScanSize, .arg = range};
     // repair 100 blocks at once
-    blockNum = InvertedIndex_Repair(nextNode->range->entries, &sctx->spec->docs, blockNum, &params);
+    blockNum = InvertedIndex_Repair(range->entries, &sctx->spec->docs, blockNum, &params);
     /// update the statistics with the the number of records deleted
-    numericGcCtx->rt->numEntries -= params.docsCollected;
+    numericGcCtx->nrsl->numEntries -= params.docsCollected;
     totalRemoved += params.docsCollected;
     gc_updateStats(sctx, gc, params.docsCollected, params.bytesCollected);
     // blockNum 0 means error or we've finished
@@ -363,7 +363,7 @@ size_t gc_NumericIndex(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status
       *status = SPEC_STATUS_INVALID;
       break;
     }
-    if (numericGcCtx->revisionId != numericGcCtx->rt->revisionId) {
+    if (numericGcCtx->revisionId != numericGcCtx->nrsl->revisionId) {
       break;
     }
   } while (true);

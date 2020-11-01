@@ -449,17 +449,17 @@ FIELD_PREPROCESSOR(numericPreprocessor) {
 }
 
 FIELD_BULK_INDEXER(numericIndexer) {
-  NumericRangeTree *rt = bulk->indexDatas[IXFLDPOS_NUMERIC];
-  if (!rt) {
+  NumericRangeSkiplist *nrsl = bulk->indexDatas[IXFLDPOS_NUMERIC];
+  if (!nrsl) {
     RedisModuleString *keyName = IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_NUMERIC);
-    rt = bulk->indexDatas[IXFLDPOS_NUMERIC] =
+    nrsl = bulk->indexDatas[IXFLDPOS_NUMERIC] =
         OpenNumericIndex(ctx, keyName, &bulk->indexKeys[IXFLDPOS_NUMERIC]);
-    if (!rt) {
+    if (!nrsl) {
       QueryError_SetError(status, QUERY_EGENERIC, "Could not open numeric index for indexing");
       return -1;
     }
   }
-  NRN_AddRv rv = NumericRangeTree_Add(rt, aCtx->doc.docId, fdata->numeric);
+  NRN_AddRv rv = NumericRangeSkiplist_Add(nrsl, aCtx->doc.docId, fdata->numeric);
   ctx->spec->stats.invertedSize += rv.sz;  // TODO: exact amount
   ctx->spec->stats.numRecords += rv.numRecords;
   return 0;

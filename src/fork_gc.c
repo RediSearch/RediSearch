@@ -420,22 +420,22 @@ static void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
   for (int i = 0; i < array_len(numericFields); ++i) {
     RedisModuleString *keyName =
         IndexSpec_GetFormattedKey(sctx->spec, numericFields[i], INDEXFLD_T_NUMERIC);
-    NumericRangeTree *rt = OpenNumericIndex(sctx, keyName, &idxKey);
+    NumericRangeSkiplist *nrsl = OpenNumericIndex(sctx, keyName, &idxKey);
 
-    NumericRangeTreeIterator *gcIterator = NumericRangeTreeIterator_New(rt);
+    NumericSkiplistIterator *gcIterator = NumericSkiplistIterator_New(nrsl, NULL);
 
-    NumericRangeNode *currNode = NULL;
-    tagNumHeader header = {.field = numericFields[i]->name, .uniqueId = rt->uniqueId};
+    NumericRange *curr = NULL;
+    tagNumHeader header = {.field = numericFields[i]->name, .uniqueId = nrsl->uniqueId};
 
-    while ((currNode = NumericRangeTreeIterator_Next(gcIterator))) {
-      if (!currNode->range) {
+    while ((curr = NumericSkiplistIterator_Next(gcIterator))) {
+      if (!curr) {
         continue;
       }
       numCbCtx nctx = {0};
-      InvertedIndex *idx = currNode->range->entries;
+      InvertedIndex *idx = curr->entries;
       nctx.lastblk = idx->blocks + idx->size - 1;
       IndexRepairParams params = {.RepairCallback = countDeleted, .arg = &nctx};
-      header.curPtr = currNode;
+      header.curPtr = curr;
       bool repaired = FGC_childRepairInvidx(gc, sctx, idx, sendNumericTagHeader, &header, &params);
 
       if (repaired) {
@@ -462,7 +462,7 @@ static void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
       RedisModule_CloseKey(idxKey);
     }
 
-    NumericRangeTreeIterator_Free(gcIterator);
+    NumericSkiplistIterator_Free(gcIterator);
   }
 
   // we are done with numeric fields
@@ -791,7 +791,7 @@ cleanup:
 
 typedef struct {
   // Node in the tree that was GC'd
-  NumericRangeNode *node;
+  NumericRange *range;
   CardinalityValue *lastBlockDeleted;
   CardinalityValue *restBlockDeleted;
   size_t nlastBlockDel;
@@ -818,10 +818,10 @@ static int recvCardvals(ForkGC *fgc, CardinalityValue **tgt, size_t *len) {
 }
 
 static FGCError recvNumIdx(ForkGC *gc, NumGcInfo *ninfo) {
-  if (FGC_recvFixed(gc, &ninfo->node, sizeof(ninfo->node)) != REDISMODULE_OK) {
+  if (FGC_recvFixed(gc, &ninfo->range, sizeof(ninfo->range)) != REDISMODULE_OK) {
     goto error;
   }
-  if (ninfo->node == NULL) {
+  if (ninfo->range == NULL) {
     return FGC_DONE;
   }
 
@@ -847,7 +847,7 @@ error:
   return FGC_CHILD_ERROR;
 }
 
-static void resetCardinality(NumGcInfo *info, NumericRangeNode *currNone) {
+static void resetCardinality(NumGcInfo *info, NumericRange *curr) {
   khash_t(cardvals) *kh = kh_init(cardvals);
   int added;
   for (size_t ii = 0; ii < info->nrestBlockDel; ++ii) {
@@ -867,57 +867,56 @@ static void resetCardinality(NumGcInfo *info, NumericRangeNode *currNone) {
     }
   }
 
-  NumericRange *r = currNone->range;
-  size_t n = array_len(r->values);
+  size_t n = array_len(curr->values);
   double minVal = DBL_MAX, maxVal = -DBL_MIN, uniqueSum = 0;
 
-  for (size_t ii = 0; ii < array_len(r->values); ++ii) {
+  for (size_t ii = 0; ii < array_len(curr->values); ++ii) {
   reeval:;
-    numUnion u = {r->values[ii].value};
+    numUnion u = {curr->values[ii].value};
     khiter_t it = kh_get(cardvals, kh, u.u64);
-    if (it != kh_end(kh) && (r->values[ii].appearances -= kh_val(kh, it)) == 0) {
+    if (it != kh_end(kh) && (curr->values[ii].appearances -= kh_val(kh, it)) == 0) {
       // delet this
-      size_t isLast = array_len(r->values) == ii + 1;
-      array_del_fast(r->values, ii);
+      size_t isLast = array_len(curr->values) == ii + 1;
+      array_del_fast(curr->values, ii);
       if (!isLast) {
         goto reeval;
       }
     } else {
-      minVal = MIN(minVal, r->values[ii].value);
-      maxVal = MAX(maxVal, r->values[ii].value);
-      uniqueSum += r->values[ii].value;
+      minVal = MIN(minVal, curr->values[ii].value);
+      maxVal = MAX(maxVal, curr->values[ii].value);
+      uniqueSum += curr->values[ii].value;
     }
   }
   kh_destroy(cardvals, kh);
   // we can only update the min and the max value if the node is a leaf.
   // otherwise the min and the max also represent its children values and
   // we can not change it.
-  if (NumericRangeNode_IsLeaf(currNone)) {
-    r->minVal = minVal;
-    r->maxVal = maxVal;
-  }
-  r->unique_sum = uniqueSum;
-  r->card = array_len(r->values);
+  curr->minVal = minVal;
+  curr->maxVal = maxVal;
+  curr->unique_sum = uniqueSum;
+  curr->card = array_len(curr->values);
 }
 
 static void applyNumIdx(ForkGC *gc, RedisSearchCtx *sctx, NumGcInfo *ninfo) {
-  NumericRangeNode *currNode = ninfo->node;
+  NumericRange *curr = ninfo->range;
   InvIdxBuffers *idxbufs = &ninfo->idxbufs;
   MSG_IndexInfo *info = &ninfo->info;
-  FGC_applyInvertedIndex(gc, idxbufs, info, currNode->range->entries);
+  FGC_applyInvertedIndex(gc, idxbufs, info, curr->entries);
 
-  currNode->range->invertedIndexSize -= info->nbytesCollected;
+  curr->invertedIndexSize -= info->nbytesCollected;
   FGC_updateStats(sctx, gc, info->ndocsCollected, info->nbytesCollected);
 
-  resetCardinality(ninfo, currNode);
+  resetCardinality(ninfo, curr);
 }
 
 static FGCError FGC_parentHandleNumeric(ForkGC *gc, RedisModuleCtx *rctx) {
   int hasLock = 0;
   size_t fieldNameLen;
   char *fieldName = NULL;
-  uint64_t rtUniqueId;
-  FGCError status = recvNumericTagHeader(gc, &fieldName, &fieldNameLen, &rtUniqueId);
+  uint64_t slUniqueId
+;
+  FGCError status = recvNumericTagHeader(gc, &fieldName, &fieldNameLen, &slUniqueId
+);
   if (status == FGC_DONE) {
     return FGC_DONE;
   }
@@ -947,15 +946,11 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc, RedisModuleCtx *rctx) {
     }
     RedisModuleString *keyName =
         IndexSpec_GetFormattedKeyByName(sctx->spec, fieldName, INDEXFLD_T_NUMERIC);
-    NumericRangeTree *rt = OpenNumericIndex(sctx, keyName, &idxKey);
+    NumericRangeSkiplist *nrsl = OpenNumericIndex(sctx, keyName, &idxKey);
 
-    if (rt->uniqueId != rtUniqueId) {
+    if (nrsl->uniqueId != slUniqueId
+) {
       status = FGC_PARENT_ERROR;
-      goto loop_cleanup;
-    }
-
-    if (!ninfo.node->range) {
-      gc->stats.gcNumericNodesMissed++;
       goto loop_cleanup;
     }
 
@@ -1322,7 +1317,7 @@ static void statsCb(RedisModuleCtx *ctx, void *gcCtx) {
     REPLY_KVNUM(n, "total_cycles", gc->stats.numCycles);
     REPLY_KVNUM(n, "average_cycle_time_ms", (double)gc->stats.totalMSRun / gc->stats.numCycles);
     REPLY_KVNUM(n, "last_run_time_ms", (double)gc->stats.lastRunTimeMs);
-    REPLY_KVNUM(n, "gc_numeric_trees_missed", (double)gc->stats.gcNumericNodesMissed);
+    //REPLY_KVNUM(n, "gc_numeric_trees_missed", (double)gc->stats.gcNumericNodesMissed);
     REPLY_KVNUM(n, "gc_blocks_denied", (double)gc->stats.gcBlocksDenied);
   }
   RedisModule_ReplySetArrayLength(ctx, n);

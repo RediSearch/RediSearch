@@ -180,7 +180,7 @@ def testIssue1497(env):
     res = env.execute_command('ft.info', 'idx')
     d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
     env.assertGreater(d['inverted_sz_mb'], '0')
-    env.assertGreater(int(d['num_records']), count * number_of_fields)
+    env.assertGreaterEqual(int(d['num_records']), count * number_of_fields)
     for i in range(count):
         env.expect('DEL', 'doc%d' % i)
 

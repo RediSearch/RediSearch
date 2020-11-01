@@ -11,6 +11,8 @@ extern "C" {
 
 #define NF_INFINITY (1.0 / 0.0)
 #define NF_NEGATIVE_INFINITY (-1.0 / 0.0)
+#define INIT_INVIDX_CAP 10
+#define INIT_INVIDX_CARD 10
 
 typedef struct NumericFilter {
   char *fieldName;

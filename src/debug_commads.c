@@ -161,8 +161,8 @@ DEBUG_COMMAND(NumericIndexSummary) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
     goto end;
   }
-  NumericRangeTree *rt = OpenNumericIndex(sctx, keyName, &keyp);
-  if (!rt) {
+  NumericRangeSkiplist *nrsl = OpenNumericIndex(sctx, keyName, &keyp);
+  if (!nrsl) {
     RedisModule_ReplyWithError(sctx->redisCtx, "can not open numeric field");
     goto end;
   }
@@ -170,10 +170,10 @@ DEBUG_COMMAND(NumericIndexSummary) {
   size_t invIdxBulkLen = 0;
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
-  REPLY_WITH_LONG_LONG("numRanges", rt->numRanges, invIdxBulkLen);
-  REPLY_WITH_LONG_LONG("numEntries", rt->numEntries, invIdxBulkLen);
-  REPLY_WITH_LONG_LONG("lastDocId", rt->lastDocId, invIdxBulkLen);
-  REPLY_WITH_LONG_LONG("revisionId", rt->revisionId, invIdxBulkLen);
+  REPLY_WITH_LONG_LONG("numRanges", nrsl->numRanges, invIdxBulkLen);
+  REPLY_WITH_LONG_LONG("numEntries", nrsl->numEntries, invIdxBulkLen);
+  REPLY_WITH_LONG_LONG("lastDocId", nrsl->lastDocId, invIdxBulkLen);
+  REPLY_WITH_LONG_LONG("revisionId", nrsl->revisionId, invIdxBulkLen);
 
   RedisModule_ReplySetArrayLength(ctx, invIdxBulkLen);
 
@@ -196,24 +196,22 @@ DEBUG_COMMAND(DumpNumericIndex) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
     goto end;
   }
-  NumericRangeTree *rt = OpenNumericIndex(sctx, keyName, &keyp);
-  if (!rt) {
+  NumericRangeSkiplist *nrsl = OpenNumericIndex(sctx, keyName, &keyp);
+  if (!nrsl) {
     RedisModule_ReplyWithError(sctx->redisCtx, "can not open numeric field");
     goto end;
   }
-  NumericRangeNode *currNode;
-  NumericRangeTreeIterator *iter = NumericRangeTreeIterator_New(rt);
+  NumericRange *range;
+  NumericSkiplistIterator *iter = NumericSkiplistIterator_New(nrsl, NULL);
   size_t resultSize = 0;
   RedisModule_ReplyWithArray(sctx->redisCtx, REDISMODULE_POSTPONED_ARRAY_LEN);
-  while ((currNode = NumericRangeTreeIterator_Next(iter))) {
-    if (currNode->range) {
-      IndexReader *reader = NewNumericReader(NULL, currNode->range->entries, NULL);
-      ReplyReaderResults(reader, sctx->redisCtx);
-      ++resultSize;
-    }
+  while ((range = NumericSkiplistIterator_Next(iter))) {
+    IndexReader *reader = NewNumericReader(NULL, range->entries, NULL);
+    ReplyReaderResults(reader, sctx->redisCtx);
+    ++resultSize;
   }
   RedisModule_ReplySetArrayLength(sctx->redisCtx, resultSize);
-  NumericRangeTreeIterator_Free(iter);
+  NumericSkiplistIterator_Free(iter);
 end:
   if (keyp) {
     RedisModule_CloseKey(keyp);
