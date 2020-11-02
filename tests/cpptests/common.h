@@ -5,7 +5,14 @@
 #include "redismock/util.h"
 #include "spec.h"
 #include "document.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 #include "rwlock.h"
+#ifdef __cplusplus
+}
+#endif
 
 namespace RS {
 
