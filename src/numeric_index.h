@@ -58,11 +58,6 @@ typedef struct {
   uint32_t uniqueId;
 } NumericRangeSkiplist;
 
-typedef struct {
-  double value;
-  struct InvertedIndex *invidx;
-} NumericSkiplistNode;
-
 typedef skiplistIterator NumericSkiplistIterator;
 
 struct indexIterator *NewNumericRangeIterator(const IndexSpec *sp, NumericRange *nr,

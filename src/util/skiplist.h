@@ -109,14 +109,13 @@ typedef struct skiplistIterator {
   skiplistNode *cur;
 } skiplistIterator;
 
-/* Return an iterator at or after the `start` element.
- * 
- */
+/* Return an iterator with an element with exact match.
+ * If no exact match is found, the element before is returned. */
 skiplistIterator *slIteratorCreate(skiplist *sl, void *start);
 
-
+// Return the next element.
 void slIteratorDestroy(skiplistIterator *iter);
 
-
+// Free iterator resources.
 void *slIteratorNext(skiplistIterator *iter);
 

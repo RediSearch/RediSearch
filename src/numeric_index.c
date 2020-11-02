@@ -20,8 +20,6 @@ typedef struct {
   uint32_t lastRevId;
 } NumericUnionCtx;
 
-static NumericRange *NewNumericRange(size_t cap, double min, double max, size_t splitCard); //TODO
-
 /* A callback called after a concurrent context regains execution context. When this happen we need
  * to make sure the key hasn't been deleted or its structure changed, which will render the
  * underlying iterators invalid */
@@ -60,6 +58,22 @@ size_t NumericRange_Add(NumericRange *range, t_docId docId, double value, int ch
   return size;
 }
 
+// TODO : remove cardinality functionality
+static NumericRange *NewNumericRange(size_t cap, double min, double max, size_t splitCard) {
+  NumericRange *range = rm_malloc(sizeof(NumericRange));
+
+  range->minVal = min;
+  range->maxVal = max;
+  range->unique_sum = 0;
+  range->card = 0;
+  range->splitCard = splitCard;
+  range->values = array_new(CardinalityValue, 1);
+  range->entries = NewInvertedIndex(Index_StoreNumeric, 1);
+  range->invertedIndexSize = 0;
+
+  return range;
+}
+
 double NumericRange_Split(NumericRange *range, NumericRange **lp, NumericRange **rp,
                           NRN_AddRv *rv) {
 
@@ -87,21 +101,6 @@ double NumericRange_Split(NumericRange *range, NumericRange **lp, NumericRange *
   return split;
 }
 
-static NumericRange *NewNumericRange(size_t cap, double min, double max, size_t splitCard) {
-  NumericRange *range = rm_malloc(sizeof(NumericRange));
-
-  range->minVal = min;
-  range->maxVal = max;
-  range->unique_sum = 0;
-  range->card = 0;
-  range->splitCard = splitCard;
-  range->values = array_new(CardinalityValue, 1);
-  range->entries = NewInvertedIndex(Index_StoreNumeric, 1);
-  range->invertedIndexSize = 0;
-
-  return range;
-}
-
 void NumericRange_Free(NumericRange *range) {
   if (!range) return;
 
@@ -110,14 +109,11 @@ void NumericRange_Free(NumericRange *range) {
   rm_free(range);
 }
 
-int NumericSkiplistCompare(void *a, void *b) {
-  NumericRange *nra = (NumericRange *)a;
-  NumericRange *nrb = (NumericRange *)b;
-  return nra->minVal > nrb->minVal ? 1 : nra->minVal < nrb->minVal ? -1 : 0;
+int NumericSkiplistCompare(NumericRange *a, NumericRange *b) {
+  return a->minVal > b->minVal ? 1 : a->minVal < b->minVal ? -1 : 0;
 }
 
-void NumericSkiplistElementDtor(void *a) {
-  NumericRange *range = a;
+void NumericSkiplistElementDtor(NumericRange *range) {
   NumericRange_Free(range);
 }
 
@@ -127,7 +123,8 @@ uint64_t numericTreesUniqueId = 0;
 NumericRangeSkiplist *NewNumericRangeSkiplist() {
   NumericRangeSkiplist *ret = rm_malloc(sizeof(NumericRangeSkiplist));
 
-  ret->sl = slCreate(&NumericSkiplistCompare, &NumericSkiplistElementDtor);
+  ret->sl = slCreate((slCmpFunc)&NumericSkiplistCompare,
+                     (slDestroyFunc)&NumericSkiplistElementDtor);
   NumericRange *range = NewNumericRange(INIT_INVIDX_CAP, NF_NEGATIVE_INFINITY, NF_INFINITY, INIT_INVIDX_CARD);
   slInsert(ret->sl, range);
   ret->numEntries = 0;
@@ -140,17 +137,17 @@ NumericRangeSkiplist *NewNumericRangeSkiplist() {
 
 NRN_AddRv NumericRangeSkiplist_Add(NumericRangeSkiplist *nrsl, t_docId docId, double value) {
 
+  NRN_AddRv rv = {.sz = 0, .changed = 0, .numRecords = 0};
   // Do not allow duplicate entries. This might happen due to indexer bugs and we need to protect
   // from it
   if (docId <= nrsl->lastDocId) {
-    return (NRN_AddRv){0, 0, 0};
+    return rv;
   }
   nrsl->lastDocId = docId;
 
   NumericRange val = {.minVal = value};
   NumericRange *range = slFind(nrsl->sl, &val);
 
-  NRN_AddRv rv = {.sz = 0, .changed = 0, .numRecords = 0};
 
   rv.sz = (uint32_t)NumericRange_Add(range, docId, value, 1);
   ++rv.numRecords;
@@ -363,7 +360,9 @@ unsigned long NumericIndexType_MemUsage(const void *value) {
   NumericSkiplistIterator *iter = NumericSkiplistIterator_New(nrsl, NULL);
   NumericRange *range;
   while ((range = NumericSkiplistIterator_Next(iter))) {
-    ret += __numericIndex_memUsageCallback(range);
+    ret += sizeof(NumericRange);
+    ret += array_len(range->values) * sizeof(*range->values);
+    ret += InvertedIndex_MemUsage(range->entries);
   }
   NumericSkiplistIterator_Free(iter);
 
@@ -380,7 +379,7 @@ int NumericIndexType_Register(RedisModuleCtx *ctx) {
 
   RedisModuleTypeMethods tm = {.version = REDISMODULE_TYPE_METHOD_VERSION,
                                .rdb_load = NumericIndexType_RdbLoad,
-                               //.rdb_save = NumericIndexType_RdbSave,
+                               .rdb_save = NumericIndexType_RdbSave, // TODO
                                .aof_rewrite = GenericAofRewrite_DisabledHandler,
                                .free = NumericIndexType_Free,
                                .mem_usage = NumericIndexType_MemUsage};
@@ -467,9 +466,27 @@ void *NumericIndexType_RdbLoad(RedisModuleIO *rdb, int encver) {
   return nrsl;
 }
 
-struct niRdbSaveCtx {
-  RedisModuleIO *rdb;
-};
+void NumericIndexType_RdbSave(RedisModuleIO *rdb, void *value) {	
+  IndexReader *ir;
+  RSIndexResult *res;	
+  NumericRange *range;
+  NumericRangeSkiplist *nrsl = value;	
+
+  NumericSkiplistIterator *iter = NumericSkiplistIterator_New(nrsl, NULL);
+  while ((range = NumericSkiplistIterator_Next(iter))) {
+    ir = NewNumericReader(NULL, range->entries, NULL);	
+
+    while (INDEXREAD_OK == IR_Read(ir, &res)) {	
+      RedisModule_SaveUnsigned(rdb, res->docId);	
+      RedisModule_SaveDouble(rdb, res->num.value);	
+    }	
+    IR_Free(ir);
+  }
+  NumericSkiplistIterator_Free(iter);
+
+  // Save the final record	
+  RedisModule_SaveUnsigned(rdb, 0);	
+}	
 
 void NumericIndexType_Digest(RedisModuleDigest *digest, void *value) {
 }
