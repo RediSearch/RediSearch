@@ -266,7 +266,7 @@ IndexIterator *Query_EvalTokenNode(QueryEvalCtx *q, QueryNode *qn) {
     return NULL;
   }
 
-  return NewReadIterator(ir);
+  return ir->NewReadIterator();
 }
 
 static IndexIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const char *str,
@@ -355,7 +355,7 @@ typedef struct {
 } LexRangeCtx;
 
 static void rangeItersAddIterator(LexRangeCtx *ctx, IndexReader *ir) {
-  ctx->its[ctx->nits++] = NewReadIterator(ir);
+  ctx->its[ctx->nits++] = ir->NewReadIterator();
   if (ctx->nits == ctx->cap) {
     ctx->cap *= 2;
     ctx->its = rm_realloc(ctx->its, ctx->cap * sizeof(*ctx->its));

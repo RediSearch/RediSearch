@@ -135,7 +135,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   if (sp->gc) {
     RedisModule_ReplyWithSimpleString(ctx, "gc_stats");
-    GCContext_RenderStats(sp->gc, ctx);
+    sp->gc->RenderStats(ctx);
     n += 2;
   }
 

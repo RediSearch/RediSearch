@@ -3,31 +3,30 @@
 #include "tokenize.h"
 #include "toksep.h"
 #include "rmalloc.h"
+#include "phonetic_manager.h"
+
 #include <ctype.h>
 #include <stdlib.h>
 #include <strings.h>
-#include "phonetic_manager.h"
 
-typedef struct {
-  RSTokenizer base;
-  char **pos;
-  Stemmer *stemmer;
-} simpleTokenizer;
+///////////////////////////////////////////////////////////////////////////////////////////////
 
-static void simpleTokenizer_Start(RSTokenizer *base, char *text, size_t len, uint32_t options) {
-  simpleTokenizer *self = (simpleTokenizer *)base;
-  TokenizerCtx *ctx = &base->ctx;
-  ctx->text = text;
-  ctx->options = options;
-  ctx->len = len;
-  self->pos = &ctx->text;
+void SimpleTokenizer::Start(char *text_, size_t len_, uint32_t options_) {
+  text = text_;
+  options = options_;
+  len = len_;
+  pos = text;
 }
+
+//---------------------------------------------------------------------------------------------
 
 // Shortest word which can/should actually be stemmed
 #define MIN_STEM_CANDIDATE_LEN 4
 
 // Normalization buffer
 #define MAX_NORMALIZE_SIZE 128
+
+//---------------------------------------------------------------------------------------------
 
 /**
  * Normalizes text.
@@ -36,6 +35,7 @@ static void simpleTokenizer_Start(RSTokenizer *base, char *text, size_t len, uin
  * - len on input contains the length of the raw token. on output contains the
  * on output contains the length of the normalized token
  */
+
 static char *DefaultNormalize(char *s, char *dst, size_t *len) {
   size_t origLen = *len;
   char *realDest = s;
@@ -68,21 +68,21 @@ static char *DefaultNormalize(char *s, char *dst, size_t *len) {
   return dst;
 }
 
+//---------------------------------------------------------------------------------------------
+
 // tokenize the text in the context
-uint32_t simpleTokenizer_Next(RSTokenizer *base, Token *t) {
-  TokenizerCtx *ctx = &base->ctx;
-  simpleTokenizer *self = (simpleTokenizer *)base;
-  while (*self->pos != NULL) {
+uint32_t SimpleTokenizer::Next(Token *t) {
+  while (*pos != NULL) {
     // get the next token
     size_t origLen;
-    char *tok = toksep(self->pos, &origLen);
+    char *tok = toksep(pos, &origLen);
 
     // normalize the token
     size_t normLen = origLen;
 
     char normalized_s[MAX_NORMALIZE_SIZE];
     char *normBuf;
-    if (ctx->options & TOKENIZE_NOMODIFY) {
+    if (options & TOKENIZE_NOMODIFY) {
       normBuf = normalized_s;
       if (normLen > MAX_NORMALIZE_SIZE) {
         normLen = MAX_NORMALIZE_SIZE;
@@ -98,7 +98,7 @@ uint32_t simpleTokenizer_Next(RSTokenizer *base, Token *t) {
     }
 
     // skip stopwords
-    if (StopWordList_Contains(ctx->stopwords, normalized, normLen)) {
+    if (StopWordList_Contains(stopwords, normalized, normLen)) {
       continue;
     }
 
@@ -111,16 +111,16 @@ uint32_t simpleTokenizer_Next(RSTokenizer *base, Token *t) {
                  .phoneticsPrimary = t->phoneticsPrimary};
 
     // if we support stemming - try to stem the word
-    if (!(ctx->options & TOKENIZE_NOSTEM) && self->stemmer && normLen >= MIN_STEM_CANDIDATE_LEN) {
+    if (!(options & TOKENIZE_NOSTEM) && stemmer && normLen >= MIN_STEM_CANDIDATE_LEN) {
       size_t sl;
-      const char *stem = self->stemmer->Stem(self->stemmer->ctx, tok, normLen, &sl);
+      const char *stem = stemmer->Stem(stemmer->ctx, tok, normLen, &sl);
       if (stem) {
         t->stem = stem;
         t->stemLen = sl;
       }
     }
 
-    if ((ctx->options & TOKENIZE_PHONETICS) && normLen >= RSGlobalConfig.minPhoneticTermLen) {
+    if (!!(options & TOKENIZE_PHONETICS) && normLen >= RSGlobalConfig.minPhoneticTermLen) {
       // VLA: eww
       if (t->phoneticsPrimary) {
         rm_free(t->phoneticsPrimary);
@@ -129,23 +129,19 @@ uint32_t simpleTokenizer_Next(RSTokenizer *base, Token *t) {
       PhoneticManager_ExpandPhonetics(NULL, tok, normLen, &t->phoneticsPrimary, NULL);
     }
 
-    return ctx->lastOffset;
+    return lastOffset;
   }
 
   return 0;
 }
 
-void simpleTokenizer_Free(RSTokenizer *self) {
-  rm_free(self);
-}
+//---------------------------------------------------------------------------------------------
 
-static void doReset(RSTokenizer *tokbase, Stemmer *stemmer, StopWordList *stopwords,
-                    uint32_t opts) {
-  simpleTokenizer *t = (simpleTokenizer *)tokbase;
-  t->stemmer = stemmer;
-  t->base.ctx.stopwords = stopwords;
-  t->base.ctx.options = opts;
-  t->base.ctx.lastOffset = 0;
+void SimpleTokenizer::Reset(Stemmer *stemmer_, StopWordList *stopwords_, uint32_t opts_) {
+  stemmer = stemmer_;
+  stopwords = stopwords_;
+  options = opts_;
+  lastOffset = 0;
   if (stopwords) {
     // Initially this function is called when we receive it from the mempool;
     // in which case stopwords is NULL.
@@ -153,29 +149,33 @@ static void doReset(RSTokenizer *tokbase, Stemmer *stemmer, StopWordList *stopwo
   }
 }
 
-RSTokenizer *NewSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint32_t opts) {
-  simpleTokenizer *t = rm_calloc(1, sizeof(*t));
-  t->base.Free = simpleTokenizer_Free;
-  t->base.Next = simpleTokenizer_Next;
-  t->base.Start = simpleTokenizer_Start;
-  t->base.Reset = doReset;
-  t->base.Reset(&t->base, stemmer, stopwords, opts);
-  return &t->base;
+//---------------------------------------------------------------------------------------------
+
+SimpleTokenizer::SimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint32_t opts) {
+  Tokenizer::Reset(stemmer, stopwords, opts);
 }
+
+//---------------------------------------------------------------------------------------------
 
 static mempool_t *tokpoolLatin_g = NULL;
 static mempool_t *tokpoolCn_g = NULL;
 
+//---------------------------------------------------------------------------------------------
+
 static void *newLatinTokenizerAlloc() {
   return NewSimpleTokenizer(NULL, NULL, 0);
 }
+
 static void *newCnTokenizerAlloc() {
   return NewChineseTokenizer(NULL, NULL, 0);
 }
+
 static void tokenizerFree(void *p) {
   RSTokenizer *t = p;
   t->Free(t);
 }
+
+//---------------------------------------------------------------------------------------------
 
 RSTokenizer *GetTokenizer(RSLanguage language, Stemmer *stemmer, StopWordList *stopwords) {
   if (language == RS_LANG_CHINESE) {
@@ -184,6 +184,8 @@ RSTokenizer *GetTokenizer(RSLanguage language, Stemmer *stemmer, StopWordList *s
     return GetSimpleTokenizer(stemmer, stopwords);
   }
 }
+
+//---------------------------------------------------------------------------------------------
 
 RSTokenizer *GetChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords) {
   if (!tokpoolCn_g) {
@@ -197,6 +199,8 @@ RSTokenizer *GetChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords) {
   return t;
 }
 
+//---------------------------------------------------------------------------------------------
+
 RSTokenizer *GetSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords) {
   if (!tokpoolLatin_g) {
     mempool_options opts = {
@@ -207,6 +211,8 @@ RSTokenizer *GetSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords) {
   t->Reset(t, stemmer, stopwords, 0);
   return t;
 }
+
+//---------------------------------------------------------------------------------------------
 
 void Tokenizer_Release(RSTokenizer *t) {
   // In the future it would be nice to have an actual ID field or w/e, but for
@@ -221,3 +227,5 @@ void Tokenizer_Release(RSTokenizer *t) {
     mempool_release(tokpoolCn_g, t);
   }
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////

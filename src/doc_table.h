@@ -1,17 +1,16 @@
-#ifndef __DOC_TABLE_H__
-#define __DOC_TABLE_H__
-#include <stdlib.h>
-#include <string.h>
-#include "redismodule.h"
-#include "dep/triemap/triemap.h"
+
+#pragma once
+
 #include "redisearch.h"
 #include "sortable.h"
 #include "byte_offsets.h"
+
+#include "redismodule.h"
+#include "dep/triemap/triemap.h"
 #include "rmutil/sds.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+#include <stdlib.h>
+
 // Retrieves the pointer and length for the document's key.
 static inline const char *DMD_KeyPtrLen(const RSDocumentMetadata *dmd, size_t *len) {
   if (len) {
@@ -181,8 +180,3 @@ void DocTable_RdbSave(DocTable *t, RedisModuleIO *rdb);
 
 /* Load the table from RDB */
 void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb, int encver);
-
-#ifdef __cplusplus
-}
-#endif
-#endif

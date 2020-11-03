@@ -1,5 +1,5 @@
-#ifndef RS_RESULT_PROCESSOR_H_
-#define RS_RESULT_PROCESSOR_H_
+
+#pragma once
 
 #include "redisearch.h"
 #include "sortable.h"
@@ -12,9 +12,8 @@
 #include "extension.h"
 #include "score_explain.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+///////////////////////////////////////////////////////////////////////////////////////////////
+
 /********************************************************************************
  * Result Processor Chain
  *
@@ -35,19 +34,21 @@ extern "C" {
  ********************************************************************************/
 
 /* Query processing state */
-typedef enum {
+enum QITRState {
   QITR_S_RUNNING,
   QITR_S_ABORTED,
 
   // TimedOut state differs from aborted in that it lets the processors drain their accumulated
   // results instead of stopping in our tracks and returning nothing.
   QITR_S_TIMEDOUT
-} QITRState;
+};
+
+//---------------------------------------------------------------------------------------------
 
 struct ResultProcessor;
 struct RLookup;
 
-typedef struct {
+struct QueryIterator {
   // First processor
   struct ResultProcessor *rootProc;
 
@@ -74,20 +75,25 @@ typedef struct {
   QITRState state;
 
   struct timespec startTime;
-} QueryIterator, QueryProcessingCtx;
+};
+
+//---------------------------------------------------------------------------------------------
 
 IndexIterator *QITR_GetRootFilter(QueryIterator *it);
 void QITR_PushRP(QueryIterator *it, struct ResultProcessor *rp);
 void QITR_FreeChain(QueryIterator *qitr);
+
+//---------------------------------------------------------------------------------------------
 
 /*
  * SearchResult - the object all the processing chain is working on.
  * It has the indexResult which is what the index scan brought - scores, vectors, flags, etc.
  *
  * And a list of fields loaded by the chain - currenly only by the loader, but possibly by
- * aggregators later on
+ * aggregators later on.
  */
-typedef struct {
+
+struct SearchResult {
   t_docId docId;
 
   // not all results have score - TBD
@@ -103,12 +109,15 @@ typedef struct {
 
   // Row data. Use RLookup_* functions to access
   RLookupRow rowdata;
-} SearchResult;
+};
 
-/* Result processor return codes */
+//---------------------------------------------------------------------------------------------
 
-/** Possible return values from Next() */
-typedef enum {
+// Result processor return codes
+
+// Possible return values from Next()
+
+enum RPStatus {
   // Result is filled with valid data
   RS_RESULT_OK = 0,
   // Result is empty, and the last result has already been returned.
@@ -124,13 +133,13 @@ typedef enum {
   // Not a return code per se, but a marker signifying the end of the 'public'
   // return codes. Implementations can use this for extensions.
   RS_RESULT_MAX
-} RPStatus;
+};
 
-/**
- * Result processor structure. This should be "Subclassed" by the actual
- * implementations
- */
-typedef struct ResultProcessor {
+//---------------------------------------------------------------------------------------------
+
+// Result processor structure. This should be "Subclassed" by the actual implementations
+
+struct ResultProcessor {
   // Reference to the parent structure
   QueryIterator *parent;
 
@@ -145,8 +154,7 @@ typedef struct ResultProcessor {
    * not read, so it is the responsibility of the caller to ensure that there
    * are no refcount leaks in the structure.
    *
-   * Users can use SearchResult_Clear() to reset the structure without freeing
-   * it.
+   * Users can use SearchResult_Clear() to reset the structure without freeing it.
    *
    * The populated structure (if RS_RESULT_OK is returned) does contain references
    * to document data. Callers *MUST* ensure they are eventually freed.
@@ -155,7 +163,9 @@ typedef struct ResultProcessor {
 
   /** Frees the processor and any internal data related to it. */
   void (*Free)(struct ResultProcessor *self);
-} ResultProcessor;
+};
+
+//---------------------------------------------------------------------------------------------
 
 // Get the index spec from the result processor
 #define RP_SPEC(rpctx) ((rpctx)->parent->sctx->spec)
@@ -177,6 +187,8 @@ ResultProcessor *RPIndexIterator_New(IndexIterator *itr);
 ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
                               const ScoringFunctionArgs *fnargs);
 
+//---------------------------------------------------------------------------------------------
+
 /** Functions abstracting the sortmap. Hides the bitwise logic */
 #define SORTASCMAP_INIT 0xFFFFFFFFFFFFFFFF
 #define SORTASCMAP_MAXFIELDS 8
@@ -184,6 +196,8 @@ ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
 #define SORTASCMAP_SETDESC(mm, pos) ((mm) &= ~(1LLU << (pos)))
 #define SORTASCMAP_GETASC(mm, pos) ((mm) & (1LLU << (pos)))
 void SortAscMap_Dump(uint64_t v, size_t n);
+
+//---------------------------------------------------------------------------------------------
 
 ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys, size_t nkeys,
                                       uint64_t ascendingMap);
@@ -209,7 +223,4 @@ ResultProcessor *RPHighlighter_New(const RSSearchOptions *searchopts, const Fiel
 
 void RP_DumpChain(const ResultProcessor *rp);
 
-#ifdef __cplusplus
-}
-#endif
-#endif  // !RS_RESULT_PROCESSOR_H_
+///////////////////////////////////////////////////////////////////////////////////////////////

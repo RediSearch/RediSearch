@@ -1,24 +1,79 @@
 #include "redisearch.h"
 #include "varint.h"
+
 #include "rmalloc.h"
 #include "util/mempool.h"
+
 #include <sys/param.h>
 
-/* We have two types of offset vector iterators - for terms and for aggregates. For terms we simply
- * yield the encoded offsets one by one. For aggregates, we merge them on the fly in order.
- * They are both encapsulated in an abstract iterator interface called RSOffsetIterator, with
- * callbacks and context matching the appropriate implementation.
- */
+///////////////////////////////////////////////////////////////////////////////////////////////
 
-/* A raw offset vector iterator */
-typedef struct {
+// We have two types of offset vector iterators - for terms and for aggregates. 
+// For terms we simply yield the encoded offsets one by one.
+// For aggregates, we merge them on the fly in order.
+// They are both encapsulated in an abstract iterator interface called RSOffsetIterator, with
+// callbacks and context matching the appropriate implementation.
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+class RSOffsetVectorIteratorPool : public MemPool {
+public:
+  RSOffsetVectorIteratorPool() : MemPool(8, 0, true)
+};
+
+// A raw offset vector iterator
+struct RSOffsetVectorIterator : public RSOffsetIterator, 
+                                public PoolObject<RSOffsetVectorIteratorPool> {
   Buffer buf;
   BufferReader br;
   uint32_t lastValue;
   RSQueryTerm *term;
-} _RSOffsetVectorIterator;
 
-typedef struct {
+  RSOffsetVectorIterator(const RSOffsetVector *v, RSQueryTerm *t) : buf(v->data, v->len, v->len),
+    br(&buf), lastValue(0), term(t) {}
+
+  virtual uint32_t Next(RSQueryTerm **t);
+  virtual void Rewind();
+};
+
+//---------------------------------------------------------------------------------------------
+
+// Create an offset iterator interface  from a raw offset vector
+RSOffsetIterator RSOffsetVector::Iterate(RSQueryTerm *t) const {
+  return new RSOffsetVectorIterator(this, t);
+}
+
+//---------------------------------------------------------------------------------------------
+
+// Rewind an offset vector iterator and start reading it from the beginning
+void RSOffsetVectorIterator::Rewind() {
+  lastValue = 0;
+  buf.offset = 0;
+  br.pos = 0;
+}
+
+//---------------------------------------------------------------------------------------------
+
+// Get the next entry, or return RS_OFFSETVECTOR_EOF
+uint32_t RSOffsetVectorIterator::Next(RSQueryTerm **t) {
+  if (!BufferReader_AtEnd(&br)) {
+    lastValue += ReadVarint(&br);
+    if (t) *t = term;
+    return lastValue;
+  }
+
+  return RS_OFFSETVECTOR_EOF;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+class RSAggregateOffsetIteratorPool : public MemPool {
+public:
+  RSAggregateOffsetIteratorPool() : MemPool(8, 0, true)
+};
+
+struct RSAggregateOffsetIterator : public RSOffsetIterator,
+                                   public PoolObject<RSAggregateOffsetIteratorPool> {
   const RSAggregateResult *res;
   size_t size;
   RSOffsetIterator *iters;
@@ -26,160 +81,61 @@ typedef struct {
   RSQueryTerm **terms;
   // uint32_t lastOffset; - TODO: Avoid duplicate offsets
 
-} _RSAggregateOffsetIterator;
-
-/* Get the next entry, or return RS_OFFSETVECTOR_EOF */
-uint32_t _ovi_Next(void *ctx, RSQueryTerm **t);
-/* Rewind the iterator */
-void _ovi_Rewind(void *ctx);
-
-/* memory pool for buffer iterators */
-static mempool_t *__offsetIters = NULL;
-static mempool_t *__aggregateIters = NULL;
-
-/* Free it */
-void _ovi_free(void *ctx) {
-  mempool_release(__offsetIters, ctx);
-}
-
-void *newOffsetIterator() {
-  return rm_malloc(sizeof(_RSOffsetVectorIterator));
-}
-/* Create an offset iterator interface  from a raw offset vector */
-RSOffsetIterator RSOffsetVector_Iterate(const RSOffsetVector *v, RSQueryTerm *t) {
-  if (!__offsetIters) {
-    mempool_options options = {
-        alloc: newOffsetIterator, free: = rm_free, initialCap: 8, isGlobal: 1 };
-    __offsetIters = mempool_new(&options);
+  RSAggregateOffsetIterator() {
+    size = 0;
+    offsets = NULL;
+    iters = NULL;
+    terms = NULL;
   }
-  _RSOffsetVectorIterator *it = mempool_get(__offsetIters);
-  it->buf = (Buffer){.data = v->data, .offset = v->len, .cap = v->len};
-  it->br = NewBufferReader(&it->buf);
-  it->lastValue = 0;
-  it->term = t;
 
-  return (RSOffsetIterator){.Next = _ovi_Next, .Rewind = _ovi_Rewind, .Free = _ovi_free, .ctx = it};
-}
+  RSAggregateOffsetIterator(const RSAggregateResult *agg);
 
-/* An aggregate offset iterator yielding offsets one by one */
-uint32_t _aoi_Next(void *ctx, RSQueryTerm **term);
-void _aoi_Free(void *ctx);
-void _aoi_Rewind(void *ctx);
-
-static void *aggiterNew() {
-  _RSAggregateOffsetIterator *it = rm_malloc(sizeof(_RSAggregateOffsetIterator));
-  it->size = 0;
-  it->offsets = NULL;
-  it->iters = NULL;
-  it->terms = NULL;
-  return it;
-}
-
-static void aggiterFree(void *p) {
-  _RSAggregateOffsetIterator *aggiter = p;
-  rm_free(aggiter->offsets);
-  rm_free(aggiter->iters);
-  rm_free(aggiter->terms);
-  rm_free(aggiter);
-}
-
-/* Create an iterator from the aggregate offset iterators of the aggregate result */
-static RSOffsetIterator _aggregateResult_iterate(const RSAggregateResult *agg) {
-  if (!__aggregateIters) {
-    mempool_options opts = {
-        .isGlobal = 1, .initialCap = 8, .alloc = aggiterNew, .free = aggiterFree};
-    __aggregateIters = mempool_new(&opts);
+  ~RSAggregateOffsetIterator() {
+    rm_free(offsets);
+    rm_free(iters);
+    rm_free(terms);
   }
-  _RSAggregateOffsetIterator *it = mempool_get(__aggregateIters);
-  it->res = agg;
 
-  if (agg->numChildren > it->size) {
-    it->size = agg->numChildren;
-    rm_free(it->iters);
-    rm_free(it->offsets);
-    rm_free(it->terms);
-    it->iters = rm_calloc(agg->numChildren, sizeof(RSOffsetIterator));
-    it->offsets = rm_calloc(agg->numChildren, sizeof(uint32_t));
-    it->terms = rm_calloc(agg->numChildren, sizeof(RSQueryTerm *));
+  virtual uint32_t Next(RSQueryTerm **t);
+  virtual void Rewind();
+};
+
+//---------------------------------------------------------------------------------------------
+
+// Create an iterator from the aggregate offset iterators of the aggregate result
+RSAggregateOffsetIterator::RSAggregateOffsetIterator(const RSAggregateResult *agg) {
+  res = agg; //@@ ownership
+
+  if (agg->numChildren > size) {
+    size = agg->numChildren;
+    rm_free(iters);
+    rm_free(offsets);
+    rm_free(terms);
+    iters = rm_calloc(agg->numChildren, sizeof(RSOffsetIterator));
+    offsets = rm_calloc(agg->numChildren, sizeof(uint32_t));
+    terms = rm_calloc(agg->numChildren, sizeof(RSQueryTerm *));
   }
 
   for (int i = 0; i < agg->numChildren; i++) {
-    it->iters[i] = RSIndexResult_IterateOffsets(agg->children[i]);
-    it->offsets[i] = it->iters[i].Next(it->iters[i].ctx, &it->terms[i]);
-  }
-
-  return (RSOffsetIterator){.Next = _aoi_Next, .Rewind = _aoi_Rewind, .Free = _aoi_Free, .ctx = it};
-}
-uint32_t _empty_Next(void *ctx, RSQueryTerm **t) {
-  return RS_OFFSETVECTOR_EOF;
-}
-void _empty_Free(void *ctx) {
-}
-void _empty_Rewind(void *ctx) {
-}
-
-RSOffsetIterator _emptyIterator() {
-  return (RSOffsetIterator){
-      .Next = _empty_Next, .Rewind = _empty_Rewind, .Free = _empty_Free, .ctx = NULL};
-}
-
-/* Create the appropriate iterator from a result based on its type */
-RSOffsetIterator RSIndexResult_IterateOffsets(const RSIndexResult *res) {
-
-  switch (res->type) {
-    case RSResultType_Term:
-      return RSOffsetVector_Iterate(&res->term.offsets, res->term.term);
-
-    // virtual and numeric entries have no offsets and cannot participate
-    case RSResultType_Virtual:
-    case RSResultType_Numeric:
-      return _emptyIterator();
-
-    case RSResultType_Intersection:
-    case RSResultType_Union:
-    default:
-      // if we only have one sub result, just iterate that...
-      if (res->agg.numChildren == 1) {
-        return RSIndexResult_IterateOffsets(res->agg.children[0]);
-      }
-      return _aggregateResult_iterate(&res->agg);
-      break;
+    iters[i] = agg->children[i]->IterateOffsets();
+    offsets[i] = iters[i].Next(&terms[i]);
   }
 }
 
-/* Rewind an offset vector iterator and start reading it from the beginning. */
-void _ovi_Rewind(void *ctx) {
-  _RSOffsetVectorIterator *it = ctx;
-  it->lastValue = 0;
-  it->buf.offset = 0;
-  it->br.pos = 0;
+//---------------------------------------------------------------------------------------------
+
+RSAggregateOffsetIterator RSAggregateResult::IterateOffsets() const {
+  return new RSAggregateOffsetIterator(this);
 }
 
-void _ovi_Free(void *ctx) {
-  rm_free(ctx);
-}
+//---------------------------------------------------------------------------------------------
 
-uint32_t _ovi_Next(void *ctx, RSQueryTerm **t) {
-  _RSOffsetVectorIterator *vi = ctx;
-
-  if (!BufferReader_AtEnd(&vi->br)) {
-    vi->lastValue = ReadVarint(&vi->br) + vi->lastValue;
-    if (t) *t = vi->term;
-    return vi->lastValue;
-  }
-
-  return RS_OFFSETVECTOR_EOF;
-}
-
-uint32_t _aoi_Next(void *ctx, RSQueryTerm **t) {
-  _RSAggregateOffsetIterator *it = ctx;
-
+uint32_t RSAggregateOffsetIterator::Next(RSQueryTerm **t) {
   int minIdx = -1;
   uint32_t minVal = RS_OFFSETVECTOR_EOF;
-  uint32_t *offsets = it->offsets;
-  register int num = it->res->numChildren;
+  int num = res->numChildren;
   // find the minimal value that's not EOF
-  for (register int i = 0; i < num; i++) {
+  for (int i = 0; i < num; ++i) {
     if (offsets[i] < minVal) {
       minIdx = i;
       minVal = offsets[i];
@@ -188,30 +144,70 @@ uint32_t _aoi_Next(void *ctx, RSQueryTerm **t) {
 
   // if we found a minimal iterator - advance it for the next round
   if (minIdx != -1) {
-
     // copy the term of that iterator to t if it's not NULL
-    if (t) *t = it->terms[minIdx];
+    if (t)
+      *t = terms[minIdx];
 
-    it->offsets[minIdx] = it->iters[minIdx].Next(it->iters[minIdx].ctx, &it->terms[minIdx]);
+    offsets[minIdx] = iters[minIdx].Next(&terms[minIdx]);
   }
 
   return minVal;
 }
 
-void _aoi_Free(void *ctx) {
-  _RSAggregateOffsetIterator *it = ctx;
-  for (int i = 0; i < it->res->numChildren; i++) {
-    it->iters[i].Free(it->iters[i].ctx);
-  }
+//---------------------------------------------------------------------------------------------
 
-  mempool_release(__aggregateIters, ctx);
-}
-
-void _aoi_Rewind(void *ctx) {
-  _RSAggregateOffsetIterator *it = ctx;
-
-  for (int i = 0; i < it->res->numChildren; i++) {
-    it->iters[i].Rewind(it->iters[i].ctx);
-    it->offsets[i] = 0;
+RSAggregateOffsetIterator::~RSAggregateOffsetIterator() {
+  for (int i = 0; i < res->numChildren; i++) {
+    delete iters[i];
   }
 }
+
+//---------------------------------------------------------------------------------------------
+
+void RSAggregateOffsetIterator::Rewind() {
+  for (int i = 0; i < res->numChildren; i++) {
+    iters[i].Rewind(iters[i].ctx);
+    offsets[i] = 0;
+  }
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+class RSOffsetEmptyIterator : public RSOffsetIterator {
+};
+
+RSOffsetEmptyIterator offset_empty_iterator;
+
+//---------------------------------------------------------------------------------------------
+
+RSOffsetIterator::Proxy::~Proxy() { 
+  if (it != &offset_empty_iterator) {
+    delete it;
+  }
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+// Create the appropriate iterator from a result based on its type
+RSOffsetIterator::Proxy RSIndexResult::IterateOffsets() const {
+  switch (type) {
+  case RSResultType_Term:
+    return term.offsets.Iterate(term.term);
+
+  // virtual and numeric entries have no offsets and cannot participate
+  case RSResultType_Virtual:
+  case RSResultType_Numeric:
+    return &offset_empty_iterator;
+
+  case RSResultType_Intersection:
+  case RSResultType_Union:
+  default:
+    // if we only have one sub result, just iterate that...
+    if (agg.numChildren == 1) {
+      return agg.children[0].IterateOffsets();
+    }
+    return agg.IterateOffsets();
+  }
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////

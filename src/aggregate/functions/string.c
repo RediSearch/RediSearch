@@ -1,13 +1,19 @@
-#include <util/minmax.h>
-#include <rmutil/sds.h>
-#include <util/block_alloc.h>
-#include <aggregate/expr/expression.h>
+#include "aggregate/expr/expression.h"
+#include "aggregate/functions/function.h"
+
+#include "util/minmax.h"
+#include "util/block_alloc.h"
+#include "util/arr.h"
+#include "rmutil/sds.h"
+
 #include <ctype.h>
-#include <util/arr.h>
-#include "function.h"
 #include <err.h>
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+
 #define STRING_BLOCK_SIZE 512
+
+//---------------------------------------------------------------------------------------------
 
 static int func_matchedTerms(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,
                              QueryError *err) {
@@ -28,7 +34,7 @@ static int func_matchedTerms(ExprEval *ctx, RSValue *result, RSValue **argv, siz
   // fprintf(stderr, "res %p, indexresult %p\n", res, res ? res->indexResult : NULL);
   if (res && res->indexResult) {
     RSQueryTerm *terms[maxTerms];
-    size_t n = IndexResult_GetMatchedTerms(ctx->res->indexResult, terms, maxTerms);
+    size_t n = ctx->res->indexResult->GetMatchedTerms(terms, maxTerms);
     if (n) {
       RSValue **arr = rm_calloc(n, sizeof(RSValue *));
       for (size_t i = 0; i < n; i++) {
@@ -42,6 +48,8 @@ static int func_matchedTerms(ExprEval *ctx, RSValue *result, RSValue **argv, siz
   RSValue_MakeReference(result, RS_NullVal());
   return EXPR_EVAL_OK;
 }
+
+//---------------------------------------------------------------------------------------------
 
 /* lower(str) */
 static int stringfunc_tolower(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,
@@ -65,6 +73,8 @@ static int stringfunc_tolower(ExprEval *ctx, RSValue *result, RSValue **argv, si
   return EXPR_EVAL_OK;
 }
 
+//---------------------------------------------------------------------------------------------
+
 /* upper(str) */
 static int stringfunc_toupper(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,
                               QueryError *err) {
@@ -86,6 +96,8 @@ static int stringfunc_toupper(ExprEval *ctx, RSValue *result, RSValue **argv, si
   RSValue_SetConstString(result, np, sz);
   return EXPR_EVAL_OK;
 }
+
+//---------------------------------------------------------------------------------------------
 
 /* substr(str, offset, len) */
 static int stringfunc_substr(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,
@@ -123,6 +135,8 @@ static int stringfunc_substr(ExprEval *ctx, RSValue *result, RSValue **argv, siz
   return EXPR_EVAL_OK;
 }
 
+//---------------------------------------------------------------------------------------------
+
 int func_to_number(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc, QueryError *err) {
   VALIDATE_ARGS("to_number", 1, 1, err);
 
@@ -138,12 +152,16 @@ int func_to_number(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc, 
   return EXPR_EVAL_OK;
 }
 
+//---------------------------------------------------------------------------------------------
+
 int func_to_str(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc, QueryError *err) {
   VALIDATE_ARGS("to_str", 1, 1, err);
 
   RSValue_ToString(result, argv[0]);
   return EXPR_EVAL_OK;
 }
+
+//---------------------------------------------------------------------------------------------
 
 static int stringfunc_format(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,
                              QueryError *err) {
@@ -229,6 +247,8 @@ error:
   return EXPR_EVAL_ERR;
 }
 
+//---------------------------------------------------------------------------------------------
+
 char *strtrim(char *s, size_t sl, size_t *outlen, const char *cset) {
   char *start, *end, *sp, *ep;
 
@@ -240,6 +260,9 @@ char *strtrim(char *s, size_t sl, size_t *outlen, const char *cset) {
 
   return sp;
 }
+
+//---------------------------------------------------------------------------------------------
+
 static int stringfunc_split(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,
                             QueryError *err) {
   if (argc < 1 || argc > 3) {
@@ -299,6 +322,8 @@ static int stringfunc_split(ExprEval *ctx, RSValue *result, RSValue **argv, size
   return EXPR_EVAL_OK;
 }
 
+//---------------------------------------------------------------------------------------------
+
 int func_exists(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc, QueryError *err) {
   VALIDATE_ARGS("exists", 1, 1, err);
 
@@ -312,6 +337,8 @@ int func_exists(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc, Que
   return EXPR_EVAL_OK;
 }
 
+//---------------------------------------------------------------------------------------------
+
 void RegisterStringFunctions() {
   RSFunctionRegistry_RegisterFunction("lower", stringfunc_tolower, RSValue_String);
   RSFunctionRegistry_RegisterFunction("upper", stringfunc_toupper, RSValue_String);
@@ -323,3 +350,5 @@ void RegisterStringFunctions() {
   RSFunctionRegistry_RegisterFunction("to_str", func_to_str, RSValue_String);
   RSFunctionRegistry_RegisterFunction("exists", func_exists, RSValue_Number);
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////

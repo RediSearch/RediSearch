@@ -240,7 +240,7 @@ QINT_API size_t qint_decode4(BufferReader *br, uint32_t *i, uint32_t *i2, uint32
 //   TimeSample ts;
 
 //   TimeSampler_Start(&ts);
-//   BufferReader br = NewBufferReader(b);
+//   BufferReader br(b);
 //   uint32_t i1, i2, i3, i4;
 //   for (int i = 0; i < N; i++) {
 //     qint_decode4(&br, &i1, &i2, &i3, &i4);

@@ -1,6 +1,5 @@
 
-#ifndef __TOKENIZE_H__
-#define __TOKENIZE_H__
+#pragma once
 
 #include "stemmer.h"
 #include "stopwords.h"
@@ -10,14 +9,15 @@
 #include <stdlib.h>
 #include <strings.h>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+///////////////////////////////////////////////////////////////////////////////////////////////
 
-typedef enum { Token_CopyRaw = 0x01, Token_CopyStem = 0x02 } TokenFlags;
+enum TokenFlags {
+  Token_CopyRaw = 0x01,
+  Token_CopyStem = 0x02
+};
 
-/* Represents a token found in a document */
-typedef struct {
+// Represents a token found in a document
+struct Token {
   // Normalized string
   const char *tok;
 
@@ -44,34 +44,70 @@ typedef struct {
 
   // position in the document - this is written to the inverted index
   uint32_t pos;
-} Token;
+};
 
 #define Token_Destroy(t) rm_free((t)->phoneticsPrimary)
+
+//---------------------------------------------------------------------------------------------
 
 // A NormalizeFunc converts a raw token to the normalized form in which it will be stored
 typedef char *(*NormalizeFunc)(char *, size_t *);
 
 #define STEM_TOKEN_FACTOR 0.2
 
-typedef struct {
+struct Tokenizer {
   char *text;
   size_t len;
   StopWordList *stopwords;
   uint32_t lastOffset;
   uint32_t options;
-} TokenizerCtx;
 
-typedef struct RSTokenizer {
-  TokenizerCtx ctx;
+  virtual ~Tokenizer();
+
   // read the next token. Return its position or 0 if we can't read anymore
-  uint32_t (*Next)(struct RSTokenizer *self, Token *tok);
-  void (*Free)(struct RSTokenizer *self);
-  void (*Start)(struct RSTokenizer *self, char *txt, size_t len, uint32_t options);
-  void (*Reset)(struct RSTokenizer *self, Stemmer *stemmer, StopWordList *stopwords, uint32_t opts);
-} RSTokenizer;
+  virtual uint32_t Next(Token *tok);
+  virtual void Start(char *txt, size_t len, uint32_t options);
+  virtual void Reset(Stemmer *stemmer, StopWordList *stopwords, uint32_t opts);
+};
 
-RSTokenizer *NewSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint32_t opts);
-RSTokenizer *NewChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint32_t opts);
+//---------------------------------------------------------------------------------------------
+
+struct SimpleTokenizer : public Tokenizer {
+  RSTokenizer base;
+  char **pos;
+  Stemmer *stemmer;
+
+  SimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint32_t opts);
+
+  virtual uint32_t Next(Token *tok);
+  virtual void Start(char *txt, size_t len, uint32_t options);
+  virtual void Reset(Stemmer *stemmer, StopWordList *stopwords, uint32_t opts);
+};
+
+//---------------------------------------------------------------------------------------------
+
+#define CNTOKENIZE_BUF_MAX 256
+
+struct ChineseTokenizer : public Tokenizer {
+  friso_task_t fTask;
+  char escapebuf[CNTOKENIZE_BUF_MAX];
+  size_t nescapebuf;
+
+  ChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint32_t opts);
+  virtual ~ChineseTokenizer();
+
+  virtual uint32_t Next(Token *tok);
+  virtual void Start(char *txt, size_t len, uint32_t options);
+  virtual void Reset(Stemmer *stemmer, StopWordList *stopwords, uint32_t opts);
+
+protected:
+  static void maybeFrisoInit();
+  int appendToEscbuf(const char *s, size_t n);
+  int appendEscapedChars(friso_token_t ftok, int mode);
+  void initToken(Token *t, const friso_token_t from);
+};
+
+//---------------------------------------------------------------------------------------------
 
 #define TOKENIZE_DEFAULT_OPTIONS 0x00
 // Don't modify buffer at all during tokenization.
@@ -92,12 +128,9 @@ RSTokenizer *NewChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint
  * Retrieves a tokenizer based on the language string. When this tokenizer
  * is no longer needed, return to the pool using Tokenizer_Release()
  */
-RSTokenizer *GetTokenizer(RSLanguage language, Stemmer *stemmer, StopWordList *stopwords);
-RSTokenizer *GetChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords);
-RSTokenizer *GetSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords);
+Tokenizer *GetTokenizer(RSLanguage language, Stemmer *stemmer, StopWordList *stopwords);
+Tokenizer *GetChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords);
+Tokenizer *GetSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords);
 void Tokenizer_Release(RSTokenizer *t);
 
-#ifdef __cplusplus
-}
-#endif
-#endif
+///////////////////////////////////////////////////////////////////////////////////////////////

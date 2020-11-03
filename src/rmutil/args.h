@@ -1,16 +1,18 @@
-#ifndef RMUTIL_ARGS_H
-#define RMUTIL_ARGS_H
+
+#pragma once
+
+#include "sds.h"
+#include "redismodule.h"
 
 #include <stdlib.h>
 #include <limits.h>
 #include <stdint.h>
-#include "sds.h"
-#include "redismodule.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+///////////////////////////////////////////////////////////////////////////////////////////////
 typedef enum {
   AC_TYPE_UNINIT = 0,  // Comment for formatting
   AC_TYPE_RSTRING,
@@ -204,6 +206,7 @@ static inline const char *AC_Strerror(int code) {
 #define AC_NumRemaining(ac) ((ac)->argc - (ac)->offset)
 #define AC_NumArgs(ac) (ac)->argc
 #define AC_StringArg(ac, N) (const char *)((ac)->objs[N])
+
 #ifdef __cplusplus
 }
 
@@ -211,6 +214,7 @@ static inline const char *AC_Strerror(int code) {
 #include <tuple>
 #include <type_traits>
 #include <array>
+
 class ArgsCursorCXX : public ArgsCursor {
  public:
   template <typename... T>
@@ -240,5 +244,7 @@ class ArgsCursorCXX : public ArgsCursor {
     ArgsCursor_InitRString(this, s, n);
   }
 };
-#endif
-#endif
+
+#endif // __cplusplus
+
+///////////////////////////////////////////////////////////////////////////////////////////////

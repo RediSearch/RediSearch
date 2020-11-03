@@ -71,11 +71,11 @@ TEST_F(IndexTest, testDistance) {
   VVW_Truncate(vw);
   VVW_Truncate(vw2);
 
-  RSIndexResult *tr1 = NewTokenRecord(NULL, 1);
+  RSIndexResult *tr1 = NewTermRecord(NULL, 1);
   tr1->docId = 1;
   tr1->term.offsets = offsetsFromVVW(vw);
 
-  RSIndexResult *tr2 = NewTokenRecord(NULL, 1);
+  RSIndexResult *tr2 = NewTermRecord(NULL, 1);
   tr2->docId = 1;
   tr2->term.offsets = offsetsFromVVW(vw2);
 
@@ -83,21 +83,21 @@ TEST_F(IndexTest, testDistance) {
   res->AddChild(tr1);
   res->AddChild(tr2);
 
-  int delta = IndexResult_MinOffsetDelta(res);
+  int delta = res->MinOffsetDelta();
   ASSERT_EQ(2, delta);
 
-  ASSERT_EQ(0, IndexResult_IsWithinRange(res, 0, 0));
-  ASSERT_EQ(0, IndexResult_IsWithinRange(res, 0, 1));
-  ASSERT_EQ(0, IndexResult_IsWithinRange(res, 1, 1));
-  ASSERT_EQ(1, IndexResult_IsWithinRange(res, 1, 0));
-  ASSERT_EQ(1, IndexResult_IsWithinRange(res, 2, 1));
-  ASSERT_EQ(1, IndexResult_IsWithinRange(res, 2, 0));
-  ASSERT_EQ(1, IndexResult_IsWithinRange(res, 3, 1));
-  ASSERT_EQ(1, IndexResult_IsWithinRange(res, 4, 0));
-  ASSERT_EQ(1, IndexResult_IsWithinRange(res, 4, 1));
-  ASSERT_EQ(1, IndexResult_IsWithinRange(res, 5, 1));
+  ASSERT_EQ(0, res->IsWithinRange(0, 0));
+  ASSERT_EQ(0, res->IsWithinRange(0, 1));
+  ASSERT_EQ(0, res->IsWithinRange(1, 1));
+  ASSERT_EQ(1, res->IsWithinRange(1, 0));
+  ASSERT_EQ(1, res->IsWithinRange(2, 1));
+  ASSERT_EQ(1, res->IsWithinRange(2, 0));
+  ASSERT_EQ(1, res->IsWithinRange(3, 1));
+  ASSERT_EQ(1, res->IsWithinRange(4, 0));
+  ASSERT_EQ(1, res->IsWithinRange(4, 1));
+  ASSERT_EQ(1, res->IsWithinRange(5, 1));
 
-  RSIndexResult *tr3 = NewTokenRecord(NULL, 1);
+  RSIndexResult *tr3 = NewTermRecord(NULL, 1);
   tr3->docId = 1;
   tr3->term.offsets = offsetsFromVVW(vw3);
   res->AddChild(tr3);
@@ -106,7 +106,7 @@ TEST_F(IndexTest, testDistance) {
   ASSERT_EQ(7, delta);
 
   // test merge iteration
-  RSOffsetIterator it = RSIndexResult_IterateOffsets(res);
+  RSOffsetIterator it = res->IterateOffsets();
   uint32_t expected[] = {1, 4, 7, 9, 13, 16, 20, 22, 25, 32, RS_OFFSETVECTOR_EOF};
 
   uint32_t rc;
@@ -652,7 +652,7 @@ TEST_F(IndexTest, testBuffer) {
 
   ASSERT_TRUE(Buffer_Capacity(w.buf) == 15);
 
-  BufferReader br = NewBufferReader(w.buf);
+  BufferReader br(w.buf);
   ASSERT_TRUE(br.pos == 0);
 
   char *y = (char *)malloc(strlen(x) + 1);
@@ -1090,12 +1090,12 @@ TEST_F(IndexTest, testVarintFieldMask) {
   size_t expected[] = {1, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16, 17, 19};
   Buffer b = {0};
   Buffer_Init(&b, 1);
-  BufferWriter bw = NewBufferWriter(&b);
+  BufferWriter bw(&b);
   for (int i = 0; i < sizeof(t_fieldMask); i++, x |= x << 8) {
     size_t sz = WriteVarintFieldMask(x, &bw);
     ASSERT_EQ(expected[i], sz);
-    BufferWriter_Seek(&bw, 0);
-    BufferReader br = NewBufferReader(bw.buf);
+    bw.Seek(0);
+    BufferReader br(bw.buf);
 
     t_fieldMask y = ReadVarintFieldMask(&br);
 

@@ -258,7 +258,7 @@ static void handleReplaceDelete(RedisSearchCtx *sctx, t_docId did) {
     // Open the key:
     RedisModuleString *fmtkey = IndexSpec_GetFormattedKey(sp, fs, INDEXFLD_T_GEO);
     GeoIndex gi{sctx, fs};
-    gi.RemoveEntries(sp, did);
+    gi.RemoveEntries(did);
   }
 }
 
@@ -279,7 +279,7 @@ static int makeDocumentId(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, int repl
         handleReplaceDelete(sctx, dmd->id);
       }
       if (sctx->spec->gc) {
-        GCContext_OnDelete(sctx->spec->gc);
+        sctx->spec->gc->OnDelete();
       }
     }
   }
@@ -330,7 +330,7 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
     }
 
     if (cur->byteOffsets) {
-      ByteOffsetWriter_Move(&cur->offsetsWriter, cur->byteOffsets);
+      cur->offsetsWriter(cur->byteOffsets);
       DocTable_SetByteOffsets(&spec->docs, cur->doc.docId, cur->byteOffsets);
       cur->byteOffsets = NULL;
     }

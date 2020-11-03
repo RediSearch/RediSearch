@@ -1,6 +1,10 @@
 #include "cursor.h"
-#include <time.h>
+#include "query_error.h"
+
+#include "rmalloc.h"
 #include "rmutil/rm_assert.h"
+
+#include <time.h>
 #include <err.h>
 
 #define Cursor_IsIdle(cur) ((cur)->pos != -1)

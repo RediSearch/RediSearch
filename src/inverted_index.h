@@ -53,31 +53,13 @@ struct IndexRepairParams {
   void *arg;
 };
 
+//---------------------------------------------------------------------------------------------
+
 // An index encoder is a callback that writes records to the index.
 // It accepts a pre-calculated delta for encoding.
 typedef size_t (*IndexEncoder)(BufferWriter *bw, uint32_t delta, const RSIndexResult *record);
 
-#if 0
-// Decode a single record from the buffer reader. This function is responsible for:
-// (1) Decoding the record at the given position of br
-// (2) Advancing the reader's position to the next record
-// (3) Filtering the record based on any relevant information (can be passed through `ctx`)
-// (4) Populating `res` with the information from the record.
-
-// If the record should not be processed, it should not be populated and 0 should be returned.
-// Otherwise, the function should return 1.
-typedef int (*IndexDecoder)(BufferReader *br, const IndexDecoderCtx *ctx, RSIndexResult *res);
-
-struct IndexReader;
-
-// Custom implementation of a seeking function. Seek to the specific ID within the index, 
-// or at one position after it.
-// The implementation of this function is optional. 
-// If this is not used, then the decoder() implementation will be used instead.
-
-typedef int (*IndexSeeker)(BufferReader *br, const IndexDecoderCtx *ctx, struct IndexReader *ir,
-                           t_docId to, RSIndexResult *res);
-#endif // 0
+//---------------------------------------------------------------------------------------------
 
 struct IndexDecoder {
   // This context is passed to the decoder callback, and can contain either a pointer or integer.

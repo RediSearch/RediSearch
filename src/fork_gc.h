@@ -1,16 +1,13 @@
 
-#ifndef SRC_FORK_GC_H_
-#define SRC_FORK_GC_H_
+#pragma once
 
+#include "gc.h"
 #include "redismodule.h"
 #include "object.h"
-#include "gc.h"
 
-#ifdef __cplusplus
-//extern "C" {
-#endif
+///////////////////////////////////////////////////////////////////////////////////////////////
 
-typedef struct {
+struct ForkGCStats {
   // total bytes collected by the GC
   size_t totalCollected;
   // number of cycle ran
@@ -21,19 +18,23 @@ typedef struct {
 
   uint64_t gcNumericNodesMissed;
   uint64_t gcBlocksDenied;
-} ForkGCStats;
+};
 
-typedef enum FGCType { FGC_TYPE_INKEYSPACE, FGC_TYPE_NOKEYSPACE } FGCType;
+//---------------------------------------------------------------------------------------------
 
-/* Internal definition of the garbage collector context (each index has one) */
-struct ForkGC : public Object {
-  ForkGC(const RedisModuleString *k, uint64_t specUniqueId, GCCallbacks *callbacks);
-  ForkGC(IndexSpec *sp, uint64_t specUniqueId, GCCallbacks *callbacks);
+enum FGCType {
+  FGC_TYPE_INKEYSPACE,
+  FGC_TYPE_NOKEYSPACE
+};
 
-  void ctor(const RedisModuleString *k, uint64_t specUniqueId, GCCallbacks *callbacks);
+//---------------------------------------------------------------------------------------------
 
-  // static void* operator new(std::size_t sz);
-  // void operator delete(void *ptr);
+// Internal definition of the garbage collector context (each index has one)
+struct ForkGC : public Object, public GCAPI {
+  ForkGC(const RedisModuleString *k, uint64_t specUniqueId);
+  ForkGC(IndexSpec *sp, uint64_t specUniqueId);
+
+  void ctor(const RedisModuleString *k, uint64_t specUniqueId);
 
   // inverted index key name for reopening the index
   union {
@@ -60,9 +61,32 @@ struct ForkGC : public Object {
 
   struct timespec retryInterval;
   volatile size_t deletedDocsFromLastRun;
+
+  virtual int PeriodicCallback(RedisModuleCtx* ctx);
+  virtual void RenderStats(RedisModuleCtx* ctx);
+  virtual void OnDelete();
+  virtual void OnTerm();
+  virtual void Kill();
+  virtual struct timespec GetInterval();
+  virtual RedisModuleCtx *GetRedisCtx() { return ctx; }
+
+  // Indicate that the gc should wait immediately prior to forking. 
+  // This is in order to perform some commands which may not be visible by the fork gc engine.
+  // This function will return before the fork is performed. 
+  // You must call WaitAtApply or WaitClear to allow the GC to resume functioning.
+  void WaitAtFork();
+
+  // Indicate that the GC should unpause from WaitAtFork, and instead wait before the changes are applied.
+  // This is in order to change the state of the index at the parent.
+  void WaitAtApply();
+
+  // Don't perform diagnostic waits
+  void WaitClear();
 };
 
-typedef enum {
+//---------------------------------------------------------------------------------------------
+
+enum FGCPauseFlags {
   // Normal "open" state. No pausing will happen
   FGC_PAUSED_UNPAUSED = 0x00,
   // Prevent invoking the child. The child is not invoked until this flag is
@@ -71,9 +95,11 @@ typedef enum {
   // Prevent the parent reading from the child. The results from the child are
   // not read until this flag is cleared.
   FGC_PAUSED_PARENT = 0x02
-} FGCPauseFlags;
+};
 
-typedef enum {
+//---------------------------------------------------------------------------------------------
+
+enum FGCState {
   // Idle, "normal" state
   FGC_STATE_IDLE = 0,
 
@@ -91,33 +117,6 @@ typedef enum {
 
   // Set when results are being applied from the child to the parent
   FGC_STATE_APPLYING
-} FGCState;
+};
 
-/**
- * Indicate that the gc should wait immediately prior to
- * forking. This is in order to perform some commands which
- * may not be visible by the fork gc engine.
- *
- * This function will return before the fork is performed. You
- * must call WaitAtApply or WaitClear to allow the GC to
- * resume functioning
- */
-void FGC_WaitAtFork(ForkGC *gc);
-
-/**
- * Indicate that the GC should unpause from WaitAtFork, and
- * instead wait before the changes are applied. This is in order
- * to change the state of the index at the parent
- */
-void FGC_WaitAtApply(ForkGC *gc);
-
-/**
- * Don't perform diagnostic waits
- */
-void FGC_WaitClear(ForkGC *gc);
-
-#ifdef __cplusplus
-//}
-#endif
-
-#endif /* SRC_FORK_GC_H_ */
+///////////////////////////////////////////////////////////////////////////////////////////////

@@ -1,5 +1,5 @@
-#ifndef RS_TAG_INDEX_H_
-#define RS_TAG_INDEX_H_
+
+#pragma once
 
 #include "redismodule.h"
 #include "doc_table.h"
@@ -7,11 +7,9 @@
 #include "value.h"
 #include "geo_index.h"
 
-struct InvertedIndex;
+///////////////////////////////////////////////////////////////////////////////////////////////
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+struct InvertedIndex;
 
 /**
  * A Tag Index is an index that indexes textual tags for documents, in a simple manner than a full
@@ -92,56 +90,72 @@ extern "C" {
  *
  *
  */
-typedef struct {
+
+struct TagIndex : public Object {
+  static uint32_t niqueId;
+
   uint32_t uniqueId;
   TrieMap *values;
-} TagIndex;
 
-#define TAG_INDEX_KEY_FMT "tag:%s/%s"
-/* Format the key name for a tag index */
-RedisModuleString *TagIndex_FormatName(RedisSearchCtx *sctx, const char *field);
+  // Create a new tag index
+  TagIndex();
 
-/* Create a new tag index*/
-TagIndex *NewTagIndex();
+  // Open the tag index key in redis
+  static TagIndex *Open(RedisSearchCtx *sctx, RedisModuleString *formattedKey, int openWrite, RedisModuleKey **keyp);
 
-void TagIndex_Free(void *p);
+  ~TagIndex();
 
-char *TagIndex_SepString(char sep, char **s, size_t *toklen);
+  // Format the key name for a tag index
+  static RedisModuleString *FormatName(RedisSearchCtx *sctx, const char *field);
 
-/* Preprocess a document tag field, returning a vector of all tags split from the content */
-char **TagIndex_Preprocess(char sep, TagFieldFlags flags, const DocumentField *data);
+  static char *SepString(char sep, char **s, size_t *toklen);
 
-static inline void TagIndex_FreePreprocessedData(char **s) {
-  array_foreach(s, tmpv, { rm_free(tmpv); });
-  array_free(s);
-}
+  struct Tags {
+    arrayof(char*) tags;
 
-/* Index a vector of pre-processed tags for a docId */
-size_t TagIndex_Index(TagIndex *idx, const char **values, size_t n, t_docId docId);
+    // Preprocess a document tag field, returning a vector of all tags split from the content
+    Tags() : tags(NULL) {}
+    Tags(Tags &&t) : tags(std::move(t.tags)) {}
+    Tags(char sep, TagFieldFlags flags, const DocumentField *data);
+    ~Tags() { Clear(); }
 
-/* Open an index reader to iterate a tag index for a specific tag. Used at query evaluation time.
- * Returns NULL if there is no such tag in the index */
-IndexIterator *TagIndex_OpenReader(TagIndex *idx, IndexSpec *sp, const char *value, size_t len,
-                                   double weight);
+    Tags &operator=(Tags &&t) { tags = std::move(t.tags); return *this; }
 
-void TagIndex_RegisterConcurrentIterators(TagIndex *idx, ConcurrentSearchCtx *conc,
-                                          RedisModuleKey *key, RedisModuleString *keyname,
-                                          array_t *iters);
-/* Open the tag index key in redis */
-TagIndex *TagIndex_Open(RedisSearchCtx *sctx, RedisModuleString *formattedKey, int openWrite,
-                        RedisModuleKey **keyp);
+    void Clear() {
+      array_foreach(tags, tag, { rm_free(tag); });
+      array_free(tags);
+      tags = NULL;
+    }
 
-struct InvertedIndex *TagIndex_OpenIndex(TagIndex *idx, const char *value, size_t len, int create);
+    size_t size() const { return array_len(tags); }
+    bool operator!() const { return !tags; }
+    const char *operator[](int i) const { return tags[i]; }
+  };
 
-/* Serialize all the tags in the index to the redis client */
-void TagIndex_SerializeValues(TagIndex *idx, RedisModuleCtx *ctx);
+  // Index a vector of pre-processed tags for a docId
+  size_t Index(const Tags &tags, t_docId docId);
 
-#define TAGIDX_CURRENT_VERSION 1
+  // Open an index reader to iterate a tag index for a specific tag. Used at query evaluation time.
+  // Returns NULL if there is no such tag in the index.
+  IndexIterator *OpenReader(IndexSpec *sp, const char *value, size_t len, double weight);
+
+  void RegisterConcurrentIterators(ConcurrentSearchCtx *conc, RedisModuleKey *key,
+                                   RedisModuleString *keyname, array_t *iters);
+
+  struct InvertedIndex *OpenIndex(const char *value, size_t len, int create);
+
+  // Serialize all the tags in the index to the redis client
+  void SerializeValues(RedisModuleCtx *ctx);
+
+  // Ecode a single docId into a specific tag value
+  size_t Put(const char *value, size_t len, t_docId docId);
+};
+
+//---------------------------------------------------------------------------------------------
+
 extern RedisModuleType *TagIndexType;
-/* Register the tag index type in redis */
+
+// Register the tag index type in redis
 int TagIndex_RegisterType(RedisModuleCtx *ctx);
 
-#ifdef __cplusplus
-}
-#endif
-#endif
+///////////////////////////////////////////////////////////////////////////////////////////////

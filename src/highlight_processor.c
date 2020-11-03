@@ -1,23 +1,29 @@
 #include "result_processor.h"
 #include "fragmenter.h"
 #include "value.h"
-#include "util/minmax.h"
 #include "toksep.h"
+
+#include "util/minmax.h"
+
 #include <ctype.h>
 
-typedef struct {
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+struct HlpProcessor {
   ResultProcessor base;
   int fragmentizeOptions;
   const FieldList *fields;
   const RLookup *lookup;
-} HlpProcessor;
+};
+
+//---------------------------------------------------------------------------------------------
 
 /**
  * Common parameters passed around for highlighting one or more fields within
  * a document. This structure exists to avoid passing these four parameters
  * discreetly (as we did in previous versiosn)
  */
-typedef struct {
+struct hlpDocContext {
   // Byte offsets, byte-wise
   const RSByteOffsets *byteOffsets;
 
@@ -28,8 +34,9 @@ typedef struct {
   Array *iovsArr;
 
   RLookupRow *row;
+};
 
-} hlpDocContext;
+//---------------------------------------------------------------------------------------------
 
 /**
  * Attempts to fragmentize a single field from its offset entries. This takes
@@ -49,7 +56,7 @@ static int fragmentizeOffsets(IndexSpec *spec, const char *fieldName, const char
   }
 
   int rc = 0;
-  RSOffsetIterator offsIter = RSIndexResult_IterateOffsets(indexResult);
+  var offsIter = indexResult->IterateOffsets();
   FragmentTermIterator fragIter = {NULL};
   RSByteOffsetIterator bytesIter;
   if (RSByteOffset_Iterate(byteOffsets, fs->ftId, &bytesIter) != REDISMODULE_OK) {
@@ -67,6 +74,8 @@ done:
   offsIter.Free(offsIter.ctx);
   return rc;
 }
+
+//---------------------------------------------------------------------------------------------
 
 // Strip spaces from a buffer in place. Returns the new length of the text,
 // with all duplicate spaces stripped and converted to a single ' '.
@@ -90,15 +99,18 @@ static size_t stripDuplicateSpaces(char *s, size_t n) {
   return oix;
 }
 
-/**
- * Returns the length of the buffer without trailing spaces
- */
+//---------------------------------------------------------------------------------------------
+
+// Returns the length of the buffer without trailing spaces
+
 static size_t trimTrailingSpaces(const char *s, size_t input) {
   for (; input && isspace(s[input - 1]); --input) {
     // Nothing
   }
   return input;
 }
+
+//---------------------------------------------------------------------------------------------
 
 static void normalizeSettings(const ReturnedField *srcField, const ReturnedField *defaults,
                               ReturnedField *out) {
@@ -126,6 +138,8 @@ static void normalizeSettings(const ReturnedField *srcField, const ReturnedField
   out->name = srcField->name;
   out->lookupKey = srcField->lookupKey;
 }
+
+//---------------------------------------------------------------------------------------------
 
 // Called when we cannot fragmentize based on byte offsets.
 // docLen is an in/out parameter. On input it should contain the length of the
@@ -159,6 +173,8 @@ static char *trimField(const ReturnedField *fieldInfo, const char *docStr, size_
   char *ret = Array_Steal(&bufTmp, docLen);
   return ret;
 }
+
+//---------------------------------------------------------------------------------------------
 
 static RSValue *summarizeField(IndexSpec *spec, const ReturnedField *fieldInfo,
                                const char *fieldName, const RSValue *returnedField,
@@ -238,6 +254,8 @@ static RSValue *summarizeField(IndexSpec *spec, const ReturnedField *fieldInfo,
   return RS_StringVal(hlText, hlLen);
 }
 
+//---------------------------------------------------------------------------------------------
+
 static void resetIovsArr(Array **iovsArrp, size_t *curSize, size_t newSize) {
   if (*curSize < newSize) {
     *iovsArrp = rm_realloc(*iovsArrp, sizeof(**iovsArrp) * newSize);
@@ -250,6 +268,8 @@ static void resetIovsArr(Array **iovsArrp, size_t *curSize, size_t newSize) {
   }
   *curSize = newSize;
 }
+
+//---------------------------------------------------------------------------------------------
 
 static void processField(HlpProcessor *hlpCtx, hlpDocContext *docParams, ReturnedField *spec) {
   const char *fName = spec->name;
@@ -265,6 +285,8 @@ static void processField(HlpProcessor *hlpCtx, hlpDocContext *docParams, Returne
   }
 }
 
+//---------------------------------------------------------------------------------------------
+
 static const RSIndexResult *getIndexResult(ResultProcessor *rp, t_docId docId) {
   IndexIterator *it = QITR_GetRootFilter(rp->parent);
   RSIndexResult *ir = NULL;
@@ -277,6 +299,8 @@ static const RSIndexResult *getIndexResult(ResultProcessor *rp, t_docId docId) {
   }
   return ir;
 }
+
+//---------------------------------------------------------------------------------------------
 
 static int hlpNext(ResultProcessor *rbase, SearchResult *r) {
   int rc = rbase->upstream->Next(rbase->upstream, r);
@@ -339,9 +363,13 @@ static int hlpNext(ResultProcessor *rbase, SearchResult *r) {
   return RS_RESULT_OK;
 }
 
+//---------------------------------------------------------------------------------------------
+
 static void hlpFree(ResultProcessor *p) {
   rm_free(p);
 }
+
+//---------------------------------------------------------------------------------------------
 
 ResultProcessor *RPHighlighter_New(const RSSearchOptions *searchopts, const FieldList *fields,
                                    const RLookup *lookup) {
@@ -355,3 +383,5 @@ ResultProcessor *RPHighlighter_New(const RSSearchOptions *searchopts, const Fiel
   hlp->lookup = lookup;
   return &hlp->base;
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////

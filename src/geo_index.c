@@ -30,6 +30,10 @@ int GeoIndex::AddStrings(t_docId docId, const char *slon, const char *slat) {
 
 //---------------------------------------------------------------------------------------------
 
+void GeoIndex::RemoveEntries(t_docId docId) {
+  RemoveEntries(ctx->spec, docId);
+}
+
 void GeoIndex::RemoveEntries(IndexSpec *sp, t_docId docId) {
   RedisModuleString *ks = IndexSpec_GetFormattedKey(sp, fs, INDEXFLD_T_GEO);
   RedisModuleCtx *rctx = ctx->redisCtx;

@@ -360,11 +360,9 @@ void DocTable_RdbSave(DocTable *t, RedisModuleIO *rdb) {
       }
 
       if (dmd->flags & Document_HasOffsetVector) {
-        Buffer tmp;
-        Buffer_Init(&tmp, 16);
+        Buffer tmp(16);
         RSByteOffsets_Serialize(dmd->byteOffsets, &tmp);
         RedisModule_SaveStringBuffer(rdb, tmp.data, tmp.offset);
-        Buffer_Free(&tmp);
       }
       ++elements_written;
     }
@@ -446,12 +444,8 @@ void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
     }
 
     if (dmd->flags & Document_HasOffsetVector) {
-      size_t nTmp = 0;
-      char *tmp = RedisModule_LoadStringBuffer(rdb, &nTmp);
-      Buffer *bufTmp = Buffer_Wrap(tmp, nTmp);
-      dmd->byteOffsets = LoadByteOffsets(bufTmp);
-      rm_free(bufTmp);
-      RedisModule_Free(tmp);
+      RMBuffer buf(rdb); // @@ handle exception
+      dmd->byteOffsets = new RSByteOffsets(buf);
     }
 
     if (dmd->flags & Document_Deleted) {

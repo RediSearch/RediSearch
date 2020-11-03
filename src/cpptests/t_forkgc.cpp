@@ -32,7 +32,7 @@ void *cbWrapper(void *args) {
   }
 
   // run ForkGC
-  fgcArgs->sp->gc->callbacks.periodicCallback(fgcArgs->ctx, fgcArgs->fgc);
+  fgcArgs->sp->gc->PeriodicCallback(fgcArgs->ctx, fgcArgs->fgc);
   rm_free(args);
   return NULL;
 }

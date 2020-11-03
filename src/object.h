@@ -5,6 +5,7 @@
 #include <stdexcept>
 
 #include "rmalloc.h"
+#include "util/arr.h"
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -19,13 +20,13 @@ public:
 #if 0
 
 template <class T>
-class Vector
+class Array
 {
 	T *data;
 	size_t n;
 
 public:	
-	Vector() : data(0), n(0) {}
+	Array() : data(0), n(0) {}
 
 	template<typename... Args> 
 	void append(Args&&... args)
@@ -39,6 +40,6 @@ public:
 	}
 };
 
-#endif
+#endif //0
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

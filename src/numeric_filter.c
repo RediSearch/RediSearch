@@ -5,6 +5,8 @@
 #include "rmutil/util.h"
 #include "rmutil/vector.h"
 
+#include <cmath>
+
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 int NumericFilter::parseDoubleRange(const char *s, bool &inclusive, double &target, bool isMin,
@@ -22,7 +24,7 @@ int NumericFilter::parseDoubleRange(const char *s, bool &inclusive, double &targ
   }
   char *endptr = NULL;
   errno = 0;
-  *target = strtod(s, &endptr);
+  target = strtod(s, &endptr);
   if (*endptr != '\0' || target == HUGE_VAL || target == -HUGE_VAL) {
     QERR_MKBADARGS_FMT(status, "Bad %s range: %s", isMin ? "lower" : "upper", s);
     return REDISMODULE_ERR;
@@ -95,9 +97,11 @@ NumericFilter::NumericFilter(double min_, double max_, bool inclusiveMin_, bool 
 
 NumericFilter::NumericFilter(const NumericFilter &nf) : min(nf.min), max(nf.max), 
     inclusiveMin(nf.inclusiveMin), inclusiveMax(nf.inclusiveMax) {
-  if (nf.fieldName) {}
+  if (nf.fieldName) {
     fieldName = rm_strdup(nf.fieldName);
   } else {
     fieldName = NULL;
   }
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////

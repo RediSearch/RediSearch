@@ -11,6 +11,7 @@
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 struct GeoFilter;
+struct FieldSpec;
 
 struct GeoIndex : Object {
   RedisSearchCtx *ctx;
@@ -19,6 +20,7 @@ struct GeoIndex : Object {
   GeoIndex(RedisSearchCtx *ctx, const FieldSpec *fs) : ctx(ctx), fs(fs) {}
 
   int AddStrings(t_docId docId, const char *slon, const char *slat);
+  void RemoveEntries(t_docId docId);
   void RemoveEntries(IndexSpec *sp, t_docId docId);
 
   IndexIterator *NewGeoRangeIterator(const GeoFilter &gf, double weight);

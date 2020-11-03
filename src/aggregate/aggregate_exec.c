@@ -1,11 +1,12 @@
 
-#include "redismodule.h"
 #include "redisearch.h"
 #include "search_ctx.h"
 #include "aggregate.h"
 #include "cursor.h"
-#include "rmutil/util.h"
 #include "score_explain.h"
+
+#include "redismodule.h"
+#include "rmutil/util.h"
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -443,3 +444,5 @@ void Cursor_FreeExecState(void *p) {
   AREQ *r = p;
   AREQ_Free(p);
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////

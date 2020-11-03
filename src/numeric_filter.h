@@ -1,5 +1,5 @@
-#ifndef __NUMERIC_FILTER_H__
-#define __NUMERIC_FILTER_H__
+
+#pragma once
 
 #include "redisearch.h"
 #include "search_ctx.h"
@@ -12,7 +12,7 @@
 #define NF_NEGATIVE_INFINITY (-1.0 / 0.0)
 
 class NumericFilter {
-  int parseDoubleRange(const char *s, int *inclusive, double *target, int isMin, QueryError *status);
+  int parseDoubleRange(const char *s, bool &inclusive, double &target, bool isMin, QueryError *status);
 
 public:
   char *fieldName;
@@ -42,5 +42,3 @@ public:
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
-
-#endif

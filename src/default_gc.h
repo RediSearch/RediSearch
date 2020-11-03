@@ -1,9 +1,12 @@
-#ifndef RS_GARBAGE_COLLECTOR_H_
-#define RS_GARBAGE_COLLECTOR_H_
 
+#pragma once
+
+#include "gc.h"
+#include "search_ctx.h"
 #include "redismodule.h"
 #include "rmutil/periodic.h"
-#include "gc.h"
+
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 // the maximum frequency we are allowed to run in
 #define GC_MAX_HZ 100
@@ -12,7 +15,9 @@
 
 #define NUM_CYCLES_HISTORY 10
 
-typedef struct {
+//---------------------------------------------------------------------------------------------
+
+struct GCStats {
   // total bytes collected by the GC
   size_t totalCollected;
   // number of cycle ran
@@ -25,23 +30,62 @@ typedef struct {
   size_t history[NUM_CYCLES_HISTORY];
   // the offset in the history cyclical buffer
   int historyOffset;
-} GCStats;
+};
 
-typedef struct GarbageCollectorCtx GarbageCollectorCtx;
+//---------------------------------------------------------------------------------------------
 
-/* Create a new garbage collector, with a string for the index name, and initial frequency */
-GarbageCollectorCtx* NewGarbageCollector(const RedisModuleString *k, float initial_hz, uint64_t spec_unique_id, GCCallbacks* callbacks);
+struct NumericRangeTree;
 
-// called externally when the user deletes a document to hint at increasing the HZ
-void GC_OnDelete(void *ctx);
+struct NumericFieldGC :public Object {
+  NumericFieldGC(NumericRangeTree *rt);
+  ~NumericFieldGC();
 
-void GC_OnTerm(void *privdata);
+  struct NumericRangeTree *rt;
+  uint32_t revisionId;
+  struct NumericRangeTreeIterator *gcIterator;
+};
 
-/* Render the GC stats to a redis connection, used by FT.INFO */
-void GC_RenderStats(RedisModuleCtx *ctx, void *gc);
+//---------------------------------------------------------------------------------------------
 
-int GC_PeriodicCallback(RedisModuleCtx *ctx, void *privdata);
+// Internal definition of the garbage collector context (each index has one)
 
-struct timespec GC_GetInterval(void *ctx);
+struct GarbageCollector : public Object, public GCAPI {
+  // current frequency
+  float hz;
 
-#endif
+  // inverted index key name for reopening the index
+  const RedisModuleString *keyName;
+
+  // statistics for reporting
+  GCStats stats;
+
+  // flag for rdb loading. Set to 1 initially, but unce it's set to 0 we don't need to check anymore
+  int rdbPossiblyLoading;
+
+  arrayof(NumericFieldGC*) numericGC;
+
+  uint64_t specUniqueId;
+
+  bool noLockMode;
+
+  // Create a new garbage collector, with a string for the index name, and initial frequency
+  GarbageCollector(const RedisModuleString *k, float initial_hz, uint64_t spec_unique_id);
+
+  void updateStats(RedisSearchCtx *sctx, size_t recordsRemoved, size_t bytesCollected);
+
+  size_t CollectRandomTerm(RedisModuleCtx *ctx, int *status);
+  size_t CollectNumericIndex(RedisModuleCtx *ctx, int *status);
+  size_t CollectTagIndex(RedisModuleCtx *ctx, int *status);
+
+  void FreeNumericGCArray();
+
+  //-------------------------------------------------------------------------------------------
+
+  virtual int PeriodicCallback(RedisModuleCtx* ctx);
+  virtual void RenderStats(RedisModuleCtx* ctx);
+  virtual void OnDelete(); // called when the user deletes a document to hint at increasing the HZ
+  virtual void OnTerm();
+  virtual struct timespec GetInterval();
+};
+
+///////////////////////////////////////////////////////////////////////////////////////////////

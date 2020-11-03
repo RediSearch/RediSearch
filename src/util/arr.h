@@ -60,6 +60,8 @@ typedef struct {
   char buf[];
 } array_hdr_t;
 
+#define arrayof(T) T *
+
 typedef void *array_t;
 /* Internal - calculate the array size for allocations */
 #define array_sizeof(hdr) (sizeof(array_hdr_t) + hdr->cap * hdr->elem_sz)
@@ -240,7 +242,15 @@ static void array_free(array_t arr) {
   }
 }
 
-#define array_clear(arr) array_hdr(arr)->len = 0
+#define array_clear(arr)                    \
+  ({                                        \
+    if (!arr) {                             \
+      arr = array_new(__typeof__(*arr), 1); \
+    } else {                                \
+      array_hdr(arr)->len = 0;              \
+    }                                       \
+    arr;                                    \
+  })
 
 /* Repeate the code in "blk" for each element in the array, and give it the name of "as".
  * e.g:

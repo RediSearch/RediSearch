@@ -43,7 +43,7 @@ IndexBlock *InvertedIndex::AddBlock(t_docId firstId) {
   IndexBlock *last = blocks + (size - 1);
   memset(last, 0, sizeof(*last));  // for msan
   last->firstId = last->lastId = firstId;
-  Buffer_Init(&LastBlock().buf, INDEX_BLOCK_INITIAL_CAP);
+  new (&LastBlock().buf) Buffer(INDEX_BLOCK_INITIAL_CAP);
   return &LastBlock();
 }
 
@@ -108,8 +108,7 @@ void IndexReader::OnReopen(RedisModuleKey *k) {
   if (gcMarker == idx->gcMarker) {
     // no GC - we just go to the same offset we were at
     size_t offset = br.pos;
-    br = NewBufferReader(&CurrentBlock().buf);
-    br.pos = offset;
+    br.Set(&CurrentBlock().buf, offset);
   } else {
     // if there has been a GC cycle on this key while we were asleep, the offset might not be valid
     // anymore. This means that we need to seek to last docId we were at
@@ -117,7 +116,7 @@ void IndexReader::OnReopen(RedisModuleKey *k) {
     // reset the state of the reader
     t_docId lastId = lastId;
     currentBlock = 0;
-    br = NewBufferReader(&CurrentBlock().buf);
+    br.Set(&CurrentBlock().buf);
     lastId = CurrentBlock().firstId;
 
     // seek to the previous last id
@@ -462,14 +461,14 @@ size_t InvertedIndex::WriteEntryGeneric(IndexEncoder encoder, t_docId docId, con
 struct ForwardIndexEntryResult : RSIndexResult {
   ForwardIndexEntryResult(const ForwardIndexEntry &ent) {
     type = RSResultType_Term;
-    docId = ent.docId,
-    offsetsSz = VVW_GetByteLength(ent.vw),
-    freq = ent.freq,
+    docId = ent.docId;
+    offsetsSz = ent.vw ? ent.vw->GetByteLength() : 0;
+    freq = ent.freq;
     fieldMask = ent.fieldMask;
     term.term = NULL;
     if (ent.vw) {
-      term.offsets.data = VVW_GetByteData(ent.vw);
-      term.offsets.len = VVW_GetByteLength(ent.vw);
+      term.offsets.data = ent.vw->GetByteData();
+      term.offsets.len = ent.vw->GetByteLength();
     }
   }
 };
@@ -495,7 +494,7 @@ IndexBlock &IndexReader::CurrentBlock() {
 
 void IndexReader::AdvanceBlock() {
   currentBlock++;
-  br = NewBufferReader(&CurrentBlock().buf);
+  br.Set(&CurrentBlock().buf);
   lastId = CurrentBlock().firstId;
 }
 
@@ -974,7 +973,7 @@ int IndexReader::SkipToBlock(t_docId docId) {
 
 new_block:
   lastId = CurrentBlock().firstId;
-  br = NewBufferReader(&CurrentBlock().buf);
+  br.Set(&CurrentBlock().buf);
   return rc;
 }
 
@@ -1075,7 +1074,7 @@ IndexReader::IndexReader(const IndexSpec *sp, InvertedIndex *idx, IndexDecoder d
     record(record), weight(weight) {
   gcMarker = idx->gcMarker;
   lastId = CurrentBlock().firstId;
-  br = NewBufferReader(&CurrentBlock().buf);
+  br.Set(&CurrentBlock().buf);
 
   currentBlock = 0;
   len = 0;
@@ -1093,6 +1092,8 @@ static double calculateIDF(size_t totalDocs, size_t termDocs) {
   return logb(1.0F + totalDocs / (termDocs ? termDocs : (double)1));
 }
 
+//---------------------------------------------------------------------------------------------
+
 static RSQueryTerm *termWithIDF(RSQueryTerm *term, InvertedIndex *idx, IndexSpec *sp) {
   if (term && sp) {
     // compute IDF based on num of docs in the header
@@ -1101,10 +1102,12 @@ static RSQueryTerm *termWithIDF(RSQueryTerm *term, InvertedIndex *idx, IndexSpec
   return term;
 }
 
+//---------------------------------------------------------------------------------------------
+
 TermIndexReader::TermIndexReader(InvertedIndex *idx, IndexSpec *sp, t_fieldMask fieldMask,
     RSQueryTerm *term, double weight) : IndexReader(sp, idx, 
       IndexDecoder((uint32_t)idx->flags & INDEX_STORAGE_MASK, fieldMask), 
-      NewTokenRecord(termWithIDF(term, idx, sp), weight),
+      NewTermRecord(termWithIDF(term, idx, sp), weight),
       weight) {
 }
 
@@ -1126,7 +1129,7 @@ void IndexReader::Rewind() {
   SetAtEnd(0);
   currentBlock = 0;
   gcMarker = idx->gcMarker;
-  br = NewBufferReader(&CurrentBlock().buf);
+  br.Set(&CurrentBlock().buf);
   lastId = CurrentBlock().firstId;
 }
 
@@ -1151,14 +1154,14 @@ int IndexBlock::Repair(DocTable *dt, IndexFlags flags, IndexRepairParams *params
   t_docId oldFirstBlock = lastId;
   lastId = firstId = 0;
   Buffer repair = {0};
-  BufferReader br = NewBufferReader(&buf);
-  BufferWriter bw = NewBufferWriter(&repair);
+  BufferReader br(&buf);
+  BufferWriter bw(&repair);
 
   RSIndexResult *res;
   if (flags == Index_StoreNumeric)
     res = new NumericResult();
   else
-    res = new TokenResult(NULL, 1);
+    res = new TermResult(NULL, 1);
   size_t frags = 0;
   int isLastValid = 0;
 
@@ -1171,11 +1174,11 @@ int IndexBlock::Repair(DocTable *dt, IndexFlags flags, IndexRepairParams *params
     return -1;
   }
 
-  while (!BufferReader_AtEnd(&br)) {
+  while (!br.AtEnd()) {
     //static const IndexDecoderCtx empty = {0};
-    const char *bufBegin = BufferReader_Current(&br);
+    const char *bufBegin = br.Current();
     (decoder.*(decoder.decoder))(&br, res);
-    size_t sz = BufferReader_Current(&br) - bufBegin;
+    size_t sz = br.Current() - bufBegin;
     if (!(isFirstRes && res->docId != 0)) {
       // if we are entering this here
       // then its not the first entry or its
@@ -1198,7 +1201,7 @@ int IndexBlock::Repair(DocTable *dt, IndexFlags flags, IndexRepairParams *params
       if (!frags++) {
         // First invalid doc; copy everything prior to this to the repair
         // buffer
-        Buffer_Write(&bw, buf.data, bufBegin - buf.data);
+        bw.Write(buf.data, bufBegin - buf.data);
       }
       params->bytesCollected += sz;
       isLastValid = 0;
@@ -1212,7 +1215,7 @@ int IndexBlock::Repair(DocTable *dt, IndexFlags flags, IndexRepairParams *params
           lastId = res->docId;
         }
         if (isLastValid) {
-          Buffer_Write(&bw, bufBegin, sz);
+          bw.Write(bufBegin, sz);
         } else {
           encoder(&bw, res->docId - lastId, res);
         }
@@ -1233,7 +1236,7 @@ int IndexBlock::Repair(DocTable *dt, IndexFlags flags, IndexRepairParams *params
     numDocs -= frags;
     Buffer_Free(&buf);
     buf = repair;
-    Buffer_ShrinkToSize(&buf);
+    buf.ShrinkToSize();
   }
   if (numDocs == 0) {
     // if we left with no elements we do need to keep the

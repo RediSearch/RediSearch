@@ -1,8 +1,9 @@
-#ifndef __RS_DOCUMENT_H__
-#define __RS_DOCUMENT_H__
-#include <pthread.h>
+
+#pragma once
+
 #include "redismodule.h"
 #include "search_ctx.h"
+#include "spec.h"
 #include "redisearch.h"
 #include "tokenize.h"
 #include "concurrent_ctx.h"
@@ -10,17 +11,13 @@
 #include "rmutil/args.h"
 #include "query_error.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+#include <pthread.h>
 
-////////////////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////
-/// General Architecture                                                     ///
-////////////////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 /**
+ * General Architecture
+ * --------------------
  * To index a document, call Document_PrepareForAdd on the document itself.
  * This initializes the Document structure for indexing purposes. Once the
  * document has been prepared, acquire a new RSAddDocumentCtx() by calling
@@ -35,13 +32,13 @@ extern "C" {
  * See document.c for the internals.
  */
 
-typedef struct {
+struct DocumentField {
   const char *name;  // Can either be char or RMString
   RedisModuleString *text;
   FieldType indexAs;
-} DocumentField;
+};
 
-typedef struct Document {
+struct Document {
   RedisModuleString *docKey;
   DocumentField *fields;
   uint32_t numFields;
@@ -51,7 +48,7 @@ typedef struct Document {
   const char *payload;
   size_t payloadSize;
   uint32_t flags;
-} Document;
+};
 
 /**
  * Document should decrement the reference count to the contained strings. Used
@@ -80,7 +77,7 @@ struct RSAddDocumentCtx;
 
 typedef void (*DocumentAddCompleted)(struct RSAddDocumentCtx *, RedisModuleCtx *, void *);
 
-typedef struct {
+struct AddDocumentOptions {
   uint32_t options;                 // DOCUMENT_ADD_XXX
   RSLanguage language;              // Language document should be indexed as
   RedisModuleString *payload;       // Arbitrary payload provided on return with WITHPAYLOADS
@@ -89,7 +86,7 @@ typedef struct {
   double score;                     // Score of the document
   const char *evalExpr;             // Only add the document if this expression evaluates to true.
   DocumentAddCompleted donecb;      // Callback to invoke when operation is done
-} AddDocumentOptions;
+};
 
 void Document_AddField(Document *d, const char *fieldname, RedisModuleString *fieldval,
                        uint32_t typemask);
@@ -203,8 +200,8 @@ struct FieldIndexerData;
 
 struct DocumentIndexer;
 
-/** Context used when indexing documents */
-typedef struct RSAddDocumentCtx {
+// Context used when indexing documents
+struct RSAddDocumentCtx {
   struct RSAddDocumentCtx *next;  // Next context in the queue
   Document doc;                   // Document which is being indexed
   union {
@@ -246,7 +243,7 @@ typedef struct RSAddDocumentCtx {
   uint8_t stateFlags;    // Indexing state, ACTX_F_xxx
   DocumentAddCompleted donecb;
   void *donecbData;
-} RSAddDocumentCtx;
+};
 
 #define AddDocumentCtx_IsBlockable(aCtx) (!((aCtx)->stateFlags & ACTX_F_NOBLOCK))
 
@@ -323,7 +320,5 @@ int RSSafeAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
 int RS_AddDocument(RedisSearchCtx *sctx, RedisModuleString *name, const AddDocumentOptions *opts,
                    QueryError *status);
-#ifdef __cplusplus
-}
-#endif
-#endif
+
+///////////////////////////////////////////////////////////////////////////////////////////////

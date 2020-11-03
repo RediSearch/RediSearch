@@ -1,9 +1,7 @@
-#ifndef __NUMERIC_INDEX_H__
-#define __NUMERIC_INDEX_H__
 
-#include <stdio.h>
-#include <stdlib.h>
-#include "rmutil/vector.h"
+#pragma once
+
+#include "object.h"
 #include "redisearch.h"
 #include "index_result.h"
 #include "redismodule.h"
@@ -12,16 +10,24 @@
 #include "inverted_index.h"
 #include "numeric_filter.h"
 
+#include "rmutil/vector.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <functional>
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+
 #define RT_LEAF_CARDINALITY_MAX 500
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+struct CardinalityValue {
+  CardinalityValue(double value, size_t appearances = 1) : value(value), appearances(appearances) {}
 
-typedef struct {
   double value;
   size_t appearances;
-} CardinalityValue;
+};
+
+//---------------------------------------------------------------------------------------------
 
 /* A numeric range is a node in a numeric range tree, representing a range of values bunched
  * toghether.
@@ -29,7 +35,10 @@ typedef struct {
  * with single value nodes, and when a node passes some cardinality we split it.
  * We save the minimum and maximum values inside the node, and when we split we split by finding the
  * median value */
-typedef struct {
+
+struct NumericRangeNode;
+
+struct NumericRange {
   double minVal;
   double maxVal;
 
@@ -37,45 +46,110 @@ typedef struct {
 
   u_int16_t card;
   uint32_t splitCard;
-  CardinalityValue *values;
-  InvertedIndex *entries;
-} NumericRange;
+  arrayof(CardinalityValue) values;
+  InvertedIndex entries;
 
-/* NumericRangeNode is a node in the range tree that can have a range in it or not, and can be a
- * leaf or not */
-typedef struct rtNode {
-  double value;
-  int maxDepth;
-  struct rtNode *left;
-  struct rtNode *right;
+  NumericRange(double min, double max, size_t splitCard);
+  ~NumericRange();
 
-  NumericRange *range;
-} NumericRangeNode;
+  // Add an entry to a numeric range node. Returns the cardinality of the range after the inserstion.
+  // No deduplication is done.
+  size_t Add(t_docId docId, double value, int checkCard);
 
-typedef struct {
+  // Split n into two ranges, lp for left, and rp for right. We split by the median score
+  double Split(NumericRangeNode **lp, NumericRangeNode **rp);
+
+  bool Contained(double min, double max) const;
+  bool Contains(double min, double max) const;
+  bool Overlaps(double min, double max) const;
+};
+
+//---------------------------------------------------------------------------------------------
+
+struct NRN_AddRv {
+  NRN_AddRv() : sz(0), changed(0) {}
   uint32_t sz;
   uint32_t changed;
-} NRN_AddRv;
+};
 
-typedef struct {
-  NumericRangeNode **nodesStack;
-} NumericRangeTreeIterator;
+//---------------------------------------------------------------------------------------------
 
-/* The root tree and its metadata */
-typedef struct {
+// NumericRangeNode is a node in the range tree that can have a range in it or not, and can be a leaf or not
+
+struct NumericRangeNode : public Object {
+  // Create a new range node with the given capacity, minimum and maximum values
+  NumericRangeNode(size_t cap, double min, double max, size_t splitCard);
+  ~NumericRangeNode(); // Recursively free a node and its children
+
+  double value;
+  int maxDepth;
+  struct NumericRangeNode *left;
+  struct NumericRangeNode *right;
+
+  NumericRange *range;
+
+  // Add a value to a tree node or its children recursively. Splits the relevant node if needed.
+  // Returns 0 if no nodes were split, 1 if we splitted nodes.
+  NRN_AddRv Add(t_docId docId, double value);
+  void AddChildren(Vector *v, double min, double max);
+
+  // Recursively find all the leaves under a node that correspond to a given min-max range.
+  // Returns a vector with range node pointers.
+  Vector *FindRange(double min, double max);
+
+  bool IsLeaf() const { return left == NULL && right == NULL; }
+
+  //void Traverse(void (*callback)(NumericRangeNode *n, void *arg), void *arg);
+  void Traverse(std::function<void(NumericRangeNode *, void *arg)> fn, void *arg);
+};
+
+//---------------------------------------------------------------------------------------------
+
+struct NumericRangeTreeIterator : public Object {
+  arrayof(NumericRangeNode*) nodesStack;
+
+  NumericRangeTreeIterator(NumericRangeTree *t);
+  ~NumericRangeTreeIterator();
+
+  NumericRangeNode *Next();
+};
+
+//---------------------------------------------------------------------------------------------
+
+// The root tree and its metadata
+struct NumericRangeTree : public Object {
   NumericRangeNode *root;
   size_t numRanges;
   size_t numEntries;
   size_t card;
   t_docId lastDocId;
-
   uint32_t revisionId;
-
   uint32_t uniqueId;
 
-} NumericRangeTree;
+  static uint16_t NumericRangeTree::UniqueId;
 
-#define NumericRangeNode_IsLeaf(n) (n->left == NULL && n->right == NULL)
+  NumericRangeTree();
+  ~NumericRangeTree();
+  static void Free(NumericRangeTree *p);
+
+  // Add a value to a tree. Returns 0 if no nodes were split, 1 if we splitted nodes
+  size_t Add(t_docId docId, double value);
+
+  // Recursively find all the leaves under tree's root, that correspond to a given min-max range.
+  // Returns a vector with range node pointers.
+  Vector *Find(double min, double max);
+};
+
+//---------------------------------------------------------------------------------------------
+
+NumericRangeTree *OpenNumericIndex(RedisSearchCtx *ctx, RedisModuleString *keyName,
+                                   RedisModuleKey **idxKey);
+
+//---------------------------------------------------------------------------------------------
+
+class NumericFilterIterator : public IndexIterator {
+
+};
 
 struct IndexIterator *NewNumericRangeIterator(const IndexSpec *sp, NumericRange *nr,
                                               const NumericFilter *f);
@@ -83,45 +157,9 @@ struct IndexIterator *NewNumericRangeIterator(const IndexSpec *sp, NumericRange 
 struct IndexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const NumericFilter *flt,
                                                ConcurrentSearchCtx *csx);
 
-/* Add an entry to a numeric range node. Returns the cardinality of the range after the
- * inserstion.
- * No deduplication is done */
-size_t NumericRange_Add(NumericRange *r, t_docId docId, double value, int checkCard);
-
-/* Split n into two ranges, lp for left, and rp for right. We split by the median score */
-double NumericRange_Split(NumericRange *n, NumericRangeNode **lp, NumericRangeNode **rp);
-
-/* Create a new range node with the given capacity, minimum and maximum values */
-NumericRangeNode *NewLeafNode(size_t cap, double min, double max, size_t splitCard);
-
-/* Add a value to a tree node or its children recursively. Splits the relevant node if needed.
- * Returns 0 if no nodes were split, 1 if we splitted nodes */
-NRN_AddRv NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value);
-
-/* Recursively find all the leaves under a node that correspond to a given min-max range. Returns a
- * vector with range node pointers.  */
-Vector *NumericRangeNode_FindRange(NumericRangeNode *n, double min, double max);
-
-/* Recursively free a node and its children */
-void NumericRangeNode_Free(NumericRangeNode *n);
-
-/* Create a new tree */
-NumericRangeTree *NewNumericRangeTree();
-
-/* Add a value to a tree. Returns 0 if no nodes were split, 1 if we splitted nodes */
-size_t NumericRangeTree_Add(NumericRangeTree *t, t_docId docId, double value);
-
-/* Recursively find all the leaves under tree's root, that correspond to a given min-max range.
- * Returns a vector with range node pointers. */
-Vector *NumericRangeTree_Find(NumericRangeTree *t, double min, double max);
-
-/* Free the tree and all nodes */
-void NumericRangeTree_Free(NumericRangeTree *t);
+//---------------------------------------------------------------------------------------------
 
 extern RedisModuleType *NumericIndexType;
-
-NumericRangeTree *OpenNumericIndex(RedisSearchCtx *ctx, RedisModuleString *keyName,
-                                   RedisModuleKey **idxKey);
 
 int NumericIndexType_Register(RedisModuleCtx *ctx);
 void *NumericIndexType_RdbLoad(RedisModuleIO *rdb, int encver);
@@ -129,11 +167,4 @@ void NumericIndexType_RdbSave(RedisModuleIO *rdb, void *value);
 void NumericIndexType_Digest(RedisModuleDigest *digest, void *value);
 void NumericIndexType_Free(void *value);
 
-NumericRangeTreeIterator *NumericRangeTreeIterator_New(NumericRangeTree *t);
-NumericRangeNode *NumericRangeTreeIterator_Next(NumericRangeTreeIterator *iter);
-void NumericRangeTreeIterator_Free(NumericRangeTreeIterator *iter);
-
-#ifdef __cplusplus
-}
-#endif
-#endif
+///////////////////////////////////////////////////////////////////////////////////////////////

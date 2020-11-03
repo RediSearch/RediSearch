@@ -1,5 +1,7 @@
-#ifndef __BUFFER_H__
-#define __BUFFER_H__
+
+#pragma once
+
+#include "redismodule.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -7,176 +9,167 @@
 #include <stdint.h>
 #include <arpa/inet.h>
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+// Simple wrapper over any kind of string
+struct RString {
+  const char *s;
+  size_t n;
+};
+
+//---------------------------------------------------------------------------------------------
+
+// This handy macro expands an RSTRING to 2 arguments, the buffer and the length
+#define RSTRING_S_N(rs) (rs)->s, (rs)->n
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+
 #define BUFFER_READ 0
 #define BUFFER_WRITE 1
 #define BUFFER_FREEABLE 2    // if set, we free the buffer on Release
 #define BUFFER_LAZY_ALLOC 4  // only allocate memory in a buffer writer on the first write
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-/**
- * Simple wrapper over any kind of string
- */
-typedef struct {
-  const char *s;
-  size_t n;
-} RString;
-
-/**
- * This handy macro expands an RSTRING to 2 arguments, the buffer and the length.
- */
-#define RSTRING_S_N(rs) (rs)->s, (rs)->n
+//---------------------------------------------------------------------------------------------
 
 struct Buffer {
   char *data;
   size_t cap;
   size_t offset;
+
+  Buffer() : data(0), cap(0), offset(0) {}
+  Buffer(size_t cap, size_t offset = 0);
+  ~Buffer();
+
+  void Reset();
+
+  size_t Offset() const { return offset; }
+  size_t Capacity() const { return cap; }
+  bool AtEnd() const { return offset >= cap; }
+
+  size_t Truncate(size_t newlen);
+
+  // Ensure that at least extraLen new bytes can be added to the buffer.
+  // Returns 0 if no realloc was performed. 1 if realloc was performed.
+  void Grow(size_t extraLen);
+
+  size_t Reserve(size_t n) {
+    if (offset + n <= cap) {
+      return 0;
+    }
+    Grow(n);
+    return 1;
+  }
 };
+
+//---------------------------------------------------------------------------------------------
+
+class RMBuffer : public Buffer {
+public:
+  RMBuffer(RedisModuleIO *rdb);
+  ~RMBuffer();
+};
+
+//---------------------------------------------------------------------------------------------
 
 struct BufferReader {
   Buffer *buf;
   size_t pos;
+
+  BufferReader(Buffer *buf, size_t pos = 0) { Set(buf, pos); }
+
+  void Set(Buffer *buf_, size_t pos_ = 0) {
+    buf = buf_;
+    pos = pos_;
+  }
+
+  bool AtEnd() const { return pos >= buf->offset; }
+  void ShrinkToSize() { buf->Truncate(0); }
+  size_t Offset() const { return pos; }
+  size_t Remaining() const { return buf->cap - pos; }
+  char *Current() const { return buf->data + pos; }
+
+  // Skip forward N bytes, returning the resulting offset on success or the end position if where is outside bounds
+  void Skip(size_t n) { pos += n; }
+
+  size_t Seek(size_t offset);
+
+  char ReadByte() { return buf->data[pos++]; }
+
+  size_t ReadByte(char *c);
+
+  /**
+  Read len bytes from the buffer into data. If offset + len are over capacity
+  - we do not read and return 0
+  @return the number of bytes consumed
+  */
+  size_t Read(void *data, size_t len) {
+    memcpy(data, buf->data + pos, len);
+    pos += len;
+    return len;
+  }
+
+  uint32_t ReadU32() {
+    uint32_t u;
+    Read(&u, 4);
+    return ntohl(u);
+  }
+
+  uint16_t ReadU16() {
+    uint16_t u;
+    Read(&u, 2);
+    return ntohs(u);
+  }
+
+  uint8_t ReadU8() {
+    uint8_t b;
+    Read(&b, 1);
+    return b;
+  }
 };
 
-#define BUFFER_READ_BYTE(br) br->buf->data[br->pos++]
-//++b->buf->offset;
+//---------------------------------------------------------------------------------------------
 
-void Buffer_Init(Buffer *b, size_t cap);
-size_t Buffer_ReadByte(BufferReader *b, char *c);
-/**
-Read len bytes from the buffer into data. If offset + len are over capacity
-- we do not read and return 0
-@return the number of bytes consumed
-*/
-static inline size_t Buffer_Read(BufferReader *br, void *data, size_t len) {
-  // // no capacity - return 0
-  // Buffer *b = br->buf;
-  // if (br->pos + len > b->cap) {
-  //   return 0;
-  // }
-
-  memcpy(data, br->buf->data + br->pos, len);
-  br->pos += len;
-  // b->offset += len;
-
-  return len;
-}
-size_t Buffer_Seek(BufferReader *b, size_t offset);
-
-#define Buffer_ShrinkToSize(b) Buffer_Truncate(b, 0)
-
-static inline size_t BufferReader_Offset(const BufferReader *br) {
-  return br->pos;
-}
-
-static inline size_t BufferReader_Remaining(const BufferReader *br) {
-  return br->buf->cap - br->pos;
-}
-
-static inline size_t Buffer_Offset(const Buffer *ctx) {
-  return ctx->offset;
-}
-
-#define BufferReader_AtEnd(br) ((br)->pos >= (br)->buf->offset)
-
-static inline size_t Buffer_Capacity(const Buffer *ctx) {
-  return ctx->cap;
-}
-
-static inline int Buffer_AtEnd(const Buffer *ctx) {
-  return ctx->offset >= ctx->cap;
-}
-
-/**
-Skip forward N bytes, returning the resulting offset on success or the end
-position if where is outside bounds
-*/
-#define Buffer_Skip(br, n) ((br)->pos += (n))
-
-typedef struct {
+struct BufferWriter {
   Buffer *buf;
   char *pos;
 
-} BufferWriter;
+  BufferWriter(Buffer *b) { Set(b); }
 
-size_t Buffer_Truncate(Buffer *b, size_t newlen);
-
-// Ensure that at least extraLen new bytes can be added to the buffer.
-// Returns 0 if no realloc was performed. 1 if realloc was performed.
-void Buffer_Grow(Buffer *b, size_t extraLen);
-
-static inline size_t Buffer_Reserve(Buffer *buf, size_t n) {
-  if (buf->offset + n <= buf->cap) {
-    return 0;
+  void Set(Buffer *b) {
+    buf = b;
+    pos = b->data + b->offset;
   }
-  Buffer_Grow(buf, n);
-  return 1;
-}
 
-static inline size_t Buffer_Write(BufferWriter *bw, const void *data, size_t len) {
+  size_t Offset() const { return pos - buf->data; }
+  char *PtrAt(size_t pos) const { return buf->data + pos; }
 
-  Buffer *buf = bw->buf;
-  if (Buffer_Reserve(buf, len)) {
-    bw->pos = buf->data + buf->offset;
+  size_t Seek(size_t offset);
+
+  size_t Write(const void *data, size_t len) {
+    if (buf->Reserve(len)) {
+      pos = buf->data + buf->offset;
+    }
+    memcpy(pos, data, len);
+    pos += len;
+    buf->offset += len;
+    return len;
   }
-  memcpy(bw->pos, data, len);
-  bw->pos += len;
-  buf->offset += len;
-  return len;
-}
 
-/**
- * These are convenience functions for writing numbers to/from a network
- */
-static inline size_t Buffer_WriteU32(BufferWriter *bw, uint32_t u) {
-  u = htonl(u);
-  return Buffer_Write(bw, &u, 4);
-}
-static inline size_t Buffer_WriteU16(BufferWriter *bw, uint16_t u) {
-  u = htons(u);
-  return Buffer_Write(bw, &u, 2);
-}
-static inline size_t Buffer_WriteU8(BufferWriter *bw, uint8_t u) {
-  return Buffer_Write(bw, &u, 1);
-}
-static inline uint32_t Buffer_ReadU32(BufferReader *r) {
-  uint32_t u;
-  Buffer_Read(r, &u, 4);
-  return ntohl(u);
-}
-static inline uint16_t Buffer_ReadU16(BufferReader *r) {
-  uint16_t u;
-  Buffer_Read(r, &u, 2);
-  return ntohs(u);
-}
-static inline uint8_t Buffer_ReadU8(BufferReader *r) {
-  uint8_t b;
-  Buffer_Read(r, &b, 1);
-  return b;
-}
+  size_t WriteAt(size_t offset, void *data, size_t len);
 
-BufferWriter NewBufferWriter(Buffer *b);
-BufferReader NewBufferReader(Buffer *b);
+  // These are convenience functions for writing numbers to/from a network
+  size_t WriteU32(uint32_t u) {
+    u = htonl(u);
+    return Write(&u, 4);
+  }
 
-#define BufferReader_Current(b) (b)->buf->data + (b)->pos
+  size_t WriteU16(uint16_t u) {
+    u = htons(u);
+    return Write(&u, 2);
+  }
 
-static inline size_t BufferWriter_Offset(BufferWriter *b) {
-  return b->pos - b->buf->data;
-}
+  size_t WriteU8(uint8_t u) { return Write(&u, 1); }
 
-static inline char *BufferWriter_PtrAt(BufferWriter *b, size_t pos) {
-  return b->buf->data + pos;
-}
+};
 
-size_t BufferWriter_Seek(BufferWriter *b, size_t offset);
-size_t Buffer_WriteAt(BufferWriter *b, size_t offset, void *data, size_t len);
-
-Buffer *Buffer_Wrap(char *data, size_t len);
-void Buffer_Free(Buffer *buf);
-
-#ifdef __cplusplus
-}
-#endif
-#endif
+///////////////////////////////////////////////////////////////////////////////////////////////

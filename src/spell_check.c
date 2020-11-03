@@ -84,7 +84,7 @@ static double SpellCheck_GetScore(SpellCheckCtx *scCtx, char *suggestion, size_t
     goto end;
   }
   IndexReader *reader = new TermIndexReader(invidx, NULL, fieldMask, NULL, 1);
-  IndexIterator *iter = NewReadIterator(reader);
+  IndexIterator *iter = reader->NewReadIterator();
   RSIndexResult *r;
   if (iter->Read(iter->ctx, &r) != INDEXREAD_EOF) {
     // we have at least one result, the suggestion is relevant.
@@ -97,7 +97,7 @@ static double SpellCheck_GetScore(SpellCheckCtx *scCtx, char *suggestion, size_t
     // fieldMask has filtered all docs, this suggestions should not be returned
     retVal = -1;
   }
-  ReadIterator_Free(iter);
+  delete iter;
 
 end:
   if (keyp) {

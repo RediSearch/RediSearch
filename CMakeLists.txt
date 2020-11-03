@@ -114,9 +114,12 @@ FILE(GLOB RS_SRC
     "src/dep/triemap/*.c"
     ${RS_DEBUG_SRC})
 
+FILE(GLOB RS_SRC_C
+    "src/c/*.c")
+
 set_source_files_properties(${RS_SRC} PROPERTIES LANGUAGE CXX )
 
-ADD_LIBRARY(rscore OBJECT ${RS_SRC})
+ADD_LIBRARY(rscore OBJECT ${RS_SRC} ${RS_SRC_C})
 
 SET(FINAL_OBJECTS
     $<TARGET_OBJECTS:rscore>

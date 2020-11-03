@@ -1,10 +1,10 @@
 
-#ifndef SRC_SYNONYM_MAP_H_
-#define SRC_SYNONYM_MAP_H_
+#pragma once
 
 #include "util/khash.h"
 #include "redismodule.h"
 #include "util/arr.h"
+
 #include <stdbool.h>
 
 /**
@@ -133,5 +133,3 @@ void SynonymMap_RdbSave(RedisModuleIO* rdb, void* value);
  * Loadin smap from an rdb
  */
 void* SynonymMap_RdbLoad(RedisModuleIO* rdb, int encver);
-
-#endif /* SRC_SYNONYM_MAP_H_ */

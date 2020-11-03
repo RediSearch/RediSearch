@@ -1,14 +1,14 @@
 
-#ifndef REDISEARCH_H__
-#define REDISEARCH_H__
+#pragma once
+
+#include "object.h"
+#include "util/dllist.h"
+#include "stemmer.h"
+#include "rmalloc.h"
 
 #include <stdint.h>
 #include <stdlib.h>
 #include <limits.h>
-
-#include "util/dllist.h"
-#include "stemmer.h"
-#include "rmalloc.h"
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -35,12 +35,6 @@ struct RSSortingVector;
 
 #define REDISEARCH_ERR 1
 #define REDISEARCH_OK 0
-
-//---------------------------------------------------------------------------------------------
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -191,7 +185,7 @@ typedef void (*RSFreeFunction)(void *);
 //---------------------------------------------------------------------------------------------
 
 // A single term being evaluated in query time
-struct RSQueryTerm {
+struct RSQueryTerm : public Object {
   // The term string, not necessarily NULL terminated, hence the length is given as well
   char *str;
   // The term length
@@ -205,6 +199,9 @@ struct RSQueryTerm {
   int id;
   // Flags given by the engine or by the query expander
   RSTokenFlags flags;
+
+  RSQueryTerm(RSToken *tok, int id);
+  ~RSQueryTerm();
 };
 
 //---------------------------------------------------------------------------------------------
@@ -216,24 +213,34 @@ struct RSQueryTerm {
 
 //---------------------------------------------------------------------------------------------
 
-// RSOffsetVector represents the encoded offsets of a term in a document.
-// You can read the offsets by iterating over it with RSOffsetVector_Iterate.
+// RSOffsetIterator is an interface for iterating offset vectors of aggregate and token records
+struct RSOffsetIterator {
+  virtual ~RSOffsetIterator() {}
+  virtual uint32_t Next(RSQueryTerm **term) { return RS_OFFSETVECTOR_EOF; }
+  virtual void Rewind() {}
 
-struct RSOffsetVector {
-  RSOffsetVector(char *data, uint32_t len) : data(data), len(len) {}
-  
-  char *data;
-  uint32_t len;
+  struct Proxy {
+    RSOffsetIterator *it;
+
+    Proxy(RSOffsetIterator *it) : it(it) {}
+    ~Proxy();
+
+    RSOffsetIterator *operator->() { return it; }
+  };
 };
 
 //---------------------------------------------------------------------------------------------
 
-// RSOffsetIterator is an interface for iterating offset vectors of aggregate and token records
-struct RSOffsetIterator {
-  void *ctx;
-  uint32_t (*Next)(void *ctx, RSQueryTerm **term);
-  void (*Rewind)(void *ctx);
-  void (*Free)(void *ctx);
+// RSOffsetVector represents the encoded offsets of a term in a document.
+// You can read the offsets by iterating over it with RSOffsetVector::Iterate.
+
+struct RSOffsetVector {
+  RSOffsetVector(char *data = 0, uint32_t len = 0) : data(data), len(len) {}
+  
+  char *data;
+  uint32_t len;
+
+  RSOffsetIterator Iterate(RSQueryTerm *t) const;
 };
 
 //---------------------------------------------------------------------------------------------
@@ -270,9 +277,9 @@ enum RSResultType {
   RSResultType_Numeric = 0x10
 };
 
-//---------------------------------------------------------------------------------------------
-
 #define RS_RESULT_AGGREGATE (RSResultType_Intersection | RSResultType_Union)
+
+//---------------------------------------------------------------------------------------------
 
 struct RSAggregateResult {
   // number of child records
@@ -290,7 +297,7 @@ struct RSAggregateResult {
 
 #pragma pack(16)
 
-struct RSIndexResult {
+struct RSIndexResult : public Object {
   //-------------------------------------------------------------------------------------------
   // IMPORTANT: The order of the following 4 variables must remain the same, and all
   // their type aliases must remain uint32_t. The record is decoded by casting it
@@ -336,13 +343,16 @@ struct RSIndexResult {
   //-------------------------------------------------------------------------------------------
 
   RSIndexResult() {}
-  RSIndexResult(const RSIndexResult &res); // deep copy
+
+  // Create deep copy of results that is totall thread safe. Very slow so use with caution.
+  RSIndexResult(const RSIndexResult &res);
+
   RSIndexResult(t_docId docId, double value) : docId(docId), type(RSResultType_Numeric) {
     num.value = value;
   }
 
   // Reset state of an existing index hit. This can be used to recycle index hits during reads
-  void Init();
+  void Reset();
 
   // Debug print a result
   void Print(int depth) const;
@@ -351,36 +361,27 @@ struct RSIndexResult {
   void Free();
 
   // Get the minimal delta between the terms in the result
-  int MinOffsetDelta() const;
+    int MinOffsetDelta() const;
 
   // Fill an array of max capacity cap with all the matching text terms for the result.
   // The number of matching terms is returned.
   size_t GetMatchedTerms(RSQueryTerm **arr, size_t cap) const;
+  void GetMatchedTerms(RSQueryTerm *arr[], size_t cap, size_t &len) const;
 
   // Return 1 if the the result is within a given slop range, inOrder determines whether the tokens
   // need to be ordered as in the query or not
   int IsWithinRange(int maxSlop, int inOrder) const;
 
   bool HasOffsets() const;
+  bool IsAggregate() const;
 
-  bool IsAggregate();
-
-  void* operator new(std::size_t sz) { return rm_new(sz); }
-  void operator delete(void *p) { rm_free(p); }
+  // Iterate an offset vector. The iterator object is allocated on the heap and needs to be freed
+  RSOffsetIterator::Proxy IterateOffsets() const;
 };
 
 #pragma pack()
 
 //---------------------------------------------------------------------------------------------
-
-RSOffsetIterator RSOffsetVector_Iterate(const RSOffsetVector *v, RSQueryTerm *t);
-
-// Iterate an offset vector. The iterator object is allocated on the heap and needs to be freed
-RSOffsetIterator RSIndexResult_IterateOffsets(const RSIndexResult *res);
-
-int RSIndexResult_HasOffsets(const RSIndexResult *res);
-
-int RSIndexResult_IsAggregate(const RSIndexResult *r);
 
 // RS_SCORE_FILTEROUT is a special value (-inf) that should be returned by scoring functions in
 // order to completely filter out results and disregard them in the totals count
@@ -439,8 +440,3 @@ struct RSExtensionCtx {
 typedef int (*RSExtensionInitFunc)(RSExtensionCtx *ctx);
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
-
-#ifdef __cplusplus
-}
-#endif
-#endif

@@ -217,18 +217,17 @@ DEBUG_COMMAND(DumpNumericIndex) {
     goto end;
   }
   NumericRangeNode *currNode;
-  NumericRangeTreeIterator *iter = NumericRangeTreeIterator_New(rt);
+  NumericRangeTreeIterator iter(rt);
   size_t resultSize = 0;
   RedisModule_ReplyWithArray(sctx->redisCtx, REDISMODULE_POSTPONED_ARRAY_LEN);
-  while ((currNode = NumericRangeTreeIterator_Next(iter))) {
+  while (currNode = iter.Next()) {
     if (currNode->range) {
-      IndexReader *reader = new NumericIndexReader(currNode->range->entries);
+      IndexReader *reader = new NumericIndexReader(&currNode->range->entries);
       ReplyReaderResults(reader, sctx->redisCtx);
       ++resultSize;
     }
   }
   RedisModule_ReplySetArrayLength(sctx->redisCtx, resultSize);
-  NumericRangeTreeIterator_Free(iter);
 end:
   if (keyp) {
     RedisModule_CloseKey(keyp);
@@ -250,7 +249,7 @@ DEBUG_COMMAND(DumpTagIndex) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
     goto end;
   }
-  TagIndex *tagIndex = TagIndex_Open(sctx, keyName, false, &keyp);
+  TagIndex *tagIndex = TagIndex::Open(sctx, keyName, false, &keyp);
   if (!tagIndex) {
     RedisModule_ReplyWithError(sctx->redisCtx, "can not open tag field");
     goto end;
@@ -373,7 +372,7 @@ DEBUG_COMMAND(GCForceInvoke) {
   }
   RedisModuleBlockedClient *bc = RedisModule_BlockClient(
       ctx, GCForceInvokeReply, GCForceInvokeReplyTimeout, NULL, INVOKATION_TIMEOUT);
-  GCContext_ForceInvoke(sp->gc, bc);
+  sp->gc->ForceInvoke(bc);
   return REDISMODULE_OK;
 }
 
@@ -388,7 +387,7 @@ DEBUG_COMMAND(GCForceBGInvoke) {
     RedisModule_ReplyWithError(ctx, "Unknown index name");
     return REDISMODULE_OK;
   }
-  GCContext_ForceBGInvoke(sp->gc);
+  sp->gc->ForceBGInvoke();
   RedisModule_ReplyWithSimpleString(ctx, "OK");
   return REDISMODULE_OK;
 }
@@ -476,7 +475,7 @@ DEBUG_COMMAND(InfoTagIndex) {
     goto end;
   }
 
-  const TagIndex *idx = TagIndex_Open(sctx, keyName, false, &keyp);
+  const TagIndex *idx = TagIndex::Open(sctx, keyName, false, &keyp);
   if (!idx) {
     RedisModule_ReplyWithError(sctx->redisCtx, "can not open tag field");
     goto end;

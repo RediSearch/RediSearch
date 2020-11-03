@@ -1,7 +1,4 @@
-#ifndef __SPEC_H__
-#define __SPEC_H__
-#include <stdlib.h>
-#include <string.h>
+#pragma once
 
 #include "default_gc.h"
 #include "redismodule.h"
@@ -16,9 +13,10 @@
 #include "util/dict.h"
 #include "redisearch_api.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+#include <stdlib.h>
+#include <string.h>
+
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 #define NUMERIC_STR "NUMERIC"
 #define GEO_STR "GEO"
@@ -47,10 +45,14 @@ extern "C" {
  * space like this
  */
 
+#ifndef __cplusplus
 static const char *SpecTypeNames[] = {[IXFLDPOS_FULLTEXT] = SPEC_TEXT_STR,
                                       [IXFLDPOS_NUMERIC] = NUMERIC_STR,
                                       [IXFLDPOS_GEO] = GEO_STR,
                                       [IXFLDPOS_TAG] = SPEC_TAG_STR};
+#else
+extern const char *SpecTypeNames[];
+#endif
 
 #define INDEX_SPEC_KEY_PREFIX "idx:"
 #define INDEX_SPEC_KEY_FMT INDEX_SPEC_KEY_PREFIX "%s"
@@ -146,11 +148,15 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
 
 #define FIELD_BIT(fs) (((t_fieldMask)1) << (fs)->ftId)
 
-typedef struct {
-  RedisModuleString *types[INDEXFLD_NUM_TYPES];
-} IndexSpecFmtStrings;
-
 struct DocumentIndexer;
+
+//---------------------------------------------------------------------------------------------
+
+struct IndexSpecFmtStrings {
+  RedisModuleString *types[INDEXFLD_NUM_TYPES];
+};
+
+//---------------------------------------------------------------------------------------------
 
 struct IndexSpec {
   char *name;
@@ -168,7 +174,7 @@ struct IndexSpec {
 
   StopWordList *stopwords;
 
-  GCContext *gc;
+  GC *gc;
 
   SynonymMap *smap;
 
@@ -187,13 +193,18 @@ struct IndexSpec {
   struct DocumentIndexer *indexer;
 };
 
-typedef struct {
+//---------------------------------------------------------------------------------------------
+
+struct KeysDictValue {
   void (*dtor)(void *p);
   void *p;
-} KeysDictValue;
+};
+
+//---------------------------------------------------------------------------------------------
 
 extern RedisModuleType *IndexSpecType;
 extern RedisModuleType *IndexAliasType;
+
 /**
  * This lightweight object contains a COPY of the actual index spec.
  * This makes it safe for other modules to use for information such as
@@ -204,63 +215,51 @@ extern RedisModuleType *IndexAliasType;
  *
  * It is freed when its reference count hits 0
  */
-typedef struct IndexSpecCache {
+
+struct IndexSpecCache {
   FieldSpec *fields;
   size_t nfields;
   size_t refcount;
-} IndexSpecCache;
+};
 
-/**
- * Retrieves the current spec cache from the index, incrementing its
- * reference count by 1. Use IndexSpecCache_Decref to free
- */
+//---------------------------------------------------------------------------------------------
+
+// Retrieves the current spec cache from the index, incrementing its
+// reference count by 1. Use IndexSpecCache_Decref to free
 IndexSpecCache *IndexSpec_GetSpecCache(const IndexSpec *spec);
 
-/**
- * Decrement the reference count of the spec cache. Should be matched
- * with a previous call of GetSpecCache()
- */
+// Decrement the reference count of the spec cache. Should be matched
+// with a previous call of GetSpecCache()
 void IndexSpecCache_Decref(IndexSpecCache *cache);
 
-/**
- * Create a new copy of the spec cache from the current index spec
- */
+// Create a new copy of the spec cache from the current index spec
 IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec);
 
-/*
- * Get a field spec by field name. Case insensitive!
- * Return the field spec if found, NULL if not
- */
+// Get a field spec by field name. Case insensitive!
+// Return the field spec if found, NULL if not
 const FieldSpec *IndexSpec_GetField(const IndexSpec *spec, const char *name, size_t len);
 
-/**
- * Case-sensitive version of GetField()
- */
+// Case-sensitive version of GetField()
 const FieldSpec *IndexSpec_GetFieldCase(const IndexSpec *spec, const char *name, size_t n);
 
 const char *GetFieldNameByBit(const IndexSpec *sp, t_fieldMask id);
 
-/* Get the field bitmask id of a text field by name. Return 0 if the field is not found or is not a
- * text field */
+// Get the field bitmask id of a text field by name. Return 0 if the field is not found or is not a
+// text field
 t_fieldMask IndexSpec_GetFieldBit(IndexSpec *spec, const char *name, size_t len);
 
-/**
- * Check if phonetic matching is enabled on any field within the fieldmask.
- * Returns true if any field has phonetics, and false if none of the fields
- * require it.
- */
+// Check if phonetic matching is enabled on any field within the fieldmask.
+// Returns true if any field has phonetics, and false if none of the fields require it.
 int IndexSpec_CheckPhoneticEnabled(const IndexSpec *sp, t_fieldMask fm);
 
-/* Get a sortable field's sort table index by its name. return -1 if the field was not found or is
- * not sortable */
+// Get a sortable field's sort table index by its name. return -1 if the field was not found or is
+// not sortable.
 int IndexSpec_GetFieldSortingIndex(IndexSpec *sp, const char *name, size_t len);
 
-/**
- * Get the field spec from the sortable index
- */
+// Get the field spec from the sortable index
 const FieldSpec *IndexSpec_GetFieldBySortingIndex(const IndexSpec *sp, uint16_t idx);
 
-/* Initialize some index stats that might be useful for scoring functions */
+// Initialize some index stats that might be useful for scoring functions
 void IndexSpec_GetStats(IndexSpec *sp, RSIndexStats *stats);
 /*
  * Parse an index spec from redis command arguments.
@@ -275,72 +274,64 @@ IndexSpec *IndexSpec_ParseRedisArgs(RedisModuleCtx *ctx, RedisModuleString *name
 FieldSpec **getFieldsByType(IndexSpec *spec, FieldType type);
 int isRdbLoading(RedisModuleCtx *ctx);
 
-/* Create a new index spec from redis arguments, set it in a redis key and start its GC.
- * If an error occurred - we set an error string in err and return NULL.
- */
+// Create a new index spec from redis arguments, set it in a redis key and start its GC.
+// If an error occurred - we set an error string in err and return NULL.
 IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                QueryError *status);
 
-/* Start the garbage collection loop on the index spec */
+// Start the garbage collection loop on the index spec
 void IndexSpec_StartGC(RedisModuleCtx *ctx, IndexSpec *sp, float initialHZ);
 void IndexSpec_StartGCFromSpec(IndexSpec *sp, float initialHZ, uint32_t gcPolicy);
 
-/* Same as above but with ordinary strings, to allow unit testing */
+// Same as above but with ordinary strings, to allow unit testing
 IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryError *status);
 FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name);
 
-/** 
- * Indicate that the index spec should use an internal dictionary,rather than
- * the Redis keyspace
- */
+// Indicate the index spec should use an internal dictionary, rather than the Redis keyspace
 void IndexSpec_MakeKeyless(IndexSpec *sp);
 
 #define IndexSpec_IsKeyless(sp) ((sp)->keysDict != NULL)
 
-/**
- * Gets the next text id from the index. This does not currently
- * modify the index
- */
+// Gets the next text id from the index. This does not currently modify the index
 int IndexSpec_CreateTextId(const IndexSpec *sp);
 
-/* Add fields to a redis schema */
+// Add fields to a redis schema
 int IndexSpec_AddFields(IndexSpec *sp, ArgsCursor *ac, QueryError *status);
 
 void FieldSpec_Initialize(FieldSpec *sp, FieldType types);
 
 IndexSpec *IndexSpec_Load(RedisModuleCtx *ctx, const char *name, int openWrite);
 
-/** Load the index as writeable */
+// Load the index as writeable
 #define INDEXSPEC_LOAD_WRITEABLE 0x01
-/** Don't consult the alias table when retrieving the index */
+// Don't consult the alias table when retrieving the index
 #define INDEXSPEC_LOAD_NOALIAS 0x02
-/** The name of the index is in the format of a redis string */
+// The name of the index is in the format of a redis string
 #define INDEXSPEC_LOAD_KEY_RSTRING 0x04
 
-/**
- * The redis string is formatted, and is not the "plain" index name.
- * Impliest RSTRING
- */
+// The redis string is formatted, and is not the "plain" index name. Impliest RSTRING.
 #define INDEXSPEC_LOAD_KEY_FORMATTED 0x08
 
-/**
- * Don't load or return the key. Should only be used in cases where the
- * spec is not persisted between threads
- */
+// Don't load or return the key. Should only be used in cases where the
+// spec is not persisted between threads
 #define INDEXSPEC_LOAD_KEYLESS 0x10
 
-typedef struct {
-  uint32_t flags;
+//---------------------------------------------------------------------------------------------
+
+struct IndexLoadOptions {
   union {
     const char *cstring;
     RedisModuleString *rstring;
   } name;
+  uint32_t flags;
 
-  /** key pointer. you should close this when done with the index */
+  // key pointer. you should close this when done with the index
   RedisModuleKey *keyp;
-  /** name of alias lookup key to use */
+  // name of alias lookup key to use
   const char *alookup;
-} IndexLoadOptions;
+};
+
+//---------------------------------------------------------------------------------------------
 
 /**
  * Find and load the index using the specified parameters.
@@ -400,7 +391,4 @@ t_fieldMask IndexSpec_ParseFieldMask(IndexSpec *sp, RedisModuleString **argv, in
 
 void IndexSpec_InitializeSynonym(IndexSpec *sp);
 
-#ifdef __cplusplus
-}
-#endif
-#endif
+///////////////////////////////////////////////////////////////////////////////////////////////

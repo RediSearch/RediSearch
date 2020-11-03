@@ -1,82 +1,77 @@
-#ifndef CURSOR_H
-#define CURSOR_H
+
+#pragma once
+
+#include "rmalloc.h"
+#include "search_ctx.h"
+
+#include "util/array.h"
+#include "util/khash.h"
 
 #include <unistd.h>
 #include <pthread.h>
-#include "util/khash.h"
-#include "util/array.h"
-#include "search_ctx.h"
 
-typedef struct {
-  char *keyName; /** Name of the key that refers to the spec */
-  size_t cap;    /** Maximum number of cursors for the spec */
-  size_t used;   /** Number of cursors currently open */
-} CursorSpecInfo;
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+struct CursorSpecInfo {
+  char *keyName; // Name of the key that refers to the spec
+  size_t cap;    // Maximum number of cursors for the spec
+  size_t used;   // Number of cursors currently open
+};
 
 struct CursorList;
 
-typedef struct Cursor {
-  /**
-   * Link to info on parent. This is used to increment/decrement the count,
-   * and also to reopen the spec
-   */
+struct Cursor {
+  // Link to info on parent. Used to increment/decrement the count, and also to reopen the spec
   CursorSpecInfo *specInfo;
 
-  /** Parent - used for deletion, etc */
+  // Parent - used for deletion, etc
   struct CursorList *parent;
 
-  /** Execution state. Opaque to the cursor - managed by consumer */
+  // Execution state. Opaque to the cursor - managed by consumer
   void *execState;
 
-  /** Time when this cursor will no longer be valid, in nanos */
+  // Time when this cursor will no longer be valid, in nanos
   uint64_t nextTimeoutNs;
 
-  /** ID of this cursor */
+  // ID of this cursor
   uint64_t id;
 
-  /** Initial timeout interval */
+  // Initial timeout interval
   unsigned timeoutIntervalMs;
 
-  /** Position within idle list */
+  // Position within idle list
   int pos;
-} Cursor;
+};
 
 KHASH_MAP_INIT_INT64(cursors, Cursor *);
-/**
- * Cursor list. This is the global cursor list and does not distinguish
- * between different specs.
- */
-typedef struct CursorList {
-  /** Cursor lookup by ID */
+
+// Cursor list. This is the global cursor list and does not distinguish between different specs
+
+struct CursorList {
+  // Cursor lookup by ID
   khash_t(cursors) * lookup;
 
-  /** List of spec infos; we just iterate over this */
+  // List of spec infos; we just iterate over this
   CursorSpecInfo **specs;
   size_t specsCount;
 
-  /** List of idle cursors */
+  // List of idle cursors
   Array idle;
 
   pthread_mutex_t lock;
 
-  /**
-   * Counter - this serves two purposes:
-   * 1) When counter % n == 0, a GC sweep is performed
-   * 2) Used to calculate a monotonically incrementing cursor ID.
-   */
+  // Counter - this serves two purposes:
+  // 1) When counter % n == 0, a GC sweep is performed
+  // 2) Used to calculate a monotonically incrementing cursor ID.
   uint32_t counter;
 
-  /**
-   * Last time GC was performed.
-   */
+  // Last time GC was performed
   uint64_t lastCollect;
 
-  /**
-   * Next timeout - set to the lowest entry.
-   * This is used as a hint to avoid excessive sweeps.
-   */
+  // Next timeout - set to the lowest entry. This is used as a hint to avoid excessive sweeps.
+
   uint64_t nextIdleTimeoutNs;
-} CursorList;
+};
 
 // This resides in the background as a global. We could in theory make this
 // part of the spec structure
@@ -134,40 +129,32 @@ void CursorList_RemoveSpec(CursorList *cl, const char *k);
  * Returns NULL if the index does not exist or if there are too many
  * cursors currently in use.
  *
- * Timeout is the max idle timeout (activated at each call to Pause()) in
- * milliseconds.
+ * Timeout is the max idle timeout (activated at each call to Pause()) in milliseconds.
  */
 Cursor *Cursors_Reserve(CursorList *cl, const char *lookupName, unsigned timeout,
-                        QueryError *status);
+                        struct QueryError *status);
 
-/**
- * Retrieve a cursor for execution. This locates the cursor, removes it
- * from the idle list, and returns it
- */
+// Retrieve a cursor for execution. This locates the cursor, removes it
+// from the idle list, and returns it
 Cursor *Cursors_TakeForExecution(CursorList *cl, uint64_t cid);
 
-/**
- * Pause a cursor, setting it to idle and placing it back in the cursor
- * list
- */
+// Pause a cursor, setting it to idle and placing it back in the cursor list
 int Cursor_Pause(Cursor *cur);
 
-/**
- * Free a given cursor. This should be called on an already-obtained cursor
- */
+
+// Free a given cursor. This should be called on an already-obtained cursor
 int Cursor_Free(Cursor *cl);
 
-/**
- * Locate and free the cursor with the given ID
- */
+// Locate and free the cursor with the given ID
 int Cursors_Purge(CursorList *cl, uint64_t cid);
 
 int Cursors_CollectIdle(CursorList *cl);
 
-/** Remove all cursors with the given lookup name */
+// Remove all cursors with the given lookup name
 void Cursors_PurgeWithName(CursorList *cl, const char *lookupName);
 
 void Cursors_RenderStats(CursorList *cl, const char *key, RedisModuleCtx *ctx);
 
 void Cursor_FreeExecState(void *);
-#endif
+
+///////////////////////////////////////////////////////////////////////////////////////////////

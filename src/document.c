@@ -61,9 +61,8 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Doc
 
   for (size_t ii = 0; ii < doc->numFields; ++ii) {
     // zero out field data. We check at the destructor to see if there is any
-    // left-over tag data here; if we've realloc'd, then this contains
-    // garbage
-    aCtx->fdatas[ii].tags = NULL;
+    // left-over tag data here; if we've realloc'd, then this contains garbage
+    aCtx->fdatas[ii].tags = TagIndex::Tags();
   }
   size_t numTextIndexable = 0;
 
@@ -83,8 +82,7 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Doc
 
     aCtx->fspecs[i] = *fs;
     if (dedupe[fs->index]) {
-      QueryError_SetErrorFmt(&aCtx->status, QUERY_EDUPFIELD, "Tried to insert `%s` twice",
-                             fs->name);
+      QueryError_SetErrorFmt(&aCtx->status, QUERY_EDUPFIELD, "Tried to insert `%s` twice", fs->name);
       return -1;
     }
 
@@ -304,6 +302,8 @@ static int handlePartialUpdate(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
   }
 }
 
+//---------------------------------------------------------------------------------------------
+
 void AddDocumentCtx_Submit(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, uint32_t options) {
   aCtx->options = options;
   if ((aCtx->options & DOCUMENT_ADD_PARTIAL) && handlePartialUpdate(aCtx, sctx)) {
@@ -347,9 +347,8 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
    */
   for (size_t ii = 0; ii < aCtx->doc.numFields; ++ii) {
     if (FIELD_IS_VALID(aCtx, ii) && FIELD_IS(aCtx->fspecs + ii, INDEXFLD_T_TAG) &&
-        aCtx->fdatas[ii].tags) {
-      TagIndex_FreePreprocessedData(aCtx->fdatas[ii].tags);
-      aCtx->fdatas[ii].tags = NULL;
+        !!aCtx->fdatas[ii].tags) {
+      aCtx->fdatas[ii].tags.Clear();
     }
   }
 
@@ -473,7 +472,7 @@ FIELD_BULK_INDEXER(numericIndexer) {
       return -1;
     }
   }
-  size_t sz = NumericRangeTree_Add(rt, aCtx->doc.docId, fdata->numeric);
+  size_t sz = rt->Add(aCtx->doc.docId, fdata->numeric);
   ctx->spec->stats.invertedSize += sz; // TODO: exact amount
   ctx->spec->stats.numRecords++;
   return 0;
@@ -511,9 +510,8 @@ FIELD_BULK_INDEXER(geoIndexer) {
 //---------------------------------------------------------------------------------------------
 
 FIELD_PREPROCESSOR(tagPreprocessor) {
-  fdata->tags = TagIndex_Preprocess(fs->tagSep, fs->tagFlags, field);
-
-  if (fdata->tags == NULL) {
+  fdata->tags = TagIndex::Tags(fs->tagSep, fs->tagFlags, field);
+  if (!fdata->tags) {
     return 0;
   }
   if (FieldSpec_IsSortable(fs)) {
@@ -530,16 +528,14 @@ FIELD_BULK_INDEXER(tagIndexer) {
   TagIndex *tidx = bulk->indexDatas[IXFLDPOS_TAG];
   if (!tidx) {
     RedisModuleString *kname = IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_TAG);
-    tidx = bulk->indexDatas[IXFLDPOS_TAG] =
-        TagIndex_Open(ctx, kname, 1, &bulk->indexKeys[IXFLDPOS_TAG]);
+    tidx = bulk->indexDatas[IXFLDPOS_TAG] = TagIndex::Open(ctx, kname, 1, &bulk->indexKeys[IXFLDPOS_TAG]);
     if (!tidx) {
       QueryError_SetError(status, QUERY_EGENERIC, "Could not open tag index for indexing");
       return -1;
     }
   }
 
-  ctx->spec->stats.invertedSize +=
-      TagIndex_Index(tidx, (const char **)fdata->tags, array_len(fdata->tags), aCtx->doc.docId);
+  ctx->spec->stats.invertedSize += tidx->Index(fdata->tags, aCtx->doc.docId);
   ctx->spec->stats.numRecords++;
   return 0;
 }
@@ -552,6 +548,8 @@ static PreprocessorFunc preprocessorMap[] = {
     [IXFLDPOS_NUMERIC] = numericPreprocessor,
     [IXFLDPOS_GEO] = geoPreprocessor,
     [IXFLDPOS_TAG] = tagPreprocessor};
+
+//---------------------------------------------------------------------------------------------
 
 int IndexerBulkAdd(IndexBulkData *bulk, RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
                    const DocumentField *field, const FieldSpec *fs, FieldIndexerData *fdata,
@@ -789,3 +787,5 @@ DocumentField *Document_GetField(Document *d, const char *fieldName) {
   }
   return NULL;
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////

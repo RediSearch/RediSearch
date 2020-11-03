@@ -1,20 +1,26 @@
-#ifndef INDEXER_H
-#define INDEXER_H
+
+#pragma once
 
 #include "document.h"
+#include "tag_index.h"
 #include "util/khtable.h"
 #include "util/block_alloc.h"
 #include "concurrent_ctx.h"
 #include "util/arr.h"
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+
 // Preprocessors can store field data to this location
-typedef struct FieldIndexerData {
+struct FieldIndexerData {
   double numeric;  // i.e. the numeric value of the field
   const char *geoSlon;
   const char *geoSlat;
-  char **tags;
-} FieldIndexerData;
+  TagIndex::Tags tags;
+};
 
-typedef struct DocumentIndexer {
+//---------------------------------------------------------------------------------------------
+
+struct DocumentIndexer {
   RSAddDocumentCtx *head;          // first item in the queue
   RSAddDocumentCtx *tail;          // last item in the queue
   pthread_mutex_t lock;            // lock - only used when adding or removing items from the queue
@@ -31,7 +37,9 @@ typedef struct DocumentIndexer {
   int options;
   pthread_t thr;
   size_t refcount;
-} DocumentIndexer;
+};
+
+//---------------------------------------------------------------------------------------------
 
 #define INDEXER_THREADLESS 0x01
 
@@ -70,12 +78,14 @@ typedef int (*PreprocessorFunc)(RSAddDocumentCtx *aCtx, const DocumentField *fie
 typedef int (*IndexerFunc)(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx, const DocumentField *field,
                            const FieldSpec *fs, FieldIndexerData *fdata, QueryError *status);
 
-typedef struct {
+//---------------------------------------------------------------------------------------------
+
+struct IndexBulkData {
   RedisModuleKey *indexKeys[INDEXFLD_NUM_TYPES];
   void *indexDatas[INDEXFLD_NUM_TYPES];
   FieldType typemask;
   int found;
-} IndexBulkData;
+};
 
 // IndexerBulkAdd(bulk, cur, sctx, doc->fields + ii, fs, fdata, &cur->status);
 
@@ -84,4 +94,4 @@ int IndexerBulkAdd(IndexBulkData *bulk, RSAddDocumentCtx *cur, RedisSearchCtx *s
                    QueryError *status);
 void IndexerBulkCleanup(IndexBulkData *cur, RedisSearchCtx *sctx);
 
-#endif
+///////////////////////////////////////////////////////////////////////////////////////////////

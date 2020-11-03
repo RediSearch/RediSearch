@@ -1,29 +1,35 @@
 #include "numeric_index.h"
 #include "redis_index.h"
 #include "sys/param.h"
-#include "rmutil/vector.h"
-#include "rmutil/util.h"
 #include "index.h"
 #include "util/arr.h"
-#include <math.h>
 #include "redismodule.h"
 #include "util/misc.h"
 //#include "tests/time_sample.h"
+
+#include "rmutil/vector.h"
+#include "rmutil/util.h"
+
+#include <math.h>
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+
 #define NR_EXPONENT 4
 #define NR_MAXRANGE_CARD 2500
 #define NR_MAXRANGE_SIZE 10000
 #define NR_MAX_DEPTH 2
 
-typedef struct {
+//---------------------------------------------------------------------------------------------
+
+struct NumericUnion : public Object {
   IndexIterator *it;
   uint32_t lastRevId;
-} NumericUnionCtx;
+};
 
 /* A callback called after a concurrent context regains execution context. When this happen we need
  * to make sure the key hasn't been deleted or its structure changed, which will render the
  * underlying iterators invalid */
-void NumericRangeIterator_OnReopen(RedisModuleKey *k, void *privdata) {
-  NumericUnionCtx *nu = privdata;
+static void NumericRangeIterator_OnReopen(RedisModuleKey *k, NumericUnion *nu) {
   NumericRangeTree *t = RedisModule_ModuleTypeGetValue(k);
 
   /* If the key has been deleted we'll get a NULL heere, so we just mark ourselves as EOF
@@ -35,149 +41,152 @@ void NumericRangeIterator_OnReopen(RedisModuleKey *k, void *privdata) {
    * so in the future we can try an reset the state here
    */
   if (k == NULL || t == NULL || t->revisionId != nu->lastRevId) {
-    nu->it->Abort(nu->it->ctx);
+    nu->it->Abort();
   }
 }
 
-/* Returns 1 if the entire numeric range is contained between min and max */
-static inline int NumericRange_Contained(NumericRange *n, double min, double max) {
-  if (!n) return 0;
-  int rc = (n->minVal >= min && n->maxVal <= max);
+///////////////////////////////////////////////////////////////////////////////////////////////
 
-  // printf("range %f..%f, min %f max %f, WITHIN? %d\n", n->minVal, n->maxVal, min, max, rc);
+// Returns true if the entire numeric range is contained between min and max
+bool NumericRange::Contained(double min, double max) const {
+  bool rc = minVal >= min && maxVal <= max;
+
+  // printf("range %f..%f, min %f max %f, WITHIN? %d\n", minVal, maxVal, min, max, rc);
   return rc;
 }
 
-/* Returns 1 if min and max are both inside the range. this is the opposite of _Within */
-static inline int NumericRange_Contains(NumericRange *n, double min, double max) {
-  if (!n) return 0;
-  int rc = (n->minVal <= min && n->maxVal > max);
-  // printf("range %f..%f, min %f max %f, contains? %d\n", n->minVal, n->maxVal, min, max, rc);
+//---------------------------------------------------------------------------------------------
+
+// Returns true if min and max are both inside the range. this is the opposite of _Within.
+bool NumericRange::Contains(double min, double max) const {
+  bool rc = minVal <= min && maxVal > max;
+  // printf("range %f..%f, min %f max %f, contains? %d\n", minVal, maxVal, min, max, rc);
   return rc;
 }
 
-/* Returns 1 if there is any overlap between the range and min/max */
-int NumericRange_Overlaps(NumericRange *n, double min, double max) {
-  if (!n) return 0;
-  int rc = (min >= n->minVal && min <= n->maxVal) || (max >= n->minVal && max <= n->maxVal);
-  // printf("range %f..%f, min %f max %f, overlaps? %d\n", n->minVal, n->maxVal, min, max, rc);
+//---------------------------------------------------------------------------------------------
+
+// Returns true if there is any overlap between the range and min/max
+bool NumericRange::Overlaps(double min, double max) const {
+  bool rc = (min >= minVal && min <= maxVal) || (max >= minVal && max <= maxVal);
+  // printf("range %f..%f, min %f max %f, overlaps? %d\n", minVal, maxVal, min, max, rc);
   return rc;
 }
 
-size_t NumericRange_Add(NumericRange *n, t_docId docId, double value, int checkCard) {
+//---------------------------------------------------------------------------------------------
 
-  int add = 0;
+size_t NumericRange::Add(t_docId docId, double value, int checkCard) {
+  bool add = false;
   if (checkCard) {
-    add = 1;
-    size_t card = n->card;
-    for (int i = 0; i < array_len(n->values); i++) {
-
-      if (n->values[i].value == value) {
-        add = 0;
-        n->values[i].appearances++;
+    add = true;
+    auto n = array_len(values);
+    for (int i = 0; i < n; i++) {
+      if (values[i].value == value) {
+        add = false;
+        values[i].appearances++;
         break;
       }
     }
   }
-  if (n->minVal == NF_NEGATIVE_INFINITY || value < n->minVal) n->minVal = value;
-  if (n->maxVal == NF_INFINITY || value > n->maxVal) n->maxVal = value;
+  if (minVal == NF_NEGATIVE_INFINITY || value < minVal) minVal = value;
+  if (maxVal == NF_INFINITY || value > maxVal) maxVal = value;
   if (add) {
-    if (n->card < n->splitCard) {
-      CardinalityValue val = {.value = value, .appearances = 1};
-      n->values = array_append(n->values, val);
-      n->unique_sum += value;
+    if (card < splitCard) {
+      CardinalityValue val(value, 1);
+      values = array_append(values, val);
+      unique_sum += value;
     }
-    ++n->card;
+    ++card;
   }
 
-  return InvertedIndex_WriteNumericEntry(n->entries, docId, value);
+  return entries.WriteNumericEntry(docId, value);
 }
 
-double NumericRange_Split(NumericRange *n, NumericRangeNode **lp, NumericRangeNode **rp) {
+//---------------------------------------------------------------------------------------------
 
-  double split = (n->unique_sum) / (double)n->card;
+double NumericRange::Split(NumericRangeNode **lp, NumericRangeNode **rp) {
+  double split = unique_sum / (double)card;
 
   // printf("split point :%f\n", split);
-  *lp = NewLeafNode(n->entries->numDocs / 2 + 1, n->minVal, split,
-                    MIN(NR_MAXRANGE_CARD, 1 + n->splitCard * NR_EXPONENT));
-  *rp = NewLeafNode(n->entries->numDocs / 2 + 1, split, n->maxVal,
-                    MIN(NR_MAXRANGE_CARD, 1 + n->splitCard * NR_EXPONENT));
+  *lp = new NumericRangeNode(entries.numDocs / 2 + 1, minVal, split,
+                            MIN(NR_MAXRANGE_CARD, 1 + splitCard * NR_EXPONENT));
+  *rp = new NumericRangeNode(entries.numDocs / 2 + 1, split, maxVal,
+                             MIN(NR_MAXRANGE_CARD, 1 + splitCard * NR_EXPONENT));
 
   RSIndexResult *res = NULL;
-  IndexReader *ir = NewNumericReader(NULL, n->entries, NULL);
-  while (INDEXREAD_OK == IR_Read(ir, &res)) {
-    NumericRange_Add(res->num.value < split ? (*lp)->range : (*rp)->range, res->docId,
-                     res->num.value, 1);
+  NumericIndexReader ir(&entries);
+  while (INDEXREAD_OK == ir.Read(&res)) {
+    auto range = res->num.value < split ? (*lp)->range : (*rp)->range;
+    if (range) {
+      range->Add(res->docId, res->num.value, 1);
+    }
   }
-  IR_Free(ir);
 
-  // printf("Splitting node %p %f..%f, card %d size %d\n", n, n->minVal, n->maxVal, n->card,
-  //        n->entries->numDocs);
+  // printf("Splitting node %p %f..%f, card %d size %d\n", this, minVal, maxVal, card,
+  //        entries.numDocs);
   // printf("left node: %d, right: %d\n", (*lp)->range->entries->numDocs,
-  //        (*rp)->range->entries->numDocs);
+  //        (*rp)->range->entries.numDocs);
   return split;
 }
 
-NumericRangeNode *NewLeafNode(size_t cap, double min, double max, size_t splitCard) {
+//---------------------------------------------------------------------------------------------
 
-  NumericRangeNode *n = rm_malloc(sizeof(NumericRangeNode));
-  n->left = NULL;
-  n->right = NULL;
-  n->value = 0;
-
-  n->maxDepth = 0;
-  n->range = rm_malloc(sizeof(NumericRange));
-
-  *n->range = (NumericRange){.minVal = min,
-                             .maxVal = max,
-                             .unique_sum = 0,
-                             .card = 0,
-                             .splitCard = splitCard,
-                             .values = array_new(CardinalityValue, 1),
-                             //.values = rm_calloc(splitCard, sizeof(CardinalityValue)),
-                             .entries = NewInvertedIndex(Index_StoreNumeric, 1)};
-  return n;
+NumericRange::NumericRange(double min, double max, size_t splitCard) : 
+  minVal(min), maxVal(max), unique_sum(0), card(0), splitCard(splitCard),
+  values(array_new(CardinalityValue, 1)),
+  entries(Index_StoreNumeric, 1) {
 }
 
-NRN_AddRv NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value) {
-  NRN_AddRv rv = {.sz = 0, .changed = 0};
-  if (!NumericRangeNode_IsLeaf(n)) {
+//---------------------------------------------------------------------------------------------
+
+NumericRange::~NumericRange() {
+  array_free(values);
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+NumericRangeNode::NumericRangeNode(size_t cap, double min, double max, size_t splitCard) :
+  left(NULL), right(NULL), value(0), maxDepth(0), range(new NumericRange(min, max, splitCard)) {
+}
+
+//---------------------------------------------------------------------------------------------
+
+NRN_AddRv NumericRangeNode::Add(t_docId docId, double newval) {
+  NRN_AddRv rv;
+  if (!IsLeaf()) {
     // if this node has already split but retains a range, just add to the range without checking
     // anything
-    if (n->range) {
+    if (range) {
       // Not leaf so should not add??
-      /* sz += */ NumericRange_Add(n->range, docId, value, 0);
+      /* sz += */ range->Add(docId, newval, 0);
       // should continue after??
     }
 
     // recursively add to its left or right child.
-    NumericRangeNode **childP = value < n->value ? &n->left : &n->right;
+    NumericRangeNode **childP = newval < value ? &left : &right;
     NumericRangeNode *child = *childP;
     // if the child has split we get 1 in return
-    rv = NumericRangeNode_Add(child, docId, value);
+    rv = child->Add(docId, newval);
 
     if (rv.changed) {
       // if there was a split it means our max depth has increased.
       // we are too deep - we don't retain this node's range anymore.
       // this keeps memory footprint in check
-      if (++n->maxDepth > NR_MAX_DEPTH && n->range) {
-        InvertedIndex_Free(n->range->entries);
-        array_free(n->range->values);
-        rm_free(n->range);
-        n->range = NULL;
+      if (++maxDepth > NR_MAX_DEPTH && range) {
+        delete range;
+        range = NULL;
       }
 
       // check if we need to rebalance the child.
       // To ease the rebalance we don't rebalance the root
-      // nor do we rebalance nodes that are with ranges (n->maxDepth > NR_MAX_DEPTH)
+      // nor do we rebalance nodes that are with ranges (maxDepth > NR_MAX_DEPTH)
       if ((child->right->maxDepth - child->left->maxDepth) > NR_MAX_DEPTH) {  // role to the left
         NumericRangeNode *right = child->right;
         child->right = right->left;
         right->left = child;
         --child->maxDepth;
         *childP = right;  // replace the child with the new child
-      } else if ((child->left->maxDepth - child->right->maxDepth) >
-                 NR_MAX_DEPTH) {  // role to the right
+      } else if ((child->left->maxDepth - child->right->maxDepth) > NR_MAX_DEPTH) {  // role to the right
         NumericRangeNode *left = child->left;
         child->left = left->right;
         left->right = child;
@@ -190,167 +199,183 @@ NRN_AddRv NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value)
   }
 
   // if this node is a leaf - we add AND check the cardinality. We only split leaf nodes
-  rv.sz = (uint32_t)NumericRange_Add(n->range, docId, value, 1);
-  int card = n->range->card;
-  // printf("Added %d %f to node %f..%f, card now %zd, size now %zd\n", docId, value,
-  // n->range->minVal,
-  //        n->range->maxVal, card, n->range->entries->numDocs);
-  if (card >= n->range->splitCard ||
-      (n->range->entries->numDocs > NR_MAXRANGE_SIZE && card > 1)) {
+  rv.sz = (uint32_t) range->Add(docId, newval, 1);
+  int card = range->card;
+  // printf("Added %d %f to node %f..%f, card now %zd, size now %zd\n", docId, newval,
+  //        range->minVal, range->maxVal, card, range->entries.numDocs);
+  if (card >= range->splitCard || (range->entries.numDocs > NR_MAXRANGE_SIZE && card > 1)) {
 
     // split this node but don't delete its range
-    double split = NumericRange_Split(n->range, &n->left, &n->right);
+    double split = range->Split(&left, &right);
 
-    n->value = split;
+    value = split;
 
-    n->maxDepth = 1;
+    maxDepth = 1;
     rv.changed = 1;
   }
 
   return rv;
 }
 
-/* Recursively add a node's children to the range. */
-void __recursiveAddRange(Vector *v, NumericRangeNode *n, double min, double max) {
-  if (!n) return;
+//---------------------------------------------------------------------------------------------
 
-  if (n->range) {
+// Recursively add a node's children to the range
+void NumericRangeNode::AddChildren(Vector *v, double min, double max) {
+  if (range) {
     // printf("min %f, max %f, range %f..%f, contained? %d, overlaps? %d, leaf? %d\n", min, max,
-    //        n->range->minVal, n->range->maxVal, NumericRange_Contained(n->range, min, max),
-    //        NumericRange_Overlaps(n->range, min, max), __isLeaf(n));
-    // if the range is completely contained in the search, we can just add it and not inspect any
-    // downwards
-    if (NumericRange_Contained(n->range, min, max)) {
-      Vector_Push(v, n->range);
+    //        range->minVal, range->maxVal, range->Contained(min, max),
+    //        n->range->Overlaps(min, max), IsLeaf());
+
+    // if range is completely contained in the search, add it and not inspect any downwards
+    if (range->Contained(min, max)) {
+      Vector_Push(v, range);
       return;
     }
     // No overlap at all - no need to do anything
-    if (!NumericRange_Overlaps(n->range, min, max)) {
+    if (!range->Overlaps(min, max)) {
       return;
     }
   }
 
   // for non leaf nodes - we try to descend into their children
-  if (!NumericRangeNode_IsLeaf(n)) {
-    __recursiveAddRange(v, n->left, min, max);
-    __recursiveAddRange(v, n->right, min, max);
-  } else if (NumericRange_Overlaps(n->range, min, max)) {
-    Vector_Push(v, n->range);
-    return;
+  if (!IsLeaf()) {
+    if (left) left->AddChildren(v, min, max);
+    if (right) right->AddChildren(v, min, max);
+  } else if (range && range->Overlaps(min, max)) {
+    Vector_Push(v, range);
   }
 }
 
-/* Find the numeric ranges that fit the range we are looking for. We try to minimize the number of
- * nodes we'll later need to union */
-Vector *NumericRangeNode_FindRange(NumericRangeNode *n, double min, double max) {
+//---------------------------------------------------------------------------------------------
 
+// Find the numeric ranges that fit the range we are looking for.
+// We try to minimize the number of nodes we'll later need to union.
+Vector *NumericRangeNode::FindRange(double min, double max) {
   Vector *leaves = NewVector(NumericRange *, 8);
-  __recursiveAddRange(leaves, n, min, max);
+  AddChildren(leaves, min, max);
   // printf("Found %zd ranges for %f...%f\n", leaves->top, min, max);
   // for (int i = 0; i < leaves->top; i++) {
   //   NumericRange *rng;
   //   Vector_Get(leaves, i, &rng);
   //   printf("%f...%f (%f). %d card, %d splitCard\n", rng->minVal, rng->maxVal,
-  //          rng->maxVal - rng->minVal, rng->entries->numDocs, rng->splitCard);
+  //          rng->maxVal - rng->minVal, rng->entries.numDocs, rng->splitCard);
   // }
 
   return leaves;
 }
 
-void NumericRangeNode_Free(NumericRangeNode *n) {
-  if (!n) return;
-  if (n->range) {
-    InvertedIndex_Free(n->range->entries);
-    array_free(n->range->values);
-    rm_free(n->range);
-    n->range = NULL;
+//---------------------------------------------------------------------------------------------
+
+NumericRangeNode::~NumericRangeNode() {
+  if (range) {
+    delete range;
   }
 
-  NumericRangeNode_Free(n->left);
-  NumericRangeNode_Free(n->right);
-
-  rm_free(n);
+  delete left;
+  delete right;
 }
 
-uint16_t numericTreesUniqueId = 0;
+///////////////////////////////////////////////////////////////////////////////////////////////
 
-/* Create a new numeric range tree */
-NumericRangeTree *NewNumericRangeTree() {
+uint16_t NumericRangeTree::UniqueId = 0;
+
+//---------------------------------------------------------------------------------------------
+
+// Create a new numeric range tree
+NumericRangeTree::NumericRangeTree() {
 #define GC_NODES_INITIAL_SIZE 10
-  NumericRangeTree *ret = rm_malloc(sizeof(NumericRangeTree));
-
-  ret->root = NewLeafNode(2, NF_NEGATIVE_INFINITY, NF_INFINITY, 2);
-  ret->numEntries = 0;
-  ret->numRanges = 1;
-  ret->revisionId = 0;
-  ret->lastDocId = 0;
-  ret->uniqueId = numericTreesUniqueId++;
-  return ret;
+  root = new NumericRangeNode(2, NF_NEGATIVE_INFINITY, NF_INFINITY, 2);
+  numEntries = 0;
+  numRanges = 1;
+  revisionId = 0;
+  lastDocId = 0;
+  uniqueId = UniqueId++;
 }
 
-size_t NumericRangeTree_Add(NumericRangeTree *t, t_docId docId, double value) {
+//---------------------------------------------------------------------------------------------
+
+size_t NumericRangeTree::Add(t_docId docId, double value) {
 
   // Do not allow duplicate entries. This might happen due to indexer bugs and we need to protect
   // from it
-  if (docId <= t->lastDocId) {
+  if (docId <= lastDocId) {
     return 0;
   }
-  t->lastDocId = docId;
+  lastDocId = docId;
 
-  NRN_AddRv rv = NumericRangeNode_Add(t->root, docId, value);
+  NRN_AddRv rv = root->Add(docId, value);
   // rc != 0 means the tree nodes have changed, and concurrent iteration is not allowed now
   // we increment the revision id of the tree, so currently running query iterators on it
   // will abort the next time they get execution context
   if (rv.changed) {
-    t->revisionId++;
+    revisionId++;
   }
-  t->numRanges += rv.changed;
-  t->numEntries++;
+  numRanges += rv.changed;
+  numEntries++;
 
   return rv.sz;
 }
 
-Vector *NumericRangeTree_Find(NumericRangeTree *t, double min, double max) {
-  return NumericRangeNode_FindRange(t->root, min, max);
+//---------------------------------------------------------------------------------------------
+
+Vector *NumericRangeTree::Find(double min, double max) {
+  return root->FindRange(min, max);
 }
 
-void NumericRangeNode_Traverse(NumericRangeNode *n,
-                               void (*callback)(NumericRangeNode *n, void *ctx), void *ctx) {
+//---------------------------------------------------------------------------------------------
 
-  callback(n, ctx);
+void NumericRangeNode::Traverse(void (*callback)(NumericRangeNode *n, void *arg), void *arg) {
+  callback(this, arg);
 
-  if (n->left) {
-    NumericRangeNode_Traverse(n->left, callback, ctx);
+  if (left) {
+    left->Traverse(callback, arg);
   }
-  if (n->right) {
-    NumericRangeNode_Traverse(n->right, callback, ctx);
+  if (right) {
+    right->Traverse(callback, arg);
   }
 }
 
-void NumericRangeTree_Free(NumericRangeTree *t) {
-  NumericRangeNode_Free(t->root);
-  rm_free(t);
+void NumericRangeNode::Traverse(std::function<void (*)(NumericRangeNode *, void *arg)> fn, void *arg) {
+  fn(this, arg);
+
+  if (left) {
+    left->Traverse(fn, arg);
+  }
+  if (right) {
+    right->Traverse(fn, arg);
+  }
 }
+
+//---------------------------------------------------------------------------------------------
+
+NumericRangeTree::~NumericRangeTree() {
+  delete root;
+}
+
+void NumericRangeTree::Free(NumericRangeTree *p) {
+  delete p;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 IndexIterator *NewNumericRangeIterator(const IndexSpec *sp, NumericRange *nr,
                                        const NumericFilter *f) {
-
   // if this range is at either end of the filter, we need to check each record
-  if (NumericFilter_Match(f, nr->minVal) && NumericFilter_Match(f, nr->maxVal)) {
+  if (f->Match(nr->minVal) && f->Match(nr->maxVal)) {
     // make the filter NULL so the reader will ignore it
     f = NULL;
   }
-  IndexReader *ir = NewNumericReader(sp, nr->entries, f);
-
-  return NewReadIterator(ir);
+  IndexReader *ir = new NumericIndexReader(&nr->entries, sp, f);
+  return ir->NewReadIterator();
 }
 
-/* Create a union iterator from the numeric filter, over all the sub-ranges in the tree that fit
- * the filter */
+//---------------------------------------------------------------------------------------------
+
+// Create a union iterator from the numeric filter, over all the sub-ranges in the tree that fit
+// the filter
 IndexIterator *createNumericIterator(const IndexSpec *sp, NumericRangeTree *t,
                                      const NumericFilter *f) {
-
-  Vector *v = NumericRangeTree_Find(t, f->min, f->max);
+  Vector *v = t->Find(f->min, f->max);
   if (!v || Vector_Size(v) == 0) {
     if (v) {
       Vector_Free(v);
@@ -383,18 +408,16 @@ IndexIterator *createNumericIterator(const IndexSpec *sp, NumericRangeTree *t,
   }
   Vector_Free(v);
 
-  IndexIterator *it = NewUnionIterator(its, n, NULL, 1, 1);
+  IndexIterator *it = new UnionIterator(its, n, NULL, 1, 1);
 
   return it;
 }
 
-RedisModuleType *NumericIndexType = NULL;
-#define NUMERICINDEX_KEY_FMT "nm:%s/%s"
+///////////////////////////////////////////////////////////////////////////////////////////////
 
-RedisModuleString *fmtRedisNumericIndexKey(RedisSearchCtx *ctx, const char *field) {
-  return RedisModule_CreateStringPrintf(ctx->redisCtx, NUMERICINDEX_KEY_FMT, ctx->spec->name,
-                                        field);
-}
+RedisModuleType *NumericIndexType = NULL;
+
+//---------------------------------------------------------------------------------------------
 
 static NumericRangeTree *openNumericKeysDict(RedisSearchCtx *ctx, RedisModuleString *keyName,
                                              int write) {
@@ -406,16 +429,17 @@ static NumericRangeTree *openNumericKeysDict(RedisSearchCtx *ctx, RedisModuleStr
     return NULL;
   }
   kdv = rm_calloc(1, sizeof(*kdv));
-  kdv->dtor = (void (*)(void *))NumericRangeTree_Free;
-  kdv->p = NewNumericRangeTree();
+  kdv->dtor = (void (*)(void *))NumericRangeTree::Free;
+  kdv->p = new NumericRangeTree();
   dictAdd(ctx->spec->keysDict, keyName, kdv);
   return kdv->p;
 }
 
+//---------------------------------------------------------------------------------------------
+
 struct IndexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const NumericFilter *flt,
                                                ConcurrentSearchCtx *csx) {
-  RedisModuleString *s =
-      IndexSpec_GetFormattedKeyByName(ctx->spec, flt->fieldName, INDEXFLD_T_NUMERIC);
+  RedisModuleString *s = IndexSpec_GetFormattedKeyByName(ctx->spec, flt->fieldName, INDEXFLD_T_NUMERIC);
   if (!s) {
     return NULL;
   }
@@ -442,7 +466,7 @@ struct IndexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const Numeri
   }
 
   if (csx) {
-    NumericUnionCtx *uc = rm_malloc(sizeof(*uc));
+    NumericUnion *uc = rm_malloc(sizeof(*uc));
     uc->lastRevId = t->revisionId;
     uc->it = it;
     ConcurrentSearch_AddKey(csx, key, REDISMODULE_READ, s, NumericRangeIterator_OnReopen, uc,
@@ -451,47 +475,49 @@ struct IndexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const Numeri
   return it;
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+
 NumericRangeTree *OpenNumericIndex(RedisSearchCtx *ctx, RedisModuleString *keyName,
                                    RedisModuleKey **idxKey) {
+  if (ctx->spec->keysDict) {
+    return openNumericKeysDict(ctx, keyName, 1);
+  }
 
+  RedisModuleKey *key_s = NULL;
+  if (!idxKey) {
+    idxKey = &key_s;
+  }
+
+  *idxKey = RedisModule_OpenKey(ctx->redisCtx, keyName, REDISMODULE_READ | REDISMODULE_WRITE);
+
+  int type = RedisModule_KeyType(*idxKey);
+  if (type != REDISMODULE_KEYTYPE_EMPTY &&
+      RedisModule_ModuleTypeGetType(*idxKey) != NumericIndexType) {
+    return NULL;
+  }
+
+  // Create an empty value object if the key is currently empty
   NumericRangeTree *t;
-  if (!ctx->spec->keysDict) {
-    RedisModuleKey *key_s = NULL;
-
-    if (!idxKey) {
-      idxKey = &key_s;
-    }
-
-    *idxKey = RedisModule_OpenKey(ctx->redisCtx, keyName, REDISMODULE_READ | REDISMODULE_WRITE);
-
-    int type = RedisModule_KeyType(*idxKey);
-    if (type != REDISMODULE_KEYTYPE_EMPTY &&
-        RedisModule_ModuleTypeGetType(*idxKey) != NumericIndexType) {
-      return NULL;
-    }
-
-    /* Create an empty value object if the key is currently empty. */
-    if (type == REDISMODULE_KEYTYPE_EMPTY) {
-      t = NewNumericRangeTree();
-      RedisModule_ModuleTypeSetValue((*idxKey), NumericIndexType, t);
-    } else {
-      t = RedisModule_ModuleTypeGetValue(*idxKey);
-    }
+  if (type == REDISMODULE_KEYTYPE_EMPTY) {
+    t = new NumericRangeTree();
+    RedisModule_ModuleTypeSetValue((*idxKey), NumericIndexType, t);
   } else {
-    t = openNumericKeysDict(ctx, keyName, 1);
+    t = RedisModule_ModuleTypeGetValue(*idxKey);
   }
   return t;
 }
 
-void __numericIndex_memUsageCallback(NumericRangeNode *n, void *ctx) {
-  unsigned long *sz = ctx;
+//---------------------------------------------------------------------------------------------
+
+static void __numericIndex_memUsageCallback(NumericRangeNode *n, void *arg) {
+  unsigned long *sz = arg;
   *sz += sizeof(NumericRangeNode);
 
   if (n->range) {
     *sz += sizeof(NumericRange);
     *sz += n->range->card * sizeof(double);
-    if (n->range->entries) {
-      *sz += InvertedIndex_MemUsage(n->range->entries);
+    if (n->range.entries) {
+      *sz += n->range.entries->MemUsage();
     }
   }
 }
@@ -499,20 +525,24 @@ void __numericIndex_memUsageCallback(NumericRangeNode *n, void *ctx) {
 unsigned long NumericIndexType_MemUsage(const void *value) {
   const NumericRangeTree *t = value;
   unsigned long ret = sizeof(NumericRangeTree);
-  NumericRangeNode_Traverse(t->root, __numericIndex_memUsageCallback, &ret);
+  t->root->Traverse(__numericIndex_memUsageCallback, &ret);
   return ret;
 }
+
+//---------------------------------------------------------------------------------------------
 
 #define NUMERIC_INDEX_ENCVER 1
 
 int NumericIndexType_Register(RedisModuleCtx *ctx) {
 
-  RedisModuleTypeMethods tm = {.version = REDISMODULE_TYPE_METHOD_VERSION,
-                               .rdb_load = NumericIndexType_RdbLoad,
-                               .rdb_save = NumericIndexType_RdbSave,
-                               .aof_rewrite = GenericAofRewrite_DisabledHandler,
-                               .free = NumericIndexType_Free,
-                               .mem_usage = NumericIndexType_MemUsage};
+  RedisModuleTypeMethods tm = {version: REDISMODULE_TYPE_METHOD_VERSION,
+                               rdb_load: NumericIndexType_RdbLoad,
+                               rdb_save: NumericIndexType_RdbSave,
+                               aof_rewrite: GenericAofRewrite_DisabledHandler,
+                               mem_usage: NumericIndexType_MemUsage,
+                               digest: NumericIndexType_Digest,
+                               free: NumericIndexType_Free
+                               };
 
   NumericIndexType = RedisModule_CreateDataType(ctx, "numericdx", NUMERIC_INDEX_ENCVER, &tm);
   if (NumericIndexType == NULL) {
@@ -522,12 +552,16 @@ int NumericIndexType_Register(RedisModuleCtx *ctx) {
   return REDISMODULE_OK;
 }
 
-/* A single entry in a numeric index's single range. Since entries are binned together, each needs
- * to have the exact value */
-typedef struct {
+//---------------------------------------------------------------------------------------------
+
+// A single entry in a numeric index's single range. Since entries are binned together, each needs
+// to have the exact value.
+struct NumericRangeEntry {
   t_docId docId;
   double value;
-} NumericRangeEntry;
+};
+
+//---------------------------------------------------------------------------------------------
 
 static int cmpdocId(const void *p1, const void *p2) {
   NumericRangeEntry *e1 = (NumericRangeEntry *)p1;
@@ -535,6 +569,8 @@ static int cmpdocId(const void *p1, const void *p2) {
 
   return (int)e1->docId - (int)e2->docId;
 }
+
+//---------------------------------------------------------------------------------------------
 
 /** Version 0 stores the number of entries beforehand, and then loads them */
 static size_t loadV0(RedisModuleIO *rdb, NumericRangeEntry **entriespp) {
@@ -552,7 +588,10 @@ static size_t loadV0(RedisModuleIO *rdb, NumericRangeEntry **entriespp) {
   return num;
 }
 
+//---------------------------------------------------------------------------------------------
+
 #define NUMERIC_IDX_INITIAL_LOAD_SIZE 1 << 16
+
 /** Version 0 stores (id,value) pairs, with a final 0 as a terminator */
 static size_t loadV1(RedisModuleIO *rdb, NumericRangeEntry **entriespp) {
   NumericRangeEntry *entries = array_new(NumericRangeEntry, NUMERIC_IDX_INITIAL_LOAD_SIZE);
@@ -568,6 +607,8 @@ static size_t loadV1(RedisModuleIO *rdb, NumericRangeEntry **entriespp) {
   *entriespp = entries;
   return array_len(entries);
 }
+
+//---------------------------------------------------------------------------------------------
 
 void *NumericIndexType_RdbLoad(RedisModuleIO *rdb, int encver) {
   if (encver > NUMERIC_INDEX_ENCVER) {
@@ -596,6 +637,8 @@ void *NumericIndexType_RdbLoad(RedisModuleIO *rdb, int encver) {
   return t;
 }
 
+//---------------------------------------------------------------------------------------------
+
 struct niRdbSaveCtx {
   RedisModuleIO *rdb;
 };
@@ -603,18 +646,20 @@ struct niRdbSaveCtx {
 static void numericIndex_rdbSaveCallback(NumericRangeNode *n, void *ctx) {
   struct niRdbSaveCtx *rctx = ctx;
 
-  if (NumericRangeNode_IsLeaf(n) && n->range) {
+  if (n->IsLeaf() && n->range) {
     NumericRange *rng = n->range;
     RSIndexResult *res = NULL;
-    IndexReader *ir = NewNumericReader(NULL, rng->entries, NULL);
+    NumericIndexReader ir(rng->entries);
 
-    while (INDEXREAD_OK == IR_Read(ir, &res)) {
+    while (INDEXREAD_OK == ir.Read(&res)) {
       RedisModule_SaveUnsigned(rctx->rdb, res->docId);
       RedisModule_SaveDouble(rctx->rdb, res->num.value);
     }
-    IR_Free(ir);
   }
 }
+
+//---------------------------------------------------------------------------------------------
+
 void NumericIndexType_RdbSave(RedisModuleIO *rdb, void *value) {
 
   NumericRangeTree *t = value;
@@ -625,36 +670,46 @@ void NumericIndexType_RdbSave(RedisModuleIO *rdb, void *value) {
   RedisModule_SaveUnsigned(rdb, 0);
 }
 
+//---------------------------------------------------------------------------------------------
+
 void NumericIndexType_Digest(RedisModuleDigest *digest, void *value) {
 }
+
+//---------------------------------------------------------------------------------------------
 
 void NumericIndexType_Free(void *value) {
   NumericRangeTree *t = value;
   NumericRangeTree_Free(t);
 }
 
-NumericRangeTreeIterator *NumericRangeTreeIterator_New(NumericRangeTree *t) {
+///////////////////////////////////////////////////////////////////////////////////////////////
+
 #define NODE_STACK_INITIAL_SIZE 4
-  NumericRangeTreeIterator *iter = rm_malloc(sizeof(NumericRangeTreeIterator));
-  iter->nodesStack = array_new(NumericRangeNode *, NODE_STACK_INITIAL_SIZE);
-  array_append(iter->nodesStack, t->root);
-  return iter;
+
+NumericRangeTreeIterator::NumericRangeTreeIterator(NumericRangeTree *t) {
+  nodesStack = array_new(NumericRangeNode *, NODE_STACK_INITIAL_SIZE);
+  array_append(nodesStack, t->root);
 }
 
-NumericRangeNode *NumericRangeTreeIterator_Next(NumericRangeTreeIterator *iter) {
-  if (array_len(iter->nodesStack) == 0) {
+//---------------------------------------------------------------------------------------------
+
+NumericRangeNode *NumericRangeTreeIterator::Next() {
+  if (array_len(nodesStack) == 0) {
     return NULL;
   }
-  NumericRangeNode *ret = array_pop(iter->nodesStack);
-  if (!NumericRangeNode_IsLeaf(ret)) {
-    iter->nodesStack = array_append(iter->nodesStack, ret->left);
-    iter->nodesStack = array_append(iter->nodesStack, ret->right);
+  NumericRangeNode *node = array_pop(nodesStack);
+  if (!node->IsLeaf()) {
+    nodesStack = array_append(nodesStack, node->left);
+    nodesStack = array_append(nodesStack, node->right);
   }
 
-  return ret;
+  return node;
 }
 
-void NumericRangeTreeIterator_Free(NumericRangeTreeIterator *iter) {
-  array_free(iter->nodesStack);
-  rm_free(iter);
+//---------------------------------------------------------------------------------------------
+
+NumericRangeTreeIterator::~NumericRangeTreeIterator() {
+  array_free(nodesStack);
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////

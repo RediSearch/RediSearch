@@ -39,7 +39,7 @@ RSIndexResult *NewUnionResult(size_t cap, double weight) {
 }
 
 // Allocate a new token record result for a given term
-RSIndexResult *NewTokenRecord(RSQueryTerm *term, double weight) {
+RSIndexResult *NewTermRecord(RSQueryTerm *term, double weight) {
   RSIndexResult *res = rm_new(RSIndexResult);
 
   *res = (RSIndexResult){.type: RSResultType_Term,
@@ -158,28 +158,19 @@ void RSIndexResult::Print(int depth) const {
 
 //---------------------------------------------------------------------------------------------
 
-RSQueryTerm *NewQueryTerm(RSToken *tok, int id) {
-  RSQueryTerm *ret = rm_malloc(sizeof(RSQueryTerm));
-  ret->idf = 1;
-  ret->str = tok->str ? rm_strndup(tok->str, tok->len) : NULL;
-  ret->len = tok->len;
-  ret->flags = tok->flags;
-  ret->id = id;
-  return ret;
+RSQueryTerm::RSQueryTerm(RSToken *tok, int id) : id(id), idf(1.0), flags(tok->flags),
+  str(tok->str ? rm_strndup(tok->str, tok->len) : NULL), len(tok->len) {
 }
 
 //---------------------------------------------------------------------------------------------
 
-void Term_Free(RSQueryTerm *t) {
-  if (t) {
-    if (t->str) rm_free(t->str);
-    rm_free(t);
-  }
+RSQueryTerm::~RSQueryTerm() {
+  if (str) rm_free(str);
 }
 
 //---------------------------------------------------------------------------------------------
 
-void RSIndexResult::Init() {
+void RSIndexResult::Reset() {
   docId = 0;
   fieldMask = 0;
   freq = 0;
@@ -191,15 +182,16 @@ void RSIndexResult::Init() {
 
 //---------------------------------------------------------------------------------------------
 
-int RSIndexResult_HasOffsets(const RSIndexResult *res) {
-  switch (res->type) {
+int RSIndexResult::HasOffsets() const {
+  switch (type) {
     case RSResultType_Term:
-      return res->term.offsets.len > 0;
+      return term.offsets.len > 0;
+
     case RSResultType_Intersection:
     case RSResultType_Union:
       // the intersection and union aggregates can have offsets if they are not purely made of
       // virtual results
-      return res->agg.typeMask != RSResultType_Virtual && res->agg.typeMask != RSResultType_Numeric;
+      return agg.typeMask != RSResultType_Virtual && agg.typeMask != RSResultType_Numeric;
 
     // a virtual result doesn't have offsets!
     case RSResultType_Virtual:
@@ -211,12 +203,11 @@ int RSIndexResult_HasOffsets(const RSIndexResult *res) {
 
 //---------------------------------------------------------------------------------------------
 
-void IndexResult_Free(RSIndexResult *r) {
-  if (!r) return;
-  if (r->type == RSResultType_Intersection || r->type == RSResultType_Union) {
+IndexResult::~RSIndexResult() {
+  if (type == RSResultType_Intersection || type == RSResultType_Union) {
     // for deep-copy results we also free the children
-    if (r->isCopy && r->agg.children) {
-      for (int i = 0; i < r->agg.numChildren; i++) {
+    if (isCopy && agg.children) {
+      for (int i = 0; i < agg.numChildren; i++) {
         IndexResult_Free(r->agg.children[i]);
       }
     }
@@ -230,7 +221,7 @@ void IndexResult_Free(RSIndexResult *r) {
 
       // we only free up terms for non copy results
       if (r->term.term != NULL) {
-        Term_Free(r->term.term);
+        delete r->term.term;
       }
     }
   }
@@ -311,23 +302,23 @@ int IndexResult_MinOffsetDelta(const RSIndexResult *r) {
 
 //---------------------------------------------------------------------------------------------
 
-void result_GetMatchedTerms(RSIndexResult *r, RSQueryTerm *arr[], size_t cap, size_t *len) {
-  if (*len == cap) return;
+void IndexResult::GetMatchedTerms(RSQueryTerm *arr[], size_t cap, size_t &len) const {
+  if (len == cap) return;
 
-  switch (r->type) {
+  switch (type) {
     case RSResultType_Intersection:
     case RSResultType_Union:
-
-      for (int i = 0; i < r->agg.numChildren; i++) {
-        result_GetMatchedTerms(r->agg.children[i], arr, cap, len);
+      for (int i = 0; i < agg.numChildren; i++) {
+        agg.children[i]->GetMatchedTerms(arr, cap, len);
       }
       break;
+
     case RSResultType_Term:
-      if (r->term.term) {
-        const char *s = r->term.term->str;
+      if (term.term) {
+        const char *s = term.term->str;
         // make sure we have a term string and it's not an expansion
         if (s) {
-          arr[(*len)++] = r->term.term;
+          arr[len++] = term.term;
         }
 
         // fprintf(stderr, "Term! %zd\n", *len);
@@ -339,9 +330,9 @@ void result_GetMatchedTerms(RSIndexResult *r, RSQueryTerm *arr[], size_t cap, si
 
 //---------------------------------------------------------------------------------------------
 
-size_t IndexResult_GetMatchedTerms(RSIndexResult *r, RSQueryTerm **arr, size_t cap) {
+size_t IndexResult::GetMatchedTerms(RSQueryTerm **arr, size_t cap) {
   size_t arrlen = 0;
-  result_GetMatchedTerms(r, arr, cap, &arrlen);
+  GetMatchedTerms(arr, cap, arrlen);
   return arrlen;
 }
 
@@ -511,3 +502,5 @@ int IndexResult_IsWithinRange(RSIndexResult *ir, int maxSlop, int inOrder) {
   }
   return rc;
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////

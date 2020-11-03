@@ -1,36 +1,33 @@
-#ifndef __SEARCH_CTX_H
-#define __SEARCH_CTX_H
+
+#pragma once
+
+//#include "spec.h"
+#include "redismodule.h"
 
 #include <sched.h>
-
-#include "redismodule.h"
-#include "spec.h"
-#include "concurrent_ctx.h"
-#include "trie/trie_type.h"
 #include <time.h>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 #if defined(__FreeBSD__)
 #define CLOCK_MONOTONIC_RAW CLOCK_MONOTONIC
 #endif
 
-/** Context passed to all redis related search handling functions. */
-typedef struct RedisSearchCtx {
+// Context passed to all redis related search handling functions
+struct RedisSearchCtx {
   RedisModuleCtx *redisCtx;
   RedisModuleKey *key_;
-  IndexSpec *spec;
+  struct IndexSpec *spec;
   uint32_t refcount;
   int isStatic;
   uint64_t specId;  // Unique id of the spec; used when refreshing
-} RedisSearchCtx;
+};
 
 #define SEARCH_CTX_STATIC(ctx, sp) \
   { ctx, NULL, sp, 0, 1 }
 
 #define SEARCH_CTX_SORTABLES(ctx) ((ctx && ctx->spec) ? ctx->spec->sortables : NULL)
+
 // Create a string context on the heap
 RedisSearchCtx *NewSearchCtx(RedisModuleCtx *ctx, RedisModuleString *indexName, bool resetTTL);
 RedisSearchCtx *NewSearchCtxDefault(RedisModuleCtx *ctx);
@@ -52,7 +49,13 @@ RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName, bool r
   }
 
 void SearchCtx_Free(RedisSearchCtx *sctx);
-#ifdef __cplusplus
-}
-#endif
-#endif
+
+/**
+ * Format redis key for a term.
+ * TODO: Add index name to it
+ */
+RedisModuleString *fmtRedisTermKey(RedisSearchCtx *ctx, const char *term, size_t len);
+RedisModuleString *fmtRedisSkipIndexKey(RedisSearchCtx *ctx, const char *term, size_t len);
+RedisModuleString *fmtRedisNumericIndexKey(RedisSearchCtx *ctx, const char *field);
+
+///////////////////////////////////////////////////////////////////////////////////////////////

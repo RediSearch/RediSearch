@@ -1,22 +1,13 @@
 
-#ifndef __INDEX_RESULT_H__
-#define __INDEX_RESULT_H__
+#pragma once
 
 #include "varint.h"
 #include "redisearch.h"
 #include "rmalloc.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 #define DEFAULT_RECORDLIST_SIZE 4
-
-RSQueryTerm *NewQueryTerm(RSToken *tok, int id);
-
-void Term_Free(RSQueryTerm *t);
 
 //---------------------------------------------------------------------------------------------
 
@@ -30,33 +21,8 @@ RSIndexResult *NewVirtualResult(double weight);
 
 RSIndexResult *NewNumericResult();
 
-// Allocate a new token record result for a given term
-RSIndexResult *NewTokenRecord(RSQueryTerm *term, double weight);
-
-//---------------------------------------------------------------------------------------------
-
-// Reset state of an existing index hit. This can be used to recycle index hits during reads
-void IndexResult_Init(RSIndexResult *h);
-
-// Create a deep copy of the results that is totall thread safe. This is very slow so use it with caution
-RSIndexResult *IndexResult_DeepCopy(const RSIndexResult *res);
-
-// Debug print a result
-void IndexResult_Print(RSIndexResult *r, int depth);
-
-// Free an index result's internal allocations, does not free the result itself
-void IndexResult_Free(RSIndexResult *r);
-
-// Get the minimal delta between the terms in the result
-int IndexResult_MinOffsetDelta(const RSIndexResult *r);
-
-// Fill an array of max capacity cap with all the matching text terms for the result.
-// The number of matching terms is returned.
-size_t IndexResult_GetMatchedTerms(RSIndexResult *r, RSQueryTerm **arr, size_t cap);
-
-// Return 1 if the the result is within a given slop range, inOrder determines whether the tokens
-// need to be ordered as in the query or not
-int IndexResult_IsWithinRange(RSIndexResult *r, int maxSlop, int inOrder);
+// Allocate a new term record result for a given term
+RSIndexResult *NewTermRecord(RSQueryTerm *term, double weight);
 
 //---------------------------------------------------------------------------------------------
 
@@ -103,14 +69,16 @@ struct IntersectResult : AggregateResult {
   IntersectResult(size_t cap, double weight) : AggregateResult(RSResultType_Intersection, cap, weight) {}
 };
 
+//---------------------------------------------------------------------------------------------
+
 struct UnionResult : AggregateResult {
   UnionResult(size_t cap, double weight) : AggregateResult(RSResultType_Union, cap, weight) {}
 };
 
 //---------------------------------------------------------------------------------------------
 
-struct TokenResult : public RSIndexResult {
-  TokenResult(RSQueryTerm *term_, double weight) {
+struct TermResult : public RSIndexResult {
+  TermResult(RSQueryTerm *term_, double weight) {
     type = RSResultType_Term;
     docId = 0;
     fieldMask = 0;
@@ -151,9 +119,3 @@ struct VirtualResult : RSIndexResult {
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
-
-#ifdef __cplusplus
-}
-#endif
-
-#endif
