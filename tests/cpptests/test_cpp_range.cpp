@@ -29,7 +29,7 @@ TEST_F(RangeTest, testRangeSkiplist) {
 
     NumericRangeSkiplist_Add(nrsl, i + 1, (double)(1 + prng() % 5000));
   }
-  ASSERT_EQ(nrsl->numRanges, 16);
+  ASSERT_EQ(nrsl->numRanges, 8);
   ASSERT_EQ(nrsl->numEntries, 50000);
 
   struct {
@@ -134,7 +134,7 @@ TEST_F(RangeTest, testRangeIterator) {
     NumericFilter_Free(flt);
   }
 
-  ASSERT_EQ(nrsl->numRanges, 14);
+  ASSERT_EQ(nrsl->numRanges, 15);
   ASSERT_EQ(nrsl->numEntries, N);
   NumericRangeSkiplist_Free(nrsl);
 }
