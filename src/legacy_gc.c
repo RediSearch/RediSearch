@@ -9,7 +9,7 @@
 #include "redismodule.h"
 #include "rmutil/util.h"
 #include "default_gc.h"
-#include "tests/time_sample.h"
+#include "time_sample.h"
 #include "numeric_index.h"
 #include "tag_index.h"
 #include "config.h"

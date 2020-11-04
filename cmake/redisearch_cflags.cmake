@@ -22,6 +22,7 @@ IF (HAVE_W_INCOMPATIBLE_POINTER_TYPES)
     ENDIF()
 ENDIF()
 
+
 IF (USE_ASAN)
     SET(RS_COMMON_FLAGS "${RS_COMMON_FLAGS} -fno-omit-frame-pointer -fsanitize=address")
 ELSEIF(USE_TSAN)

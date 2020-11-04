@@ -144,7 +144,7 @@ CONFIG_GETTER(getMaxSearchResults) {
   return sdscatprintf(ss, "%lu", config->maxSearchResults);
 }
 
-// MAXEXPANSIONS
+// MAXEXPANSIONS MAXPREFIXEXPANSIONS
 CONFIG_SETTER(setMaxExpansions) {
   int acrc = AC_GetLongLong(ac, &config->maxPrefixExpansions, AC_F_GE1);
   RETURN_STATUS(acrc);
@@ -478,6 +478,10 @@ RSConfigOptions RSGlobalConfigOptions = {
          .setValue = setMaxSearchResults,
          .getValue = getMaxSearchResults},
         {.name = "MAXEXPANSIONS",
+         .helpText = "Maximum prefix expansions to be used in a query",
+         .setValue = setMaxExpansions,
+         .getValue = getMaxExpansions},
+        {.name = "MAXPREFIXEXPANSIONS",
          .helpText = "Maximum prefix expansions to be used in a query",
          .setValue = setMaxExpansions,
          .getValue = getMaxExpansions},

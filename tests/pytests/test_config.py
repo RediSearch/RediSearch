@@ -21,6 +21,7 @@ def testGetConfigOptions(env):
     assert env.expect('ft.config', 'get', 'FORKGC_SLEEP_BEFORE_EXIT').res[0][0] =='FORKGC_SLEEP_BEFORE_EXIT'
     assert env.expect('ft.config', 'get', 'MAXDOCTABLESIZE').res[0][0] =='MAXDOCTABLESIZE'
     assert env.expect('ft.config', 'get', 'MAXEXPANSIONS').res[0][0] =='MAXEXPANSIONS'
+    assert env.expect('ft.config', 'get', 'MAXPREFIXEXPANSIONS').res[0][0] =='MAXPREFIXEXPANSIONS'
     assert env.expect('ft.config', 'get', 'TIMEOUT').res[0][0] =='TIMEOUT'
     assert env.expect('ft.config', 'get', 'INDEX_THREADS').res[0][0] =='INDEX_THREADS'
     assert env.expect('ft.config', 'get', 'SEARCH_THREADS').res[0][0] =='SEARCH_THREADS'
@@ -34,7 +35,6 @@ def testGetConfigOptions(env):
     assert env.expect('ft.config', 'get', 'FORK_GC_RETRY_INTERVAL').res[0][0] =='FORK_GC_RETRY_INTERVAL'
     assert env.expect('ft.config', 'get', '_MAX_RESULTS_TO_UNSORTED_MODE').res[0][0] =='_MAX_RESULTS_TO_UNSORTED_MODE'
     assert env.expect('ft.config', 'get', 'PARTIAL_INDEXED_DOCS').res[0][0] =='PARTIAL_INDEXED_DOCS'
-
 '''
 
 Config options test. TODO : Fix 'Success (not an error)' parsing wrong error.
@@ -85,6 +85,7 @@ def testAllConfig(env):
     env.assertEqual(res_dict['MAXDOCTABLESIZE'][0], '1000000')
     env.assertEqual(res_dict['MAXSEARCHRESULTS'][0], '1000000')
     env.assertEqual(res_dict['MAXEXPANSIONS'][0], '200')
+    env.assertEqual(res_dict['MAXPREFIXEXPANSIONS'][0], '200')
     env.assertEqual(res_dict['TIMEOUT'][0], '500')
     env.assertEqual(res_dict['INDEX_THREADS'][0], '8')
     env.assertEqual(res_dict['SEARCH_THREADS'][0], '20')
@@ -119,6 +120,7 @@ def testInitConfig(env):
     test_arg_num('MINPREFIX', 3)
     test_arg_num('FORKGC_SLEEP_BEFORE_EXIT', 5)
     test_arg_num('MAXEXPANSIONS', 5)
+    test_arg_num('MAXPREFIXEXPANSIONS', 5)
     test_arg_num('INDEX_THREADS', 3)
     test_arg_num('SEARCH_THREADS', 3)
     test_arg_num('GCSCANSIZE', 3)

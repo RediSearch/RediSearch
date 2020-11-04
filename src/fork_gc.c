@@ -5,7 +5,7 @@
 #include "redis_index.h"
 #include "numeric_index.h"
 #include "tag_index.h"
-#include "tests/time_sample.h"
+#include "time_sample.h"
 #include <stdlib.h>
 #include <stdbool.h>
 #include <unistd.h>
@@ -1320,7 +1320,7 @@ static void statsCb(RedisModuleCtx *ctx, void *gcCtx) {
     REPLY_KVNUM(n, "bytes_collected", gc->stats.totalCollected);
     REPLY_KVNUM(n, "total_ms_run", gc->stats.totalMSRun);
     REPLY_KVNUM(n, "total_cycles", gc->stats.numCycles);
-    REPLY_KVNUM(n, "avarage_cycle_time_ms", (double)gc->stats.totalMSRun / gc->stats.numCycles);
+    REPLY_KVNUM(n, "average_cycle_time_ms", (double)gc->stats.totalMSRun / gc->stats.numCycles);
     REPLY_KVNUM(n, "last_run_time_ms", (double)gc->stats.lastRunTimeMs);
     REPLY_KVNUM(n, "gc_numeric_trees_missed", (double)gc->stats.gcNumericNodesMissed);
     REPLY_KVNUM(n, "gc_blocks_denied", (double)gc->stats.gcBlocksDenied);

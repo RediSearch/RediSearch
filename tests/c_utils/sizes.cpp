@@ -1,7 +1,7 @@
 #include <redisearch.h>
 #include <inverted_index.h>
 #include <cstdio>
-#include <c_utils/api_stubs.h>
+#include "api_stubs.h"
 
 pthread_rwlock_t RWLock = PTHREAD_RWLOCK_INITIALIZER;
 

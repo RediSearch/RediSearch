@@ -2,7 +2,7 @@
 #include "redismodule.h"
 #include "module.h"
 #include "version.h"
-#include "cpptests/common.h"
+#include "common.h"
 #include "redismock/util.h"
 #include "redismock/internal.h"
 
