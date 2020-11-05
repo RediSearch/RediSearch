@@ -775,12 +775,15 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
           RSSortingVector_Put(md->sortVector, idx, &numval, RS_SORTABLE_NUM);
           break;
         }
-        case INDEXFLD_T_DECIMAL: { // TODO:decimal
-          double decval;
-          if (RedisModule_StringToDouble(f->text, &decval) == REDISMODULE_ERR) {
+        case INDEXFLD_T_DECIMAL: {
+          decNumber decval;
+          decContext decCtx;
+          const char *decStr = RedisModule_StringPtrLen(f->text, NULL);
+          decNumberFromString(&decval, decStr, &decCtx);
+          if (decCtx.status && DEC_Errors) {
             BAIL("Could not parse decimal index value");
           }
-          RSSortingVector_Put(md->sortVector, idx, &decval, RS_SORTABLE_NUM);
+          //RSSortingVector_Put(md->sortVector, idx, &decval, RS_SORTABLE_NUM);
           break;
         }
         default:

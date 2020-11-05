@@ -9,6 +9,7 @@
 #include "byte_offsets.h"
 #include "rmutil/args.h"
 #include "query_error.h"
+#include "dep/libDecNumber/decNumber.h"
 
 #ifdef __cplusplus
 extern "C" {
