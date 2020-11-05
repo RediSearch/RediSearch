@@ -1,0 +1,746 @@
+2020-05-29  H.J. Lu  <hjl.tools@gmail.com>
+
+	PR bootstrap/95413
+	* configure: Regenerated.
+
+2020-05-23  David Edelsohn  <dje.gcc@gmail.com>
+
+	* Makefile.in (AR): Substitute @AR@.
+	* configure.ac (CHECK_PROG AR): New.
+	* configure: Regenerate.
+
+2020-05-14  H.J. Lu  <hongjiu.lu@intel.com>
+
+	* configure: Regenerated.
+
+2020-05-12  H.J. Lu  <hongjiu.lu@intel.com>
+
+	* Makefile.in (CET_HOST_FLAGS): New.
+	(COMPILER): Add $(CET_HOST_FLAGS).
+	* configure.ac: Add GCC_CET_HOST_FLAGS(CET_HOST_FLAGS) and
+	AC_SUBST(CET_HOST_FLAGS).  Clear CET_HOST_FLAGS if jit isn't
+	enabled.
+	* aclocal.m4: Regenerated.
+	* configure: Likewise.
+
+2020-01-01  Jakub Jelinek  <jakub@redhat.com>
+
+	Update copyright years.
+
+2019-12-09  Joseph Myers  <joseph@codesourcery.com>
+
+	PR middle-end/91226
+	* bid/bid2dpd_dpd2bid.c (_bid_to_dpd64): Handle non-canonical
+	significands.
+	(_bid_to_dpd128): Likewise.  Check for case where combination
+	field starts 1100, 1101 or 1110.
+
+2019-01-01  Jakub Jelinek  <jakub@redhat.com>
+
+	Update copyright years.
+
+2018-10-31  Joseph Myers  <joseph@codesourcery.com>
+
+	PR bootstrap/82856
+	Merge from binutils-gdb:
+	2018-06-19  Simon Marchi  <simon.marchi@ericsson.com>
+
+	* configure.ac: Remove AC_PREREQ.
+	* configure: Re-generate.
+	* aclocal.m4.
+
+2018-07-05  James Clarke  <jrtc27@jrtc27.com>
+
+	* configure: Regenerated.
+
+2018-02-19  Martin Liska  <mliska@suse.cz>
+
+	PR c/81272
+	* decNumber.c (decCompareOp): Do not use bit and
+	for conjunction of predicates.
+
+2018-01-03  Jakub Jelinek  <jakub@redhat.com>
+
+	Update copyright years.
+
+2017-05-29  Sylvestre Ledru  <sylvestre@debian.org>
+
+	* bid/bid2dpd_dpd2bid.c (_bid_to_dpd32): Fix whitespace.
+	(_dpd_to_bid32): Simplify identical code on multiple branches.
+	Fix whitespace.
+	(_bid_to_dpd64, _dpd_to_bid64): Likewise.
+	(_bid_to_dpd128, _dpd_to_bid128): Likewise.
+
+2017-04-03  Jonathan Wakely  <jwakely@redhat.com>
+
+	* decCommon.c (decFloatFromPackedChecked): Fix typo in comment.
+	* decNumber.c (decNumberPower, decMultiplyOp): Likewise.
+
+2017-01-08  Jakub Jelinek  <jakub@redhat.com>
+
+	PR bootstrap/79003
+	* Makefile.in (CFLAGS, CPPFLAGS, LDFLAGS): Remove -fno-lto.
+	(NOLTO_FLAGS): New variable.
+	(ALL_CFLAGS): Use it.
+	* configure.ac (nolto_flags): New ACX_PROG_CC_WARNING_OPTS,
+	check for whether -fno-lto works.
+	* configure: Regenerated.
+
+2017-01-06  Martin Liska  <mliska@suse.cz>
+
+	PR bootstrap/79003
+	* Makefile.in: Add -fno-lto to {C,CPP,LD}FLAGS.
+
+2017-01-01  Jakub Jelinek  <jakub@redhat.com>
+
+	Update copyright years.
+
+2016-11-15  Matthias Klose  <doko@ubuntu.com>
+
+	* configure: Regenerate.
+
+2016-01-04  Jakub Jelinek  <jakub@redhat.com>
+
+	Update copyright years.
+
+2015-06-30  H.J. Lu  <hongjiu.lu@intel.com>
+
+	* configure: Regenerated.
+
+2015-05-13  Michael Haubenwallner  <michael.haubenwallner@ssi-schaefer.com>
+
+	* aclocal.m4: Regenerated with automake-1.11.6.
+
+2015-01-05  Jakub Jelinek  <jakub@redhat.com>
+
+	Update copyright years.
+
+2014-11-11  David Malcolm  <dmalcolm@redhat.com>
+
+	* ChangeLog.jit: New.
+
+2014-01-23  Marek Polacek  <polacek@redhat.com>
+
+	PR c/59871
+	* decNumberLocal.h (UBFROMUS, UBFROMUI): Remove last argument.
+
+2014-01-02  Richard Sandiford  <rdsandiford@googlemail.com>
+
+	Update copyright years
+
+2013-10-15  David Malcolm  <dmalcolm@redhat.com>
+
+	* Makefile.in (PICFLAG): New.
+	(ALL_CFLAGS): Add PICFLAG.
+	* configure.ac: Add --enable-host-shared, setting up new
+	PICFLAG variable.
+	* configure: Regenerate.
+
+2013-07-09  Simon Baldwin  <simonb@google.com>
+
+	* configure.ac: Add AC_CONFIG_AUX_DIR.
+	* configure: Regenerated.
+		
+2013-03-27  Kai Tietz  <ktietz@redhat.com>
+
+	* configure: Regenerated.
+
+2013-02-06  Richard Sandiford  <rdsandiford@googlemail.com>
+
+	Update copyright years.
+
+2012-11-04  Thomas Schwinge  <thomas@codesourcery.com>
+
+	* configure: Regenerate.
+
+2011-12-20  Andreas Schwab  <schwab@linux-m68k.org>
+
+	* configure: Regenerate.
+
+2011-12-19  Andreas Schwab  <schwab@linux-m68k.org>
+
+	* configure: Regenerate.
+
+2011-04-20  Jim Meyering  <meyering@redhat.com>
+
+	* decNumber.c (decNumberFromString): Remove useless
+	if-before-free test.
+	(decNumberCompareTotalMag, decNumberExp, decNumberFMA): Likewise.
+	(decNumberLn, decNumberLog10, decNumberPower): Likewise.
+	(decNumberReduce, decNumberSquareRoot, decAddOp): Likewise.
+	(decDivideOp, NEEDTWO, decExpOp, LN2): Likewise.
+
+2011-03-28  Mike Frysinger  <vapier@gentoo.org>
+
+	* .gitignore: New file.
+
+2010-11-24  Nathan Froyd  <froydnj@codesourcery.com>
+
+	* dconfig.h (LIBGCC2_FLOAT_WORDS_BIG_ENDIAN): Delete.
+	(WORDS_BIG_ENDIAN): Define based on value of __FLOAT_WORD_ORDER__.
+
+2010-10-23  Nathan Froyd  <froydnj@codesourcery.com>
+
+	* dconfig.h (LIBGCC2_WORDS_BIG_ENDIAN): Delete.
+	(LIBGCC2_FLOAT_WORDS_BIG_ENDIAN): Test __BYTE_ORDER__.
+
+2010-09-10  Kai Tietz  <kai.tietz@onevision.com>
+
+       * configure: Regenerated.
+
+2010-09-08  Tristan Gingold  <gingold@adacore.com>
+
+	PR 44001
+	* Makefile.in (objext): New variable.
+	(bid_OBJS): Use $(objext) for extension.
+	(libdecnumber_a_OBJS): Ditto.
+	(mostlyclean): Ditto
+	(.c.o): Ditto.
+	Update dependencies.
+
+2010-09-06  H.J. Lu  <hongjiu.lu@intel.com>
+
+	PR target/45524
+	* configure.ac (enable_decimal_float): Set to
+	$default_decimal_float.
+	* configure: Regenerated.
+
+2010-09-06  Andreas Schwab  <schwab@redhat.com>
+
+	* configure: Regenerate.
+
+2010-09-03  Andreas Krebbel  <Andreas.Krebbel@de.ibm.com>
+
+	* configure.ac: Use the GCC_AC_ENABLE_DECIMAL_FLOAT macro.
+	* Makefile.in: Add aclocal.m4 dependency to dfp.m4.
+	* configure: Regenerate.
+	* aclocal.m4: Regenerate.
+
+2010-08-21  Ralf Wildenhues  <Ralf.Wildenhues@gmx.de>
+
+	* configure: Regenerate.
+
+2010-04-02  Ralf Wildenhues  <Ralf.Wildenhues@gmx.de>
+
+	* aclocal.m4: Regenerate.
+
+2010-01-05  Rainer Orth  <ro@CeBiTec.Uni-Bielefeld.DE>
+
+	* configure: Regenerate.
+
+2009-11-28  Jakub Jelinek  <jakub@redhat.com>
+
+	* decContext.c (decContextTestEndian): Move adj definition into
+	#if DECCHECK guarded code.
+
+2009-09-09  Paolo Bonzini  <bonzini@gnu.org>
+
+	* configure: Regenerate.
+
+2009-09-08  Paolo Bonzini  <bonzini@gnu.org>
+
+	* configure: Regenerate.
+
+2009-08-24  Ralf Wildenhues  <Ralf.Wildenhues@gmx.de>
+
+	* configure.ac (AC_PREREQ): Bump to 2.64.
+
+2009-08-22  Ralf Wildenhues  <Ralf.Wildenhues@gmx.de>
+
+	* aclocal.m4: Regenerate.
+	* configure: Regenerate.
+	* config.in: Regenerate.
+
+2009-08-13  Janis Johnson  <janis187@us.ibm.com>
+
+	PR c/41046
+	* decContext.c (decContextTestEndian): Call printf only if DECCHECK.
+	* decCommon.c ( decFloatShow): Define function only for DECCHECK
+	or DECTRACE.
+
+2009-07-30  Ralf Wildenhues  <Ralf.Wildenhues@gmx.de>
+
+	* Makefile.in (aclocal_deps): New variable.
+	($(srcdir)/aclocal.m4): Use it, for portable makefile syntax.
+
+2009-05-31  Ian Lance Taylor  <iant@google.com>
+
+	* decContext.h: Add extern "C" if compiling with C++.
+	* decDPD.h: Likewise.
+	* decNumber.h: Likewise.
+	* dpd/decimal32.h: Likewise.
+	* dpd/decimal64.h: Likewise.
+	* dpd/decimal128.h: Likewise.
+
+2009-04-09  Nick Clifton  <nickc@redhat.com>
+
+	* decRound.c: Change copyright header to refer to version 3 of
+	the GNU General Public License with version 3.1 of the GCC
+	Runtime Library Exception and to point readers at the COPYING3
+	and COPYING3.RUNTIME files and the FSF's license web page.
+	* bid/bid-dpd.h: Likewise.
+	* bid/bid2dpd_dpd2bid.c: Likewise.
+	* bid/bid2dpd_dpd2bid.h: Likewise.
+	* bid/decimal128.c: Likewise.
+	* bid/decimal32.c: Likewise.
+	* bid/decimal64.c: Likewise.
+	* bid/host-ieee128.c: Likewise.
+	* bid/host-ieee32.c: Likewise.
+	* bid/host-ieee64.c: Likewise.
+	* dconfig.h: Likewise.
+	* decBasic.c: Likewise.
+	* decCommon.c: Likewise.
+	* decContext.c: Likewise.
+	* decContext.h: Likewise.
+	* decDPD.h: Likewise.
+	* decDouble.c: Likewise.
+	* decDouble.h: Likewise.
+	* decExcept.c: Likewise.
+	* decExcept.h: Likewise.
+	* decLibrary.c: Likewise.
+	* decNumber.c: Likewise.
+	* decNumber.h: Likewise.
+	* decNumberLocal.h: Likewise.
+	* decPacked.c: Likewise.
+	* decPacked.h: Likewise.
+	* decQuad.c: Likewise.
+	* decQuad.h: Likewise.
+	* decRound.h: Likewise.
+	* decSingle.c: Likewise.
+	* decSingle.h: Likewise.
+	* dpd/decimal128.c: Likewise.
+	* dpd/decimal128.h: Likewise.
+	* dpd/decimal128Local.h: Likewise.
+	* dpd/decimal32.c: Likewise.
+	* dpd/decimal32.h: Likewise.
+	* dpd/decimal64.c: Likewise.
+	* dpd/decimal64.h: Likewise.
+
+2009-04-09  Jakub Jelinek  <jakub@redhat.com>
+
+	* Makefile.in: Change copyright header to refer to version
+	3 of the GNU General Public License and to point readers at the
+	COPYING3 file and the FSF's license web page.
+	* configure.ac: Likewise.
+
+2009-04-01  Ben Elliston  <bje@au.ibm.com>
+
+	* decContext.h: Include gstdint.h instead of <stdint.h>.
+
+2009-03-30  Ben Elliston  <bje@au.ibm.com>
+
+	* decNumber.c, decNumber.h, decNumberLocal.h, decDouble.c,
+	decDouble.h, decSingle.c, decContext.c, decSingle.h, decPacked.c,
+	decCommon.c, decContext.h, decQuad.c, decPacked.h, decQuad.h,
+	decDPD.h, decBasic.c: Upgrade to decNumber 3.61.
+	* dpd/decimal128.h, dpd/decimal32.c, dpd/decimal32.h,
+	dpd/decimal64.c, dpd/decimal128.c, dpd/decimal64.h: Likewise.
+
+2009-02-10  Joseph Myers  <joseph@codesourcery.com>
+
+	* Makefile.in (clean): Don't remove makedepend$(EXEEXT).
+
+2008-10-27  Janis Johnson  <janis187@us.ibm.com>
+
+	PR other/37897
+	* decDouble.h (decDouble): Replace struct with union accessible
+	by more types.
+	* decSingle.h (decSingle): Ditto.
+	* decQuad.h (decQuad): Ditto.
+	* decNumberLocal.h (DFWORD, DFBYTE, DFWWORD): access decFloat via
+	new members.
+	* decBasic.c (decFloatCompareTotal): Avoid type-pun violation.
+	(decNumberCompare): Ditto.
+
+2008-06-17  Ralf Wildenhues  <Ralf.Wildenhues@gmx.de>
+
+	* Makefile.in ($(srcdir)/aclocal.m4): Update dependencies.
+	* configure: Regenerate.
+
+2008-06-16  Ralf Wildenhues  <Ralf.Wildenhues@gmx.de>
+
+	* Makefile.in (datarootdir): New variable.
+
+2008-06-10  Joseph Myers  <joseph@codesourcery.com>
+
+	* dconfig.h: New.
+	* decContext.c, decExcept.c, decExcept.h, decLibrary.c,
+	decNumber.c, decNumberLocal.h, decRound.c, dpd/decimal128.c,
+	dpd/decimal32.c, dpd/decimal64.c: Include dconfig.h not config.h.
+	* dpd/decimal128Local.h (decimal128SetSign, decimal128ClearSign,
+	decimal128FlipSign): Use WORDS_BIGENDIAN not
+	FLOAT_WORDS_BIG_ENDIAN.
+	* bid/host-ieee128.c: Include dconfig.h.
+	(__host_to_ieee_128, __ieee_to_host_128): Swap 64-bit halves of
+	value if WORDS_BIGENDIAN.
+
+2008-04-18  Paolo Bonzini  <bonzini@gnu.org>
+
+	PR bootstrap/35457
+	* aclocal.m4: Regenerate.
+	* configure: Regenerate.
+
+2008-04-18  Ben Elliston  <bje@au.ibm.com>
+
+	* Makefile.in (distclean): Add gstdint.h.
+
+2008-01-25  Janis Johnson  <janis187@us.ibm.com>
+
+	* decCommonSymbols.h: Commit.
+	* decDPDSybmols.h: Commit.
+
+	* Makefile.in (libdecnumber_a_SOURCES): List Symbols headers.
+	* decCommonSymbols.h: New file.
+	* decCommon.c: Include it.
+	* decDPDSymbols.h: New file.
+	* decDPD.h: Include it.
+	* decNumberLocal.h: Include the two new files.
+	* decContextSymbols.h (DECPOWERS, DECSTICKYTAB): New.
+	* decNumberSymbols.h (LNnn, d2utable): New.
+	* dpd/decimal32Symbols.h (COMBEXP, COMBMSD, DPD2BIN, BIN2DPD): New.
+	* dpd/decimal64Symbols.h (COMBEXP, COMBMSD, DPD2BIN, BIN2DPD): New.
+	* dpd/decimal128Symbols.h (COMBEXP, COMBMSD, DPD2BIN, BIN2DPD): New.
+	* dpd/decimal32.c: Remove redefine of DPD2BIN, BIN2DPD.
+	* dpd/decimal64.c: Ditto.
+	* dpd/decimal128.c: Ditto.
+
+2007-11-26  Thiago Jung Bauermann  <bauerman@br.ibm.com>
+
+	* Makefile.in (decimal32.o): Prepend $(srcdir) to dependencies
+	and substitute $< for the source file in compilation command.
+	(decimal64.o): Likewise.
+	(decimal128.o): Likewise.
+	(bid2dpd_dpd2bid.o): Likewise.
+	(host-ieee32.o): Likewise.
+	(host-ieee64.o): Likewise.
+	(host-ieee128.o): Likewise.
+
+2007-10-31  Thiago Jung Bauermann  <bauerman@br.ibm.com>
+
+	* configure.ac: Add ADDITIONAL_OBJS variable.
+	* Makefile.in (bid_OBS): New.
+	(libdecnumber_a_OBJS): Add ADDITIONAL_OBJS, remove condition
+	on enable_decimal_float.
+	* configure: Regenerate.
+
+2007-09-10  Janis Johnson  <janis187@us.ibm.com>
+	    Ben Elliston  <bje@au.ibm.com>
+
+	* Makefile.in (libdecnumber_a_OBJS): Remove decUtility.o
+	(dependencies): Add Symbols headers.
+	* decContext.c: Upgrade to decNumber 3.53.
+	* decContext.h: Ditto.
+	* decDPD.h: Ditto.
+	* decNumber.c: Ditto.
+	* decNumber.h: Ditto.
+	* decNumberLocal.h: Ditto.
+	* decBasic.c: New file from decNumber 3.53.
+	* decCommon.c: Ditto.
+	* decDouble.c: Ditto.
+	* decDouble.h: Ditto.
+	* decQuad.c: Ditto.
+	* decQuad.h: Ditto.
+	* decSingle.c: Ditto.
+	* decSingle.h: Ditto.
+	* decPacked.c: Ditto.
+	* decPacked.h: Ditto.
+	* dpd/decimal128.c: Upgrade to decNumber 3.53.
+	* dpd/decimal128.h: Ditto.
+	* dpd/decimal32.c: Ditto.
+	* dpd/decimal32.h: Ditto.
+	* dpd/decimal64.c: Ditto.
+	* dpd/decimal64.h: Ditto.
+	* decLibrary.c (__dec_byte_swap): Remove.
+	* decContextSymbols.h: New file.
+	* decDoubleSymbols.h: New file.
+	* decNumberSymbols.h: New file.
+	* decPackedSymbols.h: New file.
+	* decQuadSymbols.h: New file.
+	* decSingleSymbols.h: New file.
+	* decUtility.c: Delete file.
+	* decUtility.h: Delete file.
+	* bid/decimal128Symbols.h: New file.
+	* bid/decimal128Local.h: New file.
+	* bid/decimal32Symbols.h: New file.
+	* bid/decimal64Symbols.h: New file.
+	* bid/host-ieee128.c (__swap128): Remove.
+	(__host_to_ieee_128, __ieee_to_host_128): Don't handle endianness.
+	* bid/host-ieee32.c (__dec_type_swap): Remove.
+	(__host_to_ieee_32, __ieee_to_host_32): Don't handle endianness.
+	* bid/host-ieee64.c (__swap64): Remove.
+	(__host_to_ieee_64, __ieee_to_host_64): Don't handle endianness.
+	* dpd/decimal32Symbols.h: New file.
+	* dpd/decimal64Symbols.h: New file.
+	* dpd/decimal128Symbols.h: New file.
+	* dpd/decimal128Local.h: New file.
+
+2007-06-18  Martin Michlmayr  <tbm@cyrius.com>
+	    H.J. Lu  <hongjiu.lu@intel.com>
+
+	* configure.ac: Add AC_CANONICAL_TARGET.
+	* configure: Regenerated.
+
+2007-04-16  H.J. Lu  <hongjiu.lu@intel.com>
+
+	* Makefile.in (aclocal.m4): Depend on stdint.m4 instead of
+	acx.m4.
+
+	* aclocal.m4: Regenerated by aclocal 1.9.6.
+
+2007-04-11  Kai Tietz   <kai.tietz@onevision.com>
+
+	* configure: Regenerate.
+
+2007-03-23  Michael Meissner  <michael.meissner@amd.com>
+	    H.J. Lu  <hongjiu.lu@intel.com>
+	    Marius Cornea  <marius.cornea@intel.com>
+
+	* Makefile.in (enable_decimal_float): New.
+	(libdecnumber_a_OBJS): Add bid2dpd_dpd2bid.o, host-ieee32.o,
+	host-ieee64.o and host-ieee128.o for BID.
+	(libdecnumber_a_SOURCES): Support DPD and BID.
+	(decimal32.o): Support dependency for both DPD and BID.
+	(decimal64.o): Likewise.
+	(decimal128.o): Likewise.
+	(bid2dpd_dpd2bid.o): New target.
+	(host-ieee32.o): Likewise.
+	(host-ieee64.o): Likewise.
+	(host-ieee128.o): Likewise.
+
+	* bid/bid-dpd.h: New file.
+	* bid/decimal128.c: Likewise.
+	* bid/decimal128.h: Likewise.
+	* bid/decimal32.c: Likewise.
+	* bid/decimal32.h: Likewise.
+	* bid/decimal64.c: Likewise.
+	* bid/decimal64.h: Likewise.
+	* bid/host-ieee128.c: Likewise.
+	* bid/host-ieee32.c: Likewise.
+	* bid/host-ieee64.c: Likewise.
+	* bid/bid2dpd_dpd2bid.c: Likewise.
+	* bid/bid2dpd_dpd2bid.h: Likewise.
+
+	* decimal128.c: Moved to ...
+	* dpd/decimal128.c: This.
+	* decimal128.h:  Moved to ...
+	* dpd/decimal128.h: This.
+	* decimal32.c: Moved to ...
+	* dpd/decimal32.c: This.
+	* decimal32.h: Moved to ...
+	* dpd/decimal32.h: This.
+	* decimal64.c: Moved to ...
+	* dpd/decimal64.c: This.
+	* decimal64.h: Moved to ...
+	* dpd/decimal64.h: This.
+
+	* configure.ac: Support * --enable-decimal-float={no,yes,bid,dpd}.
+	Add AC_C_BIGENDIAN.  Substitute enable_decimal_float.
+	* config.in: Add decimal support variables.
+	* configure: Regenerate.
+
+	PR other/30530
+	* decimal128.h (decimal128ClearSign): New.
+	(decimal128FlipSign): Likewise.
+
+	* decimal32.h: (decimal32ClearSign): New.
+	(decimal32FlipSign): Likewise.
+
+	* decimal64.h (decimal64ClearSign): New.
+	(decimal64FlipSign): Likewise.
+
+2007-03-08  Ben Elliston  <bje@au.ibm.com>
+
+	* decContext.c, decContext.h, decDPD.h, decimal128.c,
+	decimal128.h, decimal32.c, decimal32.h, decimal64.c, decimal64.h,
+	decLibrary.c, decNumber.c, decNumber.h, decNumberLocal.h,
+	decRound.c, decRound.h, decUtility.c, decUtility.h: Add
+	libgcc-style license exception clause.
+
+2007-03-01  Brooks Moses  <brooks.moses@codesourcery.com>
+
+	* Makefile.in: Add dummy install-pdf target.
+
+2007-01-29  Janis Johnson  <janis187@us.ibm.com>
+
+	* decExcept.c: New.
+	* decExcept.h: New.
+
+2006-11-29  Janis Johnson  <janis187@us.ibm.com>
+
+	* decRound.c: Move declarations to new file, update comments.
+	* decRound.h: New file.
+
+2006-11-21  Janis Johnson  <janis187@us.ibm.com>
+
+	* decLibrary.c (__dec_type_swap): Add prototype.
+	(__dfp_enable_traps, dfp_raise): Delete.
+
+	* Makefile.in: Don't include decRound in library used by compiler.
+
+2006-10-10  Brooks Moses  <bmoses@stanford.edu> 
+	* Makefile.in: Added empty "pdf" target.
+
+2006-09-15  Kaveh R. Ghazi  <ghazi@caip.rutgers.edu>
+
+	* decNumber.c (decNumberPower): Constify.
+	* decNumber.h (decNumberPower): Likewise.
+
+2006-09-07  Kaveh R. Ghazi  <ghazi@caip.rutgers.edu>
+
+	* configure.ac (ACX_PROG_CC_WARNING_OPTS): Add -Wcast-qual.
+	* configure, config.in: Regenerate.
+
+	* decContext.c (decContextStatusToString): Constify.
+	* decContext.h (decContextStatusToString): Likewise.
+	* decNumber.c (decNumberToString, decNumberToEngString,
+	decNumberAbs, decNumberAdd, decNumberCompare, decNumberDivide,
+	decNumberDivideInteger, decNumberMax, decNumberMin,
+	decNumberMinus, decNumberPlus, decNumberMultiply,
+	decNumberNormalize, decNumberQuantize, decNumberRescale,
+	 decNumberRemainder, decNumberRemainderNear,
+	decNumberSameQuantum, decNumberSquareRoot, decNumberSubtract,
+	decNumberToIntegralValue, decNumberCopy, decToString, decAddOp,
+	decDivideOp, decMultiplyOp, decQuantizeOp, decCompareOp,
+	decCompare, decUnitCompare, decUnitAddSub, decRoundOperand,
+	decCopyFit, decSetCoeff, decGetInt, decNaNs, decGetDigits,
+	decNumberShow, decDumpAr, decCheckOperands, decCheckNumber):
+	Likewise.
+	* decNumber.h (decNumberToString, decNumberToEngString,
+	decNumberAbs, decNumberAdd, decNumberCompare, decNumberDivide,
+	decNumberDivideInteger, decNumberMax, decNumberMin,
+	decNumberMinus, decNumberMultiply, decNumberNormalize,
+	decNumberPlus, decNumberQuantize, decNumberRemainder,
+	 decNumberRemainderNear, decNumberRescale,
+	decNumberSameQuantum, decNumberSquareRoot, decNumberSubtract,
+	decNumberToIntegralValue, decNumberCopy): Likewise.
+	* decUtility.c (decDensePackCoeff, decDenseUnpackCoeff):
+	Likewise.
+	* decUtility.h (decDensePackCoeff, decDenseUnpackCoeff):
+	Likewise.
+	* decimal128.c (decimal128FromNumber, decimal128ToNumber,
+	decimal128ToString, decimal128ToEngString, decimal128Show):
+	Likewise.
+	* decimal128.h (decimal128ToString, decimal128ToEngString,
+	decimal128FromNumber, decimal128ToNumber): Likewise.
+	* decimal32.c (decimal32FromNumber, decimal32ToNumber,
+	decimal32ToString, decimal32ToEngString, decimal32Show):
+	Likewise.
+	* decimal32.h (decimal32ToString, decimal32ToEngString,
+	decimal32FromNumber, decimal32ToNumber): Likewise.
+	* decimal64.c (decimal64FromNumber, decimal64ToNumber,
+	decimal64ToString, decimal64ToEngString, decimal64Show):
+	Likewise.
+	* decimal64.h (decimal64ToString, decimal64ToEngString,
+	decimal64FromNumber, decimal64ToNumber): Likewise.
+
+2006-08-21  Kaveh R. Ghazi  <ghazi@caip.rutgers.edu>
+
+	* decContext.c (decContextSetStatusFromString): Constify.
+	* decContext.h (decContextSetStatusFromString): Likewise.
+	* decNumber.c (decNumberFromString): Likewise.
+	* decNumber.h (decNumberFromString): Likewise.
+	* decimal128.c (decimal128FromString): Likewise.
+	* decimal128.h (decimal128FromString): Likewise.
+	* decimal32.c (decimal32FromString): Likewise.
+	* decimal32.h (decimal32FromString): Likewise.
+	* decimal64.c (decimal64FromString): Likewise.
+	* decimal64.h (decimal64FromString): Likewise.
+
+2006-07-25  Paolo Bonzini  <bonzini@gnu.org>
+
+	PR build/26188
+	* configure: Regenerate.
+
+2006-06-23  Ben Elliston  <bje@au.ibm.com>
+
+	* decNumber.h (decNumberNegate): Remove.
+
+2006-05-23  Carlos O'Donell  <carlos@codesourcery.com>
+
+	* Makefile.in: Add install-html target. Add install-html to .PHONY
+
+2006-02-06  Ben Elliston  <bje@au.ibm.com>
+
+	* decLibrary.c (__dec_byte_swap): Use uint32_t for argument and
+	return types.
+
+2006-01-03  Roger Sayle  <roger@eyesopen.com>
+	    Kaveh R. Ghazi  <ghazi@caip.rutgers.edu>
+
+	* decNumber.c (__NO_STRING_INLINES): Define to prevent glibc macro
+	definition of strcpy from generating compilation warnings.
+
+2006-01-02  Paolo Bonzini  <bonzini@gnu.org>
+
+	PR target/25259
+	* configure.ac: Use GCC_HEADER_STDINT.
+	* decContext.h: Include gstdint.h.
+	* aclocal.m4: Regenerate.
+	* configure: Regenerate.
+
+2005-12-20  Roger Sayle  <roger@eyesopen.com>
+
+	* decNumber.c (decStrEq): Cast string contents to unsigned char
+	instead of int before calling tolower.
+
+2005-12-20  Roger Sayle  <roger@eyesopen.com>
+
+	* decNumber.c (decStrEq): Cast operands to int before calling
+	tolower to avoid compilation warnings on Tru64.
+
+2005-12-05  Ben Elliston  <bje@au.ibm.com>
+
+	* Makefile.in (clean): Remove stray reference to libcpp.a.
+
+	* decimal128.h, decContext.c, decRound.c, decimal32.c,
+	decNumber.c, decContext.h, decimal64.c, decimal32.h, decNumber.h,
+	decimal64.h, decUtility.c, decLibrary.c, configure.ac,
+	decNumberLocal.h, decUtility.h, decDPD.h, decimal128.c: Update FSF
+	office address.
+
+2005-12-01  Ben Elliston  <bje@au.ibm.com>
+
+	* Makefile.in (libdecnumber_a_SOURCES): Drop decLibrary.c.
+	* decUtility.c (__dec_byte_swap): Move from here ..
+	* decLibrary.c: .. to here.
+
+2005-11-23  Gerald Pfeifer  <gerald@pfeifer.com>
+
+	* decContext.h: Properly guard inclusion of stdint.h
+	* decContext.c: Include config.h
+	* decLibrary.c: Ditto.
+	* decNumber.c: Ditto.
+	* decRound.c: Ditto.
+	* decUtility.c: Ditto.
+	* decimal32.c: Ditto.
+	* decimal64.c: Ditto.
+	* decimal128.c: Ditto.
+	
+2005-11-29  Ben Elliston  <bje@au.ibm.com>
+
+	* decUtility.c: Remove redundant #includes.
+	* decUtility.h (__dec_byte_swap): Remove prototype.
+
+2005-11-29  Ben Elliston  <bje@au.ibm.com>
+
+	* configure.ac: New file.
+	* aclocal.m4: Likewise.
+	* Makefile.in: Likewise.
+	* configure: Generate.
+	* config.in: Likewise.
+
+2005-11-29  Ben Elliston  <bje@au.ibm.com>
+
+	* decimal32.h, decimal64.h, decimal128.h: New.
+	* decimal32.c, decimal64.c, decimal128.c: Likewise.
+	* decContext.c, decContext.h: Likewise.
+	* decUtility.c, decUtility.h: Likewise.
+	* decNumber.c, decNumber.h, decNumberLocal.h: Likewise.
+	* decDPD.h: Likewise.
+	* decLibrary.c, decRound.c: Likewise.
+
+Copyright (C) 2005-2020 Free Software Foundation, Inc.
+
+Copying and distribution of this file, with or without modification,
+are permitted in any medium without royalty provided the copyright
+notice and this notice are preserved.
