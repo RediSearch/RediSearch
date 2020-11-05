@@ -17,7 +17,8 @@ typedef enum {
   RLOOKUP_C_STR = 0,
   RLOOKUP_C_INT = 1,
   RLOOKUP_C_DBL = 2,
-  RLOOKUP_C_BOOL = 3
+  RLOOKUP_C_BOOL = 3,
+  RLOOKUP_C_DEC = 4  
 } RLookupCoerceType;
 
 /**

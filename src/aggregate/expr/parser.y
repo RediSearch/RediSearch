@@ -65,7 +65,7 @@ expr(A) ::= NOT expr(B). { A = RS_NewInverted(B); }
 
 
 expr(A) ::= STRING(B). { A =  RS_NewStringLiteral((char*)B.s, B.len); }
-expr(A) ::= number(B). { A = RS_NewNumberLiteral(B); }
+expr(A) ::= number(B). { A = RS_NewNumberLiteral(B); } // TODO:decimal
 
 number(A) ::= NUMBER(B). { A = B.numval; }
 number(A) ::= MINUS NUMBER(B). { A = -B.numval; }

@@ -128,7 +128,7 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
     }
     if ((rv = AC_GetU64(ac, &arng->offset, 0)) != AC_OK ||
         (rv = AC_GetU64(ac, &arng->limit, 0)) != AC_OK) {
-      QueryError_SetError(status, QUERY_EPARSEARGS, "LIMIT needs two numeric arguments");
+      QueryError_SetError(status, QUERY_EPARSEARGS, "LIMIT needs two numbers");
       return ARG_ERROR;
     }
 

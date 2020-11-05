@@ -81,6 +81,11 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
            * tell it's a double and not just a numeric string value */
           rskey = RedisModule_CreateStringPrintf(outctx, "#%.17g", sortkey->numval);
           break;
+        case RSValue_Decimal: // TODO
+          /* Serialize double - by prepending "%" to the number, so the coordinator/client can
+           * tell it's a double and not just a decimal string value */
+          rskey = RedisModule_CreateStringPrintf(outctx, "#%.17g", sortkey->decval);
+          break;
         case RSValue_String:
           /* Serialize string - by prepending "$" to it */
           rskey = RedisModule_CreateStringPrintf(outctx, "$%s", sortkey->strval.str);

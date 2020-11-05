@@ -18,6 +18,15 @@ static size_t RSValue_NumToString(double dd, char *buf) {
   }
 }
 
+static size_t RSValue_DecToString(double dd, char *buf) { // TODO:decimal
+  long long ll = dd;
+  if (ll == dd) {
+    return sprintf(buf, "%lld", ll);
+  } else {
+    return sprintf(buf, "%.12g", dd);
+  }
+}
+
 typedef struct {
   mempool_t *values;
   mempool_t *fieldmaps;
@@ -134,6 +143,11 @@ inline void RSValue_SetNumber(RSValue *v, double n) {
   v->numval = n;
 }
 
+inline void RSValue_SetDecimal(RSValue *v, double n) { // TODO:decimal
+  v->t = RSValue_Decimal;
+  v->decval = n;
+}
+
 inline void RSValue_SetString(RSValue *v, char *str, size_t len) {
   v->t = RSValue_String;
   v->strval.len = len;
@@ -239,6 +253,13 @@ void RSValue_ToString(RSValue *dst, RSValue *v) {
       RSValue_SetString(dst, buf, strlen(buf));
       break;
     }
+    case RSValue_Decimal: { // TODO:decimal
+      char tmpbuf[128] = {0};
+      RSValue_DecToString(v->decval, tmpbuf);
+      char *buf = rm_strdup(tmpbuf);
+      RSValue_SetString(dst, buf, strlen(buf));
+      break;
+    }
     case RSValue_Reference:
       return RSValue_ToString(dst, v->ref);
 
@@ -249,7 +270,6 @@ void RSValue_ToString(RSValue *dst, RSValue *v) {
 }
 
 RSValue *RSValue_ParseNumber(const char *p, size_t l) {
-
   char *e;
   errno = 0;
   double d = strtod(p, &e);
@@ -258,6 +278,17 @@ RSValue *RSValue_ParseNumber(const char *p, size_t l) {
     return NULL;
   }
   return RS_NumVal(d);
+}
+
+RSValue *RSValue_ParseDecimal(const char *p, size_t l) {
+  char *e;
+  errno = 0;
+  double d = strtod(p, &e);
+  if ((errno == ERANGE && (d == HUGE_VAL || d == -HUGE_VAL)) || (errno != 0 && d == 0) ||
+      *e != '\0') {
+    return NULL;
+  }
+  return RS_DecVal(d);
 }
 
 /* Convert a value to a number, either returning the actual numeric values or by parsing a string
@@ -274,7 +305,9 @@ int RSValue_ToNumber(const RSValue *v, double *d) {
     case RSValue_Number:
       *d = v->numval;
       return 1;
-
+    case RSValue_Decimal:
+      *d = v->decval;
+      return 1;
     case RSValue_String:
       // C strings - take the ptr and len
       p = v->strval.str;
@@ -285,7 +318,55 @@ int RSValue_ToNumber(const RSValue *v, double *d) {
       // Redis strings - take the number and len
       p = RedisModule_StringPtrLen(v->rstrval, &l);
       break;
+    case RSValue_Null:
+    case RSValue_Array:
+    case RSValue_Undef:
+    default:
+      return 0;
+  }
+  // If we have a string - try to parse it
+  if (p) { // TODO:decimal if v->t == decimal
+    char *e;
+    errno = 0;
+    *d = strtod(p, &e);
+    if ((errno == ERANGE && (*d == HUGE_VAL || *d == -HUGE_VAL)) || (errno != 0 && *d == 0) ||
+        *e != '\0') {
+      return 0;
+    }
 
+    return 1;
+  }
+
+  return 0;
+}
+
+/* Convert a value to a number, either returning the actual decimal values or by parsing a string
+into a number. Return 1 if the value is a number or a decimal string and can be converted, or 0 if
+not. If possible, we put the actual value into teh double pointer */
+int RSValue_ToDecimal(const RSValue *v, double *d) { // TODO:decimal
+  if (RSValue_IsNull(v)) return 0;
+  v = RSValue_Dereference(v);
+
+  const char *p = NULL;
+  size_t l = 0;
+  switch (v->t) {
+    // for numerics - just set the value and return
+    case RSValue_Number:
+      *d = v->numval;
+      return 1;
+    case RSValue_Decimal:
+      *d = v->decval;
+      return 1;
+    case RSValue_String:
+      // C strings - take the ptr and len
+      p = v->strval.str;
+      l = v->strval.len;
+      break;
+    case RSValue_RedisString:
+    case RSValue_OwnRstring:
+      // Redis strings - take the number and len
+      p = RedisModule_StringPtrLen(v->rstrval, &l);
+      break;
     case RSValue_Null:
     case RSValue_Array:
     case RSValue_Undef:
@@ -366,6 +447,14 @@ const char *RSValue_ConvertStringPtrLen(const RSValue *value, size_t *lenp, char
     }
     *lenp = n;
     return buf;
+  } else if (value->t == RSValue_Decimal) { // TODO:decimal
+    size_t n = snprintf(buf, buflen, "%f", value->decval);
+    if (n >= buflen) {
+      *lenp = 0;
+      return "";
+    }
+    *lenp = n;
+    return buf;
   } else {
     // Array, Null, other types
     *lenp = 0;
@@ -383,6 +472,13 @@ RSValue *RS_NumVal(double n) {
 RSValue *RS_Int64Val(int64_t dd) {
   RSValue *v = RS_NewValue(RSValue_Number);
   v->numval = dd;
+  return v;
+}
+
+/* Wrap a number into a value object */
+RSValue *RS_DecVal(double n) { // TODO:decimal
+  RSValue *v = RS_NewValue(RSValue_Decimal);
+  v->decval = n;
   return v;
 }
 
@@ -478,6 +574,10 @@ static inline int cmp_numbers(const RSValue *v1, const RSValue *v2) {
   return v1->numval > v2->numval ? 1 : (v1->numval < v2->numval ? -1 : 0);
 }
 
+static inline int cmp_decimals(const RSValue *v1, const RSValue *v2) {
+  return v1->decval > v2->decval ? 1 : (v1->decval < v2->decval ? -1 : 0);
+}
+
 static inline int convert_to_number(const RSValue *v, RSValue *vn, QueryError *qerr) {
   double d;
   if (!RSValue_ToNumber(v, &d)) {
@@ -492,10 +592,26 @@ static inline int convert_to_number(const RSValue *v, RSValue *vn, QueryError *q
   return 1;
 }
 
+static inline int convert_to_decimal(const RSValue *v, RSValue *vn, QueryError *qerr) { // TODO:decimal
+  double d;
+  if (!RSValue_ToNumber(v, &d)) {
+    if (!qerr) return 0;
+
+    const char *s = RSValue_StringPtrLen(v, NULL);
+    QueryError_SetErrorFmt(qerr, QUERY_ENOTDECIMAL, "Error converting string '%s' to decimal", s);
+    return 0;
+  }
+
+  RSValue_SetNumber(vn, d);
+  return 1;
+}
+
 static int RSValue_CmpNC(const RSValue *v1, const RSValue *v2) {
   switch (v1->t) {
     case RSValue_Number:
       return cmp_numbers(v1, v2);
+    case RSValue_Decimal:
+      return cmp_decimals(v1, v2);
     case RSValue_String:
       return cmp_strings(v1->strval.str, v2->strval.str, v1->strval.len, v2->strval.len);
     case RSValue_RedisString:
@@ -585,6 +701,13 @@ int RSValue_Equal(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
     if (!convert_to_number(v1, &vn, NULL)) return 0;
     return cmp_numbers(&vn, v2) == 0;
   }
+  if (v1->t == RSValue_Decimal) {
+    if (!convert_to_decimal(v2, &vn, NULL)) return 0;
+    return cmp_decimals(v1, &vn) == 0;
+  } else if (v2->t == RSValue_Decimal) {
+    if (!convert_to_decimal(v1, &vn, NULL)) return 0;
+    return cmp_decimals(&vn, v2) == 0;
+  }
 
   // cast to strings and compare as strings
   char buf1[100], buf2[100];
@@ -609,6 +732,15 @@ int RSValue_SendReply(RedisModuleCtx *ctx, const RSValue *v, int isTyped) {
       char buf[128] = {0};
       RSValue_NumToString(v->numval, buf);
 
+      if (isTyped) {
+        return RedisModule_ReplyWithError(ctx, buf);
+      } else {
+        return RedisModule_ReplyWithStringBuffer(ctx, buf, strlen(buf));
+      }
+    }
+    case RSValue_Decimal: { // TODO:decimal
+      char buf[128] = {0};
+      RSValue_DecToString(v->decval, buf);
       if (isTyped) {
         return RedisModule_ReplyWithError(ctx, buf);
       } else {
@@ -645,6 +777,12 @@ void RSValue_Print(const RSValue *v) {
     case RSValue_Number: {
       char tmp[128] = {0};
       RSValue_NumToString(v->numval, tmp);
+      fprintf(fp, "%s", tmp);
+      break;
+    }
+    case RSValue_Decimal: { // TODO:decimal
+      char tmp[128] = {0};
+      RSValue_DecToString(v->decval, tmp);
       fprintf(fp, "%s", tmp);
       break;
     }
@@ -745,6 +883,8 @@ const char *RSValue_TypeName(RSValueType t) {
       return "array";
     case RSValue_Number:
       return "number";
+    case RSValue_Decimal:
+      return "decimal";
     case RSValue_String:
       return "string";
     case RSValue_Null:

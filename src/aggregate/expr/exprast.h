@@ -15,6 +15,7 @@ RSArgList *RSArgList_Append(RSArgList *l, RSExpr *e);
 RSExpr *RS_NewStringLiteral(const char *str, size_t len);
 RSExpr *RS_NewNullLiteral();
 RSExpr *RS_NewNumberLiteral(double n);
+RSExpr *RS_NewDecimalLiteral(double n);
 RSExpr *RS_NewOp(unsigned char op, RSExpr *left, RSExpr *right);
 RSExpr *RS_NewFunc(const char *str, size_t len, RSArgList *args, RSFunction cb);
 RSExpr *RS_NewProp(const char *str, size_t len);

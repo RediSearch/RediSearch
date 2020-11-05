@@ -465,6 +465,36 @@ FIELD_BULK_INDEXER(numericIndexer) {
   return 0;
 }
 
+FIELD_PREPROCESSOR(decimalPreprocessor) {
+  if (RedisModule_StringToDouble(field->text, &fdata->decimal) == REDISMODULE_ERR) {
+    QueryError_SetCode(status, QUERY_ENOTDECIMAL);
+    return -1;
+  }
+
+  // If this is a sortable decimal value - copy the value to the sorting vector
+  if (FieldSpec_IsSortable(fs)) {
+    RSSortingVector_Put(aCtx->sv, fs->sortIdx, &fdata->decimal, RS_SORTABLE_DEC);
+  }
+  return 0;
+}
+
+FIELD_BULK_INDEXER(decimalIndexer) {
+  NumericRangeSkiplist *nrsl = bulk->indexDatas[IXFLDPOS_DECIMAL];
+  if (!nrsl) {
+    RedisModuleString *keyName = IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_DECIMAL);
+    nrsl = bulk->indexDatas[IXFLDPOS_DECIMAL] =
+        OpenNumericIndex(ctx, keyName, &bulk->indexKeys[IXFLDPOS_DECIMAL]);
+    if (!nrsl) {
+      QueryError_SetError(status, QUERY_EGENERIC, "Could not open decimal index for indexing");
+      return -1;
+    }
+  }
+  NRN_AddRv rv = NumericRangeSkiplist_Add(nrsl, aCtx->doc.docId, fdata->decimal); // TODO:decimal
+  ctx->spec->stats.invertedSize += rv.sz;  // TODO: exact amount
+  ctx->spec->stats.numRecords += rv.numRecords;
+  return 0;
+}
+
 FIELD_PREPROCESSOR(geoPreprocessor) {
   // TODO: streamline
   const char *c = RedisModule_StringPtrLen(field->text, NULL);
@@ -527,6 +557,7 @@ static PreprocessorFunc preprocessorMap[] = {
     // nl break
     [IXFLDPOS_FULLTEXT] = fulltextPreprocessor,
     [IXFLDPOS_NUMERIC] = numericPreprocessor,
+    [IXFLDPOS_DECIMAL] = decimalPreprocessor,
     [IXFLDPOS_GEO] = geoPreprocessor,
     [IXFLDPOS_TAG] = tagPreprocessor};
 
@@ -544,6 +575,8 @@ int IndexerBulkAdd(IndexBulkData *bulk, RSAddDocumentCtx *cur, RedisSearchCtx *s
         case IXFLDPOS_NUMERIC:
         case IXFLDPOS_GEO:
           rc = numericIndexer(bulk, cur, sctx, field, fs, fdata, status);
+        case IXFLDPOS_DECIMAL:
+          rc = decimalIndexer(bulk, cur, sctx, field, fs, fdata, status);
           break;
         case IXFLDPOS_FULLTEXT:
           break;
@@ -740,6 +773,14 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
             BAIL("Could not parse numeric index value");
           }
           RSSortingVector_Put(md->sortVector, idx, &numval, RS_SORTABLE_NUM);
+          break;
+        }
+        case INDEXFLD_T_DECIMAL: { // TODO:decimal
+          double decval;
+          if (RedisModule_StringToDouble(f->text, &decval) == REDISMODULE_ERR) {
+            BAIL("Could not parse decimal index value");
+          }
+          RSSortingVector_Put(md->sortVector, idx, &decval, RS_SORTABLE_NUM);
           break;
         }
         default:

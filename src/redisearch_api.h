@@ -46,12 +46,14 @@ typedef struct RSIdxOptions RSIndexOptions;
 #define RSQNTYPE_TAG 11
 #define RSQNTYPE_FUZZY 12
 #define RSQNTYPE_LEXRANGE 13
+#define RSQNTYPE_DECIMAL 14
 
 #define RSFLDTYPE_DEFAULT 0x00
 #define RSFLDTYPE_FULLTEXT 0x01
 #define RSFLDTYPE_NUMERIC 0x02
 #define RSFLDTYPE_GEO 0x04
 #define RSFLDTYPE_TAG 0x08
+#define RSFLDTYPE_DECIMAL 0x10
 
 #define RSFLDOPT_NONE 0x00
 #define RSFLDOPT_SORTABLE 0x01
@@ -111,6 +113,8 @@ MODULE_API_FUNC(RSFieldID, RediSearch_CreateField)
 
 #define RediSearch_CreateNumericField(idx, name) \
   RediSearch_CreateField(idx, name, RSFLDTYPE_NUMERIC, RSFLDOPT_NONE)
+#define RediSearch_CreateDecimalField(idx, name) \
+  RediSearch_CreateField(idx, name, RSFLDTYPE_DECIMAL, RSFLDOPT_NONE)
 #define RediSearch_CreateTextField(idx, name) \
   RediSearch_CreateField(idx, name, RSFLDTYPE_FULLTEXT, RSFLDOPT_NONE)
 #define RediSearch_CreateTagField(idx, name) \
@@ -160,6 +164,9 @@ MODULE_API_FUNC(RSQNode*, RediSearch_CreateTokenNode)
 (RSIndex* sp, const char* fieldName, const char* token);
 
 MODULE_API_FUNC(RSQNode*, RediSearch_CreateNumericNode)
+(RSIndex* sp, const char* field, double max, double min, int includeMax, int includeMin);
+
+MODULE_API_FUNC(RSQNode*, RediSearch_CreateDecimalNode)
 (RSIndex* sp, const char* field, double max, double min, int includeMax, int includeMin);
 
 MODULE_API_FUNC(RSQNode*, RediSearch_CreatePrefixNode)
@@ -235,6 +242,7 @@ MODULE_API_FUNC(void, RediSearch_IndexOptionsSetGCPolicy)(RSIndexOptions* option
   X(IndexAddDocument)                \
   X(CreateTokenNode)                 \
   X(CreateNumericNode)               \
+  X(CreateDecimalNode)               \
   X(CreatePrefixNode)                \
   X(CreateLexRangeNode)              \
   X(CreateTagNode)                   \

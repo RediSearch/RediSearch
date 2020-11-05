@@ -20,6 +20,8 @@ typedef enum {
   QN_TOKEN,
   /* Numeric filter node */
   QN_NUMERIC,
+  /* Decimal filter node */
+  QN_DECIMAL,
 
   /* NOT operator node */
   QN_NOT,
@@ -83,10 +85,14 @@ typedef struct {
   int maxDist;
 } QueryFuzzyNode;
 
-/* A node with a numeric filter */
+/* A node with a numeric filter */ // TODO:decimal?
 typedef struct {
   struct NumericFilter *nf;
 } QueryNumericNode;
+
+typedef struct {
+  struct NumericFilter *nf;
+} QueryDecimalNode;
 
 typedef struct {
   const struct GeoFilter *gf;
@@ -142,6 +148,7 @@ typedef struct RSQueryNode {
     QueryTokenNode tn;
     QueryUnionNode un;
     QueryNumericNode nn;
+    QueryDecimalNode dn;
     QueryGeofilterNode gn;
     QueryIdFilterNode fn;
     QueryNotNode inverted;

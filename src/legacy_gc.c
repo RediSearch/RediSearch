@@ -380,6 +380,99 @@ end:
   return totalRemoved;
 }
 
+//TODO: unfinished business
+size_t gc_DecimalIndex(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status) {
+  size_t totalRemoved = 0;
+  RedisModuleKey *idxKey = NULL;
+  FieldSpec **decimalFields = NULL;
+  RedisSearchCtx *sctx = NewSearchCtx(ctx, (RedisModuleString *)gc->keyName, false);
+  if (!sctx || sctx->spec->uniqueId != gc->specUniqueId) {
+    RedisModule_Log(ctx, "warning", "No index spec for GC %s",
+                    RedisModule_StringPtrLen(gc->keyName, NULL));
+    *status = SPEC_STATUS_INVALID;
+    goto end;
+  }
+  IndexSpec *spec = sctx->spec;
+  // find all the decimal fields
+  decimalFields = getFieldsByType(spec, INDEXFLD_T_DECIMAL);
+
+  if (array_len(decimalFields) == 0) {
+    goto end;
+  }
+
+  if (array_len(decimalFields) != array_len(gc->numericGCCtx)) {
+    // add all numeric fields to our gc
+    RS_LOG_ASSERT(array_len(decimalFields) > array_len(gc->numericGCCtx),
+                  "it is not possible to remove fields");
+    gc_FreeNumericGcCtxArray(gc);
+    for (int i = 0; i < array_len(decimalFields); ++i) {
+      RedisModuleString *keyName =
+          IndexSpec_GetFormattedKey(spec, decimalFields[i], INDEXFLD_T_DECIMAL);
+      NumericRangeSkiplist *nrsl = OpenNumericIndex(sctx, keyName, &idxKey);
+      // if we could not open the numeric field we probably have a
+      // corruption in our data, better to know it now.
+      RS_LOG_ASSERT(nrsl, "numeric index failed to open");
+      gc->numericGCCtx = array_append(gc->numericGCCtx, gc_NewNumericGcCtx(nrsl));
+      if (idxKey) RedisModule_CloseKey(idxKey);
+    }
+  }
+
+  // choose random numeric gc ctx
+  int randomIndex = rand() % array_len(gc->numericGCCtx);
+  NumericFieldGCCtx *numericGcCtx = gc->numericGCCtx[randomIndex];
+
+  // open the relevent numeric index to check that our pointer is valid
+  RedisModuleString *keyName =
+      IndexSpec_GetFormattedKey(spec, decimalFields[randomIndex], INDEXFLD_T_NUMERIC);
+  NumericRangeSkiplist *nrsl = OpenNumericIndex(sctx, keyName, &idxKey);
+  if (idxKey) RedisModule_CloseKey(idxKey);
+
+  if (numericGcCtx->nrsl != nrsl || numericGcCtx->revisionId != numericGcCtx->nrsl->revisionId) {
+    // memory or revision changed, recreating our numeric gc ctx
+    RS_LOG_ASSERT(numericGcCtx->nrsl != nrsl || numericGcCtx->revisionId < numericGcCtx->nrsl->revisionId,
+                      "NumericRangeSkiplist or revisionId are inncorrect");
+    gc->numericGCCtx[randomIndex] = gc_NewNumericGcCtx(nrsl);
+    gc_FreeNumericGcCtx(numericGcCtx);
+    numericGcCtx = gc->numericGCCtx[randomIndex];
+  }
+
+  NumericRange *range = NextGcNode(numericGcCtx);
+
+  int blockNum = 0;
+  do {
+    IndexRepairParams params = {.limit = RSGlobalConfig.gcScanSize, .arg = range};
+    // repair 100 blocks at once
+    blockNum = InvertedIndex_Repair(range->entries, &sctx->spec->docs, blockNum, &params);
+    /// update the statistics with the the number of records deleted
+    numericGcCtx->nrsl->numEntries -= params.docsCollected;
+    totalRemoved += params.docsCollected;
+    gc_updateStats(sctx, gc, params.docsCollected, params.bytesCollected);
+    // blockNum 0 means error or we've finished
+    if (!blockNum) break;
+
+    sctx = SearchCtx_Refresh(sctx, (RedisModuleString *)gc->keyName);
+    // sctx null --> means it was deleted and we need to stop right now
+    if (!sctx || sctx->spec->uniqueId != gc->specUniqueId) {
+      *status = SPEC_STATUS_INVALID;
+      break;
+    }
+    if (numericGcCtx->revisionId != numericGcCtx->nrsl->revisionId) {
+      break;
+    }
+  } while (true);
+
+end:
+  if (decimalFields) {
+    array_free(decimalFields);
+  }
+
+  if (sctx) {
+    SearchCtx_Free(sctx);
+  }
+
+  return totalRemoved;
+}
+
 /* The GC periodic callback, called in a separate thread. It selects a random term (using weighted
  * random) */
 int GC_PeriodicCallback(RedisModuleCtx *ctx, void *privdata) {

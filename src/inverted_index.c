@@ -353,6 +353,74 @@ ENCODER(encodeNumeric) {
   return sz;
 }
 
+// 9. Special encoder for decimal values
+ENCODER(encodeDecimal) {
+  const double absVal = fabs(res->num.value);
+  const double realVal = res->num.value;
+  const float f32Num = absVal;
+  uint64_t u64Num = (uint64_t)absVal;
+  const uint8_t tinyNum = ((uint8_t)absVal) & NUM_TINYENC_MASK;
+
+  EncodingHeader header = {.storage = 0};
+
+  size_t pos = BufferWriter_Offset(bw);
+  size_t sz = Buffer_Write(bw, "\0", 1);
+
+  // Write the delta
+  size_t numDeltaBytes = 0;
+  do {
+    sz += Buffer_Write(bw, &delta, 1);
+    numDeltaBytes++;
+    delta >>= 8;
+  } while (delta);
+  header.encCommon.deltaEncoding = numDeltaBytes - 1;
+
+  if ((double)tinyNum == realVal) {
+    // Number is small enough to fit?
+    header.encTiny.tinyValue = tinyNum;
+    header.encTiny.isTiny = 1;
+
+  } else if ((double)(uint64_t)absVal == absVal) {
+    // Is a whole number
+    uint64_t wholeNum = absVal;
+    NumEncodingInt *encInt = &header.encInt;
+
+    if (realVal < 0) {
+      encInt->sign = 1;
+    }
+
+    size_t numValueBytes = 0;
+    do {
+      sz += Buffer_Write(bw, &u64Num, 1);
+      numValueBytes++;
+      u64Num >>= 8;
+    } while (u64Num);
+    encInt->valueByteCount = numValueBytes - 1;
+
+  } else if (!isfinite(realVal)) {
+    header.encCommon.isFloat = 1;
+    header.encFloat.isInf = 1;
+    if (realVal == -INFINITY) {
+      header.encFloat.sign = 1;
+    }
+
+  } else {
+    // Floating point
+    NumEncodingFloat *encFloat = &header.encFloat;
+    sz += Buffer_Write(bw, (void *)&absVal, 8);
+    encFloat->isFloat = 1;
+    if (realVal < 0) {
+      encFloat->sign = 1;
+    }
+  }
+
+  *BufferWriter_PtrAt(bw, pos) = header.storage;
+  // printf("== Encoded ==\n");
+  // dumpEncoding(header, stdout);
+
+  return sz;
+}
+
 /* Get the appropriate encoder based on index flags */
 IndexEncoder InvertedIndex_GetEncoder(IndexFlags flags) {
   switch (flags & INDEX_STORAGE_MASK) {
@@ -402,6 +470,9 @@ IndexEncoder InvertedIndex_GetEncoder(IndexFlags flags) {
 
     case Index_StoreNumeric:
       return encodeNumeric;
+
+    case Index_StoreDecimal:
+      return encodeDecimal;
 
     // invalid encoder - we will fail
     default:
@@ -474,6 +545,17 @@ size_t InvertedIndex_WriteNumericEntry(InvertedIndex *idx, t_docId docId, double
       .num = (RSNumericRecord){.value = value},
   };
   return InvertedIndex_WriteEntryGeneric(idx, encodeNumeric, docId, &rec);
+}
+
+/* Write a decimal entry to the index */
+size_t InvertedIndex_WriteDecimalEntry(InvertedIndex *idx, t_docId docId, double value) {
+
+  RSIndexResult rec = (RSIndexResult){
+      .docId = docId,
+      .type = RSResultType_Decimal,
+      .dec = (RSDecimalRecord){.value = value},
+  };
+  return InvertedIndex_WriteEntryGeneric(idx, encodeDecimal, docId, &rec);
 }
 
 static void IndexReader_AdvanceBlock(IndexReader *ir) {
@@ -644,6 +726,53 @@ DECODER(readNumeric) {
   return 1;
 }
 
+// special decoder for decoding decimal results
+DECODER(readDecimal) { // TODO:decimal
+  EncodingHeader header;
+  Buffer_Read(br, &header, 1);
+
+  res->docId = 0;
+  Buffer_Read(br, &res->docId, header.encCommon.deltaEncoding + 1);
+
+  if (header.encCommon.isFloat) {
+    if (header.encFloat.isInf) {
+      res->dec.value = INFINITY;
+    } else {
+      Buffer_Read(br, &res->dec.value, 8);
+    }
+    if (header.encFloat.sign) {
+      res->dec.value = -res->dec.value;
+    }
+  } else if (header.encTiny.isTiny) {
+    // Is embedded into the header
+    res->dec.value = header.encTiny.tinyValue;
+
+  } else {
+    // Is a whole number
+    uint64_t num = 0;
+    Buffer_Read(br, &num, header.encInt.valueByteCount + 1);
+    res->dec.value = num;
+    if (header.encInt.sign) {
+      res->dec.value = -res->dec.value;
+    }
+  }
+
+  // printf("res->dec.value: %lf\n", res->dec.value);
+
+  NumericFilter *f = ctx->ptr;
+  if (f) {
+    if (f->geoFilter == NULL) {
+      int rv = NumericFilter_Match(f, res->dec.value);
+      // printf("Checking against filter: %d\n", rv);
+      return rv;
+    } else {
+      return isWithinRadius(f->geoFilter, res->dec.value, NULL);
+    }
+  }
+  // printf("Field matches.. hurray!\n");
+  return 1;
+}
+
 DECODER(readFreqs) {
   qint_decode2(br, (uint32_t *)&res->docId, &res->freq);
   return 1;
@@ -753,6 +882,9 @@ IndexDecoderProcs InvertedIndex_GetDecoder(uint32_t flags) {
     case Index_StoreNumeric:
       RETURN_DECODERS(readNumeric, NULL);
 
+    case Index_StoreDecimal:
+      RETURN_DECODERS(readDecimal, NULL);
+
     default:
       fprintf(stderr, "No decoder for flags %x\n", flags & INDEX_STORAGE_MASK);
       RETURN_DECODERS(NULL, NULL);
@@ -767,6 +899,17 @@ IndexReader *NewNumericReader(const IndexSpec *sp, InvertedIndex *idx, const Num
 
   IndexDecoderCtx ctx = {.ptr = (void *)flt};
   IndexDecoderProcs procs = {.decoder = readNumeric};
+  return NewIndexReaderGeneric(sp, idx, procs, ctx, res, 1);
+}
+
+IndexReader *NewDecimalReader(const IndexSpec *sp, InvertedIndex *idx, const NumericFilter *flt) {
+  RSIndexResult *res = NewDecimalResult();
+  res->freq = 1;
+  res->fieldMask = RS_FIELDMASK_ALL;
+  res->dec.value = 0;
+
+  IndexDecoderCtx ctx = {.ptr = (void *)flt};
+  IndexDecoderProcs procs = {.decoder = readDecimal};
   return NewIndexReaderGeneric(sp, idx, procs, ctx, res, 1);
 }
 
@@ -796,6 +939,7 @@ typedef struct {
   const IndexSpec *spec;
 } IR_CriteriaTester;
 
+// TODO:decimal all criteria tester
 static int IR_TestNumeric(IndexCriteriaTester *ct, t_docId id) {
   IR_CriteriaTester *irct = (IR_CriteriaTester *)ct;
   const IndexSpec *sp = irct->spec;
@@ -846,7 +990,7 @@ IndexCriteriaTester *IR_GetCriteriaTester(void *ctx) {
   if (!ir->sp || !ir->sp->getValue) {
     return NULL;  // CriteriaTester is not supported!!!
   }
-  if (ir->decoders.decoder == readNumeric) {
+  if (ir->decoders.decoder == readNumeric || ir->decoders.decoder == readDecimal) { // TODO:decimal
     // for now, if the iterator did not took the numric filter
     // we will avoid using the CT.
     // TODO: save the numeric filter in the numeric iterator to support CT anyway.
@@ -856,7 +1000,7 @@ IndexCriteriaTester *IR_GetCriteriaTester(void *ctx) {
   }
   IR_CriteriaTester *irct = rm_malloc(sizeof(*irct));
   irct->spec = ir->sp;
-  if (ir->decoders.decoder == readNumeric) {
+  if (ir->decoders.decoder == readNumeric || ir->decoders.decoder == readDecimal) { // TODO:decimal
     irct->nf = *(NumericFilter *)ir->decoderCtx.ptr;
     irct->nf.fieldName = rm_strdup(irct->nf.fieldName);
     irct->base.Test = IR_TestNumeric;
@@ -1169,7 +1313,18 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepa
   BufferReader br = NewBufferReader(&blk->buf);
   BufferWriter bw = NewBufferWriter(&repair);
 
-  RSIndexResult *res = flags == Index_StoreNumeric ? NewNumericResult() : NewTokenRecord(NULL, 1);
+  RSIndexResult *res;
+  switch (flags)  {
+  case Index_StoreNumeric:
+    res = NewNumericResult();
+    break;
+  case Index_StoreDecimal:
+    res = NewDecimalResult();
+    break;
+  default:
+    res = NewTokenRecord(NULL, 1);
+    break;
+  }
   size_t frags = 0;
   int isLastValid = 0;
 

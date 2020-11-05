@@ -63,6 +63,20 @@ RSIndexResult *NewNumericResult() {
   return res;
 }
 
+RSIndexResult *NewDecimalResult() {
+  RSIndexResult *res = rm_new(RSIndexResult);
+
+  *res = (RSIndexResult){.type = RSResultType_Decimal,
+                         .docId = 0,
+                         .isCopy = 0,
+                         .fieldMask = RS_FIELDMASK_ALL,
+                         .freq = 1,
+                         .weight = 1,
+
+                         .dec = (RSDecimalRecord){.value = 0}};
+  return res;
+}
+
 RSIndexResult *NewVirtualResult(double weight) {
   RSIndexResult *res = rm_new(RSIndexResult);
 
@@ -128,6 +142,10 @@ void IndexResult_Print(RSIndexResult *r, int depth) {
     printf("Numeric{%llu:%f},\n", (unsigned long long)r->docId, r->num.value);
     return;
   }
+  if (r->type == RSResultType_Decimal) { // TODO:decimal
+    printf("Decimal{%llu:%f},\n", (unsigned long long)r->docId, r->dec.value);
+    return;
+  }
   printf("%s => %llu{ \n", r->type == RSResultType_Intersection ? "Inter" : "Union",
          (unsigned long long)r->docId);
 
@@ -184,11 +202,14 @@ int RSIndexResult_HasOffsets(const RSIndexResult *res) {
     case RSResultType_Union:
       // the intersection and union aggregates can have offsets if they are not purely made of
       // virtual results
-      return res->agg.typeMask != RSResultType_Virtual && res->agg.typeMask != RSResultType_Numeric;
+      return res->agg.typeMask != RSResultType_Virtual &&
+             res->agg.typeMask != RSResultType_Numeric &&
+             res->agg.typeMask != RSResultType_Decimal;
 
     // a virtual result doesn't have offsets!
     case RSResultType_Virtual:
     case RSResultType_Numeric:
+    case RSResultType_Decimal:
     default:
       return 0;
   }
@@ -435,7 +456,8 @@ int __indexResult_withinRangeUnordered(RSOffsetIterator *iters, uint32_t *positi
 int IndexResult_IsWithinRange(RSIndexResult *ir, int maxSlop, int inOrder) {
 
   // check if calculation is even relevant here...
-  if ((ir->type & (RSResultType_Term | RSResultType_Virtual | RSResultType_Numeric)) ||
+  if ((ir->type & (RSResultType_Term | RSResultType_Virtual |
+                   RSResultType_Numeric | RSResultType_Decimal)) ||
       ir->agg.numChildren <= 1) {
     return 1;
   }
