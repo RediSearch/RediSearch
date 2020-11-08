@@ -9,6 +9,7 @@
 // Preprocessors can store field data to this location
 typedef struct FieldIndexerData {
   double numeric;  // i.e. the numeric value of the field
+  double decimal;  // TODO: decimal type
   const char *geoSlon;
   const char *geoSlat;
   char **tags;

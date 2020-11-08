@@ -74,6 +74,10 @@ RSFieldID RediSearch_CreateField(IndexSpec* sp, const char* name, unsigned types
     numTypes++;
     FieldSpec_Initialize(fs, INDEXFLD_T_NUMERIC);
   }
+  if (types & RSFLDTYPE_DECIMAL) {
+    numTypes++;
+    FieldSpec_Initialize(fs, INDEXFLD_T_DECIMAL);
+  }
   if (types & RSFLDTYPE_GEO) {
     FieldSpec_Initialize(fs, INDEXFLD_T_GEO);
     numTypes++;
@@ -249,6 +253,15 @@ QueryNode* RediSearch_CreateTokenNode(IndexSpec* sp, const char* fieldName, cons
 QueryNode* RediSearch_CreateNumericNode(IndexSpec* sp, const char* field, double max, double min,
                                         int includeMax, int includeMin) {
   QueryNode* ret = NewQueryNode(QN_NUMERIC);
+  ret->nn.nf = NewNumericFilter(min, max, includeMin, includeMax);
+  ret->nn.nf->fieldName = rm_strdup(field);
+  ret->opts.fieldMask = IndexSpec_GetFieldBit(sp, field, strlen(field));
+  return ret;
+}
+
+QueryNode* RediSearch_CreateDecimalNode(IndexSpec* sp, const char* field, double max, double min,
+                                        int includeMax, int includeMin) {
+  QueryNode* ret = NewQueryNode(QN_DECIMAL);
   ret->nn.nf = NewNumericFilter(min, max, includeMin, includeMax);
   ret->nn.nf->fieldName = rm_strdup(field);
   ret->opts.fieldMask = IndexSpec_GetFieldBit(sp, field, strlen(field));

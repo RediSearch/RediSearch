@@ -224,12 +224,17 @@ typedef struct {
   double value;
 } RSNumericRecord;
 
+typedef struct { // TODO:decimal
+  double value;
+} RSDecimalRecord;
+
 typedef enum {
   RSResultType_Union = 0x1,
   RSResultType_Intersection = 0x2,
   RSResultType_Term = 0x4,
   RSResultType_Virtual = 0x8,
-  RSResultType_Numeric = 0x10
+  RSResultType_Numeric = 0x10,
+  RSResultType_Decimal = 0x20
 } RSResultType;
 
 #define RS_RESULT_AGGREGATE (RSResultType_Intersection | RSResultType_Union)
@@ -281,6 +286,8 @@ typedef struct RSIndexResult {
     RSVirtualRecord virt;
     // numeric record with float value
     RSNumericRecord num;
+    // decimal record with DecNumber value
+    RSDecimalRecord dec;
   };
 
   RSResultType type;

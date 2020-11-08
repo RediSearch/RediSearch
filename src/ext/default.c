@@ -226,6 +226,7 @@ static double dismaxRecursive(const ScoringFunctionArgs *ctx, const RSIndexResul
   switch (r->type) {
     case RSResultType_Term:
     case RSResultType_Numeric:
+    case RSResultType_Decimal:
     case RSResultType_Virtual:
       ret = r->freq;
       EXPLAIN(scrExp, "DISMAX %.2f = Weight %.2f * Frequency %d", r->weight * ret, r->weight,

@@ -6,6 +6,8 @@ RSValueType fieldTypeToValueType(FieldType ft) {
   switch (ft) {
     case INDEXFLD_T_NUMERIC:
       return RSValue_Number;
+    case INDEXFLD_T_DECIMAL:
+      return RSValue_Decimal;
     case INDEXFLD_T_FULLTEXT:
     case INDEXFLD_T_TAG:
       return RSValue_String;

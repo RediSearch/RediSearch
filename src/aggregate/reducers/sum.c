@@ -20,6 +20,7 @@ static void *sumNewInstance(Reducer *r) {
   return ctx;
 }
 
+// TODO:decimal
 static int sumAdd(Reducer *baseparent, void *instance, const RLookupRow *row) {
   sumCtx *ctr = instance;
   const SumReducer *parent = (const SumReducer *)baseparent;
@@ -27,15 +28,18 @@ static int sumAdd(Reducer *baseparent, void *instance, const RLookupRow *row) {
   const RSValue *v = RLookup_GetItem(parent->srckey, row);
   if (v && v->t == RSValue_Number) {
     ctr->total += v->numval;
+  } else if (v && v->t == RSValue_Decimal) {
+    ctr->total += v->decval;
   } else {  // try to convert value to number
     double d = 0;
-    if (RSValue_ToNumber(v, &d)) {
+    if (RSValue_ToNumber(v, &d)) { // TODO:decimal
       ctr->total += d;
     }
   }
   return 1;
 }
 
+// TODO:decimal
 static RSValue *sumFinalize(Reducer *baseparent, void *instance) {
   sumCtx *ctr = instance;
   SumReducer *parent = (SumReducer *)baseparent;
@@ -47,7 +51,7 @@ static RSValue *sumFinalize(Reducer *baseparent, void *instance) {
   } else {
     v = ctr->total;
   }
-  return RS_NumVal(v);
+  return RS_NumVal(v); // TODO:decimal
 }
 
 static Reducer *newReducerCommon(const ReducerOptions *options, int isAvg) {

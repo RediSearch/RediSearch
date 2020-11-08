@@ -28,6 +28,7 @@ struct IndexesScanner;
 struct DocumentIndexer;
 
 #define NUMERIC_STR "NUMERIC"
+#define DECIMAL_STR "DECIMAL"
 #define GEO_STR "GEO"
 
 #define SPEC_NOOFFSETS_STR "NOOFFSETS"
@@ -86,7 +87,8 @@ struct DocumentIndexer;
 static const char *SpecTypeNames[] = {[IXFLDPOS_FULLTEXT] = SPEC_TEXT_STR,
                                       [IXFLDPOS_NUMERIC] = NUMERIC_STR,
                                       [IXFLDPOS_GEO] = GEO_STR,
-                                      [IXFLDPOS_TAG] = SPEC_TAG_STR};
+                                      [IXFLDPOS_TAG] = SPEC_TAG_STR,
+                                      [IXFLDPOS_DECIMAL] = DECIMAL_STR};
 
 #define INDEX_SPEC_KEY_PREFIX "idx:"
 #define INDEX_SPEC_KEY_FMT INDEX_SPEC_KEY_PREFIX "%s"
@@ -137,6 +139,7 @@ typedef enum {
   Index_HasPhonetic = 0x400,
   Index_Async = 0x800,
   Index_SkipInitialScan = 0x1000,
+  Index_StoreDecimal = 0x2000,
 } IndexFlags;
 
 // redis version (its here because most file include it with no problem,
@@ -167,9 +170,9 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
 
 #define INDEX_STORAGE_MASK                                                                  \
   (Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets | Index_StoreNumeric | \
-   Index_WideSchema)
+   Index_StoreDecimal | Index_WideSchema)
 
-#define INDEX_CURRENT_VERSION 17
+#define INDEX_CURRENT_VERSION 18
 #define INDEX_MIN_COMPAT_VERSION 17
 
 #define LEGACY_INDEX_MAX_VERSION 16
@@ -203,6 +206,8 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
 #define INDEX_MIN_MULTITYPE_VERSION 14
 
 #define INDEX_MIN_ALIAS_VERSION 15
+
+#define INDEX_MIN_DECIMAL_VERSION 18
 
 #define IDXFLD_LEGACY_FULLTEXT 0
 #define IDXFLD_LEGACY_NUMERIC 1

@@ -38,6 +38,7 @@ typedef enum {
   RSValue_OwnRstring = 7,
   // Reference to another value
   RSValue_Reference = 8,
+  RSValue_Decimal = 9,
 
 } RSValueType;
 
@@ -61,7 +62,7 @@ typedef struct RSValue {
   union {
     // numeric value
     double numval;
-
+    double decval; // TODO:decimal
     int64_t intval;
 
     // string value
@@ -240,26 +241,27 @@ void RSValue_ToString(RSValue *dst, RSValue *v);
 
 /* New value from string, trying to parse it as a number */
 RSValue *RSValue_ParseNumber(const char *p, size_t l);
+RSValue *RSValue_ParseDecimal(const char *p, size_t l);
 
 /* Convert a value to a number, either returning the actual numeric values or by parsing a string
 into a number. Return 1 if the value is a number or a numeric string and can be converted, or 0 if
 not. If possible, we put the actual value into teh double pointer */
 int RSValue_ToNumber(const RSValue *v, double *d);
+int RSValue_ToDecimal(const RSValue *v, double *d); // TODO:decimal
 
 #define RSVALUE_NULL_HASH 1337
 
-/* Return a 64 hash value of an RSValue. If this is not an incremental hashing, pass 0 as hval */
 /* Return a 64 hash value of an RSValue. If this is not an incremental hashing, pass 0 as hval */
 static inline uint64_t RSValue_Hash(const RSValue *v, uint64_t hval) {
   switch (v->t) {
     case RSValue_Reference:
       return RSValue_Hash(v->ref, hval);
     case RSValue_String:
-
       return fnv_64a_buf(v->strval.str, v->strval.len, hval);
     case RSValue_Number:
       return fnv_64a_buf(&v->numval, sizeof(double), hval);
-
+    case RSValue_Decimal: //TODO:decimal
+      return fnv_64a_buf(&v->decval, sizeof(double), hval);
     case RSValue_RedisString:
     case RSValue_OwnRstring: {
       size_t sz;
@@ -292,7 +294,7 @@ const char *RSValue_ConvertStringPtrLen(const RSValue *value, size_t *lenp, char
 
 /* Wrap a number into a value object */
 RSValue *RS_NumVal(double n);
-
+RSValue *RS_DecVal(double n);
 RSValue *RS_Int64Val(int64_t ii);
 
 /* Don't increment the refcount of the children */
@@ -343,6 +345,8 @@ static inline int RSValue_BoolTest(const RSValue *v) {
       return v->arrval.len != 0;
     case RSValue_Number:
       return v->numval != 0;
+    case RSValue_Decimal:
+      return v->decval != 0;
     case RSValue_String:
       return v->strval.len != 0;
     case RSValue_RedisString:
@@ -381,13 +385,6 @@ int RSValue_ArrayAssign(RSValue **args, int argc, const char *fmt, ...);
 /** Static value pointers. These don't ever get decremented */
 static RSValue __attribute__((unused)) RS_StaticNull = RSVALUE_STATICALLOC_INIT(RSValue_Null);
 static RSValue __attribute__((unused)) RS_StaticUndef = RSVALUE_STATICALLOC_INIT(RSValue_Undef);
-
-/**
- * Maximum number of static/cached numeric values. Integral numbers in this range
- * can benefit by having 'static' values assigned to them, eliminating the need
- * for dynamic allocation
- */
-#define RSVALUE_MAX_STATIC_NUMVALS 256
 
 /**
  * This macro decrements the refcount of dst (as a pointer), and increments the

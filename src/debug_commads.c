@@ -150,7 +150,7 @@ end:
   return REDISMODULE_OK;
 }
 
-DEBUG_COMMAND(NumericIndexSummary) {
+DEBUG_COMMAND(NumericIndexSummary) { // TODO: adapt for both decimal and numeric
   if (argc != 2) {
     return RedisModule_WrongArity(ctx);
   }
@@ -185,7 +185,7 @@ end:
   return REDISMODULE_OK;
 }
 
-DEBUG_COMMAND(DumpNumericIndex) {
+DEBUG_COMMAND(DumpNumericIndex) { // TODO: adapt for both decimal and numeric
   if (argc != 2) {
     return RedisModule_WrongArity(ctx);
   }

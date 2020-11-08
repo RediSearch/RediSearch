@@ -51,7 +51,7 @@ property = '@'.(((any - (punct | cntrl | space | escape)) | escaped_character) |
 
 main := |*
 
-  number => { 
+  number => { //TODO:decimal
     tok.s = ts;
     tok.len = te-ts;
     char *ne = (char*)te;

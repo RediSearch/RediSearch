@@ -56,7 +56,10 @@ static RLookupKey *genKeyFromSpec(RLookup *lookup, const char *name, int flags) 
   ret->flags |= RLOOKUP_F_DOCSRC;
   if (fs->types == INDEXFLD_T_NUMERIC) {
     ret->fieldtype = RLOOKUP_C_DBL;
+  } else if (fs->types == INDEXFLD_T_DECIMAL) {
+    ret->fieldtype = RLOOKUP_C_DEC;
   }
+  
   return ret;
 }
 
@@ -245,6 +248,10 @@ static RSValue *hvalToValue(RedisModuleString *src, RLookupCoerceType type) {
     double dd = 0.0;
     RedisModule_StringToDouble(src, &dd);
     return RS_NumVal(dd);
+  } else if (type == RLOOKUP_C_DEC) {
+    double dd = 0.0;
+    RedisModule_StringToDouble(src, &dd);
+    return RS_DecVal(dd);
   } else {
     return RS_OwnRedisStringVal(src);
   }
@@ -263,6 +270,9 @@ static RSValue *replyElemToValue(RedisModuleCallReply *rep, RLookupCoerceType ot
       if (otype == RLOOKUP_C_DBL) {
         // Convert to double -- calling code should check if NULL
         return RSValue_ParseNumber(s, len);
+      } else if (otype == RLOOKUP_C_DEC) {
+        // Convert to double -- calling code should check if NULL
+        return RSValue_ParseDecimal(s, len);
       }
       // Note, the pointer is within CallReply; we need to copy
       return RS_NewCopiedString(s, len);
@@ -270,7 +280,7 @@ static RSValue *replyElemToValue(RedisModuleCallReply *rep, RLookupCoerceType ot
 
     case REDISMODULE_REPLY_INTEGER:
     create_int:
-      if (otype == RLOOKUP_C_STR || otype == RLOOKUP_C_DBL) {
+      if (otype == RLOOKUP_C_STR || otype == RLOOKUP_C_DBL || otype == RLOOKUP_C_DEC) {
         goto create_string;
       }
       return RS_Int64Val(RedisModule_CallReplyInteger(rep));

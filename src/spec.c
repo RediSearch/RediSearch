@@ -131,7 +131,7 @@ const char *IndexSpec_GetFieldNameByBit(const IndexSpec *sp, t_fieldMask id) {
 * The command only receives the relevant part of argv.
 *
 * The format currently is FT.CREATE {index} [NOOFFSETS] [NOFIELDS] [NOFREQS]
-    SCHEMA {field} [TEXT [WEIGHT {weight}]] | [NUMERIC]
+    SCHEMA {field} [TEXT [WEIGHT {weight}]] | [NUMERIC] | [DECIMAL] | [TAG] | [GEO]
 */
 IndexSpec *IndexSpec_ParseRedisArgs(RedisModuleCtx *ctx, RedisModuleString *name,
                                     RedisModuleString **argv, int argc, QueryError *status) {
@@ -340,11 +340,13 @@ static int parseFieldSpec(ArgsCursor *ac, FieldSpec *fs, QueryError *status) {
     if (!parseTextField(fs, ac, status)) {
       goto error;
     }
-  } else if (AC_AdvanceIfMatch(ac, NUMERIC_STR)) {
+  } else if (AC_AdvanceIfMatch(ac, NUMERIC_STR)) {    // numeric field
     FieldSpec_Initialize(fs, INDEXFLD_T_NUMERIC);
-  } else if (AC_AdvanceIfMatch(ac, GEO_STR)) {  // geo field
+  } else if (AC_AdvanceIfMatch(ac, DECIMAL_STR)) {    // decimal field
+    FieldSpec_Initialize(fs, INDEXFLD_T_DECIMAL);
+  } else if (AC_AdvanceIfMatch(ac, GEO_STR)) {        // geo field
     FieldSpec_Initialize(fs, INDEXFLD_T_GEO);
-  } else if (AC_AdvanceIfMatch(ac, SPEC_TAG_STR)) {  // tag field
+  } else if (AC_AdvanceIfMatch(ac, SPEC_TAG_STR)) {   // tag field
     FieldSpec_Initialize(fs, INDEXFLD_T_TAG);
     if (AC_AdvanceIfMatch(ac, SPEC_SEPARATOR_STR)) {
       if (AC_IsAtEnd(ac)) {
@@ -359,7 +361,7 @@ static int parseFieldSpec(ArgsCursor *ac, FieldSpec *fs, QueryError *status) {
       }
       fs->tagSep = *sep;
     }
-  } else {  // not numeric and not text - nothing more supported currently
+  } else {  // field type does not match
     QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Invalid field type for field `%s`", fs->name);
     goto error;
   }
@@ -500,8 +502,8 @@ int IndexSpec_AddFields(IndexSpec *sp, RedisModuleCtx *ctx, ArgsCursor *ac, bool
 }
 
 /* The format currently is FT.CREATE {index} [NOOFFSETS] [NOFIELDS]
-    SCHEMA {field} [TEXT [WEIGHT {weight}]] | [NUMERIC]
-  */
+    SCHEMA {field} [TEXT [WEIGHT {weight}]] | [NUMERIC] | [DECIMAL] | [TAG] | [GEO]
+*/
 IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryError *status) {
   IndexSpec *spec = NewIndexSpec(name);
 
@@ -916,6 +918,9 @@ RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs,
       case INDEXFLD_T_GEO:  // TODO?? change the name
         ret = fmtRedisNumericIndexKey(&sctx, fs->name);
         break;
+      case INDEXFLD_T_DECIMAL:
+        ret = fmtRedisDecimalIndexKey(&sctx, fs->name);
+        break;
       case INDEXFLD_T_TAG:
         ret = TagIndex_FormatName(&sctx, fs->name);
         break;
@@ -1120,6 +1125,7 @@ static void FieldSpec_RdbSave(RedisModuleIO *rdb, FieldSpec *f) {
   }
 }
 
+// Note: no need for decimal
 static const FieldType fieldTypeMap[] = {[IDXFLD_LEGACY_FULLTEXT] = INDEXFLD_T_FULLTEXT,
                                          [IDXFLD_LEGACY_NUMERIC] = INDEXFLD_T_NUMERIC,
                                          [IDXFLD_LEGACY_GEO] = INDEXFLD_T_GEO,

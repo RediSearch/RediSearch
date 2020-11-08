@@ -468,6 +468,59 @@ static void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
   // we are done with numeric fields
   FGC_sendTerminator(gc);
 }
+ /*
+static void FGC_childCollectDecimal(ForkGC *gc, RedisSearchCtx *sctx) {
+  RedisModuleKey *idxKey = NULL;
+  FieldSpec **numericFields = getFieldsByType(sctx->spec, INDEXFLD_T_DECIMAL);
+
+  for (int i = 0; i < array_len(numericFields); ++i) {
+    RedisModuleString *keyName =
+        IndexSpec_GetFormattedKey(sctx->spec, numericFields[i], INDEXFLD_T_DECIMAL);
+    NumericRangeTree *rt = OpenNumericIndex(sctx, keyName, &idxKey);
+
+    NumericRangeTreeIterator *gcIterator = NumericRangeTreeIterator_New(rt);
+
+    NumericRangeNode *curr = NULL;
+    tagNumHeader header = {.field = numericFields[i]->name, .uniqueId = rt->uniqueId};
+
+    while ((curr = NumericRangeTreeIterator_Next(gcIterator))) {
+      numCbCtx nctx = {0};
+      InvertedIndex *idx = curr->range->entries;
+      nctx.lastblk = idx->blocks + idx->size - 1;
+      IndexRepairParams params = {.RepairCallback = countDeleted, .arg = &nctx};
+      header.curPtr = curr;
+      bool repaired = FGC_childRepairInvidx(gc, sctx, idx, sendNumericTagHeader, &header, &params);
+
+      if (repaired) {
+        sendKht(gc, nctx.delRest);
+        sendKht(gc, nctx.delLast);
+      }
+      if (nctx.delRest) {
+        kh_destroy(cardvals, nctx.delRest);
+      }
+      if (nctx.delLast) {
+        kh_destroy(cardvals, nctx.delLast);
+      }
+    }
+
+    if (header.sentFieldName) {
+      // If we've repaired at least one entry, send the terminator;
+      // note that "terminator" just means a zero address and not the
+      // "no more strings" terminator in FGC_sendTerminator
+      void *pdummy = NULL;
+      FGC_SEND_VAR(gc, pdummy);
+    }
+
+    if (idxKey) {
+      RedisModule_CloseKey(idxKey);
+    }
+
+    NumericRangeTreeIterator_Free(gcIterator);
+  }
+
+  // we are done with numeric fields
+  FGC_sendTerminator(gc);
+} */
 
 static void FGC_childCollectTags(ForkGC *gc, RedisSearchCtx *sctx) {
   RedisModuleKey *idxKey = NULL;
@@ -517,6 +570,7 @@ static void FGC_childScanIndexes(ForkGC *gc) {
 
   FGC_childCollectTerms(gc, sctx);
   FGC_childCollectNumeric(gc, sctx);
+  //FGC_childCollectDecimal(gc, sctx);
   FGC_childCollectTags(gc, sctx);
 
   SearchCtx_Free(sctx);
@@ -1073,6 +1127,7 @@ int FGC_parentHandleFromChild(ForkGC *gc) {
 
   COLLECT_FROM_CHILD(FGC_parentHandleTerms(gc, gc->ctx));
   COLLECT_FROM_CHILD(FGC_parentHandleNumeric(gc, gc->ctx));
+  //COLLECT_FROM_CHILD(FGC_parentHandleDecimal(gc, gc->ctx));
   COLLECT_FROM_CHILD(FGC_parentHandleTags(gc, gc->ctx));
   return REDISMODULE_OK;
 }

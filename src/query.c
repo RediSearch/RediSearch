@@ -62,6 +62,9 @@ void QueryNode_Free(QueryNode *n) {
       NumericFilter_Free((void *)n->nn.nf);
 
       break;  //
+    case QN_DECIMAL: // TODO:decimal required w/o numeric range?
+      NumericFilter_Free((void *)n->nn.nf);
+      break;
     case QN_PREFX:
       QueryTokenNode_Free(&n->pfx);
       break;
@@ -174,6 +177,13 @@ QueryNode *NewTagNode(const char *field, size_t len) {
 QueryNode *NewNumericNode(const NumericFilter *flt) {
   QueryNode *ret = NewQueryNode(QN_NUMERIC);
   ret->nn = (QueryNumericNode){.nf = (NumericFilter *)flt};
+
+  return ret;
+}
+
+QueryNode *NewDecimalNode(const NumericFilter *flt) {
+  QueryNode *ret = NewQueryNode(QN_DECIMAL);
+  ret->dn = (QueryDecimalNode){.nf = (NumericFilter *)flt};
 
   return ret;
 }
@@ -511,14 +521,18 @@ static IndexIterator *Query_EvalOptionalNode(QueryEvalCtx *q, QueryNode *qn) {
                              q->docTable->maxDocId, qn->opts.weight);
 }
 
+// TODO:decimal
 static IndexIterator *Query_EvalNumericNode(QueryEvalCtx *q, QueryNumericNode *node) {
   const FieldSpec *fs =
       IndexSpec_GetField(q->sctx->spec, node->nf->fieldName, strlen(node->nf->fieldName));
-  if (!fs || !FIELD_IS(fs, INDEXFLD_T_NUMERIC)) {
+  if (!fs || (!FIELD_IS(fs, INDEXFLD_T_NUMERIC))) { // && !FIELD_IS(fs, INDEXFLD_T_DECIMAL))) {
     return NULL;
   }
 
   return NewNumericFilterIterator(q->sctx, node->nf, q->conc, INDEXFLD_T_NUMERIC);
+  return FIELD_IS(fs, INDEXFLD_T_NUMERIC) ? 
+         NewNumericFilterIterator(q->sctx, node->nf, q->conc, INDEXFLD_T_NUMERIC) :
+         NewNumericFilterIterator(q->sctx, node->nf, q->conc, INDEXFLD_T_DECIMAL);
 }
 
 static IndexIterator *Query_EvalGeofilterNode(QueryEvalCtx *q, QueryGeofilterNode *node,
@@ -776,6 +790,7 @@ IndexIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
     case QN_FUZZY:
       return Query_EvalFuzzyNode(q, n);
     case QN_NUMERIC:
+    case QN_DECIMAL:
       return Query_EvalNumericNode(q, &n->nn);
     case QN_OPTIONAL:
       return Query_EvalOptionalNode(q, n);
@@ -929,8 +944,6 @@ static sds doPad(sds s, int len) {
   return sdscat(s, buf);
 }
 
-static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, int depth);
-
 static sds QueryNode_DumpChildren(sds s, const IndexSpec *spec, const QueryNode *qs, int depth);
 
 static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, int depth) {
@@ -941,7 +954,7 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
   }
 
   if (qs->opts.fieldMask && qs->opts.fieldMask != RS_FIELDMASK_ALL && qs->type != QN_NUMERIC &&
-      qs->type != QN_GEO && qs->type != QN_IDS) {
+      /*qs->type != QN_DECIMAL && */ qs->type != QN_GEO && qs->type != QN_IDS) {
     if (!spec) {
       s = sdscatprintf(s, "@%" PRIu64, (uint64_t)qs->opts.fieldMask);
     } else {
@@ -1003,6 +1016,11 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
     case QN_NUMERIC: {
       const NumericFilter *f = qs->nn.nf;
       s = sdscatprintf(s, "NUMERIC {%f %s @%s %s %f", f->min, f->inclusiveMin ? "<=" : "<",
+                       f->fieldName, f->inclusiveMax ? "<=" : "<", f->max);
+    } break;
+    case QN_DECIMAL: {
+      const NumericFilter *f = qs->nn.nf;
+      s = sdscatprintf(s, "DECIMAL {%f %s @%s %s %f", f->min, f->inclusiveMin ? "<=" : "<",
                        f->fieldName, f->inclusiveMax ? "<=" : "<", f->max);
     } break;
     case QN_UNION:

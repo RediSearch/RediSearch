@@ -20,6 +20,8 @@ typedef enum {
   QN_TOKEN,
   /* Numeric filter node */
   QN_NUMERIC,
+  /* Decimal filter node */
+  QN_DECIMAL,
 
   /* NOT operator node */
   QN_NOT,
@@ -89,6 +91,10 @@ typedef struct {
 } QueryNumericNode;
 
 typedef struct {
+  struct NumericFilter *nf;
+} QueryDecimalNode;
+
+typedef struct {
   const struct GeoFilter *gf;
 } QueryGeofilterNode;
 
@@ -142,6 +148,7 @@ typedef struct RSQueryNode {
     QueryTokenNode tn;
     QueryUnionNode un;
     QueryNumericNode nn;
+    QueryDecimalNode dn;
     QueryGeofilterNode gn;
     QueryIdFilterNode fn;
     QueryNotNode inverted;

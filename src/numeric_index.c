@@ -389,9 +389,15 @@ IndexIterator *createNumericIterator(const IndexSpec *sp, NumericRangeTree *t,
 
 RedisModuleType *NumericIndexType = NULL;
 #define NUMERICINDEX_KEY_FMT "nm:%s/%s"
+#define DECIMALINDEX_KEY_FMT "dc:%s/%s"
 
 RedisModuleString *fmtRedisNumericIndexKey(RedisSearchCtx *ctx, const char *field) {
   return RedisModule_CreateStringPrintf(ctx->redisCtx, NUMERICINDEX_KEY_FMT, ctx->spec->name,
+                                        field);
+}
+
+RedisModuleString *fmtRedisDecimalIndexKey(RedisSearchCtx *ctx, const char *field) {
+  return RedisModule_CreateStringPrintf(ctx->redisCtx, DECIMALINDEX_KEY_FMT, ctx->spec->name,
                                         field);
 }
 

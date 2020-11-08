@@ -33,6 +33,7 @@ RSIndexResult *NewUnionResult(size_t cap, double weight);
 RSIndexResult *NewVirtualResult(double weight);
 
 RSIndexResult *NewNumericResult();
+RSIndexResult *NewDecimalResult();
 
 /* Allocate a new token record result for a given term */
 RSIndexResult *NewTokenRecord(RSQueryTerm *term, double weight);

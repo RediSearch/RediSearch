@@ -63,6 +63,14 @@ RSExpr *RS_NewNumberLiteral(double n) {
   return e;
 }
 
+RSExpr *RS_NewDecimalLiteral(double n) { //TODO:decimal
+  RSExpr *e = newExpr(RSExpr_Literal);
+
+  e->literal = RS_StaticValue(RSValue_Decimal);
+  e->literal.decval = n;
+  return e;
+}
+
 RSExpr *RS_NewOp(unsigned char op, RSExpr *left, RSExpr *right) {
   RSExpr *e = newExpr(RSExpr_Op);
   e->op.op = op;

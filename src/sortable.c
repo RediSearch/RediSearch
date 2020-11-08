@@ -74,7 +74,9 @@ void RSSortingVector_Put(RSSortingVector *tbl, int idx, const void *p, int type)
   switch (type) {
     case RS_SORTABLE_NUM:
       tbl->values[idx] = RS_NumVal(*(double *)p);
-
+      break;
+    case RS_SORTABLE_DEC:
+      tbl->values[idx] = RS_DecVal(*(double *)p);
       break;
     case RS_SORTABLE_STR: {
       char *ns = normalizeStr((const char *)p);
@@ -120,6 +122,10 @@ void SortingVector_RdbSave(RedisModuleIO *rdb, RSSortingVector *v) {
         // save numeric value
         RedisModule_SaveDouble(rdb, val->numval);
         break;
+      case RSValue_Decimal:
+        // save decimal value
+        RedisModule_SaveDouble(rdb, val->decval);
+        break;
       // for nil we write nothing
       default:
         break;
@@ -148,9 +154,11 @@ RSSortingVector *SortingVector_RdbLoad(RedisModuleIO *rdb, int encver) {
         RedisModule_Free(s);
         break;
       }
-      case RS_SORTABLE_NUM:
-        // load numeric value
+      case RSValue_Number:
         vec->values[i] = RS_NumVal(RedisModule_LoadDouble(rdb));
+        break;
+      case RSValue_Decimal:
+        vec->values[i] = RS_DecVal(RedisModule_LoadDouble(rdb));
         break;
       // for nil we read nothing
       case RS_SORTABLE_NIL:
