@@ -154,16 +154,7 @@ NRN_AddRv NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value)
 
     if (rv.changed) {
       // if there was a split it means our max depth has increased.
-      // we are too deep - we don't retain this node's range anymore.
-      // this keeps memory footprint in check
-      if (++n->maxDepth > NR_MAX_DEPTH && n->range) {
-        rv.sz -= n->range->invertedIndexSize;
-        rv.numRecords -= n->range->entries->numDocs;
-        InvertedIndex_Free(n->range->entries);
-        array_free(n->range->values);
-        rm_free(n->range);
-        n->range = NULL;
-      }
+      ++n->maxDepth;
 
       // check if we need to rebalance the child.
       // To ease the rebalance we don't rebalance the root
@@ -198,6 +189,14 @@ NRN_AddRv NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value)
 
     // split this node but don't delete its range
     double split = NumericRange_Split(n->range, &n->left, &n->right, &rv);
+
+    // free range of parent
+    rv.sz -= n->range->invertedIndexSize;
+    rv.numRecords -= n->range->entries->numDocs;
+    InvertedIndex_Free(n->range->entries);
+    array_free(n->range->values);
+    rm_free(n->range);
+    n->range = NULL;
 
     n->value = split;
 
@@ -274,7 +273,6 @@ uint16_t numericTreesUniqueId = 0;
 
 /* Create a new numeric range tree */
 NumericRangeTree *NewNumericRangeTree() {
-#define GC_NODES_INITIAL_SIZE 10
   NumericRangeTree *ret = rm_malloc(sizeof(NumericRangeTree));
 
   ret->root = NewLeafNode(2, NF_NEGATIVE_INFINITY, NF_INFINITY, 2);

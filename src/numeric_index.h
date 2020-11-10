@@ -12,8 +12,6 @@
 #include "inverted_index.h"
 #include "numeric_filter.h"
 
-#define RT_LEAF_CARDINALITY_MAX 500
-
 #ifdef __cplusplus
 extern "C" {
 #endif
