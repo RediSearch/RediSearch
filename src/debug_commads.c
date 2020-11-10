@@ -3,6 +3,7 @@
 #include "index.h"
 #include "redis_index.h"
 #include "tag_index.h"
+#include "decimal_index.h"
 #include "numeric_index.h"
 #include "phonetic_manager.h"
 #include "gc.h"
@@ -214,6 +215,77 @@ DEBUG_COMMAND(DumpNumericIndex) { // TODO: adapt for both decimal and numeric
   }
   RedisModule_ReplySetArrayLength(sctx->redisCtx, resultSize);
   NumericRangeTreeIterator_Free(iter);
+end:
+  if (keyp) {
+    RedisModule_CloseKey(keyp);
+  }
+  SearchCtx_Free(sctx);
+  return REDISMODULE_OK;
+}
+
+
+DEBUG_COMMAND(DecimalIndexSummary) {
+  if (argc != 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+  GET_SEARCH_CTX(argv[0])
+  RedisModuleKey *keyp = NULL;
+  RedisModuleString *keyName = getFieldKeyName(sctx->spec, argv[1], INDEXFLD_T_DECIMAL);
+  if (!keyName) {
+    RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
+    goto end;
+  }
+  DecimalSkiplist *ds = OpenDecimalSkiplistIndex(sctx, keyName, &keyp);
+  if (!ds) {
+    RedisModule_ReplyWithError(sctx->redisCtx, "can not open decimal field");
+    goto end;
+  }
+
+  size_t invIdxBulkLen = 0;
+  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+
+  //REPLY_WITH_LONG_LONG("numRanges", ds->numRanges, invIdxBulkLen);
+  REPLY_WITH_LONG_LONG("numEntries", ds->numEntries, invIdxBulkLen);
+  REPLY_WITH_LONG_LONG("lastDocId", ds->lastDocId, invIdxBulkLen);
+  REPLY_WITH_LONG_LONG("revisionId", ds->revisionId, invIdxBulkLen);
+
+  RedisModule_ReplySetArrayLength(ctx, invIdxBulkLen);
+
+end:
+  if (keyp) {
+    RedisModule_CloseKey(keyp);
+  }
+  SearchCtx_Free(sctx);
+  return REDISMODULE_OK;
+}
+
+DEBUG_COMMAND(DumpDecimalIndex) {
+  if (argc != 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+  GET_SEARCH_CTX(argv[0])
+  RedisModuleKey *keyp = NULL;
+  RedisModuleString *keyName = getFieldKeyName(sctx->spec, argv[1], INDEXFLD_T_DECIMAL);
+  if (!keyName) {
+    RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
+    goto end;
+  }
+  DecimalSkiplist *ds = OpenDecimalSkiplistIndex(sctx, keyName, &keyp);
+  if (!ds) {
+    RedisModule_ReplyWithError(sctx->redisCtx, "can not open decimal field");
+    goto end;
+  }
+  DecimalSkiplistNode *currNode;
+  DecimalSkiplistIterator *iter = DecimalSkiplistIterator_New(ds, NULL);
+  size_t resultSize = 0;
+  RedisModule_ReplyWithArray(sctx->redisCtx, REDISMODULE_POSTPONED_ARRAY_LEN);
+  while ((currNode = DecimalSkiplistIterator_Next(iter))) {
+    IndexReader *reader = NewDecimalReader(NULL, currNode->invidx, currNode->value);
+    ReplyReaderResults(reader, sctx->redisCtx);
+    ++resultSize;
+  }
+  RedisModule_ReplySetArrayLength(sctx->redisCtx, resultSize);
+  DecimalSkiplistIterator_Free(iter);
 end:
   if (keyp) {
     RedisModule_CloseKey(keyp);
@@ -621,6 +693,7 @@ typedef struct DebugCommandType {
 
 DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex},
                                {"DUMP_NUMIDX", DumpNumericIndex},
+                               {"DUMP_DECIDX", DumpDecimalIndex},
                                {"DUMP_TAGIDX", DumpTagIndex},
                                {"INFO_TAGIDX", InfoTagIndex},
                                {"IDTODOCID", IdToDocId},
@@ -630,6 +703,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex},
                                {"DUMP_TERMS", DumpTerms},
                                {"INVIDX_SUMMARY", InvertedIndexSummary},
                                {"NUMIDX_SUMMARY", NumericIndexSummary},
+                               {"DECIDX_SUMMARY", DecimalIndexSummary},
                                {"GC_FORCEINVOKE", GCForceInvoke},
                                {"GC_FORCEBGINVOKE", GCForceBGInvoke},
                                {"GIT_SHA", GitSha},

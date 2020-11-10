@@ -169,10 +169,11 @@ size_t InvertedIndex_WriteDecimalEntry(InvertedIndex *idx, t_docId docId, double
 size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder, t_docId docId,
                                        RSIndexResult *entry);
 /* Create a new index reader for numeric records, optionally using a given filter. If the filter
- * is
- * NULL we will return all the records in the index */
+ * is NULL we will return all the records in the index. */
 IndexReader *NewNumericReader(const IndexSpec *sp, InvertedIndex *idx, const NumericFilter *flt);
-IndexReader *NewDecimalReader(const IndexSpec *sp, InvertedIndex *idx, const NumericFilter *flt);
+
+/* Create a new index reader for decimal records. */
+IndexReader *NewDecimalReader(const IndexSpec *sp, InvertedIndex *idx, double value);
 
 /* Get the appropriate encoder for an inverted index given its flags. Returns NULL on invalid flags
  */

@@ -18,6 +18,7 @@
 #include "tag_index.h"
 #include "err.h"
 #include "concurrent_ctx.h"
+#include "decimal_index.h"
 #include "numeric_index.h"
 #include "numeric_filter.h"
 #include "util/strconv.h"
@@ -525,14 +526,14 @@ static IndexIterator *Query_EvalOptionalNode(QueryEvalCtx *q, QueryNode *qn) {
 static IndexIterator *Query_EvalNumericNode(QueryEvalCtx *q, QueryNumericNode *node) {
   const FieldSpec *fs =
       IndexSpec_GetField(q->sctx->spec, node->nf->fieldName, strlen(node->nf->fieldName));
-  if (!fs || (!FIELD_IS(fs, INDEXFLD_T_NUMERIC))) { // && !FIELD_IS(fs, INDEXFLD_T_DECIMAL))) {
+  if (!fs || (!FIELD_IS(fs, INDEXFLD_T_NUMERIC) && !FIELD_IS(fs, INDEXFLD_T_DECIMAL))) {
     return NULL;
   }
 
-  return NewNumericFilterIterator(q->sctx, node->nf, q->conc, INDEXFLD_T_NUMERIC);
+  //return NewNumericFilterIterator(q->sctx, node->nf, q->conc, INDEXFLD_T_NUMERIC);
   return FIELD_IS(fs, INDEXFLD_T_NUMERIC) ? 
          NewNumericFilterIterator(q->sctx, node->nf, q->conc, INDEXFLD_T_NUMERIC) :
-         NewNumericFilterIterator(q->sctx, node->nf, q->conc, INDEXFLD_T_DECIMAL);
+         NewDecimalSkiplistIterator(q->sctx, node->nf, q->conc, INDEXFLD_T_DECIMAL);
 }
 
 static IndexIterator *Query_EvalGeofilterNode(QueryEvalCtx *q, QueryGeofilterNode *node,
@@ -954,7 +955,7 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
   }
 
   if (qs->opts.fieldMask && qs->opts.fieldMask != RS_FIELDMASK_ALL && qs->type != QN_NUMERIC &&
-      /*qs->type != QN_DECIMAL && */ qs->type != QN_GEO && qs->type != QN_IDS) {
+      qs->type != QN_DECIMAL && qs->type != QN_GEO && qs->type != QN_IDS) {
     if (!spec) {
       s = sdscatprintf(s, "@%" PRIu64, (uint64_t)qs->opts.fieldMask);
     } else {

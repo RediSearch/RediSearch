@@ -5,6 +5,7 @@
 #include "forward_index.h"
 #include "numeric_filter.h"
 #include "numeric_index.h"
+#include "decimal_index.h"
 #include "rmutil/strings.h"
 #include "rmutil/util.h"
 #include "util/mempool.h"
@@ -479,17 +480,17 @@ FIELD_PREPROCESSOR(decimalPreprocessor) {
 }
 
 FIELD_BULK_INDEXER(decimalIndexer) {
-  NumericRangeTree *nrsl = bulk->indexDatas[IXFLDPOS_DECIMAL];
-  if (!nrsl) {
+  DecimalSkiplist *ds = bulk->indexDatas[IXFLDPOS_DECIMAL];
+  if (!ds) {
     RedisModuleString *keyName = IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_DECIMAL);
-    nrsl = bulk->indexDatas[IXFLDPOS_DECIMAL] =
-        OpenNumericIndex(ctx, keyName, &bulk->indexKeys[IXFLDPOS_DECIMAL]);
-    if (!nrsl) {
+    ds = bulk->indexDatas[IXFLDPOS_DECIMAL] =
+        OpenDecimalSkiplistIndex(ctx, keyName, &bulk->indexKeys[IXFLDPOS_DECIMAL]);
+    if (!ds) {
       QueryError_SetError(status, QUERY_EGENERIC, "Could not open decimal index for indexing");
       return -1;
     }
   }
-  NRN_AddRv rv = NumericRangeTree_Add(nrsl, aCtx->doc.docId, fdata->decimal); // TODO:decimal
+  NRN_AddRv rv = DecimalSkiplist_Add(ds, aCtx->doc.docId, fdata->decimal); // TODO:decimal
   ctx->spec->stats.invertedSize += rv.sz;  // TODO: exact amount
   ctx->spec->stats.numRecords += rv.numRecords;
   return 0;
@@ -557,7 +558,7 @@ static PreprocessorFunc preprocessorMap[] = {
     // nl break
     [IXFLDPOS_FULLTEXT] = fulltextPreprocessor,
     [IXFLDPOS_NUMERIC] = numericPreprocessor,
-//   [IXFLDPOS_DECIMAL] = decimalPreprocessor,
+    [IXFLDPOS_DECIMAL] = decimalPreprocessor,
     [IXFLDPOS_GEO] = geoPreprocessor,
     [IXFLDPOS_TAG] = tagPreprocessor};
 

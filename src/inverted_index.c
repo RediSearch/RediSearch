@@ -915,13 +915,14 @@ IndexReader *NewNumericReader(const IndexSpec *sp, InvertedIndex *idx, const Num
   return NewIndexReaderGeneric(sp, idx, procs, ctx, res, 1);
 }
 
-IndexReader *NewDecimalReader(const IndexSpec *sp, InvertedIndex *idx, const NumericFilter *flt) {
+IndexReader *NewDecimalReader(const IndexSpec *sp, InvertedIndex *idx, double value) {
   RSIndexResult *res = NewDecimalResult();
   res->freq = 1;
   res->fieldMask = RS_FIELDMASK_ALL;
-  res->dec.value = 0;
+  res->dec.value = value;
 
-  IndexDecoderCtx ctx = {.ptr = (void *)flt};
+  //IndexDecoderCtx ctx = {.ptr = (void *)flt};
+  IndexDecoderCtx ctx = {0};
   IndexDecoderProcs procs = {.decoder = readDecimal};
   return NewIndexReaderGeneric(sp, idx, procs, ctx, res, 1);
 }
@@ -1326,9 +1327,6 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepa
   BufferReader br = NewBufferReader(&blk->buf);
   BufferWriter bw = NewBufferWriter(&repair);
 
-  RSIndexResult *res = flags == Index_StoreNumeric ? NewNumericResult() : NewTokenRecord(NULL, 1);
-
-/*
   RSIndexResult *res;
   switch (flags)  {
   case Index_StoreNumeric:
@@ -1340,7 +1338,8 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepa
   default:
     res = NewTokenRecord(NULL, 1);
     break;
-  }*/
+  }
+
   size_t frags = 0;
   int isLastValid = 0;
 

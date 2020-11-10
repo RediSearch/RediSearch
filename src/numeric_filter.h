@@ -21,6 +21,12 @@ typedef struct NumericFilter {
   const void *geoFilter;
 } NumericFilter;
 
+typedef struct {
+  int sz;
+  int numRecords;
+  uint32_t changed;
+} NRN_AddRv;
+
 NumericFilter *NewNumericFilter(double min, double max, int inclusiveMin, int inclusiveMax);
 NumericFilter *NumericFilter_Parse(ArgsCursor *ac, QueryError *status);
 void NumericFilter_Free(NumericFilter *nf);

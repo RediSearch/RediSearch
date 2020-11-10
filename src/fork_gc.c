@@ -4,6 +4,7 @@
 #include "inverted_index.h"
 #include "redis_index.h"
 #include "numeric_index.h"
+#include "decimal_index.h"
 #include "tag_index.h"
 #include "time_sample.h"
 #include <stdlib.h>
@@ -468,24 +469,24 @@ static void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
   // we are done with numeric fields
   FGC_sendTerminator(gc);
 }
- /*
+
 static void FGC_childCollectDecimal(ForkGC *gc, RedisSearchCtx *sctx) {
   RedisModuleKey *idxKey = NULL;
-  FieldSpec **numericFields = getFieldsByType(sctx->spec, INDEXFLD_T_DECIMAL);
+  FieldSpec **decimalFields = getFieldsByType(sctx->spec, INDEXFLD_T_DECIMAL);
 
-  for (int i = 0; i < array_len(numericFields); ++i) {
+  for (int i = 0; i < array_len(decimalFields); ++i) {
     RedisModuleString *keyName =
-        IndexSpec_GetFormattedKey(sctx->spec, numericFields[i], INDEXFLD_T_DECIMAL);
-    NumericRangeTree *rt = OpenNumericIndex(sctx, keyName, &idxKey);
+        IndexSpec_GetFormattedKey(sctx->spec, decimalFields[i], INDEXFLD_T_DECIMAL);
+    DecimalSkiplist *ds = OpenDecimalSkiplistIndex(sctx, keyName, &idxKey);
 
-    NumericRangeTreeIterator *gcIterator = NumericRangeTreeIterator_New(rt);
+    DecimalSkiplistIterator *gcIterator = DecimalSkiplistIterator_New(ds, NULL);
 
-    NumericRangeNode *curr = NULL;
-    tagNumHeader header = {.field = numericFields[i]->name, .uniqueId = rt->uniqueId};
+    DecimalSkiplistNode *curr = NULL;
+    tagNumHeader header = {.field = decimalFields[i]->name, .uniqueId = ds->uniqueId};
 
-    while ((curr = NumericRangeTreeIterator_Next(gcIterator))) {
+    while ((curr = DecimalSkiplistIterator_Next(gcIterator))) {
       numCbCtx nctx = {0};
-      InvertedIndex *idx = curr->range->entries;
+      InvertedIndex *idx = curr->invidx;
       nctx.lastblk = idx->blocks + idx->size - 1;
       IndexRepairParams params = {.RepairCallback = countDeleted, .arg = &nctx};
       header.curPtr = curr;
@@ -515,12 +516,12 @@ static void FGC_childCollectDecimal(ForkGC *gc, RedisSearchCtx *sctx) {
       RedisModule_CloseKey(idxKey);
     }
 
-    NumericRangeTreeIterator_Free(gcIterator);
+    DecimalSkiplistIterator_Free(gcIterator);
   }
 
   // we are done with numeric fields
   FGC_sendTerminator(gc);
-} */
+}
 
 static void FGC_childCollectTags(ForkGC *gc, RedisSearchCtx *sctx) {
   RedisModuleKey *idxKey = NULL;
@@ -570,7 +571,7 @@ static void FGC_childScanIndexes(ForkGC *gc) {
 
   FGC_childCollectTerms(gc, sctx);
   FGC_childCollectNumeric(gc, sctx);
-  //FGC_childCollectDecimal(gc, sctx);
+  FGC_childCollectDecimal(gc, sctx);
   FGC_childCollectTags(gc, sctx);
 
   SearchCtx_Free(sctx);
@@ -854,6 +855,17 @@ typedef struct {
   MSG_IndexInfo info;
 } NumGcInfo;
 
+typedef struct {
+  // Node in the tree that was GC'd
+  DecimalSkiplistNode *node;
+  CardinalityValue *lastBlockDeleted; // TODO:remove
+  CardinalityValue *restBlockDeleted; // TODO:remove
+  size_t nlastBlockDel;
+  size_t nrestBlockDel;
+  InvIdxBuffers idxbufs;
+  MSG_IndexInfo info;
+} DecGcInfo;
+
 static int recvCardvals(ForkGC *fgc, CardinalityValue **tgt, size_t *len) {
   if (FGC_recvFixed(fgc, len, sizeof(*len)) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
@@ -872,6 +884,36 @@ static int recvCardvals(ForkGC *fgc, CardinalityValue **tgt, size_t *len) {
 }
 
 static FGCError recvNumIdx(ForkGC *gc, NumGcInfo *ninfo) {
+  if (FGC_recvFixed(gc, &ninfo->node, sizeof(ninfo->node)) != REDISMODULE_OK) {
+    goto error;
+  }
+  if (ninfo->node == NULL) {
+    return FGC_DONE;
+  }
+
+  if (FGC_recvInvIdx(gc, &ninfo->idxbufs, &ninfo->info) != REDISMODULE_OK) {
+    goto error;
+  }
+
+  if (recvCardvals(gc, &ninfo->restBlockDeleted, &ninfo->nrestBlockDel) != REDISMODULE_OK) {
+    goto error;
+  }
+  if (recvCardvals(gc, &ninfo->lastBlockDeleted, &ninfo->nlastBlockDel) != REDISMODULE_OK) {
+    goto error;
+  }
+
+  return FGC_COLLECTED;
+
+error:
+  printf("Error receiving numeric index!\n");
+  freeInvIdx(&ninfo->idxbufs, &ninfo->info);
+  rm_free(ninfo->lastBlockDeleted);
+  rm_free(ninfo->restBlockDeleted);
+  memset(ninfo, 0, sizeof(*ninfo));
+  return FGC_CHILD_ERROR;
+}
+
+static FGCError recvDecIdx(ForkGC *gc, DecGcInfo *ninfo) {
   if (FGC_recvFixed(gc, &ninfo->node, sizeof(ninfo->node)) != REDISMODULE_OK) {
     goto error;
   }
@@ -966,6 +1008,18 @@ static void applyNumIdx(ForkGC *gc, RedisSearchCtx *sctx, NumGcInfo *ninfo) {
   resetCardinality(ninfo, currNode);
 }
 
+static void applyDecIdx(ForkGC *gc, RedisSearchCtx *sctx, DecGcInfo *ninfo) {
+  DecimalSkiplistNode *currNode = ninfo->node;
+  InvIdxBuffers *idxbufs = &ninfo->idxbufs;
+  MSG_IndexInfo *info = &ninfo->info;
+  FGC_applyInvertedIndex(gc, idxbufs, info, currNode->invidx);
+
+  currNode->invertedIndexSize -= info->nbytesCollected;
+  FGC_updateStats(sctx, gc, info->ndocsCollected, info->nbytesCollected);
+
+  //resetCardinality(ninfo, currNode);
+}
+
 static FGCError FGC_parentHandleNumeric(ForkGC *gc, RedisModuleCtx *rctx) {
   int hasLock = 0;
   size_t fieldNameLen;
@@ -1014,6 +1068,76 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc, RedisModuleCtx *rctx) {
     }
 
     applyNumIdx(gc, sctx, &ninfo);
+
+  loop_cleanup:
+    if (sctx) {
+      SearchCtx_Free(sctx);
+    }
+    if (status != FGC_COLLECTED) {
+      freeInvIdx(&ninfo.idxbufs, &ninfo.info);
+    } else {
+      rm_free(ninfo.idxbufs.changedBlocks);
+    }
+    if (idxKey) {
+      RedisModule_CloseKey(idxKey);
+    }
+    if (hasLock) {
+      FGC_unlock(gc, rctx);
+      hasLock = 0;
+    }
+
+    rm_free(ninfo.restBlockDeleted);
+    rm_free(ninfo.lastBlockDeleted);
+  }
+
+  rm_free(fieldName);
+  return status;
+}
+
+
+static FGCError FGC_parentHandleDecimal(ForkGC *gc, RedisModuleCtx *rctx) {
+  int hasLock = 0;
+  size_t fieldNameLen;
+  char *fieldName = NULL;
+  uint64_t dsUniqueId;
+  FGCError status = recvNumericTagHeader(gc, &fieldName, &fieldNameLen, &dsUniqueId);
+  if (status == FGC_DONE) {
+    return FGC_DONE;
+  }
+
+  while (status == FGC_COLLECTED) {
+    DecGcInfo ninfo = {0};
+    RedisSearchCtx *sctx = NULL;
+    RedisModuleKey *idxKey = NULL;
+    FGCError status2 = recvDecIdx(gc, &ninfo);
+    if (status2 == FGC_DONE) {
+      break;
+    } else if (status2 != FGC_COLLECTED) {
+      status = status2;
+      break;
+    }
+
+    if (!FGC_lock(gc, rctx)) {
+      status = FGC_PARENT_ERROR;
+      goto loop_cleanup;
+    }
+
+    hasLock = 1;
+    sctx = FGC_getSctx(gc, rctx);
+    if (!sctx || sctx->spec->uniqueId != gc->specUniqueId) {
+      status = FGC_PARENT_ERROR;
+      goto loop_cleanup;
+    }
+    RedisModuleString *keyName =
+        IndexSpec_GetFormattedKeyByName(sctx->spec, fieldName, INDEXFLD_T_DECIMAL);
+    DecimalSkiplist *ds = OpenDecimalSkiplistIndex(sctx, keyName, &idxKey);
+
+    if (ds->uniqueId != dsUniqueId) {
+      status = FGC_PARENT_ERROR;
+      goto loop_cleanup;
+    }
+
+    applyDecIdx(gc, sctx, &ninfo);
 
   loop_cleanup:
     if (sctx) {
@@ -1127,7 +1251,7 @@ int FGC_parentHandleFromChild(ForkGC *gc) {
 
   COLLECT_FROM_CHILD(FGC_parentHandleTerms(gc, gc->ctx));
   COLLECT_FROM_CHILD(FGC_parentHandleNumeric(gc, gc->ctx));
-  //COLLECT_FROM_CHILD(FGC_parentHandleDecimal(gc, gc->ctx));
+  COLLECT_FROM_CHILD(FGC_parentHandleDecimal(gc, gc->ctx));
   COLLECT_FROM_CHILD(FGC_parentHandleTags(gc, gc->ctx));
   return REDISMODULE_OK;
 }
