@@ -203,7 +203,8 @@ NRN_AddRv NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value)
 
     // split this node but don't delete its range
     double split = NumericRange_Split(n->range, &n->left, &n->right, &rv);
-    if (NR_MAX_DEPTH_RANGE == 0) {
+    // in concurrent mode we don't trim range right away 
+    if (NR_MAX_DEPTH_RANGE == 0 && RSGlobalConfig.concurrentMode == 0) {
       removeRange(n, &rv);
     }
     n->value = split;
