@@ -341,12 +341,12 @@ ENCODER(encodeNumeric) {
   } else {
     // Floating point
     NumEncodingFloat *encFloat = &header.encFloat;
-    if (absVal == f32Num) {	
+    if (absVal == f32Num) {
       sz += Buffer_Write(bw, (void *)&f32Num, 4);
-      encFloat->isDouble = 0;	
-    } else {	
-      sz += Buffer_Write(bw, (void *)&absVal, 8);	
-      encFloat->isDouble = 1;	
+      encFloat->isDouble = 0;
+    } else {
+      sz += Buffer_Write(bw, (void *)&absVal, 8);
+      encFloat->isDouble = 1;
     }
 
     encFloat->isFloat = 1;
