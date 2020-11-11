@@ -12,7 +12,8 @@
 #define NR_EXPONENT 4
 #define NR_MAXRANGE_CARD 2500
 #define NR_MAXRANGE_SIZE 10000
-#define NR_MAX_DEPTH 2
+#define NR_MAX_DEPTH_BALANCE 2
+#define NR_MAX_DEPTH_RANGE 0
 
 typedef struct {
   IndexIterator *it;
@@ -132,6 +133,15 @@ NumericRangeNode *NewLeafNode(size_t cap, double min, double max, size_t splitCa
   return n;
 }
 
+static void removeRange(NumericRangeNode *n, NRN_AddRv *rv) {
+  rv->sz -= n->range->invertedIndexSize;
+  rv->numRecords -= n->range->entries->numDocs;
+  InvertedIndex_Free(n->range->entries);
+  array_free(n->range->values);
+  rm_free(n->range);
+  n->range = NULL;
+}
+
 NRN_AddRv NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value) {
   NRN_AddRv rv = {.sz = 0, .changed = 0, .numRecords = 0};
   if (!NumericRangeNode_IsLeaf(n)) {
@@ -154,19 +164,23 @@ NRN_AddRv NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value)
 
     if (rv.changed) {
       // if there was a split it means our max depth has increased.
-      ++n->maxDepth;
+      // we are too deep - we don't retain this node's range anymore.
+      // this keeps memory footprint in check
+      if (++n->maxDepth > NR_MAX_DEPTH_RANGE && n->range) {
+        removeRange(n, &rv);
+      }
 
       // check if we need to rebalance the child.
       // To ease the rebalance we don't rebalance the root
       // nor do we rebalance nodes that are with ranges (n->maxDepth > NR_MAX_DEPTH)
-      if ((child->right->maxDepth - child->left->maxDepth) > NR_MAX_DEPTH) {  // role to the left
+      if ((child->right->maxDepth - child->left->maxDepth) > NR_MAX_DEPTH_BALANCE) {  // role to the left
         NumericRangeNode *right = child->right;
         child->right = right->left;
         right->left = child;
         --child->maxDepth;
         *childP = right;  // replace the child with the new child
       } else if ((child->left->maxDepth - child->right->maxDepth) >
-                 NR_MAX_DEPTH) {  // role to the right
+                 NR_MAX_DEPTH_BALANCE) {  // role to the right
         NumericRangeNode *left = child->left;
         child->left = left->right;
         left->right = child;
@@ -189,17 +203,10 @@ NRN_AddRv NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value)
 
     // split this node but don't delete its range
     double split = NumericRange_Split(n->range, &n->left, &n->right, &rv);
-
-    // free range of parent
-    rv.sz -= n->range->invertedIndexSize;
-    rv.numRecords -= n->range->entries->numDocs;
-    InvertedIndex_Free(n->range->entries);
-    array_free(n->range->values);
-    rm_free(n->range);
-    n->range = NULL;
-
+    if (NR_MAX_DEPTH_RANGE == 0) {
+      removeRange(n, &rv);
+    }
     n->value = split;
-
     n->maxDepth = 1;
     rv.changed = 1;
   }
@@ -299,8 +306,8 @@ NRN_AddRv NumericRangeTree_Add(NumericRangeTree *t, t_docId docId, double value)
   // will abort the next time they get execution context
   if (rv.changed) {
     t->revisionId++;
+    t->numRanges++;
   }
-  t->numRanges += rv.changed;
   t->numEntries++;
 
   return rv;
