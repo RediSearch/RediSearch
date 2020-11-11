@@ -76,7 +76,8 @@ TEST_F(RangeTest, testRangeIterator) {
     double min = (double)(1 + prng() % (N / 5));
     double max = (double)(1 + prng() % (N / 5));
     memset(&matched[0], 0, sizeof(uint8_t) * (N + 1));
-    NumericFilter *flt = NewNumericFilter(std::min(min, max), std::max(min, max), 1, 1);
+    NumericFilter *flt = NewNumericFilter(std::min(min, max), std::max(min, max),
+                                         (decNumber){0}, (decNumber){0}, 1, 1);
 
     // count the number of elements in the range
     size_t count = 0;

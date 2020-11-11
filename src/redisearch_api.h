@@ -2,6 +2,7 @@
 #define SRC_REDISEARCH_API_H_
 
 #include "redismodule.h"
+#include "dep/decNumber/decNumber.h"
 #include <limits.h>
 
 #ifdef __cplusplus
@@ -167,7 +168,7 @@ MODULE_API_FUNC(RSQNode*, RediSearch_CreateNumericNode)
 (RSIndex* sp, const char* field, double max, double min, int includeMax, int includeMin);
 
 MODULE_API_FUNC(RSQNode*, RediSearch_CreateDecimalNode)
-(RSIndex* sp, const char* field, double max, double min, int includeMax, int includeMin);
+(RSIndex* sp, const char* field, decNumber min, decNumber max, int includeMax, int includeMin);
 
 MODULE_API_FUNC(RSQNode*, RediSearch_CreatePrefixNode)
 (RSIndex* sp, const char* fieldName, const char* s);

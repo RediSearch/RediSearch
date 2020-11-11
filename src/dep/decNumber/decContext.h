@@ -84,6 +84,8 @@
     #endif
     } decContext;
 
+  extern decContext decCtx_g;
+
   /* Maxima and Minima for context settings                           */
   #define DEC_MAX_DIGITS 999999999
   #define DEC_MIN_DIGITS         1

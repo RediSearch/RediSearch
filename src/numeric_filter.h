@@ -4,6 +4,7 @@
 #include "search_ctx.h"
 #include "rmutil/args.h"
 #include "query_error.h"
+#include "dep/decNumber/decNumber.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -16,6 +17,8 @@ typedef struct NumericFilter {
   char *fieldName;
   double min;
   double max;
+  decNumber decMin;
+  decNumber decMax;
   int inclusiveMin;
   int inclusiveMax;
   const void *geoFilter;
@@ -27,7 +30,9 @@ typedef struct {
   uint32_t changed;
 } NRN_AddRv;
 
-NumericFilter *NewNumericFilter(double min, double max, int inclusiveMin, int inclusiveMax);
+NumericFilter *NewNumericFilter(double min, double max,
+                                decNumber decMin, decNumber decMax,
+                                int inclusiveMin, int inclusiveMax);
 NumericFilter *NumericFilter_Parse(ArgsCursor *ac, QueryError *status);
 void NumericFilter_Free(NumericFilter *nf);
 

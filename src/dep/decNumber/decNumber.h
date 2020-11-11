@@ -17,6 +17,8 @@
 /*   IBM UK, PO Box 31, Birmingham Road, Warwick CV34 5JL, UK         */
 /* ------------------------------------------------------------------ */
 
+#pragma once
+
 #if !defined(DECNUMBER)
 
   // Config for RediSearch

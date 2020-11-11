@@ -81,11 +81,15 @@ void NumericFilter_Free(NumericFilter *nf) {
   rm_free(nf);
 }
 
-NumericFilter *NewNumericFilter(double min, double max, int inclusiveMin, int inclusiveMax) {
+NumericFilter *NewNumericFilter(double min, double max,
+                                decNumber decMin, decNumber decMax,
+                                int inclusiveMin, int inclusiveMax) {
   NumericFilter *f = rm_malloc(sizeof(NumericFilter));
 
   f->min = min;
   f->max = max;
+  f->decMin = decMin;
+  f->decMax = decMax;
   f->fieldName = NULL;
   f->inclusiveMax = inclusiveMax;
   f->inclusiveMin = inclusiveMin;

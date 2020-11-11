@@ -3,6 +3,7 @@
 
 #include <stdlib.h>
 #include "../tokenize.h"
+#include "dep/decNumber/decNumber.h"
 
 /* A query-specific tokenizer, that reads symbols like quots, pipes, etc */
 typedef struct {
@@ -27,11 +28,13 @@ typedef struct {
   int pos;
   char *field;
   double numval;
+  decNumber decval;
   // QueryTokenType ;
 } QueryToken;
 
 typedef struct {
   double num;
+  decNumber dec;
   int inclusive;
 } RangeNumber;
 

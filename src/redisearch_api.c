@@ -253,16 +253,16 @@ QueryNode* RediSearch_CreateTokenNode(IndexSpec* sp, const char* fieldName, cons
 QueryNode* RediSearch_CreateNumericNode(IndexSpec* sp, const char* field, double max, double min,
                                         int includeMax, int includeMin) {
   QueryNode* ret = NewQueryNode(QN_NUMERIC);
-  ret->nn.nf = NewNumericFilter(min, max, includeMin, includeMax);
+  ret->nn.nf = NewNumericFilter(min, max, (decNumber){0}, (decNumber){0}, includeMin, includeMax);
   ret->nn.nf->fieldName = rm_strdup(field);
   ret->opts.fieldMask = IndexSpec_GetFieldBit(sp, field, strlen(field));
   return ret;
 }
 
-QueryNode* RediSearch_CreateDecimalNode(IndexSpec* sp, const char* field, double max, double min,
+QueryNode* RediSearch_CreateDecimalNode(IndexSpec* sp, const char* field, decNumber min, decNumber max,
                                         int includeMax, int includeMin) {
   QueryNode* ret = NewQueryNode(QN_DECIMAL);
-  ret->nn.nf = NewNumericFilter(min, max, includeMin, includeMax);
+  ret->nn.nf = NewNumericFilter(0, 0, min, max, includeMin, includeMax);
   ret->nn.nf->fieldName = rm_strdup(field);
   ret->opts.fieldMask = IndexSpec_GetFieldBit(sp, field, strlen(field));
   return ret;

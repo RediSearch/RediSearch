@@ -513,7 +513,7 @@ expr(A) ::= modifier(B) COLON numeric_range(C). {
 }
 
 numeric_range(A) ::= LSQB num(B) num(C) RSQB. [NUMBER] {
-    A = NewNumericFilter(B.num, C.num, B.inclusive, C.inclusive);
+    A = NewNumericFilter(B.num, C.num, B.dec, C.dec, B.inclusive, C.inclusive);
 }
 
 /////////////////////////////////////////////////////////////////
@@ -545,6 +545,7 @@ geo_filter(A) ::= LSQB num(B) num(C) num(D) TERM(E) RSQB. [NUMBER] {
 /////////////////////////////////////////////////////////////////
 num(A) ::= NUMBER(B). {
     A.num = B.numval;
+    A.dec = B.decval;
     A.inclusive = 1;
 }
 

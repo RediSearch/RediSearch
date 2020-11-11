@@ -29,6 +29,7 @@
 static  const  Int mfcone=1;                       // constant 1
 static  const  Flag *mfctop=(const Flag *)&mfcone; // -> top byte
 #define LITEND *mfctop        // named flag; 1=little-endian
+decContext decCtx_g;
 
 /* ------------------------------------------------------------------ */
 /* round-for-reround digits                                           */
