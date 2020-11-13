@@ -2363,7 +2363,6 @@ def testCriteriaTesterDeactivated():
     res = env.execute_command('ft.search', 'idx', '(hey hello1)|(hello2 hey)')
     expected = [2L, 'doc1', ['t1', 'hello1 hey hello2'], 'doc2', ['t1', 'hello2 hey']]
     env.assertEqual(toSortedFlatList(res), toSortedFlatList(expected))
-    # env.expect('ft.search', 'idx', '(hey hello1)|(hello2 hey)').equal([2L, 'doc1', ['t1', 'hello1 hey hello2'], 'doc2', ['t1', 'hello2 hey']])
 
 def testIssue828(env):
     env.cmd('ft.create', 'beers', 'ON', 'HASH', 'SCHEMA',
