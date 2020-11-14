@@ -1,15 +1,16 @@
 
 #pragma once
 
-#include "redismodule.h"
 #include "search_ctx.h"
 #include "spec.h"
 #include "redisearch.h"
 #include "tokenize.h"
 #include "concurrent_ctx.h"
 #include "byte_offsets.h"
-#include "rmutil/args.h"
 #include "query_error.h"
+
+#include "redismodule.h"
+#include "rmutil/args.h"
 
 #include <pthread.h>
 
@@ -32,11 +33,15 @@
  * See document.c for the internals.
  */
 
+//---------------------------------------------------------------------------------------------
+
 struct DocumentField {
   const char *name;  // Can either be char or RMString
   RedisModuleString *text;
   FieldType indexAs;
 };
+
+//---------------------------------------------------------------------------------------------
 
 struct Document {
   RedisModuleString *docKey;
@@ -48,7 +53,29 @@ struct Document {
   const char *payload;
   size_t payloadSize;
   uint32_t flags;
+
+  Document(RedisModuleString *docKey, double score, RSLanguage lang);
+  ~Document();
+
+  int ReplyFields(RedisModuleCtx *ctx);
+  DocumentField *GetField(const char *fieldName);
+
+  void AddField(const char *fieldname, RedisModuleString *fieldval, uint32_t typemask);
+  void AddFieldC(const char *fieldname, const char *val, size_t vallen, uint32_t typemask);
+
+  void SetPayload(const void *payload, size_t n);
+  void MakeStringsOwner();
+  void MakeRefOwner();
+  void Clear();
+
+  static void Move(Document *dst, Document *src);
+
+  int LoadSchemaFields(RedisSearchCtx *sctx);
+  int LoadAllFields(RedisModuleCtx *ctx);
+  void LoadPairwiseArgs(RedisModuleString **args, size_t nargs);
 };
+
+//---------------------------------------------------------------------------------------------
 
 /**
  * Document should decrement the reference count to the contained strings. Used
@@ -73,6 +100,8 @@ struct Document {
  */
 #define DOCUMENT_F_DEAD 0x08
 
+//---------------------------------------------------------------------------------------------
+
 struct RSAddDocumentCtx;
 
 typedef void (*DocumentAddCompleted)(struct RSAddDocumentCtx *, RedisModuleCtx *, void *);
@@ -88,83 +117,7 @@ struct AddDocumentOptions {
   DocumentAddCompleted donecb;      // Callback to invoke when operation is done
 };
 
-void Document_AddField(Document *d, const char *fieldname, RedisModuleString *fieldval,
-                       uint32_t typemask);
-
-/**
- * Add a simple char buffer value. This creates an RMString internally, so this
- * must be used with F_OWNSTRINGS
- */
-void Document_AddFieldC(Document *d, const char *fieldname, const char *val, size_t vallen,
-                        uint32_t typemask);
-/**
- * Initialize document structure with the relevant fields. numFields will allocate
- * the fields array, but you must still actually copy the data along.
- *
- * Note that this function assumes that the pointers passed in will remain valid
- * throughout the lifetime of the document. If you need to make independent copies
- * of the data within the document, call Document_Detach on the document (after
- * calling this function).
- */
-void Document_Init(Document *doc, RedisModuleString *docKey, double score, RSLanguage lang);
-void Document_SetPayload(Document *doc, const void *payload, size_t n);
-
-/**
- * Make the document the owner of the strings it contains
- */
-void Document_MakeStringsOwner(Document *doc);
-
-/**
- * Make the document object steal references to the document's strings.
- */
-void Document_MakeRefOwner(Document *doc);
-
-/**
- * Clear the document of its fields. This does not free the document
- * or clear its name
- */
-void Document_Clear(Document *doc);
-
-/**
- * Move the contents of one document to another. This also manages ownership
- * semantics
- */
-void Document_Move(Document *dst, Document *src);
-
-/**
- * Load all fields specified in the schema to the document. Note that
- * the document must then be freed using Document_Free().
- *
- * The document must already have the docKey set
- */
-int Document_LoadSchemaFields(Document *doc, RedisSearchCtx *sctx);
-
-/**
- * Load all the fields into the document.
- */
-int Document_LoadAllFields(Document *doc, RedisModuleCtx *ctx);
-
-void Document_LoadPairwiseArgs(Document *doc, RedisModuleString **args, size_t nargs);
-
-/**
- * Print contents of document to screen
- */
-void Document_Dump(const Document *doc); // LCOV_EXCL_LINE debug
-/**
- * Free any copied data within the document. anyCtx is any non-NULL
- * RedisModuleCtx. The reason for requiring a context is more related to the
- * Redis Module API requiring a context for AutoMemory purposes, though in
- * this case, the pointers are already removed from AutoMemory manangement
- * anyway.
- *
- * This function also calls Document_Free
- */
-void Document_FreeDetached(Document *doc, RedisModuleCtx *anyCtx);
-
-/**
- * Free the document's internals (like the field array).
- */
-void Document_Free(Document *doc);
+//---------------------------------------------------------------------------------------------
 
 #define DOCUMENT_ADD_REPLACE 0x01
 #define DOCUMENT_ADD_PARTIAL 0x02
@@ -174,6 +127,8 @@ void Document_Free(Document *doc);
 
 struct ForwardIndex;
 struct FieldIndexerData;
+
+//---------------------------------------------------------------------------------------------
 
 // The context has had its forward entries merged in the merge table. We can
 // skip merging its tokens
@@ -198,12 +153,16 @@ struct FieldIndexerData;
 // Document is entirely empty (no sortables, indexables)
 #define ACTX_F_EMPTY 0x40
 
+//---------------------------------------------------------------------------------------------
+
 struct DocumentIndexer;
 
 // Context used when indexing documents
+
 struct RSAddDocumentCtx {
   struct RSAddDocumentCtx *next;  // Next context in the queue
   Document doc;                   // Document which is being indexed
+
   union {
     RedisModuleBlockedClient *bc;  // Client
     RedisSearchCtx *sctx;
@@ -226,7 +185,7 @@ struct RSAddDocumentCtx {
   // Information about each field in the document. This is read from the spec
   // and cached, so that we can look it up without holding the GIL
   FieldSpec *fspecs;
-  RSTokenizer *tokenizer;
+  Tokenizer *tokenizer;
 
   // Old document data. Contains sortables
   RSDocumentMetadata *oldMd;
@@ -243,76 +202,34 @@ struct RSAddDocumentCtx {
   uint8_t stateFlags;    // Indexing state, ACTX_F_xxx
   DocumentAddCompleted donecb;
   void *donecbData;
+
+  RSAddDocumentCtx(IndexSpec *sp, Document *base, QueryError *status);
+  ~RSAddDocumentCtx();
+
+  void Submit(RedisSearchCtx *sctx, uint32_t options);
+
+  void Finish();
+  int AddToIndexes();
+
+  bool IsBlockable() const { return !(stateFlags & ACTX_F_NOBLOCK); }
 };
 
-#define AddDocumentCtx_IsBlockable(aCtx) (!((aCtx)->stateFlags & ACTX_F_NOBLOCK))
+//---------------------------------------------------------------------------------------------
 
-/**
- * Creates a new context used for adding documents. Once created, call
- * Document_AddToIndexes on it.
- *
- * - client is a blocked client which will be used as the context for this
- *   operation.
- * - sp is the index that this document will be added to
- * - base is the document to be index. The context will take ownership of the
- *   document's contents (but not the structure itself). Thus, you should not
- *   call Document_Free on the document after a successful return of this
- *   function.
- *
- * When done, call AddDocumentCtx_Free
- */
-RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *base, QueryError *status);
-
-/**
- * At this point the context will take over from the caller, and handle sending
- * the replies and so on.
- */
-void AddDocumentCtx_Submit(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, uint32_t options);
-
-/**
- * Indicate that processing is finished on the current document
- */
-void AddDocumentCtx_Finish(RSAddDocumentCtx *aCtx);
-/**
- * This function will tokenize the document and add the resultant tokens to
- * the relevant inverted indexes. This function should be called from a
- * worker thread (see ConcurrentSearch functions).
- *
- *
- * When this function completes, it will send the reply to the client and
- * unblock the client passed when the context was first created.
- */
-int Document_AddToIndexes(RSAddDocumentCtx *ctx);
-
-/**
- * Free the AddDocumentCtx. Should be done once AddToIndexes() completes; or
- * when the client is unblocked.
- */
-void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx);
-
-/* Evaluate an IF expression (e.g. IF "@foo == 'bar'") against a document, by getting the
- * properties from the sorting table or from the hash representation of the document.
- *
- * NOTE: This is disconnected from the document indexing flow, and loads the document and discards
- * of it internally
- *
- * Returns  REDISMODULE_ERR on failure, OK otherwise*/
 int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const char *expr,
                             int *result, QueryError *err);
 
+//---------------------------------------------------------------------------------------------
+
 // Don't create document if it does not exist. Replace only
 #define REDIS_SAVEDOC_NOCREATE 0x01
-/**
- * Save a document in the index. Used for returning contents in search results.
- */
+
 int Redis_SaveDocument(RedisSearchCtx *ctx, Document *doc, int options, QueryError *status);
 
-/* Serialzie the document's fields to a redis client */
-int Document_ReplyFields(RedisModuleCtx *ctx, Document *doc);
-
-DocumentField *Document_GetField(Document *d, const char *fieldName);
+//---------------------------------------------------------------------------------------------
 
 // Document add functions:
+
 int RSAddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int RSSafeAddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int RSAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);

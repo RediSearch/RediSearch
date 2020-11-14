@@ -2,34 +2,26 @@
 #include "util/dict.h"
 #include "rmutil/rm_assert.h"
 
-AliasTable *AliasTable_g = NULL;
+///////////////////////////////////////////////////////////////////////////////////////////////
 
-AliasTable *AliasTable_New(void) {
-  AliasTable *t = rm_calloc(1, sizeof(*t));
-  t->d = dictCreate(&dictTypeHeapStrings, NULL);
-  return t;
+AliasTable::AliasTable() {
+  d = dictCreate(&dictTypeHeapStrings, NULL);
 }
 
-void IndexAlias_InitGlobal(void) {
-  AliasTable_g = AliasTable_New();
+//---------------------------------------------------------------------------------------------
+
+AliasTable::~AliasTable() {
+  dictRelease(d);
 }
 
-void IndexAlias_DestroyGlobal(void) {
-  if (!AliasTable_g) {
-    return;
-  }
-  dictRelease(AliasTable_g->d);
-  rm_free(AliasTable_g);
-  AliasTable_g = NULL;
-}
+//---------------------------------------------------------------------------------------------
 
-int AliasTable_Add(AliasTable *table, const char *alias, IndexSpec *spec, int options,
-                   QueryError *error) {
+int AliasTable::Add(const char *alias, IndexSpec *spec, int options, QueryError *error) {
   // look up and see if it exists:
   dictEntry *e, *existing = NULL;
-  e = dictAddRaw(table->d, (void *)alias, &existing);
+  e = dictAddRaw(d, (void *)alias, &existing);
   if (existing) {
-    QueryError_SetError(error, QUERY_EINDEXEXISTS, "Alias already exists");
+    error->SetError(QUERY_EINDEXEXISTS, "Alias already exists");
     return REDISMODULE_ERR;
   }
   RS_LOG_ASSERT(e->key != alias, "Alias should be different than key");
@@ -38,18 +30,16 @@ int AliasTable_Add(AliasTable *table, const char *alias, IndexSpec *spec, int op
     char *duped = rm_strdup(alias);
     spec->aliases = array_ensure_append(spec->aliases, &duped, 1, char *);
   }
-  if (table->on_add) {
-    table->on_add(alias, spec);
-  }
   return REDISMODULE_OK;
 }
 
-int AliasTable_Del(AliasTable *table, const char *alias, IndexSpec *spec, int options,
-                   QueryError *error) {
+//---------------------------------------------------------------------------------------------
+
+int AliasTable::Del(const char *alias, IndexSpec *spec, int options, QueryError *error) {
   char *toFree = NULL;
   // ensure that the item exists in the list
   if (!spec->aliases) {
-    QueryError_SetError(error, QUERY_ENOINDEX, "Alias does not belong to provided spec");
+    error->SetError(QUERY_ENOINDEX, "Alias does not belong to provided spec");
     return REDISMODULE_ERR;
   }
 
@@ -62,7 +52,7 @@ int AliasTable_Del(AliasTable *table, const char *alias, IndexSpec *spec, int op
     }
   }
   if (idx == -1) {
-    QueryError_SetError(error, QUERY_ENOINDEX, "Alias does not belong to provided spec");
+    error->SetError(QUERY_ENOINDEX, "Alias does not belong to provided spec");
     return REDISMODULE_ERR;
   }
 
@@ -70,11 +60,8 @@ int AliasTable_Del(AliasTable *table, const char *alias, IndexSpec *spec, int op
     toFree = spec->aliases[idx];
     spec->aliases = array_del_fast(spec->aliases, idx);
   }
-  int rc = dictDelete(table->d, alias);
+  int rc = dictDelete(d, alias);
   RS_LOG_ASSERT(rc == DICT_OK, "Dictionary delete failed");
-  if (table->on_del) {
-    table->on_del(alias, spec);
-  }
 
   if (toFree) {
     rm_free(toFree);
@@ -82,8 +69,10 @@ int AliasTable_Del(AliasTable *table, const char *alias, IndexSpec *spec, int op
   return REDISMODULE_OK;
 }
 
-IndexSpec *AliasTable_Get(AliasTable *tbl, const char *alias) {
-  dictEntry *e = dictFind(tbl->d, alias);
+//---------------------------------------------------------------------------------------------
+
+IndexSpec *AliasTable::Get(const char *alias) {
+  dictEntry *e = dictFind(d, alias);
   if (e) {
     return e->v.val;
   } else {
@@ -91,26 +80,53 @@ IndexSpec *AliasTable_Get(AliasTable *tbl, const char *alias) {
   }
 }
 
-int IndexAlias_Add(const char *alias, IndexSpec *spec, int options, QueryError *status) {
-  return AliasTable_Add(AliasTable_g, alias, spec, options, status);
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+AliasTable *IndexAlias::AliasTable_g = NULL;
+
+//---------------------------------------------------------------------------------------------
+
+void IndexAlias::InitGlobal() {
+  AliasTable_g = new AliasTable();
 }
 
-int IndexAlias_Del(const char *alias, IndexSpec *spec, int options, QueryError *status) {
-  return AliasTable_Del(AliasTable_g, alias, spec, options, status);
-}
+//---------------------------------------------------------------------------------------------
 
-IndexSpec *IndexAlias_Get(const char *alias) {
-  return AliasTable_Get(AliasTable_g, alias);
-}
-
-void IndexSpec_ClearAliases(IndexSpec *sp) {
-  if (!sp->aliases) {
+void IndexAlias_DestroyGlobal() {
+  if (!AliasTable_g) {
     return;
   }
-  for (size_t ii = 0; ii < array_len(sp->aliases); ++ii) {
-    char **pp = sp->aliases + ii;
+  
+  delete AliasTable_g;
+  AliasTable_g = NULL;
+}
+
+int IndexAlias_Add(const char *alias, IndexSpec *spec, int options, QueryError *status) {
+  return AliasTable_g->Add(alias, spec, options, status);
+}
+
+//---------------------------------------------------------------------------------------------
+
+int IndexAlias_Del(const char *alias, IndexSpec *spec, int options, QueryError *status) {
+  return AliasTable_g->Del(alias, spec, options, status);
+}
+
+//---------------------------------------------------------------------------------------------
+
+IndexSpec *IndexAlias_Get(const char *alias) {
+  return AliasTable_g->Get(alias);
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+void IndexSpec::ClearAliases(IndexSpec *sp) {
+  if (!aliases) {
+    return;
+  }
+  for (size_t i = 0; i < array_len(aliases); ++i) {
+    char **pp = &aliases[i];
     QueryError e = {0};
-    int rc = IndexAlias_Del(*pp, sp, INDEXALIAS_NO_BACKREF, &e);
+    int rc = IndexAlias::Del(*pp, sp, INDEXALIAS_NO_BACKREF, &e);
     RS_LOG_ASSERT(rc == REDISMODULE_OK, "Alias delete has failed");
     rm_free(*pp);
     // set to NULL so IndexAlias_Del skips over this
@@ -118,3 +134,5 @@ void IndexSpec_ClearAliases(IndexSpec *sp) {
   }
   array_free(sp->aliases);
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////

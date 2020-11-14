@@ -149,7 +149,7 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   GC_ThreadPoolStart();
 
   // Init cursors mechanism
-  CursorList_Init(&RSCursors);
+  RSCursors = new CursorList();
 
   IndexAlias_InitGlobal();
 

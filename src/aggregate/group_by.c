@@ -1,8 +1,12 @@
-#include <redisearch.h>
-#include <result_processor.h>
-#include <util/block_alloc.h>
-#include <util/khash.h>
+
+#include "redisearch.h"
+#include "result_processor.h"
 #include "reducer.h"
+
+#include "util/block_alloc.h"
+#include "util/khash.h"
+
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 /**
  * A group represents the allocated context of all reducers in a group, and the
@@ -289,6 +293,39 @@ void Grouper_Free(Grouper *g) {
   g->base.Free(&g->base);
 }
 
+/**
+ * Creates a new grouper object. This is equivalent to a GROUPBY clause.
+ * A `Grouper` object contains at the minimum, the keys on which it groups
+ * (indicated by the srckeys) and the keys on which it outputs (indicated by
+ * dstkeys).
+ *
+ * The Grouper will create a new group for each unique cartesian of values found
+ * in srckeys within each row, and invoke associated Reducers (can be added via
+ * @ref Grouper_AddReducer()) within that context.
+ *
+ * The srckeys and dstkeys parameters are mirror images of one another, but are
+ * necessary because a reducer function will convert and reduce one or more
+ * source rows into a single destination row. The srckeys are the values to
+ * group by within the source rows, and the dstkeys are the values as they are
+ * stored within the destination rows. It is assumed that two RLookups are used
+ * like so:
+ *
+ * @code {.c}
+ * RLookup lksrc;
+ * RLookup lkdst;
+ * const char *kname[] = {"foo", "bar", "baz"};
+ * RLookupKey *srckeys[3];
+ * RLookupKey *dstkeys[3];
+ * for (size_t ii = 0; ii < 3; ++ii) {
+ *  srckeys[ii] = RLookup_GetKey(&lksrc, kname[ii], RLOOKUP_F_OCREAT);
+ *  dstkeys[ii] = RLookup_GetKey(&lkdst, kname[ii], RLOOKUP_F_OCREAT);
+ * }
+ * @endcode
+ *
+ * ResultProcessors (and a grouper is a ResultProcessor) before the grouper
+ * should write their data using `lksrc` as a reference point.
+ */
+
 Grouper *Grouper_New(const RLookupKey **srckeys, const RLookupKey **dstkeys, size_t nkeys) {
   Grouper *g = rm_calloc(1, sizeof(*g));
   BlkAlloc_Init(&g->groupsAlloc);
@@ -308,12 +345,24 @@ Grouper *Grouper_New(const RLookupKey **srckeys, const RLookupKey **dstkeys, siz
   return g;
 }
 
+/**
+ * Adds a reducer to the grouper. This must be called before any results are
+ * processed by the grouper.
+ */
+
 void Grouper_AddReducer(Grouper *g, Reducer *r, RLookupKey *dstkey) {
   Reducer **rpp = array_ensure_tail(&g->reducers, Reducer *);
   *rpp = r;
   r->dstkey = dstkey;
 }
 
+/**
+ * Gets the result processor associated with the grouper.
+ * This is used for building the query pipeline
+ */
+
 ResultProcessor *Grouper_GetRP(Grouper *g) {
   return &g->base;
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////

@@ -203,7 +203,7 @@ int RSIndexResult::HasOffsets() const {
 
 //---------------------------------------------------------------------------------------------
 
-IndexResult::~RSIndexResult() {
+RSIndexResult::~RSIndexResult() {
   if (type == RSResultType_Intersection || type == RSResultType_Union) {
     // for deep-copy results we also free the children
     if (isCopy && agg.children) {
@@ -330,6 +330,9 @@ void IndexResult::GetMatchedTerms(RSQueryTerm *arr[], size_t cap, size_t &len) c
 
 //---------------------------------------------------------------------------------------------
 
+// Fill an array of max capacity cap with all the matching text terms for the result.
+// The number of matching terms is returned.
+
 size_t IndexResult::GetMatchedTerms(RSQueryTerm **arr, size_t cap) {
   size_t arrlen = 0;
   GetMatchedTerms(arr, cap, arrlen);
@@ -338,10 +341,9 @@ size_t IndexResult::GetMatchedTerms(RSQueryTerm **arr, size_t cap) {
 
 //---------------------------------------------------------------------------------------------
 
-int __indexResult_withinRangeInOrder(RSOffsetIterator *iters, uint32_t *positions, int num,
+bool __indexResult_withinRangeInOrder(RSOffsetIterator *iters, uint32_t *positions, int num,
                                      int maxSlop) {
   while (1) {
-
     // we start from the beginning, and a span of 0
     int span = 0;
     for (int i = 0; i < num; i++) {
@@ -375,11 +377,11 @@ int __indexResult_withinRangeInOrder(RSOffsetIterator *iters, uint32_t *position
     }
 
     if (span <= maxSlop) {
-      return 1;
+      return true;
     }
   }
 
-  return 0;
+  return false;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -414,7 +416,7 @@ static inline uint32_t _arrayMax(uint32_t *arr, int len, uint32_t *pos) {
 
 /* Check the index result for maximal slop, in an unordered fashion.
  * The algorithm is simple - we find the first offsets min and max such that max-min<=maxSlop */
-int __indexResult_withinRangeUnordered(RSOffsetIterator *iters, uint32_t *positions, int num,
+bool __indexResult_withinRangeUnordered(RSOffsetIterator *iters, uint32_t *positions, int num,
                                        int maxSlop) {
   for (int i = 0; i < num; i++) {
     positions[i] = iters[i].Next(iters[i].ctx, NULL);
@@ -434,7 +436,7 @@ int __indexResult_withinRangeUnordered(RSOffsetIterator *iters, uint32_t *positi
       //        minPos, maxPos, span);
       // if it matches the condition - just return success
       if (span <= maxSlop) {
-        return 1;
+        return true;
       }
     }
 
@@ -452,7 +454,7 @@ int __indexResult_withinRangeUnordered(RSOffsetIterator *iters, uint32_t *positi
     }
   }
 
-  return 0;
+  return false;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -462,15 +464,15 @@ int __indexResult_withinRangeUnordered(RSOffsetIterator *iters, uint32_t *positi
  * maxSlop.
  * e.g. for an exact match, the slop allowed is 0.
  */
-int IndexResult_IsWithinRange(RSIndexResult *ir, int maxSlop, int inOrder) {
 
+bool IndexResult::IsWithinRange(int maxSlop, bool inOrder) const {
   // check if calculation is even relevant here...
-  if ((ir->type & (RSResultType_Term | RSResultType_Virtual | RSResultType_Numeric)) ||
-      ir->agg.numChildren <= 1) {
-    return 1;
+  if ((type & (RSResultType_Term | RSResultType_Virtual | RSResultType_Numeric)) || agg.numChildren <= 1) {
+    return true;
   }
-  RSAggregateResult *r = &ir->agg;
-  int num = r->numChildren;
+
+  RSAggregateResult *r = &agg;
+  int num = numChildren;
 
   // Fill a list of iterators and the last read positions
   RSOffsetIterator iters[num];
@@ -478,16 +480,17 @@ int IndexResult_IsWithinRange(RSIndexResult *ir, int maxSlop, int inOrder) {
   int n = 0;
   for (int i = 0; i < num; i++) {
     // collect only iterators for nodes that can have offsets
-    if (RSIndexResult_HasOffsets(r->children[i])) {
-      iters[n] = RSIndexResult_IterateOffsets(r->children[i]);
+    auto &child = *children[i];
+    if (child.HasOffsets()) {
+      iters[n] = child.IterateOffsets();
       positions[n] = 0;
       n++;
     }
   }
 
-  // No applicable offset children - just return 1
+  // No applicable offset children - just return true
   if (n == 0) {
-    return 1;
+    return true;
   }
 
   int rc;
@@ -498,9 +501,9 @@ int IndexResult_IsWithinRange(RSIndexResult *ir, int maxSlop, int inOrder) {
     rc = __indexResult_withinRangeUnordered(iters, positions, n, maxSlop);
   // printf("slop result for %d: %d\n", ir->docId, rc);
   for (int i = 0; i < n; i++) {
-    iters[i].Free(iters[i].ctx);
+    delete iters[i];
   }
-  return rc;
+  return !!rc;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

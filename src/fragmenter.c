@@ -1,3 +1,4 @@
+
 #include "fragmenter.h"
 #include "toksep.h"
 #include "tokenize.h"
@@ -7,8 +8,12 @@
 #include <sys/uio.h>
 #include "rmutil/rm_assert.h"
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+
 // Estimated characters per token
 #define EST_CHARS_PER_TOK 6
+
+//---------------------------------------------------------------------------------------------
 
 static Fragment *FragmentList_LastFragment(FragmentList *fragList) {
   if (!fragList->frags.len) {
@@ -16,6 +21,8 @@ static Fragment *FragmentList_LastFragment(FragmentList *fragList) {
   }
   return (Fragment *)(fragList->frags.data + (fragList->frags.len - sizeof(Fragment)));
 }
+
+//---------------------------------------------------------------------------------------------
 
 static Fragment *FragmentList_AddFragment(FragmentList *fragList) {
   Fragment *frag = Array_Add(&fragList->frags, sizeof(Fragment));
@@ -25,9 +32,13 @@ static Fragment *FragmentList_AddFragment(FragmentList *fragList) {
   return frag;
 }
 
+//---------------------------------------------------------------------------------------------
+
 static size_t Fragment_GetNumTerms(const Fragment *frag) {
   return ARRAY_GETSIZE_AS(&frag->termLocs, TermLoc);
 }
+
+//---------------------------------------------------------------------------------------------
 
 static int Fragment_HasTerm(const Fragment *frag, uint32_t termId) {
   TermLoc *locs = ARRAY_GETARRAY_AS(&frag->termLocs, TermLoc *);
@@ -43,6 +54,8 @@ static int Fragment_HasTerm(const Fragment *frag, uint32_t termId) {
   }
   return 0;
 }
+
+//---------------------------------------------------------------------------------------------
 
 static Fragment *FragmentList_AddMatchingTerm(FragmentList *fragList, uint32_t termId,
                                               uint32_t tokPos, const char *tokBuf, size_t tokLen,
@@ -78,6 +91,8 @@ static Fragment *FragmentList_AddMatchingTerm(FragmentList *fragList, uint32_t t
   return curFrag;
 }
 
+//---------------------------------------------------------------------------------------------
+
 static void extractToken(FragmentList *fragList, const Token *tokInfo,
                          const FragmentSearchTerm *terms, size_t numTerms) {
   const FragmentSearchTerm *term = NULL;
@@ -106,19 +121,22 @@ static void extractToken(FragmentList *fragList, const Token *tokInfo,
                                term->score);
 }
 
+//---------------------------------------------------------------------------------------------
+
 void FragmentList_FragmentizeBuffer(FragmentList *fragList, const char *doc, Stemmer *stemmer,
                                     StopWordList *stopwords, const FragmentSearchTerm *terms,
                                     size_t numTerms) {
   fragList->doc = doc;
   fragList->docLen = strlen(doc);
-  RSTokenizer *tokenizer = NewSimpleTokenizer(stemmer, stopwords, TOKENIZE_NOMODIFY);
-  tokenizer->Start(tokenizer, (char *)fragList->doc, fragList->docLen, 0);
+  SimpleTokenizer tokenizer(stemmer, stopwords, TOKENIZE_NOMODIFY);
+  tokenizer.Start(tokenizer, (char *)fragList->doc, fragList->docLen, 0);
   Token tokInfo;
   while (tokenizer->Next(tokenizer, &tokInfo)) {
     extractToken(fragList, &tokInfo, terms, numTerms);
   }
-  tokenizer->Free(tokenizer);
 }
+
+//---------------------------------------------------------------------------------------------
 
 static void addToIov(const char *s, size_t n, Array *b) {
   if (n == 0 || s == NULL) {
@@ -129,6 +147,8 @@ static void addToIov(const char *s, size_t n, Array *b) {
   iov->iov_base = (void *)s;
   iov->iov_len = n;
 }
+
+//---------------------------------------------------------------------------------------------
 
 /**
  * Writes a complete fragment as a series of IOVs.
@@ -183,6 +203,8 @@ static void Fragment_WriteIovs(const Fragment *curFrag, const char *openTag, siz
   }
 }
 
+//---------------------------------------------------------------------------------------------
+
 void FragmentList_HighlightWholeDocV(const FragmentList *fragList, const HighlightTags *tags,
                                      Array *iovs) {
   const Fragment *frags = FragmentList_GetFragments(fragList);
@@ -209,6 +231,8 @@ void FragmentList_HighlightWholeDocV(const FragmentList *fragList, const Highlig
     addToIov(preamble, preambleLen, iovs);
   }
 }
+
+//---------------------------------------------------------------------------------------------
 
 char *FragmentList_HighlightWholeDocS(const FragmentList *fragList, const HighlightTags *tags) {
   Array iovsArr;
@@ -237,6 +261,8 @@ char *FragmentList_HighlightWholeDocS(const FragmentList *fragList, const Highli
   return docBuf;
 }
 
+//---------------------------------------------------------------------------------------------
+
 static int fragSortCmp(const void *pa, const void *pb) {
   const Fragment *a = *(const Fragment **)pa, *b = *(const Fragment **)pb;
   if (a->score == b->score) {
@@ -244,6 +270,8 @@ static int fragSortCmp(const void *pa, const void *pb) {
   }
   return a->score > b->score ? -1 : 1;
 }
+
+//---------------------------------------------------------------------------------------------
 
 static void FragmentList_Sort(FragmentList *fragList) {
   if (fragList->sortedFrags) {
@@ -263,10 +291,14 @@ static void FragmentList_Sort(FragmentList *fragList) {
   }
 }
 
+//---------------------------------------------------------------------------------------------
+
 static int sortByOrder(const void *pa, const void *pb) {
   const Fragment *a = *(const Fragment **)pa, *b = *(const Fragment **)pb;
   return (int)a->fragPos - (int)b->fragPos;
 }
+
+//---------------------------------------------------------------------------------------------
 
 /**
  * Add context before and after the fragment.
@@ -341,6 +373,8 @@ static void FragmentList_FindContext(const FragmentList *fragList, const Fragmen
   after->iov_len = limitAfter - (frag->buf + frag->len) + 1;
 }
 
+//---------------------------------------------------------------------------------------------
+
 void FragmentList_HighlightFragments(FragmentList *fragList, const HighlightTags *tags,
                                      size_t contextSize, Array *iovArrList, size_t niovs,
                                      int order) {
@@ -394,6 +428,8 @@ void FragmentList_HighlightFragments(FragmentList *fragList, const HighlightTags
   }
 }
 
+//---------------------------------------------------------------------------------------------
+
 void FragmentList_Free(FragmentList *fragList) {
   Fragment *frags = (Fragment *)FragmentList_GetFragments(fragList);
   for (size_t ii = 0; ii < fragList->numFrags; ii++) {
@@ -403,6 +439,8 @@ void FragmentList_Free(FragmentList *fragList) {
   rm_free(fragList->sortedFrags);
   rm_free(fragList->scratchFrags);
 }
+
+//---------------------------------------------------------------------------------------------
 
 /**
  * Tokenization:
@@ -455,6 +493,8 @@ void FragmentList_FragmentizeIter(FragmentList *fragList, const char *doc, size_
   }
 }
 
+//---------------------------------------------------------------------------------------------
+
 void FragmentTermIterator_InitOffsets(FragmentTermIterator *iter, RSByteOffsetIterator *byteOffsets,
                                       RSOffsetIterator *offIter) {
   iter->offsetIter = offIter;
@@ -467,6 +507,8 @@ void FragmentTermIterator_InitOffsets(FragmentTermIterator *iter, RSByteOffsetIt
     iter->curTokPos = iter->offsetIter->Next(iter->offsetIter->ctx, &iter->curMatchRec);
   } while (iter->byteIter->curPos > iter->curTokPos);
 }
+
+//---------------------------------------------------------------------------------------------
 
 int FragmentTermIterator_Next(FragmentTermIterator *iter, FragmentTerm **termInfo) {
   if (iter->curMatchRec == NULL || iter->curByteOffset == RSBYTEOFFSET_EOF ||
@@ -502,6 +544,8 @@ int FragmentTermIterator_Next(FragmentTermIterator *iter, FragmentTerm **termInf
   return 1;
 }
 
+//---------------------------------------------------------------------------------------------
+
 // LCOV_EXCL_START debug
 void FragmentList_Dump(const FragmentList *fragList) {
   printf("NumFrags: %u\n", fragList->numFrags);
@@ -518,3 +562,5 @@ void FragmentList_Dump(const FragmentList *fragList) {
   }
 }
 // LCOV_EXCL_STOP
+
+///////////////////////////////////////////////////////////////////////////////////////////////

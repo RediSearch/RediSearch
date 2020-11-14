@@ -54,7 +54,7 @@ static int evalOp(ExprEval *eval, const RSExprOp *op, RSValue *result) {
   double n1, n2;
   if (!RSValue_ToNumber(&l, &n1) || !RSValue_ToNumber(&r, &n2)) {
 
-    QueryError_SetError(eval->err, QUERY_ENOTNUMERIC, NULL);
+    eval->err->SetError(QUERY_ENOTNUMERIC, NULL);
     rc = EXPR_EVAL_ERR;
     goto cleanup;
   }
@@ -185,7 +185,7 @@ static int evalProperty(ExprEval *eval, const RSLookupExpr *e, RSValue *res) {
     // Note: Because this is evaluated for each row potentially, do not assume
     // that query error is present:
     if (eval->err) {
-      QueryError_SetError(eval->err, QUERY_ENOPROPKEY, NULL);
+      eval->err->SetError(QUERY_ENOPROPKEY, NULL);
     }
     return EXPR_EVAL_ERR;
   }
@@ -194,7 +194,7 @@ static int evalProperty(ExprEval *eval, const RSLookupExpr *e, RSValue *res) {
   RSValue *value = RLookup_GetItem(e->lookupObj, eval->srcrow);
   if (!value) {
     if (eval->err) {
-      QueryError_SetError(eval->err, QUERY_ENOPROPVAL, NULL);
+      eval->err->SetError(QUERY_ENOPROPVAL, NULL);
     }
     res->t = RSValue_Null;
     return EXPR_EVAL_NULL;
@@ -231,7 +231,7 @@ int ExprEval_Eval(ExprEval *evaluator, RSValue *result) {
 int ExprAST_GetLookupKeys(RSExpr *expr, RLookup *lookup, QueryError *err) {
 #define RECURSE(v)                                                                             \
   if (!v) {                                                                                    \
-    QueryError_SetErrorFmt(err, QUERY_EEXPR, "Missing (or badly formatted) value for %s", #v); \
+    err->SetErrorFmt(QUERY_EEXPR, "Missing (or badly formatted) value for %s", #v); \
     return EXPR_EVAL_ERR;                                                                      \
   }                                                                                            \
   if (ExprAST_GetLookupKeys(v, lookup, err) != EXPR_EVAL_OK) {                                 \
@@ -242,7 +242,7 @@ int ExprAST_GetLookupKeys(RSExpr *expr, RLookup *lookup, QueryError *err) {
     case RSExpr_Property:
       expr->property.lookupObj = RLookup_GetKey(lookup, expr->property.key, RLOOKUP_F_NOINCREF);
       if (!expr->property.lookupObj) {
-        QueryError_SetErrorFmt(err, QUERY_ENOPROPKEY, "Property `%s` not loaded in pipeline",
+        err->SetErrorFmt(QUERY_ENOPROPKEY, "Property `%s` not loaded in pipeline",
                                expr->property.key);
         return EXPR_EVAL_ERR;
       }

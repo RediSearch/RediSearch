@@ -4,28 +4,34 @@
 #include "rmutil/rm_assert.h"
 #include <util/arr.h>
 
-static RLookupKey *createNewKey(RLookup *lookup, const char *name, size_t n, int flags,
-                                uint16_t idx) {
-  RLookupKey *ret = rm_calloc(1, sizeof(*ret));
+///////////////////////////////////////////////////////////////////////////////////////////////
 
-  ret->flags = (flags & (~RLOOKUP_TRANSIENT_FLAGS));
-  ret->dstidx = idx;
-  ret->refcnt = 1;
+RLookupKey::RLookupKey(RLookup *lookup, const char *name, size_t n, int flags, uint16_t idx) {
+  ctor(lookup, name, n, flags, idx);
+}
+
+//---------------------------------------------------------------------------------------------
+
+void RLookupKey::ctor(RLookup *lookup, const char *name, size_t n, int flags, uint16_t idx) {
+  flags = (flags & (~RLOOKUP_TRANSIENT_FLAGS));
+  dstidx = idx;
+  refcnt = 1;
 
   if (flags & RLOOKUP_F_NAMEALLOC) {
-    ret->name = rm_strndup(name, n);
+    name = rm_strndup(name, n);
   } else {
-    ret->name = name;
+    name = name;
   }
 
   if (!lookup->head) {
-    lookup->head = lookup->tail = ret;
+    lookup->head = lookup->tail = this;
   } else {
-    lookup->tail->next = ret;
-    lookup->tail = ret;
+    lookup->tail->next = this;
+    lookup->tail = this;
   }
-  return ret;
 }
+
+//---------------------------------------------------------------------------------------------
 
 static RLookupKey *genKeyFromSpec(RLookup *lookup, const char *name, int flags) {
   const IndexSpecCache *cc = lookup->spcache;
@@ -48,8 +54,8 @@ static RLookupKey *genKeyFromSpec(RLookup *lookup, const char *name, int flags) 
 
   uint16_t idx = lookup->rowlen++;
 
-  RLookupKey *ret = createNewKey(lookup, name, strlen(name), flags, idx);
-  if (FieldSpec_IsSortable(fs)) {
+  auto ret = new RLookupKey(lookup, name, strlen(name), flags, idx);
+  if (fs->IsSortable()) {
     ret->flags |= RLOOKUP_F_SVSRC;
     ret->svidx = fs->sortIdx;
   }
@@ -59,6 +65,8 @@ static RLookupKey *genKeyFromSpec(RLookup *lookup, const char *name, int flags) 
   }
   return ret;
 }
+
+//---------------------------------------------------------------------------------------------
 
 RLookupKey *RLookup_GetKeyEx(RLookup *lookup, const char *name, size_t n, int flags) {
   RLookupKey *ret = NULL;
@@ -102,9 +110,22 @@ RLookupKey *RLookup_GetKeyEx(RLookup *lookup, const char *name, size_t n, int fl
   return ret;
 }
 
+//---------------------------------------------------------------------------------------------
+
+/**
+ * Get a RLookup key for a given name. The behavior of this function depends on
+ * the flags.
+ *
+ * If F_OCREAT is not used, then this function will return NULL if a key could
+ * not be found, unless OPT_UNRESOLVED_OK is set on the lookup itself. In this
+ * case, the key is returned, but has the F_UNRESOLVED flag set.
+ */
+
 RLookupKey *RLookup_GetKey(RLookup *lookup, const char *name, int flags) {
   return RLookup_GetKeyEx(lookup, name, strlen(name), flags);
 }
+
+//---------------------------------------------------------------------------------------------
 
 size_t RLookup_GetLength(const RLookup *lookup, const RLookupRow *r, int requiredFlags,
                          int excludeFlags) {
@@ -126,12 +147,29 @@ size_t RLookup_GetLength(const RLookup *lookup, const RLookupRow *r, int require
   return nfields;
 }
 
+//---------------------------------------------------------------------------------------------
+
+/**
+ * Initialize the lookup. If cache is provided, then it will be used as an
+ * alternate source for lookups whose fields are absent
+ */
+
 void RLookup_Init(RLookup *lk, IndexSpecCache *spcache) {
   memset(lk, 0, sizeof(*lk));
   if (spcache) {
     lk->spcache = spcache;
   }
 }
+
+//---------------------------------------------------------------------------------------------
+
+/**
+ * Exactly like RLookup_WriteKey, but does not increment the refcount, allowing
+ * idioms such as RLookup_WriteKey(..., RS_NumVal(10)); which would otherwise cause
+ * a leak.
+ */
+
+//---------------------------------------------------------------------------------------------
 
 void RLookup_WriteOwnKey(const RLookupKey *key, RLookupRow *row, RSValue *v) {
   // Find the pointer to write to ...
@@ -144,10 +182,29 @@ void RLookup_WriteOwnKey(const RLookupKey *key, RLookupRow *row, RSValue *v) {
   row->ndyn++;
 }
 
+//---------------------------------------------------------------------------------------------
+
+/**
+ * Write a value to a lookup table. Key must already be registered, and not
+ * refer to a read-only (SVSRC) key.
+ *
+ * The value written will have its refcount incremented
+ */
+
 void RLookup_WriteKey(const RLookupKey *key, RLookupRow *row, RSValue *v) {
   RLookup_WriteOwnKey(key, row, v);
   RSValue_IncrRef(v);
 }
+
+//---------------------------------------------------------------------------------------------
+
+/**
+ * Write a value by-name to the lookup table. This is useful for 'dynamic' keys
+ * for which it is not necessary to use the boilerplate of getting an explicit
+ * key.
+ *
+ * The reference count of the value will be incremented.
+ */
 
 void RLookup_WriteKeyByName(RLookup *lookup, const char *name, RLookupRow *dst, RSValue *v) {
   // Get the key first
@@ -157,10 +214,20 @@ void RLookup_WriteKeyByName(RLookup *lookup, const char *name, RLookupRow *dst, 
   RLookup_WriteKey(k, dst, v);
 }
 
+//---------------------------------------------------------------------------------------------
+
 void RLookup_WriteOwnKeyByName(RLookup *lookup, const char *name, RLookupRow *row, RSValue *value) {
   RLookup_WriteKeyByName(lookup, name, row, value);
   RSValue_Decref(value);
 }
+
+//---------------------------------------------------------------------------------------------
+
+/**
+ * Wipes the row, retaining its memory but decrefing any included values.
+ * This does not free all the memory consumed by the row, but simply resets
+ * the row data (preserving any caches) so that it may be refilled.
+ */
 
 void RLookupRow_Wipe(RLookupRow *r) {
   for (size_t ii = 0; ii < array_len(r->dyn) && r->ndyn; ++ii) {
@@ -178,12 +245,30 @@ void RLookupRow_Wipe(RLookupRow *r) {
   }
 }
 
+//---------------------------------------------------------------------------------------------
+
+/**
+ * Frees all the memory consumed by the row. Implies Wipe(). This should be used
+ * when the row object will no longer be used.
+ */
+
 void RLookupRow_Cleanup(RLookupRow *r) {
   RLookupRow_Wipe(r);
   if (r->dyn) {
     array_free(r->dyn);
   }
 }
+
+//---------------------------------------------------------------------------------------------
+
+/**
+ * Move data from the source row to the destination row. The source row is cleared.
+ * The destination row should be pre-cleared (though its cache may still
+ * exist).
+ * @param lk lookup common to both rows
+ * @param src the source row
+ * @param dst the destination row
+ */
 
 void RLookupRow_Move(const RLookup *lk, RLookupRow *src, RLookupRow *dst) {
   for (const RLookupKey *kk = lk->head; kk; kk = kk->next) {
@@ -194,6 +279,8 @@ void RLookupRow_Move(const RLookup *lk, RLookupRow *src, RLookupRow *dst) {
   }
   RLookupRow_Wipe(src);
 }
+
+//---------------------------------------------------------------------------------------------
 
 void RLookupRow_Dump(const RLookupRow *rr) {
   printf("Row @%p\n", rr);
@@ -213,12 +300,22 @@ void RLookupRow_Dump(const RLookupRow *rr) {
   }
 }
 
+//---------------------------------------------------------------------------------------------
+
 void RLookupKey_FreeInternal(RLookupKey *k) {
   if (k->flags & RLOOKUP_F_NAMEALLOC) {
     rm_free((void *)k->name);
   }
   rm_free(k);
 }
+
+//---------------------------------------------------------------------------------------------
+
+/**
+ * Releases any resources created by this lookup object. Note that if there are
+ * lookup keys created with RLOOKUP_F_NOINCREF, those keys will no longer be
+ * valid after this call!
+ */
 
 void RLookup_Cleanup(RLookup *lk) {
   RLookupKey *next, *cur = lk->head;
@@ -236,6 +333,8 @@ void RLookup_Cleanup(RLookup *lk) {
   memset(lk, 0xff, sizeof(*lk));
 }
 
+//---------------------------------------------------------------------------------------------
+
 static RSValue *hvalToValue(RedisModuleString *src, RLookupCoerceType type) {
   if (type == RLOOKUP_C_BOOL || type == RLOOKUP_C_INT) {
     long long ll = 0;
@@ -249,6 +348,8 @@ static RSValue *hvalToValue(RedisModuleString *src, RLookupCoerceType type) {
     return RS_OwnRedisStringVal(src);
   }
 }
+
+//---------------------------------------------------------------------------------------------
 
 static RSValue *replyElemToValue(RedisModuleCallReply *rep, RLookupCoerceType otype) {
   switch (RedisModule_CallReplyType(rep)) {
@@ -284,6 +385,8 @@ static RSValue *replyElemToValue(RedisModuleCallReply *rep, RLookupCoerceType ot
   }
 }
 
+//---------------------------------------------------------------------------------------------
+
 static int getKeyCommon(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOptions *options,
                         RedisModuleKey **keyobj) {
   if (!options->noSortables && (kk->flags & RLOOKUP_F_SVSRC)) {
@@ -299,11 +402,11 @@ static int getKeyCommon(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOption
     *keyobj = RedisModule_OpenKey(ctx, keyName, REDISMODULE_READ);
     RedisModule_FreeString(ctx, keyName);
     if (!*keyobj) {
-      QueryError_SetCode(options->status, QUERY_ENODOC);
+      options->status->SetCode(QUERY_ENODOC);
       return REDISMODULE_ERR;
     }
     if (RedisModule_KeyType(*keyobj) != REDISMODULE_KEYTYPE_HASH) {
-      QueryError_SetCode(options->status, QUERY_EREDISKEYTYPE);
+      options->status->SetCode(QUERY_EREDISKEYTYPE);
       return REDISMODULE_ERR;
     }
   }
@@ -322,6 +425,8 @@ static int getKeyCommon(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOption
   RSValue_Decref(rsv);
   return REDISMODULE_OK;
 }
+
+//---------------------------------------------------------------------------------------------
 
 static int loadIndividualKeys(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options) {
   // Load the document from the schema. This should be simple enough...
@@ -359,6 +464,8 @@ done:
   }
   return rc;
 }
+
+//---------------------------------------------------------------------------------------------
 
 static int RLookup_HGETALL(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options) {
   int rc = REDISMODULE_ERR;
@@ -409,6 +516,17 @@ done:
   return rc;
 }
 
+//---------------------------------------------------------------------------------------------
+
+/**
+ * Attempt to load a document into the row. The document's fields are placed into
+ * their corresponding slots.
+ *
+ * @param lt Lookup table. Contains the keys to load.
+ * @param dst row that should contain the data
+ * @param options options controlling the load process
+ */
+
 int RLookup_LoadDocument(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options) {
   if (options->dmd) {
     dst->sv = options->dmd->sortVector;
@@ -419,3 +537,5 @@ int RLookup_LoadDocument(RLookup *it, RLookupRow *dst, RLookupLoadOptions *optio
     return loadIndividualKeys(it, dst, options);
   }
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////

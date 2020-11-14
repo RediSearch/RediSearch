@@ -106,7 +106,7 @@ struct RSDocumentMetadata {
 //---------------------------------------------------------------------------------------------
 
 // Forward declaration of the opaque query object
-struct RSQuery;
+// struct RSQuery;
 
 // Forward declaration of the opaque query node object
 struct RSQueryNode;
@@ -185,6 +185,7 @@ typedef void (*RSFreeFunction)(void *);
 //---------------------------------------------------------------------------------------------
 
 // A single term being evaluated in query time
+
 struct RSQueryTerm : public Object {
   // The term string, not necessarily NULL terminated, hence the length is given as well
   char *str;
@@ -246,6 +247,7 @@ struct RSOffsetVector {
 //---------------------------------------------------------------------------------------------
 
 // RSIndexRecord represents a single record of a document inside a term in the inverted index
+
 struct RSTermRecord {
   // The term that brought up this record
   RSQueryTerm *term;
@@ -322,14 +324,10 @@ struct RSIndexResult : public Object {
   //-------------------------------------------------------------------------------------------
 
   union {
-    // Aggregate record
-    RSAggregateResult agg;
-    // Term record
-    RSTermRecord term;
-    // virtual record with no values
-    RSVirtualRecord virt;
-    // numeric record with float value
-    RSNumericRecord num;
+    RSAggregateResult agg;  // Aggregate record
+    RSTermRecord term;      // Term record
+    RSVirtualRecord virt;   // virtual record with no values
+    RSNumericRecord num;    // numeric record with float value
   };
 
   RSResultType type;
@@ -363,14 +361,12 @@ struct RSIndexResult : public Object {
   // Get the minimal delta between the terms in the result
     int MinOffsetDelta() const;
 
-  // Fill an array of max capacity cap with all the matching text terms for the result.
-  // The number of matching terms is returned.
   size_t GetMatchedTerms(RSQueryTerm **arr, size_t cap) const;
   void GetMatchedTerms(RSQueryTerm *arr[], size_t cap, size_t &len) const;
 
   // Return 1 if the the result is within a given slop range, inOrder determines whether the tokens
   // need to be ordered as in the query or not
-  int IsWithinRange(int maxSlop, int inOrder) const;
+  bool IsWithinRange(int maxSlop, bool inOrder) const;
 
   bool HasOffsets() const;
   bool IsAggregate() const;
@@ -415,7 +411,7 @@ struct ScoringFunctionArgs {
   void *scrExp;  // scoreflags
 
   // The GetSlop() callback. Returns the cumulative "slop" or distance between the query terms,
-  // that can be used to factor the result score */
+  // that can be used to factor the result score.
   int (*GetSlop)(const RSIndexResult *res);
 };
 

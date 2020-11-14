@@ -1,16 +1,17 @@
+
 #include "result_processor.h"
 #include "query.h"
 #include "extension.h"
-#include <util/minmax_heap.h>
+#include "util/minmax_heap.h"
 #include "ext/default.h"
 #include "rmutil/rm_assert.h"
 
-/*******************************************************************************************************************
- *  General Result Processor Helper functions
- ********************************************************************************************************************/
+///////////////////////////////////////////////////////////////////////////////////////////////
 
-void QITR_Cleanup(QueryIterator *qitr) {
-  ResultProcessor *p = qitr->rootProc;
+// General Result Processor Helper functions
+ 
+void QueryIterator::Cleanup() {
+  ResultProcessor *p = rootProc;
   while (p) {
     ResultProcessor *next = p->upstream;
     if (p->Free) {
@@ -20,48 +21,63 @@ void QITR_Cleanup(QueryIterator *qitr) {
   }
 }
 
-void SearchResult_Clear(SearchResult *r) {
+//---------------------------------------------------------------------------------------------
+
+void SearchResult::Clear() {
   // This won't affect anything if the result is null
-  r->score = 0;
-  if (r->scoreExplain) {
-    SEDestroy(r->scoreExplain);
-    r->scoreExplain = NULL;
+  score = 0;
+  if (scoreExplain) {
+    SEDestroy(scoreExplain);
+    scoreExplain = NULL;
   }
-  if (r->indexResult) {
-    // IndexResult_Free(r->indexResult);
-    r->indexResult = NULL;
+  if (indexResult) {
+    delete indexResult;
+    indexResult = NULL;
   }
 
-  RLookupRow_Wipe(&r->rowdata);
-  if (r->dmd) {
-    DMD_Decref(r->dmd);
-    r->dmd = NULL;
+  rowdata.Wipe();
+  if (dmd) {
+    DMD_Decref(dmd);
+    dmd = NULL;
   }
 }
 
-/* Free the search result object including the object itself */
-void SearchResult_Destroy(SearchResult *r) {
-  SearchResult_Clear(r);
-  RLookupRow_Cleanup(&r->rowdata);
+//---------------------------------------------------------------------------------------------
+
+SearchResult::SearchResult() {
 }
+
+//---------------------------------------------------------------------------------------------
+
+// Free the search result object including the object itself
+
+SearchResult::~SearchResult() {
+  Clear();
+  rowdata.Cleanup();
+}
+
+//---------------------------------------------------------------------------------------------
 
 static int RPGeneric_NextEOF(ResultProcessor *rp, SearchResult *res) {
   return RS_RESULT_EOF;
 }
 
-/*******************************************************************************************************************
- *  Base Result Processor - this processor is the topmost processor of every processing chain.
- *
- * It takes the raw index results from the index, and builds the search result to be sent
- * downstream.
- ********************************************************************************************************************/
+//---------------------------------------------------------------------------------------------
 
-typedef struct {
+/*
+ * Base Result Processor - this processor is the topmost processor of every processing chain.
+ *
+ * It takes the raw index results from the index, and builds the search result to be sent downstream.
+ */
+
+struct RPIndexIterator {
   ResultProcessor base;
   IndexIterator *iiter;
-} RPIndexIterator;
+};
 
-/* Next implementation */
+//---------------------------------------------------------------------------------------------
+
+// Next implementation
 static int rpidxNext(ResultProcessor *base, SearchResult *res) {
   RPIndexIterator *self = (RPIndexIterator *)base;
   IndexIterator *it = self->iiter;
@@ -105,9 +121,13 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
   return RS_RESULT_OK;
 }
 
+//---------------------------------------------------------------------------------------------
+
 static void rpidxFree(ResultProcessor *iter) {
   rm_free(iter);
 }
+
+//---------------------------------------------------------------------------------------------
 
 ResultProcessor *RPIndexIterator_New(IndexIterator *root) {
   RPIndexIterator *ret = rm_calloc(1, sizeof(*ret));
@@ -118,23 +138,29 @@ ResultProcessor *RPIndexIterator_New(IndexIterator *root) {
   return &ret->base;
 }
 
-IndexIterator *QITR_GetRootFilter(QueryIterator *it) {
-  return ((RPIndexIterator *)it->rootProc)->iiter;
+//---------------------------------------------------------------------------------------------
+
+IndexIterator *QueryIterator::GetRootFilter() {
+  return ((RPIndexIterator *)rootProc)->iiter;
 }
 
-void QITR_PushRP(QueryIterator *it, ResultProcessor *rp) {
+//---------------------------------------------------------------------------------------------
+
+void QueryIterator::PushRP(ResultProcessor *rp) {
   rp->parent = it;
-  if (!it->rootProc) {
-    it->endProc = it->rootProc = rp;
+  if (!rootProc) {
+    endProc = rootProc = rp;
     rp->upstream = NULL;
     return;
   }
-  rp->upstream = it->endProc;
-  it->endProc = rp;
+  rp->upstream = endProc;
+  endProc = rp;
 }
 
-void QITR_FreeChain(QueryIterator *qitr) {
-  ResultProcessor *rp = qitr->endProc;
+//---------------------------------------------------------------------------------------------
+
+void QueryIterator::FreeChain() {
+  ResultProcessor *rp = endProc;
   while (rp) {
     ResultProcessor *next = rp->upstream;
     rp->Free(rp);
@@ -142,20 +168,24 @@ void QITR_FreeChain(QueryIterator *qitr) {
   }
 }
 
-/*******************************************************************************************************************
+//---------------------------------------------------------------------------------------------
+
+/*
  *  Scoring Processor
  *
  * It takes results from upstream, and using a scoring function applies the score to each one.
  *
  * It may not be invoked if we are working in SORTBY mode (or later on in aggregations)
- ********************************************************************************************************************/
+ */
 
-typedef struct {
+struct RPScorer {
   ResultProcessor base;
   RSScoringFunction scorer;
   RSFreeFunction scorerFree;
   ScoringFunctionArgs scorerCtx;
-} RPScorer;
+};
+
+//---------------------------------------------------------------------------------------------
 
 static int rpscoreNext(ResultProcessor *base, SearchResult *res) {
   int rc;
@@ -189,7 +219,10 @@ static int rpscoreNext(ResultProcessor *base, SearchResult *res) {
   return rc;
 }
 
-/* Free impl. for scorer - frees up the scorer privdata if needed */
+//---------------------------------------------------------------------------------------------
+
+// Free impl. for scorer - frees up the scorer privdata if needed
+
 static void rpscoreFree(ResultProcessor *rp) {
   RPScorer *self = (RPScorer *)rp;
   if (self->scorerFree) {
@@ -200,8 +233,11 @@ static void rpscoreFree(ResultProcessor *rp) {
   rm_free(self);
 }
 
-/* Create a new scorer by name. If the name is not found in the scorer registry, we use the defalt
- * scorer */
+//---------------------------------------------------------------------------------------------
+
+// Create a new scorer by name. If the name is not found in the scorer registry, we use the
+// defalt scorer
+
 ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
                               const ScoringFunctionArgs *fnargs) {
   RPScorer *ret = rm_calloc(1, sizeof(*ret));
@@ -214,7 +250,9 @@ ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
   return &ret->base;
 }
 
-/*******************************************************************************************************************
+//---------------------------------------------------------------------------------------------
+
+/*
  *  Sorting Processor
  *
  * This is where things become a bit complex...
@@ -234,11 +272,11 @@ ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
  * Note: We use a min-max heap to simplify maintaining a max heap where we can pop from the bottom
  * while
  * finding the top N results
- ********************************************************************************************************************/
+ */
 
 typedef int (*RPSorterCompareFunc)(const void *e1, const void *e2, const void *udata);
 
-typedef struct {
+struct RPSorter {
   ResultProcessor base;
 
   // The desired size of the heap - top N results
@@ -260,15 +298,17 @@ typedef struct {
   // pooled result - we recycle it to avoid allocations
   SearchResult *pooledResult;
 
-  struct {
+  struct Cmp {
     const RLookupKey **keys;
     size_t nkeys;
     uint64_t ascendMap;
   } fieldcmp;
+};
 
-} RPSorter;
+//---------------------------------------------------------------------------------------------
 
-/* Yield - pops the current top result from the heap */
+// Yield - pops the current top result from the heap
+
 static int rpsortNext_Yield(ResultProcessor *rp, SearchResult *r) {
   RPSorter *self = (RPSorter *)rp;
   // make sure we don't overshoot the heap size, unless the heap size is dynamic
@@ -284,6 +324,8 @@ static int rpsortNext_Yield(ResultProcessor *rp, SearchResult *r) {
   return RS_RESULT_EOF;
 }
 
+//---------------------------------------------------------------------------------------------
+
 static void rpsortFree(ResultProcessor *rp) {
   RPSorter *self = (RPSorter *)rp;
   if (self->pooledResult) {
@@ -295,6 +337,8 @@ static void rpsortFree(ResultProcessor *rp) {
   mmh_free(self->pq);
   rm_free(rp);
 }
+
+//---------------------------------------------------------------------------------------------
 
 #define RESULT_QUEUED RS_RESULT_MAX + 1
 
@@ -356,6 +400,8 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
   return RESULT_QUEUED;
 }
 
+//---------------------------------------------------------------------------------------------
+
 static int rpsortNext_Accum(ResultProcessor *rp, SearchResult *r) {
   int rc;
   while ((rc = rpsortNext_innerLoop(rp, r)) == RESULT_QUEUED) {
@@ -364,7 +410,9 @@ static int rpsortNext_Accum(ResultProcessor *rp, SearchResult *r) {
   return rc;
 }
 
-/* Compare results for the heap by score */
+//---------------------------------------------------------------------------------------------
+
+// Compare results for the heap by score
 static inline int cmpByScore(const void *e1, const void *e2, const void *udata) {
   const SearchResult *h1 = e1, *h2 = e2;
 
@@ -376,7 +424,9 @@ static inline int cmpByScore(const void *e1, const void *e2, const void *udata) 
   return h1->docId < h2->docId ? -1 : 1;
 }
 
-/* Compare results for the heap by sorting key */
+//---------------------------------------------------------------------------------------------
+
+// Compare results for the heap by sorting key
 static int cmpByFields(const void *e1, const void *e2, const void *udata) {
   const RPSorter *self = udata;
   const SearchResult *h1 = e1, *h2 = e2;
@@ -418,12 +468,16 @@ static int cmpByFields(const void *e1, const void *e2, const void *udata) {
   return ascending ? -rc : rc;
 }
 
+//---------------------------------------------------------------------------------------------
+
 static void srDtor(void *p) {
   if (p) {
     SearchResult_Destroy(p);
     rm_free(p);
   }
 }
+
+//---------------------------------------------------------------------------------------------
 
 ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys, size_t nkeys,
                                       uint64_t ascmap) {
@@ -444,9 +498,13 @@ ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys
   return &ret->base;
 }
 
+//---------------------------------------------------------------------------------------------
+
 ResultProcessor *RPSorter_NewByScore(size_t maxresults) {
   return RPSorter_NewByFields(maxresults, NULL, 0, 0);
 }
+
+//---------------------------------------------------------------------------------------------
 
 void SortAscMap_Dump(uint64_t tt, size_t n) {
   for (size_t ii = 0; ii < n; ++ii) {
@@ -459,7 +517,9 @@ void SortAscMap_Dump(uint64_t tt, size_t n) {
   printf("\n");
 }
 
-/*******************************************************************************************************************
+//---------------------------------------------------------------------------------------------
+
+/*
  *  Paging Processor
  *
  * The sorter builds a heap of size N, but the pager is responsible for taking result
@@ -470,14 +530,16 @@ void SortAscMap_Dump(uint64_t tt, size_t n) {
  *
  * They are separated so that later on we can cache the sorter's heap, and continue paging it
  * without re-executing the entire query
- *******************************************************************************************************************/
+ */
 
-typedef struct {
+struct RPPager {
   ResultProcessor base;
   uint32_t offset;
   uint32_t limit;
   uint32_t count;
-} RPPager;
+};
+
+//---------------------------------------------------------------------------------------------
 
 static int rppagerNext(ResultProcessor *base, SearchResult *r) {
   RPPager *self = (RPPager *)base;
@@ -503,11 +565,15 @@ static int rppagerNext(ResultProcessor *base, SearchResult *r) {
   return rc;
 }
 
+//---------------------------------------------------------------------------------------------
+
 static void rppagerFree(ResultProcessor *base) {
   rm_free(base);
 }
 
-/* Create a new pager. The offset and limit are taken from the user request */
+//---------------------------------------------------------------------------------------------
+
+// Create a new pager. The offset and limit are taken from the user request
 ResultProcessor *RPPager_New(size_t offset, size_t limit) {
   RPPager *ret = rm_calloc(1, sizeof(*ret));
   ret->offset = offset;
@@ -518,18 +584,17 @@ ResultProcessor *RPPager_New(size_t offset, size_t limit) {
   return &ret->base;
 }
 
-////////////////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////
-/// Value Loader                                                             ///
-////////////////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////
+//---------------------------------------------------------------------------------------------
+// Value Loader
 
-typedef struct {
+struct RPLoader {
   ResultProcessor base;
   RLookup *lk;
   const RLookupKey **fields;
   size_t nfields;
-} RPLoader;
+};
+
+//---------------------------------------------------------------------------------------------
 
 static int rploaderNext(ResultProcessor *base, SearchResult *r) {
   RPLoader *lc = (RPLoader *)base;
@@ -564,11 +629,15 @@ static int rploaderNext(ResultProcessor *base, SearchResult *r) {
   return RS_RESULT_OK;
 }
 
+//---------------------------------------------------------------------------------------------
+
 static void rploaderFree(ResultProcessor *base) {
   RPLoader *lc = (RPLoader *)base;
   rm_free(lc->fields);
   rm_free(lc);
 }
+
+//---------------------------------------------------------------------------------------------
 
 ResultProcessor *RPLoader_New(RLookup *lk, const RLookupKey **keys, size_t nkeys) {
   RPLoader *sc = rm_calloc(1, sizeof(*sc));
@@ -583,9 +652,13 @@ ResultProcessor *RPLoader_New(RLookup *lk, const RLookupKey **keys, size_t nkeys
   return &sc->base;
 }
 
+//---------------------------------------------------------------------------------------------
+
 void RP_DumpChain(const ResultProcessor *rp) {
   for (; rp; rp = rp->upstream) {
     printf("RP(%s) @%p\n", rp->name, rp);
     RS_LOG_ASSERT(rp->upstream != rp, "ResultProcessor should be different then upstream");
   }
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////

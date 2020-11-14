@@ -13,6 +13,7 @@ extern "C" {
 #endif
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
+
 typedef enum {
   AC_TYPE_UNINIT = 0,  // Comment for formatting
   AC_TYPE_RSTRING,
@@ -246,5 +247,21 @@ class ArgsCursorCXX : public ArgsCursor {
 };
 
 #endif // __cplusplus
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+class Arguments {
+  RedisModuleString **argv;
+  int argc;
+
+public:
+  Arguments(RedisModuleString **argv, int argc) : argv(argv), argc(argc) {}
+
+  int count() const { return argc; }
+  RedisModuleString *operator[](int k) const { return argv[k]; }
+  int operator+(int) const { return argc > 0; }
+
+  Arguments shift(int k) { return Arguments(argv + k, argc - k); }
+};
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

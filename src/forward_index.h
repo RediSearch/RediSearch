@@ -26,6 +26,8 @@ struct ForwardIndexEntry {
   VarintVectorWriter *vw;
 };
 
+//---------------------------------------------------------------------------------------------
+
 // the quantizationn factor used to encode normalized (0..1) frquencies in the index
 #define FREQ_QUANTIZE_FACTOR 0xFFFF
 
@@ -41,6 +43,8 @@ struct ForwardIndex {
   mempool_t *vvwPool;
 
 };
+
+//---------------------------------------------------------------------------------------------
 
 struct ForwardIndexTokenizerCtx {
   const char *doc;
@@ -60,11 +64,13 @@ static inline void ForwardIndexTokenizerCtx_Init(ForwardIndexTokenizerCtx *ctx, 
   ctx->allOffsets = vvw;
 }
 
-typedef struct {
+//---------------------------------------------------------------------------------------------
+
+struct ForwardIndexIterator {
   KHTable *hits;
   KHTableEntry *curEnt;
   uint32_t curBucketIdx;
-} ForwardIndexIterator;
+};
 
 int forwardIndexTokenFunc(void *ctx, const Token *tokInfo);
 void ForwardIndexFree(ForwardIndex *idx);

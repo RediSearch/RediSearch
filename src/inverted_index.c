@@ -860,7 +860,7 @@ public:
     size_t len;
     const char *externalId = DocTable_GetKey((DocTable *) &spec->docs, id, &len);
     for (int i = 0; i < spec->numFields; ++i) {
-      FieldSpec *field = spec->fields + i;
+      FieldSpec *field = &spec->fields[i];
       if (!(FIELD_BIT(field) & fieldMask)) {
         // field is not requested, we are not checking this field!!
         continue;

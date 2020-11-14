@@ -52,11 +52,7 @@ typedef enum {
   RSCondition_Or
 } RSCondition;
 
-static const char *RSConditionStrings[] = {
-    [RSCondition_Eq] = "==",  [RSCondition_Lt] = "<",  [RSCondition_Le] = "<=",
-    [RSCondition_Gt] = ">",   [RSCondition_Ge] = ">=", [RSCondition_Ne] = "!=",
-    [RSCondition_And] = "&&", [RSCondition_Or] = "||",
-};
+extern const char *RSConditionStrings[];
 
 typedef struct {
   struct RSExpr *left;

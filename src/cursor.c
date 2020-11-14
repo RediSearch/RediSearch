@@ -1,3 +1,4 @@
+
 #include "cursor.h"
 #include "query_error.h"
 
@@ -7,8 +8,82 @@
 #include <time.h>
 #include <err.h>
 
-#define Cursor_IsIdle(cur) ((cur)->pos != -1)
-CursorList RSCursors;
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+Cursor::Cursor(CursorList *cl, CursorSpecInfo *info_, uint32_t interval) {
+  parent = cl;
+  info = info_;
+  id = CursorList::GenerateId();
+  pos = -1;
+  timeoutIntervalMs = interval;
+  nextIdleTimeoutNs = 0;
+  execState = NULL;
+}
+
+//---------------------------------------------------------------------------------------------
+
+// Doesn't lock - simply deallocates and decrements
+
+Cursor::~Cursor() {
+  info->used--;
+  if (execState) {
+    delete execState;
+  }
+}
+
+//---------------------------------------------------------------------------------------------
+
+int Cursor::Free() {
+  return parent->Purge(id);
+}
+
+//---------------------------------------------------------------------------------------------
+
+// Pause a cursor, setting it to idle and placing it back in the cursor list
+
+int Cursor::Pause() {
+  CursorList &cl = *parent;
+  nextTimeoutNs = curTimeNs() + ((uint64_t)timeoutIntervalMs * 1000000);
+
+  MutexGuard guard(cl.lock);
+  cl.IncrCounter();
+
+  if (nextTimeoutNs < cl.nextIdleTimeoutNs || cl.nextIdleTimeoutNs == 0) {
+    cl.nextIdleTimeoutNs = nextTimeoutNs;
+  }
+
+  // Add to idle list
+  *(Cursor **)(ARRAY_ADD_AS(&cl.idle, Cursor *)) = this;
+  pos = ARRAY_GETSIZE_AS(&cl.idle, Cursor **) - 1;
+
+  return REDISMODULE_OK;
+}
+
+//---------------------------------------------------------------------------------------------
+
+void Cursor::RemoveFromIdle() {
+  Array *idle = &parent->idle;
+  Cursor **ll = ARRAY_GETARRAY_AS(idle, Cursor **);
+  size_t n = ARRAY_GETSIZE_AS(idle, Cursor *);
+
+  if (n > 1) {
+    Cursor *last = ll[n - 1]; // Last cursor - move to current position
+    last->pos = pos;
+    ll[last->pos] = last;
+  }
+
+  Array_Resize(idle, sizeof(Cursor *) * (n - 1));
+  if (nextTimeoutNs == parent->nextIdleTimeoutNs) {
+    parent->nextIdleTimeoutNs = 0;
+  }
+  pos = -1;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+CursorList *RSCursors;
+
+//---------------------------------------------------------------------------------------------
 
 static uint64_t curTimeNs() {
   struct timespec tv;
@@ -16,104 +91,70 @@ static uint64_t curTimeNs() {
   return tv.tv_nsec + (tv.tv_sec * 1000000000);
 }
 
-static void CursorList_Lock(CursorList *cl) {
-  pthread_mutex_lock(&cl->lock);
-}
+//---------------------------------------------------------------------------------------------
 
-static void CursorList_Unlock(CursorList *cl) {
-  pthread_mutex_unlock(&cl->lock);
-}
+CursorList::CursorList() {
+  cursorCount = 0;
+  counter = 0;
+  lastCollect = 0;
+  nextIdleTimeoutNs = 0;
 
-void CursorList_Init(CursorList *cl) {
-  memset(cl, 0, sizeof(*cl));
-  pthread_mutex_init(&cl->lock, NULL);
-  cl->lookup = kh_init(cursors);
-  Array_Init(&cl->idle);
+  lookup = kh_init(cursors);
+  Array_Init(&idle);
+  infos = NULL;
+
   srand48(getpid());
 }
 
-static CursorSpecInfo *findInfo(const CursorList *cl, const char *keyName, size_t *index) {
-  for (size_t ii = 0; ii < cl->specsCount; ++ii) {
-    if (!strcmp(cl->specs[ii]->keyName, keyName)) {
+//---------------------------------------------------------------------------------------------
+
+CursorSpecInfo *CursorList::Find(const char *keyName, size_t *index) const {
+  for (size_t i = 0; i < cursorCount; ++i) {
+    if (!strcmp(infos[i]->keyName, keyName)) {
       if (index) {
-        *index = ii;
+        *index = i;
       }
-      return cl->specs[ii];
+      return infos[i];
     }
   }
   return NULL;
 }
 
-static void Cursor_RemoveFromIdle(Cursor *cur) {
-  Array *idle = &cur->parent->idle;
-  Cursor **ll = ARRAY_GETARRAY_AS(idle, Cursor **);
-  size_t n = ARRAY_GETSIZE_AS(idle, Cursor *);
+//---------------------------------------------------------------------------------------------
 
-  if (n > 1) {
-    Cursor *last = ll[n - 1]; /** Last cursor - move to current position */
-    last->pos = cur->pos;
-    ll[last->pos] = last;
-  }
-
-  Array_Resize(idle, sizeof(Cursor *) * (n - 1));
-  if (cur->nextTimeoutNs == cur->parent->nextIdleTimeoutNs) {
-    cur->parent->nextIdleTimeoutNs = 0;
-  }
-  cur->pos = -1;
+void CursorList::Free(Cursor *cur, khiter_t khi) {
+  // Decrement the used count
+  auto &lookup = parent->lookup;
+  RS_LOG_ASSERT(khi != kh_end(lookup), "Iterator shouldn't be at end of cursor list");
+  RS_LOG_ASSERT(kh_get(cursors, lookup, id) != kh_end(lookup), "Cursor was not found");
+  kh_del(cursors, lookup, khi);
+  RS_LOG_ASSERT(kh_get(cursors, lookup, id) == kh_end(lookup), "Failed to delete cursor");
+  delete cur;
 }
 
-/* Doesn't lock - simply deallocates and decrements */
-static void Cursor_FreeInternal(Cursor *cur, khiter_t khi) {
-  /* Decrement the used count */
-  RS_LOG_ASSERT(khi != kh_end(cur->parent->lookup), "Iterator shouldn't be at end of cursor list");
-  RS_LOG_ASSERT(kh_get(cursors, cur->parent->lookup, cur->id) != kh_end(cur->parent->lookup),
-                                                    "Cursor was not found");
-  kh_del(cursors, cur->parent->lookup, khi);
-  RS_LOG_ASSERT(kh_get(cursors, cur->parent->lookup, cur->id) == kh_end(cur->parent->lookup),
-                                                    "Failed to delete cursor");
-  cur->specInfo->used--;
-  if (cur->execState) {
-    Cursor_FreeExecState(cur->execState);
-    cur->execState = NULL;
-  }
-  rm_free(cur);
-}
+//---------------------------------------------------------------------------------------------
 
-static void Cursors_ForEach(CursorList *cl, void (*callback)(CursorList *, Cursor *, void *),
-                            void *arg) {
-  for (size_t ii = 0; ii < ARRAY_GETSIZE_AS(&cl->idle, Cursor *); ++ii) {
-    Cursor *cur = *ARRAY_GETITEM_AS(&cl->idle, ii, Cursor **);
+void CursorList::ForEach(std::function<void(CursorList&, Cursor&, void *)> f, void *arg) {
+  for (size_t i = 0; i < ARRAY_GETSIZE_AS(&idle, Cursor *); ++i) {
+    Cursor *cur = *ARRAY_GETITEM_AS(&idle, ii, Cursor **);
     Cursor *oldCur = NULL;
-    /**
-     * The cursor `cur` might have been changed in the callback, if it has been
-     * swapped with another one, as deletion means swapping the last cursor to
-     * the current position. We ensure that we do not 'skip' over this cursor
-     * (effectively skipping over the cursor that was just relocated).
-     */
+
+    // The cursor `cur` might have been changed in the callback, if it has been
+    // swapped with another one, as deletion means swapping the last cursor to
+    // the current position. We ensure that we do not 'skip' over this cursor
+    // (effectively skipping over the cursor that was just relocated).
 
     while (cur && cur != oldCur) {
-      callback(cl, cur, arg);
+      f(*this, *cur, arg);
       oldCur = cur;
-      if (cl->idle.len > ii) {
-        cur = *ARRAY_GETITEM_AS(&cl->idle, ii, Cursor **);
+      if (idle.len > i) {
+        cur = *ARRAY_GETITEM_AS(&idle, i, Cursor **);
       }
     }
   }
 }
 
-typedef struct {
-  uint64_t now;
-  int numCollected;
-} cursorGcCtx;
-
-static void cursorGcCb(CursorList *cl, Cursor *cur, void *arg) {
-  cursorGcCtx *ctx = arg;
-  if (cur->nextTimeoutNs <= ctx->now) {
-    Cursor_RemoveFromIdle(cur);
-    Cursor_FreeInternal(cur, kh_get(cursors, cl->lookup, cur->id));
-    ctx->numCollected++;
-  }
-}
+//---------------------------------------------------------------------------------------------
 
 /**
  * Garbage collection:
@@ -126,96 +167,120 @@ static void cursorGcCb(CursorList *cl, Cursor *cur, void *arg) {
  *
  * Garbage collection is throttled within a given interval as well.
  */
-static int Cursors_GCInternal(CursorList *cl, int force) {
+
+int CursorList::GCInternal(bool force) {
   uint64_t now = curTimeNs();
-  if (cl->nextIdleTimeoutNs && cl->nextIdleTimeoutNs > now) {
+  if (nextIdleTimeoutNs && nextIdleTimeoutNs > now) {
     return -1;
-  } else if (!force && now - cl->lastCollect < RSCURSORS_SWEEP_THROTTLE) {
+  } else if (!force && now - lastCollect < RSCURSORS_SWEEP_THROTTLE) {
     return -1;
   }
 
-  cl->lastCollect = now;
-  cursorGcCtx ctx = {.now = now};
-  Cursors_ForEach(cl, cursorGcCb, &ctx);
-  return ctx.numCollected;
+  lastCollect = now;
+
+  struct GcData {
+    uint64_t now;
+    int numCollected;
+  } gc_data = {now, 0};
+
+  auto cb = [](CursorList &cl, Cursor &cur, void *gc_data) {
+    GcData *data = gc_data;
+    if (cur.nextTimeoutNs <= data->now) {
+      cur.RemoveFromIdle();
+      cl.Free(&cur, kh_get(cursors, cl.lookup, cur.id));
+      data->numCollected++;
+    }
+  }
+  ForEach(cb, &gc_data);
+  return gc_data.numCollected;
 }
 
-int Cursors_CollectIdle(CursorList *cl) {
-  CursorList_Lock(cl);
-  int rc = Cursors_GCInternal(cl, 1);
-  CursorList_Unlock(cl);
+//---------------------------------------------------------------------------------------------
+
+int CursorList::CollectIdle() {
+  MutexGuard guard(lock);
+  int rc = GCInternal(true);
   return rc;
 }
 
-void CursorList_AddSpec(CursorList *cl, const char *k, size_t capacity) {
-  CursorSpecInfo *info = findInfo(cl, k, NULL);
+//---------------------------------------------------------------------------------------------
+
+// Add an index spec to the cursor list.
+// This has the effect of adding the spec (via its key) along with its capacity.
+
+void CursorList::Add(const char *keyname, size_t capacity) {
+  CursorSpecInfo *info = Find(keyname, NULL);
   if (!info) {
-    info = rm_malloc(sizeof(*info));
-    info->keyName = rm_strdup(k);
-    info->used = 0;
-    cl->specs = rm_realloc(cl->specs, sizeof(*cl->specs) * ++cl->specsCount);
-    cl->specs[cl->specsCount - 1] = info;
+    info = new CursorSpecInfo(keyname, capacity);
+    infos = rm_realloc(infos, sizeof(*infos) * ++cursorCount);
+    infos[cursorCount - 1] = info;
   }
-  info->cap = capacity;
 }
 
-void CursorList_RemoveSpec(CursorList *cl, const char *k) {
+//---------------------------------------------------------------------------------------------
+
+void CursorList::Remove(const char *keyname) {
   size_t index;
-  CursorSpecInfo *info = findInfo(cl, k, &index);
+  CursorSpecInfo *info = Find(keyname, &index);
   if (info) {
-    cl->specs[index] = cl->specs[cl->specsCount - 1];
-    cl->specs = rm_realloc(cl->specs, sizeof(*cl->specs) * --cl->specsCount);
-    rm_free(info->keyName);
-    rm_free(info);
+    infos[index] = infos[cursorCount - 1];
+    infos = rm_realloc(infos, sizeof(*infos) * --cursorCount);
+    delete info
   }
 }
 
-static void CursorList_IncrCounter(CursorList *cl) {
-  if (++cl->counter % RSCURSORS_SWEEP_INTERVAL) {
-    Cursors_GCInternal(cl, 0);
+//---------------------------------------------------------------------------------------------
+
+void CursorList::IncrCounter() {
+  if (++counter % RSCURSORS_SWEEP_INTERVAL) {
+    GCInternal();
   }
 }
+
+//---------------------------------------------------------------------------------------------
 
 /**
- * Cursor ID is a 64 bit opaque integer. The upper 32 bits consist of the PID
- * of the process which generated the cursor, and the lower 32 bits consist of
- * the counter at the time at which it was generated. This doesn't make it
- * particularly "secure" but it does prevent accidental collisions from both
- * a stuck client and a crashed server
+ * Cursor ID is a 64 bit opaque integer. The upper 32 bits consist of the PID of the process 
+ * which generated the cursor, and the lower 32 bits consist of the counter at the time at 
+ * which it was generated.
+ * This doesn't make it particularly "secure" but it does prevent accidental collisions from 
+ * both a stuck client and a crashed server.
  */
-static uint64_t CursorList_GenerateId(CursorList *curlist) {
-  uint64_t id = lrand48() + 1;  // 0 should never be returned as cursor id
+CursorId CursorList::GenerateId() {
+  CursorId id = lrand48() + 1;  // 0 should never be returned as cursor id
   return id;
 }
 
-Cursor *Cursors_Reserve(CursorList *cl, const char *lookupName, unsigned interval,
-                        QueryError *status) {
-  CursorList_Lock(cl);
-  CursorList_IncrCounter(cl);
-  CursorSpecInfo *spec = findInfo(cl, lookupName, NULL);
+//---------------------------------------------------------------------------------------------
+
+/**
+ * Reserve a cursor for use with a given query.
+ * Returns NULL if the index does not exist or if there are too many cursors currently in use.
+ *
+ * Timeout is the max idle timeout (activated at each call to Pause()) in milliseconds.
+ */
+
+Cursor *CursorList::Reserve(const char *lookupName, unsigned interval, QueryError *status) {
+  MutexGuard guard(lock);;
+  IncrCounter();
+  CursorSpecInfo *spec = Find(lookupName, NULL);
   Cursor *cur = NULL;
 
   if (spec == NULL) {
-    QueryError_SetErrorFmt(status, QUERY_ENOINDEX, "Index `%s` does not have cursors enabled",
-                           lookupName);
+    status->SetErrorFmt(QUERY_ENOINDEX, "Index `%s` does not have cursors enabled", lookupName);
     goto done;
   }
 
   if (spec->used >= spec->cap) {
-    Cursors_GCInternal(cl, 0);
+    GCInternal();
     if (spec->used >= spec->cap) {
-      /** Collect idle cursors now */
-      QueryError_SetError(status, QUERY_ELIMIT, "Too many cursors allocated for index");
+      // Collect idle cursors now
+      status->SetError(QUERY_ELIMIT, "Too many cursors allocated for index");
       goto done;
     }
   }
 
-  cur = rm_calloc(1, sizeof(*cur));
-  cur->parent = cl;
-  cur->specInfo = spec;
-  cur->id = CursorList_GenerateId(cl);
-  cur->pos = -1;
-  cur->timeoutIntervalMs = interval;
+  cur = new Cursor(*this, spec, inteval)
 
   int dummy;
   khiter_t iter = kh_put(cursors, cl->lookup, cur->id, &dummy);
@@ -225,88 +290,73 @@ done:
   if (cur) {
     cur->specInfo->used++;
   }
-  CursorList_Unlock(cl);
   return cur;
 }
 
-int Cursor_Pause(Cursor *cur) {
-  CursorList *cl = cur->parent;
-  cur->nextTimeoutNs = curTimeNs() + ((uint64_t)cur->timeoutIntervalMs * 1000000);
+//---------------------------------------------------------------------------------------------
 
-  CursorList_Lock(cl);
-  CursorList_IncrCounter(cl);
+// Retrieve a cursor for execution. This locates the cursor, removes it
+// from the idle list, and returns it
 
-  if (cur->nextTimeoutNs < cl->nextIdleTimeoutNs || cl->nextIdleTimeoutNs == 0) {
-    cl->nextIdleTimeoutNs = cur->nextTimeoutNs;
-  }
-
-  /* Add to idle list */
-  *(Cursor **)(ARRAY_ADD_AS(&cl->idle, Cursor *)) = cur;
-  cur->pos = ARRAY_GETSIZE_AS(&cl->idle, Cursor **) - 1;
-  CursorList_Unlock(cl);
-
-  return REDISMODULE_OK;
-}
-
-Cursor *Cursors_TakeForExecution(CursorList *cl, uint64_t cid) {
-  CursorList_Lock(cl);
-  CursorList_IncrCounter(cl);
+Cursor *CursorList::TakeForExecution(CursorId cid) {
+  MutexGuard guard(lock);
+  IncrCounter();
 
   Cursor *cur = NULL;
-  khiter_t iter = kh_get(cursors, cl->lookup, cid);
-  if (iter != kh_end(cl->lookup)) {
-    cur = kh_value(cl->lookup, iter);
+  khiter_t iter = kh_get(cursors, lookup, cid);
+  if (iter != kh_end(lookup)) {
+    cur = kh_value(lookup, iter);
     if (cur->pos == -1) {
       // Cursor is not idle!
       cur = NULL;
     } else {
       // Remove from idle
-      Cursor_RemoveFromIdle(cur);
+      cur->RemoveFromIdle();
     }
   }
 
-  CursorList_Unlock(cl);
   return cur;
 }
 
-int Cursors_Purge(CursorList *cl, uint64_t cid) {
-  CursorList_Lock(cl);
-  CursorList_IncrCounter(cl);
+//---------------------------------------------------------------------------------------------
+
+// Locate and free the cursor with the given ID
+
+int CursorList::Purge(CursorId cid) {
+  MutexGuard guard(lock);
+  IncrCounter();
 
   int rc;
-  khiter_t iter = kh_get(cursors, cl->lookup, cid);
-  if (iter != kh_end(cl->lookup)) {
-    Cursor *cur = kh_value(cl->lookup, iter);
-    if (Cursor_IsIdle(cur)) {
-      Cursor_RemoveFromIdle(cur);
+  khiter_t iter = kh_get(cursors, lookup, cid);
+  if (iter != kh_end(lookup)) {
+    Cursor *cur = kh_value(lookup, iter);
+    if (cur->IsIdle()) {
+      cur->RemoveFromIdle();
     }
-    Cursor_FreeInternal(cur, iter);
+    Free(cur, iter);
     rc = REDISMODULE_OK;
 
   } else {
     rc = REDISMODULE_ERR;
   }
-  CursorList_Unlock(cl);
   return rc;
 }
 
-int Cursor_Free(Cursor *cur) {
-  return Cursors_Purge(cur->parent, cur->id);
-}
+//---------------------------------------------------------------------------------------------
 
-void Cursors_RenderStats(CursorList *cl, const char *name, RedisModuleCtx *ctx) {
-  CursorList_Lock(cl);
-  CursorSpecInfo *info = findInfo(cl, name, NULL);
+void CursorList::RenderStats(const char *name, RedisModuleCtx *ctx) {
+  MutexGuard guard(lock);
+  CursorSpecInfo *info = Find(name, NULL);
   size_t n = 0;
 
-  /** Output total information */
+  // Output total information
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
   RedisModule_ReplyWithSimpleString(ctx, "global_idle");
-  RedisModule_ReplyWithLongLong(ctx, ARRAY_GETSIZE_AS(&cl->idle, Cursor **));
+  RedisModule_ReplyWithLongLong(ctx, ARRAY_GETSIZE_AS(&idle, Cursor **));
   n += 2;
 
   RedisModule_ReplyWithSimpleString(ctx, "global_total");
-  RedisModule_ReplyWithLongLong(ctx, kh_size(cl->lookup));
+  RedisModule_ReplyWithLongLong(ctx, kh_size(lookup));
   n += 2;
 
   if (info) {
@@ -320,44 +370,68 @@ void Cursors_RenderStats(CursorList *cl, const char *name, RedisModuleCtx *ctx) 
   }
 
   RedisModule_ReplySetArrayLength(ctx, n);
-  CursorList_Unlock(cl);
 }
 
-static void purgeCb(CursorList *cl, Cursor *cur, void *arg) {
-  CursorSpecInfo *info = arg;
-  if (cur->specInfo != info) {
-    return;
-  }
+//---------------------------------------------------------------------------------------------
 
-  Cursor_RemoveFromIdle(cur);
-  Cursor_FreeInternal(cur, kh_get(cursors, cl->lookup, cur->id));
-}
+// Remove all cursors with the given lookup name
 
-void Cursors_PurgeWithName(CursorList *cl, const char *lookupName) {
-  CursorSpecInfo *info = findInfo(cl, lookupName, NULL);
+void CursorList::Purge(const char *lookupName) {
+  CursorSpecInfo *info = Find(lookupName, NULL);
   if (!info) {
     return;
   }
-  Cursors_ForEach(cl, purgeCb, info);
+
+  auto cb = [](CursorList &cl, Cursor &cur, void *arg) {
+    CursorSpecInfo *info = arg;
+    if (cur.specInfo != info) {
+      return;
+    }
+
+    cur.RemoveFromIdle();
+    cl.Free(&cur, kh_get(cursors, cl.lookup, cur.id));
+  }
+
+  ForEach(cl, cb, info);
 }
 
-void CursorList_Destroy(CursorList *cl) {
-  Cursors_GCInternal(cl, 1);
-  for (khiter_t ii = 0; ii != kh_end(cl->lookup); ++ii) {
-    if (!kh_exist(cl->lookup, ii)) {
+//---------------------------------------------------------------------------------------------
+
+CursorList::~CursorList() {
+  GCInternal(true);
+
+  for (khiter_t i = 0; i != kh_end(lookup); ++i) {
+    if (!kh_exist(lookup, i)) {
       continue;
     }
-    Cursor *c = kh_val(cl->lookup, ii);
-    fprintf(stderr, "[redisearch] leaked cursor at %p\n", c);
-    Cursor_FreeInternal(c, ii);
+    Cursor *cur = kh_val(cl->lookup, ii);
+    fprintf(stderr, "[redisearch] leaked cursor at %p\n", cur);
+    Free(cur, ii);
   }
-  kh_destroy(cursors, cl->lookup);
+  kh_destroy(cursors, lookup);
 
-  for (size_t ii = 0; ii < cl->specsCount; ++ii) {
-    CursorSpecInfo *sp = cl->specs[ii];
-    rm_free(sp->keyName);
-    rm_free(sp);
+  if (infos) {
+    for (size_t i = 0; i < cursorCount; ++i) {
+      delete infos[i];
+    }
+    rm_free(infos);
   }
-  rm_free(cl->specs);
-  pthread_mutex_destroy(&cl->lock);
+
+  Array_Free(&idle);
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+CursorSpecInfo::CursorSpecInfo(const char *keyname, size_t capacity) {
+  keyName = rm_strdup(k);
+  used = 0;
+  cap = capacity;
+}
+
+//---------------------------------------------------------------------------------------------
+
+CursorSpecInfo::~CursorSpecInfo() {
+  rm_free(keyName);
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////

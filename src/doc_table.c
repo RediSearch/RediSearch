@@ -1,15 +1,19 @@
 #include "doc_table.h"
-#include <sys/param.h>
-#include <string.h>
-#include <stdio.h>
 #include "redismodule.h"
-#include "util/fnv.h"
-#include "dep/triemap/triemap.h"
 #include "sortable.h"
 #include "rmalloc.h"
 #include "spec.h"
 #include "config.h"
+
+#include "util/fnv.h"
+#include "dep/triemap/triemap.h"
 #include "rmutil/rm_assert.h"
+
+#include <sys/param.h>
+#include <string.h>
+#include <stdio.h>
+
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 /* Creates a new DocTable with a given capacity */
 DocTable NewDocTable(size_t cap, size_t max_size) {
@@ -25,13 +29,19 @@ DocTable NewDocTable(size_t cap, size_t max_size) {
   return ret;
 }
 
+//---------------------------------------------------------------------------------------------
+
 static inline uint32_t DocTable_GetBucket(const DocTable *t, t_docId docId) {
   return docId < t->maxSize ? docId : docId % t->maxSize;
 }
 
+//---------------------------------------------------------------------------------------------
+
 static inline int DocTable_ValidateDocId(const DocTable *t, t_docId docId) {
   return docId != 0 && docId <= t->maxDocId;
 }
+
+//---------------------------------------------------------------------------------------------
 
 RSDocumentMetadata *DocTable_Get(const DocTable *t, t_docId docId) {
   if (!DocTable_ValidateDocId(t, docId)) {
@@ -50,6 +60,8 @@ RSDocumentMetadata *DocTable_Get(const DocTable *t, t_docId docId) {
   }
   return NULL;
 }
+
+//---------------------------------------------------------------------------------------------
 
 int DocTable_Exists(const DocTable *t, t_docId docId) {
   if (!docId || docId > t->maxDocId) {
@@ -72,6 +84,8 @@ int DocTable_Exists(const DocTable *t, t_docId docId) {
   return 0;
 }
 
+//---------------------------------------------------------------------------------------------
+
 RSDocumentMetadata *DocTable_GetByKeyR(const DocTable *t, RedisModuleString *s) {
   const char *kstr;
   size_t klen;
@@ -79,6 +93,8 @@ RSDocumentMetadata *DocTable_GetByKeyR(const DocTable *t, RedisModuleString *s) 
   t_docId id = DocTable_GetId(t, kstr, klen);
   return DocTable_Get(t, id);
 }
+
+//---------------------------------------------------------------------------------------------
 
 static inline void DocTable_Set(DocTable *t, t_docId docId, RSDocumentMetadata *dmd) {
   uint32_t bucket = DocTable_GetBucket(t, docId);
@@ -106,10 +122,14 @@ static inline void DocTable_Set(DocTable *t, t_docId docId, RSDocumentMetadata *
   dllist2_append(&chain->lroot, &dmd->llnode);
 }
 
+//---------------------------------------------------------------------------------------------
+
 /** Get the docId of a key if it exists in the table, or 0 if it doesnt */
 t_docId DocTable_GetId(const DocTable *dt, const char *s, size_t n) {
   return DocIdMap_Get(&dt->dim, s, n);
 }
+
+//---------------------------------------------------------------------------------------------
 
 /* Set the payload for a document. Returns 1 if we set the payload, 0 if we couldn't find the
  * document */
@@ -139,6 +159,8 @@ int DocTable_SetPayload(DocTable *t, t_docId docId, const char *data, size_t len
   t->memsize += len;
   return 1;
 }
+
+//---------------------------------------------------------------------------------------------
 
 /* Set the sorting vector for a document. If the vector is NULL we mark the doc as not having a
  * vector. Returns 1 on success, 0 if the document does not exist. No further validation is done
@@ -170,6 +192,8 @@ int DocTable_SetSortingVector(DocTable *t, t_docId docId, RSSortingVector *v) {
   return 1;
 }
 
+//---------------------------------------------------------------------------------------------
+
 int DocTable_SetByteOffsets(DocTable *t, t_docId docId, RSByteOffsets *v) {
   RSDocumentMetadata *dmd = DocTable_Get(t, docId);
   if (!dmd) {
@@ -181,10 +205,15 @@ int DocTable_SetByteOffsets(DocTable *t, t_docId docId, RSByteOffsets *v) {
   return 1;
 }
 
+//---------------------------------------------------------------------------------------------
+
 /* Put a new document into the table, assign it an incremental id and store the metadata in the
  * table.
+ * Return 0 if the document is already in the index.
  *
- * Return 0 if the document is already in the index  */
+ * NOTE: Currently there is no deduplication on the table so we do not prevent dual insertion of the
+ * same key. This may result in document duplication in results  */
+
 t_docId DocTable_Put(DocTable *t, const char *s, size_t n, double score, u_char flags,
                      const char *payload, size_t payloadSize) {
 
@@ -225,10 +254,14 @@ t_docId DocTable_Put(DocTable *t, const char *s, size_t n, double score, u_char 
   return docId;
 }
 
+//---------------------------------------------------------------------------------------------
+
 RSPayload *DocTable_GetPayload(DocTable *t, t_docId docId) {
   RSDocumentMetadata *dmd = DocTable_Get(t, docId);
   return dmd ? dmd->payload : NULL;
 }
+
+//---------------------------------------------------------------------------------------------
 
 /* Get the "real" external key for an incremental id. Returns NULL if docId is not in the table.
  */
@@ -247,11 +280,15 @@ const char *DocTable_GetKey(DocTable *t, t_docId docId, size_t *lenp) {
   return dmd->keyPtr;
 }
 
+//---------------------------------------------------------------------------------------------
+
 /* Get the score for a document from the table. Returns 0 if docId is not in the table. */
 inline float DocTable_GetScore(DocTable *t, t_docId docId) {
   RSDocumentMetadata *dmd = DocTable_Get(t, docId);
   return dmd ? dmd->score : 0;
 }
+
+//---------------------------------------------------------------------------------------------
 
 void DMD_Free(RSDocumentMetadata *md) {
   if (md->payload) {
@@ -274,6 +311,8 @@ void DMD_Free(RSDocumentMetadata *md) {
   rm_free(md);
 }
 
+//---------------------------------------------------------------------------------------------
+
 void DocTable_Free(DocTable *t) {
   for (int i = 0; i < t->cap; ++i) {
     DMDChain *chain = &t->buckets[i];
@@ -291,11 +330,15 @@ void DocTable_Free(DocTable *t) {
   DocIdMap_Free(&t->dim);
 }
 
+//---------------------------------------------------------------------------------------------
+
 static void DocTable_DmdUnchain(DocTable *t, RSDocumentMetadata *md) {
   uint32_t bucketIndex = DocTable_GetBucket(t, md->id);
   DMDChain *dmdChain = &t->buckets[bucketIndex];
   dllist2_delete(&dmdChain->lroot, &md->llnode);
 }
+
+//---------------------------------------------------------------------------------------------
 
 int DocTable_Delete(DocTable *t, const char *s, size_t n) {
   RSDocumentMetadata *md = DocTable_Pop(t, s, n);
@@ -305,6 +348,8 @@ int DocTable_Delete(DocTable *t, const char *s, size_t n) {
   }
   return 0;
 }
+
+//---------------------------------------------------------------------------------------------
 
 RSDocumentMetadata *DocTable_Pop(DocTable *t, const char *s, size_t n) {
   t_docId docId = DocIdMap_Get(&t->dim, s, n);
@@ -326,6 +371,8 @@ RSDocumentMetadata *DocTable_Pop(DocTable *t, const char *s, size_t n) {
   }
   return NULL;
 }
+
+//---------------------------------------------------------------------------------------------
 
 void DocTable_RdbSave(DocTable *t, RedisModuleIO *rdb) {
 
@@ -369,6 +416,8 @@ void DocTable_RdbSave(DocTable *t, RedisModuleIO *rdb) {
   }
   RS_LOG_ASSERT((elements_written + 1 == t->size), "Wrong number of written elements");
 }
+
+//---------------------------------------------------------------------------------------------
 
 void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
   long long deletedElements = 0;
@@ -460,11 +509,15 @@ void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
   t->size -= deletedElements;
 }
 
+//---------------------------------------------------------------------------------------------
+
 DocIdMap NewDocIdMap() {
 
   TrieMap *m = NewTrieMap();
   return (DocIdMap){m};
 }
+
+//---------------------------------------------------------------------------------------------
 
 t_docId DocIdMap_Get(const DocIdMap *m, const char *s, size_t n) {
 
@@ -475,12 +528,16 @@ t_docId DocIdMap_Get(const DocIdMap *m, const char *s, size_t n) {
   return 0;
 }
 
+//---------------------------------------------------------------------------------------------
+
 void *_docIdMap_replace(void *oldval, void *newval) {
   if (oldval) {
     rm_free(oldval);
   }
   return newval;
 }
+
+//---------------------------------------------------------------------------------------------
 
 void DocIdMap_Put(DocIdMap *m, const char *s, size_t n, t_docId docId) {
 
@@ -489,10 +546,16 @@ void DocIdMap_Put(DocIdMap *m, const char *s, size_t n, t_docId docId) {
   TrieMap_Add(m->tm, (char *)s, n, pd, _docIdMap_replace);
 }
 
+//---------------------------------------------------------------------------------------------
+
 void DocIdMap_Free(DocIdMap *m) {
   TrieMap_Free(m->tm, rm_free);
 }
 
+//---------------------------------------------------------------------------------------------
+
 int DocIdMap_Delete(DocIdMap *m, const char *s, size_t n) {
   return TrieMap_Delete(m->tm, (char *)s, n, rm_free);
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////

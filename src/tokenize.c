@@ -1,3 +1,4 @@
+
 #include "forward_index.h"
 #include "stopwords.h"
 #include "tokenize.h"
@@ -41,11 +42,14 @@ static char *DefaultNormalize(char *s, char *dst, size_t *len) {
   char *realDest = s;
   size_t dstLen = 0;
 
-#define SWITCH_DEST()        \
-  if (realDest != dst) {     \
-    realDest = dst;          \
-    memcpy(realDest, s, ii); \
-  }
+#define SWITCH_DEST()          \
+  do {                         \
+    if (realDest != dst) {     \
+      realDest = dst;          \
+      memcpy(realDest, s, ii); \
+    }                          \
+  } while (0)
+
   // set to 1 if the previous character was a backslash escape
   int escaped = 0;
   for (size_t ii = 0; ii < origLen; ++ii) {
@@ -106,7 +110,7 @@ uint32_t SimpleTokenizer::Next(Token *t) {
                  .tokLen = normLen,
                  .raw = tok,
                  .rawLen = origLen,
-                 .pos = ++ctx->lastOffset,
+                 .pos = ++lastOffset,
                  .flags = Token_CopyStem,
                  .phoneticsPrimary = t->phoneticsPrimary};
 

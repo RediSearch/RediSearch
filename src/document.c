@@ -82,7 +82,7 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Doc
 
     aCtx->fspecs[i] = *fs;
     if (dedupe[fs->index]) {
-      QueryError_SetErrorFmt(&aCtx->status, QUERY_EDUPFIELD, "Tried to insert `%s` twice", fs->name);
+      aCtx->status.SetErrorFmt(QUERY_EDUPFIELD, "Tried to insert `%s` twice", fs->name);
       return -1;
     }
 
@@ -99,7 +99,7 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Doc
     } else {
       // Verify the flags:
       if ((f->indexAs & fs->types) != f->indexAs) {
-        QueryError_SetErrorFmt(&aCtx->status, QUERY_EUNSUPPTYPE,
+        aCtx->status.SetErrorFmt(QUERY_EUNSUPPTYPE,
                                "Tried to index field %s as type not specified in schema", fs->name);
         return -1;
       }
@@ -164,6 +164,21 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Doc
 
 //---------------------------------------------------------------------------------------------
 
+/**
+ * Creates a new context used for adding documents. Once created, call
+ * Document_AddToIndexes on it.
+ *
+ * - client is a blocked client which will be used as the context for this
+ *   operation.
+ * - sp is the index that this document will be added to
+ * - base is the document to be index. The context will take ownership of the
+ *   document's contents (but not the structure itself). Thus, you should not
+ *   call Document_Free on the document after a successful return of this
+ *   function.
+ *
+ * When done, call AddDocumentCtx_Free
+ */
+
 RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b, QueryError *status) {
 
   if (!actxPool_g) {
@@ -179,7 +194,7 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b, QueryError *stat
   // Get a new context
   RSAddDocumentCtx *aCtx = mempool_get(actxPool_g);
   aCtx->stateFlags = 0;
-  QueryError_ClearError(&aCtx->status);
+  aCtx->status.ClearError();
   aCtx->totalTokens = 0;
   aCtx->docFlags = 0;
   aCtx->client.bc = NULL;
@@ -235,6 +250,10 @@ static void threadCallback(void *p) {
   Document_AddToIndexes(p);
 }
 
+/**
+ * Indicate that processing is finished on the current document
+ */
+
 void AddDocumentCtx_Finish(RSAddDocumentCtx *aCtx) {
   if (aCtx->stateFlags & ACTX_F_NOBLOCK) {
     doReplyFinish(aCtx, aCtx->client.sctx->redisCtx);
@@ -247,6 +266,10 @@ void AddDocumentCtx_Finish(RSAddDocumentCtx *aCtx) {
 
 // How many bytes in a document to warrant it being tokenized in a separate thread
 #define SELF_EXEC_THRESHOLD 1024
+
+/**
+ * Print contents of document to screen
+ */
 
 // LCOV_EXCL_START debug
 void Document_Dump(const Document *doc) {
@@ -275,7 +298,7 @@ static int AddDocumentCtx_ReplaceMerge(RSAddDocumentCtx *aCtx, RedisSearchCtx *s
   Document_Clear(&aCtx->doc);
   int rv = Document_LoadSchemaFields(&aCtx->doc, sctx);
   if (rv != REDISMODULE_OK) {
-    QueryError_SetError(&aCtx->status, QUERY_ENODOC, "Could not load existing document");
+    aCtx->status.SetError(QUERY_ENODOC, "Could not load existing document");
     aCtx->donecb(aCtx, sctx->redisCtx, aCtx->donecbData);
     AddDocumentCtx_Free(aCtx);
     return 1;
@@ -303,6 +326,11 @@ static int handlePartialUpdate(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
 }
 
 //---------------------------------------------------------------------------------------------
+
+/**
+ * At this point the context will take over from the caller, and handle sending
+ * the replies and so on.
+ */
 
 void AddDocumentCtx_Submit(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, uint32_t options) {
   aCtx->options = options;
@@ -339,6 +367,11 @@ void AddDocumentCtx_Submit(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, uint32_
 }
 
 //---------------------------------------------------------------------------------------------
+
+/**
+ * Free the AddDocumentCtx. Should be done once AddToIndexes() completes; or
+ * when the client is unblocked.
+ */
 
 void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
   /**
@@ -377,7 +410,7 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
   }
 
   ByteOffsetWriter_Cleanup(&aCtx->offsetsWriter);
-  QueryError_ClearError(&aCtx->status);
+  aCtx->status.ClearError();
 
   mempool_release(actxPool_g, aCtx);
 }
@@ -428,7 +461,7 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
     }
     aCtx->tokenizer->Start(aCtx->tokenizer, (char *)c, fl, options);
 
-    Token tok = {0};
+    Token tok;
     uint32_t newTokPos;
     while (0 != (newTokPos = aCtx->tokenizer->Next(aCtx->tokenizer, &tok))) {
       forwardIndexTokenFunc(&tokCtx, &tok);
@@ -439,7 +472,6 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
       curOffsetField->lastTokPos = lastTokPos;
     }
     aCtx->totalTokens = lastTokPos;
-    Token_Destroy(&tok);
   }
   return 0;
 }
@@ -448,7 +480,7 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
 
 FIELD_PREPROCESSOR(numericPreprocessor) {
   if (RedisModule_StringToDouble(field->text, &fdata->numeric) == REDISMODULE_ERR) {
-    QueryError_SetCode(status, QUERY_ENOTNUMERIC);
+    status->SetCode(QUERY_ENOTNUMERIC);
     return -1;
   }
 
@@ -468,7 +500,7 @@ FIELD_BULK_INDEXER(numericIndexer) {
     rt = bulk->indexDatas[IXFLDPOS_NUMERIC] =
         OpenNumericIndex(ctx, keyName, &bulk->indexKeys[IXFLDPOS_NUMERIC]);
     if (!rt) {
-      QueryError_SetError(status, QUERY_EGENERIC, "Could not open numeric index for indexing");
+      status->SetError(QUERY_EGENERIC, "Could not open numeric index for indexing");
       return -1;
     }
   }
@@ -484,7 +516,7 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
   const char *c = RedisModule_StringPtrLen(field->text, NULL);
   char *pos = strpbrk(c, " ,");
   if (!pos) {
-    QueryError_SetCode(status, QUERY_EGEOFORMAT);
+    status->SetCode(QUERY_EGEOFORMAT);
     return -1;
   }
   *pos = '\0';
@@ -501,7 +533,7 @@ FIELD_BULK_INDEXER(geoIndexer) {
   int rv = gi.AddStrings(aCtx->doc.docId, fdata->geoSlon, fdata->geoSlat);
 
   if (rv == REDISMODULE_ERR) {
-    QueryError_SetError(status, QUERY_EGENERIC, "Could not index geo value");
+    status->SetError(QUERY_EGENERIC, "Could not index geo value");
     return -1;
   }
   return 0;
@@ -530,7 +562,7 @@ FIELD_BULK_INDEXER(tagIndexer) {
     RedisModuleString *kname = IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_TAG);
     tidx = bulk->indexDatas[IXFLDPOS_TAG] = TagIndex::Open(ctx, kname, 1, &bulk->indexKeys[IXFLDPOS_TAG]);
     if (!tidx) {
-      QueryError_SetError(status, QUERY_EGENERIC, "Could not open tag index for indexing");
+      status->SetError(QUERY_EGENERIC, "Could not open tag index for indexing");
       return -1;
     }
   }
@@ -572,7 +604,7 @@ int IndexerBulkAdd(IndexBulkData *bulk, RSAddDocumentCtx *cur, RedisSearchCtx *s
           break;
         default:
           rc = -1;
-          QueryError_SetError(status, QUERY_EINVAL, "BUG: invalid index type");
+          status->SetError(QUERY_EINVAL, "BUG: invalid index type");
           break;
       }
     }
@@ -591,6 +623,16 @@ void IndexerBulkCleanup(IndexBulkData *cur, RedisSearchCtx *sctx) {
 }
 
 //---------------------------------------------------------------------------------------------
+
+/**
+ * This function will tokenize the document and add the resultant tokens to
+ * the relevant inverted indexes. This function should be called from a
+ * worker thread (see ConcurrentSearch functions).
+ *
+ *
+ * When this function completes, it will send the reply to the client and
+ * unblock the client passed when the context was first created.
+ */
 
 int Document_AddToIndexes(RSAddDocumentCtx *aCtx) {
   Document *doc = &aCtx->doc;
@@ -626,7 +668,7 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx) {
 
 cleanup:
   if (ourRv != REDISMODULE_OK) {
-    QueryError_SetCode(&aCtx->status, QUERY_EGENERIC);
+    aCtx->status.SetCode(QUERY_EGENERIC);
     AddDocumentCtx_Finish(aCtx);
   }
   return ourRv;
@@ -634,13 +676,15 @@ cleanup:
 
 //---------------------------------------------------------------------------------------------
 
-/* Evaluate an IF expression (e.g. IF "@foo == 'bar'") against a document, by getting the properties
- * from the sorting table or from the hash representation of the document.
+/* Evaluate an IF expression (e.g. IF "@foo == 'bar'") against a document, by getting the
+ * properties from the sorting table or from the hash representation of the document.
  *
  * NOTE: This is disconnected from the document indexing flow, and loads the document and discards
  * of it internally
  *
- * Returns  REDISMODULE_ERR on failure, OK otherwise*/
+ * Returns  REDISMODULE_ERR on failure, OK otherwise
+ */
+
 int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const char *expr,
                             int *result, QueryError *status) {
 
@@ -648,7 +692,7 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
   const RSDocumentMetadata *dmd = DocTable_GetByKeyR(&sctx->spec->docs, key);
   if (!dmd) {
     // We don't know the document...
-    QueryError_SetError(status, QUERY_ENODOC, "");
+    status->SetError(QUERY_ENODOC, "");
     return REDISMODULE_ERR;
   }
 
@@ -658,7 +702,7 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
     return REDISMODULE_ERR;
   }
 
-  if (QueryError_HasError(status)) {
+  if (status->HasError()) {
     RSExpr_Free(e);
     return REDISMODULE_ERR;
   } 
@@ -703,7 +747,7 @@ done:
 static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
 #define BAIL(s)                                            \
   do {                                                     \
-    QueryError_SetError(&aCtx->status, QUERY_EGENERIC, s); \
+    aCtx->status.SetError(QUERY_EGENERIC, s); \
     goto done;                                             \
   } while (0);
 

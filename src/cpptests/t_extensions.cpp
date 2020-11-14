@@ -127,7 +127,7 @@ TEST_F(ExtTest, testQueryExpander) {
 
   QueryError err = {QUERY_OK};
   int rc = QAST_Parse(&qast, NULL, &opts, qt, strlen(qt), &err);
-  ASSERT_EQ(REDISMODULE_OK, rc) << QueryError_GetError(&err);
+  ASSERT_EQ(REDISMODULE_OK, rc) << err.GetError();
 
   ASSERT_EQ(qast.numTokens, 2);
   ASSERT_EQ(REDISMODULE_OK, QAST_Expand(&qast, opts.expanderName, &opts, NULL, &err));

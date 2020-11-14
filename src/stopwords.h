@@ -1,53 +1,52 @@
-#ifndef __REDISEARCH_STOPWORDS_H___
-#define __REDISEARCH_STOPWORDS_H___
 
-#include <stdlib.h>
+#pragma once
+
 #include "redismodule.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+#include <stdlib.h>
 
-static const char *DEFAULT_STOPWORDS[] = {
-    "a",    "is",    "the",   "an",   "and",  "are", "as",  "at",   "be",   "but",  "by",   "for",
-    "if",   "in",    "into",  "it",   "no",   "not", "of",  "on",   "or",   "such", "that", "their",
-    "then", "there", "these", "they", "this", "to",  "was", "will", "with", NULL};
+///////////////////////////////////////////////////////////////////////////////////////////////
 
-#ifndef __REDISEARCH_STOPORWORDS_C__
-typedef struct StopWordList StopWordList;
-#else
-struct StopWordList;
-#endif
+struct StopWordList {
+  TrieMap *m;
+  size_t refcount;
 
-/* Check if a stopword list contains a term. The term must be already lowercased */
-int StopWordList_Contains(const struct StopWordList *sl, const char *term, size_t len);
+  StopWordList() { ctor(); }
 
-struct StopWordList *DefaultStopWordList();
-struct StopWordList *EmptyStopWordList();
-void StopWordList_FreeGlobals(void);
+  // Create a new stopword list from a list of NULL-terminated C strings
+  StopWordList(const char **strs, size_t len) { ctor(strs, len); }
 
-/* Create a new stopword list from a list of redis strings */
-struct StopWordList *NewStopWordList(RedisModuleString **strs, size_t len);
+  // Create a new stopword list from a list of redis strings
+  StopWordList(RedisModuleString **strs, size_t len);
 
-/* Create a new stopword list from a list of NULL-terminated C strings */
-struct StopWordList *NewStopWordListCStr(const char **strs, size_t len);
+  // Load a stopword list from RDB
+  StopWordList(RedisModuleIO *rdb, int encver);
 
-/* Free a stopword list's memory */
-void StopWordList_Unref(struct StopWordList *sl);
+  void ctor(const char **strs = NULL, size_t len = 0);
+
+  ~StopWordList();
+
+  // Check if a stopword list contains a term. The term must be already lowercased
+  int Contains(const char *term, size_t len) const;
+
+  // Save a stopword list to RDB
+  void RdbSave(RedisModuleIO *rdb) const;
+
+  void ReplyWithStopWordsList(RedisModuleCtx *ctx) const;
+};
+
+StopWordList *DefaultStopWordList();
+StopWordList *EmptyStopWordList();
+
+#if 0
+
+// Free a stopword list's memory
+void StopWordList_Unref(StopWordList *sl);
 
 #define StopWordList_Free StopWordList_Unref
 
-/* Load a stopword list from RDB */
-struct StopWordList *StopWordList_RdbLoad(RedisModuleIO *rdb, int encver);
+void StopWordList_Ref(StopWordList *sl);
 
-/* Save a stopword list to RDB */
-void StopWordList_RdbSave(RedisModuleIO *rdb, struct StopWordList *sl);
+#endif // 0
 
-void StopWordList_Ref(struct StopWordList *sl);
-
-void ReplyWithStopWordsList(RedisModuleCtx *ctx, struct StopWordList *sl);
-
-#ifdef __cplusplus
-}
-#endif
-#endif
+///////////////////////////////////////////////////////////////////////////////////////////////

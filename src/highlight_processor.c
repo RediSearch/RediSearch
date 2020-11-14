@@ -184,8 +184,7 @@ static RSValue *summarizeField(IndexSpec *spec, const ReturnedField *fieldInfo,
   FragmentList_Init(&frags, 8, 6);
 
   // Start gathering the terms
-  HighlightTags tags = {.openTag = fieldInfo->highlightSettings.openTag,
-                        .closeTag = fieldInfo->highlightSettings.closeTag};
+  HighlightTags tags = fieldInfo->highlightSettings;
 
   // First actually generate the fragments
   size_t docLen;
@@ -333,12 +332,12 @@ static int hlpNext(ResultProcessor *rbase, SearchResult *r) {
 
   if (fields->numFields) {
     for (size_t ii = 0; ii < fields->numFields; ++ii) {
-      const ReturnedField *ff = fields->fields + ii;
+      const ReturnedField *ff = &fields->fields[ii];
       if (ff->mode == SummarizeMode_None && fields->defaultField.mode == SummarizeMode_None) {
         // Ignore - this is a field for `RETURN`, not `SUMMARIZE`
         continue;
       }
-      ReturnedField combinedSpec = {0};
+      ReturnedField combinedSpec;
       normalizeSettings(ff, &fields->defaultField, &combinedSpec);
       resetIovsArr(&docParams.iovsArr, &numIovsArr, combinedSpec.summarizeSettings.numFrags);
       processField(hlp, &docParams, &combinedSpec);
@@ -348,7 +347,7 @@ static int hlpNext(ResultProcessor *rbase, SearchResult *r) {
       if (k->flags & RLOOKUP_F_HIDDEN) {
         continue;
       }
-      ReturnedField spec = {0};
+      ReturnedField spec;
       normalizeSettings(NULL, &fields->defaultField, &spec);
       spec.lookupKey = k;
       spec.name = k->name;

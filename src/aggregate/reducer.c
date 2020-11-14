@@ -65,7 +65,7 @@ int ReducerOpts_GetKey(const ReducerOptions *options, const RLookupKey **out) {
   }
   *out = RLookup_GetKey(options->srclookup, s, RLOOKUP_F_HIDDEN);
   if (!*out) {
-    QueryError_SetErrorFmt(options->status, QUERY_ENOPROPKEY,
+    options->status->SetErrorFmt(QUERY_ENOPROPKEY,
                            "Property `%s` not present in document or pipeline", s);
     return 0;
   }
@@ -74,7 +74,7 @@ int ReducerOpts_GetKey(const ReducerOptions *options, const RLookupKey **out) {
 
 int ReducerOpts_EnsureArgsConsumed(const ReducerOptions *options) {
   if (AC_NumRemaining(options->args)) {
-    QueryError_FmtUnknownArg(options->status, options->args, options->name);
+    options->status->FmtUnknownArg(options->args, options->name);
     return 0;
   }
   return 1;

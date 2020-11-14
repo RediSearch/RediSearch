@@ -10,7 +10,7 @@
 
 #define RETURN_ERROR(s) return REDISMODULE_ERR;
 #define RETURN_PARSE_ERROR(rc)                                    \
-  QueryError_SetError(status, QUERY_EPARSEARGS, AC_Strerror(rc)); \
+  status->SetError(QUERY_EPARSEARGS, AC_Strerror(rc)); \
   return REDISMODULE_ERR;
 
 #define CHECK_RETURN_PARSE_ERROR(rc) \
@@ -109,7 +109,7 @@ CONFIG_SETTER(setMaxDocTableSize) {
   int acrc = AC_GetSize(ac, &newsize, AC_F_GE1);
   CHECK_RETURN_PARSE_ERROR(acrc);
   if (newsize > MAX_DOC_TABLE_SIZE) {
-    QueryError_SetError(status, QUERY_ELIMIT, "Value exceeds maximum possible document table size");
+    status->SetError(QUERY_ELIMIT, "Value exceeds maximum possible document table size");
     return REDISMODULE_ERR;
   }
   config->maxDocTableSize = newsize;
@@ -325,8 +325,8 @@ int ReadConfig(RedisModuleString **argv, int argc, char **err) {
     }
 
     if (curVar->setValue(&RSGlobalConfig, &ac, &status) != REDISMODULE_OK) {
-      *err = rm_strdup(QueryError_GetError(&status));
-      QueryError_ClearError(&status);
+      *err = rm_strdup(status.GetError());
+      status.ClearError();
       return REDISMODULE_ERR;
     }
     // Mark the option as having been modified
@@ -526,11 +526,11 @@ int RSConfig_SetOption(RSConfig *config, RSConfigOptions *options, const char *n
                        RedisModuleString **argv, int argc, size_t *offset, QueryError *status) {
   RSConfigVar *var = findConfigVar(options, name);
   if (!var) {
-    QueryError_SetError(status, QUERY_ENOOPTION, NULL);
+    status->SetError(QUERY_ENOOPTION, NULL);
     return REDISMODULE_ERR;
   }
   if (var->flags & RSCONFIGVAR_F_IMMUTABLE) {
-    QueryError_SetError(status, QUERY_EINVAL, "Not modifiable at runtime");
+    status->SetError(QUERY_EINVAL, "Not modifiable at runtime");
     return REDISMODULE_ERR;
   }
   ArgsCursor ac;

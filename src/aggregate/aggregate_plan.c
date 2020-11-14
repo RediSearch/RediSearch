@@ -1,9 +1,12 @@
+
 #include "aggregate_plan.h"
 #include "reducer.h"
 #include "expr/expression.h"
-#include <commands.h>
-#include <util/arr.h>
+#include "commands.h"
+#include "util/arr.h"
 #include <ctype.h>
+
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 static const char *steptypeToString(PLN_StepType type) {
   switch (type) {
@@ -27,6 +30,8 @@ static const char *steptypeToString(PLN_StepType type) {
   }
 }
 
+//---------------------------------------------------------------------------------------------
+
 /* add a step to the plan at its end (before the dummy tail) */
 void AGPLN_AddStep(AGGPlan *plan, PLN_BaseStep *step) {
   RS_LOG_ASSERT(step->type > PLN_T_INVALID, "Step type connot be PLN_T_INVALID");
@@ -34,9 +39,13 @@ void AGPLN_AddStep(AGGPlan *plan, PLN_BaseStep *step) {
   plan->steptypes |= (1 << (step->type - 1));
 }
 
+//---------------------------------------------------------------------------------------------
+
 int AGPLN_HasStep(const AGGPlan *pln, PLN_StepType t) {
   return (pln->steptypes & (1 << (t - 1)));
 }
+
+//---------------------------------------------------------------------------------------------
 
 void AGPLN_AddBefore(AGGPlan *pln, PLN_BaseStep *posstp, PLN_BaseStep *newstp) {
   RS_LOG_ASSERT(newstp->type > PLN_T_INVALID, "Step type connot be PLN_T_INVALID");
@@ -47,6 +56,8 @@ void AGPLN_AddBefore(AGGPlan *pln, PLN_BaseStep *posstp, PLN_BaseStep *newstp) {
   }
 }
 
+//---------------------------------------------------------------------------------------------
+
 void AGPLN_AddAfter(AGGPlan *pln, PLN_BaseStep *posstp, PLN_BaseStep *newstp) {
   RS_LOG_ASSERT(newstp->type > PLN_T_INVALID, "Step type connot be PLN_T_INVALID");
   if (posstp == NULL || DLLIST_IS_LAST(&pln->steps, &posstp->llnodePln)) {
@@ -56,22 +67,33 @@ void AGPLN_AddAfter(AGGPlan *pln, PLN_BaseStep *posstp, PLN_BaseStep *newstp) {
   }
 }
 
+//---------------------------------------------------------------------------------------------
+
 void AGPLN_Prepend(AGGPlan *pln, PLN_BaseStep *newstp) {
   dllist_prepend(&pln->steps, &newstp->llnodePln);
 }
+
+//---------------------------------------------------------------------------------------------
 
 void AGPLN_PopStep(AGGPlan *pln, PLN_BaseStep *step) {
   dllist_delete(&step->llnodePln);
   (void)pln;
 }
 
+//---------------------------------------------------------------------------------------------
+
 static void rootStepDtor(PLN_BaseStep *bstp) {
   PLN_FirstStep *fstp = (PLN_FirstStep *)bstp;
   RLookup_Cleanup(&fstp->lookup);
 }
+
+//---------------------------------------------------------------------------------------------
+
 static RLookup *rootStepLookup(PLN_BaseStep *bstp) {
   return &((PLN_FirstStep *)bstp)->lookup;
 }
+
+//---------------------------------------------------------------------------------------------
 
 void AGPLN_Init(AGGPlan *plan) {
   memset(plan, 0, sizeof *plan);
@@ -82,6 +104,8 @@ void AGPLN_Init(AGGPlan *plan) {
   plan->firstStep_s.base.getLookup = rootStepLookup;
 }
 
+//---------------------------------------------------------------------------------------------
+
 static RLookup *lookupFromNode(const DLLIST_node *nn) {
   PLN_BaseStep *stp = DLLIST_ITEM(nn, PLN_BaseStep, llnodePln);
   if (stp->getLookup) {
@@ -90,6 +114,20 @@ static RLookup *lookupFromNode(const DLLIST_node *nn) {
     return NULL;
   }
 }
+
+//---------------------------------------------------------------------------------------------
+
+/**
+ * Locate a plan within the given constraints. begin and end are the plan ranges
+ * to check. `end` is considered exclusive while `begin` is inclusive. To search
+ * the entire plan, set `begin` and `end` to NULL.
+ *
+ * @param pln the plan to search
+ * @param begin step to start searching from
+ * @param end step to stop searching at
+ * @param type type of plan to search for. The special PLANTYPE_ANY_REDUCER
+ *  can be used for any plan type which creates a new RLookup
+ */
 
 const PLN_BaseStep *AGPLN_FindStep(const AGGPlan *pln, const PLN_BaseStep *begin,
                                    const PLN_BaseStep *end, PLN_StepType type) {
@@ -111,6 +149,8 @@ const PLN_BaseStep *AGPLN_FindStep(const AGGPlan *pln, const PLN_BaseStep *begin
   return NULL;
 }
 
+//---------------------------------------------------------------------------------------------
+
 static void arrangeDtor(PLN_BaseStep *bstp) {
   PLN_ArrangeStep *astp = (PLN_ArrangeStep *)bstp;
   if (astp->sortKeys) {
@@ -119,6 +159,14 @@ static void arrangeDtor(PLN_BaseStep *bstp) {
   rm_free(astp->sortkeysLK);
   rm_free(bstp);
 }
+
+//---------------------------------------------------------------------------------------------
+
+/**
+ * Gets the last arrange step for the current pipeline stage. If no arrange
+ * step exists, return NULL.
+ *
+ */
 
 PLN_ArrangeStep *AGPLN_GetArrangeStep(AGGPlan *pln) {
   // Go backwards.. and stop at the cutoff
@@ -133,6 +181,15 @@ PLN_ArrangeStep *AGPLN_GetArrangeStep(AGGPlan *pln) {
   return NULL;
 }
 
+//---------------------------------------------------------------------------------------------
+
+/**
+ * Gets the last arrange step for the current pipeline stage. If no arrange
+ * step exists, one is created.
+ *
+ * This function should be used to limit/page through the current step
+ */
+
 PLN_ArrangeStep *AGPLN_GetOrCreateArrangeStep(AGGPlan *pln) {
   PLN_ArrangeStep *ret = AGPLN_GetArrangeStep(pln);
   if (ret) {
@@ -144,6 +201,17 @@ PLN_ArrangeStep *AGPLN_GetOrCreateArrangeStep(AGGPlan *pln) {
   AGPLN_AddStep(pln, &ret->base);
   return ret;
 }
+
+//---------------------------------------------------------------------------------------------
+
+/**
+ * Get the lookup provided the given mode
+ * @param pln the plan containing the steps
+ * @param bstp - acts as a placeholder for iteration. If mode is FIRST, then
+ *  this acts as a barrier and no lookups after this step are returned. If mode
+ *  is LAST, then this acts as an initializer, and steps before this (inclusive)
+ *  are ignored (NYI).
+ */
 
 RLookup *AGPLN_GetLookup(const AGGPlan *pln, const PLN_BaseStep *bstp, AGPLNGetLookupMode mode) {
   const DLLIST_node *first = NULL, *last = NULL;
@@ -188,6 +256,8 @@ RLookup *AGPLN_GetLookup(const AGGPlan *pln, const PLN_BaseStep *bstp, AGPLNGetL
   return NULL;
 }
 
+//---------------------------------------------------------------------------------------------
+
 void AGPLN_FreeSteps(AGGPlan *pln) {
   DLLIST_node *nn = pln->steps.next;
   while (nn && nn != &pln->steps) {
@@ -198,6 +268,8 @@ void AGPLN_FreeSteps(AGGPlan *pln) {
     }
   }
 }
+
+//---------------------------------------------------------------------------------------------
 
 void AGPLN_Dump(const AGGPlan *pln) {
   for (const DLLIST_node *nn = pln->steps.next; nn && nn != &pln->steps; nn = nn->next) {
@@ -269,22 +341,32 @@ void AGPLN_Dump(const AGGPlan *pln) {
   }
 }
 
+//---------------------------------------------------------------------------------------------
+
 typedef char **myArgArray_t;
 
 static inline void append_string(myArgArray_t *arr, const char *src) {
   char *s = rm_strdup(src);
   *arr = array_append(*arr, s);
 }
+
+//---------------------------------------------------------------------------------------------
+
 static inline void append_uint(myArgArray_t *arr, unsigned long long ll) {
   char s[64] = {0};
   sprintf(s, "%llu", ll);
   append_string(arr, s);
 }
+
+//---------------------------------------------------------------------------------------------
+
 static inline void append_ac(myArgArray_t *arr, const ArgsCursor *ac) {
   for (size_t ii = 0; ii < ac->argc; ++ii) {
     append_string(arr, AC_StringArg(ac, ii));
   }
 }
+
+//---------------------------------------------------------------------------------------------
 
 static void serializeMapFilter(myArgArray_t *arr, const PLN_BaseStep *stp) {
   const PLN_MapFilterStep *mstp = (PLN_MapFilterStep *)stp;
@@ -299,6 +381,8 @@ static void serializeMapFilter(myArgArray_t *arr, const PLN_BaseStep *stp) {
     append_string(arr, stp->alias);
   }
 }
+
+//---------------------------------------------------------------------------------------------
 
 static void serializeArrange(myArgArray_t *arr, const PLN_BaseStep *stp) {
   const PLN_ArrangeStep *astp = (PLN_ArrangeStep *)stp;
@@ -323,6 +407,9 @@ static void serializeArrange(myArgArray_t *arr, const PLN_BaseStep *stp) {
     }
   }
 }
+
+//---------------------------------------------------------------------------------------------
+
 static void serializeLoad(myArgArray_t *arr, const PLN_BaseStep *stp) {
   PLN_LoadStep *lstp = (PLN_LoadStep *)stp;
   if (lstp->args.argc) {
@@ -331,6 +418,8 @@ static void serializeLoad(myArgArray_t *arr, const PLN_BaseStep *stp) {
     append_ac(arr, &lstp->args);
   }
 }
+
+//---------------------------------------------------------------------------------------------
 
 static void serializeGroup(myArgArray_t *arr, const PLN_BaseStep *stp) {
   const PLN_GroupStep *gstp = (PLN_GroupStep *)stp;
@@ -352,6 +441,12 @@ static void serializeGroup(myArgArray_t *arr, const PLN_BaseStep *stp) {
     }
   }
 }
+
+//---------------------------------------------------------------------------------------------
+
+/* Serialize the plan into an array of string args, to create a command to be sent over the network.
+ * The strings need to be freed with free and the array needs to be freed with array_free().
+ * The length can be extracted with array_len */
 
 array_t AGPLN_Serialize(const AGGPlan *pln) {
   char **arr = array_new(char *, 1);
@@ -380,3 +475,5 @@ array_t AGPLN_Serialize(const AGGPlan *pln) {
   }
   return arr;
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////

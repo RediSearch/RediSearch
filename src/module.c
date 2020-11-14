@@ -181,78 +181,70 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
 
-  QueryError status = {0};
+  QueryError status;
   size_t len;
   const char *rawQuery = RedisModule_StringPtrLen(argv[2], &len);
   const char **includeDict = NULL, **excludeDict = NULL;
   RSSearchOptions opts = {0};
-  QueryAST qast = {0};
-  int rc = QAST_Parse(&qast, sctx, &opts, rawQuery, len, &status);
+  try {
+    QueryAST qast(sctx, &opts, rawQuery, len, &status);
 
-  if (rc != REDISMODULE_OK) {
-    RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
-    goto end;
+    includeDict = array_new(const char *, DICT_INITIAL_SIZE);
+    excludeDict = array_new(const char *, DICT_INITIAL_SIZE);
+
+    int distanceArgPos = 0;
+    long long distance = DEFAULT_LEV_DISTANCE;
+    if ((distanceArgPos = RMUtil_ArgExists("DISTANCE", argv, argc, 0))) {
+      if (distanceArgPos + 1 >= argc) {
+        throw Error("DISTANCE arg is given but no DISTANCE comes after");
+      }
+      if (RedisModule_StringToLongLong(argv[distanceArgPos + 1], &distance) != REDISMODULE_OK ||
+          distance < 1 || distance > MAX_LEV_DISTANCE) {
+        throw ERror("bad distance given, distance must be a natural number between 1 to "
+                    STRINGIFY(MAX_LEV_DISTANCE));
+      }
+    }  // LCOV_EXCL_LINE
+
+    int nextPos = 0;
+    while ((nextPos = RMUtil_ArgExists("TERMS", argv, argc, nextPos + 1))) {
+      if (nextPos + 2 >= argc) {
+        throw Error("TERM arg is given but no TERM params comes after");
+      }
+      const char *operation = RedisModule_StringPtrLen(argv[nextPos + 1], NULL);
+      const char *dictName = RedisModule_StringPtrLen(argv[nextPos + 2], NULL);
+      if (strcasecmp(operation, "INCLUDE") == 0) {
+        includeDict = array_append(includeDict, (char *)dictName);
+      } else if (strcasecmp(operation, "EXCLUDE") == 0) {
+        excludeDict = array_append(excludeDict, (char *)dictName);
+      } else {
+        throw Error("bad format, exlude/include operation was not given");
+      }
+    }
+
+    bool fullScoreInfo = false;
+    if (RMUtil_ArgExists("FULLSCOREINFO", argv, argc, 0)) {
+      fullScoreInfo = true;
+    }
+
+    SpellCheckCtx scCtx = {.sctx = sctx,
+                          .includeDict = includeDict,
+                          .excludeDict = excludeDict,
+                          .distance = distance,
+                          .fullScoreInfo = fullScoreInfo};
+
+    SpellCheck_Reply(&scCtx, &qast);
+  } catch (Error &x) {
+    RedisModule_ReplyWithError(ctx, x.what());
   }
-
-  includeDict = array_new(const char *, DICT_INITIAL_SIZE);
-  excludeDict = array_new(const char *, DICT_INITIAL_SIZE);
-
-  int distanceArgPos = 0;
-  long long distance = DEFAULT_LEV_DISTANCE;
-  if ((distanceArgPos = RMUtil_ArgExists("DISTANCE", argv, argc, 0))) {
-    if (distanceArgPos + 1 >= argc) {
-      RedisModule_ReplyWithError(ctx, "DISTANCE arg is given but no DISTANCE comes after");
-      goto end;
-    }
-    if (RedisModule_StringToLongLong(argv[distanceArgPos + 1], &distance) != REDISMODULE_OK ||
-        distance < 1 || distance > MAX_LEV_DISTANCE) {
-      RedisModule_ReplyWithError(
-          ctx, "bad distance given, distance must be a natural number between 1 to " STRINGIFY(
-                   MAX_LEV_DISTANCE));
-      goto end;
-    }
-  }  // LCOV_EXCL_LINE
-
-  int nextPos = 0;
-  while ((nextPos = RMUtil_ArgExists("TERMS", argv, argc, nextPos + 1))) {
-    if (nextPos + 2 >= argc) {
-      RedisModule_ReplyWithError(ctx, "TERM arg is given but no TERM params comes after");
-      goto end;
-    }
-    const char *operation = RedisModule_StringPtrLen(argv[nextPos + 1], NULL);
-    const char *dictName = RedisModule_StringPtrLen(argv[nextPos + 2], NULL);
-    if (strcasecmp(operation, "INCLUDE") == 0) {
-      includeDict = array_append(includeDict, (char *)dictName);
-    } else if (strcasecmp(operation, "EXCLUDE") == 0) {
-      excludeDict = array_append(excludeDict, (char *)dictName);
-    } else {
-      RedisModule_ReplyWithError(ctx, "bad format, exlude/include operation was not given");
-      goto end;
-    }
-  }
-
-  bool fullScoreInfo = false;
-  if (RMUtil_ArgExists("FULLSCOREINFO", argv, argc, 0)) {
-    fullScoreInfo = true;
-  }
-
-  SpellCheckCtx scCtx = {.sctx = sctx,
-                         .includeDict = includeDict,
-                         .excludeDict = excludeDict,
-                         .distance = distance,
-                         .fullScoreInfo = fullScoreInfo};
-
-  SpellCheck_Reply(&scCtx, &qast);
 
 end:
-  QueryError_ClearError(&status);
+  status.ClearError();
   if (includeDict != NULL) {
     array_free(includeDict);
   }
   if (excludeDict != NULL) {
     array_free(excludeDict);
   }
-  QAST_Destroy(&qast);
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
 }
@@ -460,8 +452,8 @@ int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
   IndexSpec *sp = IndexSpec_CreateNew(ctx, argv, argc, &status);
   if (sp == NULL) {
-    RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
-    QueryError_ClearError(&status);
+    RedisModule_ReplyWithError(ctx, status.GetError());
+    status.ClearError();
     return REDISMODULE_OK;
   }
 
@@ -719,7 +711,7 @@ int AlterIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     IndexSpec_AddFields(sp, &ac, &status);
   }
 
-  if (QueryError_HasError(&status)) {
+  if (status.HasError()) {
     return QueryError_ReplyAndClear(ctx, &status);
   } else {
     RedisModule_ReplicateVerbatim(ctx);
@@ -738,7 +730,7 @@ static int aliasAddCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
       flags: INDEXSPEC_LOAD_NOALIAS | INDEXSPEC_LOAD_KEYLESS | INDEXSPEC_LOAD_KEY_RSTRING};
   IndexSpec *sptmp = IndexSpec_LoadEx(ctx, &loadOpts);
   if (!sptmp) {
-    QueryError_SetError(error, QUERY_ENOINDEX, "Unknown index name (or name is an alias itself)");
+    error->SetError(QUERY_ENOINDEX, "Unknown index name (or name is an alias itself)");
     return REDISMODULE_ERR;
   }
   return IndexAlias_Add(RedisModule_StringPtrLen(argv[1], NULL), sptmp, 0, error);
@@ -804,7 +796,7 @@ static int AliasUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
       QueryError e2 = {0};
       const char *alias = RedisModule_StringPtrLen(argv[1], NULL);
       IndexAlias_Add(alias, spOrig, 0, &e2);
-      QueryError_ClearError(&e2);
+      e2.ClearError();
     }
     return QueryError_ReplyAndClear(ctx, &status);
   } else {
@@ -834,7 +826,7 @@ int ConfigCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     size_t offset = 3;  // Might be == argc. SetOption deals with it.
     if (RSConfig_SetOption(&RSGlobalConfig, &RSGlobalConfigOptions, name, argv, argc, &offset,
                            &status) == REDISMODULE_ERR) {
-      RedisModule_ReplyWithSimpleString(ctx, QueryError_GetError(&status));
+      RedisModule_ReplyWithSimpleString(ctx, status.GetError());
       return REDISMODULE_OK;
     }
     if (offset != argc) {
@@ -983,9 +975,8 @@ void __attribute__((destructor)) RediSearch_CleanupModule(void) {
       return;
     }
     invoked = 1;
-    CursorList_Destroy(&RSCursors);
+    delete RSCursors;
     Extensions_Free();
-    StopWordList_FreeGlobals();
     FunctionRegistry_Free();
     mempool_free_global();
     ConcurrentSearch_ThreadPoolDestroy();

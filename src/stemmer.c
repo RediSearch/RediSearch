@@ -1,15 +1,20 @@
 #include "stemmer.h"
+#include "dep/snowball/include/libstemmer.h"
+#include "rmalloc.h"
+
 #include <string.h>
 #include <stdio.h>
 #include <sys/param.h>
-#include "dep/snowball/include/libstemmer.h"
-#include "rmalloc.h"
+
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 typedef struct langPair_s
 {
   const char *str;
   RSLanguage lang;
 } langPair_t;
+
+//---------------------------------------------------------------------------------------------
 
 langPair_t __langPairs[] = {
   { "arabic",     RS_LANG_ARABIC },
@@ -33,6 +38,8 @@ langPair_t __langPairs[] = {
   { "chinese",    RS_LANG_CHINESE },
   { NULL,         RS_LANG_UNSUPPORTED }
 };
+
+//---------------------------------------------------------------------------------------------
 
 const char *RSLanguage_ToString(RSLanguage language) {
   char *ret = NULL;
@@ -62,6 +69,8 @@ const char *RSLanguage_ToString(RSLanguage language) {
   return (const char *)ret;
 }
 
+//---------------------------------------------------------------------------------------------
+
 RSLanguage RSLanguage_Find(const char *language) {
   if (language == NULL)
     return DEFAULT_LANGUAGE;
@@ -74,11 +83,15 @@ RSLanguage RSLanguage_Find(const char *language) {
   return RS_LANG_UNSUPPORTED;
 }
 
+//---------------------------------------------------------------------------------------------
+
 struct sbStemmerCtx {
   struct sb_stemmer *sb;
   char *buf;
   size_t cap;
 };
+
+//---------------------------------------------------------------------------------------------
 
 const char *__sbstemmer_Stem(void *ctx, const char *word, size_t len, size_t *outlen) {
   const sb_symbol *b = (const sb_symbol *)word;
@@ -108,6 +121,8 @@ const char *__sbstemmer_Stem(void *ctx, const char *word, size_t len, size_t *ou
   return NULL;
 }
 
+//---------------------------------------------------------------------------------------------
+
 void __sbstemmer_Free(Stemmer *s) {
   struct sbStemmerCtx *ctx = s->ctx;
   sb_stemmer_delete(ctx->sb);
@@ -116,6 +131,8 @@ void __sbstemmer_Free(Stemmer *s) {
   rm_free(s);
 }
 
+//---------------------------------------------------------------------------------------------
+
 static int sbstemmer_Reset(Stemmer *stemmer, StemmerType type, RSLanguage language) {
   if (type != stemmer->type || stemmer->language == RS_LANG_UNSUPPORTED ||
                                stemmer->language == language) {
@@ -123,6 +140,8 @@ static int sbstemmer_Reset(Stemmer *stemmer, StemmerType type, RSLanguage langua
   }
   return 1;
 }
+
+//---------------------------------------------------------------------------------------------
 
 Stemmer *__newSnowballStemmer(RSLanguage language) {
   struct sb_stemmer *sb = sb_stemmer_new(RSLanguage_ToString(language), NULL);
@@ -145,6 +164,8 @@ Stemmer *__newSnowballStemmer(RSLanguage language) {
   return ret;
 }
 
+//---------------------------------------------------------------------------------------------
+
 Stemmer *NewStemmer(StemmerType type, RSLanguage language) {
   Stemmer *ret = NULL;
   if (type == SnowballStemmer) {
@@ -162,6 +183,10 @@ Stemmer *NewStemmer(StemmerType type, RSLanguage language) {
   return ret;
 }
 
+//---------------------------------------------------------------------------------------------
+
 int ResetStemmer(Stemmer *stemmer, StemmerType type, RSLanguage language) {
   return stemmer->Reset && stemmer->Reset(stemmer, type, language);
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////

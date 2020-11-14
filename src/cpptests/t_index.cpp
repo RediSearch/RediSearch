@@ -718,7 +718,7 @@ TEST_F(IndexTest, testIndexSpec) {
                         "sortable",  name,     "text",  "nostem"};
   QueryError err = {QUERY_OK};
   IndexSpec *s = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
-  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
+  ASSERT_FALSE(err.HasError()) << err.GetError();
   ASSERT_TRUE(s);
   ASSERT_TRUE(s->numFields == 5);
   ASSERT_TRUE(s->stopwords != NULL);
@@ -787,12 +787,12 @@ TEST_F(IndexTest, testIndexSpec) {
 
   IndexSpec_Free(s);
 
-  QueryError_ClearError(&err);
+  err.ClearError();
   const char *args2[] = {
       "NOOFFSETS", "NOFIELDS", "SCHEMA", title, "text",
   };
   s = IndexSpec_Parse("idx", args2, sizeof(args2) / sizeof(const char *), &err);
-  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
+  ASSERT_FALSE(err.HasError()) << err.GetError();
   ASSERT_TRUE(s);
   ASSERT_TRUE(s->numFields == 1);
 
@@ -802,9 +802,9 @@ TEST_F(IndexTest, testIndexSpec) {
 
   // User-reported bug
   const char *args3[] = {"SCHEMA", "ha", "NUMERIC", "hb", "TEXT", "WEIGHT", "1", "NOSTEM"};
-  QueryError_ClearError(&err);
+  err.ClearError();
   s = IndexSpec_Parse("idx", args3, sizeof(args3) / sizeof(args3[0]), &err);
-  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
+  ASSERT_FALSE(err.HasError()) << err.GetError();
   ASSERT_TRUE(s);
   ASSERT_TRUE(FieldSpec_IsNoStem(s->fields + 1));
   IndexSpec_Free(s);
@@ -851,7 +851,7 @@ TEST_F(IndexTest, testHugeSpec) {
 
   QueryError err = {QUERY_OK};
   IndexSpec *s = IndexSpec_Parse("idx", (const char **)&args[0], args.size(), &err);
-  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
+  ASSERT_FALSE(err.HasError()) << err.GetError();
   ASSERT_TRUE(s);
   ASSERT_TRUE(s->numFields == N);
   IndexSpec_Free(s);
@@ -861,13 +861,13 @@ TEST_F(IndexTest, testHugeSpec) {
   N = 300;
   fillSchema(args, N);
 
-  QueryError_ClearError(&err);
+  err.ClearError();
   s = IndexSpec_Parse("idx", (const char **)&args[0], args.size(), &err);
   ASSERT_TRUE(s == NULL);
-  ASSERT_TRUE(QueryError_HasError(&err));
-  ASSERT_STREQ("Too many TEXT fields in schema", QueryError_GetError(&err));
+  ASSERT_TRUE(err.HasError());
+  ASSERT_STREQ("Too many TEXT fields in schema", err.GetError());
   freeSchemaArgs(args);
-  QueryError_ClearError(&err);
+  err.ClearError();
 }
 
 typedef union {

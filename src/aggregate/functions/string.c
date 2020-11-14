@@ -110,7 +110,7 @@ static int stringfunc_substr(ExprEval *ctx, RSValue *result, RSValue **argv, siz
   size_t sz;
   const char *str = RSValue_StringPtrLen(argv[0], &sz);
   if (!str) {
-    QueryError_SetError(err, QUERY_EPARSEARGS, "Invalid type for substr. Expected string");
+    err->SetError(QUERY_EPARSEARGS, "Invalid type for substr. Expected string");
     return EXPR_EVAL_ERR;
   }
 
@@ -144,7 +144,7 @@ int func_to_number(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc, 
   if (!RSValue_ToNumber(argv[0], &n)) {
     size_t sz = 0;
     const char *p = RSValue_StringPtrLen(argv[0], &sz);
-    QueryError_SetErrorFmt(err, QUERY_EPARSEARGS, "to_number: cannot convert string '%s'", p);
+    err->SetErrorFmt(QUERY_EPARSEARGS, "to_number: cannot convert string '%s'", p);
     return EXPR_EVAL_ERR;
   }
 
@@ -241,7 +241,7 @@ static int stringfunc_format(ExprEval *ctx, RSValue *result, RSValue **argv, siz
   return EXPR_EVAL_OK;
 
 error:
-  assert(QueryError_HasError(err));
+  assert(err->HasError());
   sdsfree(out);
   RSValue_MakeReference(result, RS_NullVal());
   return EXPR_EVAL_ERR;
@@ -331,7 +331,7 @@ int func_exists(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc, Que
   if (argv[0]->t != RSValue_Null) {
     result->numval = 1;                       
   } else {
-    QueryError_ClearError(ctx->err);
+    ctx->err->ClearError();
     result->numval = 0;
   }
   return EXPR_EVAL_OK;

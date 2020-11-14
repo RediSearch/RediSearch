@@ -14,7 +14,12 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-/********************************************************************************
+struct ResultProcessor;
+struct RLookup;
+
+//---------------------------------------------------------------------------------------------
+
+/*
  * Result Processor Chain
  *
  * We use a chain of result processors to sort, score, filter and page the results coming from the
@@ -30,10 +35,9 @@
  * Processors can add more fields, rewrite them, change the score, etc.
  * The query plan builds the chain based on the request, and then the chain just processes the
  * results.
- *
- ********************************************************************************/
+ */
 
-/* Query processing state */
+// Query processing state
 enum QITRState {
   QITR_S_RUNNING,
   QITR_S_ABORTED,
@@ -44,9 +48,6 @@ enum QITRState {
 };
 
 //---------------------------------------------------------------------------------------------
-
-struct ResultProcessor;
-struct RLookup;
 
 struct QueryIterator {
   // First processor
@@ -75,13 +76,12 @@ struct QueryIterator {
   QITRState state;
 
   struct timespec startTime;
+
+  void Cleanup();
+  IndexIterator *GetRootFilter();
+  void PushRP(struct ResultProcessor *rp);
+  void FreeChain();
 };
-
-//---------------------------------------------------------------------------------------------
-
-IndexIterator *QITR_GetRootFilter(QueryIterator *it);
-void QITR_PushRP(QueryIterator *it, struct ResultProcessor *rp);
-void QITR_FreeChain(QueryIterator *qitr);
 
 //---------------------------------------------------------------------------------------------
 
@@ -102,20 +102,25 @@ struct SearchResult {
 
   RSDocumentMetadata *dmd;
 
-  // index result should cover what you need for highlighting,
-  // but we will add a method to duplicate index results to make
-  // them thread safe
+  // index result should cover what you need for highlighting, but we will add a method to 
+  // duplicate index results to make them thread safe.
   RSIndexResult *indexResult;
 
   // Row data. Use RLookup_* functions to access
   RLookupRow rowdata;
+
+  SearchResult();
+  ~SearchResult();
+
+  // Resets the search result, so that it may be reused. Internal caches are reset but not freed.
+  void Clear();
 };
 
 //---------------------------------------------------------------------------------------------
 
 // Result processor return codes
 
-// Possible return values from Next()
+// Possible return values from ResultProcessor::Next()
 
 enum RPStatus {
   // Result is filled with valid data
@@ -161,7 +166,7 @@ struct ResultProcessor {
    */
   int (*Next)(struct ResultProcessor *self, SearchResult *res);
 
-  /** Frees the processor and any internal data related to it. */
+  // Frees the processor and any internal data related to it
   void (*Free)(struct ResultProcessor *self);
 };
 
@@ -170,18 +175,6 @@ struct ResultProcessor {
 // Get the index spec from the result processor
 #define RP_SPEC(rpctx) ((rpctx)->parent->sctx->spec)
 
-/**
- * This function resets the search result, so that it may be reused again.
- * Internal caches are reset but not freed
- */
-void SearchResult_Clear(SearchResult *r);
-
-/**
- * This function clears the search result, also freeing its internals. Internal
- * caches are freed. Use this function if `r` will not be used again.
- */
-void SearchResult_Destroy(SearchResult *r);
-
 ResultProcessor *RPIndexIterator_New(IndexIterator *itr);
 
 ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
@@ -189,12 +182,13 @@ ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
 
 //---------------------------------------------------------------------------------------------
 
-/** Functions abstracting the sortmap. Hides the bitwise logic */
+// Functions abstracting the sortmap. Hides the bitwise logic
 #define SORTASCMAP_INIT 0xFFFFFFFFFFFFFFFF
 #define SORTASCMAP_MAXFIELDS 8
 #define SORTASCMAP_SETASC(mm, pos) ((mm) |= (1LLU << (pos)))
 #define SORTASCMAP_SETDESC(mm, pos) ((mm) &= ~(1LLU << (pos)))
 #define SORTASCMAP_GETASC(mm, pos) ((mm) & (1LLU << (pos)))
+
 void SortAscMap_Dump(uint64_t v, size_t n);
 
 //---------------------------------------------------------------------------------------------
@@ -206,18 +200,19 @@ ResultProcessor *RPSorter_NewByScore(size_t maxresults);
 
 ResultProcessor *RPPager_New(size_t offset, size_t limit);
 
-/*******************************************************************************************************************
- *  Loading Processor
+//---------------------------------------------------------------------------------------------
+
+/*  Loading Processor
  *
  * This processor simply takes the search results, and based on the request parameters, loads the
  * relevant fields for the results that need to be displayed to the user, from redis.
  *
  * It fills the result objects' field map with values corresponding to the requested return fields
- *
- *******************************************************************************************************************/
+ */
+
 ResultProcessor *RPLoader_New(RLookup *lk, const RLookupKey **keys, size_t nkeys);
 
-/** Creates a new Highlight processor */
+// Creates a new Highlight processor
 ResultProcessor *RPHighlighter_New(const RSSearchOptions *searchopts, const FieldList *fields,
                                    const RLookup *lookup);
 

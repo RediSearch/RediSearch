@@ -15,6 +15,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <memory>
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -39,20 +40,12 @@
 #define SPEC_SEPARATOR_STR "SEPARATOR"
 #define SPEC_MULTITYPE_STR "MULTITYPE"
 
-/**
- * If wishing to represent field types positionally, use this
- * enum. Since field types are a bitmask, it's pointless to waste
- * space like this
- */
+//---------------------------------------------------------------------------------------------
 
-#ifndef __cplusplus
-static const char *SpecTypeNames[] = {[IXFLDPOS_FULLTEXT] = SPEC_TEXT_STR,
-                                      [IXFLDPOS_NUMERIC] = NUMERIC_STR,
-                                      [IXFLDPOS_GEO] = GEO_STR,
-                                      [IXFLDPOS_TAG] = SPEC_TAG_STR};
-#else
+// If wishing to represent field types positionally, use this enum.
+// Since field types are a bitmask, it's pointless to waste space like this.
+
 extern const char *SpecTypeNames[];
-#endif
 
 #define INDEX_SPEC_KEY_PREFIX "idx:"
 #define INDEX_SPEC_KEY_FMT INDEX_SPEC_KEY_PREFIX "%s"
@@ -62,6 +55,8 @@ extern const char *SpecTypeNames[];
 #define SPEC_MAX_FIELD_ID (sizeof(t_fieldMask) * 8)
 // The threshold after which we move to a special encoding for wide fields
 #define SPEC_WIDEFIELD_THRESHOLD 32
+
+//---------------------------------------------------------------------------------------------
 
 struct IndexStats {
   size_t numDocuments;
@@ -75,6 +70,8 @@ struct IndexStats {
   size_t offsetVecRecords;
   size_t termsSize;
 };
+
+//---------------------------------------------------------------------------------------------
 
 enum IndexFlags {
   Index_StoreTermOffsets = 0x01,
@@ -94,6 +91,8 @@ enum IndexFlags {
   // If any of the fields has phonetics. This is just a cache for quick lookup
   Index_HasPhonetic = 0x400
 };
+
+//---------------------------------------------------------------------------------------------
 
 /**
  * This "ID" type is independent of the field mask, and is used to distinguish
@@ -137,11 +136,15 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
 
 #define INDEX_MIN_ALIAS_VERSION 15
 
+//---------------------------------------------------------------------------------------------
+
 #define IDXFLD_LEGACY_FULLTEXT 0
 #define IDXFLD_LEGACY_NUMERIC 1
 #define IDXFLD_LEGACY_GEO 2
 #define IDXFLD_LEGACY_TAG 3
 #define IDXFLD_LEGACY_MAX 3
+
+//---------------------------------------------------------------------------------------------
 
 #define Index_SupportsHighlight(spec) \
   (((spec)->flags & Index_StoreTermOffsets) && ((spec)->flags & Index_StoreByteOffsets))
@@ -172,7 +175,7 @@ struct IndexSpec {
 
   DocTable docs;
 
-  StopWordList *stopwords;
+  std::shared_ptr<StopWordList> stopwords;
 
   GC *gc;
 
@@ -261,13 +264,7 @@ const FieldSpec *IndexSpec_GetFieldBySortingIndex(const IndexSpec *sp, uint16_t 
 
 // Initialize some index stats that might be useful for scoring functions
 void IndexSpec_GetStats(IndexSpec *sp, RSIndexStats *stats);
-/*
- * Parse an index spec from redis command arguments.
- * Returns REDISMODULE_ERR if there's a parsing error.
- * The command only receives the relvant part of argv.
- *
- * The format currently is <field> <weight>, <field> <weight> ...
- */
+
 IndexSpec *IndexSpec_ParseRedisArgs(RedisModuleCtx *ctx, RedisModuleString *name,
                                     RedisModuleString **argv, int argc, QueryError *status);
 
@@ -302,6 +299,8 @@ void FieldSpec_Initialize(FieldSpec *sp, FieldType types);
 
 IndexSpec *IndexSpec_Load(RedisModuleCtx *ctx, const char *name, int openWrite);
 
+//---------------------------------------------------------------------------------------------
+
 // Load the index as writeable
 #define INDEXSPEC_LOAD_WRITEABLE 0x01
 // Don't consult the alias table when retrieving the index
@@ -333,10 +332,8 @@ struct IndexLoadOptions {
 
 //---------------------------------------------------------------------------------------------
 
-/**
- * Find and load the index using the specified parameters.
- * @return the index spec, or NULL if the index does not exist
- */
+// Find and load the index using the specified parameters.
+// @return the index spec, or NULL if the index does not exist
 IndexSpec *IndexSpec_LoadEx(RedisModuleCtx *ctx, IndexLoadOptions *options);
 
 // Global hook called when an index spec is created
@@ -344,51 +341,50 @@ extern void (*IndexSpec_OnCreate)(const IndexSpec *sp);
 
 int IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len);
 
-/* Get a random term from the index spec using weighted random. Weighted random is done by sampling
- * N terms from the index and then doing weighted random on them. A sample size of 10-20 should be
- * enough */
+// Get a random term from the index spec using weighted random. Weighted random is done by sampling
+// N terms from the index and then doing weighted random on them.
+// A sample size of 10-20 should be enough.
 char *IndexSpec_GetRandomTerm(IndexSpec *sp, size_t sampleSize);
-/*
- * Free an indexSpec. This doesn't free the spec itself as it's not allocated by the parser
- * and should be on the request's stack
- */
+
+// Free an indexSpec. This doesn't free the spec itself as it's not allocated by the parser
+// and should be on the request's stack.
 void IndexSpec_Free(void *spec);
 
-/**
- * Free the index synchronously. Any keys associated with the index (but not the
- * documents themselves) are freed before this function returns.
- */
+// Free the index synchronously. Any keys associated with the index (but not the
+// documents themselves) are freed before this function returns.
 void IndexSpec_FreeSync(IndexSpec *spec);
 
-/** Delete the redis key from Redis */
+// Delete the redis key from Redis
 void IndexSpec_FreeWithKey(IndexSpec *spec, RedisModuleCtx *ctx);
 
-/* Parse a new stopword list and set it. If the parsing fails we revert to the default stopword
- * list, and return 0 */
+// Parse a new stopword list and set it. If the parsing fails we revert to the default stopword
+// list, and return 0
 int IndexSpec_ParseStopWords(IndexSpec *sp, RedisModuleString **strs, size_t len);
 
-/* Return 1 if a term is a stopword for the specific index */
+// Return 1 if a term is a stopword for the specific index
 int IndexSpec_IsStopWord(IndexSpec *sp, const char *term, size_t len);
 
-/** Returns a string suitable for indexes. This saves on string creation/destruction */
+// Returns a string suitable for indexes. This saves on string creation/destruction
 RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs, FieldType forType);
 RedisModuleString *IndexSpec_GetFormattedKeyByName(IndexSpec *sp, const char *s, FieldType forType);
 
 IndexSpec *NewIndexSpec(const char *name);
 int IndexSpec_AddField(IndexSpec *sp, FieldSpec *fs);
+
+void IndexSpec_ClearAliases(IndexSpec *sp);
+// void IndexSpec_Free(void *value);
+
+// Parse the field mask passed to a query, map field names to a bit mask passed down to the
+// execution engine, detailing which fields the query works on. See FT.SEARCH for API details
+t_fieldMask IndexSpec_ParseFieldMask(IndexSpec *sp, RedisModuleString **argv, int argc);
+
+void IndexSpec_InitializeSynonym(IndexSpec *sp);
+
+//---------------------------------------------------------------------------------------------
+
 void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver);
 void IndexSpec_RdbSave(RedisModuleIO *rdb, void *value);
 void IndexSpec_Digest(RedisModuleDigest *digest, void *value);
 int IndexSpec_RegisterType(RedisModuleCtx *ctx);
-void IndexSpec_ClearAliases(IndexSpec *sp);
-// void IndexSpec_Free(void *value);
-
-/*
- * Parse the field mask passed to a query, map field names to a bit mask passed down to the
- * execution engine, detailing which fields the query works on. See FT.SEARCH for API details
- */
-t_fieldMask IndexSpec_ParseFieldMask(IndexSpec *sp, RedisModuleString **argv, int argc);
-
-void IndexSpec_InitializeSynonym(IndexSpec *sp);
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

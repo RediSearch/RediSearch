@@ -215,12 +215,12 @@ int parseSuggestOptions(RedisModuleString **argv, int argc, SuggestOptions *opti
   if (rv != AC_OK) {
     if (rv == AC_ERR_ENOENT) {
       // Argument not recognized
-      QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Unrecognized argument: %s",
+      status->SetErrorFmt(QUERY_EPARSEARGS, "Unrecognized argument: %s",
                              AC_GetStringNC(&ac, NULL));
     } else if (errArg) {
-      QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "%s: %s", errArg->name, AC_Strerror(rv));
+      status->SetErrorFmt(QUERY_EPARSEARGS, "%s: %s", errArg->name, AC_Strerror(rv));
     } else {
-      QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Error parsing arguments: %s",
+      status->SetErrorFmt(QUERY_EPARSEARGS, "Error parsing arguments: %s",
                              AC_Strerror(rv));
     }
     return REDISMODULE_ERR;
@@ -252,9 +252,9 @@ int RSSuggestGetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   }
 
 parse_error:
-  if (QueryError_HasError(&status)) {
-    RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
-    QueryError_ClearError(&status);
+  if (status.HasError()) {
+    RedisModule_ReplyWithError(ctx, status.GetError());
+    status.ClearError();
     return REDISMODULE_OK;
   }
 

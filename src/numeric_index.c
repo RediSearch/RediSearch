@@ -29,6 +29,7 @@ struct NumericUnion : public Object {
 /* A callback called after a concurrent context regains execution context. When this happen we need
  * to make sure the key hasn't been deleted or its structure changed, which will render the
  * underlying iterators invalid */
+
 static void NumericRangeIterator_OnReopen(RedisModuleKey *k, NumericUnion *nu) {
   NumericRangeTree *t = RedisModule_ModuleTypeGetValue(k);
 
@@ -469,8 +470,7 @@ struct IndexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const Numeri
     NumericUnion *uc = rm_malloc(sizeof(*uc));
     uc->lastRevId = t->revisionId;
     uc->it = it;
-    ConcurrentSearch_AddKey(csx, key, REDISMODULE_READ, s, NumericRangeIterator_OnReopen, uc,
-                            rm_free);
+    csx->AddKey(key, REDISMODULE_READ, s, NumericRangeIterator_OnReopen, uc, rm_free);
   }
   return it;
 }

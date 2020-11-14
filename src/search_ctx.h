@@ -18,24 +18,30 @@ struct RedisSearchCtx {
   RedisModuleCtx *redisCtx;
   RedisModuleKey *key_;
   struct IndexSpec *spec;
-  uint32_t refcount;
-  int isStatic;
+  // uint32_t refcount;
   uint64_t specId;  // Unique id of the spec; used when refreshing
+
+  RedisSearchCtx(RedisModuleCtx *ctx);
+  RedisSearchCtx(RedisModuleCtx *ctx, struct IndexSpec *spec);
+  RedisSearchCtx(RedisModuleCtx *ctx, RedisModuleString *indexName, bool resetTTL);
+  RedisSearchCtx(RedisModuleCtx *ctx, const char *indexName, bool resetTTL);
+  RedisSearchCtx(const RedisSearchCtx &sctx);
+  ~RedisSearchCtx();
+
+  void ctor(RedisModuleCtx *ctx, const char *indexName, bool resetTTL);
+
+  void Refresh(RedisModuleString *keyName);
+
+  RedisModuleString *TermKeyName(const char *term, size_t len);
+  RedisModuleString *SkipIndexKeyName(const char *term, size_t len);
+  RedisModuleString *NumericIndexKeyName(const char *field);
 };
 
 #define SEARCH_CTX_STATIC(ctx, sp) \
   { ctx, NULL, sp, 0, 1 }
 
+#if 0
 #define SEARCH_CTX_SORTABLES(ctx) ((ctx && ctx->spec) ? ctx->spec->sortables : NULL)
-
-// Create a string context on the heap
-RedisSearchCtx *NewSearchCtx(RedisModuleCtx *ctx, RedisModuleString *indexName, bool resetTTL);
-RedisSearchCtx *NewSearchCtxDefault(RedisModuleCtx *ctx);
-
-RedisSearchCtx *SearchCtx_Refresh(RedisSearchCtx *sctx, RedisModuleString *keyName);
-
-// Same as above, only from c string (null terminated)
-RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName, bool resetTTL);
 
 #define SearchCtx_Incref(sctx) \
   ({                           \
@@ -47,15 +53,6 @@ RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName, bool r
   if (!--((sctx)->refcount)) { \
     SearchCtx_Free(sctx);      \
   }
-
-void SearchCtx_Free(RedisSearchCtx *sctx);
-
-/**
- * Format redis key for a term.
- * TODO: Add index name to it
- */
-RedisModuleString *fmtRedisTermKey(RedisSearchCtx *ctx, const char *term, size_t len);
-RedisModuleString *fmtRedisSkipIndexKey(RedisSearchCtx *ctx, const char *term, size_t len);
-RedisModuleString *fmtRedisNumericIndexKey(RedisSearchCtx *ctx, const char *field);
+#endif // 0
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

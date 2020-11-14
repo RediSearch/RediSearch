@@ -80,7 +80,7 @@ static int parseDocumentOptions(AddDocumentOptions *opts, ArgsCursor *ac, QueryE
       if (!strncasecmp("FIELDS", s, narg)) {
         size_t numRemaining = AC_NumRemaining(ac);
         if (numRemaining % 2 != 0) {
-          QueryError_SetError(status, QUERY_EADDARGS,
+          status->SetError(QUERY_EADDARGS,
                               "Fields must be specified in FIELD VALUE pairs");
           return REDISMODULE_ERR;
         } else {
@@ -91,30 +91,30 @@ static int parseDocumentOptions(AddDocumentOptions *opts, ArgsCursor *ac, QueryE
         break;
 
       } else {
-        QueryError_SetErrorFmt(status, QUERY_EADDARGS, "Unknown keyword `%.*s` provided", (int)narg,
+        status->SetErrorFmt(QUERY_EADDARGS, "Unknown keyword `%.*s` provided", (int)narg,
                                s);
         return REDISMODULE_ERR;
       }
       // Argument not found, that's ok. We'll handle it below
     } else {
-      QueryError_SetErrorFmt(status, QUERY_EADDARGS, "%s: %s", errArg->name, AC_Strerror(rv));
+      status->SetErrorFmt(QUERY_EADDARGS, "%s: %s", errArg->name, AC_Strerror(rv));
       return REDISMODULE_ERR;
     }
   }
 
   if (!foundFields) {
     // If we've reached here, there is no fields list. This is an error??
-    QueryError_SetError(status, QUERY_EADDARGS, "No field list found");
+    status->SetError(QUERY_EADDARGS, "No field list found");
     return REDISMODULE_ERR;
   }
 
   opts->language = RSLanguage_Find(languageStr);
   if (opts->language == RS_LANG_UNSUPPORTED) {
-    QueryError_SetError(status, QUERY_EADDARGS, "Unsupported language");
+    status->SetError(QUERY_EADDARGS, "Unsupported language");
     return REDISMODULE_ERR;
   }
 
-  if (QueryError_HasError(status)) {
+  if (status->HasError()) {
     return REDISMODULE_ERR;
   }
   if (partial) {
@@ -136,7 +136,7 @@ int RS_AddDocument(RedisSearchCtx *sctx, RedisModuleString *name, const AddDocum
   IndexSpec *sp = sctx->spec;
   int exists = !!DocTable_GetIdR(&sp->docs, name);
   if (exists && !(opts->options & DOCUMENT_ADD_REPLACE)) {
-    QueryError_SetError(status, QUERY_EDOCEXISTS, NULL);
+    status->SetError(QUERY_EDOCEXISTS, NULL);
     goto error;
   }
 
@@ -145,14 +145,14 @@ int RS_AddDocument(RedisSearchCtx *sctx, RedisModuleString *name, const AddDocum
     int res = 0;
     if (Document_EvalExpression(sctx, name, opts->evalExpr, &res, status) == REDISMODULE_OK) {
       if (res == 0) {
-        QueryError_SetError(status, QUERY_EDOCNOTADDED, NULL);
+        status->SetError(QUERY_EDOCNOTADDED, NULL);
         goto error;
       }
     } else {
       printf("Eval failed! (%s)\n", opts->evalExpr);
       if (status->code == QUERY_ENOPROPVAL) {
-        QueryError_ClearError(status);
-        QueryError_SetCode(status, QUERY_EDOCNOTADDED);
+        status->ClearError();
+        status->SetCode(QUERY_EDOCNOTADDED);
       }
       goto error;
     }
@@ -208,11 +208,11 @@ error:
 }
 
 static void replyCallback(RSAddDocumentCtx *aCtx, RedisModuleCtx *ctx, void *unused) {
-  if (QueryError_HasError(&aCtx->status)) {
+  if (aCtx->status.HasError()) {
     if (aCtx->status.code == QUERY_EDOCNOTADDED) {
       RedisModule_ReplyWithError(ctx, "NOADD");
     } else {
-      RedisModule_ReplyWithError(ctx, QueryError_GetError(&aCtx->status));
+      RedisModule_ReplyWithError(ctx, aCtx->status.GetError());
     }
   } else {
     RedisModule_ReplyWithSimpleString(ctx, "OK");
@@ -233,15 +233,15 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   int rv = 0;
   if ((rv = AC_GetDouble(&ac, &opts.score, 0) != AC_OK)) {
-    QueryError_SetError(&status, QUERY_EADDARGS, "Could not parse document score");
+    status.SetError(QUERY_EADDARGS, "Could not parse document score");
   } else if (opts.score < 0 || opts.score > 1.0) {
-    QueryError_SetError(&status, QUERY_EADDARGS, "Score must be between 0 and 1");
+    status.SetError(QUERY_EADDARGS, "Score must be between 0 and 1");
   } else if (parseDocumentOptions(&opts, &ac, &status) != REDISMODULE_OK) {
-    QueryError_MaybeSetCode(&status, QUERY_EADDARGS);
+    status.MaybeSetCode(QUERY_EADDARGS);
   }
 
-  if (QueryError_HasError(&status)) {
-    RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
+  if (status.HasError()) {
+    RedisModule_ReplyWithError(ctx, status.GetError());
     goto cleanup;
   }
 
@@ -260,7 +260,7 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     if (status.code == QUERY_EDOCNOTADDED) {
       RedisModule_ReplyWithSimpleString(ctx, "NOADD");
     } else {
-      RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
+      RedisModule_ReplyWithError(ctx, status.GetError());
     }
   } else {
     // Replicate *here*
@@ -270,7 +270,7 @@ static int doAddDocument(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   }
 
 cleanup:
-  QueryError_ClearError(&status);
+  status.ClearError();
   return REDISMODULE_OK;
 }
 
@@ -321,10 +321,10 @@ static int doAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   int rv = 0;
 
   if ((rv = AC_GetDouble(&ac, &ds, 0)) != AC_OK) {
-    QueryError_SetError(&status, QUERY_EADDARGS, "Could not parse document score");
+    status.SetError(QUERY_EADDARGS, "Could not parse document score");
     goto cleanup;
   } else if (ds < 0 || ds > 1.0) {
-    QueryError_SetError(&status, QUERY_EADDARGS, "Score must be between 0 and 1");
+    status.SetError(QUERY_EADDARGS, "Score must be between 0 and 1");
     goto cleanup;
   }
 
@@ -340,23 +340,23 @@ static int doAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     // OK. No error
   } else if (rv == AC_ERR_ENOENT) {
     const char *keyword = AC_GetStringNC(&ac, NULL);
-    QueryError_SetErrorFmt(&status, QUERY_EADDARGS, "Unknown keyword: `%s`", keyword);
+    status.SetErrorFmt(QUERY_EADDARGS, "Unknown keyword: `%s`", keyword);
     goto cleanup;
   } else {
-    QueryError_SetErrorFmt(&status, QUERY_EADDARGS, "Error parsing arguments for `%s`: %s",
+    status.SetErrorFmt(QUERY_EADDARGS, "Error parsing arguments for `%s`: %s",
                            errArg ? errArg->name : "", AC_Strerror(rv));
     goto cleanup;
   }
 
   RSLanguage language = RSLanguage_Find(languageStr);
   if (language == RS_LANG_UNSUPPORTED) {
-    QueryError_SetErrorFmt(&status, QUERY_EADDARGS, "Unknown language: `%s`", languageStr);
+    status.SetErrorFmt(QUERY_EADDARGS, "Unknown language: `%s`", languageStr);
     goto cleanup;
   }
 
   IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 1);
   if (sp == NULL) {
-    QueryError_SetErrorFmt(&status, QUERY_EGENERIC, "Unknown Index name");
+    status.SetErrorFmt(QUERY_EGENERIC, "Unknown Index name");
     goto cleanup;
   }
 
@@ -394,9 +394,9 @@ static int doAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   return REDISMODULE_OK;
 
 cleanup:
-  RS_LOG_ASSERT_FMT(QueryError_HasError(&status), "%s%s", "Hash addition failed: ", status.detail);
-  RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
-  QueryError_ClearError(&status);
+  RS_LOG_ASSERT_FMT(status.HasError(), "%s%s", "Hash addition failed: ", status.detail);
+  RedisModule_ReplyWithError(ctx, status.GetError());
+  status.ClearError();
   return REDISMODULE_OK;
 }
 

@@ -586,8 +586,7 @@ int IntersectIterator::SkipTo(t_docId docId, RSIndexResult **hit) {
 
     // Update the last found id
     // if maxSlop == -1 there is no need to verify maxSlop and inorder, otherwise lets verify
-    if (maxSlop == -1 ||
-        IndexResult_IsWithinRange(current, maxSlop, inOrder)) {
+    if (maxSlop == -1 || current->IsWithinRange(maxSlop, inOrder)) {
       lastFoundId = current->docId;
       if (hit) *hit = current;
       return INDEXREAD_OK;

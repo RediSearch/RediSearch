@@ -1,8 +1,11 @@
+#include "search_options.h"
+
 #include "rmutil/util.h"
 #include "rmutil/strings.h"
 #include "rmutil/args.h"
 #include "util/array.h"
-#include "search_options.h"
+
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 /**
  * HIGHLIGHT [FIELDS {num} {field}…] [TAGS {open} {close}]
@@ -25,46 +28,50 @@ static int parseFieldList(ArgsCursor *ac, FieldList *fields, Array *fieldPtrs) {
   return 0;
 }
 
-static void setHighlightSettings(HighlightSettings *tgt, const HighlightSettings *defaults) {
-  rm_free(tgt->closeTag);
-  rm_free(tgt->openTag);
+//---------------------------------------------------------------------------------------------
 
-  tgt->closeTag = NULL;
-  tgt->openTag = NULL;
+void HighlightSettings::setHighlightSettings(const HighlightSettings *defaults) {
+  rm_free(closeTag);
+  rm_free(openTag);
+
+  closeTag = NULL;
+  openTag = NULL;
   if (defaults->openTag) {
-    tgt->openTag = rm_strdup(defaults->openTag);
+    openTag = rm_strdup(defaults->openTag);
   }
   if (defaults->closeTag) {
-    tgt->closeTag = rm_strdup(defaults->closeTag);
+    closeTag = rm_strdup(defaults->closeTag);
   }
 }
 
-static void setSummarizeSettings(SummarizeSettings *tgt, const SummarizeSettings *defaults) {
-  *tgt = *defaults;
-  if (tgt->separator) {
-    tgt->separator = rm_strdup(tgt->separator);
+//---------------------------------------------------------------------------------------------
+
+void SummarizeSettings::setSummarizeSettings(const SummarizeSettings *defaults) {
+  *this = *defaults;
+  if (separator) {
+    separator = rm_strdup(separator);
   }
 }
 
-static void setFieldSettings(ReturnedField *tgt, const ReturnedField *defaults, int isHighlight) {
+//---------------------------------------------------------------------------------------------
+
+void ReturnedField::setFieldSettings(const ReturnedField *defaults, int isHighlight) {
   if (isHighlight) {
-    setHighlightSettings(&tgt->highlightSettings, &defaults->highlightSettings);
-    tgt->mode |= SummarizeMode_Highlight;
+    highlightSettings.setHighlightSettings(&defaults->highlightSettings);
+    mode |= SummarizeMode_Highlight;
   } else {
-    setSummarizeSettings(&tgt->summarizeSettings, &defaults->summarizeSettings);
-    tgt->mode |= SummarizeMode_Synopsis;
+    summarizeSettings.setSummarizeSettings(&defaults->summarizeSettings);
+    mode |= SummarizeMode_Synopsis;
   }
 }
+
+//---------------------------------------------------------------------------------------------
 
 static int parseCommon(ArgsCursor *ac, FieldList *fields, int isHighlight) {
   size_t numFields = 0;
   int rc = REDISMODULE_OK;
 
-  ReturnedField defOpts = {.summarizeSettings = {.contextLen = SUMMARIZE_FRAGSIZE_DEFAULT,
-                                                 .numFrags = SUMMARIZE_FRAGCOUNT_DEFAULT,
-                                                 .separator = SUMMARIZE_DEFAULT_SEPARATOR},
-                           .highlightSettings = {.openTag = SUMMARIZE_DEFAULT_OPEN_TAG,
-                                                 .closeTag = SUMMARIZE_DEFAULT_CLOSE_TAG}};
+  ReturnedField defOpts;
 
   Array fieldPtrs;
   Array_Init(&fieldPtrs);
@@ -111,11 +118,11 @@ static int parseCommon(ArgsCursor *ac, FieldList *fields, int isHighlight) {
     size_t numNewPtrs = ARRAY_GETSIZE_AS(&fieldPtrs, size_t);
     for (size_t ii = 0; ii < numNewPtrs; ++ii) {
       size_t ix = ARRAY_GETARRAY_AS(&fieldPtrs, size_t *)[ii];
-      ReturnedField *fieldInfo = fields->fields + ix;
-      setFieldSettings(fieldInfo, &defOpts, isHighlight);
+      ReturnedField *fieldInfo = &fields->fields[ix];
+      fieldInfo->setFieldSettings(&defOpts, isHighlight);
     }
   } else {
-    setFieldSettings(&fields->defaultField, &defOpts, isHighlight);
+    fields->defaultField.setFieldSettings(&defOpts, isHighlight);
   }
 
 done:
@@ -123,10 +130,16 @@ done:
   return rc;
 }
 
+//---------------------------------------------------------------------------------------------
+
 int ParseSummarize(ArgsCursor *ac, FieldList *fields) {
   return parseCommon(ac, fields, 0);
 }
 
+//---------------------------------------------------------------------------------------------
+
 int ParseHighlight(ArgsCursor *ac, FieldList *fields) {
   return parseCommon(ac, fields, 1);
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////

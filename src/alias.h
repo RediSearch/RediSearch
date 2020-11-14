@@ -1,43 +1,38 @@
-#ifndef ALIAS_H
-#define ALIAS_H
+#pragma once
 
 #include "redismodule.h"
 #include "spec.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+///////////////////////////////////////////////////////////////////////////////////////////////
 
-typedef struct {
+// Do not access or otherwise touch the backreference in the index spec. 
+// This is used for add and delete operations
+#define INDEXALIAS_NO_BACKREF 0x01
+
+struct AliasTable : public Object {
   struct dict *d;
   void (*on_add)(const char *alias, const IndexSpec *spec);
   void (*on_del)(const char *alias, const IndexSpec *spec);
-} AliasTable;
 
-extern AliasTable *AliasTable_g;
+  AliasTable();
+  ~AliasTable();
 
-// Do not access or otherwise touch the backreference in the
-// index spec. This is used for add and delete operations
-#define INDEXALIAS_NO_BACKREF 0x01
+  int Add(const char *alias, IndexSpec *spec, int options, QueryError *status);
+  int Del(const char *alias, IndexSpec *spec, int options, QueryError *status);
+  IndexSpec *Get(const char *alias);
+};
 
-AliasTable *AliasTable_New(void);
+//---------------------------------------------------------------------------------------------
 
-int AliasTable_Add(AliasTable *table, const char *alias, IndexSpec *spec, int options,
-                   QueryError *status);
+struct IndexAlias {
+  static AliasTable *AliasTable_g;
 
-int AliasTable_Del(AliasTable *table, const char *alias, IndexSpec *spec, int options,
-                   QueryError *status);
+  int Add(const char *alias, IndexSpec *spec, int options, QueryError *status);
+  int Del(const char *alias, IndexSpec *spec, int options, QueryError *status);
+  IndexSpec *Get(const char *alias);
 
-IndexSpec *AliasTable_Get(AliasTable *table, const char *alias);
+  static void InitGlobal();
+  static void DestroyGlobal();
+};
 
-void IndexAlias_InitGlobal(void);
-void IndexAlias_DestroyGlobal(void);
-
-int IndexAlias_Add(const char *alias, IndexSpec *spec, int options, QueryError *status);
-int IndexAlias_Del(const char *alias, IndexSpec *spec, int options, QueryError *status);
-IndexSpec *IndexAlias_Get(const char *alias);
-
-#ifdef __cplusplus
-}
-#endif
-#endif
+///////////////////////////////////////////////////////////////////////////////////////////////

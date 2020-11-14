@@ -46,110 +46,71 @@
   X(QUERY_EUNSUPPTYPE, "Unsupported index type")                                \
   X(QUERY_ENOTNUMERIC, "Could not convert value to a number")
 
-typedef enum {
+enum QueryErrorCode {
   QUERY_OK = 0,
 
 #define X(N, msg) N,
   QUERY_XERRS(X)
 #undef X
-} QueryErrorCode;
+};
+
+//---------------------------------------------------------------------------------------------
 
 struct QueryError {
   QueryErrorCode code;
   char *detail;
+
+  QueryError();
+
+  static const char *Strerror(QueryErrorCode code);
+
+  const char *GetError() const;
+
+  void SetError(QueryErrorCode code, const char *err);
+  void SetCode(QueryErrorCode code);
+  void MaybeSetCode(QueryErrorCode code);
+  void SetErrorFmt(QueryErrorCode code, const char *fmt, ...);
+  void ClearError();
+
+  void FmtUnknownArg(ArgsCursor *ac, const char *name);
+
+  // Return true if the object has an error set
+  bool HasError() const { return code != QUERY_OK; }
 };
 
-/** Initialize QueryError object */
-void QueryError_Init(QueryError *qerr);
+//---------------------------------------------------------------------------------------------
 
-/** Return the constant string of an error code */
-const char *QueryError_Strerror(QueryErrorCode code);
+// Convenience macro to set an error of a 'bad argument' with the name of the argument
+#define QERR_MKBADARGS_FMT(status, fmt, ...)  \
+  (status)->SetErrorFmt(QUERY_EPARSEARGS, (fmt), ##__VA_ARGS__)
 
-/**
- * Set the error code of the query. If `err` is present, then the error
- * object must eventually be released using QueryError_Clear().
- *
- * Only has an effect if no error is already present
- */
-void QueryError_SetError(QueryError *status, QueryErrorCode code, const char *err);
+// Convenience macro to extract the error string of the argument parser
+#define QERR_MKBADARGS_AC(status, name, rv)  \
+  (status)->SetErrorFmt(QUERY_EPARSEARGS, "Bad arguments for %s: %s", (name), AC_Strerror(rv))
 
-/** Set the error code of the query without setting an error string. */
-void QueryError_SetCode(QueryError *status, QueryErrorCode code);
+#define QERR_MKSYNTAXERR(status, ...) (status)->SetErrorFmt(QUERY_ESYNTAX, ##__VA_ARGS__)
 
-/** Set the error code using a custom-formatted string */
-void QueryError_SetErrorFmt(QueryError *status, QueryErrorCode code, const char *fmt, ...);
-
-/** Convenience macro to set an error of a 'bad argument' with the name of the argument */
-#define QERR_MKBADARGS_FMT(status, fmt, ...) \
-  QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, fmt, ##__VA_ARGS__)
-
-/** Convenience macro to extract the error string of the argument parser */
-#define QERR_MKBADARGS_AC(status, name, rv)                                          \
-  QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Bad arguments for %s: %s", name, \
-                         AC_Strerror(rv))
-
-#define QERR_MKSYNTAXERR(status, ...) QueryError_SetErrorFmt(status, QUERY_ESYNTAX, ##__VA_ARGS__)
-
-/**
- * Convenience macro to reply the error string to redis and clear the error code.
- * I'm making this into a macro so I don't need to include redismodule.h
- */
-#define QueryError_ReplyAndClear(rctx, qerr)                     \
-  ({                                                             \
-    RedisModule_ReplyWithError(rctx, QueryError_GetError(qerr)); \
-    QueryError_ClearError(qerr);                                 \
-    REDISMODULE_OK;                                              \
+// Convenience macro to reply the error string to redis and clear the error code.
+// I'm making this into a macro so I don't need to include redismodule.h
+#define QueryError_ReplyAndClear(rctx, qerr)               \
+  ({                                                       \
+    RedisModule_ReplyWithError(rctx, (qerr)->GetError());  \
+    (qerr)->ClearError();                                  \
+    REDISMODULE_OK;                                        \
   })
 
-#define QueryError_ReplyNoIndex(rctx, ixname)                                        \
-  {                                                                                  \
-    QueryError qidx__tmp = {0};                                                      \
-    QueryError_SetErrorFmt(&qidx__tmp, QUERY_ENOINDEX, "%s: No such index", ixname); \
-    QueryError_ReplyAndClear(rctx, &qidx__tmp);                                      \
+#define QueryError_ReplyNoIndex(rctx, ixname)                           \
+  {                                                                     \
+    QueryError qidx__tmp;                                               \
+    qidx__tmp.SetErrorFmt(QUERY_ENOINDEX, "%s: No such index", ixname); \
+    qidx__tmp.ReplyAndClear(rctx, &qidx__tmp);                          \
   }
-
-/**
- * Sets the current error from the current argument within the args cursor
- * @param err the error object
- * @param ac the argument cursor
- * @param name a prefix to be used in the message to better identify the subsystem
- *  which threw the error. This is similar to the 'message' functionality in
- *  perror(3)
- *
- * Equivalent to the following boilerplate:
- * @code{c}
- *  const char *unknown = AC_GetStringNC(ac, NULL);
- *  QueryError_SetErrorFmt(err, QUERY_EPARSEARGS, "Unknown argument for %s: %s", name, unknown);
- * @endcode
- */
-void QueryError_FmtUnknownArg(QueryError *err, ArgsCursor *ac, const char *name);
-
-/**
- * Retrieve the error string of the error itself. This will use either the
- * built-in error string for the given code, or the custom string within the
- * object.
- */
-const char *QueryError_GetError(const QueryError *status);
-
-/**
- * Clear the error state, potentially releasing the embedded string
- */
-void QueryError_ClearError(QueryError *err);
-
-/**
- * Return true if the object has an error set
- */
-static inline int QueryError_HasError(const QueryError *status) {
-  return status->code;
-}
-
-void QueryError_MaybeSetCode(QueryError *status, QueryErrorCode code);
 
 //---------------------------------------------------------------------------------------------
 
 class Error : public std::runtime_error {
 public:
-	Error(const char *err) : std::runtime_error(err) {}
+  Error(const char *fmt, ...);
   Error(QueryError *err) : std::runtime_error(err ? err->detail : "Query error") {}
 };
 

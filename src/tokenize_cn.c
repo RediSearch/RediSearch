@@ -3,10 +3,10 @@
 #include "toksep.h"
 #include "config.h"
 #include "cndict_loader.h"
+
 #include "util/minmax.h"
 #include "rmalloc.h"
 
-#include "dep/friso/friso.h"
 #include "rmutil/rm_assert.h"
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -49,7 +49,7 @@ void ChineseTokenizer::Start(char *text_, size_t len_, uint32_t options_) {
   text = text_;
   len = len_;
   options = options_;
-  friso_set_text(fTask, text);
+  friso_set_text(friso_task, text);
   nescapebuf = 0;
 }
 
@@ -97,13 +97,13 @@ int ChineseTokenizer::appendEscapedChars(friso_token_t ftok, int mode) {
 
   if (appendToEscbuf(escbegin, 1)) {
     // printf("appending %.*s\n", 1, escbegin);
-    fTask->idx += skipBy;
+    friso_task->idx += skipBy;
 
     // if there are more tokens...
-    if (fTask->idx < len) {
+    if (friso_task->idx < len) {
       // and this token is not completed (i.e. character _after_ escape
       // is not itself a word separator)
-      if (!istoksep(text[fTask->idx])) {
+      if (!istoksep(text[friso_task->idx])) {
         return 1;
       }
     }
@@ -130,7 +130,7 @@ uint32_t ChineseTokenizer::Next(Token *t) {
   nescapebuf = 0;
 
   for (;;) {
-    friso_token_t tok = config_g->next_token(friso_g, config_g, self->fTask);
+    friso_token_t tok = config_g->next_token(friso_g, config_g, friso_task);
     if (tok == NULL) {
       if (useEscBuf) {
         RS_LOG_ASSERT(tokInit, "should not get here");
@@ -142,7 +142,7 @@ uint32_t ChineseTokenizer::Next(Token *t) {
     }
 
     // Check if it's a stopword?
-    if (stopwords && StopWordList_Contains(stopwords, tok->word, tok->length)) {
+    if (stopwords && stopwords->Contains(tok->word, tok->length)) {
       continue;
     }
     // printf("Type: %d\n", tok->type);
@@ -157,12 +157,12 @@ uint32_t ChineseTokenizer::Next(Token *t) {
 
       case __LEX_PUNC_WORDS__:
         if (tok->word[0] == '\\' && istoksep(text[tok->offset + 1])) {
-          if (!appendEscapedChars(self, tok, ESCAPED_CHAR_SELF)) {
+          if (!appendEscapedChars(tok, ESCAPED_CHAR_SELF)) {
             break;
           }
 
           if (!tokInit) {
-            initToken(base, t, tok);
+            initToken(t, tok);
             tokInit = 1;
           }
 
@@ -192,7 +192,7 @@ uint32_t ChineseTokenizer::Next(Token *t) {
         t->tok = escapebuf;
       }
       t->tokLen = nescapebuf;
-      if (!appendToEscbuf(self, tok->word, tok->length)) {
+      if (!appendToEscbuf(tok->word, tok->length)) {
         t->tokLen = nescapebuf;
         return t->pos;
       }

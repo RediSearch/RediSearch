@@ -1,14 +1,20 @@
-#ifndef QUERY_INTERNAL_H
-#define QUERY_INTERNAL_H
+
+#pragma once
+
+#include "query_error.h"
+#include "query_node.h"
 
 #include <stdlib.h>
-#include <query_error.h>
-#include <query_node.h>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-typedef struct RSQuery {
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+struct QueryAST;
+struct NumericFilter;
+struct GeoFilter;
+
+//---------------------------------------------------------------------------------------------
+
+struct QueryParseCtx {
   const char *raw;
   size_t len;
 
@@ -24,12 +30,13 @@ typedef struct RSQuery {
   const RSSearchOptions *opts;
 
   QueryError *status;
+};
 
-} QueryParseCtx;
+#define QPCTX_ISOK(qpctx) (!(qpctx->HasError()->status))
 
-#define QPCTX_ISOK(qpctx) (!QueryError_HasError((qpctx)->status))
+//---------------------------------------------------------------------------------------------
 
-typedef struct {
+struct QueryEvalCtx {
   ConcurrentSearchCtx *conc;
   RedisSearchCtx *sctx;
   const RSSearchOptions *opts;
@@ -37,11 +44,9 @@ typedef struct {
   size_t numTokens;
   uint32_t tokenId;
   DocTable *docTable;
-} QueryEvalCtx;
+};
 
-struct QueryAST;
-struct NumericFilter;
-struct GeoFilter;
+//---------------------------------------------------------------------------------------------
 
 // TODO: These APIs are helpers for the generated parser. They belong in the
 // bowels of the actual parser, and should probably be a macro!
@@ -69,8 +74,4 @@ void QueryNode_SetFieldMask(QueryNode *n, t_fieldMask mask);
 /* Free the query node and its children recursively */
 void QueryNode_Free(QueryNode *n);
 
-#ifdef __cplusplus
-}
-#endif
-
-#endif
+///////////////////////////////////////////////////////////////////////////////////////////////

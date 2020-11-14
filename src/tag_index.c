@@ -192,8 +192,7 @@ void TagIndex_RegisterConcurrentIterators(TagIndex *idx, ConcurrentSearchCtx *co
   TagConcCtx *tctx = rm_calloc(1, sizeof(*tctx));
   tctx->uid = idx->uniqueId;
   tctx->its = (IndexIterator **)iters;
-  ConcurrentSearch_AddKey(conc, key, REDISMODULE_READ, keyname, TagReader_OnReopen, tctx,
-                          concCtxFree);
+  conc->AddKey(key, REDISMODULE_READ, keyname, TagReader_OnReopen, tctx, concCtxFree);
 }
 
 //---------------------------------------------------------------------------------------------

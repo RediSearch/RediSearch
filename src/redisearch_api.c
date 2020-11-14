@@ -1,8 +1,6 @@
 #include "spec.h"
 #include "field_spec.h"
 #include "document.h"
-#include "rmutil/rm_assert.h"
-#include "util/dict.h"
 #include "query_node.h"
 #include "search_options.h"
 #include "query_internal.h"
@@ -11,14 +9,26 @@
 #include "indexer.h"
 #include "extension.h"
 #include "ext/default.h"
-#include <float.h>
 #include "rwlock.h"
 #include "fork_gc.h"
 #include "module.h"
 
+#include "rmutil/rm_assert.h"
+#include "util/dict.h"
+
+#include <float.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+
 int RediSearch_GetCApiVersion() {
   return REDISEARCH_CAPI_VERSION;
 }
+
+//---------------------------------------------------------------------------------------------
 
 IndexSpec* RediSearch_CreateIndex(const char* name, const RSIndexOptions* options) {
   RSIndexOptions opts_s = {.gcPolicy = GC_POLICY_FORK};
@@ -45,6 +55,8 @@ IndexSpec* RediSearch_CreateIndex(const char* name, const RSIndexOptions* option
   return spec;
 }
 
+//---------------------------------------------------------------------------------------------
+
 void RediSearch_DropIndex(IndexSpec* sp) {
   RWLOCK_ACQUIRE_WRITE();
   dict* d = sp->keysDict;
@@ -52,8 +64,9 @@ void RediSearch_DropIndex(IndexSpec* sp) {
   RWLOCK_RELEASE();
 }
 
-RSFieldID RediSearch_CreateField(IndexSpec* sp, const char* name, unsigned types,
-                                 unsigned options) {
+//---------------------------------------------------------------------------------------------
+
+RSFieldID RediSearch_CreateField(IndexSpec* sp, const char* name, unsigned types, unsigned options) {
   RS_LOG_ASSERT(types, "types should not be RSFLDTYPE_DEFAULT");
   RWLOCK_ACQUIRE_WRITE();
 
@@ -107,17 +120,23 @@ RSFieldID RediSearch_CreateField(IndexSpec* sp, const char* name, unsigned types
   return fs->index;
 }
 
+//---------------------------------------------------------------------------------------------
+
 void RediSearch_TextFieldSetWeight(IndexSpec* sp, RSFieldID id, double w) {
   FieldSpec* fs = sp->fields + id;
   RS_LOG_ASSERT(FIELD_IS(fs, INDEXFLD_T_FULLTEXT), "types should be INDEXFLD_T_FULLTEXT");
   fs->ftWeight = w;
 }
 
+//---------------------------------------------------------------------------------------------
+
 void RediSearch_TagFieldSetSeparator(IndexSpec* sp, RSFieldID id, char sep) {
   FieldSpec* fs = sp->fields + id;
   RS_LOG_ASSERT(FIELD_IS(fs, INDEXFLD_T_TAG), "types should be INDEXFLD_T_TAG");
   fs->tagSep = sep;
 }
+
+//---------------------------------------------------------------------------------------------
 
 void RediSearch_TagFieldSetCaseSensitive(IndexSpec* sp, RSFieldID id, int enable) {
   FieldSpec* fs = sp->fields + id;
@@ -129,6 +148,8 @@ void RediSearch_TagFieldSetCaseSensitive(IndexSpec* sp, RSFieldID id, int enable
   }
 }
 
+//---------------------------------------------------------------------------------------------
+
 RSDoc* RediSearch_CreateDocument(const void* docKey, size_t len, double score, const char* lang) {
   RedisModuleString* docKeyStr = RedisModule_CreateString(NULL, docKey, len);
   RSLanguage language = lang ? RSLanguage_Find(lang) : DEFAULT_LANGUAGE;
@@ -139,10 +160,14 @@ RSDoc* RediSearch_CreateDocument(const void* docKey, size_t len, double score, c
   return ret;
 }
 
+//---------------------------------------------------------------------------------------------
+
 void RediSearch_FreeDocument(RSDoc* doc) {
   Document_Free(doc);
   rm_free(doc);
 }
+
+//---------------------------------------------------------------------------------------------
 
 int RediSearch_DeleteDocument(IndexSpec* sp, const void* docKey, size_t len) {
   RWLOCK_ACQUIRE_WRITE();
@@ -163,21 +188,29 @@ int RediSearch_DeleteDocument(IndexSpec* sp, const void* docKey, size_t len) {
   return rc;
 }
 
+//---------------------------------------------------------------------------------------------
+
 void RediSearch_DocumentAddField(Document* d, const char* fieldName, RedisModuleString* value,
                                  RedisModuleCtx* ctx, unsigned as) {
   Document_AddField(d, fieldName, value, as);
 }
+
+//---------------------------------------------------------------------------------------------
 
 void RediSearch_DocumentAddFieldString(Document* d, const char* fieldname, const char* s, size_t n,
                                        unsigned as) {
   Document_AddFieldC(d, fieldname, s, n, as);
 }
 
+//---------------------------------------------------------------------------------------------
+
 void RediSearch_DocumentAddFieldNumber(Document* d, const char* fieldname, double n, unsigned as) {
   char buf[512];
   size_t len = sprintf(buf, "%lf", n);
   Document_AddFieldC(d, fieldname, buf, len, as);
 }
+
+//---------------------------------------------------------------------------------------------
 
 typedef struct {
   char** s;
@@ -186,13 +219,15 @@ typedef struct {
 
 void RediSearch_AddDocDone(RSAddDocumentCtx* aCtx, RedisModuleCtx* ctx, void* err) {
   RSError* ourErr = err;
-  if (QueryError_HasError(&aCtx->status)) {
+  if (aCtx->status.HasError()) {
     if (ourErr->s) {
-      *ourErr->s = rm_strdup(QueryError_GetError(&aCtx->status));
+      *ourErr->s = rm_strdup(aCtx->status.GetError());
     }
     ourErr->hasErr = aCtx->status.code;
   }
 }
+
+//---------------------------------------------------------------------------------------------
 
 int RediSearch_IndexAddDocument(IndexSpec* sp, Document* d, int options, char** errs) {
   RWLOCK_ACQUIRE_WRITE();
@@ -226,6 +261,8 @@ int RediSearch_IndexAddDocument(IndexSpec* sp, Document* d, int options, char** 
   return err.hasErr ? REDISMODULE_ERR : REDISMODULE_OK;
 }
 
+//---------------------------------------------------------------------------------------------
+
 QueryNode* RediSearch_CreateTokenNode(IndexSpec* sp, const char* fieldName, const char* token) {
   QueryNode* ret = NewQueryNode(QN_TOKEN);
 
@@ -236,6 +273,8 @@ QueryNode* RediSearch_CreateTokenNode(IndexSpec* sp, const char* fieldName, cons
   }
   return ret;
 }
+
+//---------------------------------------------------------------------------------------------
 
 QueryNode* RediSearch_CreateNumericNode(IndexSpec* sp, const char* field, double max, double min,
                                         int includeMax, int includeMin) {
@@ -256,6 +295,8 @@ QueryNode* RediSearch_CreatePrefixNode(IndexSpec* sp, const char* fieldName, con
   return ret;
 }
 
+//---------------------------------------------------------------------------------------------
+
 QueryNode* RediSearch_CreateLexRangeNode(IndexSpec* sp, const char* fieldName, const char* begin,
                                          const char* end, int includeBegin, int includeEnd) {
   QueryNode* ret = NewQueryNode(QN_LEXRANGE);
@@ -273,6 +314,8 @@ QueryNode* RediSearch_CreateLexRangeNode(IndexSpec* sp, const char* fieldName, c
   return ret;
 }
 
+//---------------------------------------------------------------------------------------------
+
 QueryNode* RediSearch_CreateTagNode(IndexSpec* sp, const char* field) {
   QueryNode* ret = NewQueryNode(QN_TAG);
   ret->tag.fieldName = rm_strdup(field);
@@ -280,6 +323,8 @@ QueryNode* RediSearch_CreateTagNode(IndexSpec* sp, const char* field) {
   ret->opts.fieldMask = IndexSpec_GetFieldBit(sp, field, strlen(field));
   return ret;
 }
+
+//---------------------------------------------------------------------------------------------
 
 QueryNode* RediSearch_CreateIntersectNode(IndexSpec* sp, int exact) {
   QueryNode* ret = NewQueryNode(QN_PHRASE);
@@ -319,6 +364,8 @@ size_t RediSearch_QueryNodeNumChildren(const QueryNode* qn) {
   return QueryNode_NumChildren(qn);
 }
 
+//---------------------------------------------------------------------------------------------
+
 typedef struct RS_ApiIter {
   IndexIterator* internal;
   RSIndexResult* res;
@@ -329,6 +376,8 @@ typedef struct RS_ApiIter {
   double minscore;  // Used for scoring
   QueryAST qast;    // Used for string queries..
 } RS_ApiIter;
+
+//---------------------------------------------------------------------------------------------
 
 #define QUERY_INPUT_STRING 1
 #define QUERY_INPUT_NODE 2
@@ -344,14 +393,16 @@ typedef struct {
   } u;
 } QueryInput;
 
+//---------------------------------------------------------------------------------------------
+
 static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** error) {
   // here we only take the read lock and we will free it when the iterator will be freed
   RWLOCK_ACQUIRE_READ();
 
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(NULL, sp);
-  RSSearchOptions options = {0};
-  QueryError status = {0};
-  RSSearchOptions_Init(&options);
+  RedisSearchCtx sctx(sp);
+  RSSearchOptions options;
+  QueryError status;
+
   RS_ApiIter* it = rm_calloc(1, sizeof(*it));
 
   if (input->qtype == QUERY_INPUT_STRING) {
@@ -383,40 +434,52 @@ static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** err
   ;
 end:
 
-  if (QueryError_HasError(&status) || it->internal == NULL) {
+  if (status.HasError() || it->internal == NULL) {
     if (it) {
       RediSearch_ResultsIteratorFree(it);
       it = NULL;
     }
     if (error) {
-      *error = rm_strdup(QueryError_GetError(&status));
+      *error = rm_strdup(status.GetError());
     }
   }
-  QueryError_ClearError(&status);
+  status.ClearError();
   return it;
 }
+
+//---------------------------------------------------------------------------------------------
 
 int RediSearch_DocumentExists(IndexSpec* sp, const void* docKey, size_t len) {
   return DocTable_GetId(&sp->docs, docKey, len) != 0;
 }
+
+//---------------------------------------------------------------------------------------------
 
 RS_ApiIter* RediSearch_IterateQuery(IndexSpec* sp, const char* s, size_t n, char** error) {
   QueryInput input = {.qtype = QUERY_INPUT_STRING, .u = {.s = {s, .n = n}}};
   return handleIterCommon(sp, &input, error);
 }
 
+//---------------------------------------------------------------------------------------------
+
 RS_ApiIter* RediSearch_GetResultsIterator(QueryNode* qn, IndexSpec* sp) {
   QueryInput input = {.qtype = QUERY_INPUT_NODE, .u = {.qn = qn}};
   return handleIterCommon(sp, &input, NULL);
 }
 
+//---------------------------------------------------------------------------------------------
+
 void RediSearch_QueryNodeFree(QueryNode* qn) {
   QueryNode_Free(qn);
 }
 
+//---------------------------------------------------------------------------------------------
+
 int RediSearch_QueryNodeType(QueryNode* qn) {
   return qn->type;
 }
+
+//---------------------------------------------------------------------------------------------
 
 const void* RediSearch_ResultsIteratorNext(RS_ApiIter* iter, IndexSpec* sp, size_t* len) {
   while (iter->internal->Read(iter->internal->ctx, &iter->res) != INDEXREAD_EOF) {
@@ -433,9 +496,13 @@ const void* RediSearch_ResultsIteratorNext(RS_ApiIter* iter, IndexSpec* sp, size
   return NULL;
 }
 
+//---------------------------------------------------------------------------------------------
+
 double RediSearch_ResultsIteratorGetScore(const RS_ApiIter* it) {
   return it->scorer(&it->scargs, it->res, it->lastmd, 0);
 }
+
+//---------------------------------------------------------------------------------------------
 
 void RediSearch_ResultsIteratorFree(RS_ApiIter* iter) {
   if (iter->internal) {
@@ -456,15 +523,21 @@ void RediSearch_ResultsIteratorReset(RS_ApiIter* iter) {
   iter->internal->Rewind(iter->internal->ctx);
 }
 
+//---------------------------------------------------------------------------------------------
+
 RSIndexOptions* RediSearch_CreateIndexOptions() {
   RSIndexOptions* ret = rm_calloc(1, sizeof(RSIndexOptions));
   ret->gcPolicy = GC_POLICY_NONE;
   return ret;
 }
 
+//---------------------------------------------------------------------------------------------
+
 void RediSearch_FreeIndexOptions(RSIndexOptions* options) {
   rm_free(options);
 }
+
+//---------------------------------------------------------------------------------------------
 
 void RediSearch_IndexOptionsSetGetValueCallback(RSIndexOptions* options, RSGetValueCallback cb,
                                                 void* ctx) {
@@ -472,13 +545,19 @@ void RediSearch_IndexOptionsSetGetValueCallback(RSIndexOptions* options, RSGetVa
   options->gvcbData = ctx;
 }
 
+//---------------------------------------------------------------------------------------------
+
 void RediSearch_IndexOptionsSetFlags(RSIndexOptions* options, uint32_t flags) {
   options->flags = flags;
 }
 
+//---------------------------------------------------------------------------------------------
+
 void RediSearch_IndexOptionsSetGCPolicy(RSIndexOptions* options, int policy) {
   options->gcPolicy = policy;
 }
+
+//---------------------------------------------------------------------------------------------
 
 #define REGISTER_API(name)                                                          \
   if (RedisModule_ExportSharedAPI(ctx, "RediSearch_" #name, RediSearch_##name) !=   \
@@ -496,6 +575,8 @@ int RediSearch_ExportCapi(RedisModuleCtx* ctx) {
   return REDISMODULE_OK;
 }
 
+//---------------------------------------------------------------------------------------------
+
 void RediSearch_SetCriteriaTesterThreshold(size_t num) {
   if (num == 0) {
     RSGlobalConfig.maxResultsToUnsortedMode = DEFAULT_MAX_RESULTS_TO_UNSORTED_MODE;
@@ -503,3 +584,9 @@ void RediSearch_SetCriteriaTesterThreshold(size_t num) {
     RSGlobalConfig.maxResultsToUnsortedMode = num;
   }
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+#ifdef __cplusplus
+} // extern "C"
+#endif

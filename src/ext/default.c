@@ -492,7 +492,7 @@ int DefaultExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
       }
     }
     if (!isValid) {
-      QueryError_SetError(ctx->status, QUERY_EINVAL, "field does not support phonetics");
+      ctx->status->SetError(QUERY_EINVAL, "field does not support phonetics");
       return REDISMODULE_ERR;
     }
   }

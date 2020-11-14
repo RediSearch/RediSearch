@@ -3,6 +3,7 @@
 
 #include <new>
 #include <stdexcept>
+#include <mutex>
 
 #include "rmalloc.h"
 #include "util/arr.h"
@@ -14,6 +15,10 @@ public:
   void* operator new(std::size_t sz) { return rm_calloc(1, sz); }
   void operator delete(void *p) { rm_free(p); }
 };
+
+//---------------------------------------------------------------------------------------------
+
+typedef std::lock_guard<std::mutex> MutexGuard;
 
 //---------------------------------------------------------------------------------------------
 

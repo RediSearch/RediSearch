@@ -11,7 +11,7 @@ extern "C" {
 
 #define VALIDATE_ARGS(fname, minargs, maxargs, err)                                           \
   if (argc < minargs || argc > maxargs) {                                                     \
-    QueryError_SetError(err, QUERY_EPARSEARGS, "Invalid arguments for function '" fname "'"); \
+    err->SetError(QUERY_EPARSEARGS, "Invalid arguments for function '" fname "'"); \
     return EXPR_EVAL_ERR;                                                                     \
   }
 
@@ -19,9 +19,7 @@ extern "C" {
   {                                                                                            \
     RSValue *dref = RSValue_Dereference(args[idx]);                                            \
     if (!verifier(dref, varg)) {                                                               \
-                                                                                               \
-      QueryError_SetErrorFmt(                                                                  \
-          err, QUERY_EPARSEARGS,                                                               \
+      err->SetErrorFmt(QUERY_EPARSEARGS,                                                       \
           "Invalid type (%d) for argument %d in function '%s'. %s(v, %s) was false.", dref->t, \
           idx, fname, #verifier, #varg);                                                       \
       return EXPR_EVAL_ERR;                                                                    \

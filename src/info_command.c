@@ -1,16 +1,22 @@
+
 #include "redismodule.h"
 #include "spec.h"
 #include "inverted_index.h"
 #include "cursor.h"
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+
 #define REPLY_KVNUM(n, k, v)                   \
   RedisModule_ReplyWithSimpleString(ctx, k);   \
   RedisModule_ReplyWithDouble(ctx, (double)v); \
   n += 2
+
 #define REPLY_KVSTR(n, k, v)                 \
   RedisModule_ReplyWithSimpleString(ctx, k); \
   RedisModule_ReplyWithSimpleString(ctx, v); \
   n += 2
+
+//---------------------------------------------------------------------------------------------
 
 static int renderIndexOptions(RedisModuleCtx *ctx, IndexSpec *sp) {
 
@@ -33,6 +39,8 @@ static int renderIndexOptions(RedisModuleCtx *ctx, IndexSpec *sp) {
   RedisModule_ReplySetArrayLength(ctx, n);
   return 2;
 }
+
+//---------------------------------------------------------------------------------------------
 
 /* FT.INFO {index}
  *  Provide info and stats about an index
@@ -140,14 +148,16 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   RedisModule_ReplyWithSimpleString(ctx, "cursor_stats");
-  Cursors_RenderStats(&RSCursors, sp->name, ctx);
+  RSCursors->RenderStats(sp->name, ctx);
   n += 2;
 
   if (sp->flags & Index_HasCustomStopwords) {
-    ReplyWithStopWordsList(ctx, sp->stopwords);
+    sp->stopwords->ReplyWithStopWordsList(ctx);
     n += 2;
   }
 
   RedisModule_ReplySetArrayLength(ctx, n);
   return REDISMODULE_OK;
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////

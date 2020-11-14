@@ -1,12 +1,11 @@
-#ifndef __RS_STEMMER_H__
-#define __RS_STEMMER_H__
+
+#pragma once
+
 #include <stdlib.h>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+///////////////////////////////////////////////////////////////////////////////////////////////
 
-typedef enum {
+enum RSLanguage {
   RS_LANG_ENGLISH = 0,
   RS_LANG_ARABIC,
   RS_LANG_CHINESE,
@@ -27,17 +26,22 @@ typedef enum {
   RS_LANG_TAMIL,
   RS_LANG_TURKISH,
   RS_LANG_UNSUPPORTED
-} RSLanguage;
+};
 
-typedef enum { SnowballStemmer } StemmerType;
+//---------------------------------------------------------------------------------------------
+
+enum StemmerType {
+  SnowballStemmer
+};
 
 #define DEFAULT_LANGUAGE RS_LANG_ENGLISH
 #define STEM_PREFIX '+'
 #define STEMMER_EXPANDER_NAME "stem"
 
-/* Abstract "interface" for a pluggable stemmer, ensuring we can use multiple
- * stemmer libs */
-typedef struct stemmer {
+//---------------------------------------------------------------------------------------------
+
+// Abstract "interface" for a pluggable stemmer, ensuring we can use multiple stemmer libs
+struct Stemmer {
   void *ctx;
   const char *(*Stem)(void *ctx, const char *word, size_t len, size_t *outlen);
   void (*Free)(struct stemmer *);
@@ -48,25 +52,24 @@ typedef struct stemmer {
 
   RSLanguage language;
   StemmerType type;  // Type of stemmer
-} Stemmer;
+};
+
+//---------------------------------------------------------------------------------------------
 
 Stemmer *NewStemmer(StemmerType type, RSLanguage language);
 
 int ResetStemmer(Stemmer *stemmer, StemmerType type, RSLanguage language);
 
-/* check if a language is supported by our stemmers */
+// check if a language is supported by our stemmers
 RSLanguage RSLanguage_Find(const char *language);
 const char *RSLanguage_ToString(RSLanguage language);
 
-/* Get a stemmer expander instance for registering it */
+// Get a stemmer expander instance for registering it
 void RegisterStemmerExpander();
 
-/* Snoball Stemmer wrapper implementation */
+// Snoball Stemmer wrapper implementation
 const char *__sbstemmer_Stem(void *ctx, const char *word, size_t len, size_t *outlen);
 void __sbstemmer_Free(Stemmer *s);
 Stemmer *__newSnowballStemmer(RSLanguage language);
 
-#ifdef __cplusplus
-}
-#endif
-#endif
+///////////////////////////////////////////////////////////////////////////////////////////////

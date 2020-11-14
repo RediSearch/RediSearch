@@ -34,7 +34,7 @@ struct EvalCtx : ExprEval {
 
     root = ExprAST_Parse(s, strlen(s), &status_s);
     if (!root) {
-      assert(QueryError_HasError(&status_s));
+      assert(status_s.HasError());
     }
     lookup = NULL;
   }
@@ -56,15 +56,15 @@ struct EvalCtx : ExprEval {
   }
 
   const char *error() const {
-    return QueryError_GetError(&status_s);
+    return status_s.GetError();
   }
 
   operator bool() const {
-    return root && !QueryError_HasError(&status_s);
+    return root && !status_s.HasError();
   }
 
   void clear() {
-    QueryError_ClearError(&status_s);
+    status_s.ClearError();
 
     RSValue_Clear(&res_s);
     memset(&res_s, 0, sizeof(res_s));
@@ -115,7 +115,7 @@ TEST_F(ExprTest, testGetFields) {
   const char *e = "@foo + sqrt(@bar) / @baz + ' '";
   QueryError status = {QueryErrorCode(0)};
   RSExpr *root = ExprAST_Parse(e, strlen(e), &status);
-  ASSERT_TRUE(root) << "Failed to parse query " << e << " " << QueryError_GetError(&status);
+  ASSERT_TRUE(root) << "Failed to parse query " << e << " " << status.GetError();
   RLookup lk;
 
   RLookup_Init(&lk, NULL);
@@ -146,7 +146,7 @@ struct EvalResult {
   std::string errmsg;
 
   static EvalResult failure(const QueryError *status = NULL) {
-    return EvalResult{0, false, status ? QueryError_GetError(status) : ""};
+    return EvalResult{0, false, status ? status->GetError() : ""};
   }
 
   static EvalResult ok(double rv) {
@@ -157,7 +157,7 @@ struct EvalResult {
 static EvalResult testEval(const char *e, RLookup *lk, RLookupRow *rr, QueryError *status) {
   RSExpr *root = ExprAST_Parse(e, strlen(e), status);
   if (root == NULL) {
-    assert(QueryError_HasError(status));
+    assert(status->HasError());
     return EvalResult::failure(status);
   }
 

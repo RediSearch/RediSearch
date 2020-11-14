@@ -82,5 +82,4 @@ TEST_MAIN({
   RMUTil_InitAlloc();
   TESTFUNC(testStemmer);
   TESTFUNC(testTokenize);
-  StopWordList_FreeGlobals();
 });

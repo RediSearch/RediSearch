@@ -4,6 +4,18 @@
 #include "module.h"
 #include "rmutil/rm_assert.h"
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+/**
+ * Initialize document structure with the relevant fields. numFields will allocate
+ * the fields array, but you must still actually copy the data along.
+ *
+ * Note that this function assumes that the pointers passed in will remain valid
+ * throughout the lifetime of the document. If you need to make independent copies
+ * of the data within the document, call Document_Detach on the document (after
+ * calling this function).
+ */
+
 void Document_Init(Document *doc, RedisModuleString *docKey, double score, RSLanguage lang) {
   doc->docKey = docKey;
   doc->score = (float)score;
@@ -13,6 +25,8 @@ void Document_Init(Document *doc, RedisModuleString *docKey, double score, RSLan
   doc->payload = NULL;
   doc->payloadSize = 0;
 }
+
+//---------------------------------------------------------------------------------------------
 
 static DocumentField *addFieldCommon(Document *d, const char *fieldname, uint32_t typemask) {
   d->fields = rm_realloc(d->fields, (++d->numFields) * sizeof(*d->fields));
@@ -26,6 +40,8 @@ static DocumentField *addFieldCommon(Document *d, const char *fieldname, uint32_
   return f;
 }
 
+//---------------------------------------------------------------------------------------------
+
 void Document_AddField(Document *d, const char *fieldname, RedisModuleString *fieldval,
                        uint32_t typemask) {
   DocumentField *f = addFieldCommon(d, fieldname, typemask);
@@ -36,12 +52,21 @@ void Document_AddField(Document *d, const char *fieldname, RedisModuleString *fi
   }
 }
 
+//---------------------------------------------------------------------------------------------
+
+/**
+ * Add a simple char buffer value. This creates an RMString internally, so this
+ * must be used with F_OWNSTRINGS
+ */
+
 void Document_AddFieldC(Document *d, const char *fieldname, const char *val, size_t vallen,
                         uint32_t typemask) {
   RS_LOG_ASSERT(d->flags & DOCUMENT_F_OWNSTRINGS, "Document should own strings");
   DocumentField *f = addFieldCommon(d, fieldname, typemask);
   f->text = RedisModule_CreateString(RSDummyContext, val, vallen);
 }
+
+//---------------------------------------------------------------------------------------------
 
 void Document_SetPayload(Document *d, const void *p, size_t n) {
   d->payload = p;
@@ -52,6 +77,10 @@ void Document_SetPayload(Document *d, const void *p, size_t n) {
   }
 }
 
+//---------------------------------------------------------------------------------------------
+
+// Move the contents of one document to another. This also manages ownership semantics
+
 void Document_Move(Document *dst, Document *src) {
   if (dst == src) {
     return;
@@ -59,6 +88,12 @@ void Document_Move(Document *dst, Document *src) {
   *dst = *src;
   src->flags |= DOCUMENT_F_DEAD;
 }
+
+//---------------------------------------------------------------------------------------------
+
+/**
+ * Make the document the owner of the strings it contains
+ */
 
 void Document_MakeStringsOwner(Document *d) {
   if (d->flags & DOCUMENT_F_OWNSTRINGS) {
@@ -91,10 +126,26 @@ void Document_MakeStringsOwner(Document *d) {
   d->flags &= ~DOCUMENT_F_OWNREFS;
 }
 
+//---------------------------------------------------------------------------------------------
+
+/**
+ * Make the document object steal references to the document's strings.
+ */
+
 // TODO remove uncovered and clean DOCUMENT_F_OWNREFS from all code
+
 void Document_MakeRefOwner(Document *doc) {
   doc->flags |= DOCUMENT_F_OWNREFS;
 }
+
+//---------------------------------------------------------------------------------------------
+
+/**
+ * Load all fields specified in the schema to the document. Note that
+ * the document must then be freed using Document_Free().
+ *
+ * The document must already have the docKey set
+ */
 
 int Document_LoadSchemaFields(Document *doc, RedisSearchCtx *sctx) {
   RedisModuleKey *k = RedisModule_OpenKey(sctx->redisCtx, doc->docKey, REDISMODULE_READ);
@@ -131,6 +182,12 @@ done:
   }
   return rv;
 }
+
+//---------------------------------------------------------------------------------------------
+
+/**
+ * Load all the fields into the document.
+ */
 
 int Document_LoadAllFields(Document *doc, RedisModuleCtx *ctx) {
   int rc = REDISMODULE_ERR;
@@ -170,6 +227,8 @@ done:
   return rc;
 }
 
+//---------------------------------------------------------------------------------------------
+
 void Document_LoadPairwiseArgs(Document *d, RedisModuleString **args, size_t nargs) {
   d->fields = rm_calloc(nargs / 2, sizeof(*d->fields));
   d->numFields = nargs / 2;
@@ -181,6 +240,12 @@ void Document_LoadPairwiseArgs(Document *d, RedisModuleString **args, size_t nar
     dst->text = args[ii + 1];
   }
 }
+
+//---------------------------------------------------------------------------------------------
+
+/**
+ * Clear the document of its fields. This does not free the document or clear its name
+ */
 
 void Document_Clear(Document *d) {
   if (d->flags & (DOCUMENT_F_OWNSTRINGS | DOCUMENT_F_OWNREFS)) {
@@ -198,6 +263,10 @@ void Document_Clear(Document *d) {
   d->fields = NULL;
 }
 
+//---------------------------------------------------------------------------------------------
+
+// Free the document's internals (like the field array)
+
 void Document_Free(Document *doc) {
   if (doc->flags & DOCUMENT_F_DEAD) {
     return;
@@ -214,12 +283,18 @@ void Document_Free(Document *doc) {
   }
 }
 
+//---------------------------------------------------------------------------------------------
+
+/**
+ * Save a document in the index. Used for returning contents in search results.
+ */
+
 int Redis_SaveDocument(RedisSearchCtx *ctx, Document *doc, int options, QueryError *status) {
   RedisModuleKey *k =
       RedisModule_OpenKey(ctx->redisCtx, doc->docKey, REDISMODULE_WRITE | REDISMODULE_READ);
   if (k == NULL || (RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_EMPTY &&
                     RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_HASH)) {
-    QueryError_SetError(status, QUERY_EREDISKEYTYPE, NULL);
+    status->SetError(QUERY_EREDISKEYTYPE, NULL);
     if (k) {
       RedisModule_CloseKey(k);
     }
@@ -227,7 +302,7 @@ int Redis_SaveDocument(RedisSearchCtx *ctx, Document *doc, int options, QueryErr
   }
   if ((options & REDIS_SAVEDOC_NOCREATE) && RedisModule_KeyType(k) == REDISMODULE_KEYTYPE_EMPTY) {
     RedisModule_CloseKey(k);
-    QueryError_SetError(status, QUERY_ENODOC, "Document does not exist");
+    status->SetError(QUERY_ENODOC, "Document does not exist");
     return REDISMODULE_ERR;
   }
 
@@ -238,6 +313,10 @@ int Redis_SaveDocument(RedisSearchCtx *ctx, Document *doc, int options, QueryErr
   RedisModule_CloseKey(k);
   return REDISMODULE_OK;
 }
+
+//---------------------------------------------------------------------------------------------
+
+/* Serialzie the document's fields to a redis client */
 
 int Document_ReplyFields(RedisModuleCtx *ctx, Document *doc) {
   RS_LOG_ASSERT(doc, "doc is NULL");
@@ -252,3 +331,5 @@ int Document_ReplyFields(RedisModuleCtx *ctx, Document *doc) {
   }
   return REDISMODULE_OK;
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////

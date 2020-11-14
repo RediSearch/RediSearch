@@ -1,24 +1,25 @@
-#ifndef RLOOKUP_H
-#define RLOOKUP_H
+#pragma once
+
+#include "spec.h"
+#include "search_ctx.h"
+#include "value.h"
+#include "sortable.h"
+
+#include "util/arr.h"
+
 #include <stdint.h>
 #include <assert.h>
 
-#include <spec.h>
-#include <search_ctx.h>
-#include "value.h"
-#include "sortable.h"
-#include "util/arr.h"
+///////////////////////////////////////////////////////////////////////////////////////////////
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-typedef enum {
+enum RLookupCoerceType {
   RLOOKUP_C_STR = 0,
   RLOOKUP_C_INT = 1,
   RLOOKUP_C_DBL = 2,
   RLOOKUP_C_BOOL = 3
-} RLookupCoerceType;
+};
+
+//---------------------------------------------------------------------------------------------
 
 /**
  * RLookup Key
@@ -55,40 +56,38 @@ typedef enum {
  * sorting vector, so that they are essentially different keys, even though
  * they have the same name.
  */
-typedef struct RLookupKey {
-  /** The index into the array where the value resides */
+
+struct RLookupKey : public Object {
+  // The index into the array where the value resides
   uint16_t dstidx;
 
-  /**
-   * If the source of this value points to a sort vector, then this is the
-   * index within the sort vector that the value is located
-   */
+  // If the source of this value points to a sort vector, then this is the
+  // index within the sort vector that the value is located
   uint16_t svidx;
 
-  /**
-   * Can be F_SVSRC which means the target array is a sorting vector, or
-   * F_OUTPUT which means that the t
-   */
+  // Can be F_SVSRC which means the target array is a sorting vector, or
+  // F_OUTPUT which means that the t... [Mozzart passed away here]
   uint16_t flags;
 
-  /** Type this lookup should be coerced to */
+  // Type this lookup should be coerced to
   RLookupCoerceType fieldtype : 16;
 
   uint32_t refcnt;
 
-  /** Name of this field */
+  // Name of this field
   const char *name;
 
-  /** Pointer to next field in the list */
+  // Pointer to next field in the list
   struct RLookupKey *next;
-} RLookupKey;
+};
 
-typedef struct RLookup {
+//---------------------------------------------------------------------------------------------
+
+struct RLookup {
   RLookupKey *head;
   RLookupKey *tail;
 
-  // Length of the data row. This is not necessarily the number
-  // of lookup keys
+  // Length of the data row. This is not necessarily the number of lookup keys
   uint32_t rowlen;
 
   // Flags/options
@@ -97,147 +96,97 @@ typedef struct RLookup {
   // If present, then GetKey will consult this list if the value is not found in
   // the existing list of keys.
   IndexSpecCache *spcache;
-} RLookup;
+};
 
-// If the key cannot be found, do not mark it as an error, but create it and
-// mark it as F_UNRESOLVED
+//---------------------------------------------------------------------------------------------
+
+// If key cannot be found, do not mark it as an error, but create and mark it as F_UNRESOLVED
 #define RLOOKUP_OPT_UNRESOLVED_OK 0x01
 
-/**
- * Row data for a lookup key. This abstracts the question of "where" the
- * data comes from.
- */
-typedef struct {
-  /** Sorting vector attached to document */
+//---------------------------------------------------------------------------------------------
+
+// Row data for a lookup key. This abstracts the question of "where" the data comes from
+
+struct RLookupRow {
+  // Sorting vector attached to document
   const RSSortingVector *sv;
 
-  /** Module key for data that derives directly from a Redis data type */
+  // Module key for data that derives directly from a Redis data type
   RedisModuleKey *rmkey;
 
-  /** Dynamic values obtained from prior processing */
+  // Dynamic values obtained from prior processing
   RSValue **dyn;
 
-  /**
-   * How many values actually exist in dyn. Note that this
-   * is not the length of the array!
-   */
+  // How many values actually exist in dyn. Note that this is not the length of the array!
   size_t ndyn;
-} RLookupRow;
+
+  void Wipe();
+  void Cleanup();
+  void Dump() const;
+};
+
+//---------------------------------------------------------------------------------------------
 
 #define RLOOKUP_F_OEXCL 0x01   // Error if name exists already
 #define RLOOKUP_F_OCREAT 0x02  // Create key if it does not exit
 
-/** Force this key to be the output key, bypassing the sort vector */
+// Force this key to be the output key, bypassing the sort vector
 #define RLOOKUP_F_OUTPUT 0x04
 
-/** Check the sorting table, if necessary, for the index of the key. */
+// Check the sorting table, if necessary, for the index of the key
 #define RLOOKUP_F_SVSRC 0x08
 
-/** Copy the key string via strdup. `name` may be freed */
+// Copy the key string via strdup. `name` may be freed
 #define RLOOKUP_F_NAMEALLOC 0x10
 
-/**
- * Do not increment the reference count of the returned key. Note that a single
- * refcount is still retained within the lookup structure itself
- */
+// Do not increment the reference count of the returned key. Note that a single
+// refcount is still retained within the lookup structure itself
 #define RLOOKUP_F_NOINCREF 0x20
 
-/**
- * This field needs to be loaded externally from a document. It is not
- * natively present.
- *
- * The flag is intended to be used by you, the programmer. If you encounter
- * a key with this flag set, then the value must be loaded externally and placed
- * into the row in the corresponding index slot.
- */
+// This field needs to be loaded externally from a document. It is not natively present.
+// The flag is intended to be used by you, the programmer. If you encounter
+// a key with this flag set, then the value must be loaded externally and placed
+// into the row in the corresponding index slot.
 #define RLOOKUP_F_DOCSRC 0x40
 
-/**
- * This field is hidden within the document and is only used as a transient
- * field for another consumer. Don't output this field.
- */
+// This field is hidden within the document and is only used as a transient
+// field for another consumer. Don't output this field.
 #define RLOOKUP_F_HIDDEN 0x80
 
-/**
- * This key is used as sorting key for the result
- */
+// This key is used as sorting key for the result
 #define RLOOKUP_F_SORTKEY 0x100
 
-/**
- * This key is unresolved. It source needs to be derived from elsewhere
- */
+// This key is unresolved. It source needs to be derived from elsewhere
 #define RLOOKUP_F_UNRESOLVED 0x200
 
-/**
- * The opposite of F_HIDDEN. This field is specified as an explicit return in
- * the RETURN list, so ensure that this gets emitted. Only set if
- * explicitReturn is true in the aggregation request.
- */
+// The opposite of F_HIDDEN.
+// This field is specified as an explicit return in the RETURN list, so ensure this gets emitted.
+// Only set if explicitReturn is true in the aggregation request.
 #define RLOOKUP_F_EXPLICITRETURN 0x400
 
-/**
- * These flags do not persist to the key, they are just options to GetKey()
- */
+// These flags do not persist to the key, they are just options to GetKey()
 #define RLOOKUP_TRANSIENT_FLAGS (RLOOKUP_F_OEXCL | RLOOKUP_F_OCREAT | RLOOKUP_F_NOINCREF)
 
-/**
- * Get a RLookup key for a given name. The behavior of this function depends on
- * the flags.
- *
- * If F_OCREAT is not used, then this function will return NULL if a key could
- * not be found, unless OPT_UNRESOLVED_OK is set on the lookup itself. In this
- * case, the key is returned, but has the F_UNRESOLVED flag set.
- */
+//---------------------------------------------------------------------------------------------
+
 RLookupKey *RLookup_GetKey(RLookup *lookup, const char *name, int flags);
 
-/**
- * Get the amount of visible fields is the RLookup
- */
+// Get the amount of visible fields is the RLookup
+
 size_t RLookup_GetLength(const RLookup *lookup, const RLookupRow *r, int requiredFlags,
                          int excludeFlags);
 
-/**
- * Get a value from the lookup.
- */
+// Get a value from the lookup.
 
-/**
- * Write a value to a lookup table. Key must already be registered, and not
- * refer to a read-only (SVSRC) key.
- *
- * The value written will have its refcount incremented
- */
 void RLookup_WriteKey(const RLookupKey *key, RLookupRow *row, RSValue *value);
-
-/**
- * Exactly like RLookup_WriteKey, but does not increment the refcount, allowing
- * idioms such as RLookup_WriteKey(..., RS_NumVal(10)); which would otherwise cause
- * a leak.
- */
 void RLookup_WriteOwnKey(const RLookupKey *key, RLookupRow *row, RSValue *value);
-
-/**
- * Move data from the source row to the destination row. The source row is cleared.
- * The destination row should be pre-cleared (though its cache may still
- * exist).
- * @param lk lookup common to both rows
- * @param src the source row
- * @param dst the destination row
- */
 void RLookupRow_Move(const RLookup *lk, RLookupRow *src, RLookupRow *dst);
-
-/**
- * Write a value by-name to the lookup table. This is useful for 'dynamic' keys
- * for which it is not necessary to use the boilerplate of getting an explicit
- * key.
- *
- * The reference count of the value will be incremented.
- */
 void RLookup_WriteKeyByName(RLookup *lookup, const char *name, RLookupRow *row, RSValue *value);
 
-/**
- * Like WriteKeyByName, but consumes a refcount
- */
+// Like WriteKeyByName, but consumes a refcount
 void RLookup_WriteOwnKeyByName(RLookup *lookup, const char *name, RLookupRow *row, RSValue *value);
+
+//---------------------------------------------------------------------------------------------
 
 /** Get a value from the row, provided the key.
  *
@@ -249,6 +198,7 @@ void RLookup_WriteOwnKeyByName(RLookup *lookup, const char *name, RLookupRow *ro
  * @param row the row data which contains the value
  * @return the value if found, NULL otherwise.
  */
+
 static inline RSValue *RLookup_GetItem(const RLookupKey *key, const RLookupRow *row) {
   RSValue *ret = NULL;
   if (row->dyn && array_len(row->dyn) > key->dstidx) {
@@ -267,88 +217,53 @@ static inline RSValue *RLookup_GetItem(const RLookupKey *key, const RLookupRow *
   return ret;
 }
 
-/**
- * Wipes the row, retaining its memory but decrefing any included values.
- * This does not free all the memory consumed by the row, but simply resets
- * the row data (preserving any caches) so that it may be refilled.
- */
-void RLookupRow_Wipe(RLookupRow *row);
+//---------------------------------------------------------------------------------------------
 
-/**
- * Frees all the memory consumed by the row. Implies Wipe(). This should be used
- * when the row object will no longer be used.
- */
-void RLookupRow_Cleanup(RLookupRow *row);
+enum RLookupLoadFlags {
+  RLOOKUP_LOAD_KEYLIST,  // Use keylist (keys/nkeys) for the fields to list
+  RLOOKUP_LOAD_SVKEYS,   // Load only cached keys (don't open keys)
+  RLOOKUP_LOAD_ALLKEYS,  // Load all keys in the document
+  RLOOKUP_LOAD_LKKEYS    // Load all the keys in the RLookup object
+};
 
-void RLookupRow_Dump(const RLookupRow *row);
+//---------------------------------------------------------------------------------------------
 
-typedef enum {
-  /* Use keylist (keys/nkeys) for the fields to list */
-  RLOOKUP_LOAD_KEYLIST,
-  /* Load only cached keys (don't open keys) */
-  RLOOKUP_LOAD_SVKEYS,
-  /* Load all keys in the document */
-  RLOOKUP_LOAD_ALLKEYS,
-  /* Load all the keys in the RLookup object */
-  RLOOKUP_LOAD_LKKEYS
-} RLookupLoadFlags;
-
-typedef struct {
+struct RLookupLoadOptions {
   struct RedisSearchCtx *sctx;
 
-  /** Needed for the key name, and perhaps the sortable */
+  // Needed for the key name, and perhaps the sortable
   const RSDocumentMetadata *dmd;
 
-  /** Keys to load. If present, then loadNonCached and loadAllFields is ignored */
+  /// Keys to load. If present, then loadNonCached and loadAllFields is ignored
   const RLookupKey **keys;
-  /** Number of keys in keys array */
+
+  // Number of keys in keys array
   size_t nkeys;
 
-  /**
-   * The following options control the loading of fields, in case non-SORTABLE
-   * fields are desired.
-   */
+  // Control the loading of fields, in case non-SORTABLE fields are desired.
   RLookupLoadFlags mode;
 
-  /**
-   * Don't use sortables when loading documents. This might be used to ensure
-   * that only the exact document and not a normalized version is employed
-   */
+  // Don't use sortables when loading documents. This might be used to ensure
+  // that only the exact document and not a normalized version is employed
   int noSortables;
 
-  /**
-   * Force string return; don't coerce to native type
-   */
+  // Force string return; don't coerce to native type
   int forceString;
 
   struct QueryError *status;
-} RLookupLoadOptions;
+};
 
-/**
- * Attempt to load a document into the row. The document's fields are placed into
- * their corresponding slots.
- *
- * @param lt Lookup table. Contains the keys to load.
- * @param dst row that should contain the data
- * @param options options controlling the load process
- */
+//---------------------------------------------------------------------------------------------
+
 int RLookup_LoadDocument(RLookup *lt, RLookupRow *dst, RLookupLoadOptions *options);
 
-/** Use incref/decref instead! */
+// Use incref/decref instead!
 void RLookupKey_FreeInternal(RLookupKey *k);
 
-/**
- * Initialize the lookup. If cache is provided, then it will be used as an
- * alternate source for lookups whose fields are absent
- */
 void RLookup_Init(RLookup *l, IndexSpecCache *cache);
-
-/**
- * Releases any resources created by this lookup object. Note that if there are
- * lookup keys created with RLOOKUP_F_NOINCREF, those keys will no longer be
- * valid after this call!
- */
 void RLookup_Cleanup(RLookup *l);
+
+//---------------------------------------------------------------------------------------------
 
 static inline const RLookupKey *RLookup_FindKeyWith(const RLookup *l, uint32_t f) {
   for (const RLookupKey *k = l->head; k; k = k->next) {
@@ -359,8 +274,4 @@ static inline const RLookupKey *RLookup_FindKeyWith(const RLookup *l, uint32_t f
   return NULL;
 }
 
-#ifdef __cplusplus
-}
-#endif
-
-#endif
+///////////////////////////////////////////////////////////////////////////////////////////////

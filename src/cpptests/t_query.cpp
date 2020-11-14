@@ -35,11 +35,11 @@ class QASTCXX : public QueryAST {
   }
 
   bool parse(const char *s) {
-    QueryError_ClearError(&m_status);
+    m_status.ClearError();
     QAST_Destroy(this);
 
     int rc = QAST_Parse(this, sctx, &m_opts, s, strlen(s), &m_status);
-    return rc == REDISMODULE_OK && !QueryError_HasError(&m_status) && root != NULL;
+    return rc == REDISMODULE_OK && !m_status.HasError() && root != NULL;
   }
 
   void print() const {
@@ -47,11 +47,11 @@ class QASTCXX : public QueryAST {
   }
 
   const char *getError() const {
-    return QueryError_GetError(&m_status);
+    return m_status.GetError();
   }
 
   ~QASTCXX() {
-    QueryError_ClearError(&m_status);
+    m_status.ClearError();
     QAST_Destroy(this);
   }
 };
@@ -84,7 +84,7 @@ TEST_F(QueryTest, testParser) {
                                "numeric", "loc",   "geo",    "tags",   "tag"};
   QueryError err = {QueryErrorCode(0)};
   ctx.spec = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
-  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
+  ASSERT_FALSE(err.HasError()) << err.GetError();
 
   // test some valid queries
   assertValidQuery("hello", ctx);

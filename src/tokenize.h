@@ -5,6 +5,9 @@
 #include "stopwords.h"
 #include "redisearch.h"
 #include "varint.h"
+
+#include "dep/friso/friso.h"
+
 #include <ctype.h>
 #include <stdlib.h>
 #include <strings.h>
@@ -44,9 +47,14 @@ struct Token {
 
   // position in the document - this is written to the inverted index
   uint32_t pos;
-};
 
-#define Token_Destroy(t) rm_free((t)->phoneticsPrimary)
+  Token() : tok(NULL), tokLen(0), flags(0), stem(NULL), phoneticsPrimary(NULL), stemLen(0),
+            raw(NULL), rawLen(0) {}
+
+  ~Token() {
+    rm_free(phoneticsPrimary);
+  }
+};
 
 //---------------------------------------------------------------------------------------------
 
@@ -73,7 +81,6 @@ struct Tokenizer {
 //---------------------------------------------------------------------------------------------
 
 struct SimpleTokenizer : public Tokenizer {
-  RSTokenizer base;
   char **pos;
   Stemmer *stemmer;
 
@@ -89,7 +96,7 @@ struct SimpleTokenizer : public Tokenizer {
 #define CNTOKENIZE_BUF_MAX 256
 
 struct ChineseTokenizer : public Tokenizer {
-  friso_task_t fTask;
+  friso_task_t friso_task;
   char escapebuf[CNTOKENIZE_BUF_MAX];
   size_t nescapebuf;
 
@@ -131,6 +138,5 @@ protected:
 Tokenizer *GetTokenizer(RSLanguage language, Stemmer *stemmer, StopWordList *stopwords);
 Tokenizer *GetChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords);
 Tokenizer *GetSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords);
-void Tokenizer_Release(RSTokenizer *t);
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
