@@ -359,7 +359,7 @@ static void Indexer_Process(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx) {
   RSAddDocumentCtx *firstZeroId = aCtx;
   RedisSearchCtx ctx = {NULL};
 
-  if (ACTX_IS_INDEXED(aCtx) || aCtx->stateFlags & (ACTX_F_ERRORED)) {
+  if (ACTX_IS_INDEXED(aCtx) || !!(aCtx->stateFlags & ACTX_F_ERRORED)) {
     // Document is complete or errored. No need for further processing.
     if (!(aCtx->stateFlags & ACTX_F_EMPTY)) {
       return;
@@ -369,7 +369,7 @@ static void Indexer_Process(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx) {
   int useTermHt = indexer->size > 1 && (aCtx->stateFlags & ACTX_F_TEXTINDEXED) == 0;
   if (useTermHt) {
     firstZeroId = doMerge(aCtx, &indexer->mergeHt, parentMap);
-    if (firstZeroId && firstZeroId->stateFlags & ACTX_F_ERRORED) {
+    if (firstZeroId && !!(firstZeroId->stateFlags & ACTX_F_ERRORED)) {
       // Don't treat an errored ctx as being the head of a new ID chain. It's
       // likely that subsequent entries do indeed have IDs.
       firstZeroId = NULL;
