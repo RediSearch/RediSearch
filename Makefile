@@ -10,6 +10,7 @@ make build         # compile and link
   DEBUG=1          # build for debugging (implies TEST=1)
   TEST=1           # enable unit tests
   WHY=1            # explain CMake decisions (in /tmp/cmake-why)
+  SLOW=1           # avoid parallel build
   CMAKE_ARGS       # extra arguments to CMake
 make parsers       # build parsers code
 make clean         # remove build artifacts
@@ -93,8 +94,12 @@ endif
 	@mkdir -p $(BINROOT)
 	@cd $(BINROOT) && cmake .. $(CMAKE_ARGS) $(CMAKE_TEST) $(CMAKE_DEBUG) $(CMAKE_WHY)
 
+ifneq ($(SLOW),1)
+MAKE_JOBS:=-j$(shell nproc)
+endif
+
 $(COMPAT_DIR)/redisearch.so: $(COMPAT_DIR)/Makefile
-	$(MAKE) -C $(BINROOT) -j$(shell nproc)
+	$(MAKE) -C $(BINROOT) $(MAKE_JOBS)
 #	if [ ! -f src/redisearch.so ]; then cd src; ln -s ../$(BINROOT)/redisearch.so; fi
 
 .PHONY: build clean run 

@@ -1,28 +1,40 @@
 #include "cndict_loader.h"
-#include "dep/miniz/miniz.h"
 #include "buffer.h"
-#include <arpa/inet.h>  // htonl, etc.
-#include <stdint.h>
+
+#include "dep/miniz/miniz.h"
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
+
+#include <arpa/inet.h>  // htonl, etc.
+#include <stdint.h>
+
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 extern const char ChineseDict[];
 extern const size_t ChineseDictCompressedLength;
 extern const size_t ChineseDictFullLength;
 
-typedef enum { Record_HasSynonyms = 0x01 << 5, Record_HasFrequency = 0x02 << 5 } RecordFlags;
+enum RecordFlags {
+  Record_HasSynonyms = 0x01 << 5,
+  Record_HasFrequency = 0x02 << 5
+};
+
 #define LEXTYPE_MASK 0x1F
 
-typedef struct {
+//---------------------------------------------------------------------------------------------
+
+struct ReaderCtx {
   friso_dic_t dic;
   BufferReader *rdr;
-} ReaderCtx;
+};
+
+//---------------------------------------------------------------------------------------------
 
 static int readRecord(ReaderCtx *ctx) {
   BufferReader *rdr = ctx->rdr;
   // Read the flags
   char c;
-  size_t nr = Buffer_ReadByte(rdr, &c);
+  size_t nr = rdr.ReadByte(&c);
   if (!nr) {
     return 0;
   }
@@ -37,7 +49,7 @@ static int readRecord(ReaderCtx *ctx) {
   uint16_t numSyns = 0;
 
   if (c & Record_HasSynonyms) {
-    Buffer_Read(rdr, &numSyns, 2);
+    rdr.Read(&numSyns, 2);
     numSyns = htons(numSyns);
   }
 
@@ -60,7 +72,7 @@ static int readRecord(ReaderCtx *ctx) {
   // If there's a frequency, read that too.
   uint32_t freq = 0;
   if (c & Record_HasFrequency) {
-    Buffer_Read(rdr, &freq, 4);
+    rdr.Read(&freq, 4);
     freq = htonl(freq);
   }
 
@@ -68,6 +80,8 @@ static int readRecord(ReaderCtx *ctx) {
   friso_dic_add_with_fre(ctx->dic, lexType, rm_strdup(term), syns, freq);
   return 1;
 }
+
+//---------------------------------------------------------------------------------------------
 
 // Read the format
 int ChineseDictLoad(friso_dic_t d) {
@@ -95,7 +109,7 @@ int ChineseDictLoad(friso_dic_t d) {
   tmpBuf.data = expanded;
   tmpBuf.cap = dstLen;
   tmpBuf.offset = 0;
-  BufferReader reader = NewBufferReader(&tmpBuf);
+  BufferReader reader(&tmpBuf);
 
   ReaderCtx ctx = {.dic = d, .rdr = &reader};
   while (reader.pos < tmpBuf.cap && readRecord(&ctx)) {
@@ -105,3 +119,5 @@ int ChineseDictLoad(friso_dic_t d) {
   rm_free(expanded);
   return 0;
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////
