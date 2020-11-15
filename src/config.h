@@ -90,7 +90,7 @@ typedef struct {
   int filterCommands;
 
   // compress double to float
-  bool numericCompress;
+  int numericCompress;
 } RSConfig;
 
 typedef enum {
