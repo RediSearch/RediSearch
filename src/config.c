@@ -41,6 +41,21 @@
     return sdsnew(cv ? "true" : "false");        \
   }
 
+#define CONFIG_BOOLEAN_SETTER(name, var)                        \
+  CONFIG_SETTER(name) {                                         \
+    const char *tf;                                             \
+    int acrc = AC_GetString(ac, &tf, NULL, 0);                  \
+    CHECK_RETURN_PARSE_ERROR(acrc);                             \
+    if (!strcmp(tf, "true") || !strcmp(tf, "TRUE")) {           \
+      config->var = 1;                                          \
+    } else if (!strcmp(tf, "false") || !strcmp(tf, "FALSE")) {  \
+      config->var = 0;                                          \
+    } else {                                                    \
+      acrc = AC_ERR_PARSE;                                      \
+    }                                                           \
+    RETURN_STATUS(acrc);                                        \
+  }
+
 // EXTLOAD
 CONFIG_SETTER(setExtLoad) {
   int acrc = AC_GetString(ac, &config->extLoad, NULL, 0);
@@ -299,6 +314,10 @@ CONFIG_GETTER(getMinPhoneticTermLen) {
   sds ss = sdsempty();
   return sdscatprintf(ss, "%lu", config->minPhoneticTermLen);
 }
+
+// _NUMERIC_COMPRESS
+CONFIG_BOOLEAN_SETTER(setNumericCompress, numericCompress)
+CONFIG_BOOLEAN_GETTER(getNumericCompress, numericCompress, 0)
 
 CONFIG_SETTER(setGcPolicy) {
   const char *policy;
@@ -580,6 +599,10 @@ RSConfigOptions RSGlobalConfigOptions = {
          .setValue = setUpgradeIndex,
          .getValue = getUpgradeIndex,
          .flags = RSCONFIGVAR_F_IMMUTABLE},
+        {.name = "_NUMERIC_COMPRESS",
+         .helpText = "Enable legacy compression of double to float.",
+         .setValue = setNumericCompress,
+         .getValue = getNumericCompress},
         {.name = NULL}}};
 
 void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst) {
