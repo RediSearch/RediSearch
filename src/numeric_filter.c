@@ -3,13 +3,15 @@
 #include "rmutil/util.h"
 #include "rmutil/vector.h"
 
-static int parseDoubleRange(const char *s, int *inclusive, double *target, int isMin,
-                            QueryError *status) {
+static int parseDoubleRange(const char *s, int *inclusive, double *target, decNumber *decTarget,
+                            int isMin, QueryError *status) {
   if (isMin && !strcasecmp(s, "-inf")) {
     *target = NF_NEGATIVE_INFINITY;
+    decSetInfinity(decTarget, 1);
     return REDISMODULE_OK;
   } else if (!isMin && !strcasecmp(s, "+inf")) {
     *target = NF_INFINITY;
+    decSetInfinity(decTarget, 0);
     return REDISMODULE_OK;
   }
   if (*s == '(') {
@@ -22,6 +24,12 @@ static int parseDoubleRange(const char *s, int *inclusive, double *target, int i
   if (*endptr != '\0' || *target == HUGE_VAL || *target == -HUGE_VAL) {
     QERR_MKBADARGS_FMT(status, "Bad %s range: %s", isMin ? "lower" : "upper", s);
     return REDISMODULE_ERR;
+  }
+
+  decNumberFromString(decTarget, s, &decCtx_g);
+  if (decContextGetStatus(&decCtx_g) != 0) {
+    QERR_MKBADARGS_FMT(status, "Bad %s range: %s", isMin ? "lower" : "upper", s);
+    return REDISMODULE_ERR;    
   }
   return REDISMODULE_OK;
 }
@@ -53,18 +61,17 @@ NumericFilter *NumericFilter_Parse(ArgsCursor *ac, QueryError *status) {
   // make sure we have an index spec for this filter and it's indeed numeric
   nf->inclusiveMax = 1;
   nf->inclusiveMin = 1;
-  nf->min = 0;
-  nf->max = 0;
   nf->fieldName = rm_strdup(AC_GetStringNC(ac, NULL));
 
   // Parse the min range
   const char *s = AC_GetStringNC(ac, NULL);
-  if (parseDoubleRange(s, &nf->inclusiveMin, &nf->min, 1, status) != REDISMODULE_OK) {
+  if (parseDoubleRange(s, &nf->inclusiveMin, &nf->min, &nf->decMin, 1, status) != REDISMODULE_OK) {
     NumericFilter_Free(nf);
     return NULL;
   }
+  // Parse the max range
   s = AC_GetStringNC(ac, NULL);
-  if (parseDoubleRange(s, &nf->inclusiveMax, &nf->max, 0, status) != REDISMODULE_OK) {
+  if (parseDoubleRange(s, &nf->inclusiveMax, &nf->max, &nf->decMax, 0, status) != REDISMODULE_OK) {
     NumericFilter_Free(nf);
     return NULL;
   }

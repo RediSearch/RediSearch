@@ -51,11 +51,12 @@ property = '@'.(((any - (punct | cntrl | space | escape)) | escaped_character) |
 
 main := |*
 
-  number => { //TODO:decimal
+  number => {
     tok.s = ts;
     tok.len = te-ts;
     char *ne = (char*)te;
     tok.numval = strtod(tok.s, &ne);
+    decNumberFromString(&tok.decval, tok.s, &decCtx_g);
     tok.pos = ts-ctx.raw;
     RSExprParser_Parse(pParser, NUMBER, tok, &ctx);
     if (!ctx.ok) {
@@ -88,9 +89,9 @@ main := |*
     tok.pos = ts-ctx.raw;
     tok.s = ts;
     tok.len = te-ts;
-    
-    tok.numval = *ts == '-' ? -INFINITY : INFINITY;
-    RSExprParser_Parse(pParser, NUMBER, tok, &ctx);
+    int negative = (*ts == '-');
+    tok.numval = negative ? -INFINITY : INFINITY;
+    decSetInfinity(&tok.decval, negative);    RSExprParser_Parse(pParser, NUMBER, tok, &ctx);
     if (!ctx.ok) {
       fbreak;
     }

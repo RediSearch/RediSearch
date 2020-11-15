@@ -526,7 +526,8 @@ decNumber * decNumberFromString(decNumber *dn, const char chars[],
 
     if (last==NULL) {              // no digits yet
       status=DEC_Conversion_syntax;// assume the worst
-      if (*c=='\0') break;         // and no more to come...
+      // Add ' ' and ']' to support RediSearch syntax
+      if (*c=='\0' || *c==' ' || *c==']') break; // and no more to come...
       #if DECSUBSET
       // if subset then infinities and NaNs are not allowed
       if (!set->extended) break;   // hopeless
@@ -577,7 +578,8 @@ decNumber * decNumberFromString(decNumber *dn, const char chars[],
       bits=dn->bits;               // for copy-back
       } // last==NULL
 
-     else if (*c!='\0') {          // more to process...
+      // Add ' ' and ']' to support RediSearch syntax
+     else if (*c!='\0' && *c!=' ' && *c!=']') { // more to process...
       // had some digits; exponent is only valid sequence now
       Flag nege;                   // 1=negative exponent
       const char *firstexp;        // -> first significant exponent digit
@@ -598,7 +600,7 @@ decNumber * decNumberFromString(decNumber *dn, const char chars[],
         exponent=X10(exponent)+(Int)*c-(Int)'0';
         } // c
       // if not now on a '\0', *c must not be a digit
-      if (*c!='\0') break;
+      if (*c!='\0' && *c!=' ' && *c!=']') break;
 
       // (this next test must be after the syntax checks)
       // if it was too long the exponent may have wrapped, so check

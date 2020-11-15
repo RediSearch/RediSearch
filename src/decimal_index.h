@@ -10,6 +10,7 @@
 #include "search_ctx.h"
 #include "concurrent_ctx.h"
 #include "numeric_filter.h"
+#include "dep/decNumber/rs_dec.h"
 
 #define RT_LEAF_CARDINALITY_MAX 500
 
@@ -36,7 +37,7 @@ typedef struct {
 
 struct InvertedIndex;
 typedef struct {
-  double value;
+  decNumber value;
   size_t invertedIndexSize;
   struct InvertedIndex *invidx;
 } DecimalSkiplistNode;
@@ -50,11 +51,11 @@ struct indexIterator *NewDecimalSkiplistIterator(RedisSearchCtx *ctx, NumericFil
                                          ConcurrentSearchCtx *csx, FieldType forType);
 
 /* Add a value to a tree. Returns 0 if no nodes were split, 1 if we splitted nodes */
-NRN_AddRv DecimalSkiplist_Add(DecimalSkiplist *t, t_docId docId, double value);
+NRN_AddRv DecimalSkiplist_Add(DecimalSkiplist *t, t_docId docId, decNumber value);
 
 /* Recursively find all the leaves under tree's root, that correspond to a given min-max range.
  * Returns a vector with range node pointers. */
-Vector *DecimalSkiplist_Find(DecimalSkiplist *t, double min, double max);
+Vector *DecimalSkiplist_Find(DecimalSkiplist *t, decNumber min, decNumber max);
 
 DecimalSkiplist *OpenDecimalSkiplistIndex(RedisSearchCtx *ctx, RedisModuleString *keyName,
                                    RedisModuleKey **idxKey);

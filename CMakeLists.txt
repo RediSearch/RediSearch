@@ -121,7 +121,9 @@ FILE(GLOB RS_SRC
     "src/dep/thpool/*.c"
     "src/dep/triemap/*.c"
     "src/dep/geo/*.c"
-    "src/dep/decNumber/decNumber.c" "src/dep/decNumber/decContext.c"
+    "src/dep/decNumber/decNumber.c"
+    "src/dep/decNumber/decContext.c"
+    "src/dep/decNumber/rs_dec.c"
     ${RS_DEBUG_SRC})
 
 ADD_LIBRARY(rscore OBJECT ${RS_SRC})

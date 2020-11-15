@@ -25,7 +25,7 @@ uint64_t decimalSkiplistUniqueId = 0;
 void DecimalSkiplistIterator_OnReopen(void *privdata) {
 }
 
-DecimalSkiplistNode *NewSkiplistNode(double value) {
+DecimalSkiplistNode *NewSkiplistNode(decNumber value) {
   DecimalSkiplistNode *n = rm_malloc(sizeof(*n));
   n->value = value;
   // TODO: Index_StoreDecimalSkip??
@@ -34,9 +34,7 @@ DecimalSkiplistNode *NewSkiplistNode(double value) {
 }
 
 int DecimalSkiplistCompare(void *a, void *b) {
-  DecimalSkiplistNode *nna = (DecimalSkiplistNode *)a;
-  DecimalSkiplistNode *nnb = (DecimalSkiplistNode *)b;
-  return nna->value > nnb->value ? 1 : nna->value < nnb->value ? -1 : 0;
+  return decimalCmp(a, b);
 }
 
 void DecimalSkiplistElementDtor(void *a) {
@@ -58,7 +56,7 @@ DecimalSkiplist *NewDecimalSkiplist() {
   return ret;
 }
 
-NRN_AddRv DecimalSkiplist_Add(DecimalSkiplist *ds, t_docId docId, double value) {
+NRN_AddRv DecimalSkiplist_Add(DecimalSkiplist *ds, t_docId docId, decNumber value) {
   NRN_AddRv rv = {.sz = 0, .changed = 0, .numRecords = 0};
   // Do not allow duplicate entries. This might happen due to indexer bugs and we need to protect
   // from it
@@ -91,18 +89,26 @@ void DecimalSkiplist_Free(DecimalSkiplist *ns) {
  * the filter */
 IndexIterator *createDecimalSkiplistUnionIterator(const IndexSpec *sp, DecimalSkiplist *ds,
                                                   NumericFilter *f) {
-  DecimalSkiplistNode start = {.value = f->min};
+  DecimalSkiplistNode start = {.value = f->decMin};
   DecimalSkiplistIterator *iter = DecimalSkiplistIterator_New(ds, &start);
   if (!iter) return NULL;
 
   DecimalSkiplistNode *n = NULL;
   Vector *v = NewVector(DecimalSkiplistNode *, 8);
 
-  while ((n = DecimalSkiplistIterator_Next(iter)) && n->value <= f->max) {
-    if (f->min > n->value ||
-       (f->inclusiveMin == 0 && n->value == f->min) ||
-       (f->inclusiveMax == 0 && n->value == f->max)) 
+  while ((n = DecimalSkiplistIterator_Next(iter))) {
+    int cmpMax = decimalCmp(&n->value, &f->decMax);
+    int cmpMin = decimalCmp(&n->value, &f->decMin);
+
+    if (cmpMax == 1) {
+      break;
+    }
+
+    if (cmpMin == -1 ||
+       (f->inclusiveMin == 0 && cmpMin == 0) ||
+       (f->inclusiveMax == 0 && cmpMax == 0)) {
         continue;
+    }
     Vector_Push(v, n);
   }
   DecimalSkiplistIterator_Free(iter);
@@ -217,7 +223,7 @@ static unsigned long DecimalIndexType_MemUsage(const void *value) {
 
 // TODO: start iterating from different locations so all indexes are being GCed.
 DecimalSkiplistIterator *DecimalSkiplistIterator_New(DecimalSkiplist *ds, void *start) {
-  return slIteratorCreate(ds->sl, NULL);
+  return slIteratorCreate(ds->sl, start);
 }
 
 DecimalSkiplistNode *DecimalSkiplistIterator_Next(DecimalSkiplistIterator *iter) {

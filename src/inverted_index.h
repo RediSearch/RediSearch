@@ -164,7 +164,7 @@ size_t InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, IndexEncoder enc
 /* Write a numeric index entry to the index. it includes only a float value and docId. Returns the
  * number of bytes written */
 size_t InvertedIndex_WriteNumericEntry(InvertedIndex *idx, t_docId docId, double value);
-size_t InvertedIndex_WriteDecimalEntry(InvertedIndex *idx, t_docId docId, double value);
+size_t InvertedIndex_WriteDecimalEntry(InvertedIndex *idx, t_docId docId, decNumber value);
 
 size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder, t_docId docId,
                                        RSIndexResult *entry);
@@ -173,7 +173,7 @@ size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
 IndexReader *NewNumericReader(const IndexSpec *sp, InvertedIndex *idx, const NumericFilter *flt);
 
 /* Create a new index reader for decimal records. */
-IndexReader *NewDecimalReader(const IndexSpec *sp, InvertedIndex *idx, double value);
+IndexReader *NewDecimalReader(const IndexSpec *sp, InvertedIndex *idx, decNumber value);
 
 /* Get the appropriate encoder for an inverted index given its flags. Returns NULL on invalid flags
  */

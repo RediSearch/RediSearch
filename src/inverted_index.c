@@ -364,70 +364,8 @@ ENCODER(encodeNumeric) {
 
 // 9. Special encoder for decimal values
 ENCODER(encodeDecimal) {
-  const double absVal = fabs(res->num.value);
-  const double realVal = res->num.value;
-  const float f32Num = absVal;
-  uint64_t u64Num = (uint64_t)absVal;
-  const uint8_t tinyNum = ((uint8_t)absVal) & NUM_TINYENC_MASK;
-
-  EncodingHeader header = {.storage = 0};
-
-  size_t pos = BufferWriter_Offset(bw);
-  size_t sz = Buffer_Write(bw, "\0", 1);
-
-  // Write the delta
-  size_t numDeltaBytes = 0;
-  do {
-    sz += Buffer_Write(bw, &delta, 1);
-    numDeltaBytes++;
-    delta >>= 8;
-  } while (delta);
-  header.encCommon.deltaEncoding = numDeltaBytes - 1;
-
-  if ((double)tinyNum == realVal) {
-    // Number is small enough to fit?
-    header.encTiny.tinyValue = tinyNum;
-    header.encTiny.isTiny = 1;
-
-  } else if ((double)(uint64_t)absVal == absVal) {
-    // Is a whole number
-    uint64_t wholeNum = absVal;
-    NumEncodingInt *encInt = &header.encInt;
-
-    if (realVal < 0) {
-      encInt->sign = 1;
-    }
-
-    size_t numValueBytes = 0;
-    do {
-      sz += Buffer_Write(bw, &u64Num, 1);
-      numValueBytes++;
-      u64Num >>= 8;
-    } while (u64Num);
-    encInt->valueByteCount = numValueBytes - 1;
-
-  } else if (!isfinite(realVal)) {
-    header.encCommon.isFloat = 1;
-    header.encFloat.isInf = 1;
-    if (realVal == -INFINITY) {
-      header.encFloat.sign = 1;
-    }
-
-  } else {
-    // Floating point
-    NumEncodingFloat *encFloat = &header.encFloat;
-    sz += Buffer_Write(bw, (void *)&absVal, 8);
-    encFloat->isFloat = 1;
-    if (realVal < 0) {
-      encFloat->sign = 1;
-    }
-  }
-
-  *BufferWriter_PtrAt(bw, pos) = header.storage;
-  // printf("== Encoded ==\n");
-  // dumpEncoding(header, stdout);
-
-  return sz;
+  // identical to `encodeDocIdsOnly`
+  return WriteVarint(delta, bw);
 }
 
 /* Get the appropriate encoder based on index flags */
@@ -557,7 +495,7 @@ size_t InvertedIndex_WriteNumericEntry(InvertedIndex *idx, t_docId docId, double
 }
 
 /* Write a decimal entry to the index */
-size_t InvertedIndex_WriteDecimalEntry(InvertedIndex *idx, t_docId docId, double value) {
+size_t InvertedIndex_WriteDecimalEntry(InvertedIndex *idx, t_docId docId, decNumber value) {
 
   RSIndexResult rec = (RSIndexResult){
       .docId = docId,
@@ -740,49 +678,10 @@ DECODER(readNumeric) {
 }
 
 // special decoder for decoding decimal results
-DECODER(readDecimal) { // TODO:decimal
-  EncodingHeader header;
-  Buffer_Read(br, &header, 1);
-
-  res->docId = 0;
-  Buffer_Read(br, &res->docId, header.encCommon.deltaEncoding + 1);
-
-  if (header.encCommon.isFloat) {
-    if (header.encFloat.isInf) {
-      res->dec.value = INFINITY;
-    } else {
-      Buffer_Read(br, &res->dec.value, 8);
-    }
-    if (header.encFloat.sign) {
-      res->dec.value = -res->dec.value;
-    }
-  } else if (header.encTiny.isTiny) {
-    // Is embedded into the header
-    res->dec.value = header.encTiny.tinyValue;
-
-  } else {
-    // Is a whole number
-    uint64_t num = 0;
-    Buffer_Read(br, &num, header.encInt.valueByteCount + 1);
-    res->dec.value = num;
-    if (header.encInt.sign) {
-      res->dec.value = -res->dec.value;
-    }
-  }
-
-  // printf("res->dec.value: %lf\n", res->dec.value);
-
-  NumericFilter *f = ctx->ptr;
-  if (f) {
-    if (f->geoFilter == NULL) {
-      int rv = NumericFilter_Match(f, res->dec.value);
-      // printf("Checking against filter: %d\n", rv);
-      return rv;
-    } else {
-      return isWithinRadius(f->geoFilter, res->dec.value, NULL);
-    }
-  }
-  // printf("Field matches.. hurray!\n");
+DECODER(readDecimal) {
+  // indetical to readDocIdsOnly
+  res->docId = ReadVarint(br);
+  res->freq = 1;
   return 1;
 }
 
@@ -915,7 +814,7 @@ IndexReader *NewNumericReader(const IndexSpec *sp, InvertedIndex *idx, const Num
   return NewIndexReaderGeneric(sp, idx, procs, ctx, res, 1);
 }
 
-IndexReader *NewDecimalReader(const IndexSpec *sp, InvertedIndex *idx, double value) {
+IndexReader *NewDecimalReader(const IndexSpec *sp, InvertedIndex *idx, decNumber value) {
   RSIndexResult *res = NewDecimalResult();
   res->freq = 1;
   res->fieldMask = RS_FIELDMASK_ALL;

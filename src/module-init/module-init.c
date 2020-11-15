@@ -156,6 +156,8 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   // Register aggregation functions
   RegisterAllFunctions();
 
+  initDecCtx();
+
   DO_LOG("notice", "Initialized thread pool!");
 
   /* Load extensions if needed */

@@ -22,6 +22,7 @@ typedef struct {
   int len;
   int pos;
   double numval;
+  decNumber decval;
 } RSExprToken;
 
 #endif

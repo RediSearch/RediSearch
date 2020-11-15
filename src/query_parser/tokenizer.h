@@ -3,7 +3,7 @@
 
 #include <stdlib.h>
 #include "../tokenize.h"
-#include "dep/decNumber/decNumber.h"
+#include "dep/decNumber/rs_dec.h"
 
 /* A query-specific tokenizer, that reads symbols like quots, pipes, etc */
 typedef struct {

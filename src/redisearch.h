@@ -6,6 +6,7 @@
 #include <limits.h>
 #include "util/dllist.h"
 #include "stemmer.h"
+#include "dep/decNumber/rs_dec.h"
 
 typedef uint64_t t_docId;
 typedef uint64_t t_offset;
@@ -225,7 +226,7 @@ typedef struct {
 } RSNumericRecord;
 
 typedef struct { // TODO:decimal
-  double value;
+  decNumber value;
 } RSDecimalRecord;
 
 typedef enum {

@@ -4,7 +4,7 @@
 #include "search_ctx.h"
 #include "rmutil/args.h"
 #include "query_error.h"
-#include "dep/decNumber/decNumber.h"
+#include "dep/decNumber/rs_dec.h"
 
 #ifdef __cplusplus
 extern "C" {

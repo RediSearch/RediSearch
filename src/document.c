@@ -467,14 +467,17 @@ FIELD_BULK_INDEXER(numericIndexer) {
 }
 
 FIELD_PREPROCESSOR(decimalPreprocessor) {
-  if (RedisModule_StringToDouble(field->text, &fdata->decimal) == REDISMODULE_ERR) {
+  const char *decStr = RedisModule_StringPtrLen(field->text, NULL);
+  decNumberFromString(&fdata->decimal, decStr, &decCtx_g);
+
+  if (decContextGetStatus(&decCtx_g) != 0) { // DECEXTFLAG errors
     QueryError_SetCode(status, QUERY_ENOTDECIMAL);
     return -1;
   }
 
   // If this is a sortable decimal value - copy the value to the sorting vector
   if (FieldSpec_IsSortable(fs)) {
-    RSSortingVector_Put(aCtx->sv, fs->sortIdx, &fdata->decimal, RS_SORTABLE_DEC);
+    //RSSortingVector_Put(aCtx->sv, fs->sortIdx, &fdata->decimal, RS_SORTABLE_DEC);
   }
   return 0;
 }
@@ -490,8 +493,8 @@ FIELD_BULK_INDEXER(decimalIndexer) {
       return -1;
     }
   }
-  NRN_AddRv rv = DecimalSkiplist_Add(ds, aCtx->doc.docId, fdata->decimal); // TODO:decimal
-  ctx->spec->stats.invertedSize += rv.sz;  // TODO: exact amount
+  NRN_AddRv rv = DecimalSkiplist_Add(ds, aCtx->doc.docId, fdata->decimal);
+  ctx->spec->stats.invertedSize += rv.sz;
   ctx->spec->stats.numRecords += rv.numRecords;
   return 0;
 }

@@ -63,7 +63,7 @@ void QueryNode_Free(QueryNode *n) {
       NumericFilter_Free((void *)n->nn.nf);
 
       break;  //
-    case QN_DECIMAL: // TODO:decimal required w/o numeric range?
+    case QN_DECIMAL:
       NumericFilter_Free((void *)n->nn.nf);
       break;
     case QN_PREFX:

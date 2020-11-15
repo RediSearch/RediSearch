@@ -73,7 +73,7 @@ RSIndexResult *NewDecimalResult() {
                          .freq = 1,
                          .weight = 1,
 
-                         .dec = (RSDecimalRecord){.value = 0}};
+                         .dec = (RSDecimalRecord){.value = decZero_g}};
   return res;
 }
 
@@ -143,7 +143,10 @@ void IndexResult_Print(RSIndexResult *r, int depth) {
     return;
   }
   if (r->type == RSResultType_Decimal) { // TODO:decimal
-    printf("Decimal{%llu:%f},\n", (unsigned long long)r->docId, r->dec.value);
+    // string must be at least dn->digits+14 characters long
+    char decStr[r->dec.value.digits + 14]; 
+    decNumberToString(&r->dec.value, decStr);
+    printf("Decimal{%llu:%s},\n", (unsigned long long)r->docId, decStr);
     return;
   }
   printf("%s => %llu{ \n", r->type == RSResultType_Intersection ? "Inter" : "Union",
