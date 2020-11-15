@@ -2360,9 +2360,9 @@ def testCriteriaTesterDeactivated():
     env.cmd('ft.add', 'idx', 'doc1', 1, 'fields', 't1', 'hello1 hey hello2')
     env.cmd('ft.add', 'idx', 'doc2', 1, 'fields', 't1', 'hello2 hey')
     env.cmd('ft.add', 'idx', 'doc3', 1, 'fields', 't1', 'hey')
-    expected_res = [2L, 'doc1', ['t1', 'hello1 hey hello2'], 'doc2', ['t1', 'hello2 hey']]
-    actual_res = env.cmd('ft.search', 'idx', '(hey hello1)|(hello2 hey)')
-    env.assertEqual(sorted(expected_res), sorted(actual_res))
+    res = env.execute_command('ft.search', 'idx', '(hey hello1)|(hello2 hey)')
+    expected = [2L, 'doc1', ['t1', 'hello1 hey hello2'], 'doc2', ['t1', 'hello2 hey']]
+    env.assertEqual(toSortedFlatList(res), toSortedFlatList(expected))
 
 def testIssue828(env):
     env.cmd('ft.create', 'beers', 'ON', 'HASH', 'SCHEMA',
