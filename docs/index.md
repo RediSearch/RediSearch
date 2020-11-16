@@ -68,7 +68,7 @@ RediSearch has a distributed cluster version that can scale to billions of docum
 
 
 ### Course
-* [RU201: RediSearch](https://university.redislabs.com/courses/ru201/) - An online RediSearch course from [Redis University](https://university.redislabs.com/).
+* [RU203: Querying, Indexing, and Full-Text Search](https://university.redislabs.com/courses/ru203/) - An online RediSearch course from [Redis University](https://university.redislabs.com/).
 
 ### Blog posts
 1. [Mastering RediSearch / Part I](https://redislabs.com/blog/mastering-redisearch-part/)
