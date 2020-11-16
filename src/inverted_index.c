@@ -341,7 +341,8 @@ ENCODER(encodeNumeric) {
   } else {
     // Floating point
     NumEncodingFloat *encFloat = &header.encFloat;
-    if (absVal == f32Num || RSGlobalConfig.numericCompress == true) {
+    if (absVal == f32Num || (RSGlobalConfig.numericCompress == true &&
+                             fabs(absVal - f32Num) < 0.01)) {
       sz += Buffer_Write(bw, (void *)&f32Num, 4);
       encFloat->isDouble = 0;
     } else {
@@ -620,7 +621,6 @@ DECODER(readNumeric) {
     } else if (header.encFloat.isDouble) {
       Buffer_Read(br, &res->num.value, 8);
     } else {
-      // remove from encoder but remians in reader for backward compatibility
       float f;
       Buffer_Read(br, &f, 4);
       res->num.value = f;
