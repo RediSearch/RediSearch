@@ -13,7 +13,6 @@
 #define NR_MAXRANGE_CARD 2500
 #define NR_MAXRANGE_SIZE 10000
 #define NR_MAX_DEPTH_BALANCE 2
-#define NR_MAX_DEPTH_RANGE 0
 
 typedef struct {
   IndexIterator *it;
@@ -134,16 +133,21 @@ NumericRangeNode *NewLeafNode(size_t cap, double min, double max, size_t splitCa
 }
 
 static void removeRange(NumericRangeNode *n, NRN_AddRv *rv) {
-  rv->sz -= n->range->invertedIndexSize;
-  rv->numRecords -= n->range->entries->numDocs;
-  InvertedIndex_Free(n->range->entries);
-  array_free(n->range->values);
-  rm_free(n->range);
+  // first change pointer to null
+  NumericRange *temp = n->range;
   n->range = NULL;
+  // free resources
+  rv->sz -= temp->invertedIndexSize;
+  rv->numRecords -= temp->entries->numDocs;
+  InvertedIndex_Free(temp->entries);
+  array_free(temp->values);
+  rm_free(temp);
+
+  rv->numRanges--;
 }
 
 NRN_AddRv NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value) {
-  NRN_AddRv rv = {.sz = 0, .changed = 0, .numRecords = 0};
+  NRN_AddRv rv = {.sz = 0, .changed = 0, .numRecords = 0, .numRanges = 0};
   if (!NumericRangeNode_IsLeaf(n)) {
     // if this node has already split but retains a range, just add to the range without checking
     // anything
@@ -166,7 +170,7 @@ NRN_AddRv NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value)
       // if there was a split it means our max depth has increased.
       // we are too deep - we don't retain this node's range anymore.
       // this keeps memory footprint in check
-      if (++n->maxDepth > NR_MAX_DEPTH_RANGE && n->range) {
+      if (++n->maxDepth > RSGlobalConfig.numericTreeMaxDepthRange && n->range) {
         removeRange(n, &rv);
       }
 
@@ -203,8 +207,10 @@ NRN_AddRv NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value)
 
     // split this node but don't delete its range
     double split = NumericRange_Split(n->range, &n->left, &n->right, &rv);
+    rv.numRanges += 2;
     // in concurrent mode we don't trim range right away 
-    if (NR_MAX_DEPTH_RANGE == 0 && RSGlobalConfig.concurrentMode == 0) {
+    if (RSGlobalConfig.numericTreeMaxDepthRange == 0 && 
+        RSGlobalConfig.concurrentMode == 0) {
       removeRange(n, &rv);
     }
     n->value = split;
@@ -307,8 +313,8 @@ NRN_AddRv NumericRangeTree_Add(NumericRangeTree *t, t_docId docId, double value)
   // will abort the next time they get execution context
   if (rv.changed) {
     t->revisionId++;
-    t->numRanges++;
   }
+  t->numRanges += rv.numRanges;
   t->numEntries++;
 
   return rv;

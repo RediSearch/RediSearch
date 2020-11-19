@@ -55,7 +55,8 @@ typedef struct rtNode {
 typedef struct {
   int sz;
   int numRecords;
-  uint32_t changed;
+  int changed;
+  int numRanges;
 } NRN_AddRv;
 
 typedef struct {

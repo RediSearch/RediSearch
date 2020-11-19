@@ -91,6 +91,8 @@ typedef struct {
 
   // compress double to float
   int numericCompress;
+  // keep numeric ranges in parents of leafs
+  size_t numericTreeMaxDepthRange;
 } RSConfig;
 
 typedef enum {
@@ -172,7 +174,7 @@ sds RSConfig_GetInfoString(const RSConfig *config);
     .forkGcSleepBeforeExit = 0, .maxResultsToUnsortedMode = DEFAULT_MAX_RESULTS_TO_UNSORTED_MODE, \
     .forkGcRetryInterval = 5, .forkGcCleanThreshold = 100, .noMemPool = 0, .filterCommands = 0,   \
     .maxSearchResults = SEARCH_REQUEST_RESULTS_MAX, .minUnionIterHeap = 20,                       \
-    .numericCompress = false,                                                                     \
+    .numericCompress = false, .numericTreeMaxDepthRange = 0,                                       \
   }
 
 #endif

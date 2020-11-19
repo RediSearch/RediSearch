@@ -319,6 +319,16 @@ CONFIG_GETTER(getMinPhoneticTermLen) {
 CONFIG_BOOLEAN_SETTER(setNumericCompress, numericCompress)
 CONFIG_BOOLEAN_GETTER(getNumericCompress, numericCompress, 0)
 
+CONFIG_SETTER(setNumericTreeMaxDepthRange) {
+  int acrc = AC_GetSize(ac, &config->numericTreeMaxDepthRange, AC_F_GE0);
+  RETURN_STATUS(acrc);
+}
+
+CONFIG_GETTER(getNumericTreeMaxDepthRange) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%ld", config->numericTreeMaxDepthRange);
+}
+
 CONFIG_SETTER(setGcPolicy) {
   const char *policy;
   int acrc = AC_GetString(ac, &policy, NULL, 0);
@@ -603,6 +613,11 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "Enable legacy compression of double to float.",
          .setValue = setNumericCompress,
          .getValue = getNumericCompress},
+        {.name = "_NUMERIC_RANGES_PARENTS",
+         .helpText = "Keep numeric ranges in numeric tree parent nodes of leafs " 
+                     "for `x` generations.",
+         .setValue = setNumericTreeMaxDepthRange,
+         .getValue = getNumericTreeMaxDepthRange},
         {.name = NULL}}};
 
 void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst) {
