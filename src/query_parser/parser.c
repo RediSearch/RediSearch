@@ -23,6 +23,7 @@
 ** input grammar file:
 */
 #include <stdio.h>
+#include <assert.h>
 /************ Begin %include sections from the grammar ************************/
    
 
@@ -187,17 +188,19 @@ typedef union {
 #define RSQueryParser_CTX_FETCH
 #define RSQueryParser_CTX_STORE
 #define YYNSTATE             62
-#define YYNRULE              54
+#define YYNRULE              56
+#define YYNRULE_WITH_ACTION  56
 #define YYNTOKEN             27
 #define YY_MAX_SHIFT         61
-#define YY_MIN_SHIFTREDUCE   97
-#define YY_MAX_SHIFTREDUCE   150
-#define YY_ERROR_ACTION      151
-#define YY_ACCEPT_ACTION     152
-#define YY_NO_ACTION         153
-#define YY_MIN_REDUCE        154
-#define YY_MAX_REDUCE        207
+#define YY_MIN_SHIFTREDUCE   99
+#define YY_MAX_SHIFTREDUCE   154
+#define YY_ERROR_ACTION      155
+#define YY_ACCEPT_ACTION     156
+#define YY_NO_ACTION         157
+#define YY_MIN_REDUCE        158
+#define YY_MAX_REDUCE        213
 /************* End control #defines *******************************************/
+#define YY_NLOOKAHEAD ((int)(sizeof(yy_lookahead)/sizeof(yy_lookahead[0])))
 
 /* Define the yytestcase() macro to be a no-op if is not already defined
 ** otherwise.
@@ -262,34 +265,35 @@ typedef union {
 **  yy_default[]       Default action for each state.
 **
 *********** Begin parsing tables **********************************************/
-#define YY_ACTTAB_COUNT (258)
+#define YY_ACTTAB_COUNT (269)
 static const YYACTIONTYPE yy_action[] = {
- /*     0 */    47,   58,    5,   24,   19,   59,    6,  150,  118,    8,
- /*    10 */   149,  124,   23,   32,    7,  106,  131,  154,    9,    5,
- /*    20 */    61,   19,   36,    6,  150,  118,   60,  149,  124,   23,
- /*    30 */    61,    7,  155,  131,    5,    9,   19,   61,    6,  150,
- /*    40 */   118,  149,  149,  124,   23,  205,    7,  177,  131,   25,
- /*    50 */   146,  150,  204,   45,  149,  124,    5,   26,   19,   21,
- /*    60 */     6,  150,  118,   27,  149,  124,   23,  166,    7,  143,
- /*    70 */   131,   56,  150,  150,   50,  149,  149,   17,   31,   28,
- /*    80 */   193,   29,   19,  156,    6,  150,  118,  176,  149,  124,
- /*    90 */    23,   34,    7,    9,  131,   61,    9,  189,   61,  190,
- /*   100 */   150,   48,  164,  149,   40,   22,  112,   13,   46,    1,
- /*   110 */   173,   39,  158,   18,   41,  201,   43,  145,  199,  141,
- /*   120 */    44,   37,   33,    5,  128,   19,  129,    6,  150,  118,
- /*   130 */    49,  149,  124,   23,  130,    7,   38,  131,   51,  150,
- /*   140 */   118,   52,  149,  124,   23,  153,    7,  127,  131,  153,
- /*   150 */     9,    3,   61,   54,  173,   39,  158,   55,  196,   30,
- /*   160 */    43,  165,   42,  152,   44,   37,  126,   14,   57,   35,
- /*   170 */   173,   39,  158,  125,    4,   20,   43,  173,   39,  158,
- /*   180 */    44,   37,  153,   43,  153,  153,  113,   44,   37,  150,
- /*   190 */   121,   11,  149,  153,  173,   39,  158,  153,    2,  153,
- /*   200 */    43,  173,   39,  158,   44,   37,  153,   43,   25,  146,
- /*   210 */   153,   44,   37,  153,  153,   12,   26,  153,  173,   39,
- /*   220 */   158,  153,   15,  153,   43,  173,   39,  158,   44,   37,
- /*   230 */   153,   43,  153,  153,  153,   44,   37,  150,  121,   16,
- /*   240 */   149,  153,  173,   39,  158,  153,  150,   53,   43,  149,
- /*   250 */   153,  114,   44,   37,  150,  153,  153,  149,
+ /*     0 */    47,   58,    5,   24,   19,   59,    6,  154,  120,    8,
+ /*    10 */   153,  126,   23,   32,    7,  108,  133,  158,    9,    5,
+ /*    20 */    61,   19,   36,    6,  154,  120,   60,  153,  126,   23,
+ /*    30 */    61,    7,  159,  133,    5,    9,   19,   61,    6,  154,
+ /*    40 */   120,  153,  153,  126,   23,  211,    7,  181,  133,   25,
+ /*    50 */   150,  154,  138,   45,  153,  126,    5,   26,   19,  210,
+ /*    60 */     6,  154,  120,   21,  153,  126,   23,   27,    7,  147,
+ /*    70 */   133,  160,  154,  142,   56,  153,  126,   17,  180,   28,
+ /*    80 */   198,   29,   19,  170,    6,  154,  120,   18,  153,  126,
+ /*    90 */    23,   34,    7,  145,  133,    9,    9,   61,   61,  154,
+ /*   100 */   154,   50,  153,  153,   40,   31,  114,   13,  193,    1,
+ /*   110 */   177,   39,  162,  149,   41,  207,   43,  194,  205,   46,
+ /*   120 */    44,   37,   33,    5,  168,   19,  130,    6,  154,  120,
+ /*   130 */   131,  153,  126,   23,   49,    7,   38,  133,  132,  154,
+ /*   140 */   120,   51,  153,  126,   23,  157,    7,   52,  133,  157,
+ /*   150 */     9,    3,   61,  129,  177,   39,  162,   54,  202,   30,
+ /*   160 */    43,  169,   42,  156,   44,   37,   55,   14,  128,   35,
+ /*   170 */   177,   39,  162,   57,    4,  127,   43,  177,   39,  162,
+ /*   180 */    44,   37,   20,   43,  157,  157,  115,   44,   37,  154,
+ /*   190 */   123,   11,  153,  157,  177,   39,  162,  157,    2,  157,
+ /*   200 */    43,  177,   39,  162,   44,   37,  157,   43,   25,  150,
+ /*   210 */   157,   44,   37,  157,  157,   12,   26,  157,  177,   39,
+ /*   220 */   162,  157,   15,  157,   43,  177,   39,  162,   44,   37,
+ /*   230 */   157,   43,  157,  157,  157,   44,   37,  154,  123,   16,
+ /*   240 */   153,  157,  177,   39,  162,  157,  154,   53,   43,  153,
+ /*   250 */   157,  157,   44,   37,  157,  157,  154,   48,  157,  153,
+ /*   260 */   157,   22,  116,  157,  157,  154,  157,  157,  153,
 };
 static const YYCODETYPE yy_lookahead[] = {
  /*     0 */    37,   41,    2,   31,    4,   41,    6,    7,    8,    5,
@@ -297,41 +301,43 @@ static const YYCODETYPE yy_lookahead[] = {
  /*    20 */    20,    4,   18,    6,    7,    8,   13,   10,   11,   12,
  /*    30 */    20,   14,    0,   16,    2,   18,    4,   20,    6,    7,
  /*    40 */     8,   10,   10,   11,   12,   37,   14,   41,   16,    6,
- /*    50 */     7,    7,   37,   21,   10,   11,    2,   14,    4,   37,
- /*    60 */     6,    7,    8,   37,   10,   11,   12,   28,   14,   26,
- /*    70 */    16,   41,    7,    7,    8,   10,   10,   23,   12,   25,
- /*    80 */    30,   31,    4,    0,    6,    7,    8,   41,   10,   11,
- /*    90 */    12,   41,   14,   18,   16,   20,   18,   41,   20,   41,
- /*   100 */     7,    8,   41,   10,   22,   12,   24,   27,   10,    5,
- /*   110 */    30,   31,   32,   18,   34,   35,   36,   26,   38,   24,
- /*   120 */    40,   41,   18,    2,   12,    4,   12,    6,    7,    8,
+ /*    50 */     7,    7,    8,   21,   10,   11,    2,   14,    4,   37,
+ /*    60 */     6,    7,    8,   37,   10,   11,   12,   37,   14,   26,
+ /*    70 */    16,    0,    7,    8,   41,   10,   11,   23,   41,   25,
+ /*    80 */    30,   31,    4,   28,    6,    7,    8,   18,   10,   11,
+ /*    90 */    12,   41,   14,   24,   16,   18,   18,   20,   20,    7,
+ /*   100 */     7,    8,   10,   10,   22,   12,   24,   27,   41,    5,
+ /*   110 */    30,   31,   32,   26,   34,   35,   36,   41,   38,   10,
+ /*   120 */    40,   41,   18,    2,   41,    4,   12,    6,    7,    8,
  /*   130 */    12,   10,   11,   12,   12,   14,    5,   16,   12,    7,
  /*   140 */     8,   12,   10,   11,   12,   42,   14,   12,   16,   42,
  /*   150 */    18,   27,   20,   12,   30,   31,   32,   12,   30,   31,
  /*   160 */    36,   28,   29,   39,   40,   41,   12,   27,   12,   41,
- /*   170 */    30,   31,   32,   12,   27,   23,   36,   30,   31,   32,
- /*   180 */    40,   41,   42,   36,   42,   42,    4,   40,   41,    7,
+ /*   170 */    30,   31,   32,   12,   27,   12,   36,   30,   31,   32,
+ /*   180 */    40,   41,   23,   36,   42,   42,    4,   40,   41,    7,
  /*   190 */     8,   27,   10,   42,   30,   31,   32,   42,   27,   42,
  /*   200 */    36,   30,   31,   32,   40,   41,   42,   36,    6,    7,
  /*   210 */    42,   40,   41,   42,   42,   27,   14,   42,   30,   31,
  /*   220 */    32,   42,   27,   42,   36,   30,   31,   32,   40,   41,
  /*   230 */    42,   36,   42,   42,   42,   40,   41,    7,    8,   27,
  /*   240 */    10,   42,   30,   31,   32,   42,    7,    8,   36,   10,
- /*   250 */    42,    4,   40,   41,    7,   42,   42,   10,   42,   42,
- /*   260 */    42,   42,   42,   42,   42,   42,   42,   42,   42,   42,
- /*   270 */    42,   42,   42,   42,   42,   42,   42,   42,   42,
+ /*   250 */    42,   42,   40,   41,   42,   42,    7,    8,   42,   10,
+ /*   260 */    42,   12,    4,   42,   42,    7,   42,   42,   10,   42,
+ /*   270 */    42,   42,   42,   42,   42,   42,   42,   42,   42,   42,
+ /*   280 */    42,   42,   42,   42,   42,   42,   42,   42,   42,   42,
+ /*   290 */    27,   27,   27,   27,   27,   27,
 };
 #define YY_SHIFT_COUNT    (61)
 #define YY_SHIFT_MIN      (0)
-#define YY_SHIFT_MAX      (247)
+#define YY_SHIFT_MAX      (258)
 static const unsigned short int yy_shift_ofst[] = {
  /*     0 */    32,   54,    0,   17,   78,  121,  121,  121,  121,  121,
- /*    10 */   121,  132,   75,   75,   75,   10,   10,   44,   44,   65,
- /*    20 */    13,   43,   66,   93,  182,  202,  202,  202,  202,  230,
- /*    30 */   230,  239,  247,   65,   65,   65,   65,   65,   65,   31,
- /*    40 */    13,   95,   82,    4,  104,   83,   91,   98,  112,  114,
- /*    50 */   118,  122,  126,  129,  135,  141,  145,  154,  156,  161,
- /*    60 */   131,  152,
+ /*    10 */   121,  132,   77,   77,   77,   10,   10,   44,   65,   92,
+ /*    20 */    13,   43,   93,  249,  182,  202,  202,  202,  202,  230,
+ /*    30 */   230,  239,  258,   92,   92,   92,   92,   92,   92,   31,
+ /*    40 */    13,   69,   82,    4,  104,   71,   87,  109,  114,  118,
+ /*    50 */   122,  126,  129,  135,  141,  145,  154,  156,  161,  163,
+ /*    60 */   131,  159,
 };
 #define YY_REDUCE_COUNT (40)
 #define YY_REDUCE_MIN   (-40)
@@ -339,18 +345,18 @@ static const unsigned short int yy_shift_ofst[] = {
 static const short yy_reduce_ofst[] = {
  /*     0 */   124,   80,  140,  140,  140,  147,  164,  171,  188,  195,
  /*    10 */   212,  140,  140,  140,  140,  140,  140,   50,  128,  -28,
- /*    20 */   133,  -37,  -40,  -36,    6,    8,   15,   22,   26,    6,
- /*    30 */     6,   30,   46,   56,   46,   46,   58,   46,   61,    6,
- /*    40 */    39,
+ /*    20 */   133,  -37,  -40,  -36,    6,    8,   22,   26,   30,    6,
+ /*    30 */     6,   33,   37,   67,   37,   37,   76,   37,   83,    6,
+ /*    40 */    55,
 };
 static const YYACTIONTYPE yy_default[] = {
- /*     0 */   151,  151,  151,  151,  180,  151,  151,  151,  151,  151,
- /*    10 */   151,  179,  162,  161,  157,  159,  160,  151,  151,  151,
- /*    20 */   168,  151,  151,  151,  151,  151,  151,  151,  151,  194,
- /*    30 */   197,  151,  151,  151,  192,  195,  151,  172,  151,  174,
- /*    40 */   167,  191,  151,  151,  151,  151,  151,  151,  151,  151,
- /*    50 */   151,  151,  151,  151,  151,  151,  151,  151,  151,  151,
- /*    60 */   151,  151,
+ /*     0 */   155,  155,  155,  155,  184,  155,  155,  155,  155,  155,
+ /*    10 */   155,  183,  166,  165,  161,  163,  164,  155,  155,  155,
+ /*    20 */   172,  155,  155,  155,  155,  155,  155,  155,  155,  199,
+ /*    30 */   203,  155,  155,  155,  196,  200,  155,  176,  155,  178,
+ /*    40 */   171,  195,  155,  155,  155,  155,  155,  155,  155,  155,
+ /*    50 */   155,  155,  155,  155,  155,  155,  155,  155,  155,  155,
+ /*    60 */   155,  155,
 };
 /********** End of lemon-generated parsing tables *****************************/
 
@@ -545,21 +551,23 @@ static const char *const yyRuleName[] = {
  /*  36 */ "modifierlist ::= modifierlist OR term",
  /*  37 */ "expr ::= modifier COLON tag_list",
  /*  38 */ "tag_list ::= LB term",
- /*  39 */ "tag_list ::= LB prefix",
- /*  40 */ "tag_list ::= LB termlist",
- /*  41 */ "tag_list ::= tag_list OR term",
- /*  42 */ "tag_list ::= tag_list OR prefix",
- /*  43 */ "tag_list ::= tag_list OR termlist",
- /*  44 */ "tag_list ::= tag_list RB",
- /*  45 */ "expr ::= modifier COLON numeric_range",
- /*  46 */ "numeric_range ::= LSQB num num RSQB",
- /*  47 */ "expr ::= modifier COLON geo_filter",
- /*  48 */ "geo_filter ::= LSQB num num num TERM RSQB",
- /*  49 */ "num ::= NUMBER",
- /*  50 */ "num ::= LP num",
- /*  51 */ "num ::= MINUS num",
- /*  52 */ "term ::= TERM",
- /*  53 */ "term ::= NUMBER",
+ /*  39 */ "tag_list ::= LB STOPWORD",
+ /*  40 */ "tag_list ::= LB prefix",
+ /*  41 */ "tag_list ::= LB termlist",
+ /*  42 */ "tag_list ::= tag_list OR term",
+ /*  43 */ "tag_list ::= tag_list OR STOPWORD",
+ /*  44 */ "tag_list ::= tag_list OR prefix",
+ /*  45 */ "tag_list ::= tag_list OR termlist",
+ /*  46 */ "tag_list ::= tag_list RB",
+ /*  47 */ "expr ::= modifier COLON numeric_range",
+ /*  48 */ "numeric_range ::= LSQB num num RSQB",
+ /*  49 */ "expr ::= modifier COLON geo_filter",
+ /*  50 */ "geo_filter ::= LSQB num num num TERM RSQB",
+ /*  51 */ "num ::= NUMBER",
+ /*  52 */ "num ::= LP num",
+ /*  53 */ "num ::= MINUS num",
+ /*  54 */ "term ::= TERM",
+ /*  55 */ "term ::= NUMBER",
 };
 #endif /* NDEBUG */
 
@@ -861,15 +869,18 @@ static YYACTIONTYPE yy_find_shift_action(
   do{
     i = yy_shift_ofst[stateno];
     assert( i>=0 );
-    assert( i+YYNTOKEN<=(int)sizeof(yy_lookahead)/sizeof(yy_lookahead[0]) );
+    assert( i<=YY_ACTTAB_COUNT );
+    assert( i+YYNTOKEN<=(int)YY_NLOOKAHEAD );
     assert( iLookAhead!=YYNOCODE );
     assert( iLookAhead < YYNTOKEN );
     i += iLookAhead;
+    assert( i<(int)YY_NLOOKAHEAD );
     if( yy_lookahead[i]!=iLookAhead ){
 #ifdef YYFALLBACK
       YYCODETYPE iFallback;            /* Fallback token */
-      if( iLookAhead<sizeof(yyFallback)/sizeof(yyFallback[0])
-             && (iFallback = yyFallback[iLookAhead])!=0 ){
+      assert( iLookAhead<sizeof(yyFallback)/sizeof(yyFallback[0]) );
+      iFallback = yyFallback[iLookAhead];
+      if( iFallback!=0 ){
 #ifndef NDEBUG
         if( yyTraceFILE ){
           fprintf(yyTraceFILE, "%sFALLBACK %s => %s\n",
@@ -884,15 +895,8 @@ static YYACTIONTYPE yy_find_shift_action(
 #ifdef YYWILDCARD
       {
         int j = i - iLookAhead + YYWILDCARD;
-        if( 
-#if YY_SHIFT_MIN+YYWILDCARD<0
-          j>=0 &&
-#endif
-#if YY_SHIFT_MAX+YYWILDCARD>=YY_ACTTAB_COUNT
-          j<YY_ACTTAB_COUNT &&
-#endif
-          yy_lookahead[j]==YYWILDCARD && iLookAhead>0
-        ){
+        assert( j<(int)(sizeof(yy_lookahead)/sizeof(yy_lookahead[0])) );
+        if( yy_lookahead[j]==YYWILDCARD && iLookAhead>0 ){
 #ifndef NDEBUG
           if( yyTraceFILE ){
             fprintf(yyTraceFILE, "%sWILDCARD %s => %s\n",
@@ -906,6 +910,7 @@ static YYACTIONTYPE yy_find_shift_action(
 #endif /* YYWILDCARD */
       return yy_default[stateno];
     }else{
+      assert( i>=0 && i<sizeof(yy_action)/sizeof(yy_action[0]) );
       return yy_action[i];
     }
   }while(1);
@@ -915,7 +920,7 @@ static YYACTIONTYPE yy_find_shift_action(
 ** Find the appropriate action for a parser given the non-terminal
 ** look-ahead token iLookAhead.
 */
-static int yy_find_reduce_action(
+static YYACTIONTYPE yy_find_reduce_action(
   YYACTIONTYPE stateno,     /* Current state number */
   YYCODETYPE iLookAhead     /* The look-ahead token */
 ){
@@ -1024,67 +1029,126 @@ static void yy_shift(
   yyTraceShift(yypParser, yyNewState, "Shift");
 }
 
-/* The following table contains information about every rule that
-** is used during the reduce.
-*/
-static const struct {
-  YYCODETYPE lhs;       /* Symbol on the left-hand side of the rule */
-  signed char nrhs;     /* Negative of the number of RHS symbols in the rule */
-} yyRuleInfo[] = {
-  {   39,   -1 }, /* (0) query ::= expr */
-  {   39,    0 }, /* (1) query ::= */
-  {   39,   -1 }, /* (2) query ::= STAR */
-  {   27,   -2 }, /* (3) expr ::= expr expr */
-  {   27,   -1 }, /* (4) expr ::= union */
-  {   32,   -3 }, /* (5) union ::= expr OR expr */
-  {   32,   -3 }, /* (6) union ::= union OR expr */
-  {   27,   -3 }, /* (7) expr ::= modifier COLON expr */
-  {   27,   -3 }, /* (8) expr ::= modifierlist COLON expr */
-  {   27,   -3 }, /* (9) expr ::= LP expr RP */
-  {   28,   -3 }, /* (10) attribute ::= ATTRIBUTE COLON term */
-  {   29,   -1 }, /* (11) attribute_list ::= attribute */
-  {   29,   -3 }, /* (12) attribute_list ::= attribute_list SEMICOLON attribute */
-  {   29,   -2 }, /* (13) attribute_list ::= attribute_list SEMICOLON */
-  {   29,    0 }, /* (14) attribute_list ::= */
-  {   27,   -5 }, /* (15) expr ::= expr ARROW LB attribute_list RB */
-  {   27,   -3 }, /* (16) expr ::= QUOTE termlist QUOTE */
-  {   27,   -3 }, /* (17) expr ::= QUOTE term QUOTE */
-  {   27,   -1 }, /* (18) expr ::= term */
-  {   27,   -1 }, /* (19) expr ::= prefix */
-  {   27,   -1 }, /* (20) expr ::= termlist */
-  {   27,   -1 }, /* (21) expr ::= STOPWORD */
-  {   31,   -2 }, /* (22) termlist ::= term term */
-  {   31,   -2 }, /* (23) termlist ::= termlist term */
-  {   31,   -2 }, /* (24) termlist ::= termlist STOPWORD */
-  {   27,   -2 }, /* (25) expr ::= MINUS expr */
-  {   27,   -2 }, /* (26) expr ::= TILDE expr */
-  {   30,   -1 }, /* (27) prefix ::= PREFIX */
-  {   27,   -3 }, /* (28) expr ::= PERCENT term PERCENT */
-  {   27,   -5 }, /* (29) expr ::= PERCENT PERCENT term PERCENT PERCENT */
-  {   27,   -7 }, /* (30) expr ::= PERCENT PERCENT PERCENT term PERCENT PERCENT PERCENT */
-  {   27,   -3 }, /* (31) expr ::= PERCENT STOPWORD PERCENT */
-  {   27,   -5 }, /* (32) expr ::= PERCENT PERCENT STOPWORD PERCENT PERCENT */
-  {   27,   -7 }, /* (33) expr ::= PERCENT PERCENT PERCENT STOPWORD PERCENT PERCENT PERCENT */
-  {   40,   -1 }, /* (34) modifier ::= MODIFIER */
-  {   36,   -3 }, /* (35) modifierlist ::= modifier OR term */
-  {   36,   -3 }, /* (36) modifierlist ::= modifierlist OR term */
-  {   27,   -3 }, /* (37) expr ::= modifier COLON tag_list */
-  {   34,   -2 }, /* (38) tag_list ::= LB term */
-  {   34,   -2 }, /* (39) tag_list ::= LB prefix */
-  {   34,   -2 }, /* (40) tag_list ::= LB termlist */
-  {   34,   -3 }, /* (41) tag_list ::= tag_list OR term */
-  {   34,   -3 }, /* (42) tag_list ::= tag_list OR prefix */
-  {   34,   -3 }, /* (43) tag_list ::= tag_list OR termlist */
-  {   34,   -2 }, /* (44) tag_list ::= tag_list RB */
-  {   27,   -3 }, /* (45) expr ::= modifier COLON numeric_range */
-  {   38,   -4 }, /* (46) numeric_range ::= LSQB num num RSQB */
-  {   27,   -3 }, /* (47) expr ::= modifier COLON geo_filter */
-  {   35,   -6 }, /* (48) geo_filter ::= LSQB num num num TERM RSQB */
-  {   37,   -1 }, /* (49) num ::= NUMBER */
-  {   37,   -2 }, /* (50) num ::= LP num */
-  {   37,   -2 }, /* (51) num ::= MINUS num */
-  {   41,   -1 }, /* (52) term ::= TERM */
-  {   41,   -1 }, /* (53) term ::= NUMBER */
+/* For rule J, yyRuleInfoLhs[J] contains the symbol on the left-hand side
+** of that rule */
+static const YYCODETYPE yyRuleInfoLhs[] = {
+    39,  /* (0) query ::= expr */
+    39,  /* (1) query ::= */
+    39,  /* (2) query ::= STAR */
+    27,  /* (3) expr ::= expr expr */
+    27,  /* (4) expr ::= union */
+    32,  /* (5) union ::= expr OR expr */
+    32,  /* (6) union ::= union OR expr */
+    27,  /* (7) expr ::= modifier COLON expr */
+    27,  /* (8) expr ::= modifierlist COLON expr */
+    27,  /* (9) expr ::= LP expr RP */
+    28,  /* (10) attribute ::= ATTRIBUTE COLON term */
+    29,  /* (11) attribute_list ::= attribute */
+    29,  /* (12) attribute_list ::= attribute_list SEMICOLON attribute */
+    29,  /* (13) attribute_list ::= attribute_list SEMICOLON */
+    29,  /* (14) attribute_list ::= */
+    27,  /* (15) expr ::= expr ARROW LB attribute_list RB */
+    27,  /* (16) expr ::= QUOTE termlist QUOTE */
+    27,  /* (17) expr ::= QUOTE term QUOTE */
+    27,  /* (18) expr ::= term */
+    27,  /* (19) expr ::= prefix */
+    27,  /* (20) expr ::= termlist */
+    27,  /* (21) expr ::= STOPWORD */
+    31,  /* (22) termlist ::= term term */
+    31,  /* (23) termlist ::= termlist term */
+    31,  /* (24) termlist ::= termlist STOPWORD */
+    27,  /* (25) expr ::= MINUS expr */
+    27,  /* (26) expr ::= TILDE expr */
+    30,  /* (27) prefix ::= PREFIX */
+    27,  /* (28) expr ::= PERCENT term PERCENT */
+    27,  /* (29) expr ::= PERCENT PERCENT term PERCENT PERCENT */
+    27,  /* (30) expr ::= PERCENT PERCENT PERCENT term PERCENT PERCENT PERCENT */
+    27,  /* (31) expr ::= PERCENT STOPWORD PERCENT */
+    27,  /* (32) expr ::= PERCENT PERCENT STOPWORD PERCENT PERCENT */
+    27,  /* (33) expr ::= PERCENT PERCENT PERCENT STOPWORD PERCENT PERCENT PERCENT */
+    40,  /* (34) modifier ::= MODIFIER */
+    36,  /* (35) modifierlist ::= modifier OR term */
+    36,  /* (36) modifierlist ::= modifierlist OR term */
+    27,  /* (37) expr ::= modifier COLON tag_list */
+    34,  /* (38) tag_list ::= LB term */
+    34,  /* (39) tag_list ::= LB STOPWORD */
+    34,  /* (40) tag_list ::= LB prefix */
+    34,  /* (41) tag_list ::= LB termlist */
+    34,  /* (42) tag_list ::= tag_list OR term */
+    34,  /* (43) tag_list ::= tag_list OR STOPWORD */
+    34,  /* (44) tag_list ::= tag_list OR prefix */
+    34,  /* (45) tag_list ::= tag_list OR termlist */
+    34,  /* (46) tag_list ::= tag_list RB */
+    27,  /* (47) expr ::= modifier COLON numeric_range */
+    38,  /* (48) numeric_range ::= LSQB num num RSQB */
+    27,  /* (49) expr ::= modifier COLON geo_filter */
+    35,  /* (50) geo_filter ::= LSQB num num num TERM RSQB */
+    37,  /* (51) num ::= NUMBER */
+    37,  /* (52) num ::= LP num */
+    37,  /* (53) num ::= MINUS num */
+    41,  /* (54) term ::= TERM */
+    41,  /* (55) term ::= NUMBER */
+};
+
+/* For rule J, yyRuleInfoNRhs[J] contains the negative of the number
+** of symbols on the right-hand side of that rule. */
+static const signed char yyRuleInfoNRhs[] = {
+   -1,  /* (0) query ::= expr */
+    0,  /* (1) query ::= */
+   -1,  /* (2) query ::= STAR */
+   -2,  /* (3) expr ::= expr expr */
+   -1,  /* (4) expr ::= union */
+   -3,  /* (5) union ::= expr OR expr */
+   -3,  /* (6) union ::= union OR expr */
+   -3,  /* (7) expr ::= modifier COLON expr */
+   -3,  /* (8) expr ::= modifierlist COLON expr */
+   -3,  /* (9) expr ::= LP expr RP */
+   -3,  /* (10) attribute ::= ATTRIBUTE COLON term */
+   -1,  /* (11) attribute_list ::= attribute */
+   -3,  /* (12) attribute_list ::= attribute_list SEMICOLON attribute */
+   -2,  /* (13) attribute_list ::= attribute_list SEMICOLON */
+    0,  /* (14) attribute_list ::= */
+   -5,  /* (15) expr ::= expr ARROW LB attribute_list RB */
+   -3,  /* (16) expr ::= QUOTE termlist QUOTE */
+   -3,  /* (17) expr ::= QUOTE term QUOTE */
+   -1,  /* (18) expr ::= term */
+   -1,  /* (19) expr ::= prefix */
+   -1,  /* (20) expr ::= termlist */
+   -1,  /* (21) expr ::= STOPWORD */
+   -2,  /* (22) termlist ::= term term */
+   -2,  /* (23) termlist ::= termlist term */
+   -2,  /* (24) termlist ::= termlist STOPWORD */
+   -2,  /* (25) expr ::= MINUS expr */
+   -2,  /* (26) expr ::= TILDE expr */
+   -1,  /* (27) prefix ::= PREFIX */
+   -3,  /* (28) expr ::= PERCENT term PERCENT */
+   -5,  /* (29) expr ::= PERCENT PERCENT term PERCENT PERCENT */
+   -7,  /* (30) expr ::= PERCENT PERCENT PERCENT term PERCENT PERCENT PERCENT */
+   -3,  /* (31) expr ::= PERCENT STOPWORD PERCENT */
+   -5,  /* (32) expr ::= PERCENT PERCENT STOPWORD PERCENT PERCENT */
+   -7,  /* (33) expr ::= PERCENT PERCENT PERCENT STOPWORD PERCENT PERCENT PERCENT */
+   -1,  /* (34) modifier ::= MODIFIER */
+   -3,  /* (35) modifierlist ::= modifier OR term */
+   -3,  /* (36) modifierlist ::= modifierlist OR term */
+   -3,  /* (37) expr ::= modifier COLON tag_list */
+   -2,  /* (38) tag_list ::= LB term */
+   -2,  /* (39) tag_list ::= LB STOPWORD */
+   -2,  /* (40) tag_list ::= LB prefix */
+   -2,  /* (41) tag_list ::= LB termlist */
+   -3,  /* (42) tag_list ::= tag_list OR term */
+   -3,  /* (43) tag_list ::= tag_list OR STOPWORD */
+   -3,  /* (44) tag_list ::= tag_list OR prefix */
+   -3,  /* (45) tag_list ::= tag_list OR termlist */
+   -2,  /* (46) tag_list ::= tag_list RB */
+   -3,  /* (47) expr ::= modifier COLON numeric_range */
+   -4,  /* (48) numeric_range ::= LSQB num num RSQB */
+   -3,  /* (49) expr ::= modifier COLON geo_filter */
+   -6,  /* (50) geo_filter ::= LSQB num num num TERM RSQB */
+   -1,  /* (51) num ::= NUMBER */
+   -2,  /* (52) num ::= LP num */
+   -2,  /* (53) num ::= MINUS num */
+   -1,  /* (54) term ::= TERM */
+   -1,  /* (55) term ::= NUMBER */
 };
 
 static void yy_accept(yyParser*);  /* Forward Declaration */
@@ -1107,7 +1171,7 @@ static YYACTIONTYPE yy_reduce(
   RSQueryParser_CTX_PDECL                   /* %extra_context */
 ){
   int yygoto;                     /* The next state */
-  int yyact;                      /* The next action */
+  YYACTIONTYPE yyact;             /* The next action */
   yyStackEntry *yymsp;            /* The top of the parser's stack */
   int yysize;                     /* Amount to pop the stack */
   RSQueryParser_ARG_FETCH
@@ -1116,14 +1180,17 @@ static YYACTIONTYPE yy_reduce(
   yymsp = yypParser->yytos;
 #ifndef NDEBUG
   if( yyTraceFILE && yyruleno<(int)(sizeof(yyRuleName)/sizeof(yyRuleName[0])) ){
-    yysize = yyRuleInfo[yyruleno].nrhs;
+    yysize = yyRuleInfoNRhs[yyruleno];
     if( yysize ){
-      fprintf(yyTraceFILE, "%sReduce %d [%s], go to state %d.\n",
+      fprintf(yyTraceFILE, "%sReduce %d [%s]%s, pop back to state %d.\n",
         yyTracePrompt,
-        yyruleno, yyRuleName[yyruleno], yymsp[yysize].stateno);
+        yyruleno, yyRuleName[yyruleno],
+        yyruleno<YYNRULE_WITH_ACTION ? "" : " without external action",
+        yymsp[yysize].stateno);
     }else{
-      fprintf(yyTraceFILE, "%sReduce %d [%s].\n",
-        yyTracePrompt, yyruleno, yyRuleName[yyruleno]);
+      fprintf(yyTraceFILE, "%sReduce %d [%s]%s.\n",
+        yyTracePrompt, yyruleno, yyRuleName[yyruleno],
+        yyruleno<YYNRULE_WITH_ACTION ? "" : " without external action");
     }
   }
 #endif /* NDEBUG */
@@ -1131,7 +1198,7 @@ static YYACTIONTYPE yy_reduce(
   /* Check that the stack is large enough to grow by a single entry
   ** if the RHS of the rule is empty.  This ensures that there is room
   ** enough on the stack to push the LHS value */
-  if( yyRuleInfo[yyruleno].nrhs==0 ){
+  if( yyRuleInfoNRhs[yyruleno]==0 ){
 #ifdef YYTRACKMAXSTACKDEPTH
     if( (int)(yypParser->yytos - yypParser->yystack)>yypParser->yyhwm ){
       yypParser->yyhwm++;
@@ -1388,7 +1455,7 @@ static YYACTIONTYPE yy_reduce(
   yymsp[-1].minor.yy35 = yylhsminor.yy35;
         break;
       case 24: /* termlist ::= termlist STOPWORD */
-      case 44: /* tag_list ::= tag_list RB */ yytestcase(yyruleno==44);
+      case 46: /* tag_list ::= tag_list RB */ yytestcase(yyruleno==46);
 {
     yylhsminor.yy35 = yymsp[-1].minor.yy35;
 }
@@ -1485,34 +1552,36 @@ static YYACTIONTYPE yy_reduce(
   yymsp[-2].minor.yy35 = yylhsminor.yy35;
         break;
       case 38: /* tag_list ::= LB term */
+      case 39: /* tag_list ::= LB STOPWORD */ yytestcase(yyruleno==39);
 {
     yymsp[-1].minor.yy35 = NewPhraseNode(0);
     QueryNode_AddChild(yymsp[-1].minor.yy35, NewTokenNode(ctx, strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), -1));
 }
         break;
-      case 39: /* tag_list ::= LB prefix */
-      case 40: /* tag_list ::= LB termlist */ yytestcase(yyruleno==40);
+      case 40: /* tag_list ::= LB prefix */
+      case 41: /* tag_list ::= LB termlist */ yytestcase(yyruleno==41);
 {
     yymsp[-1].minor.yy35 = NewPhraseNode(0);
     QueryNode_AddChild(yymsp[-1].minor.yy35, yymsp[0].minor.yy35);
 }
         break;
-      case 41: /* tag_list ::= tag_list OR term */
+      case 42: /* tag_list ::= tag_list OR term */
+      case 43: /* tag_list ::= tag_list OR STOPWORD */ yytestcase(yyruleno==43);
 {
     QueryNode_AddChild(yymsp[-2].minor.yy35, NewTokenNode(ctx, strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), -1));
     yylhsminor.yy35 = yymsp[-2].minor.yy35;
 }
   yymsp[-2].minor.yy35 = yylhsminor.yy35;
         break;
-      case 42: /* tag_list ::= tag_list OR prefix */
-      case 43: /* tag_list ::= tag_list OR termlist */ yytestcase(yyruleno==43);
+      case 44: /* tag_list ::= tag_list OR prefix */
+      case 45: /* tag_list ::= tag_list OR termlist */ yytestcase(yyruleno==45);
 {
     QueryNode_AddChild(yymsp[-2].minor.yy35, yymsp[0].minor.yy35);
     yylhsminor.yy35 = yymsp[-2].minor.yy35;
 }
   yymsp[-2].minor.yy35 = yylhsminor.yy35;
         break;
-      case 45: /* expr ::= modifier COLON numeric_range */
+      case 47: /* expr ::= modifier COLON numeric_range */
 {
     // we keep the capitalization as is
     yymsp[0].minor.yy36->fieldName = rm_strndup(yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
@@ -1520,12 +1589,12 @@ static YYACTIONTYPE yy_reduce(
 }
   yymsp[-2].minor.yy35 = yylhsminor.yy35;
         break;
-      case 46: /* numeric_range ::= LSQB num num RSQB */
+      case 48: /* numeric_range ::= LSQB num num RSQB */
 {
     yymsp[-3].minor.yy36 = NewNumericFilter(yymsp[-2].minor.yy83.num, yymsp[-1].minor.yy83.num, yymsp[-2].minor.yy83.inclusive, yymsp[-1].minor.yy83.inclusive);
 }
         break;
-      case 47: /* expr ::= modifier COLON geo_filter */
+      case 49: /* expr ::= modifier COLON geo_filter */
 {
     // we keep the capitalization as is
     yymsp[0].minor.yy64->property = rm_strndup(yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
@@ -1533,7 +1602,7 @@ static YYACTIONTYPE yy_reduce(
 }
   yymsp[-2].minor.yy35 = yylhsminor.yy35;
         break;
-      case 48: /* geo_filter ::= LSQB num num num TERM RSQB */
+      case 50: /* geo_filter ::= LSQB num num num TERM RSQB */
 {
     char buf[16] = {0};
     if (yymsp[-1].minor.yy0.len < 16) {
@@ -1545,27 +1614,27 @@ static YYACTIONTYPE yy_reduce(
     GeoFilter_Validate(yymsp[-5].minor.yy64, ctx->status);
 }
         break;
-      case 49: /* num ::= NUMBER */
+      case 51: /* num ::= NUMBER */
 {
     yylhsminor.yy83.num = yymsp[0].minor.yy0.numval;
     yylhsminor.yy83.inclusive = 1;
 }
   yymsp[0].minor.yy83 = yylhsminor.yy83;
         break;
-      case 50: /* num ::= LP num */
+      case 52: /* num ::= LP num */
 {
     yymsp[-1].minor.yy83=yymsp[0].minor.yy83;
     yymsp[-1].minor.yy83.inclusive = 0;
 }
         break;
-      case 51: /* num ::= MINUS num */
+      case 53: /* num ::= MINUS num */
 {
     yymsp[0].minor.yy83.num = -yymsp[0].minor.yy83.num;
     yymsp[-1].minor.yy83 = yymsp[0].minor.yy83;
 }
         break;
-      case 52: /* term ::= TERM */
-      case 53: /* term ::= NUMBER */ yytestcase(yyruleno==53);
+      case 54: /* term ::= TERM */
+      case 55: /* term ::= NUMBER */ yytestcase(yyruleno==55);
 {
     yylhsminor.yy0 = yymsp[0].minor.yy0; 
 }
@@ -1575,9 +1644,9 @@ static YYACTIONTYPE yy_reduce(
         break;
 /********** End reduce actions ************************************************/
   };
-  assert( yyruleno<sizeof(yyRuleInfo)/sizeof(yyRuleInfo[0]) );
-  yygoto = yyRuleInfo[yyruleno].lhs;
-  yysize = yyRuleInfo[yyruleno].nrhs;
+  assert( yyruleno<sizeof(yyRuleInfoLhs)/sizeof(yyRuleInfoLhs[0]) );
+  yygoto = yyRuleInfoLhs[yyruleno];
+  yysize = yyRuleInfoNRhs[yyruleno];
   yyact = yy_find_reduce_action(yymsp[yysize].stateno,(YYCODETYPE)yygoto);
 
   /* There are no SHIFTREDUCE actions on nonterminals because the table
@@ -1722,12 +1791,12 @@ void RSQueryParser_(
 
   do{
     assert( yyact==yypParser->yytos->stateno );
-    yyact = yy_find_shift_action(yymajor,yyact);
+    yyact = yy_find_shift_action((YYCODETYPE)yymajor,yyact);
     if( yyact >= YY_MIN_REDUCE ){
       yyact = yy_reduce(yypParser,yyact-YY_MIN_REDUCE,yymajor,
                         yyminor RSQueryParser_CTX_PARAM);
     }else if( yyact <= YY_MAX_SHIFTREDUCE ){
-      yy_shift(yypParser,yyact,yymajor,yyminor);
+      yy_shift(yypParser,yyact,(YYCODETYPE)yymajor,yyminor);
 #ifndef YYNOERRORRECOVERY
       yypParser->yyerrcnt--;
 #endif
@@ -1782,10 +1851,9 @@ void RSQueryParser_(
         yymajor = YYNOCODE;
       }else{
         while( yypParser->yytos >= yypParser->yystack
-            && yymx != YYERRORSYMBOL
             && (yyact = yy_find_reduce_action(
                         yypParser->yytos->stateno,
-                        YYERRORSYMBOL)) >= YY_MIN_REDUCE
+                        YYERRORSYMBOL)) > YY_MAX_SHIFTREDUCE
         ){
           yy_pop_parser_stack(yypParser);
         }
@@ -1853,4 +1921,18 @@ void RSQueryParser_(
   }
 #endif
   return;
+}
+
+/*
+** Return the fallback token corresponding to canonical token iToken, or
+** 0 if iToken has no fallback.
+*/
+int RSQueryParser_Fallback(int iToken){
+#ifdef YYFALLBACK
+  assert( iToken<(int)(sizeof(yyFallback)/sizeof(yyFallback[0])) );
+  return yyFallback[iToken];
+#else
+  (void)iToken;
+  return 0;
+#endif
 }
