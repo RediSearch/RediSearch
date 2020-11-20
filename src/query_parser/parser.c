@@ -23,7 +23,6 @@
 ** input grammar file:
 */
 #include <stdio.h>
-#include <assert.h>
 /************ Begin %include sections from the grammar ************************/
    
 
@@ -189,7 +188,6 @@ typedef union {
 #define RSQueryParser_CTX_STORE
 #define YYNSTATE             62
 #define YYNRULE              56
-#define YYNRULE_WITH_ACTION  56
 #define YYNTOKEN             27
 #define YY_MAX_SHIFT         61
 #define YY_MIN_SHIFTREDUCE   99
@@ -200,7 +198,6 @@ typedef union {
 #define YY_MIN_REDUCE        158
 #define YY_MAX_REDUCE        213
 /************* End control #defines *******************************************/
-#define YY_NLOOKAHEAD ((int)(sizeof(yy_lookahead)/sizeof(yy_lookahead[0])))
 
 /* Define the yytestcase() macro to be a no-op if is not already defined
 ** otherwise.
@@ -325,7 +322,6 @@ static const YYCODETYPE yy_lookahead[] = {
  /*   260 */    42,   12,    4,   42,   42,    7,   42,   42,   10,   42,
  /*   270 */    42,   42,   42,   42,   42,   42,   42,   42,   42,   42,
  /*   280 */    42,   42,   42,   42,   42,   42,   42,   42,   42,   42,
- /*   290 */    27,   27,   27,   27,   27,   27,
 };
 #define YY_SHIFT_COUNT    (61)
 #define YY_SHIFT_MIN      (0)
@@ -869,18 +865,15 @@ static YYACTIONTYPE yy_find_shift_action(
   do{
     i = yy_shift_ofst[stateno];
     assert( i>=0 );
-    assert( i<=YY_ACTTAB_COUNT );
-    assert( i+YYNTOKEN<=(int)YY_NLOOKAHEAD );
+    assert( i+YYNTOKEN<=(int)sizeof(yy_lookahead)/sizeof(yy_lookahead[0]) );
     assert( iLookAhead!=YYNOCODE );
     assert( iLookAhead < YYNTOKEN );
     i += iLookAhead;
-    assert( i<(int)YY_NLOOKAHEAD );
     if( yy_lookahead[i]!=iLookAhead ){
 #ifdef YYFALLBACK
       YYCODETYPE iFallback;            /* Fallback token */
-      assert( iLookAhead<sizeof(yyFallback)/sizeof(yyFallback[0]) );
-      iFallback = yyFallback[iLookAhead];
-      if( iFallback!=0 ){
+      if( iLookAhead<sizeof(yyFallback)/sizeof(yyFallback[0])
+             && (iFallback = yyFallback[iLookAhead])!=0 ){
 #ifndef NDEBUG
         if( yyTraceFILE ){
           fprintf(yyTraceFILE, "%sFALLBACK %s => %s\n",
@@ -895,8 +888,15 @@ static YYACTIONTYPE yy_find_shift_action(
 #ifdef YYWILDCARD
       {
         int j = i - iLookAhead + YYWILDCARD;
-        assert( j<(int)(sizeof(yy_lookahead)/sizeof(yy_lookahead[0])) );
-        if( yy_lookahead[j]==YYWILDCARD && iLookAhead>0 ){
+        if( 
+#if YY_SHIFT_MIN+YYWILDCARD<0
+          j>=0 &&
+#endif
+#if YY_SHIFT_MAX+YYWILDCARD>=YY_ACTTAB_COUNT
+          j<YY_ACTTAB_COUNT &&
+#endif
+          yy_lookahead[j]==YYWILDCARD && iLookAhead>0
+        ){
 #ifndef NDEBUG
           if( yyTraceFILE ){
             fprintf(yyTraceFILE, "%sWILDCARD %s => %s\n",
@@ -910,7 +910,6 @@ static YYACTIONTYPE yy_find_shift_action(
 #endif /* YYWILDCARD */
       return yy_default[stateno];
     }else{
-      assert( i>=0 && i<sizeof(yy_action)/sizeof(yy_action[0]) );
       return yy_action[i];
     }
   }while(1);
@@ -920,7 +919,7 @@ static YYACTIONTYPE yy_find_shift_action(
 ** Find the appropriate action for a parser given the non-terminal
 ** look-ahead token iLookAhead.
 */
-static YYACTIONTYPE yy_find_reduce_action(
+static int yy_find_reduce_action(
   YYACTIONTYPE stateno,     /* Current state number */
   YYCODETYPE iLookAhead     /* The look-ahead token */
 ){
@@ -1029,126 +1028,69 @@ static void yy_shift(
   yyTraceShift(yypParser, yyNewState, "Shift");
 }
 
-/* For rule J, yyRuleInfoLhs[J] contains the symbol on the left-hand side
-** of that rule */
-static const YYCODETYPE yyRuleInfoLhs[] = {
-    39,  /* (0) query ::= expr */
-    39,  /* (1) query ::= */
-    39,  /* (2) query ::= STAR */
-    27,  /* (3) expr ::= expr expr */
-    27,  /* (4) expr ::= union */
-    32,  /* (5) union ::= expr OR expr */
-    32,  /* (6) union ::= union OR expr */
-    27,  /* (7) expr ::= modifier COLON expr */
-    27,  /* (8) expr ::= modifierlist COLON expr */
-    27,  /* (9) expr ::= LP expr RP */
-    28,  /* (10) attribute ::= ATTRIBUTE COLON term */
-    29,  /* (11) attribute_list ::= attribute */
-    29,  /* (12) attribute_list ::= attribute_list SEMICOLON attribute */
-    29,  /* (13) attribute_list ::= attribute_list SEMICOLON */
-    29,  /* (14) attribute_list ::= */
-    27,  /* (15) expr ::= expr ARROW LB attribute_list RB */
-    27,  /* (16) expr ::= QUOTE termlist QUOTE */
-    27,  /* (17) expr ::= QUOTE term QUOTE */
-    27,  /* (18) expr ::= term */
-    27,  /* (19) expr ::= prefix */
-    27,  /* (20) expr ::= termlist */
-    27,  /* (21) expr ::= STOPWORD */
-    31,  /* (22) termlist ::= term term */
-    31,  /* (23) termlist ::= termlist term */
-    31,  /* (24) termlist ::= termlist STOPWORD */
-    27,  /* (25) expr ::= MINUS expr */
-    27,  /* (26) expr ::= TILDE expr */
-    30,  /* (27) prefix ::= PREFIX */
-    27,  /* (28) expr ::= PERCENT term PERCENT */
-    27,  /* (29) expr ::= PERCENT PERCENT term PERCENT PERCENT */
-    27,  /* (30) expr ::= PERCENT PERCENT PERCENT term PERCENT PERCENT PERCENT */
-    27,  /* (31) expr ::= PERCENT STOPWORD PERCENT */
-    27,  /* (32) expr ::= PERCENT PERCENT STOPWORD PERCENT PERCENT */
-    27,  /* (33) expr ::= PERCENT PERCENT PERCENT STOPWORD PERCENT PERCENT PERCENT */
-    40,  /* (34) modifier ::= MODIFIER */
-    36,  /* (35) modifierlist ::= modifier OR term */
-    36,  /* (36) modifierlist ::= modifierlist OR term */
-    27,  /* (37) expr ::= modifier COLON tag_list */
-    34,  /* (38) tag_list ::= LB term */
-    34,  /* (39) tag_list ::= LB STOPWORD */
-    34,  /* (40) tag_list ::= LB prefix */
-    34,  /* (41) tag_list ::= LB termlist */
-    34,  /* (42) tag_list ::= tag_list OR term */
-    34,  /* (43) tag_list ::= tag_list OR STOPWORD */
-    34,  /* (44) tag_list ::= tag_list OR prefix */
-    34,  /* (45) tag_list ::= tag_list OR termlist */
-    34,  /* (46) tag_list ::= tag_list RB */
-    27,  /* (47) expr ::= modifier COLON numeric_range */
-    38,  /* (48) numeric_range ::= LSQB num num RSQB */
-    27,  /* (49) expr ::= modifier COLON geo_filter */
-    35,  /* (50) geo_filter ::= LSQB num num num TERM RSQB */
-    37,  /* (51) num ::= NUMBER */
-    37,  /* (52) num ::= LP num */
-    37,  /* (53) num ::= MINUS num */
-    41,  /* (54) term ::= TERM */
-    41,  /* (55) term ::= NUMBER */
-};
-
-/* For rule J, yyRuleInfoNRhs[J] contains the negative of the number
-** of symbols on the right-hand side of that rule. */
-static const signed char yyRuleInfoNRhs[] = {
-   -1,  /* (0) query ::= expr */
-    0,  /* (1) query ::= */
-   -1,  /* (2) query ::= STAR */
-   -2,  /* (3) expr ::= expr expr */
-   -1,  /* (4) expr ::= union */
-   -3,  /* (5) union ::= expr OR expr */
-   -3,  /* (6) union ::= union OR expr */
-   -3,  /* (7) expr ::= modifier COLON expr */
-   -3,  /* (8) expr ::= modifierlist COLON expr */
-   -3,  /* (9) expr ::= LP expr RP */
-   -3,  /* (10) attribute ::= ATTRIBUTE COLON term */
-   -1,  /* (11) attribute_list ::= attribute */
-   -3,  /* (12) attribute_list ::= attribute_list SEMICOLON attribute */
-   -2,  /* (13) attribute_list ::= attribute_list SEMICOLON */
-    0,  /* (14) attribute_list ::= */
-   -5,  /* (15) expr ::= expr ARROW LB attribute_list RB */
-   -3,  /* (16) expr ::= QUOTE termlist QUOTE */
-   -3,  /* (17) expr ::= QUOTE term QUOTE */
-   -1,  /* (18) expr ::= term */
-   -1,  /* (19) expr ::= prefix */
-   -1,  /* (20) expr ::= termlist */
-   -1,  /* (21) expr ::= STOPWORD */
-   -2,  /* (22) termlist ::= term term */
-   -2,  /* (23) termlist ::= termlist term */
-   -2,  /* (24) termlist ::= termlist STOPWORD */
-   -2,  /* (25) expr ::= MINUS expr */
-   -2,  /* (26) expr ::= TILDE expr */
-   -1,  /* (27) prefix ::= PREFIX */
-   -3,  /* (28) expr ::= PERCENT term PERCENT */
-   -5,  /* (29) expr ::= PERCENT PERCENT term PERCENT PERCENT */
-   -7,  /* (30) expr ::= PERCENT PERCENT PERCENT term PERCENT PERCENT PERCENT */
-   -3,  /* (31) expr ::= PERCENT STOPWORD PERCENT */
-   -5,  /* (32) expr ::= PERCENT PERCENT STOPWORD PERCENT PERCENT */
-   -7,  /* (33) expr ::= PERCENT PERCENT PERCENT STOPWORD PERCENT PERCENT PERCENT */
-   -1,  /* (34) modifier ::= MODIFIER */
-   -3,  /* (35) modifierlist ::= modifier OR term */
-   -3,  /* (36) modifierlist ::= modifierlist OR term */
-   -3,  /* (37) expr ::= modifier COLON tag_list */
-   -2,  /* (38) tag_list ::= LB term */
-   -2,  /* (39) tag_list ::= LB STOPWORD */
-   -2,  /* (40) tag_list ::= LB prefix */
-   -2,  /* (41) tag_list ::= LB termlist */
-   -3,  /* (42) tag_list ::= tag_list OR term */
-   -3,  /* (43) tag_list ::= tag_list OR STOPWORD */
-   -3,  /* (44) tag_list ::= tag_list OR prefix */
-   -3,  /* (45) tag_list ::= tag_list OR termlist */
-   -2,  /* (46) tag_list ::= tag_list RB */
-   -3,  /* (47) expr ::= modifier COLON numeric_range */
-   -4,  /* (48) numeric_range ::= LSQB num num RSQB */
-   -3,  /* (49) expr ::= modifier COLON geo_filter */
-   -6,  /* (50) geo_filter ::= LSQB num num num TERM RSQB */
-   -1,  /* (51) num ::= NUMBER */
-   -2,  /* (52) num ::= LP num */
-   -2,  /* (53) num ::= MINUS num */
-   -1,  /* (54) term ::= TERM */
-   -1,  /* (55) term ::= NUMBER */
+/* The following table contains information about every rule that
+** is used during the reduce.
+*/
+static const struct {
+  YYCODETYPE lhs;       /* Symbol on the left-hand side of the rule */
+  signed char nrhs;     /* Negative of the number of RHS symbols in the rule */
+} yyRuleInfo[] = {
+  {   39,   -1 }, /* (0) query ::= expr */
+  {   39,    0 }, /* (1) query ::= */
+  {   39,   -1 }, /* (2) query ::= STAR */
+  {   27,   -2 }, /* (3) expr ::= expr expr */
+  {   27,   -1 }, /* (4) expr ::= union */
+  {   32,   -3 }, /* (5) union ::= expr OR expr */
+  {   32,   -3 }, /* (6) union ::= union OR expr */
+  {   27,   -3 }, /* (7) expr ::= modifier COLON expr */
+  {   27,   -3 }, /* (8) expr ::= modifierlist COLON expr */
+  {   27,   -3 }, /* (9) expr ::= LP expr RP */
+  {   28,   -3 }, /* (10) attribute ::= ATTRIBUTE COLON term */
+  {   29,   -1 }, /* (11) attribute_list ::= attribute */
+  {   29,   -3 }, /* (12) attribute_list ::= attribute_list SEMICOLON attribute */
+  {   29,   -2 }, /* (13) attribute_list ::= attribute_list SEMICOLON */
+  {   29,    0 }, /* (14) attribute_list ::= */
+  {   27,   -5 }, /* (15) expr ::= expr ARROW LB attribute_list RB */
+  {   27,   -3 }, /* (16) expr ::= QUOTE termlist QUOTE */
+  {   27,   -3 }, /* (17) expr ::= QUOTE term QUOTE */
+  {   27,   -1 }, /* (18) expr ::= term */
+  {   27,   -1 }, /* (19) expr ::= prefix */
+  {   27,   -1 }, /* (20) expr ::= termlist */
+  {   27,   -1 }, /* (21) expr ::= STOPWORD */
+  {   31,   -2 }, /* (22) termlist ::= term term */
+  {   31,   -2 }, /* (23) termlist ::= termlist term */
+  {   31,   -2 }, /* (24) termlist ::= termlist STOPWORD */
+  {   27,   -2 }, /* (25) expr ::= MINUS expr */
+  {   27,   -2 }, /* (26) expr ::= TILDE expr */
+  {   30,   -1 }, /* (27) prefix ::= PREFIX */
+  {   27,   -3 }, /* (28) expr ::= PERCENT term PERCENT */
+  {   27,   -5 }, /* (29) expr ::= PERCENT PERCENT term PERCENT PERCENT */
+  {   27,   -7 }, /* (30) expr ::= PERCENT PERCENT PERCENT term PERCENT PERCENT PERCENT */
+  {   27,   -3 }, /* (31) expr ::= PERCENT STOPWORD PERCENT */
+  {   27,   -5 }, /* (32) expr ::= PERCENT PERCENT STOPWORD PERCENT PERCENT */
+  {   27,   -7 }, /* (33) expr ::= PERCENT PERCENT PERCENT STOPWORD PERCENT PERCENT PERCENT */
+  {   40,   -1 }, /* (34) modifier ::= MODIFIER */
+  {   36,   -3 }, /* (35) modifierlist ::= modifier OR term */
+  {   36,   -3 }, /* (36) modifierlist ::= modifierlist OR term */
+  {   27,   -3 }, /* (37) expr ::= modifier COLON tag_list */
+  {   34,   -2 }, /* (38) tag_list ::= LB term */
+  {   34,   -2 }, /* (39) tag_list ::= LB STOPWORD */
+  {   34,   -2 }, /* (40) tag_list ::= LB prefix */
+  {   34,   -2 }, /* (41) tag_list ::= LB termlist */
+  {   34,   -3 }, /* (42) tag_list ::= tag_list OR term */
+  {   34,   -3 }, /* (43) tag_list ::= tag_list OR STOPWORD */
+  {   34,   -3 }, /* (44) tag_list ::= tag_list OR prefix */
+  {   34,   -3 }, /* (45) tag_list ::= tag_list OR termlist */
+  {   34,   -2 }, /* (46) tag_list ::= tag_list RB */
+  {   27,   -3 }, /* (47) expr ::= modifier COLON numeric_range */
+  {   38,   -4 }, /* (48) numeric_range ::= LSQB num num RSQB */
+  {   27,   -3 }, /* (49) expr ::= modifier COLON geo_filter */
+  {   35,   -6 }, /* (50) geo_filter ::= LSQB num num num TERM RSQB */
+  {   37,   -1 }, /* (51) num ::= NUMBER */
+  {   37,   -2 }, /* (52) num ::= LP num */
+  {   37,   -2 }, /* (53) num ::= MINUS num */
+  {   41,   -1 }, /* (54) term ::= TERM */
+  {   41,   -1 }, /* (55) term ::= NUMBER */
 };
 
 static void yy_accept(yyParser*);  /* Forward Declaration */
@@ -1171,7 +1113,7 @@ static YYACTIONTYPE yy_reduce(
   RSQueryParser_CTX_PDECL                   /* %extra_context */
 ){
   int yygoto;                     /* The next state */
-  YYACTIONTYPE yyact;             /* The next action */
+  int yyact;                      /* The next action */
   yyStackEntry *yymsp;            /* The top of the parser's stack */
   int yysize;                     /* Amount to pop the stack */
   RSQueryParser_ARG_FETCH
@@ -1180,17 +1122,14 @@ static YYACTIONTYPE yy_reduce(
   yymsp = yypParser->yytos;
 #ifndef NDEBUG
   if( yyTraceFILE && yyruleno<(int)(sizeof(yyRuleName)/sizeof(yyRuleName[0])) ){
-    yysize = yyRuleInfoNRhs[yyruleno];
+    yysize = yyRuleInfo[yyruleno].nrhs;
     if( yysize ){
-      fprintf(yyTraceFILE, "%sReduce %d [%s]%s, pop back to state %d.\n",
+      fprintf(yyTraceFILE, "%sReduce %d [%s], go to state %d.\n",
         yyTracePrompt,
-        yyruleno, yyRuleName[yyruleno],
-        yyruleno<YYNRULE_WITH_ACTION ? "" : " without external action",
-        yymsp[yysize].stateno);
+        yyruleno, yyRuleName[yyruleno], yymsp[yysize].stateno);
     }else{
-      fprintf(yyTraceFILE, "%sReduce %d [%s]%s.\n",
-        yyTracePrompt, yyruleno, yyRuleName[yyruleno],
-        yyruleno<YYNRULE_WITH_ACTION ? "" : " without external action");
+      fprintf(yyTraceFILE, "%sReduce %d [%s].\n",
+        yyTracePrompt, yyruleno, yyRuleName[yyruleno]);
     }
   }
 #endif /* NDEBUG */
@@ -1198,7 +1137,7 @@ static YYACTIONTYPE yy_reduce(
   /* Check that the stack is large enough to grow by a single entry
   ** if the RHS of the rule is empty.  This ensures that there is room
   ** enough on the stack to push the LHS value */
-  if( yyRuleInfoNRhs[yyruleno]==0 ){
+  if( yyRuleInfo[yyruleno].nrhs==0 ){
 #ifdef YYTRACKMAXSTACKDEPTH
     if( (int)(yypParser->yytos - yypParser->yystack)>yypParser->yyhwm ){
       yypParser->yyhwm++;
@@ -1644,9 +1583,9 @@ static YYACTIONTYPE yy_reduce(
         break;
 /********** End reduce actions ************************************************/
   };
-  assert( yyruleno<sizeof(yyRuleInfoLhs)/sizeof(yyRuleInfoLhs[0]) );
-  yygoto = yyRuleInfoLhs[yyruleno];
-  yysize = yyRuleInfoNRhs[yyruleno];
+  assert( yyruleno<sizeof(yyRuleInfo)/sizeof(yyRuleInfo[0]) );
+  yygoto = yyRuleInfo[yyruleno].lhs;
+  yysize = yyRuleInfo[yyruleno].nrhs;
   yyact = yy_find_reduce_action(yymsp[yysize].stateno,(YYCODETYPE)yygoto);
 
   /* There are no SHIFTREDUCE actions on nonterminals because the table
@@ -1791,12 +1730,12 @@ void RSQueryParser_(
 
   do{
     assert( yyact==yypParser->yytos->stateno );
-    yyact = yy_find_shift_action((YYCODETYPE)yymajor,yyact);
+    yyact = yy_find_shift_action(yymajor,yyact);
     if( yyact >= YY_MIN_REDUCE ){
       yyact = yy_reduce(yypParser,yyact-YY_MIN_REDUCE,yymajor,
                         yyminor RSQueryParser_CTX_PARAM);
     }else if( yyact <= YY_MAX_SHIFTREDUCE ){
-      yy_shift(yypParser,yyact,(YYCODETYPE)yymajor,yyminor);
+      yy_shift(yypParser,yyact,yymajor,yyminor);
 #ifndef YYNOERRORRECOVERY
       yypParser->yyerrcnt--;
 #endif
@@ -1851,9 +1790,10 @@ void RSQueryParser_(
         yymajor = YYNOCODE;
       }else{
         while( yypParser->yytos >= yypParser->yystack
+            && yymx != YYERRORSYMBOL
             && (yyact = yy_find_reduce_action(
                         yypParser->yytos->stateno,
-                        YYERRORSYMBOL)) > YY_MAX_SHIFTREDUCE
+                        YYERRORSYMBOL)) >= YY_MIN_REDUCE
         ){
           yy_pop_parser_stack(yypParser);
         }
@@ -1921,18 +1861,4 @@ void RSQueryParser_(
   }
 #endif
   return;
-}
-
-/*
-** Return the fallback token corresponding to canonical token iToken, or
-** 0 if iToken has no fallback.
-*/
-int RSQueryParser_Fallback(int iToken){
-#ifdef YYFALLBACK
-  assert( iToken<(int)(sizeof(yyFallback)/sizeof(yyFallback[0])) );
-  return yyFallback[iToken];
-#else
-  (void)iToken;
-  return 0;
-#endif
 }
