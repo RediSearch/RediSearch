@@ -522,16 +522,16 @@ def testStartsWith(env):
 def testLimitIssue(env):
     #ticket 66895
     conn = getConnectionByEnv(env)
-    env.execute_command('ft.create', 'idx', 'SCHEMA', 'PrimaryKey', 'TEXT', 'SORTABLE',
+    conn.execute_command('ft.create', 'idx', 'SCHEMA', 'PrimaryKey', 'TEXT', 'SORTABLE',
                                            'CreatedDateTimeUTC', 'NUMERIC', 'SORTABLE')
-    env.expect('HSET', 'doc1', 'PrimaryKey', '9::362330', 'CreatedDateTimeUTC', '637387878524969984').equal(2L)
-    env.expect('HSET', 'doc2', 'PrimaryKey', '9::362329', 'CreatedDateTimeUTC', '637387875859270016').equal(2L)
-    env.expect('HSET', 'doc3', 'PrimaryKey', '9::362326', 'CreatedDateTimeUTC', '637386176589869952').equal(2L)
-    env.expect('HSET', 'doc4', 'PrimaryKey', '9::362311', 'CreatedDateTimeUTC', '637383865971600000').equal(2L)
-    env.expect('HSET', 'doc5', 'PrimaryKey', '9::362310', 'CreatedDateTimeUTC', '637383864050669952').equal(2L)
-    env.expect('HSET', 'doc6', 'PrimaryKey', '9::362309', 'CreatedDateTimeUTC', '637242254008029952').equal(2L)
-    env.expect('HSET', 'doc7', 'PrimaryKey', '9::362308', 'CreatedDateTimeUTC', '637242253551670016').equal(2L)
-    env.expect('HSET', 'doc8', 'PrimaryKey', '9::362306', 'CreatedDateTimeUTC', '637166988081200000').equal(2L)
+    conn.execute_command('HSET', 'doc1', 'PrimaryKey', '9::362330', 'CreatedDateTimeUTC', '637387878524969984')
+    conn.execute_command('HSET', 'doc2', 'PrimaryKey', '9::362329', 'CreatedDateTimeUTC', '637387875859270016')
+    conn.execute_command('HSET', 'doc3', 'PrimaryKey', '9::362326', 'CreatedDateTimeUTC', '637386176589869952')
+    conn.execute_command('HSET', 'doc4', 'PrimaryKey', '9::362311', 'CreatedDateTimeUTC', '637383865971600000')
+    conn.execute_command('HSET', 'doc5', 'PrimaryKey', '9::362310', 'CreatedDateTimeUTC', '637383864050669952')
+    conn.execute_command('HSET', 'doc6', 'PrimaryKey', '9::362309', 'CreatedDateTimeUTC', '637242254008029952')
+    conn.execute_command('HSET', 'doc7', 'PrimaryKey', '9::362308', 'CreatedDateTimeUTC', '637242253551670016')
+    conn.execute_command('HSET', 'doc8', 'PrimaryKey', '9::362306', 'CreatedDateTimeUTC', '637166988081200000')
 
     _res = [8L,
           ['PrimaryKey', '9::362330', 'CreatedDateTimeUTC', '637387878524969984'],
@@ -543,17 +543,25 @@ def testLimitIssue(env):
           ['PrimaryKey', '9::362308', 'CreatedDateTimeUTC', '637242253551670016'],
           ['PrimaryKey', '9::362306', 'CreatedDateTimeUTC', '637166988081200000']]
 
-    res = [_res[0]] + _res[1:3]
-    env.expect('FT.AGGREGATE', 'idx', '*',
+    actual_res = conn.execute_command('FT.AGGREGATE', 'idx', '*',
                 'APPLY', '@PrimaryKey', 'AS', 'PrimaryKey',
-                'SORTBY', '2', '@CreatedDateTimeUTC', 'DESC', 'LIMIT', '0', '2').equal(res)
+                'SORTBY', '2', '@CreatedDateTimeUTC', 'DESC', 'LIMIT', '0', '8')
+    env.assertEqual(actual_res, _res)
+
+    res = [_res[0]] + _res[1:3]
+    actual_res = conn.execute_command('FT.AGGREGATE', 'idx', '*',
+                'APPLY', '@PrimaryKey', 'AS', 'PrimaryKey',
+                'SORTBY', '2', '@CreatedDateTimeUTC', 'DESC', 'LIMIT', '0', '2')
+    env.assertEqual(actual_res, res)
 
     res = [_res[0]] + _res[2:4]
-    env.expect('FT.AGGREGATE', 'idx', '*',
+    actual_res = conn.execute_command('FT.AGGREGATE', 'idx', '*',
                 'APPLY', '@PrimaryKey', 'AS', 'PrimaryKey',
-                'SORTBY', '2', '@CreatedDateTimeUTC', 'DESC', 'LIMIT', '1', '2').equal(res)
+                'SORTBY', '2', '@CreatedDateTimeUTC', 'DESC', 'LIMIT', '1', '2')
+    env.assertEqual(actual_res, res)
 
     res = [_res[0]] + _res[3:5]
-    env.expect('FT.AGGREGATE', 'idx', '*',
+    actual_res = conn.execute_command('FT.AGGREGATE', 'idx', '*',
                 'APPLY', '@PrimaryKey', 'AS', 'PrimaryKey',
-                'SORTBY', '2', '@CreatedDateTimeUTC', 'DESC', 'LIMIT', '2', '2').equal(res)
+                'SORTBY', '2', '@CreatedDateTimeUTC', 'DESC', 'LIMIT', '2', '2')
+    env.assertEqual(actual_res, res)
