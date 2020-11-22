@@ -518,3 +518,42 @@ def testStartsWith(env):
     env.assertEqual(toSortedFlatList(res), toSortedFlatList([1L, ['t', 'aa', 'prefix', '1'], \
                                                                  ['t', 'aaa', 'prefix', '1'], \
                                                                  ['t', 'ab', 'prefix', '0']]))
+
+def testLimitIssue(env):
+    #ticket 66895
+    conn = getConnectionByEnv(env)
+    env.execute_command('ft.create', 'idx', 'SCHEMA', 'PrimaryKey', 'TEXT', 'SORTABLE',
+                                           'CreatedDateTimeUTC', 'NUMERIC', 'SORTABLE')
+    env.expect('HSET', 'doc1', 'PrimaryKey', '9::362330', 'CreatedDateTimeUTC', '637387878524969984').equal(2L)
+    env.expect('HSET', 'doc2', 'PrimaryKey', '9::362329', 'CreatedDateTimeUTC', '637387875859270016').equal(2L)
+    env.expect('HSET', 'doc3', 'PrimaryKey', '9::362326', 'CreatedDateTimeUTC', '637386176589869952').equal(2L)
+    env.expect('HSET', 'doc4', 'PrimaryKey', '9::362311', 'CreatedDateTimeUTC', '637383865971600000').equal(2L)
+    env.expect('HSET', 'doc5', 'PrimaryKey', '9::362310', 'CreatedDateTimeUTC', '637383864050669952').equal(2L)
+    env.expect('HSET', 'doc6', 'PrimaryKey', '9::362309', 'CreatedDateTimeUTC', '637242254008029952').equal(2L)
+    env.expect('HSET', 'doc7', 'PrimaryKey', '9::362308', 'CreatedDateTimeUTC', '637242253551670016').equal(2L)
+    env.expect('HSET', 'doc8', 'PrimaryKey', '9::362306', 'CreatedDateTimeUTC', '637166988081200000').equal(2L)
+
+    _res = [8L,
+          ['PrimaryKey', '9::362330', 'CreatedDateTimeUTC', '637387878524969984'],
+          ['PrimaryKey', '9::362329', 'CreatedDateTimeUTC', '637387875859270016'],
+          ['PrimaryKey', '9::362326', 'CreatedDateTimeUTC', '637386176589869952'],
+          ['PrimaryKey', '9::362311', 'CreatedDateTimeUTC', '637383865971600000'],
+          ['PrimaryKey', '9::362310', 'CreatedDateTimeUTC', '637383864050669952'],
+          ['PrimaryKey', '9::362309', 'CreatedDateTimeUTC', '637242254008029952'],
+          ['PrimaryKey', '9::362308', 'CreatedDateTimeUTC', '637242253551670016'],
+          ['PrimaryKey', '9::362306', 'CreatedDateTimeUTC', '637166988081200000']]
+
+    res = [_res[0]] + _res[1:3]
+    env.expect('FT.AGGREGATE', 'idx', '*',
+                'APPLY', '@PrimaryKey', 'AS', 'PrimaryKey',
+                'SORTBY', '2', '@CreatedDateTimeUTC', 'DESC', 'LIMIT', '0', '2').equal(res)
+
+    res = [_res[0]] + _res[2:4]
+    env.expect('FT.AGGREGATE', 'idx', '*',
+                'APPLY', '@PrimaryKey', 'AS', 'PrimaryKey',
+                'SORTBY', '2', '@CreatedDateTimeUTC', 'DESC', 'LIMIT', '1', '2').equal(res)
+
+    res = [_res[0]] + _res[3:5]
+    env.expect('FT.AGGREGATE', 'idx', '*',
+                'APPLY', '@PrimaryKey', 'AS', 'PrimaryKey',
+                'SORTBY', '2', '@CreatedDateTimeUTC', 'DESC', 'LIMIT', '2', '2').equal(res)
