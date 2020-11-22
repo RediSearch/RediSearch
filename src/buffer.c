@@ -27,6 +27,9 @@ void Buffer::Reset() {
 }
 //---------------------------------------------------------------------------------------------
 
+// Ensure that at least extraLen new bytes can be added to the buffer.
+// Returns 0 if no realloc was performed. 1 if realloc was performed.
+
 void Buffer::Grow(size_t extraLen) {
   do {
     cap += MIN(1 + cap / 5, 1024 * 1024);
@@ -52,6 +55,16 @@ size_t Buffer::Truncate(size_t newlen) {
   data = rm_realloc(data, newlen);
   cap = newlen;
   return newlen;
+}
+
+//---------------------------------------------------------------------------------------------
+
+size_t Buffer::Reserve(size_t n) {
+  if (offset + n <= cap) {
+    return 0;
+  }
+  Grow(n);
+  return 1;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -90,7 +103,7 @@ Seek to a specific offset. If offset is out of bounds we seek to the end.
 */
 size_t BufferReader::Seek(size_t where) {
   pos = MIN(where, buf->cap);
-  return where;
+  return pos;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

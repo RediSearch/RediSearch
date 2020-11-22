@@ -47,18 +47,9 @@ struct Buffer {
   bool AtEnd() const { return offset >= cap; }
 
   size_t Truncate(size_t newlen);
-
-  // Ensure that at least extraLen new bytes can be added to the buffer.
-  // Returns 0 if no realloc was performed. 1 if realloc was performed.
   void Grow(size_t extraLen);
 
-  size_t Reserve(size_t n) {
-    if (offset + n <= cap) {
-      return 0;
-    }
-    Grow(n);
-    return 1;
-  }
+  size_t Reserve(size_t n);
 };
 
 //---------------------------------------------------------------------------------------------
@@ -160,15 +151,15 @@ struct BufferWriter {
   // These are convenience functions for writing numbers to/from a network
   size_t WriteU32(uint32_t u) {
     u = htonl(u);
-    return Write(&u, 4);
+    return Write(&u, sizeof(u));
   }
 
   size_t WriteU16(uint16_t u) {
     u = htons(u);
-    return Write(&u, 2);
+    return Write(&u, sizeof(u));
   }
 
-  size_t WriteU8(uint8_t u) { return Write(&u, 1); }
+  size_t WriteU8(uint8_t u) { return Write(&u, sizeof(u)); }
 
 };
 
