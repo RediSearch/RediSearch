@@ -148,3 +148,32 @@ def testIssue1305(env):
     res_expected = [3L, 'doc1', 'inf', ['title', '"hello,work"'], 'doc3', 'inf', ['title', '"hello"'], 'doc2', 'inf', ['title', '"work"']]
     res_actual = env.cmd('ft.search', 'myIdx', '~@title:{wor} ~@title:{hell}', 'WITHSCORES')
     env.assertListEqual(sorted(res_actual), sorted(res_expected))
+
+def test_1667(env):
+  env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'tag', 'TAG', 'text', 'TEXT')
+  env.expect('ft.search idx @tag:{a}').equal([0L])
+  env.expect('ft.search idx @tag:{b}').equal([0L])
+
+  env.expect('FT.ADD idx doc 1.0 FIELDS tag a,b').ok()
+  env.expect('FT.ADD idx doc1 1.0 FIELDS tag abc').ok()
+
+  # test single stopword
+  env.expect('ft.search idx @tag:{a}').equal([1L, 'doc', ['tag', 'a,b']])
+  env.expect('ft.search idx @tag:{b}').equal([1L, 'doc', ['tag', 'a,b']])
+  env.expect('ft.search idx @tag:{c}').equal([0L])
+
+  # test stopword in list
+  env.expect('ft.search idx @tag:{a|c}').equal([1L, 'doc', ['tag', 'a,b']])
+  env.expect('ft.search idx @tag:{c|a}').equal([1L, 'doc', ['tag', 'a,b']])
+  env.expect('ft.search idx @tag:{c|a|c}').equal([1L, 'doc', ['tag', 'a,b']])
+
+  # test stopword with prefix
+  env.expect('ft.search idx @tag:{ab*}').equal([1L, 'doc1', ['tag', 'abc']])
+  env.expect('ft.search idx @tag:{abc*}').equal([1L, 'doc1', ['tag', 'abc']])
+  
+  # ensure regular text field
+  env.expect('FT.ADD idx doc_a 1.0 FIELDS text a').ok()
+  env.expect('FT.ADD idx doc_b 1.0 FIELDS text b').ok()
+
+  env.expect('ft.search idx a').equal([0L])
+  env.expect('ft.search idx b').equal([1L, 'doc_b', ['text', 'b']])
