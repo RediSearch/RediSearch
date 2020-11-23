@@ -470,3 +470,62 @@ def testGroupbyNoReduce(env):
     for row in rv[1:]:
         env.assertEqual('primaryName', row[0])
         env.assertTrue('sarah' in row[1])
+
+def testStartsWith(env):
+    conn = getConnectionByEnv(env)
+    env.execute_command('ft.create', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE')    
+    conn.execute_command('hset', 'doc1', 't', 'aa')
+    conn.execute_command('hset', 'doc2', 't', 'aaa')
+    conn.execute_command('hset', 'doc3', 't', 'ab')
+
+    res = env.cmd('ft.aggregate', 'idx', '*', 'load', 1, 't', 'apply', 'startswith(@t, "aa")', 'as', 'prefix')
+    env.assertEqual(toSortedFlatList(res), toSortedFlatList([1L, ['t', 'aa', 'prefix', '1'], \
+                                                                 ['t', 'aaa', 'prefix', '1'], \
+                                                                 ['t', 'ab', 'prefix', '0']]))
+
+def testLimitIssue(env):
+    #ticket 66895
+    conn = getConnectionByEnv(env)
+    conn.execute_command('ft.create', 'idx', 'SCHEMA', 'PrimaryKey', 'TEXT', 'SORTABLE',
+                                           'CreatedDateTimeUTC', 'NUMERIC', 'SORTABLE')
+    conn.execute_command('HSET', 'doc1', 'PrimaryKey', '9::362330', 'CreatedDateTimeUTC', '637387878524969984')
+    conn.execute_command('HSET', 'doc2', 'PrimaryKey', '9::362329', 'CreatedDateTimeUTC', '637387875859270016')
+    conn.execute_command('HSET', 'doc3', 'PrimaryKey', '9::362326', 'CreatedDateTimeUTC', '637386176589869952')
+    conn.execute_command('HSET', 'doc4', 'PrimaryKey', '9::362311', 'CreatedDateTimeUTC', '637383865971600000')
+    conn.execute_command('HSET', 'doc5', 'PrimaryKey', '9::362310', 'CreatedDateTimeUTC', '637383864050669952')
+    conn.execute_command('HSET', 'doc6', 'PrimaryKey', '9::362309', 'CreatedDateTimeUTC', '637242254008029952')
+    conn.execute_command('HSET', 'doc7', 'PrimaryKey', '9::362308', 'CreatedDateTimeUTC', '637242253551670016')
+    conn.execute_command('HSET', 'doc8', 'PrimaryKey', '9::362306', 'CreatedDateTimeUTC', '637166988081200000')
+
+    _res = [8L,
+          ['PrimaryKey', '9::362330', 'CreatedDateTimeUTC', '637387878524969984'],
+          ['PrimaryKey', '9::362329', 'CreatedDateTimeUTC', '637387875859270016'],
+          ['PrimaryKey', '9::362326', 'CreatedDateTimeUTC', '637386176589869952'],
+          ['PrimaryKey', '9::362311', 'CreatedDateTimeUTC', '637383865971600000'],
+          ['PrimaryKey', '9::362310', 'CreatedDateTimeUTC', '637383864050669952'],
+          ['PrimaryKey', '9::362309', 'CreatedDateTimeUTC', '637242254008029952'],
+          ['PrimaryKey', '9::362308', 'CreatedDateTimeUTC', '637242253551670016'],
+          ['PrimaryKey', '9::362306', 'CreatedDateTimeUTC', '637166988081200000']]
+
+    actual_res = conn.execute_command('FT.AGGREGATE', 'idx', '*',
+                'APPLY', '@PrimaryKey', 'AS', 'PrimaryKey',
+                'SORTBY', '2', '@CreatedDateTimeUTC', 'DESC', 'LIMIT', '0', '8')
+    env.assertEqual(actual_res, _res)
+
+    res = [_res[0]] + _res[1:3]
+    actual_res = conn.execute_command('FT.AGGREGATE', 'idx', '*',
+                'APPLY', '@PrimaryKey', 'AS', 'PrimaryKey',
+                'SORTBY', '2', '@CreatedDateTimeUTC', 'DESC', 'LIMIT', '0', '2')
+    env.assertEqual(actual_res, res)
+
+    res = [_res[0]] + _res[2:4]
+    actual_res = conn.execute_command('FT.AGGREGATE', 'idx', '*',
+                'APPLY', '@PrimaryKey', 'AS', 'PrimaryKey',
+                'SORTBY', '2', '@CreatedDateTimeUTC', 'DESC', 'LIMIT', '1', '2')
+    env.assertEqual(actual_res, res)
+
+    res = [_res[0]] + _res[3:5]
+    actual_res = conn.execute_command('FT.AGGREGATE', 'idx', '*',
+                'APPLY', '@PrimaryKey', 'AS', 'PrimaryKey',
+                'SORTBY', '2', '@CreatedDateTimeUTC', 'DESC', 'LIMIT', '2', '2')
+    env.assertEqual(actual_res, res)
