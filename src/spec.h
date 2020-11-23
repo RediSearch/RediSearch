@@ -149,9 +149,11 @@ typedef struct Version {
   int buildVersion;  // if not exits then its zero
 } Version;
 
+extern Version noScanVersion;
 extern Version redisVersion;
 extern Version rlecVersion;
 extern bool isCrdt;
+extern bool isTrimming;
 
 /**
  * This "ID" type is independent of the field mask, and is used to distinguish
@@ -499,6 +501,7 @@ int IndexSpec_AddField(IndexSpec *sp, FieldSpec *fs);
 int IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, int when);
 void IndexSpec_RdbSave(RedisModuleIO *rdb, int when);
 void IndexSpec_Digest(RedisModuleDigest *digest, void *value);
+int CompareVestions(Version v1, Version v2);
 int IndexSpec_RegisterType(RedisModuleCtx *ctx);
 int IndexSpec_UpdateWithHash(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key);
 void IndexSpec_ClearAliases(IndexSpec *sp);

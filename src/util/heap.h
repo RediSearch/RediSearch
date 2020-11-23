@@ -67,6 +67,13 @@ int heap_offerx(heap_t * hp, void *item);
 void *heap_poll(heap_t * hp);
 
 /**
+ * Replace root item
+ *
+ * @param[in] item The item to replace item at root
+ * @return 0 on success; -1 on error */
+void heap_replace(heap_t *h, void *item);
+
+/**
  * @return top item of the heap */
 void *heap_peek(const heap_t * hp);
 

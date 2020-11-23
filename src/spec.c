@@ -46,6 +46,7 @@ dict *legacySpecRules;
 Version redisVersion;
 Version rlecVersion;
 bool isCrdt;
+bool isTrimming = false;
 
 //---------------------------------------------------------------------------------------------
 
@@ -774,7 +775,11 @@ void IndexSpec_FreeInternals(IndexSpec *spec) {
     }
     rm_free(spec->fields);
   }
-  IndexSpec_ClearAliases(spec);
+  if (spec->uniqueId) {
+    // If uniqueid is 0, it means the index was not initialized
+    // and is being freed now during an error.
+    IndexSpec_ClearAliases(spec);
+  }
 
   if (spec->keysDict) {
     dictRelease(spec->keysDict);
@@ -1551,6 +1556,9 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
   if (oldSpec) {
     // spec already exists lets just free this one
     RedisModule_Log(NULL, "notice", "Loading an already existing index, will just ignore.");
+    // setting unique id to zero will make sure index will not be removed from global
+    // cursor map and aliases.
+    sp->uniqueId = 0;
     IndexSpec_FreeInternals(sp);
     sp = oldSpec;
   } else {

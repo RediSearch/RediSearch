@@ -124,7 +124,7 @@ FT.CREATE idx ON HASH PREFIX 1 doc: SCHEMA name TEXT SORTABLE age NUMERIC SORTAB
 
     * **SORTABLE**
     
-        Numeric, tag or text field can have the optional SORTABLE argument that allows the user to later [sort the results by the value of this field](Sorting.md) (this adds memory overhead so do not declare it on large text fields).
+        Numeric, tag or text fields can have the optional SORTABLE argument that allows the user to later [sort the results by the value of this field](Sorting.md) (this adds memory overhead so do not declare it on large text fields).
       
     * **NOSTEM**
     
@@ -301,7 +301,7 @@ FT.SEARCH idx "@text:morphix=>{$phonetic:false}"
 - **LIMIT first num**: If the parameters appear after the query, we limit the results to 
   the offset and number of results given. The default is 0 10.
 
-!!! note
+!!! tip
     `LIMIT 0 0` can be used to count the number of documents in the resultset without actually returning them.
 
 #### Complexity
@@ -317,7 +317,7 @@ The time complexity for more complex queries varies, but in general it's proport
 If **NOCONTENT** was given, we return an array where the first element is the total number of results, and the rest of the members are document ids.
 
 !!! note "Expiration of hashes during a search query" 
-    If a hash expiry time is reached after the start of the query process, the hash will be counted in the total number of results but name and content of the hash would not be returned.
+    If a hash expiry time is reached after the start of the query process, the hash will be counted in the total number of results but name and content of the hash will not be returned.
 
 ---
 
@@ -1038,7 +1038,6 @@ Returns an array, where each element is term (string).
 ### FT.INFO
 
 #### Format
-FT.INFO
 ```
 FT.INFO {index} 
 ```
@@ -1146,7 +1145,7 @@ Optional
      4) "14796"
      5) total_cycles
      6) "1"
-     7) avarage_cycle_time_ms
+     7) average_cycle_time_ms
      8) "14796"
      9) last_run_time_ms
     10) "14796"
@@ -1180,6 +1179,41 @@ O(1)
 #### Returns
 
 Array Response. A nested array of keys and values.
+
+---
+
+### FT._LIST
+
+#### Format
+```
+  FT._LIST
+```
+
+#### Description
+
+Returns a list of all existing indexes.
+
+##### Example
+```sql
+FT._LIST
+1) "idx"
+2) "movies"
+3) "imdb"
+```
+
+#### Complexity
+
+O(n) where `n` is the number of indexes in the system.
+
+#### Returns
+
+An array with index names.
+
+!!! note "Temporary command"
+    The prefix `_` in the command indicates, this is a temporary command.
+
+    In the future, a `SCAN` type of command will be added, for use when a database
+    contains a large number of indices.
 
 ---
 
@@ -1345,7 +1379,7 @@ FT.DEL {index} {doc_id} [DD]
 #### Description
 
 !!! warning "Deprecation warning"
-    This command is deprecated and act as simpe redis DEL, the deleted document will be deleted from all the indexes it indexed on", Use DEL instead.
+    This command is deprecated and acts as a simple redis DEL, the deleted document will be deleted from all the indexes it indexed on", Use DEL instead.
 
 Deletes a document from the index. Returns 1 if the document was in the index, or 0 if not. 
 
