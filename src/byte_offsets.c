@@ -1,118 +1,136 @@
+
 #include "byte_offsets.h"
 #include <arpa/inet.h>
 
-RSByteOffsets *NewByteOffsets() {
-  RSByteOffsets *ret = rm_calloc(1, sizeof(*ret));
-  return ret;
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+RSByteOffsets::RSByteOffsets() {
+  fields = NULL;
+  numFields = 0;
 }
 
-void RSByteOffsets_Free(RSByteOffsets *offsets) {
-  rm_free(offsets->offsets.data);
-  rm_free(offsets->fields);
-  rm_free(offsets);
+//---------------------------------------------------------------------------------------------
+
+RSByteOffsets::~RSByteOffsets() {
+  rm_free(offsets.data);
+  if (fields) rm_free(fields);
 }
 
-void RSByteOffsets_ReserveFields(RSByteOffsets *offsets, size_t numFields) {
-  offsets->fields = rm_realloc(offsets->fields, sizeof(*offsets->fields) * numFields);
+//---------------------------------------------------------------------------------------------
+
+void RSByteOffsets::ReserveFields(size_t numFields) {
+  fields = rm_realloc(fields, sizeof(*fields) * numFields);
 }
 
-RSByteOffsetField *RSByteOffsets_AddField(RSByteOffsets *offsets, uint32_t fieldId,
-                                          uint32_t startPos) {
-  RSByteOffsetField *field = &(offsets->fields[offsets->numFields++]);
+//---------------------------------------------------------------------------------------------
+
+RSByteOffsetField *RSByteOffsets::AddField(uint32_t fieldId, uint32_t startPos) {
+  RSByteOffsetField *field = &(fields[numFields++]);
   field->fieldId = fieldId;
   field->firstTokPos = startPos;
   return field;
 }
 
-void ByteOffsetWriter_Move(ByteOffsetWriter *w, RSByteOffsets *offsets) {
-  offsets->offsets.data = w->buf.data;
-  offsets->offsets.len = w->buf.offset;
-  memset(&w->buf, 0, sizeof w->buf);
+//---------------------------------------------------------------------------------------------
+
+void ByteOffsetWriter::Move(RSByteOffsets *offsets) {
+  offsets->offsets.data = buf.data;
+  offsets->offsets.len = buf.offset;
+  memset(&buf, 0, sizeof(buf));
 }
 
-void RSByteOffsets_Serialize(const RSByteOffsets *offsets, Buffer *b) {
-  BufferWriter w = NewBufferWriter(b);
+//---------------------------------------------------------------------------------------------
 
-  Buffer_WriteU8(&w, offsets->numFields);
+void RSByteOffsets::Serialize(Buffer *b) const {
+  BufferWriter w(b);
 
-  for (size_t ii = 0; ii < offsets->numFields; ++ii) {
-    Buffer_WriteU8(&w, offsets->fields[ii].fieldId);
-    Buffer_WriteU32(&w, offsets->fields[ii].firstTokPos);
-    Buffer_WriteU32(&w, offsets->fields[ii].lastTokPos);
+  w.WriteU8(numFields);
+
+  for (size_t i = 0; i < numFields; ++i) {
+    w.WriteU8(fields[i].fieldId);
+    w.WriteU32(fields[i].firstTokPos);
+    w.WriteU32(fields[i].lastTokPos);
   }
 
-  Buffer_WriteU32(&w, offsets->offsets.len);
-  Buffer_Write(&w, offsets->offsets.data, offsets->offsets.len);
+  w.WriteU32(offsets.len);
+  w.Write(offsets.data, offsets.len);
 }
 
-RSByteOffsets *LoadByteOffsets(Buffer *buf) {
-  BufferReader r = NewBufferReader(buf);
+//---------------------------------------------------------------------------------------------
 
-  RSByteOffsets *offsets = NewByteOffsets();
-  uint8_t numFields = Buffer_ReadU8(&r);
-  RSByteOffsets_ReserveFields(offsets, numFields);
+RSByteOffsets::RSByteOffsets(const Buffer &buf) {
+  BufferReader r(&buf);
 
-  for (size_t ii = 0; ii < numFields; ++ii) {
-    uint8_t fieldId = Buffer_ReadU8(&r);
-    uint32_t firstTok = Buffer_ReadU32(&r);
-    uint32_t lastTok = Buffer_ReadU32(&r);
-    RSByteOffsetField *fieldInfo = RSByteOffsets_AddField(offsets, fieldId, firstTok);
+  uint8_t numFields = r.ReadU8();
+  ReserveFields(numFields);
+
+  for (size_t i = 0; i < numFields; ++i) {
+    uint8_t fieldId = r.ReadU8();
+    uint32_t firstTok = r.ReadU32();
+    uint32_t lastTok = r.ReadU32();
+    RSByteOffsetField *fieldInfo = AddField(fieldId, firstTok);
     fieldInfo->lastTokPos = lastTok;
   }
 
-  uint32_t offsetsLen = Buffer_ReadU32(&r);
-  offsets->offsets.len = offsetsLen;
+  uint32_t offsetsLen = r.ReadU32();
+  offsets.len = offsetsLen;
   if (offsetsLen) {
-    offsets->offsets.data = rm_malloc(offsetsLen);
-    Buffer_Read(&r, offsets->offsets.data, offsetsLen);
+    offsets.data = rm_malloc(offsetsLen);
+    r.Read(offsets.data, offsetsLen);
   } else {
-    offsets->offsets.data = NULL;
+    offsets.data = NULL;
   }
-
-  return offsets;
 }
 
-int RSByteOffset_Iterate(const RSByteOffsets *offsets, uint32_t fieldId,
-                         RSByteOffsetIterator *iter) {
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+RSByteOffsetIterator::RSByteOffsetIterator(const RSByteOffsets &offsets, uint32_t fieldId) :
+  rdr(&buf) {
+
+  valid = false;
+
   const RSByteOffsetField *offField = NULL;
-  for (size_t ii = 0; ii < offsets->numFields; ++ii) {
-    if (offsets->fields[ii].fieldId == fieldId) {
-      offField = offsets->fields + ii;
+  for (size_t i = 0; i < offsets.numFields; ++i) {
+    if (offsets.fields[i].fieldId == fieldId) {
+      offField = &offsets.fields[i];
       break;
     }
   }
   if (!offField) {
-    return REDISMODULE_ERR;
+    return;
   }
 
   // printf("Generating iterator for fieldId=%lu. BeginPos=%lu. EndPos=%lu\n", fieldId,
   //        offField->firstTokPos, offField->lastTokPos);
 
-  iter->buf.cap = 0;
-  iter->buf.data = offsets->offsets.data;
-  iter->buf.offset = offsets->offsets.len;
-  iter->rdr = NewBufferReader(&iter->buf);
-  iter->curPos = 1;
-  iter->endPos = offField->lastTokPos;
+  buf.cap = 0;
+  buf.data = offsets.offsets.data;
+  buf.offset = offsets.offsets.len;
+  rdr.Set(&buf);
+  curPos = 1;
+  endPos = offField->lastTokPos;
 
-  iter->lastValue = 0;
-
-  while (iter->curPos < offField->firstTokPos && !BufferReader_AtEnd(&iter->rdr)) {
+  lastValue = 0;
+  while (curPos < offField->firstTokPos && !rdr.AtEnd()) {
     // printf("Seeking & incrementing\n");
-    iter->lastValue = ReadVarint(&iter->rdr) + iter->lastValue;
-    iter->curPos++;
+    lastValue += ReadVarint(rdr);
+    curPos++;
   }
 
   // printf("Iterator is now at %lu\n", iter->curPos);
-  iter->curPos--;
-  return REDISMODULE_OK;
+  curPos--;
+  valid = true;;
 }
 
-uint32_t RSByteOffsetIterator_Next(RSByteOffsetIterator *iter) {
-  if (BufferReader_AtEnd(&iter->rdr) || ++iter->curPos > iter->endPos) {
+//---------------------------------------------------------------------------------------------
+
+uint32_t RSByteOffsetIterator::Next() {
+  if (!valid || rdr.AtEnd() || ++curPos > endPos) {
     return RSBYTEOFFSET_EOF;
   }
 
-  iter->lastValue = ReadVarint(&iter->rdr) + iter->lastValue;
-  return iter->lastValue;
+  lastValue += ReadVarint(rdr);
+  return lastValue;
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////

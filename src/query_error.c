@@ -2,13 +2,30 @@
 #include "rmutil/rm_assert.h"
 #include "rmalloc.h"
 
-void QueryError_Init(QueryError *qerr) {
-  RS_LOG_ASSERT(qerr, "QueryError should not be NULL");
-  qerr->code = QUERY_OK;
-  qerr->detail = NULL;
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+QueryError::QueryError() {
+  code = QUERY_OK;
+  detail = NULL;
 }
 
-void QueryError_FmtUnknownArg(QueryError *err, ArgsCursor *ac, const char *name) {
+//---------------------------------------------------------------------------------------------
+
+/**
+ * Sets the current error from the current argument within the args cursor
+ * @param err the error object
+ * @param ac the argument cursor
+ * @param name a prefix to be used in the message to better identify the subsystem
+ *  which threw the error. This is similar to the 'message' functionality in perror(3)
+ *
+ * Equivalent to the following boilerplate:
+ * @code{c}
+ *  const char *unknown = AC_GetStringNC(ac, NULL);
+ *  err.SetErrorFmt(QUERY_EPARSEARGS, "Unknown argument for %s: %s", name, unknown);
+ * @endcode
+ */
+
+void QueryError::FmtUnknownArg(ArgsCursor *ac, const char *name) {
   RS_LOG_ASSERT(!AC_IsAtEnd(ac), "cursor should not be at the end");
   const char *s;
   size_t n;
@@ -17,11 +34,15 @@ void QueryError_FmtUnknownArg(QueryError *err, ArgsCursor *ac, const char *name)
     n = strlen(s);
   }
 
-  QueryError_SetErrorFmt(err, QUERY_EPARSEARGS, "Unknown argument `%.*s` at position %lu for %s",
-                         (int)n, s, ac->offset, name);
+  SetErrorFmt(QUERY_EPARSEARGS, "Unknown argument `%.*s` at position %lu for %s",
+              (int)n, s, ac->offset, name);
 }
 
-const char *QueryError_Strerror(QueryErrorCode code) {
+//---------------------------------------------------------------------------------------------
+
+// Return the constant string of an error code
+
+const char *QueryError::Strerror(QueryErrorCode code) {
   if (code == QUERY_OK) {
     return "Success (not an error)";
   }
@@ -34,61 +55,91 @@ const char *QueryError_Strerror(QueryErrorCode code) {
   return "Unknown status code";
 }
 
-void QueryError_SetError(QueryError *status, QueryErrorCode code, const char *err) {
-  if (status->code != QUERY_OK) {
+//---------------------------------------------------------------------------------------------
+
+/**
+ * Set the error code of the query. If `err` is present, then the error
+ * object must eventually be released using QueryError_Clear().
+ *
+ * Only has an effect if no error is already present
+ */
+
+void QueryError::SetError(QueryErrorCode c, const char *err) {
+  if (code != QUERY_OK) {
     return;
   }
-  RS_LOG_ASSERT(!status->detail, "detail of error is missing");
-  status->code = code;
+  RS_LOG_ASSERT(!detail, "detail of error is missing");
+  code = c;
 
   if (err) {
-    status->detail = rm_strdup(err);
+    detail = rm_strdup(err);
   } else {
-    status->detail = rm_strdup(QueryError_Strerror(code));
+    detail = rm_strdup(Strerror(code));
   }
 }
 
-void QueryError_SetCode(QueryError *status, QueryErrorCode code) {
-  if (status->code == QUERY_OK) {
-    status->code = code;
+//---------------------------------------------------------------------------------------------
+
+// Set the error code of the query without setting an error string
+
+void QueryError::SetCode(QueryErrorCode c) {
+  if (code == QUERY_OK) {
+    code = c;
   }
 }
 
-void QueryError_ClearError(QueryError *err) {
-  if (err->detail) {
-    rm_free(err->detail);
-    err->detail = NULL;
+//---------------------------------------------------------------------------------------------
+
+// Clear the error state, potentially releasing the embedded string
+
+void QueryError::ClearError() {
+  if (detail) {
+    rm_free(detail);
+    detail = NULL;
   }
-  err->code = QUERY_OK;
+  code = QUERY_OK;
 }
 
-void QueryError_SetErrorFmt(QueryError *status, QueryErrorCode code, const char *fmt, ...) {
-  if (status->code != QUERY_OK) {
+//---------------------------------------------------------------------------------------------
+
+// Set the error code using a custom-formatted string
+
+void QueryError::SetErrorFmt(QueryErrorCode c, const char *fmt, ...) {
+  if (code != QUERY_OK) {
     return;
   }
   va_list ap;
   va_start(ap, fmt);
-  rm_vasprintf(&status->detail, fmt, ap);
+  rm_vasprintf(&detail, fmt, ap);
   va_end(ap);
-  status->code = code;
+  code = c;
 }
 
-void QueryError_MaybeSetCode(QueryError *status, QueryErrorCode code) {
+//---------------------------------------------------------------------------------------------
+
+void QueryError::MaybeSetCode(QueryErrorCode c) {
   // Set the code if not previously set. This should be used by code which makes
   // use of the ::detail field, and is a placeholder for something like:
   // functionWithCharPtr(&status->detail);
   // if (status->detail && status->code == QUERY_OK) {
   //    status->code = MYCODE;
   // }
-  if (status->detail == NULL) {
+  if (detail == NULL) {
     return;
   }
-  if (status->code != QUERY_OK) {
+  if (code != QUERY_OK) {
     return;
   }
-  status->code = code;
+  code = c;
 }
 
-const char *QueryError_GetError(const QueryError *status) {
-  return status->detail ? status->detail : QueryError_Strerror(status->code);
+//---------------------------------------------------------------------------------------------
+
+// Retrieve the error string of the error itself. This will use either the
+// built-in error string for the given code, or the custom string within the object.
+
+const char *QueryError::GetError() {
+  return detail ? detail : Strerror(code);
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////
