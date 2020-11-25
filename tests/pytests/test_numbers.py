@@ -28,14 +28,12 @@ def testCompression(env):
 def testSanity(env):
 	repeat = 100000
 	conn = getConnectionByEnv(env)
-	pl = conn.pipeline()
 	env.cmd('ft.create', 'idx', 'SCHEMA', 'n', 'numeric')
 	for i in range(repeat):
-		pl.execute_command('hset', i, 'n', i % 1000)
-		if (i % 999) is 0:
-			pl.execute()
-	pl.execute()
+		conn.execute_command('hset', i, 'n', i % 100)
 	env.expect('ft.search', 'idx', ('@n:[0 %d]' % (repeat)), 'limit', 0 ,0).equal([repeat])
+	env.expect('FT.DEBUG', 'numidx_summary', 'idx', 'n') \
+				.equal(['numRanges', 12L, 'numEntries', 100000L, 'lastDocId', 100000L, 'revisionId', 11L])
 
 def testCompressionConfig(env):
 	conn = getConnectionByEnv(env)
