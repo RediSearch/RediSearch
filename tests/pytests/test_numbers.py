@@ -26,7 +26,6 @@ def testCompression(env):
 		env.expect('ft.search', 'idx', ('@n:[%s %s]' % (value, value))).equal([1L, str(i), ['n', str(value)]])
   
 def testSanity(env):
-	env.skip()
 	repeat = 100000
 	conn = getConnectionByEnv(env)
 	pl = conn.pipeline()
