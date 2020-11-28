@@ -2386,7 +2386,7 @@ def testCriteriaTesterDeactivated():
     env.cmd('ft.add', 'idx', 'doc1', 1, 'fields', 't1', 'hello1 hey hello2')
     env.cmd('ft.add', 'idx', 'doc2', 1, 'fields', 't1', 'hello2 hey')
     env.cmd('ft.add', 'idx', 'doc3', 1, 'fields', 't1', 'hey')
-
+    
     expected_res = sorted([2L, 'doc1', ['t1', 'hello1 hey hello2'], 'doc2', ['t1', 'hello2 hey']])
     actual_res = sorted(env.cmd('ft.search', 'idx', '(hey hello1)|(hello2 hey)'))
     env.assertEqual(expected_res, actual_res)

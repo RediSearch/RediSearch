@@ -98,6 +98,16 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
     if (!dmd || (dmd->flags & Document_Deleted)) {
       continue;
     }
+    if (isTrimming && RedisModule_ShardingGetKeySlot) {
+      RedisModuleString *key = RedisModule_CreateString(NULL, dmd->keyPtr, sdslen(dmd->keyPtr));
+      int slot = RedisModule_ShardingGetKeySlot(key);
+      RedisModule_FreeString(NULL, key);
+      int firstSlot, lastSlot;
+      RedisModule_ShardingGetSlotRange(&firstSlot, &lastSlot);
+      if (firstSlot > slot || lastSlot < slot) {
+        continue;
+      }
+    }
 
     // Increment the total results barring deleted results
     base->parent->totalResults++;
@@ -360,9 +370,11 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
 
     if (loadKeys) {
       QueryError status = {0};
-      RLookupLoadOptions loadopts = {.sctx = rp->parent->sctx, .dmd = h->dmd,
-                                    .nkeys = nloadKeys, .keys = loadKeys,
-                                    .status = &status};
+      RLookupLoadOptions loadopts = {.sctx = rp->parent->sctx,
+                                     .dmd = h->dmd,
+                                     .nkeys = nloadKeys,
+                                     .keys = loadKeys,
+                                     .status = &status};
       RLookup_LoadDocument(NULL, &h->rowdata, &loadopts);
       if (QueryError_HasError(&status)) {
         return RS_RESULT_ERROR;
@@ -601,12 +613,12 @@ static int rploaderNext(ResultProcessor *base, SearchResult *r) {
 
     QueryError status = {0};
     RLookupLoadOptions loadopts = {.sctx = lc->base.parent->sctx,  // lb
-                                  .dmd = r->dmd,
-                                  .noSortables = 1,
-                                  .forceString = 1,
-                                  .status = &status,
-                                  .keys = lc->fields,
-                                  .nkeys = lc->nfields};
+                                   .dmd = r->dmd,
+                                   .noSortables = 1,
+                                   .forceString = 1,
+                                   .status = &status,
+                                   .keys = lc->fields,
+                                   .nkeys = lc->nfields};
     if (isExplicitReturn) {
       loadopts.mode |= RLOOKUP_LOAD_KEYLIST;
     } else {
@@ -618,7 +630,7 @@ static int rploaderNext(ResultProcessor *base, SearchResult *r) {
       continue;
     }
     break;
-  } while(1);
+  } while (1);
   return RS_RESULT_OK;
 }
 

@@ -24,7 +24,7 @@ From command line:
 $ redis-server --loadmodule ./redisearch.so OPT1 OPT2
 ```
 
-## Setting Configuration Options In Run-Time
+## Setting Configuration Options At Run-Time
 
 As of v1.4.1, the [`FT.CONFIG`](Commands.md#ftconfig) allows setting some options during runtime. In addition, the command can be used to view the current run-time configuration options.
 

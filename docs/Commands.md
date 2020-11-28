@@ -124,7 +124,7 @@ FT.CREATE idx ON HASH PREFIX 1 doc: SCHEMA name TEXT SORTABLE age NUMERIC SORTAB
 
     * **SORTABLE**
     
-        Numeric, tag or text field can have the optional SORTABLE argument that allows the user to later [sort the results by the value of this field](Sorting.md) (this adds memory overhead so do not declare it on large text fields).
+        Numeric, tag or text fields can have the optional SORTABLE argument that allows the user to later [sort the results by the value of this field](Sorting.md) (this adds memory overhead so do not declare it on large text fields).
       
     * **NOSTEM**
     
@@ -317,7 +317,7 @@ The time complexity for more complex queries varies, but in general it's proport
 If **NOCONTENT** was given, we return an array where the first element is the total number of results, and the rest of the members are document ids.
 
 !!! note "Expiration of hashes during a search query" 
-    If a hash expiry time is reached after the start of the query process, the hash will be counted in the total number of results but name and content of the hash would not be returned.
+    If a hash expiry time is reached after the start of the query process, the hash will be counted in the total number of results but name and content of the hash will not be returned.
 
 ---
 
@@ -1379,7 +1379,7 @@ FT.DEL {index} {doc_id} [DD]
 #### Description
 
 !!! warning "Deprecation warning"
-    This command is deprecated and act as simpe redis DEL, the deleted document will be deleted from all the indexes it indexed on", Use DEL instead.
+    This command is deprecated and acts as a simple redis DEL, the deleted document will be deleted from all the indexes it indexed on", Use DEL instead.
 
 Deletes a document from the index. Returns 1 if the document was in the index, or 0 if not. 
 
