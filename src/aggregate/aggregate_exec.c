@@ -162,7 +162,7 @@ static int sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
 
   rc = rp->Next(rp, &r);
   if (rc == RS_RESULT_TIMEDOUT) {
-    if (!(req->reqflags & QEXEC_F_IS_CURSOR)) {
+    if (!(req->reqflags & QEXEC_F_IS_CURSOR) && RSGlobalConfig.timeoutPolicy == TimeoutPolicy_Fail) {
       RedisModule_ReplyWithSimpleString(outctx, "Timeout limit was reached");
     } else {
       rc = RS_RESULT_OK;
