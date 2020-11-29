@@ -20,10 +20,10 @@ RediSearch is a source available Secondary Index, Query Engine and Full-Text Sea
 
 ## Overview
 
-Redisearch implements a secondery index on top of Redis, but unlike other Redis 
+Redisearch implements a secondary index on top of Redis, but unlike other Redis 
 indexing libraries, it does not use internal data structures like sorted sets.
 
-This also enables more advanced features, like multi fields query, aggregation and full text search capabilites like
+This also enables more advanced features, like multi field queries, aggregation and full text search capabilites like
 exact phrase matching and numeric filtering for text queries, that are not possible or efficient with traditional Redis indexing approaches.
 
 ## Client Libraries
@@ -38,9 +38,9 @@ RediSearch has a distributed cluster version that can scale to billions of docum
 
 ## Primary Features
 
-* Secondery Index 
-* Multi fields query
-* Aggregation 
+* Secondary Index. 
+* Multi field queries.
+* Aggregation. 
 * Full-Text indexing of multiple fields in documents.
 * Incremental indexing without performance loss.
 * Document ranking (provided manually by the user at index time).
@@ -56,19 +56,19 @@ RediSearch has a distributed cluster version that can scale to billions of docum
 * Numeric filters and ranges.
 * Geo filtering using Redis' own Geo-commands. 
 * Unicode support (UTF-8 input required).
-* Retrieve full document content or just ids
+* Retrieve full document content or just ids.
 * Document deletion and updating with index garbage collection.
 * Partial and conditional document updates.
 
 ## References
 ### Videos
-1. [RediSearch? - RedisConf 2020] (https://youtu.be/9R29LLWquME)
+1. [RediSearch? - RedisConf 2020](https://youtu.be/9R29LLWquME)
 1. [RediSearch Overview - RedisConf 2019](https://youtu.be/AwnEhr9BO74) 
 1. [RediSearch & CRDT - Redis Day Tel Aviv 2019](https://youtu.be/OGC6Mx9E3jU)
 
 
 ### Course
-* [RU201: RediSearch](https://university.redislabs.com/courses/ru201/) - An online RediSearch course from [Redis University](https://university.redislabs.com/).
+* [RU203: Querying, Indexing, and Full-Text Search](https://university.redislabs.com/courses/ru203/) - An online RediSearch course from [Redis University](https://university.redislabs.com/).
 
 ### Blog posts
 1. [Mastering RediSearch / Part I](https://redislabs.com/blog/mastering-redisearch-part/)

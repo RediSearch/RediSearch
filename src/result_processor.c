@@ -59,12 +59,21 @@ static int RPGeneric_NextEOF(ResultProcessor *rp, SearchResult *res) {
 typedef struct {
   ResultProcessor base;
   IndexIterator *iiter;
+  struct timespec timeout;        // milliseconds until timeout
+  size_t timeoutLimiter;   // counter to limit number of calls to TimedOut()
 } RPIndexIterator;
 
 /* Next implementation */
 static int rpidxNext(ResultProcessor *base, SearchResult *res) {
   RPIndexIterator *self = (RPIndexIterator *)base;
   IndexIterator *it = self->iiter;
+
+  if (++self->timeoutLimiter == 100) {
+    self->timeoutLimiter = 0;
+    if (TimedOut(self->timeout) == RS_RESULT_TIMEDOUT) {
+      return RS_RESULT_TIMEDOUT;
+    }
+  }
 
   // No root filter - the query has 0 results
   if (self->iiter == NULL) {
@@ -89,6 +98,16 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
     if (!dmd || (dmd->flags & Document_Deleted)) {
       continue;
     }
+    if (isTrimming && RedisModule_ShardingGetKeySlot) {
+      RedisModuleString *key = RedisModule_CreateString(NULL, dmd->keyPtr, sdslen(dmd->keyPtr));
+      int slot = RedisModule_ShardingGetKeySlot(key);
+      RedisModule_FreeString(NULL, key);
+      int firstSlot, lastSlot;
+      RedisModule_ShardingGetSlotRange(&firstSlot, &lastSlot);
+      if (firstSlot > slot || lastSlot < slot) {
+        continue;
+      }
+    }
 
     // Increment the total results barring deleted results
     base->parent->totalResults++;
@@ -109,13 +128,19 @@ static void rpidxFree(ResultProcessor *iter) {
   rm_free(iter);
 }
 
-ResultProcessor *RPIndexIterator_New(IndexIterator *root) {
+ResultProcessor *RPIndexIterator_New(IndexIterator *root, struct timespec timeout) {
   RPIndexIterator *ret = rm_calloc(1, sizeof(*ret));
   ret->iiter = root;
+  ret->timeout = timeout;
   ret->base.Next = rpidxNext;
   ret->base.Free = rpidxFree;
   ret->base.name = "Index";
   return &ret->base;
+}
+
+void updateRPIndexTimeout(ResultProcessor *base, struct timespec timeout){
+  RPIndexIterator *self = (RPIndexIterator *)base;
+  self->timeout = timeout;
 }
 
 IndexIterator *QITR_GetRootFilter(QueryIterator *it) {
@@ -345,9 +370,11 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
 
     if (loadKeys) {
       QueryError status = {0};
-      RLookupLoadOptions loadopts = {.sctx = rp->parent->sctx, .dmd = h->dmd,
-                                    .nkeys = nloadKeys, .keys = loadKeys,
-                                    .status = &status};
+      RLookupLoadOptions loadopts = {.sctx = rp->parent->sctx,
+                                     .dmd = h->dmd,
+                                     .nkeys = nloadKeys,
+                                     .keys = loadKeys,
+                                     .status = &status};
       RLookup_LoadDocument(NULL, &h->rowdata, &loadopts);
       if (QueryError_HasError(&status)) {
         return RS_RESULT_ERROR;
@@ -586,12 +613,12 @@ static int rploaderNext(ResultProcessor *base, SearchResult *r) {
 
     QueryError status = {0};
     RLookupLoadOptions loadopts = {.sctx = lc->base.parent->sctx,  // lb
-                                  .dmd = r->dmd,
-                                  .noSortables = 1,
-                                  .forceString = 1,
-                                  .status = &status,
-                                  .keys = lc->fields,
-                                  .nkeys = lc->nfields};
+                                   .dmd = r->dmd,
+                                   .noSortables = 1,
+                                   .forceString = 1,
+                                   .status = &status,
+                                   .keys = lc->fields,
+                                   .nkeys = lc->nfields};
     if (isExplicitReturn) {
       loadopts.mode |= RLOOKUP_LOAD_KEYLIST;
     } else {
@@ -603,7 +630,7 @@ static int rploaderNext(ResultProcessor *base, SearchResult *r) {
       continue;
     }
     break;
-  } while(1);
+  } while (1);
   return RS_RESULT_OK;
 }
 

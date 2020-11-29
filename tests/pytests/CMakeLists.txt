@@ -12,7 +12,7 @@ IF (RS_VERBOSE_TESTS)
 ENDIF()
 
 FILE(GLOB PY_TEST_FILES "test*.py")
-SET(baseCommand "${CMAKE_CURRENT_SOURCE_DIR}/runtests.sh;--module=${RS_TEST_MODULE_SO};${RS_TEST_ARGS}")
+SET(baseCommand "${CMAKE_CURRENT_SOURCE_DIR}/runtests.sh;--module=${RS_TEST_MODULE_SO};${RS_TEST_ARGS};--module-args=timeout 100000")
 
 FOREACH(n ${PY_TEST_FILES})
     GET_FILENAME_COMPONENT(test_name ${n} NAME_WE)

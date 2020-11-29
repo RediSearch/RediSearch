@@ -29,9 +29,8 @@
 #include "redisearch_api.h"
 #include "alias.h"
 #include "module.h"
+#include "rwlock.h"
 #include "info_command.h"
-
-pthread_rwlock_t RWLock = PTHREAD_RWLOCK_INITIALIZER;
 
 #define LOAD_INDEX(ctx, srcname, write)                                                     \
   ({                                                                                        \
@@ -474,11 +473,11 @@ int SynUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   bool initialScan = true;
   int offset = 3;
   int loc = RMUtil_ArgIndex(SPEC_SKIPINITIALSCAN_STR, &argv[3], 1);
-  if (loc == 0) { // if doesn't exist, `-1` is returned
+  if (loc == 0) {  // if doesn't exist, `-1` is returned
     initialScan = false;
     offset = 4;
   }
-  
+
   IndexSpec_InitializeSynonym(sp);
 
   SynonymMap_UpdateRedisStr(sp->smap, argv + offset, argc - offset, id);
@@ -1049,5 +1048,6 @@ void __attribute__((destructor)) RediSearch_CleanupModule(void) {
     SchemaPrefixes_Free();
     RedisModule_FreeThreadSafeContext(RSDummyContext);
     Dictionary_Free();
+    RediSearch_LockDestory();
   }
 }
