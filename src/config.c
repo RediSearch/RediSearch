@@ -320,7 +320,15 @@ CONFIG_BOOLEAN_SETTER(setNumericCompress, numericCompress)
 CONFIG_BOOLEAN_GETTER(getNumericCompress, numericCompress, 0)
 
 CONFIG_SETTER(setNumericTreeMaxDepthRange) {
-  int acrc = AC_GetSize(ac, &config->numericTreeMaxDepthRange, AC_F_GE0);
+  size_t maxDepthRange;
+  int acrc = AC_GetSize(ac, &maxDepthRange, AC_F_GE0);
+  // Prevent rebalancing/rotating of nodes with ranges since we use highest node with range.
+  if (maxDepthRange > NR_MAX_DEPTH_BALANCE) {
+    QueryError_SetError(status, QUERY_EPARSEARGS, "Max depth for range cannot be higher "
+                                                  "than max depth for balance");
+    return REDISMODULE_ERR;   
+  }
+  config->numericTreeMaxDepthRange = maxDepthRange;
   RETURN_STATUS(acrc);
 }
 

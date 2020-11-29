@@ -12,7 +12,6 @@
 #define NR_EXPONENT 4
 #define NR_MAXRANGE_CARD 2500
 #define NR_MAXRANGE_SIZE 10000
-#define NR_MAX_DEPTH_BALANCE 2
 
 typedef struct {
   IndexIterator *it;
