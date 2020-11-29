@@ -2022,12 +2022,38 @@ def testIssue446(env):
     rv = env.cmd('ft.search', 'myIdx', 'hello', 'limit', '0', '0')
     env.assertEqual([2], rv)
 
+def testTimeout(env):
+    num_range = 1000
+    env.cmd('ft.config', 'set', 'timeout', '1')
+    env.cmd('ft.config', 'set', 'maxprefixexpansions', num_range)
+    env.cmd('ft.create', 'myIdx', 'schema', 't', 'TEXT')
+    for i in range(num_range):
+        env.expect('HSET', 'doc%d'%i, 't', 'aa' + str(i))
 
-def testTimeoutSettings(env):
-    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 't1', 'text')
-    env.expect('ft.search', 'idx', '*', 'ON_TIMEOUT', 'BLAHBLAH').raiseError()
-    env.expect('ft.search', 'idx', '*', 'ON_TIMEOUT', 'RETURN').notRaiseError()
-    env.expect('ft.search', 'idx', '*', 'ON_TIMEOUT', 'FAIL').notRaiseError()
+    env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', '0').noEqual([num_range])
+
+    env.expect('ft.config', 'set', 'on_timeout', 'fail').ok()
+    env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', '0') \
+                .contains('Timeout limit was reached')
+
+    res = env.cmd('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', 1000)
+    env.assertEqual(res[0], num_range)
+
+    # test erroneous params
+    env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout').error()
+    env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', -1).error()
+    env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', 'STR').error()
+
+    # test cursor
+    res = env.cmd('FT.AGGREGATE', 'myIdx', 'aa*', 'WITHCURSOR', 'count', 50, 'timeout', 5)
+    l = len(res[0]) - 1 # do not count the number of results (the first element in the results)
+    cursor = res[1]
+
+    time.sleep(0.01)
+    while cursor != 0:
+        r, cursor = env.cmd('FT.CURSOR', 'READ', 'myIdx', str(cursor))
+        l += (len(r) - 1)
+    env.assertEqual(l, 1000)
 
 def testAlias(env):
     conn = getConnectionByEnv(env)
@@ -2283,9 +2309,10 @@ def testCriteriaTesterDeactivated():
     env.cmd('ft.add', 'idx', 'doc1', 1, 'fields', 't1', 'hello1 hey hello2')
     env.cmd('ft.add', 'idx', 'doc2', 1, 'fields', 't1', 'hello2 hey')
     env.cmd('ft.add', 'idx', 'doc3', 1, 'fields', 't1', 'hey')
-    res = env.execute_command('ft.search', 'idx', '(hey hello1)|(hello2 hey)')
-    expected = [2L, 'doc1', ['t1', 'hello1 hey hello2'], 'doc2', ['t1', 'hello2 hey']]
-    env.assertEqual(toSortedFlatList(res), toSortedFlatList(expected))
+    
+    expected_res = sorted([2L, 'doc1', ['t1', 'hello1 hey hello2'], 'doc2', ['t1', 'hello2 hey']])
+    actual_res = sorted(env.cmd('ft.search', 'idx', '(hey hello1)|(hello2 hey)'))
+    env.assertEqual(expected_res, actual_res)
 
 def testIssue828(env):
     env.cmd('ft.create', 'beers', 'ON', 'HASH', 'SCHEMA',

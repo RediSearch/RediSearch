@@ -206,11 +206,11 @@ CONFIG_SETTER(setOnTimeout) {
   const char *policy;
   int acrc = AC_GetString(ac, &policy, NULL, 0);
   CHECK_RETURN_PARSE_ERROR(acrc);
-
-  if ((config->timeoutPolicy = TimeoutPolicy_Parse(policy, strlen(policy))) ==
-      TimeoutPolicy_Invalid) {
+  RSTimeoutPolicy top = TimeoutPolicy_Parse(policy, strlen(policy));
+  if (top == TimeoutPolicy_Invalid) {
     RETURN_ERROR("Invalid ON_TIMEOUT value");
   }
+  config->timeoutPolicy = top;
   return REDISMODULE_OK;
 }
 
