@@ -59,12 +59,21 @@ static int RPGeneric_NextEOF(ResultProcessor *rp, SearchResult *res) {
 typedef struct {
   ResultProcessor base;
   IndexIterator *iiter;
+  struct timespec timeout;        // milliseconds until timeout
+  size_t timeoutLimiter;   // counter to limit number of calls to TimedOut()
 } RPIndexIterator;
 
 /* Next implementation */
 static int rpidxNext(ResultProcessor *base, SearchResult *res) {
   RPIndexIterator *self = (RPIndexIterator *)base;
   IndexIterator *it = self->iiter;
+
+  if (++self->timeoutLimiter == 100) {
+    self->timeoutLimiter = 0;
+    if (TimedOut(self->timeout) == RS_RESULT_TIMEDOUT) {
+      return RS_RESULT_TIMEDOUT;
+    }
+  }
 
   // No root filter - the query has 0 results
   if (self->iiter == NULL) {
@@ -119,13 +128,19 @@ static void rpidxFree(ResultProcessor *iter) {
   rm_free(iter);
 }
 
-ResultProcessor *RPIndexIterator_New(IndexIterator *root) {
+ResultProcessor *RPIndexIterator_New(IndexIterator *root, struct timespec timeout) {
   RPIndexIterator *ret = rm_calloc(1, sizeof(*ret));
   ret->iiter = root;
+  ret->timeout = timeout;
   ret->base.Next = rpidxNext;
   ret->base.Free = rpidxFree;
   ret->base.name = "Index";
   return &ret->base;
+}
+
+void updateRPIndexTimeout(ResultProcessor *base, struct timespec timeout){
+  RPIndexIterator *self = (RPIndexIterator *)base;
+  self->timeout = timeout;
 }
 
 IndexIterator *QITR_GetRootFilter(QueryIterator *it) {

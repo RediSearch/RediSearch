@@ -171,7 +171,7 @@ void SearchResult_Clear(SearchResult *r);
  */
 void SearchResult_Destroy(SearchResult *r);
 
-ResultProcessor *RPIndexIterator_New(IndexIterator *itr);
+ResultProcessor *RPIndexIterator_New(IndexIterator *itr, struct timespec timeoutTime);
 
 ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
                               const ScoringFunctionArgs *fnargs);
@@ -207,6 +207,45 @@ ResultProcessor *RPHighlighter_New(const RSSearchOptions *searchopts, const Fiel
                                    const RLookup *lookup);
 
 void RP_DumpChain(const ResultProcessor *rp);
+
+/*****************************************
+ *            Timeout API
+ ****************************************/
+
+#define timercmp(a, b, CMP) \
+  (((a)->tv_sec == (b)->tv_sec) ? ((a)->tv_nsec CMP(b)->tv_nsec) : ((a)->tv_sec CMP(b)->tv_sec))
+
+#define timeradd(a, b, result)                       \
+  do {                                               \
+    (result)->tv_sec = (a)->tv_sec + (b)->tv_sec;    \
+    (result)->tv_nsec = (a)->tv_nsec + (b)->tv_nsec; \
+    if ((result)->tv_nsec >= 1000000000) {           \
+      ++(result)->tv_sec;                            \
+      (result)->tv_nsec -= 1000000000;               \
+    }                                                \
+  } while (0)
+
+static inline int TimedOut(struct timespec timeout) {
+  // Check the elapsed processing time
+  static struct timespec now;
+  clock_gettime(CLOCK_MONOTONIC_RAW, &now);
+
+  if (__builtin_expect(timercmp(&now, &timeout, >=), 0)) {
+    return RS_RESULT_TIMEDOUT;
+  }
+  return RS_RESULT_OK;
+}
+
+static inline void updateTimeout(struct timespec *timeout, int32_t durationNS) {
+  struct timespec now;
+  struct timespec duration = { .tv_sec = durationNS / 1000,
+                              .tv_nsec = ((durationNS % 1000) * 1000000) };
+  clock_gettime(CLOCK_MONOTONIC_RAW, &now);
+  timeradd(&now, &duration, timeout);
+  //printf("sec %ld ms %ld\n", now.tv_sec, now.tv_nsec);
+}
+
+void updateRPIndexTimeout(ResultProcessor *base, struct timespec timeout);
 
 #ifdef __cplusplus
 }
