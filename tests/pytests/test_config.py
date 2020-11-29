@@ -138,7 +138,7 @@ def testInitConfig(env):
     test_arg_num('FORK_GC_RETRY_INTERVAL', 3)
     test_arg_num('_MAX_RESULTS_TO_UNSORTED_MODE', 3)
     test_arg_num('UNION_ITERATOR_HEAP', 20)
-    test_arg_num('_NUMERIC_RANGES_PARENTS', 5)
+    test_arg_num('_NUMERIC_RANGES_PARENTS', 1)
 
     # True/False arguments
     def test_arg_true(arg_name):
