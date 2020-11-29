@@ -12,7 +12,7 @@ def testBenchmarkText(env):
   random.seed()
   num_docs = 1000000
   copies = 1000
-  num_queries = 100
+  num_queries = 10
   pipe_batch = 1000
 
   pl = env.getConnection().pipeline()
@@ -26,7 +26,7 @@ def testBenchmarkText(env):
   waitForIndex(env, 'idx')
 
   for i in range(num_queries):
-    pl.execute_command('FT.SEARCH','idx', '*', 'LIMIT', 0, 0)
+    pl.execute_command('FT.SEARCH','idx', '*', 'nocontent', 'LIMIT', 0, 100)
     
   start_time = time()
   pl.execute()
