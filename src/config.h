@@ -87,6 +87,11 @@ typedef struct {
   int noMemPool;
 
   int filterCommands;
+
+  // compress double to float
+  int numericCompress;
+  // keep numeric ranges in parents of leafs
+  size_t numericTreeMaxDepthRange;
 } RSConfig;
 
 typedef enum {
@@ -154,6 +159,7 @@ sds RSConfig_GetInfoString(const RSConfig *config);
 #define DEFAULT_FORK_GC_RUN_INTERVAL 30
 #define DEFAULT_MAX_RESULTS_TO_UNSORTED_MODE 1000
 #define SEARCH_REQUEST_RESULTS_MAX 1000000
+#define NR_MAX_DEPTH_BALANCE 2
 
 // default configuration
 #define RS_DEFAULT_CONFIG                                                                         \
@@ -168,6 +174,7 @@ sds RSConfig_GetInfoString(const RSConfig *config);
     .forkGcSleepBeforeExit = 0, .maxResultsToUnsortedMode = DEFAULT_MAX_RESULTS_TO_UNSORTED_MODE, \
     .forkGcRetryInterval = 5, .forkGcCleanThreshold = 100, .noMemPool = 0, .filterCommands = 0,   \
     .maxSearchResults = SEARCH_REQUEST_RESULTS_MAX, .minUnionIterHeap = 20,                       \
+    .numericCompress = false, .numericTreeMaxDepthRange = 0,                                       \
   }
 
 #endif
