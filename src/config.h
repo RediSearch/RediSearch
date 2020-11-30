@@ -6,7 +6,6 @@
 #include "query_error.h"
 
 typedef enum {
-  TimeoutPolicy_Default = 0,  // Defer to global config
   TimeoutPolicy_Return,       // Return what we have on timeout
   TimeoutPolicy_Fail,         // Just fail without returning anything
   TimeoutPolicy_Invalid       // Not a real value
@@ -54,14 +53,14 @@ typedef struct {
   // 0 means unlimited
   long long queryTimeoutMS;
 
+  long long timeoutPolicy;
+
   // Number of rows to read from a cursor if not specified
   long long cursorReadSize;
 
   // Maximum idle time for a cursor. Users can use shorter lifespans, but never
   // longer ones
   long long cursorMaxIdle;
-
-  long long timeoutPolicy;
 
   size_t maxDocTableSize;
   size_t maxSearchResults;

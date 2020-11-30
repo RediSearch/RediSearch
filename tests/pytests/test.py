@@ -1378,83 +1378,6 @@ def testNumericRange(env):
             'ft.search', 'idx', 'hello kitty @score:[-inf +inf]', "nocontent")
         env.assertEqual(100, res[0])
 
-def testSuggestions(env):
-    r = env
-    r.expect('ft.SUGADD', 'ac', 'hello world', 1).equal(1)
-    r.expect('ft.SUGADD', 'ac', 'hello world', 1, 'INCR').equal(1)
-
-    res = r.execute_command("FT.SUGGET", "ac", "hello")
-    env.assertEqual(1, len(res))
-    env.assertEqual("hello world", res[0])
-
-    terms = ["hello werld", "hallo world",
-             "yellow world", "wazzup", "herp", "derp"]
-    sz = 2
-    for term in terms:
-        r.expect('ft.SUGADD', 'ac', term, sz - 1).equal(sz)
-        sz += 1
-
-    for _ in r.retry_with_rdb_reload():
-        r.expect('ft.SUGLEN', 'ac').equal(7)
-
-        # search not fuzzy
-        r.expect("ft.SUGGET", "ac", "hello").equal(["hello world", "hello werld"])
-
-        # print  r.execute_command("ft.SUGGET", "ac", "hello", "FUZZY", "MAX", "1", "WITHSCORES")
-        # search fuzzy - shuold yield more results
-        r.expect("ft.SUGGET", "ac", "hello", "FUZZY")\
-         .equal(['hello world', 'hello werld', 'yellow world', 'hallo world'])
-
-        # search fuzzy with limit of 1
-        r.expect("ft.SUGGET", "ac", "hello", "FUZZY", "MAX", "1").equal(['hello world'])
-
-        # scores should return on WITHSCORES
-        res = r.execute_command("ft.SUGGET", "ac", "hello", "WITHSCORES")
-        env.assertEqual(4, len(res))
-        env.assertTrue(float(res[1]) > 0)
-        env.assertTrue(float(res[3]) > 0)
-
-    r.expect("ft.SUGDEL", "ac", "hello world").equal(1L)
-    r.expect("ft.SUGDEL", "ac", "world").equal(0L)
-
-    r.expect("ft.SUGGET", "ac", "hello").equal(['hello werld'])
-
-def testSuggestErrors(env):
-    env.expect('ft.SUGADD ac olah 1').equal(1)
-    env.expect('ft.SUGADD ac olah 1 INCR').equal(1)
-    env.expect('ft.SUGADD ac missing').error().contains("wrong number of arguments")
-    env.expect('ft.SUGADD ac olah not_a_number').error().contains("invalid score")
-    env.expect('ft.SUGADD ac olah 1 PAYLOAD').error().contains('Invalid payload: Expected an argument, but none provided')
-    env.expect('ft.SUGADD ac olah 1 REDIS PAYLOAD payload').error().contains('Unknown argument `REDIS`')
-    env.expect('ft.SUGGET ac olah FUZZ').error().contains("Unrecognized argument: FUZZ")
-    query = 'verylongquery'
-    for _ in range(3):
-        query += query
-    env.expect('ft.SUGGET ac', query).error().contains("Invalid query")
-    env.expect('ft.SUGGET ac', query + query).error().contains("Invalid query length")
-
-def testSuggestPayload(env):
-    r = env
-    env.assertEqual(1, r.execute_command(
-        'ft.SUGADD', 'ac', 'hello world', 1, 'PAYLOAD', 'foo'))
-    env.assertEqual(2, r.execute_command(
-        'ft.SUGADD', 'ac', 'hello werld', 1, 'PAYLOAD', 'bar'))
-    env.assertEqual(3, r.execute_command(
-        'ft.SUGADD', 'ac', 'hello nopayload', 1, 'PAYLOAD', ''))
-    env.assertEqual(4, r.execute_command(
-        'ft.SUGADD', 'ac', 'hello nopayload2', 1))
-
-    res = r.execute_command("FT.SUGGET", "ac", "hello", 'WITHPAYLOADS')
-    env.assertListEqual(['hello world', 'foo', 'hello werld', 'bar', 'hello nopayload', None, 'hello nopayload2', None],
-                         res)
-    res = r.execute_command("FT.SUGGET", "ac", "hello")
-    env.assertListEqual(['hello world',  'hello werld', 'hello nopayload', 'hello nopayload2'],
-                         res)
-    res = r.execute_command(
-        "FT.SUGGET", "ac", "hello", 'WITHPAYLOADS', 'WITHSCORES')
-    # we don't compare the scores beause they may change
-    env.assertEqual(12, len(res))
-
 def testPayload(env):
     r = env
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'PAYLOAD_FIELD', '__payload', 'schema', 'f', 'text').ok()
@@ -2099,12 +2022,38 @@ def testIssue446(env):
     rv = env.cmd('ft.search', 'myIdx', 'hello', 'limit', '0', '0')
     env.assertEqual([2], rv)
 
+def testTimeout(env):
+    num_range = 1000
+    env.cmd('ft.config', 'set', 'timeout', '1')
+    env.cmd('ft.config', 'set', 'maxprefixexpansions', num_range)
+    env.cmd('ft.create', 'myIdx', 'schema', 't', 'TEXT')
+    for i in range(num_range):
+        env.expect('HSET', 'doc%d'%i, 't', 'aa' + str(i))
 
-def testTimeoutSettings(env):
-    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 't1', 'text')
-    env.expect('ft.search', 'idx', '*', 'ON_TIMEOUT', 'BLAHBLAH').raiseError()
-    env.expect('ft.search', 'idx', '*', 'ON_TIMEOUT', 'RETURN').notRaiseError()
-    env.expect('ft.search', 'idx', '*', 'ON_TIMEOUT', 'FAIL').notRaiseError()
+    env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', '0').noEqual([num_range])
+
+    env.expect('ft.config', 'set', 'on_timeout', 'fail').ok()
+    env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', '0') \
+                .contains('Timeout limit was reached')
+
+    res = env.cmd('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', 1000)
+    env.assertEqual(res[0], num_range)
+
+    # test erroneous params
+    env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout').error()
+    env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', -1).error()
+    env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', 'STR').error()
+
+    # test cursor
+    res = env.cmd('FT.AGGREGATE', 'myIdx', 'aa*', 'WITHCURSOR', 'count', 50, 'timeout', 5)
+    l = len(res[0]) - 1 # do not count the number of results (the first element in the results)
+    cursor = res[1]
+
+    time.sleep(0.01)
+    while cursor != 0:
+        r, cursor = env.cmd('FT.CURSOR', 'READ', 'myIdx', str(cursor))
+        l += (len(r) - 1)
+    env.assertEqual(l, 1000)
 
 def testAlias(env):
     conn = getConnectionByEnv(env)
@@ -2360,9 +2309,10 @@ def testCriteriaTesterDeactivated():
     env.cmd('ft.add', 'idx', 'doc1', 1, 'fields', 't1', 'hello1 hey hello2')
     env.cmd('ft.add', 'idx', 'doc2', 1, 'fields', 't1', 'hello2 hey')
     env.cmd('ft.add', 'idx', 'doc3', 1, 'fields', 't1', 'hey')
-    res = env.execute_command('ft.search', 'idx', '(hey hello1)|(hello2 hey)')
-    expected = [2L, 'doc1', ['t1', 'hello1 hey hello2'], 'doc2', ['t1', 'hello2 hey']]
-    env.assertEqual(toSortedFlatList(res), toSortedFlatList(expected))
+    
+    expected_res = sorted([2L, 'doc1', ['t1', 'hello1 hey hello2'], 'doc2', ['t1', 'hello2 hey']])
+    actual_res = sorted(env.cmd('ft.search', 'idx', '(hey hello1)|(hello2 hey)'))
+    env.assertEqual(expected_res, actual_res)
 
 def testIssue828(env):
     env.cmd('ft.create', 'beers', 'ON', 'HASH', 'SCHEMA',
@@ -2397,12 +2347,6 @@ def testIssue_884(env):
     env.assertEquals(len(expected), len(res))
     for v in expected:
         env.assertContains(v, res)
-
-def testIssue_866(env):
-    env.expect('ft.sugadd', 'sug', 'test123', '1').equal(1)
-    env.expect('ft.sugadd', 'sug', 'test456', '1').equal(2)
-    env.expect('ft.sugdel', 'sug', 'test').equal(0)
-    env.expect('ft.sugget', 'sug', '').equal(['test123', 'test456'])
 
 def testIssue_848(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test1', 'TEXT', 'SORTABLE').equal('OK')

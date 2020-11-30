@@ -91,7 +91,7 @@ def testAllConfig(env):
     env.assertEqual(res_dict['MAXSEARCHRESULTS'][0], '1000000')
     env.assertEqual(res_dict['MAXEXPANSIONS'][0], '200')
     env.assertEqual(res_dict['MAXPREFIXEXPANSIONS'][0], '200')
-    env.assertEqual(res_dict['TIMEOUT'][0], '500')
+    env.assertIn(res_dict['TIMEOUT'][0], ['500', '100000'])
     env.assertEqual(res_dict['INDEX_THREADS'][0], '8')
     env.assertEqual(res_dict['SEARCH_THREADS'][0], '20')
     env.assertEqual(res_dict['FRISOINI'][0], None)
@@ -124,7 +124,8 @@ def testInitConfig(env):
         env.stop()
 
     test_arg_num('MAXDOCTABLESIZE', 123456)
-    test_arg_num('TIMEOUT', 5)
+    #test_arg_num('TIMEOUT', 5)
+    test_arg_num('TIMEOUT', 100000) # On tests, timeout is set to 100000
     test_arg_num('MINPREFIX', 3)
     test_arg_num('FORKGC_SLEEP_BEFORE_EXIT', 5)
     test_arg_num('MAXEXPANSIONS', 5)
