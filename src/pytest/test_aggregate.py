@@ -470,3 +470,49 @@ def testGroupbyNoReduce(env):
     for row in rv[1:]:
         env.assertEqual('primaryName', row[0])
         env.assertTrue('sarah' in row[1])
+
+def testLimitIssue(env):
+    #ticket 66895
+    env.cmd('ft.create', 'idx', 'SCHEMA', 'PrimaryKey', 'TEXT', 'SORTABLE',
+                                           'CreatedDateTimeUTC', 'NUMERIC', 'SORTABLE')
+    env.cmd('ft.add', 'idx', 'doc1', 1, 'fields', 'PrimaryKey', '9::362330', 'CreatedDateTimeUTC', '637387878524969984')
+    env.cmd('ft.add', 'idx', 'doc2', 1, 'fields', 'PrimaryKey', '9::362329', 'CreatedDateTimeUTC', '637387875859270016')
+    env.cmd('ft.add', 'idx', 'doc3', 1, 'fields', 'PrimaryKey', '9::362326', 'CreatedDateTimeUTC', '637386176589869952')
+    env.cmd('ft.add', 'idx', 'doc4', 1, 'fields', 'PrimaryKey', '9::362311', 'CreatedDateTimeUTC', '637383865971600000')
+    env.cmd('ft.add', 'idx', 'doc5', 1, 'fields', 'PrimaryKey', '9::362310', 'CreatedDateTimeUTC', '637383864050669952')
+    env.cmd('ft.add', 'idx', 'doc6', 1, 'fields', 'PrimaryKey', '9::362309', 'CreatedDateTimeUTC', '637242254008029952')
+    env.cmd('ft.add', 'idx', 'doc7', 1, 'fields', 'PrimaryKey', '9::362308', 'CreatedDateTimeUTC', '637242253551670016')
+    env.cmd('ft.add', 'idx', 'doc8', 1, 'fields', 'PrimaryKey', '9::362306', 'CreatedDateTimeUTC', '637166988081200000')
+
+    _res = [8L,
+          ['PrimaryKey', '9::362330', 'CreatedDateTimeUTC', '637387878524969984'],
+          ['PrimaryKey', '9::362329', 'CreatedDateTimeUTC', '637387875859270016'],
+          ['PrimaryKey', '9::362326', 'CreatedDateTimeUTC', '637386176589869952'],
+          ['PrimaryKey', '9::362311', 'CreatedDateTimeUTC', '637383865971600000'],
+          ['PrimaryKey', '9::362310', 'CreatedDateTimeUTC', '637383864050669952'],
+          ['PrimaryKey', '9::362309', 'CreatedDateTimeUTC', '637242254008029952'],
+          ['PrimaryKey', '9::362308', 'CreatedDateTimeUTC', '637242253551670016'],
+          ['PrimaryKey', '9::362306', 'CreatedDateTimeUTC', '637166988081200000']]
+
+    actual_res = env.cmd('FT.AGGREGATE', 'idx', '*',
+                'APPLY', '@PrimaryKey', 'AS', 'PrimaryKey',
+                'SORTBY', '2', '@CreatedDateTimeUTC', 'DESC', 'LIMIT', '0', '8')
+    env.assertEqual(actual_res, _res)
+
+    res = [_res[0]] + _res[1:3]
+    actual_res = env.cmd('FT.AGGREGATE', 'idx', '*',
+                'APPLY', '@PrimaryKey', 'AS', 'PrimaryKey',
+                'SORTBY', '2', '@CreatedDateTimeUTC', 'DESC', 'LIMIT', '0', '2')
+    env.assertEqual(actual_res, res)
+
+    res = [_res[0]] + _res[2:4]
+    actual_res = env.cmd('FT.AGGREGATE', 'idx', '*',
+                'APPLY', '@PrimaryKey', 'AS', 'PrimaryKey',
+                'SORTBY', '2', '@CreatedDateTimeUTC', 'DESC', 'LIMIT', '1', '2')
+    env.assertEqual(actual_res, res)
+
+    res = [_res[0]] + _res[3:5]
+    actual_res = env.cmd('FT.AGGREGATE', 'idx', '*',
+                'APPLY', '@PrimaryKey', 'AS', 'PrimaryKey',
+                'SORTBY', '2', '@CreatedDateTimeUTC', 'DESC', 'LIMIT', '2', '2')
+    env.assertEqual(actual_res, res)
