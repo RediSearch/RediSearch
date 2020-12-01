@@ -2023,6 +2023,7 @@ def testIssue446(env):
     env.assertEqual([2], rv)
 
 def testTimeout(env):
+    env.skipOnCluster()
     num_range = 1000
     env.cmd('ft.config', 'set', 'timeout', '1')
     env.cmd('ft.config', 'set', 'maxprefixexpansions', num_range)
