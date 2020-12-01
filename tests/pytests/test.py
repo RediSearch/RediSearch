@@ -2046,7 +2046,7 @@ def testTimeout(env):
     env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', 'STR').error()
 
     # test cursor
-    res = env.cmd('FT.AGGREGATE', 'myIdx', 'aa*', 'WITHCURSOR', 'count', 50, 'timeout', 5)
+    res = env.cmd('FT.AGGREGATE', 'myIdx', 'aa*', 'WITHCURSOR', 'count', 50, 'timeout', 50)
     l = len(res[0]) - 1 # do not count the number of results (the first element in the results)
     cursor = res[1]
 
