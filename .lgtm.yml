@@ -5,11 +5,11 @@
 
 path_classifiers:
   generated:
-    - exclude: "**/src/query_parser/lexer.c"
-    - exclude: "**/src/aggregate/expr/lexer.c"
+    - exclude: "src/query_parser/lexer.c"
+    - exclude: "src/aggregate/expr/lexer.c"
   library:
-    - exclude: "**/deps"
-    - exclude: "**/src/dep"
+    - exclude: "deps"
+    - exclude: "src/dep"
 
 queries:
   - exclude: go
