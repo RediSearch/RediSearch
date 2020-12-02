@@ -724,8 +724,7 @@ int ConfigCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     size_t offset = 3;  // Might be == argc. SetOption deals with it.
     if (RSConfig_SetOption(&RSGlobalConfig, &RSGlobalConfigOptions, name, argv, argc, &offset,
                            &status) == REDISMODULE_ERR) {
-      RedisModule_ReplyWithSimpleString(ctx, QueryError_GetError(&status));
-      return REDISMODULE_OK;
+      return QueryError_ReplyAndClear(ctx, &status);
     }
     if (offset != argc) {
       RedisModule_ReplyWithSimpleString(ctx, "EXCESSARGS");

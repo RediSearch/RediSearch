@@ -211,7 +211,7 @@ TEST_F(QueryTest, testParser) {
   ast.setContext(&ctx);
   ASSERT_TRUE(ast.parse(qt));
   QueryNode *n = ast.root;
-  QAST_Print(&ast, ctx.spec);
+  //QAST_Print(&ast, ctx.spec);
   ASSERT_TRUE(n != NULL);
   ASSERT_EQ(n->type, QN_PHRASE);
   ASSERT_EQ(n->pn.exact, 0);
@@ -303,7 +303,7 @@ TEST_F(QueryTest, testFieldSpec) {
   const char *qt = "@title:hello world";
   QASTCXX ast(ctx);
   ASSERT_TRUE(ast.parse(qt)) << ast.getError();
-  ast.print();
+  //ast.print();
   QueryNode *n = ast.root;
   ASSERT_EQ(n->type, QN_PHRASE);
   ASSERT_EQ(n->opts.fieldMask, 0x01);
@@ -313,8 +313,8 @@ TEST_F(QueryTest, testFieldSpec) {
   n = ast.root;
 
   ASSERT_TRUE(n != NULL);
-  printf("%s ====> ", qt);
-  ast.print();
+  //printf("%s ====> ", qt);
+  //ast.print();
   ASSERT_EQ(n->type, QN_PHRASE);
   ASSERT_EQ(n->opts.fieldMask, RS_FIELDMASK_ALL);
   ASSERT_EQ(n->children[0]->opts.fieldMask, 0x01);
@@ -324,8 +324,8 @@ TEST_F(QueryTest, testFieldSpec) {
   qt = "@title:(hello world) @body:(world apart) @adas_dfsd:fofofof";
   ASSERT_TRUE(ast.parse(qt)) << ast.getError();
   n = ast.root;
-  printf("%s ====> ", qt);
-  ast.print();
+  //printf("%s ====> ", qt);
+  //ast.print();
   ASSERT_EQ(n->type, QN_PHRASE);
   ASSERT_EQ(n->opts.fieldMask, RS_FIELDMASK_ALL);
   ASSERT_EQ(QueryNode_NumChildren(n), 3);
@@ -378,7 +378,7 @@ TEST_F(QueryTest, testTags) {
   const char *qt = "@tags:{hello world  |foo| שלום|  lorem\\ ipsum    }";
   QASTCXX ast(ctx);
   ASSERT_TRUE(ast.parse(qt)) << ast.getError();
-  ast.print();
+  //ast.print();
   QueryNode *n = ast.root;
   ASSERT_EQ(n->type, QN_TAG);
   ASSERT_EQ(4, QueryNode_NumChildren(n));

@@ -11,6 +11,8 @@ def testConfigErrors(env):
     env.expect('ft.config', 'set', 'MINPREFIX', 1, 2).equal('EXCESSARGS')
     env.expect('ft.config', 'no_such_command', 'idx').equal('No such configuration action')
     env.expect('ft.config', 'idx').error().contains("wrong number of arguments for 'ft.config' command")
+    env.expect('ft.config', 'set', '_NUMERIC_RANGES_PARENTS', 3) \
+        .equal('Max depth for range cannot be higher than max depth for balance')
 
 def testGetConfigOptions(env):
     env.skipOnCluster()
@@ -36,7 +38,8 @@ def testGetConfigOptions(env):
     assert env.expect('ft.config', 'get', '_MAX_RESULTS_TO_UNSORTED_MODE').res[0][0] =='_MAX_RESULTS_TO_UNSORTED_MODE'
     assert env.expect('ft.config', 'get', 'PARTIAL_INDEXED_DOCS').res[0][0] =='PARTIAL_INDEXED_DOCS'
     assert env.expect('ft.config', 'get', 'UNION_ITERATOR_HEAP').res[0][0] =='UNION_ITERATOR_HEAP'
-
+    assert env.expect('ft.config', 'get', '_NUMERIC_COMPRESS').res[0][0] =='_NUMERIC_COMPRESS'
+    assert env.expect('ft.config', 'get', '_NUMERIC_RANGES_PARENTS').res[0][0] =='_NUMERIC_RANGES_PARENTS'
 '''
 
 Config options test. TODO : Fix 'Success (not an error)' parsing wrong error.
@@ -88,7 +91,7 @@ def testAllConfig(env):
     env.assertEqual(res_dict['MAXSEARCHRESULTS'][0], '1000000')
     env.assertEqual(res_dict['MAXEXPANSIONS'][0], '200')
     env.assertEqual(res_dict['MAXPREFIXEXPANSIONS'][0], '200')
-    env.assertEqual(res_dict['TIMEOUT'][0], '500')
+    env.assertIn(res_dict['TIMEOUT'][0], ['500', '100000'])
     env.assertEqual(res_dict['INDEX_THREADS'][0], '8')
     env.assertEqual(res_dict['SEARCH_THREADS'][0], '20')
     env.assertEqual(res_dict['FRISOINI'][0], None)
@@ -101,6 +104,8 @@ def testAllConfig(env):
     env.assertEqual(res_dict['CURSOR_MAX_IDLE'][0], '300000')
     env.assertEqual(res_dict['NO_MEM_POOLS'][0], 'false')
     env.assertEqual(res_dict['PARTIAL_INDEXED_DOCS'][0], 'false')
+    env.assertEqual(res_dict['_NUMERIC_COMPRESS'][0], 'false')
+    env.assertEqual(res_dict['_NUMERIC_RANGES_PARENTS'][0], '0')
 
     # skip ctest configured tests
     #env.assertEqual(res_dict['GC_POLICY'][0], 'fork')
@@ -119,7 +124,8 @@ def testInitConfig(env):
         env.stop()
 
     test_arg_num('MAXDOCTABLESIZE', 123456)
-    test_arg_num('TIMEOUT', 5)
+    #test_arg_num('TIMEOUT', 5)
+    test_arg_num('TIMEOUT', 100000) # On tests, timeout is set to 100000
     test_arg_num('MINPREFIX', 3)
     test_arg_num('FORKGC_SLEEP_BEFORE_EXIT', 5)
     test_arg_num('MAXEXPANSIONS', 5)
@@ -133,6 +139,7 @@ def testInitConfig(env):
     test_arg_num('FORK_GC_RETRY_INTERVAL', 3)
     test_arg_num('_MAX_RESULTS_TO_UNSORTED_MODE', 3)
     test_arg_num('UNION_ITERATOR_HEAP', 20)
+    test_arg_num('_NUMERIC_RANGES_PARENTS', 1)
 
     # True/False arguments
     def test_arg_true(arg_name):

@@ -12,8 +12,6 @@
 #include "inverted_index.h"
 #include "numeric_filter.h"
 
-#define RT_LEAF_CARDINALITY_MAX 500
-
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -57,7 +55,8 @@ typedef struct rtNode {
 typedef struct {
   int sz;
   int numRecords;
-  uint32_t changed;
+  int changed;
+  int numRanges;
 } NRN_AddRv;
 
 typedef struct {
