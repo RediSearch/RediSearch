@@ -26,6 +26,7 @@ def testCompression(env):
 		env.expect('ft.search', 'idx', ('@n:[%s %s]' % (value, value))).equal([1L, str(i), ['n', str(value)]])
   
 def testSanity(env):
+	env.skipOnCluster()
 	repeat = 100000
 	conn = getConnectionByEnv(env)
 	env.cmd('ft.create', 'idx', 'SCHEMA', 'n', 'numeric')
@@ -36,6 +37,7 @@ def testSanity(env):
 				.equal(['numRanges', 12L, 'numEntries', 100000L, 'lastDocId', 100000L, 'revisionId', 11L])
 
 def testCompressionConfig(env):
+	env.skipOnCluster()
 	conn = getConnectionByEnv(env)
 	env.cmd('ft.create', 'idx', 'SCHEMA', 'n', 'numeric')
 
@@ -63,6 +65,7 @@ def testCompressionConfig(env):
 		env.expect('ft.search', 'idx', '@n:[%s %s]' % (num, num)).equal([0L])
 
 def testRangeParentsConfig(env):
+	env.skipOnCluster()
 	elements = 1000
 	conn = getConnectionByEnv(env)
 
