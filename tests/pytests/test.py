@@ -2023,6 +2023,7 @@ def testIssue446(env):
     env.assertEqual([2], rv)
 
 def testTimeout(env):
+    env.skipOnCluster()
     num_range = 1000
     env.cmd('ft.config', 'set', 'timeout', '1')
     env.cmd('ft.config', 'set', 'maxprefixexpansions', num_range)
@@ -2045,7 +2046,7 @@ def testTimeout(env):
     env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', 'STR').error()
 
     # test cursor
-    res = env.cmd('FT.AGGREGATE', 'myIdx', 'aa*', 'WITHCURSOR', 'count', 50, 'timeout', 5)
+    res = env.cmd('FT.AGGREGATE', 'myIdx', 'aa*', 'WITHCURSOR', 'count', 50, 'timeout', 50)
     l = len(res[0]) - 1 # do not count the number of results (the first element in the results)
     cursor = res[1]
 
