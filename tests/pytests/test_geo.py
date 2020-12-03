@@ -23,7 +23,7 @@ def testGeoDistanceSimple(env):
   env.expect('FT.ADD', 'idx', 'geo2', '1', 'FIELDS', 'location', '1.24,4.56', 'hq', '1.25,4.5').ok()
   env.expect('FT.ADD', 'idx', 'geo3', '1', 'FIELDS', 'location', '1.23,4.55', 'hq', '1.25,4.5').ok()
   env.expect('FT.ADD', 'idx', 'geo4', '1', 'FIELDS', 'location', '1.23,4.57', 'hq', '1.25,4.5').ok()
-  env.expect('FT.SEARCH', 'idx', '@location:[1.23 4.56 10 km]', 'nocontent').equal([4L, 'geo4', 'geo3', 'geo2', 'geo1'])
+  env.expect('FT.SEARCH', 'idx', '@location:[1.23 4.56 10 km]', 'nocontent').equal([4L, 'geo1', 'geo2', 'geo3', 'geo4'])
 
   res = [4L, ['distance', '5987.15'], ['distance', '6765.06'], ['distance', '7456.63'], ['distance', '8095.49']]
 
