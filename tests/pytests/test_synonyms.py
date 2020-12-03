@@ -73,10 +73,10 @@ def testSynonymWithMultipleDocs(env):
 
     res = r.execute_command('ft.search', 'idx', 'offspring', 'EXPANDER', 'SYNONYM')
     env.assertEqual(res[0], 2L)
-    env.assertEqual(res[1], 'doc2')
-    env.assertEqual(set(res[2]), set(['title', 'she is a girl', 'body', 'the child sister']))
-    env.assertEqual(res[3], 'doc1')
-    env.assertEqual(set(res[4]), set(['title', 'he is a boy', 'body', 'this is a test']))
+    env.assertEqual(res[1], 'doc1')
+    env.assertEqual(set(res[2]), set(['title', 'he is a boy', 'body', 'this is a test']))
+    env.assertEqual(res[3], 'doc2')
+    env.assertEqual(set(res[4]), set(['title', 'she is a girl', 'body', 'the child sister']))
     
 
 def testSynonymUpdate(env):
@@ -196,7 +196,7 @@ def testSynonymsLowerCase(env):
     env.assertEqual(toSortedFlatList(dump), toSortedFlatList((['ahalan', ['id1'], 'shalom', ['id1'], 'hello', ['id1']])))
     env.expect('FT.ADD lowcase doc1 1 FIELDS foo hello').ok()
     env.expect('FT.ADD lowcase doc2 1 FIELDS foo HELLO').ok()
-    res = [2L, 'doc2', ['foo', 'HELLO'], 'doc1', ['foo', 'hello']]
+    res = [2L, 'doc1', ['foo', 'hello'], 'doc2', ['foo', 'HELLO']]
     env.expect('FT.SEARCH lowcase SHALOM').equal(res)
     env.expect('FT.SEARCH lowcase shalom').equal(res)
 

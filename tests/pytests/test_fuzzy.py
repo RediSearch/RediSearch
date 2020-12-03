@@ -29,7 +29,7 @@ def testStopwords(env):
     env.assertEqual([1, 'foo', ['t1', 'foo']], r)
 
     r = env.cmd('ft.search', 'idx', '%%with%%')
-    env.assertEqual([2, 'witha', ['t1', 'witha'], 'iwth', ['t1', 'iwth']], r)
+    env.assertEqual([2, 'iwth', ['t1', 'iwth'], 'witha', ['t1', 'witha']], r)
 
     r = env.cmd('ft.search', 'idx', '%with%')
     env.assertEqual([1, 'witha', ['t1', 'witha']], r)
@@ -56,12 +56,12 @@ def testFuzzyMultipleResults(env):
 
     res = r.execute_command('ft.search', 'idx', '%word%')
     env.assertEqual(res[0], 3L)
-    env.assertEqual(res[1], 'doc3')
-    env.assertEqual(set(res[2]), set(['title', 'hello ward', 'body', 'this is a test']))
+    env.assertEqual(res[1], 'doc1')
+    env.assertEqual(set(res[2]), set(['title', 'hello world', 'body', 'this is a test']))
     env.assertEqual(res[3], 'doc2')
     env.assertEqual(set(res[4]), set(['title', 'hello word', 'body', 'this is a test']))
-    env.assertEqual(res[5], 'doc1')
-    env.assertEqual(set(res[6]), set(['title', 'hello world', 'body', 'this is a test']))
+    env.assertEqual(res[5], 'doc3')
+    env.assertEqual(set(res[6]), set(['title', 'hello ward', 'body', 'this is a test']))
 
 def testFuzzySyntaxError(env):
     r = env

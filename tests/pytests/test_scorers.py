@@ -37,7 +37,7 @@ def testScoreTagIndex(env):
 
         env.expect('ft.add', 'idx', 'doc%d' % n, sc, 'fields',
                    'title', 'hello world ' * n, 'body', 'lorem ipsum ' * n).ok()
-    results_single = [
+    expected_results = [
         [24L, 'doc1', 1.97, 'doc2', 1.94, 'doc3',
             1.91, 'doc4', 1.88, 'doc5', 1.85],
         [24L, 'doc1', 0.9, 'doc2', 0.59, 'doc3',
@@ -49,21 +49,8 @@ def testScoreTagIndex(env):
         [24L, 'doc1', 0.99, 'doc2', 0.97, 'doc3',
             0.96, 'doc4', 0.94, 'doc5', 0.93]
     ]
-    results_cluster = [
-        [24L, 'doc1', 1.97, 'doc2', 1.94, 'doc3',
-            1.91, 'doc4', 1.88, 'doc5', 1.85],
-        [24L, 'doc1', 0.9, 'doc2', 0.59, 'doc3',
-            0.43, 'doc4', 0.34, 'doc5', 0.28],
-        [24L, 'doc4', 1.76, 'doc5', 1.75, 'doc3',
-            1.74, 'doc6', 1.73, 'doc7', 1.72],
-        [24L, 'doc24', 480.0, 'doc23', 460.0, 'doc22',
-            440.0, 'doc21', 420.0, 'doc20', 400.0],
-        [24L, 'doc1', 0.99, 'doc2', 0.97, 'doc3',
-            0.96, 'doc4', 0.94, 'doc5', 0.93],
-    ]
 
     scorers = ['TFIDF', 'TFIDF.DOCNORM', 'BM25', 'DISMAX', 'DOCSCORE']
-    expected_results = results_cluster if env.is_cluster() else results_single
 
     for _ in env.reloading_iterator():
         waitForIndex(env, 'idx')
@@ -97,11 +84,11 @@ def testTFIDFScorerExplanation(env):
     env.expect('ft.add', 'idx', 'doc3', 0.1, 'fields', 'title', 'hello yet another world',' body', 'lorem ist ipsum lorem lorem').ok()
     res = env.cmd('ft.search', 'idx', 'hello world', 'withscores', 'EXPLAINSCORE')
     env.assertEqual(res[0], 3L)
-    env.assertEqual(res[2][1],['Final TFIDF : words TFIDF 20.00 * document score 1.00 / norm 10 / slop 2',
+    env.assertEqual(res[2][1], ['Final TFIDF : words TFIDF 20.00 * document score 0.50 / norm 10 / slop 1',
                                 [['(Weight 1.00 * total children TFIDF 20.00)',
                                 ['(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)',
                                 '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)']]]])
-    env.assertEqual(res[5][1], ['Final TFIDF : words TFIDF 20.00 * document score 0.50 / norm 10 / slop 1',
+    env.assertEqual(res[5][1],['Final TFIDF : words TFIDF 20.00 * document score 1.00 / norm 10 / slop 2',
                                 [['(Weight 1.00 * total children TFIDF 20.00)',
                                 ['(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)',
                                 '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)']]]])
@@ -124,11 +111,11 @@ def testBM25ScorerExplanation(env):
         env.assertContains('Final BM25', res[5][1][0])
         env.assertContains('Final BM25', res[8][1][0])
     else:
-        env.assertEqual(res[2][1], ['Final BM25 : words BM25 1.56 * document score 1.00 / slop 2',
+        env.assertEqual(res[2][1], ['Final BM25 : words BM25 1.56 * document score 0.50 / slop 1',
                             [['(Weight 1.00 * children BM25 1.56)',
                             ['(0.78 = IDF 1.00 * F 10 / (F 10 + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len 3.67)))',
                             '(0.78 = IDF 1.00 * F 10 / (F 10 + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len 3.67)))']]]])
-        env.assertEqual(res[5][1], ['Final BM25 : words BM25 1.56 * document score 0.50 / slop 1',
+        env.assertEqual(res[5][1], ['Final BM25 : words BM25 1.56 * document score 1.00 / slop 2',
                             [['(Weight 1.00 * children BM25 1.56)',
                             ['(0.78 = IDF 1.00 * F 10 / (F 10 + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len 3.67)))',
                             '(0.78 = IDF 1.00 * F 10 / (F 10 + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len 3.67)))']]]])
