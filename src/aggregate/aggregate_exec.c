@@ -5,6 +5,8 @@
 #include "cursor.h"
 #include "rmutil/util.h"
 #include "score_explain.h"
+#include "commands.h"
+#include "profile.h"
 
 typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN } CommandType;
 static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num);
@@ -269,7 +271,7 @@ done:
 }
 
 static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                             CommandType type) {
+                             CommandType type, int withProfile) {
   // Index name is argv[1]
   if (argc < 2) {
     return RedisModule_WrongArity(ctx);
@@ -277,10 +279,19 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
 
   const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
   AREQ *r = NULL;
+  clock_t profileTime;
   QueryError status = {0};
+  if (withProfile) {
+    r->reqflags |= QEXEC_F_PROFILE;
+    profileTime = clock();
+  }
 
   if (buildRequest(ctx, argv, argc, type, &status, &r) != REDISMODULE_OK) {
     goto error;
+  }
+
+  if (withProfile) {
+    r->parseTime = clock() - profileTime;
   }
 
   if (r->reqflags & QEXEC_F_IS_CURSOR) {
@@ -302,10 +313,22 @@ error:
 }
 
 int RSAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  return execCommandCommon(ctx, argv, argc, COMMAND_AGGREGATE);
+  return execCommandCommon(ctx, argv, argc, COMMAND_AGGREGATE, 0);
 }
 int RSSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  return execCommandCommon(ctx, argv, argc, COMMAND_SEARCH);
+  return execCommandCommon(ctx, argv, argc, COMMAND_SEARCH, 0);
+}
+
+int RSProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  // TODO: time whole runtime
+  const char *cmd = RedisModule_StringPtrLen(argv[1], NULL);
+  if (strcasecmp(cmd, "SEARCH") == 0) {
+    return execCommandCommon(ctx, argv + 1, argc - 1, COMMAND_SEARCH, 1);
+  } else if (strcasecmp(cmd, "AGGREGATE") == 0) {
+    return execCommandCommon(ctx, argv + 1, argc - 1, COMMAND_AGGREGATE, 1);
+  }
+  RedisModule_ReplyWithError(ctx, "Bad command type");
+  return REDISMODULE_OK;
 }
 
 char *RS_GetExplainOutput(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,

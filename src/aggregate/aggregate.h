@@ -41,7 +41,10 @@ typedef enum {
   QEXEC_F_SENDRAWIDS = 0x2000,
 
   /* Flag for scorer function to create explanation strings */
-  QEXEC_F_SEND_SCOREEXPLAIN = 0x4000
+  QEXEC_F_SEND_SCOREEXPLAIN = 0x4000,
+
+  /* Profile command */
+  QEXEC_F_PROFILE = 0x8000,
 
 } QEFlags;
 
@@ -97,6 +100,9 @@ typedef struct {
   /** Cursor settings */
   unsigned cursorMaxIdle;
   unsigned cursorChunkSize;
+
+  /** Profile variables */
+  clock_t parseTime;
 } AREQ;
 
 /**
