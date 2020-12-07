@@ -28,6 +28,8 @@ def testGetConfigOptions(env):
     assert env.expect('ft.config', 'get', 'INDEX_THREADS').res[0][0] =='INDEX_THREADS'
     assert env.expect('ft.config', 'get', 'SEARCH_THREADS').res[0][0] =='SEARCH_THREADS'
     assert env.expect('ft.config', 'get', 'FRISOINI').res[0][0] =='FRISOINI'
+    assert env.expect('ft.config', 'get', 'MAXSEARCHRESULTS').res[0][0] =='MAXSEARCHRESULTS'
+    assert env.expect('ft.config', 'get', 'MAXAGGREGATERESULTS').res[0][0] =='MAXAGGREGATERESULTS'
     assert env.expect('ft.config', 'get', 'ON_TIMEOUT').res[0][0] == 'ON_TIMEOUT'
     assert env.expect('ft.config', 'get', 'GCSCANSIZE').res[0][0] =='GCSCANSIZE'
     assert env.expect('ft.config', 'get', 'MIN_PHONETIC_TERM_LEN').res[0][0] =='MIN_PHONETIC_TERM_LEN'
@@ -89,6 +91,7 @@ def testAllConfig(env):
     env.assertEqual(res_dict['FORKGC_SLEEP_BEFORE_EXIT'][0], '0')
     env.assertEqual(res_dict['MAXDOCTABLESIZE'][0], '1000000')
     env.assertEqual(res_dict['MAXSEARCHRESULTS'][0], '1000000')
+    env.assertEqual(res_dict['MAXAGGREGATERESULTS'][0], '1000000')
     env.assertEqual(res_dict['MAXEXPANSIONS'][0], '200')
     env.assertEqual(res_dict['MAXPREFIXEXPANSIONS'][0], '200')
     env.assertIn(res_dict['TIMEOUT'][0], ['500', '100000'])
@@ -172,3 +175,5 @@ def testInitConfig(env):
     test_arg_str('PARTIAL_INDEXED_DOCS', '1', 'true')
     test_arg_str('MAXSEARCHRESULTS', '100', '100')
     test_arg_str('MAXSEARCHRESULTS', '-1', 'unlimited')
+    test_arg_str('MAXAGGREGATERESULTS', '100', '100')
+    test_arg_str('MAXAGGREGATERESULTS', '-1', 'unlimited')

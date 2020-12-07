@@ -159,6 +159,26 @@ CONFIG_GETTER(getMaxSearchResults) {
   return sdscatprintf(ss, "%lu", config->maxSearchResults);
 }
 
+// MAXAGGREGATERESULTS
+CONFIG_SETTER(setMaxAggregateResults) {
+  long long newsize = 0;
+  int acrc = AC_GetLongLong(ac, &newsize, 0);
+  CHECK_RETURN_PARSE_ERROR(acrc);
+  if (newsize == -1) {
+    newsize = UINT64_MAX;
+  }
+  config->maxAggregateResults = newsize;
+  return REDISMODULE_OK;
+}
+
+CONFIG_GETTER(getMaxAggregateResults) {
+  sds ss = sdsempty();
+  if (config->maxAggregateResults == UINT64_MAX) {
+    return sdscatprintf(ss, "unlimited");
+  }
+  return sdscatprintf(ss, "%lu", config->maxAggregateResults);
+}
+
 // MAXEXPANSIONS MAXPREFIXEXPANSIONS
 CONFIG_SETTER(setMaxExpansions) {
   int acrc = AC_GetLongLong(ac, &config->maxPrefixExpansions, AC_F_GE1);
@@ -524,6 +544,10 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "Maximum number of results from ft.search command",
          .setValue = setMaxSearchResults,
          .getValue = getMaxSearchResults},
+        {.name = "MAXAGGREGATERESULTS",
+         .helpText = "Maximum number of results from ft.aggregate command",
+         .setValue = setMaxAggregateResults,
+         .getValue = getMaxAggregateResults},
         {.name = "MAXEXPANSIONS",
          .helpText = "Maximum prefix expansions to be used in a query",
          .setValue = setMaxExpansions,

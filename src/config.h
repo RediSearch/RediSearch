@@ -64,6 +64,7 @@ typedef struct {
 
   size_t maxDocTableSize;
   size_t maxSearchResults;
+  size_t maxAggregateResults;
   size_t searchPoolSize;
   size_t indexPoolSize;
   int poolSizeNoAuto;  // Don't auto-detect pool size
@@ -174,7 +175,8 @@ sds RSConfig_GetInfoString(const RSConfig *config);
     .forkGcSleepBeforeExit = 0, .maxResultsToUnsortedMode = DEFAULT_MAX_RESULTS_TO_UNSORTED_MODE, \
     .forkGcRetryInterval = 5, .forkGcCleanThreshold = 100, .noMemPool = 0, .filterCommands = 0,   \
     .maxSearchResults = SEARCH_REQUEST_RESULTS_MAX, .minUnionIterHeap = 20,                       \
-    .numericCompress = false, .numericTreeMaxDepthRange = 0,                                       \
+    .numericCompress = false, .numericTreeMaxDepthRange = 0,                                      \
+    .maxAggregateResults = SEARCH_REQUEST_RESULTS_MAX,                                            \
   }
 
 #endif

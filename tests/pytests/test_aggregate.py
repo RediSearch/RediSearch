@@ -418,13 +418,23 @@ class TestAggregate():
         self.env.assertEqual('__generated_aliasfirst_valuetitle,by,price,desc', rv[1][2])
 
     def testIssue1125(self):
-        rv = self.env.cmd('ft.aggregate', 'games', '*',
-                          'LIMIT', 0, 20000000)
-        self.env.assertEqual(2266, len(rv))
-
+        self.env.skipOnCluster()
         # SEARCH should fail
         self.env.expect('ft.search', 'games', '*', 'limit', 0, 2000000).error()     \
                 .contains('LIMIT exceeds maximum of 1000000')
+        # AGGREGATE should fail
+        self.env.expect('ft.aggregate', 'games', '*', 'limit', 0, 2000000).error()     \
+                .contains('LIMIT exceeds maximum of 1000000')
+
+        self.env.expect('ft.config', 'set', 'MAXSEARCHRESULTS', -1).ok()
+        rv = self.env.cmd('ft.search', 'games', '*',
+                          'LIMIT', 0, 12345678)
+        self.env.assertEqual(4531, len(rv))
+
+        self.env.expect('ft.config', 'set', 'MAXAGGREGATERESULTS', -1).ok()
+        rv = self.env.cmd('ft.aggregate', 'games', '*',
+                          'LIMIT', 0, 12345678)
+        self.env.assertEqual(2266, len(rv))
 
     def testMultiSortBy(self):
         self.env.expect('ft.aggregate', 'games', '*',
