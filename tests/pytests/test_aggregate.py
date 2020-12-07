@@ -425,16 +425,22 @@ class TestAggregate():
         # AGGREGATE should fail
         self.env.expect('ft.aggregate', 'games', '*', 'limit', 0, 2000000).error()     \
                 .contains('LIMIT exceeds maximum of 1000000')
-
+        # SEARCH should succeed
         self.env.expect('ft.config', 'set', 'MAXSEARCHRESULTS', -1).ok()
         rv = self.env.cmd('ft.search', 'games', '*',
                           'LIMIT', 0, 12345678)
         self.env.assertEqual(4531, len(rv))
-
+        # AGGREGATE should succeed
         self.env.expect('ft.config', 'set', 'MAXAGGREGATERESULTS', -1).ok()
         rv = self.env.cmd('ft.aggregate', 'games', '*',
                           'LIMIT', 0, 12345678)
         self.env.assertEqual(2266, len(rv))
+
+        # force global limit on aggregate
+        num = 10
+        self.env.expect('ft.config', 'set', 'MAXAGGREGATERESULTS', num).ok()
+        rv = self.env.cmd('ft.aggregate', 'games', '*')
+        self.env.assertEqual(num + 1, len(rv))
 
     def testMultiSortBy(self):
         self.env.expect('ft.aggregate', 'games', '*',
