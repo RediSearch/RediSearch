@@ -422,19 +422,19 @@ class TestAggregate():
         # SEARCH should fail
         self.env.expect('ft.search', 'games', '*', 'limit', 0, 2000000).error()     \
                 .contains('LIMIT exceeds maximum of 1000000')
-        # AGGREGATE should fail
-        self.env.expect('ft.aggregate', 'games', '*', 'limit', 0, 2000000).error()     \
-                .contains('LIMIT exceeds maximum of 1000000')
         # SEARCH should succeed
         self.env.expect('ft.config', 'set', 'MAXSEARCHRESULTS', -1).ok()
         rv = self.env.cmd('ft.search', 'games', '*',
                           'LIMIT', 0, 12345678)
         self.env.assertEqual(4531, len(rv))
         # AGGREGATE should succeed
-        self.env.expect('ft.config', 'set', 'MAXAGGREGATERESULTS', -1).ok()
         rv = self.env.cmd('ft.aggregate', 'games', '*',
                           'LIMIT', 0, 12345678)
         self.env.assertEqual(2266, len(rv))
+        # AGGREGATE should fail
+        self.env.expect('ft.config', 'set', 'MAXAGGREGATERESULTS', 1000000).ok()
+        self.env.expect('ft.aggregate', 'games', '*', 'limit', 0, 2000000).error()     \
+                .contains('LIMIT exceeds maximum of 1000000')
 
         # force global limit on aggregate
         num = 10
