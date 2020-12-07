@@ -91,7 +91,7 @@ def testAllConfig(env):
     env.assertEqual(res_dict['FORKGC_SLEEP_BEFORE_EXIT'][0], '0')
     env.assertEqual(res_dict['MAXDOCTABLESIZE'][0], '1000000')
     env.assertEqual(res_dict['MAXSEARCHRESULTS'][0], '1000000')
-    env.assertEqual(res_dict['MAXAGGREGATERESULTS'][0], '1000000')
+    env.assertEqual(res_dict['MAXAGGREGATERESULTS'][0], 'unlimited')
     env.assertEqual(res_dict['MAXEXPANSIONS'][0], '200')
     env.assertEqual(res_dict['MAXPREFIXEXPANSIONS'][0], '200')
     env.assertIn(res_dict['TIMEOUT'][0], ['500', '100000'])
