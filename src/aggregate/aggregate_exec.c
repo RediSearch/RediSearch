@@ -154,6 +154,11 @@ static int sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
   int rc = RS_RESULT_EOF;
   ResultProcessor *rp = req->qiter.endProc;
 
+  if (!(req->reqflags & QEXEC_F_IS_CURSOR) && 
+      !(req->reqflags & QEXEC_F_IS_SEARCH)) {
+    limit = RSGlobalConfig.maxAggregateResults;
+  }
+
   cachedVars cv = {0};
   cv.lastLk = AGPLN_GetLookup(&req->ap, NULL, AGPLN_GETLOOKUP_LAST);
   cv.lastAstp = AGPLN_GetArrangeStep(&req->ap);
