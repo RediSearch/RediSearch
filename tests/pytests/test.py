@@ -7,7 +7,7 @@ import random
 import time
 from RLTest import Env
 from includes import *
-from common import getConnectionByEnv, waitForIndex, toSortedFlatList
+from common import getConnectionByEnv, waitForIndex, toSortedFlatList, assertInfoField
 
 # this tests is not longer relevant
 # def testAdd(env):
@@ -450,17 +450,13 @@ def testCustomStopwords(env):
     # Index with custom stopwords
     env.assertOk(r.execute_command('ft.create', 'idx2', 'ON', 'HASH', 'stopwords', 2, 'hello', 'world',
                                     'schema', 'foo', 'text'))
-    if not env.isCluster:
-        res = env.cmd('ft.info', 'idx2')
-        env.assertEqual(res[39], ['hello', 'world'])
+    assertInfoField(env, 'idx2', 'stopwords_list', ['hello', 'world'])
 
     # Index with NO stopwords
     env.assertOk(r.execute_command('ft.create', 'idx3', 'ON', 'HASH', 'stopwords', 0,
                                     'schema', 'foo', 'text'))
+    assertInfoField(env, 'idx3', 'stopwords_list', [])
 
-    if not env.isCluster:
-        res = env.cmd('ft.info', 'idx3')
-        env.assertEqual(res[39], [])
 
     #for idx in ('idx', 'idx2', 'idx3'):
     env.assertOk(r.execute_command(
