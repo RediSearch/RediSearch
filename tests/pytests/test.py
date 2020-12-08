@@ -457,6 +457,9 @@ def testCustomStopwords(env):
                                     'schema', 'foo', 'text'))
     assertInfoField(env, 'idx3', 'stopwords_list', [])
 
+    # 2nd Index with NO stopwords - check global is used and freed
+    env.assertOk(r.execute_command('ft.create', 'idx4', 'ON', 'HASH', 'stopwords', 0,
+                                    'schema', 'foo', 'text'))
 
     #for idx in ('idx', 'idx2', 'idx3'):
     env.assertOk(r.execute_command(
