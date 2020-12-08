@@ -89,8 +89,8 @@ def testMixedEscapes(env):
 
     r = env.cmd('ft.search', 'idx', 'hello\\-world')
     env.assertEqual(2, r[0])
-    env.assertEqual('doc2', r[1])
-    env.assertEqual('doc1', r[3])
+    env.assertIn('doc1', r)
+    env.assertIn('doc2', r)
     r = env.cmd('ft.search', 'idx', '\\:\\:hello')
     env.assertEqual('doc3', r[1])
     r = env.cmd('ft.search', 'idx', '\\-hello')

@@ -140,6 +140,11 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
       QueryError_SetErrorFmt(status, QUERY_ELIMIT, "LIMIT exceeds maximum of %llu",
                              RSGlobalConfig.maxSearchResults);
       return ARG_ERROR;
+    } else if ((arng->limit > RSGlobalConfig.maxAggregateResults) &&
+               !(req->reqflags & QEXEC_F_IS_SEARCH)) {
+      QueryError_SetErrorFmt(status, QUERY_ELIMIT, "LIMIT exceeds maximum of %llu",
+                             RSGlobalConfig.maxAggregateResults);
+      return ARG_ERROR;
     }
   } else if (AC_AdvanceIfMatch(ac, "SORTBY")) {
     PLN_ArrangeStep *arng = AGPLN_GetOrCreateArrangeStep(&req->ap);
