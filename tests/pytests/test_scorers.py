@@ -37,7 +37,7 @@ def testScoreTagIndex(env):
 
         env.expect('ft.add', 'idx', 'doc%d' % n, sc, 'fields',
                    'title', 'hello world ' * n, 'body', 'lorem ipsum ' * n).ok()
-    expected_results = [
+    results_single = [
         [24L, 'doc1', 1.97, 'doc2', 1.94, 'doc3',
             1.91, 'doc4', 1.88, 'doc5', 1.85],
         [24L, 'doc1', 0.9, 'doc2', 0.59, 'doc3',
@@ -49,8 +49,21 @@ def testScoreTagIndex(env):
         [24L, 'doc1', 0.99, 'doc2', 0.97, 'doc3',
             0.96, 'doc4', 0.94, 'doc5', 0.93]
     ]
+    results_cluster = [
+        [24L, 'doc1', 1.97, 'doc2', 1.94, 'doc3',
+            1.91, 'doc4', 1.88, 'doc5', 1.85],
+        [24L, 'doc1', 0.9, 'doc2', 0.59, 'doc3',
+            0.43, 'doc4', 0.34, 'doc5', 0.28],
+        [24L, 'doc4', 1.76, 'doc5', 1.75, 'doc3',
+            1.74, 'doc6', 1.73, 'doc7', 1.72],
+        [24L, 'doc24', 480.0, 'doc23', 460.0, 'doc22',
+            440.0, 'doc21', 420.0, 'doc20', 400.0],
+        [24L, 'doc1', 0.99, 'doc2', 0.97, 'doc3',
+            0.96, 'doc4', 0.94, 'doc5', 0.93],
+    ]
 
     scorers = ['TFIDF', 'TFIDF.DOCNORM', 'BM25', 'DISMAX', 'DOCSCORE']
+    expected_results = results_cluster if env.is_cluster() else results_single
 
     for _ in env.reloading_iterator():
         waitForIndex(env, 'idx')
