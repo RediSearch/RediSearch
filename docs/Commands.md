@@ -200,11 +200,12 @@ If `LANGUAGE_FIELD`, `SCORE_FIELD`, or `PAYLOAD_FIELD` were used with `FT.CREATE
 ##### Example
 ```sql
 HSET doc1 cs101 "hello world" number 3.141 geopoint "-122.064228,37.377658" tags foo,bar,baz 
-HSET doc2 cs201 "foo bar baz" number 2.718 geopoint "-0.084324, 51.515583" tags foo,bar,baz
+HSET doc2 cs201 "foo bar baz" number 2.718 geopoint "-0.084324,51.515583" tags foo,bar,baz
 HSET doc3 Name "RedisLabs" indexName "myindexname" 
 ```
 
-!!! note The syntax for geographical values is a quoted string with longitude (first) and latitude separated by a comma.
+!!! note
+   The syntax for geographical values is a quoted string with longitude (first) and latitude separated by a comma.
 
 ---
 
