@@ -85,6 +85,9 @@ typedef struct {
   long long maxResultsToUnsortedMode;
 
   int noMemPool;
+
+  // compress double to float
+  int numericCompress;
 } RSConfig;
 
 typedef enum {
@@ -165,7 +168,7 @@ sds RSConfig_GetInfoString(const RSConfig *config);
     .gcPolicy = GCPolicy_Fork, .forkGcRunIntervalSec = DEFAULT_FORK_GC_RUN_INTERVAL,              \
     .forkGcSleepBeforeExit = 0, .maxResultsToUnsortedMode = DEFAULT_MAX_RESULTS_TO_UNSORTED_MODE, \
     .forkGcRetryInterval = 5, .forkGcCleanThreshold = 100, .noMemPool = 0,                          \
-    .maxSearchResults = SEARCH_REQUEST_RESULTS_MAX,                                               \
+    .maxSearchResults = SEARCH_REQUEST_RESULTS_MAX, .numericCompress = 1,                     \
   }
 
 #endif
