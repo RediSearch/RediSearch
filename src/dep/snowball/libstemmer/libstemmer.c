@@ -4,6 +4,7 @@
 #include "../include/libstemmer.h"
 #include "../runtime/api.h"
 #include "modules.h"
+#include "rmalloc.h"
 
 struct sb_stemmer {
     struct SN_env * (*create)(void);
@@ -46,7 +47,7 @@ sb_stemmer_new(const char * algorithm, const char * charenc)
     }
     if (module->name == NULL) return NULL;
     
-    stemmer = (struct sb_stemmer *) malloc(sizeof(struct sb_stemmer));
+    stemmer = (struct sb_stemmer *) rm_malloc(sizeof(struct sb_stemmer));
     if (stemmer == NULL) return NULL;
 
     stemmer->create = module->create;
@@ -71,7 +72,7 @@ sb_stemmer_delete(struct sb_stemmer * stemmer)
         stemmer->close(stemmer->env);
         stemmer->close = 0;
     }
-    free(stemmer);
+    rm_free(stemmer);
 }
 
 const sb_symbol *

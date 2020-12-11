@@ -4,12 +4,13 @@
 #include <string.h>
 
 #include "header.h"
+#include "rmalloc.h"
 
 #define CREATE_SIZE 1
 
 extern symbol * create_s(void) {
     symbol * p;
-    void * mem = malloc(HEAD + (CREATE_SIZE + 1) * sizeof(symbol));
+    void * mem = rm_malloc(HEAD + (CREATE_SIZE + 1) * sizeof(symbol));
     if (mem == NULL) return NULL;
     p = (symbol *) (HEAD + (char *) mem);
     CAPACITY(p) = CREATE_SIZE;
@@ -19,7 +20,7 @@ extern symbol * create_s(void) {
 
 extern void lose_s(symbol * p) {
     if (p == NULL) return;
-    free((char *) p - HEAD);
+    rm_free((char *) p - HEAD);
 }
 
 /*
@@ -350,7 +351,7 @@ extern int find_among_b(struct SN_env * z, const struct among * v, int v_size) {
 static symbol * increase_size(symbol * p, int n) {
     symbol * q;
     int new_size = n + 20;
-    void * mem = realloc((char *) p - HEAD,
+    void * mem = rm_realloc((char *) p - HEAD,
                          HEAD + (new_size + 1) * sizeof(symbol));
     if (mem == NULL) {
         lose_s(p);

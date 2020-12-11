@@ -1,17 +1,18 @@
 
 #include <stdlib.h> /* for calloc, free */
 #include "header.h"
+#include "rmalloc.h"
 
 extern struct SN_env * SN_create_env(int S_size, int I_size, int B_size)
 {
-    struct SN_env * z = (struct SN_env *) calloc(1, sizeof(struct SN_env));
+    struct SN_env * z = (struct SN_env *) rm_calloc(1, sizeof(struct SN_env));
     if (z == NULL) return NULL;
     z->p = create_s();
     if (z->p == NULL) goto error;
     if (S_size)
     {
         int i;
-        z->S = (symbol * *) calloc(S_size, sizeof(symbol *));
+        z->S = (symbol * *) rm_calloc(S_size, sizeof(symbol *));
         if (z->S == NULL) goto error;
 
         for (i = 0; i < S_size; i++)
@@ -23,13 +24,13 @@ extern struct SN_env * SN_create_env(int S_size, int I_size, int B_size)
 
     if (I_size)
     {
-        z->I = (int *) calloc(I_size, sizeof(int));
+        z->I = (int *) rm_calloc(I_size, sizeof(int));
         if (z->I == NULL) goto error;
     }
 
     if (B_size)
     {
-        z->B = (unsigned char *) calloc(B_size, sizeof(unsigned char));
+        z->B = (unsigned char *) rm_calloc(B_size, sizeof(unsigned char));
         if (z->B == NULL) goto error;
     }
 
@@ -49,12 +50,12 @@ extern void SN_close_env(struct SN_env * z, int S_size)
         {
             lose_s(z->S[i]);
         }
-        free(z->S);
+        rm_free(z->S);
     }
-    free(z->I);
-    free(z->B);
+    rm_free(z->I);
+    rm_free(z->B);
     if (z->p) lose_s(z->p);
-    free(z);
+    rm_free(z);
 }
 
 extern int SN_set_current(struct SN_env * z, int size, const symbol * s)
