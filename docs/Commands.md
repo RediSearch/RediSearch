@@ -62,10 +62,9 @@ FT.CREATE idx ON HASH PREFIX 1 doc: SCHEMA name TEXT SORTABLE age NUMERIC SORTAB
     If an unsupported language is sent, the command returns an error. 
     The supported languages are:
 
-    > "arabic",  "danish",    "dutch",   "english",   "finnish",    "french",
-    > "german",  "hungarian", "italian", "norwegian", "portuguese", "romanian",
-    > "russian", "spanish",   "swedish", "tamil",     "turkish"
-    > "chinese"
+    Arabic, Basque, Catalan, Danish, Dutch, English, Finnish, French, German, Greek, Hungarian,
+    Indonesian, Irish, Italian, Lithuanian, Nepali, Norwegian, Portuguese, Romanian, Russian,
+    Spanish, Swedish, Tamil, Turkish, Chinese
 
     When adding Chinese-language documents, `LANGUAGE chinese` should be set in
     order for the indexer to properly tokenize the terms. If the default language
@@ -1326,10 +1325,9 @@ FT.ADD idx doc1 1.0 FIELDS title "hello world"
   If an unsupported language is sent, the command returns an error. 
   The supported languages are:
 
-    > "arabic",  "danish",    "dutch",   "english",   "finnish",    "french",
-    > "german",  "hungarian", "italian", "norwegian", "portuguese", "romanian",
-    > "russian", "spanish",   "swedish", "tamil",     "turkish"
-    > "chinese"
+    Arabic, Basque, Catalan, Danish, Dutch, English, Finnish, French, German, Greek, Hungarian,
+    Indonesian, Irish, Italian, Lithuanian, Nepali, Norwegian, Portuguese, Romanian, Russian,
+    Spanish, Swedish, Tamil, Turkish, Chinese
 
   If indexing a Chinese language document, you must set the language to `chinese`
   in order for Chinese characters to be tokenized properly.
