@@ -76,6 +76,7 @@ RediSearch has a distributed cluster version that can scale to billions of docum
 1. [Mastering RediSearch / Part I](https://redislabs.com/blog/mastering-redisearch-part/)
 1. [Mastering RediSearch / Part II](https://redislabs.com/blog/mastering-redisearch-part-ii/)
 1. [Mastering RediSearch / Part III](https://redislabs.com/blog/mastering-redisearch-part-iii/)
+1. [Building Real-Time Full-Text Site Search with RediSearch](https://redislabs.com/blog/building-real-time-full-text-site-search-with-redisearch/)
 1. [Search Benchmarking: RediSearch vs. Elasticsearch](https://redislabs.com/blog/search-benchmarking-redisearch-vs-elasticsearch/)
 1. [RediSearch Version 1.6 Adds Features, Improves Performance](https://redislabs.com/blog/redisearch-version-1-6-adds-features-improves-performance/)
 1. [RediSearch 1.6 Boosts Performance Up to 64%](https://redislabs.com/blog/redisearch-1-6-boosts-performance-up-to-64/)
