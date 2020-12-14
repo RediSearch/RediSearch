@@ -684,7 +684,7 @@ Indexes can have more than one alias, though an alias cannot refer to another
 alias.
 
 The `FT.ALIASUPDATE` command differs from the `FT.ALIASADD` command in that
-it will remove the alias association with a previous index, if any. `FT.ALIASDD`
+it will remove the alias association with a previous index, if any. `FT.ALIASADD`
 will fail, on the other hand, if the alias is already associated with another
 index.
 
