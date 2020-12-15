@@ -8,6 +8,7 @@
 #include <rmutil/util.h>
 #include "ext/default.h"
 #include "extension.h"
+#include "profile.h"
 
 /**
  * Ensures that the user has not requested one of the 'extended' features. Extended
@@ -806,6 +807,12 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup, Qu
  * @return the processor passed in `rp`.
  */
 static ResultProcessor *pushRP(AREQ *req, ResultProcessor *rp, ResultProcessor *rpUpstream) {
+  if (IsProfile(req) && rpUpstream != NULL) {
+    ResultProcessor *rpProfile = RPProfile_New(NULL, NULL, 0);
+    rpProfile->upstream = rpUpstream;
+    rpProfile->parent = &req->qiter;
+    rpUpstream = rpProfile;
+  }
   rp->upstream = rpUpstream;
   rp->parent = &req->qiter;
   req->qiter.endProc = rp;
@@ -929,9 +936,25 @@ static int hasQuerySortby(const AGGPlan *pln) {
   return 0;
 }
 
-#define PUSH_RP()                           \
-  rpUpstream = pushRP(req, rp, rpUpstream); \
+static ResultProcessor *addProfiler(AREQ *req, ResultProcessor *rp, ResultProcessor *rpUpstream) {
+  ResultProcessor *rpProfile = RPProfile_New(NULL, NULL, 0);
+  return pushRP(req, rpProfile, rpUpstream);
+}
+
+#define PUSH_RP()                            \
+  rpUpstream = pushRP(req, rp, rpUpstream);   \
   rp = NULL;
+
+
+/*
+void PUSH_RP(AREQ *req, ResultProcessor *rp, ResultProcessor *rpUpstream) {
+  if (IsProfile(req)) {              
+    ResultProcessor *rpProfile = RPProfile_New(NULL, NULL, 0);
+    rpUpstream = pushRP(req, rpProfile, rpUpstream);
+  }
+  rpUpstream = pushRP(req, rp, rpUpstream);
+  rp = NULL;
+}*/
 
 /**
  * Builds the implicit pipeline for querying and scoring, and ensures that our

@@ -659,3 +659,52 @@ void RP_DumpChain(const ResultProcessor *rp) {
     RS_LOG_ASSERT(rp->upstream != rp, "ResultProcessor should be different then upstream");
   }
 }
+
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+/// Profile RP                                                             ///
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+
+typedef struct {
+  ResultProcessor base;
+  clock_t profileTime;
+  uint64_t profileCount;
+} RPProfile;
+
+
+static int rpProfileNext(ResultProcessor *base, SearchResult *r) {
+  RPProfile *self = (RPProfile *)base;
+
+  clock_t rpStartTime = clock();
+  int rc = base->upstream->Next(base->upstream, r);
+  self->profileTime += clock() - rpStartTime;
+  self->profileCount++;
+  return rc;
+}
+
+static void rpProfileFree(ResultProcessor *base) {
+  RPProfile *rp = (RPProfile *)base;
+  rm_free(rp);
+}
+
+ResultProcessor *RPProfile_New(RLookup *lk, const RLookupKey **keys, size_t nkeys) {
+  RPProfile *rpp = rm_calloc(1, sizeof(*rpp));
+
+  rpp->profileCount = 0;
+  rpp->base.Next = rpProfileNext;
+  rpp->base.Free = rpProfileFree;
+  rpp->base.name = "Profile";
+  return &rpp->base;
+}
+
+// TODO:one func
+clock_t RPProfile_GetClock(ResultProcessor *rp) {
+  RPProfile *self = (RPProfile *)rp;
+  return self->profileTime;
+}
+
+size_t RPProfile_GetCount(ResultProcessor *rp) {
+  RPProfile *self = (RPProfile *)rp;
+  return self->profileCount;
+}

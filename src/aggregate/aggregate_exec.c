@@ -164,7 +164,9 @@ static int sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
 
   rc = rp->Next(rp, &r);
   if (rc == RS_RESULT_TIMEDOUT) {
-    if (!(req->reqflags & QEXEC_F_IS_CURSOR) && RSGlobalConfig.timeoutPolicy == TimeoutPolicy_Fail) {
+    if (!(req->reqflags & QEXEC_F_IS_CURSOR) && 
+        !(req->reqflags & QEXEC_F_PROFILE) &&
+        RSGlobalConfig.timeoutPolicy == TimeoutPolicy_Fail) {
       RedisModule_ReplyWithSimpleString(outctx, "Timeout limit was reached");
     } else {
       rc = RS_RESULT_OK;
@@ -174,6 +176,16 @@ static int sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
     RedisModule_ReplyWithLongLong(outctx, req->qiter.totalResults);
   }
   nelem++;
+
+  if (req->reqflags & QEXEC_F_PROFILE) {
+    // TODO: move to a function
+    RedisModule_ReplyWithArray(outctx, 2);
+    RedisModule_ReplyWithSimpleString(outctx, "Parsing and iterator creation time");
+    RedisModule_ReplyWithDouble(outctx, (double)req->parseTime / CLOCKS_PER_MILLISEC);
+
+    Profile_Print(outctx, req);
+    nelem += 2;
+  }
 
   if (rc == RS_RESULT_OK && nrows++ < limit && !(req->reqflags & QEXEC_F_NOROWS)) {
     nelem += serializeResult(req, outctx, &r, &cv);
@@ -212,12 +224,12 @@ void AREQ_Execute(AREQ *req, RedisModuleCtx *outctx) {
   AREQ_Free(req);
 }
 
+// TODO: used *r
 static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int type,
                         QueryError *status, AREQ **r) {
 
   int rc = REDISMODULE_ERR;
   const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
-  *r = AREQ_New();
   RedisSearchCtx *sctx = NULL;
   RedisModuleCtx *thctx = NULL;
 
@@ -278,7 +290,7 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   }
 
   const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
-  AREQ *r = NULL;
+  AREQ *r = AREQ_New();
   clock_t profileTime;
   QueryError status = {0};
   if (withProfile) {
@@ -333,7 +345,7 @@ int RSProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
 char *RS_GetExplainOutput(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                           QueryError *status) {
-  AREQ *r = NULL;
+  AREQ *r = AREQ_New();
   if (buildRequest(ctx, argv, argc, COMMAND_EXPLAIN, status, &r) != REDISMODULE_OK) {
     return NULL;
   }
