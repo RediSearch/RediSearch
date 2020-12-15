@@ -341,7 +341,8 @@ ENCODER(encodeNumeric) {
   } else {
     // Floating point
     NumEncodingFloat *encFloat = &header.encFloat;
-    if (fabs(absVal - f32Num) < 0.01) {
+    if (absVal == f32Num || (RSGlobalConfig.numericCompress == true &&
+                             fabs(absVal - f32Num) < 0.01)) {
       sz += Buffer_Write(bw, (void *)&f32Num, 4);
       encFloat->isDouble = 0;
     } else {

@@ -19,7 +19,6 @@
 #include "module.h"
 #include "aggregate/expr/expression.h"
 #include "rules.h"
-#include "commands.h"
 #include "dictionary.h"
 
 #define INITIAL_DOC_TABLE_SIZE 1000

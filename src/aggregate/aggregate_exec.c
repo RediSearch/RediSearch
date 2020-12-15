@@ -154,6 +154,11 @@ static int sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
   int rc = RS_RESULT_EOF;
   ResultProcessor *rp = req->qiter.endProc;
 
+  if (!(req->reqflags & QEXEC_F_IS_CURSOR) && 
+      !(req->reqflags & QEXEC_F_IS_SEARCH)) {
+    limit = RSGlobalConfig.maxAggregateResults;
+  }
+
   cachedVars cv = {0};
   cv.lastLk = AGPLN_GetLookup(&req->ap, NULL, AGPLN_GETLOOKUP_LAST);
   cv.lastAstp = AGPLN_GetArrangeStep(&req->ap);
@@ -161,8 +166,18 @@ static int sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
   RedisModule_ReplyWithArray(outctx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
   rc = rp->Next(rp, &r);
-  RedisModule_ReplyWithLongLong(outctx, req->qiter.totalResults);
+  if (rc == RS_RESULT_TIMEDOUT) {
+    if (!(req->reqflags & QEXEC_F_IS_CURSOR) && RSGlobalConfig.timeoutPolicy == TimeoutPolicy_Fail) {
+      RedisModule_ReplyWithSimpleString(outctx, "Timeout limit was reached");
+    } else {
+      rc = RS_RESULT_OK;
+      RedisModule_ReplyWithLongLong(outctx, req->qiter.totalResults);
+    }
+  } else {
+    RedisModule_ReplyWithLongLong(outctx, req->qiter.totalResults);
+  }
   nelem++;
+
   if (rc == RS_RESULT_OK && nrows++ < limit && !(req->reqflags & QEXEC_F_NOROWS)) {
     nelem += serializeResult(req, outctx, &r, &cv);
   } else if (rc == RS_RESULT_ERROR) {
@@ -230,6 +245,12 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     QueryError_SetErrorFmt(status, QUERY_ENOINDEX, "%s: no such index", indexname);
     goto done;
   }
+
+  // Save time when query was initiated
+  if (!(*r)->reqTimeout) {
+    (*r)->reqTimeout = RSGlobalConfig.queryTimeoutMS;
+  }
+  updateTimeout(&(*r)->timeoutTime, (*r)->reqTimeout);
 
   rc = AREQ_ApplyContext(*r, sctx, status);
   thctx = NULL;
@@ -317,6 +338,12 @@ int AREQ_StartCursor(AREQ *r, RedisModuleCtx *outctx, const char *lookupName, Qu
 
 static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num) {
   AREQ *req = cursor->execState;
+  
+  // update timeout for cursor
+  if (strcmp(req->qiter.rootProc->name, "Network") != 0) {
+    updateTimeout(&req->timeoutTime, req->reqTimeout);
+    updateRPIndexTimeout(req->qiter.rootProc, req->timeoutTime);
+  }
   if (!num) {
     num = req->cursorChunkSize;
     if (!num) {

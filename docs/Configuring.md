@@ -35,7 +35,9 @@ As of v1.4.1, the [`FT.CONFIG`](Commands.md#ftconfig) allows setting some option
 The maximum amount of time **in milliseconds** that a search query is allowed to run. If this time is exceeded we return the top results accumulated so far, or an error depending on the policy set with `ON_TIMEOUT`. The timeout can be disabled by setting it to 0.
 
 !!! note
-    This works only in concurrent mode, so enabling `SAFEMODE` disables this option.
+    Timeout refers to query time only. 
+    Parsing the query is not counted towards `timeout`. 
+    If timeout was not reached during the search, finalizing operation such as loading documents' content or reducers, continue. 
 
 ### Default
 
@@ -194,6 +196,23 @@ Setting value to `-1` will remove the limit.
 
 ```
 $ redis-server --loadmodule ./redisearch.so MAXSEARCHRESULTS 3000000
+```
+
+---
+
+## MAXAGGREGATERESULTS
+
+The maximum number of results to be returned by FT.AGGREGATE command if LIMIT is used.
+Setting value to `-1` will remove the limit. 
+
+### Default
+
+1000000
+
+### Example
+
+```
+$ redis-server --loadmodule ./redisearch.so MAXAGGREGATERESULTS 3000000
 ```
 
 ---

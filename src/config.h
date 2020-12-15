@@ -6,7 +6,6 @@
 #include "query_error.h"
 
 typedef enum {
-  TimeoutPolicy_Default = 0,  // Defer to global config
   TimeoutPolicy_Return,       // Return what we have on timeout
   TimeoutPolicy_Fail,         // Just fail without returning anything
   TimeoutPolicy_Invalid       // Not a real value
@@ -54,6 +53,8 @@ typedef struct {
   // 0 means unlimited
   long long queryTimeoutMS;
 
+  long long timeoutPolicy;
+
   // Number of rows to read from a cursor if not specified
   long long cursorReadSize;
 
@@ -61,10 +62,9 @@ typedef struct {
   // longer ones
   long long cursorMaxIdle;
 
-  long long timeoutPolicy;
-
   size_t maxDocTableSize;
   size_t maxSearchResults;
+  size_t maxAggregateResults;
   size_t searchPoolSize;
   size_t indexPoolSize;
   int poolSizeNoAuto;  // Don't auto-detect pool size
@@ -88,6 +88,11 @@ typedef struct {
   int noMemPool;
 
   int filterCommands;
+
+  // compress double to float
+  int numericCompress;
+  // keep numeric ranges in parents of leafs
+  size_t numericTreeMaxDepthRange;
 } RSConfig;
 
 typedef enum {
@@ -155,6 +160,7 @@ sds RSConfig_GetInfoString(const RSConfig *config);
 #define DEFAULT_FORK_GC_RUN_INTERVAL 30
 #define DEFAULT_MAX_RESULTS_TO_UNSORTED_MODE 1000
 #define SEARCH_REQUEST_RESULTS_MAX 1000000
+#define NR_MAX_DEPTH_BALANCE 2
 
 // default configuration
 #define RS_DEFAULT_CONFIG                                                                         \
@@ -168,7 +174,8 @@ sds RSConfig_GetInfoString(const RSConfig *config);
     .gcPolicy = GCPolicy_Fork, .forkGcRunIntervalSec = DEFAULT_FORK_GC_RUN_INTERVAL,              \
     .forkGcSleepBeforeExit = 0, .maxResultsToUnsortedMode = DEFAULT_MAX_RESULTS_TO_UNSORTED_MODE, \
     .forkGcRetryInterval = 5, .forkGcCleanThreshold = 100, .noMemPool = 0, .filterCommands = 0,   \
-    .maxSearchResults = SEARCH_REQUEST_RESULTS_MAX, .minUnionIterHeap = 20,                       \
+    .maxSearchResults = SEARCH_REQUEST_RESULTS_MAX, .maxAggregateResults = -1,                    \
+    .minUnionIterHeap = 20, .numericCompress = false, .numericTreeMaxDepthRange = 0,              \
   }
 
 #endif

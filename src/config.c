@@ -41,6 +41,21 @@
     return sdsnew(cv ? "true" : "false");        \
   }
 
+#define CONFIG_BOOLEAN_SETTER(name, var)                        \
+  CONFIG_SETTER(name) {                                         \
+    const char *tf;                                             \
+    int acrc = AC_GetString(ac, &tf, NULL, 0);                  \
+    CHECK_RETURN_PARSE_ERROR(acrc);                             \
+    if (!strcmp(tf, "true") || !strcmp(tf, "TRUE")) {           \
+      config->var = 1;                                          \
+    } else if (!strcmp(tf, "false") || !strcmp(tf, "FALSE")) {  \
+      config->var = 0;                                          \
+    } else {                                                    \
+      acrc = AC_ERR_PARSE;                                      \
+    }                                                           \
+    RETURN_STATUS(acrc);                                        \
+  }
+
 // EXTLOAD
 CONFIG_SETTER(setExtLoad) {
   int acrc = AC_GetString(ac, &config->extLoad, NULL, 0);
@@ -144,6 +159,26 @@ CONFIG_GETTER(getMaxSearchResults) {
   return sdscatprintf(ss, "%lu", config->maxSearchResults);
 }
 
+// MAXAGGREGATERESULTS
+CONFIG_SETTER(setMaxAggregateResults) {
+  long long newsize = 0;
+  int acrc = AC_GetLongLong(ac, &newsize, 0);
+  CHECK_RETURN_PARSE_ERROR(acrc);
+  if (newsize == -1) {
+    newsize = UINT64_MAX;
+  }
+  config->maxAggregateResults = newsize;
+  return REDISMODULE_OK;
+}
+
+CONFIG_GETTER(getMaxAggregateResults) {
+  sds ss = sdsempty();
+  if (config->maxAggregateResults == UINT64_MAX) {
+    return sdscatprintf(ss, "unlimited");
+  }
+  return sdscatprintf(ss, "%lu", config->maxAggregateResults);
+}
+
 // MAXEXPANSIONS MAXPREFIXEXPANSIONS
 CONFIG_SETTER(setMaxExpansions) {
   int acrc = AC_GetLongLong(ac, &config->maxPrefixExpansions, AC_F_GE1);
@@ -206,11 +241,11 @@ CONFIG_SETTER(setOnTimeout) {
   const char *policy;
   int acrc = AC_GetString(ac, &policy, NULL, 0);
   CHECK_RETURN_PARSE_ERROR(acrc);
-
-  if ((config->timeoutPolicy = TimeoutPolicy_Parse(policy, strlen(policy))) ==
-      TimeoutPolicy_Invalid) {
+  RSTimeoutPolicy top = TimeoutPolicy_Parse(policy, strlen(policy));
+  if (top == TimeoutPolicy_Invalid) {
     RETURN_ERROR("Invalid ON_TIMEOUT value");
   }
+  config->timeoutPolicy = top;
   return REDISMODULE_OK;
 }
 
@@ -298,6 +333,28 @@ CONFIG_SETTER(setMinPhoneticTermLen) {
 CONFIG_GETTER(getMinPhoneticTermLen) {
   sds ss = sdsempty();
   return sdscatprintf(ss, "%lu", config->minPhoneticTermLen);
+}
+
+// _NUMERIC_COMPRESS
+CONFIG_BOOLEAN_SETTER(setNumericCompress, numericCompress)
+CONFIG_BOOLEAN_GETTER(getNumericCompress, numericCompress, 0)
+
+CONFIG_SETTER(setNumericTreeMaxDepthRange) {
+  size_t maxDepthRange;
+  int acrc = AC_GetSize(ac, &maxDepthRange, AC_F_GE0);
+  // Prevent rebalancing/rotating of nodes with ranges since we use highest node with range.
+  if (maxDepthRange > NR_MAX_DEPTH_BALANCE) {
+    QueryError_SetError(status, QUERY_EPARSEARGS, "Max depth for range cannot be higher "
+                                                  "than max depth for balance");
+    return REDISMODULE_ERR;   
+  }
+  config->numericTreeMaxDepthRange = maxDepthRange;
+  RETURN_STATUS(acrc);
+}
+
+CONFIG_GETTER(getNumericTreeMaxDepthRange) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%ld", config->numericTreeMaxDepthRange);
 }
 
 CONFIG_SETTER(setGcPolicy) {
@@ -487,6 +544,10 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "Maximum number of results from ft.search command",
          .setValue = setMaxSearchResults,
          .getValue = getMaxSearchResults},
+        {.name = "MAXAGGREGATERESULTS",
+         .helpText = "Maximum number of results from ft.aggregate command",
+         .setValue = setMaxAggregateResults,
+         .getValue = getMaxAggregateResults},
         {.name = "MAXEXPANSIONS",
          .helpText = "Maximum prefix expansions to be used in a query",
          .setValue = setMaxExpansions,
@@ -580,6 +641,15 @@ RSConfigOptions RSGlobalConfigOptions = {
          .setValue = setUpgradeIndex,
          .getValue = getUpgradeIndex,
          .flags = RSCONFIGVAR_F_IMMUTABLE},
+        {.name = "_NUMERIC_COMPRESS",
+         .helpText = "Enable legacy compression of double to float.",
+         .setValue = setNumericCompress,
+         .getValue = getNumericCompress},
+        {.name = "_NUMERIC_RANGES_PARENTS",
+         .helpText = "Keep numeric ranges in numeric tree parent nodes of leafs " 
+                     "for `x` generations.",
+         .setValue = setNumericTreeMaxDepthRange,
+         .getValue = getNumericTreeMaxDepthRange},
         {.name = NULL}}};
 
 void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst) {

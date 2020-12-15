@@ -472,6 +472,11 @@ tag_list(A) ::= LB term(B) . [TAGLIST] {
     QueryNode_AddChild(A, NewTokenNode(ctx, strdupcase(B.s, B.len), -1));
 }
 
+tag_list(A) ::= LB STOPWORD(B) . [TAGLIST] {
+    A = NewPhraseNode(0);
+    QueryNode_AddChild(A, NewTokenNode(ctx, strdupcase(B.s, B.len), -1));
+}
+
 tag_list(A) ::= LB prefix(B) . [TAGLIST] {
     A = NewPhraseNode(0);
     QueryNode_AddChild(A, B);
@@ -483,6 +488,11 @@ tag_list(A) ::= LB termlist(B) . [TAGLIST] {
 }
 
 tag_list(A) ::= tag_list(B) OR term(C) . [TAGLIST] {
+    QueryNode_AddChild(B, NewTokenNode(ctx, strdupcase(C.s, C.len), -1));
+    A = B;
+}
+
+tag_list(A) ::= tag_list(B) OR STOPWORD(C) . [TAGLIST] {
     QueryNode_AddChild(B, NewTokenNode(ctx, strdupcase(C.s, C.len), -1));
     A = B;
 }

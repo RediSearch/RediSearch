@@ -427,11 +427,11 @@ def testPartial(env):
     env.expect('FT.DEBUG docidtoid idx doc5').equal(9)
     env.expect('HINCRBYFLOAT doc5 test 5').equal('17.1')
     env.expect('FT.DEBUG docidtoid idx doc5').equal(10)
-    env.expect('FT.SEARCH idx *').equal([5L, 'doc5', ['test', '17.1', 'testtest', '5.5'], 
-                                             'doc4', ['test', '11', 'testtest', '5'],
-                                             'doc3', ['test', 'foo', 'testtest', 'foo'],
+    env.expect('FT.SEARCH idx *').equal([5L, 'doc1', ['test', 'bar', 'testtest', 'foo'],
                                              'doc2', ['test', 'baz', 'testtest', 'foo'],
-                                             'doc1', ['test', 'bar', 'testtest', 'foo']])
+                                             'doc3', ['test', 'foo', 'testtest', 'foo'],
+                                             'doc4', ['test', '11', 'testtest', '5'],
+                                             'doc5', ['test', '17.1', 'testtest', '5.5']])
 
 def testHDel(env):
     if env.env == 'existing-env':
