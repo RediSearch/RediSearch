@@ -22,10 +22,10 @@ sb_stemmer_list(void)
 static stemmer_encoding_t
 sb_getenc(const char * charenc)
 {
-    struct stemmer_encoding * encoding;
+    const struct stemmer_encoding * encoding;
     if (charenc == NULL) return ENC_UTF_8;
     for (encoding = encodings; encoding->name != 0; encoding++) {
-	if (strcmp(encoding->name, charenc) == 0) break;
+        if (strcmp(encoding->name, charenc) == 0) break;
     }
     if (encoding->name == NULL) return ENC_UNKNOWN;
     return encoding->enc;
@@ -35,14 +35,14 @@ extern struct sb_stemmer *
 sb_stemmer_new(const char * algorithm, const char * charenc)
 {
     stemmer_encoding_t enc;
-    struct stemmer_modules * module;
+    const struct stemmer_modules * module;
     struct sb_stemmer * stemmer;
 
     enc = sb_getenc(charenc);
     if (enc == ENC_UNKNOWN) return NULL;
 
     for (module = modules; module->name != 0; module++) {
-	if (strcmp(module->name, algorithm) == 0 && module->enc == enc) break;
+        if (strcmp(module->name, algorithm) == 0 && module->enc == enc) break;
     }
     if (module->name == NULL) return NULL;
     
@@ -67,9 +67,10 @@ void
 sb_stemmer_delete(struct sb_stemmer * stemmer)
 {
     if (stemmer == 0) return;
-    if (stemmer->close == 0) return;
-    stemmer->close(stemmer->env);
-    stemmer->close = 0;
+    if (stemmer->close) {
+        stemmer->close(stemmer->env);
+        stemmer->close = 0;
+    }
     free(stemmer);
 }
 
