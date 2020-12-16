@@ -26,10 +26,10 @@ jobs:
     - name: Get entire project
       run: git fetch -t
     - name: Build docs
-      run: mkdocs build
+      run: mkdocs build --clean
     - uses: jakejarvis/s3-sync-action@v0.5.1
       with:
-        args: --acl public-read --follow-symlinks
+        args: --acl public-read --follow-symlinks --delete
       env:
         AWS_S3_BUCKET: ${{ secrets.DOCS_AWS_S3_BUCKET }}
         AWS_ACCESS_KEY_ID: ${{ secrets.DOCS_AWS_ACCESS_KEY_ID }}
