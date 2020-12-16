@@ -15,17 +15,21 @@
 
 RediSearch is a [Redis module](https://redis.io/modules) that provides querying, secondary indexing, and full-text search for Redis. To use RediSearch, you first declare indexes on your Redis data. You can then use the RediSearch query language to query that data.
 
-RediSearch uses compressed, inverted indexes for fast indexing, queries, and full-text search. These indexes have an especially low memory footprint.
+RediSearch uses compressed, inverted indexes for fast indexing with a low memory footprint.
 
-RediSearch indexes also enable more advanced features like exact-phrase matching, fuzzy search, and numeric filtering. These feature are with impossible or inefficient using built-in Redis data structures.
+RediSearch indexes enhance Redis by providing exact-phrase matching, fuzzy search, and numeric filtering, among many other features.
 
 ## Getting started
 
-If you're just getting started with RediSearch, check out the [official RediSearch tutorial](https://github.com/RediSearch/redisearch-getting-started). Also, considering our [RediSearch video explainer](https://www.youtube.com/watch?v=B10nHEdW3NA).
+If you're just getting started with RediSearch, check out the [official RediSearch tutorial](https://github.com/RediSearch/redisearch-getting-started). Also, consider viewing our [RediSearch video explainer](https://www.youtube.com/watch?v=B10nHEdW3NA).
 
 The fastest way to get up and running with RediSearch is by using the [RediSearch Docker image](https://hub.docker.com/r/redislabs/redisearch/).
 
-## Docker image
+## Trying RediSearch
+
+To try RediSearch, either use the RediSearch Docker image, or [create a free Redis Cloud Essentials account](https://redislabs.com/try-free/) to get a RediSearch instance in the cloud.
+
+### Docker image
 
 The [RediSearch Docker image](https://hub.docker.com/r/redislabs/redisearch/) makes it easy to try RediSearch.
 
