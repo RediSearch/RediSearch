@@ -162,4 +162,4 @@ See [RediSearch on Redis Enterprise](https://redislabs.com/modules/redisearch/) 
 
 ### License
 
- RediSearch is licensed under the [Redis Source Available License Agreement](LICENSE)
+ RediSearch is licensed under the [Redis Source Available License Agreement](LICENSE).
