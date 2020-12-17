@@ -1,5 +1,11 @@
 version: 2.1
 
+defaults:
+  default_jobs: &default_jobs
+    - build
+    - centos
+    - ubuntu
+
 commands:
   abort_for_docs:
     steps:
