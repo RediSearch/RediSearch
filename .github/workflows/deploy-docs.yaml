@@ -1,6 +1,10 @@
 name: Deploy docs to website
 
 on:
+  workflow_dispatch:
+    input:
+      tags:
+        description: 'Reason'
   push:
     branches:
       - master

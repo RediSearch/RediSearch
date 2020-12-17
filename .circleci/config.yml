@@ -1,86 +1,147 @@
-version: 2
+version: 2.1
 
 defaults:
-  ci_steps: &ci_steps
-    - checkout
-    - run:
-        name: Build
-        command: ./.circleci/ci_build.sh
-    - run:
-        name: Test
-        command: ./.circleci/ci_test.sh
-    - run:
-        name: Package
-        command: ./.circleci/ci_package.sh
-        environment:
-          - PACKAGE_NAME: redisearch-oss
-    - persist_to_workspace:
-        root: /workspace
-        paths:
-          - 'snapshot'
-          - 'release'
-
   default_jobs: &default_jobs
     - centos
     - ubuntu
 
+commands:
+  abort_for_docs:
+    steps:
+      - run:
+          name: Avoid tests for docs
+          command: |
+            if [[ $CIRCLE_BRANCH == *_docs ]]; then
+              echo "Identifies as documents PR, no testing required"
+              circleci step halt
+            fi
+
+  early_return_for_forked_pull_requests:
+    description: >-
+      If this build is from a fork, stop executing the current job and return success.
+      This is useful to avoid steps that will fail due to missing credentials.
+    steps:
+      - run:
+          name: Early return if this build is from a forked PR
+          command: |
+            if [[ -n "$CIRCLE_PR_NUMBER" ]]; then
+              echo "Nothing to do for forked PRs, so marking this step successful"
+              circleci step halt
+            fi
+
+  ci_steps:
+    steps:
+      - abort_for_docs
+      - checkout
+      - run:
+          name: Build
+          command: ./.circleci/ci_build.sh
+      - run:
+          name: Test
+          command: ./.circleci/ci_test.sh
+      - run:
+          name: Package
+          command: ./.circleci/ci_package.sh
+          environment:
+            - PACKAGE_NAME: redisearch-oss
+      - early_return_for_forked_pull_requests
+      - persist_to_workspace:
+          root: /workspace
+          paths:
+            - 'snapshot'
+            - 'release'
 
 jobs:
   ubuntu:
     docker:
-      - image: 'redislabsmodules/rmbuilder:latest'
+      - image: redisfab/rmbuilder:6.0.9-x64-buster
     environment:
       - BUILD_DIR: build-debian
+    steps:
+      - ci_steps
 
-    steps: *ci_steps
-  
   centos:
     docker:
-      - image: 'redislabsmodules/rmbuildercentos:latest'
+      - image: redisfab/rmbuilder:6.0.9-x64-centos7
     environment:
       - BUILD_DIR: build-el
-
-    steps: *ci_steps
+    steps:
+      - ci_steps
 
   deploy_snapshots:
     docker:
-      - image: 'redislabsmodules/rmbuilder:latest'
+      - image: redisfab/rmbuilder:6.0.9-x64-buster
     steps:
+      - abort_for_docs
+      - early_return_for_forked_pull_requests
       - attach_workspace:
           at: /workspace
       - run:
           name: Deploy Snapshots to S3
-          command: >-
+          command: |
             for f in /workspace/snapshot/*.zip; do
-              aws s3 cp $f s3://redismodules/$PACKAGE_NAME/snapshots/ --acl public-read;
+              aws s3 cp $f s3://redismodules/$PACKAGE_NAME/snapshots/ --acl public-read
             done
 
   deploy_release:
     docker:
-      - image: 'redislabsmodules/rmbuilder:latest'
+      - image: redisfab/rmbuilder:6.0.9-x64-buster
     steps:
+      - abort_for_docs
+      - early_return_for_forked_pull_requests
       - attach_workspace:
           at: /workspace
       - run:
           name: Deploy Releases to S3
-          command: >-
+          command: |
             for f in /workspace/release/*.zip; do
-              aws s3 cp $f s3://redismodules/$PACKAGE_NAME/ --acl public-read;
+              aws s3 cp $f s3://redismodules/$PACKAGE_NAME/ --acl public-read
             done
-  
-  deploy_docs:
-    docker:
-      - image: 'redislabsmodules/rmbuilder:latest'
-    steps:
-      - checkout
-      - run:
-          name: Build Docs
-          command: mkdocs build
-      - run:
-          name: Deploy Docs to S3
-          command: >-
-            aws s3 cp site s3://oss.redislabs.com/$WEBSITE_FOLDER/ --acl
-            public-read --recursive
+
+
+on-any-branch: &on-any-branch
+  filters:
+    branches:
+      only: /.*/
+    tags:
+      only: /.*/
+
+never: &never
+  filters:
+    branches:
+      ignore: /.*/
+    tags:
+      ignore: /.*/
+
+on-master: &on-master
+  filters:
+    branches:
+      only: master
+
+on-version-tags: &on-version-tags
+  filters:
+    branches:
+      ignore: /.*/
+    tags:
+      only: /^v[0-9].*/
+
+on-master-and-version-tags: &on-master-and-version-tags
+  filters:
+    branches:
+      only:
+        - master
+    tags:
+      only: /^v[0-9].*/
+
+on-master-and-version-branches: &on-master-and-version-branches
+  filters:
+    branches:
+      only:
+        - master
+        - /^[0-9]+\.[0-9]+$/
+    tags:
+      ignore: /.*/
+
 
 workflows:
   version: 2
@@ -88,33 +149,13 @@ workflows:
   default_flow:
     jobs:
       - ubuntu:
-          filters:
-            branches:
-              only: /.*/
-            tags:
-              only: /.*/
+          <<: *on-any-branch
       - centos:
-          filters:
-            branches:
-              only: /.*/
-            tags:
-              only: /.*/
+          <<: *on-any-branch
       - deploy_snapshots:
           requires: *default_jobs
-          filters:
-            branches:
-              only:
-                - master
-                - circle-overhaul
+          <<: *on-master
       - deploy_release:
           requires: *default_jobs
-          filters:
-            branches:
-              ignore: /.*/
-            tags:
-              only: /^v[0-9].*/
+          <<: *on-version-tags
 
-      - deploy_docs:
-          filters:
-            branches:
-              only: master
