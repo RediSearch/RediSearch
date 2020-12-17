@@ -1,6 +1,7 @@
 name: Deploy docs to website
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - master
