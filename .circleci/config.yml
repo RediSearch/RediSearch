@@ -1,11 +1,5 @@
 version: 2.1
 
-defaults:
-  default_jobs: &default_jobs
-    - build
-    - centos
-    - ubuntu
-
 commands:
   abort_for_docs:
     steps:
@@ -196,6 +190,10 @@ workflows:
   version: 2
   build_and_package:
     jobs:
+      - ubuntu:
+          <<: *on-any-branch
+      - centos:
+          <<: *on-any-branch
       - build:
           <<: *on-any-branch
       - package_branch:
