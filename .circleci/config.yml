@@ -25,6 +25,22 @@ commands:
             fi
 
 jobs:
+  ubuntu:
+    docker:
+      - image: 'cimg/base:2020.01'
+    steps:
+	  - run:
+	     name: Build stub
+	     command: circleci step halt
+
+  centos:
+    docker:
+      - image: 'cimg/base:2020.01'
+    steps:
+	  - run:
+	     name: Build stub
+	     command: circleci step halt
+
   build:
     docker:
       - image: redisfab/rmbuilder:6.0.9-x64-buster
