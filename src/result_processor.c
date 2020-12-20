@@ -673,7 +673,7 @@ typedef struct {
 } RPProfile;
 
 
-static int rpProfileNext(ResultProcessor *base, SearchResult *r) {
+static int rpprofileNext(ResultProcessor *base, SearchResult *r) {
   RPProfile *self = (RPProfile *)base;
 
   clock_t rpStartTime = clock();
@@ -682,6 +682,19 @@ static int rpProfileNext(ResultProcessor *base, SearchResult *r) {
   self->profileCount++;
   return rc;
 }
+/* try with clock_gettime
+static int rpprofileNext2(ResultProcessor *base, SearchResult *r) {
+  RPProfile *self = (RPProfile *)base;
+
+  struct timespec begin, end, result;
+  clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &begin);
+  int rc = base->upstream->Next(base->upstream, r);
+  clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &end);
+  timersub(&end, &begin, &result);
+  self->profileTime += timertonanoseconds(&result);
+  self->profileCount++;
+  return rc;
+} */
 
 static void rpProfileFree(ResultProcessor *base) {
   RPProfile *rp = (RPProfile *)base;
@@ -692,7 +705,7 @@ ResultProcessor *RPProfile_New(RLookup *lk, const RLookupKey **keys, size_t nkey
   RPProfile *rpp = rm_calloc(1, sizeof(*rpp));
 
   rpp->profileCount = 0;
-  rpp->base.Next = rpProfileNext;
+  rpp->base.Next = rpprofileNext;
   rpp->base.Free = rpProfileFree;
   rpp->base.name = "Profile";
   return &rpp->base;

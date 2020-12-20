@@ -224,8 +224,12 @@ ResultProcessor *RPProfile_New(RLookup *lk, const RLookupKey **keys, size_t nkey
  *            Timeout API
  ****************************************/
 
-#define timercmp(a, b, CMP) \
-  (((a)->tv_sec == (b)->tv_sec) ? ((a)->tv_nsec CMP(b)->tv_nsec) : ((a)->tv_sec CMP(b)->tv_sec))
+#define timertonanoseconds(a) ((a)->tv_sec * 1000000000 + (a)->tv_nsec)     
+
+#define timercmp(a, b, CMP)                         \
+  (((a)->tv_sec == (b)->tv_sec) ?                   \
+    ((a)->tv_nsec CMP(b)->tv_nsec) :                \
+    ((a)->tv_sec CMP(b)->tv_sec))
 
 #define timeradd(a, b, result)                       \
   do {                                               \
@@ -235,6 +239,16 @@ ResultProcessor *RPProfile_New(RLookup *lk, const RLookupKey **keys, size_t nkey
       ++(result)->tv_sec;                            \
       (result)->tv_nsec -= 1000000000;               \
     }                                                \
+  } while (0)
+
+# define timersub(a, b, result)						            \
+  do {									                              \
+    (result)->tv_sec = (a)->tv_sec - (b)->tv_sec;		  \
+    (result)->tv_nsec = (a)->tv_nsec - (b)->tv_nsec;	\
+    if ((result)->tv_nsec < 0) {					            \
+      --(result)->tv_sec;						                  \
+      (result)->tv_nsec += 1000000000;	  	          \
+    }									                                \
   } while (0)
 
 static inline int TimedOut(struct timespec timeout) {

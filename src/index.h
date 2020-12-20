@@ -69,6 +69,10 @@ IndexIterator *NewEmptyIterator(void);
 
 /** Return a string containing the type of the iterator */
 const char *IndexIterator_GetTypeString(const IndexIterator *it);
+
+/** Add Profile iterator layer between iterators */
+void Profile_AddIters(IndexIterator **root);
+
 #ifdef __cplusplus
 }
 #endif

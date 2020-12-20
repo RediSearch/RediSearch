@@ -178,13 +178,7 @@ static int sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
   nelem++;
 
   if (req->reqflags & QEXEC_F_PROFILE) {
-    // TODO: move to a function
-    RedisModule_ReplyWithArray(outctx, 2);
-    RedisModule_ReplyWithSimpleString(outctx, "Parsing and iterator creation time");
-    RedisModule_ReplyWithDouble(outctx, (double)req->parseTime / CLOCKS_PER_MILLISEC);
-
-    Profile_Print(outctx, req);
-    nelem += 2;
+    Profile_Print(outctx, req, &nelem);
   }
 
   if (rc == RS_RESULT_OK && nrows++ < limit && !(req->reqflags & QEXEC_F_NOROWS)) {

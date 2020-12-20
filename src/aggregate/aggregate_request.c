@@ -755,6 +755,10 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   ConcurrentSearchCtx_Init(sctx->redisCtx, &req->conc);
   req->rootiter = QAST_Iterate(ast, opts, sctx, &req->conc);
   RS_LOG_ASSERT(req->rootiter, "QAST_Iterate failed");
+  if (IsProfile(req)) {
+    // Add a Profile iterators before every iterator in the tree
+    Profile_AddIters(&req->rootiter);
+  }
 
   return REDISMODULE_OK;
 }
@@ -807,14 +811,14 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup, Qu
  * @return the processor passed in `rp`.
  */
 static ResultProcessor *pushRP(AREQ *req, ResultProcessor *rp, ResultProcessor *rpUpstream) {
-  if (IsProfile(req) && rpUpstream != NULL) {
-    ResultProcessor *rpProfile = RPProfile_New(NULL, NULL, 0);
-    rpProfile->upstream = rpUpstream;
-    rpProfile->parent = &req->qiter;
-    rpUpstream = rpProfile;
-  }
   rp->upstream = rpUpstream;
   rp->parent = &req->qiter;
+  if (IsProfile(req)) {
+    ResultProcessor *rpProfile = RPProfile_New(NULL, NULL, 0);
+    rpProfile->upstream = rp;
+    rpProfile->parent = &req->qiter;
+    rp = rpProfile;
+  }
   req->qiter.endProc = rp;
   return rp;
 }
