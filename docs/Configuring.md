@@ -205,7 +205,7 @@ Setting value to `-1` will remove the limit.
 
 ### Default
 
-1000000
+unlimited
 
 ### Example
 
