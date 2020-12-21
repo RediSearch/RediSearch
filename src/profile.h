@@ -5,7 +5,7 @@
 #include "aggregate/aggregate.h"
 
 #define CLOCKS_PER_MILLISEC  ((__clock_t) 1000)
-#define PROFILE_VERBOSE 1
+#define PROFILE_VERBOSE RSGlobalConfig.printProfileClock
 
 #define IsProfile(r) ((r)->reqflags & QEXEC_F_PROFILE)
 

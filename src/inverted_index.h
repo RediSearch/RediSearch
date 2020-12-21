@@ -45,7 +45,6 @@ struct indexReadCtx;
 typedef union {
   void *ptr;
   t_fieldMask num;
-  t_docId matchId;
 } IndexDecoderCtx;
 
 /**
