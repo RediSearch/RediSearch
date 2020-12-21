@@ -111,6 +111,7 @@ static int initAsLibrary(RedisModuleCtx *ctx) {
 
   // Disable concurrent mode:
   RSGlobalConfig.concurrentMode = 0;
+  RSGlobalConfig.numericCompress = 0;
   return REDISMODULE_OK;
 }
 
