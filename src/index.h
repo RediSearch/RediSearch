@@ -8,6 +8,7 @@
 #include "redisearch.h"
 #include "util/logging.h"
 #include "varint.h"
+#include "query_node.h"
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -37,7 +38,7 @@ void ReadIterator_Free(IndexIterator *it);
 /* Create a new UnionIterator over a list of underlying child iterators.
 It will return each document of the underlying iterators, exactly once */
 IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *t, int quickExit,
-                                double weight);
+                                double weight, QueryNodeType type);
 
 /* Create a new intersect iterator over the given list of child iterators. If maxSlop is not a
  * negative number, we will allow at most maxSlop intervening positions between the terms. If

@@ -62,6 +62,7 @@ typedef struct {
   int quickExit;
   size_t nexpected;
   double weight;
+  QueryNodeType origType;
   uint64_t len;
 } UnionIterator;
 
@@ -134,11 +135,12 @@ static void UI_Rewind(void *ctx) {
 }
 
 IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *dt, int quickExit,
-                                double weight) {
+                                double weight, QueryNodeType type) {
   // create union context
   UnionIterator *ctx = rm_calloc(1, sizeof(UnionIterator));
   ctx->origits = its;
   ctx->weight = weight;
+  ctx->origType = type;
   ctx->num = num;
   ctx->norig = num;
   IITER_CLEAR_EOF(&ctx->base);
@@ -1727,7 +1729,20 @@ PRINT_PROFILE_FUNC_SIGN(printUnionIt) {
 //static void printUnionIt(RedisModuleCtx *ctx, IndexIterator *root) {
   UnionIterator *ui = (UnionIterator *)root;
   RedisModule_ReplyWithArray(ctx, ui->norig + 2 + PROFILE_VERBOSE);
-  RedisModule_ReplyWithSimpleString(ctx, "Union iterator");
+  char *unionTypeStr;
+  switch (ui->origType) {
+  case QN_GEO : unionTypeStr = "Union iterator - GEO"; break;
+  case QN_TAG : unionTypeStr = "Union iterator - TAG"; break;
+  case QN_UNION : unionTypeStr = "Union iterator - UNION"; break;
+  case QN_FUZZY : unionTypeStr = "Union iterator - FUZZY"; break;
+  case QN_PREFIX : unionTypeStr = "Union iterator - PREFIX"; break;
+  case QN_NUMERIC : unionTypeStr = "Union iterator - NUMERIC"; break;
+  case QN_LEXRANGE : unionTypeStr = "Union iterator - LEXRANGE"; break;
+  default:
+    RS_LOG_ASSERT(0, "Invalid type for union");
+    break;
+  }
+  RedisModule_ReplyWithSimpleString(ctx, unionTypeStr);
   RedisModule_ReplyWithLongLong(ctx, counter);
   if (PROFILE_VERBOSE) RedisModule_ReplyWithDouble(ctx, cpuTime);
   for (int i = 0; i < ui->norig; i++) {

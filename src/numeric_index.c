@@ -391,7 +391,7 @@ IndexIterator *createNumericIterator(const IndexSpec *sp, NumericRangeTree *t,
   }
   Vector_Free(v);
 
-  IndexIterator *it = NewUnionIterator(its, n, NULL, 1, 1);
+  IndexIterator *it = NewUnionIterator(its, n, NULL, 1, 1, QN_NUMERIC);
 
   return it;
 }
