@@ -134,8 +134,27 @@ def testProfileSearch(env):
 											'1']
 	env.assertEqual(actual_res, expected_res)
 
-	actual_res = env.expect('ft.profile', 'search', 'idx', 'hello(hello(hello(hello(hello(hello(hello))))))', 'nocontent')	\
-									.error().contains('No support for nested multi bulk replies with depth > 7')
+	actual_res = env.expect('ft.profile', 'search', 'idx', 'hello(hello(hello(hello(hello(hello(hello))))))', 'nocontent')
+	expected_res = [1L, ['Total time'],
+											['Parsing and iterator creation time'],
+											['Iterators profile',
+												['Intersect iterator', 2L,
+													['Term reader', 'hello', 2L],
+													['Intersect iterator', 1L,
+														['Term reader', 'hello', 1L],
+														['Intersect iterator', 1L,
+															['Term reader', 'hello', 1L],
+															['Intersect iterator', 1L,
+																['Term reader', 'hello', 1L],
+																['Intersect iterator', 1L,
+																	['Term reader', 'hello', 1L],
+																	['Intersect iterator', 1L, None, None]]]]]]],
+											['Result processors profile',
+												['Index', 2L],
+												['Scorer', 2L],
+												['Sorter', 1L]],
+											'1']
+
 
 	actual_res = conn.execute_command('ft.profile', 'aggregate', 'idx', 'hello',
 																		'groupby', 1, '@t',

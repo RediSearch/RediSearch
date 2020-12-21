@@ -74,7 +74,7 @@ int Profile_Print(RedisModuleCtx *ctx, AREQ *req, size_t *nelem){
   // Print profile of iterators
   RedisModule_ReplyWithArray(ctx, 2);
   RedisModule_ReplyWithSimpleString(ctx, "Iterators profile");
-  printIteratorProfile(ctx, root, 0 ,0);
+  printIteratorProfile(ctx, root, 0 ,0, 1);
   (*nelem)++;
 
   // Print profile of result processors

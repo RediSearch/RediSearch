@@ -74,6 +74,14 @@ const char *IndexIterator_GetTypeString(const IndexIterator *it);
 /** Add Profile iterator layer between iterators */
 void Profile_AddIters(IndexIterator **root);
 
+/** Print profile of iterators */
+void printIteratorProfile(RedisModuleCtx *ctx,
+                          IndexIterator *root,
+                          size_t counter,
+                          double cpuTime,
+                          int depth);
+
+
 #ifdef __cplusplus
 }
 #endif
