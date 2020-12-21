@@ -158,7 +158,8 @@ TEST_F(AggTest, testGroupBy) {
   ASSERT_TRUE(gr != NULL);
 
   ArgsCursor args = {0};
-  ReducerOptions opt = {.args = &args};
+  ReducerOptions opt = {0};
+  opt.args = &args;
   Grouper_AddReducer(gr, RDCRCount_New(&opt), count_out);
   ReducerOptionsCXX sumOptions("SUM", &rk_in, "score");
   auto sumReducer = RDCRSum_New(&sumOptions);
@@ -200,7 +201,8 @@ TEST_F(AggTest, testGroupSplit) {
   RLookupKey *count_out = RLookup_GetKey(&lk_out, "COUNT", RLOOKUP_F_OCREAT);
   Grouper *gr = Grouper_New((const RLookupKey **)&gen.kvalue, (const RLookupKey **)&val_out, 1);
   ArgsCursor args = {0};
-  ReducerOptions opt = {.args = &args};
+  ReducerOptions opt = {0};
+  opt.args = &args;
   Grouper_AddReducer(gr, RDCRCount_New(&opt), count_out);
   SearchResult res = {0};
   size_t ii = 0;
