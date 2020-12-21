@@ -1,7 +1,6 @@
 #include "document.h"
 #include "err.h"
 #include "util/logging.h"
-#include "commands.h"
 #include "rmutil/rm_assert.h"
 
 /*

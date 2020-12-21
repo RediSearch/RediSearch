@@ -71,9 +71,12 @@ RediSearch has a distributed cluster version that can scale to billions of docum
 * [RU203: Querying, Indexing, and Full-Text Search](https://university.redislabs.com/courses/ru203/) - An online RediSearch course from [Redis University](https://university.redislabs.com/).
 
 ### Blog posts
+1. [Introducing RediSearch 2.0](https://redislabs.com/blog/introducing-redisearch-2-0/)
+1. [Getting Started with RediSearch 2.0](https://redislabs.com/blog/getting-started-with-redisearch-2-0/)
 1. [Mastering RediSearch / Part I](https://redislabs.com/blog/mastering-redisearch-part/)
 1. [Mastering RediSearch / Part II](https://redislabs.com/blog/mastering-redisearch-part-ii/)
 1. [Mastering RediSearch / Part III](https://redislabs.com/blog/mastering-redisearch-part-iii/)
+1. [Building Real-Time Full-Text Site Search with RediSearch](https://redislabs.com/blog/building-real-time-full-text-site-search-with-redisearch/)
 1. [Search Benchmarking: RediSearch vs. Elasticsearch](https://redislabs.com/blog/search-benchmarking-redisearch-vs-elasticsearch/)
 1. [RediSearch Version 1.6 Adds Features, Improves Performance](https://redislabs.com/blog/redisearch-version-1-6-adds-features-improves-performance/)
 1. [RediSearch 1.6 Boosts Performance Up to 64%](https://redislabs.com/blog/redisearch-1-6-boosts-performance-up-to-64/)

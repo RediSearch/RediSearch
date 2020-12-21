@@ -581,3 +581,10 @@ def testLimitIssue(env):
                 'APPLY', '@PrimaryKey', 'AS', 'PrimaryKey',
                 'SORTBY', '2', '@CreatedDateTimeUTC', 'DESC', 'LIMIT', '2', '2')
     env.assertEqual(actual_res, res)
+
+def testMaxAggResults():
+    env = Env(moduleArgs="MAXAGGREGATERESULTS 100")
+    conn = getConnectionByEnv(env)
+    conn.execute_command('ft.create', 'idx', 'SCHEMA', 't', 'TEXT')
+    env.expect('ft.aggregate', 'idx', '*', 'LIMIT', '0', '10000').error()   \
+                .contains('LIMIT exceeds maximum of 100')
