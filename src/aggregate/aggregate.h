@@ -102,6 +102,7 @@ typedef struct {
   unsigned cursorChunkSize;
 
   /** Profile variables */
+  clock_t initTime;
   clock_t parseTime;
 } AREQ;
 

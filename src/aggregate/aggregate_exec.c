@@ -285,11 +285,10 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
 
   const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
   AREQ *r = AREQ_New();
-  clock_t profileTime;
   QueryError status = {0};
   if (withProfile) {
     r->reqflags |= QEXEC_F_PROFILE;
-    profileTime = clock();
+    r->initTime = clock();
   }
 
   if (buildRequest(ctx, argv, argc, type, &status, &r) != REDISMODULE_OK) {
@@ -297,7 +296,7 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   }
 
   if (withProfile) {
-    r->parseTime = clock() - profileTime;
+    r->parseTime = clock() - r->initTime;
   }
 
   if (r->reqflags & QEXEC_F_IS_CURSOR) {

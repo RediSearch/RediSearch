@@ -5,20 +5,22 @@ void printReadIt(RedisModuleCtx *ctx, IndexIterator *root, size_t counter, doubl
   int verbose = PROFILE_VERBOSE;
 
   RedisModule_ReplyWithArray(ctx, 3 + verbose);
-  RedisModule_ReplyWithSimpleString(ctx, "Reader");
-  const char *term = NULL;
-  switch (ir->record->type) {
-  case RSResultType_Term:
+
+  if (ir->idx->flags & Index_DocIdsOnly) {
+    RedisModule_ReplyWithSimpleString(ctx, "Tag reader");
     RedisModule_ReplyWithSimpleString(ctx, ir->record->term.term->str);
-    break;
-  case RSResultType_Numeric:
-    RedisModule_ReplyWithDouble(ctx, ir->record->num.value);
-    break;
-  case RSResultType_Union:
-  case RSResultType_Intersection:
-  case RSResultType_Virtual:
-    RS_LOG_ASSERT(0, "debug");
-    break;
+  } else if (ir->idx->flags & Index_StoreNumeric) {
+    NumericFilter *flt = ir->decoderCtx.ptr;
+    if (!flt || flt->geoFilter == NULL) {
+      RedisModule_ReplyWithSimpleString(ctx, "Numeric reader");
+      RedisModule_ReplyWithDouble(ctx, ir->record->num.value);
+    } else {
+      RedisModule_ReplyWithSimpleString(ctx, "Geo reader");
+      RedisModule_ReplyWithDouble(ctx, ir->record->num.value);
+    }
+  } else {
+    RedisModule_ReplyWithSimpleString(ctx, "Term reader");
+    RedisModule_ReplyWithSimpleString(ctx, ir->record->term.term->str);
   }
   RedisModule_ReplyWithLongLong(ctx, counter);
   if (verbose) {
@@ -51,6 +53,12 @@ static double printProfileRP(RedisModuleCtx *ctx, ResultProcessor *rp, size_t *a
 }
 
 int Profile_Print(RedisModuleCtx *ctx, AREQ *req, size_t *nelem){
+  // Print total time
+  RedisModule_ReplyWithArray(ctx, 2);
+  RedisModule_ReplyWithSimpleString(ctx, "Total time");
+  RedisModule_ReplyWithDouble(ctx, (double)(clock() - req->initTime) / CLOCKS_PER_MILLISEC);
+  (*nelem)++;
+
   // Print query parsing and creation time
   RedisModule_ReplyWithArray(ctx, 2);
   RedisModule_ReplyWithSimpleString(ctx, "Parsing and iterator creation time");

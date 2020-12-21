@@ -1754,11 +1754,12 @@ PRINT_PROFILE_FUNC_SIGN(printIntersectIt) {
 #define PRINT_PROFILE_SINGLE(name, struct, text, hasChild)                  \
 PRINT_PROFILE_FUNC_SIGN(name) {                                             \
   int verbose = PROFILE_VERBOSE;                                            \
-  RedisModule_ReplyWithArray(ctx, 2 + verbose + hasChild);                  \
+  int addChild = hasChild && ((struct *)root)->child;                       \
+  RedisModule_ReplyWithArray(ctx, 2 + verbose + addChild);                  \
   RedisModule_ReplyWithSimpleString(ctx, text);                             \
   RedisModule_ReplyWithLongLong(ctx, counter);                              \
   if (verbose) RedisModule_ReplyWithLongDouble(ctx, cpuTime);               \
-  if (hasChild) printIteratorProfile(ctx, ((struct *)root)->child, 0, 0);   \
+  if (addChild) printIteratorProfile(ctx, ((struct *)root)->child, 0, 0);   \
 }
 
 typedef struct {
