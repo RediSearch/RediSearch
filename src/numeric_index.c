@@ -92,7 +92,7 @@ double NumericRange_Split(NumericRange *n, NumericRangeNode **lp, NumericRangeNo
                     MIN(NR_MAXRANGE_CARD, 1 + n->splitCard * NR_EXPONENT));
 
   RSIndexResult *res = NULL;
-  IndexReader *ir = NewNumericReader(NULL, n->entries, NULL);
+  IndexReader *ir = NewNumericReader(NULL, n->entries, NULL ,0, 0);
   while (INDEXREAD_OK == IR_Read(ir, &res)) {
     rv->sz += NumericRange_Add(res->num.value < split ? (*lp)->range : (*rp)->range, res->docId,
                                res->num.value, 1);
@@ -348,7 +348,7 @@ IndexIterator *NewNumericRangeIterator(const IndexSpec *sp, NumericRange *nr,
     // make the filter NULL so the reader will ignore it
     f = NULL;
   }
-  IndexReader *ir = NewNumericReader(sp, nr->entries, f);
+  IndexReader *ir = NewNumericReader(sp, nr->entries, f, nr->minVal, nr->maxVal);
 
   return NewReadIterator(ir);
 }
@@ -612,7 +612,7 @@ static void numericIndex_rdbSaveCallback(NumericRangeNode *n, void *ctx) {
   if (NumericRangeNode_IsLeaf(n) && n->range) {
     NumericRange *rng = n->range;
     RSIndexResult *res = NULL;
-    IndexReader *ir = NewNumericReader(NULL, rng->entries, NULL);
+    IndexReader *ir = NewNumericReader(NULL, rng->entries, NULL, 0, 0);
 
     while (INDEXREAD_OK == IR_Read(ir, &res)) {
       RedisModule_SaveUnsigned(rctx->rdb, res->docId);

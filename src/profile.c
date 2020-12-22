@@ -12,7 +12,10 @@ void printReadIt(RedisModuleCtx *ctx, IndexIterator *root, size_t counter, doubl
     NumericFilter *flt = ir->decoderCtx.ptr;
     if (!flt || flt->geoFilter == NULL) {
       RedisModule_ReplyWithSimpleString(ctx, "Numeric reader");
-      RedisModule_ReplyWithDouble(ctx, ir->record->num.value);
+      RedisModuleString *str = RedisModule_CreateStringPrintf(ctx, "%g - %g",
+            ir->decoderCtx.rangeMin, ir->decoderCtx.rangeMax);
+      RedisModule_ReplyWithString(ctx, str);
+      RedisModule_FreeString(ctx, str);
     } else {
       RedisModule_ReplyWithSimpleString(ctx, "Geo reader");
       RedisModule_ReplyWithDouble(ctx, ir->record->num.value);
@@ -21,6 +24,8 @@ void printReadIt(RedisModuleCtx *ctx, IndexIterator *root, size_t counter, doubl
     RedisModule_ReplyWithSimpleString(ctx, "Term reader");
     RedisModule_ReplyWithSimpleString(ctx, ir->record->term.term->str);
   }
+
+  // print counter and clock
   RedisModule_ReplyWithLongLong(ctx, counter);
   if (PROFILE_VERBOSE) {
       RedisModule_ReplyWithLongDouble(ctx, cpuTime);

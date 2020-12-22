@@ -206,8 +206,9 @@ DEBUG_COMMAND(DumpNumericIndex) {
   size_t resultSize = 0;
   RedisModule_ReplyWithArray(sctx->redisCtx, REDISMODULE_POSTPONED_ARRAY_LEN);
   while ((currNode = NumericRangeTreeIterator_Next(iter))) {
-    if (currNode->range) {
-      IndexReader *reader = NewNumericReader(NULL, currNode->range->entries, NULL);
+    NumericRange *range = currNode->range;
+    if (range) {
+      IndexReader *reader = NewNumericReader(NULL, range->entries, NULL, range->minVal, range->maxVal);
       ReplyReaderResults(reader, sctx->redisCtx);
       ++resultSize;
     }

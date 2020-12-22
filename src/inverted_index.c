@@ -773,13 +773,14 @@ IndexDecoderProcs InvertedIndex_GetDecoder(uint32_t flags) {
   }
 }
 
-IndexReader *NewNumericReader(const IndexSpec *sp, InvertedIndex *idx, const NumericFilter *flt) {
+IndexReader *NewNumericReader(const IndexSpec *sp, InvertedIndex *idx, const NumericFilter *flt,
+                              double rangeMin, double rangeMax) {
   RSIndexResult *res = NewNumericResult();
   res->freq = 1;
   res->fieldMask = RS_FIELDMASK_ALL;
   res->num.value = 0;
 
-  IndexDecoderCtx ctx = {.ptr = (void *)flt};
+  IndexDecoderCtx ctx = {.ptr = (void *)flt, .rangeMin = rangeMin, .rangeMax = rangeMax};
   IndexDecoderProcs procs = {.decoder = readNumeric};
   return NewIndexReaderGeneric(sp, idx, procs, ctx, res, 1);
 }

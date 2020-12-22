@@ -445,7 +445,7 @@ TEST_F(IndexTest, testNumericInverted) {
 
   // printf("written %zd bytes\n", IndexBlock_DataLen(&idx->blocks[0]));
 
-  IndexReader *ir = NewNumericReader(NULL, idx, NULL);
+  IndexReader *ir = NewNumericReader(NULL, idx, NULL, 0, 0);
   IndexIterator *it = NewReadIterator(ir);
   RSIndexResult *res;
   t_docId i = 1;
@@ -473,7 +473,7 @@ TEST_F(IndexTest, testNumericVaried) {
     // printf("[%lu]: Stored %lf\n", i, nums[i]);
   }
 
-  IndexReader *ir = NewNumericReader(NULL, idx, NULL);
+  IndexReader *ir = NewNumericReader(NULL, idx, NULL, 0, 0);
   IndexIterator *it = NewReadIterator(ir);
   RSIndexResult *res;
 
@@ -535,7 +535,7 @@ TEST_F(IndexTest, testNumericEncoding) {
     ASSERT_EQ(infos[ii].size, sz);
   }
 
-  IndexReader *ir = NewNumericReader(NULL, idx, NULL);
+  IndexReader *ir = NewNumericReader(NULL, idx, NULL, 0, 0);
   IndexIterator *it = NewReadIterator(ir);
   RSIndexResult *res;
 
