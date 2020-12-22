@@ -44,7 +44,7 @@ def testProfileSearch(env):
 												['Index', 3L],
 												['Scorer', 3L],
 												['Sorter', 1L]],
-											'1', '2']
+											'Results', '1', '2']
 	env.assertEqual(actual_res, expected_res)
 
 	actual_res = conn.execute_command('ft.profile', 'search', 'idx', 'hello', 'nocontent')
@@ -56,7 +56,7 @@ def testProfileSearch(env):
 												['Index', 2L],
 												['Scorer', 2L],
 												['Sorter', 1L]],
-											'1']
+											'Results', '1']
 	env.assertEqual(actual_res, expected_res)
 
 	actual_res = conn.execute_command('ft.profile', 'search', 'idx', 'hello|world', 'nocontent')
@@ -70,7 +70,7 @@ def testProfileSearch(env):
 												['Index', 3L],
 												['Scorer', 3L],
 												['Sorter', 1L]],
-											'1', '2']
+											'Results', '1', '2']
 	env.assertEqual(actual_res, expected_res)
 
 	actual_res = conn.execute_command('ft.profile', 'search', 'idx', 'hello world', 'nocontent')
@@ -83,7 +83,8 @@ def testProfileSearch(env):
 											['Result processors profile',
 												['Index', 1L],
 												['Scorer', 1L],
-												['Sorter', 1L]]]
+												['Sorter', 1L]],
+											'Results']
 	env.assertEqual(actual_res, expected_res)
 
 	actual_res = conn.execute_command('ft.profile', 'search', 'idx', '-hello', 'nocontent')
@@ -96,7 +97,7 @@ def testProfileSearch(env):
 												['Index', 2L],
 												['Scorer', 2L],
 												['Sorter', 1L]],
-											'2']
+											'Results', '2']
 	env.assertEqual(actual_res, expected_res)
 
 	actual_res = conn.execute_command('ft.profile', 'search', 'idx', '~hello', 'nocontent')
@@ -109,7 +110,7 @@ def testProfileSearch(env):
 												['Index', 3L],
 												['Scorer', 3L],
 												['Sorter', 1L]],
-											'1', '2']
+											'Results', '1', '2']
 	env.assertEqual(actual_res, expected_res)
 
 	actual_res = conn.execute_command('ft.profile', 'search', 'idx', 'hello(hello(hello(hello(hello(hello)))))', 'nocontent')
@@ -131,7 +132,7 @@ def testProfileSearch(env):
 												['Index', 2L],
 												['Scorer', 2L],
 												['Sorter', 1L]],
-											'1']
+											'Results', '1']
 	env.assertEqual(actual_res, expected_res)
 
 	actual_res = env.expect('ft.profile', 'search', 'idx', 'hello(hello(hello(hello(hello(hello(hello))))))', 'nocontent')
@@ -153,7 +154,7 @@ def testProfileSearch(env):
 												['Index', 2L],
 												['Scorer', 2L],
 												['Sorter', 1L]],
-											'1']
+											'Results', '1']
 
 
 	actual_res = conn.execute_command('ft.profile', 'aggregate', 'idx', 'hello',
@@ -167,7 +168,7 @@ def testProfileSearch(env):
 												['Index', 2L],
 												['Loader', 2L],
 												['Grouper', 1L]],
-											['t', 'hello', 'sum', '1']]
+											'Results', ['t', 'hello', 'sum', '1']]
 	env.assertEqual(actual_res, expected_res)
 
 def testProfileNumeric(env):
@@ -193,10 +194,10 @@ def testProfileNumeric(env):
 												['Index', 5L],
 												['Scorer', 5L],
 												['Sorter', 1L]],
-											'1', '2', '3', '4']
+											'Results', '1', '2', '3', '4']
 	env.assertEqual(actual_res, expected_res)
 
-def _testProfileOutput(env):
+def testProfileOutput(env):
 	env.skip()
 	docs = 10000
 	copies = 10

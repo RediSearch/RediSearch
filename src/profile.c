@@ -85,5 +85,11 @@ int Profile_Print(RedisModuleCtx *ctx, AREQ *req, size_t *nelem){
   RedisModule_ReplySetArrayLength(ctx, alen);
   (*nelem)++;
 
+  // Print header for results
+  if (!(req->reqflags & QEXEC_F_NOROWS)) {
+    RedisModule_ReplyWithSimpleString(ctx, "Results");
+    (*nelem)++;
+  }
+  
   return REDISMODULE_OK;
 }
