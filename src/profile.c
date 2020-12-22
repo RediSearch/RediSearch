@@ -18,7 +18,15 @@ void printReadIt(RedisModuleCtx *ctx, IndexIterator *root, size_t counter, doubl
       RedisModule_FreeString(ctx, str);
     } else {
       RedisModule_ReplyWithSimpleString(ctx, "Geo reader");
-      RedisModule_ReplyWithDouble(ctx, ir->record->num.value);
+      double se[2];
+      double nw[2];
+      flt->geoFilter;
+      decodeGeo(ir->decoderCtx.rangeMin, se);
+      decodeGeo(ir->decoderCtx.rangeMax, nw);
+      RedisModuleString *str = RedisModule_CreateStringPrintf(ctx, "%g,%g - %g,%g", 
+                                                        se[0], se[1], nw[0], nw[1]); 
+      RedisModule_ReplyWithString(ctx, str);
+      RedisModule_FreeString(ctx, str);
     }
   } else {
     RedisModule_ReplyWithSimpleString(ctx, "Term reader");
