@@ -1845,7 +1845,7 @@ void Profile_AddIters(IndexIterator **root) {
       for (int i = 0; i < ui->norig; i++) {
         Profile_AddIters(&(ui->origits[i]));
       }
-      memcpy(ui->its, ui->origits, ui->num * sizeof(*ui->its));
+      UI_SyncIterList(ui);
       break;
     case (INTERSECT_ITERATOR):
       ini = (*root)->ctx;
