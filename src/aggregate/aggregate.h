@@ -21,6 +21,7 @@ typedef enum {
   QEXEC_F_SEND_NOFIELDS = 0x08,  // Don't send the contents of the fields
   QEXEC_F_SEND_PAYLOADS = 0x10,  // Sent the payload set with ADD
   QEXEC_F_IS_CURSOR = 0x20,      // Is a cursor-type query
+  // QEXEC_F_PROFILE_LIMITED = 0x40 - used below
 
   /** Don't use concurrent execution */
   QEXEC_F_SAFEMODE = 0x100,
@@ -45,6 +46,7 @@ typedef enum {
 
   /* Profile command */
   QEXEC_F_PROFILE = 0x8000,
+  QEXEC_F_PROFILE_LIMITED = 0x40,
 
 } QEFlags;
 

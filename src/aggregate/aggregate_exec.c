@@ -276,6 +276,10 @@ done:
   return rc;
 }
 
+#define NO_PROFILE 0
+#define PROFILE_FULL 1
+#define PROFILE_LIMITED 2
+
 static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                              CommandType type, int withProfile) {
   // Index name is argv[1]
@@ -286,8 +290,11 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
   AREQ *r = AREQ_New();
   QueryError status = {0};
-  if (withProfile) {
+  if (withProfile != NO_PROFILE) {
     r->reqflags |= QEXEC_F_PROFILE;
+    if (withProfile == PROFILE_LIMITED) {
+      r->reqflags |= QEXEC_F_PROFILE_LIMITED;
+    }
     r->initTime = clock();
   }
 
@@ -295,7 +302,7 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     goto error;
   }
 
-  if (withProfile) {
+  if (withProfile != NO_PROFILE) {
     r->parseTime = clock() - r->initTime;
   }
 
@@ -318,19 +325,26 @@ error:
 }
 
 int RSAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  return execCommandCommon(ctx, argv, argc, COMMAND_AGGREGATE, 0);
+  return execCommandCommon(ctx, argv, argc, COMMAND_AGGREGATE, NO_PROFILE);
 }
 int RSSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  return execCommandCommon(ctx, argv, argc, COMMAND_SEARCH, 0);
+  return execCommandCommon(ctx, argv, argc, COMMAND_SEARCH, NO_PROFILE);
 }
 
 int RSProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  // TODO: time whole runtime
-  const char *cmd = RedisModule_StringPtrLen(argv[1], NULL);
+  int curArg = 1;
+  int withProfile = PROFILE_FULL;
+  const char *cmd = RedisModule_StringPtrLen(argv[curArg], NULL);
+
+  if (strcasecmp(cmd, "LIMITED") == 0) {
+    withProfile = PROFILE_LIMITED;
+    cmd = RedisModule_StringPtrLen(argv[++curArg], NULL);
+  }
+
   if (strcasecmp(cmd, "SEARCH") == 0) {
-    return execCommandCommon(ctx, argv + 1, argc - 1, COMMAND_SEARCH, 1);
+    return execCommandCommon(ctx, argv + curArg, argc - curArg, COMMAND_SEARCH, withProfile);
   } else if (strcasecmp(cmd, "AGGREGATE") == 0) {
-    return execCommandCommon(ctx, argv + 1, argc - 1, COMMAND_AGGREGATE, 1);
+    return execCommandCommon(ctx, argv + curArg, argc - 1, COMMAND_AGGREGATE, withProfile);
   }
   RedisModule_ReplyWithError(ctx, "Bad command type");
   return REDISMODULE_OK;

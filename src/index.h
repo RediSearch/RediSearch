@@ -79,7 +79,8 @@ void printIteratorProfile(RedisModuleCtx *ctx,
                           IndexIterator *root,
                           size_t counter,
                           double cpuTime,
-                          int depth);
+                          int depth,
+                          int limited);
 
 
 #ifdef __cplusplus

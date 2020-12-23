@@ -18,6 +18,7 @@ def testGeoFtAdd(env):
   env.expect('FT.SEARCH', 'idx', '@g:[1.23 4.56 1 km]').equal([1L, 'geo2', ['g', '1.23,4.56']])
 
 def testGeoDistanceSimple(env):
+  env.skipOnCluster()
   env.expect('ft.create', 'idx', 'schema', 'name', 'text', 'location', 'geo', 'hq', 'geo').ok()
   env.expect('FT.ADD', 'idx', 'geo1', '1', 'FIELDS', 'location', '1.22,4.56', 'hq', '1.25,4.5').ok()
   env.expect('FT.ADD', 'idx', 'geo2', '1', 'FIELDS', 'location', '1.24,4.56', 'hq', '1.25,4.5').ok()

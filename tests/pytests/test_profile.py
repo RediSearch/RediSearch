@@ -27,6 +27,7 @@ string2 = 'For the binary formats, the representation is made unique by choosing
 					 the normal exponent range and scale by the smallest represented exponent as used for the smallest normal numbers.'
 
 def testProfileSearch(env):
+	env.skipOnCluster()
 	conn = getConnectionByEnv(env)
  	env.cmd('FT.CONFIG', 'SET', 'MAXPREFIXEXPANSIONS', 1000000)
  	env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
@@ -172,6 +173,7 @@ def testProfileSearch(env):
 	env.assertEqual(actual_res, expected_res)
 
 def testProfileNumeric(env):
+	env.skipOnCluster()
 	conn = getConnectionByEnv(env)
  	env.cmd('FT.CONFIG', 'SET', 'MAXPREFIXEXPANSIONS', 1000000)
  	env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
