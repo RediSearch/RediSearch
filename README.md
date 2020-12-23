@@ -9,7 +9,7 @@
 # RediSearch
 
 ## Querying, secondary indexing, and full-text search for Redis
-<img src="https://raw.githubusercontent.com/RediSearch/RediSearch/master/docs/img/logo.svg" alt="logo" width="300"/>
+<img src="https://oss.redislabs.com/redisearch/img/logo.svg" alt="logo" width="300"/>
 
 ## Overview
 
