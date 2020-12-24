@@ -516,7 +516,7 @@ static const encodingInfo infos[] = {
     {549755813888.0 - 23, 7},  // 19
     {-549755813888.0, 7},      // 20
     {1503342028.957225, 10},   // 21
-    {42.4345, 6},              // 22
+    {42.4345, 10},              // 22
     {(float)0.5, 6},           // 23
     {DBL_MAX, 10},             // 24
     {UINT64_MAX >> 12, 9},     // 25
@@ -525,6 +525,8 @@ static const encodingInfo infos[] = {
 };
 
 TEST_F(IndexTest, testNumericEncoding) {
+  RSGlobalConfig.numericCompress = 0;
+
   static const size_t numInfos = sizeof(infos) / sizeof(infos[0]);
   InvertedIndex *idx = NewInvertedIndex(Index_StoreNumeric, 1);
   // printf("TestNumericEncoding\n");
