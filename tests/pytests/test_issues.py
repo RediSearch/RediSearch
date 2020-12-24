@@ -90,3 +90,13 @@ def test_1667(env):
   conn.execute_command('HSET', 'doc_b', 'text', 'b')
   env.expect('ft.search idx a').equal([0L])
   env.expect('ft.search idx b').equal([1L, 'doc_b', ['text', 'b']])
+
+def test_MOD_865(env):
+  conn = getConnectionByEnv(env)
+  args_list = ['FT.CREATE', 'idx', 'SCHEMA']
+  # We have a limit on number of text fields so we split between TEXT and NUMERIC
+  for i in range(128):
+    args_list.extend([i, 'TEXT', 'SORTABLE'])
+  for i in range(128, 256):
+    args_list.extend([i, 'NUMERIC', 'SORTABLE'])
+  env.expect(*args_list).error().contains('Too many SORTABLE fields in schema')
