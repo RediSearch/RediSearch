@@ -420,6 +420,10 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
       }
 
       fs->sortIdx = RSSortingTable_Add(sp->sortables, fs->name, fieldTypeToValueType(fs->types));
+      if (fs->sortIdx == -1) {
+        QueryError_SetError(status, QUERY_ELIMIT, "Too many SORTABLE fields in schema");
+        goto reset;
+      }
     } else {
       fs->sortIdx = -1;
     }

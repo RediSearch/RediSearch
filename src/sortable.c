@@ -191,7 +191,8 @@ void SortingTable_Free(RSSortingTable *t) {
 }
 
 int RSSortingTable_Add(RSSortingTable *tbl, const char *name, RSValueType t) {
-  assert(tbl->len < RS_SORTABLES_MAX);
+  if (tbl->len == RS_SORTABLES_MAX) return -1;
+
   tbl->fields[tbl->len].name = name;
   tbl->fields[tbl->len].type = t;
   return tbl->len++;
