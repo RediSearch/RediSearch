@@ -3015,3 +3015,13 @@ def testIssue1184(env):
         env.assertEqual(d['num_records'], '0')
 
         env.cmd('FT.DROP idx')
+
+def test_MOD_865(env):
+  conn = getConnectionByEnv(env)
+  args_list = ['FT.CREATE', 'idx', 'SCHEMA']
+  # We have a limit on number of text fields so we split between TEXT and NUMERIC
+  for i in range(128):
+    args_list.extend([i, 'TEXT', 'SORTABLE'])
+  for i in range(128, 256):
+    args_list.extend([i, 'NUMERIC', 'SORTABLE'])
+  env.expect(*args_list).error().contains('Too many SORTABLE fields in schema')
