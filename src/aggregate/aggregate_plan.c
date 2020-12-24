@@ -263,6 +263,7 @@ void AGPLN_Dump(const AGGPlan *pln) {
       case PLN_T_ROOT:
       case PLN_T_DISTRIBUTE:
       case PLN_T_INVALID:
+      case PLN_T_PROFILE:
       case PLN_T__MAX:
         break;
     }
@@ -374,6 +375,7 @@ array_t AGPLN_Serialize(const AGGPlan *pln) {
       case PLN_T_INVALID:
       case PLN_T_ROOT:
       case PLN_T_DISTRIBUTE:
+      case PLN_T_PROFILE:
       case PLN_T__MAX:
         break;
     }

@@ -591,6 +591,7 @@ FT.PROFILE [LIMITED] {[SEARCH, AGGREGATE]} {index} {query}
 
 Performs a `FT.SEARCH` or `FT.AGGREGATE` command and collect performance information.
 Printout details are:
+
 - **Total time** - Total query runtime.
 - **Parsing and iterator creation time** - Parsing time and creation time of execution plan including iterator, result processors and reducers.
 - **Iterators profile** - Iterators tree with type, count and time.

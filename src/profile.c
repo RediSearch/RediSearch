@@ -40,10 +40,28 @@ static double _recursiveProfilePrint(RedisModuleCtx *ctx, ResultProcessor *rp, s
   double upstreamTime = _recursiveProfilePrint(ctx, rp->upstream, arrlen);
 
   // Array is filled backward in pair of [common, profile] result processors
-  if (strcmp(rp->name, "Profile") != 0) {
+  if (rp->type != RP_PROFILE) {
     RedisModule_ReplyWithArray(ctx, 2 + PROFILE_VERBOSE);
-    RedisModule_ReplyWithSimpleString(ctx, rp->name);
-    //++*arrlen;
+    switch (rp->type) {
+      case RP_INDEX:
+      case RP_LOADER:
+      case RP_SCORER:
+      case RP_SORTER:
+      case RP_PAGER_LIMITER:
+      case RP_GROUP:
+      case RP_NETWORK:
+        RedisModule_ReplyWithSimpleString(ctx, RPTypeToString(rp->type));
+        break;
+
+      case RP_PROJECTOR:
+      case RP_FILTER:
+        RPEvaluator_Reply(ctx, rp);
+        break;
+
+      default:
+        RS_LOG_ASSERT(0, "RPType error");
+        break;
+    }
     return upstreamTime;
   }
   double totalTime = (double)RPProfile_GetClock(rp) / CLOCKS_PER_MILLISEC;

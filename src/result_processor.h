@@ -44,6 +44,20 @@ typedef enum {
   QITR_S_TIMEDOUT
 } QITRState;
 
+typedef enum {
+  RP_INDEX,
+  RP_LOADER,
+  RP_SCORER,
+  RP_SORTER,
+  RP_PAGER_LIMITER,
+  RP_GROUP,
+  RP_PROJECTOR,
+  RP_FILTER,
+  RP_PROFILE,
+  RP_NETWORK, // TODO: change in RSCoordinator as well
+  RP_MAX,
+} ResultProcessorType;
+
 struct ResultProcessor;
 struct RLookup;
 
@@ -136,8 +150,8 @@ typedef struct ResultProcessor {
   // Previous result processor in the chain
   struct ResultProcessor *upstream;
 
-  // For debugging purposes
-  const char *name;
+  // Type of result processor
+  ResultProcessorType type;
 
   /**
    * Populates the result pointed to by `res`. The existing data of `res` is
@@ -275,6 +289,9 @@ void updateRPIndexTimeout(ResultProcessor *base, struct timespec timeout);
 
 clock_t RPProfile_GetClock(ResultProcessor *rp);
 size_t RPProfile_GetCount(ResultProcessor *rp);
+
+// Return string for RPType
+const char *RPTypeToString(ResultProcessorType type);
 
 #ifdef __cplusplus
 }

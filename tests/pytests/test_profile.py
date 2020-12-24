@@ -172,6 +172,20 @@ def testProfileSearch(env):
 											'Results', ['t', 'hello', 'sum', '1']]
 	env.assertEqual(actual_res, expected_res)
 
+	actual_res = env.cmd('ft.profile', 'aggregate', 'idx', '*',
+								'load', 1, 't',
+								'apply', 'startswith(@t, "hel")', 'as', 'prefix')
+	expected_res = [1L, ['Total time'],
+											['Parsing and iterator creation time'],
+											['Iterators profile',
+												['Wildcard iterator', 1L]],
+											['Result processors profile',
+												['Index', 1L],
+												['Loader', 1L],
+												['Projector - Function startswith', 1L]],
+											'Results', ['t', 'hello', 'prefix', '1'], ['t', 'world', 'prefix', '0']]
+	env.assertEqual(actual_res, expected_res)
+
 def testProfileNumeric(env):
 	env.skipOnCluster()
 	conn = getConnectionByEnv(env)

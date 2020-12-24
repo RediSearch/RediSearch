@@ -377,7 +377,7 @@ static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num) {
   AREQ *req = cursor->execState;
   
   // update timeout for cursor
-  if (strcmp(req->qiter.rootProc->name, "Network") != 0) {
+  if (req->qiter.rootProc->type != RP_NETWORK) {
     updateTimeout(&req->timeoutTime, req->reqTimeout);
     updateRPIndexTimeout(req->qiter.rootProc, req->timeoutTime);
   }

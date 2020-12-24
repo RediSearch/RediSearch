@@ -134,7 +134,7 @@ ResultProcessor *RPIndexIterator_New(IndexIterator *root, struct timespec timeou
   ret->timeout = timeout;
   ret->base.Next = rpidxNext;
   ret->base.Free = rpidxFree;
-  ret->base.name = "Index";
+  ret->base.type = RP_INDEX;
   return &ret->base;
 }
 
@@ -235,7 +235,7 @@ ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
   ret->scorerCtx = *fnargs;
   ret->base.Next = rpscoreNext;
   ret->base.Free = rpscoreFree;
-  ret->base.name = "Scorer";
+  ret->base.type = RP_SCORER;
   return &ret->base;
 }
 
@@ -503,7 +503,7 @@ ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys
   ret->pooledResult = NULL;
   ret->base.Next = rpsortNext_Accum;
   ret->base.Free = rpsortFree;
-  ret->base.name = "Sorter";
+  ret->base.type = RP_SORTER;
   return &ret->base;
 }
 
@@ -575,7 +575,7 @@ ResultProcessor *RPPager_New(size_t offset, size_t limit) {
   RPPager *ret = rm_calloc(1, sizeof(*ret));
   ret->offset = offset;
   ret->limit = limit;
-  ret->base.name = "Pager/Limiter";
+  ret->base.type = RP_PAGER_LIMITER;
   ret->base.Next = rppagerNext;
   ret->base.Free = rppagerFree;
   return &ret->base;
@@ -649,13 +649,32 @@ ResultProcessor *RPLoader_New(RLookup *lk, const RLookupKey **keys, size_t nkeys
   sc->lk = lk;
   sc->base.Next = rploaderNext;
   sc->base.Free = rploaderFree;
-  sc->base.name = "Loader";
+  sc->base.type = RP_LOADER;
   return &sc->base;
+}
+
+const char *RPTypeToString(ResultProcessorType type) {
+  switch (type) {
+  case RP_INDEX: return "Index";
+  case RP_LOADER: return "Loader";
+  case RP_SCORER: return "Scorer";
+  case RP_SORTER: return "Sorter";
+  case RP_PAGER_LIMITER: return "Pager/Limiter";
+  case RP_GROUP: return "Grouper";
+  case RP_PROJECTOR: return "Projector";
+  case RP_FILTER: return "Filter";
+  case RP_PROFILE: return "Profile";
+  case RP_NETWORK: return "Network";
+  default:
+    RS_LOG_ASSERT(0, "No such RP");
+    break;
+  }
+  //return "error";
 }
 
 void RP_DumpChain(const ResultProcessor *rp) {
   for (; rp; rp = rp->upstream) {
-    printf("RP(%s) @%p\n", rp->name, rp);
+    printf("RP(%s) @%p\n", RPTypeToString(rp->type), rp);
     RS_LOG_ASSERT(rp->upstream != rp, "ResultProcessor should be different then upstream");
   }
 }
@@ -707,7 +726,7 @@ ResultProcessor *RPProfile_New(RLookup *lk, const RLookupKey **keys, size_t nkey
   rpp->profileCount = 0;
   rpp->base.Next = rpprofileNext;
   rpp->base.Free = rpProfileFree;
-  rpp->base.name = "Profile";
+  rpp->base.type = RP_PROFILE;
   return &rpp->base;
 }
 

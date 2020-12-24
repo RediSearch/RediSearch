@@ -21,6 +21,7 @@ typedef enum {
   PLN_T_APPLY,
   PLN_T_ARRANGE,
   PLN_T_LOAD,
+  PLN_T_PROFILE,
   PLN_T__MAX
 } PLN_StepType;
 
@@ -153,9 +154,6 @@ array_t AGPLN_Serialize(const AGGPlan *plan);
 
 /* Free the plan resources, not the plan itself */
 void AGPLN_Free(AGGPlan *plan);
-
-/* Print the plan */
-void AGPLN_Print(AGGPlan *plan);
 
 void AGPLN_Init(AGGPlan *plan);
 
