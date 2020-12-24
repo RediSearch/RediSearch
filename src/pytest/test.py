@@ -3017,7 +3017,6 @@ def testIssue1184(env):
         env.cmd('FT.DROP idx')
 
 def test_MOD_865(env):
-  conn = getConnectionByEnv(env)
   args_list = ['FT.CREATE', 'idx', 'SCHEMA']
   # We have a limit on number of text fields so we split between TEXT and NUMERIC
   for i in range(128):
