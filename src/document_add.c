@@ -41,9 +41,9 @@ English.
    If an unsupported language is sent, the command returns an error.
    The supported languages are:
 
-   > "arabic",  "danish",    "dutch",     "english",   "finnish",    "french",
-   > "german",  "hindi",     "hungarian", "italian",   "norwegian",  "portuguese", "romanian",
-   > "russian", "spanish",   "swedish",   "tamil",     "turkish"
+   > "arabic",  "danish",    "dutch",   "english",   "finnish",    "french",
+   > "german",  "hungarian", "italian", "norwegian", "portuguese", "romanian",
+   > "russian", "spanish",   "swedish", "tamil",     "turkish"
 
 
 Returns OK on success, NOADD if the document was not added due to an IF expression not evaluating to
@@ -307,7 +307,7 @@ exists
         The supported languages are:
 
         > "arabic",  "danish",    "dutch",   "english",   "finnish", "french",
-        > "german",  "hungarian",  "hindi",  "italian", "norwegian", "portuguese",
+        > "german",  "hungarian", "italian", "norwegian", "portuguese",
 "romanian",
         > "russian", "spanish",   "swedish", "tamil",     "turkish"
 
