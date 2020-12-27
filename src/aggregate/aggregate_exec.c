@@ -344,7 +344,7 @@ int RSProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (strcasecmp(cmd, "SEARCH") == 0) {
     return execCommandCommon(ctx, argv + curArg, argc - curArg, COMMAND_SEARCH, withProfile);
   } else if (strcasecmp(cmd, "AGGREGATE") == 0) {
-    return execCommandCommon(ctx, argv + curArg, argc - 1, COMMAND_AGGREGATE, withProfile);
+    return execCommandCommon(ctx, argv + curArg, argc - curArg, COMMAND_AGGREGATE, withProfile);
   }
   RedisModule_ReplyWithError(ctx, "Bad command type");
   return REDISMODULE_OK;
