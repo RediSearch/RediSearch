@@ -398,7 +398,26 @@ class TestAggregate():
         # SEARCH should fail
         self.env.expect('ft.search', 'games', '*', 'limit', 0, 2000000).error()     \
                 .contains('LIMIT exceeds maximum of 1000000')
-        
+
+    def testCountError(self):
+        # With 0 values
+        res = self.env.cmd('ft.aggregate', 'games', '*',
+                           'GROUPBY', '2', '@brand', '@price',
+                           'REDUCE', 'COUNT', 0)
+        self.env.assertEqual(len(res), 1245)
+
+        # With count 1 and 1 value
+        res = self.env.expect('ft.aggregate', 'games', '*',
+                           'GROUPBY', '2', '@brand', '@price',
+                           'REDUCE', 'COUNT', 1, '@brand').error()      \
+                            .contains('Count accepts 0 values only')
+
+        # With count 1 and 0 values
+        res = self.env.expect('ft.aggregate', 'games', '*',
+                           'GROUPBY', '2', '@brand', '@price',
+                           'REDUCE', 'COUNT', 1).error()        \
+                            .contains('Bad arguments for COUNT: Expected an argument, but none provided')
+
     # def testLoadAfterSortBy(self):
     #     with self.env.assertResponseError():
     #         self.env.cmd('ft.aggregate', 'games', '*',
