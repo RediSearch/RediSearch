@@ -825,6 +825,8 @@ int AlterIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       return RedisModule_ReplyWithError(ctx, "No fields provided");
     }
     IndexSpec_AddFields(sp, &ac, &status);
+  } else {
+      return RedisModule_ReplyWithError(ctx, "ALTER must be followed by SCHEMA");
   }
 
   if (QueryError_HasError(&status)) {

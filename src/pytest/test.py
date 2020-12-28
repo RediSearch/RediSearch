@@ -1999,6 +1999,8 @@ def testAlterIndex(env):
     env.expect('FT.ALTER', 'idx', 'SCHEMA', 'NOT_ADD', 'f2', 'TEXT').error()
     env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD').error()
     env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'f2').error()
+    env.expect('FT.ALTER', 'idx', 'ADD', 'SCHEMA', 'f2', 'TEXT').error()
+    env.expect('FT.ALTER', 'idx', 'f2', 'TEXT').error()
 
 def testAlterValidation(env):
     # Test that constraints for ALTER comand
