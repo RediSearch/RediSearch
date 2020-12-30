@@ -865,7 +865,7 @@ TEST_F(IndexTest, testHugeSpec) {
   s = IndexSpec_Parse("idx", (const char **)&args[0], args.size(), &err);
   ASSERT_TRUE(s == NULL);
   ASSERT_TRUE(QueryError_HasError(&err));
-  ASSERT_STREQ("Too many TEXT fields in schema", QueryError_GetError(&err));
+  ASSERT_STREQ("Schema is limited to 128 TEXT fields", QueryError_GetError(&err));
   freeSchemaArgs(args);
   QueryError_ClearError(&err);
 }
