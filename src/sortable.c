@@ -194,7 +194,6 @@ void SortingTable_Free(RSSortingTable *t) {
 int RSSortingTable_Add(RSSortingTable **tbl, const char *name, RSValueType t) {
   if ((*tbl)->len == RS_SORTABLES_MAX) return -1;
 
-  // struct include 1 RSSortField. (*tbl)->len is sufficient
   if ((*tbl)->len == (*tbl)->cap) {
     (*tbl)->cap += 8;
     *tbl = rm_realloc(*tbl, sizeof(RSSortingTable) + ((*tbl)->cap) * sizeof(RSSortField));
