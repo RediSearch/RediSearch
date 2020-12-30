@@ -190,12 +190,15 @@ void SortingTable_Free(RSSortingTable *t) {
   rm_free(t);
 }
 
-int RSSortingTable_Add(RSSortingTable *tbl, const char *name, RSValueType t) {
-  if (tbl->len == RS_SORTABLES_MAX) return -1;
+int RSSortingTable_Add(RSSortingTable **tbl, const char *name, RSValueType t) {
+  if ((*tbl)->len == RS_SORTABLES_MAX) return -1;
 
-  tbl->fields[tbl->len].name = name;
-  tbl->fields[tbl->len].type = t;
-  return tbl->len++;
+  // struct include 1 RSSortField. (*tbl)->len is sufficient
+  *tbl = rm_realloc(*tbl, sizeof(RSSortingTable) + ((*tbl)->len) * sizeof(RSSortField));
+
+  (*tbl)->fields[(*tbl)->len].name = name;
+  (*tbl)->fields[(*tbl)->len].type = t;
+  return (*tbl)->len++;
 }
 
 /* Get the field index by name from the sorting table. Returns -1 if the field was not found */

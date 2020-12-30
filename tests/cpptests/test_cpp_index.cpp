@@ -1015,9 +1015,9 @@ TEST_F(IndexTest, testDocTable) {
 
 TEST_F(IndexTest, testSortable) {
   RSSortingTable *tbl = NewSortingTable();
-  RSSortingTable_Add(tbl, "foo", RSValue_String);
-  RSSortingTable_Add(tbl, "bar", RSValue_String);
-  RSSortingTable_Add(tbl, "baz", RSValue_String);
+  RSSortingTable_Add(&tbl, "foo", RSValue_String);
+  RSSortingTable_Add(&tbl, "bar", RSValue_String);
+  RSSortingTable_Add(&tbl, "baz", RSValue_String);
   ASSERT_EQ(3, tbl->len);
 
   ASSERT_STREQ("foo", tbl->fields[0].name);

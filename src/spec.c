@@ -465,7 +465,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
         goto reset;
       }
 
-      fs->sortIdx = RSSortingTable_Add(sp->sortables, fs->name, fieldTypeToValueType(fs->types));
+      fs->sortIdx = RSSortingTable_Add(&sp->sortables, fs->name, fieldTypeToValueType(fs->types));
       if (fs->sortIdx == -1) {
         QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Schema is limited to %d Sortable fields", SPEC_MAX_FIELDS);
         goto reset;
