@@ -183,6 +183,7 @@ size_t RSSortingVector_GetMemorySize(RSSortingVector *v) {
 /* Create a new sorting table of a given length */
 RSSortingTable *NewSortingTable(void) {
   RSSortingTable *tbl = rm_calloc(1, sizeof(*tbl));
+  tbl->cap = 1;
   return tbl;
 }
 
@@ -194,7 +195,10 @@ int RSSortingTable_Add(RSSortingTable **tbl, const char *name, RSValueType t) {
   if ((*tbl)->len == RS_SORTABLES_MAX) return -1;
 
   // struct include 1 RSSortField. (*tbl)->len is sufficient
-  *tbl = rm_realloc(*tbl, sizeof(RSSortingTable) + ((*tbl)->len) * sizeof(RSSortField));
+  if ((*tbl)->len == (*tbl)->cap) {
+    (*tbl)->cap += 8;
+    *tbl = rm_realloc(*tbl, sizeof(RSSortingTable) + ((*tbl)->cap) * sizeof(RSSortField));
+  }
 
   (*tbl)->fields[(*tbl)->len].name = name;
   (*tbl)->fields[(*tbl)->len].type = t;

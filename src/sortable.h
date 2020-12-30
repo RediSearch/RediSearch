@@ -40,7 +40,8 @@ typedef struct {
 } RSSortField;
 
 typedef struct {
-  uint8_t len;
+  uint16_t len;
+  uint16_t cap;
   RSSortField fields[1];
 } RSSortingTable;
 
