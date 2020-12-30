@@ -418,14 +418,19 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
   FieldSpec *fs = NULL;
 
   while (!AC_IsAtEnd(ac)) {
-    size_t nfieldName = 0;
+    size_t nfieldName;
     const char *fieldName = AC_GetStringNC(ac, &nfieldName);
     if (IndexSpec_GetField(sp, fieldName, nfieldName)) {
-      QueryError_SetError(status, QUERY_EINVAL, "Duplicate field in schema");
+      QueryError_SetErrorFmt(status, QUERY_EINVAL, "Duplicate field in schema - %s", fieldName);
       goto reset;
     }
 
     fs = IndexSpec_CreateField(sp, fieldName);
+
+    if (sp->numFields == SPEC_MAX_FIELDS) {
+      QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Schema is limited to %d fields", SPEC_MAX_FIELDS);
+      goto reset;
+    }
 
     if (!parseFieldSpec(ac, fs, status)) {
       goto reset;
@@ -434,7 +439,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
     if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && FieldSpec_IsIndexable(fs)) {
       int textId = IndexSpec_CreateTextId(sp);
       if (textId < 0) {
-        QueryError_SetError(status, QUERY_ELIMIT, "Too many TEXT fields in schema");
+        QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Schema is limited to %d TEXT fields", SPEC_MAX_FIELD_ID);
         goto reset;
       }
 
@@ -456,13 +461,13 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
 
     if (FieldSpec_IsSortable(fs)) {
       if (fs->options & FieldSpec_Dynamic) {
-        QueryError_SetError(status, QUERY_EBADOPTION, "Cannot set dynamic field to sortable");
+        QueryError_SetErrorFmt(status, QUERY_EBADOPTION, "Cannot set dynamic field to sortable - %s", fieldName);
         goto reset;
       }
 
       fs->sortIdx = RSSortingTable_Add(sp->sortables, fs->name, fieldTypeToValueType(fs->types));
       if (fs->sortIdx == -1) {
-        QueryError_SetError(status, QUERY_ELIMIT, "Too many SORTABLE fields in schema");
+        QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Schema is limited to %d Sortable fields", SPEC_MAX_FIELDS);
         goto reset;
       }
     } else {

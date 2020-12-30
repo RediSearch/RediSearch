@@ -13,7 +13,7 @@ extern "C" {
  * now we copy strings in full so you should be careful about string length of sortable fields*/
 
 // Maximum number of sortables
-#define RS_SORTABLES_MAX 255
+#define RS_SORTABLES_MAX 1024 // aligned with SPEC_MAX_FIELDS
 
 #pragma pack(1)
 
