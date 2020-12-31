@@ -212,10 +212,10 @@ void RP_DumpChain(const ResultProcessor *rp);
  *            Timeout API
  ****************************************/
 
-#define timercmp(a, b, CMP) \
+#define rs_timercmp(a, b, CMP) \
   (((a)->tv_sec == (b)->tv_sec) ? ((a)->tv_nsec CMP(b)->tv_nsec) : ((a)->tv_sec CMP(b)->tv_sec))
 
-#define timeradd(a, b, result)                       \
+#define rs_timeradd(a, b, result)                       \
   do {                                               \
     (result)->tv_sec = (a)->tv_sec + (b)->tv_sec;    \
     (result)->tv_nsec = (a)->tv_nsec + (b)->tv_nsec; \
@@ -230,7 +230,7 @@ static inline int TimedOut(struct timespec timeout) {
   static struct timespec now;
   clock_gettime(CLOCK_MONOTONIC_RAW, &now);
 
-  if (__builtin_expect(timercmp(&now, &timeout, >=), 0)) {
+  if (__builtin_expect(rs_timercmp(&now, &timeout, >=), 0)) {
     return RS_RESULT_TIMEDOUT;
   }
   return RS_RESULT_OK;
@@ -241,7 +241,7 @@ static inline void updateTimeout(struct timespec *timeout, int32_t durationNS) {
   struct timespec duration = { .tv_sec = durationNS / 1000,
                               .tv_nsec = ((durationNS % 1000) * 1000000) };
   clock_gettime(CLOCK_MONOTONIC_RAW, &now);
-  timeradd(&now, &duration, timeout);
+  rs_timeradd(&now, &duration, timeout);
   //printf("sec %ld ms %ld\n", now.tv_sec, now.tv_nsec);
 }
 
