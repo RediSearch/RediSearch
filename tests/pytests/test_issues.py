@@ -90,3 +90,23 @@ def test_1667(env):
   conn.execute_command('HSET', 'doc_b', 'text', 'b')
   env.expect('ft.search idx a').equal([0L])
   env.expect('ft.search idx b').equal([1L, 'doc_b', ['text', 'b']])
+
+def test_MOD_865(env):
+  conn = getConnectionByEnv(env)
+  args_list = ['FT.CREATE', 'idx', 'SCHEMA']
+  for i in range(1025):
+    args_list.extend([i, 'NUMERIC', 'SORTABLE'])
+  env.expect(*args_list).error().contains('Schema is limited to 1024 fields')
+  env.expect('FT.DROPINDEX', 'idx')
+
+  args_list = ['FT.CREATE', 'idx', 'SCHEMA']
+  for i in range(129):
+    args_list.extend([i, 'TEXT'])
+  env.expect(*args_list).error().contains('Schema is limited to 128 TEXT fields')
+  env.expect('FT.DROPINDEX', 'idx')
+
+  args_list = ['FT.CREATE', 'idx', 'SCHEMA']
+  for i in range(2):
+    args_list.extend(['txt', 'TEXT'])
+  env.expect(*args_list).error().contains('Duplicate field in schema - txt')
+  env.expect('FT.DROPINDEX', 'idx')

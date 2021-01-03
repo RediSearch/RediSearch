@@ -183,6 +183,7 @@ size_t RSSortingVector_GetMemorySize(RSSortingVector *v) {
 /* Create a new sorting table of a given length */
 RSSortingTable *NewSortingTable(void) {
   RSSortingTable *tbl = rm_calloc(1, sizeof(*tbl));
+  tbl->cap = 1;
   return tbl;
 }
 
@@ -190,11 +191,17 @@ void SortingTable_Free(RSSortingTable *t) {
   rm_free(t);
 }
 
-int RSSortingTable_Add(RSSortingTable *tbl, const char *name, RSValueType t) {
-  RS_LOG_ASSERT(tbl->len < RS_SORTABLES_MAX, "sorting table is too large");
-  tbl->fields[tbl->len].name = name;
-  tbl->fields[tbl->len].type = t;
-  return tbl->len++;
+int RSSortingTable_Add(RSSortingTable **tbl, const char *name, RSValueType t) {
+  if ((*tbl)->len == RS_SORTABLES_MAX) return -1;
+
+  if ((*tbl)->len == (*tbl)->cap) {
+    (*tbl)->cap += 8;
+    *tbl = rm_realloc(*tbl, sizeof(RSSortingTable) + ((*tbl)->cap) * sizeof(RSSortField));
+  }
+
+  (*tbl)->fields[(*tbl)->len].name = name;
+  (*tbl)->fields[(*tbl)->len].type = t;
+  return (*tbl)->len++;
 }
 
 /* Get the field index by name from the sorting table. Returns -1 if the field was not found */

@@ -865,7 +865,7 @@ TEST_F(IndexTest, testHugeSpec) {
   s = IndexSpec_Parse("idx", (const char **)&args[0], args.size(), &err);
   ASSERT_TRUE(s == NULL);
   ASSERT_TRUE(QueryError_HasError(&err));
-  ASSERT_STREQ("Too many TEXT fields in schema", QueryError_GetError(&err));
+  ASSERT_STREQ("Schema is limited to 128 TEXT fields", QueryError_GetError(&err));
   freeSchemaArgs(args);
   QueryError_ClearError(&err);
 }
@@ -1015,9 +1015,9 @@ TEST_F(IndexTest, testDocTable) {
 
 TEST_F(IndexTest, testSortable) {
   RSSortingTable *tbl = NewSortingTable();
-  RSSortingTable_Add(tbl, "foo", RSValue_String);
-  RSSortingTable_Add(tbl, "bar", RSValue_String);
-  RSSortingTable_Add(tbl, "baz", RSValue_String);
+  RSSortingTable_Add(&tbl, "foo", RSValue_String);
+  RSSortingTable_Add(&tbl, "bar", RSValue_String);
+  RSSortingTable_Add(&tbl, "baz", RSValue_String);
   ASSERT_EQ(3, tbl->len);
 
   ASSERT_STREQ("foo", tbl->fields[0].name);
