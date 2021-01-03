@@ -177,10 +177,6 @@ static int sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
   }
   nelem++;
 
-  if (req->reqflags & QEXEC_F_PROFILE) {
-    Profile_Print(outctx, req, &nelem);
-  }
-
   if (rc == RS_RESULT_OK && nrows++ < limit && !(req->reqflags & QEXEC_F_NOROWS)) {
     nelem += serializeResult(req, outctx, &r, &cv);
   } else if (rc == RS_RESULT_ERROR) {
@@ -207,6 +203,12 @@ done:
   if (rc != RS_RESULT_OK) {
     req->stateflags |= QEXEC_S_ITERDONE;
   }
+
+  // Print profile data
+  if (req->reqflags & QEXEC_F_PROFILE) {
+    Profile_Print(outctx, req, &nelem);
+  }
+
   // Reset the total results length:
   req->qiter.totalResults = 0;
   RedisModule_ReplySetArrayLength(outctx, nelem);

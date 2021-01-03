@@ -79,7 +79,7 @@ static double printProfileRP(RedisModuleCtx *ctx, ResultProcessor *rp, size_t *a
 int Profile_Print(RedisModuleCtx *ctx, AREQ *req, size_t *nelem){
   // Print total time
   RedisModule_ReplyWithArray(ctx, 1 + PROFILE_VERBOSE);
-  RedisModule_ReplyWithSimpleString(ctx, "Total time");
+  RedisModule_ReplyWithSimpleString(ctx, "Total profile time");
   if (PROFILE_VERBOSE) 
       RedisModule_ReplyWithDouble(ctx, (double)(clock() - req->initTime) / CLOCKS_PER_MILLISEC);
   (*nelem)++;
@@ -110,10 +110,10 @@ int Profile_Print(RedisModuleCtx *ctx, AREQ *req, size_t *nelem){
   (*nelem)++;
 
   // Print header for results
-  if (!(req->reqflags & QEXEC_F_NOROWS)) {
+  /*if (!(req->reqflags & QEXEC_F_NOROWS)) {
     RedisModule_ReplyWithSimpleString(ctx, "Results");
     (*nelem)++;
-  }
+  }*/
   
   return REDISMODULE_OK;
 }
