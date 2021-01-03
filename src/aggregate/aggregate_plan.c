@@ -1,7 +1,6 @@
 #include "aggregate_plan.h"
 #include "reducer.h"
 #include "expr/expression.h"
-#include <commands.h>
 #include <util/arr.h>
 #include <ctype.h>
 

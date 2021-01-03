@@ -1810,6 +1810,8 @@ PRINT_PROFILE_FUNC_SIGN(printProfileIt) {
 
 void printIteratorProfile(RedisModuleCtx *ctx, IndexIterator *root, size_t counter,
                           double cpuTime, int depth, int limited) {
+  if (root == NULL) return;
+
   if (depth == REDIS_ARRAY_LIMIT) {
     RedisModule_ReplyWithNull(ctx);
     return;

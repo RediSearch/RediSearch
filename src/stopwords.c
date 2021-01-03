@@ -22,13 +22,6 @@ StopWordList *DefaultStopWordList() {
   return __default_stopwords;
 }
 
-StopWordList *EmptyStopWordList() {
-  if (__empty_stopwords == NULL) {
-    __empty_stopwords = NewStopWordList(NULL, 0);
-  }
-  return __empty_stopwords;
-}
-
 /* Check if a stopword list contains a term. The term must be already lowercased */
 int StopWordList_Contains(const StopWordList *sl, const char *term, size_t len) {
   if (!sl || !term) {
@@ -53,6 +46,9 @@ StopWordList *NewStopWordList(RedisModuleString **strs, size_t len) {
 }
 
 StopWordList *NewStopWordListCStr(const char **strs, size_t len) {
+  if (len == 0 && __empty_stopwords) {
+    return __empty_stopwords;
+  }
   if (len > MAX_STOPWORDLIST_SIZE) {
     len = MAX_STOPWORDLIST_SIZE;
   }
@@ -77,6 +73,9 @@ StopWordList *NewStopWordListCStr(const char **strs, size_t len) {
     // printf("Adding stopword %s\n", t);
     TrieMap_Add(sl->m, t, tlen, NULL, NULL);
     rm_free(t);
+  }
+  if (len == 0) {
+    __empty_stopwords = sl;
   }
   return sl;
 }

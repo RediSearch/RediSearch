@@ -710,7 +710,7 @@ static int rpprofileNext2(ResultProcessor *base, SearchResult *r) {
   int rc = base->upstream->Next(base->upstream, r);
   clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &end);
   timersub(&end, &begin, &result);
-  self->profileTime += timertonanoseconds(&result);
+  self->profileTime += rs_timertonanoseconds(&result);
   self->profileCount++;
   return rc;
 } */

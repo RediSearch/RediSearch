@@ -19,7 +19,6 @@
 #include "module.h"
 #include "aggregate/expr/expression.h"
 #include "rules.h"
-#include "commands.h"
 #include "dictionary.h"
 
 #define INITIAL_DOC_TABLE_SIZE 1000
@@ -419,14 +418,19 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
   FieldSpec *fs = NULL;
 
   while (!AC_IsAtEnd(ac)) {
-    size_t nfieldName = 0;
+    size_t nfieldName;
     const char *fieldName = AC_GetStringNC(ac, &nfieldName);
     if (IndexSpec_GetField(sp, fieldName, nfieldName)) {
-      QueryError_SetError(status, QUERY_EINVAL, "Duplicate field in schema");
+      QueryError_SetErrorFmt(status, QUERY_EINVAL, "Duplicate field in schema - %s", fieldName);
       goto reset;
     }
 
     fs = IndexSpec_CreateField(sp, fieldName);
+
+    if (sp->numFields == SPEC_MAX_FIELDS) {
+      QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Schema is limited to %d fields", SPEC_MAX_FIELDS);
+      goto reset;
+    }
 
     if (!parseFieldSpec(ac, fs, status)) {
       goto reset;
@@ -435,7 +439,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
     if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && FieldSpec_IsIndexable(fs)) {
       int textId = IndexSpec_CreateTextId(sp);
       if (textId < 0) {
-        QueryError_SetError(status, QUERY_ELIMIT, "Too many TEXT fields in schema");
+        QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Schema is limited to %d TEXT fields", SPEC_MAX_FIELD_ID);
         goto reset;
       }
 
@@ -457,11 +461,15 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
 
     if (FieldSpec_IsSortable(fs)) {
       if (fs->options & FieldSpec_Dynamic) {
-        QueryError_SetError(status, QUERY_EBADOPTION, "Cannot set dynamic field to sortable");
+        QueryError_SetErrorFmt(status, QUERY_EBADOPTION, "Cannot set dynamic field to sortable - %s", fieldName);
         goto reset;
       }
 
-      fs->sortIdx = RSSortingTable_Add(sp->sortables, fs->name, fieldTypeToValueType(fs->types));
+      fs->sortIdx = RSSortingTable_Add(&sp->sortables, fs->name, fieldTypeToValueType(fs->types));
+      if (fs->sortIdx == -1) {
+        QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Schema is limited to %d Sortable fields", SPEC_MAX_FIELDS);
+        goto reset;
+      }
     } else {
       fs->sortIdx = -1;
     }
@@ -1484,10 +1492,7 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
     FieldSpec_RdbLoad(rdb, sp->fields + i, encver);
     sp->fields[i].index = i;
     if (FieldSpec_IsSortable(fs)) {
-      RS_LOG_ASSERT(fs->sortIdx < RS_SORTABLES_MAX, "sorting index is too large");
-      sp->sortables->fields[fs->sortIdx].name = fs->name;
-      sp->sortables->fields[fs->sortIdx].type = fieldTypeToValueType(fs->types);
-      sp->sortables->len = MAX(sp->sortables->len, fs->sortIdx + 1);
+      RSSortingTable_Add(&sp->sortables, fs->name, fieldTypeToValueType(fs->types));
     }
   }
 
@@ -1593,10 +1598,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
     FieldSpec_RdbLoad(rdb, sp->fields + i, encver);
     sp->fields[i].index = i;
     if (FieldSpec_IsSortable(fs)) {
-      assert(fs->sortIdx < RS_SORTABLES_MAX);
-      sp->sortables->fields[fs->sortIdx].name = fs->name;
-      sp->sortables->fields[fs->sortIdx].type = fieldTypeToValueType(fs->types);
-      sp->sortables->len = MAX(sp->sortables->len, fs->sortIdx + 1);
+      RSSortingTable_Add(&sp->sortables, fs->name, fieldTypeToValueType(fs->types));
     }
   }
 

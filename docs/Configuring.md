@@ -200,6 +200,23 @@ $ redis-server --loadmodule ./redisearch.so MAXSEARCHRESULTS 3000000
 
 ---
 
+## MAXAGGREGATERESULTS
+
+The maximum number of results to be returned by FT.AGGREGATE command if LIMIT is used.
+Setting value to `-1` will remove the limit. 
+
+### Default
+
+unlimited
+
+### Example
+
+```
+$ redis-server --loadmodule ./redisearch.so MAXAGGREGATERESULTS 3000000
+```
+
+---
+
 ## FRISOINI {file_name}
 
 If present, we load the custom Chinese dictionary from the specified path. See [Using custom dictionaries](Chinese.md#using_custom_dictionaries) for more details.
