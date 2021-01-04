@@ -91,7 +91,7 @@ def testIssue_866(env):
     env.expect('ft.sugdel', 'sug', 'test').equal(0)
     env.expect('ft.sugget', 'sug', '').equal(['test123', 'test456'])
 
-def testSuggetMax(env):
+def testSuggestMax(env):
   for i in range(10):
     env.expect('ft.sugadd', 'sug', 'test%d' % i, i + 1).equal(i + 1)
   #  for j in range(i + 1):
@@ -104,3 +104,13 @@ def testSuggetMax(env):
   for i in range(1,11):
     env.expect('FT.SUGGET', 'sug', 'test', 'MAX', i, 'WITHSCORES').equal(expected_res[0:i*2])
   env.expect('FT.SUGGET', 'sug', 'test', 'MAX', 10, 'WITHSCORES').equal(expected_res)
+
+def testSuggestMax2(env):
+  for i in range(10):
+    env.expect('ft.sugadd', 'sug', 'test %d' % i, 1).equal(i + 1)
+
+  expected_res = ['test 0', 'test 1', 'test 2', 'test 3', 'test 4', 'test 5']
+  for i in range(1,7):
+    res = env.cmd('FT.SUGGET', 'sug', 'test ', 'MAX', i)
+    for item in res:
+        env.assertIn(item, expected_res[0:i])
