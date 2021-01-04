@@ -418,13 +418,29 @@ class TestAggregate():
         self.env.assertEqual('__generated_aliasfirst_valuetitle,by,price,desc', rv[1][2])
 
     def testIssue1125(self):
-        rv = self.env.cmd('ft.aggregate', 'games', '*',
-                          'LIMIT', 0, 20000000)
-        self.env.assertEqual(2266, len(rv))
-
+        self.env.skipOnCluster()
         # SEARCH should fail
         self.env.expect('ft.search', 'games', '*', 'limit', 0, 2000000).error()     \
                 .contains('LIMIT exceeds maximum of 1000000')
+        # SEARCH should succeed
+        self.env.expect('ft.config', 'set', 'MAXSEARCHRESULTS', -1).ok()
+        rv = self.env.cmd('ft.search', 'games', '*',
+                          'LIMIT', 0, 12345678)
+        self.env.assertEqual(4531, len(rv))
+        # AGGREGATE should succeed
+        rv = self.env.cmd('ft.aggregate', 'games', '*',
+                          'LIMIT', 0, 12345678)
+        self.env.assertEqual(2266, len(rv))
+        # AGGREGATE should fail
+        self.env.expect('ft.config', 'set', 'MAXAGGREGATERESULTS', 1000000).ok()
+        self.env.expect('ft.aggregate', 'games', '*', 'limit', 0, 2000000).error()     \
+                .contains('LIMIT exceeds maximum of 1000000')
+
+        # force global limit on aggregate
+        num = 10
+        self.env.expect('ft.config', 'set', 'MAXAGGREGATERESULTS', num).ok()
+        rv = self.env.cmd('ft.aggregate', 'games', '*')
+        self.env.assertEqual(num + 1, len(rv))
 
     def testMultiSortBy(self):
         self.env.expect('ft.aggregate', 'games', '*',
@@ -432,7 +448,26 @@ class TestAggregate():
                            'SORTBY', 2, '@brand', 'DESC',
                            'SORTBY', 2, '@price', 'DESC').error()\
                             .contains('Multiple SORTBY steps are not allowed. Sort multiple fields in a single step')
-  
+
+    def testCountError(self):
+        # With 0 values
+        res = self.env.cmd('ft.aggregate', 'games', '*',
+                           'GROUPBY', '2', '@brand', '@price',
+                           'REDUCE', 'COUNT', 0)
+        self.env.assertEqual(len(res), 1245)
+
+        # With count 1 and 1 value
+        res = self.env.expect('ft.aggregate', 'games', '*',
+                           'GROUPBY', '2', '@brand', '@price',
+                           'REDUCE', 'COUNT', 1, '@brand').error()      \
+                            .contains('Count accepts 0 values only')
+
+        # With count 1 and 0 values
+        res = self.env.expect('ft.aggregate', 'games', '*',
+                           'GROUPBY', '2', '@brand', '@price',
+                           'REDUCE', 'COUNT', 1).error()        \
+                            .contains('Bad arguments for COUNT: Expected an argument, but none provided')
+
     # def testLoadAfterSortBy(self):
     #     with self.env.assertResponseError():
     #         self.env.cmd('ft.aggregate', 'games', '*',
@@ -565,3 +600,10 @@ def testLimitIssue(env):
                 'APPLY', '@PrimaryKey', 'AS', 'PrimaryKey',
                 'SORTBY', '2', '@CreatedDateTimeUTC', 'DESC', 'LIMIT', '2', '2')
     env.assertEqual(actual_res, res)
+
+def testMaxAggResults():
+    env = Env(moduleArgs="MAXAGGREGATERESULTS 100")
+    conn = getConnectionByEnv(env)
+    conn.execute_command('ft.create', 'idx', 'SCHEMA', 't', 'TEXT')
+    env.expect('ft.aggregate', 'idx', '*', 'LIMIT', '0', '10000').error()   \
+                .contains('LIMIT exceeds maximum of 100')

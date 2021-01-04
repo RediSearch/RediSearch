@@ -6,7 +6,6 @@
 #include "rune_util.h"
 
 #include "trie_type.h"
-#include "../commands.h"
 #include <math.h>
 #include <sys/param.h>
 #include <time.h>
