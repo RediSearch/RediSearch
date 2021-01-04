@@ -21,7 +21,6 @@ typedef enum {
   PLN_T_APPLY,
   PLN_T_ARRANGE,
   PLN_T_LOAD,
-  PLN_T_PROFILE,
   PLN_T__MAX
 } PLN_StepType;
 

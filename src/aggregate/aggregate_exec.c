@@ -225,7 +225,6 @@ void AREQ_Execute(AREQ *req, RedisModuleCtx *outctx) {
   AREQ_Free(req);
 }
 
-// TODO: used *r
 static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int type,
                         QueryError *status, AREQ **r) {
 

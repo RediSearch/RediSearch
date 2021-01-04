@@ -1127,7 +1127,6 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
       case PLN_T_DISTRIBUTE:
         // This is the root already
         break;
-      case PLN_T_PROFILE:
       case PLN_T_INVALID:
       case PLN_T__MAX:
         // not handled yet
