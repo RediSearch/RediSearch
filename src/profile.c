@@ -58,7 +58,8 @@ static double _recursiveProfilePrint(RedisModuleCtx *ctx, ResultProcessor *rp, s
         RPEvaluator_Reply(ctx, rp);
         break;
 
-      default:
+      case RP_PROFILE:
+      case RP_MAX:
         RS_LOG_ASSERT(0, "RPType error");
         break;
     }
@@ -109,11 +110,5 @@ int Profile_Print(RedisModuleCtx *ctx, AREQ *req, size_t *nelem){
   RedisModule_ReplySetArrayLength(ctx, alen);
   (*nelem)++;
 
-  // Print header for results
-  /*if (!(req->reqflags & QEXEC_F_NOROWS)) {
-    RedisModule_ReplyWithSimpleString(ctx, "Results");
-    (*nelem)++;
-  }*/
-  
   return REDISMODULE_OK;
 }

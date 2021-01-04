@@ -64,6 +64,9 @@ typedef struct {
   double weight;
   QueryNodeType origType;
   uint64_t len;
+  
+  //original string for fuzzy or prefix unions
+  const char *qstr;
 } UnionIterator;
 
 static void resetMinIdHeap(UnionIterator *ui) {
@@ -135,7 +138,7 @@ static void UI_Rewind(void *ctx) {
 }
 
 IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *dt, int quickExit,
-                                double weight, QueryNodeType type) {
+                                double weight, QueryNodeType type, const char *qstr) {
   // create union context
   UnionIterator *ctx = rm_calloc(1, sizeof(UnionIterator));
   ctx->origits = its;
@@ -151,6 +154,7 @@ IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *dt, int 
   ctx->nexpected = 0;
   ctx->currIt = 0;
   ctx->heapMinId = NULL;
+  ctx->qstr = qstr;
 
   // bind the union iterator calls
   IndexIterator *it = &ctx->base;
@@ -1731,9 +1735,8 @@ IndexIterator *NewProfileIterator(IndexIterator *child) {
                                                   int limited)
 
 PRINT_PROFILE_FUNC_SIGN(printUnionIt) {
-//static void printUnionIt(RedisModuleCtx *ctx, IndexIterator *root) {
   UnionIterator *ui = (UnionIterator *)root;
-  int printFull = !limited || ui->origType == QN_UNION;
+  int printFull = !limited;
 
   int arrayLen = 2 + PROFILE_VERBOSE;
   arrayLen += printFull ? ui->norig : 1;
@@ -1752,7 +1755,13 @@ PRINT_PROFILE_FUNC_SIGN(printUnionIt) {
     RS_LOG_ASSERT(0, "Invalid type for union");
     break;
   }
-  RedisModule_ReplyWithSimpleString(ctx, unionTypeStr);
+
+  if (!ui->qstr) {
+    RedisModule_ReplyWithSimpleString(ctx, unionTypeStr);
+  } else {
+    RedisModule_ReplyWithPrintf(ctx, "%s%s%s", unionTypeStr, " - ", ui->qstr);
+  }
+
   RedisModule_ReplyWithLongLong(ctx, counter);
   if (PROFILE_VERBOSE) RedisModule_ReplyWithDouble(ctx, cpuTime);
   if (printFull) {
@@ -1765,7 +1774,6 @@ PRINT_PROFILE_FUNC_SIGN(printUnionIt) {
 }
 
 PRINT_PROFILE_FUNC_SIGN(printIntersectIt) {
-//static void printIntersectIt(RedisModuleCtx *ctx, IndexIterator *root) {
   IntersectIterator *ii = (IntersectIterator *)root;
   RedisModule_ReplyWithArray(ctx, ii->num + 2 + PROFILE_VERBOSE);
   RedisModule_ReplyWithSimpleString(ctx, "Intersect iterator");

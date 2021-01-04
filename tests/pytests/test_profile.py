@@ -108,6 +108,30 @@ def testProfileSearch(env):
                         ['Sorter', 3L]]]
   env.assertEqual(actual_res, expected_res)
 
+  actual_res = conn.execute_command('ft.profile', 'search', 'idx', 'hel*', 'nocontent')
+  expected_res = [1L, '1', ['Total profile time'],
+                      ['Parsing and iterator creation time'],
+                      ['Iterators profile',
+                        ['Union iterator - PREFIX - hel', 2L,
+                          ['Term reader', 'hello', 2L]]],
+                      ['Result processors profile',
+                      ['Index', 2L],
+                      ['Scorer', 2L],
+                      ['Sorter', 2L]]]
+  env.assertEqual(actual_res, expected_res)
+
+  actual_res = conn.execute_command('ft.profile', 'search', 'idx', '%%hel%%', 'nocontent')
+  expected_res = [1L, '1', ['Total profile time'],
+                      ['Parsing and iterator creation time'],
+                      ['Iterators profile',
+                        ['Union iterator - FUZZY - hel', 2L,
+                          ['Term reader', 'hello', 2L]]],
+                      ['Result processors profile',
+                      ['Index', 2L],
+                      ['Scorer', 2L],
+                      ['Sorter', 2L]]]
+  env.assertEqual(actual_res, expected_res)
+
   actual_res = conn.execute_command('ft.profile', 'search', 'idx', 'hello(hello(hello(hello(hello(hello)))))', 'nocontent')
   expected_res = [1L, '1', ['Total profile time'],
                       ['Parsing and iterator creation time'],
@@ -150,6 +174,15 @@ def testProfileSearch(env):
                         ['Scorer', 2L],
                         ['Sorter', 2L]]]
 
+def testProfileAggregate(env):
+  env.skipOnCluster()
+  conn = getConnectionByEnv(env)
+  env.cmd('FT.CONFIG', 'SET', 'MAXPREFIXEXPANSIONS', 1000000)
+  env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+
+  env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'text')
+  conn.execute_command('hset', '1', 't', 'hello')
+  conn.execute_command('hset', '2', 't', 'world')
 
   actual_res = conn.execute_command('ft.profile', 'aggregate', 'idx', 'hello',
                                     'groupby', 1, '@t',
