@@ -653,24 +653,14 @@ ResultProcessor *RPLoader_New(RLookup *lk, const RLookupKey **keys, size_t nkeys
   return &sc->base;
 }
 
+static char *RPTypeLookup[RP_MAX] = {
+  "Index", "Loader", "Scorer", "Sorter", "Pager/Limiter",
+  "Grouper", "Projector", "Filter", "Profile", "Network"};
+
 const char *RPTypeToString(ResultProcessorType type) {
-  switch (type) {
-  case RP_INDEX: return "Index";
-  case RP_LOADER: return "Loader";
-  case RP_SCORER: return "Scorer";
-  case RP_SORTER: return "Sorter";
-  case RP_PAGER_LIMITER: return "Pager/Limiter";
-  case RP_GROUP: return "Grouper";
-  case RP_PROJECTOR: return "Projector";
-  case RP_FILTER: return "Filter";
-  case RP_PROFILE: return "Profile";
-  case RP_NETWORK: return "Network";
-  default:
-    RS_LOG_ASSERT(0, "No such RP");
-    break;
-  }
-  //return "error";
+  return RPTypeLookup[type];
 }
+
 
 void RP_DumpChain(const ResultProcessor *rp) {
   for (; rp; rp = rp->upstream) {
@@ -701,19 +691,6 @@ static int rpprofileNext(ResultProcessor *base, SearchResult *r) {
   self->profileCount++;
   return rc;
 }
-/* try with clock_gettime
-static int rpprofileNext2(ResultProcessor *base, SearchResult *r) {
-  RPProfile *self = (RPProfile *)base;
-
-  struct timespec begin, end, result;
-  clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &begin);
-  int rc = base->upstream->Next(base->upstream, r);
-  clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &end);
-  timersub(&end, &begin, &result);
-  self->profileTime += rs_timertonanoseconds(&result);
-  self->profileCount++;
-  return rc;
-} */
 
 static void rpProfileFree(ResultProcessor *base) {
   RPProfile *rp = (RPProfile *)base;

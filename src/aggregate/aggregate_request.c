@@ -945,25 +945,9 @@ static int hasQuerySortby(const AGGPlan *pln) {
   return 0;
 }
 
-static ResultProcessor *addProfiler(AREQ *req, ResultProcessor *rp, ResultProcessor *rpUpstream) {
-  ResultProcessor *rpProfile = RPProfile_New(NULL, NULL, 0);
-  return pushRP(req, rpProfile, rpUpstream);
-}
-
-#define PUSH_RP()                            \
-  rpUpstream = pushRP(req, rp, rpUpstream);   \
+#define PUSH_RP()                           \
+  rpUpstream = pushRP(req, rp, rpUpstream); \
   rp = NULL;
-
-
-/*
-void PUSH_RP(AREQ *req, ResultProcessor *rp, ResultProcessor *rpUpstream) {
-  if (IsProfile(req)) {              
-    ResultProcessor *rpProfile = RPProfile_New(NULL, NULL, 0);
-    rpUpstream = pushRP(req, rpProfile, rpUpstream);
-  }
-  rpUpstream = pushRP(req, rp, rpUpstream);
-  rp = NULL;
-}*/
 
 /**
  * Builds the implicit pipeline for querying and scoring, and ensures that our

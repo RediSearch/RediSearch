@@ -35,7 +35,7 @@ def testGeoDistanceSimple(env):
                 ['Union iterator - GEO', 5L,
                   ['Geo reader', '1.23,4.55 - 1.21176,4.57724', 3L],
                   ['Geo reader', '1.21176,4.57724 - 1.24,4.56', 3L]]],
-              ['Result processors profile',
+             ['Result processors profile',
                 ['Index', 5L],
                 ['Scorer', 5L],
                 ['Sorter', 5L]]]

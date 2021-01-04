@@ -1870,6 +1870,7 @@ void Profile_AddIters(IndexIterator **root) {
     case (ID_LIST_ITERATOR):
       break;
     case (PROFILE_ITERATOR):
+    case (MAX_ITERATOR):
       RS_LOG_ASSERT(0, "Error");
   }
 
