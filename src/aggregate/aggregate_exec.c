@@ -271,6 +271,10 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 
   rc = AREQ_BuildPipeline(*r, 0, status);
 
+  if (IsProfile(*r)) {
+    (*r)->parseTime = clock() - (*r)->initTime;
+  }
+
 done:
   if (rc != REDISMODULE_OK && *r) {
     AREQ_Free(*r);
@@ -306,10 +310,6 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
 
   if (buildRequest(ctx, argv, argc, type, &status, &r) != REDISMODULE_OK) {
     goto error;
-  }
-
-  if (withProfile != NO_PROFILE) {
-    r->parseTime = clock() - r->initTime;
   }
 
   if (r->reqflags & QEXEC_F_IS_CURSOR) {
@@ -382,6 +382,11 @@ int AREQ_StartCursor(AREQ *r, RedisModuleCtx *outctx, const char *lookupName, Qu
 static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num) {
   AREQ *req = cursor->execState;
   
+  // reset profile clock for following cursor reads 
+  if (IsProfile(req) && req->totalTime != 0) {
+    req->initTime = clock();
+  }
+
   // update timeout for cursor
   if (req->qiter.rootProc->type != RP_NETWORK) {
     updateTimeout(&req->timeoutTime, req->reqTimeout);

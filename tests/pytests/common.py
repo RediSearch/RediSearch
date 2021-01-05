@@ -1,5 +1,6 @@
 from collections import Iterable
 import time
+from packaging import version
 
 def getConnectionByEnv(env):
     conn = None
@@ -47,3 +48,24 @@ def sortedResults(res):
     data = sorted(data)
     res = [n] + [item for sublist in data for item in sublist]
     return res
+
+module_v = 0
+def check_module_version(env, version):
+    global module_v
+    if module_v == 0:
+        module_v = env.execute_command('MODULE LIST')[0][3]
+    print version
+    print module_v
+    if int(module_v) >= int(version):
+        return True
+    return False
+
+server_v = 0
+def check_server_version(env, ver):
+    global server_v
+    if server_v == 0:
+        server_v = env.execute_command('INFO')['redis_version']
+    u = version.parse(server_v) 
+    if version.parse(server_v) >= version.parse(ver):
+        return True
+    return False

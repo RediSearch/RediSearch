@@ -78,18 +78,20 @@ static double printProfileRP(RedisModuleCtx *ctx, ResultProcessor *rp, size_t *a
 }
 
 int Profile_Print(RedisModuleCtx *ctx, AREQ *req, size_t *nelem){
+  req->totalTime += clock() - req->initTime;
+
   // Print total time
   RedisModule_ReplyWithArray(ctx, 1 + PROFILE_VERBOSE);
   RedisModule_ReplyWithSimpleString(ctx, "Total profile time");
   if (PROFILE_VERBOSE) 
-      RedisModule_ReplyWithDouble(ctx, (double)(clock() - req->initTime) / CLOCKS_PER_MILLISEC);
+      RedisModule_ReplyWithDouble(ctx, req->totalTime / CLOCKS_PER_MILLISEC);
   (*nelem)++;
 
   // Print query parsing and creation time
   RedisModule_ReplyWithArray(ctx, 1 + PROFILE_VERBOSE);
   RedisModule_ReplyWithSimpleString(ctx, "Parsing and iterator creation time");
   if (PROFILE_VERBOSE)
-      RedisModule_ReplyWithDouble(ctx, (double)req->parseTime / CLOCKS_PER_MILLISEC);
+      RedisModule_ReplyWithDouble(ctx, req->parseTime / CLOCKS_PER_MILLISEC);
   (*nelem)++;
 
   // print into array with a recursive function over result processors

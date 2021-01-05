@@ -105,7 +105,8 @@ typedef struct {
 
   /** Profile variables */
   clock_t initTime;
-  clock_t parseTime;
+  double totalTime;
+  double parseTime;
 } AREQ;
 
 /**

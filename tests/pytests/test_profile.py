@@ -2,7 +2,7 @@
 
 import unittest
 from includes import *
-from common import getConnectionByEnv, waitForIndex, sortedResults, toSortedFlatList
+from common import getConnectionByEnv, waitForIndex, sortedResults, toSortedFlatList, check_server_version
 from time import sleep
 from RLTest import Env
 
@@ -153,6 +153,9 @@ def testProfileSearch(env):
                         ['Sorter', 2L]]]
   env.assertEqual(actual_res, expected_res)
 
+  if not check_server_version(env, '6.00.20'):
+    return
+
   actual_res = env.expect('ft.profile', 'search', 'idx', 'hello(hello(hello(hello(hello(hello(hello))))))', 'nocontent')
   expected_res = [1L, '1', 
                       ['Total profile time'],
@@ -211,6 +214,46 @@ def testProfileAggregate(env):
                         ['Loader', 3L],
                         ['Projector - Function startswith', 3L]]]
   env.assertEqual(actual_res, expected_res)
+
+def testProfileCursor(env):
+  env.skipOnCluster()
+  conn = getConnectionByEnv(env)
+  env.cmd('FT.CONFIG', 'SET', 'MAXPREFIXEXPANSIONS', 1000000)
+  env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+
+  env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'text')
+  conn.execute_command('hset', '1', 't', 'hello')
+  conn.execute_command('hset', '2', 't', 'world')
+
+  actual_res = conn.execute_command('ft.profile', 'aggregate', 'idx', '*',
+                                    'load', 1, '@t',
+                                    'WITHCURSOR', 'COUNT', 10)
+  expected_res = [[1L, ['t', 'hello'], ['t', 'world'],
+                  ['Total profile time'],
+                  ['Parsing and iterator creation time'],
+                  ['Iterators profile',
+                    ['Wildcard iterator', 3L]],
+                  ['Result processors profile',
+                    ['Index', 3L],
+                    ['Loader', 3L]]],
+                  0L]
+  env.assertEqual(actual_res, expected_res)
+
+  actual_res = conn.execute_command('ft.profile', 'aggregate', 'idx', '*',
+                                    'load', 1, '@t',
+                                    'WITHCURSOR', 'COUNT', 1)
+  expected_res = [[2L, ['t', 'hello', 'sum', '1'], ['t', 'world', 'sum', '1'],\
+                       ['Total profile time'],
+                       ['Parsing and iterator creation time'],
+                       ['Iterators profile',
+                          ['Wildcard iterator', 3L]],
+                       ['Result processors profile',
+                          ['Index', 3L],
+                          ['Loader', 3L],
+                          ['Grouper', 3L]]],
+                       0L]
+                
+  cursor = actual_res[-1]
 
 def testProfileNumeric(env):
   env.skipOnCluster()

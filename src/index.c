@@ -1820,10 +1820,12 @@ void printIteratorProfile(RedisModuleCtx *ctx, IndexIterator *root, size_t count
                           double cpuTime, int depth, int limited) {
   if (root == NULL) return;
 
-  if (depth == REDIS_ARRAY_LIMIT) {
+  // protect against limit of 7 reply layers
+  if (depth == REDIS_ARRAY_LIMIT && !isFeatureSupported(NO_REPLY_DEPTH_LIMIT)) {
     RedisModule_ReplyWithNull(ctx);
     return;
   }
+
   switch (root->type) {
     // Reader
     case (READ_ITERATOR):       { printReadIt(ctx, root, counter, cpuTime);                       break; }
