@@ -554,6 +554,24 @@ def testStartsWith(env):
                                                                  ['t', 'aaa', 'prefix', '1'], \
                                                                  ['t', 'ab', 'prefix', '0']]))
 
+def testContains(env):
+    conn = getConnectionByEnv(env)
+    env.execute_command('ft.create', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE')
+    conn.execute_command('hset', 'doc1', 't', 'aa')
+    conn.execute_command('hset', 'doc2', 't', 'bba')
+    conn.execute_command('hset', 'doc3', 't', 'aba')
+    conn.execute_command('hset', 'doc4', 't', 'abb')
+    conn.execute_command('hset', 'doc5', 't', 'abba')
+    conn.execute_command('hset', 'doc5', 't', 'abbabb')
+
+    res = env.cmd('ft.aggregate', 'idx', '*', 'load', 1, 't', 'apply', 'contains(@t, "bb")', 'as', 'substring')
+    env.assertEqual(toSortedFlatList(res), toSortedFlatList([1L, ['t', 'aa', 'substring', '0'], \
+                                                             ['t', 'bba', 'substring', '1'], \
+                                                             ['t', 'aba', 'substring', '0'], \
+                                                             ['t', 'abb', 'substring', '1'], \
+                                                             ['t', 'abba', 'substring', '1'], \
+                                                             ['t', 'abbabb', 'substring', '2']]))
+
 def testLimitIssue(env):
     #ticket 66895
     conn = getConnectionByEnv(env)
