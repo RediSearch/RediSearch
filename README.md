@@ -113,6 +113,10 @@ You can use any standard Redis client library to run RediSearch commands, but it
 [redis-redisearch-author]: https://github.com/stockholmux
 [redis-redisearch-stars]: https://img.shields.io/github/stars/stockholmux/node_redis-redisearch.svg?style=social&amp;label=Star&amp;maxAge=2592000
 
+[redis-modules-sdk-url]: https://github.com/danitseitlin/redis-modules-sdk
+[redis-modules-sdk-author]: https://github.com/danitseitlin
+[redis-modules-sdk-stars]: https://img.shields.io/github/stars/danitseitlin/redis-modules-sdk.svg?style=social&amp;label=Star&amp;maxAge=2592000
+
 [NRediSearch-url]: https://libraries.io/nuget/NRediSearch
 [NRediSearch-author]: https://github.com/StackExchange/
 [NRediSearch-stars]: https://img.shields.io/github/stars/StackExchange/StackExchange.Redis.svg?style=social&amp;label=Star&amp;maxAge=2592000
