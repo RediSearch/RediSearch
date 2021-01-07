@@ -179,8 +179,6 @@ struct IndexSpec {
   struct IndexSpecCache *spcache;
   long long timeout;
   dict *keysDict;
-  long long minPrefix;
-  long long maxPrefixExpansions;  // -1 unlimited
   RSGetValueCallback getValue;
   void *getValueCtx;
   char **aliases; // Aliases to self-remove when the index is deleted
