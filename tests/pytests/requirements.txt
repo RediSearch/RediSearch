@@ -1,0 +1,3 @@
+RLTest
+redis >= 3.0.0
+packaging >= 20.8
