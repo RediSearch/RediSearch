@@ -325,7 +325,8 @@ typedef struct RedisModuleTypeMethods {
     X(RedisModuleString *, DictNext, (RedisModuleCtx *ctx, RedisModuleDictIter *di, void **dataptr)) \
     X(RedisModuleString *, DictPrev, (RedisModuleCtx *ctx, RedisModuleDictIter *di, void **dataptr)) \
     X(int, DictCompareC, (RedisModuleDictIter *di, const char *op, void *key, size_t keylen)) \
-    X(int, DictCompare, (RedisModuleDictIter *di, const char *op, RedisModuleString *key))
+    X(int, DictCompare, (RedisModuleDictIter *di, const char *op, RedisModuleString *key)) \
+    X(int, GetServerVersion, ())
 
 /* Experimental APIs */
 
