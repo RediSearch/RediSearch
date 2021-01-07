@@ -562,7 +562,7 @@ def testContains(env):
     conn.execute_command('hset', 'doc3', 't', 'aba')
     conn.execute_command('hset', 'doc4', 't', 'abb')
     conn.execute_command('hset', 'doc5', 't', 'abba')
-    conn.execute_command('hset', 'doc5', 't', 'abbabb')
+    conn.execute_command('hset', 'doc6', 't', 'abbabb')
 
     res = env.cmd('ft.aggregate', 'idx', '*', 'load', 1, 't', 'apply', 'contains(@t, "bb")', 'as', 'substring')
     env.assertEqual(toSortedFlatList(res), toSortedFlatList([1L, ['t', 'aa', 'substring', '0'], \
