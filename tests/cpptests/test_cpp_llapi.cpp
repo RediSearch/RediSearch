@@ -15,6 +15,8 @@
 class LLApiTest : public ::testing::Test {
   virtual void SetUp() {
     RediSearch_Initialize();
+    RSGlobalConfig.minTermPrefix = 0;
+    RSGlobalConfig.maxPrefixExpansions = LONG_MAX;
   }
 
   virtual void TearDown() {
