@@ -183,10 +183,11 @@ sds RSConfig_GetInfoString(const RSConfig *config);
     .printProfileClock = 1,                                                                       \
   }
 
+#define REDIS_ARRAY_LIMIT 7
 #define NO_REPLY_DEPTH_LIMIT 0x00060020
 
 static inline int isFeatureSupported(int feature) {
-  return feature >= RSGlobalConfig.serverVersion;
+  return feature <= RSGlobalConfig.serverVersion;
 }
 
 #endif

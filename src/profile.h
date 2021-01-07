@@ -8,7 +8,6 @@
 #define PROFILE_VERBOSE RSGlobalConfig.printProfileClock
 
 #define IsProfile(r) ((r)->reqflags & QEXEC_F_PROFILE)
-#define REDIS_ARRAY_LIMIT 7
 
 #define RedisModule_ReplyWithPrintf(ctx, fmt, ...) {                                    \
   RedisModuleString *str = RedisModule_CreateStringPrintf(ctx, fmt, __VA_ARGS__);       \
