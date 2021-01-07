@@ -137,10 +137,6 @@ You can use any standard Redis client library to run RediSearch commands, but it
 [redi_search-author]: https://github.com/npezza93
 [redi_search-stars]: https://img.shields.io/github/stars/npezza93/redi_search.svg?style=social&amp;label=Star&amp;maxAge=2592000
 
-[redis-modules-sdk-url]: https://github.com/danitseitlin/redis-modules-sdk
-[redis-modules-sdk-author]: https://github.com/danitseitlin
-[redis-modules-sdk-stars]: https://img.shields.io/github/stars/danitseitlin/redis-modules-sdk.svg?style=social&amp;label=Star&amp;maxAge=2592000
-
 [redisearch-api-rs-url]: https://github.com/RediSearch/redisearch-api-rs
 [redisearch-api-rs-author]: https://redislabs.com
 [redisearch-api-rs-stars]: https://img.shields.io/github/stars/RediSearch/redisearch-api-rs.svg?style=social&amp;label=Star&amp;maxAge=2592000
