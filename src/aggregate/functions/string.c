@@ -320,9 +320,9 @@ static int stringfunc_startswith(ExprEval *ctx, RSValue *result, RSValue **argv,
   RSValue *str = RSValue_Dereference(argv[0]);
   RSValue *pref = RSValue_Dereference(argv[1]);
   
-  char *p_str = (char *)RSValue_StringPtrLen(str, NULL);
+  const char *p_str = (char *)RSValue_StringPtrLen(str, NULL);
   size_t n;
-  char *p_pref = (char *)RSValue_StringPtrLen(pref, &n);
+  const char *p_pref = (char *)RSValue_StringPtrLen(pref, &n);
   result->t = RSValue_Number;
   result->numval = strncmp(p_pref, p_str, n) == 0;
   return EXPR_EVAL_OK;
@@ -331,21 +331,19 @@ static int stringfunc_startswith(ExprEval *ctx, RSValue *result, RSValue **argv,
 static int stringfunc_contains(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc, QueryError *err) {
   VALIDATE_ARGS("contains", 2, 2, err);
   VALIDATE_ARG_ISSTRING("contains", argv, 0);
-  VALIDATE_ARG_ISSTRING("contains ", argv, 1);
+  VALIDATE_ARG_ISSTRING("contains", argv, 1);
 
   RSValue *str = RSValue_Dereference(argv[0]);
   RSValue *pref = RSValue_Dereference(argv[1]);
 
   char *p_str = (char *)RSValue_StringPtrLen(str, NULL);
-  size_t n;
-  char *p_pref = (char *)RSValue_StringPtrLen(pref, &n);
+  const char *p_pref = (char *)RSValue_StringPtrLen(pref, NULL);
   result->t = RSValue_Number;
 
-  char *p_temp = p_str;
   size_t num = 0;
-  while ((p_temp = strstr(p_temp, p_pref)) != NULL) {
+  while ((p_str = strstr(p_str, p_pref)) != NULL) {
     num++;
-    p_temp++;
+    p_str++;
   }
   result->numval = num;
   return EXPR_EVAL_OK;
