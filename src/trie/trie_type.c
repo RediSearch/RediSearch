@@ -6,7 +6,6 @@
 #include "rune_util.h"
 
 #include "trie_type.h"
-#include "../commands.h"
 #include <math.h>
 #include <sys/param.h>
 #include <time.h>
@@ -195,7 +194,7 @@ Vector *Trie_Search(Trie *tree, const char *s, size_t len, size_t num, int maxDi
       }
 
     } else {
-      if (ent->score >= it->minScore) {
+      if (ent->score > it->minScore) {
         pooledEntry = heap_poll(pq);
         rm_free(pooledEntry->str);
         pooledEntry->str = NULL;

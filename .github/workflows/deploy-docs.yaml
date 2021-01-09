@@ -1,6 +1,7 @@
 name: Deploy docs to website
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - master
@@ -14,6 +15,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+    - name: Extract branch name
+      shell: bash
+      run: echo "##[set-output name=branch;]$(echo ${GITHUB_REF#refs/heads/})"
+      id: extract_branch
     - uses: actions/checkout@v2.1.1
     - name: Set up Python 3.x
       uses: actions/setup-python@v1
@@ -26,13 +31,13 @@ jobs:
     - name: Get entire project
       run: git fetch -t
     - name: Build docs
-      run: mkdocs build
+      run: mkdocs build --clean
     - uses: jakejarvis/s3-sync-action@v0.5.1
       with:
-        args: --acl public-read --follow-symlinks
+        args: --acl public-read --follow-symlinks --delete
       env:
         AWS_S3_BUCKET: ${{ secrets.DOCS_AWS_S3_BUCKET }}
         AWS_ACCESS_KEY_ID: ${{ secrets.DOCS_AWS_ACCESS_KEY_ID }}
         AWS_SECRET_ACCESS_KEY: ${{ secrets.DOCS_AWS_SECRET_ACCESS_KEY }}
-        DEST_DIR: ${{ secrets.DOCS_AWS_S3_DIR }}
-        SOURCE_DIR: 'site'
+        DEST_DIR: '${{ secrets.DOCS_AWS_S3_DIR }}/${{ steps.extract_branch.outputs.branch }}'
+        SOURCE_DIR: 'site/${{ steps.extract_branch.outputs.branch }}'

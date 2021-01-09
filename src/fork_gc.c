@@ -11,6 +11,7 @@
 #include <unistd.h>
 #include <sys/wait.h>
 #include <sys/resource.h>
+#include <sys/socket.h>
 #include "rwlock.h"
 #include "util/khash.h"
 #include <float.h>

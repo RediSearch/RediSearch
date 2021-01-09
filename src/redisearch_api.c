@@ -34,8 +34,6 @@ IndexSpec* RediSearch_CreateIndex(const char* name, const RSIndexOptions* option
 
   spec->getValue = options->gvcb;
   spec->getValueCtx = options->gvcbData;
-  spec->minPrefix = 0;
-  spec->maxPrefixExpansions = -1;
   if (options->flags & RSIDXOPT_DOCTBLSIZE_UNLIMITED) {
     spec->docs.maxSize = DOCID_MAX;
   }
@@ -92,7 +90,7 @@ RSFieldID RediSearch_CreateField(IndexSpec* sp, const char* name, unsigned types
   }
   if (options & RSFLDOPT_SORTABLE) {
     fs->options |= FieldSpec_Sortable;
-    fs->sortIdx = RSSortingTable_Add(sp->sortables, fs->name, fieldTypeToValueType(fs->types));
+    fs->sortIdx = RSSortingTable_Add(&sp->sortables, fs->name, fieldTypeToValueType(fs->types));
   }
   if (options & RSFLDOPT_TXTNOSTEM) {
     fs->options |= FieldSpec_NoStemming;
