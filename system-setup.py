@@ -17,7 +17,6 @@ class RediSearchSetup(paella.Setup):
 
     def common_first(self):
         self.install_downloaders()
-        # self.setup_pip()
         self.pip_install("wheel")
         self.pip_install("setuptools --upgrade")
 
@@ -44,9 +43,8 @@ class RediSearchSetup(paella.Setup):
     def fedora(self):
         self.install("libatomic")
         self.run("%s/bin/getgcc" % READIES)
-        # self.run("ln -sf `command -v cmake3` /usr/local/bin/cmake")
 
-    def macosx(self):
+    def macos(self):
         self.install_gnu_utils()
         self.run("{PYTHON} {READIES}/bin/getredis -v 6 --force".format(PYTHON=self.python, READIES=READIES))
 
