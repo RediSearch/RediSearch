@@ -210,7 +210,7 @@ done:
   }
 
   // Print profile data
-  if (req->reqflags & QEXEC_F_PROFILE) {
+  if (req->reqflags & QEXEC_F_PROFILE && req->stateflags & QEXEC_S_ITERDONE) {
     Profile_Print(outctx, req, &nelem);
   }
 
