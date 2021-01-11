@@ -43,24 +43,15 @@ static void freeDocumentContext(void *p) {
 
 #define FIELD_IS_VALID(aCtx, ix) ((aCtx)->fspecs[ix].name != NULL)
 
-static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Document *doc,
-                                      size_t oldFieldCount) {
+static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
+  Document *doc = aCtx->doc;
   aCtx->stateFlags &= ~ACTX_F_INDEXABLES;
   aCtx->stateFlags &= ~ACTX_F_TEXTINDEXED;
   aCtx->stateFlags &= ~ACTX_F_OTHERINDEXED;
 
-  if (oldFieldCount < doc->numFields) {
-    // Pre-allocate the field specs
-    aCtx->fspecs = rm_realloc(aCtx->fspecs, sizeof(*aCtx->fspecs) * doc->numFields);
-    aCtx->fdatas = rm_realloc(aCtx->fdatas, sizeof(*aCtx->fdatas) * doc->numFields);
-  }
+  aCtx->fspecs = rm_realloc(aCtx->fspecs, sizeof(*aCtx->fspecs) * doc->numFields);
+  aCtx->fdatas = rm_realloc(aCtx->fdatas, sizeof(*aCtx->fdatas) * doc->numFields);
 
-  for (size_t ii = 0; ii < doc->numFields; ++ii) {
-    // zero out field data. We check at the destructor to see if there is any
-    // left-over tag data here; if we've realloc'd, then this contains
-    // garbage
-    aCtx->fdatas[ii].tags = NULL;
-  }
   size_t numTextIndexable = 0;
 
   // size: uint16_t * SPEC_MAX_FIELDS
@@ -151,8 +142,6 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp, Doc
     }
     RSByteOffsets_ReserveFields(aCtx->byteOffsets, numTextIndexable);
   }
-
-  Document_Move(&aCtx->doc, doc);
   return 0;
 }
 
@@ -192,7 +181,8 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b, QueryError *stat
   Indexer_Incref(aCtx->indexer);
 
   // Assign the document:
-  if (AddDocumentCtx_SetDocument(aCtx, sp, b, aCtx->doc.numFields) != 0) {
+  aCtx->doc = b;
+  if (AddDocumentCtx_SetDocument(aCtx, sp) != 0) {
     *status = aCtx->status;
     aCtx->status.detail = NULL;
     mempool_release(actxPool_g, aCtx);
@@ -201,9 +191,9 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b, QueryError *stat
 
   // try to reuse the forward index on recycled contexts
   if (aCtx->fwIdx) {
-    ForwardIndex_Reset(aCtx->fwIdx, &aCtx->doc, sp->flags);
+    ForwardIndex_Reset(aCtx->fwIdx, aCtx->doc, sp->flags);
   } else {
-    aCtx->fwIdx = NewForwardIndex(&aCtx->doc, sp->flags);
+    aCtx->fwIdx = NewForwardIndex(aCtx->doc, sp->flags);
   }
 
   if (sp->smap) {
@@ -215,7 +205,7 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b, QueryError *stat
   }
 
   aCtx->tokenizer = GetTokenizer(b->language, aCtx->fwIdx->stemmer, sp->stopwords);
-  aCtx->doc.docId = 0;
+//  aCtx->doc->docId = 0;
   return aCtx;
 }
 
@@ -267,11 +257,9 @@ static int AddDocumentCtx_ReplaceMerge(RSAddDocumentCtx *aCtx, RedisSearchCtx *s
    * that a new document ID needs to be assigned, and as a consequence, all
    * fields must be reindexed.
    */
-  // Free the old field data
-  size_t oldFieldCount = aCtx->doc.numFields;
 
-  Document_Clear(&aCtx->doc);
-  int rv = Document_LoadSchemaFields(&aCtx->doc, sctx);
+  Document_Clear(aCtx->doc);
+  int rv = Document_LoadSchemaFields(aCtx->doc, sctx);
   if (rv != REDISMODULE_OK) {
     QueryError_SetError(&aCtx->status, QUERY_ENODOC, "Could not load existing document");
     aCtx->donecb(aCtx, sctx->redisCtx, aCtx->donecbData);
@@ -280,8 +268,8 @@ static int AddDocumentCtx_ReplaceMerge(RSAddDocumentCtx *aCtx, RedisSearchCtx *s
   }
 
   // Keep hold of the new fields.
-  Document_MakeStringsOwner(&aCtx->doc);
-  AddDocumentCtx_SetDocument(aCtx, sctx->spec, &aCtx->doc, oldFieldCount);
+  Document_MakeStringsOwner(aCtx->doc);
+  AddDocumentCtx_SetDocument(aCtx, sctx->spec);
   return 0;
 }
 
@@ -306,7 +294,7 @@ void AddDocumentCtx_Submit(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, uint32_
 
   // We actually modify (!) the strings in the document, so we always require
   // ownership
-  Document_MakeStringsOwner(&aCtx->doc);
+  Document_MakeStringsOwner(aCtx->doc);
 
   if (AddDocumentCtx_IsBlockable(aCtx)) {
     aCtx->client.bc = RedisModule_BlockClient(sctx->redisCtx, replyCallback, NULL, NULL, 0);
@@ -316,11 +304,11 @@ void AddDocumentCtx_Submit(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, uint32_
 
   RS_LOG_ASSERT(aCtx->client.bc, "No blocked client");
   size_t totalSize = 0;
-  for (size_t ii = 0; ii < aCtx->doc.numFields; ++ii) {
-    const DocumentField *ff = aCtx->doc.fields + ii;
+  for (size_t ii = 0; ii < aCtx->doc->numFields; ++ii) {
+    const DocumentField *ff = aCtx->doc->fields + ii;
     if (aCtx->fspecs[ii].name && (ff->indexAs & (INDEXFLD_T_FULLTEXT | INDEXFLD_T_TAG))) {
       size_t n;
-      RedisModule_StringPtrLen(aCtx->doc.fields[ii].text, &n);
+      RedisModule_StringPtrLen(aCtx->doc->fields[ii].text, &n);
       totalSize += n;
     }
   }
@@ -337,7 +325,7 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
    * Free preprocessed data; this is the only reliable place
    * to do it
    */
-  for (size_t ii = 0; ii < aCtx->doc.numFields; ++ii) {
+  for (size_t ii = 0; ii < aCtx->doc->numFields; ++ii) {
     if (FIELD_IS_VALID(aCtx, ii) && FIELD_IS(aCtx->fspecs + ii, INDEXFLD_T_TAG) &&
         aCtx->fdatas[ii].tags) {
       TagIndex_FreePreprocessedData(aCtx->fdatas[ii].tags);
@@ -347,7 +335,7 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
 
   // Destroy the common fields:
   if (!(aCtx->stateFlags & ACTX_F_NOFREEDOC)) {
-    Document_Free(&aCtx->doc);
+    Document_Free(aCtx->doc);
   }
 
   if (aCtx->sv) {
@@ -459,7 +447,7 @@ FIELD_BULK_INDEXER(numericIndexer) {
       return -1;
     }
   }
-  NRN_AddRv rv = NumericRangeTree_Add(rt, aCtx->doc.docId, fdata->numeric);
+  NRN_AddRv rv = NumericRangeTree_Add(rt, aCtx->doc->docId, fdata->numeric);
   ctx->spec->stats.invertedSize += rv.sz;  // TODO: exact amount
   ctx->spec->stats.numRecords += rv.numRecords;
   return 0;
@@ -518,7 +506,7 @@ FIELD_BULK_INDEXER(tagIndexer) {
   }
 
   ctx->spec->stats.invertedSize +=
-      TagIndex_Index(tidx, (const char **)fdata->tags, array_len(fdata->tags), aCtx->doc.docId);
+      TagIndex_Index(tidx, (const char **)fdata->tags, array_len(fdata->tags), aCtx->doc->docId);
   ctx->spec->stats.numRecords++;
   return 0;
 }
@@ -566,7 +554,7 @@ void IndexerBulkCleanup(IndexBulkData *cur, RedisSearchCtx *sctx) {
 }
 
 int Document_AddToIndexes(RSAddDocumentCtx *aCtx) {
-  Document *doc = &aCtx->doc;
+  Document *doc = aCtx->doc;
   int ourRv = REDISMODULE_OK;
 
   for (size_t i = 0; i < doc->numFields; i++) {
@@ -686,7 +674,7 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
     goto done;                                             \
   } while (0);
 
-  Document *doc = &aCtx->doc;
+  Document *doc = aCtx->doc;
   t_docId docId = DocTable_GetIdR(&sctx->spec->docs, doc->docKey);
   if (docId == 0) {
     BAIL("Couldn't load old document");
