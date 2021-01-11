@@ -6,8 +6,32 @@ defaults:
     - ubuntu
 
 commands:
+  abort_for_docs:
+    steps:
+      - run:
+          name: Avoid tests for docs
+          command: |
+            if [[ $CIRCLE_BRANCH == *_docs ]]; then
+              echo "Identifies as documents PR, no testing required"
+              circleci step halt
+            fi
+
+  early_return_for_forked_pull_requests:
+    description: >-
+      If this build is from a fork, stop executing the current job and return success.
+      This is useful to avoid steps that will fail due to missing credentials.
+    steps:
+      - run:
+          name: Early return if this build is from a forked PR
+          command: |
+            if [[ -n "$CIRCLE_PR_NUMBER" ]]; then
+              echo "Nothing to do for forked PRs, so marking this step successful"
+              circleci step halt
+            fi
+
   ci_steps:
     steps:
+      - abort_for_docs
       - checkout
       - run:
           name: Get Dependencies
@@ -23,6 +47,7 @@ commands:
           command: DISTDIR=~/workspace ./.circleci/ci_package.sh
           environment:
             - PACKAGE_NAME: redisearch-oss
+      - early_return_for_forked_pull_requests
       - persist_to_workspace:
           root: ~/workspace
           paths:
@@ -32,7 +57,7 @@ commands:
 jobs:
   ubuntu:
     docker:
-      - image: redisfab/rmbuilder:6.0.1-x64-buster
+      - image: redisfab/rmbuilder:6.0.9-x64-buster
     environment:
       - BUILD_DIR: build-debian
     steps:
@@ -40,7 +65,7 @@ jobs:
 
   centos:
     docker:
-      - image: redisfab/rmbuilder:6.0.1-x64-centos7
+      - image: redisfab/rmbuilder:6.0.9-x64-centos7
     environment:
       - BUILD_DIR: build-el
     steps:
@@ -56,8 +81,10 @@ jobs:
 
   deploy_snapshots:
     docker:
-      - image: redisfab/rmbuilder:6.0.1-x64-buster
+      - image: redisfab/rmbuilder:6.0.9-x64-buster
     steps:
+      - abort_for_docs
+      - early_return_for_forked_pull_requests
       - attach_workspace:
           at: ~/workspace
       - run:
@@ -69,8 +96,9 @@ jobs:
 
   debug_asan:
     docker:
-      - image: 'mnunberg/rmbuilder-san:redis6'
+      - image: redisfab/clang:4.0.1-x64-stretch
     steps:
+      - abort_for_docs
       - checkout
       - run:
           name: Run & build tests
@@ -78,8 +106,9 @@ jobs:
 
   debug_msan:
     docker:
-      - image: 'mnunberg/rmbuilder-san:redis6'
+      - image: redisfab/clang:4.0.1-x64-stretch
     steps:
+      - abort_for_docs
       - checkout
       - run:
           name: Run & build tests
@@ -87,8 +116,9 @@ jobs:
 
   coverage:
     docker:
-      - image: redisfab/rmbuilder:6.0.1-x64-buster
+      - image: redisfab/rmbuilder:6.0.9-x64-buster
     steps:
+      - abort_for_docs
       - checkout
       - run:
           name: Build & Test
@@ -99,8 +129,10 @@ jobs:
 
   deploy_release:
     docker:
-      - image: redisfab/rmbuilder:6.0.1-x64-buster
+      - image: redisfab/rmbuilder:6.0.9-x64-buster
     steps:
+      - abort_for_docs
+      - early_return_for_forked_pull_requests
       - attach_workspace:
           at: ~/workspace
       - run:
@@ -109,6 +141,7 @@ jobs:
             for f in ~/workspace/release/*.zip; do
               aws s3 cp $f s3://redismodules/$PACKAGE_NAME/ --acl public-read
             done
+
 
 on-any-branch: &on-any-branch
   filters:
