@@ -169,8 +169,7 @@ static int sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
 
   rc = rp->Next(rp, &r);
   if (rc == RS_RESULT_TIMEDOUT) {
-    if (!(req->reqflags & QEXEC_F_IS_CURSOR) && 
-        !(req->reqflags & QEXEC_F_PROFILE) &&
+    if (!(req->reqflags & QEXEC_F_IS_CURSOR) && !(IsProfile(req)) &&
         RSGlobalConfig.timeoutPolicy == TimeoutPolicy_Fail) {
       RedisModule_ReplyWithSimpleString(outctx, "Timeout limit was reached");
     } else {
@@ -210,7 +209,7 @@ done:
   }
 
   // Print profile data
-  if (req->reqflags & QEXEC_F_PROFILE && req->stateflags & QEXEC_S_ITERDONE) {
+  if (IsProfile(req) && !(req->reqflags & QEXEC_F_IS_CURSOR)) {
     Profile_Print(outctx, req, &nelem);
   }
 
@@ -399,14 +398,27 @@ static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num) {
     }
   }
   req->cursorChunkSize = num;
-  RedisModule_ReplyWithArray(outputCtx, 2);
+  int arrayLen = 2;
+  if (IsProfile(req)) {
+    arrayLen = 3;
+  }
+  RedisModule_ReplyWithArray(outputCtx, arrayLen);
   sendChunk(req, outputCtx, num);
 
   if (req->stateflags & QEXEC_S_ITERDONE) {
     // Write the count!
     RedisModule_ReplyWithLongLong(outputCtx, 0);
+    if (IsProfile(req)) {
+      RedisModule_ReplyWithArray(outputCtx, REDISMODULE_POSTPONED_ARRAY_LEN);
+      size_t nelem = 0;
+      Profile_Print(outputCtx, req, &nelem);
+      RedisModule_ReplySetArrayLength(outputCtx, nelem);
+    }
   } else {
     RedisModule_ReplyWithLongLong(outputCtx, cursor->id);
+    if (IsProfile(req)) {
+      RedisModule_ReplyWithNull(outputCtx);
+    }
   }
 
   if (req->stateflags & QEXEC_S_ITERDONE) {

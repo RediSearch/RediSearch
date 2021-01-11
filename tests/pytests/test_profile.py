@@ -228,15 +228,17 @@ def testProfileCursor(env):
   actual_res = conn.execute_command('ft.profile', 'aggregate', 'idx', '*',
                                     'load', 1, '@t',
                                     'WITHCURSOR', 'COUNT', 10)
-  expected_res = [[1L, ['t', 'hello'], ['t', 'world'],
-                  ['Total profile time'],
-                  ['Parsing and iterator creation time'],
-                  ['Iterators profile',
-                    ['Wildcard iterator', 3L]],
-                  ['Result processors profile',
-                    ['Index', 3L],
-                    ['Loader', 3L]]],
-                  0L]
+  expected_res = [[1L, 
+                    ['t', 'hello'],
+                    ['t', 'world']],
+                   0L,
+                   [['Total profile time'],
+                    ['Parsing and iterator creation time'],
+                    ['Iterators profile',
+                      ['Wildcard iterator', 3L]],
+                    ['Result processors profile',
+                      ['Index', 3L],
+                      ['Loader', 3L]]]]
   env.assertEqual(actual_res, expected_res)
 
   actual_res = conn.execute_command('ft.profile', 'aggregate', 'idx', '*',
