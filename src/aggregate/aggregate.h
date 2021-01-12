@@ -21,7 +21,7 @@ typedef enum {
   QEXEC_F_SEND_NOFIELDS = 0x08,  // Don't send the contents of the fields
   QEXEC_F_SEND_PAYLOADS = 0x10,  // Sent the payload set with ADD
   QEXEC_F_IS_CURSOR = 0x20,      // Is a cursor-type query
-  QEXEC_F_PROFILE_LIMITED = 0x40,// 
+  QEXEC_F_COORDINATOR = 0x40,    // Coordinator
 
   /** Don't use concurrent execution */
   QEXEC_F_SAFEMODE = 0x100,
@@ -46,7 +46,7 @@ typedef enum {
 
   /* Profile command */
   QEXEC_F_PROFILE = 0x8000,
-  // QEXEC_F_PROFILE_LIMITED = 0x40 - used above
+  QEXEC_F_PROFILE_LIMITED = 0x10000,
 
 } QEFlags;
 
@@ -87,10 +87,8 @@ typedef struct {
   /** Context for iterating over the queries themselves */
   QueryIterator qiter;
 
-  /** Used for identifying unique objects across this request */
-  uint32_t serial;
   /** Flags controlling query output */
-  uint32_t reqflags;
+  uint64_t reqflags;
 
   /** Flags indicating current execution state */
   uint32_t stateflags;

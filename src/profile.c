@@ -95,16 +95,18 @@ int Profile_Print(RedisModuleCtx *ctx, AREQ *req, size_t *nelem){
   (*nelem)++;
 
   // print into array with a recursive function over result processors
-  ResultProcessor *rp = req->qiter.endProc;
-  IndexIterator *root = QITR_GetRootFilter(&req->qiter);
 
   // Print profile of iterators
-  RedisModule_ReplyWithArray(ctx, 2);
-  RedisModule_ReplyWithSimpleString(ctx, "Iterators profile");
-  printIteratorProfile(ctx, root, 0 ,0, 1, (req->reqflags & QEXEC_F_PROFILE_LIMITED));
-  (*nelem)++;
+  IndexIterator *root = QITR_GetRootFilter(&req->qiter);
+  if (root) {     // Coordinator does not have iterators
+    RedisModule_ReplyWithArray(ctx, 2);
+    RedisModule_ReplyWithSimpleString(ctx, "Iterators profile");
+    printIteratorProfile(ctx, root, 0 ,0, 1, (req->reqflags & QEXEC_F_PROFILE_LIMITED));
+    (*nelem)++;
+  }
 
   // Print profile of result processors
+  ResultProcessor *rp = req->qiter.endProc;
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
   RedisModule_ReplyWithSimpleString(ctx, "Result processors profile");
   size_t alen = 1;
