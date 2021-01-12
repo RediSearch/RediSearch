@@ -28,17 +28,17 @@ def testGeoDistanceSimple(env):
 
   # test profile
   env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
-  res = [4L, 'geo1', 'geo2', 'geo3', 'geo4',
-             ['Total profile time'],
-             ['Parsing and iterator creation time'],
-             ['Iterators profile',
-                ['Union iterator - GEO', 5L,
-                  ['Geo reader', '1.23,4.55 - 1.21176,4.57724', 3L],
-                  ['Geo reader', '1.21176,4.57724 - 1.24,4.56', 3L]]],
-             ['Result processors profile',
-                ['Index', 5L],
-                ['Scorer', 5L],
-                ['Sorter', 5L]]]
+  res = [[4L, 'geo1', 'geo2', 'geo3', 'geo4'],
+         [['Total profile time'],
+          ['Parsing and iterator creation time'],
+          ['Iterators profile',
+            ['Union iterator - GEO', 5L,
+              ['Geo reader', '1.23,4.55 - 1.21176,4.57724', 3L],
+              ['Geo reader', '1.21176,4.57724 - 1.24,4.56', 3L]]],
+          ['Result processors profile',
+            ['Index', 5L],
+            ['Scorer', 5L],
+            ['Sorter', 5L]]]]
   env.expect('FT.PROFILE', 'SEARCH', 'idx', '@location:[1.23 4.56 10 km]', 'nocontent').equal(res)
 
   res = [4L, ['distance', '5987.15'], ['distance', '6765.06'], ['distance', '7456.63'], ['distance', '8095.49']]

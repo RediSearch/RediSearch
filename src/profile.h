@@ -7,15 +7,13 @@
 #define CLOCKS_PER_MILLISEC  ((__clock_t) 1000)
 #define PROFILE_VERBOSE RSGlobalConfig.printProfileClock
 
-#define IsProfile(r) ((r)->reqflags & QEXEC_F_PROFILE)
-
 #define RedisModule_ReplyWithPrintf(ctx, fmt, ...) {                                    \
   RedisModuleString *str = RedisModule_CreateStringPrintf(ctx, fmt, __VA_ARGS__);       \
   RedisModule_ReplyWithString(ctx, str);                                                \
   RedisModule_FreeString(ctx, str);                                                     \
 }
 
-int Profile_Print(RedisModuleCtx *ctx, AREQ *req, size_t *nelem);
+int Profile_Print(RedisModuleCtx *ctx, AREQ *req);
 
 void printReadIt(RedisModuleCtx *ctx,
                  IndexIterator *root,

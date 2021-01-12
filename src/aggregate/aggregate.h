@@ -50,6 +50,8 @@ typedef enum {
 
 } QEFlags;
 
+#define IsProfile(r) ((r)->reqflags & QEXEC_F_PROFILE)
+
 typedef enum {
   /* Received EOF from iterator */
   QEXEC_S_ITERDONE = 0x02,

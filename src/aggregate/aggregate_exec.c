@@ -208,11 +208,6 @@ done:
     req->stateflags |= QEXEC_S_ITERDONE;
   }
 
-  // Print profile data
-  if (IsProfile(req) && !(req->reqflags & QEXEC_F_IS_CURSOR)) {
-    Profile_Print(outctx, req, &nelem);
-  }
-
   // Reset the total results length:
   req->qiter.totalResults = 0;
   RedisModule_ReplySetArrayLength(outctx, nelem);
@@ -220,7 +215,13 @@ done:
 }
 
 void AREQ_Execute(AREQ *req, RedisModuleCtx *outctx) {
+  if (IsProfile(req)) {
+    RedisModule_ReplyWithArray(outctx, 2);
+  }
   sendChunk(req, outctx, -1);
+  if (IsProfile(req)) {
+    Profile_Print(outctx, req);
+  }
   AREQ_Free(req);
 }
 
@@ -409,10 +410,7 @@ static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num) {
     // Write the count!
     RedisModule_ReplyWithLongLong(outputCtx, 0);
     if (IsProfile(req)) {
-      RedisModule_ReplyWithArray(outputCtx, REDISMODULE_POSTPONED_ARRAY_LEN);
-      size_t nelem = 0;
-      Profile_Print(outputCtx, req, &nelem);
-      RedisModule_ReplySetArrayLength(outputCtx, nelem);
+      Profile_Print(outputCtx, req);
     }
   } else {
     RedisModule_ReplyWithLongLong(outputCtx, cursor->id);
