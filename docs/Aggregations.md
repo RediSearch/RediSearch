@@ -376,6 +376,7 @@ Note that these operators apply only to numeric values and numeric sub expressio
 | upper(s)                         | Return the uppercase conversion of s                         | `upper('hello world')`                                   |
 | lower(s)                         | Return the lowercase conversion of s                         | `lower("HELLO WORLD")`                                   |
 | startswith(s1,s2)                | Return `1` if s2 is the prefix of s1, `0` otherwise.         | `startswith(@field, "company")`                          |
+| contains(s1,s2)                  | Return the number of occurences of s2 in s1, `0` otherwise.  | `contains(@field, "pa")`                                 |
 | substr(s, offset, count)         | Return the substring of s, starting at _offset_ and having _count_ characters. <br />If offset is negative, it represents the distance from the end of the string. <br />If count is -1, it means "the rest of the string starting at offset". | `substr("hello", 0, 3)` <br> `substr("hello", -2, -1)`  |
 | format( fmt, ...)                | Use the arguments following `fmt` to format a string. <br />Currently the only format argument supported is `%s` and it applies to all types of arguments. | `format("Hello, %s, you are %s years old", @name, @age)` |
 | matched_terms([max_terms=100])   | Return the query terms that matched for each record (up to 100), as a list. If a limit is specified, we will return the first N matches we find - based on query order. | `matched_terms()`                                        |

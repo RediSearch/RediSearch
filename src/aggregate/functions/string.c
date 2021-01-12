@@ -320,14 +320,34 @@ static int stringfunc_startswith(ExprEval *ctx, RSValue *result, RSValue **argv,
   RSValue *str = RSValue_Dereference(argv[0]);
   RSValue *pref = RSValue_Dereference(argv[1]);
   
-  char *p_str = (char *)RSValue_StringPtrLen(str, NULL);
+  const char *p_str = (char *)RSValue_StringPtrLen(str, NULL);
   size_t n;
-  char *p_pref = (char *)RSValue_StringPtrLen(pref, &n);
+  const char *p_pref = (char *)RSValue_StringPtrLen(pref, &n);
   result->t = RSValue_Number;
   result->numval = strncmp(p_pref, p_str, n) == 0;
   return EXPR_EVAL_OK;
 }
 
+static int stringfunc_contains(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc, QueryError *err) {
+  VALIDATE_ARGS("contains", 2, 2, err);
+  VALIDATE_ARG_ISSTRING("contains", argv, 0);
+  VALIDATE_ARG_ISSTRING("contains", argv, 1);
+
+  RSValue *str = RSValue_Dereference(argv[0]);
+  RSValue *pref = RSValue_Dereference(argv[1]);
+
+  char *p_str = (char *)RSValue_StringPtrLen(str, NULL);
+  const char *p_pref = (char *)RSValue_StringPtrLen(pref, NULL);
+  result->t = RSValue_Number;
+
+  size_t num = 0;
+  while ((p_str = strstr(p_str, p_pref)) != NULL) {
+    num++;
+    p_str++;
+  }
+  result->numval = num;
+  return EXPR_EVAL_OK;
+}
 
 void RegisterStringFunctions() {
   RSFunctionRegistry_RegisterFunction("lower", stringfunc_tolower, RSValue_String);
@@ -340,4 +360,5 @@ void RegisterStringFunctions() {
   RSFunctionRegistry_RegisterFunction("to_str", func_to_str, RSValue_String);
   RSFunctionRegistry_RegisterFunction("exists", func_exists, RSValue_Number);
   RSFunctionRegistry_RegisterFunction("startswith", stringfunc_startswith, RSValue_Number);
+  RSFunctionRegistry_RegisterFunction("contains", stringfunc_contains, RSValue_Number);
 }
