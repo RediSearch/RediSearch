@@ -129,11 +129,11 @@ $ redis-server --loadmodule ./redisearch.so EXTLOAD ./ext/my_extension.so
 
 ## MINPREFIX
 
-The minimum number of characters we allow for prefix queries (e.g. `hel*`). Setting it to 1 can hurt performance.
+The minimum number of characters we allow for prefix queries (e.g. `hel*`).
 
 ### Default
 
-2
+1
 
 ### Example
 
@@ -145,11 +145,11 @@ $ redis-server --loadmodule ./redisearch.so MINPREFIX 3
 
 ## MAXPREFIXEXPANSIONS
 
-The maximum number of expansions we allow for query prefixes. Setting it too high can cause performance issues. If MAXPREFIXEXPANSIONS is reached, the query will continue with the first acquired results.
+The maximum number of expansions we allow for query prefixes. Setting it too high can cause performance issues. If MAXPREFIXEXPANSIONS is reached, the query will continue with the first acquired results. The default value is set to the LONG_MAX constant.
 
 ### Default
 
-200
+9223372036854775807
 
 ### Example
 
