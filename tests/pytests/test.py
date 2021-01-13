@@ -1048,7 +1048,7 @@ def testGeo(env):
         env.assertIn('hotel21', res)
         env.assertIn('hotel79', res)
         res2 = gsearch_inline('hilton', "-0.1757", "51.5156", '1')
-        env.assertListEqual(res, res2)
+        env.assertListEqual(sorted(res), sorted(res2))
 
         res = gsearch('hilton', "-0.1757", "51.5156", '10')
         env.assertEqual(14, res[0])
@@ -1063,7 +1063,7 @@ def testGeo(env):
         env.assertEqual('hotel94', res[1])
         res2 = gsearch_inline(
             'heathrow', -0.44155, 51.45865, '10', 'm')
-        env.assertListEqual(res, res2)
+        env.assertListEqual(sorted(res), sorted(res2))
 
         res = gsearch('heathrow', -0.44155, 51.45865, '10', 'km')
         env.assertEqual(5, res[0])
