@@ -658,6 +658,11 @@ FT.DROPINDEX idx DD
 
 Status Reply: OK on success.
 
+!!! note
+     When using FT.DROPINDEX with the parameter DD, if an index creation is still running (FT.CREATE is running asynchronously),
+     only the document hashes that have already been indexed are deleted. The document hashes left to be indexed will remain in the database.
+     You can use FT.INFO to check the completion of the indexing.
+
 ---
 
 ## Alias
