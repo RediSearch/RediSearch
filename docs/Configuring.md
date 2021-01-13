@@ -56,7 +56,7 @@ The response policy for queries that exceed the `TIMEOUT` setting.
 The policy can be one of the following:
 
 * **RETURN**: this policy will return the top results accumulated by the query until it timed out.
-* **FAIL**: will return an error when the query exceeds the timeout value.
+* **FAIL**: will return an error when the query exeeds the timeout value.
 
 ### Default
 
@@ -129,11 +129,11 @@ $ redis-server --loadmodule ./redisearch.so EXTLOAD ./ext/my_extension.so
 
 ## MINPREFIX
 
-The minimum number of characters we allow for prefix queries (e.g. `hel*`).
+The minimum number of characters we allow for prefix queries (e.g. `hel*`). Setting it to 1 can hurt performance.
 
 ### Default
 
-1
+2
 
 ### Example
 
@@ -145,11 +145,11 @@ $ redis-server --loadmodule ./redisearch.so MINPREFIX 3
 
 ## MAXEXPANSIONS
 
-The maximum number of expansions we allow for query prefixes. Setting it too high can cause performance issues. If MAXEXPANSIONS is reached, the query will continue with the first acquired results. The default value is set to the LONG_MAX constant.
+The maximum number of expansions we allow for query prefixes. Setting it too high can cause performance issues.
 
 ### Default
 
-9223372036854775807
+200
 
 ### Example
 
