@@ -675,6 +675,7 @@ REDISMODULE_API void (*RedisModule_ScanCursorRestart)(RedisModuleScanCursor *cur
 REDISMODULE_API void (*RedisModule_ScanCursorDestroy)(RedisModuleScanCursor *cursor) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_Scan)(RedisModuleCtx *ctx, RedisModuleScanCursor *cursor, RedisModuleScanCB fn, void *privdata) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ScanKey)(RedisModuleKey *key, RedisModuleScanCursor *cursor, RedisModuleScanKeyCB fn, void *privdata) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_GetServerVersion)() REDISMODULE_ATTR;
 
 /* Experimental APIs */
 #ifdef REDISMODULE_EXPERIMENTAL_API
@@ -923,6 +924,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(ScanCursorDestroy);
     REDISMODULE_GET_API(Scan);
     REDISMODULE_GET_API(ScanKey);
+    REDISMODULE_GET_API(GetServerVersion);
 
 #ifdef REDISMODULE_EXPERIMENTAL_API
     REDISMODULE_GET_API(GetThreadSafeContext);

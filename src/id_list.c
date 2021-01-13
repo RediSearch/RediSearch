@@ -175,6 +175,7 @@ IndexIterator *NewIdListIterator(t_docId *ids, t_offset num, double weight) {
 
   IndexIterator *ret = &it->base;
   ret->ctx = it;
+  ret->type = ID_LIST_ITERATOR;
   ret->GetCriteriaTester = IL_GetCriteriaTester;
   ret->NumEstimated = IL_NumEstimated;
   ret->Free = IL_Free;

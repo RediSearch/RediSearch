@@ -34,6 +34,8 @@ static inline const char *GCPolicy_ToString(GCPolicy policy) {
 /* RSConfig is a global configuration struct for the module, it can be included from each file,
  * and is initialized with user config options during module statrtup */
 typedef struct {
+  // Version of Redis server
+  int serverVersion;
   // Use concurrent serach (default: 1, disable with SAFEMODE)
   int concurrentMode;
   // If not null, this points at a .so file of an extension we try to load (default: NULL)
@@ -177,5 +179,12 @@ sds RSConfig_GetInfoString(const RSConfig *config);
     .maxSearchResults = SEARCH_REQUEST_RESULTS_MAX, .maxAggregateResults = -1,                    \
     .minUnionIterHeap = 20, .numericCompress = false, .numericTreeMaxDepthRange = 0,              \
   }
+
+#define REDIS_ARRAY_LIMIT 7
+#define NO_REPLY_DEPTH_LIMIT 0x00060020
+
+static inline int isFeatureSupported(int feature) {
+  return feature <= RSGlobalConfig.serverVersion;
+}
 
 #endif

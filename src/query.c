@@ -60,9 +60,8 @@ void QueryNode_Free(QueryNode *n) {
       break;
     case QN_NUMERIC:
       NumericFilter_Free((void *)n->nn.nf);
-
-      break;  //
-    case QN_PREFX:
+      break;
+    case QN_PREFIX:
       QueryTokenNode_Free(&n->pfx);
       break;
     case QN_GEO:
@@ -79,11 +78,9 @@ void QueryNode_Free(QueryNode *n) {
     case QN_WILDCARD:
     case QN_IDS:
       break;
-
     case QN_TAG:
       QueryTagNode_Free(&n->tag);
       break;
-
     case QN_UNION:
     case QN_NOT:
     case QN_OPTIONAL:
@@ -133,7 +130,7 @@ QueryNode *NewTokenNode(QueryParseCtx *q, const char *s, size_t len) {
 }
 
 QueryNode *NewPrefixNode(QueryParseCtx *q, const char *s, size_t len) {
-  QueryNode *ret = NewQueryNode(QN_PREFX);
+  QueryNode *ret = NewQueryNode(QN_PREFIX);
   q->numTokens++;
 
   ret->pfx = (QueryPrefixNode){.str = (char *)s, .len = len, .expanded = 0, .flags = 0};
@@ -331,7 +328,7 @@ static IndexIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
 /* Ealuate a prefix node by expanding all its possible matches and creating one big UNION on all
  * of them */
 static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
-  RS_LOG_ASSERT(qn->type == QN_PREFX, "query node type should be prefix");
+  RS_LOG_ASSERT(qn->type == QN_PREFIX, "query node type should be prefix");
 
   // we allow a minimum of 2 letters in the prefx by default (configurable)
   if (qn->pfx.len < RSGlobalConfig.minTermPrefix) {
@@ -601,7 +598,7 @@ static IndexIterator *Query_EvalTagLexRangeNode(QueryEvalCtx *q, TagIndex *idx, 
 /* Evaluate a tag prefix by expanding it with a lookup on the tag index */
 static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, QueryNode *qn,
                                               IndexIteratorArray *iterout, double weight) {
-  if (qn->type != QN_PREFX) {
+  if (qn->type != QN_PREFIX) {
     return NULL;
   }
 
@@ -656,7 +653,7 @@ static IndexIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, Qu
       ret = TagIndex_OpenReader(idx, q->sctx->spec, n->tn.str, n->tn.len, weight);
       break;
     }
-    case QN_PREFX:
+    case QN_PREFIX:
       return Query_EvalTagPrefixNode(q, idx, n, iterout, weight);
 
     case QN_LEXRANGE:
@@ -767,7 +764,7 @@ IndexIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
       return Query_EvalTagNode(q, n);
     case QN_NOT:
       return Query_EvalNotNode(q, n);
-    case QN_PREFX:
+    case QN_PREFIX:
       return Query_EvalPrefixNode(q, n);
     case QN_LEXRANGE:
       return Query_EvalLexRangeNode(q, n);
@@ -888,7 +885,7 @@ void QueryNode_AddChildren(QueryNode *n, QueryNode **children, size_t nchildren)
   if (n->type == QN_TAG) {
     for (size_t ii = 0; ii < nchildren; ++ii) {
       if (children[ii]->type == QN_TOKEN || children[ii]->type == QN_PHRASE ||
-          children[ii]->type == QN_PREFX || children[ii]->type == QN_LEXRANGE) {
+          children[ii]->type == QN_PREFIX || children[ii]->type == QN_LEXRANGE) {
         n->children = array_ensure_append(n->children, children + ii, 1, QueryNode *);
       }
     }
@@ -977,7 +974,7 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       s = sdscat(s, "\n");
       return s;
 
-    case QN_PREFX:
+    case QN_PREFIX:
       s = sdscatprintf(s, "PREFIX{%s*", (char *)qs->pfx.str);
       break;
 

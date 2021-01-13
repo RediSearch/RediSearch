@@ -82,10 +82,8 @@ typedef struct {
   /** Context for iterating over the queries themselves */
   QueryIterator qiter;
 
-  /** Used for identifying unique objects across this request */
-  uint32_t serial;
   /** Flags controlling query output */
-  uint32_t reqflags;
+  uint64_t reqflags;
 
   /** Flags indicating current execution state */
   uint32_t stateflags;

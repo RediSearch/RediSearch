@@ -1152,6 +1152,7 @@ IndexIterator *NewReadIterator(IndexReader *ir) {
   IndexIterator *ri = rm_malloc(sizeof(IndexIterator));
   ri->ctx = ir;
   ri->mode = MODE_SORTED;
+  ri->type = READ_ITERATOR;
   ri->NumEstimated = IR_NumEstimated;
   ri->GetCriteriaTester = IR_GetCriteriaTester;
   ri->Read = IR_Read;

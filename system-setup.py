@@ -70,6 +70,7 @@ class RediSearchSetup(paella.Setup):
         self.pip_install("pudb awscli")
 
         self.pip_install("-r %s/deps/readies/paella/requirements.txt" % ROOT)
+        self.pip_install("-r %s/tests/pytests/requirements.txt" % ROOT)
 
 #----------------------------------------------------------------------------------------------
 
