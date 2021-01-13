@@ -149,7 +149,7 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
 /**
  * Sends a chunk of <n> rows, optionally also sending the preamble
  */
-static int sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
+void sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
   size_t nrows = 0;
   size_t nelem = 0;
   SearchResult r = {0};
@@ -211,18 +211,6 @@ done:
   // Reset the total results length:
   req->qiter.totalResults = 0;
   RedisModule_ReplySetArrayLength(outctx, nelem);
-  return REDISMODULE_OK;
-}
-
-void AREQ_Execute(AREQ *req, RedisModuleCtx *outctx) {
-  if (IsProfile(req)) {
-    RedisModule_ReplyWithArray(outctx, 2);
-  }
-  sendChunk(req, outctx, -1);
-  if (IsProfile(req)) {
-    Profile_Print(outctx, req);
-  }
-  AREQ_Free(req);
 }
 
 static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int type,
@@ -317,9 +305,14 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     if (rc != REDISMODULE_OK) {
       goto error;
     }
+  } else if (IsProfile(r)) {
+    RedisModule_ReplyWithArray(ctx, 2);
+    sendChunk(r, ctx, -1);
+    Profile_Print(ctx, r);
+    AREQ_Free(r);
   } else {
-    // Execute() will call free when appropriate.
-    AREQ_Execute(r, ctx);
+    sendChunk(r, ctx, -1);
+    AREQ_Free(r);
   }
   return REDISMODULE_OK;
 
@@ -382,7 +375,7 @@ int AREQ_StartCursor(AREQ *r, RedisModuleCtx *outctx, const char *lookupName, Qu
 static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num) {
   AREQ *req = cursor->execState;
   
-  // reset profile clock for following cursor reads 
+  // reset profile clock for cursor reads except for 1st 
   if (IsProfile(req) && req->totalTime != 0) {
     req->initTime = clock();
   }

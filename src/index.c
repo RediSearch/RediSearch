@@ -1764,7 +1764,7 @@ PRINT_PROFILE_FUNC_SIGN(printUnionIt) {
 
   RedisModule_ReplyWithLongLong(ctx, counter);
   if (PROFILE_VERBOSE) RedisModule_ReplyWithDouble(ctx, cpuTime);
-  if (printFull) {
+  if (printFull || (ui->origType & QN_UNION)) {
     for (int i = 0; i < ui->norig; i++) {
       printIteratorProfile(ctx, ui->origits[i], 0, 0, depth + 1, limited);
     }

@@ -51,6 +51,7 @@ typedef enum {
 } QEFlags;
 
 #define IsProfile(r) ((r)->reqflags & QEXEC_F_PROFILE)
+#define IsCoordinator(r) ((r)->reqflags & QEXEC_F_COORDINATOR)
 
 typedef enum {
   /* Received EOF from iterator */
@@ -104,9 +105,9 @@ typedef struct {
   unsigned cursorChunkSize;
 
   /** Profile variables */
-  clock_t initTime;
-  double totalTime;
-  double parseTime;
+  clock_t initTime; // Time of start. Reset for each cursor call
+  double totalTime; // Total time. Used to accimulate cursors times
+  double parseTime; // Time for parsing the query
 } AREQ;
 
 /**
@@ -223,7 +224,7 @@ ResultProcessor *Grouper_GetRP(Grouper *gr);
  */
 void Grouper_AddReducer(Grouper *g, Reducer *r, RLookupKey *dst);
 
-void AREQ_Execute(AREQ *req, RedisModuleCtx *outctx);
+void sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit);
 void AREQ_Free(AREQ *req);
 
 /**
