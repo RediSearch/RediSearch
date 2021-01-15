@@ -226,7 +226,7 @@ void RP_DumpChain(const ResultProcessor *rp);
  *            Timeout API
  ****************************************/
 
-static inline int rs_timercmp(struct timespec *a, struct timespec *b) {
+static inline int rs_timer_ge(struct timespec *a, struct timespec *b) {
   if (a->tv_sec == b->tv_sec) {
     return a->tv_nsec >= b->tv_nsec;
   }
@@ -256,7 +256,7 @@ static inline int TimedOut(struct timespec timeout) {
   static struct timespec now;
   clock_gettime(CLOCK_MONOTONIC_RAW, &now);
 
-  if (__builtin_expect(rs_timercmp(&now, &timeout), 0)) {
+  if (__builtin_expect(rs_timer_ge(&now, &timeout), 0)) {
     return RS_RESULT_TIMEDOUT;
   }
   return RS_RESULT_OK;

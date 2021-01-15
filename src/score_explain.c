@@ -6,7 +6,7 @@ static void recExplainReply(RedisModuleCtx *ctx, RSScoreExplain *scrExp, int dep
   int numChildren = scrExp->numChildren;
 
   if (numChildren == 0 ||
-     (depth == REDIS_ARRAY_LIMIT && !isFeatureSupported(NO_REPLY_DEPTH_LIMIT))) {
+     (depth >= REDIS_ARRAY_LIMIT - 1 && !isFeatureSupported(NO_REPLY_DEPTH_LIMIT))) {
     RedisModule_ReplyWithSimpleString(ctx, scrExp->str);
   } else {
     RedisModule_ReplyWithArray(ctx, 2);
