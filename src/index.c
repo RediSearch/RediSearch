@@ -1736,7 +1736,7 @@ IndexIterator *NewProfileIterator(IndexIterator *child) {
 
 PRINT_PROFILE_FUNC_SIGN(printUnionIt) {
   UnionIterator *ui = (UnionIterator *)root;
-  int printFull = !limited;
+  int printFull = !limited  || (ui->origType & QN_UNION);
 
   int arrayLen = 2 + PROFILE_VERBOSE;
   arrayLen += printFull ? ui->norig : 1;
@@ -1764,7 +1764,7 @@ PRINT_PROFILE_FUNC_SIGN(printUnionIt) {
 
   RedisModule_ReplyWithLongLong(ctx, counter);
   if (PROFILE_VERBOSE) RedisModule_ReplyWithDouble(ctx, cpuTime);
-  if (printFull || (ui->origType & QN_UNION)) {
+  if (printFull) {
     for (int i = 0; i < ui->norig; i++) {
       printIteratorProfile(ctx, ui->origits[i], 0, 0, depth + 1, limited);
     }

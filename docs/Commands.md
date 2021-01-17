@@ -602,49 +602,44 @@ Printout details are:
 
 #### Example
 ```sh
-127.0.0.1:6379> FT.PROFILE LIMITED SEARCH idx "%aaa%(aa*|aaa)" NOCONTENT
-1) (integer) 4
-2) 1) Total time
-   2) "0.19400000000000001"
-3) 1) Parsing and iterator creation time
-   2) "0.099000000000000005"
-4) 1) Iterators profile
-   2) 1) Intersect iterator
-      2) (integer) 5
-      3) "0.044999999999999998"
-      4) 1) Union iterator - FUZZY
-         2) (integer) 5
-         3) "0.017000000000000001"
-         4) "The number of iterators in union is 3"
-      5) 1) Union iterator - UNION
+FT.PROFILE LIMITED SEARCH idx %%hel%%(he*|hello) NOCONTENT
+1) 1) (integer) 3
+   2) "doc4"
+   3) "doc1"
+   4) "doc2"
+2) 1) 1) Total profile time
+      2) "0.31900000000000001"
+   2) 1) Parsing and iterator creation time
+      2) "0.22"
+   3) 1) Iterators profile
+      2) 1) Intersect iterator
+         2) (integer) 6
+         3) "0.057000000000000002"
+         4) 1) "Union iterator - FUZZY - hel"
+            2) (integer) 6
+            3) "0.017000000000000001"
+            4) "The number of iterators in union is 2"
+         5) 1) Union iterator - UNION
+            2) (integer) 5
+            3) "0.025999999999999999"
+            4) 1) "Union iterator - PREFIX - he"
+               2) (integer) 5
+               3) "0.012"
+               4) "The number of iterators in union is 3"
+            5) 1) Term reader
+               2) hello
+               3) (integer) 4
+               4) "0.004"
+   4) 1) Result processors profile
+      2) 1) Index
          2) (integer) 4
-         3) "0.019"
-         4) 1) Union iterator - PREFIX
-            2) (integer) 4
-            3) "0.01"
-            4) "The number of iterators in union is 3"
-         5) 1) Term reader
-            2) aaa
-            3) (integer) 2
-            4) "0.002"
-5) 1) Result processors profile
-   2) 1) Index
-      2) (integer) 6
-      3) "0.051999999999999998"
-   3) 1) Scorer
-      2) (integer) 6
-      3) "0.011000000000000003"
-   4) 1) Sorter
-      2) (integer) 1
-      3) "0.0070000000000000062"
-   5) 1) Loader
-      2) (integer) 1
-      3) "0.020999999999999991"
-6)  Results
-7)  "doc1"
-8)  "doc2"
-9)  "doc3"
-10) "doc4"
+         3) "0.065000000000000002"
+      3) 1) Scorer
+         2) (integer) 4
+         3) "0.013999999999999999"
+      4) 1) Sorter
+         2) (integer) 4
+         3) "0.0079999999999999932"
 ```
 
 #### Parameters
