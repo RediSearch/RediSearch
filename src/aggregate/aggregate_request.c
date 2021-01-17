@@ -1131,7 +1131,6 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
       case PLN_T__MAX:
         // not handled yet
         RS_LOG_ASSERT(0, "Oops");
-        abort();
     }
   }
 

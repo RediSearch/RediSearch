@@ -60,8 +60,7 @@ void QueryNode_Free(QueryNode *n) {
       break;
     case QN_NUMERIC:
       NumericFilter_Free((void *)n->nn.nf);
-
-      break;  //
+      break;
     case QN_PREFIX:
       QueryTokenNode_Free(&n->pfx);
       break;
@@ -79,11 +78,9 @@ void QueryNode_Free(QueryNode *n) {
     case QN_WILDCARD:
     case QN_IDS:
       break;
-
     case QN_TAG:
       QueryTagNode_Free(&n->tag);
       break;
-
     case QN_UNION:
     case QN_NOT:
     case QN_OPTIONAL:

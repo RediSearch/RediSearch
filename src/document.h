@@ -70,12 +70,6 @@ typedef struct Document {
  */
 #define DOCUMENT_F_OWNSTRINGS 0x02
 
-/**
- * The document has been moved to another target. This is quicker than
- * zero'ing the entire structure
- */
-#define DOCUMENT_F_DEAD 0x08
-
 #define UNDERSCORE_KEY "__key"
 #define UNDERSCORE_SCORE "__score"
 #define UNDERSCORE_PAYLOAD "__payload"
@@ -136,12 +130,6 @@ void Document_MakeRefOwner(Document *doc);
  * or clear its name
  */
 void Document_Clear(Document *doc);
-
-/**
- * Move the contents of one document to another. This also manages ownership
- * semantics
- */
-void Document_Move(Document *dst, Document *src);
 
 /**
  * Load all fields specified in the schema to the document. Note that
@@ -217,7 +205,7 @@ struct DocumentIndexer;
 /** Context used when indexing documents */
 typedef struct RSAddDocumentCtx {
   struct RSAddDocumentCtx *next;  // Next context in the queue
-  Document doc;                   // Document which is being indexed
+  Document *doc;                   // Document which is being indexed
   union {
     RedisModuleBlockedClient *bc;  // Client
     RedisSearchCtx *sctx;
