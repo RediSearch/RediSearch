@@ -204,6 +204,7 @@ done:
   if (rc != RS_RESULT_OK) {
     req->stateflags |= QEXEC_S_ITERDONE;
   }
+
   // Reset the total results length:
   req->qiter.totalResults = 0;
   RedisModule_ReplySetArrayLength(outctx, nelem);
@@ -220,7 +221,6 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 
   int rc = REDISMODULE_ERR;
   const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
-  *r = AREQ_New();
   RedisSearchCtx *sctx = NULL;
   RedisModuleCtx *thctx = NULL;
 
@@ -281,7 +281,7 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   }
 
   const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
-  AREQ *r = NULL;
+  AREQ *r = AREQ_New();
   QueryError status = {0};
 
   if (buildRequest(ctx, argv, argc, type, &status, &r) != REDISMODULE_OK) {
@@ -315,7 +315,7 @@ int RSSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
 char *RS_GetExplainOutput(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                           QueryError *status) {
-  AREQ *r = NULL;
+  AREQ *r = AREQ_New();
   if (buildRequest(ctx, argv, argc, COMMAND_EXPLAIN, status, &r) != REDISMODULE_OK) {
     return NULL;
   }
@@ -338,9 +338,9 @@ int AREQ_StartCursor(AREQ *r, RedisModuleCtx *outctx, const char *lookupName, Qu
 
 static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num) {
   AREQ *req = cursor->execState;
-  
+
   // update timeout for cursor
-  if (strcmp(req->qiter.rootProc->name, "Network") != 0) {
+  if (req->qiter.rootProc->type != RP_NETWORK) {
     updateTimeout(&req->timeoutTime, req->reqTimeout);
     updateRPIndexTimeout(req->qiter.rootProc, req->timeoutTime);
   }

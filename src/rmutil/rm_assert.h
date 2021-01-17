@@ -10,9 +10,9 @@
 #else
 
 #define RS_LOG_ASSERT_FMT(condition, fmt, ...)                                          \
-    if (!(condition)) {                                                                 \
+    if (__builtin_expect(!(condition), 0)) {                                            \
         RedisModuleCtx* assertCtx = RedisModule_GetThreadSafeContext(NULL);             \
-        RedisModule_Log(assertCtx, "warning", fmt, __VA_ARGS__);                        \
+        RedisModule_Log(assertCtx, "warning", (fmt), __VA_ARGS__);                        \
         RedisModule_Assert(condition); /* Crashes server and create a crash report*/    \
     } 
 

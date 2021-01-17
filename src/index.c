@@ -153,6 +153,7 @@ IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *dt, int 
   IndexIterator *it = &ctx->base;
   it->mode = MODE_SORTED;
   it->ctx = ctx;
+  it->type = UNION_ITERATOR;
   it->GetCriteriaTester = UI_GetCriteriaTester;
   it->NumEstimated = UI_NumEstimated;
   it->LastDocId = UI_LastDocId;
@@ -745,6 +746,7 @@ IndexIterator *NewIntersecIterator(IndexIterator **its_, size_t num, DocTable *d
   // bind the iterator calls
   IndexIterator *it = &ctx->base;
   it->ctx = ctx;
+  it->type = INTERSECT_ITERATOR;
   it->LastDocId = II_LastDocId;
   it->NumEstimated = II_NumEstimated;
   it->GetCriteriaTester = II_GetCriteriaTester;
@@ -1225,6 +1227,7 @@ IndexIterator *NewNotIterator(IndexIterator *it, t_docId maxDocId, double weight
 
   IndexIterator *ret = &nc->base;
   ret->ctx = nc;
+  ret->type = NOT_ITERATOR;
   ret->GetCriteriaTester = NI_GetCriteriaTester;
   ret->NumEstimated = NI_NumEstimated;
   ret->Free = NI_Free;
@@ -1442,6 +1445,7 @@ IndexIterator *NewOptionalIterator(IndexIterator *it, t_docId maxDocId, double w
 
   IndexIterator *ret = &nc->base;
   ret->ctx = nc;
+  ret->type = OPTIONAL_ITERATOR;
   ret->GetCriteriaTester = OI_GetCriteriaTester;
   ret->NumEstimated = OI_NumEstimated;
   ret->Free = OI_Free;
@@ -1564,6 +1568,7 @@ IndexIterator *NewWildcardIterator(t_docId maxId) {
 
   IndexIterator *ret = &c->base;
   ret->ctx = c;
+  ret->type = WILDCARD_ITERATOR;
   ret->Free = WI_Free;
   ret->HasNext = WI_HasNext;
   ret->LastDocId = WI_LastDocId;
@@ -1607,7 +1612,8 @@ static IndexIterator eofIterator = {.Read = EOI_Read,
                                     .LastDocId = EOI_LastDocId,
                                     .NumEstimated = EOI_NumEstimated,
                                     .Abort = EOI_Abort,
-                                    .Rewind = EOI_Rewind};
+                                    .Rewind = EOI_Rewind,
+                                    .type = EMPTY_ITERATOR};
 
 IndexIterator *NewEmptyIterator(void) {
   return &eofIterator;

@@ -12,6 +12,19 @@
 #define MODE_SORTED 0
 #define MODE_UNSORTED 1
 
+enum iteratorType {
+  READ_ITERATOR,
+  UNION_ITERATOR,
+  INTERSECT_ITERATOR,
+  NOT_ITERATOR,
+  OPTIONAL_ITERATOR,
+  WILDCARD_ITERATOR,
+  EMPTY_ITERATOR,
+  ID_LIST_ITERATOR,
+  PROFILE_ITERATOR,
+  MAX_ITERATOR,
+};
+
 typedef struct IndexCriteriaTester {
   int (*Test)(struct IndexCriteriaTester *ctx, t_docId id);
   void (*Free)(struct IndexCriteriaTester *ct);
@@ -33,6 +46,8 @@ typedef struct indexIterator {
   RSIndexResult *current;
 
   int mode;
+
+  enum iteratorType type;
 
   size_t (*NumEstimated)(void *ctx);
 

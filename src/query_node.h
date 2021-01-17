@@ -31,7 +31,7 @@ typedef enum {
   QN_GEO,
 
   /* Prefix selection node */
-  QN_PREFX,
+  QN_PREFIX,
 
   /* Id Filter node */
   QN_IDS,
