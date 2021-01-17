@@ -54,8 +54,6 @@ def check_module_version(env, version):
     global module_v
     if module_v == 0:
         module_v = env.execute_command('MODULE LIST')[0][3]
-    print version
-    print module_v
     if int(module_v) >= int(version):
         return True
     return False
