@@ -105,25 +105,25 @@ jobs:
 
   debug_asan:
     docker:
-      - image: redisfab/clang:4.0.1-x64-stretch
+      - image: redisfab/clang:12-x64-stretch
     steps:
       - abort_for_docs
       - checkout
       - run:
           name: Run & build tests
-          command: ASAN=1 ./.circleci/ci_diag_san.sh
+          command: ASAN=1 ./.circleci/ci_diag_san12.sh
       - store_artifacts:
           path: build-asan/logs
 
   debug_msan:
     docker:
-      - image: redisfab/clang:4.0.1-x64-stretch
+      - image: redisfab/clang:12-x64-stretch
     steps:
       - abort_for_docs
       - checkout
       - run:
           name: Run & build tests
-          command: MSAN=1 ./.circleci/ci_diag_san.sh
+          command: MSAN=1 ./.circleci/ci_diag_san12.sh
       - store_artifacts:
           path: build-msan/logs
 
