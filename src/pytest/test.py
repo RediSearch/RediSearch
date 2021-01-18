@@ -3044,5 +3044,5 @@ def testIssue1208(env):
 
 def testRED47209(env):
     env.expect('FT.CREATE idx SCHEMA t TEXT').ok()
-    env.expect('hset', 'doc1', 't', 'foo').equal('1')
+    env.expect('FT.ADD', 'idx', 'doc1', 1, 'FIELDS', 't', 'foo').ok()
     env.expect('FT.SEARCH idx foo WITHSORTKEYS LIMIT 0 1').equal([1L, 'doc1', None, ['t', 'foo']])
