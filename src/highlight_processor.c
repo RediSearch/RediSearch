@@ -353,5 +353,6 @@ ResultProcessor *RPHighlighter_New(const RSSearchOptions *searchopts, const Fiel
   hlp->base.Free = hlpFree;
   hlp->fields = fields;
   hlp->lookup = lookup;
+  hlp->base.type = RP_HIGHLIGHTER;
   return &hlp->base;
 }

@@ -48,6 +48,7 @@ static double _recursiveProfilePrint(RedisModuleCtx *ctx, ResultProcessor *rp, s
       case RP_SCORER:
       case RP_SORTER:
       case RP_PAGER_LIMITER:
+      case RP_HIGHLIGHTER:
       case RP_GROUP:
       case RP_NETWORK:
         RedisModule_ReplyWithSimpleString(ctx, RPTypeToString(rp->type));

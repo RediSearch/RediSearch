@@ -654,7 +654,7 @@ ResultProcessor *RPLoader_New(RLookup *lk, const RLookupKey **keys, size_t nkeys
 }
 
 static char *RPTypeLookup[RP_MAX] = {
-  "Index", "Loader", "Scorer", "Sorter", "Pager/Limiter",
+  "Index", "Loader", "Scorer", "Sorter", "Pager/Limiter", "Highlighter",
   "Grouper", "Projector", "Filter", "Profile", "Network"};
 
 const char *RPTypeToString(ResultProcessorType type) {
