@@ -13,7 +13,7 @@ extern "C" {
  * now we copy strings in full so you should be careful about string length of sortable fields*/
 
 // Maximum number of sortables
-#define RS_SORTABLES_MAX 255
+#define RS_SORTABLES_MAX 1024 // aligned with SPEC_MAX_FIELDS
 
 #pragma pack(1)
 
@@ -35,11 +35,14 @@ typedef struct RSSortingVector {
 /* RSSortingTable defines the length and names of the fields in a sorting vector. It is saved as
  * part of the spec */
 typedef struct {
-  uint8_t len;
-  struct sortField {
-    const char *name;
-    RSValueType type;
-  } fields[RS_SORTABLES_MAX];
+  const char *name;
+  RSValueType type;
+} RSSortField;
+
+typedef struct {
+  uint16_t len;
+  uint16_t cap;
+  RSSortField fields[1];
 } RSSortingTable;
 
 /* RSSortingKey describes the sorting of a query and is parsed from the redis command arguments */
@@ -58,7 +61,7 @@ RSSortingTable *NewSortingTable();
 void SortingTable_Free(RSSortingTable *t);
 
 /** Adds a field and returns the ID of the newly-inserted field */
-int RSSortingTable_Add(RSSortingTable *tbl, const char *name, RSValueType t);
+int RSSortingTable_Add(RSSortingTable **tbl, const char *name, RSValueType t);
 
 /* Get the field index by name from the sorting table. Returns -1 if the field was not found */
 int RSSortingTable_GetFieldIdx(RSSortingTable *tbl, const char *field);

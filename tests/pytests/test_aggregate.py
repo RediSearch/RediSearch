@@ -448,7 +448,26 @@ class TestAggregate():
                            'SORTBY', 2, '@brand', 'DESC',
                            'SORTBY', 2, '@price', 'DESC').error()\
                             .contains('Multiple SORTBY steps are not allowed. Sort multiple fields in a single step')
-  
+
+    def testCountError(self):
+        # With 0 values
+        res = self.env.cmd('ft.aggregate', 'games', '*',
+                           'GROUPBY', '2', '@brand', '@price',
+                           'REDUCE', 'COUNT', 0)
+        self.env.assertEqual(len(res), 1245)
+
+        # With count 1 and 1 value
+        res = self.env.expect('ft.aggregate', 'games', '*',
+                           'GROUPBY', '2', '@brand', '@price',
+                           'REDUCE', 'COUNT', 1, '@brand').error()      \
+                            .contains('Count accepts 0 values only')
+
+        # With count 1 and 0 values
+        res = self.env.expect('ft.aggregate', 'games', '*',
+                           'GROUPBY', '2', '@brand', '@price',
+                           'REDUCE', 'COUNT', 1).error()        \
+                            .contains('Bad arguments for COUNT: Expected an argument, but none provided')
+
     # def testLoadAfterSortBy(self):
     #     with self.env.assertResponseError():
     #         self.env.cmd('ft.aggregate', 'games', '*',
@@ -535,6 +554,24 @@ def testStartsWith(env):
                                                                  ['t', 'aaa', 'prefix', '1'], \
                                                                  ['t', 'ab', 'prefix', '0']]))
 
+def testContains(env):
+    conn = getConnectionByEnv(env)
+    env.execute_command('ft.create', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE')
+    conn.execute_command('hset', 'doc1', 't', 'aa')
+    conn.execute_command('hset', 'doc2', 't', 'bba')
+    conn.execute_command('hset', 'doc3', 't', 'aba')
+    conn.execute_command('hset', 'doc4', 't', 'abb')
+    conn.execute_command('hset', 'doc5', 't', 'abba')
+    conn.execute_command('hset', 'doc6', 't', 'abbabb')
+
+    res = env.cmd('ft.aggregate', 'idx', '*', 'load', 1, 't', 'apply', 'contains(@t, "bb")', 'as', 'substring')
+    env.assertEqual(toSortedFlatList(res), toSortedFlatList([1L, ['t', 'aa', 'substring', '0'], \
+                                                             ['t', 'bba', 'substring', '1'], \
+                                                             ['t', 'aba', 'substring', '0'], \
+                                                             ['t', 'abb', 'substring', '1'], \
+                                                             ['t', 'abba', 'substring', '1'], \
+                                                             ['t', 'abbabb', 'substring', '2']]))
+
 def testLimitIssue(env):
     #ticket 66895
     conn = getConnectionByEnv(env)
@@ -581,3 +618,10 @@ def testLimitIssue(env):
                 'APPLY', '@PrimaryKey', 'AS', 'PrimaryKey',
                 'SORTBY', '2', '@CreatedDateTimeUTC', 'DESC', 'LIMIT', '2', '2')
     env.assertEqual(actual_res, res)
+
+def testMaxAggResults():
+    env = Env(moduleArgs="MAXAGGREGATERESULTS 100")
+    conn = getConnectionByEnv(env)
+    conn.execute_command('ft.create', 'idx', 'SCHEMA', 't', 'TEXT')
+    env.expect('ft.aggregate', 'idx', '*', 'LIMIT', '0', '10000').error()   \
+                .contains('LIMIT exceeds maximum of 100')

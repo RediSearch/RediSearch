@@ -582,6 +582,8 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
       }
     }
     IndexSpec_AddFields(sp, ctx, &ac, initialScan, &status);
+  } else {
+      return RedisModule_ReplyWithError(ctx, "ALTER must be followed by SCHEMA");
   }
 
   if (QueryError_HasError(&status)) {

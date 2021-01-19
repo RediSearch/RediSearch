@@ -62,10 +62,9 @@ FT.CREATE idx ON HASH PREFIX 1 doc: SCHEMA name TEXT SORTABLE age NUMERIC SORTAB
     If an unsupported language is sent, the command returns an error. 
     The supported languages are:
 
-    > "arabic",  "danish",    "dutch",   "english",   "finnish",    "french",
-    > "german",  "hungarian", "italian", "norwegian", "portuguese", "romanian",
-    > "russian", "spanish",   "swedish", "tamil",     "turkish"
-    > "chinese"
+    Arabic, Basque, Catalan, Danish, Dutch, English, Finnish, French, German, Greek, Hungarian,
+    Indonesian, Irish, Italian, Lithuanian, Nepali, Norwegian, Portuguese, Romanian, Russian,
+    Spanish, Swedish, Tamil, Turkish, Chinese
 
     When adding Chinese-language documents, `LANGUAGE chinese` should be set in
     order for the indexer to properly tokenize the terms. If the default language
@@ -124,7 +123,7 @@ FT.CREATE idx ON HASH PREFIX 1 doc: SCHEMA name TEXT SORTABLE age NUMERIC SORTAB
 
     * **SORTABLE**
     
-        Numeric, tag or text field can have the optional SORTABLE argument that allows the user to later [sort the results by the value of this field](Sorting.md) (this adds memory overhead so do not declare it on large text fields).
+        Numeric, tag or text fields can have the optional SORTABLE argument that allows the user to later [sort the results by the value of this field](Sorting.md) (this adds memory overhead so do not declare it on large text fields).
       
     * **NOSTEM**
     
@@ -199,10 +198,13 @@ If `LANGUAGE_FIELD`, `SCORE_FIELD`, or `PAYLOAD_FIELD` were used with `FT.CREATE
 
 ##### Example
 ```sql
-HSET doc1 cs101 "hello world" number 3.141 geopoint 39.721717,21.630616 tags foo,bar,baz 
-HSET doc2 cs201 "foo bar baz" number 2.718 geopoint "31.433363,35.331942" tags foo,bar,baz
+HSET doc1 cs101 "hello world" number 3.141 geopoint "-122.064228,37.377658" tags foo,bar,baz 
+HSET doc2 cs201 "foo bar baz" number 2.718 geopoint "-0.084324,51.515583" tags foo,bar,baz
 HSET doc3 Name "RedisLabs" indexName "myindexname" 
 ```
+
+!!! note
+   The syntax for geographical values is a quoted string with longitude (first) and latitude separated by a comma.
 
 ---
 
@@ -317,7 +319,7 @@ The time complexity for more complex queries varies, but in general it's proport
 If **NOCONTENT** was given, we return an array where the first element is the total number of results, and the rest of the members are document ids.
 
 !!! note "Expiration of hashes during a search query" 
-    If a hash expiry time is reached after the start of the query process, the hash will be counted in the total number of results but name and content of the hash would not be returned.
+    If a hash expiry time is reached after the start of the query process, the hash will be counted in the total number of results but name and content of the hash will not be returned.
 
 ---
 
@@ -656,6 +658,11 @@ FT.DROPINDEX idx DD
 
 Status Reply: OK on success.
 
+!!! note
+     When using FT.DROPINDEX with the parameter DD, if an index creation is still running (FT.CREATE is running asynchronously),
+     only the document hashes that have already been indexed are deleted. The document hashes left to be indexed will remain in the database.
+     You can use FT.INFO to check the completion of the indexing.
+
 ---
 
 ## Alias
@@ -681,7 +688,7 @@ Indexes can have more than one alias, though an alias cannot refer to another
 alias.
 
 The `FT.ALIASUPDATE` command differs from the `FT.ALIASADD` command in that
-it will remove the alias association with a previous index, if any. `FT.ALIASDD`
+it will remove the alias association with a previous index, if any. `FT.ALIASADD`
 will fail, on the other hand, if the alias is already associated with another
 index.
 
@@ -1326,10 +1333,9 @@ FT.ADD idx doc1 1.0 FIELDS title "hello world"
   If an unsupported language is sent, the command returns an error. 
   The supported languages are:
 
-    > "arabic",  "danish",    "dutch",   "english",   "finnish",    "french",
-    > "german",  "hungarian", "italian", "norwegian", "portuguese", "romanian",
-    > "russian", "spanish",   "swedish", "tamil",     "turkish"
-    > "chinese"
+    Arabic, Basque, Catalan, Danish, Dutch, English, Finnish, French, German, Greek, Hungarian,
+    Indonesian, Irish, Italian, Lithuanian, Nepali, Norwegian, Portuguese, Romanian, Russian,
+    Spanish, Swedish, Tamil, Turkish, Chinese
 
   If indexing a Chinese language document, you must set the language to `chinese`
   in order for Chinese characters to be tokenized properly.
@@ -1379,7 +1385,7 @@ FT.DEL {index} {doc_id} [DD]
 #### Description
 
 !!! warning "Deprecation warning"
-    This command is deprecated and act as simpe redis DEL, the deleted document will be deleted from all the indexes it indexed on", Use DEL instead.
+    This command is deprecated and acts as a simple redis DEL, the deleted document will be deleted from all the indexes it indexed on", Use DEL instead.
 
 Deletes a document from the index. Returns 1 if the document was in the index, or 0 if not. 
 

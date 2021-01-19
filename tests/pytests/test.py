@@ -7,7 +7,7 @@ import random
 import time
 from RLTest import Env
 from includes import *
-from common import getConnectionByEnv, waitForIndex, toSortedFlatList
+from common import getConnectionByEnv, waitForIndex, toSortedFlatList, assertInfoField
 
 # this tests is not longer relevant
 # def testAdd(env):
@@ -450,17 +450,16 @@ def testCustomStopwords(env):
     # Index with custom stopwords
     env.assertOk(r.execute_command('ft.create', 'idx2', 'ON', 'HASH', 'stopwords', 2, 'hello', 'world',
                                     'schema', 'foo', 'text'))
-    if not env.isCluster:
-        res = env.cmd('ft.info', 'idx2')
-        env.assertEqual(res[39], ['hello', 'world'])
+    assertInfoField(env, 'idx2', 'stopwords_list', ['hello', 'world'])
 
     # Index with NO stopwords
     env.assertOk(r.execute_command('ft.create', 'idx3', 'ON', 'HASH', 'stopwords', 0,
                                     'schema', 'foo', 'text'))
+    assertInfoField(env, 'idx3', 'stopwords_list', [])
 
-    if not env.isCluster:
-        res = env.cmd('ft.info', 'idx3')
-        env.assertEqual(res[39], [])
+    # 2nd Index with NO stopwords - check global is used and freed
+    env.assertOk(r.execute_command('ft.create', 'idx4', 'ON', 'HASH', 'stopwords', 0,
+                                    'schema', 'foo', 'text'))
 
     #for idx in ('idx', 'idx2', 'idx3'):
     env.assertOk(r.execute_command(
@@ -1895,6 +1894,8 @@ def testAlterIndex(env):
     env.expect('FT.ALTER', 'idx', 'SCHEMA', 'NOT_ADD', 'f2', 'TEXT').error()
     env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD').error()
     env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'f2').error()
+    env.expect('FT.ALTER', 'idx', 'ADD', 'SCHEMA', 'f2', 'TEXT').error()
+    env.expect('FT.ALTER', 'idx', 'f2', 'TEXT').error()
 
 def testAlterValidation(env):
     # Test that constraints for ALTER comand
@@ -2283,7 +2284,9 @@ def testCriteriaTesterDeactivated():
     env.cmd('ft.add', 'idx', 'doc1', 1, 'fields', 't1', 'hello1 hey hello2')
     env.cmd('ft.add', 'idx', 'doc2', 1, 'fields', 't1', 'hello2 hey')
     env.cmd('ft.add', 'idx', 'doc3', 1, 'fields', 't1', 'hey')
-    env.expect('ft.search', 'idx', '(hey hello1)|(hello2 hey)').equal([2L, 'doc1', ['t1', 'hello1 hey hello2'], 'doc2', ['t1', 'hello2 hey']])
+    res = env.execute_command('ft.search', 'idx', '(hey hello1)|(hello2 hey)')
+    expected = [2L, 'doc1', ['t1', 'hello1 hey hello2'], 'doc2', ['t1', 'hello2 hey']]
+    env.assertEqual(toSortedFlatList(res), toSortedFlatList(expected))
 
 def testIssue828(env):
     env.cmd('ft.create', 'beers', 'ON', 'HASH', 'SCHEMA',
