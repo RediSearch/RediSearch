@@ -821,10 +821,7 @@ static ResultProcessor *pushRP(AREQ *req, ResultProcessor *rp, ResultProcessor *
 
   // In profile mode, we add an RPprofile before any RP to collect stats.
   if (IsProfile(req)) {
-    ResultProcessor *rpProfile = RPProfile_New(NULL, NULL, 0);
-    rpProfile->upstream = rp;
-    rpProfile->parent = &req->qiter;
-    rp = rpProfile;
+    rp = RPProfile_New(rp, &req->qiter);
   }
 
   req->qiter.endProc = rp;

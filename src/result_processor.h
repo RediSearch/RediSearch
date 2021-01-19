@@ -233,7 +233,7 @@ void RP_DumpChain(const ResultProcessor *rp);
  * It fills the result objects' field map with values corresponding to the requested return fields
  *
  *******************************************************************************************************************/
-ResultProcessor *RPProfile_New(RLookup *lk, const RLookupKey **keys, size_t nkeys);
+ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryIterator *qiter);
 
 /*****************************************
  *            Timeout API

@@ -35,7 +35,7 @@ do {                                                                            
   RedisModuleString *str = RedisModule_CreateStringPrintf(ctx, fmt, __VA_ARGS__);       \
   RedisModule_ReplyWithString(ctx, str);                                                \
   RedisModule_FreeString(ctx, str);                                                     \
-} while (0);
+} while (0)
 
 #ifdef __cplusplus
 extern "C" {

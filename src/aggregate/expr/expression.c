@@ -486,19 +486,18 @@ ResultProcessor *RPEvaluator_NewFilter(const RSExpr *ast, const RLookup *lookup)
   return RPEvaluator_NewCommon(ast, lookup, NULL, 1);
 }
 
-#define BUF_LEN 32
 void RPEvaluator_Reply(RedisModuleCtx *ctx, const ResultProcessor *rp) {
   ResultProcessorType type = rp->type;
   const char *typeStr = RPTypeToString(rp->type);
   RS_LOG_ASSERT (type == RP_PROJECTOR || type == RP_FILTER, "Error");
 
-  char buf[BUF_LEN];
+  char buf[32];
   RPEvaluator *rpEval = (RPEvaluator *)rp;
   const RSExpr *expr = rpEval->eval.root;
   switch (expr->t) {
     case RSExpr_Literal:
       RedisModule_ReplyWithPrintf(ctx, "%s - Literal %s", typeStr, 
-                  RSValue_ConvertStringPtrLen(&expr->literal, NULL, buf, BUF_LEN));
+                  RSValue_ConvertStringPtrLen(&expr->literal, NULL, buf, sizeof(buf)));
     case RSExpr_Property:
       RedisModule_ReplyWithPrintf(ctx, "%s - Property %s", typeStr, expr->property.key);
       break;

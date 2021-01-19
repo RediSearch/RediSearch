@@ -61,11 +61,12 @@ typedef struct {
   // If set to 1, we exit skips after the first hit found and not merge further results
   int quickExit;
   size_t nexpected;
-  double weight;
-  QueryNodeType origType;
+  double weight;  
   uint64_t len;
-  
-  //original string for fuzzy or prefix unions
+
+  // type of query node UNION,GEO,NUMERIC...
+  QueryNodeType origType;
+  // original string for fuzzy or prefix unions
   const char *qstr;
 } UnionIterator;
 
@@ -1727,14 +1728,14 @@ IndexIterator *NewProfileIterator(IndexIterator *child) {
   return ret;
 }
 
-#define PRINT_PROFILE_FUNC_SIGN(name) static void name(RedisModuleCtx *ctx,   \
+#define PRINT_PROFILE_FUNC(name) static void name(RedisModuleCtx *ctx,        \
                                                   IndexIterator *root,        \
                                                   size_t counter,             \
                                                   double cpuTime,             \
                                                   int depth,                  \
                                                   int limited)
 
-PRINT_PROFILE_FUNC_SIGN(printUnionIt) {
+PRINT_PROFILE_FUNC(printUnionIt) {
   UnionIterator *ui = (UnionIterator *)root;
   int printFull = !limited  || (ui->origType & QN_UNION);
 
@@ -1759,7 +1760,7 @@ PRINT_PROFILE_FUNC_SIGN(printUnionIt) {
   if (!ui->qstr) {
     RedisModule_ReplyWithSimpleString(ctx, unionTypeStr);
   } else {
-    RedisModule_ReplyWithPrintf(ctx, "%s%s%s", unionTypeStr, " - ", ui->qstr);
+    RedisModule_ReplyWithPrintf(ctx, "%s - %s", unionTypeStr, ui->qstr);
   }
 
   RedisModule_ReplyWithLongLong(ctx, counter);
@@ -1773,7 +1774,7 @@ PRINT_PROFILE_FUNC_SIGN(printUnionIt) {
   }
 }
 
-PRINT_PROFILE_FUNC_SIGN(printIntersectIt) {
+PRINT_PROFILE_FUNC(printIntersectIt) {
   IntersectIterator *ii = (IntersectIterator *)root;
   RedisModule_ReplyWithArray(ctx, ii->num + 2 + PROFILE_VERBOSE);
   RedisModule_ReplyWithSimpleString(ctx, "Intersect iterator");
@@ -1788,17 +1789,17 @@ PRINT_PROFILE_FUNC_SIGN(printIntersectIt) {
   }
 }
 
-#define PRINT_PROFILE_SINGLE(name, struct, text, hasChild)                          \
-PRINT_PROFILE_FUNC_SIGN(name) {                                                     \
+#define PRINT_PROFILE_SINGLE(name, iterType, text, hasChild)                        \
+PRINT_PROFILE_FUNC(name) {                                                     \
   int verbose = PROFILE_VERBOSE;                                                    \
-  int addChild = hasChild && ((struct *)root)->child;                               \
+  int addChild = hasChild && ((iterType *)root)->child;                             \
   RedisModule_ReplyWithArray(ctx, 2 + verbose + addChild);                          \
   RedisModule_ReplyWithSimpleString(ctx, text);                                     \
   RedisModule_ReplyWithLongLong(ctx, counter);                                      \
   if (verbose)                                                                      \
     RedisModule_ReplyWithLongDouble(ctx, cpuTime);                                  \
   if (addChild)                                                                     \
-    printIteratorProfile(ctx, ((struct *)root)->child, 0, 0, depth + 1, limited);   \
+    printIteratorProfile(ctx, ((iterType *)root)->child, 0, 0, depth + 1, limited); \
 }
 
 typedef struct {
@@ -1812,7 +1813,7 @@ PRINT_PROFILE_SINGLE(printWildcardIt, DummyIterator, "Wildcard iterator", 0);
 PRINT_PROFILE_SINGLE(printIdListIt, DummyIterator, "ID-List iterator", 0);
 PRINT_PROFILE_SINGLE(printEmptyIt, DummyIterator, "Empty iterator", 0);
 
-PRINT_PROFILE_FUNC_SIGN(printProfileIt) {
+PRINT_PROFILE_FUNC(printProfileIt) {
   ProfileIterator *pi = (ProfileIterator *)root;
   printIteratorProfile(ctx, pi->child, pi->counter, (double)pi->cpuTime / CLOCKS_PER_MILLISEC, depth, limited);
 }
@@ -1838,7 +1839,7 @@ void printIteratorProfile(RedisModuleCtx *ctx, IndexIterator *root, size_t count
     case OPTIONAL_ITERATOR:   { printOptionalIt(ctx, root, counter, cpuTime, depth, limited);   break; }
     case WILDCARD_ITERATOR:   { printWildcardIt(ctx, root, counter, cpuTime, depth, limited);   break; }
     case EMPTY_ITERATOR:      { printEmptyIt(ctx, root, counter, cpuTime, depth, limited);      break; }
-    case ID_LIST_ITERATOR:    { printIdListIt(ctx, root, counter, cpuTime, depth, limited);            break; }
+    case ID_LIST_ITERATOR:    { printIdListIt(ctx, root, counter, cpuTime, depth, limited);     break; }
     case PROFILE_ITERATOR:    { printProfileIt(ctx, root, 0, 0, depth, limited);                break; }
     default:          { RS_LOG_ASSERT(0, "nope");   break; }
   }

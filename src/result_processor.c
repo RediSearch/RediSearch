@@ -698,13 +698,16 @@ static void rpProfileFree(ResultProcessor *base) {
   rm_free(rp);
 }
 
-ResultProcessor *RPProfile_New(RLookup *lk, const RLookupKey **keys, size_t nkeys) {
+ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryIterator *qiter) {
   RPProfile *rpp = rm_calloc(1, sizeof(*rpp));
 
   rpp->profileCount = 0;
+  rpp->base.upstream = rp;
+  rpp->base.parent = qiter;
   rpp->base.Next = rpprofileNext;
   rpp->base.Free = rpProfileFree;
   rpp->base.type = RP_PROFILE;
+
   return &rpp->base;
 }
 

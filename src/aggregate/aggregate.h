@@ -21,7 +21,6 @@ typedef enum {
   QEXEC_F_SEND_NOFIELDS = 0x08,  // Don't send the contents of the fields
   QEXEC_F_SEND_PAYLOADS = 0x10,  // Sent the payload set with ADD
   QEXEC_F_IS_CURSOR = 0x20,      // Is a cursor-type query
-  QEXEC_F_COORDINATOR = 0x40,    // Coordinator
 
   /** Don't use concurrent execution */
   QEXEC_F_SAFEMODE = 0x100,
@@ -51,7 +50,6 @@ typedef enum {
 } QEFlags;
 
 #define IsProfile(r) ((r)->reqflags & QEXEC_F_PROFILE)
-#define IsCoordinator(r) ((r)->reqflags & QEXEC_F_COORDINATOR)
 
 typedef enum {
   /* Received EOF from iterator */
@@ -105,9 +103,9 @@ typedef struct {
   unsigned cursorChunkSize;
 
   /** Profile variables */
-  clock_t initTime; // Time of start. Reset for each cursor call
-  double totalTime; // Total time. Used to accimulate cursors times
-  double parseTime; // Time for parsing the query
+  clock_t initClock; // Time of start. Reset for each cursor call
+  clock_t totalTime; // Total time. Used to accimulate cursors times
+  clock_t parseTime; // Time for parsing the query
 } AREQ;
 
 /**

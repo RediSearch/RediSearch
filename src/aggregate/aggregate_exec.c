@@ -169,7 +169,7 @@ void sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
 
   rc = rp->Next(rp, &r);
   if (rc == RS_RESULT_TIMEDOUT) {
-    if (!(req->reqflags & QEXEC_F_IS_CURSOR) && !(IsProfile(req)) &&
+    if (!(req->reqflags & QEXEC_F_IS_CURSOR) && !IsProfile(req) &&
         RSGlobalConfig.timeoutPolicy == TimeoutPolicy_Fail) {
       RedisModule_ReplyWithSimpleString(outctx, "Timeout limit was reached");
     } else {
@@ -260,7 +260,7 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   rc = AREQ_BuildPipeline(*r, 0, status);
 
   if (IsProfile(*r)) {
-    (*r)->parseTime = clock() - (*r)->initTime;
+    (*r)->parseTime = clock() - (*r)->initClock;
   }
 
 done:
@@ -284,7 +284,7 @@ static void parseProfile(AREQ *r, int withProfile) {
     if (withProfile == PROFILE_LIMITED) {
       r->reqflags |= QEXEC_F_PROFILE_LIMITED;
     }
-    r->initTime = clock();
+    r->initClock = clock();
   }
 }
 
@@ -349,6 +349,7 @@ int RSProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   } else if (strcasecmp(cmd, "AGGREGATE") == 0) {
     return execCommandCommon(ctx, argv + curArg, argc - curArg, COMMAND_AGGREGATE, withProfile);
   }
+
   RedisModule_ReplyWithError(ctx, "Bad command type");
   return REDISMODULE_OK;
 }
@@ -381,7 +382,7 @@ static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num) {
   
   // reset profile clock for cursor reads except for 1st 
   if (IsProfile(req) && req->totalTime != 0) {
-    req->initTime = clock();
+    req->initClock = clock();
   }
 
   // update timeout for cursor
@@ -400,6 +401,8 @@ static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num) {
   if (IsProfile(req)) {
     arrayLen = 3;
   }
+  // return array of [results, cursorID]. (the typical result reply is in the first reply)
+  // for profile, we return array of [results, cursorID, profile]
   RedisModule_ReplyWithArray(outputCtx, arrayLen);
   sendChunk(req, outputCtx, num);
 
@@ -412,6 +415,7 @@ static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num) {
   } else {
     RedisModule_ReplyWithLongLong(outputCtx, cursor->id);
     if (IsProfile(req)) {
+      // If the cursor is still alive, don't print profile info to save bandwidth
       RedisModule_ReplyWithNull(outputCtx);
     }
   }
