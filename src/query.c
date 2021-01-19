@@ -323,7 +323,7 @@ static IndexIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
     rm_free(its);
     return NULL;
   }
-  QueryNodeType type = maxDist == 0 ? QN_PREFIX : QN_FUZZY;
+  QueryNodeType type = prefixMode ? QN_PREFIX : QN_FUZZY;
   return NewUnionIterator(its, itsSz, q->docTable, 1, opts->weight, type, str);
 }
 /* Ealuate a prefix node by expanding all its possible matches and creating one big UNION on all

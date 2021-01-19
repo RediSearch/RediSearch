@@ -818,12 +818,15 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup, Qu
 static ResultProcessor *pushRP(AREQ *req, ResultProcessor *rp, ResultProcessor *rpUpstream) {
   rp->upstream = rpUpstream;
   rp->parent = &req->qiter;
+
+  // In profile mode, we add an RPprofile before any RP to collect stats.
   if (IsProfile(req)) {
     ResultProcessor *rpProfile = RPProfile_New(NULL, NULL, 0);
     rpProfile->upstream = rp;
     rpProfile->parent = &req->qiter;
     rp = rpProfile;
   }
+
   req->qiter.endProc = rp;
   return rp;
 }

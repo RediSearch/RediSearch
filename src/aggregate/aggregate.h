@@ -91,7 +91,7 @@ typedef struct {
   QueryIterator qiter;
 
   /** Flags controlling query output */
-  uint64_t reqflags;
+  uint32_t reqflags;
 
   /** Flags indicating current execution state */
   uint32_t stateflags;

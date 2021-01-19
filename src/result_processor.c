@@ -708,13 +708,12 @@ ResultProcessor *RPProfile_New(RLookup *lk, const RLookupKey **keys, size_t nkey
   return &rpp->base;
 }
 
-// TODO:one func
 clock_t RPProfile_GetClock(ResultProcessor *rp) {
   RPProfile *self = (RPProfile *)rp;
   return self->profileTime;
 }
 
-size_t RPProfile_GetCount(ResultProcessor *rp) {
+uint64_t RPProfile_GetCount(ResultProcessor *rp) {
   RPProfile *self = (RPProfile *)rp;
   return self->profileCount;
 }

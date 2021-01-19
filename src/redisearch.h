@@ -30,11 +30,12 @@ struct RSSortingVector;
 #define REDISEARCH_ERR 1
 #define REDISEARCH_OK 0
 
-#define RedisModule_ReplyWithPrintf(ctx, fmt, ...) {                                    \
+#define RedisModule_ReplyWithPrintf(ctx, fmt, ...)                                      \
+do {                                                                                    \
   RedisModuleString *str = RedisModule_CreateStringPrintf(ctx, fmt, __VA_ARGS__);       \
   RedisModule_ReplyWithString(ctx, str);                                                \
   RedisModule_FreeString(ctx, str);                                                     \
-}
+} while (0);
 
 #ifdef __cplusplus
 extern "C" {

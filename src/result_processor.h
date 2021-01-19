@@ -287,7 +287,7 @@ static inline void updateTimeout(struct timespec *timeout, int32_t durationNS) {
 void updateRPIndexTimeout(ResultProcessor *base, struct timespec timeout);
 
 clock_t RPProfile_GetClock(ResultProcessor *rp);
-size_t RPProfile_GetCount(ResultProcessor *rp);
+uint64_t RPProfile_GetCount(ResultProcessor *rp);
 
 // Return string for RPType
 const char *RPTypeToString(ResultProcessorType type);

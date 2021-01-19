@@ -1809,6 +1809,7 @@ typedef struct {
 PRINT_PROFILE_SINGLE(printNotIt, NotIterator, "Not iterator", 1);
 PRINT_PROFILE_SINGLE(printOptionalIt, OptionalIterator, "Optional iterator", 1);
 PRINT_PROFILE_SINGLE(printWildcardIt, DummyIterator, "Wildcard iterator", 0);
+PRINT_PROFILE_SINGLE(printIdListIt, DummyIterator, "ID-List iterator", 0);
 PRINT_PROFILE_SINGLE(printEmptyIt, DummyIterator, "Empty iterator", 0);
 
 PRINT_PROFILE_FUNC_SIGN(printProfileIt) {
@@ -1828,18 +1829,17 @@ void printIteratorProfile(RedisModuleCtx *ctx, IndexIterator *root, size_t count
 
   switch (root->type) {
     // Reader
-    case (READ_ITERATOR):       { printReadIt(ctx, root, counter, cpuTime);                       break; }
+    case READ_ITERATOR:       { printReadIt(ctx, root, counter, cpuTime);                       break; }
     // Multi values
-    case (UNION_ITERATOR):      { printUnionIt(ctx, root, counter, cpuTime, depth, limited);      break; }
-    case (INTERSECT_ITERATOR):  { printIntersectIt(ctx, root, counter, cpuTime, depth, limited);  break; }
+    case UNION_ITERATOR:      { printUnionIt(ctx, root, counter, cpuTime, depth, limited);      break; }
+    case INTERSECT_ITERATOR:  { printIntersectIt(ctx, root, counter, cpuTime, depth, limited);  break; }
     // Single value
-    case (NOT_ITERATOR):        { printNotIt(ctx, root, counter, cpuTime, depth, limited);        break; }
-    case (OPTIONAL_ITERATOR):   { printOptionalIt(ctx, root, counter, cpuTime, depth, limited);   break; }
-    case (WILDCARD_ITERATOR):   { printWildcardIt(ctx, root, counter, cpuTime, depth, limited);   break; }
-    case (EMPTY_ITERATOR):      { printEmptyIt(ctx, root, counter, cpuTime, depth, limited);      break; }
-    case (PROFILE_ITERATOR):    { printProfileIt(ctx, root, 0, 0, depth, limited);                break; }
-    // TODO:
-    // case (ID_LIST_ITERATOR):    { printReadIt(ctx, root, counter, cpuTime, limited);       break; }
+    case NOT_ITERATOR:        { printNotIt(ctx, root, counter, cpuTime, depth, limited);        break; }
+    case OPTIONAL_ITERATOR:   { printOptionalIt(ctx, root, counter, cpuTime, depth, limited);   break; }
+    case WILDCARD_ITERATOR:   { printWildcardIt(ctx, root, counter, cpuTime, depth, limited);   break; }
+    case EMPTY_ITERATOR:      { printEmptyIt(ctx, root, counter, cpuTime, depth, limited);      break; }
+    case ID_LIST_ITERATOR:    { printIdListIt(ctx, root, counter, cpuTime, depth, limited);            break; }
+    case PROFILE_ITERATOR:    { printProfileIt(ctx, root, 0, 0, depth, limited);                break; }
     default:          { RS_LOG_ASSERT(0, "nope");   break; }
   }
 }
@@ -1853,34 +1853,34 @@ void Profile_AddIters(IndexIterator **root) {
 
   // Add profile iterator before child iterators
   switch((*root)->type) {
-    case (NOT_ITERATOR):
+    case NOT_ITERATOR:
       Profile_AddIters(&((NotIterator *)root)->child);
       break;
-    case (OPTIONAL_ITERATOR):
+    case OPTIONAL_ITERATOR:
       Profile_AddIters(&((OptionalIterator *)root)->child);
       break;
-    case (WILDCARD_ITERATOR):
+    case WILDCARD_ITERATOR:
       Profile_AddIters(&((NotIterator *)root)->child);
       break;     
-    case (UNION_ITERATOR):
+    case UNION_ITERATOR:
       ui = (*root)->ctx;
       for (int i = 0; i < ui->norig; i++) {
         Profile_AddIters(&(ui->origits[i]));
       }
       UI_SyncIterList(ui);
       break;
-    case (INTERSECT_ITERATOR):
+    case INTERSECT_ITERATOR:
       ini = (*root)->ctx;
       for (int i = 0; i < ini->num; i++) {
         Profile_AddIters(&(ini->its[i]));
       }
       break;
-    case (READ_ITERATOR):
-    case (EMPTY_ITERATOR):
-    case (ID_LIST_ITERATOR):
+    case READ_ITERATOR:
+    case EMPTY_ITERATOR:
+    case ID_LIST_ITERATOR:
       break;
-    case (PROFILE_ITERATOR):
-    case (MAX_ITERATOR):
+    case PROFILE_ITERATOR:
+    case MAX_ITERATOR:
       RS_LOG_ASSERT(0, "Error");
   }
 

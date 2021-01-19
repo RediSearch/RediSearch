@@ -278,6 +278,16 @@ done:
 #define PROFILE_FULL 1
 #define PROFILE_LIMITED 2
 
+static void parseProfile(AREQ *r, int withProfile) {
+  if (withProfile != NO_PROFILE) {
+    r->reqflags |= QEXEC_F_PROFILE;
+    if (withProfile == PROFILE_LIMITED) {
+      r->reqflags |= QEXEC_F_PROFILE_LIMITED;
+    }
+    r->initTime = clock();
+  }
+}
+
 static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                              CommandType type, int withProfile) {
   // Index name is argv[1]
@@ -288,13 +298,7 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
   AREQ *r = AREQ_New();
   QueryError status = {0};
-  if (withProfile != NO_PROFILE) {
-    r->reqflags |= QEXEC_F_PROFILE;
-    if (withProfile == PROFILE_LIMITED) {
-      r->reqflags |= QEXEC_F_PROFILE_LIMITED;
-    }
-    r->initTime = clock();
-  }
+  parseProfile(r, withProfile);
 
   if (buildRequest(ctx, argv, argc, type, &status, &r) != REDISMODULE_OK) {
     goto error;
