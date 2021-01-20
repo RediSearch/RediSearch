@@ -468,7 +468,7 @@ static ResultProcessor *RPEvaluator_NewCommon(const RSExpr *ast, const RLookup *
   RPEvaluator *rp = rm_calloc(1, sizeof(*rp));
   rp->base.Next = isFilter ? rpevalNext_filter : rpevalNext_project;
   rp->base.Free = rpevalFree;
-  rp->base.name = isFilter ? "Filter" : "Projector";
+  rp->base.type = isFilter ? RP_FILTER : RP_PROJECTOR;
   rp->eval.lookup = lookup;
   rp->eval.root = ast;
   rp->outkey = dstkey;

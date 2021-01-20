@@ -7,7 +7,7 @@ import random
 import time
 from RLTest import Env
 from includes import *
-from common import getConnectionByEnv, waitForIndex, toSortedFlatList, assertInfoField
+from common import getConnectionByEnv, waitForIndex, toSortedFlatList, assertInfoField, check_server_version, check_module_version
 
 # this tests is not longer relevant
 # def testAdd(env):
@@ -3205,3 +3205,10 @@ def testNotOnly(env):
   conn.execute_command('HSET', 'a', 'txt1', 'hello', 'txt2', 'world')
   conn.execute_command('HSET', 'b', 'txt1', 'world', 'txt2', 'hello')
   env.expect('ft.search idx !world').equal([1L, 'b', ['txt1', 'world', 'txt2', 'hello']])
+
+def testServerVer(env):
+    env.assertTrue(check_server_version(env, "0.0.0"))
+    env.assertTrue(not check_server_version(env, "100.0.0"))
+
+    env.assertTrue(check_module_version(env, "20005"))
+    env.assertTrue(not check_module_version(env, "10000000"))

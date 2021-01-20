@@ -471,6 +471,10 @@ int ReadConfig(RedisModuleString **argv, int argc, char **err) {
   *err = NULL;
   QueryError status = {0};
 
+  if (RedisModule_GetServerVersion) {   // for rstest
+    RSGlobalConfig.serverVersion = RedisModule_GetServerVersion();
+  }
+
   if (getenv("RS_MIN_THREADS")) {
     printf("Setting thread pool sizes to 1\n");
     RSGlobalConfig.searchPoolSize = 1;
