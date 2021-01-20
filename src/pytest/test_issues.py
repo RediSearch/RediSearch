@@ -18,13 +18,3 @@ def test_1414(env):
   env.expect('ft.search idx * limit 0 1234567').error().contains('LIMIT exceeds maximum of 1000000') 
   env.expect('FT.CONFIG set MAXSEARCHRESULTS -1').equal('OK')
   env.expect('ft.search idx * limit 0 1234567').equal([1L, 'doc', ['foo', 'hello', 'bar', 'world']]) 
-
-def test_1601(env):
-  env.execute_command('FT.CREATE', 'idx:movie', 'SCHEMA', 'title', 'TEXT')
-  env.execute_command('FT.ADD', 'idx:movie', 'movie:1', 1, 'FIELDS', 'title', 'Star Wars: Episode I - The Phantom Menace')
-  env.execute_command('FT.ADD', 'idx:movie', 'movie:2', 1, 'FIELDS', 'title', 'Star Wars: Episodes II - Attack of the Clones')
-  env.execute_command('FT.ADD', 'idx:movie', 'movie:3', 1, 'FIELDS', 'title', 'Star Wars: Episode III - Revenge of the Sith')
-
-  res = env.cmd('ft.search idx:movie @title:(episode) withscores nocontent')
-  # sort order 
-  env.assertEqual(res, [3L, 'movie:3', '2', 'movie:1', '2', 'movie:2', '1'])
