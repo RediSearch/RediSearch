@@ -339,6 +339,10 @@ CONFIG_GETTER(getMinPhoneticTermLen) {
 CONFIG_BOOLEAN_SETTER(setNumericCompress, numericCompress)
 CONFIG_BOOLEAN_GETTER(getNumericCompress, numericCompress, 0)
 
+// _PRINT_PROFILE_CLOCK
+CONFIG_BOOLEAN_SETTER(setPrintProfileClock, printProfileClock)
+CONFIG_BOOLEAN_GETTER(getPrintProfileClock, printProfileClock, 0)
+
 CONFIG_SETTER(setNumericTreeMaxDepthRange) {
   size_t maxDepthRange;
   int acrc = AC_GetSize(ac, &maxDepthRange, AC_F_GE0);
@@ -649,6 +653,10 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "Enable legacy compression of double to float.",
          .setValue = setNumericCompress,
          .getValue = getNumericCompress},
+        {.name = "_PRINT_PROFILE_CLOCK",
+         .helpText = "Disable print of time for ft.profile. For testing only.",
+         .setValue = setPrintProfileClock,
+         .getValue = getPrintProfileClock},
         {.name = "_NUMERIC_RANGES_PARENTS",
          .helpText = "Keep numeric ranges in numeric tree parent nodes of leafs " 
                      "for `x` generations.",

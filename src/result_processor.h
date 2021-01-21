@@ -50,6 +50,7 @@ typedef enum {
   RP_SCORER,
   RP_SORTER,
   RP_PAGER_LIMITER,
+  RP_HIGHLIGHTER,
   RP_GROUP,
   RP_PROJECTOR,
   RP_FILTER,
@@ -222,6 +223,18 @@ ResultProcessor *RPHighlighter_New(const RSSearchOptions *searchopts, const Fiel
 
 void RP_DumpChain(const ResultProcessor *rp);
 
+
+/*******************************************************************************************************************
+ *  Profiling Processor
+ *
+ * This processor simply takes the search results, and based on the request parameters, loads the
+ * relevant fields for the results that need to be displayed to the user, from redis.
+ *
+ * It fills the result objects' field map with values corresponding to the requested return fields
+ *
+ *******************************************************************************************************************/
+ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryIterator *qiter);
+
 /*****************************************
  *            Timeout API
  ****************************************/
@@ -272,6 +285,9 @@ static inline void updateTimeout(struct timespec *timeout, int32_t durationNS) {
 }
 
 void updateRPIndexTimeout(ResultProcessor *base, struct timespec timeout);
+
+clock_t RPProfile_GetClock(ResultProcessor *rp);
+uint64_t RPProfile_GetCount(ResultProcessor *rp);
 
 // Return string for RPType
 const char *RPTypeToString(ResultProcessorType type);

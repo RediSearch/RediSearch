@@ -283,7 +283,7 @@ TEST_F(IndexTest, testUnion) {
   irs[0] = NewReadIterator(r1);
   irs[1] = NewReadIterator(r2);
 
-  IndexIterator *ui = NewUnionIterator(irs, 2, NULL, 0, 1);
+  IndexIterator *ui = NewUnionIterator(irs, 2, NULL, 0, 1, QN_UNION, NULL);
   RSIndexResult *h = NULL;
   int expected[] = {2, 3, 4, 6, 8, 9, 10, 12, 14, 15, 16, 18, 20, 21, 24, 27, 30};
   int i = 0;
@@ -322,7 +322,7 @@ TEST_F(IndexTest, testWeight) {
   irs[0] = NewReadIterator(r1);
   irs[1] = NewReadIterator(r2);
 
-  IndexIterator *ui = NewUnionIterator(irs, 2, NULL, 0, 0.8);
+  IndexIterator *ui = NewUnionIterator(irs, 2, NULL, 0, 0.8, QN_UNION, NULL);
   RSIndexResult *h = NULL;
   int expected[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 16, 18, 20};
   int i = 0;
@@ -445,7 +445,7 @@ TEST_F(IndexTest, testNumericInverted) {
 
   // printf("written %zd bytes\n", IndexBlock_DataLen(&idx->blocks[0]));
 
-  IndexReader *ir = NewNumericReader(NULL, idx, NULL);
+  IndexReader *ir = NewNumericReader(NULL, idx, NULL, 0, 0);
   IndexIterator *it = NewReadIterator(ir);
   RSIndexResult *res;
   t_docId i = 1;
@@ -473,7 +473,7 @@ TEST_F(IndexTest, testNumericVaried) {
     // printf("[%lu]: Stored %lf\n", i, nums[i]);
   }
 
-  IndexReader *ir = NewNumericReader(NULL, idx, NULL);
+  IndexReader *ir = NewNumericReader(NULL, idx, NULL, 0, 0);
   IndexIterator *it = NewReadIterator(ir);
   RSIndexResult *res;
 
@@ -535,7 +535,7 @@ TEST_F(IndexTest, testNumericEncoding) {
     ASSERT_EQ(infos[ii].size, sz);
   }
 
-  IndexReader *ir = NewNumericReader(NULL, idx, NULL);
+  IndexReader *ir = NewNumericReader(NULL, idx, NULL, 0, 0);
   IndexIterator *it = NewReadIterator(ir);
   RSIndexResult *res;
 

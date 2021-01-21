@@ -8,6 +8,7 @@
 #include <rmutil/util.h>
 #include "ext/default.h"
 #include "extension.h"
+#include "profile.h"
 
 /**
  * Ensures that the user has not requested one of the 'extended' features. Extended
@@ -759,6 +760,10 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   ConcurrentSearchCtx_Init(sctx->redisCtx, &req->conc);
   req->rootiter = QAST_Iterate(ast, opts, sctx, &req->conc);
   RS_LOG_ASSERT(req->rootiter, "QAST_Iterate failed");
+  if (IsProfile(req)) {
+    // Add a Profile iterators before every iterator in the tree
+    Profile_AddIters(&req->rootiter);
+  }
 
   return REDISMODULE_OK;
 }
@@ -813,6 +818,12 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup, Qu
 static ResultProcessor *pushRP(AREQ *req, ResultProcessor *rp, ResultProcessor *rpUpstream) {
   rp->upstream = rpUpstream;
   rp->parent = &req->qiter;
+
+  // In profile mode, we add an RPprofile before any RP to collect stats.
+  if (IsProfile(req)) {
+    rp = RPProfile_New(rp, &req->qiter);
+  }
+
   req->qiter.endProc = rp;
   return rp;
 }
