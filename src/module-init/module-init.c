@@ -18,6 +18,7 @@ REDISMODULE_INIT_SYMBOLS();
 #include "alias.h"
 #include "aggregate/aggregate.h"
 #include "ext/default.h"
+#include "rwlock.h"
 
 #ifndef RS_NO_ONLOAD
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -110,6 +111,8 @@ static int initAsLibrary(RedisModuleCtx *ctx) {
 
   // Disable concurrent mode:
   RSGlobalConfig.concurrentMode = 0;
+  RSGlobalConfig.minTermPrefix = 0;
+  RSGlobalConfig.maxPrefixExpansions = LONG_MAX;
   return REDISMODULE_OK;
 }
 
@@ -120,6 +123,10 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
 #define DO_LOG(...)                               \
   if (ctx && (mode != REDISEARCH_INIT_LIBRARY)) { \
     RedisModule_Log(ctx, ##__VA_ARGS__);          \
+  }
+
+  if (RediSearch_LockInit(ctx) != REDISMODULE_OK) {
+    return REDISMODULE_ERR;
   }
 
   // Print version string!

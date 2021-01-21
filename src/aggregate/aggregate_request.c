@@ -173,6 +173,12 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
 }
 
 static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status, int isLegacy) {
+  // Prevent multiple SORTBY steps
+  if (arng->sortKeys != NULL) {
+    QERR_MKBADARGS_FMT(status, "Multiple SORTBY steps are not allowed. Sort multiple fields in a single step");
+    return REDISMODULE_ERR;
+  }
+
   // Assume argument is at 'SORTBY'
   ArgsCursor subArgs = {0};
   int rv;
@@ -359,6 +365,11 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
         break;
       }
     }
+  }
+
+  if ((req->reqflags & QEXEC_F_SEND_SCOREEXPLAIN) && !(req->reqflags & QEXEC_F_SEND_SCORES)) {
+    QERR_MKBADARGS_FMT(status, "EXPLAINSCORE must be accompanied with WITHSCORES");
+    return REDISMODULE_ERR;
   }
 
   searchOpts->inkeys = (const char **)inKeys.objs;

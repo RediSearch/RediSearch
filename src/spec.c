@@ -940,8 +940,6 @@ IndexSpec *NewIndexSpec(const char *name) {
   sp->stopwords = DefaultStopWordList();
   sp->terms = NewTrie();
   sp->keysDict = NULL;
-  sp->minPrefix = RSGlobalConfig.minTermPrefix;
-  sp->maxPrefixExpansions = RSGlobalConfig.maxPrefixExpansions;
   sp->getValue = NULL;
   sp->getValueCtx = NULL;
   memset(&sp->stats, 0, sizeof(sp->stats));
@@ -1133,8 +1131,6 @@ void *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver) {
   sp->name = tmpName;
   sp->flags = (IndexFlags)RedisModule_LoadUnsigned(rdb);
   sp->keysDict = NULL;
-  sp->maxPrefixExpansions = RSGlobalConfig.maxPrefixExpansions;
-  sp->minPrefix = RSGlobalConfig.minTermPrefix;
   if (encver < INDEX_MIN_NOFREQ_VERSION) {
     sp->flags |= Index_StoreFreqs;
   }

@@ -1999,6 +1999,8 @@ def testAlterIndex(env):
     env.expect('FT.ALTER', 'idx', 'SCHEMA', 'NOT_ADD', 'f2', 'TEXT').error()
     env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD').error()
     env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'f2').error()
+    env.expect('FT.ALTER', 'idx', 'ADD', 'SCHEMA', 'f2', 'TEXT').error()
+    env.expect('FT.ALTER', 'idx', 'f2', 'TEXT').error()
 
 def testAlterValidation(env):
     # Test that constraints for ALTER comand
@@ -2382,7 +2384,9 @@ def testCriteriaTesterDeactivated():
     env.cmd('ft.add', 'idx', 'doc1', 1, 'fields', 't1', 'hello1 hey hello2')
     env.cmd('ft.add', 'idx', 'doc2', 1, 'fields', 't1', 'hello2 hey')
     env.cmd('ft.add', 'idx', 'doc3', 1, 'fields', 't1', 'hey')
-    env.expect('ft.search', 'idx', '(hey hello1)|(hello2 hey)').equal([2L, 'doc1', ['t1', 'hello1 hey hello2'], 'doc2', ['t1', 'hello2 hey']])
+    res = env.execute_command('ft.search', 'idx', '(hey hello1)|(hello2 hey)')
+    expected = [2L, 'doc1', ['t1', 'hello1 hey hello2'], 'doc2', ['t1', 'hello2 hey']]
+    env.assertEqual(sorted(res), sorted(expected))
 
 def testIssue828(env):
     env.cmd('ft.create', 'beers', 'SCHEMA',
@@ -3024,3 +3028,50 @@ def test_MOD_865(env):
   for i in range(128, 256):
     args_list.extend([i, 'NUMERIC', 'SORTABLE'])
   env.expect(*args_list).error().contains('Too many SORTABLE fields in schema')
+
+def testIssue1208(env):
+    env.cmd('FT.CREATE idx SCHEMA n NUMERIC')
+    env.cmd('FT.ADD idx doc1 1 FIELDS n 1.0321e5')
+    env.cmd('FT.ADD idx doc2 1 FIELDS n 101.11')
+    env.cmd('FT.ADD idx doc3 1 FIELDS n 0.0011')
+    env.expect('FT.SEARCH', 'idx', '@n:[1.1432E3 inf]').equal([1L, 'doc1', ['n', '1.0321e5']])
+    env.expect('FT.SEARCH', 'idx', '@n:[-1.12E-3 1.12E-1]').equal([1L, 'doc3', ['n', '0.0011']])
+    res = [3L, 'doc3', ['n', '0.0011'], 'doc2', ['n', '101.11'], 'doc1', ['n', '1.0321e5']]
+    env.expect('FT.SEARCH', 'idx', '@n:[-inf inf]').equal(res)
+
+    env.expect('FT.ADD idx doc3 1 REPLACE PARTIAL IF @n>42e3 FIELDS n 100').equal('NOADD')
+    env.expect('FT.ADD idx doc3 1 REPLACE PARTIAL IF @n<42e3 FIELDS n 100').ok()
+
+def testRED47209(env):
+    env.expect('FT.CREATE idx SCHEMA t TEXT').ok()
+    env.expect('FT.ADD idx doc1 1 FIELDS t foo')
+    if env.isCluster():
+        # on cluster we have WITHSCORES set unconditionally for FT.SEARCH
+        res = [1L, 'doc1', ['t', 'foo']]
+    else:
+        res = [1L, 'doc1', None, ['t', 'foo']]
+    env.expect('FT.SEARCH idx foo WITHSORTKEYS LIMIT 0 1').equal(res)
+
+def testSuggestMax(env):
+  for i in range(10):
+    env.expect('ft.sugadd', 'sug', 'test%d' % i, i + 1).equal(i + 1)
+  #  for j in range(i + 1):
+  #env.expect('ft.sugadd', 'sug', 'test10', '1', 'INCR').equal(i + 1)
+
+  expected_res = ['test9', '7.0710678100585938', 'test8', '6.3639612197875977', 'test7', '5.6568541526794434',
+                  'test6', '4.9497475624084473', 'test5', '4.242640495300293', 'test4', '3.5355339050292969',
+                  'test3', '2.8284270763397217', 'test2', '2.1213202476501465', 'test1', '1.4142135381698608',
+                  'test0', '0.70710676908493042']
+  for i in range(1,11):
+    env.expect('FT.SUGGET', 'sug', 'test', 'MAX', i, 'WITHSCORES').equal(expected_res[0:i*2])
+  env.expect('FT.SUGGET', 'sug', 'test', 'MAX', 10, 'WITHSCORES').equal(expected_res)
+
+def testSuggestMax2(env):
+  for i in range(10):
+    env.expect('ft.sugadd', 'sug', 'test %d' % i, 1).equal(i + 1)
+
+  expected_res = ['test 0', 'test 1', 'test 2', 'test 3', 'test 4', 'test 5']
+  for i in range(1,7):
+    res = env.cmd('FT.SUGGET', 'sug', 'test ', 'MAX', i)
+    for item in res:
+        env.assertIn(item, expected_res[0:i])

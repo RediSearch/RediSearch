@@ -157,3 +157,10 @@ def testDisMaxScorerExplanation(env):
             ['DISMAX 10.00 = Weight 1.00 * Frequency 10', 'DISMAX 10.00 = Weight 1.00 * Frequency 10']])
     env.assertEqual(res[8][1], ['20.00 = Weight 1.00 * children DISMAX 20.00',
             ['DISMAX 10.00 = Weight 1.00 * Frequency 10', 'DISMAX 10.00 = Weight 1.00 * Frequency 10']])
+
+def testScoreError(env):
+    # RSCoordinator adds 'WITHSCORE' flag by default
+    env.skipOnCluster()
+    env.expect('ft.create idx schema title text').ok()
+    env.expect('ft.add idx doc1 0.01 fields title hello').ok()
+    env.expect('ft.search idx hello EXPLAINSCORE').error().contains('EXPLAINSCORE must be accompanied with WITHSCORES')

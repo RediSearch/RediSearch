@@ -29,8 +29,7 @@
 #include "redisearch_api.h"
 #include "alias.h"
 #include "module.h"
-
-pthread_rwlock_t RWLock = PTHREAD_RWLOCK_INITIALIZER;
+#include "rwlock.h"
 
 #define LOAD_INDEX(ctx, srcname, write)                                                     \
   ({                                                                                        \
@@ -767,7 +766,7 @@ int SynForceUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
  *        - id4
  */
 int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  if (argc < 2) return RedisModule_WrongArity(ctx);
+  if (argc != 2) return RedisModule_WrongArity(ctx);
 
   IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 0);
   if (!sp) {
@@ -825,6 +824,8 @@ int AlterIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       return RedisModule_ReplyWithError(ctx, "No fields provided");
     }
     IndexSpec_AddFields(sp, &ac, &status);
+  } else {
+      return RedisModule_ReplyWithError(ctx, "ALTER must be followed by SCHEMA");
   }
 
   if (QueryError_HasError(&status)) {
@@ -1081,4 +1082,5 @@ void __attribute__((destructor)) RediSearch_CleanupModule(void) {
   ConcurrentSearch_ThreadPoolDestroy();
   IndexAlias_DestroyGlobal();
   RedisModule_FreeThreadSafeContext(RSDummyContext);
+  RediSearch_LockDestory();
 }

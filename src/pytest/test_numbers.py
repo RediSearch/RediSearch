@@ -7,6 +7,7 @@ from RLTest import Env
 import math
 
 def testCompression(env):
+	env.skipOnCluster()
 	accuracy = 0.000001
 	repeat = int(math.sqrt(1 / accuracy))
 
@@ -21,6 +22,7 @@ def testCompression(env):
 		env.expect('ft.search', 'idx', ('@n:[%s %s]' % (value, value))).equal([1L, str(i), ['n', str(value)]])
   
 def testSanity(env):
+	env.skipOnCluster()
 	repeat = 100000
 	env.cmd('ft.create', 'idx', 'SCHEMA', 'n', 'numeric')
 	for i in range(repeat):
@@ -30,6 +32,7 @@ def testSanity(env):
 				.equal(['numRanges', 12L, 'numEntries', 100000L, 'lastDocId', 100000L, 'revisionId', 11L])
 
 def testCompressionConfig(env):
+	env.skipOnCluster()
 	env.cmd('ft.create', 'idx', 'SCHEMA', 'n', 'numeric')
 
 	# w/o compression. exact number match.
