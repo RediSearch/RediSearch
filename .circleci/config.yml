@@ -194,8 +194,6 @@ workflows:
           <<: *on-any-branch
       - centos:
           <<: *on-any-branch
-      - build:
-          <<: *on-any-branch
       - package_branch:
           requires:
             - build
