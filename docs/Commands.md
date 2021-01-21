@@ -581,6 +581,86 @@ String Response. A string representing the execution plan (see above example).
 
 ---
 
+### FT.PROFILE
+
+#### Format
+
+```
+FT.PROFILE [LIMITED] {[SEARCH, AGGREGATE]} {index} {query}
+```
+
+#### Description
+
+Performs a `FT.SEARCH` or `FT.AGGREGATE` command and collect performance information.
+Printout details are:
+
+- **Total time** - Total query runtime.
+- **Parsing and iterator creation time** - Parsing time and creation time of execution plan including iterator, result processors and reducers.
+- **Iterators profile** - Iterators tree with type, count and time.
+- **Result processors profile** - Result processors chain with type, count and time.
+- **Results** - Query results.
+
+#### Example
+```sh
+FT.PROFILE LIMITED SEARCH idx %%hel%%(he*|hello) NOCONTENT
+1) 1) (integer) 3
+   2) "doc4"
+   3) "doc1"
+   4) "doc2"
+2) 1) 1) Total profile time
+      2) "0.31900000000000001"
+   2) 1) Parsing and iterator creation time
+      2) "0.22"
+   3) 1) Iterators profile
+      2) 1) Intersect iterator
+         2) (integer) 6
+         3) "0.057000000000000002"
+         4) 1) "Union iterator - FUZZY - hel"
+            2) (integer) 6
+            3) "0.017000000000000001"
+            4) "The number of iterators in union is 2"
+         5) 1) Union iterator - UNION
+            2) (integer) 5
+            3) "0.025999999999999999"
+            4) 1) "Union iterator - PREFIX - he"
+               2) (integer) 5
+               3) "0.012"
+               4) "The number of iterators in union is 3"
+            5) 1) Term reader
+               2) hello
+               3) (integer) 4
+               4) "0.004"
+   4) 1) Result processors profile
+      2) 1) Index
+         2) (integer) 4
+         3) "0.065000000000000002"
+      3) 1) Scorer
+         2) (integer) 4
+         3) "0.013999999999999999"
+      4) 1) Sorter
+         2) (integer) 4
+         3) "0.0079999999999999932"
+```
+
+#### Parameters
+
+- **index**: The index name. The index must be first created with FT.CREATE
+- **query**: The query string, as if sent to FT.SEARCH
+- **LIMITED**: Removes details of `reader` iterator
+- **SEARCH,AGGREGATE**: Differ between `FT.SEARCH` and `FT.AGGREGATE` 
+
+#### Complexity
+
+Non-deterministic. Depends on the query and aggregations performed, but it is usually linear to the number of results returned.
+#### Returns
+
+Array Response. 
+
+!!! tip
+    To reduce the size of the output, use `NOCONTENT` or `LIMIT 0 0` to reduce results reply or `LIMITED` to not reply with details of `reader iterators` inside builtin-unions such as `fuzzy` or `prefix`.
+
+---
+
 ## Update
 
 ### FT.ALTER SCHEMA ADD

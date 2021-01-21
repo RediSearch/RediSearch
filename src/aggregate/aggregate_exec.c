@@ -5,6 +5,8 @@
 #include "cursor.h"
 #include "rmutil/util.h"
 #include "score_explain.h"
+#include "commands.h"
+#include "profile.h"
 
 typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN } CommandType;
 static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num);
@@ -147,7 +149,7 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
 /**
  * Sends a chunk of <n> rows, optionally also sending the preamble
  */
-static int sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
+void sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
   size_t nrows = 0;
   size_t nelem = 0;
   SearchResult r = {0};
@@ -167,7 +169,8 @@ static int sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
 
   rc = rp->Next(rp, &r);
   if (rc == RS_RESULT_TIMEDOUT) {
-    if (!(req->reqflags & QEXEC_F_IS_CURSOR) && RSGlobalConfig.timeoutPolicy == TimeoutPolicy_Fail) {
+    if (!(req->reqflags & QEXEC_F_IS_CURSOR) && !IsProfile(req) &&
+        RSGlobalConfig.timeoutPolicy == TimeoutPolicy_Fail) {
       RedisModule_ReplyWithSimpleString(outctx, "Timeout limit was reached");
     } else {
       rc = RS_RESULT_OK;
@@ -208,12 +211,6 @@ done:
   // Reset the total results length:
   req->qiter.totalResults = 0;
   RedisModule_ReplySetArrayLength(outctx, nelem);
-  return REDISMODULE_OK;
-}
-
-void AREQ_Execute(AREQ *req, RedisModuleCtx *outctx) {
-  sendChunk(req, outctx, -1);
-  AREQ_Free(req);
 }
 
 static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int type,
@@ -262,6 +259,10 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 
   rc = AREQ_BuildPipeline(*r, 0, status);
 
+  if (IsProfile(*r)) {
+    (*r)->parseTime = clock() - (*r)->initClock;
+  }
+
 done:
   if (rc != REDISMODULE_OK && *r) {
     AREQ_Free(*r);
@@ -273,8 +274,22 @@ done:
   return rc;
 }
 
+#define NO_PROFILE 0
+#define PROFILE_FULL 1
+#define PROFILE_LIMITED 2
+
+static void parseProfile(AREQ *r, int withProfile) {
+  if (withProfile != NO_PROFILE) {
+    r->reqflags |= QEXEC_F_PROFILE;
+    if (withProfile == PROFILE_LIMITED) {
+      r->reqflags |= QEXEC_F_PROFILE_LIMITED;
+    }
+    r->initClock = clock();
+  }
+}
+
 static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                             CommandType type) {
+                             CommandType type, int withProfile) {
   // Index name is argv[1]
   if (argc < 2) {
     return RedisModule_WrongArity(ctx);
@@ -283,6 +298,7 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
   AREQ *r = AREQ_New();
   QueryError status = {0};
+  parseProfile(r, withProfile);
 
   if (buildRequest(ctx, argv, argc, type, &status, &r) != REDISMODULE_OK) {
     goto error;
@@ -293,9 +309,14 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     if (rc != REDISMODULE_OK) {
       goto error;
     }
+  } else if (IsProfile(r)) {
+    RedisModule_ReplyWithArray(ctx, 2);
+    sendChunk(r, ctx, -1);
+    Profile_Print(ctx, r);
+    AREQ_Free(r);
   } else {
-    // Execute() will call free when appropriate.
-    AREQ_Execute(r, ctx);
+    sendChunk(r, ctx, -1);
+    AREQ_Free(r);
   }
   return REDISMODULE_OK;
 
@@ -307,10 +328,30 @@ error:
 }
 
 int RSAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  return execCommandCommon(ctx, argv, argc, COMMAND_AGGREGATE);
+  return execCommandCommon(ctx, argv, argc, COMMAND_AGGREGATE, NO_PROFILE);
 }
 int RSSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  return execCommandCommon(ctx, argv, argc, COMMAND_SEARCH);
+  return execCommandCommon(ctx, argv, argc, COMMAND_SEARCH, NO_PROFILE);
+}
+
+int RSProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  int curArg = 1;
+  int withProfile = PROFILE_FULL;
+  const char *cmd = RedisModule_StringPtrLen(argv[curArg], NULL);
+
+  if (strcasecmp(cmd, "LIMITED") == 0) {
+    withProfile = PROFILE_LIMITED;
+    cmd = RedisModule_StringPtrLen(argv[++curArg], NULL);
+  }
+
+  if (strcasecmp(cmd, "SEARCH") == 0) {
+    return execCommandCommon(ctx, argv + curArg, argc - curArg, COMMAND_SEARCH, withProfile);
+  } else if (strcasecmp(cmd, "AGGREGATE") == 0) {
+    return execCommandCommon(ctx, argv + curArg, argc - curArg, COMMAND_AGGREGATE, withProfile);
+  }
+
+  RedisModule_ReplyWithError(ctx, "Bad command type");
+  return REDISMODULE_OK;
 }
 
 char *RS_GetExplainOutput(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
@@ -338,6 +379,11 @@ int AREQ_StartCursor(AREQ *r, RedisModuleCtx *outctx, const char *lookupName, Qu
 
 static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num) {
   AREQ *req = cursor->execState;
+  
+  // reset profile clock for cursor reads except for 1st 
+  if (IsProfile(req) && req->totalTime != 0) {
+    req->initClock = clock();
+  }
 
   // update timeout for cursor
   if (req->qiter.rootProc->type != RP_NETWORK) {
@@ -351,14 +397,27 @@ static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num) {
     }
   }
   req->cursorChunkSize = num;
-  RedisModule_ReplyWithArray(outputCtx, 2);
+  int arrayLen = 2;
+  if (IsProfile(req)) {
+    arrayLen = 3;
+  }
+  // return array of [results, cursorID]. (the typical result reply is in the first reply)
+  // for profile, we return array of [results, cursorID, profile]
+  RedisModule_ReplyWithArray(outputCtx, arrayLen);
   sendChunk(req, outputCtx, num);
 
   if (req->stateflags & QEXEC_S_ITERDONE) {
     // Write the count!
     RedisModule_ReplyWithLongLong(outputCtx, 0);
+    if (IsProfile(req)) {
+      Profile_Print(outputCtx, req);
+    }
   } else {
     RedisModule_ReplyWithLongLong(outputCtx, cursor->id);
+    if (IsProfile(req)) {
+      // If the cursor is still alive, don't print profile info to save bandwidth
+      RedisModule_ReplyWithNull(outputCtx);
+    }
   }
 
   if (req->stateflags & QEXEC_S_ITERDONE) {

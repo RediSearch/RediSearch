@@ -8,6 +8,7 @@
 #include "redisearch.h"
 #include "util/logging.h"
 #include "varint.h"
+#include "query_node.h"
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -37,7 +38,7 @@ void ReadIterator_Free(IndexIterator *it);
 /* Create a new UnionIterator over a list of underlying child iterators.
 It will return each document of the underlying iterators, exactly once */
 IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *t, int quickExit,
-                                double weight);
+                                double weight, QueryNodeType type, const char *qstr);
 
 /* Create a new intersect iterator over the given list of child iterators. If maxSlop is not a
  * negative number, we will allow at most maxSlop intervening positions between the terms. If
@@ -69,6 +70,19 @@ IndexIterator *NewEmptyIterator(void);
 
 /** Return a string containing the type of the iterator */
 const char *IndexIterator_GetTypeString(const IndexIterator *it);
+
+/** Add Profile iterator layer between iterators */
+void Profile_AddIters(IndexIterator **root);
+
+/** Print profile of iterators */
+void printIteratorProfile(RedisModuleCtx *ctx,
+                          IndexIterator *root,
+                          size_t counter,
+                          double cpuTime,
+                          int depth,
+                          int limited);
+
+
 #ifdef __cplusplus
 }
 #endif

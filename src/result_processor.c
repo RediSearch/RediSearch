@@ -654,7 +654,7 @@ ResultProcessor *RPLoader_New(RLookup *lk, const RLookupKey **keys, size_t nkeys
 }
 
 static char *RPTypeLookup[RP_MAX] = {
-  "Index", "Loader", "Scorer", "Sorter", "Pager/Limiter",
+  "Index", "Loader", "Scorer", "Sorter", "Pager/Limiter", "Highlighter",
   "Grouper", "Projector", "Filter", "Profile", "Network"};
 
 const char *RPTypeToString(ResultProcessorType type) {
@@ -668,4 +668,55 @@ void RP_DumpChain(const ResultProcessor *rp) {
     printf("RP(%s) @%p\n", RPTypeToString(rp->type), rp);
     RS_LOG_ASSERT(rp->upstream != rp, "ResultProcessor should be different then upstream");
   }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+/// Profile RP                                                             ///
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+
+typedef struct {
+  ResultProcessor base;
+  clock_t profileTime;
+  uint64_t profileCount;
+} RPProfile;
+
+
+static int rpprofileNext(ResultProcessor *base, SearchResult *r) {
+  RPProfile *self = (RPProfile *)base;
+
+  clock_t rpStartTime = clock();
+  int rc = base->upstream->Next(base->upstream, r);
+  self->profileTime += clock() - rpStartTime;
+  self->profileCount++;
+  return rc;
+}
+
+static void rpProfileFree(ResultProcessor *base) {
+  RPProfile *rp = (RPProfile *)base;
+  rm_free(rp);
+}
+
+ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryIterator *qiter) {
+  RPProfile *rpp = rm_calloc(1, sizeof(*rpp));
+
+  rpp->profileCount = 0;
+  rpp->base.upstream = rp;
+  rpp->base.parent = qiter;
+  rpp->base.Next = rpprofileNext;
+  rpp->base.Free = rpProfileFree;
+  rpp->base.type = RP_PROFILE;
+
+  return &rpp->base;
+}
+
+clock_t RPProfile_GetClock(ResultProcessor *rp) {
+  RPProfile *self = (RPProfile *)rp;
+  return self->profileTime;
+}
+
+uint64_t RPProfile_GetCount(ResultProcessor *rp) {
+  RPProfile *self = (RPProfile *)rp;
+  return self->profileCount;
 }
