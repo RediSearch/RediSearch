@@ -1,30 +1,75 @@
-version: 2
+version: 2.1
+
+commands:
+  abort_for_docs:
+    steps:
+      - run:
+          name: Avoid tests for docs
+          command: |
+            if [[ $CIRCLE_BRANCH == *_docs ]]; then
+              echo "Identifies as documents PR, no testing required"
+              circleci step halt
+            fi
+
+  early_return_for_forked_pull_requests:
+    description: >-
+      If this build is from a fork, stop executing the current job and return success.
+      This is useful to avoid steps that will fail due to missing credentials.
+    steps:
+      - run:
+          name: Early return if this build is from a forked PR
+          command: |
+            if [[ -n "$CIRCLE_PR_NUMBER" ]]; then
+              echo "Nothing to do for forked PRs, so marking this step successful"
+              circleci step halt
+            fi
+
 jobs:
+  ubuntu:
+    docker:
+      - image: 'cimg/base:2020.01'
+    steps:
+      - run:
+         name: Build stub
+         command: circleci step halt
+
+  centos:
+    docker:
+      - image: 'cimg/base:2020.01'
+    steps:
+      - run:
+         name: Build stub
+         command: circleci step halt
+
   build:
     docker:
-      - image: 'redislabsmodules/rmbuilder:latest'
+      - image: redisfab/rmbuilder:6.0.9-x64-buster
     steps:
+      - abort_for_docs
       - checkout
       - run:
           name: Build
-          command: make -j 8
+          command: make -j `nproc`
       - run:
           name: Test
           command: make test
       - run:
           name: Persist Artifacts
-          command: >-
-            mkdir -p /workspace/build && cp src/$MODULE_ARTIFACT /workspace/ &&
+          command: |
+            mkdir -p /workspace/build
+            cp src/$MODULE_ARTIFACT /workspace/
             cp ramp.yml /workspace/
+      - early_return_for_forked_pull_requests
       - persist_to_workspace:
           root: /workspace
           paths:
             - '*.so'
             - ramp.yml
             - build
+
   package_branch:
     docker:
-      - image: 'redislabsmodules/rmbuilder:latest'
+      - image: redisfab/rmbuilder:6.0.9-x64-buster
     steps:
       - attach_workspace:
           at: /workspace
@@ -40,10 +85,13 @@ jobs:
             - build
       - store_artifacts:
           path: /workspace/build
+
   package_release:
     docker:
-      - image: 'redislabsmodules/rmbuilder:latest'
+      - image: redisfab/rmbuilder:6.0.9-x64-buster
     steps:
+      - abort_for_docs
+      - early_return_for_forked_pull_requests
       - attach_workspace:
           at: /workspace
       - run:
@@ -64,10 +112,13 @@ jobs:
             - build
       - store_artifacts:
           path: /workspace/build
+
   deploy_branch:
     docker:
-      - image: 'redislabsmodules/rmbuilder:latest'
+      - image: redisfab/rmbuilder:6.0.9-x64-buster
     steps:
+      - abort_for_docs
+      - early_return_for_forked_pull_requests
       - attach_workspace:
           at: /workspace
       - run:
@@ -75,10 +126,13 @@ jobs:
           command: >-
             aws s3 cp /workspace/build/ s3://redismodules/$PACKAGE_NAME/ --acl
             public-read --recursive --exclude "*" --include "*.zip"
+
   deploy_release:
     docker:
-      - image: 'redislabsmodules/rmbuilder:latest'
+      - image: redisfab/rmbuilder:6.0.9-x64-buster
     steps:
+      - abort_for_docs
+      - early_return_for_forked_pull_requests
       - attach_workspace:
           at: /workspace
       - run:
@@ -86,52 +140,74 @@ jobs:
           command: >-
             aws s3 cp /workspace/build/ s3://redismodules/$PACKAGE_NAME/ --acl
             public-read --recursive --exclude "*" --include "*.zip"
-  
-  deploy_docs:
-    docker:
-      - image: 'redislabsmodules/rmbuilder:latest'
-    steps:
-      - checkout
-      - run:
-          name: Build Docs
-          command: mkdocs build
-      - run:
-          name: Deploy Docs to S3
-          command: >-
-            aws s3 cp site s3://modules.redislabs.com/$WEBSITE_FOLDER/ --acl
-            public-read --recursive 
+
+
+on-any-branch: &on-any-branch
+  filters:
+    branches:
+      only: /.*/
+    tags:
+      only: /.*/
+
+never: &never
+  filters:
+    branches:
+      ignore: /.*/
+    tags:
+      ignore: /.*/
+
+on-master: &on-master
+  filters:
+    branches:
+      only: master
+
+on-version-tags: &on-version-tags
+  filters:
+    branches:
+      ignore: /.*/
+    tags:
+      only: /^v[0-9].*/
+
+on-master-and-version-tags: &on-master-and-version-tags
+  filters:
+    branches:
+      only:
+        - master
+    tags:
+      only: /^v[0-9].*/
+
+on-master-and-version-branches: &on-master-and-version-branches
+  filters:
+    branches:
+      only:
+        - master
+        - /^[0-9]+\.[0-9]+$/
+    tags:
+      ignore: /.*/
+
+
 workflows:
   version: 2
   build_and_package:
     jobs:
+      - ubuntu:
+          <<: *on-any-branch
+      - centos:
+          <<: *on-any-branch
       - build:
-          filters:
-            tags:
-              only: /.*/
+          <<: *on-any-branch
       - package_branch:
           requires:
             - build
-          filters:
-            branches:
-              only: master
+          <<: *on-master
       - package_release:
           requires:
             - build
-          filters:
-            branches:
-              ignore: /.*/
-            tags:
-              only: '/^v[0-9].*/'
+          <<: *on-version-tags
       - deploy_branch:
           requires:
             - package_branch
       - deploy_release:
-          filters:
-            tags:
-              only: '/^v[0-9].*/'
           requires:
             - package_release
-      - deploy_docs:
-          filters:
-            branches:
-              only: master
+          <<: *on-version-tags
