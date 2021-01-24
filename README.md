@@ -146,6 +146,17 @@ You can use any standard Redis client library to run RediSearch commands, but it
 [redisearch-api-rs-author]: https://redislabs.com
 [redisearch-api-rs-stars]: https://img.shields.io/github/stars/RediSearch/redisearch-api-rs.svg?style=social&amp;label=Star&amp;maxAge=2592000
 
+## Other available Libraries
+
+| Language | Library | Author | License | Stars | Comments |
+|----------|---------|--------|---------|-------|----------|
+| Rust | [redisearch-api-rs][redisearch-api-rs-url] | [Redis Labs][redisearch-api-rs-author] | BSD | [![redisearch-api-rs-stars]][redisearch-api-rs-url] | API for Redis Modules written in Rust |
+
+[redisearch-api-rs-url]: https://github.com/RediSearch/redisearch-api-rs
+[redisearch-api-rs-author]: https://redislabs.com
+[redisearch-api-rs-stars]: https://img.shields.io/github/stars/RediSearch/redisearch-api-rs.svg?style=social&amp;label=Star&amp;maxAge=2592000
+
+
 ## RediSearch features
 
 * Full-Text indexing of multiple fields in Redis hashes
