@@ -213,6 +213,14 @@ done:
   RedisModule_ReplySetArrayLength(outctx, nelem);
 }
 
+void AREQ_Execute(AREQ *req, RedisModuleCtx *outctx) {
+  sendChunk(req, outctx, -1);
+  if (IsProfile(req)) {
+    Profile_Print(outctx, req);
+  }
+  AREQ_Free(req);
+}
+
 static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int type,
                         QueryError *status, AREQ **r) {
 
@@ -309,14 +317,11 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     if (rc != REDISMODULE_OK) {
       goto error;
     }
-  } else if (IsProfile(r)) {
-    RedisModule_ReplyWithArray(ctx, 2);
-    sendChunk(r, ctx, -1);
-    Profile_Print(ctx, r);
-    AREQ_Free(r);
   } else {
-    sendChunk(r, ctx, -1);
-    AREQ_Free(r);
+    if (IsProfile(r)) {
+      RedisModule_ReplyWithArray(ctx, 2);
+    }
+    AREQ_Execute(r, ctx);
   }
   return REDISMODULE_OK;
 
