@@ -16,11 +16,11 @@ class RediSearchSetup(paella.Setup):
         paella.Setup.__init__(self, nop)
 
     def common_first(self):
-        self.setup_pip()
+        self.install_downloaders()
         self.pip_install("wheel")
         self.pip_install("setuptools --upgrade")
 
-        self.install("git cmake wget lcov")
+        self.install("git")
 
     def debian_compat(self):
         self.install("libatomic1")
@@ -34,12 +34,12 @@ class RediSearchSetup(paella.Setup):
         self.run("%s/bin/getgcc --modern" % READIES)
 
         # fix setuptools
-        self.run("yum remove -y python-setuptools || true")
+        # self.run("yum remove -y python-setuptools || true")
         self.pip_install("-IU --force-reinstall setuptools")
 
         # uninstall and install psutil (order is important), otherwise RLTest fails
-        self.run("pip uninstall -y psutil || true")
-        self.install("python2-psutil")
+        # self.run("pip uninstall -y psutil || true")
+        # self.install("python2-psutil")
 
     def fedora(self):
         self.install("libatomic")
@@ -52,6 +52,7 @@ class RediSearchSetup(paella.Setup):
     def common_last(self):
         self.run("%s/bin/getcmake" % READIES)
         self.run("{PYTHON} {READIES}/bin/getrmpytools".format(PYTHON=self.python, READIES=READIES))
+        self.install("lcov")
         self.pip_install("pudb awscli")
 
         self.pip_install("-r %s/tests/pytests/requirements.txt" % ROOT)
