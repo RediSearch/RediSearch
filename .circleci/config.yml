@@ -194,15 +194,15 @@ workflows:
           <<: *on-any-branch
       - centos:
           <<: *on-any-branch
-      - build:
-          <<: *on-any-branch
       - package_branch:
           requires:
-            - build
+            - ubuntu
+            - centos
           <<: *on-master
       - package_release:
           requires:
-            - build
+            - ubuntu
+            - centos
           <<: *on-version-tags
       - deploy_branch:
           requires:
