@@ -143,7 +143,7 @@ IF (RS_BUILD_COORDINATOR)
 
 ELSEIF (RS_BUILD_STATIC)
     ADD_LIBRARY(redisearchS STATIC ${FINAL_OBJECTS} src/module-init/module-init.c)
-    SET_TARGET_PROPERTIES(redisearchS PROPERTIES COMPILE_DEFINITIONS RS_NO_ONLOAD RS_NO_RMAPI)
+    target_compile_definitions(redisearchS PRIVATE RS_NO_ONLOAD RS_NO_RMAPI)
     SET_TARGET_PROPERTIES(redisearchS PROPERTIES OUTPUT_NAME "redisearch")
 
     ADD_LIBRARY(redisearch SHARED ${FINAL_OBJECTS} src/module-init/module-init.c)

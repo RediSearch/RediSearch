@@ -136,6 +136,7 @@ jobs:
       - run:
           name: Build & Test
           command: bash -l -c "./.circleci/ci_coverage.sh"
+          no_output_timeout: 20m
       - store_artifacts:
           path: coverage
           destination: coverage
