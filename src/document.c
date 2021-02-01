@@ -116,8 +116,11 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
 
   if (hasTextFields || hasOtherFields) {
     aCtx->stateFlags |= ACTX_F_INDEXABLES;
-  } else {
+  } else if (RSGlobalConfig.indexNoSchemaMatch == 1) {
     aCtx->stateFlags &= ~ACTX_F_INDEXABLES;
+  } else {
+    QueryError_SetCode(&aCtx->status, QUERY_ENOMATCH);
+    return -1;
   }
 
   if (!hasTextFields) {

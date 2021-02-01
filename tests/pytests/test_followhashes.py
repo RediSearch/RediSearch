@@ -547,7 +547,7 @@ def testExpiredDuringAggregate(env):
 def testSkipInitialScan(env):
     conn = getConnectionByEnv(env)
     conn.execute_command('HSET', 'a', 'test', 'hello', 'text', 'world')
-    
+
     # Regular
     env.expect('FT.CREATE idx SCHEMA test TEXT').ok()
     waitForIndex(env, 'idx')
@@ -576,7 +576,7 @@ def testWrongFieldType(env):
     res_actual = env.cmd('FT.INFO idx')
     res_actual = {res_actual[i]: res_actual[i + 1] for i in range(0, len(res_actual), 2)}
     env.assertEqual(str(res_actual['hash_indexing_failures']), '1')
-    
+
 def testDocIndexedInTwoIndexes():
     env = Env(moduleArgs='MAXDOCTABLESIZE 50')
     env.skipOnCluster()
@@ -661,4 +661,18 @@ def testIssue1571WithRename(env):
     env.expect('ft.search', 'idx1', 'foo*').equal([1L, 'idx1:{doc}1', ['t', 'foo1', 'index', 'yes']])
     env.expect('ft.search', 'idx2', 'foo*').equal([0L])
 
+def testNoIndexIfNoMatch(env):
+    env.skipOnCluster()
 
+    # doc without match should not appear in search results
+    env.expect('FT.CREATE idx SCHEMA t TEXT').ok()
+    env.expect('HSET', 'doc', 'foo', 'bar').equal(1L)
+    env.expect('FT.SEARCH', 'idx', '*').equal([0L])
+    env.expect('FT.DROP', 'idx').ok()
+    env.expect('DEL', 'doc').equal(1)
+
+    # doc without match appears in search results
+    env.expect('FT.CONFIG', 'SET', 'INDEX_NO_SCHEMA_MATCH', 'TRUE').ok()
+    env.expect('FT.CREATE idx SCHEMA t TEXT').ok()
+    env.expect('HSET', 'doc', 'foo', 'bar').equal(1L)
+    env.expect('FT.SEARCH', 'idx', '*').equal([1L, 'doc', ['foo', 'bar']])

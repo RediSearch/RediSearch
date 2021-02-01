@@ -343,6 +343,10 @@ CONFIG_BOOLEAN_GETTER(getNumericCompress, numericCompress, 0)
 CONFIG_BOOLEAN_SETTER(setPrintProfileClock, printProfileClock)
 CONFIG_BOOLEAN_GETTER(getPrintProfileClock, printProfileClock, 0)
 
+// INDEX_NO_SCHEMA_MATCH
+CONFIG_BOOLEAN_SETTER(setIndexNoSchemaMatch, indexNoSchemaMatch)
+CONFIG_BOOLEAN_GETTER(getIndexNoSchemaMatch, indexNoSchemaMatch, 0)
+
 CONFIG_SETTER(setNumericTreeMaxDepthRange) {
   size_t maxDepthRange;
   int acrc = AC_GetSize(ac, &maxDepthRange, AC_F_GE0);
@@ -657,6 +661,10 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "Disable print of time for ft.profile. For testing only.",
          .setValue = setPrintProfileClock,
          .getValue = getPrintProfileClock},
+        {.name = "INDEX_NO_SCHEMA_MATCH",
+         .helpText = "Enable indexing of documents w/o a match the index schema.",
+         .setValue = setIndexNoSchemaMatch,
+         .getValue = getIndexNoSchemaMatch},
         {.name = "_NUMERIC_RANGES_PARENTS",
          .helpText = "Keep numeric ranges in numeric tree parent nodes of leafs " 
                      "for `x` generations.",

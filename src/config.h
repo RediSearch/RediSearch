@@ -97,6 +97,8 @@ typedef struct {
   size_t numericTreeMaxDepthRange;
   // reply with time on profile
   int printProfileClock;
+  // index only docs which match schema
+  int indexNoSchemaMatch;
 } RSConfig;
 
 typedef enum {
@@ -180,7 +182,7 @@ sds RSConfig_GetInfoString(const RSConfig *config);
     .forkGcRetryInterval = 5, .forkGcCleanThreshold = 100, .noMemPool = 0, .filterCommands = 0,   \
     .maxSearchResults = SEARCH_REQUEST_RESULTS_MAX, .maxAggregateResults = -1,                    \
     .minUnionIterHeap = 20, .numericCompress = false, .numericTreeMaxDepthRange = 0,              \
-    .printProfileClock = 1,                                                                       \
+    .printProfileClock = 1, .indexNoSchemaMatch = 0,                                               \
   }
 
 #define REDIS_ARRAY_LIMIT 7

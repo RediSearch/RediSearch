@@ -1854,6 +1854,10 @@ int IndexSpec_UpdateWithHash(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleSt
 
   QueryError status = {0};
   RSAddDocumentCtx *aCtx = NewAddDocumentCtx(spec, &doc, &status);
+  if (!aCtx) {
+    Document_Free(&doc);
+    return REDISMODULE_ERR;
+  }
   aCtx->stateFlags |= ACTX_F_NOBLOCK | ACTX_F_NOFREEDOC;
   AddDocumentCtx_Submit(aCtx, &sctx, DOCUMENT_ADD_REPLACE);
 
