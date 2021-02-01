@@ -112,6 +112,7 @@ jobs:
       - run:
           name: Run & build tests
           command: bash -l -c "ASAN=1 ./.circleci/ci_diag_san.sh"
+          no_output_timeout: 20m
       - store_artifacts:
           path: build-asan/logs
 
@@ -124,6 +125,7 @@ jobs:
       - run:
           name: Run & build tests
           command: bash -l -c "MSAN=1 ./.circleci/ci_diag_san.sh"
+          no_output_timeout: 20m
       - store_artifacts:
           path: build-msan/logs
 
@@ -136,7 +138,7 @@ jobs:
       - run:
           name: Build & Test
           command: bash -l -c "./.circleci/ci_coverage.sh"
-          # no_output_timeout: 20m
+          no_output_timeout: 20m
       - store_artifacts:
           path: coverage
           destination: coverage
