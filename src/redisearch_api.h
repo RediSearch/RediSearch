@@ -59,6 +59,15 @@ typedef struct RSIdxOptions RSIndexOptions;
 #define RSFLDOPT_TXTNOSTEM 0x04
 #define RSFLDOPT_TXTPHONETIC 0x08
 
+// This enum copies
+typedef enum {
+  RS_GEO_DISTANCE_INVALID = -1,
+  RS_GEO_DISTANCE_KM,
+  RS_GEO_DISTANCE_M,
+  RS_GEO_DISTANCE_FT,
+  RS_GEO_DISTANCE_MI,
+} RSGeoDistance;
+
 typedef int (*RSGetValueCallback)(void* ctx, const char* fieldName, const void* id, char** strVal,
                                   double* doubleVal);
 
@@ -163,7 +172,7 @@ MODULE_API_FUNC(RSQNode*, RediSearch_CreateNumericNode)
 (RSIndex* sp, const char* field, double max, double min, int includeMax, int includeMin);
 
 MODULE_API_FUNC(RSQNode*, RediSearch_CreateGeoNode)
-(IndexSpec* sp, const char* field, double lon, double lat, double radius, GeoDistance unitType);
+(RSIndex* sp, const char* field, double lon, double lat, double radius, RSGeoDistance unitType);
 
 MODULE_API_FUNC(RSQNode*, RediSearch_CreatePrefixNode)
 (RSIndex* sp, const char* fieldName, const char* s);

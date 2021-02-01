@@ -254,7 +254,7 @@ QueryNode* RediSearch_CreateNumericNode(IndexSpec* sp, const char* field, double
 }
 
 QueryNode* RediSearch_CreateGeoNode(IndexSpec* sp, const char* field, double lon, double lat,
-                                        double radius, GeoDistance unitType) {
+                                        double radius, RSGeoDistance unitType) {
   QueryNode* ret = NewQueryNode(QN_GEO);
   ret->nn.nf->fieldName = rm_strdup(field);
   ret->opts.fieldMask = IndexSpec_GetFieldBit(sp, field, strlen(field));
@@ -263,7 +263,7 @@ QueryNode* RediSearch_CreateGeoNode(IndexSpec* sp, const char* field, double lon
   flt->lat = lat;
   flt->lon = lon;
   flt->radius = radius;
-  flt->unitType = unitType;
+  flt->unitType = (GeoDistance)unitType;
 
   ret->gn.gf = flt;
   return ret;
