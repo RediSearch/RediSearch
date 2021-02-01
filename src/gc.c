@@ -163,6 +163,11 @@ void GCContext_Stop(GCContext* gc) {
   if (RedisModule_StopTimer(ctx, gc->timerID, (void**)&data) == REDISMODULE_OK) {
     assert(data->gc == gc);
     rm_free(data);  // release task memory
+
+    // free gc
+    gc->callbacks.onTerm(gc->gcCtx);
+    rm_free(gc);
+    return;
   }
   thpool_add_work(gcThreadpool_g, destroyCallback, gc); 
 }
