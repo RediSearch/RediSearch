@@ -120,10 +120,8 @@ static void destroyCallback(void* data) {
   RedisModuleCtx* ctx = RSDummyContext;
   assert(gc->stopped == 1);
 
-  RedisModule_ThreadSafeContextLock(ctx);  
   gc->callbacks.onTerm(gc->gcCtx);
   rm_free(gc);
-  RedisModule_ThreadSafeContextUnlock(ctx);
 }
 
 static void timerCallback(RedisModuleCtx* ctx, void* data) {
