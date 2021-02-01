@@ -253,6 +253,22 @@ QueryNode* RediSearch_CreateNumericNode(IndexSpec* sp, const char* field, double
   return ret;
 }
 
+QueryNode* RediSearch_CreateGeoNode(IndexSpec* sp, const char* field, double lon, double lat,
+                                        double radius, GeoDistance unitType) {
+  QueryNode* ret = NewQueryNode(QN_GEO);
+  ret->nn.nf->fieldName = rm_strdup(field);
+  ret->opts.fieldMask = IndexSpec_GetFieldBit(sp, field, strlen(field));
+
+  GeoFilter *flt = rm_malloc(sizeof(*flt));
+  flt->lat = lat;
+  flt->lon = lon;
+  flt->radius = radius;
+  flt->unitType = unitType;
+
+  ret->gn.gf = flt;
+  return ret;
+}
+
 QueryNode* RediSearch_CreatePrefixNode(IndexSpec* sp, const char* fieldName, const char* s) {
   QueryNode* ret = NewQueryNode(QN_PREFIX);
   ret->pfx =

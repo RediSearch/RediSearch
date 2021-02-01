@@ -162,6 +162,9 @@ MODULE_API_FUNC(RSQNode*, RediSearch_CreateTokenNode)
 MODULE_API_FUNC(RSQNode*, RediSearch_CreateNumericNode)
 (RSIndex* sp, const char* field, double max, double min, int includeMax, int includeMin);
 
+MODULE_API_FUNC(RSQNode*, RediSearch_CreateGeoNode)
+(IndexSpec* sp, const char* field, double lon, double lat, double radius, GeoDistance unitType);
+
 MODULE_API_FUNC(RSQNode*, RediSearch_CreatePrefixNode)
 (RSIndex* sp, const char* fieldName, const char* s);
 
