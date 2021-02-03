@@ -187,10 +187,8 @@ void RediSearch_DocumentAddFieldGeo(Document* d, const char* fieldname,
   }                                      
   // The format for a geospacial point is "lat,lon"
   char buf[24];
-  size_t len1 = sprintf(buf, "%.6lf", lat);
-  buf[len1] = ',';
-  size_t len2 = sprintf(buf + len1 + 1, "%.6lf", lon);
-  Document_AddFieldC(d, fieldname, buf, len1 + 1 + len2, as);
+  size_t len = sprintf(buf, "%.6lf,%.6lf", lat, lon);
+  Document_AddFieldC(d, fieldname, buf, len, as);
 }
 
 typedef struct {
