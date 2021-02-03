@@ -117,7 +117,6 @@ end:
 
 static void destroyCallback(void* data) {
   GCContext* gc = data;
-  RedisModuleCtx* ctx = RSDummyContext;
   assert(gc->stopped == 1);
 
   gc->callbacks.onTerm(gc->gcCtx);
