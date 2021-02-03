@@ -179,6 +179,20 @@ void RediSearch_DocumentAddFieldNumber(Document* d, const char* fieldname, doubl
   Document_AddFieldC(d, fieldname, buf, len, as);
 }
 
+void RediSearch_DocumentAddFieldGeo(Document* d, const char* fieldname, 
+                                    double lat, double lon, unsigned as) {
+  if (lat > GEO_LAT_MAX || lat < GEO_LAT_MIN || lon > GEO_LONG_MAX || lon < GEO_LONG_MIN) {
+    // out of range
+    return;
+  }                                      
+  // The format for a geospacial point is "lat,lon"
+  char buf[24];
+  size_t len1 = sprintf(buf, "%.6lf", lat);
+  buf[len1] = ',';
+  size_t len2 = sprintf(buf + len1 + 1, "%.6lf", lon);
+  Document_AddFieldC(d, fieldname, buf, len1 + 1 + len2, as);
+}
+
 typedef struct {
   char** s;
   int hasErr;
@@ -256,16 +270,17 @@ QueryNode* RediSearch_CreateNumericNode(IndexSpec* sp, const char* field, double
 QueryNode* RediSearch_CreateGeoNode(IndexSpec* sp, const char* field, double lon, double lat,
                                         double radius, RSGeoDistance unitType) {
   QueryNode* ret = NewQueryNode(QN_GEO);
-  ret->nn.nf->fieldName = rm_strdup(field);
   ret->opts.fieldMask = IndexSpec_GetFieldBit(sp, field, strlen(field));
 
   GeoFilter *flt = rm_malloc(sizeof(*flt));
   flt->lat = lat;
   flt->lon = lon;
   flt->radius = radius;
+  flt->property = rm_strdup(field);
   flt->unitType = (GeoDistance)unitType;
 
   ret->gn.gf = flt;
+
   return ret;
 }
 

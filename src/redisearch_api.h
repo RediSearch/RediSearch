@@ -153,8 +153,12 @@ MODULE_API_FUNC(void, RediSearch_DocumentAddFieldString)
 (RSDoc* d, const char* fieldName, const char* s, size_t n, unsigned indexAsTypes);
 #define RediSearch_DocumentAddFieldCString(doc, fieldname, s, indexAs) \
   RediSearch_DocumentAddFieldString(doc, fieldname, s, strlen(s), indexAs)
+
 MODULE_API_FUNC(void, RediSearch_DocumentAddFieldNumber)
 (RSDoc* d, const char* fieldName, double n, unsigned indexAsTypes);
+
+MODULE_API_FUNC(void, RediSearch_DocumentAddFieldGeo)
+(RSDoc* d, const char* fieldName, double lat, double lon, unsigned indexAsTypes);
 
 /**
  * Replace document if it already exists
@@ -172,7 +176,7 @@ MODULE_API_FUNC(RSQNode*, RediSearch_CreateNumericNode)
 (RSIndex* sp, const char* field, double max, double min, int includeMax, int includeMin);
 
 MODULE_API_FUNC(RSQNode*, RediSearch_CreateGeoNode)
-(RSIndex* sp, const char* field, double lon, double lat, double radius, RSGeoDistance unitType);
+(RSIndex* sp, const char* field, double origin_lat, double origin_lon, double radius, RSGeoDistance unitType);
 
 MODULE_API_FUNC(RSQNode*, RediSearch_CreatePrefixNode)
 (RSIndex* sp, const char* fieldName, const char* s);
