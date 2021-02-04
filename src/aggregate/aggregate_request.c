@@ -406,7 +406,6 @@ static char *getReducerAlias(PLN_GroupStep *g, const char *func, const ArgsCurso
   sds out = sdsnew("__generated_alias");
   out = sdscat(out, func);
   // only put parentheses if we actually have args
-  char buf[255];
   ArgsCursor tmp = *args;
   while (!AC_IsAtEnd(&tmp)) {
     size_t l;

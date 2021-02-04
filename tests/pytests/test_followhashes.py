@@ -664,15 +664,33 @@ def testIssue1571WithRename(env):
 def testNoIndexIfNoMatch(env):
     env.skipOnCluster()
 
-    # doc without match should not appear in search results
-    env.expect('FT.CREATE idx SCHEMA t TEXT').ok()
-    env.expect('HSET', 'doc', 'foo', 'bar').equal(1L)
-    env.expect('FT.SEARCH', 'idx', '*').equal([0L])
-    env.expect('FT.DROP', 'idx').ok()
-    env.expect('DEL', 'doc').equal(1)
+    # setting default for debugging
+    env.expect('FT.CONFIG', 'SET', 'INDEX_NO_SCHEMA_MATCH', 'FALSE').ok()
 
-    # doc without match appears in search results
+    # doc without match should not appear in search results
+    env.expect('FT.CREATE idx SCHEMA t TEXT txt TEXT').ok()
+    env.expect('HSET', 'doc1', 'foo', 'bar').equal(1L)
+    env.expect('FT.SEARCH', 'idx', '*').equal([0L])
+
+    # doc w/o a match replaces a doc with a match
+    env.expect('HSET', 'doc2', 't', 'bar').equal(1L)
+    env.expect('FT.SEARCH', 'idx', '*').equal([1L, 'doc2', ['t', 'bar']])
+
+    env.expect('HSET', 'doc2', 'foo', 'bar').equal(1L)
+    env.expect('HDEL', 'doc2', 't').equal(1L)    
+    env.expect('FT.SEARCH', 'idx', '*').equal([0L])
+
+    # doc with two matches remove a single match
+    env.expect('HSET', 'doc3', 't', 'bar', 'txt', 'xyz').equal(2L)
+    env.expect('FT.SEARCH', 'idx', '*').equal([1L, 'doc3', ['t', 'bar', 'txt', 'xyz']])
+    env.expect('HDEL', 'doc3', 't').equal(1L)    
+    env.expect('FT.SEARCH', 'idx', '*').equal([1L, 'doc3', ['txt', 'xyz']])
+
+    env.expect('FLUSHALL')
+
+    # doc w/o a match appears in search results with INDEX_NO_SCHEMA_MATCH enabled
     env.expect('FT.CONFIG', 'SET', 'INDEX_NO_SCHEMA_MATCH', 'TRUE').ok()
     env.expect('FT.CREATE idx SCHEMA t TEXT').ok()
-    env.expect('HSET', 'doc', 'foo', 'bar').equal(1L)
-    env.expect('FT.SEARCH', 'idx', '*').equal([1L, 'doc', ['foo', 'bar']])
+    env.expect('HSET', 'doc4', 'foo', 'bar').equal(1L)
+    env.expect('FT.SEARCH', 'idx', '*').equal([1L, 'doc4', ['foo', 'bar']])
+

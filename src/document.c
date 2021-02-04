@@ -120,6 +120,7 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
     aCtx->stateFlags &= ~ACTX_F_INDEXABLES;
   } else {
     QueryError_SetCode(&aCtx->status, QUERY_ENOMATCH);
+    DocTable_PopR(&sp->docs, doc->docKey);
     return -1;
   }
 
@@ -155,7 +156,7 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
   return 0;
 }
 
-RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b, QueryError *status) {
+RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *doc, QueryError *status) {
 
   if (!actxPool_g) {
     mempool_options mopts = {.initialCap = 16,
@@ -191,7 +192,7 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b, QueryError *stat
   Indexer_Incref(aCtx->indexer);
 
   // Assign the document:
-  aCtx->doc = b;
+  aCtx->doc = doc;
   if (AddDocumentCtx_SetDocument(aCtx, sp) != 0) {
     *status = aCtx->status;
     aCtx->status.detail = NULL;
@@ -214,7 +215,7 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b, QueryError *stat
     aCtx->fwIdx->smap = NULL;
   }
 
-  aCtx->tokenizer = GetTokenizer(b->language, aCtx->fwIdx->stemmer, sp->stopwords);
+  aCtx->tokenizer = GetTokenizer(doc->language, aCtx->fwIdx->stemmer, sp->stopwords);
 //  aCtx->doc->docId = 0;
   return aCtx;
 }
@@ -272,15 +273,21 @@ static int AddDocumentCtx_ReplaceMerge(RSAddDocumentCtx *aCtx, RedisSearchCtx *s
   int rv = Document_LoadSchemaFields(aCtx->doc, sctx);
   if (rv != REDISMODULE_OK) {
     QueryError_SetError(&aCtx->status, QUERY_ENODOC, "Could not load existing document");
-    aCtx->donecb(aCtx, sctx->redisCtx, aCtx->donecbData);
-    AddDocumentCtx_Free(aCtx);
-    return 1;
+    goto error;
   }
 
   // Keep hold of the new fields.
   Document_MakeStringsOwner(aCtx->doc);
-  AddDocumentCtx_SetDocument(aCtx, sctx->spec);
+  if (AddDocumentCtx_SetDocument(aCtx, sctx->spec) != 0) {
+    QueryError_SetCode(&aCtx->status, QUERY_ENOMATCH);
+    goto error;
+  }
   return 0;
+
+error:
+  aCtx->donecb(aCtx, sctx->redisCtx, aCtx->donecbData);
+  AddDocumentCtx_Free(aCtx);
+  return 1;
 }
 
 static int handlePartialUpdate(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
