@@ -219,11 +219,14 @@ workflows:
       - debug_msan:
           <<: *on-any-branch
       - coverage:
+          context: common
           <<: *on-any-branch
       - deploy_snapshots:
+          context: common
           requires: *default_jobs
           <<: *on-master
       - deploy_release:
+          context: common
           requires: *default_jobs
           <<: *on-version-tags
 
