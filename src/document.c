@@ -120,7 +120,15 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
     aCtx->stateFlags &= ~ACTX_F_INDEXABLES;
   } else {
     QueryError_SetCode(&aCtx->status, QUERY_ENOMATCH);
-    DocTable_PopR(&sp->docs, doc->docKey);
+    int rc = DocTable_DeleteR(&sp->docs, doc->docKey);
+    if (rc) {
+      sp->stats.numDocuments--;
+
+      // Increment the index's garbage collector's scanning frequency after document deletions
+      if (sp->gc) {
+        GCContext_OnDelete(sp->gc);
+      }
+    }
     return -1;
   }
 
