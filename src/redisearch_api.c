@@ -164,7 +164,7 @@ int RediSearch_DeleteDocument(IndexSpec* sp, const void* docKey, size_t len) {
 }
 
 void RediSearch_DocumentAddField(Document* d, const char* fieldName, RedisModuleString* value,
-                                 RedisModuleCtx* ctx, unsigned as) {
+                                 unsigned as) {
   Document_AddField(d, fieldName, value, as);
 }
 
