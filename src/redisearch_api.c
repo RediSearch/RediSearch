@@ -179,16 +179,17 @@ void RediSearch_DocumentAddFieldNumber(Document* d, const char* fieldname, doubl
   Document_AddFieldC(d, fieldname, buf, len, as);
 }
 
-void RediSearch_DocumentAddFieldGeo(Document* d, const char* fieldname, 
+int RediSearch_DocumentAddFieldGeo(Document* d, const char* fieldname, 
                                     double lat, double lon, unsigned as) {
   if (lat > GEO_LAT_MAX || lat < GEO_LAT_MIN || lon > GEO_LONG_MAX || lon < GEO_LONG_MIN) {
     // out of range
-    return;
+    return REDISMODULE_ERR;
   }                                      
   // The format for a geospacial point is "lat,lon"
   char buf[24];
   size_t len = sprintf(buf, "%.6lf,%.6lf", lat, lon);
   Document_AddFieldC(d, fieldname, buf, len, as);
+  return REDISMODULE_OK;
 }
 
 typedef struct {

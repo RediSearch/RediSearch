@@ -167,7 +167,15 @@ TEST_F(LLApiTest, testAddDocumentGeoField) {
 
   // adding document to the index
   RSDoc* d = RediSearch_CreateDocument(DOCID1, strlen(DOCID1), 1.0, NULL);
-  RediSearch_DocumentAddFieldGeo(d, GEO_FIELD_NAME, 20.654321, 0.123456, RSFLDTYPE_DEFAULT);
+  // check error on lat > GEO_LAT_MAX
+  int res = RediSearch_DocumentAddFieldGeo(d, GEO_FIELD_NAME, 100, 0, RSFLDTYPE_DEFAULT);
+  ASSERT_EQ(res, REDISMODULE_ERR);
+  // check error on lon > GEO_LON_MAX
+  res = RediSearch_DocumentAddFieldGeo(d, GEO_FIELD_NAME, 0, 200, RSFLDTYPE_DEFAULT);
+  ASSERT_EQ(res, REDISMODULE_ERR);
+  // valid geo point
+  res = RediSearch_DocumentAddFieldGeo(d, GEO_FIELD_NAME, 20.654321, 0.123456, RSFLDTYPE_DEFAULT);
+  ASSERT_EQ(res, REDISMODULE_OK);
   RediSearch_SpecAddDocument(index, d);
 
   // searching on the index

@@ -157,7 +157,12 @@ MODULE_API_FUNC(void, RediSearch_DocumentAddFieldString)
 MODULE_API_FUNC(void, RediSearch_DocumentAddFieldNumber)
 (RSDoc* d, const char* fieldName, double n, unsigned indexAsTypes);
 
-MODULE_API_FUNC(void, RediSearch_DocumentAddFieldGeo)
+/**
+ * Add geo field to a document.
+ * Return REDISMODULE_ERR if longitude or latitude is out-of-range
+ * otherwise, returns REDISMODULE_OK
+ */
+MODULE_API_FUNC(int, RediSearch_DocumentAddFieldGeo)
 (RSDoc* d, const char* fieldName, double lat, double lon, unsigned indexAsTypes);
 
 /**
