@@ -147,7 +147,7 @@ MODULE_API_FUNC(int, RediSearch_DeleteDocument)(RSIndex* sp, const void* docKey,
  *  bitmask of RSFieldType.
  */
 MODULE_API_FUNC(void, RediSearch_DocumentAddField)
-(RSDoc* d, const char* fieldName, RedisModuleString* s, RedisModuleCtx* ctx, unsigned indexAsTypes);
+(RSDoc* d, const char* fieldName, RedisModuleString* s, unsigned indexAsTypes);
 
 MODULE_API_FUNC(void, RediSearch_DocumentAddFieldString)
 (RSDoc* d, const char* fieldName, const char* s, size_t n, unsigned indexAsTypes);
