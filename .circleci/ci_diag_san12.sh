@@ -7,7 +7,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 ROOT=$(cd $HERE/..; pwd)
 cd $ROOT
 
-# ./.circleci/ci_get_deps.sh
+./.circleci/ci_get_deps.sh
 
 SAN_PREFIX=/opt/llvm-project/build-msan
 
