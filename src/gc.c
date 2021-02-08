@@ -13,13 +13,12 @@
 #include "dep/thpool/thpool.h"
 #include "rmutil/rm_assert.h"
 
-#define DEADBEEF (void*)0xDEADBEEF
-
 static threadpool gcThreadpool_g = NULL;
 
-static GCTask *GCTaskCreate(GCContext *gc, RedisModuleBlockedClient* bClient) {
+static GCTask *GCTaskCreate(GCContext *gc, RedisModuleBlockedClient* bClient, int debug) {
   GCTask *task = rm_malloc(sizeof(*task));
   task->gc = gc;
+  task->debug = debug;
   task->bClient = bClient;
   return task;
 }
@@ -83,7 +82,8 @@ static void threadCallback(void* data) {
   RedisModuleCtx* ctx = RSDummyContext;
 
   if (gc->stopped) {
-    if (bc && bc != DEADBEEF) {
+    // if the client is blocked, lets release it
+    if (bc) {
       RedisModule_ThreadSafeContextLock(ctx);
       RedisModule_UnblockClient(bc, NULL);
       RedisModule_ThreadSafeContextUnlock(ctx); 
@@ -95,8 +95,11 @@ static void threadCallback(void* data) {
   int ret = gc->callbacks.periodicCallback(ctx, gc->gcCtx);
 
   RedisModule_ThreadSafeContextLock(ctx);
-  if (bc) { 
-    if (bc != DEADBEEF) {
+
+  // if GC was invoke by debug command, we release the client
+  // and terminate without rescheduling the task again.
+  if (task->debug) { 
+    if (bc) {
       RedisModule_UnblockClient(bc, NULL);
     }
     rm_free(task);
@@ -136,7 +139,7 @@ static void timerCallback(RedisModuleCtx* ctx, void* data) {
 }
 
 void GCContext_Start(GCContext* gc) {
-  GCTask* task = GCTaskCreate(gc, NULL);
+  GCTask* task = GCTaskCreate(gc, NULL, 0);
   gc->timerID = scheduleNext(task);
   if (gc->timerID == 0) {
     RedisModule_Log(RSDummyContext, "warning", "GC did not schedule next collection");
@@ -185,7 +188,7 @@ void GCContext_CommonForceInvoke(GCContext* gc, RedisModuleBlockedClient* bc) {
     return;
   }
 
-  GCTask *task = GCTaskCreate(gc, bc);
+  GCTask *task = GCTaskCreate(gc, bc, 1);
   thpool_add_work(gcThreadpool_g, threadCallback, task);
 }
 
@@ -194,7 +197,7 @@ void GCContext_ForceInvoke(GCContext* gc, RedisModuleBlockedClient* bc) {
 }
 
 void GCContext_ForceBGInvoke(GCContext* gc) {
-  GCContext_CommonForceInvoke(gc, DEADBEEF);
+  GCContext_CommonForceInvoke(gc, NULL);
 }
 
 void GC_ThreadPoolStart() {
