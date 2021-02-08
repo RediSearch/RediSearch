@@ -858,7 +858,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   if (CheckSupportedVestion() != REDISMODULE_OK) {
     RedisModule_Log(ctx, "warning",
-                    "Redis version is to old, please upgrade to redis %d.%d.%d and above.",
+                    "Redis version is too old, please upgrade to redis %d.%d.%d and above.",
                     supportedVersion.majorVersion, supportedVersion.minorVersion,
                     supportedVersion.patchVersion);
 
