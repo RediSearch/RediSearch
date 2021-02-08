@@ -122,8 +122,10 @@ static void destroyCallback(void* data) {
   GCContext* gc = data;
   assert(gc->stopped == 1);
 
+  RedisModule_ThreadSafeContextLock(RSDummyContext);
   gc->callbacks.onTerm(gc->gcCtx);
   rm_free(gc);
+  RedisModule_ThreadSafeContextUnlock(RSDummyContext);
 }
 
 static void timerCallback(RedisModuleCtx* ctx, void* data) {
