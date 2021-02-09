@@ -5,7 +5,8 @@ import os
 import argparse
 
 ROOT = HERE = os.path.abspath(os.path.dirname(__file__))
-sys.path.insert(0, os.path.join(ROOT, "deps/readies"))
+READIES = os.path.join(ROOT, "deps/readies")
+sys.path.insert(0, READIES)
 import paella
 
 #----------------------------------------------------------------------------------------------
@@ -15,61 +16,40 @@ class RediSearchSetup(paella.Setup):
         paella.Setup.__init__(self, nop)
 
     def common_first(self):
-        self.setup_pip()
+        self.install_downloaders()
         self.pip_install("wheel")
         self.pip_install("setuptools --upgrade")
 
-        self.install("git cmake wget lcov")
+        self.install("git")
 
     def debian_compat(self):
         self.install("libatomic1")
-        self.install("build-essential cmake")
-        self.install("python-psutil")
+        self.run("%s/bin/getgcc" % READIES)
 
     def redhat_compat(self):
         self.install("redhat-lsb-core")
         self.install("libatomic")
-        self.group_install("'Development Tools'")
-        self.install("cmake3")
-        self.run("ln -sf `command -v cmake3` /usr/local/bin/cmake")
 
-        self.install("centos-release-scl")
-        self.install("devtoolset-8")
-        self.run("cp /opt/rh/devtoolset-8/enable /etc/profile.d/scl-devtoolset-8.sh")
-        paella.mkdir_p("%s/profile.d" % ROOT)
-        self.run("cp /opt/rh/devtoolset-8/enable %s/profile.d/scl-devtoolset-8.sh" % ROOT)
+        self.run("%s/bin/getgcc --modern" % READIES)
 
         # fix setuptools
-        self.run("yum remove -y python-setuptools || true")
         self.pip_install("-IU --force-reinstall setuptools")
-
-        # uninstall and install psutil (order is important), otherwise RLTest fails
-        self.run("pip uninstall -y psutil || true")
-        self.install("python2-psutil")
 
     def fedora(self):
         self.install("libatomic")
-        self.group_install("'Development Tools'")
-        self.install("cmake")
-        self.run("ln -sf `command -v cmake3` /usr/local/bin/cmake")
+        self.run("%s/bin/getgcc" % READIES)
 
-    def macosx(self):
-        if sh('xcode-select -p') == '':
-            fatal("Xcode tools are not installed. Please run xcode-select --install.")
-
+    def macos(self):
         self.install_gnu_utils()
-        self.install("cmake")
-        self.run("python2 %s/deps/readies/bin/getredis -v 6 --force" % ROOT)
+        self.run("{PYTHON} {READIES}/bin/getredis -v 6 --force".format(PYTHON=self.python, READIES=READIES))
 
     def common_last(self):
-        self.run("pip uninstall -y -q redis redis-py-cluster ramp-packer RLTest || true")
-        # redis-py-cluster should be installed from git due to redis-py dependency
-        self.pip_install("--no-cache-dir git+https://github.com/Grokzen/redis-py-cluster.git@master")
-        self.pip_install("--no-cache-dir git+https://github.com/RedisLabsModules/RLTest.git@master")
-        self.pip_install("--no-cache-dir git+https://github.com/RedisLabs/RAMP@master")
+        self.run("{PYTHON} {READIES}/bin/getcmake".format(PYTHON=self.python, READIES=READIES))
+        self.run("{PYTHON} {READIES}/bin/getrmpytools".format(PYTHON=self.python, READIES=READIES))
+        self.install("lcov")
         self.pip_install("pudb awscli")
 
-        self.pip_install("-r %s/deps/readies/paella/requirements.txt" % ROOT)
+        self.pip_install("-r %s/tests/pytests/requirements.txt" % ROOT)
 
 #----------------------------------------------------------------------------------------------
 

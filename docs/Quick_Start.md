@@ -32,17 +32,27 @@ First, clone the git repo (make sure not to omit the `--recursive` option, to pr
 
 ```sh
 git clone --recursive https://github.com/RediSearch/RediSearch.git
+cd RediSearch
 ```
 
-Next, install dependencies and build:
+Next, install dependencies:
 
+On macOS:
+```sh
+make setup
+```
+
+On Linux:
 ```sh
 sudo make setup
+```
+
+Next, build:
+```sh
 make build
 ```
 
 Finally, run Redis with RediSearch:
-
 ```sh
 make run
 ```
