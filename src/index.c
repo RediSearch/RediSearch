@@ -81,10 +81,7 @@ static void resetMinIdHeap(UnionIterator *ui) {
                 "count should be equal to number of iterators");
 }
 
-static void UI_HeapAddChildren(void *dst, void *src) {
-  UnionIterator *ui = dst;
-  IndexIterator *it = src;
-  
+static void UI_HeapAddChildren(UnionIterator *ui, IndexIterator *it) {
   AggregateResult_AddChild(CURRENT_RECORD(ui), IITER_CURRENT_RECORD(it));
 }
 
@@ -413,7 +410,7 @@ static inline int UI_ReadSortedHigh(void *ctx, RSIndexResult **hit) {
   if (ui->quickExit) {
     AggregateResult_AddChild(CURRENT_RECORD(ui), res);
   } else {
-    heap_cb_root(hp, UI_HeapAddChildren, ui);
+    heap_cb_root(hp, (HeapCallback)UI_HeapAddChildren, ui);
   }
 
   *hit = CURRENT_RECORD(ui);
@@ -580,7 +577,7 @@ static int UI_SkipToHigh(void *ctx, t_docId docId, RSIndexResult **hit) {
   if (ui->quickExit) {
     AggregateResult_AddChild(CURRENT_RECORD(ui), IITER_CURRENT_RECORD(it));
   } else {
-    heap_cb_root(hp, UI_HeapAddChildren, ui);
+    heap_cb_root(hp, (HeapCallback)UI_HeapAddChildren, ui);
   }
 
   *hit = CURRENT_RECORD(ui);
