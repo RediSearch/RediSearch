@@ -132,7 +132,8 @@ IndexIterator *NewGeoRangeIterator(RedisSearchCtx *ctx, const GeoFilter *gf) {
     rm_free(iters);
     return it;
   }
-  IndexIterator *it = NewUnionIterator(iters, itersCount, NULL, 1, 1, QN_GEO, NULL);
+  IndexIterator *it = NewUnionIterator(iters, itersCount, NULL, 
+                  RSGlobalConfig.enableQuickExit, 1, QN_GEO, NULL);
   if (!it) {
     return NULL;
   }

@@ -46,9 +46,9 @@
     const char *tf;                                             \
     int acrc = AC_GetString(ac, &tf, NULL, 0);                  \
     CHECK_RETURN_PARSE_ERROR(acrc);                             \
-    if (!strcmp(tf, "true") || !strcmp(tf, "TRUE")) {           \
+    if (!strcasecmp(tf, "true")) {                              \
       config->var = 1;                                          \
-    } else if (!strcmp(tf, "false") || !strcmp(tf, "FALSE")) {  \
+    } else if (!strcasecmp(tf, "false")) {                      \
       config->var = 0;                                          \
     } else {                                                    \
       acrc = AC_ERR_PARSE;                                      \
@@ -343,6 +343,10 @@ CONFIG_BOOLEAN_GETTER(getNumericCompress, numericCompress, 0)
 CONFIG_BOOLEAN_SETTER(setPrintProfileClock, printProfileClock)
 CONFIG_BOOLEAN_GETTER(getPrintProfileClock, printProfileClock, 0)
 
+// _PRINT_PROFILE_CLOCK
+CONFIG_BOOLEAN_SETTER(setEnableQuickExit, enableQuickExit)
+CONFIG_BOOLEAN_GETTER(getEnableQuickExit, enableQuickExit, 0)
+
 CONFIG_SETTER(setNumericTreeMaxDepthRange) {
   size_t maxDepthRange;
   int acrc = AC_GetSize(ac, &maxDepthRange, AC_F_GE0);
@@ -556,6 +560,10 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "Maximum number of results from ft.aggregate command",
          .setValue = setMaxAggregateResults,
          .getValue = getMaxAggregateResults},
+        {.name = "QUICKEXIT",
+         .helpText = "Enable/disable quick exit for union iterator",
+         .setValue = setEnableQuickExit,
+         .getValue = getEnableQuickExit},
         {.name = "MAXEXPANSIONS",
          .helpText = "Maximum prefix expansions to be used in a query",
          .setValue = setMaxExpansions,

@@ -26,6 +26,7 @@
 #include "module.h"
 
 #define EFFECTIVE_FIELDMASK(q_, qn_) ((qn_)->opts.fieldMask & (q)->opts->fieldmask)
+#define UNION_QUICK_EXIT RSGlobalConfig.enableQuickExit
 
 static void QueryTokenNode_Free(QueryTokenNode *tn) {
 
@@ -324,7 +325,7 @@ static IndexIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
     return NULL;
   }
   QueryNodeType type = prefixMode ? QN_PREFIX : QN_FUZZY;
-  return NewUnionIterator(its, itsSz, q->docTable, 1, opts->weight, type, str);
+  return NewUnionIterator(its, itsSz, q->docTable, UNION_QUICK_EXIT, opts->weight, type, str);
 }
 /* Ealuate a prefix node by expanding all its possible matches and creating one big UNION on all
  * of them */
@@ -421,7 +422,8 @@ static IndexIterator *Query_EvalLexRangeNode(QueryEvalCtx *q, QueryNode *lx) {
     rm_free(ctx.its);
     return NULL;
   } else {
-    return NewUnionIterator(ctx.its, ctx.nits, q->docTable, 1, lx->opts.weight, QN_LEXRANGE, NULL);
+    return NewUnionIterator(ctx.its, ctx.nits, q->docTable,
+                            UNION_QUICK_EXIT, lx->opts.weight, QN_LEXRANGE, NULL);
   }
 }
 
@@ -592,7 +594,8 @@ static IndexIterator *Query_EvalTagLexRangeNode(QueryEvalCtx *q, TagIndex *idx, 
     rm_free(ctx.its);
     return NULL;
   } else {
-    return NewUnionIterator(ctx.its, ctx.nits, q->docTable, 1, qn->opts.weight, QN_LEXRANGE, NULL);
+    return NewUnionIterator(ctx.its, ctx.nits, q->docTable,
+                            UNION_QUICK_EXIT, qn->opts.weight, QN_LEXRANGE, NULL);
   }
 }
 
@@ -643,7 +646,8 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
   }
 
   *iterout = array_ensure_append(*iterout, its, itsSz, IndexIterator *);
-  return NewUnionIterator(its, itsSz, q->docTable, 1, weight, QN_PREFIX, qn->pfx.str);
+  return NewUnionIterator(its, itsSz, q->docTable,
+                          UNION_QUICK_EXIT, weight, QN_PREFIX, qn->pfx.str);
 }
 
 static IndexIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, QueryNode *n,
