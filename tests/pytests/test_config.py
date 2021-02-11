@@ -110,7 +110,7 @@ def testAllConfig(env):
     env.assertEqual(res_dict['PARTIAL_INDEXED_DOCS'][0], 'false')
     env.assertEqual(res_dict['_NUMERIC_COMPRESS'][0], 'false')
     env.assertEqual(res_dict['_NUMERIC_RANGES_PARENTS'][0], '0')
-    env.assertEqual(res_dict['QUICKEXIT'][0], 'true')
+    env.assertEqual(res_dict['QUICKEXIT'][0], 'false')
 
     # skip ctest configured tests
     #env.assertEqual(res_dict['GC_POLICY'][0], 'fork')
