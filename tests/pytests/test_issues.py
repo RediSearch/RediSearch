@@ -126,7 +126,16 @@ def test_issue1832(env):
   conn = getConnectionByEnv(env)
   conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
   conn.execute_command('HSET', 'doc', 't', 'hello hell')
-  env.expect('FT.SEARCH', 'idx', 'hel*', 'highlight').equal([1L, 'doc', ['t', 'hello <b>hell</b>']])
+  res = env.cmd('FT.SEARCH', 'idx', 'hel*', 'highlight')
+  env.assertContains('<b>hel', res[2][1])
 
   env.expect('FT.CONFIG', 'SET', 'QUICKEXIT', 'FALSE').ok()
   env.expect('FT.SEARCH', 'idx', 'hel*', 'highlight').equal([1L, 'doc', ['t', '<b>hello</b> <b>hell</b>']])
+
+def test_issue1834(env):
+  # Stopword query is case sensitive.
+  conn = getConnectionByEnv(env)
+  conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+  conn.execute_command('HSET', 'doc', 't', 'hell hello')
+
+  env.expect('FT.SEARCH', 'idx', 'hell|hello', 'HIGHLIGHT').equal([1L, 'doc', ['t', '<b>hell</b> <b>hello</b>']])
