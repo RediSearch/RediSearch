@@ -216,4 +216,24 @@ int heap_size(const heap_t *h) {
   return h->size;
 }
 
+void _heap_cb_child(unsigned int idx, const heap_t * h, HeapCallback cb, void *ctx) {
+  if (idx >= h->count) return;
+
+  if (h->cmp(h->array[0], h->array[idx], h->udata) == 0) {
+    cb(ctx, h->array[idx]);
+    _heap_cb_child(__child_left(idx), h, cb, ctx);
+    _heap_cb_child(__child_right(idx), h, cb, ctx);
+  }
+}
+
+void heap_cb_root(const heap_t * hp, HeapCallback cb, void *ctx) {
+  void *root = heap_peek(hp);
+  if (!root) return;
+
+  cb(ctx, root);
+
+  _heap_cb_child(__child_left(0), hp, cb, ctx);
+  _heap_cb_child(__child_right(0), hp, cb, ctx);
+}
+
 /*--------------------------------------------------------------79-characters-*/
