@@ -81,6 +81,10 @@ static void resetMinIdHeap(UnionIterator *ui) {
                 "count should be equal to number of iterators");
 }
 
+static void UI_HeapAddChildren(UnionIterator *ui, IndexIterator *it) {
+  AggregateResult_AddChild(CURRENT_RECORD(ui), IITER_CURRENT_RECORD(it));
+}
+
 static inline t_docId UI_LastDocId(void *ctx) {
   return ((UnionIterator *)ctx)->minDocId;
 }
@@ -362,6 +366,7 @@ static inline int UI_ReadSortedHigh(void *ctx, RSIndexResult **hit) {
     return INDEXREAD_EOF;
   }
   AggregateResult_Reset(CURRENT_RECORD(ui));
+  t_docId nextValidId = ui->minDocId + 1;
 
   /*
    * A min-heap maintains all sub-iterators which are not EOF.
@@ -371,9 +376,8 @@ static inline int UI_ReadSortedHigh(void *ctx, RSIndexResult **hit) {
    */
   while (heap_count(hp)) {
     it = heap_peek(hp);
-    t_docId nextValidId = ui->minDocId + 1;
     res = IITER_CURRENT_RECORD(it);
-    if (it->minId > ui->minDocId && it->minId != 0) {
+    if (it->minId >= nextValidId && it->minId != 0) {
       // valid result since id at root of min-heap is higher than union min id
       break;
     }
@@ -388,7 +392,7 @@ static inline int UI_ReadSortedHigh(void *ctx, RSIndexResult **hit) {
       RS_LOG_ASSERT(res, "should not be NULL");
       heap_replace(hp, it);
       // after SkipTo, try test again for validity
-      if (it->minId == nextValidId) {
+      if (ui->quickExit && it->minId == nextValidId) {
         break;
       }
     }
@@ -400,7 +404,15 @@ static inline int UI_ReadSortedHigh(void *ctx, RSIndexResult **hit) {
   }
 
   ui->minDocId = it->minId;
-  AggregateResult_AddChild(CURRENT_RECORD(ui), res);
+
+  // On quickExit we just return one result. 
+  // Otherwise, we collect all the results that equal to the root of the heap.
+  if (ui->quickExit) {
+    AggregateResult_AddChild(CURRENT_RECORD(ui), res);
+  } else {
+    heap_cb_root(hp, (HeapCallback)UI_HeapAddChildren, ui);
+  }
+
   *hit = CURRENT_RECORD(ui);
   return INDEXREAD_OK;
 }
@@ -548,7 +560,7 @@ static int UI_SkipToHigh(void *ctx, t_docId docId, RSIndexResult **hit) {
     // refresh heap with iterator with updated minId
     it->minId = res->docId;
     heap_replace(hp, it);
-    if (it->minId == docId) {
+    if (ui->quickExit && it->minId == docId) {
       break;
     }
   }
@@ -559,7 +571,15 @@ static int UI_SkipToHigh(void *ctx, t_docId docId, RSIndexResult **hit) {
   }
 
   rc = (it->minId == docId) ? INDEXREAD_OK : INDEXREAD_NOTFOUND;
-  AggregateResult_AddChild(CURRENT_RECORD(ui), IITER_CURRENT_RECORD(it));
+
+  // On quickExit we just return one result. 
+  // Otherwise, we collect all the results that equal to the root of the heap.
+  if (ui->quickExit) {
+    AggregateResult_AddChild(CURRENT_RECORD(ui), IITER_CURRENT_RECORD(it));
+  } else {
+    heap_cb_root(hp, (HeapCallback)UI_HeapAddChildren, ui);
+  }
+
   *hit = CURRENT_RECORD(ui);
   return rc;
 }
