@@ -1681,6 +1681,7 @@ typedef struct {
   IndexIterator *child;
   size_t counter;
   clock_t cpuTime;
+  int eof;
 } ProfileIterator, ProfileIteratorCtx;
 
 static int PI_Read(void *ctx, RSIndexResult **e) {
@@ -1688,6 +1689,7 @@ static int PI_Read(void *ctx, RSIndexResult **e) {
   pi->counter++;
   clock_t begin = clock();
   int ret = pi->child->Read(pi->child->ctx, e);
+  if (ret == INDEXREAD_EOF) pi->eof = 1;
   pi->base.current = pi->child->current;
   pi->cpuTime += clock() - begin;
   return ret;
@@ -1698,6 +1700,7 @@ static int PI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
   pi->counter++;
   clock_t begin = clock();
   int ret = pi->child->SkipTo(pi->child->ctx, docId, hit);
+  if (ret == INDEXREAD_EOF) pi->eof = 1;
   pi->base.current = pi->child->current;
   pi->cpuTime += clock() - begin;
   return ret;
@@ -1732,6 +1735,7 @@ IndexIterator *NewProfileIterator(IndexIterator *child) {
   pc->child = child;
   pc->counter = 0;
   pc->cpuTime = 0;
+  pc->eof = 0;
 
   IndexIterator *ret = &pc->base;
   ret->ctx = pc;
@@ -1835,7 +1839,7 @@ PRINT_PROFILE_SINGLE(printEmptyIt, DummyIterator, "Empty iterator", 0);
 
 PRINT_PROFILE_FUNC(printProfileIt) {
   ProfileIterator *pi = (ProfileIterator *)root;
-  printIteratorProfile(ctx, pi->child, pi->counter - 1, (double)pi->cpuTime / CLOCKS_PER_MILLISEC, depth, limited);
+  printIteratorProfile(ctx, pi->child, pi->counter - pi->eof, (double)pi->cpuTime / CLOCKS_PER_MILLISEC, depth, limited);
 }
 
 void printIteratorProfile(RedisModuleCtx *ctx, IndexIterator *root, size_t counter,
