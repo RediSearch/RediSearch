@@ -275,6 +275,7 @@ QueryNode* RediSearch_CreateGeoNode(IndexSpec* sp, const char* field, double lon
   flt->lat = lat;
   flt->lon = lon;
   flt->radius = radius;
+  flt->numericFilters = NULL;
   flt->property = rm_strdup(field);
   flt->unitType = (GeoDistance)unitType;
 
