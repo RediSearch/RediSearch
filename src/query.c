@@ -26,7 +26,7 @@
 #include "module.h"
 
 #define EFFECTIVE_FIELDMASK(q_, qn_) ((qn_)->opts.fieldMask & (q)->opts->fieldmask)
-#define UNION_QUICK_EXIT RSGlobalConfig.enableQuickExit
+#define UNION_QUICK_EXIT q->opts->quickExit
 
 static void QueryTokenNode_Free(QueryTokenNode *tn) {
 

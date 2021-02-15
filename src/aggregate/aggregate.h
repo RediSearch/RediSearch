@@ -47,6 +47,9 @@ typedef enum {
   QEXEC_F_PROFILE = 0x8000,
   QEXEC_F_PROFILE_LIMITED = 0x10000,
 
+  /* Flag for quickExit */
+  QEXEC_F_SORTBY = 0x20000,
+
 } QEFlags;
 
 #define IsProfile(r) ((r)->reqflags & QEXEC_F_PROFILE)

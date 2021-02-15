@@ -42,7 +42,6 @@ def testGetConfigOptions(env):
     assert env.expect('ft.config', 'get', 'UNION_ITERATOR_HEAP').res[0][0] =='UNION_ITERATOR_HEAP'
     assert env.expect('ft.config', 'get', '_NUMERIC_COMPRESS').res[0][0] =='_NUMERIC_COMPRESS'
     assert env.expect('ft.config', 'get', '_NUMERIC_RANGES_PARENTS').res[0][0] =='_NUMERIC_RANGES_PARENTS'
-    assert env.expect('ft.config', 'get', 'QUICKEXIT').res[0][0] =='QUICKEXIT'
 '''
 
 Config options test. TODO : Fix 'Success (not an error)' parsing wrong error.
@@ -110,7 +109,6 @@ def testAllConfig(env):
     env.assertEqual(res_dict['PARTIAL_INDEXED_DOCS'][0], 'false')
     env.assertEqual(res_dict['_NUMERIC_COMPRESS'][0], 'false')
     env.assertEqual(res_dict['_NUMERIC_RANGES_PARENTS'][0], '0')
-    env.assertEqual(res_dict['QUICKEXIT'][0], 'false')
 
     # skip ctest configured tests
     #env.assertEqual(res_dict['GC_POLICY'][0], 'fork')
@@ -179,4 +177,3 @@ def testInitConfig(env):
     test_arg_str('MAXSEARCHRESULTS', '-1', 'unlimited')
     test_arg_str('MAXAGGREGATERESULTS', '100', '100')
     test_arg_str('MAXAGGREGATERESULTS', '-1', 'unlimited')
-    test_arg_str('QUICKEXIT', 'true', 'true')
