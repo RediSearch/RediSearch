@@ -586,7 +586,7 @@ String Response. A string representing the execution plan (see above example).
 #### Format
 
 ```
-FT.PROFILE [LIMITED] {[SEARCH, AGGREGATE]} {index} {query}
+FT.PROFILE {index} {[SEARCH, AGGREGATE]} [LIMITED] QUERY {query}
 ```
 
 #### Description
@@ -602,52 +602,48 @@ Printout details are:
 
 #### Example
 ```sh
-FT.PROFILE LIMITED SEARCH idx %%hel%%(he*|hello) NOCONTENT
-1) 1) (integer) 3
-   2) "doc4"
-   3) "doc1"
-   4) "doc2"
+FT.PROFILE idx search query "hello world"
+1) 1) (integer) 1
+   2) "doc1"
+   3) 1) "t"
+      2) "hello world"
 2) 1) 1) Total profile time
-      2) "0.31900000000000001"
+      2) "0.124"
    2) 1) Parsing and iterator creation time
-      2) "0.22"
+      2) "0.075999999999999998"
    3) 1) Iterators profile
       2) 1) Intersect iterator
-         2) (integer) 6
-         3) "0.057000000000000002"
-         4) 1) "Union iterator - FUZZY - hel"
-            2) (integer) 6
-            3) "0.017000000000000001"
-            4) "The number of iterators in union is 2"
-         5) 1) Union iterator - UNION
-            2) (integer) 5
-            3) "0.025999999999999999"
-            4) 1) "Union iterator - PREFIX - he"
-               2) (integer) 5
-               3) "0.012"
-               4) "The number of iterators in union is 3"
-            5) 1) Term reader
-               2) hello
-               3) (integer) 4
-               4) "0.004"
+         2) (integer) 1
+         3) "0.0060000000000000001"
+         4) 1) Term reader
+            2) hello
+            3) "0.001"
+            4) (integer) 1
+         5) 1) Term reader
+            2) world
+            3) "0.001"
+            4) (integer) 1
    4) 1) Result processors profile
       2) 1) Index
-         2) (integer) 4
-         3) "0.065000000000000002"
+         2) "0.010999999999999999"
+         3) (integer) 1
       3) 1) Scorer
-         2) (integer) 4
-         3) "0.013999999999999999"
+         2) "0.0069999999999999993"
+         3) (integer) 1
       4) 1) Sorter
-         2) (integer) 4
-         3) "0.0079999999999999932"
+         2) "0.0040000000000000001"
+         3) (integer) 1
+      5) 1) Loader
+         2) "0.013000000000000005"
+         3) (integer) 1
 ```
 
 #### Parameters
 
 - **index**: The index name. The index must be first created with FT.CREATE
-- **query**: The query string, as if sent to FT.SEARCH
-- **LIMITED**: Removes details of `reader` iterator
 - **SEARCH,AGGREGATE**: Differ between `FT.SEARCH` and `FT.AGGREGATE` 
+- **LIMITED**: Removes details of `reader` iterator
+- **query**: The query string, as if sent to FT.SEARCH
 
 #### Complexity
 
