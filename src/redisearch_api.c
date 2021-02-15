@@ -164,7 +164,7 @@ int RediSearch_DeleteDocument(IndexSpec* sp, const void* docKey, size_t len) {
 }
 
 void RediSearch_DocumentAddField(Document* d, const char* fieldName, RedisModuleString* value,
-                                 RedisModuleCtx* ctx, unsigned as) {
+                                 unsigned as) {
   Document_AddField(d, fieldName, value, as);
 }
 
@@ -177,6 +177,19 @@ void RediSearch_DocumentAddFieldNumber(Document* d, const char* fieldname, doubl
   char buf[512];
   size_t len = sprintf(buf, "%lf", n);
   Document_AddFieldC(d, fieldname, buf, len, as);
+}
+
+int RediSearch_DocumentAddFieldGeo(Document* d, const char* fieldname, 
+                                    double lat, double lon, unsigned as) {
+  if (lat > GEO_LAT_MAX || lat < GEO_LAT_MIN || lon > GEO_LONG_MAX || lon < GEO_LONG_MIN) {
+    // out of range
+    return REDISMODULE_ERR;
+  }                                      
+  // The format for a geospacial point is "lat,lon"
+  char buf[24];
+  size_t len = sprintf(buf, "%.6lf,%.6lf", lat, lon);
+  Document_AddFieldC(d, fieldname, buf, len, as);
+  return REDISMODULE_OK;
 }
 
 typedef struct {
@@ -250,6 +263,23 @@ QueryNode* RediSearch_CreateNumericNode(IndexSpec* sp, const char* field, double
   ret->nn.nf = NewNumericFilter(min, max, includeMin, includeMax);
   ret->nn.nf->fieldName = rm_strdup(field);
   ret->opts.fieldMask = IndexSpec_GetFieldBit(sp, field, strlen(field));
+  return ret;
+}
+
+QueryNode* RediSearch_CreateGeoNode(IndexSpec* sp, const char* field, double lon, double lat,
+                                        double radius, RSGeoDistance unitType) {
+  QueryNode* ret = NewQueryNode(QN_GEO);
+  ret->opts.fieldMask = IndexSpec_GetFieldBit(sp, field, strlen(field));
+
+  GeoFilter *flt = rm_malloc(sizeof(*flt));
+  flt->lat = lat;
+  flt->lon = lon;
+  flt->radius = radius;
+  flt->property = rm_strdup(field);
+  flt->unitType = (GeoDistance)unitType;
+
+  ret->gn.gf = flt;
+
   return ret;
 }
 

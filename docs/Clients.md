@@ -9,8 +9,8 @@ While it is possible and simple to use the raw Redis commands API, in most cases
 | Language | Library | Author | License | Stars |
 |----------|---------|--------|---------|-------|
 |Python | [redisearch-py][redisearch-py-url] | [Redis Labs][redisearch-py-author] | BSD | [![redisearch-py-stars]][redisearch-py-url] |
-| Java | [JRediSearch][JRediSearch-url] | [Redis Labs][JRediSearch-author] | BSD | [![JRediSearch-stars]][JRediSearch-url]|
-| Java | [lettusearch][lettusearch-url] | [Redis Labs][lettusearch-author] | Apache-2.0 | [![lettusearch-stars]][lettusearch-url]|
+| Java (Jedis client library) | [JRediSearch][JRediSearch-url] | [Redis Labs][JRediSearch-author] | BSD | [![JRediSearch-stars]][JRediSearch-url]|
+| Java (Lettuce client library) | [lettusearch][lettusearch-url] | [Redis Labs][lettusearch-author] | Apache-2.0 | [![lettusearch-stars]][lettusearch-url]|
 | Java | [spring-redisearch][spring-redisearch-url] | [Redis Labs][spring-redisearch-author] | Apache-2.0 | [![spring-redisearch-stars]][spring-redisearch-url]|
 | Java | [redis-modules-java][redis-modules-java-url] | [dengliming][redis-modules-java-author] | Apache-2.0 | [![redis-modules-java-stars]][redis-modules-java-url]|
 | Go | [redisearch-go][redisearch-go-url] | [Redis Labs][redisearch-go-author] | BSD | [![redisearch-go-stars]][redisearch-go-url] | 
@@ -19,6 +19,7 @@ While it is possible and simple to use the raw Redis commands API, in most cases
 | TypeScript | [redis-modules-sdk][redis-modules-sdk-url] | [Dani Tseitlin][redis-modules-sdk-author] | BSD-3-Clause | [![redis-modules-sdk-stars]][redis-modules-sdk-url]|
 | C# | [NRediSearch][NRediSearch-url] | [Marc Gravell][NRediSearch-author] | MIT | [![NRediSearch-stars]][NRediSearch-url] |
 | PHP | [redisearch-php][redisearch-php-url] | [Ethan Hann][redisearch-php-author] | MIT | [![redisearch-php-stars]][redisearch-php-url] |
+| Rust | [redisearch-api-rs][redisearch-api-rs-url] | [Redis Labs][redisearch-api-rs-author] | BSD | [![redisearch-api-rs-stars]][redisearch-api-rs-url] | API for Redis Modules written in Rust |
 | Ruby on Rails | [redi_search_rails][redi_search_rails-url] | [Dmitry Polyakovsky][redi_search_rails-author] | MIT | [![redi_search_rails-stars]][redi_search_rails-url]|
 | Ruby | [redisearch-rb][redisearch-rb-url] | [Victor Ruiz][redisearch-rb-author] | MIT | [![redisearch-rb-stars]][redisearch-rb-url]|
 | Ruby | [redi_search][redi_search-url] | [Nick Pezza][redi_search-author] | MIT | [![redi_search-stars]][redi_search-url] |
@@ -78,6 +79,10 @@ While it is possible and simple to use the raw Redis commands API, in most cases
 [redis-modules-sdk-url]: https://github.com/danitseitlin/redis-modules-sdk
 [redis-modules-sdk-author]: https://github.com/danitseitlin
 [redis-modules-sdk-stars]: https://img.shields.io/github/stars/danitseitlin/redis-modules-sdk.svg?style=social&amp;label=Star&amp;maxAge=2592000
+
+[redisearch-api-rs-url]: https://github.com/RediSearch/redisearch-api-rs
+[redisearch-api-rs-author]: https://redislabs.com
+[redisearch-api-rs-stars]: https://img.shields.io/github/stars/RediSearch/redisearch-api-rs.svg?style=social&amp;label=Star&amp;maxAge=2592000
 
 ## Other available Libraries
 
