@@ -70,7 +70,7 @@ static double _recursiveProfilePrint(RedisModuleCtx *ctx, ResultProcessor *rp, s
   if (PROFILE_VERBOSE)
       RedisModule_ReplyWithDouble(ctx, totalRPTime - upstreamTime);
   ++(*arrlen);
-  RedisModule_ReplyWithLongLong(ctx, RPProfile_GetCount(rp));
+  RedisModule_ReplyWithLongLong(ctx, RPProfile_GetCount(rp) - 1);
   return totalRPTime;
 }
 

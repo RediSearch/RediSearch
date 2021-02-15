@@ -44,11 +44,11 @@ def testProfileSearch(env):
                   [['Total profile time'],
                     ['Parsing and iterator creation time'],
                     ['Iterators profile',
-                      ['Wildcard iterator', 3L]],
+                      ['Wildcard iterator', 2L]],
                     ['Result processors profile',
-                      ['Index', 3L],
-                      ['Scorer', 3L],
-                      ['Sorter', 3L]]]]
+                      ['Index', 2L],
+                      ['Scorer', 2L],
+                      ['Sorter', 2L]]]]
   env.assertEqual(actual_res, expected_res)
 
   # test EMPTY
@@ -57,11 +57,11 @@ def testProfileSearch(env):
                  [['Total profile time'],
                   ['Parsing and iterator creation time'],
                   ['Iterators profile',
-                    ['Empty iterator', 1L]],
+                    ['Empty iterator', 0L]],
                   ['Result processors profile',
-                    ['Index', 1L],
-                    ['Scorer', 1L],
-                    ['Sorter', 1L]]]]
+                    ['Index', 0L],
+                    ['Scorer', 0L],
+                    ['Sorter', 0L]]]]
   env.assertEqual(actual_res, expected_res)
 
   # test single term
@@ -70,11 +70,11 @@ def testProfileSearch(env):
                   [['Total profile time'],
                     ['Parsing and iterator creation time'],
                     ['Iterators profile',
-                      ['Term reader', 'hello', 2L]],
+                      ['Term reader', 'hello', 1L]],
                     ['Result processors profile',
-                      ['Index', 2L],
-                      ['Scorer', 2L],
-                      ['Sorter', 2L]]]]
+                      ['Index', 1L],
+                      ['Scorer', 1L],
+                      ['Sorter', 1L]]]]
   env.assertEqual(actual_res, expected_res)
 
   # test UNION
@@ -83,13 +83,13 @@ def testProfileSearch(env):
                   [['Total profile time'],
                     ['Parsing and iterator creation time'],
                     ['Iterators profile',
-                    ['Union iterator - UNION', 3L,
-                      ['Term reader', 'hello', 2L],
-                      ['Term reader', 'world', 2L]]],
+                    ['Union iterator - UNION', 2L,
+                      ['Term reader', 'hello', 1L],
+                      ['Term reader', 'world', 1L]]],
                     ['Result processors profile',
-                      ['Index', 3L],
-                      ['Scorer', 3L],
-                      ['Sorter', 3L]]]]
+                      ['Index', 2L],
+                      ['Scorer', 2L],
+                      ['Sorter', 2L]]]]
   env.assertEqual(actual_res, expected_res)
 
   # test INTERSECT
@@ -98,13 +98,13 @@ def testProfileSearch(env):
                   [['Total profile time'],
                     ['Parsing and iterator creation time'],
                     ['Iterators profile',
-                    ['Intersect iterator', 1L,
-                      ['Term reader', 'hello', 2L],
-                      ['Term reader', 'world', 1L]]],
+                    ['Intersect iterator', 0L,
+                      ['Term reader', 'hello', 1L],
+                      ['Term reader', 'world', 0L]]],
                     ['Result processors profile',
-                      ['Index', 1L],
-                      ['Scorer', 1L],
-                      ['Sorter', 1L]]]]
+                      ['Index', 0L],
+                      ['Scorer', 0L],
+                      ['Sorter', 0L]]]]
   env.assertEqual(actual_res, expected_res)
 
   # test NOT
@@ -113,12 +113,12 @@ def testProfileSearch(env):
                   [['Total profile time'],
                     ['Parsing and iterator creation time'],
                     ['Iterators profile',
-                      ['Not iterator', 2L,
+                      ['Not iterator', 1L,
                         ['Term reader', 'hello', 0L]]],
                     ['Result processors profile',
-                      ['Index', 2L],
-                      ['Scorer', 2L],
-                      ['Sorter', 2L]]]]
+                      ['Index', 1L],
+                      ['Scorer', 1L],
+                      ['Sorter', 1L]]]]
   env.assertEqual(actual_res, expected_res)
 
   # test OPTIONAL
@@ -127,12 +127,12 @@ def testProfileSearch(env):
                  [['Total profile time'],
                     ['Parsing and iterator creation time'],
                     ['Iterators profile',
-                      ['Optional iterator', 3L,
+                      ['Optional iterator', 2L,
                         ['Term reader', 'hello', 0L]]],
                     ['Result processors profile',
-                      ['Index', 3L],
-                      ['Scorer', 3L],
-                      ['Sorter', 3L]]]]
+                      ['Index', 2L],
+                      ['Scorer', 2L],
+                      ['Sorter', 2L]]]]
   env.assertEqual(actual_res, expected_res)
 
   # test PREFIX
@@ -141,12 +141,12 @@ def testProfileSearch(env):
                  [['Total profile time'],
                     ['Parsing and iterator creation time'],
                     ['Iterators profile',
-                      ['Union iterator - PREFIX - hel', 2L,
-                        ['Term reader', 'hello', 2L]]],
+                      ['Union iterator - PREFIX - hel', 1L,
+                        ['Term reader', 'hello', 1L]]],
                     ['Result processors profile',
-                      ['Index', 2L],
-                      ['Scorer', 2L],
-                      ['Sorter', 2L]]]]
+                      ['Index', 1L],
+                      ['Scorer', 1L],
+                      ['Sorter', 1L]]]]
   env.assertEqual(actual_res, expected_res)
 
   # test FUZZY
@@ -155,12 +155,12 @@ def testProfileSearch(env):
                  [['Total profile time'],
                  ['Parsing and iterator creation time'],
                  ['Iterators profile',
-                    ['Union iterator - FUZZY - hel', 2L,
-                      ['Term reader', 'hello', 2L]]],
+                    ['Union iterator - FUZZY - hel', 1L,
+                      ['Term reader', 'hello', 1L]]],
                       ['Result processors profile',
-                      ['Index', 2L],
-                      ['Scorer', 2L],
-                      ['Sorter', 2L]]]]
+                      ['Index', 1L],
+                      ['Scorer', 1L],
+                      ['Sorter', 1L]]]]
   env.assertEqual(actual_res, expected_res)
 
   # test ID LIST iter with INKEYS
@@ -169,15 +169,15 @@ def testProfileSearch(env):
                  [['Total profile time'],
                   ['Parsing and iterator creation time'],
                   ['Iterators profile',
-                    ['Intersect iterator', 2L,
-                      ['ID-List iterator', 2L],
-                      ['Union iterator - FUZZY - hel', 1L,
-                        ['Term reader', 'hello', 1L]]]],
+                    ['Intersect iterator', 1L,
+                      ['ID-List iterator', 1L],
+                      ['Union iterator - FUZZY - hel', 0L,
+                        ['Term reader', 'hello', 0L]]]],
                   ['Result processors profile',
-                    ['Index', 2L],
-                    ['Scorer', 2L],
-                    ['Sorter', 2L],
-                    ['Loader', 2L]]]]
+                    ['Index', 1L],
+                    ['Scorer', 1L],
+                    ['Sorter', 1L],
+                    ['Loader', 1L]]]]
   env.assertEqual(actual_res, expected_res)
 
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', 'hello(hello(hello(hello(hello))))', 'nocontent')
@@ -185,19 +185,19 @@ def testProfileSearch(env):
                   [['Total profile time'],
                       ['Parsing and iterator creation time'],
                       ['Iterators profile',
-                        ['Intersect iterator', 2L,
-                          ['Term reader', 'hello', 2L],
-                          ['Intersect iterator', 1L,
-                            ['Term reader', 'hello', 1L],
-                            ['Intersect iterator', 1L,
-                              ['Term reader', 'hello', 1L],
-                              ['Intersect iterator', 1L,
-                                  ['Term reader', 'hello', 1L],
-                                  ['Term reader', 'hello', 1L]]]]]],
+                        ['Intersect iterator', 1L,
+                          ['Term reader', 'hello', 1L],
+                          ['Intersect iterator', 0L,
+                            ['Term reader', 'hello', 0L],
+                            ['Intersect iterator', 0L,
+                              ['Term reader', 'hello', 0L],
+                              ['Intersect iterator', 0L,
+                                  ['Term reader', 'hello', 0],
+                                  ['Term reader', 'hello',0L]]]]]],
                       ['Result processors profile',
-                        ['Index', 2L],
-                        ['Scorer', 2L],
-                        ['Sorter', 2L]]]]
+                        ['Index', 1L],
+                        ['Scorer', 1L],
+                        ['Sorter', 1L]]]]
   env.assertEqual(actual_res, expected_res)
 
   if not check_server_version(env, '6.00.20'):
@@ -241,14 +241,14 @@ def testProfileSearchLimited(env):
                  [['Total profile time'],
                   ['Parsing and iterator creation time'],
                   ['Iterators profile',
-                    ['Intersect iterator', 4L,
-                      ['Union iterator - FUZZY - hell', 4L, 'The number of iterators in union is 3'],
-                      ['Union iterator - PREFIX - hel', 3L, 'The number of iterators in union is 4']]],
+                    ['Intersect iterator', 3L,
+                      ['Union iterator - FUZZY - hell', 3L, 'The number of iterators in union is 3'],
+                      ['Union iterator - PREFIX - hel', 2L, 'The number of iterators in union is 4']]],
                   ['Result processors profile',
-                    ['Index', 4L],
-                    ['Scorer', 4L],
-                    ['Sorter', 4L],
-                    ['Loader', 4L]]]]
+                    ['Index', 3L],
+                    ['Scorer', 3L],
+                    ['Sorter', 3L],
+                    ['Loader', 3L]]]]
   env.assertEqual(actual_res, expected_res)
 
 def testProfileAggregate(env):
@@ -268,11 +268,11 @@ def testProfileAggregate(env):
                   [ ['Total profile time'],
                     ['Parsing and iterator creation time'],
                     ['Iterators profile',
-                      ['Term reader', 'hello', 2L]],
+                      ['Term reader', 'hello', 1L]],
                     ['Result processors profile',
-                      ['Index', 2L],
-                      ['Loader', 2L],
-                      ['Grouper', 2L]]]]
+                      ['Index', 1L],
+                      ['Loader', 1L],
+                      ['Grouper', 1L]]]]
   env.assertEqual(actual_res, expected_res)
 
   actual_res = env.cmd('ft.profile', 'idx', 'aggregate', 'query', '*',
@@ -282,11 +282,11 @@ def testProfileAggregate(env):
                   [['Total profile time'],
                     ['Parsing and iterator creation time'],
                     ['Iterators profile',
-                      ['Wildcard iterator', 3L]],
+                      ['Wildcard iterator', 2L]],
                     ['Result processors profile',
-                      ['Index', 3L],
-                      ['Loader', 3L],
-                      ['Projector - Function startswith', 3L]]]]
+                      ['Index', 2L],
+                      ['Loader', 2L],
+                      ['Projector - Function startswith', 2L]]]]
   env.assertEqual(actual_res, expected_res)
 
 def testProfileCursor(env):
@@ -307,10 +307,10 @@ def testProfileCursor(env):
                   [['Total profile time'],
                     ['Parsing and iterator creation time'],
                     ['Iterators profile',
-                      ['Wildcard iterator', 3L]],
+                      ['Wildcard iterator', 2L]],
                     ['Result processors profile',
-                      ['Index', 3L],
-                      ['Loader', 3L]]]]
+                      ['Index', 2L],
+                      ['Loader', 2L]]]]
   env.assertEqual(actual_res, expected_res)
 
   actual_res = conn.execute_command('ft.profile', 'idx', 'aggregate', 'query', '*',
@@ -333,10 +333,10 @@ def testProfileCursor(env):
          [['Total profile time'],
           ['Parsing and iterator creation time'],
           ['Iterators profile',
-            ['Wildcard iterator', 3L]],
+            ['Wildcard iterator', 2L]],
           ['Result processors profile',
-            ['Index', 3L],
-            ['Loader', 3L]]]]
+            ['Index', 2L],
+            ['Loader', 2L]]]]
   env.assertEqual(actual_res, res)
 
 def testProfileNumeric(env):
@@ -357,13 +357,13 @@ def testProfileNumeric(env):
                   [['Total profile time'],
                     ['Parsing and iterator creation time'],
                     ['Iterators profile',
-                      ['Union iterator - NUMERIC', 5L,
-                        ['Numeric reader', '-14 - 1.35', 2L],
-                        ['Numeric reader', '1.35 - 8.2', 4L]]],
+                      ['Union iterator - NUMERIC', 4L,
+                        ['Numeric reader', '-14 - 1.35', 1L],
+                        ['Numeric reader', '1.35 - 8.2', 3L]]],
                     ['Result processors profile',
-                      ['Index', 5L],
-                      ['Scorer', 5L],
-                      ['Sorter', 5L]]]]
+                      ['Index', 4L],
+                      ['Scorer', 4L],
+                      ['Sorter', 4L]]]]
   env.assertEqual(actual_res, expected_res)
 
 def testProfileTag(env):
@@ -383,11 +383,11 @@ def testProfileTag(env):
                  [['Total profile time'],
                   ['Parsing and iterator creation time'],
                   ['Iterators profile',
-                    ['Tag reader', 'foo', 3L]],
+                    ['Tag reader', 'foo', 2L]],
                   ['Result processors profile',
-                    ['Index', 3L],
-                    ['Scorer', 3L],
-                    ['Sorter', 3L]]]]
+                    ['Index', 2L],
+                    ['Scorer', 2L],
+                    ['Sorter', 2L]]]]
   env.assertEqual(actual_res, expected_res)
 
 def testProfileOutput(env):

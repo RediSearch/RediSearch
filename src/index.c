@@ -1810,7 +1810,7 @@ PRINT_PROFILE_FUNC(printIntersectIt) {
 }
 
 #define PRINT_PROFILE_SINGLE(name, iterType, text, hasChild)                        \
-PRINT_PROFILE_FUNC(name) {                                                     \
+PRINT_PROFILE_FUNC(name) {                                                          \
   int verbose = PROFILE_VERBOSE;                                                    \
   int addChild = hasChild && ((iterType *)root)->child;                             \
   RedisModule_ReplyWithArray(ctx, 2 + verbose + addChild);                          \
@@ -1835,7 +1835,7 @@ PRINT_PROFILE_SINGLE(printEmptyIt, DummyIterator, "Empty iterator", 0);
 
 PRINT_PROFILE_FUNC(printProfileIt) {
   ProfileIterator *pi = (ProfileIterator *)root;
-  printIteratorProfile(ctx, pi->child, pi->counter, (double)pi->cpuTime / CLOCKS_PER_MILLISEC, depth, limited);
+  printIteratorProfile(ctx, pi->child, pi->counter - 1, (double)pi->cpuTime / CLOCKS_PER_MILLISEC, depth, limited);
 }
 
 void printIteratorProfile(RedisModuleCtx *ctx, IndexIterator *root, size_t counter,
