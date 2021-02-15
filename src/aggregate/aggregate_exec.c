@@ -344,10 +344,10 @@ int RSSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 RedisModuleString **_profileArgsDup(RedisModuleString **argv, int argc, int params) {
   RedisModuleString **newArgv = rm_malloc(sizeof(*newArgv) * (argc- params));
   // copy cmd & index
-  memcpy(newArgv, argv, 2 * sizeof(*newArgv));
+  memcpy(newArgv, argv, PROFILE_1ST_PARAM * sizeof(*newArgv));
   // copy non-profile commands
-  memcpy(newArgv + 2, argv + PROFILE_1ST_PARAM + params,
-          (argc - PROFILE_1ST_PARAM + params) * sizeof(*newArgv));
+  memcpy(newArgv + PROFILE_1ST_PARAM, argv + PROFILE_1ST_PARAM + params,
+          (argc - PROFILE_1ST_PARAM - params) * sizeof(*newArgv));
   return newArgv;
 }
 
