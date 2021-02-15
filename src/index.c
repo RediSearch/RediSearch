@@ -356,7 +356,7 @@ static inline int UI_ReadSorted(void *ctx, RSIndexResult **hit) {
 // UI_Read for iterator with high count of children
 static inline int UI_ReadSortedHigh(void *ctx, RSIndexResult **hit) {
   UnionIterator *ui = ctx;
-  IndexIterator *it;
+  IndexIterator *it = NULL;
   RSIndexResult *res;
   heap_t *hp = ui->heapMinId;
 
@@ -537,7 +537,7 @@ static int UI_SkipToHigh(void *ctx, t_docId docId, RSIndexResult **hit) {
   AggregateResult_Reset(CURRENT_RECORD(ui));
   CURRENT_RECORD(ui)->weight = ui->weight;
   int rc = INDEXREAD_EOF;
-  IndexIterator *it;
+  IndexIterator *it = NULL;
   RSIndexResult *res;
   heap_t *hp = ui->heapMinId;
 
