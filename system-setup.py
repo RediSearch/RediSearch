@@ -35,7 +35,7 @@ class RediSearchSetup(paella.Setup):
         # fix setuptools
         self.pip_install("-IU --force-reinstall setuptools")
 
-    def arch_compat(self):
+    def archlinux(self):
         self.install("gcc-libs")
 
     def fedora(self):
