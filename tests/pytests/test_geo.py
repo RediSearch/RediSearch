@@ -39,7 +39,7 @@ def testGeoDistanceSimple(env):
             ['Index', 5L],
             ['Scorer', 5L],
             ['Sorter', 5L]]]]
-  env.expect('FT.PROFILE', 'SEARCH', 'idx', '@location:[1.23 4.56 10 km]', 'nocontent').equal(res)
+  env.expect('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '@location:[1.23 4.56 10 km]', 'nocontent').equal(res)
 
   res = [4L, ['distance', '5987.15'], ['distance', '6765.06'], ['distance', '7456.63'], ['distance', '8095.49']]
 

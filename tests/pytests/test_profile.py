@@ -39,7 +39,7 @@ def testProfileSearch(env):
   env.expect('ft.profile', 'profile', 'idx', '*', 'nocontent').error().contains('Bad command type')
 
   # test WILDCARD
-  actual_res = conn.execute_command('ft.profile', 'search', 'idx', '*', 'nocontent')
+  actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '*', 'nocontent')
   expected_res = [[2L, '1', '2'],
                   [['Total profile time'],
                     ['Parsing and iterator creation time'],
@@ -52,7 +52,7 @@ def testProfileSearch(env):
   env.assertEqual(actual_res, expected_res)
 
   # test EMPTY
-  actual_res = conn.execute_command('ft.profile', 'search', 'idx', 'redis', 'nocontent')
+  actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', 'redis', 'nocontent')
   expected_res = [[0L],
                  [['Total profile time'],
                   ['Parsing and iterator creation time'],
@@ -65,7 +65,7 @@ def testProfileSearch(env):
   env.assertEqual(actual_res, expected_res)
 
   # test single term
-  actual_res = conn.execute_command('ft.profile', 'search', 'idx', 'hello', 'nocontent')
+  actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', 'hello', 'nocontent')
   expected_res = [[1L, '1'],
                   [['Total profile time'],
                     ['Parsing and iterator creation time'],
@@ -78,7 +78,7 @@ def testProfileSearch(env):
   env.assertEqual(actual_res, expected_res)
 
   # test UNION
-  actual_res = conn.execute_command('ft.profile', 'search', 'idx', 'hello|world', 'nocontent')
+  actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', 'hello|world', 'nocontent')
   expected_res = [[2L, '1', '2'],
                   [['Total profile time'],
                     ['Parsing and iterator creation time'],
@@ -93,7 +93,7 @@ def testProfileSearch(env):
   env.assertEqual(actual_res, expected_res)
 
   # test INTERSECT
-  actual_res = conn.execute_command('ft.profile', 'search', 'idx', 'hello world', 'nocontent')
+  actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', 'hello world', 'nocontent')
   expected_res = [[0L],
                   [['Total profile time'],
                     ['Parsing and iterator creation time'],
@@ -108,7 +108,7 @@ def testProfileSearch(env):
   env.assertEqual(actual_res, expected_res)
 
   # test NOT
-  actual_res = conn.execute_command('ft.profile', 'search', 'idx', '-hello', 'nocontent')
+  actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '-hello', 'nocontent')
   expected_res = [[1L, '2'],
                   [['Total profile time'],
                     ['Parsing and iterator creation time'],
@@ -122,7 +122,7 @@ def testProfileSearch(env):
   env.assertEqual(actual_res, expected_res)
 
   # test OPTIONAL
-  actual_res = conn.execute_command('ft.profile', 'search', 'idx', '~hello', 'nocontent')
+  actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '~hello', 'nocontent')
   expected_res = [[2L, '1', '2'],
                  [['Total profile time'],
                     ['Parsing and iterator creation time'],
@@ -136,7 +136,7 @@ def testProfileSearch(env):
   env.assertEqual(actual_res, expected_res)
 
   # test PREFIX
-  actual_res = conn.execute_command('ft.profile', 'search', 'idx', 'hel*', 'nocontent')
+  actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', 'hel*', 'nocontent')
   expected_res = [[1L, '1'],
                  [['Total profile time'],
                     ['Parsing and iterator creation time'],
@@ -150,7 +150,7 @@ def testProfileSearch(env):
   env.assertEqual(actual_res, expected_res)
 
   # test FUZZY
-  actual_res = conn.execute_command('ft.profile', 'search', 'idx', '%%hel%%', 'nocontent')
+  actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '%%hel%%', 'nocontent')
   expected_res = [[1L, '1'],
                  [['Total profile time'],
                  ['Parsing and iterator creation time'],
@@ -164,7 +164,7 @@ def testProfileSearch(env):
   env.assertEqual(actual_res, expected_res)
 
   # test ID LIST iter with INKEYS
-  actual_res = conn.execute_command('ft.profile', 'search', 'idx', '%%hel%%', 'inkeys', 1, '1')
+  actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '%%hel%%', 'inkeys', 1, '1')
   expected_res = [[1L, '1', ['t', 'hello']], 
                  [['Total profile time'],
                   ['Parsing and iterator creation time'],
@@ -180,7 +180,7 @@ def testProfileSearch(env):
                     ['Loader', 2L]]]]
   env.assertEqual(actual_res, expected_res)
 
-  actual_res = conn.execute_command('ft.profile', 'search', 'idx', 'hello(hello(hello(hello(hello))))', 'nocontent')
+  actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', 'hello(hello(hello(hello(hello))))', 'nocontent')
   expected_res = [[1L, '1'], 
                   [['Total profile time'],
                       ['Parsing and iterator creation time'],
@@ -203,7 +203,7 @@ def testProfileSearch(env):
   if not check_server_version(env, '6.00.20'):
     return
 
-  actual_res = env.expect('ft.profile', 'search', 'idx', 'hello(hello(hello(hello(hello(hello)))))', 'nocontent')
+  actual_res = env.expect('ft.profile', 'idx', 'search', 'query',  'hello(hello(hello(hello(hello(hello)))))', 'nocontent')
   expected_res = [1L, '1', 
                       ['Total profile time'],
                       ['Parsing and iterator creation time'],
@@ -236,7 +236,7 @@ def testProfileSearchLimited(env):
   conn.execute_command('hset', '3', 't', 'help')
   conn.execute_command('hset', '4', 't', 'helowa')
 
-  actual_res = conn.execute_command('ft.profile', 'limited', 'search', 'idx', '%hell% hel*')
+  actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'limited', 'query',  '%hell% hel*')
   expected_res = [[3L, '1', ['t', 'hello'], '2', ['t', 'hell'], '3', ['t', 'help']],
                  [['Total profile time'],
                   ['Parsing and iterator creation time'],
@@ -261,7 +261,7 @@ def testProfileAggregate(env):
   conn.execute_command('hset', '1', 't', 'hello')
   conn.execute_command('hset', '2', 't', 'world')
 
-  actual_res = conn.execute_command('ft.profile', 'aggregate', 'idx', 'hello',
+  actual_res = conn.execute_command('ft.profile', 'idx', 'aggregate', 'query', 'hello',
                                     'groupby', 1, '@t',
                                     'REDUCE', 'count', '0', 'as', 'sum')
   expected_res = [[1L, ['t', 'hello', 'sum', '1']],
@@ -275,7 +275,7 @@ def testProfileAggregate(env):
                       ['Grouper', 2L]]]]
   env.assertEqual(actual_res, expected_res)
 
-  actual_res = env.cmd('ft.profile', 'aggregate', 'idx', '*',
+  actual_res = env.cmd('ft.profile', 'idx', 'aggregate', 'query', '*',
                 'load', 1, 't',
                 'apply', 'startswith(@t, "hel")', 'as', 'prefix')
   expected_res = [[1L, ['t', 'hello', 'prefix', '1'], ['t', 'world', 'prefix', '0']],
@@ -299,7 +299,7 @@ def testProfileCursor(env):
   conn.execute_command('hset', '1', 't', 'hello')
   conn.execute_command('hset', '2', 't', 'world')
 
-  actual_res = conn.execute_command('ft.profile', 'aggregate', 'idx', '*',
+  actual_res = conn.execute_command('ft.profile', 'idx', 'aggregate', 'query', '*',
                                     'load', 1, '@t',
                                     'WITHCURSOR', 'COUNT', 10)
   expected_res = [[1L, ['t', 'hello'], ['t', 'world']],
@@ -313,7 +313,7 @@ def testProfileCursor(env):
                       ['Loader', 3L]]]]
   env.assertEqual(actual_res, expected_res)
 
-  actual_res = conn.execute_command('ft.profile', 'aggregate', 'idx', '*',
+  actual_res = conn.execute_command('ft.profile', 'idx', 'aggregate', 'query', '*',
                                     'load', 1, '@t',
                                     'WITHCURSOR', 'COUNT', 1)
   # test initial result                                    
@@ -352,7 +352,7 @@ def testProfileNumeric(env):
   conn.execute_command('hset', '4', 'n', '6.7')
   conn.execute_command('hset', '5', 'n', '-14')
 
-  actual_res = conn.execute_command('ft.profile', 'search', 'idx', '@n:[0,100]', 'nocontent')
+  actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '@n:[0,100]', 'nocontent')
   expected_res = [[4L, '1', '2', '3', '4'],
                   [['Total profile time'],
                     ['Parsing and iterator creation time'],
@@ -377,7 +377,7 @@ def testProfileTag(env):
   conn.execute_command('hset', '2', 't', 'food,bag')
   conn.execute_command('hset', '3', 't', 'foo')
 
-  actual_res = conn.execute_command('ft.profile', 'search', 'idx', '@t:{foo}', 'nocontent')
+  actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '@t:{foo}', 'nocontent')
   #actual_res = conn.execute_command('ft.search', 'idx', '@t:{foo} | @t:{bar}', 'nocontent')
   expected_res = [[2L, '1', '3'],
                  [['Total profile time'],
@@ -416,9 +416,9 @@ def testProfileOutput(env):
   #search_string = '1(1(1(1(1))))'
   #print env.cmd('FT.search', 'idx', '12*|69*', 'limit', 0, 0)
   for i in range(queries):
-    pl.execute_command('FT.PROFILE', 'search', 'idx', search_string, 'limit', 0, 1000)
+    pl.execute_command('ft.profile', 'idx', 'search', 'query',  search_string, 'limit', 0, 1000)
     if (i % 999) is 0:
       pl.execute()
   pl.execute()
-  res = env.cmd('FT.PROFILE', 'search', 'idx', search_string, 'limit', 0, 0, 'nocontent')
+  res = env.cmd('ft.profile', 'idx', 'search', 'query',  search_string, 'limit', 0, 0, 'nocontent')
   print res
