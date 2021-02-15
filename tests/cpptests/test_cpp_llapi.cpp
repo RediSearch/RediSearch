@@ -9,6 +9,7 @@
 #define FIELD_NAME_1 "text1"
 #define FIELD_NAME_2 "text2"
 #define NUMERIC_FIELD_NAME "num"
+#define GEO_FIELD_NAME "geo"
 #define TAG_FIELD_NAME1 "tag1"
 #define TAG_FIELD_NAME2 "tag2"
 
@@ -123,7 +124,7 @@ TEST_F(LLApiTest, testAddDocumentNumericField) {
   // creating the index
   RSIndex* index = RediSearch_CreateIndex("index", NULL);
 
-  // adding text field to the index
+  // adding numeric field to the index
   RediSearch_CreateNumericField(index, NUMERIC_FIELD_NAME);
 
   // adding document to the index
@@ -154,6 +155,50 @@ TEST_F(LLApiTest, testAddDocumentNumericField) {
   ASSERT_STREQ(id, NULL);
 
   RediSearch_ResultsIteratorFree(iter);
+  RediSearch_DropIndex(index);
+}
+
+TEST_F(LLApiTest, testAddDocumentGeoField) {
+  // creating the index
+  RSIndex* index = RediSearch_CreateIndex("index", NULL);
+
+  // adding geo point field to the index
+  RediSearch_CreateGeoField(index, GEO_FIELD_NAME);
+
+  // adding document to the index
+  RSDoc* d = RediSearch_CreateDocument(DOCID1, strlen(DOCID1), 1.0, NULL);
+  // check error on lat > GEO_LAT_MAX
+  int res = RediSearch_DocumentAddFieldGeo(d, GEO_FIELD_NAME, 100, 0, RSFLDTYPE_DEFAULT);
+  ASSERT_EQ(res, REDISMODULE_ERR);
+  // check error on lon > GEO_LON_MAX
+  res = RediSearch_DocumentAddFieldGeo(d, GEO_FIELD_NAME, 0, 200, RSFLDTYPE_DEFAULT);
+  ASSERT_EQ(res, REDISMODULE_ERR);
+  // valid geo point
+  res = RediSearch_DocumentAddFieldGeo(d, GEO_FIELD_NAME, 20.654321, 0.123456, RSFLDTYPE_DEFAULT);
+  ASSERT_EQ(res, REDISMODULE_OK);
+  RediSearch_SpecAddDocument(index, d);
+
+  // searching on the index
+  RSQNode* qn = RediSearch_CreateGeoNode(index, GEO_FIELD_NAME, 20.6543222, 0.123455, 10, RS_GEO_DISTANCE_M);
+  RSResultsIterator* iter = RediSearch_GetResultsIterator(qn, index);
+  ASSERT_TRUE(iter != NULL);
+
+  size_t len;
+  const char* id = (const char*)RediSearch_ResultsIteratorNext(iter, index, &len);
+  ASSERT_STREQ(id, DOCID1);
+  id = (const char*)RediSearch_ResultsIteratorNext(iter, index, &len);
+  ASSERT_STREQ(id, NULL);
+  RediSearch_ResultsIteratorFree(iter);
+
+  // searching on the index and getting NULL result
+  qn = RediSearch_CreateGeoNode(index, GEO_FIELD_NAME, 20.6543000, 0.123000, 10, RS_GEO_DISTANCE_M);
+  iter = RediSearch_GetResultsIterator(qn, index);
+  ASSERT_TRUE(iter != NULL);
+
+  id = (const char*)RediSearch_ResultsIteratorNext(iter, index, &len);
+  ASSERT_STREQ(id, NULL);
+  RediSearch_ResultsIteratorFree(iter);
+
   RediSearch_DropIndex(index);
 }
 

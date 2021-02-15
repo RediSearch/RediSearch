@@ -34,29 +34,32 @@ You can replace `debian:buster` with your OS of choice, with the host OS being t
 
 To build and test RediSearch one needs to install several packages, depending on the underlying OS. Currently, we support the Ubuntu/Debian, CentOS, Fedora, and macOS.
 
-If you have ```gnu make``` installed, you can execute
+First, enter `RediSearch` directory.
+
+If you have ```gnu make``` installed, you can execute,
+
+On Linux:
 ```
-cd RediSearch
 sudo make setup
 ```
-Alternatively, just invoke the following:
+On macOS:
 ```
-cd RediSearch
-sudo ./deps/readies/bin/getpy2
-sudo ./system-setup.py
+make setup
 ```
-Note that ```system-setup.py``` **will install various packages on your system** using the native package manager and pip. This requires root permissions (i.e. sudo) on Linux.
+
+Alternatively, invoke the following (with `sudo` for Linux):
+
+```
+./deps/readies/bin/getpy2
+./system-setup.py
+```
+Note that ```system-setup.py``` **will install various packages on your system** using the native package manager and pip.
 
 If you prefer to avoid that, you can:
 
-* Review system-setup.py and install packages manually,
+* Review `system-setup.py` and install packages manually,
 * Use an isolated environment like explained above,
 * Use a Python virtual environment, as Python installations are known to be sensitive when not used in isolation: `python2 -m virtualenv venv; . ./venv/bin/activate`
-
-Next, execute the following, to complete dependency acquisition:
-```
-make fetch
-```
 
 ## Installing Redis
 As a rule of thumb, you're better off running the latest Redis version.
@@ -64,6 +67,7 @@ As a rule of thumb, you're better off running the latest Redis version.
 If your OS has a Redis 6.x package, you can install it using the OS package manager.
 
 Otherwise, you can invoke ```sudo ./deps/readies/bin/getredis```.
+Skip `sudo` on macOS.
 
 ## Getting help
 ```make help``` provides a quick summary of the development features.
