@@ -40,6 +40,9 @@ It will return each document of the underlying iterators, exactly once */
 IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *t, int quickExit,
                                 double weight, QueryNodeType type, const char *qstr);
 
+// Force quickExit for union iterator
+#define FORCE_QUICK_EXIT 1
+
 /* Create a new intersect iterator over the given list of child iterators. If maxSlop is not a
  * negative number, we will allow at most maxSlop intervening positions between the terms. If
  * maxSlop is set and inOrder is 1, we assert that the terms are in

@@ -566,7 +566,7 @@ static IndexIterator *Query_EvalUnionNode(QueryEvalCtx *q, QueryNode *qn) {
     return ret;
   }
 
-  IndexIterator *ret = NewUnionIterator(iters, n, q->docTable, 0, qn->opts.weight, QN_UNION, NULL);
+  IndexIterator *ret = NewUnionIterator(iters, n, q->docTable, UNION_QUICK_EXIT, qn->opts.weight, QN_UNION, NULL);
   return ret;
 }
 
@@ -748,7 +748,8 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
     }
   }
 
-  ret = NewUnionIterator(iters, n, q->docTable, 0, qn->opts.weight, QN_TAG, NULL);
+  // TODO: ensure
+  ret = NewUnionIterator(iters, n, q->docTable, UNION_QUICK_EXIT, qn->opts.weight, QN_TAG, NULL);
 
 done:
   if (k) {

@@ -44,6 +44,7 @@ typedef struct {
   const char *frisoIni;
   // If this is set, GC is enabled on all indexes (default: 1, disable with NOGC)
   int enableGC;
+
   // The minimal number of characters we allow expansion for in a prefix search. Default: 2
   long long minTermPrefix;
 
@@ -179,7 +180,7 @@ sds RSConfig_GetInfoString(const RSConfig *config);
     .forkGcRetryInterval = 5, .forkGcCleanThreshold = 100, .noMemPool = 0, .filterCommands = 0,   \
     .maxSearchResults = SEARCH_REQUEST_RESULTS_MAX, .maxAggregateResults = -1,                    \
     .minUnionIterHeap = 20, .numericCompress = false, .numericTreeMaxDepthRange = 0,              \
-    .printProfileClock = 1                                                                        \
+    .printProfileClock = 1,                                                                       \
   }
 
 #define REDIS_ARRAY_LIMIT 7

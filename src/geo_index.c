@@ -132,8 +132,9 @@ IndexIterator *NewGeoRangeIterator(RedisSearchCtx *ctx, const GeoFilter *gf) {
     rm_free(iters);
     return it;
   }
-  IndexIterator *it = NewUnionIterator(iters, itersCount, NULL, 
-                  1, 1, QN_GEO, NULL);
+  // The geo union receives FORCE_QUICK_EXIT since the numeric iterators scan
+  // different ranges.
+  IndexIterator *it = NewUnionIterator(iters, itersCount, NULL, FORCE_QUICK_EXIT, 1, QN_GEO, NULL);
   if (!it) {
     return NULL;
   }
