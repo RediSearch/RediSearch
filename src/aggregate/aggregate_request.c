@@ -373,7 +373,9 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
   }
 
   if ((req->reqflags & QEXEC_F_NOROWS) || 
-      (!((req->reqflags & QEXEC_F_SEND_HIGHLIGHT) || (req->reqflags & QEXEC_F_SORTBY)))
+      (!((req->reqflags & QEXEC_F_SEND_HIGHLIGHT) || 
+         (req->reqflags & QEXEC_F_SEND_SCORES) ||
+         (req->reqflags & QEXEC_F_SORTBY)))
       ) {
     req->searchopts.quickExit |= 1;
   }

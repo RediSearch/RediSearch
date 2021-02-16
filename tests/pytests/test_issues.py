@@ -128,6 +128,80 @@ def test_issue1832(env):
   conn.execute_command('HSET', 'doc', 't', 'hello hell')
   env.expect('FT.SEARCH', 'idx', 'hel*', 'highlight').equal([1L, 'doc', ['t', '<b>hello</b> <b>hell</b>']])
 
+def test_quick_exit(env):
+  # Disable quickExit in union iterator
+  env.skipOnCluster()
+  conn = getConnectionByEnv(env)
+  conn.execute_command('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+  conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC')
+  conn.execute_command('HSET', 'doc1', 't', 'hello', 'n', 1)
+  conn.execute_command('HSET', 'doc2', 't', 'hell', 'n', 2)
+  conn.execute_command('HSET', 'doc3', 't', 'hello hell', 'n', 3)
+
+  # test with quicktest for highlight
+  res_without_quick_exit = \
+        [[3L, 'doc1', ['n', '1', 't', '<b>hello</b>'],
+              'doc2', ['n', '2', 't', '<b>hell</b>'],
+              'doc3', ['n', '3', 't', '<b>hello</b> <b>hell</b>']],
+        [['Total profile time'],
+        ['Parsing and iterator creation time'],
+        ['Iterators profile',
+          ['Union iterator - PREFIX - hel', 7L,
+            ['Term reader', 'hell', 6L],
+            ['Term reader', 'hello', 6L]]],
+        ['Result processors profile',
+          ['Index', 4L],
+          ['Sorter', 4L],
+          ['Loader', 4L],
+          ['Highlighter', 4L]]]] 
+  env.expect('FT.PROFILE', 'SEARCH', 'idx', 'hel*', 'highlight', 'sortby', 'n').equal(res_without_quick_exit)
+
+  # test with quicktest for score
+  res_without_quick_exit = \
+        [[3L, 'doc1', '0', ['n', '1', 't', 'hello'],
+              'doc2', '0', ['n', '2', 't', 'hell'],
+              'doc3', '0', ['n', '3', 't', 'hello hell']],
+        [['Total profile time'],
+          ['Parsing and iterator creation time'],
+          ['Iterators profile',
+            ['Union iterator - PREFIX - hel', 4L,
+              ['Term reader', 'hell', 3L],
+              ['Term reader', 'hello', 3L]]],
+        ['Result processors profile',
+          ['Index', 4L],
+          ['Sorter', 4L],
+          ['Loader', 4L]]]]
+  env.expect('FT.PROFILE', 'SEARCH', 'idx', 'hel*', 'withscores', 'sortby', 'n').equal(res_without_quick_exit)
+  
+  res_with_quick_exit_reg_union = \
+        [[3L, 'doc1', 'doc2', 'doc3'],
+        [['Total profile time'],
+        ['Parsing and iterator creation time'],
+        ['Iterators profile',
+          ['Union iterator - PREFIX - hel', 4L,
+            ['Term reader', 'hell', 3L],
+            ['Term reader', 'hello', 3L]]],
+        ['Result processors profile',
+          ['Index', 4L],
+          ['Scorer', 4L],
+          ['Sorter', 4L]]]]
+  res_with_quick_exit_heap_union = \
+        [[3L, 'doc1', 'doc2', 'doc3'],
+        [['Total profile time'],
+        ['Parsing and iterator creation time'],
+        ['Iterators profile',
+          ['Union iterator - PREFIX - hel', 4L,
+            ['Term reader', 'hell', 2L],
+            ['Term reader', 'hello', 3L]]],
+        ['Result processors profile',
+          ['Index', 4L],
+          ['Scorer', 4L],
+          ['Sorter', 4L]]]]
+  res_with_quick_exit = res_with_quick_exit_reg_union
+  if env.cmd('FT.CONFIG', 'GET', 'UNION_ITERATOR_HEAP')[0][1] == '1':
+    res_with_quick_exit = res_with_quick_exit_heap_union
+  env.expect('FT.PROFILE', 'SEARCH', 'idx', 'hel*', 'nocontent').equal(res_with_quick_exit)
+
 def test_issue1834(env):
   # Stopword query is case sensitive.
   conn = getConnectionByEnv(env)
