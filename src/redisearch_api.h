@@ -181,7 +181,7 @@ MODULE_API_FUNC(RSQNode*, RediSearch_CreateNumericNode)
 (RSIndex* sp, const char* field, double max, double min, int includeMax, int includeMin);
 
 MODULE_API_FUNC(RSQNode*, RediSearch_CreateGeoNode)
-(RSIndex* sp, const char* field, double origin_lat, double origin_lon, double radius, RSGeoDistance unitType);
+(RSIndex* sp, const char* field, double lat, double lon, double radius, RSGeoDistance unitType);
 
 MODULE_API_FUNC(RSQNode*, RediSearch_CreatePrefixNode)
 (RSIndex* sp, const char* fieldName, const char* s);
