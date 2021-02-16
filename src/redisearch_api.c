@@ -187,7 +187,7 @@ int RediSearch_DocumentAddFieldGeo(Document* d, const char* fieldname,
   }                                      
   // The format for a geospacial point is "lat,lon"
   char buf[24];
-  size_t len = sprintf(buf, "%.6lf,%.6lf", lat, lon);
+  size_t len = sprintf(buf, "%.6lf,%.6lf", lon, lat);
   Document_AddFieldC(d, fieldname, buf, len, as);
   return REDISMODULE_OK;
 }
@@ -266,7 +266,7 @@ QueryNode* RediSearch_CreateNumericNode(IndexSpec* sp, const char* field, double
   return ret;
 }
 
-QueryNode* RediSearch_CreateGeoNode(IndexSpec* sp, const char* field, double lon, double lat,
+QueryNode* RediSearch_CreateGeoNode(IndexSpec* sp, const char* field, double lat, double lon,
                                         double radius, RSGeoDistance unitType) {
   QueryNode* ret = NewQueryNode(QN_GEO);
   ret->opts.fieldMask = IndexSpec_GetFieldBit(sp, field, strlen(field));
