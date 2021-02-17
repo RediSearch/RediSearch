@@ -372,6 +372,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
     }
   }
 
+  // Use quickExit if detailed results are not required
   if ((req->reqflags & QEXEC_F_NOROWS) || 
       (!((req->reqflags & QEXEC_F_SEND_HIGHLIGHT) || 
          (req->reqflags & QEXEC_F_SEND_SCORES) ||
