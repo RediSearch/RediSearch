@@ -32,14 +32,14 @@ def testGeoDistanceSimple(env):
          [['Total profile time'],
           ['Parsing and iterator creation time'],
           ['Iterators profile',
-            ['Union iterator - GEO', 5L,
-              ['Geo reader', '1.23,4.55 - 1.21176,4.57724', 3L],
-              ['Geo reader', '1.21176,4.57724 - 1.24,4.56', 3L]]],
+            ['Union iterator - GEO', 4L,
+              ['Geo reader', '1.23,4.55 - 1.21176,4.57724', 2L],
+              ['Geo reader', '1.21176,4.57724 - 1.24,4.56', 2L]]],
           ['Result processors profile',
-            ['Index', 5L],
-            ['Scorer', 5L],
-            ['Sorter', 5L]]]]
-  env.expect('FT.PROFILE', 'SEARCH', 'idx', '@location:[1.23 4.56 10 km]', 'nocontent').equal(res)
+            ['Index', 4L],
+            ['Scorer', 4L],
+            ['Sorter', 4L]]]]
+  env.expect('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '@location:[1.23 4.56 10 km]', 'nocontent').equal(res)
 
   res = [4L, ['distance', '5987.15'], ['distance', '6765.06'], ['distance', '7456.63'], ['distance', '8095.49']]
 
