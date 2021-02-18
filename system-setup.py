@@ -1,4 +1,4 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python3
 
 import sys
 import os
@@ -29,6 +29,9 @@ class RediSearchSetup(paella.Setup):
     def redhat_compat(self):
         self.install("redhat-lsb-core")
         self.install("libatomic")
+
+        if self.dist == "centos" and self.ver == "8":
+            return
 
         self.run("%s/bin/getgcc --modern" % READIES)
 
