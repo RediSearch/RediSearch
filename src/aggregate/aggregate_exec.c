@@ -339,23 +339,49 @@ int RSSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return execCommandCommon(ctx, argv, argc, COMMAND_SEARCH, NO_PROFILE);
 }
 
-int RSProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  int curArg = 1;
-  int withProfile = PROFILE_FULL;
-  const char *cmd = RedisModule_StringPtrLen(argv[curArg], NULL);
+#define PROFILE_1ST_PARAM 2
 
+RedisModuleString **_profileArgsDup(RedisModuleString **argv, int argc, int params) {
+  RedisModuleString **newArgv = rm_malloc(sizeof(*newArgv) * (argc- params));
+  // copy cmd & index
+  memcpy(newArgv, argv, PROFILE_1ST_PARAM * sizeof(*newArgv));
+  // copy non-profile commands
+  memcpy(newArgv + PROFILE_1ST_PARAM, argv + PROFILE_1ST_PARAM + params,
+          (argc - PROFILE_1ST_PARAM - params) * sizeof(*newArgv));
+  return newArgv;
+}
+
+int RSProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  CommandType cmdType;
+  int curArg = PROFILE_1ST_PARAM;
+  int withProfile = PROFILE_FULL;
+
+  // Check the command type
+  const char *cmd = RedisModule_StringPtrLen(argv[curArg++], NULL);
+  if (strcasecmp(cmd, "SEARCH") == 0) {
+    cmdType = COMMAND_SEARCH;
+  } else if (strcasecmp(cmd, "AGGREGATE") == 0) {
+    cmdType = COMMAND_AGGREGATE;
+  } else {
+    RedisModule_ReplyWithError(ctx, "Bad command type");
+    return REDISMODULE_OK;
+  }
+  
+  cmd = RedisModule_StringPtrLen(argv[curArg++], NULL);
   if (strcasecmp(cmd, "LIMITED") == 0) {
     withProfile = PROFILE_LIMITED;
-    cmd = RedisModule_StringPtrLen(argv[++curArg], NULL);
+    cmd = RedisModule_StringPtrLen(argv[curArg++], NULL);
   }
 
-  if (strcasecmp(cmd, "SEARCH") == 0) {
-    return execCommandCommon(ctx, argv + curArg, argc - curArg, COMMAND_SEARCH, withProfile);
-  } else if (strcasecmp(cmd, "AGGREGATE") == 0) {
-    return execCommandCommon(ctx, argv + curArg, argc - curArg, COMMAND_AGGREGATE, withProfile);
+  if (strcasecmp(cmd, "QUERY") != 0) {
+    RedisModule_ReplyWithError(ctx, "The QUERY keyward is expected");
+    return REDISMODULE_OK;
   }
 
-  RedisModule_ReplyWithError(ctx, "Bad command type");
+  int newArgc = argc - curArg + PROFILE_1ST_PARAM; 
+  RedisModuleString **newArgv = _profileArgsDup(argv, argc, curArg - PROFILE_1ST_PARAM);
+  execCommandCommon(ctx, newArgv, newArgc, cmdType, withProfile);
+  rm_free(newArgv);
   return REDISMODULE_OK;
 }
 

@@ -27,10 +27,10 @@ void printReadIt(RedisModuleCtx *ctx, IndexIterator *root, size_t counter, doubl
   }
 
   // print counter and clock
-  RedisModule_ReplyWithLongLong(ctx, counter);
   if (PROFILE_VERBOSE) {
       RedisModule_ReplyWithLongDouble(ctx, cpuTime);
   }
+  RedisModule_ReplyWithLongLong(ctx, counter);
 }
 
 static double _recursiveProfilePrint(RedisModuleCtx *ctx, ResultProcessor *rp, size_t *arrlen) {
@@ -67,10 +67,10 @@ static double _recursiveProfilePrint(RedisModuleCtx *ctx, ResultProcessor *rp, s
     return upstreamTime;
   }
   double totalRPTime = (double)RPProfile_GetClock(rp) / CLOCKS_PER_MILLISEC;
-  RedisModule_ReplyWithLongLong(ctx, RPProfile_GetCount(rp));
   if (PROFILE_VERBOSE)
       RedisModule_ReplyWithDouble(ctx, totalRPTime - upstreamTime);
   ++(*arrlen);
+  RedisModule_ReplyWithLongLong(ctx, RPProfile_GetCount(rp) - 1);
   return totalRPTime;
 }
 
