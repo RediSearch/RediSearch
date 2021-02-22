@@ -212,6 +212,22 @@ def testPayload(env):
         res = env.cmd('ft.search', 'things', 'foo', 'withpayloads')
         env.assertEqual(toSortedFlatList(res), toSortedFlatList([1L, 'thing:foo', 'stuff', ['name', 'foo', 'payload', 'stuff']]))
 
+def testBinaryPayload(env):
+    conn = getConnectionByEnv(env)
+    env.expect('ft.create', 'things', 'ON', 'HASH',
+                'PREFIX', '1', 'thing:',
+                'PAYLOAD_FIELD', 'payload',
+                'SCHEMA', 'name', 'text').ok()
+    conn.execute_command('hset', 'thing:foo', 'name', 'foo', 'payload', '\x00\xAB\x20')
+
+    for _ in env.retry_with_rdb_reload():
+        waitForIndex(env, 'things')
+        res = env.cmd('ft.search', 'things', 'foo')
+        env.assertEqual(toSortedFlatList(res), toSortedFlatList([1L, 'thing:foo', ['name', 'foo', 'payload', '\x00\xAB\x20']]))
+
+        res = env.cmd('ft.search', 'things', 'foo', 'withpayloads')
+        env.assertEqual(toSortedFlatList(res), toSortedFlatList([1L, 'thing:foo', '\x00\xAB\x20', ['name', 'foo', 'payload', '\x00\xAB\x20']]))
+
 def testDuplicateFields(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
                'SCHEMA', 'txt', 'TEXT', 'num', 'NUMERIC', 'SORTABLE').ok()
