@@ -66,29 +66,27 @@ nav:
 
   - 'Contributor agreement': contrib.md
 
-extra:
-  modules:
-    - name: 'Time Series'
-      link: '/redistimeseries'
-
-    - name: 'Bloom'
-      link: '/redisbloom'
-
-    - name: 'Graph'
-      link: '/redisgraph'
-
-    - name: 'JSON'
-      link: '/redisjson'
-
-    - name: 'AI'
-      link: '/redisai'
-
-    - name: 'Gears'
-      link: '/redisgears'
-
 plugins:
   - search
+  - modules-template:
+      modules:
+        - name: 'Time Series'
+          link: '/redistimeseries'
+
+        - name: 'Bloom'
+          link: '/redisbloom'
+
+        - name: 'Graph'
+          link: '/redisgraph'
+
+        - name: 'JSON'
+          link: '/redisjson'
+
+        - name: 'AI'
+          link: '/redisai'
+
+        - name: 'Gears'
+          link: '/redisgears'
   - versions-menu:
       exclude-regexes:
         - '1\.8'
-  - modules-template
