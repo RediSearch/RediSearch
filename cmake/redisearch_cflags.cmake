@@ -14,6 +14,7 @@ SET(RS_COMMON_FLAGS "-Wall -Wno-unused-function -Wno-unused-variable -Wno-sign-c
 SET(RS_COMMON_FLAGS "${RS_COMMON_FLAGS} -fPIC -Werror=implicit-function-declaration")
 SET(RS_COMMON_FLAGS "${RS_COMMON_FLAGS} -pthread")
 SET(RS_COMMON_FLAGS "${RS_COMMON_FLAGS} -fno-strict-aliasing")
+SET(RS_COMMON_FLAGS "${RS_COMMON_FLAGS} -Wl,-Bsymbolic,-Bsymbolic-functions")
 
 IF (HAVE_W_INCOMPATIBLE_POINTER_TYPES)
     SET(RS_COMMON_FLAGS "${RS_COMMON_FLAGS} -Werror=incompatible-pointer-types")
