@@ -14,7 +14,6 @@ SET(RS_COMMON_FLAGS "-Wall -Wno-unused-function -Wno-unused-variable -Wno-sign-c
 SET(RS_COMMON_FLAGS "${RS_COMMON_FLAGS} -fPIC -Werror=implicit-function-declaration")
 SET(RS_COMMON_FLAGS "${RS_COMMON_FLAGS} -pthread")
 SET(RS_COMMON_FLAGS "${RS_COMMON_FLAGS} -fno-strict-aliasing")
-SET(RS_COMMON_FLAGS "${RS_COMMON_FLAGS} -Wl,-Bsymbolic,-Bsymbolic-functions")
 
 IF (HAVE_W_INCOMPATIBLE_POINTER_TYPES)
     SET(RS_COMMON_FLAGS "${RS_COMMON_FLAGS} -Werror=incompatible-pointer-types")
@@ -46,3 +45,5 @@ ENDIF()
 
 SET(RS_C_FLAGS "${RS_COMMON_FLAGS} -std=gnu99")
 SET(RS_CXX_FLAGS "${RS_COMMON_FLAGS} -fno-rtti -fno-exceptions -std=c++11")
+SET(RS_SO_FLAGS "-Wl,-Bsymbolic,-Bsymbolic-functions")
+
