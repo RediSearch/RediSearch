@@ -16,7 +16,7 @@ and determining the most likely (based on the surrounding terms and characters)
 match.
 
 RediSearch makes use of the [Friso](https://github.com/lionsoul2014/friso)
-chinese tokenization library for this purpose. This is largely transparent to
+Chinese tokenization library for this purpose. This is largely transparent to
 the user and often no additional configuration is required.
 
 ## Example: Using Chinese in RediSearch

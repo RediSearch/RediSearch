@@ -1,8 +1,8 @@
 # Phonetic Matching
 
-Phonetic matching, a.k.a "Jon or John", allows searching for terms based on their pronounciation. This capability can be a useful tool when searching for names of people.
+Phonetic matching, a.k.a "Jon or John", allows searching for terms based on their pronunciation. This capability can be a useful tool when searching for names of people.
 
-Phonetic matching is based on the use of a phonetic algorithm. A phonetic algorithm transforms the input term to an approximate representation of its pronounciation. This allows indexing terms, and consequently searching, by their pronounciation.
+Phonetic matching is based on the use of a phonetic algorithm. A phonetic algorithm transforms the input term to an approximate representation of its pronunciation. This allows indexing terms, and consequently searching, by their pronunciation.
 
 As of v1.4 RediSearch provides phonetic matching via the definition of text fields with the `PHONETIC` attribute. This causes the terms in such fields to be indexed both by their textual value as well as their phonetic approximation.
 
