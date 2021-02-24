@@ -30,7 +30,8 @@ def testGeoDistanceSimple(env):
   env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
   res = [[4L, 'geo1', 'geo2', 'geo3', 'geo4'],
          [['Total profile time'],
-          ['Parsing and iterator creation time'],
+          ['Parsing time'],
+          ['Pipeline creation time'],
           ['Iterators profile',
             ['Union iterator - GEO', 4L,
               ['Geo reader', '1.23,4.55 - 1.21176,4.57724', 2L],

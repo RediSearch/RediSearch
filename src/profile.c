@@ -90,11 +90,18 @@ int Profile_Print(RedisModuleCtx *ctx, AREQ *req){
       RedisModule_ReplyWithDouble(ctx, (double)req->totalTime / CLOCKS_PER_MILLISEC);
   nelem++;
 
-  // Print query parsing and creation time
+  // Print query parsing time
   RedisModule_ReplyWithArray(ctx, 1 + PROFILE_VERBOSE);
-  RedisModule_ReplyWithSimpleString(ctx, "Parsing and iterator creation time");
+  RedisModule_ReplyWithSimpleString(ctx, "Parsing time");
   if (PROFILE_VERBOSE)
       RedisModule_ReplyWithDouble(ctx, (double)req->parseTime / CLOCKS_PER_MILLISEC);
+  nelem++;
+
+  // Print iterators creation time
+  RedisModule_ReplyWithArray(ctx, 1 + PROFILE_VERBOSE);
+  RedisModule_ReplyWithSimpleString(ctx, "Pipeline creation time");
+  if (PROFILE_VERBOSE)
+      RedisModule_ReplyWithDouble(ctx, (double)req->pipelineBuildTime / CLOCKS_PER_MILLISEC);
   nelem++;
 
   // print into array with a recursive function over result processors

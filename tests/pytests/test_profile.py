@@ -42,7 +42,8 @@ def testProfileSearch(env):
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '*', 'nocontent')
   expected_res = [[2L, '1', '2'],
                   [['Total profile time'],
-                    ['Parsing and iterator creation time'],
+                    ['Parsing time'],
+                    ['Pipeline creation time'],
                     ['Iterators profile',
                       ['Wildcard iterator', 2L]],
                     ['Result processors profile',
@@ -55,7 +56,8 @@ def testProfileSearch(env):
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', 'redis', 'nocontent')
   expected_res = [[0L],
                  [['Total profile time'],
-                  ['Parsing and iterator creation time'],
+                  ['Parsing time'],
+                  ['Pipeline creation time'],
                   ['Iterators profile',
                     ['Empty iterator', 0L]],
                   ['Result processors profile',
@@ -68,7 +70,8 @@ def testProfileSearch(env):
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', 'hello', 'nocontent')
   expected_res = [[1L, '1'],
                   [['Total profile time'],
-                    ['Parsing and iterator creation time'],
+                    ['Parsing time'],
+                    ['Pipeline creation time'],
                     ['Iterators profile',
                       ['Term reader', 'hello', 1L]],
                     ['Result processors profile',
@@ -81,7 +84,8 @@ def testProfileSearch(env):
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', 'hello|world', 'nocontent')
   expected_res = [[2L, '1', '2'],
                   [['Total profile time'],
-                    ['Parsing and iterator creation time'],
+                    ['Parsing time'],
+                    ['Pipeline creation time'],
                     ['Iterators profile',
                     ['Union iterator - UNION', 2L,
                       ['Term reader', 'hello', 1L],
@@ -96,7 +100,8 @@ def testProfileSearch(env):
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', 'hello world', 'nocontent')
   expected_res = [[0L],
                   [['Total profile time'],
-                    ['Parsing and iterator creation time'],
+                    ['Parsing time'],
+                    ['Pipeline creation time'],
                     ['Iterators profile',
                     ['Intersect iterator', 0L,
                       ['Term reader', 'hello', 1L],
@@ -111,7 +116,8 @@ def testProfileSearch(env):
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '-hello', 'nocontent')
   expected_res = [[1L, '2'],
                   [['Total profile time'],
-                    ['Parsing and iterator creation time'],
+                    ['Parsing time'],
+                    ['Pipeline creation time'],
                     ['Iterators profile',
                       ['Not iterator', 1L,
                         ['Term reader', 'hello', 0L]]],
@@ -125,7 +131,8 @@ def testProfileSearch(env):
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '~hello', 'nocontent')
   expected_res = [[2L, '1', '2'],
                  [['Total profile time'],
-                    ['Parsing and iterator creation time'],
+                    ['Parsing time'],
+                    ['Pipeline creation time'],
                     ['Iterators profile',
                       ['Optional iterator', 2L,
                         ['Term reader', 'hello', 0L]]],
@@ -139,7 +146,8 @@ def testProfileSearch(env):
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', 'hel*', 'nocontent')
   expected_res = [[1L, '1'],
                  [['Total profile time'],
-                    ['Parsing and iterator creation time'],
+                    ['Parsing time'],
+                    ['Pipeline creation time'],
                     ['Iterators profile',
                       ['Union iterator - PREFIX - hel', 1L,
                         ['Term reader', 'hello', 1L]]],
@@ -153,7 +161,8 @@ def testProfileSearch(env):
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '%%hel%%', 'nocontent')
   expected_res = [[1L, '1'],
                  [['Total profile time'],
-                 ['Parsing and iterator creation time'],
+                 ['Parsing time'],
+                 ['Pipeline creation time'],
                  ['Iterators profile',
                     ['Union iterator - FUZZY - hel', 1L,
                       ['Term reader', 'hello', 1L]]],
@@ -167,7 +176,8 @@ def testProfileSearch(env):
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '%%hel%%', 'inkeys', 1, '1')
   expected_res = [[1L, '1', ['t', 'hello']], 
                  [['Total profile time'],
-                  ['Parsing and iterator creation time'],
+                  ['Parsing time'],
+                  ['Pipeline creation time'],
                   ['Iterators profile',
                     ['Intersect iterator', 1L,
                       ['ID-List iterator', 1L],
@@ -183,7 +193,8 @@ def testProfileSearch(env):
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', 'hello(hello(hello(hello(hello))))', 'nocontent')
   expected_res = [[1L, '1'], 
                   [['Total profile time'],
-                      ['Parsing and iterator creation time'],
+                      ['Parsing time'],
+                      ['Pipeline creation time'],
                       ['Iterators profile',
                         ['Intersect iterator', 1L,
                           ['Term reader', 'hello', 1L],
@@ -206,7 +217,8 @@ def testProfileSearch(env):
   actual_res = env.expect('ft.profile', 'idx', 'search', 'query',  'hello(hello(hello(hello(hello(hello)))))', 'nocontent')
   expected_res = [1L, '1', 
                       ['Total profile time'],
-                      ['Parsing and iterator creation time'],
+                      ['Parsing time'],
+                      ['Pipeline creation time'],
                       ['Iterators profile',
                         ['Intersect iterator', 2L,
                           ['Term reader', 'hello', 2L],
@@ -239,7 +251,8 @@ def testProfileSearchLimited(env):
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'limited', 'query',  '%hell% hel*')
   expected_res = [[3L, '1', ['t', 'hello'], '2', ['t', 'hell'], '3', ['t', 'help']],
                  [['Total profile time'],
-                  ['Parsing and iterator creation time'],
+                  ['Parsing time'],
+                  ['Pipeline creation time'],
                   ['Iterators profile',
                     ['Intersect iterator', 3L,
                       ['Union iterator - FUZZY - hell', 3L, 'The number of iterators in union is 3'],
@@ -266,7 +279,8 @@ def testProfileAggregate(env):
                                     'REDUCE', 'count', '0', 'as', 'sum')
   expected_res = [[1L, ['t', 'hello', 'sum', '1']],
                   [ ['Total profile time'],
-                    ['Parsing and iterator creation time'],
+                    ['Parsing time'],
+                    ['Pipeline creation time'],
                     ['Iterators profile',
                       ['Term reader', 'hello', 1L]],
                     ['Result processors profile',
@@ -280,7 +294,8 @@ def testProfileAggregate(env):
                 'apply', 'startswith(@t, "hel")', 'as', 'prefix')
   expected_res = [[1L, ['t', 'hello', 'prefix', '1'], ['t', 'world', 'prefix', '0']],
                   [['Total profile time'],
-                    ['Parsing and iterator creation time'],
+                    ['Parsing time'],
+                    ['Pipeline creation time'],
                     ['Iterators profile',
                       ['Wildcard iterator', 2L]],
                     ['Result processors profile',
@@ -305,7 +320,8 @@ def testProfileCursor(env):
   expected_res = [[1L, ['t', 'hello'], ['t', 'world']],
                    0L, # cursorID
                   [['Total profile time'],
-                    ['Parsing and iterator creation time'],
+                    ['Parsing time'],
+                    ['Pipeline creation time'],
                     ['Iterators profile',
                       ['Wildcard iterator', 2L]],
                     ['Result processors profile',
@@ -331,7 +347,8 @@ def testProfileCursor(env):
   actual_res = conn.execute_command('ft.cursor', 'read', 'idx', actual_res[1])
   res = [[0L], 0L,
          [['Total profile time'],
-          ['Parsing and iterator creation time'],
+          ['Parsing time'],
+          ['Pipeline creation time'],
           ['Iterators profile',
             ['Wildcard iterator', 2L]],
           ['Result processors profile',
@@ -355,7 +372,8 @@ def testProfileNumeric(env):
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '@n:[0,100]', 'nocontent')
   expected_res = [[4L, '1', '2', '3', '4'],
                   [['Total profile time'],
-                    ['Parsing and iterator creation time'],
+                    ['Parsing time'],
+                    ['Pipeline creation time'],
                     ['Iterators profile',
                       ['Union iterator - NUMERIC', 4L,
                         ['Numeric reader', '-14 - 1.35', 1L],
@@ -381,7 +399,8 @@ def testProfileTag(env):
   #actual_res = conn.execute_command('ft.search', 'idx', '@t:{foo} | @t:{bar}', 'nocontent')
   expected_res = [[2L, '1', '3'],
                  [['Total profile time'],
-                  ['Parsing and iterator creation time'],
+                  ['Parsing time'],
+                  ['Pipeline creation time'],
                   ['Iterators profile',
                     ['Tag reader', 'foo', 2L]],
                   ['Result processors profile',
