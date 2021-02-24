@@ -108,10 +108,9 @@ RLookupKey *RLookup_GetKey(RLookup *lookup, const char *name, int flags) {
 
 size_t RLookup_GetLength(const RLookup *lookup, const RLookupRow *r, int *skipFieldIndex,
                          int requiredFlags, int excludeFlags, SchemaRule *rule) {
-  int i = -1; // we do i++ right away and we don't want to skip i == 0
+  int i = 0;
   size_t nfields = 0;
-  for (const RLookupKey *kk = lookup->head; kk; kk = kk->next) {
-    ++i;
+  for (const RLookupKey *kk = lookup->head; kk; kk = kk->next, ++i) {
     if (requiredFlags && !(kk->flags & requiredFlags)) {
       continue;
     }
@@ -132,7 +131,7 @@ size_t RLookup_GetLength(const RLookup *lookup, const RLookupRow *r, int *skipFi
     skipFieldIndex[i] = 1;
     ++nfields;
   }
-  RS_LOG_ASSERT(i + 1 == lookup->rowlen, "'i + 1' should be equal lookup len");
+  RS_LOG_ASSERT(i == lookup->rowlen, "'i' should be equal lookup len");
   return nfields;
 }
 
