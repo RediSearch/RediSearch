@@ -444,11 +444,8 @@ static void RLookup_HGETALL_scan_callback(RedisModuleKey *key, RedisModuleString
 }
 
 
-
-
 static int RLookup_HGETALL(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options) {
   int rc = REDISMODULE_ERR;
-  RedisModuleCallReply *rep = NULL;
   RedisModuleCtx *ctx = options->sctx->redisCtx;
   RedisModuleString *krstr =
       RedisModule_CreateString(ctx, options->dmd->keyPtr, sdslen(options->dmd->keyPtr));

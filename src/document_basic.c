@@ -208,7 +208,7 @@ static void Document_ReplyAllFields_scan_callback(RedisModuleKey *key, RedisModu
     } else {
         RedisModule_ReplyWithNull(pd->ctx);
     }
-    pd->nreplies++;
+    pd->nreplies+=2;
 }
 
 
@@ -224,6 +224,7 @@ int Document_ReplyAllFields(RedisModuleCtx *ctx, IndexSpec *spec, RedisModuleStr
 
   RedisModuleScanCursor* cursor = RedisModule_ScanCursorCreate();
   SchemaRule *rule = spec->rule;
+  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
   Document_ReplyAllFields_privdata pd = {
       .ctx = ctx,
       .nreplies = 0,
@@ -231,8 +232,8 @@ int Document_ReplyAllFields(RedisModuleCtx *ctx, IndexSpec *spec, RedisModuleStr
       .score_len = rule->score_field ? strlen(rule->score_field) : 0,
       .payload_len = rule->payload_field ? strlen(rule->payload_field) : 0,
       .lang_field = rule->lang_field,
-      .score_field = rule->lang_field,
-      .payload_field = rule->lang_field,
+      .score_field = rule->score_field,
+      .payload_field = rule->payload_field,
   };
   while(RedisModule_ScanKey(key, cursor, Document_ReplyAllFields_scan_callback, &pd));
   RedisModule_ScanCursorDestroy(cursor);
