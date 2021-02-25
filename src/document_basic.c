@@ -178,63 +178,68 @@ done:
   return rc;
 }
 
+typedef struct {
+    RedisModuleCtx *ctx;
+    size_t nreplies;
+    size_t lang_len;
+    size_t score_len;
+    size_t payload_len;
+    char* lang_field;
+    char* score_field;
+    char* payload_field;
+} Document_ReplyAllFields_privdata;
+
+static void Document_ReplyAllFields_scan_callback(RedisModuleKey *key, RedisModuleString* field, RedisModuleString* value, void *privdata) {
+    REDISMODULE_NOT_USED(key);
+    Document_ReplyAllFields_privdata* pd = privdata;
+    size_t fieldCStrLen;
+    const char* fieldCStr = RedisModule_StringPtrLen(field, &fieldCStrLen);
+    RS_LOG_ASSERT(fieldCStrLen > 0, "field string cannot be empty");
+    if ((pd->lang_len == fieldCStrLen && strncasecmp(fieldCStr, pd->lang_field, fieldCStrLen) == 0) ||
+        (pd->score_len == fieldCStrLen && strncasecmp(fieldCStr, pd->score_field, fieldCStrLen) == 0) ||
+        (pd->payload_len == fieldCStrLen && strncasecmp(fieldCStr, pd->payload_field, fieldCStrLen) == 0)) {
+      return;
+    }
+    RedisModule_ReplyWithStringBuffer(pd->ctx, fieldCStr, fieldCStrLen);
+    if(value){
+        size_t valueCStrLen;
+        const char* valueCStr = RedisModule_StringPtrLen(value, &valueCStrLen);
+        RedisModule_ReplyWithStringBuffer(pd->ctx, valueCStr, valueCStrLen);
+    } else {
+        RedisModule_ReplyWithNull(pd->ctx);
+    }
+    pd->nreplies++;
+}
+
+
 int Document_ReplyAllFields(RedisModuleCtx *ctx, IndexSpec *spec, RedisModuleString *id) {
   int rc = REDISMODULE_ERR;
   RedisModuleCallReply *rep = NULL;
-
-  rep = RedisModule_Call(ctx, "HGETALL", "s", id);
-  if (rep == NULL || RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_ARRAY) {
-    RedisModule_ReplyWithArray(ctx, 0);
-    goto done;
+  RedisModuleKey *key = RedisModule_OpenKey(ctx, id, REDISMODULE_READ);
+  // the document does not exist in redis
+  if (!key) {
+      RedisModule_ReplyWithArray(ctx, 0);
+      goto done;
   }
 
-  size_t hashLen = RedisModule_CallReplyLength(rep);
-  RS_LOG_ASSERT(hashLen % 2 == 0, "Number of elements must be even");
-  // Zero means the document does not exist in redis
-  if (hashLen == 0) {
-    RedisModule_ReplyWithArray(ctx, 0);
-    goto done;
-  }
-
-  size_t strLen;
-  RedisModuleCallReply *e;
+  RedisModuleScanCursor* cursor = RedisModule_ScanCursorCreate();
   SchemaRule *rule = spec->rule;
-  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
-  size_t numElems = 0;
-
-  size_t lang_len = rule->lang_field ? strlen(rule->lang_field) : 0;
-  size_t score_len = rule->score_field ? strlen(rule->score_field) : 0;
-  size_t payload_len = rule->payload_field ? strlen(rule->payload_field) : 0;
-
-  for (size_t i = 0; i < hashLen; i += 2) {
-    // parse field
-    e = RedisModule_CallReplyArrayElement(rep, i);
-    const char *str = RedisModule_CallReplyStringPtr(e, &strLen);
-    RS_LOG_ASSERT(strLen > 0, "field string cannot be empty");
-    if ((lang_len == strLen && strncasecmp(str, rule->lang_field, strLen) == 0) ||
-        (score_len == strLen && strncasecmp(str, rule->score_field, strLen) == 0) ||
-        (payload_len == strLen && strncasecmp(str, rule->payload_field, strLen) == 0)) {
-      continue;
-    }
-    RedisModule_ReplyWithStringBuffer(ctx, str, strLen);
-
-    // parse value
-    e = RedisModule_CallReplyArrayElement(rep, i + 1);
-    str = RedisModule_CallReplyStringPtr(e, &strLen);
-    if (strLen != 0) {
-      RedisModule_ReplyWithStringBuffer(ctx, str, strLen);
-    } else {
-      RedisModule_ReplyWithNull(ctx);
-    }
-    numElems += 2;
-  }
-  RedisModule_ReplySetArrayLength(ctx, numElems);
+  Document_ReplyAllFields_privdata pd = {
+      .ctx = ctx,
+      .nreplies = 0,
+      .lang_len = rule->lang_field ? strlen(rule->lang_field) : 0,
+      .score_len = rule->score_field ? strlen(rule->score_field) : 0,
+      .payload_len = rule->payload_field ? strlen(rule->payload_field) : 0,
+      .lang_field = rule->lang_field,
+      .score_field = rule->lang_field,
+      .payload_field = rule->lang_field,
+  };
+  while(RedisModule_ScanKey(key, cursor, Document_ReplyAllFields_scan_callback, &pd));
+  RedisModule_ScanCursorDestroy(cursor);
+  RedisModule_ReplySetArrayLength(ctx, pd.nreplies);
+  RedisModule_CloseKey(key);
   rc = REDISMODULE_OK;
-
 done:
-  if (rep) {
-    RedisModule_FreeCallReply(rep);
-  }
   return rc;
 }
 
