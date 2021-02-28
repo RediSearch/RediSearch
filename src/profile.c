@@ -6,15 +6,15 @@ void printReadIt(RedisModuleCtx *ctx, IndexIterator *root, size_t counter, doubl
   RedisModule_ReplyWithArray(ctx, 3 + PROFILE_VERBOSE);
 
   if (ir->idx->flags == Index_DocIdsOnly) {
-    RedisModule_ReplyWithSimpleString(ctx, "Tag reader");
+    RedisModule_ReplyWithPrintf(ctx, "An inverted index of type TAG with %ld documents", root->NumEstimated(ir));
     RedisModule_ReplyWithSimpleString(ctx, ir->record->term.term->str);
   } else if (ir->idx->flags & Index_StoreNumeric) {
     NumericFilter *flt = ir->decoderCtx.ptr;
     if (!flt || flt->geoFilter == NULL) {
-      RedisModule_ReplyWithSimpleString(ctx, "Numeric reader");
+      RedisModule_ReplyWithPrintf(ctx, "An inverted index of type NUMERIC with %ld documents", root->NumEstimated(ir));
       RedisModule_ReplyWithPrintf(ctx, "%g - %g", ir->decoderCtx.rangeMin, ir->decoderCtx.rangeMax);
     } else {
-      RedisModule_ReplyWithSimpleString(ctx, "Geo reader");
+      RedisModule_ReplyWithPrintf(ctx, "An inverted index of type GEO with %ld documents", root->NumEstimated(ir));
       double se[2];
       double nw[2];
       decodeGeo(ir->decoderCtx.rangeMin, se);
@@ -22,7 +22,7 @@ void printReadIt(RedisModuleCtx *ctx, IndexIterator *root, size_t counter, doubl
       RedisModule_ReplyWithPrintf(ctx, "%g,%g - %g,%g", se[0], se[1], nw[0], nw[1]);
     }
   } else {
-    RedisModule_ReplyWithSimpleString(ctx, "Term reader");
+    RedisModule_ReplyWithPrintf(ctx, "An inverted index of type TERM with %ld documents", root->NumEstimated(ir));
     RedisModule_ReplyWithSimpleString(ctx, ir->record->term.term->str);
   }
 
