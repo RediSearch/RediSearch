@@ -106,10 +106,11 @@ RLookupKey *RLookup_GetKey(RLookup *lookup, const char *name, int flags) {
   return RLookup_GetKeyEx(lookup, name, strlen(name), flags);
 }
 
-size_t RLookup_GetLength(const RLookup *lookup, const RLookupRow *r, int requiredFlags,
-                         int excludeFlags) {
+size_t RLookup_GetLength(const RLookup *lookup, const RLookupRow *r, int *skipFieldIndex,
+                         int requiredFlags, int excludeFlags, SchemaRule *rule) {
+  int i = 0;
   size_t nfields = 0;
-  for (const RLookupKey *kk = lookup->head; kk; kk = kk->next) {
+  for (const RLookupKey *kk = lookup->head; kk; kk = kk->next, ++i) {
     if (requiredFlags && !(kk->flags & requiredFlags)) {
       continue;
     }
@@ -120,9 +121,17 @@ size_t RLookup_GetLength(const RLookup *lookup, const RLookupRow *r, int require
     if (!v) {
       continue;
     }
+    // on coordinator, we reach this code without sctx or rule,
+    // we trust the shards to not send those fields.
+    if (rule && ((rule->lang_field && strcmp(kk->name, rule->lang_field) == 0) ||
+                  (rule->score_field && strcmp(kk->name, rule->score_field) == 0))) {
+      continue;
+    }
 
+    skipFieldIndex[i] = 1;
     ++nfields;
   }
+  RS_LOG_ASSERT(i == lookup->rowlen, "'i' should be equal lookup len");
   return nfields;
 }
 

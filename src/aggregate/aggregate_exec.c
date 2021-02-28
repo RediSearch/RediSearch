@@ -115,33 +115,27 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
     const RLookup *lk = cv->lastLk;
     count++;
 
-    size_t nfields = 0;
-    RedisModule_ReplyWithArray(outctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+    // Get the number of fields in the reply. 
+    // Excludes hidden fields, fields not included in RETURN and, score and language fields.
     SchemaRule *rule = req->sctx ? req->sctx->spec->rule : NULL;
+    int excludeFlags = RLOOKUP_F_HIDDEN;
+    int requiredFlags = (req->outFields.explicitReturn ? RLOOKUP_F_EXPLICITRETURN : 0);
+    int skipFieldIndex[lk->rowlen]; // Array has `0` for fields which will be skipped
+    memset(skipFieldIndex, 0, lk->rowlen * sizeof(*skipFieldIndex));
+    size_t nfields = RLookup_GetLength(lk, &r->rowdata, skipFieldIndex, requiredFlags, excludeFlags, rule);
+
+    RedisModule_ReplyWithArray(outctx, nfields * 2);
+    int i = 0;
     for (const RLookupKey *kk = lk->head; kk; kk = kk->next) {
-      if (kk->flags & RLOOKUP_F_HIDDEN) {
-        // todo: this is a dead code, no one set RLOOKUP_F_HIDDEN
-        continue;
-      }
-      // on coordinator, we reach this code without sctx or rule,
-      // we trust the shards to not send those fields.
-      if (rule && ((rule->lang_field && strcmp(kk->name, rule->lang_field) == 0) ||
-                   (rule->score_field && strcmp(kk->name, rule->score_field) == 0))) {
-        continue;
-      }
-      if (req->outFields.explicitReturn && (kk->flags & RLOOKUP_F_EXPLICITRETURN) == 0) {
+      if (!skipFieldIndex[i++]) {
         continue;
       }
       const RSValue *v = RLookup_GetItem(kk, &r->rowdata);
-      if (!v) {
-        continue;
-      }
+      RS_LOG_ASSERT(v, "v was found in RLookup_GetLength iteration")
 
       RedisModule_ReplyWithStringBuffer(outctx, kk->name, strlen(kk->name));
       RSValue_SendReply(outctx, v, req->reqflags & QEXEC_F_TYPED);
-      nfields += 2;
     }
-    RedisModule_ReplySetArrayLength(outctx, nfields);
   }
   return count;
 }
