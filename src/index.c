@@ -681,6 +681,11 @@ static void II_Rewind(void *ctx) {
   }
 }
 
+typedef int (*CompareFunc)(const void *a, const void *b);
+static int cmpIter(IndexIterator **it1, IndexIterator **it2) {
+  return (int)((*it1)->NumEstimated((*it1)->ctx) - (*it2)->NumEstimated((*it2)->ctx));
+}
+
 static void II_SortChildren(IntersectIterator *ctx) {
   /**
    * 1. Go through all the iterators, ensuring none of them is NULL
@@ -746,6 +751,7 @@ static void II_SortChildren(IntersectIterator *ctx) {
   }
 
   rm_free(ctx->its);
+  qsort(sortedIts, sortedItsSize, sizeof(*sortedIts), (CompareFunc)cmpIter);
   ctx->its = sortedIts;
   ctx->num = sortedItsSize;
   array_free(unsortedIts);
