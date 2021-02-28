@@ -127,3 +127,16 @@ def test_issue1834(env):
   conn.execute_command('HSET', 'doc', 't', 'hell hello')
 
   env.expect('FT.SEARCH', 'idx', 'hell|hello', 'HIGHLIGHT').equal([1L, 'doc', ['t', '<b>hell</b> <b>hello</b>']])
+
+def test_issue1880(env):
+  # order of iterator in intersect is optimized by function
+  env.skipOnCluster()
+  conn = getConnectionByEnv(env)
+  env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+  conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+  conn.execute_command('HSET', 'doc1', 't', 'hello world')
+  conn.execute_command('HSET', 'doc2', 't', 'hello')
+
+  res1 = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'hello world')
+  res2 = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'world hello')
+  env.assertEqual(res1, res2)
