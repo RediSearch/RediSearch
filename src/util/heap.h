@@ -111,4 +111,18 @@ void *heap_remove_item(heap_t * hp, const void *item);
  * @return 1 if the heap contains this item; otherwise 0 */
 int heap_contains_item(const heap_t * hp, const void *item);
 
+/**
+ * Called when an entry is removed
+ */
+typedef void (*HeapCallback)(void *dst, void *src);
+
+/**
+ * Run callback of all elements equal to root
+ *
+ * @param[in] callback The function to be called
+ * @param[in] ctx The data required by the callback function 
+ * @return 
+ */
+void heap_cb_root(const heap_t * hp, HeapCallback cb, void *ctx);
+
 #endif /* HEAP_H */

@@ -81,6 +81,10 @@ static void resetMinIdHeap(UnionIterator *ui) {
                 "count should be equal to number of iterators");
 }
 
+static void UI_HeapAddChildren(UnionIterator *ui, IndexIterator *it) {
+  AggregateResult_AddChild(CURRENT_RECORD(ui), IITER_CURRENT_RECORD(it));
+}
+
 static inline t_docId UI_LastDocId(void *ctx) {
   return ((UnionIterator *)ctx)->minDocId;
 }
@@ -352,7 +356,7 @@ static inline int UI_ReadSorted(void *ctx, RSIndexResult **hit) {
 // UI_Read for iterator with high count of children
 static inline int UI_ReadSortedHigh(void *ctx, RSIndexResult **hit) {
   UnionIterator *ui = ctx;
-  IndexIterator *it;
+  IndexIterator *it = NULL;
   RSIndexResult *res;
   heap_t *hp = ui->heapMinId;
 
@@ -362,6 +366,7 @@ static inline int UI_ReadSortedHigh(void *ctx, RSIndexResult **hit) {
     return INDEXREAD_EOF;
   }
   AggregateResult_Reset(CURRENT_RECORD(ui));
+  t_docId nextValidId = ui->minDocId + 1;
 
   /*
    * A min-heap maintains all sub-iterators which are not EOF.
@@ -371,9 +376,8 @@ static inline int UI_ReadSortedHigh(void *ctx, RSIndexResult **hit) {
    */
   while (heap_count(hp)) {
     it = heap_peek(hp);
-    t_docId nextValidId = ui->minDocId + 1;
     res = IITER_CURRENT_RECORD(it);
-    if (it->minId > ui->minDocId && it->minId != 0) {
+    if (it->minId >= nextValidId && it->minId != 0) {
       // valid result since id at root of min-heap is higher than union min id
       break;
     }
@@ -388,7 +392,7 @@ static inline int UI_ReadSortedHigh(void *ctx, RSIndexResult **hit) {
       RS_LOG_ASSERT(res, "should not be NULL");
       heap_replace(hp, it);
       // after SkipTo, try test again for validity
-      if (it->minId == nextValidId) {
+      if (ui->quickExit && it->minId == nextValidId) {
         break;
       }
     }
@@ -400,7 +404,15 @@ static inline int UI_ReadSortedHigh(void *ctx, RSIndexResult **hit) {
   }
 
   ui->minDocId = it->minId;
-  AggregateResult_AddChild(CURRENT_RECORD(ui), res);
+
+  // On quickExit we just return one result. 
+  // Otherwise, we collect all the results that equal to the root of the heap.
+  if (ui->quickExit) {
+    AggregateResult_AddChild(CURRENT_RECORD(ui), res);
+  } else {
+    heap_cb_root(hp, (HeapCallback)UI_HeapAddChildren, ui);
+  }
+
   *hit = CURRENT_RECORD(ui);
   return INDEXREAD_OK;
 }
@@ -525,7 +537,7 @@ static int UI_SkipToHigh(void *ctx, t_docId docId, RSIndexResult **hit) {
   AggregateResult_Reset(CURRENT_RECORD(ui));
   CURRENT_RECORD(ui)->weight = ui->weight;
   int rc = INDEXREAD_EOF;
-  IndexIterator *it;
+  IndexIterator *it = NULL;
   RSIndexResult *res;
   heap_t *hp = ui->heapMinId;
 
@@ -548,7 +560,7 @@ static int UI_SkipToHigh(void *ctx, t_docId docId, RSIndexResult **hit) {
     // refresh heap with iterator with updated minId
     it->minId = res->docId;
     heap_replace(hp, it);
-    if (it->minId == docId) {
+    if (ui->quickExit && it->minId == docId) {
       break;
     }
   }
@@ -559,7 +571,15 @@ static int UI_SkipToHigh(void *ctx, t_docId docId, RSIndexResult **hit) {
   }
 
   rc = (it->minId == docId) ? INDEXREAD_OK : INDEXREAD_NOTFOUND;
-  AggregateResult_AddChild(CURRENT_RECORD(ui), IITER_CURRENT_RECORD(it));
+
+  // On quickExit we just return one result. 
+  // Otherwise, we collect all the results that equal to the root of the heap.
+  if (ui->quickExit) {
+    AggregateResult_AddChild(CURRENT_RECORD(ui), IITER_CURRENT_RECORD(it));
+  } else {
+    heap_cb_root(hp, (HeapCallback)UI_HeapAddChildren, ui);
+  }
+
   *hit = CURRENT_RECORD(ui);
   return rc;
 }
@@ -1661,6 +1681,7 @@ typedef struct {
   IndexIterator *child;
   size_t counter;
   clock_t cpuTime;
+  int eof;
 } ProfileIterator, ProfileIteratorCtx;
 
 static int PI_Read(void *ctx, RSIndexResult **e) {
@@ -1668,6 +1689,7 @@ static int PI_Read(void *ctx, RSIndexResult **e) {
   pi->counter++;
   clock_t begin = clock();
   int ret = pi->child->Read(pi->child->ctx, e);
+  if (ret == INDEXREAD_EOF) pi->eof = 1;
   pi->base.current = pi->child->current;
   pi->cpuTime += clock() - begin;
   return ret;
@@ -1678,6 +1700,7 @@ static int PI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
   pi->counter++;
   clock_t begin = clock();
   int ret = pi->child->SkipTo(pi->child->ctx, docId, hit);
+  if (ret == INDEXREAD_EOF) pi->eof = 1;
   pi->base.current = pi->child->current;
   pi->cpuTime += clock() - begin;
   return ret;
@@ -1712,6 +1735,7 @@ IndexIterator *NewProfileIterator(IndexIterator *child) {
   pc->child = child;
   pc->counter = 0;
   pc->cpuTime = 0;
+  pc->eof = 0;
 
   IndexIterator *ret = &pc->base;
   ret->ctx = pc;
@@ -1790,7 +1814,7 @@ PRINT_PROFILE_FUNC(printIntersectIt) {
 }
 
 #define PRINT_PROFILE_SINGLE(name, iterType, text, hasChild)                        \
-PRINT_PROFILE_FUNC(name) {                                                     \
+PRINT_PROFILE_FUNC(name) {                                                          \
   int verbose = PROFILE_VERBOSE;                                                    \
   int addChild = hasChild && ((iterType *)root)->child;                             \
   RedisModule_ReplyWithArray(ctx, 2 + verbose + addChild);                          \
@@ -1815,7 +1839,7 @@ PRINT_PROFILE_SINGLE(printEmptyIt, DummyIterator, "Empty iterator", 0);
 
 PRINT_PROFILE_FUNC(printProfileIt) {
   ProfileIterator *pi = (ProfileIterator *)root;
-  printIteratorProfile(ctx, pi->child, pi->counter, (double)pi->cpuTime / CLOCKS_PER_MILLISEC, depth, limited);
+  printIteratorProfile(ctx, pi->child, pi->counter - pi->eof, (double)pi->cpuTime / CLOCKS_PER_MILLISEC, depth, limited);
 }
 
 void printIteratorProfile(RedisModuleCtx *ctx, IndexIterator *root, size_t counter,
