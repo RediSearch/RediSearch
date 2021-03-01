@@ -89,10 +89,6 @@ While it is possible and simple to use the raw Redis commands API, in most cases
 [redi_search-author]: https://github.com/npezza93
 [redi_search-stars]: https://img.shields.io/github/stars/npezza93/redi_search.svg?style=social&amp;label=Star&amp;maxAge=2592000
 
-[redis-modules-sdk-url]: https://github.com/danitseitlin/redis-modules-sdk
-[redis-modules-sdk-author]: https://github.com/danitseitlin
-[redis-modules-sdk-stars]: https://img.shields.io/github/stars/danitseitlin/redis-modules-sdk.svg?style=social&amp;label=Star&amp;maxAge=2592000
-
 ## Other available Libraries
 
 | Language | Library | Author | License | Stars | Comments |
