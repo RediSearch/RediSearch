@@ -41,7 +41,11 @@ class RediSearchSetup(paella.Setup):
 
     def macos(self):
         self.install_gnu_utils()
-        self.run("{PYTHON} {READIES}/bin/getredis -v 6 --force".format(PYTHON=self.python, READIES=READIES))
+        self.install.("pkg-config")
+
+        # for now depending on redis from brew, it's version6 with TLS.
+        #self.run("{PYTHON} {READIES}/bin/getredis -v 6 --force".format(PYTHON=self.python, READIES=READIES))
+        self.install.("redis")
 
     def common_last(self):
         self.run("{PYTHON} {READIES}/bin/getcmake".format(PYTHON=self.python, READIES=READIES))
