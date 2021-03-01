@@ -18,8 +18,9 @@ While it is possible and simple to use the raw Redis commands API, in most cases
 | JavaScript | [redis-redisearch][redis-redisearch-url] | [Kyle J. Davis][redis-redisearch-author] | MIT | [![redis-redisearch-stars]][redis-redisearch-url]|
 | TypeScript | [redis-modules-sdk][redis-modules-sdk-url] | [Dani Tseitlin][redis-modules-sdk-author] | BSD-3-Clause | [![redis-modules-sdk-stars]][redis-modules-sdk-url]|
 | C# | [NRediSearch][NRediSearch-url] | [Marc Gravell][NRediSearch-author] | MIT | [![NRediSearch-stars]][NRediSearch-url] |
-| PHP | [redisearch-php][redisearch-php-url] | [Ethan Hann][redisearch-php-author] | MIT | [![redisearch-php-stars]][redisearch-php-url] |
 | PHP | [php-redisearch][php-redisearch-url] | [MacFJA][php-redisearch-author] | MIT | [![php-redisearch-stars]][php-redisearch-url] |
+| PHP | [redisearch-php][redisearch-php-url] (for RediSearch v1)| [Ethan Hann][redisearch-php-author] | MIT | [![redisearch-php-stars]][redisearch-php-url] |
+| PHP | [Redisearch][front-redisearch-url] (for RediSearch v2)| [Front][front-redisearch-author] | MIT | [![front-redisearch-stars]][front-redisearch-url] |
 | Ruby on Rails | [redi_search_rails][redi_search_rails-url] | [Dmitry Polyakovsky][redi_search_rails-author] | MIT | [![redi_search_rails-stars]][redi_search_rails-url]|
 | Ruby | [redisearch-rb][redisearch-rb-url] | [Victor Ruiz][redisearch-rb-author] | MIT | [![redisearch-rb-stars]][redisearch-rb-url]|
 | Ruby | [redi_search][redi_search-url] | [Nick Pezza][redi_search-author] | MIT | [![redi_search-stars]][redi_search-url] |
@@ -72,6 +73,10 @@ While it is possible and simple to use the raw Redis commands API, in most cases
 [php-redisearch-author]: https://github.com/MacFJA
 [php-redisearch-stars]: https://img.shields.io/github/stars/MacFJA/php-redisearch.svg?style=social&amp;label=Star&amp;maxAge=2592000
 
+[front-redisearch-url]: https://github.com/front/redisearch
+[front-redisearch-author]: https://github.com/front/
+[front-redisearch-stars]: https://img.shields.io/github/stars/front/redisearch.svg?style=social&amp;label=Star&amp;maxAge=2592000
+
 [redi_search_rails-url]: https://github.com/dmitrypol/redi_search_rails
 [redi_search_rails-author]: https://github.com/dmitrypol
 [redi_search_rails-stars]: https://img.shields.io/github/stars/dmitrypol/redi_search_rails.svg?style=social&amp;label=Star&amp;maxAge=2592000
@@ -83,6 +88,10 @@ While it is possible and simple to use the raw Redis commands API, in most cases
 [redi_search-url]: https://github.com/npezza93/redi_search
 [redi_search-author]: https://github.com/npezza93
 [redi_search-stars]: https://img.shields.io/github/stars/npezza93/redi_search.svg?style=social&amp;label=Star&amp;maxAge=2592000
+
+[redis-modules-sdk-url]: https://github.com/danitseitlin/redis-modules-sdk
+[redis-modules-sdk-author]: https://github.com/danitseitlin
+[redis-modules-sdk-stars]: https://img.shields.io/github/stars/danitseitlin/redis-modules-sdk.svg?style=social&amp;label=Star&amp;maxAge=2592000
 
 ## Other available Libraries
 

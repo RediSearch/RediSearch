@@ -151,8 +151,8 @@ RLTEST_GDB=-i
 endif
 
 pytest:
-	set -e ;\
-	@if ! command -v redis-server > /dev/null; then \
+	@set -e ;\
+	if ! command -v redis-server > /dev/null; then \
 		echo "Cannot find redis-server. Aborting." ;\
 		exit 1 ;\
 	fi

@@ -38,13 +38,13 @@ commands:
           command: ./.circleci/ci_get_deps.sh
       - run:
           name: Build
-          command: ./.circleci/ci_build.sh
+          command: bash -l -c "./.circleci/ci_build.sh"
       - run:
           name: Test
-          command: ./.circleci/ci_test.sh
+          command: bash -l -c "./.circleci/ci_test.sh"
       - run:
           name: Package
-          command: COMPAT_DIR=$BUILD_DIR make pack
+          command: bash -l -c "COMPAT_DIR=$BUILD_DIR make pack"
           environment:
             - PACKAGE_NAME: redisearch-oss
       - early_return_for_forked_pull_requests
@@ -59,7 +59,7 @@ commands:
 jobs:
   ubuntu:
     docker:
-      - image: redisfab/rmbuilder:6.0.7-x64-buster
+      - image: redisfab/rmbuilder:6.0.9-x64-buster
     environment:
       - BUILD_DIR: build-debian
     steps:
@@ -69,7 +69,7 @@ jobs:
 
   centos:
     docker:
-      - image: redisfab/rmbuilder:6.0.7-x64-centos7
+      - image: redisfab/rmbuilder:6.0.9-x64-centos7
     environment:
       - BUILD_DIR: build-el
     steps:
@@ -89,7 +89,7 @@ jobs:
 
   deploy_snapshots:
     docker:
-      - image: redisfab/rmbuilder:6.0.7-x64-buster
+      - image: redisfab/rmbuilder:6.0.9-x64-buster
     steps:
       - abort_for_docs
       - early_return_for_forked_pull_requests
@@ -105,37 +105,40 @@ jobs:
 
   debug_asan:
     docker:
-      - image: redisfab/clang:4.0.1-x64-stretch
+      - image: redisfab/clang:12-x64-stretch
     steps:
       - abort_for_docs
       - checkout
       - run:
           name: Run & build tests
-          command: ASAN=1 ./.circleci/ci_diag_san.sh
+          command: bash -l -c "ASAN=1 ./.circleci/ci_diag_san12.sh"
+          no_output_timeout: 20m
       - store_artifacts:
           path: build-asan/logs
 
   debug_msan:
     docker:
-      - image: redisfab/clang:4.0.1-x64-stretch
+      - image: redisfab/clang:12-x64-stretch
     steps:
       - abort_for_docs
       - checkout
       - run:
           name: Run & build tests
-          command: MSAN=1 ./.circleci/ci_diag_san.sh
+          command: bash -l -c "MSAN=1 ./.circleci/ci_diag_san12.sh"
+          no_output_timeout: 20m
       - store_artifacts:
           path: build-msan/logs
 
   coverage:
     docker:
-      - image: redisfab/rmbuilder:6.0.7-x64-buster
+      - image: redisfab/rmbuilder:6.0.9-x64-buster
     steps:
       - abort_for_docs
       - checkout
       - run:
           name: Build & Test
-          command: ./.circleci/ci_coverage.sh
+          command: bash -l -c "./.circleci/ci_coverage.sh"
+          no_output_timeout: 20m
       - store_artifacts:
           path: coverage
           destination: coverage
@@ -144,7 +147,7 @@ jobs:
 
   deploy_release:
     docker:
-      - image: redisfab/rmbuilder:6.0.7-x64-buster
+      - image: redisfab/rmbuilder:6.0.9-x64-buster
     steps:
       - abort_for_docs
       - early_return_for_forked_pull_requests
@@ -219,11 +222,14 @@ workflows:
       - debug_msan:
           <<: *on-any-branch
       - coverage:
+          context: common
           <<: *on-any-branch
       - deploy_snapshots:
+          context: common
           requires: *default_jobs
           <<: *on-master
       - deploy_release:
+          context: common
           requires: *default_jobs
           <<: *on-version-tags
 
