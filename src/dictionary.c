@@ -149,7 +149,7 @@ void Dictionary_Clear() {
 }
 
 void Dictionary_Free() {
-  if (!spellCheckDicts) {
+  if (spellCheckDicts) {
     Dictionary_Clear();
     dictRelease(spellCheckDicts);
   }
