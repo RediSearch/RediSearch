@@ -3,18 +3,23 @@
 void printReadIt(RedisModuleCtx *ctx, IndexIterator *root, size_t counter, double cpuTime) {
   IndexReader *ir = root->ctx;
 
-  RedisModule_ReplyWithArray(ctx, 3 + PROFILE_VERBOSE);
+  RedisModule_ReplyWithArray(ctx, (4 + PROFILE_VERBOSE) * 2);
 
   if (ir->idx->flags == Index_DocIdsOnly) {
-    RedisModule_ReplyWithPrintf(ctx, "An inverted index of type TAG with %ld documents", root->NumEstimated(ir));
+    printProfileType("TAG");
+    RedisModule_ReplyWithSimpleString(ctx, "Term");
     RedisModule_ReplyWithSimpleString(ctx, ir->record->term.term->str);
+
   } else if (ir->idx->flags & Index_StoreNumeric) {
     NumericFilter *flt = ir->decoderCtx.ptr;
     if (!flt || flt->geoFilter == NULL) {
-      RedisModule_ReplyWithPrintf(ctx, "An inverted index of type NUMERIC with %ld documents", root->NumEstimated(ir));
+      printProfileType("NUMERIC");
+      RedisModule_ReplyWithSimpleString(ctx, "Term");
       RedisModule_ReplyWithPrintf(ctx, "%g - %g", ir->decoderCtx.rangeMin, ir->decoderCtx.rangeMax);
+
     } else {
-      RedisModule_ReplyWithPrintf(ctx, "An inverted index of type GEO with %ld documents", root->NumEstimated(ir));
+      printProfileType("GEO");
+      RedisModule_ReplyWithSimpleString(ctx, "Term");
       double se[2];
       double nw[2];
       decodeGeo(ir->decoderCtx.rangeMin, se);
@@ -22,15 +27,18 @@ void printReadIt(RedisModuleCtx *ctx, IndexIterator *root, size_t counter, doubl
       RedisModule_ReplyWithPrintf(ctx, "%g,%g - %g,%g", se[0], se[1], nw[0], nw[1]);
     }
   } else {
-    RedisModule_ReplyWithPrintf(ctx, "An inverted index of type TERM with %ld documents", root->NumEstimated(ir));
+    printProfileType("TEXT");
+    RedisModule_ReplyWithSimpleString(ctx, "Term");
     RedisModule_ReplyWithSimpleString(ctx, ir->record->term.term->str);
   }
 
   // print counter and clock
   if (PROFILE_VERBOSE) {
-      RedisModule_ReplyWithLongDouble(ctx, cpuTime);
+    printProfileTime(cpuTime);
   }
-  RedisModule_ReplyWithLongLong(ctx, counter);
+  printProfileCounter(counter);
+  RedisModule_ReplyWithSimpleString(ctx, "Size");
+  RedisModule_ReplyWithLongLong(ctx, root->NumEstimated(ir));
 }
 
 static double _recursiveProfilePrint(RedisModuleCtx *ctx, ResultProcessor *rp, size_t *arrlen) {

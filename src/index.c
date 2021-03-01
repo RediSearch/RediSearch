@@ -1763,32 +1763,40 @@ PRINT_PROFILE_FUNC(printUnionIt) {
   UnionIterator *ui = (UnionIterator *)root;
   int printFull = !limited  || (ui->origType & QN_UNION);
 
-  int arrayLen = 2 + PROFILE_VERBOSE;
-  arrayLen += printFull ? ui->norig : 1;
+  int arrayLen = (3 + PROFILE_VERBOSE) * 2;
+  arrayLen += 1 + (printFull ? ui->norig : 1);
   RedisModule_ReplyWithArray(ctx, arrayLen);
 
+  printProfileType("UNION");
+  RedisModule_ReplyWithSimpleString(ctx, "Query type");
   char *unionTypeStr;
   switch (ui->origType) {
-  case QN_GEO : unionTypeStr = "Union iterator - GEO"; break;
-  case QN_TAG : unionTypeStr = "Union iterator - TAG"; break;
-  case QN_UNION : unionTypeStr = "Union iterator - UNION"; break;
-  case QN_FUZZY : unionTypeStr = "Union iterator - FUZZY"; break;
-  case QN_PREFIX : unionTypeStr = "Union iterator - PREFIX"; break;
-  case QN_NUMERIC : unionTypeStr = "Union iterator - NUMERIC"; break;
-  case QN_LEXRANGE : unionTypeStr = "Union iterator - LEXRANGE"; break;
+  case QN_GEO : unionTypeStr = "GEO"; break;
+  case QN_TAG : unionTypeStr = "TAG"; break;
+  case QN_UNION : unionTypeStr = "UNION"; break;
+  case QN_FUZZY : unionTypeStr = "FUZZY"; break;
+  case QN_PREFIX : unionTypeStr = "PREFIX"; break;
+  case QN_NUMERIC : unionTypeStr = "NUMERIC"; break;
+  case QN_LEXRANGE : unionTypeStr = "LEXRANGE"; break;
   default:
     RS_LOG_ASSERT(0, "Invalid type for union");
     break;
   }
-
   if (!ui->qstr) {
     RedisModule_ReplyWithSimpleString(ctx, unionTypeStr);
   } else {
     RedisModule_ReplyWithPrintf(ctx, "%s - %s", unionTypeStr, ui->qstr);
   }
 
+  RedisModule_ReplyWithSimpleString(ctx, "Counter");
   RedisModule_ReplyWithLongLong(ctx, counter);
-  if (PROFILE_VERBOSE) RedisModule_ReplyWithDouble(ctx, cpuTime);
+
+  if (PROFILE_VERBOSE) {
+    RedisModule_ReplyWithSimpleString(ctx, "Time");
+    RedisModule_ReplyWithDouble(ctx, cpuTime);
+  }
+
+  RedisModule_ReplyWithSimpleString(ctx, "Children iterators");
   if (printFull) {
     for (int i = 0; i < ui->norig; i++) {
       printIteratorProfile(ctx, ui->origits[i], 0, 0, depth + 1, limited);
@@ -1800,10 +1808,15 @@ PRINT_PROFILE_FUNC(printUnionIt) {
 
 PRINT_PROFILE_FUNC(printIntersectIt) {
   IntersectIterator *ii = (IntersectIterator *)root;
-  RedisModule_ReplyWithArray(ctx, ii->num + 2 + PROFILE_VERBOSE);
-  RedisModule_ReplyWithSimpleString(ctx, "Intersect iterator");
-  RedisModule_ReplyWithLongLong(ctx, counter);
-  if (PROFILE_VERBOSE) RedisModule_ReplyWithDouble(ctx, cpuTime);
+  int arrayLen = (2 + PROFILE_VERBOSE) * 2;
+  RedisModule_ReplyWithArray(ctx, arrayLen + 1 + ii->num);
+  printProfileType("INTERSECT");
+  if (PROFILE_VERBOSE) {
+    printProfileTime(cpuTime);
+  }
+  printProfileCounter(counter);
+
+  RedisModule_ReplyWithSimpleString(ctx, "Children iterators");
   for (int i = 0; i < ii->num; i++) {
     if (ii->its[i]) {
       printIteratorProfile(ctx, ii->its[i], 0, 0, depth + 1, limited);
