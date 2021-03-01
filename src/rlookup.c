@@ -481,14 +481,15 @@ static int RLookup_HGETALL(RLookup *it, RLookupRow *dst, RLookupLoadOptions *opt
   }
   else {
     RedisModuleKey *key = RedisModule_OpenKey(ctx, krstr, REDISMODULE_READ);
-    if (!key) {
-        goto done;
+    if (!key || RedisModule_KeyType(key) != REDISMODULE_KEYTYPE_HASH) {
+      // key does not exist or is not a hash
+      goto done;
     }
     RedisModuleScanCursor *cursor = RedisModule_ScanCursorCreate();
     RLookup_HGETALL_privdata pd = {
-        .it = it,
-        .dst = dst,
-        .options = options,
+      .it = it,
+      .dst = dst,
+      .options = options,
     };
     while(RedisModule_ScanKey(key, cursor, RLookup_HGETALL_scan_callback, &pd));
     RedisModule_ScanCursorDestroy(cursor);
