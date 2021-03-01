@@ -185,6 +185,7 @@ sds RSConfig_GetInfoString(const RSConfig *config);
 
 #define REDIS_ARRAY_LIMIT 7
 #define NO_REPLY_DEPTH_LIMIT 0x00060020
+#define RM_SCAN_KEY_API_FIX 0x00060006
 
 static inline int isFeatureSupported(int feature) {
   return feature <= RSGlobalConfig.serverVersion;

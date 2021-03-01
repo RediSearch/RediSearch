@@ -417,26 +417,17 @@ done:
   return rc;
 }
 
-// We can only use the scan API from Redis version 6.0.6 and above
-// because we need this fix: https://github.com/redis/redis/commit/51e178454d
-static inline int canUse_RM_ScanAPI() {
-  return !((redisVersion.majorVersion < 6) ||
-           (redisVersion.majorVersion == 6 && redisVersion.minorVersion == 0 && redisVersion.minorVersion <= 5)
-          );
-}
-
-
 typedef struct {
   RLookup *it;
   RLookupRow *dst;
   RLookupLoadOptions *options;
 } RLookup_HGETALL_privdata;
 
-static void RLookup_HGETALL_scan_callback(RedisModuleKey *key, RedisModuleString* field, RedisModuleString* value, void *privdata) {
+static void RLookup_HGETALL_scan_callback(RedisModuleKey *key, RedisModuleString *field, RedisModuleString *value, void *privdata) {
   REDISMODULE_NOT_USED(key);
-  RLookup_HGETALL_privdata* pd = privdata;
+  RLookup_HGETALL_privdata *pd = privdata;
   size_t fieldCStrLen;
-  const char* fieldCStr = RedisModule_StringPtrLen(field, &fieldCStrLen);
+  const char *fieldCStr = RedisModule_StringPtrLen(field, &fieldCStrLen);
   RS_LOG_ASSERT(fieldCStrLen > 0, "field string cannot be empty");
   RLookupKey *rlk = RLookup_GetKeyEx(pd->it, fieldCStr, fieldCStrLen, RLOOKUP_F_OCREAT | RLOOKUP_F_NAMEALLOC);
   if (!pd->options->noSortables && (rlk->flags & RLOOKUP_F_SVSRC)) {
@@ -450,15 +441,14 @@ static void RLookup_HGETALL_scan_callback(RedisModuleKey *key, RedisModuleString
   RLookup_WriteOwnKey(rlk, pd->dst, vptr);
 }
 
-
 static int RLookup_HGETALL(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options) {
   int rc = REDISMODULE_ERR;
   RedisModuleCallReply *rep = NULL;
   RedisModuleCtx *ctx = options->sctx->redisCtx;
   RedisModuleString *krstr =
       RedisModule_CreateString(ctx, options->dmd->keyPtr, sdslen(options->dmd->keyPtr));
-
-  if(!canUse_RM_ScanAPI()){
+  // We can only use the scan API from Redis version 6.0.6 and above
+  if(!isFeatureSupported(RM_SCAN_KEY_API_FIX)){
     rep = RedisModule_Call(ctx, "HGETALL", "s", krstr);
 
     if (rep == NULL || RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_ARRAY) {
@@ -494,7 +484,7 @@ static int RLookup_HGETALL(RLookup *it, RLookupRow *dst, RLookupLoadOptions *opt
     if (!key) {
         goto done;
     }
-    RedisModuleScanCursor* cursor = RedisModule_ScanCursorCreate();
+    RedisModuleScanCursor *cursor = RedisModule_ScanCursorCreate();
     RLookup_HGETALL_privdata pd = {
         .it = it,
         .dst = dst,
@@ -504,6 +494,7 @@ static int RLookup_HGETALL(RLookup *it, RLookupRow *dst, RLookupLoadOptions *opt
     RedisModule_ScanCursorDestroy(cursor);
     RedisModule_CloseKey(key);
   }
+
   rc = REDISMODULE_OK;
 
 done:
