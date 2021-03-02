@@ -84,7 +84,6 @@ typedef struct {
   // Chained configuration data
   void *chainedConfig;
 
-  long long maxResultsToUnsortedMode;
   long long minUnionIterHeap;;
 
   int noMemPool;
@@ -162,7 +161,6 @@ sds RSConfig_GetInfoString(const RSConfig *config);
 #define GC_SCANSIZE 100
 #define DEFAULT_MIN_PHONETIC_TERM_LEN 3
 #define DEFAULT_FORK_GC_RUN_INTERVAL 30
-#define DEFAULT_MAX_RESULTS_TO_UNSORTED_MODE 1000
 #define SEARCH_REQUEST_RESULTS_MAX 1000000
 #define NR_MAX_DEPTH_BALANCE 2
 
@@ -176,7 +174,7 @@ sds RSConfig_GetInfoString(const RSConfig *config);
     .indexPoolSize = CONCURRENT_INDEX_POOL_DEFAULT_SIZE, .poolSizeNoAuto = 0,                     \
     .gcScanSize = GC_SCANSIZE, .minPhoneticTermLen = DEFAULT_MIN_PHONETIC_TERM_LEN,               \
     .gcPolicy = GCPolicy_Fork, .forkGcRunIntervalSec = DEFAULT_FORK_GC_RUN_INTERVAL,              \
-    .forkGcSleepBeforeExit = 0, .maxResultsToUnsortedMode = DEFAULT_MAX_RESULTS_TO_UNSORTED_MODE, \
+    .forkGcSleepBeforeExit = 0,                                                                   \
     .forkGcRetryInterval = 5, .forkGcCleanThreshold = 100, .noMemPool = 0, .filterCommands = 0,   \
     .maxSearchResults = SEARCH_REQUEST_RESULTS_MAX, .maxAggregateResults = -1,                    \
     .minUnionIterHeap = 20, .numericCompress = false, .numericTreeMaxDepthRange = 0,              \

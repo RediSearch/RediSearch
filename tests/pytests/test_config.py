@@ -37,7 +37,6 @@ def testGetConfigOptions(env):
     assert env.expect('ft.config', 'get', 'FORK_GC_RUN_INTERVAL').res[0][0] =='FORK_GC_RUN_INTERVAL'
     assert env.expect('ft.config', 'get', 'FORK_GC_CLEAN_THRESHOLD').res[0][0] =='FORK_GC_CLEAN_THRESHOLD'
     assert env.expect('ft.config', 'get', 'FORK_GC_RETRY_INTERVAL').res[0][0] =='FORK_GC_RETRY_INTERVAL'
-    assert env.expect('ft.config', 'get', '_MAX_RESULTS_TO_UNSORTED_MODE').res[0][0] =='_MAX_RESULTS_TO_UNSORTED_MODE'
     assert env.expect('ft.config', 'get', 'PARTIAL_INDEXED_DOCS').res[0][0] =='PARTIAL_INDEXED_DOCS'
     assert env.expect('ft.config', 'get', 'UNION_ITERATOR_HEAP').res[0][0] =='UNION_ITERATOR_HEAP'
     assert env.expect('ft.config', 'get', '_NUMERIC_COMPRESS').res[0][0] =='_NUMERIC_COMPRESS'
@@ -67,7 +66,6 @@ def testSetConfigOptions(env):
     env.expect('ft.config', 'set', 'FORK_GC_RUN_INTERVAL', 1).equal('OK')
     env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 1).equal('OK')
     env.expect('ft.config', 'set', 'FORK_GC_RETRY_INTERVAL', 1).equal('OK')
-    env.expect('ft.config', 'set', '_MAX_RESULTS_TO_UNSORTED_MODE', 1).equal('OK')
 
 def testSetConfigOptionsErrors(env):
     env.expect('ft.config', 'set', 'MAXDOCTABLESIZE', 'str').equal('Not modifiable at runtime')
@@ -112,7 +110,6 @@ def testAllConfig(env):
 
     # skip ctest configured tests
     #env.assertEqual(res_dict['GC_POLICY'][0], 'fork')
-    #env.assertEqual(res_dict['_MAX_RESULTS_TO_UNSORTED_MODE'][0], '1000')
     #env.assertEqual(res_dict['SAFEMODE'][0], 'true')
     #env.assertEqual(res_dict['UNION_ITERATOR_HEAP'][0], '20')
 
@@ -140,7 +137,6 @@ def testInitConfig(env):
     test_arg_num('FORK_GC_RUN_INTERVAL', 3)
     test_arg_num('FORK_GC_CLEAN_THRESHOLD', 3)
     test_arg_num('FORK_GC_RETRY_INTERVAL', 3)
-    test_arg_num('_MAX_RESULTS_TO_UNSORTED_MODE', 3)
     test_arg_num('UNION_ITERATOR_HEAP', 20)
     test_arg_num('_NUMERIC_RANGES_PARENTS', 1)
 

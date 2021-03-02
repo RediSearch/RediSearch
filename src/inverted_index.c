@@ -798,94 +798,6 @@ static t_docId calculateId(t_docId lastId, uint32_t delta, int isFirst) {
   return ret;
 }
 
-typedef struct {
-  IndexCriteriaTester base;
-  union {
-    NumericFilter nf;
-    struct {
-      char *term;
-      size_t termLen;
-      t_fieldMask fieldMask;
-    } tf;
-  };
-  const IndexSpec *spec;
-} IR_CriteriaTester;
-
-static int IR_TestNumeric(IndexCriteriaTester *ct, t_docId id) {
-  IR_CriteriaTester *irct = (IR_CriteriaTester *)ct;
-  const IndexSpec *sp = irct->spec;
-  size_t len;
-  const char *externalId = DocTable_GetKey((DocTable *)&sp->docs, id, &len);
-  double doubleValue;
-  int ret = sp->getValue(sp->getValueCtx, irct->nf.fieldName, externalId, NULL, &doubleValue);
-  RS_LOG_ASSERT(ret == RSVALTYPE_DOUBLE, "RSvalue type should be a double");
-  return ((irct->nf.min < doubleValue || (irct->nf.inclusiveMin && irct->nf.min == doubleValue)) &&
-          (irct->nf.max > doubleValue || (irct->nf.inclusiveMax && irct->nf.max == doubleValue)));
-}
-
-static void IR_TesterFreeNumeric(IndexCriteriaTester *ct) {
-  IR_CriteriaTester *irct = (IR_CriteriaTester *)ct;
-  rm_free(irct->nf.fieldName);
-  rm_free(irct);
-}
-
-static int IR_TestTerm(IndexCriteriaTester *ct, t_docId id) {
-  IR_CriteriaTester *irct = (IR_CriteriaTester *)ct;
-  const IndexSpec *sp = irct->spec;
-  size_t len;
-  const char *externalId = DocTable_GetKey((DocTable *)&sp->docs, id, &len);
-  for (int i = 0; i < sp->numFields; ++i) {
-    FieldSpec *field = sp->fields + i;
-    if (!(FIELD_BIT(field) & irct->tf.fieldMask)) {
-      // field is not requested, we are not checking this field!!
-      continue;
-    }
-    char *strValue;
-    int ret = sp->getValue(sp->getValueCtx, field->name, externalId, &strValue, NULL);
-    RS_LOG_ASSERT(ret == RSVALTYPE_STRING, "RSvalue type should be a string");
-    if (strcmp(irct->tf.term, strValue) == 0) {
-      return 1;
-    }
-  }
-  return 0;
-}
-
-static void IR_TesterFreeTerm(IndexCriteriaTester *ct) {
-  IR_CriteriaTester *irct = (IR_CriteriaTester *)ct;
-  rm_free(irct->tf.term);
-  rm_free(irct);
-}
-
-IndexCriteriaTester *IR_GetCriteriaTester(void *ctx) {
-  IndexReader *ir = ctx;
-  if (!ir->sp || !ir->sp->getValue) {
-    return NULL;  // CriteriaTester is not supported!!!
-  }
-  if (ir->decoders.decoder == readNumeric) {
-    // for now, if the iterator did not took the numric filter
-    // we will avoid using the CT.
-    // TODO: save the numeric filter in the numeric iterator to support CT anyway.
-    if (!ir->decoderCtx.ptr) {
-      return NULL;
-    }
-  }
-  IR_CriteriaTester *irct = rm_malloc(sizeof(*irct));
-  irct->spec = ir->sp;
-  if (ir->decoders.decoder == readNumeric) {
-    irct->nf = *(NumericFilter *)ir->decoderCtx.ptr;
-    irct->nf.fieldName = rm_strdup(irct->nf.fieldName);
-    irct->base.Test = IR_TestNumeric;
-    irct->base.Free = IR_TesterFreeNumeric;
-  } else {
-    irct->tf.term = rm_strdup(ir->record->term.term->str);
-    irct->tf.termLen = ir->record->term.term->len;
-    irct->tf.fieldMask = ir->decoderCtx.num;
-    irct->base.Test = IR_TestTerm;
-    irct->base.Free = IR_TesterFreeTerm;
-  }
-  return &irct->base;
-}
-
 size_t IR_NumEstimated(void *ctx) {
   IndexReader *ir = ctx;
   return ir->idx->numDocs;
@@ -1155,7 +1067,6 @@ IndexIterator *NewReadIterator(IndexReader *ir) {
   ri->mode = MODE_SORTED;
   ri->type = READ_ITERATOR;
   ri->NumEstimated = IR_NumEstimated;
-  ri->GetCriteriaTester = IR_GetCriteriaTester;
   ri->Read = IR_Read;
   ri->SkipTo = IR_SkipTo;
   ri->LastDocId = IR_LastDocId;

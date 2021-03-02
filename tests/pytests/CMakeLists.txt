@@ -28,10 +28,6 @@ FOREACH(n ${PY_TEST_FILES})
         COMMAND ${baseCommand} "-t" "${n}" "--module-args=GC_POLICY LEGACY"
         WORKING_DIRECTORY ${PROJECT_BINARY_DIR})
 
-    ADD_TEST(NAME "PY_${test_name}_CRITERIA_TESTER"
-        COMMAND ${baseCommand} "-t" "${n}" "--module-args=_MAX_RESULTS_TO_UNSORTED_MODE 1"
-        WORKING_DIRECTORY ${PROJECT_BINARY_DIR})
-
     ADD_TEST(NAME "PY_${test_name}_UNION_ITERATOR_HEAP"
     COMMAND ${baseCommand} "-t" "${n}" "--module-args=UNION_ITERATOR_HEAP 1"
     WORKING_DIRECTORY ${PROJECT_BINARY_DIR})

@@ -280,11 +280,6 @@ CONFIG_SETTER(setForkGcRetryInterval) {
   RETURN_STATUS(acrc);
 }
 
-CONFIG_SETTER(setMaxResultsToUnsortedMode) {
-  int acrc = AC_GetLongLong(ac, &config->maxResultsToUnsortedMode, AC_F_GE1);
-  RETURN_STATUS(acrc);
-}
-
 CONFIG_SETTER(setMinUnionIteratorHeap) {
   int acrc = AC_GetLongLong(ac, &config->minUnionIterHeap, AC_F_GE1);
   RETURN_STATUS(acrc);
@@ -308,11 +303,6 @@ CONFIG_GETTER(getForkGcInterval) {
 CONFIG_GETTER(getForkGcRetryInterval) {
   sds ss = sdsempty();
   return sdscatprintf(ss, "%lu", config->forkGcRetryInterval);
-}
-
-CONFIG_GETTER(getMaxResultsToUnsortedMode) {
-  sds ss = sdsempty();
-  return sdscatprintf(ss, "%lld", config->maxResultsToUnsortedMode);
 }
 
 CONFIG_GETTER(getMinUnionIteratorHeap) {
@@ -618,11 +608,6 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "interval (in seconds) in which to retry running the forkgc after failure.",
          .setValue = setForkGcRetryInterval,
          .getValue = getForkGcRetryInterval},
-        {.name = "_MAX_RESULTS_TO_UNSORTED_MODE",
-         .helpText = "max results for union interator in which the interator will switch to "
-                     "unsorted mode, should be used for debug only.",
-         .setValue = setMaxResultsToUnsortedMode,
-         .getValue = getMaxResultsToUnsortedMode},
         {.name = "UNION_ITERATOR_HEAP",
          .helpText = "minimum number of interators in a union from which the interator will"
                      "switch to heap based implementation.",

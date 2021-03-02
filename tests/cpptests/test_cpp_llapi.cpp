@@ -670,45 +670,6 @@ int RSGetValue(void* ctx, const char* fieldName, const void* id, char** strVal, 
   return 0;
 }
 
-TEST_F(LLApiTest, testNumericFieldWithCT) {
-  RediSearch_SetCriteriaTesterThreshold(1);
-
-  RSIndexOptions* opt = RediSearch_CreateIndexOptions();
-  RediSearch_IndexOptionsSetGetValueCallback(opt, RSGetValue, NULL);
-
-  RSIndex* index = RediSearch_CreateIndex("index", opt);
-  RediSearch_CreateField(index, "ft1", RSFLDTYPE_NUMERIC, RSFLDOPT_NONE);
-
-  Document* d = RediSearch_CreateDocumentSimple("doc1");
-  RediSearch_DocumentAddFieldNumber(d, "ft1", 20, RSFLDTYPE_NUMERIC);
-  RediSearch_SpecAddDocument(index, d);
-
-  d = RediSearch_CreateDocumentSimple("doc2");
-  RediSearch_DocumentAddFieldNumber(d, "ft1", 60, RSFLDTYPE_NUMERIC);
-  RediSearch_SpecAddDocument(index, d);
-
-  RSQNode* qn1 = RediSearch_CreateNumericNode(index, "ft1", 70, 10, 0, 0);
-  RSQNode* qn2 = RediSearch_CreateNumericNode(index, "ft1", 70, 10, 0, 0);
-  RSQNode* un = RediSearch_CreateUnionNode(index);
-  RediSearch_QueryNodeAddChild(un, qn1);
-  RediSearch_QueryNodeAddChild(un, qn2);
-  RSResultsIterator* iter = RediSearch_GetResultsIterator(un, index);
-  ASSERT_TRUE(iter != NULL);
-
-  size_t len;
-  const char* id = (const char*)RediSearch_ResultsIteratorNext(iter, index, &len);
-  ASSERT_STREQ(id, "doc1");
-  id = (const char*)RediSearch_ResultsIteratorNext(iter, index, &len);
-  ASSERT_STREQ(id, "doc2");
-  id = (const char*)RediSearch_ResultsIteratorNext(iter, index, &len);
-  ASSERT_STREQ(id, NULL);
-
-  RediSearch_ResultsIteratorFree(iter);
-  RediSearch_DropIndex(index);
-  RediSearch_FreeIndexOptions(opt);
-  RediSearch_SetCriteriaTesterThreshold(0);
-}
-
 TEST_F(LLApiTest, testUnionWithEmptyNodes) {
   RSIndex* index = RediSearch_CreateIndex("index", NULL);
 

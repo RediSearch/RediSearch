@@ -10,7 +10,6 @@
 #define INDEXREAD_NOTFOUND 2
 
 #define MODE_SORTED 0
-#define MODE_UNSORTED 1
 
 enum iteratorType {
   READ_ITERATOR,
@@ -24,11 +23,6 @@ enum iteratorType {
   PROFILE_ITERATOR,
   MAX_ITERATOR,
 };
-
-typedef struct IndexCriteriaTester {
-  int (*Test)(struct IndexCriteriaTester *ctx, t_docId id);
-  void (*Free)(struct IndexCriteriaTester *ct);
-} IndexCriteriaTester;
 
 /* An abstract interface used by readers / intersectors / unioners etc.
 Basically query execution creates a tree of iterators that activate each other
@@ -50,8 +44,6 @@ typedef struct indexIterator {
   enum iteratorType type;
 
   size_t (*NumEstimated)(void *ctx);
-
-  IndexCriteriaTester *(*GetCriteriaTester)(void *ctx);
 
   /* Read the next entry from the iterator, into hit *e.
    *  Returns INDEXREAD_EOF if at the end */
@@ -100,8 +92,6 @@ typedef struct indexIterator {
 #define IITER_HAS_NEXT(ii) ((ii)->isValid ? 1 : (ii)->HasNext ? (ii)->HasNext((ii)->ctx) : 0)
 #define IITER_CURRENT_RECORD(ii) ((ii)->current ? (ii)->current : 0)
 #define IITER_NUM_ESTIMATED(ii) ((ii)->NumEstimated ? (ii)->NumEstimated((ii)->ctx) : 0)
-#define IITER_GET_CRITERIA_TESTER(ii) \
-  ((ii)->GetCriteriaTester ? (ii)->GetCriteriaTester((ii)->ctx) : NULL)
 
 #define IITER_SET_EOF(ii) (ii)->isValid = 0
 #define IITER_CLEAR_EOF(ii) (ii)->isValid = 1

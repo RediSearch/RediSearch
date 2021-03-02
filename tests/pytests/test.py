@@ -2307,17 +2307,6 @@ def testIssue736(env):
     with env.assertResponseError():
         env.cmd('ft.add', 'idx', 'doc2', 1, 'fields', *extra_fields)
 
-def testCriteriaTesterDeactivated():
-    env = Env(moduleArgs='_MAX_RESULTS_TO_UNSORTED_MODE 1')
-    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 't1', 'text')
-    env.cmd('ft.add', 'idx', 'doc1', 1, 'fields', 't1', 'hello1 hey hello2')
-    env.cmd('ft.add', 'idx', 'doc2', 1, 'fields', 't1', 'hello2 hey')
-    env.cmd('ft.add', 'idx', 'doc3', 1, 'fields', 't1', 'hey')
-    
-    expected_res = sorted([2L, 'doc1', ['t1', 'hello1 hey hello2'], 'doc2', ['t1', 'hello2 hey']])
-    actual_res = sorted(env.cmd('ft.search', 'idx', '(hey hello1)|(hello2 hey)'))
-    env.assertEqual(expected_res, actual_res)
-
 def testIssue828(env):
     env.cmd('ft.create', 'beers', 'ON', 'HASH', 'SCHEMA',
         'name', 'TEXT', 'PHONETIC', 'dm:en',
