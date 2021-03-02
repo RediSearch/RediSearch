@@ -21,10 +21,9 @@ static void CursorList_Unlock(CursorList *cl) {
 }
 
 void CursorList_Init(CursorList *cl) {
-  memset(cl, 0, sizeof(*cl));
+  *cl = (CursorList) {0};
   pthread_mutex_init(&cl->lock, NULL);
   cl->lookup = kh_init(cursors);
-  cl->specs = NULL;
   Array_Init(&cl->idle);
   srand48(getpid());
 }
