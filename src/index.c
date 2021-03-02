@@ -779,6 +779,8 @@ IndexIterator *NewIntersecIterator(IndexIterator **its_, size_t num, DocTable *d
   ctx->base.current = NewIntersectResult(num, weight);
   ctx->its = its_;
   ctx->num = num;
+
+  // Sort children iterators from low count to high count which reduces the number of iterations.
   qsort(ctx->its, ctx->num, sizeof(*ctx->its), (CompareFunc)cmpIter);
 
   // bind the iterator calls
