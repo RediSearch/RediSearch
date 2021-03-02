@@ -49,7 +49,7 @@ static double _recursiveProfilePrint(RedisModuleCtx *ctx, ResultProcessor *rp, s
 
   // Array is filled backward in pair of [common, profile] result processors
   if (rp->type != RP_PROFILE) {
-    RedisModule_ReplyWithArray(ctx, 2 + PROFILE_VERBOSE);
+    RedisModule_ReplyWithArray(ctx, (2 + PROFILE_VERBOSE) * 2);
     switch (rp->type) {
       case RP_INDEX:
       case RP_LOADER:
@@ -59,11 +59,12 @@ static double _recursiveProfilePrint(RedisModuleCtx *ctx, ResultProcessor *rp, s
       case RP_HIGHLIGHTER:
       case RP_GROUP:
       case RP_NETWORK:
-        RedisModule_ReplyWithSimpleString(ctx, RPTypeToString(rp->type));
+        printProfileType(RPTypeToString(rp->type));
         break;
 
       case RP_PROJECTOR:
       case RP_FILTER:
+        RedisModule_ReplyWithSimpleString(ctx, "Type");
         RPEvaluator_Reply(ctx, rp);
         break;
 
@@ -74,11 +75,11 @@ static double _recursiveProfilePrint(RedisModuleCtx *ctx, ResultProcessor *rp, s
     }
     return upstreamTime;
   }
+
   double totalRPTime = (double)RPProfile_GetClock(rp) / CLOCKS_PER_MILLISEC;
-  if (PROFILE_VERBOSE)
-      RedisModule_ReplyWithDouble(ctx, totalRPTime - upstreamTime);
+  if (PROFILE_VERBOSE) { printProfileTime(totalRPTime - upstreamTime); }
+  printProfileCounter(RPProfile_GetCount(rp) - 1);
   ++(*arrlen);
-  RedisModule_ReplyWithLongLong(ctx, RPProfile_GetCount(rp) - 1);
   return totalRPTime;
 }
 

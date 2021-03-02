@@ -1788,13 +1788,10 @@ PRINT_PROFILE_FUNC(printUnionIt) {
     RedisModule_ReplyWithPrintf(ctx, "%s - %s", unionTypeStr, ui->qstr);
   }
 
-  RedisModule_ReplyWithSimpleString(ctx, "Counter");
-  RedisModule_ReplyWithLongLong(ctx, counter);
-
   if (PROFILE_VERBOSE) {
-    RedisModule_ReplyWithSimpleString(ctx, "Time");
-    RedisModule_ReplyWithDouble(ctx, cpuTime);
+    printProfileTime(cpuTime);
   }
+  printProfileCounter(counter);
 
   RedisModule_ReplyWithSimpleString(ctx, "Children iterators");
   if (printFull) {
@@ -1830,13 +1827,17 @@ PRINT_PROFILE_FUNC(printIntersectIt) {
 PRINT_PROFILE_FUNC(name) {                                                          \
   int verbose = PROFILE_VERBOSE;                                                    \
   int addChild = hasChild && ((iterType *)root)->child;                             \
-  RedisModule_ReplyWithArray(ctx, 2 + verbose + addChild);                          \
-  RedisModule_ReplyWithSimpleString(ctx, text);                                     \
-  RedisModule_ReplyWithLongLong(ctx, counter);                                      \
-  if (verbose)                                                                      \
-    RedisModule_ReplyWithLongDouble(ctx, cpuTime);                                  \
-  if (addChild)                                                                     \
+  RedisModule_ReplyWithArray(ctx, (2 + verbose + addChild) * 2);                          \
+  printProfileType(text);                                                           \
+  if (PROFILE_VERBOSE) {                                                            \
+    printProfileTime(cpuTime);                                                      \
+  }                                                                                 \
+  printProfileCounter(counter);                                                     \
+                                                                                    \
+  if (addChild) {                                                                   \
+    RedisModule_ReplyWithSimpleString(ctx, "Child iterator");                       \
     printIteratorProfile(ctx, ((iterType *)root)->child, 0, 0, depth + 1, limited); \
+  }                                                                                 \
 }
 
 typedef struct {
@@ -1844,11 +1845,11 @@ typedef struct {
   IndexIterator *child;
 } DummyIterator;
 
-PRINT_PROFILE_SINGLE(printNotIt, NotIterator, "Not iterator", 1);
-PRINT_PROFILE_SINGLE(printOptionalIt, OptionalIterator, "Optional iterator", 1);
-PRINT_PROFILE_SINGLE(printWildcardIt, DummyIterator, "Wildcard iterator", 0);
-PRINT_PROFILE_SINGLE(printIdListIt, DummyIterator, "ID-List iterator", 0);
-PRINT_PROFILE_SINGLE(printEmptyIt, DummyIterator, "Empty iterator", 0);
+PRINT_PROFILE_SINGLE(printNotIt, NotIterator, "NOT", 1);
+PRINT_PROFILE_SINGLE(printOptionalIt, OptionalIterator, "OPTIONAL", 1);
+PRINT_PROFILE_SINGLE(printWildcardIt, DummyIterator, "WILDCARD", 0);
+PRINT_PROFILE_SINGLE(printIdListIt, DummyIterator, "ID-LIST", 0);
+PRINT_PROFILE_SINGLE(printEmptyIt, DummyIterator, "EMPTY", 0);
 
 PRINT_PROFILE_FUNC(printProfileIt) {
   ProfileIterator *pi = (ProfileIterator *)root;
