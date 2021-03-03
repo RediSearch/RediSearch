@@ -19,6 +19,7 @@
 #include "aggregate/aggregate.h"
 #include "ext/default.h"
 #include "rwlock.h"
+#include "json.h"
 
 #ifndef RS_NO_ONLOAD
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -158,6 +159,8 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   // Register aggregation functions
   RegisterAllFunctions();
 
+  RegisterJSONCallbacks(ctx, 1);
+
   DO_LOG("notice", "Initialized thread pool!");
 
   /* Load extensions if needed */
@@ -181,6 +184,5 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
 
   Initialize_KeyspaceNotifications(ctx);
   Initialize_CommandFilter(ctx);
-
   return REDISMODULE_OK;
 }
