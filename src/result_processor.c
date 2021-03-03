@@ -654,7 +654,7 @@ ResultProcessor *RPLoader_New(RLookup *lk, const RLookupKey **keys, size_t nkeys
 }
 
 static char *RPTypeLookup[RP_MAX] = {
-  "Index", "Loader", "Scorer", "Sorter", "Pager/Limiter", "Highlighter",
+  "Index", "Loader", "Scorer", "Sorter", "Counter", "Pager/Limiter", "Highlighter",
   "Grouper", "Projector", "Filter", "Profile", "Network"};
 
 const char *RPTypeToString(ResultProcessorType type) {
@@ -719,4 +719,45 @@ clock_t RPProfile_GetClock(ResultProcessor *rp) {
 uint64_t RPProfile_GetCount(ResultProcessor *rp) {
   RPProfile *self = (RPProfile *)rp;
   return self->profileCount;
+}
+
+
+/*******************************************************************************************************************
+ *  Scoring Processor
+ *
+ * It takes results from upstream, and using a scoring function applies the score to each one.
+ *
+ * It may not be invoked if we are working in SORTBY mode (or later on in aggregations)
+ ********************************************************************************************************************/
+
+typedef struct {
+  ResultProcessor base;
+  size_t count;
+} RPCounter;
+
+static int rpcountNext(ResultProcessor *base, SearchResult *res) {
+  int rc;
+  RPCounter *self = (RPCounter *)base;
+
+  while ((rc = base->upstream->Next(base->upstream, res)) == RS_RESULT_OK) {
+    self->count += 1;
+  }
+
+  return rc;
+}
+
+/* Free impl. for scorer - frees up the scorer privdata if needed */
+static void rpcountFree(ResultProcessor *rp) {
+  RPScorer *self = (RPScorer *)rp;
+  rm_free(self);
+}
+
+/* Create a new counter. */
+ResultProcessor *RPCounter_New() {
+  RPCounter *ret = rm_calloc(1, sizeof(*ret));
+  ret->count = 0;
+  ret->base.Next = rpcountNext;
+  ret->base.Free = rpcountFree;
+  ret->base.type = RP_COUNTER;
+  return &ret->base;
 }

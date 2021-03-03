@@ -49,6 +49,8 @@ typedef enum {
 
 } QEFlags;
 
+#define IsCount(r) ((r)->reqflags & QEXEC_F_NOROWS)
+#define IsSearch(r) ((r)->reqflags & QEXEC_F_IS_SEARCH)
 #define IsProfile(r) ((r)->reqflags & QEXEC_F_PROFILE)
 
 typedef enum {
