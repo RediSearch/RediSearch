@@ -59,8 +59,8 @@ static int RPGeneric_NextEOF(ResultProcessor *rp, SearchResult *res) {
 typedef struct {
   ResultProcessor base;
   IndexIterator *iiter;
-  struct timespec timeout;        // milliseconds until timeout
-  size_t timeoutLimiter;   // counter to limit number of calls to TimedOut()
+  struct timespec timeout;  // milliseconds until timeout
+  size_t timeoutLimiter;    // counter to limit number of calls to TimedOut()
 } RPIndexIterator;
 
 /* Next implementation */
@@ -138,7 +138,7 @@ ResultProcessor *RPIndexIterator_New(IndexIterator *root, struct timespec timeou
   return &ret->base;
 }
 
-void updateRPIndexTimeout(ResultProcessor *base, struct timespec timeout){
+void updateRPIndexTimeout(ResultProcessor *base, struct timespec timeout) {
   RPIndexIterator *self = (RPIndexIterator *)base;
   self->timeout = timeout;
 }
@@ -653,15 +653,14 @@ ResultProcessor *RPLoader_New(RLookup *lk, const RLookupKey **keys, size_t nkeys
   return &sc->base;
 }
 
-static char *RPTypeLookup[RP_MAX] = {
-  "Index", "Loader", "Scorer", "Sorter", "Counter", "Pager/Limiter", "Highlighter",
-  "Grouper", "Projector", "Filter", "Profile", "Network"};
+static char *RPTypeLookup[RP_MAX] = {"Index",     "Loader",        "Scorer",      "Sorter",
+                                     "Counter",   "Pager/Limiter", "Highlighter", "Grouper",
+                                     "Projector", "Filter",        "Profile",     "Network"};
 
 const char *RPTypeToString(ResultProcessorType type) {
   RS_LOG_ASSERT(type >= 0 && type < RP_MAX, "enum is out of range");
   return RPTypeLookup[type];
 }
-
 
 void RP_DumpChain(const ResultProcessor *rp) {
   for (; rp; rp = rp->upstream) {
@@ -681,7 +680,6 @@ typedef struct {
   clock_t profileTime;
   uint64_t profileCount;
 } RPProfile;
-
 
 static int rpprofileNext(ResultProcessor *base, SearchResult *r) {
   RPProfile *self = (RPProfile *)base;
@@ -721,7 +719,6 @@ uint64_t RPProfile_GetCount(ResultProcessor *rp) {
   return self->profileCount;
 }
 
-
 /*******************************************************************************************************************
  *  Scoring Processor
  *
@@ -741,6 +738,12 @@ static int rpcountNext(ResultProcessor *base, SearchResult *res) {
 
   while ((rc = base->upstream->Next(base->upstream, res)) == RS_RESULT_OK) {
     self->count += 1;
+  }
+
+  // Since this never returns RM_OK, in profile mode, count should be increased
+  // to compensate for EOF
+  if (base->upstream->type == RP_PROFILE) {
+    ((RPProfile *)base->parent->endProc)->profileCount++;
   }
 
   return rc;

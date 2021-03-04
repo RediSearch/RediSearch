@@ -390,6 +390,19 @@ def testProfileTag(env):
                     ['Sorter', 2L]]]]
   env.assertEqual(actual_res, expected_res)
 
+def testResultProcessorCounter(env):
+  env.skipOnCluster()
+  conn = getConnectionByEnv(env)
+  env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+
+  env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'text')
+  conn.execute_command('hset', '1', 't', 'foo')
+  conn.execute_command('hset', '2', 't', 'bar')
+
+  actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', 'foo|bar', 'limit', '0', '0')
+  env.assertEqual(actual_res[0], [2L])
+  env.assertEqual(actual_res[1][3][2], ['Counter', 1L])
+
 def testProfileOutput(env):
   env.skip()
   docs = 10000
