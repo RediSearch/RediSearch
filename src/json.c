@@ -1,8 +1,10 @@
 #include "json.h"
 #include <string.h>
+#include "spec.h"
 
-int JSONKeyChangeHandler(RedisModuleKey *key) {
+int JSONKeyChangeHandler(RedisModuleCtx *ctx, RedisModuleKey *key) {
   printf("==> in JSONKeyChangeHandler\n");
+  //Indexes_UpdateMatchingWithSchemaRules(ctx, key, 0);
   return 1;
 }
 
@@ -10,11 +12,11 @@ void ModuleChangeHandler(struct RedisModuleCtx *ctx, RedisModuleEvent e, uint64_
 
   REDISMODULE_NOT_USED(e);
   RedisModuleModuleChange *ei = data;
-  if (sub == REDISMODULE_SUBEVENT_MODULE_UNLOADED) {    
+  if (sub == REDISMODULE_SUBEVENT_MODULE_LOADED) {    
     // If RedisJSON module is loaded after RediSearch
     // Need to get the API exported by RedisJSON and use it to register for events
     if (strcmp(ei->module_name, "ReJSON") == 0) {
-        printf("detected %p unloading %s", ctx, ei->module_name);
+        printf("detected %p loading %s\n", ctx, ei->module_name);
         if (RegisterJSONCallbacks(ctx, 0)) {
             //TODO: Once registered we can unsubscribe from ServerEvent RedisModuleEvent_ModuleChange
             // Unless we want to hanle ReJSON module unload
