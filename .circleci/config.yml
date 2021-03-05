@@ -180,6 +180,26 @@ on-master: &on-master
   filters:
     branches:
       only: master
+    tags:
+      ignore: /.*/
+
+on-integ-branch: &on-integ-branch
+  filters:
+    branches:
+      only:
+        - master
+        - /^\d+\.\d+.*$/
+    tags:
+      ignore: /.*/
+
+not-on-integ-branch: &not-on-integ-branch
+  filters:
+    branches:
+      ignore:
+        - master
+        - /^\d+\.\d+.*$/
+    tags:
+      ignore: /.*/
 
 on-version-tags: &on-version-tags
   filters:
@@ -188,22 +208,14 @@ on-version-tags: &on-version-tags
     tags:
       only: /^v[0-9].*/
 
-on-master-and-version-tags: &on-master-and-version-tags
+on-integ-and-version-tags: &on-integ-and-version-tags
   filters:
     branches:
       only:
         - master
+        - /^\d+\.\d+.*$/
     tags:
       only: /^v[0-9].*/
-
-on-master-and-version-branches: &on-master-and-version-branches
-  filters:
-    branches:
-      only:
-        - master
-        - /^[0-9]+\.[0-9]+$/
-    tags:
-      ignore: /.*/
 
 
 workflows:
@@ -227,7 +239,7 @@ workflows:
       - deploy_snapshots:
           context: common
           requires: *default_jobs
-          <<: *on-master
+          <<: *on-integ-and-version-tags
       - deploy_release:
           context: common
           requires: *default_jobs
@@ -238,8 +250,7 @@ workflows:
       - schedule:
           cron: "20 17 * * *"
           filters:
-             branches:
-               only:
-                 - master
+            branches:
+              only: master
     jobs:
       - macos
