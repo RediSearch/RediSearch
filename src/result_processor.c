@@ -738,6 +738,7 @@ static int rpcountNext(ResultProcessor *base, SearchResult *res) {
 
   while ((rc = base->upstream->Next(base->upstream, res)) == RS_RESULT_OK) {
     self->count += 1;
+    SearchResult_Clear(res);
   }
 
   // Since this never returns RM_OK, in profile mode, count should be increased
