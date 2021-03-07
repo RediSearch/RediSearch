@@ -123,19 +123,8 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
 
 //---------------------------------------------------------------------------------------------
 
-static void rpidxFree(ResultProcessor *iter) {
-  rm_free(iter);
-}
-
-//---------------------------------------------------------------------------------------------
-
-ResultProcessor *RPIndexIterator_New(IndexIterator *root) {
-  RPIndexIterator *ret = rm_calloc(1, sizeof(*ret));
-  ret->iiter = root;
-  ret->base.Next = rpidxNext;
-  ret->base.Free = rpidxFree;
-  ret->base.name = "Index";
-  return &ret->base;
+RPIndexIterator::RPIndexIterator(IndexIterator *root) : ResultProcessor("Index") {
+  iiter = root;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -238,7 +227,7 @@ static void rpscoreFree(ResultProcessor *rp) {
 // Create a new scorer by name. If the name is not found in the scorer registry, we use the
 // defalt scorer
 
-ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
+ResultProcessor *RPScorer_New(const ExtScoringFunction *funcs,
                               const ScoringFunctionArgs *fnargs) {
   RPScorer *ret = rm_calloc(1, sizeof(*ret));
   ret->scorer = funcs->sf;
@@ -587,18 +576,10 @@ ResultProcessor *RPPager_New(size_t offset, size_t limit) {
 //---------------------------------------------------------------------------------------------
 // Value Loader
 
-struct RPLoader {
-  ResultProcessor base;
-  RLookup *lk;
-  const RLookupKey **fields;
-  size_t nfields;
-};
-
 //---------------------------------------------------------------------------------------------
 
-static int rploaderNext(ResultProcessor *base, SearchResult *r) {
-  RPLoader *lc = (RPLoader *)base;
-  int rc = base->upstream->Next(base->upstream, r);
+static int ResultsLoader::Next(SearchResult *r) {
+  int rc = upstream->Next(r);
   if (rc != RS_RESULT_OK) {
     return rc;
   }
@@ -610,7 +591,7 @@ static int rploaderNext(ResultProcessor *base, SearchResult *r) {
   if (r->dmd == NULL || (r->dmd->flags & Document_Deleted)) {
     return RS_RESULT_OK;
   }
-  RedisSearchCtx *sctx = lc->base.parent->sctx;
+  RedisSearchCtx *sctx = lc->parent->sctx;
 
   QueryError status = {0};
   RLookupLoadOptions loadopts = {.sctx = lc->base.parent->sctx,  // lb
@@ -631,30 +612,25 @@ static int rploaderNext(ResultProcessor *base, SearchResult *r) {
 
 //---------------------------------------------------------------------------------------------
 
-static void rploaderFree(ResultProcessor *base) {
-  RPLoader *lc = (RPLoader *)base;
-  rm_free(lc->fields);
-  rm_free(lc);
+ResultsLoader::~ResultsLoader() {
+  rm_free(fields);
 }
 
 //---------------------------------------------------------------------------------------------
 
-ResultProcessor *RPLoader_New(RLookup *lk, const RLookupKey **keys, size_t nkeys) {
-  RPLoader *sc = rm_calloc(1, sizeof(*sc));
-  sc->nfields = nkeys;
-  sc->fields = rm_calloc(nkeys, sizeof(*sc->fields));
-  memcpy(sc->fields, keys, sizeof(*keys) * nkeys);
+ResultsLoader::ResultsLoader(RLookup *lk_, const RLookupKey **keys, size_t nkeys) {
+  nfields = nkeys;
+  fields = rm_calloc(nkeys, sizeof(*fields));
+  memcpy(fields, keys, sizeof(*keys) * nkeys);
 
-  sc->lk = lk;
-  sc->base.Next = rploaderNext;
-  sc->base.Free = rploaderFree;
-  sc->base.name = "Loader";
-  return &sc->base;
+  lk = lk_;
+  name = "Loader";
 }
 
 //---------------------------------------------------------------------------------------------
 
-void RP_DumpChain(const ResultProcessor *rp) {
+void ResultProcessor::DumpChain() const {
+  ResultProcessor *rp = this;
   for (; rp; rp = rp->upstream) {
     printf("RP(%s) @%p\n", rp->name, rp);
     RS_LOG_ASSERT(rp->upstream != rp, "ResultProcessor should be different then upstream");

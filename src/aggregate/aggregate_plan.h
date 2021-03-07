@@ -36,18 +36,33 @@ enum PlanFlags {
 //---------------------------------------------------------------------------------------------
 
 struct PLN_BaseStep {
+  PLN_BaseStep();
+  virtual ~PLN_BaseStep();
+
   DLLIST_node llnodePln;  // Linked list node for previous/next
 
   PLN_StepType type : 32;
   uint32_t flags;  // PLN_F_XXX
 
   const char *alias;
-  // Called to destroy step-specific data
-  void (*dtor)(struct PLN_BaseStep *);
 
   // Called to yield the lookup structure for the given step. If this object
   // does not have a lookup, can be set to NULL.
-  RLookup *(*getLookup)(struct PLN_BaseStep *);
+  virtual RLookup *getLookup();
+
+  // Determines if the plan is a 'reduce' type. A 'reduce' plan is one which
+  // consumes (in entirety) all of its inputs and produces a new output (and thus a new 'Lookup' table)
+
+  bool IsReduce(const PLN_BaseStep *pln) const {
+    switch (pln->type) {
+      case PLN_T_ROOT:
+      case PLN_T_GROUP:
+        return true;
+      default:
+        return false;
+    }
+  }
+
 
   // Type specific stuff goes here..
 };
@@ -65,18 +80,19 @@ struct PLN_BaseStep {
  */
 
 // First step. This contains the lookup used for the initial document keys.
-struct PLN_FirstStep {
-  PLN_BaseStep base;
+struct PLN_FirstStep : PLN_BaseStep {
+  virtual ~PLN_FirstStep();
   RLookup lookup;
 };
 
 //---------------------------------------------------------------------------------------------
 
-struct PLN_MapFilterStep {
-  PLN_BaseStep base;
+struct PLN_MapFilterStep : PLN_BaseStep {
   const char *rawExpr;
   RSExpr *parsedExpr;
   int shouldFreeRaw;  // Whether we own the raw expression, used on coordinator only
+
+  PLNMapFilterStep(const char *expr, int mode);
 };
 
 //---------------------------------------------------------------------------------------------
@@ -85,8 +101,7 @@ struct PLN_MapFilterStep {
 #define PLN_SORTKEYS_DFLSCORE (const char **)0xdeadbeef
 
 // ARRANGE covers sort, limit, and so on
-struct PLN_ArrangeStep {
-  PLN_BaseStep base;
+struct PLN_ArrangeStep : PLN_BaseStep {
   const RLookupKey **sortkeysLK;  // simple array
   const char **sortKeys;          // array_*
   uint64_t sortAscMap;            // Mapping of ascending/descending. Bitwise
@@ -97,8 +112,7 @@ struct PLN_ArrangeStep {
 //---------------------------------------------------------------------------------------------
 
 // LOAD covers any fields not implicitly found within the document
-struct PLN_LoadStep {
-  PLN_BaseStep base;
+struct PLN_LoadStep : PLN_BaseStep {
   ArgsCursor args;
   const RLookupKey **keys;
   size_t nkeys;
@@ -107,8 +121,7 @@ struct PLN_LoadStep {
 //---------------------------------------------------------------------------------------------
 
 // Group step - group by properties and reduce by several reducers
-struct PLN_GroupStep {
-  PLN_BaseStep base;
+struct PLN_GroupStep : PLN_BaseStep{
   RLookup lookup;
 
   const char **properties;
@@ -123,61 +136,15 @@ struct PLN_GroupStep {
 
   PLN_Reducer *reducers;
   int idx;
+
+  PLN_GroupStep(const char **props, size_t nprops);
+
+  int AddReducer(const char *name, ArgsCursor *ac, QueryError *status);
 };
 
-// Returns a new group step with the appropriate constructor
-
-PLN_GroupStep *PLNGroupStep_New(const char **props, size_t nprops);
-
-int PLNGroupStep_AddReducer(PLN_GroupStep *gstp, const char *name, ArgsCursor *ac,
-                            QueryError *status);
-
-PLN_MapFilterStep *PLNMapFilterStep_New(const char *expr, int mode);
-
-#ifdef __cplusplus
 typedef PLN_GroupStep::PLN_Reducer PLN_Reducer;
-#else
-typedef struct PLN_Reducer PLN_Reducer;
-#endif
 
 //---------------------------------------------------------------------------------------------
-
-// A plan is a linked list of all steps
-struct AGGPlan {
-  DLLIST steps;
-  PLN_ArrangeStep *arrangement;
-  PLN_FirstStep firstStep_s;  // Storage for initial plan
-  uint64_t steptypes;         // Mask of step-types contained in plan
-};
-
-array_t AGPLN_Serialize(const AGGPlan *plan);
-
-// Free the plan resources, not the plan itself
-void AGPLN_Free(AGGPlan *plan);
-
-void AGPLN_Print(AGGPlan *plan);
-
-void AGPLN_Init(AGGPlan *plan);
-
-// Frees all the steps within the plan
-void AGPLN_FreeSteps(AGGPlan *pln);
-
-void AGPLN_AddStep(AGGPlan *plan, PLN_BaseStep *step);
-void AGPLN_AddBefore(AGGPlan *pln, PLN_BaseStep *step, PLN_BaseStep *add);
-void AGPLN_AddAfter(AGGPlan *pln, PLN_BaseStep *step, PLN_BaseStep *add);
-void AGPLN_Prepend(AGGPlan *pln, PLN_BaseStep *newstp);
-
-// Removes the step from the plan
-void AGPLN_PopStep(AGGPlan *pln, PLN_BaseStep *step);
-
-// Checks if a step with the given type is contained within the plan
-int AGPLN_HasStep(const AGGPlan *pln, PLN_StepType t);
-PLN_ArrangeStep *AGPLN_GetArrangeStep(AGGPlan *pln);
-
-PLN_ArrangeStep *AGPLN_GetOrCreateArrangeStep(AGGPlan *pln);
-
-const PLN_BaseStep *AGPLN_FindStep(const AGGPlan *pln, const PLN_BaseStep *begin,
-                                   const PLN_BaseStep *end, PLN_StepType type);
 
 enum AGPLNGetLookupMode {
   AGPLN_GETLOOKUP_FIRST,  // Get the root lookup, stopping at stp if provided
@@ -186,23 +153,48 @@ enum AGPLNGetLookupMode {
   AGPLN_GETLOOKUP_NEXT    // Get the next lookup, starting from bstp
 };
 
-RLookup *AGPLN_GetLookup(const AGGPlan *pln, const PLN_BaseStep *bstp, AGPLNGetLookupMode mode);
-
-void AGPLN_Dump(const AGGPlan *pln);
-
 //---------------------------------------------------------------------------------------------
 
-// Determines if the plan is a 'reduce' type. A 'reduce' plan is one which
-// consumes (in entirety) all of its inputs and produces a new output (and thus a new 'Lookup' table)
+// A plan is a linked list of all steps
+struct AGGPlan : Object {
+  DLLIST steps;
+  PLN_ArrangeStep *arrangement;
+  PLN_FirstStep firstStep_s;  // Storage for initial plan
+  uint64_t steptypes;         // Mask of step-types contained in plan
 
-inline int PLN_IsReduce(const PLN_BaseStep *pln) {
-  switch (pln->type) {
-    case PLN_T_ROOT:
-    case PLN_T_GROUP:
-      return 1;
-    default:
-      return 0;
-  }
-}
+  array_t Serialize() const;
+
+  AGGPlan();
+
+  // Free the plan resources, not the plan itself
+  ~AGGPlan();
+
+  void Print() const;
+
+  // Frees all the steps within the plan
+  void FreeSteps();
+
+  void AddStep(PLN_BaseStep *step);
+  void AddBefore(PLN_BaseStep *step, PLN_BaseStep *add);
+  void AddAfter(PLN_BaseStep *step, PLN_BaseStep *add);
+  void Prepend(PLN_BaseStep *newstp);
+
+  // Removes the step from the plan
+  void PopStep(PLN_BaseStep *step);
+
+  RLookup *GetLookup(const PLN_BaseStep *bstp, AGPLNGetLookupMode mode) const;
+
+  void Dump() const;
+
+  // Checks if a step with the given type is contained within the plan
+  bool HasStep(PLN_StepType t) const;
+
+  PLN_ArrangeStep *GetArrangeStep();
+  PLN_ArrangeStep *GetOrCreateArrangeStep();
+
+  const PLN_BaseStep *FindStep(const PLN_BaseStep *begin, const PLN_BaseStep *end, PLN_StepType type) const;
+};
+
+//---------------------------------------------------------------------------------------------
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

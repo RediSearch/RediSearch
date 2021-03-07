@@ -34,6 +34,8 @@ void GeoIndex::RemoveEntries(t_docId docId) {
   RemoveEntries(ctx->spec, docId);
 }
 
+//---------------------------------------------------------------------------------------------
+
 void GeoIndex::RemoveEntries(IndexSpec *sp, t_docId docId) {
   RedisModuleString *ks = IndexSpec_GetFormattedKey(sp, fs, INDEXFLD_T_GEO);
   RedisModuleCtx *rctx = ctx->redisCtx;
@@ -47,10 +49,11 @@ void GeoIndex::RemoveEntries(IndexSpec *sp, t_docId docId) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-/* Parse a geo filter from redis arguments. We assume the filter args start at argv[0], and FILTER
- * is not passed to us.
+/* Parse a geo filter from redis arguments. We assume the filter args start at argv[0], 
+ * and FILTER is not passed to us.
  * The GEO filter syntax is (FILTER) <property> LONG LAT DIST m|km|ft|mi
  * Returns REDISMODUEL_OK or ERR  */
+
 GeoFilter::GeoFilter(ArgsCursor *ac, QueryError *status) {
   lat = 0;
   lon = 0;
@@ -110,8 +113,7 @@ t_docId *GeoIndex::RangeLoad(const GeoFilter &gf, size_t &num) const {
   RedisModuleString *slat = RedisModule_CreateStringPrintf(rctx, "%f", gf.lat);
   RedisModuleString *srad = RedisModule_CreateStringPrintf(rctx, "%f", gf.radius);
   const char *unitstr = gf.unitType.ToString();
-  RedisModuleCallReply *rep =
-      RedisModule_Call(rctx, "GEORADIUS", "ssssc", s, slon, slat, srad, unitstr);
+  RedisModuleCallReply *rep = RedisModule_Call(rctx, "GEORADIUS", "ssssc", s, slon, slat, srad, unitstr);
   if (rep == NULL || RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_ARRAY) {
     goto done;
   }
@@ -147,7 +149,7 @@ IndexIterator *GeoIndex::NewGeoRangeIterator(const GeoFilter &gf, double weight)
     return NULL;
   }
 
-  IndexIterator *ret = NewIdListIterator(docIds, (t_offset)size, weight);
+  IndexIterator *ret = new IdListIterator(docIds, (t_offset)size, weight);
   rm_free(docIds);
   return ret;
 }
@@ -195,8 +197,9 @@ GeoFilter::GeoFilter(double lon_, double lat_, double radius_, const char *unit)
 
 //---------------------------------------------------------------------------------------------
 
-/* Make sure that the parameters of the filter make sense - i.e. coordinates are in range, radius is
- * sane, unit is valid. Return true if valid, false if not, and set the error string into err */
+// Make sure that the parameters of the filter make sense - i.e. coordinates are in range, radius is
+// sane, unit is valid. Return true if valid, false if not, and set the error string into err.
+
 bool GeoFilter::Validate(QueryError *status) {
   if (unitType == GeoDistance::Unit::INVALID) {
     QERR_MKSYNTAXERR(status, "Invalid GeoFilter unit");
@@ -217,3 +220,5 @@ bool GeoFilter::Validate(QueryError *status) {
 
   return true;
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////

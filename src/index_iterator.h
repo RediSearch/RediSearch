@@ -61,6 +61,9 @@ public:
 
   IndexIteratorMode mode;
 
+  // Return a string containing the type of the iterator
+  const char *GetTypeString() const;
+
   //-------------------------------------------------------------------------------------------
 
   virtual RSIndexResult *GetCurrent() { return NULL; }

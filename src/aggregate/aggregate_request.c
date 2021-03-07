@@ -61,10 +61,9 @@ ReturnedField::~ReturnedField() {
 
 FieldList::~FieldList() {
   for (size_t ii = 0; ii < numFields; ++ii) {
-    ReturnedField_Free(&fields->fields[ii]);
+    delete &fields[ii];
   }
-  ReturnedField_Free(&fields->defaultField);
-  rm_free(fields->fields);
+  rm_free(fields);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -94,17 +93,17 @@ void FieldList::RestrictReturn() {
   size_t oix = 0;
   for (size_t ii = 0; ii < numFields; ++ii) {
     if (fields[ii].explicitReturn == 0) {
-      ReturnedField_Free(fields->fields + ii);
+      delete &fields[ii];
     } else if (ii != oix) {
-      fields->fields[oix++] = fields->fields[ii];
+      fields[oix++] = fields[ii];
     } else {
       ++oix;
     }
   }
-  fields->numFields = oix;
+  numFields = oix;
 }
 
-//---------------------------------------------------------------------------------------------
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 int AREQ::parseCursorSettings(ArgsCursor *ac, QueryError *status) {
   ACArgSpec specs[] = {{name: "MAXIDLE",
@@ -337,7 +336,7 @@ int AREQ::parseQueryArgs(ArgsCursor *ac, RSSearchOptions *searchOpts, AggregateP
       {AC_MKBITFLAG("NOCONTENT", &reqflags, QEXEC_F_SEND_NOFIELDS)},
       {AC_MKBITFLAG("NOSTOPWORDS", &searchOpts->flags, Search_NoStopwrods)},
       {AC_MKBITFLAG("EXPLAINSCORE", &reqflags, QEXEC_F_SEND_SCOREEXPLAIN)},
-      {name: "PAYLOAD", type: AC_ARGTYPE_STRING, target: &ast.udata, len: &ast.udatalen},
+      {name: "PAYLOAD", type: AC_ARGTYPE_STRING, target: &ast->udata, len: &ast->udatalen},
       {0}};
 
   while (!AC_IsAtEnd(ac)) {
@@ -355,18 +354,12 @@ int AREQ::parseQueryArgs(ArgsCursor *ac, RSSearchOptions *searchOpts, AggregateP
     // See if this is one of our arguments which requires special handling
     if (AC_AdvanceIfMatch(ac, "SUMMARIZE")) {
       ensureSimpleMode();
-      if (ParseSummarize(ac, &outFields) == REDISMODULE_ERR) {
-        QERR_MKBADARGS_FMT(status, "Bad arguments for SUMMARIZE");
-        return REDISMODULE_ERR;
-      }
+      outFields.ParseSummarize(ac);
       reqflags |= QEXEC_F_SEND_HIGHLIGHT;
 
     } else if (AC_AdvanceIfMatch(ac, "HIGHLIGHT")) {
       ensureSimpleMode();
-      if (ParseHighlight(ac, &outFields) == REDISMODULE_ERR) {
-        QERR_MKBADARGS_FMT(status, "Bad arguments for HIGHLIGHT");
-        return REDISMODULE_ERR;
-      }
+      outFields.ParseHighlight(ac);
       reqflags |= QEXEC_F_SEND_HIGHLIGHT;
 
     } else if ((reqflags & QEXEC_F_IS_SEARCH) &&
@@ -402,12 +395,12 @@ int AREQ::parseQueryArgs(ArgsCursor *ac, RSSearchOptions *searchOpts, AggregateP
 
     while (!AC_IsAtEnd(&returnFields)) {
       const char *name = AC_GetStringNC(&returnFields, NULL);
-      ReturnedField *f = FieldList_GetCreateField(&outFields, name);
+      ReturnedField *f = outFields.GetCreateField(name);
       f->explicitReturn = 1;
     }
   }
 
-  FieldList_RestrictReturn(&outFields);
+  outFields.RestrictReturn();
   return REDISMODULE_OK;
 }
 
@@ -585,7 +578,7 @@ PLN_MapFilterStep *PLNMapFilterStep_New(const char *expr, int mode) {
 
 //---------------------------------------------------------------------------------------------
 
-int AREQ::handleApplyOrFilter(ArgsCursor *ac, QueryError *status, int isApply) {
+int AREQ::handleApplyOrFilter(ArgsCursor *ac, bool isApply, QueryError *status) {
   // Parse filters!
   const char *expr = NULL;
   int rv = AC_GetString(ac, &expr, NULL, 0);
@@ -726,7 +719,7 @@ int AREQ::Compile(RedisModuleString **argv, int argc, QueryError *status) {
         goto error;
       }
     } else if (AC_AdvanceIfMatch(&ac, "APPLY")) {
-      if (handleApplyOrFilter(&ac, status, 1) != REDISMODULE_OK) {
+      if (handleApplyOrFilter(&ac, true, status) != REDISMODULE_OK) {
         goto error;
       }
     } else if (AC_AdvanceIfMatch(&ac, "LOAD")) {
@@ -734,7 +727,7 @@ int AREQ::Compile(RedisModuleString **argv, int argc, QueryError *status) {
         goto error;
       }
     } else if (AC_AdvanceIfMatch(&ac, "FILTER")) {
-      if (handleApplyOrFilter(&ac, status, 0) != REDISMODULE_OK) {
+      if (handleApplyOrFilter(&ac, false, status) != REDISMODULE_OK) {
         goto error;
       }
     } else {
@@ -750,31 +743,28 @@ error:
 
 //---------------------------------------------------------------------------------------------
 
-void QueryAST::applyGlobalFilters(RSSearchOptions &opts, const RedisSearchCtx *sctx) {
+void QueryAST::applyGlobalFilters(RSSearchOptions &opts, const RedisSearchCtx &sctx) {
   // The following blocks will set filter options on the entire query
   if (opts.legacy.filters) {
     for (size_t ii = 0; ii < array_len(opts.legacy.filters); ++ii) {
-      QAST_GlobalFilterOptions legacyFilterOpts = {.numeric = opts.legacy.filters[ii]};
-      SetGlobalFilters(legacyFilterOpts);
+      SetGlobalFilters(opts.legacy.filters[ii]);
     }
     array_clear(opts.legacy.filters);  // so AREQ_Free() doesn't free the filters themselves, which
                                        // are now owned by the query object
   }
   if (opts.legacy.gf) {
-    QAST_GlobalFilterOptions legacyOpts = {.geo = opts.legacy.gf};
-    SetGlobalFilters(legacyOpts);
+    SetGlobalFilters(opts.legacy.gf);
   }
 
   if (opts.inkeys) {
     opts.inids = rm_malloc(sizeof(*opts.inids) * opts.ninkeys);
     for (size_t ii = 0; ii < opts.ninkeys; ++ii) {
-      t_docId did = DocTable_GetId(&sctx->spec->docs, opts.inkeys[ii], strlen(opts.inkeys[ii]));
+      t_docId did = DocTable_GetId(&sctx.spec->docs, opts.inkeys[ii], strlen(opts.inkeys[ii]));
       if (did) {
         opts.inids[opts.nids++] = did;
       }
     }
-    GlobalFilterOptions filterOpts = {.ids = opts.inids, .nids = opts.nids};
-    SetGlobalFilters(filterOpts);
+    SetGlobalFilters(opts.inids, opts.nids);
   }
 }
 
@@ -817,7 +807,7 @@ int AREQ::ApplyContext(QueryError *status) {
     return REDISMODULE_ERR;
   }
 
-  if (opts.scorerName && Extensions_GetScoringFunction(NULL, opts.scorerName) == NULL) {
+  if (opts.scorerName && Extensions::GetScoringFunction(NULL, opts.scorerName) == NULL) {
     status->SetErrorFmt(QUERY_EINVAL, "No such scorer %s", opts.scorerName);
     return REDISMODULE_ERR;
   }
@@ -826,21 +816,21 @@ int AREQ::ApplyContext(QueryError *status) {
     opts.stopwords = sctx->spec->stopwords;
   }
 
-  int rv = ast->Parse(sctx, searchopts, query, strlen(query), status);
-  if (rv != REDISMODULE_OK) {
+  try {
+    ast = std::make_unique<QueryAST>(*sctx, searchopts, query, strlen(query), status);
+    ast->applyGlobalFilters(opts, *sctx);
+  } catch (Error &x) {
     return REDISMODULE_ERR;
   }
 
-  ast->applyGlobalFilters(opts, sctx);
-
   if (!(opts.flags & Search_Verbatim)) {
-    if (ast->Expand(opts.expanderName, opts, sctx, status) != REDISMODULE_OK) {
+    if (ast->Expand(opts.expanderName, opts, *sctx, status) != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     }
   }
 
   conc = std::make_unique<ConcurrentSearchCtx>(sctx->redisCtx);
-  rootiter = ast->Iterate(opts, sctx, conc);
+  rootiter = ast->Iterate(opts, *sctx, *conc);
   RS_LOG_ASSERT(rootiter, "QAST_Iterate failed");
 
   return REDISMODULE_OK;
@@ -898,8 +888,8 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup, Qu
  */
 ResultProcessor *AREQ::pushRP(ResultProcessor *rp, ResultProcessor *rpUpstream) {
   rp->upstream = rpUpstream;
-  rp->parent = &qiter;
-  qiter.endProc = rp;
+  rp->parent = &*qiter;
+  qiter->endProc = rp;
   return rp;
 }
 
@@ -927,10 +917,10 @@ ResultProcessor *AREQ::getGroupRP(PLN_GroupStep *gstp, ResultProcessor *rpUpstre
       }
     }
     if (kklist != NULL) {
-      ResultProcessor *rpLoader = RPLoader_New(firstLk, kklist, array_len(kklist));
+      ResultProcessor *loader = new ResultsLoader(firstLk, kklist, array_len(kklist));
       array_free(kklist);
-      RS_LOG_ASSERT(rpLoader, "RPLoader_New failed");
-      rpUpstream = pushRP(rpLoader, rpUpstream);
+      RS_LOG_ASSERT(loader, "Failed to create ResultsLoader");
+      rpUpstream = pushRP(loader, rpUpstream);
     }
   }
 
@@ -1002,12 +992,12 @@ ResultProcessor *AREQ::getScorerRP() {
   if (reqflags & QEXEC_F_SEND_SCOREEXPLAIN) {
     scargs.scrExp = rm_calloc(1, sizeof(RSScoreExplain));
   }
-  ExtScoringFunctionCtx *fns = Extensions_GetScoringFunction(&scargs, scorer);
+  ExtScoringFunction *fns = Extensions::GetScoringFunction(&scargs, scorer);
   RS_LOG_ASSERT(fns, "Extensions_GetScoringFunction failed");
   IndexSpec_GetStats(sctx->spec, &scargs.indexStats);
-  scargs.qdata = ast.udata;
-  scargs.qdatalen = ast.udatalen;
-  ResultProcessor *rp = RPScorer_New(fns, &scargs);
+  scargs.qdata = ast->udata;
+  scargs.qdatalen = ast->udatalen;
+  ResultProcessor *rp = new RPScorer(fns, &scargs);
   return rp;
 }
 
@@ -1036,14 +1026,13 @@ static int hasQuerySortby(const AGGPlan *pln) {
 
 //---------------------------------------------------------------------------------------------
 
-/**
- * Builds the implicit pipeline for querying and scoring, and ensures that our
- * subsequent execution stages actually have data to operate on.
- */
-void AREQ::buildImplicitPipeline(QueryError *Status) {
-  qiter.conc = &conc;
-  qiter.sctx = sctx;
-  qiter.err = Status;
+// Builds the implicit pipeline for querying and scoring, and ensures that our
+// subsequent execution stages actually have data to operate on.
+
+void AREQ::buildImplicitPipeline(QueryError *status) {
+  qiter->conc = &*conc;
+  qiter->sctx = &*sctx;
+  qiter->err = status;
 
   IndexSpecCache *cache = IndexSpec_GetSpecCache(sctx->spec);
   RS_LOG_ASSERT(cache, "IndexSpec_GetSpecCache failed")
@@ -1051,9 +1040,9 @@ void AREQ::buildImplicitPipeline(QueryError *Status) {
 
   RLookup_Init(first, cache);
 
-  ResultProcessor *rp = RPIndexIterator_New(rootiter);
+  ResultProcessor *rp = new RPIndexIterator(rootiter);
   ResultProcessor *rpUpstream = NULL;
-  qiter.rootProc = qiter.endProc = rp;
+  qiter->rootProc = qiter->endProc = rp;
   PUSH_RP();
 
   // Create a scorer if there is no subsequent sorter within this grouping
@@ -1065,13 +1054,12 @@ void AREQ::buildImplicitPipeline(QueryError *Status) {
 
 //---------------------------------------------------------------------------------------------
 
-/**
- * This handles the RETURN and SUMMARIZE keywords, which operate on the result
- * which is about to be returned. It is only used in FT.SEARCH mode
- */
+// This handles the RETURN and SUMMARIZE keywords, which operate on the result
+// which is about to be returned. It is only used in FT.SEARCH mode
+
 int AREQ::buildOutputPipeline(QueryError *status) {
   AGGPlan *pln = &ap;
-  ResultProcessor *rp = NULL, *rpUpstream = qiter.endProc;
+  ResultProcessor *rp = NULL, *rpUpstream = qiter->endProc;
 
   RLookup *lookup = AGPLN_GetLookup(pln, NULL, AGPLN_GETLOOKUP_LAST);
   // Add a LOAD step...
@@ -1091,7 +1079,7 @@ int AREQ::buildOutputPipeline(QueryError *status) {
       lk->flags |= RLOOKUP_F_EXPLICITRETURN;
     }
   }
-  rp = RPLoader_New(lookup, loadkeys, loadkeys ? array_len(loadkeys) : 0);
+  rp = new ResultsLoader(lookup, loadkeys, loadkeys ? array_len(loadkeys) : 0);
   if (loadkeys) {
     array_free(loadkeys);
   }
@@ -1112,7 +1100,7 @@ int AREQ::buildOutputPipeline(QueryError *status) {
       }
       ff->lookupKey = kk;
     }
-    rp = RPHighlighter_New(&earchopts, &outFields, lookup);
+    rp = new Highlighter(&searchopts, &outFields, lookup);
     PUSH_RP();
   }
 
@@ -1123,10 +1111,8 @@ error:
 
 //---------------------------------------------------------------------------------------------
 
-/**
- * Constructs the pipeline objects needed to actually start processing the requests.
- * This does not yet start iterating over the objects
- */
+// Constructs the pipeline objects needed to actually start processing the requests.
+// This does not yet start iterating over the objects
 
 int AREQ::BuildPipeline(BuildPipelineOptions options, QueryError *status) {
   if (!(options & AREQ_BUILDPIPELINE_NO_ROOT)) {
@@ -1134,7 +1120,7 @@ int AREQ::BuildPipeline(BuildPipelineOptions options, QueryError *status) {
   }
 
   AGGPlan *pln = &ap;
-  ResultProcessor *rp = NULL, *rpUpstream = qiter.endProc;
+  ResultProcessor *rp = NULL, *rpUpstream = qiter->endProc;
 
   // Whether we've applied a SORTBY yet..
   int hasArrange = 0;
@@ -1210,7 +1196,7 @@ int AREQ::BuildPipeline(BuildPipelineOptions options, QueryError *status) {
           lstp->keys[lstp->nkeys++] = kk;
         }
         if (lstp->nkeys) {
-          rp = RPLoader_New(curLookup, lstp->keys, lstp->nkeys);
+          rp = new ResultsLoader(curLookup, lstp->keys, lstp->nkeys);
           PUSH_RP();
         }
         break;
@@ -1259,7 +1245,7 @@ AREQ::~AREQ() {
   ResultProcessor *rp = qiter->endProc;
   while (rp) {
     ResultProcessor *next = rp->upstream;
-    rp->Free(rp);
+    delete rp;
     rp = next;
   }
 
@@ -1300,7 +1286,6 @@ AREQ::~AREQ() {
     array_free(searchopts.legacy.filters);
   }
   rm_free(searchopts.inids);
-  FieldList_Free(&outFields);
 
   if (thctx) {
     RedisModule_FreeThreadSafeContext(thctx);

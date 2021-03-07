@@ -12,7 +12,7 @@
  * SUMMARISE [FIELDS {num} {field} …] [LEN {len}] [FRAGS {num}]
  */
 
-static int parseFieldList(ArgsCursor *ac, FieldList *fields, Array *fieldPtrs) {
+int FieldList::parseFieldList(ArgsCursor *ac, Array *fieldPtrs) {
   ArgsCursor fieldArgs = {0};
   if (AC_GetVarArgs(ac, &fieldArgs) != AC_OK) {
     return -1;
@@ -20,8 +20,8 @@ static int parseFieldList(ArgsCursor *ac, FieldList *fields, Array *fieldPtrs) {
 
   while (!AC_IsAtEnd(&fieldArgs)) {
     const char *name = AC_GetStringNC(&fieldArgs, NULL);
-    ReturnedField *fieldInfo = FieldList_GetCreateField(fields, name);
-    size_t ix = (fieldInfo - fields->fields);
+    ReturnedField *fieldInfo = GetCreateField(name);
+    size_t ix = fieldInfo - fields;
     Array_Write(fieldPtrs, &ix, sizeof(size_t));
   }
 
@@ -67,7 +67,7 @@ void ReturnedField::setFieldSettings(const ReturnedField *defaults, int isHighli
 
 //---------------------------------------------------------------------------------------------
 
-static int parseCommon(ArgsCursor *ac, FieldList *fields, int isHighlight) {
+int FieldList::parseArgs(ArgsCursor *ac, bool isHighlight) {
   size_t numFields = 0;
   int rc = REDISMODULE_OK;
 
@@ -132,14 +132,18 @@ done:
 
 //---------------------------------------------------------------------------------------------
 
-int ParseSummarize(ArgsCursor *ac, FieldList *fields) {
-  return parseCommon(ac, fields, 0);
+void FieldList::ParseSummarize(ArgsCursor *ac) {
+  if (parseArgs(ac, false) == REDISMODULE_ERR) {
+    throw Error("Bad arguments for SUMMARIZE");
+  }
 }
 
 //---------------------------------------------------------------------------------------------
 
-int ParseHighlight(ArgsCursor *ac, FieldList *fields) {
-  return parseCommon(ac, fields, 1);
+void FieldList::ParseHighlight(ArgsCursor *ac) {
+  if (parseArgs(ac, true) == REDISMODULE_ERR) {
+    throw Error("Bad arguments for HIGHLIGHT");
+  }
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

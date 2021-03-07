@@ -142,7 +142,7 @@ QueryNode *QueryAST::NewTokenNodeExpanded(const char *s, size_t len, RSTokenFlag
 
 //---------------------------------------------------------------------------------------------
 
-QueryNode *NewTokenNode(QueryParseCtx *q, const char *s, size_t len) {
+QueryNode *NewTokenNode(QueryParse *q, const char *s, size_t len) {
   if (len == (size_t)-1) {
     len = strlen(s);
   }
@@ -156,7 +156,7 @@ QueryNode *NewTokenNode(QueryParseCtx *q, const char *s, size_t len) {
 
 //---------------------------------------------------------------------------------------------
 
-QueryNode *NewPrefixNode(QueryParseCtx *q, const char *s, size_t len) {
+QueryNode *NewPrefixNode(QueryParse *q, const char *s, size_t len) {
   QueryNode *ret = NewQueryNode(QN_PREFX);
   q->numTokens++;
 
@@ -166,7 +166,7 @@ QueryNode *NewPrefixNode(QueryParseCtx *q, const char *s, size_t len) {
 
 //---------------------------------------------------------------------------------------------
 
-QueryNode *NewFuzzyNode(QueryParseCtx *q, const char *s, size_t len, int maxDist) {
+QueryNode *NewFuzzyNode(QueryParse *q, const char *s, size_t len, int maxDist) {
   QueryNode *ret = NewQueryNode(QN_FUZZY);
   q->numTokens++;
 
@@ -239,23 +239,26 @@ void QueryAST::setFilterNode(QueryNode *n) {
 
 //---------------------------------------------------------------------------------------------
 
-void QueryAST::SetGlobalFilters(const QAST_GlobalFilterOptions &options) {
-  if (options.numeric) {
-    QueryNode *n = NewQueryNode(QN_NUMERIC);
-    n->nn.nf = (NumericFilter *)options.numeric;
-    setFilterNode(n);
-  }
-  if (options.geo) {
-    QueryNode *n = NewQueryNode(QN_GEO);
-    n->gn.gf = options.geo;
-    setFilterNode(n);
-  }
-  if (options.ids) {
-    QueryNode *n = NewQueryNode(QN_IDS);
-    n->fn.ids = options.ids;
-    n->fn.len = options.nids;
-    setFilterNode(n);
-  }
+// Used only to support legacy FILTER keyword. Should not be used by newer code
+void QueryAST::SetGlobalFilters(const NumericFilter *numeric) {
+  QueryNode *n = NewQueryNode(QN_NUMERIC);
+  n->nn.nf = (NumericFilter *)options.numeric;
+  setFilterNode(n);
+}
+
+// Used only to support legacy GEOFILTER keyword. Should not be used by newer code
+void QueryAST::SetGlobalFilters(const GeoFilter *geo) {
+  QueryNode *n = NewQueryNode(QN_GEO);
+  n->gn.gf = options.geo;
+  setFilterNode(n);
+}
+
+// List of IDs to limit to, and the length of that array
+void QueryAST::SetGlobalFilters(t_docId *ids, size_t nids) {
+  QueryNode *n = NewQueryNode(QN_IDS);
+  n->fn.ids = options.ids;
+  n->fn.len = options.nids;
+  setFilterNode(n);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -371,7 +374,7 @@ static IndexIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
     rm_free(its);
     return NULL;
   }
-  return NewUnionIterator(its, itsSz, q->docTable, 1, opts->weight);
+  return new UnionIterator(its, itsSz, q->docTable, 1, opts->weight);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -479,7 +482,7 @@ static IndexIterator *Query_EvalLexRangeNode(QueryEvalCtx *q, QueryNode *lx) {
     rm_free(ctx.its);
     return NULL;
   } else {
-    return NewUnionIterator(ctx.its, ctx.nits, q->docTable, 1, lx->opts.weight);
+    return new UnionIterator(ctx.its, ctx.nits, q->docTable, 1, lx->opts.weight);
   }
 }
 
@@ -641,8 +644,7 @@ static IndexIterator *Query_EvalUnionNode(QueryEvalCtx *q, QueryNode *qn) {
     return ret;
   }
 
-  IndexIterator *ret = NewUnionIterator(iters, n, q->docTable, 0, qn->opts.weight);
-  return ret;
+  return new UnionIterator(iters, n, q->docTable, 0, qn->opts.weight);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -671,7 +673,7 @@ static IndexIterator *Query_EvalTagLexRangeNode(QueryEvalCtx *q, TagIndex *idx, 
     rm_free(ctx.its);
     return NULL;
   } else {
-    return NewUnionIterator(ctx.its, ctx.nits, q->docTable, 1, qn->opts.weight);
+    return new UnionIterator(ctx.its, ctx.nits, q->docTable, 1, qn->opts.weight);
   }
 }
 
@@ -725,7 +727,7 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
   }
 
   *iterout = array_ensure_append(*iterout, its, itsSz, IndexIterator *);
-  return NewUnionIterator(its, itsSz, q->docTable, 1, weight);
+  return new UnionIterator(its, itsSz, q->docTable, 1, weight);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -831,7 +833,7 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
     }
   }
 
-  ret = NewUnionIterator(iters, n, q->docTable, 0, qn->opts.weight);
+  ret = new UnionIterator(iters, n, q->docTable, 0, qn->opts.weight);
 
 done:
   if (k) {
@@ -879,7 +881,18 @@ IndexIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
 
 //---------------------------------------------------------------------------------------------
 
-QueryNode *RSQuery_ParseRaw(QueryParseCtx *);
+QueryParse::QueryParse(char *query, size_t nquery, const RedisSearchCtx &sctx_, 
+                       const RSSearchOptions &opts_, QueryError *status_) {
+  raw =  query;
+  len = nquery;
+  sctx = (RedisSearchCtx *)&sctx_;
+  opts = &opts_;
+  status = status;
+}
+
+//---------------------------------------------------------------------------------------------
+
+QueryNode *RSQuery_ParseRaw(QueryParse *);
 
 /**
  * Parse the query string into an AST.
@@ -891,18 +904,13 @@ QueryNode *RSQuery_ParseRaw(QueryParseCtx *);
  * @param status error details set here.
  */
 
-QueryAST::QueryAST(const RedisSearchCtx *sctx, const RSSearchOptions *opts,
+QueryAST::QueryAST(const RedisSearchCtx &sctx, const RSSearchOptions &opts,
                    const char *q, size_t n, QueryError *status) {
-  if (!query) {
-    query = rm_strndup(q, n);
-    nquery = n;
-  }
-  QueryParseCtx qpCtx = {// force multiline
-                         .raw = dst->query,
-                         .len = dst->nquery,
-                         .sctx = (RedisSearchCtx *)sctx,
-                         .opts = opts,
-                         .status = status};
+  query = rm_strndup(q, n);
+  nquery = n;
+
+  QueryParse qp(query, nquery, sctx, opts, status);
+
   root = RSQuery_ParseRaw(&qpCtx);
   // printf("Parsed %.*s. Error (Y/N): %d. Root: %p\n", (int)n, q, status->HasError(), root);
   if (!root) {
@@ -923,6 +931,17 @@ QueryAST::QueryAST(const RedisSearchCtx *sctx, const RSSearchOptions *opts,
 
 //---------------------------------------------------------------------------------------------
 
+Query::Query(QueryAST &ast, const RSSearchOptions *opts_, RedisSearchCtx *sctx_, 
+             ConcurrentSearchCtx *conc) {
+  conc = conc_;
+  opts = opts_;
+  numTokens = qast.numTokens;
+  docTable = &sctx_->spec->docs;
+  sctx = sctx_;
+}
+
+//---------------------------------------------------------------------------------------------
+
 /**
  * Open the result iterator on the filters. Returns the iterator for the root node.
  *
@@ -934,21 +953,15 @@ QueryAST::QueryAST(const RedisSearchCtx *sctx, const RSSearchOptions *opts,
  * @return an iterator.
  */
 
-IndexIterator *QAST_Iterate(const QueryAST *qast, const RSSearchOptions *opts, RedisSearchCtx *sctx,
-                            ConcurrentSearchCtx *conc) {
-  QueryEvalCtx qectx = {
-      .conc = conc,
-      .opts = opts,
-      .numTokens = qast->numTokens,
-      .docTable = &sctx->spec->docs,
-      .sctx = sctx,
-  };
-  IndexIterator *root = Query_EvalNode(&qectx, qast->root);
-  if (!root) {
+IndexIterator *QueryAST::Iterate(const RSSearchOptions &opts, RedisSearchCtx &sctx,
+                                 ConcurrentSearchCtx &conc) const {
+  Query query(*this, &opts, &sctx, conc);
+  IndexIterator *iter = query.eval(root);
+  if (!iter) {
     // Return the dummy iterator
-    root = NewEmptyIterator();
+    iter = new EmptyIterator();
   }
-  return root;
+  return iter;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -974,13 +987,13 @@ QueryAST::~QueryAST()) {
  * @return REDISMODULE_OK, or REDISMODULE_ERR with more detail in `status`
  */
 
-int QueryAST::Expand(const char *expander, RSSearchOptions *opts, RedisSearchCtx *sctx,
+int QueryAST::Expand(const char *expander, RSSearchOptions *opts, RedisSearchCtx &sctx,
                      QueryError *status) {
   if (!root) {
     return REDISMODULE_OK;
   }
   RSQueryExpanderCtx expCtx = {
-      .qast = q, .language = opts->language, .handle = sctx, .status = status};
+      qast: = q, language: opts->language, handle: &sctx, status: status};
 
   ExtQueryExpanderCtx *xpc =
       Extensions_GetQueryExpander(&expCtx, expander ? expander : DEFAULT_EXPANDER_NAME);

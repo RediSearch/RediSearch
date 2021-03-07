@@ -9,15 +9,6 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-struct HlpProcessor {
-  ResultProcessor base;
-  int fragmentizeOptions;
-  const FieldList *fields;
-  const RLookup *lookup;
-};
-
-//---------------------------------------------------------------------------------------------
-
 /**
  * Common parameters passed around for highlighting one or more fields within
  * a document. This structure exists to avoid passing these four parameters
@@ -270,7 +261,7 @@ static void resetIovsArr(Array **iovsArrp, size_t *curSize, size_t newSize) {
 
 //---------------------------------------------------------------------------------------------
 
-static void processField(HlpProcessor *hlpCtx, hlpDocContext *docParams, ReturnedField *spec) {
+static void Highlighter::processField(hlpDocContext *docParams, ReturnedField *spec) {
   const char *fName = spec->name;
   const RSValue *fieldValue = RLookup_GetItem(spec->lookupKey, docParams->row);
 
@@ -286,7 +277,7 @@ static void processField(HlpProcessor *hlpCtx, hlpDocContext *docParams, Returne
 
 //---------------------------------------------------------------------------------------------
 
-static const RSIndexResult *getIndexResult(ResultProcessor *rp, t_docId docId) {
+const RSIndexResult *Highlighter::getIndexResult(t_docId docId) {
   IndexIterator *it = QITR_GetRootFilter(rp->parent);
   RSIndexResult *ir = NULL;
   if (!it) {
@@ -301,13 +292,11 @@ static const RSIndexResult *getIndexResult(ResultProcessor *rp, t_docId docId) {
 
 //---------------------------------------------------------------------------------------------
 
-static int hlpNext(ResultProcessor *rbase, SearchResult *r) {
-  int rc = rbase->upstream->Next(rbase->upstream, r);
+int Highlighter::Next(SearchResult *r) {
+  int rc = upstream->Next(r);
   if (rc != RS_RESULT_OK) {
     return rc;
   }
-
-  HlpProcessor *hlp = (HlpProcessor *)rbase;
 
   // Get the index result for the current document from the root iterator.
   // The current result should not contain an index result
@@ -319,7 +308,6 @@ static int hlpNext(ResultProcessor *rbase, SearchResult *r) {
   }
 
   size_t numIovsArr = 0;
-  const FieldList *fields = hlp->fields;
   RSDocumentMetadata *dmd = r->dmd;
   if (!dmd) {
     return RS_RESULT_OK;
@@ -352,7 +340,7 @@ static int hlpNext(ResultProcessor *rbase, SearchResult *r) {
       spec.lookupKey = k;
       spec.name = k->name;
       resetIovsArr(&docParams.iovsArr, &numIovsArr, spec.summarizeSettings.numFrags);
-      processField(hlp, &docParams, &spec);
+      processField(&docParams, &spec);
     }
   }
   for (size_t ii = 0; ii < numIovsArr; ++ii) {
@@ -364,23 +352,14 @@ static int hlpNext(ResultProcessor *rbase, SearchResult *r) {
 
 //---------------------------------------------------------------------------------------------
 
-static void hlpFree(ResultProcessor *p) {
-  rm_free(p);
-}
-
-//---------------------------------------------------------------------------------------------
-
-ResultProcessor *RPHighlighter_New(const RSSearchOptions *searchopts, const FieldList *fields,
-                                   const RLookup *lookup) {
-  HlpProcessor *hlp = rm_calloc(1, sizeof(*hlp));
+Highlighter::Highlighter(const RSSearchOptions *searchopts, const FieldList *fields_,
+                           const RLookup *lookup_) {
   if (searchopts->language == RS_LANG_CHINESE) {
-    hlp->fragmentizeOptions = FRAGMENTIZE_TOKLEN_EXACT;
+    fragmentizeOptions = FRAGMENTIZE_TOKLEN_EXACT;
   }
-  hlp->base.Next = hlpNext;
-  hlp->base.Free = hlpFree;
-  hlp->fields = fields;
-  hlp->lookup = lookup;
-  return &hlp->base;
+  Next = hlpNext;
+  fields = fields_;
+  lookup = lookup_;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

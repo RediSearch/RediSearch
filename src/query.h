@@ -25,7 +25,7 @@
  * To get an iterator from the query, use, QAST::Iterate()
  */
 
-struct QueryAST {
+struct QueryAST : public Object {
   size_t numTokens;
   QueryNode *root;
   // User data and length, for use by scorers
@@ -37,31 +37,34 @@ struct QueryAST {
   char *query;
   size_t nquery;
 
-  QueryAST(const RedisSearchCtx *sctx, const RSSearchOptions *sopts, const char *qstr,
+  QueryAST(const RedisSearchCtx &sctx, const RSSearchOptions &sopts, const char *qstr,
            size_t len, QueryError *status);
   ~QueryAST();
 
   // Set global filters on the AST
-  void SetGlobalFilters(const struct QAST_GlobalFilterOptions *options);
+  void SetGlobalFilters(const NumericFilter *numeric);
+  void SetGlobalFilters(const GeoFilter *geo);
+  void SetGlobalFilters(t_docId *ids, size_t nids);
 
-  IndexIterator *Iterate(const RSSearchOptions *options, RedisSearchCtx *sctx,
-                         ConcurrentSearchCtx *conc) const;
+  IndexIterator *Iterate(const RSSearchOptions &options, RedisSearchCtx &sctx,
+                         ConcurrentSearchCtx &conc) const;
 
-  int Expand(const char *expander, RSSearchOptions *opts, RedisSearchCtx *sctx,
+  int Expand(const char *expander, RSSearchOptions &opts, RedisSearchCtx &sctx,
              QueryError *status);
 
-  // Return a string representation of the QueryParseCtx parse tree.
+  // Return a string representation of the QueryParse parse tree.
   // The string should be freed by the caller.
   char *DumpExplain(const IndexSpec *spec) const;
 
   // Print a representation of the query to standard output
   void Print(const IndexSpec *spec) const;
+
+  void applyGlobalFilters(RSSearchOptions &opts, const RedisSearchCtx &sctx);
 };
 
 //---------------------------------------------------------------------------------------------
 
-IndexIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n);
-
+/*
 // This structure can be used to set global properties for the entire query.
 
 struct QAST_GlobalFilterOptions {
@@ -74,6 +77,6 @@ struct QAST_GlobalFilterOptions {
   t_docId *ids;
   size_t nids;
 };
-
+*/
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

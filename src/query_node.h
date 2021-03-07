@@ -7,7 +7,6 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-struct RSQueryNode;
 struct numericFilter;
 struct geoFilter;
 struct idFilter;
@@ -34,89 +33,8 @@ enum QueryNodeType {
 
 //---------------------------------------------------------------------------------------------
 
-// A prhase node represents a list of nodes with intersection between them, or a phrase in the case
-// of several token nodes.
-
-struct QueryPhraseNode {
-  int exact;
-};
-
-//---------------------------------------------------------------------------------------------
-
-// Query node used when the query is effectively null but not invalid.
-// This might happen as a result of a query containing only stopwords.
-
-struct QueryNullNode {
-  int dummy;
-};
-
-//---------------------------------------------------------------------------------------------
-
-struct QueryTagNode {
-  const char *fieldName;
-  size_t len;
-};
-
-//---------------------------------------------------------------------------------------------
-
-// A token node is a terminal, single term/token node. 
-// An expansion of synonyms is represented by a Union node with several token nodes. 
-// A token can have private metadata written by expanders or tokenizers. 
-// Later this gets passed to scoring functions in a Term object. See RSIndexRecord.
-
-typedef RSToken QueryTokenNode;
-typedef RSToken QueryPrefixNode;
-
-struct QueryFuzzyNode {
-  RSToken tok;
-  int maxDist;
-};
-
-//---------------------------------------------------------------------------------------------
-
-/* A node with a numeric filter */
-struct QueryNumericNode {
-  struct NumericFilter *nf;
-};
-
-//---------------------------------------------------------------------------------------------
-
-typedef struct {
-  const struct GeoFilter *gf;
-} QueryGeofilterNode;
-
-//---------------------------------------------------------------------------------------------
-
-struct QueryIdFilterNode {
-  t_docId *ids;
-  size_t len;
-};
-
-//---------------------------------------------------------------------------------------------
-
-struct QueryLexRangeNode {
-  char *begin;
-  bool includeBegin;
-  char *end;
-  bool includeEnd;
-};
-
-//---------------------------------------------------------------------------------------------
-
 enum QueryNodeFlags {
   QueryNode_Verbatim = 0x01,
-};
-
-//---------------------------------------------------------------------------------------------
-
-// Query attribute is a dynamic attribute that can be applied to any query node.
-// Currently supported are weight, slop, and inorder
-
-struct QueryAttribute {
-  const char *name;
-  size_t namelen;
-  const char *value;
-  size_t vallen;
 };
 
 //---------------------------------------------------------------------------------------------
@@ -138,15 +56,23 @@ struct QueryNodeOptions {
 
 //---------------------------------------------------------------------------------------------
 
-typedef QueryNullNode QueryUnionNode, QueryNotNode, QueryOptionalNode;
+// Query attribute is a dynamic attribute that can be applied to any query node.
+// Currently supported are weight, slop, and inorder
+
+struct QueryAttribute {
+  const char *name;
+  size_t namelen;
+  const char *value;
+  size_t vallen;
+};
 
 //---------------------------------------------------------------------------------------------
 
 // QueryNode reqresents any query node in the query tree.
 // It has a type to resolve which node it is, and a union of all possible nodes.
 
-typedef struct RSQueryNode {
-  union {
+struct QueryNode {
+  /*union {
     QueryPhraseNode pn;
     QueryTokenNode tn;
     QueryUnionNode un;
@@ -159,26 +85,110 @@ typedef struct RSQueryNode {
     QueryTagNode tag;
     QueryFuzzyNode fz;
     QueryLexRangeNode lxrng;
-  };
+  };*/
+
+  virtual ~QueryNode();
 
   // The node type, for resolving the union access
   QueryNodeType type;
   QueryNodeOptions opts;
-  struct RSQueryNode **children;
-} QueryNode;
+  struct QueryNode **children;
+
+  int ApplyAttributes(QueryAttribute *attr, size_t len, QueryError *status);
+
+  void AddChildren(QueryNode **children, size_t n);
+  void AddChild(QueryNode *child);
+  void ClearChildren(int shouldFree);
+
+  size_t NumChildren() const { return children ? array_len(children) : 0; }
+  QueryNode *GetChild(int ix) { return NumChildren() > ix ? children[ix] : NULL; }
+
+  typedef int (*ForEachCallback)(QueryNode *node, QueryNode *q, void *ctx);
+  int ForEach(ForEachCallback callback, void *ctx, bool reverse);
+
+  void SetFieldMask(t_fieldMask mask);
+};
 
 //---------------------------------------------------------------------------------------------
 
-int QueryNode_ApplyAttributes(QueryNode *qn, QueryAttribute *attr, size_t len, QueryError *status);
+// A prhase node represents a list of nodes with intersection between them, or a phrase in the case
+// of several token nodes.
 
-void QueryNode_AddChildren(QueryNode *parent, QueryNode **children, size_t n);
-void QueryNode_AddChild(QueryNode *parent, QueryNode *child);
-void QueryNode_ClearChildren(QueryNode *parent, int shouldFree);
+struct QueryPhraseNode : QueryNode {
+  int exact;
+};
 
-#define QueryNode_NumChildren(qn) ((qn)->children ? array_len((qn)->children) : 0)
-#define QueryNode_GetChild(qn, ix) (QueryNode_NumChildren(qn) > ix ? (qn)->children[ix] : NULL)
+//---------------------------------------------------------------------------------------------
 
-typedef int (*QueryNode_ForEachCallback)(QueryNode *node, QueryNode *q, void *ctx);
-int QueryNode_ForEach(QueryNode *q, QueryNode_ForEachCallback callback, void *ctx, int reverse);
+// Query node used when the query is effectively null but not invalid.
+// This might happen as a result of a query containing only stopwords.
+
+struct QueryNullNode : QueryNode {
+  //int dummy;
+};
+
+//---------------------------------------------------------------------------------------------
+
+struct QueryTagNode : QueryNode {
+  const char *fieldName;
+  size_t len;
+};
+
+//---------------------------------------------------------------------------------------------
+
+// A token node is a terminal, single term/token node. 
+// An expansion of synonyms is represented by a Union node with several token nodes. 
+// A token can have private metadata written by expanders or tokenizers. 
+// Later this gets passed to scoring functions in a Term object. See RSIndexRecord.
+
+// typedef RSToken QueryTokenNode;
+// typedef RSToken QueryPrefixNode;
+
+struct QueryTokenNode : QueryNode {
+  RSToken tok;
+};
+
+struct QueryPrefixNode : QueryNode {
+  RSToken tok;
+};
+
+struct QueryFuzzyNode : QueryNode {
+  RSToken tok;
+  int maxDist;
+};
+
+//---------------------------------------------------------------------------------------------
+
+// A node with a numeric filter
+
+struct QueryNumericNode : QueryNode {
+  struct NumericFilter *nf;
+};
+
+//---------------------------------------------------------------------------------------------
+
+struct QueryGeofilterNode : QueryNode {
+  const struct GeoFilter *gf;
+};
+
+//---------------------------------------------------------------------------------------------
+
+struct QueryIdFilterNode : QueryNode {
+  t_docId *ids;
+  size_t len;
+};
+
+//---------------------------------------------------------------------------------------------
+
+struct QueryLexRangeNode : QueryNode {
+  char *begin;
+  bool includeBegin;
+  char *end;
+  bool includeEnd;
+};
+
+//---------------------------------------------------------------------------------------------
+
+typedef QueryNullNode QueryUnionNode, QueryNotNode, QueryOptionalNode;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

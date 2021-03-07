@@ -131,12 +131,11 @@ enum RPStatus {
   RS_RESULT_PAUSED,
   // Execution halted because of timeout
   RS_RESULT_TIMEDOUT,
-  // Aborted because of error. The QueryState (parent->status) should have
-  // more information.
+  // Aborted because of error. The QueryState (parent->status) should have more information
   RS_RESULT_ERROR,
 
-  // Not a return code per se, but a marker signifying the end of the 'public'
-  // return codes. Implementations can use this for extensions.
+  // Not a return code per se, but a marker signifying the end of the 'public' return codes.
+  // Implementations can use this for extensions.
   RS_RESULT_MAX
 };
 
@@ -144,7 +143,7 @@ enum RPStatus {
 
 // Result processor structure. This should be "Subclassed" by the actual implementations
 
-struct ResultProcessor {
+struct ResultProcessor : public Object {
   // Reference to the parent structure
   QueryIterator *parent;
 
@@ -164,10 +163,14 @@ struct ResultProcessor {
    * The populated structure (if RS_RESULT_OK is returned) does contain references
    * to document data. Callers *MUST* ensure they are eventually freed.
    */
-  int (*Next)(struct ResultProcessor *self, SearchResult *res);
+  virtual int Next(SearchResult *res);
+
+  ResultProcessor(const char *name) : name(name) {}
 
   // Frees the processor and any internal data related to it
-  void (*Free)(struct ResultProcessor *self);
+  virtual ~ResultProcessor() {}
+
+  void ResultProcessor::DumpChain() const;
 };
 
 //---------------------------------------------------------------------------------------------
@@ -175,10 +178,13 @@ struct ResultProcessor {
 // Get the index spec from the result processor
 #define RP_SPEC(rpctx) ((rpctx)->parent->sctx->spec)
 
-ResultProcessor *RPIndexIterator_New(IndexIterator *itr);
+struct RPIndexIterator : public ResultProcessor {
+  RPIndexIterator(IndexIterator *itr);
+};
 
-ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
-                              const ScoringFunctionArgs *fnargs);
+struct RPScorer : public ResultProcessor {
+  RPScorer(const ExtScoringFunction *funcs, const ScoringFunctionArgs *fnargs);
+};
 
 //---------------------------------------------------------------------------------------------
 
@@ -210,12 +216,29 @@ ResultProcessor *RPPager_New(size_t offset, size_t limit);
  * It fills the result objects' field map with values corresponding to the requested return fields
  */
 
-ResultProcessor *RPLoader_New(RLookup *lk, const RLookupKey **keys, size_t nkeys);
+struct ResultsLoader : ResultProcessor {
+  RLookup *lk;
+  const RLookupKey **fields;
+  size_t nfields;
 
-// Creates a new Highlight processor
-ResultProcessor *RPHighlighter_New(const RSSearchOptions *searchopts, const FieldList *fields,
-                                   const RLookup *lookup);
+  ResultsLoader(RLookup *lk, const RLookupKey **keys, size_t nkeys);
+  ~ResultsLoader();
+};
 
-void RP_DumpChain(const ResultProcessor *rp);
+
+//---------------------------------------------------------------------------------------------
+
+struct Highlighter : public ResultProcessor {
+  Highlighter(const RSSearchOptions *searchopts, const FieldList *fields, const RLookup *lookup);
+  virtual ~Highlighter();
+
+  int fragmentizeOptions;
+  const FieldList *fields;
+  const RLookup *lookup;
+
+  const RSIndexResult *getIndexResult(t_docId docId);
+
+  virtual int Next(SearchResult *res);
+};
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

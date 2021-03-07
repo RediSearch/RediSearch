@@ -49,13 +49,11 @@ struct HighlightSettings {
 struct ReturnedField {
   const char *name;
 
-  // Lookup key associated with field
-  const RLookupKey *lookupKey;
+  const RLookupKey *lookupKey; // Lookup key associated with field
   SummarizeSettings summarizeSettings;
   HighlightSettings highlightSettings;
   SummarizeMode mode;
-  // Whether this field was explicitly requested by `RETURN`
-  int explicitReturn;
+  int explicitReturn; // Whether this field was explicitly requested by `RETURN`
 
   ReturnedField() : name(0), lookupKey(0), explicitReturn(0) {}
   ~ReturnedField();
@@ -66,7 +64,7 @@ struct ReturnedField {
 //---------------------------------------------------------------------------------------------
 
 struct FieldList {
-  // "Template" field. Contains settings applied to all other fields.
+  // "Template" field. Contains settings applied to all other fields
   ReturnedField defaultField;
 
   // List of individual field specifications
@@ -79,8 +77,11 @@ struct FieldList {
   ReturnedField *GetCreateField(const char *name);
   ~FieldList();
 
-  int ParseSummarize(ArgsCursor *ac);
-  int ParseHighlight(ArgsCursor *ac);
+  int parseArgs(ArgsCursor *ac, bool isHighlight);
+  void ParseSummarize(ArgsCursor *ac);
+  void ParseHighlight(ArgsCursor *ac);
+
+  void RestrictReturn();
 };
 
 //---------------------------------------------------------------------------------------------

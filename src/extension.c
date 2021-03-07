@@ -9,29 +9,40 @@
 #include "query.h"
 #include <err.h>
 
-/* The registry for query expanders. Initialized by Extensions_Init() */
-static TrieMap *queryExpanders_g = NULL;
+///////////////////////////////////////////////////////////////////////////////////////////////
 
-/* The registry for scorers. Initialized by Extensions_Init() */
-static TrieMap *scorers_g = NULL;
+// The registry for query expanders. Initialized by Extensions_Init()
+static TrieMap *Extensions::queryExpanders_g = NULL;
 
-/* Init the extension system - currently just create the regsistries */
-void Extensions_Init() {
+// The registry for scorers. Initialized by Extensions_Init()
+static TrieMap *Extensions::scorers_g = NULL;
+
+//---------------------------------------------------------------------------------------------
+
+// Init the extension system - currently just create the regsistries
+
+Extensions::Extensions() {
   if (!queryExpanders_g) {
     queryExpanders_g = NewTrieMap();
     scorers_g = NewTrieMap();
   }
 }
 
+//---------------------------------------------------------------------------------------------
+
 static void freeExpanderCb(void *p) {
   rm_free(p);
 }
+
+//---------------------------------------------------------------------------------------------
 
 static void freeScorerCb(void *p) {
   rm_free(p);
 }
 
-void Extensions_Free() {
+//---------------------------------------------------------------------------------------------
+
+Extensions::~Extensions() {
   if (queryExpanders_g) {
     TrieMap_Free(queryExpanders_g, freeExpanderCb);
     queryExpanders_g = NULL;
@@ -42,6 +53,8 @@ void Extensions_Free() {
   }
 }
 
+//---------------------------------------------------------------------------------------------
+
 /* Register a scoring function by its alias. privdata is an optional pointer to a user defined
  * struct. ff is a free function releasing any resources allocated at the end of query execution */
 int Ext_RegisterScoringFunction(const char *alias, RSScoringFunction func, RSFreeFunction ff,
@@ -49,7 +62,7 @@ int Ext_RegisterScoringFunction(const char *alias, RSScoringFunction func, RSFre
   if (func == NULL || scorers_g == NULL) {
     return REDISEARCH_ERR;
   }
-  ExtScoringFunctionCtx *ctx = rm_new(ExtScoringFunctionCtx);
+  ExtScoringFunction *ctx = rm_new(ExtScoringFunction);
   ctx->privdata = privdata;
   ctx->ff = ff;
   ctx->sf = func;
@@ -63,6 +76,8 @@ int Ext_RegisterScoringFunction(const char *alias, RSScoringFunction func, RSFre
   TrieMap_Add(scorers_g, (char *)alias, strlen(alias), ctx, NULL);
   return REDISEARCH_OK;
 }
+
+//---------------------------------------------------------------------------------------------
 
 /* Register a aquery expander */
 int Ext_RegisterQueryExpander(const char *alias, RSQueryTokenExpander exp, RSFreeFunction ff,
@@ -84,6 +99,8 @@ int Ext_RegisterQueryExpander(const char *alias, RSQueryTokenExpander exp, RSFre
   return REDISEARCH_OK;
 }
 
+//---------------------------------------------------------------------------------------------
+
 /* Load an extension by calling its init function. return REDISEARCH_ERR or REDISEARCH_OK */
 int Extension_Load(const char *name, RSExtensionInitFunc func) {
   // bind the callbacks in the context
@@ -94,6 +111,8 @@ int Extension_Load(const char *name, RSExtensionInitFunc func) {
 
   return func(&ctx);
 }
+
+//---------------------------------------------------------------------------------------------
 
 /* Dynamically load a RediSearch extension by .so file path. Returns REDISMODULE_OK or ERR */
 int Extension_LoadDynamic(const char *path, char **errMsg) {
@@ -122,14 +141,14 @@ int Extension_LoadDynamic(const char *path, char **errMsg) {
   return REDISMODULE_OK;
 }
 
-/* Get a scoring function by name */
-ExtScoringFunctionCtx *Extensions_GetScoringFunction(ScoringFunctionArgs *fnargs,
-                                                     const char *name) {
+//---------------------------------------------------------------------------------------------
 
+// Get a scoring function by name
+static ExtScoringFunction *Extensions::GetScoringFunction(ScoringFunctionArgs *fnargs, const char *name) {
   if (!scorers_g) return NULL;
 
   /* lookup the scorer by name (case sensitive) */
-  ExtScoringFunctionCtx *p = TrieMap_Find(scorers_g, (char *)name, strlen(name));
+  ExtScoringFunction *p = TrieMap_Find(scorers_g, (char *)name, strlen(name));
   if (p && (void *)p != TRIEMAP_NOTFOUND) {
     /* if no ctx was given, we just return the scorer */
     if (fnargs) {
@@ -141,41 +160,46 @@ ExtScoringFunctionCtx *Extensions_GetScoringFunction(ScoringFunctionArgs *fnargs
   return NULL;
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+
 /* The implementation of the actual query expansion. This function either turns the current node
  * into a union node with the original token node and new token node as children. Or if it is
  * already a union node (in consecutive calls), it just adds a new token node as a child to it */
-void Ext_ExpandToken(struct RSQueryExpanderCtx *ctx, const char *str, size_t len,
-                     RSTokenFlags flags) {
 
-  QueryAST *q = ctx->qast;
-  QueryNode *qn = *ctx->currentNode;
+void RSQueryExpander::ExpandToken(const char *str, size_t len, RSTokenFlags flags) {
 
-  /* Replace current node with a new union node if needed */
+  QueryAST *q = qast;
+  QueryNode *qn = *currentNode;
+
+  // Replace current node with a new union node if needed
   if (qn->type != QN_UNION) {
     QueryNode *un = NewUnionNode();
 
     un->opts.fieldMask = qn->opts.fieldMask;
 
-    /* Append current node to the new union node as a child */
+    // Append current node to the new union node as a child
     QueryNode_AddChild(un, qn);
-    *ctx->currentNode = un;
+    *currentNode = un;
   }
 
   QueryNode *exp = NewTokenNodeExpanded(q, str, len, flags);
   exp->opts.fieldMask = qn->opts.fieldMask;
-  /* Now the current node must be a union node - so we just add a new token node to it */
-  QueryNode_AddChild(*ctx->currentNode, exp);
+  // Now the current node must be a union node - so we just add a new token node to it
+  QueryNode_AddChild(*currentNode, exp);
   // q->numTokens++;
 }
+
+//---------------------------------------------------------------------------------------------
 
 /* The implementation of the actual query expansion. This function either turns the current node
  * into a union node with the original token node and new token node as children. Or if it is
  * already a union node (in consecutive calls), it just adds a new token node as a child to it */
-void Ext_ExpandTokenWithPhrase(struct RSQueryExpanderCtx *ctx, const char **toks, size_t num,
-                               RSTokenFlags flags, int replace, int exact) {
 
-  QueryAST *q = ctx->qast;
-  QueryNode *qn = *ctx->currentNode;
+void RSQueryExpander::ExpandTokenWithPhrase(const char **toks, size_t num, RSTokenFlags flags, 
+                                            int replace, int exact) {
+
+  QueryAST *q = qast;
+  QueryNode *qn = *currentNode;
 
   QueryNode *ph = NewPhraseNode(exact);
   for (size_t i = 0; i < num; i++) {
@@ -189,31 +213,36 @@ void Ext_ExpandTokenWithPhrase(struct RSQueryExpanderCtx *ctx, const char **toks
     *ctx->currentNode = ph;
   } else {
 
-    /* Replace current node with a new union node if needed */
+    // Replace current node with a new union node if needed
     if (qn->type != QN_UNION) {
       QueryNode *un = NewUnionNode();
 
-      /* Append current node to the new union node as a child */
+      // Append current node to the new union node as a child
       QueryNode_AddChild(un, qn);
-      *ctx->currentNode = un;
+      *currentNode = un;
     }
-    /* Now the current node must be a union node - so we just add a new token node to it */
-    QueryNode_AddChild(*ctx->currentNode, ph);
+    // Now the current node must be a union node - so we just add a new token node to it
+    QueryNode_AddChild(*currentNode, ph);
   }
 }
 
-/* Set the query payload */
-void Ext_SetPayload(struct RSQueryExpanderCtx *ctx, RSPayload payload) {
-  ctx->qast->udata = payload.data;
-  ctx->qast->udatalen = payload.len;
+//---------------------------------------------------------------------------------------------
+
+// Set the query payload
+void RSQueryExpander::SetPayload(RSPayload payload) {
+  qast->udata = payload.data;
+  qast->udatalen = payload.len;
 }
 
-/* Get an expander by name */
-ExtQueryExpanderCtx *Extensions_GetQueryExpander(RSQueryExpanderCtx *ctx, const char *name) {
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+// Get an expander by name
+
+static ExtQueryExpander *Extensions::GetQueryExpander(RSQueryExpander *ctx, const char *name) {
 
   if (!queryExpanders_g) return NULL;
 
-  ExtQueryExpanderCtx *p = TrieMap_Find(queryExpanders_g, (char *)name, strlen(name));
+  ExtQueryExpander *p = TrieMap_Find(queryExpanders_g, (char *)name, strlen(name));
 
   if (p && (void *)p != TRIEMAP_NOTFOUND) {
     ctx->ExpandToken = Ext_ExpandToken;
@@ -224,3 +253,5 @@ ExtQueryExpanderCtx *Extensions_GetQueryExpander(RSQueryExpanderCtx *ctx, const 
   }
   return NULL;
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////

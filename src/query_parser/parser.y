@@ -105,7 +105,7 @@ static int one_not_null(void *a, void *b, void *out) {
    
 } // END %include  
 
-%extra_argument { QueryParseCtx *ctx }
+%extra_argument { QueryParse *ctx }
 %default_type { QueryToken }
 %default_destructor { }
 

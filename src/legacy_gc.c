@@ -218,7 +218,7 @@ size_t GarbageCollector::CollectTagIndex(RedisModuleCtx *ctx, int *status) {
   int blockNum = 0;
   for (;;) {
     // repair 100 blocks at once
-    IndexRepairParams params = {.limit = RSGlobalConfig.gcScanSize, .arg = NULL};
+    IndexRepairParams params = {limit: RSGlobalConfig.gcScanSize, arg: NULL};
     blockNum = iv->Repair(&sctx->spec->docs, blockNum, &params);
     /// update the statistics with the the number of records deleted
     totalRemoved += params.docsCollected;
@@ -229,7 +229,7 @@ size_t GarbageCollector::CollectTagIndex(RedisModuleCtx *ctx, int *status) {
     // After each iteration we yield execution
     // First we close the relevant keys we're touching
     RedisModule_CloseKey(idxKey);
-    sctx = SearchCtx_Refresh(sctx, (RedisModuleString *)keyName);
+    sctx = sctx.Refresh((RedisModuleString *)keyName);
     // sctx null --> means it was deleted and we need to stop right now
     if (!sctx || sctx->spec->uniqueId != specUniqueId) {
       *status = SPEC_STATUS_INVALID;

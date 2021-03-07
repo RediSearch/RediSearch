@@ -1,7 +1,7 @@
-#ifndef RS_COMMANDS_H_
-#define RS_COMMANDS_H_
 
-/** RS_CMD_PREFIX can be defined with -D from the Makefile */
+#pragma once
+
+// RS_CMD_PREFIX can be defined with -D from the Makefile
 #ifndef RS_CMD_PREFIX
 #define RS_CMD_PREFIX "FT"
 #endif
@@ -53,5 +53,3 @@
 #define RS_ALIASADD RS_CMD_PREFIX ".ALIASADD"
 #define RS_ALIASDEL RS_CMD_PREFIX ".ALIASDEL"
 #define RS_ALIASUPDATE RS_CMD_PREFIX ".ALIASUPDATE"
-
-#endif

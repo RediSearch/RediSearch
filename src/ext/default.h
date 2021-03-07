@@ -1,5 +1,6 @@
-#ifndef __EXT_DEFAULT_H__
-#define __EXT_DEFAULT_H__
+
+#pragma once
+
 #include "redisearch.h"
 
 #define PHONETIC_EXPENDER_NAME "PHONETIC"
@@ -14,5 +15,3 @@
 #define HAMMINGDISTANCE_SCORER "HAMMING"
 
 int DefaultExtensionInit(RSExtensionCtx *ctx);
-
-#endif

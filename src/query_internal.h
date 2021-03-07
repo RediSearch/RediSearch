@@ -14,7 +14,7 @@ struct GeoFilter;
 
 //---------------------------------------------------------------------------------------------
 
-struct QueryParseCtx {
+struct QueryParse {
   const char *raw;
   size_t len;
 
@@ -36,7 +36,7 @@ struct QueryParseCtx {
 
 //---------------------------------------------------------------------------------------------
 
-struct QueryEvalCtx {
+struct Query : Object {
   ConcurrentSearchCtx *conc;
   RedisSearchCtx *sctx;
   const RSSearchOptions *opts;
@@ -44,6 +44,8 @@ struct QueryEvalCtx {
   size_t numTokens;
   uint32_t tokenId;
   DocTable *docTable;
+
+  IndexIterator *Eval(QueryNode *node);
 };
 
 //---------------------------------------------------------------------------------------------
@@ -54,7 +56,7 @@ struct QueryEvalCtx {
 QueryNode *NewQueryNode(QueryNodeType type);
 QueryNode *NewQueryNodeChildren(QueryNodeType type, QueryNode **children, size_t n);
 
-QueryNode *NewTokenNode(QueryParseCtx *q, const char *s, size_t len);
+QueryNode *NewTokenNode(QueryParse *q, const char *s, size_t len);
 QueryNode *NewTokenNodeExpanded(struct QueryAST *q, const char *s, size_t len, RSTokenFlags flags);
 QueryNode *NewPhraseNode(int exact);
 
@@ -63,15 +65,11 @@ QueryNode *NewPhraseNode(int exact);
 #define NewNotNode(child) NewQueryNodeChildren(QN_NOT, &child, 1)
 #define NewOptionalNode(child) NewQueryNodeChildren(QN_OPTIONAL, &child, 1)
 
-QueryNode *NewPrefixNode(QueryParseCtx *q, const char *s, size_t len);
-QueryNode *NewFuzzyNode(QueryParseCtx *q, const char *s, size_t len, int maxDist);
+QueryNode *NewPrefixNode(QueryParse *q, const char *s, size_t len);
+QueryNode *NewFuzzyNode(QueryParse *q, const char *s, size_t len, int maxDist);
 QueryNode *NewNumericNode(const struct NumericFilter *flt);
 QueryNode *NewIdFilterNode(const t_docId *, size_t);
 QueryNode *NewGeofilterNode(const struct GeoFilter *flt);
 QueryNode *NewTagNode(const char *tag, size_t len);
-void QueryNode_SetFieldMask(QueryNode *n, t_fieldMask mask);
-
-/* Free the query node and its children recursively */
-void QueryNode_Free(QueryNode *n);
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

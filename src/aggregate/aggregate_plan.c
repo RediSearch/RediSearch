@@ -33,24 +33,24 @@ static const char *steptypeToString(PLN_StepType type) {
 //---------------------------------------------------------------------------------------------
 
 /* add a step to the plan at its end (before the dummy tail) */
-void AGPLN_AddStep(AGGPlan *plan, PLN_BaseStep *step) {
+void AGGPlan::AddStep(PLN_BaseStep *step) {
   RS_LOG_ASSERT(step->type > PLN_T_INVALID, "Step type connot be PLN_T_INVALID");
-  dllist_append(&plan->steps, &step->llnodePln);
-  plan->steptypes |= (1 << (step->type - 1));
+  dllist_append(&steps, &step->llnodePln);
+  steptypes |= (1 << (step->type - 1));
 }
 
 //---------------------------------------------------------------------------------------------
 
-int AGPLN_HasStep(const AGGPlan *pln, PLN_StepType t) {
-  return (pln->steptypes & (1 << (t - 1)));
+bool AGGPlan::HasStep(PLN_StepType t) const {
+  return !!(steptypes & (1 << (t - 1)));
 }
 
 //---------------------------------------------------------------------------------------------
 
-void AGPLN_AddBefore(AGGPlan *pln, PLN_BaseStep *posstp, PLN_BaseStep *newstp) {
+void AGGPlan::AddBefore(PLN_BaseStep *posstp, PLN_BaseStep *newstp) {
   RS_LOG_ASSERT(newstp->type > PLN_T_INVALID, "Step type connot be PLN_T_INVALID");
-  if (posstp == NULL || DLLIST_IS_FIRST(&pln->steps, &posstp->llnodePln)) {
-    dllist_prepend(&pln->steps, &posstp->llnodePln);
+  if (posstp == NULL || DLLIST_IS_FIRST(&steps, &posstp->llnodePln)) {
+    dllist_prepend(&steps, &posstp->llnodePln);
   } else {
     dllist_insert(posstp->llnodePln.prev, &posstp->llnodePln, &newstp->llnodePln);
   }
@@ -58,10 +58,10 @@ void AGPLN_AddBefore(AGGPlan *pln, PLN_BaseStep *posstp, PLN_BaseStep *newstp) {
 
 //---------------------------------------------------------------------------------------------
 
-void AGPLN_AddAfter(AGGPlan *pln, PLN_BaseStep *posstp, PLN_BaseStep *newstp) {
+void AGGPlan::AddAfter(PLN_BaseStep *posstp, PLN_BaseStep *newstp) {
   RS_LOG_ASSERT(newstp->type > PLN_T_INVALID, "Step type connot be PLN_T_INVALID");
-  if (posstp == NULL || DLLIST_IS_LAST(&pln->steps, &posstp->llnodePln)) {
-    AGPLN_AddStep(pln, newstp);
+  if (posstp == NULL || DLLIST_IS_LAST(&steps, &posstp->llnodePln)) {
+    AddStep(newstp);
   } else {
     dllist_insert(&posstp->llnodePln, posstp->llnodePln.next, &newstp->llnodePln);
   }
@@ -69,39 +69,39 @@ void AGPLN_AddAfter(AGGPlan *pln, PLN_BaseStep *posstp, PLN_BaseStep *newstp) {
 
 //---------------------------------------------------------------------------------------------
 
-void AGPLN_Prepend(AGGPlan *pln, PLN_BaseStep *newstp) {
-  dllist_prepend(&pln->steps, &newstp->llnodePln);
+void AGGPlan::Prepend(PLN_BaseStep *newstp) {
+  dllist_prepend(&steps, &newstp->llnodePln);
 }
 
 //---------------------------------------------------------------------------------------------
 
-void AGPLN_PopStep(AGGPlan *pln, PLN_BaseStep *step) {
+void AGGPlan::PopStep(PLN_BaseStep *step) {
   dllist_delete(&step->llnodePln);
-  (void)pln;
 }
 
 //---------------------------------------------------------------------------------------------
 
-static void rootStepDtor(PLN_BaseStep *bstp) {
-  PLN_FirstStep *fstp = (PLN_FirstStep *)bstp;
-  RLookup_Cleanup(&fstp->lookup);
+PLN_FirstStep::~PLN_FirstStep() {
+  RLookup_Cleanup(&lookup);
 }
 
 //---------------------------------------------------------------------------------------------
 
-static RLookup *rootStepLookup(PLN_BaseStep *bstp) {
-  return &((PLN_FirstStep *)bstp)->lookup;
+RLookup *PLN_FirstStep::getLookup() {
+  return &lookup;
 }
 
 //---------------------------------------------------------------------------------------------
 
-void AGPLN_Init(AGGPlan *plan) {
-  memset(plan, 0, sizeof *plan);
-  dllist_init(&plan->steps);
-  dllist_append(&plan->steps, &plan->firstStep_s.base.llnodePln);
-  plan->firstStep_s.base.type = PLN_T_ROOT;
-  plan->firstStep_s.base.dtor = rootStepDtor;
-  plan->firstStep_s.base.getLookup = rootStepLookup;
+AGGPlan::AGGPlan() {
+  arrangement = NULL;
+  steptypes = 0;
+
+  dllist_init(&steps);
+  dllist_append(&steps, &firstStep_s.llnodePln);
+  firstStep_s.type = PLN_T_ROOT;
+  firstStep_s.dtor = rootStepDtor;
+  firstStep_s.getLookup = rootStepLookup;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -129,13 +129,13 @@ static RLookup *lookupFromNode(const DLLIST_node *nn) {
  *  can be used for any plan type which creates a new RLookup
  */
 
-const PLN_BaseStep *AGPLN_FindStep(const AGGPlan *pln, const PLN_BaseStep *begin,
-                                   const PLN_BaseStep *end, PLN_StepType type) {
+const PLN_BaseStep *AGGPlan::FindStep(const PLN_BaseStep *begin, const PLN_BaseStep *end, 
+                                      PLN_StepType type) const {
   if (!begin) {
-    begin = DLLIST_ITEM(pln->steps.next, PLN_BaseStep, llnodePln);
+    begin = DLLIST_ITEM(steps.next, PLN_BaseStep, llnodePln);
   }
   if (!end) {
-    end = DLLIST_ITEM(&pln->steps, PLN_BaseStep, llnodePln);
+    end = DLLIST_ITEM(&steps, PLN_BaseStep, llnodePln);
   }
   for (const PLN_BaseStep *bstp = begin; bstp != end;
        bstp = DLLIST_ITEM(bstp->llnodePln.next, PLN_BaseStep, llnodePln)) {
@@ -160,17 +160,13 @@ static void arrangeDtor(PLN_BaseStep *bstp) {
   rm_free(bstp);
 }
 
-//---------------------------------------------------------------------------------------------
+///////////////////////////////////////////////////////////////////////////////////////////////
 
-/**
- * Gets the last arrange step for the current pipeline stage. If no arrange
- * step exists, return NULL.
- *
- */
+// Gets the last arrange step for the current pipeline stage. If no arrange step exists, return NULL.
 
-PLN_ArrangeStep *AGPLN_GetArrangeStep(AGGPlan *pln) {
+PLN_ArrangeStep *AGGPlan::GetArrangeStep() {
   // Go backwards.. and stop at the cutoff
-  for (const DLLIST_node *nn = pln->steps.prev; nn != &pln->steps; nn = nn->prev) {
+  for (const DLLIST_node *nn = steps.prev; nn != &steps; nn = nn->prev) {
     const PLN_BaseStep *stp = DLLIST_ITEM(nn, PLN_BaseStep, llnodePln);
     if (PLN_IsReduce(stp)) {
       break;
@@ -183,22 +179,18 @@ PLN_ArrangeStep *AGPLN_GetArrangeStep(AGGPlan *pln) {
 
 //---------------------------------------------------------------------------------------------
 
-/**
- * Gets the last arrange step for the current pipeline stage. If no arrange
- * step exists, one is created.
- *
- * This function should be used to limit/page through the current step
- */
+// Gets the last arrange step for the current pipeline stage. If no arrange step exists, one is created.
+// This function should be used to limit/page through the current step.
 
-PLN_ArrangeStep *AGPLN_GetOrCreateArrangeStep(AGGPlan *pln) {
-  PLN_ArrangeStep *ret = AGPLN_GetArrangeStep(pln);
+PLN_ArrangeStep *AGGPlan::GetOrCreateArrangeStep() {
+  PLN_ArrangeStep *ret = GetArrangeStep();
   if (ret) {
     return ret;
   }
-  ret = rm_calloc(1, sizeof(*ret));
+  ret = new PLN_ArrangeStep();
   ret->base.type = PLN_T_ARRANGE;
   ret->base.dtor = arrangeDtor;
-  AGPLN_AddStep(pln, &ret->base);
+  AddStep(&ret->base);
   return ret;
 }
 
@@ -213,27 +205,27 @@ PLN_ArrangeStep *AGPLN_GetOrCreateArrangeStep(AGGPlan *pln) {
  *  are ignored (NYI).
  */
 
-RLookup *AGPLN_GetLookup(const AGGPlan *pln, const PLN_BaseStep *bstp, AGPLNGetLookupMode mode) {
+RLookup *AGGPlan::GetLookup(const PLN_BaseStep *bstp, AGPLNGetLookupMode mode) const {
   const DLLIST_node *first = NULL, *last = NULL;
   int isReverse = 0;
 
   switch (mode) {
     case AGPLN_GETLOOKUP_FIRST:
-      first = pln->steps.next;
-      last = bstp ? &bstp->llnodePln : &pln->steps;
+      first = steps.next;
+      last = bstp ? &bstp->llnodePln : &steps;
       break;
     case AGPLN_GETLOOKUP_PREV:
-      first = &pln->steps;
+      first = &steps;
       last = bstp->llnodePln.prev;
       isReverse = 1;
       break;
     case AGPLN_GETLOOKUP_NEXT:
       first = bstp->llnodePln.next;
-      last = &pln->steps;
+      last = &steps;
       break;
     case AGPLN_GETLOOKUP_LAST:
-      first = bstp ? &bstp->llnodePln : &pln->steps;
-      last = pln->steps.prev;
+      first = bstp ? &bstp->llnodePln : &steps;
+      last = steps.prev;
       isReverse = 1;
   }
 
@@ -258,9 +250,9 @@ RLookup *AGPLN_GetLookup(const AGGPlan *pln, const PLN_BaseStep *bstp, AGPLNGetL
 
 //---------------------------------------------------------------------------------------------
 
-void AGPLN_FreeSteps(AGGPlan *pln) {
-  DLLIST_node *nn = pln->steps.next;
-  while (nn && nn != &pln->steps) {
+void AGGPlan::FreeSteps() {
+  DLLIST_node *nn = steps.next;
+  while (nn && nn != &steps) {
     PLN_BaseStep *bstp = DLLIST_ITEM(nn, PLN_BaseStep, llnodePln);
     nn = nn->next;
     if (bstp->dtor) {
@@ -271,8 +263,8 @@ void AGPLN_FreeSteps(AGGPlan *pln) {
 
 //---------------------------------------------------------------------------------------------
 
-void AGPLN_Dump(const AGGPlan *pln) {
-  for (const DLLIST_node *nn = pln->steps.next; nn && nn != &pln->steps; nn = nn->next) {
+void AGGPlan::Dump() const {
+  for (const DLLIST_node *nn = steps.next; nn && nn != &steps; nn = nn->next) {
     const PLN_BaseStep *stp = DLLIST_ITEM(nn, PLN_BaseStep, llnodePln);
     printf("STEP: [T=%s. P=%p]\n", steptypeToString(stp->type), stp);
     const RLookup *lk = lookupFromNode(nn);
@@ -448,9 +440,9 @@ static void serializeGroup(myArgArray_t *arr, const PLN_BaseStep *stp) {
  * The strings need to be freed with free and the array needs to be freed with array_free().
  * The length can be extracted with array_len */
 
-array_t AGPLN_Serialize(const AGGPlan *pln) {
+array_t AGGPlan::Serialize() const {
   char **arr = array_new(char *, 1);
-  for (const DLLIST_node *nn = pln->steps.next; nn != &pln->steps; nn = nn->next) {
+  for (const DLLIST_node *nn = steps.next; nn != &steps; nn = nn->next) {
     const PLN_BaseStep *stp = DLLIST_ITEM(nn, PLN_BaseStep, llnodePln);
     switch (stp->type) {
       case PLN_T_APPLY:

@@ -154,7 +154,7 @@ struct AREQ : public Object {
   ResultProcessor *getArrangeRP(AGGPlan *pln, const PLN_BaseStep *stp, ResultProcessor *up, QueryError *status);
   ResultProcessor *getScorerRP();
 
-  void buildImplicitPipeline(QueryError *Status);
+  void buildImplicitPipeline(QueryError *status);
   int buildOutputPipeline(QueryError *status);
 };
 

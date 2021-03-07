@@ -133,9 +133,9 @@ struct RSToken {
 
 struct QueryAST;
 
-// RSQueryExpanderCtx is a context given to query expanders, containing callback methods and useful data
+// RSQueryExpander is a context given to query expanders, containing callback methods and useful data
 
-struct RSQueryExpanderCtx {
+struct RSQueryExpander {
 
   // Opaque query object used internally by the engine, and should not be accessed
   struct QueryAST *qast;
@@ -160,25 +160,23 @@ struct RSQueryExpanderCtx {
    * length, and flags is a 32 bit flag mask that can be used by the extension to set private
    * information on the token
    */
-  void (*ExpandToken)(struct RSQueryExpanderCtx *ctx, const char *str, size_t len,
-                      RSTokenFlags flags);
+  virtual void ExpandToken(const char *str, size_t len, RSTokenFlags flags);
 
   /* Expand the token with a multi-word phrase, where all terms are intersected. toks is an array
    * with num its len, each member of it is a null terminated string. If replace is set to 1, we
    * replace the original token with the new phrase. If exact is 1 the expanded phrase is an exact
    * match phrase
    */
-  void (*ExpandTokenWithPhrase)(struct RSQueryExpanderCtx *ctx, const char **toks, size_t num,
-                                RSTokenFlags flags, int replace, int exact);
+  virtual void ExpandTokenWithPhrase(const char **toks, size_t num, RSTokenFlags flags, int replace, int exact);
 
   // SetPayload allows the query expander to set GLOBAL payload on the query (not unique per token)
-  void (*SetPayload)(struct RSQueryExpanderCtx *ctx, RSPayload payload);
+  virtual void SetPayload(RSPayload payload);
 };
 
 //---------------------------------------------------------------------------------------------
 
 // The signature for a query expander instance
-typedef int (*RSQueryTokenExpander)(RSQueryExpanderCtx *ctx, RSToken *token);
+typedef int (*RSQueryTokenExpander)(RSQueryExpander *expander, RSToken *token);
 // A free function called after the query expansion phase is over, to release per-query data
 typedef void (*RSFreeFunction)(void *);
 
@@ -426,10 +424,10 @@ typedef double (*RSScoringFunction)(const ScoringFunctionArgs *ctx, const RSInde
 // registering query expanders and scorers
 
 struct RSExtensionCtx {
-  int (*RegisterScoringFunction)(const char *alias, RSScoringFunction func, RSFreeFunction ff,
-                                 void *privdata);
-  int (*RegisterQueryExpander)(const char *alias, RSQueryTokenExpander exp, RSFreeFunction ff,
-                               void *privdata);
+  virtual int RegisterScoringFunction(const char *alias, RSScoringFunction func, RSFreeFunction ff,
+                                      void *privdata);
+  virtual int RegisterQueryExpander(const char *alias, RSQueryTokenExpander exp, RSFreeFunction ff,
+                                    void *privdata);
 };
 
 // An extension initialization function

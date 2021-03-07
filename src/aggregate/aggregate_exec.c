@@ -146,12 +146,12 @@ int AREQ::sendChunk(RedisModuleCtx *outctx, size_t limit) {
   ResultProcessor *rp = RP();
 
   CachedVars cv;
-  cv.lastLk = AGPLN_GetLookup(&ap, NULL, AGPLN_GETLOOKUP_LAST);
-  cv.lastAstp = AGPLN_GetArrangeStep(&ap);
+  cv.lastLk = ap.GetLookup(NULL, AGPLN_GETLOOKUP_LAST);
+  cv.lastAstp = ap.GetArrangeStep();
 
   RedisModule_ReplyWithArray(outctx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
-  rc = rp->Next(rp, &r);
+  rc = rp->Next(&r);
   RedisModule_ReplyWithLongLong(outctx, qiter->totalResults);
   nelem++;
   if (rc == RS_RESULT_OK && nrows++ < limit && !(reqflags & QEXEC_F_NOROWS)) {
@@ -167,7 +167,7 @@ int AREQ::sendChunk(RedisModuleCtx *outctx, size_t limit) {
     goto done;
   }
 
-  while (nrows++ < limit && (rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
+  while (nrows++ < limit && (rc = rp->Next(&r)) == RS_RESULT_OK) {
     if (!(reqflags & QEXEC_F_NOROWS)) {
       nelem += serializeResult(outctx, &r, cv);
     }
