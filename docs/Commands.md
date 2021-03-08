@@ -594,48 +594,81 @@ FT.PROFILE {index} {[SEARCH, AGGREGATE]} [LIMITED] QUERY {query}
 Performs a `FT.SEARCH` or `FT.AGGREGATE` command and collect performance information.
 Printout details are:
 
-- **Total time** - Total query runtime.
-- **Parsing and iterator creation time** - Parsing time and creation time of execution plan including iterator, result processors and reducers.
-- **Iterators profile** - Iterators tree with type, count and time.
-- **Result processors profile** - Result processors chain with type, count and time.
-- **Results** - Query results.
+- **Results** - The first element contains the normal reply from RediSearch, similar to a cursor.
+- **Total profile time** - Total query runtime.
+- **Parsing time** - Parsing time of query and parameters into an execution plan.
+- **Pipeline creation time** - Creation time of execution plan including iterator,
+  result processors and reducers creation.
+- **Iterators profile** - Index iterators information including their type, term, count and time data. 
+  Inverted-index iterators have in addition the number of elements they contain.
+- **Result processors profile** - Result processors chain with type, count and time daya.
 
 #### Example
 ```sh
-FT.PROFILE idx search query "hello world"
+FT.PROFILE idx SEARCH QUERY "hello world"
 1) 1) (integer) 1
    2) "doc1"
    3) 1) "t"
       2) "hello world"
 2) 1) 1) Total profile time
-      2) "0.124"
-   2) 1) Parsing and iterator creation time
-      2) "0.075999999999999998"
-   3) 1) Iterators profile
-      2) 1) Intersect iterator
-         2) (integer) 1
-         3) "0.0060000000000000001"
-         4) 1) Term reader
-            2) hello
-            3) "0.001"
-            4) (integer) 1
-         5) 1) Term reader
-            2) world
-            3) "0.001"
-            4) (integer) 1
-   4) 1) Result processors profile
-      2) 1) Index
-         2) "0.010999999999999999"
-         3) (integer) 1
-      3) 1) Scorer
-         2) "0.0069999999999999993"
-         3) (integer) 1
-      4) 1) Sorter
-         2) "0.0040000000000000001"
-         3) (integer) 1
-      5) 1) Loader
-         2) "0.013000000000000005"
-         3) (integer) 1
+      2) "0.47199999999999998"
+   2) 1) Parsing time
+      2) "0.218"
+   3) 1) Pipeline creation time
+      2) "0.032000000000000001"
+   4) 1) Iterators profile
+      2) 1) Type
+         2) INTERSECT
+         3) Time
+         4) "0.025000000000000001"
+         5) Counter
+         6) (integer) 1
+         7) Children iterators
+         8)  1) Type
+             2) TEXT
+             3) Term
+             4) hello
+             5) Time
+             6) "0.0070000000000000001"
+             7) Counter
+             8) (integer) 1
+             9) Size
+            10) (integer) 1
+         9)  1) Type
+             2) TEXT
+             3) Term
+             4) world
+             5) Time
+             6) "0.0030000000000000001"
+             7) Counter
+             8) (integer) 1
+             9) Size
+            10) (integer) 1
+   5) 1) Result processors profile
+      2) 1) Type
+         2) Index
+         3) Time
+         4) "0.036999999999999998"
+         5) Counter
+         6) (integer) 1
+      3) 1) Type
+         2) Scorer
+         3) Time
+         4) "0.025000000000000001"
+         5) Counter
+         6) (integer) 1
+      4) 1) Type
+         2) Sorter
+         3) Time
+         4) "0.013999999999999999"
+         5) Counter
+         6) (integer) 1
+      5) 1) Type
+         2) Loader
+         3) Time
+         4) "0.10299999999999999"
+         5) Counter
+         6) (integer) 1
 ```
 
 #### Parameters
@@ -643,7 +676,7 @@ FT.PROFILE idx search query "hello world"
 - **index**: The index name. The index must be first created with FT.CREATE
 - **SEARCH,AGGREGATE**: Differ between `FT.SEARCH` and `FT.AGGREGATE` 
 - **LIMITED**: Removes details of `reader` iterator
-- **query**: The query string, as if sent to FT.SEARCH
+- **QUERY {query}**: The query string, as if sent to FT.SEARCH
 
 #### Complexity
 
