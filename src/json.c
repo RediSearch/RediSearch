@@ -2,7 +2,7 @@
 #include <string.h>
 #include "spec.h"
 
-int JSONKeyChangeHandler(RedisModuleCtx *ctx, RedisModuleKey *key) {
+int JSONKeyChangeHandler(RedisModuleCtx *ctx, RedisModuleKey *key, RedisModuleString* path, RedisModuleString* value) {
   printf("==> in JSONKeyChangeHandler\n");
   //Indexes_UpdateMatchingWithSchemaRules(ctx, key, 0);
   return 1;

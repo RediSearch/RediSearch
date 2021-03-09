@@ -15,7 +15,7 @@ extern "C" {
 struct RSExpr;
 struct IndexSpec;
 
-typedef enum { SchameRuleType_Any, SchemaRuleType_Hash } SchemaRuleType;
+typedef enum { SchameRuleType_Any, SchemaRuleType_Hash, SchemaRuleType_Json} SchemaRuleType;
 
 const char *SchemaRuleType_ToString(SchemaRuleType type);
 int SchemaRuleType_Parse(const char *type_str, SchemaRuleType *type, QueryError *status);
