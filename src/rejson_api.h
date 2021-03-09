@@ -7,7 +7,11 @@
 extern "C" {
 #endif
 
+<<<<<<< HEAD
 typedef int (*RedisModuleAPICallbackKeyChange)(RedisModuleCtx *ctx, RedisModuleKey* key, RedisModuleString* path, RedisModuleString* value);
+=======
+typedef int (*RedisModuleAPICallbackKeyChange)(RedisModuleCtx *ctx, RedisModuleKey* key);
+>>>>>>> 34809cbe6fe316c74697f1848fddaaf846357a4c
 typedef int (*RedisModuleAPICallbackEvent)(int event);
 typedef struct RedisJSONAPI_V1 {
     void (*free_string)(const char* string);
