@@ -40,12 +40,12 @@ class RediSearchSetup(paella.Setup):
         self.run("%s/bin/getgcc" % READIES)
 
     def macos(self):
+        self.run("pip3 install semantic_version")
         self.install_gnu_utils()
         self.install("pkg-config")
 
         # for now depending on redis from brew, it's version6 with TLS.
-        #self.run("{PYTHON} {READIES}/bin/getredis -v 6 --force".format(PYTHON=self.python, READIES=READIES))
-        self.install("redis")
+        self.run("{PYTHON} {READIES}/bin/getredis -v 6 --force".format(PYTHON=self.python, READIES=READIES))
 
     def common_last(self):
         self.run("{PYTHON} {READIES}/bin/getcmake".format(PYTHON=self.python, READIES=READIES))
