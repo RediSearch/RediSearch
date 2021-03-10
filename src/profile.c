@@ -3,7 +3,8 @@
 void printReadIt(RedisModuleCtx *ctx, IndexIterator *root, size_t counter, double cpuTime) {
   IndexReader *ir = root->ctx;
 
-  RedisModule_ReplyWithArray(ctx, (4 + PROFILE_VERBOSE) * 2);
+  size_t nlen = 0;
+  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
   if (ir->idx->flags == Index_DocIdsOnly) {
     printProfileType("TAG");
@@ -31,14 +32,23 @@ void printReadIt(RedisModuleCtx *ctx, IndexIterator *root, size_t counter, doubl
     RedisModule_ReplyWithSimpleString(ctx, "Term");
     RedisModule_ReplyWithSimpleString(ctx, ir->record->term.term->str);
   }
+  // We have added both Type and Term fields
+  nlen += 4;
 
   // print counter and clock
   if (PROFILE_VERBOSE) {
     printProfileTime(cpuTime);
+    nlen += 2;
   }
+
   printProfileCounter(counter);
+  nlen += 2;
+
   RedisModule_ReplyWithSimpleString(ctx, "Size");
   RedisModule_ReplyWithLongLong(ctx, root->NumEstimated(ir));
+  nlen += 2;
+
+  RedisModule_ReplySetArrayLength(ctx, nlen);
 }
 
 static double _recursiveProfilePrint(RedisModuleCtx *ctx, ResultProcessor *rp, size_t *arrlen) {

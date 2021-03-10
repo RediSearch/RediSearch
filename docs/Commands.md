@@ -591,17 +591,18 @@ FT.PROFILE {index} {[SEARCH, AGGREGATE]} [LIMITED] QUERY {query}
 
 #### Description
 
-Performs a `FT.SEARCH` or `FT.AGGREGATE` command and collect performance information.
-Printout details are:
-
-- **Results** - The first element contains the normal reply from RediSearch, similar to a cursor.
-- **Total profile time** - Total query runtime.
-- **Parsing time** - Parsing time of query and parameters into an execution plan.
-- **Pipeline creation time** - Creation time of execution plan including iterator,
+Performs a `FT.SEARCH` or `FT.AGGREGATE` command and collects performance information.
+Return value has an array with two elements:
+    
+  * **Results** - The normal reply from RediSearch, similar to a cursor.
+  * **Profile** - The details in the profile are:
+    * **Total profile time** - The total runtime of the query.
+    * **Parsing time** - Parsing time of the query and parameters into an execution plan.
+    * **Pipeline creation time** - Creation time of execution plan including iterators,
   result processors and reducers creation.
-- **Iterators profile** - Index iterators information including their type, term, count and time data. 
+    * **Iterators profile** - Index iterators information including their type, term, count and time data. 
   Inverted-index iterators have in addition the number of elements they contain.
-- **Result processors profile** - Result processors chain with type, count and time daya.
+    * **Result processors profile** - Result processors chain with type, count and time data.
 
 #### Example
 ```sh

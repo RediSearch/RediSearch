@@ -6,30 +6,9 @@ from common import getConnectionByEnv, waitForIndex, sortedResults, toSortedFlat
 from time import sleep
 from RLTest import Env
 
-string1 = 'For the exchange of decimal floating-point numbers, \
-           interchange formats of any multiple of 32 bits are defined. \
-           As with binary interchange, the encoding scheme for the decimal interchange formats encodes the sign, exponent, and significand. \
-           Two different bit-level encodings are defined, and interchange is complicated by the fact that some external indicator of the encoding in use may be required. \
-           The two options allow the significand to be encoded as a compressed sequence of decimal digits using densely packed decimal or, alternatively, as a binary integer. \
-           The former is more convenient for direct hardware implementation of the standard, while the latter is more suited to software emulation on a binary computer. \
-           In either case, the set of numbers (combinations of sign, significand, and exponent) \
-           that may be encoded is identical, and special values (±zero with the minimum exponent, ±infinity, quiet NaNs, and signaling NaNs) have identical encodings.'
-
-string2 = 'For the binary formats, the representation is made unique by choosing the smallest representable exponent allowing the value to be represented exactly. \
-           Further, the exponent is not represented directly, but a bias is added so that the smallest representable exponent is represented as 1, with 0 used for subnormal numbers. \
-           For numbers with an exponent in the normal range (the exponent field being neither all ones nor all zeros), \
-           the leading bit of the significand will always be 1. \
-           Consequently, a leading 1 can be implied rather than explicitly present in the memory encoding, \
-           and under the standard the explicitly represented part of the significand will lie between 0 and 1. \
-           This rule is called leading bit convention, implicit bit convention, or hidden bit convention. \
-           This rule allows the binary format to have an extra bit of precision. \
-           The leading bit convention cannot be used for the subnormal numbers as they have an exponent outside \
-           the normal exponent range and scale by the smallest represented exponent as used for the smallest normal numbers.'
-
 def testProfileSearch(env):
   env.skipOnCluster()
   conn = getConnectionByEnv(env)
-  env.cmd('FT.CONFIG', 'SET', 'MAXPREFIXEXPANSIONS', 1000000)
   env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
 
   env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'text')
@@ -112,31 +91,23 @@ def testProfileSearch(env):
     return
 
   actual_res = env.expect('ft.profile', 'idx', 'search', 'query',  'hello(hello(hello(hello(hello(hello)))))', 'nocontent')
-  expected_res = [1L, '1', 
-                      ['Total profile time'],
-                      ['Parsing time'],
-                      ['Pipeline creation time'],
-                      ['Iterators profile',
-                        ['Intersect iterator', 2L,
-                          ['Term reader', 'hello', 2L],
+  expected_res = ['Iterators profile',
+                  ['Intersect iterator', 2L,
+                    ['Term reader', 'hello', 2L],
+                    ['Intersect iterator', 1L,
+                      ['Term reader', 'hello', 1L],
+                      ['Intersect iterator', 1L,
+                        ['Term reader', 'hello', 1L],
+                        ['Intersect iterator', 1L,
+                          ['Term reader', 'hello', 1L],
                           ['Intersect iterator', 1L,
                             ['Term reader', 'hello', 1L],
-                            ['Intersect iterator', 1L,
-                              ['Term reader', 'hello', 1L],
-                              ['Intersect iterator', 1L,
-                                ['Term reader', 'hello', 1L],
-                                ['Intersect iterator', 1L,
-                                  ['Term reader', 'hello', 1L],
-                                  ['Intersect iterator', 1L, None, None]]]]]]],
-                      ['Result processors profile',
-                        ['Index', 2L],
-                        ['Scorer', 2L],
-                        ['Sorter', 2L]]]
+                            ['Intersect iterator', 1L, None, None]]]]]]]
+  env.assertEqual(actual_res[1][3], expected_res)
 
 def testProfileSearchLimited(env):
   env.skipOnCluster()
   conn = getConnectionByEnv(env)
-  env.cmd('FT.CONFIG', 'SET', 'MAXPREFIXEXPANSIONS', 1000000)
   env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
 
   env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'text')
@@ -154,45 +125,33 @@ def testProfileSearchLimited(env):
 def testProfileAggregate(env):
   env.skipOnCluster()
   conn = getConnectionByEnv(env)
-  env.cmd('FT.CONFIG', 'SET', 'MAXPREFIXEXPANSIONS', 1000000)
   env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
 
   env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'text')
   conn.execute_command('hset', '1', 't', 'hello')
   conn.execute_command('hset', '2', 't', 'world')
 
-  expected_res = [['Total profile time'],
-                  ['Parsing time'],
-                  ['Pipeline creation time'],
-                  ['Iterators profile',
-                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1L, 'Size', 1L]],
-                  ['Result processors profile',
-                    ['Type', 'Index', 'Counter', 1L],
-                    ['Type', 'Loader', 'Counter', 1L],
-                    ['Type', 'Grouper', 'Counter', 1L]]]
+  expected_res = ['Result processors profile',
+                  ['Type', 'Index', 'Counter', 1L],
+                  ['Type', 'Loader', 'Counter', 1L],
+                  ['Type', 'Grouper', 'Counter', 1L]]
   actual_res = conn.execute_command('ft.profile', 'idx', 'aggregate', 'query', 'hello',
                                     'groupby', 1, '@t',
                                     'REDUCE', 'count', '0', 'as', 'sum')
-  env.assertEqual(actual_res[1], expected_res)
+  env.assertEqual(actual_res[1][4], expected_res)
 
-  expected_res = [['Total profile time'],
-                  ['Parsing time'],
-                  ['Pipeline creation time'],
-                  ['Iterators profile',
-                    ['Type', 'WILDCARD', 'Counter', 2L]],
-                  ['Result processors profile',
-                    ['Type', 'Index', 'Counter', 2L],
-                    ['Type', 'Loader', 'Counter', 2L],
-                    ['Type', 'Projector - Function startswith', 'Counter', 2L]]]
+  expected_res = ['Result processors profile',
+                  ['Type', 'Index', 'Counter', 2L],
+                  ['Type', 'Loader', 'Counter', 2L],
+                  ['Type', 'Projector - Function startswith', 'Counter', 2L]]
   actual_res = env.cmd('ft.profile', 'idx', 'aggregate', 'query', '*',
                 'load', 1, 't',
                 'apply', 'startswith(@t, "hel")', 'as', 'prefix')
-  env.assertEqual(actual_res[1], expected_res)
+  env.assertEqual(actual_res[1][4], expected_res)
 
 def testProfileCursor(env):
   env.skipOnCluster()
   conn = getConnectionByEnv(env)
-  env.cmd('FT.CONFIG', 'SET', 'MAXPREFIXEXPANSIONS', 1000000)
   env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
 
   env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'text')
@@ -233,7 +192,6 @@ def testProfileCursor(env):
 def testProfileNumeric(env):
   env.skipOnCluster()
   conn = getConnectionByEnv(env)
-  env.cmd('FT.CONFIG', 'SET', 'MAXPREFIXEXPANSIONS', 1000000)
   env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
 
   env.cmd('ft.create', 'idx', 'SCHEMA', 'n', 'numeric')
@@ -252,7 +210,6 @@ def testProfileNumeric(env):
 def testProfileTag(env):
   env.skipOnCluster()
   conn = getConnectionByEnv(env)
-  env.cmd('FT.CONFIG', 'SET', 'MAXPREFIXEXPANSIONS', 1000000)
   env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
 
   env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'tag')
@@ -264,35 +221,16 @@ def testProfileTag(env):
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '@t:{foo}', 'nocontent')
   env.assertEqual(actual_res[1][3], ['Iterators profile', ['Type', 'TAG', 'Term', 'foo', 'Counter', 2L, 'Size', 2L]])
 
-def testProfileOutput(env):
-  env.skip()
-  docs = 10000
-  copies = 10
-  queries = 0
-
+def testProfileMaxPrefixExpansion(env):
+  env.skipOnCluster()
   conn = getConnectionByEnv(env)
-  pl = conn.pipeline()
-  env.cmd('FT.CONFIG', 'SET', 'MAXPREFIXEXPANSIONS', 1000000)
+  env.cmd('FT.CONFIG', 'SET', 'MAXPREFIXEXPANSIONS', 2)
   env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
-  env.cmd('FT.CONFIG', 'SET', 'UNION_ITERATOR_HEAP', 1)
 
   env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'text')
-  for i in range(docs):
-    pl.execute_command('hset', i, 't', str(i / copies), 'hello', string1, 'world', string2)
-    if (i % 999) is 0:
-      pl.execute()
-  pl.execute()
-  
-  print "finished loading"
-  search_string = '12*|87*|42*'
-  #search_string = '(4|5) (5|6)'
-  #search_string = '1(1(1(1(1(1(1))))))'
-  #search_string = '1(1(1(1(1))))'
-  #print env.cmd('FT.search', 'idx', '12*|69*', 'limit', 0, 0)
-  for i in range(queries):
-    pl.execute_command('ft.profile', 'idx', 'search', 'query',  search_string, 'limit', 0, 1000)
-    if (i % 999) is 0:
-      pl.execute()
-  pl.execute()
-  res = env.cmd('ft.profile', 'idx', 'search', 'query',  search_string, 'limit', 0, 0, 'nocontent')
-  print res
+  conn.execute_command('hset', '1', 't', 'foo1')
+  conn.execute_command('hset', '2', 't', 'foo2')
+  conn.execute_command('hset', '3', 't', 'foo3')
+
+  actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', 'foo*', 'limit', '0', '0')
+  env.assertEqual(actual_res[1][3][1][6:8], ['Warning', 'Max prefix expansion reached'])

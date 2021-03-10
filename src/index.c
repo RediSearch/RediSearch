@@ -1763,11 +1763,12 @@ PRINT_PROFILE_FUNC(printUnionIt) {
   UnionIterator *ui = (UnionIterator *)root;
   int printFull = !limited  || (ui->origType & QN_UNION);
 
-  int arrayLen = (3 + PROFILE_VERBOSE) * 2;
-  arrayLen += 1 + (printFull ? ui->norig : 1);
-  RedisModule_ReplyWithArray(ctx, arrayLen);
+  int nlen = 0;
+  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
-  printProfileType("UNION");
+  printProfileType("UNION"); 
+  nlen += 2;
+
   RedisModule_ReplyWithSimpleString(ctx, "Query type");
   char *unionTypeStr;
   switch (ui->origType) {
@@ -1787,33 +1788,57 @@ PRINT_PROFILE_FUNC(printUnionIt) {
   } else {
     RedisModule_ReplyWithPrintf(ctx, "%s - %s", unionTypeStr, ui->qstr);
   }
+  nlen += 2;
 
   if (PROFILE_VERBOSE) {
     printProfileTime(cpuTime);
+    nlen += 2;
   }
+
   printProfileCounter(counter);
+  nlen += 2;
+
+  // if MAXPREFIXEXPANSIONS reached
+  if (ui->norig == RSGlobalConfig.maxPrefixExpansions) {
+    RedisModule_ReplyWithSimpleString(ctx, "Warning");
+    RedisModule_ReplyWithSimpleString(ctx, "Max prefix expansion reached");
+    nlen += 2;
+  }
 
   RedisModule_ReplyWithSimpleString(ctx, "Children iterators");
+  nlen++;
   if (printFull) {
     for (int i = 0; i < ui->norig; i++) {
       printIteratorProfile(ctx, ui->origits[i], 0, 0, depth + 1, limited);
     }
+    nlen += ui->norig;
   } else {
     RedisModule_ReplyWithPrintf(ctx, "The number of iterators in union is %d", ui->norig);
+    nlen++;
   }
+
+  RedisModule_ReplySetArrayLength(ctx, nlen);
 }
 
 PRINT_PROFILE_FUNC(printIntersectIt) {
   IntersectIterator *ii = (IntersectIterator *)root;
-  int arrayLen = (2 + PROFILE_VERBOSE) * 2;
-  RedisModule_ReplyWithArray(ctx, arrayLen + 1 + ii->num);
+
+  size_t nlen = 0;
+  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+
   printProfileType("INTERSECT");
+  nlen += 2;
+
   if (PROFILE_VERBOSE) {
     printProfileTime(cpuTime);
+    nlen += 2;
   }
+
   printProfileCounter(counter);
+  nlen += 2;
 
   RedisModule_ReplyWithSimpleString(ctx, "Children iterators");
+  nlen++;
   for (int i = 0; i < ii->num; i++) {
     if (ii->its[i]) {
       printIteratorProfile(ctx, ii->its[i], 0, 0, depth + 1, limited);
@@ -1821,23 +1846,31 @@ PRINT_PROFILE_FUNC(printIntersectIt) {
       RedisModule_ReplyWithNull(ctx);
     }
   }
+  nlen += ii->num;
+
+  RedisModule_ReplySetArrayLength(ctx, nlen);
 }
 
 #define PRINT_PROFILE_SINGLE(name, iterType, text, hasChild)                        \
 PRINT_PROFILE_FUNC(name) {                                                          \
-  int verbose = PROFILE_VERBOSE;                                                    \
+  size_t nlen = 0;                                                                  \
   int addChild = hasChild && ((iterType *)root)->child;                             \
-  RedisModule_ReplyWithArray(ctx, (2 + verbose + addChild) * 2);                          \
+  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);                 \
   printProfileType(text);                                                           \
+  nlen += 2;                                                                        \
   if (PROFILE_VERBOSE) {                                                            \
     printProfileTime(cpuTime);                                                      \
+    nlen += 2;                                                                      \
   }                                                                                 \
   printProfileCounter(counter);                                                     \
+  nlen += 2;                                                                        \
                                                                                     \
   if (addChild) {                                                                   \
     RedisModule_ReplyWithSimpleString(ctx, "Child iterator");                       \
     printIteratorProfile(ctx, ((iterType *)root)->child, 0, 0, depth + 1, limited); \
+    nlen += 2;                                                                      \
   }                                                                                 \
+  RedisModule_ReplySetArrayLength(ctx, nlen);                                       \
 }
 
 typedef struct {
