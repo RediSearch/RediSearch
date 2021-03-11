@@ -52,6 +52,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 ROOT=$HERE
 READIES=$ROOT/deps/readies
 . $READIES/shibumi/functions
+CURDIR="$PWD"
 
 #----------------------------------------------------------------------------------------------
 
@@ -134,6 +135,9 @@ pack_ramp() {
 
 	local ramp="$(command -v python2) -m RAMP.ramp"
 	rm -f /tmp/ramp.fname
+	
+	# CURDIR is required so ramp will detect the right git commit
+	cd $CURDIR
 	$ramp pack -m /tmp/ramp.yml $RAMP_ARGS --packname-file /tmp/ramp.fname --verbose --debug \
 		-o $packfile $MODULE_SO >/tmp/ramp.err 2>&1 || true
 
@@ -146,6 +150,7 @@ pack_ramp() {
 	fi
 
 	echo "Created $packname"
+	cd $ROOT
 }
 
 #----------------------------------------------------------------------------------------------
