@@ -28,18 +28,13 @@ def testGeoDistanceSimple(env):
 
   # test profile
   env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
-  res = [[4L, 'geo1', 'geo2', 'geo3', 'geo4'],
-         [['Total profile time'],
-          ['Parsing and iterator creation time'],
-          ['Iterators profile',
-            ['Union iterator - GEO', 4L,
-              ['Geo reader', '1.23,4.55 - 1.21176,4.57724', 2L],
-              ['Geo reader', '1.21176,4.57724 - 1.24,4.56', 2L]]],
-          ['Result processors profile',
-            ['Index', 4L],
-            ['Scorer', 4L],
-            ['Sorter', 4L]]]]
-  env.expect('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '@location:[1.23 4.56 10 km]', 'nocontent').equal(res)
+  res = ['Iterators profile',
+          ['Type', 'UNION', 'Query type', 'GEO', 'Counter', 4L, 'Children iterators',
+            ['Type', 'GEO', 'Term', '1.23,4.55 - 1.21176,4.57724', 'Counter', 2L, 'Size', 2L],
+            ['Type', 'GEO', 'Term', '1.21176,4.57724 - 1.24,4.56', 'Counter', 2L, 'Size', 2L]]]
+
+  act_res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '@location:[1.23 4.56 10 km]', 'nocontent')
+  env.assertEqual(act_res[1][3], res)
 
   res = [4L, ['distance', '5987.15'], ['distance', '6765.06'], ['distance', '7456.63'], ['distance', '8095.49']]
 
