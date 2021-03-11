@@ -119,13 +119,24 @@ def testTFIDFScorerExplanation(env):
                                             ['(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)',
                                             '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)']]]]]])
 
-    res = env.cmd('ft.search', 'idx', 'hello(world(world(hello)))', 'withscores', 'EXPLAINSCORE', 'limit', 0, 1)
-    env.assertEqual(res[2][1], ['Final TFIDF : words TFIDF 40.00 * document score 1.00 / norm 10 / slop 1',
-                                [['(Weight 1.00 * total children TFIDF 40.00)',
+    res1 = ['Final TFIDF : words TFIDF 40.00 * document score 1.00 / norm 10 / slop 1',
+                [['(Weight 1.00 * total children TFIDF 40.00)',
+                    ['(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)',
+                        ['(Weight 1.00 * total children TFIDF 30.00)',
+                            ['(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)',
+                                ['(Weight 1.00 * total children TFIDF 20.00)',
                                     ['(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)',
-                                        ['(Weight 1.00 * total children TFIDF 30.00)',
-                                            ['(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)',
-                                            '(Weight 1.00 * total children TFIDF 20.00)']]]]]])
+                                     '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)']]]]]]]]
+    res2 = ['Final TFIDF : words TFIDF 40.00 * document score 1.00 / norm 10 / slop 1',
+                [['(Weight 1.00 * total children TFIDF 40.00)',
+                    ['(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)',
+                        ['(Weight 1.00 * total children TFIDF 30.00)',
+                            ['(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)',
+                             '(Weight 1.00 * total children TFIDF 20.00)']]]]]]
+
+
+    actual_res = env.cmd('ft.search', 'idx', 'hello(world(world(hello)))', 'withscores', 'EXPLAINSCORE', 'limit', 0, 1)
+    env.assertIn(actual_res[2][1], [res1, res2])
 
 def testBM25ScorerExplanation(env):
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'SCORE_FIELD', '__score',
