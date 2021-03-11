@@ -1,6 +1,6 @@
 import math
 from includes import *
-from common import getConnectionByEnv, waitForIndex
+from common import getConnectionByEnv, waitForIndex, check_server_version
 
 
 def testHammingScorer(env):
@@ -136,7 +136,9 @@ def testTFIDFScorerExplanation(env):
 
 
     actual_res = env.cmd('ft.search', 'idx', 'hello(world(world(hello)))', 'withscores', 'EXPLAINSCORE', 'limit', 0, 1)
-    env.assertIn(actual_res[2][1], [res1, res2])
+    # on older versions we trim the reply to remain under the 7-layer limitation.
+    res = res1 if check_server_version(env, "6.2.0") else res2
+    env.assertEqual(actual_res[2][1], res)
 
 def testBM25ScorerExplanation(env):
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'SCORE_FIELD', '__score',
