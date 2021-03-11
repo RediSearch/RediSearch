@@ -266,6 +266,7 @@ static int AddDocumentCtx_ReplaceMerge(RSAddDocumentCtx *aCtx, RedisSearchCtx *s
    */
 
   Document_Clear(aCtx->doc);
+  // TODO: Handle JSON (SchemaRuleType_Hash)
   int rv = Document_LoadSchemaFields(aCtx->doc, sctx);
   if (rv != REDISMODULE_OK) {
     QueryError_SetError(&aCtx->status, QUERY_ENODOC, "Could not load existing document");

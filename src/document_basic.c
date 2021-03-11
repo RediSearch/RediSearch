@@ -3,6 +3,7 @@
 #include "rmalloc.h"
 #include "module.h"
 #include "rmutil/rm_assert.h"
+#include "rejson_api.h"
 
 void Document_Init(Document *doc, RedisModuleString *docKey, double score, RSLanguage lang) {
   doc->docKey = docKey;
@@ -86,6 +87,52 @@ void Document_MakeStringsOwner(Document *d) {
 // TODO remove uncovered and clean DOCUMENT_F_OWNREFS from all code
 void Document_MakeRefOwner(Document *doc) {
   doc->flags |= DOCUMENT_F_OWNREFS;
+}
+
+int Document_LoadJsonFields(Document *doc, RedisSearchCtx *sctx) {
+//  RedisModuleKey *k = RedisModule_OpenKey(sctx->redisCtx, doc->docKey, REDISMODULE_READ);
+  int rv = REDISMODULE_ERR;
+ 
+  size_t nitems = sctx->spec->numFields;
+  if (nitems == 0) {
+    goto done;
+  }
+
+  get_json_path get_json_path_ptr = RedisModule_GetSharedAPI(sctx->redisCtx, "get_json_path");
+  if (get_json_path_ptr) {
+     for (int i = 0; i < sctx->spec->numFields; i++) {
+        const FieldSpec *fs = sctx->spec->fields + i;
+        //get_json_path_ptr(k, fs->name);
+        //const char *name = RedisModule_StringPtrLen(doc->docKey, NULL);
+        RedisModuleString *res = get_json_path_ptr(sctx->redisCtx, doc->docKey, fs->name);
+        printf("==> res %s\n", RedisModule_StringPtrLen(res, NULL));
+     }
+  }
+  
+
+  // IndexSpec *spec = sctx->spec;
+
+  // SchemaRule *rule = spec->rule;
+  // assert(rule);
+  // RedisModuleString *payload_rms = NULL;
+  // Document_MakeStringsOwner(doc);
+  // const char *keyname = (const char *)RedisModule_StringPtrLen(doc->docKey, NULL);
+  // //TODO:
+  // doc->language = SchemaRule_HashLang(sctx->redisCtx, rule, k, keyname);
+  // doc->score = SchemaRule_HashScore(sctx->redisCtx, rule, k, keyname);
+  // payload_rms = SchemaRule_HashPayload(sctx->redisCtx, rule, k, keyname);
+  // if (payload_rms) {
+  //   const char *payload_str = RedisModule_StringPtrLen(payload_rms, &doc->payloadSize);
+  //   doc->payload = rm_malloc(doc->payloadSize);
+  //   memcpy((char *)doc->payload, payload_str, doc->payloadSize);
+  //   RedisModule_FreeString(sctx->redisCtx, payload_rms);
+  // }
+
+  done:
+  // if (k) {
+  //   RedisModule_CloseKey(k);
+  // }
+  return rv;
 }
 
 int Document_LoadSchemaFields(Document *doc, RedisSearchCtx *sctx) {

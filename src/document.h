@@ -139,6 +139,8 @@ void Document_Clear(Document *doc);
  */
 int Document_LoadSchemaFields(Document *doc, RedisSearchCtx *sctx);
 
+int Document_LoadJsonFields(Document *doc, RedisSearchCtx *sctx);
+
 /**
  * Load all the fields into the document.
  */

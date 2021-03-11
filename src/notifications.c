@@ -23,6 +23,7 @@ typedef enum {
   evicted_cmd,
   change_cmd,
   loaded_cmd,
+  json_set_cmd,
 } RedisCmd;
 
 static void freeHashFields() {
@@ -56,7 +57,7 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
                     *hincrbyfloat_event = 0, *hdel_event = 0, *del_event = 0, *set_event = 0,
                     *rename_from_event = 0, *rename_to_event = 0, *trimmed_event = 0,
                     *restore_event = 0, *expired_event = 0, *evicted_event = 0, *change_event = 0,
-                    *loaded_event = 0;
+                    *loaded_event = 0, *json_set_event = 0;
 
   // clang-format off
 
@@ -80,6 +81,7 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
   else CHECK_CACHED_EVENT(rename_from)
   else CHECK_CACHED_EVENT(rename_to)
   else CHECK_CACHED_EVENT(loaded)
+  else CHECK_CACHED_EVENT(json_set)
   else {
          CHECK_AND_CACHE_EVENT(hset)
     else CHECK_AND_CACHE_EVENT(hmset)
@@ -101,6 +103,7 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
     else CHECK_AND_CACHE_EVENT(rename_from)
     else CHECK_AND_CACHE_EVENT(rename_to)
     else CHECK_AND_CACHE_EVENT(loaded)
+    else CHECK_AND_CACHE_EVENT(json_set)
   }
 
   switch (redisCommand) {
@@ -116,6 +119,7 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
     case hincrbyfloat_cmd:
     case hdel_cmd:
     case restore_cmd:
+    case json_set_cmd:
       Indexes_UpdateMatchingWithSchemaRules(ctx, key, hashFields);
       if(redisCommand == loaded_cmd){
         RedisModule_FreeString(ctx, key);

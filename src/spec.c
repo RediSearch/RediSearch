@@ -1857,9 +1857,15 @@ int IndexSpec_UpdateWithHash(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleSt
   Document doc = {0};
   Document_Init(&doc, key, 1.0, DEFAULT_LANGUAGE);
   // if a key does not exit, is not a hash or has no fields in index schema
-  if (Document_LoadSchemaFields(&doc, &sctx) != REDISMODULE_OK) {
+  if (spec->rule->type == SchemaRuleType_Hash && Document_LoadSchemaFields(&doc, &sctx) != REDISMODULE_OK) {
     IndexSpec_DeleteHash(spec, ctx, key);
     Document_Free(&doc);
+    return REDISMODULE_ERR;
+  } else if (spec->rule->type == SchemaRuleType_Json && Document_LoadJsonFields(&doc, &sctx) != REDISMODULE_OK) {
+    IndexSpec_DeleteHash(spec, ctx, key);
+    Document_Free(&doc);
+    return REDISMODULE_ERR;
+  } else {
     return REDISMODULE_ERR;
   }
 
@@ -1983,6 +1989,8 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
       }
 
       if (!r) {
+        // TODO: Handle JSON key with filter
+
         // load hash only if required
         r = EvalCtx_Create();
         EvalCtx_AddHash(r, ctx, keyToReadData);
