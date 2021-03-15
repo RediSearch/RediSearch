@@ -95,20 +95,41 @@ int Document_LoadJsonFields(Document *doc, RedisSearchCtx *sctx) {
  
   size_t nitems = sctx->spec->numFields;
   if (nitems == 0) {
-    goto done;
+    //goto done;
   }
 
-  get_json_path get_json_path_ptr = RedisModule_GetSharedAPI(sctx->redisCtx, "get_json_path");
-  if (get_json_path_ptr) {
+  if (japi) {
      for (int i = 0; i < sctx->spec->numFields; i++) {
         const FieldSpec *fs = sctx->spec->fields + i;
-        //get_json_path_ptr(k, fs->name);
-        //const char *name = RedisModule_StringPtrLen(doc->docKey, NULL);
-        RedisModuleString *res = get_json_path_ptr(sctx->redisCtx, doc->docKey, fs->name);
-        printf("==> res %s\n", RedisModule_StringPtrLen(res, NULL));
+        const RedisJSON *data;
+        data = japi->getPath(sctx->redisCtx, doc->docKey, fs->name);
+
+       /* if(JSON_getSinglePath(sctx->redisCtx, doc->docKey, fs->name, data) != REDISMODULE_OK) {
+            goto done;
+        }
+        JsonValueType type = JSON_Type(data);
+        switch(type) {
+            char *str;
+            int bool_val;
+            case Str:
+                if (JSON_getString(data, &str) != REDISMODULE_OK) {
+                    got done;
+                }
+                // Index str
+                break;
+            case Bool:
+                if (JSON_getBool(data, &bool_val) != REDISMODULE_OK) {
+                    got done;
+                }
+                // Index str
+                break;
+            case Array:
+            */
+
+        }
      }
+  return REDISMODULE_OK;
   }
-  
 
   // IndexSpec *spec = sctx->spec;
 
@@ -127,13 +148,12 @@ int Document_LoadJsonFields(Document *doc, RedisSearchCtx *sctx) {
   //   memcpy((char *)doc->payload, payload_str, doc->payloadSize);
   //   RedisModule_FreeString(sctx->redisCtx, payload_rms);
   // }
-
-  done:
-  // if (k) {
-  //   RedisModule_CloseKey(k);
-  // }
-  return rv;
-}
+//  done:
+//  // if (k) {
+//  //   RedisModule_CloseKey(k);
+//  // }
+//  return rv;
+//}
 
 int Document_LoadSchemaFields(Document *doc, RedisSearchCtx *sctx) {
   RedisModuleKey *k = RedisModule_OpenKey(sctx->redisCtx, doc->docKey, REDISMODULE_READ);

@@ -11,7 +11,7 @@ void ModuleChangeHandler(struct RedisModuleCtx *ctx, RedisModuleEvent e, uint64_
     // Need to get the API exported by RedisJSON
     if (strcmp(ei->module_name, "ReJSON") == 0) {
         printf("detected %p loading %s\n", ctx, ei->module_name);
-        if (GetJSONAPIs(ctx, 0)) {
+        if (!japi && GetJSONAPIs(ctx, 0)) {
             //TODO: Once registered we can unsubscribe from ServerEvent RedisModuleEvent_ModuleChange
             // Unless we want to hanle ReJSON module unload
         }
@@ -20,13 +20,13 @@ void ModuleChangeHandler(struct RedisModuleCtx *ctx, RedisModuleEvent e, uint64_
 }
 
 int GetJSONAPIs(RedisModuleCtx *ctx, int subscribeToModuleChange) {
-  get_json_path get_json_path_ptr = RedisModule_GetSharedAPI(ctx, "get_json_path");
-  if (get_json_path_ptr) {
-    // expose ptr for later use
-    return 1;
-  } else if (subscribeToModuleChange) {
-    RedisModule_SubscribeToServerEvent(ctx,
-        RedisModuleEvent_ModuleChange, ModuleChangeHandler);
-  }
-  return 0;
+    japi = NULL;
+    japi = RedisModule_GetSharedAPI(ctx, "RedisJSON_V1");
+    if (japi) {
+        return 1;
+    } else if (subscribeToModuleChange) {
+        RedisModule_SubscribeToServerEvent(ctx,
+            RedisModuleEvent_ModuleChange, ModuleChangeHandler);
+    }
+    return 0;
 }
