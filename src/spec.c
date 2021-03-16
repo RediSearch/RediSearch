@@ -334,6 +334,14 @@ static int parseFieldSpec(ArgsCursor *ac, FieldSpec *fs, QueryError *status) {
     return 0;
   }
 
+  if (AC_AdvanceIfMatch(ac, SPEC_AS_STR)) {
+    if (AC_IsAtEnd(ac)) {
+      QueryError_SetError(status, QUERY_EPARSEARGS, SPEC_AS_STR " requires an argument");
+      goto error;
+    }
+    fs->path = rm_strdup(AC_GetStringNC(ac, NULL));
+  }
+  
   if (AC_AdvanceIfMatch(ac, SPEC_TEXT_STR)) {
     FieldSpec_Initialize(fs, INDEXFLD_T_FULLTEXT);
     if (!parseTextField(fs, ac, status)) {
@@ -2108,7 +2116,24 @@ void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
 
   Indexes_SpecOpsIndexingCtxFree(specs);
 }
+/*
+void Indexes_UpdateMatchingWithSchemaRulesJSON(RedisModuleCtx *ctx, RedisModuleString *key,
+                                           RedisModuleString **hashFields) {
+  // TODO: handle filter                                             
+  SpecOpIndexingCtx *specs = Indexes_FindMatchingSchemaRules(ctx, key, true, NULL);
 
+  for (size_t i = 0; i < array_len(specs->specsOps); ++i) {
+    SpecOpCtx *specOp = specs->specsOps + i;
+    if (specOp->op == SpecOp_Add) {
+      IndexSpec_UpdateWithJson(specOp->spec, ctx, key);
+    } else {
+      IndexSpec_DeleteJson(specOp->spec, ctx, key);
+    }
+  }
+
+  Indexes_SpecOpsIndexingCtxFree(specs);
+}
+*/
 void IndexSpec_UpdateMatchingWithSchemaRules(IndexSpec *sp, RedisModuleCtx *ctx,
                                              RedisModuleString *key, DocumentType type) {
   SpecOpIndexingCtx *specs = Indexes_FindMatchingSchemaRules(ctx, key, true, NULL);
