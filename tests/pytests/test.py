@@ -3212,3 +3212,13 @@ def testServerVer(env):
 
     env.assertTrue(check_module_version(env, "20005"))
     env.assertTrue(not check_module_version(env, "10000000"))
+
+def testSchemaWithAs(env):
+  conn = getConnectionByEnv(env)
+  conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'txt', 'AS', 'foo', 'TEXT')
+  conn.execute_command('HSET', 'a', 'txt', 'hello')
+  conn.execute_command('HSET', 'b', 'foo', 'world')
+  env.expect('ft.search idx @txt:hello').equal([0L])
+  env.expect('ft.search idx @txt:world').equal([0L])
+  env.expect('ft.search idx @foo:hello').equal([1L, 'a', ['txt', 'hello']])
+  env.expect('ft.search idx @foo:world').equal([0L])

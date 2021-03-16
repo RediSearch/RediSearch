@@ -71,6 +71,7 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
     const FieldSpec *fs = IndexSpec_GetField(sp, f->name, strlen(f->name));
     if (!fs || !f->text) {
       aCtx->fspecs[i].name = NULL;
+      aCtx->fspecs[i].path = NULL;
       aCtx->fspecs[i].types = 0;
       continue;
     }

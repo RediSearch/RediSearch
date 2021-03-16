@@ -333,6 +333,14 @@ static int parseFieldSpec(ArgsCursor *ac, FieldSpec *fs, QueryError *status) {
     return 0;
   }
 
+  if (AC_AdvanceIfMatch(ac, SPEC_AS_STR)) {
+    if (AC_IsAtEnd(ac)) {
+      QueryError_SetError(status, QUERY_EPARSEARGS, SPEC_AS_STR " requires an argument");
+      goto error;
+    }
+    fs->path = rm_strdup(AC_GetStringNC(ac, NULL));
+  }
+  
   if (AC_AdvanceIfMatch(ac, SPEC_TEXT_STR)) {
     FieldSpec_Initialize(fs, INDEXFLD_T_FULLTEXT);
     if (!parseTextField(fs, ac, status)) {
@@ -1039,6 +1047,7 @@ FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name) {
   memset(fs, 0, sizeof(*fs));
   fs->index = sp->numFields++;
   fs->name = rm_strdup(name);
+  fs->path = fs->name; // by default they are the same
   fs->ftId = (t_fieldId)-1;
   fs->ftWeight = 1.0;
   fs->sortIdx = -1;
@@ -1099,10 +1108,14 @@ int bit(t_fieldMask id) {
 // Backwards compat version of load for rdbs with version < 8
 static void FieldSpec_RdbLoadCompat8(RedisModuleIO *rdb, FieldSpec *f, int encver) {
 
-  f->name = RedisModule_LoadStringBuffer(rdb, NULL);
-  char *tmpName = rm_strdup(f->name);
-  RedisModule_Free(f->name);
-  f->name = tmpName;
+  RedisModule_LoadStringBufferAlloc(rdb, f->name, NULL);
+
+  if (encver >= INDEX_JSON_VERSION) {
+    if (RedisModule_LoadUnsigned(rdb) == 1) {
+      RedisModule_LoadStringBufferAlloc(rdb, f->path, NULL);
+    }
+  }
+
   // the old versions encoded the bit id of the field directly
   // we convert that to a power of 2
   if (encver < INDEX_MIN_WIDESCHEMA_VERSION) {
@@ -1123,6 +1136,12 @@ static void FieldSpec_RdbLoadCompat8(RedisModuleIO *rdb, FieldSpec *f, int encve
 
 static void FieldSpec_RdbSave(RedisModuleIO *rdb, FieldSpec *f) {
   RedisModule_SaveStringBuffer(rdb, f->name, strlen(f->name) + 1);
+  if (f->path != f->name) {
+    RedisModule_SaveUnsigned(rdb, 1);
+    RedisModule_SaveStringBuffer(rdb, f->path, strlen(f->path) + 1);  
+  } else {
+    RedisModule_SaveUnsigned(rdb, 0);
+  }
   RedisModule_SaveUnsigned(rdb, f->types);
   RedisModule_SaveUnsigned(rdb, f->options);
   RedisModule_SaveSigned(rdb, f->sortIdx);
@@ -1149,10 +1168,12 @@ static void FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
     return FieldSpec_RdbLoadCompat8(rdb, f, encver);
   }
 
-  f->name = RedisModule_LoadStringBuffer(rdb, NULL);
-  char *tmpName = rm_strdup(f->name);
-  RedisModule_Free(f->name);
-  f->name = tmpName;
+  RedisModule_LoadStringBufferAlloc(rdb, f->name, NULL);
+  if (encver >= INDEX_JSON_VERSION) {
+    if (RedisModule_LoadUnsigned(rdb) == 1) {
+      RedisModule_LoadStringBufferAlloc(rdb, f->path, NULL);
+    }
+  }
 
   f->types = RedisModule_LoadUnsigned(rdb);
   f->options = RedisModule_LoadUnsigned(rdb);
@@ -2043,6 +2064,7 @@ void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
       if (specOp->op == SpecOp_Add) {
         IndexSpec_UpdateWithHash(specOp->spec, ctx, key);
       } else {
+        // TODO: rename IndexSpec_DeleteCommon
         IndexSpec_DeleteHash(specOp->spec, ctx, key);
       }
     }
@@ -2050,7 +2072,24 @@ void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
 
   Indexes_SpecOpsIndexingCtxFree(specs);
 }
+/*
+void Indexes_UpdateMatchingWithSchemaRulesJSON(RedisModuleCtx *ctx, RedisModuleString *key,
+                                           RedisModuleString **hashFields) {
+  // TODO: handle filter                                             
+  SpecOpIndexingCtx *specs = Indexes_FindMatchingSchemaRules(ctx, key, true, NULL);
 
+  for (size_t i = 0; i < array_len(specs->specsOps); ++i) {
+    SpecOpCtx *specOp = specs->specsOps + i;
+    if (specOp->op == SpecOp_Add) {
+      IndexSpec_UpdateWithJson(specOp->spec, ctx, key);
+    } else {
+      IndexSpec_DeleteJson(specOp->spec, ctx, key);
+    }
+  }
+
+  Indexes_SpecOpsIndexingCtxFree(specs);
+}
+*/
 void IndexSpec_UpdateMatchingWithSchemaRules(IndexSpec *sp, RedisModuleCtx *ctx,
                                              RedisModuleString *key) {
   SpecOpIndexingCtx *specs = Indexes_FindMatchingSchemaRules(ctx, key, true, NULL);
