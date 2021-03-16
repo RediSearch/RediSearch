@@ -14,24 +14,10 @@ typedef enum JSONType {
     JSONType_Bool = 3,
     JSONType_Object = 4,
     JSONType_Array = 5,
+    JSONType_Null = 6,
+    JSONType_Err = 7,
     JSONType__EOF
 } JSONType;
-
-union JsonValueUnion {
-    int err;
-    const char *str;
-    int num_int;
-    float num_float;
-    int boolean;
-    //nil: std::mem::ManuallyDrop<null>,
-    //arr: Vec<JsonValueUnion>,
-    //obj: HashMap<String,JsonValueUnion>,
-};
-
-typedef struct {
-    JSONType type;
-    union JsonValueUnion value;
-} JsonValue;
 
 typedef void *RedisJSON;
 
