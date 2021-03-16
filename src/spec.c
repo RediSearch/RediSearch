@@ -334,6 +334,14 @@ static int parseFieldSpec(ArgsCursor *ac, FieldSpec *fs, QueryError *status) {
     return 0;
   }
 
+  if (AC_AdvanceIfMatch(ac, SPEC_AS_STR)) {
+    if (AC_IsAtEnd(ac)) {
+      QueryError_SetError(status, QUERY_EPARSEARGS, SPEC_AS_STR " requires an argument");
+      goto error;
+    }
+    fs->path = rm_strdup(AC_GetStringNC(ac, NULL));
+  }
+  
   if (AC_AdvanceIfMatch(ac, SPEC_TEXT_STR)) {
     FieldSpec_Initialize(fs, INDEXFLD_T_FULLTEXT);
     if (!parseTextField(fs, ac, status)) {
@@ -1064,7 +1072,7 @@ FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *pa
   memset(fs, 0, sizeof(*fs));
   fs->index = sp->numFields++;
   fs->name = rm_strdup(name);
-  fs->path = (path) ? rm_strdup(path) : fs->name;
+  fs->path = fs->name; // by default they are the same
   fs->ftId = (t_fieldId)-1;
   fs->ftWeight = 1.0;
   fs->sortIdx = -1;
@@ -1127,6 +1135,12 @@ static void FieldSpec_RdbLoadCompat8(RedisModuleIO *rdb, FieldSpec *f, int encve
 
   RedisModule_LoadStringBufferAlloc(rdb, f->name, NULL);
 
+  if (encver >= INDEX_JSON_VERSION) {
+    if (RedisModule_LoadUnsigned(rdb) == 1) {
+      RedisModule_LoadStringBufferAlloc(rdb, f->path, NULL);
+    }
+  }
+
   // the old versions encoded the bit id of the field directly
   // we convert that to a power of 2
   if (encver < INDEX_MIN_WIDESCHEMA_VERSION) {
@@ -1183,8 +1197,6 @@ static void FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
   if (encver >= INDEX_JSON_VERSION) {
     if (RedisModule_LoadUnsigned(rdb) == 1) {
       RedisModule_LoadStringBufferAlloc(rdb, f->path, NULL);
-    } else {
-      f->path = f->name;
     }
   }
 
@@ -2101,14 +2113,36 @@ void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
       if (specOp->op == SpecOp_Add) {
         IndexSpec_UpdateDoc(specOp->spec, ctx, key, type);
       } else {
+<<<<<<< HEAD
         IndexSpec_DeleteDoc(specOp->spec, ctx, key);
+=======
+        // TODO: rename IndexSpec_DeleteCommon
+        IndexSpec_DeleteHash(specOp->spec, ctx, key);
+>>>>>>> 2431cb9e (add fs->path)
       }
     }
   }
 
   Indexes_SpecOpsIndexingCtxFree(specs);
 }
+/*
+void Indexes_UpdateMatchingWithSchemaRulesJSON(RedisModuleCtx *ctx, RedisModuleString *key,
+                                           RedisModuleString **hashFields) {
+  // TODO: handle filter                                             
+  SpecOpIndexingCtx *specs = Indexes_FindMatchingSchemaRules(ctx, key, true, NULL);
 
+  for (size_t i = 0; i < array_len(specs->specsOps); ++i) {
+    SpecOpCtx *specOp = specs->specsOps + i;
+    if (specOp->op == SpecOp_Add) {
+      IndexSpec_UpdateWithJson(specOp->spec, ctx, key);
+    } else {
+      IndexSpec_DeleteJson(specOp->spec, ctx, key);
+    }
+  }
+
+  Indexes_SpecOpsIndexingCtxFree(specs);
+}
+*/
 void IndexSpec_UpdateMatchingWithSchemaRules(IndexSpec *sp, RedisModuleCtx *ctx,
                                              RedisModuleString *key, DocumentType type) {
   SpecOpIndexingCtx *specs = Indexes_FindMatchingSchemaRules(ctx, key, true, NULL);
