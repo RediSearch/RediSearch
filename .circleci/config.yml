@@ -161,6 +161,24 @@ jobs:
               aws s3 cp $f s3://redismodules/$PACKAGE_NAME/ --acl public-read
             done
 
+  deploy-artifacts:
+    parameters:
+      location:
+        type: string
+    docker:
+      - image: redisfab/rmbuilder:6.0.9-x64-buster
+    steps:
+      - abort_for_docs
+      - early_return_for_forked_pull_requests
+      - attach_workspace:
+          at: workspace
+      - run:
+          name: Deploy to S3
+          command: |
+            cd "workspace/artifacts/<<parameters.location>>"
+            for f in *.zip snapshot/*.tgz; do
+              aws s3 cp $f s3://redismodules/$PACKAGE_NAME/<<parameters.location>>/ --acl public-read
+            done
 
 on-any-branch: &on-any-branch
   filters:
