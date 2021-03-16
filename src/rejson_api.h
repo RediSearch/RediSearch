@@ -10,7 +10,7 @@ extern "C" {
 typedef enum JSONType {
     JSONType_String = 0,
     JSONType_Int = 1,
-    JSONType_Double = 2,
+    JSONType_Float = 2,
     JSONType_Bool = 3,
     JSONType_Object = 4,
     JSONType_Array = 5,
@@ -29,7 +29,7 @@ typedef RedisModuleString * (*get_json_path)(struct RedisModuleCtx* ctx, RedisMo
 typedef struct RedisJSONAPI_V1 {
     const RedisJSON* (*getPath)(struct RedisModuleCtx* ctx, RedisModuleString* key_name, const char* path);
 //    const RedisJSON* (*getAt)(const RedisJSON *json, size_t at);
-    int (*getInfo)(const RedisJSON *json, const char **name, JSONType *type, size_t *items);
+    int (*getInfo)(const RedisJSON *json, const char **name, int *type, size_t *items);
 //    int (*getString)(const RedisJSON *json, const char** str, size_t *size);
 //    int (*getInt)(const RedisJSON *json, int *num);
 //    int (*getDouble)(const RedisJSON *json, double* num);
