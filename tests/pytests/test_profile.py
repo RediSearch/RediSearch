@@ -87,10 +87,10 @@ def testProfileSearch(env):
                           ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1L, 'Size', 1L]]]]]]
   env.assertEqual(actual_res[1][3], expected_res)
 
-  if not check_server_version(env, '6.00.20'):
+  if not check_server_version(env, '6.2.0'):
     return
 
-  actual_res = env.expect('ft.profile', 'idx', 'search', 'query',  'hello(hello(hello(hello(hello(hello)))))', 'nocontent')
+  actual_res = env.execute_command('ft.profile', 'idx', 'search', 'query',  'hello(hello(hello(hello(hello(hello)))))', 'nocontent')
   expected_res = ['Iterators profile',
                   ['Intersect iterator', 2L,
                     ['Term reader', 'hello', 2L],
