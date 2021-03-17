@@ -17,7 +17,7 @@ SET(baseCommand "MODARGS=+' timeout 100000' ${CMAKE_CURRENT_SOURCE_DIR}/runtests
 FOREACH(n ${PY_TEST_FILES})
     GET_FILENAME_COMPONENT(test_name ${n} NAME_WE)
     ADD_TEST(NAME "PY_${test_name}"
-        COMMAND ${baseCommand} "-t" "${n}"
+        COMMAND bash -c "${baseCommand} -t ${n}"
         WORKING_DIRECTORY ${PROJECT_BINARY_DIR})
 
     ADD_TEST(NAME "PY_${test_name}_CONCURRENT_WRITE_MODE"
