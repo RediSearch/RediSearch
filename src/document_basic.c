@@ -102,14 +102,19 @@ int Document_LoadJsonFields(Document *doc, RedisSearchCtx *sctx) {
   if (japi) {
      for (int i = 0; i < sctx->spec->numFields; i++) {
         const FieldSpec *fs = sctx->spec->fields + i;
-        const RedisJSON *data;
+         RedisJSONKey jsonKey;
+         RedisJSONPath jsonPath;
 
-        data = japi->getPath(sctx->redisCtx, doc->docKey, fs->name);
+        //data = japi->getPath(sctx->redisCtx, doc->docKey, fs->name);
+        jsonKey = japi->openKey(sctx->redisCtx, doc->docKey);
         const char *name;
+        jsonPath = japi->getPath(jsonKey, "$");//fs->name);
         int type;
         size_t nitems;
-        japi->getInfo(data, &name, &type, &nitems);
-        printf("type %d", type);
+        int res = japi->getInfo(jsonPath, &name, &type, &nitems);
+        printf("res %d, type %d, size %lu\n", res, type, nitems);
+        japi->closePath(jsonPath);
+        japi->closePath(jsonPath);
        /* if(JSON_getSinglePath(sctx->redisCtx, doc->docKey, fs->name, data) != REDISMODULE_OK) {
             goto done;
         }

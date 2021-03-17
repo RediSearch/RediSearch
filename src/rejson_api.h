@@ -19,7 +19,8 @@ typedef enum JSONType {
     JSONType__EOF
 } JSONType;
 
-typedef void *RedisJSON;
+typedef const void *RedisJSONKey;
+typedef const void *RedisJSONPath;
 
 // API Signatures
 typedef RedisModuleString * (*get_json_path)(struct RedisModuleCtx* ctx, RedisModuleString* key_name, const char* path);
@@ -27,14 +28,16 @@ typedef RedisModuleString * (*get_json_path)(struct RedisModuleCtx* ctx, RedisMo
 
 // API "Bundle"
 typedef struct RedisJSONAPI_V1 {
-    const RedisJSON* (*getPath)(struct RedisModuleCtx* ctx, RedisModuleString* key_name, const char* path);
+    RedisJSONKey (*openKey)(struct RedisModuleCtx* ctx, RedisModuleString* key_name);
+    RedisJSONPath (*getPath)(RedisJSONKey opened_key, const char* path);
+    int (*getInfo)(RedisJSONPath, const char **name, int *type, size_t *items);
+    void (*closeKey)(RedisJSONKey);
+    void (*closePath)(RedisJSONPath);
 //    const RedisJSON* (*getAt)(const RedisJSON *json, size_t at);
-    int (*getInfo)(const RedisJSON *json, const char **name, int *type, size_t *items);
 //    int (*getString)(const RedisJSON *json, const char** str, size_t *size);
 //    int (*getInt)(const RedisJSON *json, int *num);
 //    int (*getDouble)(const RedisJSON *json, double* num);
 //
-    void (*free)(const RedisJSON*);
     //
     //
     //
