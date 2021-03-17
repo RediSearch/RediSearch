@@ -2072,7 +2072,6 @@ void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
       if (specOp->op == SpecOp_Add) {
         IndexSpec_UpdateWithHash(specOp->spec, ctx, key);
       } else {
-        // TODO: rename IndexSpec_DeleteCommon
         IndexSpec_DeleteHash(specOp->spec, ctx, key);
       }
     }
@@ -2080,24 +2079,7 @@ void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
 
   Indexes_SpecOpsIndexingCtxFree(specs);
 }
-/*
-void Indexes_UpdateMatchingWithSchemaRulesJSON(RedisModuleCtx *ctx, RedisModuleString *key,
-                                           RedisModuleString **hashFields) {
-  // TODO: handle filter                                             
-  SpecOpIndexingCtx *specs = Indexes_FindMatchingSchemaRules(ctx, key, true, NULL);
 
-  for (size_t i = 0; i < array_len(specs->specsOps); ++i) {
-    SpecOpCtx *specOp = specs->specsOps + i;
-    if (specOp->op == SpecOp_Add) {
-      IndexSpec_UpdateWithJson(specOp->spec, ctx, key);
-    } else {
-      IndexSpec_DeleteJson(specOp->spec, ctx, key);
-    }
-  }
-
-  Indexes_SpecOpsIndexingCtxFree(specs);
-}
-*/
 void IndexSpec_UpdateMatchingWithSchemaRules(IndexSpec *sp, RedisModuleCtx *ctx,
                                              RedisModuleString *key) {
   SpecOpIndexingCtx *specs = Indexes_FindMatchingSchemaRules(ctx, key, true, NULL);
