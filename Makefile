@@ -150,6 +150,10 @@ ifeq ($(GDB),1)
 RLTEST_GDB=-i
 endif
 
+ifneq ($(MOD_ARGS),)
+override RLTEST_ARGS+=--module-args $(MOD_ARGS)
+endif
+
 pytest:
 	@set -e ;\
 	if ! command -v redis-server > /dev/null; then \
@@ -157,7 +161,7 @@ pytest:
 		exit 1 ;\
 	fi
 ifneq ($(TEST),)
-	@cd tests/pytests; PYDEBUG=1 python -m RLTest --test $(TEST) $(RLTEST_GDB) -s --module $(abspath $(TARGET))
+	@cd tests/pytests; PYDEBUG=1 python -m RLTest --test $(TEST) $(RLTEST_GDB) -s -v --module $(abspath $(TARGET)) $(RLTEST_ARGS)
 else
 	@cd tests/pytests; python -m RLTest --module $(abspath $(TARGET))
 endif
