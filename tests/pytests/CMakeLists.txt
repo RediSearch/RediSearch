@@ -24,9 +24,9 @@ FOREACH(n ${PY_TEST_FILES})
         COMMAND bash -c "MODARGS='CONCURRENT_WRITE_MODE' ${baseCommand} -t ${n}"
         WORKING_DIRECTORY ${PROJECT_BINARY_DIR})
 
-    ADD_TEST(NAME "PY_${test_name}_legacygc"
-        COMMAND bash -c "MODARGS='GC_POLICY LEGACY' ${baseCommand} -t ${n}"
-        WORKING_DIRECTORY ${PROJECT_BINARY_DIR})
+#    ADD_TEST(NAME "PY_${test_name}_legacygc"
+#        COMMAND bash -c "MODARGS='GC_POLICY LEGACY' ${baseCommand} -t ${n}"
+#        WORKING_DIRECTORY ${PROJECT_BINARY_DIR})
 
     ADD_TEST(NAME "PY_${test_name}_CRITERIA_TESTER"
         COMMAND bash -c "MODARGS='_MAX_RESULTS_TO_UNSORTED_MODE 1' ${baseCommand} -t ${n}"
