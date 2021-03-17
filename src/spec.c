@@ -339,7 +339,7 @@ static int parseFieldSpec(ArgsCursor *ac, FieldSpec *fs, QueryError *status) {
       QueryError_SetError(status, QUERY_EPARSEARGS, SPEC_AS_STR " requires an argument");
       goto error;
     }
-    fs->path = rm_strdup(AC_GetStringNC(ac, NULL));
+    fs->name = rm_strdup(AC_GetStringNC(ac, NULL));
   }
   
   if (AC_AdvanceIfMatch(ac, SPEC_TEXT_STR)) {
@@ -665,11 +665,8 @@ IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec) {
   for (size_t ii = 0; ii < spec->numFields; ++ii) {
     ret->fields[ii] = spec->fields[ii];
     ret->fields[ii].name = rm_strdup(ret->fields[ii].name);
-    // if name & path are pointing to the same string, copy pointer 
-    if (ret->fields[ii].path && (&ret->fields[ii].name != &ret->fields[ii].path)) {
+    if (&ret->fields[ii].name != &ret->fields[ii].path) {
       ret->fields[ii].path = rm_strdup(ret->fields[ii].path);
-    } else {
-      ret->fields[ii].path = ret->fields[ii].name;
     }
   }
   return ret;
@@ -680,9 +677,7 @@ void IndexSpecCache_Decref(IndexSpecCache *c) {
     return;
   }
   for (size_t ii = 0; ii < c->nfields; ++ii) {
-    if (c->fields[ii].name != c->fields[ii].path) {
-      rm_free(c->fields[ii].name);
-    }
+    rm_free(c->fields[ii].name);
     rm_free(c->fields[ii].path);
   }
   rm_free(c->fields);
@@ -1138,6 +1133,8 @@ static void FieldSpec_RdbLoadCompat8(RedisModuleIO *rdb, FieldSpec *f, int encve
   if (encver >= INDEX_JSON_VERSION) {
     if (RedisModule_LoadUnsigned(rdb) == 1) {
       RedisModule_LoadStringBufferAlloc(rdb, f->path, NULL);
+    } else {
+      f->path = f->name;
     }
   }
 
@@ -1197,6 +1194,8 @@ static void FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
   if (encver >= INDEX_JSON_VERSION) {
     if (RedisModule_LoadUnsigned(rdb) == 1) {
       RedisModule_LoadStringBufferAlloc(rdb, f->path, NULL);
+    } else {
+      f->path = f->name;
     }
   }
 
@@ -2113,12 +2112,8 @@ void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
       if (specOp->op == SpecOp_Add) {
         IndexSpec_UpdateDoc(specOp->spec, ctx, key, type);
       } else {
-<<<<<<< HEAD
-        IndexSpec_DeleteDoc(specOp->spec, ctx, key);
-=======
         // TODO: rename IndexSpec_DeleteCommon
         IndexSpec_DeleteHash(specOp->spec, ctx, key);
->>>>>>> 2431cb9e (add fs->path)
       }
     }
   }
