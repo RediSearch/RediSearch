@@ -141,7 +141,7 @@ run:
 
 test:
 ifneq ($(TEST),)
-	@set -e; cd $(BINROOT); CTEST_OUTPUT_ON_FAILURE=1 ctest -R $(TEST)
+	@set -e; cd $(BINROOT); CTEST_OUTPUT_ON_FAILURE=1 ctest --debug -R $(TEST)
 else
 	@set -e; cd $(BINROOT); ctest
 endif
