@@ -339,7 +339,7 @@ static int parseFieldSpec(ArgsCursor *ac, FieldSpec *fs, QueryError *status) {
       QueryError_SetError(status, QUERY_EPARSEARGS, SPEC_AS_STR " requires an argument");
       goto error;
     }
-    fs->path = rm_strdup(AC_GetStringNC(ac, NULL));
+    fs->name = rm_strdup(AC_GetStringNC(ac, NULL));
   }
   
   if (AC_AdvanceIfMatch(ac, SPEC_TEXT_STR)) {
