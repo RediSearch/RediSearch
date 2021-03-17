@@ -118,15 +118,17 @@ int Document_LoadSchemaFields(Document *doc, RedisSearchCtx *sctx) {
 
   doc->fields = rm_calloc(nitems, sizeof(*doc->fields));
   for (size_t ii = 0; ii < spec->numFields; ++ii) {
-    const char *fname = spec->fields[ii].name;
+    FieldSpec *field = &spec->fields[ii];
+    const char *fpath = field->path;
     RedisModuleString *v = NULL;
-    RedisModule_HashGet(k, REDISMODULE_HASH_CFIELDS, fname, &v, NULL);
+    RedisModule_HashGet(k, REDISMODULE_HASH_CFIELDS, fpath, &v, NULL);
     if (v == NULL) {
       continue;
     }
     size_t oix = doc->numFields++;
-    doc->fields[oix].name = rm_strdup(fname);
-
+    doc->fields[oix].path = rm_strdup(fpath);
+    doc->fields[oix].name = (field->name == field->path) ? doc->fields[oix].path
+                                                         : rm_strdup(field->name);
     // on crdt the return value might be the underline value, we must copy it!!!
     doc->fields[oix].text = RedisModule_CreateStringFromString(sctx->redisCtx, v);
     RedisModule_FreeString(sctx->redisCtx, v);

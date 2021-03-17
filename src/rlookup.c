@@ -318,9 +318,20 @@ static int getKeyCommon(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOption
   }
 
   // Get the actual hash value
+  int rc = REDISMODULE_ERR;
   RedisModuleString *val = NULL;
   RSValue *rsv = NULL;
-  int rc = RedisModule_HashGet(*keyobj, REDISMODULE_HASH_CFIELDS, kk->name, &val, NULL);
+
+  // field name should be translated to a path
+  // TODO: consider better solution for faster
+  const FieldSpec *fs = IndexSpec_GetField(options->sctx->spec, kk->name, strlen(kk->name));
+  if (!fs) { // No matching field
+    if (strncmp(kk->name, UNDERSCORE_KEY, strlen(UNDERSCORE_KEY))) {
+      return REDISMODULE_OK;
+    }
+  } else {
+    rc = RedisModule_HashGet(*keyobj, REDISMODULE_HASH_CFIELDS, fs->path, &val, NULL);
+  }
   if (rc == REDISMODULE_OK && val != NULL) {
     rsv = hvalToValue(val, kk->fieldtype);
     RedisModule_FreeString(RSDummyContext, val);

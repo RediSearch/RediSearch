@@ -320,7 +320,7 @@ static void indexBulkFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
     for (size_t ii = 0; ii < doc->numFields; ++ii) {
       const FieldSpec *fs = cur->fspecs + ii;
       FieldIndexerData *fdata = cur->fdatas + ii;
-      if (fs->name == NULL || fs->types == INDEXFLD_T_FULLTEXT || !FieldSpec_IsIndexable(fs)) {
+      if (fs->types == INDEXFLD_T_FULLTEXT || !FieldSpec_IsIndexable(fs)) {
         continue;
       }
       IndexBulkData *bulk = &bData[fs->index];
