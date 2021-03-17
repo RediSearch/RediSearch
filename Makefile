@@ -7,8 +7,8 @@ make setup         # install prerequisited (CAUTION: THIS WILL MODIFY YOUR SYSTE
 make fetch         # download and prepare dependant modules
 
 make build         # compile and link
-  DEBUG=1          # build for debugging (implies TEST=1)
-  TEST=1           # enable unit tests
+  DEBUG=1          # build for debugging (implies WITH_TESTS=1)
+  WITH_TESTS=1     # enable unit tests
   WHY=1            # explain CMake decisions (in /tmp/cmake-why)
   CMAKE_ARGS       # extra arguments to CMake
 make parsers       # build parsers code
@@ -67,7 +67,7 @@ CMAKE_BUILD_TYPE=RelWithDebInfo
 endif
 CMAKE_DEBUG=-DCMAKE_BUILD_TYPE=$(CMAKE_BUILD_TYPE)
 
-ifeq ($(TEST),1)
+ifeq ($(WITH_TESTS),1)
 CMAKE_TEST=-DRS_RUN_TESTS=ON
 endif
 
@@ -141,7 +141,7 @@ run:
 
 test:
 ifneq ($(TEST),)
-	@set -e; cd $(BINROOT); CTEST_OUTPUT_ON_FAILURE=1 ctest --debug -R $(TEST)
+	@set -e; cd $(BINROOT); CTEST_OUTPUT_ON_FAILURE=1 RLTEST_ARGS="-s" ctest --debug -R $(TEST)
 else
 	@set -e; cd $(BINROOT); ctest
 endif

@@ -45,4 +45,4 @@ fi
 if [[ ! -z $MODARGS ]]; then
 	ARGS+=" --module-args $MODARGS"
 fi
-exec python -m RLTest $ARGS "$@"
+exec python -m RLTest $ARGS $RLTEST_ARGS "$@"
