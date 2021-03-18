@@ -18,8 +18,10 @@ RSValueType fieldTypeToValueType(FieldType ft) {
 
 void FieldSpec_Cleanup(FieldSpec* fs) {
   // if `AS` was not used, name and path are pointing at the same string
-  if (fs->name && fs->name != fs->path) {
-    rm_free(fs->name);
+  if (fs->name) {
+    if (fs->name != fs->path) {
+      rm_free(fs->name);
+    }
     fs->name = NULL;
   }
   if (fs->path) {
