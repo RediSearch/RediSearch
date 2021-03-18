@@ -869,7 +869,6 @@ int QAST_Expand(QueryAST *q, const char *expander, RSSearchOptions *opts, RedisS
     return REDISMODULE_ERR;
   }
   return REDISMODULE_OK;
-  ;
 }
 
 /* Set the field mask recursively on a query node. This is called by the parser to handle

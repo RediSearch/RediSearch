@@ -333,14 +333,6 @@ static int parseFieldSpec(ArgsCursor *ac, FieldSpec *fs, QueryError *status) {
     return 0;
   }
 
-  if (AC_AdvanceIfMatch(ac, SPEC_AS_STR)) {
-    if (AC_IsAtEnd(ac)) {
-      QueryError_SetError(status, QUERY_EPARSEARGS, SPEC_AS_STR " requires an argument");
-      goto error;
-    }
-    fs->name = rm_strdup(AC_GetStringNC(ac, NULL));
-  }
-  
   if (AC_AdvanceIfMatch(ac, SPEC_TEXT_STR)) {
     FieldSpec_Initialize(fs, INDEXFLD_T_FULLTEXT);
     if (!parseTextField(fs, ac, status)) {
@@ -425,21 +417,36 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
   FieldSpec *fs = NULL;
 
   while (!AC_IsAtEnd(ac)) {
-    size_t nfieldName;
-    const char *fieldName = AC_GetStringNC(ac, &nfieldName);
-    if (IndexSpec_GetField(sp, fieldName, nfieldName)) {
-      QueryError_SetErrorFmt(status, QUERY_EINVAL, "Duplicate field in schema - %s", fieldName);
-      goto reset;
-    }
-
-    fs = IndexSpec_CreateField(sp, fieldName);
-
     if (sp->numFields == SPEC_MAX_FIELDS) {
       QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Schema is limited to %d fields",
                              SPEC_MAX_FIELDS);
       goto reset;
     }
 
+    // Parse path and name of field
+    size_t pathlen, namelen;
+    const char *fieldPath = AC_GetStringNC(ac, &pathlen);
+    const char *fieldName = fieldPath;
+    if (AC_AdvanceIfMatch(ac, SPEC_AS_STR)) {
+      if (AC_IsAtEnd(ac)) {
+        QueryError_SetError(status, QUERY_EPARSEARGS, SPEC_AS_STR " requires an argument");
+        goto reset;
+      }
+      fieldName = AC_GetStringNC(ac, &namelen);
+    } else {
+      // if `AS` is not used, set the path as name
+      fieldName = fieldPath;
+      namelen= pathlen;
+      fieldPath = NULL;
+    }
+
+
+    if (IndexSpec_GetField(sp, fieldName, namelen)) {
+      QueryError_SetErrorFmt(status, QUERY_EINVAL, "Duplicate field in schema - %s", fieldName);
+      goto reset;
+    }
+
+    fs = IndexSpec_CreateField(sp, fieldName, fieldPath);
     if (!parseFieldSpec(ac, fs, status)) {
       goto reset;
     }
@@ -649,8 +656,11 @@ IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec) {
   for (size_t ii = 0; ii < spec->numFields; ++ii) {
     ret->fields[ii] = spec->fields[ii];
     ret->fields[ii].name = rm_strdup(ret->fields[ii].name);
-    if (&ret->fields[ii].name != &ret->fields[ii].path) {
+    // if name & path are pointing to the same string, copy pointer 
+    if (ret->fields[ii].path && (&ret->fields[ii].name != &ret->fields[ii].path)) {
       ret->fields[ii].path = rm_strdup(ret->fields[ii].path);
+    } else {
+      ret->fields[ii].path = ret->fields[ii].name;
     }
   }
   return ret;
@@ -661,7 +671,9 @@ void IndexSpecCache_Decref(IndexSpecCache *c) {
     return;
   }
   for (size_t ii = 0; ii < c->nfields; ++ii) {
-    rm_free(c->fields[ii].name);
+    if (c->fields[ii].name != c->fields[ii].path) {
+      rm_free(c->fields[ii].name);
+    }
     rm_free(c->fields[ii].path);
   }
   rm_free(c->fields);
@@ -1045,13 +1057,13 @@ IndexSpec *NewIndexSpec(const char *name) {
   return sp;
 }
 
-FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name) {
+FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *path) {
   sp->fields = rm_realloc(sp->fields, sizeof(*sp->fields) * (sp->numFields + 1));
   FieldSpec *fs = sp->fields + sp->numFields;
   memset(fs, 0, sizeof(*fs));
   fs->index = sp->numFields++;
   fs->name = rm_strdup(name);
-  fs->path = fs->name; // by default they are the same
+  fs->path = (path) ? rm_strdup(path) : fs->name;
   fs->ftId = (t_fieldId)-1;
   fs->ftWeight = 1.0;
   fs->sortIdx = -1;
@@ -1113,14 +1125,6 @@ int bit(t_fieldMask id) {
 static void FieldSpec_RdbLoadCompat8(RedisModuleIO *rdb, FieldSpec *f, int encver) {
 
   RedisModule_LoadStringBufferAlloc(rdb, f->name, NULL);
-
-  if (encver >= INDEX_JSON_VERSION) {
-    if (RedisModule_LoadUnsigned(rdb) == 1) {
-      RedisModule_LoadStringBufferAlloc(rdb, f->path, NULL);
-    } else {
-      f->path = f->name;
-    }
-  }
 
   // the old versions encoded the bit id of the field directly
   // we convert that to a power of 2

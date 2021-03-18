@@ -388,7 +388,7 @@ void IndexSpec_StartGCFromSpec(IndexSpec *sp, float initialHZ, uint32_t gcPolicy
 
 /* Same as above but with ordinary strings, to allow unit testing */
 IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryError *status);
-FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name);
+FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *path);
 
 /**
  * Indicate that the index spec should use an internal dictionary,rather than
