@@ -92,17 +92,17 @@ def testProfileSearch(env):
 
   actual_res = env.execute_command('ft.profile', 'idx', 'search', 'query',  'hello(hello(hello(hello(hello(hello)))))', 'nocontent')
   expected_res = ['Iterators profile',
-                  ['Intersect iterator', 2L,
-                    ['Term reader', 'hello', 2L],
-                    ['Intersect iterator', 1L,
-                      ['Term reader', 'hello', 1L],
-                      ['Intersect iterator', 1L,
-                        ['Term reader', 'hello', 1L],
-                        ['Intersect iterator', 1L,
-                          ['Term reader', 'hello', 1L],
-                          ['Intersect iterator', 1L,
-                            ['Term reader', 'hello', 1L],
-                            ['Intersect iterator', 1L, None, None]]]]]]]
+                  ['Type', 'INTERSECT', 'Counter', 1L, 'Children iterators',
+                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1L, 'Size', 1L],
+                    ['Type', 'INTERSECT', 'Counter', 1L, 'Children iterators',
+                      ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1L, 'Size', 1L],
+                      ['Type', 'INTERSECT', 'Counter', 1L, 'Children iterators',
+                        ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1L, 'Size', 1L]
+                        ['Type', 'INTERSECT', 'Counter', 1L, 'Children iterators',
+                          ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1L, 'Size', 1L],
+                          ['Type', 'INTERSECT', 'Counter', 1L, 'Children iterators',
+                            ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1L, 'Size', 1L],
+                            ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1L, 'Size', 1L]]]]]]] 
   env.assertEqual(actual_res[1][3], expected_res)
 
 def testProfileSearchLimited(env):
