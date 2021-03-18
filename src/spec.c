@@ -334,14 +334,6 @@ static int parseFieldSpec(ArgsCursor *ac, FieldSpec *fs, QueryError *status) {
     return 0;
   }
 
-  if (AC_AdvanceIfMatch(ac, SPEC_AS_STR)) {
-    if (AC_IsAtEnd(ac)) {
-      QueryError_SetError(status, QUERY_EPARSEARGS, SPEC_AS_STR " requires an argument");
-      goto error;
-    }
-    fs->name = rm_strdup(AC_GetStringNC(ac, NULL));
-  }
-  
   if (AC_AdvanceIfMatch(ac, SPEC_TEXT_STR)) {
     FieldSpec_Initialize(fs, INDEXFLD_T_FULLTEXT);
     if (!parseTextField(fs, ac, status)) {
@@ -448,7 +440,6 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
       namelen= pathlen;
       fieldPath = NULL;
     }
-
 
     if (IndexSpec_GetField(sp, fieldName, namelen)) {
       QueryError_SetErrorFmt(status, QUERY_EINVAL, "Duplicate field in schema - %s", fieldName);
