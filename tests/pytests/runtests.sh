@@ -30,12 +30,10 @@ fi
 
 export PYTHONPATH
 
-# See if there is a configuration file in the current directory. Use it
-# if it exists
-
 # ARGS="--clear-logs"
 # ARGS="--unix"
 
+# Use configuration file in the current directory if it exists
 if [[ -e rltest.config ]]; then
     ARGS="@rltest.config ${ARGS}"
 fi
@@ -44,4 +42,7 @@ if [[ -n $REDIS_VERBOSE ]]; then
     ARGS="${ARGS} --no-output-catch"
 fi
 
-exec python -m RLTest $ARGS "$@"
+if [[ ! -z $MODARGS ]]; then
+	ARGS+=" --module-args $MODARGS"
+fi
+exec python -m RLTest $ARGS $RLTEST_ARGS "$@"

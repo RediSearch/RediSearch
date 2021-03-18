@@ -4,7 +4,8 @@ set -e
 set -x
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
-ROOT=$(cd $HERE/..; pwd)
+ROOT="$(cd $HERE/.. && pwd)"
+READIES="$ROOT/deps/readies"
 cd $ROOT
 
 ./.circleci/ci_get_deps.sh
@@ -16,9 +17,11 @@ extra_flags=""
 if [[ $ASAN == 1 ]]; then
 	mode=asan
     extra_flags="-DUSE_ASAN=ON"
+	$READIES/bin/getredis --force --no-run --suffix asan --clang-asan --clang-san-blacklist /build/redis.blacklist
 elif [[ $MSAN == 1 ]]; then
 	mode=msan
     extra_flags="-DUSE_MSAN=ON -DMSAN_PREFIX=${SAN_PREFIX}"
+	$READIES/bin/getredis --force --no-run --suffix msan --clang-msan --llvm-dir /opt/llvm-project/build-msan --clang-san-blacklist /build/redis.blacklist 
 else
     echo "Should define either ASAN=1 or MSAN=1"
     exit 1
