@@ -49,8 +49,11 @@ class RediSearchSetup(paella.Setup):
 
     def common_last(self):
         self.run("{PYTHON} {READIES}/bin/getcmake".format(PYTHON=self.python, READIES=READIES))
-        self.run("{PYTHON} {READIES}/bin/getrmpytools".format(PYTHON=self.python, READIES=READIES))
-        self.install("lcov")
+        self.run("{PYTHON} {READIES}/bin/getrmpytools --reinstall".format(PYTHON=self.python, READIES=READIES))
+        if self.dist != "arch":
+            self.install("lcov")
+        else:
+            self.install("lcov-git", aur=True)
         self.pip_install("pudb awscli")
 
         self.pip_install("-r %s/tests/pytests/requirements.txt" % ROOT)

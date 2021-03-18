@@ -24,7 +24,7 @@ def downloadFiles():
     for f in RDBS:
         path = os.path.join(REDISEARCH_CACHE_DIR, f)
         if not os.path.exists(path):
-            subprocess.call(['wget', BASE_RDBS_URL + f, '-O', path])
+            subprocess.call(['wget', '-q', BASE_RDBS_URL + f, '-O', path])
         if not os.path.exists(path):
             return False
     return True
