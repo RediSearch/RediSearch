@@ -103,9 +103,10 @@ typedef struct {
   unsigned cursorChunkSize;
 
   /** Profile variables */
-  clock_t initClock; // Time of start. Reset for each cursor call
-  clock_t totalTime; // Total time. Used to accimulate cursors times
-  clock_t parseTime; // Time for parsing the query
+  clock_t initClock;          // Time of start. Reset for each cursor call
+  clock_t totalTime;          // Total time. Used to accimulate cursors times
+  clock_t parseTime;          // Time for parsing the query
+  clock_t pipelineBuildTime;  // Time for creating the pipeline
 } AREQ;
 
 /**

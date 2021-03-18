@@ -219,6 +219,7 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                         QueryError *status, AREQ **r) {
 
   int rc = REDISMODULE_ERR;
+  clock_t parseClock;
   const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
   RedisSearchCtx *sctx = NULL;
   RedisModuleCtx *thctx = NULL;
@@ -259,10 +260,15 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     goto done;
   }
 
+  if (IsProfile(*r)) {
+    parseClock = clock();
+    (*r)->parseTime = parseClock - (*r)->initClock;
+  }
+
   rc = AREQ_BuildPipeline(*r, 0, status);
 
   if (IsProfile(*r)) {
-    (*r)->parseTime = clock() - (*r)->initClock;
+    (*r)->pipelineBuildTime = clock() - parseClock;
   }
 
 done:
