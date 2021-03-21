@@ -119,6 +119,7 @@ def testAllConfig(env):
 def testInitConfig(env):
     # Numeric arguments
     env.skipOnCluster()
+
     def test_arg_num(arg_name, arg_value):
         env = Env(moduleArgs=arg_name + ' ' + '%d' % arg_value)
         if env.env == 'existing-env':

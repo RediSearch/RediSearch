@@ -43,6 +43,6 @@ if [[ -n $REDIS_VERBOSE ]]; then
 fi
 
 if [[ ! -z $MODARGS ]]; then
-	ARGS+=" --module-args $MODARGS"
+	ARGS+="--module-args $MODARGS"
 fi
 exec python -m RLTest $ARGS $RLTEST_ARGS "$@"

@@ -24,6 +24,8 @@ make test          # run all tests (via ctest)
 make pytest        # run python tests (tests/pytests)
   TEST=name          # e.g. TEST=test:testSearch
   RLTEST_ARGS=...    # pass args to RLTest
+  CTEST_ARG=...      # pass args to CTest
+  TESTDEBUG=1        # be very verbose (CTest-related)
   GDB=1              # RLTest interactive debugging
 make c_tests       # run C tests (from tests/ctests)
 make cpp_tests     # run C++ tests (from tests/cpptests)
@@ -171,9 +173,13 @@ run:
 
 #----------------------------------------------------------------------------------------------
 
+ifeq ($(TESTDEBUG),1)
+override CTEST_ARGS += --debug
+endif
+
 test:
 ifneq ($(TEST),)
-	@set -e; cd $(BINROOT); CTEST_OUTPUT_ON_FAILURE=1 RLTEST_ARGS="-s" ctest -vv -R $(TEST)
+	@set -e; cd $(BINROOT); CTEST_OUTPUT_ON_FAILURE=1 RLTEST_ARGS="-s -v" ctest $(CTEST_ARGS) -vv -R $(TEST)
 else
 	@set -e; cd $(BINROOT); ctest
 endif
