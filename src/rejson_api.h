@@ -1,5 +1,4 @@
-#ifndef SRC_REJSON_API_H_
-#define SRC_REJSON_API_H_
+#pragma once
 
 #include "redismodule.h"
 
@@ -23,27 +22,24 @@ typedef const void *RedisJSON;
 
 typedef struct RedisJSONAPI_V1 {
     /* RedisJSONKey functions */
-    RedisJSONKey (*openKey)(struct RedisModuleCtx* ctx, RedisModuleString* key_name);
-    void (*closeKey)(RedisJSONKey key);
+    RedisJSONKey (*openKey)(RedisModuleCtx *ctx, RedisModuleString *key_name);
+    int (*closeKey)(RedisJSONKey key);
     /* RedisJSON functions
      * Return NULL if path does not exist
      * `count` can be NULL and return 0 for non array/object
      **/
-    RedisJSON (*getPath)(RedisJSONKey key, const char *path,
-                            JSONType *type, size_t *count);
-    RedisJSON (*getAt)(RedisJSON jsonIn, size_t index,
-                            JSONType *type, size_t *count);
-    void (*closeJSON)(RedisJSON json);
+    RedisJSON (*get)(RedisJSONKey key, const char *path, JSONType *type, size_t *count);
+    RedisJSON (*getAt)(RedisJSON jsonIn, size_t index, JSONType *type, size_t *count);
+    int (*close)(RedisJSON json);
     /* RedisJSON value functions
      * Return REDISMODULE_OK if RedisJSON is of the correct JSONType,
      * else REDISMODULE_ERR is returned
      **/
-    int (*getInt)(const RedisJSON *path, int *integer);
-    int (*getDouble)(const RedisJSON *path, double *dbl);
-    int (*getBoolean)(const RedisJSON *path, int *boolean);
-    int (*getString)(const RedisJSON *path, char **str, size_t *len);
-
-    void (*replyWithJSON)(const RedisJSON *json);
+    int (*getInt)(RedisJSON json, long long *integer);
+    int (*getDouble)(RedisJSON json, double *dbl);
+    int (*getBoolean)(RedisJSON json, int *boolean);
+    int (*getString)(RedisJSON json, char **str, size_t *len);
+    int (*replyWith)(RedisModuleCtx *ctx, RedisJSON json);
 } RedisJSONAPI_V1;
 
 RedisJSONAPI_V1 *japi;
@@ -51,4 +47,4 @@ RedisJSONAPI_V1 *japi;
 #ifdef __cplusplus
 }
 #endif
-#endif /* SRC_REJSON_API_H_ */
+

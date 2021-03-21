@@ -109,7 +109,7 @@ int Document_LoadJsonFields(Document *doc, RedisSearchCtx *sctx) {
         char *name;
         JSONType type;
         size_t nitems, len, count;
-        jsonPath = japi->getPath(jsonKey, fs->name, &type, &nitems);
+        jsonPath = japi->get(jsonKey, fs->name, &type, &nitems);
         if (!jsonPath)
             goto done;
         printf("jsonPath %p, name %s, type %d, nitems %lu\n", jsonPath, fs->name, type, nitems);
@@ -138,30 +138,8 @@ int Document_LoadJsonFields(Document *doc, RedisSearchCtx *sctx) {
                 break;
         }
         done:
-        japi->closeJSON(jsonPath);
+        japi->close(jsonPath);
         japi->closeKey(jsonKey);
-//        rm_free(path);
-       /* if(JSON_getSinglePath(sctx->redisCtx, doc->docKey, fs->name, data) != REDISMODULE_OK) {
-            goto done;
-        }
-        JsonValueType type = JSON_Type(data);
-        switch(type) {
-            char *str;
-            int bool_val;
-            case Str:
-                if (JSON_getString(data, &str) != REDISMODULE_OK) {
-                    got done;
-                }
-                // Index str
-                break;
-            case Bool:
-                if (JSON_getBool(data, &bool_val) != REDISMODULE_OK) {
-                    got done;
-                }
-                // Index str
-                break;
-            case Array:
-            */
 
         }
      }
