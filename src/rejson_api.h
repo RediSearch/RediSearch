@@ -27,7 +27,7 @@ typedef struct RedisJSONAPI_V1 {
     void (*closeKey)(RedisJSONKey key);
     /* RedisJSON functions
      * Return NULL if path does not exist
-     * `count` can be NULL and return 0 for for non array/object
+     * `count` can be NULL and return 0 for non array/object
      **/
     RedisJSON (*getPath)(RedisJSONKey key, const char *path,
                             JSONType *type, size_t *count);

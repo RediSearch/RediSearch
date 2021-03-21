@@ -103,18 +103,44 @@ int Document_LoadJsonFields(Document *doc, RedisSearchCtx *sctx) {
      for (int i = 0; i < sctx->spec->numFields; i++) {
         const FieldSpec *fs = sctx->spec->fields + i;
          RedisJSONKey jsonKey;
-         RedisJSONPath jsonPath;
+         RedisJSON jsonPath, jsonChildPath;
 
-        //data = japi->getPath(sctx->redisCtx, doc->docKey, fs->name);
         jsonKey = japi->openKey(sctx->redisCtx, doc->docKey);
-        const char *name;
-        jsonPath = japi->getPath(jsonKey, "$");//fs->name);
-        int type;
-        size_t nitems;
-        int res = japi->getInfo(jsonPath, &name, &type, &nitems);
-        printf("res %d, type %d, size %lu\n", res, type, nitems);
-        japi->closePath(jsonPath);
-        japi->closePath(jsonPath);
+        char *name;
+        JSONType type;
+        size_t nitems, len, count;
+        jsonPath = japi->getPath(jsonKey, fs->name, &type, &nitems);
+        if (!jsonPath)
+            goto done;
+        printf("jsonPath %p, name %s, type %d, nitems %lu\n", jsonPath, fs->name, type, nitems);
+        int res;
+        switch(type) {
+            case JSONType_String:
+                printf("before japi->getString\n");
+                res = japi->getString(jsonPath, &name, &len);
+                printf("after japi->getString\n");
+                printf("getString res %d, name %s, len %lu\n", res, name, len);
+                break;
+            case JSONType_Array:
+                count = nitems;
+                for (size_t i = 0; i < nitems; ++i) {
+                    printf("before japi->getAt %lu from %lu\n", i, count);
+                    jsonChildPath = japi->getAt(jsonPath, i, &type, &nitems);
+                    printf("after japi->getAt\n");
+                    printf("  jsonChildPath %p, type %d, nitems %lu\n", jsonChildPath, type, nitems);
+                    if (type == JSONType_String) {
+                        printf("  before sub japi->getString\n");
+                        res = japi->getString(jsonChildPath, &name, &len);
+                        printf("  after sub japi->getString\n");                        
+                        printf("  sub GetString res %d, name %s, len %lu\n", res, name, len);
+                    }
+                }
+                break;
+        }
+        done:
+        japi->closeJSON(jsonPath);
+        japi->closeKey(jsonKey);
+//        rm_free(path);
        /* if(JSON_getSinglePath(sctx->redisCtx, doc->docKey, fs->name, data) != REDISMODULE_OK) {
             goto done;
         }
