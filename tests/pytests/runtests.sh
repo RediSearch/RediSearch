@@ -57,4 +57,4 @@ if [[ -e rltest.config ]]; then
 fi
 
 exec python -m RLTest @$config
-rm -f /tmp/xxx.config
+rm -f $config
