@@ -33,11 +33,6 @@ export PYTHONPATH
 # ARGS="--clear-logs"
 # ARGS="--unix"
 
-# Use configuration file in the current directory if it exists
-if [[ -e rltest.config ]]; then
-    ARGS="@rltest.config ${ARGS}"
-fi
-
 if [[ -n $REDIS_VERBOSE ]]; then
     ARGS="${ARGS} --no-output-catch"
 fi
@@ -48,14 +43,18 @@ fi
 
 config=$(mktemp "${TMPDIR:-/tmp}/rltest.XXXXXXX")
 rm -f $config
-
-
 cat << EOF > $config
 
 --module-args '$MODARGS'
 $RLTEST_ARGS
 $@
+
 EOF
+
+# Use configuration file in the current directory if it exists
+if [[ -e rltest.config ]]; then
+	cat rltest.config >> $config
+fi
 
 exec python -m RLTest @$config
 rm -f /tmp/xxx.config
