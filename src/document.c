@@ -647,7 +647,10 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
     goto done;
   }
 
-  RLookupLoadOptions loadopts = {.sctx = sctx, .dmd = dmd, .status = status};
+  RLookupLoadOptions loadopts = {.sctx = sctx,
+                                 .dmd = dmd,
+                                 .status = status,
+                                 .mode = RLOOKUP_LOAD_KEYLIST};
   if (RLookup_LoadDocument(&lookup_s, &row, &loadopts) != REDISMODULE_OK) {
     // printf("Couldn't load document!\n");
     goto done;

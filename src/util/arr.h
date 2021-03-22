@@ -255,7 +255,7 @@ static void array_free(array_t arr) {
     arr;                                    \
   })
 
-/* Repeate the code in "blk" for each element in the array, and give it the name of "as".
+/* Repeat the code in "blk" for each element in the array, and give it the name of "as".
  * e.g:
  *  int *arr = array_new(int, 10);
  *  arr = array_append(arr, 1);

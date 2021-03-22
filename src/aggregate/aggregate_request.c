@@ -386,6 +386,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
     ensureSimpleMode(req);
 
     req->outFields.explicitReturn = 1;
+    req->reqflags |= QEXEC_F_SEND_EXPLICIT;
     if (returnFields.argc == 0) {
       req->reqflags |= QEXEC_F_SEND_NOFIELDS;
     }
@@ -987,8 +988,8 @@ int buildOutputPipeline(AREQ *req, QueryError *status) {
 
   RLookup *lookup = AGPLN_GetLookup(pln, NULL, AGPLN_GETLOOKUP_LAST);
   // Add a LOAD step...
-  const RLookupKey **loadkeys = NULL;
-  if (req->outFields.explicitReturn) {
+  if (!IsLazyLoad(req)) {
+    const RLookupKey **loadkeys = NULL;
     // Go through all the fields and ensure that each one exists in the lookup stage
     for (size_t ii = 0; ii < req->outFields.numFields; ++ii) {
       const ReturnedField *rf = req->outFields.fields + ii;
@@ -1003,12 +1004,10 @@ int buildOutputPipeline(AREQ *req, QueryError *status) {
       // assign explicit output flag
       lk->flags |= RLOOKUP_F_EXPLICITRETURN;
     }
-  }
-  rp = RPLoader_New(lookup, loadkeys, loadkeys ? array_len(loadkeys) : 0);
-  if (loadkeys) {
+    rp = RPLoader_New(lookup, loadkeys, array_len(loadkeys));
     array_free(loadkeys);
+    PUSH_RP();
   }
-  PUSH_RP();
 
   if (req->reqflags & QEXEC_F_SEND_HIGHLIGHT) {
     RLookup *lookup = AGPLN_GetLookup(pln, NULL, AGPLN_GETLOOKUP_LAST);
