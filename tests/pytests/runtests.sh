@@ -45,4 +45,17 @@ fi
 if [[ ! -z $MODARGS ]]; then
 	ARGS+="--module-args $MODARGS"
 fi
-exec python -m RLTest $ARGS $RLTEST_ARGS "$@"
+
+config=$(mktemp "${TMPDIR:-/tmp}/rltest.XXXXXXX")
+rm -f $config
+
+
+cat << EOF > $config
+
+--module-args '$MODARGS'
+$RLTEST_ARGS
+$@
+EOF
+
+exec python -m RLTest @$config
+rm -f /tmp/xxx.config
