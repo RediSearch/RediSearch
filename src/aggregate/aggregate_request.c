@@ -135,7 +135,7 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
     }
 
     if (arng->isLimited && arng->limit == 0) {
-      // LIMIT 0 0 - only county
+      // LIMIT 0 0 - only count
       req->reqflags |= QEXEC_F_NOROWS;
       req->reqflags |= QEXEC_F_SEND_NOFIELDS;
     } else if ((arng->limit > RSGlobalConfig.maxSearchResults) &&

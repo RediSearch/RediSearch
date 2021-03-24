@@ -234,12 +234,6 @@ def testResultProcessorCounter(env):
   env.assertEqual(actual_res[0], [2L])
   env.assertEqual(actual_res[1][4][2], ['Type', 'Counter', 'Counter', 1L])
 
-def testProfileOutput(env):
-  env.skip()
-  docs = 10000
-  copies = 10
-  queries = 0
-
 def testProfileMaxPrefixExpansion(env):
   env.skipOnCluster()
   conn = getConnectionByEnv(env)
