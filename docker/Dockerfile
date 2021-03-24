@@ -53,9 +53,9 @@ ARG REDIS_VER
 
 WORKDIR /data
 
-ENV LIBDIR /usr/lib/redis/modules
+ENV LIBDIR /usr/lib/redis/modules/
 RUN mkdir -p "$LIBDIR";
 
-COPY --from=builder /build/build/redisearch.so  "$LIBDIR"
+COPY --from=builder /build/build/redisearch.so*  "$LIBDIR"
 
 CMD ["redis-server", "--loadmodule", "/usr/lib/redis/modules/redisearch.so"]

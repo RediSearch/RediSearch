@@ -439,7 +439,7 @@ int RediSearch_DocumentExists(IndexSpec* sp, const void* docKey, size_t len) {
 }
 
 RS_ApiIter* RediSearch_IterateQuery(IndexSpec* sp, const char* s, size_t n, char** error) {
-  QueryInput input = {.qtype = QUERY_INPUT_STRING, .u = {.s = {s, .n = n}}};
+  QueryInput input = {.qtype = QUERY_INPUT_STRING, .u = {.s = {.qs = s, .n = n}}};
   return handleIterCommon(sp, &input, error);
 }
 

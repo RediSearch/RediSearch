@@ -19,7 +19,7 @@ Extensions should be compiled into .so files, and loaded into RediSearch on init
 
 * Loading 
 
-    Loading an extension is done by apending `EXTLOAD {path/to/ext.so}` after the `loadmodule` configuration directive when loading RediSearch. For example:
+    Loading an extension is done by appending `EXTLOAD {path/to/ext.so}` after the `loadmodule` configuration directive when loading RediSearch. For example:
 
 
     ```sh
