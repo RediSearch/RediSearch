@@ -211,6 +211,16 @@ RedisModuleString *SchemaRule_HashPayload(RedisModuleCtx *rctx, const SchemaRule
   return payload_rms;
 }
 
+int SchemaRule_IsAttrField(const SchemaRule *rule, const char *str, size_t len) {
+  if (rule) {
+    if ((strncasecmp(str, rule->lang_field, len) == 0) ||
+        (strncasecmp(str, rule->score_field, len) == 0) ||
+        (strncasecmp(str, rule->payload_field, len) == 0)) {
+    return 1;
+  }
+  return 0;
+}
+
 //---------------------------------------------------------------------------------------------
 
 int SchemaRule_RdbLoad(IndexSpec *sp, RedisModuleIO *rdb, int encver) {

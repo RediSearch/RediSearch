@@ -30,8 +30,10 @@ static const RSValue *getSortKey(AREQ *req, const SearchResult *r, const PLN_Arr
 
 /** Cached variables to avoid serializeResult retrieving these each time */
 typedef struct {
+  SchemaRule *rule;                    // used to filter out language, score and payload fields
   const RLookup *lastLk;
   const PLN_ArrangeStep *lastAstp;
+  arrayof(RedisModuleString *) arr;   // used to reply all fields
 } cachedVars;
 
 static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchResult *r,
@@ -120,14 +122,12 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
       const RLookup *lk = cv->lastLk;
 
       // Get the number of fields in the reply.
-      // Excludes hidden fields, fields not included in RETURN and, score and language fields.
-      SchemaRule *rule = req->sctx ? req->sctx->spec->rule : NULL;
-      // TODO: remove
+      // Excludes hidden fields, fields not included in RETURN and, score, payload and language fields.
       int excludeFlags = RLOOKUP_F_HIDDEN;
       int requiredFlags = (req->outFields.explicitReturn ? RLOOKUP_F_EXPLICITRETURN : 0);
       int skipFieldIndex[lk->rowlen]; // Array has `0` for fields which will be skipped
       memset(skipFieldIndex, 0, lk->rowlen * sizeof(*skipFieldIndex));
-      size_t nfields = RLookup_GetLength(lk, &r->rowdata, skipFieldIndex, requiredFlags, excludeFlags, rule);
+      size_t nfields = RLookup_GetLength(lk, &r->rowdata, skipFieldIndex, requiredFlags, excludeFlags, cv->rule);
 
       RedisModule_ReplyWithArray(outctx, nfields * 2);
       int i = 0;
@@ -143,10 +143,8 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
       }
     } else {
       // Reply with all fields
-      arrayof(RedisModuleString *) replyArr = array_new(RedisModuleString *, 10);
       char *keyName = dmd ? dmd->keyPtr : DocTable_Get(&req->sctx->spec->docs, r->docId)->keyPtr;
-      RS_ReplyWithHash(outctx, keyName, replyArr);
-      array_free(replyArr);
+      RS_ReplyWithHash(outctx, keyName, cv->arr, cv->rule);
     }
   }
   return count;
@@ -170,6 +168,7 @@ void sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
   cachedVars cv = {0};
   cv.lastLk = AGPLN_GetLookup(&req->ap, NULL, AGPLN_GETLOOKUP_LAST);
   cv.lastAstp = AGPLN_GetArrangeStep(&req->ap);
+  cv.rule = req->sctx ? req->sctx->spec->rule : NULL;
 
   RedisModule_ReplyWithArray(outctx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
@@ -196,6 +195,7 @@ void sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
   }
 
   SearchResult_Clear(&r);
+  if (cv.arr) array_free(cv.arr);
   if (rc != RS_RESULT_OK) {
     goto done;
   }

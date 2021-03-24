@@ -63,6 +63,10 @@ double SchemaRule_HashScore(RedisModuleCtx *rctx, const SchemaRule *rule, RedisM
 RedisModuleString *SchemaRule_HashPayload(RedisModuleCtx *rctx, const SchemaRule *rule,
                                           RedisModuleKey *key, const char *kname);
 
+/* */
+int SchemaRule_IsAttrField(const SchemaRule *rule, const char *str, size_t len);
+
+
 void SchemaRule_RdbSave(SchemaRule *rule, RedisModuleIO *rdb);
 int SchemaRule_RdbLoad(struct IndexSpec *sp, RedisModuleIO *rdb, int encver);
 
