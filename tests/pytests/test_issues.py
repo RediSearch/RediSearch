@@ -137,20 +137,11 @@ def test_issue1880(env):
   conn.execute_command('HSET', 'doc1', 't', 'hello world')
   conn.execute_command('HSET', 'doc2', 't', 'hello')
 
-  excepted_res = [[1L, 'doc1', ['t', 'hello world']], 
-                 [['Total profile time'],
-                  ['Parsing and iterator creation time'],
-                  ['Iterators profile',
-                    ['Intersect iterator', 1L,
-                      ['Term reader', 'world', 1L],
-                      ['Term reader', 'hello', 1L]]],
-                  ['Result processors profile',
-                    ['Index', 1L],
-                    ['Scorer', 1L],
-                    ['Sorter', 1L],
-                    ['Loader', 1L]]]]
+  excepted_res = ['Type', 'INTERSECT', 'Counter', 1L, 'Children iterators',
+                    ['Type', 'TEXT', 'Term', 'world', 'Counter', 1L, 'Size', 1L],
+                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1L, 'Size', 2L]] 
   res1 = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'hello world')
   res2 = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'world hello')
   # both queries return `world` iterator before `hello`
-  env.assertEqual(res1, excepted_res)
-  env.assertEqual(res2, excepted_res)
+  env.assertEqual(res1[1][3][1], excepted_res)
+  env.assertEqual(res2[1][3][1], excepted_res)
