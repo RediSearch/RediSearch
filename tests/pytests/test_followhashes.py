@@ -207,10 +207,10 @@ def testPayload(env):
     for _ in env.retry_with_rdb_reload():
         waitForIndex(env, 'things')
         res = env.cmd('ft.search', 'things', 'foo')
-        env.assertEqual(toSortedFlatList(res), toSortedFlatList([1L, 'thing:foo', ['name', 'foo', 'payload', 'stuff']]))
+        env.assertEqual(toSortedFlatList(res), toSortedFlatList([1L, 'thing:foo', ['name', 'foo']]))
 
         res = env.cmd('ft.search', 'things', 'foo', 'withpayloads')
-        env.assertEqual(toSortedFlatList(res), toSortedFlatList([1L, 'thing:foo', 'stuff', ['name', 'foo', 'payload', 'stuff']]))
+        env.assertEqual(toSortedFlatList(res), toSortedFlatList([1L, 'thing:foo', 'stuff', ['name', 'foo']]))
 
 def testBinaryPayload(env):
     conn = getConnectionByEnv(env)
@@ -223,10 +223,10 @@ def testBinaryPayload(env):
     for _ in env.retry_with_rdb_reload():
         waitForIndex(env, 'things')
         res = env.cmd('ft.search', 'things', 'foo')
-        env.assertEqual(toSortedFlatList(res), toSortedFlatList([1L, 'thing:foo', ['name', 'foo', 'payload', '\x00\xAB\x20']]))
+        env.assertEqual(toSortedFlatList(res), toSortedFlatList([1L, 'thing:foo', ['name', 'foo']]))
 
         res = env.cmd('ft.search', 'things', 'foo', 'withpayloads')
-        env.assertEqual(toSortedFlatList(res), toSortedFlatList([1L, 'thing:foo', '\x00\xAB\x20', ['name', 'foo', 'payload', '\x00\xAB\x20']]))
+        env.assertEqual(toSortedFlatList(res), toSortedFlatList([1L, 'thing:foo', '\x00\xAB\x20', ['name', 'foo']]))
 
 def testDuplicateFields(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
