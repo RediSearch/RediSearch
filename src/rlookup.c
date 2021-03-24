@@ -447,8 +447,9 @@ static int RLookup_HGETALL(RLookup *it, RLookupRow *dst, RLookupLoadOptions *opt
   RedisModuleCtx *ctx = options->sctx->redisCtx;
   RedisModuleString *krstr =
       RedisModule_CreateString(ctx, options->dmd->keyPtr, sdslen(options->dmd->keyPtr));
-  // We can only use the scan API from Redis version 6.0.6 and above
-  if(!isFeatureSupported(RM_SCAN_KEY_API_FIX)){
+  // We can only use the scan API from Redis version 6.0.6 and above 
+  // and when the deployment is not enterprise-crdt
+  if(!isFeatureSupported(RM_SCAN_KEY_API_FIX) || isCrdt){
     rep = RedisModule_Call(ctx, "HGETALL", "s", krstr);
 
     if (rep == NULL || RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_ARRAY) {

@@ -7,10 +7,11 @@ make setup         # install prerequisited (CAUTION: THIS WILL MODIFY YOUR SYSTE
 make fetch         # download and prepare dependant modules
 
 make build         # compile and link
-  DEBUG=1          # build for debugging (implies TEST=1)
-  TEST=1           # enable unit tests
+  DEBUG=1          # build for debugging (implies WITH_TESTS=1)
+  WITH_TESTS=1     # enable unit tests
   WHY=1            # explain CMake decisions (in /tmp/cmake-why)
-  CMAKE_ARGS       # extra arguments to CMake
+  CMAKE=1          # Force CMake rerun
+  CMAKE_ARGS=...   # extra arguments to CMake
 make parsers       # build parsers code
 make clean         # remove build artifacts
   ALL=1              # remove entire artifacts directory
@@ -22,6 +23,9 @@ make test          # run all tests (via ctest)
   TEST=regex
 make pytest        # run python tests (tests/pytests)
   TEST=name          # e.g. TEST=test:testSearch
+  RLTEST_ARGS=...    # pass args to RLTest
+  CTEST_ARG=...      # pass args to CTest
+  TESTDEBUG=1        # be very verbose (CTest-related)
   GDB=1              # RLTest interactive debugging
 make c_tests       # run C tests (from tests/ctests)
 make cpp_tests     # run C++ tests (from tests/cpptests)
@@ -61,18 +65,39 @@ export PACKAGE_NAME
 
 ifeq ($(DEBUG),1)
 CMAKE_BUILD_TYPE=DEBUG
-TEST ?= 1
+WITH_TESTS ?= 1
 else
 CMAKE_BUILD_TYPE=RelWithDebInfo
 endif
 CMAKE_DEBUG=-DCMAKE_BUILD_TYPE=$(CMAKE_BUILD_TYPE)
 
-ifeq ($(TEST),1)
+ifeq ($(WITH_TESTS),1)
 CMAKE_TEST=-DRS_RUN_TESTS=ON
 endif
 
 ifeq ($(WHY),1)
 CMAKE_WHY=--trace-expand > /tmp/cmake-why 2>&1
+endif
+
+CMAKE_FILES= \
+	CMakeLists.txt \
+	cmake/redisearch_cflags.cmake \
+	cmake/redisearch_debug.cmake \
+	src/dep/friso/CMakeLists.txt \
+	src/dep/phonetics/CMakeLists.txt \
+	src/dep/snowball/CMakeLists.txt \
+	src/rmutil/CMakeLists.txt
+
+ifeq ($(WITH_TESTS),1)
+CMAKE_FILES+= \
+	deps/googletest/CMakeLists.txt \
+	deps/googletest/googlemock/CMakeLists.txt \
+	deps/googletest/googletest/CMakeLists.txt \
+	tests/ctests/CMakeLists.txt \
+	tests/cpptests/CMakeLists.txt \
+	tests/cpptests/redismock/CMakeLists.txt \
+	tests/pytests/CMakeLists.txt \
+	tests/c_utils/CMakeLists.txt
 endif
 
 #----------------------------------------------------------------------------------------------
@@ -86,15 +111,24 @@ include $(MK)/rules
 $(COMPAT_MODULE): $(BINROOT)/redisearch.so
 	cp $^ $@
 
-$(BINROOT)/Makefile : CMakeLists.txt
+ifeq ($(CMAKE),1)
+.PHONY: __force
+
+$(BINROOT)/Makefile: __force
+else
+$(BINROOT)/Makefile : $(CMAKE_FILES)
+endif
+	@echo Building with CMake ...
 ifeq ($(WHY),1)
 	@echo CMake log is in /tmp/cmake-why
 endif
 	@mkdir -p $(BINROOT)
 	@cd $(BINROOT) && cmake .. $(CMAKE_ARGS) $(CMAKE_TEST) $(CMAKE_DEBUG) $(CMAKE_WHY)
 
-$(COMPAT_DIR)/redisearch.so: $(COMPAT_DIR)/Makefile
-	$(MAKE) -C $(BINROOT) -j$(shell nproc)
+$(COMPAT_DIR)/redisearch.so: $(BINROOT)/Makefile
+	@echo Building ...
+	@$(MAKE) -C $(BINROOT) -j$(shell nproc)
+	@[ -f $(COMPAT_DIR)/redisearch.so ] && touch $(COMPAT_DIR)/redisearch.so
 #	if [ ! -f src/redisearch.so ]; then cd src; ln -s ../$(BINROOT)/redisearch.so; fi
 
 .PHONY: build clean run 
@@ -139,15 +173,23 @@ run:
 
 #----------------------------------------------------------------------------------------------
 
+ifeq ($(TESTDEBUG),1)
+override CTEST_ARGS += --debug
+endif
+
 test:
 ifneq ($(TEST),)
-	@set -e; cd $(BINROOT); CTEST_OUTPUT_ON_FAILURE=1 ctest -R $(TEST)
+	@set -e; cd $(BINROOT); CTEST_OUTPUT_ON_FAILURE=1 RLTEST_ARGS="-s -v" ctest $(CTEST_ARGS) -vv -R $(TEST)
 else
 	@set -e; cd $(BINROOT); ctest
 endif
 
 ifeq ($(GDB),1)
 RLTEST_GDB=-i
+endif
+
+ifneq ($(MOD_ARGS),)
+override RLTEST_ARGS+=--module-args $(MOD_ARGS)
 endif
 
 pytest:
@@ -157,7 +199,7 @@ pytest:
 		exit 1 ;\
 	fi
 ifneq ($(TEST),)
-	@cd tests/pytests; PYDEBUG=1 python -m RLTest --test $(TEST) $(RLTEST_GDB) -s --module $(abspath $(TARGET))
+	@cd tests/pytests; PYDEBUG=1 python -m RLTest --test $(TEST) $(RLTEST_GDB) -s -v --module $(abspath $(TARGET)) $(RLTEST_ARGS)
 else
 	@cd tests/pytests; python -m RLTest --module $(abspath $(TARGET))
 endif

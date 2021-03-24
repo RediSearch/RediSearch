@@ -35,6 +35,9 @@ class RediSearchSetup(paella.Setup):
         # fix setuptools
         self.pip_install("-IU --force-reinstall setuptools")
 
+    def archlinux(self):
+        self.install("gcc-libs")
+
     def fedora(self):
         self.install("libatomic")
         self.run("%s/bin/getgcc" % READIES)
@@ -44,13 +47,15 @@ class RediSearchSetup(paella.Setup):
         self.install("pkg-config")
 
         # for now depending on redis from brew, it's version6 with TLS.
-        #self.run("{PYTHON} {READIES}/bin/getredis -v 6 --force".format(PYTHON=self.python, READIES=READIES))
-        self.install("redis")
+        self.run("{PYTHON} {READIES}/bin/getredis -v 6 --force".format(PYTHON=self.python, READIES=READIES))
 
     def common_last(self):
         self.run("{PYTHON} {READIES}/bin/getcmake".format(PYTHON=self.python, READIES=READIES))
-        self.run("{PYTHON} {READIES}/bin/getrmpytools".format(PYTHON=self.python, READIES=READIES))
-        self.install("lcov")
+        self.run("{PYTHON} {READIES}/bin/getrmpytools --reinstall".format(PYTHON=self.python, READIES=READIES))
+        if self.dist != "arch":
+            self.install("lcov")
+        else:
+            self.install("lcov-git", aur=True)
         self.pip_install("pudb awscli")
 
         self.pip_install("-r %s/tests/pytests/requirements.txt" % ROOT)
