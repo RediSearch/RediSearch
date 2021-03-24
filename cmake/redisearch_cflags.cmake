@@ -45,3 +45,7 @@ ENDIF()
 
 SET(RS_C_FLAGS "${RS_COMMON_FLAGS} -std=gnu99")
 SET(RS_CXX_FLAGS "${RS_COMMON_FLAGS} -fno-rtti -fno-exceptions -std=c++11")
+
+IF (NOT APPLE)
+    SET(RS_SO_FLAGS "-Wl,-Bsymbolic,-Bsymbolic-functions")
+ENDIF()

@@ -3,7 +3,7 @@
 #include "rmalloc.h"
 #include "util/dict.h"
 
-dict *spellCheckDicts;
+dict *spellCheckDicts = NULL;
 
 Trie *SpellCheck_OpenDict(RedisModuleCtx *ctx, const char *dictName, int mode) {
   Trie *t = dictFetchValue(spellCheckDicts, dictName);
@@ -149,8 +149,10 @@ void Dictionary_Clear() {
 }
 
 void Dictionary_Free() {
-  Dictionary_Clear();
-  dictRelease(spellCheckDicts);
+  if (spellCheckDicts) {
+    Dictionary_Clear();
+    dictRelease(spellCheckDicts);
+  }
 }
 
 static int SpellCheckDictAuxLoad(RedisModuleIO *rdb, int encver, int when) {

@@ -178,7 +178,6 @@ static void IndexSpec_TimedOutProc(RedisModuleCtx *ctx, IndexSpec *sp) {
   RedisModule_Log(NULL, "notice", "Freeing index %s by timer", sp->name);
 #endif
 
-  dictDelete(specDict_g, sp->name);
   sp->isTimerSet = false;
   IndexSpec_Free(sp);
 
@@ -428,7 +427,8 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
     fs = IndexSpec_CreateField(sp, fieldName);
 
     if (sp->numFields == SPEC_MAX_FIELDS) {
-      QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Schema is limited to %d fields", SPEC_MAX_FIELDS);
+      QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Schema is limited to %d fields",
+                             SPEC_MAX_FIELDS);
       goto reset;
     }
 
@@ -439,7 +439,8 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
     if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && FieldSpec_IsIndexable(fs)) {
       int textId = IndexSpec_CreateTextId(sp);
       if (textId < 0) {
-        QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Schema is limited to %d TEXT fields", SPEC_MAX_FIELD_ID);
+        QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Schema is limited to %d TEXT fields",
+                               SPEC_MAX_FIELD_ID);
         goto reset;
       }
 
@@ -461,13 +462,15 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
 
     if (FieldSpec_IsSortable(fs)) {
       if (fs->options & FieldSpec_Dynamic) {
-        QueryError_SetErrorFmt(status, QUERY_EBADOPTION, "Cannot set dynamic field to sortable - %s", fieldName);
+        QueryError_SetErrorFmt(status, QUERY_EBADOPTION,
+                               "Cannot set dynamic field to sortable - %s", fieldName);
         goto reset;
       }
 
       fs->sortIdx = RSSortingTable_Add(&sp->sortables, fs->name, fieldTypeToValueType(fs->types));
       if (fs->sortIdx == -1) {
-        QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Schema is limited to %d Sortable fields", SPEC_MAX_FIELDS);
+        QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Schema is limited to %d Sortable fields",
+                               SPEC_MAX_FIELDS);
         goto reset;
       }
     } else {
@@ -826,6 +829,14 @@ void IndexSpec_Free(IndexSpec *spec) {
   if (spec->flags & Index_Temporary) {
     if (!cleanPool) {
       cleanPool = thpool_init(1);
+    }
+    // we are taking the index to a background thread to be released.
+    // before we do it we need to delete it from the index dictionary
+    // to prevent it from been freed again.c
+    dictDelete(specDict_g, spec->name);
+    if (spec->isTimerSet) {
+      RedisModule_StopTimer(RSDummyContext, spec->timerId, NULL);
+      spec->isTimerSet = false;
     }
     thpool_add_work(cleanPool, (thpool_proc)IndexSpec_FreeTask, spec);
     return;

@@ -185,9 +185,9 @@ int RediSearch_DocumentAddFieldGeo(Document* d, const char* fieldname,
     // out of range
     return REDISMODULE_ERR;
   }                                      
-  // The format for a geospacial point is "lat,lon"
+  // The format for a geospacial point is "lon,lat"
   char buf[24];
-  size_t len = sprintf(buf, "%.6lf,%.6lf", lat, lon);
+  size_t len = sprintf(buf, "%.6lf,%.6lf", lon, lat);
   Document_AddFieldC(d, fieldname, buf, len, as);
   return REDISMODULE_OK;
 }
@@ -266,7 +266,7 @@ QueryNode* RediSearch_CreateNumericNode(IndexSpec* sp, const char* field, double
   return ret;
 }
 
-QueryNode* RediSearch_CreateGeoNode(IndexSpec* sp, const char* field, double lon, double lat,
+QueryNode* RediSearch_CreateGeoNode(IndexSpec* sp, const char* field, double lat, double lon,
                                         double radius, RSGeoDistance unitType) {
   QueryNode* ret = NewQueryNode(QN_GEO);
   ret->opts.fieldMask = IndexSpec_GetFieldBit(sp, field, strlen(field));
@@ -275,6 +275,7 @@ QueryNode* RediSearch_CreateGeoNode(IndexSpec* sp, const char* field, double lon
   flt->lat = lat;
   flt->lon = lon;
   flt->radius = radius;
+  flt->numericFilters = NULL;
   flt->property = rm_strdup(field);
   flt->unitType = (GeoDistance)unitType;
 
@@ -438,7 +439,7 @@ int RediSearch_DocumentExists(IndexSpec* sp, const void* docKey, size_t len) {
 }
 
 RS_ApiIter* RediSearch_IterateQuery(IndexSpec* sp, const char* s, size_t n, char** error) {
-  QueryInput input = {.qtype = QUERY_INPUT_STRING, .u = {.s = {s, .n = n}}};
+  QueryInput input = {.qtype = QUERY_INPUT_STRING, .u = {.s = {.qs = s, .n = n}}};
   return handleIterCommon(sp, &input, error);
 }
 

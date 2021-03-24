@@ -115,33 +115,27 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
     const RLookup *lk = cv->lastLk;
     count++;
 
-    size_t nfields = 0;
-    RedisModule_ReplyWithArray(outctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+    // Get the number of fields in the reply. 
+    // Excludes hidden fields, fields not included in RETURN and, score and language fields.
     SchemaRule *rule = req->sctx ? req->sctx->spec->rule : NULL;
+    int excludeFlags = RLOOKUP_F_HIDDEN;
+    int requiredFlags = (req->outFields.explicitReturn ? RLOOKUP_F_EXPLICITRETURN : 0);
+    int skipFieldIndex[lk->rowlen]; // Array has `0` for fields which will be skipped
+    memset(skipFieldIndex, 0, lk->rowlen * sizeof(*skipFieldIndex));
+    size_t nfields = RLookup_GetLength(lk, &r->rowdata, skipFieldIndex, requiredFlags, excludeFlags, rule);
+
+    RedisModule_ReplyWithArray(outctx, nfields * 2);
+    int i = 0;
     for (const RLookupKey *kk = lk->head; kk; kk = kk->next) {
-      if (kk->flags & RLOOKUP_F_HIDDEN) {
-        // todo: this is a dead code, no one set RLOOKUP_F_HIDDEN
-        continue;
-      }
-      // on coordinator, we reach this code without sctx or rule,
-      // we trust the shards to not send those fields.
-      if (rule && ((rule->lang_field && strcmp(kk->name, rule->lang_field) == 0) ||
-                   (rule->score_field && strcmp(kk->name, rule->score_field) == 0))) {
-        continue;
-      }
-      if (req->outFields.explicitReturn && (kk->flags & RLOOKUP_F_EXPLICITRETURN) == 0) {
+      if (!skipFieldIndex[i++]) {
         continue;
       }
       const RSValue *v = RLookup_GetItem(kk, &r->rowdata);
-      if (!v) {
-        continue;
-      }
+      RS_LOG_ASSERT(v, "v was found in RLookup_GetLength iteration")
 
       RedisModule_ReplyWithStringBuffer(outctx, kk->name, strlen(kk->name));
       RSValue_SendReply(outctx, v, req->reqflags & QEXEC_F_TYPED);
-      nfields += 2;
     }
-    RedisModule_ReplySetArrayLength(outctx, nfields);
   }
   return count;
 }
@@ -225,6 +219,7 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                         QueryError *status, AREQ **r) {
 
   int rc = REDISMODULE_ERR;
+  clock_t parseClock;
   const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
   RedisSearchCtx *sctx = NULL;
   RedisModuleCtx *thctx = NULL;
@@ -265,10 +260,15 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     goto done;
   }
 
+  if (IsProfile(*r)) {
+    parseClock = clock();
+    (*r)->parseTime = parseClock - (*r)->initClock;
+  }
+
   rc = AREQ_BuildPipeline(*r, 0, status);
 
   if (IsProfile(*r)) {
-    (*r)->parseTime = clock() - (*r)->initClock;
+    (*r)->pipelineBuildTime = clock() - parseClock;
   }
 
 done:
@@ -339,23 +339,49 @@ int RSSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return execCommandCommon(ctx, argv, argc, COMMAND_SEARCH, NO_PROFILE);
 }
 
-int RSProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  int curArg = 1;
-  int withProfile = PROFILE_FULL;
-  const char *cmd = RedisModule_StringPtrLen(argv[curArg], NULL);
+#define PROFILE_1ST_PARAM 2
 
+RedisModuleString **_profileArgsDup(RedisModuleString **argv, int argc, int params) {
+  RedisModuleString **newArgv = rm_malloc(sizeof(*newArgv) * (argc- params));
+  // copy cmd & index
+  memcpy(newArgv, argv, PROFILE_1ST_PARAM * sizeof(*newArgv));
+  // copy non-profile commands
+  memcpy(newArgv + PROFILE_1ST_PARAM, argv + PROFILE_1ST_PARAM + params,
+          (argc - PROFILE_1ST_PARAM - params) * sizeof(*newArgv));
+  return newArgv;
+}
+
+int RSProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  CommandType cmdType;
+  int curArg = PROFILE_1ST_PARAM;
+  int withProfile = PROFILE_FULL;
+
+  // Check the command type
+  const char *cmd = RedisModule_StringPtrLen(argv[curArg++], NULL);
+  if (strcasecmp(cmd, "SEARCH") == 0) {
+    cmdType = COMMAND_SEARCH;
+  } else if (strcasecmp(cmd, "AGGREGATE") == 0) {
+    cmdType = COMMAND_AGGREGATE;
+  } else {
+    RedisModule_ReplyWithError(ctx, "Bad command type");
+    return REDISMODULE_OK;
+  }
+  
+  cmd = RedisModule_StringPtrLen(argv[curArg++], NULL);
   if (strcasecmp(cmd, "LIMITED") == 0) {
     withProfile = PROFILE_LIMITED;
-    cmd = RedisModule_StringPtrLen(argv[++curArg], NULL);
+    cmd = RedisModule_StringPtrLen(argv[curArg++], NULL);
   }
 
-  if (strcasecmp(cmd, "SEARCH") == 0) {
-    return execCommandCommon(ctx, argv + curArg, argc - curArg, COMMAND_SEARCH, withProfile);
-  } else if (strcasecmp(cmd, "AGGREGATE") == 0) {
-    return execCommandCommon(ctx, argv + curArg, argc - curArg, COMMAND_AGGREGATE, withProfile);
+  if (strcasecmp(cmd, "QUERY") != 0) {
+    RedisModule_ReplyWithError(ctx, "The QUERY keyward is expected");
+    return REDISMODULE_OK;
   }
 
-  RedisModule_ReplyWithError(ctx, "Bad command type");
+  int newArgc = argc - curArg + PROFILE_1ST_PARAM; 
+  RedisModuleString **newArgv = _profileArgsDup(argv, argc, curArg - PROFILE_1ST_PARAM);
+  execCommandCommon(ctx, newArgv, newArgc, cmdType, withProfile);
+  rm_free(newArgv);
   return REDISMODULE_OK;
 }
 

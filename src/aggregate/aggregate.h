@@ -49,6 +49,8 @@ typedef enum {
 
 } QEFlags;
 
+#define IsCount(r) ((r)->reqflags & QEXEC_F_NOROWS)
+#define IsSearch(r) ((r)->reqflags & QEXEC_F_IS_SEARCH)
 #define IsProfile(r) ((r)->reqflags & QEXEC_F_PROFILE)
 
 typedef enum {
@@ -103,9 +105,10 @@ typedef struct {
   unsigned cursorChunkSize;
 
   /** Profile variables */
-  clock_t initClock; // Time of start. Reset for each cursor call
-  clock_t totalTime; // Total time. Used to accimulate cursors times
-  clock_t parseTime; // Time for parsing the query
+  clock_t initClock;          // Time of start. Reset for each cursor call
+  clock_t totalTime;          // Total time. Used to accimulate cursors times
+  clock_t parseTime;          // Time for parsing the query
+  clock_t pipelineBuildTime;  // Time for creating the pipeline
 } AREQ;
 
 /**
