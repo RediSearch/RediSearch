@@ -97,12 +97,12 @@ def testProfileSearch(env):
                     ['Type', 'INTERSECT', 'Counter', 1L, 'Children iterators',
                       ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1L, 'Size', 1L],
                       ['Type', 'INTERSECT', 'Counter', 1L, 'Children iterators',
-                        ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1L, 'Size', 1L]
+                        ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1L, 'Size', 1L],
                         ['Type', 'INTERSECT', 'Counter', 1L, 'Children iterators',
                           ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1L, 'Size', 1L],
                           ['Type', 'INTERSECT', 'Counter', 1L, 'Children iterators',
                             ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1L, 'Size', 1L],
-                            ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1L, 'Size', 1L]]]]]]] 
+                            ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1L, 'Size', 1L]]]]]]]
   env.assertEqual(actual_res[1][3], expected_res)
 
 def testProfileSearchLimited(env):
