@@ -119,6 +119,7 @@ def testAllConfig(env):
 def testInitConfig(env):
     # Numeric arguments
     env.skipOnCluster()
+
     def test_arg_num(arg_name, arg_value):
         env = Env(moduleArgs=arg_name + ' ' + '%d' % arg_value)
         if env.env == 'existing-env':
@@ -153,14 +154,14 @@ def testInitConfig(env):
         env.stop()
 
     test_arg_true('NOGC')
-    test_arg_true('SAFEMODE')
+    # test_arg_true('SAFEMODE')
     test_arg_true('CONCURRENT_WRITE_MODE')
     test_arg_true('NO_MEM_POOLS')
-    
+
     # String arguments
     def test_arg_str(arg_name, arg_value, ret_value=None):
         if ret_value == None:
-            ret_value = arg_value 
+            ret_value = arg_value
         env = Env(moduleArgs=arg_name + ' ' + arg_value)
         if env.env == 'existing-env':
             env.skip()
