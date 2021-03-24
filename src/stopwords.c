@@ -27,7 +27,7 @@ StopWordList *DefaultStopWordList() {
 int StopWordList_Contains(const StopWordList *sl, const char *term, size_t len) {
   char *lowStr;
   char stackStr[32];
-  if (!sl || !term) {
+  if (sl == __empty_stopwords || !sl || !term) {
     return 0;
   }
 
