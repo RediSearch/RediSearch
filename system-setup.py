@@ -43,7 +43,6 @@ class RediSearchSetup(paella.Setup):
         self.run("%s/bin/getgcc" % READIES)
 
     def macos(self):
-        self.run("pip3 install semantic_version")
         self.install_gnu_utils()
         self.install("pkg-config")
 

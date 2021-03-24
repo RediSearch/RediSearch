@@ -36,7 +36,7 @@ static inline const char *GCPolicy_ToString(GCPolicy policy) {
 typedef struct {
   // Version of Redis server
   int serverVersion;
-  // Use concurrent serach (default: 1, disable with SAFEMODE)
+  // Use concurrent search (default: 1, disable with SAFEMODE)
   int concurrentMode;
   // If not null, this points at a .so file of an extension we try to load (default: NULL)
   const char *extLoad;
