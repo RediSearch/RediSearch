@@ -232,7 +232,10 @@ def testResultProcessorCounter(env):
 
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', 'foo|bar', 'limit', '0', '0')
   env.assertEqual(actual_res[0], [2L])
-  env.assertEqual(actual_res[1][4][2], ['Type', 'Counter', 'Counter', 1L])
+  res =  ['Result processors profile',
+            ['Type', 'Index', 'Counter', 2L],
+            ['Type', 'Counter', 'Counter', 1L]]
+  env.assertEqual(actual_res[1][4], res)
 
 def testProfileMaxPrefixExpansion(env):
   env.skipOnCluster()
