@@ -9,6 +9,7 @@
 #define FIELD_NAME_1 "text1"
 #define FIELD_NAME_2 "text2"
 #define NUMERIC_FIELD_NAME "num"
+#define GEO_FIELD_NAME "geo"
 #define TAG_FIELD_NAME1 "tag1"
 #define TAG_FIELD_NAME2 "tag2"
 
@@ -123,7 +124,7 @@ TEST_F(LLApiTest, testAddDocumentNumericField) {
   // creating the index
   RSIndex* index = RediSearch_CreateIndex("index", NULL);
 
-  // adding text field to the index
+  // adding numeric field to the index
   RediSearch_CreateNumericField(index, NUMERIC_FIELD_NAME);
 
   // adding document to the index
@@ -154,6 +155,50 @@ TEST_F(LLApiTest, testAddDocumentNumericField) {
   ASSERT_STREQ(id, NULL);
 
   RediSearch_ResultsIteratorFree(iter);
+  RediSearch_DropIndex(index);
+}
+
+TEST_F(LLApiTest, testAddDocumentGeoField) {
+  // creating the index
+  RSIndex* index = RediSearch_CreateIndex("index", NULL);
+
+  // adding geo point field to the index
+  RediSearch_CreateGeoField(index, GEO_FIELD_NAME);
+
+  // adding document to the index
+  RSDoc* d = RediSearch_CreateDocument(DOCID1, strlen(DOCID1), 1.0, NULL);
+  // check error on lat > GEO_LAT_MAX
+  int res = RediSearch_DocumentAddFieldGeo(d, GEO_FIELD_NAME, 100, 0, RSFLDTYPE_DEFAULT);
+  ASSERT_EQ(res, REDISMODULE_ERR);
+  // check error on lon > GEO_LON_MAX
+  res = RediSearch_DocumentAddFieldGeo(d, GEO_FIELD_NAME, 0, 200, RSFLDTYPE_DEFAULT);
+  ASSERT_EQ(res, REDISMODULE_ERR);
+  // valid geo point
+  res = RediSearch_DocumentAddFieldGeo(d, GEO_FIELD_NAME, 20.654321, 0.123456, RSFLDTYPE_DEFAULT);
+  ASSERT_EQ(res, REDISMODULE_OK);
+  RediSearch_SpecAddDocument(index, d);
+
+  // searching on the index
+  RSQNode* qn = RediSearch_CreateGeoNode(index, GEO_FIELD_NAME, 20.6543222, 0.123455, 10, RS_GEO_DISTANCE_M);
+  RSResultsIterator* iter = RediSearch_GetResultsIterator(qn, index);
+  ASSERT_TRUE(iter != NULL);
+
+  size_t len;
+  const char* id = (const char*)RediSearch_ResultsIteratorNext(iter, index, &len);
+  ASSERT_STREQ(id, DOCID1);
+  id = (const char*)RediSearch_ResultsIteratorNext(iter, index, &len);
+  ASSERT_STREQ(id, NULL);
+  RediSearch_ResultsIteratorFree(iter);
+
+  // searching on the index and getting NULL result
+  qn = RediSearch_CreateGeoNode(index, GEO_FIELD_NAME, 20.6543000, 0.123000, 10, RS_GEO_DISTANCE_M);
+  iter = RediSearch_GetResultsIterator(qn, index);
+  ASSERT_TRUE(iter != NULL);
+
+  id = (const char*)RediSearch_ResultsIteratorNext(iter, index, &len);
+  ASSERT_STREQ(id, NULL);
+  RediSearch_ResultsIteratorFree(iter);
+
   RediSearch_DropIndex(index);
 }
 
@@ -746,5 +791,32 @@ TEST_F(LLApiTest, duplicateFieldAdd) {
   ASSERT_FALSE(RediSearch_DocumentExists(index, "doc1", strlen("doc1")));
 
   RediSearch_FreeDocument(d);
+  RediSearch_DropIndex(index);
+}
+
+TEST_F(LLApiTest, testScorer) {
+  RSIndex* index = RediSearch_CreateIndex("index", NULL);
+
+  // adding text field to the index
+  RediSearch_CreateField(index, FIELD_NAME_1, RSFLDTYPE_FULLTEXT, RSFLDOPT_NONE);
+
+  // adding documents to the index
+  Document* d1 = RediSearch_CreateDocumentSimple("doc1");
+  Document* d2 = RediSearch_CreateDocumentSimple("doc2");
+
+  // adding document with a different TFIDF score
+  RediSearch_DocumentAddFieldCString(d1, FIELD_NAME_1, "hello world hello world", RSFLDTYPE_DEFAULT);
+  ASSERT_EQ(RediSearch_SpecAddDocument(index, d1), REDISMODULE_OK);
+  RediSearch_DocumentAddFieldCString(d2, FIELD_NAME_1, "hello world hello", RSFLDTYPE_DEFAULT);
+  ASSERT_EQ(RediSearch_SpecAddDocument(index, d2), REDISMODULE_OK);
+
+  const char *s = "hello world";
+  RSResultsIterator *it = RediSearch_IterateQuery(index, s, strlen(s), NULL);
+  RediSearch_ResultsIteratorNext(it, index, NULL);
+  ASSERT_EQ(RediSearch_ResultsIteratorGetScore(it), 2);
+  RediSearch_ResultsIteratorNext(it, index, NULL);
+  ASSERT_EQ(RediSearch_ResultsIteratorGetScore(it), 1.5);
+
+  RediSearch_ResultsIteratorFree(it);
   RediSearch_DropIndex(index);
 }

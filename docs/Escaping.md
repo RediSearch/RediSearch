@@ -6,7 +6,7 @@ Note: There is a different mechanism for tokenizing text and tag fields, this do
 
 ## The rules of text field tokenization
 
-1. All punctuation marks and whitespaces (besides underscores) separate the document and queries into tokens. e.g. any character of `,.<>{}[]"':;!@#$%^&*()-+=~` will break the text into terms.  So the text `foo-bar.baz...bag` will be tokenized into `[foo, bar, baz, bag]`
+1. All punctuation marks and whitespace (besides underscores) separate the document and queries into tokens. e.g. any character of `,.<>{}[]"':;!@#$%^&*()-+=~` will break the text into terms.  So the text `foo-bar.baz...bag` will be tokenized into `[foo, bar, baz, bag]`
 
 2. Escaping separators in both queries and documents is done by prepending a backslash to any separator. e.g. the text `hello\-world hello-world` will be tokenized as `[hello-world, hello, world]`. **NOTE** that in most languages you will need an extra backslash when formatting the document or query, to signify an actual backslash, so the actual text in redis-cli for example, will be entered as `hello\\-world`. 
 

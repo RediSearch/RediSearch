@@ -2,6 +2,7 @@
 #include "stopwords.h"
 #include "dep/triemap/triemap.h"
 #include "rmalloc.h"
+#include "util/strconv.h"
 #include <ctype.h>
 
 #define MAX_STOPWORDLIST_SIZE 1024
@@ -24,11 +25,28 @@ StopWordList *DefaultStopWordList() {
 
 /* Check if a stopword list contains a term. The term must be already lowercased */
 int StopWordList_Contains(const StopWordList *sl, const char *term, size_t len) {
-  if (!sl || !term) {
+  char *lowStr;
+  char stackStr[32];
+  if (sl == __empty_stopwords || !sl || !term) {
     return 0;
   }
 
-  return TrieMap_Find(sl->m, (char *)term, len) != TRIEMAP_NOTFOUND;
+  // do not use heap allocation for short strings
+  if (len < 32) {
+    memcpy(stackStr, term, len);
+    stackStr[len] = '\0';
+    lowStr = stackStr;
+  } else {
+    lowStr = rm_strndup(term, len);
+  }
+
+  strtolower(lowStr);
+  int ret = TrieMap_Find(sl->m, (char *)lowStr, len) != TRIEMAP_NOTFOUND;
+
+  // free memory if allocated 
+  if (len >= 32) rm_free(lowStr);
+
+  return ret;
 }
 
 /* Create a new stopword list from a list of redis strings */

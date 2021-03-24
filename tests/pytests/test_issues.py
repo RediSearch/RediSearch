@@ -110,3 +110,20 @@ def test_MOD_865(env):
     args_list.extend(['txt', 'TEXT'])
   env.expect(*args_list).error().contains('Duplicate field in schema - txt')
   env.expect('FT.DROPINDEX', 'idx')
+
+def test_issue1826(env):
+  # Stopword query is case sensitive.
+  conn = getConnectionByEnv(env)
+  conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+  conn.execute_command('HSET', 'doc', 't', 'boy with glasses')
+
+  env.expect('FT.SEARCH', 'idx', 'boy with glasses').equal([1L, 'doc', ['t', 'boy with glasses']])
+  env.expect('FT.SEARCH', 'idx', 'boy With glasses').equal([1L, 'doc', ['t', 'boy with glasses']])
+
+def test_issue1834(env):
+  # Stopword query is case sensitive.
+  conn = getConnectionByEnv(env)
+  conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+  conn.execute_command('HSET', 'doc', 't', 'hell hello')
+
+  env.expect('FT.SEARCH', 'idx', 'hell|hello', 'HIGHLIGHT').equal([1L, 'doc', ['t', '<b>hell</b> <b>hello</b>']])

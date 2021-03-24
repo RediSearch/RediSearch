@@ -193,8 +193,8 @@ RLookupKey *RLookup_GetKey(RLookup *lookup, const char *name, int flags);
 /**
  * Get the amount of visible fields is the RLookup
  */
-size_t RLookup_GetLength(const RLookup *lookup, const RLookupRow *r, int requiredFlags,
-                         int excludeFlags);
+size_t RLookup_GetLength(const RLookup *lookup, const RLookupRow *r, int *skipFieldIndex,
+                         int requiredFlags, int excludeFlags, SchemaRule *rule);
 
 /**
  * Get a value from the lookup.
