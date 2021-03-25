@@ -25,7 +25,7 @@ FT.CREATE ... SCHEMA ... {field_name} TAG [SEPARATOR {sep}]
 SEPARATOR defaults to a comma (`,`), and can be any printable ASCII character. For example:
 
 ```
-FT.CREATE idx ON HASH test: SCHEMA tags TAG SEPARATOR ";"
+FT.CREATE idx ON HASH PREFIX 1 test: SCHEMA tags TAG SEPARATOR ";"
 ```
 
 ## Querying tag fields
