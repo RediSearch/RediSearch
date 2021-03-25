@@ -3243,3 +3243,7 @@ def testSchemaWithAs(env):
   env.expect('ft.search conflict2 @foo2:hello').equal([1L, 'a', ['txt', 'hello']])
   env.expect('ft.search conflict2 @foo1:world').equal([0L])
   env.expect('ft.search conflict2 @foo2:world').equal([0L])
+
+  # RETURN
+  env.expect('ft.search idx hello RETURN 1 txt').equal([1L, 'a', []])
+  env.expect('ft.search idx hello RETURN 1 foo').equal([1L, 'a', ['foo', 'hello']])
