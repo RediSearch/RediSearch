@@ -23,6 +23,7 @@ static DocumentField *addFieldCommon(Document *d, const char *fieldname, uint32_
   } else {
     f->name = fieldname;
   }
+  f->path = NULL;
   return f;
 }
 
@@ -142,6 +143,7 @@ done:
   return rv;
 }
 
+/* used only by unit tests */
 int Document_LoadAllFields(Document *doc, RedisModuleCtx *ctx) {
   int rc = REDISMODULE_ERR;
   RedisModuleCallReply *rep = NULL;
@@ -255,11 +257,15 @@ void Document_LoadPairwiseArgs(Document *d, RedisModuleString **args, size_t nar
 void Document_Clear(Document *d) {
   if (d->flags & (DOCUMENT_F_OWNSTRINGS | DOCUMENT_F_OWNREFS)) {
     for (size_t ii = 0; ii < d->numFields; ++ii) {
+      DocumentField *field = &d->fields[ii];
       if (d->flags & DOCUMENT_F_OWNSTRINGS) {
-        rm_free((void *)d->fields[ii].name);
+        rm_free((void *)field->name);
+        if (field->path && (field->path != field->name)) {
+          rm_free((void *)field->path);
+        }
       }
-      if (d->fields[ii].text) {
-        RedisModule_FreeString(RSDummyContext, d->fields[ii].text);
+      if (field->text) {
+        RedisModule_FreeString(RSDummyContext, field->text);
       }
     }
   }

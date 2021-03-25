@@ -314,7 +314,6 @@ void AddDocumentCtx_Submit(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, uint32_
   size_t totalSize = 0;
   for (size_t ii = 0; ii < aCtx->doc->numFields; ++ii) {
     const DocumentField *ff = aCtx->doc->fields + ii;
-    // TOremove:always exist
     if (ff->indexAs & (INDEXFLD_T_FULLTEXT | INDEXFLD_T_TAG)) {
       size_t n;
       RedisModule_StringPtrLen(aCtx->doc->fields[ii].text, &n);

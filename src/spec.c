@@ -802,7 +802,10 @@ void IndexSpec_FreeInternals(IndexSpec *spec) {
   }
   if (spec->fields != NULL) {
     for (size_t i = 0; i < spec->numFields; i++) {
-      rm_free(spec->fields[i].name);
+      if (spec->fields[i].name != spec->fields[i].path) {
+        rm_free(spec->fields[i].name);
+      }
+      rm_free(spec->fields[i].path);
     }
     rm_free(spec->fields);
   }
@@ -1123,8 +1126,13 @@ int bit(t_fieldMask id) {
 
 // Backwards compat version of load for rdbs with version < 8
 static void FieldSpec_RdbLoadCompat8(RedisModuleIO *rdb, FieldSpec *f, int encver) {
-
-  RedisModule_LoadStringBufferAlloc(rdb, f->name, NULL);
+  RedisModule_SaveStringBuffer(rdb, f->name, strlen(f->name) + 1);
+  if (f->path != f->name) {
+    RedisModule_SaveUnsigned(rdb, 1);
+    RedisModule_SaveStringBuffer(rdb, f->path, strlen(f->path) + 1);  
+  } else {
+    RedisModule_SaveUnsigned(rdb, 0);
+  }
 
   // the old versions encoded the bit id of the field directly
   // we convert that to a power of 2
