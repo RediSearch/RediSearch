@@ -94,7 +94,7 @@ For example, given the following index:
 FT.CREATE punctuation ON HASH PREFIX 1 test: SCHEMA tags TAG
 ```
 
-, you can add tags that contain punctuation like this:
+You can add tags that contain punctuation like this:
 
 ```
 HSET test:1 tags "Andrew's Top 5,Justin's Top 5"
