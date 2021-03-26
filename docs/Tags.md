@@ -116,7 +116,7 @@ FT.SEARCH punctuation "@tags:{ Andrew\\'s Top 5 }"
 
 As the examples in this document show, a single tag can include multiple words. We recommend that you escape spaces when querying, though doing so is not required.
 
-You escape tags the same way that you escape punctuation -- by preceding the space with a backslash character (or two backslashes, depending on the programming language and environment).
+You escape spaces the same way that you escape punctuation -- by preceding the space with a backslash character (or two backslashes, depending on the programming language and environment).
 
 Thus, you would escape the tag "to be or not to be" like so when querying in the redis-cli:
 
@@ -124,7 +124,7 @@ Thus, you would escape the tag "to be or not to be" like so when querying in the
 FT.SEARCH idx "@tags:{ to\\ be\\ or\\ not\\ to\\ be }"
 ```
 
-You should escape spaces because if a tag includes multiple words and some of them are _stop-words_ like "to" or "be," a query that includes these words without escaping spaces will create a syntax error.
+You should escape spaces because if a tag includes multiple words and some of them are _stop words_ like "to" or "be," a query that includes these words without escaping spaces will create a syntax error.
 
 You can see what that looks like in the following example:
 
