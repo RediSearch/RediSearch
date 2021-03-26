@@ -43,7 +43,7 @@ ARG TEST=0
 RUN if [ "$TEST" = "1" ]; then TEST= make test; fi
 
 #----------------------------------------------------------------------------------------------
-FROM redisfab/rejson:feature-search-json-${VERSION}-${ARCH}-${OSNICK}
+FROM redisfab/rejson:feature-search-json-${ARCH}-${OSNICK} AS json
 FROM redisfab/redis:${REDIS_VER}-${ARCH}-${OSNICK}
 
 ARG OSNICK
@@ -57,6 +57,7 @@ WORKDIR /data
 ENV LIBDIR /usr/lib/redis/modules/
 RUN mkdir -p "$LIBDIR";
 
-COPY --from=builder /build/build/redisearch.so*  "$LIBDIR"
+COPY --from=builder /build/build/redisearch.so*       "$LIBDIR"
+COPY --from=json    /usr/lib/redis/modules/rejson.so* "$LIBDIR"
 
 CMD ["redis-server", "--loadmodule", "/usr/lib/redis/modules/redisearch.so", "--loadmodule", "/usr/lib/redis/modules/rejson.so"]
