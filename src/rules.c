@@ -10,6 +10,8 @@ const char *SchemaRuleType_ToString(SchemaRuleType type) {
   switch (type) {
     case SchemaRuleType_Hash:
       return "HASH";
+    case SchemaRuleType_Json:
+      return "JSON";
     case SchameRuleType_Any:
     default:
       RS_LOG_ASSERT(true, "SchameRuleType_Any is not supported");
@@ -20,6 +22,9 @@ const char *SchemaRuleType_ToString(SchemaRuleType type) {
 int SchemaRuleType_Parse(const char *type_str, SchemaRuleType *type, QueryError *status) {
   if (!type_str || !strcasecmp(type_str, RULE_TYPE_HASH)) {
     *type = SchemaRuleType_Hash;
+    return REDISMODULE_OK;
+  } else if (!strcasecmp(type_str, RULE_TYPE_JSON)) {
+    *type = SchemaRuleType_Json;
     return REDISMODULE_OK;
   }
   QueryError_SetError(status, QUERY_EADDARGS, "Invalid rule type");

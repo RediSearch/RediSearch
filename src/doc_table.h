@@ -101,8 +101,8 @@ RSDocumentMetadata *DocTable_GetByKeyR(const DocTable *r, RedisModuleString *s);
  *
  * NOTE: Currently there is no deduplication on the table so we do not prevent dual insertion of the
  * same key. This may result in document duplication in results  */
-t_docId DocTable_Put(DocTable *t, const char *s, size_t n, double score, u_char flags,
-                     const char *payload, size_t payloadSize);
+t_docId DocTable_Put(DocTable *t, const char *s, size_t n, double score, int flags,
+                     const char *payload, size_t payloadSize, DocumentType type);
 
 /* Get the "real" external key for an incremental i
  * If the document ID is not in the table, the returned key's `str` member will
