@@ -3,10 +3,10 @@
 ARG REDIS_VER=6.2.1
 
 # OSNICK=bionic|stretch|buster
-ARG OSNICK=buster
+ARG OSNICK=bionic
 
 # OS=debian:buster-slim|debian:stretch-slim|ubuntu:bionic
-ARG OS=debian:buster-slim
+ARG OS=ubuntu:bionic
 
 # ARCH=x64|arm64v8|arm32v7
 ARG ARCH=x64
