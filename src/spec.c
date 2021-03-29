@@ -441,7 +441,6 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
       fieldPath = NULL;
     }
 
-
     if (IndexSpec_GetField(sp, fieldName, namelen)) {
       QueryError_SetErrorFmt(status, QUERY_EINVAL, "Duplicate field in schema - %s", fieldName);
       goto reset;
@@ -803,7 +802,10 @@ void IndexSpec_FreeInternals(IndexSpec *spec) {
   }
   if (spec->fields != NULL) {
     for (size_t i = 0; i < spec->numFields; i++) {
-      rm_free(spec->fields[i].name);
+      if (spec->fields[i].name != spec->fields[i].path) {
+        rm_free(spec->fields[i].name);
+      }
+      rm_free(spec->fields[i].path);
     }
     rm_free(spec->fields);
   }
@@ -1124,7 +1126,6 @@ int bit(t_fieldMask id) {
 
 // Backwards compat version of load for rdbs with version < 8
 static void FieldSpec_RdbLoadCompat8(RedisModuleIO *rdb, FieldSpec *f, int encver) {
-
   RedisModule_LoadStringBufferAlloc(rdb, f->name, NULL);
 
   // the old versions encoded the bit id of the field directly

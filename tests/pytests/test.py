@@ -3208,7 +3208,7 @@ def testNotOnly(env):
 
 def testServerVer(env):
     env.assertTrue(check_server_version(env, "0.0.0"))
-    env.assertTrue(not check_server_version(env, "100.0.0"))
+    env.assertTrue(not check_server_version(env, "500.0.0"))
 
     env.assertTrue(check_module_version(env, "20005"))
     env.assertTrue(not check_module_version(env, "10000000"))

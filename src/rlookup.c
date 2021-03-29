@@ -320,15 +320,21 @@ static int getKeyCommon(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOption
   }
 
   // Get the actual hash value
-  int rc = REDISMODULE_ERR;;
+  int rc = REDISMODULE_ERR;
   RedisModuleString *val = NULL;
   RSValue *rsv = NULL;
 
-  if (options->dmd->type == DocumentType_Hash) {
+  // field name should be translated to a path
+  // TODO: consider better solution for faster
+  const FieldSpec *fs = IndexSpec_GetField(options->sctx->spec, kk->name, strlen(kk->name));
+  if (!fs) { // No matching field
+    if (strncmp(kk->name, UNDERSCORE_KEY, strlen(UNDERSCORE_KEY))) {
+      return REDISMODULE_OK;
+    }
+  } else if (options->dmd->type == DocumentType_Hash) {
     rc = RedisModule_HashGet(*keyobj, REDISMODULE_HASH_CFIELDS, kk->name, &val, NULL);
   } else if (options->dmd->type == DocumentType_Json) {
     // TODO: split implementation as this is wasteful
-
     rc = JSON_GetStringR_POC(options->sctx->redisCtx, options->dmd->keyPtr, kk->name, &val);
   }
 
