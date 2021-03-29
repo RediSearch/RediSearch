@@ -4,7 +4,7 @@
 #include "module.h"
 #include "rmutil/rm_assert.h"
 
-void Document_Init(Document *doc, RedisModuleString *docKey, double score, RSLanguage lang) {
+void Document_Init(Document *doc, RedisModuleString *docKey, double score, RSLanguage lang, DocumentType type) {
   doc->docKey = docKey;
   doc->score = (float)score;
   doc->numFields = 0;
@@ -12,6 +12,7 @@ void Document_Init(Document *doc, RedisModuleString *docKey, double score, RSLan
   doc->language = lang ? lang : DEFAULT_LANGUAGE;
   doc->payload = NULL;
   doc->payloadSize = 0;
+  doc->type = type;
 }
 
 static DocumentField *addFieldCommon(Document *d, const char *fieldname, uint32_t typemask) {
@@ -88,7 +89,7 @@ void Document_MakeRefOwner(Document *doc) {
   doc->flags |= DOCUMENT_F_OWNREFS;
 }
 
-int Document_LoadSchemaFields(Document *doc, RedisSearchCtx *sctx) {
+int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx) {
   RedisModuleKey *k = RedisModule_OpenKey(sctx->redisCtx, doc->docKey, REDISMODULE_READ);
   int rv = REDISMODULE_ERR;
   if (!k || RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_HASH) {
@@ -96,15 +97,11 @@ int Document_LoadSchemaFields(Document *doc, RedisSearchCtx *sctx) {
   }
 
   size_t nitems = sctx->spec->numFields;
-  if (nitems == 0) {
-    goto done;
-  }
-
   IndexSpec *spec = sctx->spec;
   SchemaRule *rule = spec->rule;
   assert(rule);
   RedisModuleString *payload_rms = NULL;
-  Document_MakeStringsOwner(doc);
+  Document_MakeStringsOwner(doc); // TODO: necessary?
   const char *keyname = (const char *)RedisModule_StringPtrLen(doc->docKey, NULL);
   doc->language = SchemaRule_HashLang(sctx->redisCtx, rule, k, keyname);
   doc->score = SchemaRule_HashScore(sctx->redisCtx, rule, k, keyname);
@@ -118,15 +115,17 @@ int Document_LoadSchemaFields(Document *doc, RedisSearchCtx *sctx) {
 
   doc->fields = rm_calloc(nitems, sizeof(*doc->fields));
   for (size_t ii = 0; ii < spec->numFields; ++ii) {
-    const char *fname = spec->fields[ii].name;
+    FieldSpec *field = &spec->fields[ii];
+    const char *fpath = field->path;
     RedisModuleString *v = NULL;
-    RedisModule_HashGet(k, REDISMODULE_HASH_CFIELDS, fname, &v, NULL);
+    RedisModule_HashGet(k, REDISMODULE_HASH_CFIELDS, fpath, &v, NULL);
     if (v == NULL) {
       continue;
     }
     size_t oix = doc->numFields++;
-    doc->fields[oix].name = rm_strdup(fname);
-
+    doc->fields[oix].path = rm_strdup(fpath);
+    doc->fields[oix].name = (field->name == field->path) ? doc->fields[oix].path
+                                                         : rm_strdup(field->name);
     // on crdt the return value might be the underline value, we must copy it!!!
     doc->fields[oix].text = RedisModule_CreateStringFromString(sctx->redisCtx, v);
     RedisModule_FreeString(sctx->redisCtx, v);
