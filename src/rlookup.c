@@ -3,6 +3,7 @@
 #include "document.h"
 #include "rmutil/rm_assert.h"
 #include <util/arr.h>
+#include "doc_types.h"
 
 static RLookupKey *createNewKey(RLookup *lookup, const char *name, size_t n, int flags,
                                 uint16_t idx) {
@@ -319,9 +320,18 @@ static int getKeyCommon(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOption
   }
 
   // Get the actual hash value
+  int rc = REDISMODULE_ERR;;
   RedisModuleString *val = NULL;
   RSValue *rsv = NULL;
-  int rc = RedisModule_HashGet(*keyobj, REDISMODULE_HASH_CFIELDS, kk->name, &val, NULL);
+
+  if (options->dmd->type == DocumentType_Hash) {
+    rc = RedisModule_HashGet(*keyobj, REDISMODULE_HASH_CFIELDS, kk->name, &val, NULL);
+  } else if (options->dmd->type == DocumentType_Json) {
+    // TODO: split implementation as this is wasteful
+
+    rc = JSON_GetStringR_POC(options->sctx->redisCtx, options->dmd->keyPtr, kk->name, &val);
+  }
+
   if (rc == REDISMODULE_OK && val != NULL) {
     rsv = hvalToValue(val, kk->fieldtype);
     RedisModule_FreeString(RSDummyContext, val);
@@ -480,8 +490,7 @@ static int RLookup_HGETALL(RLookup *it, RLookupRow *dst, RLookupLoadOptions *opt
       RSValue *vptr = replyElemToValue(repv, ctype);
       RLookup_WriteOwnKey(rlk, dst, vptr);
     }
-  }
-  else {
+  } else {
     RedisModuleKey *key = RedisModule_OpenKey(ctx, krstr, REDISMODULE_READ);
     if (!key || RedisModule_KeyType(key) != REDISMODULE_KEYTYPE_HASH) {
       // key does not exist or is not a hash
@@ -511,12 +520,19 @@ done:
 }
 
 int RLookup_LoadDocument(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options) {
+  int rv = REDISMODULE_ERR;
   if (options->dmd) {
     dst->sv = options->dmd->sortVector;
   }
   if (options->mode & RLOOKUP_LOAD_ALLKEYS) {
-    return RLookup_HGETALL(it, dst, options);
+    if (options->dmd->type == DocumentType_Hash) {
+      rv = RLookup_HGETALL(it, dst, options);
+    } else if (options->dmd->type == DocumentType_Json) {
+      // TODO: this is awful!!
+      rv = REDISMODULE_OK;
+    }
   } else {
-    return loadIndividualKeys(it, dst, options);
+    rv = loadIndividualKeys(it, dst, options);
   }
+  return rv;
 }

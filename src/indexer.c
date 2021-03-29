@@ -258,7 +258,7 @@ static int makeDocumentId(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, int repl
   const char *s = RedisModule_StringPtrLen(doc->docKey, &n);
 
   doc->docId =
-      DocTable_Put(table, s, n, doc->score, aCtx->docFlags, doc->payload, doc->payloadSize);
+      DocTable_Put(table, s, n, doc->score, aCtx->docFlags, doc->payload, doc->payloadSize, doc->type);
   if (doc->docId == 0) {
     QueryError_SetError(status, QUERY_EDOCEXISTS, NULL);
     return -1;
@@ -320,7 +320,7 @@ static void indexBulkFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
     for (size_t ii = 0; ii < doc->numFields; ++ii) {
       const FieldSpec *fs = cur->fspecs + ii;
       FieldIndexerData *fdata = cur->fdatas + ii;
-      if (fs->name == NULL || fs->types == INDEXFLD_T_FULLTEXT || !FieldSpec_IsIndexable(fs)) {
+      if (fs->types == INDEXFLD_T_FULLTEXT || !FieldSpec_IsIndexable(fs)) {
         continue;
       }
       IndexBulkData *bulk = &bData[fs->index];

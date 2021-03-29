@@ -3212,3 +3212,34 @@ def testServerVer(env):
 
     env.assertTrue(check_module_version(env, "20005"))
     env.assertTrue(not check_module_version(env, "10000000"))
+
+def testSchemaWithAs(env):
+  conn = getConnectionByEnv(env)
+  # sanity
+  conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'txt', 'AS', 'foo', 'TEXT')
+  conn.execute_command('HSET', 'a', 'txt', 'hello')
+  conn.execute_command('HSET', 'b', 'foo', 'world')
+  env.expect('ft.search idx @txt:hello').equal([0L])
+  env.expect('ft.search idx @txt:world').equal([0L])
+  env.expect('ft.search idx @foo:hello').equal([1L, 'a', ['txt', 'hello']])
+  env.expect('ft.search idx @foo:world').equal([0L])
+
+  # FT.ALTER
+  conn.execute_command('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'foo', 'AS', 'bar', 'TEXT')
+  waitForIndex(env, 'idx')
+  env.expect('ft.search idx @bar:hello').equal([0L])
+  env.expect('ft.search idx @bar:world').equal([1L, 'b', ['foo', 'world']])
+  env.expect('ft.search idx @foo:world').equal([0L])
+
+  # Error if field name is duplicated
+  res = env.expect('FT.CREATE', 'conflict1', 'SCHEMA', 'txt1', 'AS', 'foo', 'TEXT', 'txt2', 'AS', 'foo', 'TEXT') \
+                                                            .error().contains('Duplicate field in schema - foo')
+
+  # Success if field path is duplicated
+  res = env.expect('FT.CREATE', 'conflict2', 'SCHEMA', 'txt', 'AS', 'foo1', 'TEXT',
+                                                       'txt', 'AS', 'foo2', 'TEXT').ok()
+  waitForIndex(env, 'conflict2')
+  env.expect('ft.search conflict2 @foo1:hello').equal([1L, 'a', ['txt', 'hello']])
+  env.expect('ft.search conflict2 @foo2:hello').equal([1L, 'a', ['txt', 'hello']])
+  env.expect('ft.search conflict2 @foo1:world').equal([0L])
+  env.expect('ft.search conflict2 @foo2:world').equal([0L])
