@@ -50,6 +50,8 @@ typedef enum {
 
 } QEFlags;
 
+#define IsCount(r) ((r)->reqflags & QEXEC_F_NOROWS)
+#define IsSearch(r) ((r)->reqflags & QEXEC_F_IS_SEARCH)
 #define IsProfile(r) ((r)->reqflags & QEXEC_F_PROFILE)
 #define IsLazyLoad(r) (!((r)->reqflags & QEXEC_F_IS_EXTENDED) &&      \
                        !((r)->reqflags & QEXEC_F_SEND_EXPLICIT) &&    \
