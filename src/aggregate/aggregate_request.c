@@ -89,6 +89,14 @@ static void FieldList_RestrictReturn(FieldList *fields) {
 }
 
 static int parseCursorSettings(AREQ *req, ArgsCursor *ac, QueryError *status) {
+#ifndef CLUSTERDOWN_ERR
+  // Cursor is not supported with FT.PROFILE but we use internally with the coordinator.
+  if (IsProfile(req)) {
+    QueryError_SetError(status, QUERY_EPARSEARGS, "WITHCURSOR is not support by FT.PROFILE command");
+    return REDISMODULE_ERR;
+  }
+#endif
+
   ACArgSpec specs[] = {{.name = "MAXIDLE",
                         .type = AC_ARGTYPE_UINT,
                         .target = &req->cursorMaxIdle,
