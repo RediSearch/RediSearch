@@ -149,6 +149,8 @@ def testProfileAggregate(env):
                 'apply', 'startswith(@t, "hel")', 'as', 'prefix')
   env.assertEqual(actual_res[1][4], expected_res)
 
+#support for cursor is removed
+'''
 def testProfileCursor(env):
   env.skipOnCluster()
   conn = getConnectionByEnv(env)
@@ -188,6 +190,7 @@ def testProfileCursor(env):
   # test final result with profile
   actual_res = conn.execute_command('ft.cursor', 'read', 'idx', actual_res[1])
   env.assertEqual(actual_res[2], expected_res)
+'''
 
 def testProfileNumeric(env):
   env.skipOnCluster()
