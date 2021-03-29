@@ -1,41 +1,42 @@
+
 #include "json.h"
 #include "rmutil/rm_assert.h"
 
 // REJSON APIs
-RedisJSONAPI_V1 *japi;
+RedisJSONAPI_V1 *japi = NULL;
 
-/************************************************************************************************/
+///////////////////////////////////////////////////////////////////////////////////////////////
 
-void ModuleChangeHandler(struct RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub, void *data) {
-
+void ModuleChangeHandler(struct RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub, 
+                         RedisModuleModuleChange *ei) {
   REDISMODULE_NOT_USED(e);
-  RedisModuleModuleChange *ei = data;
-  if (sub == REDISMODULE_SUBEVENT_MODULE_LOADED) {    
-    // If RedisJSON module is loaded after RediSearch
-    // Need to get the API exported by RedisJSON
-    if (strcmp(ei->module_name, "ReJSON") == 0) {
-        printf("detected %p loading %s\n", ctx, ei->module_name);
-        if (!japi && GetJSONAPIs(ctx, 0)) {
-            //TODO: Once registered we can unsubscribe from ServerEvent RedisModuleEvent_ModuleChange
-            // Unless we want to hanle ReJSON module unload
-        }
-    }
+  if (sub != REDISMODULE_SUBEVENT_MODULE_LOADED || strcmp(ei->module_name, "ReJSON") || japi)
+    return;
+  // If RedisJSON module is loaded after RediSearch need to get the API exported by RedisJSON
+
+  if (GetJSONAPIs(ctx, 0)) {
+    RedisModule_Log(NULL, "notice", "Detected RedisJSON: Acquired RedisJSON_V1 API");
+  } else {
+    RedisModule_Log(NULL, "error", "Detected RedisJSON: Failed to acquired RedisJSON_V1 API");
   }
+  //TODO: Once registered we can unsubscribe from ServerEvent RedisModuleEvent_ModuleChange
+  // Unless we want to hanle ReJSON module unload
 }
 
 int GetJSONAPIs(RedisModuleCtx *ctx, int subscribeToModuleChange) {
-    japi = NULL;
     japi = RedisModule_GetSharedAPI(ctx, "RedisJSON_V1");
     if (japi) {
+        RedisModule_Log(NULL, "notice", "Acquired RedisJSON_V1 API");
         return 1;
-    } else if (subscribeToModuleChange) {
-        RedisModule_SubscribeToServerEvent(ctx,
-            RedisModuleEvent_ModuleChange, ModuleChangeHandler);
+    }
+    if (subscribeToModuleChange) {
+        RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ModuleChange,
+                                           (RedisModuleEventCallback) ModuleChangeHandler);
     }
     return 0;
 }
 
-/******************************************************************************************************/
+//---------------------------------------------------------------------------------------------
 
 static RSLanguage SchemaRule_JsonLanguage(RedisModuleCtx *ctx, const SchemaRule *rule,
                                           const RedisJSONKey *jsonKey, const char *keyName) {
