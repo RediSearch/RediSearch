@@ -1,9 +1,9 @@
 # BUILD redisfab/redisearch:${VERSION}-${ARCH}-${OSNICK}
 
-ARG REDIS_VER=6.0.9
+ARG REDIS_VER=6.2.1
 
 # OSNICK=bionic|stretch|buster
-ARG OSNICK=buster
+ARG OSNICK=bionic
 
 # OS=debian:buster-slim|debian:stretch-slim|ubuntu:bionic
 ARG OS=debian:buster-slim
