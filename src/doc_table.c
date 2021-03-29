@@ -186,8 +186,8 @@ int DocTable_SetByteOffsets(DocTable *t, t_docId docId, RSByteOffsets *v) {
  * table.
  *
  * Return 0 if the document is already in the index  */
-t_docId DocTable_Put(DocTable *t, const char *s, size_t n, double score, u_char flags,
-                     const char *payload, size_t payloadSize) {
+t_docId DocTable_Put(DocTable *t, const char *s, size_t n, double score, int flags,
+                     const char *payload, size_t payloadSize, DocumentType type) {
 
   t_docId xid = DocIdMap_Get(&t->dim, s, n);
   // if the document is already in the index, return 0
@@ -220,6 +220,7 @@ t_docId DocTable_Put(DocTable *t, const char *s, size_t n, double score, u_char 
     dmd->maxFreq = 1;
     dmd->id = docId;
     dmd->sortVector = NULL;
+    dmd->type = type;
   }
 
   DocTable_Set(t, docId, dmd);

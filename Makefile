@@ -10,7 +10,7 @@ make build         # compile and link
   DEBUG=1          # build for debugging (implies WITH_TESTS=1)
   WITH_TESTS=1     # enable unit tests
   WHY=1            # explain CMake decisions (in /tmp/cmake-why)
-  CMAKE=1          # Force CMake rerun
+  FORCE=1          # Force CMake rerun
   CMAKE_ARGS=...   # extra arguments to CMake
 make parsers       # build parsers code
 make clean         # remove build artifacts
@@ -111,7 +111,7 @@ include $(MK)/rules
 $(COMPAT_MODULE): $(BINROOT)/redisearch.so
 	cp $^ $@
 
-ifeq ($(CMAKE),1)
+ifeq ($(FORCE),1)
 .PHONY: __force
 
 $(BINROOT)/Makefile: __force
