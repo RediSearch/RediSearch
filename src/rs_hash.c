@@ -13,7 +13,6 @@ typedef struct {
 static void Hash_Cursor_cb(RedisModuleKey *key, RedisModuleString *field, RedisModuleString *value, void *privdata) {
   REDISMODULE_NOT_USED(key);
   HashPrintArgs *args = privdata;
-  arrayof(void *) arr = args->arr;
   RedisModuleCtx *ctx = args->ctx;
   SchemaRule *rule = args->rule;
   
@@ -29,53 +28,56 @@ static void Hash_Cursor_cb(RedisModuleKey *key, RedisModuleString *field, RedisM
   // const char *vstr = RedisModule_StringPtrLen(value, NULL);
   RedisModule_RetainString(ctx, field);
   RedisModule_RetainString(ctx, value);
-  args->arr = array_ensure_append(args->arr, &field, 1, void *);
-  args->arr = array_ensure_append(args->arr, &value, 1, void *);
+  *args->arr = array_ensure_append(*args->arr, &field, 1, void *);
+  *args->arr = array_ensure_append(*args->arr, &value, 1, void *);
 }
 
-int RS_ReplyWithHash(RedisModuleCtx *ctx, char *keyC, arrayof(void *) replyArr, SchemaRule *rule) {
-    array_clear(replyArr);
-    HashPrintArgs args = { .ctx = ctx,
-                           .arr = replyArr,
-                           .rule = rule, };
+int RS_ReplyWithHash(RedisModuleCtx *ctx, char *keyC, arrayof(void *) *replyArr, SchemaRule *rule) {
+  array_clear(*replyArr);
+  int rc = REDISMODULE_ERR;
 
   // Reply using scanning - from Redis 6.0.6
-  // TODO: enable improvement
+  // TODO: enable improvement - fit to array point type
   if (false && isFeatureSupported(RM_SCAN_KEY_API_FIX) && !isCrdt) {
-    int rc = REDISMODULE_ERR;
     RedisModuleString *keyR = RedisModule_CreateString(ctx, keyC, strlen(keyC));
     RedisModuleKey *key = RedisModule_OpenKey(ctx, keyR, REDISMODULE_READ);
     if (!key || RedisModule_KeyType(key) != REDISMODULE_KEYTYPE_HASH) {
-      goto done;
+      RedisModule_ReplyWithNullArray(ctx);
+      goto donescan;
     }
+
+    HashPrintArgs args = { .ctx = ctx,
+                           .arr = *replyArr,
+                           .rule = rule, };
 
     RedisModuleScanCursor *cursor = RedisModule_ScanCursorCreate();
     while(RedisModule_ScanKey(key, cursor, Hash_Cursor_cb, &args));
     RedisModule_ScanCursorDestroy(cursor);
 
-    int len = array_len(replyArr);
+    int len = array_len(args.arr);
     RedisModule_ReplyWithArray(ctx, len);
     for (uint32_t i = 0; i < len; i++) {
-      RedisModuleString *reply = replyArr[i];
+      RedisModuleString *reply = args.arr[i];
       const char *tmp = RedisModule_StringPtrLen(reply, NULL);
       RedisModule_ReplyWithString(ctx, reply);
       RedisModule_FreeString(ctx, reply);
       replyArr[i] = NULL;
     } 
 
+    *replyArr = args.arr;
     rc = REDISMODULE_OK;
-  done:
+  donescan:
     if (key) RedisModule_CloseKey(key);
     if (keyR) RedisModule_FreeString(ctx, keyR);
-    return rc;
 
   // Reply using RM_Call()
   } else {
+    arrayof(void *) arr = *replyArr;
     RedisModuleCallReply *field, *value;
     RedisModuleCallReply *reply = RedisModule_Call(ctx, "HGETALL", "c", keyC);
     if (!reply || RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_ARRAY) {
-      RedisModule_ReplyWithNull(ctx);
-      return REDISMODULE_ERR;
+      RedisModule_ReplyWithNullArray(ctx);
+      goto donecall;
     }
 
     size_t arrlen = 0;
@@ -88,23 +90,24 @@ int RS_ReplyWithHash(RedisModuleCtx *ctx, char *keyC, arrayof(void *) replyArr, 
       if (SchemaRule_IsAttrField(rule, fstr, flen)){
         continue;
       }
-
-      //RedisModule_ReplyWithCallReply(ctx, field);
-      args.arr = array_ensure_append(args.arr, &field, 1, void *);
+      arr = array_ensure_append(arr, &field, 1, void *);
 
       value = RedisModule_CallReplyArrayElement(reply, i + 1);
-      args.arr = array_ensure_append(args.arr, &value, 1, void *);
-      //RedisModule_ReplyWithCallReply(ctx, value);
+      // const char *vstr = RedisModule_CallReplyStringPtr(value, NULL);
+      arr = array_ensure_append(arr, &value, 1, void *);
+
       arrlen += 2;
     }
 
     RedisModule_ReplyWithArray(ctx, arrlen);
     for (size_t i = 0; i < arrlen; i++) {
-      RedisModule_ReplyWithCallReply(ctx, args.arr[i]);
+      RedisModule_ReplyWithCallReply(ctx, arr[i]);
     }
 
+donecall:
     RedisModule_FreeCallReply(reply);
-
-    return REDISMODULE_OK;
+    *replyArr = arr;
+    rc = REDISMODULE_OK;
   }
+  return rc;
 }

@@ -9,7 +9,7 @@
 extern "C" {
 #endif
 
-int RS_ReplyWithHash(RedisModuleCtx *ctx, char *keyC, arrayof(void *) replyArr, SchemaRule *rule);
+int RS_ReplyWithHash(RedisModuleCtx *ctx, char *keyC, arrayof(void *) *replyArr, SchemaRule *rule);
 
 #ifdef __cplusplus
 }

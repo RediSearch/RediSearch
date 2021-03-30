@@ -33,7 +33,7 @@ typedef struct {
   SchemaRule *rule;                    // used to filter out language, score and payload fields
   const RLookup *lastLk;
   const PLN_ArrangeStep *lastAstp;
-  arrayof(void *) arr;   // used to reply all fields
+  arrayof(void *) arr;                 // used to reply all fields
 } cachedVars;
 
 static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchResult *r,
@@ -114,8 +114,6 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
     }
   }
 
-
-  // TODO
   if (!(options & QEXEC_F_SEND_NOFIELDS)) {
     count++;
     if (!IsLazyLoad(req)) {
@@ -144,7 +142,7 @@ static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchRes
     } else {
       // Reply with all fields
       char *keyName = dmd ? dmd->keyPtr : DocTable_Get(&req->sctx->spec->docs, r->docId)->keyPtr;
-      RS_ReplyWithHash(outctx, keyName, cv->arr, cv->rule);
+      RS_ReplyWithHash(outctx, keyName, &cv->arr, cv->rule);
     }
   }
   return count;
@@ -195,7 +193,6 @@ void sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
   }
 
   SearchResult_Clear(&r);
-  if (cv.arr) array_free(cv.arr);
   if (rc != RS_RESULT_OK) {
     goto done;
   }
@@ -210,6 +207,7 @@ void sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
 
 done:
   SearchResult_Destroy(&r);
+  if (cv.arr) array_free(cv.arr);
   if (rc != RS_RESULT_OK) {
     req->stateflags |= QEXEC_S_ITERDONE;
   }
