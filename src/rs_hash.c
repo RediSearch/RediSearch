@@ -23,9 +23,6 @@ static void Hash_Cursor_cb(RedisModuleKey *key, RedisModuleString *field, RedisM
     return;
   }
 
-  // TODO: Remove once scan is used
-  const char *fstr = RedisModule_StringPtrLen(field, NULL);
-  const char *vstr = RedisModule_StringPtrLen(value, NULL);
   RedisModule_RetainString(ctx, field);
   RedisModule_RetainString(ctx, value);
   args->arr = array_ensure_append(args->arr, &field, 1, void *);
@@ -90,7 +87,6 @@ int RS_ReplyWithHash(RedisModuleCtx *ctx, char *keyC, arrayof(void *) *replyArr,
       arr = array_ensure_append(arr, &field, 1, void *);
 
       value = RedisModule_CallReplyArrayElement(reply, i + 1);
-      // const char *vstr = RedisModule_CallReplyStringPtr(value, NULL);
       arr = array_ensure_append(arr, &value, 1, void *);
 
       arrlen += 2;
