@@ -362,7 +362,6 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
         return REDISMODULE_ERR;
       }
     } else {
-      // Are these working with SUMMERIZE/HIGHLIGHT?
       int rv = handleCommonArgs(req, ac, status, 1);
       if (rv == ARG_HANDLED) {
         // nothing
@@ -389,7 +388,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
     ensureSimpleMode(req);
 
     req->outFields.explicitReturn = 1;
-    req->reqflags |= QEXEC_F_SEND_EXPLICIT;
+    req->reqflags |= QEXEC_F_EXPLICIT_RETURN;
     if (returnFields.argc == 0) {
       req->reqflags |= QEXEC_F_SEND_NOFIELDS;
     }

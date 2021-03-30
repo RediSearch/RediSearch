@@ -24,12 +24,12 @@ static void Hash_Cursor_cb(RedisModuleKey *key, RedisModuleString *field, RedisM
   }
 
   // TODO: Remove once scan is used
-  // const char *fstr = RedisModule_StringPtrLen(field, NULL);
-  // const char *vstr = RedisModule_StringPtrLen(value, NULL);
+  const char *fstr = RedisModule_StringPtrLen(field, NULL);
+  const char *vstr = RedisModule_StringPtrLen(value, NULL);
   RedisModule_RetainString(ctx, field);
   RedisModule_RetainString(ctx, value);
-  *args->arr = array_ensure_append(*args->arr, &field, 1, void *);
-  *args->arr = array_ensure_append(*args->arr, &value, 1, void *);
+  args->arr = array_ensure_append(args->arr, &field, 1, void *);
+  args->arr = array_ensure_append(args->arr, &value, 1, void *);
 }
 
 int RS_ReplyWithHash(RedisModuleCtx *ctx, char *keyC, arrayof(void *) *replyArr, SchemaRule *rule) {
@@ -37,8 +37,7 @@ int RS_ReplyWithHash(RedisModuleCtx *ctx, char *keyC, arrayof(void *) *replyArr,
   int rc = REDISMODULE_ERR;
 
   // Reply using scanning - from Redis 6.0.6
-  // TODO: enable improvement - fit to array point type
-  if (false && isFeatureSupported(RM_SCAN_KEY_API_FIX) && !isCrdt) {
+  if (isFeatureSupported(RM_SCAN_KEY_API_FIX) && !isCrdt) {
     RedisModuleString *keyR = RedisModule_CreateString(ctx, keyC, strlen(keyC));
     RedisModuleKey *key = RedisModule_OpenKey(ctx, keyR, REDISMODULE_READ);
     if (!key || RedisModule_KeyType(key) != REDISMODULE_KEYTYPE_HASH) {
@@ -58,15 +57,13 @@ int RS_ReplyWithHash(RedisModuleCtx *ctx, char *keyC, arrayof(void *) *replyArr,
     RedisModule_ReplyWithArray(ctx, len);
     for (uint32_t i = 0; i < len; i++) {
       RedisModuleString *reply = args.arr[i];
-      const char *tmp = RedisModule_StringPtrLen(reply, NULL);
       RedisModule_ReplyWithString(ctx, reply);
       RedisModule_FreeString(ctx, reply);
-      replyArr[i] = NULL;
     } 
 
-    *replyArr = args.arr;
     rc = REDISMODULE_OK;
   donescan:
+    *replyArr = args.arr;
     if (key) RedisModule_CloseKey(key);
     if (keyR) RedisModule_FreeString(ctx, keyR);
 
@@ -104,10 +101,10 @@ int RS_ReplyWithHash(RedisModuleCtx *ctx, char *keyC, arrayof(void *) *replyArr,
       RedisModule_ReplyWithCallReply(ctx, arr[i]);
     }
 
+    rc = REDISMODULE_OK;
 donecall:
     RedisModule_FreeCallReply(reply);
     *replyArr = arr;
-    rc = REDISMODULE_OK;
   }
   return rc;
 }

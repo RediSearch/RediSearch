@@ -21,7 +21,7 @@ typedef enum {
   QEXEC_F_SEND_NOFIELDS = 0x08,  // Don't send the content of the fields
   QEXEC_F_SEND_PAYLOADS = 0x10,  // Sent the payload set with ADD
   QEXEC_F_IS_CURSOR = 0x20,      // Is a cursor-type query
-  QEXEC_F_SEND_EXPLICIT = 0x40,  // Send the content of explicit fields
+  QEXEC_F_EXPLICIT_RETURN = 0x40,  // Send the content of explicit fields
 
   /** Don't use concurrent execution */
   QEXEC_F_SAFEMODE = 0x100,
@@ -54,7 +54,7 @@ typedef enum {
 #define IsSearch(r) ((r)->reqflags & QEXEC_F_IS_SEARCH)
 #define IsProfile(r) ((r)->reqflags & QEXEC_F_PROFILE)
 #define IsLazyLoad(r) (!((r)->reqflags & QEXEC_F_IS_EXTENDED) &&      \
-                       !((r)->reqflags & QEXEC_F_SEND_EXPLICIT) &&    \
+                       !((r)->reqflags & QEXEC_F_EXPLICIT_RETURN) &&  \
                        !((r)->reqflags & QEXEC_F_SEND_HIGHLIGHT))
 
 typedef enum {

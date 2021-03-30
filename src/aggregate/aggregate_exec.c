@@ -31,9 +31,9 @@ static const RSValue *getSortKey(AREQ *req, const SearchResult *r, const PLN_Arr
 /** Cached variables to avoid serializeResult retrieving these each time */
 typedef struct {
   SchemaRule *rule;                    // used to filter out language, score and payload fields
+  arrayof(void *) arr;                 // used to reply all fields
   const RLookup *lastLk;
   const PLN_ArrangeStep *lastAstp;
-  arrayof(void *) arr;                 // used to reply all fields
 } cachedVars;
 
 static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchResult *r,
@@ -240,7 +240,7 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
       break;
     case COMMAND_AGGREGATE:
       // On FT.AGGREGATE, we don't want to load fields unless specified
-      (*r)->reqflags |= QEXEC_F_SEND_EXPLICIT;
+      (*r)->reqflags |= QEXEC_F_EXPLICIT_RETURN;
       break;
     case COMMAND_EXPLAIN:
       break;
