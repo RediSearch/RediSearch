@@ -33,7 +33,7 @@ typedef struct {
   SchemaRule *rule;                    // used to filter out language, score and payload fields
   const RLookup *lastLk;
   const PLN_ArrangeStep *lastAstp;
-  arrayof(RedisModuleString *) arr;   // used to reply all fields
+  arrayof(void *) arr;   // used to reply all fields
 } cachedVars;
 
 static size_t serializeResult(AREQ *req, RedisModuleCtx *outctx, const SearchResult *r,
@@ -236,8 +236,16 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   RedisSearchCtx *sctx = NULL;
   RedisModuleCtx *thctx = NULL;
 
-  if (type == COMMAND_SEARCH) {
-    (*r)->reqflags |= QEXEC_F_IS_SEARCH;
+  switch (type) {
+    case COMMAND_SEARCH:
+      (*r)->reqflags |= QEXEC_F_IS_SEARCH;
+      break;
+    case COMMAND_AGGREGATE:
+      // On FT.AGGREGATE, we don't want to load fields unless specified
+      (*r)->reqflags |= QEXEC_F_SEND_EXPLICIT;
+      break;
+    case COMMAND_EXPLAIN:
+      break;
   }
 
   if (AREQ_Compile(*r, argv + 2, argc - 2, status) != REDISMODULE_OK) {

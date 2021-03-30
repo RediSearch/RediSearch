@@ -54,6 +54,7 @@ SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, IndexSpec *spec, QueryError 
   }
 
   rule->filter_exp_str = args->filter_exp_str ? rm_strdup(args->filter_exp_str) : NULL;
+  // TODO: allow NULL fields
   rule->lang_field = rm_strdup(args->lang_field ? args->lang_field : UNDERSCORE_LANGUAGE);
   rule->score_field = rm_strdup(args->score_field ? args->score_field : UNDERSCORE_SCORE);
   rule->payload_field = rm_strdup(args->payload_field ? args->payload_field : UNDERSCORE_PAYLOAD);
@@ -213,10 +214,11 @@ RedisModuleString *SchemaRule_HashPayload(RedisModuleCtx *rctx, const SchemaRule
 
 int SchemaRule_IsAttrField(const SchemaRule *rule, const char *str, size_t len) {
   if (rule) {
-    if ((strncasecmp(str, rule->lang_field, len) == 0) ||
-        (strncasecmp(str, rule->score_field, len) == 0) ||
-        (strncasecmp(str, rule->payload_field, len) == 0)) {
-    return 1;
+    if ((rule->lang_field && strncmp(str, rule->lang_field, len) == 0) ||
+        (rule->score_field && strncmp(str, rule->score_field, len) == 0) ||
+        (rule->payload_field && strncmp(str, rule->payload_field, len) == 0)) {
+      return 1;
+    }
   }
   return 0;
 }

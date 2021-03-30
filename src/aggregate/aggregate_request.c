@@ -362,6 +362,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
         return REDISMODULE_ERR;
       }
     } else {
+      // Are these working with SUMMERIZE/HIGHLIGHT?
       int rv = handleCommonArgs(req, ac, status, 1);
       if (rv == ARG_HANDLED) {
         // nothing

@@ -2357,7 +2357,8 @@ def testIssue_848(env):
     env.expect('FT.ADD', 'idx', 'doc1', '1.0', 'FIELDS', 'test1', 'foo').equal('OK')
     env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'test2', 'TEXT', 'SORTABLE').equal('OK')
     env.expect('FT.ADD', 'idx', 'doc2', '1.0', 'FIELDS', 'test1', 'foo', 'test2', 'bar').equal('OK')
-    env.expect('FT.SEARCH', 'idx', 'foo', 'SORTBY', 'test2', 'ASC').equal([2L, 'doc1', ['test1', 'foo'], 'doc2', ['test2', 'bar', 'test1', 'foo']])
+    res = env.cmd('FT.SEARCH', 'idx', 'foo', 'SORTBY', 'test2', 'ASC')
+    env.assertEqual(toSortedFlatList(res), toSortedFlatList([2L, 'doc1', ['test1', 'foo'], 'doc2', ['test2', 'bar', 'test1', 'foo']]))
 
 def testMod_309(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
@@ -2815,7 +2816,7 @@ def testIssue1074(env):
             'schema', 't1', 'text', 'n1', 'numeric', 'sortable')
     env.cmd('ft.add', 'idx', 'doc1', 1, 'fields', 't1', 'hello', 'n1', 1581011976800)
     rv = env.cmd('ft.search', 'idx', '*', 'sortby', 'n1')
-    env.assertEqual([1L, 'doc1', ['n1', '1581011976800', 't1', 'hello']], rv)
+    env.assertEqual(toSortedFlatList([1L, 'doc1', ['n1', '1581011976800', 't1', 'hello']]), toSortedFlatList(rv))
 
 def testIssue1085(env):
     env.skipOnCluster()
@@ -3208,7 +3209,7 @@ def testNotOnly(env):
 
 def testServerVer(env):
     env.assertTrue(check_server_version(env, "0.0.0"))
-    env.assertTrue(not check_server_version(env, "100.0.0"))
+    env.assertTrue(not check_server_version(env, "500.0.0"))
 
     env.assertTrue(check_module_version(env, "20005"))
     env.assertTrue(not check_module_version(env, "10000000"))

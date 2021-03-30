@@ -124,10 +124,7 @@ size_t RLookup_GetLength(const RLookup *lookup, const RLookupRow *r, int *skipFi
     // on coordinator, we reach this code without sctx or rule,
     // we trust the shards to not send those fields.
 
-    
-    if (rule && ((rule->lang_field && strcmp(kk->name, rule->lang_field) == 0) ||
-                  (rule->score_field && strcmp(kk->name, rule->score_field) == 0) ||
-                  (rule->score_field && strcmp(kk->name, rule->payload_field) == 0))) {
+    if (SchemaRule_IsAttrField(rule, kk->name, strlen(kk->name))) {
       continue;
     }
 
