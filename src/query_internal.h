@@ -64,6 +64,11 @@ QueryNode *NewNumericNode(const struct NumericFilter *flt);
 QueryNode *NewIdFilterNode(const t_docId *, size_t);
 QueryNode *NewGeofilterNode(const struct GeoFilter *flt);
 QueryNode *NewTagNode(const char *tag, size_t len);
+QueryNode *NewLexRangeNode(QueryLexRangeNode lxrng);
+QueryLexRangeNode NewLaxRangeFilter(const char *begin, size_t bLen, bool includeBegin,
+                                    const char *end, size_t eLen, bool includeEnd);
+void LexRangeFilter_Free(QueryLexRangeNode *lxrng);
+
 void QueryNode_SetFieldMask(QueryNode *n, t_fieldMask mask);
 
 /* Free the query node and its children recursively */

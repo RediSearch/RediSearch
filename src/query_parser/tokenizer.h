@@ -27,13 +27,18 @@ typedef struct {
   int pos;
   char *field;
   double numval;
-  // QueryTokenType ;
 } QueryToken;
 
 typedef struct {
   double num;
   int inclusive;
 } RangeNumber;
+
+typedef struct {
+  const char *str;
+  size_t len;
+  int inclusive;
+} LexRange;
 
 #define QUERY_STOPWORDS DEFAULT_STOPWORDS;
 

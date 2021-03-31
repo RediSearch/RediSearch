@@ -98,9 +98,14 @@ typedef struct {
 } QueryIdFilterNode;
 
 typedef struct {
-  char *begin;
+  char *fieldName;
+
+  const char *begin;
+  size_t beginLen;
   bool includeBegin;
-  char *end;
+
+  const char *end;
+  size_t endLen;
   bool includeEnd;
 } QueryLexRangeNode;
 

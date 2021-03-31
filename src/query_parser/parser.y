@@ -154,6 +154,12 @@ static int one_not_null(void *a, void *b, void *out) {
     NumericFilter_Free($$);
 }
 
+%type lexrange { LexRange }
+
+%type lex_range { QueryLexRangeNode }
+%destructor lex_range {
+    LexRangeFilter_Free(&$$);
+}
 query ::= expr(A) . { 
  /* If the root is a negative node, we intersect it with a wildcard node */
  
@@ -527,6 +533,21 @@ numeric_range(A) ::= LSQB num(B) num(C) RSQB. [NUMBER] {
 }
 
 /////////////////////////////////////////////////////////////////
+// Lex Ranges
+/////////////////////////////////////////////////////////////////
+expr(A) ::= modifier(B) COLON COLON lex_range(C). {
+    // we keep the capitalization as is
+    C.fieldName = rm_strndup(B.s, B.len);
+    A = NewLexRangeNode(C);
+}
+
+lex_range(A) ::= LSQB lexrange(B) lexrange(C) RSQB. [TERM] {
+    // TODO: consider removing strndup
+    A = NewLaxRangeFilter(rm_strndup(B.str, B.len), B.len, B.inclusive,
+                          rm_strndup(C.str, C.len), C.len, C.inclusive);
+}
+
+/////////////////////////////////////////////////////////////////
 // Geo Filters
 /////////////////////////////////////////////////////////////////
 
@@ -544,11 +565,9 @@ geo_filter(A) ::= LSQB num(B) num(C) num(D) TERM(E) RSQB. [NUMBER] {
         strcpy(buf, "INVALID");
     }
     A = NewGeoFilter(B.num, C.num, D.num, buf);
-    GeoFilter_Validate(A, ctx->status);
+    // TODO: check - as is, it does nothing
+    // GeoFilter_Validate(A, ctx->status);
 }
-
-
-
 
 /////////////////////////////////////////////////////////////////
 // Primitives - numbers and strings
@@ -574,5 +593,16 @@ term(A) ::= TERM(B) . {
 
 term(A) ::= NUMBER(B) . {
     A = B; 
+}
+
+// TODO: about inclusive
+lexrange(A) ::= TERM(B) . {
+    A.str = B.s;
+    A.inclusive = 1;
+}
+
+lexrange(A) ::= LP lexrange(B) . {
+    A.str = B.str;
+    A.inclusive = 0;
 }
 

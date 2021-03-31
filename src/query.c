@@ -37,8 +37,9 @@ static void QueryTagNode_Free(QueryTagNode *tag) {
 }
 
 static void QueryLexRangeNode_Free(QueryLexRangeNode *lx) {
-  if (lx->begin) rm_free(lx->begin);
-  if (lx->end) rm_free(lx->end);
+  if (lx->fieldName) rm_free((char *)lx->fieldName);
+  if (lx->begin) rm_free((char *)lx->begin);
+  if (lx->end) rm_free((char *)lx->end);
 }
 
 // void _queryNumericNode_Free(QueryNumericNode *nn) { free(nn->nf); }
@@ -167,6 +168,42 @@ QueryNode *NewTagNode(const char *field, size_t len) {
   ret->tag.len = len;
   return ret;
 }
+
+QueryLexRangeNode NewLaxRangeFilter(const char *begin, size_t bLen, bool includeBegin,
+                                    const char *end, size_t eLen, bool includeEnd) {
+  QueryLexRangeNode lxrng = { .begin = begin,
+                              .beginLen = bLen,
+                              .includeBegin = includeBegin,
+                              .end = end,
+                              .endLen = eLen,
+                              .includeEnd = includeEnd };
+  return lxrng;
+}
+
+QueryNode *NewLexRangeNode(QueryLexRangeNode lxrng) {
+  QueryNode *ret = NewQueryNode(QN_LEXRANGE);
+  ret->lxrng = lxrng;
+  return ret;
+}
+
+void LexRangeFilter_Free(QueryLexRangeNode *lxrng) {
+  // For now on the stack
+  // if (!lxrng) {
+  //   return;
+  // }
+  if (lxrng->fieldName) {
+    rm_free((char *)lxrng->fieldName);
+  }
+  if (lxrng->begin) {
+    rm_free((char *)lxrng->begin);
+  }
+  if (lxrng->end) {
+    rm_free((char *)lxrng->end);
+  }
+  // for now lxrng is on another struct
+  // rm_free(lxrng);
+}
+
 
 QueryNode *NewNumericNode(const NumericFilter *flt) {
   QueryNode *ret = NewQueryNode(QN_NUMERIC);

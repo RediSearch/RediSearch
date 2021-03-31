@@ -180,7 +180,7 @@ QueryNode *RSQuery_ParseRaw(QueryParseCtx *q) {
 	}
 
 /* #line 248 "lexer.rl" */
-  QueryToken tok = {.len = 0, .pos = 0, .s = 0};
+  QueryToken tok = { 0 };
   
   //parseCtx ctx = {.root = NULL, .ok = 1, .errorMsg = NULL, .q = q};
   const char* p = q->raw;

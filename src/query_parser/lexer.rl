@@ -245,7 +245,7 @@ QueryNode *RSQuery_ParseRaw(QueryParseCtx *q) {
   const char* ts = q->raw;
   const char* te = q->raw + q->len;
   %% write init;
-  QueryToken tok = {.len = 0, .pos = 0, .s = 0};
+  QueryToken tok = { 0 };
   
   //parseCtx ctx = {.root = NULL, .ok = 1, .errorMsg = NULL, .q = q};
   const char* p = q->raw;
