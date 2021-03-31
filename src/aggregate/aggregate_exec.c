@@ -286,14 +286,24 @@ done:
 #define PROFILE_FULL 1
 #define PROFILE_LIMITED 2
 
-static void parseProfile(AREQ *r, int withProfile) {
+static int parseProfile(AREQ *r, RedisModuleCtx *ctx, int withProfile, RedisModuleString **argv, int argc, QueryError *status) {
   if (withProfile != NO_PROFILE) {
+
+    // WithCursor is disabled on the shards for external use but is available internally to the coordinator
+    #ifndef RS_COORDINATOR
+    if (RMUtil_ArgExists("WITHCURSOR", argv, argc, 3)) {
+      QueryError_SetError(status, QUERY_EGENERIC, "FT.PROFILE does not support cursor");
+      return REDISMODULE_ERR;
+    }
+    #endif
+
     r->reqflags |= QEXEC_F_PROFILE;
     if (withProfile == PROFILE_LIMITED) {
       r->reqflags |= QEXEC_F_PROFILE_LIMITED;
     }
     r->initClock = clock();
   }
+  return REDISMODULE_OK;
 }
 
 static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
@@ -306,7 +316,9 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
   AREQ *r = AREQ_New();
   QueryError status = {0};
-  parseProfile(r, withProfile);
+  if (parseProfile(r, ctx, withProfile, argv, argc, &status) != REDISMODULE_OK) {
+    goto error;
+  }
 
   if (buildRequest(ctx, argv, argc, type, &status, &r) != REDISMODULE_OK) {
     goto error;
