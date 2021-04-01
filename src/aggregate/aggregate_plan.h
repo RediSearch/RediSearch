@@ -86,6 +86,7 @@ typedef struct {
   const RLookupKey **sortkeysLK;  // simple array
   const char **sortKeys;          // array_*
   uint64_t sortAscMap;            // Mapping of ascending/descending. Bitwise
+  int isLimited;                  // Flag if `LIMIT` keyward was used.
   uint64_t offset;                // Seek results. If 0, then no paging is applied
   uint64_t limit;                 // Number of rows to output
 } PLN_ArrangeStep;
