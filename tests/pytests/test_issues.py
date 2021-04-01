@@ -145,3 +145,12 @@ def test_issue1880(env):
   # both queries return `world` iterator before `hello`
   env.assertEqual(res1[1][3][1], excepted_res)
   env.assertEqual(res2[1][3][1], excepted_res)
+
+  # test with a term which does not exist
+  excepted_res = ['Type', 'INTERSECT', 'Counter', 0L, 'Children iterators', 
+                    None,
+                    ['Type', 'TEXT', 'Term', 'world', 'Counter', 0L, 'Size', 1L],
+                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 0L, 'Size', 2L]]
+  res3 = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'hello new world')
+
+  env.assertEqual(res3[1][3][1], excepted_res)
