@@ -286,7 +286,7 @@ done:
 #define PROFILE_FULL 1
 #define PROFILE_LIMITED 2
 
-static int parseProfile(AREQ *r, RedisModuleCtx *ctx, int withProfile, RedisModuleString **argv, int argc, QueryError *status) {
+static int parseProfile(AREQ *r, int withProfile, RedisModuleString **argv, int argc, QueryError *status) {
   if (withProfile != NO_PROFILE) {
 
     // WithCursor is disabled on the shards for external use but is available internally to the coordinator
@@ -316,7 +316,7 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
   AREQ *r = AREQ_New();
   QueryError status = {0};
-  if (parseProfile(r, ctx, withProfile, argv, argc, &status) != REDISMODULE_OK) {
+  if (parseProfile(r, withProfile, argv, argc, &status) != REDISMODULE_OK) {
     goto error;
   }
 
