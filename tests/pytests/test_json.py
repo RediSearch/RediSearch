@@ -23,7 +23,7 @@ def testSearch(env):
 
     # Set a value before index is defined
     plain_val_1 = r'{"t":"rex","n":12}'
-    env.expect('json.set', 'doc:1', '$', plain_val_1).equal("OK")
+    env.expect('json.set', 'doc:1', '$', plain_val_1).ok()
     env.expect('json.get', 'doc:1', '$').equal(plain_val_1)
 
     # Index creation (PM-889)
@@ -38,20 +38,19 @@ def testSearch(env):
 
     # Set another value after index was defined
     plain_val_2 = r'{"t":"riceratops","n":9}'
-    env.expect('json.set', 'doc:2', '$', plain_val_2).equal("OK")
+    env.expect('json.set', 'doc:2', '$', plain_val_2).ok()
     env.expect('json.get', 'doc:2', '$').equal(plain_val_2)
 
     # FIXME: Enable next line when json bulk string is printed in the result
     #env.assertEquals(res, [2L, 'doc:1', ['$', plain_val_1], 'doc:2', ['$', plain_val_2]])
-    env.expect('ft.search', 'idx1', '*').equal([2L, 'doc:1', [], 'doc:2', []])
+    env.expect('ft.search', 'idx1', '*').equal([2L, 'doc:1', ['$', plain_val_1], 'doc:2', ['$', plain_val_2]])
 
     # FIXME: Enable next line when json bulk string is printed in the result
-    #env.expect('ft.search', 'idx1', 're*').equal([1L, 'doc:1', ['$', r'{"t":"rex"}']])
-    env.expect('ft.search', 'idx1', 're*').equal([1L, 'doc:1', []])
+    env.expect('ft.search', 'idx1', 're*').equal([1L, 'doc:1', ['$', r'{"t":"rex","n":12}']])
 
     # Update an existing text value
     plain_val_3 = '"hescelosaurus"'
-    env.expect('json.set', 'doc:1', '$.t', plain_val_3).equal("OK")
+    env.expect('json.set', 'doc:1', '$.t', plain_val_3).ok()
     env.expect('json.get', 'doc:1', '$.t').equal(plain_val_3)
 
     # TODO: Update an existing numeric value
@@ -62,18 +61,17 @@ def testSearch(env):
     # TODO: Fail when result is an Object/Map
 
     # FIXME: Enable next line when json bulk string is printed in the result
-    #env.expect('ft.search', 'idx1', 'he*').equal([1L, 'doc:1', ['$', r'{"t":"rex"}']])
-    env.expect('ft.search', 'idx1', 'he*').equal([1L, 'doc:1', []])
+    env.expect('ft.search', 'idx1', 'he*').equal([1L, 'doc:1', ['$', r'{"t":"hescelosaurus","n":12}']])
 
     # Test json in non-English languages
     japanese_value_1 = 'ドラゴン'
     japanese_doc_value = r'{"t":"' + japanese_value_1 + r'","n":5}'
-    env.expect('json.set', 'doc:4', '$', japanese_doc_value).equal("OK")
+    env.expect('json.set', 'doc:4', '$', japanese_doc_value).ok()
     env.expect('json.get', 'doc:4', '$').equal(japanese_doc_value)
     env.expect('json.get', 'doc:4', '$.t').equal('"' + japanese_value_1 + '"')
 
     chinese_value_1 = r'{"t":"踪迹","n":5}'
-    env.expect('json.set', 'doc:5', '$', chinese_value_1).equal("OK")
+    env.expect('json.set', 'doc:5', '$', chinese_value_1).ok()
     env.expect('json.get', 'doc:5', '$').equal(chinese_value_1)
 
     # Test NOCONTENT
