@@ -765,9 +765,12 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   // see we need to sort by an indexed numeric field and if so add its
   // inverted index to the root as intersection to reduce results
   PLN_ArrangeStep *arng = (PLN_ArrangeStep *)AGPLN_FindStep(&req->ap, NULL, NULL, PLN_T_ARRANGE);
+  size_t nEstimated = req->rootiter->NumEstimated(req->rootiter->ctx);
+
   if(arng && arng->sortKeys && // sort by field was used
      array_len(arng->sortKeys) == 1 && // single field sorting
-     arng->isLimited && arng->offset == 0 // limit was used with offset 0
+     arng->isLimited && arng->offset == 0 &&
+     nEstimated > arng->limit * 10// expected number of result is geater than (limit * 100)
     ){
     const char* sortField = arng->sortKeys[0];
     IndexSpec *spec = sctx->spec;
