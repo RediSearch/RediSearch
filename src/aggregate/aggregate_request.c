@@ -761,6 +761,33 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
 
   ConcurrentSearchCtx_Init(sctx->redisCtx, &req->conc);
   req->rootiter = QAST_Iterate(ast, opts, sctx, &req->conc);
+
+  // see we need to sort by an indexed numeric field and if so add its
+  // inverted index to the root as intersection to reduce results
+  PLN_ArrangeStep *arng = (PLN_ArrangeStep *)AGPLN_FindStep(&req->ap, NULL, NULL, PLN_T_ARRANGE);
+  if(arng && arng->sortKeys && // sort by field was used
+     array_len(arng->sortKeys) == 1 && // single field sorting
+     arng->isLimited && arng->offset == 0 // limit was used with offset 0
+    ){
+    const char* sortField = arng->sortKeys[0];
+    IndexSpec *spec = sctx->spec;
+    for (size_t i = 0 ; i < spec->numFields ; ++i){
+      FieldSpec *f = spec->fields + i;
+      if ((f->types & INDEXFLD_T_NUMERIC) && strcmp(f->name, sortField) == 0) {
+        IndexIterator *iter = NewNumericLimitIterator(sctx, f->name, arng->limit, &req->conc);
+        if (!iter) {
+          break;
+        }
+        IndexIterator **iters = rm_malloc(sizeof(IndexIterator*) * 2);
+        iters[0] = req->rootiter;
+        iters[1] = iter;
+        req->rootiter = NewIntersecIterator(iters, 2, &sctx->spec->docs, RS_FIELDMASK_ALL, 
+                                            0 /* slop */, 1 /* inorder */, 1 /* wight */);
+        break;
+      }
+    }
+  }
+
   RS_LOG_ASSERT(req->rootiter, "QAST_Iterate failed");
   if (IsProfile(req)) {
     // Add a Profile iterators before every iterator in the tree

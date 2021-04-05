@@ -343,7 +343,7 @@ IndexIterator *NewNumericRangeIterator(const IndexSpec *sp, NumericRange *nr,
                                        const NumericFilter *f) {
 
   // if this range is at either end of the filter, we need to check each record
-  if (NumericFilter_Match(f, nr->minVal) && NumericFilter_Match(f, nr->maxVal) &&
+  if (f && NumericFilter_Match(f, nr->minVal) && NumericFilter_Match(f, nr->maxVal) &&
       f->geoFilter == NULL) {
     // make the filter NULL so the reader will ignore it
     f = NULL;
@@ -352,6 +352,59 @@ IndexIterator *NewNumericRangeIterator(const IndexSpec *sp, NumericRange *nr,
 
   return NewReadIterator(ir);
 }
+
+size_t getRangesWithLimit(NumericRange ***ranges, NumericRangeNode *root, size_t limit) {
+  if(!root){
+    return 0;
+  }
+
+  if (root->range) {
+    *ranges = array_append(*ranges, root->range);
+    return root->range->entries->numDocs;
+  }
+
+  int l = 0;
+  l += getRangesWithLimit(ranges, root->left, limit);
+  if (l >= limit){
+    return l;
+  }
+
+  l += getRangesWithLimit(ranges, root->right, limit - l);
+
+  return l;
+}
+
+IndexIterator *createLimitIterator(const IndexSpec *sp, NumericRangeTree *t, size_t limit) {
+  NumericRange **ranges = array_new(NumericRange *, 10);
+  getRangesWithLimit(&ranges, t->root, limit);
+
+  if (array_len(ranges) == 0) {
+    return NULL;
+  }
+
+  if (array_len(ranges) == 1) {
+    IndexIterator *it = NewNumericRangeIterator(sp, ranges[0], NULL);
+    array_free(ranges);
+    return it;
+  }
+
+  // We create a  union iterator, advancing a union on all the selected range,
+  // treating them as one consecutive range
+  size_t n = array_len(ranges);
+  IndexIterator **its = rm_calloc(n, sizeof(IndexIterator *));
+
+  for (size_t i = 0; i < n ; i++) {
+    NumericRange *rng = ranges[i];
+
+    its[i] = NewNumericRangeIterator(sp, rng, NULL);
+  }
+  array_free(ranges);
+
+  IndexIterator *it = NewUnionIterator(its, n, NULL, 1, 1, QN_NUMERIC, NULL);
+
+  return it;
+}
+
 
 /* Create a union iterator from the numeric filter, over all the sub-ranges in the tree that fit
  * the filter */
@@ -419,6 +472,44 @@ static NumericRangeTree *openNumericKeysDict(RedisSearchCtx *ctx, RedisModuleStr
   kdv->p = NewNumericRangeTree();
   dictAdd(ctx->spec->keysDict, keyName, kdv);
   return kdv->p;
+}
+
+struct indexIterator *NewNumericLimitIterator(RedisSearchCtx *ctx, const char* fieldName, size_t limit, ConcurrentSearchCtx *csx){
+  RedisModuleString *s = IndexSpec_GetFormattedKeyByName(ctx->spec, fieldName, INDEXFLD_T_NUMERIC);
+  if (!s) {
+    return NULL;
+  }
+  RedisModuleKey *key = NULL;
+  NumericRangeTree *t = NULL;
+  if (!ctx->spec->keysDict) {
+    key = RedisModule_OpenKey(ctx->redisCtx, s, REDISMODULE_READ);
+    if (!key || RedisModule_ModuleTypeGetType(key) != NumericIndexType) {
+      return NULL;
+    }
+
+    t = RedisModule_ModuleTypeGetValue(key);
+  } else {
+    t = openNumericKeysDict(ctx, s, 0);
+  }
+
+  if (!t) {
+    return NULL;
+  }
+
+  IndexIterator *it = createLimitIterator(ctx->spec, t, limit);
+
+  if (!it) {
+    return NULL;
+  }
+
+  if (csx) {
+    NumericUnionCtx *uc = rm_malloc(sizeof(*uc));
+    uc->lastRevId = t->revisionId;
+    uc->it = it;
+    ConcurrentSearch_AddKey(csx, NumericRangeIterator_OnReopen, uc, rm_free);
+  }
+  return it;
+
 }
 
 struct indexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const NumericFilter *flt,

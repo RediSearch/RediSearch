@@ -82,6 +82,8 @@ typedef struct {
 struct indexIterator *NewNumericRangeIterator(const IndexSpec *sp, NumericRange *nr,
                                               const NumericFilter *f);
 
+struct indexIterator *NewNumericLimitIterator(RedisSearchCtx *ctx, const char* fieldName, size_t limit, ConcurrentSearchCtx *csx);
+
 struct indexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const NumericFilter *flt,
                                                ConcurrentSearchCtx *csx, FieldType forType);
 
