@@ -2019,8 +2019,9 @@ static bool hashFieldChanged(IndexSpec *spec, RedisModuleString **hashFields) {
       }
     }
     // optimize. change of score and payload fields just require an update of the doc table
-    if (!strcmp(field, spec->rule->lang_field) || !strcmp(field, spec->rule->score_field) ||
-        !strcmp(field, spec->rule->payload_field)) {
+    if ((spec->rule->lang_field && !strcmp(field, spec->rule->lang_field)) || 
+        (spec->rule->score_field && !strcmp(field, spec->rule->score_field)) ||
+        (spec->rule->payload_field && !strcmp(field, spec->rule->payload_field))) {
       return true;
     }
   }

@@ -315,16 +315,25 @@ int Redis_SaveDocument(RedisSearchCtx *ctx, const AddDocumentOptions *opts, Quer
   if (opts->score != 1.0 || (opts->options & DOCUMENT_ADD_PARTIAL)) {
     arguments = array_append(arguments, globalAddRSstrings[0]);
     arguments = array_append(arguments, opts->scoreStr);
+    if (ctx->spec->rule->score_field == NULL) {
+      ctx->spec->rule->score_field = rm_strndup(UNDERSCORE_SCORE, strlen(UNDERSCORE_SCORE));
+    }
   }
 
   if (opts->languageStr) {
     arguments = array_append(arguments, globalAddRSstrings[1]);
     arguments = array_append(arguments, opts->languageStr);
+    if (ctx->spec->rule->lang_field == NULL) {
+      ctx->spec->rule->lang_field = rm_strndup(UNDERSCORE_LANGUAGE, strlen(UNDERSCORE_LANGUAGE));
+    }
   }
 
   if (opts->payload) {
     arguments = array_append(arguments, globalAddRSstrings[2]);
     arguments = array_append(arguments, opts->payload);
+    if (ctx->spec->rule->payload_field == NULL) {
+      ctx->spec->rule->payload_field = rm_strndup(UNDERSCORE_PAYLOAD, strlen(UNDERSCORE_PAYLOAD));
+    }
   }
 
   RedisModuleCallReply *rep = NULL;
