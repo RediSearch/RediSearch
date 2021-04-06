@@ -18,10 +18,10 @@
 
 #define heap_max(h, x, y) (heap_gt(h, x, y) ? h->data[x] : h->data[y])
 
-static const int tab32[32] = {0, 9,  1,  10, 13, 21, 2,  29, 11, 14, 16, 18, 22, 25, 3, 30,
+static const uint32_t tab32[32] = {0, 9,  1,  10, 13, 21, 2,  29, 11, 14, 16, 18, 22, 25, 3, 30,
                               8, 12, 20, 28, 15, 17, 24, 7,  19, 27, 23, 6,  26, 5,  4, 31};
 
-static inline int log2_32(uint32_t value) {
+static inline uint32_t log2_32(uint32_t value) {
   value |= value >> 1;
   value |= value >> 2;
   value |= value >> 4;
@@ -37,8 +37,8 @@ static inline int log2_32(uint32_t value) {
     h->data[j] = tmp;        \
   }
 
-static void bubbleup_min(heap_t* h, int i) {
-  int pp_idx = parent(parent(i));
+static void bubbleup_min(heap_t* h, uint32_t i) {
+  uint32_t pp_idx = parent(parent(i));
   if (pp_idx <= 0) return;
 
   if (heap_lt(h, i, pp_idx)) {
@@ -47,8 +47,8 @@ static void bubbleup_min(heap_t* h, int i) {
   }
 }
 
-static void bubbleup_max(heap_t* h, int i) {
-  int pp_idx = parent(parent(i));
+static void bubbleup_max(heap_t* h, uint32_t i) {
+  uint32_t pp_idx = parent(parent(i));
   if (pp_idx <= 0) return;
 
   if (heap_gt(h, i, pp_idx)) {
@@ -57,8 +57,8 @@ static void bubbleup_max(heap_t* h, int i) {
   }
 }
 
-static void bubbleup(heap_t* h, int i) {
-  int p_idx = parent(i);
+static void bubbleup(heap_t* h, uint32_t i) {
+  uint32_t p_idx = parent(i);
   if (p_idx <= 0) return;
 
   if (is_min(i)) {
@@ -78,15 +78,15 @@ static void bubbleup(heap_t* h, int i) {
   }
 }
 
-int index_max_child_grandchild(heap_t* h, int i) {
-  int a = first_child(i);
-  int b = second_child(i);
-  int d = second_child(a);
-  int c = first_child(a);
-  int f = second_child(b);
-  int e = first_child(b);
+uint32_t index_max_child_grandchild(heap_t* h, uint32_t i) {
+  uint32_t a = first_child(i);
+  uint32_t b = second_child(i);
+  uint32_t d = second_child(a);
+  uint32_t c = first_child(a);
+  uint32_t f = second_child(b);
+  uint32_t e = first_child(b);
 
-  int min_idx = -1;
+  uint32_t min_idx = -1;
   if (a <= h->count) min_idx = a;
   if (b <= h->count && heap_gt(h, b, min_idx)) min_idx = b;
   if (c <= h->count && heap_gt(h, c, min_idx)) min_idx = c;
@@ -97,15 +97,15 @@ int index_max_child_grandchild(heap_t* h, int i) {
   return min_idx;
 }
 
-int index_min_child_grandchild(heap_t* h, int i) {
-  int a = first_child(i);
-  int b = second_child(i);
-  int c = first_child(a);
-  int d = second_child(a);
-  int e = first_child(b);
-  int f = second_child(b);
+uint32_t index_min_child_grandchild(heap_t* h, uint32_t i) {
+  uint32_t a = first_child(i);
+  uint32_t b = second_child(i);
+  uint32_t c = first_child(a);
+  uint32_t d = second_child(a);
+  uint32_t e = first_child(b);
+  uint32_t f = second_child(b);
 
-  int min_idx = -1;
+  uint32_t min_idx = -1;
   if (a <= h->count) min_idx = a;
   if (b <= h->count && heap_lt(h, b, min_idx)) min_idx = b;
   if (c <= h->count && heap_lt(h, c, min_idx)) min_idx = c;
@@ -116,8 +116,8 @@ int index_min_child_grandchild(heap_t* h, int i) {
   return min_idx;
 }
 
-static void trickledown_max(heap_t* h, int i) {
-  int m = index_max_child_grandchild(h, i);
+static void trickledown_max(heap_t* h, uint32_t i) {
+  uint32_t m = index_max_child_grandchild(h, i);
   if (m <= -1) return;
   if (m > second_child(i)) {
     // m is a grandchild
@@ -134,8 +134,8 @@ static void trickledown_max(heap_t* h, int i) {
   }
 }
 
-static void trickledown_min(heap_t* h, int i) {
-  int m = index_min_child_grandchild(h, i);
+static void trickledown_min(heap_t* h, uint32_t i) {
+  uint32_t m = index_min_child_grandchild(h, i);
   if (m <= -1) return;
   if (m > second_child(i)) {
     // m is a grandchild
@@ -152,7 +152,7 @@ static void trickledown_min(heap_t* h, int i) {
   }
 }
 
-static void trickledown(heap_t* h, int i) {
+static void trickledown(heap_t* h, uint32_t i) {
   if (is_min(i)) {
     trickledown_min(h, i);
   } else {
@@ -190,7 +190,7 @@ void* mmh_pop_min(heap_t* h) {
 
 void* mmh_pop_max(heap_t* h) {
   if (h->count > 2) {
-    int idx = 2;
+    uint32_t idx = 2;
     if (heap_lt(h, 2, 3)) idx = 3;
     void* d = h->data[idx];
     h->data[idx] = h->data[h->count--];
@@ -233,7 +233,7 @@ void* mmh_peek_max(const heap_t* h) {
 
 // void mmh_dump(heap_t* h) {
 //   printf("count is %d, elements are:\n\t [", h->count);
-//   for (int i = 1; i <= h->count; i++) {
+//   for (uint32_t i = 1; i <= h->count; i++) {
 //     printf(" %d ", h->data[i]);
 //   }
 //   printf("]\n");
