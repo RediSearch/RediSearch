@@ -84,8 +84,10 @@ static void FGC_sendFixed(ForkGC *fgc, const void *buff, size_t len) {
   ssize_t size = write(fgc->pipefd[GC_WRITERFD], buff, len);
   if (size != len) {
     if (size == -1) {
-      perror("write()");
-      abort();
+      perror("broken pipe, exiting GC fork: write() failed");
+      // just exit, do not abort(), which will trigger a watchdog on RLEC, causing adverse effects
+      RedisModule_Log(NULL, "warning", "GC fork: broken pipe, exiting");
+      exit(1);
     } else {
       RS_LOG_ASSERT(size == len, "buffer failed to write");
     }
