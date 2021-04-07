@@ -24,6 +24,7 @@ if [[ $1 == --help || $1 == help ]]; then
 		REJSON_PATH=path      RedisJSON module path (implies REJSON=1)
 		REJSON_MODARGS=args   RedisJSON module arguments
 		REDIS_VERBOSE=0|1     (legacy) Verbose ouput
+		CONFIG_FILE=file      Path to config file
 
 		VERBOSE=1          Print commands and Redis output
 		IGNERR=1           Do not abort on error
@@ -112,8 +113,8 @@ $@
 EOF
 
 # Use configuration file in the current directory if it exists
-if [[ -e rltest.config ]]; then
-	cat rltest.config >> $config
+if [[ -n $CONFIG_FILE && -e $CONFIG_FILE ]]; then
+	cat $CONFIG_FILE >> $config
 fi
 
 if [[ $VERBOSE == 1 ]]; then

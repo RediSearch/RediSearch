@@ -24,6 +24,7 @@ make -j$CI_CONCURRENCY
 cat >rltest.config <<EOF
 --unix
 EOF
+export CONFIG_FILE="$HERE/rltest.config"
 
 ./lcov-init.sh
 ctest --output-on-failure -j$CI_CONCURRENCY
