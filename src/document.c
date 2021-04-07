@@ -478,6 +478,9 @@ FIELD_BULK_INDEXER(numericIndexer) {
 FIELD_PREPROCESSOR(geoPreprocessor) {
   // TODO: streamline
   const char *c = RedisModule_StringPtrLen(field->text, NULL);
+  if (*c == '"') {
+    c += 1;
+  }
   char *pos = strpbrk(c, " ,");
   if (!pos) {
     QueryError_SetCode(status, QUERY_EGEOFORMAT);
@@ -488,8 +491,8 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
 
   char *end1 = NULL, *end2 = NULL;
   double lon = strtod(c, &end1);
-  double lat = strtod(pos, &end2);
-  if (*end1 || *end2) {
+  double lat = strtod(pos, &end2); /// failing here
+  if (*end1 || (*end2 && *end2 != '"')) {
     return REDISMODULE_ERR;
   }
 
