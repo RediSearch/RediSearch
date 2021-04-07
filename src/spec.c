@@ -441,7 +441,6 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
       fieldPath = NULL;
     }
 
-
     if (IndexSpec_GetField(sp, fieldName, namelen)) {
       QueryError_SetErrorFmt(status, QUERY_EINVAL, "Duplicate field in schema - %s", fieldName);
       goto reset;
@@ -2109,7 +2108,7 @@ void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
       if (specOp->op == SpecOp_Add) {
         IndexSpec_UpdateDoc(specOp->spec, ctx, key, type);
       } else {
-        IndexSpec_DeleteHash(specOp->spec, ctx, key);
+        IndexSpec_DeleteDoc(specOp->spec, ctx, key);
       }
     }
   }
