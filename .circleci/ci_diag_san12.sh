@@ -46,7 +46,7 @@ fi
 
 make -j$CI_CONCURRENCY
 
-exprot REDIS_SERVER=redis-server-${mode}
+export REDIS_SERVER=redis-server-${mode}
 cat >rltest.config <<EOF
 --oss-redis-path=$REDIS_SERVER
 --no-output-catch
