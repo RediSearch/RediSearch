@@ -45,8 +45,9 @@ make -j$CI_CONCURRENCY
 
 ## Add some configuration options to our rltest file
 
+exprot REDIS_SERVER=${SAN_PREFIX}/bin/redis-server-${mode}
 cat >rltest.config <<EOF
---oss-redis-path=${SAN_PREFIX}/bin/redis-server-${mode}
+--oss-redis-path=$REDIS_SERVER
 --no-output-catch
 --exit-on-failure
 --check-exitcode

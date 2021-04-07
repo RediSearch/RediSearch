@@ -23,6 +23,7 @@ if [[ $1 == --help || $1 == help ]]; then
 		REJSON=0|1|get        Also load RedisJSON module (get: force download from S3)
 		REJSON_PATH=path      RedisJSON module path (implies REJSON=1)
 		REJSON_MODARGS=args   RedisJSON module arguments
+		REDIS_SERVER=path     Redis Server command
 		REDIS_VERBOSE=0|1     (legacy) Verbose ouput
 		CONFIG_FILE=file      Path to config file
 
@@ -55,8 +56,10 @@ export PYTHONPATH
 
 #---------------------------------------------------------------------------------------------- 
 
-if ! command -v redis-server > /dev/null; then
-	echo "Cannot find redis-server. Aborting."
+REDIS_SERVER=${REDIS_SERVER:-redis-server}
+
+if ! command -v $REDIS_SERVER > /dev/null; then
+	echo "Cannot find $REDIS_SERVER. Aborting."
 	exit 1
 fi
 
