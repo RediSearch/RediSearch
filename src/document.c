@@ -269,11 +269,16 @@ static int AddDocumentCtx_ReplaceMerge(RSAddDocumentCtx *aCtx, RedisSearchCtx *s
   int rv = REDISMODULE_ERR;
 
   Document_Clear(aCtx->doc);
-  // Uncovered
+  /*******************************************
+   *******************************************
+   * Path is not covered and is not relevant *
+   *******************************************
+   *******************************************/
+
   /* SchemaRuleType ruleType = sctx->spec->rule->type;
   // TODO: SchemaRuleType_Any
   if (ruleType == SchemaRuleType_Hash) { */
-    rv = Document_LoadSchemaFieldHash(aCtx->doc, sctx);
+  rv = Document_LoadSchemaFieldHash(aCtx->doc, sctx);
   /*} else if (ruleType == SchemaRuleType_Json) {
     rv = Document_LoadSchemaFieldJson(aCtx->doc, sctx);
   }*/

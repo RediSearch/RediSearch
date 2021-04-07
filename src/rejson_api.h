@@ -5,6 +5,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
 typedef enum JSONType {
     JSONType_String = 0,
     JSONType_Int = 1,
@@ -22,26 +23,49 @@ typedef const void *RedisJSON;
 typedef struct RedisJSONAPI_V1 {
     /* RedisJSONKey functions */
     RedisJSONKey (*openKey)(RedisModuleCtx *ctx, RedisModuleString *key_name);
+    RedisJSONKey (*openKeyFromStr)(RedisModuleCtx *ctx, const char *path);
+
     void (*closeKey)(RedisJSONKey key);
+
     /* RedisJSON functions
      * Return NULL if path does not exist
      * `count` can be NULL and return 0 for non array/object
      **/
     RedisJSON (*get)(RedisJSONKey key, const char *path, JSONType *type, size_t *count);
+
     RedisJSON (*getAt)(RedisJSON jsonIn, size_t index, JSONType *type, size_t *count);
+
     void (*close)(RedisJSON json);
+
     /* RedisJSON value functions
      * Return REDISMODULE_OK if RedisJSON is of the correct JSONType,
      * else REDISMODULE_ERR is returned
      **/
+    // Return int value from a Numeric, String or Bool field
     int (*getInt)(RedisJSON json, long long *integer);
+    int (*getIntFromKey)(RedisJSONKey key, const char *path, long long *integer);
+
+    // Return double value from a Numeric, String or Bool field
     int (*getDouble)(RedisJSON json, double *dbl);
+    int (*getDoubleFromKey)(RedisJSONKey key, const char *path, double *dbl);
+
+    // Return 0 or 1 as int value from a Numeric, String or Bool field
+    // Empty String returns 0
     int (*getBoolean)(RedisJSON json, int *boolean);
-    int (*getString)(RedisJSON json, char **str, size_t *len);
-    
-    int (*replyWith)(RedisModuleCtx *ctx, RedisJSON json);
+    int (*getBooleanFromKey)(RedisJSONKey key, const char *path, int *boolean);
+
+    // Callee has ownership of `str` - valid until api `close` is called
+    // Return the String or the String representation for Numeric or Bool
+    // FIXME: Handle null field
+    int (*getString)(RedisJSON json, const char **str, size_t *len);
+    int (*getStringFromKey)(RedisJSONKey key, const char *path, const char **str, size_t *len);
+
+    // Caller gains ownership of `str`
+    int (*getRedisModuleString)(RedisJSON json, RedisModuleString **str);
+    int (*getRedisModuleStringFromKey)(RedisJSONKey key, const char *path, RedisModuleString **str);
 } RedisJSONAPI_V1;
 
 #ifdef __cplusplus
 }
 #endif
+
