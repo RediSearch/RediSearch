@@ -52,7 +52,7 @@ cat >rltest.config <<EOF
 --check-exitcode
 --unix
 EOF
-export CONFIG_FILE="$HERE/rltest.config"
+export CONFIG_FILE="$PWD/rltest.config"
 
 export ASAN_OPTIONS=detect_odr_violation=0
 export RS_GLOBAL_DTORS=1
