@@ -59,9 +59,9 @@ SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, IndexSpec *spec, QueryError 
   }
 
   rule->filter_exp_str = args->filter_exp_str ? rm_strdup(args->filter_exp_str) : NULL;
-  rule->lang_field = rm_strdup(args->lang_field ? args->lang_field : UNDERSCORE_LANGUAGE);
-  rule->score_field = rm_strdup(args->score_field ? args->score_field : UNDERSCORE_SCORE);
-  rule->payload_field = rm_strdup(args->payload_field ? args->payload_field : UNDERSCORE_PAYLOAD);
+  rule->lang_field = args->lang_field ? rm_strdup(args->lang_field) : NULL;
+  rule->score_field = args->score_field ? rm_strdup(args->score_field) : NULL;
+  rule->payload_field = args->payload_field ? rm_strdup(args->payload_field) : NULL;
 
   if (args->score_default) {
     double score;
@@ -206,6 +206,9 @@ done:
 RedisModuleString *SchemaRule_HashPayload(RedisModuleCtx *rctx, const SchemaRule *rule,
                                           RedisModuleKey *key, const char *kname) {
   RedisModuleString *payload_rms = NULL;
+  if (!rule->payload_field) {
+    return NULL;
+  }
   const char *payload_field = rule->payload_field ? rule->payload_field : UNDERSCORE_PAYLOAD;
   int rv = RedisModule_HashGet(key, REDISMODULE_HASH_CFIELDS, payload_field, &payload_rms, NULL);
   if (rv != REDISMODULE_OK) {

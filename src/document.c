@@ -708,7 +708,7 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
   md->score = doc->score;
   // Set the payload if needed
   if (doc->payload) {
-    DocTable_SetPayload(&sctx->spec->docs, docId, doc->payload, doc->payloadSize);
+    DocTable_SetPayload(&sctx->spec->docs, md, doc->payload, doc->payloadSize);
   }
 
   if (aCtx->stateFlags & ACTX_F_SORTABLES) {

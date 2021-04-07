@@ -75,7 +75,7 @@ static int renderIndexDefinitions(RedisModuleCtx *ctx, IndexSpec *sp) {
     REPLY_KVNUM(n, "default_score", rule->score_default);
   }
 
-  if (rule->lang_field) {
+  if (rule->score_field) {
     REPLY_KVSTR(n, "score_field", rule->score_field);
   }
 

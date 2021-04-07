@@ -237,7 +237,7 @@ static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, Re
 }
 
 /** Assigns a document ID to a single document. */
-static int makeDocumentId(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, int replace,
+static RSDocumentMetadata *makeDocumentId(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, int replace,
                           QueryError *status) {
   IndexSpec *spec = sctx->spec;
   DocTable *table = &spec->docs;
@@ -257,15 +257,14 @@ static int makeDocumentId(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, int repl
   size_t n;
   const char *s = RedisModule_StringPtrLen(doc->docKey, &n);
 
-  doc->docId =
+  RSDocumentMetadata *dmd =
       DocTable_Put(table, s, n, doc->score, aCtx->docFlags, doc->payload, doc->payloadSize, doc->type);
-  if (doc->docId == 0) {
-    QueryError_SetError(status, QUERY_EDOCEXISTS, NULL);
-    return -1;
+  if (dmd) {
+    doc->docId = dmd->id;
+    ++spec->stats.numDocuments;
   }
-  ++spec->stats.numDocuments;
 
-  return 0;
+  return dmd;
 }
 
 /**
@@ -282,24 +281,23 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
     }
 
     RS_LOG_ASSERT(!cur->doc->docId, "docId must be 0");
-    int rv = makeDocumentId(cur, ctx, cur->options & DOCUMENT_ADD_REPLACE, &cur->status);
-    if (rv != 0) {
+    RSDocumentMetadata *md = makeDocumentId(cur, ctx, cur->options & DOCUMENT_ADD_REPLACE, &cur->status);
+    if (!md) {
       cur->stateFlags |= ACTX_F_ERRORED;
       continue;
     }
 
-    RSDocumentMetadata *md = DocTable_Get(&spec->docs, cur->doc->docId);
     md->maxFreq = cur->fwIdx->maxFreq;
     md->len = cur->fwIdx->totalFreq;
 
     if (cur->sv) {
-      DocTable_SetSortingVector(&spec->docs, cur->doc->docId, cur->sv);
+      DocTable_SetSortingVector(&spec->docs, md, cur->sv);
       cur->sv = NULL;
     }
 
     if (cur->byteOffsets) {
       ByteOffsetWriter_Move(&cur->offsetsWriter, cur->byteOffsets);
-      DocTable_SetByteOffsets(&spec->docs, cur->doc->docId, cur->byteOffsets);
+      DocTable_SetByteOffsets(&spec->docs, md, cur->byteOffsets);
       cur->byteOffsets = NULL;
     }
   }
