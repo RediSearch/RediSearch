@@ -15,6 +15,7 @@ void Document_Init(Document *doc, RedisModuleString *docKey, double score, RSLan
   doc->type = type;
 }
 
+// Nor related to AS attribute. Used by LLAPI.
 static DocumentField *addFieldCommon(Document *d, const char *fieldname, uint32_t typemask) {
   d->fields = rm_realloc(d->fields, (++d->numFields) * sizeof(*d->fields));
   DocumentField *f = d->fields + d->numFields - 1;
@@ -67,7 +68,10 @@ void Document_MakeStringsOwner(Document *d) {
 
   for (size_t ii = 0; ii < d->numFields; ++ii) {
     DocumentField *f = d->fields + ii;
-    f->name = rm_strdup(f->name);
+    if (f->path != f->name) {
+      f->name = rm_strdup(f->name);
+    }
+    f->path = rm_strdup(f->path);
     if (f->text) {
       RedisModuleString *oldText = f->text;
       f->text = RedisModule_CreateStringFromString(RSDummyContext, oldText);
@@ -119,6 +123,7 @@ int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx) {
     FieldSpec *field = &spec->fields[ii];
     const char *fpath = field->path;
     RedisModuleString *v = NULL;
+    // Hash command is not related to other type such as JSON
     RedisModule_HashGet(k, REDISMODULE_HASH_CFIELDS, fpath, &v, NULL);
     if (v == NULL) {
       continue;
@@ -145,6 +150,7 @@ int Document_LoadAllFields(Document *doc, RedisModuleCtx *ctx) {
   int rc = REDISMODULE_ERR;
   RedisModuleCallReply *rep = NULL;
 
+  // Hash command is not related to other type such as JSON
   rep = RedisModule_Call(ctx, "HGETALL", "s", doc->docKey);
   if (rep == NULL || RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_ARRAY) {
     goto done;
@@ -183,6 +189,7 @@ int Document_ReplyAllFields(RedisModuleCtx *ctx, IndexSpec *spec, RedisModuleStr
   int rc = REDISMODULE_ERR;
   RedisModuleCallReply *rep = NULL;
 
+  // Hash command is not related to other type such as JSON. Used for FT.GET which is deprecated.
   rep = RedisModule_Call(ctx, "HGETALL", "s", id);
   if (rep == NULL || RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_ARRAY) {
     RedisModule_ReplyWithArray(ctx, 0);
