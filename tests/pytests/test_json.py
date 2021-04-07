@@ -34,13 +34,14 @@ def testSearch(env):
     # TODO: Test PREFIX, SORTBY, NOSTEM, Fuzzy, Pagination, Limit 0 0, Score - Or just repeat all search on hash tests?
 
     # No results before ingestion
-    env.expect('ft.search', 'idx1', 'rice*').equal([0L])
+    #json.ge    env.expect('ft.search', 'idx1', 'rice*').equal([0L])
 
     # Set another value after index was defined
     plain_val_2 = r'{"t":"riceratops","n":9}'
     env.expect('json.set', 'doc:2', '$', plain_val_2).ok()
     env.expect('json.get', 'doc:2', '$').equal(plain_val_2)
     env.expect('json.get', 'doc:2', '$.n').equal('9')
+    env.expect('json.get', 'doc:2', '$.t').equal('"riceratops"')
 
     # FIXME: Enable next line when json bulk string is printed in the result
     #env.assertEquals(res, [2L, 'doc:1', ['$', plain_val_1], 'doc:2', ['$', plain_val_2]])
@@ -91,9 +92,9 @@ def testSearch(env):
                                                     'doc:1', ['$', '{"t":"hescelosaurus","n":12}'],
                                                     'doc:4', ['$', '{"t":"\xe3\x83\x89\xe3\x83\xa9\xe3\x82\xb4\xe3\x83\xb3","n":5}'],
                                                     'doc:5', ['$', '{"t":"\xe8\xb8\xaa\xe8\xbf\xb9","n":5}']])
-
-
-    env.expect('ft.search', 'idx1', 'riceratops', 'RETURN', '1', '$').equal([1L, 'doc:2', ['$', '{"t":"riceratops","n":9}']])
+    
+    # for now, can't load a fieldwhich was not specified
+    # env.expect('ft.search', 'idx1', 'riceratops', 'RETURN', '1', '$').equal([1L, 'doc:2', ['$', '{"t":"riceratops","n":9}']])
     env.expect('ft.search', 'idx1', 'riceratops', 'RETURN', '1', '$.t').equal([1L, 'doc:2', ['$.t', '"riceratops"']])
 
 def add_values(env, number_of_iterations=1):
@@ -136,3 +137,35 @@ def testAggregate(env):
                                   ['$.brand', '"steelseries"', 'count', '37'],
                                   ['$.brand', '"logitech"', 'count', '35']])
     # FIXME: Test FT.AGGREGATE params
+
+def testDemo(env):
+    conn = getConnectionByEnv(env)
+
+    # Set a value before index is defined
+    tlv = r'{"iata":"TLV","name":"Ben Gurion International Airport","location":"34.8866997,32.01139832"}'
+    sfo = r'{"iata":"SFO","name":"San Francisco International Airport","location":"-122.375,37.6189995"}'
+    tlv_doc = [1L, 'A:TLV', ['$', tlv]]
+    sfo_doc = [1L, 'A:SFO', ['$', sfo]]
+
+    env.expect('FT.CREATE airports ON JSON SCHEMA $.iata AS iata TAG SORTABLE                 \
+                                                  $.iata AS iata_txt TEXT NOSTEM              \
+                                                  $.name AS name TEXT NOSTEM PHONETIC dm:en   \
+                                                  $.location AS location GEO').ok()
+    env.expect('json.set', 'A:TLV', '$', tlv).ok()
+    env.expect('json.set', 'A:SFO', '$', sfo).ok()
+
+    info = env.cmd('FT.INFO airports')
+    env.assertEqual(info[0:2], ['index_name', 'airports'])
+    env.assertEqual(info[5][0:2], ['key_type', 'JSON'])
+    env.assertEqual(info[7], [['iata', 'type', 'TAG', 'SEPARATOR', ',', 'SORTABLE'],
+                              ['iata_txt', 'type', 'TEXT', 'WEIGHT', '1', 'NOSTEM'],
+                              ['name', 'type', 'TEXT', 'WEIGHT', '1', 'NOSTEM'],
+                              ['location', 'type', 'GEO']])
+    env.assertEqual(info[8:10], ['num_docs', '2'])
+
+    env.expect('FT.SEARCH', 'airports', 'TLV').equal(tlv_doc)
+    env.expect('FT.SEARCH', 'airports', 'TL*').equal(tlv_doc)
+    env.expect('FT.SEARCH', 'airports', 'sen frensysclo').equal(sfo_doc)
+    env.expect('FT.SEARCH', 'airports', '@location:[-122.41 37.77 100 km]').equal(sfo_doc)
+    env.expect('FT.SEARCH', 'airports', 'sfo', 'RETURN', '3', '$.name', 'AS', 'name')       \
+                .equal([1L, 'A:SFO', ['name', '"San Francisco International Airport"']])
