@@ -189,7 +189,7 @@ else
 endif
 
 pytest:
-	TEST=$(TEST) GDB=$(GDB) RLTEST_ARGS="$(RLTEST_ARGS)" $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
+	@TEST=$(TEST) GDB=$(GDB) RLTEST_ARGS="$(RLTEST_ARGS)" $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
 
 ifeq ($(GDB),1)
 GDB_CMD=gdb -ex r --args
