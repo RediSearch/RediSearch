@@ -21,6 +21,7 @@ if [[ $1 == --help || $1 == help ]]; then
 		TEST=name             Operate in single-test mode
 		GDB=0|1               Enable interactive gdb debugging (in single-test mode)
 		REJSON=0|1|get        Also load RedisJSON module (get: force download from S3)
+		REJSON_BRANCH=branch  Use a snapshot of given branch name
 		REJSON_PATH=path      RedisJSON module path (implies REJSON=1)
 		REJSON_MODARGS=args   RedisJSON module arguments
 		REDIS_SERVER=path     Redis Server command
@@ -56,15 +57,6 @@ export PYTHONPATH
 
 #---------------------------------------------------------------------------------------------- 
 
-REDIS_SERVER=${REDIS_SERVER:-redis-server}
-
-if ! command -v $REDIS_SERVER > /dev/null; then
-	echo "Cannot find $REDIS_SERVER. Aborting."
-	exit 1
-fi
-
-#---------------------------------------------------------------------------------------------- 
-
 MODULE="$1"
 shift
 
@@ -78,6 +70,15 @@ fi
 
 #---------------------------------------------------------------------------------------------- 
 
+REDIS_SERVER=${REDIS_SERVER:-redis-server}
+
+if ! command -v $REDIS_SERVER > /dev/null; then
+	echo "Cannot find $REDIS_SERVER. Aborting."
+	exit 1
+fi
+
+#---------------------------------------------------------------------------------------------- 
+
 # ARGS="--clear-logs"
 # ARGS="--unix"
 
@@ -87,6 +88,8 @@ fi
 
 #---------------------------------------------------------------------------------------------- 
 
+REJSON_BRANCH=${REJSON_BRANCH:-feature-search-json}
+
 [[ -n $REJSON_PATH ]] && REJSON=1
 if [[ -n $REJSON && $REJSON != 0 ]]; then
 	platform=`$READIES/bin/platform -t`
@@ -95,7 +98,7 @@ if [[ -n $REJSON && $REJSON != 0 ]]; then
 		REJSON_MODULE="$REJSON_PATH"
 	else
 		REJSON_MODULE="$ROOT/bin/$platform/RedisJSON/rejson.so"
-		[[ ! -f $REJSON_MODULE || $REJSON == get ]] && $OP $ROOT/sbin/get-rejson
+		[[ ! -f $REJSON_MODULE || $REJSON == get ]] && BRANCH=$REJSON_BRANCH $OP $ROOT/sbin/get-redisjson
 		REJSON_ARGS="--module $REJSON_MODULE"
 	fi
 	REJSON_ARGS+=" --module-args '$REJSON_MODARGS'"

@@ -17,6 +17,7 @@ if [[ "$1" == "--help" || "$1" == "help" || "$HELP" == "1" ]]; then
 		OSNICK=nick     Get binaries for given osnick
 		BRANCH=name     Use given branch
 		REPO_PATH=dir   Get binaries from given repo path
+		FORCE=1         Download module even if already present
 		NOP=1           No operation
 		HELP=1          Show help
 
@@ -74,7 +75,7 @@ MOD_RAMP="rejson.${platform}.$BRANCH.zip"
 
 FINAL_JSON_DIR="$ROOT/bin/$($READIES/bin/platform -t)/RedisJSON"
 
-if [[ -d $FINAL_JSON_DIR && -f $FINAL_JSON_DIR/rejson.so ]]; then
+if [[ $FORCE != 1 && -d $FINAL_JSON_DIR && -f $FINAL_JSON_DIR/rejson.so ]]; then
 	echo "RedisJSON is in ${FINAL_JSON_DIR}"
 	exit 0
 fi
@@ -86,7 +87,7 @@ $OP mkdir -p $WORK_DIR
 
 if [[ -z $REPO_PATH ]]; then
 	F_MOD_RAMP="$WORK_DIR/$MOD_RAMP"
-	if [[ ! -f $F_MOD_RAMP ]]; then
+	if [[ $FORCE == 1 || ! -f $F_MOD_RAMP ]]; then
 		echo "Download RedisJSON ..."
 		$OP wget -P $WORK_DIR $MOD_S3_URL/$MOD_RAMP
 	fi
