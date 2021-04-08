@@ -21,11 +21,13 @@ make run           # run redis with RediSearch
 
 make test          # run all tests (via ctest)
   TEST=regex
+  TESTDEBUG=1        # be very verbose (CTest-related)
+  CTEST_ARG=...      # pass args to CTest
 make pytest        # run python tests (tests/pytests)
   TEST=name          # e.g. TEST=test:testSearch
   RLTEST_ARGS=...    # pass args to RLTest
-  CTEST_ARG=...      # pass args to CTest
-  TESTDEBUG=1        # be very verbose (CTest-related)
+  REJSON=1|0         # Also load RedisJSON module
+  REJSON_PATH=path   # use RedisJSON module at `path`
   GDB=1              # RLTest interactive debugging
 make c_tests       # run C tests (from tests/ctests)
 make cpp_tests     # run C++ tests (from tests/cpptests)
@@ -173,6 +175,8 @@ run:
 
 #----------------------------------------------------------------------------------------------
 
+export REJSON ?= 1
+
 ifeq ($(TESTDEBUG),1)
 override CTEST_ARGS += --debug
 endif
@@ -184,25 +188,8 @@ else
 	@set -e; cd $(BINROOT); ctest
 endif
 
-ifeq ($(GDB),1)
-RLTEST_GDB=-i
-endif
-
-ifneq ($(MOD_ARGS),)
-override RLTEST_ARGS+=--module-args $(MOD_ARGS)
-endif
-
 pytest:
-	@set -e ;\
-	if ! command -v redis-server > /dev/null; then \
-		echo "Cannot find redis-server. Aborting." ;\
-		exit 1 ;\
-	fi
-ifneq ($(TEST),)
-	@cd tests/pytests; PYDEBUG=1 python -m RLTest --test $(TEST) $(RLTEST_GDB) -s -v --module $(abspath $(TARGET)) $(RLTEST_ARGS)
-else
-	@cd tests/pytests; python -m RLTest --module $(abspath $(TARGET))
-endif
+	TEST=$(TEST) GDB=$(GDB) RLTEST_ARGS="$(RLTEST_ARGS)" $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
 
 ifeq ($(GDB),1)
 GDB_CMD=gdb -ex r --args

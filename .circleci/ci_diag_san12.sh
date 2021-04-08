@@ -46,13 +46,15 @@ fi
 
 make -j$CI_CONCURRENCY
 
+export REDIS_SERVER=redis-server-${mode}
 cat >rltest.config <<EOF
---oss-redis-path=redis-server-${mode}
+--oss-redis-path=$REDIS_SERVER
 --no-output-catch
 --exit-on-failure
 --check-exitcode
 --unix
 EOF
+export CONFIG_FILE="$PWD/rltest.config"
 
 export ASAN_OPTIONS=detect_odr_violation=0
 export RS_GLOBAL_DTORS=1
