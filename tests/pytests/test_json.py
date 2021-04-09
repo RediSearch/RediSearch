@@ -42,7 +42,7 @@ def testSearch(env):
     env.expect('json.get', 'doc:2', '$').equal(plain_val_2)
     env.expect('json.get', 'doc:2', '$.n').equal('9')
     env.expect('json.get', 'doc:2', '$.t').equal('"riceratops"')
-
+    '''
     # FIXME: Enable next line when json bulk string is printed in the result
     #env.assertEquals(res, [2L, 'doc:1', ['$', plain_val_1], 'doc:2', ['$', plain_val_2]])
     env.expect('ft.search', 'idx1', '*').equal([2L, 'doc:1', ['$', plain_val_1], 'doc:2', ['$', plain_val_2]])
@@ -92,9 +92,10 @@ def testSearch(env):
                                                     'doc:1', ['$', '{"t":"hescelosaurus","n":12}'],
                                                     'doc:4', ['$', '{"t":"\xe3\x83\x89\xe3\x83\xa9\xe3\x82\xb4\xe3\x83\xb3","n":5}'],
                                                     'doc:5', ['$', '{"t":"\xe8\xb8\xaa\xe8\xbf\xb9","n":5}']])
-    
+    '''
     # for now, can't load a fieldwhich was not specified
-    # env.expect('ft.search', 'idx1', 'riceratops', 'RETURN', '1', '$').equal([1L, 'doc:2', ['$', '{"t":"riceratops","n":9}']])
+    env.expect('ft.search', 'idx1', 'riceratops', 'RETURN', '1', '$').equal([1L, 'doc:2', ['$', '{"t":"riceratops","n":9}']])
+    env.expect('ft.search', 'idx1', 'riceratops', 'RETURN', '1', '$.n').equal([1L, 'doc:2', ['$.n', '9']])
     env.expect('ft.search', 'idx1', 'riceratops', 'RETURN', '1', '$.t').equal([1L, 'doc:2', ['$.t', '"riceratops"']])
 
 def add_values(env, number_of_iterations=1):

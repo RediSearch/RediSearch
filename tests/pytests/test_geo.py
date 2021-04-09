@@ -8,14 +8,17 @@ def testGeoHset(env):
   conn.execute_command('HSET', 'geo3', 'g', '"1.23,4.56"')
   conn.execute_command('HSET', 'geo4', 'g', '\"1.23,4.56\"')
   conn.execute_command('HSET', 'geo5', 'g', '\\"1.23,4.56\\"')
-  env.expect('FT.SEARCH', 'idx', '@g:[1.23 4.56 1 km]').equal([1L, 'geo2', ['g', '1.23,4.56']])
+  env.expect('FT.SEARCH', 'idx', '@g:[1.23 4.56 1 km]').equal([3L, 'geo2', ['g', '1.23,4.56'],
+                                                                   'geo3', ['g', '"1.23,4.56"'],
+                                                                   'geo4', ['g', '"1.23,4.56"']])
 
 def testGeoFtAdd(env):
   env.expect('FT.CREATE idx SCHEMA g GEO').ok()
   env.expect('FT.ADD', 'idx', 'geo1', '1', 'FIELDS', 'g', '1.23', '4.56').error().contains('Fields must be specified in FIELD VALUE pairs')
   env.expect('FT.ADD', 'idx', 'geo2', '1', 'FIELDS', 'g', '1.23,4.56').ok()
   env.expect('FT.ADD', 'idx', 'geo3', '1', 'FIELDS', 'g', '"1.23,4.56"').ok() # this is an error and won't index
-  env.expect('FT.SEARCH', 'idx', '@g:[1.23 4.56 1 km]').equal([1L, 'geo2', ['g', '1.23,4.56']])
+  env.expect('FT.SEARCH', 'idx', '@g:[1.23 4.56 1 km]').equal([2L, 'geo2', ['g', '1.23,4.56'],
+                                                                   'geo3', ['g', '"1.23,4.56"']] )
 
 def testGeoDistanceSimple(env):
   env.skipOnCluster()
