@@ -186,7 +186,7 @@ test:
 ifneq ($(TEST),)
 	@set -e; cd $(BINROOT); CTEST_OUTPUT_ON_FAILURE=1 RLTEST_ARGS="-s -v" ctest $(CTEST_ARGS) -vv -R $(TEST)
 else
-	@set -e; cd $(BINROOT); ctest
+	@set -e; cd $(BINROOT); ctest $(CTEST_ARGS)
 endif
 
 pytest:

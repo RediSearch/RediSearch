@@ -59,4 +59,4 @@ export CONFIG_FILE="$PWD/rltest.config"
 export ASAN_OPTIONS=detect_odr_violation=0
 export RS_GLOBAL_DTORS=1
 
-ctest --output-on-failure -j$CI_CONCURRENCY
+COMPAT_DIR="build-${mode}" make test CTEST_ARGS="--output-on-failure -j$CI_CONCURRENCY"

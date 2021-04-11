@@ -12,8 +12,8 @@ if [[ ! -z $USE_COVERAGE ]]; then
     ./lcov-init.sh
 fi
 
-ctest -V
+make test CTEST_ARGS="-V"
+
 if [[ ! -z $USE_COVERAGE ]]; then
-	
     ./lcov-capture.sh $ROOT/coverage
 fi
