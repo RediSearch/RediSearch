@@ -61,4 +61,4 @@ export RS_GLOBAL_DTORS=1
 # FIXME: Need to change the image once this actually works..
 ln -sf /usr/bin/llvm-symbolizer-4.0 /usr/bin/llvm-symbolizer || true
 
-COMPAT_DIR="build-${mode}" make -C $ROOT test CTEST_ARGS="--output-on-failure -j$CI_CONCURRENCY"
+COMPAT_DIR="$ROOT/build-${mode}" make -C $ROOT test CTEST_ARGS="--output-on-failure -j$CI_CONCURRENCY"

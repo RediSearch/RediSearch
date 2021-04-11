@@ -12,7 +12,7 @@ if [[ ! -z $USE_COVERAGE ]]; then
     ./lcov-init.sh
 fi
 
-make test CTEST_ARGS="-V"
+COMPAT_DIR="$ROOT/$BUILD_DIR" make -C $ROOT test CTEST_ARGS="-V"
 
 if [[ ! -z $USE_COVERAGE ]]; then
     ./lcov-capture.sh $ROOT/coverage
