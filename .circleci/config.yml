@@ -47,6 +47,8 @@ commands:
           command: bash -l -c "COMPAT_DIR=$BUILD_DIR make pack"
           environment:
             - PACKAGE_NAME: redisearch-oss
+      - store_artifacts:
+          path: tests/pytest/logs
       - early_return_for_forked_pull_requests
       - persist_to_workspace:
           root: artifacts
@@ -64,8 +66,6 @@ jobs:
       - BUILD_DIR: build-debian
     steps:
       - ci_steps
-      - store_artifacts:
-          path: build-debian/logs
 
   centos:
     docker:
@@ -74,8 +74,6 @@ jobs:
       - BUILD_DIR: build-el
     steps:
       - ci_steps
-      - store_artifacts:
-          path: build-el/logs
 
   macos:
     macos:
@@ -84,8 +82,6 @@ jobs:
       - BUILD_DIR: build-macos
     steps:
       - ci_steps
-      - store_artifacts:
-          path: build-macos/logs
 
   deploy_snapshots:
     docker:
@@ -114,7 +110,7 @@ jobs:
           command: bash -l -c "ASAN=1 ./.circleci/ci_diag_san12.sh"
           no_output_timeout: 20m
       - store_artifacts:
-          path: build-asan/logs
+          path: tests/pytest/logs
 
   debug_msan:
     docker:
@@ -127,7 +123,7 @@ jobs:
           command: bash -l -c "MSAN=1 ./.circleci/ci_diag_san12.sh"
           no_output_timeout: 20m
       - store_artifacts:
-          path: build-msan/logs
+          path: tests/pytest/logs
 
   coverage:
     docker:
@@ -143,7 +139,7 @@ jobs:
           path: coverage
           destination: coverage
       - store_artifacts:
-          path: build-coverage/logs
+          path: tests/pytest/logs
 
   deploy_release:
     docker:
