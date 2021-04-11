@@ -4,8 +4,9 @@ set -e
 # set -x
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
-ROOT=$(realpath $HERE/..)
+ROOT=$(cd $HERE/.. && pwd)
 
+BUILD_DIR=${BUILD_DIR:-build}
 cd $ROOT/$BUILD_DIR
 
 if [[ ! -z $USE_COVERAGE ]]; then

@@ -1,7 +1,7 @@
 #!/bin/bash
 
 set -e
-set -x
+# set -x
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 ROOT="$(cd $HERE/.. && pwd)"
@@ -59,4 +59,5 @@ export CONFIG_FILE="$PWD/rltest.config"
 export ASAN_OPTIONS=detect_odr_violation=0
 export RS_GLOBAL_DTORS=1
 
-COMPAT_DIR="$ROOT/build-${mode}" make -C $ROOT test CTEST_ARGS="--output-on-failure -j$CI_CONCURRENCY"
+COMPAT_DIR="$ROOT/build-${mode}" make -C $ROOT test CTEST_ARGS="--output-on-failure"
+#  -j$CI_CONCURRENCY
