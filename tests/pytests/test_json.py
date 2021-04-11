@@ -148,10 +148,14 @@ def testDemo(env):
     tlv_doc = [1L, 'A:TLV', ['$', tlv]]
     sfo_doc = [1L, 'A:SFO', ['$', sfo]]
 
+    env.expect('json.set', 'A:TLV', '$', tlv).ok()
+    env.expect('json.set', 'A:SFO', '$', sfo).ok()
+
     env.expect('FT.CREATE airports ON JSON SCHEMA $.iata AS iata TAG SORTABLE                 \
                                                   $.iata AS iata_txt TEXT NOSTEM              \
                                                   $.name AS name TEXT NOSTEM PHONETIC dm:en   \
                                                   $.location AS location GEO').ok()
+
     env.expect('json.set', 'A:TLV', '$', tlv).ok()
     env.expect('json.set', 'A:SFO', '$', sfo).ok()
 
