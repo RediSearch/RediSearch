@@ -90,7 +90,9 @@ fi
 
 REJSON_BRANCH=${REJSON_BRANCH:-feature-search-json}
 
-[[ -n $REJSON_PATH ]] && REJSON=1
+if [[ -n $REJSON_PATH ]]; then
+	export REJSON=1
+fi
 if [[ -n $REJSON && $REJSON != 0 ]]; then
 	platform=`$READIES/bin/platform -t`
 	if [[ -n $REJSON_PATH ]]; then
@@ -98,7 +100,9 @@ if [[ -n $REJSON && $REJSON != 0 ]]; then
 		REJSON_MODULE="$REJSON_PATH"
 	else
 		REJSON_MODULE="$ROOT/bin/$platform/RedisJSON/rejson.so"
-		[[ ! -f $REJSON_MODULE || $REJSON == get ]] && BRANCH=$REJSON_BRANCH $OP $ROOT/sbin/get-redisjson
+		if [[ ! -f $REJSON_MODULE || $REJSON == get ]]; then
+			BRANCH=$REJSON_BRANCH $OP $ROOT/sbin/get-redisjson
+		fi
 		REJSON_ARGS="--module $REJSON_MODULE"
 	fi
 	REJSON_ARGS+=" --module-args '$REJSON_MODARGS'"
