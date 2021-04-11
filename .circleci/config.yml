@@ -48,7 +48,7 @@ commands:
           environment:
             - PACKAGE_NAME: redisearch-oss
       - store_artifacts:
-          path: tests/pytest/logs
+          path: tests/pytests/logs
       - early_return_for_forked_pull_requests
       - persist_to_workspace:
           root: artifacts
@@ -110,7 +110,7 @@ jobs:
           command: bash -l -c "ASAN=1 ./.circleci/ci_diag_san12.sh"
           no_output_timeout: 20m
       - store_artifacts:
-          path: tests/pytest/logs
+          path: tests/pytests/logs
 
   debug_msan:
     docker:
@@ -123,7 +123,7 @@ jobs:
           command: bash -l -c "MSAN=1 ./.circleci/ci_diag_san12.sh"
           no_output_timeout: 20m
       - store_artifacts:
-          path: tests/pytest/logs
+          path: tests/pytests/logs
 
   coverage:
     docker:
@@ -139,7 +139,7 @@ jobs:
           path: coverage
           destination: coverage
       - store_artifacts:
-          path: tests/pytest/logs
+          path: tests/pytests/logs
 
   deploy_release:
     docker:
