@@ -23,7 +23,7 @@ if [[ $1 == --help || $1 == help ]]; then
 		GDB=0|1               Enable interactive gdb debugging (in single-test mode)
 		REJSON=0|1|get        Also load RedisJSON module (get: force download from S3)
 		REJSON_BRANCH=branch  Use a snapshot of given branch name
-		REJSON_PATH=path      RedisJSON module path (implies REJSON=1)
+		REJSON_PATH=path      RedisJSON module path
 		REJSON_MODARGS=args   RedisJSON module arguments
 		REDIS_SERVER=path     Redis Server command
 		REDIS_VERBOSE=0|1     (legacy) Verbose ouput
@@ -99,9 +99,6 @@ fi
 
 REJSON_BRANCH=${REJSON_BRANCH:-feature-search-json}
 
-if [[ -n $REJSON_PATH ]]; then
-	export REJSON=1
-fi
 if [[ -n $REJSON && $REJSON != 0 ]]; then
 	platform=`$READIES/bin/platform -t`
 	if [[ -n $REJSON_PATH ]]; then

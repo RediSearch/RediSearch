@@ -4,7 +4,7 @@ set -e
 # set -x
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
-ROOT=$(realpath $HERE/..)
+ROOT=$(cd $HERE/.. && pwd)
 cd $ROOT
 
 PROJECT_DIR=$PWD
@@ -21,4 +21,4 @@ if [[ -z $CI_CONCURRENCY ]]; then
 	CI_CONCURRENCY=$($ROOT/deps/readies/bin/nproc)
 fi
 
-make -j$CI_CONCURRENCY
+COMPAT_DIR=$ROOT/$BUILD_DIR make -C $ROOT -j$CI_CONCURRENCY
