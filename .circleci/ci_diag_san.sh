@@ -47,7 +47,6 @@ make -j$CI_CONCURRENCY
 
 export REDIS_SERVER=${SAN_PREFIX}/bin/redis-server-${mode}
 cat >rltest.config <<EOF
---oss-redis-path=$REDIS_SERVER
 --no-output-catch
 --exit-on-failure
 --check-exitcode

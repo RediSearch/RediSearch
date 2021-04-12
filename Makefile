@@ -2,6 +2,14 @@
 ROOT=.
 include deps/readies/mk/main
 
+ifneq ($(VD),)
+VALGRIND=$(VD)
+endif
+
+ifeq ($(VALGRIND),1)
+override DEBUG ?= 1
+endif
+
 define HELP
 make setup         # install prerequisited (CAUTION: THIS WILL MODIFY YOUR SYSTEM)
 make fetch         # download and prepare dependant modules
@@ -29,6 +37,7 @@ make pytest        # run python tests (tests/pytests)
   REJSON=1|0         # Also load RedisJSON module
   REJSON_PATH=path   # use RedisJSON module at `path`
   GDB=1              # RLTest interactive debugging
+  VG=1               # Use Valgrind
 make c_tests       # run C tests (from tests/ctests)
 make cpp_tests     # run C++ tests (from tests/cpptests)
   TEST=name          # e.g. TEST=FGCTest.testRemoveLastBlock
@@ -190,7 +199,7 @@ else
 endif
 
 pytest:
-	@TEST=$(TEST) GDB=$(GDB) RLTEST_ARGS="$(RLTEST_ARGS)" $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
+	@TEST=$(TEST) FORCE= $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
 
 ifeq ($(GDB),1)
 GDB_CMD=gdb -ex r --args
@@ -285,4 +294,3 @@ docker_push: docker
 	docker push redislabs/redisearch:$(MODULE_VERSION)
 
 .PHONY: docker docker_push
-

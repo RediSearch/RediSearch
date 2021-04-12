@@ -19,6 +19,7 @@ if [[ $1 == --help || $1 == help ]]; then
 
 		Argument variables:
 		TEST=name             Operate in single-test mode
+		VG=1|0                Use valgrind
 		GDB=0|1               Enable interactive gdb debugging (in single-test mode)
 		REJSON=0|1|get        Also load RedisJSON module (get: force download from S3)
 		REJSON_BRANCH=branch  Use a snapshot of given branch name
@@ -70,7 +71,15 @@ fi
 
 #---------------------------------------------------------------------------------------------- 
 
-REDIS_SERVER=${REDIS_SERVER:-redis-server}
+if [[ $VG == 1 ]]; then
+	REDIS_SERVER=${REDIS_SERVER:-redis-server-vg}
+	if ! command -v $REDIS_SERVER > /dev/null; then
+		echo Building Redis for Valgrind ...
+		$READIES/bin/getredis -v 6 --valgrind --suffix vg
+	fi
+else
+	REDIS_SERVER=${REDIS_SERVER:-redis-server}
+fi
 
 if ! command -v $REDIS_SERVER > /dev/null; then
 	echo "Cannot find $REDIS_SERVER. Aborting."
@@ -110,14 +119,22 @@ fi
 
 #---------------------------------------------------------------------------------------------- 
 
+if [[ $VG == 1 ]]; then
+	VALGRIND_ARGS=--use-valgrind
+fi
+
+#---------------------------------------------------------------------------------------------- 
+
 config=$(mktemp "${TMPDIR:-/tmp}/rltest.XXXXXXX")
 rm -f $config
 cat << EOF > $config
 
+--oss-redis-path=$REDIS_SERVER
 --module $MODULE
 --module-args '$MODARGS'
 $RLTEST_ARGS
 $REJSON_ARGS
+$VALGRIND_ARGS
 $@
 
 EOF
