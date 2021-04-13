@@ -10,16 +10,45 @@ from RLTest import Env
 
 GAMES_JSON = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'games.json.bz2')
 
-# def testSanity(env):
-#     conn = getConnectionByEnv(env)
-#     conn.execute_command('ft.create', 'idx', 'ON', 'JSON', 'SCHEMA', 't', 'text')
-
-def testSearch(env):
+def testModuleLoadOrder1(env):
     conn = getConnectionByEnv(env)
+    res = conn.execute_command('MODULE', 'LIST')
+    if 'ReJSON' not in res and 'search' not in res:
+    # Get from env var? the path to Search Module redisearch.so
+    # Get from env var? the path to ReJSON Module librejson.so
+    #conn.execute_command('MODULE', 'LOAD', pathToSearchModuleLib)
+    #res = conn.execute_command('MODULE', 'LIST')
+    #env.assertNotContains('search', res)
+    #env.expect('FT.CREATE', 'idxShouldFail', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT').error().contains("some error")
 
     # TODO: test when rejson module is loaded after search
+    # Expected to still be able to search json data (`search` module is able to detect the loading of `ReJSON` module)
+    # Needs to be launched without `--module` parameters in RLTest
+    pass
+
+def testModuleLoadOrder2(env):
+    conn = getConnectionByEnv(env)
+    conn.execute_command("")
     # TODO: test when rejson module is loaded before search
+    # Once both modules are loaded, expected to still be able to search json data
+    # Even data that was set before `search` module was loaded
+
+    # Needs to be launched without `--module` parameters in RLTest
+    pass
+
+def testNoJsonModule(env):
+    conn = getConnectionByEnv(env)
+    conn.execute_command("")
     # TODO: test when rejson module is not loaded (fail gracefully with error messages)
+    pass
+
+def testSearchParams(env):
+    # TODO: Test PREFIX, SORTBY, NOSTEM, Fuzzy, Pagination, Limit 0 0, Score
+    # Not just repeat all search on hash tests - Only when json path is relevant?
+    pass
+
+def testOrderOfIndexAndSet(env):
+    conn = getConnectionByEnv(env)
 
     # Set a value before index is defined
     plain_val_1 = r'{"t":"rex","n":12}'
@@ -28,13 +57,11 @@ def testSearch(env):
 
     # Index creation (PM-889)
     # FIXME: Enable next line to use a numeric value - currently crash when index is defined with NUMERIC
-    #conn.execute_command('FT.CREATE', 'idx1', 'ON', 'JSON', 'SCHEMA', '$.t', 'AS', 'labelT', 'TEXT', '$.n', 'AS', 'labelN', 'NUMERIC')
     conn.execute_command('FT.CREATE', 'idx1', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT')
     waitForIndex(env, 'idx1')
-    # TODO: Test PREFIX, SORTBY, NOSTEM, Fuzzy, Pagination, Limit 0 0, Score - Or just repeat all search on hash tests?
 
     # No results before ingestion
-    #json.ge    env.expect('ft.search', 'idx1', 'rice*').equal([0L])
+    env.expect('ft.search', 'idx1', 'rice*').equal([0L])
 
     # Set another value after index was defined
     plain_val_2 = r'{"t":"riceratops","n":9}'
@@ -42,14 +69,13 @@ def testSearch(env):
     env.expect('json.get', 'doc:2', '$').equal(plain_val_2)
     env.expect('json.get', 'doc:2', '$.n').equal('9')
     env.expect('json.get', 'doc:2', '$.t').equal('"riceratops"')
-    '''
-    # FIXME: Enable next line when json bulk string is printed in the result
-    #env.assertEquals(res, [2L, 'doc:1', ['$', plain_val_1], 'doc:2', ['$', plain_val_2]])
-    env.expect('ft.search', 'idx1', '*').equal([2L, 'doc:1', ['$', plain_val_1], 'doc:2', ['$', plain_val_2]])
-    env.expect('ft.search', 'idx1', '*', 'RETURN', '1', '$.t').equal([2L, 'doc:1', ['$.t', '"rex"'], 'doc:2', ['$.t', '"riceratops"']])
 
-    # FIXME: Enable next line when json bulk string is printed in the result
+    # Find both values (set before and after index creation)
+    env.expect('ft.search', 'idx1', '*', 'RETURN', '1', '$.t').equal([2L, 'doc:1', ['$.t', '"rex"'], 'doc:2', ['$.t', '"riceratops"']])
     env.expect('ft.search', 'idx1', 're*').equal([1L, 'doc:1', ['$', r'{"t":"rex","n":12}']])
+
+def testUpdate(env)
+    conn = getConnectionByEnv(env)
 
     # Update an existing text value
     plain_val_3 = '"hescelosaurus"'
@@ -57,14 +83,10 @@ def testSearch(env):
     env.expect('json.get', 'doc:1', '$.t').equal(plain_val_3)
 
     # TODO: Update an existing numeric value
-    # TODO: test JSON.NUMINCRBY and JSON.NUMMULTBY
-    # TODO: Check null values
-    # TODO: Check arrays
-    # TODO: Check Object/Map
-    # TODO: Fail when result is an Object/Map
-
-    # FIXME: Enable next line when json bulk string is printed in the result
     env.expect('ft.search', 'idx1', 'he*').equal([1L, 'doc:1', ['$', r'{"t":"hescelosaurus","n":12}']])
+
+def testNonEnglish(env)
+    conn = getConnectionByEnv(env)
 
     # Test json in non-English languages
     japanese_value_1 = 'ドラゴン'
@@ -77,11 +99,15 @@ def testSearch(env):
     env.expect('json.set', 'doc:5', '$', chinese_value_1).ok()
     env.expect('json.get', 'doc:5', '$').equal(chinese_value_1)
 
+def testNoContent(env)
+    conn = getConnectionByEnv(env)
+
     # Test NOCONTENT
     env.expect('ft.search', 'idx1', 're*', 'NOCONTENT').equal([0L])
     env.expect('ft.search', 'idx1', 'he*', 'NOCONTENT').equal([1L, 'doc:1'])
 
 
+def testIndexWithAsLabel
     # FIXME: Enable next line when RETURN param supports AS
     #env.expect('ft.search', 'idx1', '*', 'RETURN', '$.t', 'AS', 'MyReturnLabel').equal([1L, 'doc:1', ['MyReturnLabel', '\"hescelosaurus\"']])
 
@@ -92,8 +118,8 @@ def testSearch(env):
                                                     'doc:1', ['$', '{"t":"hescelosaurus","n":12}'],
                                                     'doc:4', ['$', '{"t":"\xe3\x83\x89\xe3\x83\xa9\xe3\x82\xb4\xe3\x83\xb3","n":5}'],
                                                     'doc:5', ['$', '{"t":"\xe8\xb8\xaa\xe8\xbf\xb9","n":5}']])
-    '''
-    # for now, can't load a fieldwhich was not specified
+
+    # for now, can't load a field which was not specified
     env.expect('ft.search', 'idx1', 'riceratops', 'RETURN', '1', '$').equal([1L, 'doc:2', ['$', '{"t":"riceratops","n":9}']])
     env.expect('ft.search', 'idx1', 'riceratops', 'RETURN', '1', '$.n').equal([1L, 'doc:2', ['$.n', '9']])
     env.expect('ft.search', 'idx1', 'riceratops', 'RETURN', '1', '$.t').equal([1L, 'doc:2', ['$.t', '"riceratops"']])
@@ -174,3 +200,46 @@ def testDemo(env):
     env.expect('FT.SEARCH', 'airports', '@location:[-122.41 37.77 100 km]').equal(sfo_doc)
     env.expect('FT.SEARCH', 'airports', 'sfo', 'RETURN', '3', '$.name', 'AS', 'name')       \
                 .equal([1L, 'A:SFO', ['name', '"San Francisco International Airport"']])
+
+def testIncrBy(env)
+    conn = getConnectionByEnv(env)
+    # TODO: test JSON.NUMINCRBY (JSON.NUMMULTBY will be removed)
+
+def testScalars(env)
+    conn = getConnectionByEnv(env)
+    # Find All scalars types  - need bool, int, double, float and null
+
+def testArray(env)
+    conn = getConnectionByEnv(env)
+
+def testObject(env)
+    conn = getConnectionByEnv(env)
+
+
+    # TODO: Check null values
+    # TODO: Check arrays
+    # TODO: Check Object/Map
+    # TODO: Fail when result is an Object/Map
+
+
+    # Nested paths (with hierarchy)
+    # Array slot which is scalar
+    # Array slot which is Object - expect an err
+    # Array slot which is array- printed well?
+    # Same for Object - Object value which is Object
+    # Object value which is an Arrary
+    # Illegal json syntax (starting with illegal char - not $ or ., missing colon comma, parens, wrong metatype, e.g. numeric in key name,...)
+    # AS Label containing $ or .  - error
+    # Jsonpath starting with . (BWC) - OK
+    # Missing Jsonpath (BWC) ==> $ assumed?
+    # Out of bound index
+    # Index for non-array
+    #     Hash content not indexed together with json - currently they are mixed together?
+    # Highlight
+    # Summarize
+    # Rejson unload?
+    # Drop index and not find previous results
+    # RSCoordinator
+    # Cluster
+    # Enterprise?
+    # CRDT?
