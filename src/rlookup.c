@@ -388,8 +388,8 @@ static int getKeyCommonJSON(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
   } else if (!strncmp(kk->name, UNDERSCORE_KEY, strlen(UNDERSCORE_KEY))) {
     RedisModuleString *keyName = RedisModule_CreateString(options->sctx->redisCtx,
                                   options->dmd->keyPtr, strlen(options->dmd->keyPtr));
-    rsv = hvalToValue(val, kk->fieldtype);
-    RedisModule_FreeString(RSDummyContext, val);
+    rsv = hvalToValue(keyName, RLOOKUP_C_STR);
+    RedisModule_FreeString(options->sctx->redisCtx, keyName);
   } else {
     return REDISMODULE_OK;
   }
