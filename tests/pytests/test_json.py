@@ -172,5 +172,5 @@ def testDemo(env):
     env.expect('FT.SEARCH', 'airports', 'TL*').equal(tlv_doc)
     env.expect('FT.SEARCH', 'airports', 'sen frensysclo').equal(sfo_doc)
     env.expect('FT.SEARCH', 'airports', '@location:[-122.41 37.77 100 km]').equal(sfo_doc)
-    env.expect('FT.SEARCH', 'airports', 'sfo', 'RETURN', '3', '$.name', 'AS', 'name')       \
-                .equal([1L, 'A:SFO', ['name', '"San Francisco International Airport"']])
+    env.expect('FT.SEARCH', 'airports', 'sfo', 'RETURN', '1', '$.name')       \
+                .equal([1L, 'A:SFO', ['$.name', '"San Francisco International Airport"']])
