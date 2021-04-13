@@ -94,7 +94,7 @@ static void FGC_sendFixed(ForkGC *fgc, const void *buff, size_t len) {
       exit(1);
     }
     size += wr_size;
-    buf += wr_size;
+    buff += wr_size;
     len -= wr_size;
   }
 }
