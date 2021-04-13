@@ -2,8 +2,8 @@
 ROOT=.
 include deps/readies/mk/main
 
-ifneq ($(VD),)
-VALGRIND=$(VD)
+ifneq ($(VG),)
+VALGRIND=$(VG)
 endif
 
 ifeq ($(VALGRIND),1)

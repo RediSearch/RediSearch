@@ -1,7 +1,7 @@
 #!/bin/bash
 
 set -e
-# set -x
+set -x
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 ROOT="$(cd $HERE/.. && pwd)"
