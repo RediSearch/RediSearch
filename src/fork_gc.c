@@ -81,16 +81,21 @@ static void FGC_updateStats(RedisSearchCtx *sctx, ForkGC *gc, size_t recordsRemo
 
 static void FGC_sendFixed(ForkGC *fgc, const void *buff, size_t len) {
   RS_LOG_ASSERT(len > 0, "buffer length cannot be 0");
-  ssize_t size = write(fgc->pipefd[GC_WRITERFD], buff, len);
-  if (size != len) {
-    if (size == -1) {
+  ssize_t size = 0;
+  while (size < len) {
+    ssize_t wr_size = write(fgc->pipefd[GC_WRITERFD], buff, len);
+    if (wr_size <= 0) {
+      if (errno == EINTR) {
+        continue;
+      }
       perror("broken pipe, exiting GC fork: write() failed");
       // just exit, do not abort(), which will trigger a watchdog on RLEC, causing adverse effects
       RedisModule_Log(NULL, "warning", "GC fork: broken pipe, exiting");
       exit(1);
-    } else {
-      RS_LOG_ASSERT(size == len, "buffer failed to write");
     }
+    size += wr_size;
+    buf += wr_size;
+    len -= wr_size;
   }
 }
 
