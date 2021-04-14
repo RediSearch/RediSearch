@@ -1,3 +1,5 @@
+from abc import ABCMeta
+
 import bz2
 import json
 import itertools
@@ -15,32 +17,53 @@ def to_dict(res):
 GAMES_JSON = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'games.json.bz2')
 
 
-def add_values(env, number_of_iterations=1):
-    env.execute_command('FT.CREATE', 'games', 'ON', 'HASH',
-                        'SCHEMA', 'title', 'TEXT', 'SORTABLE',
-                        'brand', 'TEXT', 'NOSTEM', 'SORTABLE',
-                        'description', 'TEXT', 'price', 'NUMERIC',
-                        'categories', 'TAG')
-
-    for i in range(number_of_iterations):
-        fp = bz2.BZ2File(GAMES_JSON, 'r')
-        for line in fp:
-            obj = json.loads(line)
-            id = obj['asin'] + (str(i) if i > 0 else '')
-            del obj['asin']
-            obj['price'] = obj.get('price') or 0
-            obj['categories'] = ','.join(obj['categories'])
-            cmd = ['FT.ADD', 'games', id, 1, 'FIELDS', ] + \
-                [str(x) if x is not None else '' for x in itertools.chain(
-                    *obj.items())]
-            env.execute_command(*cmd)
-        fp.close()
 
 
-class TestAggregate():
-    def __init__(self):
+class BaseTest(object):
+    def __init__(self, isJSON=False, number_of_iterations=1):
+        print ("====>TestBase")
         self.env = Env()
-        add_values(self.env)
+        self.isJSON = isJSON
+        self.add_values(number_of_iterations)
+
+    def getKind(self):
+        return 'JSON' if self.isJSON else 'HASH'
+
+    def add_values(self, number_of_iterations=1):
+        self.env.execute_command('FT.CREATE', 'games', 'ON', self.getKind(),
+                                 'SCHEMA', 'title', 'TEXT', 'SORTABLE',
+                                 'brand', 'TEXT', 'NOSTEM', 'SORTABLE',
+                                 'description', 'TEXT', 'price', 'NUMERIC',
+                                 'categories', 'TAG')
+        for i in range(number_of_iterations):
+            fp = bz2.BZ2File(GAMES_JSON, 'r')
+            for line in fp:
+                obj = json.loads(line)
+                id = obj['asin'] + (str(i) if i > 0 else '')
+                del obj['asin']
+                if not self.isJSON:
+                    obj['price'] = obj.get('price') or 0
+                    obj['categories'] = ','.join(obj['categories'])
+                    cmd = ['HSET', id, ] + \
+                          [str(x) if x is not None else '' for x in itertools.chain(
+                              *obj.items())]
+                else:
+                    b = obj.get('brand')
+                    obj['brand'] = str(b) if b else ""
+                    # FIXME: When NUMERIC is restored, restore 'price'
+                    del obj['price']
+                    #obj['price'] = obj.get('price') or 0
+                    str_val = json.dumps(obj)
+                    cmd = ['JSON.SET', id, '$', str_val]
+
+                self.env.execute_command(*cmd)
+            fp.close()
+
+
+class TestAggregate(BaseTest):
+    def __init__(self, isJSON=False):
+        print ("====>TestAggregate")
+        super(TestAggregate, self).__init__(self, isJSON)
 
     def testGroupBy(self):
         cmd = ['ft.aggregate', 'games', '*',
@@ -57,6 +80,7 @@ class TestAggregate():
                                     ['brand', 'logitech', 'count', '35']], res)
 
     def testMinMax(self):
+        print(">>> testMinMax " + " " + str(self.__class__))
         cmd = ['ft.aggregate', 'games', 'sony',
                'GROUPBY', '1', '@brand',
                'REDUCE', 'count', '0',
@@ -492,13 +516,18 @@ class TestAggregate():
     #                      'LIMIT', '0', '5',
     #                      'LOAD', 1, '@brand')
 
-
-class TestAggregateSecondUseCases():
+class TestAggregateJSON(TestAggregate):
     def __init__(self):
-        self.env = Env()
-        add_values(self.env, 2)
+        print ("====>TestAggregatJSON")
+        super(TestAggregateJSON, self).__init__(True)
+
+class TestAggregateSecondUseCases(BaseTest):
+    def __init__(self, isJSON=False, number_of_iterations=2):
+        print ("====> TestAggregateSecondUseCases")
+        super(TestAggregateSecondUseCases, self).__init__(isJSON, number_of_iterations)
 
     def testSimpleAggregate(self):
+        print('HAHA ' + str(self.__class__))
         res = self.env.cmd('ft.aggregate', 'games', '*')
         self.env.assertIsNotNone(res)
         self.env.assertEqual(len(res), 4531)
@@ -506,6 +535,12 @@ class TestAggregateSecondUseCases():
     def testSimpleAggregateWithCursor(self):
         res = self.env.cmd('ft.aggregate', 'games', '*', 'WITHCURSOR', 'COUNT', 1000)
         self.env.assertTrue(res[1] != 0)
+
+
+class TestAggregateSecondUseCasesJSON(TestAggregateSecondUseCases):
+    def __init__(self):
+        print ("====>TestAggregateSecondUseCasesJSON")
+        super(TestAggregateSecondUseCasesJSON, self).__init__(True, 2)
 
 def grouper(iterable, n, fillvalue=None):
     "Collect data into fixed-length chunks or blocks"
