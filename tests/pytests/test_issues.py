@@ -158,4 +158,5 @@ def test_issue1880(env):
 def test_issue1932(env):
     conn = getConnectionByEnv(env)
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
-    conn.execute_command('FT.AGGREGATE', 'idx', '*', 'LIMIT', '100000000000000000', '100000000000', 'SORTBY', '1', '@t')
+    env.expect('FT.AGGREGATE', 'idx', '*', 'LIMIT', '100000000000000000', '100000000000', 'SORTBY', '1', '@t').error() \
+      .contains('OFFSET exceeds maximum of 1000000')
