@@ -657,7 +657,7 @@ IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec) {
     ret->fields[ii] = spec->fields[ii];
     ret->fields[ii].name = rm_strdup(ret->fields[ii].name);
     // if name & path are pointing to the same string, copy pointer 
-    if (ret->fields[ii].path && (&ret->fields[ii].name != &ret->fields[ii].path)) {
+    if (ret->fields[ii].path && (spec->fields[ii].name != spec->fields[ii].path)) {
       ret->fields[ii].path = rm_strdup(ret->fields[ii].path);
     } else {
       ret->fields[ii].path = ret->fields[ii].name;

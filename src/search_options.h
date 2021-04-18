@@ -35,6 +35,7 @@ typedef struct {
 
 typedef struct {
   const char *name;
+  const char *path;
 
   /* Lookup key associated with field */
   const RLookupKey *lookupKey;
@@ -57,7 +58,7 @@ typedef struct {
   uint16_t explicitReturn;
 } FieldList;
 
-ReturnedField *FieldList_GetCreateField(FieldList *fields, const char *name);
+ReturnedField *FieldList_GetCreateField(FieldList *fields, const char *name, const char *path);
 void FieldList_Free(FieldList *fields);
 
 int ParseSummarize(ArgsCursor *ac, FieldList *fields);

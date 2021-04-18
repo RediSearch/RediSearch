@@ -55,7 +55,7 @@ void FieldList_Free(FieldList *fields) {
   rm_free(fields->fields);
 }
 
-ReturnedField *FieldList_GetCreateField(FieldList *fields, const char *name) {
+ReturnedField *FieldList_GetCreateField(FieldList *fields, const char *name, const char *path) {
   size_t foundIndex = -1;
   for (size_t ii = 0; ii < fields->numFields; ++ii) {
     if (!strcmp(fields->fields[ii].name, name)) {
@@ -66,7 +66,8 @@ ReturnedField *FieldList_GetCreateField(FieldList *fields, const char *name) {
   fields->fields = rm_realloc(fields->fields, sizeof(*fields->fields) * ++fields->numFields);
   ReturnedField *ret = fields->fields + (fields->numFields - 1);
   memset(ret, 0, sizeof *ret);
-  ret->name = name;
+  ret->path = path;
+  ret->name = (name) ? name : path;
   return ret;
 }
 
@@ -393,8 +394,19 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
     }
 
     while (!AC_IsAtEnd(&returnFields)) {
-      const char *name = AC_GetStringNC(&returnFields, NULL);
-      ReturnedField *f = FieldList_GetCreateField(&req->outFields, name);
+      const char *path = AC_GetStringNC(&returnFields, NULL);
+      const char *name = path;
+      if (AC_AdvanceIfMatch(&returnFields, SPEC_AS_STR)) {
+        int rv = AC_GetString(&returnFields, &name, NULL, 0);
+        if (rv != AC_OK) {
+          QERR_MKBADARGS_FMT(status, "RETURN path AS name - must be accompanied with NAME");
+          return REDISMODULE_ERR;
+        } else if (!strncasecmp(name, SPEC_AS_STR, strlen(SPEC_AS_STR))) {
+          QERR_MKBADARGS_FMT(status, "Alias for RETURN cannot be `AS`");
+          return REDISMODULE_ERR;
+        }
+      }
+      ReturnedField *f = FieldList_GetCreateField(&req->outFields, name, path);
       f->explicitReturn = 1;
     }
   }
@@ -1007,6 +1019,7 @@ int buildOutputPipeline(AREQ *req, QueryError *status) {
                                rf->name);
         goto error;
       }
+      lk->path = rf->path;
       *array_ensure_tail(&loadkeys, const RLookupKey *) = lk;
       // assign explicit output flag
       lk->flags |= RLOOKUP_F_EXPLICITRETURN;

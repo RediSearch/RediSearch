@@ -78,6 +78,7 @@ typedef struct RLookupKey {
 
   /** Name of this field */
   const char *name;
+  const char *path;
 
   /** Size of this field */
   size_t name_len;

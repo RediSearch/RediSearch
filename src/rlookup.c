@@ -326,13 +326,13 @@ static int getKeyCommonHash(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
 
   // field name should be translated to a path
   // TODO: consider better solution for faster
-  const FieldSpec *fs = IndexSpec_GetField(options->sctx->spec, kk->name, strlen(kk->name));
-  // if (!fs) { // No matching field
-  //   if (strncmp(kk->name, UNDERSCORE_KEY, strlen(UNDERSCORE_KEY))) {
-  //     return REDISMODULE_OK;
-  //   }
-  // }
-  const char *path = fs ? fs->path : kk->name;
+  const char *path;
+  if (kk->path && (kk->path != kk->name)) {
+    path = kk->path;
+  } else {
+    const FieldSpec *fs = IndexSpec_GetField(options->sctx->spec, kk->path, strlen(kk->path));
+    path = fs ? fs->path : kk->name;
+  }
   rc = RedisModule_HashGet(*keyobj, REDISMODULE_HASH_CFIELDS, path, &val, NULL);
 
   if (rc == REDISMODULE_OK && val != NULL) {
@@ -376,10 +376,15 @@ static int getKeyCommonJSON(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
   RedisModuleString *val = NULL;
   RSValue *rsv = NULL;
 
-  // field name should be translated to a path
-  // TODO: consider better solution for faster
-  const FieldSpec *fs = IndexSpec_GetField(options->sctx->spec, kk->name, strlen(kk->name));
-  const char *path = fs ? fs->path : kk->name;
+  const char *path;
+  if (kk->path) {
+    path = kk->path;
+  } else { 
+    // field name should be translated to a path
+    // TODO: consider better solution for faster
+    const FieldSpec *fs = IndexSpec_GetField(options->sctx->spec, kk->name, strlen(kk->name));
+    path = fs ? fs->path : kk->name;
+  }
   rc = japi->getRedisModuleStringFromKey(*keyobj, path, &val);
 
   if (rc == REDISMODULE_OK && val != NULL) {
