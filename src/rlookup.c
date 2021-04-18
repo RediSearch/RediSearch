@@ -20,6 +20,9 @@ static RLookupKey *createNewKey(RLookup *lookup, const char *name, size_t n, int
   }
   ret->name_len = n;
 
+  // This defaults path a name to the same string. Only changed with `AS` keyword
+  ret->path = ret->name;
+
   if (!lookup->head) {
     lookup->head = lookup->tail = ret;
   } else {
@@ -327,10 +330,10 @@ static int getKeyCommonHash(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
   // field name should be translated to a path
   // TODO: consider better solution for faster
   const char *path;
-  if (kk->path && (kk->path != kk->name)) {
+  if (kk->path != kk->name) {
     path = kk->path;
   } else {
-    const FieldSpec *fs = IndexSpec_GetField(options->sctx->spec, kk->path, strlen(kk->path));
+    const FieldSpec *fs = IndexSpec_GetField(options->sctx->spec, kk->name, kk->name_len);
     path = fs ? fs->path : kk->name;
   }
   rc = RedisModule_HashGet(*keyobj, REDISMODULE_HASH_CFIELDS, path, &val, NULL);

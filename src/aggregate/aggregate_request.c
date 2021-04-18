@@ -1019,7 +1019,10 @@ int buildOutputPipeline(AREQ *req, QueryError *status) {
                                rf->name);
         goto error;
       }
+
+      // change path to be used by loader
       lk->path = rf->path;
+
       *array_ensure_tail(&loadkeys, const RLookupKey *) = lk;
       // assign explicit output flag
       lk->flags |= RLOOKUP_F_EXPLICITRETURN;
@@ -1128,12 +1131,13 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
           if (*s == '@') {
             s++;
           }
-          const RLookupKey *kk = RLookup_GetKey(curLookup, s, RLOOKUP_F_OEXCL | RLOOKUP_F_OCREAT);
+          RLookupKey *kk = RLookup_GetKey(curLookup, s, RLOOKUP_F_OEXCL | RLOOKUP_F_OCREAT);
           if (!kk) {
             // We only get a NULL return if the key already exists, which means
             // that we don't need to retrieve it again.
             continue;
           }
+          //kk->path = kk->name;
           lstp->keys[lstp->nkeys++] = kk;
         }
         if (lstp->nkeys) {

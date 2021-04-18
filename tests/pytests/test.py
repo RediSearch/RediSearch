@@ -3219,7 +3219,7 @@ def testSchemaWithAs(env):
   conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'txt', 'AS', 'foo', 'TEXT')
   conn.execute_command('HSET', 'a', 'txt', 'hello')
   conn.execute_command('HSET', 'b', 'foo', 'world')
-
+  '''
   env.expect('ft.search idx @txt:hello').equal([0L])
   env.expect('ft.search idx @txt:world').equal([0L])
   env.expect('ft.search idx @foo:hello').equal([1L, 'a', ['txt', 'hello']])
@@ -3260,3 +3260,7 @@ def testSchemaWithAs(env):
   env.expect('ft.search idx hello RETURN 1 not_exist').equal([1L, 'a', []])
 
   env.expect('ft.search idx hello RETURN 3 txt as as').error().contains('Alias for RETURN cannot be `AS`')
+  '''
+  env.expect('ft.aggregate', 'idx', 'hello', 'LOAD', '1', '@txt').equal([1L, ['txt', 'hello']])
+  env.expect('ft.aggregate', 'idx', 'hello', 'LOAD', '1', '@foo').equal([1L, ['foo', 'hello']])
+  env.expect('ft.aggregate', 'idx', 'hello', 'LOAD', '2', '@foo', '@txt').equal([1L, ['foo', 'hello', 'txt', 'hello']])
