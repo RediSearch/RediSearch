@@ -387,7 +387,7 @@ Note that these operators apply only to numeric values and numeric sub expressio
 | Function            | Description                                                  |
 | ------------------- | ------------------------------------------------------------ |
 | timefmt(x, [fmt])      | Return a formatted time string based on a numeric timestamp value x. <br /> See [strftime](http://strftime.org/) for formatting options. <br />Not specifying `fmt` is equivalent to `%FT%TZ`. |
-| parsetime(timesharing, [fmt]) | The opposite of timefmt() - parse a time format using a given format string |
+| parse_time(timesharing, [fmt]) | The opposite of timefmt() - parse a time format using a given format string |
 | day(timestamp) | Round a Unix timestamp to midnight (00:00) start of the current day. |
 | hour(timestamp) | Round a Unix timestamp to the beginning of the current hour. |
 | minute(timestamp) | Round a Unix timestamp to the beginning of the current minute. |
