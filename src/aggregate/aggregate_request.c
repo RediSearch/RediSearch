@@ -1127,17 +1127,30 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
         }
         // Get all the keys for this lookup...
         while (!AC_IsAtEnd(&lstp->args)) {
-          const char *s = AC_GetStringNC(&lstp->args, NULL);
-          if (*s == '@') {
-            s++;
+          const char *path = AC_GetStringNC(&lstp->args, NULL);
+          if (*path == '@') {
+            path++;
           }
-          RLookupKey *kk = RLookup_GetKey(curLookup, s, RLOOKUP_F_OEXCL | RLOOKUP_F_OCREAT);
+          const char *name = path;
+
+          RLookupKey *kk = RLookup_GetKey(curLookup, path, RLOOKUP_F_OEXCL | RLOOKUP_F_OCREAT);
           if (!kk) {
             // We only get a NULL return if the key already exists, which means
             // that we don't need to retrieve it again.
             continue;
           }
-          //kk->path = kk->name;
+
+          if (AC_AdvanceIfMatch(&lstp->args, SPEC_AS_STR)) {
+            int rv = AC_GetString(&lstp->args, &name, NULL, 0);
+            if (rv != AC_OK) {
+              QERR_MKBADARGS_FMT(status, "RETURN path AS name - must be accompanied with NAME");
+              return REDISMODULE_ERR;
+            } else if (!strncasecmp(name, SPEC_AS_STR, strlen(SPEC_AS_STR))) {
+              QERR_MKBADARGS_FMT(status, "Alias for RETURN cannot be `AS`");
+              return REDISMODULE_ERR;
+            }
+          }
+          kk->name = name;
           lstp->keys[lstp->nkeys++] = kk;
         }
         if (lstp->nkeys) {
