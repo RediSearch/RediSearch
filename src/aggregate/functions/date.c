@@ -272,19 +272,19 @@ static int parseTime(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc
 
   char fmtbuf[1024] = {0};
   char valbuf[1024] = {0};
-  size_t fmtlen;
 
-  const char *origfmt = RSValue_StringPtrLen(argv[0], &fmtlen);
+  size_t fmtlen;
+  const char *origfmt = RSValue_StringPtrLen(argv[1], &fmtlen);
   if (fmtlen > sizeof(fmtbuf)) {
     goto err;
   }
+  memcpy(fmtbuf, origfmt, fmtlen);
 
   size_t vallen;
-  const char *origval = RSValue_StringPtrLen(argv[1], &vallen);
+  const char *origval = RSValue_StringPtrLen(argv[0], &vallen);
   if (vallen > sizeof(valbuf)) {
     goto err;
   }
-  memcpy(fmtbuf, origfmt, fmtlen);
   memcpy(valbuf, origval, vallen);
 
   struct tm tm = {0};
