@@ -380,12 +380,12 @@ static int getKeyCommonJSON(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
   RSValue *rsv = NULL;
 
   const char *path;
-  if (kk->path) {
+  if (kk->path != kk->name) {
     path = kk->path;
   } else { 
     // field name should be translated to a path
     // TODO: consider better solution for faster
-    const FieldSpec *fs = IndexSpec_GetField(options->sctx->spec, kk->name, strlen(kk->name));
+    const FieldSpec *fs = IndexSpec_GetField(options->sctx->spec, kk->name, kk->name_len);
     path = fs ? fs->path : kk->name;
   }
   rc = japi->getRedisModuleStringFromKey(*keyobj, path, &val);
