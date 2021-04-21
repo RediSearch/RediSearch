@@ -793,3 +793,30 @@ TEST_F(LLApiTest, duplicateFieldAdd) {
   RediSearch_FreeDocument(d);
   RediSearch_DropIndex(index);
 }
+
+TEST_F(LLApiTest, testScorer) {
+  RSIndex* index = RediSearch_CreateIndex("index", NULL);
+
+  // adding text field to the index
+  RediSearch_CreateField(index, FIELD_NAME_1, RSFLDTYPE_FULLTEXT, RSFLDOPT_NONE);
+
+  // adding documents to the index
+  Document* d1 = RediSearch_CreateDocumentSimple("doc1");
+  Document* d2 = RediSearch_CreateDocumentSimple("doc2");
+
+  // adding document with a different TFIDF score
+  RediSearch_DocumentAddFieldCString(d1, FIELD_NAME_1, "hello world hello world", RSFLDTYPE_DEFAULT);
+  ASSERT_EQ(RediSearch_SpecAddDocument(index, d1), REDISMODULE_OK);
+  RediSearch_DocumentAddFieldCString(d2, FIELD_NAME_1, "hello world hello", RSFLDTYPE_DEFAULT);
+  ASSERT_EQ(RediSearch_SpecAddDocument(index, d2), REDISMODULE_OK);
+
+  const char *s = "hello world";
+  RSResultsIterator *it = RediSearch_IterateQuery(index, s, strlen(s), NULL);
+  RediSearch_ResultsIteratorNext(it, index, NULL);
+  ASSERT_EQ(RediSearch_ResultsIteratorGetScore(it), 2);
+  RediSearch_ResultsIteratorNext(it, index, NULL);
+  ASSERT_EQ(RediSearch_ResultsIteratorGetScore(it), 1.5);
+
+  RediSearch_ResultsIteratorFree(it);
+  RediSearch_DropIndex(index);
+}

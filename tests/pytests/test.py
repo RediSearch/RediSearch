@@ -2712,22 +2712,22 @@ def testMonthOfYear(env):
 
     env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'monthofyear("bad")', 'as', 'a').equal([1L, ['test', '12234556', 'a', None]])
 
-def testParseTimeErrors(env):
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'NUMERIC').equal('OK')
-    env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', '12234556').equal('OK')
+def testParseTime(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'TAG').equal('OK')
+    env.expect('HSET', 'doc1', 'test', '20210401').equal(1L)
 
-    err = env.cmd('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'parse_time()', 'as', 'a')[1]
+    # check for errors
+    err = env.cmd('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'parsetime()', 'as', 'a')[1]
     assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
 
-    err = env.cmd('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'parse_time(11)', 'as', 'a')[1]
+    err = env.cmd('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'parsetime(11)', 'as', 'a')[1]
     assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
 
-    err = env.cmd('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'parse_time(11,22)', 'as', 'a')[1]
+    err = env.cmd('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'parsetime(11,22)', 'as', 'a')[1]
     assertEqualIgnoreCluster(env, type(err[0]), redis.exceptions.ResponseError)
 
-    env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'parse_time("%s", "%s")' % ('d' * 2048, 'd' * 2048), 'as', 'a').equal([1L, ['test', '12234556', 'a', None]])
-
-    env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'parse_time("test", "%s")' % ('d' * 2048), 'as', 'a').equal([1L, ['test', '12234556', 'a', None]])
+    # valid test
+    env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'parsetime(@test, "%Y%m%d")', 'as', 'a').equal([1L, ['test', '20210401', 'a', '1617235200']])
 
 def testMathFunctions(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'NUMERIC').equal('OK')
