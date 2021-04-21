@@ -111,15 +111,6 @@ def test_MOD_865(env):
   env.expect(*args_list).error().contains('Duplicate field in schema - txt')
   env.expect('FT.DROPINDEX', 'idx')
 
-def test_issue1826(env):
-  # Stopword query is case sensitive.
-  conn = getConnectionByEnv(env)
-  conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
-  conn.execute_command('HSET', 'doc', 't', 'boy with glasses')
-
-  env.expect('FT.SEARCH', 'idx', 'boy with glasses').equal([1L, 'doc', ['t', 'boy with glasses']])
-  env.expect('FT.SEARCH', 'idx', 'boy With glasses').equal([1L, 'doc', ['t', 'boy with glasses']])
-
 def test_issue1834(env):
   # Stopword query is case sensitive.
   conn = getConnectionByEnv(env)
@@ -127,33 +118,6 @@ def test_issue1834(env):
   conn.execute_command('HSET', 'doc', 't', 'hell hello')
 
   env.expect('FT.SEARCH', 'idx', 'hell|hello', 'HIGHLIGHT').equal([1L, 'doc', ['t', '<b>hell</b> <b>hello</b>']])
-
-def test_issue1880(env):
-  # order of iterator in intersect is optimized by function
-  env.skipOnCluster()
-  conn = getConnectionByEnv(env)
-  env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
-  conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
-  conn.execute_command('HSET', 'doc1', 't', 'hello world')
-  conn.execute_command('HSET', 'doc2', 't', 'hello')
-
-  excepted_res = ['Type', 'INTERSECT', 'Counter', 1L, 'Children iterators',
-                    ['Type', 'TEXT', 'Term', 'world', 'Counter', 1L, 'Size', 1L],
-                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1L, 'Size', 2L]] 
-  res1 = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'hello world')
-  res2 = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'world hello')
-  # both queries return `world` iterator before `hello`
-  env.assertEqual(res1[1][3][1], excepted_res)
-  env.assertEqual(res2[1][3][1], excepted_res)
-
-  # test with a term which does not exist
-  excepted_res = ['Type', 'INTERSECT', 'Counter', 0L, 'Children iterators', 
-                    None,
-                    ['Type', 'TEXT', 'Term', 'world', 'Counter', 0L, 'Size', 1L],
-                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 0L, 'Size', 2L]]
-  res3 = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'hello new world')
-
-  env.assertEqual(res3[1][3][1], excepted_res)
 
 def test_issue1932(env):
     conn = getConnectionByEnv(env)
