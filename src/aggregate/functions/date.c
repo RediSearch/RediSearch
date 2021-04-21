@@ -266,25 +266,25 @@ err:
 }
 
 static int parseTime(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc, QueryError *err) {
-  VALIDATE_ARGS("parse_time", 2, 2, err);
-  VALIDATE_ARG_ISSTRING("parse_time", argv, 0);
-  VALIDATE_ARG_ISSTRING("parse_time", argv, 1);
+  VALIDATE_ARGS("parsetime", 2, 2, err);
+  VALIDATE_ARG_ISSTRING("parsetime", argv, 0);
+  VALIDATE_ARG_ISSTRING("parsetime", argv, 1);
 
   char fmtbuf[1024] = {0};
   char valbuf[1024] = {0};
-  size_t fmtlen;
 
-  const char *origfmt = RSValue_StringPtrLen(argv[0], &fmtlen);
+  size_t fmtlen;
+  const char *origfmt = RSValue_StringPtrLen(argv[1], &fmtlen);
   if (fmtlen > sizeof(fmtbuf)) {
     goto err;
   }
+  memcpy(fmtbuf, origfmt, fmtlen);
 
   size_t vallen;
-  const char *origval = RSValue_StringPtrLen(argv[1], &vallen);
+  const char *origval = RSValue_StringPtrLen(argv[0], &vallen);
   if (vallen > sizeof(valbuf)) {
     goto err;
   }
-  memcpy(fmtbuf, origfmt, fmtlen);
   memcpy(valbuf, origval, vallen);
 
   struct tm tm = {0};
@@ -303,7 +303,7 @@ err:
 
 void RegisterDateFunctions() {
   RSFunctionRegistry_RegisterFunction("timefmt", timeFormat, RSValue_String);
-  RSFunctionRegistry_RegisterFunction("parse_time", parseTime, RSValue_Number);
+  RSFunctionRegistry_RegisterFunction("parsetime", parseTime, RSValue_Number);
   RSFunctionRegistry_RegisterFunction("hour", func_hour, RSValue_Number);
   RSFunctionRegistry_RegisterFunction("minute", func_minute, RSValue_Number);
   RSFunctionRegistry_RegisterFunction("day", func_day, RSValue_Number);
