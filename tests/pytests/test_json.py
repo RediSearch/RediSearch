@@ -174,3 +174,27 @@ def testDemo(env):
     env.expect('FT.SEARCH', 'airports', '@location:[-122.41 37.77 100 km]').equal(sfo_doc)
     env.expect('FT.SEARCH', 'airports', 'sfo', 'RETURN', '1', '$.name')       \
                 .equal([1L, 'A:SFO', ['$.name', '"San Francisco International Airport"']])
+
+def testAs(env):
+    conn = getConnectionByEnv(env)
+    conn.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT')
+    conn.execute_command('JSON.SET', 'doc:1', '$', r'{"t":"riceratops","n":9}')
+
+    res = env.cmd('FT.SEARCH', 'idx', '*', 'RETURN', '3', '$.t', 'AS', 'txt')
+    env.assertEqual(res, [1L, 'doc:1', ['txt', '"riceratops"']])
+
+    res = env.cmd('FT.SEARCH', 'idx', '*', 'RETURN', '3', '$.n', 'AS', 'num')
+    env.assertEqual(res, [1L, 'doc:1', ['num', '9']])
+
+    res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '3', '@$.t', 'AS', 'txt')
+    env.assertEqual(res, [1L, ['txt', '"riceratops"']])
+
+    res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '3', '@$.n', 'AS', 'num')
+    env.assertEqual(res, [1L, ['num', '9']])
+
+def testNumeric(env):
+    env.skip()
+    conn = getConnectionByEnv(env)
+    conn.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.n', 'NUMERIC')
+    conn.execute_command('JSON.SET', 'doc:1', '$', r'{"n":9}')
+    env.expect('FT.SEARCH', 'idx', '@n:[0 10]').equal([1L, 'doc:1', ['$.n', 9]])
