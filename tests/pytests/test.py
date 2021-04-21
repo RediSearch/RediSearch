@@ -3229,11 +3229,15 @@ def testSchemaWithAs(env):
     # RETURN from schema
     env.expect('ft.search idx hello RETURN 1 txt').equal([1L, 'a', ['txt', 'hello']])
     env.expect('ft.search idx hello RETURN 1 foo').equal([1L, 'a', ['foo', 'hello']])
+    env.expect('ft.search idx hello RETURN 3 txt AS baz').equal([1L, 'a', ['baz', 'hello']])
+    env.expect('ft.search idx hello RETURN 3 foo AS baz').equal([1L, 'a', []])
+    env.expect('ft.search idx hello RETURN 6 txt AS baz txt AS bar').equal([1L, 'a', ['baz', 'hello', 'bar', 'hello']])
+    env.expect('ft.search idx hello RETURN 6 txt AS baz txt AS baz').equal([1L, 'a', ['baz', 'hello']])
 
     # RETURN outside of schema
     conn.execute_command('HSET', 'a', 'not_in_schema', '42')
     env.expect('HGETALL a').equal(['txt', 'hello', 'not_in_schema', '42'])
-    env.expect('ft.search idx hello RETURN 3 not_in_schema as txt2').equal([1L, 'a', ['txt2', '42']])
+    env.expect('ft.search idx hello RETURN 3 not_in_schema AS txt2').equal([1L, 'a', ['txt2', '42']])
     env.expect('ft.search idx hello RETURN 1 not_in_schema').equal([1L, 'a', ['not_in_schema', '42']])
     env.expect('ft.search idx hello').equal([1L, 'a', ['txt', 'hello', 'not_in_schema', '42']])
 
@@ -3275,7 +3279,7 @@ def testSchemaWithAs_Duplicates(env):
     env.cmd('HSET', 'a', 'txt', 'hello')
 
     # Error if field name is duplicated
-    res = env.expect('FT.CREATE', 'conflict1', 'SCHEMA', 'txt1', 'AS', 'foo', 'TEXT', 'txt2', 'AS', 'foo', 'TEXT') \
+    res = env.expect('FT.CREATE', 'conflict1', 'SCHEMA', 'txt1', 'AS', 'foo', 'TEXT', 'txt2', 'AS', 'foo', 'TAG') \
                                                                 .error().contains('Duplicate field in schema - foo')
     # Success if field path is duplicated
     res = env.expect('FT.CREATE', 'conflict2', 'SCHEMA', 'txt', 'AS', 'foo1', 'TEXT',

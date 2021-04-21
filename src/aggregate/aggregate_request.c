@@ -1150,6 +1150,8 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
               return REDISMODULE_ERR;
             }
           }
+          // set lookupkey name to name.
+          // by defualt "name = path" 
           kk->name = name;
           lstp->keys[lstp->nkeys++] = kk;
         }

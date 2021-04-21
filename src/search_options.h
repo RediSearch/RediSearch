@@ -34,8 +34,9 @@ typedef struct {
 } HighlightSettings;
 
 typedef struct {
-  const char *name;
+  // path AS name
   const char *path;
+  const char *name;
 
   /* Lookup key associated with field */
   const RLookupKey *lookupKey;
@@ -58,6 +59,8 @@ typedef struct {
   uint16_t explicitReturn;
 } FieldList;
 
+// "path AS name"
+// If `path` is NULL then `path` = `name`
 ReturnedField *FieldList_GetCreateField(FieldList *fields, const char *name, const char *path);
 void FieldList_Free(FieldList *fields);
 
