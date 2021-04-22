@@ -41,11 +41,12 @@ Creates an index with the given spec.
 
 ##### Examples
 
-Creating an index that stores the title, publication date, and categories of blog post hashes stored with the key prefix "blog:post:":
+Creating an index that stores the title, publication date, and categories of blog post hashes whose keys start with "blog:post:":
 
 ```sql
 FT.CREATE idx ON HASH PREFIX 1 blog:post: SCHEMA title TEXT SORTABLE published_at NUMERIC SORTABLE category TAG SORTABLE
 ```
+
 Indexing two different hashes -- one containing author data and one containing books -- in the same index:
 
 ```sql
@@ -440,7 +441,7 @@ Runs a search query on an index, and performs aggregate transformations on the r
 
 #### Examples
 
-Given an index containing visits to web sites, find visits to the page "about.html", group them by the day of the visit, count the number of visits, and sort them by day.
+Given an index containing visits to web sites, find visits to the page "about.html", group them by the day of the visit, count the number of visits, and sort them by day:
 
 ```sql
 FT.AGGREGATE idx "@url:\"about.html\""
@@ -450,8 +451,29 @@ FT.AGGREGATE idx "@url:\"about.html\""
     SORTBY 4 @day
 ```
 
+Or, given an index containing book data, find the most books ever published in a single year:
+
+```sql
+FT.AGGREGATE books-idx *
+    GROUPBY 1 @published_year
+      REDUCE COUNT 0 AS num_published
+    GROUPBY 0
+      REDUCE MAX 1 @num_published AS max_books_published_per_year
+```
+
+!!! tip "Reducing an entire result set"
+    The last example used `GROUPBY 0`. Use `GROUPBY 0` to apply a `REDUCE` function over all results from the last step of an aggregation pipeline -- this could be the initial query or subsequent `GROUPBY` steps.
+
+Here's what using `LOAD` to pre-load a GEO field into an aggregation query looks like. This query searches for libraries within 10 kilometers of the longitude -73.982254 and latitude 40.753181 then annotates them with their distance from that point:
+
+```sql
+ FT.AGGREGATE libraries-idx "@location:[-73.982254 40.753181 10 km]"
+    LOAD 1 @location
+    APPLY "geodistance(@location, -73.982254, 40.753181)"
+```
+
 !!! tip "More examples"
-    For more details and examples, see [Aggregations](Aggregations.md).
+    For more details on aggreations and detailed examples of aggregation queries, see [Aggregations](Aggregations.md).
 
 
 #### Parameters
@@ -547,7 +569,7 @@ Here we are counting GitHub events by user (actor), to produce the most active u
     2) "xdzou"
     3) "num"
     4) "3216"
-10) 1) "actor"
+[10](10)) 1) "actor"
     2) "opstest"
     3) "num"
     4) "2863"
