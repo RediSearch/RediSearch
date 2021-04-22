@@ -107,7 +107,9 @@ if [[ -n $REJSON && $REJSON != 0 ]]; then
 	else
 		REJSON_MODULE="$ROOT/bin/$platform/RedisJSON/rejson.so"
 		if [[ ! -f $REJSON_MODULE || $REJSON == get ]]; then
-			BRANCH=$REJSON_BRANCH $OP $ROOT/sbin/get-redisjson
+			FORCE_GET=
+			[[ $REJSON == get ]] && FORCE_GET=1
+			BRANCH=$REJSON_BRANCH FORCE=$FORCE_GET $OP $ROOT/sbin/get-redisjson
 		fi
 		REJSON_ARGS="--module $REJSON_MODULE"
 	fi
