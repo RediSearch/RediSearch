@@ -41,7 +41,7 @@ Creates an index with the given spec.
 
 ##### Examples
 
-Creating an index that stores the title, publication date, and categories of blog post hashes whose keys start with "blog:post:":
+Creating an index that stores the title, publication date, and categories of blog post hashes whose keys start with `blog:post:` (e.g., `blog:post:1`):
 
 ```sql
 FT.CREATE idx ON HASH PREFIX 1 blog:post: SCHEMA title TEXT SORTABLE published_at NUMERIC SORTABLE category TAG SORTABLE
@@ -55,7 +55,7 @@ author_id TAG SORTABLE author_ids TAG title TEXT name TEXT
 ```
 
 !!! note
-    In this example, author data is stored in keys with the prefix `author:details:<id>` and book data is stored in keys with the prefix `book:details:<id>`.
+    In this example, keys for author data use the key pattern `author:details:<id>` while keys for book data use the pattern `book:details:<id>`.
 
 Indexing only authors whose names start with "G":
 
@@ -69,7 +69,7 @@ Indexing only books that have a subtitle:
 FT.CREATE subtitled-books-idx ON HASH PREFIX 1 book:details FILTER '@subtitle != ""' SCHEMA title TEXT
 ```
 
-Indexing books that have a "categories" field whose values are separated by semicolons:
+Indexing books that have a "categories" field in which semicolons separate the values:
 
 ```sql
 FT.CREATE books-idx ON HASH PREFIX 1 book:details FILTER SCHEMA title TEXT categories TAG SEPARATOR ";"
@@ -145,27 +145,25 @@ FT.CREATE books-idx ON HASH PREFIX 1 book:details FILTER SCHEMA title TEXT categ
 
 * **SKIPINITIALSCAN**: If set, we do not scan and index.
 
-* **SCHEMA {field} {field type} {options...}**: After the SCHEMA keyword we define the index fields. They
-  can be numeric, textual or geographical. For textual fields we optionally specify a weight.
-  The default weight is 1.0.
+* **SCHEMA {field name} {field type} {options...}**: After the SCHEMA keyword we define the index fields. The field name is the name of the field within the hashes that this index follows. Field types can be numeric, textual or geographical.
 
     #### Field Types
 
     * **TEXT**
 
-      Index text values for full-text search queries.
+      Allows full-text search queries against the value in this field.
 
     * **TAG**
 
-      Index text values for exact-match queries, such as categories or primary keys. For more information, see [Tag Fields](Tags.md).
+      Allows exact-match queries, such as categories or primary keys, against the value in this field. For more information, see [Tag Fields](Tags.md).
 
     * **NUMERIC**
 
-      Index numbers for numeric range queries. See [query syntax docs](Query_Syntax.md) for details on how to use numeric ranges.
+      Allows numeric range queries against the value in this field. See [query syntax docs](Query_Syntax.md) for details on how to use numeric ranges.
 
     * **GEO**
 
-      Index a string containing longitude (first) and latitude separated by a comma for geographic range queries.
+      Allows geographic range queries against the value in this field. The value of the field must be a string containing a longitude (first) and latitude separated by a comma.
 
     #### Field Options
 
@@ -284,12 +282,12 @@ Searches the index with a textual query, returning either documents or just ids.
 
 #### Examples
 
-Searching for the term "wizard" in every TEXT field of an indexing containing book data:
+Searching for the term "wizard" in every TEXT field of an index containing book data:
 
 ```sql
 FT.SEARCH books-idx "wizard"
 ```
-Searching for the term "dogs" in the "title" field:
+Searching for the term "dogs" in only the "title" field:
 
 ```sql
 FT.SEARCH books-idx "@title:dogs"
@@ -304,10 +302,10 @@ FT.SEARCH books-idx "@published_at:[2020 2021]
 Searching for Chinese restaurants within 5 kilometers of longitude -122.41, latitude 37.77 (San Francisco):
 
 ```sql
-FT.SEARCH restaurants-idx chinese @location:[-122.41 37.77 5 km]
+FT.SEARCH restaurants-idx "chinese @location:[-122.41 37.77 5 km]"
 ```
 
-Searching for the term "dogs" or "cats" in the "title" field and boosting matches on "dogs":
+Searching for the term "dogs" or "cats" in the "title" field, but giving matches of "dogs" a higher relevance score (also known as *boosting*):
 
 ```sql
 FT.SEARCH books-idx "(@title:dogs | @title:cats) | (@title:dogs) => { $weight: 5.0; }"
@@ -324,7 +322,7 @@ Searching for books with "space" in the title that have "science" in the TAG fie
 FT.SEARCH books-idx "@title:space @categories:{science}"
 ```
 
-Searching for books with "Python" in any TEXT field, limited to ten results starting at the tenth result, and returning only the "title" field:
+Searching for books with "Python" in any TEXT field, returning ten results starting from the tenth result in the entire result set (in other words, paginating), and returning only the "title" field:
 
 ```sql
 FT.SEARCH books-idx "python" LIMIT 10 10 RETURN 1 title
