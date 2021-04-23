@@ -439,7 +439,7 @@ Runs a search query on an index, and performs aggregate transformations on the r
 
 #### Examples
 
-Given an index containing visits to web sites, find visits to the page "about.html", group them by the day of the visit, count the number of visits, and sort them by day:
+Finding visits to the page "about.html", grouping them by the day of the visit, counting the number of visits, and sorting them by day:
 
 ```sql
 FT.AGGREGATE idx "@url:\"about.html\""
@@ -449,7 +449,7 @@ FT.AGGREGATE idx "@url:\"about.html\""
     SORTBY 4 @day
 ```
 
-Or, given an index containing book data, find the most books ever published in a single year:
+Finding the most books ever published in a single year:
 
 ```sql
 FT.AGGREGATE books-idx *
@@ -459,16 +459,18 @@ FT.AGGREGATE books-idx *
       REDUCE MAX 1 @num_published AS max_books_published_per_year
 ```
 
-!!! tip "Reducing an entire result set"
-    The last example used `GROUPBY 0`. Use `GROUPBY 0` to apply a `REDUCE` function over all results from the last step of an aggregation pipeline -- this could be the initial query or subsequent `GROUPBY` steps.
+!!! tip "Reducing all results"
+    The last example used `GROUPBY 0`. Use `GROUPBY 0` to apply a `REDUCE` function over all results from the last step of an aggregation pipeline -- this works on both the  initial query and subsequent `GROUPBY` operations.
 
-Here's what using `LOAD` to pre-load a GEO field into an aggregation query looks like. This query searches for libraries within 10 kilometers of the longitude -73.982254 and latitude 40.753181 then annotates them with their distance from that point:
+Searching for libraries within 10 kilometers of the longitude -73.982254 and latitude 40.753181 then annotating them with the distance between their location and those coordinates:
 
 ```sql
  FT.AGGREGATE libraries-idx "@location:[-73.982254 40.753181 10 km]"
     LOAD 1 @location
     APPLY "geodistance(@location, -73.982254, 40.753181)"
 ```
+
+Here, we needed to use `LOAD` to pre-load the @location field because it is a GEO field.
 
 !!! tip "More examples"
     For more details on aggreations and detailed examples of aggregation queries, see [Aggregations](Aggregations.md).
