@@ -322,7 +322,7 @@ Searching for books with "space" in the title that have "science" in the TAG fie
 FT.SEARCH books-idx "@title:space @categories:{science}"
 ```
 
-Searching for books with "Python" in any TEXT field, returning ten results starting from the tenth result in the entire result set (in other words, paginating), and returning only the "title" field:
+Searching for books with "Python" in any TEXT field, returning ten results starting with the eleventh result in the entire result set (the offset parameter is zero-based), and returning only the "title" field for each result:
 
 ```sql
 FT.SEARCH books-idx "python" LIMIT 10 10 RETURN 1 title
