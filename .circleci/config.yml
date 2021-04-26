@@ -236,9 +236,11 @@ workflows:
           #@@<<: *on-version-tags
           <<: *on-any-branch
       - debug_asan:
-          <<: *on-any-branch
+          #@@<<: *on-any-branch
+          <<: *never
       - debug_msan:
-          <<: *on-any-branch
+          #@@<<: *on-any-branch
+          <<: *never
       - coverage:
           context: common
           <<: *on-any-branch
