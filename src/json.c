@@ -68,7 +68,7 @@ static RSLanguage SchemaRule_JsonScore(RedisModuleCtx *ctx, const SchemaRule *ru
     goto done;
   }
 
-  if(japi->getDoubleFromKey(jsonKey, rule->score_field, &score) != REDISMODULE_OK) {
+  if(japi && japi->getDoubleFromKey(jsonKey, rule->score_field, &score) != REDISMODULE_OK) {
     RedisModule_Log(NULL, "warning", "invalid field %s for key %s", rule->score_field, keyName);
   }
 
@@ -84,7 +84,7 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx) {
   size_t nitems = sctx->spec->numFields;
   RedisJSON json = NULL;
 
-  RedisJSONKey jsonKey = japi->openKey(ctx, doc->docKey);
+  RedisJSONKey jsonKey = japi ? japi->openKey(ctx, doc->docKey) : NULL;
   if (!jsonKey) {
     goto done;
   }
@@ -104,7 +104,7 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx) {
   for (; ii < spec->numFields; ++ii) {
     FieldSpec *field = &spec->fields[ii];
 
-    // retrive json pointer
+    // retrieve json pointer
     // TODO: check option to move to getStringFromKey
     json = japi->get(jsonKey, field->path, &type, &count);
     if (!json) {

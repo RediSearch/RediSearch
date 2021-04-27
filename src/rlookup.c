@@ -359,12 +359,16 @@ static int getKeyCommonHash(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
 
 static int getKeyCommonJSON(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOptions *options,
                         RedisJSONKey *keyobj) {
+  if (!japi) {
+    QueryError_SetCode(options->status, QUERY_EUNSUPPTYPE);
+    return REDISMODULE_ERR;
+  }
   if (!options->noSortables && (kk->flags & RLOOKUP_F_SVSRC)) {
     // No need to "write" this key. It's always implicitly loaded!
     return REDISMODULE_OK;
   }
 
-  // In this case, the flag must be obtained via HGET
+  // In this case, the flag must be obtained from JSON
   if (!*keyobj) {
     RedisModuleCtx *ctx = options->sctx->redisCtx;
     *keyobj = japi->openKeyFromStr(ctx, options->dmd->keyPtr);
@@ -374,7 +378,7 @@ static int getKeyCommonJSON(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
     }
   }
 
-  // Get the actual hash value
+  // Get the actual json value
   int rc = REDISMODULE_ERR;
   RedisModuleString *val = NULL;
   RSValue *rsv = NULL;
@@ -595,7 +599,7 @@ static int RLookup_JSON_GetAll(RLookup *it, RLookupRow *dst, RLookupLoadOptions 
   //RedisModuleString *krstr =
   //    RedisModule_CreateString(ctx, options->dmd->keyPtr, sdslen(options->dmd->keyPtr));
   // TODO: check error
-  RedisJSONKey jsonKey = japi->openKeyFromStr(ctx, options->dmd->keyPtr);
+  RedisJSONKey jsonKey = japi ? japi->openKeyFromStr(ctx, options->dmd->keyPtr) : NULL;
   if (!jsonKey) {
     goto done;
   }
