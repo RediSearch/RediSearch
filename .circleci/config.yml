@@ -233,14 +233,11 @@ workflows:
       - centos:
           <<: *on-any-branch
       - macos:
-          #@@<<: *on-version-tags
-          <<: *on-any-branch
+          <<: *on-version-tags
       - debug_asan:
-          #@@<<: *on-any-branch
-          <<: *never
+          <<: *on-any-branch
       - debug_msan:
-          #@@<<: *on-any-branch
-          <<: *never
+          <<: *on-any-branch
       - coverage:
           context: common
           <<: *on-any-branch
