@@ -39,9 +39,40 @@ Creates an index with the given spec.
 
     When Running RediSearch in a clustered database, there is the ability to span the index across shards with [RSCoordinator](https://github.com/RedisLabsModules/RSCoordinator). In this case the above does not apply.
 
-##### Example
+##### Examples
+
+Creating an index that stores the title, publication date, and categories of blog post hashes whose keys start with `blog:post:` (e.g., `blog:post:1`):
+
 ```sql
-FT.CREATE idx ON HASH PREFIX 1 doc: SCHEMA name TEXT SORTABLE age NUMERIC SORTABLE myTag TAG SORTABLE
+FT.CREATE idx ON HASH PREFIX 1 blog:post: SCHEMA title TEXT SORTABLE published_at NUMERIC SORTABLE category TAG SORTABLE
+```
+
+Indexing two different hashes -- one containing author data and one containing books -- in the same index:
+
+```sql
+FT.CREATE author-books-idx ON HASH PREFIX 2 author:details: book:details: SCHEMA
+author_id TAG SORTABLE author_ids TAG title TEXT name TEXT
+```
+
+!!! note
+    In this example, keys for author data use the key pattern `author:details:<id>` while keys for book data use the pattern `book:details:<id>`.
+
+Indexing only authors whose names start with "G":
+
+```sql
+FT.CREATE g-authors-idx ON HASH PREFIX 1 author:details FILTER 'startswith(@name, "G")' SCHEMA name TEXT
+```
+
+Indexing only books that have a subtitle:
+
+```sql
+FT.CREATE subtitled-books-idx ON HASH PREFIX 1 book:details FILTER '@subtitle != ""' SCHEMA title TEXT
+```
+
+Indexing books that have a "categories" field in which semicolons separate the values:
+
+```sql
+FT.CREATE books-idx ON HASH PREFIX 1 book:details FILTER SCHEMA title TEXT categories TAG SEPARATOR ";"
 ```
 
 #### Parameters
@@ -114,12 +145,27 @@ FT.CREATE idx ON HASH PREFIX 1 doc: SCHEMA name TEXT SORTABLE age NUMERIC SORTAB
 
 * **SKIPINITIALSCAN**: If set, we do not scan and index.
 
-* **SCHEMA {field} {options...}**: After the SCHEMA keyword we define the index fields. They
-  can be numeric, textual or geographical. For textual fields we optionally specify a weight.
-  The default weight is 1.0.
+* **SCHEMA {field name} {field type} {options...}**: After the SCHEMA keyword we define the index fields. The field name is the name of the field within the hashes that this index follows. Field types can be numeric, textual or geographical.
+
+    #### Field Types
+
+    * **TEXT**
+
+      Allows full-text search queries against the value in this field.
+
+    * **TAG**
+
+      Allows exact-match queries, such as categories or primary keys, against the value in this field. For more information, see [Tag Fields](Tags.md).
+
+    * **NUMERIC**
+
+      Allows numeric range queries against the value in this field. See [query syntax docs](Query_Syntax.md) for details on how to use numeric ranges.
+
+    * **GEO**
+
+      Allows geographic range queries against the value in this field. The value of the field must be a string containing a longitude (first) and latitude separated by a comma.
 
     #### Field Options
-
 
     * **SORTABLE**
 
@@ -186,8 +232,6 @@ If a hash is modified, all matching indexes are updated automatically. Deletion 
 
 If a field fails to be indexed (for example, if a numeric fields gets a string value) the whole document is not indexed. `FT.INFO` provides the number of document-indexing-failures under `hash_indexing_failures`.
 
-Beware - enabling this feature will slow the whole server by a few points. Only use if hashes are updated often in fields that are not in schema.
-
 If `LANGUAGE_FIELD`, `SCORE_FIELD`, or `PAYLOAD_FIELD` were used with `FT.CREATE`, the document will extract the properties. A field can be used to get the name of the index it belongs to.
 
 !!! warning "Schema mismatch"
@@ -236,10 +280,57 @@ FT.SEARCH {index} {query} [NOCONTENT] [VERBATIM] [NOSTOPWORDS] [WITHSCORES] [WIT
 
 Searches the index with a textual query, returning either documents or just ids.
 
-#### Example
+#### Examples
+
+Searching for the term "wizard" in every TEXT field of an index containing book data:
+
 ```sql
-FT.SEARCH idx "@text:morphix=>{$phonetic:false}"
+FT.SEARCH books-idx "wizard"
 ```
+Searching for the term "dogs" in only the "title" field:
+
+```sql
+FT.SEARCH books-idx "@title:dogs"
+```
+
+Searching for books published in 2020 or 2021:
+
+```sql
+FT.SEARCH books-idx "@published_at:[2020 2021]
+```
+
+Searching for Chinese restaurants within 5 kilometers of longitude -122.41, latitude 37.77 (San Francisco):
+
+```sql
+FT.SEARCH restaurants-idx "chinese @location:[-122.41 37.77 5 km]"
+```
+
+Searching for the term "dogs" or "cats" in the "title" field, but giving matches of "dogs" a higher relevance score (also known as *boosting*):
+
+```sql
+FT.SEARCH books-idx "(@title:dogs | @title:cats) | (@title:dogs) => { $weight: 5.0; }"
+```
+Searching for books with "dogs" in any TEXT field in the index and requesting an explanation of scoring for each result:
+
+```sql
+FT.SEARCH books-idx "dogs" WITHSCORES EXPLAINSCORE
+```
+
+Searching for books with "space" in the title that have "science" in the TAG field "categories":
+
+```sql
+FT.SEARCH books-idx "@title:space @categories:{science}"
+```
+
+Searching for books with "Python" in any TEXT field, returning ten results starting with the eleventh result in the entire result set (the offset parameter is zero-based), and returning only the "title" field for each result:
+
+```sql
+FT.SEARCH books-idx "python" LIMIT 10 10 RETURN 1 title
+```
+
+!!! tip "More examples"
+    For more details and query examples, see [query syntax](Query_Syntax.md).
+
 
 #### Parameters
 
@@ -294,17 +385,17 @@ FT.SEARCH idx "@text:morphix=>{$phonetic:false}"
 
 - **EXPANDER {expander}**: If set, we will use a custom query expander instead of the stemmer. [See Extensions](Extensions.md).
 - **SCORER {scorer}**: If set, we will use a custom scoring function defined by the user. [See Extensions](Extensions.md).
-- **EXPLAINSCORE**: If set, will return a textual description of how the scores were calculated.
+- **EXPLAINSCORE**: If set, will return a textual description of how the scores were calculated. Using this options requires the WITHSCORES option.
 - **PAYLOAD {payload}**: Add an arbitrary, binary safe payload that will be exposed to custom scoring
   functions. [See Extensions](Extensions.md).
 
 - **SORTBY {field} [ASC|DESC]**: If specified, the results
   are ordered by the value of this field. This applies to both text and numeric fields.
-- **LIMIT first num**: If the parameters appear after the query, we limit the results to
-  the offset and number of results given. The default is 0 10.
+- **LIMIT first num**: Limit the results to
+  the offset and number of results given. Note that the offset is zero-indexed. The default is 0 10, which returns 10 items starting from the first result.
 
 !!! tip
-    `LIMIT 0 0` can be used to count the number of documents in the resultset without actually returning them.
+    `LIMIT 0 0` can be used to count the number of documents in the result set without actually returning them.
 
 #### Complexity
 
@@ -346,14 +437,44 @@ FT.AGGREGATE {index_name}
 
 Runs a search query on an index, and performs aggregate transformations on the results, extracting statistics etc from them. See [the full documentation on aggregations](Aggregations.md) for further details.
 
-#### Example
+#### Examples
+
+Finding visits to the page "about.html", grouping them by the day of the visit, counting the number of visits, and sorting them by day:
+
 ```sql
 FT.AGGREGATE idx "@url:\"about.html\""
-    APPLY "@timestamp - (@timestamp % 86400)" AS day
+    APPLY "day(@timestamp)" AS day
     GROUPBY 2 @day @country
-    	REDUCE count 0 AS num_visits
-    SORTBY 4 @day ASC @country DESC
+      REDUCE count 0 AS num_visits
+    SORTBY 4 @day
 ```
+
+Finding the most books ever published in a single year:
+
+```sql
+FT.AGGREGATE books-idx *
+    GROUPBY 1 @published_year
+      REDUCE COUNT 0 AS num_published
+    GROUPBY 0
+      REDUCE MAX 1 @num_published AS max_books_published_per_year
+```
+
+!!! tip "Reducing all results"
+    The last example used `GROUPBY 0`. Use `GROUPBY 0` to apply a `REDUCE` function over all results from the last step of an aggregation pipeline -- this works on both the  initial query and subsequent `GROUPBY` operations.
+
+Searching for libraries within 10 kilometers of the longitude -73.982254 and latitude 40.753181 then annotating them with the distance between their location and those coordinates:
+
+```sql
+ FT.AGGREGATE libraries-idx "@location:[-73.982254 40.753181 10 km]"
+    LOAD 1 @location
+    APPLY "geodistance(@location, -73.982254, 40.753181)"
+```
+
+Here, we needed to use `LOAD` to pre-load the @location field because it is a GEO field.
+
+!!! tip "More examples"
+    For more details on aggreations and detailed examples of aggregation queries, see [Aggregations](Aggregations.md).
+
 
 #### Parameters
 
@@ -448,7 +569,7 @@ Here we are counting GitHub events by user (actor), to produce the most active u
     2) "xdzou"
     3) "num"
     4) "3216"
-10) 1) "actor"
+[10](10)) 1) "actor"
     2) "opstest"
     3) "num"
     4) "2863"
@@ -593,14 +714,14 @@ FT.PROFILE {index} {[SEARCH, AGGREGATE]} [LIMITED] QUERY {query}
 
 Performs a `FT.SEARCH` or `FT.AGGREGATE` command and collects performance information.
 Return value has an array with two elements:
-    
+
   * **Results** - The normal reply from RediSearch, similar to a cursor.
   * **Profile** - The details in the profile are:
     * **Total profile time** - The total runtime of the query.
     * **Parsing time** - Parsing time of the query and parameters into an execution plan.
     * **Pipeline creation time** - Creation time of execution plan including iterators,
   result processors and reducers creation.
-    * **Iterators profile** - Index iterators information including their type, term, count and time data. 
+    * **Iterators profile** - Index iterators information including their type, term, count and time data.
   Inverted-index iterators have in addition the number of elements they contain.
     * **Result processors profile** - Result processors chain with type, count and time data.
 
@@ -675,7 +796,7 @@ FT.PROFILE idx SEARCH QUERY "hello world"
 #### Parameters
 
 - **index**: The index name. The index must be first created with FT.CREATE
-- **SEARCH,AGGREGATE**: Differ between `FT.SEARCH` and `FT.AGGREGATE` 
+- **SEARCH,AGGREGATE**: Differ between `FT.SEARCH` and `FT.AGGREGATE`
 - **LIMITED**: Removes details of `reader` iterator
 - **QUERY {query}**: The query string, as if sent to FT.SEARCH
 
@@ -684,7 +805,7 @@ FT.PROFILE idx SEARCH QUERY "hello world"
 Non-deterministic. Depends on the query and aggregations performed, but it is usually linear to the number of results returned.
 #### Returns
 
-Array Response. 
+Array Response.
 
 !!! tip
     To reduce the size of the output, use `NOCONTENT` or `LIMIT 0 0` to reduce results reply or `LIMITED` to not reply with details of `reader iterators` inside builtin-unions such as `fuzzy` or `prefix`.
