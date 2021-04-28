@@ -25,7 +25,7 @@ if [[ "$1" == "--help" || "$1" == "help" || "$HELP" == "1" ]]; then
 	exit 0
 fi
 
-BRANCH=${BRANCH:-master}
+BRANCH=${BRANCH:-feature-search-json}
 
 OP=""
 [[ "$NOP" == "1" ]] && OP=echo
@@ -89,7 +89,7 @@ if [[ -z $REPO_PATH ]]; then
 	F_MOD_RAMP="$WORK_DIR/$MOD_RAMP"
 	if [[ $FORCE == 1 || ! -f $F_MOD_RAMP ]]; then
 		echo "Download RedisJSON ..."
-		$OP wget -P $WORK_DIR $MOD_S3_URL/$MOD_RAMP
+		$OP wget -q -P $WORK_DIR $MOD_S3_URL/$MOD_RAMP
 	fi
 else
 	F_MOD_RAMP="${REPO_PATH}/artifacts/snapshots/${MOD_RAMP}"

@@ -148,10 +148,14 @@ def testDemo(env):
     tlv_doc = [1L, 'A:TLV', ['$', tlv]]
     sfo_doc = [1L, 'A:SFO', ['$', sfo]]
 
+    env.expect('json.set', 'A:TLV', '$', tlv).ok()
+    env.expect('json.set', 'A:SFO', '$', sfo).ok()
+
     env.expect('FT.CREATE airports ON JSON SCHEMA $.iata AS iata TAG SORTABLE                 \
                                                   $.iata AS iata_txt TEXT NOSTEM              \
                                                   $.name AS name TEXT NOSTEM PHONETIC dm:en   \
                                                   $.location AS location GEO').ok()
+
     env.expect('json.set', 'A:TLV', '$', tlv).ok()
     env.expect('json.set', 'A:SFO', '$', sfo).ok()
 
@@ -168,5 +172,29 @@ def testDemo(env):
     env.expect('FT.SEARCH', 'airports', 'TL*').equal(tlv_doc)
     env.expect('FT.SEARCH', 'airports', 'sen frensysclo').equal(sfo_doc)
     env.expect('FT.SEARCH', 'airports', '@location:[-122.41 37.77 100 km]').equal(sfo_doc)
-    env.expect('FT.SEARCH', 'airports', 'sfo', 'RETURN', '3', '$.name', 'AS', 'name')       \
-                .equal([1L, 'A:SFO', ['name', '"San Francisco International Airport"']])
+    env.expect('FT.SEARCH', 'airports', 'sfo', 'RETURN', '1', '$.name')       \
+                .equal([1L, 'A:SFO', ['$.name', '"San Francisco International Airport"']])
+
+def testAs(env):
+    conn = getConnectionByEnv(env)
+    conn.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT')
+    conn.execute_command('JSON.SET', 'doc:1', '$', r'{"t":"riceratops","n":9}')
+
+    res = env.cmd('FT.SEARCH', 'idx', '*', 'RETURN', '3', '$.t', 'AS', 'txt')
+    env.assertEqual(res, [1L, 'doc:1', ['txt', '"riceratops"']])
+
+    res = env.cmd('FT.SEARCH', 'idx', '*', 'RETURN', '3', '$.n', 'AS', 'num')
+    env.assertEqual(res, [1L, 'doc:1', ['num', '9']])
+
+    res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '3', '@$.t', 'AS', 'txt')
+    env.assertEqual(res, [1L, ['txt', '"riceratops"']])
+
+    res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '3', '@$.n', 'AS', 'num')
+    env.assertEqual(res, [1L, ['num', '9']])
+
+def testNumeric(env):
+    env.skip()
+    conn = getConnectionByEnv(env)
+    conn.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.n', 'NUMERIC')
+    conn.execute_command('JSON.SET', 'doc:1', '$', r'{"n":9}')
+    env.expect('FT.SEARCH', 'idx', '@n:[0 10]').equal([1L, 'doc:1', ['$.n', 9]])

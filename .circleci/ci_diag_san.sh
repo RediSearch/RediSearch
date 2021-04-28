@@ -47,7 +47,6 @@ make -j$CI_CONCURRENCY
 
 export REDIS_SERVER=${SAN_PREFIX}/bin/redis-server-${mode}
 cat >rltest.config <<EOF
---oss-redis-path=$REDIS_SERVER
 --no-output-catch
 --exit-on-failure
 --check-exitcode
@@ -61,4 +60,4 @@ export RS_GLOBAL_DTORS=1
 # FIXME: Need to change the image once this actually works..
 ln -sf /usr/bin/llvm-symbolizer-4.0 /usr/bin/llvm-symbolizer || true
 
-ctest --output-on-failure -j$CI_CONCURRENCY
+COMPAT_DIR="$ROOT/build-${mode}" make -C $ROOT test CTEST_ARGS="--output-on-failure -j$CI_CONCURRENCY"

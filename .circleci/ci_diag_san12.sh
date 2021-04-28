@@ -14,6 +14,7 @@ SAN_PREFIX=/opt/llvm-project/build-msan
 
 extra_flags=""
 
+echo "fun:THPIsEnabled" >> /build/redis.blacklist
 if [[ $ASAN == 1 ]]; then
     mode=asan
     extra_flags="-DUSE_ASAN=ON"
@@ -21,7 +22,7 @@ if [[ $ASAN == 1 ]]; then
 elif [[ $MSAN == 1 ]]; then
     mode=msan
     extra_flags="-DUSE_MSAN=ON -DMSAN_PREFIX=${SAN_PREFIX}"
-    $READIES/bin/getredis --force -v 6.0  --no-run --suffix msan --clang-msan --llvm-dir /opt/llvm-project/build-msan --clang-san-blacklist /build/redis.blacklist 
+    $READIES/bin/getredis --force -v 6.0  --no-run --suffix msan --clang-msan --llvm-dir /opt/llvm-project/build-msan --clang-san-blacklist /build/redis.blacklist
 else
     echo "Should define either ASAN=1 or MSAN=1"
     exit 1
@@ -48,7 +49,6 @@ make -j$CI_CONCURRENCY
 
 export REDIS_SERVER=redis-server-${mode}
 cat >rltest.config <<EOF
---oss-redis-path=$REDIS_SERVER
 --no-output-catch
 --exit-on-failure
 --check-exitcode
@@ -59,4 +59,5 @@ export CONFIG_FILE="$PWD/rltest.config"
 export ASAN_OPTIONS=detect_odr_violation=0
 export RS_GLOBAL_DTORS=1
 
-ctest --output-on-failure -j$CI_CONCURRENCY
+BRANCH=feature-search-json $ROOT/sbin/get-redisjson
+COMPAT_DIR="$ROOT/build-${mode}" make -C $ROOT test CTEST_ARGS="--output-on-failure" -j$CI_CONCURRENCY

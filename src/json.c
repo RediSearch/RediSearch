@@ -82,6 +82,7 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx) {
   SchemaRule *rule = spec->rule;
   RedisModuleCtx *ctx = sctx->redisCtx;
   size_t nitems = sctx->spec->numFields;
+  RedisJSON json = NULL;
 
   RedisJSONKey jsonKey = japi->openKey(ctx, doc->docKey);
   if (!jsonKey) {
@@ -94,11 +95,10 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx) {
   doc->score = SchemaRule_JsonScore(sctx->redisCtx, rule, jsonKey, keyName);
   // No payload on JSON as RedisJSON does not support binary fields
 
-  const char *jsonVal;
+  const char *jsonVal; //remove
 
   size_t count;
   JSONType type;
-  RedisJSON json = NULL;
   doc->fields = rm_calloc(nitems, sizeof(*doc->fields));
   size_t ii = 0;
   for (; ii < spec->numFields; ++ii) {
@@ -107,12 +107,12 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx) {
     // retrive json pointer
     // TODO: check option to move to getStringFromKey
     json = japi->get(jsonKey, field->path, &type, &count);
-    if (!json || type == JSONType_Array || type == JSONType_Object) {
-      RedisModule_Log(ctx, "verbose", "Field contains array or object");
-      if (json) {
+    if (!json) {
+        continue;
+    }
+    if (type == JSONType_Array || type == JSONType_Object) {
         japi->close(json);
         json = NULL;
-      }
       continue;
     }
 

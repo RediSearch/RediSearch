@@ -121,15 +121,14 @@ int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx) {
   doc->fields = rm_calloc(nitems, sizeof(*doc->fields));
   for (size_t ii = 0; ii < spec->numFields; ++ii) {
     FieldSpec *field = &spec->fields[ii];
-    const char *fpath = field->path;
     RedisModuleString *v = NULL;
     // Hash command is not related to other type such as JSON
-    RedisModule_HashGet(k, REDISMODULE_HASH_CFIELDS, fpath, &v, NULL);
+    RedisModule_HashGet(k, REDISMODULE_HASH_CFIELDS, field->path, &v, NULL);
     if (v == NULL) {
       continue;
     }
     size_t oix = doc->numFields++;
-    doc->fields[oix].path = rm_strdup(fpath);
+    doc->fields[oix].path = rm_strdup(field->path);
     doc->fields[oix].name = (field->name == field->path) ? doc->fields[oix].path
                                                          : rm_strdup(field->name);
     // on crdt the return value might be the underline value, we must copy it!!!
