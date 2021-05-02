@@ -361,6 +361,7 @@ static int getKeyCommonJSON(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
                         RedisJSONKey *keyobj) {
   if (!japi) {
     QueryError_SetCode(options->status, QUERY_EUNSUPPTYPE);
+    RedisModule_Log(RSDummyContext, "warning", "cannot operate on a JSON index as RedisJSON is not loaded");
     return REDISMODULE_ERR;
   }
   if (!options->noSortables && (kk->flags & RLOOKUP_F_SVSRC)) {
