@@ -594,13 +594,15 @@ done:
 
 static int RLookup_JSON_GetAll(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options) {
   int rc = REDISMODULE_ERR;
+  if (!japi)
+    return rc;
   RedisModuleString *value;
   
   RedisModuleCtx *ctx = options->sctx->redisCtx;
   //RedisModuleString *krstr =
   //    RedisModule_CreateString(ctx, options->dmd->keyPtr, sdslen(options->dmd->keyPtr));
   // TODO: check error
-  RedisJSONKey jsonKey = japi ? japi->openKeyFromStr(ctx, options->dmd->keyPtr) : NULL;
+  RedisJSONKey jsonKey = japi->openKeyFromStr(ctx, options->dmd->keyPtr);
   if (!jsonKey) {
     goto done;
   }
