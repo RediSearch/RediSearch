@@ -30,5 +30,36 @@ prog=$(mktemp "${TMPDIR:-/tmp}/getver.XXXXXXX")
 gcc -I$HERE -o $prog $getver_c
 ver=`$prog`
 rm -f $prog $getver_c
+
+# master should be 99.99.99
+branchname=$(git branch|grep '*'|cut -d '*' -f 2-2|sed 's/^ *//g')
+if [ "X$branchname" = "Xmaster" ]; then
+    echo $ver|grep "99.99.99" &>/dev/null
+    if [ $? -ne 0 ]; then
+        echo "Received invalid version check src/version.h. Exiting."
+        exit 1
+    fi
+fi
+
+# versioned branches should be x{.y}{.z}
+rx='^([0-9]+\.){0,2}(\*|[0-9]+)$'
+if [[ $branchname =~ $rx ]]; then
+    echo $ver|grep "99.99.99" &>/dev/null
+    if [ $? -eq 0 ]; then
+        echo "Received invalid version check src/version.h. Exiting."
+        exit 1
+    fi
+fi
+
+# tags are like branches
+tagname=`git name-rev --tags --name-only $(git rev-parse HEAD)`
+if [ "X$tagname" != "$undefined" -a "X$branchname" != "Xmaster" ]; then
+    echo $ver|grep "99.99.99" &>/dev/null
+    if [ $? -eq 0 ]; then
+        echo "Received invalid version check src/version.h. Exiting."
+        exit 1
+    fi
+fi
+
 echo $ver
 exit 0
