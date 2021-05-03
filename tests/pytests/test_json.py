@@ -1,12 +1,10 @@
 # -*- coding: utf-8 -*-
-import bz2
 import json
-import itertools
-import unittest
+
+import bz2
+
+from common import getConnectionByEnv, waitForIndex
 from includes import *
-from common import getConnectionByEnv, waitForIndex, sortedResults, toSortedFlatList, check_server_version
-from time import sleep
-from RLTest import Env
 
 GAMES_JSON = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'games.json.bz2')
 
@@ -46,18 +44,32 @@ def testSearch(env):
     # FIXME: Enable next line when json bulk string is printed in the result
     #env.assertEquals(res, [2L, 'doc:1', ['$', plain_val_1], 'doc:2', ['$', plain_val_2]])
     env.expect('ft.search', 'idx1', '*').equal([2L, 'doc:1', ['$', plain_val_1], 'doc:2', ['$', plain_val_2]])
-    env.expect('ft.search', 'idx1', '*', 'RETURN', '1', '$.t').equal([2L, 'doc:1', ['$.t', '"rex"'], 'doc:2', ['$.t', '"riceratops"']])
+    env.expect('ft.search', 'idx1', '*', 'RETURN', '1', '$.t').equal([2L,
+                                                                      'doc:1', ['$.t', '"rex"'],
+                                                                      'doc:2', ['$.t', '"riceratops"']])
+    env.expect('ft.search', 'idx1', '*', 'RETURN', '1', 'labelN').equal([2L,
+                                                                         'doc:1', ['labelN', '12'],
+                                                                         'doc:2', ['labelN', '9']])
+    env.expect('ft.search', 'idx1', '*', 'RETURN', '2', '$.t', 'labelN').equal([2L,
+                                                                                'doc:1', ['$.t', '"rex"', 'labelN', '12'],
+                                                                                'doc:2', ['$.t', '"riceratops"', 'labelN', '9']])
 
     # FIXME: Enable next line when json bulk string is printed in the result
     env.expect('ft.search', 'idx1', 're*').equal([1L, 'doc:1', ['$', r'{"t":"rex","n":12}']])
 
     # Update an existing text value
-    plain_val_3 = '"hescelosaurus"'
-    env.expect('json.set', 'doc:1', '$.t', plain_val_3).ok()
-    env.expect('json.get', 'doc:1', '$.t').equal(plain_val_3)
+    plain_text_val_3 = '"hescelosaurus"'
+    env.expect('json.set', 'doc:1', '$.t', plain_text_val_3).ok()
+    env.expect('json.get', 'doc:1', '$.t').equal(plain_text_val_3)
 
-    # TODO: Update an existing numeric value
-    # TODO: test JSON.NUMINCRBY and JSON.NUMMULTBY
+    # Update an existing int value
+    plain_int_val_3 = '13'
+    int_incrby_3 = '2'
+    plain_int_res_val_3 = str(int(plain_int_val_3) + int(int_incrby_3))
+    env.expect('json.set', 'doc:1', '$.n', plain_int_val_3).ok()
+    # test JSON.NUMINCRBY
+    env.expect('json.numincrby', 'doc:1', '$.n', int_incrby_3).equal(plain_int_res_val_3)
+
     # TODO: Check null values
     # TODO: Check arrays
     # TODO: Check Object/Map
@@ -89,7 +101,7 @@ def testSearch(env):
     # FIXME: Enable next line when RETURN param supports AS
     #env.expect('ft.search', 'idx1', '*', 'RETURN', '2', 'labelT', '$.t').equal([1L, 'doc:1', ['labelT', r'"hescelosaurus"']])
     env.expect('ft.search', 'idx1', '*').equal([4L, 'doc:2', ['$', '{"t":"riceratops","n":9}'],
-                                                    'doc:1', ['$', '{"t":"hescelosaurus","n":12}'],
+                                                    'doc:1', ['$', '{"t":"hescelosaurus","n":' + plain_int_res_val_3 + '}'],
                                                     'doc:4', ['$', '{"t":"\xe3\x83\x89\xe3\x83\xa9\xe3\x82\xb4\xe3\x83\xb3","n":5}'],
                                                     'doc:5', ['$', '{"t":"\xe8\xb8\xaa\xe8\xbf\xb9","n":5}']])
     '''
