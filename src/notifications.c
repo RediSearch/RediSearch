@@ -62,7 +62,6 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
   
   // TODO:clean
   if (!strcmp("json_set", event)) {
-    RedisModule_RetainString(ctx, key);
     Indexes_UpdateMatchingWithSchemaRules(ctx, key, DocumentType_Json, hashFields);
     return REDISMODULE_OK;
   }
