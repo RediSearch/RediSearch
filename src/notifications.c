@@ -61,7 +61,7 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
                     *loaded_event = 0, *json_set_event = 0;
   
   // TODO:clean
-  if (!strcmp("json_set", event) || !strcmp("json_incrby", event)) {
+  if (!strcmp("json_set", event) || !strcmp("json_incrby", event) || !strcmp("json_arrpop", event)) {
     Indexes_UpdateMatchingWithSchemaRules(ctx, key, DocumentType_Json, hashFields);
     return REDISMODULE_OK;
   }
