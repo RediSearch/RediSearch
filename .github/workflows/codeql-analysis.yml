@@ -53,6 +53,7 @@ jobs:
 
     - name: Setup
       run: |
+        git submodule update --init
         sudo make setup
 
     # Autobuild attempts to build any compiled languages  (C/C++, C#, or Java).
