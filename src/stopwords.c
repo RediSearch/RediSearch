@@ -24,7 +24,9 @@ StopWordList *DefaultStopWordList() {
 
 /* Check if a stopword list contains a term. The term must be already lowercased */
 int StopWordList_Contains(const StopWordList *sl, const char *term, size_t len) {
-  if (!sl || !term) {
+  char *lowStr;
+  char stackStr[32];
+  if (sl == __empty_stopwords || !sl || !term) {
     return 0;
   }
 

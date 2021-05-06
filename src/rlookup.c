@@ -17,6 +17,7 @@ static RLookupKey *createNewKey(RLookup *lookup, const char *name, size_t n, int
   } else {
     ret->name = name;
   }
+  ret->name_len = n;
 
   if (!lookup->head) {
     lookup->head = lookup->tail = ret;
@@ -65,8 +66,7 @@ RLookupKey *RLookup_GetKeyEx(RLookup *lookup, const char *name, size_t n, int fl
   int isNew = 0;
 
   for (RLookupKey *kk = lookup->head; kk; kk = kk->next) {
-    size_t origlen = strlen(kk->name);
-    if (origlen == n && !strncmp(kk->name, name, origlen)) {
+    if (kk->name_len == n && !strncmp(kk->name, name, kk->name_len)) {
       if (flags & RLOOKUP_F_OEXCL) {
         return NULL;
       }
@@ -124,7 +124,8 @@ size_t RLookup_GetLength(const RLookup *lookup, const RLookupRow *r, int *skipFi
     // on coordinator, we reach this code without sctx or rule,
     // we trust the shards to not send those fields.
     if (rule && ((rule->lang_field && strcmp(kk->name, rule->lang_field) == 0) ||
-                  (rule->score_field && strcmp(kk->name, rule->score_field) == 0))) {
+                  (rule->score_field && strcmp(kk->name, rule->score_field) == 0) ||
+                  (rule->score_field && strcmp(kk->name, rule->payload_field) == 0))) {
       continue;
     }
 
@@ -447,8 +448,9 @@ static int RLookup_HGETALL(RLookup *it, RLookupRow *dst, RLookupLoadOptions *opt
   RedisModuleCtx *ctx = options->sctx->redisCtx;
   RedisModuleString *krstr =
       RedisModule_CreateString(ctx, options->dmd->keyPtr, sdslen(options->dmd->keyPtr));
-  // We can only use the scan API from Redis version 6.0.6 and above
-  if(!isFeatureSupported(RM_SCAN_KEY_API_FIX)){
+  // We can only use the scan API from Redis version 6.0.6 and above 
+  // and when the deployment is not enterprise-crdt
+  if(!isFeatureSupported(RM_SCAN_KEY_API_FIX) || isCrdt){
     rep = RedisModule_Call(ctx, "HGETALL", "s", krstr);
 
     if (rep == NULL || RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_ARRAY) {
