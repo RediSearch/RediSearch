@@ -6,8 +6,22 @@ import bz2
 from common import getConnectionByEnv, waitForIndex
 from includes import *
 
+UNSTABLE_TESTS = os.getenv('UNSTABLE_TESTS', '0') == '1'
+
 GAMES_JSON = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'games.json.bz2')
 
+doc1_content = r'''{"string": "gotcha1",
+                "null": null,
+                "boolT": true,
+                "boolN": true,
+                "int": 972,
+                "flt": 9.72,
+                "geo": "1.23,4.56",
+                "obj": {"int": 1, "string": "gotcha6","c": null},
+                "complex_arr": [42, null, -1.2, false, {"nested_array":["sub", "array", "gotcha2"]}, {"nested_obj": "gotcha3"}, "gotcha4"],
+                "scalar_arr": [42, null, -1.2, false, "gotcha5"],
+                "string_arr": ["a", "b", "c", "d", "e", "f", "gotcha6"]
+            }'''
 
 def testSearchUpdatedContent(env):
     conn = getConnectionByEnv(env)
@@ -64,14 +78,14 @@ def testSearchUpdatedContent(env):
     env.expect('ft.search', 'idx1', 'he*').equal(
         [1L, 'doc:1', ['$', r'{"t":"hescelosaurus","n":' + plain_int_res_val_3 + '}']])
 
-    # for now, can't load a field which was not specified
     env.expect('ft.search', 'idx1', 'riceratops', 'RETURN', '1', '$').equal(
         [1L, 'doc:2', ['$', '{"t":"riceratops","n":9}']])
     env.expect('ft.search', 'idx1', 'riceratops', 'RETURN', '1', '$.n').equal([1L, 'doc:2', ['$.n', '9']])
     env.expect('ft.search', 'idx1', 'riceratops', 'RETURN', '1', '$.t').equal([1L, 'doc:2', ['$.t', '"riceratops"']])
 
 
-# FIXME: Test PREFIX, SORTBY, NOSTEM, Fuzzy, Pagination, Limit 0 0, Score - Do we need to repeat all search testing done on hash?
+# FIXME: Test PREFIX, SORTBY, NOSTEM, Fuzzy, Pagination, Limit 0 0, Score - Need to repeat all search testing as done on hash?
+# FIXME: Test Aggregate - Need to repeat all aggregate testing as done on hash?
 
 # TODO: Check null values
 # TODO: Check arrays
@@ -81,21 +95,11 @@ def testHandleUnindexedTypes(env):
     # TODO: Ignore and resume indexing when encountering an Object/Array/null
     # TODO: Except for array of only scalars which is defined as a TAG in the schema
     # ... FT.CREATE idx SCHEMA $.arr TAG
-    doc1 = r'''{"string": "gotcha1",
-                "null": null,
-                "boolT": true,
-                "boolN": true,
-                "int": 972,
-                "flt": 9.72,
-                "geo": "1.23,4.56",
-                "obj": {"int": 1, "string": "gotcha6","c": null},
-                "complex_arr": [42, null, -1.2, false, {"nested_array":["sub", "array", "gotcha2"]}, {"nested_obj": "gotcha3"}, "gotcha4"],
-                "scalar_arr": [42, null, -1.2, false, "gotcha5"],
-                "string_arr": ["a", "b", "c", "d", "e", "f", "gotcha6"]
-            }'''
-    env.expect('JSON.SET', 'doc:1', '$', doc1).ok()
+    if not UNSTABLE_TESTS:
+        env.skip()
+    env.expect('JSON.SET', 'doc:1', '$', doc1_content).ok()
 
-    env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
                         '$.string', 'AS', 'string', 'TEXT',
                         '$.null', 'AS', 'nil', 'TEXT',
                         '$.boolT', 'AS', 'boolT', 'TEXT',
@@ -107,11 +111,11 @@ def testHandleUnindexedTypes(env):
                         '$.complex_arr', 'AS', 'complex_arr', 'TEXT',
                         '$.scalar_arr', 'AS', 'scalar_arr', 'TAG',
                         '$.int_arr', 'AS', 'int_arr', 'TAG',
-                        )
+                        ).ok()
     waitForIndex(env, 'idx')
     # FIXME: Why does the following search return zero results?
-    # env.expect('ft.search', 'idx', '*', 'RETURN', '2', 'string', 'int_arr')\
-    #     .equal([1L, 'doc:1', ['string', '"gotcha1"', 'int_arr', ["a", "b", "c", "d", "e", "f", "gotcha6"]]])
+    env.expect('ft.search', 'idx', '*', 'RETURN', '2', 'string', 'int_arr')\
+        .equal([1L, 'doc:1', ['string', '"gotcha1"', 'int_arr', ["a", "b", "c", "d", "e", "f", "gotcha6"]]])
 
     # TODO: test TAGVALS ?
     pass
@@ -121,6 +125,11 @@ def testReturnAllTypes(env):
     # Test returning all JSON types
     # (even if some of them are not able to be indexed/found,
     # they can be returned together with other fields which are indexed)
+
+    env.expect('JSON.SET', 'doc:1', '$', doc1_content).ok()
+    env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.string', 'AS', 'string', 'TEXT')
+
+
     # TODO: Make sure TAG can be used as a label in "FT.SEARCH idx "*" RETURN $.t As Tag"
     pass
 
@@ -215,8 +224,6 @@ def testArrpop(env):
     env.expect('FT.SEARCH', 'idx1', '*').equal([1L, 'doc:1', ['$', '{"t":["foo","bar"]}']])
     env.expect('JSON.ARRPOP', 'doc:1', '$.t', 0).equal('"foo"')
     env.expect('FT.SEARCH', 'idx1', '*').equal([1L, 'doc:1', ['$', '{"t":["bar"]}']])
-
-    pass
 
 
 def testRootValues(env):
@@ -319,7 +326,11 @@ def testDemo(env):
 def testIndexSeparation(env):
     # FIXME: hash key should not be returned by search on JSON index
     # FIXME: json doc should not be returned by search on HASH index
-    env.skip()
+    # TODO: Add prefix to partition one JSON search from another JSON search
+
+    if not UNSTABLE_TESTS:
+        env.skip()
+
     # Test results from different indexes do not mix (either JSON with JSON and JSON with HASH)
     env.expect('HSET', 'hash:1', 't', 'telmatosaurus', 'n', '9', 'f', '9.72').equal(3)
     env.execute_command('FT.CREATE', 'idxHash', 'ON', 'HASH', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC', 'f', 'NUMERIC')
@@ -330,6 +341,7 @@ def testIndexSeparation(env):
     env.execute_command('FT.CREATE', 'idxJson2', 'ON', 'JSON', 'SCHEMA', '$.t2', 'TEXT', '$.flt', 'NUMERIC')
     waitForIndex(env, 'idxJson2')
 
+    # FIXME: Probably a bug where HASH key is found when searching a JSON index
     env.expect('FT.SEARCH', 'idxJson', '*', 'RETURN', '3', '$.t', 'AS', 'txt').equal(
         [1L, 'doc:1', ['txt', '"riceratops"']])
     env.expect('FT.SEARCH', 'idxJson2', '*', 'RETURN', '3', '$.t2', 'AS', 'txt').equal(
@@ -350,7 +362,7 @@ def testMapProjectionAsToSchemaAs(env):
 
 
 def testAsProjection(env):
-    # Test RETURN and LOAD with label from schema
+    # Test RETURN and LOAD with label/alias from schema
     env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT', '$.flt', 'NUMERIC')
     waitForIndex(env, 'idx')
     env.execute_command('JSON.SET', 'doc:1', '$', r'{"t":"riceratops","n":"9072","flt":97.2, "sub":{"t":"rex"}}')
@@ -362,13 +374,13 @@ def testAsProjection(env):
 
     # Test RETURN with label not from schema
     env.expect('FT.SEARCH', 'idx', '*', 'RETURN', '3', '$.n', 'AS', 'num').equal([1L, 'doc:1', ['num', '"9072"']])
-    # FIXME:: enable next line
-    # env.expect('FT.SEARCH', 'idx', '907*', 'RETURN', '3', '$.n', 'AS', 'num').equal([1L, 'doc:1', ['num', '"9072"']])
+    # FIXME:: enable next line - why not found?
+    #env.expect('FT.SEARCH', 'idx', '907*', 'RETURN', '3', '$.n', 'AS', 'num').equal([1L, 'doc:1', ['num', '"9072"']])
 
     # Test LOAD with label not from schema
     env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', '6', '@$.n', 'AS', 'num', '$.sub.t', 'AS', 'subt').equal(
         [1L, ['num', '"9072"', 'subt', '"rex"']])
-    # FIXME:: enable next line
+    # FIXME:: enable next line - why not found?
     # env.expect('FT.AGGREGATE', 'idx', '907*', 'LOAD', '3', '@$.n', 'AS', 'num').equal([1L, ['num', '"9072"']])
 
     # TODO: Search for numeric field 'flt'
@@ -376,6 +388,9 @@ def testAsProjection(env):
 
 def testAsProjectionRedefinedLabel(env):
     # Test redefining projection 'AS' label in query params RETURN and LOAD
+    # FIXME: Should we fail SEARCH/AGGREGATE command with RETURN/LOAD alias duplication
+    # (as with FT.CREATE)
+    # BTW, iN SQLite, it is allowed, e.g., SELECT F1 AS Label1, F2 AS Label1 FROM doc;
 
     # FIXME: Handle Numeric - In the following line, change '$.n' to: 'AS', 'labelN', 'NUMERIC'
     env.execute_command('FT.CREATE', 'idx2', 'ON', 'JSON', 'SCHEMA', '$.t', 'AS', 'labelT', 'TEXT', '$.n', 'AS',
@@ -408,7 +423,9 @@ def testAsProjectionRedefinedLabel(env):
 
 def testNumeric(env):
     # FIXME: Handle numeric
-    env.skip()
+    if not UNSTABLE_TESTS:
+        env.skip()
+
     env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.n', 'NUMERIC', "$.f", 'NUMERIC')
     waitForIndex(env, 'idx')
     env.execute_command('JSON.SET', 'doc:1', '$', r'{"n":9, "f":9.72}')
