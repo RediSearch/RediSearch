@@ -975,6 +975,20 @@ def testSlopInOrder(env):
     env.assertEqual(0, r.execute_command(
         'ft.search', 'idx', 't1 t2 t3 t4', 'inorder')[0])
 
+    # test with qsort optimization on intersect iterator
+    # increase the count for t1 inverted index so optimization is applied
+    env.assertOk(r.execute_command('ft.add', 'idx', 'doc6', 1, 'fields',
+                                    'title', 't1'))
+    # add a field with different order of `t1, t2` 
+    env.assertOk(r.execute_command('ft.add', 'idx', 'doc5', 1, 'fields',
+                                    'title', 't2 t1'))
+
+    # before fix, both queries returned `doc5`
+    env.assertEqual([1L, 'doc5', ['title', 't2 t1']], r.execute_command(
+        'ft.search', 'idx', 't2 t1', 'slop', '0', 'inorder'))
+    env.assertEqual([1L, 'doc1', ['title', 't1 t2']], r.execute_command(
+        'ft.search', 'idx', 't1 t2', 'slop', '0', 'inorder'))
+
 def testExact(env):
     r = env
     env.assertOk(r.execute_command(
