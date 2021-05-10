@@ -967,8 +967,11 @@ static void buildImplicitPipeline(AREQ *req, QueryError *Status) {
   req->qiter.rootProc = req->qiter.endProc = rp;
   PUSH_RP();
 
-  /** Create a scorer if there is no subsequent sorter within this grouping */
-  if (!hasQuerySortby(&req->ap) && (req->reqflags & QEXEC_F_IS_SEARCH)) {
+  /** Create a scorer if:
+   *  * WITHSCORES is defined
+   *  * there is no subsequent sorter within this grouping */
+  if ((req->reqflags & QEXEC_F_SEND_SCORES) ||
+      (!hasQuerySortby(&req->ap) && (req->reqflags & QEXEC_F_IS_SEARCH))) {
     rp = getScorerRP(req);
     PUSH_RP();
   }
