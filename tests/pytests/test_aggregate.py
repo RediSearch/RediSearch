@@ -161,7 +161,7 @@ class TestAggregate():
                'GROUPBY', '1', '@brand',
                'REDUCE', 'COUNT', '0', 'AS', 'count',
                'APPLY', 'timefmt(1517417144)', 'AS', 'dt',
-               'APPLY', 'parse_time("%FT%TZ", @dt)', 'as', 'parsed_dt',
+               'APPLY', 'parsetime(@dt, "%FT%TZ")', 'as', 'parsed_dt',
                'LIMIT', '0', '1']
         res = self.env.cmd(*cmd)
 
