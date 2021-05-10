@@ -79,10 +79,15 @@ jobs:
 
   macos:
     macos:
-      xcode: 11.3.0
+      xcode: 11.6.0
     environment:
       - BUILD_DIR: build-macos
     steps:
+      - abort_for_docs
+      - run:
+          name: Update Brew
+          command: brew update
+          no_output_timeout: 20m
       - ci_steps
       - store_artifacts:
           path: build-macos/logs
@@ -248,7 +253,7 @@ workflows:
   nightly:
     triggers:
       - schedule:
-          cron: "20 17 * * *"
+          cron: "20 17 * * 0,3"
           filters:
             branches:
               only: master
