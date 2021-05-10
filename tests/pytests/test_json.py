@@ -423,10 +423,8 @@ def testAsProjectionRedefinedLabel(env):
 
 def testNumeric(env):
     # FIXME: Handle numeric
-    if not UNSTABLE_TESTS:
-        env.skip()
 
-    env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.n', 'NUMERIC', "$.f", 'NUMERIC')
+    env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.n', 'AS', 'n', 'NUMERIC', "$.f", 'NUMERIC')
     waitForIndex(env, 'idx')
     env.execute_command('JSON.SET', 'doc:1', '$', r'{"n":9, "f":9.72}')
     env.expect('FT.SEARCH', 'idx', '@n:[0 10]', 'RETURN', '3', '$.n', 'AS', 'int').equal([1L, 'doc:1', ['$.n', 9]])
