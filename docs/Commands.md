@@ -569,7 +569,7 @@ Here we are counting GitHub events by user (actor), to produce the most active u
     2) "xdzou"
     3) "num"
     4) "3216"
-10) 1) "actor"
+[10](10)) 1) "actor"
     2) "opstest"
     3) "num"
     4) "2863"
