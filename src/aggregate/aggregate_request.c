@@ -983,7 +983,9 @@ static void buildImplicitPipeline(AREQ *req, QueryError *Status) {
   PUSH_RP();
 
   /** Create a scorer if there is no subsequent sorter within this grouping */
-  if (!hasQuerySortby(&req->ap) && IsSearch(req) && !IsCount(req)) {
+  if ((req->reqflags & QEXEC_F_SEND_SCORES) ||
+      (!hasQuerySortby(&req->ap) && IsSearch(req) && !IsCount(req))) {
+    // issue 1988
     rp = getScorerRP(req);
     PUSH_RP();
   }
