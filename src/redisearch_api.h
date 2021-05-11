@@ -107,6 +107,11 @@ MODULE_API_FUNC(RSIndex*, RediSearch_CreateIndex)
 
 MODULE_API_FUNC(void, RediSearch_DropIndex)(RSIndex*);
 
+/** Handle Stopwords list */
+MODULE_API_FUNC(void, RediSearch_CreateStopwordsList)(RSIndex* idx, const char **cstr, int len);
+MODULE_API_FUNC(int, RediSearch_StopwordsList_Contains)(RSIndex* idx, const char *term, size_t len);
+MODULE_API_FUNC(void, RediSearch_DropStopwordsList)(RSIndex* idx);
+
 /**
  * Create a new field in the index
  * @param idx the index

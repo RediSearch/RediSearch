@@ -541,3 +541,21 @@ void RediSearch_SetCriteriaTesterThreshold(size_t num) {
     RSGlobalConfig.maxResultsToUnsortedMode = num;
   }
 }
+
+void RediSearch_CreateStopwordsList(RSIndex* idx, const char **cstr, int len) {
+  StopWordList *sl = NewStopWordListCStr(cstr, len);
+  if (idx->stopwords) {
+    StopWordList_Free(idx->stopwords);
+  }
+  idx->stopwords = sl;
+}
+
+int RediSearch_StopwordsList_Contains(RSIndex* idx, const char *term, size_t len) {
+  return StopWordList_Contains(idx->stopwords, term, len);
+}
+
+void RediSearch_DropStopwordsList(RSIndex* idx) {
+  if (idx->stopwords) {
+    StopWordList_Free(idx->stopwords);
+  }
+}
