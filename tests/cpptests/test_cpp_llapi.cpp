@@ -822,10 +822,9 @@ TEST_F(LLApiTest, testScorer) {
 }
 
 TEST_F(LLApiTest, testStopwords) {
-  int len = 2;
-  const char *words[len] = {"Redis", "Labs"};
+  const char *words[] = {"Redis", "Labs"};
   RSIndex* index = RediSearch_CreateIndex("index", NULL);
-  RediSearch_CreateStopwordsList(index, words, len);
+  RediSearch_CreateStopwordsList(index, words, 2);
   ASSERT_EQ(RediSearch_StopwordsList_Contains(index, words[0], strlen(words[0])), 1);
   ASSERT_EQ(RediSearch_StopwordsList_Contains(index, words[1], strlen(words[1])), 1);
   RediSearch_DropStopwordsList(index);
