@@ -179,7 +179,7 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
     case json_arrpop_cmd:
     case json_arrtrim_cmd:
     case json_toggle_cmd:
-      Indexes_UpdateMatchingWithSchemaRules(ctx, key, DocumentType_Hash, hashFields);
+      Indexes_UpdateMatchingWithSchemaRules(ctx, key, DocumentType_Json, hashFields);
     break;
 
 /********************************************************
