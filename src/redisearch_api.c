@@ -558,4 +558,5 @@ void RediSearch_DropStopwordsList(RSIndex* idx) {
   if (idx->stopwords) {
     StopWordList_Free(idx->stopwords);
   }
+  idx->stopwords = NewStopWordListCStr(NULL, 0);
 }
