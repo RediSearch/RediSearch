@@ -69,6 +69,7 @@ cd RedisJSON
 git checkout feature-search-json
 ./deps/readies/bin/getpy3
 ./system-setup.py
+source /etc/profile.d/rust.sh
 make SAN=$JSON_SAN_MODE
 export REJSON_PATH=$ROOT/deps/RedisJSON/target/x86_64-unknown-linux-gnu/debug/rejson.so
 

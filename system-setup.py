@@ -20,6 +20,7 @@ class RediSearchSetup(paella.Setup):
         self.pip_install("wheel")
         self.pip_install("setuptools --upgrade")
 
+        self.run("%s/bin/enable-utf8" % READIES) 
         self.install("git")
 
     def debian_compat(self):
