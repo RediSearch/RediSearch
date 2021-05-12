@@ -21,7 +21,7 @@ int RediSearch_GetCApiVersion() {
 }
 
 IndexSpec* RediSearch_CreateIndex(const char* name, const RSIndexOptions* options) {
-  RSIndexOptions opts_s = {.gcPolicy = GC_POLICY_FORK};
+  RSIndexOptions opts_s = {.gcPolicy = GC_POLICY_FORK, .stopwordsLen = -1};
   if (!options) {
     options = &opts_s;
   }
@@ -39,6 +39,10 @@ IndexSpec* RediSearch_CreateIndex(const char* name, const RSIndexOptions* option
   }
   if (options->gcPolicy != GC_POLICY_NONE) {
     IndexSpec_StartGCFromSpec(spec, GC_DEFAULT_HZ, options->gcPolicy);
+  }
+  if (options->stopwordsLen != -1) {
+    StopWordList_Free(spec->stopwords);
+    spec->stopwords = NewStopWordListCStr(options->stopwords, options->stopwordsLen);
   }
   return spec;
 }
@@ -500,6 +504,7 @@ void RediSearch_ResultsIteratorReset(RS_ApiIter* iter) {
 RSIndexOptions* RediSearch_CreateIndexOptions() {
   RSIndexOptions* ret = rm_calloc(1, sizeof(RSIndexOptions));
   ret->gcPolicy = GC_POLICY_NONE;
+  ret->stopwordsLen = -1;
   return ret;
 }
 
@@ -512,6 +517,12 @@ void RediSearch_IndexOptionsSetGetValueCallback(RSIndexOptions* options, RSGetVa
   options->gvcb = cb;
   options->gvcbData = ctx;
 }
+
+void RediSearch_IndexOptionsSetStopwords(RSIndexOptions* opts, const char **stopwords, int stopwordsLen) {
+  opts->stopwords = stopwords;
+  opts->stopwordsLen = stopwordsLen;
+}
+
 
 void RediSearch_IndexOptionsSetFlags(RSIndexOptions* options, uint32_t flags) {
   options->flags = flags;
@@ -545,21 +556,6 @@ void RediSearch_SetCriteriaTesterThreshold(size_t num) {
   }
 }
 
-void RediSearch_CreateStopwordsList(RSIndex* idx, const char **cstr, int len) {
-  StopWordList *sl = NewStopWordListCStr(cstr, len);
-  if (idx->stopwords) {
-    StopWordList_Free(idx->stopwords);
-  }
-  idx->stopwords = sl;
-}
-
 int RediSearch_StopwordsList_Contains(RSIndex* idx, const char *term, size_t len) {
   return StopWordList_Contains(idx->stopwords, term, len);
-}
-
-void RediSearch_DropStopwordsList(RSIndex* idx) {
-  if (idx->stopwords) {
-    StopWordList_Free(idx->stopwords);
-  }
-  idx->stopwords = NewStopWordListCStr(NULL, 0);
 }
