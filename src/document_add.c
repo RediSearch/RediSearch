@@ -171,8 +171,11 @@ int RS_AddDocument(RedisSearchCtx *sctx, RedisModuleString *name, const AddDocum
   } else if (!(addOptions & DOCUMENT_ADD_PARTIAL)) {
     // delete old decument if REPLACE without PARTIAL
     RedisModuleKey *dk = RedisModule_OpenKey(sctx->redisCtx, name, REDISMODULE_WRITE);
-    if (dk && RedisModule_KeyType(dk) == REDISMODULE_KEYTYPE_HASH) {
-      RedisModule_DeleteKey(dk);
+    if (dk) {
+      if (RedisModule_KeyType(dk) == REDISMODULE_KEYTYPE_HASH) {
+        RedisModule_DeleteKey(dk);
+      }
+      RedisModule_CloseKey(dk);
     }
   }
 
