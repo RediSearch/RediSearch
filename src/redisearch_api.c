@@ -509,6 +509,12 @@ RSIndexOptions* RediSearch_CreateIndexOptions() {
 }
 
 void RediSearch_FreeIndexOptions(RSIndexOptions* options) {
+  if (options->stopwordsLen > 0) {
+    for (int i = 0; i < options->stopwordsLen; i++) {
+      rm_free(options->stopwords[i]);
+    }
+    rm_free(options->stopwords);
+  }
   rm_free(options);
 }
 
@@ -519,10 +525,16 @@ void RediSearch_IndexOptionsSetGetValueCallback(RSIndexOptions* options, RSGetVa
 }
 
 void RediSearch_IndexOptionsSetStopwords(RSIndexOptions* opts, const char **stopwords, int stopwordsLen) {
-  opts->stopwords = stopwords;
+  if (stopwordsLen <= 0) {
+    return;
+  }
+
+  opts->stopwords = rm_malloc(sizeof(*opts->stopwords) * stopwordsLen);
+  for (int i = 0; i < stopwordsLen; i++) {
+    opts->stopwords[i] = rm_strdup(stopwords[i]);
+  }
   opts->stopwordsLen = stopwordsLen;
 }
-
 
 void RediSearch_IndexOptionsSetFlags(RSIndexOptions* options, uint32_t flags) {
   options->flags = flags;
