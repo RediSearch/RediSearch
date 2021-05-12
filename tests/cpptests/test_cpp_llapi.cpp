@@ -825,6 +825,10 @@ TEST_F(LLApiTest, testStopwords) {
   const char *words[] = {"Redis", "Labs"};
   RSIndex* index = RediSearch_CreateIndex("index", NULL);
 
+  // check creation of token node
+  ASSERT_EQ((size_t)RediSearch_CreateTokenNode(index, "doesnt_matter", "is"), 0);
+  ASSERT_NE((size_t)RediSearch_CreateTokenNode(index, "doesnt_matter", "Redis"), 0);  
+
   // Check default stopword list
   ASSERT_EQ(RediSearch_StopwordsList_Contains(index, "is", strlen("is")), 1);
   ASSERT_EQ(RediSearch_StopwordsList_Contains(index, "Redis", strlen("Redis")), 0);

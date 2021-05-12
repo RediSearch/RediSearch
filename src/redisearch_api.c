@@ -247,6 +247,9 @@ int RediSearch_IndexAddDocument(IndexSpec* sp, Document* d, int options, char** 
 }
 
 QueryNode* RediSearch_CreateTokenNode(IndexSpec* sp, const char* fieldName, const char* token) {
+  if (StopWordList_Contains(sp->stopwords, token, strlen(token))) {
+    return NULL;
+  }
   QueryNode* ret = NewQueryNode(QN_TOKEN);
 
   ret->tn = (QueryTokenNode){
