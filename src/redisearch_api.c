@@ -41,8 +41,9 @@ IndexSpec* RediSearch_CreateIndex(const char* name, const RSIndexOptions* option
     IndexSpec_StartGCFromSpec(spec, GC_DEFAULT_HZ, options->gcPolicy);
   }
   if (options->stopwordsLen != -1) {
-    StopWordList_Free(spec->stopwords);
-    spec->stopwords = NewStopWordListCStr(options->stopwords, options->stopwordsLen);
+    // replace default list which is a global so no need to free anything.
+    spec->stopwords = NewStopWordListCStr((const char **)options->stopwords,
+                                                         options->stopwordsLen);
   }
   return spec;
 }
@@ -525,7 +526,12 @@ void RediSearch_IndexOptionsSetGetValueCallback(RSIndexOptions* options, RSGetVa
 }
 
 void RediSearch_IndexOptionsSetStopwords(RSIndexOptions* opts, const char **stopwords, int stopwordsLen) {
-  if (stopwordsLen <= 0) {
+  if (stopwordsLen < 0) {
+    return;
+  }
+  
+  opts->stopwordsLen = stopwordsLen;
+  if (stopwordsLen == 0) {
     return;
   }
 
@@ -533,7 +539,6 @@ void RediSearch_IndexOptionsSetStopwords(RSIndexOptions* opts, const char **stop
   for (int i = 0; i < stopwordsLen; i++) {
     opts->stopwords[i] = rm_strdup(stopwords[i]);
   }
-  opts->stopwordsLen = stopwordsLen;
 }
 
 void RediSearch_IndexOptionsSetFlags(RSIndexOptions* options, uint32_t flags) {

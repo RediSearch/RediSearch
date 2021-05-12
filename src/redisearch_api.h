@@ -83,7 +83,7 @@ struct RSIdxOptions {
   void* gvcbData;
   uint32_t flags;
   int gcPolicy;
-  const char **stopwords;
+  char **stopwords;
   int stopwordsLen;
 };
 
