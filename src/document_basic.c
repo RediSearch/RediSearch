@@ -224,11 +224,6 @@ int Redis_SaveDocument(RedisSearchCtx *ctx, Document *doc, int options, QueryErr
     }
     return REDISMODULE_ERR;
   }
-  if ((options & REDIS_SAVEDOC_NOCREATE) && RedisModule_KeyType(k) == REDISMODULE_KEYTYPE_EMPTY) {
-    RedisModule_CloseKey(k);
-    QueryError_SetError(status, QUERY_ENODOC, "Document does not exist");
-    return REDISMODULE_ERR;
-  }
 
   for (int i = 0; i < doc->numFields; i++) {
     RedisModule_HashSet(k, REDISMODULE_HASH_CFIELDS, doc->fields[i].name, doc->fields[i].text,

@@ -32,3 +32,12 @@ def testMultiSortby(env):
   #TODO: allow multiple sortby steps
   #env.expect('ft.search idx foo nocontent sortby t1 sortby t3').equal(sortby_t1)
   #env.expect('ft.search idx foo nocontent sortby t2 sortby t3').equal(sortby_t2)
+
+def testReplaceIssue(env):
+  # Replace does not remove old fields that are not included in FT.ADD REPLACE command
+  env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 'SORTABLE', 't2', 'TEXT', 'SORTABLE')
+  env.cmd('FT.ADD', 'idx', 'doc', '1', 'FIELDS', 't1', 'foo', 't2', 'bar')
+  env.expect('HGETALL', 'doc').equal({'t2': 'bar', 't1': 'foo'})
+
+  env.cmd('FT.ADD', 'idx', 'doc', '1', 'REPLACE', 'FIELDS', 't1', 'baz')
+  env.expect('HGETALL', 'doc').equal({'t1': 'baz'})
