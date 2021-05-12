@@ -17,10 +17,12 @@ extra_flags=""
 echo "fun:THPIsEnabled" >> /build/redis.blacklist
 if [[ $ASAN == 1 ]]; then
     mode=asan
+	JSON_SAN_MODE=address
     extra_flags="-DUSE_ASAN=ON"
     $READIES/bin/getredis --force -v 6.0 --no-run --suffix asan --clang-asan --clang-san-blacklist /build/redis.blacklist
 elif [[ $MSAN == 1 ]]; then
     mode=msan
+	JSON_SAN_MODE=memory
     extra_flags="-DUSE_MSAN=ON -DMSAN_PREFIX=${SAN_PREFIX}"
     $READIES/bin/getredis --force -v 6.0  --no-run --suffix msan --clang-msan --llvm-dir /opt/llvm-project/build-msan --clang-san-blacklist /build/redis.blacklist
 else
@@ -59,5 +61,15 @@ export CONFIG_FILE="$PWD/rltest.config"
 export ASAN_OPTIONS=detect_odr_violation=0
 export RS_GLOBAL_DTORS=1
 
-BRANCH=feature-search-json $ROOT/sbin/get-redisjson
+# BRANCH=feature-search-json $ROOT/sbin/get-redisjson
+
+cd $ROOT/deps
+git clone --recursive https://github.com/RedisJSON/RedisJSON.git
+cd RedisJSON
+git checkout feature-search-json
+./deps/readies/bin/getpy3
+./system-setup.py
+make SAN=$JSON_SAN_MODE
+export REJSON_PATH=$ROOT/deps/RedisJSON/target/x86_64-unknown-linux-gnu/debug/rejson.so
+
 COMPAT_DIR="$ROOT/build-${mode}" make -C $ROOT test CTEST_ARGS="--output-on-failure" -j$CI_CONCURRENCY
