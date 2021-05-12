@@ -61,7 +61,7 @@ commands:
 jobs:
   ubuntu:
     docker:
-      - image: redisfab/rmbuilder:6.2.1-x64-buster
+      - image: redisfab/rmbuilder:6.2.3-x64-buster
     environment:
       - BUILD_DIR: build-debian
     steps:
@@ -69,7 +69,7 @@ jobs:
 
   centos:
     docker:
-      - image: redisfab/rmbuilder:6.0.9-x64-centos7
+      - image: redisfab/rmbuilder:6.2.3-x64-centos7
     environment:
       - BUILD_DIR: build-el
     steps:
@@ -90,7 +90,7 @@ jobs:
 
   deploy_snapshots:
     docker:
-      - image: redisfab/rmbuilder:6.2.1-x64-buster
+      - image: redisfab/rmbuilder:6.2.3-x64-buster
     steps:
       - abort_for_docs
       - early_return_for_forked_pull_requests
@@ -132,7 +132,7 @@ jobs:
 
   coverage:
     docker:
-      - image: redisfab/rmbuilder:6.2.1-x64-buster
+      - image: redisfab/rmbuilder:6.2.3-x64-buster
     steps:
       - abort_for_docs
       - checkout
@@ -148,7 +148,7 @@ jobs:
 
   deploy_release:
     docker:
-      - image: redisfab/rmbuilder:6.2.1-x64-buster
+      - image: redisfab/rmbuilder:6.2.3-x64-buster
     steps:
       - abort_for_docs
       - early_return_for_forked_pull_requests
