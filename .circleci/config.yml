@@ -6,13 +6,21 @@ defaults:
     - ubuntu
 
 commands:
-  abort_for_docs:
+
+  early_returns:
     steps:
       - run:
-          name: Avoid tests for docs
+          name: Early return if this is a docs build
           command: |
-            if [[ $CIRCLE_BRANCH == *_docs ]]; then
-              echo "Identifies as documents PR, no testing required"
+            if [[ $CIRCLE_BRANCH == *docs ]]; then
+              echo "Identifies as documents PR, no testing required."
+              circleci step halt
+            fi
+      - run:
+          name: Early return if this branch should ignore CI
+          command: |
+            if [[ $CIRCLE_BRANCH == *noci ]]; then
+              echo "Identifies as actively ignoring CI, no testing required."
               circleci step halt
             fi
 
@@ -31,7 +39,7 @@ commands:
 
   ci_steps:
     steps:
-      - abort_for_docs
+      - early_returns
       - checkout
       - run:
           name: Get Dependencies
@@ -83,7 +91,7 @@ jobs:
     environment:
       - BUILD_DIR: build-macos
     steps:
-      - abort_for_docs
+      - early_returns
       - run:
           name: Update Brew
           command: brew update
@@ -96,7 +104,7 @@ jobs:
     docker:
       - image: redisfab/rmbuilder:6.0.9-x64-buster
     steps:
-      - abort_for_docs
+      - early_returns
       - early_return_for_forked_pull_requests
       - attach_workspace:
           at: ~/workspace
@@ -112,7 +120,7 @@ jobs:
     docker:
       - image: redisfab/clang:12-x64-stretch
     steps:
-      - abort_for_docs
+      - early_returns
       - checkout
       - run:
           name: Run & build tests
@@ -125,7 +133,7 @@ jobs:
     docker:
       - image: redisfab/clang:12-x64-stretch
     steps:
-      - abort_for_docs
+      - early_returns
       - checkout
       - run:
           name: Run & build tests
@@ -138,7 +146,7 @@ jobs:
     docker:
       - image: redisfab/rmbuilder:6.0.9-x64-buster
     steps:
-      - abort_for_docs
+      - early_returns
       - checkout
       - run:
           name: Build & Test
@@ -154,7 +162,7 @@ jobs:
     docker:
       - image: redisfab/rmbuilder:6.0.9-x64-buster
     steps:
-      - abort_for_docs
+      - early_returns
       - early_return_for_forked_pull_requests
       - attach_workspace:
           at: ~/workspace
