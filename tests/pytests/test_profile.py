@@ -150,44 +150,9 @@ def testProfileAggregate(env):
   env.assertEqual(actual_res[1][4], expected_res)
 
 def testProfileCursor(env):
-  env.skipOnCluster()
   conn = getConnectionByEnv(env)
-  env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
-
   env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'text')
-  conn.execute_command('hset', '1', 't', 'hello')
-  conn.execute_command('hset', '2', 't', 'world')
-
-  expected_res = [['Total profile time'],
-                  ['Parsing time'],
-                  ['Pipeline creation time'],
-                  ['Iterators profile', ['Type', 'WILDCARD', 'Counter', 2L]],
-                  ['Result processors profile',
-                    ['Type', 'Index', 'Counter', 2L],
-                    ['Type', 'Loader', 'Counter', 2L]]]
-
-  actual_res = conn.execute_command('ft.profile', 'idx', 'aggregate', 'query', '*',
-                                    'load', 1, '@t',
-                                    'WITHCURSOR', 'COUNT', 10)
-  env.assertEqual(actual_res[2], expected_res)
-
-  actual_res = conn.execute_command('ft.profile', 'idx', 'aggregate', 'query', '*',
-                                    'load', 1, '@t',
-                                    'WITHCURSOR', 'COUNT', 1)
-  # test initial result                                    
-  env.assertEqual(actual_res[0], [1L, ['t', 'hello']])
-  env.assertGreater(actual_res[1], 0)
-  env.assertEqual(actual_res[2], None)
-
-  # test second result
-  actual_res = conn.execute_command('ft.cursor', 'read', 'idx', actual_res[1])
-  env.assertEqual(actual_res[0], [1L, ['t', 'world']])
-  env.assertGreater(actual_res[1], 0)
-  env.assertEqual(actual_res[2], None)
-
-  # test final result with profile
-  actual_res = conn.execute_command('ft.cursor', 'read', 'idx', actual_res[1])
-  env.assertEqual(actual_res[2], expected_res)
+  env.expect('ft.profile', 'idx', 'aggregate', 'query', '*', 'WITHCURSOR').error().contains('FT.PROFILE does not support cursor')
 
 def testProfileNumeric(env):
   env.skipOnCluster()
@@ -220,6 +185,22 @@ def testProfileTag(env):
   # tag profile
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '@t:{foo}', 'nocontent')
   env.assertEqual(actual_res[1][3], ['Iterators profile', ['Type', 'TAG', 'Term', 'foo', 'Counter', 2L, 'Size', 2L]])
+
+def testResultProcessorCounter(env):
+  env.skipOnCluster()
+  conn = getConnectionByEnv(env)
+  env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+
+  env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'text')
+  conn.execute_command('hset', '1', 't', 'foo')
+  conn.execute_command('hset', '2', 't', 'bar')
+
+  actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', 'foo|bar', 'limit', '0', '0')
+  env.assertEqual(actual_res[0], [2L])
+  res =  ['Result processors profile',
+            ['Type', 'Index', 'Counter', 2L],
+            ['Type', 'Counter', 'Counter', 1L]]
+  env.assertEqual(actual_res[1][4], res)
 
 def testProfileMaxPrefixExpansion(env):
   env.skipOnCluster()

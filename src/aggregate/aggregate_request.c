@@ -122,6 +122,7 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
   // This handles the common arguments that are not stateful
   if (AC_AdvanceIfMatch(ac, "LIMIT")) {
     PLN_ArrangeStep *arng = AGPLN_GetOrCreateArrangeStep(&req->ap);
+    arng->isLimited = 1;
     // Parse offset, length
     if (AC_NumRemaining(ac) < 2) {
       QueryError_SetError(status, QUERY_EPARSEARGS, "LIMIT requires two arguments");
@@ -133,9 +134,10 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
       return ARG_ERROR;
     }
 
-    if (arng->limit == 0) {
-      // LIMIT 0 0
+    if (arng->isLimited && arng->limit == 0) {
+      // LIMIT 0 0 - only count
       req->reqflags |= QEXEC_F_NOROWS;
+      req->reqflags |= QEXEC_F_SEND_NOFIELDS;
     } else if ((arng->limit > RSGlobalConfig.maxSearchResults) &&
                (req->reqflags & QEXEC_F_IS_SEARCH)) {
       QueryError_SetErrorFmt(status, QUERY_ELIMIT, "LIMIT exceeds maximum of %llu",
@@ -145,6 +147,10 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
                !(req->reqflags & QEXEC_F_IS_SEARCH)) {
       QueryError_SetErrorFmt(status, QUERY_ELIMIT, "LIMIT exceeds maximum of %llu",
                              RSGlobalConfig.maxAggregateResults);
+      return ARG_ERROR;
+    } else if (arng->offset > RSGlobalConfig.maxSearchResults) {
+      QueryError_SetErrorFmt(status, QUERY_ELIMIT, "OFFSET exceeds maximum of %llu",
+                             RSGlobalConfig.maxSearchResults);
       return ARG_ERROR;
     }
   } else if (AC_AdvanceIfMatch(ac, "SORTBY")) {
@@ -872,6 +878,12 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
     astp = &astp_s;
   }
 
+  if (IsCount(req)) {
+    rp = RPCounter_New();
+    up = pushRP(req, rp, up);
+    return up;
+  }
+
   size_t limit = astp->offset + astp->limit;
   if (!limit) {
     limit = DEFAULT_LIMIT;
@@ -970,8 +982,11 @@ static void buildImplicitPipeline(AREQ *req, QueryError *Status) {
   req->qiter.rootProc = req->qiter.endProc = rp;
   PUSH_RP();
 
-  /** Create a scorer if there is no subsequent sorter within this grouping */
-  if (!hasQuerySortby(&req->ap) && (req->reqflags & QEXEC_F_IS_SEARCH)) {
+  /** Create a scorer if:
+   *  * WITHSCORES is defined
+   *  * there is no subsequent sorter within this grouping */
+  if ((req->reqflags & QEXEC_F_SEND_SCORES) ||
+      (!hasQuerySortby(&req->ap) && IsSearch(req) && !IsCount(req))) {
     rp = getScorerRP(req);
     PUSH_RP();
   }
