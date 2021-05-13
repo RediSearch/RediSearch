@@ -61,7 +61,7 @@ commands:
 jobs:
   ubuntu:
     docker:
-      - image: redisfab/rmbuilder:6.2.1-x64-buster
+      - image: redisfab/rmbuilder:6.2.3-x64-buster
     environment:
       - BUILD_DIR: build-debian
     steps:
@@ -69,7 +69,7 @@ jobs:
 
   centos:
     docker:
-      - image: redisfab/rmbuilder:6.0.9-x64-centos7
+      - image: redisfab/rmbuilder:6.2.3-x64-centos7
     environment:
       - BUILD_DIR: build-el
     steps:
@@ -77,15 +77,20 @@ jobs:
 
   macos:
     macos:
-      xcode: 11.3.0
+      xcode: 11.6.0
     environment:
       - BUILD_DIR: build-macos
     steps:
+      - abort_for_docs
+      - run:
+          name: Update Brew
+          command: brew update
+          no_output_timeout: 20m
       - ci_steps
 
   deploy_snapshots:
     docker:
-      - image: redisfab/rmbuilder:6.2.1-x64-buster
+      - image: redisfab/rmbuilder:6.2.3-x64-buster
     steps:
       - abort_for_docs
       - early_return_for_forked_pull_requests
@@ -127,7 +132,7 @@ jobs:
 
   coverage:
     docker:
-      - image: redisfab/rmbuilder:6.2.1-x64-buster
+      - image: redisfab/rmbuilder:6.2.3-x64-buster
     steps:
       - abort_for_docs
       - checkout
@@ -143,7 +148,7 @@ jobs:
 
   deploy_release:
     docker:
-      - image: redisfab/rmbuilder:6.2.1-x64-buster
+      - image: redisfab/rmbuilder:6.2.3-x64-buster
     steps:
       - abort_for_docs
       - early_return_for_forked_pull_requests
@@ -247,7 +252,7 @@ workflows:
   nightly:
     triggers:
       - schedule:
-          cron: "20 17 * * *"
+          cron: "20 17 * * 0,3"
           filters:
             branches:
               only: master

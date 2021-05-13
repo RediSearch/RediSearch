@@ -149,6 +149,10 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
       QueryError_SetErrorFmt(status, QUERY_ELIMIT, "LIMIT exceeds maximum of %llu",
                              RSGlobalConfig.maxAggregateResults);
       return ARG_ERROR;
+    } else if (arng->offset > RSGlobalConfig.maxSearchResults) {
+      QueryError_SetErrorFmt(status, QUERY_ELIMIT, "OFFSET exceeds maximum of %llu",
+                             RSGlobalConfig.maxSearchResults);
+      return ARG_ERROR;
     }
   } else if (AC_AdvanceIfMatch(ac, "SORTBY")) {
     PLN_ArrangeStep *arng = AGPLN_GetOrCreateArrangeStep(&req->ap);
@@ -990,8 +994,11 @@ static void buildImplicitPipeline(AREQ *req, QueryError *Status) {
   req->qiter.rootProc = req->qiter.endProc = rp;
   PUSH_RP();
 
-  /** Create a scorer if there is no subsequent sorter within this grouping */
-  if (!hasQuerySortby(&req->ap) && IsSearch(req) && !IsCount(req)) {
+  /** Create a scorer if:
+   *  * WITHSCORES is defined
+   *  * there is no subsequent sorter within this grouping */
+  if ((req->reqflags & QEXEC_F_SEND_SCORES) ||
+      (!hasQuerySortby(&req->ap) && IsSearch(req) && !IsCount(req))) {
     rp = getScorerRP(req);
     PUSH_RP();
   }

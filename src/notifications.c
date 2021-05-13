@@ -61,8 +61,7 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
                     *loaded_event = 0, *json_set_event = 0;
   
   // TODO:clean
-  if (!strcmp("json_set", event)) {
-    RedisModule_RetainString(ctx, key);
+  if (!strcmp("json_set", event) || !strcmp("json_incrby", event) || !strcmp("json_arrpop", event)) {
     Indexes_UpdateMatchingWithSchemaRules(ctx, key, DocumentType_Json, hashFields);
     return REDISMODULE_OK;
   }
@@ -277,7 +276,7 @@ void Initialize_KeyspaceNotifications(RedisModuleCtx *ctx) {
     REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_HASH |
     REDISMODULE_NOTIFY_TRIMMED | REDISMODULE_NOTIFY_STRING |
     REDISMODULE_NOTIFY_EXPIRED | REDISMODULE_NOTIFY_EVICTED |
-    REDISMODULE_NOTIFY_LOADED,
+    REDISMODULE_NOTIFY_LOADED | REDISMODULE_NOTIFY_MODULE,
     HashNotificationCallback);
 
   if(CompareVestions(redisVersion, noScanVersion) >= 0){
