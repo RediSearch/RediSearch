@@ -39,5 +39,8 @@ def testReplaceIssue(env):
   env.cmd('FT.ADD', 'idx', 'doc', '1', 'FIELDS', 't1', 'foo', 't2', 'bar')
   env.expect('HGETALL', 'doc').equal({'t2': 'bar', 't1': 'foo'})
 
+  env.cmd('FT.ADD', 'idx', 'doc', '1', 'REPLACE', 'PARTIAL', 'FIELDS', 't1', 'foz')
+  env.expect('HGETALL', 'doc').equal({'t2': 'bar', 't1': 'foz'})
+
   env.cmd('FT.ADD', 'idx', 'doc', '1', 'REPLACE', 'FIELDS', 't1', 'baz')
   env.expect('HGETALL', 'doc').equal({'t1': 'baz'})
