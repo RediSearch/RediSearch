@@ -2,11 +2,11 @@
 
 ## Create
 
-### FT.CREATE 
+### FT.CREATE
 
 #### Format
 ```
-  FT.CREATE {index} 
+  FT.CREATE {index}
     [ON {structure}]
        [PREFIX {count} {prefix} [{prefix} ..]
        [FILTER {filter}]
@@ -31,17 +31,48 @@ Creates an index with the given spec.
 
 !!! info "Note on running in clustered databases"
     When having several indices in a clustered database, you need to make sure the documents you want to index reside on the same shard as the index. You can achieve this by having your documents tagged by the index name.
-    
+
     ```sql
     HSET doc:1{idx} ...
     FT.CREATE idx ... PREFIX 1 doc: ...
     ```
-    
+
     When Running RediSearch in a clustered database, there is the ability to span the index across shards with [RSCoordinator](https://github.com/RedisLabsModules/RSCoordinator). In this case the above does not apply.
 
-##### Example
+##### Examples
+
+Creating an index that stores the title, publication date, and categories of blog post hashes whose keys start with `blog:post:` (e.g., `blog:post:1`):
+
 ```sql
-FT.CREATE idx ON HASH PREFIX 1 doc: SCHEMA name TEXT SORTABLE age NUMERIC SORTABLE myTag TAG SORTABLE
+FT.CREATE idx ON HASH PREFIX 1 blog:post: SCHEMA title TEXT SORTABLE published_at NUMERIC SORTABLE category TAG SORTABLE
+```
+
+Indexing two different hashes -- one containing author data and one containing books -- in the same index:
+
+```sql
+FT.CREATE author-books-idx ON HASH PREFIX 2 author:details: book:details: SCHEMA
+author_id TAG SORTABLE author_ids TAG title TEXT name TEXT
+```
+
+!!! note
+    In this example, keys for author data use the key pattern `author:details:<id>` while keys for book data use the pattern `book:details:<id>`.
+
+Indexing only authors whose names start with "G":
+
+```sql
+FT.CREATE g-authors-idx ON HASH PREFIX 1 author:details FILTER 'startswith(@name, "G")' SCHEMA name TEXT
+```
+
+Indexing only books that have a subtitle:
+
+```sql
+FT.CREATE subtitled-books-idx ON HASH PREFIX 1 book:details FILTER '@subtitle != ""' SCHEMA title TEXT
+```
+
+Indexing books that have a "categories" field in which semicolons separate the values:
+
+```sql
+FT.CREATE books-idx ON HASH PREFIX 1 book:details FILTER SCHEMA title TEXT categories TAG SEPARATOR ";"
 ```
 
 #### Parameters
@@ -59,7 +90,7 @@ FT.CREATE idx ON HASH PREFIX 1 doc: SCHEMA name TEXT SORTABLE age NUMERIC SORTAB
 
 !!! info "Supported languages"
     A stemmer is used for the supplied language during indexing.
-    If an unsupported language is sent, the command returns an error. 
+    If an unsupported language is sent, the command returns an error.
     The supported languages are:
 
     Arabic, Basque, Catalan, Danish, Dutch, English, Finnish, French, German, Greek, Hungarian,
@@ -75,10 +106,10 @@ FT.CREATE idx ON HASH PREFIX 1 doc: SCHEMA name TEXT SORTABLE age NUMERIC SORTAB
     information.
 
 * **SCORE {default_score}**: If set indicates the default score for documents in the index. Default score is 1.0.
-* **SCORE_FIELD {score_field}**: If set indicates the document field that should be used as the document's rank based on the user's ranking. 
+* **SCORE_FIELD {score_field}**: If set indicates the document field that should be used as the document's rank based on the user's ranking.
   Ranking must be between 0.0 and 1.0. If not set the default score is 1.
 
-* **PAYLOAD_FIELD {payload_field}**: If set indicates the document field that should be used as a binary safe payload string to the document, 
+* **PAYLOAD_FIELD {payload_field}**: If set indicates the document field that should be used as a binary safe payload string to the document,
   that can be evaluated at query time by a custom scoring function, or retrieved to the client.
 
 * **MAXTEXTFIELDS**: For efficiency, RediSearch encodes indexes differently if they are
@@ -89,7 +120,7 @@ FT.CREATE idx ON HASH PREFIX 1 doc: SCHEMA name TEXT SORTABLE age NUMERIC SORTAB
 * **NOOFFSETS**: If set, we do not store term offsets for documents (saves memory, does not
   allow exact searches or highlighting). Implies `NOHL`.
 
-* **TEMPORARY**: Create a lightweight temporary index which will expire after the specified period of inactivity. The internal idle timer is reset whenever the index is searched or added to. Because such indexes are lightweight, you can create thousands of such indexes without negative performance implications and therefore you should consider using `SKIPINITIALSCAN` to avoid costly scanning. 
+* **TEMPORARY**: Create a lightweight temporary index which will expire after the specified period of inactivity. The internal idle timer is reset whenever the index is searched or added to. Because such indexes are lightweight, you can create thousands of such indexes without negative performance implications and therefore you should consider using `SKIPINITIALSCAN` to avoid costly scanning.
 
 !!! warning "Note about deleting a temporary index"
     When dropped, a temporary index does not delete the hashes as they may have been indexed in several indexes. Adding the `DD` flag will delete the hashes as well.
@@ -106,59 +137,74 @@ FT.CREATE idx ON HASH PREFIX 1 doc: SCHEMA name TEXT SORTABLE age NUMERIC SORTAB
 
 * **STOPWORDS**: If set, we set the index with a custom stopword list, to be ignored during
   indexing and search time. {num} is the number of stopwords, followed by a list of stopword
-  arguments exactly the length of {num}. 
+  arguments exactly the length of {num}.
 
-    If not set, we take the default list of stopwords. 
+    If not set, we take the default list of stopwords.
 
     If **{num}** is set to 0, the index will not have stopwords.
 
-* **SKIPINITIALSCAN**: If set, we do not scan and index. 
+* **SKIPINITIALSCAN**: If set, we do not scan and index.
 
-* **SCHEMA {field} {options...}**: After the SCHEMA keyword we define the index fields. They
-  can be numeric, textual or geographical. For textual fields we optionally specify a weight.
-  The default weight is 1.0.
+* **SCHEMA {field name} {field type} {options...}**: After the SCHEMA keyword we define the index fields. The field name is the name of the field within the hashes that this index follows. Field types can be numeric, textual or geographical.
+
+    #### Field Types
+
+    * **TEXT**
+
+      Allows full-text search queries against the value in this field.
+
+    * **TAG**
+
+      Allows exact-match queries, such as categories or primary keys, against the value in this field. For more information, see [Tag Fields](Tags.md).
+
+    * **NUMERIC**
+
+      Allows numeric range queries against the value in this field. See [query syntax docs](Query_Syntax.md) for details on how to use numeric ranges.
+
+    * **GEO**
+
+      Allows geographic range queries against the value in this field. The value of the field must be a string containing a longitude (first) and latitude separated by a comma.
 
     #### Field Options
 
-
     * **SORTABLE**
-    
+
         Numeric, tag or text fields can have the optional SORTABLE argument that allows the user to later [sort the results by the value of this field](Sorting.md) (this adds memory overhead so do not declare it on large text fields).
-      
+
     * **NOSTEM**
-    
-        Text fields can have the NOSTEM argument which will disable stemming when indexing its values. 
+
+        Text fields can have the NOSTEM argument which will disable stemming when indexing its values.
         This may be ideal for things like proper names.
-      
+
     * **NOINDEX**
-    
-        Fields can have the `NOINDEX` option, which means they will not be indexed. 
+
+        Fields can have the `NOINDEX` option, which means they will not be indexed.
         This is useful in conjunction with `SORTABLE`, to create fields whose update using PARTIAL will not cause full reindexing of the document. If a field has NOINDEX and doesn't have SORTABLE, it will just be ignored by the index.
-    
+
     * **PHONETIC {matcher}**
-    
+
         Declaring a text field as `PHONETIC` will perform phonetic matching on it in searches by default. The obligatory {matcher} argument specifies the phonetic algorithm and language used. The following matchers are supported:
-    
+
         * `dm:en` - Double Metaphone for English
         * `dm:fr` - Double Metaphone for French
         * `dm:pt` - Double Metaphone for Portuguese
         * `dm:es` - Double Metaphone for Spanish
-    
+
         For more details see [Phonetic Matching](Phonetic_Matching.md).
-    
+
     * **WEIGHT {weight}**
 
         For `TEXT` fields, declares the importance of this field when
         calculating result accuracy. This is a multiplication factor, and
         defaults to 1 if not specified.
-    
+
     * **SEPARATOR {sep}**
 
         For `TAG` fields, indicates how the text contained in the field
         is to be split into individual tags. The default is `,`. The value
         must be a single character.
-    
-    
+
+
 
 #### Complexity
 O(1)
@@ -186,8 +232,6 @@ If a hash is modified, all matching indexes are updated automatically. Deletion 
 
 If a field fails to be indexed (for example, if a numeric fields gets a string value) the whole document is not indexed. `FT.INFO` provides the number of document-indexing-failures under `hash_indexing_failures`.
 
-Beware - enabling this feature will slow the whole server by a few points. Only use if hashes are updated often in fields that are not in schema.
-
 If `LANGUAGE_FIELD`, `SCORE_FIELD`, or `PAYLOAD_FIELD` were used with `FT.CREATE`, the document will extract the properties. A field can be used to get the name of the index it belongs to.
 
 !!! warning "Schema mismatch"
@@ -198,9 +242,9 @@ If `LANGUAGE_FIELD`, `SCORE_FIELD`, or `PAYLOAD_FIELD` were used with `FT.CREATE
 
 ##### Example
 ```sql
-HSET doc1 cs101 "hello world" number 3.141 geopoint "-122.064228,37.377658" tags foo,bar,baz 
+HSET doc1 cs101 "hello world" number 3.141 geopoint "-122.064228,37.377658" tags foo,bar,baz
 HSET doc2 cs201 "foo bar baz" number 2.718 geopoint "-0.084324,51.515583" tags foo,bar,baz
-HSET doc3 Name "RedisLabs" indexName "myindexname" 
+HSET doc3 Name "RedisLabs" indexName "myindexname"
 ```
 
 !!! note
@@ -210,7 +254,7 @@ HSET doc3 Name "RedisLabs" indexName "myindexname"
 
 ## Search
 
-### FT.SEARCH 
+### FT.SEARCH
 
 #### Format
 
@@ -236,39 +280,86 @@ FT.SEARCH {index} {query} [NOCONTENT] [VERBATIM] [NOSTOPWORDS] [WITHSCORES] [WIT
 
 Searches the index with a textual query, returning either documents or just ids.
 
-#### Example
+#### Examples
+
+Searching for the term "wizard" in every TEXT field of an index containing book data:
+
 ```sql
-FT.SEARCH idx "@text:morphix=>{$phonetic:false}"
+FT.SEARCH books-idx "wizard"
 ```
+Searching for the term "dogs" in only the "title" field:
+
+```sql
+FT.SEARCH books-idx "@title:dogs"
+```
+
+Searching for books published in 2020 or 2021:
+
+```sql
+FT.SEARCH books-idx "@published_at:[2020 2021]
+```
+
+Searching for Chinese restaurants within 5 kilometers of longitude -122.41, latitude 37.77 (San Francisco):
+
+```sql
+FT.SEARCH restaurants-idx "chinese @location:[-122.41 37.77 5 km]"
+```
+
+Searching for the term "dogs" or "cats" in the "title" field, but giving matches of "dogs" a higher relevance score (also known as *boosting*):
+
+```sql
+FT.SEARCH books-idx "(@title:dogs | @title:cats) | (@title:dogs) => { $weight: 5.0; }"
+```
+Searching for books with "dogs" in any TEXT field in the index and requesting an explanation of scoring for each result:
+
+```sql
+FT.SEARCH books-idx "dogs" WITHSCORES EXPLAINSCORE
+```
+
+Searching for books with "space" in the title that have "science" in the TAG field "categories":
+
+```sql
+FT.SEARCH books-idx "@title:space @categories:{science}"
+```
+
+Searching for books with "Python" in any TEXT field, returning ten results starting with the eleventh result in the entire result set (the offset parameter is zero-based), and returning only the "title" field for each result:
+
+```sql
+FT.SEARCH books-idx "python" LIMIT 10 10 RETURN 1 title
+```
+
+!!! tip "More examples"
+    For more details and query examples, see [query syntax](Query_Syntax.md).
+
 
 #### Parameters
 
 - **index**: The index name. The index must be first created with `FT.CREATE`.
 - **query**: the text query to search. If it's more than a single word, put it in quotes.
-  Refer to [query syntax](Query_Syntax.md) for more details. 
+  Refer to [query syntax](Query_Syntax.md) for more details.
 
-- **NOCONTENT**: If it appears after the query, we only return the document ids and not 
+- **NOCONTENT**: If it appears after the query, we only return the document ids and not
   the content. This is useful if RediSearch is only an index on an external document collection
-- **VERBATIM**: if set, we do not try to use stemming for query expansion but search the query terms 
+- **VERBATIM**: if set, we do not try to use stemming for query expansion but search the query terms
   verbatim.
 - **NOSTOPWORDS**: If set, we do not filter stopwords from the query.
 - **WITHSCORES**: If set, we also return the relative internal score of each document. this can be
   used to merge results from multiple instances
-- **WITHPAYLOADS**: If set, we retrieve optional document payloads (see FT.ADD). 
+- **WITHPAYLOADS**: If set, we retrieve optional document payloads (see FT.ADD).
   the payloads follow the document id, and if `WITHSCORES` was set, follow the scores.
 - **WITHSORTKEYS**: Only relevant in conjunction with **SORTBY**. Returns the value of the sorting key,
-  right after the id and score and /or payload if requested. This is usually not needed by users, and 
+  right after the id and score and /or payload if requested. This is usually not needed by users, and
   exists for distributed search coordination purposes.
 
-- **FILTER numeric_field min max**: If set, and numeric_field is defined as a numeric field in 
+- **FILTER numeric_field min max**: If set, and numeric_field is defined as a numeric field in
   FT.CREATE, we will limit results to those having numeric values ranging between min and max.
-  min and max follow ZRANGE syntax, and can be **-inf**, **+inf** and use `(` for exclusive ranges. 
+  min and max follow ZRANGE syntax, and can be **-inf**, **+inf** and use `(` for exclusive ranges.
   Multiple numeric filters for different fields are supported in one query.
-- **GEOFILTER {geo_field} {lon} {lat} {radius} m|km|mi|ft**: If set, we filter the results to a given radius 
-  from lon and lat. Radius is given as a number and units. See [GEORADIUS](https://redis.io/commands/georadius) 
+- **GEOFILTER {geo_field} {lon} {lat} {radius} m|km|mi|ft**: If set, we filter the results to a given radius
+  from lon and lat. Radius is given as a number and units. See [GEORADIUS](https://redis.io/commands/georadius)
   for more details.
-- **INKEYS {num} {field} ...**: If set, we limit the result to a given set of keys specified in the 
-  list. 
+- **INKEYS {num} {field} ...**: If set, we limit the result to a given set of keys specified in the
+  list.
   the first argument must be the length of the list, and greater than zero.
   Non-existent keys are ignored - unless all the keys are non-existent.
 - **INFIELDS {num} {field} ...**: If set, filter the results to ones appearing only in specific
@@ -276,35 +367,35 @@ FT.SEARCH idx "@text:morphix=>{$phonetic:false}"
 
 - **RETURN {num} {field} ...**: Use this keyword to limit which fields from the document are returned.
   `num` is the number of fields following the keyword. If `num` is 0, it acts like `NOCONTENT`.
-- **SUMMARIZE ...**: Use this option to return only the sections of the field which contain the 
+- **SUMMARIZE ...**: Use this option to return only the sections of the field which contain the
   matched text.
   See [Highlighting](Highlight.md) for more details
 - **HIGHLIGHT ...**: Use this option to format occurrences of matched text. See [Highlighting](Highlight.md) for more
   details
-- **SLOP {slop}**: If set, we allow a maximum of N intervening number of unmatched offsets between 
+- **SLOP {slop}**: If set, we allow a maximum of N intervening number of unmatched offsets between
   phrase terms. (i.e the slop for exact phrases is 0)
-- **INORDER**: If set, and usually used in conjunction with SLOP, we make sure the query terms appear 
-  in the same order in the document as in the query, regardless of the offsets between them. 
-- **LANGUAGE {language}**: If set, we use a stemmer for the supplied language during search for query 
+- **INORDER**: If set, and usually used in conjunction with SLOP, we make sure the query terms appear
+  in the same order in the document as in the query, regardless of the offsets between them.
+- **LANGUAGE {language}**: If set, we use a stemmer for the supplied language during search for query
   expansion.
   If querying documents in Chinese, this should be set to `chinese` in order to
-  properly tokenize the query terms. 
+  properly tokenize the query terms.
   Defaults to English. If an unsupported language is sent, the command returns an error.
   See FT.ADD for the list of languages.
 
 - **EXPANDER {expander}**: If set, we will use a custom query expander instead of the stemmer. [See Extensions](Extensions.md).
 - **SCORER {scorer}**: If set, we will use a custom scoring function defined by the user. [See Extensions](Extensions.md).
-- **EXPLAINSCORE**: If set, will return a textual description of how the scores were calculated.
-- **PAYLOAD {payload}**: Add an arbitrary, binary safe payload that will be exposed to custom scoring 
+- **EXPLAINSCORE**: If set, will return a textual description of how the scores were calculated. Using this options requires the WITHSCORES option.
+- **PAYLOAD {payload}**: Add an arbitrary, binary safe payload that will be exposed to custom scoring
   functions. [See Extensions](Extensions.md).
-  
-- **SORTBY {field} [ASC|DESC]**: If specified, the results 
+
+- **SORTBY {field} [ASC|DESC]**: If specified, the results
   are ordered by the value of this field. This applies to both text and numeric fields.
-- **LIMIT first num**: If the parameters appear after the query, we limit the results to 
-  the offset and number of results given. The default is 0 10.
+- **LIMIT first num**: Limit the results to
+  the offset and number of results given. Note that the offset is zero-indexed. The default is 0 10, which returns 10 items starting from the first result.
 
 !!! tip
-    `LIMIT 0 0` can be used to count the number of documents in the resultset without actually returning them.
+    `LIMIT 0 0` can be used to count the number of documents in the result set without actually returning them.
 
 #### Complexity
 
@@ -314,16 +405,16 @@ The time complexity for more complex queries varies, but in general it's proport
 
 #### Returns
 
-**Array reply,** where the first element is the total number of results, and then pairs of document id, and a nested array of field/value. 
+**Array reply,** where the first element is the total number of results, and then pairs of document id, and a nested array of field/value.
 
 If **NOCONTENT** was given, we return an array where the first element is the total number of results, and the rest of the members are document ids.
 
-!!! note "Expiration of hashes during a search query" 
+!!! note "Expiration of hashes during a search query"
     If a hash expiry time is reached after the start of the query process, the hash will be counted in the total number of results but name and content of the hash will not be returned.
 
 ---
 
-### FT.AGGREGATE 
+### FT.AGGREGATE
 
 #### Format
 
@@ -346,14 +437,44 @@ FT.AGGREGATE {index_name}
 
 Runs a search query on an index, and performs aggregate transformations on the results, extracting statistics etc from them. See [the full documentation on aggregations](Aggregations.md) for further details.
 
-#### Example
+#### Examples
+
+Finding visits to the page "about.html", grouping them by the day of the visit, counting the number of visits, and sorting them by day:
+
 ```sql
 FT.AGGREGATE idx "@url:\"about.html\""
-    APPLY "@timestamp - (@timestamp % 86400)" AS day
+    APPLY "day(@timestamp)" AS day
     GROUPBY 2 @day @country
-    	REDUCE count 0 AS num_visits 
-    SORTBY 4 @day ASC @country DESC
+      REDUCE count 0 AS num_visits
+    SORTBY 4 @day
 ```
+
+Finding the most books ever published in a single year:
+
+```sql
+FT.AGGREGATE books-idx *
+    GROUPBY 1 @published_year
+      REDUCE COUNT 0 AS num_published
+    GROUPBY 0
+      REDUCE MAX 1 @num_published AS max_books_published_per_year
+```
+
+!!! tip "Reducing all results"
+    The last example used `GROUPBY 0`. Use `GROUPBY 0` to apply a `REDUCE` function over all results from the last step of an aggregation pipeline -- this works on both the  initial query and subsequent `GROUPBY` operations.
+
+Searching for libraries within 10 kilometers of the longitude -73.982254 and latitude 40.753181 then annotating them with the distance between their location and those coordinates:
+
+```sql
+ FT.AGGREGATE libraries-idx "@location:[-73.982254 40.753181 10 km]"
+    LOAD 1 @location
+    APPLY "geodistance(@location, -73.982254, 40.753181)"
+```
+
+Here, we needed to use `LOAD` to pre-load the @location field because it is a GEO field.
+
+!!! tip "More examples"
+    For more details on aggreations and detailed examples of aggregation queries, see [Aggregations](Aggregations.md).
+
 
 #### Parameters
 
@@ -362,48 +483,48 @@ FT.AGGREGATE idx "@url:\"about.html\""
 * **query_string**: The base filtering query that retrieves the documents. It follows
   **the exact same syntax** as the search query, including filters, unions, not, optional, etc.
 
-* **LOAD {nargs} {property} …**: Load document fields from the document HASH objects. This should be 
-  avoided as a general rule of thumb. Fields needed for aggregations should be stored as **SORTABLE**, 
-  where they are available to the aggregation pipeline with very low latency. LOAD hurts the 
-  performance of aggregate queries considerably, since every processed record needs to execute the 
-  equivalent of HMGET against a Redis key, which when executed over millions of keys, amounts to very 
-  high processing times. 
+* **LOAD {nargs} {property} …**: Load document fields from the document HASH objects. This should be
+  avoided as a general rule of thumb. Fields needed for aggregations should be stored as **SORTABLE**,
+  where they are available to the aggregation pipeline with very low latency. LOAD hurts the
+  performance of aggregate queries considerably, since every processed record needs to execute the
+  equivalent of HMGET against a Redis key, which when executed over millions of keys, amounts to very
+  high processing times.
 
-* **GROUPBY {nargs} {property}**: Group the results in the pipeline based on one or more properties. 
-  Each group should have at least one reducer (See below), a function that handles the group entries, 
+* **GROUPBY {nargs} {property}**: Group the results in the pipeline based on one or more properties.
+  Each group should have at least one reducer (See below), a function that handles the group entries,
   either counting them, or performing multiple aggregate operations (see below).
-    * **REDUCE {func} {nargs} {arg} … [AS {name}]**: Reduce the matching results in each group into a single record, using a reduction function. For example COUNT will count the number of records in the group. See the Reducers section below for more details on available reducers. 
-    
-          The reducers can have their own property names using the `AS {name}` optional argument. If a name is not given, the resulting name will be the name of the reduce function and the group properties. For example, if a name is not given to COUNT_DISTINCT by property `@foo`, the resulting name will be `count_distinct(@foo)`. 
+    * **REDUCE {func} {nargs} {arg} … [AS {name}]**: Reduce the matching results in each group into a single record, using a reduction function. For example COUNT will count the number of records in the group. See the Reducers section below for more details on available reducers.
+
+          The reducers can have their own property names using the `AS {name}` optional argument. If a name is not given, the resulting name will be the name of the reduce function and the group properties. For example, if a name is not given to COUNT_DISTINCT by property `@foo`, the resulting name will be `count_distinct(@foo)`.
 
 * **SORTBY {nargs} {property} {ASC|DESC} [MAX {num}]**: Sort the pipeline up until the point of SORTBY,
-  using a list of properties. By default, sorting is ascending, but `ASC` or `DESC ` can be added for 
-  each property. `nargs` is the number of sorting parameters, including ASC and DESC. for example: 
-  `SORTBY 4 @foo ASC @bar DESC`. 
+  using a list of properties. By default, sorting is ascending, but `ASC` or `DESC ` can be added for
+  each property. `nargs` is the number of sorting parameters, including ASC and DESC. for example:
+  `SORTBY 4 @foo ASC @bar DESC`.
 
-    `MAX` is used to optimized sorting, by sorting only for the n-largest elements. Although it is not connected to `LIMIT`, you usually need just `SORTBY … MAX` for common queries. 
+    `MAX` is used to optimized sorting, by sorting only for the n-largest elements. Although it is not connected to `LIMIT`, you usually need just `SORTBY … MAX` for common queries.
 
-* **APPLY {expr} AS {name}**: Apply a 1-to-1 transformation on one or more properties, and either 
-  store the result as a new property down the pipeline, or replace any property using this 
-  transformation. `expr` is an expression that can be used to perform arithmetic operations on numeric 
-  properties, or functions that can be applied on properties depending on their types (see below), or 
-  any combination thereof. For example: `APPLY "sqrt(@foo)/log(@bar) + 5" AS baz` will evaluate this 
-  expression dynamically for each record in the pipeline and store the result as a new property called 
-  baz, that can be referenced by further APPLY / SORTBY / GROUPBY / REDUCE operations down the 
-  pipeline. 
+* **APPLY {expr} AS {name}**: Apply a 1-to-1 transformation on one or more properties, and either
+  store the result as a new property down the pipeline, or replace any property using this
+  transformation. `expr` is an expression that can be used to perform arithmetic operations on numeric
+  properties, or functions that can be applied on properties depending on their types (see below), or
+  any combination thereof. For example: `APPLY "sqrt(@foo)/log(@bar) + 5" AS baz` will evaluate this
+  expression dynamically for each record in the pipeline and store the result as a new property called
+  baz, that can be referenced by further APPLY / SORTBY / GROUPBY / REDUCE operations down the
+  pipeline.
 
-* **LIMIT {offset} {num}**. Limit the number of results to return just `num` results starting at index 
-  `offset` (zero-based). AS mentioned above, it is much more efficient to use `SORTBY … MAX` if you 
+* **LIMIT {offset} {num}**. Limit the number of results to return just `num` results starting at index
+  `offset` (zero-based). AS mentioned above, it is much more efficient to use `SORTBY … MAX` if you
   are interested in just limiting the output of a sort operation.
 
-    However, limit can be used to limit results without sorting, or for paging the n-largest results as determined by `SORTBY MAX`. For example, getting results 50-100 of the top 100 results is most efficiently expressed as `SORTBY 1 @foo MAX 100 LIMIT 50 50`. Removing the MAX from SORTBY will result in the pipeline sorting _all_ the records and then paging over results 50-100. 
+    However, limit can be used to limit results without sorting, or for paging the n-largest results as determined by `SORTBY MAX`. For example, getting results 50-100 of the top 100 results is most efficiently expressed as `SORTBY 1 @foo MAX 100 LIMIT 50 50`. Removing the MAX from SORTBY will result in the pipeline sorting _all_ the records and then paging over results 50-100.
 
-* **FILTER {expr}**. Filter the results using predicate expressions relating to values in each result. 
-  They are is applied post-query and relate to the current state of the pipeline. 
+* **FILTER {expr}**. Filter the results using predicate expressions relating to values in each result.
+  They are is applied post-query and relate to the current state of the pipeline.
 
 #### Complexity
 
-Non-deterministic. Depends on the query and aggregations performed, but it is usually linear to the number of results returned. 
+Non-deterministic. Depends on the query and aggregations performed, but it is usually linear to the number of results returned.
 
 #### Returns
 
@@ -448,7 +569,7 @@ Here we are counting GitHub events by user (actor), to produce the most active u
     2) "xdzou"
     3) "num"
     4) "3216"
-10) 1) "actor"
+[10](10)) 1) "actor"
     2) "opstest"
     3) "num"
     4) "2863"
@@ -473,7 +594,7 @@ FT.EXPLAIN {index} {query}
 
 Returns the execution plan for a complex query.
 
-In the returned response, a `+` on a term is an indication of stemming. 
+In the returned response, a `+` on a term is an indication of stemming.
 
 #### Example
 ```sh
@@ -509,9 +630,9 @@ O(1)
 
 #### Returns
 
-String Response. A string representing the execution plan (see above example). 
+String Response. A string representing the execution plan (see above example).
 
-!!! tip 
+!!! tip
     You should use `redis-cli --raw` to properly read line-breaks in the returned response.
 
 ---
@@ -528,7 +649,7 @@ FT.EXPLAINCLI {index} {query}
 
 Returns the execution plan for a complex query but formatted for easier reading without using `redis-cli --raw`.
 
-In the returned response, a `+` on a term is an indication of stemming. 
+In the returned response, a `+` on a term is an indication of stemming.
 
 #### Example
 ```sh
@@ -577,7 +698,117 @@ O(1)
 
 #### Returns
 
-String Response. A string representing the execution plan (see above example). 
+String Response. A string representing the execution plan (see above example).
+
+---
+
+### FT.PROFILE
+
+#### Format
+
+```
+FT.PROFILE {index} {[SEARCH, AGGREGATE]} [LIMITED] QUERY {query}
+```
+
+#### Description
+
+Performs a `FT.SEARCH` or `FT.AGGREGATE` command and collects performance information.
+Return value has an array with two elements:
+
+  * **Results** - The normal reply from RediSearch, similar to a cursor.
+  * **Profile** - The details in the profile are:
+    * **Total profile time** - The total runtime of the query.
+    * **Parsing time** - Parsing time of the query and parameters into an execution plan.
+    * **Pipeline creation time** - Creation time of execution plan including iterators,
+  result processors and reducers creation.
+    * **Iterators profile** - Index iterators information including their type, term, count and time data.
+  Inverted-index iterators have in addition the number of elements they contain.
+    * **Result processors profile** - Result processors chain with type, count and time data.
+
+#### Example
+```sh
+FT.PROFILE idx SEARCH QUERY "hello world"
+1) 1) (integer) 1
+   2) "doc1"
+   3) 1) "t"
+      2) "hello world"
+2) 1) 1) Total profile time
+      2) "0.47199999999999998"
+   2) 1) Parsing time
+      2) "0.218"
+   3) 1) Pipeline creation time
+      2) "0.032000000000000001"
+   4) 1) Iterators profile
+      2) 1) Type
+         2) INTERSECT
+         3) Time
+         4) "0.025000000000000001"
+         5) Counter
+         6) (integer) 1
+         7) Children iterators
+         8)  1) Type
+             2) TEXT
+             3) Term
+             4) hello
+             5) Time
+             6) "0.0070000000000000001"
+             7) Counter
+             8) (integer) 1
+             9) Size
+            10) (integer) 1
+         9)  1) Type
+             2) TEXT
+             3) Term
+             4) world
+             5) Time
+             6) "0.0030000000000000001"
+             7) Counter
+             8) (integer) 1
+             9) Size
+            10) (integer) 1
+   5) 1) Result processors profile
+      2) 1) Type
+         2) Index
+         3) Time
+         4) "0.036999999999999998"
+         5) Counter
+         6) (integer) 1
+      3) 1) Type
+         2) Scorer
+         3) Time
+         4) "0.025000000000000001"
+         5) Counter
+         6) (integer) 1
+      4) 1) Type
+         2) Sorter
+         3) Time
+         4) "0.013999999999999999"
+         5) Counter
+         6) (integer) 1
+      5) 1) Type
+         2) Loader
+         3) Time
+         4) "0.10299999999999999"
+         5) Counter
+         6) (integer) 1
+```
+
+#### Parameters
+
+- **index**: The index name. The index must be first created with FT.CREATE
+- **SEARCH,AGGREGATE**: Differ between `FT.SEARCH` and `FT.AGGREGATE`
+- **LIMITED**: Removes details of `reader` iterator
+- **QUERY {query}**: The query string, as if sent to FT.SEARCH
+
+#### Complexity
+
+Non-deterministic. Depends on the query and aggregations performed, but it is usually linear to the number of results returned.
+#### Returns
+
+Array Response.
+
+!!! tip
+    To reduce the size of the output, use `NOCONTENT` or `LIMIT 0 0` to reduce results reply or `LIMITED` to not reply with details of `reader iterators` inside builtin-unions such as `fuzzy` or `prefix`.
 
 ---
 
@@ -638,7 +869,7 @@ FT.DROPINDEX {index} [DD]
 
 #### Description
 
-Deletes the index. 
+Deletes the index.
 
 By default, FT.DROPINDEX does not delete the document hashes associated with the index. Adding the DD option deletes the hashes as well.
 
@@ -646,7 +877,7 @@ Since RediSearch 2.0
 
 #### Example
 ```sql
-FT.DROPINDEX idx DD 
+FT.DROPINDEX idx DD
 ```
 
 #### Parameters
@@ -714,18 +945,18 @@ FT.TAGVALS {index} {field_name}
 
 #### Description
 
-Returns the distinct tags indexed in a [Tag field](Tags.md). 
+Returns the distinct tags indexed in a [Tag field](Tags.md).
 
 This is useful if your tag field indexes things like cities, categories, etc.
 
 !!! warning "Limitations"
-    There is no paging or sorting, the tags are not alphabetically sorted. 
+    There is no paging or sorting, the tags are not alphabetically sorted.
     This command only operates on [Tag fields](Tags.md).
     The strings return lower-cased and stripped of whitespaces, but otherwise unchanged.
-      
+
 #### Example
 ```sql
-FT.TAGVALS idx myTag 
+FT.TAGVALS idx myTag
 ```
 
 #### Parameters
@@ -768,9 +999,9 @@ FT.SUGADD ac "hello world" 1
 - **key**: the suggestion dictionary key.
 - **string**: the suggestion string we index
 - **score**: a floating point number of the suggestion string's weight
-- **INCR**: if set, we increment the existing entry of the suggestion by the given score, instead of 
+- **INCR**: if set, we increment the existing entry of the suggestion by the given score, instead of
   replacing the score. This is useful for updating the dictionary based on user queries in real time
-- **PAYLOAD {payload}**: If set, we save an extra payload with the suggestion, that can be fetched by 
+- **PAYLOAD {payload}**: If set, we save an extra payload with the suggestion, that can be fetched by
   adding the `WITHPAYLOADS` argument to `FT.SUGGET`.
 
 #### Returns
@@ -800,12 +1031,12 @@ FT.SUGGET ac hell FUZZY MAX 3 WITHSCORES
 
 - **key**: the suggestion dictionary key.
 - **prefix**: the prefix to complete on
-- **FUZZY**: if set, we do a fuzzy prefix search, including prefixes at Levenshtein distance of 1 from 
+- **FUZZY**: if set, we do a fuzzy prefix search, including prefixes at Levenshtein distance of 1 from
   the prefix sent
 - **MAX num**: If set, we limit the results to a maximum of `num` (default: 5).
-- **WITHSCORES**: If set, we also return the score of each suggestion. this can be used to merge 
+- **WITHSCORES**: If set, we also return the score of each suggestion. this can be used to merge
   results from multiple instances
-- **WITHPAYLOADS**: If set, we return optional payloads saved along with the suggestions. If no 
+- **WITHPAYLOADS**: If set, we return optional payloads saved along with the suggestions. If no
   payload is present for an entry, we return a Null Reply.
 
 #### Returns
@@ -824,7 +1055,7 @@ FT.SUGDEL {key} {string}
 
 #### Description
 
-Deletes a string from a suggestion index. 
+Deletes a string from a suggestion index.
 
 #### Example
 ```sql
@@ -856,7 +1087,7 @@ Gets the size of an auto-complete suggestion dictionary
 
 #### Example
 ```sql
-FT.SUGLEN ac 
+FT.SUGLEN ac
 ```
 
 #### Parameters
@@ -887,7 +1118,7 @@ The command is used to create or update a synonym group with additional terms. O
 
 #### Parameters
 
-* **SKIPINITIALSCAN**: If set, we do not scan and index. 
+* **SKIPINITIALSCAN**: If set, we do not scan and index.
 
 ---
 
@@ -907,7 +1138,7 @@ The command is used to dump the synonyms data structure. Returns a list of synon
 
 ---
 
-### FT.SPELLCHECK 
+### FT.SPELLCHECK
 
 #### Format
 ```
@@ -1046,7 +1277,7 @@ Returns an array, where each element is term (string).
 
 #### Format
 ```
-FT.INFO {index} 
+FT.INFO {index}
 ```
 
 #### Description
@@ -1261,14 +1492,14 @@ The `SET` subcommand returns 'OK' for valid runtime-settable option names and va
 
 ## Deprecated commands
 
-### FT.ADD 
+### FT.ADD
 
 #### Format
 
 ```
 FT.ADD {index} {docId} {score}
   [REPLACE [PARTIAL] [NOCREATE]]
-  [LANGUAGE {language}] 
+  [LANGUAGE {language}]
   [PAYLOAD {payload}]
   [IF {condition}]
   FIELDS {field} {value} [{field} {value}...]
@@ -1277,7 +1508,7 @@ FT.ADD {index} {docId} {score}
 #### Description
 
 !!! warning "Deprecation warning"
-    This command is deprecated and act as simpe redis HSET, the document created will be indexed only if it matches one or some indexes definitions (as defined on [ft.create](Commands.md#ftcreate)), Use HSET instead.
+    This command is deprecated and act as simple redis HSET, the document created will be indexed only if it matches one or some indexes definitions (as defined on [ft.create](Commands.md#ftcreate)), Use HSET instead.
 
 Adds a document to the index.
 
@@ -1290,17 +1521,17 @@ FT.ADD idx doc1 1.0 FIELDS title "hello world"
 
 - **index**: The Fulltext index name. The index must be first created with FT.CREATE
 
-- **docId**: The document's id that will be returned from searches. 
+- **docId**: The document's id that will be returned from searches.
 
 !!! note "Notes on docId"
     The same docId cannot be added twice to the same index.
     The same docId can be added to multiple indices, but a single document with that docId is saved in the database.
 
-- **score**: The document's rank based on the user's ranking. This must be between 0.0 and 1.0. 
+- **score**: The document's rank based on the user's ranking. This must be between 0.0 and 1.0.
   On v2.0 this will be translated to a '__score' field in the created hash.
 
 - **REPLACE**: If set, we will do an UPSERT style insertion - and delete an older version of the
-  document if it exists. 
+  document if it exists.
 
 - **PARTIAL** (only applicable with REPLACE): If set, you do not have to specify all fields for
   reindexing. Fields not given to the command will be loaded from the current version of the
@@ -1312,25 +1543,25 @@ FT.ADD idx doc1 1.0 FIELDS title "hello world"
   will be returned.
 
 - **FIELDS**: Following the FIELDS specifier, we are looking for pairs of `{field} {value}` to be
-  indexed. Each field will be scored based on the index spec given in `FT.CREATE`. 
+  indexed. Each field will be scored based on the index spec given in `FT.CREATE`.
   Passing fields that are not in the index spec will make them be stored as part of the document,
-  or ignored if NOSAVE is set 
+  or ignored if NOSAVE is set
 
-- **PAYLOAD {payload}**: Optionally set a binary safe payload string to the document, 
+- **PAYLOAD {payload}**: Optionally set a binary safe payload string to the document,
   that can be evaluated at query time by a custom scoring function, or retrieved to the client.
   On v2.0 this will be translated to a '__payload' field in the created hash.
 
-- **IF {condition}**: (Applicable only in conjunction with `REPLACE` and optionally `PARTIAL`). 
-  Update the document only if a boolean expression applies to the document **before the update**, 
-  e.g. `FT.ADD idx doc 1 REPLACE IF "@timestamp < 23323234234"`. 
+- **IF {condition}**: (Applicable only in conjunction with `REPLACE` and optionally `PARTIAL`).
+  Update the document only if a boolean expression applies to the document **before the update**,
+  e.g. `FT.ADD idx doc 1 REPLACE IF "@timestamp < 23323234234"`.
 
   The expression is evaluated atomically before the update, ensuring that the update will happen only if it is true.
 
-  See [Aggregations](Aggregations.md) for more details on the expression language. 
+  See [Aggregations](Aggregations.md) for more details on the expression language.
 
 - **LANGUAGE language**: If set, we use a stemmer for the supplied language during indexing. Default
-  to English. 
-  If an unsupported language is sent, the command returns an error. 
+  to English.
+  If an unsupported language is sent, the command returns an error.
   The supported languages are:
 
     Arabic, Basque, Catalan, Danish, Dutch, English, Finnish, French, German, Greek, Hungarian,
@@ -1387,20 +1618,20 @@ FT.DEL {index} {doc_id} [DD]
 !!! warning "Deprecation warning"
     This command is deprecated and acts as a simple redis DEL, the deleted document will be deleted from all the indexes it indexed on", Use DEL instead.
 
-Deletes a document from the index. Returns 1 if the document was in the index, or 0 if not. 
+Deletes a document from the index. Returns 1 if the document was in the index, or 0 if not.
 
 !!! warning "since v2.0, the [DD] option is not longer support, deleting a document means to also delete the hash from redis"
 !!! warning "since v2.0, deleting a document from one index will cause this document to be deleted from all the indexes contains it"
 
 #### Example
 ```sql
-FT.DEL idx doc1 
+FT.DEL idx doc1
 ```
 
 #### Parameters
 
 - **index**: The index name. The index must be first created with FT.CREATE
-- **doc_id**: the id of the document to be deleted. It does not actually delete the HASH key in which 
+- **doc_id**: the id of the document to be deleted. It does not actually delete the HASH key in which
   the document is stored. Use DEL to do that manually if needed.
 
 
@@ -1427,7 +1658,7 @@ FT.DROP {index} [KEEPDOCS]
 !!! warning "Deprecation warning"
     This command is deprecated, use FT.DROPINDEX instead.
 
-Deletes the index and all the keys associated with it. 
+Deletes the index and all the keys associated with it.
 
 By default, DROP deletes the document hashes as well, but adding the KEEPDOCS option keeps the documents in place, ready for re-indexing.
 
@@ -1436,7 +1667,7 @@ that the index specification is not deleted.
 
 #### Example
 ```sql
-FT.DROP idx KEEPDOCS 
+FT.DROP idx KEEPDOCS
 ```
 
 #### Parameters
@@ -1469,7 +1700,7 @@ If the document does not exist or is not a HASH object, we return a NULL reply
 
 #### Example
 ```sql
-FT.GET idx doc1 
+FT.GET idx doc1
 ```
 
 #### Parameters
@@ -1500,9 +1731,9 @@ Returns content of a document as inserted without attribute fields (score/langua
 
 In addition, it allows simpler implementation of fetching documents in clustered mode.
 
-We return an array with exactly the same number of elements as the number of keys sent to the command. 
+We return an array with exactly the same number of elements as the number of keys sent to the command.
 
-Each element, in turn, is an array of key-value pairs representing the document. 
+Each element, in turn, is an array of key-value pairs representing the document.
 
 If a document is not found or is not a valid HASH object, its place in the parent array is filled with a Null reply object.
 

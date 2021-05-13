@@ -21,7 +21,7 @@ static void CursorList_Unlock(CursorList *cl) {
 }
 
 void CursorList_Init(CursorList *cl) {
-  memset(cl, 0, sizeof(*cl));
+  *cl = (CursorList) {0};
   pthread_mutex_init(&cl->lock, NULL);
   cl->lookup = kh_init(cursors);
   Array_Init(&cl->idle);
