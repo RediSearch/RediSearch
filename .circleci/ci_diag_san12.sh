@@ -47,7 +47,7 @@ if [[ $CI_CONCURRENCY > 20 ]]; then
 	CI_CONCURRENCY=20
 fi
 
-make -j$CI_CONCURRENCY
+make -j$CI_CONCURRENCY WITH_TESTS=1 SAN
 
 export REDIS_SERVER=redis-server-${mode}
 cat >rltest.config <<EOF
@@ -70,6 +70,7 @@ git checkout feature-search-json
 ./deps/readies/bin/getpy3
 ./system-setup.py
 source /etc/profile.d/rust.sh
+make nightly
 make SAN=$JSON_SAN_MODE
 export REJSON_PATH=$ROOT/deps/RedisJSON/target/x86_64-unknown-linux-gnu/debug/rejson.so
 
