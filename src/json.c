@@ -78,13 +78,17 @@ done:
 
 int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx) {
   int rv = REDISMODULE_ERR;
+  if (!japi) {
+    RedisModule_Log(sctx->redisCtx, "warning", "cannot operate on a JSON index as RedisJSON is not loaded");
+    return REDISMODULE_ERR;
+  }
   IndexSpec *spec = sctx->spec;
   SchemaRule *rule = spec->rule;
   RedisModuleCtx *ctx = sctx->redisCtx;
   size_t nitems = sctx->spec->numFields;
   RedisJSON json = NULL;
 
-  RedisJSONKey jsonKey = japi ? japi->openKey(ctx, doc->docKey) : NULL;
+  RedisJSONKey jsonKey = japi->openKey(ctx, doc->docKey);
   if (!jsonKey) {
     goto done;
   }

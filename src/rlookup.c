@@ -453,7 +453,7 @@ done:
   if (key) {
     switch (options->dmd->type) {
     case DocumentType_Hash: RedisModule_CloseKey(key); break;
-    case DocumentType_Json: japi->closeKey(key); break;
+    case DocumentType_Json: if (japi) japi->closeKey(key); break;
     case DocumentType_None: RS_LOG_ASSERT(1, "placeholder");
     }
   }
@@ -594,14 +594,11 @@ done:
 
 static int RLookup_JSON_GetAll(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options) {
   int rc = REDISMODULE_ERR;
-  if (!japi)
+  if (!japi) {
     return rc;
+  }
   RedisModuleString *value;
-  
   RedisModuleCtx *ctx = options->sctx->redisCtx;
-  //RedisModuleString *krstr =
-  //    RedisModule_CreateString(ctx, options->dmd->keyPtr, sdslen(options->dmd->keyPtr));
-  // TODO: check error
   RedisJSONKey jsonKey = japi->openKeyFromStr(ctx, options->dmd->keyPtr);
   if (!jsonKey) {
     goto done;
@@ -618,9 +615,6 @@ static int RLookup_JSON_GetAll(RLookup *it, RLookupRow *dst, RLookupLoadOptions 
   rc = REDISMODULE_OK;
 
 done:
-  //if (krstr) {
-  //  RedisModule_FreeString(ctx, krstr);
-  //}
   if (jsonKey) {
     japi->closeKey(jsonKey);
   }
