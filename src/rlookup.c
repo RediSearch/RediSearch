@@ -359,12 +359,17 @@ static int getKeyCommonHash(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
 
 static int getKeyCommonJSON(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOptions *options,
                         RedisJSONKey *keyobj) {
+  if (!japi) {
+    QueryError_SetCode(options->status, QUERY_EUNSUPPTYPE);
+    RedisModule_Log(RSDummyContext, "warning", "cannot operate on a JSON index as RedisJSON is not loaded");
+    return REDISMODULE_ERR;
+  }
   if (!options->noSortables && (kk->flags & RLOOKUP_F_SVSRC)) {
     // No need to "write" this key. It's always implicitly loaded!
     return REDISMODULE_OK;
   }
 
-  // In this case, the flag must be obtained via HGET
+  // In this case, the flag must be obtained from JSON
   if (!*keyobj) {
     RedisModuleCtx *ctx = options->sctx->redisCtx;
     *keyobj = japi->openKeyFromStr(ctx, options->dmd->keyPtr);
@@ -374,7 +379,7 @@ static int getKeyCommonJSON(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
     }
   }
 
-  // Get the actual hash value
+  // Get the actual json value
   int rc = REDISMODULE_ERR;
   RedisModuleString *val = NULL;
   RSValue *rsv = NULL;
@@ -448,7 +453,7 @@ done:
   if (key) {
     switch (options->dmd->type) {
     case DocumentType_Hash: RedisModule_CloseKey(key); break;
-    case DocumentType_Json: japi->closeKey(key); break;
+    case DocumentType_Json: if (japi) japi->closeKey(key); break;
     case DocumentType_None: RS_LOG_ASSERT(1, "placeholder");
     }
   }
@@ -589,12 +594,11 @@ done:
 
 static int RLookup_JSON_GetAll(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options) {
   int rc = REDISMODULE_ERR;
+  if (!japi) {
+    return rc;
+  }
   RedisModuleString *value;
-  
   RedisModuleCtx *ctx = options->sctx->redisCtx;
-  //RedisModuleString *krstr =
-  //    RedisModule_CreateString(ctx, options->dmd->keyPtr, sdslen(options->dmd->keyPtr));
-  // TODO: check error
   RedisJSONKey jsonKey = japi->openKeyFromStr(ctx, options->dmd->keyPtr);
   if (!jsonKey) {
     goto done;
@@ -611,9 +615,6 @@ static int RLookup_JSON_GetAll(RLookup *it, RLookupRow *dst, RLookupLoadOptions 
   rc = REDISMODULE_OK;
 
 done:
-  //if (krstr) {
-  //  RedisModule_FreeString(ctx, krstr);
-  //}
   if (jsonKey) {
     japi->closeKey(jsonKey);
   }

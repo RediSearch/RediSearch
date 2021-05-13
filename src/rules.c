@@ -1,6 +1,7 @@
 #include "rules.h"
 #include "aggregate/expr/expression.h"
 #include "spec.h"
+#include "json.h"
 
 TrieMap *ScemaPrefixes_g;
 
@@ -23,11 +24,11 @@ int SchemaRuleType_Parse(const char *type_str, SchemaRuleType *type, QueryError 
   if (!type_str || !strcasecmp(type_str, RULE_TYPE_HASH)) {
     *type = SchemaRuleType_Hash;
     return REDISMODULE_OK;
-  } else if (!strcasecmp(type_str, RULE_TYPE_JSON)) {
+  } else if (japi && !strcasecmp(type_str, RULE_TYPE_JSON)) {
     *type = SchemaRuleType_Json;
     return REDISMODULE_OK;
   }
-  QueryError_SetError(status, QUERY_EADDARGS, "Invalid rule type");
+  QueryError_SetErrorFmt(status, QUERY_EADDARGS, "Invalid rule type: %s", type_str);
   return REDISMODULE_ERR;
 }
 
