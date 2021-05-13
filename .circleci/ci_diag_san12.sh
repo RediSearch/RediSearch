@@ -47,7 +47,7 @@ if [[ $CI_CONCURRENCY > 20 ]]; then
 	CI_CONCURRENCY=20
 fi
 
-make -j$CI_CONCURRENCY WITH_TESTS=1 SAN
+make -j$CI_CONCURRENCY
 
 export REDIS_SERVER=redis-server-${mode}
 cat >rltest.config <<EOF
