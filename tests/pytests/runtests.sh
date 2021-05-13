@@ -67,6 +67,7 @@ OP=
 if [[ -n $TEST ]]; then
 	[[ $GDB == 1 ]] && RLTEST_ARGS+=" -i"
 	RLTEST_ARGS+=" -v -s --test $TEST"
+	export RUST_BACKTRACE=1
 fi
 
 #---------------------------------------------------------------------------------------------- 
