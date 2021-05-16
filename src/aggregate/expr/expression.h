@@ -1,86 +1,75 @@
-#ifndef RS_AGG_EXPRESSION_H_
-#define RS_AGG_EXPRESSION_H_
+#pragma once
 
-#include <redisearch.h>
-#include <value.h>
-#include <aggregate/functions/function.h>
+#include "redisearch.h"
+#include "value.h"
+#include "aggregate/functions/function.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+///////////////////////////////////////////////////////////////////////////////////////////////
 
-/* Expression type enum */
-typedef enum {
-  /* Literal constant expression */
-  RSExpr_Literal,
-  /* Property from the result (e.g. @foo) */
-  RSExpr_Property,
-  /* Arithmetic operator, e.g. @foo+@bar */
-  RSExpr_Op,
-  /* Built-in function call */
-  RSExpr_Function,
-  /* Predicate expression, e.g. @foo == 3 */
-  RSExpr_Predicate,
+// Expression type enum
+enum RSExprType {
+  RSExpr_Literal,   // Literal constant expression
+  RSExpr_Property,  // Property from the result (e.g. @foo)
+  RSExpr_Op,        // Arithmetic operator, e.g. @foo+@bar
+  RSExpr_Function,  // Built-in function call
+  RSExpr_Predicate, // Predicate expression, e.g. @foo == 3
+  RSExpr_Inverted   // NOT expression, i.e. !(....)
+};
 
-  /* NOT expression, i.e. !(....) */
-  RSExpr_Inverted
-} RSExprType;
+//---------------------------------------------------------------------------------------------
 
 struct RSExpr;
-typedef struct {
+
+struct RSExprOp {
   unsigned char op;
   struct RSExpr *left;
   struct RSExpr *right;
-} RSExprOp;
+};
 
-typedef enum {
-  /* Equality, == */
-  RSCondition_Eq,
-  /* Less than, < */
-  RSCondition_Lt,
-  /* Less than or equal, <= */
-  RSCondition_Le,
-  /* Greater than, > */
-  RSCondition_Gt,
-  /* Greater than or equal, >= */
-  RSCondition_Ge,
-  /* Not equal, != */
-  RSCondition_Ne,
-  /* Logical AND of 2 expressions, && */
-  RSCondition_And,
-  /* Logical OR of 2 expressions, || */
-  RSCondition_Or
-} RSCondition;
+//---------------------------------------------------------------------------------------------
+
+enum RSCondition {
+  RSCondition_Eq,  // Equality, ==
+  RSCondition_Lt,  // Less than, <
+  RSCondition_Le,  // Less than or equal, <=
+  RSCondition_Gt,  // Greater than, >
+  RSCondition_Ge,  // Greater than or equal, >=
+  RSCondition_Ne,  // Not equal, !=
+  RSCondition_And, // Logical AND of 2 expressions, &&
+  RSCondition_Or   // Logical OR of 2 expressions, ||
+};
 
 extern const char *RSConditionStrings[];
 
-typedef struct {
+//---------------------------------------------------------------------------------------------
+
+struct RSPredicate {
   struct RSExpr *left;
   struct RSExpr *right;
   RSCondition cond;
-} RSPredicate;
+};
 
-typedef struct {
+struct RSInverted {
   struct RSExpr *child;
-} RSInverted;
+};
 
-typedef struct {
+struct RSArgList {
   size_t len;
   struct RSExpr *args[];
-} RSArgList;
+};
 
-typedef struct {
+struct RSFunctionExpr {
   const char *name;
   RSArgList *args;
   RSFunction Call;
-} RSFunctionExpr;
+};
 
-typedef struct {
+struct RSLookupExpr {
   const char *key;
   const RLookupKey *lookupObj;
-} RSLookupExpr;
+};
 
-typedef struct RSExpr {
+struct RSExpr {
   RSExprType t;
   union {
     RSExprOp op;
@@ -90,24 +79,27 @@ typedef struct RSExpr {
     RSLookupExpr property;
     RSInverted inverted;
   };
-} RSExpr;
+};
 
-/**
- * Expression execution context/evaluator. I need to refactor this into something
- * nicer, but I think this will do.
- */
-typedef struct ExprEval {
+//---------------------------------------------------------------------------------------------
+
+// Expression execution context/evaluator. I need to refactor this into something
+// nicer, but I think this will do.
+
+struct ExprEval {
   QueryError *err;
   const RLookup *lookup;
   const SearchResult *res;
   const RLookupRow *srcrow;
   const RSExpr *root;
   BlkAlloc stralloc; // Optional. YNOT?
-} ExprEval;
+};
 
 #define EXPR_EVAL_ERR 0
 #define EXPR_EVAL_OK 1
 #define EXPR_EVAL_NULL 2
+
+//---------------------------------------------------------------------------------------------
 
 /**
  * Scan through the expression and generate any required lookups for the keys.
@@ -117,25 +109,30 @@ typedef struct ExprEval {
  *  the error.
  */
 int ExprAST_GetLookupKeys(RSExpr *root, RLookup *lookup, QueryError *err);
-int ExprEval_Eval(ExprEval *evaluator, RSValue *result);
 
 void ExprAST_Free(RSExpr *expr);
 void ExprAST_Print(const RSExpr *expr);
 RSExpr * ExprAST_Parse(const char *e, size_t n, QueryError *status);
 
-/* Parse an expression string, returning a prased expression tree on success. On failure (syntax
- * err, etc) we set and error in err, and return NULL */
+// Parse an expression string, returning a prased expression tree on success. On failure (syntax
+// err, etc) we set and error in err, and return NULL
 RSExpr *RSExpr_Parse(const char *expr, size_t len, char **err);
+
 void RSExpr_Free(RSExpr *e);
 
-/**
- * Helper functions for the evaluator context:
- */
+//---------------------------------------------------------------------------------------------
+
+int ExprEval_Eval(ExprEval *evaluator, RSValue *result);
+
+// Helper functions for the evaluator context:
+
 void *ExprEval_UnalignedAlloc(ExprEval *ev, size_t n);
 char *ExprEval_Strndup(ExprEval *ev, const char *s, size_t n);
 
-/** Cleans up the allocator */
+// Cleans up the allocator
 void ExprEval_Cleanup(ExprEval *ev);
+
+//---------------------------------------------------------------------------------------------
 
 /**
  * Creates a new result processor in the form of a projector. The projector will
@@ -163,7 +160,4 @@ ResultProcessor *RPEvaluator_NewProjector(const RSExpr *ast, const RLookup *look
  */
 ResultProcessor *RPEvaluator_NewFilter(const RSExpr *ast, const RLookup *lookup);
 
-#ifdef __cplusplus
-}
-#endif
-#endif
+///////////////////////////////////////////////////////////////////////////////////////////////

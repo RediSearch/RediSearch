@@ -7,13 +7,10 @@
 #include "expr/expression.h"
 #include "aggregate_plan.h"
 
+#include "util/khash.h"
 #include "rmutil/rm_assert.h"
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
-
-typedef struct Grouper Grouper;
-
-//---------------------------------------------------------------------------------------------
 
 enum class CommandType { Aggregate, Search, Explain };
 
@@ -158,14 +155,71 @@ struct AREQ : public Object {
   int buildOutputPipeline(QueryError *status);
 };
 
-//---------------------------------------------------------------------------------------------
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 // Grouper Functions
 
-Grouper *Grouper_New(const RLookupKey **srckeys, const RLookupKey **dstkeys, size_t n);
-void Grouper_Free(Grouper *g);
-ResultProcessor *Grouper_GetRP(Grouper *gr);
-void Grouper_AddReducer(Grouper *g, Reducer *r, RLookupKey *dst);
+//---------------------------------------------------------------------------------------------
+
+// A group represents the allocated context of all reducers in a group, and the
+// selected values of that group.
+// Because one of these is created for every single group (i.e. every single
+// unique key) we want to keep this quite small!
+
+struct Group {
+  // Contains the selected 'out' values used by the reducers output functions
+  RLookupRow rowdata;
+
+  // Contains the actual per-reducer data for the group, in an accumulating fashion 
+  // (e.g. how many records seen, and so on). This is created by Reducer::NewInstance()
+  void *accumdata[0];
+
+  Group(const RSValue **groupvals, size_t ngrpvals);
+
+  void invokeReducers(RLookupRow *srcrow);
+  void writeValues(SearchResult *r) const;
+};
+
+//---------------------------------------------------------------------------------------------
+
+KHASH_MAP_INIT_INT64(khid, Group *);
+
+struct Grouper : ResultProcessor {
+  // Map of group_name => `Group` structure
+  static const int khid;
+  khash_t(khid) *groups;
+
+  // Backing store for the groups themselves
+  BlkAlloc groupsAlloc;
+
+  // Keys to group by. Both srckeys and dstkeys are used because different lookups
+  // are employed. The srckeys are the lookup keys for the properties as they
+  // appear in the row received from the upstream processor, and the dstkeys are
+  // the keys as they are expected in the output row.
+
+  const RLookupKey **srckeys;
+  const RLookupKey **dstkeys;
+  size_t nkeys;
+
+  // array of reducers
+  Reducer **reducers;
+
+  // Used for maintaining state when yielding groups
+  khiter_t iter;
+
+  Grouper(const RLookupKey **srckeys_, const RLookupKey **dstkeys, size_t nkeys);
+  virtual ~Grouper();
+
+  int rpYield(SearchResult *r);
+
+  void extractGroups(const RSValue **xarr, size_t xpos, size_t xlen, size_t arridx,
+                     uint64_t hval, RLookupRow *res);
+
+  virtual int Next(SearchResult *res);
+
+  void AddReducer(Reducer *r, RLookupKey *dstkey);
+  ResultProcessor *GetRP();
+};
 
 //---------------------------------------------------------------------------------------------
 

@@ -1,11 +1,18 @@
+
 #include "expression.h"
 #include "result_processor.h"
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+
 static int evalInternal(ExprEval *eval, const RSExpr *e, RSValue *res);
+
+//---------------------------------------------------------------------------------------------
 
 static void setReferenceValue(RSValue *dst, RSValue *src) {
   RSValue_MakeReference(dst, src);
 }
+
+//---------------------------------------------------------------------------------------------
 
 extern int func_exists(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc, QueryError *err);
 
@@ -39,6 +46,8 @@ cleanup:
   }
   return rc;
 }
+
+//---------------------------------------------------------------------------------------------
 
 static int evalOp(ExprEval *eval, const RSExprOp *op, RSValue *result) {
   RSValue l = RSVALUE_STATIC, r = RSVALUE_STATIC;
@@ -93,6 +102,8 @@ cleanup:
   return rc;
 }
 
+//---------------------------------------------------------------------------------------------
+
 static int getPredicateBoolean(ExprEval *eval, const RSValue *l, const RSValue *r, RSCondition op) {
   QueryError *qerr = eval ? eval->err : NULL;
   switch (op) {
@@ -132,6 +143,8 @@ static int getPredicateBoolean(ExprEval *eval, const RSValue *l, const RSValue *
   }
 }
 
+//---------------------------------------------------------------------------------------------
+
 static int evalInverted(ExprEval *eval, const RSInverted *vv, RSValue *result) {
   RSValue tmpval = RSVALUE_STATIC;
   if (evalInternal(eval, vv->child, &tmpval) != EXPR_EVAL_OK) {
@@ -144,6 +157,8 @@ static int evalInverted(ExprEval *eval, const RSInverted *vv, RSValue *result) {
   RSValue_Clear(&tmpval);
   return EXPR_EVAL_OK;
 }
+
+//---------------------------------------------------------------------------------------------
 
 static int evalPredicate(ExprEval *eval, const RSPredicate *pred, RSValue *result) {
   int res;
@@ -178,6 +193,8 @@ cleanup:
   return rc;
 }
 
+//---------------------------------------------------------------------------------------------
+
 static int evalProperty(ExprEval *eval, const RSLookupExpr *e, RSValue *res) {
   if (!e->lookupObj) {
     // todo : this can not happened
@@ -204,6 +221,8 @@ static int evalProperty(ExprEval *eval, const RSLookupExpr *e, RSValue *res) {
   return EXPR_EVAL_OK;
 }
 
+//---------------------------------------------------------------------------------------------
+
 static int evalInternal(ExprEval *eval, const RSExpr *e, RSValue *res) {
   RSValue_Clear(res);
   switch (e->t) {
@@ -224,9 +243,13 @@ static int evalInternal(ExprEval *eval, const RSExpr *e, RSValue *res) {
   return EXPR_EVAL_ERR;  // todo: this can not happened
 }
 
+//---------------------------------------------------------------------------------------------
+
 int ExprEval_Eval(ExprEval *evaluator, RSValue *result) {
   return evalInternal(evaluator, evaluator->root, result);
 }
+
+//---------------------------------------------------------------------------------------------
 
 int ExprAST_GetLookupKeys(RSExpr *expr, RLookup *lookup, QueryError *err) {
 #define RECURSE(v)                                                                             \
@@ -269,10 +292,15 @@ int ExprAST_GetLookupKeys(RSExpr *expr, RLookup *lookup, QueryError *err) {
   return EXPR_EVAL_OK;
 }
 
-/* Allocate some memory for a function that can be freed automatically when the execution is done */
+//---------------------------------------------------------------------------------------------
+
+// Allocate some memory for a function that can be freed automatically when the execution is done
+
 void *ExprEval_UnalignedAlloc(ExprEval *ctx, size_t sz) {
-  return BlkAlloc_Alloc(&ctx->stralloc, sz, MAX(sz, 1024));
+  return ctx->stralloc.Alloc(sz, MAX(sz, 1024));
 }
+
+//---------------------------------------------------------------------------------------------
 
 char *ExprEval_Strndup(ExprEval *ctx, const char *str, size_t len) {
   char *ret = ExprEval_UnalignedAlloc(ctx, len + 1);
@@ -281,23 +309,32 @@ char *ExprEval_Strndup(ExprEval *ctx, const char *str, size_t len) {
   return ret;
 }
 
-/**
- * ResultProcessor type which evaluates expressions
- */
-typedef struct RPEvaluator RPEvaluator;
-struct RPEvaluator {
-  ResultProcessor base;
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+// ResultProcessor type which evaluates expressions
+
+struct RPEvaluator : ResultProcessor {
   ExprEval eval;
   RSValue *val;
   const RLookupKey *outkey;
-  int isFilter;
+  bool isFilter;
 };
 
-#define RESULT_EVAL_ERR RS_RESULT_MAX + 1
+struct RPFilter : RPEvaluator {
+
+};
+
+struct RPProjector : RPEvaluator {
+
+};
+
+#define RESULT_EVAL_ERR (RS_RESULT_MAX + 1)
+
+//---------------------------------------------------------------------------------------------
 
 static int rpevalCommon(RPEvaluator *pc, SearchResult *r) {
-  /** Get the upstream result */
-  int rc = pc->base.upstream->Next(pc->base.upstream, r);
+  // Get the upstream result
+  int rc = pc->upstream->Next(r);
   if (rc != RS_RESULT_OK) {
     return rc;
   }
@@ -306,7 +343,7 @@ static int rpevalCommon(RPEvaluator *pc, SearchResult *r) {
   pc->eval.srcrow = &r->rowdata;
 
   // TODO: Set this once only
-  pc->eval.err = pc->base.parent->err;
+  pc->eval.err = pc->parent->err;
 
   if (!pc->val) {
     pc->val = RS_NewValue(RSValue_Undef);
@@ -319,6 +356,8 @@ static int rpevalCommon(RPEvaluator *pc, SearchResult *r) {
   return RS_RESULT_OK;
 }
 
+//---------------------------------------------------------------------------------------------
+
 static int rpevalNext_project(ResultProcessor *rp, SearchResult *r) {
   RPEvaluator *pc = (RPEvaluator *)rp;
   int rc = rpevalCommon(pc, r);
@@ -330,6 +369,8 @@ static int rpevalNext_project(ResultProcessor *rp, SearchResult *r) {
   pc->val = NULL;
   return RS_RESULT_OK;
 }
+
+//---------------------------------------------------------------------------------------------
 
 static int rpevalNext_filter(ResultProcessor *rp, SearchResult *r) {
   RPEvaluator *pc = (RPEvaluator *)rp;
@@ -349,6 +390,8 @@ static int rpevalNext_filter(ResultProcessor *rp, SearchResult *r) {
   return rc;
 }
 
+//---------------------------------------------------------------------------------------------
+
 static void rpevalFree(ResultProcessor *rp) {
   RPEvaluator *ee = (RPEvaluator *)rp;
   if (ee->val) {
@@ -357,6 +400,9 @@ static void rpevalFree(ResultProcessor *rp) {
   BlkAlloc_FreeAll(&ee->eval.stralloc, NULL, NULL, 0);
   rm_free(ee);
 }
+
+//---------------------------------------------------------------------------------------------
+
 static ResultProcessor *RPEvaluator_NewCommon(const RSExpr *ast, const RLookup *lookup,
                                               const RLookupKey *dstkey, int isFilter) {
   RPEvaluator *rp = rm_calloc(1, sizeof(*rp));
@@ -370,11 +416,17 @@ static ResultProcessor *RPEvaluator_NewCommon(const RSExpr *ast, const RLookup *
   return &rp->base;
 }
 
+//---------------------------------------------------------------------------------------------
+
 ResultProcessor *RPEvaluator_NewProjector(const RSExpr *ast, const RLookup *lookup,
                                           const RLookupKey *dstkey) {
   return RPEvaluator_NewCommon(ast, lookup, dstkey, 0);
 }
 
+//---------------------------------------------------------------------------------------------
+
 ResultProcessor *RPEvaluator_NewFilter(const RSExpr *ast, const RLookup *lookup) {
   return RPEvaluator_NewCommon(ast, lookup, NULL, 1);
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////

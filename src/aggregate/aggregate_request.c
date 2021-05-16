@@ -140,7 +140,7 @@ int AREQ::handleCommonArgs(ArgsCursor *ac, bool allowLegacy, QueryError *status)
   int rv;
   // This handles the common arguments that are not stateful
   if (AC_AdvanceIfMatch(ac, "LIMIT")) {
-    PLN_ArrangeStep *arng = AGPLN_GetOrCreateArrangeStep(&ap);
+    PLN_ArrangeStep *arng = ap.GetOrCreateArrangeStep();
     // Parse offset, length
     if (AC_NumRemaining(ac) < 2) {
       status->SetError(QUERY_EPARSEARGS, "LIMIT requires two arguments");
@@ -161,7 +161,7 @@ int AREQ::handleCommonArgs(ArgsCursor *ac, bool allowLegacy, QueryError *status)
       return ARG_ERROR;
     }
   } else if (AC_AdvanceIfMatch(ac, "SORTBY")) {
-    PLN_ArrangeStep *arng = AGPLN_GetOrCreateArrangeStep(&ap);
+    PLN_ArrangeStep *arng = ap.GetOrCreateArrangeStep();
     if ((parseSortby(arng, ac, status, reqflags & QEXEC_F_IS_SEARCH)) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
@@ -406,8 +406,7 @@ int AREQ::parseQueryArgs(ArgsCursor *ac, RSSearchOptions *searchOpts, AggregateP
 
 //---------------------------------------------------------------------------------------------
 
-static char *getReducerAlias(PLN_GroupStep *g, const char *func, const ArgsCursor *args) {
-
+char *PLN_GroupStep::getReducerAlias(const char *func, const ArgsCursor *args) {
   sds out = sdsnew("__generated_alias");
   out = sdscat(out, func);
   // only put parentheses if we actually have args
@@ -438,25 +437,17 @@ static char *getReducerAlias(PLN_GroupStep *g, const char *func, const ArgsCurso
 
 //---------------------------------------------------------------------------------------------
 
-static void groupStepFree(PLN_BaseStep *base) {
-  PLN_GroupStep *g = (PLN_GroupStep *)base;
-  if (g->reducers) {
-    size_t nreducers = array_len(g->reducers);
+PLN_GroupStep::~PLN_GroupStep() {
+  if (reducers) {
+    size_t nreducers = array_len(reducers);
     for (size_t ii = 0; ii < nreducers; ++ii) {
-      PLN_Reducer *gr = g->reducers + ii;
+      PLN_Reducer *gr = reducers + ii;
       rm_free(gr->alias);
     }
-    array_free(g->reducers);
+    array_free(reducers);
   }
 
-  RLookup_Cleanup(&g->lookup);
-  rm_free(base);
-}
-
-//---------------------------------------------------------------------------------------------
-
-static RLookup *groupStepGetLookup(PLN_BaseStep *bstp) {
-  return &((PLN_GroupStep *)bstp)->lookup;
+  RLookup_Cleanup(&lookup);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -469,10 +460,9 @@ static RLookup *groupStepGetLookup(PLN_BaseStep *bstp) {
  *  here as well.
  */
 
-int PLNGroupStep_AddReducer(PLN_GroupStep *gstp, const char *name, ArgsCursor *ac,
-                            QueryError *status) {
+int PLN_GroupStep::AddReducer(const char *name, ArgsCursor *ac, QueryError *status) {
   // Just a list of functions..
-  PLN_Reducer *gr = array_ensure_tail(&gstp->reducers, PLN_Reducer);
+  PLN_Reducer *gr = array_ensure_tail(&reducers, PLN_Reducer);
 
   gr->name = name;
   int rv = AC_GetVarArgs(ac, &gr->args);
@@ -491,33 +481,30 @@ int PLNGroupStep_AddReducer(PLN_GroupStep *gstp, const char *name, ArgsCursor *a
     }
   }
   if (alias == NULL) {
-    gr->alias = getReducerAlias(gstp, name, &gr->args);
+    gr->alias = getReducerAlias(name, &gr->args);
   } else {
     gr->alias = rm_strdup(alias);
   }
   return REDISMODULE_OK;
 
 error:
-  array_pop(gstp->reducers);
+  array_pop(reducers);
   return REDISMODULE_ERR;
 }
 
 //---------------------------------------------------------------------------------------------
 
-static void genericStepFree(PLN_BaseStep *p) {
-  rm_free(p);
+PLN_BaseStep::~PLN_BaseStep() {
+  if (alias) {
+    rm_free((void *)alias);
+  }
 }
 
 //---------------------------------------------------------------------------------------------
 
-PLN_GroupStep *PLNGroupStep_New(const char **properties, size_t nproperties) {
-  PLN_GroupStep *gstp = rm_calloc(1, sizeof(*gstp));
-  gstp->properties = properties;
-  gstp->nproperties = nproperties;
-  gstp->base.dtor = groupStepFree;
-  gstp->base.getLookup = groupStepGetLookup;
-  gstp->base.type = PLN_T_GROUP;
-  return gstp;
+PLN_GroupStep::PLN_GroupStep(const char **properties_, size_t nproperties_) : PLN_BaseStep(PLN_T_GROUP) {
+  properties = properties_;
+  nproperties = nproperties_;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -533,8 +520,8 @@ int AREQ::parseGroupby(ArgsCursor *ac, QueryError *status) {
   }
 
   // Number of fields.. now let's see the reducers
-  PLN_GroupStep *gstp = PLNGroupStep_New((const char **)groupArgs.objs, groupArgs.argc);
-  AGPLN_AddStep(&ap, &gstp->base);
+  PLN_GroupStep *gstp = new PLN_GroupStep((const char **)groupArgs.objs, groupArgs.argc);
+  ap.AddStep(gstp);
 
   while (AC_AdvanceIfMatch(ac, "REDUCE")) {
     const char *name;
@@ -542,7 +529,7 @@ int AREQ::parseGroupby(ArgsCursor *ac, QueryError *status) {
       QERR_MKBADARGS_AC(status, "REDUCE", rv);
       return REDISMODULE_ERR;
     }
-    if (PLNGroupStep_AddReducer(gstp, name, ac, status) != REDISMODULE_OK) {
+    if (gstp->AddReducer(name, ac, status) != REDISMODULE_OK) {
       goto error;
     }
   }
@@ -554,26 +541,19 @@ error:
 
 //---------------------------------------------------------------------------------------------
 
-static void freeFilterStep(PLN_BaseStep *bstp) {
-  PLN_MapFilterStep *fstp = (PLN_MapFilterStep *)bstp;
-  if (fstp->parsedExpr) {
-    ExprAST_Free(fstp->parsedExpr);
+PLN_MapFilterStep::~PLN_MapFilterStep() {
+  if (parsedExpr) {
+    ExprAST_Free(parsedExpr);
   }
-  if (fstp->shouldFreeRaw) {
-    rm_free((char *)fstp->rawExpr);
+  if (shouldFreeRaw) {
+    rm_free((char *)rawExpr);
   }
-  rm_free((void *)fstp->base.alias);
-  rm_free(bstp);
 }
 
 //---------------------------------------------------------------------------------------------
 
-PLN_MapFilterStep *PLNMapFilterStep_New(const char *expr, int mode) {
-  PLN_MapFilterStep *stp = rm_calloc(1, sizeof(*stp));
-  stp->base.dtor = freeFilterStep;
-  stp->base.type = mode;
-  stp->rawExpr = expr;
-  return stp;
+PLN_MapFilterStep::PLN_MapFilterStep(const char *expr, int mode) : PLN_BaseStep(mode) {
+  rawExpr = expr;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -587,8 +567,8 @@ int AREQ::handleApplyOrFilter(ArgsCursor *ac, bool isApply, QueryError *status) 
     return REDISMODULE_ERR;
   }
 
-  PLN_MapFilterStep *stp = PLNMapFilterStep_New(expr, isApply ? PLN_T_APPLY : PLN_T_FILTER);
-  AGPLN_AddStep(&ap, &stp->base);
+  PLN_MapFilterStep *stp = new PLN_MapFilterStep(expr, isApply ? PLN_T_APPLY : PLN_T_FILTER);
+  ap.AddStep(stp);
 
   if (isApply) {
     if (AC_AdvanceIfMatch(ac, "AS")) {
@@ -597,27 +577,32 @@ int AREQ::handleApplyOrFilter(ArgsCursor *ac, bool isApply, QueryError *status) 
         QERR_MKBADARGS_FMT(status, "AS needs argument");
         goto error;
       }
-      stp->base.alias = rm_strdup(alias);
+      stp->alias = rm_strdup(alias);
     } else {
-      stp->base.alias = rm_strdup(expr);
+      stp->alias = rm_strdup(expr);
     }
   }
   return REDISMODULE_OK;
 
 error:
   if (stp) {
-    AGPLN_PopStep(&ap, &stp->base);
-    stp->base.dtor(&stp->base);
+    ap.PopStep(stp);
+    delete stp;
   }
   return REDISMODULE_ERR;
 }
 
 //---------------------------------------------------------------------------------------------
 
-static void loadDtor(PLN_BaseStep *bstp) {
-  PLN_LoadStep *lstp = (PLN_LoadStep *)bstp;
-  rm_free(lstp->keys);
-  rm_free(lstp);
+PLN_LoadStep::PLN_LoadStep(ArgsCursor &fields) : PLN_BaseStep(PLN_T_LOAD) {
+  args = fields;
+  keys = rm_calloc(fields.argc, sizeof(*keys));
+}
+
+//---------------------------------------------------------------------------------------------
+
+PLN_LoadStep::~PLN_LoadStep() {
+  rm_free(keys);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -629,13 +614,9 @@ int AREQ::handleLoad(ArgsCursor *ac, QueryError *status) {
     QERR_MKBADARGS_AC(status, "LOAD", rc);
     return REDISMODULE_ERR;
   }
-  PLN_LoadStep *lstp = rm_calloc(1, sizeof(*lstp));
-  lstp->base.type = PLN_T_LOAD;
-  lstp->base.dtor = loadDtor;
-  lstp->args = loadfields;
-  lstp->keys = rm_calloc(loadfields.argc, sizeof(*lstp->keys));
 
-  AGPLN_AddStep(&ap, &lstp->base);
+  PLN_LoadStep *lstp = new PLN_LoadStep(loadfields);
+  ap.AddStep(lstp);
   return REDISMODULE_OK;
 }
 
@@ -693,8 +674,7 @@ int AREQ::Compile(RedisModuleString **argv, int argc, QueryError *status) {
   }
 
   query = AC_GetStringNC(&ac, NULL);
-  AGPLN_Init(&ap);
-
+  
   if (parseQueryArgs(&ac, &searchopts, &ap, status) != REDISMODULE_OK) {
     goto error;
   }
@@ -838,45 +818,44 @@ int AREQ::ApplyContext(QueryError *status) {
 
 //---------------------------------------------------------------------------------------------
 
-static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup, QueryError *err) {
-  const RLookupKey *srckeys[gstp->nproperties], *dstkeys[gstp->nproperties];
-  for (size_t ii = 0; ii < gstp->nproperties; ++ii) {
-    const char *fldname = gstp->properties[ii] + 1;  // account for the @-
+ResultProcessor *PLN_GroupStep::buildRP(RLookup *srclookup, QueryError *err) {
+  const RLookupKey *srckeys[nproperties], *dstkeys[nproperties];
+  for (size_t ii = 0; ii < nproperties; ++ii) {
+    const char *fldname = properties[ii] + 1;  // account for the @-
     srckeys[ii] = RLookup_GetKey(srclookup, fldname, RLOOKUP_F_NOINCREF);
     if (!srckeys[ii]) {
       err->SetErrorFmt(QUERY_ENOPROPKEY, "No such property `%s`", fldname);
       return NULL;
     }
-    dstkeys[ii] = RLookup_GetKey(&gstp->lookup, fldname, RLOOKUP_F_OCREAT | RLOOKUP_F_NOINCREF);
+    dstkeys[ii] = RLookup_GetKey(&lookup, fldname, RLOOKUP_F_OCREAT | RLOOKUP_F_NOINCREF);
   }
 
-  Grouper *grp = Grouper_New(srckeys, dstkeys, gstp->nproperties);
+  Grouper *grp = new Grouper(srckeys, dstkeys, nproperties);
 
-  size_t nreducers = array_len(gstp->reducers);
+  size_t nreducers = array_len(reducers);
   for (size_t ii = 0; ii < nreducers; ++ii) {
     // Build the actual reducer
-    PLN_Reducer *pr = gstp->reducers + ii;
+    PLN_Reducer *pr = reducers + ii;
     ReducerOptions options = REDUCEROPTS_INIT(pr->name, &pr->args, srclookup, err);
     ReducerFactory ff = RDCR_GetFactory(pr->name);
     if (!ff) {
       // No such reducer!
-      Grouper_Free(grp);
+      delete grp;
       err->SetErrorFmt(QUERY_ENOREDUCER, "No such reducer: %s", pr->name);
       return NULL;
     }
     Reducer *rr = ff(&options);
     if (!rr) {
-      Grouper_Free(grp);
+      delete grp;
       return NULL;
     }
 
     // Set the destination key for the grouper!
-    RLookupKey *dstkey =
-        RLookup_GetKey(&gstp->lookup, pr->alias, RLOOKUP_F_OCREAT | RLOOKUP_F_NOINCREF);
-    Grouper_AddReducer(grp, rr, dstkey);
+    RLookupKey *dstkey = RLookup_GetKey(&lookup, pr->alias, RLOOKUP_F_OCREAT | RLOOKUP_F_NOINCREF);
+    grp->AddReducer(rr, dstkey);
   }
 
-  return Grouper_GetRP(grp);
+  return grp;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -898,15 +877,15 @@ ResultProcessor *AREQ::pushRP(ResultProcessor *rp, ResultProcessor *rpUpstream) 
 ResultProcessor *AREQ::getGroupRP(PLN_GroupStep *gstp, ResultProcessor *rpUpstream,
                                   QueryError *status) {
   AGGPlan *pln = &ap;
-  RLookup *lookup = AGPLN_GetLookup(pln, &gstp->base, AGPLN_GETLOOKUP_PREV);
-  ResultProcessor *groupRP = buildGroupRP(gstp, lookup, status);
+  RLookup *lookup = pln->GetLookup(gstp, AGPLN_GETLOOKUP_PREV);
+  ResultProcessor *groupRP = gstp->buildRP(lookup, status);
 
   if (!groupRP) {
     return NULL;
   }
 
   // See if we need a LOADER group here...?
-  RLookup *firstLk = AGPLN_GetLookup(pln, &gstp->base, AGPLN_GETLOOKUP_FIRST);
+  RLookup *firstLk = pln->GetLookup(gstp, AGPLN_GETLOOKUP_FIRST);
 
   if (firstLk == lookup) {
     // See if we need a loader step?
@@ -934,36 +913,31 @@ ResultProcessor *AREQ::getGroupRP(PLN_GroupStep *gstp, ResultProcessor *rpUpstre
 ResultProcessor *AREQ::getArrangeRP(AGGPlan *pln, const PLN_BaseStep *stp, ResultProcessor *up,
                                     QueryError *status) {
   ResultProcessor *rp = NULL;
-  PLN_ArrangeStep astp_s = {.base = {.type = PLN_T_ARRANGE}};
-  PLN_ArrangeStep *astp = (PLN_ArrangeStep *)stp;
+  PLN_ArrangeStep astp;
 
-  if (!astp) {
-    astp = &astp_s;
-  }
-
-  size_t limit = astp->offset + astp->limit;
+  size_t limit = astp.offset + astp.limit;
   if (!limit) {
     limit = DEFAULT_LIMIT;
   }
 
-  if (astp->sortKeys) {
-    size_t nkeys = array_len(astp->sortKeys);
-    astp->sortkeysLK = rm_malloc(sizeof(*astp->sortKeys) * nkeys);
+  if (astp.sortKeys) {
+    size_t nkeys = array_len(astp.sortKeys);
+    astp.sortkeysLK = rm_malloc(sizeof(*astp.sortKeys) * nkeys);
 
-    const RLookupKey **sortkeys = astp->sortkeysLK;
+    const RLookupKey **sortkeys = astp.sortkeysLK;
 
-    RLookup *lk = AGPLN_GetLookup(pln, stp, AGPLN_GETLOOKUP_PREV);
+    RLookup *lk = pln->GetLookup(stp, AGPLN_GETLOOKUP_PREV);
 
     for (size_t ii = 0; ii < nkeys; ++ii) {
-      sortkeys[ii] = RLookup_GetKey(lk, astp->sortKeys[ii], RLOOKUP_F_NOINCREF);
+      sortkeys[ii] = RLookup_GetKey(lk, astp.sortKeys[ii], RLOOKUP_F_NOINCREF);
       if (!sortkeys[ii]) {
         status->SetErrorFmt(QUERY_ENOPROPKEY, "Property `%s` not loaded nor in schema",
-                               astp->sortKeys[ii]);
+                            astp.sortKeys[ii]);
         return NULL;
       }
     }
 
-    rp = RPSorter_NewByFields(limit, sortkeys, nkeys, astp->sortAscMap);
+    rp = RPSorter_NewByFields(limit, sortkeys, nkeys, astp.sortAscMap);
     up = pushRP(rp, up);
   }
 
@@ -973,8 +947,8 @@ ResultProcessor *AREQ::getArrangeRP(AGGPlan *pln, const PLN_BaseStep *stp, Resul
     up = pushRP(rp, up);
   }
 
-  if (astp->offset || (astp->limit && !rp)) {
-    rp = RPPager_New(astp->offset, astp->limit);
+  if (astp.offset || (astp.limit && !rp)) {
+    rp = RPPager_New(astp.offset, astp.limit);
     up = pushRP(rp, up);
   }
 
@@ -1003,26 +977,28 @@ ResultProcessor *AREQ::getScorerRP() {
 
 //---------------------------------------------------------------------------------------------
 
-static int hasQuerySortby(const AGGPlan *pln) {
-  const PLN_BaseStep *bstp = AGPLN_FindStep(pln, NULL, NULL, PLN_T_GROUP);
+bool AGGPlan::hasQuerySortby() const {
+  const PLN_BaseStep *bstp = FindStep(NULL, NULL, PLN_T_GROUP);
   if (bstp != NULL) {
-    const PLN_ArrangeStep *arng = (PLN_ArrangeStep *)AGPLN_FindStep(pln, NULL, bstp, PLN_T_ARRANGE);
+    const PLN_ArrangeStep *arng = FindStep(NULL, bstp, PLN_T_ARRANGE);
     if (arng && arng->sortKeys) {
-      return 1;
+      return true;
     }
   } else {
     // no group... just see if we have an arrange step
-    const PLN_ArrangeStep *arng = (PLN_ArrangeStep *)AGPLN_FindStep(pln, NULL, NULL, PLN_T_ARRANGE);
+    const PLN_ArrangeStep *arng = FindStep(NULL, NULL, PLN_T_ARRANGE);
     return arng && arng->sortKeys;
   }
-  return 0;
+  return false;
 }
 
 //---------------------------------------------------------------------------------------------
 
-#define PUSH_RP()                      \
-  rpUpstream = pushRP(rp, rpUpstream); \
-  rp = NULL;
+#define PUSH_RP() \
+  do { \
+    rpUpstream = pushRP(rp, rpUpstream); \
+    rp = NULL; \
+  } while(0)
 
 //---------------------------------------------------------------------------------------------
 
@@ -1036,7 +1012,7 @@ void AREQ::buildImplicitPipeline(QueryError *status) {
 
   IndexSpecCache *cache = IndexSpec_GetSpecCache(sctx->spec);
   RS_LOG_ASSERT(cache, "IndexSpec_GetSpecCache failed")
-  RLookup *first = AGPLN_GetLookup(&ap, NULL, AGPLN_GETLOOKUP_FIRST);
+  RLookup *first = ap.GetLookup(NULL, AGPLN_GETLOOKUP_FIRST);
 
   RLookup_Init(first, cache);
 
@@ -1046,7 +1022,7 @@ void AREQ::buildImplicitPipeline(QueryError *status) {
   PUSH_RP();
 
   // Create a scorer if there is no subsequent sorter within this grouping
-  if (!hasQuerySortby(&ap) && (reqflags & QEXEC_F_IS_SEARCH)) {
+  if (!ap.hasQuerySortby() && (reqflags & QEXEC_F_IS_SEARCH)) {
     rp = getScorerRP();
     PUSH_RP();
   }
@@ -1058,10 +1034,10 @@ void AREQ::buildImplicitPipeline(QueryError *status) {
 // which is about to be returned. It is only used in FT.SEARCH mode
 
 int AREQ::buildOutputPipeline(QueryError *status) {
-  AGGPlan *pln = &ap;
+  AGGPlan &pln = ap;
   ResultProcessor *rp = NULL, *rpUpstream = qiter->endProc;
 
-  RLookup *lookup = AGPLN_GetLookup(pln, NULL, AGPLN_GETLOOKUP_LAST);
+  RLookup *lookup = pln.GetLookup(NULL, AGPLN_GETLOOKUP_LAST);
   // Add a LOAD step...
   const RLookupKey **loadkeys = NULL;
   if (outFields.explicitReturn) {
@@ -1086,7 +1062,7 @@ int AREQ::buildOutputPipeline(QueryError *status) {
   PUSH_RP();
 
   if (reqflags & QEXEC_F_SEND_HIGHLIGHT) {
-    RLookup *lookup = AGPLN_GetLookup(pln, NULL, AGPLN_GETLOOKUP_LAST);
+    RLookup *lookup = pln.GetLookup(NULL, AGPLN_GETLOOKUP_LAST);
     for (size_t ii = 0; ii < outFields.numFields; ++ii) {
       ReturnedField *ff = &outFields.fields[ii];
       RLookupKey *kk = RLookup_GetKey(lookup, ff->name, 0);
@@ -1151,7 +1127,7 @@ int AREQ::BuildPipeline(BuildPipelineOptions options, QueryError *status) {
       case PLN_T_FILTER: {
         PLN_MapFilterStep *mstp = (PLN_MapFilterStep *)stp;
         // Ensure the lookups can actually find what they need
-        RLookup *curLookup = AGPLN_GetLookup(pln, stp, AGPLN_GETLOOKUP_PREV);
+        RLookup *curLookup = pln->GetLookup(stp, AGPLN_GETLOOKUP_PREV);
         mstp->parsedExpr = ExprAST_Parse(mstp->rawExpr, strlen(mstp->rawExpr), status);
         if (!mstp->parsedExpr) {
           goto error;
@@ -1174,8 +1150,8 @@ int AREQ::BuildPipeline(BuildPipelineOptions options, QueryError *status) {
 
       case PLN_T_LOAD: {
         PLN_LoadStep *lstp = (PLN_LoadStep *)stp;
-        RLookup *curLookup = AGPLN_GetLookup(pln, stp, AGPLN_GETLOOKUP_PREV);
-        RLookup *rootLookup = AGPLN_GetLookup(pln, NULL, AGPLN_GETLOOKUP_FIRST);
+        RLookup *curLookup = pln->GetLookup(stp, AGPLN_GETLOOKUP_PREV);
+        RLookup *rootLookup = pln->GetLookup(NULL, AGPLN_GETLOOKUP_FIRST);
         if (curLookup != rootLookup) {
           status->SetError(QUERY_EINVAL,
                               "LOAD cannot be applied after projectors or reducers");
@@ -1254,13 +1230,6 @@ AREQ::~AREQ() {
     rootiter = NULL;
   }
 
-  // Go through each of the steps and free it..
-  AGPLN_FreeSteps(&ap);
-
-  if (searchopts.stopwords) {
-    StopWordList_Unref((StopWordList *)searchopts.stopwords);
-  }
-
   // Finally, free the context. 
   // If we are a cursor, some more cleanup is required since we also now own the
   // detached ("Thread Safe") context.
@@ -1270,22 +1239,11 @@ AREQ::~AREQ() {
       thctx = sctx->redisCtx;
       sctx->redisCtx = NULL;
     }
-    SearchCtx_Decref(sctx);
   }
 
   for (size_t ii = 0; ii < nargs; ++ii) {
     sdsfree(args[ii]);
   }
-  if (searchopts.legacy.filters) {
-    for (size_t ii = 0; ii < array_len(searchopts.legacy.filters); ++ii) {
-      NumericFilter *nf = searchopts.legacy.filters[ii];
-      if (nf) {
-        delete searchopts.legacy.filters[ii];
-      }
-    }
-    array_free(searchopts.legacy.filters);
-  }
-  rm_free(searchopts.inids);
 
   if (thctx) {
     RedisModule_FreeThreadSafeContext(thctx);

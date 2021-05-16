@@ -1,17 +1,14 @@
-#ifndef RS_REDUCER_H_
-#define RS_REDUCER_H_
+#pragma once
 
-#include <redisearch.h>
-#include <result_processor.h>
-#include <dep/triemap/triemap.h>
-#include <util/block_alloc.h>
+#include "redisearch.h"
+#include "result_processor.h"
+#include "dep/triemap/triemap.h"
+#include "util/block_alloc.h"
 #include "query_error.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+///////////////////////////////////////////////////////////////////////////////////////////////
 
-typedef enum {
+enum ReducerType {
   REDUCER_T_COUNT = 0,
   REDUCER_T_SUM,
   REDUCER_T_MIN,
@@ -25,65 +22,60 @@ typedef enum {
   REDUCER_T_HLLSUM,
   REDUCER_T_SAMPLE,
 
-  /** Not a reducer, but a marker of the end of the list */
+  // Not a reducer, but a marker of the end of the list
   REDUCER_T__END
-} ReducerType;
+};
 
-/* Maximum possible value to random sample group size */
+//---------------------------------------------------------------------------------------------
+
+// Maximum possible value to random sample group size
 #define MAX_SAMPLE_SIZE 1000
 
-typedef struct Reducer {
-  /**
-   * Most reducers only operate on a single source key. This can be used to
-   * store the key. This value is not read by the grouper system.
-   */
+//---------------------------------------------------------------------------------------------
+
+struct Reducer {
+  // Most reducers only operate on a single source key. This can be used to
+  // store the key. This value is not read by the grouper system.
   const RLookupKey *srckey;
 
   RLookupKey *dstkey;  // Destination key where the reducer output is placed
 
-  /**
-   * Common allocator for all groups. Used to reduce fragmentation when allocating
-   * like-sized objects for different groups.
-   */
+
+  // Common allocator for all groups. Used to reduce fragmentation when allocating
+  // like-sized objects for different groups.
   BlkAlloc alloc;
 
-  /** Numeric ID identifying this reducer */
+  // Numeric ID identifying this reducer
   uint32_t reducerId;
 
-  /**
-   * Creates a new per-group instance of this reducer. This is used to create
-   * actual data. The reducer structure itself, on the other hand, may be
-   * used to retain settings common to all group.s
-   */
+  // Creates a new per-group instance of this reducer. This is used to create
+  // actual data. The reducer structure itself, on the other hand, may be
+  // used to retain settings common to all group.s
+
   void *(*NewInstance)(struct Reducer *r);
 
-  /**
-   * Passes a result through the reducer. The reducer can then store the
-   * results internally until it can be outputted in `dstrow`.
-   *
-   * The function should return 1 if added successfully, or nonzero if an error
-   * occurred
-   */
+  // Passes a result through the reducer. The reducer can then store the
+  // results internally until it can be outputted in `dstrow`.
+  //
+  // The function should return 1 if added successfully, or nonzero if an error
+  // occurred
   int (*Add)(struct Reducer *parent, void *instance, const RLookupRow *srcrow);
 
-  /**
-   * Called when Add() has been invoked for the last time. This is used to
-   * populate the result of the reduce function.
-   */
+  // Called when Add() has been invoked for the last time. This is used to
+  // populate the result of the reduce function.
   RSValue *(*Finalize)(struct Reducer *parent, void *instance);
 
-  /** Frees the object created by NewInstance() */
+  // Frees the object created by NewInstance()
   void (*FreeInstance)(struct Reducer *parent, void *instance);
 
-  /**
-   * Frees the global reducer struct (this object)
-   */
+  // Frees the global reducer struct (this object)
   void (*Free)(struct Reducer *r);
+};
 
-} Reducer;
+//---------------------------------------------------------------------------------------------
 
 static inline void Reducer_GenericFree(Reducer *r) {
-  BlkAlloc_FreeAll(&r->alloc, NULL, 0, 0);
+  r->alloc.FreeAll(NULL, 0, 0);
   rm_free(r);
 }
 
@@ -102,23 +94,23 @@ static inline char *FormatAggAlias(const char *alias, const char *fname, const c
   return s;
 }
 
-typedef struct {
+//---------------------------------------------------------------------------------------------
+
+struct ReducerOptions {
   const char *name;    // Name the reducer was called as
   ArgsCursor *args;    // Raw reducer arguments
   RLookup *srclookup;  // Lookup to used for locating fields
 
-  /**
-   * OUT parameter. If the return value is NULL, AND this value on input is
-   * NOT NULL, then the error information will be set here.
-   */
-  QueryError *status;
-} ReducerOptions;
+  // OUT parameter. If the return value is NULL, AND this value on input is
+  // NOT NULL, then the error information will be set here.
 
-/**
- * Macro to ensure that we don't skip important initialization steps
- */
-#define REDUCEROPTS_INIT(name_, args_, lk_, statusp_) \
-  { name_, args_, lk_, statusp_ }
+  QueryError *status;
+};
+
+//---------------------------------------------------------------------------------------------
+
+// Macro to ensure that we don't skip important initialization steps
+#define REDUCEROPTS_INIT(name_, args_, lk_, statusp_) { name_, args_, lk_, statusp_ }
 
 /**
  * Utility function to read the next argument as a lookup key.
@@ -132,10 +124,9 @@ typedef struct {
 int ReducerOpts_GetKey(const ReducerOptions *options, const RLookupKey **kout);
 #define ReducerOptions_GetKey ReducerOpts_GetKey
 
-/**
- * This helper function ensures that all of a reducer's arguments are consumed.
- * Otherwise, an error is raised to the user.
- */
+// This helper function ensures that all of a reducer's arguments are consumed.
+// Otherwise, an error is raised to the user.
+
 int ReducerOpts_EnsureArgsConsumed(const ReducerOptions *options);
 
 void *Reducer_BlkAlloc(Reducer *r, size_t elemsz, size_t absBlkSize);
@@ -160,7 +151,4 @@ ReducerFactory RDCR_GetFactory(const char *name);
 void RDCR_RegisterFactory(const char *name, ReducerFactory factory);
 void RDCR_RegisterBuiltins(void);
 
-#ifdef __cplusplus
-}
-#endif
-#endif
+///////////////////////////////////////////////////////////////////////////////////////////////

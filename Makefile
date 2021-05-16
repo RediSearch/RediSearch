@@ -10,6 +10,7 @@ make build         # compile and link
   DEBUG=1          # build for debugging
   TEST=1           # enable unit tests
   WHY=1            # explain CMake decisions (in /tmp/cmake-why)
+  SLOW=1           # avoid parallel build
   CMAKE_ARGS       # extra arguments to CMake
 make parsers       # build parsers code
 make clean         # remove build artifacts

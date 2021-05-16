@@ -99,20 +99,13 @@ AGGPlan::AGGPlan() {
 
   dllist_init(&steps);
   dllist_append(&steps, &firstStep_s.llnodePln);
-  firstStep_s.type = PLN_T_ROOT;
-  firstStep_s.dtor = rootStepDtor;
-  firstStep_s.getLookup = rootStepLookup;
 }
 
 //---------------------------------------------------------------------------------------------
 
 static RLookup *lookupFromNode(const DLLIST_node *nn) {
   PLN_BaseStep *stp = DLLIST_ITEM(nn, PLN_BaseStep, llnodePln);
-  if (stp->getLookup) {
-    return stp->getLookup(stp);
-  } else {
-    return NULL;
-  }
+  return stp->getLookup();
 }
 
 //---------------------------------------------------------------------------------------------
@@ -142,7 +135,7 @@ const PLN_BaseStep *AGGPlan::FindStep(const PLN_BaseStep *begin, const PLN_BaseS
     if (bstp->type == type) {
       return bstp;
     }
-    if (type == PLANTYPE_ANY_REDUCER && PLN_IsReduce(bstp)) {
+    if (type == PLANTYPE_ANY_REDUCER && bstp->IsReduce()) {
       return bstp;
     }
   }
@@ -151,13 +144,11 @@ const PLN_BaseStep *AGGPlan::FindStep(const PLN_BaseStep *begin, const PLN_BaseS
 
 //---------------------------------------------------------------------------------------------
 
-static void arrangeDtor(PLN_BaseStep *bstp) {
-  PLN_ArrangeStep *astp = (PLN_ArrangeStep *)bstp;
-  if (astp->sortKeys) {
-    array_free(astp->sortKeys);
+PLN_ArrangeStep::~PLN_ArrangeStep() {
+  if (sortKeys) {
+    array_free(sortKeys);
   }
-  rm_free(astp->sortkeysLK);
-  rm_free(bstp);
+  rm_free(sortkeysLK);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -168,9 +159,10 @@ PLN_ArrangeStep *AGGPlan::GetArrangeStep() {
   // Go backwards.. and stop at the cutoff
   for (const DLLIST_node *nn = steps.prev; nn != &steps; nn = nn->prev) {
     const PLN_BaseStep *stp = DLLIST_ITEM(nn, PLN_BaseStep, llnodePln);
-    if (PLN_IsReduce(stp)) {
+    if (stp->IsReduce()) {
       break;
-    } else if (stp->type == PLN_T_ARRANGE) {
+    }
+    if (stp->type == PLN_T_ARRANGE) {
       return (PLN_ArrangeStep *)stp;
     }
   }
@@ -183,15 +175,13 @@ PLN_ArrangeStep *AGGPlan::GetArrangeStep() {
 // This function should be used to limit/page through the current step.
 
 PLN_ArrangeStep *AGGPlan::GetOrCreateArrangeStep() {
-  PLN_ArrangeStep *ret = GetArrangeStep();
-  if (ret) {
-    return ret;
+  PLN_ArrangeStep *step = GetArrangeStep();
+  if (step) {
+    return step;
   }
-  ret = new PLN_ArrangeStep();
-  ret->base.type = PLN_T_ARRANGE;
-  ret->base.dtor = arrangeDtor;
-  AddStep(&ret->base);
-  return ret;
+  step = new PLN_ArrangeStep();
+  AddStep(step);
+  return step;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -250,14 +240,12 @@ RLookup *AGGPlan::GetLookup(const PLN_BaseStep *bstp, AGPLNGetLookupMode mode) c
 
 //---------------------------------------------------------------------------------------------
 
-void AGGPlan::FreeSteps() {
+AGGPlan::~AGGPlan() {
   DLLIST_node *nn = steps.next;
   while (nn && nn != &steps) {
     PLN_BaseStep *bstp = DLLIST_ITEM(nn, PLN_BaseStep, llnodePln);
     nn = nn->next;
-    if (bstp->dtor) {
-      bstp->dtor(bstp);
-    }
+    delete bstp;
   }
 }
 

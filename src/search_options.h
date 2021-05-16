@@ -150,6 +150,19 @@ struct RSSearchOptions {
     ninkeys = 0;
     inkeys = NULL;
   }
+
+  ~RSSearchOptions() {
+    if (legacy.filters) {
+      for (size_t ii = 0; ii < array_len(legacy.filters); ++ii) {
+        NumericFilter *nf = legacy.filters[ii];
+        if (nf) {
+          delete legacy.filters[ii];
+        }
+      }
+      array_free(legacy.filters);
+    }
+    rm_free(inids);
+  }
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

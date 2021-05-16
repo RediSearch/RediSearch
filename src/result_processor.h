@@ -153,24 +153,21 @@ struct ResultProcessor : public Object {
   // For debugging purposes
   const char *name;
 
-  /**
-   * Populates the result pointed to by `res`. The existing data of `res` is
-   * not read, so it is the responsibility of the caller to ensure that there
-   * are no refcount leaks in the structure.
-   *
-   * Users can use SearchResult_Clear() to reset the structure without freeing it.
-   *
-   * The populated structure (if RS_RESULT_OK is returned) does contain references
-   * to document data. Callers *MUST* ensure they are eventually freed.
-   */
+  // Populates the result pointed to by `res`. The existing data of `res` is not read, 
+  // so it is the responsibility of the caller to ensure that there
+  // are no refcount leaks in the structure.
+  //
+  // Users can use SearchResult::Clear() to reset the structure without freeing it.
+  //
+  // The populated structure (if RS_RESULT_OK is returned) does contain references
+  // to document data. Callers *MUST* ensure they are eventually freed.
+
   virtual int Next(SearchResult *res);
 
   ResultProcessor(const char *name) : name(name) {}
-
-  // Frees the processor and any internal data related to it
   virtual ~ResultProcessor() {}
 
-  void ResultProcessor::DumpChain() const;
+  void DumpChain() const;
 };
 
 //---------------------------------------------------------------------------------------------
@@ -203,6 +200,8 @@ ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys
                                       uint64_t ascendingMap);
 
 ResultProcessor *RPSorter_NewByScore(size_t maxresults);
+
+//---------------------------------------------------------------------------------------------
 
 ResultProcessor *RPPager_New(size_t offset, size_t limit);
 
