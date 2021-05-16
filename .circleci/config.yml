@@ -12,14 +12,14 @@ commands:
       - run:
           name: Early return if this is a docs build
           command: |
-            if [[ $CIRCLE_BRANCH == *docs ]]; then
+            if [[ $CIRCLE_BRANCH == *_docs ]]; then
               echo "Identifies as documents PR, no testing required."
               circleci step halt
             fi
       - run:
           name: Early return if this branch should ignore CI
           command: |
-            if [[ $CIRCLE_BRANCH == *noci ]]; then
+            if [[ $CIRCLE_BRANCH == *_noci ]]; then
               echo "Identifies as actively ignoring CI, no testing required."
               circleci step halt
             fi
