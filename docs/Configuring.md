@@ -36,6 +36,9 @@ The maximum amount of time **in milliseconds** that a search query is allowed to
 
 !!! note
     This works only in concurrent mode, so enabling `SAFEMODE` disables this option.
+    Timeout refers to query time only. 
+    Parsing the query is not counted towards `timeout`. 
+    If timeout was not reached during the search, finalizing operation such as loading documents' content or reducers, continue. 
 
 ### Default
 
