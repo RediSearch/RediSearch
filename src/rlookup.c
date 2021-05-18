@@ -393,7 +393,7 @@ static int getKeyCommonJSON(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
     const FieldSpec *fs = IndexSpec_GetField(options->sctx->spec, kk->name, kk->name_len);
     path = fs ? fs->path : kk->name;
   }
-  rc = japi->getRedisModuleStringFromKey(*keyobj, path, &val);
+  rc = japi->getRedisModuleStringFromKey(*keyobj, path, &val, 0);
 
   if (rc == REDISMODULE_OK && val != NULL) {
     rsv = hvalToValue(val, kk->fieldtype);
@@ -604,7 +604,7 @@ static int RLookup_JSON_GetAll(RLookup *it, RLookupRow *dst, RLookupLoadOptions 
     goto done;
   }
 
-  if (japi->getRedisModuleStringFromKey(jsonKey, JSON_ROOT, &value) != REDISMODULE_OK) {
+  if (japi->getRedisModuleStringFromKey(jsonKey, JSON_ROOT, &value, 0) != REDISMODULE_OK) {
     goto done;
   }
 

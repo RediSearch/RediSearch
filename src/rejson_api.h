@@ -55,14 +55,18 @@ typedef struct RedisJSONAPI_V1 {
     int (*getBooleanFromKey)(RedisJSONKey key, const char *path, int *boolean);
 
     // Callee has ownership of `str` - valid until api `close` is called
-    // Return the String or the String representation for Numeric or Bool
-    // FIXME: Handle null field
-    int (*getString)(RedisJSON json, const char **str, size_t *len);
-    int (*getStringFromKey)(RedisJSONKey key, const char *path, const char **str, size_t *len);
+    // Return the String for String
+    // Return the String representation for Numeric
+    // Return true or false for Bool
+    // Return the String representation for Array and Object if strict=0
+    // Return REDISMODULE_ERR for Array and Object if strict=1
+    // Return empty string for null
+    int (*getString)(RedisJSON json, const char **str, size_t *len, int isStrict);
+    int (*getStringFromKey)(RedisJSONKey key, const char *path, const char **str, size_t *len, int isStrict);
 
     // Caller gains ownership of `str`
-    int (*getRedisModuleString)(RedisJSON json, RedisModuleString **str);
-    int (*getRedisModuleStringFromKey)(RedisJSONKey key, const char *path, RedisModuleString **str);
+    int (*getRedisModuleString)(RedisJSON json, RedisModuleString **str, int isStrict);
+    int (*getRedisModuleStringFromKey)(RedisJSONKey key, const char *path, RedisModuleString **str, int isStrict);
 } RedisJSONAPI_V1;
 
 #ifdef __cplusplus
