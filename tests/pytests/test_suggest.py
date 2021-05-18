@@ -120,3 +120,5 @@ def testIssue_490(env):
     env.expect('ft.sugget', 'sug', 'Redis', 'WITHPAYLOADS').equal(['RediSearch', 'RediSearch, an awesome search engine'])
     env.expect('ft.sugadd', 'sug', 'RediSearch', '1', 'INCR').equal(1)
     env.expect('ft.sugget', 'sug', 'Redis', 'WITHPAYLOADS').equal(['RediSearch', 'RediSearch, an awesome search engine'])
+    env.expect('ft.sugadd', 'sug', 'RediSearch', '1', 'INCR', 'PAYLOAD', 'RediSearch 2.0, next gen search engine').equal(1)
+    env.expect('ft.sugget', 'sug', 'Redis', 'WITHPAYLOADS').equal(['RediSearch', 'RediSearch 2.0, next gen search engine'])
