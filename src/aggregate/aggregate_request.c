@@ -167,6 +167,9 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
       QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "TIMEOUT requires a positive integer");	
       return ARG_ERROR;	
     }
+    if (req->reqTimeout == 0) {
+      req->reqTimeout = INT32_MAX;
+    }
   } else if (AC_AdvanceIfMatch(ac, "WITHCURSOR")) {
     if (parseCursorSettings(req, ac, status) != REDISMODULE_OK) {
       return ARG_ERROR;

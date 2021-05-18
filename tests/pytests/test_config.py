@@ -172,6 +172,7 @@ def testInitConfig(env):
     test_arg_str('GC_POLICY', 'default', 'fork')
     test_arg_str('GC_POLICY', 'legacy', 'sync')
     test_arg_str('ON_TIMEOUT', 'fail')
+    test_arg_str('TIMEOUT', '0', '2147483647')
     test_arg_str('PARTIAL_INDEXED_DOCS', '0', 'false')
     test_arg_str('PARTIAL_INDEXED_DOCS', '1', 'true')
     test_arg_str('MAXSEARCHRESULTS', '100', '100')
