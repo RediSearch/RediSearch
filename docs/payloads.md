@@ -1,5 +1,8 @@
 # Document Payloads
 
+!!! note
+    The payload feature is deprecated in 2.0
+    
 Usually, RediSearch stores documents as hash keys. But if you want to access some data for aggregation or scoring functions, we might want to store that data as an inline payload. This will allow us to evaluate properties of a document for scoring purposes at very low cost.
 
 Since the scoring functions already have access to the DocumentMetaData, which contains document flags and score, We can add custom payloads that can be evaluated in run-time.
