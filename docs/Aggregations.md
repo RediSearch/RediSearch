@@ -416,7 +416,22 @@ Note that these operators apply only to numeric values and numeric sub expressio
 FT.AGGREGATE myIdx "*"  LOAD 1 location  APPLY "geodistance(@location,\"-1.1,2.2\")" AS dist
 ```
 
-* Note: Geo field must be preloaded using `LOAD`.
+To print out the distance:
+
+```
+FT.AGGREGATE myIdx "*"  LOAD 1 location  APPLY "geodistance(@location,\"-1.1,2.2\")" AS dist
+```
+
+**Note:** Geo field must be preloaded using `LOAD`.
+
+Results can also be sorted by distance:
+
+```
+FT.AGGREGATE idx "*" LOAD 1 @location FILTER "exists(@location)" APPLY "geodistance(@location,-117.824722,33.68590)" AS dist SORTBY 2 @dist DESC
+```
+
+**Note:** Make sure no location is missing, otherwise the SORTBY will not return any result.
+Use FILTER to make sure you do the sorting on all valid locations.
 
 ## FILTER expressions
 

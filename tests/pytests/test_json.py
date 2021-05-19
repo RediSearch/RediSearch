@@ -225,8 +225,10 @@ def testArrpop(env):
     env.execute_command('FT.CREATE', 'idx1', 'ON', 'JSON', 'SCHEMA', '$.t', 'AS', 'labelT', 'TEXT')
     waitForIndex(env, 'idx1')
     env.expect('JSON.SET', 'doc:1', '$', '{"t":["foo", "bar", "back"]}').ok()
-    # FIXME: Why search for 'ba*' returns zero results?
-    # env.expect('FT.SEARCH', 'idx1', 'ba*').equal([1L, 'doc:1', ['labelT', '"bar"']])
+
+    # FIXME: Enable the following line: Should we search in array content? Need TAG for that?
+    #env.expect('FT.SEARCH', 'idx1', 'ba*', 'RETURN', '1', 'labelT').equal([1L, 'doc:1', ['labelT', '"bar"']])
+
     # FIXME: Why aggregate 'ba*' returns zero results?
     # env.expect('FT.AGGREGATE', 'idx1', 'ba*', 'LOAD', '3', '@$.t', 'AS', 't').equal([1L, ['t', '["foo","bar","back"]']])
 
@@ -404,6 +406,7 @@ def testAsProjectionRedefinedLabel(env):
     # FIXME: Should we fail SEARCH/AGGREGATE command with RETURN/LOAD alias duplication
     # (as with FT.CREATE)
     # BTW, iN SQLite, it is allowed, e.g., SELECT F1 AS Label1, F2 AS Label1 FROM doc;
+    # (different values for fields F1 and F2 were retrieved with the same label Label1)
 
     # FIXME: Handle Numeric - In the following line, change '$.n' to: 'AS', 'labelN', 'NUMERIC'
     env.execute_command('FT.CREATE', 'idx2', 'ON', 'JSON', 'SCHEMA', '$.t', 'AS', 'labelT', 'TEXT', '$.n', 'AS',

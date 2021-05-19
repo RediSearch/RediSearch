@@ -25,7 +25,8 @@ int JSON_GetStringR_POC(RedisModuleCtx *ctx, const char *keyName, const char *pa
  * String must be freed */
 static inline int RedisJSON_GetString(RedisJSONKey key, const char *path, const char **str, size_t *len) {
   const char *tmpStr;
-  int rv = japi->getStringFromKey(key, path, &tmpStr, len);
+  assert(japi);
+  int rv = japi ? japi->getStringFromKey(key, path, &tmpStr, len) : REDISMODULE_ERR;
   if (rv == REDISMODULE_OK) {
     *str = rm_strndup(tmpStr, *len);
   }
