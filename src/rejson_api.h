@@ -63,6 +63,10 @@ typedef struct RedisJSONAPI_V1 {
     // Caller gains ownership of `str`
     int (*getRedisModuleString)(RedisJSON json, RedisModuleString **str);
     int (*getRedisModuleStringFromKey)(RedisJSONKey key, const char *path, RedisModuleString **str);
+
+    // Return 1 if type of key is JSON
+    int (*isJSON)(RedisModuleKey *redis_key);
+
 } RedisJSONAPI_V1;
 
 #ifdef __cplusplus
