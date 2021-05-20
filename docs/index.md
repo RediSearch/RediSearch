@@ -4,7 +4,7 @@
 [![Forum](https://img.shields.io/badge/Forum-RediSearch-blue)](https://forum.redislabs.com/c/modules/redisearch/)
 [![Discord](https://img.shields.io/discord/697882427875393627?style=flat-square)](https://discord.gg/xTbqgTB)
 
-RediSearch is a source available Secondary Index, Query Engine and Full-Text Search over Redis, developed by [Redis Labs](http://redislabs.com). 
+RediSearch is a source available Secondary Index, Query Engine and Full-Text Search over Redis, developed by [Redis Labs](http://redislabs.com).
 
 !!! note "Quick Links:"
     * [Source Code at GitHub](https://github.com/RediSearch/RediSearch).
@@ -16,31 +16,31 @@ RediSearch is a source available Secondary Index, Query Engine and Full-Text Sea
 !!! tip "Supported Platforms"
     RediSearch is developed and tested on Linux and Mac OS, on x86_64 CPUs.
 
-    i386 CPUs should work fine for small data-sets, but are not tested and not recommended. Atom CPUs are not supported currently. 
+    i386 CPUs should work fine for small data-sets, but are not tested and not recommended. Atom CPUs are not supported currently.
 
 ## Overview
 
-Redisearch implements a secondary index on top of Redis, but unlike other Redis 
-indexing libraries, it does not use internal data structures like sorted sets.
+Redisearch implements a secondary index on top of Redis, but unlike other Redis
+indexing libraries, it does not use internal data structures such as sorted sets.
 
-This also enables more advanced features, like multi field queries, aggregation and full text search capabilites like
-exact phrase matching and numeric filtering for text queries, that are not possible or efficient with traditional Redis indexing approaches.
+This also enables more advanced features, such as multi-field queries, aggregation, and full text search capabilites.
+These capabilities include exact phrase matching and numeric filtering for text queries, something that is neither possible or efficient with traditional Redis indexing approaches.
 
 ## Client Libraries
 
-Official and community client libraries in Python, Java, JavaScript, Ruby, Go, C#, and PHP. 
+Official and community client libraries in Python, Java, JavaScript, Ruby, Go, C#, and PHP.
 
 See the [Clients page](Clients.md) for the full list.
 
 ## Cluster Support
 
-RediSearch has a distributed cluster version that can scale to billions of documents and hundreds of servers. We also offer official commercial support for RediSearch. See the [Redis Labs Website](https://redislabs.com/redis-enterprise/technology/redis-search/#sds) for more info and contact information. 
+RediSearch has a distributed cluster version that scales to billions of documents, and hundreds of servers. We also offer official commercial support for RediSearch. See the [Redis Labs Website](https://redislabs.com/redis-enterprise/technology/redis-search/#sds) for more info and contact information.
 
 ## Primary Features
 
-* Secondary Index. 
+* Secondary Index.
 * Multi field queries.
-* Aggregation. 
+* Aggregation.
 * Full-Text indexing of multiple fields in documents.
 * Incremental indexing without performance loss.
 * Document ranking (provided manually by the user at index time).
@@ -54,7 +54,7 @@ RediSearch has a distributed cluster version that can scale to billions of docum
 * Support for custom functions for query expansion and scoring (see [Extensions](Extensions.md)).
 * Limiting searches to specific document fields.
 * Numeric filters and ranges.
-* Geo filtering using Redis' own Geo-commands. 
+* Geo filtering using Redis' own Geo-commands.
 * Unicode support (UTF-8 input required).
 * Retrieve full document content or just ids.
 * Document deletion and updating with index garbage collection.
@@ -63,7 +63,7 @@ RediSearch has a distributed cluster version that can scale to billions of docum
 ## References
 ### Videos
 1. [RediSearch? - RedisConf 2020](https://youtu.be/9R29LLWquME)
-1. [RediSearch Overview - RedisConf 2019](https://youtu.be/AwnEhr9BO74) 
+1. [RediSearch Overview - RedisConf 2019](https://youtu.be/AwnEhr9BO74)
 1. [RediSearch & CRDT - Redis Day Tel Aviv 2019](https://youtu.be/OGC6Mx9E3jU)
 
 

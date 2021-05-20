@@ -17,6 +17,7 @@ static RLookupKey *createNewKey(RLookup *lookup, const char *name, size_t n, int
   } else {
     ret->name = name;
   }
+  ret->name_len = n;
 
   if (!lookup->head) {
     lookup->head = lookup->tail = ret;
@@ -65,8 +66,7 @@ RLookupKey *RLookup_GetKeyEx(RLookup *lookup, const char *name, size_t n, int fl
   int isNew = 0;
 
   for (RLookupKey *kk = lookup->head; kk; kk = kk->next) {
-    size_t origlen = strlen(kk->name);
-    if (origlen == n && !strncmp(kk->name, name, origlen)) {
+    if (kk->name_len == n && !strncmp(kk->name, name, kk->name_len)) {
       if (flags & RLOOKUP_F_OEXCL) {
         return NULL;
       }
@@ -124,7 +124,8 @@ size_t RLookup_GetLength(const RLookup *lookup, const RLookupRow *r, int *skipFi
     // on coordinator, we reach this code without sctx or rule,
     // we trust the shards to not send those fields.
     if (rule && ((rule->lang_field && strcmp(kk->name, rule->lang_field) == 0) ||
-                  (rule->score_field && strcmp(kk->name, rule->score_field) == 0))) {
+                  (rule->score_field && strcmp(kk->name, rule->score_field) == 0) ||
+                  (rule->score_field && strcmp(kk->name, rule->payload_field) == 0))) {
       continue;
     }
 
@@ -417,41 +418,84 @@ done:
   return rc;
 }
 
+typedef struct {
+  RLookup *it;
+  RLookupRow *dst;
+  RLookupLoadOptions *options;
+} RLookup_HGETALL_privdata;
+
+static void RLookup_HGETALL_scan_callback(RedisModuleKey *key, RedisModuleString *field, RedisModuleString *value, void *privdata) {
+  REDISMODULE_NOT_USED(key);
+  RLookup_HGETALL_privdata *pd = privdata;
+  size_t fieldCStrLen;
+  const char *fieldCStr = RedisModule_StringPtrLen(field, &fieldCStrLen);
+  RS_LOG_ASSERT(fieldCStrLen > 0, "field string cannot be empty");
+  RLookupKey *rlk = RLookup_GetKeyEx(pd->it, fieldCStr, fieldCStrLen, RLOOKUP_F_OCREAT | RLOOKUP_F_NAMEALLOC);
+  if (!pd->options->noSortables && (rlk->flags & RLOOKUP_F_SVSRC)) {
+    return;  // Can load it from the sort vector on demand.
+  }
+  RLookupCoerceType ctype = rlk->fieldtype;
+  if (pd->options->forceString) {
+    ctype = RLOOKUP_C_STR;
+  }
+  RSValue *vptr = hvalToValue(value, ctype);
+  RLookup_WriteOwnKey(rlk, pd->dst, vptr);
+}
+
 static int RLookup_HGETALL(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options) {
   int rc = REDISMODULE_ERR;
   RedisModuleCallReply *rep = NULL;
   RedisModuleCtx *ctx = options->sctx->redisCtx;
   RedisModuleString *krstr =
       RedisModule_CreateString(ctx, options->dmd->keyPtr, sdslen(options->dmd->keyPtr));
+  // We can only use the scan API from Redis version 6.0.6 and above 
+  // and when the deployment is not enterprise-crdt
+  if(!isFeatureSupported(RM_SCAN_KEY_API_FIX) || isCrdt){
+    rep = RedisModule_Call(ctx, "HGETALL", "s", krstr);
 
-  rep = RedisModule_Call(ctx, "HGETALL", "s", krstr);
-
-  if (rep == NULL || RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_ARRAY) {
-    goto done;
-  }
-
-  size_t len = RedisModule_CallReplyLength(rep);
-  // Zero means the document does not exist in redis
-  if (len == 0) {
-    goto done;
-  }
-
-  for (size_t i = 0; i < len; i += 2) {
-    size_t klen = 0;
-    RedisModuleCallReply *repk = RedisModule_CallReplyArrayElement(rep, i);
-    RedisModuleCallReply *repv = RedisModule_CallReplyArrayElement(rep, i + 1);
-
-    const char *kstr = RedisModule_CallReplyStringPtr(repk, &klen);
-    RLookupKey *rlk = RLookup_GetKeyEx(it, kstr, klen, RLOOKUP_F_OCREAT | RLOOKUP_F_NAMEALLOC);
-    if (!options->noSortables && (rlk->flags & RLOOKUP_F_SVSRC)) {
-      continue;  // Can load it from the sort vector on demand.
+    if (rep == NULL || RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_ARRAY) {
+      goto done;
     }
-    RLookupCoerceType ctype = rlk->fieldtype;
-    if (options->forceString) {
-      ctype = RLOOKUP_C_STR;
+
+    size_t len = RedisModule_CallReplyLength(rep);
+    // Zero means the document does not exist in redis
+    if (len == 0) {
+      goto done;
     }
-    RSValue *vptr = replyElemToValue(repv, ctype);
-    RLookup_WriteOwnKey(rlk, dst, vptr);
+
+    for (size_t i = 0; i < len; i += 2) {
+      size_t klen = 0;
+      RedisModuleCallReply *repk = RedisModule_CallReplyArrayElement(rep, i);
+      RedisModuleCallReply *repv = RedisModule_CallReplyArrayElement(rep, i + 1);
+
+      const char *kstr = RedisModule_CallReplyStringPtr(repk, &klen);
+      RLookupKey *rlk = RLookup_GetKeyEx(it, kstr, klen, RLOOKUP_F_OCREAT | RLOOKUP_F_NAMEALLOC);
+      if (!options->noSortables && (rlk->flags & RLOOKUP_F_SVSRC)) {
+        continue;  // Can load it from the sort vector on demand.
+      }
+      RLookupCoerceType ctype = rlk->fieldtype;
+      if (options->forceString) {
+        ctype = RLOOKUP_C_STR;
+      }
+      RSValue *vptr = replyElemToValue(repv, ctype);
+      RLookup_WriteOwnKey(rlk, dst, vptr);
+    }
+  }
+  else {
+    RedisModuleKey *key = RedisModule_OpenKey(ctx, krstr, REDISMODULE_READ);
+    if (!key || RedisModule_KeyType(key) != REDISMODULE_KEYTYPE_HASH) {
+      // key does not exist or is not a hash
+      goto done;
+    }
+    RedisModuleScanCursor *cursor = RedisModule_ScanCursorCreate();
+    RLookup_HGETALL_privdata pd = {
+      .it = it,
+      .dst = dst,
+      .options = options,
+    };
+    while(RedisModule_ScanKey(key, cursor, RLookup_HGETALL_scan_callback, &pd));
+    RedisModule_ScanCursorDestroy(cursor);
+    RedisModule_CloseKey(key);
   }
 
   rc = REDISMODULE_OK;

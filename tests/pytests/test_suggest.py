@@ -114,3 +114,11 @@ def testSuggestMax2(env):
     res = env.cmd('FT.SUGGET', 'sug', 'test ', 'MAX', i)
     for item in res:
         env.assertIn(item, expected_res[0:i])
+
+def testIssue_490(env):
+    env.expect('ft.sugadd', 'sug', 'RediSearch', '1', 'PAYLOAD', 'RediSearch, an awesome search engine').equal(1)
+    env.expect('ft.sugget', 'sug', 'Redis', 'WITHPAYLOADS').equal(['RediSearch', 'RediSearch, an awesome search engine'])
+    env.expect('ft.sugadd', 'sug', 'RediSearch', '1', 'INCR').equal(1)
+    env.expect('ft.sugget', 'sug', 'Redis', 'WITHPAYLOADS').equal(['RediSearch', 'RediSearch, an awesome search engine'])
+    env.expect('ft.sugadd', 'sug', 'RediSearch', '1', 'INCR', 'PAYLOAD', 'RediSearch 2.0, next gen search engine').equal(1)
+    env.expect('ft.sugget', 'sug', 'Redis', 'WITHPAYLOADS').equal(['RediSearch', 'RediSearch 2.0, next gen search engine'])
