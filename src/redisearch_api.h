@@ -83,6 +83,8 @@ struct RSIdxOptions {
   void* gvcbData;
   uint32_t flags;
   int gcPolicy;
+  char **stopwords;
+  int stopwordsLen;
 };
 
 /**
@@ -98,6 +100,8 @@ MODULE_API_FUNC(RSIndexOptions*, RediSearch_CreateIndexOptions)(void);
 MODULE_API_FUNC(void, RediSearch_FreeIndexOptions)(RSIndexOptions*);
 MODULE_API_FUNC(void, RediSearch_IndexOptionsSetGetValueCallback)
 (RSIndexOptions* opts, RSGetValueCallback cb, void* ctx);
+MODULE_API_FUNC(void, RediSearch_IndexOptionsSetStopwords)
+(RSIndexOptions* opts, const char **stopwords, int stopwordsLen);
 
 /** Set flags modifying index creation. */
 MODULE_API_FUNC(void, RediSearch_IndexOptionsSetFlags)(RSIndexOptions* opts, uint32_t flags);
@@ -106,6 +110,9 @@ MODULE_API_FUNC(RSIndex*, RediSearch_CreateIndex)
 (const char* name, const RSIndexOptions* options);
 
 MODULE_API_FUNC(void, RediSearch_DropIndex)(RSIndex*);
+
+/** Handle Stopwords list */
+MODULE_API_FUNC(int, RediSearch_StopwordsList_Contains)(RSIndex* idx, const char *term, size_t len);
 
 /**
  * Create a new field in the index
