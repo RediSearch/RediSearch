@@ -411,7 +411,27 @@ Note that these operators apply only to numeric values and numeric sub expressio
 | geodistance(lon,lat,field)      | Return distance in meters.    | `geodistance(1.2,-3.4,@field)`       |
 | geodistance(lon,lat,"lon,lat")  | Return distance in meters.    | `geodistance(1.2,-3.4,"5.6,-7.8")`   |
 | geodistance(lon,lat,"lon,lat")  | Return distance in meters.    | `geodistance(1.2,-3.4,5.6,-7.8)`     |
-* Note: Geo field must be preloaded using `LOAD`.
+
+```
+FT.AGGREGATE myIdx "*"  LOAD 1 location  APPLY "geodistance(@location,\"-1.1,2.2\")" AS dist
+```
+
+To print out the distance:
+
+```
+FT.AGGREGATE myIdx "*"  LOAD 1 location  APPLY "geodistance(@location,\"-1.1,2.2\")" AS dist
+```
+
+**Note:** Geo field must be preloaded using `LOAD`.
+
+Results can also be sorted by distance:
+
+```
+FT.AGGREGATE idx "*" LOAD 1 @location FILTER "exists(@location)" APPLY "geodistance(@location,-117.824722,33.68590)" AS dist SORTBY 2 @dist DESC
+```
+
+**Note:** Make sure no location is missing, otherwise the SORTBY will not return any result.
+Use FILTER to make sure you do the sorting on all valid locations.
 
 ## FILTER expressions
 
