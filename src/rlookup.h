@@ -72,13 +72,15 @@ struct RLookupKey : public Object {
   // Type this lookup should be coerced to
   RLookupCoerceType fieldtype : 16;
 
-  uint32_t refcnt;
+  uint32_t refcnt; // TODO: refactor
 
   // Name of this field
   const char *name;
 
   // Pointer to next field in the list
   struct RLookupKey *next;
+
+  ~RLookupKey();
 };
 
 //---------------------------------------------------------------------------------------------
@@ -95,7 +97,25 @@ struct RLookup {
 
   // If present, then GetKey will consult this list if the value is not found in
   // the existing list of keys.
-  IndexSpecCache *spcache;
+  IndexSpecCache *spcache; // TODO: ownership
+
+  RLookup(struct IndexSpecCache *cache);
+  ~RLookup();
+
+  int LoadDocument(struct RLookupRow *dst, struct RLookupLoadOptions *options);
+
+  RLookupKey *GetKey(const char *name, int flags);
+  const RLookupKey *FindKeyWith(uint32_t f) const;
+
+  // Get the amount of visible fields is the RLookup
+  size_t GetLength(const RLookupRow *r, int requiredFlags, int excludeFlags) const;
+
+  void WriteKeyByName(const char *name, RLookupRow *row, RSValue *value);
+
+  // Like WriteKeyByName, but consumes a refcount
+  void WriteOwnKeyByName(const char *name, RLookupRow *row, RSValue *value);
+
+  void MoveRow(RLookupRow *src, RLookupRow *dst) const;
 };
 
 //---------------------------------------------------------------------------------------------
@@ -119,6 +139,11 @@ struct RLookupRow {
 
   // How many values actually exist in dyn. Note that this is not the length of the array!
   size_t ndyn;
+
+  RSValue *GetItem(const RLookupKey *key) const;
+
+  void WriteKey(const RLookupKey *key, RSValue *value);
+  void WriteOwnKey(const RLookupKey *key, RSValue *value);
 
   void Wipe();
   void Cleanup();
@@ -169,29 +194,9 @@ struct RLookupRow {
 
 //---------------------------------------------------------------------------------------------
 
-RLookupKey *RLookup_GetKey(RLookup *lookup, const char *name, int flags);
-
-// Get the amount of visible fields is the RLookup
-
-size_t RLookup_GetLength(const RLookup *lookup, const RLookupRow *r, int requiredFlags,
-                         int excludeFlags);
-
-// Get a value from the lookup.
-
-void RLookup_WriteKey(const RLookupKey *key, RLookupRow *row, RSValue *value);
-void RLookup_WriteOwnKey(const RLookupKey *key, RLookupRow *row, RSValue *value);
-void RLookupRow_Move(const RLookup *lk, RLookupRow *src, RLookupRow *dst);
-void RLookup_WriteKeyByName(RLookup *lookup, const char *name, RLookupRow *row, RSValue *value);
-
-// Like WriteKeyByName, but consumes a refcount
-void RLookup_WriteOwnKeyByName(RLookup *lookup, const char *name, RLookupRow *row, RSValue *value);
-
-//---------------------------------------------------------------------------------------------
-
 /** Get a value from the row, provided the key.
  *
- * This does not actually "search" for the key, but simply performs array
- * lookups!
+ * This does not actually "search" for the key, but simply performs array lookups!
  *
  * @param lookup The lookup table containing the lookup table data
  * @param key the key that contains the index
@@ -199,15 +204,15 @@ void RLookup_WriteOwnKeyByName(RLookup *lookup, const char *name, RLookupRow *ro
  * @return the value if found, NULL otherwise.
  */
 
-static inline RSValue *RLookup_GetItem(const RLookupKey *key, const RLookupRow *row) {
+RSValue *RLookupRow::GetItem(const RLookupKey *key) const {
   RSValue *ret = NULL;
-  if (row->dyn && array_len(row->dyn) > key->dstidx) {
-    ret = row->dyn[key->dstidx];
+  if (dyn && array_len(dyn) > key->dstidx) {
+    ret = dyn[key->dstidx];
   }
   if (!ret) {
     if (key->flags & RLOOKUP_F_SVSRC) {
-      if (row->sv && row->sv->len > key->svidx) {
-        ret = row->sv->values[key->svidx];
+      if (sv && sv->len > key->svidx) {
+        ret = sv->values[key->svidx];
         if (ret != NULL && ret->t == RSValue_Null) {
           ret = NULL;
         }
@@ -255,18 +260,8 @@ struct RLookupLoadOptions {
 
 //---------------------------------------------------------------------------------------------
 
-int RLookup_LoadDocument(RLookup *lt, RLookupRow *dst, RLookupLoadOptions *options);
-
-// Use incref/decref instead!
-void RLookupKey_FreeInternal(RLookupKey *k);
-
-void RLookup_Init(RLookup *l, IndexSpecCache *cache);
-void RLookup_Cleanup(RLookup *l);
-
-//---------------------------------------------------------------------------------------------
-
-static inline const RLookupKey *RLookup_FindKeyWith(const RLookup *l, uint32_t f) {
-  for (const RLookupKey *k = l->head; k; k = k->next) {
+const RLookupKey *RLookup::FindKeyWith(uint32_t f) const {
+  for (const RLookupKey *k = head; k; k = k->next) {
     if (k->flags & f) {
       return k;
     }

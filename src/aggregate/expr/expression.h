@@ -93,6 +93,22 @@ struct ExprEval {
   const RLookupRow *srcrow;
   const RSExpr *root;
   BlkAlloc stralloc; // Optional. YNOT?
+
+  int Eval(RSValue *result);
+
+  void *UnalignedAlloc(size_t n);
+  char *Strndup(const char *s, size_t n);
+
+  void Cleanup();
+
+protected:
+  int evalFunc(const RSFunctionExpr *f, RSValue *result);
+  int evalOp(const RSExprOp *op, RSValue *result);
+  int getPredicateBoolean(const RSValue *l, const RSValue *r, RSCondition op);
+  int evalInverted(const RSInverted *vv, RSValue *result);
+  int evalPredicate(const RSPredicate *pred, RSValue *result);
+  int evalProperty(const RSLookupExpr *e, RSValue *res);
+  int evalInternal(const RSExpr *e, RSValue *res);
 };
 
 #define EXPR_EVAL_ERR 0
@@ -122,17 +138,18 @@ void RSExpr_Free(RSExpr *e);
 
 //---------------------------------------------------------------------------------------------
 
-int ExprEval_Eval(ExprEval *evaluator, RSValue *result);
+// ResultProcessor type which evaluates expressions
 
-// Helper functions for the evaluator context:
+struct RPEvaluator : ResultProcessor {
+  ExprEval eval;
+  RSValue *val;
+  const RLookupKey *outkey;
 
-void *ExprEval_UnalignedAlloc(ExprEval *ev, size_t n);
-char *ExprEval_Strndup(ExprEval *ev, const char *s, size_t n);
+  RPEvaluator(const RSExpr *ast, const RLookup *lookup, const RLookupKey *dstkey);
+  virtual ~RPEvaluator();
 
-// Cleans up the allocator
-void ExprEval_Cleanup(ExprEval *ev);
-
-//---------------------------------------------------------------------------------------------
+  virtual int Next(SearchResult *res);
+};
 
 /**
  * Creates a new result processor in the form of a projector. The projector will
@@ -146,7 +163,12 @@ void ExprEval_Cleanup(ExprEval *ev);
  * @note The ast needs to be paired with the appropriate RLookupKey objects. This
  * can be done by calling EXPR_GetLookupKeys()
  */
-ResultProcessor *RPEvaluator_NewProjector(const RSExpr *ast, const RLookup *lookup, const RLookupKey *dstkey);
+
+struct RPProjector : RPEvaluator {
+  RPProjector(const RSExpr *ast, const RLookup *lookup, const RLookupKey *dstkey);
+
+  virtual int Next(SearchResult *res);
+};
 
 /**
  * Creates a new result processor in the form of a filter. The filter will
@@ -156,8 +178,13 @@ ResultProcessor *RPEvaluator_NewProjector(const RSExpr *ast, const RLookup *look
  * @param ast the parsed expression
  * @param lookup lookup used to find the key for the value
  * 
- * See notes for NewProjector()
+ * See notes for RPProjector.
  */
-ResultProcessor *RPEvaluator_NewFilter(const RSExpr *ast, const RLookup *lookup);
+
+struct RPFilter : RPEvaluator {
+  RPFilter(const RSExpr *ast, const RLookup *lookup);
+
+  virtual int Next(SearchResult *res);
+};
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

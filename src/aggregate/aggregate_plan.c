@@ -35,7 +35,7 @@ static const char *steptypeToString(PLN_StepType type) {
 /* add a step to the plan at its end (before the dummy tail) */
 void AGGPlan::AddStep(PLN_BaseStep *step) {
   RS_LOG_ASSERT(step->type > PLN_T_INVALID, "Step type connot be PLN_T_INVALID");
-  dllist_append(&steps, &step->llnodePln);
+  steps.append(step);
   steptypes |= (1 << (step->type - 1));
 }
 
@@ -49,10 +49,10 @@ bool AGGPlan::HasStep(PLN_StepType t) const {
 
 void AGGPlan::AddBefore(PLN_BaseStep *posstp, PLN_BaseStep *newstp) {
   RS_LOG_ASSERT(newstp->type > PLN_T_INVALID, "Step type connot be PLN_T_INVALID");
-  if (posstp == NULL || DLLIST_IS_FIRST(&steps, &posstp->llnodePln)) {
-    dllist_prepend(&steps, &posstp->llnodePln);
+  if (posstp == NULL || steps.first() == posstp) {
+    steps.prepend(posstp);
   } else {
-    dllist_insert(posstp->llnodePln.prev, &posstp->llnodePln, &newstp->llnodePln);
+    steps.prepend(posstp, newstp);
   }
 }
 
@@ -60,35 +60,34 @@ void AGGPlan::AddBefore(PLN_BaseStep *posstp, PLN_BaseStep *newstp) {
 
 void AGGPlan::AddAfter(PLN_BaseStep *posstp, PLN_BaseStep *newstp) {
   RS_LOG_ASSERT(newstp->type > PLN_T_INVALID, "Step type connot be PLN_T_INVALID");
-  if (posstp == NULL || DLLIST_IS_LAST(&steps, &posstp->llnodePln)) {
+  if (posstp == NULL || steps.last() == posstp) {
     AddStep(newstp);
   } else {
-    dllist_insert(&posstp->llnodePln, posstp->llnodePln.next, &newstp->llnodePln);
+    steps.append(posstp, newstp);
   }
 }
 
 //---------------------------------------------------------------------------------------------
 
 void AGGPlan::Prepend(PLN_BaseStep *newstp) {
-  dllist_prepend(&steps, &newstp->llnodePln);
+  steps.prepend(newstp);
 }
 
 //---------------------------------------------------------------------------------------------
 
 void AGGPlan::PopStep(PLN_BaseStep *step) {
-  dllist_delete(&step->llnodePln);
+  steps.remove(step);
 }
 
 //---------------------------------------------------------------------------------------------
 
 PLN_FirstStep::~PLN_FirstStep() {
-  RLookup_Cleanup(&lookup);
 }
 
 //---------------------------------------------------------------------------------------------
 
 RLookup *PLN_FirstStep::getLookup() {
-  return &lookup;
+  return lookup.get();
 }
 
 //---------------------------------------------------------------------------------------------
@@ -96,16 +95,6 @@ RLookup *PLN_FirstStep::getLookup() {
 AGGPlan::AGGPlan() {
   arrangement = NULL;
   steptypes = 0;
-
-  dllist_init(&steps);
-  dllist_append(&steps, &firstStep_s.llnodePln);
-}
-
-//---------------------------------------------------------------------------------------------
-
-static RLookup *lookupFromNode(const DLLIST_node *nn) {
-  PLN_BaseStep *stp = DLLIST_ITEM(nn, PLN_BaseStep, llnodePln);
-  return stp->getLookup();
 }
 
 //---------------------------------------------------------------------------------------------
@@ -125,13 +114,15 @@ static RLookup *lookupFromNode(const DLLIST_node *nn) {
 const PLN_BaseStep *AGGPlan::FindStep(const PLN_BaseStep *begin, const PLN_BaseStep *end, 
                                       PLN_StepType type) const {
   if (!begin) {
-    begin = DLLIST_ITEM(steps.next, PLN_BaseStep, llnodePln);
+    //begin = DLLIST_ITEM(steps.next, PLN_BaseStep, llnodePln);
+    begin = steps.first();
   }
-  if (!end) {
+  /*if (!end) {
     end = DLLIST_ITEM(&steps, PLN_BaseStep, llnodePln);
-  }
-  for (const PLN_BaseStep *bstp = begin; bstp != end;
-       bstp = DLLIST_ITEM(bstp->llnodePln.next, PLN_BaseStep, llnodePln)) {
+  }*/
+  //for (const PLN_BaseStep *bstp = begin; bstp != end;
+  //     bstp = DLLIST_ITEM(bstp->llnodePln.next, PLN_BaseStep, llnodePln)) {
+  for (const PLN_BaseStep *bstp = begin; bstp != end; bstp = bstp->list_node.next) {
     if (bstp->type == type) {
       return bstp;
     }
@@ -157,13 +148,13 @@ PLN_ArrangeStep::~PLN_ArrangeStep() {
 
 PLN_ArrangeStep *AGGPlan::GetArrangeStep() {
   // Go backwards.. and stop at the cutoff
-  for (const DLLIST_node *nn = steps.prev; nn != &steps; nn = nn->prev) {
-    const PLN_BaseStep *stp = DLLIST_ITEM(nn, PLN_BaseStep, llnodePln);
-    if (stp->IsReduce()) {
+  //for (const DLLIST_node *nn = steps.prev; nn != &steps; nn = nn->prev) {
+  for (PLN_BaseStep *step = steps.tail(); step; step = step->list_node.prev) {
+    if (step->IsReduce()) {
       break;
     }
-    if (stp->type == PLN_T_ARRANGE) {
-      return (PLN_ArrangeStep *)stp;
+    if (step->type == PLN_T_ARRANGE) {
+      return static_cast<PLN_ArrangeStep *>(step);
     }
   }
   return NULL;
@@ -188,7 +179,6 @@ PLN_ArrangeStep *AGGPlan::GetOrCreateArrangeStep() {
 
 /**
  * Get the lookup provided the given mode
- * @param pln the plan containing the steps
  * @param bstp - acts as a placeholder for iteration. If mode is FIRST, then
  *  this acts as a barrier and no lookups after this step are returned. If mode
  *  is LAST, then this acts as an initializer, and steps before this (inclusive)
@@ -196,39 +186,39 @@ PLN_ArrangeStep *AGGPlan::GetOrCreateArrangeStep() {
  */
 
 RLookup *AGGPlan::GetLookup(const PLN_BaseStep *bstp, AGPLNGetLookupMode mode) const {
-  const DLLIST_node *first = NULL, *last = NULL;
-  int isReverse = 0;
+  const PLN_BaseStep *first = NULL, *last = NULL;
+  bool isReverse = false;
 
   switch (mode) {
     case AGPLN_GETLOOKUP_FIRST:
-      first = steps.next;
-      last = bstp ? &bstp->llnodePln : &steps;
+      first = steps.first();
+      last = bstp ? bstp : NULL;
       break;
     case AGPLN_GETLOOKUP_PREV:
-      first = &steps;
-      last = bstp->llnodePln.prev;
-      isReverse = 1;
+      first = NULL;
+      last = bstp->list_node.prev;
+      isReverse = true;
       break;
     case AGPLN_GETLOOKUP_NEXT:
-      first = bstp->llnodePln.next;
-      last = &steps;
+      first = bstp->list_node.next;
+      last = NULL;
       break;
     case AGPLN_GETLOOKUP_LAST:
-      first = bstp ? &bstp->llnodePln : &steps;
-      last = steps.prev;
-      isReverse = 1;
+      first = bstp ? bstp : NULL;
+      last = steps.last();
+      isReverse = true;
   }
 
   if (isReverse) {
-    for (const DLLIST_node *nn = last; nn && nn != first; nn = nn->prev) {
-      RLookup *lk = lookupFromNode(nn);
+    for (const PLN_BaseStep *step = last; step && step != first; step = step->list_node.prev) {
+      RLookup *lk = step->getLookup();
       if (lk) {
         return lk;
       }
     }
   } else {
-    for (const DLLIST_node *nn = first; nn && nn != last; nn = nn->next) {
-      RLookup *lk = lookupFromNode(nn);
+    for (const PLN_BaseStep *step = first; step && step != last; step = step->list_node.next) {
+      RLookup *lk = step->getLookup();
       if (lk) {
         return lk;
       }
@@ -241,21 +231,20 @@ RLookup *AGGPlan::GetLookup(const PLN_BaseStep *bstp, AGPLNGetLookupMode mode) c
 //---------------------------------------------------------------------------------------------
 
 AGGPlan::~AGGPlan() {
-  DLLIST_node *nn = steps.next;
-  while (nn && nn != &steps) {
-    PLN_BaseStep *bstp = DLLIST_ITEM(nn, PLN_BaseStep, llnodePln);
-    nn = nn->next;
-    delete bstp;
+  PLN_BaseStep *step = steps.first();
+  while (step) {
+    PLN_BaseStep *next = step->list_node.next;
+    delete step;
+    step = next;
   }
 }
 
 //---------------------------------------------------------------------------------------------
 
 void AGGPlan::Dump() const {
-  for (const DLLIST_node *nn = steps.next; nn && nn != &steps; nn = nn->next) {
-    const PLN_BaseStep *stp = DLLIST_ITEM(nn, PLN_BaseStep, llnodePln);
-    printf("STEP: [T=%s. P=%p]\n", steptypeToString(stp->type), stp);
-    const RLookup *lk = lookupFromNode(nn);
+  for (const PLN_BaseStep *step = steps.first(); step; step = step->list_node.next) {
+    printf("STEP: [T=%s. P=%p]\n", steptypeToString(step->type), step);
+    const RLookup *lk = step->getLookup();
     if (lk) {
       printf("  NEW LOOKUP: %p\n", lk);
       for (const RLookupKey *kk = lk->head; kk; kk = kk->next) {
@@ -263,65 +252,63 @@ void AGGPlan::Dump() const {
       }
     }
 
-    switch (stp->type) {
-      case PLN_T_APPLY:
-      case PLN_T_FILTER:
-        printf("  EXPR:%s\n", ((PLN_MapFilterStep *)stp)->rawExpr);
-        if (stp->alias) {
-          printf("  AS:%s\n", stp->alias);
-        }
-        break;
-      case PLN_T_ARRANGE: {
-        const PLN_ArrangeStep *astp = (PLN_ArrangeStep *)stp;
-        if (astp->offset || astp->limit) {
-          printf("  OFFSET:%lu LIMIT:%lu\n", (unsigned long)astp->offset,
-                 (unsigned long)astp->limit);
-        }
-        if (astp->sortKeys) {
-          printf("  SORT:\n");
-          for (size_t ii = 0; ii < array_len(astp->sortKeys); ++ii) {
-            const char *dir = SORTASCMAP_GETASC(astp->sortAscMap, ii) ? "ASC" : "DESC";
-            printf("    %s:%s\n", astp->sortKeys[ii], dir);
-          }
-        }
-        break;
-      }
-      case PLN_T_LOAD: {
-        const PLN_LoadStep *lstp = (PLN_LoadStep *)stp;
-        for (size_t ii = 0; ii < lstp->args.argc; ++ii) {
-          printf("  %s\n", (char *)lstp->args.objs[ii]);
-        }
-        break;
-      }
-      case PLN_T_GROUP: {
-        const PLN_GroupStep *gstp = (PLN_GroupStep *)stp;
-        printf("  BY:\n");
-        for (size_t ii = 0; ii < gstp->nproperties; ++ii) {
-          printf("    %s\n", gstp->properties[ii]);
-        }
-        for (size_t ii = 0; ii < array_len(gstp->reducers); ++ii) {
-          const PLN_Reducer *r = gstp->reducers + ii;
-          printf("  REDUCE: %s AS %s\n", r->name, r->alias);
-          if (r->args.argc) {
-            printf("    ARGS:[");
-          }
-          for (size_t jj = 0; jj < r->args.argc; ++jj) {
-            printf("%s ", (char *)r->args.objs[jj]);
-          }
-          printf("]\n");
-        }
-        break;
-      }
-      case PLN_T_ROOT:
-      case PLN_T_DISTRIBUTE:
-      case PLN_T_INVALID:
-      case PLN_T__MAX:
-        break;
+    step->Dump();
+  }
+}
+
+//---------------------------------------------------------------------------------------------
+
+void PLN_MapFilterStep::Dump() const {
+  printf("  EXPR:%s\n", rawExpr);
+  if (alias) {
+    printf("  AS:%s\n", alias);
+  }
+}
+
+//---------------------------------------------------------------------------------------------
+
+void PLN_ArrangeStep::Dump() const {
+  if (offset || limit) {
+    printf("  OFFSET:%lu LIMIT:%lu\n", (unsigned long) offset, (unsigned long) limit);
+  }
+  if (sortKeys) {
+    printf("  SORT:\n");
+    for (size_t ii = 0; ii < array_len(sortKeys); ++ii) {
+      const char *dir = SORTASCMAP_GETASC(sortAscMap, ii) ? "ASC" : "DESC";
+      printf("    %s:%s\n", sortKeys[ii], dir);
     }
   }
 }
 
 //---------------------------------------------------------------------------------------------
+
+void PLN_LoadStep::Dump() const {
+  for (size_t ii = 0; ii < args.argc; ++ii) {
+    printf("  %s\n", (char *)args.objs[ii]);
+  }
+}
+
+//---------------------------------------------------------------------------------------------
+
+void PLN_GroupStep::Dump() const {
+  printf("  BY:\n");
+  for (size_t ii = 0; ii < nproperties; ++ii) {
+    printf("    %s\n", properties[ii]);
+  }
+  for (size_t ii = 0; ii < array_len(reducers); ++ii) {
+    const PLN_Reducer &r = reducers[ii];
+    printf("  REDUCE: %s AS %s\n", r.name, r.alias);
+    if (r.args.argc) {
+      printf("    ARGS:[");
+    }
+    for (size_t jj = 0; jj < r.args.argc; ++jj) {
+      printf("%s ", (char *)r.args.objs[jj]);
+    }
+    printf("]\n");
+  }
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 typedef char **myArgArray_t;
 
@@ -422,7 +409,7 @@ static void serializeGroup(myArgArray_t *arr, const PLN_BaseStep *stp) {
   }
 }
 
-//---------------------------------------------------------------------------------------------
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 /* Serialize the plan into an array of string args, to create a command to be sent over the network.
  * The strings need to be freed with free and the array needs to be freed with array_free().
@@ -430,8 +417,7 @@ static void serializeGroup(myArgArray_t *arr, const PLN_BaseStep *stp) {
 
 array_t AGGPlan::Serialize() const {
   char **arr = array_new(char *, 1);
-  for (const DLLIST_node *nn = steps.next; nn != &steps; nn = nn->next) {
-    const PLN_BaseStep *stp = DLLIST_ITEM(nn, PLN_BaseStep, llnodePln);
+  for (const PLN_BaseStep *step = steps.first(); step; step = step->list_node.next) {
     switch (stp->type) {
       case PLN_T_APPLY:
       case PLN_T_FILTER:

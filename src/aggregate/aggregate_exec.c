@@ -21,7 +21,7 @@ const RSValue *AREQ::getSortKey(const SearchResult *r, const PLN_ArrangeStep *as
   if ((kk->flags & RLOOKUP_F_SVSRC) && (r->rowdata.sv && r->rowdata.sv->len > kk->svidx)) {
     return r->rowdata.sv->values[kk->svidx];
   } else {
-    return RLookup_GetItem(astp->sortkeysLK[0], &r->rowdata);
+    return r->rowdata.GetItem(kk);
   }
 }
 
@@ -109,7 +109,7 @@ reeval_sortkey:
     count++;
     int excludeFlags = RLOOKUP_F_HIDDEN;
     int requiredFlags = outFields.explicitReturn ? RLOOKUP_F_EXPLICITRETURN : 0;
-    size_t nfields = RLookup_GetLength(lk, &r->rowdata, requiredFlags, excludeFlags);
+    size_t nfields = lk->GetLength(&r->rowdata, requiredFlags, excludeFlags);
 
     RedisModule_ReplyWithArray(outctx, nfields * 2);
 
@@ -122,7 +122,7 @@ reeval_sortkey:
       if (outFields.explicitReturn && (kk->flags & RLOOKUP_F_EXPLICITRETURN) == 0) {
         continue;
       }
-      const RSValue *v = RLookup_GetItem(kk, &r->rowdata);
+      const RSValue *v = r->rowdata.GetItem(kk);
       if (!v) {
         continue;
       }

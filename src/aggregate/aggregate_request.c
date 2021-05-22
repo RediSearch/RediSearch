@@ -1140,9 +1140,9 @@ int AREQ::BuildPipeline(BuildPipelineOptions options, QueryError *status) {
         if (stp->type == PLN_T_APPLY) {
           RLookupKey *dstkey =
               RLookup_GetKey(curLookup, stp->alias, RLOOKUP_F_OCREAT | RLOOKUP_F_NOINCREF);
-          rp = RPEvaluator_NewProjector(mstp->parsedExpr, curLookup, dstkey);
+          rp = new RPProjector(mstp->parsedExpr, curLookup, dstkey);
         } else {
-          rp = RPEvaluator_NewFilter(mstp->parsedExpr, curLookup);
+          rp = new RPFilter(mstp->parsedExpr, curLookup);
         }
         PUSH_RP();
         break;

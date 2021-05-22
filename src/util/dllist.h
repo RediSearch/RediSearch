@@ -1,17 +1,129 @@
-#ifndef DLLIST_H
-#define DLLIST_H
+#pragma once
 
 #include <stdlib.h>
 #include <stddef.h>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+///////////////////////////////////////////////////////////////////////////////////////////////
 
-typedef struct DLLIST_node {
+template <class T>
+struct List {
+  struct Node {
+    T *prev, *next;
+    Node() : prev(NULL), next(NULL) {}
+  };
+
+  Node node;
+
+  List() {}
+
+  T *head() { return node.next; }
+  T *tail() { return node.prev; }
+  T *first() { return node.next; }
+  T *last() { return node.prev; }
+
+  void prepend(T *new_item) {
+    Node &new_n = (Node &) *new_item;
+    new_n.next = head();
+    new_n.prev = NULL;
+    if (!isEmpty()) {
+      Node &n_head = (Node &) *head();
+      n_head.prev = new_item;
+    } else {
+      node.prev = new_item;
+    }
+    node.next = new_item;
+  }
+
+  void prepend(T *item, T *new_item) {
+    Node &n = (Node &) *item;
+    Node &new_n = (Node &) *new_item;
+
+    new_n.prev = n.prev;
+    new_n.next = item;
+    if (n.prev) {
+      Node &n_prev = (Node &) *n.prev;
+      n_prev.next = new_item;
+    } else {
+      node.next = new_item;
+    }
+    n.prev = new_item;
+  }
+
+  void append(T *new_item) {
+    Node &new_n = (Node &) *new_item;
+    new_n.prev = tail();
+    new_n.next = NULL;
+    if (!isEmpty()) {
+      Node &n_tail = (Node &) *tail();
+      n_tail.next = new_item;
+    } else {
+      node.next = new_item;
+    }
+    node.prev = new_item;
+  }
+
+  void append(T *item, T *new_item) {
+    Node &n = (Node &) *item;
+    Node &new_n = (Node &) *new_item;
+
+    new_n.next = n.next;
+    new_n.prev = item;
+    if (n.next) {
+      Node &n_next = (Node &) *n.next;
+      n_next.prev = new_item;
+    } else {
+      node.prev = new_item;
+    }
+    n.next = new_item;
+  }
+
+  void remove(T *item) {
+    Node &n = (Node &) *item;
+
+    T *prev_item = n.prev, *next_item = n.next;
+    if (next_item) {
+      Node &n_next = (Node &) *n.next;
+      n_next.prev = prev_item;
+    } else {
+      node.prev = prev_item;
+    }
+    if (prev_item) {
+      Node &n_prev = (Node &) *n.prev;
+      n_prev.next = next_item;
+    } else {
+      node.next = next_item;
+    }
+  
+    n.next = n.prev = NULL;
+  }
+
+  bool isEmpty() const { return !node.next; }
+  //bool isFirst(Node *itm) const { return itm->prev == this; }
+  //bool isLast(Node *itm) const { return itm->next == this; }
+  //bool isEnd(Node *itm) const { return this == itm; }
+
+  //#define ITEM(L, T, mname) ((T *)(void *)((char *)(L)-offsetof(T, mname)))
+
+  T *pop_tail() {
+    if (isEmpty()) {
+      return NULL;
+    }
+    Node *item = tail();
+    remove(item);
+    return item;
+  }
+};
+
+#define List_foreach(v, T, it) for (T *it = (v).head(); it != NULL; it = ((List<T>::Node &) *it).next)
+
+//---------------------------------------------------------------------------------------------
+
+struct DLLIST_node {
   struct DLLIST_node *next;
   struct DLLIST_node *prev;
-} DLLIST_node, DLLIST;
+};
+
+typedef DLLIST_node DLLIST;
 
 static inline void dllist_init(DLLIST *l) {
   l->prev = l;
@@ -61,19 +173,20 @@ static inline DLLIST_node *dllist_pop_tail(DLLIST *list) {
   return item;
 }
 
-/**
- * DLLIST2 API
- * This API allows the node to be relocated in memory, as opposed to
- * the normal dllist api
- */
-struct DLLIST2_node;
-typedef struct {
-  struct DLLIST2_node *head, *tail;
-} DLLIST2;
+///////////////////////////////////////////////////////////////////////////////////////////////
 
-typedef struct DLLIST2_node {
+// DLLIST2 API
+// This API allows the node to be relocated in memory, as opposed to the normal dllist api
+
+struct DLLIST2_node;
+
+struct DLLIST2 {
+  struct DLLIST2_node *head, *tail;
+};
+
+struct DLLIST2_node {
   struct DLLIST2_node *prev, *next;
-} DLLIST2_node;
+};
 
 #define DLLIST2_ITEM DLLIST_ITEM
 #define DLLIST2_FOREACH(it, ll) for (DLLIST2_node *it = (ll)->head; it; it = it->next)
@@ -110,8 +223,4 @@ static inline void dllist2_delete(DLLIST2 *l, DLLIST2_node *c) {
   c->next = NULL;
 }
 
-#ifdef __cplusplus
-}
-#endif
-
-#endif
+///////////////////////////////////////////////////////////////////////////////////////////////

@@ -324,14 +324,14 @@ static int stringfunc_split(ExprEval *ctx, RSValue *result, RSValue **argv, size
 
 //---------------------------------------------------------------------------------------------
 
-int func_exists(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc, QueryError *err) {
+int ExprEval::func_exists(RSValue *result, RSValue **argv, size_t argc, QueryError *err) {
   VALIDATE_ARGS("exists", 1, 1, err);
 
   result->t = RSValue_Number;
   if (argv[0]->t != RSValue_Null) {
     result->numval = 1;                       
   } else {
-    ctx->err->ClearError();
+    err->ClearError();
     result->numval = 0;
   }
   return EXPR_EVAL_OK;

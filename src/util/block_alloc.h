@@ -19,6 +19,7 @@ struct BlkAlloc {
   Block *avail;
 
   BlkAlloc() : root(NULL), last(NULL), avail(NULL) {}
+  ~BlkAlloc() { FreeAll(NULL, NULL, 0); }
 
   // Allocate a new element from the block allocator.
   // A pointer of size elemSize will be returned. 

@@ -39,7 +39,10 @@ struct PLN_BaseStep {
   PLN_BaseStep(PLN_StepType type) : type(type) {}
   virtual ~PLN_BaseStep();
 
-  DLLIST_node llnodePln;  // Linked list node for previous/next
+  List<PLN_BaseStep>::Node list_node;
+  operator List<PLN_BaseStep>::Node&() { return list_node; }
+
+  //DLLIST_node llnodePln;  // Linked list node for previous/next
 
   PLN_StepType type : 32;
   uint32_t flags;  // PLN_F_XXX
@@ -62,12 +65,17 @@ struct PLN_BaseStep {
         return false;
     }
   }
+
+  PLN_BaseStep *NextStep() { return list_node.next; }
+  PLN_BaseStep *PrevStep() { return list_node.prev; }
+
+  virtual void Dump() const {}
 };
 
 //---------------------------------------------------------------------------------------------
 
-#define PLN_NEXT_STEP(step) DLLIST_ITEM((step)->llnodePln.next, PLN_BaseStep, llnodePln)
-#define PLN_PREV_STEP(step) DLLIST_ITEM((step)->llnodePln.prev, PLN_BaseStep, llnodePln)
+//#define PLN_NEXT_STEP(step) DLLIST_ITEM((step)->llnodePln.next, PLN_BaseStep, llnodePln)
+//#define PLN_PREV_STEP(step) DLLIST_ITEM((step)->llnodePln.prev, PLN_BaseStep, llnodePln)
 
 /**
  * JUNCTION/REDUCTION POINTS
@@ -83,7 +91,7 @@ struct PLN_BaseStep {
 struct PLN_FirstStep : PLN_BaseStep {
   PLN_FirstStep() : PLN_BaseStep(PLN_T_ROOT) {}
   virtual ~PLN_FirstStep();
-  RLookup lookup;
+  std::unique_ptr<RLookup> lookup;
 
   virtual RLookup *getLookup();
 };
@@ -97,6 +105,8 @@ struct PLN_MapFilterStep : PLN_BaseStep {
 
   PLN_MapFilterStep(const char *expr, int mode);
   virtual ~PLN_MapFilterStep();
+
+  virtual void Dump() const;
 };
 
 //---------------------------------------------------------------------------------------------
@@ -112,6 +122,8 @@ struct PLN_ArrangeStep : PLN_BaseStep {
   uint64_t sortAscMap;            // Mapping of ascending/descending. Bitwise
   uint64_t offset;                // Seek results. If 0, then no paging is applied
   uint64_t limit;                 // Number of rows to output
+
+  virtual void Dump() const;
 };
 
 //---------------------------------------------------------------------------------------------
@@ -125,6 +137,8 @@ struct PLN_LoadStep : PLN_BaseStep {
   ArgsCursor args;
   const RLookupKey **keys;
   size_t nkeys;
+
+  virtual void Dump() const;
 };
 
 //---------------------------------------------------------------------------------------------
@@ -132,7 +146,7 @@ struct PLN_LoadStep : PLN_BaseStep {
 // Group step - group by properties and reduce by several reducers
 
 struct PLN_GroupStep : PLN_BaseStep {
-  RLookup lookup;
+  std::unique_ptr<RLookup> lookup;
 
   const char **properties;
   size_t nproperties;
@@ -154,6 +168,8 @@ struct PLN_GroupStep : PLN_BaseStep {
   char *getReducerAlias(const char *func, const ArgsCursor *args);
 
   ResultProcessor *buildRP(RLookup *srclookup, QueryError *err);
+
+  virtual void Dump() const;
 };
 
 typedef PLN_GroupStep::PLN_Reducer PLN_Reducer;
@@ -172,9 +188,10 @@ enum AGPLNGetLookupMode {
 // A plan is a linked list of all steps
 
 struct AGGPlan : Object {
-  DLLIST steps;
+  //DLLIST steps;
+  List<PLN_BaseStep> steps;
   PLN_ArrangeStep *arrangement;
-  PLN_FirstStep firstStep_s;  // Storage for initial plan
+  //PLN_FirstStep firstStep_s;  // Storage for initial plan
   uint64_t steptypes;         // Mask of step-types contained in plan
 
   array_t Serialize() const;
