@@ -150,7 +150,7 @@ def testGCThreshold(env):
     if env.isCluster():
         raise unittest.SkipTest()
 
-    env = Env(moduleArgs='GC_POLICY FORK FORK_GC_CLEAN_THRESHOLD 1000')
+    env = Env(moduleArgs='GC_POLICY FORK; FORK_GC_CLEAN_THRESHOLD 1000')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT', 'SORTABLE').ok()
     for i in range(1000):
         env.expect('FT.ADD', 'idx', 'doc%d' % i, '1.0', 'FIELDS', 'title', 'foo').ok()
@@ -215,11 +215,11 @@ def testGCThreshold(env):
 def testGCShutDownOnExit(env):
     if env.env == 'existing-env' or env.env == 'enterprise' or env.isCluster() or platform.system() == 'Darwin':
         env.skip()
-    env = Env(moduleArgs='GC_POLICY FORK FORKGC_SLEEP_BEFORE_EXIT 20')
+    env = Env(moduleArgs='GC_POLICY FORK; FORKGC_SLEEP_BEFORE_EXIT 20')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT', 'SORTABLE').ok()
     env.expect('FT.DEBUG', 'GC_FORCEBGINVOKE', 'idx').ok()
     env.stop()
     env.start()
 
     # make sure server started successfully
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT', 'SORTABLE').ok()
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT', 'SORTABLE').equal('Index already exists')
