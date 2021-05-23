@@ -90,6 +90,9 @@ typedef struct {
 
   // compress double to float
   int numericCompress;
+
+  // FT.ADD with REPLACE deletes old field
+  int replaceDeleteField;
 } RSConfig;
 
 typedef enum {
@@ -170,7 +173,7 @@ sds RSConfig_GetInfoString(const RSConfig *config);
     .gcPolicy = GCPolicy_Fork, .forkGcRunIntervalSec = DEFAULT_FORK_GC_RUN_INTERVAL,              \
     .forkGcSleepBeforeExit = 0, .maxResultsToUnsortedMode = DEFAULT_MAX_RESULTS_TO_UNSORTED_MODE, \
     .forkGcRetryInterval = 5, .forkGcCleanThreshold = 0, .noMemPool = 0,                          \
-    .maxSearchResults = SEARCH_REQUEST_RESULTS_MAX, .numericCompress = 1,                     \
+    .maxSearchResults = SEARCH_REQUEST_RESULTS_MAX, .numericCompress = 1, .replaceDeleteField = 0,\
   }
 
 #define REDIS_ARRAY_LIMIT 7

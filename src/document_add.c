@@ -168,7 +168,7 @@ int RS_AddDocument(RedisSearchCtx *sctx, RedisModuleString *name, const AddDocum
   if (!exists) {
     // If the document does not exist, remove replace/partial settings
     addOptions &= ~(DOCUMENT_ADD_REPLACE | DOCUMENT_ADD_PARTIAL);
-  } else if (!(addOptions & DOCUMENT_ADD_PARTIAL)) {
+  } else if (RSGlobalConfig.replaceDeleteField && !(addOptions & DOCUMENT_ADD_PARTIAL)) {
     // delete old decument if REPLACE without PARTIAL
     RedisModuleKey *dk = RedisModule_OpenKey(sctx->redisCtx, name, REDISMODULE_WRITE);
     if (dk) {

@@ -307,6 +307,10 @@ CONFIG_GETTER(getMinPhoneticTermLen) {
 CONFIG_BOOLEAN_SETTER(setNumericCompress, numericCompress)
 CONFIG_BOOLEAN_GETTER(getNumericCompress, numericCompress, 0)
 
+// REPLACE_DELETE_HASH_FIELD
+CONFIG_BOOLEAN_SETTER(setReplaceDeleteField, replaceDeleteField)
+CONFIG_BOOLEAN_GETTER(getReplaceDeleteField, replaceDeleteField, 0)
+
 CONFIG_SETTER(setGcPolicy) {
   const char *policy;
   int acrc = AC_GetString(ac, &policy, NULL, 0);
@@ -498,6 +502,10 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "Enable legacy compression of double to float.",
          .setValue = setNumericCompress,
          .getValue = getNumericCompress},
+        {.name = "REPLACE_DELETE_HASH_FIELD",
+         .helpText = "Change behavior of FT.ADD with REPLACE to delete the document before reinsertion.",
+         .setValue = setReplaceDeleteField,
+         .getValue = getReplaceDeleteField},
         {.name = NULL}}};
 
 void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst) {
