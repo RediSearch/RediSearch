@@ -14,7 +14,7 @@ cd $BUILD_DIR
 cmake $PROJECT_DIR \
     -DCMAKE_BUILD_TYPE=RelWithDebInfo \
     -DRS_RUN_TESTS=1 \
-    -DRS_VERBOSE_TESTS=1 \
+    -DRS_VERBOSE_TESTS=${VERBOSE} \
     ${extra_args} \
     ../
 
