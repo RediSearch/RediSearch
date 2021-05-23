@@ -9,7 +9,6 @@
 #include "byte_offsets.h"
 #include "rmutil/args.h"
 #include "query_error.h"
-// #include "json.h"
 
 #ifdef __cplusplus
 extern "C" {
