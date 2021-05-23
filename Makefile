@@ -10,6 +10,25 @@ ifeq ($(VALGRIND),1)
 override DEBUG ?= 1
 endif
 
+ifneq ($(SAN),)
+override DEBUG ?= 1
+ifeq ($(SAN),mem)
+else ifeq ($(SAN),memory)
+CMAKE_SAN=-DUSE_MSAN=ON
+SAN_DIR=msan
+else ifeq ($(SAN),addr)
+CMAKE_SAN=-DUSE_ASAN=ON
+SAN_DIR=asan
+else ifeq ($(SAN),address)
+CMAKE_SAN=-DUSE_ASAN=ON
+SAN_DIR=asan
+else ifeq ($(SAN),leak)
+else ifeq ($(SAN),thread)
+else
+$(error SAN=mem|addr|leak|thread)
+endif
+endif
+
 define HELP
 make setup         # install prerequisited (CAUTION: THIS WILL MODIFY YOUR SYSTEM)
 make fetch         # download and prepare dependant modules
@@ -20,6 +39,8 @@ make build         # compile and link
   WHY=1            # explain CMake decisions (in /tmp/cmake-why)
   FORCE=1          # Force CMake rerun
   CMAKE_ARGS=...   # extra arguments to CMake
+  VG=1             # build for Valgrind
+  SAN=type         # build with LLVM sanitizer (type=address|memory|leak|thread) 
 make parsers       # build parsers code
 make clean         # remove build artifacts
   ALL=1              # remove entire artifacts directory
@@ -34,10 +55,11 @@ make test          # run all tests (via ctest)
 make pytest        # run python tests (tests/pytests)
   TEST=name          # e.g. TEST=test:testSearch
   RLTEST_ARGS=...    # pass args to RLTest
-  REJSON=1|0         # Also load RedisJSON module
+  REJSON=1|0         # also load RedisJSON module
   REJSON_PATH=path   # use RedisJSON module at `path`
   GDB=1              # RLTest interactive debugging
-  VG=1               # Use Valgrind
+  VG=1               # use Valgrind
+  SAN=type           # use LLVM sanitizer (type=address|memory|leak|thread) 
 make c_tests       # run C tests (from tests/ctests)
 make cpp_tests     # run C++ tests (from tests/cpptests)
   TEST=name          # e.g. TEST=FGCTest.testRemoveLastBlock
@@ -60,7 +82,11 @@ endef
 
 COMPAT_MODULE := src/redisearch.so
 
+ifeq ($(SAN),)
 COMPAT_DIR ?= build
+else
+COMPAT_DIR ?= build-$(SAN_DIR)
+endif
 
 BINROOT=$(COMPAT_DIR)
 BINDIR=$(COMPAT_DIR)
@@ -73,6 +99,10 @@ PACKAGE_NAME ?= redisearch-oss
 export PACKAGE_NAME
 
 #----------------------------------------------------------------------------------------------
+
+ifneq ($(SAN),)
+override CMAKE_ARGS += -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+endif
 
 ifeq ($(DEBUG),1)
 CMAKE_BUILD_TYPE=DEBUG
@@ -135,7 +165,7 @@ ifeq ($(WHY),1)
 	@echo CMake log is in /tmp/cmake-why
 endif
 	@mkdir -p $(BINROOT)
-	@cd $(BINROOT) && cmake .. $(CMAKE_ARGS) $(CMAKE_TEST) $(CMAKE_DEBUG) $(CMAKE_WHY)
+	@cd $(BINROOT) && cmake .. $(CMAKE_ARGS) $(CMAKE_SAN) $(CMAKE_TEST) $(CMAKE_DEBUG) $(CMAKE_WHY)
 
 $(COMPAT_DIR)/redisearch.so: $(BINROOT)/Makefile
 	@echo Building ...
