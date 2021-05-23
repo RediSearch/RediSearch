@@ -222,4 +222,4 @@ def testGCShutDownOnExit(env):
     env.start()
 
     # make sure server started successfully
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT', 'SORTABLE').ok() #equal('Index already exists')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT', 'SORTABLE').ok()
