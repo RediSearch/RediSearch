@@ -33,7 +33,7 @@ def testBasicGC(env):
 def testBasicGCWithEmptyInvIdx(env):
     if env.isCluster():
         raise unittest.SkipTest()
-    if env.moduleArgs is not None and 'GC_POLICY LEGACY' in env.moduleArgs:
+    if env.moduleArgs is not None and 'GC_POLICY LEGACY' in env.moduleArgs[0]:
         # this test is not relevent for legacy gc cause its not squeshing inverted index
         raise unittest.SkipTest()
     env.assertOk(env.cmd('ft.create', 'idx', 'schema', 'title', 'text'))
