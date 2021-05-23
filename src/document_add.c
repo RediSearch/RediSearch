@@ -116,15 +116,6 @@ static int parseDocumentOptions(AddDocumentOptions *opts, ArgsCursor *ac, QueryE
   if (QueryError_HasError(status)) {
     return REDISMODULE_ERR;
   }
-  if (partial) {
-    opts->options |= DOCUMENT_ADD_PARTIAL;
-  }
-  if (nosave) {
-    opts->options |= DOCUMENT_ADD_NOSAVE;
-  }
-  if (replace) {
-    opts->options |= DOCUMENT_ADD_REPLACE;
-  }
   return REDISMODULE_OK;
 }
 
@@ -133,10 +124,16 @@ int RS_AddDocument(RedisSearchCtx *sctx, RedisModuleString *name, const AddDocum
   int rc = REDISMODULE_ERR;
   // If the ID is 0, then the document does not exist.
   IndexSpec *sp = sctx->spec;
+  uint32_t addOptions = opts->options;
+
   int exists = !!DocTable_GetIdR(&sp->docs, name);
-  if (exists && !(opts->options & DOCUMENT_ADD_REPLACE)) {
+  if (exists && !(addOptions & DOCUMENT_ADD_REPLACE)) {
     QueryError_SetError(status, QUERY_EDOCEXISTS, NULL);
     goto error;
+  }
+  if (!exists && (addOptions & DOCUMENT_ADD_NOCREATE)) {
+    QueryError_SetError(status, QUERY_ENODOC, "Document does not exist");
+    return REDISMODULE_ERR;
   }
 
   // handle update condition, only if the document exists
@@ -168,6 +165,20 @@ int RS_AddDocument(RedisSearchCtx *sctx, RedisModuleString *name, const AddDocum
   }
   Document_LoadPairwiseArgs(&doc, opts->fieldsArray, opts->numFieldElems);
 
+  if (!exists) {
+    // If the document does not exist, remove replace/partial settings
+    addOptions &= ~(DOCUMENT_ADD_REPLACE | DOCUMENT_ADD_PARTIAL);
+  } else if (!(addOptions & DOCUMENT_ADD_PARTIAL)) {
+    // delete old decument if REPLACE without PARTIAL
+    RedisModuleKey *dk = RedisModule_OpenKey(sctx->redisCtx, name, REDISMODULE_WRITE);
+    if (dk) {
+      if (RedisModule_KeyType(dk) == REDISMODULE_KEYTYPE_HASH) {
+        RedisModule_DeleteKey(dk);
+      }
+      RedisModule_CloseKey(dk);
+    }
+  }
+
   if (!(opts->options & DOCUMENT_ADD_NOSAVE)) {
     int saveopts = 0;
     if (opts->options & DOCUMENT_ADD_NOCREATE) {
@@ -186,13 +197,6 @@ int RS_AddDocument(RedisSearchCtx *sctx, RedisModuleString *name, const AddDocum
   if (aCtx == NULL) {
     Document_Free(&doc);
     goto error;
-  }
-
-  uint32_t addOptions = opts->options;
-
-  if (!exists) {
-    // If the document does not exist, remove replace/partial settings
-    addOptions &= ~(DOCUMENT_ADD_REPLACE | DOCUMENT_ADD_PARTIAL);
   }
   if (addOptions & DOCUMENT_ADD_CURTHREAD) {
     aCtx->stateFlags |= ACTX_F_NOBLOCK;
