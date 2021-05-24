@@ -605,21 +605,21 @@ static int RLookup_JSON_GetAll(RLookup *it, RLookupRow *dst, RLookupLoadOptions 
   }
 
   if (japi->getRedisModuleStringFromKey(jsonKey, JSON_ROOT, &value) != REDISMODULE_OK) {
+    if (value) {
+      RedisModule_FreeString(ctx, value);
+    }
     goto done;
   }
 
   RLookupKey *rlk = RLookup_GetKeyEx(it, JSON_ROOT, strlen(JSON_ROOT), RLOOKUP_F_OCREAT);
   RSValue *vptr = RS_RedisStringVal(value);
-  RLookup_WriteKey(rlk, dst, vptr);
+  RLookup_WriteOwnKey(rlk, dst, vptr);
 
   rc = REDISMODULE_OK;
 
 done:
   if (jsonKey) {
     japi->closeKey(jsonKey);
-  }
-  if (value) {
-    RedisModule_FreeString(ctx, value);
   }
   return rc;
 }
