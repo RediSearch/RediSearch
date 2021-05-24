@@ -605,9 +605,6 @@ static int RLookup_JSON_GetAll(RLookup *it, RLookupRow *dst, RLookupLoadOptions 
   }
 
   if (japi->getRedisModuleStringFromKey(jsonKey, JSON_ROOT, &value) != REDISMODULE_OK) {
-    if (value) {
-      RedisModule_FreeString(ctx, value);
-    }
     goto done;
   }
 
@@ -620,6 +617,9 @@ static int RLookup_JSON_GetAll(RLookup *it, RLookupRow *dst, RLookupLoadOptions 
 done:
   if (jsonKey) {
     japi->closeKey(jsonKey);
+  }
+  if (value) {
+    RedisModule_FreeString(ctx, value);
   }
   return rc;
 }
