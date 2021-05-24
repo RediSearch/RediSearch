@@ -173,37 +173,50 @@ def testNonEnglish(env):
 def testSet(env):
     # JSON.SET (either set the entire key or a sub-value)
     # Can also do multiple changes/side-effects, such as converting an object to a scalar
-    # FIXME:
-    pass
-
+    env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT')
+    waitForIndex(env, 'idx')
+    env.execute_command('JSON.SET', 'doc:1', '$', r'{"t":"ReJSON"}')
+    env.expect('ft.search', 'idx', 're*', 'NOCONTENT').equal([1L, 'doc:1'])
 
 def testDel(env):
     # JSON.DEL and JSON.FORGET
     # FIXME:
-    pass
-
+    env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT')
+    env.execute_command('JSON.SET', 'doc:1', '$', r'{"t":"ReJSON"}')
+    env.execute_command('JSON.SET', 'doc:2', '$', r'{"t":"RediSearch"}')
+    env.expect('ft.search', 'idx', 're*', 'NOCONTENT').equal([2L, 'doc:1', 'doc:2'])
+    env.expect('JSON.DEL', 'doc:2', '$.t').equal(1L)
+    env.expect('ft.search', 'idx', 're*', 'NOCONTENT').equal([1L, 'doc:1'])
 
 def testToggle(env):
     # JSON.TOGGLE
     # FIXME:
     pass
 
-
 def testStrappend(env):
     # JSON.STRAPPEND
-    # FIXME:
-    pass
+    if not UNSTABLE_TESTS:
+        env.skip()
 
+    env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT')
+    waitForIndex(env, 'idx')
+    env.execute_command('JSON.SET', 'doc:1', '$', r'{"t":"Redis"}')
+    env.expect('ft.search', 'idx', 'Redis').equal([1L, 'doc:1', ['$', '{"t":"Redis"}']])
+    env.execute_command('JSON.STRAPPEND', 'doc:1', '.t', '"Labs"')
+    env.expect('ft.search', 'idx', '*').equal([1L, 'doc:1', ['$', '{"t":"RedisLabs"}']])
+    env.expect('ft.search', 'idx', 'RedisLabs').equal([1L, 'doc:1', ['$', '{"t":"RedisLabs"}']])
+    env.expect('ft.profile' ,'idx', 'search', 'query', 'Redi*').equal([1L, 'doc:1', ['$', '{"t":"RedisLabs"}']])
+    env.expect('ft.info' ,'idx').equal([1L, 'doc:1', ['$', '{"t":"RedisLabs"}']])
 
 def testArrappend(env):
     # JSON.ARRAPPEND
-    # FIXME:
+    # FIXME: Currently unsupported
     pass
 
 
 def testArrInsert(env):
     # JSON.ARRINSERT
-    # FIXME:
+    # FIXME: Currently unsupported
     pass
 
 
@@ -425,13 +438,11 @@ def testAsProjectionRedefinedLabel(env):
 
 
 def testNumeric(env):
-    # FIXME: Handle numeric
-    if not UNSTABLE_TESTS:
-        env.skip()
-
-    env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.n', 'NUMERIC', "$.f", 'NUMERIC')
-    waitForIndex(env, 'idx')
+    env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.n', 'AS', 'n', 'NUMERIC', "$.f", 'AS', 'f', 'NUMERIC')
     env.execute_command('JSON.SET', 'doc:1', '$', r'{"n":9, "f":9.72}')
-    env.expect('FT.SEARCH', 'idx', '@n:[0 10]', 'RETURN', '3', '$.n', 'AS', 'int').equal([1L, 'doc:1', ['$.n', 9]])
-    env.expect('FT.SEARCH', 'idx', '@f:[9.5 9.9]', 'RETURN', '3', '$.f', 'AS', 'flt').equal(
-        [1L, 'doc:1', ['flt', 9.72]])
+    env.expect('FT.SEARCH', 'idx', '*', 'RETURN', '3', '$.n', 'AS', 'int').equal([1L, 'doc:1', ['int', '9']])
+    env.expect('FT.SEARCH', 'idx', '@n:[0 10]', 'RETURN', '3', '$.n', 'AS', 'int').equal([1L, 'doc:1', ['int', '9']])
+    env.expect('FT.SEARCH', 'idx', '@f:[9.5 9.9]', 'RETURN', '1', 'f') \
+        .equal([1L, 'doc:1', ['f', '9.72']])    
+    env.expect('FT.SEARCH', 'idx', '@f:[9.5 9.9]', 'RETURN', '3', '$.f', 'AS', 'flt') \
+        .equal([1L, 'doc:1', ['flt', '9.72']])

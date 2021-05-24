@@ -3,6 +3,8 @@
 #include "spec.h"
 #include "doc_types.h"
 
+#define JSON_LEN 5 // length of string "json."
+
 RedisModuleString *global_RenameFromKey = NULL;
 extern RedisModuleCtx *RSDummyContext;
 RedisModuleString **hashFields = NULL;
@@ -24,7 +26,16 @@ typedef enum {
   evicted_cmd,
   change_cmd,
   loaded_cmd,
-  json_set_cmd,
+  /*json_set_cmd,
+  json_del_cmd,
+  json_numincrby_cmd,
+  json_nummultiby_cmd,
+  json_strappend_cmd,
+  json_arrappend_cmd,
+  json_arrinsert_cmd,
+  json_arrpop_cmd,
+  json_arrtrim_cmd,
+  json_toggle_cmd,*/
 } RedisCmd;
 
 static void freeHashFields() {
@@ -58,13 +69,13 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
                     *hincrbyfloat_event = 0, *hdel_event = 0, *del_event = 0, *set_event = 0,
                     *rename_from_event = 0, *rename_to_event = 0, *trimmed_event = 0,
                     *restore_event = 0, *expired_event = 0, *evicted_event = 0, *change_event = 0,
-                    *loaded_event = 0, *json_set_event = 0;
-  
-  // TODO:clean
-  if (!strcmp("json_set", event) || !strcmp("json_incrby", event) || !strcmp("json_arrpop", event)) {
-    Indexes_UpdateMatchingWithSchemaRules(ctx, key, DocumentType_Json, hashFields);
-    return REDISMODULE_OK;
-  }
+                    *loaded_event = 0;
+                    
+                    /**json_set_event = 0, *json_del_event = 0,
+                    *json_numincrby_event = 0, *json_nummultiby_event = 0,
+                    *json_strappend_event = 0, *json_arrappend_event = 0,
+                    *json_arrinsert_event = 0, *json_arrpop_event = 0, *json_arrtrim_event = 0,
+                    *json_toggle_event = 0;*/
 
   // clang-format off
 
@@ -88,7 +99,17 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
   else CHECK_CACHED_EVENT(rename_from)
   else CHECK_CACHED_EVENT(rename_to)
   else CHECK_CACHED_EVENT(loaded)
-//  else CHECK_CACHED_EVENT(json_set)
+  /*else CHECK_CACHED_EVENT(json_set)
+  else CHECK_CACHED_EVENT(json_del)
+  else CHECK_CACHED_EVENT(json_numincrby)
+  else CHECK_CACHED_EVENT(json_nummultiby)
+  else CHECK_CACHED_EVENT(json_strappend)
+  else CHECK_CACHED_EVENT(json_arrappend)
+  else CHECK_CACHED_EVENT(json_arrinsert)
+  else CHECK_CACHED_EVENT(json_arrpop)
+  else CHECK_CACHED_EVENT(json_arrtrim)
+  else CHECK_CACHED_EVENT(json_toggle)*/
+
   else {
          CHECK_AND_CACHE_EVENT(hset)
     else CHECK_AND_CACHE_EVENT(hmset)
@@ -110,7 +131,16 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
     else CHECK_AND_CACHE_EVENT(rename_from)
     else CHECK_AND_CACHE_EVENT(rename_to)
     else CHECK_AND_CACHE_EVENT(loaded)
-//    else CHECK_AND_CACHE_EVENT(json_set)
+    /*else CHECK_AND_CACHE_EVENT(json_set)
+    else CHECK_AND_CACHE_EVENT(json_del)
+    else CHECK_AND_CACHE_EVENT(json_numincrby)
+    else CHECK_AND_CACHE_EVENT(json_nummultiby)
+    else CHECK_AND_CACHE_EVENT(json_strappend)
+    else CHECK_AND_CACHE_EVENT(json_arrappend)
+    else CHECK_AND_CACHE_EVENT(json_arrinsert)
+    else CHECK_AND_CACHE_EVENT(json_arrpop)
+    else CHECK_AND_CACHE_EVENT(json_arrtrim)
+    else CHECK_AND_CACHE_EVENT(json_toggle)*/
   }
 
   switch (redisCommand) {
@@ -137,6 +167,26 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
       Indexes_UpdateMatchingWithSchemaRules(ctx, key, DocumentType_Json, hashFields);
       break;
     */
+
+/********************************************************
+ *              Handling RedisJSON commands             * 
+ ********************************************************/
+    /*case json_set_cmd:
+    case json_del_cmd:
+    case json_numincrby_cmd:
+    case json_nummultiby_cmd:
+    case json_strappend_cmd:
+    case json_arrappend_cmd:
+    case json_arrinsert_cmd:
+    case json_arrpop_cmd:
+    case json_arrtrim_cmd:
+    case json_toggle_cmd:
+      Indexes_UpdateMatchingWithSchemaRules(ctx, key, DocumentType_Json, hashFields);
+    break;*/
+
+/********************************************************
+ *              Handling Redis commands                 * 
+ ********************************************************/
     case restore_cmd:
       Indexes_UpdateMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields);
       break;
@@ -172,6 +222,22 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
     case rename_to_cmd:
       Indexes_ReplaceMatchingWithSchemaRules(ctx, global_RenameFromKey, key);
       break;
+  }
+
+  if (!strncmp(event, "json.", strlen("json."))) {
+    if (!strncmp(event + JSON_LEN, "set", strlen("set")) ||
+        !strncmp(event + JSON_LEN, "del", strlen("del")) ||
+        !strncmp(event + JSON_LEN, "numincrby", strlen("incrby")) ||
+        !strncmp(event + JSON_LEN, "nummultby", strlen("nummultby")) ||
+        !strncmp(event + JSON_LEN, "strappend", strlen("strappend")) ||
+        !strncmp(event + JSON_LEN, "arrappend", strlen("arrappend")) ||
+        !strncmp(event + JSON_LEN, "arrinsert", strlen("arrinsert")) ||
+        !strncmp(event + JSON_LEN, "arrpop", strlen("arrpop")) ||
+        !strncmp(event + JSON_LEN, "arrtrim", strlen("arrtrim")) ||
+        !strncmp(event + JSON_LEN, "toggle", strlen("toggle"))) {
+      // update index
+      Indexes_UpdateMatchingWithSchemaRules(ctx, key, DocumentType_Json, hashFields);
+    }
   }
 
   freeHashFields();
