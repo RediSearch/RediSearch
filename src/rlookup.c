@@ -613,7 +613,7 @@ static int RLookup_JSON_GetAll(RLookup *it, RLookupRow *dst, RLookupLoadOptions 
 
   RLookupKey *rlk = RLookup_GetKeyEx(it, JSON_ROOT, strlen(JSON_ROOT), RLOOKUP_F_OCREAT);
   RSValue *vptr = RS_RedisStringVal(value);
-  RLookup_WriteOwnKey(rlk, dst, vptr);
+  RLookup_WriteKey(rlk, dst, vptr);
 
   rc = REDISMODULE_OK;
 
