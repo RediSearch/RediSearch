@@ -43,7 +43,7 @@ ARG TEST=0
 RUN if [ "$TEST" = "1" ]; then TEST= make test; fi
 
 #----------------------------------------------------------------------------------------------
-FROM redisfab/rejson:feature-search-json-${ARCH}-${OSNICK} AS json
+FROM redisfab/rejson:master-${ARCH}-${OSNICK} AS json
 FROM redisfab/redis:${REDIS_VER}-${ARCH}-${OSNICK}
 
 ARG OSNICK

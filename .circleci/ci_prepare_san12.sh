@@ -24,7 +24,7 @@ make build SAN=${SAN_MODE}
 cd $ROOT/deps
 git clone --recursive https://github.com/RedisJSON/RedisJSON.git
 cd RedisJSON
-git checkout feature-search-json
+git checkout master
 ./deps/readies/bin/getpy3
 ./system-setup.py
 source /etc/profile.d/rust.sh

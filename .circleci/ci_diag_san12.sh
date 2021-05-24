@@ -61,12 +61,10 @@ export CONFIG_FILE="$PWD/rltest.config"
 export ASAN_OPTIONS=detect_odr_violation=0
 export RS_GLOBAL_DTORS=1
 
-# BRANCH=feature-search-json $ROOT/sbin/get-redisjson
-
 cd $ROOT/deps
 git clone --recursive https://github.com/RedisJSON/RedisJSON.git
 cd RedisJSON
-git checkout feature-search-json
+git checkout master
 ./deps/readies/bin/getpy3
 ./system-setup.py
 source /etc/profile.d/rust.sh
