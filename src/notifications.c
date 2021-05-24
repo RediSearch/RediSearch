@@ -3,7 +3,7 @@
 #include "spec.h"
 #include "doc_types.h"
 
-#define JSON_LEN 5 // length of string "json_"
+#define JSON_LEN 5 // length of string "json."
 
 RedisModuleString *global_RenameFromKey = NULL;
 extern RedisModuleCtx *RSDummyContext;
@@ -224,12 +224,11 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
       break;
   }
 
-  if (!strncmp(event, "json_", strlen("json_"))) {
+  if (!strncmp(event, "json.", strlen("json."))) {
     if (!strncmp(event + JSON_LEN, "set", strlen("set")) ||
         !strncmp(event + JSON_LEN, "del", strlen("del")) ||
-        !strncmp(event + JSON_LEN, "incrby", strlen("incrby")) ||
+        !strncmp(event + JSON_LEN, "numincrby", strlen("incrby")) ||
         !strncmp(event + JSON_LEN, "nummultby", strlen("nummultby")) ||
-        !strncmp(event + JSON_LEN, "numpowby", strlen("numpowby")) ||
         !strncmp(event + JSON_LEN, "strappend", strlen("strappend")) ||
         !strncmp(event + JSON_LEN, "arrappend", strlen("arrappend")) ||
         !strncmp(event + JSON_LEN, "arrinsert", strlen("arrinsert")) ||
