@@ -240,8 +240,12 @@ void __recursiveAddRange(Vector *v, NumericRangeNode *n, double min, double max)
 
   // for non leaf nodes - we try to descend into their children
   if (!NumericRangeNode_IsLeaf(n)) {
-    __recursiveAddRange(v, n->left, min, max);
-    __recursiveAddRange(v, n->right, min, max);
+    if(min <= n->value) {
+      __recursiveAddRange(v, n->left, min, max);
+    }
+    if(max >= n->value) {
+      __recursiveAddRange(v, n->right, min, max);
+    }
   } else if (NumericRange_Overlaps(n->range, min, max)) {
     Vector_Push(v, n->range);
     return;
