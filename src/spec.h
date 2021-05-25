@@ -27,8 +27,11 @@ extern "C" {
 struct IndexesScanner;
 struct DocumentIndexer;
 
-#define NUMERIC_STR "NUMERIC"
-#define GEO_STR "GEO"
+#define SPEC_GEO_STR "GEO"
+#define SPEC_TAG_STR "TAG"
+#define SPEC_TEXT_STR "TEXT"
+#define SPEC_VECTOR_STR "VECTOR"
+#define SPEC_NUMERIC_STR "NUMERIC"
 
 #define SPEC_NOOFFSETS_STR "NOOFFSETS"
 #define SPEC_NOFIELDS_STR "NOFIELDS"
@@ -37,11 +40,9 @@ struct DocumentIndexer;
 #define SPEC_SCHEMA_STR "SCHEMA"
 #define SPEC_SCHEMA_EXPANDABLE_STR "MAXTEXTFIELDS"
 #define SPEC_TEMPORARY_STR "TEMPORARY"
-#define SPEC_TEXT_STR "TEXT"
 #define SPEC_WEIGHT_STR "WEIGHT"
 #define SPEC_NOSTEM_STR "NOSTEM"
 #define SPEC_PHONETIC_STR "PHONETIC"
-#define SPEC_TAG_STR "TAG"
 #define SPEC_SORTABLE_STR "SORTABLE"
 #define SPEC_STOPWORDS_STR "STOPWORDS"
 #define SPEC_NOINDEX_STR "NOINDEX"
@@ -84,9 +85,10 @@ struct DocumentIndexer;
  */
 
 static const char *SpecTypeNames[] = {[IXFLDPOS_FULLTEXT] = SPEC_TEXT_STR,
-                                      [IXFLDPOS_NUMERIC] = NUMERIC_STR,
-                                      [IXFLDPOS_GEO] = GEO_STR,
-                                      [IXFLDPOS_TAG] = SPEC_TAG_STR};
+                                      [IXFLDPOS_NUMERIC] = SPEC_NUMERIC_STR,
+                                      [IXFLDPOS_GEO] = SPEC_GEO_STR,
+                                      [IXFLDPOS_TAG] = SPEC_TAG_STR,
+                                      [IXFLDPOS_VECTOR] = SPEC_VECTOR_STR};
 
 #define INDEX_SPEC_KEY_PREFIX "idx:"
 #define INDEX_SPEC_KEY_FMT INDEX_SPEC_KEY_PREFIX "%s"

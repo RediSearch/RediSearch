@@ -16,6 +16,7 @@
 #include "tag_index.h"
 #include "aggregate/expr/expression.h"
 #include "rmutil/rm_assert.h"
+#include "vector_index.h"
 
 // Memory pool for RSAddDocumentContext contexts
 static mempool_t *actxPool_g = NULL;
@@ -460,6 +461,29 @@ FIELD_BULK_INDEXER(numericIndexer) {
   return 0;
 }
 
+FIELD_PREPROCESSOR(vectorPreprocessor) {
+  fdata->vector = field->text;
+  return 0;
+}
+
+FIELD_BULK_INDEXER(vectorIndexer) {
+  RS_Vector *rt = bulk->indexDatas[IXFLDPOS_VECTOR];
+  if (!rt) {
+    RedisModuleString *keyName = IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_VECTOR);
+    rt = bulk->indexDatas[IXFLDPOS_VECTOR] =
+        OpenVectorIndex(ctx, keyName/*, &bulk->indexKeys[IXFLDPOS_VECTOR]*/);
+    if (!rt) {
+      QueryError_SetError(status, QUERY_EGENERIC, "Could not open vector for indexing");
+      return -1;
+    }
+  }
+  // TODO: change return value to NRN_AddRv
+  int rv = AddVectorToHNSWIndex(rt->data.nhsw, fdata->vector, aCtx->doc->docId);
+  ctx->spec->stats.invertedSize += rt->size * sizeof(double) * 2;  // TODO: no way to tell at this point.
+  ctx->spec->stats.numRecords++;
+  return 0;
+}
+
 FIELD_PREPROCESSOR(geoPreprocessor) {
   // TODO: streamline
   const char *c = RedisModule_StringPtrLen(field->text, NULL);
@@ -539,6 +563,9 @@ int IndexerBulkAdd(IndexBulkData *bulk, RSAddDocumentCtx *cur, RedisSearchCtx *s
         case IXFLDPOS_NUMERIC:
         case IXFLDPOS_GEO:
           rc = numericIndexer(bulk, cur, sctx, field, fs, fdata, status);
+          break;
+        case IXFLDPOS_VECTOR:
+          rc = vectorIndexer(bulk, cur, sctx, field, fs, fdata, status);
           break;
         case IXFLDPOS_FULLTEXT:
           break;

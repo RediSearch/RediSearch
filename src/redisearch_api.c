@@ -81,6 +81,10 @@ RSFieldID RediSearch_CreateField(IndexSpec* sp, const char* name, unsigned types
     FieldSpec_Initialize(fs, INDEXFLD_T_GEO);
     numTypes++;
   }
+  if (types & RSFLDTYPE_VECTOR) {
+    FieldSpec_Initialize(fs, INDEXFLD_T_VECTOR);
+    numTypes++;
+  }
   if (types & RSFLDTYPE_TAG) {
     FieldSpec_Initialize(fs, INDEXFLD_T_TAG);
     numTypes++;

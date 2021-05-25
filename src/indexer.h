@@ -12,6 +12,7 @@ typedef struct FieldIndexerData {
   const char *geoSlon;
   const char *geoSlat;
   char **tags;
+  void *vector;
 } FieldIndexerData;
 
 typedef struct DocumentIndexer {

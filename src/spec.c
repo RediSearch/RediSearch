@@ -323,6 +323,9 @@ void FieldSpec_Initialize(FieldSpec *fs, FieldType types) {
     fs->tagFlags = TAG_FIELD_DEFAULT_FLAGS;
     fs->tagSep = TAG_FIELD_DEFAULT_SEP;
   }
+  if (FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
+    // TODO: Nothing at the moment
+  }
 }
 
 /* Parse a field definition from argv, at *offset. We advance offset as we progress.
@@ -338,10 +341,12 @@ static int parseFieldSpec(ArgsCursor *ac, FieldSpec *fs, QueryError *status) {
     if (!parseTextField(fs, ac, status)) {
       goto error;
     }
-  } else if (AC_AdvanceIfMatch(ac, NUMERIC_STR)) {
+  } else if (AC_AdvanceIfMatch(ac, SPEC_NUMERIC_STR)) {
     FieldSpec_Initialize(fs, INDEXFLD_T_NUMERIC);
-  } else if (AC_AdvanceIfMatch(ac, GEO_STR)) {  // geo field
+  } else if (AC_AdvanceIfMatch(ac, SPEC_GEO_STR)) {  // geo field
     FieldSpec_Initialize(fs, INDEXFLD_T_GEO);
+  } else if (AC_AdvanceIfMatch(ac, SPEC_VECTOR_STR)) {  // vector field
+    FieldSpec_Initialize(fs, INDEXFLD_T_VECTOR);
   } else if (AC_AdvanceIfMatch(ac, SPEC_TAG_STR)) {  // tag field
     FieldSpec_Initialize(fs, INDEXFLD_T_TAG);
     if (AC_AdvanceIfMatch(ac, SPEC_SEPARATOR_STR)) {
@@ -938,6 +943,10 @@ RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs,
       case INDEXFLD_T_TAG:
         ret = TagIndex_FormatName(&sctx, fs->name);
         break;
+      case INDEXFLD_T_VECTOR:
+        // TODO: remove the whole thing
+        // NOT NECESSARY ANYMORE - used when field were in keyspace
+        break;
       case INDEXFLD_T_FULLTEXT:  // Text fields don't get a per-field index
       default:
         ret = NULL;
@@ -1141,6 +1150,7 @@ static const FieldType fieldTypeMap[] = {[IDXFLD_LEGACY_FULLTEXT] = INDEXFLD_T_F
                                          [IDXFLD_LEGACY_NUMERIC] = INDEXFLD_T_NUMERIC,
                                          [IDXFLD_LEGACY_GEO] = INDEXFLD_T_GEO,
                                          [IDXFLD_LEGACY_TAG] = INDEXFLD_T_TAG};
+                                         // CHECKED: Not related to new data types - legacy code
 
 static void FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
 
