@@ -604,6 +604,7 @@ static int RLookup_JSON_GetAll(RLookup *it, RLookupRow *dst, RLookupLoadOptions 
     goto done;
   }
 
+  RedisModuleString *value = NULL;
   if (japi->getRedisModuleStringFromKey(jsonKey, JSON_ROOT, &value) != REDISMODULE_OK) {
     if (value) {
       RedisModule_FreeString(ctx, value);

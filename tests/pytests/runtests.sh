@@ -20,6 +20,7 @@ if [[ $1 == --help || $1 == help ]]; then
 		Argument variables:
 		TEST=name             Operate in single-test mode
 		VG=1|0                Use valgrind
+		SAN=type              Use LLVM sanitizer (type=address|memory|leak|thread) 
 		GDB=0|1               Enable interactive gdb debugging (in single-test mode)
 		REJSON=0|1|get        Also load RedisJSON module (get: force download from S3)
 		REJSON_BRANCH=branch  Use a snapshot of given branch name
@@ -72,11 +73,36 @@ fi
 
 #---------------------------------------------------------------------------------------------- 
 
+if [[ -n $SAN ]]; then
+	if ! grep THPIsEnabled /build/redis.blacklist &> /dev/null; then
+		echo "fun:THPIsEnabled" >> /build/redis.blacklist
+	fi
+	export ASAN_OPTIONS=detect_odr_violation=0
+	export RS_GLOBAL_DTORS=1
+	
+	rejson_path=$ROOT/deps/RedisJSON/target/x86_64-unknown-linux-gnu/debug/rejson.so
+	if [[ -z $REJSON_PATH && -f $rejson_path ]]; then
+		export REJSON_PATH=$rejson_path
+	fi
+fi
+
 if [[ $VG == 1 ]]; then
 	REDIS_SERVER=${REDIS_SERVER:-redis-server-vg}
 	if ! command -v $REDIS_SERVER > /dev/null; then
 		echo Building Redis for Valgrind ...
 		$READIES/bin/getredis -v 6 --valgrind --suffix vg
+	fi
+elif [[ $SAN == addr || $SAN == address ]]; then
+	REDIS_SERVER=${REDIS_SERVER:-redis-server-asan}	
+	if ! command -v $REDIS_SERVER > /dev/null; then
+		echo Building Redis for Valgrind ...
+		$READIES/bin/getredis --force -v 6.0 --no-run --suffix asan --clang-asan --clang-san-blacklist /build/redis.blacklist
+	fi
+elif [[ $SAN == memory ]]; then
+	REDIS_SERVER=${REDIS_SERVER:-redis-server-msan}
+	if ! command -v $REDIS_SERVER > /dev/null; then
+		echo Building Redis for Valgrind ...
+		$READIES/bin/getredis --force -v 6.0  --no-run --suffix msan --clang-msan --llvm-dir /opt/llvm-project/build-msan --clang-san-blacklist /build/redis.blacklist
 	fi
 else
 	REDIS_SERVER=${REDIS_SERVER:-redis-server}
@@ -98,7 +124,7 @@ fi
 
 #---------------------------------------------------------------------------------------------- 
 
-REJSON_BRANCH=${REJSON_BRANCH:-feature-search-json}
+REJSON_BRANCH=${REJSON_BRANCH:-master}
 
 if [[ -n $REJSON && $REJSON != 0 ]]; then
 	platform=`$READIES/bin/platform -t`
