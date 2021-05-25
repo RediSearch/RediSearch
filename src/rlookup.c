@@ -597,6 +597,7 @@ static int RLookup_JSON_GetAll(RLookup *it, RLookupRow *dst, RLookupLoadOptions 
   if (!japi) {
     return rc;
   }
+
   RedisModuleCtx *ctx = options->sctx->redisCtx;
   RedisJSONKey jsonKey = japi->openKeyFromStr(ctx, options->dmd->keyPtr);
   if (!jsonKey) {
@@ -605,14 +606,14 @@ static int RLookup_JSON_GetAll(RLookup *it, RLookupRow *dst, RLookupLoadOptions 
 
   RedisModuleString *value = NULL;
   if (japi->getRedisModuleStringFromKey(jsonKey, JSON_ROOT, &value) != REDISMODULE_OK) {
-      if (value) {
-          RedisModule_FreeString(ctx, value);
-      }
+    if (value) {
+      RedisModule_FreeString(ctx, value);
+    }
     goto done;
   }
 
   RLookupKey *rlk = RLookup_GetKeyEx(it, JSON_ROOT, strlen(JSON_ROOT), RLOOKUP_F_OCREAT);
-  RSValue *vptr = RS_RedisStringVal(value);
+  RSValue *vptr = RS_StealRedisStringVal(value);
   RLookup_WriteOwnKey(rlk, dst, vptr);
 
   rc = REDISMODULE_OK;
