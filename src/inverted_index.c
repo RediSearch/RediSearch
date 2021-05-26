@@ -30,7 +30,7 @@ uint64_t TotalIIBlocks = 0;
 
 static IndexReader *NewIndexReaderGeneric(const IndexSpec *sp, InvertedIndex *idx,
                                           IndexDecoderProcs decoder, IndexDecoderCtx decoderCtx,
-                                          RSIndexResult *record, double weight);
+                                          RSIndexResult *record);
 
 /**
  * Get the real ID, given the current delta
@@ -780,7 +780,7 @@ IndexReader *NewNumericReader(const IndexSpec *sp, InvertedIndex *idx, const Num
 
   IndexDecoderCtx ctx = {.ptr = (void *)flt};
   IndexDecoderProcs procs = {.decoder = readNumeric};
-  return NewIndexReaderGeneric(sp, idx, procs, ctx, res, 1);
+  return NewIndexReaderGeneric(sp, idx, procs, ctx, res);
 }
 
 static t_docId calculateId(t_docId lastId, uint32_t delta, int isFirst) {
@@ -1062,13 +1062,12 @@ size_t IR_NumDocs(void *ctx) {
 
 static void IndexReader_Init(const IndexSpec *sp, IndexReader *ret, InvertedIndex *idx,
                              IndexDecoderProcs decoder, IndexDecoderCtx decoderCtx,
-                             RSIndexResult *record, double weight) {
+                             RSIndexResult *record) {
   ret->currentBlock = 0;
   ret->idx = idx;
   ret->gcMarker = idx->gcMarker;
   ret->record = record;
   ret->len = 0;
-  ret->weight = weight;
   ret->lastId = IR_CURRENT_BLOCK(ret).firstId;
   ret->br = NewBufferReader(&IR_CURRENT_BLOCK(ret).buf);
   ret->decoders = decoder;
@@ -1080,9 +1079,9 @@ static void IndexReader_Init(const IndexSpec *sp, IndexReader *ret, InvertedInde
 
 static IndexReader *NewIndexReaderGeneric(const IndexSpec *sp, InvertedIndex *idx,
                                           IndexDecoderProcs decoder, IndexDecoderCtx decoderCtx,
-                                          RSIndexResult *record, double weight) {
+                                          RSIndexResult *record) {
   IndexReader *ret = rm_malloc(sizeof(IndexReader));
-  IndexReader_Init(sp, ret, idx, decoder, decoderCtx, record, weight);
+  IndexReader_Init(sp, ret, idx, decoder, decoderCtx, record);
   return ret;
 }
 
@@ -1105,7 +1104,7 @@ IndexReader *NewTermIndexReader(InvertedIndex *idx, IndexSpec *sp, t_fieldMask f
 
   IndexDecoderCtx dctx = {.num = fieldMask};
 
-  return NewIndexReaderGeneric(sp, idx, decoder, dctx, record, weight);
+  return NewIndexReaderGeneric(sp, idx, decoder, dctx, record);
 }
 
 void IR_Free(IndexReader *ir) {
