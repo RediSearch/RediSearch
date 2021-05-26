@@ -42,7 +42,7 @@ typedef struct RedisJSONAPI_V1 {
     int (*getLen)(RedisJSON json, size_t *count);
 
     // Return the JSONType
-    int (*getType)(RedisJSON json, JSONType *type);
+    JSONType (*getType)(RedisJSON json);
 
     // Return int value from a Numeric field
     int (*getInt)(RedisJSON json, long long *integer);

@@ -195,8 +195,6 @@ def testToggle(env):
 
 def testStrappend(env):
     # JSON.STRAPPEND
-    if not UNSTABLE_TESTS:
-        env.skip()
 
     env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT')
     waitForIndex(env, 'idx')
@@ -205,8 +203,10 @@ def testStrappend(env):
     env.execute_command('JSON.STRAPPEND', 'doc:1', '.t', '"Labs"')
     env.expect('ft.search', 'idx', '*').equal([1L, 'doc:1', ['$', '{"t":"RedisLabs"}']])
     env.expect('ft.search', 'idx', 'RedisLabs').equal([1L, 'doc:1', ['$', '{"t":"RedisLabs"}']])
-    env.expect('ft.profile' ,'idx', 'search', 'query', 'Redi*').equal([1L, 'doc:1', ['$', '{"t":"RedisLabs"}']])
-    env.expect('ft.info' ,'idx').equal([1L, 'doc:1', ['$', '{"t":"RedisLabs"}']])
+    if UNSTABLE_TESTS:
+        # FIXME: Use .contains instead of .equal to avoid "noise" such as timing etc.
+        env.expect('ft.profile' ,'idx', 'search', 'query', 'Redi*').equal([1L, 'doc:1', ['$', '{"t":"RedisLabs"}']])
+        env.expect('ft.info' ,'idx').equal([1L, 'doc:1', ['$', '{"t":"RedisLabs"}']])
 
 def testArrappend(env):
     # JSON.ARRAPPEND
@@ -446,3 +446,18 @@ def testNumeric(env):
         .equal([1L, 'doc:1', ['f', '9.72']])    
     env.expect('FT.SEARCH', 'idx', '@f:[9.5 9.9]', 'RETURN', '3', '$.f', 'AS', 'flt') \
         .equal([1L, 'doc:1', ['flt', '9.72']])
+
+def testLanguage(env):
+    if not UNSTABLE_TESTS:
+        env.skip()
+    # TODO: Check stemming? e.g., trad is stem of traduzioni and tradurre ?
+    env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'LANGUAGE_FIELD', '$.lang', 'SCHEMA', '$.t', 'TEXT')
+    env.execute_command('FT.CREATE', 'idx2', 'ON', 'JSON', 'LANGUAGE', 'Italian', 'SCHEMA', '$.domanda', 'TEXT')
+    waitForIndex(env, 'idx')
+    waitForIndex(env, 'idx2')
+
+    env.execute_command('JSON.SET', 'doc:1', '$', r'{"t":"traduzioni", "lang":"Italian"}')
+    env.expect('ft.search', 'idx', 'tradu*', 'RETURN', '1', '$.t' ).equal([1L, 'doc:1', ['$.t', '"traduzioni"']])
+
+    env.execute_command('JSON.SET', 'doc:2', '$', r'{"domanda":"perché"}')
+    env.expect('ft.search', 'idx2', 'per*', 'RETURN', '1', '$.domanda' ).equal([1L, 'doc:2', ['$.domanda', '"perch\xc3\xa9"']])

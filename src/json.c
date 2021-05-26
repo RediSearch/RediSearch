@@ -47,7 +47,8 @@ static RSLanguage SchemaRule_JsonLanguage(RedisModuleCtx *ctx, const SchemaRule 
   }
 
   const char *langStr;
-  if (RedisJSON_GetString(jsonKey, rule->lang_field, &langStr, NULL) != REDISMODULE_OK) {
+  size_t len;
+  if (RedisJSON_GetString(jsonKey, rule->lang_field, &langStr, &len) != REDISMODULE_OK) {
     goto done;
   }
   
@@ -98,8 +99,6 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx) {
   doc->language = SchemaRule_JsonLanguage(sctx->redisCtx, rule, jsonKey, keyName);
   doc->score = SchemaRule_JsonScore(sctx->redisCtx, rule, jsonKey, keyName);
   // No payload on JSON as RedisJSON does not support binary fields
-
-  const char *jsonVal; //remove
 
   JSONType type;
   doc->fields = rm_calloc(nitems, sizeof(*doc->fields));
