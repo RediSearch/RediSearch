@@ -370,8 +370,9 @@ static int getKeyCommonJSON(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
   }
 
   // In this case, the flag must be obtained from JSON
+  RedisModuleCtx *ctx = options->sctx->redisCtx;
   if (!*keyobj) {
-    RedisModuleCtx *ctx = options->sctx->redisCtx;
+
     *keyobj = japi->openKeyFromStr(ctx, options->dmd->keyPtr);
     if (!*keyobj) {
       QueryError_SetCode(options->status, QUERY_ENODOC);
@@ -393,7 +394,7 @@ static int getKeyCommonJSON(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
     const FieldSpec *fs = IndexSpec_GetField(options->sctx->spec, kk->name, kk->name_len);
     path = fs ? fs->path : kk->name;
   }
-  rc = japi->getRedisModuleStringFromKey(*keyobj, path, &val);
+  rc = japi->getJSONFromKey(*keyobj, ctx, path, &val);
 
   if (rc == REDISMODULE_OK && val != NULL) {
     rsv = hvalToValue(val, kk->fieldtype);
@@ -605,7 +606,7 @@ static int RLookup_JSON_GetAll(RLookup *it, RLookupRow *dst, RLookupLoadOptions 
   }
 
   RedisModuleString *value = NULL;
-  if (japi->getRedisModuleStringFromKey(jsonKey, JSON_ROOT, &value) != REDISMODULE_OK) {
+  if (japi->getJSONFromKey(jsonKey, ctx, JSON_ROOT, &value) != REDISMODULE_OK) {
     if (value) {
       RedisModule_FreeString(ctx, value);
     }
