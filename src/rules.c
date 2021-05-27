@@ -78,7 +78,7 @@ SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, IndexSpec *spec, QueryError 
   }
 
   if (args->lang_default) {
-    RSLanguage lang = RSLanguage_Find(args->lang_default);
+    RSLanguage lang = RSLanguage_Find(args->lang_default, 0);
     if (lang == RS_LANG_UNSUPPORTED) {
       QueryError_SetError(status, QUERY_EADDARGS, "Invalid language");
       goto error;
@@ -163,7 +163,7 @@ RSLanguage SchemaRule_HashLang(RedisModuleCtx *rctx, const SchemaRule *rule, Red
     goto done;
   }
   const char *lang_s = (const char *)RedisModule_StringPtrLen(lang_rms, NULL);
-  lang = RSLanguage_Find(lang_s);
+  lang = RSLanguage_Find(lang_s, 0);
   if (lang == RS_LANG_UNSUPPORTED) {
     RedisModule_Log(NULL, "warning", "invalid language for key %s", kname);
     lang = rule->lang_default;

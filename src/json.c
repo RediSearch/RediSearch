@@ -48,11 +48,13 @@ static RSLanguage SchemaRule_JsonLanguage(RedisModuleCtx *ctx, const SchemaRule 
 
   const char *langStr;
   size_t len;
-  if (RedisJSON_GetString(jsonKey, rule->lang_field, &langStr, &len) != REDISMODULE_OK) {
+  assert(japi);
+  rv = japi ? japi->getStringFromKey(jsonKey, rule->lang_field, &langStr, &len) : REDISMODULE_ERR;
+  if (rv != REDISMODULE_OK) {
     goto done;
   }
-  
-  lang = RSLanguage_Find(langStr);
+
+  lang = RSLanguage_Find(langStr, len);
   if (lang == RS_LANG_UNSUPPORTED) {
     lang = rule->lang_default;
     goto done;
