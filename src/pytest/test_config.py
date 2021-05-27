@@ -1,4 +1,4 @@
-from RLTest import Env
+from RLTest import Env, Defaults
 
 def testConfig(env):
     env.skipOnCluster()
