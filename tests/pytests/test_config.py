@@ -154,7 +154,7 @@ def testInitConfig(env):
         env.stop()
 
     test_arg_true('NOGC')
-    # test_arg_true('SAFEMODE')
+    test_arg_true('SAFEMODE')
     test_arg_true('CONCURRENT_WRITE_MODE')
     test_arg_true('NO_MEM_POOLS')
 
