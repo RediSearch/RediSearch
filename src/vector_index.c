@@ -21,5 +21,5 @@ static RS_Vector *openVectorKeysDict(RedisSearchCtx *ctx, RedisModuleString *key
 
 RS_Vector *OpenVectorIndex(RedisSearchCtx *ctx,
                             RedisModuleString *keyName) {
-  return openNumericKeysDict(ctx, keyName, 1);
+  return openVectorKeysDict(ctx, keyName, 1);
 }
