@@ -88,7 +88,7 @@ $OP mkdir -p $WORK_DIR
 if [[ -z $REPO_PATH ]]; then
 	F_MOD_RAMP="$WORK_DIR/$MOD_RAMP"
 	if [[ $FORCE == 1 || ! -f $F_MOD_RAMP ]]; then
-		echo "Download RedisJSON ..."
+		echo "Download RedisJSON [$MOD_S3_URL/$MOD_RAMP] ..."
 		$OP wget -q -P $WORK_DIR $MOD_S3_URL/$MOD_RAMP
 	fi
 else
