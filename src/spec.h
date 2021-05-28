@@ -3,6 +3,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <pthread.h>
 
 #include "default_gc.h"
 #include "redismodule.h"
@@ -228,6 +229,8 @@ typedef struct IndexSpec {
   FieldSpec *fields;
   int numFields;
 
+  bool writeLocked;
+  pthread_rwlock_t rwlock;
   IndexStats stats;
   IndexFlags flags;
 
