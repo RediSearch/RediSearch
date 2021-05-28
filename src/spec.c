@@ -796,6 +796,9 @@ void IndexSpec_FreeInternals(IndexSpec *spec) {
     spec->scanner->cancelled = true;
     spec->scanner->spec = NULL;
   }
+
+  pthread_rwlock_destroy(&spec->rwlock);
+
   rm_free(spec);
 }
 
@@ -1028,6 +1031,10 @@ IndexSpec *NewIndexSpec(const char *name) {
   sp->scan_in_progress = false;
 
   sp->cascadeDelete = true;
+
+  sp->writeLocked = false;
+  int res = pthread_rwlock_init(&sp->rwlock, NULL);
+  RS_LOG_ASSERT(res == 0, "failed creating index level R/W lock");
 
   memset(&sp->stats, 0, sizeof(sp->stats));
   return sp;

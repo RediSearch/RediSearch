@@ -38,9 +38,9 @@ typedef enum {
 
 static int __attribute__((warn_unused_result)) FGC_lock(ForkGC *gc, RedisModuleCtx *ctx) {
   if (gc->type == FGC_TYPE_NOKEYSPACE) {
-    RWLOCK_ACQUIRE_WRITE();
+    RWLOCK_ACQUIRE_WRITE(gc->sp);
     if (gc->deleting) {
-      RWLOCK_RELEASE();
+      RWLOCK_RELEASE(gc->sp);
       return 0;
     }
   } else {
@@ -55,7 +55,7 @@ static int __attribute__((warn_unused_result)) FGC_lock(ForkGC *gc, RedisModuleC
 
 static void FGC_unlock(ForkGC *gc, RedisModuleCtx *ctx) {
   if (gc->type == FGC_TYPE_NOKEYSPACE) {
-    RWLOCK_RELEASE();
+    RWLOCK_RELEASE(gc->sp);
   } else {
     RedisModule_ThreadSafeContextUnlock(ctx);
   }

@@ -118,10 +118,6 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
     }                                               \
   } while (false)
 
-  if (RediSearch_LockInit(ctx) != REDISMODULE_OK) {
-    return REDISMODULE_ERR;
-  }
-
   // Print version string!
   DO_LOG("notice", "RediSearch version %d.%d.%d (Git=%s)", REDISEARCH_VERSION_MAJOR,
          REDISEARCH_VERSION_MINOR, REDISEARCH_VERSION_PATCH, RS_GetExtraVersion());
