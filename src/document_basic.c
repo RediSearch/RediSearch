@@ -144,6 +144,68 @@ done:
   return rv;
 }
 
+int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx) {
+  int rv = REDISMODULE_ERR;
+  if (!japi) {
+    RedisModule_Log(sctx->redisCtx, "warning", "cannot operate on a JSON index as RedisJSON is not loaded");
+    return REDISMODULE_ERR;
+  }
+  IndexSpec *spec = sctx->spec;
+  SchemaRule *rule = spec->rule;
+  RedisModuleCtx *ctx = sctx->redisCtx;
+  size_t nitems = sctx->spec->numFields;
+  RedisJSON json = NULL;
+
+  RedisJSONKey jsonKey = japi->openKey(ctx, doc->docKey);
+  if (!jsonKey) {
+    goto done;
+  }
+  Document_MakeStringsOwner(doc); // TODO: necessary??
+
+  const char *keyName = RedisModule_StringPtrLen(doc->docKey, NULL);
+  doc->language = SchemaRule_JsonLang(sctx->redisCtx, rule, jsonKey, keyName);
+  doc->score = SchemaRule_JsonScore(sctx->redisCtx, rule, jsonKey, keyName);
+  // No payload on JSON as RedisJSON does not support binary fields
+
+  JSONType type;
+  doc->fields = rm_calloc(nitems, sizeof(*doc->fields));
+  size_t ii = 0;
+  for (; ii < spec->numFields; ++ii) {
+    FieldSpec *field = &spec->fields[ii];
+
+    // retrieve json pointer
+    // TODO: check option to move to getStringFromKey
+    json = japi->get(jsonKey, field->path, &type);
+    if (!json) {
+        continue;
+    }
+    if (type == JSONType_Array || type == JSONType_Object) {
+        json = NULL;
+      continue;
+    }
+
+    size_t oix = doc->numFields++;
+    doc->fields[oix].path = rm_strdup(field->path);
+    doc->fields[oix].name = (field->name == field->path) ? doc->fields[oix].path
+                                                         : rm_strdup(field->name);
+
+    // on crdt the return value might be the underline value, we must copy it!!!
+    // TODO: change `fs->text` to support hash or json not RedisModuleString
+    if (japi->getJSON(json, ctx, &doc->fields[oix].text) != REDISMODULE_OK) {
+      RedisModule_Log(ctx, "verbose", "Failed to load value from field %s", field->path);
+      goto done;
+    }
+    json = NULL;
+  }
+  rv = REDISMODULE_OK;
+
+done:
+  if (jsonKey) {
+    japi->closeKey(jsonKey);
+  }
+  return rv;
+}
+
 /* used only by unit tests */
 int Document_LoadAllFields(Document *doc, RedisModuleCtx *ctx) {
   int rc = REDISMODULE_ERR;
