@@ -13,6 +13,7 @@ if [[ ! -z $USE_COVERAGE ]]; then
     ./lcov-init.sh
 fi
 
+BRANCH=master $ROOT/sbin/get-redisjson
 COMPAT_DIR="$ROOT/$BUILD_DIR" make -C $ROOT test CTEST_ARGS="-V"
 
 if [[ ! -z $USE_COVERAGE ]]; then
