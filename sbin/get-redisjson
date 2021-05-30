@@ -1,0 +1,108 @@
+#!/bin/bash
+
+# set -e
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+ROOT=$(cd $HERE/.. && pwd)
+READIES=$ROOT/deps/readies
+. $READIES/shibumi/defs
+
+if [[ "$1" == "--help" || "$1" == "help" || "$HELP" == "1" ]]; then
+	cat <<-END
+		Get RedisJSON module binaries
+
+		get-redisjson [--help|help]
+
+		Argument variables:
+		OSNICK=nick     Get binaries for given osnick
+		BRANCH=name     Use given branch
+		REPO_PATH=dir   Get binaries from given repo path
+		FORCE=1         Download module even if already present
+		NOP=1           No operation
+		HELP=1          Show help
+
+	END
+	exit 0
+fi
+
+BRANCH=${BRANCH:-master}
+
+OP=""
+[[ "$NOP" == "1" ]] && OP=echo
+
+os="$($READIES/bin/platform --os)"
+arch="$($READIES/bin/platform --arch)"
+
+if [[ ! -z "$REPO_PATH" ]]; then
+	platform="$($READIES/bin/platform -t)"
+else
+	if [[ "$os" != "linux" || "$arch" != "x64" ]]; then
+		eprint "Cannot match binary artifacts - build RedisJSON and set REPO_PATH"
+		exit 1
+	fi
+
+	dist="$($READIES/bin/platform --dist)"
+	nick="$($READIES/bin/platform --osnick)"
+
+	[[ $os == linux ]] && os=Linux
+	[[ $arch == x64 ]] && arch=x86_64
+	
+	if [[ $dist == "ubuntu" ]]; then
+		if [[ $nick == "focal" ]]; then
+			nick="ubuntu20.04"
+		elif [[ $nick == "bionic" ]]; then
+			nick="ubuntu18.04"
+		elif [[ $nick == "xenial" ]]; then
+			nick="ubuntu16.04"
+		elif [[ $nick == "trusty" ]]; then
+			nick="ubuntu14.04"
+		fi
+	elif [[ $dist == debian ]]; then
+		if [[ $nick != "buster" ]]; then
+			nick=ubuntu18.04
+		fi
+	elif [[ $dist == centos || $dist == redhat || $dist == fedora ]]; then
+		nick=rhel7
+	elif [[ ! -z "$OSNICK" ]]; then
+		nick=$OSNICK
+	else
+		eprint "Cannot match binary artifacts - build RedisJSON and set REPO_PATH"
+		exit 1
+	fi
+	platform="${os}-${nick}-${arch}"
+fi
+
+MOD_S3_URL="http://redismodules.s3.amazonaws.com/rejson/snapshots"
+MOD_RAMP="rejson.${platform}.$BRANCH.zip"
+
+DEST_REJSON_DIR="$ROOT/bin/$($READIES/bin/platform -t)/RedisJSON"
+
+if [[ $FORCE != 1 && -d $DEST_REJSON_DIR && -f $DEST_REJSON_DIR/rejson.so ]]; then
+	echo "RedisJSON is in ${DEST_REJSON_DIR}:"
+	$OP du -ah --apparent-size $DEST_REJSON_DIR
+	exit 0
+fi
+
+$OP mkdir -p $(dirname $DEST_REJSON_DIR)
+WORK_DIR=$(mktemp -d /tmp/rejson.XXXXXX)
+
+if [[ -z $REPO_PATH ]]; then
+	F_MOD_RAMP="$WORK_DIR/$MOD_RAMP"
+	if [[ $FORCE == 1 || ! -f $F_MOD_RAMP ]]; then
+		echo "Download RedisJSON [$MOD_S3_URL/$MOD_RAMP] ..."
+		$OP wget -q -P $WORK_DIR $MOD_S3_URL/$MOD_RAMP
+	fi
+else
+	F_MOD_RAMP="${REPO_PATH}/artifacts/snapshots/${MOD_RAMP}"
+	[[ ! -f $F_MOD_RAMP ]] && { eprint "$F_MOD_RAMP is missing"; exit 1; }
+fi
+
+$OP unzip -q $F_MOD_RAMP -d $WORK_DIR
+if [[ -e ${DEST_REJSON_DIR} ]]; then
+	echo "Removing existing ${DEST_REJSON_DIR}"
+	$OP rm -rf ${DEST_REJSON_DIR}
+fi
+# $OP mv $WORK_DIR $DEST_REJSON_DIR
+$OP rsync -a --no-owner --no-group --remove-source-files $WORK_DIR/* $DEST_REJSON_DIR
+echo "RedisJSON installed into ${DEST_REJSON_DIR}:"
+$OP du -ah --apparent-size $DEST_REJSON_DIR

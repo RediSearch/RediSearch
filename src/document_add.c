@@ -108,7 +108,7 @@ static int parseDocumentOptions(AddDocumentOptions *opts, ArgsCursor *ac, QueryE
   }
 
   if (opts->languageStr != NULL) {
-    opts->language = RSLanguage_Find(RedisModule_StringPtrLen(opts->languageStr, NULL));
+    opts->language = RSLanguage_Find(RedisModule_StringPtrLen(opts->languageStr, NULL), 0);
     if (opts->language == RS_LANG_UNSUPPORTED) {
       QueryError_SetError(status, QUERY_EADDARGS, "Unsupported language");
       return REDISMODULE_ERR;

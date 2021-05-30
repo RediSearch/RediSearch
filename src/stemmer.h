@@ -62,7 +62,7 @@ Stemmer *NewStemmer(StemmerType type, RSLanguage language);
 int ResetStemmer(Stemmer *stemmer, StemmerType type, RSLanguage language);
 
 /* check if a language is supported by our stemmers */
-RSLanguage RSLanguage_Find(const char *language);
+RSLanguage RSLanguage_Find(const char *language, size_t len);
 const char *RSLanguage_ToString(RSLanguage language);
 
 /* Get a stemmer expander instance for registering it */
