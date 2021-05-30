@@ -58,7 +58,9 @@ else
 			nick="ubuntu14.04"
 		fi
 	elif [[ $dist == debian ]]; then
-		nick=ubuntu18.04
+		if [[ $nick != "buster" ]]; then
+			nick=ubuntu18.04
+		fi
 	elif [[ $dist == centos || $dist == redhat || $dist == fedora ]]; then
 		nick=rhel7
 	elif [[ ! -z "$OSNICK" ]]; then
@@ -76,7 +78,8 @@ MOD_RAMP="rejson.${platform}.$BRANCH.zip"
 DEST_REJSON_DIR="$ROOT/bin/$($READIES/bin/platform -t)/RedisJSON"
 
 if [[ $FORCE != 1 && -d $DEST_REJSON_DIR && -f $DEST_REJSON_DIR/rejson.so ]]; then
-	echo "RedisJSON is in ${DEST_REJSON_DIR}"
+	echo "RedisJSON is in ${DEST_REJSON_DIR}:"
+	$OP du -ah --apparent-size $DEST_REJSON_DIR
 	exit 0
 fi
 
@@ -100,5 +103,6 @@ if [[ -e ${DEST_REJSON_DIR} ]]; then
 	$OP rm -rf ${DEST_REJSON_DIR}
 fi
 # $OP mv $WORK_DIR $DEST_REJSON_DIR
-$OP rsync -a --no-owner --no-group --remove-source-files $WORK_DIR $DEST_REJSON_DIR
-echo "RedisJSON installed into ${DEST_REJSON_DIR}"
+$OP rsync -a --no-owner --no-group --remove-source-files $WORK_DIR/* $DEST_REJSON_DIR
+echo "RedisJSON installed into ${DEST_REJSON_DIR}:"
+$OP du -ah --apparent-size $DEST_REJSON_DIR

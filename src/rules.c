@@ -78,7 +78,7 @@ SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, IndexSpec *spec, QueryError 
   }
 
   if (args->lang_default) {
-    RSLanguage lang = RSLanguage_Find(args->lang_default);
+    RSLanguage lang = RSLanguage_Find(args->lang_default, 0);
     if (lang == RS_LANG_UNSUPPORTED) {
       QueryError_SetError(status, QUERY_EADDARGS, "Invalid language");
       goto error;
@@ -163,7 +163,7 @@ RSLanguage SchemaRule_HashLang(RedisModuleCtx *rctx, const SchemaRule *rule, Red
     goto done;
   }
   const char *lang_s = (const char *)RedisModule_StringPtrLen(lang_rms, NULL);
-  lang = RSLanguage_Find(lang_s);
+  lang = RSLanguage_Find(lang_s, 0);
   if (lang == RS_LANG_UNSUPPORTED) {
     RedisModule_Log(NULL, "warning", "invalid language for key %s", kname);
     lang = rule->lang_default;
@@ -172,6 +172,44 @@ done:
   if (lang_rms) {
     RedisModule_FreeString(rctx, lang_rms);
   }
+  return lang;
+}
+
+RSLanguage SchemaRule_JsonLang(RedisModuleCtx *ctx, const SchemaRule *rule,
+                               RedisJSONKey jsonKey, const char *kname) {
+  int rv = REDISMODULE_ERR;
+  RSLanguage lang = rule->lang_default;
+  if (!rule->lang_field) {
+    goto done;
+  }
+
+  assert(japi);
+  if (!japi) {
+    goto done;
+  }
+
+  RedisJSON json = japi->get(jsonKey, rule->lang_field, NULL);
+  if (json == NULL) {
+    RedisModule_Log(NULL, "warning", "invalid field %s for key %s", rule->lang_field, kname);
+    goto done;
+  }
+
+  const char *langStr;
+  size_t len;
+  rv = japi->getString(json, &langStr, &len) ;
+  if (rv != REDISMODULE_OK) {
+    RedisModule_Log(NULL, "warning", "invalid field %s for key %s: not a string", rule->lang_field, kname);
+    goto done;
+  }
+
+  lang = RSLanguage_Find(langStr, len);
+  if (lang == RS_LANG_UNSUPPORTED) {
+    RedisModule_Log(NULL, "warning", "invalid language for key %s", kname);
+    lang = rule->lang_default;
+    goto done;
+  }
+
+done:
   return lang;
 }
 
@@ -201,6 +239,32 @@ done:
   if (score_rms) {
     RedisModule_FreeString(rctx, score_rms);
   }
+  return score;
+}
+
+RSLanguage SchemaRule_JsonScore(RedisModuleCtx *ctx, const SchemaRule *rule,
+                                RedisJSONKey jsonKey, const char *kname) {
+  double score = rule->score_default;
+  if (!rule->score_field) {
+    goto done;
+  }
+
+  assert(japi);
+  if (!japi) {
+    goto done;
+  }
+
+  RedisJSON json = japi->get(jsonKey, rule->score_field, NULL);
+  if (json == NULL) {
+    RedisModule_Log(NULL, "warning", "invalid field %s for key %s", rule->score_field, kname);
+    goto done;
+  }
+
+  if (japi->getDouble(json, &score) != REDISMODULE_OK) {
+    RedisModule_Log(NULL, "warning", "invalid field %s for key %s", rule->score_field, kname);
+  }
+
+done:
   return score;
 }
 

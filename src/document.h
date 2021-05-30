@@ -9,7 +9,7 @@
 #include "byte_offsets.h"
 #include "rmutil/args.h"
 #include "query_error.h"
-// #include "json.h"
+#include "json.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -141,6 +141,7 @@ void Document_Clear(Document *doc);
  * The document must already have the docKey set
  */
 int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx);
+int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx);
 
 /**
  * Load all the fields into the document.

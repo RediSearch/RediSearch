@@ -129,7 +129,7 @@ void RediSearch_TagFieldSetCaseSensitive(IndexSpec* sp, RSFieldID id, int enable
 
 RSDoc* RediSearch_CreateDocument(const void* docKey, size_t len, double score, const char* lang) {
   RedisModuleString* docKeyStr = RedisModule_CreateString(NULL, docKey, len);
-  RSLanguage language = lang ? RSLanguage_Find(lang) : DEFAULT_LANGUAGE;
+  RSLanguage language = lang ? RSLanguage_Find(lang, 0) : DEFAULT_LANGUAGE;
   Document* ret = rm_calloc(1, sizeof(*ret));
   // TODO: Should we introduce DocumentType_LLAPI?
   Document_Init(ret, docKeyStr, score, language, DocumentType_Hash);
