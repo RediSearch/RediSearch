@@ -1485,7 +1485,7 @@ def testPayload(env):
 
 def testGarbageCollector(env):
     env.skipOnCluster()
-    if env.moduleArgs is not None and 'GC_POLICY FORK' in env.moduleArgs:
+    if env.moduleArgs is not None and 'GC_POLICY FORK' in env.moduleArgs[0]:
         # this test is not relevent for fork gc cause its not cleaning the last block
         raise unittest.SkipTest()
     N = 100

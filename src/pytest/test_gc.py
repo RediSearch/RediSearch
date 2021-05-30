@@ -33,7 +33,7 @@ def testBasicGC(env):
 def testBasicGCWithEmptyInvIdx(env):
     if env.isCluster():
         raise unittest.SkipTest()
-    if env.moduleArgs is not None and 'GC_POLICY LEGACY' in env.moduleArgs:
+    if env.moduleArgs is not None and 'GC_POLICY LEGACY' in env.moduleArgs[0]:
         # this test is not relevent for legacy gc cause its not squeshing inverted index
         raise unittest.SkipTest()
     env.assertOk(env.cmd('ft.create', 'idx', 'schema', 'title', 'text'))
@@ -150,7 +150,7 @@ def testGCThreshold(env):
     if env.isCluster():
         raise unittest.SkipTest()
 
-    env = Env(moduleArgs='GC_POLICY FORK FORK_GC_CLEAN_THRESHOLD 1000')
+    env = Env(moduleArgs='GC_POLICY FORK; FORK_GC_CLEAN_THRESHOLD 1000')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT', 'SORTABLE').ok()
     for i in range(1000):
         env.expect('FT.ADD', 'idx', 'doc%d' % i, '1.0', 'FIELDS', 'title', 'foo').ok()
@@ -215,7 +215,7 @@ def testGCThreshold(env):
 def testGCShutDownOnExit(env):
     if env.env == 'existing-env' or env.env == 'enterprise' or env.isCluster() or platform.system() == 'Darwin':
         env.skip()
-    env = Env(moduleArgs='GC_POLICY FORK FORKGC_SLEEP_BEFORE_EXIT 20')
+    env = Env(moduleArgs='GC_POLICY FORK; FORKGC_SLEEP_BEFORE_EXIT 20')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT', 'SORTABLE').ok()
     env.expect('FT.DEBUG', 'GC_FORCEBGINVOKE', 'idx').ok()
     env.stop()
