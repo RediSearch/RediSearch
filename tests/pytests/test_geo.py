@@ -10,6 +10,15 @@ def testGeoHset(env):
   conn.execute_command('HSET', 'geo5', 'g', '\\"1.23,4.56\\"')
   env.expect('FT.SEARCH', 'idx', '@g:[1.23 4.56 1 km]').equal([1L, 'geo2', ['g', '1.23,4.56']])
 
+def testGeoSortable(env):
+  conn = getConnectionByEnv(env)
+  env.expect('FT.CREATE idx SCHEMA location GEO SORTABLE').ok()
+  conn.execute_command('HSET', 'geo2', 'location', '1.23,4.56')
+
+  env.expect('ft.aggregate', 'idx', '*',
+             'APPLY', 'geodistance(@location,1.25,4.5)', 'AS', 'distance',
+             'GROUPBY', '1', '@distance').equal([1L, ['distance', '7032.37']])
+
 def testGeoFtAdd(env):
   env.expect('FT.CREATE idx SCHEMA g GEO').ok()
   env.expect('FT.ADD', 'idx', 'geo1', '1', 'FIELDS', 'g', '1.23', '4.56').error().contains('Fields must be specified in FIELD VALUE pairs')
