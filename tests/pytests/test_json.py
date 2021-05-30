@@ -180,18 +180,25 @@ def testSet(env):
 
 def testDel(env):
     # JSON.DEL and JSON.FORGET
-    # FIXME:
     env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT')
     env.execute_command('JSON.SET', 'doc:1', '$', r'{"t":"ReJSON"}')
     env.execute_command('JSON.SET', 'doc:2', '$', r'{"t":"RediSearch"}')
     env.expect('ft.search', 'idx', 're*', 'NOCONTENT').equal([2L, 'doc:1', 'doc:2'])
     env.expect('JSON.DEL', 'doc:2', '$.t').equal(1L)
     env.expect('ft.search', 'idx', 're*', 'NOCONTENT').equal([1L, 'doc:1'])
+    env.expect('JSON.FORGET', 'doc:1', '$.t').equal(1L)
+    env.expect('ft.search', 'idx', 're*', 'NOCONTENT').equal([0L])
 
 def testToggle(env):
     # JSON.TOGGLE
-    # FIXME:
-    pass
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
+               '$.string', 'AS', 'string', 'TEXT',
+               '$.boolT', 'AS', 'boolT', 'TEXT').ok()
+    waitForIndex(env, 'idx')
+    env.expect('JSON.SET', 'doc:1', '.', '{"foo":true, "boolT":false}').ok()
+    env.expect('ft.search', 'idx', '*').equal([1L, 'doc:1', ['$', '{"foo":true,"boolT":false}']])
+    env.expect('JSON.TOGGLE','doc:1','$.boolT').equal('true')
+    env.expect('ft.search', 'idx', '*').equal([1L, 'doc:1', ['$', '{"foo":true,"boolT":true}']])
 
 def testStrappend(env):
     # JSON.STRAPPEND
@@ -203,10 +210,7 @@ def testStrappend(env):
     env.execute_command('JSON.STRAPPEND', 'doc:1', '.t', '"Labs"')
     env.expect('ft.search', 'idx', '*').equal([1L, 'doc:1', ['$', '{"t":"RedisLabs"}']])
     env.expect('ft.search', 'idx', 'RedisLabs').equal([1L, 'doc:1', ['$', '{"t":"RedisLabs"}']])
-    if UNSTABLE_TESTS:
-        # FIXME: Use .contains instead of .equal to avoid "noise" such as timing etc.
-        env.expect('ft.profile' ,'idx', 'search', 'query', 'Redi*').equal([1L, 'doc:1', ['$', '{"t":"RedisLabs"}']])
-        env.expect('ft.info' ,'idx').equal([1L, 'doc:1', ['$', '{"t":"RedisLabs"}']])
+    env.expect('ft.search', 'idx', 'Redis').equal([0L])
 
 def testArrappend(env):
     # JSON.ARRAPPEND

@@ -29,6 +29,7 @@ typedef struct RedisJSONAPI_V1 {
 
     /* RedisJSON functions
      * Return NULL if path/index does not exist
+     * `type` is an optional out parameter returning the JSONType (can be NULL)
      **/
     RedisJSON (*get)(RedisJSONKey key, const char *path, JSONType *type);
     RedisJSON (*getAt)(RedisJSON json, size_t index, JSONType *type);
