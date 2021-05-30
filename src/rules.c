@@ -176,23 +176,35 @@ done:
 }
 
 RSLanguage SchemaRule_JsonLang(RedisModuleCtx *ctx, const SchemaRule *rule,
-                               RedisJSONKey jsonKey, const char *keyName) {
+                               RedisJSONKey jsonKey, const char *kname) {
   int rv = REDISMODULE_ERR;
   RSLanguage lang = rule->lang_default;
   if (!rule->lang_field) {
     goto done;
   }
 
+  assert(japi);
+  if (!japi) {
+    goto done;
+  }
+
+  RedisJSON json = japi->get(jsonKey, rule->lang_field, NULL);
+  if (json == NULL) {
+    RedisModule_Log(NULL, "warning", "invalid field %s for key %s", rule->lang_field, kname);
+    goto done;
+  }
+
   const char *langStr;
   size_t len;
-  assert(japi);
-  rv = japi ? japi->getStringFromKey(jsonKey, rule->lang_field, &langStr, &len) : REDISMODULE_ERR;
+  rv = japi->getString(json, &langStr, &len) ;
   if (rv != REDISMODULE_OK) {
+    RedisModule_Log(NULL, "warning", "invalid field %s for key %s: not a string", rule->lang_field, kname);
     goto done;
   }
 
   lang = RSLanguage_Find(langStr, len);
   if (lang == RS_LANG_UNSUPPORTED) {
+    RedisModule_Log(NULL, "warning", "invalid language for key %s", kname);
     lang = rule->lang_default;
     goto done;
   }
@@ -231,14 +243,25 @@ done:
 }
 
 RSLanguage SchemaRule_JsonScore(RedisModuleCtx *ctx, const SchemaRule *rule,
-                                RedisJSONKey jsonKey, const char *keyName) {
+                                RedisJSONKey jsonKey, const char *kname) {
   double score = rule->score_default;
   if (!rule->score_field) {
     goto done;
   }
 
-  if(japi && japi->getDoubleFromKey(jsonKey, rule->score_field, &score) != REDISMODULE_OK) {
-    RedisModule_Log(NULL, "warning", "invalid field %s for key %s", rule->score_field, keyName);
+  assert(japi);
+  if (!japi) {
+    goto done;
+  }
+
+  RedisJSON json = japi->get(jsonKey, rule->score_field, NULL);
+  if (json == NULL) {
+    RedisModule_Log(NULL, "warning", "invalid field %s for key %s", rule->score_field, kname);
+    goto done;
+  }
+
+  if (japi->getDouble(json, &score) != REDISMODULE_OK) {
+    RedisModule_Log(NULL, "warning", "invalid field %s for key %s", rule->score_field, kname);
   }
 
 done:
