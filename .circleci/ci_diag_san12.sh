@@ -42,4 +42,4 @@ make SAN=${SAN_MODE}
 export REJSON_PATH=$ROOT/deps/RedisJSON/target/x86_64-unknown-linux-gnu/debug/rejson.so
 
 cd $ROOT
-make test SAN=${SAN} CTEST_ARGS="--output-on-failure" CTEST_PARALLEL=${CI_CONCURRENCY}
+make test SAN=${SAN_MODE} CTEST_ARGS="--output-on-failure" CTEST_PARALLEL=${CI_CONCURRENCY}
