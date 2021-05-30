@@ -21,7 +21,7 @@ int RediSearch_GetCApiVersion() {
 }
 
 IndexSpec* RediSearch_CreateIndex(const char* name, const RSIndexOptions* options) {
-  RSIndexOptions opts_s = {.gcPolicy = GC_POLICY_FORK};
+  RSIndexOptions opts_s = {.gcPolicy = GC_POLICY_FORK, .stopwordsLen = -1};
   if (!options) {
     options = &opts_s;
   }
@@ -39,6 +39,11 @@ IndexSpec* RediSearch_CreateIndex(const char* name, const RSIndexOptions* option
   }
   if (options->gcPolicy != GC_POLICY_NONE) {
     IndexSpec_StartGCFromSpec(spec, GC_DEFAULT_HZ, options->gcPolicy);
+  }
+  if (options->stopwordsLen != -1) {
+    // replace default list which is a global so no need to free anything.
+    spec->stopwords = NewStopWordListCStr((const char **)options->stopwords,
+                                                         options->stopwordsLen);
   }
   return spec;
 }
@@ -247,6 +252,9 @@ int RediSearch_IndexAddDocument(IndexSpec* sp, Document* d, int options, char** 
 }
 
 QueryNode* RediSearch_CreateTokenNode(IndexSpec* sp, const char* fieldName, const char* token) {
+  if (StopWordList_Contains(sp->stopwords, token, strlen(token))) {
+    return NULL;
+  }
   QueryNode* ret = NewQueryNode(QN_TOKEN);
 
   ret->tn = (QueryTokenNode){
@@ -497,10 +505,17 @@ void RediSearch_ResultsIteratorReset(RS_ApiIter* iter) {
 RSIndexOptions* RediSearch_CreateIndexOptions() {
   RSIndexOptions* ret = rm_calloc(1, sizeof(RSIndexOptions));
   ret->gcPolicy = GC_POLICY_NONE;
+  ret->stopwordsLen = -1;
   return ret;
 }
 
 void RediSearch_FreeIndexOptions(RSIndexOptions* options) {
+  if (options->stopwordsLen > 0) {
+    for (int i = 0; i < options->stopwordsLen; i++) {
+      rm_free(options->stopwords[i]);
+    }
+    rm_free(options->stopwords);
+  }
   rm_free(options);
 }
 
@@ -508,6 +523,22 @@ void RediSearch_IndexOptionsSetGetValueCallback(RSIndexOptions* options, RSGetVa
                                                 void* ctx) {
   options->gvcb = cb;
   options->gvcbData = ctx;
+}
+
+void RediSearch_IndexOptionsSetStopwords(RSIndexOptions* opts, const char **stopwords, int stopwordsLen) {
+  if (stopwordsLen < 0) {
+    return;
+  }
+  
+  opts->stopwordsLen = stopwordsLen;
+  if (stopwordsLen == 0) {
+    return;
+  }
+
+  opts->stopwords = rm_malloc(sizeof(*opts->stopwords) * stopwordsLen);
+  for (int i = 0; i < stopwordsLen; i++) {
+    opts->stopwords[i] = rm_strdup(stopwords[i]);
+  }
 }
 
 void RediSearch_IndexOptionsSetFlags(RSIndexOptions* options, uint32_t flags) {
@@ -540,4 +571,8 @@ void RediSearch_SetCriteriaTesterThreshold(size_t num) {
   } else {
     RSGlobalConfig.maxResultsToUnsortedMode = num;
   }
+}
+
+int RediSearch_StopwordsList_Contains(RSIndex* idx, const char *term, size_t len) {
+  return StopWordList_Contains(idx->stopwords, term, len);
 }
