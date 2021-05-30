@@ -17,12 +17,12 @@ extra_flags=""
 echo "fun:THPIsEnabled" >> /build/redis.blacklist
 if [[ $ASAN == 1 ]]; then
     mode=asan
-	JSON_SAN_MODE=address
+	SAN_MODE=address
     extra_flags="-DUSE_ASAN=ON"
     $READIES/bin/getredis --force -v 6.0 --no-run --suffix asan --clang-asan --clang-san-blacklist /build/redis.blacklist
 elif [[ $MSAN == 1 ]]; then
     mode=msan
-	JSON_SAN_MODE=memory
+	SAN_MODE=memory
     extra_flags="-DUSE_MSAN=ON -DMSAN_PREFIX=${SAN_PREFIX}"
     $READIES/bin/getredis --force -v 6.0  --no-run --suffix msan --clang-msan --llvm-dir /opt/llvm-project/build-msan --clang-san-blacklist /build/redis.blacklist
 else
@@ -31,14 +31,16 @@ else
 fi
 
 mkdir -p build-${mode}
-cd build-${mode}
+# cd build-${mode}
 
-cmake -DCMAKE_BUILD_TYPE=DEBUG \
-    -DCMAKE_C_COMPILER=clang \
-    -DCMAKE_CXX_COMPILER=clang++ \
-    -DRS_RUN_TESTS=ON \
-    $extra_flags \
-    ..
+# cmake -DCMAKE_BUILD_TYPE=DEBUG \
+#     -DCMAKE_C_COMPILER=clang \
+#     -DCMAKE_CXX_COMPILER=clang++ \
+#     -DRS_RUN_TESTS=ON \
+#     $extra_flags \
+#     ..
+
+COMPAT_DIR="$ROOT/build-${mode}" make -C $ROOT SAN=${SAN_MODE}
 
 if [[ -z $CI_CONCURRENCY ]]; then
 	CI_CONCURRENCY=$($ROOT/deps/readies/bin/nproc)
@@ -47,7 +49,7 @@ if [[ $CI_CONCURRENCY > 20 ]]; then
 	CI_CONCURRENCY=20
 fi
 
-make -j$CI_CONCURRENCY
+# make -j$CI_CONCURRENCY
 
 export REDIS_SERVER=redis-server-${mode}
 cat >rltest.config <<EOF
@@ -69,8 +71,9 @@ git checkout master
 ./system-setup.py
 source /etc/profile.d/rust.sh
 make nightly
-make SAN=$JSON_SAN_MODE
+make SAN=${SAN_MODE}
 export REJSON_PATH=$ROOT/deps/RedisJSON/target/x86_64-unknown-linux-gnu/debug/rejson.so
 
-# COMPAT_DIR="$ROOT/build-${mode}" make -C $ROOT test CTEST_ARGS="--output-on-failure" -j$CI_CONCURRENCY
-ctest --output-on-failure -j$CI_CONCURRENCY
+cd $ROOT
+COMPAT_DIR="$ROOT/build-${mode}" make -C $ROOT test CTEST_ARGS="--output-on-failure"  CTEST_PARALLEL=${CI_CONCURRENCY}
+# ctest --output-on-failure -j$CI_CONCURRENCY

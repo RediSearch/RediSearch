@@ -221,6 +221,10 @@ ifeq ($(TESTDEBUG),1)
 override CTEST_ARGS += --debug
 endif
 
+ifneq ($(CTEST_PARALLEL),)
+CTEST_ARGS += -j$(CTEST_PARALLEL)
+endif
+
 test:
 ifneq ($(TEST),)
 	@set -e; cd $(BINROOT); CTEST_OUTPUT_ON_FAILURE=1 RLTEST_ARGS="-s -v" ctest $(CTEST_ARGS) -vv -R $(TEST)
