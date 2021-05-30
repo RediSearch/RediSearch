@@ -12,6 +12,15 @@ cd $ROOT
 
 SAN_PREFIX=/opt/llvm-project/build-msan
 
+if [[ $ASAN == 1 ]]; then
+	SAN_MODE=address
+elif [[ $MSAN == 1 ]]; then
+	SAN_MODE=memory
+else
+    echo "Should define either ASAN=1 or MSAN=1"
+    exit 1
+fi
+
 make build SAN=${SAN_MODE}
 
 if [[ -z $CI_CONCURRENCY ]]; then
@@ -33,4 +42,4 @@ make SAN=${SAN_MODE}
 export REJSON_PATH=$ROOT/deps/RedisJSON/target/x86_64-unknown-linux-gnu/debug/rejson.so
 
 cd $ROOT
-make test SAN=${SAN} CTEST_ARGS="--output-on-failure"  CTEST_PARALLEL=${CI_CONCURRENCY}
+make test SAN=${SAN} CTEST_ARGS="--output-on-failure" CTEST_PARALLEL=${CI_CONCURRENCY}

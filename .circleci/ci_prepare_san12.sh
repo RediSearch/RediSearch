@@ -31,4 +31,5 @@ source /etc/profile.d/rust.sh
 make nightly
 make SAN=${SAN_MODE}
 
+cd $ROOT
 make pytest SAN=${SAN_MODE}
