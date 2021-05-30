@@ -364,14 +364,16 @@ static int getKeyCommonJSON(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
     RedisModule_Log(RSDummyContext, "warning", "cannot operate on a JSON index as RedisJSON is not loaded");
     return REDISMODULE_ERR;
   }
+
   if (!options->noSortables && (kk->flags & RLOOKUP_F_SVSRC)) {
     // No need to "write" this key. It's always implicitly loaded!
     return REDISMODULE_OK;
   }
 
   // In this case, the flag must be obtained from JSON
+  RedisModuleCtx *ctx = options->sctx->redisCtx;
   if (!*keyobj) {
-    RedisModuleCtx *ctx = options->sctx->redisCtx;
+
     *keyobj = japi->openKeyFromStr(ctx, options->dmd->keyPtr);
     if (!*keyobj) {
       QueryError_SetCode(options->status, QUERY_ENODOC);
@@ -393,7 +395,13 @@ static int getKeyCommonJSON(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
     const FieldSpec *fs = IndexSpec_GetField(options->sctx->spec, kk->name, kk->name_len);
     path = fs ? fs->path : kk->name;
   }
-  rc = japi->getRedisModuleStringFromKey(*keyobj, path, &val);
+
+  RedisJSON json = japi->get(*keyobj, path, NULL);
+  if (json) {
+    rc = japi->getJSON(json, ctx, &val);    
+  } else {
+    rc = REDISMODULE_ERR;
+  }
 
   if (rc == REDISMODULE_OK && val != NULL) {
     rsv = hvalToValue(val, kk->fieldtype);
@@ -597,22 +605,28 @@ static int RLookup_JSON_GetAll(RLookup *it, RLookupRow *dst, RLookupLoadOptions 
   if (!japi) {
     return rc;
   }
+
   RedisModuleCtx *ctx = options->sctx->redisCtx;
   RedisJSONKey jsonKey = japi->openKeyFromStr(ctx, options->dmd->keyPtr);
   if (!jsonKey) {
     goto done;
   }
 
+  RedisJSON json = japi->get(jsonKey, JSON_ROOT, NULL);
+  if (json == NULL) {
+    goto done;
+  }
+
   RedisModuleString *value = NULL;
-  if (japi->getRedisModuleStringFromKey(jsonKey, JSON_ROOT, &value) != REDISMODULE_OK) {
-      if (value) {
-          RedisModule_FreeString(ctx, value);
-      }
+  if (japi->getJSON(json, ctx, &value) != REDISMODULE_OK) {
+    if (value) {
+      RedisModule_FreeString(ctx, value);
+    }
     goto done;
   }
 
   RLookupKey *rlk = RLookup_GetKeyEx(it, JSON_ROOT, strlen(JSON_ROOT), RLOOKUP_F_OCREAT);
-  RSValue *vptr = RS_RedisStringVal(value);
+  RSValue *vptr = RS_StealRedisStringVal(value);
   RLookup_WriteOwnKey(rlk, dst, vptr);
 
   rc = REDISMODULE_OK;

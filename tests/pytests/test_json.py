@@ -180,23 +180,28 @@ def testSet(env):
 
 def testDel(env):
     # JSON.DEL and JSON.FORGET
-    # FIXME:
     env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT')
     env.execute_command('JSON.SET', 'doc:1', '$', r'{"t":"ReJSON"}')
     env.execute_command('JSON.SET', 'doc:2', '$', r'{"t":"RediSearch"}')
     env.expect('ft.search', 'idx', 're*', 'NOCONTENT').equal([2L, 'doc:1', 'doc:2'])
     env.expect('JSON.DEL', 'doc:2', '$.t').equal(1L)
     env.expect('ft.search', 'idx', 're*', 'NOCONTENT').equal([1L, 'doc:1'])
+    env.expect('JSON.FORGET', 'doc:1', '$.t').equal(1L)
+    env.expect('ft.search', 'idx', 're*', 'NOCONTENT').equal([0L])
 
 def testToggle(env):
     # JSON.TOGGLE
-    # FIXME:
-    pass
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
+               '$.string', 'AS', 'string', 'TEXT',
+               '$.boolT', 'AS', 'boolT', 'TEXT').ok()
+    waitForIndex(env, 'idx')
+    env.expect('JSON.SET', 'doc:1', '.', '{"foo":true, "boolT":false}').ok()
+    env.expect('ft.search', 'idx', '*').equal([1L, 'doc:1', ['$', '{"foo":true,"boolT":false}']])
+    env.expect('JSON.TOGGLE','doc:1','$.boolT').equal('true')
+    env.expect('ft.search', 'idx', '*').equal([1L, 'doc:1', ['$', '{"foo":true,"boolT":true}']])
 
 def testStrappend(env):
     # JSON.STRAPPEND
-    if not UNSTABLE_TESTS:
-        env.skip()
 
     env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT')
     waitForIndex(env, 'idx')
@@ -205,8 +210,7 @@ def testStrappend(env):
     env.execute_command('JSON.STRAPPEND', 'doc:1', '.t', '"Labs"')
     env.expect('ft.search', 'idx', '*').equal([1L, 'doc:1', ['$', '{"t":"RedisLabs"}']])
     env.expect('ft.search', 'idx', 'RedisLabs').equal([1L, 'doc:1', ['$', '{"t":"RedisLabs"}']])
-    env.expect('ft.profile' ,'idx', 'search', 'query', 'Redi*').equal([1L, 'doc:1', ['$', '{"t":"RedisLabs"}']])
-    env.expect('ft.info' ,'idx').equal([1L, 'doc:1', ['$', '{"t":"RedisLabs"}']])
+    env.expect('ft.search', 'idx', 'Redis').equal([0L])
 
 def testArrappend(env):
     # JSON.ARRAPPEND
@@ -446,3 +450,18 @@ def testNumeric(env):
         .equal([1L, 'doc:1', ['f', '9.72']])    
     env.expect('FT.SEARCH', 'idx', '@f:[9.5 9.9]', 'RETURN', '3', '$.f', 'AS', 'flt') \
         .equal([1L, 'doc:1', ['flt', '9.72']])
+
+def testLanguage(env):
+    if not UNSTABLE_TESTS:
+        env.skip()
+    # TODO: Check stemming? e.g., trad is stem of traduzioni and tradurre ?
+    env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'LANGUAGE_FIELD', '$.lang', 'SCHEMA', '$.t', 'TEXT')
+    env.execute_command('FT.CREATE', 'idx2', 'ON', 'JSON', 'LANGUAGE', 'Italian', 'SCHEMA', '$.domanda', 'TEXT')
+    waitForIndex(env, 'idx')
+    waitForIndex(env, 'idx2')
+
+    env.execute_command('JSON.SET', 'doc:1', '$', r'{"t":"traduzioni", "lang":"Italian"}')
+    env.expect('ft.search', 'idx', 'tradu*', 'RETURN', '1', '$.t' ).equal([1L, 'doc:1', ['$.t', '"traduzioni"']])
+
+    env.execute_command('JSON.SET', 'doc:2', '$', r'{"domanda":"perché"}')
+    env.expect('ft.search', 'idx2', 'per*', 'RETURN', '1', '$.domanda' ).equal([1L, 'doc:2', ['$.domanda', '"perch\xc3\xa9"']])

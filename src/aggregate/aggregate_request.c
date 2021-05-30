@@ -387,7 +387,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
   searchOpts->ninkeys = inKeys.argc;
   searchOpts->legacy.infields = (const char **)inFields.objs;
   searchOpts->legacy.ninfields = inFields.argc;
-  searchOpts->language = RSLanguage_Find(languageStr);
+  searchOpts->language = RSLanguage_Find(languageStr, 0);
 
   if (AC_IsInitialized(&returnFields)) {
     ensureSimpleMode(req);

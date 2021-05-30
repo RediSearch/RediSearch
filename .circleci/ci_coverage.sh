@@ -20,6 +20,7 @@ if [[ -z $CI_CONCURRENCY ]]; then
 fi
 
 make -j$CI_CONCURRENCY
+BRANCH=master $ROOT/sbin/get-redisjson
 
 cat >rltest.config <<EOF
 --unix
