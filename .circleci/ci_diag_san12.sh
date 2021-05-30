@@ -41,5 +41,8 @@ make nightly
 make SAN=${SAN_MODE}
 export REJSON_PATH=$ROOT/deps/RedisJSON/target/x86_64-unknown-linux-gnu/debug/rejson.so
 
+export ASAN_OPTIONS=detect_odr_violation=0
+export RS_GLOBAL_DTORS=1
+
 cd $ROOT
 make test SAN=${SAN_MODE} CTEST_ARGS="--output-on-failure" CTEST_PARALLEL=${CI_CONCURRENCY}
