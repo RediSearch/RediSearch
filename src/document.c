@@ -269,19 +269,15 @@ static int AddDocumentCtx_ReplaceMerge(RSAddDocumentCtx *aCtx, RedisSearchCtx *s
   int rv = REDISMODULE_ERR;
 
   Document_Clear(aCtx->doc);
-  /*******************************************
-   *******************************************
-   * Path is not covered and is not relevant *
-   *******************************************
-   *******************************************/
 
-  /* SchemaRuleType ruleType = sctx->spec->rule->type;
-  // TODO: SchemaRuleType_Any
-  if (ruleType == SchemaRuleType_Hash) { */
-  rv = Document_LoadSchemaFieldHash(aCtx->doc, sctx);
-  /*} else if (ruleType == SchemaRuleType_Json) {
+  // Path is not covered and is not relevant
+
+  SchemaRuleType ruleType = sctx->spec->rule->type;
+  if (ruleType == SchemaRuleType_Hash) {
+    rv = Document_LoadSchemaFieldHash(aCtx->doc, sctx);
+  } else if (ruleType == SchemaRuleType_Json) {
     rv = Document_LoadSchemaFieldJson(aCtx->doc, sctx);
-  }*/
+  }
   if (rv != REDISMODULE_OK) {
     QueryError_SetError(&aCtx->status, QUERY_ENODOC, "Could not load existing document");
     aCtx->donecb(aCtx, sctx->redisCtx, aCtx->donecbData);
