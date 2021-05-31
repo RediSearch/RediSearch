@@ -461,11 +461,11 @@ FIELD_BULK_INDEXER(numericIndexer) {
 }
 
 FIELD_PREPROCESSOR(geoPreprocessor) {
-  // TODO: streamline
+  // buffer of 32 bytes should be sufficient. lon,lat 
   size_t len;
   char buf[32] = { 0 };
   const char *str = RedisModule_StringPtrLen(field->text, &len);
-  memcpy(buf, str, len);
+  memcpy(buf, str, MIN(32, len));
   char *pos = strpbrk(buf, " ,");
   if (!pos) {
     QueryError_SetCode(status, QUERY_EGEOFORMAT);
