@@ -4,7 +4,7 @@
 #include "module.h"
 #include "rmutil/rm_assert.h"
 
-void Document_Init(Document *doc, RedisModuleString *docKey, double score, RSLanguage lang) {
+void Document_Init(Document *doc, RedisModuleString *docKey, double score, RSLanguage lang, DocumentType type) {
   doc->docKey = docKey;
   doc->score = (float)score;
   doc->numFields = 0;
@@ -12,8 +12,10 @@ void Document_Init(Document *doc, RedisModuleString *docKey, double score, RSLan
   doc->language = lang ? lang : DEFAULT_LANGUAGE;
   doc->payload = NULL;
   doc->payloadSize = 0;
+  doc->type = type;
 }
 
+// Nor related to AS attribute. Used by LLAPI.
 static DocumentField *addFieldCommon(Document *d, const char *fieldname, uint32_t typemask) {
   d->fields = rm_realloc(d->fields, (++d->numFields) * sizeof(*d->fields));
   DocumentField *f = d->fields + d->numFields - 1;
@@ -23,6 +25,7 @@ static DocumentField *addFieldCommon(Document *d, const char *fieldname, uint32_
   } else {
     f->name = fieldname;
   }
+  f->path = NULL;
   return f;
 }
 
@@ -65,7 +68,10 @@ void Document_MakeStringsOwner(Document *d) {
 
   for (size_t ii = 0; ii < d->numFields; ++ii) {
     DocumentField *f = d->fields + ii;
-    f->name = rm_strdup(f->name);
+    if (f->path != f->name) {
+      f->name = rm_strdup(f->name);
+    }
+    f->path = rm_strdup(f->path);
     if (f->text) {
       RedisModuleString *oldText = f->text;
       f->text = RedisModule_CreateStringFromString(RSDummyContext, oldText);
@@ -88,7 +94,7 @@ void Document_MakeRefOwner(Document *doc) {
   doc->flags |= DOCUMENT_F_OWNREFS;
 }
 
-int Document_LoadSchemaFields(Document *doc, RedisSearchCtx *sctx) {
+int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx) {
   RedisModuleKey *k = RedisModule_OpenKey(sctx->redisCtx, doc->docKey, REDISMODULE_READ);
   int rv = REDISMODULE_ERR;
   if (!k || RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_HASH) {
@@ -96,15 +102,11 @@ int Document_LoadSchemaFields(Document *doc, RedisSearchCtx *sctx) {
   }
 
   size_t nitems = sctx->spec->numFields;
-  if (nitems == 0) {
-    goto done;
-  }
-
   IndexSpec *spec = sctx->spec;
   SchemaRule *rule = spec->rule;
   assert(rule);
   RedisModuleString *payload_rms = NULL;
-  Document_MakeStringsOwner(doc);
+  Document_MakeStringsOwner(doc); // TODO: necessary?
   const char *keyname = (const char *)RedisModule_StringPtrLen(doc->docKey, NULL);
   doc->language = SchemaRule_HashLang(sctx->redisCtx, rule, k, keyname);
   doc->score = SchemaRule_HashScore(sctx->redisCtx, rule, k, keyname);
@@ -118,15 +120,17 @@ int Document_LoadSchemaFields(Document *doc, RedisSearchCtx *sctx) {
 
   doc->fields = rm_calloc(nitems, sizeof(*doc->fields));
   for (size_t ii = 0; ii < spec->numFields; ++ii) {
-    const char *fname = spec->fields[ii].name;
+    FieldSpec *field = &spec->fields[ii];
     RedisModuleString *v = NULL;
-    RedisModule_HashGet(k, REDISMODULE_HASH_CFIELDS, fname, &v, NULL);
+    // Hash command is not related to other type such as JSON
+    RedisModule_HashGet(k, REDISMODULE_HASH_CFIELDS, field->path, &v, NULL);
     if (v == NULL) {
       continue;
     }
     size_t oix = doc->numFields++;
-    doc->fields[oix].name = rm_strdup(fname);
-
+    doc->fields[oix].path = rm_strdup(field->path);
+    doc->fields[oix].name = (field->name == field->path) ? doc->fields[oix].path
+                                                         : rm_strdup(field->name);
     // on crdt the return value might be the underline value, we must copy it!!!
     doc->fields[oix].text = RedisModule_CreateStringFromString(sctx->redisCtx, v);
     RedisModule_FreeString(sctx->redisCtx, v);
@@ -140,10 +144,74 @@ done:
   return rv;
 }
 
+int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx) {
+  int rv = REDISMODULE_ERR;
+  if (!japi) {
+    RedisModule_Log(sctx->redisCtx, "warning", "cannot operate on a JSON index as RedisJSON is not loaded");
+    return REDISMODULE_ERR;
+  }
+  IndexSpec *spec = sctx->spec;
+  SchemaRule *rule = spec->rule;
+  RedisModuleCtx *ctx = sctx->redisCtx;
+  size_t nitems = sctx->spec->numFields;
+  RedisJSON json = NULL;
+
+  RedisJSONKey jsonKey = japi->openKey(ctx, doc->docKey);
+  if (!jsonKey) {
+    goto done;
+  }
+  Document_MakeStringsOwner(doc); // TODO: necessary??
+
+  const char *keyName = RedisModule_StringPtrLen(doc->docKey, NULL);
+  doc->language = SchemaRule_JsonLang(sctx->redisCtx, rule, jsonKey, keyName);
+  doc->score = SchemaRule_JsonScore(sctx->redisCtx, rule, jsonKey, keyName);
+  // No payload on JSON as RedisJSON does not support binary fields
+
+  JSONType type;
+  doc->fields = rm_calloc(nitems, sizeof(*doc->fields));
+  size_t ii = 0;
+  for (; ii < spec->numFields; ++ii) {
+    FieldSpec *field = &spec->fields[ii];
+
+    // retrieve json pointer
+    // TODO: check option to move to getStringFromKey
+    json = japi->get(jsonKey, field->path, &type);
+    if (!json) {
+        continue;
+    }
+    if (type == JSONType_Array || type == JSONType_Object) {
+        json = NULL;
+      continue;
+    }
+
+    size_t oix = doc->numFields++;
+    doc->fields[oix].path = rm_strdup(field->path);
+    doc->fields[oix].name = (field->name == field->path) ? doc->fields[oix].path
+                                                         : rm_strdup(field->name);
+
+    // on crdt the return value might be the underline value, we must copy it!!!
+    // TODO: change `fs->text` to support hash or json not RedisModuleString
+    if (japi->getJSON(json, ctx, &doc->fields[oix].text) != REDISMODULE_OK) {
+      RedisModule_Log(ctx, "verbose", "Failed to load value from field %s", field->path);
+      goto done;
+    }
+    json = NULL;
+  }
+  rv = REDISMODULE_OK;
+
+done:
+  if (jsonKey) {
+    japi->closeKey(jsonKey);
+  }
+  return rv;
+}
+
+/* used only by unit tests */
 int Document_LoadAllFields(Document *doc, RedisModuleCtx *ctx) {
   int rc = REDISMODULE_ERR;
   RedisModuleCallReply *rep = NULL;
 
+  // Hash command is not related to other type such as JSON
   rep = RedisModule_Call(ctx, "HGETALL", "s", doc->docKey);
   if (rep == NULL || RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_ARRAY) {
     goto done;
@@ -182,6 +250,7 @@ int Document_ReplyAllFields(RedisModuleCtx *ctx, IndexSpec *spec, RedisModuleStr
   int rc = REDISMODULE_ERR;
   RedisModuleCallReply *rep = NULL;
 
+  // Hash command is not related to other type such as JSON. Used for FT.GET which is deprecated.
   rep = RedisModule_Call(ctx, "HGETALL", "s", id);
   if (rep == NULL || RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_ARRAY) {
     RedisModule_ReplyWithArray(ctx, 0);
@@ -253,11 +322,15 @@ void Document_LoadPairwiseArgs(Document *d, RedisModuleString **args, size_t nar
 void Document_Clear(Document *d) {
   if (d->flags & (DOCUMENT_F_OWNSTRINGS | DOCUMENT_F_OWNREFS)) {
     for (size_t ii = 0; ii < d->numFields; ++ii) {
+      DocumentField *field = &d->fields[ii];
       if (d->flags & DOCUMENT_F_OWNSTRINGS) {
-        rm_free((void *)d->fields[ii].name);
+        rm_free((void *)field->name);
+        if (field->path && (field->path != field->name)) {
+          rm_free((void *)field->path);
+        }
       }
-      if (d->fields[ii].text) {
-        RedisModule_FreeString(RSDummyContext, d->fields[ii].text);
+      if (field->text) {
+        RedisModule_FreeString(RSDummyContext, field->text);
       }
     }
   }
@@ -315,16 +388,25 @@ int Redis_SaveDocument(RedisSearchCtx *ctx, const AddDocumentOptions *opts, Quer
   if (opts->score != 1.0 || (opts->options & DOCUMENT_ADD_PARTIAL)) {
     arguments = array_append(arguments, globalAddRSstrings[0]);
     arguments = array_append(arguments, opts->scoreStr);
+    if (ctx->spec->rule->score_field == NULL) {
+      ctx->spec->rule->score_field = rm_strndup(UNDERSCORE_SCORE, strlen(UNDERSCORE_SCORE));
+    }
   }
 
   if (opts->languageStr) {
     arguments = array_append(arguments, globalAddRSstrings[1]);
     arguments = array_append(arguments, opts->languageStr);
+    if (ctx->spec->rule->lang_field == NULL) {
+      ctx->spec->rule->lang_field = rm_strndup(UNDERSCORE_LANGUAGE, strlen(UNDERSCORE_LANGUAGE));
+    }
   }
 
   if (opts->payload) {
     arguments = array_append(arguments, globalAddRSstrings[2]);
     arguments = array_append(arguments, opts->payload);
+    if (ctx->spec->rule->payload_field == NULL) {
+      ctx->spec->rule->payload_field = rm_strndup(UNDERSCORE_PAYLOAD, strlen(UNDERSCORE_PAYLOAD));
+    }
   }
 
   RedisModuleCallReply *rep = NULL;

@@ -260,14 +260,15 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     goto done;
   }
 
-  if (IsProfile(*r)) {
+  bool is_profile = IsProfile(*r);
+  if (is_profile) {
     parseClock = clock();
     (*r)->parseTime = parseClock - (*r)->initClock;
   }
 
   rc = AREQ_BuildPipeline(*r, 0, status);
 
-  if (IsProfile(*r)) {
+  if (is_profile) {
     (*r)->pipelineBuildTime = clock() - parseClock;
   }
 

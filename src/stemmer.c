@@ -76,13 +76,21 @@ const char *RSLanguage_ToString(RSLanguage language) {
   return (const char *)ret;
 }
 
-RSLanguage RSLanguage_Find(const char *language) {
+RSLanguage RSLanguage_Find(const char *language, size_t len) {
   if (language == NULL)
     return DEFAULT_LANGUAGE;
 
-  for (size_t i = 0; __langPairs[i].str != NULL; i++) {
-    if (!strcasecmp(language, __langPairs[i].str)) {
-      return __langPairs[i].lang;
+  if (!len) {
+    for (size_t i = 0; __langPairs[i].str != NULL; i++) {
+      if (!strcasecmp(language, __langPairs[i].str)) {
+        return __langPairs[i].lang;
+      }
+    }
+  } else {
+    for (size_t i = 0; __langPairs[i].str != NULL; i++) {
+      if (!strncasecmp(language, __langPairs[i].str, len)) {
+        return __langPairs[i].lang;
+      }
     }
   }
   return RS_LANG_UNSUPPORTED;

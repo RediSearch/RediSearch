@@ -6,13 +6,21 @@ defaults:
     - ubuntu
 
 commands:
-  abort_for_docs:
+
+  early_returns:
     steps:
       - run:
-          name: Avoid tests for docs
+          name: Early return if this is a docs build
           command: |
             if [[ $CIRCLE_BRANCH == *_docs ]]; then
-              echo "Identifies as documents PR, no testing required"
+              echo "Identifies as documents PR, no testing required."
+              circleci step halt
+            fi
+      - run:
+          name: Early return if this branch should ignore CI
+          command: |
+            if [[ $CIRCLE_BRANCH == *_noci ]]; then
+              echo "Identifies as actively ignoring CI, no testing required."
               circleci step halt
             fi
 
@@ -31,7 +39,7 @@ commands:
 
   ci_steps:
     steps:
-      - abort_for_docs
+      - early_returns
       - checkout
       - run:
           name: Get Dependencies
@@ -47,6 +55,8 @@ commands:
           command: bash -l -c "COMPAT_DIR=$BUILD_DIR make pack"
           environment:
             - PACKAGE_NAME: redisearch-oss
+      - store_artifacts:
+          path: tests/pytests/logs
       - early_return_for_forked_pull_requests
       - persist_to_workspace:
           root: artifacts
@@ -59,23 +69,19 @@ commands:
 jobs:
   ubuntu:
     docker:
-      - image: redisfab/rmbuilder:6.0.9-x64-buster
+      - image: redisfab/rmbuilder:6.2.3-x64-buster
     environment:
       - BUILD_DIR: build-debian
     steps:
       - ci_steps
-      - store_artifacts:
-          path: build-debian/logs
 
   centos:
     docker:
-      - image: redisfab/rmbuilder:6.0.9-x64-centos7
+      - image: redisfab/rmbuilder:6.2.3-x64-centos7
     environment:
       - BUILD_DIR: build-el
     steps:
       - ci_steps
-      - store_artifacts:
-          path: build-el/logs
 
   macos:
     macos:
@@ -83,20 +89,18 @@ jobs:
     environment:
       - BUILD_DIR: build-macos
     steps:
-      - abort_for_docs
+      - early_returns
       - run:
           name: Update Brew
           command: brew update
           no_output_timeout: 20m
       - ci_steps
-      - store_artifacts:
-          path: build-macos/logs
 
   deploy_snapshots:
     docker:
-      - image: redisfab/rmbuilder:6.0.9-x64-buster
+      - image: redisfab/rmbuilder:6.2.3-x64-buster
     steps:
-      - abort_for_docs
+      - early_returns
       - early_return_for_forked_pull_requests
       - attach_workspace:
           at: ~/workspace
@@ -112,33 +116,33 @@ jobs:
     docker:
       - image: redisfab/clang:12-x64-stretch
     steps:
-      - abort_for_docs
+      - early_returns
       - checkout
       - run:
           name: Run & build tests
           command: bash -l -c "ASAN=1 ./.circleci/ci_diag_san12.sh"
           no_output_timeout: 20m
       - store_artifacts:
-          path: build-asan/logs
+          path: tests/pytests/logs
 
   debug_msan:
     docker:
       - image: redisfab/clang:12-x64-stretch
     steps:
-      - abort_for_docs
+      - early_returns
       - checkout
       - run:
           name: Run & build tests
           command: bash -l -c "MSAN=1 ./.circleci/ci_diag_san12.sh"
           no_output_timeout: 20m
       - store_artifacts:
-          path: build-msan/logs
+          path: tests/pytests/logs
 
   coverage:
     docker:
-      - image: redisfab/rmbuilder:6.0.9-x64-buster
+      - image: redisfab/rmbuilder:6.2.3-x64-buster
     steps:
-      - abort_for_docs
+      - early_returns
       - checkout
       - run:
           name: Build & Test
@@ -148,13 +152,13 @@ jobs:
           path: coverage
           destination: coverage
       - store_artifacts:
-          path: build-coverage/logs
+          path: tests/pytests/logs
 
   deploy_release:
     docker:
-      - image: redisfab/rmbuilder:6.0.9-x64-buster
+      - image: redisfab/rmbuilder:6.2.3-x64-buster
     steps:
-      - abort_for_docs
+      - early_returns
       - early_return_for_forked_pull_requests
       - attach_workspace:
           at: ~/workspace
@@ -194,6 +198,7 @@ on-integ-branch: &on-integ-branch
       only:
         - master
         - /^\d+\.\d+.*$/
+        - /^feature-.*$/
     tags:
       ignore: /.*/
 
@@ -203,6 +208,7 @@ not-on-integ-branch: &not-on-integ-branch
       ignore:
         - master
         - /^\d+\.\d+.*$/
+        - /^feature-.*$/
     tags:
       ignore: /.*/
 
@@ -219,6 +225,7 @@ on-integ-and-version-tags: &on-integ-and-version-tags
       only:
         - master
         - /^\d+\.\d+.*$/
+        - /^feature-.*$/
     tags:
       only: /^v[0-9].*/
 

@@ -170,7 +170,7 @@ Vector *Trie_Search(Trie *tree, const char *s, size_t len, size_t num, int maxDi
     }
     TrieSearchResult *ent = pooledEntry;
 
-    ent->score = slen > 0 && slen == rlen && memcmp(runes, rstr, slen) == 0 ? INT_MAX : score;
+    ent->score = slen > 0 && slen == rlen && memcmp(runes, rstr, slen) == 0 ? (float)INT_MAX : score;
 
     if (maxDist > 0) {
       // factor the distance into the score
