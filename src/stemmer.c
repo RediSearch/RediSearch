@@ -132,7 +132,7 @@ void __sbstemmer_Free(Stemmer *s) {
 
 static int sbstemmer_Reset(Stemmer *stemmer, StemmerType type, RSLanguage language) {
   if (type != stemmer->type || stemmer->language == RS_LANG_UNSUPPORTED ||
-                               stemmer->language == language) {
+                               stemmer->language != language) {
     return 0;
   }
   return 1;
