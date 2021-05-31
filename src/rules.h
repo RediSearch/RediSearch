@@ -5,17 +5,21 @@
 #include "dep/triemap/triemap.h"
 #include "stemmer.h"
 #include "util/arr.h"
+#include "json.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
+
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 #define RULE_TYPE_HASH "HASH"
+#define RULE_TYPE_JSON "JSON"
 
 struct RSExpr;
 struct IndexSpec;
 
-typedef enum { SchameRuleType_Any, SchemaRuleType_Hash } SchemaRuleType;
+typedef enum { SchameRuleType_Any, SchemaRuleType_Hash, SchemaRuleType_Json } SchemaRuleType;
 
 const char *SchemaRuleType_ToString(SchemaRuleType type);
 int SchemaRuleType_Parse(const char *type_str, SchemaRuleType *type, QueryError *status);
@@ -58,8 +62,12 @@ void SchemaRule_Free(SchemaRule *);
 
 RSLanguage SchemaRule_HashLang(RedisModuleCtx *rctx, const SchemaRule *rule, RedisModuleKey *key,
                                const char *kname);
+RSLanguage SchemaRule_JsonLang(RedisModuleCtx *ctx, const SchemaRule *rule,
+                               RedisJSONKey jsonKey, const char *keyName);
 double SchemaRule_HashScore(RedisModuleCtx *rctx, const SchemaRule *rule, RedisModuleKey *key,
                             const char *kname);
+RSLanguage SchemaRule_JsonScore(RedisModuleCtx *ctx, const SchemaRule *rule,
+                                RedisJSONKey jsonKey, const char *keyName);
 RedisModuleString *SchemaRule_HashPayload(RedisModuleCtx *rctx, const SchemaRule *rule,
                                           RedisModuleKey *key, const char *kname);
 
@@ -80,7 +88,8 @@ typedef struct {
   arrayof(struct IndexSpec *) index_specs;
 } SchemaPrefixNode;
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+
 #ifdef __cplusplus
 }
 #endif
-///////////////////////////////////////////////////////////////////////////////////////////////

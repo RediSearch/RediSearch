@@ -20,13 +20,16 @@ if [[ -z $CI_CONCURRENCY ]]; then
 fi
 
 make -j$CI_CONCURRENCY
+BRANCH=master $ROOT/sbin/get-redisjson
 
 cat >rltest.config <<EOF
 --unix
 EOF
+export CONFIG_FILE="$PWD/rltest.config"
 
 ./lcov-init.sh
-ctest --output-on-failure -j$CI_CONCURRENCY
+COMPAT_DIR=$ROOT/build-coverage make -C $ROOT test CTEST_ARGS="--output-on-failure" CTEST_PARALLEL=${CI_CONCURRENCY}
+# ctest --output-on-failure -j$CI_CONCURRENCY
 ./lcov-capture.sh coverage.info
 bash <(curl -s https://codecov.io/bash) -f coverage.info
 lcov -l coverage.info
