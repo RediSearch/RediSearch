@@ -148,9 +148,6 @@ typedef struct IndexReader {
    * thread was asleep, and reset the state in a deeper way
    */
   uint32_t gcMarker;
-
-  /* boosting weight */
-  double weight;
 } IndexReader;
 
 void IndexReader_OnReopen(void *privdata);

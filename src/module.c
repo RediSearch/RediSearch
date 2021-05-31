@@ -31,6 +31,7 @@
 #include "module.h"
 #include "rwlock.h"
 #include "info_command.h"
+#include "rejson_api.h"
 
 #define LOAD_INDEX(ctx, srcname, write)                                                     \
   ({                                                                                        \
@@ -565,27 +566,29 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
     initialScan = false;
   }
 
-  if (AC_AdvanceIfMatch(&ac, "SCHEMA")) {
-    if (!AC_AdvanceIfMatch(&ac, "ADD")) {
-      return RedisModule_ReplyWithError(ctx, "Unknown action passed to ALTER SCHEMA");
-    }
-    if (!AC_NumRemaining(&ac)) {
-      return RedisModule_ReplyWithError(ctx, "No fields provided");
-    }
-    if (ifnx) {
-      const char *fieldName;
-      size_t fieldNameSize;
-
-      int rv = AC_GetString(&ac, &fieldName, &fieldNameSize, AC_F_NOADVANCE);
-      if (IndexSpec_GetField(sp, fieldName, fieldNameSize)) {
-        RedisModule_Replicate(ctx, RS_ALTER_IF_NX_CMD, "v", argv + 1, argc - 1);
-        return RedisModule_ReplyWithSimpleString(ctx, "OK");
-      }
-    }
-    IndexSpec_AddFields(sp, ctx, &ac, initialScan, &status);
-  } else {
-      return RedisModule_ReplyWithError(ctx, "ALTER must be followed by SCHEMA");
+  if (!AC_AdvanceIfMatch(&ac, "SCHEMA")) {
+    return RedisModule_ReplyWithError(ctx, "ALTER must be followed by SCHEMA");
   }
+
+  if (!AC_AdvanceIfMatch(&ac, "ADD")) {
+    return RedisModule_ReplyWithError(ctx, "Unknown action passed to ALTER SCHEMA");
+  }
+
+  if (!AC_NumRemaining(&ac)) {
+    return RedisModule_ReplyWithError(ctx, "No fields provided");
+  }
+
+  if (ifnx) {
+    const char *fieldName;
+    size_t fieldNameSize;
+
+    int rv = AC_GetString(&ac, &fieldName, &fieldNameSize, AC_F_NOADVANCE);
+    if (IndexSpec_GetField(sp, fieldName, fieldNameSize)) {
+      RedisModule_Replicate(ctx, RS_ALTER_IF_NX_CMD, "v", argv + 1, argc - 1);
+      return RedisModule_ReplyWithSimpleString(ctx, "OK");
+    }
+  }
+  IndexSpec_AddFields(sp, ctx, &ac, initialScan, &status);
 
   if (QueryError_HasError(&status)) {
     return QueryError_ReplyAndClear(ctx, &status);
@@ -595,6 +598,7 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
   }
 }
 
+/* FT.ALTER */
 int AlterIndexIfNXCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return AlterIndexInternalCommand(ctx, argv, argc, true);
 }

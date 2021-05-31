@@ -1,6 +1,6 @@
 # BUILD redisfab/redisearch:${VERSION}-${ARCH}-${OSNICK}
 
-ARG REDIS_VER=6.0.9
+ARG REDIS_VER=6.2.3
 
 # OSNICK=bionic|stretch|buster
 ARG OSNICK=buster
@@ -43,6 +43,7 @@ ARG TEST=0
 RUN if [ "$TEST" = "1" ]; then TEST= make test; fi
 
 #----------------------------------------------------------------------------------------------
+FROM redisfab/rejson:master-${ARCH}-${OSNICK} AS json
 FROM redisfab/redis:${REDIS_VER}-${ARCH}-${OSNICK}
 
 ARG OSNICK
@@ -56,6 +57,7 @@ WORKDIR /data
 ENV LIBDIR /usr/lib/redis/modules/
 RUN mkdir -p "$LIBDIR";
 
-COPY --from=builder /build/build/redisearch.so*  "$LIBDIR"
+COPY --from=builder /build/build/redisearch.so*       "$LIBDIR"
+COPY --from=json    /usr/lib/redis/modules/rejson.so* "$LIBDIR"
 
-CMD ["redis-server", "--loadmodule", "/usr/lib/redis/modules/redisearch.so"]
+CMD ["redis-server", "--loadmodule", "/usr/lib/redis/modules/redisearch.so", "--loadmodule", "/usr/lib/redis/modules/rejson.so"]
