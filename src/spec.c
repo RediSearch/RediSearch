@@ -1902,17 +1902,14 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   // if a key does not exit, is not a hash or has no fields in index schema
 
   int rv = REDISMODULE_ERR;
-  // TODO: SchemaRuleType_Any
   switch (type) {
   case DocumentType_Hash:
     rv = Document_LoadSchemaFieldHash(&doc, &sctx);
     break;
-  
   case DocumentType_Json:
     rv = Document_LoadSchemaFieldJson(&doc, &sctx);
     break;
   case DocumentType_None:
-    // TODO: consider using getDocType
     RS_LOG_ASSERT(0, "Should receieve valid type");
   }
 
