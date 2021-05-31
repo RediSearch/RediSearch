@@ -19,6 +19,7 @@
 #include "aggregate/aggregate.h"
 #include "ext/default.h"
 #include "rwlock.h"
+#include "json.h"
 #include "VectorSimilarity/src/vecsim.h"
 
 #ifndef RS_NO_ONLOAD
@@ -186,6 +187,6 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
 
   Initialize_KeyspaceNotifications(ctx);
   Initialize_CommandFilter(ctx);
-
+  GetJSONAPIs(ctx, 1);
   return REDISMODULE_OK;
 }
