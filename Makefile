@@ -165,6 +165,7 @@ setup:
 
 fetch:
 	-git submodule update --init --recursive
+	cd deps; git clone ssh://git@github.com/RedisLabsModules/VectorSimilarity.git
 
 #----------------------------------------------------------------------------------------------
 

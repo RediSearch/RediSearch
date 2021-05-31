@@ -478,7 +478,9 @@ FIELD_BULK_INDEXER(vectorIndexer) {
     }
   }
   // TODO: change return value to NRN_AddRv
-  int rv = AddVectorToHNSWIndex(rt->data.nhsw, fdata->vector, aCtx->doc->docId);
+#if 0
+  int rv = VecSimIndex_AddVector(rt->data.nhsw, fdata->vector, aCtx->doc->docId);
+#endif
   ctx->spec->stats.invertedSize += rt->size * sizeof(double) * 2;  // TODO: no way to tell at this point.
   ctx->spec->stats.numRecords++;
   return 0;

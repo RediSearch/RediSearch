@@ -19,6 +19,7 @@
 #include "aggregate/aggregate.h"
 #include "ext/default.h"
 #include "rwlock.h"
+#include "VectorSimilarity/src/vecsim.h"
 
 #ifndef RS_NO_ONLOAD
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -117,6 +118,10 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
       RedisModule_Log(ctx, ##__VA_ARGS__);          \
     }                                               \
   } while (false)
+
+  VecSimAlgoParams params = { .algorithmType = VecSimAlgo_HNSW, .hnswParams = { .initialCapacity = 1000, .M = 1, .efConstuction = 1.0 } };
+  VecSimIndex* vecidx = VecSimIndex_New(&params, VecSimMetric_L2, VecSimVecType_FLOAT32, 2);
+  VecSimIndex_Free(vecidx);
 
   if (RediSearch_LockInit(ctx) != REDISMODULE_OK) {
     return REDISMODULE_ERR;

@@ -92,6 +92,7 @@ ENDIF()
 
 # Set globals here!
 INCLUDE_DIRECTORIES(${PROJECT_SOURCE_DIR}/src)
+INCLUDE_DIRECTORIES(${PROJECT_SOURCE_DIR}/deps)
 ADD_DEFINITIONS(-DREDISMODULE_EXPERIMENTAL_API)
 ADD_DEFINITIONS(-D_GNU_SOURCE)
 
@@ -103,6 +104,7 @@ ADD_SUBDIRECTORY(src/rmutil)
 ADD_SUBDIRECTORY(src/dep/friso)
 ADD_SUBDIRECTORY(src/dep/snowball)
 ADD_SUBDIRECTORY(src/dep/phonetics)
+ADD_SUBDIRECTORY(cmake/vecsim)
 
 FILE(GLOB RS_SRC
     "src/*.c"
@@ -156,7 +158,7 @@ ELSEIF (RS_BUILD_STATIC)
 
 ELSE ()
     ADD_LIBRARY(redisearch SHARED ${FINAL_OBJECTS} src/module-init/module-init.c)
-    TARGET_LINK_LIBRARIES(redisearch dl m)
+    TARGET_LINK_LIBRARIES(redisearch dl m vector_similarity)
     SET_TARGET_PROPERTIES(redisearch PROPERTIES PREFIX "")
     SET_TARGET_PROPERTIES(redisearch PROPERTIES SUFFIX ".so")
 

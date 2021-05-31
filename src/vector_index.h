@@ -1,5 +1,5 @@
 #include "search_ctx.h"
-#include "nhsw.h"
+#include "VectorSimilarity/src/vecsim.h"
 
 typedef enum {
   VECTOR_TYPE_FLOAT32 = 0,
@@ -22,11 +22,12 @@ typedef enum {
 } VectorDistanceMetric;
 
 typedef struct {
+#if 0
   union IndexPtr {
     BFIndex *bf;
     HNSWIndex *nhsw;
   } data;
-  
+#endif
 
   size_t size;
   VectorType type;

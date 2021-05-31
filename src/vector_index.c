@@ -4,6 +4,7 @@
 
 static RS_Vector *openVectorKeysDict(RedisSearchCtx *ctx, RedisModuleString *keyName,
                                              int write) {
+#if 0
   KeysDictValue *kdv = dictFetchValue(ctx->spec->keysDict, keyName);
   if (kdv) {
     return kdv->p;
@@ -17,6 +18,9 @@ static RS_Vector *openVectorKeysDict(RedisSearchCtx *ctx, RedisModuleString *key
   kdv->p = InitHNSWIndex(MAX_VECTOR_ELEMENTS, 2);
   dictAdd(ctx->spec->keysDict, keyName, kdv);
   return kdv->p;
+#else
+  return 0;
+#endif
 }
 
 RS_Vector *OpenVectorIndex(RedisSearchCtx *ctx,
