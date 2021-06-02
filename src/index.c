@@ -1791,6 +1791,7 @@ PRINT_PROFILE_FUNC(printUnionIt) {
   case QN_UNION : unionTypeStr = "UNION"; break;
   case QN_FUZZY : unionTypeStr = "FUZZY"; break;
   case QN_PREFIX : unionTypeStr = "PREFIX"; break;
+  case QN_VECTOR : unionTypeStr = "VECTOR"; break;
   case QN_NUMERIC : unionTypeStr = "NUMERIC"; break;
   case QN_LEXRANGE : unionTypeStr = "LEXRANGE"; break;
   default:
@@ -1962,6 +1963,7 @@ void Profile_AddIters(IndexIterator **root) {
       }
       break;
     case READ_ITERATOR:
+    case LIST_ITERATOR:
     case EMPTY_ITERATOR:
     case ID_LIST_ITERATOR:
       break;

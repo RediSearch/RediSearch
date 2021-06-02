@@ -1,5 +1,4 @@
 #include "index_iterator.h"
-#include "nhsw.h"
 #include "redisearch.h"
 #include "spec.h"
 

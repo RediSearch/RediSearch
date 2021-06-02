@@ -1,8 +1,9 @@
 #include "list_reader.h"
+#include "VectorSimilarity/src/vecsim.h"
 
 typedef struct {
   IndexIterator base;
-  VecField *list; // TODO: make generic
+  VecSimQueryResult *list; // TODO: make generic
   t_docId lastDocId;
   t_offset size;
   t_offset offset;
@@ -24,7 +25,7 @@ static int LR_Read(void *ctx, RSIndexResult **hit) {
   }
 
   lr->base.current->docId = lr->lastDocId = lr->list[lr->offset].id;
-  lr->base.current->num.value = lr->list[lr->offset].dist;
+  lr->base.current->num.value = lr->list[lr->offset].score;
   *hit = lr->base.current;
   ++lr->offset;
 
@@ -40,7 +41,7 @@ static int LR_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
     }
 
     lr->base.current->docId = lr->lastDocId = lr->list[lr->offset].id;
-    lr->base.current->num.value = lr->list[lr->offset].dist;
+    lr->base.current->num.value = lr->list[lr->offset].score;
     *hit = lr->base.current;
     ++lr->offset;
 

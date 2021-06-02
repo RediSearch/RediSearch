@@ -133,9 +133,11 @@ static int one_not_null(void *a, void *b, void *out) {
 %type tag_list { QueryNode *}
 %destructor tag_list { QueryNode_Free($$); }
 
-//%type 
 %type geo_filter { GeoFilter *}
 %destructor geo_filter { GeoFilter_Free($$); }
+
+%type vector_filter { VectorFilter *}
+%destructor vector_filter { QueryVectorNode_Free($$); }
 
 %type modifierlist { Vector* }
 %destructor modifierlist { 
@@ -547,6 +549,24 @@ geo_filter(A) ::= LSQB num(B) num(C) num(D) TERM(E) RSQB. [NUMBER] {
     GeoFilter_Validate(A, ctx->status);
 }
 
+
+expr(A) ::= modifier(B) COLON vector_filter(C). {
+    // we keep the capitalization as is
+    C->property = rm_strndup(B.s, B.len);
+    A = NewVectorNode(C);
+}
+
+vector_filter(A) ::= LSQB num(B) TERM(C) num(D) RSQB. [gggggggggggg] {
+    char buf[16] = {0};
+    if (C.len < 8) {
+        memcpy(buf, C.s, C.len);
+    } else {
+        strcpy(buf, "INVALID"); //TODO: can be removed?
+        QERR_MKSYNTAXERR(status, "Invalid Vector Filter unit");
+    }
+    A = NewVectorFilter(B.num, buf, D.num);
+    GeoFilter_Validate(A, ctx->status);
+}
 
 
 
