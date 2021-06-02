@@ -414,7 +414,7 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModule_Replicate(ctx, RS_DROP_IF_X_CMD, "v", argv + 1, argc - 1);
   } else {
     // Remove DD if CRDT. Documents were deleted with RM_Call.
-    RedisModule_Replicate(ctx, RS_DROP_INDEX_IF_X_CMD, "v", argv + 1, argc - 1 - (!!isCrdt & delDocs));
+    RedisModule_Replicate(ctx, RS_DROP_INDEX_IF_X_CMD, "v", argv + 1, argc - 1 - (!!(isCrdt && delDocs)));
   }
 
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
