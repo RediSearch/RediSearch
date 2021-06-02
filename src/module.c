@@ -411,7 +411,15 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   if (RMUtil_StringEqualsCaseC(argv[0], "FT.DROP") ||
       RMUtil_StringEqualsCaseC(argv[0], "_FT.DROP")) {
-    RedisModule_Replicate(ctx, RS_DROP_IF_X_CMD, "v", argv + 1, argc - 1);
+    if (isCrdt) {
+      // We always send KEEPDOC. Either the user specified it or we deleted it with RM_Call
+      RedisModuleString *keepDocStr = RedisModule_CreateString(ctx, "KEEPDOCS", strlen("KEEPDOCS"));
+      RedisModuleString *repCmd[2] = { argv[1], keepDocStr };
+      RedisModule_Replicate(ctx, RS_DROP_IF_X_CMD, "v", keepDocStr, 2);
+      RedisModule_FreeString(ctx, keepDocStr);
+    } else {
+      RedisModule_Replicate(ctx, RS_DROP_IF_X_CMD, "v", argv + 1, argc - 1);
+    }
   } else {
     // Remove DD if CRDT. Documents were deleted with RM_Call.
     RedisModule_Replicate(ctx, RS_DROP_INDEX_IF_X_CMD, "v", argv + 1, argc - 1 - (!!(isCrdt && delDocs)));

@@ -467,7 +467,7 @@ int Redis_DeleteKeyC(RedisModuleCtx *ctx, char *cstr, int replicate) {
   if (!replicate) {
     rep = RedisModule_Call(ctx, "DEL", "c", cstr);
   } else {
-    // for CRDT we need to send command to all replicas. 
+    // for CRDT we need to send command to all replicas.
     rep = RedisModule_Call(ctx, "DEL", "c!", cstr);
   }
   RedisModule_Assert(RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_INTEGER);
