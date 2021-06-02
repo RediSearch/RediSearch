@@ -44,15 +44,17 @@ commands:
           command: bash -l -c "./.circleci/ci_test.sh"
       - run:
           name: Package
-          command: bash -l -c "DISTDIR=~/workspace ./.circleci/ci_package.sh"
+          command: bash -l -c "COMPAT_DIR=$BUILD_DIR make pack"
           environment:
             - PACKAGE_NAME: redisearch-oss
       - early_return_for_forked_pull_requests
       - persist_to_workspace:
-          root: ~/workspace
+          root: artifacts
           paths:
-            - snapshot
-            - release
+            - '*.zip'
+            - '*.tgz'
+            - snapshots/*.zip
+            - snapshots/*.tgz
 
 jobs:
   ubuntu:
@@ -101,8 +103,10 @@ jobs:
       - run:
           name: Deploy Snapshots to S3
           command: |
-            for f in ~/workspace/snapshot/*.zip; do
-              aws s3 cp $f s3://redismodules/$PACKAGE_NAME/snapshots/ --acl public-read
+            cd ~/workspace/snapshots
+            du -ah --apparent-size *
+            for f in `find . -name "*.zip" -or -name "*.tgz"`; do
+              echo aws s3 cp $f s3://redismodules/$PACKAGE_NAME/snapshots/ --acl public-read
             done
 
   debug_asan:
@@ -158,7 +162,9 @@ jobs:
       - run:
           name: Deploy Releases to S3
           command: |
-            for f in ~/workspace/release/*.zip; do
+            cd ~/workspace
+            du -ah --apparent-size *
+            for f in *.zip *.tgz; do
               aws s3 cp $f s3://redismodules/$PACKAGE_NAME/ --acl public-read
             done
 
@@ -240,7 +246,8 @@ workflows:
       - deploy_snapshots:
           context: common
           requires: *default_jobs
-          <<: *on-integ-and-version-tags
+          #@@ <<: *on-integ-and-version-tags
+          <<: *on-any-branch
       - deploy_release:
           context: common
           requires: *default_jobs
@@ -251,8 +258,7 @@ workflows:
       - schedule:
           cron: "20 17 * * 0,3"
           filters:
-             branches:
-               only:
-                 - master
+            branches:
+              only: master
     jobs:
       - macos

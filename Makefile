@@ -53,6 +53,9 @@ SRCDIR=src
 
 TARGET=$(COMPAT_MODULE)
 
+PACKAGE_NAME ?= redisearch-oss
+export PACKAGE_NAME
+
 #----------------------------------------------------------------------------------------------
 
 ifeq ($(DEBUG),1)
@@ -175,6 +178,28 @@ CALLGRIND_ARGS=\
 
 callgrind: $(COMPAT_MODULE)
 	$(SHOW)valgrind $(CALLGRIND_ARGS) --loadmodule $(abspath $(TARGET)) $(REDIS_ARGS)
+
+#----------------------------------------------------------------------------------------------
+
+RAMP_VARIANT=$(subst release,,$(FLAVOR))$(_VARIANT.string)
+
+RAMP.release:=$(shell JUST_PRINT=1 RAMP=1 DEPS=0 RELEASE=1 SNAPSHOT=0 VARIANT=$(RAMP_VARIANT) PACKAGE_NAME=$(PACKAGE_NAME) ./pack.sh)
+RAMP.snapshot:=$(shell JUST_PRINT=1 RAMP=1 DEPS=0 RELEASE=0 SNAPSHOT=1 VARIANT=$(RAMP_VARIANT) PACKAGE_NAME=$(PACKAGE_NAME) ./pack.sh)
+
+RAMP_YAML ?= ramp.yml
+
+PACK_ARGS=\
+	VARIANT=$(RAMP_VARIANT) \
+	ARTDIR=$(ROOT)/artifacts \
+	PACKAGE_NAME=$(PACKAGE_NAME) \
+	RAMP_YAML=$(RAMP_YAML) \
+	RAMP_ARGS=$(RAMP_ARGS)
+
+artifacts/$(RAMP.release) : $(TARGET) $(RAMP_YAML)
+	@echo Packing module...
+	$(SHOW)$(PACK_ARGS) ./pack.sh $(TARGET)
+
+pack: artifacts/$(RAMP.release)
 
 #----------------------------------------------------------------------------------------------
 
