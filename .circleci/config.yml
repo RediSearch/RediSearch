@@ -106,7 +106,7 @@ jobs:
             cd ~/workspace/snapshots
             du -ah --apparent-size *
             for f in `find . -name "*.zip" -or -name "*.tgz"`; do
-              echo aws s3 cp $f s3://redismodules/$PACKAGE_NAME/snapshots/ --acl public-read
+              aws s3 cp $f s3://redismodules/$PACKAGE_NAME/snapshots/ --acl public-read
             done
 
   debug_asan:
@@ -164,7 +164,7 @@ jobs:
           command: |
             cd ~/workspace
             du -ah --apparent-size *
-            for f in *.zip *.tgz; do
+            for f in `find . -name "*.zip" -or -name "*.tgz"`; do
               aws s3 cp $f s3://redismodules/$PACKAGE_NAME/ --acl public-read
             done
 
@@ -246,8 +246,7 @@ workflows:
       - deploy_snapshots:
           context: common
           requires: *default_jobs
-          #@@ <<: *on-integ-and-version-tags
-          <<: *on-any-branch
+          <<: *on-integ-and-version-tags
       - deploy_release:
           context: common
           requires: *default_jobs
