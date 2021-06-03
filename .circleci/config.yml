@@ -64,6 +64,42 @@ commands:
             - snapshots/*.zip
             - snapshots/*.tgz
 
+  benchmark_steps:
+    parameters:
+      github_actor:
+        type: string
+        default: $CIRCLE_USERNAME
+      module_path:
+        type: string
+        default: ../../build-debian/redisearch.so
+    steps:
+      - run:
+          name: Install remote benchmark tool dependencies
+          command: |
+            VERSION=0.14.8 ./deps/readies/bin/getterraform
+      - run:
+          name: Install remote benchmark python dependencies
+          command: python3 -m pip install -r ./tests/ci.benchmarks/requirements.txt
+      - run:
+          name: Run CI benchmarks on aws
+          command: |
+              cd ./tests/ci.benchmarks
+              export AWS_ACCESS_KEY_ID=$PERFORMANCE_EC2_ACCESS_KEY
+              export AWS_SECRET_ACCESS_KEY=$PERFORMANCE_EC2_SECRET_KEY
+              export AWS_DEFAULT_REGION=$PERFORMANCE_EC2_REGION
+              export EC2_PRIVATE_PEM=$PERFORMANCE_EC2_PRIVATE_PEM
+
+              redisbench-admin run-remote \
+                --module_path << parameters.module_path >> \
+                --github_actor << parameters.github_actor >> \
+                --github_repo $CIRCLE_PROJECT_REPONAME \
+                --github_org $CIRCLE_PROJECT_USERNAME \
+                --github_sha $CIRCLE_SHA1 \
+                --github_branch $CIRCLE_BRANCH \
+                --upload_results_s3 \
+                --triggering_env circleci \
+                --push_results_redistimeseries
+
 jobs:
   ubuntu:
     docker:
@@ -99,6 +135,21 @@ jobs:
       - ci_steps
       - store_artifacts:
           path: build-macos/logs
+
+  ubuntu_benchmarks:
+    docker:
+      - image: redisfab/rmbuilder:6.0.9-x64-bionic
+    environment:
+      - BUILD_DIR: build-debian
+    steps:
+      - checkout
+      - run:
+          name: Get Dependencies
+          command: ./.circleci/ci_get_deps.sh
+      - run:
+          name: Build
+          command: bash -l -c "./.circleci/ci_build.sh"
+      - benchmark_steps
 
   deploy_snapshots:
     docker:
@@ -257,6 +308,9 @@ workflows:
           context: common
           requires: *default_jobs
           <<: *on-version-tags
+      - ubuntu_benchmarks:
+          <<: *on-integ-and-version-tags
+          context: common
 
   nightly:
     triggers:
@@ -267,3 +321,5 @@ workflows:
               only: master
     jobs:
       - macos
+      - ubuntu_benchmarks:
+          context: common
