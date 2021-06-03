@@ -59,7 +59,8 @@ RSFieldID RediSearch_CreateField(IndexSpec* sp, const char* name, unsigned types
   RS_LOG_ASSERT(types, "types should not be RSFLDTYPE_DEFAULT");
   RWLOCK_ACQUIRE_WRITE();
 
-  FieldSpec* fs = IndexSpec_CreateField(sp, name);
+  // TODO: add a function which can take both path and name 
+  FieldSpec* fs = IndexSpec_CreateField(sp, name, NULL);
   int numTypes = 0;
 
   if (types & RSFLDTYPE_FULLTEXT) {
@@ -133,9 +134,10 @@ void RediSearch_TagFieldSetCaseSensitive(IndexSpec* sp, RSFieldID id, int enable
 
 RSDoc* RediSearch_CreateDocument(const void* docKey, size_t len, double score, const char* lang) {
   RedisModuleString* docKeyStr = RedisModule_CreateString(NULL, docKey, len);
-  RSLanguage language = lang ? RSLanguage_Find(lang) : DEFAULT_LANGUAGE;
+  RSLanguage language = lang ? RSLanguage_Find(lang, 0) : DEFAULT_LANGUAGE;
   Document* ret = rm_calloc(1, sizeof(*ret));
-  Document_Init(ret, docKeyStr, score, language);
+  // TODO: Should we introduce DocumentType_LLAPI?
+  Document_Init(ret, docKeyStr, score, language, DocumentType_Hash);
   Document_MakeStringsOwner(ret);
   RedisModule_FreeString(RSDummyContext, docKeyStr);
   return ret;
@@ -464,6 +466,7 @@ int RediSearch_QueryNodeType(QueryNode* qn) {
   return qn->type;
 }
 
+// use only by LLAPI + unittest
 const void* RediSearch_ResultsIteratorNext(RS_ApiIter* iter, IndexSpec* sp, size_t* len) {
   while (iter->internal->Read(iter->internal->ctx, &iter->res) != INDEXREAD_EOF) {
     const RSDocumentMetadata* md = DocTable_Get(&sp->docs, iter->res->docId);

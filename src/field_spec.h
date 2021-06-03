@@ -65,7 +65,8 @@ Each field has a unique id that's a power of two, so we can filter fields
 by a bit mask.
 Each field has a type, allowing us to add non text fields in the future */
 typedef struct FieldSpec {
-  char* name;
+  char *name;
+  char *path;
   FieldType types : 8;
   FieldSpecOptions options : 8;
 
