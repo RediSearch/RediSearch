@@ -474,12 +474,20 @@ FIELD_BULK_INDEXER(numericIndexer) {
 FIELD_PREPROCESSOR(geoPreprocessor) {
   // buffer of 32 bytes should be sufficient. lon,lat 
   size_t len;
-  char buf[32] = { 0 };
+  char buf[32];
   const char *str = RedisModule_StringPtrLen(field->text, &len);
   if (*str == '"') {
     str += 1;
+    len -= 2; // ignore quotes at start and end
   }
+  if (len > 31) {
+    return REDISMODULE_ERR;
+  }
+
+  // copy to buffer since we modify the string
   memcpy(buf, str, MIN(32, len));
+  buf[len] = '\0';
+
   char *pos = strpbrk(buf, " ,");
   if (!pos) {
     QueryError_SetCode(status, QUERY_EGEOFORMAT);
