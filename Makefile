@@ -221,6 +221,22 @@ run:
 
 #----------------------------------------------------------------------------------------------
 
+BENCHMARK_ARGS = redisbench-admin run-local
+
+ifneq ($(REMOTE),)
+	BENCHMARK_ARGS = redisbench-admin run-remote 
+endif
+
+BENCHMARK_ARGS += --module_path $(realpath $(TARGET))
+ifneq ($(BENCHMARK),)
+	BENCHMARK_ARGS += --test $(BENCHMARK)
+endif
+
+
+benchmark: $(TARGET)
+	cd ./tests/ci.benchmarks; $(BENCHMARK_ARGS) ; cd ../../
+
+#----------------------------------------------------------------------------------------------
 export REJSON ?= 1
 
 ifeq ($(TESTDEBUG),1)
