@@ -308,7 +308,7 @@ workflows:
           requires: *default_jobs
           <<: *on-version-tags
       - ubuntu_benchmarks:
-          <<: *on-any-branch
+          <<: *on-integ-and-version-tags
           context: common
 
   nightly:
