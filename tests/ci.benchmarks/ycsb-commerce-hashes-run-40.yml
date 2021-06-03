@@ -1,0 +1,49 @@
+version: 0.2
+name: "ycsb-commerce-hashes-run-40"
+description: "YCSB Commerce workload (RUN step) using RediSearch v2"
+dbconfig:
+  - dataset: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/ycsb/ycsb-redisearch-binding/datasets/recordcount-100000.rdb"
+remote:
+ - type: oss-standalone
+ - setup: redisearch-m5d
+clientconfig:
+  - tool: ycsb
+  - tool_source:
+    - remote: https://s3.amazonaws.com/benchmarks.redislabs/redisearch/ycsb/ycsb-redisearch-binding-0.18.0-SNAPSHOT.tar.gz
+    - bin_path: ./bin/ycsb
+  - parameters:
+    - database: redisearch
+    - step: run
+    - workload: "./workloads/workload-ecommerce"
+    - override_workload_properties:
+      - dictfile: "./bin/uci_online_retail.csv"
+      - recordcount: 100000
+      - operationcount: 100000
+    - threads: 64
+exporter:
+  redistimeseries:
+    break_by:
+      - version
+      - commit
+    timemetric: "$.StartTime"
+    metrics:
+      - "$.Tests.OVERALL.Throughput_ops_sec_"
+      - "$.Tests.OVERALL.Operations"
+      - "$.Tests.READ.AverageLatency_us_"
+      - "$.Tests.READ.MinLatency_us_"
+      - "$.Tests.READ.95thPercentileLatency_us_"
+      - "$.Tests.READ.99thPercentileLatency_us_"
+      - "$.Tests.READ.MaxLatency_us_"
+      - "$.Tests.READ.Return_OK"
+      - "$.Tests.SEARCH.AverageLatency_us_"
+      - "$.Tests.SEARCH.MinLatency_us_"
+      - "$.Tests.SEARCH.95thPercentileLatency_us_"
+      - "$.Tests.SEARCH.99thPercentileLatency_us_"
+      - "$.Tests.SEARCH.MaxLatency_us_"
+      - "$.Tests.SEARCH.Return_OK"
+      - "$.Tests.UPDATE.AverageLatency_us_"
+      - "$.Tests.UPDATE.MinLatency_us_"
+      - "$.Tests.UPDATE.95thPercentileLatency_us_"
+      - "$.Tests.UPDATE.99thPercentileLatency_us_"
+      - "$.Tests.UPDATE.MaxLatency_us_"
+      - "$.Tests.UPDATE.Return_OK"
