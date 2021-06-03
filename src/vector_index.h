@@ -60,7 +60,7 @@ typedef struct {
 // This function open or create a new index of type HNSW.
 
 // TODO: remove idxKey from all OpenFooIndex functions
-RS_Vector *OpenVectorIndex(RedisSearchCtx *ctx,
+VecSimIndex *OpenVectorIndex(RedisSearchCtx *ctx,
   RedisModuleString *keyName/*, RedisModuleKey **idxKey*/);
 
 IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorFilter *vf);

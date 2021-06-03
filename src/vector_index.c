@@ -11,7 +11,7 @@
 #define POC_VECTOR_LEN 2
 
 
-static RS_Vector *openVectorKeysDict(RedisSearchCtx *ctx, RedisModuleString *keyName,
+static VecSimIndex *openVectorKeysDict(RedisSearchCtx *ctx, RedisModuleString *keyName,
                                              int write) {
   KeysDictValue *kdv = dictFetchValue(ctx->spec->keysDict, keyName);
   if (kdv) {
@@ -21,7 +21,6 @@ static RS_Vector *openVectorKeysDict(RedisSearchCtx *ctx, RedisModuleString *key
     return NULL;
   }
   kdv = rm_calloc(1, sizeof(*kdv));
-  kdv->dtor = (void (*)(void *))VecSimIndex_Free;
   // TODO: get good values from Dvir
   VecSimAlgoParams params = { .algorithmType = POC_ALGORITHM,
                               .hnswParams.efConstuction = POC_EF,
@@ -29,10 +28,11 @@ static RS_Vector *openVectorKeysDict(RedisSearchCtx *ctx, RedisModuleString *key
                               .hnswParams.M = POC_M };
   kdv->p = VecSimIndex_New(&params, POC_METRIC, POC_TYPE, POC_VECTOR_LEN);
   dictAdd(ctx->spec->keysDict, keyName, kdv);
+  kdv->dtor = (void (*)(void *))VecSimIndex_Free;
   return kdv->p;
 }
 
-RS_Vector *OpenVectorIndex(RedisSearchCtx *ctx,
+VecSimIndex *OpenVectorIndex(RedisSearchCtx *ctx,
                             RedisModuleString *keyName) {
   return openVectorKeysDict(ctx, keyName, 1);
 }
@@ -41,11 +41,11 @@ IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorFilter *vf) {
   VecSimQueryResult *result;
   // TODO: change Dict to hold strings
   RedisModuleString *key = RedisModule_CreateStringPrintf(ctx->redisCtx, "%s", vf->property);
-  RS_Vector *vecsim = openVectorKeysDict(ctx, key, 0);
+  VecSimIndex *vecsim = openVectorKeysDict(ctx, key, 0);
   RedisModule_FreeString(ctx->redisCtx, key);
   switch (vf->type) {
     case VECTOR_TOPK:
-      vf->vector = VecSimIndex_TopKQuery(vecsim->data, vf->vector, 100);
+      vf->vector = VecSimIndex_TopKQuery(vecsim, vf->vector, 100);
       break;
     case VECTOR_RANGE:
       RS_LOG_ASSERT(0, "Range is not supported yet");

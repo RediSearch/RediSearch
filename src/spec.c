@@ -974,6 +974,7 @@ RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs,
       case INDEXFLD_T_VECTOR:
         // TODO: remove the whole thing
         // NOT NECESSARY ANYMORE - used when field were in keyspace
+        ret = RedisModule_CreateString(sctx.redisCtx, fs->name, strlen(fs->name));
         break;
       case INDEXFLD_T_FULLTEXT:  // Text fields don't get a per-field index
       default:

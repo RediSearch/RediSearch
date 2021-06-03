@@ -473,12 +473,15 @@ FIELD_BULK_INDEXER(numericIndexer) {
 }
 
 FIELD_PREPROCESSOR(vectorPreprocessor) {
+  // TODO: check input validity
   fdata->vector = field->text;
   return 0;
 }
 
+int HNSWIndex_AddVector(VecSimIndex *index, const void* vector_data, size_t id);
+
 FIELD_BULK_INDEXER(vectorIndexer) {
-  RS_Vector *rt = bulk->indexDatas[IXFLDPOS_VECTOR];
+  VecSimIndex *rt = bulk->indexDatas[IXFLDPOS_VECTOR];
   if (!rt) {
     RedisModuleString *keyName = IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_VECTOR);
     rt = bulk->indexDatas[IXFLDPOS_VECTOR] =
@@ -489,10 +492,9 @@ FIELD_BULK_INDEXER(vectorIndexer) {
     }
   }
   // TODO: change return value to NRN_AddRv
-#if 0
-  int rv = VecSimIndex_AddVector(rt->data.nhsw, fdata->vector, aCtx->doc->docId);
-#endif
-  ctx->spec->stats.invertedSize += rt->size * sizeof(double) * 2;  // TODO: no way to tell at this point.
+  // int rv = HNSWIndex_AddVector(rt, fdata->vector, aCtx->doc->docId);
+  int rv = VecSimIndex_AddVector(rt, fdata->vector, aCtx->doc->docId);
+  //TODO: ctx->spec->stats.invertedSize += rt->size * sizeof(double) * 2;  // TODO: no way to tell at this point.
   ctx->spec->stats.numRecords++;
   return 0;
 }
@@ -563,7 +565,9 @@ static PreprocessorFunc preprocessorMap[] = {
     [IXFLDPOS_FULLTEXT] = fulltextPreprocessor,
     [IXFLDPOS_NUMERIC] = numericPreprocessor,
     [IXFLDPOS_GEO] = geoPreprocessor,
-    [IXFLDPOS_TAG] = tagPreprocessor};
+    [IXFLDPOS_TAG] = tagPreprocessor,
+    [IXFLDPOS_VECTOR] = vectorPreprocessor,
+    };
 
 int IndexerBulkAdd(IndexBulkData *bulk, RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
                    const DocumentField *field, const FieldSpec *fs, FieldIndexerData *fdata,
@@ -581,6 +585,7 @@ int IndexerBulkAdd(IndexBulkData *bulk, RSAddDocumentCtx *cur, RedisSearchCtx *s
           rc = numericIndexer(bulk, cur, sctx, field, fs, fdata, status);
           break;
         case IXFLDPOS_VECTOR:
+
           rc = vectorIndexer(bulk, cur, sctx, field, fs, fdata, status);
           break;
         case IXFLDPOS_FULLTEXT:
