@@ -24,7 +24,7 @@
 #include "util/arr.h"
 #include "rmutil/rm_assert.h"
 #include "module.h"
-#include "vector_index.h"
+//#include "vector_index.h"
 
 #define EFFECTIVE_FIELDMASK(q_, qn_) ((qn_)->opts.fieldMask & (q)->opts->fieldmask)
 
@@ -79,7 +79,7 @@ void QueryNode_Free(QueryNode *n) {
       QueryLexRangeNode_Free(&n->lxrng);
       break;
     case QN_VECTOR:
-      QueryVectorNode_Free(&n->vn);
+      VectorFilter_Free((void *)n->vn.vf);
       break;
     case QN_WILDCARD:
     case QN_IDS:

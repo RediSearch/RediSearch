@@ -30,14 +30,16 @@ typedef enum {
 
 typedef struct VectorFilter {
   char *property;                 // name of field
-  VecSimQueryResult *vector;                   // vector data
-  VectorQueryType type;
+  void *vector;                   // vector data
+  size_t vecLen;                  // vector length
+  VectorQueryType type;           // TOPK or RANGE
   double value;                   // can hold int for TOPK or double for RANGE.
 
   VecSimQueryResult *results;     // array for K results
   int resultsLen;                 // length of array
 } VectorFilter;
 
+/*
 typedef struct {
 #if 0
   union IndexPtr {
@@ -55,7 +57,7 @@ typedef struct {
   size_t numEntries;
   t_docId lastDocId;
 
-} RS_Vector;
+} RS_Vector;*/
 
 // This function open or create a new index of type HNSW.
 
@@ -65,4 +67,5 @@ VecSimIndex *OpenVectorIndex(RedisSearchCtx *ctx,
 
 IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorFilter *vf);
 
-VectorFilter *NewVectorFilter(void *vector, char *type, double value);
+VectorFilter *NewVectorFilter(const void *vector, size_t len, char *type, double value);
+void VectorFilter_Free(VectorFilter *vf);

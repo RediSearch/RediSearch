@@ -16,7 +16,7 @@
 #include "tag_index.h"
 #include "aggregate/expr/expression.h"
 #include "rmutil/rm_assert.h"
-#include "vector_index.h"
+//#include "vector_index.h"
 
 // Memory pool for RSAddDocumentContext contexts
 static mempool_t *actxPool_g = NULL;

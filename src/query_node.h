@@ -9,7 +9,7 @@ struct RSQueryNode;
 struct numericFilter;
 struct geoFilter;
 struct idFilter;
-struct VectorFilter;
+//struct VectorFilter;
 
 /* The types of query nodes */
 typedef enum {

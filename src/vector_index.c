@@ -45,29 +45,36 @@ IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorFilter *vf) {
   RedisModule_FreeString(ctx->redisCtx, key);
   switch (vf->type) {
     case VECTOR_TOPK:
-      vf->vector = VecSimIndex_TopKQuery(vecsim, vf->vector, 100);
+      vf->results = VecSimIndex_TopKQuery(vecsim, vf->vector, 100);
       break;
     case VECTOR_RANGE:
       RS_LOG_ASSERT(0, "Range is not supported yet");
       break;
   }
   // TODO: len
-  return NewListIterator(vf->vector, 100);
+  return NewListIterator(vf->results, 100);
 }
 
 /* Create a vector filter from parsed strings and numbers */
 // TODO: add property?
-VectorFilter *NewVectorFilter(void *vector, char *type, double value) {
+VectorFilter *NewVectorFilter(const void *vector, size_t len, char *type, double value) {
   VectorFilter *vf = rm_malloc(sizeof(*vf));
-  vf->vector = vector;
-  vf->value = value;
+  // copy vector
+  vf->vector = rm_malloc(len);
+  memcpy(vf->vector, vector, len);
+  vf->vecLen = len;
+
   if (!strncmp(type, "TOPK", strlen("TOPK"))) {
     vf->type = VECTOR_TOPK;
   } else if (!strncmp(type, "RANGE", strlen("RANGE"))) {
     vf->type = VECTOR_RANGE;
   } else {
+    // TODO: remove assert
     RS_LOG_ASSERT(0, "Unsupported vector query type");
   }
+
+  vf->value = value;
+
   return vf;
 }
 

@@ -41,6 +41,7 @@
 #include "../util/arr.h"
 #include "../rmutil/vector.h"
 #include "../query_node.h"
+#include "vector_index.h"
 
 // strndup + lowercase in one pass!
 char *strdupcase(const char *s, size_t len) {
@@ -137,7 +138,7 @@ static int one_not_null(void *a, void *b, void *out) {
 %destructor geo_filter { GeoFilter_Free($$); }
 
 %type vector_filter { VectorFilter *}
-%destructor vector_filter { QueryVectorNode_Free($$); }
+%destructor vector_filter { VectorFilter_Free($$); }
 
 %type modifierlist { Vector* }
 %destructor modifierlist { 
@@ -556,16 +557,17 @@ expr(A) ::= modifier(B) COLON vector_filter(C). {
     A = NewVectorNode(C);
 }
 
-vector_filter(A) ::= LSQB num(B) TERM(C) num(D) RSQB. [gggggggggggg] {
+vector_filter(A) ::= LSQB TERM(B) TERM(C) num(D) RSQB. [NUMBER] {
     char buf[16] = {0};
     if (C.len < 8) {
         memcpy(buf, C.s, C.len);
     } else {
         strcpy(buf, "INVALID"); //TODO: can be removed?
-        QERR_MKSYNTAXERR(status, "Invalid Vector Filter unit");
+        QERR_MKSYNTAXERR(ctx->status, "Invalid Vector Filter unit");
     }
-    A = NewVectorFilter(B.num, buf, D.num);
-    GeoFilter_Validate(A, ctx->status);
+
+    A = NewVectorFilter(B.s, B.len, buf, D.num);
+    //GeoFilter_Validate(A, ctx->status);
 }
 
 
