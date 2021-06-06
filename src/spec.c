@@ -1591,6 +1591,7 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
     char *s = RedisModule_LoadStringBuffer(rdb, &dummy);
     int rc = IndexAlias_Add(s, sp, 0, &_status);
     RedisModule_Free(s);
+    RedisModule_Log(NULL, "notice", "Loading existing alias failed");
   }
 
   sp->indexer = NewIndexer(sp);
