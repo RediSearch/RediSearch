@@ -1,0 +1,37 @@
+version: 0.2
+name: "ycsb-commerce-hashes-load"
+description: "YCSB Commerce workload (LOAD step) using RediSearch v2"
+remote:
+ - type: oss-standalone
+ - setup: redisearch-m5d
+clientconfig:
+  - tool: ycsb
+  - tool_source:
+    - remote: https://s3.amazonaws.com/benchmarks.redislabs/redisearch/ycsb/ycsb-redisearch-binding-0.18.0-SNAPSHOT.tar.gz
+    - bin_path: ./bin/ycsb
+  - parameters:
+    - database: redisearch
+    - step: load
+    - workload: "./workloads/workload-ecommerce"
+    - override_workload_properties:
+      - dictfile: "./bin/uci_online_retail.csv"
+      - recordcount: 100000
+      - operationcount: 100000
+    - threads: 64
+exporter:
+  redistimeseries:
+    break_by:
+      - version
+      - commit
+    timemetric: "$.StartTime"
+    metrics:
+      - "$.Tests.OVERALL.Throughput_ops_sec_"
+      - "$.Tests.OVERALL.Operations"
+      - "$.Tests.INSERT.AverageLatency_us_"
+      - "$.Tests.INSERT.MinLatency_us_"
+      - "$.Tests.INSERT.95thPercentileLatency_us_"
+      - "$.Tests.INSERT.99thPercentileLatency_us_"
+      - "$.Tests.INSERT.MaxLatency_us_"
+      - "$.Tests.INSERT.Return_OK"
+kpis:
+  - eq: { $.Tests.INSERT.Return_OK: 100000 }
