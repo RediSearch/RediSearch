@@ -474,7 +474,9 @@ FIELD_BULK_INDEXER(numericIndexer) {
 
 FIELD_PREPROCESSOR(vectorPreprocessor) {
   // TODO: check input validity
-  fdata->vector = field->text;
+  size_t len;
+  fdata->vector = RedisModule_StringPtrLen(field->text, &len);
+  fdata->vecLen = len;
   return 0;
 }
 
