@@ -72,6 +72,9 @@ typedef struct RSTokenizer {
 
 RSTokenizer *NewSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint32_t opts);
 RSTokenizer *NewChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint32_t opts);
+void *newLatinTokenizerAlloc();
+void *newCnTokenizerAlloc();
+void tokenizerFree(void *p);
 
 #define TOKENIZE_DEFAULT_OPTIONS 0x00
 // Don't modify buffer at all during tokenization.
@@ -92,10 +95,11 @@ RSTokenizer *NewChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint
  * Retrieves a tokenizer based on the language string. When this tokenizer
  * is no longer needed, return to the pool using Tokenizer_Release()
  */
-RSTokenizer *GetTokenizer(RSLanguage language, Stemmer *stemmer, StopWordList *stopwords);
-RSTokenizer *GetChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords);
-RSTokenizer *GetSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords);
-void Tokenizer_Release(RSTokenizer *t);
+typedef struct IndexSpec IndexSpec; // forward declaration
+RSTokenizer *GetTokenizer(RSLanguage language, Stemmer *stemmer, IndexSpec *sp);
+RSTokenizer *GetChineseTokenizer(Stemmer *stemmer, IndexSpec *sp);
+RSTokenizer *GetSimpleTokenizer(Stemmer *stemmer, IndexSpec *sp);
+void Tokenizer_Release(RSTokenizer *t, IndexSpec *sp);
 
 #ifdef __cplusplus
 }
