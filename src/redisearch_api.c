@@ -45,6 +45,9 @@ IndexSpec* RediSearch_CreateIndex(const char* name, const RSIndexOptions* option
     spec->stopwords = NewStopWordListCStr((const char **)options->stopwords,
                                                          options->stopwordsLen);
   }
+
+  IndexSpec_AllocateMemPools(spec);
+
   return spec;
 }
 
