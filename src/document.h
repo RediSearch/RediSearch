@@ -94,6 +94,9 @@ typedef struct {
   RedisModuleString *languageStr;  // Language string for HSET
 } AddDocumentOptions;
 
+void *allocDocumentContext(void);
+void freeDocumentContext(void *p);
+
 void Document_AddField(Document *d, const char *fieldname, RedisModuleString *fieldval,
                        uint32_t typemask);
 

@@ -17,17 +17,15 @@
 #include "aggregate/expr/expression.h"
 #include "rmutil/rm_assert.h"
 
-// Memory pool for RSAddDocumentContext contexts
-static mempool_t *actxPool_g = NULL;
 extern RedisModuleCtx *RSDummyContext;
 // For documentation, see these functions' definitions
-static void *allocDocumentContext(void) {
+void *allocDocumentContext(void) {
   // See if there's one in the pool?
   RSAddDocumentCtx *aCtx = rm_calloc(1, sizeof(*aCtx));
   return aCtx;
 }
 
-static void freeDocumentContext(void *p) {
+void freeDocumentContext(void *p) {
   RSAddDocumentCtx *aCtx = p;
   if (aCtx->fwIdx) {
     ForwardIndexFree(aCtx->fwIdx);
@@ -153,17 +151,8 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
 }
 
 RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b, QueryError *status) {
-
-  if (!actxPool_g) {
-    mempool_options mopts = {.initialCap = 16,
-                             .alloc = allocDocumentContext,
-                             .free = freeDocumentContext,
-                             .isGlobal = 1};
-    actxPool_g = mempool_new(&mopts);
-  }
-
   // Get a new context
-  RSAddDocumentCtx *aCtx = mempool_get(actxPool_g);
+	RSAddDocumentCtx *aCtx = mempool_get(sp->actxPool_g);
   aCtx->stateFlags = 0;
   QueryError_ClearError(&aCtx->status);
   aCtx->totalTokens = 0;
@@ -192,7 +181,7 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b, QueryError *stat
   if (AddDocumentCtx_SetDocument(aCtx, sp) != 0) {
     *status = aCtx->status;
     aCtx->status.detail = NULL;
-    mempool_release(actxPool_g, aCtx);
+		mempool_release(sp->actxPool_g, aCtx);
     return NULL;
   }
 
@@ -211,7 +200,7 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *b, QueryError *stat
     aCtx->fwIdx->smap = NULL;
   }
 
-  aCtx->tokenizer = GetTokenizer(b->language, aCtx->fwIdx->stemmer, sp->stopwords);
+	aCtx->tokenizer = GetTokenizer(b->language, aCtx->fwIdx->stemmer, sp);
 //  aCtx->doc->docId = 0;
   return aCtx;
 }
@@ -355,9 +344,11 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
     aCtx->byteOffsets = NULL;
   }
 
-  if (aCtx->tokenizer) {
+  RS_LOG_ASSERT(aCtx->spec, "No indexer");
+
+	if(aCtx->tokenizer) {
     // aCtx->tokenizer->Free(aCtx->tokenizer);
-    Tokenizer_Release(aCtx->tokenizer);
+		Tokenizer_Release(aCtx->tokenizer, aCtx->spec);
     aCtx->tokenizer = NULL;
   }
 
@@ -369,7 +360,7 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
   ByteOffsetWriter_Cleanup(&aCtx->offsetsWriter);
   QueryError_ClearError(&aCtx->status);
 
-  mempool_release(actxPool_g, aCtx);
+	mempool_release(aCtx->spec->actxPool_g, aCtx);
 }
 
 #define FIELD_HANDLER(name)                                                                \
