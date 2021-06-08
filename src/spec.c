@@ -22,6 +22,8 @@
 #include "dictionary.h"
 #include "doc_types.h"
 #include "rwlock.h"
+#include "document.h"
+#include "tokenize.h"
 
 #define INITIAL_DOC_TABLE_SIZE 1000
 
@@ -526,11 +528,37 @@ int IndexSpec_AddFields(IndexSpec *sp, RedisModuleCtx *ctx, ArgsCursor *ac, bool
   return rc;
 }
 
+// Allocate the pools contained by index spec
+void IndexSpec_AllocateMemPools(IndexSpec *sp) {
+  RS_LOG_ASSERT(!sp->actxPool_g && !sp->tokpoolLatin_g && !sp->tokpoolCn_g, "pools ptrs shouldn't be valid before allocation");
+  mempool_options mopts = {
+        .initialCap = 16, .alloc = allocDocumentContext, .free = freeDocumentContext, .isGlobal = 0};
+  sp->actxPool_g = mempool_new(&mopts);
+  mempool_options opts = {
+        .isGlobal = 0, .initialCap = 16, .alloc = newLatinTokenizerAlloc, .free = tokenizerFree};
+  sp->tokpoolLatin_g = mempool_new(&opts);
+  mempool_options optsCn = {
+        .isGlobal = 0, .initialCap = 16, .alloc = newCnTokenizerAlloc, .free = tokenizerFree};
+  sp->tokpoolCn_g = mempool_new(&optsCn);
+}
+
+// Deallocate the pools contained by index spec
+void IndexSpec_FreeMemPools(IndexSpec *sp) {
+  if(sp->actxPool_g)
+    mempool_destroy(sp->actxPool_g);
+  if(sp->tokpoolLatin_g)
+    mempool_destroy(sp->tokpoolLatin_g);
+  if(sp->tokpoolCn_g)
+    mempool_destroy(sp->tokpoolCn_g);
+}
+
 /* The format currently is FT.CREATE {index} [NOOFFSETS] [NOFIELDS]
     SCHEMA {field} [TEXT [WEIGHT {weight}]] | [NUMERIC]
   */
 IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryError *status) {
   IndexSpec *spec = NewIndexSpec(name);
+
+  IndexSpec_AllocateMemPools(spec);
 
   IndexSpec_MakeKeyless(spec);
 
@@ -827,6 +855,8 @@ void IndexSpec_FreeInternals(IndexSpec *spec) {
   }
 
   RediSearch_LockDestory(spec);
+
+  IndexSpec_FreeMemPools(spec);
 
   rm_free(spec);
 }
@@ -1539,6 +1569,7 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
 
   sp->numFields = RedisModule_LoadUnsigned(rdb);
   sp->fields = rm_calloc(sp->numFields, sizeof(FieldSpec));
+  IndexSpec_AllocateMemPools(sp);
   int maxSortIdx = -1;
   for (int i = 0; i < sp->numFields; i++) {
     FieldSpec *fs = sp->fields + i;
@@ -1643,6 +1674,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
 
   sp->numFields = RedisModule_LoadUnsigned(rdb);
   sp->fields = rm_calloc(sp->numFields, sizeof(FieldSpec));
+  IndexSpec_AllocateMemPools(sp);
   int maxSortIdx = -1;
   for (int i = 0; i < sp->numFields; i++) {
     FieldSpec *fs = sp->fields + i;

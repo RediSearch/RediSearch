@@ -1,13 +1,20 @@
 #include <gtest/gtest.h>
 #include "stemmer.h"
 #include "tokenize.h"
+#include "spec.h"
 #include <set>
 
 class TokenizerTest : public ::testing::Test {};
 
 TEST_F(TokenizerTest, testTokenize) {
   Stemmer *st = NewStemmer(SnowballStemmer, RS_LANG_ENGLISH);
-  RSTokenizer *tk = GetSimpleTokenizer(st, DefaultStopWordList());
+  IndexSpec sp;
+  sp.actxPool_g = nullptr;
+  sp.tokpoolLatin_g = nullptr;
+  sp.tokpoolCn_g = nullptr;
+  IndexSpec_AllocateMemPools(&sp);
+  sp.stopwords = DefaultStopWordList();
+  RSTokenizer *tk = GetSimpleTokenizer(st, &sp);
   char *txt = strdup("hello worlds    - - -,,, . . . -=- hello\\-world to be שלום עולם");
   const char *expected[] = {"hello", "worlds", "hello-world", "שלום", "עולם"};
   const char *stems[] = {NULL, "+world", NULL, NULL, NULL, NULL, NULL};
@@ -27,9 +34,11 @@ TEST_F(TokenizerTest, testTokenize) {
     }
     i++;
   }
+
   free(txt);
   st->Free(st);
   tk->Free(tk);
+  IndexSpec_FreeMemPools(&sp);
 }
 
 struct MyToken {
