@@ -10,6 +10,7 @@
 #define POC_TYPE VecSimVecType_INT32
 #define POC_VECTOR_LEN 2
 
+#define POC_TOPK 100
 
 static VecSimIndex *openVectorKeysDict(RedisSearchCtx *ctx, RedisModuleString *keyName,
                                              int write) {
@@ -45,14 +46,14 @@ IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorFilter *vf) {
   RedisModule_FreeString(ctx->redisCtx, key);
   switch (vf->type) {
     case VECTOR_TOPK:
-      vf->results = VecSimIndex_TopKQuery(vecsim, vf->vector, 100);
+      vf->results = VecSimIndex_TopKQuery(vecsim, vf->vector, POC_TOPK);
       break;
     case VECTOR_RANGE:
       RS_LOG_ASSERT(0, "Range is not supported yet");
       break;
   }
   // TODO: len
-  return NewListIterator(vf->results, 100);
+  return NewListIterator(vf->results, POC_TOPK);
 }
 
 /* Create a vector filter from parsed strings and numbers */
