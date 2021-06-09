@@ -10,7 +10,7 @@
 #define POC_TYPE VecSimVecType_INT32
 #define POC_VECTOR_LEN 2
 
-#define POC_TOPK 100
+#define POC_TOPK 4
 
 static VecSimIndex *openVectorKeysDict(RedisSearchCtx *ctx, RedisModuleString *keyName,
                                              int write) {

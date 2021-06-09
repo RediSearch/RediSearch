@@ -58,7 +58,7 @@ void ListIterator_Free(struct indexIterator *self) {
 
   IndexResult_Free(it->base.current);
   if (it->list) {
-    rm_free(it->list);
+    //rm_free(it->list);
   }
   rm_free(it);
 }
@@ -99,6 +99,7 @@ IndexIterator *NewListIterator(void *list, size_t len) {
   li->lastDocId = 0;
   li->offset = 0;
   li->size = len;
+  li->list = list;
 
   IndexIterator *ri = &li->base;
   ri->ctx = li;
