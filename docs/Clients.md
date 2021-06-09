@@ -18,6 +18,7 @@ While it is possible and simple to use the raw Redis commands API, in most cases
 | JavaScript | [redis-redisearch][redis-redisearch-url] | [Kyle J. Davis][redis-redisearch-author] | MIT | [![redis-redisearch-stars]][redis-redisearch-url]|
 | TypeScript | [redis-modules-sdk][redis-modules-sdk-url] | [Dani Tseitlin][redis-modules-sdk-author] | BSD-3-Clause | [![redis-modules-sdk-stars]][redis-modules-sdk-url]|
 | C# | [NRediSearch][NRediSearch-url] | [Marc Gravell][NRediSearch-author] | MIT | [![NRediSearch-stars]][NRediSearch-url] |
+| C# | [RediSearchClient][RediSearchClient-url] | [Tom Hanks][RediSearchClient-author] | MIT | [![RediSearchClient-stars]][RediSearchClient-url] |
 | PHP | [php-redisearch][php-redisearch-url] | [MacFJA][php-redisearch-author] | MIT | [![php-redisearch-stars]][php-redisearch-url] |
 | PHP | [redisearch-php][redisearch-php-url] (for RediSearch v1)| [Ethan Hann][redisearch-php-author] | MIT | [![redisearch-php-stars]][redisearch-php-url] |
 | PHP | [Redisearch][front-redisearch-url] (for RediSearch v2)| [Front][front-redisearch-author] | MIT | [![front-redisearch-stars]][front-redisearch-url] |
@@ -64,6 +65,10 @@ While it is possible and simple to use the raw Redis commands API, in most cases
 [NRediSearch-url]: https://libraries.io/nuget/NRediSearch
 [NRediSearch-author]: https://github.com/StackExchange/
 [NRediSearch-stars]: https://img.shields.io/github/stars/StackExchange/StackExchange.Redis.svg?style=social&amp;label=Star&amp;maxAge=2592000
+
+[RediSearchClient-url]: https://www.nuget.org/packages/RediSearchClient
+[RediSearchClient-author]: https://github.com/tombatron
+[RediSearchClient-stars]: https://img.shields.io/github/stars/tombatron/RediSearchClient.svg?style=social&amp;label=Star&amp;maxAge=2592000
 
 [redisearch-php-url]: https://github.com/ethanhann/redisearch-php
 [redisearch-php-author]: https://github.com/ethanhann
