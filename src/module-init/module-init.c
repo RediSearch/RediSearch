@@ -20,7 +20,6 @@
 #include "ext/default.h"
 #include "rwlock.h"
 #include "json.h"
-#include "VectorSimilarity/src/vecsim.h"
 
 #ifndef RS_NO_ONLOAD
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
