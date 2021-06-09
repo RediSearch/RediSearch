@@ -27,3 +27,5 @@ src/query_parser/lemon
 .cproject
 VSCODE.DB*
 callgrind.out.*
+/deps/VectorSimilarity/
+

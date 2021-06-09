@@ -1,5 +1,5 @@
 #include "list_reader.h"
-#include "VectorSimilarity/src/vecsim.h"
+#include "VecSim/vecsim.h"
 
 typedef struct {
   IndexIterator base;

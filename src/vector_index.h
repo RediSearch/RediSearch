@@ -1,5 +1,5 @@
 #include "search_ctx.h"
-#include "VectorSimilarity/src/vecsim.h"
+#include "VecSim/vecsim.h"
 #include "index_iterator.h"
 
 typedef enum {
