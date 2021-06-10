@@ -114,9 +114,8 @@ t_docId DocTable_GetId(const DocTable *dt, const char *s, size_t n) {
 
 /* Set the payload for a document. Returns 1 if we set the payload, 0 if we couldn't find the
  * document */
-int DocTable_SetPayload(DocTable *t, t_docId docId, const char *data, size_t len) {
+int DocTable_SetPayload(DocTable *t, RSDocumentMetadata *dmd, const char *data, size_t len) {
   /* Get the metadata */
-  RSDocumentMetadata *dmd = DocTable_Get(t, docId);
   if (!dmd || !data) {
     return 0;
   }
@@ -144,8 +143,7 @@ int DocTable_SetPayload(DocTable *t, t_docId docId, const char *data, size_t len
 /* Set the sorting vector for a document. If the vector is NULL we mark the doc as not having a
  * vector. Returns 1 on success, 0 if the document does not exist. No further validation is done
  */
-int DocTable_SetSortingVector(DocTable *t, t_docId docId, RSSortingVector *v) {
-  RSDocumentMetadata *dmd = DocTable_Get(t, docId);
+int DocTable_SetSortingVector(DocTable *t, RSDocumentMetadata *dmd, RSSortingVector *v) {
   if (!dmd) {
     return 0;
   }
@@ -171,8 +169,7 @@ int DocTable_SetSortingVector(DocTable *t, t_docId docId, RSSortingVector *v) {
   return 1;
 }
 
-int DocTable_SetByteOffsets(DocTable *t, t_docId docId, RSByteOffsets *v) {
-  RSDocumentMetadata *dmd = DocTable_Get(t, docId);
+int DocTable_SetByteOffsets(DocTable *t, RSDocumentMetadata *dmd, RSByteOffsets *v) {
   if (!dmd) {
     return 0;
   }
@@ -186,13 +183,13 @@ int DocTable_SetByteOffsets(DocTable *t, t_docId docId, RSByteOffsets *v) {
  * table.
  *
  * Return 0 if the document is already in the index  */
-t_docId DocTable_Put(DocTable *t, const char *s, size_t n, double score, u_char flags,
-                     const char *payload, size_t payloadSize) {
+RSDocumentMetadata *DocTable_Put(DocTable *t, const char *s, size_t n, double score, RSDocumentFlags flags, 
+                                 const char *payload, size_t payloadSize, DocumentType type) {
 
   t_docId xid = DocIdMap_Get(&t->dim, s, n);
   // if the document is already in the index, return 0
   if (xid) {
-    return 0;
+    return DocTable_Get(t, xid);
   }
   t_docId docId = ++t->maxDocId;
 
@@ -210,23 +207,21 @@ t_docId DocTable_Put(DocTable *t, const char *s, size_t n, double score, u_char 
 
   sds keyPtr = sdsnewlen(s, n);
 
-  RSDocumentMetadata *dmd = NULL;
-  if (!dmd) {
-    dmd = rm_calloc(1, sizeof(RSDocumentMetadata));
-    dmd->keyPtr = keyPtr;
-    dmd->score = score;
-    dmd->flags = flags;
-    dmd->payload = dpl;
-    dmd->maxFreq = 1;
-    dmd->id = docId;
-    dmd->sortVector = NULL;
-  }
+  RSDocumentMetadata *dmd = rm_calloc(1, sizeof(*dmd));
+  dmd->keyPtr = keyPtr;
+  dmd->score = score;
+  dmd->flags = flags;
+  dmd->payload = dpl;
+  dmd->maxFreq = 1;
+  dmd->id = docId;
+  dmd->sortVector = NULL;
+  dmd->type = type;
 
   DocTable_Set(t, docId, dmd);
   ++t->size;
   t->memsize += sizeof(RSDocumentMetadata) + sdsAllocSize(keyPtr);
   DocIdMap_Put(&t->dim, s, n, docId);
-  return docId;
+  return dmd;
 }
 
 RSPayload *DocTable_GetPayload(DocTable *t, t_docId docId) {

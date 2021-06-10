@@ -954,7 +954,8 @@ TEST_F(IndexTest, testDocTable) {
   int N = 100;
   for (int i = 0; i < N; i++) {
     size_t nkey = sprintf(buf, "doc_%d", i);
-    t_docId nd = DocTable_Put(&dt, buf, nkey, (double)i, Document_DefaultFlags, buf, strlen(buf));
+    RSDocumentMetadata *dmd = DocTable_Put(&dt, buf, nkey, (double)i, Document_DefaultFlags, buf, strlen(buf), DocumentType_Hash);
+    t_docId nd = dmd->id;
     ASSERT_EQ(did + 1, nd);
     did = nd;
   }
@@ -998,17 +999,18 @@ TEST_F(IndexTest, testDocTable) {
   ASSERT_FALSE(DocIdMap_Get(&dt.dim, "foo bar", strlen("foo bar")));
   ASSERT_FALSE(DocTable_Get(&dt, N + 2));
 
-  t_docId strDocId = DocTable_Put(&dt, "Hello", 5, 1.0, 0, NULL, 0);
+  RSDocumentMetadata *dmd = DocTable_Put(&dt, "Hello", 5, 1.0, Document_DefaultFlags, NULL, 0, DocumentType_Hash);
+  t_docId strDocId = dmd->id;
   ASSERT_TRUE(0 != strDocId);
 
   // Test that binary keys also work here
   static const char binBuf[] = {"Hello\x00World"};
   const size_t binBufLen = 11;
   ASSERT_FALSE(DocIdMap_Get(&dt.dim, binBuf, binBufLen));
-  t_docId binDocId = DocTable_Put(&dt, binBuf, binBufLen, 1.0, 0, NULL, 0);
-  ASSERT_TRUE(binDocId);
-  ASSERT_NE(binDocId, strDocId);
-  ASSERT_EQ(binDocId, DocIdMap_Get(&dt.dim, binBuf, binBufLen));
+  dmd = DocTable_Put(&dt, binBuf, binBufLen, 1.0, Document_DefaultFlags, NULL, 0, DocumentType_Hash);
+  ASSERT_TRUE(dmd);
+  ASSERT_NE(dmd->id, strDocId);
+  ASSERT_EQ(dmd->id, DocIdMap_Get(&dt.dim, binBuf, binBufLen));
   ASSERT_EQ(strDocId, DocIdMap_Get(&dt.dim, "Hello", 5));
   DocTable_Free(&dt);
 }

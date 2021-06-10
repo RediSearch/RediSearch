@@ -20,7 +20,8 @@ class RediSearchSetup(paella.Setup):
         self.pip_install("wheel")
         self.pip_install("setuptools --upgrade")
 
-        self.install("git")
+        self.run("%s/bin/enable-utf8" % READIES) 
+        self.install("git rsync")
 
     def debian_compat(self):
         self.install("libatomic1")

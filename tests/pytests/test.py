@@ -3227,7 +3227,84 @@ def testNotOnly(env):
 
 def testServerVer(env):
     env.assertTrue(check_server_version(env, "0.0.0"))
-    env.assertTrue(not check_server_version(env, "100.0.0"))
+    env.assertTrue(not check_server_version(env, "500.0.0"))
 
     env.assertTrue(check_module_version(env, "20005"))
     env.assertTrue(not check_module_version(env, "10000000"))
+
+def testSchemaWithAs(env):
+  conn = getConnectionByEnv(env)
+  # sanity
+  conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'txt', 'AS', 'foo', 'TEXT')
+  conn.execute_command('HSET', 'a', 'txt', 'hello')
+  conn.execute_command('HSET', 'b', 'foo', 'world')
+  
+  for _ in env.retry_with_rdb_reload():
+    env.expect('ft.search idx @txt:hello').equal([0L])
+    env.expect('ft.search idx @txt:world').equal([0L])
+    env.expect('ft.search idx @foo:hello').equal([1L, 'a', ['txt', 'hello']])
+    env.expect('ft.search idx @foo:world').equal([0L])
+
+    # RETURN from schema
+    env.expect('ft.search idx hello RETURN 1 txt').equal([1L, 'a', ['txt', 'hello']])
+    env.expect('ft.search idx hello RETURN 1 foo').equal([1L, 'a', ['foo', 'hello']])
+    env.expect('ft.search idx hello RETURN 3 txt AS baz').equal([1L, 'a', ['baz', 'hello']])
+    env.expect('ft.search idx hello RETURN 3 foo AS baz').equal([1L, 'a', []])
+    env.expect('ft.search idx hello RETURN 6 txt AS baz txt AS bar').equal([1L, 'a', ['baz', 'hello', 'bar', 'hello']])
+    env.expect('ft.search idx hello RETURN 6 txt AS baz txt AS baz').equal([1L, 'a', ['baz', 'hello']])
+
+    # RETURN outside of schema
+    conn.execute_command('HSET', 'a', 'not_in_schema', '42')
+    env.expect('HGETALL a').equal(['txt', 'hello', 'not_in_schema', '42'])
+    env.expect('ft.search idx hello RETURN 3 not_in_schema AS txt2').equal([1L, 'a', ['txt2', '42']])
+    env.expect('ft.search idx hello RETURN 1 not_in_schema').equal([1L, 'a', ['not_in_schema', '42']])
+    env.expect('ft.search idx hello').equal([1L, 'a', ['txt', 'hello', 'not_in_schema', '42']])
+
+    env.expect('ft.search idx hello RETURN 3 not_exist as txt2').equal([1L, 'a', []])
+    env.expect('ft.search idx hello RETURN 1 not_exist').equal([1L, 'a', []])
+
+    env.expect('ft.search idx hello RETURN 3 txt as as').error().contains('Alias for RETURN cannot be `AS`')
+    
+    # LOAD for FT.AGGREGATE
+    # for path - can rename
+    env.expect('ft.aggregate', 'idx', 'hello', 'LOAD', '1', '@txt').equal([1L, ['txt', 'hello']])
+    env.expect('ft.aggregate', 'idx', 'hello', 'LOAD', '3', '@txt', 'AS', 'txt1').equal([1L, ['txt1', 'hello']])
+
+    # for name - cannot rename
+    env.expect('ft.aggregate', 'idx', 'hello', 'LOAD', '1', '@foo').equal([1L, ['foo', 'hello']])
+    env.expect('ft.aggregate', 'idx', 'hello', 'LOAD', '3', '@foo', 'AS', 'foo1').equal([1L, []])
+    
+    # for for not in schema - can rename
+    env.expect('ft.aggregate', 'idx', 'hello', 'LOAD', '1', '@not_in_schema').equal([1L, ['not_in_schema', '42']])
+    env.expect('ft.aggregate', 'idx', 'hello', 'LOAD', '3', '@not_in_schema', 'AS', 'NIS').equal([1L, ['NIS', '42']])
+
+    conn.execute_command('HDEL', 'a', 'not_in_schema')
+
+def testSchemaWithAs_Alter(env):
+  conn = getConnectionByEnv(env)
+  # sanity
+  conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'txt', 'AS', 'foo', 'TEXT')
+  conn.execute_command('HSET', 'a', 'txt', 'hello')
+  conn.execute_command('HSET', 'b', 'foo', 'world')
+  
+  # FT.ALTER
+  conn.execute_command('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'foo', 'AS', 'bar', 'TEXT')
+  waitForIndex(env, 'idx')
+  env.expect('ft.search idx @bar:hello').equal([0L])
+  env.expect('ft.search idx @bar:world').equal([1L, 'b', ['foo', 'world']])
+  env.expect('ft.search idx @foo:world').equal([0L])
+
+def testSchemaWithAs_Duplicates(env):
+    env.cmd('HSET', 'a', 'txt', 'hello')
+
+    # Error if field name is duplicated
+    res = env.expect('FT.CREATE', 'conflict1', 'SCHEMA', 'txt1', 'AS', 'foo', 'TEXT', 'txt2', 'AS', 'foo', 'TAG') \
+                                                                .error().contains('Duplicate field in schema - foo')
+    # Success if field path is duplicated
+    res = env.expect('FT.CREATE', 'conflict2', 'SCHEMA', 'txt', 'AS', 'foo1', 'TEXT',
+                                                        'txt', 'AS', 'foo2', 'TEXT').ok()
+    waitForIndex(env, 'conflict2')
+    env.expect('ft.search conflict2 @foo1:hello').equal([1L, 'a', ['txt', 'hello']])
+    env.expect('ft.search conflict2 @foo2:hello').equal([1L, 'a', ['txt', 'hello']])
+    env.expect('ft.search conflict2 @foo1:world').equal([0L])
+    env.expect('ft.search conflict2 @foo2:world').equal([0L])
