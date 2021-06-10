@@ -71,6 +71,7 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
     const FieldSpec *fs = IndexSpec_GetField(sp, f->name, strlen(f->name));
     if (!fs || !f->text) {
       aCtx->fspecs[i].name = NULL;
+      aCtx->fspecs[i].path = NULL;
       aCtx->fspecs[i].types = 0;
       continue;
     }
@@ -269,6 +270,7 @@ void Document_Dump(const Document *doc) {
 // LCOV_EXCL_STOP
 
 static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx);
+int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx);
 
 static int AddDocumentCtx_ReplaceMerge(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
   /**
@@ -276,9 +278,18 @@ static int AddDocumentCtx_ReplaceMerge(RSAddDocumentCtx *aCtx, RedisSearchCtx *s
    * that a new document ID needs to be assigned, and as a consequence, all
    * fields must be reindexed.
    */
+  int rv = REDISMODULE_ERR;
 
   Document_Clear(aCtx->doc);
-  int rv = Document_LoadSchemaFields(aCtx->doc, sctx);
+
+  // Path is not covered and is not relevant
+
+  SchemaRuleType ruleType = sctx->spec->rule->type;
+  if (ruleType == SchemaRuleType_Hash) {
+    rv = Document_LoadSchemaFieldHash(aCtx->doc, sctx);
+  } else if (ruleType == SchemaRuleType_Json) {
+    rv = Document_LoadSchemaFieldJson(aCtx->doc, sctx);
+  }
   if (rv != REDISMODULE_OK) {
     QueryError_SetError(&aCtx->status, QUERY_ENODOC, "Could not load existing document");
     goto error;
@@ -331,7 +342,7 @@ void AddDocumentCtx_Submit(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, uint32_
   size_t totalSize = 0;
   for (size_t ii = 0; ii < aCtx->doc->numFields; ++ii) {
     const DocumentField *ff = aCtx->doc->fields + ii;
-    if (aCtx->fspecs[ii].name && (ff->indexAs & (INDEXFLD_T_FULLTEXT | INDEXFLD_T_TAG))) {
+    if (ff->indexAs & (INDEXFLD_T_FULLTEXT | INDEXFLD_T_TAG)) {
       size_t n;
       RedisModule_StringPtrLen(aCtx->doc->fields[ii].text, &n);
       totalSize += n;
@@ -481,6 +492,9 @@ FIELD_BULK_INDEXER(numericIndexer) {
 FIELD_PREPROCESSOR(geoPreprocessor) {
   // TODO: streamline
   const char *c = RedisModule_StringPtrLen(field->text, NULL);
+  if (*c == '"') {
+    c += 1;
+  }
   char *pos = strpbrk(c, " ,");
   if (!pos) {
     QueryError_SetCode(status, QUERY_EGEOFORMAT);
@@ -491,8 +505,8 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
 
   char *end1 = NULL, *end2 = NULL;
   double lon = strtod(c, &end1);
-  double lat = strtod(pos, &end2);
-  if (*end1 || *end2) {
+  double lat = strtod(pos, &end2); /// failing here
+  if (*end1 || (*end2 && *end2 != '"')) {
     return REDISMODULE_ERR;
   }
 
@@ -586,11 +600,6 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx) {
     const FieldSpec *fs = aCtx->fspecs + i;
     const DocumentField *ff = doc->fields + i;
     FieldIndexerData *fdata = aCtx->fdatas + i;
-
-    if (fs->name == NULL || ff->indexAs == 0) {
-      LG_DEBUG("Skipping field %s not in index!", doc->fields[i].name);
-      continue;
-    }
 
     for (size_t ii = 0; ii < INDEXFLD_NUM_TYPES; ++ii) {
       if (!FIELD_CHKIDX(ff->indexAs, INDEXTYPE_FROM_POS(ii))) {
@@ -713,7 +722,7 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
   md->score = doc->score;
   // Set the payload if needed
   if (doc->payload) {
-    DocTable_SetPayload(&sctx->spec->docs, docId, doc->payload, doc->payloadSize);
+    DocTable_SetPayload(&sctx->spec->docs, md, doc->payload, doc->payloadSize);
   }
 
   if (aCtx->stateFlags & ACTX_F_SORTABLES) {

@@ -9,6 +9,7 @@
 #include "byte_offsets.h"
 #include "rmutil/args.h"
 #include "query_error.h"
+#include "json.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -37,6 +38,7 @@ extern "C" {
 
 typedef struct {
   const char *name;  // Can either be char or RMString
+  const char *path;
   RedisModuleString *text;
   FieldType indexAs;
 } DocumentField;
@@ -51,6 +53,7 @@ typedef struct Document {
   const char *payload;
   size_t payloadSize;
   uint32_t flags;
+  DocumentType type;
 } Document;
 
 /**
@@ -112,7 +115,7 @@ void Document_AddFieldC(Document *d, const char *fieldname, const char *val, siz
  * of the data within the document, call Document_Detach on the document (after
  * calling this function).
  */
-void Document_Init(Document *doc, RedisModuleString *docKey, double score, RSLanguage lang);
+void Document_Init(Document *doc, RedisModuleString *docKey, double score, RSLanguage lang, DocumentType type);
 void Document_SetPayload(Document *doc, const void *payload, size_t n);
 
 /**
@@ -137,7 +140,8 @@ void Document_Clear(Document *doc);
  *
  * The document must already have the docKey set
  */
-int Document_LoadSchemaFields(Document *doc, RedisSearchCtx *sctx);
+int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx);
+int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx);
 
 /**
  * Load all the fields into the document.

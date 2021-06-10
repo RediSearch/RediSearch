@@ -368,10 +368,7 @@ def testInfo(env):
     res_actual = env.cmd('FT.INFO test')
     res_expected = ['key_type', 'HASH',
                     'prefixes', [''],
-                    'language_field', '__language',
-                    'default_score', '1',
-                    'score_field', '__score',
-                    'payload_field', '__payload']
+                    'default_score', '1']
     env.assertEqual(res_actual[5], res_expected)
 
 def testCreateDropCreate(env):
