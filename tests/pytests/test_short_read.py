@@ -210,10 +210,7 @@ def testShortRead(env):
         full_rdb = f.read()
     total_len = len(full_rdb)
     for b in range(0, total_len + 1):
-        if b > 20:
-            BB()
         rdb = full_rdb[0:b]
-
         runShortRead(env, rdb, total_len)
 
 def runShortRead(env, data, total_len):
@@ -221,13 +218,14 @@ def runShortRead(env, data, total_len):
     with ShardMock(env) as shardMock:
         print('runShortRead: %d out of %d \n' % (len(data), total_len)) # TODO: remove print?
 
+        # Notice: Do not use env.expect in this test
+        # (since it is sending commands to redis and in this test we need to follow strict hand-shaking)
         res = env.cmd('slaveof', 'localhost', '10000')
         env.expect(res).true()
         conn = shardMock.GetConnection()
         # Perform hand-shake with slave
 
         res = conn.read_request();
-        #env.expect(res).equal(['PING'])
         env.assertEqual(res, ['PING'])
 
         conn.send_status('PONG')
@@ -250,13 +248,10 @@ def runShortRead(env, data, total_len):
             conn.close()
         # Make sure slave did not crash
         res = env.cmd('PING')
-
         env.assertEqual(res, True)
         conn = shardMock.GetConnection(timeout=3)
-        #env.expect(conn).noEqual(None)
         env.assertNotEqual(conn, None)
 
         # Exit (avoid read-only exception with flush on slave)
-        #env.expect(env.cmd('slaveof', 'no', 'one')).equal(True)
         env.assertEqual(env.cmd('slaveof', 'no', 'one'), True)
 
