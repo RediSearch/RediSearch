@@ -291,42 +291,77 @@ int SchemaRule_RdbLoad(IndexSpec *sp, RedisModuleIO *rdb, int encver) {
   size_t len;
   int ret = REDISMODULE_OK;
   args.type = RedisModule_LoadStringBuffer(rdb, &len);
+  if (RedisModule_IsIOError(rdb)) {
+    return REDISMODULE_ERR;
+  }
   args.nprefixes = RedisModule_LoadUnsigned(rdb);
+  if (RedisModule_IsIOError(rdb)) {
+    if (args.type) {
+      RedisModule_Free((char *)args.type);
+    }
+    return REDISMODULE_ERR;
+  }
   char *prefixes[args.nprefixes];
+  args.prefixes = (const char **)prefixes;
   for (size_t i = 0; i < args.nprefixes; ++i) {
     prefixes[i] = RedisModule_LoadStringBuffer(rdb, &len);
+    if (RedisModule_IsIOError(rdb)) {
+      goto cleanup;
+    }
   }
-  args.prefixes = (const char **)prefixes;
-  if (RedisModule_LoadUnsigned(rdb)) {
+
+  uint64_t exist = RedisModule_LoadUnsigned(rdb);
+  if (RedisModule_IsIOError(rdb)) {
+    goto cleanup;
+  }
+  if (exist) {
     args.filter_exp_str = RedisModule_LoadStringBuffer(rdb, &len);
   }
-  if (RedisModule_LoadUnsigned(rdb)) {
+  exist = RedisModule_LoadUnsigned(rdb);
+  if (RedisModule_IsIOError(rdb)) {
+    goto cleanup;
+  }
+  if (exist) {
     args.lang_field = RedisModule_LoadStringBuffer(rdb, &len);
   }
-  if (RedisModule_LoadUnsigned(rdb)) {
+  exist = RedisModule_LoadUnsigned(rdb);
+  if (RedisModule_IsIOError(rdb)) {
+    goto cleanup;
+  }
+  if (exist) {
     args.score_field = RedisModule_LoadStringBuffer(rdb, &len);
   }
-  if (RedisModule_LoadUnsigned(rdb)) {
+  exist = RedisModule_LoadUnsigned(rdb);
+  if (RedisModule_IsIOError(rdb)) {
+    goto cleanup;
+  }
+  if (exist) {
     args.payload_field = RedisModule_LoadStringBuffer(rdb, &len);
   }
   double score_default = RedisModule_LoadDouble(rdb);
+  if (RedisModule_IsIOError(rdb)) {
+    goto cleanup;
+  }
   RSLanguage lang_default = RedisModule_LoadUnsigned(rdb);
-
+  if (RedisModule_IsIOError(rdb)) {
+    goto cleanup;
+  }
   QueryError status = {0};
   SchemaRule *rule = SchemaRule_Create(&args, sp, &status);
   if (!rule) {
     RedisModule_LogIOError(rdb, "warning", "%s", QueryError_GetError(&status));
-    QueryError_ClearError(&status);
-    ret = REDISMODULE_ERR;
+    RedisModule_Assert(rule);
   } else {
     rule->score_default = score_default;
     rule->lang_default = lang_default;
     sp->rule = rule;
   }
 
-  RedisModule_Free((char *)args.type);
+cleanup:
   for (size_t i = 0; i < args.nprefixes; ++i) {
-    RedisModule_Free((char *)args.prefixes[i]);
+    if (args.prefixes[i]) {
+      RedisModule_Free((char *)args.prefixes[i]);
+    }
   }
   if (args.filter_exp_str) {
     RedisModule_Free(args.filter_exp_str);
@@ -340,8 +375,9 @@ int SchemaRule_RdbLoad(IndexSpec *sp, RedisModuleIO *rdb, int encver) {
   if (args.payload_field) {
     RedisModule_Free(args.payload_field);
   }
-
-  return ret;
+  if (!RedisModule_IsIOError(rdb))
+    return ret;
+  return REDISMODULE_ERR;
 }
 
 void SchemaRule_RdbSave(SchemaRule *rule, RedisModuleIO *rdb) {

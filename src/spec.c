@@ -1727,11 +1727,14 @@ void IndexSpec_LegacyRdbSave(RedisModuleIO *rdb, void *value) {
 
 int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when) {
 
+  RedisModule_Log(NULL, "notice", "===> Indexes_RdbLoad");
   if (encver < INDEX_MIN_COMPAT_VERSION) {
     return REDISMODULE_OK;
   }
 
   size_t nIndexes = RedisModule_LoadUnsigned(rdb);
+  if (RedisModule_IsIOError(rdb))
+    goto cleanup;
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   QueryError status = {0};
   for (size_t i = 0; i < nIndexes; ++i) {
@@ -1743,6 +1746,9 @@ int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when) {
     }
   }
   return REDISMODULE_OK;
+
+cleanup:
+  return REDISMODULE_ERR;
 }
 
 void Indexes_RdbSave(RedisModuleIO *rdb, int when) {

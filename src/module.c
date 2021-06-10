@@ -876,6 +876,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   if (RediSearch_Init(ctx, REDISEARCH_INIT_MODULE) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
+  //RedisModule_SetModuleOptions(ctx, REDISMODULE_OPTIONS_HANDLE_IO_ERRORS);
 
   // register trie type
   RM_TRY(DictRegister, ctx);
