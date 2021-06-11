@@ -1182,11 +1182,10 @@ static void FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
   }
 
   RedisModule_LoadStringBufferAlloc(rdb, f->name, NULL);
+  f->path = f->name;
   if (encver >= INDEX_JSON_VERSION) {
     if (RedisModule_LoadUnsigned(rdb) == 1) {
       RedisModule_LoadStringBufferAlloc(rdb, f->path, NULL);
-    } else {
-      f->path = f->name;
     }
   }
 
