@@ -6,6 +6,7 @@
 #include "stemmer.h"
 #include "util/arr.h"
 #include "json.h"
+#include "redisearch.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -19,10 +20,8 @@ extern "C" {
 struct RSExpr;
 struct IndexSpec;
 
-typedef enum { SchameRuleType_Any, SchemaRuleType_Hash, SchemaRuleType_Json } SchemaRuleType;
-
-const char *SchemaRuleType_ToString(SchemaRuleType type);
-int SchemaRuleType_Parse(const char *type_str, SchemaRuleType *type, QueryError *status);
+const char *SchemaRuleType_ToString(DocumentType type);
+int SchemaRuleType_Parse(const char *type_str, DocumentType *type, QueryError *status);
 
 //---------------------------------------------------------------------------------------------
 
@@ -39,7 +38,7 @@ typedef struct {
 } SchemaRuleArgs;
 
 typedef struct SchemaRule {
-  SchemaRuleType type;
+  DocumentType type;
   struct IndexSpec *spec;
   arrayof(const char *) prefixes;
   char *filter_exp_str;

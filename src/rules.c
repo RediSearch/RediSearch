@@ -7,25 +7,25 @@ TrieMap *ScemaPrefixes_g;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-const char *SchemaRuleType_ToString(SchemaRuleType type) {
+const char *SchemaRuleType_ToString(DocumentType type) {
   switch (type) {
-    case SchemaRuleType_Hash:
+    case DocumentType_Hash:
       return "HASH";
-    case SchemaRuleType_Json:
+    case DocumentType_Json:
       return "JSON";
-    case SchameRuleType_Any:
+    case DocumentType_None:
     default:
       RS_LOG_ASSERT(true, "SchameRuleType_Any is not supported");
       return "";
   }
 }
 
-int SchemaRuleType_Parse(const char *type_str, SchemaRuleType *type, QueryError *status) {
+int SchemaRuleType_Parse(const char *type_str, DocumentType *type, QueryError *status) {
   if (!type_str || !strcasecmp(type_str, RULE_TYPE_HASH)) {
-    *type = SchemaRuleType_Hash;
+    *type = DocumentType_Hash;
     return REDISMODULE_OK;
   } else if (japi && !strcasecmp(type_str, RULE_TYPE_JSON)) {
-    *type = SchemaRuleType_Json;
+    *type = DocumentType_Json;
     return REDISMODULE_OK;
   }
   QueryError_SetErrorFmt(status, QUERY_EADDARGS, "Invalid rule type: %s", type_str);
