@@ -14,4 +14,6 @@ def testWrongFieldType(env):
     conn.execute_command('HSET', 'c', 'v', 'aacdefgh')
     conn.execute_command('HSET', 'd', 'v', 'abbdefgh')
 
-    env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 2]').equal(['todo'])
+    res = [4L, 'a', ['v', 'abcdefgh'], 'b', ['v', 'abcdefgg'],
+               'c', ['v', 'aacdefgh'], 'd', ['v', 'abbdefgh']]
+    env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 2]').equal(res)

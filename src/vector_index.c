@@ -7,7 +7,7 @@
 
 #define POC_ALGORITHM VecSimAlgo_HNSW
 #define POC_METRIC VecSimMetric_L2
-#define POC_TYPE VecSimVecType_INT32
+#define POC_TYPE VecSimType_INT32
 #define POC_VECTOR_LEN 2
 
 #define POC_TOPK 4
@@ -23,11 +23,14 @@ static VecSimIndex *openVectorKeysDict(RedisSearchCtx *ctx, RedisModuleString *k
   }
   kdv = rm_calloc(1, sizeof(*kdv));
   // TODO: get good values from Dvir
-  VecSimAlgoParams params = { .algorithmType = POC_ALGORITHM,
-                              .hnswParams.efConstuction = POC_EF,
-                              .hnswParams.initialCapacity = POC_INITIAL_CAPACITY,
-                              .hnswParams.M = POC_M };
-  kdv->p = VecSimIndex_New(&params, POC_METRIC, POC_TYPE, POC_VECTOR_LEN);
+  VecSimParams params = { .metric = POC_METRIC,
+                          .type = POC_TYPE,
+                          .size = POC_VECTOR_LEN,
+                          .algo = POC_ALGORITHM,
+                          .hnswParams.efConstruction = POC_EF,
+                          .hnswParams.initialCapacity = POC_INITIAL_CAPACITY,
+                          .hnswParams.M = POC_M };
+  kdv->p = VecSimIndex_New(&params);
   dictAdd(ctx->spec->keysDict, keyName, kdv);
   kdv->dtor = (void (*)(void *))VecSimIndex_Free;
   return kdv->p;
