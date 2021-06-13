@@ -6,22 +6,14 @@
 #include "query_error.h"
 #include "rmutil/rm_assert.h"
 
-///////////////////////////////////////////////////////////////
-// Variant Values - will be used in documents as well
-///////////////////////////////////////////////////////////////
-static size_t RSValue_NumToString(double dd, char *buf) {
-  long long ll = dd;
-  if (ll == dd) {
-    return sprintf(buf, "%lld", ll);
-  } else {
-    return sprintf(buf, "%.12g", dd);
-  }
-}
+///////////////////////////////////////////////////////////////////////////////////////////////
 
-typedef struct {
+struct mempoolThreadPool {
   mempool_t *values;
   mempool_t *fieldmaps;
-} mempoolThreadPool;
+};
+
+//---------------------------------------------------------------------------------------------
 
 static void mempoolThreadPoolDtor(void *p) {
   mempoolThreadPool *tp = p;
@@ -34,19 +26,29 @@ static void mempoolThreadPoolDtor(void *p) {
   rm_free(tp);
 }
 
+//---------------------------------------------------------------------------------------------
+
 pthread_key_t mempoolKey_g;
+
+//---------------------------------------------------------------------------------------------
 
 static void *_valueAlloc() {
   return rm_malloc(sizeof(RSValue));
 }
 
+//---------------------------------------------------------------------------------------------
+
 static void _valueFree(void *p) {
   rm_free(p);
 }
 
+//---------------------------------------------------------------------------------------------
+
 static void __attribute__((constructor)) initKey() {
   pthread_key_create(&mempoolKey_g, mempoolThreadPoolDtor);
 }
+
+//---------------------------------------------------------------------------------------------
 
 static inline mempoolThreadPool *getPoolInfo() {
   mempoolThreadPool *tp = pthread_getspecific(mempoolKey_g);
@@ -60,6 +62,19 @@ static inline mempoolThreadPool *getPoolInfo() {
   return tp;
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+static size_t RSValue_NumToString(double dd, char *buf) {
+  long long ll = dd;
+  if (ll == dd) {
+    return sprintf(buf, "%lld", ll);
+  } else {
+    return sprintf(buf, "%.12g", dd);
+  }
+}
+
+//---------------------------------------------------------------------------------------------
+
 RSValue *RS_NewValue(RSValueType t) {
   RSValue *v = mempool_get(getPoolInfo()->values);
   v->t = t;
@@ -68,19 +83,23 @@ RSValue *RS_NewValue(RSValueType t) {
   return v;
 }
 
-void RSValue_Clear(RSValue *v) {
-  switch (v->t) {
+//---------------------------------------------------------------------------------------------
+
+// Clears the underlying storage of the value, and makes it be a reference to the NULL value
+
+void RSValue::Clear() {
+  switch (t) {
     case RSValue_String:
       // free strings by allocation strategy
-      switch (v->strval.stype) {
+      switch (strval.stype) {
         case RSString_Malloc:
-          rm_free(v->strval.str);
+          rm_free(strval.str);
           break;
         case RSString_RMAlloc:
-          rm_free(v->strval.str);
+          rm_free(strval.str);
           break;
         case RSString_SDS:
-          sdsfree(v->strval.str);
+          sdsfree(strval.str);
           break;
         case RSString_Const:
         case RSString_Volatile:
@@ -88,18 +107,18 @@ void RSValue_Clear(RSValue *v) {
       }
       break;
     case RSValue_Array:
-      for (uint32_t i = 0; i < v->arrval.len; i++) {
-        RSValue_Decref(v->arrval.vals[i]);
+      for (uint32_t i = 0; i < arrval.len; i++) {
+        arrval.vals[i]->Decref();
       }
-      if (!v->arrval.staticarray) {
-        rm_free(v->arrval.vals);
+      if (!arrval.staticarray) {
+        rm_free(arrval.vals);
       }
       break;
     case RSValue_Reference:
-      RSValue_Decref(v->ref);
+      ref->Decref();
       break;
     case RSValue_OwnRstring:
-      RedisModule_FreeString(RSDummyContext, v->rstrval);
+      RedisModule_FreeString(RSDummyContext, rstrval);
       break;
     case RSValue_Null:
       return;  // prevent changing global RS_NULL to RSValue_Undef
@@ -107,18 +126,23 @@ void RSValue_Clear(RSValue *v) {
       break;
   }
 
-  v->ref = NULL;
-  v->t = RSValue_Undef;
+  ref = NULL;
+  t = RSValue_Undef;
 }
 
-/* Free a value's internal value. It only does anything in the case of a string, and doesn't free
- * the actual value object */
+//---------------------------------------------------------------------------------------------
+
+// Free a value's internal value. It only does anything in the case of a string, and doesn't free
+// the actual value object.
+
 void RSValue_Free(RSValue *v) {
-  RSValue_Clear(v);
+  v->Clear();
   if (v->allocated) {
     mempool_release(getPoolInfo()->values, v);
   }
 }
+
+//---------------------------------------------------------------------------------------------
 
 RSValue RS_Value(RSValueType t) {
   RSValue v = (RSValue){
@@ -129,10 +153,14 @@ RSValue RS_Value(RSValueType t) {
   return v;
 }
 
+//---------------------------------------------------------------------------------------------
+
 inline void RSValue_SetNumber(RSValue *v, double n) {
   v->t = RSValue_Number;
   v->numval = n;
 }
+
+//---------------------------------------------------------------------------------------------
 
 inline void RSValue_SetString(RSValue *v, char *str, size_t len) {
   v->t = RSValue_String;
@@ -140,6 +168,8 @@ inline void RSValue_SetString(RSValue *v, char *str, size_t len) {
   v->strval.str = str;
   v->strval.stype = RSString_Malloc;
 }
+
+//---------------------------------------------------------------------------------------------
 
 RSValue *RS_NewCopiedString(const char *s, size_t n) {
   RSValue *v = RS_NewValue(RSValue_String);
@@ -150,12 +180,17 @@ RSValue *RS_NewCopiedString(const char *s, size_t n) {
   return v;
 }
 
+//---------------------------------------------------------------------------------------------
+
 inline void RSValue_SetSDS(RSValue *v, sds s) {
   v->t = RSValue_String;
   v->strval.len = sdslen(s);
   v->strval.str = s;
   v->strval.stype = RSString_SDS;
 }
+
+//---------------------------------------------------------------------------------------------
+
 inline void RSValue_SetConstString(RSValue *v, const char *str, size_t len) {
   v->t = RSValue_String;
   v->strval.len = len;
@@ -163,8 +198,12 @@ inline void RSValue_SetConstString(RSValue *v, const char *str, size_t len) {
   v->strval.stype = RSString_Const;
 }
 
-/* Wrap a string with length into a value object. Doesn't duplicate the string. Use strdup if
- * the value needs to be detached */
+//---------------------------------------------------------------------------------------------
+
+
+// Wrap a string with length into a value object. Doesn't duplicate the string.
+// Use strdup if the value needs to be detached.
+
 inline RSValue *RS_StringVal(char *str, uint32_t len) {
   RS_LOG_ASSERT(len <= (UINT32_MAX >> 4), "string length exceeds limit");
   RSValue *v = RS_NewValue(RSValue_String);
@@ -174,7 +213,10 @@ inline RSValue *RS_StringVal(char *str, uint32_t len) {
   return v;
 }
 
-/* Same as RS_StringVal but with explicit string type */
+//---------------------------------------------------------------------------------------------
+
+// Same as RS_StringVal but with explicit string type
+
 inline RSValue *RS_StringValT(char *str, uint32_t len, RSStringType t) {
   RSValue *v = RS_NewValue(RSValue_String);
   v->strval.str = str;
@@ -182,6 +224,8 @@ inline RSValue *RS_StringValT(char *str, uint32_t len, RSStringType t) {
   v->strval.stype = t;
   return v;
 }
+
+//---------------------------------------------------------------------------------------------
 
 RSValue *RS_StringValFmt(const char *fmt, ...) {
   char *buf;
@@ -192,12 +236,17 @@ RSValue *RS_StringValFmt(const char *fmt, ...) {
   return RS_StringVal(buf, strlen(buf));
 }
 
-/* Wrap a redis string value */
+//---------------------------------------------------------------------------------------------
+
+// Wrap a redis string value
+
 RSValue *RS_RedisStringVal(RedisModuleString *str) {
   RSValue *v = RS_NewValue(RSValue_RedisString);
   v->rstrval = str;
   return v;
 }
+
+//---------------------------------------------------------------------------------------------
 
 RSValue *RS_OwnRedisStringVal(RedisModuleString *str) {
   RSValue *r = RS_RedisStringVal(str);
@@ -212,14 +261,19 @@ RSValue *RS_StealRedisStringVal(RedisModuleString *str) {
   return ret;
 }
 
+//---------------------------------------------------------------------------------------------
+
 void RSValue_MakeRStringOwner(RSValue *v) {
   RS_LOG_ASSERT(v->t == RSValue_RedisString, "RSvalue type should be string");
   v->t = RSValue_OwnRstring;
   RedisModule_RetainString(RSDummyContext, v->rstrval);
 }
 
-/* Convert a value to a string value. If the value is already a string value it gets
- * shallow-copied (no string buffer gets copied) */
+//---------------------------------------------------------------------------------------------
+
+// Convert a value to a string value. If the value is already a string value it gets
+// shallow-copied (no string buffer gets copied)
+
 void RSValue_ToString(RSValue *dst, RSValue *v) {
   switch (v->t) {
     case RSValue_String:
@@ -248,6 +302,8 @@ void RSValue_ToString(RSValue *dst, RSValue *v) {
   }
 }
 
+//---------------------------------------------------------------------------------------------
+
 RSValue *RSValue_ParseNumber(const char *p, size_t l) {
 
   char *e;
@@ -259,6 +315,8 @@ RSValue *RSValue_ParseNumber(const char *p, size_t l) {
   }
   return RS_NumVal(d);
 }
+
+//---------------------------------------------------------------------------------------------
 
 /* Convert a value to a number, either returning the actual numeric values or by parsing a string
 into a number. Return 1 if the value is a number or a numeric string and can be converted, or 0 if
@@ -308,6 +366,8 @@ int RSValue_ToNumber(const RSValue *v, double *d) {
   return 0;
 }
 
+//---------------------------------------------------------------------------------------------
+
 /**
  * Returns the value as a simple opaque buffer
 inline const void *RSValue_ToBuffer(RSValue *value, size_t *outlen) {
@@ -332,6 +392,8 @@ inline const void *RSValue_ToBuffer(RSValue *value, size_t *outlen) {
 }
  */
 
+//---------------------------------------------------------------------------------------------
+
 // Gets the string pointer and length from the value
 const char *RSValue_StringPtrLen(const RSValue *value, size_t *lenp) {
   value = RSValue_Dereference(value);
@@ -349,6 +411,8 @@ const char *RSValue_StringPtrLen(const RSValue *value, size_t *lenp) {
       return NULL;
   }
 }
+
+//---------------------------------------------------------------------------------------------
 
 // Combines PtrLen with ToString to convert any RSValue into a string buffer.
 // Returns NULL if buf is required, but is too small
@@ -373,6 +437,8 @@ const char *RSValue_ConvertStringPtrLen(const RSValue *value, size_t *lenp, char
   }
 }
 
+//---------------------------------------------------------------------------------------------
+
 /* Wrap a number into a value object */
 RSValue *RS_NumVal(double n) {
   RSValue *v = RS_NewValue(RSValue_Number);
@@ -380,11 +446,15 @@ RSValue *RS_NumVal(double n) {
   return v;
 }
 
+//---------------------------------------------------------------------------------------------
+
 RSValue *RS_Int64Val(int64_t dd) {
   RSValue *v = RS_NewValue(RSValue_Number);
   v->numval = dd;
   return v;
 }
+
+//---------------------------------------------------------------------------------------------
 
 RSValue *RSValue_NewArrayEx(RSValue **vals, size_t n, int options) {
   RSValue *arr = RS_NewValue(RSValue_Array);
@@ -422,6 +492,8 @@ RSValue *RSValue_NewArrayEx(RSValue **vals, size_t n, int options) {
   return arr;
 }
 
+//---------------------------------------------------------------------------------------------
+
 RSValue *RS_VStringArray(uint32_t sz, ...) {
   RSValue **arr = rm_calloc(sz, sizeof(*arr));
   va_list ap;
@@ -434,6 +506,8 @@ RSValue *RS_VStringArray(uint32_t sz, ...) {
   return RSValue_NewArrayEx(arr, sz, RSVAL_ARRAY_NOINCREF | RSVAL_ARRAY_ALLOC);
 }
 
+//---------------------------------------------------------------------------------------------
+
 /* Wrap an array of NULL terminated C strings into an RSValue array */
 RSValue *RS_StringArray(char **strs, uint32_t sz) {
   RSValue **arr = rm_calloc(sz, sizeof(RSValue *));
@@ -444,6 +518,8 @@ RSValue *RS_StringArray(char **strs, uint32_t sz) {
   return RSValue_NewArrayEx(arr, sz, RSVAL_ARRAY_NOINCREF | RSVAL_ARRAY_ALLOC);
 }
 
+//---------------------------------------------------------------------------------------------
+
 RSValue *RS_StringArrayT(char **strs, uint32_t sz, RSStringType st) {
   RSValue **arr = rm_calloc(sz, sizeof(RSValue *));
 
@@ -453,11 +529,17 @@ RSValue *RS_StringArrayT(char **strs, uint32_t sz, RSStringType st) {
   return RSValue_NewArrayEx(arr, sz, RSVAL_ARRAY_NOINCREF | RSVAL_ARRAY_ALLOC);
 }
 
+//---------------------------------------------------------------------------------------------
+
 RSValue RS_NULL = {.t = RSValue_Null, .refcount = 1, .allocated = 0};
-/* Create a new NULL RSValue */
+
+// Create a new NULL RSValue
+
 inline RSValue *RS_NullVal() {
   return &RS_NULL;
 }
+
+//---------------------------------------------------------------------------------------------
 
 static inline int cmp_strings(const char *s1, const char *s2, size_t l1, size_t l2) {
   int cmp = strncmp(s1, s2, MIN(l1, l2));
@@ -474,9 +556,13 @@ static inline int cmp_strings(const char *s1, const char *s2, size_t l1, size_t 
   }
 }
 
+//---------------------------------------------------------------------------------------------
+
 static inline int cmp_numbers(const RSValue *v1, const RSValue *v2) {
   return v1->numval > v2->numval ? 1 : (v1->numval < v2->numval ? -1 : 0);
 }
+
+//---------------------------------------------------------------------------------------------
 
 static inline int convert_to_number(const RSValue *v, RSValue *vn, QueryError *qerr) {
   double d;
@@ -491,6 +577,8 @@ static inline int convert_to_number(const RSValue *v, RSValue *vn, QueryError *q
   RSValue_SetNumber(vn, d);
   return 1;
 }
+
+//---------------------------------------------------------------------------------------------
 
 static int RSValue_CmpNC(const RSValue *v1, const RSValue *v2) {
   switch (v1->t) {
@@ -512,6 +600,8 @@ static int RSValue_CmpNC(const RSValue *v1, const RSValue *v2) {
       return 0;
   }
 }
+
+//---------------------------------------------------------------------------------------------
 
 int RSValue_Cmp(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
   RS_LOG_ASSERT(v1 && v2, "missing RSvalue");
@@ -563,6 +653,8 @@ int RSValue_Cmp(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
   return cmp_strings(s1, s2, l1, l2);
 }
 
+//---------------------------------------------------------------------------------------------
+
 int RSValue_Equal(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
   RS_LOG_ASSERT(v1 && v2, "missing RSvalue");
   v1 = RSValue_Dereference(v1);
@@ -595,7 +687,10 @@ int RSValue_Equal(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
   return cmp_strings(s1, s2, l1, l2) == 0;
 }
 
-/* Based on the value type, serialize the value into redis client response */
+//---------------------------------------------------------------------------------------------
+
+// Based on the value type, serialize the value into redis client response
+
 int RSValue_SendReply(RedisModuleCtx *ctx, const RSValue *v, int isTyped) {
   v = RSValue_Dereference(v);
 
@@ -628,6 +723,8 @@ int RSValue_SendReply(RedisModuleCtx *ctx, const RSValue *v, int isTyped) {
   }
   return REDISMODULE_OK;
 }
+
+//---------------------------------------------------------------------------------------------
 
 void RSValue_Print(const RSValue *v) {
   FILE *fp = stderr;
@@ -667,6 +764,8 @@ void RSValue_Print(const RSValue *v) {
   }
 }
 
+//---------------------------------------------------------------------------------------------
+
 /*
  *  - s: will be parsed as a string
  *  - l: Will be parsed as a long integer
@@ -676,7 +775,6 @@ void RSValue_Print(const RSValue *v) {
  */
 
 int RSValue_ArrayAssign(RSValue **args, int argc, const char *fmt, ...) {
-
   va_list ap;
   va_start(ap, fmt);
   const char *p = fmt;
@@ -734,10 +832,13 @@ int RSValue_ArrayAssign(RSValue **args, int argc, const char *fmt, ...) {
 
   va_end(ap);
   return 1;
+
 err:
   va_end(ap);
   return 0;
 }
+
+//---------------------------------------------------------------------------------------------
 
 const char *RSValue_TypeName(RSValueType t) {
   switch (t) {
@@ -758,3 +859,5 @@ const char *RSValue_TypeName(RSValueType t) {
       return "!!UNKNOWN TYPE!!";
   }
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////

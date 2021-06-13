@@ -1,13 +1,12 @@
-#ifndef RS_FUNCTION_H_
-#define RS_FUNCTION_H_
 
-#include <value.h>
-#include <util/block_alloc.h>
-#include <result_processor.h>
-#include <query_error.h>
-#ifdef __cplusplus
-extern "C" {
-#endif
+#pragma once
+
+#include "value.h"
+#include "util/block_alloc.h"
+#include "result_processor.h"
+#include "query_error.h"
+
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 #define VALIDATE_ARGS(fname, minargs, maxargs, err)                                           \
   if (argc < minargs || argc > maxargs) {                                                     \
@@ -49,10 +48,10 @@ struct ExprEval;
  *
  * @return EXPR_EVAL_ERR or EXPR_EVAL_OK
  */
-typedef int (*RSFunction)(struct ExprEval *e, RSValue *result, RSValue **args, size_t nargs,
+typedef int (*RSFunction)(ExprEval *e, RSValue *result, RSValue **args, size_t nargs,
                           QueryError *err);
 
-typedef struct {
+struct RSFunctionRegistry {
   size_t len;
   size_t cap;
   struct RSFunctionInfo {
@@ -62,7 +61,7 @@ typedef struct {
     unsigned minargs;
     int maxargs;
   } * funcs;
-} RSFunctionRegistry;
+};
 
 typedef struct RSFunctionInfo RSFunctionInfo;
 
@@ -75,8 +74,6 @@ void RegisterStringFunctions();
 void RegisterDateFunctions();
 void RegisterAllFunctions();
 
-void FunctionRegistry_Free(void);
-#ifdef __cplusplus
-}
-#endif
-#endif
+void FunctionRegistry_Free();
+
+///////////////////////////////////////////////////////////////////////////////////////////////

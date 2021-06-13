@@ -51,7 +51,7 @@ struct PLN_BaseStep {
 
   // Called to yield the lookup structure for the given step. If this object
   // does not have a lookup, can be set to NULL.
-  virtual RLookup *getLookup();
+  virtual RLookup *getLookup() { return NULL; }
 
   // Determines if the plan is a 'reduce' type. A 'reduce' plan is one which
   // consumes (in entirety) all of its inputs and produces a new output (and thus a new 'Lookup' table)
@@ -91,6 +91,7 @@ struct PLN_BaseStep {
 struct PLN_FirstStep : PLN_BaseStep {
   PLN_FirstStep() : PLN_BaseStep(PLN_T_ROOT) {}
   virtual ~PLN_FirstStep();
+
   std::unique_ptr<RLookup> lookup;
 
   virtual RLookup *getLookup();

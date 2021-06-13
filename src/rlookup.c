@@ -159,6 +159,15 @@ RLookup::RLookup(IndexSpecCache *spcache) : head(NULL), tail(NULL), rowlen(0), o
 
 //---------------------------------------------------------------------------------------------
 
+void RLookup::Reset(struct IndexSpecCache *cache) {
+  head = tail = NULL;
+  rowlen = 0;
+  options = 0
+  spcache = cahce;
+}
+
+//---------------------------------------------------------------------------------------------
+
 /**
  * Exactly like RLookup_WriteKey, but does not increment the refcount, allowing
  * idioms such as RLookup_WriteKey(..., RS_NumVal(10)); which would otherwise cause
@@ -169,7 +178,7 @@ void RLookupRow::WriteOwnKey(const RLookupKey *key, RSValue *v) {
   // Find the pointer to write to ...
   RSValue **vptr = array_ensure_at(&dyn, key->dstidx, RSValue *);
   if (*vptr) {
-    RSValue_Decref(*vptr);
+    vptr->Decref();
     ndyn--;
   }
   *vptr = v;
@@ -187,7 +196,7 @@ void RLookupRow::WriteOwnKey(const RLookupKey *key, RSValue *v) {
 
 void RLookupRow::WriteKey(const RLookupKey *key, RSValue *v) {
   WriteOwnKey(key, v);
-  RSValue_IncrRef(v);
+  v->IncrRef();
 }
 
 //---------------------------------------------------------------------------------------------
@@ -211,7 +220,7 @@ void RLookup::WriteKeyByName(const char *name, RLookupRow *dst, RSValue *v) {
 
 void RLookup::WriteOwnKeyByName(const char *name, RLookupRow *row, RSValue *value) {
   WriteKeyByName(name, row, value);
-  RSValue_Decref(value);
+  value->Decref();
 }
 
 //---------------------------------------------------------------------------------------------
@@ -226,7 +235,7 @@ void RLookupRow::Wipe() {
   for (size_t ii = 0; ii < array_len(dyn) && ndyn; ++ii) {
     RSValue **vpp = dyn + ii;
     if (*vpp) {
-      RSValue_Decref(*vpp);
+      (*vpp)->Decref();
       *vpp = NULL;
       ndyn--;
     }
@@ -411,7 +420,7 @@ int RLookupRow::getKeyCommon(const RLookupKey *kk, RLookupLoadOptions *options,
   RSValue *rsv = hvalToValue(val, kk->fieldtype);
   RedisModule_FreeString(RSDummyContext, val);
   RLookup_WriteKey(kk, this, rsv);
-  RSValue_Decref(rsv);
+  rsv->Decref();
   return REDISMODULE_OK;
 }
 

@@ -66,7 +66,7 @@ struct RSFunctionExpr {
 
 struct RSLookupExpr {
   const char *key;
-  const RLookupKey *lookupObj;
+  const RLookupKey *lookupKey;
 };
 
 struct RSExpr {
@@ -108,6 +108,7 @@ protected:
   int evalInverted(const RSInverted *vv, RSValue *result);
   int evalPredicate(const RSPredicate *pred, RSValue *result);
   int evalProperty(const RSLookupExpr *e, RSValue *res);
+
   int evalInternal(const RSExpr *e, RSValue *res);
 };
 

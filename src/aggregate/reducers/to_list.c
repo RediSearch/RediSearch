@@ -62,7 +62,7 @@ static RSValue *tolistFinalize(Reducer *rbase, void *ctx) {
 }
 
 static void freeValues(void *ptr) {
-  RSValue_Decref((RSValue *)ptr);
+  ((RSValue *)ptr)->Decref();
 }
 
 static void tolistFreeInstance(Reducer *parent, void *p) {

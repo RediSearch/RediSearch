@@ -102,6 +102,8 @@ struct RLookup {
   RLookup(struct IndexSpecCache *cache);
   ~RLookup();
 
+  void Reset(struct IndexSpecCache *cache);
+
   int LoadDocument(struct RLookupRow *dst, struct RLookupLoadOptions *options);
 
   RLookupKey *GetKey(const char *name, int flags);

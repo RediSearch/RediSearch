@@ -707,10 +707,9 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
     return REDISMODULE_ERR;
   } 
 
-  RLookup lookup_s;
   RLookupRow row = {0};
   IndexSpecCache *spcache = IndexSpec_GetSpecCache(sctx->spec);
-  RLookup_Init(&lookup_s, spcache);
+  RLookup lookup_s(spcache);
   if (ExprAST_GetLookupKeys(e, &lookup_s, status) == EXPR_EVAL_ERR) {
     goto done;
   }
@@ -722,14 +721,14 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
   }
 
   ExprEval evaluator = {.err = status, .lookup = &lookup_s, .res = NULL, .srcrow = &row, .root = e};
-  RSValue rv = RSVALUE_STATIC;
+  RSValue rv;
   if (ExprEval_Eval(&evaluator, &rv) != EXPR_EVAL_OK) {
     // printf("Eval not OK!!! SAD!!\n");
     goto done;
   }
 
-  *result = RSValue_BoolTest(&rv);
-  RSValue_Clear(&rv);
+  *result = rv.BoolTest();
+  rv.RSValue_Clear();
   rc = REDISMODULE_OK;
 
 // Clean up:
@@ -738,7 +737,6 @@ done:
     ExprAST_Free(e);
   }
   RLookupRow_Cleanup(&row);
-  RLookup_Cleanup(&lookup_s);
   return rc;
 }
 

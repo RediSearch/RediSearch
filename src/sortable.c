@@ -68,7 +68,7 @@ void RSSortingVector_Put(RSSortingVector *tbl, int idx, const void *p, int type)
     return;
   }
   if (tbl->values[idx]) {
-    RSValue_Decref(tbl->values[idx]);
+    tbl->values[idx]->Decref();
     tbl->values[idx] = NULL;
   }
   switch (type) {
@@ -91,7 +91,7 @@ void RSSortingVector_Put(RSSortingVector *tbl, int idx, const void *p, int type)
 /* Free a sorting vector */
 void SortingVector_Free(RSSortingVector *v) {
   for (size_t i = 0; i < v->len; i++) {
-    RSValue_Decref(v->values[i]);
+    v->values[i]->Decref();
   }
   rm_free(v);
 }

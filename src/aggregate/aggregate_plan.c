@@ -418,19 +418,19 @@ static void serializeGroup(myArgArray_t *arr, const PLN_BaseStep *stp) {
 array_t AGGPlan::Serialize() const {
   char **arr = array_new(char *, 1);
   for (const PLN_BaseStep *step = steps.first(); step; step = step->list_node.next) {
-    switch (stp->type) {
+    switch (step->type) {
       case PLN_T_APPLY:
       case PLN_T_FILTER:
-        serializeMapFilter(&arr, stp);
+        serializeMapFilter(&arr, step);
         break;
       case PLN_T_ARRANGE:
-        serializeArrange(&arr, stp);
+        serializeArrange(&arr, step);
         break;
       case PLN_T_LOAD:
-        serializeLoad(&arr, stp);
+        serializeLoad(&arr, step);
         break;
       case PLN_T_GROUP:
-        serializeGroup(&arr, stp);
+        serializeGroup(&arr, step);
         break;
       case PLN_T_INVALID:
       case PLN_T_ROOT:

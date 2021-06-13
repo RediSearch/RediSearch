@@ -4,10 +4,6 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-static int evalInternal(ExprEval *eval, const RSExpr *e, RSValue *res);
-
-//---------------------------------------------------------------------------------------------
-
 static void setReferenceValue(RSValue *dst, RSValue *src) {
   RSValue_MakeReference(dst, src);
 }
@@ -26,9 +22,9 @@ int ExprEval::evalFunc(const RSFunctionExpr *f, RSValue *result) {
   RSValue args[nargs];
 
   for (size_t ii = 0; ii < nargs; ii++) {
-    args[ii] = (RSValue)RSVALUE_STATIC;
+    args[ii] = RSValue();
     argspp[ii] = &args[ii];
-    int internalRes = evalInternal(eval, f->args->args[ii], &args[ii]);
+    int internalRes = evalInternal(f->args->args[ii], &args[ii]);
     if (internalRes == EXPR_EVAL_ERR ||
         (internalRes == EXPR_EVAL_NULL && f->Call != func_exists)) {
       // TODO: Free other results
@@ -38,11 +34,11 @@ int ExprEval::evalFunc(const RSFunctionExpr *f, RSValue *result) {
   }
 
   // We pass an RSValue**, not an RSValue*, as the arguments
-  rc = f->Call(eval, result, argspp, nargs, eval->err);
+  rc = f->Call(this, result, argspp, nargs, err);
 
 cleanup:
   for (size_t ii = 0; ii < nusedargs; ii++) {
-    RSValue_Clear(&args[ii]);
+    args[ii].Clear();
   }
   return rc;
 }
@@ -50,7 +46,7 @@ cleanup:
 //---------------------------------------------------------------------------------------------
 
 int ExprEval::evalOp(const RSExprOp *op, RSValue *result) {
-  RSValue l = RSVALUE_STATIC, r = RSVALUE_STATIC;
+  RSValue l, r;
   int rc = EXPR_EVAL_ERR;
 
   if (evalInternal(op->left, &l) != EXPR_EVAL_OK) {
@@ -97,45 +93,44 @@ int ExprEval::evalOp(const RSExprOp *op, RSValue *result) {
   rc = EXPR_EVAL_OK;
 
 cleanup:
-  RSValue_Clear(&l);
-  RSValue_Clear(&r);
+  l.Clear();
+  r.Clear();
   return rc;
 }
 
 //---------------------------------------------------------------------------------------------
 
 int ExprEval::getPredicateBoolean(const RSValue *l, const RSValue *r, RSCondition op) {
-  QueryError *qerr = eval->err;
   switch (op) {
     case RSCondition_Eq:
-      return RSValue_Equal(l, r, qerr);
+      return RSValue_Equal(l, r, err);
 
     case RSCondition_Lt:
-      return RSValue_Cmp(l, r, qerr) < 0;
+      return RSValue_Cmp(l, r, err) < 0;
 
     // Less than or equal, <=
     case RSCondition_Le:
-      return RSValue_Cmp(l, r, qerr) <= 0;
+      return RSValue_Cmp(l, r, err) <= 0;
 
     // Greater than, >
     case RSCondition_Gt:
-      return RSValue_Cmp(l, r, qerr) > 0;
+      return RSValue_Cmp(l, r, err) > 0;
 
     // Greater than or equal, >=
     case RSCondition_Ge:
-      return RSValue_Cmp(l, r, qerr) >= 0;
+      return RSValue_Cmp(l, r, err) >= 0;
 
     // Not equal, !=
     case RSCondition_Ne:
-      return !RSValue_Equal(l, r, qerr);
+      return !RSValue_Equal(l, r, err);
 
     // Logical AND of 2 expressions, &&
     case RSCondition_And:
-      return RSValue_BoolTest(l) && RSValue_BoolTest(r);
+      return l->BoolTest() && r->BoolTest();
 
     // Logical OR of 2 expressions, ||
     case RSCondition_Or:
-      return RSValue_BoolTest(l) || RSValue_BoolTest(r);
+      return l->BoolTest() || r->BoolTest();
 
     default:
       RS_LOG_ASSERT(0, "invalid RSCondition");
@@ -146,15 +141,15 @@ int ExprEval::getPredicateBoolean(const RSValue *l, const RSValue *r, RSConditio
 //---------------------------------------------------------------------------------------------
 
 int ExprEval::evalInverted(const RSInverted *vv, RSValue *result) {
-  RSValue tmpval = RSVALUE_STATIC;
+  RSValue tmpval;
   if (evalInternal(vv->child, &tmpval) != EXPR_EVAL_OK) {
     return EXPR_EVAL_ERR;
   }
 
-  result->numval = !RSValue_BoolTest(&tmpval);
+  result->numval = !tmpval.BoolTest();
   result->t = RSValue_Number;
 
-  RSValue_Clear(&tmpval);
+  tmpval.Clear();
   return EXPR_EVAL_OK;
 }
 
@@ -162,14 +157,14 @@ int ExprEval::evalInverted(const RSInverted *vv, RSValue *result) {
 
 int ExprEval::evalPredicate(const RSPredicate *pred, RSValue *result) {
   int res;
-  RSValue l = RSVALUE_STATIC, r = RSVALUE_STATIC;
+  RSValue l, r;
   int rc = EXPR_EVAL_ERR;
   if (evalInternal(pred->left, &l) != EXPR_EVAL_OK) {
     goto cleanup;
-  } else if (pred->cond == RSCondition_Or && RSValue_BoolTest(&l)) {
+  } else if (pred->cond == RSCondition_Or && l.BoolTest()) {
     res = 1;
     goto success;
-  } else if (pred->cond == RSCondition_And && !RSValue_BoolTest(&l)) {
+  } else if (pred->cond == RSCondition_And && !l.BoolTest()) {
     res = 0;
     goto success;
   } else if (evalInternal(pred->right, &r) != EXPR_EVAL_OK) {
@@ -188,15 +183,15 @@ success:
   }
 
 cleanup:
-  RSValue_Clear(&l);
-  RSValue_Clear(&r);
+  l.Clear();
+  r.Clear();
   return rc;
 }
 
 //---------------------------------------------------------------------------------------------
 
 int ExprEval::evalProperty(const RSLookupExpr *e, RSValue *res) {
-  if (!e->lookupObj) {
+  if (!e->lookupKey) {
     // todo : this can not happened
     // No lookup object. This means that the key does not exist
     // Note: Because this is evaluated for each row potentially, do not assume
@@ -208,7 +203,7 @@ int ExprEval::evalProperty(const RSLookupExpr *e, RSValue *res) {
   }
 
   // Find the actual value
-  RSValue *value = RLookup_GetItem(e->lookupObj, srcrow);
+  RSValue *value = srcrow->GetItem(e->lookupKey);
   if (!value) {
     if (err) {
       err->SetError(QUERY_ENOPROPVAL, NULL);
@@ -224,21 +219,21 @@ int ExprEval::evalProperty(const RSLookupExpr *e, RSValue *res) {
 //---------------------------------------------------------------------------------------------
 
 int ExprEval::evalInternal(const RSExpr *e, RSValue *res) {
-  RSValue_Clear(res);
+  res->Clear();
   switch (e->t) {
     case RSExpr_Property:
-      return evalProperty(eval, &e->property, res);
+      return evalProperty(&e->property, res);
     case RSExpr_Literal:
       RSValue_MakeReference(res, (RSValue *)&e->literal);
       return EXPR_EVAL_OK;
     case RSExpr_Function:
-      return evalFunc(eval, &e->func, res);
+      return evalFunc(&e->func, res);
     case RSExpr_Op:
-      return evalOp(eval, &e->op, res);
+      return evalOp(&e->op, res);
     case RSExpr_Predicate:
-      return evalPredicate(eval, &e->pred, res);
+      return evalPredicate(&e->pred, res);
     case RSExpr_Inverted:
-      return evalInverted(eval, &e->inverted, res);
+      return evalInverted(&e->inverted, res);
   }
   return EXPR_EVAL_ERR;  // todo: this can not happened
 }
@@ -262,20 +257,19 @@ int ExprAST_GetLookupKeys(RSExpr *expr, RLookup *lookup, QueryError *err) {
     if (ExprAST_GetLookupKeys(v, lookup, err) != EXPR_EVAL_OK) {                      \
       return EXPR_EVAL_ERR;                                                           \
     }                                                                                 \
-  while (0)
+  } while (0)
 
   switch (expr->t) {
     case RSExpr_Property:
-      expr->property.lookupObj = RLookup_GetKey(lookup, expr->property.key, RLOOKUP_F_NOINCREF);
-      if (!expr->property.lookupObj) {
-        err->SetErrorFmt(QUERY_ENOPROPKEY, "Property `%s` not loaded in pipeline",
-                               expr->property.key);
+      expr->property.lookupKey = lookup->GetKey(expr->property.key, RLOOKUP_F_NOINCREF);
+      if (!expr->property.lookupKey) {
+        err->SetErrorFmt(QUERY_ENOPROPKEY, "Property `%s` not loaded in pipeline", expr->property.key);
         return EXPR_EVAL_ERR;
       }
       break;
     case RSExpr_Function:
       for (size_t ii = 0; ii < expr->func.args->len; ii++) {
-        RECURSE(expr->func.args->args[ii])
+        RECURSE(expr->func.args->args[ii]);
       }
       break;
     case RSExpr_Op:
@@ -335,7 +329,7 @@ int RPEvaluator::Next(SearchResult *r) {
     val = RS_NewValue(RSValue_Undef);
   }
 
-  rc = eval->Eval(val);
+  rc = eval.Eval(val);
   return rc == EXPR_EVAL_OK ? RS_RESULT_OK : RS_RESULT_ERROR;
 }
 
@@ -346,8 +340,8 @@ int RPProjector::Next(SearchResult *r) {
   if (rc != RS_RESULT_OK) {
     return rc;
   }
-  RLookup_WriteOwnKey(pc->outkey, &r->rowdata, pc->val);
-  pc->val = NULL;
+  r->rowdata.WriteOwnKey(outkey, val);
+  val = NULL;
   return RS_RESULT_OK;
 }
 
@@ -357,8 +351,8 @@ int RPFilter::Next(SearchResult *r) {
   int rc;
   while ((rc = RPEvaluator::Next(r)) == RS_RESULT_OK) {
     // Check if it's a boolean result!
-    int boolrv = RSValue_BoolTest(pc->val);
-    RSValue_Clear(pc->val);
+    int boolrv = val->BoolTest();
+    val->Clear();
 
     if (boolrv) {
       return RS_RESULT_OK;
@@ -374,7 +368,7 @@ int RPFilter::Next(SearchResult *r) {
 
 RPEvaluator::~RPEvaluator() {
   if (val) {
-    val.Decref();
+    val->Decref();
   }
 }
 

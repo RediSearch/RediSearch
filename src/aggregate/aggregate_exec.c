@@ -68,6 +68,7 @@ size_t AREQ::serializeResult(RedisModuleCtx *outctx, const SearchResult *r, cons
     count++;
     const RSValue *sortkey = getSortKey(r, cv.lastAstp);
     RedisModuleString *rskey = NULL;
+
 reeval_sortkey:
     if (sortkey) {
       switch (sortkey->t) {
@@ -90,7 +91,7 @@ reeval_sortkey:
         case RSValue_Array:
           break;
         case RSValue_Reference:
-          sortkey = RSValue_Dereference(sortkey);
+          sortkey = sortkey->Dereference();
           goto reeval_sortkey;
       }
       if (rskey) {

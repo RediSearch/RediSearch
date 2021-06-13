@@ -446,8 +446,6 @@ PLN_GroupStep::~PLN_GroupStep() {
     }
     array_free(reducers);
   }
-
-  RLookup_Cleanup(&lookup);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -822,12 +820,12 @@ ResultProcessor *PLN_GroupStep::buildRP(RLookup *srclookup, QueryError *err) {
   const RLookupKey *srckeys[nproperties], *dstkeys[nproperties];
   for (size_t ii = 0; ii < nproperties; ++ii) {
     const char *fldname = properties[ii] + 1;  // account for the @-
-    srckeys[ii] = RLookup_GetKey(srclookup, fldname, RLOOKUP_F_NOINCREF);
+    srckeys[ii] = srclookup->GetKey(fldname, RLOOKUP_F_NOINCREF);
     if (!srckeys[ii]) {
       err->SetErrorFmt(QUERY_ENOPROPKEY, "No such property `%s`", fldname);
       return NULL;
     }
-    dstkeys[ii] = RLookup_GetKey(&lookup, fldname, RLOOKUP_F_OCREAT | RLOOKUP_F_NOINCREF);
+    dstkeys[ii] = lookup->GetKey(fldname, RLOOKUP_F_OCREAT | RLOOKUP_F_NOINCREF);
   }
 
   Grouper *grp = new Grouper(srckeys, dstkeys, nproperties);
@@ -851,7 +849,7 @@ ResultProcessor *PLN_GroupStep::buildRP(RLookup *srclookup, QueryError *err) {
     }
 
     // Set the destination key for the grouper!
-    RLookupKey *dstkey = RLookup_GetKey(&lookup, pr->alias, RLOOKUP_F_OCREAT | RLOOKUP_F_NOINCREF);
+    RLookupKey *dstkey = lookup->GetKey(pr->alias, RLOOKUP_F_OCREAT | RLOOKUP_F_NOINCREF);
     grp->AddReducer(rr, dstkey);
   }
 
@@ -929,7 +927,7 @@ ResultProcessor *AREQ::getArrangeRP(AGGPlan *pln, const PLN_BaseStep *stp, Resul
     RLookup *lk = pln->GetLookup(stp, AGPLN_GETLOOKUP_PREV);
 
     for (size_t ii = 0; ii < nkeys; ++ii) {
-      sortkeys[ii] = RLookup_GetKey(lk, astp.sortKeys[ii], RLOOKUP_F_NOINCREF);
+      sortkeys[ii] = lk->GetKey(astp.sortKeys[ii], RLOOKUP_F_NOINCREF);
       if (!sortkeys[ii]) {
         status->SetErrorFmt(QUERY_ENOPROPKEY, "Property `%s` not loaded nor in schema",
                             astp.sortKeys[ii]);
@@ -1012,9 +1010,9 @@ void AREQ::buildImplicitPipeline(QueryError *status) {
 
   IndexSpecCache *cache = IndexSpec_GetSpecCache(sctx->spec);
   RS_LOG_ASSERT(cache, "IndexSpec_GetSpecCache failed")
-  RLookup *first = ap.GetLookup(NULL, AGPLN_GETLOOKUP_FIRST);
 
-  RLookup_Init(first, cache);
+  RLookup *first = ap.GetLookup(NULL, AGPLN_GETLOOKUP_FIRST);
+  first->Reset(cache);
 
   ResultProcessor *rp = new RPIndexIterator(rootiter);
   ResultProcessor *rpUpstream = NULL;
@@ -1044,7 +1042,7 @@ int AREQ::buildOutputPipeline(QueryError *status) {
     // Go through all the fields and ensure that each one exists in the lookup stage
     for (size_t ii = 0; ii < outFields.numFields; ++ii) {
       const ReturnedField *rf = &outFields.fields[ii];
-      RLookupKey *lk = RLookup_GetKey(lookup, rf->name, RLOOKUP_F_NOINCREF | RLOOKUP_F_OCREAT);
+      RLookupKey *lk = lookup->GetKey(rf->name, RLOOKUP_F_NOINCREF | RLOOKUP_F_OCREAT);
       if (!lk) {
         // TODO: this is a dead code
         status->SetErrorFmt(QUERY_ENOPROPKEY, "Property '%s' not loaded or in schema", rf->name);
@@ -1065,7 +1063,7 @@ int AREQ::buildOutputPipeline(QueryError *status) {
     RLookup *lookup = pln.GetLookup(NULL, AGPLN_GETLOOKUP_LAST);
     for (size_t ii = 0; ii < outFields.numFields; ++ii) {
       ReturnedField *ff = &outFields.fields[ii];
-      RLookupKey *kk = RLookup_GetKey(lookup, ff->name, 0);
+      RLookupKey *kk = lookup->GetKey(ff->name, 0);
       if (!kk) {
         status->SetErrorFmt(QUERY_ENOPROPKEY, "No such property `%s`", ff->name);
         goto error;
@@ -1101,12 +1099,10 @@ int AREQ::BuildPipeline(BuildPipelineOptions options, QueryError *status) {
   // Whether we've applied a SORTBY yet..
   int hasArrange = 0;
 
-  for (const DLLIST_node *nn = pln->steps.next; nn != &pln->steps; nn = nn->next) {
-    const PLN_BaseStep *stp = DLLIST_ITEM(nn, PLN_BaseStep, llnodePln);
-
-    switch (stp->type) {
+  for (const PLN_BaseStep *step = pln->steps.first(); step; step = step->list_node.next) {
+    switch (step->type) {
       case PLN_T_GROUP: {
-        rpUpstream = getGroupRP((PLN_GroupStep *)stp, rpUpstream, status);
+        rpUpstream = getGroupRP((PLN_GroupStep *)step, rpUpstream, status);
         if (!rpUpstream) {
           goto error;
         }
@@ -1114,7 +1110,7 @@ int AREQ::BuildPipeline(BuildPipelineOptions options, QueryError *status) {
       }
 
       case PLN_T_ARRANGE: {
-        rp = getArrangeRP(pln, stp, rpUpstream, status);
+        rp = getArrangeRP(pln, step, rpUpstream, status);
         if (!rp) {
           goto error;
         }
@@ -1125,9 +1121,9 @@ int AREQ::BuildPipeline(BuildPipelineOptions options, QueryError *status) {
 
       case PLN_T_APPLY:
       case PLN_T_FILTER: {
-        PLN_MapFilterStep *mstp = (PLN_MapFilterStep *)stp;
+        PLN_MapFilterStep *mstp = (PLN_MapFilterStep *)step;
         // Ensure the lookups can actually find what they need
-        RLookup *curLookup = pln->GetLookup(stp, AGPLN_GETLOOKUP_PREV);
+        RLookup *curLookup = pln->GetLookup(step, AGPLN_GETLOOKUP_PREV);
         mstp->parsedExpr = ExprAST_Parse(mstp->rawExpr, strlen(mstp->rawExpr), status);
         if (!mstp->parsedExpr) {
           goto error;
@@ -1137,9 +1133,9 @@ int AREQ::BuildPipeline(BuildPipelineOptions options, QueryError *status) {
           goto error;
         }
 
-        if (stp->type == PLN_T_APPLY) {
+        if (step->type == PLN_T_APPLY) {
           RLookupKey *dstkey =
-              RLookup_GetKey(curLookup, stp->alias, RLOOKUP_F_OCREAT | RLOOKUP_F_NOINCREF);
+              curLookup->GetKey(step->alias, RLOOKUP_F_OCREAT | RLOOKUP_F_NOINCREF);
           rp = new RPProjector(mstp->parsedExpr, curLookup, dstkey);
         } else {
           rp = new RPFilter(mstp->parsedExpr, curLookup);
@@ -1149,8 +1145,8 @@ int AREQ::BuildPipeline(BuildPipelineOptions options, QueryError *status) {
       }
 
       case PLN_T_LOAD: {
-        PLN_LoadStep *lstp = (PLN_LoadStep *)stp;
-        RLookup *curLookup = pln->GetLookup(stp, AGPLN_GETLOOKUP_PREV);
+        PLN_LoadStep *lstp = (PLN_LoadStep *)step;
+        RLookup *curLookup = pln->GetLookup(step, AGPLN_GETLOOKUP_PREV);
         RLookup *rootLookup = pln->GetLookup(NULL, AGPLN_GETLOOKUP_FIRST);
         if (curLookup != rootLookup) {
           status->SetError(QUERY_EINVAL,
@@ -1163,7 +1159,7 @@ int AREQ::BuildPipeline(BuildPipelineOptions options, QueryError *status) {
           if (*s == '@') {
             s++;
           }
-          const RLookupKey *kk = RLookup_GetKey(curLookup, s, RLOOKUP_F_OEXCL | RLOOKUP_F_OCREAT);
+          const RLookupKey *kk = curLookup->GetKey(s, RLOOKUP_F_OEXCL | RLOOKUP_F_OCREAT);
           if (!kk) {
             // We only get a NULL return if the key already exists, which means
             // that we don't need to retrieve it again.
@@ -1177,9 +1173,11 @@ int AREQ::BuildPipeline(BuildPipelineOptions options, QueryError *status) {
         }
         break;
       }
+
       case PLN_T_ROOT:
         // Placeholder step for initial lookup
         break;
+
       case PLN_T_DISTRIBUTE:
         // This is the root already
         break;
@@ -1210,6 +1208,7 @@ int AREQ::BuildPipeline(BuildPipelineOptions options, QueryError *status) {
   }
 
   return REDISMODULE_OK;
+
 error:
   return REDISMODULE_ERR;
 }

@@ -95,7 +95,7 @@ RSExpr *RS_NewFunc(const char *str, size_t len, RSArgList *args, RSFunction cb) 
 RSExpr *RS_NewProp(const char *str, size_t len) {
   RSExpr *e = newExpr(RSExpr_Property);
   e->property.key = rm_strndup(str, len);
-  e->property.lookupObj = NULL;
+  e->property.lookupKey = NULL;
   return e;
 }
 
@@ -116,7 +116,7 @@ void RSExpr_Free(RSExpr *e) {
   if (!e) return;
   switch (e->t) {
     case RSExpr_Literal:
-      RSValue_Clear(&e->literal);
+      e->literal.Clear();
       break;
     case RSExpr_Function:
       rm_free((char *)e->func.name);
