@@ -14,7 +14,7 @@ extern "C" {
 static inline DocumentType getDocType(RedisModuleKey *key) {
   if (RedisModule_KeyType(key) == REDISMODULE_KEYTYPE_HASH) {
     return DocumentType_Hash;
-  } else if (japi->isJSON(key)) {
+  } else if (japi && japi->isJSON(key)) {
     return DocumentType_Json;
   }
   return DocumentType_None;
