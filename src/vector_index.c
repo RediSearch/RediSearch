@@ -1,36 +1,32 @@
 #include "vector_index.h"
 #include "list_reader.h"
 
-#define POC_INITIAL_CAPACITY 100000
-#define POC_EF 200
-#define POC_M 16
-
-#define POC_ALGORITHM VecSimAlgo_HNSW
-#define POC_METRIC VecSimMetric_L2
-#define POC_TYPE VecSimType_INT32
-#define POC_VECTOR_LEN 2
-
-#define POC_TOPK 4
-
 static VecSimIndex *openVectorKeysDict(RedisSearchCtx *ctx, RedisModuleString *keyName,
                                              int write) {
-  KeysDictValue *kdv = dictFetchValue(ctx->spec->keysDict, keyName);
+  IndexSpec *spec = ctx->spec;
+  KeysDictValue *kdv = dictFetchValue(spec->keysDict, keyName);
   if (kdv) {
     return kdv->p;
   }
   if (!write) {
     return NULL;
   }
+
+  size_t fieldLen;
+  const char *fieldStr = RedisModule_StringPtrLen(keyName, &fieldLen);
+  FieldSpec *fieldSpec = NULL;
+  for (int i = 0; i < spec->numFields; ++i) {
+    if (!strncasecmp(fieldStr, spec->fields[i].name, fieldLen)) {
+      fieldSpec = &spec->fields[i];
+    }
+  }
+  if (fieldSpec == NULL) {
+    return NULL;
+  }
+
+  // create new vector data structure
   kdv = rm_calloc(1, sizeof(*kdv));
-  // TODO: get good values from Dvir
-  VecSimParams params = { .metric = POC_METRIC,
-                          .type = POC_TYPE,
-                          .size = POC_VECTOR_LEN,
-                          .algo = POC_ALGORITHM,
-                          .hnswParams.efConstruction = POC_EF,
-                          .hnswParams.initialCapacity = POC_INITIAL_CAPACITY,
-                          .hnswParams.M = POC_M };
-  kdv->p = VecSimIndex_New(&params);
+  kdv->p = VecSimIndex_New(&fieldSpec->vecSimParams);
   dictAdd(ctx->spec->keysDict, keyName, kdv);
   kdv->dtor = (void (*)(void *))VecSimIndex_Free;
   return kdv->p;
@@ -49,14 +45,14 @@ IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorFilter *vf) {
   RedisModule_FreeString(ctx->redisCtx, key);
   switch (vf->type) {
     case VECTOR_TOPK:
-      vf->results = VecSimIndex_TopKQuery(vecsim, vf->vector, POC_TOPK);
+      vf->results = VecSimIndex_TopKQuery(vecsim, vf->vector, vf->value);
       break;
     case VECTOR_RANGE:
       RS_LOG_ASSERT(0, "Range is not supported yet");
       break;
   }
   // TODO: len
-  return NewListIterator(vf->results, POC_TOPK);
+  return NewListIterator(vf->results, vf->value);
 }
 
 /* Create a vector filter from parsed strings and numbers */

@@ -2,6 +2,21 @@
 #include "VecSim/vecsim.h"
 #include "index_iterator.h"
 
+#define VECSIM_TYPE_FLOAT32 "FLOAT32"
+#define VECSIM_TYPE_FLOAT64 "FLOAT64"
+#define VECSIM_TYPE_INT32 "INT32"
+#define VECSIM_TYPE_INT64 "INT64"
+
+#define VECSIM_METRIC_IP "IP"
+#define VECSIM_METRIC_L2 "L2"
+
+#define VECSIM_ALGORITHM_BF "BF"
+#define VECSIM_ALGORITHM_HNSW "HNSW"
+
+#define VECSIM_INITIAL_CAP "INITIAL_CAP"
+#define VECSIM_M "M"
+#define VECSIM_EF "EF"
+
 typedef enum {
   VECTOR_TYPE_FLOAT32 = 0,
   VECTOR_TYPE_DOUBLE64 = 1,
