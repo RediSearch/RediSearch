@@ -283,6 +283,11 @@ static inline int TimedOut(struct timespec timeout) {
 }
 
 static inline void updateTimeout(struct timespec *timeout, int32_t durationNS) {
+  // 0 disables the timeout
+  if (durationNS == 0) {
+    durationNS = INT32_MAX;
+  }
+
   struct timespec now;
   struct timespec duration = { .tv_sec = durationNS / 1000,
                               .tv_nsec = ((durationNS % 1000) * 1000000) };
