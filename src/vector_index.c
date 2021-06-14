@@ -1,5 +1,6 @@
 #include "vector_index.h"
 #include "list_reader.h"
+#include "dep/base64/base64.h"
 
 static VecSimIndex *openVectorKeysDict(RedisSearchCtx *ctx, RedisModuleString *keyName,
                                              int write) {
@@ -43,15 +44,24 @@ IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorFilter *vf) {
   RedisModuleString *key = RedisModule_CreateStringPrintf(ctx->redisCtx, "%s", vf->property);
   VecSimIndex *vecsim = openVectorKeysDict(ctx, key, 0);
   RedisModule_FreeString(ctx->redisCtx, key);
+
+  size_t outLen;
+  unsigned char *vector = vf->vector;
   switch (vf->type) {
     case VECTOR_TOPK:
-      vf->results = VecSimIndex_TopKQuery(vecsim, vf->vector, vf->value);
+      vf->results = vecsim->TopKQueryFn(vecsim, vector, vf->value);
       break;
     case VECTOR_RANGE:
-      RS_LOG_ASSERT(0, "Range is not supported yet");
+      // RS_LOG_ASSERT(0, "Range is not supported yet");
+
+      // Note: RANGE is being used for base64 conversion queries.
+      vector = base64_decode(vf->vector, vf->vecLen, &outLen);
+      // TODO: check outLen == expected len.
+      vf->results = vecsim->TopKQueryFn(vecsim, vector, vf->value);
+      rm_free(vector);
       break;
   }
-  // TODO: len
+
   return NewListIterator(vf->results, vf->value);
 }
 
