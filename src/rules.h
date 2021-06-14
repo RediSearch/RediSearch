@@ -20,8 +20,8 @@ extern "C" {
 struct RSExpr;
 struct IndexSpec;
 
-const char *SchemaRuleType_ToString(DocumentType type);
-int SchemaRuleType_Parse(const char *type_str, DocumentType *type, QueryError *status);
+const char *DocumentType_ToString(DocumentType type);
+int DocumentType_Parse(const char *type_str, DocumentType *type, QueryError *status);
 
 //---------------------------------------------------------------------------------------------
 

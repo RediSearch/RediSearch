@@ -7,7 +7,7 @@ TrieMap *ScemaPrefixes_g;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-const char *SchemaRuleType_ToString(DocumentType type) {
+const char *DocumentType_ToString(DocumentType type) {
   switch (type) {
     case DocumentType_Hash:
       return "HASH";
@@ -20,7 +20,7 @@ const char *SchemaRuleType_ToString(DocumentType type) {
   }
 }
 
-int SchemaRuleType_Parse(const char *type_str, DocumentType *type, QueryError *status) {
+int DocumentType_Parse(const char *type_str, DocumentType *type, QueryError *status) {
   if (!type_str || !strcasecmp(type_str, RULE_TYPE_HASH)) {
     *type = DocumentType_Hash;
     return REDISMODULE_OK;
@@ -55,7 +55,7 @@ void SchemaRuleArgs_Free(SchemaRuleArgs *rule_args) {
 SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, IndexSpec *spec, QueryError *status) {
   SchemaRule *rule = rm_calloc(1, sizeof(*rule));
 
-  if (SchemaRuleType_Parse(args->type, &rule->type, status) == REDISMODULE_ERR) {
+  if (DocumentType_Parse(args->type, &rule->type, status) == REDISMODULE_ERR) {
     goto error;
   }
 
@@ -346,7 +346,7 @@ int SchemaRule_RdbLoad(IndexSpec *sp, RedisModuleIO *rdb, int encver) {
 
 void SchemaRule_RdbSave(SchemaRule *rule, RedisModuleIO *rdb) {
   // the +1 is so we will save the \0
-  const char *ruleTypeStr = SchemaRuleType_ToString(rule->type);
+  const char *ruleTypeStr = DocumentType_ToString(rule->type);
   RedisModule_SaveStringBuffer(rdb, ruleTypeStr, strlen(ruleTypeStr) + 1);
   RedisModule_SaveUnsigned(rdb, array_len(rule->prefixes));
   for (size_t i = 0; i < array_len(rule->prefixes); ++i) {
