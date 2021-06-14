@@ -193,9 +193,6 @@ CONFIG_GETTER(getMaxExpansions) {
 // TIMEOUT
 CONFIG_SETTER(setTimeout) {
   int acrc = AC_GetLongLong(ac, &config->queryTimeoutMS, AC_F_GE0);
-  if (config->queryTimeoutMS == 0) {
-    config->queryTimeoutMS = INT32_MAX;
-  }
   RETURN_STATUS(acrc);
 }
 
