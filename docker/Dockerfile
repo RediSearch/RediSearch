@@ -30,18 +30,9 @@ COPY --from=redis /usr/local/ /usr/local/
 
 ADD . /build
 
+RUN ./deps/readies/bin/getupdates
 RUN ./deps/readies/bin/getpy2
 RUN ./system-setup.py
-RUN set -ex ;\
-    if [ -e /usr/bin/apt-get ]; then \
-        apt-get update -qq; \
-        apt-get upgrade -yqq; \
-        rm -rf /var/cache/apt; \
-    fi
-RUN if [ -e /usr/bin/yum ]; then \
-        yum update -y; \
-        rm -rf /var/cache/yum; \
-    fi
 
 RUN /usr/local/bin/redis-server --version
 RUN make fetch SHOW=1
