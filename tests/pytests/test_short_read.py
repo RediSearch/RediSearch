@@ -216,21 +216,27 @@ def testShortRead(env):
 def runShortRead(env, data, total_len):
     env.skipOnCluster()
     with ShardMock(env) as shardMock:
-        print('runShortRead: %d out of %d \n' % (len(data), total_len)) # TODO: remove print?
+        env.debugPrint('runShortRead: %d out of %d \n' % (len(data), total_len))
+
+        # For debug: if adding breakpoints in redis to avoid closing the connection
+        # res = env.cmd('CONFIG', 'SET', 'timeout', '0')
 
         # Notice: Do not use env.expect in this test
         # (since it is sending commands to redis and in this test we need to follow strict hand-shaking)
+        res = env.cmd('CONFIG', 'SET', 'repl-diskless-load', 'swapdb')
         res = env.cmd('slaveof', 'localhost', '10000')
         env.expect(res).true()
         conn = shardMock.GetConnection()
         # Perform hand-shake with slave
-
-        res = conn.read_request();
+        res = conn.read_request()
         env.assertEqual(res, ['PING'])
-
         conn.send_status('PONG')
+
         max_attempt = 100
+        res = conn.read_request()
         while max_attempt > 0:
+            print("==>")
+            print(res)
             if res[0] == 'REPLCONF':
                 conn.send_status('OK')
             else:
@@ -239,9 +245,10 @@ def runShortRead(env, data, total_len):
             res = conn.read_request()
 
         # Send RDB to slave
-        guid = 'af4e30b5d14dce9f96fbb7769d0ec794cdc0bbcc'
-        conn.send_status('FULLRESYNC ' + guid + ' 0')
+        some_guid = 'af4e30b5d14dce9f96fbb7769d0ec794cdc0bbcc'
+        conn.send_status('FULLRESYNC ' + some_guid + ' 0')
         conn.send('$%d\r\n%s\r\n' % (total_len, data))
+        conn.flush()
 
         if total_len != len(data):
             # Close during slave is waiting for more RDB data

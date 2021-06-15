@@ -289,63 +289,37 @@ RedisModuleString *SchemaRule_HashPayload(RedisModuleCtx *rctx, const SchemaRule
 int SchemaRule_RdbLoad(IndexSpec *sp, RedisModuleIO *rdb, int encver) {
   SchemaRuleArgs args = {0};
   size_t len;
+
   int ret = REDISMODULE_OK;
-  args.type = RedisModule_LoadStringBuffer(rdb, &len);
-  if (RedisModule_IsIOError(rdb)) {
-    return REDISMODULE_ERR;
-  }
-  args.nprefixes = RedisModule_LoadUnsigned(rdb);
-  if (RedisModule_IsIOError(rdb)) {
-    if (args.type) {
-      RedisModule_Free((char *)args.type);
-    }
-    return REDISMODULE_ERR;
-  }
-  char *prefixes[args.nprefixes];
+  args.type = LoadStringBuffer_IOError(rdb, &len, goto cleanup);
+
+  args.nprefixes = LoadUnsigned_IOError(rdb, goto cleanup);
+
+  char **prefixes = alloca(args.nprefixes * sizeof(char*));
   args.prefixes = (const char **)prefixes;
   for (size_t i = 0; i < args.nprefixes; ++i) {
-    prefixes[i] = RedisModule_LoadStringBuffer(rdb, &len);
-    if (RedisModule_IsIOError(rdb)) {
-      goto cleanup;
-    }
+    prefixes[i] = LoadStringBuffer_IOError(rdb, &len, goto cleanup);
   }
 
-  uint64_t exist = RedisModule_LoadUnsigned(rdb);
-  if (RedisModule_IsIOError(rdb)) {
-    goto cleanup;
-  }
+  uint64_t exist = LoadUnsigned_IOError(rdb, goto cleanup);
   if (exist) {
-    args.filter_exp_str = RedisModule_LoadStringBuffer(rdb, &len);
+    args.filter_exp_str = LoadStringBuffer_IOError(rdb, &len, goto cleanup);
   }
-  exist = RedisModule_LoadUnsigned(rdb);
-  if (RedisModule_IsIOError(rdb)) {
-    goto cleanup;
-  }
+  exist = LoadUnsigned_IOError(rdb, goto cleanup);
   if (exist) {
-    args.lang_field = RedisModule_LoadStringBuffer(rdb, &len);
+    args.lang_field = LoadStringBuffer_IOError(rdb, &len, goto cleanup);
   }
-  exist = RedisModule_LoadUnsigned(rdb);
-  if (RedisModule_IsIOError(rdb)) {
-    goto cleanup;
-  }
+  exist = LoadUnsigned_IOError(rdb, goto cleanup);
   if (exist) {
-    args.score_field = RedisModule_LoadStringBuffer(rdb, &len);
+    args.score_field = LoadStringBuffer_IOError(rdb, &len, goto cleanup);
   }
-  exist = RedisModule_LoadUnsigned(rdb);
-  if (RedisModule_IsIOError(rdb)) {
-    goto cleanup;
-  }
+  exist = LoadUnsigned_IOError(rdb, goto cleanup);
   if (exist) {
-    args.payload_field = RedisModule_LoadStringBuffer(rdb, &len);
+    args.payload_field = LoadStringBuffer_IOError(rdb, &len, goto cleanup);
   }
-  double score_default = RedisModule_LoadDouble(rdb);
-  if (RedisModule_IsIOError(rdb)) {
-    goto cleanup;
-  }
-  RSLanguage lang_default = RedisModule_LoadUnsigned(rdb);
-  if (RedisModule_IsIOError(rdb)) {
-    goto cleanup;
-  }
+  double score_default = LoadDouble_IOError(rdb, goto cleanup);
+  RSLanguage lang_default = LoadUnsigned_IOError(rdb, goto cleanup);
+
   QueryError status = {0};
   SchemaRule *rule = SchemaRule_Create(&args, sp, &status);
   if (!rule) {
@@ -358,6 +332,9 @@ int SchemaRule_RdbLoad(IndexSpec *sp, RedisModuleIO *rdb, int encver) {
   }
 
 cleanup:
+  if (args.type) {
+    RedisModule_Free((char *)args.type);
+  }
   for (size_t i = 0; i < args.nprefixes; ++i) {
     if (args.prefixes[i]) {
       RedisModule_Free((char *)args.prefixes[i]);
