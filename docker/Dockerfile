@@ -30,8 +30,10 @@ COPY --from=redis /usr/local/ /usr/local/
 
 ADD . /build
 
+RUN ./deps/readies/bin/getupdates
 RUN ./deps/readies/bin/getpy2
 RUN ./system-setup.py
+
 RUN /usr/local/bin/redis-server --version
 RUN make fetch SHOW=1
 RUN make build SHOW=1 CMAKE_ARGS="-DGIT_DESCRIBE_VERSION=${GIT_DESCRIBE_VERSION}"
