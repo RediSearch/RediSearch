@@ -566,7 +566,7 @@ vector_filter(A) ::= LSQB TERM(B) TERM(C) num(D) RSQB. [NUMBER] {
         QERR_MKSYNTAXERR(ctx->status, "Invalid Vector Filter unit");
     }
 
-    A = NewVectorFilter(B.s, B.len, buf, D.num);
+    A = NewVectorFilter(B.s, B.len + 3, buf, D.num);
     //GeoFilter_Validate(A, ctx->status);
 }
 

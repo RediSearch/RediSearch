@@ -3,7 +3,7 @@
 
 int main() {
   size_t outLen, outLen64;
-  char ch[5];
+  unsigned char ch[5];
   ch[4] = '\0';
 
   for (int i = 0; i < (1 << 8); i++) {

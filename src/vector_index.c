@@ -49,7 +49,7 @@ IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorFilter *vf) {
   unsigned char *vector = vf->vector;
   switch (vf->type) {
     case VECTOR_TOPK:
-      vf->results = vecsim->TopKQueryFn(vecsim, vector, vf->value);
+      vf->results = VecSimIndex_TopKQuery(vecsim, vector, vf->value);
       break;
     case VECTOR_RANGE:
       // RS_LOG_ASSERT(0, "Range is not supported yet");
@@ -57,7 +57,7 @@ IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorFilter *vf) {
       // Note: RANGE is being used for base64 conversion queries.
       vector = base64_decode(vf->vector, vf->vecLen, &outLen);
       // TODO: check outLen == expected len.
-      vf->results = vecsim->TopKQueryFn(vecsim, vector, vf->value);
+      vf->results = VecSimIndex_TopKQuery(vecsim, vector, vf->value);
       rm_free(vector);
       break;
   }

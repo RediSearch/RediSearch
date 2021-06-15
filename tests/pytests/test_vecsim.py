@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-
+import base64
 import unittest
 from includes import *
 from common import getConnectionByEnv, waitForIndex, sortedResults, toSortedFlatList
@@ -17,6 +17,35 @@ def test_1st(env):
     res = [4L, 'a', ['v', 'abcdefgh'], 'b', ['v', 'abcdefgg'],
                'c', ['v', 'aacdefgh'], 'd', ['v', 'abbdefgh']]
     env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 4]').equal(res)
+
+    message = 'abcdefgh'
+    env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 1]').equal([1L, 'a', ['v', 'abcdefgh']])
+
+    message_bytes = message.encode('ascii')
+    base64_bytes = base64.b64encode(message_bytes)
+    base64_message = base64_bytes.decode('ascii')
+    print message_bytes
+    print base64_bytes
+    print base64_message
+
+    # RANGE uses topk but translate to base64 before
+    env.expect('FT.SEARCH', 'idx', '@v:[' + base64_message +' RANGE 1]').equal([1L, 'a', ['v', 'abcdefgh']])
+
+    #####################
+    ## another example ##
+    #####################
+    message = 'aacdefgh'
+    env.expect('FT.SEARCH', 'idx', '@v:[' + message +' TOPK 1]').equal([1L, 'c', ['v', 'aacdefgh']])
+
+    message_bytes = message.encode('ascii')
+    base64_bytes = base64.b64encode(message_bytes)
+    base64_message = base64_bytes.decode('ascii')
+
+    #print message_bytes
+    #print base64_bytes
+    #print base64_message
+
+    env.expect('FT.SEARCH', 'idx', '@v:[' + base64_message +' RANGE 1]').equal([1L, 'c', ['v', 'aacdefgh']])
 
 def test_create(env):
     conn = getConnectionByEnv(env)

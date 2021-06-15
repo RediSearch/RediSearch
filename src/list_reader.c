@@ -100,6 +100,7 @@ IndexIterator *NewListIterator(void *list, size_t len) {
   li->offset = 0;
   li->size = len;
   li->list = list;
+  li->base.isValid = 1;
 
   IndexIterator *ri = &li->base;
   ri->ctx = li;

@@ -1581,7 +1581,7 @@ static YYACTIONTYPE yy_reduce(
         QERR_MKSYNTAXERR(ctx->status, "Invalid Vector Filter unit");
     }
 
-    yymsp[-4].minor.yy12 = NewVectorFilter(yymsp[-3].minor.yy0.s, yymsp[-3].minor.yy0.len, buf, yymsp[-1].minor.yy77.num);
+    yymsp[-4].minor.yy12 = NewVectorFilter(yymsp[-3].minor.yy0.s, yymsp[-3].minor.yy0.len + 3, buf, yymsp[-1].minor.yy77.num);
     //GeoFilter_Validate(yymsp[-4].minor.yy12, ctx->status);
 }
         break;

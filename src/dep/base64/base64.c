@@ -11,9 +11,13 @@
 //#include "os.h"
 #include "base64.h"
 #include <string.h>
-#ifndef rm_malloc
+
+//#define TESTING
+#ifdef TESTING
 #define rm_malloc malloc
 #define rm_free free
+#else
+#include "rmalloc.h"
 #endif
 
 static const unsigned char base64_table[65] =
@@ -117,7 +121,8 @@ unsigned char * base64_decode(const unsigned char *src, size_t len,
 			count++;
 	}
 
-	if (count == 0 || count % 4)
+	// TODO: parser removes '=' and theefore this might be invalid. For POC is OK.
+	if (count == 0/* || count % 4*/)
 		return NULL;
 
 	olen = count / 4 * 3;
