@@ -4,13 +4,13 @@
 #include <pthread.h>
 #include "redismodule.h"
 
-typedef struct IndexSpec IndexSpec; // Forward declaration
+struct IndexSpec; // Forward declaration
 
-void RediSearch_LockInit(IndexSpec *sp);
-void RediSearch_LockRead(IndexSpec* sp);
-void RediSearch_LockWrite(IndexSpec* sp);
-void RediSearch_LockRelease(IndexSpec* sp);
-void RediSearch_LockDestory(IndexSpec *sp);
+void RediSearch_LockInit(struct IndexSpec *sp);
+void RediSearch_LockRead(struct IndexSpec* sp);
+void RediSearch_LockWrite(struct IndexSpec* sp);
+void RediSearch_LockRelease(struct IndexSpec* sp);
+void RediSearch_LockDestory(struct IndexSpec *sp);
 
 #define RWLOCK_ACQUIRE_READ(sp) RediSearch_LockRead(sp)
 #define RWLOCK_ACQUIRE_WRITE(sp) RediSearch_LockWrite(sp)

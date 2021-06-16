@@ -4,7 +4,7 @@
 #include <assert.h>
 #include "spec.h"
 
-void RediSearch_LockInit(IndexSpec *sp) {
+void RediSearch_LockInit(struct IndexSpec *sp) {
   sp->rwLocksData = array_new(rwlockThreadLocal*, 10);
   pthread_mutex_init(&sp->rwLocksDataMutex, NULL);
   int err = pthread_key_create(&sp->lockKey, NULL);
@@ -13,7 +13,7 @@ void RediSearch_LockInit(IndexSpec *sp) {
   RS_LOG_ASSERT(!err, "failed creating index level R/W lock");
 }
 
-static rwlockThreadLocal* RediSearch_GetLockThreadData(IndexSpec *sp) {
+static rwlockThreadLocal* RediSearch_GetLockThreadData(struct IndexSpec *sp) {
   rwlockThreadLocal* rwData = pthread_getspecific(sp->lockKey);
   if (!rwData) {
     rwData = rm_malloc(sizeof(*rwData));
@@ -27,7 +27,7 @@ static rwlockThreadLocal* RediSearch_GetLockThreadData(IndexSpec *sp) {
   return rwData;
 }
 
-void RediSearch_LockRead(IndexSpec *sp) {
+void RediSearch_LockRead(struct IndexSpec *sp) {
   assert(sp != NULL);
   rwlockThreadLocal* rwData = RediSearch_GetLockThreadData(sp);
   assert(rwData->type != lockType_Write);
@@ -39,7 +39,7 @@ void RediSearch_LockRead(IndexSpec *sp) {
   ++rwData->locked;
 }
 
-void RediSearch_LockWrite(IndexSpec *sp) {
+void RediSearch_LockWrite(struct IndexSpec *sp) {
   assert(sp != NULL);
   rwlockThreadLocal* rwData = RediSearch_GetLockThreadData(sp);
   assert(rwData->type != lockType_Read);
@@ -51,7 +51,7 @@ void RediSearch_LockWrite(IndexSpec *sp) {
   ++rwData->locked;
 }
 
-void RediSearch_LockRelease(IndexSpec *sp) {
+void RediSearch_LockRelease(struct IndexSpec *sp) {
   assert(sp != NULL);
   rwlockThreadLocal* rwData = RediSearch_GetLockThreadData(sp);
   assert(rwData->locked > 0);
@@ -61,7 +61,7 @@ void RediSearch_LockRelease(IndexSpec *sp) {
   }
 }
 
-void RediSearch_LockDestory(IndexSpec *sp) {
+void RediSearch_LockDestory(struct IndexSpec *sp) {
   pthread_rwlock_destroy(&sp->rwlock);
   pthread_mutex_lock(&sp->rwLocksDataMutex);
   for (size_t i = 0; i < array_len(sp->rwLocksData); ++i) {
