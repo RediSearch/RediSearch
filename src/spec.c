@@ -558,6 +558,7 @@ void IndexSpec_FreeMemPools(IndexSpec *sp) {
 IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryError *status) {
   IndexSpec *spec = NewIndexSpec(name);
 
+  RediSearch_LockInit(spec);
   IndexSpec_AllocateMemPools(spec);
 
   IndexSpec_MakeKeyless(spec);
@@ -1091,8 +1092,6 @@ IndexSpec *NewIndexSpec(const char *name) {
 
   sp->cascadeDelete = true;
 
-  RediSearch_LockInit(sp);
-
   memset(&sp->stats, 0, sizeof(sp->stats));
   return sp;
 }
@@ -1569,6 +1568,7 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
 
   sp->numFields = RedisModule_LoadUnsigned(rdb);
   sp->fields = rm_calloc(sp->numFields, sizeof(FieldSpec));
+  RediSearch_LockInit(sp);
   IndexSpec_AllocateMemPools(sp);
   int maxSortIdx = -1;
   for (int i = 0; i < sp->numFields; i++) {
@@ -1674,6 +1674,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
 
   sp->numFields = RedisModule_LoadUnsigned(rdb);
   sp->fields = rm_calloc(sp->numFields, sizeof(FieldSpec));
+  RediSearch_LockInit(sp);
   IndexSpec_AllocateMemPools(sp);
   int maxSortIdx = -1;
   for (int i = 0; i < sp->numFields; i++) {

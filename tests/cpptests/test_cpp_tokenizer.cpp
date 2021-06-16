@@ -2,6 +2,7 @@
 #include "stemmer.h"
 #include "tokenize.h"
 #include "spec.h"
+#include "rwlock.h"
 #include <set>
 
 class TokenizerTest : public ::testing::Test {};
@@ -12,6 +13,7 @@ TEST_F(TokenizerTest, testTokenize) {
   sp.actxPool_g = nullptr;
   sp.tokpoolLatin_g = nullptr;
   sp.tokpoolCn_g = nullptr;
+  RediSearch_LockInit(&sp);
   IndexSpec_AllocateMemPools(&sp);
   sp.stopwords = DefaultStopWordList();
   RSTokenizer *tk = GetSimpleTokenizer(st, &sp);
@@ -38,6 +40,7 @@ TEST_F(TokenizerTest, testTokenize) {
   free(txt);
   st->Free(st);
   tk->Free(tk);
+  RediSearch_LockDestory(&sp);
   IndexSpec_FreeMemPools(&sp);
 }
 

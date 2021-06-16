@@ -26,6 +26,7 @@ IndexSpec* RediSearch_CreateIndex(const char* name, const RSIndexOptions* option
     options = &opts_s;
   }
   IndexSpec* spec = NewIndexSpec(name);
+  RediSearch_LockInit(spec);
   IndexSpec_AllocateMemPools(spec);
   IndexSpec_MakeKeyless(spec);
   spec->flags |= Index_Temporary;  // temporary is so that we will not use threads!!
