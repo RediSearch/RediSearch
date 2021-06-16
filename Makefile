@@ -108,7 +108,7 @@ export PACKAGE_NAME
 #----------------------------------------------------------------------------------------------
 
 ifneq ($(SAN),)
-override CMAKE_ARGS += -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+CMAKE_SAN += -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
 endif
 
 ifeq ($(DEBUG),1)
@@ -155,6 +155,8 @@ CMAKE_FILES+= \
 	tests/c_utils/CMakeLists.txt
 endif
 
+CMAKE_FLAGS=$(CMAKE_ARGS) $(CMAKE_DEBUG) $(CMAKE_STATIC) $(CMAKE_SAN) $(CMAKE_TEST) $(CMAKE_WHY)
+
 #----------------------------------------------------------------------------------------------
 
 include $(MK)/defs
@@ -178,7 +180,7 @@ ifeq ($(WHY),1)
 	@echo CMake log is in /tmp/cmake-why
 endif
 	@mkdir -p $(BINROOT)
-	@cd $(BINROOT) && cmake .. $(CMAKE_ARGS) $(CMAKE_SAN) $(CMAKE_TEST) $(CMAKE_DEBUG) $(CMAKE_WHY)
+	@cd $(BINROOT) && cmake .. $(CMAKE_FLAGS)
 
 $(COMPAT_DIR)/redisearch.so: $(BINROOT)/Makefile
 	@echo Building ...
