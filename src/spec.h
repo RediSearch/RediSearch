@@ -3,6 +3,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <pthread.h>
 
 #include "default_gc.h"
 #include "redismodule.h"
@@ -221,12 +222,23 @@ typedef struct {
   RedisModuleString *types[INDEXFLD_NUM_TYPES];
 } IndexSpecFmtStrings;
 
+typedef enum lockType { lockType_None, lockType_Read, lockType_Write } lockType;
+typedef struct rwlockThreadLocal {
+  size_t locked;
+  lockType type;
+} rwlockThreadLocal;
+
 //---------------------------------------------------------------------------------------------
 
 typedef struct IndexSpec {
   char *name;
   FieldSpec *fields;
   int numFields;
+
+  rwlockThreadLocal** rwLocksData;  // Array of lock data
+  pthread_mutex_t rwLocksDataMutex;
+  pthread_key_t lockKey;
+  pthread_rwlock_t rwlock;
 
   IndexStats stats;
   IndexFlags flags;

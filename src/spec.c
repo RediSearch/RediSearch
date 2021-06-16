@@ -21,6 +21,7 @@
 #include "rules.h"
 #include "dictionary.h"
 #include "doc_types.h"
+#include "rwlock.h"
 
 #define INITIAL_DOC_TABLE_SIZE 1000
 
@@ -824,6 +825,9 @@ void IndexSpec_FreeInternals(IndexSpec *spec) {
     spec->scanner->cancelled = true;
     spec->scanner->spec = NULL;
   }
+
+  RediSearch_LockDestory(spec);
+
   rm_free(spec);
 }
 
@@ -1056,6 +1060,8 @@ IndexSpec *NewIndexSpec(const char *name) {
   sp->scan_in_progress = false;
 
   sp->cascadeDelete = true;
+
+  RediSearch_LockInit(sp);
 
   memset(&sp->stats, 0, sizeof(sp->stats));
   return sp;

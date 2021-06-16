@@ -4,19 +4,16 @@
 #include <pthread.h>
 #include "redismodule.h"
 
-extern pthread_rwlock_t RWLock;
-extern pthread_key_t _lockKey;
+typedef struct IndexSpec IndexSpec; // Forward declaration
 
-int RediSearch_LockInit(RedisModuleCtx *ctx);
+void RediSearch_LockInit(IndexSpec *sp);
+void RediSearch_LockRead(IndexSpec* sp);
+void RediSearch_LockWrite(IndexSpec* sp);
+void RediSearch_LockRelease(IndexSpec* sp);
+void RediSearch_LockDestory(IndexSpec *sp);
 
-void RediSearch_LockRead();
-void RediSearch_LockWrite();
-void RediSearch_LockRelease();
-
-void RediSearch_LockDestory();
-
-#define RWLOCK_ACQUIRE_READ() RediSearch_LockRead()
-#define RWLOCK_ACQUIRE_WRITE() RediSearch_LockWrite()
-#define RWLOCK_RELEASE() RediSearch_LockRelease()
+#define RWLOCK_ACQUIRE_READ(sp) RediSearch_LockRead(sp)
+#define RWLOCK_ACQUIRE_WRITE(sp) RediSearch_LockWrite(sp)
+#define RWLOCK_RELEASE(sp) RediSearch_LockRelease(sp)
 
 #endif /* SRC_RWLOCK_H_ */
