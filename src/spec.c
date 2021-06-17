@@ -1526,7 +1526,6 @@ void Indexes_ScanAndReindex() {
 IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
                                    QueryError *status) {
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
-  memset(&sp, 0, sizeof(sp));
   IndexSpec_MakeKeyless(sp);
 
   sp->sortables = NewSortingTable();
