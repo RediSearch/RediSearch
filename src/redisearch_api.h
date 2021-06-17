@@ -109,6 +109,10 @@ MODULE_API_FUNC(void, RediSearch_IndexOptionsSetFlags)(RSIndexOptions* opts, uin
 MODULE_API_FUNC(RSIndex*, RediSearch_CreateIndex)
 (const char* name, const RSIndexOptions* options);
 
+/** 
+ * Frees the index.
+ * Not thread safe, assumes no one else using the index.
+ */
 MODULE_API_FUNC(void, RediSearch_DropIndex)(RSIndex*);
 
 /** Handle Stopwords list */

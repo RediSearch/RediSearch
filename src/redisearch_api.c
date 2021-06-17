@@ -52,9 +52,7 @@ IndexSpec* RediSearch_CreateIndex(const char* name, const RSIndexOptions* option
 }
 
 void RediSearch_DropIndex(IndexSpec* sp) {
-  RWLOCK_ACQUIRE_WRITE(sp);
   IndexSpec_FreeInternals(sp);
-  RWLOCK_RELEASE(sp);
 }
 
 RSFieldID RediSearch_CreateField(IndexSpec* sp, const char* name, unsigned types,
