@@ -343,13 +343,6 @@ def testDemo(env):
 
 
 def testIndexSeparation(env):
-    # FIXME: hash key should not be returned by search on JSON index
-    # FIXME: json doc should not be returned by search on HASH index
-    # TODO: Add prefix to partition one JSON search from another JSON search
-
-    if not UNSTABLE_TESTS:
-        env.skip()
-
     # Test results from different indexes do not mix (either JSON with JSON and JSON with HASH)
     env.expect('HSET', 'hash:1', 't', 'telmatosaurus', 'n', '9', 'f', '9.72').equal(3)
     env.execute_command('FT.CREATE', 'idxHash', 'ON', 'HASH', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC', 'f', 'NUMERIC')
@@ -366,7 +359,7 @@ def testIndexSeparation(env):
     env.expect('FT.SEARCH', 'idxJson2', '*', 'RETURN', '3', '$.t2', 'AS', 'txt').equal(
         [1L, 'doc:1', ['txt', '"telmatosaurus"']])
     env.expect('FT.SEARCH', 'idxHash', '*', 'RETURN', '3', 't', 'AS', 'txt').equal(
-        [1L, 'hash:1', ['txt', '"telmatosaurus"']])
+        [1L, 'hash:1', ['txt', 'telmatosaurus']])
 
 
 def testMapProjectionAsToSchemaAs(env):
