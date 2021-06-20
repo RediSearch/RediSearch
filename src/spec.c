@@ -425,9 +425,6 @@ void FieldSpec_Initialize(FieldSpec *fs, FieldType types) {
     fs->tagFlags = TAG_FIELD_DEFAULT_FLAGS;
     fs->tagSep = TAG_FIELD_DEFAULT_SEP;
   }
-  if (FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
-    // TODO: Nothing at the moment
-  }
 }
 
 /* Parse a field definition from argv, at *offset. We advance offset as we progress.

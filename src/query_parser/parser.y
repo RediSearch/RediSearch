@@ -553,8 +553,12 @@ geo_filter(A) ::= LSQB num(B) num(C) num(D) TERM(E) RSQB. [NUMBER] {
 
 expr(A) ::= modifier(B) COLON vector_filter(C). {
     // we keep the capitalization as is
-    C->property = rm_strndup(B.s, B.len);
-    A = NewVectorNode(C);
+    if (C) {
+        C->property = rm_strndup(B.s, B.len);
+        A = NewVectorNode(C);
+    } else {
+        A = NewQueryNode(QN_NULL);
+    }
 }
 
 vector_filter(A) ::= LSQB TERM(B) TERM(C) num(D) RSQB. [NUMBER] {
@@ -566,6 +570,8 @@ vector_filter(A) ::= LSQB TERM(B) TERM(C) num(D) RSQB. [NUMBER] {
         QERR_MKSYNTAXERR(ctx->status, "Invalid Vector Filter unit");
     }
 
+    // `+ 3` comes to compensate for redisearch parser removing `=` chars
+    // at the end of the string. This is common on vecsim especialy with Base64
     A = NewVectorFilter(B.s, B.len + 3, buf, D.num);
 }
 

@@ -49,4 +49,7 @@ def test_1st(env):
 
 def test_create(env):
     conn = getConnectionByEnv(env)
-    env.expect('FT.CREATE idx1 SCHEMA v VECTOR FLOAT32 16 L2 HNSW INITIAL_CAP 10 M 16 EF 200').ok()
+    env.expect('FT.CREATE idx SCHEMA v VECTOR FLOAT32 16 L2 HNSW INITIAL_CAP 10 M 16 EF 200').ok()
+    
+    # test wrong query word
+    env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh REDIS 4]').equal([0L])

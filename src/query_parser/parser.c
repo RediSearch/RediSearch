@@ -1566,8 +1566,12 @@ static YYACTIONTYPE yy_reduce(
       case 51: /* expr ::= modifier COLON vector_filter */
 {
     // we keep the capitalization as is
-    yymsp[0].minor.yy12->property = rm_strndup(yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
-    yylhsminor.yy13 = NewVectorNode(yymsp[0].minor.yy12);
+    if (yymsp[0].minor.yy12) {
+        yymsp[0].minor.yy12->property = rm_strndup(yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
+        yylhsminor.yy13 = NewVectorNode(yymsp[0].minor.yy12);
+    } else {
+        yylhsminor.yy13 = NewQueryNode(QN_NULL);
+    }
 }
   yymsp[-2].minor.yy13 = yylhsminor.yy13;
         break;
@@ -1582,7 +1586,6 @@ static YYACTIONTYPE yy_reduce(
     }
 
     yymsp[-4].minor.yy12 = NewVectorFilter(yymsp[-3].minor.yy0.s, yymsp[-3].minor.yy0.len + 3, buf, yymsp[-1].minor.yy77.num);
-    //GeoFilter_Validate(yymsp[-4].minor.yy12, ctx->status);
 }
         break;
       case 53: /* num ::= NUMBER */

@@ -492,7 +492,7 @@ FIELD_BULK_INDEXER(vectorIndexer) {
   }
   // TODO: change return value to NRN_AddRv
   int rv = VecSimIndex_AddVector(rt, fdata->vector, aCtx->doc->docId);
-  // TODO: update size statistics
+  // TODO: update size statistics but put in a separate field to distinguise from inverted indexes
   // ctx->spec->stats.invertedSize += rt->size * sizeof(double) * 2;
   ctx->spec->stats.numRecords++;
   return 0;

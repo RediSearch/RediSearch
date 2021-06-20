@@ -79,8 +79,8 @@ VectorFilter *NewVectorFilter(const void *vector, size_t len, char *type, double
   } else if (!strncmp(type, "RANGE", strlen("RANGE"))) {
     vf->type = VECTOR_RANGE;
   } else {
-    // TODO: remove assert
-    RS_LOG_ASSERT(0, "Unsupported vector query type");
+    rm_free(vf);
+    return NULL;
   }
 
   vf->value = value;
