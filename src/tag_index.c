@@ -60,6 +60,12 @@ char **TagIndex_Preprocess(char sep, TagFieldFlags flags, const DocumentField *d
   size_t sz;
   char *p = (char *)RedisModule_StringPtrLen(data->text, &sz);
   if (!p || sz == 0) return NULL;
+  
+  if (flags & TagField_RemoveQuotes && *p == '"' && *(p + sz -1) == '"') {
+    *(p + sz - 1) = '\0';
+    p++;
+  }
+
   char **ret = array_new(char *, 4);
   char *pp = p = rm_strndup(p, sz);
   while (p) {

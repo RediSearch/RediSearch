@@ -320,10 +320,6 @@ static int parseTextField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
 
 void FieldSpec_Initialize(FieldSpec *fs, FieldType types) {
   fs->types |= types;
-  if (FIELD_IS(fs, INDEXFLD_T_TAG)) {
-    fs->tagFlags = TAG_FIELD_DEFAULT_FLAGS;
-    fs->tagSep = TAG_FIELD_DEFAULT_SEP;
-  }
 }
 
 /* Parse a field definition from argv, at *offset. We advance offset as we progress.
@@ -1072,7 +1068,18 @@ FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *pa
   fs->ftWeight = 1.0;
   fs->sortIdx = -1;
   fs->tagFlags = TAG_FIELD_DEFAULT_FLAGS;
-  fs->tagFlags = TAG_FIELD_DEFAULT_SEP;
+
+  if (sp->rule) {
+    switch (sp->rule->type) {
+    case SchemaRuleType_Hash:
+      fs->tagSep = TAG_FIELD_DEFAULT_HASH_SEP; break;
+    case SchemaRuleType_Json:
+      fs->tagSep = TAG_FIELD_DEFAULT_JSON_SEP; 
+      fs->tagFlags |= TagField_RemoveQuotes; break;
+    case SchameRuleType_Any:
+      RS_LOG_ASSERT(0, "shouldn't get here");
+    }
+  }
   return fs;
 }
 
@@ -1140,7 +1147,7 @@ static void FieldSpec_RdbLoadCompat8(RedisModuleIO *rdb, FieldSpec *f, int encve
   f->types = RedisModule_LoadUnsigned(rdb);
   f->ftWeight = RedisModule_LoadDouble(rdb);
   f->tagFlags = TAG_FIELD_DEFAULT_FLAGS;
-  f->tagSep = TAG_FIELD_DEFAULT_SEP;
+  f->tagSep = TAG_FIELD_DEFAULT_HASH_SEP;
   if (encver >= 4) {
     f->options = RedisModule_LoadUnsigned(rdb);
     f->sortIdx = RedisModule_LoadSigned(rdb);

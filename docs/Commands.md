@@ -200,9 +200,8 @@ FT.CREATE books-idx ON HASH PREFIX 1 book:details FILTER SCHEMA title TEXT categ
 
     * **SEPARATOR {sep}**
 
-        For `TAG` fields, indicates how the text contained in the field
-        is to be split into individual tags. The default is `,`. The value
-        must be a single character.
+        For `TAG` fields, indicates how the text contained in the field is to be split into individual tags.
+        Hash type has `,` as the default separator has no default. The value must be a single character.
 
 
 

@@ -260,8 +260,43 @@ def testArrtrim(env):
 def testAsTag(env):
     # Index with Tag for array with multi-values
     # FIXME:
-    pass
+    env.execute_command('FLUSHALL')
+    res = env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON',
+                              'SCHEMA', '$.tag', 'AS', 'tag', 'TAG', 'SEPARATOR', ',')
 
+    env.expect('JSON.SET', 'doc:1', '$', '{"tag":"foo,bar,baz"}').ok()
+    env.expect('JSON.SET', 'doc:2', '$', '{"tag":["foo","bar","baz"]}').ok()
+
+    env.expect('JSON.GET', 'doc:1', '$').equal('{"tag":"foo,bar,baz"}')
+    env.expect('JSON.GET', 'doc:1', '$.tag').equal('"foo,bar,baz"')
+    
+    env.expect('FT.DEBUG', 'dump_tagidx', 'idx', 'tag').equal([['foo', [1L]], ['bar', [1L]], ['baz', [1L]]])
+
+    #raw_input('stop')
+
+    env.expect('FT.SEARCH', 'idx', '@tag:{foo}').equal([1L, 'doc:1', ['$', '{"tag":"foo,bar,baz"}']])
+    env.expect('FT.SEARCH', 'idx', '@tag:{bar}').equal([1L, 'doc:1', ['$', '{"tag":"foo,bar,baz"}']])
+    env.expect('FT.SEARCH', 'idx', '@tag:{baz}').equal([1L, 'doc:1', ['$', '{"tag":"foo,bar,baz"}']])
+    env.expect('FT.SEARCH', 'idx', '@tag:{foo/,bar/,baz}').equal([0L])
+
+def testAsTagNoSeparetor(env):
+    # Index with Tag for array with multi-values
+    # FIXME:
+    env.execute_command('FLUSHALL')
+    res = env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON',
+                              'SCHEMA', '$.tag', 'AS', 'tag', 'TAG')
+
+    env.expect('JSON.SET', 'doc:1', '$', '{"tag":"foo,bar,baz"}').ok()
+    env.expect('JSON.SET', 'doc:2', '$', '{"tag":["foo","bar","baz"]}').ok()
+
+    env.expect('JSON.GET', 'doc:1', '$').equal('{"tag":"foo,bar,baz"}')
+    env.expect('JSON.GET', 'doc:1', '$.tag').equal('"foo,bar,baz"')
+    
+    env.expect('FT.DEBUG', 'dump_tagidx', 'idx', 'tag').equal([['foo,bar,baz', [1L]]])
+
+    env.expect('FT.SEARCH', 'idx', '@tag:{foo}').equal([0L])
+    env.expect('FT.SEARCH', 'idx', '@tag:{foo*}').equal([1L, 'doc:1', ['$', '{"tag":"foo,bar,baz"}']])
+    env.expect('FT.SEARCH', 'idx', '@tag:{foo\,bar\,baz}').equal([1L, 'doc:1', ['$', '{"tag":"foo,bar,baz"}']])
 
 def add_values(env, number_of_iterations=1):
     res = env.execute_command('FT.CREATE', 'games', 'ON', 'JSON',
@@ -328,7 +363,7 @@ def testDemo(env):
     info = env.cmd('FT.INFO airports')
     env.assertEqual(info[0:2], ['index_name', 'airports'])
     env.assertEqual(info[5][0:2], ['key_type', 'JSON'])
-    env.assertEqual(info[7], [['iata', 'type', 'TAG', 'SEPARATOR', ',', 'SORTABLE'],
+    env.assertEqual(info[7], [['iata', 'type', 'TAG', 'SEPARATOR', '', 'SORTABLE'],
                               ['iata_txt', 'type', 'TEXT', 'WEIGHT', '1', 'NOSTEM'],
                               ['name', 'type', 'TEXT', 'WEIGHT', '1', 'NOSTEM'],
                               ['location', 'type', 'GEO']])
