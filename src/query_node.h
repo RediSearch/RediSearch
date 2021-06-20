@@ -3,13 +3,11 @@
 #include <stdlib.h>
 #include "redisearch.h"
 #include "query_error.h"
-//#include "numeric_index.h"
 
 struct RSQueryNode;
 struct numericFilter;
 struct geoFilter;
 struct idFilter;
-//struct VectorFilter;
 
 /* The types of query nodes */
 typedef enum {

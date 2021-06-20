@@ -567,7 +567,6 @@ vector_filter(A) ::= LSQB TERM(B) TERM(C) num(D) RSQB. [NUMBER] {
     }
 
     A = NewVectorFilter(B.s, B.len + 3, buf, D.num);
-    //GeoFilter_Validate(A, ctx->status);
 }
 
 

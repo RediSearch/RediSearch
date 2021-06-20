@@ -16,7 +16,6 @@
 #include "tag_index.h"
 #include "aggregate/expr/expression.h"
 #include "rmutil/rm_assert.h"
-//#include "vector_index.h"
 
 // Memory pool for RSAddDocumentContext contexts
 static mempool_t *actxPool_g = NULL;
@@ -480,8 +479,6 @@ FIELD_PREPROCESSOR(vectorPreprocessor) {
   return 0;
 }
 
-int HNSWIndex_AddVector(VecSimIndex *index, const void* vector_data, size_t id);
-
 FIELD_BULK_INDEXER(vectorIndexer) {
   VecSimIndex *rt = bulk->indexDatas[IXFLDPOS_VECTOR];
   if (!rt) {
@@ -494,9 +491,9 @@ FIELD_BULK_INDEXER(vectorIndexer) {
     }
   }
   // TODO: change return value to NRN_AddRv
-  // int rv = HNSWIndex_AddVector(rt, fdata->vector, aCtx->doc->docId);
   int rv = VecSimIndex_AddVector(rt, fdata->vector, aCtx->doc->docId);
-  //TODO: ctx->spec->stats.invertedSize += rt->size * sizeof(double) * 2;  // TODO: no way to tell at this point.
+  // TODO: update size statistics
+  // ctx->spec->stats.invertedSize += rt->size * sizeof(double) * 2;
   ctx->spec->stats.numRecords++;
   return 0;
 }
@@ -587,7 +584,6 @@ int IndexerBulkAdd(IndexBulkData *bulk, RSAddDocumentCtx *cur, RedisSearchCtx *s
           rc = numericIndexer(bulk, cur, sctx, field, fs, fdata, status);
           break;
         case IXFLDPOS_VECTOR:
-
           rc = vectorIndexer(bulk, cur, sctx, field, fs, fdata, status);
           break;
         case IXFLDPOS_FULLTEXT:
