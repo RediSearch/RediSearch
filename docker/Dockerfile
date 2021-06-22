@@ -1,6 +1,6 @@
 # BUILD redisfab/redisearch:${VERSION}-${ARCH}-${OSNICK}
 
-ARG REDIS_VER=6.2.3
+ARG REDIS_VER=6.2.4
 
 # OSNICK=bionic|stretch|buster
 ARG OSNICK=buster
@@ -30,8 +30,10 @@ COPY --from=redis /usr/local/ /usr/local/
 
 ADD . /build
 
+RUN ./deps/readies/bin/getupdates
 RUN ./deps/readies/bin/getpy2
 RUN ./system-setup.py
+
 RUN /usr/local/bin/redis-server --version
 RUN make fetch SHOW=1
 RUN make build SHOW=1 CMAKE_ARGS="-DGIT_DESCRIBE_VERSION=${GIT_DESCRIBE_VERSION}"

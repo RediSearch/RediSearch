@@ -1182,11 +1182,10 @@ static void FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
   }
 
   RedisModule_LoadStringBufferAlloc(rdb, f->name, NULL);
+  f->path = f->name;
   if (encver >= INDEX_JSON_VERSION) {
     if (RedisModule_LoadUnsigned(rdb) == 1) {
       RedisModule_LoadStringBufferAlloc(rdb, f->path, NULL);
-    } else {
-      f->path = f->name;
     }
   }
 
@@ -1902,17 +1901,14 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   // if a key does not exit, is not a hash or has no fields in index schema
 
   int rv = REDISMODULE_ERR;
-  // TODO: SchemaRuleType_Any
   switch (type) {
   case DocumentType_Hash:
     rv = Document_LoadSchemaFieldHash(&doc, &sctx);
     break;
-  
   case DocumentType_Json:
     rv = Document_LoadSchemaFieldJson(&doc, &sctx);
     break;
   case DocumentType_None:
-    // TODO: consider using getDocType
     RS_LOG_ASSERT(0, "Should receieve valid type");
   }
 
@@ -2096,10 +2092,20 @@ void Indexes_SpecOpsIndexingCtxFree(SpecOpIndexingCtx *specs) {
 
 void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type,
                                            RedisModuleString **hashFields) {
+  if (type == DocumentType_None) {
+    return;
+  } 
+
   SpecOpIndexingCtx *specs = Indexes_FindMatchingSchemaRules(ctx, key, true, NULL);
 
   for (size_t i = 0; i < array_len(specs->specsOps); ++i) {
     SpecOpCtx *specOp = specs->specsOps + i;
+
+    // skip if document type does not match the index type
+    if (type != specOp->spec->rule->type) {
+      continue;
+    }
+    
     if (!hashFields || hashFieldChanged(specOp->spec, hashFields)) {
       if (specOp->op == SpecOp_Add) {
         IndexSpec_UpdateDoc(specOp->spec, ctx, key, type);
@@ -2114,6 +2120,10 @@ void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
 
 void IndexSpec_UpdateMatchingWithSchemaRules(IndexSpec *sp, RedisModuleCtx *ctx,
                                              RedisModuleString *key, DocumentType type) {
+  if (type != sp->rule->type) {
+    return;
+  }
+
   SpecOpIndexingCtx *specs = Indexes_FindMatchingSchemaRules(ctx, key, true, NULL);
   if (!dictFind(specs->specs, sp->name)) {
     goto end;
