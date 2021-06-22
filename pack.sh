@@ -68,7 +68,7 @@ OSNICK=$($READIES/bin/platform --osnick)
 [[ $OSNICK == bionic ]] && OSNICK=ubuntu18.04
 [[ $OSNICK == focal ]] && OSNICK=ubuntu20.04
 [[ $OSNICK == centos7 ]] && OSNICK=rhel7
-[[ $OSNICK == centos7 ]] && OSNICK=rhel8
+[[ $OSNICK == centos8 ]] && OSNICK=rhel8
 
 #----------------------------------------------------------------------------------------------
 
