@@ -1,5 +1,7 @@
 from RLTest import Env
 
+UNSTABLE_TESTS = os.getenv('UNSTABLE_TESTS', '0') == '1'
+
 def testConfig(env):
     env.skipOnCluster()
     env.cmd('ft.create', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT', 'SORTABLE')
@@ -153,7 +155,8 @@ def testInitConfig(env):
         env.stop()
 
     test_arg_true('NOGC')
-    test_arg_true('SAFEMODE')
+    if UNSTABLE_TESTS:
+        test_arg_true('SAFEMODE')
     test_arg_true('CONCURRENT_WRITE_MODE')
     test_arg_true('NO_MEM_POOLS')
 

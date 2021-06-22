@@ -4,6 +4,8 @@ import os.path
 import sys
 from RLTest import Env
 
+UNSTABLE_TESTS = os.getenv('UNSTABLE_TESTS', '0') == '1'
+
 if 'EXT_TEST_PATH' in os.environ:
     EXTPATH = os.environ['EXT_TEST_PATH']
 else:
@@ -26,6 +28,9 @@ if not os.path.exists(EXTPATH):
     print subprocess.call(args)
 
 def testExt():
+    if not UNSTABLE_TESTS:
+        env.skip()
+
     if not os.path.exists(EXTPATH):
         raise Exception("Path ({}) does not exist. "
             "Run from the build directory or set EXT_TEST_PATH in the environment".format(EXTPATH))
