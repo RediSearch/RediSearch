@@ -343,7 +343,7 @@ def testDemo(env):
                               ['iata_txt', 'type', 'TEXT', 'WEIGHT', '1', 'NOSTEM'],
                               ['name', 'type', 'TEXT', 'WEIGHT', '1', 'NOSTEM'],
                               ['location', 'type', 'GEO']])
-    env.assertEqual(slice_at(info, 'num_docs')[0], 2)
+    env.assertEqual(int(slice_at(info, 'num_docs')[0]), 2)
 
     env.expect('FT.SEARCH', 'airports', 'TLV').equal(tlv_doc)
     env.expect('FT.SEARCH', 'airports', 'TL*').equal(tlv_doc)
