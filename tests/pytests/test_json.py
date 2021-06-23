@@ -265,12 +265,56 @@ def testArrtrim(env):
     # FIXME:
     pass
 
-
 def testAsTag(env):
-    # Index with Tag for array with multi-values
-    # FIXME:
-    pass
+    res = env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON',
+                              'SCHEMA', '$.tag', 'AS', 'tag', 'TAG', 'SEPARATOR', ',')
 
+    env.expect('JSON.SET', 'doc:1', '$', '{"tag":"foo,bar,baz"}').ok()
+    env.expect('JSON.SET', 'doc:2', '$', '{"tag":["foo","bar","baz"]}').ok()
+
+    env.expect('JSON.GET', 'doc:1', '$').equal('{"tag":"foo,bar,baz"}')
+    env.expect('JSON.GET', 'doc:1', '$.tag').equal('"foo,bar,baz"')
+
+    env.expect('FT.DEBUG', 'dump_tagidx', 'idx', 'tag').equal([['foo', [1L]], ['bar', [1L]], ['baz', [1L]]])
+
+    #raw_input('stop')
+
+    env.expect('FT.SEARCH', 'idx', '@tag:{foo}').equal([1L, 'doc:1', ['$', '{"tag":"foo,bar,baz"}']])
+    env.expect('FT.SEARCH', 'idx', '@tag:{bar}').equal([1L, 'doc:1', ['$', '{"tag":"foo,bar,baz"}']])
+    env.expect('FT.SEARCH', 'idx', '@tag:{baz}').equal([1L, 'doc:1', ['$', '{"tag":"foo,bar,baz"}']])
+    env.expect('FT.SEARCH', 'idx', '@tag:{foo/,bar/,baz}').equal([0L])
+
+
+def testMultiValueTag(env):
+    # Index with Tag for array with multi-values
+    env.execute_command('FLUSHALL')
+    res = env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON',
+                              'SCHEMA', '$.tag', 'AS', 'tag', 'TAG', 'SEPARATOR', ',')
+
+    # multivalue without a separator
+    env.expect('JSON.SET', 'doc:1', '$', '{"tag":["foo","bar","baz"]}').ok()
+
+    env.expect('JSON.GET', 'doc:1', '$').equal('{"tag":["foo","bar","baz"]}')
+    env.expect('JSON.GET', 'doc:1', '$.tag').equal('["foo","bar","baz"]')
+
+    env.expect('FT.DEBUG', 'dump_tagidx', 'idx', 'tag').equal([['foo', [1L]], ['bar', [1L]], ['baz', [1L]]])
+
+    res = [1L, 'doc:1', ['$', '{"tag":["foo","bar","baz"]}']]
+    env.expect('FT.SEARCH', 'idx', '@tag:{foo}').equal(res)
+    env.expect('FT.SEARCH', 'idx', '@tag:{bar}').equal(res)
+    env.expect('FT.SEARCH', 'idx', '@tag:{baz}').equal(res)
+    env.expect('FT.SEARCH', 'idx', '@tag:{foo/,bar/,baz}').equal([0L])
+
+    # multivalue with a separator
+    env.expect('JSON.SET', 'doc:1', '$', '{"tag":["foo, bar","baz"]}').ok()
+
+    env.expect('FT.DEBUG', 'dump_tagidx', 'idx', 'tag').equal([['foo', [1L, 2L]], ['bar', [1L, 2L]], ['baz', [1L, 2L]]])
+
+    res = [1L, 'doc:1', ['$', '{"tag":["foo, bar","baz"]}']]
+    env.expect('FT.SEARCH', 'idx', '@tag:{foo}').equal(res)
+    env.expect('FT.SEARCH', 'idx', '@tag:{bar}').equal(res)
+    env.expect('FT.SEARCH', 'idx', '@tag:{baz}').equal(res)
+    env.expect('FT.SEARCH', 'idx', '@tag:{foo/,bar/,baz}').equal([0L])
 
 def add_values(env, number_of_iterations=1):
     res = env.execute_command('FT.CREATE', 'games', 'ON', 'JSON',

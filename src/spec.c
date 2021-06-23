@@ -320,10 +320,6 @@ static int parseTextField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
 
 void FieldSpec_Initialize(FieldSpec *fs, FieldType types) {
   fs->types |= types;
-  if (FIELD_IS(fs, INDEXFLD_T_TAG)) {
-    fs->tagFlags = TAG_FIELD_DEFAULT_FLAGS;
-    fs->tagSep = TAG_FIELD_DEFAULT_SEP;
-  }
 }
 
 /* Parse a field definition from argv, at *offset. We advance offset as we progress.
@@ -1072,7 +1068,10 @@ FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *pa
   fs->ftWeight = 1.0;
   fs->sortIdx = -1;
   fs->tagFlags = TAG_FIELD_DEFAULT_FLAGS;
-  fs->tagFlags = TAG_FIELD_DEFAULT_SEP;
+  fs->tagSep = TAG_FIELD_DEFAULT_SEP;
+  if (sp->rule && sp->rule->type == DocumentType_Json) {
+    fs->tagFlags |= TagField_RemoveQuotes;
+  }
   return fs;
 }
 

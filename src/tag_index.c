@@ -59,6 +59,13 @@ int tokenizeTagString(RedisModuleString *str, char sep, TagFieldFlags flags, cha
   size_t sz;
   char *p = (char *)RedisModule_StringPtrLen(str, &sz);
   if (!p || sz == 0) return REDISMODULE_ERR;
+
+  // remove quotes on JSON
+  if (flags & TagField_RemoveQuotes && *p == '"' && *(p + sz -1) == '"') {
+    *(p + sz - 1) = '\0';
+    p++;
+  }
+  
   char *pp = p = rm_strndup(p, sz);  
   while (p) {
     // get the next token
@@ -82,8 +89,14 @@ int tokenizeTagString(RedisModuleString *str, char sep, TagFieldFlags flags, cha
 /* Preprocess a document tag field, returning a vector of all tags split from the content */
 char **TagIndex_Preprocess(char sep, TagFieldFlags flags, const DocumentField *data) {
   char **ret = array_new(char *, 4);
-  if (tokenizeTagString(data->text, sep, flags, &ret) != REDISMODULE_OK) {
-
+  if (data->text) {
+    tokenizeTagString(data->text, sep, flags, &ret);
+  } else if (data->multiVal) {
+    for (int i = 0; i < data->multiLen; i++) {
+      tokenizeTagString(data->multiVal[i], sep, flags, &ret);
+    }
+  } else {
+    RS_LOG_ASSERT(0, "nope")
   }
   return ret;
 }

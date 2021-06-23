@@ -56,6 +56,7 @@ typedef enum {
   TagField_CaseSensitive = 0x01,
   TagField_TrimSpace = 0x02,
   TagField_RemoveAccents = 0x04,
+  TagField_RemoveQuotes = 0x08,
 } TagFieldFlags;
 
 RS_ENUM_BITWISE_HELPER(TagFieldFlags)
