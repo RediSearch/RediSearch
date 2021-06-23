@@ -114,6 +114,8 @@ def testTFIDFScorerExplanation(env):
                                 '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)']]]])
 
     # test depth limit
+
+    # TODO: re-enable this
     env.skipOnCluster()
         
     res = env.cmd('ft.search', 'idx', 'hello(world(world))', 'withscores', 'EXPLAINSCORE', 'limit', 0, 1)
