@@ -3,7 +3,7 @@ import json
 
 import bz2
 
-from common import getConnectionByEnv, waitForIndex, is_stable
+from common import getConnectionByEnv, waitForIndex, is_unstable
 from includes import *
 
 GAMES_JSON = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'games.json.bz2')
@@ -93,8 +93,12 @@ def testHandleUnindexedTypes(env):
     # TODO: Ignore and resume indexing when encountering an Object/Array/null
     # TODO: Except for array of only scalars which is defined as a TAG in the schema
     # ... FT.CREATE idx SCHEMA $.arr TAG
-    if not is_stable():
+    if not is_unstable():
+        raw_input('stop')
         env.skip()
+
+    raw_input('stop')
+    
     env.expect('JSON.SET', 'doc:1', '$', doc1_content).ok()
 
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
@@ -442,7 +446,7 @@ def testNumeric(env):
         .equal([1L, 'doc:1', ['flt', '9.72']])
 
 def testLanguage(env):
-    if not is_stable():
+    if not is_unstable():
         env.skip()
     # TODO: Check stemming? e.g., trad is stem of traduzioni and tradurre ?
     env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'LANGUAGE_FIELD', '$.lang', 'SCHEMA', '$.t', 'TEXT')

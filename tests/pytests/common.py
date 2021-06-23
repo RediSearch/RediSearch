@@ -69,8 +69,6 @@ def check_server_version(env, ver):
         return True
     return False
 
-UNSTABLE_TESTS = os.getenv('UNSTABLE_TESTS', '0') == '1'
-def is_stable():
-    if not UNSTABLE_TESTS:
-        return True
-    return False
+UNSTABLE_TESTS = os.getenv('UNSTABLE_TESTS') == '1'
+def is_unstable():
+    return UNSTABLE_TESTS

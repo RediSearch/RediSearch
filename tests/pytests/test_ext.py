@@ -3,7 +3,7 @@ import os
 import os.path
 import sys
 from RLTest import Env
-from common import is_stable
+from common import is_unstable
 
 if 'EXT_TEST_PATH' in os.environ:
     EXTPATH = os.environ['EXT_TEST_PATH']
@@ -27,9 +27,6 @@ if not os.path.exists(EXTPATH):
     print subprocess.call(args)
 
 def testExt():
-    if not is_stable():
-        env.skip()
-
     if not os.path.exists(EXTPATH):
         raise Exception("Path ({}) does not exist. "
             "Run from the build directory or set EXT_TEST_PATH in the environment".format(EXTPATH))
@@ -38,6 +35,9 @@ def testExt():
     env = Env(moduleArgs='EXTLOAD %s' % EXTPATH)
 
     if env.env == 'existing-env':
+        env.skip()
+
+    if not is_unstable():
         env.skip()
 
     N = 100

@@ -1,5 +1,5 @@
 from RLTest import Env
-from common import is_stable
+from common import is_unstable
 
 def testConfig(env):
     env.skipOnCluster()
@@ -154,7 +154,7 @@ def testInitConfig(env):
         env.stop()
 
     test_arg_true('NOGC')
-    if not is_stable():
+    if not is_unstable():
         test_arg_true('SAFEMODE')
     test_arg_true('CONCURRENT_WRITE_MODE')
     test_arg_true('NO_MEM_POOLS')

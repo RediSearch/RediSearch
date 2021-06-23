@@ -7,7 +7,7 @@ import random
 import time
 from RLTest import Env
 from includes import *
-from common import getConnectionByEnv, waitForIndex, toSortedFlatList, assertInfoField, check_server_version, check_module_version
+from common import getConnectionByEnv, waitForIndex, toSortedFlatList, assertInfoField, check_server_version, check_module_version, is_unstable
 
 # this tests is not longer relevant
 # def testAdd(env):
@@ -3308,3 +3308,7 @@ def testSchemaWithAs_Duplicates(env):
     env.expect('ft.search conflict2 @foo2:hello').equal([1L, 'a', ['txt', 'hello']])
     env.expect('ft.search conflict2 @foo1:world').equal([0L])
     env.expect('ft.search conflict2 @foo2:world').equal([0L])
+
+def testUnstable(env):
+    if is_unstable():
+        env.assertTrue(False)
