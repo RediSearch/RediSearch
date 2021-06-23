@@ -55,13 +55,11 @@ char *TagIndex_SepString(char sep, char **s, size_t *toklen) {
   return start;
 }
 
-/* Preprocess a document tag field, returning a vector of all tags split from the content */
-char **TagIndex_Preprocess(char sep, TagFieldFlags flags, const DocumentField *data) {
+int tokenizeTagString(RedisModuleString *str, char sep, TagFieldFlags flags, char ***resArray) {
   size_t sz;
-  char *p = (char *)RedisModule_StringPtrLen(data->text, &sz);
-  if (!p || sz == 0) return NULL;
-  char **ret = array_new(char *, 4);
-  char *pp = p = rm_strndup(p, sz);
+  char *p = (char *)RedisModule_StringPtrLen(str, &sz);
+  if (!p || sz == 0) return REDISMODULE_ERR;
+  char *pp = p = rm_strndup(p, sz);  
   while (p) {
     // get the next token
     size_t toklen;
@@ -74,10 +72,19 @@ char **TagIndex_Preprocess(char sep, TagFieldFlags flags, const DocumentField *d
         tok = strtolower(tok);
       }
       tok = rm_strndup(tok, MIN(toklen, MAX_TAG_LEN));
-      ret = array_append(ret, tok);
+      *resArray = array_append(*resArray, tok);
     }
   }
   rm_free(pp);
+  return REDISMODULE_OK;
+}
+
+/* Preprocess a document tag field, returning a vector of all tags split from the content */
+char **TagIndex_Preprocess(char sep, TagFieldFlags flags, const DocumentField *data) {
+  char **ret = array_new(char *, 4);
+  if (tokenizeTagString(data->text, sep, flags, &ret) != REDISMODULE_OK) {
+
+  }
   return ret;
 }
 

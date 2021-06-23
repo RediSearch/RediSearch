@@ -40,6 +40,8 @@ typedef struct {
   const char *name;  // Can either be char or RMString
   const char *path;
   RedisModuleString *text;
+  RedisModuleString **multiVal;
+  size_t multiLen;
   FieldType indexAs;
 } DocumentField;
 

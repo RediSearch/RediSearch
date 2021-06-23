@@ -179,7 +179,10 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx) {
     if (!json) {
         continue;
     }
-    if (type == JSONType_Array || type == JSONType_Object) {
+
+    // TODO: support objects and arrays on all fields
+    if ((type == JSONType_Object) ||
+        (type == JSONType_Array && !(field->types & INDEXFLD_T_TAG))) {
         json = NULL;
       continue;
     }
@@ -191,10 +194,30 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx) {
 
     // on crdt the return value might be the underline value, we must copy it!!!
     // TODO: change `fs->text` to support hash or json not RedisModuleString
-    if (japi->getJSON(json, ctx, &doc->fields[oix].text) != REDISMODULE_OK) {
-      RedisModule_Log(ctx, "verbose", "Failed to load value from field %s", field->path);
-      goto done;
-    }
+
+    if (type != JSONType_Array) {
+      if (japi->getJSON(json, ctx, &doc->fields[oix].text) != REDISMODULE_OK) {
+        RedisModule_Log(ctx, "verbose", "Failed to load value from field %s", field->path);
+        goto done;
+      }
+    } else if (field->types & INDEXFLD_T_TAG) {
+      // a tag field can index a JSON array
+      size_t arrayLen;
+      japi->getLen(json, &arrayLen);
+      RedisModuleString **ptr = doc->fields[oix].multiVal
+                              = rm_calloc(arrayLen, sizeof(RedisModuleString *));
+      doc->fields[oix].multiLen = arrayLen;
+
+      for (size_t jj = 0; jj <arrayLen; jj++) {
+        JSONType arrayJsonType;
+        RedisJSON arrayJson = japi->getAt(json, jj, &arrayJsonType);
+        if (arrayJsonType == JSONType_Array || arrayJsonType == JSONType_Object ||
+            japi->getJSON(arrayJson, ctx, &(ptr[jj])) != REDISMODULE_OK) {
+          RedisModule_Log(ctx, "verbose", "Failed to load value from JSON array field %s", field->path);
+          goto done;
+        }
+      }
+    } 
     json = NULL;
   }
   rv = REDISMODULE_OK;
@@ -331,6 +354,14 @@ void Document_Clear(Document *d) {
       }
       if (field->text) {
         RedisModule_FreeString(RSDummyContext, field->text);
+      }
+      if (field->multiVal) {
+        for (int i = 0; i < field->multiLen; i++) {
+          RedisModule_FreeString(RSDummyContext, field->multiVal[i]);
+        }
+        rm_free(field->multiVal);
+        field->multiVal = NULL;
+        field->multiLen = 0;
       }
     }
   }
