@@ -1,6 +1,7 @@
 from collections import Iterable
 import time
 from packaging import version
+import os
 
 def getConnectionByEnv(env):
     conn = None
@@ -65,5 +66,11 @@ def check_server_version(env, ver):
         server_v = env.execute_command('INFO')['redis_version']
     u = version.parse(server_v) 
     if version.parse(server_v) >= version.parse(ver):
+        return True
+    return False
+
+UNSTABLE_TESTS = os.getenv('UNSTABLE_TESTS', '0') == '1'
+def is_stable():
+    if not UNSTABLE_TESTS:
         return True
     return False

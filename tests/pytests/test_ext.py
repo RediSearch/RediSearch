@@ -3,8 +3,7 @@ import os
 import os.path
 import sys
 from RLTest import Env
-
-UNSTABLE_TESTS = os.getenv('UNSTABLE_TESTS', '0') == '1'
+from common import is_stable
 
 if 'EXT_TEST_PATH' in os.environ:
     EXTPATH = os.environ['EXT_TEST_PATH']
@@ -28,7 +27,7 @@ if not os.path.exists(EXTPATH):
     print subprocess.call(args)
 
 def testExt():
-    if not UNSTABLE_TESTS:
+    if not is_stable():
         env.skip()
 
     if not os.path.exists(EXTPATH):
