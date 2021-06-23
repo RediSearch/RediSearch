@@ -2,6 +2,7 @@ import subprocess
 import os
 import os.path
 import sys
+import unittest
 from RLTest import Env
 from common import is_unstable
 
@@ -38,7 +39,7 @@ def testExt():
         env.skip()
 
     if not is_unstable():
-        env.skip()
+        unittest.SkipTest()
 
     N = 100
     env.assertOk(env.execute_command(
