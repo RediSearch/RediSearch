@@ -18,6 +18,7 @@ if [[ $1 == --help || $1 == help ]]; then
 		[ARGVARS...] runtests.sh [--help|help] [<module-so-path>] [extra RLTest args...]
 
 		Argument variables:
+		MODARGS=args          RediSearch module arguments
 		TEST=name             Operate in single-test mode
 		VG=1|0                Use valgrind
 		SAN=type              Use LLVM sanitizer (type=address|memory|leak|thread) 

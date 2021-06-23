@@ -272,10 +272,10 @@ static int AddDocumentCtx_ReplaceMerge(RSAddDocumentCtx *aCtx, RedisSearchCtx *s
 
   // Path is not covered and is not relevant
 
-  SchemaRuleType ruleType = sctx->spec->rule->type;
-  if (ruleType == SchemaRuleType_Hash) {
+  DocumentType ruleType = sctx->spec->rule->type;
+  if (ruleType == DocumentType_Hash) {
     rv = Document_LoadSchemaFieldHash(aCtx->doc, sctx);
-  } else if (ruleType == SchemaRuleType_Json) {
+  } else if (ruleType == DocumentType_Json) {
     rv = Document_LoadSchemaFieldJson(aCtx->doc, sctx);
   }
   if (rv != REDISMODULE_OK) {
@@ -472,12 +472,23 @@ FIELD_BULK_INDEXER(numericIndexer) {
 }
 
 FIELD_PREPROCESSOR(geoPreprocessor) {
-  // TODO: streamline
-  const char *c = RedisModule_StringPtrLen(field->text, NULL);
-  if (*c == '"') {
-    c += 1;
+  // buffer of 32 bytes should be sufficient. lon,lat 
+  size_t len;
+  char buf[32];
+  const char *str = RedisModule_StringPtrLen(field->text, &len);
+  if (*str == '"') {
+    str += 1;
+    len -= 2; // ignore quotes at start and end
   }
-  char *pos = strpbrk(c, " ,");
+  if (len > 31) {
+    return REDISMODULE_ERR;
+  }
+
+  // copy to buffer since we modify the string
+  memcpy(buf, str, MIN(32, len));
+  buf[len] = '\0';
+
+  char *pos = strpbrk(buf, " ,");
   if (!pos) {
     QueryError_SetCode(status, QUERY_EGEOFORMAT);
     return -1;
@@ -486,8 +497,8 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
   pos++;
 
   char *end1 = NULL, *end2 = NULL;
-  double lon = strtod(c, &end1);
-  double lat = strtod(pos, &end2); /// failing here
+  double lon = strtod(buf, &end1);
+  double lat = strtod(pos, &end2);
   if (*end1 || (*end2 && *end2 != '"')) {
     return REDISMODULE_ERR;
   }
@@ -497,6 +508,12 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
     return REDISMODULE_ERR;
   }
   fdata->numeric = geohash;
+
+  if (FieldSpec_IsSortable(fs)) {
+    // Goe is kept as a string
+    RSSortingVector_Put(aCtx->sv, fs->sortIdx, str, RS_SORTABLE_STR);
+  }
+  
   return 0;
 }
 
@@ -735,6 +752,7 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
       switch (fs->types) {
         case INDEXFLD_T_FULLTEXT:
         case INDEXFLD_T_TAG:
+        case INDEXFLD_T_GEO:         
           RSSortingVector_Put(md->sortVector, idx, (void *)RedisModule_StringPtrLen(f->text, NULL),
                               RS_SORTABLE_STR);
           break;
