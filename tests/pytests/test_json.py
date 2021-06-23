@@ -374,7 +374,7 @@ def testDemo(env):
     env.assertEqual(slice_at(info, 'index_name')[0], 'airports')
     env.assertEqual(slice_at(slice_at(info, 'index_definition')[0], 'key_type')[0], 'JSON')
     env.assertEqual(slice_at(info, 'fields')[0],
-                             [['iata', 'type', 'TAG', 'SEPARATOR', ',', 'SORTABLE'],
+                             [['iata', 'type', 'TAG', 'SEPARATOR', '', 'SORTABLE'],
                               ['iata_txt', 'type', 'TEXT', 'WEIGHT', '1', 'NOSTEM'],
                               ['name', 'type', 'TEXT', 'WEIGHT', '1', 'NOSTEM'],
                               ['location', 'type', 'GEO']])

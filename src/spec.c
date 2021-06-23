@@ -1071,12 +1071,12 @@ FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *pa
 
   if (sp->rule) {
     switch (sp->rule->type) {
-    case SchemaRuleType_Hash:
+    case DocumentType_Hash:
       fs->tagSep = TAG_FIELD_DEFAULT_HASH_SEP; break;
-    case SchemaRuleType_Json:
+    case DocumentType_Json:
       fs->tagSep = TAG_FIELD_DEFAULT_JSON_SEP; 
       fs->tagFlags |= TagField_RemoveQuotes; break;
-    case SchameRuleType_Any:
+    case DocumentType_None:
       RS_LOG_ASSERT(0, "shouldn't get here");
     }
   }
