@@ -94,11 +94,8 @@ def testHandleUnindexedTypes(env):
     # TODO: Except for array of only scalars which is defined as a TAG in the schema
     # ... FT.CREATE idx SCHEMA $.arr TAG
     if not is_unstable():
-        raw_input('stop')
         env.skip()
 
-    raw_input('stop')
-    
     env.expect('JSON.SET', 'doc:1', '$', doc1_content).ok()
 
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
