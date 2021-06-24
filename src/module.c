@@ -414,7 +414,6 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       RMUtil_StringEqualsCaseC(argv[0], "_FT.DROP")) {
     // We always send KEEPDOC to the slave.
     RedisModule_Replicate(ctx, RS_DROP_IF_X_CMD, "sc", argv[1], "KEEPDOCS");
-    RedisModule_FreeString(ctx, keepDocStr);
   } else {
     // Remove DD as documents were deleted with RM_Call.
     RedisModule_Replicate(ctx, RS_DROP_INDEX_IF_X_CMD, "v", argv + 1, argc - 1 - !!delDocs);
