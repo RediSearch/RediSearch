@@ -413,7 +413,6 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (RMUtil_StringEqualsCaseC(argv[0], "FT.DROP") ||
       RMUtil_StringEqualsCaseC(argv[0], "_FT.DROP")) {
     // We always send KEEPDOC to the slave.
-    RedisModuleString *keepDocStr = RedisModule_CreateString(ctx, "KEEPDOCS", strlen("KEEPDOCS"));
     RedisModule_Replicate(ctx, RS_DROP_IF_X_CMD, "sc", argv[1], "KEEPDOCS");
     RedisModule_FreeString(ctx, keepDocStr);
   } else {
