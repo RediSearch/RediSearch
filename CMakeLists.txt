@@ -92,6 +92,9 @@ ENDIF()
 
 # Set globals here!
 INCLUDE_DIRECTORIES(${PROJECT_SOURCE_DIR}/src)
+INCLUDE_DIRECTORIES(${PROJECT_SOURCE_DIR}/deps)
+INCLUDE_DIRECTORIES(${PROJECT_SOURCE_DIR}/deps/VectorSimilarity/src)
+
 ADD_DEFINITIONS(-DREDISMODULE_EXPERIMENTAL_API)
 ADD_DEFINITIONS(-D_GNU_SOURCE)
 
@@ -103,6 +106,9 @@ ADD_SUBDIRECTORY(src/rmutil)
 ADD_SUBDIRECTORY(src/dep/friso)
 ADD_SUBDIRECTORY(src/dep/snowball)
 ADD_SUBDIRECTORY(src/dep/phonetics)
+
+SET(VECSIM_STATIC ON)
+ADD_SUBDIRECTORY(deps/VectorSimilarity/src)
 
 FILE(GLOB RS_SRC
     "src/*.c"
@@ -118,6 +124,7 @@ FILE(GLOB RS_SRC
     "src/dep/hll/*.c"
     "src/dep/libnu/*.c"
     "src/dep/miniz/*.c"
+    "src/dep/base64/*.c"
     "src/dep/thpool/*.c"
     "src/dep/triemap/*.c"
     "src/dep/geo/*.c"
@@ -156,7 +163,7 @@ ELSEIF (RS_BUILD_STATIC)
 
 ELSE ()
     ADD_LIBRARY(redisearch SHARED ${FINAL_OBJECTS} src/module-init/module-init.c)
-    TARGET_LINK_LIBRARIES(redisearch dl m)
+    TARGET_LINK_LIBRARIES(redisearch dl m VectorSimilarity)
     SET_TARGET_PROPERTIES(redisearch PROPERTIES PREFIX "")
     SET_TARGET_PROPERTIES(redisearch PROPERTIES SUFFIX ".so")
 

@@ -10,6 +10,7 @@ RSValueType fieldTypeToValueType(FieldType ft) {
     case INDEXFLD_T_TAG:
       return RSValue_String;
     case INDEXFLD_T_GEO:
+    case INDEXFLD_T_VECTOR: // TODO:
     default:
       // geo is not sortable so we don't care as of now...
       return RSValue_Null;

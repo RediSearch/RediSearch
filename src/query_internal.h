@@ -63,6 +63,7 @@ QueryNode *NewFuzzyNode(QueryParseCtx *q, const char *s, size_t len, int maxDist
 QueryNode *NewNumericNode(const struct NumericFilter *flt);
 QueryNode *NewIdFilterNode(const t_docId *, size_t);
 QueryNode *NewGeofilterNode(const struct GeoFilter *flt);
+QueryNode *NewVectorNode(struct VectorFilter *flt);
 QueryNode *NewTagNode(const char *tag, size_t len);
 void QueryNode_SetFieldMask(QueryNode *n, t_fieldMask mask);
 
