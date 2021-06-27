@@ -3255,7 +3255,8 @@ def testSchemaWithAs(env):
 
     # RETURN outside of schema
     conn.execute_command('HSET', 'a', 'not_in_schema', '42')
-    env.expect('HGETALL a').equal(['txt', 'hello', 'not_in_schema', '42'])
+    res = conn.execute_command('HGETALL', 'a')
+    env.assertEqual(res, {'txt': 'hello', 'not_in_schema': '42'})
     env.expect('ft.search idx hello RETURN 3 not_in_schema AS txt2').equal([1L, 'a', ['txt2', '42']])
     env.expect('ft.search idx hello RETURN 1 not_in_schema').equal([1L, 'a', ['not_in_schema', '42']])
     env.expect('ft.search idx hello').equal([1L, 'a', ['txt', 'hello', 'not_in_schema', '42']])
@@ -3295,7 +3296,9 @@ def testSchemaWithAs_Alter(env):
   env.expect('ft.search idx @foo:world').equal([0L])
 
 def testSchemaWithAs_Duplicates(env):
-    env.cmd('HSET', 'a', 'txt', 'hello')
+    conn = getConnectionByEnv(env)
+    
+    conn.execute_command('HSET', 'a', 'txt', 'hello')
 
     # Error if field name is duplicated
     res = env.expect('FT.CREATE', 'conflict1', 'SCHEMA', 'txt1', 'AS', 'foo', 'TEXT', 'txt2', 'AS', 'foo', 'TAG') \

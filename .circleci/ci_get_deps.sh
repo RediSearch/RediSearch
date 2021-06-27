@@ -10,4 +10,4 @@ git submodule update --init --recursive
 ./deps/readies/bin/getpy2
 python2 ./system-setup.py
 python2 ./tests/pytests/test_rdb_compatibility.py
-make fetch
+bash -l -c "make fetch"
