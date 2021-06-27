@@ -1,9 +1,8 @@
 
-#include <stdlib.h> /* for calloc, free */
 #include "header.h"
 #include "rmalloc.h"
 
-extern struct SN_env * SN_create_env(int S_size, int I_size, int B_size)
+extern struct SN_env * SN_create_env(int S_size, int I_size)
 {
     struct SN_env * z = (struct SN_env *) rm_calloc(1, sizeof(struct SN_env));
     if (z == NULL) return NULL;
@@ -28,12 +27,6 @@ extern struct SN_env * SN_create_env(int S_size, int I_size, int B_size)
         if (z->I == NULL) goto error;
     }
 
-    if (B_size)
-    {
-        z->B = (unsigned char *) rm_calloc(B_size, sizeof(unsigned char));
-        if (z->B == NULL) goto error;
-    }
-
     return z;
 error:
     SN_close_env(z, S_size);
@@ -53,7 +46,6 @@ extern void SN_close_env(struct SN_env * z, int S_size)
         rm_free(z->S);
     }
     rm_free(z->I);
-    rm_free(z->B);
     if (z->p) lose_s(z->p);
     rm_free(z);
 }
