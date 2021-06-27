@@ -3296,7 +3296,9 @@ def testSchemaWithAs_Alter(env):
   env.expect('ft.search idx @foo:world').equal([0L])
 
 def testSchemaWithAs_Duplicates(env):
-    env.cmd('HSET', 'a', 'txt', 'hello')
+    conn = getConnectionByEnv(env)
+    
+    conn.execute_command('HSET', 'a', 'txt', 'hello')
 
     # Error if field name is duplicated
     res = env.expect('FT.CREATE', 'conflict1', 'SCHEMA', 'txt1', 'AS', 'foo', 'TEXT', 'txt2', 'AS', 'foo', 'TAG') \
