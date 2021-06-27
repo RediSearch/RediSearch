@@ -1702,7 +1702,7 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
     char *s = RedisModule_LoadStringBuffer(rdb, &dummy);
     int rc = IndexAlias_Add(s, sp, 0, &_status);
     RedisModule_Free(s);
-    RS_LOG_ASSERT(rc == REDISMODULE_OK, "adding alias to index failed");
+    RedisModule_Log(NULL, "notice", "Loading existing alias failed");
   }
 
   sp->indexer = NewIndexer(sp);
@@ -2212,6 +2212,12 @@ void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
 
   for (size_t i = 0; i < array_len(specs->specsOps); ++i) {
     SpecOpCtx *specOp = specs->specsOps + i;
+
+    // skip if document type does not match the index type
+    if (type != specOp->spec->rule->type) {
+      continue;
+    }
+    
     if (!hashFields || hashFieldChanged(specOp->spec, hashFields)) {
       if (specOp->op == SpecOp_Add) {
         IndexSpec_UpdateDoc(specOp->spec, ctx, key, type);
@@ -2226,6 +2232,10 @@ void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
 
 void IndexSpec_UpdateMatchingWithSchemaRules(IndexSpec *sp, RedisModuleCtx *ctx,
                                              RedisModuleString *key, DocumentType type) {
+  if (type != sp->rule->type) {
+    return;
+  }
+
   SpecOpIndexingCtx *specs = Indexes_FindMatchingSchemaRules(ctx, key, true, NULL);
   if (!dictFind(specs->specs, sp->name)) {
     goto end;

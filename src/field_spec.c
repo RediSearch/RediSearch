@@ -6,15 +6,16 @@ RSValueType fieldTypeToValueType(FieldType ft) {
   switch (ft) {
     case INDEXFLD_T_NUMERIC:
       return RSValue_Number;
+
     case INDEXFLD_T_FULLTEXT:
     case INDEXFLD_T_TAG:
-      return RSValue_String;
     case INDEXFLD_T_GEO:
+      return RSValue_String;
+
     case INDEXFLD_T_VECTOR: // TODO:
-    default:
-      // geo is not sortable so we don't care as of now...
       return RSValue_Null;
   }
+  return RSValue_Null;
 }
 
 void FieldSpec_Cleanup(FieldSpec* fs) {
