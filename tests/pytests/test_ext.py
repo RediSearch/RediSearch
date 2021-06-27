@@ -28,6 +28,9 @@ if not os.path.exists(EXTPATH):
     print subprocess.call(args)
 
 def testExt():
+    if not is_unstable():
+        unittest.SkipTest()
+
     if not os.path.exists(EXTPATH):
         raise Exception("Path ({}) does not exist. "
             "Run from the build directory or set EXT_TEST_PATH in the environment".format(EXTPATH))
@@ -37,9 +40,6 @@ def testExt():
 
     if env.env == 'existing-env':
         env.skip()
-
-    if not is_unstable():
-        unittest.SkipTest()
 
     N = 100
     env.assertOk(env.execute_command(
