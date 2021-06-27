@@ -23,10 +23,6 @@ if [[ $1 == --help || $1 == help ]]; then
 		VG=1|0                Use valgrind
 		SAN=type              Use LLVM sanitizer (type=address|memory|leak|thread) 
 		GDB=0|1               Enable interactive gdb debugging (in single-test mode)
-		REJSON=0|1|get        Also load RedisJSON module (get: force download from S3)
-		REJSON_BRANCH=branch  Use a snapshot of given branch name
-		REJSON_PATH=path      RedisJSON module path
-		REJSON_MODARGS=args   RedisJSON module arguments
 		REDIS_SERVER=path     Redis Server command
 		REDIS_VERBOSE=0|1     (legacy) Verbose ouput
 		CONFIG_FILE=file      Path to config file
@@ -80,11 +76,6 @@ if [[ -n $SAN ]]; then
 	fi
 	export ASAN_OPTIONS=detect_odr_violation=0
 	export RS_GLOBAL_DTORS=1
-	
-	rejson_path=$ROOT/deps/RedisJSON/target/x86_64-unknown-linux-gnu/debug/rejson.so
-	if [[ -z $REJSON_PATH && -f $rejson_path ]]; then
-		export REJSON_PATH=$rejson_path
-	fi
 fi
 
 if [[ $VG == 1 ]]; then
@@ -125,27 +116,6 @@ fi
 
 #---------------------------------------------------------------------------------------------- 
 
-REJSON_BRANCH=${REJSON_BRANCH:-master}
-
-if [[ -n $REJSON && $REJSON != 0 ]]; then
-	platform=`$READIES/bin/platform -t`
-	if [[ -n $REJSON_PATH ]]; then
-		REJSON_ARGS="--module $REJSON_PATH"
-		REJSON_MODULE="$REJSON_PATH"
-	else
-		REJSON_MODULE="$ROOT/bin/$platform/RedisJSON/rejson.so"
-		if [[ ! -f $REJSON_MODULE || $REJSON == get ]]; then
-			FORCE_GET=
-			[[ $REJSON == get ]] && FORCE_GET=1
-			BRANCH=$REJSON_BRANCH FORCE=$FORCE_GET $OP $ROOT/sbin/get-redisjson
-		fi
-		REJSON_ARGS="--module $REJSON_MODULE"
-	fi
-	REJSON_ARGS+=" --module-args '$REJSON_MODARGS'"
-fi
-
-#---------------------------------------------------------------------------------------------- 
-
 if [[ $VG == 1 ]]; then
 	VALGRIND_ARGS=--use-valgrind
 fi
@@ -160,7 +130,6 @@ cat << EOF > $config
 --module $MODULE
 --module-args '$MODARGS'
 $RLTEST_ARGS
-$REJSON_ARGS
 $VALGRIND_ARGS
 $@
 
