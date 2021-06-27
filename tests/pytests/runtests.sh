@@ -176,5 +176,5 @@ if [[ $VERBOSE == 1 ]]; then
 	cat $config
 fi
 
-$OP exec python -m RLTest @$config
+$OP exec python2 -m RLTest @$config
 rm -f $config
