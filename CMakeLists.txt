@@ -107,7 +107,7 @@ ADD_SUBDIRECTORY(src/dep/friso)
 ADD_SUBDIRECTORY(src/dep/snowball)
 ADD_SUBDIRECTORY(src/dep/phonetics)
 
-SET(VECSIM_STATIC ON)
+option(VECSIM_STATIC "Build as static library" ON)
 ADD_SUBDIRECTORY(deps/VectorSimilarity/src)
 
 FILE(GLOB RS_SRC
