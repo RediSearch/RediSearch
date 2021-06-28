@@ -50,7 +50,7 @@ commands:
 
   persist-artifacts:
     steps:
-      - early-return-for-forked-pull-requests
+      - early_return_for_forked_pull_requests
       - persist_to_workspace:
           root: artifacts
           paths:
