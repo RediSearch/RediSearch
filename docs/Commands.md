@@ -17,17 +17,17 @@
        [PAYLOAD_FIELD {payload_field}]
     [MAXTEXTFIELDS] [TEMPORARY {seconds}] [NOOFFSETS] [NOHL] [NOFIELDS] [NOFREQS] [SKIPINITIALSCAN]
     [STOPWORDS {num} {stopword} ...]
-    SCHEMA {field} [TEXT [NOSTEM] [WEIGHT {weight}] [PHONETIC {matcher}] | NUMERIC | GEO | TAG [SEPARATOR {sep}] ] [SORTABLE][NOINDEX] ...
+    SCHEMA {identifier} [AS {attribute}] [TEXT [NOSTEM] [WEIGHT {weight}] [PHONETIC {matcher}] | NUMERIC | GEO | TAG [SEPARATOR {sep}] ] [SORTABLE][NOINDEX] ...
 ```
 
 #### Description
 Creates an index with the given spec.
 
-!!! warning "Note on field number limits"
-    RediSearch supports up to 1024 fields per schema, out of which at most 128 can be TEXT fields.
-    On 32 bit builds, at most 64 fields can be TEXT fields.
-    Note that the more fields you have, the larger your index will be, as each additional 8 fields require one extra byte per index record to encode.
-    You can always use the `NOFIELDS` option and not encode field information into the index, for saving space, if you do not need filtering by text fields. This will still allow filtering by numeric and geo fields.
+!!! warning "Note on attribute number limits"
+    RediSearch supports up to 1024 attributes per schema, out of which at most 128 can be TEXT attributes.
+    On 32 bit builds, at most 64 attributes can be TEXT attributes.
+    Note that the more attributes you have, the larger your index will be, as each additional 8 attributes require one extra byte per index record to encode.
+    You can always use the `NOFIELDS` option and not encode field information into the index, for saving space, if you do not need filtering by text attributes. This will still allow filtering by numeric and geo fields.
 
 !!! info "Note on running in clustered databases"
     When having several indices in a clustered database, you need to make sure the documents you want to index reside on the same shard as the index. You can achieve this by having your documents tagged by the index name.
@@ -45,6 +45,12 @@ Creating an index that stores the title, publication date, and categories of blo
 
 ```sql
 FT.CREATE idx ON HASH PREFIX 1 blog:post: SCHEMA title TEXT SORTABLE published_at NUMERIC SORTABLE category TAG SORTABLE
+```
+
+Indexing the sku hash field using different TAG and TEXT types with different attribute names:
+
+```sql
+FT.CREATE idx ON HASH PREFIX 1 blog:post: SCHEMA sku AS sku_text TEXT sku AS sku_tag TAG SORTABLE
 ```
 
 Indexing two different hashes -- one containing author data and one containing books -- in the same index:
@@ -75,11 +81,20 @@ Indexing books that have a "categories" field in which semicolons separate the v
 FT.CREATE books-idx ON HASH PREFIX 1 book:details FILTER SCHEMA title TEXT categories TAG SEPARATOR ";"
 ```
 
+Indexing a JSON document using JSON Path:
+
+```sql
+FT.CREATE idx ON JSON SCHEMA $.title AS title TEXT $.categories AS categories TAG SORTABLE
+```
+
 #### Parameters
 
 * **index**: the index name to create. If it exists the old spec will be overwritten
 
-* **ON {structure}** currently supports only HASH (default)
+* **ON {structure}** currently supports HASH (default) and JSON.
+
+!!! info "ON JSON"
+    Require the [RedisJSON](https://redisjson.io) module to be installed.
 
 * **PREFIX {count} {prefix}** tells the index which keys it should index. You can add several prefixes to index. Since the argument is optional, the default is * (all keys)
 
@@ -113,8 +128,8 @@ FT.CREATE books-idx ON HASH PREFIX 1 book:details FILTER SCHEMA title TEXT categ
   that can be evaluated at query time by a custom scoring function, or retrieved to the client.
 
 * **MAXTEXTFIELDS**: For efficiency, RediSearch encodes indexes differently if they are
-  created with less than 32 text fields. This option forces RediSearch to encode indexes as if
-  there were more than 32 text fields, which allows you to add additional fields (beyond 32)
+  created with less than 32 text attributes. This option forces RediSearch to encode indexes as if
+  there were more than 32 text attributes, which allows you to add additional attributes (beyond 32)
   using `FT.ALTER`.
 
 * **NOOFFSETS**: If set, we do not store term offsets for documents (saves memory, does not
@@ -129,7 +144,7 @@ FT.CREATE books-idx ON HASH PREFIX 1 book:details FILTER SCHEMA title TEXT categ
   not store corresponding byte offsets for term positions. `NOHL` is also implied by `NOOFFSETS`.
 
 * **NOFIELDS**: If set, we do not store field bits for each term. Saves memory, does not allow
-  filtering by specific fields.
+  filtering by specific attributes.
 
 * **NOFREQS**: If set, we avoid saving the term frequencies in the index. This saves
   memory but does not allow sorting based on the frequencies of a given term within
@@ -145,7 +160,7 @@ FT.CREATE books-idx ON HASH PREFIX 1 book:details FILTER SCHEMA title TEXT categ
 
 * **SKIPINITIALSCAN**: If set, we do not scan and index.
 
-* **SCHEMA {field name} {field type} {options...}**: After the SCHEMA keyword we define the index fields. The field name is the name of the field within the hashes that this index follows. Field types can be numeric, textual or geographical.
+* **SCHEMA {field name} {field type} {options...}**: After the SCHEMA keyword we define the index attributes. The field name is the name of the field within the hashes that this index follows. Field types can be numeric, textual or geographical.
 
     #### Field Types
 
@@ -169,17 +184,17 @@ FT.CREATE books-idx ON HASH PREFIX 1 book:details FILTER SCHEMA title TEXT categ
 
     * **SORTABLE**
 
-        Numeric, tag or text fields can have the optional SORTABLE argument that allows the user to later [sort the results by the value of this field](Sorting.md) (this adds memory overhead so do not declare it on large text fields).
+        Numeric, tag or text attributes can have the optional SORTABLE argument that allows the user to later [sort the results by the value of this field](Sorting.md) (this adds memory overhead so do not declare it on large text fields).
 
     * **NOSTEM**
 
-        Text fields can have the NOSTEM argument which will disable stemming when indexing its values.
+        Text attributes can have the NOSTEM argument which will disable stemming when indexing its values.
         This may be ideal for things like proper names.
 
     * **NOINDEX**
 
-        Fields can have the `NOINDEX` option, which means they will not be indexed.
-        This is useful in conjunction with `SORTABLE`, to create fields whose update using PARTIAL will not cause full reindexing of the document. If a field has NOINDEX and doesn't have SORTABLE, it will just be ignored by the index.
+        Attributes can have the `NOINDEX` option, which means they will not be indexed.
+        This is useful in conjunction with `SORTABLE`, to create attributes whose update using PARTIAL will not cause full reindexing of the document. If a field has NOINDEX and doesn't have SORTABLE, it will just be ignored by the index.
 
     * **PHONETIC {matcher}**
 
