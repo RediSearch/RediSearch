@@ -264,6 +264,40 @@ static RSValue *hvalToValue(RedisModuleString *src, RLookupCoerceType type) {
   }
 }
 
+static RSValue *jsonValToValue(RedisModuleCtx *ctx, RedisJSON json) {
+  size_t len;
+  char *str;
+  const char *constStr;
+  RedisModuleString *rstr;
+  long long ll = 0;
+  double dd = 0.0;
+  int i;
+
+  switch (japi->getType(json)) {
+    case JSONType_String:
+      japi->getString(json, &constStr, &len);
+      str = rm_strndup(constStr, len);
+      return RS_StringVal(str, len);
+    case JSONType_Int:
+      japi->getInt(json, &ll);
+      return RS_Int64Val(ll);
+    case JSONType_Double:
+      japi->getDouble(json, &dd);
+      return RS_NumVal(dd);
+    case JSONType_Bool:
+      japi->getBoolean(json, &i);
+      return RS_Int64Val(i);
+    case JSONType_Array:
+    case JSONType_Object:
+      japi->getJSON(json, ctx, &rstr);
+      return RS_RedisStringVal(rstr);
+    case JSONType_Null:
+    case JSONType__EOF:
+      RS_LOG_ASSERT(0, "Cannot get here");
+  }
+  return NULL;
+}
+
 static RSValue *replyElemToValue(RedisModuleCallReply *rep, RLookupCoerceType otype) {
   switch (RedisModule_CallReplyType(rep)) {
     case REDISMODULE_REPLY_STRING: {
@@ -396,23 +430,18 @@ static int getKeyCommonJSON(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
     path = fs ? fs->path : kk->name;
   }
 
-  RedisJSON json = japi->get(*keyobj, path, NULL);
-  if (json) {
-    rc = japi->getJSON(json, ctx, &val);    
-  } else {
-    rc = REDISMODULE_ERR;
-  }
+  JSONType jsonType;
+  RedisJSON json = japi->get(*keyobj, path, &jsonType);
 
-  if (rc == REDISMODULE_OK && val != NULL) {
-    rsv = hvalToValue(val, kk->fieldtype);
-    RedisModule_FreeString(RSDummyContext, val);
-  } else if (!strncmp(kk->name, UNDERSCORE_KEY, strlen(UNDERSCORE_KEY))) {
-    RedisModuleString *keyName = RedisModule_CreateString(options->sctx->redisCtx,
-                                  options->dmd->keyPtr, strlen(options->dmd->keyPtr));
-    rsv = hvalToValue(keyName, RLOOKUP_C_STR);
-    RedisModule_FreeString(options->sctx->redisCtx, keyName);
+  if (!json) {
+    // The field does not exist and and it isn't `__key`
+    if (!strncmp(kk->name, UNDERSCORE_KEY, strlen(UNDERSCORE_KEY))) {
+      rsv = RS_StringVal(options->dmd->keyPtr, strlen(options->dmd->keyPtr));
+    } else {
+      return REDISMODULE_ERR;
+    }
   } else {
-    return REDISMODULE_OK;
+    rsv = jsonValToValue(ctx, json);
   }
 
   // Value has a reference count of 1
