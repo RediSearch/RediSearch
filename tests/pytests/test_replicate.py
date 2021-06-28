@@ -6,6 +6,8 @@ from RLTest import Env
 import time
 import random
 from includes import *
+from common import waitForIndex
+
 
 class TimeoutException(Exception):
   pass
@@ -109,7 +111,8 @@ def testDropReplicate():
 
   # test for FT.DROPINDEX
   master.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC', 'tg', 'TAG', 'g', 'GEO')
-  time.sleep(0.001)
+  waitForIndex(master, 'idx')
+  waitForIndex(slave, 'idx')
   master.execute_command('FT.DROPINDEX', 'idx', 'DD')
 
   # check that same docs were deleted by master and slave
