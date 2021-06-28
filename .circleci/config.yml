@@ -6,7 +6,6 @@ defaults:
     - ubuntu
 
 commands:
-
   early_returns:
     steps:
       - run:
@@ -37,6 +36,29 @@ commands:
               circleci step halt
             fi
 
+  save-tests-logs:
+    steps:
+      - run:
+          name: Cleanup test log dir
+          command: |
+            if [[ -d tests/flow/logs ]]; then
+              cd tests/flow/logs
+              rm -f *.aof *.rdb
+            fi
+      - store_artifacts:
+          path: tests/pytests/logs
+
+  persist-artifacts:
+    steps:
+      - early_return_for_forked_pull_requests
+      - persist_to_workspace:
+          root: artifacts
+          paths:
+            - '*.zip'
+            - '*.tgz'
+            - snapshots/*.zip
+            - snapshots/*.tgz
+
   ci_steps:
     steps:
       - early_returns
@@ -55,14 +77,9 @@ commands:
           command: bash -l -c "COMPAT_DIR=$BUILD_DIR make pack"
           environment:
             - PACKAGE_NAME: redisearch-oss
+      - save-tests-logs
       - early_return_for_forked_pull_requests
-      - persist_to_workspace:
-          root: artifacts
-          paths:
-            - '*.zip'
-            - '*.tgz'
-            - snapshots/*.zip
-            - snapshots/*.tgz
+      - persist-artifacts
 
   benchmark_steps:
     parameters:
@@ -177,8 +194,7 @@ jobs:
           name: Run & build tests
           command: bash -l -c "ASAN=1 ./.circleci/ci_diag_san12.sh"
           no_output_timeout: 20m
-      - store_artifacts:
-          path: build-asan/logs
+      - save-tests-logs
 
   debug_msan:
     docker:
@@ -190,8 +206,7 @@ jobs:
           name: Run & build tests
           command: bash -l -c "MSAN=1 ./.circleci/ci_diag_san12.sh"
           no_output_timeout: 20m
-      - store_artifacts:
-          path: build-msan/logs
+      - save-tests-logs
 
   coverage:
     docker:
@@ -203,11 +218,7 @@ jobs:
           name: Build & Test
           command: bash -l -c "./.circleci/ci_coverage.sh"
           no_output_timeout: 20m
-      - store_artifacts:
-          path: coverage
-          destination: coverage
-      - store_artifacts:
-          path: build-coverage/logs
+      - save-tests-logs
 
   deploy_release:
     docker:
