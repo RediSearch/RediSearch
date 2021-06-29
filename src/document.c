@@ -153,7 +153,7 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
 
 RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *doc, QueryError *status) {
   // Get a new context
-	RSAddDocumentCtx *aCtx = mempool_get(sp->actxPool_g);
+  RSAddDocumentCtx *aCtx = mempool_get(sp->actxPool_g);
   aCtx->stateFlags = 0;
   QueryError_ClearError(&aCtx->status);
   aCtx->totalTokens = 0;
