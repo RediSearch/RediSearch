@@ -3311,3 +3311,13 @@ def testSchemaWithAs_Duplicates(env):
     env.expect('ft.search conflict2 @foo2:hello').equal([1L, 'a', ['txt', 'hello']])
     env.expect('ft.search conflict2 @foo1:world').equal([0L])
     env.expect('ft.search conflict2 @foo2:world').equal([0L])
+
+def testMod1407(env):
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'limit', 'TEXT', 'f', 'TEXT').ok()
+    
+    conn.execute_command('HSET', 'doc1', 'limit', 'foo1', 'f', 'boo1')
+    conn.execute_command('HSET', 'doc2', 'limit', 'foo2', 'f', 'boo2')
+
+    env.expect('FT.AGGREGATE', 'idx', '*', 'SORTBY', '3', '@limit', '@f', 'ASC').equal([2L, ['limit', 'foo1', 'f', 'boo1'], ['limit', 'foo2', 'f', 'boo2']])
