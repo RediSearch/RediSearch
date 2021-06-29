@@ -269,6 +269,7 @@ static RSValue *jsonValToValue(RedisModuleCtx *ctx, RedisJSON json) {
   char *str;
   const char *constStr;
   RedisModuleString *rstr;
+  RSValue *rs_val;
   long long ll = 0;
   double dd = 0.0;
   int i;
@@ -290,7 +291,9 @@ static RSValue *jsonValToValue(RedisModuleCtx *ctx, RedisJSON json) {
     case JSONType_Array:
     case JSONType_Object:
       japi->getJSON(json, ctx, &rstr);
-      return RS_RedisStringVal(rstr);
+      rs_val = RS_RedisStringVal(rstr);
+      RedisModule_FreeString(ctx, rstr);
+      return rs_val;
     case JSONType_Null:
     case JSONType__EOF:
       RS_LOG_ASSERT(0, "Cannot get here");
