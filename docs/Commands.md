@@ -745,7 +745,7 @@ FT.PROFILE idx SEARCH QUERY "hello world"
          4) "0.025000000000000001"
          5) Counter
          6) (integer) 1
-         7) Children iterators
+         7) Child iterators
          8)  1) Type
              2) TEXT
              3) Term
