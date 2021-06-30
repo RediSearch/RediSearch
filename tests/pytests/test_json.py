@@ -36,7 +36,7 @@ def testSearchUpdatedContent(env):
     env.assertEqual(res, None)
     conn.execute_command('json.set', 'doc:1', '$', plain_val_1)
     res = conn.execute_command('json.get', 'doc:1', '$')
-    env.assertEqual(res, plain_val_1)
+    env.assertEqual(res, [plain_val_1])
 
     # Index creation
     conn.execute_command('FT.CREATE', 'idx1', 'ON', 'JSON', 'SCHEMA', '$.t', 'AS', 'labelT', 'TEXT', '$.n', 'AS',
@@ -50,11 +50,11 @@ def testSearchUpdatedContent(env):
     plain_val_2 = r'{"t":"riceratops","n":9}'
     conn.execute_command('json.set', 'doc:2', '$', plain_val_2)
     res = conn.execute_command('json.get', 'doc:2', '$')
-    env.assertEqual(res, plain_val_2)
+    env.assertEqual(res, [plain_val_2])
     res = conn.execute_command('json.get', 'doc:2', '$.n')
-    env.assertEqual(res, '9')
+    env.assertEqual(res, ['9'])
     res = conn.execute_command('json.get', 'doc:2', '$.t')
-    env.assertEqual(res, '"riceratops"')
+    env.assertEqual(res, ['"riceratops"'])
 
     # Test updated values are found
     env.expect('ft.search', 'idx1', '*').equal([2L, 'doc:1', ['$', plain_val_1], 'doc:2', ['$', plain_val_2]])
@@ -70,7 +70,7 @@ def testSearchUpdatedContent(env):
     # Update an existing text value
     plain_text_val_3 = '"hescelosaurus"'
     env.expect('json.set', 'doc:1', '$.t', plain_text_val_3).ok()
-    env.expect('json.get', 'doc:1', '$.t').equal(plain_text_val_3)
+    env.expect('json.get', 'doc:1', '$.t').equal([plain_text_val_3])
 
     # Update an existing int value
     plain_int_val_3 = '13'
@@ -165,12 +165,12 @@ def testNonEnglish(env):
     japanese_value_1 = 'ドラゴン'
     japanese_doc_value = r'{"t":"' + japanese_value_1 + r'","n":5}'
     env.expect('json.set', 'doc:4', '$', japanese_doc_value).ok()
-    env.expect('json.get', 'doc:4', '$').equal(japanese_doc_value)
-    env.expect('json.get', 'doc:4', '$.t').equal('"' + japanese_value_1 + '"')
+    env.expect('json.get', 'doc:4', '$').equal([japanese_doc_value])
+    env.expect('json.get', 'doc:4', '$.t').equal(['"' + japanese_value_1 + '"'])
 
     chinese_value_1 = r'{"t":"踪迹","n":5}'
     env.expect('json.set', 'doc:5', '$', chinese_value_1).ok()
-    env.expect('json.get', 'doc:5', '$').equal(chinese_value_1)
+    env.expect('json.get', 'doc:5', '$').equal([chinese_value_1])
 
     env.expect('ft.search', 'idx1', '*', 'RETURN', '3', '$.t', 'AS', 'MyReturnLabel') \
         .equal([2L,
