@@ -292,7 +292,6 @@ static RSValue *jsonValToValue(RedisModuleCtx *ctx, RedisJSON json) {
     case JSONType_Object:
       japi->getJSON(json, ctx, &rstr);
       rs_val = RS_RedisStringVal(rstr);
-      RedisModule_FreeString(ctx, rstr);
       return rs_val;
     case JSONType_Null:
     case JSONType__EOF:
