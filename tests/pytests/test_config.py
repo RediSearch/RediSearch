@@ -113,7 +113,7 @@ def testInitConfig(env):
     env.skipOnCluster()
 
     def test_arg_num(arg_name, arg_value):
-        env = Env(moduleArgs=arg_name + ' ' + '%d' % arg_value)
+        env = Env(moduleArgs=arg_name + ' ' + '%d' % arg_value, noDefaultModuleArgs=True)
         if env.env == 'existing-env':
             env.skip()
         assert env.expect('ft.config', 'get', arg_name).equal([[arg_name, '%d' % arg_value]])
@@ -136,7 +136,7 @@ def testInitConfig(env):
 
     # True/False arguments
     def test_arg_true(arg_name):
-        env = Env(moduleArgs=arg_name)
+        env = Env(moduleArgs=arg_name, noDefaultModuleArgs=True)
         if env.env == 'existing-env':
             env.skip()
         assert env.expect('ft.config', 'get', arg_name).equal([[arg_name, 'true']])
@@ -151,7 +151,7 @@ def testInitConfig(env):
     def test_arg_str(arg_name, arg_value, ret_value=None):
         if ret_value == None:
             ret_value = arg_value
-        env = Env(moduleArgs=arg_name + ' ' + arg_value)
+        env = Env(moduleArgs=arg_name + ' ' + arg_value, noDefaultModuleArgs=True)
         if env.env == 'existing-env':
             env.skip()
         assert env.expect('ft.config', 'get', arg_name).equal([[arg_name, ret_value]])
