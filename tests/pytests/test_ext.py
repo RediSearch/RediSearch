@@ -9,11 +9,11 @@ from includes import *
 if 'EXT_TEST_PATH' in os.environ:
     EXTPATH = os.environ['EXT_TEST_PATH']
 else:
-    EXTPATH = 'tests/ctests/libexample_extension'
-    if sys.platform.lower() == 'darwin':
-        EXTPATH += '.dylib'
-    else:
-        EXTPATH += '.so'
+    EXTPATH = 'tests/ctests/ext-example/libexample_extension.so'
+#    if sys.platform.lower() == 'darwin':
+#        EXTPATH += '.dylib'
+#    else:
+#        EXTPATH += '.so'
 
 
 def testExt(env):
