@@ -3321,3 +3321,6 @@ def testMod1407(env):
     conn.execute_command('HSET', 'doc2', 'limit', 'foo2', 'f', 'boo2')
 
     env.expect('FT.AGGREGATE', 'idx', '*', 'SORTBY', '3', '@limit', '@f', 'ASC').equal([2L, ['limit', 'foo1', 'f', 'boo1'], ['limit', 'foo2', 'f', 'boo2']])
+
+    # make sure the crashed query is not crashing anymore
+    env.expect('FT.AGGREGATE', 'SRC_Limit_790153', '*', 'GROUPBY', '2', 'LLimitationTypeID', 'LLimitationTypeDesc', 'REDUCE', 'COUNT', '0').equal([0L])
