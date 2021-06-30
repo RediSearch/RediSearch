@@ -21,6 +21,7 @@ make -j$CI_CONCURRENCY
 cat >rltest.config <<EOF
 --unix
 EOF
+export CONFIG_FILE="$PWD/rltest.config"
 
 ./lcov-init.sh
 COMPAT_DIR=$ROOT/build-coverage make -C $ROOT test CTEST_ARGS="--output-on-failure" CTEST_PARALLEL=${CI_CONCURRENCY}

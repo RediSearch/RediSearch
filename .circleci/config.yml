@@ -120,23 +120,19 @@ commands:
 jobs:
   ubuntu:
     docker:
-      - image: redisfab/rmbuilder:6.0.9-x64-buster
+      - image: redisfab/rmbuilder:6.2.3-x64-buster
     environment:
       - BUILD_DIR: build-debian
     steps:
       - ci_steps
-      - store_artifacts:
-          path: build-debian/logs
 
   centos:
     docker:
-      - image: redisfab/rmbuilder:6.0.9-x64-centos7
+      - image: redisfab/rmbuilder:6.2.3-x64-centos7
     environment:
       - BUILD_DIR: build-el
     steps:
       - ci_steps
-      - store_artifacts:
-          path: build-el/logs
 
   macos:
     macos:
@@ -150,8 +146,6 @@ jobs:
           command: brew update
           no_output_timeout: 20m
       - ci_steps
-      - store_artifacts:
-          path: build-macos/logs
 
   ubuntu_benchmarks:
     docker:
@@ -170,7 +164,7 @@ jobs:
 
   deploy_snapshots:
     docker:
-      - image: redisfab/rmbuilder:6.0.9-x64-buster
+      - image: redisfab/rmbuilder:6.2.3-x64-buster
     steps:
       - early_returns
       - early_return_for_forked_pull_requests
@@ -210,7 +204,7 @@ jobs:
 
   coverage:
     docker:
-      - image: redisfab/rmbuilder:6.0.9-x64-buster
+      - image: redisfab/rmbuilder:6.2.3-x64-buster
     steps:
       - early_returns
       - checkout
@@ -222,7 +216,7 @@ jobs:
 
   deploy_release:
     docker:
-      - image: redisfab/rmbuilder:6.0.9-x64-buster
+      - image: redisfab/rmbuilder:6.2.3-x64-buster
     steps:
       - early_returns
       - early_return_for_forked_pull_requests
@@ -264,6 +258,7 @@ on-integ-branch: &on-integ-branch
       only:
         - master
         - /^\d+\.\d+.*$/
+        - /^feature-.*$/
     tags:
       ignore: /.*/
 
@@ -273,6 +268,7 @@ not-on-integ-branch: &not-on-integ-branch
       ignore:
         - master
         - /^\d+\.\d+.*$/
+        - /^feature-.*$/
     tags:
       ignore: /.*/
 
@@ -289,6 +285,7 @@ on-integ-and-version-tags: &on-integ-and-version-tags
       only:
         - master
         - /^\d+\.\d+.*$/
+        - /^feature-.*$/
     tags:
       only: /^v[0-9].*/
 
