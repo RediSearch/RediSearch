@@ -115,7 +115,7 @@ def testDropReplicate():
   master.execute_command('FT.DROPINDEX', 'idx', 'DD')
 
   # check that same docs were deleted by master and slave
-  time.sleep(0.1)
+  master.execute_command('WAIT', 1, 1000)
   master_keys = sorted(master.execute_command('KEYS', '*'))
   slave_keys = sorted(slave.execute_command('KEYS', '*'))
   env.assertEqual(len(master_keys), len(slave_keys))
