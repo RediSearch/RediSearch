@@ -17,6 +17,8 @@ else:
 
 
 def testExt(env):
+    env.skipOnCluster()
+
     if os.path.isabs(EXTPATH):
         ext_path = EXTPATH
     else:
