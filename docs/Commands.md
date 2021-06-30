@@ -160,11 +160,11 @@ FT.CREATE idx ON JSON SCHEMA $.title AS title TEXT $.categories AS categories TA
 
 * **SKIPINITIALSCAN**: If set, we do not scan and index.
 
-* **SCHEMA {identifier} AS {attribute} {attribute type} {options...}**: After the SCHEMA keyword we define the index attributes.
+* **SCHEMA {identifier} AS {attribute} {attribute type} {options...}**: After the SCHEMA keyword, we declare which fields to index:
   
     * **{identifier}**
       
-      For hashes, the identifier name is the name of the attribute within the hashes that this index follows.
+      For hashes, the identifier is a field name within the hash.
       For JSON, the identifier is a JSON Path expression.
 
     * **AS {attribute}**
