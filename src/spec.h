@@ -140,6 +140,7 @@ typedef enum {
   Index_HasPhonetic = 0x400,
   Index_Async = 0x800,
   Index_SkipInitialScan = 0x1000,
+  Index_HasVecSim = 0x2000,
 } IndexFlags;
 
 // redis version (its here because most file include it with no problem,

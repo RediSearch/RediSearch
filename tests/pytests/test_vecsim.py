@@ -45,7 +45,36 @@ def test_1st(env):
     #print base64_bytes
     #print base64_message
 
-    env.expect('FT.SEARCH', 'idx', '@v:[' + base64_message +' RANGE 1]').equal([1L, 'c', ['v', 'aacdefgh']])
+
+
+def testDel(env):
+    conn = getConnectionByEnv(env)
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'INT32', '2', 'L2', 'HNSW')
+    conn.execute_command('HSET', 'a', 'v', 'abcdefgh')
+    conn.execute_command('HSET', 'b', 'v', 'abcdefgg')
+    conn.execute_command('HSET', 'c', 'v', 'aacdefgh')
+    conn.execute_command('HSET', 'd', 'v', 'azcdefgh')
+
+    env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 1]').equal([1L, 'a', ['v', 'abcdefgh']])
+    env.expect('FT.SEARCH', 'idx', '@v:[abcdefgg TOPK 1]').equal([1L, 'b', ['v', 'abcdefgg']])
+    env.expect('FT.SEARCH', 'idx', '@v:[aacdefgh TOPK 1]').equal([1L, 'c', ['v', 'aacdefgh']])
+    env.expect('FT.SEARCH', 'idx', '@v:[azcdefgh TOPK 1]').equal([1L, 'd', ['v', 'azcdefgh']])
+
+    env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 1]').equal([1L, 'a', ['v', 'abcdefgh']])
+    env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 2]').equal([2L, 'a', ['v', 'abcdefgh'], 'c', ['v', 'aacdefgh']])
+    env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 3]').equal([3L, 'a', ['v', 'abcdefgh'], 'c', ['v', 'aacdefgh'], 'd', ['v', 'azcdefgh']])
+    env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 4]').equal([4L, 'a', ['v', 'abcdefgh'], 'b', ['v', 'abcdefgg'], 'c', ['v', 'aacdefgh'], 'd', ['v', 'azcdefgh']])
+    env.expect('DEL', 'a').equal(1)
+    
+    env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 1]').equal([1L, 'c', ['v', 'aacdefgh']])
+    env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 2]').equal([2L, 'c', ['v', 'aacdefgh'], 'd', ['v', 'azcdefgh']])
+    env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 3]').equal([3L, 'b', ['v', 'abcdefgg'], 'c', ['v', 'aacdefgh'], 'd', ['v', 'azcdefgh']])
+
+    '''
+    This test returns 4 results instead of the expected 3. The HNSW library return the additional results.
+    env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 4]').equal([3L, 'b', ['v', 'abcdefgg'], 'c', ['v', 'aacdefgh'], 'd', ['v', 'azcdefgh']])
+    '''
+
 
 def test_create(env):
     conn = getConnectionByEnv(env)

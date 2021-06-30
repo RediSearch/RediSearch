@@ -429,7 +429,7 @@ void FieldSpec_Initialize(FieldSpec *fs, FieldType types) {
 
 /* Parse a field definition from argv, at *offset. We advance offset as we progress.
  *  Returns 1 on successful parse, 0 otherwise */
-static int parseFieldSpec(ArgsCursor *ac, FieldSpec *fs, QueryError *status) {
+static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, FieldSpec *fs, QueryError *status) {
   if (AC_IsAtEnd(ac)) {
     QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Field `%s` does not have a type", fs->name);
     return 0;
@@ -445,6 +445,7 @@ static int parseFieldSpec(ArgsCursor *ac, FieldSpec *fs, QueryError *status) {
   } else if (AC_AdvanceIfMatch(ac, SPEC_GEO_STR)) {  // geo field
     FieldSpec_Initialize(fs, INDEXFLD_T_GEO);
   } else if (AC_AdvanceIfMatch(ac, SPEC_VECTOR_STR)) {  // vector field
+    sp->flags |= Index_HasVecSim;
     FieldSpec_Initialize(fs, INDEXFLD_T_VECTOR);
     if (!parseVectorField(fs, ac, status)) {
       goto error;
@@ -553,7 +554,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
     }
 
     fs = IndexSpec_CreateField(sp, fieldName, fieldPath);
-    if (!parseFieldSpec(ac, fs, status)) {
+    if (!parseFieldSpec(ac, sp, fs, status)) {
       goto reset;
     }
 
@@ -2056,6 +2057,24 @@ int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
     // Increment the index's garbage collector's scanning frequency after document deletions
     if (spec->gc) {
       GCContext_OnDelete(spec->gc);
+    }
+  }
+
+  // VecSim fields clear deleted data on the fly
+  if (spec->flags & Index_HasVecSim) {
+    for (int i = 0; i < spec->numFields; ++i) {
+      if (spec->fields[i].types == INDEXFLD_T_VECTOR) {
+        
+        RedisModuleString *rmskey = RedisModule_CreateString(ctx, spec->fields[i].name, strlen(spec->fields[i].name));
+        KeysDictValue *kdv = dictFetchValue(spec->keysDict, rmskey);
+        RedisModule_FreeString(ctx, rmskey);
+
+        if (!kdv) {
+          continue;
+        }
+        VecSimIndex *vecsim = kdv->p;
+        VecSimIndex_DeleteVector(vecsim, id);
+      }
     }
   }
   return REDISMODULE_OK;
