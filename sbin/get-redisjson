@@ -62,7 +62,11 @@ else
 			nick=ubuntu18.04
 		fi
 	elif [[ $dist == centos || $dist == redhat || $dist == fedora ]]; then
-		nick=rhel7
+		if [[ $nick == "centos8" ]]; then
+			nick="rhel8"
+		else
+			nick="rhel7"
+		fi
 	elif [[ ! -z "$OSNICK" ]]; then
 		nick=$OSNICK
 	else

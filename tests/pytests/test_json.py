@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-import json
 
+import json
 import bz2
 
-from common import getConnectionByEnv, waitForIndex
+from common import getConnectionByEnv, waitForIndex, toSortedFlatList, slice_at
 from includes import *
 
 UNSTABLE_TESTS = os.getenv('UNSTABLE_TESTS', '0') == '1'
@@ -32,9 +32,11 @@ def testSearchUpdatedContent(env):
 
     # Set a value before index is defined
     plain_val_1 = r'{"t":"rex","n":12}'
-    env.expect('json.get', 'doc:1', '$').equal(None)
-    env.expect('json.set', 'doc:1', '$', plain_val_1).ok()
-    env.expect('json.get', 'doc:1', '$').equal(plain_val_1)
+    res = conn.execute_command('json.get', 'doc:1', '$')
+    env.assertEqual(res, None)
+    conn.execute_command('json.set', 'doc:1', '$', plain_val_1)
+    res = conn.execute_command('json.get', 'doc:1', '$')
+    env.assertEqual(res, [plain_val_1])
 
     # Index creation
     conn.execute_command('FT.CREATE', 'idx1', 'ON', 'JSON', 'SCHEMA', '$.t', 'AS', 'labelT', 'TEXT', '$.n', 'AS',
@@ -46,18 +48,21 @@ def testSearchUpdatedContent(env):
 
     # Set another value after index was defined
     plain_val_2 = r'{"t":"riceratops","n":9}'
-    env.expect('json.set', 'doc:2', '$', plain_val_2).ok()
-    env.expect('json.get', 'doc:2', '$').equal(plain_val_2)
-    env.expect('json.get', 'doc:2', '$.n').equal('9')
-    env.expect('json.get', 'doc:2', '$.t').equal('"riceratops"')
+    conn.execute_command('json.set', 'doc:2', '$', plain_val_2)
+    res = conn.execute_command('json.get', 'doc:2', '$')
+    env.assertEqual(res, [plain_val_2])
+    res = conn.execute_command('json.get', 'doc:2', '$.n')
+    env.assertEqual(res, ['9'])
+    res = conn.execute_command('json.get', 'doc:2', '$.t')
+    env.assertEqual(res, ['"riceratops"'])
 
     # Test updated values are found
     env.expect('ft.search', 'idx1', '*').equal([2L, 'doc:1', ['$', plain_val_1], 'doc:2', ['$', plain_val_2]])
     env.expect('ft.search', 'idx1', 're*').equal([1L, 'doc:1', ['$', plain_val_1]])
 
     # TODO: Why does the following result look like that? (1 count and 2 arrays of result pairs)
-    env.expect('ft.aggregate', 'idx1', '*', 'LOAD', '1', 'labelT').equal(
-        [1L, ['labelT', '"rex"'], ['labelT', '"riceratops"']])
+    res = env.execute_command('ft.aggregate', 'idx1', '*', 'LOAD', '1', 'labelT')
+    env.assertEqual(toSortedFlatList(res), toSortedFlatList([1L, ['labelT', '"rex"'], ['labelT', '"riceratops"']]))
     env.expect('ft.aggregate', 'idx1', 're*', 'LOAD', '1', 'labelT').equal([1L, ['labelT', '"rex"']])
 
     res = env.execute_command('ft.aggregate', 'idx1', '*', 'LOAD', '1', 'labelT')
@@ -65,7 +70,7 @@ def testSearchUpdatedContent(env):
     # Update an existing text value
     plain_text_val_3 = '"hescelosaurus"'
     env.expect('json.set', 'doc:1', '$.t', plain_text_val_3).ok()
-    env.expect('json.get', 'doc:1', '$.t').equal(plain_text_val_3)
+    env.expect('json.get', 'doc:1', '$.t').equal([plain_text_val_3])
 
     # Update an existing int value
     plain_int_val_3 = '13'
@@ -157,12 +162,12 @@ def testNonEnglish(env):
     japanese_value_1 = 'ドラゴン'
     japanese_doc_value = r'{"t":"' + japanese_value_1 + r'","n":5}'
     env.expect('json.set', 'doc:4', '$', japanese_doc_value).ok()
-    env.expect('json.get', 'doc:4', '$').equal(japanese_doc_value)
-    env.expect('json.get', 'doc:4', '$.t').equal('"' + japanese_value_1 + '"')
+    env.expect('json.get', 'doc:4', '$').equal([japanese_doc_value])
+    env.expect('json.get', 'doc:4', '$.t').equal(['"' + japanese_value_1 + '"'])
 
     chinese_value_1 = r'{"t":"踪迹","n":5}'
     env.expect('json.set', 'doc:5', '$', chinese_value_1).ok()
-    env.expect('json.get', 'doc:5', '$').equal(chinese_value_1)
+    env.expect('json.get', 'doc:5', '$').equal([chinese_value_1])
 
     env.expect('ft.search', 'idx1', '*', 'RETURN', '3', '$.t', 'AS', 'MyReturnLabel') \
         .equal([2L,
@@ -179,14 +184,18 @@ def testSet(env):
     env.expect('ft.search', 'idx', 're*', 'NOCONTENT').equal([1L, 'doc:1'])
 
 def testDel(env):
+    conn = getConnectionByEnv(env)
+    
     # JSON.DEL and JSON.FORGET
     env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT')
-    env.execute_command('JSON.SET', 'doc:1', '$', r'{"t":"ReJSON"}')
-    env.execute_command('JSON.SET', 'doc:2', '$', r'{"t":"RediSearch"}')
+    conn.execute_command('JSON.SET', 'doc:1', '$', r'{"t":"ReJSON"}')
+    conn.execute_command('JSON.SET', 'doc:2', '$', r'{"t":"RediSearch"}')
     env.expect('ft.search', 'idx', 're*', 'NOCONTENT').equal([2L, 'doc:1', 'doc:2'])
-    env.expect('JSON.DEL', 'doc:2', '$.t').equal(1L)
+    res = conn.execute_command('JSON.DEL', 'doc:2', '$.t')
+    env.assertEqual(res, 1L)
     env.expect('ft.search', 'idx', 're*', 'NOCONTENT').equal([1L, 'doc:1'])
-    env.expect('JSON.FORGET', 'doc:1', '$.t').equal(1L)
+    res = conn.execute_command('JSON.FORGET', 'doc:1', '$.t')
+    env.assertEqual(res, 1L)
     env.expect('ft.search', 'idx', 're*', 'NOCONTENT').equal([0L])
 
 def testToggle(env):
@@ -271,6 +280,7 @@ def add_values(env, number_of_iterations=1):
     # 'categories', 'TAG')
     waitForIndex(env, 'games')
 
+    conn = getConnectionByEnv(env)
     for i in range(number_of_iterations):
         fp = bz2.BZ2File(GAMES_JSON, 'r')
         for line in fp:
@@ -284,7 +294,7 @@ def add_values(env, number_of_iterations=1):
             # obj['price'] = obj.get('price') or 0
             str_val = json.dumps(obj)
             cmd = ['JSON.SET', id, '$', str_val]
-            env.execute_command(*cmd)
+            conn.execute_command(*cmd)
         fp.close()
 
 
@@ -314,25 +324,26 @@ def testDemo(env):
     tlv_doc = [1L, 'A:TLV', ['$', tlv]]
     sfo_doc = [1L, 'A:SFO', ['$', sfo]]
 
-    env.expect('json.set', 'A:TLV', '$', tlv).ok()
-    env.expect('json.set', 'A:SFO', '$', sfo).ok()
+    conn.execute_command('json.set', 'A:TLV', '$', tlv)
+    conn.execute_command('json.set', 'A:SFO', '$', sfo)
 
     env.expect('FT.CREATE airports ON JSON SCHEMA $.iata AS iata TAG SORTABLE                 \
                                                   $.iata AS iata_txt TEXT NOSTEM              \
                                                   $.name AS name TEXT NOSTEM PHONETIC dm:en   \
                                                   $.location AS location GEO').ok()
 
-    env.expect('json.set', 'A:TLV', '$', tlv).ok()
-    env.expect('json.set', 'A:SFO', '$', sfo).ok()
+    conn.execute_command('json.set', 'A:TLV', '$', tlv)
+    conn.execute_command('json.set', 'A:SFO', '$', sfo)
 
     info = env.cmd('FT.INFO airports')
-    env.assertEqual(info[0:2], ['index_name', 'airports'])
-    env.assertEqual(info[5][0:2], ['key_type', 'JSON'])
-    env.assertEqual(info[7], [['iata', 'type', 'TAG', 'SEPARATOR', ',', 'SORTABLE'],
+    env.assertEqual(slice_at(info, 'index_name')[0], 'airports')
+    env.assertEqual(slice_at(slice_at(info, 'index_definition')[0], 'key_type')[0], 'JSON')
+    env.assertEqual(slice_at(info, 'fields')[0],
+                             [['iata', 'type', 'TAG', 'SEPARATOR', ',', 'SORTABLE'],
                               ['iata_txt', 'type', 'TEXT', 'WEIGHT', '1', 'NOSTEM'],
                               ['name', 'type', 'TEXT', 'WEIGHT', '1', 'NOSTEM'],
                               ['location', 'type', 'GEO']])
-    env.assertEqual(info[8:10], ['num_docs', '2'])
+    env.assertEqual(int(slice_at(info, 'num_docs')[0]), 2)
 
     env.expect('FT.SEARCH', 'airports', 'TLV').equal(tlv_doc)
     env.expect('FT.SEARCH', 'airports', 'TL*').equal(tlv_doc)
@@ -343,13 +354,6 @@ def testDemo(env):
 
 
 def testIndexSeparation(env):
-    # FIXME: hash key should not be returned by search on JSON index
-    # FIXME: json doc should not be returned by search on HASH index
-    # TODO: Add prefix to partition one JSON search from another JSON search
-
-    if not UNSTABLE_TESTS:
-        env.skip()
-
     # Test results from different indexes do not mix (either JSON with JSON and JSON with HASH)
     env.expect('HSET', 'hash:1', 't', 'telmatosaurus', 'n', '9', 'f', '9.72').equal(3)
     env.execute_command('FT.CREATE', 'idxHash', 'ON', 'HASH', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC', 'f', 'NUMERIC')
@@ -366,7 +370,7 @@ def testIndexSeparation(env):
     env.expect('FT.SEARCH', 'idxJson2', '*', 'RETURN', '3', '$.t2', 'AS', 'txt').equal(
         [1L, 'doc:1', ['txt', '"telmatosaurus"']])
     env.expect('FT.SEARCH', 'idxHash', '*', 'RETURN', '3', 't', 'AS', 'txt').equal(
-        [1L, 'hash:1', ['txt', '"telmatosaurus"']])
+        [1L, 'hash:1', ['txt', 'telmatosaurus']])
 
 
 def testMapProjectionAsToSchemaAs(env):
@@ -406,6 +410,8 @@ def testAsProjection(env):
 
 
 def testAsProjectionRedefinedLabel(env):
+    conn = getConnectionByEnv(env)
+
     # Test redefining projection 'AS' label in query params RETURN and LOAD
     # FIXME: Should we fail SEARCH/AGGREGATE command with RETURN/LOAD alias duplication
     # (as with FT.CREATE)
@@ -413,10 +419,10 @@ def testAsProjectionRedefinedLabel(env):
     # (different values for fields F1 and F2 were retrieved with the same label Label1)
 
     # FIXME: Handle Numeric - In the following line, change '$.n' to: 'AS', 'labelN', 'NUMERIC'
-    env.execute_command('FT.CREATE', 'idx2', 'ON', 'JSON', 'SCHEMA', '$.t', 'AS', 'labelT', 'TEXT', '$.n', 'AS',
-                        'labelN', 'TEXT')
+    env.execute_command('FT.CREATE', 'idx2', 'ON', 'JSON', 'SCHEMA', 
+                        '$.t', 'AS', 'labelT', 'TEXT', '$.n', 'AS', 'labelN', 'TEXT')
     waitForIndex(env, 'idx2')
-    env.execute_command('JSON.SET', 'doc:1', '$', r'{"t":"riceratops","n":"9072"}')
+    conn.execute_command('JSON.SET', 'doc:1', '$', r'{"t":"riceratops","n":"9072"}')
 
     # Allow redefining a new label for a field which has a label in the schema
     env.expect('ft.search', 'idx2', '*', 'RETURN', '3', '$.t', 'AS', 'MyOnTheFlyReturnLabel').equal(
@@ -427,23 +433,27 @@ def testAsProjectionRedefinedLabel(env):
     # Allow redefining a label with existing label found in another field in the schema
     env.expect('ft.search', 'idx2', '*', 'RETURN', '3', '$.t', 'AS', 'labelN').equal(
         [1L, 'doc:1', ['labelN', '"riceratops"']])
-    env.expect('ft.aggregate', 'idx2', '*', 'LOAD', '3', '@$.t', 'AS', 'labelN').equal([1L, ['labelN', '"riceratops"']])
+    env.expect('ft.aggregate', 'idx2', '*', 'LOAD', '3', '@$.t', 'AS', 'labelN').equal(
+        [1L, ['labelN', '"riceratops"']])
 
-    # (?) Allow redefining a label with existing label found in another field in the schema, together with just a label from the schema
+    # (?) Allow redefining a label with existing label found in another field in the schema,
+    # together with just a label from the schema
     env.expect('ft.search', 'idx2', '*', 'RETURN', '4', '$.n', 'AS', 'labelT', 'labelT').equal(
         [1L, 'doc:1', ['labelT', '"9072"']])
-    env.expect('ft.aggregate', 'idx2', '*', 'LOAD', '4', '@$.n', 'AS', 'labelT', 'labelT').equal(
-        [1L, ['labelT', '"9072"', 'labelT', '"riceratops"']])
+    # TODO: re-enable this
+    if UNSTABLE_TESTS:
+        env.expect('ft.aggregate', 'idx2', '*', 'LOAD', '4', '@$.n', 'AS', 'labelT', 'labelT').equal(
+            [1L, ['labelT', '"9072"', 'labelT', '"riceratops"']])
 
     env.expect('ft.search', 'idx2', '*', 'RETURN', '4', '$.n', 'AS', 'labelT', 'labelN').equal(
         [1L, 'doc:1', ['labelT', '"9072"', 'labelN', '"9072"']])
     env.expect('ft.aggregate', 'idx2', '*', 'LOAD', '4', '@$.n', 'AS', 'labelT', 'labelN').equal(
         [1L, ['labelT', '"9072"', 'labelN', '"9072"']])
 
-
 def testNumeric(env):
+    conn = getConnectionByEnv(env)
     env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.n', 'AS', 'n', 'NUMERIC', "$.f", 'AS', 'f', 'NUMERIC')
-    env.execute_command('JSON.SET', 'doc:1', '$', r'{"n":9, "f":9.72}')
+    conn.execute_command('JSON.SET', 'doc:1', '$', r'{"n":9, "f":9.72}')
     env.expect('FT.SEARCH', 'idx', '*', 'RETURN', '3', '$.n', 'AS', 'int').equal([1L, 'doc:1', ['int', '9']])
     env.expect('FT.SEARCH', 'idx', '@n:[0 10]', 'RETURN', '3', '$.n', 'AS', 'int').equal([1L, 'doc:1', ['int', '9']])
     env.expect('FT.SEARCH', 'idx', '@f:[9.5 9.9]', 'RETURN', '1', 'f') \
@@ -465,3 +475,12 @@ def testLanguage(env):
 
     env.execute_command('JSON.SET', 'doc:2', '$', r'{"domanda":"perché"}')
     env.expect('ft.search', 'idx2', 'per*', 'RETURN', '1', '$.domanda' ).equal([1L, 'doc:2', ['$.domanda', '"perch\xc3\xa9"']])
+
+def testDifferentType(env):
+    conn = getConnectionByEnv(env)
+    env.execute_command('FT.CREATE', 'hidx', 'ON', 'HASH', 'SCHEMA', '$.t', 'TEXT')
+    env.execute_command('FT.CREATE', 'jidx', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT')
+    conn.execute_command('HSET', 'doc:1', '$.t', 'hello world')
+    conn.execute_command('JSON.SET', 'doc:2', '$', r'{"t":"hello world"}')
+    env.expect('FT.SEARCH', 'hidx', '*', 'NOCONTENT').equal([1L, 'doc:1'])
+    env.expect('FT.SEARCH', 'jidx', '*', 'NOCONTENT').equal([1L, 'doc:2'])

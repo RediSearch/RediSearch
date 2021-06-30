@@ -173,6 +173,9 @@ def testRename(env):
     env.expect('ft.search things foo').equal([0L])
     env.expect('ft.search otherthings foo').equal([1L, 'otherthing:foo', ['name', 'foo']])
 
+    env.cmd('SET foo bar')
+    env.cmd('RENAME foo fubu')
+
 def testFlush(env):
     conn = getConnectionByEnv(env)
     env.cmd('ft.create', 'things', 'ON', 'HASH',
