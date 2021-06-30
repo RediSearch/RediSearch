@@ -13,6 +13,7 @@ typedef struct langPair_s
 
 langPair_t __langPairs[] = {
   { "arabic",     RS_LANG_ARABIC },
+  { "armenian",   RS_LANG_ARMENIAN },
   { "basque",     RS_LANG_BASQUE },
   { "catalan",    RS_LANG_CATALAN },
   { "danish",     RS_LANG_DANISH },
@@ -33,10 +34,12 @@ langPair_t __langPairs[] = {
   { "portuguese", RS_LANG_PORTUGUESE },
   { "romanian",   RS_LANG_ROMANIAN },
   { "russian",    RS_LANG_RUSSIAN },
+  { "serbian",    RS_LANG_SERBIAN },
   { "spanish",    RS_LANG_SPANISH },
   { "swedish",    RS_LANG_SWEDISH },
   { "tamil",      RS_LANG_TAMIL },
   { "turkish",    RS_LANG_TURKISH },
+  { "yiddish",    RS_LANG_YIDDISH },
   { "chinese",    RS_LANG_CHINESE },
   { NULL,         RS_LANG_UNSUPPORTED }
 };
@@ -45,6 +48,7 @@ const char *RSLanguage_ToString(RSLanguage language) {
   char *ret = NULL;
   switch (language) {
     case  RS_LANG_ARABIC:      ret = "arabic";     break;
+    case  RS_LANG_ARMENIAN:    ret = "armenian";   break;
     case  RS_LANG_BASQUE:      ret = "basque";     break;
     case  RS_LANG_CATALAN:     ret = "catalan";    break;
     case  RS_LANG_DANISH:      ret = "danish";     break;
@@ -65,10 +69,12 @@ const char *RSLanguage_ToString(RSLanguage language) {
     case  RS_LANG_PORTUGUESE:  ret = "portuguese"; break;
     case  RS_LANG_ROMANIAN:    ret = "romanian";   break;
     case  RS_LANG_RUSSIAN:     ret = "russian";    break;
+    case  RS_LANG_SERBIAN:     ret = "serbian";    break;
     case  RS_LANG_SPANISH:     ret = "spanish";    break;
     case  RS_LANG_SWEDISH:     ret = "swedish";    break;
     case  RS_LANG_TAMIL:       ret = "tamil";      break;
     case  RS_LANG_TURKISH:     ret = "turkish";    break;
+    case  RS_LANG_YIDDISH:     ret = "yiddish";    break;
     case  RS_LANG_CHINESE:     ret = "chinese";    break;
     case  RS_LANG_UNSUPPORTED:  
     default: break;
