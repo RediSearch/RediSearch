@@ -476,10 +476,6 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
   size_t len;
   char buf[32];
   const char *str = RedisModule_StringPtrLen(field->text, &len);
-  if (*str == '"') {
-    str += 1;
-    len -= 2; // ignore quotes at start and end
-  }
   if (len > 31) {
     return REDISMODULE_ERR;
   }

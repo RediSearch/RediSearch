@@ -102,12 +102,12 @@ int FieldSpec_CheckJsonType(FieldType fieldType, JSONType type) {
   // Boolean values can be represented only as TAG 
   case JSONType_Bool:    
   // An array can be represented only as TAG 
-  case JSONType_Array:
     if (fieldType == INDEXFLD_T_TAG) {
       rv = REDISMODULE_OK;
     }
     break;
   // An object or null type are not supported
+  case JSONType_Array: // TODO: array will be supported as TAG
   case JSONType_Object:
   case JSONType_Null:
   case JSONType__EOF:
