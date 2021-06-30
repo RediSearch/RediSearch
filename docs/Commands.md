@@ -47,7 +47,7 @@ Creating an index that stores the title, publication date, and categories of blo
 FT.CREATE idx ON HASH PREFIX 1 blog:post: SCHEMA title TEXT SORTABLE published_at NUMERIC SORTABLE category TAG SORTABLE
 ```
 
-Indexing the sku hash attribute using different TAG and TEXT types with different attribute names:
+Indexing the "sku" attribute from a hash as both a TAG and as TEXT:
 
 ```sql
 FT.CREATE idx ON HASH PREFIX 1 blog:post: SCHEMA sku AS sku_text TEXT sku AS sku_tag TAG SORTABLE
@@ -75,7 +75,7 @@ Indexing only books that have a subtitle:
 FT.CREATE subtitled-books-idx ON HASH PREFIX 1 book:details FILTER '@subtitle != ""' SCHEMA title TEXT
 ```
 
-Indexing books that have a "categories" attribute in which semicolons separate the values:
+Indexing books that have a "categories" attribute where each category is separated by a `;` character:
 
 ```sql
 FT.CREATE books-idx ON HASH PREFIX 1 book:details FILTER SCHEMA title TEXT categories TAG SEPARATOR ";"
@@ -94,7 +94,7 @@ FT.CREATE idx ON JSON SCHEMA $.title AS title TEXT $.categories AS categories TA
 * **ON {structure}** currently supports HASH (default) and JSON.
 
 !!! info "ON JSON"
-    Require the [RedisJSON](https://redisjson.io) module to be installed.
+    To index JSON, you must have the [RedisJSON](https://redisjson.io) module installed.
 
 * **PREFIX {count} {prefix}** tells the index which keys it should index. You can add several prefixes to index. Since the argument is optional, the default is * (all keys)
 
@@ -165,7 +165,7 @@ FT.CREATE idx ON JSON SCHEMA $.title AS title TEXT $.categories AS categories TA
     * **{identifier}**
       
       For hashes, the identifier name is the name of the attribute within the hashes that this index follows.
-      For JSON, the identifier name is a JSON Path expression collecting the values that this index follows.
+      For JSON, the identifier is a JSON Path expression.
 
     * **AS {attribute}**
     
@@ -255,13 +255,13 @@ JSON.SET {key} {path} {json}
 
 #### Description
 
-Since RediSearch v2.0, native redis commands are used to add, update or delete hashes using [HSET](https://redis.io/commands/hset), [HINCRBY](https://redis.io/commands/hincrby), [HDEL](https://redis.io/commands/hdel) or other hash commands which alter the hash.
+Beginning with RediSearch v2.0, you use native Redis commands to add, update or delete hashes. These include [HSET](https://redis.io/commands/hset), [HINCRBY](https://redis.io/commands/hincrby), [HDEL](https://redis.io/commands/hdel).
 
-If a hash or a JSON document is modified, all matching indexes are updated automatically. Deletion of a hash/json by redis, whether by calling `DEL` or `JSON.DEL`, expiring a hash or evicting one, is handled automatically as well.
+When you modify a hash or JSON document, all matching indexes are updated automatically. Indexes are also updated when you delete an indexed hash or JSON document.
 
 If an attribute fails to be indexed (for example, if a numeric attributes gets a string value) the whole document is not indexed. `FT.INFO` provides the number of document-indexing-failures under `hash_indexing_failures`.
 
-If `LANGUAGE_FIELD`, `SCORE_FIELD`, or `PAYLOAD_FIELD` were used with `FT.CREATE`, the document will extract the properties. A attribute can be used to get the name of the index it belongs to.
+If `LANGUAGE_FIELD`, `SCORE_FIELD`, or `PAYLOAD_FIELD` are specified with `FT.CREATE`, the document will extract the properties. 
 
 !!! warning "Schema mismatch"
     If a value in a hash does not match the schema type for that attribute, indexing of the hash will fail. The number of 'failed' document is under `hash_indexing_failures` at `FT.INFO`.
@@ -358,7 +358,7 @@ Searching for books with "Python" in any TEXT attribute, returning ten results s
 FT.SEARCH books-idx "python" LIMIT 10 10 RETURN 1 title
 ```
 
-Searching for books with "Python" in any TEXT attribute, returning the prince store in the original JSON document.
+Searching for books with "Python" in any TEXT attribute, returning the price stored in the original JSON document.
 
 ```sql
 FT.SEARCH books-idx "python" RETURN 3 $.book.price AS price
@@ -399,12 +399,12 @@ FT.SEARCH books-idx "python" RETURN 3 $.book.price AS price
   the first argument must be the length of the list, and greater than zero.
   Non-existent keys are ignored - unless all the keys are non-existent.
 - **INFIELDS {num} {attribute} ...**: If set, filter the results to ones appearing only in specific
-  attributes of the document, like title or URL. num is the number of specified attribute arguments
+  attributes of the document, like `title` or `URL`. You must include `num`, which is the number of attributes you're filtering by. For example, if you request `title` and `URL`, then `num` is 2.
 
 - **RETURN {num} {identifier} AS {property} ...**: Use this keyword to limit which attributes from the document are returned.
   `num` is the number of attributes following the keyword. If `num` is 0, it acts like `NOCONTENT`.
   `identifier` is either an attribute name (for hashes and JSON) or a JSON Path expression for (JSON).
-  `property` is the optional name used in the result. It is not provided, the `identifier` is used.
+  `property` is an optional name used in the result. If not provided, the `identifier` is used in the result.
 - **SUMMARIZE ...**: Use this option to return only the sections of the attribute which contain the
   matched text.
   See [Highlighting](Highlight.md) for more details
@@ -443,7 +443,7 @@ The time complexity for more complex queries varies, but in general it's proport
 
 #### Returns
 
-**Array reply,** where the first element is the total number of results, and then pairs of document id, and a nested array of attribute/value.
+**Array reply,** where the first element is the total number of results, and then pairs of document IDs, and a nested array of attribute/value pairs.
 
 If **NOCONTENT** was given, we return an array where the first element is the total number of results, and the rest of the members are document ids.
 
@@ -871,8 +871,8 @@ Adding an attribute to the index will cause any future document updates to use t
 indexing and reindexing of existing documents.
 
 !!! note
-    Depending on how the index was created, you may be limited by the amount of additional text
-    attributes which can be added to an existing index. If the current index contains less than 32
+    Depending on how the index was created, you may be limited by the number of additional text
+    attributes which can be added to an existing index. If the current index contains fewer than 32
     text attributes, then `SCHEMA ADD` will only be able to add attributes up to 32 total attributes (meaning that the
     index will only ever be able to contain 32 total text attributes). If you wish for the index to
     contain more than 32 attributes, create it with the `MAXTEXTFIELDS` option.
@@ -986,9 +986,9 @@ FT.TAGVALS {index} {attribute_name}
 
 #### Description
 
-Returns the distinct tags indexed in a [Tag field](Tags.md).
+Returns the distinct set of values indexed in a [Tag field](Tags.md).
 
-This is useful if your tag attribute indexes things like cities, categories, etc.
+This is useful if your tag indexes things like cities, categories, etc.
 
 !!! warning "Limitations"
     There is no paging or sorting, the tags are not alphabetically sorted.

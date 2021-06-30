@@ -1,35 +1,32 @@
 # Indexing JSON documents
 
-As a secondary index, RediSearch aims to index data structures available in Redis.
-In its first implementations (1.x, 2.0) RediSearch supported only hashes.
-Associated with RediJSON (version 2.0 or more recent), RediSearch is able to index JSON documents.
+In addition to indexing Redis hashes, RediSearch also indexes JSON. To index JSON, you must use the RedisJSON module.
 
 ## Prerequisite
 
-What do you need to start indexing JSON documents ?
+What do you need to start indexing JSON documents?
 
-- Redis 6.0x (or more recent)
-- The module RediSearch 2.2 (or more recent)
-- The module RediJSON 2.0 (or more recent)
+- Redis 6.x or later
+- RediSearch 2.2 or later
+- RediJSON 2.0 or later
 
-## Creating an index for JSON documents indexing
+## How to index JSON documents
 
 Let's start by creating an index.
 
-The [FT.CREATE](Commands.md#FT.CREATE) command has evolved to support the new data type.
 We can now specify `ON JSON` to inform RediSearch that we want to index JSON documents.
 
-Then, on the `SCHEMA` part, you can provide JSON Path expressions.
+Then, on the `SCHEMA` part, you can provide JSONPath expressions.
 The result of each `JSON Path` expression is indexed and associated with a logical name (`attribute`).
 This attribute (previously called `field`) is used in the query part.
 
-This is the minimal syntax we have to use to be able to index a JSON document:
+This is the basic syntax for indexing a JSON document:
 
     FT.CREATE {index_name} ON JSON SCHEMA {json_path} AS {attribute} {type}
 
-Here is a concrete example:
+And here's a concrete example:
 
-    FT.CREATE myIdx ON JSON SCHEMA $.user.name AS name TEXT $.user.tag AS tag TAG
+    FT.CREATE userIdx ON JSON SCHEMA $.user.name AS name TEXT $.user.tag AS country TAG
 
 ## Adding JSON document to the index
 
@@ -53,15 +50,14 @@ In our example we are going to use the following JSON document:
 
 We can use `JSON.SET` to store in our database:
 
-    JSON.SET myDoc . '{"user":{"name":"John Smith","tag":["foo","bar"],"hp":1000, "dmg":150}}'
+    JSON.SET myDoc $ '{"user":{"name":"John Smith","tag":["foo","bar"],"hp":1000, "dmg":150}}'
 
-As indexing is synchronous, when the JSON.SET command returns the document is visible in the index.
-Any subsequent query matching the indexed content will find the document.
+Because indexing is synchronous, the document will be visible on the index as soon as the `JSON.SET` command returns.
+Any subsequent query matching the indexed content will return the document.
 
 ## Searching
 
 To search for documents, we use the [FT.SEARCH](Commands.md#FT.SEARCH) commands.
-Compared to HASH the query syntax does not change.
 We can search any attribute mentioned in the SCHEMA.
 
 Following our example, let's find our user called `John`:
@@ -78,7 +74,7 @@ FT.SEARCH myIdx '@name:(John)'
 
 We just saw that, by default, `FT.SEARCH` returns the whole document.
 
-We can return only specific attribute (here `name`):
+We can also return only specific attribute (here `name`):
 
 ```
 FT.SEARCH myIdx '@name:(John)' RETURN 1 name
@@ -90,7 +86,7 @@ FT.SEARCH myIdx '@name:(John)' RETURN 1 name
 
 ### Projecting using JSON Path expressions
 
-The `RETURN` parameter also accepts `JSON Path expression` which let us extract any part of the JSON document.
+The `RETURN` parameter also accepts a `JSON Path expression` which let us extract any part of the JSON document.
 
 In this example, we return the result of the JSON Path expression `$.user.hp`.
 
@@ -104,7 +100,7 @@ FT.SEARCH myIdx '@name:(John)' RETURN 1 $.user.hp
 
 Note that the property name is the JSON expression itself: `3) 1) "$.user.hp"`
 
-Using the `AS` option, it is also possible to change then name of the returned property.
+Using the `AS` option, you can also alias the returned property.
 
 ```
 FT.SEARCH myIdx '@name:(John)' RETURN 3 $.user.hp AS hitpoints
@@ -116,7 +112,7 @@ FT.SEARCH myIdx '@name:(John)' RETURN 3 $.user.hp AS hitpoints
 
 ### Highlighting
 
-On JSON, we can highlight any attribute as soon as he is indexed using the TEXT type.
+On JSON, we can highlight any attribute as soon as it is indexed using the TEXT type.
 in FT.SEARCH we have to explicitly as the attribute in the `RETURN` and the `HIGHLIGHT` parameters.
 
 ```
@@ -139,4 +135,3 @@ FT.AGGREGATE myIdx '*' LOAD 6 $.user.hp AS hp $.user.dmg AS dmg APPLY '@hp-@dmg'
 2) 1) "point"
    2) "850"
 ```
-
