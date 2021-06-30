@@ -7,7 +7,7 @@
 #### Format
 ```
   FT.CREATE {index}
-    [ON {structure}]
+    [ON {data_type}]
        [PREFIX {count} {prefix} [{prefix} ..]
        [FILTER {filter}]
        [LANGUAGE {default_lang}]
@@ -91,7 +91,7 @@ FT.CREATE idx ON JSON SCHEMA $.title AS title TEXT $.categories AS categories TA
 
 * **index**: the index name to create. If it exists the old spec will be overwritten
 
-* **ON {structure}** currently supports HASH (default) and JSON.
+* **ON {data_type}** currently supports HASH (default) and JSON.
 
 !!! info "ON JSON"
     To index JSON, you must have the [RedisJSON](https://redisjson.io) module installed.
@@ -168,9 +168,10 @@ FT.CREATE idx ON JSON SCHEMA $.title AS title TEXT $.categories AS categories TA
       For JSON, the identifier is a JSON Path expression.
 
     * **AS {attribute}**
-    
-      This optional parameter define the logical name to use in the query. If the attribute is missing, the identifier is used.
-    
+
+      This optional parameter defines the attribute associated to the identifier.
+      For example, you can use this feature to alias a complex JSONPath expression with more memorable (and easier to type) name
+      
     #### Field Types
 
     * **TEXT**
@@ -1011,7 +1012,7 @@ Array Reply: All the distinct tags in the tag index.
 
 #### Complexity
 
-O(n), n being the cardinality of the tag attribute.
+O(n), n being the number of distinct values stored.
 
 ---
 
