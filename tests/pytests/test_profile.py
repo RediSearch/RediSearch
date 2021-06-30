@@ -16,6 +16,7 @@ def testProfileSearch(env):
   conn.execute_command('hset', '2', 't', 'world')
 
   env.expect('ft.profile', 'profile', 'idx', '*', 'nocontent').error().contains('Bad command type')
+  env.expect('ft.profile', 'idx').error().contains("wrong number of arguments for 'ft.profile'")
 
   # test WILDCARD
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '*', 'nocontent')
