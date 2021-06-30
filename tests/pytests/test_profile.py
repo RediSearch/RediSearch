@@ -16,7 +16,6 @@ def testProfileSearch(env):
   conn.execute_command('hset', '2', 't', 'world')
 
   env.expect('ft.profile', 'profile', 'idx', '*', 'nocontent').error().contains('Bad command type')
-  env.expect('ft.profile', 'idx').error().contains("wrong number of arguments for 'ft.profile'")
 
   # test WILDCARD
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '*', 'nocontent')
@@ -154,6 +153,19 @@ def testProfileCursor(env):
   conn = getConnectionByEnv(env)
   env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'text')
   env.expect('ft.profile', 'idx', 'aggregate', 'query', '*', 'WITHCURSOR').error().contains('FT.PROFILE does not support cursor')
+
+
+def testProfileErrors(env):
+  conn = getConnectionByEnv(env)
+  env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'text')
+  # missing args
+  env.expect('ft.profile', 'idx').error().contains("wrong number of arguments for 'ft.profile'")
+  env.expect('ft.profile', 'idx', 'SEARCH').error().contains("wrong number of arguments for 'ft.profile'")
+  env.expect('ft.profile', 'idx', 'SEARCH', 'QUERY').error().contains("wrong number of arguments for 'ft.profile'")
+  # wrong `query` type
+  env.expect('ft.profile', 'idx', 'redis', 'QUERY', '*').error().contains('Bad command type')
+  # miss `QUERY` keyword
+  env.expect('ft.profile', 'idx', 'SEARCH', 'FIND', '*').error().contains('The QUERY keyward is expected')
 
 def testProfileNumeric(env):
   env.skipOnCluster()
