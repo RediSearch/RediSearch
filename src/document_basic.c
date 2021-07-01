@@ -167,7 +167,7 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx) {
   doc->score = SchemaRule_JsonScore(sctx->redisCtx, rule, jsonKey, keyName);
   // No payload on JSON as RedisJSON does not support binary fields
 
-  JSONType type;
+  JSONType jsonType;
   doc->fields = rm_calloc(nitems, sizeof(*doc->fields));
   size_t ii = 0;
   for (; ii < spec->numFields; ++ii) {
@@ -175,13 +175,13 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx) {
 
     // retrieve json pointer
     // TODO: check option to move to getStringFromKey
-    json = japi->get(jsonKey, field->path, &type);
+    json = japi->get(jsonKey, field->path, &jsonType);
     if (!json) {
         continue;
     }
-    if (type == JSONType_Array || type == JSONType_Object) {
-        json = NULL;
-      continue;
+
+    if (FieldSpec_CheckJsonType(field->types, jsonType) != REDISMODULE_OK) {
+      goto done;
     }
 
     size_t oix = doc->numFields++;
@@ -191,7 +191,7 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx) {
 
     // on crdt the return value might be the underline value, we must copy it!!!
     // TODO: change `fs->text` to support hash or json not RedisModuleString
-    if (japi->getJSON(json, ctx, &doc->fields[oix].text) != REDISMODULE_OK) {
+    if (JSON_GetRedisModuleString(ctx, json, &doc->fields[oix].text) != REDISMODULE_OK) {
       RedisModule_Log(ctx, "verbose", "Failed to load value from field %s", field->path);
       goto done;
     }
