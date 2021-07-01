@@ -30,8 +30,8 @@ And here's a concrete example:
 
 ## Adding JSON document to the index
 
-As soon as the index is created, any pre-existing JSON document,
-or any new JSON document added or modified is automatically indexed.
+As soon as the index is created, any pre-existing JSON document, or any new JSON document added or modified is
+automatically indexed.
 
 We are free to use any writing command from the RedisJSON module (`JSON.SET`, `JSON.ARRAPPEND`, etc.).
 
@@ -41,7 +41,10 @@ In our example we are going to use the following JSON document:
 {
   "user": {
     "name": "John Smith",
-    "tag": ["foo","bar"],
+    "tag": [
+      "foo",
+      "bar"
+    ],
     "hp": "1000",
     "dmg": "150"
   }
@@ -112,8 +115,8 @@ FT.SEARCH myIdx '@name:(John)' RETURN 3 $.user.hp AS hitpoints
 
 ### Highlighting
 
-On JSON, we can highlight any attribute as soon as it is indexed using the TEXT type.
-in FT.SEARCH we have to explicitly as the attribute in the `RETURN` and the `HIGHLIGHT` parameters.
+We can highlight any attribute as soon as it is indexed using the TEXT type.
+In FT.SEARCH we have to explicitly set the attribute in the `RETURN` and the `HIGHLIGHT` parameters.
 
 ```
 FT.SEARCH myIdx '@name:(John)' RETURN 1 name HIGHLIGHT FIELDS 1 name TAGS '<b>' '</b>'
@@ -128,10 +131,61 @@ FT.SEARCH myIdx '@name:(John)' RETURN 1 name HIGHLIGHT FIELDS 1 name TAGS '<b>' 
 [Aggregation](Aggregations.md) is a powerful feature. You can use it to generate statistics or build facet queries.
 The LOAD parameters accepts JSON Path expressions. Any value (even not indexed) can be used in the pipeline.
 
-In this example we are loading two numeric values from the JSON document applying a simple operation.  
+In this example we are loading two numeric values from the JSON document applying a simple operation.
+
 ```
 FT.AGGREGATE myIdx '*' LOAD 6 $.user.hp AS hp $.user.dmg AS dmg APPLY '@hp-@dmg' AS points
 1) (integer) 1
 2) 1) "point"
    2) "850"
 ```
+
+## Current indexing limitations
+
+### It is not possible to index JSON object and JSON arrays.
+
+To be indexed, a JSONPath expression must return a single scalar value (string or number).
+If the JSONPath expression returns an object or an array, it will be ignored.
+
+Given the following document:
+
+```JSON
+{
+  "name": "Headquarters",
+  "address": [
+    "Suite 250",
+    "Mountain View"
+  ],
+  "cp": "CA 94040"
+}
+```
+
+If we want to index the array under the `address` key, we have to create two fields:
+
+```SQL
+FT.CREATE orgIdx ON JSON SCHEMA $.address[0] AS a1 TEXT $.address[1] AS a2 TEXT
+OK
+```
+
+We can now index the document:
+
+```SQL
+JSON.SET org:1 $ '{"name": "Headquarters","address": ["Suite 250","Mountain View"],"cp": "CA 94040"}'
+OK
+```
+
+We can now search in the address:
+
+```SQL
+FT.SEARCH orgIdx "suite 250"
+1) (integer) 1
+2) "org:1"
+3) 1) "$"
+   2) "{\"name\":\"Headquarters\",\"address\":[\"Suite 250\",\"Mountain View\"],\"cp\":\"CA 94040\"}"
+```
+
+### JSON strings and numbers as to be indexed as TEXT and NUMERIC
+
+- JSON Strings can only be indexed as TEXT, TAG and GEO (using the right syntax).
+- JSON numbers can only be indexes as NUMERIC.
+- Boolean and NULL values are ignored.
