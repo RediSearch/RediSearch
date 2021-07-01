@@ -110,12 +110,12 @@ def testDropReplicate():
     master.execute_command('HSET', 'doc%d' % j, 't', 'hello%d' % j, 'tg', 'world%d' % j, 'n', j, 'g', geo)
 
   # test for FT.DROPINDEX
+  master.execute_command('WAIT', 1, 1000)
   master.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC', 'tg', 'TAG', 'g', 'GEO')
-  time.sleep(0.0005)
   master.execute_command('FT.DROPINDEX', 'idx', 'DD')
+  master.execute_command('WAIT', 1, 1000)
 
   # check that same docs were deleted by master and slave
-  master.execute_command('WAIT', 1, 1000)
   master_keys = sorted(master.execute_command('KEYS', '*'))
   slave_keys = sorted(slave.execute_command('KEYS', '*'))
   env.assertEqual(len(master_keys), len(slave_keys))
