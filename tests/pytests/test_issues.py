@@ -137,7 +137,7 @@ def test_issue1880(env):
   conn.execute_command('HSET', 'doc1', 't', 'hello world')
   conn.execute_command('HSET', 'doc2', 't', 'hello')
 
-  excepted_res = ['Type', 'INTERSECT', 'Counter', 1L, 'Children iterators',
+  excepted_res = ['Type', 'INTERSECT', 'Counter', 1L, 'Child iterators',
                     ['Type', 'TEXT', 'Term', 'world', 'Counter', 1L, 'Size', 1L],
                     ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1L, 'Size', 2L]] 
   res1 = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'hello world')
@@ -147,7 +147,7 @@ def test_issue1880(env):
   env.assertEqual(res2[1][3][1], excepted_res)
 
   # test with a term which does not exist
-  excepted_res = ['Type', 'INTERSECT', 'Counter', 0L, 'Children iterators', 
+  excepted_res = ['Type', 'INTERSECT', 'Counter', 0L, 'Child iterators', 
                     None,
                     ['Type', 'TEXT', 'Term', 'world', 'Counter', 0L, 'Size', 1L],
                     ['Type', 'TEXT', 'Term', 'hello', 'Counter', 0L, 'Size', 2L]]

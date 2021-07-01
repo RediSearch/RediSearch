@@ -365,6 +365,10 @@ RedisModuleString **_profileArgsDup(RedisModuleString **argv, int argc, int para
 }
 
 int RSProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  if (argc < 5) {
+    return RedisModule_WrongArity(ctx);
+  }
+
   CommandType cmdType;
   int curArg = PROFILE_1ST_PARAM;
   int withProfile = PROFILE_FULL;
