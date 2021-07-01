@@ -252,11 +252,11 @@ void RLookup_Cleanup(RLookup *lk) {
 
 static RSValue *hvalToValue(RedisModuleString *src, RLookupCoerceType type) {
   if (type == RLOOKUP_C_BOOL || type == RLOOKUP_C_INT) {
-    long long ll = 0;
+    long long ll;
     RedisModule_StringToLongLong(src, &ll);
     return RS_Int64Val(ll);
   } else if (type == RLOOKUP_C_DBL) {
-    double dd = 0.0;
+    double dd;
     RedisModule_StringToDouble(src, &dd);
     return RS_NumVal(dd);
   } else {
@@ -270,8 +270,8 @@ static RSValue *jsonValToValue(RedisModuleCtx *ctx, RedisJSON json) {
   const char *constStr;
   RedisModuleString *rstr;
   RSValue *rs_val;
-  long long ll = 0;
-  double dd = 0.0;
+  long long ll;
+  double dd;
   int i;
 
   switch (japi->getType(json)) {
