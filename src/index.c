@@ -1819,7 +1819,7 @@ PRINT_PROFILE_FUNC(printUnionIt) {
     nlen += 2;
   }
 
-  RedisModule_ReplyWithSimpleString(ctx, "Children iterators");
+  RedisModule_ReplyWithSimpleString(ctx, "Child iterators");
   nlen++;
   if (printFull) {
     for (int i = 0; i < ui->norig; i++) {
@@ -1827,7 +1827,7 @@ PRINT_PROFILE_FUNC(printUnionIt) {
     }
     nlen += ui->norig;
   } else {
-    RedisModule_ReplyWithPrintf(ctx, "The number of iterators in union is %d", ui->norig);
+    RedisModule_ReplyWithPrintf(ctx, "The number of iterators in the union is %d", ui->norig);
     nlen++;
   }
 
@@ -1851,7 +1851,7 @@ PRINT_PROFILE_FUNC(printIntersectIt) {
   printProfileCounter(counter);
   nlen += 2;
 
-  RedisModule_ReplyWithSimpleString(ctx, "Children iterators");
+  RedisModule_ReplyWithSimpleString(ctx, "Child iterators");
   nlen++;
   for (int i = 0; i < ii->num; i++) {
     if (ii->its[i]) {
