@@ -7,27 +7,27 @@
 #### Format
 ```
   FT.CREATE {index}
-    [ON {structure}]
+    [ON {data_type}]
        [PREFIX {count} {prefix} [{prefix} ..]
        [FILTER {filter}]
        [LANGUAGE {default_lang}]
-       [LANGUAGE_FIELD {lang_field}]
+       [LANGUAGE_FIELD {lang_attribute}]
        [SCORE {default_score}]
-       [SCORE_FIELD {score_field}]
-       [PAYLOAD_FIELD {payload_field}]
+       [SCORE_FIELD {score_attribute}]
+       [PAYLOAD_FIELD {payload_attribute}]
     [MAXTEXTFIELDS] [TEMPORARY {seconds}] [NOOFFSETS] [NOHL] [NOFIELDS] [NOFREQS] [SKIPINITIALSCAN]
     [STOPWORDS {num} {stopword} ...]
-    SCHEMA {field} [TEXT [NOSTEM] [WEIGHT {weight}] [PHONETIC {matcher}] | NUMERIC | GEO | TAG [SEPARATOR {sep}] ] [SORTABLE][NOINDEX] ...
+    SCHEMA {identifier} [AS {attribute}] [TEXT [NOSTEM] [WEIGHT {weight}] [PHONETIC {matcher}] | NUMERIC | GEO | TAG [SEPARATOR {sep}] ] [SORTABLE][NOINDEX] ...
 ```
 
 #### Description
 Creates an index with the given spec.
 
-!!! warning "Note on field number limits"
-    RediSearch supports up to 1024 fields per schema, out of which at most 128 can be TEXT fields.
-    On 32 bit builds, at most 64 fields can be TEXT fields.
-    Note that the more fields you have, the larger your index will be, as each additional 8 fields require one extra byte per index record to encode.
-    You can always use the `NOFIELDS` option and not encode field information into the index, for saving space, if you do not need filtering by text fields. This will still allow filtering by numeric and geo fields.
+!!! warning "Note on attribute number limits"
+    RediSearch supports up to 1024 attributes per schema, out of which at most 128 can be TEXT attributes.
+    On 32 bit builds, at most 64 attributes can be TEXT attributes.
+    Note that the more attributes you have, the larger your index will be, as each additional 8 attributes require one extra byte per index record to encode.
+    You can always use the `NOFIELDS` option and not encode attribute information into the index, for saving space, if you do not need filtering by text attributes. This will still allow filtering by numeric and geo attributes.
 
 !!! info "Note on running in clustered databases"
     When having several indices in a clustered database, you need to make sure the documents you want to index reside on the same shard as the index. You can achieve this by having your documents tagged by the index name.
@@ -45,6 +45,12 @@ Creating an index that stores the title, publication date, and categories of blo
 
 ```sql
 FT.CREATE idx ON HASH PREFIX 1 blog:post: SCHEMA title TEXT SORTABLE published_at NUMERIC SORTABLE category TAG SORTABLE
+```
+
+Indexing the "sku" attribute from a hash as both a TAG and as TEXT:
+
+```sql
+FT.CREATE idx ON HASH PREFIX 1 blog:post: SCHEMA sku AS sku_text TEXT sku AS sku_tag TAG SORTABLE
 ```
 
 Indexing two different hashes -- one containing author data and one containing books -- in the same index:
@@ -69,24 +75,33 @@ Indexing only books that have a subtitle:
 FT.CREATE subtitled-books-idx ON HASH PREFIX 1 book:details FILTER '@subtitle != ""' SCHEMA title TEXT
 ```
 
-Indexing books that have a "categories" field in which semicolons separate the values:
+Indexing books that have a "categories" attribute where each category is separated by a `;` character:
 
 ```sql
 FT.CREATE books-idx ON HASH PREFIX 1 book:details FILTER SCHEMA title TEXT categories TAG SEPARATOR ";"
+```
+
+Indexing a JSON document using a JSON Path expression:
+
+```sql
+FT.CREATE idx ON JSON SCHEMA $.title AS title TEXT $.categories AS categories TAG SORTABLE
 ```
 
 #### Parameters
 
 * **index**: the index name to create. If it exists the old spec will be overwritten
 
-* **ON {structure}** currently supports only HASH (default)
+* **ON {data_type}** currently supports HASH (default) and JSON.
+
+!!! info "ON JSON"
+    To index JSON, you must have the [RedisJSON](https://redisjson.io) module installed.
 
 * **PREFIX {count} {prefix}** tells the index which keys it should index. You can add several prefixes to index. Since the argument is optional, the default is * (all keys)
 
 * **FILTER {filter}** is a filter expression with the full RediSearch aggregation expression language. It is possible to use @__key to access the key that was just added/changed. A field can be used to set field name by passing `'FILTER @indexName=="myindexname"'`
 
 * **LANGUAGE {default_lang}**: If set indicates the default language for documents in the index. Default to English.
-* **LANGUAGE_FIELD {lang_field}**: If set indicates the document field that should be used as the document language.
+* **LANGUAGE_FIELD {lang_attribute}**: If set indicates the document attribute that should be used as the document language.
 
 !!! info "Supported languages"
     A stemmer is used for the supplied language during indexing.
@@ -106,15 +121,15 @@ FT.CREATE books-idx ON HASH PREFIX 1 book:details FILTER SCHEMA title TEXT categ
     information.
 
 * **SCORE {default_score}**: If set indicates the default score for documents in the index. Default score is 1.0.
-* **SCORE_FIELD {score_field}**: If set indicates the document field that should be used as the document's rank based on the user's ranking.
+* **SCORE_FIELD {score_attribute}**: If set indicates the document attribute that should be used as the document's rank based on the user's ranking.
   Ranking must be between 0.0 and 1.0. If not set the default score is 1.
 
-* **PAYLOAD_FIELD {payload_field}**: If set indicates the document field that should be used as a binary safe payload string to the document,
+* **PAYLOAD_FIELD {payload_attribute}**: If set indicates the document attribute that should be used as a binary safe payload string to the document,
   that can be evaluated at query time by a custom scoring function, or retrieved to the client.
 
 * **MAXTEXTFIELDS**: For efficiency, RediSearch encodes indexes differently if they are
-  created with less than 32 text fields. This option forces RediSearch to encode indexes as if
-  there were more than 32 text fields, which allows you to add additional fields (beyond 32)
+  created with less than 32 text attributes. This option forces RediSearch to encode indexes as if
+  there were more than 32 text attributes, which allows you to add additional attributes (beyond 32)
   using `FT.ALTER`.
 
 * **NOOFFSETS**: If set, we do not store term offsets for documents (saves memory, does not
@@ -128,8 +143,8 @@ FT.CREATE books-idx ON HASH PREFIX 1 book:details FILTER SCHEMA title TEXT categ
 * **NOHL**: Conserves storage space and memory by disabling highlighting support. If set, we do
   not store corresponding byte offsets for term positions. `NOHL` is also implied by `NOOFFSETS`.
 
-* **NOFIELDS**: If set, we do not store field bits for each term. Saves memory, does not allow
-  filtering by specific fields.
+* **NOFIELDS**: If set, we do not store attribute bits for each term. Saves memory, does not allow
+  filtering by specific attributes.
 
 * **NOFREQS**: If set, we avoid saving the term frequencies in the index. This saves
   memory but does not allow sorting based on the frequencies of a given term within
@@ -145,45 +160,55 @@ FT.CREATE books-idx ON HASH PREFIX 1 book:details FILTER SCHEMA title TEXT categ
 
 * **SKIPINITIALSCAN**: If set, we do not scan and index.
 
-* **SCHEMA {field name} {field type} {options...}**: After the SCHEMA keyword we define the index fields. The field name is the name of the field within the hashes that this index follows. Field types can be numeric, textual or geographical.
+* **SCHEMA {identifier} AS {attribute} {attribute type} {options...}**: After the SCHEMA keyword, we declare which fields to index:
+  
+    * **{identifier}**
+      
+      For hashes, the identifier is a field name within the hash.
+      For JSON, the identifier is a JSON Path expression.
 
+    * **AS {attribute}**
+
+      This optional parameter defines the attribute associated to the identifier.
+      For example, you can use this feature to alias a complex JSONPath expression with more memorable (and easier to type) name
+      
     #### Field Types
 
     * **TEXT**
 
-      Allows full-text search queries against the value in this field.
+      Allows full-text search queries against the value in this attribute.
 
     * **TAG**
 
-      Allows exact-match queries, such as categories or primary keys, against the value in this field. For more information, see [Tag Fields](Tags.md).
+      Allows exact-match queries, such as categories or primary keys, against the value in this attribute. For more information, see [Tag Fields](Tags.md).
 
     * **NUMERIC**
 
-      Allows numeric range queries against the value in this field. See [query syntax docs](Query_Syntax.md) for details on how to use numeric ranges.
+      Allows numeric range queries against the value in this attribute. See [query syntax docs](Query_Syntax.md) for details on how to use numeric ranges.
 
     * **GEO**
 
-      Allows geographic range queries against the value in this field. The value of the field must be a string containing a longitude (first) and latitude separated by a comma.
+      Allows geographic range queries against the value in this attribute. The value of the attribute must be a string containing a longitude (first) and latitude separated by a comma.
 
     #### Field Options
 
     * **SORTABLE**
 
-        Numeric, tag or text fields can have the optional SORTABLE argument that allows the user to later [sort the results by the value of this field](Sorting.md) (this adds memory overhead so do not declare it on large text fields).
+        Numeric, tag or text attributes can have the optional SORTABLE argument that allows the user to later [sort the results by the value of this attribute](Sorting.md) (this adds memory overhead so do not declare it on large text attributes).
 
     * **NOSTEM**
 
-        Text fields can have the NOSTEM argument which will disable stemming when indexing its values.
+        Text attributes can have the NOSTEM argument which will disable stemming when indexing its values.
         This may be ideal for things like proper names.
 
     * **NOINDEX**
 
-        Fields can have the `NOINDEX` option, which means they will not be indexed.
-        This is useful in conjunction with `SORTABLE`, to create fields whose update using PARTIAL will not cause full reindexing of the document. If a field has NOINDEX and doesn't have SORTABLE, it will just be ignored by the index.
+        Attributes can have the `NOINDEX` option, which means they will not be indexed.
+        This is useful in conjunction with `SORTABLE`, to create attributes whose update using PARTIAL will not cause full reindexing of the document. If an attribute has NOINDEX and doesn't have SORTABLE, it will just be ignored by the index.
 
     * **PHONETIC {matcher}**
 
-        Declaring a text field as `PHONETIC` will perform phonetic matching on it in searches by default. The obligatory {matcher} argument specifies the phonetic algorithm and language used. The following matchers are supported:
+        Declaring a text attribute as `PHONETIC` will perform phonetic matching on it in searches by default. The obligatory {matcher} argument specifies the phonetic algorithm and language used. The following matchers are supported:
 
         * `dm:en` - Double Metaphone for English
         * `dm:fr` - Double Metaphone for French
@@ -194,13 +219,13 @@ FT.CREATE books-idx ON HASH PREFIX 1 book:details FILTER SCHEMA title TEXT categ
 
     * **WEIGHT {weight}**
 
-        For `TEXT` fields, declares the importance of this field when
+        For `TEXT` attributes, declares the importance of this attribute when
         calculating result accuracy. This is a multiplication factor, and
         defaults to 1 if not specified.
 
     * **SEPARATOR {sep}**
 
-        For `TAG` fields, indicates how the text contained in the field
+        For `TAG` attributes, indicates how the text contained in the attribute
         is to be split into individual tags. The default is `,`. The value
         must be a single character.
 
@@ -216,7 +241,7 @@ OK or an error
 
 ## Insert
 
-### HSET/HSETNX/HDEL/HINCRBY/HDECRBY
+### HSET/HSETNX/HDEL/HINCRBY/HDECRBY/JSON.SET
 
 #### Format
 
@@ -224,27 +249,33 @@ OK or an error
 HSET {hash} {field} {value} [{field} {value} ...]
 ```
 
+
+```
+JSON.SET {key} {path} {json}
+```
+
 #### Description
 
-Since RediSearch v2.0, native redis commands are used to add, update or delete hashes using [HSET](https://redis.io/commands/hset), [HINCRBY](https://redis.io/commands/hincrby), [HDEL](https://redis.io/commands/hdel) or other hash commands which alter the hash.
+Beginning with RediSearch v2.0, you use native Redis commands to add, update or delete hashes. These include [HSET](https://redis.io/commands/hset), [HINCRBY](https://redis.io/commands/hincrby), [HDEL](https://redis.io/commands/hdel).
 
-If a hash is modified, all matching indexes are updated automatically. Deletion of a hash by redis, whether by calling `DEL`, expiring a hash or evicting one, is handled automatically as well.
+When you modify a hash or JSON document, all matching indexes are updated automatically. Indexes are also updated when you delete an indexed hash or JSON document.
 
-If a field fails to be indexed (for example, if a numeric fields gets a string value) the whole document is not indexed. `FT.INFO` provides the number of document-indexing-failures under `hash_indexing_failures`.
+If an attribute fails to be indexed (for example, if a numeric attributes gets a string value) the whole document is not indexed. `FT.INFO` provides the number of document-indexing-failures under `hash_indexing_failures`.
 
-If `LANGUAGE_FIELD`, `SCORE_FIELD`, or `PAYLOAD_FIELD` were used with `FT.CREATE`, the document will extract the properties. A field can be used to get the name of the index it belongs to.
+If `LANGUAGE_FIELD`, `SCORE_FIELD`, or `PAYLOAD_FIELD` are specified with `FT.CREATE`, the document will extract the properties. 
 
 !!! warning "Schema mismatch"
-    If a value in a hash does not match the schema type for that field, indexing of the hash will fail. The number of 'failed' document is under `hash_indexing_failures` at `FT.INFO`.
+    If a value in a hash does not match the schema type for that attribute, indexing of the hash will fail. The number of 'failed' document is under `hash_indexing_failures` at `FT.INFO`.
 
 !!! info "Complete list of redis commands which might modify the index:"
-    HSET, HMSET, HSETNX, HINCRBY, HINCRBYFLOAT, HDEL, DEL, SET, RENAME_FROM, RENAME_TO, TRIMMED, RESTORE, EXPIRED, EVICTED, CHANGE, LOADED
+    HSET, HMSET, HSETNX, HINCRBY, HINCRBYFLOAT, HDEL, DEL, SET, RENAME_FROM, RENAME_TO, TRIMMED, RESTORE, EXPIRED, EVICTED, CHANGE, LOADED, JSON.SET, JSON.DEL, JSON.NUMINCRBY, JSON.ARRAPPEND, JSON.ARRINDEDX, JSON.ARRTRIM, JSON.ARRPOP
 
 ##### Example
 ```sql
 HSET doc1 cs101 "hello world" number 3.141 geopoint "-122.064228,37.377658" tags foo,bar,baz
 HSET doc2 cs201 "foo bar baz" number 2.718 geopoint "-0.084324,51.515583" tags foo,bar,baz
 HSET doc3 Name "RedisLabs" indexName "myindexname"
+JSON.SET doc4 '{"cs101": "hello world", "number": 3.141, "geopoint": "-122.064228,37.377658", "tags": ["foo", "bar"]}'
 ```
 
 !!! note
@@ -260,19 +291,19 @@ HSET doc3 Name "RedisLabs" indexName "myindexname"
 
 ```
 FT.SEARCH {index} {query} [NOCONTENT] [VERBATIM] [NOSTOPWORDS] [WITHSCORES] [WITHPAYLOADS] [WITHSORTKEYS]
-  [FILTER {numeric_field} {min} {max}] ...
-  [GEOFILTER {geo_field} {lon} {lat} {radius} m|km|mi|ft]
+  [FILTER {numeric_attribute} {min} {max}] ...
+  [GEOFILTER {geo_attribute} {lon} {lat} {radius} m|km|mi|ft]
   [INKEYS {num} {key} ... ]
-  [INFIELDS {num} {field} ... ]
-  [RETURN {num} {field} ... ]
-  [SUMMARIZE [FIELDS {num} {field} ... ] [FRAGS {num}] [LEN {fragsize}] [SEPARATOR {separator}]]
-  [HIGHLIGHT [FIELDS {num} {field} ... ] [TAGS {open} {close}]]
+  [INFIELDS {num} {attribute} ... ]
+  [RETURN {num} {identifier} [AS {property}] ... ]
+  [SUMMARIZE [FIELDS {num} {attribute} ... ] [FRAGS {num}] [LEN {fragsize}] [SEPARATOR {separator}]]
+  [HIGHLIGHT [FIELDS {num} {attribute} ... ] [TAGS {open} {close}]]
   [SLOP {slop}] [INORDER]
   [LANGUAGE {language}]
   [EXPANDER {expander}]
   [SCORER {scorer}] [EXPLAINSCORE]
   [PAYLOAD {payload}]
-  [SORTBY {field} [ASC|DESC]]
+  [SORTBY {attribute} [ASC|DESC]]
   [LIMIT offset num]
 ```
 
@@ -282,12 +313,12 @@ Searches the index with a textual query, returning either documents or just ids.
 
 #### Examples
 
-Searching for the term "wizard" in every TEXT field of an index containing book data:
+Searching for the term "wizard" in every TEXT attribute of an index containing book data:
 
 ```sql
 FT.SEARCH books-idx "wizard"
 ```
-Searching for the term "dogs" in only the "title" field:
+Searching for the term "dogs" in only the "title" attribute:
 
 ```sql
 FT.SEARCH books-idx "@title:dogs"
@@ -305,27 +336,33 @@ Searching for Chinese restaurants within 5 kilometers of longitude -122.41, lati
 FT.SEARCH restaurants-idx "chinese @location:[-122.41 37.77 5 km]"
 ```
 
-Searching for the term "dogs" or "cats" in the "title" field, but giving matches of "dogs" a higher relevance score (also known as *boosting*):
+Searching for the term "dogs" or "cats" in the "title" attribute, but giving matches of "dogs" a higher relevance score (also known as *boosting*):
 
 ```sql
 FT.SEARCH books-idx "(@title:dogs | @title:cats) | (@title:dogs) => { $weight: 5.0; }"
 ```
-Searching for books with "dogs" in any TEXT field in the index and requesting an explanation of scoring for each result:
+Searching for books with "dogs" in any TEXT attribute in the index and requesting an explanation of scoring for each result:
 
 ```sql
 FT.SEARCH books-idx "dogs" WITHSCORES EXPLAINSCORE
 ```
 
-Searching for books with "space" in the title that have "science" in the TAG field "categories":
+Searching for books with "space" in the title that have "science" in the TAG attribute "categories":
 
 ```sql
 FT.SEARCH books-idx "@title:space @categories:{science}"
 ```
 
-Searching for books with "Python" in any TEXT field, returning ten results starting with the eleventh result in the entire result set (the offset parameter is zero-based), and returning only the "title" field for each result:
+Searching for books with "Python" in any TEXT attribute, returning ten results starting with the eleventh result in the entire result set (the offset parameter is zero-based), and returning only the "title" attribute for each result:
 
 ```sql
 FT.SEARCH books-idx "python" LIMIT 10 10 RETURN 1 title
+```
+
+Searching for books with "Python" in any TEXT attribute, returning the price stored in the original JSON document.
+
+```sql
+FT.SEARCH books-idx "python" RETURN 3 $.book.price AS price
 ```
 
 !!! tip "More examples"
@@ -351,23 +388,25 @@ FT.SEARCH books-idx "python" LIMIT 10 10 RETURN 1 title
   right after the id and score and /or payload if requested. This is usually not needed by users, and
   exists for distributed search coordination purposes.
 
-- **FILTER numeric_field min max**: If set, and numeric_field is defined as a numeric field in
+- **FILTER numeric_attribute min max**: If set, and numeric_attribute is defined as a numeric attribute in
   FT.CREATE, we will limit results to those having numeric values ranging between min and max.
   min and max follow ZRANGE syntax, and can be **-inf**, **+inf** and use `(` for exclusive ranges.
-  Multiple numeric filters for different fields are supported in one query.
-- **GEOFILTER {geo_field} {lon} {lat} {radius} m|km|mi|ft**: If set, we filter the results to a given radius
+  Multiple numeric filters for different attributes are supported in one query.
+- **GEOFILTER {geo_attribute} {lon} {lat} {radius} m|km|mi|ft**: If set, we filter the results to a given radius
   from lon and lat. Radius is given as a number and units. See [GEORADIUS](https://redis.io/commands/georadius)
   for more details.
-- **INKEYS {num} {field} ...**: If set, we limit the result to a given set of keys specified in the
+- **INKEYS {num} {attribute} ...**: If set, we limit the result to a given set of keys specified in the
   list.
   the first argument must be the length of the list, and greater than zero.
   Non-existent keys are ignored - unless all the keys are non-existent.
-- **INFIELDS {num} {field} ...**: If set, filter the results to ones appearing only in specific
-  fields of the document, like title or URL. num is the number of specified field arguments
+- **INFIELDS {num} {attribute} ...**: If set, filter the results to ones appearing only in specific
+  attributes of the document, like `title` or `URL`. You must include `num`, which is the number of attributes you're filtering by. For example, if you request `title` and `URL`, then `num` is 2.
 
-- **RETURN {num} {field} ...**: Use this keyword to limit which fields from the document are returned.
-  `num` is the number of fields following the keyword. If `num` is 0, it acts like `NOCONTENT`.
-- **SUMMARIZE ...**: Use this option to return only the sections of the field which contain the
+- **RETURN {num} {identifier} AS {property} ...**: Use this keyword to limit which attributes from the document are returned.
+  `num` is the number of attributes following the keyword. If `num` is 0, it acts like `NOCONTENT`.
+  `identifier` is either an attribute name (for hashes and JSON) or a JSON Path expression for (JSON).
+  `property` is an optional name used in the result. If not provided, the `identifier` is used in the result.
+- **SUMMARIZE ...**: Use this option to return only the sections of the attribute which contain the
   matched text.
   See [Highlighting](Highlight.md) for more details
 - **HIGHLIGHT ...**: Use this option to format occurrences of matched text. See [Highlighting](Highlight.md) for more
@@ -389,8 +428,8 @@ FT.SEARCH books-idx "python" LIMIT 10 10 RETURN 1 title
 - **PAYLOAD {payload}**: Add an arbitrary, binary safe payload that will be exposed to custom scoring
   functions. [See Extensions](Extensions.md).
 
-- **SORTBY {field} [ASC|DESC]**: If specified, the results
-  are ordered by the value of this field. This applies to both text and numeric fields.
+- **SORTBY {attribute} [ASC|DESC]**: If specified, the results
+  are ordered by the value of this attribute. This applies to both text and numeric attributes.
 - **LIMIT first num**: Limit the results to
   the offset and number of results given. Note that the offset is zero-indexed. The default is 0 10, which returns 10 items starting from the first result.
 
@@ -405,7 +444,7 @@ The time complexity for more complex queries varies, but in general it's proport
 
 #### Returns
 
-**Array reply,** where the first element is the total number of results, and then pairs of document id, and a nested array of field/value.
+**Array reply,** where the first element is the total number of results, and then pairs of document IDs, and a nested array of attribute/value pairs.
 
 If **NOCONTENT** was given, we return an array where the first element is the total number of results, and the rest of the members are document ids.
 
@@ -422,7 +461,7 @@ If **NOCONTENT** was given, we return an array where the first element is the to
 FT.AGGREGATE {index_name}
   {query_string}
   [VERBATIM]
-  [LOAD {nargs} {property} ...]
+  [LOAD {nargs} {identifier} [AS {property}] ...]
   [GROUPBY {nargs} {property} ...
     REDUCE {func} {nargs} {arg} ... [AS {name:string}]
     ...
@@ -470,7 +509,7 @@ Searching for libraries within 10 kilometers of the longitude -73.982254 and lat
     APPLY "geodistance(@location, -73.982254, 40.753181)"
 ```
 
-Here, we needed to use `LOAD` to pre-load the @location field because it is a GEO field.
+Here, we needed to use `LOAD` to pre-load the @location attribute because it is a GEO attribute.
 
 !!! tip "More examples"
     For more details on aggreations and detailed examples of aggregation queries, see [Aggregations](Aggregations.md).
@@ -483,8 +522,11 @@ Here, we needed to use `LOAD` to pre-load the @location field because it is a GE
 * **query_string**: The base filtering query that retrieves the documents. It follows
   **the exact same syntax** as the search query, including filters, unions, not, optional, etc.
 
-* **LOAD {nargs} {property} …**: Load document fields from the document HASH objects. This should be
-  avoided as a general rule of thumb. Fields needed for aggregations should be stored as **SORTABLE**,
+* **LOAD {nargs} {identifier} AS {property} …**: Load document attributes from the source document.
+  `identifier` is either an attribute name (for hashes and JSON) or a JSON Path expression for (JSON).
+  `property` is the optional name used in the result. It is not provided, the `identifier` is used.
+  This should be avoided as a general rule of thumb.
+  Attributes needed for aggregations should be stored as **SORTABLE**,
   where they are available to the aggregation pipeline with very low latency. LOAD hurts the
   performance of aggregate queries considerably, since every processed record needs to execute the
   equivalent of HMGET against a Redis key, which when executed over millions of keys, amounts to very
@@ -819,22 +861,22 @@ Array Response.
 #### Format
 
 ```
-FT.ALTER {index} SCHEMA ADD {field} {options} ...
+FT.ALTER {index} SCHEMA ADD {attribute} {options} ...
 ```
 
 #### Description
 
-Adds a new field to the index.
+Adds a new attribute to the index.
 
-Adding a field to the index will cause any future document updates to use the new field when
+Adding an attribute to the index will cause any future document updates to use the new attribute when
 indexing and reindexing of existing documents.
 
 !!! note
-    Depending on how the index was created, you may be limited by the amount of additional text
-    fields which can be added to an existing index. If the current index contains less than 32
-    text fields, then `SCHEMA ADD` will only be able to add fields up to 32 total fields (meaning that the
-    index will only ever be able to contain 32 total text fields). If you wish for the index to
-    contain more than 32 fields, create it with the `MAXTEXTFIELDS` option.
+    Depending on how the index was created, you may be limited by the number of additional text
+    attributes which can be added to an existing index. If the current index contains fewer than 32
+    text attributes, then `SCHEMA ADD` will only be able to add attributes up to 32 total attributes (meaning that the
+    index will only ever be able to contain 32 total text attributes). If you wish for the index to
+    contain more than 32 attributes, create it with the `MAXTEXTFIELDS` option.
 
 ##### Example
 ```sql
@@ -844,8 +886,8 @@ FT.ALTER idx SCHEMA ADD id2 NUMERIC SORTABLE
 #### Parameters
 
 * **index**: the index name.
-* **field**: the field name.
-* **options**: the field options - refer to `FT.CREATE` for more information.
+* **attribute**: the attribute name.
+* **options**: the attribute options - refer to `FT.CREATE` for more information.
 
 #### Complexity
 
@@ -940,14 +982,14 @@ OK or an error.
 #### Format
 
 ```
-FT.TAGVALS {index} {field_name}
+FT.TAGVALS {index} {attribute_name}
 ```
 
 #### Description
 
-Returns the distinct tags indexed in a [Tag field](Tags.md).
+Returns the distinct set of values indexed in a [Tag field](Tags.md).
 
-This is useful if your tag field indexes things like cities, categories, etc.
+This is useful if your tag indexes things like cities, categories, etc.
 
 !!! warning "Limitations"
     There is no paging or sorting, the tags are not alphabetically sorted.
@@ -970,7 +1012,7 @@ Array Reply: All the distinct tags in the tag index.
 
 #### Complexity
 
-O(n), n being the cardinality of the tag field.
+O(n), n being the number of distinct values stored.
 
 ---
 
@@ -1502,7 +1544,7 @@ FT.ADD {index} {docId} {score}
   [LANGUAGE {language}]
   [PAYLOAD {payload}]
   [IF {condition}]
-  FIELDS {field} {value} [{field} {value}...]
+  FIELDS {attribute} {value} [{attribute} {value}...]
 ```
 
 #### Description
@@ -1528,28 +1570,28 @@ FT.ADD idx doc1 1.0 FIELDS title "hello world"
     The same docId can be added to multiple indices, but a single document with that docId is saved in the database.
 
 - **score**: The document's rank based on the user's ranking. This must be between 0.0 and 1.0.
-  On v2.0 this will be translated to a '__score' field in the created hash.
+  On v2.0 this will be translated to a '__score' attribute in the created hash.
 
 - **REPLACE**: If set, we will do an UPSERT style insertion - and delete an older version of the
   document if it exists.
 
-- **PARTIAL** (only applicable with REPLACE): If set, you do not have to specify all fields for
+- **PARTIAL** (only applicable with REPLACE): If set, you do not have to specify all attributes for
   reindexing. Fields not given to the command will be loaded from the current version of the
-  document. Also, if only non-indexable fields, score or payload are set - we do not do a full
+  document. Also, if only non-indexable attributes, score or payload are set - we do not do a full
   re-indexing of the document, and this will be a lot faster.
 
 - **NOCREATE** (only applicable with REPLACE): If set, the document is only updated
   and reindexed if it already exists. If the document does not exist, an error
   will be returned.
 
-- **FIELDS**: Following the FIELDS specifier, we are looking for pairs of `{field} {value}` to be
-  indexed. Each field will be scored based on the index spec given in `FT.CREATE`.
-  Passing fields that are not in the index spec will make them be stored as part of the document,
+- **FIELDS**: Following the FIELDS specifier, we are looking for pairs of `{attribute} {value}` to be
+  indexed. Each attribute will be scored based on the index spec given in `FT.CREATE`.
+  Passing attributes that are not in the index spec will make them be stored as part of the document,
   or ignored if NOSAVE is set
 
 - **PAYLOAD {payload}**: Optionally set a binary safe payload string to the document,
   that can be evaluated at query time by a custom scoring function, or retrieved to the client.
-  On v2.0 this will be translated to a '__payload' field in the created hash.
+  On v2.0 this will be translated to a '__payload' attribute in the created hash.
 
 - **IF {condition}**: (Applicable only in conjunction with `REPLACE` and optionally `PARTIAL`).
   Update the document only if a boolean expression applies to the document **before the update**,
@@ -1570,7 +1612,7 @@ FT.ADD idx doc1 1.0 FIELDS title "hello world"
 
   If indexing a Chinese language document, you must set the language to `chinese`
   in order for Chinese characters to be tokenized properly.
-  On v2.0 this will be translated to a '__language' field in the created hash.
+  On v2.0 this will be translated to a '__language' attribute in the created hash.
 
 #### Adding Chinese Documents
 
@@ -1595,13 +1637,13 @@ A special status `NOADD` is returned if an `IF` condition evaluated to false.
 !!! warning "FT.ADD with REPLACE and PARTIAL"
     By default, FT.ADD does not allow updating the document, and will fail if it already exists in the index.
     However, updating the document is possible with the REPLACE and REPLACE PARTIAL options.
-    **REPLACE**: On its own, sets the document to the new values, and reindexes it. Any fields not given will not be loaded from the current version of the document.
-    **REPLACE PARTIAL**: When both arguments are used, we can update just part of the document fields, and the rest will be loaded before reindexing. Not only that, but if only the score, payload and non-indexed fields (using NOINDEX) are updated, we will not actually reindex the document, just update its metadata internally, which is a lot faster and does not create index garbage.
+    **REPLACE**: On its own, sets the document to the new values, and reindexes it. Any attributes not given will not be loaded from the current version of the document.
+    **REPLACE PARTIAL**: When both arguments are used, we can update just part of the document attributes, and the rest will be loaded before reindexing. Not only that, but if only the score, payload and non-indexed fields (using NOINDEX) are updated, we will not actually reindex the document, just update its metadata internally, which is a lot faster and does not create index garbage.
 
 ---
 
 !!! warning "Overwriting other keys"
-    FT.ADD will actually create a hash in Redis with the given fields and value. This means that if the hash already exists, it will override with the new values.
+    FT.ADD will actually create a hash in Redis with the given attributes and value. This means that if the hash already exists, it will override with the new values.
 
 ---
 
@@ -1694,7 +1736,7 @@ FT.GET {index} {doc id}
 !!! warning "Deprecation warning"
     This command is deprecated. Use HGETALL instead.
 
-Returns content of a document as inserted without attribute fields (score/language/payload).
+Returns content of a document as inserted without attributes (score/language/payload).
 
 If the document does not exist or is not a HASH object, we return a NULL reply
 
@@ -1710,7 +1752,7 @@ FT.GET idx doc1
 
 #### Returns
 
-Array Reply: Key-value pairs of field names and values of the document
+Array Reply: Key-value pairs of attribute names and values of the document
 
 ---
 
@@ -1727,7 +1769,7 @@ FT.MGET {index} {docId} ...
 !!! warning "Deprecation warning"
     This command is deprecated. Use HGETALL instead.
 
-Returns content of a document as inserted without attribute fields (score/language/payload).
+Returns content of a document as inserted without attribute (score/language/payload).
 
 In addition, it allows simpler implementation of fetching documents in clustered mode.
 
