@@ -70,7 +70,7 @@ RLookupKey *RLookup_GetKeyEx(RLookup *lookup, const char *name, size_t n, int fl
   int isNew = 0;
 
   for (RLookupKey *kk = lookup->head; kk; kk = kk->next) {
-    if (kk->name_len == n && !strncmp(kk->name, name, kk->name_len)) {
+    if (kk->name_len == n && (!strncmp(kk->name, name, kk->name_len) || !strcmp(kk->path, name))) {
       if (flags & RLOOKUP_F_OEXCL) {
         return NULL;
       }

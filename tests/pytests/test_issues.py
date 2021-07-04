@@ -169,3 +169,26 @@ def test_issue1988(env):
     env.expect('FT.SEARCH', 'idx', 'foo', 'WITHSCORES').equal([1L, 'doc1', '1', ['t', 'foo']])
     env.expect('FT.SEARCH', 'idx', 'foo', 'SORTBY' , 't').equal([1L, 'doc1', ['t', 'foo']])
     env.expect('FT.SEARCH', 'idx', 'foo', 'WITHSCORES', 'SORTBY' , 't').equal([1L, 'doc1', '1', ['t', 'foo']])
+
+def testIssue2104(env):
+    # 'AS' attribute does not work in functions
+    conn = getConnectionByEnv(env)
+
+    conn.execute_command('FT.CREATE', 'aggbindex', 'SCHEMA', 'name', 'TEXT', 'SORTABLE', 'subj1', 'NUMERIC', 'SORTABLE')
+    conn.execute_command('FT.ADD', 'aggbindex', 'data1', '1.0', 'FIELDS', 'name', 'abc', 'subj1', '20')
+    conn.execute_command('FT.ADD', 'aggbindex', 'data2', '1.0', 'FIELDS', 'name', 'def', 'subj1', '60')
+    # load a single field
+    env.expect('FT.AGGREGATE', 'aggbindex', '*', 'LOAD', '1', '@subj1')    \
+        .equal([1L, ['subj1', '20'], ['subj1', '60']])
+    # load a field with an attribute
+    env.expect('FT.AGGREGATE', 'aggbindex', '*', 'LOAD', '3', '@subj1', 'AS', 'a')    \
+        .equal([1L, ['a', '20'], ['a', '60']])
+    # load field and use `APPLY`
+    env.expect('FT.AGGREGATE', 'aggbindex', '*', 'LOAD', '3', '@subj1', 'AS', 'a', 'APPLY', '(@a+@a)/2', 'AS', 'avg')   \
+        .equal([1L, ['a', '20', 'avg', '20'], ['a', '60', 'avg', '60']])
+    # load a field implicitly with `APPLY`
+    env.expect('FT.AGGREGATE', 'aggbindex', '*', 'APPLY', '(@subj1+@subj1)/2', 'AS', 'avg')    \
+        .equal([1L, ['subj1', '20', 'avg', '20'], ['subj1', '60', 'avg', '60']])
+    # In this example we get both `a` and `subj1` since 
+    env.expect('FT.AGGREGATE', 'aggbindex', '*', 'LOAD', '3', '@subj1', 'AS', 'a', 'APPLY', '(@subj1+@subj1)/2', 'AS', 'avg')   \
+        .equal([1L, ['a', '20', 'subj1', '20', 'avg', '20'], ['a', '60', 'subj1', '60', 'avg', '60']])
