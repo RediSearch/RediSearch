@@ -462,6 +462,19 @@ int Redis_DeleteKey(RedisModuleCtx *ctx, RedisModuleString *s) {
   return res;
 }
 
+int Redis_DeleteKeyC(RedisModuleCtx *ctx, char *cstr) {
+  RedisModuleCallReply *rep;
+  if (!isCrdt) {
+    rep = RedisModule_Call(ctx, "DEL", "c!", cstr);
+  } else {
+    rep = RedisModule_Call(ctx, "DEL", "c", cstr);
+  }
+  RedisModule_Assert(RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_INTEGER);
+  long long res = RedisModule_CallReplyInteger(rep);
+  RedisModule_FreeCallReply(rep);
+  return res;
+}
+
 int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments) {
 
   IndexSpec *spec = ctx->spec;
@@ -470,7 +483,7 @@ int Redis_DropIndex(RedisSearchCtx *ctx, int deleteDocuments) {
 
   if (deleteDocuments || !!(spec->flags & Index_Temporary)) {
     DocTable *dt = &spec->docs;
-    DOCTABLE_FOREACH(dt, Redis_DeleteKey(ctx->redisCtx, DMD_CreateKeyString(dmd, ctx->redisCtx)));
+    DOCTABLE_FOREACH(dt, Redis_DeleteKeyC(ctx->redisCtx, dmd->keyPtr));
   }
 
   IndexSpec_FreeInternals(spec);

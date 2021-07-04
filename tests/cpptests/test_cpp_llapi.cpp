@@ -820,3 +820,39 @@ TEST_F(LLApiTest, testScorer) {
   RediSearch_ResultsIteratorFree(it);
   RediSearch_DropIndex(index);
 }
+
+TEST_F(LLApiTest, testStopwords) {
+  // Check default stopword list
+  RSIndex* index = RediSearch_CreateIndex("index", NULL);
+  ASSERT_EQ(RediSearch_StopwordsList_Contains(index, "is", strlen("is")), 1);
+  ASSERT_EQ(RediSearch_StopwordsList_Contains(index, "redis", strlen("redis")), 0);
+  // check creation of token node
+  RSQNode *node = RediSearch_CreateTokenNode(index, "doesnt_matter", "is");
+  ASSERT_EQ((size_t)node, 0);
+  node = RediSearch_CreateTokenNode(index, "doesnt_matter", "redis");
+  ASSERT_NE((size_t)node, 0);
+  RediSearch_QueryNodeFree(node);
+  RediSearch_DropIndex(index);
+
+  // Check custom stopword list
+  const char *words[] = {"redis", "labs"};
+  RSIndexOptions *options = RediSearch_CreateIndexOptions();
+  RediSearch_IndexOptionsSetStopwords(options, words, 2);
+
+  index = RediSearch_CreateIndex("index", options);
+  ASSERT_EQ(RediSearch_StopwordsList_Contains(index, words[0], strlen(words[0])), 1);
+  ASSERT_EQ(RediSearch_StopwordsList_Contains(index, words[1], strlen(words[1])), 1);
+  ASSERT_EQ(RediSearch_StopwordsList_Contains(index, "RediSearch", strlen("RediSearch")), 0);
+  RediSearch_FreeIndexOptions(options);
+  RediSearch_DropIndex(index);
+
+  // Check empty stopword list
+  options = RediSearch_CreateIndexOptions();
+  RediSearch_IndexOptionsSetStopwords(options, NULL, 0);
+
+  index = RediSearch_CreateIndex("index", options);
+  ASSERT_EQ(RediSearch_StopwordsList_Contains(index, "is", strlen("is")), 0);
+  ASSERT_EQ(RediSearch_StopwordsList_Contains(index, words[0], strlen(words[0])), 0);
+  RediSearch_FreeIndexOptions(options);
+  RediSearch_DropIndex(index);
+}
