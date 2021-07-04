@@ -855,5 +855,4 @@ TEST_F(LLApiTest, testStopwords) {
   ASSERT_EQ(RediSearch_StopwordsList_Contains(index, words[0], strlen(words[0])), 0);
   RediSearch_FreeIndexOptions(options);
   RediSearch_DropIndex(index);
-
 }
