@@ -49,6 +49,13 @@ def sortedResults(res):
     res = [n] + [item for sublist in data for item in sublist]
     return res
 
+def slice_at(v, val):
+    try:
+        i = v.index(val)
+        return v[i+1:]
+    except:
+        return []
+
 module_v = 0
 def check_module_version(env, version):
     global module_v
