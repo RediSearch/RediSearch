@@ -169,3 +169,14 @@ def test_issue1988(env):
     env.expect('FT.SEARCH', 'idx', 'foo', 'WITHSCORES').equal([1L, 'doc1', '1', ['t', 'foo']])
     env.expect('FT.SEARCH', 'idx', 'foo', 'SORTBY' , 't').equal([1L, 'doc1', ['t', 'foo']])
     env.expect('FT.SEARCH', 'idx', 'foo', 'WITHSCORES', 'SORTBY' , 't').equal([1L, 'doc1', '1', ['t', 'foo']])
+
+def test_MOD1266(env):
+    conn = getConnectionByEnv(env)
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'n1', 'NUMERIC', 'SORTABLE', 'n2', 'NUMERIC', 'SORTABLE')
+    conn.execute_command('HSET', 'doc1', 'n1', '1', 'n2', '1')
+    conn.execute_command('HSET', 'doc2', 'n1', '2', 'n2', '2')
+    conn.execute_command('HSET', 'doc2', 'n1', 'foo', 'n2', '-999')
+    conn.execute_command('HSET', 'doc3', 'n1', '3', 'n2', '3')
+    
+    env.expect('FT.SEARCH', 'idx', '*', 'sortby', 'n2', 'DESC', 'RETURN', '1', 'n2')  \
+      .equal([3L, 'doc3', ['n2', '3'], 'doc1', ['n2', '1']])
