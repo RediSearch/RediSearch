@@ -2,6 +2,25 @@
 #include "list_reader.h"
 #include "dep/base64/base64.h"
 
+// taken from parser.c
+void unescape(char *s, size_t sz) {
+  
+  char *dst = s;
+  char *src = dst;
+  char *end = s + sz;
+  while (src < end) {
+      // unescape 
+      if (*src == '\\' && src + 1 < end &&
+         (ispunct(*(src+1)) || isspace(*(src+1)))) {
+          ++src;
+          continue;
+      }
+      *dst++ = *src++;
+  }
+ 
+  s[dst - s] = '\0';
+}
+
 static VecSimIndex *openVectorKeysDict(RedisSearchCtx *ctx, RedisModuleString *keyName,
                                              int write) {
   IndexSpec *spec = ctx->spec;
@@ -52,11 +71,10 @@ IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorFilter *vf) {
       vf->results = VecSimIndex_TopKQuery(vecsim, vector, vf->value);
       break;
     case VECTOR_RANGE:
-      // RS_LOG_ASSERT(0, "Range is not supported yet");
-
       // Note: RANGE is being used for base64 conversion queries.
       vector = base64_decode(vf->vector, vf->vecLen, &outLen);
       // TODO: check outLen == expected len.
+      unescape((char *)vector, strlen((char *)vector));
       vf->results = VecSimIndex_TopKQuery(vecsim, vector, vf->value);
       rm_free(vector);
       break;
