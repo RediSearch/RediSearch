@@ -17,4 +17,5 @@ FOREACH(n ${TEST_SOURCES})
     RSTEST("${test_name}")
 ENDFOREACH()
 
-ADD_LIBRARY(example_extension SHARED "ext-example/example.c")
+ADD_SUBDIRECTORY(ext-example)
+
