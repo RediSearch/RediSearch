@@ -191,4 +191,4 @@ def testIssue2104(env):
         .equal([1L, ['subj1', '20', 'avg', '20'], ['subj1', '60', 'avg', '60']])
     # In this example we get both `a` and `subj1` since 
     env.expect('FT.AGGREGATE', 'aggbindex', '*', 'LOAD', '3', '@subj1', 'AS', 'a', 'APPLY', '(@subj1+@subj1)/2', 'AS', 'avg')   \
-        .equal([1L, ['a', '20', 'subj1', '20', 'avg', '20'], ['a', '60', 'subj1', '60', 'avg', '60']])
+        .equal([1L, ['a', '20', 'avg', '20'], ['a', '60', 'avg', '60']])
