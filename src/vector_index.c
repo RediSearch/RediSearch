@@ -92,9 +92,9 @@ VectorFilter *NewVectorFilter(const void *vector, size_t len, char *type, double
   memcpy(vf->vector, vector, len);
   vf->vecLen = len;
 
-  if (!strncmp(type, "TOPK", strlen("TOPK"))) {
+  if (!strncasecmp(type, "TOPK", strlen("TOPK"))) {
     vf->type = VECTOR_TOPK;
-  } else if (!strncmp(type, "RANGE", strlen("RANGE"))) {
+  } else if (!strncasecmp(type, "RANGE", strlen("RANGE"))) {
     vf->type = VECTOR_RANGE;
   } else {
     rm_free(vf);
