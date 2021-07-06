@@ -201,6 +201,11 @@ def testSet(env):
     # Can also do multiple changes/side-effects, such as converting an object to a scalar
     env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT')
     env.execute_command('JSON.SET', 'doc:1', '$', r'{"t":"ReJSON"}')
+
+    res = [1L, 'doc:1', ['$', '{"t":"ReJSON"}']]
+    env.expect('ft.search', 'idx', 'rejson').equal(res)
+    env.expect('ft.search', 'idx', 'ReJSON').equal(res)
+    env.expect('ft.search', 'idx', 're*').equal(res)
     env.expect('ft.search', 'idx', 're*', 'NOCONTENT').equal([1L, 'doc:1'])
 
 def testDel(env):
@@ -232,8 +237,11 @@ def testStrappend(env):
 
     env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT')
     env.execute_command('JSON.SET', 'doc:1', '$', r'{"t":"Redis"}')
+    env.expect('json.get', 'doc:1', '$').equal('[{"t":"Redis"}]')
+    env.expect('ft.search', 'idx', '*').equal([1L, 'doc:1', ['$', '{"t":"Redis"}']])
     env.expect('ft.search', 'idx', 'Redis').equal([1L, 'doc:1', ['$', '{"t":"Redis"}']])
     env.execute_command('JSON.STRAPPEND', 'doc:1', '.t', '"Labs"')
+    env.expect('json.get', 'doc:1', '$').equal('[{"t":"RedisLabs"}]')
     env.expect('ft.search', 'idx', '*').equal([1L, 'doc:1', ['$', '{"t":"RedisLabs"}']])
     env.expect('ft.search', 'idx', 'RedisLabs').equal([1L, 'doc:1', ['$', '{"t":"RedisLabs"}']])
     env.expect('ft.search', 'idx', 'Redis').equal([0L])
