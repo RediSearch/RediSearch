@@ -550,11 +550,12 @@ static void replyDocFlags(const RSDocumentMetadata *dmd, RedisModuleCtx *ctx) {
 }
 
 static void replySortVector(const RSDocumentMetadata *dmd, RedisSearchCtx *sctx) {
-  RSSortingVector *sv = dmd->sortVector;
+  RSSortingVector sv;
+  LoadSortVector(dmd, &sv);
   RedisModule_ReplyWithArray(sctx->redisCtx, REDISMODULE_POSTPONED_ARRAY_LEN);
   size_t nelem = 0;
-  for (size_t ii = 0; ii < sv->len; ++ii) {
-    if (!sv->values[ii]) {
+  for (size_t ii = 0; ii < sv.len; ++ii) {
+    if (!sv.values[ii]) {
       continue;
     }
     RedisModule_ReplyWithArray(sctx->redisCtx, 6);
@@ -564,7 +565,7 @@ static void replySortVector(const RSDocumentMetadata *dmd, RedisSearchCtx *sctx)
     const FieldSpec *fs = IndexSpec_GetFieldBySortingIndex(sctx->spec, ii);
     RedisModule_ReplyWithPrintf(sctx->redisCtx, "%s AS %s", fs ? fs->path : "!!!", fs ? fs->name : "???");
     RedisModule_ReplyWithSimpleString(sctx->redisCtx, "value");
-    RSValue_SendReply(sctx->redisCtx, sv->values[ii], 0);
+    RSValue_SendReply(sctx->redisCtx, sv.values[ii], 0);
     nelem++;
   }
   RedisModule_ReplySetArrayLength(sctx->redisCtx, nelem);

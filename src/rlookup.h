@@ -114,7 +114,7 @@ typedef struct RLookup {
  */
 typedef struct {
   /** Sorting vector attached to document */
-  const RSSortingVector *sv;
+  RSSortingVector sv;
 
   /** Module key for data that derives directly from a Redis data type */
   RedisModuleKey *rmkey;
@@ -261,8 +261,8 @@ static inline RSValue *RLookup_GetItem(const RLookupKey *key, const RLookupRow *
   }
   if (!ret) {
     if (key->flags & RLOOKUP_F_SVSRC) {
-      if (row->sv && row->sv->len > key->svidx) {
-        ret = row->sv->values[key->svidx];
+      if (row->sv.len != 0 && row->sv.len > key->svidx) {
+        ret = row->sv.values[key->svidx];
         if (ret != NULL && ret->t == RSValue_Null) {
           ret = NULL;
         }

@@ -106,14 +106,16 @@ typedef struct RSDocumentMetadata_s {
   /* Optional user payload */
   RSPayload *payload;
 
-  struct RSSortingVector *sortVector;
   /* Offsets of all terms in the document (in bytes). Used by highlighter */
   struct RSByteOffsets *byteOffsets;
   DLLIST2_node llnode;
-  uint32_t ref_count;
+  uint32_t ref_count:16;
 
   // Type of source document. Hash or JSON.
-  DocumentType type;
+  DocumentType type:8;
+  // Sorting of sortable field
+  int sortVecLen:16;
+  struct RSValue **sortVector;
 } RSDocumentMetadata;
 
 /* Forward declaration of the opaque query object */

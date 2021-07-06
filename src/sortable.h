@@ -15,8 +15,6 @@ extern "C" {
 // Maximum number of sortables
 #define RS_SORTABLES_MAX 1024 // aligned with SPEC_MAX_FIELDS
 
-#pragma pack(1)
-
 #define RS_SORTABLE_NUM 1
 // #define RS_SORTABLE_EMBEDDED_STR 2
 #define RS_SORTABLE_STR 3
@@ -26,11 +24,9 @@ extern "C" {
 /* RSSortingVector is a vector of sortable values. All documents in a schema where sortable fields
  * are defined will have such a vector. */
 typedef struct RSSortingVector {
-  unsigned int len : 8;
-  RSValue *values[];
+  unsigned int len;
+  RSValue **values;
 } RSSortingVector;
-
-#pragma pack()
 
 /* RSSortingTable defines the length and names of the fields in a sorting vector. It is saved as
  * part of the spec */
@@ -88,6 +84,14 @@ RSSortingVector *NewSortingVector(int len);
 
 /* Free a sorting vector */
 void SortingVector_Free(RSSortingVector *v);
+
+/* Load the sorting vector from document metadata */
+static inline void LoadSortVector(const RSDocumentMetadata *dmd, RSSortingVector *sv) {
+  sv->values = dmd->sortVector;
+  sv->len = dmd->sortVecLen;
+}
+
+char *normalizeStr(const char *str);
 
 /* Save a document's sorting vector into an rdb dump */
 void SortingVector_RdbSave(RedisModuleIO *rdb, RSSortingVector *v);

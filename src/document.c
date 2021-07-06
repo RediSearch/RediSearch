@@ -740,7 +740,7 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
       if (idx < 0) continue;
 
       if (!md->sortVector) {
-        md->sortVector = NewSortingVector(sctx->spec->sortables->len);
+        md->sortVector = rm_calloc(sctx->spec->sortables->len, sizeof(*md->sortVector));
       }
 
       RS_LOG_ASSERT((fs->options & FieldSpec_Dynamic) == 0, "Dynamic field cannot use PARTIAL");
@@ -748,16 +748,18 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
       switch (fs->types) {
         case INDEXFLD_T_FULLTEXT:
         case INDEXFLD_T_TAG:
-        case INDEXFLD_T_GEO:         
-          RSSortingVector_Put(md->sortVector, idx, (void *)RedisModule_StringPtrLen(f->text, NULL),
-                              RS_SORTABLE_STR);
+        case INDEXFLD_T_GEO: {
+          const char *str = RedisModule_StringPtrLen(f->text, NULL);
+          char *ns = normalizeStr(str);
+          md->sortVector[idx] = RS_StringValT(ns, strlen(ns), RSString_RMAlloc);
           break;
+        }
         case INDEXFLD_T_NUMERIC: {
           double numval;
           if (RedisModule_StringToDouble(f->text, &numval) == REDISMODULE_ERR) {
             BAIL("Could not parse numeric index value");
           }
-          RSSortingVector_Put(md->sortVector, idx, &numval, RS_SORTABLE_NUM);
+          md->sortVector[idx] = RS_NumVal(numval);
           break;
         }
         default:

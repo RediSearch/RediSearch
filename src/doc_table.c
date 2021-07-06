@@ -162,7 +162,8 @@ int DocTable_SetSortingVector(DocTable *t, RSDocumentMetadata *dmd, RSSortingVec
   RS_LOG_ASSERT(v, "Sorting vector does not exist");  // tested in doAssignIds()
 
   /* Set th new vector and the flags accordingly */
-  dmd->sortVector = v;
+  dmd->sortVector = v->values;
+  dmd->sortVecLen = v->len;
   dmd->flags |= Document_HasSortVector;
   t->sortablesSize += RSSortingVector_GetMemorySize(v);
 
@@ -260,7 +261,10 @@ void DMD_Free(RSDocumentMetadata *md) {
     md->payload = NULL;
   }
   if (md->sortVector) {
-    SortingVector_Free(md->sortVector);
+    for (int i = 0; i < md->sortVecLen; ++i) {
+      RSValue_Decref(md->sortVector[i]);
+    }
+    rm_free(md->sortVector);
     md->sortVector = NULL;
     md->flags &= ~Document_HasSortVector;
   }
@@ -451,8 +455,11 @@ void DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
     }
     dmd->sortVector = NULL;
     if (dmd->flags & Document_HasSortVector) {
-      dmd->sortVector = SortingVector_RdbLoad(rdb, encver);
-      t->sortablesSize += RSSortingVector_GetMemorySize(dmd->sortVector);
+      RSSortingVector *sv = SortingVector_RdbLoad(rdb, encver);
+      dmd->sortVector = sv->values;
+      dmd->sortVecLen = sv->len;
+      t->sortablesSize += RSSortingVector_GetMemorySize(sv);
+      rm_free(sv);
     }
 
     if (dmd->flags & Document_HasOffsetVector) {

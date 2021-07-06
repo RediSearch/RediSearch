@@ -119,7 +119,8 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
   res->indexResult = r;
   res->score = 0;
   res->dmd = dmd;
-  res->rowdata.sv = dmd->sortVector;
+  LoadSortVector(dmd, &res->rowdata.sv);
+  //res->rowdata.sv = dmd->sortVector;
   DMD_Incref(dmd);
   return RS_RESULT_OK;
 }
@@ -353,7 +354,7 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
     bool freeKeys = false;
 
     // If there is no sorting vector, load all required fields, else, load missing fields
-    if (!h->rowdata.sv) {
+    if (h->rowdata.sv.len == 0) {
       loadKeys = self->fieldcmp.keys;
       nloadKeys = nkeys;
     } else {

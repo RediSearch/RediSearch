@@ -185,7 +185,7 @@ void RLookupRow_Wipe(RLookupRow *r) {
       r->ndyn--;
     }
   }
-  r->sv = NULL;
+  r->sv.len = 0;
   if (r->rmkey) {
     RedisModule_CloseKey(r->rmkey);
     r->rmkey = NULL;
@@ -222,8 +222,8 @@ void RLookupRow_Dump(const RLookupRow *rr) {
       }
     }
   }
-  if (rr->sv) {
-    printf("  SV @%p\n", rr->sv);
+  if (rr->sv.len != 0) {
+    printf("  SV @%p\n", &rr->sv);
   }
 }
 
@@ -672,7 +672,8 @@ done:
 int RLookup_LoadDocument(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options) {
   int rv = REDISMODULE_ERR;
   if (options->dmd) {
-    dst->sv = options->dmd->sortVector;
+    LoadSortVector(options->dmd, &dst->sv);
+    //dst->sv = options->dmd->sortVector;
   }
   if (options->mode & RLOOKUP_LOAD_ALLKEYS) {
     if (options->dmd->type == DocumentType_Hash) {
