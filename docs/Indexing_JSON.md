@@ -41,10 +41,7 @@ In our example we are going to use the following JSON document:
 {
   "user": {
     "name": "John Smith",
-    "tag": [
-      "foo",
-      "bar"
-    ],
+    "tag": "foo,bar",
     "hp": "1000",
     "dmg": "150"
   }
@@ -53,7 +50,7 @@ In our example we are going to use the following JSON document:
 
 We can use `JSON.SET` to store in our database:
 
-    JSON.SET myDoc $ '{"user":{"name":"John Smith","tag":["foo","bar"],"hp":1000, "dmg":150}}'
+    JSON.SET myDoc $ '{"user":{"name":"John Smith","tag":"foo.bar","hp":1000, "dmg":150}}'
 
 Because indexing is synchronous, the document will be visible on the index as soon as the `JSON.SET` command returns.
 Any subsequent query matching the indexed content will return the document.
@@ -66,11 +63,11 @@ We can search any attribute mentioned in the SCHEMA.
 Following our example, let's find our user called `John`:
 
 ```
-FT.SEARCH myIdx '@name:(John)'
+FT.SEARCH userIdx '@name:(John)'
 1) (integer) 1
 2) "myDoc"
 3) 1) "$"
-   2) "{\"user\":{\"name\":\"John Smith\",\"tag\":[\"foo\",\"bar\"],\"hp\":1000,\"dmg\":150}}"
+   2) "{\"user\":{\"name\":\"John Smith\",\"tag\":\"foo.bar\",\"hp\":1000,\"dmg\":150}}"
 ```
 
 ## Field projection
@@ -80,7 +77,7 @@ We just saw that, by default, `FT.SEARCH` returns the whole document.
 We can also return only specific attribute (here `name`):
 
 ```
-FT.SEARCH myIdx '@name:(John)' RETURN 1 name
+FT.SEARCH userIdx '@name:(John)' RETURN 1 name
 1) (integer) 1
 2) "myDoc"
 3) 1) "name"
@@ -94,7 +91,7 @@ The `RETURN` parameter also accepts a `JSON Path expression` which let us extrac
 In this example, we return the result of the JSON Path expression `$.user.hp`.
 
 ```
-FT.SEARCH myIdx '@name:(John)' RETURN 1 $.user.hp
+FT.SEARCH userIdx '@name:(John)' RETURN 1 $.user.hp
 1) (integer) 1
 2) "myDoc"
 3) 1) "$.user.hp"
@@ -106,7 +103,7 @@ Note that the property name is the JSON expression itself: `3) 1) "$.user.hp"`
 Using the `AS` option, you can also alias the returned property.
 
 ```
-FT.SEARCH myIdx '@name:(John)' RETURN 3 $.user.hp AS hitpoints
+FT.SEARCH userIdx '@name:(John)' RETURN 3 $.user.hp AS hitpoints
 1) (integer) 1
 2) "myDoc"
 3) 1) "hitpoints"
@@ -119,7 +116,7 @@ We can highlight any attribute as soon as it is indexed using the TEXT type.
 In FT.SEARCH we have to explicitly set the attribute in the `RETURN` and the `HIGHLIGHT` parameters.
 
 ```
-FT.SEARCH myIdx '@name:(John)' RETURN 1 name HIGHLIGHT FIELDS 1 name TAGS '<b>' '</b>'
+FT.SEARCH userIdx '@name:(John)' RETURN 1 name HIGHLIGHT FIELDS 1 name TAGS '<b>' '</b>'
 1) (integer) 1
 2) "myDoc"
 3) 1) "name"
@@ -134,7 +131,7 @@ The LOAD parameters accepts JSON Path expressions. Any value (even not indexed) 
 In this example we are loading two numeric values from the JSON document applying a simple operation.
 
 ```
-FT.AGGREGATE myIdx '*' LOAD 6 $.user.hp AS hp $.user.dmg AS dmg APPLY '@hp-@dmg' AS points
+FT.AGGREGATE userIdx '*' LOAD 6 $.user.hp AS hp $.user.dmg AS dmg APPLY '@hp-@dmg' AS points
 1) (integer) 1
 2) 1) "point"
    2) "850"
