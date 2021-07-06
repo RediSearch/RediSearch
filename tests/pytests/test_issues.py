@@ -179,4 +179,4 @@ def test_MOD1266(env):
     conn.execute_command('HSET', 'doc3', 'n1', '3', 'n2', '3')
     
     env.expect('FT.SEARCH', 'idx', '*', 'sortby', 'n2', 'DESC', 'RETURN', '1', 'n2')  \
-      .equal([3L, 'doc3', ['n2', '3'], 'doc1', ['n2', '1']])
+      .equal([2L, 'doc3', ['n2', '3'], 'doc1', ['n2', '1']])
