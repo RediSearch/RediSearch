@@ -63,6 +63,9 @@ IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorFilter *vf) {
   RedisModuleString *key = RedisModule_CreateStringPrintf(ctx->redisCtx, "%s", vf->property);
   VecSimIndex *vecsim = openVectorKeysDict(ctx, key, 0);
   RedisModule_FreeString(ctx->redisCtx, key);
+  if (!vecsim) {
+    return NULL;
+  }
 
   size_t outLen;
   unsigned char *vector = vf->vector;
