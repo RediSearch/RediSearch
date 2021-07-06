@@ -640,19 +640,19 @@ static int RLookup_JSON_GetAll(RLookup *it, RLookupRow *dst, RLookupLoadOptions 
 
   JSONResultsIterator jsonIter = NULL;
   RedisModuleCtx *ctx = options->sctx->redisCtx;
-  RedisJSON jsonKey = japi->openKeyFromStr(ctx, options->dmd->keyPtr);
-  if (!jsonKey) {
+  RedisJSON jsonRoot = japi->openKeyFromStr(ctx, options->dmd->keyPtr);
+  if (!jsonRoot) {
     goto done;
   }
 
-  jsonIter = japi->get(jsonKey, JSON_ROOT);
+  jsonIter = japi->get(jsonRoot, JSON_ROOT);
   if (jsonIter == NULL) {
     goto done;
   }
 
   RedisModuleString *value = NULL;
   RedisJSON jsonValue = japi->next(jsonIter);
-  if (!jsonValue || japi->getJSON(jsonKey, ctx, &value) != REDISMODULE_OK) {
+  if (!jsonValue || japi->getJSON(jsonRoot, ctx, &value) != REDISMODULE_OK) {
     if (value) {
       RedisModule_FreeString(ctx, value);
     }
