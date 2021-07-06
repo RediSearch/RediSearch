@@ -176,8 +176,9 @@ done:
 }
 
 RSLanguage SchemaRule_JsonLang(RedisModuleCtx *ctx, const SchemaRule *rule,
-                               RedisJSONKey jsonKey, const char *kname) {
+                               RedisJSON jsonRoot, const char *kname) {
   int rv = REDISMODULE_ERR;
+  JSONResultsIterator jsonIter = NULL;
   RSLanguage lang = rule->lang_default;
   if (!rule->lang_field) {
     goto done;
@@ -188,15 +189,16 @@ RSLanguage SchemaRule_JsonLang(RedisModuleCtx *ctx, const SchemaRule *rule,
     goto done;
   }
 
-  RedisJSON json = japi->get(jsonKey, rule->lang_field, NULL);
-  if (json == NULL) {
+  jsonIter = japi->get(jsonRoot, rule->lang_field);
+  if (!jsonIter) {
     RedisModule_Log(NULL, "warning", "invalid field %s for key %s", rule->lang_field, kname);
     goto done;
   }
 
   const char *langStr;
   size_t len;
-  rv = japi->getString(json, &langStr, &len) ;
+  RedisJSON langJson = japi->next(jsonIter);
+  rv = japi->getString(langJson, &langStr, &len) ;
   if (rv != REDISMODULE_OK) {
     RedisModule_Log(NULL, "warning", "invalid field %s for key %s: not a string", rule->lang_field, kname);
     goto done;
@@ -210,6 +212,9 @@ RSLanguage SchemaRule_JsonLang(RedisModuleCtx *ctx, const SchemaRule *rule,
   }
 
 done:
+  if (jsonIter) {
+    japi->freeIter(jsonIter);
+  }
   return lang;
 }
 
@@ -243,8 +248,9 @@ done:
 }
 
 RSLanguage SchemaRule_JsonScore(RedisModuleCtx *ctx, const SchemaRule *rule,
-                                RedisJSONKey jsonKey, const char *kname) {
+                                RedisJSON jsonRoot, const char *kname) {
   double score = rule->score_default;
+  JSONResultsIterator jsonIter = NULL;
   if (!rule->score_field) {
     goto done;
   }
@@ -254,17 +260,21 @@ RSLanguage SchemaRule_JsonScore(RedisModuleCtx *ctx, const SchemaRule *rule,
     goto done;
   }
 
-  RedisJSON json = japi->get(jsonKey, rule->score_field, NULL);
-  if (json == NULL) {
+  jsonIter = japi->get(jsonRoot, rule->score_field);
+  if (jsonIter == NULL) {
     RedisModule_Log(NULL, "warning", "invalid field %s for key %s", rule->score_field, kname);
     goto done;
   }
 
-  if (japi->getDouble(json, &score) != REDISMODULE_OK) {
+  RedisJSON scoreJson = japi->next(jsonIter);
+  if (japi->getDouble(scoreJson, &score) != REDISMODULE_OK) {
     RedisModule_Log(NULL, "warning", "invalid field %s for key %s", rule->score_field, kname);
   }
 
 done:
+  if (jsonIter) {
+    japi->freeIter(jsonIter);
+  }
   return score;
 }
 
