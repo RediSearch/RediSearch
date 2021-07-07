@@ -170,6 +170,26 @@ def test_issue1988(env):
     env.expect('FT.SEARCH', 'idx', 'foo', 'SORTBY' , 't').equal([1L, 'doc1', ['t', 'foo']])
     env.expect('FT.SEARCH', 'idx', 'foo', 'WITHSCORES', 'SORTBY' , 't').equal([1L, 'doc1', '1', ['t', 'foo']])
 
+def test_MOD1266(env):
+  # Test parsing failure
+  conn = getConnectionByEnv(env)
+  conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'n1', 'NUMERIC', 'SORTABLE', 'n2', 'NUMERIC', 'SORTABLE')
+  conn.execute_command('HSET', 'doc1', 'n1', '1', 'n2', '1')
+  conn.execute_command('HSET', 'doc2', 'n1', '2', 'n2', '2')
+  conn.execute_command('HSET', 'doc2', 'n1', 'foo', 'n2', '-999')
+  conn.execute_command('HSET', 'doc3', 'n1', '3', 'n2', '3')
+  
+  env.expect('FT.SEARCH', 'idx', '*', 'sortby', 'n2', 'DESC', 'RETURN', '1', 'n2')  \
+    .equal([2L, 'doc3', ['n2', '3'], 'doc1', ['n2', '1']])
+
+  # Test fetching failure. An object cannot be indexed
+  conn.execute_command('FT.CREATE', 'jsonidx', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT')
+  conn.execute_command('JSON.SET', '1', '$', r'{"t":"Redis"}')
+  env.expect('FT.SEARCH', 'jsonidx', '*').equal([1L, '1', ['$', '{"t":"Redis"}']])
+  env.expect('FT.SEARCH', 'jsonidx', 'redis').equal([1L, '1', ['$', '{"t":"Redis"}']])
+  conn.execute_command('JSON.SET', '1', '$.t', r'{"inner_t":"Redis"}')
+  env.expect('FT.SEARCH', 'jsonidx', '*').equal([0L])
+
 def testMemAllocated(env):
   conn = getConnectionByEnv(env)
   # sanity
@@ -198,4 +218,3 @@ def testMemAllocated(env):
   for i in range(1000):
     conn.execute_command('DEL', 'doc%d' % i)
   assertInfoField(env, 'idx2', 'key_table_size_mb', '0')
-  
