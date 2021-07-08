@@ -50,7 +50,7 @@ In our example we are going to use the following JSON document:
 
 We can use `JSON.SET` to store in our database:
 
-    JSON.SET myDoc $ '{"user":{"name":"John Smith","tag":"foo.bar","hp":1000, "dmg":150}}'
+    JSON.SET myDoc $ '{"user":{"name":"John Smith","tag":"foo,bar","hp":1000, "dmg":150}}'
 
 Because indexing is synchronous, the document will be visible on the index as soon as the `JSON.SET` command returns.
 Any subsequent query matching the indexed content will return the document.
