@@ -67,7 +67,7 @@ FT.SEARCH userIdx '@name:(John)'
 1) (integer) 1
 2) "myDoc"
 3) 1) "$"
-   2) "{\"user\":{\"name\":\"John Smith\",\"tag\":\"foo.bar\",\"hp\":1000,\"dmg\":150}}"
+   2) "{\"user\":{\"name\":\"John Smith\",\"tag\":\"foo,bar\",\"hp\":1000,\"dmg\":150}}"
 ```
 
 ## Field projection
