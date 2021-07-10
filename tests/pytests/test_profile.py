@@ -2,7 +2,7 @@
 
 import unittest
 from includes import *
-from common import getConnectionByEnv, waitForIndex, sortedResults, toSortedFlatList, check_server_version
+from common import getConnectionByEnv, waitForIndex, sortedResults, toSortedFlatList, server_version_less_than, server_version_at_least
 from time import sleep
 from RLTest import Env
 
@@ -87,7 +87,7 @@ def testProfileSearch(env):
                           ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1L, 'Size', 1L]]]]]]
   env.assertEqual(actual_res[1][3], expected_res)
 
-  if not check_server_version(env, '6.2.0'):
+  if server_version_less_than(env, '6.2.0'):
     return
 
   actual_res = env.execute_command('ft.profile', 'idx', 'search', 'query',  'hello(hello(hello(hello(hello(hello)))))', 'nocontent')
