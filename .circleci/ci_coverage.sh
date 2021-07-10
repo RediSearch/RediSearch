@@ -17,7 +17,7 @@ cmake .. -DCMAKE_BUILD_TYPE=DEBUG \
 [[ -z $CI_CONCURRENCY ]] && CI_CONCURRENCY=$($ROOT/deps/readies/bin/nproc)
 
 make -j$CI_CONCURRENCY
-BRANCH=master $ROOT/sbin/get-redisjson
+BRANCH=2.0 $ROOT/sbin/get-redisjson
 
 cat >rltest.config <<EOF
 --unix
