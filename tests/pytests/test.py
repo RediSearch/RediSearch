@@ -3226,7 +3226,7 @@ def testNotOnly(env):
   env.expect('ft.search idx !world').equal([1L, 'b', ['txt1', 'world', 'txt2', 'hello']])
 
 def testServerVersion(env):
-    env.assertEqual(server_version_at_least(env, "6.0.0"), True)
+    env.assertTrue(server_version_at_least(env, "6.0.0"))
 
 def testSchemaWithAs(env):
   conn = getConnectionByEnv(env)
