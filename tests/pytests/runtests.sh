@@ -135,7 +135,7 @@ fi
 
 #---------------------------------------------------------------------------------------------- 
 
-REJSON_BRANCH=${REJSON_BRANCH:-master}
+REJSON_BRANCH=${REJSON_BRANCH:-2.0}
 
 if [[ -n $REJSON && $REJSON != 0 ]]; then
 	platform=`$READIES/bin/platform -t`

@@ -67,7 +67,7 @@ if [[ ! -d RedisJSON ]]; then
 fi
 
 cd RedisJSON
-git checkout master
+git checkout 2.0
 git pull --quiet --recurse-submodules
 $READIES/bin/getpy3
 ./system-setup.py
