@@ -69,9 +69,7 @@ def module_version_at_least(env, ver):
         module_ver = numver_to_version(v)
     if not isinstance(ver, version.Version):
         ver = version.parse(ver)
-    if module_ver >= ver:
-        return True
-    return False
+    return module_ver >= ver
 
 def module_version_less_than(env, ver):
     return not module_version_at_least(env, ver)
@@ -84,9 +82,7 @@ def server_version_at_least(env, ver):
         server_ver = version.parse(v)
     if not isinstance(ver, version.Version):
         ver = version.parse(ver)
-    if server_ver >= ver:
-        return True
-    return False
+    return server_ver >= ver
 
 def server_version_less_than(env, ver):
     return not server_version_at_least(env, ver)
