@@ -2,6 +2,7 @@
 #include "aggregate/expr/expression.h"
 #include "spec.h"
 #include "json.h"
+#include "rdb.h"
 
 TrieMap *ScemaPrefixes_g;
 
@@ -289,14 +290,20 @@ RedisModuleString *SchemaRule_HashPayload(RedisModuleCtx *rctx, const SchemaRule
 int SchemaRule_RdbLoad(IndexSpec *sp, RedisModuleIO *rdb, int encver) {
   SchemaRuleArgs args = {0};
   size_t len;
+#define RULEARGS_INITIAL_NUM_PREFIXES_ON_STACK 32
+  char *prefixes[RULEARGS_INITIAL_NUM_PREFIXES_ON_STACK];
 
   int ret = REDISMODULE_OK;
   args.type = LoadStringBuffer_IOError(rdb, &len, goto cleanup);
 
   args.nprefixes = LoadUnsigned_IOError(rdb, goto cleanup);
-
-  char **prefixes = alloca(args.nprefixes * sizeof(char*));
-  args.prefixes = (const char **)prefixes;
+  if (args.nprefixes <= RULEARGS_INITIAL_NUM_PREFIXES_ON_STACK) {
+    memset(prefixes, 0, RULEARGS_INITIAL_NUM_PREFIXES_ON_STACK * sizeof(*prefixes));
+    args.prefixes = (const char **)prefixes;
+  } else {
+    args.prefixes = rm_calloc(args.nprefixes, sizeof(char *));
+  }
+  
   for (size_t i = 0; i < args.nprefixes; ++i) {
     prefixes[i] = LoadStringBuffer_IOError(rdb, &len, goto cleanup);
   }
@@ -340,6 +347,8 @@ cleanup:
       RedisModule_Free((char *)args.prefixes[i]);
     }
   }
+  if (args.nprefixes > RULEARGS_INITIAL_NUM_PREFIXES_ON_STACK)
+    rm_free(args.prefixes);
   if (args.filter_exp_str) {
     RedisModule_Free(args.filter_exp_str);
   }

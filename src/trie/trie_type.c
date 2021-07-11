@@ -12,6 +12,7 @@
 #include <string.h>
 #include <limits.h>
 #include "rmalloc.h"
+#include "rdb.h"
 
 Trie *NewTrie() {
   Trie *tree = rm_malloc(sizeof(Trie));

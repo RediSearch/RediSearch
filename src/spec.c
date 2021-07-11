@@ -21,6 +21,7 @@
 #include "rules.h"
 #include "dictionary.h"
 #include "doc_types.h"
+#include "rdb.h"
 
 #define INITIAL_DOC_TABLE_SIZE 1000
 
@@ -738,7 +739,7 @@ char *IndexSpec_GetRandomTerm(IndexSpec *sp, size_t sampleSize) {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 void IndexSpec_FreeInternals(IndexSpec *spec) {
-  if (dictFetchValue(specDict_g, spec->name) == spec) {
+  if (spec->name && dictFetchValue(specDict_g, spec->name) == spec) {
     dictDelete(specDict_g, spec->name);
   }
   SchemaPrefixes_RemoveSpec(spec);
@@ -1187,7 +1188,7 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
 
   LoadStringBufferAlloc_IOErrors(rdb, f->name, NULL, goto fail);
   if (encver >= INDEX_JSON_VERSION) {
-    if (RedisModule_LoadUnsigned(rdb) == 1) {
+    if (LoadUnsigned_IOError(rdb, goto fail) == 1) {
       LoadStringBufferAlloc_IOErrors(rdb, f->path, NULL,goto fail);
     } else {
       f->path = f->name;
@@ -1572,6 +1573,8 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
 
   if (sp->flags & Index_HasCustomStopwords) {
     sp->stopwords = StopWordList_RdbLoad(rdb, encver);
+    if (sp->stopwords == NULL)
+      goto cleanup;
   } else {
     sp->stopwords = DefaultStopWordList();
   }
@@ -1585,18 +1588,20 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
 
   if (sp->flags & Index_HasSmap) {
     sp->smap = SynonymMap_RdbLoad(rdb, encver);
+    if (sp->smap == NULL)
+      goto cleanup;
   }
   if (IndexSpec_OnCreate) {
     IndexSpec_OnCreate(sp);
   }
 
-  sp->timeout = RedisModule_LoadUnsigned(rdb);
+  sp->timeout = LoadUnsigned_IOError(rdb, goto cleanup);
 
-  size_t narr = RedisModule_LoadUnsigned(rdb);
+  size_t narr = LoadUnsigned_IOError(rdb, goto cleanup);
   for (size_t ii = 0; ii < narr; ++ii) {
     QueryError _status;
     size_t dummy;
-    char *s = RedisModule_LoadStringBuffer(rdb, &dummy);
+    char *s = LoadStringBuffer_IOError(rdb, &dummy, goto cleanup);
     int rc = IndexAlias_Add(s, sp, 0, &_status);
     RedisModule_Free(s);
     RS_LOG_ASSERT(rc == REDISMODULE_OK, "adding alias to index failed");
@@ -1740,8 +1745,10 @@ void IndexSpec_LegacyRdbSave(RedisModuleIO *rdb, void *value) {
 int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when) {
 
   if (encver < INDEX_MIN_COMPAT_VERSION) {
-    return REDISMODULE_OK;
+    return REDISMODULE_ERR;
   }
+
+  //FIXME: Keep current data in order to roll-back if current load fails
 
   size_t nIndexes = LoadUnsigned_IOError(rdb, goto cleanup);
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
@@ -1757,6 +1764,7 @@ int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when) {
   return REDISMODULE_OK;
 
 cleanup:
+  //FIXME: Cleanup and roll-back to previous data
   return REDISMODULE_ERR;
 }
 

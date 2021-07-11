@@ -1,12 +1,96 @@
-import gevent.server
-import gevent.queue
-import gevent.socket
-import signal
-import time
-from RLTest import Env
-from common import TimeLimit
-from includes import *
+# coding=utf-8
+import random
+import string
 
+import gevent.queue
+import gevent.server
+import gevent.socket
+import os
+import shutil
+
+from common import TimeLimit
+from common import waitForIndex
+
+def rand_name(k):
+    return ''.join([chr(random.randint(ord('a'), ord('z'))) for _ in range(0, random.randint(1, k))])
+    #return random.choices(''.join(string.ascii_letters), k=k)
+
+def rand_num(k):
+    return ''.join([chr(random.randint(ord('0'), ord('9'))) for _ in range(0, random.randint(1, k))])
+    #return random.choices(''.join(string.digits, k=k))
+
+def create_indices(env):
+    env.skipOnCluster()
+
+    '''FT.CREATE {index}
+    [ON {structure}]
+    [PREFIX {count} {prefix} [{prefix} ..]
+    [FILTER {filter}]
+    [LANGUAGE {default_lang}]
+    [LANGUAGE_FIELD {lang_field}]
+    [SCORE {default_score}]
+    [SCORE_FIELD {score_field}]
+    [PAYLOAD_FIELD {payload_field}]
+    [MAXTEXTFIELDS] [TEMPORARY {seconds}] [NOOFFSETS] [NOHL] [NOFIELDS] [NOFREQS] [SKIPINITIALSCAN]
+    [STOPWORDS {num} {stopword} ...]
+    SCHEMA {field} [TEXT [NOSTEM] [WEIGHT {weight}] [PHONETIC {matcher}] | NUMERIC | GEO | TAG [SEPARATOR {sep}] ] [SORTABLE][NOINDEX] ...
+    '''
+    # Create the index
+    cmd_create = ['ft.create', 'idxSearch', 'ON', 'HASH']
+    # With prefixes
+    cmd_create.extend(['prefix', '34'])
+    for i in range(1, 35):
+        cmd_create.append('pref' + str(i) + ":")
+    # With filter
+    cmd_create.extend(['filter', 'startswith(@__key, "r")'])
+    # With language
+    cmd_create.extend(['language', 'spanish'])
+    # With language field
+    cmd_create.extend(['language_field', 'myLang'])
+    # With score field
+    cmd_create.extend(['score_field', 'myScore'])
+    # With payload field
+    cmd_create.extend(['payload_field', 'myPayload'])
+    # With maxtextfields
+    cmd_create.append('maxtextfields')
+    # With stopwords
+    cmd_create.extend(['stopwords', 3, 'stop', 'being', 'silly'])
+    # With schema
+    cmd_create.extend(['schema',
+                'field1', 'as', 'f1', 'text', 'nostem', 'weight', '0.2', 'phonetic', 'dm:es', 'sortable',
+                'field2', 'as', 'f2', 'numeric', 'sortable',
+                'field3', 'as', 'f3', 'geo',
+                'field4', 'as', 'f4', 'tag', 'separator', ';',
+                'field11', 'text', 'nostem',
+                'field12', 'numeric', 'noindex',
+                'field13', 'geo',
+                'field14', 'tag', 'noindex',
+                'myLang', 'text',
+                'myScore', 'numeric',
+                ])
+    env.assertOk(env.cmd(*cmd_create))
+    waitForIndex(env, 'idxSearch')
+    env.assertOk(env.cmd('ft.synupdate', 'idxSearch', 'syngrp1', 'pelota', 'bola', 'balón'))
+    env.assertOk(env.cmd('ft.synupdate', 'idxSearch', 'syngrp2', 'jugar', 'tocar'))
+
+    # Add keys
+    for i in range(1, 50):
+        cmd = ['hset', 'pref' + str(i) + ":k" + str(i), rand_name(5), rand_num(2), rand_name(5), rand_num(3)]
+        env.assertEqual(env.cmd(*cmd), 2L)
+
+    # Save the rdb
+    env.assertOk(env.cmd('config', 'set', 'dbfilename', 'test_short_read_search.rdb'))
+    dbFileName = env.cmd('config', 'get', 'dbfilename')[1]
+    dbDir = env.cmd('config', 'get', 'dir')[1]
+    dbFilePath = os.path.join(dbDir, dbFileName)
+
+    env.assertTrue(env.cmd('save'))
+    # Copy to avoid truncation of rdb due to RLTest flush and save
+    dbCopyFilePath = os.path.join('/tmp/', dbFileName)
+    shutil.copyfile(dbFilePath, dbCopyFilePath)
+
+def testCreateIndexRdbFiles(env):
+    create_indices(env)
 
 class Connection(object):
     def __init__(self, sock, bufsize=4096, underlying_sock=None):
@@ -204,28 +288,60 @@ class ShardMock():
         self.stream_server.start()
 
 
-def testShortRead(env):
+def testShortReadSearch(env):
     env.skipOnCluster()
-    with open("short_read.rdb_full", mode='rb') as f:
+    # sendShortReads(env, "short_read.rdb_searchOnly")
+    sendShortReads(env, "/tmp/test_short_read_search.rdb")
+
+
+def testShortReadJSON(env):
+    env.skipOnCluster()
+    sendShortReads(env, "short_read.rdb_jsonOnly")
+
+
+def testShortReadSearchJSON(env):
+    env.skipOnCluster()
+    sendShortReads(env, "short_read.rdb_searchjson")
+
+
+def sendShortReads(env, rdb_file):
+    with open(rdb_file, mode='rb') as f:
         full_rdb = f.read()
     total_len = len(full_rdb)
-    for b in range(0, total_len + 1):
+    dbg_str = ''
+    dbg_ndx = -1
+    for b in range(773, total_len + 1):
         rdb = full_rdb[0:b]
+
+        # # For debugging: print the binary content before it is sent
+        # if len(rdb):
+        #     ch = rdb[dbg_ndx]
+        #     printable_ch = ch
+        #     if ord(ch) < 32 or ord(ch) == 127:
+        #         printable_ch = '\?'
+        # else:
+        #     ch = '\0'
+        #     printable_ch = '\!'   # no data (zero length)
+        # dbg_str = '{} {:=03n}:{:<2}({:<3})'.format(dbg_str, dbg_ndx, printable_ch, ord(ch))
+        # if not (dbg_ndx+1) % 10:
+        #     dbg_str = dbg_str + "\n"
+        # dbg_ndx = dbg_ndx + 1
+
+        env.debugPrint('runShortRead: %d out of %d \n%s' % (b, total_len, dbg_str))
         runShortRead(env, rdb, total_len)
 
-def runShortRead(env, data, total_len):
-    env.skipOnCluster()
-    with ShardMock(env) as shardMock:
-        env.debugPrint('runShortRead: %d out of %d \n' % (len(data), total_len))
 
-        # For debug: if adding breakpoints in redis to avoid closing the connection
+def runShortRead(env, data, total_len):
+    with ShardMock(env) as shardMock:
+
+        # For debugging: if adding breakpoints in redis, in order to avoid closing the connection, uncomment the following line
         # res = env.cmd('CONFIG', 'SET', 'timeout', '0')
 
         # Notice: Do not use env.expect in this test
         # (since it is sending commands to redis and in this test we need to follow strict hand-shaking)
         res = env.cmd('CONFIG', 'SET', 'repl-diskless-load', 'swapdb')
         res = env.cmd('slaveof', 'localhost', '10000')
-        env.expect(res).true()
+        env.assertTrue(res)
         conn = shardMock.GetConnection()
         # Perform hand-shake with slave
         res = conn.read_request()
@@ -235,8 +351,6 @@ def runShortRead(env, data, total_len):
         max_attempt = 100
         res = conn.read_request()
         while max_attempt > 0:
-            print("==>")
-            print(res)
             if res[0] == 'REPLCONF':
                 conn.send_status('OK')
             else:
@@ -261,4 +375,3 @@ def runShortRead(env, data, total_len):
 
         # Exit (avoid read-only exception with flush on slave)
         env.assertEqual(env.cmd('slaveof', 'no', 'one'), True)
-

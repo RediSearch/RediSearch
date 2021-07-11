@@ -2,6 +2,7 @@
 #include "redismodule.h"
 #include "rmalloc.h"
 #include "util/dict.h"
+#include "rdb.h"
 
 dict *spellCheckDicts = NULL;
 
