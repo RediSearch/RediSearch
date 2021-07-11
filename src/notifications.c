@@ -147,8 +147,8 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
       kType = DocumentType_None;
       if (kp) {
         kType = getDocType(kp);
+        RedisModule_CloseKey(kp);
       }
-      RedisModule_CloseKey(kp);
       if (kType == DocumentType_None) {
         // in crdt empty key means that key was deleted
         // TODO:FIX
