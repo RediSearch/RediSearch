@@ -310,7 +310,7 @@ def sendShortReads(env, rdb_file):
     total_len = len(full_rdb)
     dbg_str = ''
     dbg_ndx = -1
-    for b in range(773, total_len + 1):
+    for b in range(0, total_len + 1):
         rdb = full_rdb[0:b]
 
         # # For debugging: print the binary content before it is sent
@@ -361,12 +361,15 @@ def runShortRead(env, data, total_len):
         # Send RDB to slave
         some_guid = 'af4e30b5d14dce9f96fbb7769d0ec794cdc0bbcc'
         conn.send_status('FULLRESYNC ' + some_guid + ' 0')
-        conn.send('$%d\r\n%s\r\n' % (total_len, data))
-        conn.flush()
-
         if total_len != len(data):
+            conn.send('$%d\r\n%s' % (total_len, data))
             # Close during slave is waiting for more RDB data
             conn.close()
+        else:
+            # Allow to succeed with a full read (protocol expects a trailing '\r\n')
+            conn.send('$%d\r\n%s\r\n' % (total_len, data))
+        conn.flush()
+
         # Make sure slave did not crash
         res = env.cmd('PING')
         env.assertEqual(res, True)
