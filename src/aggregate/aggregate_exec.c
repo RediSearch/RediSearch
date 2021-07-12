@@ -365,6 +365,10 @@ RedisModuleString **_profileArgsDup(RedisModuleString **argv, int argc, int para
 }
 
 int RSProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  if (argc < 5) {
+    return RedisModule_WrongArity(ctx);
+  }
+
   CommandType cmdType;
   int curArg = PROFILE_1ST_PARAM;
   int withProfile = PROFILE_FULL;
@@ -376,7 +380,7 @@ int RSProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   } else if (strcasecmp(cmd, "AGGREGATE") == 0) {
     cmdType = COMMAND_AGGREGATE;
   } else {
-    RedisModule_ReplyWithError(ctx, "Bad command type");
+    RedisModule_ReplyWithError(ctx, "No `SEARCH` or `AGGREGATE` provided");
     return REDISMODULE_OK;
   }
   

@@ -45,6 +45,7 @@ make build         # compile and link
   WHY=1            # explain CMake decisions (in /tmp/cmake-why)
   FORCE=1          # Force CMake rerun
   CMAKE_ARGS=...   # extra arguments to CMake
+  STATIC=1         # build as static lib
   VG=1             # build for Valgrind
   SAN=type         # build with LLVM sanitizer (type=address|memory|leak|thread) 
 make parsers       # build parsers code
@@ -107,7 +108,7 @@ export PACKAGE_NAME
 #----------------------------------------------------------------------------------------------
 
 ifneq ($(SAN),)
-override CMAKE_ARGS += -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+CMAKE_SAN += -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
 endif
 
 ifeq ($(DEBUG),1)
@@ -125,6 +126,12 @@ endif
 
 ifeq ($(WHY),1)
 CMAKE_WHY=--trace-expand > /tmp/cmake-why 2>&1
+endif
+
+ifeq ($(STATIC),1)
+CMAKE_STATIC +=\
+	-DRS_FORCE_NO_GITVERSION=ON \
+	-DRS_BUILD_STATIC=ON
 endif
 
 CMAKE_FILES= \
@@ -147,6 +154,8 @@ CMAKE_FILES+= \
 	tests/pytests/CMakeLists.txt \
 	tests/c_utils/CMakeLists.txt
 endif
+
+CMAKE_FLAGS=$(CMAKE_ARGS) $(CMAKE_DEBUG) $(CMAKE_STATIC) $(CMAKE_SAN) $(CMAKE_TEST) $(CMAKE_WHY)
 
 #----------------------------------------------------------------------------------------------
 
@@ -171,7 +180,7 @@ ifeq ($(WHY),1)
 	@echo CMake log is in /tmp/cmake-why
 endif
 	@mkdir -p $(BINROOT)
-	@cd $(BINROOT) && cmake .. $(CMAKE_ARGS) $(CMAKE_SAN) $(CMAKE_TEST) $(CMAKE_DEBUG) $(CMAKE_WHY)
+	@cd $(BINROOT) && cmake .. $(CMAKE_FLAGS)
 
 $(COMPAT_DIR)/redisearch.so: $(BINROOT)/Makefile
 	@echo Building ...
@@ -221,6 +230,22 @@ run:
 
 #----------------------------------------------------------------------------------------------
 
+BENCHMARK_ARGS = redisbench-admin run-local
+
+ifneq ($(REMOTE),)
+	BENCHMARK_ARGS = redisbench-admin run-remote 
+endif
+
+BENCHMARK_ARGS += --module_path $(realpath $(TARGET))
+ifneq ($(BENCHMARK),)
+	BENCHMARK_ARGS += --test $(BENCHMARK)
+endif
+
+
+benchmark: $(TARGET)
+	cd ./tests/ci.benchmarks; $(BENCHMARK_ARGS) ; cd ../../
+
+#----------------------------------------------------------------------------------------------
 export REJSON ?= 1
 
 ifeq ($(TESTDEBUG),1)

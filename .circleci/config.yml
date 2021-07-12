@@ -6,7 +6,6 @@ defaults:
     - ubuntu
 
 commands:
-
   early_returns:
     steps:
       - run:
@@ -37,6 +36,29 @@ commands:
               circleci step halt
             fi
 
+  save-tests-logs:
+    steps:
+      - run:
+          name: Cleanup test log dir
+          command: |
+            if [[ -d tests/flow/logs ]]; then
+              cd tests/flow/logs
+              rm -f *.aof *.rdb
+            fi
+      - store_artifacts:
+          path: tests/pytests/logs
+
+  persist-artifacts:
+    steps:
+      - early_return_for_forked_pull_requests
+      - persist_to_workspace:
+          root: artifacts
+          paths:
+            - '*.zip'
+            - '*.tgz'
+            - snapshots/*.zip
+            - snapshots/*.tgz
+
   ci_steps:
     steps:
       - early_returns
@@ -55,16 +77,45 @@ commands:
           command: bash -l -c "COMPAT_DIR=$BUILD_DIR make pack"
           environment:
             - PACKAGE_NAME: redisearch-oss
-      - store_artifacts:
-          path: tests/pytests/logs
+      - save-tests-logs
       - early_return_for_forked_pull_requests
-      - persist_to_workspace:
-          root: artifacts
-          paths:
-            - '*.zip'
-            - '*.tgz'
-            - snapshots/*.zip
-            - snapshots/*.tgz
+      - persist-artifacts
+
+  benchmark_steps:
+    parameters:
+      github_actor:
+        type: string
+        default: $CIRCLE_USERNAME
+      module_path:
+        type: string
+        default: ../../build-debian/redisearch.so
+    steps:
+      - run:
+          name: Install remote benchmark tool dependencies
+          command: |
+            VERSION=0.14.8 ./deps/readies/bin/getterraform
+      - run:
+          name: Install remote benchmark python dependencies
+          command: python3 -m pip install -r ./tests/ci.benchmarks/requirements.txt
+      - run:
+          name: Run CI benchmarks on aws
+          command: |
+              cd ./tests/ci.benchmarks
+              export AWS_ACCESS_KEY_ID=$PERFORMANCE_EC2_ACCESS_KEY
+              export AWS_SECRET_ACCESS_KEY=$PERFORMANCE_EC2_SECRET_KEY
+              export AWS_DEFAULT_REGION=$PERFORMANCE_EC2_REGION
+              export EC2_PRIVATE_PEM=$PERFORMANCE_EC2_PRIVATE_PEM
+
+              redisbench-admin run-remote \
+                --module_path << parameters.module_path >> \
+                --github_actor << parameters.github_actor >> \
+                --github_repo $CIRCLE_PROJECT_REPONAME \
+                --github_org $CIRCLE_PROJECT_USERNAME \
+                --github_sha $CIRCLE_SHA1 \
+                --github_branch $CIRCLE_BRANCH \
+                --upload_results_s3 \
+                --triggering_env circleci \
+                --push_results_redistimeseries
 
 jobs:
   ubuntu:
@@ -96,6 +147,21 @@ jobs:
           no_output_timeout: 20m
       - ci_steps
 
+  ubuntu_benchmarks:
+    docker:
+      - image: redisfab/rmbuilder:6.0.9-x64-bionic
+    environment:
+      - BUILD_DIR: build-debian
+    steps:
+      - checkout
+      - run:
+          name: Get Dependencies
+          command: ./.circleci/ci_get_deps.sh
+      - run:
+          name: Build
+          command: bash -l -c "./.circleci/ci_build.sh"
+      - benchmark_steps
+
   deploy_snapshots:
     docker:
       - image: redisfab/rmbuilder:6.2.3-x64-buster
@@ -122,8 +188,7 @@ jobs:
           name: Run & build tests
           command: bash -l -c "ASAN=1 ./.circleci/ci_diag_san12.sh"
           no_output_timeout: 20m
-      - store_artifacts:
-          path: tests/pytests/logs
+      - save-tests-logs
 
   debug_msan:
     docker:
@@ -135,8 +200,7 @@ jobs:
           name: Run & build tests
           command: bash -l -c "MSAN=1 ./.circleci/ci_diag_san12.sh"
           no_output_timeout: 20m
-      - store_artifacts:
-          path: tests/pytests/logs
+      - save-tests-logs
 
   coverage:
     docker:
@@ -148,11 +212,7 @@ jobs:
           name: Build & Test
           command: bash -l -c "./.circleci/ci_coverage.sh"
           no_output_timeout: 20m
-      - store_artifacts:
-          path: coverage
-          destination: coverage
-      - store_artifacts:
-          path: tests/pytests/logs
+      - save-tests-logs
 
   deploy_release:
     docker:
@@ -256,6 +316,10 @@ workflows:
           context: common
           requires: *default_jobs
           <<: *on-version-tags
+      - ubuntu_benchmarks:
+          # <<: *on-integ-and-version-tags
+          <<: *never
+          context: common
 
   nightly:
     triggers:
@@ -266,3 +330,5 @@ workflows:
               only: master
     jobs:
       - macos
+      # - ubuntu_benchmarks:
+      #     context: common

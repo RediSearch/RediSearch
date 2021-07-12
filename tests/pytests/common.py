@@ -74,21 +74,40 @@ def sortedResults(res):
     res = [n] + [item for sublist in data for item in sublist]
     return res
 
-module_v = 0
-def check_module_version(env, version):
-    global module_v
-    if module_v == 0:
-        module_v = env.execute_command('MODULE LIST')[0][3]
-    if int(module_v) >= int(version):
-        return True
-    return False
+def slice_at(v, val):
+    try:
+        i = v.index(val)
+        return v[i+1:]
+    except:
+        return []
 
-server_v = 0
-def check_server_version(env, ver):
-    global server_v
-    if server_v == 0:
-        server_v = env.execute_command('INFO')['redis_version']
-    u = version.parse(server_v) 
-    if version.parse(server_v) >= version.parse(ver):
-        return True
-    return False
+def numver_to_version(numver):
+    v = numver
+    v = "%d.%d.%d" % (int(v/10000), int(v/100)%100, v%100)
+    return version.parse(v)
+
+module_ver = None
+def module_version_at_least(env, ver):
+    global module_ver
+    if module_ver is None:
+        v = env.execute_command('MODULE LIST')[0][3]
+        module_ver = numver_to_version(v)
+    if not isinstance(ver, version.Version):
+        ver = version.parse(ver)
+    return module_ver >= ver
+
+def module_version_less_than(env, ver):
+    return not module_version_at_least(env, ver)
+
+server_ver = None
+def server_version_at_least(env, ver):
+    global server_ver
+    if server_ver is None:
+        v = env.execute_command('INFO')['redis_version']
+        server_ver = version.parse(v)
+    if not isinstance(ver, version.Version):
+        ver = version.parse(ver)
+    return server_ver >= ver
+
+def server_version_less_than(env, ver):
+    return not server_version_at_least(env, ver)
