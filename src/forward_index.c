@@ -45,7 +45,7 @@ static size_t estimtateTermCount(const Document *doc) {
   size_t nChars = 0;
   for (size_t ii = 0; ii < doc->numFields; ++ii) {
     size_t n;
-    RedisModule_StringPtrLen(doc->fields[ii].text, &n);
+    DocumentField_GetValueCStr(&doc->fields[ii], &n);
     nChars += n;
   }
   return nChars / CHARS_PER_TERM;

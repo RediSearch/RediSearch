@@ -36,10 +36,37 @@ extern "C" {
  * See document.c for the internals.
  */
 
-typedef struct {
+typedef enum {
+  // Newline
+  FLD_VAR_T_RMS = 0x01,
+  FLD_VAR_T_CSTR = 0x02,
+  FLD_VAR_T_NUM = 0x04,
+  FLD_VAR_T_GEO = 0x08,
+  FLD_VAR_T_ARRAY = 0x10
+} FieldVarType;
+
+typedef struct DocumentField{
   const char *name;  // Can either be char or RMString
   const char *path;
-  RedisModuleString *text;
+  // hash RMS
+  // values - TODO: unionize
+  union {
+    // TODO: consider removing RMS altogether
+    RedisModuleString *text;
+    struct {
+      char *strval;
+      size_t strlen;
+    };
+    double numval;
+    struct {
+      double lon, lat;
+    };
+    struct {
+      char **multiVal;
+      size_t arrayLen; // for multiVal TODO: use arr.h
+    };
+  };
+  FieldVarType unionType;
   FieldType indexAs;
 } DocumentField;
 
@@ -319,10 +346,12 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
 int Redis_SaveDocument(RedisSearchCtx *ctx, const AddDocumentOptions *opts, QueryError *status);
 
 /* Serialzie the document's fields to a redis client */
-int Document_ReplyFields(RedisModuleCtx *ctx, Document *doc);
 int Document_ReplyAllFields(RedisModuleCtx *ctx, IndexSpec *spec, RedisModuleString *id);
 
 DocumentField *Document_GetField(Document *d, const char *fieldName);
+
+/* return value as c string */
+const char *DocumentField_GetValueCStr(const DocumentField *df, size_t *len);
 
 // Document add functions:
 int RSAddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);

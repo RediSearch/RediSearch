@@ -1,5 +1,6 @@
 
 #include "json.h"
+#include "document.h"
 #include "rmutil/rm_assert.h"
 
 #include <string.h>
@@ -42,51 +43,11 @@ int GetJSONAPIs(RedisModuleCtx *ctx, int subscribeToModuleChange) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-int JSON_GetRedisModuleString(RedisModuleCtx *ctx, RedisJSON json, RedisModuleString **str) {
-  size_t len;
-  const char *cstr;
-  long long intval;
-  double dblval;
-  int boolval;
-
-  int rv = REDISMODULE_OK;
-
-  switch (japi->getType(json)) {
-    case JSONType_String:
-      japi->getString(json, &cstr, &len);
-      *str = RedisModule_CreateString(ctx, cstr, len);
-      break;
-    case JSONType_Int:
-      japi->getInt(json, &intval);
-      *str = RedisModule_CreateStringFromLongLong(ctx, intval);
-      break;
-    case JSONType_Double:
-      japi->getDouble(json, &dblval);
-      *str = RedisModule_CreateStringFromDouble(ctx, dblval);
-      break;
-    case JSONType_Bool:
-      japi->getBoolean(json, &boolval);
-      if (boolval) {
-        *str = RedisModule_CreateString(ctx, "true", strlen("true"));
-      } else {
-        *str = RedisModule_CreateString(ctx, "false", strlen("false"));
-      }
-      break;
-    case JSONType_Object:
-    case JSONType_Array:
-    case JSONType_Null:
-      rv = REDISMODULE_ERR;
-    case JSONType__EOF:
-      RS_LOG_ASSERT(0, "Should not happen");
-  }
-  return rv;
-}
 
 int FieldSpec_CheckJsonType(FieldType fieldType, JSONType type) {
   int rv = REDISMODULE_ERR;
   switch (type) {
-
-    // TEXT, TAG and GEO fields are represented as string 
+  // TEXT, TAG and GEO fields are represented as string 
   case JSONType_String:
     if (fieldType == INDEXFLD_T_FULLTEXT || fieldType == INDEXFLD_T_TAG || fieldType == INDEXFLD_T_GEO) {
       rv = REDISMODULE_OK;
@@ -101,17 +62,98 @@ int FieldSpec_CheckJsonType(FieldType fieldType, JSONType type) {
     break;
   // Boolean values can be represented only as TAG 
   case JSONType_Bool:    
-  // An array can be represented only as TAG 
+  // An array can be represented only as TAG
+  case JSONType_Array:
     if (fieldType == INDEXFLD_T_TAG) {
       rv = REDISMODULE_OK;
     }
     break;
   // An object or null type are not supported
-  case JSONType_Array: // TODO: array will be supported as TAG
   case JSONType_Object:
   case JSONType_Null:
   case JSONType__EOF:
     break;
+  }
+  return rv;
+}
+
+int JSON_GetRedisModuleString(RedisModuleCtx *ctx, JSONResultsIterator jsonIter,
+                              FieldType ftype, struct DocumentField *df) {
+  RedisJSON json = japi->next(jsonIter);
+  if (!json) {
+    RS_LOG_ASSERT(0, "shouldn't happen");
+  }
+
+  if (FieldSpec_CheckJsonType(ftype, japi->getType(json))) {
+    return REDISMODULE_ERR;
+  }
+  
+  int boolval;
+  long long intval;
+  const char *str;
+  size_t len;
+  int rv = REDISMODULE_OK;
+
+  switch (japi->getType(json)) {
+    case JSONType_String:
+      japi->getString(json, &str, &df->strlen);
+      df->strval = rm_strndup(str, df->strlen);
+      df->unionType = FLD_VAR_T_CSTR;
+      break;
+    case JSONType_Int:
+      japi->getInt(json, &intval);
+      df->numval = intval;
+      df->unionType = FLD_VAR_T_NUM;
+      break;
+    case JSONType_Double:
+      japi->getDouble(json, &df->numval);
+      df->unionType = FLD_VAR_T_NUM;
+      break;
+    case JSONType_Bool:
+      japi->getBoolean(json, &boolval);
+      if (boolval) {
+        df->strlen = strlen("true");
+        df->strval = rm_strndup("true", df->strlen);
+      } else {
+        df->strlen = strlen("false");
+        df->strval = rm_strndup("false", df->strlen);
+      }
+      df->unionType = FLD_VAR_T_CSTR;
+      break;
+    case JSONType_Array: {
+      if (ftype == INDEXFLD_T_TAG) {
+        // An array can be indexed only as `TAG` field
+        size_t arrayLen;
+        japi->getLen(json, &arrayLen);
+        df->multiVal = rm_calloc(arrayLen, sizeof(*df->multiVal));
+        df->arrayLen = arrayLen;
+        
+        int i = 0;
+        for (int i = 0; i < arrayLen; ++i) {
+          RedisJSON arrayJson = japi->getAt(json, i);
+          if (japi->getType(arrayJson) != JSONType_String) {
+            // TAG fields can index only strings
+            for (int j = 0; j < i; ++j) {
+              rm_free(df->multiVal[j]);
+            }
+            rm_free(df->multiVal);
+            return REDISMODULE_ERR;
+          }
+          japi->getString(arrayJson, &str, &len);
+          df->multiVal[i] = rm_strndup(str, len);
+        }
+        df->unionType = FLD_VAR_T_ARRAY;
+        } else {
+          rv = REDISMODULE_ERR;
+        }
+      }
+      break;
+    case JSONType_Object:
+    case JSONType_Null:
+      rv = REDISMODULE_ERR;
+      break;
+    case JSONType__EOF:
+      RS_LOG_ASSERT(0, "Should not happen");
   }
   return rv;
 }

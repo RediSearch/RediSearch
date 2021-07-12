@@ -591,7 +591,7 @@ def testWrongFieldType(env):
 
     res_actual = env.cmd('FT.INFO idx')
     res_actual = {res_actual[i]: res_actual[i + 1] for i in range(0, len(res_actual), 2)}
-    env.assertEqual(str(res_actual['hash_indexing_failures']), '1')
+    env.assertEqual(str(res_actual['indexing_failures']), '1')
     
 def testDocIndexedInTwoIndexes():
     env = Env(moduleArgs='MAXDOCTABLESIZE 50')

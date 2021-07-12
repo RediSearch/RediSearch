@@ -1913,6 +1913,7 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   }
 
   if (rv != REDISMODULE_OK) {
+    spec->stats.indexingFailures++;
     IndexSpec_DeleteDoc(spec, ctx, key);
     Document_Free(&doc);
     return REDISMODULE_ERR;

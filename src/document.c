@@ -326,7 +326,7 @@ void AddDocumentCtx_Submit(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, uint32_
     const DocumentField *ff = aCtx->doc->fields + ii;
     if (ff->indexAs & (INDEXFLD_T_FULLTEXT | INDEXFLD_T_TAG)) {
       size_t n;
-      RedisModule_StringPtrLen(aCtx->doc->fields[ii].text, &n);
+      DocumentField_GetValueCStr(&aCtx->doc->fields[ii], &n);
       totalSize += n;
     }
   }
@@ -400,7 +400,11 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
 
 FIELD_PREPROCESSOR(fulltextPreprocessor) {
   size_t fl;
-  const char *c = RedisModule_StringPtrLen(field->text, &fl);
+  const char *c = DocumentField_GetValueCStr(field, &fl);
+  if (!c) {
+    return -1;
+  }
+
   if (FieldSpec_IsSortable(fs)) {
     RSSortingVector_Put(aCtx->sv, fs->sortIdx, (void *)c, RS_SORTABLE_STR);
   }
@@ -442,9 +446,26 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
 }
 
 FIELD_PREPROCESSOR(numericPreprocessor) {
-  if (RedisModule_StringToDouble(field->text, &fdata->numeric) == REDISMODULE_ERR) {
-    QueryError_SetCode(status, QUERY_ENOTNUMERIC);
-    return -1;
+  char *end;
+  switch (field->unionType) {
+    case FLD_VAR_T_RMS:
+      if (RedisModule_StringToDouble(field->text, &fdata->numeric) == REDISMODULE_ERR) {
+        QueryError_SetCode(status, QUERY_ENOTNUMERIC);
+        return -1;
+      }
+      break;
+    case FLD_VAR_T_CSTR:
+      fdata->numeric = strtod(field->strval, &end);
+      if (*end) {
+        QueryError_SetCode(status, QUERY_ENOTNUMERIC);
+        return -1;
+      }
+      break;
+    case FLD_VAR_T_NUM:
+      fdata->numeric = field->numval;
+      break;
+    default:
+      return -1;
   }
 
   // If this is a sortable numeric value - copy the value to the sorting vector
@@ -472,14 +493,14 @@ FIELD_BULK_INDEXER(numericIndexer) {
 }
 
 FIELD_PREPROCESSOR(geoPreprocessor) {
-  // buffer of 32 bytes should be sufficient. lon,lat 
   size_t len;
-  char buf[32];
-  const char *str = RedisModule_StringPtrLen(field->text, &len);
+  const char *str = DocumentField_GetValueCStr(field, &len);
   if (len > 31) {
     return REDISMODULE_ERR;
   }
 
+  // buffer of 32 bytes should be sufficient. lon,lat
+  char buf[32];
   // copy to buffer since we modify the string
   memcpy(buf, str, MIN(32, len));
   buf[len] = '\0';
@@ -520,9 +541,12 @@ FIELD_PREPROCESSOR(tagPreprocessor) {
     return 0;
   }
   if (FieldSpec_IsSortable(fs)) {
+    // TODO: how to store multitag from json as sortable.
     size_t fl;
-    const char *c = RedisModule_StringPtrLen(field->text, &fl);
-    RSSortingVector_Put(aCtx->sv, fs->sortIdx, (void *)c, RS_SORTABLE_STR);
+    const char *str = DocumentField_GetValueCStr(field, &fl);
+    if (str) {
+      RSSortingVector_Put(aCtx->sv, fs->sortIdx, str, RS_SORTABLE_STR);
+    }
   }
   return 0;
 }
@@ -781,6 +805,22 @@ DocumentField *Document_GetField(Document *d, const char *fieldName) {
     if (!strcasecmp(d->fields[i].name, fieldName)) {
       return &d->fields[i];
     }
+  }
+  return NULL;
+}
+
+const char *DocumentField_GetValueCStr(const DocumentField *df, size_t *len) {
+  *len = 0;
+  switch (df->unionType) {
+    case FLD_VAR_T_RMS:
+      return RedisModule_StringPtrLen(df->text, len);
+    case FLD_VAR_T_CSTR:
+      *len = df->strlen;
+      return df->strval;
+    case FLD_VAR_T_NUM:
+    case FLD_VAR_T_GEO:
+    case FLD_VAR_T_ARRAY:
+      break;
   }
   return NULL;
 }
