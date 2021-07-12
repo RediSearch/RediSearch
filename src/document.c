@@ -650,6 +650,10 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx) {
 
 cleanup:
   if (ourRv != REDISMODULE_OK) {
+    // if a document did not load properly, it is deleted
+    // to prevent mismatch of index and hash
+    DocTable_DeleteR(&aCtx->spec->docs, doc->docKey);
+  
     QueryError_SetCode(&aCtx->status, QUERY_EGENERIC);
     AddDocumentCtx_Finish(aCtx);
   }
