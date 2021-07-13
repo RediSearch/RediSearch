@@ -15,14 +15,14 @@ REDISEARCH_CACHE_DIR = '/tmp/test'
 BASE_RDBS_URL = 'https://s3.amazonaws.com/redismodules/redisearch-enterprise/rdbs/'
 
 RDBS_SHORT_READS = [
-    'redisearch_2.2.0.rdb',
+    'short-reads/redisearch_2.2.0.rdb',
 ]
 
 RDBS_COMPATIBILITY = [
     'redisearch_2.0.9.rdb',
 ]
 RDBS = []
-RDBS.extend([os.path.join('short-reads', f) for f in RDBS_SHORT_READS])
+RDBS.extend(RDBS_SHORT_READS)
 RDBS.extend(RDBS_COMPATIBILITY)
 
 
@@ -34,8 +34,8 @@ def downloadFiles():
             os.makedirs(dir)
         if not os.path.exists(path):
             subprocess.call(['wget', '-q', BASE_RDBS_URL + f, '-O', path])
-        if not os.path.exists(path):
-            return False
+            if not os.path.exists(path):
+                return False
     return True
 
 
@@ -47,14 +47,37 @@ def rand_name(k):
 
 def rand_num(k):
     # rand positive number with between 2 to k digits
-    return ''.join([chr(random.randint(ord('0'), ord('9'))) for _ in range(0, random.randint(2, max(2, k)))])
+    return chr(random.randint(ord('1'), ord('9'))) + ''.join([chr(random.randint(ord('0'), ord('9'))) for _ in range(0, random.randint(1, max(1, k)))])
     # return random.choices(''.join(string.digits, k=k))
 
 
-def create_indices(env):
-    env.skipOnCluster()
+def create_indices(env, rdbFileName, idxNameStem, isHash=True):
 
-    '''FT.CREATE {index}
+    add_index(env, isHash, idxNameStem + '1', 10, 20)
+    add_index(env, isHash, idxNameStem + '2', 35, 40)
+
+    # Save the rdb
+    env.assertOk(env.cmd('config', 'set', 'dbfilename', rdbFileName))
+    dbFileName = env.cmd('config', 'get', 'dbfilename')[1]
+    dbDir = env.cmd('config', 'get', 'dir')[1]
+    dbFilePath = os.path.join(dbDir, dbFileName)
+
+    env.assertTrue(env.cmd('save'))
+    # Copy to avoid truncation of rdb due to RLTest flush and save
+    dbCopyFilePath = os.path.join(REDISEARCH_CACHE_DIR, 'new', dbFileName)
+    dbCopyFileDir = os.path.dirname(dbCopyFilePath)
+    if not os.path.exists(dbCopyFileDir):
+        os.makedirs(dbCopyFileDir)
+    shutil.copyfile(dbFilePath, dbCopyFilePath)
+
+def get_identifier(name, isHash):
+    return '$.' + name if not isHash else name
+
+def add_index(env, isHash, index_name, num_prefs, num_keys):
+
+    ''' Cover most of the possible options of an index
+
+    FT.CREATE {index}
     [ON {structure}]
     [PREFIX {count} {prefix} [{prefix} ..]
     [FILTER {filter}]
@@ -67,11 +90,12 @@ def create_indices(env):
     [STOPWORDS {num} {stopword} ...]
     SCHEMA {field} [TEXT [NOSTEM] [WEIGHT {weight}] [PHONETIC {matcher}] | NUMERIC | GEO | TAG [SEPARATOR {sep}] ] [SORTABLE][NOINDEX] ...
     '''
+
     # Create the index
-    cmd_create = ['ft.create', 'idxSearch', 'ON', 'HASH']
+    cmd_create = ['ft.create', index_name, 'ON', 'HASH' if isHash else 'JSON']
     # With prefixes
-    cmd_create.extend(['prefix', '34'])
-    for i in range(1, 35):
+    cmd_create.extend(['prefix', num_prefs])
+    for i in range(1, num_prefs + 1):
         cmd_create.append('pref' + str(i) + ":")
     # With filter
     cmd_create.extend(['filter', 'startswith(@__key, "r")'])
@@ -89,41 +113,36 @@ def create_indices(env):
     cmd_create.extend(['stopwords', 3, 'stop', 'being', 'silly'])
     # With schema
     cmd_create.extend(['schema',
-                       'field1', 'as', 'f1', 'text', 'nostem', 'weight', '0.2', 'phonetic', 'dm:es', 'sortable',
-                       'field2', 'as', 'f2', 'numeric', 'sortable',
-                       'field3', 'as', 'f3', 'geo',
-                       'field4', 'as', 'f4', 'tag', 'separator', ';',
-                       'field11', 'text', 'nostem',
-                       'field12', 'numeric', 'noindex',
-                       'field13', 'geo',
-                       'field14', 'tag', 'noindex',
-                       'myLang', 'text',
-                       'myScore', 'numeric',
+                       get_identifier('field1', isHash), 'as', 'f1', 'text', 'nostem', 'weight', '0.2', 'phonetic', 'dm:es', 'sortable',
+                       get_identifier('field2', isHash), 'as', 'f2', 'numeric', 'sortable',
+                       get_identifier('field3', isHash), 'as', 'f3', 'geo',
+                       get_identifier('field4', isHash), 'as', 'f4', 'tag', 'separator', ';',
+                       get_identifier('field11', isHash), 'text', 'nostem',
+                       get_identifier('field12', isHash), 'numeric', 'noindex',
+                       get_identifier('field13', isHash), 'geo',
+                       get_identifier('field14', isHash), 'tag', 'noindex',
+                       get_identifier('myLang', isHash), 'text',
+                       get_identifier('myScore', isHash), 'numeric',
                        ])
     env.assertOk(env.cmd(*cmd_create))
-    waitForIndex(env, 'idxSearch')
-    env.assertOk(env.cmd('ft.synupdate', 'idxSearch', 'syngrp1', 'pelota', 'bola', 'balón'))
-    env.assertOk(env.cmd('ft.synupdate', 'idxSearch', 'syngrp2', 'jugar', 'tocar'))
+    waitForIndex(env, index_name)
+    env.assertOk(env.cmd('ft.synupdate', index_name, 'syngrp1', 'pelota', 'bola', 'balón'))
+    env.assertOk(env.cmd('ft.synupdate', index_name, 'syngrp2', 'jugar', 'tocar'))
 
     # Add keys
-    for i in range(1, 50):
-        cmd = ['hset', 'pref' + str(i) + ":k" + str(i), rand_name(5), rand_num(2), rand_name(5), rand_num(3)]
-        env.assertEqual(env.cmd(*cmd), 2L)
-
-    # Save the rdb
-    env.assertOk(env.cmd('config', 'set', 'dbfilename', 'redisearch_2.2.0.rdb'))
-    dbFileName = env.cmd('config', 'get', 'dbfilename')[1]
-    dbDir = env.cmd('config', 'get', 'dir')[1]
-    dbFilePath = os.path.join(dbDir, dbFileName)
-
-    env.assertTrue(env.cmd('save'))
-    # Copy to avoid truncation of rdb due to RLTest flush and save
-    dbCopyFilePath = os.path.join('/tmp/', dbFileName)
-    shutil.copyfile(dbFilePath, dbCopyFilePath)
+    for i in range(1, num_keys):
+        if isHash:
+            cmd = ['hset', 'pref' + str(i) + ":k" + str(i) + '_' + str(rand_num(5)), rand_name(5), rand_num(2), rand_name(5), rand_num(3)]
+            env.assertEqual(env.cmd(*cmd), 2L)
+        else:
+            cmd = ['json.set', 'pref' + str(i) + ":k" + str(i) + '_' + rand_num(5), '$', r'{"field1":"' + rand_name(5) + r'", "field2":' + rand_num(3) + r'}']
+            env.assertOk(env.cmd(*cmd))
 
 
 def testCreateIndexRdbFiles(env):
-    create_indices(env)
+    env.flush()
+    create_indices(env, 'redisearch_2.2.0.rdb', 'idxSearch_', True)
+    create_indices(env, 'rejson_2.0.0.rdb', 'idxJson_', False)
 
 
 class Connection(object):
@@ -323,28 +342,22 @@ class ShardMock():
 
 
 def testShortReadSearch(env):
-    env.skipOnCluster() # FIXME: What about cluster?
+    env.skipOnCluster()
     if not downloadFiles():
         env.assertTrue(False, "downloadFiles failed")
 
     for f in RDBS:
-        env.stop()
         fullfilePath = os.path.join(REDISEARCH_CACHE_DIR, f)
-        env.start()
         sendShortReads(env, fullfilePath)
 
 
-def testShortReadJSON(env):
-    env.skipOnCluster()
-    sendShortReads(env, "short_read.rdb_jsonOnly")
-
-
-def testShortReadSearchJSON(env):
-    env.skipOnCluster()
-    sendShortReads(env, "short_read.rdb_searchjson")
-
-
 def sendShortReads(env, rdb_file):
+
+    # FIXME: Add some initial content (index+keys) to test backup/restore when short read fails
+    # When entire rdb is successfully sent and loaded (from swapdb) - backup should be discarded
+    env.flush()
+    add_index(env, True, 'idxBackup1', 5, 10)
+
     with open(rdb_file, mode='rb') as f:
         full_rdb = f.read()
     total_len = len(full_rdb)
@@ -408,15 +421,17 @@ def runShortRead(env, data, total_len):
             conn.send('$%d\r\n%s\r\n' % (total_len, data))
         conn.flush()
 
-        if total_len != len(data):
-            # Close during slave is waiting for more RDB data
-            conn.close()
+
+        # Close during slave is waiting for more RDB data (so replica will re-connect to master)
+        conn.close()
 
         # Make sure slave did not crash
         res = env.cmd('PING')
         env.assertEqual(res, True)
         conn = shardMock.GetConnection(timeout=3)
         env.assertNotEqual(conn, None)
+
+        # 'FT._LIST' has no index
 
         # Exit (avoid read-only exception with flush on slave)
         env.assertEqual(env.cmd('slaveof', 'no', 'one'), True)
