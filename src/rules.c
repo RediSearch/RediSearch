@@ -308,14 +308,14 @@ int SchemaRule_RdbLoad(IndexSpec *sp, RedisModuleIO *rdb, int encver) {
 
   args.nprefixes = LoadUnsigned_IOError(rdb, goto cleanup);
   if (args.nprefixes <= RULEARGS_INITIAL_NUM_PREFIXES_ON_STACK) {
-    memset(prefixes, 0, RULEARGS_INITIAL_NUM_PREFIXES_ON_STACK * sizeof(*prefixes));
     args.prefixes = (const char **)prefixes;
+    memset(args.prefixes, 0, args.nprefixes * sizeof(*args.prefixes));
   } else {
-    args.prefixes = rm_calloc(args.nprefixes, sizeof(char *));
+    args.prefixes = rm_calloc(args.nprefixes, sizeof(*args.prefixes));
   }
   
   for (size_t i = 0; i < args.nprefixes; ++i) {
-    prefixes[i] = LoadStringBuffer_IOError(rdb, &len, goto cleanup);
+    args.prefixes[i] = LoadStringBuffer_IOError(rdb, &len, goto cleanup);
   }
 
   uint64_t exist = LoadUnsigned_IOError(rdb, goto cleanup);

@@ -1,23 +1,55 @@
 # coding=utf-8
+import os
 import random
-import string
+import shutil
+import subprocess
 
 import gevent.queue
 import gevent.server
 import gevent.socket
-import os
-import shutil
 
 from common import TimeLimit
 from common import waitForIndex
 
+REDISEARCH_CACHE_DIR = '/tmp/test'
+BASE_RDBS_URL = 'https://s3.amazonaws.com/redismodules/redisearch-enterprise/rdbs/'
+
+RDBS_SHORT_READS = [
+    'redisearch_2.2.0.rdb',
+]
+
+RDBS_COMPATIBILITY = [
+    'redisearch_2.0.9.rdb',
+]
+RDBS = []
+RDBS.extend([os.path.join('short-reads', f) for f in RDBS_SHORT_READS])
+RDBS.extend(RDBS_COMPATIBILITY)
+
+
+def downloadFiles():
+    for f in RDBS:
+        path = os.path.join(REDISEARCH_CACHE_DIR, f)
+        dir = os.path.dirname(path)
+        if not os.path.exists(dir):
+            os.makedirs(dir)
+        if not os.path.exists(path):
+            subprocess.call(['wget', '-q', BASE_RDBS_URL + f, '-O', path])
+        if not os.path.exists(path):
+            return False
+    return True
+
+
 def rand_name(k):
-    return ''.join([chr(random.randint(ord('a'), ord('z'))) for _ in range(0, random.randint(1, k))])
-    #return random.choices(''.join(string.ascii_letters), k=k)
+    # rand alphabetic string with between 2 to k chars
+    return ''.join([chr(random.randint(ord('a'), ord('z'))) for _ in range(0, random.randint(2, max(2, k)))])
+    # return random.choices(''.join(string.ascii_letters), k=k)
+
 
 def rand_num(k):
-    return ''.join([chr(random.randint(ord('0'), ord('9'))) for _ in range(0, random.randint(1, k))])
-    #return random.choices(''.join(string.digits, k=k))
+    # rand positive number with between 2 to k digits
+    return ''.join([chr(random.randint(ord('0'), ord('9'))) for _ in range(0, random.randint(2, max(2, k)))])
+    # return random.choices(''.join(string.digits, k=k))
+
 
 def create_indices(env):
     env.skipOnCluster()
@@ -57,17 +89,17 @@ def create_indices(env):
     cmd_create.extend(['stopwords', 3, 'stop', 'being', 'silly'])
     # With schema
     cmd_create.extend(['schema',
-                'field1', 'as', 'f1', 'text', 'nostem', 'weight', '0.2', 'phonetic', 'dm:es', 'sortable',
-                'field2', 'as', 'f2', 'numeric', 'sortable',
-                'field3', 'as', 'f3', 'geo',
-                'field4', 'as', 'f4', 'tag', 'separator', ';',
-                'field11', 'text', 'nostem',
-                'field12', 'numeric', 'noindex',
-                'field13', 'geo',
-                'field14', 'tag', 'noindex',
-                'myLang', 'text',
-                'myScore', 'numeric',
-                ])
+                       'field1', 'as', 'f1', 'text', 'nostem', 'weight', '0.2', 'phonetic', 'dm:es', 'sortable',
+                       'field2', 'as', 'f2', 'numeric', 'sortable',
+                       'field3', 'as', 'f3', 'geo',
+                       'field4', 'as', 'f4', 'tag', 'separator', ';',
+                       'field11', 'text', 'nostem',
+                       'field12', 'numeric', 'noindex',
+                       'field13', 'geo',
+                       'field14', 'tag', 'noindex',
+                       'myLang', 'text',
+                       'myScore', 'numeric',
+                       ])
     env.assertOk(env.cmd(*cmd_create))
     waitForIndex(env, 'idxSearch')
     env.assertOk(env.cmd('ft.synupdate', 'idxSearch', 'syngrp1', 'pelota', 'bola', 'balón'))
@@ -79,7 +111,7 @@ def create_indices(env):
         env.assertEqual(env.cmd(*cmd), 2L)
 
     # Save the rdb
-    env.assertOk(env.cmd('config', 'set', 'dbfilename', 'test_short_read_search.rdb'))
+    env.assertOk(env.cmd('config', 'set', 'dbfilename', 'redisearch_2.2.0.rdb'))
     dbFileName = env.cmd('config', 'get', 'dbfilename')[1]
     dbDir = env.cmd('config', 'get', 'dir')[1]
     dbFilePath = os.path.join(dbDir, dbFileName)
@@ -89,8 +121,10 @@ def create_indices(env):
     dbCopyFilePath = os.path.join('/tmp/', dbFileName)
     shutil.copyfile(dbFilePath, dbCopyFilePath)
 
+
 def testCreateIndexRdbFiles(env):
     create_indices(env)
+
 
 class Connection(object):
     def __init__(self, sock, bufsize=4096, underlying_sock=None):
@@ -289,9 +323,15 @@ class ShardMock():
 
 
 def testShortReadSearch(env):
-    env.skipOnCluster()
-    # sendShortReads(env, "short_read.rdb_searchOnly")
-    sendShortReads(env, "/tmp/test_short_read_search.rdb")
+    env.skipOnCluster() # FIXME: What about cluster?
+    if not downloadFiles():
+        env.assertTrue(False, "downloadFiles failed")
+
+    for f in RDBS:
+        env.stop()
+        fullfilePath = os.path.join(REDISEARCH_CACHE_DIR, f)
+        env.start()
+        sendShortReads(env, fullfilePath)
 
 
 def testShortReadJSON(env):
@@ -363,12 +403,14 @@ def runShortRead(env, data, total_len):
         conn.send_status('FULLRESYNC ' + some_guid + ' 0')
         if total_len != len(data):
             conn.send('$%d\r\n%s' % (total_len, data))
-            # Close during slave is waiting for more RDB data
-            conn.close()
         else:
             # Allow to succeed with a full read (protocol expects a trailing '\r\n')
             conn.send('$%d\r\n%s\r\n' % (total_len, data))
         conn.flush()
+
+        if total_len != len(data):
+            # Close during slave is waiting for more RDB data
+            conn.close()
 
         # Make sure slave did not crash
         res = env.cmd('PING')
@@ -378,3 +420,9 @@ def runShortRead(env, data, total_len):
 
         # Exit (avoid read-only exception with flush on slave)
         env.assertEqual(env.cmd('slaveof', 'no', 'one'), True)
+
+
+if __name__ == "__main__":
+    if not downloadFiles():
+        raise Exception("Couldn't download RDB files")
+    print("RDB Files ready for testing!")
