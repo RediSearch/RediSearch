@@ -502,7 +502,7 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
   // buffer of 32 bytes should be sufficient. lon,lat
   char buf[32];
   // copy to buffer since we modify the string
-  memcpy(buf, str, MIN(32, len));
+  memcpy(buf, str, len);
   buf[len] = '\0';
 
   char *pos = strpbrk(buf, " ,");

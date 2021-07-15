@@ -62,39 +62,29 @@ int FieldSpec_CheckJsonType(FieldType fieldType, JSONType type) {
     break;
   // Boolean values can be represented only as TAG 
   case JSONType_Bool:    
-  // An array can be represented only as TAG
-  case JSONType_Array:
     if (fieldType == INDEXFLD_T_TAG) {
       rv = REDISMODULE_OK;
     }
     break;
   // An object or null type are not supported
+  case JSONType_Array:
   case JSONType_Object:
   case JSONType_Null:
   case JSONType__EOF:
     break;
   }
+
   return rv;
 }
 
-int JSON_GetRedisModuleString(RedisModuleCtx *ctx, JSONResultsIterator jsonIter,
-                              FieldType ftype, struct DocumentField *df) {
-  RedisJSON json = japi->next(jsonIter);
-  if (!json) {
-    RS_LOG_ASSERT(0, "shouldn't happen");
-  }
-
-  if (FieldSpec_CheckJsonType(ftype, japi->getType(json))) {
-    return REDISMODULE_ERR;
-  }
-  
-  int boolval;
-  long long intval;
-  const char *str;
-  size_t len;
+int JSON_StoreInDocField(RedisJSON json, JSONType jsonType, struct DocumentField *df) {
   int rv = REDISMODULE_OK;
 
-  switch (japi->getType(json)) {
+  int boolval;
+  const char *str;
+  long long intval;
+
+  switch (jsonType) {
     case JSONType_String:
       japi->getString(json, &str, &df->strlen);
       df->strval = rm_strndup(str, df->strlen);
@@ -120,34 +110,7 @@ int JSON_GetRedisModuleString(RedisModuleCtx *ctx, JSONResultsIterator jsonIter,
       }
       df->unionType = FLD_VAR_T_CSTR;
       break;
-    case JSONType_Array: {
-      if (ftype == INDEXFLD_T_TAG) {
-        // An array can be indexed only as `TAG` field
-        size_t arrayLen;
-        japi->getLen(json, &arrayLen);
-        df->multiVal = rm_calloc(arrayLen, sizeof(*df->multiVal));
-        df->arrayLen = arrayLen;
-        
-        int i = 0;
-        for (int i = 0; i < arrayLen; ++i) {
-          RedisJSON arrayJson = japi->getAt(json, i);
-          if (japi->getType(arrayJson) != JSONType_String) {
-            // TAG fields can index only strings
-            for (int j = 0; j < i; ++j) {
-              rm_free(df->multiVal[j]);
-            }
-            rm_free(df->multiVal);
-            return REDISMODULE_ERR;
-          }
-          japi->getString(arrayJson, &str, &len);
-          df->multiVal[i] = rm_strndup(str, len);
-        }
-        df->unionType = FLD_VAR_T_ARRAY;
-        } else {
-          rv = REDISMODULE_ERR;
-        }
-      }
-      break;
+    case JSONType_Array:
     case JSONType_Object:
     case JSONType_Null:
       rv = REDISMODULE_ERR;
@@ -155,5 +118,56 @@ int JSON_GetRedisModuleString(RedisModuleCtx *ctx, JSONResultsIterator jsonIter,
     case JSONType__EOF:
       RS_LOG_ASSERT(0, "Should not happen");
   }
+
+  return rv;
+}
+
+int JSON_GetRedisModuleString(JSONResultsIterator jsonIter, size_t len,
+                              FieldType ftype, struct DocumentField *df) {
+  int rv = REDISMODULE_OK;
+
+  if (len == 1) {
+    RedisJSON json = japi->next(jsonIter);
+    if (!json) {
+      RS_LOG_ASSERT(0, "shouldn't happen");
+    }
+
+    JSONType jsonType = japi->getType(json);
+    if (FieldSpec_CheckJsonType(ftype, jsonType) != REDISMODULE_OK) {
+      return REDISMODULE_ERR;
+    }
+    
+    if (JSON_StoreInDocField(json, jsonType, df) != REDISMODULE_OK) {
+      return REDISMODULE_ERR;
+    }
+  } else {
+    // len > 1. it must be a TAG field
+    if (ftype != INDEXFLD_T_TAG) {      
+      return REDISMODULE_ERR;
+    }
+
+    df->multiVal = rm_calloc(len , sizeof(*df->multiVal));
+    df->arrayLen = len;
+
+    int i = 0;
+    size_t strlen;
+    RedisJSON json;
+    const char *str;
+    while ((json = japi->next(jsonIter))) {
+      if (japi->getType(json) != JSONType_String) {
+        // TAG fields can index only strings
+        for (int j = 0; j < i; ++j) {
+          rm_free(df->multiVal[j]);
+        }
+        rm_free(df->multiVal);
+        return REDISMODULE_ERR;
+      }
+      japi->getString(json, &str, &strlen);
+      df->multiVal[i++] = rm_strndup(str, strlen);
+    }
+    RS_LOG_ASSERT (i == len, "Iterator count and len must be equal");
+    df->unionType = FLD_VAR_T_ARRAY;
+  }
+
   return rv;
 }
