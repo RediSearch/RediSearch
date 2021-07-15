@@ -180,10 +180,8 @@ void RediSearch_DocumentAddFieldString(Document* d, const char* fieldname, const
   Document_AddFieldC(d, fieldname, s, n, as);
 }
 
-void RediSearch_DocumentAddFieldNumber(Document* d, const char* fieldname, double n, unsigned as) {
-  char buf[512];
-  size_t len = sprintf(buf, "%lf", n);
-  Document_AddFieldC(d, fieldname, buf, len, as);
+void RediSearch_DocumentAddFieldNumber(Document* d, const char* fieldname, double val, unsigned as) {
+  Document_AddNumericField(d, fieldname, val, as);
 }
 
 int RediSearch_DocumentAddFieldGeo(Document* d, const char* fieldname, 
@@ -191,11 +189,8 @@ int RediSearch_DocumentAddFieldGeo(Document* d, const char* fieldname,
   if (lat > GEO_LAT_MAX || lat < GEO_LAT_MIN || lon > GEO_LONG_MAX || lon < GEO_LONG_MIN) {
     // out of range
     return REDISMODULE_ERR;
-  }                                      
-  // The format for a geospacial point is "lon,lat"
-  char buf[24];
-  size_t len = sprintf(buf, "%.6lf,%.6lf", lon, lat);
-  Document_AddFieldC(d, fieldname, buf, len, as);
+  } 
+  Document_AddGeoField(d, fieldname, lon, lat, as);
   return REDISMODULE_OK;
 }
 

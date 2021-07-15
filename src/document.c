@@ -324,7 +324,8 @@ void AddDocumentCtx_Submit(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, uint32_
   size_t totalSize = 0;
   for (size_t ii = 0; ii < aCtx->doc->numFields; ++ii) {
     const DocumentField *ff = aCtx->doc->fields + ii;
-    if (ff->indexAs & (INDEXFLD_T_FULLTEXT | INDEXFLD_T_TAG)) {
+    if ((ff->indexAs & (INDEXFLD_T_FULLTEXT | INDEXFLD_T_TAG)) &&
+        (ff->unionType == FLD_VAR_T_CSTR || ff->unionType == FLD_VAR_T_RMS)) {
       size_t n;
       DocumentField_GetValueCStr(&aCtx->doc->fields[ii], &n);
       totalSize += n;
@@ -399,11 +400,12 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
 #define FIELD_PREPROCESSOR FIELD_HANDLER
 
 FIELD_PREPROCESSOR(fulltextPreprocessor) {
-  size_t fl;
-  const char *c = DocumentField_GetValueCStr(field, &fl);
-  if (!c) {
+  if (field->unionType != FLD_VAR_T_CSTR && field->unionType != FLD_VAR_T_RMS) {
     return -1;
   }
+
+  size_t fl;
+  const char *c = DocumentField_GetValueCStr(field, &fl);
 
   if (FieldSpec_IsSortable(fs)) {
     RSSortingVector_Put(aCtx->sv, fs->sortIdx, (void *)c, RS_SORTABLE_STR);
@@ -494,32 +496,46 @@ FIELD_BULK_INDEXER(numericIndexer) {
 
 FIELD_PREPROCESSOR(geoPreprocessor) {
   size_t len;
-  const char *str = DocumentField_GetValueCStr(field, &len);
-  if (len > 31) {
-    return REDISMODULE_ERR;
+  const char *str = NULL;
+  double lat, lon;
+
+  switch (field->unionType) {
+    case FLD_VAR_T_GEO:
+      lon = field->lon;
+      lat = field->lat;
+      break;
+    case FLD_VAR_T_CSTR:
+    case FLD_VAR_T_RMS:
+      str = DocumentField_GetValueCStr(field, &len);
+      if (len > 31) {
+        return REDISMODULE_ERR;
+      }
+
+      // buffer of 32 bytes should be sufficient. lon,lat
+      char buf[32];
+      // copy to buffer since we modify the string
+      memcpy(buf, str, len);
+      buf[len] = '\0';
+
+      char *pos = strpbrk(buf, " ,");
+      if (!pos) {
+        QueryError_SetCode(status, QUERY_EGEOFORMAT);
+        return -1;
+      }
+      *pos = '\0';
+      pos++;
+
+      char *end1 = NULL, *end2 = NULL;
+      lon = strtod(buf, &end1);
+      lat = strtod(pos, &end2);
+      if (*end1 || *end2) {
+        return REDISMODULE_ERR;
+      }
+      break;
+    case FLD_VAR_T_ARRAY:
+    case FLD_VAR_T_NUM:
+      RS_LOG_ASSERT(0, "Oops");
   }
-
-  // buffer of 32 bytes should be sufficient. lon,lat
-  char buf[32];
-  // copy to buffer since we modify the string
-  memcpy(buf, str, len);
-  buf[len] = '\0';
-
-  char *pos = strpbrk(buf, " ,");
-  if (!pos) {
-    QueryError_SetCode(status, QUERY_EGEOFORMAT);
-    return -1;
-  }
-  *pos = '\0';
-  pos++;
-
-  char *end1 = NULL, *end2 = NULL;
-  double lon = strtod(buf, &end1);
-  double lat = strtod(pos, &end2);
-  if (*end1 || *end2) {
-    return REDISMODULE_ERR;
-  }
-
   double geohash = calcGeoHash(lon, lat);
   if (geohash == INVALID_GEOHASH) {
     return REDISMODULE_ERR;
@@ -527,8 +543,11 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
   fdata->numeric = geohash;
 
   if (FieldSpec_IsSortable(fs)) {
-    // Goe is kept as a string
-    RSSortingVector_Put(aCtx->sv, fs->sortIdx, str, RS_SORTABLE_STR);
+    if (str) {
+      RSSortingVector_Put(aCtx->sv, fs->sortIdx, str, RS_SORTABLE_STR);
+    } else {
+      RSSortingVector_Put(aCtx->sv, fs->sortIdx, &fdata->numeric, RS_SORTABLE_NUM);
+    }
   }
   
   return 0;
@@ -540,13 +559,11 @@ FIELD_PREPROCESSOR(tagPreprocessor) {
   if (fdata->tags == NULL) {
     return 0;
   }
-  if (FieldSpec_IsSortable(fs)) {
-    // TODO: how to store multitag from json as sortable.
+  if (FieldSpec_IsSortable(fs) && (field->unionType == FLD_VAR_T_CSTR ||
+                                   field->unionType == FLD_VAR_T_RMS)) {
     size_t fl;
     const char *str = DocumentField_GetValueCStr(field, &fl);
-    if (str) {
-      RSSortingVector_Put(aCtx->sv, fs->sortIdx, str, RS_SORTABLE_STR);
-    }
+    RSSortingVector_Put(aCtx->sv, fs->sortIdx, str, RS_SORTABLE_STR);
   }
   return 0;
 }
@@ -824,7 +841,7 @@ const char *DocumentField_GetValueCStr(const DocumentField *df, size_t *len) {
     case FLD_VAR_T_NUM:
     case FLD_VAR_T_GEO:
     case FLD_VAR_T_ARRAY:
-      break;
+      RS_LOG_ASSERT(0, "invalid types");
   }
   return NULL;
 }

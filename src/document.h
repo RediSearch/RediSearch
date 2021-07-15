@@ -133,6 +133,19 @@ void Document_AddField(Document *d, const char *fieldname, RedisModuleString *fi
  */
 void Document_AddFieldC(Document *d, const char *fieldname, const char *val, size_t vallen,
                         uint32_t typemask);
+
+/**
+ * Load Document Field with a numeric value.
+ */
+void Document_AddNumericField(Document *d, const char *fieldname,
+                              double val, uint32_t typemask);
+
+/**
+ * Load Document Field with a longitude and latitude values.
+ */
+void Document_AddGeoField(Document *d, const char *fieldname,
+                          double lon, double lat, uint32_t typemask);
+
 /**
  * Initialize document structure with the relevant fields. numFields will allocate
  * the fields array, but you must still actually copy the data along.

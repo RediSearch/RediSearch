@@ -27,13 +27,24 @@ static int parseGeo(const char *c, size_t len, double *lon, double *lat) {
 
 // parse "x,y"
 static int parseField(RSValue *argv, double *geo) {
+  int rv = REDISMODULE_OK;
   RSValue *val = RSValue_Dereference(argv);
-  if (!RSValue_IsString(val)) {
-    return REDISEARCH_ERR;
+
+  if (RSValue_IsString(val)) {
+    size_t len;
+    char *p = (char *)RSValue_StringPtrLen(val, &len); 
+    rv = parseGeo(p, len, &geo[0], &geo[1]);
+  } else if (val->t == RSValue_Number) {
+    double dbl;
+    RSValue_ToNumber(val, &dbl);
+    if (decodeGeo(dbl, geo) == 0) {
+      rv = REDISMODULE_ERR;
+    }
+  } else {
+    rv = REDISEARCH_ERR;
   }
-  size_t len;
-  char *p = (char *)RSValue_StringPtrLen(val, &len); 
-  return parseGeo(p, len, &geo[0], &geo[1]);
+
+  return rv;
 }
 
 // parse x,y

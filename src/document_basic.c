@@ -48,6 +48,21 @@ void Document_AddFieldC(Document *d, const char *fieldname, const char *val, siz
   f->unionType = FLD_VAR_T_CSTR;
 }
 
+void Document_AddNumericField(Document *d, const char *fieldname, double val,
+                        uint32_t typemask) {
+  DocumentField *f = addFieldCommon(d, fieldname, typemask);
+  f->numval = val;
+  f->unionType = FLD_VAR_T_NUM;
+}
+
+void Document_AddGeoField(Document *d, const char *fieldname,
+                          double lon, double lat, uint32_t typemask) {
+  DocumentField *f = addFieldCommon(d, fieldname, typemask);
+  f->lat = lat;
+  f->lon = lon;
+  f->unionType = FLD_VAR_T_GEO;
+}
+
 void Document_SetPayload(Document *d, const void *p, size_t n) {
   d->payload = p;
   d->payloadSize = n;
