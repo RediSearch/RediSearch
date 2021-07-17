@@ -318,14 +318,6 @@ static int parseTextField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
   return 1;
 }
 
-void FieldSpec_Initialize(FieldSpec *fs, FieldType types) {
-  fs->types |= types;
-  if (FIELD_IS(fs, INDEXFLD_T_TAG)) {
-    fs->tagFlags = TAG_FIELD_DEFAULT_FLAGS;
-    fs->tagSep = TAG_FIELD_DEFAULT_SEP;
-  }
-}
-
 /* Parse a field definition from argv, at *offset. We advance offset as we progress.
  *  Returns 1 on successful parse, 0 otherwise */
 static int parseFieldSpec(ArgsCursor *ac, FieldSpec *fs, QueryError *status) {
@@ -335,16 +327,16 @@ static int parseFieldSpec(ArgsCursor *ac, FieldSpec *fs, QueryError *status) {
   }
 
   if (AC_AdvanceIfMatch(ac, SPEC_TEXT_STR)) {
-    FieldSpec_Initialize(fs, INDEXFLD_T_FULLTEXT);
+    fs->types |= INDEXFLD_T_FULLTEXT;
     if (!parseTextField(fs, ac, status)) {
       goto error;
     }
   } else if (AC_AdvanceIfMatch(ac, NUMERIC_STR)) {
-    FieldSpec_Initialize(fs, INDEXFLD_T_NUMERIC);
+    fs->types |= INDEXFLD_T_NUMERIC;
   } else if (AC_AdvanceIfMatch(ac, GEO_STR)) {  // geo field
-    FieldSpec_Initialize(fs, INDEXFLD_T_GEO);
+    fs->types |= INDEXFLD_T_GEO;
   } else if (AC_AdvanceIfMatch(ac, SPEC_TAG_STR)) {  // tag field
-    FieldSpec_Initialize(fs, INDEXFLD_T_TAG);
+    fs->types |= INDEXFLD_T_TAG;
     if (AC_AdvanceIfMatch(ac, SPEC_SEPARATOR_STR)) {
       if (AC_IsAtEnd(ac)) {
         QueryError_SetError(status, QUERY_EPARSEARGS, SPEC_SEPARATOR_STR " requires an argument");
@@ -1072,7 +1064,7 @@ FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *pa
   fs->ftWeight = 1.0;
   fs->sortIdx = -1;
   fs->tagFlags = TAG_FIELD_DEFAULT_FLAGS;
-  fs->tagFlags = TAG_FIELD_DEFAULT_SEP;
+  fs->tagSep = TAG_FIELD_DEFAULT_SEP;
   return fs;
 }
 
@@ -1590,7 +1582,7 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
     char *s = RedisModule_LoadStringBuffer(rdb, &dummy);
     int rc = IndexAlias_Add(s, sp, 0, &_status);
     RedisModule_Free(s);
-    RS_LOG_ASSERT(rc == REDISMODULE_OK, "adding alias to index failed");
+    RedisModule_Log(NULL, "notice", "Loading existing alias failed");
   }
 
   sp->indexer = NewIndexer(sp);
@@ -1901,21 +1893,22 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   // if a key does not exit, is not a hash or has no fields in index schema
 
   int rv = REDISMODULE_ERR;
-  // TODO: SchemaRuleType_Any
   switch (type) {
   case DocumentType_Hash:
     rv = Document_LoadSchemaFieldHash(&doc, &sctx);
     break;
-  
   case DocumentType_Json:
     rv = Document_LoadSchemaFieldJson(&doc, &sctx);
     break;
   case DocumentType_None:
-    // TODO: consider using getDocType
     RS_LOG_ASSERT(0, "Should receieve valid type");
   }
 
   if (rv != REDISMODULE_OK) {
+    // if a document did not load properly, it is deleted
+    // to prevent mismatch of index and hash
+    DocTable_DeleteR(&spec->docs, key);
+  
     IndexSpec_DeleteDoc(spec, ctx, key);
     Document_Free(&doc);
     return REDISMODULE_ERR;
@@ -2095,10 +2088,20 @@ void Indexes_SpecOpsIndexingCtxFree(SpecOpIndexingCtx *specs) {
 
 void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type,
                                            RedisModuleString **hashFields) {
+  if (type == DocumentType_None) {
+    return;
+  } 
+
   SpecOpIndexingCtx *specs = Indexes_FindMatchingSchemaRules(ctx, key, true, NULL);
 
   for (size_t i = 0; i < array_len(specs->specsOps); ++i) {
     SpecOpCtx *specOp = specs->specsOps + i;
+
+    // skip if document type does not match the index type
+    if (type != specOp->spec->rule->type) {
+      continue;
+    }
+    
     if (!hashFields || hashFieldChanged(specOp->spec, hashFields)) {
       if (specOp->op == SpecOp_Add) {
         IndexSpec_UpdateDoc(specOp->spec, ctx, key, type);
@@ -2113,6 +2116,10 @@ void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
 
 void IndexSpec_UpdateMatchingWithSchemaRules(IndexSpec *sp, RedisModuleCtx *ctx,
                                              RedisModuleString *key, DocumentType type) {
+  if (type != sp->rule->type) {
+    return;
+  }
+
   SpecOpIndexingCtx *specs = Indexes_FindMatchingSchemaRules(ctx, key, true, NULL);
   if (!dictFind(specs->specs, sp->name)) {
     goto end;

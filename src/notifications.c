@@ -26,16 +26,6 @@ typedef enum {
   evicted_cmd,
   change_cmd,
   loaded_cmd,
-  /*json_set_cmd,
-  json_del_cmd,
-  json_numincrby_cmd,
-  json_nummultiby_cmd,
-  json_strappend_cmd,
-  json_arrappend_cmd,
-  json_arrinsert_cmd,
-  json_arrpop_cmd,
-  json_arrtrim_cmd,
-  json_toggle_cmd,*/
 } RedisCmd;
 
 static void freeHashFields() {
@@ -64,18 +54,13 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
 
   int redisCommand = 0;
   RedisModuleKey *kp;
+  DocumentType kType;
 
   static const char *hset_event = 0, *hmset_event = 0, *hsetnx_event = 0, *hincrby_event = 0,
                     *hincrbyfloat_event = 0, *hdel_event = 0, *del_event = 0, *set_event = 0,
                     *rename_from_event = 0, *rename_to_event = 0, *trimmed_event = 0,
                     *restore_event = 0, *expired_event = 0, *evicted_event = 0, *change_event = 0,
                     *loaded_event = 0;
-                    
-                    /**json_set_event = 0, *json_del_event = 0,
-                    *json_numincrby_event = 0, *json_nummultiby_event = 0,
-                    *json_strappend_event = 0, *json_arrappend_event = 0,
-                    *json_arrinsert_event = 0, *json_arrpop_event = 0, *json_arrtrim_event = 0,
-                    *json_toggle_event = 0;*/
 
   // clang-format off
 
@@ -99,16 +84,6 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
   else CHECK_CACHED_EVENT(rename_from)
   else CHECK_CACHED_EVENT(rename_to)
   else CHECK_CACHED_EVENT(loaded)
-  /*else CHECK_CACHED_EVENT(json_set)
-  else CHECK_CACHED_EVENT(json_del)
-  else CHECK_CACHED_EVENT(json_numincrby)
-  else CHECK_CACHED_EVENT(json_nummultiby)
-  else CHECK_CACHED_EVENT(json_strappend)
-  else CHECK_CACHED_EVENT(json_arrappend)
-  else CHECK_CACHED_EVENT(json_arrinsert)
-  else CHECK_CACHED_EVENT(json_arrpop)
-  else CHECK_CACHED_EVENT(json_arrtrim)
-  else CHECK_CACHED_EVENT(json_toggle)*/
 
   else {
          CHECK_AND_CACHE_EVENT(hset)
@@ -131,16 +106,6 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
     else CHECK_AND_CACHE_EVENT(rename_from)
     else CHECK_AND_CACHE_EVENT(rename_to)
     else CHECK_AND_CACHE_EVENT(loaded)
-    /*else CHECK_AND_CACHE_EVENT(json_set)
-    else CHECK_AND_CACHE_EVENT(json_del)
-    else CHECK_AND_CACHE_EVENT(json_numincrby)
-    else CHECK_AND_CACHE_EVENT(json_nummultiby)
-    else CHECK_AND_CACHE_EVENT(json_strappend)
-    else CHECK_AND_CACHE_EVENT(json_arrappend)
-    else CHECK_AND_CACHE_EVENT(json_arrinsert)
-    else CHECK_AND_CACHE_EVENT(json_arrpop)
-    else CHECK_AND_CACHE_EVENT(json_arrtrim)
-    else CHECK_AND_CACHE_EVENT(json_toggle)*/
   }
 
   switch (redisCommand) {
@@ -160,29 +125,6 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
         RedisModule_FreeString(ctx, key);
       }
       break;
-    /* we have strcmp at top
-    case json_set_cmd: // pass param which will indicate if command is Hash/JSON or generic
-      // TODO: remove/reconsider
-      RedisModule_RetainString(ctx, key);
-      Indexes_UpdateMatchingWithSchemaRules(ctx, key, DocumentType_Json, hashFields);
-      break;
-    */
-
-/********************************************************
- *              Handling RedisJSON commands             * 
- ********************************************************/
-    /*case json_set_cmd:
-    case json_del_cmd:
-    case json_numincrby_cmd:
-    case json_nummultiby_cmd:
-    case json_strappend_cmd:
-    case json_arrappend_cmd:
-    case json_arrinsert_cmd:
-    case json_arrpop_cmd:
-    case json_arrtrim_cmd:
-    case json_toggle_cmd:
-      Indexes_UpdateMatchingWithSchemaRules(ctx, key, DocumentType_Json, hashFields);
-    break;*/
 
 /********************************************************
  *              Handling Redis commands                 * 
@@ -202,16 +144,20 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
     case change_cmd:
     // TODO: hash/json
       kp = RedisModule_OpenKey(ctx, key, REDISMODULE_READ);
-      if (!kp || RedisModule_KeyType(kp) != REDISMODULE_KEYTYPE_HASH) {
+      kType = DocumentType_None;
+      if (kp) {
+        kType = getDocType(kp);
+        RedisModule_CloseKey(kp);
+      }
+      if (kType == DocumentType_None) {
         // in crdt empty key means that key was deleted
         // TODO:FIX
         Indexes_DeleteMatchingWithSchemaRules(ctx, key, hashFields);
       } else {
         // todo: here we will open the key again, we can optimize it by
         //       somehow passing the key pointer
-        Indexes_UpdateMatchingWithSchemaRules(ctx, key, getDocType(kp), hashFields);
+        Indexes_UpdateMatchingWithSchemaRules(ctx, key, kType, hashFields);
       }
-      RedisModule_CloseKey(kp);
       break;
 
     case rename_from_cmd:
@@ -224,6 +170,10 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
       break;
   }
 
+
+/********************************************************
+ *              Handling RedisJSON commands             * 
+ ********************************************************/
   if (!strncmp(event, "json.", strlen("json."))) {
     if (!strncmp(event + JSON_LEN, "set", strlen("set")) ||
         !strncmp(event + JSON_LEN, "del", strlen("del")) ||

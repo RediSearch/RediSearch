@@ -7,25 +7,25 @@ TrieMap *ScemaPrefixes_g;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-const char *SchemaRuleType_ToString(SchemaRuleType type) {
+const char *DocumentType_ToString(DocumentType type) {
   switch (type) {
-    case SchemaRuleType_Hash:
+    case DocumentType_Hash:
       return "HASH";
-    case SchemaRuleType_Json:
+    case DocumentType_Json:
       return "JSON";
-    case SchameRuleType_Any:
+    case DocumentType_None:
     default:
       RS_LOG_ASSERT(true, "SchameRuleType_Any is not supported");
       return "";
   }
 }
 
-int SchemaRuleType_Parse(const char *type_str, SchemaRuleType *type, QueryError *status) {
+int DocumentType_Parse(const char *type_str, DocumentType *type, QueryError *status) {
   if (!type_str || !strcasecmp(type_str, RULE_TYPE_HASH)) {
-    *type = SchemaRuleType_Hash;
+    *type = DocumentType_Hash;
     return REDISMODULE_OK;
   } else if (japi && !strcasecmp(type_str, RULE_TYPE_JSON)) {
-    *type = SchemaRuleType_Json;
+    *type = DocumentType_Json;
     return REDISMODULE_OK;
   }
   QueryError_SetErrorFmt(status, QUERY_EADDARGS, "Invalid rule type: %s", type_str);
@@ -55,7 +55,7 @@ void SchemaRuleArgs_Free(SchemaRuleArgs *rule_args) {
 SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, IndexSpec *spec, QueryError *status) {
   SchemaRule *rule = rm_calloc(1, sizeof(*rule));
 
-  if (SchemaRuleType_Parse(args->type, &rule->type, status) == REDISMODULE_ERR) {
+  if (DocumentType_Parse(args->type, &rule->type, status) == REDISMODULE_ERR) {
     goto error;
   }
 
@@ -176,8 +176,9 @@ done:
 }
 
 RSLanguage SchemaRule_JsonLang(RedisModuleCtx *ctx, const SchemaRule *rule,
-                               RedisJSONKey jsonKey, const char *kname) {
+                               RedisJSON jsonRoot, const char *kname) {
   int rv = REDISMODULE_ERR;
+  JSONResultsIterator jsonIter = NULL;
   RSLanguage lang = rule->lang_default;
   if (!rule->lang_field) {
     goto done;
@@ -188,15 +189,16 @@ RSLanguage SchemaRule_JsonLang(RedisModuleCtx *ctx, const SchemaRule *rule,
     goto done;
   }
 
-  RedisJSON json = japi->get(jsonKey, rule->lang_field, NULL);
-  if (json == NULL) {
+  jsonIter = japi->get(jsonRoot, rule->lang_field);
+  if (!jsonIter) {
     RedisModule_Log(NULL, "warning", "invalid field %s for key %s", rule->lang_field, kname);
     goto done;
   }
 
   const char *langStr;
   size_t len;
-  rv = japi->getString(json, &langStr, &len) ;
+  RedisJSON langJson = japi->next(jsonIter);
+  rv = japi->getString(langJson, &langStr, &len) ;
   if (rv != REDISMODULE_OK) {
     RedisModule_Log(NULL, "warning", "invalid field %s for key %s: not a string", rule->lang_field, kname);
     goto done;
@@ -210,6 +212,9 @@ RSLanguage SchemaRule_JsonLang(RedisModuleCtx *ctx, const SchemaRule *rule,
   }
 
 done:
+  if (jsonIter) {
+    japi->freeIter(jsonIter);
+  }
   return lang;
 }
 
@@ -243,8 +248,9 @@ done:
 }
 
 RSLanguage SchemaRule_JsonScore(RedisModuleCtx *ctx, const SchemaRule *rule,
-                                RedisJSONKey jsonKey, const char *kname) {
+                                RedisJSON jsonRoot, const char *kname) {
   double score = rule->score_default;
+  JSONResultsIterator jsonIter = NULL;
   if (!rule->score_field) {
     goto done;
   }
@@ -254,17 +260,21 @@ RSLanguage SchemaRule_JsonScore(RedisModuleCtx *ctx, const SchemaRule *rule,
     goto done;
   }
 
-  RedisJSON json = japi->get(jsonKey, rule->score_field, NULL);
-  if (json == NULL) {
+  jsonIter = japi->get(jsonRoot, rule->score_field);
+  if (jsonIter == NULL) {
     RedisModule_Log(NULL, "warning", "invalid field %s for key %s", rule->score_field, kname);
     goto done;
   }
 
-  if (japi->getDouble(json, &score) != REDISMODULE_OK) {
+  RedisJSON scoreJson = japi->next(jsonIter);
+  if (japi->getDouble(scoreJson, &score) != REDISMODULE_OK) {
     RedisModule_Log(NULL, "warning", "invalid field %s for key %s", rule->score_field, kname);
   }
 
 done:
+  if (jsonIter) {
+    japi->freeIter(jsonIter);
+  }
   return score;
 }
 
@@ -346,7 +356,7 @@ int SchemaRule_RdbLoad(IndexSpec *sp, RedisModuleIO *rdb, int encver) {
 
 void SchemaRule_RdbSave(SchemaRule *rule, RedisModuleIO *rdb) {
   // the +1 is so we will save the \0
-  const char *ruleTypeStr = SchemaRuleType_ToString(rule->type);
+  const char *ruleTypeStr = DocumentType_ToString(rule->type);
   RedisModule_SaveStringBuffer(rdb, ruleTypeStr, strlen(ruleTypeStr) + 1);
   RedisModule_SaveUnsigned(rdb, array_len(rule->prefixes));
   for (size_t i = 0; i < array_len(rule->prefixes); ++i) {

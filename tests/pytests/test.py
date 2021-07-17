@@ -7,7 +7,7 @@ import random
 import time
 from RLTest import Env
 from includes import *
-from common import getConnectionByEnv, waitForIndex, toSortedFlatList, assertInfoField, check_server_version, check_module_version
+from common import getConnectionByEnv, waitForIndex, toSortedFlatList, assertInfoField, server_version_at_least, module_version_at_least
 
 # this tests is not longer relevant
 # def testAdd(env):
@@ -3225,12 +3225,8 @@ def testNotOnly(env):
   conn.execute_command('HSET', 'b', 'txt1', 'world', 'txt2', 'hello')
   env.expect('ft.search idx !world').equal([1L, 'b', ['txt1', 'world', 'txt2', 'hello']])
 
-def testServerVer(env):
-    env.assertTrue(check_server_version(env, "0.0.0"))
-    env.assertTrue(not check_server_version(env, "500.0.0"))
-
-    env.assertTrue(check_module_version(env, "20005"))
-    env.assertTrue(not check_module_version(env, "10000000"))
+def testServerVersion(env):
+    env.assertTrue(server_version_at_least(env, "6.0.0"))
 
 def testSchemaWithAs(env):
   conn = getConnectionByEnv(env)
@@ -3255,7 +3251,8 @@ def testSchemaWithAs(env):
 
     # RETURN outside of schema
     conn.execute_command('HSET', 'a', 'not_in_schema', '42')
-    env.expect('HGETALL a').equal(['txt', 'hello', 'not_in_schema', '42'])
+    res = conn.execute_command('HGETALL', 'a')
+    env.assertEqual(res, {'txt': 'hello', 'not_in_schema': '42'})
     env.expect('ft.search idx hello RETURN 3 not_in_schema AS txt2').equal([1L, 'a', ['txt2', '42']])
     env.expect('ft.search idx hello RETURN 1 not_in_schema').equal([1L, 'a', ['not_in_schema', '42']])
     env.expect('ft.search idx hello').equal([1L, 'a', ['txt', 'hello', 'not_in_schema', '42']])
@@ -3295,7 +3292,9 @@ def testSchemaWithAs_Alter(env):
   env.expect('ft.search idx @foo:world').equal([0L])
 
 def testSchemaWithAs_Duplicates(env):
-    env.cmd('HSET', 'a', 'txt', 'hello')
+    conn = getConnectionByEnv(env)
+    
+    conn.execute_command('HSET', 'a', 'txt', 'hello')
 
     # Error if field name is duplicated
     res = env.expect('FT.CREATE', 'conflict1', 'SCHEMA', 'txt1', 'AS', 'foo', 'TEXT', 'txt2', 'AS', 'foo', 'TAG') \
@@ -3308,3 +3307,34 @@ def testSchemaWithAs_Duplicates(env):
     env.expect('ft.search conflict2 @foo2:hello').equal([1L, 'a', ['txt', 'hello']])
     env.expect('ft.search conflict2 @foo1:world').equal([0L])
     env.expect('ft.search conflict2 @foo2:world').equal([0L])
+
+def testMod1407(env):
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'limit', 'TEXT', 'LimitationTypeID', 'TAG', 'LimitationTypeDesc', 'TEXT').ok()
+    
+    conn.execute_command('HSET', 'doc1', 'limit', 'foo1', 'LimitationTypeID', 'boo1', 'LimitationTypeDesc', 'doo1')
+    conn.execute_command('HSET', 'doc2', 'limit', 'foo2', 'LimitationTypeID', 'boo2', 'LimitationTypeDesc', 'doo2')
+
+    env.expect('FT.AGGREGATE', 'idx', '*', 'SORTBY', '3', '@limit', '@LimitationTypeID', 'ASC').equal([2L, ['limit', 'foo1', 'LimitationTypeID', 'boo1'], ['limit', 'foo2', 'LimitationTypeID', 'boo2']])
+
+    # make sure the crashed query is not crashing anymore
+    env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '2', 'LLimitationTypeID', 'LLimitationTypeDesc', 'REDUCE', 'COUNT', '0')
+
+    # make sure correct query not crashing and return the right results
+    env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '2', '@LimitationTypeID', '@LimitationTypeDesc', 'REDUCE', 'COUNT', '0').equal([2L, ['LimitationTypeID', 'boo2', 'LimitationTypeDesc', 'doo2', '__generated_aliascount', '1'], ['LimitationTypeID', 'boo1', 'LimitationTypeDesc', 'doo1', '__generated_aliascount', '1']])
+
+def testMod1452(env):
+    if not env.isCluster():
+        # this test is only relevant on cluster
+        env.skip()
+
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    
+    conn.execute_command('HSET', 'doc1', 't', 'foo')
+
+    # here we only check that its not crashing
+    env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', 'foo', 'REDUCE', 'FIRST_VALUE', 3, '@not_exists', 'BY', '@foo')
+
