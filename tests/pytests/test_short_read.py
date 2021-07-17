@@ -1,6 +1,7 @@
 # coding=utf-8
 import os
 import random
+import re
 import shutil
 import subprocess
 
@@ -29,9 +30,9 @@ RDBS.extend(RDBS_COMPATIBILITY)
 def downloadFiles():
     for f in RDBS:
         path = os.path.join(REDISEARCH_CACHE_DIR, f)
-        dir = os.path.dirname(path)
-        if not os.path.exists(dir):
-            os.makedirs(dir)
+        path_dir = os.path.dirname(path)
+        if not os.path.exists(path_dir):
+            os.makedirs(path_dir)
         if not os.path.exists(path):
             subprocess.call(['wget', '-q', BASE_RDBS_URL + f, '-O', path])
             if not os.path.exists(path):
@@ -51,10 +52,24 @@ def rand_num(k):
     # return random.choices(''.join(string.digits, k=k))
 
 
-def create_indices(env, rdbFileName, idxNameStem, isHash=True):
+def create_indices(env, rdbFileName, idxNameStem, isHash, isJson):
 
-    add_index(env, isHash, idxNameStem + '1', 10, 20)
-    add_index(env, isHash, idxNameStem + '2', 35, 40)
+    env.flush()
+    idxNameStem = 'shortread_' + idxNameStem + '_'
+    if isHash and isJson:
+        # 1 Hash index and 1 Json index
+        add_index(env, True, idxNameStem + '1', 10, 20)
+        add_index(env, False, idxNameStem + '2', 35, 40)
+    elif isHash:
+        # 2 Hash indices
+        add_index(env, True, idxNameStem + '1', 10, 20)
+        add_index(env, True, idxNameStem + '2', 35, 40)
+    elif isJson:
+        # 2 Json indices
+        add_index(env, False, idxNameStem + '1', 10, 20)
+        add_index(env, False, idxNameStem + '2', 35, 40)
+    else:
+        env.assertTrue(False, "should not reach here")
 
     # Save the rdb
     env.assertOk(env.cmd('config', 'set', 'dbfilename', rdbFileName))
@@ -140,9 +155,9 @@ def add_index(env, isHash, index_name, num_prefs, num_keys):
 
 
 def testCreateIndexRdbFiles(env):
-    env.flush()
-    create_indices(env, 'redisearch_2.2.0.rdb', 'idxSearch_', True)
-    create_indices(env, 'rejson_2.0.0.rdb', 'idxJson_', False)
+    create_indices(env, 'redisearch_2.2.0.rdb', 'idxSearch', True, False)
+    create_indices(env, 'rejson_2.0.0.rdb', 'idxJson', False, True)
+    create_indices(env, 'redisearch_2.2.0_rejson_2.0.0.rdb', 'idxSearchJson', True, True)
 
 
 class Connection(object):
@@ -353,8 +368,9 @@ def testShortReadSearch(env):
 
 def sendShortReads(env, rdb_file):
 
-    # FIXME: Add some initial content (index+keys) to test backup/restore when short read fails
+    # Add some initial content (index+keys) to test backup/restore/discard when short read fails
     # When entire rdb is successfully sent and loaded (from swapdb) - backup should be discarded
+    env.assertEqual(env.cmd('slaveof', 'no', 'one'), True)
     env.flush()
     add_index(env, True, 'idxBackup1', 5, 10)
 
@@ -384,10 +400,12 @@ def sendShortReads(env, rdb_file):
         runShortRead(env, rdb, total_len)
 
 
+
 def runShortRead(env, data, total_len):
     with ShardMock(env) as shardMock:
 
-        # For debugging: if adding breakpoints in redis, in order to avoid closing the connection, uncomment the following line
+        # For debugging: if adding breakpoints in redis,
+        # In order to avoid closing the connection, uncomment the following line
         # res = env.cmd('CONFIG', 'SET', 'timeout', '0')
 
         # Notice: Do not use env.expect in this test
@@ -414,13 +432,13 @@ def runShortRead(env, data, total_len):
         # Send RDB to slave
         some_guid = 'af4e30b5d14dce9f96fbb7769d0ec794cdc0bbcc'
         conn.send_status('FULLRESYNC ' + some_guid + ' 0')
-        if total_len != len(data):
+        is_shortread = total_len != len(data)
+        if is_shortread:
             conn.send('$%d\r\n%s' % (total_len, data))
         else:
             # Allow to succeed with a full read (protocol expects a trailing '\r\n')
             conn.send('$%d\r\n%s\r\n' % (total_len, data))
         conn.flush()
-
 
         # Close during slave is waiting for more RDB data (so replica will re-connect to master)
         conn.close()
@@ -431,7 +449,16 @@ def runShortRead(env, data, total_len):
         conn = shardMock.GetConnection(timeout=3)
         env.assertNotEqual(conn, None)
 
-        # 'FT._LIST' has no index
+        res = env.cmd('ft._list')
+        if is_shortread:
+            # Verify original data, that existed before the failed attempt to short-read, is restored
+            env.assertEqual(res, ['idxBackup1'])
+        else:
+            # Verify new data was loaded and the backup was discarded
+            env.assertEqual(len(res), 2)
+            r = re.compile("shortread_.*_[1-9]")
+            expected = list(filter(lambda x: r.match(x), res))
+            env.assertEqual(len(expected), 2)
 
         # Exit (avoid read-only exception with flush on slave)
         env.assertEqual(env.cmd('slaveof', 'no', 'one'), True)

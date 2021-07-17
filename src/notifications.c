@@ -2,6 +2,8 @@
 #include "notifications.h"
 #include "spec.h"
 #include "doc_types.h"
+#include "redismodule.h"
+#include "rdb.h"
 
 #define JSON_LEN 5 // length of string "json."
 
@@ -310,4 +312,36 @@ void Initialize_CommandFilter(RedisModuleCtx *ctx) {
   if (RSGlobalConfig.filterCommands) {
     RedisModule_RegisterCommandFilter(ctx, CommandFilterCallback, 0);
   }
+}
+
+
+void ReplicaBackupCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
+
+  REDISMODULE_NOT_USED(eid);
+  switch(subevent) {
+  case REDISMODULE_SUBEVENT_REPL_BACKUP_CREATE:
+    Backup_Globals();
+    break;
+  case REDISMODULE_SUBEVENT_REPL_BACKUP_RESTORE:
+    Restore_Globals();
+    break;
+  case REDISMODULE_SUBEVENT_REPL_BACKUP_DISCARD:
+    Discard_Globals();
+    break;
+  }
+}
+
+void LoadingCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
+
+  REDISMODULE_NOT_USED(eid);
+  if (subevent == REDISMODULE_SUBEVENT_LOADING_FAILED) {
+      Discard_Global_IndexSpecs();
+  }
+}
+
+void Initialize_RdbNotifications(RedisModuleCtx *ctx) {
+  RedisModule_SetModuleOptions(ctx, REDISMODULE_OPTIONS_HANDLE_IO_ERRORS);
+  RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ReplBackup, ReplicaBackupCallback);
+  RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Loading, LoadingCallback);
+
 }

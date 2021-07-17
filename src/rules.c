@@ -422,8 +422,8 @@ static void freePrefixNode(void *ctx) {
   SchemaPrefixNode_Free(ctx);
 }
 
-void SchemaPrefixes_Free() {
-  TrieMap_Free(ScemaPrefixes_g, freePrefixNode);
+void SchemaPrefixes_Free(TrieMap *t) {
+  TrieMap_Free(t, freePrefixNode);
 }
 
 void SchemaPrefixes_Add(const char *prefix, IndexSpec *spec) {

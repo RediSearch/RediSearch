@@ -894,9 +894,9 @@ void IndexSpec_FreeSync(IndexSpec *spec) {
 
 //---------------------------------------------------------------------------------------------
 
-void Indexes_Free() {
+void Indexes_Free(dict *d) {
   arrayof(IndexSpec *) specs = array_new(IndexSpec *, 10);
-  dictIterator *iter = dictGetIterator(specDict_g);
+  dictIterator *iter = dictGetIterator(d);
   dictEntry *entry = NULL;
   while ((entry = dictNext(iter))) {
     IndexSpec *sp = dictGetVal(entry);
@@ -1629,6 +1629,7 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
 
 cleanup:
   IndexSpec_Free(sp);
+  Indexes_Free(specDict_g);
   QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "while reading an index");
   return NULL;
 }
@@ -1852,7 +1853,7 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
   if (subevent == REDISMODULE_SUBEVENT_LOADING_RDB_START ||
       subevent == REDISMODULE_SUBEVENT_LOADING_AOF_START ||
       subevent == REDISMODULE_SUBEVENT_LOADING_REPL_START) {
-    Indexes_Free();
+    Indexes_Free(specDict_g);
     legacySpecDict = dictCreate(&dictTypeHeapStrings, NULL);
   } else if (subevent == REDISMODULE_SUBEVENT_LOADING_ENDED) {
     int hasLegacyIndexes = dictSize(legacySpecDict);

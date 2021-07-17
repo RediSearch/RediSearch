@@ -1,5 +1,9 @@
-#ifndef REDISEARCH_RDB_H
-#define REDISEARCH_RDB_H
+#pragma once
+
+void Backup_Globals();
+void Restore_Globals();
+void Discard_Globals();
+void Discard_Global_IndexSpecs();
 
 #define RedisModule_LoadStringBufferAlloc(rdb, ptr, len)          \
 do {                                                              \
@@ -61,5 +65,3 @@ do {                                                                \
     }                                           \
     (res);                                      \
   })
-
-#endif  // REDISEARCH_RDB_H

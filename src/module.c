@@ -878,7 +878,6 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   if (RediSearch_Init(ctx, REDISEARCH_INIT_MODULE) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
-  RedisModule_SetModuleOptions(ctx, REDISMODULE_OPTIONS_HANDLE_IO_ERRORS);
 
   // register trie type
   RM_TRY(DictRegister, ctx);
@@ -1054,9 +1053,9 @@ void __attribute__((destructor)) RediSearch_CleanupModule(void) {
     ConcurrentSearch_ThreadPoolDestroy();
     ReindexPool_ThreadPoolDestroy();
     GC_ThreadPoolDestroy();
-    IndexAlias_DestroyGlobal();
+    IndexAlias_DestroyGlobal(AliasTable_g);
     freeGlobalAddStrings();
-    SchemaPrefixes_Free();
+    SchemaPrefixes_Free(ScemaPrefixes_g);
     RedisModule_FreeThreadSafeContext(RSDummyContext);
     Dictionary_Free();
     RediSearch_LockDestory();
