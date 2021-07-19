@@ -71,19 +71,19 @@ RSFieldID RediSearch_CreateField(IndexSpec* sp, const char* name, unsigned types
       return RSFIELD_INVALID;
     }
     fs->ftId = txtId;
-    FieldSpec_Initialize(fs, INDEXFLD_T_FULLTEXT);
+    fs->types |= INDEXFLD_T_FULLTEXT;
   }
 
   if (types & RSFLDTYPE_NUMERIC) {
     numTypes++;
-    FieldSpec_Initialize(fs, INDEXFLD_T_NUMERIC);
+    fs->types |= INDEXFLD_T_NUMERIC;
   }
   if (types & RSFLDTYPE_GEO) {
-    FieldSpec_Initialize(fs, INDEXFLD_T_GEO);
+    fs->types |= INDEXFLD_T_GEO;
     numTypes++;
   }
   if (types & RSFLDTYPE_TAG) {
-    FieldSpec_Initialize(fs, INDEXFLD_T_TAG);
+    fs->types |= INDEXFLD_T_TAG;
     numTypes++;
   }
 
