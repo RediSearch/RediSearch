@@ -108,14 +108,15 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   n += renderIndexDefinitions(ctx, sp);
 
-  RedisModule_ReplyWithSimpleString(ctx, "fields");
+  RedisModule_ReplyWithSimpleString(ctx, "attributes");
   RedisModule_ReplyWithArray(ctx, sp->numFields);
   for (int i = 0; i < sp->numFields; i++) {
     RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+    RedisModule_ReplyWithSimpleString(ctx, "identifier");
+    RedisModule_ReplyWithSimpleString(ctx, sp->fields[i].path);
+    RedisModule_ReplyWithSimpleString(ctx, "attribute");
     RedisModule_ReplyWithSimpleString(ctx, sp->fields[i].name);
-    // TODO: add
-    // RedisModule_ReplyWithSimpleString(ctx, sp->fields[i].path);
-    int nn = 1;
+    int nn = 4;
     const FieldSpec *fs = sp->fields + i;
 
     // RediSearch_api - No coverage
