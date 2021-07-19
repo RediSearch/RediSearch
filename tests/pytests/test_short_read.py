@@ -5,6 +5,7 @@ import random
 import re
 import shutil
 import subprocess
+import zipfile
 
 import gevent.queue
 import gevent.server
@@ -17,6 +18,7 @@ REDISEARCH_CACHE_DIR = '/tmp/test'
 BASE_RDBS_URL = 'https://s3.amazonaws.com/redismodules/redisearch-enterprise/rdbs/'
 
 RDBS_SHORT_READS = [
+    # 'short-reads/redisearch_2.2.0.rdb.zip',
     'short-reads/redisearch_2.2.0.rdb',
 ]
 
@@ -30,6 +32,15 @@ RDBS.extend(RDBS_COMPATIBILITY)
 ExpectedIndex = collections.namedtuple('ExpectedIndex', ['count', 'pattern', 'search_result_count'])
 RDBS_EXPECTED_INDICES = [ExpectedIndex(2, 'shortread_.*_[1-9]', [20, 55]), ExpectedIndex(1, 'idx', [1000])]
 
+def unzip(zip_path, to_dir):
+    if not zipfile.is_zipfile(zip_path):
+        return False
+    with zipfile.ZipFile(zip_path, 'r') as db_zip:
+        for info in db_zip.infolist():
+            if not os.path.exists(db_zip.extract(info, to_dir)):
+                return False
+    return True
+
 def downloadFiles():
     for f in RDBS:
         path = os.path.join(REDISEARCH_CACHE_DIR, f)
@@ -38,8 +49,13 @@ def downloadFiles():
             os.makedirs(path_dir)
         if not os.path.exists(path):
             subprocess.call(['wget', '-q', BASE_RDBS_URL + f, '-O', path])
-            if not os.path.exists(path):
-                return False
+            _, ext = os.path.splitext(f)
+            if ext == '.zip':
+                if not unzip(path, path_dir):
+                    return False
+            else:
+                if not os.path.exists(path) or os.path.getsize(path) == 0:
+                    return False
     return True
 
 
@@ -82,11 +98,12 @@ def create_indices(env, rdbFileName, idxNameStem, isHash, isJson):
 
     env.assertTrue(env.cmd('save'))
     # Copy to avoid truncation of rdb due to RLTest flush and save
-    dbCopyFilePath = os.path.join(REDISEARCH_CACHE_DIR, 'new', dbFileName)
+    dbCopyFilePath = os.path.join(REDISEARCH_CACHE_DIR, dbFileName)
     dbCopyFileDir = os.path.dirname(dbCopyFilePath)
     if not os.path.exists(dbCopyFileDir):
         os.makedirs(dbCopyFileDir)
-    shutil.copyfile(dbFilePath, dbCopyFilePath)
+    with zipfile.ZipFile(dbCopyFilePath + '.zip', 'w') as db_zip:
+        db_zip.write(dbFilePath, os.path.join(os.path.curdir, os.path.basename(dbCopyFilePath)))
 
 def get_identifier(name, isHash):
     return '$.' + name if not isHash else name
