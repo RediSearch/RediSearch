@@ -98,6 +98,36 @@ def testDel(env):
     env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 4]').equal([3L, 'b', ['v', 'abcdefgg'], 'c', ['v', 'aacdefgh'], 'd', ['v', 'azcdefgh']])
     '''
 
+def del_insert(env):
+    conn = getConnectionByEnv(env)
+
+    conn.execute_command('DEL', 'a')
+    conn.execute_command('DEL', 'b')
+    conn.execute_command('DEL', 'c')
+    conn.execute_command('DEL', 'd')
+
+    env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 4]').equal([0L])
+
+    conn.execute_command('HSET', 'a', 'v', 'abcdefgh')
+    conn.execute_command('HSET', 'b', 'v', 'abcdefgg')
+    conn.execute_command('HSET', 'c', 'v', 'aacdefgh')
+    conn.execute_command('HSET', 'd', 'v', 'azcdefgh')
+
+def testDelReuse(env):
+    conn = getConnectionByEnv(env)
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'INT32', '2', 'L2', 'HNSW')
+    res = [4L, 'a', ['v', 'abcdefgh'], 'b', ['v', 'abcdefgg'],
+               'c', ['v', 'aacdefgh'], 'd', ['v', 'azcdefgh']]
+    
+    del_insert(env)
+    env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 4]').equal(res)
+
+    del_insert(env)
+    env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 4]').equal(res)
+
+    del_insert(env)
+    env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 4]').equal(res)
+
 def test_create(env):
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE idx SCHEMA v VECTOR FLOAT32 16 L2 HNSW INITIAL_CAP 10 M 16 EF 200').ok()
