@@ -70,7 +70,9 @@ RLookupKey *RLookup_GetKeyEx(RLookup *lookup, const char *name, size_t n, int fl
   int isNew = 0;
 
   for (RLookupKey *kk = lookup->head; kk; kk = kk->next) {
-    if (kk->name_len == n && !strncmp(kk->name, name, kk->name_len)) {
+    // match `name` to the name/path of the field
+    if ((kk->name_len == n && !strncmp(kk->name, name, kk->name_len)) || 
+        (kk->path != kk->name && !strcmp(kk->path, name))) {
       if (flags & RLOOKUP_F_OEXCL) {
         return NULL;
       }
@@ -364,14 +366,15 @@ static int getKeyCommonHash(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
   RedisModuleString *val = NULL;
   RSValue *rsv = NULL;
 
-  const char *path;
-  if (kk->path != kk->name) {
-    path = kk->path;
-  } else {
-    const FieldSpec *fs = IndexSpec_GetField(options->sctx->spec, kk->name, kk->name_len);
-    path = fs ? fs->path : kk->name;
+  rc = RedisModule_HashGet(*keyobj, REDISMODULE_HASH_CFIELDS, kk->path, &val, NULL);
+  if (!val) {
+    // name of field is the alias given on FT.CREATE
+    // get the the actual path
+    const FieldSpec *fs = IndexSpec_GetField(options->sctx->spec, kk->path, strlen(kk->path));
+    if (fs) {
+      rc = RedisModule_HashGet(*keyobj, REDISMODULE_HASH_CFIELDS, fs->path, &val, NULL);
+    }
   }
-  rc = RedisModule_HashGet(*keyobj, REDISMODULE_HASH_CFIELDS, path, &val, NULL);
 
   if (rc == REDISMODULE_OK && val != NULL) {
     rsv = hvalToValue(val, kk->fieldtype);
@@ -421,17 +424,16 @@ static int getKeyCommonJSON(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
   RedisModuleString *val = NULL;
   RSValue *rsv = NULL;
 
-  const char *path;
-  if (kk->path != kk->name) {
-    path = kk->path;
-  } else { 
-    // field name should be translated to a path
-    // TODO: consider better solution for faster
-    const FieldSpec *fs = IndexSpec_GetField(options->sctx->spec, kk->name, kk->name_len);
-    path = fs ? fs->path : kk->name;
+  JSONResultsIterator jsonIter = japi->get(*keyobj, kk->path);
+  if (!jsonIter) {
+    // name of field is the alias given on FT.CREATE
+    // get the the actual path
+    const FieldSpec *fs = IndexSpec_GetField(options->sctx->spec, kk->path, strlen(kk->path));
+    if (fs) {
+      jsonIter = japi->get(*keyobj, fs->path);
+    }
   }
 
-  JSONResultsIterator jsonIter = japi->get(*keyobj, path);
   if (!jsonIter) {
     // The field does not exist and and it isn't `__key`
     if (!strncmp(kk->name, UNDERSCORE_KEY, strlen(UNDERSCORE_KEY))) {
