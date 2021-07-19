@@ -1160,6 +1160,7 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
           // set lookupkey name to name.
           // by defualt "name = path" 
           kk->name = name;
+          kk->name_len = strlen(name);
           lstp->keys[lstp->nkeys++] = kk;
         }
         if (lstp->nkeys) {
