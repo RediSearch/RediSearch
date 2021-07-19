@@ -7,7 +7,7 @@ import random
 import time
 from RLTest import Env
 from includes import *
-from common import getConnectionByEnv, waitForIndex, toSortedFlatList, assertInfoField, check_server_version, check_module_version
+from common import getConnectionByEnv, waitForIndex, toSortedFlatList, assertInfoField, server_version_at_least, module_version_at_least
 
 # this tests is not longer relevant
 # def testAdd(env):
@@ -3225,12 +3225,8 @@ def testNotOnly(env):
   conn.execute_command('HSET', 'b', 'txt1', 'world', 'txt2', 'hello')
   env.expect('ft.search idx !world').equal([1L, 'b', ['txt1', 'world', 'txt2', 'hello']])
 
-def testServerVer(env):
-    env.assertTrue(check_server_version(env, "0.0.0"))
-    env.assertTrue(not check_server_version(env, "500.0.0"))
-
-    env.assertTrue(check_module_version(env, "20005"))
-    env.assertTrue(not check_module_version(env, "10000000"))
+def testServerVersion(env):
+    env.assertTrue(server_version_at_least(env, "6.0.0"))
 
 def testSchemaWithAs(env):
   conn = getConnectionByEnv(env)
@@ -3327,4 +3323,18 @@ def testMod1407(env):
 
     # make sure correct query not crashing and return the right results
     env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '2', '@LimitationTypeID', '@LimitationTypeDesc', 'REDUCE', 'COUNT', '0').equal([2L, ['LimitationTypeID', 'boo2', 'LimitationTypeDesc', 'doo2', '__generated_aliascount', '1'], ['LimitationTypeID', 'boo1', 'LimitationTypeDesc', 'doo1', '__generated_aliascount', '1']])
+
+def testMod1452(env):
+    if not env.isCluster():
+        # this test is only relevant on cluster
+        env.skip()
+
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    
+    conn.execute_command('HSET', 'doc1', 't', 'foo')
+
+    # here we only check that its not crashing
+    env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', 'foo', 'REDUCE', 'FIRST_VALUE', 3, '@not_exists', 'BY', '@foo')
 
