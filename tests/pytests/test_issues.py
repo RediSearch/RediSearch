@@ -170,6 +170,53 @@ def test_issue1988(env):
     env.expect('FT.SEARCH', 'idx', 'foo', 'SORTBY' , 't').equal([1L, 'doc1', ['t', 'foo']])
     env.expect('FT.SEARCH', 'idx', 'foo', 'WITHSCORES', 'SORTBY' , 't').equal([1L, 'doc1', '1', ['t', 'foo']])
 
+def testIssue2104(env):
+  # 'AS' attribute does not work in functions
+  conn = getConnectionByEnv(env)
+
+  # hash
+  conn.execute_command('FT.CREATE', 'hash_idx', 'SCHEMA', 'name', 'TEXT', 'SORTABLE', 'subj1', 'NUMERIC', 'SORTABLE')
+  conn.execute_command('FT.ADD', 'hash_idx', 'data1', '1.0', 'FIELDS', 'name', 'abc', 'subj1', '20')
+  # load a single field
+  env.expect('FT.AGGREGATE', 'hash_idx', '*', 'LOAD', '1', '@subj1')    \
+      .equal([1L, ['subj1', '20']])
+  # load a field with an attribute
+  env.expect('FT.AGGREGATE', 'hash_idx', '*', 'LOAD', '3', '@subj1', 'AS', 'a')    \
+      .equal([1L, ['a', '20']])
+  # load field and use `APPLY`
+  env.expect('FT.AGGREGATE', 'hash_idx', '*', 'LOAD', '3', '@subj1', 'AS', 'a', 'APPLY', '(@a+@a)/2', 'AS', 'avg')   \
+      .equal([1L, ['a', '20', 'avg', '20']])
+  # load a field implicitly with `APPLY`
+  env.expect('FT.AGGREGATE', 'hash_idx', '*', 'APPLY', '(@subj1+@subj1)/2', 'AS', 'avg')    \
+      .equal([1L, ['subj1', '20', 'avg', '20']])
+  env.expect('FT.AGGREGATE', 'hash_idx', '*', 'LOAD', '3', '@subj1', 'AS', 'a', 'APPLY', '(@subj1+@subj1)/2', 'AS', 'avg')   \
+      .equal([1L, ['a', '20', 'avg', '20']])
+
+  # json
+  conn.execute_command('FT.CREATE', 'json_idx', 'ON', 'JSON', 'SCHEMA', '$.name', 'AS', 'name', 'TEXT', 'SORTABLE',
+                                                                        '$.subj1', 'AS', 'subj2', 'NUMERIC', 'SORTABLE')
+  env.execute_command('JSON.SET', 'doc:1', '$', r'{"name":"Redis", "subj1":3.14}')
+  env.expect('json.get', 'doc:1', '$').equal('[{"name":"Redis","subj1":3.14}]')
+  # load a single field
+  env.expect('FT.AGGREGATE', 'json_idx', '*', 'LOAD', '1', '@subj2')    \
+      .equal([1L, ['subj2', '3.14']])
+  # load a field with an attribute
+  env.expect('FT.AGGREGATE', 'json_idx', '*', 'LOAD', '3', '@subj2', 'AS', 'a')    \
+      .equal([1L, ['a', '3.14']])
+  # load field and use `APPLY`
+  env.expect('FT.AGGREGATE', 'json_idx', '*', 'LOAD', '3', '@subj2', 'AS', 'a', 'APPLY', '(@a+@a)/2', 'AS', 'avg')   \
+      .equal([1L, ['a', '3.14', 'avg', '3.14']])
+  # load a field implicitly with `APPLY`
+  env.expect('FT.AGGREGATE', 'json_idx', '*', 'APPLY', '(@subj2+@subj2)/2', 'AS', 'avg')    \
+      .equal([1L, ['subj2', '3.14', 'avg', '3.14']])
+
+  # load a field with an attribute
+  env.expect('FT.AGGREGATE', 'json_idx', '*', 'LOAD', '3', '@$.subj1', 'AS', 'a')    \
+      .equal([1L, ['a', '3.14']])
+  # In this example we get both `a` and `subj1` since 
+  env.expect('FT.AGGREGATE', 'json_idx', '*', 'LOAD', '3', '@$.subj1', 'AS', 'a', 'APPLY', '(@a+@a)/2', 'AS', 'avg')   \
+      .equal([1L, ['a', '3.14', 'avg', '3.14']])
+
 def test_MOD1266(env):
   # Test parsing failure
   conn = getConnectionByEnv(env)
