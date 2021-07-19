@@ -3245,7 +3245,7 @@ def testSchemaWithAs(env):
     env.expect('ft.search idx hello RETURN 1 txt').equal([1L, 'a', ['txt', 'hello']])
     env.expect('ft.search idx hello RETURN 1 foo').equal([1L, 'a', ['foo', 'hello']])
     env.expect('ft.search idx hello RETURN 3 txt AS baz').equal([1L, 'a', ['baz', 'hello']])
-    env.expect('ft.search idx hello RETURN 3 foo AS baz').equal([1L, 'a', []])
+    env.expect('ft.search idx hello RETURN 3 foo AS baz').equal([1L, 'a', ['baz', 'hello']])
     env.expect('ft.search idx hello RETURN 6 txt AS baz txt AS bar').equal([1L, 'a', ['baz', 'hello', 'bar', 'hello']])
     env.expect('ft.search idx hello RETURN 6 txt AS baz txt AS baz').equal([1L, 'a', ['baz', 'hello']])
 
@@ -3269,7 +3269,7 @@ def testSchemaWithAs(env):
 
     # for name - cannot rename
     env.expect('ft.aggregate', 'idx', 'hello', 'LOAD', '1', '@foo').equal([1L, ['foo', 'hello']])
-    env.expect('ft.aggregate', 'idx', 'hello', 'LOAD', '3', '@foo', 'AS', 'foo1').equal([1L, []])
+    env.expect('ft.aggregate', 'idx', 'hello', 'LOAD', '3', '@foo', 'AS', 'foo1').equal([1L, ['foo1', 'hello']])
     
     # for for not in schema - can rename
     env.expect('ft.aggregate', 'idx', 'hello', 'LOAD', '1', '@not_in_schema').equal([1L, ['not_in_schema', '42']])
