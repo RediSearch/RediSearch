@@ -364,8 +364,6 @@ static int getKeyCommonHash(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
   RedisModuleString *val = NULL;
   RSValue *rsv = NULL;
 
-  // field name should be translated to a path
-  // TODO: consider better solution for faster
   const char *path;
   if (kk->path != kk->name) {
     path = kk->path;
