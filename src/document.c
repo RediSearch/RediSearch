@@ -497,7 +497,7 @@ FIELD_BULK_INDEXER(numericIndexer) {
 FIELD_PREPROCESSOR(geoPreprocessor) {
   size_t len;
   const char *str = NULL;
-  double lat, lon;
+  double lat = 0, lon = 0;
 
   switch (field->unionType) {
     case FLD_VAR_T_GEO:

@@ -34,7 +34,7 @@ static int parseField(RSValue *argv, double *geo) {
     size_t len;
     char *p = (char *)RSValue_StringPtrLen(val, &len); 
     rv = parseGeo(p, len, &geo[0], &geo[1]);
-  } else if (val->t == RSValue_Number) {
+  } else if (val && val->t == RSValue_Number) {
     double dbl;
     RSValue_ToNumber(val, &dbl);
     if (decodeGeo(dbl, geo) == 0) {
