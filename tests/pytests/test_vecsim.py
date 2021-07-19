@@ -5,6 +5,9 @@ from includes import *
 from common import getConnectionByEnv, waitForIndex, sortedResults, toSortedFlatList
 from time import sleep
 from RLTest import Env
+import random
+import string
+import numpy as np
 
 def test_1st(env):
     conn = getConnectionByEnv(env)
@@ -98,6 +101,15 @@ def testDel(env):
     env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 4]').equal([3L, 'b', ['v', 'abcdefgg'], 'c', ['v', 'aacdefgh'], 'd', ['v', 'azcdefgh']])
     '''
 
+def test_query_empty(env):
+    conn = getConnectionByEnv(env)
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'INT32', '2', 'L2', 'HNSW')
+    env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 1]').equal([0L])
+    conn.execute_command('HSET', 'a', 'v', 'redislab')
+    env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 1]').equal([1L, 'a', ['v', 'redislab']])
+    conn.execute_command('DEL', 'a')
+    env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 1]').equal([0L])
+
 def del_insert(env):
     conn = getConnectionByEnv(env)
 
@@ -108,25 +120,76 @@ def del_insert(env):
 
     env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 4]').equal([0L])
 
-    conn.execute_command('HSET', 'a', 'v', 'abcdefgh')
-    conn.execute_command('HSET', 'b', 'v', 'abcdefgg')
-    conn.execute_command('HSET', 'c', 'v', 'aacdefgh')
-    conn.execute_command('HSET', 'd', 'v', 'azcdefgh')
+    res = [''.join(random.choice(string.lowercase) for x in range(8)),
+           ''.join(random.choice(string.lowercase) for x in range(8)),
+           ''.join(random.choice(string.lowercase) for x in range(8)),
+           ''.join(random.choice(string.lowercase) for x in range(8))]
+
+    conn.execute_command('HSET', 'a', 'v', res[0])
+    conn.execute_command('HSET', 'b', 'v', res[1])
+    conn.execute_command('HSET', 'c', 'v', res[2])
+    conn.execute_command('HSET', 'd', 'v', res[3])
+
+    return res
 
 def testDelReuse(env):
     conn = getConnectionByEnv(env)
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'INT32', '2', 'L2', 'HNSW')
-    res = [4L, 'a', ['v', 'abcdefgh'], 'b', ['v', 'abcdefgg'],
-               'c', ['v', 'aacdefgh'], 'd', ['v', 'azcdefgh']]
-    
-    del_insert(env)
+
+    vecs = del_insert(env)
+    print (env.cmd('FT.INFO', 'idx'))
+    res = [4L, 'a', ['v', vecs[0]], 'b', ['v', vecs[1]], 'c', ['v', vecs[2]], 'd', ['v', vecs[3]]]
     env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 4]').equal(res)
 
-    del_insert(env)
+    vecs = del_insert(env)
+    print (env.cmd('FT.INFO', 'idx'))
+    res = [4L, 'a', ['v', vecs[0]], 'b', ['v', vecs[1]], 'c', ['v', vecs[2]], 'd', ['v', vecs[3]]]
     env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 4]').equal(res)
 
-    del_insert(env)
+    vecs = del_insert(env)
+    print (env.cmd('FT.INFO', 'idx'))
+    res = [4L, 'a', ['v', vecs[0]], 'b', ['v', vecs[1]], 'c', ['v', vecs[2]], 'd', ['v', vecs[3]]]
     env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 4]').equal(res)
+
+def load_vectors_to_redis(env, n_vec, query_vec_index, vec_size):
+    for i in range(n_vec):
+        vector = np.random.rand(1, vec_size).astype(np.float32)
+        if i == query_vec_index:
+            query_vec = vector
+#         base64_vector = base64.b64encode(vector).decode('ascii')
+        env.execute_command('HSET', i, 'vector', vector.tobytes())
+    return query_vec
+
+def query_vector(env, idx, query_vec):
+    base64_vector = base64.b64encode(query_vec).decode('ascii')
+    base64_vector_escaped = base64_vector.replace("=", r"\=").replace("/", r"\/").replace("+", r"\+")
+    return env.cmd('FT.SEARCH', idx, '@vector:[' + base64_vector_escaped + ' RANGE 5]', 'NOCONTENT')
+
+def testDelReuseDvir(env):
+    conn = getConnectionByEnv(env)
+    INDEX_NAME = 'items'
+    prefix = 'item'
+    n_vec = 5
+    query_vec_index = 3
+    vec_size = 1280
+
+    conn.execute_command('FT.CREATE', INDEX_NAME, 'ON', 'HASH',
+                         'SCHEMA', 'vector', 'VECTOR', 'FLOAT32', '1280', 'L2', 'HNSW')
+
+    query_vec = load_vectors_to_redis(env, n_vec, query_vec_index, vec_size)
+    res = query_vector(env, INDEX_NAME, query_vec)
+    env.assertEqual(res, 'OK')
+    print (env.cmd('FT.INFO', INDEX_NAME))
+
+    query_vec = load_vectors_to_redis(env, n_vec, query_vec_index, vec_size)
+    res = query_vector(env, INDEX_NAME, query_vec)
+    env.assertEqual(res, 'OK')
+    print (env.cmd('FT.INFO', INDEX_NAME))
+
+    query_vec = load_vectors_to_redis(env, n_vec, query_vec_index, vec_size)
+    res = query_vector(env, INDEX_NAME, query_vec)
+    env.assertEqual(res, 'OK')
+    print (env.cmd('FT.INFO', INDEX_NAME))
 
 def test_create(env):
     conn = getConnectionByEnv(env)
