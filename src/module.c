@@ -1053,7 +1053,7 @@ void __attribute__((destructor)) RediSearch_CleanupModule(void) {
     ConcurrentSearch_ThreadPoolDestroy();
     ReindexPool_ThreadPoolDestroy();
     GC_ThreadPoolDestroy();
-    IndexAlias_DestroyGlobal(AliasTable_g);
+    IndexAlias_DestroyGlobal(&AliasTable_g);
     freeGlobalAddStrings();
     SchemaPrefixes_Free(ScemaPrefixes_g);
     RedisModule_FreeThreadSafeContext(RSDummyContext);

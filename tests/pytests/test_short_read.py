@@ -1,4 +1,5 @@
 # coding=utf-8
+import collections
 import os
 import random
 import re
@@ -26,6 +27,8 @@ RDBS = []
 RDBS.extend(RDBS_SHORT_READS)
 RDBS.extend(RDBS_COMPATIBILITY)
 
+ExpectedIndex = collections.namedtuple('ExpectedIndex', ['count', 'pattern', 'search_result_count'])
+RDBS_EXPECTED_INDICES = [ExpectedIndex(2, 'shortread_.*_[1-9]', [20, 55]), ExpectedIndex(1, 'idx', [1000])]
 
 def downloadFiles():
     for f in RDBS:
@@ -109,11 +112,12 @@ def add_index(env, isHash, index_name, num_prefs, num_keys):
     # Create the index
     cmd_create = ['ft.create', index_name, 'ON', 'HASH' if isHash else 'JSON']
     # With prefixes
-    cmd_create.extend(['prefix', num_prefs])
-    for i in range(1, num_prefs + 1):
-        cmd_create.append('pref' + str(i) + ":")
+    if num_prefs > 0:
+        cmd_create.extend(['prefix', num_prefs])
+        for i in range(1, num_prefs + 1):
+            cmd_create.append('pref' + str(i) + ":")
     # With filter
-    cmd_create.extend(['filter', 'startswith(@__key, "r")'])
+    cmd_create.extend(['filter', 'startswith(@__key' + ', "p")'])
     # With language
     cmd_create.extend(['language', 'spanish'])
     # With language field
@@ -145,7 +149,7 @@ def add_index(env, isHash, index_name, num_prefs, num_keys):
     env.assertOk(env.cmd('ft.synupdate', index_name, 'syngrp2', 'jugar', 'tocar'))
 
     # Add keys
-    for i in range(1, num_keys):
+    for i in range(1, num_keys + 1):
         if isHash:
             cmd = ['hset', 'pref' + str(i) + ":k" + str(i) + '_' + str(rand_num(5)), rand_name(5), rand_num(2), rand_name(5), rand_num(3)]
             env.assertEqual(env.cmd(*cmd), 2L)
@@ -361,12 +365,12 @@ def testShortReadSearch(env):
     if not downloadFiles():
         env.assertTrue(False, "downloadFiles failed")
 
-    for f in RDBS:
+    for f, expected_index in zip(RDBS, RDBS_EXPECTED_INDICES):
         fullfilePath = os.path.join(REDISEARCH_CACHE_DIR, f)
-        sendShortReads(env, fullfilePath)
+        sendShortReads(env, fullfilePath, expected_index)
 
 
-def sendShortReads(env, rdb_file):
+def sendShortReads(env, rdb_file, expected_index):
 
     # Add some initial content (index+keys) to test backup/restore/discard when short read fails
     # When entire rdb is successfully sent and loaded (from swapdb) - backup should be discarded
@@ -382,6 +386,7 @@ def sendShortReads(env, rdb_file):
     for b in range(0, total_len + 1):
         rdb = full_rdb[0:b]
 
+        # TODO: Move debug code to a decorator
         # # For debugging: print the binary content before it is sent
         # if len(rdb):
         #     ch = rdb[dbg_ndx]
@@ -397,11 +402,11 @@ def sendShortReads(env, rdb_file):
         # dbg_ndx = dbg_ndx + 1
 
         env.debugPrint('runShortRead: %d out of %d \n%s' % (b, total_len, dbg_str))
-        runShortRead(env, rdb, total_len)
+        runShortRead(env, rdb, total_len, expected_index)
 
 
 
-def runShortRead(env, data, total_len):
+def runShortRead(env, data, total_len, expected_index):
     with ShardMock(env) as shardMock:
 
         # For debugging: if adding breakpoints in redis,
@@ -455,10 +460,13 @@ def runShortRead(env, data, total_len):
             env.assertEqual(res, ['idxBackup1'])
         else:
             # Verify new data was loaded and the backup was discarded
-            env.assertEqual(len(res), 2)
-            r = re.compile("shortread_.*_[1-9]")
-            expected = list(filter(lambda x: r.match(x), res))
-            env.assertEqual(len(expected), 2)
+            env.assertEqual(len(res), expected_index.count)
+            r = re.compile(expected_index.pattern)
+            expected_indices = list(filter(lambda x: r.match(x), res))
+            env.assertEqual(len(expected_indices), expected_index.count)
+            for ind, expected_result_count in zip(expected_indices, expected_index.search_result_count):
+                res = env.cmd('ft.search ', ind, '*', 'limit', '0', '0')
+                env.assertEqual(res[0], expected_result_count)
 
         # Exit (avoid read-only exception with flush on slave)
         env.assertEqual(env.cmd('slaveof', 'no', 'one'), True)

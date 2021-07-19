@@ -26,7 +26,7 @@ void Restore_Globals() {
   ScemaPrefixes_g = ScemaPrefixes_g_bkup;
   ScemaPrefixes_g_bkup = NULL;
 
-  IndexAlias_DestroyGlobal(AliasTable_g);
+  IndexAlias_DestroyGlobal(&AliasTable_g);
   AliasTable_g = AliasTable_g_bkup;
   AliasTable_g_bkup = NULL;
 }
@@ -37,8 +37,7 @@ void Discard_Globals() {
   SchemaPrefixes_Free(ScemaPrefixes_g_bkup);
   ScemaPrefixes_g_bkup = NULL;
 
-  IndexAlias_DestroyGlobal(AliasTable_g_bkup);
-  AliasTable_g_bkup = NULL;
+  IndexAlias_DestroyGlobal(&AliasTable_g_bkup);
 }
 
 void Discard_Global_IndexSpecs() {
