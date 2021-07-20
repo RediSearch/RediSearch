@@ -3,7 +3,7 @@
 import json
 import bz2
 
-from common import getConnectionByEnv, waitForIndex, toSortedFlatList, slice_at
+from common import getConnectionByEnv, waitForIndex, toSortedFlatList, slice_at, index_info
 from includes import *
 
 UNSTABLE_TESTS = os.getenv('UNSTABLE_TESTS', '0') == '1'
@@ -318,7 +318,7 @@ def testMultiValueTag(env):
 
     # multivalue without a separator
     # 
-    env.expect('JSON.SET', 'doc:1', '$', '{"tag":["foo","bar", "baz"]}').ok()
+    env.expect('JSON.SET', 'doc:1', '$', '{"tag":["foo", "bar", "baz"]}').ok()
     env.expect('JSON.SET', 'doc:2', '$', '{"tag":["foo, bar", "baz"]}').ok()
     env.expect('JSON.SET', 'doc:3', '$', '{"tag":["foo, bar, baz"]}').ok()
 
@@ -572,3 +572,84 @@ def testDifferentType(env):
     conn.execute_command('JSON.SET', 'doc:2', '$', r'{"t":"hello world"}')
     env.expect('FT.SEARCH', 'hidx', '*', 'NOCONTENT').equal([1L, 'doc:1'])
     env.expect('FT.SEARCH', 'jidx', '*', 'NOCONTENT').equal([1L, 'doc:2'])
+
+def test_NoSortableArray(env):
+    conn = getConnectionByEnv(env)
+    env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.tag[*]', 'TAG', 'SORTABLE')
+    env.expect('JSON.SET', 'doc:1', '$', '{"tag":["foo", "bar", "baz"]}').ok()
+    env.expect('JSON.SET', 'doc:2', '$', '{"tag":["foo, bar, baz"]}').ok()
+
+    res = ['internal_id', 1L, 'flags', '(0x4):HasSortVector,', 'score', '1',
+           'num_tokens', 0L, 'max_freq', 0L, 'refcount', 1L,
+           'sortables', [['index', 0L, 'field', '$.tag[*] AS $.tag[*]', 'value', None]]]
+    env.expect('ft.debug', 'docinfo', 'idx', 'doc:1').equal(res)
+
+    res = ['internal_id', 2L, 'flags', '(0x4):HasSortVector,', 'score', '1',
+           'num_tokens', 0L, 'max_freq', 0L, 'refcount', 1L,
+           'sortables', [['index', 0L, 'field', '$.tag[*] AS $.tag[*]', 'value', 'foo, bar, baz']]]
+    env.expect('ft.debug', 'docinfo', 'idx', 'doc:2').equal(res)
+
+def test_WrongJsonType(env):
+    conn = getConnectionByEnv(env)
+    wrong_types = ['object', 'array', 'null']
+    env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', 
+        '$.object1', 'TEXT',
+        '$.object2', 'TAG',
+        '$.object3', 'NUMERIC',
+        '$.object4', 'GEO',
+
+        '$.array1', 'TEXT',
+        '$.array2', 'NUMERIC',
+        '$.array3', 'GEO',
+
+        '$.numeric1', 'TEXT',
+        '$.numeric2', 'TAG',
+        '$.numeric3', 'GEO',
+
+        '$.bool1', 'TEXT',
+        '$.bool2', 'NUMERIC',
+        '$.bool3', 'GEO',
+
+        '$.geo1', 'NUMERIC',
+
+        '$.text1', 'NUMERIC',
+        '$.text2', 'GEO',
+
+        '$.null1', 'TEXT',
+        '$.null2', 'TAG',
+        '$.null3', 'NUMERIC',
+        '$.null4', 'GEO')
+
+    env.expect('JSON.SET', 'doc', '$', '{"object1":{"1":"foo", "2":"bar"}}').ok()
+    env.expect('JSON.SET', 'doc', '$', '{"object2":{"1":"foo", "2":"bar"}}').ok()
+    env.expect('JSON.SET', 'doc', '$', '{"object3":{"1":"foo", "2":"bar"}}').ok()
+    env.expect('JSON.SET', 'doc', '$', '{"object4":{"1":"foo", "2":"bar"}}').ok()
+
+    env.expect('JSON.SET', 'doc', '$', '{"array1":["foo", "bar"]}').ok()
+    env.expect('JSON.SET', 'doc', '$', '{"array2":["foo", "bar"]}').ok()
+    env.expect('JSON.SET', 'doc', '$', '{"array3":["foo", "bar"]}').ok()
+
+    env.expect('JSON.SET', 'doc', '$', '{"numeric1":3.141}').ok()
+    env.expect('JSON.SET', 'doc', '$', '{"numeric2":3.141}').ok()
+    env.expect('JSON.SET', 'doc', '$', '{"numeric3":3.141}').ok()
+    
+    env.expect('JSON.SET', 'doc', '$', '{"bool1":true}').ok()
+    env.expect('JSON.SET', 'doc', '$', '{"bool2":true}').ok()
+    env.expect('JSON.SET', 'doc', '$', '{"bool3":true}').ok()
+
+    env.expect('JSON.SET', 'doc', '$', '{"geo1":"1.23,2.34"}').ok()
+
+    env.expect('JSON.SET', 'doc', '$', '{"text1":"foo"}').ok()
+    env.expect('JSON.SET', 'doc', '$', '{"text2":"foo"}').ok()
+
+    env.expect('JSON.SET', 'doc', '$', '{"null1":null}').ok()
+    env.expect('JSON.SET', 'doc', '$', '{"null2":null}').ok()
+    env.expect('JSON.SET', 'doc', '$', '{"null3":null}').ok()
+    env.expect('JSON.SET', 'doc', '$', '{"null4":null}').ok()
+
+    # no field was indexed 
+    env.expect('FT.SEARCH', 'idx', '*').equal([0L])
+
+    # check indexing failed on all field in schema
+    res = index_info(env, 'idx')
+    env.assertEqual(int(res['hash_indexing_failures']), len(res['fields']))

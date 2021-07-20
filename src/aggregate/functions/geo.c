@@ -4,27 +4,6 @@
 #include "dep/geo/geohash_helper.h"
 #include <err.h>
 
-// TODO: remove when integrated with geo-out-of-keyspace
-static int parseGeo(const char *c, size_t len, double *lon, double *lat) {
-  char str[len + 1];
-  memcpy(str, c, len + 1);
-  char *pos = strpbrk(str, " ,");
-  if (!pos) {
-    return REDISMODULE_ERR;
-  }
-  *pos = '\0';
-  pos++;
-
-  char *end1 = NULL, *end2 = NULL;
-  *lon = strtod(str, &end1);
-  *lat = strtod(pos, &end2);
-  if (*end1 || *end2) {
-    return REDISMODULE_ERR;
-  }
-
-  return REDISMODULE_OK;
-}
-
 // parse "x,y"
 static int parseField(RSValue *argv, double *geo) {
   int rv = REDISMODULE_OK;

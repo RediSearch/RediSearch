@@ -122,7 +122,7 @@ int JSON_StoreInDocField(RedisJSON json, JSONType jsonType, struct DocumentField
   return rv;
 }
 
-int JSON_GetRedisModuleString(JSONResultsIterator jsonIter, size_t len,
+int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len,
                               FieldType ftype, struct DocumentField *df) {
   int rv = REDISMODULE_OK;
 

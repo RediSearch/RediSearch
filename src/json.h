@@ -18,7 +18,7 @@ struct DocumentField;
 int GetJSONAPIs(RedisModuleCtx *ctx, int subscribeToModuleChange);
 
 /* Creates a Redis Module String from JSONType string, int, double, bool */ 
-int JSON_GetRedisModuleString(JSONResultsIterator jsonIter, size_t len,
+int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len,
                               FieldType ftype, struct DocumentField *df);
 
 /* Checks if JSONType fits the FieldType */

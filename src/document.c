@@ -507,28 +507,7 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
     case FLD_VAR_T_CSTR:
     case FLD_VAR_T_RMS:
       str = DocumentField_GetValueCStr(field, &len);
-      if (len > 31) {
-        return REDISMODULE_ERR;
-      }
-
-      // buffer of 32 bytes should be sufficient. lon,lat
-      char buf[32];
-      // copy to buffer since we modify the string
-      memcpy(buf, str, len);
-      buf[len] = '\0';
-
-      char *pos = strpbrk(buf, " ,");
-      if (!pos) {
-        QueryError_SetCode(status, QUERY_EGEOFORMAT);
-        return -1;
-      }
-      *pos = '\0';
-      pos++;
-
-      char *end1 = NULL, *end2 = NULL;
-      lon = strtod(buf, &end1);
-      lat = strtod(pos, &end2);
-      if (*end1 || *end2) {
+      if (parseGeo(str, len, &lon, &lat) != REDISMODULE_OK) {
         return REDISMODULE_ERR;
       }
       break;

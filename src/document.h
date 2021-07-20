@@ -48,8 +48,6 @@ typedef enum {
 typedef struct DocumentField{
   const char *name;  // Can either be char or RMString
   const char *path;
-  // hash RMS
-  // values - TODO: unionize
   union {
     // TODO: consider removing RMS altogether
     RedisModuleString *text;
