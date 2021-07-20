@@ -28,6 +28,7 @@ IndexSpec* RediSearch_CreateIndex(const char* name, const RSIndexOptions* option
   IndexSpec* spec = NewIndexSpec(name);
   IndexSpec_MakeKeyless(spec);
   spec->flags |= Index_Temporary;  // temporary is so that we will not use threads!!
+  spec->flags |= Index_FromLLAPI;
   if (!spec->indexer) {
     spec->indexer = NewIndexer(spec);
   }
@@ -181,7 +182,13 @@ void RediSearch_DocumentAddFieldString(Document* d, const char* fieldname, const
 }
 
 void RediSearch_DocumentAddFieldNumber(Document* d, const char* fieldname, double val, unsigned as) {
-  Document_AddNumericField(d, fieldname, val, as);
+  if (as == RSFLDTYPE_NUMERIC) {
+    Document_AddNumericField(d, fieldname, val, as);
+  } else {
+    char buf[512];
+    size_t len = sprintf(buf, "%lf", val);
+    Document_AddFieldC(d, fieldname, buf, len, as);
+  }
 }
 
 int RediSearch_DocumentAddFieldGeo(Document* d, const char* fieldname, 
@@ -189,8 +196,16 @@ int RediSearch_DocumentAddFieldGeo(Document* d, const char* fieldname,
   if (lat > GEO_LAT_MAX || lat < GEO_LAT_MIN || lon > GEO_LONG_MAX || lon < GEO_LONG_MIN) {
     // out of range
     return REDISMODULE_ERR;
-  } 
-  Document_AddGeoField(d, fieldname, lon, lat, as);
+  }
+
+  if (as == RSFLDTYPE_GEO) {
+    Document_AddGeoField(d, fieldname, lon, lat, as);
+  } else {
+    char buf[24];
+    size_t len = sprintf(buf, "%.6lf,%.6lf", lon, lat);
+    Document_AddFieldC(d, fieldname, buf, len, as);
+  }
+
   return REDISMODULE_OK;
 }
 

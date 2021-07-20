@@ -1070,16 +1070,15 @@ FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *pa
   fs->ftWeight = 1.0;
   fs->sortIdx = -1;
   fs->tagFlags = TAG_FIELD_DEFAULT_FLAGS;
-//  fs->tagSep = TAG_FIELD_DEFAULT_HASH_SEP;
-  RS_LOG_ASSERT(sp->rule, "index w/o a rule?");
-  if (sp->rule) {
+  if (!(sp->flags & Index_FromLLAPI)) {
+    RS_LOG_ASSERT((sp->rule), "index w/o a rule?");
     switch (sp->rule->type) {
-    case DocumentType_Hash:
-      fs->tagSep = TAG_FIELD_DEFAULT_HASH_SEP; break;
-    case DocumentType_Json:
-      fs->tagSep = TAG_FIELD_DEFAULT_JSON_SEP; break;
-    case DocumentType_None:
-      RS_LOG_ASSERT(0, "shouldn't get here");
+      case DocumentType_Hash:
+        fs->tagSep = TAG_FIELD_DEFAULT_HASH_SEP; break;
+      case DocumentType_Json:
+        fs->tagSep = TAG_FIELD_DEFAULT_JSON_SEP; break;
+      case DocumentType_None:
+        RS_LOG_ASSERT(0, "shouldn't get here");
     }
   }
   return fs;
