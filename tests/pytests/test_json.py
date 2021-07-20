@@ -432,7 +432,7 @@ def testDemo(env):
     env.assertEqual(slice_at(info, 'index_name')[0], 'airports')
     env.assertEqual(slice_at(slice_at(info, 'index_definition')[0], 'key_type')[0], 'JSON')
     env.assertEqual(slice_at(info, 'fields')[0],
-                             [['iata', 'type', 'TAG', 'SEPARATOR', ',', 'SORTABLE'],
+                             [['iata', 'type', 'TAG', 'SEPARATOR', '', 'SORTABLE'],
                               ['iata_txt', 'type', 'TEXT', 'WEIGHT', '1', 'NOSTEM'],
                               ['name', 'type', 'TEXT', 'WEIGHT', '1', 'NOSTEM'],
                               ['location', 'type', 'GEO']])
@@ -592,7 +592,7 @@ def test_NoSortableArray(env):
 def test_WrongJsonType(env):
     conn = getConnectionByEnv(env)
     wrong_types = ['object', 'array', 'null']
-    env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', 
+    conn.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', 
         '$.object1', 'TEXT',
         '$.object2', 'TAG',
         '$.object3', 'NUMERIC',
@@ -653,3 +653,18 @@ def test_WrongJsonType(env):
     # check indexing failed on all field in schema
     res = index_info(env, 'idx')
     env.assertEqual(int(res['hash_indexing_failures']), len(res['fields']))
+
+def testTagNoSeparetor(env):
+    res = env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
+                                '$.tag1', 'AS', 'tag_list', 'TAG',
+                                '$.tag2[*]', 'AS', 'tag_array', 'TAG')
+    env.expect('JSON.SET', 'doc:1', '$', '{"tag1":"foo,bar,baz"}').ok()
+    env.expect('JSON.SET', 'doc:2', '$', '{"tag2":["foo","bar,baz"]}').ok()
+
+    env.expect('JSON.GET', 'doc:1', '$').equal('[{"tag1":"foo,bar,baz"}]')
+    env.expect('JSON.GET', 'doc:1', '$.tag1').equal('["foo,bar,baz"]')
+    env.expect('JSON.GET', 'doc:2', '$').equal('[{"tag2":["foo","bar,baz"]}]')
+    env.expect('JSON.GET', 'doc:2', '$.tag2[*]').equal('["foo","bar,baz"]')
+
+    env.expect('FT.DEBUG', 'dump_tagidx', 'idx', 'tag_list').equal([['foo,bar,baz', [1L]]])
+    env.expect('FT.DEBUG', 'dump_tagidx', 'idx', 'tag_array').equal([['foo', [2L]], ['bar,baz', [2L]]])

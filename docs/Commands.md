@@ -17,7 +17,7 @@
        [PAYLOAD_FIELD {payload_attribute}]
     [MAXTEXTFIELDS] [TEMPORARY {seconds}] [NOOFFSETS] [NOHL] [NOFIELDS] [NOFREQS] [SKIPINITIALSCAN]
     [STOPWORDS {num} {stopword} ...]
-    SCHEMA {identifier} [AS {attribute}] [TEXT [NOSTEM] [WEIGHT {weight}] [PHONETIC {matcher}] | NUMERIC | GEO | TAG [SEPARATOR {sep}] ] [SORTABLE][NOINDEX] ...
+    SCHEMA {identifier} [AS {attribute}] [TEXT [NOSTEM] [WEIGHT {weight}] [PHONETIC {matcher}] | NUMERIC | GEO | TAG [SEPARATOR {sep}] SEPARATOR] [SORTABLE][NOINDEX] ...
 ```
 
 #### Description
@@ -229,7 +229,7 @@ FT.CREATE idx ON JSON SCHEMA $.title AS title TEXT $.categories AS categories TA
         is to be split into individual tags. The default is `,`. The value
         must be a single character.
 
-
+    * **CASESENSITIVE**
 
 #### Complexity
 O(1)
@@ -248,7 +248,6 @@ OK or an error
 ```
 HSET {hash} {field} {value} [{field} {value} ...]
 ```
-
 
 ```
 JSON.SET {key} {path} {json}
@@ -367,7 +366,6 @@ FT.SEARCH books-idx "python" RETURN 3 $.book.price AS price
 
 !!! tip "More examples"
     For more details and query examples, see [query syntax](Query_Syntax.md).
-
 
 #### Parameters
 
@@ -513,7 +511,6 @@ Here, we needed to use `LOAD` to pre-load the @location attribute because it is 
 
 !!! tip "More examples"
     For more details on aggreations and detailed examples of aggregation queries, see [Aggregations](Aggregations.md).
-
 
 #### Parameters
 
@@ -1343,7 +1340,6 @@ Optional
 * Statistics about `cursors` if a cursor exists for the index.
 * Statistics about `stopword lists` if a custom stopword list is used.
 
-
 ##### Example
 ```bash
 127.0.0.1:6379> ft.info wik{0}
@@ -1675,7 +1671,6 @@ FT.DEL idx doc1
 - **index**: The index name. The index must be first created with FT.CREATE
 - **doc_id**: the id of the document to be deleted. It does not actually delete the HASH key in which
   the document is stored. Use DEL to do that manually if needed.
-
 
 #### Complexity
 

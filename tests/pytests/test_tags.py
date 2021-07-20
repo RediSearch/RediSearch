@@ -1,5 +1,5 @@
 from includes import *
-from common import waitForIndex
+from common import *
 
 def search(env, r, *args):
     return r.execute_command('ft.search', *args)
@@ -160,3 +160,21 @@ def testIssue1305(env):
     res = env.cmd('ft.search', 'myIdx', '~@title:{wor} ~@title:{hell}', 'WITHSCORES')[1:]
     res = {res[i]:res[i + 1: i + 3] for i in range(0, len(res), 3)}
     env.assertEqual(res, expectedRes)
+
+def testTagCaseSensitive(env):
+    env.expect('FT.CREATE idx1 SCHEMA t TAG').ok()
+    env.expect('FT.CREATE idx2 SCHEMA t TAG CASESENSITIVE').ok()
+    env.expect('FT.CREATE idx3 SCHEMA t TAG SEPARATOR .').ok()
+    env.expect('FT.CREATE idx4 SCHEMA t TAG SEPARATOR . CASESENSITIVE').ok()
+    env.expect('FT.CREATE idx5 SCHEMA t TAG CASESENSITIVE SEPARATOR .').ok()
+
+    conn = getConnectionByEnv(env)
+    conn.execute_command('HSET', 'doc1', 't', 'foo,FOO')
+    conn.execute_command('HSET', 'doc2', 't', 'FOO')
+    conn.execute_command('HSET', 'doc3', 't', 'foo')
+
+    env.expect('FT.DEBUG', 'dump_tagidx', 'idx1', 't').equal([['foo', [1L, 2L, 3L]]])
+    env.expect('FT.DEBUG', 'dump_tagidx', 'idx2', 't').equal([['foo', [1L, 3L]], ['FOO', [1L, 2L]]])
+    env.expect('FT.DEBUG', 'dump_tagidx', 'idx3', 't').equal([['foo', [2L, 3L]], ['foo,foo', [1L]]])
+    env.expect('FT.DEBUG', 'dump_tagidx', 'idx4', 't').equal([['foo', [3L]], ['foo,FOO', [1L]], ['FOO', [2L]]])
+    env.expect('FT.DEBUG', 'dump_tagidx', 'idx5', 't').equal([['foo', [3L]], ['foo,FOO', [1L]], ['FOO', [2L]]])

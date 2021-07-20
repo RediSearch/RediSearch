@@ -56,6 +56,11 @@ char *TagIndex_SepString(char sep, char **s, size_t *toklen) {
 }
 
 static int tokenizeTagString(const char *str, char sep, TagFieldFlags flags, char ***resArray) {
+  if (sep == TAG_FIELD_DEFAULT_JSON_SEP) {
+    *resArray = array_append(*resArray, rm_strdup(str));
+    return REDISMODULE_OK;
+  }
+
   char *p;
   char *pp = p = rm_strdup(str);  
   while (p) {
@@ -66,7 +71,7 @@ static int tokenizeTagString(const char *str, char sep, TagFieldFlags flags, cha
     if (tok == NULL) break;
     if (toklen > 0) {
       // lowercase the string (TODO: non latin lowercase)
-      if (!(flags & TagField_CaseSensitive)) {
+      if (!(flags & TagField_CaseSensitive)) { // check case sensitive
         tok = strtolower(tok);
       }
       tok = rm_strndup(tok, MIN(toklen, MAX_TAG_LEN));
