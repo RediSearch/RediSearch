@@ -383,6 +383,46 @@ class ShardMock():
         self.stream_server.start()
 
 
+class Debug:
+
+    def __init__(self, enabled=False):
+        self.enabled = enabled
+        self.clear()
+
+    def clear(self):
+        self.dbg_str = ''
+        self.dbg_ndx = -1
+
+    def __call__(self, f):
+        if self.enabled:
+            def f_with_debug(*args, **kwds):
+                self.print_bytes_incremental(args[0], args[1], args[2], f.__name__)
+                if len(args[1]) == args[2]:
+                    self.clear()
+                f(*args, **kwds)
+
+            return f_with_debug
+        else:
+            return f
+
+    def print_bytes_incremental(self, env, data, total_len, name):
+        # For debugging: print the binary content before it is sent
+        if len(data):
+            ch = data[self.dbg_ndx]
+            printable_ch = ch
+            if ord(ch) < 32 or ord(ch) == 127:
+                printable_ch = '\?'
+        else:
+            ch = '\0'
+            printable_ch = '\!'  # no data (zero length)
+        self.dbg_str = '{} {:=04n}:{:<2}({:<3})'.format(self.dbg_str, self.dbg_ndx, printable_ch, ord(ch))
+        if not (self.dbg_ndx + 1) % 10:
+            self.dbg_str = self.dbg_str + "\n"
+        self.dbg_ndx = self.dbg_ndx + 1
+
+        env.debugPrint(name + ': %d out of %d \n%s' % (self.dbg_ndx, total_len, self.dbg_str))
+
+
 def testShortReadSearch(env):
     if not downloadFiles():
         env.assertTrue(False, "downloadFiles failed")
@@ -402,30 +442,12 @@ def sendShortReads(env, rdb_file, expected_index):
     with open(rdb_file, mode='rb') as f:
         full_rdb = f.read()
     total_len = len(full_rdb)
-    dbg_str = ''
-    dbg_ndx = -1
     for b in range(0, total_len + 1):
         rdb = full_rdb[0:b]
-
-        # TODO: Move debug code to a decorator
-        # # For debugging: print the binary content before it is sent
-        # if len(rdb):
-        #     ch = rdb[dbg_ndx]
-        #     printable_ch = ch
-        #     if ord(ch) < 32 or ord(ch) == 127:
-        #         printable_ch = '\?'
-        # else:
-        #     ch = '\0'
-        #     printable_ch = '\!'   # no data (zero length)
-        # dbg_str = '{} {:=03n}:{:<2}({:<3})'.format(dbg_str, dbg_ndx, printable_ch, ord(ch))
-        # if not (dbg_ndx+1) % 10:
-        #     dbg_str = dbg_str + "\n"
-        # dbg_ndx = dbg_ndx + 1
-
-        env.debugPrint('runShortRead: %d out of %d \n%s' % (b, total_len, dbg_str))
         runShortRead(env, rdb, total_len, expected_index)
 
 
+@Debug(False)
 def runShortRead(env, data, total_len, expected_index):
     with ShardMock(env, RDB_STREAM_SERVER_PORT) as shardMock:
 
