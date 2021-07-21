@@ -144,7 +144,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (FIELD_IS(fs, INDEXFLD_T_TAG)) {
       char buf[2];
       sprintf(buf, "%c", fs->tagSep);
-      REPLY_KVSTR(nn, SPEC_SEPARATOR_STR, buf);
+      REPLY_KVSTR(nn, SPEC_TAG_SEPARATOR_STR, buf);
     }
     if (FieldSpec_IsSortable(fs)) {
       RedisModule_ReplyWithSimpleString(ctx, SPEC_SORTABLE_STR);
