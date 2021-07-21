@@ -17,7 +17,7 @@
        [PAYLOAD_FIELD {payload_field}]
     [MAXTEXTFIELDS] [TEMPORARY {seconds}] [NOOFFSETS] [NOHL] [NOFIELDS] [NOFREQS] [SKIPINITIALSCAN]
     [STOPWORDS {num} {stopword} ...]
-    SCHEMA {field} [TEXT [NOSTEM] [WEIGHT {weight}] [PHONETIC {matcher}] | NUMERIC | GEO | TAG [SEPARATOR {sep}] ] [SORTABLE][NOINDEX] ...
+    SCHEMA {identifier} [AS {attribute}] [TEXT [NOSTEM] [WEIGHT {weight}] [PHONETIC {matcher}] | NUMERIC | GEO | TAG [SEPARATOR {sep}] [CASESENSITIVE] [SORTABLE] [NOINDEX]] ...
 ```
 
 #### Description
@@ -204,7 +204,7 @@ FT.CREATE books-idx ON HASH PREFIX 1 book:details FILTER SCHEMA title TEXT categ
         is to be split into individual tags. The default is `,`. The value
         must be a single character.
 
-
+    * **CASESENSITIVE**
 
 #### Complexity
 O(1)
