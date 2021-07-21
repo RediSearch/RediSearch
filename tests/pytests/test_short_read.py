@@ -395,7 +395,7 @@ def testShortReadSearch(env):
 def sendShortReads(env, rdb_file, expected_index):
     # Add some initial content (index+keys) to test backup/restore/discard when short read fails
     # When entire rdb is successfully sent and loaded (from swapdb) - backup should be discarded
-    env.assertEqual(env.cmd('replicaof', 'no', 'one'), True)
+    env.assertOk(env.cmd('replicaof', 'no', 'one'))
     env.flush()
     add_index(env, True, 'idxBackup1', 5, 10)
 
@@ -489,7 +489,7 @@ def runShortRead(env, data, total_len, expected_index):
                 env.assertEqual(res[0], expected_result_count)
 
         # Exit (avoid read-only exception with flush on replica)
-        env.assertEqual(env.cmd('replicaof', 'no', 'one'), True)
+        env.assertOk(env.cmd('replicaof', 'no', 'one'))
 
 
 if __name__ == "__main__":
