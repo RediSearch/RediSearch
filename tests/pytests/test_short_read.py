@@ -31,7 +31,7 @@ RDBS.extend(RDBS_COMPATIBILITY)
 ExpectedIndex = collections.namedtuple('ExpectedIndex', ['count', 'pattern', 'search_result_count'])
 RDBS_EXPECTED_INDICES = [ExpectedIndex(2, 'shortread_.*_[1-9]', [20, 55]), ExpectedIndex(1, 'idx', [1000])]
 
-RDB_STREAM_SERVER_PORT = int(os.getenv('RDB_STREAM_SERVER_PORT', '9999'))
+RDB_STREAM_SERVER_PORT = int(os.getenv('RDB_STREAM_SERVER_PORT', '0'))
 
 
 def unzip(zip_path, to_dir):
@@ -351,11 +351,15 @@ class Connection(object):
             raise Exception('Invalid response: %s' % line)
 
 
-class ShardMock():
+class ShardMock:
     def __init__(self, env, server_port):
         self.env = env
         self.new_conns = gevent.queue.Queue()
-        self.server_port = server_port
+        self.server_port_requested = server_port
+        self.server_port_actual = None
+        """ the port that was actually bound 
+        """
+
 
     def _handle_conn(self, sock, client_addr):
         conn = Connection(sock)
@@ -379,8 +383,9 @@ class ShardMock():
         self.stream_server.stop()
 
     def StartListening(self):
-        self.stream_server = gevent.server.StreamServer(('localhost', self.server_port), self._handle_conn)
+        self.stream_server = gevent.server.StreamServer(('localhost', self.server_port_requested), self._handle_conn)
         self.stream_server.start()
+        self.server_port_actual = self.stream_server.address[1]
 
 
 class Debug:
@@ -458,7 +463,7 @@ def runShortRead(env, data, total_len, expected_index):
         # Notice: Do not use env.expect in this test
         # (since it is sending commands to redis and in this test we need to follow strict hand-shaking)
         res = env.cmd('CONFIG', 'SET', 'repl-diskless-load', 'swapdb')
-        res = env.cmd('replicaof', 'localhost', RDB_STREAM_SERVER_PORT)
+        res = env.cmd('replicaof', 'localhost', shardMock.server_port_actual)
         env.assertTrue(res)
         conn = shardMock.GetConnection()
         # Perform hand-shake with replica
