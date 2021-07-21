@@ -337,19 +337,25 @@ static int parseFieldSpec(ArgsCursor *ac, FieldSpec *fs, QueryError *status) {
     fs->types |= INDEXFLD_T_GEO;
   } else if (AC_AdvanceIfMatch(ac, SPEC_TAG_STR)) {  // tag field
     fs->types |= INDEXFLD_T_TAG;
-    if (AC_AdvanceIfMatch(ac, SPEC_SEPARATOR_STR)) {
-      if (AC_IsAtEnd(ac)) {
-        QueryError_SetError(status, QUERY_EPARSEARGS, SPEC_SEPARATOR_STR " requires an argument");
-        goto error;
+    while (!AC_IsAtEnd(ac)) {
+      if (AC_AdvanceIfMatch(ac, SPEC_TAG_SEPARATOR_STR)) {
+        if (AC_IsAtEnd(ac)) {
+          QueryError_SetError(status, QUERY_EPARSEARGS, SPEC_TAG_SEPARATOR_STR " requires an argument");
+          goto error;
+        }
+        const char *sep = AC_GetStringNC(ac, NULL);
+        if (strlen(sep) != 1) {
+          QueryError_SetErrorFmt(status, QUERY_EPARSEARGS,
+                                "Tag separator must be a single character. Got `%s`", sep);
+          goto error;
+        }
+        fs->tagSep = *sep;
+      } else if (AC_AdvanceIfMatch(ac, SPEC_TAG_CASE_SENSITIVE_STR)) {
+        fs->tagFlags |= TagField_CaseSensitive;
+      } else {
+        break;
       }
-      const char *sep = AC_GetStringNC(ac, NULL);
-      if (strlen(sep) != 1) {
-        QueryError_SetErrorFmt(status, QUERY_EPARSEARGS,
-                               "Tag separator must be a single character. Got `%s`", sep);
-        goto error;
-      }
-      fs->tagSep = *sep;
-    }
+   }
   } else {  // not numeric and not text - nothing more supported currently
     QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Invalid field type for field `%s`", fs->name);
     goto error;
