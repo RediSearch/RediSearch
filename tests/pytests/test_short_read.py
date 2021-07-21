@@ -3,7 +3,6 @@ import collections
 import os
 import random
 import re
-import shutil
 import subprocess
 import zipfile
 
@@ -32,6 +31,9 @@ RDBS.extend(RDBS_COMPATIBILITY)
 ExpectedIndex = collections.namedtuple('ExpectedIndex', ['count', 'pattern', 'search_result_count'])
 RDBS_EXPECTED_INDICES = [ExpectedIndex(2, 'shortread_.*_[1-9]', [20, 55]), ExpectedIndex(1, 'idx', [1000])]
 
+RDB_STREAM_SERVER_PORT = int(os.getenv('RDB_STREAM_SERVER_PORT', '9999'))
+
+
 def unzip(zip_path, to_dir):
     if not zipfile.is_zipfile(zip_path):
         return False
@@ -40,6 +42,7 @@ def unzip(zip_path, to_dir):
             if not os.path.exists(db_zip.extract(info, to_dir)):
                 return False
     return True
+
 
 def downloadFiles():
     for f in RDBS:
@@ -72,7 +75,6 @@ def rand_num(k):
 
 
 def create_indices(env, rdbFileName, idxNameStem, isHash, isJson):
-
     env.flush()
     idxNameStem = 'shortread_' + idxNameStem + '_'
     if isHash and isJson:
@@ -105,11 +107,12 @@ def create_indices(env, rdbFileName, idxNameStem, isHash, isJson):
     with zipfile.ZipFile(dbCopyFilePath + '.zip', 'w') as db_zip:
         db_zip.write(dbFilePath, os.path.join(os.path.curdir, os.path.basename(dbCopyFilePath)))
 
+
 def get_identifier(name, isHash):
     return '$.' + name if not isHash else name
 
-def add_index(env, isHash, index_name, num_prefs, num_keys):
 
+def add_index(env, isHash, index_name, num_prefs, num_keys):
     ''' Cover most of the possible options of an index
 
     FT.CREATE {index}
@@ -149,7 +152,8 @@ def add_index(env, isHash, index_name, num_prefs, num_keys):
     cmd_create.extend(['stopwords', 3, 'stop', 'being', 'silly'])
     # With schema
     cmd_create.extend(['schema',
-                       get_identifier('field1', isHash), 'as', 'f1', 'text', 'nostem', 'weight', '0.2', 'phonetic', 'dm:es', 'sortable',
+                       get_identifier('field1', isHash), 'as', 'f1', 'text', 'nostem', 'weight', '0.2', 'phonetic',
+                       'dm:es', 'sortable',
                        get_identifier('field2', isHash), 'as', 'f2', 'numeric', 'sortable',
                        get_identifier('field3', isHash), 'as', 'f3', 'geo',
                        get_identifier('field4', isHash), 'as', 'f4', 'tag', 'separator', ';',
@@ -176,6 +180,8 @@ def add_index(env, isHash, index_name, num_prefs, num_keys):
 
 
 def testCreateIndexRdbFiles(env):
+    if os.environ.get('CI'):
+        env.skip()
     create_indices(env, 'redisearch_2.2.0.rdb', 'idxSearch', True, False)
     create_indices(env, 'rejson_2.0.0.rdb', 'idxJson', False, True)
     create_indices(env, 'redisearch_2.2.0_rejson_2.0.0.rdb', 'idxSearchJson', True, True)
@@ -346,17 +352,17 @@ class Connection(object):
 
 
 class ShardMock():
-    def __init__(self, env):
+    def __init__(self, env, server_port):
         self.env = env
         self.new_conns = gevent.queue.Queue()
+        self.server_port = server_port
 
     def _handle_conn(self, sock, client_addr):
         conn = Connection(sock)
         self.new_conns.put(conn)
 
     def __enter__(self):
-        self.stream_server = gevent.server.StreamServer(('localhost', 10000), self._handle_conn)
-        self.stream_server.start()
+        self.StartListening()
         return self
 
     def __exit__(self, type, value, traceback):
@@ -373,12 +379,11 @@ class ShardMock():
         self.stream_server.stop()
 
     def StartListening(self):
-        self.stream_server = gevent.server.StreamServer(('localhost', 10000), self._handle_conn)
+        self.stream_server = gevent.server.StreamServer(('localhost', self.server_port), self._handle_conn)
         self.stream_server.start()
 
 
 def testShortReadSearch(env):
-    env.skipOnCluster()
     if not downloadFiles():
         env.assertTrue(False, "downloadFiles failed")
 
@@ -388,10 +393,9 @@ def testShortReadSearch(env):
 
 
 def sendShortReads(env, rdb_file, expected_index):
-
     # Add some initial content (index+keys) to test backup/restore/discard when short read fails
     # When entire rdb is successfully sent and loaded (from swapdb) - backup should be discarded
-    env.assertEqual(env.cmd('slaveof', 'no', 'one'), True)
+    env.assertEqual(env.cmd('replicaof', 'no', 'one'), True)
     env.flush()
     add_index(env, True, 'idxBackup1', 5, 10)
 
@@ -422,9 +426,8 @@ def sendShortReads(env, rdb_file, expected_index):
         runShortRead(env, rdb, total_len, expected_index)
 
 
-
 def runShortRead(env, data, total_len, expected_index):
-    with ShardMock(env) as shardMock:
+    with ShardMock(env, RDB_STREAM_SERVER_PORT) as shardMock:
 
         # For debugging: if adding breakpoints in redis,
         # In order to avoid closing the connection, uncomment the following line
@@ -433,10 +436,10 @@ def runShortRead(env, data, total_len, expected_index):
         # Notice: Do not use env.expect in this test
         # (since it is sending commands to redis and in this test we need to follow strict hand-shaking)
         res = env.cmd('CONFIG', 'SET', 'repl-diskless-load', 'swapdb')
-        res = env.cmd('slaveof', 'localhost', '10000')
+        res = env.cmd('replicaof', 'localhost', RDB_STREAM_SERVER_PORT)
         env.assertTrue(res)
         conn = shardMock.GetConnection()
-        # Perform hand-shake with slave
+        # Perform hand-shake with replica
         res = conn.read_request()
         env.assertEqual(res, ['PING'])
         conn.send_status('PONG')
@@ -451,7 +454,7 @@ def runShortRead(env, data, total_len, expected_index):
             max_attempt = max_attempt - 1
             res = conn.read_request()
 
-        # Send RDB to slave
+        # Send RDB to replica
         some_guid = 'af4e30b5d14dce9f96fbb7769d0ec794cdc0bbcc'
         conn.send_status('FULLRESYNC ' + some_guid + ' 0')
         is_shortread = total_len != len(data)
@@ -462,10 +465,10 @@ def runShortRead(env, data, total_len, expected_index):
             conn.send('$%d\r\n%s\r\n' % (total_len, data))
         conn.flush()
 
-        # Close during slave is waiting for more RDB data (so replica will re-connect to master)
+        # Close during replica is waiting for more RDB data (so replica will re-connect to master)
         conn.close()
 
-        # Make sure slave did not crash
+        # Make sure replica did not crash
         res = env.cmd('PING')
         env.assertEqual(res, True)
         conn = shardMock.GetConnection(timeout=3)
@@ -485,8 +488,8 @@ def runShortRead(env, data, total_len, expected_index):
                 res = env.cmd('ft.search ', ind, '*', 'limit', '0', '0')
                 env.assertEqual(res[0], expected_result_count)
 
-        # Exit (avoid read-only exception with flush on slave)
-        env.assertEqual(env.cmd('slaveof', 'no', 'one'), True)
+        # Exit (avoid read-only exception with flush on replica)
+        env.assertEqual(env.cmd('replicaof', 'no', 'one'), True)
 
 
 if __name__ == "__main__":

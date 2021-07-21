@@ -71,6 +71,7 @@ commands:
           command: bash -l -c "./.circleci/ci_build.sh"
       - run:
           name: Test
+          no_output_timeout: 30m
           command: bash -l -c "./.circleci/ci_test.sh"
       - run:
           name: Package
@@ -187,7 +188,7 @@ jobs:
       - run:
           name: Run & build tests
           command: bash -l -c "ASAN=1 ./.circleci/ci_diag_san12.sh"
-          no_output_timeout: 20m
+          no_output_timeout: 40m
       - save-tests-logs
 
   debug_msan:
@@ -199,7 +200,7 @@ jobs:
       - run:
           name: Run & build tests
           command: bash -l -c "MSAN=1 ./.circleci/ci_diag_san12.sh"
-          no_output_timeout: 20m
+          no_output_timeout: 40m
       - save-tests-logs
 
   coverage:
