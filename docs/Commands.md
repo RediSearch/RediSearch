@@ -17,7 +17,7 @@
        [PAYLOAD_FIELD {payload_attribute}]
     [MAXTEXTFIELDS] [TEMPORARY {seconds}] [NOOFFSETS] [NOHL] [NOFIELDS] [NOFREQS] [SKIPINITIALSCAN]
     [STOPWORDS {num} {stopword} ...]
-    SCHEMA {identifier} [AS {attribute}] [TEXT [NOSTEM] [WEIGHT {weight}] [PHONETIC {matcher}] | NUMERIC | GEO | TAG [SEPARATOR {sep}] ] [SORTABLE][NOINDEX] ...
+    SCHEMA {identifier} [AS {attribute}] [TEXT [NOSTEM] [WEIGHT {weight}] [PHONETIC {matcher}] | NUMERIC | GEO | TAG [SEPARATOR {sep}] [CASESENSITIVE] [SORTABLE] [NOINDEX]] ...
 ```
 
 #### Description
@@ -229,7 +229,7 @@ FT.CREATE idx ON JSON SCHEMA $.title AS title TEXT $.categories AS categories TA
         is to be split into individual tags. The default is `,`. The value
         must be a single character.
 
-
+    * **CASESENSITIVE**
 
 #### Complexity
 O(1)
