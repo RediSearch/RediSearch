@@ -411,6 +411,7 @@ class Debug:
 
     def print_bytes_incremental(self, env, data, total_len, name):
         # For debugging: print the binary content before it is sent
+        byte_count_width = len(str(total_len))
         if len(data):
             ch = data[self.dbg_ndx]
             printable_ch = ch
