@@ -188,8 +188,8 @@ jobs:
       - run:
           name: Run & build tests
           command: bash -l -c "ASAN=1 ./.circleci/ci_diag_san12.sh"
-          timeout: 60m
-          no_output_timeout: 40m
+          timeout: 120m
+          no_output_timeout: 120m
       - save-tests-logs
 
   debug_msan:
@@ -201,8 +201,8 @@ jobs:
       - run:
           name: Run & build tests
           command: bash -l -c "MSAN=1 ./.circleci/ci_diag_san12.sh"
-          timeout: 60m
-          no_output_timeout: 40m
+          timeout: 120m
+          no_output_timeout: 120m
       - save-tests-logs
 
   coverage:

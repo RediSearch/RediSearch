@@ -30,8 +30,6 @@ RDBS.extend(RDBS_COMPATIBILITY)
 ExpectedIndex = collections.namedtuple('ExpectedIndex', ['count', 'pattern', 'search_result_count'])
 RDBS_EXPECTED_INDICES = [ExpectedIndex(2, 'shortread_.*_[1-9]', [20, 55]), ExpectedIndex(1, 'idx', [1000])]
 
-RDB_STREAM_SERVER_PORT = int(os.getenv('RDB_STREAM_SERVER_PORT', '0'))
-
 
 def unzip(zip_path, to_dir):
     if not zipfile.is_zipfile(zip_path):
@@ -351,13 +349,10 @@ class Connection(object):
 
 
 class ShardMock:
-    def __init__(self, env, server_port):
+    def __init__(self, env):
         self.env = env
         self.new_conns = gevent.queue.Queue()
-        self.server_port_requested = server_port
-        self.server_port_actual = None
-        """ the port that was actually bound 
-        """
+        self.server_port = None
 
 
     def _handle_conn(self, sock, client_addr):
@@ -382,9 +377,15 @@ class ShardMock:
         self.stream_server.stop()
 
     def StartListening(self):
-        self.stream_server = gevent.server.StreamServer(('localhost', self.server_port_requested), self._handle_conn)
-        self.stream_server.start()
-        self.server_port_actual = self.stream_server.address[1]
+        for _ in range(0, 10):
+            self.stream_server = gevent.server.StreamServer(('localhost', 0), self._handle_conn)
+            try:
+                self.stream_server.start()
+            except gevent.socket.error:
+                continue
+            self.server_port = self.stream_server.address[1]
+            break
+        self.env.assertIsNotNone(self.server_port)
 
 
 class Debug:
@@ -420,7 +421,7 @@ class Debug:
         else:
             ch = '\0'
             printable_ch = '\!'  # no data (zero length)
-        self.dbg_str = '{} {:=04n}:{:<2}({:<3})'.format(self.dbg_str, self.dbg_ndx, printable_ch, ord(ch))
+        self.dbg_str = '{} {:=0{}n}:{:<2}({:<3})'.format(self.dbg_str, self.dbg_ndx, byte_count_width, printable_ch, ord(ch))
         if not (self.dbg_ndx + 1) % 10:
             self.dbg_str = self.dbg_str + "\n"
         self.dbg_ndx = self.dbg_ndx + 1
@@ -457,7 +458,7 @@ def sendShortReads(env, rdb_file, expected_index):
 
 @Debug(False)
 def runShortRead(env, data, total_len, expected_index):
-    with ShardMock(env, RDB_STREAM_SERVER_PORT) as shardMock:
+    with ShardMock(env) as shardMock:
 
         # For debugging: if adding breakpoints in redis,
         # In order to avoid closing the connection, uncomment the following line
@@ -466,7 +467,7 @@ def runShortRead(env, data, total_len, expected_index):
         # Notice: Do not use env.expect in this test
         # (since it is sending commands to redis and in this test we need to follow strict hand-shaking)
         res = env.cmd('CONFIG', 'SET', 'repl-diskless-load', 'swapdb')
-        res = env.cmd('replicaof', 'localhost', shardMock.server_port_actual)
+        res = env.cmd('replicaof', 'localhost', shardMock.server_port)
         env.assertTrue(res)
         conn = shardMock.GetConnection()
         # Perform hand-shake with replica
