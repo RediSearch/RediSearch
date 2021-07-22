@@ -17,8 +17,7 @@ REDISEARCH_CACHE_DIR = '/tmp/test'
 BASE_RDBS_URL = 'https://s3.amazonaws.com/redismodules/redisearch-enterprise/rdbs/'
 
 RDBS_SHORT_READS = [
-    # 'short-reads/redisearch_2.2.0.rdb.zip',
-    'short-reads/redisearch_2.2.0.rdb',
+    'short-reads/redisearch_2.2.0.rdb.zip',
 ]
 
 RDBS_COMPATIBILITY = [
@@ -433,6 +432,9 @@ def testShortReadSearch(env):
         env.assertTrue(False, "downloadFiles failed")
 
     for f, expected_index in zip(RDBS, RDBS_EXPECTED_INDICES):
+        name, ext = os.path.splitext(f)
+        if ext == '.zip':
+            f = name
         fullfilePath = os.path.join(REDISEARCH_CACHE_DIR, f)
         sendShortReads(env, fullfilePath, expected_index)
 

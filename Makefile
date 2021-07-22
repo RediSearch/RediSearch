@@ -256,6 +256,8 @@ ifneq ($(CTEST_PARALLEL),)
 override CTEST_ARGS += -j$(CTEST_PARALLEL)
 endif
 
+override CTEST_ARGS += --timeout 15000
+
 test:
 ifneq ($(TEST),)
 	@set -e; cd $(BINROOT); CTEST_OUTPUT_ON_FAILURE=1 RLTEST_ARGS="-s -v" ctest $(CTEST_ARGS) -vv -R $(TEST)
