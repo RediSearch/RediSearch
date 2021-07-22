@@ -187,8 +187,8 @@ def testIssue2104(env):
   env.expect('FT.AGGREGATE', 'hash_idx', '*', 'LOAD', '3', '@subj1', 'AS', 'a', 'APPLY', '(@a+@a)/2', 'AS', 'avg')   \
       .equal([1L, ['a', '20', 'avg', '20']])
   # load a field implicitly with `APPLY`
-  env.expect('FT.AGGREGATE', 'hash_idx', '*', 'APPLY', '(@subj1+@subj1)/2', 'AS', 'avg')    \
-      .equal([1L, ['subj1', '20', 'avg', '20']])
+  res = env.cmd('FT.AGGREGATE', 'hash_idx', '*', 'APPLY', '(@subj1+@subj1)/2', 'AS', 'avg')
+  env.assertEqual(toSortedFlatList([1L, ['subj1', '20', 'avg', '20']]), toSortedFlatList(res))
   env.expect('FT.AGGREGATE', 'hash_idx', '*', 'LOAD', '3', '@subj1', 'AS', 'a', 'APPLY', '(@subj1+@subj1)/2', 'AS', 'avg')   \
       .equal([1L, ['a', '20', 'avg', '20']])
 
@@ -207,8 +207,8 @@ def testIssue2104(env):
   env.expect('FT.AGGREGATE', 'json_idx', '*', 'LOAD', '3', '@subj2', 'AS', 'a', 'APPLY', '(@a+@a)/2', 'AS', 'avg')   \
       .equal([1L, ['a', '3.14', 'avg', '3.14']])
   # load a field implicitly with `APPLY`
-  env.expect('FT.AGGREGATE', 'json_idx', '*', 'APPLY', '(@subj2+@subj2)/2', 'AS', 'avg')    \
-      .equal([1L, ['subj2', '3.14', 'avg', '3.14']])
+  res = env.cmd('FT.AGGREGATE', 'json_idx', '*', 'APPLY', '(@subj2+@subj2)/2', 'AS', 'avg')
+  env.assertEqual(toSortedFlatList([1L, ['subj2', '3.14', 'avg', '3.14']]), toSortedFlatList(res))
 
   # load a field with an attribute
   env.expect('FT.AGGREGATE', 'json_idx', '*', 'LOAD', '3', '@$.subj1', 'AS', 'a')    \
