@@ -179,3 +179,6 @@ def testTagCaseSensitive(env):
     env.expect('FT.DEBUG', 'dump_tagidx', 'idx3', 't').equal([['foo', [2L, 3L]], ['foo,foo', [1L]]])
     env.expect('FT.DEBUG', 'dump_tagidx', 'idx4', 't').equal([['foo', [3L]], ['foo,FOO', [1L]], ['FOO', [2L]]])
     env.expect('FT.DEBUG', 'dump_tagidx', 'idx5', 't').equal([['foo', [3L]], ['foo,FOO', [1L]], ['FOO', [2L]]])
+
+    env.expect('FT.SEARCH', 'idx1', '@t:{FOO}').equal([0L])
+    env.expect('FT.SEARCH', 'idx2', '@t:{FOO}', 'NOCONTENT').equal([2L, 'doc1', 'doc2'])
