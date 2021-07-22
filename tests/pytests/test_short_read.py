@@ -16,6 +16,8 @@ from common import waitForIndex
 REDISEARCH_CACHE_DIR = '/tmp/test'
 BASE_RDBS_URL = 'https://s3.amazonaws.com/redismodules/redisearch-enterprise/rdbs/'
 
+IS_DIAG_SANITIZER = int(os.getenv('DIAG_SANITIZER', '0'))
+
 RDBS_SHORT_READS = [
     'short-reads/redisearch_2.2.0.rdb.zip',
 ]
@@ -25,11 +27,13 @@ RDBS_COMPATIBILITY = [
 ]
 RDBS = []
 RDBS.extend(RDBS_SHORT_READS)
-RDBS.extend(RDBS_COMPATIBILITY)
+if not IS_DIAG_SANITIZER:
+    RDBS.extend(RDBS_COMPATIBILITY)
 
 ExpectedIndex = collections.namedtuple('ExpectedIndex', ['count', 'pattern', 'search_result_count'])
-RDBS_EXPECTED_INDICES = [ExpectedIndex(2, 'shortread_.*_[1-9]', [20, 55]), ExpectedIndex(1, 'idx', [1000])]
-
+RDBS_EXPECTED_INDICES = [ExpectedIndex(2, 'shortread_.*_[1-9]', [20, 55])]
+if not IS_DIAG_SANITIZER:
+    RDBS_EXPECTED_INDICES.append(ExpectedIndex(1, 'idx', [1000]))
 
 def unzip(zip_path, to_dir):
     if not zipfile.is_zipfile(zip_path):
