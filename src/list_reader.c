@@ -25,7 +25,8 @@ static int LR_Read(void *ctx, RSIndexResult **hit) {
   }
 
   lr->base.current->docId = lr->lastDocId = lr->list[lr->offset].id;
-  lr->base.current->num.value = lr->list[lr->offset].score;
+  // save distance on RSIndexResult
+  lr->base.current->num.value = lr->list[lr->offset].score;// ? 1 / lr->list[lr->offset].score : 1;
   *hit = lr->base.current;
   ++lr->offset;
 

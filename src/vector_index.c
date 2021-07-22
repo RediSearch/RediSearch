@@ -97,7 +97,8 @@ VectorFilter *NewVectorFilter(const void *vector, size_t len, char *type, double
 
   if (!strncasecmp(type, "TOPK", strlen("TOPK"))) {
     vf->type = VECTOR_TOPK;
-  } else if (!strncasecmp(type, "RANGE", strlen("RANGE"))) {
+  } else if (!strncasecmp(type, "RANGE", strlen("RANGE")) ||
+             !strncasecmp(type, "TOPK_BASE64", strlen("TOPK_BASE64"))) {
     vf->type = VECTOR_RANGE;
   } else {
     rm_free(vf);

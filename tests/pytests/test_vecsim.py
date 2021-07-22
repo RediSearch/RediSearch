@@ -102,6 +102,7 @@ def testDel(env):
     '''
 
 def test_query_empty(env):
+    env.skip()
     conn = getConnectionByEnv(env)
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'INT32', '2', 'L2', 'HNSW')
     env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 1]').equal([0L])
@@ -133,6 +134,7 @@ def del_insert(env):
     return res
 
 def testDelReuse(env):
+    env.skip()
     conn = getConnectionByEnv(env)
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'INT32', '2', 'L2', 'HNSW')
 
@@ -175,21 +177,11 @@ def testDelReuseDvir(env):
 
     conn.execute_command('FT.CREATE', INDEX_NAME, 'ON', 'HASH',
                          'SCHEMA', 'vector', 'VECTOR', 'FLOAT32', '1280', 'L2', 'HNSW')
-
-    query_vec = load_vectors_to_redis(env, n_vec, query_vec_index, vec_size)
-    res = query_vector(env, INDEX_NAME, query_vec)
-    env.assertEqual(res, 'OK')
-    print (env.cmd('FT.INFO', INDEX_NAME))
-
-    query_vec = load_vectors_to_redis(env, n_vec, query_vec_index, vec_size)
-    res = query_vector(env, INDEX_NAME, query_vec)
-    env.assertEqual(res, 'OK')
-    print (env.cmd('FT.INFO', INDEX_NAME))
-
-    query_vec = load_vectors_to_redis(env, n_vec, query_vec_index, vec_size)
-    res = query_vector(env, INDEX_NAME, query_vec)
-    env.assertEqual(res, 'OK')
-    print (env.cmd('FT.INFO', INDEX_NAME))
+    for _ in range(3):
+        query_vec = load_vectors_to_redis(env, n_vec, query_vec_index, vec_size)
+        res = query_vector(env, INDEX_NAME, query_vec)
+        env.assertEqual(res, [5L, '0', '1', '2', '3', '4'])
+        #print (env.cmd('FT.INFO', INDEX_NAME))
 
 def test_create(env):
     conn = getConnectionByEnv(env)
@@ -197,3 +189,35 @@ def test_create(env):
     
     # test wrong query word
     env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh REDIS 4]').equal([0L])
+
+def test_with_weight(env):
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE idx SCHEMA v VECTOR INT32 2 L2 HNSW').ok()
+    conn.execute_command('HSET', 'a', 'v', 'abcdefgh')
+    conn.execute_command('HSET', 'b', 'v', 'abcdefgg')
+    conn.execute_command('HSET', 'c', 'v', 'zzzzxxxx')
+    conn.execute_command('HSET', 'd', 'v', 'abbdefgh')
+
+    res = [4L, 'a', ['v', 'abcdefgh'], 'b', ['v', 'abcdefgg'],
+               'c', ['v', 'zzzzxxxx'], 'd', ['v', 'abbdefgh']]
+    env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 4]').equal(res)
+    env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 4] => {$weight: 2000000}', 'WITHSCORES').equal(res)
+    
+    
+    profile = [[4L, 'a', ['v', 'abcdefgh'], 'b', ['v', 'abcdefgg'],
+                    'c', ['v', 'zzzzxxxx'], 'd', ['v', 'abbdefgh']],
+               [['Total profile time', '0.13600000000000001'],
+                ['Parsing time', '0.072999999999999995'],
+                ['Pipeline creation time', '0.0040000000000000001'],
+                ['Iterators profile',
+                    ['Type', 'LIST', 'Time', '0', 'Counter', 0L]],
+                ['Result processors profile',
+                    ['Type', 'Index', 'Time', '0.01', 'Counter', 4L],
+                    ['Type', 'Scorer', 'Time', '0.011000000000000001', 'Counter', 4L],
+                    ['Type', 'Sorter', 'Time', '0.0099999999999999985', 'Counter', 4L],
+                    ['Type', 'Loader', 'Time', '0.016', 'Counter', 4L]]]]
+    env.expect('FT.PROFILE', 'idx', 'SEARCH', 'QUERY',
+               '@v:[abcdefgh TOPK 4] => {$weight: 2000000}').equal(profile)
+
+    message = 'abcdefgh'
+    env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 1]').equal([1L, 'a', ['v', 'abcdefgh']])
