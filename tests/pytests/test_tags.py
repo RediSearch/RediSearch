@@ -162,6 +162,7 @@ def testIssue1305(env):
     env.assertEqual(res, expectedRes)
 
 def testTagCaseSensitive(env):
+    env.skipOnCluster()
     env.expect('FT.CREATE idx1 SCHEMA t TAG').ok()
     env.expect('FT.CREATE idx2 SCHEMA t TAG CASESENSITIVE').ok()
     env.expect('FT.CREATE idx3 SCHEMA t TAG SEPARATOR .').ok()
