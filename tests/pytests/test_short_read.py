@@ -356,7 +356,6 @@ class ShardMock:
     def __init__(self, env):
         self.env = env
         self.new_conns = gevent.queue.Queue()
-        self.server_port = None
 
 
     def _handle_conn(self, sock, client_addr):
@@ -364,7 +363,9 @@ class ShardMock:
         self.new_conns.put(conn)
 
     def __enter__(self):
-        self.StartListening()
+        self.server_port = None
+        if not self.StartListening(port=0, attempts=10) and not self.StartListening(port=random.randint(55000, 57000)):
+            raise Exception("%s StartListening failed" % self.__class__.__name__)
         return self
 
     def __exit__(self, type, value, traceback):
@@ -379,17 +380,23 @@ class ShardMock:
 
     def StopListening(self):
         self.stream_server.stop()
+        self.server_port = None
 
-    def StartListening(self):
-        for _ in range(0, 10):
-            self.stream_server = gevent.server.StreamServer(('localhost', 0), self._handle_conn)
+    def StartListening(self, port, attempts=1):
+        for i in range(1, attempts + 1):
+            self.stream_server = gevent.server.StreamServer(('localhost', port), self._handle_conn)
             try:
                 self.stream_server.start()
-            except gevent.socket.error:
+            except Exception as e:
+                self.env.assertEqual(self.server_port, None, message='%s: StartListening(%d/%d) %d -> %s' % (
+                    self.__class__.__name__, i, attempts, port, e.strerror))
                 continue
             self.server_port = self.stream_server.address[1]
-            break
-        self.env.assertIsNotNone(self.server_port)
+            self.env.assertNotEqual(self.server_port, None, message='%s: StartListening(%d/%d) %d -> %d' % (
+                self.__class__.__name__, i, attempts, port, self.server_port))
+            return True
+        else:
+            return False
 
 
 class Debug:
@@ -442,13 +449,14 @@ def testShortReadSearch(env):
         if ext == '.zip':
             f = name
         fullfilePath = os.path.join(REDISEARCH_CACHE_DIR, f)
+        env.assertNotEqual(fullfilePath, None, message='testShortReadSearch')
         sendShortReads(env, fullfilePath, expected_index)
 
 
 def sendShortReads(env, rdb_file, expected_index):
     # Add some initial content (index+keys) to test backup/restore/discard when short read fails
     # When entire rdb is successfully sent and loaded (from swapdb) - backup should be discarded
-    env.assertOk(env.cmd('replicaof', 'no', 'one'))
+    env.assertCmdOk('replicaof', 'no', 'one')
     env.flush()
     add_index(env, True, 'idxBackup1', 5, 10)
 
@@ -524,7 +532,7 @@ def runShortRead(env, data, total_len, expected_index):
                 env.assertEqual(res[0], expected_result_count)
 
         # Exit (avoid read-only exception with flush on replica)
-        env.assertOk(env.cmd('replicaof', 'no', 'one'))
+        env.assertCmdOk('replicaof', 'no', 'one')
 
 
 if __name__ == "__main__":
