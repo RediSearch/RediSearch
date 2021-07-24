@@ -13,7 +13,7 @@ import gevent.socket
 from common import TimeLimit
 from common import waitForIndex
 
-REDISEARCH_CACHE_DIR = '/tmp/test'
+REDISEARCH_CACHE_DIR = '/tmp'
 BASE_RDBS_URL = 'https://s3.amazonaws.com/redismodules/redisearch-enterprise/rdbs/'
 
 IS_DIAG_SANITIZER = int(os.getenv('DIAG_SANITIZER', '0'))
