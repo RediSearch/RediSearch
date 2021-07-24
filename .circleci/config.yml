@@ -299,15 +299,15 @@ workflows:
   default_flow:
     jobs:
       - ubuntu:
-          <<: *on-any-branch
+          <<: *never
       - centos:
-          <<: *on-any-branch
+          <<: *never
       - macos:
           <<: *on-version-tags
       - debug_asan:
-          <<: *on-any-branch
+          <<: *never
       - debug_msan:
-          <<: *on-any-branch
+          <<: *never
       - coverage:
           context: common
           <<: *on-any-branch
