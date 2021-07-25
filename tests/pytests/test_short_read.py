@@ -3,7 +3,9 @@ import collections
 import os
 import random
 import re
+import shutil
 import subprocess
+import tempfile
 import zipfile
 
 import gevent.queue
@@ -13,27 +15,32 @@ import gevent.socket
 from common import TimeLimit
 from common import waitForIndex
 
-REDISEARCH_CACHE_DIR = '/tmp'
+CREATE_INDICES_TARGET_DIR = '/tmp/test'
 BASE_RDBS_URL = 'https://s3.amazonaws.com/redismodules/redisearch-enterprise/rdbs/'
 
 IS_DIAG_SANITIZER = int(os.getenv('DIAG_SANITIZER', '0'))
 
 RDBS_SHORT_READS = [
     'short-reads/redisearch_2.2.0.rdb.zip',
+    # 'short-reads/rejson_2.0.0.rdb.zip',
+    # 'short-reads/redisearch_2.2.0_rejson_2.0.0.rdb.zip',
 ]
-
 RDBS_COMPATIBILITY = [
     'redisearch_2.0.9.rdb',
 ]
+
+ExpectedIndex = collections.namedtuple('ExpectedIndex', ['count', 'pattern', 'search_result_count'])
+RDBS_EXPECTED_INDICES = [ExpectedIndex(2, 'shortread_idxSearch_[1-9]', [20, 55]),
+                         # ExpectedIndex(2, 'shortread_idxJson_[1-9]', [0, 0]),  #FIXME: count should be [20,55] once issue #2141 is resolved
+                         # ExpectedIndex(2, 'shortread_idxSearchJson_[1-9]', [10, 0])  #FIXME: count should be [20,55] once issue #2141 is resolved
+                         ]
+
 RDBS = []
 RDBS.extend(RDBS_SHORT_READS)
 if not IS_DIAG_SANITIZER:
     RDBS.extend(RDBS_COMPATIBILITY)
-
-ExpectedIndex = collections.namedtuple('ExpectedIndex', ['count', 'pattern', 'search_result_count'])
-RDBS_EXPECTED_INDICES = [ExpectedIndex(2, 'shortread_.*_[1-9]', [20, 55])]
-if not IS_DIAG_SANITIZER:
     RDBS_EXPECTED_INDICES.append(ExpectedIndex(1, 'idx', [1000]))
+
 
 def unzip(zip_path, to_dir):
     if not zipfile.is_zipfile(zip_path):
@@ -45,9 +52,9 @@ def unzip(zip_path, to_dir):
     return True
 
 
-def downloadFiles():
+def downloadFiles(target_dir):
     for f in RDBS:
-        path = os.path.join(REDISEARCH_CACHE_DIR, f)
+        path = os.path.join(target_dir, f)
         path_dir = os.path.dirname(path)
         if not os.path.exists(path_dir):
             os.makedirs(path_dir)
@@ -101,7 +108,7 @@ def create_indices(env, rdbFileName, idxNameStem, isHash, isJson):
 
     env.assertTrue(env.cmd('save'))
     # Copy to avoid truncation of rdb due to RLTest flush and save
-    dbCopyFilePath = os.path.join(REDISEARCH_CACHE_DIR, dbFileName)
+    dbCopyFilePath = os.path.join(CREATE_INDICES_TARGET_DIR, dbFileName)
     dbCopyFileDir = os.path.dirname(dbCopyFilePath)
     if not os.path.exists(dbCopyFileDir):
         os.makedirs(dbCopyFileDir)
@@ -441,16 +448,23 @@ class Debug:
 
 
 def testShortReadSearch(env):
-    if not downloadFiles():
-        env.assertTrue(False, "downloadFiles failed")
 
-    for f, expected_index in zip(RDBS, RDBS_EXPECTED_INDICES):
-        name, ext = os.path.splitext(f)
-        if ext == '.zip':
-            f = name
-        fullfilePath = os.path.join(REDISEARCH_CACHE_DIR, f)
-        env.assertNotEqual(fullfilePath, None, message='testShortReadSearch')
-        sendShortReads(env, fullfilePath, expected_index)
+    try:
+        temp_dir = tempfile.mkdtemp(prefix="short-read_")
+        # TODO: In python3 use "with tempfile.TemporaryDirectory()"
+        if not downloadFiles(temp_dir):
+            env.assertTrue(False, "downloadFiles failed")
+
+        for f, expected_index in zip(RDBS, RDBS_EXPECTED_INDICES):
+            name, ext = os.path.splitext(f)
+            if ext == '.zip':
+                f = name
+            fullfilePath = os.path.join(temp_dir, f)
+            env.assertNotEqual(fullfilePath, None, message='testShortReadSearch')
+            sendShortReads(env, fullfilePath, expected_index)
+    finally:
+        shutil.rmtree(temp_dir)
+
 
 
 def sendShortReads(env, rdb_file, expected_index):
