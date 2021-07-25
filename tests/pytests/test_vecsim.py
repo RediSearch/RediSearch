@@ -191,6 +191,7 @@ def test_create(env):
     env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh REDIS 4]').equal([0L])
 
 def test_with_weight(env):
+    env.skip()
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE idx SCHEMA v VECTOR INT32 2 L2 HNSW').ok()
     conn.execute_command('HSET', 'a', 'v', 'abcdefgh')

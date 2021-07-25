@@ -9,11 +9,7 @@ from includes import *
 if 'EXT_TEST_PATH' in os.environ:
     EXTPATH = os.environ['EXT_TEST_PATH']
 else:
-    EXTPATH = 'tests/ctests/libexample_extension'
-    if sys.platform.lower() == 'darwin':
-        EXTPATH += '.dylib'
-    else:
-        EXTPATH += '.so'
+    EXTPATH = 'tests/ctests/ext-example/libexample_extension.so'
 
 
 def testExt(env):
@@ -22,7 +18,7 @@ def testExt(env):
     else:
         modpath = env.module[0]
         ext_path = os.path.abspath(os.path.join(os.path.dirname(modpath), EXTPATH))
-    
+
     if not os.path.exists(ext_path):
         raise Exception("Path ({}) does not exist. "
             "Run from the build directory or set EXT_TEST_PATH in the environment".format(ext_path))
