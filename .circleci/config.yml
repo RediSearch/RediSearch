@@ -317,7 +317,8 @@ workflows:
           requires: *default_jobs
           <<: *on-version-tags
       - ubuntu_benchmarks:
-          <<: *on-integ-and-version-tags
+          # <<: *on-integ-and-version-tags
+          <<: *never
           context: common
 
   nightly:
@@ -329,5 +330,5 @@ workflows:
               only: master
     jobs:
       - macos
-      - ubuntu_benchmarks:
-          context: common
+      # - ubuntu_benchmarks:
+      #     context: common
