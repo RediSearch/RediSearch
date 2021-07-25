@@ -299,7 +299,7 @@ workflows:
   default_flow:
     jobs:
       - ubuntu:
-          <<: *never
+          <<: *on-any-branch
       - centos:
           <<: *never
       - macos:

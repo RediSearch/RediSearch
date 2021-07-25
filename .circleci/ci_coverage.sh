@@ -25,7 +25,7 @@ EOF
 export CONFIG_FILE="$PWD/rltest.config"
 
 ./lcov-init.sh
-COMPAT_DIR=$ROOT/build-coverage make -C $ROOT test CTEST_ARGS="-VV --output-on-failure -R test_short_read" CTEST_PARALLEL=${CI_CONCURRENCY}
+COMPAT_DIR=$ROOT/build-coverage make -C $ROOT test CTEST_ARGS="-VV --output-on-failure --debug -R test_short_read" CTEST_PARALLEL=${CI_CONCURRENCY}
 ./lcov-capture.sh coverage.info
 bash <(curl -s https://codecov.io/bash) -f coverage.info
 lcov -l coverage.info
