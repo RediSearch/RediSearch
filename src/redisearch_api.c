@@ -83,7 +83,7 @@ RSFieldID RediSearch_CreateField(IndexSpec* sp, const char* name, unsigned types
     numTypes++;
   }
   if (types & RSFLDTYPE_VECTOR) {
-    FieldSpec_Initialize(fs, INDEXFLD_T_VECTOR);
+    fs->types |= INDEXFLD_T_VECTOR;
     numTypes++;
   }
   if (types & RSFLDTYPE_TAG) {
