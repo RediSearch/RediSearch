@@ -1193,9 +1193,9 @@ static int QueryNode_ApplyAttribute(QueryNode *qn, QueryAttribute *attr, QueryEr
     }
     if (b) {
       // The query string will be converted back to regular string
-      qn->vn.vf->isBase64 = BASE64_ENABLED;
+      qn->vn.vf->isBase64 = true;
     } else {
-      qn->vn.vf->isBase64 = BASE64_DISABLED;
+      qn->vn.vf->isBase64 = false;
     }
 
   } else {

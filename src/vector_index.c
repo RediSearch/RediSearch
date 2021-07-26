@@ -102,7 +102,7 @@ VectorFilter *NewVectorFilter(const void *vector, size_t len, char *type, double
     vf->type = VECTOR_TOPK;
   } else if (!strncasecmp(type, "RANGE", strlen("RANGE"))) {
     vf->type = VECTOR_TOPK;
-    vf->isBase64 = 1;
+    vf->isBase64 = true;
   } else {
     rm_free(vf);
     return NULL;

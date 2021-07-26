@@ -17,9 +17,6 @@
 #define VECSIM_M "M"
 #define VECSIM_EF "EF"
 
-#define BASE64_ENABLED 1
-#define BASE64_DISABLED 2
-
 typedef enum {
   VECTOR_TOPK = 0,
   VECTOR_RANGE = 1,
@@ -30,7 +27,7 @@ typedef struct VectorFilter {
   void *vector;                   // vector data
   size_t vecLen;                  // vector length
   VectorQueryType type;           // TOPK or RANGE
-  int isBase64;                   // uses base64 strings
+  bool isBase64;                   // uses base64 strings
   double value;                   // can hold int for TOPK or double for RANGE.
 
   VecSimQueryResult *results;     // array for K results
