@@ -19,6 +19,7 @@ CREATE_INDICES_TARGET_DIR = '/tmp/test'
 BASE_RDBS_URL = 'https://s3.amazonaws.com/redismodules/redisearch-enterprise/rdbs/'
 
 IS_DIAG_SANITIZER = int(os.getenv('DIAG_SANITIZER', '0'))
+IS_DIAG_CODE_COVERAGE = int(os.getenv('DIAG_CODE_COVERAGE', '0'))
 
 RDBS_SHORT_READS = [
     'short-reads/redisearch_2.2.0.rdb.zip',
@@ -37,7 +38,7 @@ RDBS_EXPECTED_INDICES = [ExpectedIndex(2, 'shortread_idxSearch_[1-9]', [20, 55])
 
 RDBS = []
 RDBS.extend(RDBS_SHORT_READS)
-if not IS_DIAG_SANITIZER:
+if not IS_DIAG_SANITIZER and not IS_DIAG_CODE_COVERAGE:
     RDBS.extend(RDBS_COMPATIBILITY)
     RDBS_EXPECTED_INDICES.append(ExpectedIndex(1, 'idx', [1000]))
 
@@ -187,7 +188,7 @@ def add_index(env, isHash, index_name, num_prefs, num_keys):
             env.assertOk(env.cmd(*cmd))
 
 
-def testCreateIndexRdbFiles(env):
+def _testCreateIndexRdbFiles(env):
     if os.environ.get('CI'):
         env.skip()
     create_indices(env, 'redisearch_2.2.0.rdb', 'idxSearch', True, False)

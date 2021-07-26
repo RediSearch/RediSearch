@@ -23,6 +23,9 @@ cat >rltest.config <<EOF
 --unix
 EOF
 export CONFIG_FILE="$PWD/rltest.config"
+export DIAG_CODE_COVERAGE=1
+export VERBOSE=1
+export REJSON_BRANCH=omer-short-read
 
 ./lcov-init.sh
 COMPAT_DIR=$ROOT/build-coverage make -C $ROOT test CTEST_ARGS="-VV --output-on-failure --debug -R test_short_read" CTEST_PARALLEL=${CI_CONCURRENCY}

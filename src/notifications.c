@@ -339,9 +339,29 @@ void LoadingCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subeven
   }
 }
 
-void Initialize_RdbNotifications(RedisModuleCtx *ctx) {
-  RedisModule_SetModuleOptions(ctx, REDISMODULE_OPTIONS_HANDLE_IO_ERRORS);
-  RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ReplBackup, ReplicaBackupCallback);
-  RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Loading, LoadingCallback);
+int CheckVersionForShortRead() {
+  // Minial versions: 6.2.5 or 6.0.15
+  if (redisVersion.majorVersion == 6) {
+    if (redisVersion.minorVersion == 2)
+      return redisVersion.patchVersion >= 5 ? REDISMODULE_OK : REDISMODULE_ERR;
+    else if (redisVersion.minorVersion == 0)
+      return redisVersion.patchVersion >= 15 ? REDISMODULE_OK : REDISMODULE_ERR;
+  }
+#ifdef _DEBUG
+  // Also supported on master (version=255.255.255)
+  else if (redisVersion.majorVersion == 255 &&
+           redisVersion.minorVersion == 255 &&
+           redisVersion.patchVersion == 255)
+    return REDISMODULE_OK;
+#endif
+  return REDISMODULE_ERR;
+}
 
+void Initialize_RdbNotifications(RedisModuleCtx *ctx) {
+  if (CheckVersionForShortRead() == REDISMODULE_OK) {
+    RedisModule_SetModuleOptions(ctx, REDISMODULE_OPTIONS_HANDLE_IO_ERRORS);
+    RedisModule_Log(NULL, "notice", "Enabled diskless replication");
+    RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ReplBackup, ReplicaBackupCallback);
+    RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Loading, LoadingCallback);
+  }
 }
