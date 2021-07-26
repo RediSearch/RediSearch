@@ -71,15 +71,18 @@ IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorFilter *vf) {
   unsigned char *vector = vf->vector;
   switch (vf->type) {
     case VECTOR_TOPK:
+      if (vf->isBase64) {
+        vector = base64_decode(vf->vector, vf->vecLen, &outLen);
+        // TODO: check outLen == expected len.
+        unescape((char *)vector, strlen((char *)vector));
+      }
       vf->results = VecSimIndex_TopKQuery(vecsim, vector, vf->value);
+      if (vf->isBase64) {
+        rm_free(vector);
+      }
       break;
     case VECTOR_RANGE:
-      // Note: RANGE is being used for base64 conversion queries.
-      vector = base64_decode(vf->vector, vf->vecLen, &outLen);
-      // TODO: check outLen == expected len.
-      unescape((char *)vector, strlen((char *)vector));
-      vf->results = VecSimIndex_TopKQuery(vecsim, vector, vf->value);
-      rm_free(vector);
+      RS_LOG_ASSERT(0, "isn't implemented yet");
       break;
   }
 
@@ -89,7 +92,7 @@ IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorFilter *vf) {
 /* Create a vector filter from parsed strings and numbers */
 // TODO: add property?
 VectorFilter *NewVectorFilter(const void *vector, size_t len, char *type, double value) {
-  VectorFilter *vf = rm_malloc(sizeof(*vf));
+  VectorFilter *vf = rm_calloc(1, sizeof(*vf));
   // copy vector
   vf->vector = rm_malloc(len);
   memcpy(vf->vector, vector, len);
@@ -97,9 +100,9 @@ VectorFilter *NewVectorFilter(const void *vector, size_t len, char *type, double
 
   if (!strncasecmp(type, "TOPK", strlen("TOPK"))) {
     vf->type = VECTOR_TOPK;
-  } else if (!strncasecmp(type, "RANGE", strlen("RANGE")) ||
-             !strncasecmp(type, "TOPK_BASE64", strlen("TOPK_BASE64"))) {
-    vf->type = VECTOR_RANGE;
+  } else if (!strncasecmp(type, "RANGE", strlen("RANGE"))) {
+    vf->type = VECTOR_TOPK;
+    vf->isBase64 = true;
   } else {
     rm_free(vf);
     return NULL;

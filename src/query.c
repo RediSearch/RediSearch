@@ -1184,6 +1184,20 @@ static int QueryNode_ApplyAttribute(QueryNode *qn, QueryAttribute *attr, QueryEr
     // qn->opts.noPhonetic = PHONETIC_DEFAULT -> means no special asks regarding phonetics
     //                                          will be enable if field was declared phonetic
 
+  } else if (STR_EQCASE(attr->name, attr->namelen, "base64")) {
+    // Apply base64 for vector similarity : true|false
+    int b;
+    if (qn->type != QN_VECTOR || !ParseBoolean(attr->value, &b)) {
+      MK_INVALID_VALUE();
+      return 0;
+    }
+    if (b) {
+      // The query string will be converted back to regular string
+      qn->vn.vf->isBase64 = true;
+    } else {
+      qn->vn.vf->isBase64 = false;
+    }
+
   } else {
     QueryError_SetErrorFmt(status, QUERY_ENOOPTION, "Invalid attribute %.*s", (int)attr->namelen,
                            attr->name);
