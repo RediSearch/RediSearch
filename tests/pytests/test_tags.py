@@ -71,7 +71,11 @@ def testTagPrefix(env):
         'schema', 'title', 'text', 'tags', 'tag', 'separator', ','))
 
     env.assertOk(r.execute_command('ft.add', 'idx', 'doc1', 1.0, 'fields',
-                                   'title', 'hello world', 'tags', 'hello world,hello-world,hell,jell'))
+                                   'title', 'hello world',
+                                   'tags', 'hello world,hello-world,hell,jell'))
+    env.expect('FT.DEBUG', 'dump_tagidx', 'idx', 'tags')    \
+        .equal([['hell', [1L]], ['hello world', [1L]], ['hello-world', [1L]], ['jell', [1L]]])
+
     for _ in r.retry_with_rdb_reload():
         waitForIndex(r, 'idx')
         for q in ('@tags:{hello world}', '@tags:{hel*}', '@tags:{hello\\-*}', '@tags:{he*}'):
@@ -180,5 +184,11 @@ def testTagCaseSensitive(env):
     env.expect('FT.DEBUG', 'dump_tagidx', 'idx4', 't').equal([['foo', [3L]], ['foo,FOO', [1L]], ['FOO', [2L]]])
     env.expect('FT.DEBUG', 'dump_tagidx', 'idx5', 't').equal([['foo', [3L]], ['foo,FOO', [1L]], ['FOO', [2L]]])
 
-    env.expect('FT.SEARCH', 'idx1', '@t:{FOO}').equal([0L])
-    env.expect('FT.SEARCH', 'idx2', '@t:{FOO}', 'NOCONTENT').equal([2L, 'doc1', 'doc2'])
+    env.expect('FT.SEARCH', 'idx1', '@t:{FOO}')         \
+        .equal([3L, 'doc1', ['t', 'foo,FOO'], 'doc2', ['t', 'FOO'], 'doc3', ['t', 'foo']])
+    env.expect('FT.SEARCH', 'idx1', '@t:{foo}')         \
+        .equal([3L, 'doc1', ['t', 'foo,FOO'], 'doc2', ['t', 'FOO'], 'doc3', ['t', 'foo']])
+    env.expect('FT.SEARCH', 'idx2', '@t:{FOO}')         \
+        .equal([2L, 'doc1', ['t', 'foo,FOO'], 'doc2', ['t', 'FOO']])
+    env.expect('FT.SEARCH', 'idx2', '@t:{foo}')         \
+        .equal([2L, 'doc1', ['t', 'foo,FOO'], 'doc3', ['t', 'foo']]) 
