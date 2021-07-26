@@ -1187,7 +1187,7 @@ static int QueryNode_ApplyAttribute(QueryNode *qn, QueryAttribute *attr, QueryEr
   } else if (STR_EQCASE(attr->name, attr->namelen, "base64")) {
     // Apply base64 for vector similarity : true|false
     int b;
-    if (!ParseBoolean(attr->value, &b)) {
+    if (qn->type != QN_VECTOR || !ParseBoolean(attr->value, &b)) {
       MK_INVALID_VALUE();
       return 0;
     }
