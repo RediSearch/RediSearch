@@ -121,7 +121,7 @@ commands:
 jobs:
   ubuntu:
     docker:
-      - image: redisfab/rmbuilder:6.2.3-x64-buster
+      - image: redisfab/rmbuilder:6.2.5-x64-buster
     environment:
       - BUILD_DIR: build-debian
     steps:
@@ -165,7 +165,7 @@ jobs:
 
   deploy_snapshots:
     docker:
-      - image: redisfab/rmbuilder:6.2.3-x64-buster
+      - image: redisfab/rmbuilder:6.2.5-x64-buster
     steps:
       - early_returns
       - early_return_for_forked_pull_requests
@@ -207,7 +207,7 @@ jobs:
 
   coverage:
     docker:
-      - image: redisfab/rmbuilder:6.2.3-x64-buster
+      - image: redisfab/rmbuilder:6.2.5-x64-buster
     steps:
       - early_returns
       - checkout
@@ -219,7 +219,7 @@ jobs:
 
   deploy_release:
     docker:
-      - image: redisfab/rmbuilder:6.2.3-x64-buster
+      - image: redisfab/rmbuilder:6.2.5-x64-buster
     steps:
       - early_returns
       - early_return_for_forked_pull_requests
@@ -301,13 +301,13 @@ workflows:
       - ubuntu:
           <<: *on-any-branch
       - centos:
-          <<: *never
+          <<: *on-any-branch
       - macos:
           <<: *on-version-tags
       - debug_asan:
-          <<: *never
+          <<: *on-any-branch
       - debug_msan:
-          <<: *never
+          <<: *on-any-branch
       - coverage:
           context: common
           <<: *on-any-branch
