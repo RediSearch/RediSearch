@@ -23,8 +23,7 @@ cat >rltest.config <<EOF
 --unix
 EOF
 export CONFIG_FILE="$PWD/rltest.config"
-export DIAG_CODE_COVERAGE=1
-export VERBOSE=1
+export CODE_COVERAGE=1
 export REJSON_BRANCH=omer-short-read
 
 ./lcov-init.sh

@@ -18,8 +18,8 @@ from common import waitForIndex
 CREATE_INDICES_TARGET_DIR = '/tmp/test'
 BASE_RDBS_URL = 'https://s3.amazonaws.com/redismodules/redisearch-enterprise/rdbs/'
 
-IS_DIAG_SANITIZER = int(os.getenv('DIAG_SANITIZER', '0'))
-IS_DIAG_CODE_COVERAGE = int(os.getenv('DIAG_CODE_COVERAGE', '0'))
+IS_SANITIZER = int(os.getenv('SANITIZER', '0'))
+IS_CODE_COVERAGE = int(os.getenv('CODE_COVERAGE', '0'))
 
 RDBS_SHORT_READS = [
     'short-reads/redisearch_2.2.0.rdb.zip',
@@ -38,7 +38,7 @@ RDBS_EXPECTED_INDICES = [ExpectedIndex(2, 'shortread_idxSearch_[1-9]', [20, 55])
 
 RDBS = []
 RDBS.extend(RDBS_SHORT_READS)
-if not IS_DIAG_SANITIZER and not IS_DIAG_CODE_COVERAGE:
+if not IS_CODE_COVERAGE:
     RDBS.extend(RDBS_COMPATIBILITY)
     RDBS_EXPECTED_INDICES.append(ExpectedIndex(1, 'idx', [1000]))
 
@@ -449,6 +449,8 @@ class Debug:
 
 
 def testShortReadSearch(env):
+    if IS_SANITIZER:
+        env.skip()  # Sanitizer is taking too long - should be done on a separate/dedicated test job
 
     try:
         temp_dir = tempfile.mkdtemp(prefix="short-read_")
@@ -538,6 +540,7 @@ def runShortRead(env, data, total_len, expected_index):
             env.assertEqual(res, ['idxBackup1'])
         else:
             # Verify new data was loaded and the backup was discarded
+            # TODO: How to verify internal backup was indeed discarded
             env.assertEqual(len(res), expected_index.count)
             r = re.compile(expected_index.pattern)
             expected_indices = list(filter(lambda x: r.match(x), res))

@@ -346,14 +346,12 @@ int CheckVersionForShortRead() {
       return redisVersion.patchVersion >= 5 ? REDISMODULE_OK : REDISMODULE_ERR;
     else if (redisVersion.minorVersion == 0)
       return redisVersion.patchVersion >= 15 ? REDISMODULE_OK : REDISMODULE_ERR;
-  }
-#ifdef _DEBUG
-  // Also supported on master (version=255.255.255)
-  else if (redisVersion.majorVersion == 255 &&
+  } else if (redisVersion.majorVersion == 255 &&
            redisVersion.minorVersion == 255 &&
-           redisVersion.patchVersion == 255)
+           redisVersion.patchVersion == 255) {
+    // Also supported on master (version=255.255.255)
     return REDISMODULE_OK;
-#endif
+  }
   return REDISMODULE_ERR;
 }
 
