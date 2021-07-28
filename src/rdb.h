@@ -3,17 +3,6 @@
 void Backup_Globals();
 void Restore_Globals();
 void Discard_Globals();
-void Discard_Global_IndexSpecs();
-
-#define RedisModule_LoadStringBufferAlloc(rdb, ptr, len)          \
-do {                                                              \
-  size_t tmp_len;                                                 \
-  size_t *tmp_len_ptr = len ? len : &tmp_len;                     \
-  char *oldbuf = RedisModule_LoadStringBuffer(rdb, tmp_len_ptr);  \
-  ptr = rm_malloc(*tmp_len_ptr);                                  \
-  memcpy(ptr, oldbuf, *tmp_len_ptr);                              \
-  RedisModule_Free(oldbuf);                                       \
-} while (0)
 
 // For rdb short read
 

@@ -32,15 +32,11 @@ void Restore_Globals() {
 }
 
 void Discard_Globals() {
-  Discard_Global_IndexSpecs();
+  Indexes_Free(specDict_g_bkup);
+  specDict_g_bkup = NULL;
 
   SchemaPrefixes_Free(ScemaPrefixes_g_bkup);
   ScemaPrefixes_g_bkup = NULL;
 
   IndexAlias_DestroyGlobal(&AliasTable_g_bkup);
-}
-
-void Discard_Global_IndexSpecs() {
-  Indexes_Free(specDict_g_bkup);
-  specDict_g_bkup = NULL;
 }

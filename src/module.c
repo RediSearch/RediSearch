@@ -829,7 +829,7 @@ static void GetRedisVersion() {
   RedisModule_FreeThreadSafeContext(ctx);
 }
 
-static inline int IsEnterprise() {
+int IsEnterprise() {
   return rlecVersion.majorVersion != -1;
 }
 

@@ -4,6 +4,7 @@
 #include "doc_types.h"
 #include "redismodule.h"
 #include "rdb.h"
+#include "module.h"
 
 #define JSON_LEN 5 // length of string "json."
 
@@ -356,9 +357,13 @@ int CheckVersionForShortRead() {
 }
 
 void Initialize_RdbNotifications(RedisModuleCtx *ctx) {
-  if (CheckVersionForShortRead() == REDISMODULE_OK) {
+  int shouldEnableShortRead = CheckVersionForShortRead();
+  if (shouldEnableShortRead == REDISMODULE_OK) {
     RedisModule_SetModuleOptions(ctx, REDISMODULE_OPTIONS_HANDLE_IO_ERRORS);
     RedisModule_Log(ctx, "notice", "Enabled diskless replication");
+  }
+  if (shouldEnableShortRead == REDISMODULE_OK || IsEnterprise()) {
+    // On Enterprise, Short Read is enabled, so need to subscribe
     RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ReplBackup, ReplicaBackupCallback);
     RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Loading, LoadingCallback);
   }
