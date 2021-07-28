@@ -335,7 +335,7 @@ void LoadingCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subeven
 
   REDISMODULE_NOT_USED(eid);
   if (subevent == REDISMODULE_SUBEVENT_LOADING_FAILED) {
-      Discard_Global_IndexSpecs();
+    Discard_Globals();
   }
 }
 
@@ -358,7 +358,7 @@ int CheckVersionForShortRead() {
 void Initialize_RdbNotifications(RedisModuleCtx *ctx) {
   if (CheckVersionForShortRead() == REDISMODULE_OK) {
     RedisModule_SetModuleOptions(ctx, REDISMODULE_OPTIONS_HANDLE_IO_ERRORS);
-    RedisModule_Log(NULL, "notice", "Enabled diskless replication");
+    RedisModule_Log(ctx, "notice", "Enabled diskless replication");
     RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ReplBackup, ReplicaBackupCallback);
     RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Loading, LoadingCallback);
   }

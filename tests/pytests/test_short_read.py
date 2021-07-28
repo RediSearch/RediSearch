@@ -553,7 +553,3 @@ def runShortRead(env, data, total_len, expected_index):
         env.assertCmdOk('replicaof', 'no', 'one')
 
 
-if __name__ == "__main__":
-    if not downloadFiles():
-        raise Exception("Couldn't download RDB files")
-    print("RDB Files ready for testing!")
