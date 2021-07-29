@@ -23,17 +23,18 @@ IS_CODE_COVERAGE = int(os.getenv('CODE_COVERAGE', '0'))
 
 RDBS_SHORT_READS = [
     'short-reads/redisearch_2.2.0.rdb.zip',
-    # 'short-reads/rejson_2.0.0.rdb.zip',
-    # 'short-reads/redisearch_2.2.0_rejson_2.0.0.rdb.zip',
+    'short-reads/rejson_2.0.0.rdb.zip',
+    'short-reads/redisearch_2.2.0_rejson_2.0.0.rdb.zip',
 ]
 RDBS_COMPATIBILITY = [
     'redisearch_2.0.9.rdb',
 ]
 
 ExpectedIndex = collections.namedtuple('ExpectedIndex', ['count', 'pattern', 'search_result_count'])
-RDBS_EXPECTED_INDICES = [ExpectedIndex(2, 'shortread_idxSearch_[1-9]', [20, 55]),
-                         # ExpectedIndex(2, 'shortread_idxJson_[1-9]', [0, 0]),  #FIXME: count should be [20,55] once issue #2141 is resolved
-                         # ExpectedIndex(2, 'shortread_idxSearchJson_[1-9]', [10, 0])  #FIXME: count should be [20,55] once issue #2141 is resolved
+RDBS_EXPECTED_INDICES = [
+                         ExpectedIndex(2, 'shortread_idxSearch_[1-9]', [20, 55]),
+                         ExpectedIndex(2, 'shortread_idxJson_[1-9]', [55, 20]),  # TODO: why order of indices is first _2 then _1
+                         ExpectedIndex(2, 'shortread_idxSearchJson_[1-9]', [10, 35])
                          ]
 
 RDBS = []
@@ -475,7 +476,13 @@ def sendShortReads(env, rdb_file, expected_index):
     # When entire rdb is successfully sent and loaded (from swapdb) - backup should be discarded
     env.assertCmdOk('replicaof', 'no', 'one')
     env.flush()
-    add_index(env, True, 'idxBackup1', 5, 10)
+    add_index(env, True,  'idxBackup1', 5, 10)
+    add_index(env, False, 'idxBackup2', 5, 10)
+
+    res = env.cmd('ft.search ', 'idxBackup1', '*', 'limit', '0', '0')
+    env.assertEqual(res[0], 5L)
+    res = env.cmd('ft.search ', 'idxBackup2', '*', 'limit', '0', '0')
+    env.assertEqual(res[0], 5L)
 
     with open(rdb_file, mode='rb') as f:
         full_rdb = f.read()
@@ -537,7 +544,11 @@ def runShortRead(env, data, total_len, expected_index):
         res = env.cmd('ft._list')
         if is_shortread:
             # Verify original data, that existed before the failed attempt to short-read, is restored
-            env.assertEqual(res, ['idxBackup1'])
+            env.assertEqual(res, ['idxBackup2', 'idxBackup1'])
+            res = env.cmd('ft.search ', 'idxBackup1', '*', 'limit', '0', '0')
+            env.assertEqual(res[0], 5L)
+            res = env.cmd('ft.search ', 'idxBackup2', '*', 'limit', '0', '0')
+            env.assertEqual(res[0], 5L)
         else:
             # Verify new data was loaded and the backup was discarded
             # TODO: How to verify internal backup was indeed discarded

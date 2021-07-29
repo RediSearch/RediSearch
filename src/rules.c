@@ -157,7 +157,7 @@ RSLanguage SchemaRule_HashLang(RedisModuleCtx *rctx, const SchemaRule *rule, Red
   }
   int rv = RedisModule_HashGet(key, REDISMODULE_HASH_CFIELDS, rule->lang_field, &lang_rms, NULL);
   if (rv != REDISMODULE_OK) {
-    RedisModule_Log(NULL, "warning", "invalid field %s for key %s", rule->lang_field, kname);
+    RedisModule_Log(NULL, "warning", "invalid field %s for key %s", rule->lang_field, kname); // TODO: remove?
     goto done;
   }
   if (lang_rms == NULL) {
@@ -192,7 +192,7 @@ RSLanguage SchemaRule_JsonLang(RedisModuleCtx *ctx, const SchemaRule *rule,
 
   jsonIter = japi->get(jsonRoot, rule->lang_field);
   if (!jsonIter) {
-    RedisModule_Log(NULL, "warning", "invalid field %s for key %s", rule->lang_field, kname);
+    RedisModule_Log(NULL, "warning", "invalid field %s for key %s", rule->lang_field, kname); // TODO: remove?
     goto done;
   }
 
@@ -228,7 +228,7 @@ double SchemaRule_HashScore(RedisModuleCtx *rctx, const SchemaRule *rule, RedisM
   }
   int rv = RedisModule_HashGet(key, REDISMODULE_HASH_CFIELDS, rule->score_field, &score_rms, NULL);
   if (rv != REDISMODULE_OK) {
-    RedisModule_Log(NULL, "warning", "invalid field %s for key %s", rule->score_field, kname);
+    RedisModule_Log(NULL, "warning", "invalid field %s for key %s", rule->score_field, kname); // TODO: remove?
     goto done;
   }
   // score of 1.0 is not saved in hash
@@ -263,7 +263,7 @@ RSLanguage SchemaRule_JsonScore(RedisModuleCtx *ctx, const SchemaRule *rule,
 
   jsonIter = japi->get(jsonRoot, rule->score_field);
   if (jsonIter == NULL) {
-    RedisModule_Log(NULL, "warning", "invalid field %s for key %s", rule->score_field, kname);
+    RedisModule_Log(NULL, "warning", "invalid field %s for key %s", rule->score_field, kname); // TODO: remove?
     goto done;
   }
 
@@ -288,7 +288,7 @@ RedisModuleString *SchemaRule_HashPayload(RedisModuleCtx *rctx, const SchemaRule
   const char *payload_field = rule->payload_field ? rule->payload_field : UNDERSCORE_PAYLOAD;
   int rv = RedisModule_HashGet(key, REDISMODULE_HASH_CFIELDS, payload_field, &payload_rms, NULL);
   if (rv != REDISMODULE_OK) {
-    RedisModule_Log(NULL, "warning", "invalid field %s for key %s", rule->payload_field, kname);
+    RedisModule_Log(NULL, "warning", "invalid field %s for key %s", rule->payload_field, kname); // TODO: remove?
     if (payload_rms != NULL) RedisModule_FreeString(rctx, payload_rms);
     return NULL;
   }

@@ -116,7 +116,10 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
       // on loaded event the key is stack allocated so to use it to load the
       // document we must copy it
       key = RedisModule_CreateStringFromString(ctx, key);
-      // notice, not break is ok here, we want to continue.
+      Indexes_UpdateMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields); //TODO: avoid getDocTypeFromString ?
+      RedisModule_FreeString(ctx, key);
+      break;
+
     case hset_cmd:
     case hmset_cmd:
     case hsetnx_cmd:
@@ -124,9 +127,6 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
     case hincrbyfloat_cmd:
     case hdel_cmd:
       Indexes_UpdateMatchingWithSchemaRules(ctx, key, DocumentType_Hash, hashFields);
-      if(redisCommand == loaded_cmd){
-        RedisModule_FreeString(ctx, key);
-      }
       break;
 
 /********************************************************
