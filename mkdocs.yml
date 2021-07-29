@@ -40,10 +40,11 @@ nav:
   - 'Configuration': 'Configuring.md'
   - 'Development': 'Development.md'
   - 'Clients': 'Clients.md'
-  
+
   - Administration:
     - 'General administration': "Administration.md"
     - 'Upgrade to 2.0 when running in Redis OSS': Upgrade_to_2.0.md
+
   - Reference:
     - 'Query Syntax': 'Query_Syntax.md'
     - 'Stop-Words': 'Stopwords.md'
@@ -59,11 +60,10 @@ nav:
     - 'Document Payloads': payloads.md
     - 'Spelling Correction': Spellcheck.md
     - 'Phonetic Matching': Phonetic_Matching.md
-
   - Design Documents:
     - 'Garbage Collection': 'design/gc.md'
+  - 'Indexing JSON': 'Indexing_JSON.md'
   - 'Chinese Support': 'Chinese.md'
-
   - 'Contributor agreement': contrib.md
 
 plugins:

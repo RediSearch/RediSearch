@@ -154,34 +154,38 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx) {
   SchemaRule *rule = spec->rule;
   RedisModuleCtx *ctx = sctx->redisCtx;
   size_t nitems = sctx->spec->numFields;
-  RedisJSON json = NULL;
+  JSONResultsIterator jsonIter = NULL;
 
-  RedisJSONKey jsonKey = japi->openKey(ctx, doc->docKey);
-  if (!jsonKey) {
+  RedisJSON jsonRoot = japi->openKey(ctx, doc->docKey);
+  if (!jsonRoot) {
     goto done;
   }
   Document_MakeStringsOwner(doc); // TODO: necessary??
 
   const char *keyName = RedisModule_StringPtrLen(doc->docKey, NULL);
-  doc->language = SchemaRule_JsonLang(sctx->redisCtx, rule, jsonKey, keyName);
-  doc->score = SchemaRule_JsonScore(sctx->redisCtx, rule, jsonKey, keyName);
+  doc->language = SchemaRule_JsonLang(sctx->redisCtx, rule, jsonRoot, keyName);
+  doc->score = SchemaRule_JsonScore(sctx->redisCtx, rule, jsonRoot, keyName);
   // No payload on JSON as RedisJSON does not support binary fields
 
-  JSONType type;
   doc->fields = rm_calloc(nitems, sizeof(*doc->fields));
   size_t ii = 0;
   for (; ii < spec->numFields; ++ii) {
     FieldSpec *field = &spec->fields[ii];
 
-    // retrieve json pointer
-    // TODO: check option to move to getStringFromKey
-    json = japi->get(jsonKey, field->path, &type);
-    if (!json) {
+    jsonIter = japi->get(jsonRoot, field->path);
+    if (!jsonIter) {
         continue;
     }
-    if (type == JSONType_Array || type == JSONType_Object) {
-        json = NULL;
+
+    // Iterator with 0 paths is legal. Let's continue
+    RedisJSON jsonValue = japi->next(jsonIter);
+    if (!jsonValue) {
       continue;
+    }
+
+    // Ah ah ah. illegal type of field
+    if (FieldSpec_CheckJsonType(field->types, japi->getType(jsonValue)) != REDISMODULE_OK) {
+      goto done;
     }
 
     size_t oix = doc->numFields++;
@@ -191,17 +195,18 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx) {
 
     // on crdt the return value might be the underline value, we must copy it!!!
     // TODO: change `fs->text` to support hash or json not RedisModuleString
-    if (japi->getJSON(json, ctx, &doc->fields[oix].text) != REDISMODULE_OK) {
+    if (JSON_GetRedisModuleString(ctx, jsonValue, &doc->fields[oix].text) != REDISMODULE_OK) {
       RedisModule_Log(ctx, "verbose", "Failed to load value from field %s", field->path);
       goto done;
     }
-    json = NULL;
+    japi->freeIter(jsonIter);
+    jsonIter = NULL;
   }
   rv = REDISMODULE_OK;
 
 done:
-  if (jsonKey) {
-    japi->closeKey(jsonKey);
+  if (jsonIter) {
+    japi->freeIter(jsonIter);
   }
   return rv;
 }

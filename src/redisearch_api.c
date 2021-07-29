@@ -71,19 +71,19 @@ RSFieldID RediSearch_CreateField(IndexSpec* sp, const char* name, unsigned types
       return RSFIELD_INVALID;
     }
     fs->ftId = txtId;
-    FieldSpec_Initialize(fs, INDEXFLD_T_FULLTEXT);
+    fs->types |= INDEXFLD_T_FULLTEXT;
   }
 
   if (types & RSFLDTYPE_NUMERIC) {
     numTypes++;
-    FieldSpec_Initialize(fs, INDEXFLD_T_NUMERIC);
+    fs->types |= INDEXFLD_T_NUMERIC;
   }
   if (types & RSFLDTYPE_GEO) {
-    FieldSpec_Initialize(fs, INDEXFLD_T_GEO);
+    fs->types |= INDEXFLD_T_GEO;
     numTypes++;
   }
   if (types & RSFLDTYPE_TAG) {
-    FieldSpec_Initialize(fs, INDEXFLD_T_TAG);
+    fs->types |= INDEXFLD_T_TAG;
     numTypes++;
   }
 
@@ -529,19 +529,22 @@ void RediSearch_IndexOptionsSetGetValueCallback(RSIndexOptions* options, RSGetVa
 }
 
 void RediSearch_IndexOptionsSetStopwords(RSIndexOptions* opts, const char **stopwords, int stopwordsLen) {
-  if (stopwordsLen < 0) {
-    return;
-  }
-  
-  opts->stopwordsLen = stopwordsLen;
-  if (stopwordsLen == 0) {
-    return;
+  if (opts->stopwordsLen > 0) {
+    for (int i = 0; i < opts->stopwordsLen; i++) {
+      rm_free(opts->stopwords[i]);
+    }
+    rm_free(opts->stopwords);
   }
 
-  opts->stopwords = rm_malloc(sizeof(*opts->stopwords) * stopwordsLen);
-  for (int i = 0; i < stopwordsLen; i++) {
-    opts->stopwords[i] = rm_strdup(stopwords[i]);
+  opts->stopwords = NULL;
+
+  if (stopwordsLen > 0) {
+    opts->stopwords = rm_malloc(sizeof(*opts->stopwords) * stopwordsLen);
+    for (int i = 0; i < stopwordsLen; i++) {
+      opts->stopwords[i] = rm_strdup(stopwords[i]);
+    }
   }
+  opts->stopwordsLen = stopwordsLen;
 }
 
 void RediSearch_IndexOptionsSetFlags(RSIndexOptions* options, uint32_t flags) {
