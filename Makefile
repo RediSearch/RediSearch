@@ -236,7 +236,9 @@ ifneq ($(REMOTE),)
 	BENCHMARK_ARGS = redisbench-admin run-remote 
 endif
 
-BENCHMARK_ARGS += --module_path $(realpath $(TARGET))
+BENCHMARK_ARGS += --module_path $(realpath $(TARGET)) \
+	--required-module search
+
 ifneq ($(BENCHMARK),)
 	BENCHMARK_ARGS += --test $(BENCHMARK)
 endif
