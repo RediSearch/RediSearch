@@ -165,6 +165,14 @@ def testNoContent(env):
     env.expect('ft.search', 'idx', 're*', 'NOCONTENT').equal([0L])
     env.expect('ft.search', 'idx', 'ri*', 'NOCONTENT').equal([1L, 'doc:1'])
 
+
+def testDocNoFullSchema(env):
+    # Test NOCONTENT
+    env.cmd('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.t1', 'TEXT', '$.t2', 'TEXT')
+    env.cmd('JSON.SET', 'doc:1', '$', r'{"t1":"riceratops"}')
+    env.expect('ft.search', 'idx', 're*', 'NOCONTENT').equal([0L])
+    env.expect('ft.search', 'idx', 'ri*', 'NOCONTENT').equal([1L, 'doc:1'])
+
 def testReturnRoot(env):
     # Test NOCONTENT
     env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT')
@@ -365,11 +373,11 @@ def testDemo(env):
     info = env.cmd('FT.INFO airports')
     env.assertEqual(slice_at(info, 'index_name')[0], 'airports')
     env.assertEqual(slice_at(slice_at(info, 'index_definition')[0], 'key_type')[0], 'JSON')
-    env.assertEqual(slice_at(info, 'fields')[0],
-                             [['iata', 'type', 'TAG', 'SEPARATOR', ',', 'SORTABLE'],
-                              ['iata_txt', 'type', 'TEXT', 'WEIGHT', '1', 'NOSTEM'],
-                              ['name', 'type', 'TEXT', 'WEIGHT', '1', 'NOSTEM'],
-                              ['location', 'type', 'GEO']])
+    env.assertEqual(slice_at(info, 'attributes')[0],
+        [['identifier', '$.iata', 'attribute', 'iata', 'type', 'TAG', 'SEPARATOR', ',', 'SORTABLE'],
+         ['identifier', '$.iata', 'attribute', 'iata_txt', 'type', 'TEXT', 'WEIGHT', '1', 'NOSTEM'],
+         ['identifier', '$.name', 'attribute', 'name', 'type', 'TEXT', 'WEIGHT', '1', 'NOSTEM'],
+         ['identifier', '$.location', 'attribute', 'location', 'type', 'GEO']])
     env.assertEqual(int(slice_at(info, 'num_docs')[0]), 2)
 
     env.expect('FT.SEARCH', 'airports', 'TLV').equal(tlv_doc)
