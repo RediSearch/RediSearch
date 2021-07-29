@@ -26,7 +26,7 @@ FT.CREATE ... SCHEMA ... {field_name} TAG [SEPARATOR {sep}] [CASESENSITIVE]
 
 SEPARATOR defaults to a comma (`,`), and can be any printable ASCII character. For example:
 
-CASESENSITIVE can be specified to keep the original letter case.
+CASESENSITIVE can be specified to keep the original letters case.
 
 ```
 FT.CREATE idx ON HASH PREFIX 1 test: SCHEMA tags TAG SEPARATOR ";"
