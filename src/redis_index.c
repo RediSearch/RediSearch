@@ -469,9 +469,12 @@ int Redis_DeleteKeyC(RedisModuleCtx *ctx, char *cstr) {
   } else {
     rep = RedisModule_Call(ctx, "DEL", "c", cstr);
   }
-  RedisModule_Assert(RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_INTEGER);
-  long long res = RedisModule_CallReplyInteger(rep);
-  RedisModule_FreeCallReply(rep);
+  long long res = 0;
+  if (rep) {
+    RedisModule_Assert(RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_INTEGER);
+    res = RedisModule_CallReplyInteger(rep);
+    RedisModule_FreeCallReply(rep);
+  }
   return res;
 }
 
