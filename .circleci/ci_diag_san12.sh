@@ -73,4 +73,4 @@ make SAN=$JSON_SAN_MODE
 export REJSON_PATH=$ROOT/deps/RedisJSON/target/x86_64-unknown-linux-gnu/debug/rejson.so
 export SANITIZER=1
 
-COMPAT_DIR="$ROOT/build-${mode}" make -C $ROOT test CTEST_ARGS="--output-on-failure" -j$CI_CONCURRENCY
+COMPAT_DIR="$ROOT/build-${mode}" make -C $ROOT test CTEST_ARGS="--output-on-failure" CTEST_PARALLEL="$CI_CONCURRENCY"
