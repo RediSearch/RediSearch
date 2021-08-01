@@ -476,6 +476,7 @@ FIELD_PREPROCESSOR(vectorPreprocessor) {
   size_t len;
   fdata->vector = RedisModule_StringPtrLen(field->text, &len);
   fdata->vecLen = len;
+  aCtx->fwIdx->maxFreq++;
   return 0;
 }
 

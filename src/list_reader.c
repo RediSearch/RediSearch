@@ -117,7 +117,7 @@ IndexIterator *NewListIterator(void *list, size_t len) {
   ri->Abort = LR_Abort;
   ri->Rewind = LR_Rewind;
   ri->HasNext = LR_HasNext;
-  ri->current = NewNumericResult();
+  ri->current = NewDistanceResult();
 
   return ri;
 }

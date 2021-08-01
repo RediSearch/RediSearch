@@ -17,9 +17,9 @@ def test_1st(env):
     conn.execute_command('HSET', 'c', 'v', 'aacdefgh')
     conn.execute_command('HSET', 'd', 'v', 'abbdefgh')
 
-    res = [4L, 'a', ['v', 'abcdefgh'], 'b', ['v', 'abcdefgg'],
-               'c', ['v', 'aacdefgh'], 'd', ['v', 'abbdefgh']]
-    env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 4]').equal(res)
+    res = [4L, 'a', ['v', 'abcdefgh'], 'c', ['v', 'aacdefgh'],
+               'b', ['v', 'abcdefgg'], 'd', ['v', 'abbdefgh']]
+    env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 4]', 'SORTBY', 'v', 'ASC').equal(res)
 
     message = 'abcdefgh'
     env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 1]').equal([1L, 'a', ['v', 'abcdefgh']])
@@ -87,15 +87,22 @@ def testDel(env):
     env.expect('FT.SEARCH', 'idx', '@v:[aacdefgh TOPK 1]').equal([1L, 'c', ['v', 'aacdefgh']])
     env.expect('FT.SEARCH', 'idx', '@v:[azcdefgh TOPK 1]').equal([1L, 'd', ['v', 'azcdefgh']])
 
-    env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 1]').equal([1L, 'a', ['v', 'abcdefgh']])
-    env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 2]').equal([2L, 'a', ['v', 'abcdefgh'], 'c', ['v', 'aacdefgh']])
-    env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 3]').equal([3L, 'a', ['v', 'abcdefgh'], 'c', ['v', 'aacdefgh'], 'd', ['v', 'azcdefgh']])
-    env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 4]').equal([4L, 'a', ['v', 'abcdefgh'], 'b', ['v', 'abcdefgg'], 'c', ['v', 'aacdefgh'], 'd', ['v', 'azcdefgh']])
+    env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 1]', 'SORTBY', 'v', 'ASC')   \
+        .equal([1L, 'a', ['v', 'abcdefgh']])
+    env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 2]', 'SORTBY', 'v', 'ASC')   \
+        .equal([2L, 'a', ['v', 'abcdefgh'], 'c', ['v', 'aacdefgh']])
+    env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 3]', 'SORTBY', 'v', 'ASC')   \
+        .equal([3L, 'a', ['v', 'abcdefgh'], 'c', ['v', 'aacdefgh'], 'd', ['v', 'azcdefgh']])
+    env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 4]', 'SORTBY', 'v', 'ASC')   \
+        .equal([4L, 'a', ['v', 'abcdefgh'], 'c', ['v', 'aacdefgh'], 'd', ['v', 'azcdefgh'], 'b', ['v', 'abcdefgg']])
     env.expect('DEL', 'a').equal(1)
     
-    env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 1]').equal([1L, 'c', ['v', 'aacdefgh']])
-    env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 2]').equal([2L, 'c', ['v', 'aacdefgh'], 'd', ['v', 'azcdefgh']])
-    env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 3]').equal([3L, 'b', ['v', 'abcdefgg'], 'c', ['v', 'aacdefgh'], 'd', ['v', 'azcdefgh']])
+    env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 1]', 'SORTBY', 'v', 'ASC')    \
+        .equal([1L, 'c', ['v', 'aacdefgh']])
+    env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 2]', 'SORTBY', 'v', 'ASC')    \
+        .equal([2L, 'c', ['v', 'aacdefgh'], 'd', ['v', 'azcdefgh']])
+    env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 3]', 'SORTBY', 'v', 'ASC')    \
+        .equal([3L, 'c', ['v', 'aacdefgh'], 'd', ['v', 'azcdefgh'], 'b', ['v', 'abcdefgg']])
 
     '''
     This test returns 4 results instead of the expected 3. The HNSW library return the additional results.
@@ -166,7 +173,7 @@ def load_vectors_to_redis(env, n_vec, query_vec_index, vec_size):
 def query_vector(env, idx, query_vec):
     base64_vector = base64.b64encode(query_vec).decode('ascii')
     base64_vector_escaped = base64_vector.replace("=", r"\=").replace("/", r"\/").replace("+", r"\+")
-    return env.cmd('FT.SEARCH', idx, '@vector:[' + base64_vector_escaped + ' RANGE 5]', 'NOCONTENT')
+    return env.cmd('FT.SEARCH', idx, '@vector:[' + base64_vector_escaped + ' RANGE 5]', 'SORTBY', 'vector', 'ASC', 'NOCONTENT', 'WITHSCORES')
 
 def testDelReuseDvir(env):
     conn = getConnectionByEnv(env)
@@ -181,8 +188,8 @@ def testDelReuseDvir(env):
     for _ in range(3):
         query_vec = load_vectors_to_redis(env, n_vec, query_vec_index, vec_size)
         res = query_vector(env, INDEX_NAME, query_vec)
-        env.assertEqual(res, [5L, '0', '1', '2', '3', '4'])
-        #print (env.cmd('FT.INFO', INDEX_NAME))
+        for i in range(4):
+            env.assertLessEqual(res[2 + i * 2], res[2 + (i + 1) * 2])
 
 def test_create(env):
     conn = getConnectionByEnv(env)
