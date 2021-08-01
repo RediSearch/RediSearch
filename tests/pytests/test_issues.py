@@ -245,7 +245,11 @@ def testMemAllocated(env):
   assertInfoField(env, 'idx1', 'key_table_size_mb', '2.765655517578125e-05')
   conn.execute_command('HSET', 'doc2', 't', 'hello world')
   assertInfoField(env, 'idx1', 'key_table_size_mb', '5.53131103515625e-05')
+  conn.execute_command('HSET', 'doc3', 't', 'help')
+  assertInfoField(env, 'idx1', 'key_table_size_mb', '8.296966552734375e-05')
 
+  conn.execute_command('DEL', 'doc3')
+  assertInfoField(env, 'idx1', 'key_table_size_mb', '5.53131103515625e-05')
   conn.execute_command('DEL', 'doc2')
   assertInfoField(env, 'idx1', 'key_table_size_mb', '2.765655517578125e-05')
   conn.execute_command('DEL', 'doc1')
@@ -253,11 +257,11 @@ def testMemAllocated(env):
 
   # mass
   conn.execute_command('FT.CREATE', 'idx2', 'SCHEMA', 't', 'TEXT')
-  for i in range(100):
+  for i in range(1000):
     conn.execute_command('HSET', 'doc%d' % i, 't', 'text%d' % i)
-  assertInfoField(env, 'idx2', 'key_table_size_mb', '0.002765655517578125')
+  assertInfoField(env, 'idx2', 'key_table_size_mb', '0.02765655517578125')
 
-  for i in range(100):
+  for i in range(1000):
     conn.execute_command('DEL', 'doc%d' % i)
   assertInfoField(env, 'idx2', 'key_table_size_mb', '0')
   

@@ -45,7 +45,8 @@ typedef struct {
 
 typedef struct {
   TrieMapNode *root;
-  size_t cardinality;
+  size_t cardinality : 32;  // number of terms
+  size_t size : 32;         // number of nodes
 } TrieMap;
 
 TrieMap *NewTrieMap();

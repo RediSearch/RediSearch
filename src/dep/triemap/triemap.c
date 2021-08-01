@@ -100,6 +100,7 @@ TrieMapNode *__trieMapNode_Split(TrieMapNode *n, tm_len_t offset) {
 
 int TrieMapNode_Add(TrieMapNode **np, char *str, tm_len_t len, void *value, TrieMapReplaceFunc cb) {
   TrieMapNode *n = *np;
+  int rv = 0;
 
   tm_len_t offset = 0;
   for (; offset < len && offset < n->len; offset++) {
@@ -114,6 +115,7 @@ int TrieMapNode_Add(TrieMapNode **np, char *str, tm_len_t len, void *value, Trie
     // 2. a child representing the old node's suffix from the diverted offset
     // and the old children
     n = __trieMapNode_Split(n, offset);
+    rv++;
 
     // the new string matches the split node exactly!
     // we simply turn the split node, which is now non terminal, into a
@@ -124,9 +126,10 @@ int TrieMapNode_Add(TrieMapNode **np, char *str, tm_len_t len, void *value, Trie
     } else {
       // we add a child
       n = __trieMapNode_AddChild(n, str, offset, len, value);
+      rv++;
     }
     *np = n;
-    return 1;
+    return rv;
   }
 
   // we're inserting in an existing node - just replace the value
@@ -151,7 +154,8 @@ int TrieMapNode_Add(TrieMapNode **np, char *str, tm_len_t len, void *value, Trie
     *np = n;
     // if the node existed - we return 0, otherwise return 1 as it's a new
     // node
-    return (term && !deleted) ? 0 : 1;
+    rv += !(term && !deleted);
+    return rv;
   }
 
   // proceed to the next child or add a new child for the current char
@@ -159,22 +163,24 @@ int TrieMapNode_Add(TrieMapNode **np, char *str, tm_len_t len, void *value, Trie
     TrieMapNode *child = __trieMapNode_children(n)[i];
 
     if (str[offset] == child->str[0]) {
-      int rc = TrieMapNode_Add(&child, str + offset, len - offset, value, cb);
+      rv = TrieMapNode_Add(&child, str + offset, len - offset, value, cb);
       __trieMapNode_children(n)[i] = child;
       //      *__trieMapNode_childKey(n, i) = child->str[0];
 
-      return rc;
+      return rv;
     }
   }
 
   *np = __trieMapNode_AddChild(n, str, offset, len, value);
-  return 1;
+  return ++rv;
 }
 
 int TrieMap_Add(TrieMap *t, char *str, tm_len_t len, void *value, TrieMapReplaceFunc cb) {
   int rc = TrieMapNode_Add(&t->root, str, len, value, cb);
-  t->cardinality += rc;
-  return rc;
+  t->size += rc;
+  int added = !!rc;
+  t->cardinality += added;
+  return added;
 }
 
 // comparator for node sorting by child max score
@@ -413,7 +419,8 @@ TrieMapNode *__trieMapNode_MergeWithSingleChild(TrieMapNode *n) {
  *   1. If a child should be deleted - delete it and reduce the child count
  *   2. If a child has a single child - merge them
  */
-void __trieMapNode_optimizeChildren(TrieMapNode *n, void (*freeCB)(void *)) {
+int __trieMapNode_optimizeChildren(TrieMapNode *n, void (*freeCB)(void *)) {
+  int rc = 0;
   int i = 0;
   TrieMapNode **nodes = __trieMapNode_children(n);
   // free deleted terminal nodes
@@ -435,16 +442,18 @@ void __trieMapNode_optimizeChildren(TrieMapNode *n, void (*freeCB)(void *)) {
 
       n->numChildren--;
       memmove(((char *)nodes) - 1, (char *)nodes, sizeof(TrieMapNode *) * n->numChildren);
-
+      rc++;
     } else {
       // this node is ok!
       // if needed - merge this node with it its single child
       if (nodes[i] && nodes[i]->numChildren == 1) {
         nodes[i] = __trieMapNode_MergeWithSingleChild(nodes[i]);
+        rc++;
       }
     }
     i++;
   }
+  return rc;
 }
 
 int TrieMapNode_Delete(TrieMapNode *n, char *str, tm_len_t len, void (*freeCB)(void *)) {
@@ -483,7 +492,7 @@ int TrieMapNode_Delete(TrieMapNode *n, char *str, tm_len_t len, void (*freeCB)(v
             n->value = NULL;
           }
 
-          rc = 1;
+          rc++;
         }
         goto end;
       }
@@ -510,7 +519,7 @@ int TrieMapNode_Delete(TrieMapNode *n, char *str, tm_len_t len, void (*freeCB)(v
 end:
 
   while (stackPos--) {
-    __trieMapNode_optimizeChildren(stack[stackPos], freeCB);
+    rc += __trieMapNode_optimizeChildren(stack[stackPos], freeCB);
   }
   rm_free(stack);
   return rc;
@@ -518,8 +527,10 @@ end:
 
 int TrieMap_Delete(TrieMap *t, char *str, tm_len_t len, void (*freeCB)(void *)) {
   int rc = TrieMapNode_Delete(t->root, str, len, freeCB);
-  t->cardinality -= rc;
-  return rc;
+  t->size -= rc;
+  int deleted = !!rc;
+  t->cardinality -= deleted;
+  return deleted;
 }
 
 size_t TrieMap_MemUsage(TrieMap *t) {
