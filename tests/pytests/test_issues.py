@@ -1,4 +1,4 @@
-from common import getConnectionByEnv, waitForIndex, sortedResults, toSortedFlatList
+from common import *
 
 def test_1282(env):
   env.expect('FT.CREATE idx ON HASH SCHEMA txt1 TEXT').equal('OK')
@@ -236,3 +236,28 @@ def test_MOD1266(env):
   env.expect('FT.SEARCH', 'jsonidx', 'redis').equal([1L, '1', ['$', '{"t":"Redis"}']])
   conn.execute_command('JSON.SET', '1', '$.t', r'{"inner_t":"Redis"}')
   env.expect('FT.SEARCH', 'jsonidx', '*').equal([0L])
+
+def testMemAllocated(env):
+  conn = getConnectionByEnv(env)
+  # sanity
+  conn.execute_command('FT.CREATE', 'idx1', 'SCHEMA', 't', 'TEXT')
+  conn.execute_command('HSET', 'doc1', 't', 'foo bar baz')
+  assertInfoField(env, 'idx1', 'key_table_size_mb', '2.765655517578125e-05')
+  conn.execute_command('HSET', 'doc2', 't', 'hello world')
+  assertInfoField(env, 'idx1', 'key_table_size_mb', '5.53131103515625e-05')
+
+  conn.execute_command('DEL', 'doc2')
+  assertInfoField(env, 'idx1', 'key_table_size_mb', '2.765655517578125e-05')
+  conn.execute_command('DEL', 'doc1')
+  assertInfoField(env, 'idx1', 'key_table_size_mb', '0')
+
+  # mass
+  conn.execute_command('FT.CREATE', 'idx2', 'SCHEMA', 't', 'TEXT')
+  for i in range(100):
+    conn.execute_command('HSET', 'doc%d' % i, 't', 'text%d' % i)
+  assertInfoField(env, 'idx2', 'key_table_size_mb', '0.002765655517578125')
+
+  for i in range(100):
+    conn.execute_command('DEL', 'doc%d' % i)
+  assertInfoField(env, 'idx2', 'key_table_size_mb', '0')
+  

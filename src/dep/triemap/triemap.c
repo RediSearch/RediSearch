@@ -522,17 +522,11 @@ int TrieMap_Delete(TrieMap *t, char *str, tm_len_t len, void (*freeCB)(void *)) 
   return rc;
 }
 
-size_t TrieMapNode_MemUsage(TrieMapNode *n) {
-  size_t ret = __trieMapNode_Sizeof(n->numChildren, n->len);
-  for (tm_len_t i = 0; i < n->numChildren; i++) {
-    TrieMapNode *child = __trieMapNode_children(n)[i];
-    ret += TrieMapNode_MemUsage(child);
-  }
-  return ret;
-}
-
 size_t TrieMap_MemUsage(TrieMap *t) {
-  return TrieMapNode_MemUsage(t->root);
+  return t->cardinality * (sizeof(TrieMapNode) +    // size of struct
+                           sizeof(TrieMapNode *) +  // size of ptr to struct in parent node
+                           1 +                      // char key to children in parent node
+                           sizeof(char *));         // == 8, string size rounded up to 8 bits due to padding
 }
 
 void TrieMapNode_Free(TrieMapNode *n, void (*freeCB)(void *)) {
