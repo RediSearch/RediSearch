@@ -192,6 +192,12 @@ ResultProcessor *RPIndexIterator_New(IndexIterator *itr, struct timespec timeout
 ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
                               const ScoringFunctionArgs *fnargs);
 
+typedef enum {
+  SORTBY_FIELD,
+  SORTBY_SCORE,
+  SORTBY_DISTANCE,
+} SortByType;
+
 /** Functions abstracting the sortmap. Hides the bitwise logic */
 #define SORTASCMAP_INIT 0xFFFFFFFFFFFFFFFF
 #define SORTASCMAP_MAXFIELDS 8
@@ -201,7 +207,7 @@ ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
 void SortAscMap_Dump(uint64_t v, size_t n);
 
 ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys, size_t nkeys,
-                                      uint64_t ascendingMap);
+                                      uint64_t ascendingMap, SortByType sortByType);
 
 ResultProcessor *RPSorter_NewByScore(size_t maxresults);
 
