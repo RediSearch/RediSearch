@@ -17,7 +17,7 @@
        [PAYLOAD_FIELD {payload_field}]
     [MAXTEXTFIELDS] [TEMPORARY {seconds}] [NOOFFSETS] [NOHL] [NOFIELDS] [NOFREQS] [SKIPINITIALSCAN]
     [STOPWORDS {num} {stopword} ...]
-    SCHEMA {identifier} [AS {attribute}] [TEXT [NOSTEM] [WEIGHT {weight}] [PHONETIC {matcher}] | NUMERIC | GEO | TAG [SEPARATOR {sep}] [CASESENSITIVE] [SORTABLE] [NOINDEX]] ...
+    SCHEMA {field} [TEXT [NOSTEM] [WEIGHT {weight}] [PHONETIC {matcher}] | NUMERIC | GEO | TAG [SEPARATOR {sep}] [CASESENSITIVE] [SORTABLE] [NOINDEX]] ...
 ```
 
 #### Description
@@ -205,6 +205,9 @@ FT.CREATE books-idx ON HASH PREFIX 1 book:details FILTER SCHEMA title TEXT categ
         must be a single character.
 
     * **CASESENSITIVE**
+        
+        For `TAG` attributes, keeps the original letter cases of the tags.
+        If not specified, the characters are converted to lowercase.
 
 #### Complexity
 O(1)
