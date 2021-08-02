@@ -56,6 +56,7 @@ TrieMapNode *__newTrieMapNode(char *str, tm_len_t offset, tm_len_t len, tm_len_t
 
 TrieMap *NewTrieMap() {
   TrieMap *tm = rm_malloc(sizeof(TrieMap));
+  tm->size = 0;
   tm->cardinality = 0;
   tm->root = __newTrieMapNode((char *)"", 0, 0, 0, NULL, 0);
   return tm;
@@ -491,8 +492,6 @@ int TrieMapNode_Delete(TrieMapNode *n, char *str, tm_len_t len, void (*freeCB)(v
             }
             n->value = NULL;
           }
-
-          rc++;
         }
         goto end;
       }
@@ -534,10 +533,10 @@ int TrieMap_Delete(TrieMap *t, char *str, tm_len_t len, void (*freeCB)(void *)) 
 }
 
 size_t TrieMap_MemUsage(TrieMap *t) {
-  return t->cardinality * (sizeof(TrieMapNode) +    // size of struct
-                           sizeof(TrieMapNode *) +  // size of ptr to struct in parent node
-                           1 +                      // char key to children in parent node
-                           sizeof(char *));         // == 8, string size rounded up to 8 bits due to padding
+  return t->size * (sizeof(TrieMapNode) +    // size of struct
+                    sizeof(TrieMapNode *) +  // size of ptr to struct in parent node
+                    1 +                      // char key to children in parent node
+                    sizeof(char *));         // == 8, string size rounded up to 8 bits due to padding
 }
 
 void TrieMapNode_Free(TrieMapNode *n, void (*freeCB)(void *)) {
