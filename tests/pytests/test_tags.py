@@ -183,11 +183,11 @@ def testTagCaseSensitive(env):
     env.expect('FT.DEBUG', 'dump_tagidx', 'idx4', 't').equal([['foo', [3L]], ['foo,FOO', [1L]], ['FOO', [2L]]])
     env.expect('FT.DEBUG', 'dump_tagidx', 'idx5', 't').equal([['foo', [3L]], ['foo,FOO', [1L]], ['FOO', [2L]]])
 
-    env.expect('FT.SEARCH', 'idx1', '@t:{FOO}')         \
-        .equal([3L, 'doc1', ['t', 'foo,FOO'], 'doc2', ['t', 'FOO'], 'doc3', ['t', 'foo']])
-    env.expect('FT.SEARCH', 'idx1', '@t:{foo}')         \
-        .equal([3L, 'doc1', ['t', 'foo,FOO'], 'doc2', ['t', 'FOO'], 'doc3', ['t', 'foo']])
-    env.expect('FT.SEARCH', 'idx2', '@t:{FOO}')         \
-        .equal([2L, 'doc1', ['t', 'foo,FOO'], 'doc2', ['t', 'FOO']])
-    env.expect('FT.SEARCH', 'idx2', '@t:{foo}')         \
-        .equal([2L, 'doc1', ['t', 'foo,FOO'], 'doc3', ['t', 'foo']]) 
+    env.expect('FT.SEARCH', 'idx1', '@t:{FOO}', 'SORTBY', 't')         \
+        .equal([3L, 'doc2', ['t', 'FOO'], 'doc3', ['t', 'foo'], 'doc1', ['t', 'foo,FOO']])
+    env.expect('FT.SEARCH', 'idx1', '@t:{foo}', 'SORTBY', 't')         \
+        .equal([3L, 'doc2', ['t', 'FOO'], 'doc3', ['t', 'foo'], 'doc1', ['t', 'foo,FOO']])
+    env.expect('FT.SEARCH', 'idx2', '@t:{FOO}', 'SORTBY', 't')         \
+        .equal([2L, 'doc2', ['t', 'FOO'], 'doc1', ['t', 'foo,FOO']])
+    env.expect('FT.SEARCH', 'idx2', '@t:{foo}', 'SORTBY', 't')         \
+        .equal([2L, 'doc3', ['t', 'foo'], 'doc1', ['t', 'foo,FOO']]) 
