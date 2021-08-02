@@ -76,7 +76,7 @@ IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorFilter *vf) {
         // TODO: check outLen == expected len.
         unescape((char *)vector, strlen((char *)vector));
       }
-      vf->results = VecSimIndex_TopKQuery(vecsim, vector, vf->value);
+      vf->results = VecSimIndex_TopKQueryByID(vecsim, vector, vf->value, NULL);
       if (vf->isBase64) {
         rm_free(vector);
       }
