@@ -34,6 +34,7 @@ def test_1st(env):
     # RANGE uses topk but translate to base64 before
     env.expect('FT.SEARCH', 'idx', '@v:[' + base64_message +' RANGE 1]').equal([1L, 'a', ['v', 'abcdefgh']])
     env.expect('FT.SEARCH', 'idx', '@v:[' + base64_message +' TOPK 1] => {$base64:true}').equal([1L, 'a', ['v', 'abcdefgh']])
+    env.expect('FT.SEARCH', 'idx', '@v:[' + base64_message +' TOPK 1] => { $base64:true; $efRuntime:100}').equal([1L, 'a', ['v', 'abcdefgh']])
 
     #####################
     ## another example ##

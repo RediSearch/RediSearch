@@ -59,7 +59,7 @@ void ListIterator_Free(struct indexIterator *self) {
 
   IndexResult_Free(it->base.current);
   if (it->list) {
-    //rm_free(it->list);
+    VecSimQueryResult_Free(it->list);
   }
   rm_free(it);
 }

@@ -374,7 +374,7 @@ static int parseVectorField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
   if (!strncasecmp(VECSIM_ALGORITHM_BF, algStr, len)) 
     fs->vecSimParams.algo = VecSimAlgo_BF;
   else if (!strncasecmp(VECSIM_ALGORITHM_HNSW, algStr, len)) 
-    fs->vecSimParams.algo = VecSimAlgo_HNSW;
+    fs->vecSimParams.algo = VecSimAlgo_HNSWLIB;
   else {
     QERR_MKBADARGS_AC(status, "vecsim algorithm", AC_ERR_PARSE);
     return 0;
@@ -397,7 +397,7 @@ static int parseVectorField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
       fs->vecSimParams.hnswParams.initialCapacity = initialCap;
   }
 
-  if (fs->vecSimParams.algo == VecSimAlgo_HNSW) {
+  if (fs->vecSimParams.algo == VecSimAlgo_HNSWLIB) {
     while (!AC_IsAtEnd(ac)) {
       if (AC_AdvanceIfMatch(ac, VECSIM_M)) {
         if ((rc = AC_GetSize(ac, &fs->vecSimParams.hnswParams.M, 0)) != AC_OK) {
