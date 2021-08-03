@@ -1,4 +1,5 @@
 #pragma once
+#include "redismodule.h"
 
 void Backup_Globals();
 void Restore_Globals();
@@ -14,6 +15,7 @@ do {                                                                \
   if (RedisModule_IsIOError(rdb)) {                                 \
     cleanup_exp;                                                    \
   }                                                                 \
+  RedisModule_Assert(oldbuf);                                       \
   ptr = rm_malloc(*tmp_len_ptr);                                    \
   memcpy(ptr, oldbuf, *tmp_len_ptr);                                \
   RedisModule_Free(oldbuf);                                         \
