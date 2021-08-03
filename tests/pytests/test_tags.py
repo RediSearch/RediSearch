@@ -65,6 +65,7 @@ def testSeparator(env):
             env.assertEqual(1, res[0])
 
 def testTagPrefix(env):
+    env.skipOnCluster()
     r = env
     env.assertOk(r.execute_command(
         'ft.create', 'idx', 'ON', 'HASH',
