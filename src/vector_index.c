@@ -77,9 +77,7 @@ IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorFilter *vf) {
         unescape((char *)vector, strlen((char *)vector));
       }
       
-      VecSimQueryParams qParams;
-      qParams.hnswRuntimeParams.efRuntime = vf->efRuntime ? vf->efRuntime :
-                                                            HNSW_DEFAULT_EF_RT;
+      VecSimQueryParams qParams = {.hnswRuntimeParams.efRuntime = vf->efRuntime};
       vf->results = VecSimIndex_TopKQueryByID(vecsim, vector, vf->value, &qParams);
       if (vf->isBase64) {
         rm_free(vector);
@@ -101,6 +99,7 @@ VectorFilter *NewVectorFilter(const void *vector, size_t len, char *type, double
   vf->vector = rm_malloc(len);
   memcpy(vf->vector, vector, len);
   vf->vecLen = len;
+  vf->efRuntime = HNSW_DEFAULT_EF_RT;
 
   if (!strncasecmp(type, "TOPK", strlen("TOPK"))) {
     vf->type = VECTOR_TOPK;
@@ -108,7 +107,7 @@ VectorFilter *NewVectorFilter(const void *vector, size_t len, char *type, double
     vf->type = VECTOR_TOPK;
     vf->isBase64 = true;
   } else {
-    rm_free(vf);
+    VectorFilter_Free(vf);
     return NULL;
   }
 
