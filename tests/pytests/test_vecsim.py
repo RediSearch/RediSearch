@@ -50,7 +50,7 @@ def test_1st(env):
     #print base64_bytes
     #print base64_message
 
-def test_escape(env):
+def testEscape(env):
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE idx SCHEMA v VECTOR INT32 2 L2 HNSW').ok()
     conn.execute_command('HSET', 'a', 'v', '////////')
@@ -110,7 +110,7 @@ def testDel(env):
     env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 4]').equal([3L, 'b', ['v', 'abcdefgg'], 'c', ['v', 'aacdefgh'], 'd', ['v', 'azcdefgh']])
     '''
 
-def test_query_empty(env):
+def testQueryEmpty(env):
     env.skip()
     conn = getConnectionByEnv(env)
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'INT32', '2', 'L2', 'HNSW')
@@ -120,7 +120,7 @@ def test_query_empty(env):
     conn.execute_command('DEL', 'a')
     env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 1]').equal([0L])
 
-def del_insert(env):
+def delInsert(env):
     conn = getConnectionByEnv(env)
 
     conn.execute_command('DEL', 'a')
@@ -192,14 +192,14 @@ def testDelReuseDvir(env):
         for i in range(4):
             env.assertLessEqual(res[2 + i * 2], res[2 + (i + 1) * 2])
 
-def test_create(env):
+def testCreate(env):
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE idx SCHEMA v VECTOR FLOAT32 16 L2 HNSW INITIAL_CAP 10 M 16 EF 200').ok()
     
     # test wrong query word
     env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh REDIS 4]').equal([0L])
 
-def test_with_weight(env):
+def testWithWeight(env):
     env.skip()
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE idx SCHEMA v VECTOR INT32 2 L2 HNSW').ok()
@@ -231,3 +231,19 @@ def test_with_weight(env):
 
     message = 'abcdefgh'
     env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 1]').equal([1L, 'a', ['v', 'abcdefgh']])
+
+def testReplaceVector(env):
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE idx SCHEMA v VECTOR FLOAT32 16 L2 HNSW INITIAL_CAP 10 M 16 EF 200').ok()
+    
+    conn.execute_command('HSET', 'a', 'v', 'aaaaaaaa')
+    conn.execute_command('HSET', 'b', 'v', 'bbbbbbbb')
+
+    # test with original vector
+    env.expect('FT.SEARCH', 'idx', '@v:[aaaaaaaa TOPK 1]')        \
+        .equal([1L, 'a', ['v', 'aaaaaaaa']])
+    # test with replacement vector
+    env.expect('FT.SEARCH', 'idx', '@v:[aaaaaaaa TOPK 1] => {$vector:bbbbbbbb}')        \
+        .equal([1L, 'b', ['v', 'bbbbbbbb']])
+    env.expect('FT.SEARCH', 'idx', '@v:[foo TOPK 1] => {$vector:bbbbbbbb}')        \
+        .equal([1L, 'b', ['v', 'bbbbbbbb']])

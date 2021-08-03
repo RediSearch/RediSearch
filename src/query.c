@@ -1219,6 +1219,18 @@ static int QueryNode_ApplyAttribute(QueryNode *qn, QueryAttribute *attr, QueryEr
     }
     qn->vn.vf->efRuntime = val;
 
+  } else if (STR_EQCASE(attr->name, attr->namelen, "vector")) {
+    if (qn->type != QN_VECTOR) {
+      QueryError_SetErrorFmt(status, QUERY_EGENERIC, "Attribute %s requires vector node",
+                             attr->name); 
+      return 0;
+    }
+    
+    // Replace query vector similarity
+    rm_free(qn->vn.vf->vector);
+    qn->vn.vf->vector = rm_strndup(attr->value, attr->vallen);
+    qn->vn.vf->vecLen = attr->vallen;
+
   } else {
     QueryError_SetErrorFmt(status, QUERY_ENOOPTION, "Invalid attribute %.*s", (int)attr->namelen,
                            attr->name);
