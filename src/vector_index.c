@@ -76,7 +76,11 @@ IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorFilter *vf) {
         // TODO: check outLen == expected len.
         unescape((char *)vector, strlen((char *)vector));
       }
-      vf->results = VecSimIndex_TopKQueryByID(vecsim, vector, vf->value, NULL);
+      
+      VecSimQueryParams qParams;
+      qParams.hnswRuntimeParams.efRuntime = vf->efRuntime ? vf->efRuntime :
+                                                            HNSW_DEFAULT_EF_RT;
+      vf->results = VecSimIndex_TopKQueryByID(vecsim, vector, vf->value, &qParams);
       if (vf->isBase64) {
         rm_free(vector);
       }

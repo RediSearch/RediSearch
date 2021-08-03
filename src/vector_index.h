@@ -27,7 +27,8 @@ typedef struct VectorFilter {
   void *vector;                   // vector data
   size_t vecLen;                  // vector length
   VectorQueryType type;           // TOPK or RANGE
-  bool isBase64;                   // uses base64 strings
+  bool isBase64;                  // uses base64 strings
+  long long efRuntime;            // efRuntime
   double value;                   // can hold int for TOPK or double for RANGE.
 
   VecSimQueryResult *results;     // array for K results
