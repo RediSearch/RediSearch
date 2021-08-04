@@ -1601,7 +1601,9 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
     char *s = LoadStringBuffer_IOError(rdb, &dummy, goto cleanup);
     int rc = IndexAlias_Add(s, sp, 0, &_status);
     RedisModule_Free(s);
-    RedisModule_Log(NULL, "notice", "Loading existing alias failed");
+    if (rc != REDISMODULE_OK) {
+      RedisModule_Log(NULL, "notice", "Loading existing alias failed");
+    }
   }
 
   sp->indexer = NewIndexer(sp);
@@ -1627,7 +1629,6 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
 
 cleanup:
   IndexSpec_Free(sp);
-  Indexes_Free(specDict_g);
   QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "while reading an index");
   return NULL;
 }

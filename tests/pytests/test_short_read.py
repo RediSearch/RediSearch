@@ -20,6 +20,7 @@ BASE_RDBS_URL = 'https://s3.amazonaws.com/redismodules/redisearch-enterprise/rdb
 
 IS_SANITIZER = int(os.getenv('SANITIZER', '0'))
 IS_CODE_COVERAGE = int(os.getenv('CODE_COVERAGE', '0'))
+SHORT_READ_BYTES_DELTA = int(os.getenv('SHORT_READ_BYTES_DELTA', '1'))
 
 RDBS_SHORT_READS = [
     'short-reads/redisearch_2.2.0.rdb.zip',
@@ -39,7 +40,7 @@ RDBS_EXPECTED_INDICES = [
 
 RDBS = []
 RDBS.extend(RDBS_SHORT_READS)
-if not IS_CODE_COVERAGE:
+if not IS_CODE_COVERAGE and not IS_SANITIZER:
     RDBS.extend(RDBS_COMPATIBILITY)
     RDBS_EXPECTED_INDICES.append(ExpectedIndex(1, 'idx', [1000]))
 
@@ -450,8 +451,10 @@ class Debug:
 
 
 def testShortReadSearch(env):
-    if IS_SANITIZER:
-        env.skip()  # Sanitizer is taking too long - should be done on a separate/dedicated test job
+
+    env.skipOnCluster()
+    if env.env.endswith('existing-env'):
+        env.skip()
 
     try:
         temp_dir = tempfile.mkdtemp(prefix="short-read_")
@@ -487,7 +490,12 @@ def sendShortReads(env, rdb_file, expected_index):
     with open(rdb_file, mode='rb') as f:
         full_rdb = f.read()
     total_len = len(full_rdb)
-    for b in range(0, total_len + 1):
+
+    env.assertGreater(total_len, SHORT_READ_BYTES_DELTA)
+    r = range(0, total_len + 1, SHORT_READ_BYTES_DELTA)
+    if (total_len % SHORT_READ_BYTES_DELTA) != 0:
+        r = r + range(total_len, total_len + 1)
+    for b in r:
         rdb = full_rdb[0:b]
         runShortRead(env, rdb, total_len, expected_index)
 

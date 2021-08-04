@@ -31,7 +31,7 @@ void Restore_Globals() {
   AliasTable_g_bkup = NULL;
 }
 
-void Discard_Globals() {
+void Discard_Globals_Backup() {
   Indexes_Free(specDict_g_bkup);
   specDict_g_bkup = NULL;
 

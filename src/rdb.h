@@ -3,7 +3,7 @@
 
 void Backup_Globals();
 void Restore_Globals();
-void Discard_Globals();
+void Discard_Globals_Backup();
 
 // For rdb short read
 

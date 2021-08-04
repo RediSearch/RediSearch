@@ -72,5 +72,6 @@ make nightly
 make SAN=$JSON_SAN_MODE
 export REJSON_PATH=$ROOT/deps/RedisJSON/target/x86_64-unknown-linux-gnu/debug/rejson.so
 export SANITIZER=1
+export SHORT_READ_BYTES_DELTA=512
 
 COMPAT_DIR="$ROOT/build-${mode}" make -C $ROOT test CTEST_ARGS="--output-on-failure" CTEST_PARALLEL="$CI_CONCURRENCY"

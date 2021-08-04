@@ -327,18 +327,11 @@ void ReplicaBackupCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t s
     Restore_Globals();
     break;
   case REDISMODULE_SUBEVENT_REPL_BACKUP_DISCARD:
-    Discard_Globals();
+    Discard_Globals_Backup();
     break;
   }
 }
 
-void LoadingCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
-
-  REDISMODULE_NOT_USED(eid);
-  if (subevent == REDISMODULE_SUBEVENT_LOADING_FAILED) {
-    Discard_Globals();
-  }
-}
 
 int CheckVersionForShortRead() {
   // Minial versions: 6.2.5 or 6.0.15
@@ -358,13 +351,13 @@ int CheckVersionForShortRead() {
 
 void Initialize_RdbNotifications(RedisModuleCtx *ctx) {
   int shouldEnableShortRead = CheckVersionForShortRead();
+  if (shouldEnableShortRead == REDISMODULE_OK || IsEnterprise()) {
+    // On Enterprise, Short Read is enabled, so need to subscribe
+    int success = RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ReplBackup, ReplicaBackupCallback);
+    RedisModule_Assert(success != REDISMODULE_ERR); // should be supported in this redis version/release
+  }
   if (shouldEnableShortRead == REDISMODULE_OK) {
     RedisModule_SetModuleOptions(ctx, REDISMODULE_OPTIONS_HANDLE_IO_ERRORS);
     RedisModule_Log(ctx, "notice", "Enabled diskless replication");
-  }
-  if (shouldEnableShortRead == REDISMODULE_OK || IsEnterprise()) {
-    // On Enterprise, Short Read is enabled, so need to subscribe
-    RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ReplBackup, ReplicaBackupCallback);
-    RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Loading, LoadingCallback);
   }
 }
