@@ -334,12 +334,11 @@ void ReplicaBackupCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t s
 
 
 int CheckVersionForShortRead() {
-  // Minial versions: 6.2.5 or 6.0.15
-  if (redisVersion.majorVersion == 6) {
-    if (redisVersion.minorVersion == 2)
+  // Minial versions: 6.2.5
+  // (6.0.15 is not supporting the required event notification for modules)
+  if (redisVersion.majorVersion == 6 &&
+      redisVersion.minorVersion == 2) {
       return redisVersion.patchVersion >= 5 ? REDISMODULE_OK : REDISMODULE_ERR;
-    else if (redisVersion.minorVersion == 0)
-      return redisVersion.patchVersion >= 15 ? REDISMODULE_OK : REDISMODULE_ERR;
   } else if (redisVersion.majorVersion == 255 &&
            redisVersion.minorVersion == 255 &&
            redisVersion.patchVersion == 255) {
