@@ -1747,8 +1747,6 @@ int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when) {
     return REDISMODULE_ERR;
   }
 
-  //FIXME: Keep current data in order to roll-back if current load fails
-
   size_t nIndexes = LoadUnsigned_IOError(rdb, goto cleanup);
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   QueryError status = {0};
@@ -1763,7 +1761,6 @@ int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when) {
   return REDISMODULE_OK;
 
 cleanup:
-  //FIXME: Cleanup and roll-back to previous data
   return REDISMODULE_ERR;
 }
 
