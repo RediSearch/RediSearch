@@ -3,16 +3,17 @@
 #include "dep/base64/base64.h"
 
 // taken from parser.c
-void unescape(char *s, size_t sz) {
+void unescape(char *s, size_t *sz) {
   
   char *dst = s;
   char *src = dst;
-  char *end = s + sz;
+  char *end = s + *sz;
   while (src < end) {
       // unescape 
       if (*src == '\\' && src + 1 < end &&
          (ispunct(*(src+1)) || isspace(*(src+1)))) {
           ++src;
+          --*sz;
           continue;
       }
       *dst++ = *src++;
@@ -72,9 +73,8 @@ IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorFilter *vf) {
   switch (vf->type) {
     case VECTOR_TOPK:
       if (vf->isBase64) {
-        vector = base64_decode(vf->vector, vf->vecLen, &outLen);
-        // TODO: check outLen == expected len.
-        unescape((char *)vector, strlen((char *)vector));
+        unescape((char *)vector, &vf->vecLen);
+        vector = base64_decode(vector, vf->vecLen, &outLen);
       }
       
       VecSimQueryParams qParams = {.hnswRuntimeParams.efRuntime = vf->efRuntime};
