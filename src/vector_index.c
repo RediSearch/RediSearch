@@ -18,8 +18,6 @@ void unescape(char *s, size_t *sz) {
       }
       *dst++ = *src++;
   }
- 
-  s[dst - s] = '\0';
 }
 
 static VecSimIndex *openVectorKeysDict(RedisSearchCtx *ctx, RedisModuleString *keyName,
