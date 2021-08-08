@@ -590,6 +590,8 @@ def test_NoSortableArray(env):
     env.expect('ft.debug', 'docinfo', 'idx', 'doc:2').equal(res)
 
 def test_WrongJsonType(env):
+    # test all possible errors in processing a field
+    # we test that all documents failed to index
     conn = getConnectionByEnv(env)
     wrong_types = ['object', 'array', 'null']
     conn.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', 
@@ -655,9 +657,9 @@ def test_WrongJsonType(env):
     env.assertEqual(int(res['hash_indexing_failures']), len(res['attributes']))
 
 def testTagNoSeparetor(env):
-    res = env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
-                                '$.tag1', 'AS', 'tag_list', 'TAG',
-                                '$.tag2[*]', 'AS', 'tag_array', 'TAG')
+    env.cmd('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
+                            '$.tag1', 'AS', 'tag_list', 'TAG',
+                            '$.tag2[*]', 'AS', 'tag_array', 'TAG')
     env.expect('JSON.SET', 'doc:1', '$', '{"tag1":"foo,bar,baz"}').ok()
     env.expect('JSON.SET', 'doc:2', '$', '{"tag2":["foo","bar,baz"]}').ok()
 
@@ -668,3 +670,11 @@ def testTagNoSeparetor(env):
 
     env.expect('FT.DEBUG', 'dump_tagidx', 'idx', 'tag_list').equal([['foo,bar,baz', [1L]]])
     env.expect('FT.DEBUG', 'dump_tagidx', 'idx', 'tag_array').equal([['foo', [2L]], ['bar,baz', [2L]]])
+
+def testMixedTagError(env):
+    env.cmd('FT.CREATE', 'idx1', 'ON', 'JSON', 'SCHEMA', '$.tag[*]', 'AS', 'tag', 'TAG')
+    #field has a combination of a single tag, array and object
+    env.expect('JSON.SET', 'doc1', '$', '{"tag":["good result",         \
+                                                ["bad result"],         \
+                                                {"another":"bad result"}]}').ok()
+    env.expect('FT.SEARCH', 'idx1', '*').equal([0L])
