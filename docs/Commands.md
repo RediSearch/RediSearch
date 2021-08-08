@@ -230,6 +230,9 @@ FT.CREATE idx ON JSON SCHEMA $.title AS title TEXT $.categories AS categories TA
         must be a single character.
 
     * **CASESENSITIVE**
+        
+        For `TAG` attributes, keeps the original letter cases of the tags.
+        If not specified, the characters are converted to lowercase.
 
 #### Complexity
 O(1)
