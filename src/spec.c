@@ -344,18 +344,24 @@ static int parseFieldSpec(ArgsCursor *ac, FieldSpec *fs, QueryError *status) {
     FieldSpec_Initialize(fs, INDEXFLD_T_GEO);
   } else if (AC_AdvanceIfMatch(ac, SPEC_TAG_STR)) {  // tag field
     FieldSpec_Initialize(fs, INDEXFLD_T_TAG);
-    if (AC_AdvanceIfMatch(ac, SPEC_SEPARATOR_STR)) {
-      if (AC_IsAtEnd(ac)) {
-        QueryError_SetError(status, QUERY_EPARSEARGS, SPEC_SEPARATOR_STR " requires an argument");
-        goto error;
+    while (!AC_IsAtEnd(ac)) {
+      if (AC_AdvanceIfMatch(ac, SPEC_TAG_SEPARATOR_STR)) {
+        if (AC_IsAtEnd(ac)) {
+          QueryError_SetError(status, QUERY_EPARSEARGS, SPEC_TAG_SEPARATOR_STR " requires an argument");
+          goto error;
+        }
+        const char *sep = AC_GetStringNC(ac, NULL);
+        if (strlen(sep) != 1) {
+          QueryError_SetErrorFmt(status, QUERY_EPARSEARGS,
+                                "Tag separator must be a single character. Got `%s`", sep);
+          goto error;
+        }
+        fs->tagSep = *sep;
+      } else if (AC_AdvanceIfMatch(ac, SPEC_TAG_CASE_SENSITIVE_STR)) {
+        fs->tagFlags |= TagField_CaseSensitive;
+      } else {
+        break;
       }
-      const char *sep = AC_GetStringNC(ac, NULL);
-      if (strlen(sep) != 1) {
-        QueryError_SetErrorFmt(status, QUERY_EPARSEARGS,
-                               "Tag separator must be a single character. Got `%s`", sep);
-        goto error;
-      }
-      fs->tagSep = *sep;
     }
   } else {  // not numeric and not text - nothing more supported currently
     QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Invalid field type for field `%s`", fs->name);
@@ -1859,6 +1865,9 @@ int IndexSpec_UpdateWithHash(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleSt
   Document_Init(&doc, key, 1.0, DEFAULT_LANGUAGE);
   // if a key does not exit, is not a hash or has no fields in index schema
   if (Document_LoadSchemaFields(&doc, &sctx) != REDISMODULE_OK) {
+    // if a document did not load properly, it is deleted
+    // to prevent mismatch of index and hash
+    DocTable_DeleteR(&spec->docs, key);
     IndexSpec_DeleteHash(spec, ctx, key);
     Document_Free(&doc);
     return REDISMODULE_ERR;
