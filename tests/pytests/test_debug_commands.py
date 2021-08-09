@@ -10,7 +10,7 @@ class TestDebugCommands(object):
         self.env.skipOnCluster()
         self.env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA',
                         'name', 'TEXT', 'SORTABLE',
-                        'age', 'NUMERIC', 'SORTABLE', 
+                        'age', 'NUMERIC', 'SORTABLE',
                         't', 'TAG', 'SORTABLE').ok()
         waitForIndex(self.env, 'idx')
         self.env.expect('FT.ADD', 'idx', 'doc1', '1.0', 'FIELDS', 'name', 'meir', 'age', '29', 't', 'test').ok()
@@ -38,7 +38,11 @@ class TestDebugCommands(object):
 
     def testDocInfo(self):
         rv = self.env.cmd('ft.debug', 'docinfo', 'idx', 'doc1')
-        self.env.assertEqual(['internal_id', 1L, 'flags', '(0xc):HasSortVector,HasOffsetVector,', 'score', '1', 'num_tokens', 1L, 'max_freq', 1L, 'refcount', 1L, 'sortables', [['index', 0L, 'field', 'name', 'value', 'meir'], ['index', 1L, 'field', 'age', 'value', '29'], ['index', 2L, 'field', 't', 'value', 'test']]], rv)
+        self.env.assertEqual(['internal_id', 1L, 'flags', '(0xc):HasSortVector,HasOffsetVector,',
+                              'score', '1', 'num_tokens', 1L, 'max_freq', 1L, 'refcount', 1L, 'sortables',
+                              [['index', 0L, 'field', 'name', 'value', 'meir'],
+                               ['index', 1L, 'field', 'age', 'value', '29'],
+                               ['index', 2L, 'field', 't', 'value', 'test']]], rv)
         self.env.expect('ft.debug', 'docinfo', 'idx').raiseError()
         self.env.expect('ft.debug', 'docinfo', 'idx', 'doc2').raiseError()
 
