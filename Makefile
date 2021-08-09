@@ -112,7 +112,7 @@ CMAKE_SAN += -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
 endif
 
 ifeq ($(PROFILE),1)
-CMAKE_SAN += -DPROFILE=ON
+CMAKE_PROFILE=-DPROFILE=ON
 endif
 
 ifeq ($(DEBUG),1)
@@ -159,7 +159,7 @@ CMAKE_FILES+= \
 	tests/c_utils/CMakeLists.txt
 endif
 
-CMAKE_FLAGS=$(CMAKE_ARGS) $(CMAKE_DEBUG) $(CMAKE_STATIC) $(CMAKE_SAN) $(CMAKE_TEST) $(CMAKE_WHY)
+CMAKE_FLAGS=$(CMAKE_ARGS) $(CMAKE_DEBUG) $(CMAKE_STATIC) $(CMAKE_SAN) $(CMAKE_TEST) $(CMAKE_WHY) $(CMAKE_PROFILE)
 
 #----------------------------------------------------------------------------------------------
 
