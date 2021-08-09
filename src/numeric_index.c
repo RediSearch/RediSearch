@@ -409,7 +409,7 @@ RedisModuleString *fmtRedisNumericIndexKey(RedisSearchCtx *ctx, const char *fiel
                                         field);
 }
 
-static NumericRangeTree *openNumericKeysDict(RedisSearchCtx *ctx, RedisModuleString *keyName,
+static NumericRangeTree *openNumericKeysDict(RedisSearchCtx *ctx, const char *keyName,
                                              int write) {
   KeysDictValue *kdv = dictFetchValue(ctx->spec->keysDict, keyName);
   if (kdv) {
@@ -421,29 +421,13 @@ static NumericRangeTree *openNumericKeysDict(RedisSearchCtx *ctx, RedisModuleStr
   kdv = rm_calloc(1, sizeof(*kdv));
   kdv->dtor = (void (*)(void *))NumericRangeTree_Free;
   kdv->p = NewNumericRangeTree();
-  dictAdd(ctx->spec->keysDict, keyName, kdv);
+  dictAdd(ctx->spec->keysDict, (void *)keyName, kdv);
   return kdv->p;
 }
 
 struct indexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const NumericFilter *flt,
                                                ConcurrentSearchCtx *csx, FieldType forType) {
-  RedisModuleString *s = IndexSpec_GetFormattedKeyByName(ctx->spec, flt->fieldName, forType);
-  if (!s) {
-    return NULL;
-  }
-  RedisModuleKey *key = NULL;
-  NumericRangeTree *t = NULL;
-  if (!ctx->spec->keysDict) {
-    key = RedisModule_OpenKey(ctx->redisCtx, s, REDISMODULE_READ);
-    if (!key || RedisModule_ModuleTypeGetType(key) != NumericIndexType) {
-      return NULL;
-    }
-
-    t = RedisModule_ModuleTypeGetValue(key);
-  } else {
-    t = openNumericKeysDict(ctx, s, 0);
-  }
-
+  NumericRangeTree *t = openNumericKeysDict(ctx, flt->fieldName, 0);
   if (!t) {
     return NULL;
   }
@@ -462,36 +446,9 @@ struct indexIterator *NewNumericFilterIterator(RedisSearchCtx *ctx, const Numeri
   return it;
 }
 
-NumericRangeTree *OpenNumericIndex(RedisSearchCtx *ctx, RedisModuleString *keyName,
+NumericRangeTree *OpenNumericIndex(RedisSearchCtx *ctx, const char *keyName,
                                    RedisModuleKey **idxKey) {
-
-  NumericRangeTree *t;
-  if (!ctx->spec->keysDict) {
-    RedisModuleKey *key_s = NULL;
-
-    if (!idxKey) {
-      idxKey = &key_s;
-    }
-
-    *idxKey = RedisModule_OpenKey(ctx->redisCtx, keyName, REDISMODULE_READ | REDISMODULE_WRITE);
-
-    int type = RedisModule_KeyType(*idxKey);
-    if (type != REDISMODULE_KEYTYPE_EMPTY &&
-        RedisModule_ModuleTypeGetType(*idxKey) != NumericIndexType) {
-      return NULL;
-    }
-
-    /* Create an empty value object if the key is currently empty. */
-    if (type == REDISMODULE_KEYTYPE_EMPTY) {
-      t = NewNumericRangeTree();
-      RedisModule_ModuleTypeSetValue((*idxKey), NumericIndexType, t);
-    } else {
-      t = RedisModule_ModuleTypeGetValue(*idxKey);
-    }
-  } else {
-    t = openNumericKeysDict(ctx, keyName, 1);
-  }
-  return t;
+  return openNumericKeysDict(ctx, keyName, 1);
 }
 
 void __numericIndex_memUsageCallback(NumericRangeNode *n, void *ctx) {

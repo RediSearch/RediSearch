@@ -196,7 +196,9 @@ static void gc_FreeNumericGcCtxArray(GarbageCollectorCtx *gc) {
   array_trimm_len(gc->numericGCCtx, 0);
 }
 
-static RedisModuleString *getRandomFieldByType(IndexSpec *spec, FieldType type) {
+// TODO: might have an issue here as we free the collected list of fields and
+// then return the value. Check again though seem OK since list of pointers.
+static const char *getRandomFieldByType(IndexSpec *spec, FieldType type) {
   FieldSpec **tagFields = NULL;
   tagFields = getFieldsByType(spec, type);
   if (array_len(tagFields) == 0) {
@@ -207,7 +209,7 @@ static RedisModuleString *getRandomFieldByType(IndexSpec *spec, FieldType type) 
   // choose random tag field
   int randomIndex = rand() % array_len(tagFields);
 
-  RedisModuleString *ret = IndexSpec_GetFormattedKey(spec, tagFields[randomIndex], type);
+  const char *ret = tagFields[randomIndex]->name;
   array_free(tagFields);
   return ret;
 }
@@ -225,7 +227,7 @@ size_t gc_TagIndex(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status) {
   }
   IndexSpec *spec = sctx->spec;
 
-  RedisModuleString *keyName = getRandomFieldByType(spec, INDEXFLD_T_TAG);
+  const char *keyName = getRandomFieldByType(spec, INDEXFLD_T_TAG);
   if (!keyName) {
     goto end;
   }
@@ -313,9 +315,7 @@ size_t gc_NumericIndex(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status
                   "it is not possible to remove fields");
     gc_FreeNumericGcCtxArray(gc);
     for (int i = 0; i < array_len(numericFields); ++i) {
-      RedisModuleString *keyName =
-          IndexSpec_GetFormattedKey(spec, numericFields[i], INDEXFLD_T_NUMERIC);
-      NumericRangeTree *rt = OpenNumericIndex(sctx, keyName, &idxKey);
+      NumericRangeTree *rt = OpenNumericIndex(sctx, numericFields[i]->name, &idxKey);
       // if we could not open the numeric field we probably have a
       // corruption in our data, better to know it now.
       RS_LOG_ASSERT(rt, "numeric index failed to open");
@@ -329,9 +329,7 @@ size_t gc_NumericIndex(RedisModuleCtx *ctx, GarbageCollectorCtx *gc, int *status
   NumericFieldGCCtx *numericGcCtx = gc->numericGCCtx[randomIndex];
 
   // open the relevent numeric index to check that our pointer is valid
-  RedisModuleString *keyName =
-      IndexSpec_GetFormattedKey(spec, numericFields[randomIndex], INDEXFLD_T_NUMERIC);
-  NumericRangeTree *rt = OpenNumericIndex(sctx, keyName, &idxKey);
+  NumericRangeTree *rt = OpenNumericIndex(sctx, numericFields[randomIndex]->name, &idxKey);
   if (idxKey) RedisModule_CloseKey(idxKey);
 
   if (numericGcCtx->rt != rt || numericGcCtx->revisionId != numericGcCtx->rt->revisionId) {

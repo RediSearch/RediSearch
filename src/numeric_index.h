@@ -123,7 +123,7 @@ void NumericRangeTree_Free(NumericRangeTree *t);
 
 extern RedisModuleType *NumericIndexType;
 
-NumericRangeTree *OpenNumericIndex(RedisSearchCtx *ctx, RedisModuleString *keyName,
+NumericRangeTree *OpenNumericIndex(RedisSearchCtx *ctx, const char *keyName,
                                    RedisModuleKey **idxKey);
 
 int NumericIndexType_Register(RedisModuleCtx *ctx);

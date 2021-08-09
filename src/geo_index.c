@@ -64,45 +64,6 @@ void GeoFilter_Free(GeoFilter *gf) {
   rm_free(gf);
 }
 
-static t_docId *geoRangeLoad(const GeoIndex *gi, const GeoFilter *gf, size_t *num) {
-  *num = 0;
-  t_docId *docIds = NULL;
-  RedisModuleString *s = IndexSpec_GetFormattedKey(gi->ctx->spec, gi->sp, INDEXFLD_T_GEO);
-  RS_LOG_ASSERT(s, "failed to retrive key");
-  /*GEORADIUS key longitude latitude radius m|km|ft|mi */
-  RedisModuleCtx *ctx = gi->ctx->redisCtx;
-  RedisModuleString *slon = RedisModule_CreateStringPrintf(ctx, "%f", gf->lon);
-  RedisModuleString *slat = RedisModule_CreateStringPrintf(ctx, "%f", gf->lat);
-  RedisModuleString *srad = RedisModule_CreateStringPrintf(ctx, "%f", gf->radius);
-  const char *unitstr = GeoDistance_ToString(gf->unitType);
-  RedisModuleCallReply *rep =
-      RedisModule_Call(ctx, "GEORADIUS", "ssssc", s, slon, slat, srad, unitstr);
-  if (rep == NULL || RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_ARRAY) {
-    goto done;
-  }
-
-  size_t sz = RedisModule_CallReplyLength(rep);
-  docIds = rm_calloc(sz, sizeof(t_docId));
-  for (size_t i = 0; i < sz; i++) {
-    const char *s = RedisModule_CallReplyStringPtr(RedisModule_CallReplyArrayElement(rep, i), NULL);
-    if (!s) continue;
-
-    docIds[i] = (t_docId)atol(s);
-  }
-
-  *num = sz;
-
-done:
-  RedisModule_FreeString(ctx, slon);
-  RedisModule_FreeString(ctx, slat);
-  RedisModule_FreeString(ctx, srad);
-  if (rep) {
-    RedisModule_FreeCallReply(rep);
-  }
-
-  return docIds;
-}
-
 IndexIterator *NewGeoRangeIterator(RedisSearchCtx *ctx, const GeoFilter *gf) {
   GeoHashRange ranges[GEO_RANGE_COUNT] = {{0}};
   double radius_meter = gf->radius * extractUnitFactor(gf->unitType);

@@ -945,6 +945,7 @@ IndexSpec *IndexSpec_Load(RedisModuleCtx *ctx, const char *name, int openWrite) 
   return IndexSpec_LoadEx(ctx, &lopts);
 }
 
+
 RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs,
                                              FieldType forType) {
   if (!sp->indexStrs) {
@@ -974,15 +975,6 @@ RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs,
     sp->indexStrs[fs->index].types[typeix] = ret;
   }
   return ret;
-}
-
-RedisModuleString *IndexSpec_GetFormattedKeyByName(IndexSpec *sp, const char *s,
-                                                   FieldType forType) {
-  const FieldSpec *fs = IndexSpec_GetField(sp, s, strlen(s));
-  if (!fs) {
-    return NULL;
-  }
-  return IndexSpec_GetFormattedKey(sp, fs, forType);
 }
 
 t_fieldMask IndexSpec_ParseFieldMask(IndexSpec *sp, RedisModuleString **argv, int argc) {
@@ -1087,7 +1079,7 @@ static void valFreeCb(void *unused, void *p) {
 void IndexSpec_MakeKeyless(IndexSpec *sp) {
   // Initialize only once:
   if (!invidxDictType.valDestructor) {
-    invidxDictType = dictTypeHeapRedisStrings;
+    invidxDictType = dictTypeHeapStrings;
     invidxDictType.valDestructor = valFreeCb;
   }
   sp->keysDict = dictCreate(&invidxDictType, NULL);
@@ -1457,7 +1449,7 @@ void IndexSpec_DropLegacyIndexFromKeySpace(IndexSpec *sp) {
   DFAFilter_Free(it->ctx);
   rm_free(it->ctx);
   TrieIterator_Free(it);
-
+/* TODO:
   // Delete the numeric, tag, and geo indexes which reside on separate keys
   for (size_t i = 0; i < ctx.spec->numFields; i++) {
     const FieldSpec *fs = ctx.spec->fields + i;
@@ -1471,6 +1463,7 @@ void IndexSpec_DropLegacyIndexFromKeySpace(IndexSpec *sp) {
       Redis_DeleteKey(ctx.redisCtx, IndexSpec_GetFormattedKey(ctx.spec, fs, INDEXFLD_T_GEO));
     }
   }
+  */
   RedisModuleString *str =
       RedisModule_CreateStringPrintf(ctx.redisCtx, INDEX_SPEC_KEY_FMT, ctx.spec->name);
   Redis_DeleteKey(ctx.redisCtx, str);

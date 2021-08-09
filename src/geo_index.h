@@ -10,13 +10,6 @@
 #include "dep/geo/rs_geo.h"
 #include "numeric_index.h"
 
-typedef struct geoIndex {
-  RedisSearchCtx *ctx;
-  const FieldSpec *sp;
-} GeoIndex;
-
-#define GEOINDEX_KEY_FMT "geo:%s/%s"
-
 typedef enum {  // Placeholder for bad/invalid unit
   GEO_DISTANCE_INVALID = -1,
 #define X_GEO_DISTANCE(X) \
