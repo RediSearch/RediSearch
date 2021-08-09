@@ -180,6 +180,8 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx) {
     // Iterator with 0 paths is legal. Let's continue
     RedisJSON jsonValue = japi->next(jsonIter);
     if (!jsonValue) {
+      japi->freeIter(jsonIter);
+      jsonIter = NULL;
       continue;
     }
 
