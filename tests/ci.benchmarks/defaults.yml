@@ -1,0 +1,15 @@
+version: 0.2
+exporter:
+  redistimeseries:
+    break_by:
+      - version
+      - commit
+    timemetric: "$.StartTime"
+    metrics:
+      - "$.Tests.Overall.rps"
+      - "$.Tests.Overall.avg_latency_ms"
+      - "$.Tests.Overall.p50_latency_ms"
+      - "$.Tests.Overall.p95_latency_ms"
+      - "$.Tests.Overall.p99_latency_ms"
+      - "$.Tests.Overall.max_latency_ms"
+      - "$.Tests.Overall.min_latency_ms"
