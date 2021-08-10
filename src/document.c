@@ -538,8 +538,7 @@ FIELD_PREPROCESSOR(tagPreprocessor) {
   if (fdata->tags == NULL) {
     return 0;
   }
-  if (FieldSpec_IsSortable(fs) && (field->unionType == FLD_VAR_T_CSTR ||
-                                   field->unionType == FLD_VAR_T_RMS)) {
+  if (FieldSpec_IsSortable(fs) && aCtx->spec->rule->type == DocumentType_Hash) {
     size_t fl;
     const char *str = DocumentField_GetValueCStr(field, &fl);
     RSSortingVector_Put(aCtx->sv, fs->sortIdx, str, RS_SORTABLE_STR);

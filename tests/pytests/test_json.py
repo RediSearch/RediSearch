@@ -581,7 +581,8 @@ def testDifferentType(env):
     env.expect('FT.SEARCH', 'hidx', '*', 'NOCONTENT').equal([1L, 'doc:1'])
     env.expect('FT.SEARCH', 'jidx', '*', 'NOCONTENT').equal([1L, 'doc:2'])
 
-def test_NoSortableArray(env):
+def test_NoSortableJsonTag(env):
+    env.skipOnCluster()
     conn = getConnectionByEnv(env)
     env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.tag[*]', 'TAG', 'SORTABLE')
     env.expect('JSON.SET', 'doc:1', '$', '{"tag":["foo", "bar", "baz"]}').ok()
@@ -594,7 +595,7 @@ def test_NoSortableArray(env):
 
     res = ['internal_id', 2L, 'flags', '(0x4):HasSortVector,', 'score', '1',
            'num_tokens', 0L, 'max_freq', 0L, 'refcount', 1L,
-           'sortables', [['index', 0L, 'field', '$.tag[*] AS $.tag[*]', 'value', 'foo, bar, baz']]]
+           'sortables', [['index', 0L, 'field', '$.tag[*] AS $.tag[*]', 'value', None]]]
     env.expect('ft.debug', 'docinfo', 'idx', 'doc:2').equal(res)
 
 def test_WrongJsonType(env):
