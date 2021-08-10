@@ -102,7 +102,10 @@ typedef struct RSDocumentMetadata_s {
 
   /* Document flags  */
   RSDocumentFlags flags : 8;
+  // Type of source document. Hash or JSON.
+  DocumentType type : 8;
 
+  uint32_t ref_count : 16;
   /* Optional user payload */
   RSPayload *payload;
 
@@ -110,10 +113,7 @@ typedef struct RSDocumentMetadata_s {
   /* Offsets of all terms in the document (in bytes). Used by highlighter */
   struct RSByteOffsets *byteOffsets;
   DLLIST2_node llnode;
-  uint32_t ref_count;
 
-  // Type of source document. Hash or JSON.
-  DocumentType type;
 } RSDocumentMetadata;
 
 /* Forward declaration of the opaque query object */
