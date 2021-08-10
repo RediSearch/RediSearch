@@ -257,6 +257,7 @@ def testReplace(env):
     env.assertEqual(res, 0)
 
     for _ in r.retry_with_rdb_reload():
+        waitForRdbSaveToFinish(env)
         waitForIndex(env, 'idx')
         # make sure the query for hello world does not return the replaced document
         r.expect('ft.search', 'idx', 'hello world', 'nocontent').equal([1, 'doc2'])

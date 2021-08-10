@@ -13,6 +13,9 @@ else:
 
 
 def testExt(env):
+    if env.env == 'existing-env':
+        env.skip()
+    
     if os.path.isabs(EXTPATH):
         ext_path = EXTPATH
     else:
@@ -24,9 +27,6 @@ def testExt(env):
             "Run from the build directory or set EXT_TEST_PATH in the environment".format(ext_path))
 
     env = Env(moduleArgs='EXTLOAD %s' % ext_path)
-
-    if env.env == 'existing-env':
-        env.skip()
 
     N = 100
     env.assertOk(env.execute_command(
