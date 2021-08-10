@@ -7,7 +7,7 @@ import random
 import time
 from RLTest import Env
 from includes import *
-from common import getConnectionByEnv, waitForIndex, toSortedFlatList, assertInfoField, server_version_at_least, module_version_at_least, waitForRdbSaveToFinish, forceInvokeGC
+from common import *
 
 # this tests is not longer relevant
 # def testAdd(env):
