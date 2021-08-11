@@ -59,8 +59,8 @@ static int RPGeneric_NextEOF(ResultProcessor *rp, SearchResult *res) {
 typedef struct {
   ResultProcessor base;
   IndexIterator *iiter;
-  struct timespec timeout;        // milliseconds until timeout
-  size_t timeoutLimiter;   // counter to limit number of calls to TimedOut()
+  struct timespec timeout;  // milliseconds until timeout
+  size_t timeoutLimiter;    // counter to limit number of calls to TimedOut()
 } RPIndexIterator;
 
 /* Next implementation */
@@ -138,7 +138,7 @@ ResultProcessor *RPIndexIterator_New(IndexIterator *root, struct timespec timeou
   return &ret->base;
 }
 
-void updateRPIndexTimeout(ResultProcessor *base, struct timespec timeout){
+void updateRPIndexTimeout(ResultProcessor *base, struct timespec timeout) {
   RPIndexIterator *self = (RPIndexIterator *)base;
   self->timeout = timeout;
 }
@@ -497,6 +497,12 @@ ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys
   ret->fieldcmp.keys = keys;
   ret->fieldcmp.nkeys = nkeys;
 
+  if (RSGlobalConfig.maxAggregateResults != UINT64_MAX) {
+    maxresults = MIN(maxresults, RSGlobalConfig.maxAggregateResults);
+  } else if (RSGlobalConfig.maxSearchResults != UINT64_MAX) {
+    maxresults = MIN(maxresults, RSGlobalConfig.maxSearchResults);
+  }
+
   ret->pq = mmh_init_with_size(maxresults + 1, ret->cmp, ret->cmpCtx, srDtor);
   ret->size = maxresults;
   ret->offset = 0;
@@ -653,15 +659,14 @@ ResultProcessor *RPLoader_New(RLookup *lk, const RLookupKey **keys, size_t nkeys
   return &sc->base;
 }
 
-static char *RPTypeLookup[RP_MAX] = {
-  "Index", "Loader", "Scorer", "Sorter", "Pager/Limiter", "Highlighter",
-  "Grouper", "Projector", "Filter", "Profile", "Network"};
+static char *RPTypeLookup[RP_MAX] = {"Index",     "Loader",        "Scorer",      "Sorter",
+                                     "Counter",   "Pager/Limiter", "Highlighter", "Grouper",
+                                     "Projector", "Filter",        "Profile",     "Network"};
 
 const char *RPTypeToString(ResultProcessorType type) {
   RS_LOG_ASSERT(type >= 0 && type < RP_MAX, "enum is out of range");
   return RPTypeLookup[type];
 }
-
 
 void RP_DumpChain(const ResultProcessor *rp) {
   for (; rp; rp = rp->upstream) {
@@ -681,7 +686,6 @@ typedef struct {
   clock_t profileTime;
   uint64_t profileCount;
 } RPProfile;
-
 
 static int rpprofileNext(ResultProcessor *base, SearchResult *r) {
   RPProfile *self = (RPProfile *)base;
@@ -719,4 +723,51 @@ clock_t RPProfile_GetClock(ResultProcessor *rp) {
 uint64_t RPProfile_GetCount(ResultProcessor *rp) {
   RPProfile *self = (RPProfile *)rp;
   return self->profileCount;
+}
+
+/*******************************************************************************************************************
+ *  Scoring Processor
+ *
+ * It takes results from upstream, and using a scoring function applies the score to each one.
+ *
+ * It may not be invoked if we are working in SORTBY mode (or later on in aggregations)
+ ********************************************************************************************************************/
+
+typedef struct {
+  ResultProcessor base;
+  size_t count;
+} RPCounter;
+
+static int rpcountNext(ResultProcessor *base, SearchResult *res) {
+  int rc;
+  RPCounter *self = (RPCounter *)base;
+
+  while ((rc = base->upstream->Next(base->upstream, res)) == RS_RESULT_OK) {
+    self->count += 1;
+    SearchResult_Clear(res);
+  }
+
+  // Since this never returns RM_OK, in profile mode, count should be increased
+  // to compensate for EOF
+  if (base->upstream->type == RP_PROFILE) {
+    ((RPProfile *)base->parent->endProc)->profileCount++;
+  }
+
+  return rc;
+}
+
+/* Free impl. for scorer - frees up the scorer privdata if needed */
+static void rpcountFree(ResultProcessor *rp) {
+  RPScorer *self = (RPScorer *)rp;
+  rm_free(self);
+}
+
+/* Create a new counter. */
+ResultProcessor *RPCounter_New() {
+  RPCounter *ret = rm_calloc(1, sizeof(*ret));
+  ret->count = 0;
+  ret->base.Next = rpcountNext;
+  ret->base.Free = rpcountFree;
+  ret->base.type = RP_COUNTER;
+  return &ret->base;
 }

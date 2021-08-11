@@ -33,6 +33,9 @@ typedef enum {
   RS_LANG_SWEDISH,
   RS_LANG_TAMIL,
   RS_LANG_TURKISH,
+  RS_LANG_ARMENIAN,
+  RS_LANG_SERBIAN,
+  RS_LANG_YIDDISH,
   RS_LANG_UNSUPPORTED
 } RSLanguage;
 
@@ -62,7 +65,7 @@ Stemmer *NewStemmer(StemmerType type, RSLanguage language);
 int ResetStemmer(Stemmer *stemmer, StemmerType type, RSLanguage language);
 
 /* check if a language is supported by our stemmers */
-RSLanguage RSLanguage_Find(const char *language);
+RSLanguage RSLanguage_Find(const char *language, size_t len);
 const char *RSLanguage_ToString(RSLanguage language);
 
 /* Get a stemmer expander instance for registering it */

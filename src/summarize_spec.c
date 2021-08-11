@@ -17,7 +17,7 @@ static int parseFieldList(ArgsCursor *ac, FieldList *fields, Array *fieldPtrs) {
 
   while (!AC_IsAtEnd(&fieldArgs)) {
     const char *name = AC_GetStringNC(&fieldArgs, NULL);
-    ReturnedField *fieldInfo = FieldList_GetCreateField(fields, name);
+    ReturnedField *fieldInfo = FieldList_GetCreateField(fields, name, NULL);
     size_t ix = (fieldInfo - fields->fields);
     Array_Write(fieldPtrs, &ix, sizeof(size_t));
   }

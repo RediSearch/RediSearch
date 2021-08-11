@@ -1,4 +1,4 @@
-from common import getConnectionByEnv, waitForIndex, sortedResults, toSortedFlatList
+from common import *
 
 def test_1282(env):
   env.expect('FT.CREATE idx ON HASH SCHEMA txt1 TEXT').equal('OK')
@@ -127,3 +127,142 @@ def test_issue1834(env):
   conn.execute_command('HSET', 'doc', 't', 'hell hello')
 
   env.expect('FT.SEARCH', 'idx', 'hell|hello', 'HIGHLIGHT').equal([1L, 'doc', ['t', '<b>hell</b> <b>hello</b>']])
+
+def test_issue1880(env):
+  # order of iterator in intersect is optimized by function
+  env.skipOnCluster()
+  conn = getConnectionByEnv(env)
+  env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+  conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+  conn.execute_command('HSET', 'doc1', 't', 'hello world')
+  conn.execute_command('HSET', 'doc2', 't', 'hello')
+
+  excepted_res = ['Type', 'INTERSECT', 'Counter', 1L, 'Child iterators',
+                    ['Type', 'TEXT', 'Term', 'world', 'Counter', 1L, 'Size', 1L],
+                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1L, 'Size', 2L]] 
+  res1 = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'hello world')
+  res2 = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'world hello')
+  # both queries return `world` iterator before `hello`
+  env.assertEqual(res1[1][3][1], excepted_res)
+  env.assertEqual(res2[1][3][1], excepted_res)
+
+  # test with a term which does not exist
+  excepted_res = ['Type', 'INTERSECT', 'Counter', 0L, 'Child iterators', 
+                    None,
+                    ['Type', 'TEXT', 'Term', 'world', 'Counter', 0L, 'Size', 1L],
+                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 0L, 'Size', 2L]]
+  res3 = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'hello new world')
+
+  env.assertEqual(res3[1][3][1], excepted_res)
+
+def test_issue1932(env):
+    conn = getConnectionByEnv(env)
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+    env.expect('FT.AGGREGATE', 'idx', '*', 'LIMIT', '100000000000000000', '100000000000', 'SORTBY', '1', '@t').error() \
+      .contains('OFFSET exceeds maximum of 1000000')
+
+def test_issue1988(env):
+    conn = getConnectionByEnv(env)
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+    conn.execute_command('HSET', 'doc1', 't', 'foo')
+    env.expect('FT.SEARCH', 'idx', 'foo').equal([1L, 'doc1', ['t', 'foo']])
+    env.expect('FT.SEARCH', 'idx', 'foo', 'WITHSCORES').equal([1L, 'doc1', '1', ['t', 'foo']])
+    env.expect('FT.SEARCH', 'idx', 'foo', 'SORTBY' , 't').equal([1L, 'doc1', ['t', 'foo']])
+    env.expect('FT.SEARCH', 'idx', 'foo', 'WITHSCORES', 'SORTBY' , 't').equal([1L, 'doc1', '1', ['t', 'foo']])
+
+def testIssue2104(env):
+  # 'AS' attribute does not work in functions
+  conn = getConnectionByEnv(env)
+
+  # hash
+  conn.execute_command('FT.CREATE', 'hash_idx', 'SCHEMA', 'name', 'TEXT', 'SORTABLE', 'subj1', 'NUMERIC', 'SORTABLE')
+  conn.execute_command('FT.ADD', 'hash_idx', 'data1', '1.0', 'FIELDS', 'name', 'abc', 'subj1', '20')
+  # load a single field
+  env.expect('FT.AGGREGATE', 'hash_idx', '*', 'LOAD', '1', '@subj1')    \
+      .equal([1L, ['subj1', '20']])
+  # load a field with an attribute
+  env.expect('FT.AGGREGATE', 'hash_idx', '*', 'LOAD', '3', '@subj1', 'AS', 'a')    \
+      .equal([1L, ['a', '20']])
+  # load field and use `APPLY`
+  env.expect('FT.AGGREGATE', 'hash_idx', '*', 'LOAD', '3', '@subj1', 'AS', 'a', 'APPLY', '(@a+@a)/2', 'AS', 'avg')   \
+      .equal([1L, ['a', '20', 'avg', '20']])
+  # load a field implicitly with `APPLY`
+  res = env.cmd('FT.AGGREGATE', 'hash_idx', '*', 'APPLY', '(@subj1+@subj1)/2', 'AS', 'avg')
+  env.assertEqual(toSortedFlatList([1L, ['subj1', '20', 'avg', '20']]), toSortedFlatList(res))
+  env.expect('FT.AGGREGATE', 'hash_idx', '*', 'LOAD', '3', '@subj1', 'AS', 'a', 'APPLY', '(@subj1+@subj1)/2', 'AS', 'avg')   \
+      .equal([1L, ['a', '20', 'avg', '20']])
+
+  # json
+  conn.execute_command('FT.CREATE', 'json_idx', 'ON', 'JSON', 'SCHEMA', '$.name', 'AS', 'name', 'TEXT', 'SORTABLE',
+                                                                        '$.subj1', 'AS', 'subj2', 'NUMERIC', 'SORTABLE')
+  env.execute_command('JSON.SET', 'doc:1', '$', r'{"name":"Redis", "subj1":3.14}')
+  env.expect('json.get', 'doc:1', '$').equal('[{"name":"Redis","subj1":3.14}]')
+  # load a single field
+  env.expect('FT.AGGREGATE', 'json_idx', '*', 'LOAD', '1', '@subj2')    \
+      .equal([1L, ['subj2', '3.14']])
+  # load a field with an attribute
+  env.expect('FT.AGGREGATE', 'json_idx', '*', 'LOAD', '3', '@subj2', 'AS', 'a')    \
+      .equal([1L, ['a', '3.14']])
+  # load field and use `APPLY`
+  env.expect('FT.AGGREGATE', 'json_idx', '*', 'LOAD', '3', '@subj2', 'AS', 'a', 'APPLY', '(@a+@a)/2', 'AS', 'avg')   \
+      .equal([1L, ['a', '3.14', 'avg', '3.14']])
+  # load a field implicitly with `APPLY`
+  res = env.cmd('FT.AGGREGATE', 'json_idx', '*', 'APPLY', '(@subj2+@subj2)/2', 'AS', 'avg')
+  env.assertEqual(toSortedFlatList([1L, ['subj2', '3.14', 'avg', '3.14']]), toSortedFlatList(res))
+
+  # load a field with an attribute
+  env.expect('FT.AGGREGATE', 'json_idx', '*', 'LOAD', '3', '@$.subj1', 'AS', 'a')    \
+      .equal([1L, ['a', '3.14']])
+  # In this example we get both `a` and `subj1` since 
+  env.expect('FT.AGGREGATE', 'json_idx', '*', 'LOAD', '3', '@$.subj1', 'AS', 'a', 'APPLY', '(@a+@a)/2', 'AS', 'avg')   \
+      .equal([1L, ['a', '3.14', 'avg', '3.14']])
+
+def test_MOD1266(env):
+  # Test parsing failure
+  conn = getConnectionByEnv(env)
+  conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'n1', 'NUMERIC', 'SORTABLE', 'n2', 'NUMERIC', 'SORTABLE')
+  conn.execute_command('HSET', 'doc1', 'n1', '1', 'n2', '1')
+  conn.execute_command('HSET', 'doc2', 'n1', '2', 'n2', '2')
+  conn.execute_command('HSET', 'doc2', 'n1', 'foo', 'n2', '-999')
+  conn.execute_command('HSET', 'doc3', 'n1', '3', 'n2', '3')
+  
+  env.expect('FT.SEARCH', 'idx', '*', 'sortby', 'n2', 'DESC', 'RETURN', '1', 'n2')  \
+    .equal([2L, 'doc3', ['n2', '3'], 'doc1', ['n2', '1']])
+
+  # Test fetching failure. An object cannot be indexed
+  conn.execute_command('FT.CREATE', 'jsonidx', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT')
+  conn.execute_command('JSON.SET', '1', '$', r'{"t":"Redis"}')
+  env.expect('FT.SEARCH', 'jsonidx', '*').equal([1L, '1', ['$', '{"t":"Redis"}']])
+  env.expect('FT.SEARCH', 'jsonidx', 'redis').equal([1L, '1', ['$', '{"t":"Redis"}']])
+  conn.execute_command('JSON.SET', '1', '$.t', r'{"inner_t":"Redis"}')
+  env.expect('FT.SEARCH', 'jsonidx', '*').equal([0L])
+
+def testMemAllocated(env):
+  conn = getConnectionByEnv(env)
+  # sanity
+  conn.execute_command('FT.CREATE', 'idx1', 'SCHEMA', 't', 'TEXT')
+  assertInfoField(env, 'idx1', 'key_table_size_mb', '0')
+  conn.execute_command('HSET', 'doc1', 't', 'foo bar baz')
+  assertInfoField(env, 'idx1', 'key_table_size_mb', '2.765655517578125e-05')
+  conn.execute_command('HSET', 'doc2', 't', 'hello world')
+  assertInfoField(env, 'idx1', 'key_table_size_mb', '8.296966552734375e-05')
+  conn.execute_command('HSET', 'd3', 't', 'help')
+  assertInfoField(env, 'idx1', 'key_table_size_mb', '0.00013828277587890625')
+
+  conn.execute_command('DEL', 'd3')
+  assertInfoField(env, 'idx1', 'key_table_size_mb', '8.296966552734375e-05')
+  conn.execute_command('DEL', 'doc1')
+  assertInfoField(env, 'idx1', 'key_table_size_mb', '2.765655517578125e-05')
+  conn.execute_command('DEL', 'doc2')
+  assertInfoField(env, 'idx1', 'key_table_size_mb', '0')
+
+  # mass
+  conn.execute_command('FT.CREATE', 'idx2', 'SCHEMA', 't', 'TEXT')
+  for i in range(1000):
+    conn.execute_command('HSET', 'doc%d' % i, 't', 'text%d' % i)
+  assertInfoField(env, 'idx2', 'key_table_size_mb', '0.027684211730957031')
+
+  for i in range(1000):
+    conn.execute_command('DEL', 'doc%d' % i)
+  assertInfoField(env, 'idx2', 'key_table_size_mb', '0')
+  

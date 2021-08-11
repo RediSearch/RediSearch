@@ -1,28 +1,34 @@
 #include "rules.h"
 #include "aggregate/expr/expression.h"
 #include "spec.h"
+#include "json.h"
 
 TrieMap *ScemaPrefixes_g;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-const char *SchemaRuleType_ToString(SchemaRuleType type) {
+const char *DocumentType_ToString(DocumentType type) {
   switch (type) {
-    case SchemaRuleType_Hash:
+    case DocumentType_Hash:
       return "HASH";
-    case SchameRuleType_Any:
+    case DocumentType_Json:
+      return "JSON";
+    case DocumentType_None:
     default:
       RS_LOG_ASSERT(true, "SchameRuleType_Any is not supported");
       return "";
   }
 }
 
-int SchemaRuleType_Parse(const char *type_str, SchemaRuleType *type, QueryError *status) {
+int DocumentType_Parse(const char *type_str, DocumentType *type, QueryError *status) {
   if (!type_str || !strcasecmp(type_str, RULE_TYPE_HASH)) {
-    *type = SchemaRuleType_Hash;
+    *type = DocumentType_Hash;
+    return REDISMODULE_OK;
+  } else if (japi && !strcasecmp(type_str, RULE_TYPE_JSON)) {
+    *type = DocumentType_Json;
     return REDISMODULE_OK;
   }
-  QueryError_SetError(status, QUERY_EADDARGS, "Invalid rule type");
+  QueryError_SetErrorFmt(status, QUERY_EADDARGS, "Invalid rule type: %s", type_str);
   return REDISMODULE_ERR;
 }
 
@@ -49,14 +55,14 @@ void SchemaRuleArgs_Free(SchemaRuleArgs *rule_args) {
 SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, IndexSpec *spec, QueryError *status) {
   SchemaRule *rule = rm_calloc(1, sizeof(*rule));
 
-  if (SchemaRuleType_Parse(args->type, &rule->type, status) == REDISMODULE_ERR) {
+  if (DocumentType_Parse(args->type, &rule->type, status) == REDISMODULE_ERR) {
     goto error;
   }
 
   rule->filter_exp_str = args->filter_exp_str ? rm_strdup(args->filter_exp_str) : NULL;
-  rule->lang_field = rm_strdup(args->lang_field ? args->lang_field : UNDERSCORE_LANGUAGE);
-  rule->score_field = rm_strdup(args->score_field ? args->score_field : UNDERSCORE_SCORE);
-  rule->payload_field = rm_strdup(args->payload_field ? args->payload_field : UNDERSCORE_PAYLOAD);
+  rule->lang_field = args->lang_field ? rm_strdup(args->lang_field) : NULL;
+  rule->score_field = args->score_field ? rm_strdup(args->score_field) : NULL;
+  rule->payload_field = args->payload_field ? rm_strdup(args->payload_field) : NULL;
 
   if (args->score_default) {
     double score;
@@ -72,7 +78,7 @@ SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, IndexSpec *spec, QueryError 
   }
 
   if (args->lang_default) {
-    RSLanguage lang = RSLanguage_Find(args->lang_default);
+    RSLanguage lang = RSLanguage_Find(args->lang_default, 0);
     if (lang == RS_LANG_UNSUPPORTED) {
       QueryError_SetError(status, QUERY_EADDARGS, "Invalid language");
       goto error;
@@ -157,7 +163,7 @@ RSLanguage SchemaRule_HashLang(RedisModuleCtx *rctx, const SchemaRule *rule, Red
     goto done;
   }
   const char *lang_s = (const char *)RedisModule_StringPtrLen(lang_rms, NULL);
-  lang = RSLanguage_Find(lang_s);
+  lang = RSLanguage_Find(lang_s, 0);
   if (lang == RS_LANG_UNSUPPORTED) {
     RedisModule_Log(NULL, "warning", "invalid language for key %s", kname);
     lang = rule->lang_default;
@@ -165,6 +171,49 @@ RSLanguage SchemaRule_HashLang(RedisModuleCtx *rctx, const SchemaRule *rule, Red
 done:
   if (lang_rms) {
     RedisModule_FreeString(rctx, lang_rms);
+  }
+  return lang;
+}
+
+RSLanguage SchemaRule_JsonLang(RedisModuleCtx *ctx, const SchemaRule *rule,
+                               RedisJSON jsonRoot, const char *kname) {
+  int rv = REDISMODULE_ERR;
+  JSONResultsIterator jsonIter = NULL;
+  RSLanguage lang = rule->lang_default;
+  if (!rule->lang_field) {
+    goto done;
+  }
+
+  assert(japi);
+  if (!japi) {
+    goto done;
+  }
+
+  jsonIter = japi->get(jsonRoot, rule->lang_field);
+  if (!jsonIter) {
+    RedisModule_Log(NULL, "warning", "invalid field %s for key %s", rule->lang_field, kname);
+    goto done;
+  }
+
+  const char *langStr;
+  size_t len;
+  RedisJSON langJson = japi->next(jsonIter);
+  rv = japi->getString(langJson, &langStr, &len) ;
+  if (rv != REDISMODULE_OK) {
+    RedisModule_Log(NULL, "warning", "invalid field %s for key %s: not a string", rule->lang_field, kname);
+    goto done;
+  }
+
+  lang = RSLanguage_Find(langStr, len);
+  if (lang == RS_LANG_UNSUPPORTED) {
+    RedisModule_Log(NULL, "warning", "invalid language for key %s", kname);
+    lang = rule->lang_default;
+    goto done;
+  }
+
+done:
+  if (jsonIter) {
+    japi->freeIter(jsonIter);
   }
   return lang;
 }
@@ -198,9 +247,43 @@ done:
   return score;
 }
 
+RSLanguage SchemaRule_JsonScore(RedisModuleCtx *ctx, const SchemaRule *rule,
+                                RedisJSON jsonRoot, const char *kname) {
+  double score = rule->score_default;
+  JSONResultsIterator jsonIter = NULL;
+  if (!rule->score_field) {
+    goto done;
+  }
+
+  assert(japi);
+  if (!japi) {
+    goto done;
+  }
+
+  jsonIter = japi->get(jsonRoot, rule->score_field);
+  if (jsonIter == NULL) {
+    RedisModule_Log(NULL, "warning", "invalid field %s for key %s", rule->score_field, kname);
+    goto done;
+  }
+
+  RedisJSON scoreJson = japi->next(jsonIter);
+  if (japi->getDouble(scoreJson, &score) != REDISMODULE_OK) {
+    RedisModule_Log(NULL, "warning", "invalid field %s for key %s", rule->score_field, kname);
+  }
+
+done:
+  if (jsonIter) {
+    japi->freeIter(jsonIter);
+  }
+  return score;
+}
+
 RedisModuleString *SchemaRule_HashPayload(RedisModuleCtx *rctx, const SchemaRule *rule,
                                           RedisModuleKey *key, const char *kname) {
   RedisModuleString *payload_rms = NULL;
+  if (!rule->payload_field) {
+    return NULL;
+  }
   const char *payload_field = rule->payload_field ? rule->payload_field : UNDERSCORE_PAYLOAD;
   int rv = RedisModule_HashGet(key, REDISMODULE_HASH_CFIELDS, payload_field, &payload_rms, NULL);
   if (rv != REDISMODULE_OK) {
@@ -273,7 +356,7 @@ int SchemaRule_RdbLoad(IndexSpec *sp, RedisModuleIO *rdb, int encver) {
 
 void SchemaRule_RdbSave(SchemaRule *rule, RedisModuleIO *rdb) {
   // the +1 is so we will save the \0
-  const char *ruleTypeStr = SchemaRuleType_ToString(rule->type);
+  const char *ruleTypeStr = DocumentType_ToString(rule->type);
   RedisModule_SaveStringBuffer(rdb, ruleTypeStr, strlen(ruleTypeStr) + 1);
   RedisModule_SaveUnsigned(rdb, array_len(rule->prefixes));
   for (size_t i = 0; i < array_len(rule->prefixes); ++i) {

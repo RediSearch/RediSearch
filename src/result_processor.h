@@ -49,6 +49,7 @@ typedef enum {
   RP_LOADER,
   RP_SCORER,
   RP_SORTER,
+  RP_COUNTER,
   RP_PAGER_LIMITER,
   RP_HIGHLIGHTER,
   RP_GROUP,
@@ -227,13 +228,19 @@ void RP_DumpChain(const ResultProcessor *rp);
 /*******************************************************************************************************************
  *  Profiling Processor
  *
- * This processor simply takes the search results, and based on the request parameters, loads the
- * relevant fields for the results that need to be displayed to the user, from redis.
- *
- * It fills the result objects' field map with values corresponding to the requested return fields
+ * This processor collects time and count info about the performance of its upstream RP.
  *
  *******************************************************************************************************************/
 ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryIterator *qiter);
+
+
+/*******************************************************************************************************************
+ *  Counter Processor
+ *
+ * This processor counts the search results.
+ * 
+ *******************************************************************************************************************/
+ResultProcessor *RPCounter_New();
 
 /*****************************************
  *            Timeout API
@@ -276,6 +283,11 @@ static inline int TimedOut(struct timespec timeout) {
 }
 
 static inline void updateTimeout(struct timespec *timeout, int32_t durationNS) {
+  // 0 disables the timeout
+  if (durationNS == 0) {
+    durationNS = INT32_MAX;
+  }
+
   struct timespec now;
   struct timespec duration = { .tv_sec = durationNS / 1000,
                               .tv_nsec = ((durationNS % 1000) * 1000000) };

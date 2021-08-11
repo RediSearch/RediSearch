@@ -173,6 +173,9 @@ def testRename(env):
     env.expect('ft.search things foo').equal([0L])
     env.expect('ft.search otherthings foo').equal([1L, 'otherthing:foo', ['name', 'foo']])
 
+    env.cmd('SET foo bar')
+    env.cmd('RENAME foo fubu')
+
 def testFlush(env):
     conn = getConnectionByEnv(env)
     env.cmd('ft.create', 'things', 'ON', 'HASH',
@@ -207,10 +210,10 @@ def testPayload(env):
     for _ in env.retry_with_rdb_reload():
         waitForIndex(env, 'things')
         res = env.cmd('ft.search', 'things', 'foo')
-        env.assertEqual(toSortedFlatList(res), toSortedFlatList([1L, 'thing:foo', ['name', 'foo', 'payload', 'stuff']]))
+        env.assertEqual(toSortedFlatList(res), toSortedFlatList([1L, 'thing:foo', ['name', 'foo']]))
 
         res = env.cmd('ft.search', 'things', 'foo', 'withpayloads')
-        env.assertEqual(toSortedFlatList(res), toSortedFlatList([1L, 'thing:foo', 'stuff', ['name', 'foo', 'payload', 'stuff']]))
+        env.assertEqual(toSortedFlatList(res), toSortedFlatList([1L, 'thing:foo', 'stuff', ['name', 'foo']]))
 
 def testBinaryPayload(env):
     conn = getConnectionByEnv(env)
@@ -223,10 +226,10 @@ def testBinaryPayload(env):
     for _ in env.retry_with_rdb_reload():
         waitForIndex(env, 'things')
         res = env.cmd('ft.search', 'things', 'foo')
-        env.assertEqual(toSortedFlatList(res), toSortedFlatList([1L, 'thing:foo', ['name', 'foo', 'payload', '\x00\xAB\x20']]))
+        env.assertEqual(toSortedFlatList(res), toSortedFlatList([1L, 'thing:foo', ['name', 'foo']]))
 
         res = env.cmd('ft.search', 'things', 'foo', 'withpayloads')
-        env.assertEqual(toSortedFlatList(res), toSortedFlatList([1L, 'thing:foo', '\x00\xAB\x20', ['name', 'foo', 'payload', '\x00\xAB\x20']]))
+        env.assertEqual(toSortedFlatList(res), toSortedFlatList([1L, 'thing:foo', '\x00\xAB\x20', ['name', 'foo']]))
 
 def testDuplicateFields(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
@@ -368,10 +371,7 @@ def testInfo(env):
     res_actual = env.cmd('FT.INFO test')
     res_expected = ['key_type', 'HASH',
                     'prefixes', [''],
-                    'language_field', '__language',
-                    'default_score', '1',
-                    'score_field', '__score',
-                    'payload_field', '__payload']
+                    'default_score', '1']
     env.assertEqual(res_actual[5], res_expected)
 
 def testCreateDropCreate(env):

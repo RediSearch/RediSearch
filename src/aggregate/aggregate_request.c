@@ -55,7 +55,7 @@ void FieldList_Free(FieldList *fields) {
   rm_free(fields->fields);
 }
 
-ReturnedField *FieldList_GetCreateField(FieldList *fields, const char *name) {
+ReturnedField *FieldList_GetCreateField(FieldList *fields, const char *name, const char *path) {
   size_t foundIndex = -1;
   for (size_t ii = 0; ii < fields->numFields; ++ii) {
     if (!strcmp(fields->fields[ii].name, name)) {
@@ -66,7 +66,8 @@ ReturnedField *FieldList_GetCreateField(FieldList *fields, const char *name) {
   fields->fields = rm_realloc(fields->fields, sizeof(*fields->fields) * ++fields->numFields);
   ReturnedField *ret = fields->fields + (fields->numFields - 1);
   memset(ret, 0, sizeof *ret);
-  ret->name = name;
+  ret->path = path;
+  ret->name = (name) ? name : path;
   return ret;
 }
 
@@ -122,6 +123,7 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
   // This handles the common arguments that are not stateful
   if (AC_AdvanceIfMatch(ac, "LIMIT")) {
     PLN_ArrangeStep *arng = AGPLN_GetOrCreateArrangeStep(&req->ap);
+    arng->isLimited = 1;
     // Parse offset, length
     if (AC_NumRemaining(ac) < 2) {
       QueryError_SetError(status, QUERY_EPARSEARGS, "LIMIT requires two arguments");
@@ -133,9 +135,10 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
       return ARG_ERROR;
     }
 
-    if (arng->limit == 0) {
-      // LIMIT 0 0
+    if (arng->isLimited && arng->limit == 0) {
+      // LIMIT 0 0 - only count
       req->reqflags |= QEXEC_F_NOROWS;
+      req->reqflags |= QEXEC_F_SEND_NOFIELDS;
     } else if ((arng->limit > RSGlobalConfig.maxSearchResults) &&
                (req->reqflags & QEXEC_F_IS_SEARCH)) {
       QueryError_SetErrorFmt(status, QUERY_ELIMIT, "LIMIT exceeds maximum of %llu",
@@ -145,6 +148,10 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
                !(req->reqflags & QEXEC_F_IS_SEARCH)) {
       QueryError_SetErrorFmt(status, QUERY_ELIMIT, "LIMIT exceeds maximum of %llu",
                              RSGlobalConfig.maxAggregateResults);
+      return ARG_ERROR;
+    } else if (arng->offset > RSGlobalConfig.maxSearchResults) {
+      QueryError_SetErrorFmt(status, QUERY_ELIMIT, "OFFSET exceeds maximum of %llu",
+                             RSGlobalConfig.maxSearchResults);
       return ARG_ERROR;
     }
   } else if (AC_AdvanceIfMatch(ac, "SORTBY")) {
@@ -157,8 +164,8 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
       QueryError_SetError(status, QUERY_EPARSEARGS, "Need argument for TIMEOUT");	
       return ARG_ERROR;	
     }	
-    if (AC_GetInt(ac, &req->reqTimeout, AC_F_GE1) != AC_OK) {	
-      QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "TIMEOUT requires a positive integer");	
+    if (AC_GetInt(ac, &req->reqTimeout, AC_F_GE0) != AC_OK) {	
+      QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "TIMEOUT requires a non negative integer");	
       return ARG_ERROR;	
     }
   } else if (AC_AdvanceIfMatch(ac, "WITHCURSOR")) {
@@ -380,7 +387,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
   searchOpts->ninkeys = inKeys.argc;
   searchOpts->legacy.infields = (const char **)inFields.objs;
   searchOpts->legacy.ninfields = inFields.argc;
-  searchOpts->language = RSLanguage_Find(languageStr);
+  searchOpts->language = RSLanguage_Find(languageStr, 0);
 
   if (AC_IsInitialized(&returnFields)) {
     ensureSimpleMode(req);
@@ -391,8 +398,19 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
     }
 
     while (!AC_IsAtEnd(&returnFields)) {
-      const char *name = AC_GetStringNC(&returnFields, NULL);
-      ReturnedField *f = FieldList_GetCreateField(&req->outFields, name);
+      const char *path = AC_GetStringNC(&returnFields, NULL);
+      const char *name = path;
+      if (AC_AdvanceIfMatch(&returnFields, SPEC_AS_STR)) {
+        int rv = AC_GetString(&returnFields, &name, NULL, 0);
+        if (rv != AC_OK) {
+          QERR_MKBADARGS_FMT(status, "RETURN path AS name - must be accompanied with NAME");
+          return REDISMODULE_ERR;
+        } else if (!strncasecmp(name, SPEC_AS_STR, strlen(SPEC_AS_STR))) {
+          QERR_MKBADARGS_FMT(status, "Alias for RETURN cannot be `AS`");
+          return REDISMODULE_ERR;
+        }
+      }
+      ReturnedField *f = FieldList_GetCreateField(&req->outFields, name, path);
       f->explicitReturn = 1;
     }
   }
@@ -872,6 +890,12 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
     astp = &astp_s;
   }
 
+  if (IsCount(req)) {
+    rp = RPCounter_New();
+    up = pushRP(req, rp, up);
+    return up;
+  }
+
   size_t limit = astp->offset + astp->limit;
   if (!limit) {
     limit = DEFAULT_LIMIT;
@@ -970,8 +994,11 @@ static void buildImplicitPipeline(AREQ *req, QueryError *Status) {
   req->qiter.rootProc = req->qiter.endProc = rp;
   PUSH_RP();
 
-  /** Create a scorer if there is no subsequent sorter within this grouping */
-  if (!hasQuerySortby(&req->ap) && (req->reqflags & QEXEC_F_IS_SEARCH)) {
+  /** Create a scorer if:
+   *  * WITHSCORES is defined
+   *  * there is no subsequent sorter within this grouping */
+  if ((req->reqflags & QEXEC_F_SEND_SCORES) ||
+      (!hasQuerySortby(&req->ap) && IsSearch(req) && !IsCount(req))) {
     rp = getScorerRP(req);
     PUSH_RP();
   }
@@ -999,6 +1026,10 @@ int buildOutputPipeline(AREQ *req, QueryError *status) {
                                rf->name);
         goto error;
       }
+
+      // change path to be used by loader
+      lk->path = rf->path;
+
       *array_ensure_tail(&loadkeys, const RLookupKey *) = lk;
       // assign explicit output flag
       lk->flags |= RLOOKUP_F_EXPLICITRETURN;
@@ -1103,16 +1134,33 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
         }
         // Get all the keys for this lookup...
         while (!AC_IsAtEnd(&lstp->args)) {
-          const char *s = AC_GetStringNC(&lstp->args, NULL);
-          if (*s == '@') {
-            s++;
+          const char *path = AC_GetStringNC(&lstp->args, NULL);
+          if (*path == '@') {
+            path++;
           }
-          const RLookupKey *kk = RLookup_GetKey(curLookup, s, RLOOKUP_F_OEXCL | RLOOKUP_F_OCREAT);
+          const char *name = path;
+
+          RLookupKey *kk = RLookup_GetKey(curLookup, path, RLOOKUP_F_OEXCL | RLOOKUP_F_OCREAT);
           if (!kk) {
             // We only get a NULL return if the key already exists, which means
             // that we don't need to retrieve it again.
             continue;
           }
+
+          if (AC_AdvanceIfMatch(&lstp->args, SPEC_AS_STR)) {
+            int rv = AC_GetString(&lstp->args, &name, NULL, 0);
+            if (rv != AC_OK) {
+              QERR_MKBADARGS_FMT(status, "RETURN path AS name - must be accompanied with NAME");
+              return REDISMODULE_ERR;
+            } else if (!strncasecmp(name, SPEC_AS_STR, strlen(SPEC_AS_STR))) {
+              QERR_MKBADARGS_FMT(status, "Alias for RETURN cannot be `AS`");
+              return REDISMODULE_ERR;
+            }
+          }
+          // set lookupkey name to name.
+          // by defualt "name = path" 
+          kk->name = name;
+          kk->name_len = strlen(name);
           lstp->keys[lstp->nkeys++] = kk;
         }
         if (lstp->nkeys) {

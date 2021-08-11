@@ -76,8 +76,13 @@ typedef struct RLookupKey {
 
   uint32_t refcnt;
 
-  /** Name of this field */
+  /** Path and name of this field
+   *  path AS name */
+  const char *path;
   const char *name;
+
+  /** Size of this field */
+  size_t name_len;
 
   /** Pointer to next field in the list */
   struct RLookupKey *next;

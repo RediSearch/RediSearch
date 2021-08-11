@@ -393,6 +393,6 @@ TEST_F(QueryTest, testTags) {
   ASSERT_STREQ("שלום", n->children[2]->tn.str);
 
   ASSERT_EQ(QN_TOKEN, n->children[3]->type);
-  ASSERT_STREQ("lorem ipsum", n->children[3]->tn.str);
+  ASSERT_STREQ("lorem\\ ipsum", n->children[3]->tn.str);
   IndexSpec_Free(ctx.spec);
 }

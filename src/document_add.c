@@ -41,9 +41,9 @@ English.
    If an unsupported language is sent, the command returns an error.
    The supported languages are:
 
-   > "arabic",  "danish",    "dutch",     "english",   "finnish",    "french",
-   > "german",  "hindi",     "hungarian", "italian",   "norwegian",  "portuguese", "romanian",
-   > "russian", "spanish",   "swedish",   "tamil",     "turkish"
+   > "arabic",  "armenian",  "danish",    "dutch",     "english",   "finnish",    "french",
+   > "german",  "hindi",     "hungarian", "italian",   "norwegian", "portuguese", "romanian",
+   > "russian", "serbian",   "spanish",   "swedish",   "tamil",     "turkish",    "yiddish"
 
 
 Returns OK on success, NOADD if the document was not added due to an IF expression not evaluating to
@@ -108,7 +108,7 @@ static int parseDocumentOptions(AddDocumentOptions *opts, ArgsCursor *ac, QueryE
   }
 
   if (opts->languageStr != NULL) {
-    opts->language = RSLanguage_Find(RedisModule_StringPtrLen(opts->languageStr, NULL));
+    opts->language = RSLanguage_Find(RedisModule_StringPtrLen(opts->languageStr, NULL), 0);
     if (opts->language == RS_LANG_UNSUPPORTED) {
       QueryError_SetError(status, QUERY_EADDARGS, "Unsupported language");
       return REDISMODULE_ERR;

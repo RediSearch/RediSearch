@@ -5,20 +5,23 @@
 #include "dep/triemap/triemap.h"
 #include "stemmer.h"
 #include "util/arr.h"
+#include "json.h"
+#include "redisearch.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
+
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 #define RULE_TYPE_HASH "HASH"
+#define RULE_TYPE_JSON "JSON"
 
 struct RSExpr;
 struct IndexSpec;
 
-typedef enum { SchameRuleType_Any, SchemaRuleType_Hash } SchemaRuleType;
-
-const char *SchemaRuleType_ToString(SchemaRuleType type);
-int SchemaRuleType_Parse(const char *type_str, SchemaRuleType *type, QueryError *status);
+const char *DocumentType_ToString(DocumentType type);
+int DocumentType_Parse(const char *type_str, DocumentType *type, QueryError *status);
 
 //---------------------------------------------------------------------------------------------
 
@@ -35,7 +38,7 @@ typedef struct {
 } SchemaRuleArgs;
 
 typedef struct SchemaRule {
-  SchemaRuleType type;
+  DocumentType type;
   struct IndexSpec *spec;
   arrayof(const char *) prefixes;
   char *filter_exp_str;
@@ -58,8 +61,12 @@ void SchemaRule_Free(SchemaRule *);
 
 RSLanguage SchemaRule_HashLang(RedisModuleCtx *rctx, const SchemaRule *rule, RedisModuleKey *key,
                                const char *kname);
+RSLanguage SchemaRule_JsonLang(RedisModuleCtx *ctx, const SchemaRule *rule,
+                               RedisJSON jsonKey, const char *keyName);
 double SchemaRule_HashScore(RedisModuleCtx *rctx, const SchemaRule *rule, RedisModuleKey *key,
                             const char *kname);
+RSLanguage SchemaRule_JsonScore(RedisModuleCtx *ctx, const SchemaRule *rule,
+                                RedisJSON jsonKey, const char *keyName);
 RedisModuleString *SchemaRule_HashPayload(RedisModuleCtx *rctx, const SchemaRule *rule,
                                           RedisModuleKey *key, const char *kname);
 
@@ -80,7 +87,8 @@ typedef struct {
   arrayof(struct IndexSpec *) index_specs;
 } SchemaPrefixNode;
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+
 #ifdef __cplusplus
 }
 #endif
-///////////////////////////////////////////////////////////////////////////////////////////////
