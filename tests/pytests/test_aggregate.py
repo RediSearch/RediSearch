@@ -622,12 +622,16 @@ def testLimitIssue(env):
                 'SORTBY', '2', '@CreatedDateTimeUTC', 'DESC', 'LIMIT', '2', '2')
     env.assertEqual(actual_res, res)
 
-def testMaxAggResults():
-    env = Env()
+def testMaxAggResults(env):
+    if env.env == 'existing-env':
+        env.skip()
+    env = Env(moduleArgs="MAXAGGREGATERESULTS 100")
     conn = getConnectionByEnv(env)
-    env.expect('ft.config', 'set', 'MAXAGGREGATERESULTS', 100).ok()
     conn.execute_command('ft.create', 'idx', 'SCHEMA', 't', 'TEXT')
     env.expect('ft.aggregate', 'idx', '*', 'LIMIT', '0', '10000').error()   \
                 .contains('LIMIT exceeds maximum of 100')
 
+def testMaxAggInf(env):
+    env.skipOnCluster()
     env.expect('ft.config', 'set', 'MAXAGGREGATERESULTS', -1).ok()
+    env.expect('ft.config', 'get', 'MAXAGGREGATERESULTS').equal([['MAXAGGREGATERESULTS', 'unlimited']])
