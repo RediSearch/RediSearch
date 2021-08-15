@@ -440,7 +440,7 @@ def testDemo(env):
     env.assertEqual(slice_at(info, 'index_name')[0], 'airports')
     env.assertEqual(slice_at(slice_at(info, 'index_definition')[0], 'key_type')[0], 'JSON')
     env.assertEqual(slice_at(info, 'attributes')[0],
-        [['identifier', '$.iata', 'attribute', 'iata', 'type', 'TAG', 'SEPARATOR', '', 'SORTABLE'],
+        [['identifier', '$.iata', 'attribute', 'iata', 'type', 'TAG', 'SEPARATOR', ''],
          ['identifier', '$.iata', 'attribute', 'iata_txt', 'type', 'TEXT', 'WEIGHT', '1', 'NOSTEM'],
          ['identifier', '$.name', 'attribute', 'name', 'type', 'TEXT', 'WEIGHT', '1', 'NOSTEM'],
          ['identifier', '$.location', 'attribute', 'location', 'type', 'GEO']])
@@ -584,7 +584,7 @@ def testDifferentType(env):
 def test_NoSortableJsonTag(env):
     env.skipOnCluster()
     conn = getConnectionByEnv(env)
-    env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.tag[*]', 'TAG', 'SORTABLE')
+    env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.tag[*]', 'TAG')
     env.expect('JSON.SET', 'doc:1', '$', '{"tag":["foo", "bar", "baz"]}').ok()
     env.expect('JSON.SET', 'doc:2', '$', '{"tag":["foo, bar, baz"]}').ok()
 
@@ -687,3 +687,8 @@ def testMixedTagError(env):
                                                 ["bad result"],         \
                                                 {"another":"bad result"}]}').ok()
     env.expect('FT.SEARCH', 'idx1', '*').equal([0L])
+
+def testSortableTagError(env):
+    env.expect('FT.CREATE', 'idx1', 'ON', 'JSON',                                   \
+               'SCHEMA', '$.tag[*]', 'AS', 'idxtag', 'TAG', 'SORTABLE').error()     \
+               .contains('On JSON, cannot set tag field to sortable - idxtag')
