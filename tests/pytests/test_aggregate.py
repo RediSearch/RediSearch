@@ -622,8 +622,8 @@ def testLimitIssue(env):
                 'SORTBY', '2', '@CreatedDateTimeUTC', 'DESC', 'LIMIT', '2', '2')
     env.assertEqual(actual_res, res)
 
-def testMaxAggResults():
-    env = Env()
+def testMaxAggResults(env):
+    env.skipOnCluster()
     conn = getConnectionByEnv(env)
     env.expect('ft.config', 'set', 'MAXAGGREGATERESULTS', 100).ok()
     conn.execute_command('ft.create', 'idx', 'SCHEMA', 't', 'TEXT')
