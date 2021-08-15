@@ -1,3 +1,5 @@
+from common import skipOnCrdtEnv
+
 def createRdb(env, q):
   r = env.getConnection().pipeline()
 
@@ -26,6 +28,7 @@ def createRdb(env, q):
                 return
 
 def testRoF(env):
+  skipOnCrdtEnv(env)
   if env.cmd('info big') == '':
     env.skip()
   q = 100000

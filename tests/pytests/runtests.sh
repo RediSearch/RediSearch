@@ -34,6 +34,7 @@ if [[ $1 == --help || $1 == help ]]; then
 		VERBOSE=1          Print commands and Redis output
 		IGNERR=1           Do not abort on error
 		NOP=1              Dry run
+		EXISTING_ENV=1     Run the tests on existing env
 
 
 	END
@@ -146,6 +147,20 @@ fi
 
 #---------------------------------------------------------------------------------------------- 
 
+if [[ $EXISTING_ENV == 1 ]]; then
+	RLTEST_ARGS+=" --env existing-env"
+	# also start the redis server on which the tests will run
+	EXISTING_ENV_ARGS="--loadmodule $MODULE $MODARGS"
+	if [[ $REJSON_MODULE ]]; then
+		EXISTING_ENV_ARGS="$EXISTING_ENV_ARGS --loadmodule $REJSON_MODULE $REJSON_MODARGS"
+	fi
+	redis-server $EXISTING_ENV_ARGS &
+	EXTERNAL_REDIS_PID=$!
+	echo "external process pid: " $EXTERNAL_REDIS_PID
+fi
+
+#---------------------------------------------------------------------------------------------- 
+
 if [[ $VG == 1 ]]; then
 	VALGRIND_ARGS=--use-valgrind
 fi
@@ -176,5 +191,13 @@ if [[ $VERBOSE == 1 ]]; then
 	cat $config
 fi
 
-$OP exec python2 -m RLTest @$config
+$OP python2 -m RLTest @$config
+EXIT_CODE=$?
 rm -f $config
+
+if [[ $EXTERNAL_REDIS_PID ]]; then
+	echo "killing external process: " $EXTERNAL_REDIS_PID
+	kill -s 9 $EXTERNAL_REDIS_PID
+fi
+
+exit $EXIT_CODE

@@ -1,7 +1,7 @@
 import os
 import subprocess
 from includes import *
-from common import waitForIndex
+from common import waitForIndex, skipOnExistingEnv
 from RLTest import Env
 
 
@@ -38,6 +38,7 @@ def testRDBCompatibility():
     # env = Env(moduleArgs=['UPGRADE_INDEX idx; PREFIX 1 tt; LANGUAGE french', 'LANGUAGE_FIELD MyLang', 'SCORE 0.5', 'SCORE_FIELD MyScore', 'PAYLOAD_FIELD MyPayload', 'UPGRADE_INDEX idx1'])
 
     env.skipOnCluster()
+    skipOnExistingEnv(env)
     dbFileName = env.cmd('config', 'get', 'dbfilename')[1]
     dbDir = env.cmd('config', 'get', 'dir')[1]
     rdbFilePath = os.path.join(dbDir, dbFileName)

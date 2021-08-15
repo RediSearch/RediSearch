@@ -7,7 +7,7 @@ ROOT=$(cd $HERE/.. && pwd)
 READIES=$ROOT/deps/readies
 . $READIES/shibumi/defs
 
-if [[ "$1" == "--help" || "$1" == "help" || "$HELP" == "1" ]]; then
+if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
 	cat <<-END
 		Get RedisJSON module binaries
 
@@ -28,15 +28,15 @@ fi
 BRANCH=${BRANCH:-master}
 
 OP=""
-[[ "$NOP" == "1" ]] && OP=echo
+[[ $NOP == 1 ]] && OP=echo
 
 os="$($READIES/bin/platform --os)"
 arch="$($READIES/bin/platform --arch)"
 
-if [[ ! -z "$REPO_PATH" ]]; then
+if [[ ! -z $REPO_PATH ]]; then
 	platform="$($READIES/bin/platform -t)"
 else
-	if [[ "$os" != "linux" || "$arch" != "x64" ]]; then
+	if [[ $os != linux && $os != macos || $arch != x64 ]]; then
 		eprint "Cannot match binary artifacts - build RedisJSON and set REPO_PATH"
 		exit 1
 	fi
@@ -67,11 +67,8 @@ else
 		else
 			nick="rhel7"
 		fi
-	elif [[ ! -z "$OSNICK" ]]; then
+	elif [[ ! -z $OSNICK ]]; then
 		nick=$OSNICK
-	else
-		eprint "Cannot match binary artifacts - build RedisJSON and set REPO_PATH"
-		exit 1
 	fi
 	platform="${os}-${nick}-${arch}"
 fi
@@ -98,7 +95,10 @@ if [[ -z $REPO_PATH ]]; then
 	fi
 else
 	F_MOD_RAMP="${REPO_PATH}/artifacts/snapshots/${MOD_RAMP}"
-	[[ ! -f $F_MOD_RAMP ]] && { eprint "$F_MOD_RAMP is missing"; exit 1; }
+	if [[ ! -f $F_MOD_RAMP ]]; then
+		eprint "$F_MOD_RAMP is missing - build RedisJSON and set REPO_PATH"
+		exit 1
+	fi
 fi
 
 $OP unzip -q $F_MOD_RAMP -d $WORK_DIR
@@ -108,5 +108,10 @@ if [[ -e ${DEST_REJSON_DIR} ]]; then
 fi
 # $OP mv $WORK_DIR $DEST_REJSON_DIR
 $OP rsync -a --no-owner --no-group --remove-source-files $WORK_DIR/* $DEST_REJSON_DIR
+
 echo "RedisJSON installed into ${DEST_REJSON_DIR}:"
-$OP du -ah --apparent-size $DEST_REJSON_DIR
+if [[ $os == linux ]]; then
+	$OP du -ah --apparent-size $DEST_REJSON_DIR
+else
+	$OP du -ah $DEST_REJSON_DIR
+fi
