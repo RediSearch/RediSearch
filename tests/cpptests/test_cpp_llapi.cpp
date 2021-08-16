@@ -590,7 +590,7 @@ TEST_F(LLApiTest, testMultitypeNumericTag) {
   // Add document...
   RSDoc* d = RediSearch_CreateDocumentSimple("doc1");
   RediSearch_DocumentAddFieldCString(d, "f1", "World", RSFLDTYPE_TAG);
-  RediSearch_DocumentAddFieldCString(d, "f2", "World", RSFLDTYPE_TAG);
+  RediSearch_DocumentAddFieldCString(d, "f2", "world", RSFLDTYPE_TAG);
   int rc = RediSearch_SpecAddDocument(index, d);
   ASSERT_EQ(REDISMODULE_OK, rc);
 

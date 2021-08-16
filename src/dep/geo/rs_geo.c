@@ -98,6 +98,30 @@ bool isWithinRadiusLonLat(double lon1, double lat1, double lon2, double lat2, do
   return true;
 }
 
+int parseGeo(const char *c, size_t len, double *lon, double *lat) {
+  if (len > 31) {
+    return REDISMODULE_ERR;
+  }
+
+  char str[len + 1];
+  memcpy(str, c, len + 1);
+  char *pos = strpbrk(str, " ,");
+  if (!pos) {
+    return REDISMODULE_ERR;
+  }
+  *pos = '\0';
+  pos++;
+
+  char *end1 = NULL, *end2 = NULL;
+  *lon = strtod(str, &end1);
+  *lat = strtod(pos, &end2);
+  if (*end1 || *end2) {
+    return REDISMODULE_ERR;
+  }
+
+  return REDISMODULE_OK;
+}
+
 /*
 int isWithinRadius(double center, double point, double radius, double *distance) {
   double xyCenter[2], xyPoint[2];

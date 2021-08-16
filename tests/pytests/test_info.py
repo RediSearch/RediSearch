@@ -1,4 +1,4 @@
-from common import getConnectionByEnv, waitForIndex, sortedResults, toSortedFlatList
+from common import getConnectionByEnv, waitForIndex, sortedResults, toSortedFlatList, forceInvokeGC
 from RLTest import Env
 from time import sleep
 
@@ -38,12 +38,12 @@ def testInfo(env):
     pl.execute_command('DEL', 'doc%d' % i)
     if i % 10000 == 0:
       pl.execute()
-      conn.execute_command('FT.DEBUG', 'GC_FORCEINVOKE', idx)    
+      forceInvokeGC(env, idx)
   pl.execute()
 
   #  GC stats
   for i in range(25):
-    conn.execute_command('FT.DEBUG', 'GC_FORCEINVOKE', idx)    
+    forceInvokeGC(env, idx)
 
   # cursor stats
   #query = ['FT.AGGREGATE', idx, '*', 'WITHCURSOR']
