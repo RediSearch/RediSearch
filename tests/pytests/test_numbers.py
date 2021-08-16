@@ -2,7 +2,7 @@
 
 import unittest
 from includes import *
-from common import getConnectionByEnv, waitForIndex, sortedResults, toSortedFlatList
+from common import getConnectionByEnv, waitForIndex, sortedResults, toSortedFlatList, skipOnExistingEnv
 from time import sleep
 from RLTest import Env
 import math
@@ -27,6 +27,7 @@ def testCompression(env):
   
 def testSanity(env):
 	env.skipOnCluster()
+	skipOnExistingEnv(env)
 	repeat = 100000
 	conn = getConnectionByEnv(env)
 	env.cmd('ft.create', 'idx', 'SCHEMA', 'n', 'numeric')
@@ -85,3 +86,6 @@ def testRangeParentsConfig(env):
 		# reset with old ranges parents param
 		env.cmd('ft.drop', 'idx0')
 		env.expect('ft.config', 'set', '_NUMERIC_RANGES_PARENTS', '2').equal('OK')
+
+	# reset back
+	env.expect('ft.config', 'set', '_NUMERIC_RANGES_PARENTS', '0').equal('OK')

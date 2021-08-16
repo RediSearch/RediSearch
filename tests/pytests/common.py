@@ -11,6 +11,7 @@ def getConnectionByEnv(env):
     return conn
 
 def waitForIndex(env, idx):
+    waitForRdbSaveToFinish(env)
     while True:
         res = env.execute_command('ft.info', idx)
         if int(res[res.index('indexing') + 1]) == 0:
@@ -91,3 +92,20 @@ def index_info(env, idx):
     res = env.cmd('FT.INFO', idx)
     res = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
     return res
+
+def skipOnExistingEnv(env):
+    if 'existing' in env.env:
+        env.skip()
+
+def skipOnCrdtEnv(env):
+    if len([a for a in env.cmd('module', 'list') if a[1] == 'crdt']) > 0:
+        env.skip()
+
+def waitForRdbSaveToFinish(env):
+    while True:
+        if not env.execute_command('info', 'Persistence')['rdb_bgsave_in_progress']:
+            break
+
+def forceInvokeGC(env, idx):
+    waitForRdbSaveToFinish(env)
+    env.cmd('ft.debug', 'GC_FORCEINVOKE', idx)
