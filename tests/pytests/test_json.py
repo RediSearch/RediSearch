@@ -441,7 +441,7 @@ def testDemo(env):
     conn.execute_command('json.set', 'A:TLV', '$', tlv)
     conn.execute_command('json.set', 'A:SFO', '$', sfo)
 
-    env.expect('FT.CREATE airports ON JSON SCHEMA $.iata AS iata TAG SORTABLE                 \
+    env.expect('FT.CREATE airports ON JSON SCHEMA $.iata AS iata TAG                          \
                                                   $.iata AS iata_txt TEXT NOSTEM              \
                                                   $.name AS name TEXT NOSTEM PHONETIC dm:en   \
                                                   $.location AS location GEO').ok()
@@ -605,23 +605,6 @@ def testDifferentType(env):
     conn.execute_command('JSON.SET', 'doc:2', '$', r'{"t":"hello world"}')
     env.expect('FT.SEARCH', 'hidx', '*', 'NOCONTENT').equal([1L, 'doc:1'])
     env.expect('FT.SEARCH', 'jidx', '*', 'NOCONTENT').equal([1L, 'doc:2'])
-
-def test_NoSortableJsonTag(env):
-    env.skipOnCluster()
-    conn = getConnectionByEnv(env)
-    env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.tag[*]', 'TAG')
-    env.expect('JSON.SET', 'doc:1', '$', '{"tag":["foo", "bar", "baz"]}').ok()
-    env.expect('JSON.SET', 'doc:2', '$', '{"tag":["foo, bar, baz"]}').ok()
-
-    res = ['internal_id', 1L, 'flags', '(0x4):HasSortVector,', 'score', '1',
-           'num_tokens', 0L, 'max_freq', 0L, 'refcount', 1L,
-           'sortables', [['index', 0L, 'field', '$.tag[*] AS $.tag[*]', 'value', None]]]
-    env.expect('ft.debug', 'docinfo', 'idx', 'doc:1').equal(res)
-
-    res = ['internal_id', 2L, 'flags', '(0x4):HasSortVector,', 'score', '1',
-           'num_tokens', 0L, 'max_freq', 0L, 'refcount', 1L,
-           'sortables', [['index', 0L, 'field', '$.tag[*] AS $.tag[*]', 'value', None]]]
-    env.expect('ft.debug', 'docinfo', 'idx', 'doc:2').equal(res)
 
 def test_WrongJsonType(env):
     # test all possible errors in processing a field
