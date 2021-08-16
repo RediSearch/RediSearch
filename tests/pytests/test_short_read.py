@@ -453,7 +453,7 @@ class Debug:
 def testShortReadSearch(env):
 
     env.skipOnCluster()
-    if env.env.endswith('existing-env'):
+    if env.env.endswith('existing-env') and os.environ.get('CI'):
         env.skip()
 
     try:
