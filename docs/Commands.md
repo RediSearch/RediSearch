@@ -84,7 +84,7 @@ FT.CREATE books-idx ON HASH PREFIX 1 book:details FILTER SCHEMA title TEXT categ
 Indexing a JSON document using a JSON Path expression:
 
 ```sql
-FT.CREATE idx ON JSON SCHEMA $.title AS title TEXT $.categories AS categories TAG SORTABLE
+FT.CREATE idx ON JSON SCHEMA $.title AS title TEXT $.categories AS categories TAG
 ```
 
 #### Parameters
@@ -194,7 +194,7 @@ FT.CREATE idx ON JSON SCHEMA $.title AS title TEXT $.categories AS categories TA
 
     * **SORTABLE**
 
-        Numeric, tag or text attributes can have the optional SORTABLE argument that allows the user to later [sort the results by the value of this attribute](Sorting.md) (this adds memory overhead so do not declare it on large text attributes).
+        Numeric, tag (not supported with JSON) or text attributes can have the optional SORTABLE argument that allows the user to later [sort the results by the value of this attribute](Sorting.md) (this adds memory overhead so do not declare it on large text attributes).
 
     * **NOSTEM**
 
