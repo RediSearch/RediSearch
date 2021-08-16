@@ -90,16 +90,16 @@ def create_indices(env, rdbFileName, idxNameStem, isHash, isJson):
     idxNameStem = 'shortread_' + idxNameStem + '_'
     if isHash and isJson:
         # 1 Hash index and 1 Json index
-        add_index(env, True, idxNameStem + '1', 10, 20)
-        add_index(env, False, idxNameStem + '2', 35, 40)
+        add_index(env, True, idxNameStem + '1', 'c', 10, 20)
+        add_index(env, False, idxNameStem + '2', 'd', 35, 40)
     elif isHash:
         # 2 Hash indices
-        add_index(env, True, idxNameStem + '1', 10, 20)
-        add_index(env, True, idxNameStem + '2', 35, 40)
+        add_index(env, True, idxNameStem + '1', 'e', 10, 20)
+        add_index(env, True, idxNameStem + '2', 'f', 35, 40)
     elif isJson:
         # 2 Json indices
-        add_index(env, False, idxNameStem + '1', 10, 20)
-        add_index(env, False, idxNameStem + '2', 35, 40)
+        add_index(env, False, idxNameStem + '1', 'g', 10, 20)
+        add_index(env, False, idxNameStem + '2', 'h', 35, 40)
     else:
         env.assertTrue(False, "should not reach here")
 
@@ -123,7 +123,7 @@ def get_identifier(name, isHash):
     return '$.' + name if not isHash else name
 
 
-def add_index(env, isHash, index_name, num_prefs, num_keys):
+def add_index(env, isHash, index_name, key_suffix, num_prefs, num_keys):
     ''' Cover most of the possible options of an index
 
     FT.CREATE {index}
@@ -183,14 +183,14 @@ def add_index(env, isHash, index_name, num_prefs, num_keys):
     # Add keys
     for i in range(1, num_keys + 1):
         if isHash:
-            cmd = ['hset', 'pref' + str(i) + ":k" + str(i) + '_' + str(rand_num(5)), rand_name(5), rand_num(2), rand_name(5), rand_num(3)]
+            cmd = ['hset', 'pref' + str(i) + ":k" + str(i) + '_' + rand_num(5) + key_suffix, rand_name(5), rand_num(2), rand_name(5), rand_num(3)]
             env.assertEqual(env.cmd(*cmd), 2L)
         else:
-            cmd = ['json.set', 'pref' + str(i) + ":k" + str(i) + '_' + rand_num(5), '$', r'{"field1":"' + rand_name(5) + r'", "field2":' + rand_num(3) + r'}']
+            cmd = ['json.set', 'pref' + str(i) + ":k" + str(i) + '_' + rand_num(5) + key_suffix, '$', r'{"field1":"' + rand_name(5) + r'", "field2":' + rand_num(3) + r'}']
             env.assertOk(env.cmd(*cmd))
 
 
-def _testCreateIndexRdbFiles(env):
+def testCreateIndexRdbFiles(env):
     if os.environ.get('CI'):
         env.skip()
     create_indices(env, 'redisearch_2.2.0.rdb', 'idxSearch', True, False)
@@ -479,8 +479,8 @@ def sendShortReads(env, rdb_file, expected_index):
     # When entire rdb is successfully sent and loaded (from swapdb) - backup should be discarded
     env.assertCmdOk('replicaof', 'no', 'one')
     env.flush()
-    add_index(env, True,  'idxBackup1', 5, 10)
-    add_index(env, False, 'idxBackup2', 5, 10)
+    add_index(env, True,  'idxBackup1', 'a', 5, 10)
+    add_index(env, False, 'idxBackup2', 'b', 5, 10)
 
     res = env.cmd('ft.search ', 'idxBackup1', '*', 'limit', '0', '0')
     env.assertEqual(res[0], 5L)
