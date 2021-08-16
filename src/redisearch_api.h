@@ -162,7 +162,7 @@ MODULE_API_FUNC(void, RediSearch_DocumentAddFieldString)
   RediSearch_DocumentAddFieldString(doc, fieldname, s, strlen(s), indexAs)
 
 MODULE_API_FUNC(void, RediSearch_DocumentAddFieldNumber)
-(RSDoc* d, const char* fieldName, double n, unsigned indexAsTypes);
+(RSDoc* d, const char* fieldName, double val, unsigned indexAsTypes);
 
 /**
  * Add geo field to a document.

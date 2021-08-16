@@ -44,9 +44,12 @@ static uint32_t hashKey(const void *s, size_t n) {
 static size_t estimtateTermCount(const Document *doc) {
   size_t nChars = 0;
   for (size_t ii = 0; ii < doc->numFields; ++ii) {
-    size_t n;
-    RedisModule_StringPtrLen(doc->fields[ii].text, &n);
-    nChars += n;
+    DocumentField *field = doc->fields + ii;
+    if (field->unionType == FLD_VAR_T_CSTR || field->unionType == FLD_VAR_T_RMS) {
+      size_t n;
+      DocumentField_GetValueCStr(field, &n);
+      nChars += n;
+    }
   }
   return nChars / CHARS_PER_TERM;
 }

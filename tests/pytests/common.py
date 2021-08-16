@@ -88,6 +88,11 @@ def server_version_at_least(env, ver):
 def server_version_less_than(env, ver):
     return not server_version_at_least(env, ver)
 
+def index_info(env, idx):
+    res = env.cmd('FT.INFO', idx)
+    res = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
+    return res
+
 def skipOnExistingEnv(env):
     if 'existing' in env.env:
         env.skip()
