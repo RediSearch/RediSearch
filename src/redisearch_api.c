@@ -55,6 +55,24 @@ void RediSearch_DropIndex(IndexSpec* sp) {
   RWLOCK_RELEASE();
 }
 
+char **RediSearch_IndexGetStopwords(IndexSpec* sp) {
+  return GetStopWordsList(sp->stopwords);
+}
+
+double RediSearch_IndexGetScore(IndexSpec* sp) {
+  if (sp->rule) {
+    return sp->rule->score_default;
+  }
+  return 1.0;
+}
+
+const char *RediSearch_IndexGetLanguage(IndexSpec* sp) {
+  if (sp->rule) {
+    return RSLanguage_ToString(sp->rule->lang_default);
+  }
+  return RSLanguage_ToString(DEFAULT_LANGUAGE);
+}
+
 RSFieldID RediSearch_CreateField(IndexSpec* sp, const char* name, unsigned types,
                                  unsigned options) {
   RS_LOG_ASSERT(types, "types should not be RSFLDTYPE_DEFAULT");
