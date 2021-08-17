@@ -2,6 +2,7 @@
 #define SRC_REDISEARCH_API_H_
 
 #include "redismodule.h"
+#include "stemmer.h"
 #include <limits.h>
 
 #ifdef __cplusplus
@@ -85,6 +86,8 @@ struct RSIdxOptions {
   int gcPolicy;
   char **stopwords;
   int stopwordsLen;
+  double score;
+  RSLanguage lang;
 };
 
 /**

@@ -868,8 +868,21 @@ TEST_F(LLApiTest, testStopwords) {
 }
 
 TEST_F(LLApiTest, testGetters) {
+  // test defaults
   RSIndex* index = RediSearch_CreateIndex("index", NULL);
-  ASSERT_EQ(1, RediSearch_IndexGetScore(index));
-  ASSERT_STREQ("english", RediSearch_IndexGetLanguage(index));
+  ASSERT_EQ(DEFAULT_SCORE, RediSearch_IndexGetScore(index));
+  ASSERT_STREQ(RSLanguage_ToString(DEFAULT_LANGUAGE), RediSearch_IndexGetLanguage(index));
+  RediSearch_DropIndex(index);
+
+  // test custom language and score
+  RSIndexOptions *opt = RediSearch_CreateIndexOptions();
+  opt->score = 0.42;
+  opt->lang = RS_LANG_YIDDISH;
+
+  index = RediSearch_CreateIndex("index", opt);
+  ASSERT_EQ(0.42, RediSearch_IndexGetScore(index));
+  ASSERT_STREQ("yiddish", RediSearch_IndexGetLanguage(index));
+
+  RediSearch_FreeIndexOptions(opt);
   RediSearch_DropIndex(index);  
 }
