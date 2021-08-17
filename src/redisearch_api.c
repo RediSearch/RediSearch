@@ -55,8 +55,8 @@ void RediSearch_DropIndex(IndexSpec* sp) {
   RWLOCK_RELEASE();
 }
 
-char **RediSearch_IndexGetStopwords(IndexSpec* sp) {
-  return GetStopWordsList(sp->stopwords);
+char **RediSearch_IndexGetStopwords(IndexSpec* sp, size_t *size) {
+  return GetStopWordsList(sp->stopwords, size);
 }
 
 double RediSearch_IndexGetScore(IndexSpec* sp) {

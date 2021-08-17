@@ -190,13 +190,13 @@ void ReplyWithStopWordsList(RedisModuleCtx *ctx, struct StopWordList *sl) {
   TrieMapIterator_Free(it);
 }
 
-char **GetStopWordsList(struct StopWordList *sl) {
-  size_t size = sl->m->cardinality;
-  if (size == 0) {
+char **GetStopWordsList(struct StopWordList *sl, size_t *size) {
+  *size = sl->m->cardinality;
+  if (*size == 0) {
     return NULL;
   }
 
-  char **list = rm_malloc((size + 1) * sizeof(list));
+  char **list = rm_malloc((*size) * sizeof(list));
 
   TrieMapIterator *it = TrieMap_Iterate(sl->m, "", 0);
   char *str;
@@ -210,7 +210,7 @@ char **GetStopWordsList(struct StopWordList *sl) {
 
   TrieMapIterator_Free(it);
   list[i] = NULL;
-  RS_LOG_ASSERT(i == size, "actual size must equal expected size");
+  RS_LOG_ASSERT(i == *size, "actual size must equal expected size");
 
   return list;
 }

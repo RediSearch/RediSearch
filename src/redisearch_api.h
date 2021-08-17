@@ -115,7 +115,7 @@ MODULE_API_FUNC(void, RediSearch_DropIndex)(RSIndex*);
 MODULE_API_FUNC(int, RediSearch_StopwordsList_Contains)(RSIndex* idx, const char *term, size_t len);
 
 /** Getter functions */
-MODULE_API_FUNC(char **, RediSearch_IndexGetStopwords)(RSIndex*);
+MODULE_API_FUNC(char **, RediSearch_IndexGetStopwords)(RSIndex*, size_t*);
 MODULE_API_FUNC(double, RediSearch_IndexGetScore)(RSIndex*);
 MODULE_API_FUNC(const char *, RediSearch_IndexGetLanguage)(RSIndex*);
 

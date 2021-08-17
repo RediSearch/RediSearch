@@ -844,10 +844,11 @@ TEST_F(LLApiTest, testStopwords) {
   ASSERT_EQ(RediSearch_StopwordsList_Contains(index, words[1], strlen(words[1])), 1);
   ASSERT_EQ(RediSearch_StopwordsList_Contains(index, "RediSearch", strlen("RediSearch")), 0);
 
-  char **list = RediSearch_IndexGetStopwords(index);
+  size_t size;
+  char **list = RediSearch_IndexGetStopwords(index, &size);
+  ASSERT_EQ(size, 2);
   ASSERT_STRCASEEQ(list[0], words[0]);
   ASSERT_STRCASEEQ(list[1], words[1]);
-  ASSERT_FALSE(list[2]);    // list is NULL terminated
   rm_free(list[0]);
   rm_free(list[1]);
   rm_free(list);
