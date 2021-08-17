@@ -196,7 +196,7 @@ char **GetStopWordsList(struct StopWordList *sl, size_t *size) {
     return NULL;
   }
 
-  char **list = rm_malloc((*size) * sizeof(list));
+  char **list = rm_malloc((*size) * sizeof(*list));
 
   TrieMapIterator *it = TrieMap_Iterate(sl->m, "", 0);
   char *str;
@@ -209,7 +209,6 @@ char **GetStopWordsList(struct StopWordList *sl, size_t *size) {
   }
 
   TrieMapIterator_Free(it);
-  list[i] = NULL;
   RS_LOG_ASSERT(i == *size, "actual size must equal expected size");
 
   return list;
