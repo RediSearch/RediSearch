@@ -32,6 +32,12 @@ IndexSpec* RediSearch_CreateIndex(const char* name, const RSIndexOptions* option
     spec->indexer = NewIndexer(spec);
   }
 
+  if (options->score || options->lang) {
+    spec->rule = rm_calloc(1, sizeof *spec->rule);
+    spec->rule->score_default = options->score ? options->score : DEFAULT_SCORE;
+    spec->rule->lang_default = options->lang ? options->lang : DEFAULT_LANGUAGE;
+  }
+
   spec->getValue = options->gvcb;
   spec->getValueCtx = options->gvcbData;
   if (options->flags & RSIDXOPT_DOCTBLSIZE_UNLIMITED) {
@@ -52,6 +58,24 @@ void RediSearch_DropIndex(IndexSpec* sp) {
   RWLOCK_ACQUIRE_WRITE();
   IndexSpec_FreeInternals(sp);
   RWLOCK_RELEASE();
+}
+
+char **RediSearch_IndexGetStopwords(IndexSpec* sp, size_t *size) {
+  return GetStopWordsList(sp->stopwords, size);
+}
+
+double RediSearch_IndexGetScore(IndexSpec* sp) {
+  if (sp->rule) {
+    return sp->rule->score_default;
+  }
+  return DEFAULT_SCORE;
+}
+
+const char *RediSearch_IndexGetLanguage(IndexSpec* sp) {
+  if (sp->rule) {
+    return RSLanguage_ToString(sp->rule->lang_default);
+  }
+  return RSLanguage_ToString(DEFAULT_LANGUAGE);
 }
 
 RSFieldID RediSearch_CreateField(IndexSpec* sp, const char* name, unsigned types,
