@@ -74,7 +74,7 @@ SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, IndexSpec *spec, QueryError 
     }
     rule->score_default = score;
   } else {
-    rule->score_default = 1.0;
+    rule->score_default = DEFAULT_SCORE;
   }
 
   if (args->lang_default) {

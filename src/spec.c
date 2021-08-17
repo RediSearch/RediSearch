@@ -1911,7 +1911,7 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
 
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
   Document doc = {0};
-  Document_Init(&doc, key, 1.0, DEFAULT_LANGUAGE, type);
+  Document_Init(&doc, key, DEFAULT_SCORE, DEFAULT_LANGUAGE, type);
   // if a key does not exit, is not a hash or has no fields in index schema
 
   int rv = REDISMODULE_ERR;
