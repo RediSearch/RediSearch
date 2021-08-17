@@ -349,13 +349,9 @@ int CheckVersionForShortRead() {
 }
 
 void Initialize_RdbNotifications(RedisModuleCtx *ctx) {
-  int shouldEnableShortRead = CheckVersionForShortRead();
-  if (shouldEnableShortRead == REDISMODULE_OK || IsEnterprise()) {
-    // On Enterprise, Short Read is enabled, so need to subscribe
+  if (CheckVersionForShortRead() == REDISMODULE_OK) {
     int success = RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ReplBackup, ReplicaBackupCallback);
     RedisModule_Assert(success != REDISMODULE_ERR); // should be supported in this redis version/release
-  }
-  if (shouldEnableShortRead == REDISMODULE_OK) {
     RedisModule_SetModuleOptions(ctx, REDISMODULE_OPTIONS_HANDLE_IO_ERRORS);
     RedisModule_Log(ctx, "notice", "Enabled diskless replication");
   }
