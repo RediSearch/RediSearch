@@ -328,7 +328,7 @@ def testAsTag(env):
     env.expect('FT.SEARCH', 'idx', '@tag:{bar}').equal(res)
     env.expect('FT.SEARCH', 'idx', '@tag:{baz}').equal(res)
 
-    env.expect('FT.SEARCH', 'idx', '@tag:{foo/,bar/,baz}').equal([0L])
+    env.expect('FT.SEARCH', 'idx', '@tag:{foo\\,bar\\,baz}').equal([0L])
 
 def testMultiValueTag(env):
 
@@ -686,8 +686,8 @@ def testTagNoSeparetor(env):
     env.assertEqual(conn.execute_command('JSON.GET', 'doc:2', '$'), '[{"tag2":["foo","bar,baz"]}]')
     env.assertEqual(conn.execute_command('JSON.GET', 'doc:2', '$.tag2[*]'), '["foo","bar,baz"]')
 
-    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', 'foo,bar,baz'), [1L, 'doc:1', ['$', '{"tag1":"foo,bar,baz"}']])
-    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', 'bar,baz'), [1L, 'doc:2', ['$', '{"tag2":["foo","bar,baz"]}']])
+    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', '@tag_list:{foo\\,bar\\,baz}'), [1L, 'doc:1', ['$', '{"tag1":"foo,bar,baz"}']])
+    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', '@tag_array:{bar\\,baz}'), [1L, 'doc:2', ['$', '{"tag2":["foo","bar,baz"]}']])
 
 
 
