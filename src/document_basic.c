@@ -177,9 +177,14 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx) {
         continue;
     }
 
+    // Iterator with 0 paths is legal. Let's continue
     RedisJSON jsonValue = japi->next(jsonIter);
-    if (!jsonValue || 
-        FieldSpec_CheckJsonType(field->types, japi->getType(jsonValue)) != REDISMODULE_OK) {
+    if (!jsonValue) {
+      continue;
+    }
+
+    // Ah ah ah. illegal type of field
+    if (FieldSpec_CheckJsonType(field->types, japi->getType(jsonValue)) != REDISMODULE_OK) {
       goto done;
     }
 

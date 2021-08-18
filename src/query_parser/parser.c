@@ -1504,7 +1504,7 @@ static YYACTIONTYPE yy_reduce(
       case 39: /* tag_list ::= LB STOPWORD */ yytestcase(yyruleno==39);
 {
     yymsp[-1].minor.yy13 = NewPhraseNode(0);
-    QueryNode_AddChild(yymsp[-1].minor.yy13, NewTokenNode(ctx, strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), -1));
+    QueryNode_AddChild(yymsp[-1].minor.yy13, NewTokenNode(ctx, rm_strndup(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), -1));
 }
         break;
       case 40: /* tag_list ::= LB prefix */
@@ -1517,7 +1517,7 @@ static YYACTIONTYPE yy_reduce(
       case 42: /* tag_list ::= tag_list OR term */
       case 43: /* tag_list ::= tag_list OR STOPWORD */ yytestcase(yyruleno==43);
 {
-    QueryNode_AddChild(yymsp[-2].minor.yy13, NewTokenNode(ctx, strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), -1));
+    QueryNode_AddChild(yymsp[-2].minor.yy13, NewTokenNode(ctx, rm_strndup(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), -1));
     yylhsminor.yy13 = yymsp[-2].minor.yy13;
 }
   yymsp[-2].minor.yy13 = yylhsminor.yy13;
@@ -1585,6 +1585,8 @@ static YYACTIONTYPE yy_reduce(
         QERR_MKSYNTAXERR(ctx->status, "Invalid Vector Filter unit");
     }
 
+    // `+ 3` comes to compensate for redisearch parser removing `=` chars
+    // at the end of the string. This is common on vecsim especialy with Base64
     yymsp[-4].minor.yy12 = NewVectorFilter(yymsp[-3].minor.yy0.s, yymsp[-3].minor.yy0.len + 3, buf, yymsp[-1].minor.yy77.num);
 }
         break;

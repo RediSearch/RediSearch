@@ -37,9 +37,9 @@ def testSearchUpdatedContent(env):
     env.assertEqual(res, None)
     conn.execute_command('json.set', 'doc:1', '$', plain_val_1_raw)
     res = conn.execute_command('json.get', 'doc:1', '$')
-    env.assertEqual(res, plain_val_1)
+    env.assertEqual(json.loads(res), json.loads(plain_val_1))
     res = conn.execute_command('json.get', 'doc:1', '.')
-    env.assertEqual(res, plain_val_1_raw)
+    env.assertEqual(json.loads(res), json.loads(plain_val_1_raw))
 
     # Index creation
     conn.execute_command('FT.CREATE', 'idx1', 'ON', 'JSON', 'SCHEMA', '$.t', 'AS', 'labelT', 'TEXT', '$.n', 'AS',
@@ -55,9 +55,9 @@ def testSearchUpdatedContent(env):
 
     conn.execute_command('json.set', 'doc:2', '$', plain_val_2_raw)
     res = conn.execute_command('json.get', 'doc:2', '$')
-    env.assertEqual(res, plain_val_2)
+    env.assertEqual(json.loads(res), json.loads(plain_val_2))
     res = conn.execute_command('json.get', 'doc:2', '.')
-    env.assertEqual(res, plain_val_2_raw)
+    env.assertEqual(json.loads(res), json.loads(plain_val_2_raw))
     res = conn.execute_command('json.get', 'doc:2', '$.n')
     env.assertEqual(res, '[9]')
     res = conn.execute_command('json.get', 'doc:2', '.n')
@@ -68,8 +68,16 @@ def testSearchUpdatedContent(env):
     env.assertEqual(res, '"riceratops"')
 
     # Test updated values are found
-    env.expect('ft.search', 'idx1', '*').equal([2L, 'doc:1', ['$', plain_val_1_raw], 'doc:2', ['$', plain_val_2_raw]])
-    env.expect('ft.search', 'idx1', 're*').equal([1L, 'doc:1', ['$', plain_val_1_raw]])
+    expected = [2L, 'doc:1', ['$', json.loads(plain_val_1_raw)], 'doc:2', ['$', json.loads(plain_val_2_raw)]]
+    res = env.cmd('ft.search', 'idx1', '*')
+    res[2][1] = json.loads(res[2][1])
+    res[4][1] = json.loads(res[4][1])
+    env.assertEqual(res, expected)
+    
+    expected = [1L, 'doc:1', ['$', json.loads(plain_val_1_raw)]]
+    res = env.cmd('ft.search', 'idx1', 're*')
+    res[2][1] = json.loads(res[2][1])
+    env.assertEqual(res, expected)
 
     # TODO: Why does the following result look like that? (1 count and 2 arrays of result pairs)
     res = env.execute_command('ft.aggregate', 'idx1', '*', 'LOAD', '1', 'labelT')
@@ -93,11 +101,16 @@ def testSearchUpdatedContent(env):
     # test JSON.NUMINCRBY
     env.expect('json.numincrby', 'doc:1', '$.n', int_incrby_3).equal(plain_int_res_val_3)
 
-    env.expect('ft.search', 'idx1', 'he*').equal(
-        [1L, 'doc:1', ['$', r'{"t":"hescelosaurus","n":' + plain_int_res_val_3 + '}']])
+    expected = [1L, 'doc:1', ['$', json.loads(r'{"t":"hescelosaurus","n":' + plain_int_res_val_3 + '}')]]
+    res = env.cmd('ft.search', 'idx1', 'he*')
+    res[2][1] = json.loads(res[2][1])
+    env.assertEqual(res, expected)
 
-    env.expect('ft.search', 'idx1', 'riceratops', 'RETURN', '1', '$').equal(
-        [1L, 'doc:2', ['$', '{"t":"riceratops","n":9}']])
+    expected = [1L, 'doc:2', ['$', json.loads('{"t":"riceratops","n":9}')]]
+    res = env.cmd('ft.search', 'idx1', 'riceratops', 'RETURN', '1', '$')
+    res[2][1] = json.loads(res[2][1])
+    env.assertEqual(res, expected)
+
     env.expect('ft.search', 'idx1', 'riceratops', 'RETURN', '1', '$.n').equal([1L, 'doc:2', ['$.n', '9']])
     env.expect('ft.search', 'idx1', 'riceratops', 'RETURN', '1', '$.t').equal([1L, 'doc:2', ['$.t', 'riceratops']])
 
@@ -165,6 +178,14 @@ def testNoContent(env):
     env.expect('ft.search', 'idx', 're*', 'NOCONTENT').equal([0L])
     env.expect('ft.search', 'idx', 'ri*', 'NOCONTENT').equal([1L, 'doc:1'])
 
+
+def testDocNoFullSchema(env):
+    # Test NOCONTENT
+    env.cmd('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.t1', 'TEXT', '$.t2', 'TEXT')
+    env.cmd('JSON.SET', 'doc:1', '$', r'{"t1":"riceratops"}')
+    env.expect('ft.search', 'idx', 're*', 'NOCONTENT').equal([0L])
+    env.expect('ft.search', 'idx', 'ri*', 'NOCONTENT').equal([1L, 'doc:1'])
+
 def testReturnRoot(env):
     # Test NOCONTENT
     env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT')
@@ -177,19 +198,19 @@ def testNonEnglish(env):
                         'labelN', 'NUMERIC')
     japanese_value_1 = 'ドラゴン'
     japanese_doc_value_raw = r'{"t":"' + japanese_value_1 + r'","n":5}'
-    japanese_doc_value = '[' + japanese_doc_value_raw + ']'
+    japanese_doc_value = [ json.loads(japanese_doc_value_raw) ]
 
     env.expect('json.set', 'doc:4', '$', japanese_doc_value_raw).ok()
-    env.expect('json.get', 'doc:4', '$').equal(japanese_doc_value)
-    env.expect('json.get', 'doc:4', '.').equal(japanese_doc_value_raw)
+    env.assertEqual(json.loads(env.cmd('json.get', 'doc:4', '$')), japanese_doc_value)
+    env.assertEqual(json.loads(env.cmd('json.get', 'doc:4', '.')), json.loads(japanese_doc_value_raw))
     env.expect('json.get', 'doc:4', '$.t').equal('["' + japanese_value_1 + '"]')
     env.expect('json.get', 'doc:4', '.t').equal('"' + japanese_value_1 + '"')
 
     chinese_value_1_raw = r'{"t":"踪迹","n":5}'
-    chinese_value_1 = '[' + chinese_value_1_raw + ']'
+    chinese_value_1 = [ json.loads(chinese_value_1_raw)]
     env.expect('json.set', 'doc:5', '$', chinese_value_1_raw).ok()
-    env.expect('json.get', 'doc:5', '$').equal(chinese_value_1)
-    env.expect('json.get', 'doc:5', '.').equal(chinese_value_1_raw)
+    env.assertEqual(json.loads(env.cmd('json.get', 'doc:5', '$')), chinese_value_1)
+    env.assertEqual(json.loads(env.cmd('json.get', 'doc:5', '.')), json.loads(chinese_value_1_raw))
 
     env.expect('ft.search', 'idx1', '*', 'RETURN', '3', '$.t', 'AS', 'MyReturnLabel') \
         .equal([2L,
@@ -348,8 +369,8 @@ def testDemo(env):
     # Set a value before index is defined
     tlv = r'{"iata":"TLV","name":"Ben Gurion International Airport","location":"34.8866997,32.01139832"}'
     sfo = r'{"iata":"SFO","name":"San Francisco International Airport","location":"-122.375,37.6189995"}'
-    tlv_doc = [1L, 'A:TLV', ['$', tlv]]
-    sfo_doc = [1L, 'A:SFO', ['$', sfo]]
+    tlv_doc = [1L, 'A:TLV', ['$', json.loads(tlv)]]
+    sfo_doc = [1L, 'A:SFO', ['$', json.loads(sfo)]]
 
     conn.execute_command('json.set', 'A:TLV', '$', tlv)
     conn.execute_command('json.set', 'A:SFO', '$', sfo)
@@ -372,10 +393,22 @@ def testDemo(env):
          ['identifier', '$.location', 'attribute', 'location', 'type', 'GEO']])
     env.assertEqual(int(slice_at(info, 'num_docs')[0]), 2)
 
-    env.expect('FT.SEARCH', 'airports', 'TLV').equal(tlv_doc)
-    env.expect('FT.SEARCH', 'airports', 'TL*').equal(tlv_doc)
-    env.expect('FT.SEARCH', 'airports', 'sen frensysclo').equal(sfo_doc)
-    env.expect('FT.SEARCH', 'airports', '@location:[-122.41 37.77 100 km]').equal(sfo_doc)
+    res = env.cmd('FT.SEARCH', 'airports', 'TLV')
+    res[2][1] = json.loads(res[2][1])
+    env.assertEqual(res, tlv_doc)
+
+    res = env.cmd('FT.SEARCH', 'airports', 'TL*')
+    res[2][1] = json.loads(res[2][1])
+    env.assertEqual(res, tlv_doc)    
+
+    res = env.cmd('FT.SEARCH', 'airports', 'sen frensysclo')
+    res[2][1] = json.loads(res[2][1])
+    env.assertEqual(res, sfo_doc)
+
+    res = env.cmd('FT.SEARCH', 'airports', '@location:[-122.41 37.77 100 km]')
+    res[2][1] = json.loads(res[2][1])
+    env.assertEqual(res, sfo_doc)
+
     env.expect('FT.SEARCH', 'airports', 'sfo', 'RETURN', '1', '$.name') \
         .equal([1L, 'A:SFO', ['$.name', 'San Francisco International Airport']])
 
