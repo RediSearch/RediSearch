@@ -681,23 +681,24 @@ def testTagNoSeparetor(env):
     env.assertOk(conn.execute_command('JSON.SET', 'doc:1', '$', '{"tag1":"foo,bar,baz"}'))
     env.assertOk(conn.execute_command('JSON.SET', 'doc:2', '$', '{"tag2":["foo","bar,baz"]}'))
 
-    env.expect('JSON.GET', 'doc:1', '$').equal('[{"tag1":"foo,bar,baz"}]')
-    env.expect('JSON.GET', 'doc:1', '$.tag1').equal('["foo,bar,baz"]')
-    env.expect('JSON.GET', 'doc:2', '$').equal('[{"tag2":["foo","bar,baz"]}]')
-    env.expect('JSON.GET', 'doc:2', '$.tag2[*]').equal('["foo","bar,baz"]')
+    env.assertEqual(conn.execute_command('JSON.GET', 'doc:1', '$'), '[{"tag1":"foo,bar,baz"}]')
+    env.assertEqual(conn.execute_command('JSON.GET', 'doc:1', '$.tag1'), '["foo,bar,baz"]')
+    env.assertEqual(conn.execute_command('JSON.GET', 'doc:2', '$'), '[{"tag2":["foo","bar,baz"]}]')
+    env.assertEqual(conn.execute_command('JSON.GET', 'doc:2', '$.tag2[*]'), '["foo","bar,baz"]')
 
-    env.expect('FT.SEARCH', 'idx', 'foo,bar,baz').equal([1L, 'doc:1', ['$', '{"tag1":"foo,bar,baz"}']])
-    env.expect('FT.SEARCH', 'idx', 'bar,baz').equal([1L, 'doc:2', ['$', '{"tag2":["foo","bar,baz"]}']])
+    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', 'foo,bar,baz'), [1L, 'doc:1', ['$', '{"tag1":"foo,bar,baz"}']])
+    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', 'bar,baz'), [1L, 'doc:2', ['$', '{"tag2":["foo","bar,baz"]}']])
 
 
 
 def testMixedTagError(env):
+    conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE', 'idx1', 'ON', 'JSON', 'SCHEMA', '$.tag[*]', 'AS', 'tag', 'TAG')
     #field has a combination of a single tag, array and object
-    env.expect('JSON.SET', 'doc1', '$', '{"tag":["good result",         \
+    env.assertOk(conn.execute_command('JSON.SET', 'doc1', '$', '{"tag":["good result",         \
                                                 ["bad result"],         \
-                                                {"another":"bad result"}]}').ok()
-    env.expect('FT.SEARCH', 'idx1', '*').equal([0L])
+                                                {"another":"bad result"}]}'))
+    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx1', '*'), [0L])
 
 def testSortableTagError(env):
     env.expect('FT.CREATE', 'idx1', 'ON', 'JSON',                                   \
