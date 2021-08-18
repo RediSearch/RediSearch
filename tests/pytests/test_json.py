@@ -323,8 +323,6 @@ def testAsTag(env):
     env.expect('JSON.GET', 'doc:1', '$').equal('[{"tag":"foo,bar,baz"}]')
     env.expect('JSON.GET', 'doc:1', '$.tag').equal('["foo,bar,baz"]')
 
-    env.expect('FT.DEBUG', 'dump_tagidx', 'idx', 'tag').equal([['foo', [1L]], ['bar', [1L]], ['baz', [1L]]])
-
     res = [1L, 'doc:1', ['$', '{"tag":"foo,bar,baz"}']]
     env.expect('FT.SEARCH', 'idx', '@tag:{foo}').equal(res)
     env.expect('FT.SEARCH', 'idx', '@tag:{bar}').equal(res)
@@ -333,15 +331,18 @@ def testAsTag(env):
     env.expect('FT.SEARCH', 'idx', '@tag:{foo/,bar/,baz}').equal([0L])
 
 def testMultiValueTag(env):
+
+    conn = getConnectionByEnv(env)
+
     # Index with Tag for array with multi-values
     res = env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON',
                               'SCHEMA', '$.tag[*]', 'AS', 'tag', 'TAG', 'SEPARATOR', ',')
 
     # multivalue without a separator
     # 
-    env.expect('JSON.SET', 'doc:1', '$', '{"tag":["foo", "bar", "baz"]}').ok()
-    env.expect('JSON.SET', 'doc:2', '$', '{"tag":["foo, bar", "baz"]}').ok()
-    env.expect('JSON.SET', 'doc:3', '$', '{"tag":["foo, bar, baz"]}').ok()
+    conn.execute_command('JSON.SET', 'doc:1', '$', '{"tag":["foo", "bar", "baz"]}')
+    conn.execute_command('JSON.SET', 'doc:2', '$', '{"tag":["foo, bar", "baz"]}')
+    conn.execute_command('JSON.SET', 'doc:3', '$', '{"tag":["foo, bar, baz"]}')
 
     env.expect('JSON.GET', 'doc:1', '$').equal('[{"tag":["foo","bar","baz"]}]')
     env.expect('JSON.GET', 'doc:1', '$.tag').equal('[["foo","bar","baz"]]')
@@ -354,9 +355,6 @@ def testMultiValueTag(env):
     env.expect('JSON.GET', 'doc:3', '$').equal('[{"tag":["foo, bar, baz"]}]')
     env.expect('JSON.GET', 'doc:3', '$.tag').equal('[["foo, bar, baz"]]')
     env.expect('JSON.GET', 'doc:3', '$.tag[*]').equal('["foo, bar, baz"]')
-
-    env.expect('FT.DEBUG', 'dump_tagidx', 'idx', 'tag') \
-        .equal([['foo', [1L, 2L, 3L]], ['bar', [1L, 2L, 3L]], ['baz', [1L, 2L, 3L]]])
 
     res = [3L, 'doc:1', ['$', '{"tag":["foo","bar","baz"]}'],
                'doc:2', ['$', '{"tag":["foo, bar","baz"]}'],
@@ -674,19 +672,24 @@ def test_WrongJsonType(env):
     env.assertEqual(int(res['hash_indexing_failures']), len(res['attributes']))
 
 def testTagNoSeparetor(env):
+
+    conn = getConnectionByEnv(env)
+
     env.cmd('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
                             '$.tag1', 'AS', 'tag_list', 'TAG',
                             '$.tag2[*]', 'AS', 'tag_array', 'TAG')
-    env.expect('JSON.SET', 'doc:1', '$', '{"tag1":"foo,bar,baz"}').ok()
-    env.expect('JSON.SET', 'doc:2', '$', '{"tag2":["foo","bar,baz"]}').ok()
+    conn.execute_command('JSON.SET', 'doc:1', '$', '{"tag1":"foo,bar,baz"}')
+    conn.execute_command('JSON.SET', 'doc:2', '$', '{"tag2":["foo","bar,baz"]}')
 
     env.expect('JSON.GET', 'doc:1', '$').equal('[{"tag1":"foo,bar,baz"}]')
     env.expect('JSON.GET', 'doc:1', '$.tag1').equal('["foo,bar,baz"]')
     env.expect('JSON.GET', 'doc:2', '$').equal('[{"tag2":["foo","bar,baz"]}]')
     env.expect('JSON.GET', 'doc:2', '$.tag2[*]').equal('["foo","bar,baz"]')
 
-    env.expect('FT.DEBUG', 'dump_tagidx', 'idx', 'tag_list').equal([['foo,bar,baz', [1L]]])
-    env.expect('FT.DEBUG', 'dump_tagidx', 'idx', 'tag_array').equal([['foo', [2L]], ['bar,baz', [2L]]])
+    env.expect('FT.SEARCH', 'idx', 'foo,bar,baz').equal([1L, 'doc:1', ['$', '{"tag1":"foo,bar,baz"}']])
+    env.expect('FT.SEARCH', 'idx', 'bar,baz').equal([1L, 'doc:2', ['$', '{"tag2":["foo","bar,baz"]}']])
+
+
 
 def testMixedTagError(env):
     env.cmd('FT.CREATE', 'idx1', 'ON', 'JSON', 'SCHEMA', '$.tag[*]', 'AS', 'tag', 'TAG')
