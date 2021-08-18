@@ -13,9 +13,10 @@ if [[ ! -z $USE_COVERAGE ]]; then
     ./lcov-init.sh
 fi
 
-BRANCH=master $ROOT/sbin/get-redisjson
+BRANCH=omer-short-read $ROOT/sbin/get-redisjson
 COMPAT_DIR="$ROOT/$BUILD_DIR" make -C $ROOT test CTEST_ARGS="-V"
 
+export REJSON_BRANCH=omer-short-read
 REJSON=1 EXISTING_ENV=1 $ROOT/tests/pytests/runtests.sh $ROOT/$BUILD_DIR/redisearch.so
 
 if [[ ! -z $USE_COVERAGE ]]; then
