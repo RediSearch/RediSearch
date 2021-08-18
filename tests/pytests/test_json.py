@@ -340,29 +340,29 @@ def testMultiValueTag(env):
 
     # multivalue without a separator
     # 
-    conn.execute_command('JSON.SET', 'doc:1', '$', '{"tag":["foo", "bar", "baz"]}')
-    conn.execute_command('JSON.SET', 'doc:2', '$', '{"tag":["foo, bar", "baz"]}')
-    conn.execute_command('JSON.SET', 'doc:3', '$', '{"tag":["foo, bar, baz"]}')
+    env.assertOk(conn.execute_command('JSON.SET', 'doc:1', '$', '{"tag":["foo", "bar", "baz"]}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'doc:2', '$', '{"tag":["foo, bar", "baz"]}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'doc:3', '$', '{"tag":["foo, bar, baz"]}'))
 
-    env.expect('JSON.GET', 'doc:1', '$').equal('[{"tag":["foo","bar","baz"]}]')
-    env.expect('JSON.GET', 'doc:1', '$.tag').equal('[["foo","bar","baz"]]')
-    env.expect('JSON.GET', 'doc:1', '$.tag[*]').equal('["foo","bar","baz"]')
+    env.assertEqual(conn.execute_command('JSON.GET', 'doc:1', '$'), '[{"tag":["foo","bar","baz"]}]')
+    env.assertEqual(conn.execute_command('JSON.GET', 'doc:1', '$.tag'), '[["foo","bar","baz"]]')
+    env.assertEqual(conn.execute_command('JSON.GET', 'doc:1', '$.tag[*]'), '["foo","bar","baz"]')
 
-    env.expect('JSON.GET', 'doc:2', '$').equal('[{"tag":["foo, bar","baz"]}]')
-    env.expect('JSON.GET', 'doc:2', '$.tag').equal('[["foo, bar","baz"]]')
-    env.expect('JSON.GET', 'doc:2', '$.tag[*]').equal('["foo, bar","baz"]')
+    env.assertEqual(conn.execute_command('JSON.GET', 'doc:2', '$'), '[{"tag":["foo, bar","baz"]}]')
+    env.assertEqual(conn.execute_command('JSON.GET', 'doc:2', '$.tag'), '[["foo, bar","baz"]]')
+    env.assertEqual(conn.execute_command('JSON.GET', 'doc:2', '$.tag[*]'), '["foo, bar","baz"]')
 
-    env.expect('JSON.GET', 'doc:3', '$').equal('[{"tag":["foo, bar, baz"]}]')
-    env.expect('JSON.GET', 'doc:3', '$.tag').equal('[["foo, bar, baz"]]')
-    env.expect('JSON.GET', 'doc:3', '$.tag[*]').equal('["foo, bar, baz"]')
+    env.assertEqual(conn.execute_command('JSON.GET', 'doc:3', '$'), '[{"tag":["foo, bar, baz"]}]')
+    env.assertEqual(conn.execute_command('JSON.GET', 'doc:3', '$.tag'), '[["foo, bar, baz"]]')
+    env.assertEqual(conn.execute_command('JSON.GET', 'doc:3', '$.tag[*]'), '["foo, bar, baz"]')
 
     res = [3L, 'doc:1', ['$', '{"tag":["foo","bar","baz"]}'],
                'doc:2', ['$', '{"tag":["foo, bar","baz"]}'],
                'doc:3', ['$', '{"tag":["foo, bar, baz"]}']]
-    env.expect('FT.SEARCH', 'idx', '@tag:{foo}').equal(res)
-    env.expect('FT.SEARCH', 'idx', '@tag:{bar}').equal(res)
-    env.expect('FT.SEARCH', 'idx', '@tag:{baz}').equal(res)
-    env.expect('FT.SEARCH', 'idx', '@tag:{foo/,bar/,baz}').equal([0L])
+    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', '@tag:{foo}'), res)
+    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', '@tag:{bar}'), res)
+    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', '@tag:{baz}'), res)
+    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', '@tag:{foo/,bar/,baz}'), [0L])
 
 def testMultiValueErrors(env):
     # Index with Tag for array with multi-values
@@ -678,8 +678,8 @@ def testTagNoSeparetor(env):
     env.cmd('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
                             '$.tag1', 'AS', 'tag_list', 'TAG',
                             '$.tag2[*]', 'AS', 'tag_array', 'TAG')
-    conn.execute_command('JSON.SET', 'doc:1', '$', '{"tag1":"foo,bar,baz"}')
-    conn.execute_command('JSON.SET', 'doc:2', '$', '{"tag2":["foo","bar,baz"]}')
+    env.assertOk(conn.execute_command('JSON.SET', 'doc:1', '$', '{"tag1":"foo,bar,baz"}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'doc:2', '$', '{"tag2":["foo","bar,baz"]}'))
 
     env.expect('JSON.GET', 'doc:1', '$').equal('[{"tag1":"foo,bar,baz"}]')
     env.expect('JSON.GET', 'doc:1', '$.tag1').equal('["foo,bar,baz"]')
