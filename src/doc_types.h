@@ -12,9 +12,10 @@ extern "C" {
 #endif
 
 static inline DocumentType getDocType(RedisModuleKey *key) {
-  if (RedisModule_KeyType(key) == REDISMODULE_KEYTYPE_HASH) {
+  int keyType = RedisModule_KeyType(key);
+  if (keyType == REDISMODULE_KEYTYPE_HASH) {
     return DocumentType_Hash;
-  } else if (japi && japi->isJSON(key)) {
+  } else if (keyType == REDISMODULE_KEYTYPE_MODULE && japi && japi->isJSON(key)) {
     return DocumentType_Json;
   }
   return DocumentType_None;
