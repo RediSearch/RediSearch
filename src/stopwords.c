@@ -2,6 +2,8 @@
 #include "stopwords.h"
 #include "dep/triemap/triemap.h"
 #include "rmalloc.h"
+#include "util/strconv.h"
+#include "rmutil/rm_assert.h"
 #include <ctype.h>
 
 #define MAX_STOPWORDLIST_SIZE 1024
@@ -169,4 +171,28 @@ void ReplyWithStopWordsList(RedisModuleCtx *ctx, struct StopWordList *sl) {
   }
   RedisModule_ReplySetArrayLength(ctx, i);
   TrieMapIterator_Free(it);
+}
+
+char **GetStopWordsList(struct StopWordList *sl, size_t *size) {
+  *size = sl->m->cardinality;
+  if (*size == 0) {
+    return NULL;
+  }
+
+  char **list = rm_malloc((*size) * sizeof(*list));
+
+  TrieMapIterator *it = TrieMap_Iterate(sl->m, "", 0);
+  char *str;
+  tm_len_t len;
+  void *ptr;
+  size_t i = 0;
+
+  while (TrieMapIterator_Next(it, &str, &len, &ptr)) {
+    list[i++] = rm_strndup(str, len);
+  }
+
+  TrieMapIterator_Free(it);
+  RS_LOG_ASSERT(i == *size, "actual size must equal expected size");
+
+  return list;
 }

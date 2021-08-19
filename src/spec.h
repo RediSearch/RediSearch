@@ -51,6 +51,8 @@ struct DocumentIndexer;
 #define SPEC_ASYNC_STR "ASYNC"
 #define SPEC_SKIPINITIALSCAN_STR "SKIPINITIALSCAN"
 
+#define DEFAULT_SCORE 1.0
+
 #define SPEC_FOLLOW_HASH_ARGS_DEF(rule)                                     \
   {.name = "PREFIX", .target = &rule_prefixes, .type = AC_ARGTYPE_SUBARGS}, \
       {.name = "FILTER",                                                    \
