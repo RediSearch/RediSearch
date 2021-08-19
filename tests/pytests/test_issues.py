@@ -278,10 +278,21 @@ def testUNF(env):
                                                       'tag_unf', 'TAG', 'SORTABLE', 'UNF')
   conn.execute_command('HSET', 'doc1', 'txt', 'FOO', 'txt_unf', 'FOO', 
                                        'tag', 'FOO', 'tag_unf', 'FOO')
+
+  # test `FOO`
   env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '4', '@txt', '@txt_unf', '@tag', '@tag_unf')  \
     .equal([1L, ['txt', 'foo', 'txt_unf', 'FOO', 'tag', 'foo', 'tag_unf', 'FOO']])
 
+  # test `Maße`
   conn.execute_command('HSET', 'doc1', 'txt', 'Maße', 'txt_unf', 'Maße', 
                                        'tag', 'Maße', 'tag_unf', 'Maße')
   env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '4', '@txt', '@txt_unf', '@tag', '@tag_unf')  \
     .equal([1L, ['txt', 'masse', 'txt_unf', 'Ma\xc3\x9fe', 'tag', 'masse', 'tag_unf', 'Ma\xc3\x9fe']])
+
+  # test `Maße` with LOAD
+  conn.execute_command('HSET', 'doc1', 'txt', 'Maße', 'txt_unf', 'Maße', 
+                                       'tag', 'Maße', 'tag_unf', 'Maße')
+  env.expect('FT.AGGREGATE', 'idx', '*',                              \
+             'LOAD',    '4', '@txt', '@txt_unf', '@tag', '@tag_unf',  \
+             'GROUPBY', '4', '@txt', '@txt_unf', '@tag', '@tag_unf')  \
+    .equal([1L, ['txt', 'Ma\xc3\x9fe', 'txt_unf', 'Ma\xc3\x9fe', 'tag', 'Ma\xc3\x9fe', 'tag_unf', 'Ma\xc3\x9fe']])
