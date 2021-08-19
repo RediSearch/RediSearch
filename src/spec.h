@@ -46,10 +46,13 @@ struct DocumentIndexer;
 #define SPEC_SORTABLE_STR "SORTABLE"
 #define SPEC_STOPWORDS_STR "STOPWORDS"
 #define SPEC_NOINDEX_STR "NOINDEX"
-#define SPEC_SEPARATOR_STR "SEPARATOR"
+#define SPEC_TAG_SEPARATOR_STR "SEPARATOR"
+#define SPEC_TAG_CASE_SENSITIVE_STR "CASESENSITIVE"
 #define SPEC_MULTITYPE_STR "MULTITYPE"
 #define SPEC_ASYNC_STR "ASYNC"
 #define SPEC_SKIPINITIALSCAN_STR "SKIPINITIALSCAN"
+
+#define DEFAULT_SCORE 1.0
 
 #define SPEC_FOLLOW_HASH_ARGS_DEF(rule)                                     \
   {.name = "PREFIX", .target = &rule_prefixes, .type = AC_ARGTYPE_SUBARGS}, \
@@ -138,6 +141,7 @@ typedef enum {
   Index_HasPhonetic = 0x400,
   Index_Async = 0x800,
   Index_SkipInitialScan = 0x1000,
+  Index_FromLLAPI = 0x2000,
 } IndexFlags;
 
 // redis version (its here because most file include it with no problem,

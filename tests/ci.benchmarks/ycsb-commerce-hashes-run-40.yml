@@ -1,11 +1,11 @@
 version: 0.2
 name: "ycsb-commerce-hashes-run-40"
-description: "YCSB Commerce workload (RUN step) using RediSearch v2"
+description: "YCSB Commerce workload (RUN step) using RediSearch v2 doing 40% updates"
 dbconfig:
   - dataset: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/ycsb/ycsb-redisearch-binding/datasets/recordcount-100000.rdb"
 remote:
  - type: oss-standalone
- - setup: redisearch-m5d
+ - setup: redisearch-m5
 clientconfig:
   - tool: ycsb
   - tool_source:
@@ -18,7 +18,7 @@ clientconfig:
     - override_workload_properties:
       - dictfile: "./bin/uci_online_retail.csv"
       - recordcount: 100000
-      - operationcount: 100000
+      - operationcount: 500000
     - threads: 64
 exporter:
   redistimeseries:

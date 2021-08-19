@@ -7,7 +7,7 @@ import random
 import time
 from RLTest import Env
 from includes import *
-from common import getConnectionByEnv, waitForIndex, toSortedFlatList, assertInfoField, server_version_at_least, module_version_at_least
+from common import *
 
 # this tests is not longer relevant
 # def testAdd(env):
@@ -577,8 +577,8 @@ def testNoIndex(env):
     if not env.isCluster():
         # to specific check on cluster, todo : change it to be generic enough
         res = env.cmd('ft.info', 'idx')
-        env.assertEqual(res[7][1][4], 'NOINDEX')
-        env.assertEqual(res[7][2][6], 'NOINDEX')
+        env.assertEqual(res[7][1][7], 'NOINDEX')
+        env.assertEqual(res[7][2][9], 'NOINDEX')
 
     env.assertOk(r.execute_command('ft.add', 'idx', 'doc1', '0.1', 'fields',
                                     'foo', 'hello world', 'num', 1, 'extra', 'hello lorem ipsum'))
@@ -1130,7 +1130,7 @@ def testGeoDeletion(env):
     # Remove the first doc
     env.cmd('ft.del', 'idx', 'doc1')
     for _ in range(100):
-        env.cmd('ft.debug', 'gc_forceinvoke', 'idx')
+        forceInvokeGC(env, 'idx')
     env.assertEqual(2, len(env.cmd('FT.DEBUG DUMP_NUMIDX idx g1')[0]))
     env.assertEqual(1, len(env.cmd('FT.DEBUG DUMP_NUMIDX idx g2')[0]))
 
@@ -1139,7 +1139,7 @@ def testGeoDeletion(env):
             'replace', 'fields',
             't1', 'just text here')
     for _ in range(100):
-        env.cmd('ft.debug', 'gc_forceinvoke', 'idx')
+        forceInvokeGC(env, 'idx')
     env.assertEqual(1, len(env.cmd('FT.DEBUG DUMP_NUMIDX idx g1')[0]))
     env.assertEqual(0, len(env.cmd('FT.DEBUG DUMP_NUMIDX idx g2')[0]))
 
@@ -1447,7 +1447,7 @@ def testGarbageCollector(env):
 
     for _ in range(100):
         # gc is random so we need to do it long enough times for it to work
-        env.cmd('ft.debug', 'GC_FORCEINVOKE', 'idx')
+        forceInvokeGC(env, 'idx')
 
     stats = get_stats(r)
 
@@ -1591,7 +1591,7 @@ def testInfoCommand(env):
         env.assertEqual(d['index_name'], 'idx')
         env.assertEqual(d['index_options'], ['NOFIELDS'])
         env.assertListEqual(
-            d['fields'], [['title', 'type', 'TEXT', 'WEIGHT', '1']])
+            d['attributes'], [['identifier', 'title', 'attribute', 'title', 'type', 'TEXT', 'WEIGHT', '1']])
 
         if not env.is_cluster():
             env.assertEquals(int(d['num_docs']), N)
@@ -1634,7 +1634,7 @@ def testNoStem(env):
     if not env.isCluster():
         # todo: change it to be more generic to pass on is_cluster
         res = env.cmd('ft.info', 'idx')
-        env.assertEqual(res[7][1][5], 'NOSTEM')
+        env.assertEqual(res[7][1][8], 'NOSTEM')
     for _ in env.retry_with_reload():
         waitForIndex(env, 'idx')
         try:
@@ -1943,7 +1943,7 @@ def testAlterValidation(env):
     env.assertRaises(redis.ResponseError, env.cmd, 'FT.ALTER', 'idx3',
                       'SCHEMA', 'ADD', 'f1', 'TEXT', 'f2', 'garbage')
     ret = to_dict(env.cmd('ft.info', 'idx3'))
-    env.assertEqual(1, len(ret['fields']))
+    env.assertEqual(1, len(ret['attributes']))
 
     env.assertRaises(redis.ResponseError, env.cmd, 'FT.ALTER',
                       'nonExist', 'SCHEMA', 'ADD', 'f1', 'TEXT')
@@ -2075,6 +2075,10 @@ def testTimeout(env):
         r, cursor = env.cmd('FT.CURSOR', 'READ', 'myIdx', str(cursor))
         l += (len(r) - 1)
     env.assertEqual(l, 1000)
+
+    # restore old configuration
+    env.cmd('ft.config', 'set', 'timeout', '500')
+    env.cmd('ft.config', 'set', 'maxprefixexpansions', 200)
 
 def testAlias(env):
     conn = getConnectionByEnv(env)
@@ -2287,7 +2291,7 @@ def testPrefixDeletedExpansions(env):
     iters = 0
     while time.time() < tmax:
         iters += 1
-        env.cmd('ft.debug', 'gc_forceinvoke', 'idx')
+        forceInvokeGC(env, 'idx')
         r = env.cmd('ft.search', 'idx', '@txt1:term* @tag1:{tag*}')
         if r[0]:
             break
@@ -2847,7 +2851,7 @@ def testIssue1085(env):
     for i in range(1, 10):
         env.cmd('FT.ADD issue1085 document_8 1 REPLACE FIELDS foo foo8 bar 8')
 
-    env.expect('ft.debug GC_FORCEINVOKE issue1085').equal('DONE')
+    forceInvokeGC(env, 'issue1085')
 
     res = env.cmd('FT.SEARCH', 'issue1085', '@bar:[8 8]')
     env.assertEqual(toSortedFlatList(res), toSortedFlatList([1, 'document_8', ['foo', 'foo8', 'bar', '8']]))
@@ -2961,7 +2965,8 @@ def testIssue1184(env):
         env.assertEqual(d['num_records'], '1')
 
         env.assertEqual(env.execute_command('FT.DEL idx doc0'), 1)
-        env.cmd('ft.debug', 'GC_FORCEINVOKE', 'idx')
+
+        forceInvokeGC(env, 'idx')
 
         res = env.execute_command('ft.info', 'idx')
         d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
@@ -3149,8 +3154,9 @@ def testAlterIfNX(env):
     env.expect('FT._ALTERIFNX idx SCHEMA ADD n1 NUMERIC').ok()
     env.expect('FT._ALTERIFNX idx SCHEMA ADD n1 NUMERIC').ok()
     res = env.cmd('ft.info idx')
-    res = {res[i]: res[i + 1] for i in range(0, len(res), 2)}['fields']
-    env.assertEqual(res, [['n', 'type', 'NUMERIC'], ['n1', 'type', 'NUMERIC']])
+    res = {res[i]: res[i + 1] for i in range(0, len(res), 2)}['attributes']
+    env.assertEqual(res, [['identifier', 'n', 'attribute', 'n', 'type', 'NUMERIC'],
+                          ['identifier', 'n1', 'attribute', 'n1', 'type', 'NUMERIC']])
 
 def testAliasAddIfNX(env):
     env.expect('FT.CREATE idx ON HASH SCHEMA n NUMERIC').ok()
@@ -3199,7 +3205,7 @@ def testInvertedIndexWasEntirelyDeletedDuringCursor():
     env.expect('DEL doc1').equal(1)
     env.expect('DEL doc2').equal(1)
 
-    env.cmd('FT.DEBUG GC_FORCEINVOKE idx')
+    forceInvokeGC(env, 'idx')
 
     # make sure the inverted index was cleaned
     env.expect('FT.DEBUG DUMP_INVIDX idx foo').error().contains('not find the inverted index')
@@ -3223,7 +3229,7 @@ def testNotOnly(env):
   conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'txt1', 'TEXT')
   conn.execute_command('HSET', 'a', 'txt1', 'hello', 'txt2', 'world')
   conn.execute_command('HSET', 'b', 'txt1', 'world', 'txt2', 'hello')
-  env.expect('ft.search idx !world').equal([1L, 'b', ['txt1', 'world', 'txt2', 'hello']])
+  env.assertEqual(toSortedFlatList(env.cmd('ft.search idx !world')), toSortedFlatList([1L, 'b', ['txt1', 'world', 'txt2', 'hello']]))
 
 def testServerVersion(env):
     env.assertTrue(server_version_at_least(env, "6.0.0"))
@@ -3245,7 +3251,7 @@ def testSchemaWithAs(env):
     env.expect('ft.search idx hello RETURN 1 txt').equal([1L, 'a', ['txt', 'hello']])
     env.expect('ft.search idx hello RETURN 1 foo').equal([1L, 'a', ['foo', 'hello']])
     env.expect('ft.search idx hello RETURN 3 txt AS baz').equal([1L, 'a', ['baz', 'hello']])
-    env.expect('ft.search idx hello RETURN 3 foo AS baz').equal([1L, 'a', []])
+    env.expect('ft.search idx hello RETURN 3 foo AS baz').equal([1L, 'a', ['baz', 'hello']])
     env.expect('ft.search idx hello RETURN 6 txt AS baz txt AS bar').equal([1L, 'a', ['baz', 'hello', 'bar', 'hello']])
     env.expect('ft.search idx hello RETURN 6 txt AS baz txt AS baz').equal([1L, 'a', ['baz', 'hello']])
 
@@ -3269,7 +3275,7 @@ def testSchemaWithAs(env):
 
     # for name - cannot rename
     env.expect('ft.aggregate', 'idx', 'hello', 'LOAD', '1', '@foo').equal([1L, ['foo', 'hello']])
-    env.expect('ft.aggregate', 'idx', 'hello', 'LOAD', '3', '@foo', 'AS', 'foo1').equal([1L, []])
+    env.expect('ft.aggregate', 'idx', 'hello', 'LOAD', '3', '@foo', 'AS', 'foo1').equal([1L, ['foo1', 'hello']])
     
     # for for not in schema - can rename
     env.expect('ft.aggregate', 'idx', 'hello', 'LOAD', '1', '@not_in_schema').equal([1L, ['not_in_schema', '42']])

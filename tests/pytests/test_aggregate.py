@@ -442,6 +442,9 @@ class TestAggregate():
         rv = self.env.cmd('ft.aggregate', 'games', '*')
         self.env.assertEqual(num + 1, len(rv))
 
+        self.env.expect('ft.config', 'set', 'MAXAGGREGATERESULTS', -1).ok()
+        self.env.expect('ft.config', 'set', 'MAXSEARCHRESULTS', 1000000).ok()
+
     def testMultiSortBy(self):
         self.env.expect('ft.aggregate', 'games', '*',
                            'LOAD', '2', '@brand', '@price',
@@ -619,9 +622,16 @@ def testLimitIssue(env):
                 'SORTBY', '2', '@CreatedDateTimeUTC', 'DESC', 'LIMIT', '2', '2')
     env.assertEqual(actual_res, res)
 
-def testMaxAggResults():
+def testMaxAggResults(env):
+    if env.env == 'existing-env':
+        env.skip()
     env = Env(moduleArgs="MAXAGGREGATERESULTS 100")
     conn = getConnectionByEnv(env)
     conn.execute_command('ft.create', 'idx', 'SCHEMA', 't', 'TEXT')
     env.expect('ft.aggregate', 'idx', '*', 'LIMIT', '0', '10000').error()   \
                 .contains('LIMIT exceeds maximum of 100')
+
+def testMaxAggInf(env):
+    env.skipOnCluster()
+    env.expect('ft.config', 'set', 'MAXAGGREGATERESULTS', -1).ok()
+    env.expect('ft.config', 'get', 'MAXAGGREGATERESULTS').equal([['MAXAGGREGATERESULTS', 'unlimited']])

@@ -10,6 +10,7 @@ extern RedisModuleCtx *RSDummyContext;
 RedisModuleString **hashFields = NULL;
 
 typedef enum {
+  _null_cmd,
   hset_cmd,
   hmset_cmd,
   hsetnx_cmd,
@@ -54,6 +55,7 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
 
   int redisCommand = 0;
   RedisModuleKey *kp;
+  DocumentType kType;
 
   static const char *hset_event = 0, *hmset_event = 0, *hsetnx_event = 0, *hincrby_event = 0,
                     *hincrbyfloat_event = 0, *hdel_event = 0, *del_event = 0, *set_event = 0,
@@ -105,6 +107,7 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
     else CHECK_AND_CACHE_EVENT(rename_from)
     else CHECK_AND_CACHE_EVENT(rename_to)
     else CHECK_AND_CACHE_EVENT(loaded)
+    else redisCommand = _null_cmd;
   }
 
   switch (redisCommand) {
@@ -143,16 +146,20 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
     case change_cmd:
     // TODO: hash/json
       kp = RedisModule_OpenKey(ctx, key, REDISMODULE_READ);
-      if (!kp || RedisModule_KeyType(kp) != REDISMODULE_KEYTYPE_HASH) {
+      kType = DocumentType_None;
+      if (kp) {
+        kType = getDocType(kp);
+        RedisModule_CloseKey(kp);
+      }
+      if (kType == DocumentType_None) {
         // in crdt empty key means that key was deleted
         // TODO:FIX
         Indexes_DeleteMatchingWithSchemaRules(ctx, key, hashFields);
       } else {
         // todo: here we will open the key again, we can optimize it by
         //       somehow passing the key pointer
-        Indexes_UpdateMatchingWithSchemaRules(ctx, key, getDocType(kp), hashFields);
+        Indexes_UpdateMatchingWithSchemaRules(ctx, key, kType, hashFields);
       }
-      RedisModule_CloseKey(kp);
       break;
 
     case rename_from_cmd:

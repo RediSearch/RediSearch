@@ -470,7 +470,7 @@ int DefaultExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
     if (IndexSpec_CheckPhoneticEnabled(ctx->handle->spec, (*ctx->currentNode)->opts.fieldMask)) {
       phonetic = PHONETIC_ENABLED;
     }
-  } else if (phonetic == PHONETIC_ENABLED || phonetic == PHONETIC_DESABLED) {
+  } else if (phonetic == PHONETIC_ENABLED || phonetic == PHONETIC_DISABLED) {
     // Verify that the field is actually phonetic
     int isValid = 0;
     if ((*ctx->currentNode)->opts.fieldMask == RS_FIELDMASK_ALL) {

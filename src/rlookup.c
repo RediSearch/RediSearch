@@ -70,7 +70,9 @@ RLookupKey *RLookup_GetKeyEx(RLookup *lookup, const char *name, size_t n, int fl
   int isNew = 0;
 
   for (RLookupKey *kk = lookup->head; kk; kk = kk->next) {
-    if (kk->name_len == n && !strncmp(kk->name, name, kk->name_len)) {
+    // match `name` to the name/path of the field
+    if ((kk->name_len == n && !strncmp(kk->name, name, kk->name_len)) || 
+        (kk->path != kk->name && !strcmp(kk->path, name))) {
       if (flags & RLOOKUP_F_OEXCL) {
         return NULL;
       }
@@ -294,6 +296,7 @@ static RSValue *jsonValToValue(RedisModuleCtx *ctx, RedisJSON json) {
       rs_val = RS_StealRedisStringVal(rstr);
       return rs_val;
     case JSONType_Null:
+      return RS_NullVal();
     case JSONType__EOF:
       RS_LOG_ASSERT(0, "Cannot get here");
   }
@@ -363,16 +366,15 @@ static int getKeyCommonHash(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
   RedisModuleString *val = NULL;
   RSValue *rsv = NULL;
 
-  // field name should be translated to a path
-  // TODO: consider better solution for faster
-  const char *path;
-  if (kk->path != kk->name) {
-    path = kk->path;
-  } else {
-    const FieldSpec *fs = IndexSpec_GetField(options->sctx->spec, kk->name, kk->name_len);
-    path = fs ? fs->path : kk->name;
+  rc = RedisModule_HashGet(*keyobj, REDISMODULE_HASH_CFIELDS, kk->path, &val, NULL);
+  if (!val) {
+    // name of field is the alias given on FT.CREATE
+    // get the the actual path
+    const FieldSpec *fs = IndexSpec_GetField(options->sctx->spec, kk->path, strlen(kk->path));
+    if (fs) {
+      rc = RedisModule_HashGet(*keyobj, REDISMODULE_HASH_CFIELDS, fs->path, &val, NULL);
+    }
   }
-  rc = RedisModule_HashGet(*keyobj, REDISMODULE_HASH_CFIELDS, path, &val, NULL);
 
   if (rc == REDISMODULE_OK && val != NULL) {
     rsv = hvalToValue(val, kk->fieldtype);
@@ -394,7 +396,7 @@ static int getKeyCommonHash(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
 
 
 static int getKeyCommonJSON(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOptions *options,
-                        RedisJSONKey *keyobj) {
+                        RedisJSON *keyobj) {
   if (!japi) {
     QueryError_SetCode(options->status, QUERY_EUNSUPPTYPE);
     RedisModule_Log(RSDummyContext, "warning", "cannot operate on a JSON index as RedisJSON is not loaded");
@@ -422,20 +424,17 @@ static int getKeyCommonJSON(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
   RedisModuleString *val = NULL;
   RSValue *rsv = NULL;
 
-  const char *path;
-  if (kk->path != kk->name) {
-    path = kk->path;
-  } else { 
-    // field name should be translated to a path
-    // TODO: consider better solution for faster
-    const FieldSpec *fs = IndexSpec_GetField(options->sctx->spec, kk->name, kk->name_len);
-    path = fs ? fs->path : kk->name;
+  JSONResultsIterator jsonIter = japi->get(*keyobj, kk->path);
+  if (!jsonIter) {
+    // name of field is the alias given on FT.CREATE
+    // get the the actual path
+    const FieldSpec *fs = IndexSpec_GetField(options->sctx->spec, kk->path, strlen(kk->path));
+    if (fs) {
+      jsonIter = japi->get(*keyobj, fs->path);
+    }
   }
 
-  JSONType jsonType;
-  RedisJSON json = japi->get(*keyobj, path, &jsonType);
-
-  if (!json) {
+  if (!jsonIter) {
     // The field does not exist and and it isn't `__key`
     if (!strncmp(kk->name, UNDERSCORE_KEY, strlen(UNDERSCORE_KEY))) {
       rsv = RS_StringVal(options->dmd->keyPtr, strlen(options->dmd->keyPtr));
@@ -443,7 +442,9 @@ static int getKeyCommonJSON(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
       return REDISMODULE_ERR;
     }
   } else {
-    rsv = jsonValToValue(ctx, json);
+    RedisJSON jsonValue = japi->next(jsonIter);
+    rsv = jsonValToValue(ctx, jsonValue);
+    japi->freeIter(jsonIter);
   }
 
   // Value has a reference count of 1
@@ -492,7 +493,7 @@ done:
   if (key) {
     switch (options->dmd->type) {
     case DocumentType_Hash: RedisModule_CloseKey(key); break;
-    case DocumentType_Json: if (japi) japi->closeKey(key); break;
+    case DocumentType_Json: break;
     case DocumentType_None: RS_LOG_ASSERT(1, "placeholder");
     }
   }
@@ -637,19 +638,21 @@ static int RLookup_JSON_GetAll(RLookup *it, RLookupRow *dst, RLookupLoadOptions 
     return rc;
   }
 
+  JSONResultsIterator jsonIter = NULL;
   RedisModuleCtx *ctx = options->sctx->redisCtx;
-  RedisJSONKey jsonKey = japi->openKeyFromStr(ctx, options->dmd->keyPtr);
-  if (!jsonKey) {
+  RedisJSON jsonRoot = japi->openKeyFromStr(ctx, options->dmd->keyPtr);
+  if (!jsonRoot) {
     goto done;
   }
 
-  RedisJSON json = japi->get(jsonKey, JSON_ROOT, NULL);
-  if (json == NULL) {
+  jsonIter = japi->get(jsonRoot, JSON_ROOT);
+  if (jsonIter == NULL) {
     goto done;
   }
 
   RedisModuleString *value = NULL;
-  if (japi->getJSON(json, ctx, &value) != REDISMODULE_OK) {
+  RedisJSON jsonValue = japi->next(jsonIter);
+  if (!jsonValue || japi->getJSON(jsonRoot, ctx, &value) != REDISMODULE_OK) {
     if (value) {
       RedisModule_FreeString(ctx, value);
     }
@@ -663,8 +666,8 @@ static int RLookup_JSON_GetAll(RLookup *it, RLookupRow *dst, RLookupLoadOptions 
   rc = REDISMODULE_OK;
 
 done:
-  if (jsonKey) {
-    japi->closeKey(jsonKey);
+  if (jsonIter) {
+    japi->freeIter(jsonIter);
   }
   return rc;
 }
