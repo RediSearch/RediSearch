@@ -276,7 +276,7 @@ const char *Redis_SelectRandomTerm(RedisSearchCtx *ctx, size_t *tlen) {
   return NULL;
 }
 
-static InvertedIndex *openIndexKeysDict(RedisSearchCtx *ctx, RedisModuleString *termKey,
+static InvertedIndex *openIndexKeysDict(RedisSearchCtx *ctx, const char *termKey,
                                         int write) {
   KeysDictValue *kdv = dictFetchValue(ctx->spec->keysDict, termKey);
   if (kdv) {
@@ -289,72 +289,27 @@ static InvertedIndex *openIndexKeysDict(RedisSearchCtx *ctx, RedisModuleString *
   kdv = rm_calloc(1, sizeof(*kdv));
   kdv->dtor = InvertedIndex_Free;
   kdv->p = NewInvertedIndex(ctx->spec->flags, 1);
-  dictAdd(ctx->spec->keysDict, termKey, kdv);
+  dictAdd(ctx->spec->keysDict, (void *)termKey, kdv);
   return kdv->p;
 }
 
 InvertedIndex *Redis_OpenInvertedIndexEx(RedisSearchCtx *ctx, const char *term, size_t len,
                                          int write, RedisModuleKey **keyp) {
-  RedisModuleString *termKey = fmtRedisTermKey(ctx, term, len);
-  InvertedIndex *idx = NULL;
-
-  if (!ctx->spec->keysDict) {
-    RedisModuleKey *k = RedisModule_OpenKey(ctx->redisCtx, termKey,
-                                            REDISMODULE_READ | (write ? REDISMODULE_WRITE : 0));
-
-    // check that the key is empty
-    if (k == NULL) {
-      goto end;
-    }
-
-    int kType = RedisModule_KeyType(k);
-
-    if (kType == REDISMODULE_KEYTYPE_EMPTY) {
-      if (write) {
-        idx = NewInvertedIndex(ctx->spec->flags, 1);
-        RedisModule_ModuleTypeSetValue(k, InvertedIndexType, idx);
-      }
-    } else if (kType == REDISMODULE_KEYTYPE_MODULE &&
-               RedisModule_ModuleTypeGetType(k) == InvertedIndexType) {
-      idx = RedisModule_ModuleTypeGetValue(k);
-    }
-    if (idx == NULL) {
-      RedisModule_CloseKey(k);
-    } else {
-      if (keyp) {
-        *keyp = k;
-      }
-    }
-  } else {
-    idx = openIndexKeysDict(ctx, termKey, write);
-  }
-end:
-  RedisModule_FreeString(ctx->redisCtx, termKey);
-  return idx;
+  char str[len + 1];
+  memcpy(str, term, len);
+  str[len] = '\0';
+  return openIndexKeysDict(ctx, str, write);
 }
 
 IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, RSQueryTerm *term, DocTable *dt,
                               int singleWordMode, t_fieldMask fieldMask, ConcurrentSearchCtx *csx,
                               double weight) {
-
-  RedisModuleString *termKey = fmtRedisTermKey(ctx, term->str, term->len);
-  InvertedIndex *idx = NULL;
-  RedisModuleKey *k = NULL;
-  if (!ctx->spec->keysDict) {
-    k = RedisModule_OpenKey(ctx->redisCtx, termKey, REDISMODULE_READ);
-
-    // we do not allow empty indexes when loading an existing index
-    if (k == NULL || RedisModule_KeyType(k) == REDISMODULE_KEYTYPE_EMPTY ||
-        RedisModule_ModuleTypeGetType(k) != InvertedIndexType) {
-      goto err;
-    }
-
-    idx = RedisModule_ModuleTypeGetValue(k);
-  } else {
-    idx = openIndexKeysDict(ctx, termKey, 0);
-    if (!idx) {
-      goto err;
-    }
+  char str[term->len + 1];
+  memcpy(str, term->str, term->len);
+  str[term->len] = '\0';
+  InvertedIndex *idx = openIndexKeysDict(ctx, str, 0);
+  if (!idx) {
+    goto err;
   }
 
   if (!idx->numDocs) {
@@ -366,16 +321,9 @@ IndexReader *Redis_OpenReader(RedisSearchCtx *ctx, RSQueryTerm *term, DocTable *
   if (csx) {
     ConcurrentSearch_AddKey(csx, IndexReader_OnReopen, ret, NULL);
   }
-  RedisModule_FreeString(ctx->redisCtx, termKey);
   return ret;
 
 err:
-  if (k) {
-    RedisModule_CloseKey(k);
-  }
-  if (termKey) {
-    RedisModule_FreeString(ctx->redisCtx, termKey);
-  }
   return NULL;
 }
 
