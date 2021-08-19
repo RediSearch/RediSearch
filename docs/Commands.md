@@ -84,7 +84,7 @@ FT.CREATE books-idx ON HASH PREFIX 1 book:details FILTER SCHEMA title TEXT categ
 Indexing a JSON document using a JSON Path expression:
 
 ```sql
-FT.CREATE idx ON JSON SCHEMA $.title AS title TEXT $.categories AS categories TAG SORTABLE
+FT.CREATE idx ON JSON SCHEMA $.title AS title TEXT $.categories AS categories TAG
 ```
 
 #### Parameters
@@ -194,7 +194,7 @@ FT.CREATE idx ON JSON SCHEMA $.title AS title TEXT $.categories AS categories TA
 
     * **SORTABLE**
 
-        Numeric, tag or text attributes can have the optional SORTABLE argument that allows the user to later [sort the results by the value of this attribute](Sorting.md) (this adds memory overhead so do not declare it on large text attributes).
+        Numeric, tag (not supported with JSON) or text attributes can have the optional SORTABLE argument that allows the user to later [sort the results by the value of this attribute](Sorting.md) (this adds memory overhead so do not declare it on large text attributes).
 
     * **NOSTEM**
 
@@ -251,7 +251,6 @@ OK or an error
 ```
 HSET {hash} {field} {value} [{field} {value} ...]
 ```
-
 
 ```
 JSON.SET {key} {path} {json}
@@ -370,7 +369,6 @@ FT.SEARCH books-idx "python" RETURN 3 $.book.price AS price
 
 !!! tip "More examples"
     For more details and query examples, see [query syntax](Query_Syntax.md).
-
 
 #### Parameters
 
@@ -516,7 +514,6 @@ Here, we needed to use `LOAD` to pre-load the @location attribute because it is 
 
 !!! tip "More examples"
     For more details on aggreations and detailed examples of aggregation queries, see [Aggregations](Aggregations.md).
-
 
 #### Parameters
 
@@ -1346,7 +1343,6 @@ Optional
 * Statistics about `cursors` if a cursor exists for the index.
 * Statistics about `stopword lists` if a custom stopword list is used.
 
-
 ##### Example
 ```bash
 127.0.0.1:6379> ft.info wik{0}
@@ -1678,7 +1674,6 @@ FT.DEL idx doc1
 - **index**: The index name. The index must be first created with FT.CREATE
 - **doc_id**: the id of the document to be deleted. It does not actually delete the HASH key in which
   the document is stored. Use DEL to do that manually if needed.
-
 
 #### Complexity
 

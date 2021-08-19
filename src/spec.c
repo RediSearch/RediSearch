@@ -474,6 +474,12 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
     }
 
     if (FieldSpec_IsSortable(fs)) {
+      if (fs->types & INDEXFLD_T_TAG && sp->rule->type == DocumentType_Json) {
+        QueryError_SetErrorFmt(status, QUERY_EBADOPTION,
+                               "On JSON, cannot set tag field to sortable - %s", fieldName);
+        goto reset;
+      }
+
       if (fs->options & FieldSpec_Dynamic) {
         QueryError_SetErrorFmt(status, QUERY_EBADOPTION,
                                "Cannot set dynamic field to sortable - %s", fieldName);
@@ -1066,7 +1072,17 @@ FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *pa
   fs->ftWeight = 1.0;
   fs->sortIdx = -1;
   fs->tagFlags = TAG_FIELD_DEFAULT_FLAGS;
-  fs->tagSep = TAG_FIELD_DEFAULT_SEP;
+  if (!(sp->flags & Index_FromLLAPI)) {
+    RS_LOG_ASSERT((sp->rule), "index w/o a rule?");
+    switch (sp->rule->type) {
+      case DocumentType_Hash:
+        fs->tagSep = TAG_FIELD_DEFAULT_HASH_SEP; break;
+      case DocumentType_Json:
+        fs->tagSep = TAG_FIELD_DEFAULT_JSON_SEP; break;
+      case DocumentType_None:
+        RS_LOG_ASSERT(0, "shouldn't get here");
+    }
+  }
   return fs;
 }
 
@@ -1135,7 +1151,7 @@ static void FieldSpec_RdbLoadCompat8(RedisModuleIO *rdb, FieldSpec *f, int encve
   f->types = RedisModule_LoadUnsigned(rdb);
   f->ftWeight = RedisModule_LoadDouble(rdb);
   f->tagFlags = TAG_FIELD_DEFAULT_FLAGS;
-  f->tagSep = TAG_FIELD_DEFAULT_SEP;
+  f->tagSep = TAG_FIELD_DEFAULT_HASH_SEP;
   if (encver >= 4) {
     f->options = RedisModule_LoadUnsigned(rdb);
     f->sortIdx = RedisModule_LoadSigned(rdb);
@@ -1893,7 +1909,7 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
 
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
   Document doc = {0};
-  Document_Init(&doc, key, 1.0, DEFAULT_LANGUAGE, type);
+  Document_Init(&doc, key, DEFAULT_SCORE, DEFAULT_LANGUAGE, type);
   // if a key does not exit, is not a hash or has no fields in index schema
 
   int rv = REDISMODULE_ERR;
@@ -1909,6 +1925,8 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   }
 
   if (rv != REDISMODULE_OK) {
+    spec->stats.indexingFailures++;
+
     // if a document did not load properly, it is deleted
     // to prevent mismatch of index and hash
     DocTable_DeleteR(&spec->docs, key);
