@@ -54,7 +54,6 @@ extern "C" {
 typedef enum {
   DocumentType_Hash,
   DocumentType_Json,
-  // DocumentType_LLAPI,
   DocumentType_None,
 } DocumentType;
 

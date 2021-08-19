@@ -590,7 +590,7 @@ TEST_F(LLApiTest, testMultitypeNumericTag) {
   // Add document...
   RSDoc* d = RediSearch_CreateDocumentSimple("doc1");
   RediSearch_DocumentAddFieldCString(d, "f1", "World", RSFLDTYPE_TAG);
-  RediSearch_DocumentAddFieldCString(d, "f2", "World", RSFLDTYPE_TAG);
+  RediSearch_DocumentAddFieldCString(d, "f2", "world", RSFLDTYPE_TAG);
   int rc = RediSearch_SpecAddDocument(index, d);
   ASSERT_EQ(REDISMODULE_OK, rc);
 
@@ -843,6 +843,16 @@ TEST_F(LLApiTest, testStopwords) {
   ASSERT_EQ(RediSearch_StopwordsList_Contains(index, words[0], strlen(words[0])), 1);
   ASSERT_EQ(RediSearch_StopwordsList_Contains(index, words[1], strlen(words[1])), 1);
   ASSERT_EQ(RediSearch_StopwordsList_Contains(index, "RediSearch", strlen("RediSearch")), 0);
+
+  size_t size;
+  char **list = RediSearch_IndexGetStopwords(index, &size);
+  ASSERT_EQ(size, 2);
+  ASSERT_STRCASEEQ(list[0], words[0]);
+  ASSERT_STRCASEEQ(list[1], words[1]);
+  rm_free(list[0]);
+  rm_free(list[1]);
+  rm_free(list);
+
   RediSearch_FreeIndexOptions(options);
   RediSearch_DropIndex(index);
 
@@ -855,5 +865,24 @@ TEST_F(LLApiTest, testStopwords) {
   ASSERT_EQ(RediSearch_StopwordsList_Contains(index, words[0], strlen(words[0])), 0);
   RediSearch_FreeIndexOptions(options);
   RediSearch_DropIndex(index);
+}
 
+TEST_F(LLApiTest, testGetters) {
+  // test defaults
+  RSIndex* index = RediSearch_CreateIndex("index", NULL);
+  ASSERT_EQ(DEFAULT_SCORE, RediSearch_IndexGetScore(index));
+  ASSERT_STREQ(RSLanguage_ToString(DEFAULT_LANGUAGE), RediSearch_IndexGetLanguage(index));
+  RediSearch_DropIndex(index);
+
+  // test custom language and score
+  RSIndexOptions *opt = RediSearch_CreateIndexOptions();
+  opt->score = 0.42;
+  opt->lang = RS_LANG_YIDDISH;
+
+  index = RediSearch_CreateIndex("index", opt);
+  ASSERT_EQ(0.42, RediSearch_IndexGetScore(index));
+  ASSERT_STREQ("yiddish", RediSearch_IndexGetLanguage(index));
+
+  RediSearch_FreeIndexOptions(opt);
+  RediSearch_DropIndex(index);  
 }
