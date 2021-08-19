@@ -10,7 +10,7 @@ extern RedisModuleCtx *RSDummyContext;
 RedisModuleString **hashFields = NULL;
 
 typedef enum {
-  _unknown_cmd,
+  _null_cmd,
   hset_cmd,
   hmset_cmd,
   hsetnx_cmd,
@@ -107,7 +107,7 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
     else CHECK_AND_CACHE_EVENT(rename_from)
     else CHECK_AND_CACHE_EVENT(rename_to)
     else CHECK_AND_CACHE_EVENT(loaded)
-    else redisCommand = _unknown_cmd;
+    else redisCommand = _null_cmd;
   }
 
   switch (redisCommand) {
