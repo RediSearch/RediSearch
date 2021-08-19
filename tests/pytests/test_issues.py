@@ -165,10 +165,8 @@ def test_issue1988(env):
     conn = getConnectionByEnv(env)
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
     conn.execute_command('HSET', 'doc1', 't', 'foo')
-    #env.expect('FT.SEARCH', 'idx', 'foo').equal([1L, 'doc1', ['t', 'foo']])
+    env.expect('FT.SEARCH', 'idx', 'foo').equal([1L, 'doc1', ['t', 'foo']])
     env.expect('FT.SEARCH', 'idx', 'foo', 'WITHSCORES').equal([1L, 'doc1', '1', ['t', 'foo']])
-    env.expect('FT.EXPLAIN', 'idx', 'foo', 'WITHSCORES').equal([1L, 'doc1', '1', ['t', 'foo']])
-    env.expect('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'foo', 'WITHSCORES').equal([1L, 'doc1', '1', ['t', 'foo']])
     env.expect('FT.SEARCH', 'idx', 'foo', 'SORTBY' , 't').equal([1L, 'doc1', ['t', 'foo']])
     env.expect('FT.SEARCH', 'idx', 'foo', 'WITHSCORES', 'SORTBY' , 't').equal([1L, 'doc1', '1', ['t', 'foo']])
 

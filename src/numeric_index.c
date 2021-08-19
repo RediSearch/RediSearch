@@ -409,9 +409,8 @@ RedisModuleString *fmtRedisNumericIndexKey(RedisSearchCtx *ctx, const char *fiel
                                         field);
 }
 
-static NumericRangeTree *openNumericKeysDict(RedisSearchCtx *ctx, const char *keyName,
-                                             int write) {
-  KeysDictValue *kdv = dictFetchValue(ctx->spec->keysDict, keyName);
+NumericRangeTree *openNumericKeysDict(RedisSearchCtx *ctx, const char *keyName, int write) {
+  KeysDictValue *kdv = dictFetchValue(ctx->spec->fieldsDict, keyName);
   if (kdv) {
     return kdv->p;
   }
@@ -421,7 +420,7 @@ static NumericRangeTree *openNumericKeysDict(RedisSearchCtx *ctx, const char *ke
   kdv = rm_calloc(1, sizeof(*kdv));
   kdv->dtor = (void (*)(void *))NumericRangeTree_Free;
   kdv->p = NewNumericRangeTree();
-  dictAdd(ctx->spec->keysDict, (void *)keyName, kdv);
+  dictAdd(ctx->spec->fieldsDict, (void *)keyName, kdv);
   return kdv->p;
 }
 

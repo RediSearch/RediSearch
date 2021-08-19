@@ -147,7 +147,7 @@ DEBUG_COMMAND(NumericIndexSummary) {
   GET_SEARCH_CTX(argv[0])
   RedisModuleKey *keyp = NULL;
   const char *keyName = RedisModule_StringPtrLen(argv[1], NULL);
-  NumericRangeTree *rt = OpenNumericIndex(sctx, keyName, &keyp);
+  NumericRangeTree *rt = openNumericKeysDict(sctx, keyName, 0);
   if (!rt) {
     RedisModule_ReplyWithError(sctx->redisCtx, "can not open numeric field");
     goto end;
@@ -178,7 +178,7 @@ DEBUG_COMMAND(DumpNumericIndex) {
   GET_SEARCH_CTX(argv[0])
   RedisModuleKey *keyp = NULL;
   const char *keyName = RedisModule_StringPtrLen(argv[1], NULL);
-  NumericRangeTree *rt = OpenNumericIndex(sctx, keyName, &keyp);
+  NumericRangeTree *rt = openNumericKeysDict(sctx, keyName, 0);
   if (!rt) {
     RedisModule_ReplyWithError(sctx->redisCtx, "can not open numeric field");
     goto end;

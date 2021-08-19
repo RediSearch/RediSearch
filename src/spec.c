@@ -814,8 +814,11 @@ void IndexSpec_FreeInternals(IndexSpec *spec) {
     IndexSpec_ClearAliases(spec);
   }
 
-  if (spec->keysDict) {
-    dictRelease(spec->keysDict);
+  if (spec->termsDict) {
+    dictRelease(spec->termsDict);
+  }
+  if (spec->fieldsDict) {
+    dictRelease(spec->fieldsDict);
   }
 
   if (spec->scanner) {
@@ -1034,7 +1037,8 @@ IndexSpec *NewIndexSpec(const char *name) {
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
   sp->stopwords = DefaultStopWordList();
   sp->terms = NewTrie();
-  sp->keysDict = NULL;
+  sp->termsDict = NULL;
+  sp->fieldsDict = NULL;
   sp->getValue = NULL;
   sp->getValueCtx = NULL;
 
@@ -1082,7 +1086,8 @@ void IndexSpec_MakeKeyless(IndexSpec *sp) {
     invidxDictType = dictTypeHeapStrings;
     invidxDictType.valDestructor = valFreeCb;
   }
-  sp->keysDict = dictCreate(&invidxDictType, NULL);
+  sp->termsDict = dictCreate(&invidxDictType, NULL);
+  sp->fieldsDict = dictCreate(&invidxDictType, NULL);
 }
 
 void IndexSpec_StartGCFromSpec(IndexSpec *sp, float initialHZ, uint32_t gcPolicy) {

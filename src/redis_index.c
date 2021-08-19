@@ -278,7 +278,7 @@ const char *Redis_SelectRandomTerm(RedisSearchCtx *ctx, size_t *tlen) {
 
 static InvertedIndex *openIndexKeysDict(RedisSearchCtx *ctx, const char *termKey,
                                         int write) {
-  KeysDictValue *kdv = dictFetchValue(ctx->spec->keysDict, termKey);
+  KeysDictValue *kdv = dictFetchValue(ctx->spec->termsDict, termKey);
   if (kdv) {
     return kdv->p;
   }
@@ -289,7 +289,7 @@ static InvertedIndex *openIndexKeysDict(RedisSearchCtx *ctx, const char *termKey
   kdv = rm_calloc(1, sizeof(*kdv));
   kdv->dtor = InvertedIndex_Free;
   kdv->p = NewInvertedIndex(ctx->spec->flags, 1);
-  dictAdd(ctx->spec->keysDict, (void *)termKey, kdv);
+  dictAdd(ctx->spec->termsDict, (void *)termKey, kdv);
   return kdv->p;
 }
 

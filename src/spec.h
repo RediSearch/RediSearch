@@ -255,7 +255,8 @@ typedef struct IndexSpec {
   RedisModuleTimerID timerId;
   bool isTimerSet;
 
-  dict *keysDict;
+  dict *termsDict;
+  dict *fieldsDict;
   RSGetValueCallback getValue;
   void *getValueCtx;
   char **aliases;  // Aliases to self-remove when the index is deleted

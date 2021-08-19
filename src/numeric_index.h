@@ -125,6 +125,7 @@ extern RedisModuleType *NumericIndexType;
 
 NumericRangeTree *OpenNumericIndex(RedisSearchCtx *ctx, const char *keyName,
                                    RedisModuleKey **idxKey);
+NumericRangeTree *openNumericKeysDict(RedisSearchCtx *ctx, const char *keyName, int write);
 
 int NumericIndexType_Register(RedisModuleCtx *ctx);
 void *NumericIndexType_RdbLoad(RedisModuleIO *rdb, int encver);
