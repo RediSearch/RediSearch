@@ -32,12 +32,12 @@ Creates an index with the given spec.
 !!! info "Note on running in clustered databases"
     When having several indices in a clustered database, you need to make sure the documents you want to index reside on the same shard as the index. You can achieve this by having your documents tagged by the index name.
 
-    ```sql
-    HSET doc:1{idx} ...
-    FT.CREATE idx ... PREFIX 1 doc: ...
-    ```
+```sql
+HSET doc:1{idx} ...
+FT.CREATE idx ... PREFIX 1 doc: ...
+```
 
-    When Running RediSearch in a clustered database, there is the ability to span the index across shards with [RSCoordinator](https://github.com/RedisLabsModules/RSCoordinator). In this case the above does not apply.
+When Running RediSearch in a clustered database, there is the ability to span the index across shards with [RSCoordinator](https://github.com/RedisLabsModules/RSCoordinator). In this case the above does not apply.
 
 ##### Examples
 
@@ -161,9 +161,9 @@ FT.CREATE idx ON JSON SCHEMA $.title AS title TEXT $.categories AS categories TA
 * **SKIPINITIALSCAN**: If set, we do not scan and index.
 
 * **SCHEMA {identifier} AS {attribute} {attribute type} {options...}**: After the SCHEMA keyword, we declare which fields to index:
-  
+
     * **{identifier}**
-      
+
       For hashes, the identifier is a field name within the hash.
       For JSON, the identifier is a JSON Path expression.
 
@@ -171,7 +171,7 @@ FT.CREATE idx ON JSON SCHEMA $.title AS title TEXT $.categories AS categories TA
 
       This optional parameter defines the attribute associated to the identifier.
       For example, you can use this feature to alias a complex JSONPath expression with more memorable (and easier to type) name
-      
+
     #### Field Types
 
     * **TEXT**
@@ -230,7 +230,7 @@ FT.CREATE idx ON JSON SCHEMA $.title AS title TEXT $.categories AS categories TA
         must be a single character.
 
     * **CASESENSITIVE**
-        
+
         For `TAG` attributes, keeps the original letter cases of the tags.
         If not specified, the characters are converted to lowercase.
 
@@ -264,7 +264,7 @@ When you modify a hash or JSON document, all matching indexes are updated automa
 
 If an attribute fails to be indexed (for example, if a numeric attributes gets a string value) the whole document is not indexed. `FT.INFO` provides the number of document-indexing-failures under `hash_indexing_failures`.
 
-If `LANGUAGE_FIELD`, `SCORE_FIELD`, or `PAYLOAD_FIELD` are specified with `FT.CREATE`, the document will extract the properties. 
+If `LANGUAGE_FIELD`, `SCORE_FIELD`, or `PAYLOAD_FIELD` are specified with `FT.CREATE`, the document will extract the properties.
 
 !!! warning "Schema mismatch"
     If a value in a hash does not match the schema type for that attribute, indexing of the hash will fail. The number of 'failed' document is under `hash_indexing_failures` at `FT.INFO`.
