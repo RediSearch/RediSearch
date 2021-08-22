@@ -1470,7 +1470,7 @@ void IndexSpec_DropLegacyIndexFromKeySpace(IndexSpec *sp) {
   DFAFilter_Free(it->ctx);
   rm_free(it->ctx);
   TrieIterator_Free(it);
-/* TODO:
+
   // Delete the numeric, tag, and geo indexes which reside on separate keys
   for (size_t i = 0; i < ctx.spec->numFields; i++) {
     const FieldSpec *fs = ctx.spec->fields + i;
@@ -1484,7 +1484,7 @@ void IndexSpec_DropLegacyIndexFromKeySpace(IndexSpec *sp) {
       Redis_DeleteKey(ctx.redisCtx, IndexSpec_GetFormattedKey(ctx.spec, fs, INDEXFLD_T_GEO));
     }
   }
-  */
+
   RedisModuleString *str =
       RedisModule_CreateStringPrintf(ctx.redisCtx, INDEX_SPEC_KEY_FMT, ctx.spec->name);
   Redis_DeleteKey(ctx.redisCtx, str);
