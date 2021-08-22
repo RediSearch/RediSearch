@@ -196,8 +196,6 @@ static void gc_FreeNumericGcCtxArray(GarbageCollectorCtx *gc) {
   array_trimm_len(gc->numericGCCtx, 0);
 }
 
-// TODO: might have an issue here as we free the collected list of fields and
-// then return the value. Check again though seem OK since list of pointers.
 static const char *getRandomFieldByType(IndexSpec *spec, FieldType type) {
   FieldSpec **tagFields = NULL;
   tagFields = getFieldsByType(spec, type);

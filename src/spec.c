@@ -954,7 +954,6 @@ IndexSpec *IndexSpec_Load(RedisModuleCtx *ctx, const char *name, int openWrite) 
   return IndexSpec_LoadEx(ctx, &lopts);
 }
 
-
 RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs,
                                              FieldType forType) {
   if (!sp->indexStrs) {

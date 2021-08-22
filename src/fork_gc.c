@@ -754,14 +754,10 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc, RedisModuleCtx *rctx) {
 
   if (idx->numDocs == 0) {
     // inverted index was cleaned entirely lets free it
-    //RedisModuleString *termKey = fmtRedisTermKey(sctx, term, len);
-    //size_t formatedTremLen;
-    //const char *formatedTrem = RedisModule_StringPtrLen(termKey, &formatedTremLen);
     if (sctx->spec->termsDict) {
       dictDelete(sctx->spec->termsDict, term);
     }
     Trie_Delete(sctx->spec->terms, term, len);
-    //RedisModule_FreeString(sctx->redisCtx, termKey);
   }
 
 cleanup:
