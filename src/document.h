@@ -116,7 +116,6 @@ void Document_AddFieldC(Document *d, const char *fieldname, const char *val, siz
  * calling this function).
  */
 void Document_Init(Document *doc, RedisModuleString *docKey, double score, RSLanguage lang, DocumentType type);
-void Document_SetPayload(Document *doc, const void *payload, size_t n);
 
 /**
  * Make the document the owner of the strings it contains

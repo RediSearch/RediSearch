@@ -75,6 +75,8 @@ typedef enum {
   Document_HasOffsetVector = 0x08,
 } RSDocumentFlags;
 
+#define hasPayload(x) (x & Document_HasPayload)
+
 /* RSDocumentMetadata describes metadata stored about a document in the index (not the document
  * itself).
  *
@@ -106,13 +108,14 @@ typedef struct RSDocumentMetadata_s {
   DocumentType type : 8;
 
   uint32_t ref_count : 16;
-  /* Optional user payload */
-  RSPayload *payload;
 
   struct RSSortingVector *sortVector;
   /* Offsets of all terms in the document (in bytes). Used by highlighter */
   struct RSByteOffsets *byteOffsets;
   DLLIST2_node llnode;
+
+  /* Optional user payload */
+  RSPayload *payload;
 
 } RSDocumentMetadata;
 
