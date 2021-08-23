@@ -148,14 +148,6 @@ def test_MOD1266(env):
   env.expect('FT.SEARCH', 'idx', '*', 'sortby', 'n2', 'DESC', 'RETURN', '1', 'n2')  \
     .equal([2L, 'doc3', ['n2', '3'], 'doc1', ['n2', '1']])
 
-  # Test fetching failure. An object cannot be indexed
-  conn.execute_command('FT.CREATE', 'jsonidx', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT')
-  conn.execute_command('JSON.SET', '1', '$', r'{"t":"Redis"}')
-  env.expect('FT.SEARCH', 'jsonidx', '*').equal([1L, '1', ['$', '{"t":"Redis"}']])
-  env.expect('FT.SEARCH', 'jsonidx', 'redis').equal([1L, '1', ['$', '{"t":"Redis"}']])
-  conn.execute_command('JSON.SET', '1', '$.t', r'{"inner_t":"Redis"}')
-  env.expect('FT.SEARCH', 'jsonidx', '*').equal([0L])
-
 def testMemAllocated(env):
   conn = getConnectionByEnv(env)
   # sanity
