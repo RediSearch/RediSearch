@@ -36,7 +36,7 @@ RDBS_COMPATIBILITY = [
 
 ExpectedIndex = collections.namedtuple('ExpectedIndex', ['count', 'pattern', 'search_result_count'])
 RDBS_EXPECTED_INDICES = [
-                         ExpectedIndex(2, 'shortread_idxSearch_[1-9]', [55, 20]),
+                         ExpectedIndex(2, 'shortread_idxSearch_[1-9]', [20, 55]),
                          ExpectedIndex(2, 'shortread_idxJson_[1-9]', [55, 20]),  # TODO: why order of indices is first _2 then _1
                          ExpectedIndex(2, 'shortread_idxSearchJson_[1-9]', [10, 35])
                          ]
