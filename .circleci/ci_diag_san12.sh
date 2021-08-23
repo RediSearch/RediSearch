@@ -64,7 +64,7 @@ export RS_GLOBAL_DTORS=1
 cd $ROOT/deps
 git clone --recursive https://github.com/RedisJSON/RedisJSON.git
 cd RedisJSON
-git checkout omer-short-read
+git checkout master
 ./deps/readies/bin/getpy3
 ./system-setup.py
 source /etc/profile.d/rust.sh
