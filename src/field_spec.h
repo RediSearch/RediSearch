@@ -46,7 +46,8 @@ typedef enum {
   FieldSpec_NoStemming = 0x02,
   FieldSpec_NotIndexable = 0x04,
   FieldSpec_Phonetics = 0x08,
-  FieldSpec_Dynamic = 0x10
+  FieldSpec_Dynamic = 0x10,
+  FieldSpec_UNF = 0x20,
 } FieldSpecOptions;
 
 RS_ENUM_BITWISE_HELPER(FieldSpecOptions)

@@ -1,4 +1,6 @@
-from common import getConnectionByEnv, waitForIndex, sortedResults, toSortedFlatList
+# -*- coding: utf-8 -*-
+
+from common import *
 
 def test_1282(env):
   env.expect('FT.CREATE idx ON HASH SCHEMA txt1 TEXT').equal('OK')
@@ -142,6 +144,71 @@ def test_MOD1266(env):
   conn.execute_command('HSET', 'doc2', 'n1', '2', 'n2', '2')
   conn.execute_command('HSET', 'doc2', 'n1', 'foo', 'n2', '-999')
   conn.execute_command('HSET', 'doc3', 'n1', '3', 'n2', '3')
-  
+
   env.expect('FT.SEARCH', 'idx', '*', 'sortby', 'n2', 'DESC', 'RETURN', '1', 'n2')  \
     .equal([2L, 'doc3', ['n2', '3'], 'doc1', ['n2', '1']])
+
+  # Test fetching failure. An object cannot be indexed
+  conn.execute_command('FT.CREATE', 'jsonidx', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT')
+  conn.execute_command('JSON.SET', '1', '$', r'{"t":"Redis"}')
+  env.expect('FT.SEARCH', 'jsonidx', '*').equal([1L, '1', ['$', '{"t":"Redis"}']])
+  env.expect('FT.SEARCH', 'jsonidx', 'redis').equal([1L, '1', ['$', '{"t":"Redis"}']])
+  conn.execute_command('JSON.SET', '1', '$.t', r'{"inner_t":"Redis"}')
+  env.expect('FT.SEARCH', 'jsonidx', '*').equal([0L])
+
+def testMemAllocated(env):
+  conn = getConnectionByEnv(env)
+  # sanity
+  conn.execute_command('FT.CREATE', 'idx1', 'SCHEMA', 't', 'TEXT')
+  assertInfoField(env, 'idx1', 'key_table_size_mb', '0')
+  conn.execute_command('HSET', 'doc1', 't', 'foo bar baz')
+  assertInfoField(env, 'idx1', 'key_table_size_mb', '2.765655517578125e-05')
+  conn.execute_command('HSET', 'doc2', 't', 'hello world')
+  assertInfoField(env, 'idx1', 'key_table_size_mb', '8.296966552734375e-05')
+  conn.execute_command('HSET', 'd3', 't', 'help')
+  assertInfoField(env, 'idx1', 'key_table_size_mb', '0.00013828277587890625')
+
+  conn.execute_command('DEL', 'd3')
+  assertInfoField(env, 'idx1', 'key_table_size_mb', '8.296966552734375e-05')
+  conn.execute_command('DEL', 'doc1')
+  assertInfoField(env, 'idx1', 'key_table_size_mb', '2.765655517578125e-05')
+  conn.execute_command('DEL', 'doc2')
+  assertInfoField(env, 'idx1', 'key_table_size_mb', '0')
+
+  # mass
+  conn.execute_command('FT.CREATE', 'idx2', 'SCHEMA', 't', 'TEXT')
+  for i in range(1000):
+    conn.execute_command('HSET', 'doc%d' % i, 't', 'text%d' % i)
+  assertInfoField(env, 'idx2', 'key_table_size_mb', '0.027684211730957031')
+
+  for i in range(1000):
+    conn.execute_command('DEL', 'doc%d' % i)
+  assertInfoField(env, 'idx2', 'key_table_size_mb', '0')
+  
+def testUNF(env):
+  conn = getConnectionByEnv(env)
+
+  conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'txt', 'TEXT', 'SORTABLE',
+                                                      'txt_unf', 'TEXT', 'SORTABLE', 'UNF',
+                                                      'tag', 'TAG', 'SORTABLE',
+                                                      'tag_unf', 'TAG', 'SORTABLE', 'UNF')
+  conn.execute_command('HSET', 'doc1', 'txt', 'FOO', 'txt_unf', 'FOO', 
+                                       'tag', 'FOO', 'tag_unf', 'FOO')
+
+  # test `FOO`
+  env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '4', '@txt', '@txt_unf', '@tag', '@tag_unf')  \
+    .equal([1L, ['txt', 'foo', 'txt_unf', 'FOO', 'tag', 'foo', 'tag_unf', 'FOO']])
+
+  # test `Maße`
+  conn.execute_command('HSET', 'doc1', 'txt', 'Maße', 'txt_unf', 'Maße', 
+                                       'tag', 'Maße', 'tag_unf', 'Maße')
+  env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '4', '@txt', '@txt_unf', '@tag', '@tag_unf')  \
+    .equal([1L, ['txt', 'masse', 'txt_unf', 'Ma\xc3\x9fe', 'tag', 'masse', 'tag_unf', 'Ma\xc3\x9fe']])
+
+  # test `Maße` with LOAD
+  conn.execute_command('HSET', 'doc1', 'txt', 'Maße', 'txt_unf', 'Maße', 
+                                       'tag', 'Maße', 'tag_unf', 'Maße')
+  env.expect('FT.AGGREGATE', 'idx', '*',                              \
+             'LOAD',    '4', '@txt', '@txt_unf', '@tag', '@tag_unf',  \
+             'GROUPBY', '4', '@txt', '@txt_unf', '@tag', '@tag_unf')  \
+    .equal([1L, ['txt', 'Ma\xc3\x9fe', 'txt_unf', 'Ma\xc3\x9fe', 'tag', 'Ma\xc3\x9fe', 'tag_unf', 'Ma\xc3\x9fe']])
