@@ -11,6 +11,7 @@ import zipfile
 import gevent.queue
 import gevent.server
 import gevent.socket
+import time
 
 from common import TimeLimit
 from common import waitForIndex
@@ -22,6 +23,7 @@ IS_SANITIZER = int(os.getenv('SANITIZER', '0'))
 IS_CODE_COVERAGE = int(os.getenv('CODE_COVERAGE', '0'))
 SHORT_READ_BYTES_DELTA = int(os.getenv('SHORT_READ_BYTES_DELTA', '1'))
 IS_SHORT_READ_FULL_TEST = int(os.getenv('SHORT_READ_FULL_TEST', '0'))
+OS = os.getenv('OS')
 
 RDBS_SHORT_READS = [
     'short-reads/redisearch_2.2.0.rdb.zip',
@@ -34,7 +36,7 @@ RDBS_COMPATIBILITY = [
 
 ExpectedIndex = collections.namedtuple('ExpectedIndex', ['count', 'pattern', 'search_result_count'])
 RDBS_EXPECTED_INDICES = [
-                         ExpectedIndex(2, 'shortread_idxSearch_[1-9]', [20, 55]),
+                         ExpectedIndex(2, 'shortread_idxSearch_[1-9]', [55, 20]),
                          ExpectedIndex(2, 'shortread_idxJson_[1-9]', [55, 20]),  # TODO: why order of indices is first _2 then _1
                          ExpectedIndex(2, 'shortread_idxSearchJson_[1-9]', [10, 35])
                          ]
@@ -457,6 +459,13 @@ def testShortReadSearch(env):
     if env.env.endswith('existing-env') and os.environ.get('CI'):
         env.skip()
 
+    if OS == 'macos':
+        env.skip()
+
+    seed = str(time.time())
+    env.assertNotEqual(seed, None, message='random seed ' + seed)
+    random.seed(seed)
+
     try:
         temp_dir = tempfile.mkdtemp(prefix="short-read_")
         # TODO: In python3 use "with tempfile.TemporaryDirectory()"
@@ -553,7 +562,7 @@ def runShortRead(env, data, total_len, expected_index):
         res = env.cmd('ft._list')
         if is_shortread:
             # Verify original data, that existed before the failed attempt to short-read, is restored
-            env.assertEqual(res, ['idxBackup2', 'idxBackup1'])
+            env.assertEqual(res, ['idxBackup1', 'idxBackup2'])
             res = env.cmd('ft.search ', 'idxBackup1', '*', 'limit', '0', '0')
             env.assertEqual(res[0], 5L)
             res = env.cmd('ft.search ', 'idxBackup2', '*', 'limit', '0', '0')
