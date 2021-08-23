@@ -215,7 +215,7 @@ jobs:
       - run:
           name: Build & Test
           command: bash -l -c "./.circleci/ci_coverage.sh"
-          no_output_timeout: 20m
+          no_output_timeout: 30m
       - save-tests-logs
 
   deploy_release:
