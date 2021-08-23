@@ -267,8 +267,11 @@ static inline uint64_t RSValue_Hash(const RSValue *v, uint64_t hval) {
       return fnv_64a_buf((void *)c, sz, hval);
     }
     case RSValue_Null:
-      return 1337;  // TODO: fix...
-
+      if (hval == 0) {
+        return 1337;
+      } else {
+        return hval - 1;
+      }
     case RSValue_Array: {
       for (uint32_t i = 0; i < v->arrval.len; i++) {
         hval = RSValue_Hash(v->arrval.vals[i], hval);

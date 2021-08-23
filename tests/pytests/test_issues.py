@@ -296,3 +296,26 @@ def testUNF(env):
              'LOAD',    '4', '@txt', '@txt_unf', '@tag', '@tag_unf',  \
              'GROUPBY', '4', '@txt', '@txt_unf', '@tag', '@tag_unf')  \
     .equal([1L, ['txt', 'Ma\xc3\x9fe', 'txt_unf', 'Ma\xc3\x9fe', 'tag', 'Ma\xc3\x9fe', 'tag_unf', 'Ma\xc3\x9fe']])
+
+def test_MOD_1517(env):
+  conn = getConnectionByEnv(env)
+
+  conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'field1', 'TAG', 'SORTABLE',
+                                                     'field2', 'TAG', 'SORTABLE')
+
+  # first tag is nil
+  conn.execute_command('HSET', 'doc1', 'field2', 'val', 'amount1', '1', 'amount2', '1')
+  # second tag is nil
+  conn.execute_command('HSET', 'doc2', 'field1', 'val', 'amount1', '1', 'amount2', '1')
+  # both tags are nil
+  conn.execute_command('HSET', 'doc3', 'amount1', '1', 'amount2', '1')
+
+  res = [3L, ['field1', None, 'field2', None, 'amount1Sum', '1', 'amount2Sum', '1'],
+             ['field1', None, 'field2', 'val', 'amount1Sum', '1', 'amount2Sum', '1'],
+             ['field1', 'val', 'field2', None, 'amount1Sum', '1', 'amount2Sum', '1']]
+
+  env.expect('FT.AGGREGATE', 'idx', '*',
+             'LOAD', '2', '@amount1', '@amount2',
+             'GROUPBY', '2', '@field1', '@field2',
+             'REDUCE', 'SUM', '1', '@amount1', 'AS', 'amount1Sum',
+             'REDUCE', 'SUM', '1', '@amount2', 'as', 'amount2Sum').equal(res)
