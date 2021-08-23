@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 from common import *
 
 def test_1282(env):
@@ -226,7 +228,7 @@ def test_MOD1266(env):
   conn.execute_command('HSET', 'doc2', 'n1', '2', 'n2', '2')
   conn.execute_command('HSET', 'doc2', 'n1', 'foo', 'n2', '-999')
   conn.execute_command('HSET', 'doc3', 'n1', '3', 'n2', '3')
-  
+
   env.expect('FT.SEARCH', 'idx', '*', 'sortby', 'n2', 'DESC', 'RETURN', '1', 'n2')  \
     .equal([2L, 'doc3', ['n2', '3'], 'doc1', ['n2', '1']])
 
@@ -267,3 +269,30 @@ def testMemAllocated(env):
     conn.execute_command('DEL', 'doc%d' % i)
   assertInfoField(env, 'idx2', 'key_table_size_mb', '0')
   
+def testUNF(env):
+  conn = getConnectionByEnv(env)
+
+  conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'txt', 'TEXT', 'SORTABLE',
+                                                      'txt_unf', 'TEXT', 'SORTABLE', 'UNF',
+                                                      'tag', 'TAG', 'SORTABLE',
+                                                      'tag_unf', 'TAG', 'SORTABLE', 'UNF')
+  conn.execute_command('HSET', 'doc1', 'txt', 'FOO', 'txt_unf', 'FOO', 
+                                       'tag', 'FOO', 'tag_unf', 'FOO')
+
+  # test `FOO`
+  env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '4', '@txt', '@txt_unf', '@tag', '@tag_unf')  \
+    .equal([1L, ['txt', 'foo', 'txt_unf', 'FOO', 'tag', 'foo', 'tag_unf', 'FOO']])
+
+  # test `Maße`
+  conn.execute_command('HSET', 'doc1', 'txt', 'Maße', 'txt_unf', 'Maße', 
+                                       'tag', 'Maße', 'tag_unf', 'Maße')
+  env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '4', '@txt', '@txt_unf', '@tag', '@tag_unf')  \
+    .equal([1L, ['txt', 'masse', 'txt_unf', 'Ma\xc3\x9fe', 'tag', 'masse', 'tag_unf', 'Ma\xc3\x9fe']])
+
+  # test `Maße` with LOAD
+  conn.execute_command('HSET', 'doc1', 'txt', 'Maße', 'txt_unf', 'Maße', 
+                                       'tag', 'Maße', 'tag_unf', 'Maße')
+  env.expect('FT.AGGREGATE', 'idx', '*',                              \
+             'LOAD',    '4', '@txt', '@txt_unf', '@tag', '@tag_unf',  \
+             'GROUPBY', '4', '@txt', '@txt_unf', '@tag', '@tag_unf')  \
+    .equal([1L, ['txt', 'Ma\xc3\x9fe', 'txt_unf', 'Ma\xc3\x9fe', 'tag', 'Ma\xc3\x9fe', 'tag_unf', 'Ma\xc3\x9fe']])

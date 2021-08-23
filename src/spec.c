@@ -365,6 +365,9 @@ static int parseFieldSpec(ArgsCursor *ac, FieldSpec *fs, QueryError *status) {
   while (!AC_IsAtEnd(ac)) {
     if (AC_AdvanceIfMatch(ac, SPEC_SORTABLE_STR)) {
       FieldSpec_SetSortable(fs);
+      if (AC_AdvanceIfMatch(ac, SPEC_UNF_STR)) {
+        fs->options |= FieldSpec_UNF;
+      }
       continue;
     } else if (AC_AdvanceIfMatch(ac, SPEC_NOINDEX_STR)) {
       fs->options |= FieldSpec_NotIndexable;
