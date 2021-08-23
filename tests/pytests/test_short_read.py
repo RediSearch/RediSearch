@@ -562,7 +562,7 @@ def runShortRead(env, data, total_len, expected_index):
         res = env.cmd('ft._list')
         if is_shortread:
             # Verify original data, that existed before the failed attempt to short-read, is restored
-            env.assertEqual(res, ['idxBackup1', 'idxBackup2'])
+            env.assertEqual(res, ['idxBackup2', 'idxBackup1'])
             res = env.cmd('ft.search ', 'idxBackup1', '*', 'limit', '0', '0')
             env.assertEqual(res[0], 5L)
             res = env.cmd('ft.search ', 'idxBackup2', '*', 'limit', '0', '0')
