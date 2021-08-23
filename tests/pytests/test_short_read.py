@@ -186,7 +186,7 @@ def add_index(env, isHash, index_name, key_suffix, num_prefs, num_keys):
     # Add keys
     for i in range(1, num_keys + 1):
         if isHash:
-            cmd = ['hset', 'pref' + str(i) + ":k" + str(i) + '_' + rand_num(5) + key_suffix, rand_name(5), rand_num(2), rand_name(5), rand_num(3)]
+            cmd = ['hset', 'pref' + str(i) + ":k" + str(i) + '_' + rand_num(5) + key_suffix, 'a' + rand_name(5), rand_num(2), 'b' + rand_name(5), rand_num(3)]
             env.assertEqual(env.cmd(*cmd), 2L)
         else:
             cmd = ['json.set', 'pref' + str(i) + ":k" + str(i) + '_' + rand_num(5) + key_suffix, '$', r'{"field1":"' + rand_name(5) + r'", "field2":' + rand_num(3) + r'}']
