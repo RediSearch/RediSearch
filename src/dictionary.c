@@ -2,6 +2,7 @@
 #include "redismodule.h"
 #include "rmalloc.h"
 #include "util/dict.h"
+#include "rdb.h"
 
 dict *spellCheckDicts = NULL;
 
@@ -160,15 +161,23 @@ static int SpellCheckDictAuxLoad(RedisModuleIO *rdb, int encver, int when) {
     Dictionary_Clear();
     return REDISMODULE_OK;
   }
-  size_t len = RedisModule_LoadUnsigned(rdb);
+  size_t len = LoadUnsigned_IOError(rdb, goto cleanup);
   for (size_t i = 0; i < len; i++) {
     size_t keyLen;
-    char *key = RedisModule_LoadStringBuffer(rdb, &keyLen);
+    char *key = LoadStringBuffer_IOError(rdb, &keyLen, goto cleanup);
     Trie *val = TrieType_GenericLoad(rdb, false);
+    if (val == NULL) {
+      RedisModule_Free(key);
+      goto cleanup;
+    }
     dictAdd(spellCheckDicts, key, val);
     RedisModule_Free(key);
   }
   return REDISMODULE_OK;
+
+cleanup:
+  Dictionary_Clear();
+  return REDISMODULE_ERR;
 }
 
 static void SpellCheckDictAuxSave(RedisModuleIO *rdb, int when) {
