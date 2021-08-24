@@ -396,7 +396,7 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
   size_t fl;
   const char *c = RedisModule_StringPtrLen(field->text, &fl);
   if (FieldSpec_IsSortable(fs)) {
-    RSSortingVector_Put(aCtx->sv, fs->sortIdx, (void *)c, RS_SORTABLE_STR);
+    RSSortingVector_Put(aCtx->sv, fs->sortIdx, (void *)c, RS_SORTABLE_STR, fs->options & FieldSpec_UNF);
   }
 
   if (FieldSpec_IsIndexable(fs)) {
@@ -443,7 +443,7 @@ FIELD_PREPROCESSOR(numericPreprocessor) {
 
   // If this is a sortable numeric value - copy the value to the sorting vector
   if (FieldSpec_IsSortable(fs)) {
-    RSSortingVector_Put(aCtx->sv, fs->sortIdx, &fdata->numeric, RS_SORTABLE_NUM);
+    RSSortingVector_Put(aCtx->sv, fs->sortIdx, &fdata->numeric, RS_SORTABLE_NUM, 0);
   }
   return 0;
 }
@@ -500,8 +500,11 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
   fdata->numeric = geohash;
 
   if (FieldSpec_IsSortable(fs)) {
-    // Goe is kept as a string
-    RSSortingVector_Put(aCtx->sv, fs->sortIdx, str, RS_SORTABLE_STR);
+    if (str) {
+      RSSortingVector_Put(aCtx->sv, fs->sortIdx, str, RS_SORTABLE_STR, fs->options & FieldSpec_UNF);
+    } else {
+      RSSortingVector_Put(aCtx->sv, fs->sortIdx, &fdata->numeric, RS_SORTABLE_NUM, 0);
+    }
   }
 
   return 0;
@@ -515,8 +518,8 @@ FIELD_PREPROCESSOR(tagPreprocessor) {
   }
   if (FieldSpec_IsSortable(fs)) {
     size_t fl;
-    const char *c = RedisModule_StringPtrLen(field->text, &fl);
-    RSSortingVector_Put(aCtx->sv, fs->sortIdx, (void *)c, RS_SORTABLE_STR);
+    const char *str = RedisModule_StringPtrLen(field->text, &fl);
+    RSSortingVector_Put(aCtx->sv, fs->sortIdx, str, RS_SORTABLE_STR, fs->options & FieldSpec_UNF);
   }
   return 0;
 }
@@ -752,14 +755,14 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
         case INDEXFLD_T_TAG:
         case INDEXFLD_T_GEO:
           RSSortingVector_Put(md->sortVector, idx, (void *)RedisModule_StringPtrLen(f->text, NULL),
-                              RS_SORTABLE_STR);
+                              RS_SORTABLE_STR, fs->options & FieldSpec_UNF);
           break;
         case INDEXFLD_T_NUMERIC: {
           double numval;
           if (RedisModule_StringToDouble(f->text, &numval) == REDISMODULE_ERR) {
             BAIL("Could not parse numeric index value");
           }
-          RSSortingVector_Put(md->sortVector, idx, &numval, RS_SORTABLE_NUM);
+          RSSortingVector_Put(md->sortVector, idx, &numval, RS_SORTABLE_NUM, 0);
           break;
         }
         default:
