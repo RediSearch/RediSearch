@@ -3344,3 +3344,22 @@ def testMod1452(env):
     # here we only check that its not crashing
     env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', 'foo', 'REDUCE', 'FIRST_VALUE', 3, '@not_exists', 'BY', '@foo')
 
+
+def test_mod1548(env):
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.prod:id', 'AS', 'prod:id', 'TEXT', '$.name', 'AS', 'name', 'TEXT', '$.categories', 'AS', 'categories', 'TAG', 'SEPARATOR' ,',').ok()
+    waitForIndex(env, 'idx')
+
+    res = conn.execute_command('JSON.SET', 'prod:1', '$', '{"prod:id": "35114964", "SKU": "35114964", "name":"foo", "categories":"abcat0200000"}')
+    env.assertOk(res)
+    res = conn.execute_command('JSON.SET', 'prod:2', '$', '{"prod:id": 35114964, "SKU": "35114964", "name":"bar", "categories":"abcat0200000"}')
+    env.assertOk(res)
+
+    # Supported jsonpath
+    res = conn.execute_command('FT.SEARCH', 'idx', '@categories:{abcat0200000}', 'RETURN', '1', 'name')
+    env.assertEqual(res,  [2L, 'prod:1', ['name', 'foo'], 'prod:2', ['name', 'bar']])
+
+    # Unsupported jsonpath (containing a colon)
+    res = conn.execute_command('FT.SEARCH', 'idx', '@categories:{abcat0200000}', 'RETURN', '1', 'prod:id')
+    env.assertEqual(res, [0L])
