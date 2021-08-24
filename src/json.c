@@ -128,9 +128,6 @@ int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len,
 
   if (len == 1) {
     RedisJSON json = japi->next(jsonIter);
-    if (!json) {
-      RS_LOG_ASSERT(0, "shouldn't happen");
-    }
 
     JSONType jsonType = japi->getType(json);
     if (FieldSpec_CheckJsonType(ftype, jsonType) != REDISMODULE_OK) {

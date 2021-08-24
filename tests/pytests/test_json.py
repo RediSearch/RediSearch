@@ -689,8 +689,6 @@ def testTagNoSeparetor(env):
     env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', '@tag_list:{foo\\,bar\\,baz}'), [1L, 'doc:1', ['$', '{"tag1":"foo,bar,baz"}']])
     env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', '@tag_array:{bar\\,baz}'), [1L, 'doc:2', ['$', '{"tag2":["foo","bar,baz"]}']])
 
-
-
 def testMixedTagError(env):
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE', 'idx1', 'ON', 'JSON', 'SCHEMA', '$.tag[*]', 'AS', 'tag', 'TAG')
@@ -704,3 +702,9 @@ def testSortableTagError(env):
     env.expect('FT.CREATE', 'idx1', 'ON', 'JSON',                                   \
                'SCHEMA', '$.tag[*]', 'AS', 'idxtag', 'TAG', 'SORTABLE').error()     \
                .contains('On JSON, cannot set tag field to sortable - idxtag')
+
+def testNotExistField(env):
+    conn = getConnectionByEnv(env)
+    conn.execute_command('FT.CREATE', 'idx1', 'ON', 'JSON', 'SCHEMA', '$.t', 'AS', 't', 'TEXT')
+    conn.execute_command('JSON.SET', 'doc1', '$', '{"t":"foo"}')
+    env.expect('FT.SEARCH', 'idx1', '*', 'RETURN', 1, 'name').equal([1L, 'doc1', []])
