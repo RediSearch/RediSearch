@@ -4,3 +4,4 @@
 datasets/*.rdb
 *.rdb
 binaries
+profile_*

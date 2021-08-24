@@ -2,6 +2,7 @@
 #define SRC_REDISEARCH_API_H_
 
 #include "redismodule.h"
+#include "stemmer.h"
 #include <limits.h>
 
 #ifdef __cplusplus
@@ -85,6 +86,8 @@ struct RSIdxOptions {
   int gcPolicy;
   char **stopwords;
   int stopwordsLen;
+  double score;
+  RSLanguage lang;
 };
 
 /**
@@ -117,6 +120,11 @@ MODULE_API_FUNC(void, RediSearch_DropIndex)(RSIndex*);
 
 /** Handle Stopwords list */
 MODULE_API_FUNC(int, RediSearch_StopwordsList_Contains)(RSIndex* idx, const char *term, size_t len);
+
+/** Getter functions */
+MODULE_API_FUNC(char **, RediSearch_IndexGetStopwords)(RSIndex*, size_t*);
+MODULE_API_FUNC(double, RediSearch_IndexGetScore)(RSIndex*);
+MODULE_API_FUNC(const char *, RediSearch_IndexGetLanguage)(RSIndex*);
 
 /**
  * Create a new field in the index
@@ -166,7 +174,7 @@ MODULE_API_FUNC(void, RediSearch_DocumentAddFieldString)
   RediSearch_DocumentAddFieldString(doc, fieldname, s, strlen(s), indexAs)
 
 MODULE_API_FUNC(void, RediSearch_DocumentAddFieldNumber)
-(RSDoc* d, const char* fieldName, double n, unsigned indexAsTypes);
+(RSDoc* d, const char* fieldName, double val, unsigned indexAsTypes);
 
 /**
  * Add geo field to a document.
@@ -256,6 +264,9 @@ MODULE_API_FUNC(void, RediSearch_IndexOptionsSetGCPolicy)(RSIndexOptions* option
   X(FreeIndexOptions)                \
   X(CreateIndex)                     \
   X(DropIndex)                       \
+  X(IndexGetStopwords)               \
+  X(IndexGetScore)                   \
+  X(IndexGetLanguage)                \
   X(CreateField)                     \
   X(TextFieldSetWeight)              \
   X(TagFieldSetSeparator)            \
