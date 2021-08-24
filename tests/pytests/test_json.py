@@ -364,6 +364,16 @@ def testMultiValueTag(env):
     env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', '@tag:{baz}'), res)
     env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', '@tag:{foo/,bar/,baz}'), [0L])
 
+def testMultiValueTag_Recursive_Decent(env):
+    conn = getConnectionByEnv(env)
+    conn.execute_command('FT.CREATE', 'idx', 'ON', 'JSON',
+                         'SCHEMA', '$..name', 'AS', 'name', 'TAG')
+    conn.execute_command('JSON.SET', 'doc:1', '$', '{"name":"foo", "in" : {"name":"bar"}}')
+
+    res = [1L, 'doc:1', ['$', '{"name":"foo","in":{"name":"bar"}}']]
+    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', '@name:{foo}'), res)
+    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', '@name:{bar}'), res)
+
 def testMultiValueErrors(env):
     # Index with Tag for array with multi-values
     env.execute_command('FT.CREATE', 'idxtext', 'ON', 'JSON',

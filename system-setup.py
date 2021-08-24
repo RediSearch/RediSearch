@@ -41,6 +41,8 @@ class RediSearchSetup(paella.Setup):
         # fix setuptools
         self.pip_install("-IU --force-reinstall setuptools")
 
+        self.install("python-devel")
+
         if self.platform.is_arm():
             self.install("python-gevent")
 

@@ -17,13 +17,11 @@ void ModuleChangeHandler(struct RedisModuleCtx *ctx, RedisModuleEvent e, uint64_
     return;
   // If RedisJSON module is loaded after RediSearch need to get the API exported by RedisJSON
 
-  if (GetJSONAPIs(ctx, 0)) {
-    RedisModule_Log(NULL, "notice", "Detected RedisJSON: Acquired RedisJSON_V1 API");
-  } else {
-    RedisModule_Log(NULL, "error", "Detected RedisJSON: Failed to acquired RedisJSON_V1 API");
+  if (!GetJSONAPIs(ctx, 0)) {
+    RedisModule_Log(ctx, "error", "Detected RedisJSON: failed to acquire ReJSON API");
   }
   //TODO: Once registered we can unsubscribe from ServerEvent RedisModuleEvent_ModuleChange
-  // Unless we want to hanle ReJSON module unload
+  // Unless we want to handle ReJSON module unload
 }
 
 //---------------------------------------------------------------------------------------------
@@ -31,7 +29,7 @@ void ModuleChangeHandler(struct RedisModuleCtx *ctx, RedisModuleEvent e, uint64_
 int GetJSONAPIs(RedisModuleCtx *ctx, int subscribeToModuleChange) {
     japi = RedisModule_GetSharedAPI(ctx, "RedisJSON_V1");
     if (japi) {
-        RedisModule_Log(NULL, "notice", "Acquired RedisJSON_V1 API");
+        RedisModule_Log(ctx, "notice", "Acquired RedisJSON_V1 API");
         return 1;
     }
     if (subscribeToModuleChange) {

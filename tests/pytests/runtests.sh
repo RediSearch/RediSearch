@@ -191,6 +191,8 @@ if [[ $VERBOSE == 1 ]]; then
 	cat $config
 fi
 
+export OS=$($READIES/bin/platform --os)
+
 $OP python2 -m RLTest @$config
 EXIT_CODE=$?
 rm -f $config
