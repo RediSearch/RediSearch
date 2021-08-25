@@ -443,11 +443,10 @@ static int getKeyCommonJSON(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
   } else {
     RedisJSON jsonValue = japi->next(jsonIter);
     japi->freeIter(jsonIter);
-    if (jsonValue) {
-      rsv = jsonValToValue(ctx, jsonValue);
-    } else {
+    if (!jsonValue) {
       return REDISMODULE_OK;
     }
+    rsv = jsonValToValue(ctx, jsonValue);
   }
 
   // Value has a reference count of 1
