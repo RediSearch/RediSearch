@@ -458,6 +458,9 @@ class Debug:
 
 def testShortReadSearch(env):
 
+    if IS_CODE_COVERAGE:
+        env.skip()  # FIXME: enable coverage test
+
     env.skipOnCluster()
     if env.env.endswith('existing-env') and os.environ.get('CI'):
         env.skip()
