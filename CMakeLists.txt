@@ -2,12 +2,12 @@ CMAKE_MINIMUM_REQUIRED(VERSION 3.0.0)
 PROJECT(redisearch)
 
 # Allow to use 'LOCATION' setting
-IF(POLICY CMP0026)
-    CMAKE_POLICY(SET CMP0026 OLD)
-ENDIF()
-IF(POLICY CMP0045)
-    cmake_policy(SET CMP0045 OLD)
-ENDIF()
+#IF(POLICY CMP0026)
+#    CMAKE_POLICY(SET CMP0026 OLD)
+#ENDIF()
+#IF(POLICY CMP0045)
+#    cmake_policy(SET CMP0045 OLD)
+#ENDIF()
 
 
 OPTION(RS_RUN_TESTS "Build & Run RediSearch's tests" OFF)
@@ -107,8 +107,30 @@ ADD_SUBDIRECTORY(src/dep/friso)
 ADD_SUBDIRECTORY(src/dep/snowball)
 ADD_SUBDIRECTORY(src/dep/phonetics)
 
-option(VECSIM_STATIC "Build as static library" ON)
-ADD_SUBDIRECTORY(deps/VectorSimilarity/src)
+# option(VECSIM_STATIC "Build as static library" ON)
+# ADD_SUBDIRECTORY(deps/VectorSimilarity/src)
+
+include (ExternalProject)
+ExternalProject_Add (VectorSimilarity
+	SOURCE_DIR		${CMAKE_CURRENT_SOURCE_DIR}/deps/VectorSimilarity/src
+	PREFIX          ${CMAKE_CURRENT_BINARY_DIR}/VectorSimilarity
+	CMAKE_ARGS      -DCMAKE_INSTALL_PREFIX:PATH=${CMAKE_CURRENT_BINARY_DIR}/VectorSimilarity
+	CMAKE_ARGS      -DVECSIM_STATIC:BOOL=ON
+)
+
+ExternalProject_Get_Property (VectorSimilarity install_dir)
+set(VectorSimilarity_bindir ${install_dir})
+message("VectorSimilarity bindir: ${VectorSimilarity_bindir}")
+
+include_directories (${VectorSimilarity_bindir}/include)
+
+add_library (vecsim STATIC IMPORTED)
+set_target_properties (vecsim PROPERTIES IMPORTED_LOCATION ${VectorSimilarity_bindir}/src/VectorSimilarity-build/libVectorSimilarity.a)
+
+add_library (openblas STATIC IMPORTED)
+set_target_properties (openblas PROPERTIES IMPORTED_LOCATION ${VectorSimilarity_bindir}/src/VectorSimilarity-build/OpenBLAS/lib/libopenblas.a)
+
+
 
 FILE(GLOB RS_SRC
     "src/*.c"
@@ -163,7 +185,7 @@ ELSEIF (RS_BUILD_STATIC)
 
 ELSE ()
     ADD_LIBRARY(redisearch SHARED ${FINAL_OBJECTS} src/module-init/module-init.c)
-    TARGET_LINK_LIBRARIES(redisearch dl m VectorSimilarity)
+    TARGET_LINK_LIBRARIES(redisearch dl m vecsim openblas)
     SET_TARGET_PROPERTIES(redisearch PROPERTIES PREFIX "")
     SET_TARGET_PROPERTIES(redisearch PROPERTIES SUFFIX ".so")
 
@@ -179,6 +201,8 @@ IF (APPLE)
     SET_TARGET_PROPERTIES(redisearch
         PROPERTIES LINK_FLAGS "-undefined dynamic_lookup")
 ENDIF()
+
+add_dependencies(redisearch VectorSimilarity)
 
 IF (RS_RUN_TESTS AND NOT RS_BUILD_COORDINATOR)
     SET(BUILD_SHARED_LIBS ON CACHE BOOL "enable shared libs" FORCE)
