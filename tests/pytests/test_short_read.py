@@ -12,9 +12,12 @@ import gevent.queue
 import gevent.server
 import gevent.socket
 import time
+#from RLTest import Defaults
 
 from common import TimeLimit
 from common import waitForIndex
+
+#Defaults.decode_responses = True
 
 CREATE_INDICES_TARGET_DIR = '/tmp/test'
 BASE_RDBS_URL = 'https://s3.amazonaws.com/redismodules/redisearch-enterprise/rdbs/'
@@ -465,6 +468,14 @@ def testShortReadSearch(env):
     seed = str(time.time())
     env.assertNotEqual(seed, None, message='random seed ' + seed)
     random.seed(seed)
+
+    # Check that all modules have the option 'handle-io-errors'
+    # Otherwise short read is not really enabled, also seen in redis log as:
+    # "Skipping diskless-load because there are modules that don't handle read errors."
+    #
+    # (due to a limitation in python client when calling "cmd('info', 'modules')" that only returns a single dictionary, using eval)
+    res = env.cmd('eval', 'return redis.call(\'info\', \'modules\')', '0')
+    env.assertEqual(res.count('module:name'), res.count('handle-io-errors'), message='not all modules have option "handle-io-errors"')
 
     try:
         temp_dir = tempfile.mkdtemp(prefix="short-read_")
