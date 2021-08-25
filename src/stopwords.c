@@ -5,6 +5,7 @@
 #include "util/strconv.h"
 #include "rmutil/rm_assert.h"
 #include <ctype.h>
+#include "rdb.h"
 
 #define MAX_STOPWORDLIST_SIZE 1024
 
@@ -136,19 +137,24 @@ void StopWordList_FreeGlobals(void) {
 
 /* Load a stopword list from RDB */
 StopWordList *StopWordList_RdbLoad(RedisModuleIO *rdb, int encver) {
-  uint64_t elements = RedisModule_LoadUnsigned(rdb);
-  StopWordList *sl = rm_malloc(sizeof(*sl));
+  StopWordList *sl = NULL;
+  uint64_t elements = LoadUnsigned_IOError(rdb, goto cleanup);
+  sl = rm_malloc(sizeof(*sl));
   sl->m = NewTrieMap();
   sl->refcount = 1;
 
   while (elements--) {
     size_t len;
-    char *str = RedisModule_LoadStringBuffer(rdb, &len);
+    char *str = LoadStringBuffer_IOError(rdb, &len, goto cleanup);
     TrieMap_Add(sl->m, str, len, NULL, NULL);
     RedisModule_Free(str);
   }
 
   return sl;
+
+cleanup:
+  StopWordList_FreeInternal(sl);
+  return NULL;
 }
 
 /* Save a stopword list to RDB */

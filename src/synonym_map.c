@@ -3,6 +3,7 @@
 #include "rmalloc.h"
 #include "util/fnv.h"
 #include "rmutil/rm_assert.h"
+#include "rdb.h"
 
 #define INITIAL_CAPACITY 2
 #define SYNONYM_PREFIX "~%s"
@@ -60,22 +61,28 @@ static void TermData_RdbSave(RedisModuleIO* rdb, TermData* t_data) {
 
 // todo: fix
 static TermData* TermData_RdbLoad(RedisModuleIO* rdb, int encver) {
-  char* term = RedisModule_LoadStringBuffer(rdb, NULL);
-  TermData* t_data = TermData_New(rm_strdup(term));
+  TermData *t_data = NULL;
+  char* term = LoadStringBuffer_IOError(rdb, NULL, goto cleanup);
+  t_data = TermData_New(rm_strdup(term));
   RedisModule_Free(term);
-  uint64_t ids_len = RedisModule_LoadUnsigned(rdb);
+  uint64_t ids_len = LoadUnsigned_IOError(rdb, goto cleanup);
   for (int i = 0; i < ids_len; ++i) {
     char* groupId = NULL;
     if (encver <= INDEX_MIN_WITH_SYNONYMS_INT_GROUP_ID) {
-      uint64_t id = RedisModule_LoadUnsigned(rdb);
+      uint64_t id = LoadUnsigned_IOError(rdb, goto cleanup);
       rm_asprintf(&groupId, "%ld", id);
     } else {
-      groupId = RedisModule_LoadStringBuffer(rdb, NULL);
+      groupId = LoadStringBuffer_IOError(rdb, NULL, goto cleanup);
     }
     TermData_AddId(t_data, groupId);
     rm_free(groupId);
   }
   return t_data;
+
+cleanup:
+  if (t_data)
+    TermData_Free(t_data);
+  return NULL;
 }
 
 SynonymMap* SynonymMap_New(bool is_read_only) {
@@ -218,15 +225,21 @@ void* SynonymMap_RdbLoad(RedisModuleIO* rdb, int encver) {
   int ret;
   SynonymMap* smap = SynonymMap_New(false);
   if (encver <= INDEX_MIN_WITH_SYNONYMS_INT_GROUP_ID) {
-    size_t unused = RedisModule_LoadUnsigned(rdb);
+    size_t unused = LoadUnsigned_IOError(rdb, goto cleanup);
   }
-  uint64_t smap_kh_size = RedisModule_LoadUnsigned(rdb);
+  uint64_t smap_kh_size = LoadUnsigned_IOError(rdb, goto cleanup);
   for (int i = 0; i < smap_kh_size; ++i) {
     if (encver <= INDEX_MIN_WITH_SYNONYMS_INT_GROUP_ID) {
-      uint64_t unudes = RedisModule_LoadUnsigned(rdb);
+      uint64_t unudes = LoadUnsigned_IOError(rdb, goto cleanup);
     }
     TermData* t_data = TermData_RdbLoad(rdb, encver);
+    if (t_data == NULL)
+      goto cleanup;
     dictAdd(smap->h_table, t_data->term, t_data);
   }
   return smap;
+
+cleanup:
+  SynonymMap_Free(smap);
+  return NULL;
 }
