@@ -438,13 +438,13 @@ static int getKeyCommonJSON(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
     if (!strncmp(kk->name, UNDERSCORE_KEY, strlen(UNDERSCORE_KEY))) {
       rsv = RS_StringVal(options->dmd->keyPtr, strlen(options->dmd->keyPtr));
     } else {
-      return REDISMODULE_ERR;
+      return REDISMODULE_OK;
     }
   } else {
     RedisJSON jsonValue = japi->next(jsonIter);
     japi->freeIter(jsonIter);
     if (!jsonValue) {
-      return REDISMODULE_ERR;
+      return REDISMODULE_OK;
     }
     rsv = jsonValToValue(ctx, jsonValue);
   }
