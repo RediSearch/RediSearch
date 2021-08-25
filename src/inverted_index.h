@@ -42,10 +42,13 @@ struct indexReadCtx;
  * a a pointer or integer. It is intended to relay along any kind of additional
  * configuration information to help the decoder determine whether to filter
  * the entry */
-typedef union {
+typedef struct {
   void *ptr;
   t_fieldMask num;
-  t_docId matchId;
+
+  // used by profile
+  double rangeMin;    
+  double rangeMax;
 } IndexDecoderCtx;
 
 /**
@@ -54,6 +57,8 @@ typedef union {
 typedef void (*RepairCallback)(const RSIndexResult *res, void *arg);
 
 typedef struct {
+  size_t bytesBeforFix;
+  size_t bytesAfterFix;
   size_t bytesCollected; /** out: Number of bytes collected */
   size_t docsCollected;  /** out: Number of documents collected */
   size_t limit;          /** in: how many index blocks to scan at once */
@@ -143,9 +148,6 @@ typedef struct IndexReader {
    * thread was asleep, and reset the state in a deeper way
    */
   uint32_t gcMarker;
-
-  /* boosting weight */
-  double weight;
 } IndexReader;
 
 void IndexReader_OnReopen(void *privdata);
@@ -168,7 +170,8 @@ size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
 /* Create a new index reader for numeric records, optionally using a given filter. If the filter
  * is
  * NULL we will return all the records in the index */
-IndexReader *NewNumericReader(const IndexSpec *sp, InvertedIndex *idx, const NumericFilter *flt);
+IndexReader *NewNumericReader(const IndexSpec *sp, InvertedIndex *idx, const NumericFilter *flt,
+                              double rangeMin, double rangeMax);
 
 /* Get the appropriate encoder for an inverted index given its flags. Returns NULL on invalid flags
  */

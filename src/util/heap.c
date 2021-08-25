@@ -154,6 +154,17 @@ void *heap_poll(heap_t *h) {
   return item;
 }
 
+static void __heap_replacex(heap_t *h, void *item) {
+  h->array[0] = item;
+
+  /* ensure heap properties */
+  __pushdown(h, 0);
+}
+
+void heap_replace(heap_t *h, void *item) {
+  __heap_replacex(h, item);
+}
+
 void *heap_peek(const heap_t *h) {
   if (0 == heap_count(h)) return NULL;
 
@@ -203,6 +214,26 @@ int heap_count(const heap_t *h) {
 
 int heap_size(const heap_t *h) {
   return h->size;
+}
+
+void _heap_cb_child(unsigned int idx, const heap_t * h, HeapCallback cb, void *ctx) {
+  if (idx >= h->count) return;
+
+  if (h->cmp(h->array[0], h->array[idx], h->udata) == 0) {
+    cb(ctx, h->array[idx]);
+    _heap_cb_child(__child_left(idx), h, cb, ctx);
+    _heap_cb_child(__child_right(idx), h, cb, ctx);
+  }
+}
+
+void heap_cb_root(const heap_t * hp, HeapCallback cb, void *ctx) {
+  void *root = heap_peek(hp);
+  if (!root) return;
+
+  cb(ctx, root);
+
+  _heap_cb_child(__child_left(0), hp, cb, ctx);
+  _heap_cb_child(__child_right(0), hp, cb, ctx);
 }
 
 /*--------------------------------------------------------------79-characters-*/

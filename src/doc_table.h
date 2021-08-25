@@ -101,8 +101,8 @@ RSDocumentMetadata *DocTable_GetByKeyR(const DocTable *r, RedisModuleString *s);
  *
  * NOTE: Currently there is no deduplication on the table so we do not prevent dual insertion of the
  * same key. This may result in document duplication in results  */
-t_docId DocTable_Put(DocTable *t, const char *s, size_t n, double score, u_char flags,
-                     const char *payload, size_t payloadSize);
+RSDocumentMetadata *DocTable_Put(DocTable *t, const char *s, size_t n, double score, RSDocumentFlags flags,
+                                 const char *payload, size_t payloadSize, DocumentType type);
 
 /* Get the "real" external key for an incremental i
  * If the document ID is not in the table, the returned key's `str` member will
@@ -115,18 +115,18 @@ float DocTable_GetScore(DocTable *t, t_docId docId);
 
 /* Set the payload for a document. Returns 1 if we set the payload, 0 if we couldn't find the
  * document */
-int DocTable_SetPayload(DocTable *t, t_docId docId, const char *data, size_t len);
+int DocTable_SetPayload(DocTable *t, RSDocumentMetadata *dmd, const char *data, size_t len);
 
 int DocTable_Exists(const DocTable *t, t_docId docId);
 
 /* Set the sorting vector for a document. If the vector is NULL we mark the doc as not having a
  * vector. Returns 1 on success, 0 if the document does not exist. No further validation is done */
-int DocTable_SetSortingVector(DocTable *t, t_docId docId, RSSortingVector *v);
+int DocTable_SetSortingVector(DocTable *t, RSDocumentMetadata *dmd, RSSortingVector *v);
 
 /* Set the offset vector for a document. This contains the byte offsets of each token found in
  * the document. This is used for highlighting
  */
-int DocTable_SetByteOffsets(DocTable *t, t_docId docId, RSByteOffsets *offsets);
+int DocTable_SetByteOffsets(DocTable *t, RSDocumentMetadata *dmd, RSByteOffsets *offsets);
 
 /* Get the payload for a document, if any was set. If no payload has been set or the document id is
  * not found, we return NULL */

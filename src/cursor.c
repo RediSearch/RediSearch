@@ -21,7 +21,7 @@ static void CursorList_Unlock(CursorList *cl) {
 }
 
 void CursorList_Init(CursorList *cl) {
-  memset(cl, 0, sizeof(*cl));
+  *cl = (CursorList) {0};
   pthread_mutex_init(&cl->lock, NULL);
   cl->lookup = kh_init(cursors);
   Array_Init(&cl->idle);
@@ -198,9 +198,9 @@ Cursor *Cursors_Reserve(CursorList *cl, const char *lookupName, unsigned interva
   }
 
   if (spec->used >= spec->cap) {
+    /** Collect idle cursors now */
     Cursors_GCInternal(cl, 0);
     if (spec->used >= spec->cap) {
-      /** Collect idle cursors now */
       QueryError_SetError(status, QUERY_ELIMIT, "Too many cursors allocated for index");
       goto done;
     }
@@ -293,29 +293,23 @@ int Cursor_Free(Cursor *cur) {
 void Cursors_RenderStats(CursorList *cl, const char *name, RedisModuleCtx *ctx) {
   CursorList_Lock(cl);
   CursorSpecInfo *info = findInfo(cl, name, NULL);
-  size_t n = 0;
 
-  /** Output total information */
-  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+  RedisModule_ReplyWithSimpleString(ctx, "cursor_stats");
+
+  RedisModule_ReplyWithArray(ctx, 8);
+
   RedisModule_ReplyWithSimpleString(ctx, "global_idle");
   RedisModule_ReplyWithLongLong(ctx, ARRAY_GETSIZE_AS(&cl->idle, Cursor **));
-  n += 2;
 
   RedisModule_ReplyWithSimpleString(ctx, "global_total");
   RedisModule_ReplyWithLongLong(ctx, kh_size(cl->lookup));
-  n += 2;
 
-  if (info) {
-    RedisModule_ReplyWithSimpleString(ctx, "index_capacity");
-    RedisModule_ReplyWithLongLong(ctx, info->cap);
-    n += 2;
+  RedisModule_ReplyWithSimpleString(ctx, "index_capacity");
+  RedisModule_ReplyWithLongLong(ctx, info->cap);
 
-    RedisModule_ReplyWithSimpleString(ctx, "index_total");
-    RedisModule_ReplyWithLongLong(ctx, info->used);
-    n += 2;
-  }
+  RedisModule_ReplyWithSimpleString(ctx, "index_total");
+  RedisModule_ReplyWithLongLong(ctx, info->used);
 
-  RedisModule_ReplySetArrayLength(ctx, n);
   CursorList_Unlock(cl);
 }
 

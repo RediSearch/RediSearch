@@ -31,7 +31,7 @@ typedef enum {
   QN_GEO,
 
   /* Prefix selection node */
-  QN_PREFX,
+  QN_PREFIX,
 
   /* Id Filter node */
   QN_IDS,
@@ -119,7 +119,7 @@ typedef struct {
 } QueryAttribute;
 
 #define PHONETIC_ENABLED 1
-#define PHONETIC_DESABLED 2
+#define PHONETIC_DISABLED 2
 #define PHONETIC_DEFAULT 0
 
 /* Various modifiers and options that can apply to the entire query or any sub-query of it */

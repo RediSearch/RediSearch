@@ -195,6 +195,11 @@ ResultProcessor *RPEvaluator_NewProjector(const RSExpr *ast, const RLookup *look
  */
 ResultProcessor *RPEvaluator_NewFilter(const RSExpr *ast, const RLookup *lookup);
 
+/** 
+ * Reply with a string which describes the result processor.
+ */
+void RPEvaluator_Reply(RedisModuleCtx *ctx, const ResultProcessor *rp);
+
 #ifdef __cplusplus
 }
 #endif

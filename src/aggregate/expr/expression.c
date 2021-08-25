@@ -1,6 +1,7 @@
 #include "expression.h"
 #include "result_processor.h"
 #include "rlookup.h"
+#include "profile.h"
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -468,7 +469,7 @@ static ResultProcessor *RPEvaluator_NewCommon(const RSExpr *ast, const RLookup *
   RPEvaluator *rp = rm_calloc(1, sizeof(*rp));
   rp->base.Next = isFilter ? rpevalNext_filter : rpevalNext_project;
   rp->base.Free = rpevalFree;
-  rp->base.name = isFilter ? "Filter" : "Projector";
+  rp->base.type = isFilter ? RP_FILTER : RP_PROJECTOR;
   rp->eval.lookup = lookup;
   rp->eval.root = ast;
   rp->outkey = dstkey;
@@ -483,4 +484,37 @@ ResultProcessor *RPEvaluator_NewProjector(const RSExpr *ast, const RLookup *look
 
 ResultProcessor *RPEvaluator_NewFilter(const RSExpr *ast, const RLookup *lookup) {
   return RPEvaluator_NewCommon(ast, lookup, NULL, 1);
+}
+
+void RPEvaluator_Reply(RedisModuleCtx *ctx, const ResultProcessor *rp) {
+  ResultProcessorType type = rp->type;
+  const char *typeStr = RPTypeToString(rp->type);
+  RS_LOG_ASSERT (type == RP_PROJECTOR || type == RP_FILTER, "Error");
+
+  char buf[32];
+  RPEvaluator *rpEval = (RPEvaluator *)rp;
+  const RSExpr *expr = rpEval->eval.root;
+  switch (expr->t) {
+    case RSExpr_Literal:
+      RedisModule_ReplyWithPrintf(ctx, "%s - Literal %s", typeStr, 
+                  RSValue_ConvertStringPtrLen(&expr->literal, NULL, buf, sizeof(buf)));
+    case RSExpr_Property:
+      RedisModule_ReplyWithPrintf(ctx, "%s - Property %s", typeStr, expr->property.key);
+      break;
+    case RSExpr_Op:
+      RedisModule_ReplyWithPrintf(ctx, "%s - Operator %c", typeStr, expr->op.op);
+      break;
+    case RSExpr_Function:
+      RedisModule_ReplyWithPrintf(ctx, "%s - Function %s", typeStr, expr->func.name);
+      break;
+    case RSExpr_Predicate:
+      RedisModule_ReplyWithPrintf(ctx, "%s - Predicate %s", typeStr, RSConditionStrings[expr->pred.cond]);
+      break;
+    case RSExpr_Inverted:
+      RedisModule_ReplyWithPrintf(ctx, "%s - Inverted", typeStr);
+      break;
+    default:
+      RS_LOG_ASSERT(0, "error");
+      break;
+  }
 }

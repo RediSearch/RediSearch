@@ -86,6 +86,7 @@ typedef struct {
   const RLookupKey **sortkeysLK;  // simple array
   const char **sortKeys;          // array_*
   uint64_t sortAscMap;            // Mapping of ascending/descending. Bitwise
+  int isLimited;                  // Flag if `LIMIT` keyward was used.
   uint64_t offset;                // Seek results. If 0, then no paging is applied
   uint64_t limit;                 // Number of rows to output
 } PLN_ArrangeStep;
@@ -153,9 +154,6 @@ array_t AGPLN_Serialize(const AGGPlan *plan);
 
 /* Free the plan resources, not the plan itself */
 void AGPLN_Free(AGGPlan *plan);
-
-/* Print the plan */
-void AGPLN_Print(AGGPlan *plan);
 
 void AGPLN_Init(AGGPlan *plan);
 

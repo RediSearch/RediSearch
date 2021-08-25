@@ -13,7 +13,7 @@ RSSortingVector *NewSortingVector(int len) {
   if (len > RS_SORTABLES_MAX) {
     return NULL;
   }
-  RSSortingVector *ret = rm_calloc(1, sizeof(RSSortingVector) + len * (sizeof(RSValue)));
+  RSSortingVector *ret = rm_calloc(1, sizeof(RSSortingVector) + len * (sizeof(RSValue*)));
   ret->len = len;
   // set all values to NIL
   for (int i = 0; i < len; i++) {
@@ -63,7 +63,7 @@ char *normalizeStr(const char *str) {
 }
 
 /* Put a value in the sorting vector */
-void RSSortingVector_Put(RSSortingVector *tbl, int idx, const void *p, int type) {
+void RSSortingVector_Put(RSSortingVector *tbl, int idx, const void *p, int type, int unf) {
   if (idx > RS_SORTABLES_MAX) {
     return;
   }
@@ -77,8 +77,8 @@ void RSSortingVector_Put(RSSortingVector *tbl, int idx, const void *p, int type)
 
       break;
     case RS_SORTABLE_STR: {
-      char *ns = normalizeStr((const char *)p);
-      tbl->values[idx] = RS_StringValT(ns, strlen(ns), RSString_RMAlloc);
+      char *str = unf ? rm_strdup(p) : normalizeStr((const char *)p);
+      tbl->values[idx] = RS_StringValT(str, strlen(str), RSString_RMAlloc);
       break;
     }
     case RS_SORTABLE_NIL:
@@ -183,6 +183,7 @@ size_t RSSortingVector_GetMemorySize(RSSortingVector *v) {
 /* Create a new sorting table of a given length */
 RSSortingTable *NewSortingTable(void) {
   RSSortingTable *tbl = rm_calloc(1, sizeof(*tbl));
+  tbl->cap = 1;
   return tbl;
 }
 
@@ -190,11 +191,17 @@ void SortingTable_Free(RSSortingTable *t) {
   rm_free(t);
 }
 
-int RSSortingTable_Add(RSSortingTable *tbl, const char *name, RSValueType t) {
-  RS_LOG_ASSERT(tbl->len < RS_SORTABLES_MAX, "sorting table is too large");
-  tbl->fields[tbl->len].name = name;
-  tbl->fields[tbl->len].type = t;
-  return tbl->len++;
+int RSSortingTable_Add(RSSortingTable **tbl, const char *name, RSValueType t) {
+  if ((*tbl)->len == RS_SORTABLES_MAX) return -1;
+
+  if ((*tbl)->len == (*tbl)->cap) {
+    (*tbl)->cap += 8;
+    *tbl = rm_realloc(*tbl, sizeof(RSSortingTable) + ((*tbl)->cap) * sizeof(RSSortField));
+  }
+
+  (*tbl)->fields[(*tbl)->len].name = name;
+  (*tbl)->fields[(*tbl)->len].type = t;
+  return (*tbl)->len++;
 }
 
 /* Get the field index by name from the sorting table. Returns -1 if the field was not found */

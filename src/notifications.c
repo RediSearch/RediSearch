@@ -1,12 +1,19 @@
 #include "config.h"
 #include "notifications.h"
 #include "spec.h"
+#include "doc_types.h"
+#include "redismodule.h"
+#include "rdb.h"
+#include "module.h"
+
+#define JSON_LEN 5 // length of string "json."
 
 RedisModuleString *global_RenameFromKey = NULL;
 extern RedisModuleCtx *RSDummyContext;
 RedisModuleString **hashFields = NULL;
 
 typedef enum {
+  _null_cmd,
   hset_cmd,
   hmset_cmd,
   hsetnx_cmd,
@@ -51,6 +58,7 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
 
   int redisCommand = 0;
   RedisModuleKey *kp;
+  DocumentType kType;
 
   static const char *hset_event = 0, *hmset_event = 0, *hsetnx_event = 0, *hincrby_event = 0,
                     *hincrbyfloat_event = 0, *hdel_event = 0, *del_event = 0, *set_event = 0,
@@ -80,6 +88,7 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
   else CHECK_CACHED_EVENT(rename_from)
   else CHECK_CACHED_EVENT(rename_to)
   else CHECK_CACHED_EVENT(loaded)
+
   else {
          CHECK_AND_CACHE_EVENT(hset)
     else CHECK_AND_CACHE_EVENT(hmset)
@@ -101,6 +110,7 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
     else CHECK_AND_CACHE_EVENT(rename_from)
     else CHECK_AND_CACHE_EVENT(rename_to)
     else CHECK_AND_CACHE_EVENT(loaded)
+    else redisCommand = _null_cmd;
   }
 
   switch (redisCommand) {
@@ -108,18 +118,24 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
       // on loaded event the key is stack allocated so to use it to load the
       // document we must copy it
       key = RedisModule_CreateStringFromString(ctx, key);
-      // notice, not break is ok here, we want to continue.
+      Indexes_UpdateMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields); //TODO: avoid getDocTypeFromString ?
+      RedisModule_FreeString(ctx, key);
+      break;
+
     case hset_cmd:
     case hmset_cmd:
     case hsetnx_cmd:
     case hincrby_cmd:
     case hincrbyfloat_cmd:
     case hdel_cmd:
+      Indexes_UpdateMatchingWithSchemaRules(ctx, key, DocumentType_Hash, hashFields);
+      break;
+
+/********************************************************
+ *              Handling Redis commands                 * 
+ ********************************************************/
     case restore_cmd:
-      Indexes_UpdateMatchingWithSchemaRules(ctx, key, hashFields);
-      if(redisCommand == loaded_cmd){
-        RedisModule_FreeString(ctx, key);
-      }
+      Indexes_UpdateMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields);
       break;
 
     case del_cmd:
@@ -131,16 +147,22 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
       break;
 
     case change_cmd:
+    // TODO: hash/json
       kp = RedisModule_OpenKey(ctx, key, REDISMODULE_READ);
-      if (!kp || RedisModule_KeyType(kp) != REDISMODULE_KEYTYPE_HASH) {
+      kType = DocumentType_None;
+      if (kp) {
+        kType = getDocType(kp);
+        RedisModule_CloseKey(kp);
+      }
+      if (kType == DocumentType_None) {
         // in crdt empty key means that key was deleted
+        // TODO:FIX
         Indexes_DeleteMatchingWithSchemaRules(ctx, key, hashFields);
       } else {
         // todo: here we will open the key again, we can optimize it by
         //       somehow passing the key pointer
-        Indexes_UpdateMatchingWithSchemaRules(ctx, key, hashFields);
+        Indexes_UpdateMatchingWithSchemaRules(ctx, key, kType, hashFields);
       }
-      RedisModule_CloseKey(kp);
       break;
 
     case rename_from_cmd:
@@ -151,6 +173,26 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
     case rename_to_cmd:
       Indexes_ReplaceMatchingWithSchemaRules(ctx, global_RenameFromKey, key);
       break;
+  }
+
+
+/********************************************************
+ *              Handling RedisJSON commands             * 
+ ********************************************************/
+  if (!strncmp(event, "json.", strlen("json."))) {
+    if (!strncmp(event + JSON_LEN, "set", strlen("set")) ||
+        !strncmp(event + JSON_LEN, "del", strlen("del")) ||
+        !strncmp(event + JSON_LEN, "numincrby", strlen("incrby")) ||
+        !strncmp(event + JSON_LEN, "nummultby", strlen("nummultby")) ||
+        !strncmp(event + JSON_LEN, "strappend", strlen("strappend")) ||
+        !strncmp(event + JSON_LEN, "arrappend", strlen("arrappend")) ||
+        !strncmp(event + JSON_LEN, "arrinsert", strlen("arrinsert")) ||
+        !strncmp(event + JSON_LEN, "arrpop", strlen("arrpop")) ||
+        !strncmp(event + JSON_LEN, "arrtrim", strlen("arrtrim")) ||
+        !strncmp(event + JSON_LEN, "toggle", strlen("toggle"))) {
+      // update index
+      Indexes_UpdateMatchingWithSchemaRules(ctx, key, DocumentType_Json, hashFields);
+    }
   }
 
   freeHashFields();
@@ -211,17 +253,108 @@ done:
   RedisModule_CloseKey(k);
 }
 
+void ShardingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
+  /**
+   * On sharding event we need to do couple of things depends on the subevent given:
+   *
+   * 1. REDISMODULE_SUBEVENT_SHARDING_SLOT_RANGE_CHANGED
+   *    On this event we know that the slot range changed and we might have data
+   *    which are no longer belong to this shard, we must ignore it on searches
+   *
+   * 2. REDISMODULE_SUBEVENT_SHARDING_TRIMMING_STARTED
+   *    This event tells us that the trimming process has started and keys will start to be
+   *    deleted, we do not need to do anything on this event
+   *
+   * 3. REDISMODULE_SUBEVENT_SHARDING_TRIMMING_ENDED
+   *    This event tells us that the trimming process has finished, we are not longer
+   *    have data that are not belong to us and its safe to stop checking this on searches.
+   */
+  if (eid.id != REDISMODULE_EVENT_SHARDING) {
+    RedisModule_Log(RSDummyContext, "warning", "Bad event given, ignored.");
+    return;
+  }
+
+  switch (subevent) {
+    case REDISMODULE_SUBEVENT_SHARDING_SLOT_RANGE_CHANGED:
+      RedisModule_Log(ctx, "notice", "%s", "Got slot range change event, enter trimming phase.");
+      isTrimming = true;
+      break;
+    case REDISMODULE_SUBEVENT_SHARDING_TRIMMING_STARTED:
+      RedisModule_Log(ctx, "notice", "%s", "Got trimming started event, enter trimming phase.");
+      isTrimming = true;
+      break;
+    case REDISMODULE_SUBEVENT_SHARDING_TRIMMING_ENDED:
+      RedisModule_Log(ctx, "notice", "%s", "Got trimming ended event, exit trimming phase.");
+      isTrimming = false;
+      break;
+    default:
+      RedisModule_Log(RSDummyContext, "warning", "Bad subevent given, ignored.");
+  }
+}
+
 void Initialize_KeyspaceNotifications(RedisModuleCtx *ctx) {
   RedisModule_SubscribeToKeyspaceEvents(ctx,
     REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_HASH |
     REDISMODULE_NOTIFY_TRIMMED | REDISMODULE_NOTIFY_STRING |
     REDISMODULE_NOTIFY_EXPIRED | REDISMODULE_NOTIFY_EVICTED |
-    REDISMODULE_NOTIFY_LOADED,
+    REDISMODULE_NOTIFY_LOADED | REDISMODULE_NOTIFY_MODULE,
     HashNotificationCallback);
+
+  if(CompareVestions(redisVersion, noScanVersion) >= 0){
+    // we do not need to scan after rdb load, i.e, there is not danger of losing results
+    // after resharding, its safe to filter keys which are not in our slot range.
+    if (RedisModule_SubscribeToServerEvent && RedisModule_ShardingGetKeySlot) {
+      // we have server events support, lets subscribe to relevan events.
+      RedisModule_Log(ctx, "notice", "%s", "Subscribe to sharding events");
+      RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Sharding, ShardingEvent);
+    }
+  }
 }
 
 void Initialize_CommandFilter(RedisModuleCtx *ctx) {
   if (RSGlobalConfig.filterCommands) {
     RedisModule_RegisterCommandFilter(ctx, CommandFilterCallback, 0);
+  }
+}
+
+
+void ReplicaBackupCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
+
+  REDISMODULE_NOT_USED(eid);
+  switch(subevent) {
+  case REDISMODULE_SUBEVENT_REPL_BACKUP_CREATE:
+    Backup_Globals();
+    break;
+  case REDISMODULE_SUBEVENT_REPL_BACKUP_RESTORE:
+    Restore_Globals();
+    break;
+  case REDISMODULE_SUBEVENT_REPL_BACKUP_DISCARD:
+    Discard_Globals_Backup();
+    break;
+  }
+}
+
+
+int CheckVersionForShortRead() {
+  // Minimal versions: 6.2.5
+  // (6.0.15 is not supporting the required event notification for modules)
+  if (redisVersion.majorVersion == 6 &&
+      redisVersion.minorVersion == 2) {
+      return redisVersion.patchVersion >= 5 ? REDISMODULE_OK : REDISMODULE_ERR;
+  } else if (redisVersion.majorVersion == 255 &&
+           redisVersion.minorVersion == 255 &&
+           redisVersion.patchVersion == 255) {
+    // Also supported on master (version=255.255.255)
+    return REDISMODULE_OK;
+  }
+  return REDISMODULE_ERR;
+}
+
+void Initialize_RdbNotifications(RedisModuleCtx *ctx) {
+  if (CheckVersionForShortRead() == REDISMODULE_OK) {
+    int success = RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ReplBackup, ReplicaBackupCallback);
+    RedisModule_Assert(success != REDISMODULE_ERR); // should be supported in this redis version/release
+    RedisModule_SetModuleOptions(ctx, REDISMODULE_OPTIONS_HANDLE_IO_ERRORS);
+    RedisModule_Log(ctx, "notice", "Enabled diskless replication");
   }
 }

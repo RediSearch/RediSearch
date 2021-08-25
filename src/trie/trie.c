@@ -189,11 +189,11 @@ int TrieNode_Add(TrieNode **np, rune *str, t_len len, RSPayload *payload, float 
       default:
         n->score = score;
     }
-    if (n->payload != NULL) {
-      rm_free(n->payload);
-      n->payload = NULL;
-    }
     if (payload != NULL && payload->data != NULL && payload->len > 0) {
+      if (n->payload != NULL) {
+        rm_free(n->payload);
+        n->payload = NULL;
+      }
       n->payload = triePayload_New(payload->data, payload->len);
     }
     // set the node as terminal

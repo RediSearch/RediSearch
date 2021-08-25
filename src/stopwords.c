@@ -2,7 +2,10 @@
 #include "stopwords.h"
 #include "dep/triemap/triemap.h"
 #include "rmalloc.h"
+#include "util/strconv.h"
+#include "rmutil/rm_assert.h"
 #include <ctype.h>
+#include "rdb.h"
 
 #define MAX_STOPWORDLIST_SIZE 1024
 
@@ -22,20 +25,30 @@ StopWordList *DefaultStopWordList() {
   return __default_stopwords;
 }
 
-StopWordList *EmptyStopWordList() {
-  if (__empty_stopwords == NULL) {
-    __empty_stopwords = NewStopWordList(NULL, 0);
-  }
-  return __empty_stopwords;
-}
-
-/* Check if a stopword list contains a term. The term must be already lowercased */
+/* Check if a stopword list contains a term. */
 int StopWordList_Contains(const StopWordList *sl, const char *term, size_t len) {
-  if (!sl || !term) {
+  char *lowStr;
+  char stackStr[32];
+  if (sl == __empty_stopwords || !sl || !term) {
     return 0;
   }
 
-  return TrieMap_Find(sl->m, (char *)term, len) != TRIEMAP_NOTFOUND;
+  // do not use heap allocation for short strings
+  if (len < 32) {
+    memcpy(stackStr, term, len);
+    stackStr[len] = '\0';
+    lowStr = stackStr;
+  } else {
+    lowStr = rm_strndup(term, len);
+  }
+
+  strtolower(lowStr);
+  int ret = TrieMap_Find(sl->m, (char *)lowStr, len) != TRIEMAP_NOTFOUND;
+
+  // free memory if allocated 
+  if (len >= 32) rm_free(lowStr);
+
+  return ret;
 }
 
 /* Create a new stopword list from a list of redis strings */
@@ -53,6 +66,9 @@ StopWordList *NewStopWordList(RedisModuleString **strs, size_t len) {
 }
 
 StopWordList *NewStopWordListCStr(const char **strs, size_t len) {
+  if (len == 0 && __empty_stopwords) {
+    return __empty_stopwords;
+  }
   if (len > MAX_STOPWORDLIST_SIZE) {
     len = MAX_STOPWORDLIST_SIZE;
   }
@@ -77,6 +93,9 @@ StopWordList *NewStopWordListCStr(const char **strs, size_t len) {
     // printf("Adding stopword %s\n", t);
     TrieMap_Add(sl->m, t, tlen, NULL, NULL);
     rm_free(t);
+  }
+  if (len == 0) {
+    __empty_stopwords = sl;
   }
   return sl;
 }
@@ -118,19 +137,24 @@ void StopWordList_FreeGlobals(void) {
 
 /* Load a stopword list from RDB */
 StopWordList *StopWordList_RdbLoad(RedisModuleIO *rdb, int encver) {
-  uint64_t elements = RedisModule_LoadUnsigned(rdb);
-  StopWordList *sl = rm_malloc(sizeof(*sl));
+  StopWordList *sl = NULL;
+  uint64_t elements = LoadUnsigned_IOError(rdb, goto cleanup);
+  sl = rm_malloc(sizeof(*sl));
   sl->m = NewTrieMap();
   sl->refcount = 1;
 
   while (elements--) {
     size_t len;
-    char *str = RedisModule_LoadStringBuffer(rdb, &len);
+    char *str = LoadStringBuffer_IOError(rdb, &len, goto cleanup);
     TrieMap_Add(sl->m, str, len, NULL, NULL);
     RedisModule_Free(str);
   }
 
   return sl;
+
+cleanup:
+  StopWordList_FreeInternal(sl);
+  return NULL;
 }
 
 /* Save a stopword list to RDB */
@@ -170,4 +194,28 @@ void ReplyWithStopWordsList(RedisModuleCtx *ctx, struct StopWordList *sl) {
   }
   RedisModule_ReplySetArrayLength(ctx, i);
   TrieMapIterator_Free(it);
+}
+
+char **GetStopWordsList(struct StopWordList *sl, size_t *size) {
+  *size = sl->m->cardinality;
+  if (*size == 0) {
+    return NULL;
+  }
+
+  char **list = rm_malloc((*size) * sizeof(*list));
+
+  TrieMapIterator *it = TrieMap_Iterate(sl->m, "", 0);
+  char *str;
+  tm_len_t len;
+  void *ptr;
+  size_t i = 0;
+
+  while (TrieMapIterator_Next(it, &str, &len, &ptr)) {
+    list[i++] = rm_strndup(str, len);
+  }
+
+  TrieMapIterator_Free(it);
+  RS_LOG_ASSERT(i == *size, "actual size must equal expected size");
+
+  return list;
 }

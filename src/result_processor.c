@@ -59,12 +59,21 @@ static int RPGeneric_NextEOF(ResultProcessor *rp, SearchResult *res) {
 typedef struct {
   ResultProcessor base;
   IndexIterator *iiter;
+  struct timespec timeout;  // milliseconds until timeout
+  size_t timeoutLimiter;    // counter to limit number of calls to TimedOut()
 } RPIndexIterator;
 
 /* Next implementation */
 static int rpidxNext(ResultProcessor *base, SearchResult *res) {
   RPIndexIterator *self = (RPIndexIterator *)base;
   IndexIterator *it = self->iiter;
+
+  if (++self->timeoutLimiter == 100) {
+    self->timeoutLimiter = 0;
+    if (TimedOut(self->timeout) == RS_RESULT_TIMEDOUT) {
+      return RS_RESULT_TIMEDOUT;
+    }
+  }
 
   // No root filter - the query has 0 results
   if (self->iiter == NULL) {
@@ -89,6 +98,16 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
     if (!dmd || (dmd->flags & Document_Deleted)) {
       continue;
     }
+    if (isTrimming && RedisModule_ShardingGetKeySlot) {
+      RedisModuleString *key = RedisModule_CreateString(NULL, dmd->keyPtr, sdslen(dmd->keyPtr));
+      int slot = RedisModule_ShardingGetKeySlot(key);
+      RedisModule_FreeString(NULL, key);
+      int firstSlot, lastSlot;
+      RedisModule_ShardingGetSlotRange(&firstSlot, &lastSlot);
+      if (firstSlot > slot || lastSlot < slot) {
+        continue;
+      }
+    }
 
     // Increment the total results barring deleted results
     base->parent->totalResults++;
@@ -109,13 +128,19 @@ static void rpidxFree(ResultProcessor *iter) {
   rm_free(iter);
 }
 
-ResultProcessor *RPIndexIterator_New(IndexIterator *root) {
+ResultProcessor *RPIndexIterator_New(IndexIterator *root, struct timespec timeout) {
   RPIndexIterator *ret = rm_calloc(1, sizeof(*ret));
   ret->iiter = root;
+  ret->timeout = timeout;
   ret->base.Next = rpidxNext;
   ret->base.Free = rpidxFree;
-  ret->base.name = "Index";
+  ret->base.type = RP_INDEX;
   return &ret->base;
+}
+
+void updateRPIndexTimeout(ResultProcessor *base, struct timespec timeout) {
+  RPIndexIterator *self = (RPIndexIterator *)base;
+  self->timeout = timeout;
 }
 
 IndexIterator *QITR_GetRootFilter(QueryIterator *it) {
@@ -210,7 +235,7 @@ ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
   ret->scorerCtx = *fnargs;
   ret->base.Next = rpscoreNext;
   ret->base.Free = rpscoreFree;
-  ret->base.name = "Scorer";
+  ret->base.type = RP_SCORER;
   return &ret->base;
 }
 
@@ -320,6 +345,44 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
     return rc;
   }
 
+  // If the data is not in the sorted vector, lets load it.
+  size_t nkeys = self->fieldcmp.nkeys;
+  if (nkeys && h->dmd) {
+    int nloadKeys = 0;
+    const RLookupKey **loadKeys = NULL;
+    bool freeKeys = false;
+
+    // If there is no sorting vector, load all required fields, else, load missing fields
+    if (!h->rowdata.sv) {
+      loadKeys = self->fieldcmp.keys;
+      nloadKeys = nkeys;
+    } else {
+      for (int i = 0; i < nkeys; ++i) {
+        if (RLookup_GetItem(self->fieldcmp.keys[i], &h->rowdata) == NULL) {
+          if (!loadKeys) {
+            loadKeys = rm_calloc(nkeys, sizeof(*loadKeys));
+            freeKeys = true;
+          }
+          loadKeys[nloadKeys++] = self->fieldcmp.keys[i];
+        }
+      }
+    }
+
+    if (loadKeys) {
+      QueryError status = {0};
+      RLookupLoadOptions loadopts = {.sctx = rp->parent->sctx,
+                                     .dmd = h->dmd,
+                                     .nkeys = nloadKeys,
+                                     .keys = loadKeys,
+                                     .status = &status};
+      RLookup_LoadDocument(NULL, &h->rowdata, &loadopts);
+      if (QueryError_HasError(&status)) {
+        return RS_RESULT_ERROR;
+      }
+      if (freeKeys) rm_free(loadKeys);
+    }
+  }
+
   // If the queue is not full - we just push the result into it
   // If the pool size is 0 we always do that, letting the heap grow dynamically
   if (!self->size || self->pq->count + 1 < self->pq->size) {
@@ -373,7 +436,7 @@ static inline int cmpByScore(const void *e1, const void *e2, const void *udata) 
   } else if (h1->score > h2->score) {
     return 1;
   }
-  return h1->docId < h2->docId ? -1 : 1;
+  return h1->docId > h2->docId ? -1 : 1;
 }
 
 /* Compare results for the heap by sorting key */
@@ -414,7 +477,7 @@ static int cmpByFields(const void *e1, const void *e2, const void *udata) {
     if (rc != 0) return ascending ? -rc : rc;
   }
 
-  int rc = h1->docId < h2->docId ? -1 : 1;
+  int rc = h1->docId > h2->docId ? -1 : 1;
   return ascending ? -rc : rc;
 }
 
@@ -434,13 +497,19 @@ ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys
   ret->fieldcmp.keys = keys;
   ret->fieldcmp.nkeys = nkeys;
 
+  if (RSGlobalConfig.maxAggregateResults != UINT64_MAX) {
+    maxresults = MIN(maxresults, RSGlobalConfig.maxAggregateResults);
+  } else if (RSGlobalConfig.maxSearchResults != UINT64_MAX) {
+    maxresults = MIN(maxresults, RSGlobalConfig.maxSearchResults);
+  }
+
   ret->pq = mmh_init_with_size(maxresults + 1, ret->cmp, ret->cmpCtx, srDtor);
   ret->size = maxresults;
   ret->offset = 0;
   ret->pooledResult = NULL;
   ret->base.Next = rpsortNext_Accum;
   ret->base.Free = rpsortFree;
-  ret->base.name = "Sorter";
+  ret->base.type = RP_SORTER;
   return &ret->base;
 }
 
@@ -512,7 +581,7 @@ ResultProcessor *RPPager_New(size_t offset, size_t limit) {
   RPPager *ret = rm_calloc(1, sizeof(*ret));
   ret->offset = offset;
   ret->limit = limit;
-  ret->base.name = "Pager/Limiter";
+  ret->base.type = RP_PAGER_LIMITER;
   ret->base.Next = rppagerNext;
   ret->base.Free = rppagerFree;
   return &ret->base;
@@ -550,12 +619,12 @@ static int rploaderNext(ResultProcessor *base, SearchResult *r) {
 
     QueryError status = {0};
     RLookupLoadOptions loadopts = {.sctx = lc->base.parent->sctx,  // lb
-                                  .dmd = r->dmd,
-                                  .noSortables = 1,
-                                  .forceString = 1,
-                                  .status = &status,
-                                  .keys = lc->fields,
-                                  .nkeys = lc->nfields};
+                                   .dmd = r->dmd,
+                                   .noSortables = 1,
+                                   .forceString = 1,
+                                   .status = &status,
+                                   .keys = lc->fields,
+                                   .nkeys = lc->nfields};
     if (isExplicitReturn) {
       loadopts.mode |= RLOOKUP_LOAD_KEYLIST;
     } else {
@@ -567,7 +636,7 @@ static int rploaderNext(ResultProcessor *base, SearchResult *r) {
       continue;
     }
     break;
-  } while(1);
+  } while (1);
   return RS_RESULT_OK;
 }
 
@@ -586,13 +655,119 @@ ResultProcessor *RPLoader_New(RLookup *lk, const RLookupKey **keys, size_t nkeys
   sc->lk = lk;
   sc->base.Next = rploaderNext;
   sc->base.Free = rploaderFree;
-  sc->base.name = "Loader";
+  sc->base.type = RP_LOADER;
   return &sc->base;
+}
+
+static char *RPTypeLookup[RP_MAX] = {"Index",     "Loader",        "Scorer",      "Sorter",
+                                     "Counter",   "Pager/Limiter", "Highlighter", "Grouper",
+                                     "Projector", "Filter",        "Profile",     "Network"};
+
+const char *RPTypeToString(ResultProcessorType type) {
+  RS_LOG_ASSERT(type >= 0 && type < RP_MAX, "enum is out of range");
+  return RPTypeLookup[type];
 }
 
 void RP_DumpChain(const ResultProcessor *rp) {
   for (; rp; rp = rp->upstream) {
-    printf("RP(%s) @%p\n", rp->name, rp);
+    printf("RP(%s) @%p\n", RPTypeToString(rp->type), rp);
     RS_LOG_ASSERT(rp->upstream != rp, "ResultProcessor should be different then upstream");
   }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+/// Profile RP                                                             ///
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+
+typedef struct {
+  ResultProcessor base;
+  clock_t profileTime;
+  uint64_t profileCount;
+} RPProfile;
+
+static int rpprofileNext(ResultProcessor *base, SearchResult *r) {
+  RPProfile *self = (RPProfile *)base;
+
+  clock_t rpStartTime = clock();
+  int rc = base->upstream->Next(base->upstream, r);
+  self->profileTime += clock() - rpStartTime;
+  self->profileCount++;
+  return rc;
+}
+
+static void rpProfileFree(ResultProcessor *base) {
+  RPProfile *rp = (RPProfile *)base;
+  rm_free(rp);
+}
+
+ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryIterator *qiter) {
+  RPProfile *rpp = rm_calloc(1, sizeof(*rpp));
+
+  rpp->profileCount = 0;
+  rpp->base.upstream = rp;
+  rpp->base.parent = qiter;
+  rpp->base.Next = rpprofileNext;
+  rpp->base.Free = rpProfileFree;
+  rpp->base.type = RP_PROFILE;
+
+  return &rpp->base;
+}
+
+clock_t RPProfile_GetClock(ResultProcessor *rp) {
+  RPProfile *self = (RPProfile *)rp;
+  return self->profileTime;
+}
+
+uint64_t RPProfile_GetCount(ResultProcessor *rp) {
+  RPProfile *self = (RPProfile *)rp;
+  return self->profileCount;
+}
+
+/*******************************************************************************************************************
+ *  Scoring Processor
+ *
+ * It takes results from upstream, and using a scoring function applies the score to each one.
+ *
+ * It may not be invoked if we are working in SORTBY mode (or later on in aggregations)
+ ********************************************************************************************************************/
+
+typedef struct {
+  ResultProcessor base;
+  size_t count;
+} RPCounter;
+
+static int rpcountNext(ResultProcessor *base, SearchResult *res) {
+  int rc;
+  RPCounter *self = (RPCounter *)base;
+
+  while ((rc = base->upstream->Next(base->upstream, res)) == RS_RESULT_OK) {
+    self->count += 1;
+    SearchResult_Clear(res);
+  }
+
+  // Since this never returns RM_OK, in profile mode, count should be increased
+  // to compensate for EOF
+  if (base->upstream->type == RP_PROFILE) {
+    ((RPProfile *)base->parent->endProc)->profileCount++;
+  }
+
+  return rc;
+}
+
+/* Free impl. for scorer - frees up the scorer privdata if needed */
+static void rpcountFree(ResultProcessor *rp) {
+  RPScorer *self = (RPScorer *)rp;
+  rm_free(self);
+}
+
+/* Create a new counter. */
+ResultProcessor *RPCounter_New() {
+  RPCounter *ret = rm_calloc(1, sizeof(*ret));
+  ret->count = 0;
+  ret->base.Next = rpcountNext;
+  ret->base.Free = rpcountFree;
+  ret->base.type = RP_COUNTER;
+  return &ret->base;
 }

@@ -29,9 +29,9 @@
 #include "redisearch_api.h"
 #include "alias.h"
 #include "module.h"
+#include "rwlock.h"
 #include "info_command.h"
-
-pthread_rwlock_t RWLock = PTHREAD_RWLOCK_INITIALIZER;
+#include "rejson_api.h"
 
 #define LOAD_INDEX(ctx, srcname, write)                                                     \
   ({                                                                                        \
@@ -233,6 +233,7 @@ int QueryExplainCLICommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
 int RSAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int RSSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+int RSProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 /* FT.DEL {index} {doc_id}
  *  Delete a document from the index. Returns 1 if the document was in the index, or 0 if not.
@@ -411,9 +412,11 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   if (RMUtil_StringEqualsCaseC(argv[0], "FT.DROP") ||
       RMUtil_StringEqualsCaseC(argv[0], "_FT.DROP")) {
-    RedisModule_Replicate(ctx, RS_DROP_IF_X_CMD, "v", argv + 1, argc - 1);
+    // We always send KEEPDOC to the slave.
+    RedisModule_Replicate(ctx, RS_DROP_IF_X_CMD, "sc", argv[1], "KEEPDOCS");
   } else {
-    RedisModule_Replicate(ctx, RS_DROP_INDEX_IF_X_CMD, "v", argv + 1, argc - 1);
+    // Remove DD as documents were deleted with RM_Call.
+    RedisModule_Replicate(ctx, RS_DROP_INDEX_IF_X_CMD, "s", argv[1]);
   }
 
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
@@ -454,11 +457,11 @@ int SynAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 }
 
 /**
- * FT.SYNUPDATE <index> <id> <term1> <term2> ...
+ * FT.SYNUPDATE <index> <group id> [SKIPINITIALSCAN] <term1> <term2> ...
  *
  * Update an already existing synonym group with the given terms.
- * Its only to add new terms to a synonym group.
- * return true on success.
+ * It can be used only to add new terms to a synonym group.
+ * Returns `OK` on success.
  */
 int SynUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 4) return RedisModule_WrongArity(ctx);
@@ -471,9 +474,21 @@ int SynUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return REDISMODULE_OK;
   }
 
+  bool initialScan = true;
+  int offset = 3;
+  int loc = RMUtil_ArgIndex(SPEC_SKIPINITIALSCAN_STR, &argv[3], 1);
+  if (loc == 0) {  // if doesn't exist, `-1` is returned
+    initialScan = false;
+    offset = 4;
+  }
+
   IndexSpec_InitializeSynonym(sp);
 
-  SynonymMap_UpdateRedisStr(sp->smap, argv + 3, argc - 3, id);
+  SynonymMap_UpdateRedisStr(sp->smap, argv + offset, argc - offset, id);
+
+  if (initialScan) {
+    IndexSpec_ScanAndReindex(ctx, sp);
+  }
 
   RedisModule_ReplyWithSimpleString(ctx, "OK");
 
@@ -495,7 +510,7 @@ int SynUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
  *        - id4
  */
 int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  if (argc < 2) return RedisModule_WrongArity(ctx);
+  if (argc != 2) return RedisModule_WrongArity(ctx);
 
   IndexSpec *sp = IndexSpec_Load(ctx, RedisModule_StringPtrLen(argv[1], NULL), 0);
   if (!sp) {
@@ -548,25 +563,34 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
   }
 
-  if (AC_AdvanceIfMatch(&ac, "SCHEMA")) {
-    if (!AC_AdvanceIfMatch(&ac, "ADD")) {
-      return RedisModule_ReplyWithError(ctx, "Unknown action passed to ALTER SCHEMA");
-    }
-    if (!AC_NumRemaining(&ac)) {
-      return RedisModule_ReplyWithError(ctx, "No fields provided");
-    }
-    if (ifnx) {
-      const char *fieldName;
-      size_t fieldNameSize;
-
-      int rv = AC_GetString(&ac, &fieldName, &fieldNameSize, AC_F_NOADVANCE);
-      if (IndexSpec_GetField(sp, fieldName, fieldNameSize)) {
-        RedisModule_Replicate(ctx, RS_ALTER_IF_NX_CMD, "v", argv + 1, argc - 1);
-        return RedisModule_ReplyWithSimpleString(ctx, "OK");
-      }
-    }
-    IndexSpec_AddFields(sp, ctx, &ac, &status);
+  bool initialScan = true;
+  if (AC_AdvanceIfMatch(&ac, SPEC_SKIPINITIALSCAN_STR)) {
+    initialScan = false;
   }
+
+  if (!AC_AdvanceIfMatch(&ac, "SCHEMA")) {
+    return RedisModule_ReplyWithError(ctx, "ALTER must be followed by SCHEMA");
+  }
+
+  if (!AC_AdvanceIfMatch(&ac, "ADD")) {
+    return RedisModule_ReplyWithError(ctx, "Unknown action passed to ALTER SCHEMA");
+  }
+
+  if (!AC_NumRemaining(&ac)) {
+    return RedisModule_ReplyWithError(ctx, "No fields provided");
+  }
+
+  if (ifnx) {
+    const char *fieldName;
+    size_t fieldNameSize;
+
+    int rv = AC_GetString(&ac, &fieldName, &fieldNameSize, AC_F_NOADVANCE);
+    if (IndexSpec_GetField(sp, fieldName, fieldNameSize)) {
+      RedisModule_Replicate(ctx, RS_ALTER_IF_NX_CMD, "v", argv + 1, argc - 1);
+      return RedisModule_ReplyWithSimpleString(ctx, "OK");
+    }
+  }
+  IndexSpec_AddFields(sp, ctx, &ac, initialScan, &status);
 
   if (QueryError_HasError(&status)) {
     return QueryError_ReplyAndClear(ctx, &status);
@@ -576,6 +600,7 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
   }
 }
 
+/* FT.ALTER */
 int AlterIndexIfNXCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return AlterIndexInternalCommand(ctx, argv, argc, true);
 }
@@ -708,8 +733,7 @@ int ConfigCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     size_t offset = 3;  // Might be == argc. SetOption deals with it.
     if (RSConfig_SetOption(&RSGlobalConfig, &RSGlobalConfigOptions, name, argv, argc, &offset,
                            &status) == REDISMODULE_ERR) {
-      RedisModule_ReplyWithSimpleString(ctx, QueryError_GetError(&status));
-      return REDISMODULE_OK;
+      return QueryError_ReplyAndClear(ctx, &status);
     }
     if (offset != argc) {
       RedisModule_ReplyWithSimpleString(ctx, "EXCESSARGS");
@@ -805,7 +829,7 @@ static void GetRedisVersion() {
   RedisModule_FreeThreadSafeContext(ctx);
 }
 
-static inline int IsEnterprise() {
+int IsEnterprise() {
   return rlecVersion.majorVersion != -1;
 }
 
@@ -840,7 +864,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   if (CheckSupportedVestion() != REDISMODULE_OK) {
     RedisModule_Log(ctx, "warning",
-                    "Redis version is to old, please upgrade to redis %d.%d.%d and above.",
+                    "Redis version is too old, please upgrade to redis %d.%d.%d and above.",
                     supportedVersion.majorVersion, supportedVersion.minorVersion,
                     supportedVersion.patchVersion);
 
@@ -936,6 +960,8 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   RM_TRY(RedisModule_CreateCommand, ctx, RS_TAGVALS_CMD, TagValsCommand, "readonly",
          INDEX_ONLY_CMD_ARGS);
 
+  RM_TRY(RedisModule_CreateCommand, ctx, RS_PROFILE_CMD, RSProfileCommand, "readonly",
+         INDEX_ONLY_CMD_ARGS);
   RM_TRY(RedisModule_CreateCommand, ctx, RS_EXPLAIN_CMD, QueryExplainCommand, "readonly",
          INDEX_ONLY_CMD_ARGS);
   RM_TRY(RedisModule_CreateCommand, ctx, RS_EXPLAINCLI_CMD, QueryExplainCLICommand, "readonly",
@@ -1027,10 +1053,11 @@ void __attribute__((destructor)) RediSearch_CleanupModule(void) {
     ConcurrentSearch_ThreadPoolDestroy();
     ReindexPool_ThreadPoolDestroy();
     GC_ThreadPoolDestroy();
-    IndexAlias_DestroyGlobal();
+    IndexAlias_DestroyGlobal(&AliasTable_g);
     freeGlobalAddStrings();
-    SchemaPrefixes_Free();
+    SchemaPrefixes_Free(ScemaPrefixes_g);
     RedisModule_FreeThreadSafeContext(RSDummyContext);
     Dictionary_Free();
+    RediSearch_LockDestory();
   }
 }

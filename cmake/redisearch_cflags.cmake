@@ -15,12 +15,14 @@ SET(RS_COMMON_FLAGS "${RS_COMMON_FLAGS} -fPIC -Werror=implicit-function-declarat
 SET(RS_COMMON_FLAGS "${RS_COMMON_FLAGS} -pthread")
 SET(RS_COMMON_FLAGS "${RS_COMMON_FLAGS} -fno-strict-aliasing")
 
+
 IF (HAVE_W_INCOMPATIBLE_POINTER_TYPES)
     SET(RS_COMMON_FLAGS "${RS_COMMON_FLAGS} -Werror=incompatible-pointer-types")
     IF (HAVE_W_DISCARDS_QUALIFIERS)
         SET(RS_COMMON_FLAGS "${RS_COMMON_FLAGS} -Wno-error=incompatible-pointer-types-discards-qualifiers")
     ENDIF()
 ENDIF()
+
 
 IF (USE_ASAN)
     SET(RS_COMMON_FLAGS "${RS_COMMON_FLAGS} -fno-omit-frame-pointer -fsanitize=address")
@@ -44,3 +46,7 @@ ENDIF()
 
 SET(RS_C_FLAGS "${RS_COMMON_FLAGS} -std=gnu99")
 SET(RS_CXX_FLAGS "${RS_COMMON_FLAGS} -fno-rtti -fno-exceptions -std=c++11")
+
+IF (NOT APPLE)
+    SET(RS_SO_FLAGS "-Wl,-Bsymbolic,-Bsymbolic-functions")
+ENDIF()

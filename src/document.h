@@ -9,6 +9,7 @@
 #include "byte_offsets.h"
 #include "rmutil/args.h"
 #include "query_error.h"
+#include "json.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -35,9 +36,35 @@ extern "C" {
  * See document.c for the internals.
  */
 
-typedef struct {
+typedef enum {
+  // Newline
+  FLD_VAR_T_RMS = 0x01,
+  FLD_VAR_T_CSTR = 0x02,
+  FLD_VAR_T_NUM = 0x04,
+  FLD_VAR_T_GEO = 0x08,
+  FLD_VAR_T_ARRAY = 0x10
+} FieldVarType;
+
+typedef struct DocumentField{
   const char *name;  // Can either be char or RMString
-  RedisModuleString *text;
+  const char *path;
+  union {
+    // TODO: consider removing RMS altogether
+    RedisModuleString *text;
+    struct {
+      char *strval;
+      size_t strlen;
+    };
+    double numval;
+    struct {
+      double lon, lat;
+    };
+    struct {
+      char **multiVal;
+      size_t arrayLen; // for multiVal TODO: use arr.h
+    };
+  };
+  FieldVarType unionType;
   FieldType indexAs;
 } DocumentField;
 
@@ -51,6 +78,7 @@ typedef struct Document {
   const char *payload;
   size_t payloadSize;
   uint32_t flags;
+  DocumentType type;
 } Document;
 
 /**
@@ -70,11 +98,10 @@ typedef struct Document {
  */
 #define DOCUMENT_F_OWNSTRINGS 0x02
 
-/**
- * The document has been moved to another target. This is quicker than
- * zero'ing the entire structure
- */
-#define DOCUMENT_F_DEAD 0x08
+#define UNDERSCORE_KEY "__key"
+#define UNDERSCORE_SCORE "__score"
+#define UNDERSCORE_PAYLOAD "__payload"
+#define UNDERSCORE_LANGUAGE "__language"
 
 struct RSAddDocumentCtx;
 
@@ -104,6 +131,19 @@ void Document_AddField(Document *d, const char *fieldname, RedisModuleString *fi
  */
 void Document_AddFieldC(Document *d, const char *fieldname, const char *val, size_t vallen,
                         uint32_t typemask);
+
+/**
+ * Load Document Field with a numeric value.
+ */
+void Document_AddNumericField(Document *d, const char *fieldname,
+                              double val, uint32_t typemask);
+
+/**
+ * Load Document Field with a longitude and latitude values.
+ */
+void Document_AddGeoField(Document *d, const char *fieldname,
+                          double lon, double lat, uint32_t typemask);
+
 /**
  * Initialize document structure with the relevant fields. numFields will allocate
  * the fields array, but you must still actually copy the data along.
@@ -113,7 +153,7 @@ void Document_AddFieldC(Document *d, const char *fieldname, const char *val, siz
  * of the data within the document, call Document_Detach on the document (after
  * calling this function).
  */
-void Document_Init(Document *doc, RedisModuleString *docKey, double score, RSLanguage lang);
+void Document_Init(Document *doc, RedisModuleString *docKey, double score, RSLanguage lang, DocumentType type);
 void Document_SetPayload(Document *doc, const void *payload, size_t n);
 
 /**
@@ -133,18 +173,13 @@ void Document_MakeRefOwner(Document *doc);
 void Document_Clear(Document *doc);
 
 /**
- * Move the contents of one document to another. This also manages ownership
- * semantics
- */
-void Document_Move(Document *dst, Document *src);
-
-/**
  * Load all fields specified in the schema to the document. Note that
  * the document must then be freed using Document_Free().
  *
  * The document must already have the docKey set
  */
-int Document_LoadSchemaFields(Document *doc, RedisSearchCtx *sctx);
+int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx);
+int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx);
 
 /**
  * Load all the fields into the document.
@@ -212,7 +247,7 @@ struct DocumentIndexer;
 /** Context used when indexing documents */
 typedef struct RSAddDocumentCtx {
   struct RSAddDocumentCtx *next;  // Next context in the queue
-  Document doc;                   // Document which is being indexed
+  Document *doc;                   // Document which is being indexed
   union {
     RedisModuleBlockedClient *bc;  // Client
     RedisSearchCtx *sctx;
@@ -322,10 +357,12 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
 int Redis_SaveDocument(RedisSearchCtx *ctx, const AddDocumentOptions *opts, QueryError *status);
 
 /* Serialzie the document's fields to a redis client */
-int Document_ReplyFields(RedisModuleCtx *ctx, Document *doc);
 int Document_ReplyAllFields(RedisModuleCtx *ctx, IndexSpec *spec, RedisModuleString *id);
 
 DocumentField *Document_GetField(Document *d, const char *fieldName);
+
+/* return value as c string */
+const char *DocumentField_GetValueCStr(const DocumentField *df, size_t *len);
 
 // Document add functions:
 int RSAddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);

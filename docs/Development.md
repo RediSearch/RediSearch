@@ -1,6 +1,6 @@
 # Developing RediSearch
 
-Developing RediSearch involves setting up the development environment (which can be either Linux-based or macOS-based), building RediSearch, running tests and benchmarks, and debuugging both the RediSearch module and its tests.
+Developing RediSearch involves setting up the development environment (which can be either Linux-based or macOS-based), building RediSearch, running tests and benchmarks, and debugging both the RediSearch module and its tests.
 
 ## Cloning the git repository
 By invoking the following command, RediSearch module and its submodules are cloned:
@@ -10,14 +10,17 @@ git clone --recursive https://github.com/RediSearch/RediSearch.git
 ## Working in an isolated environment
 There are several reasons to develop in an isolated environment, like keeping your workstation clean, and developing for a different Linux distribution.
 The most general option for an isolated environment is a virtual machine (it's very easy to set one up using [Vagrant](https://www.vagrantup.com)).
-Docker is even a more agile solution, as it offers an almost instant solution:
+Docker is even a more agile, as it offers an almost instant solution:
+
 ```
 search=$(docker run -d -it -v $PWD:/build debian:buster bash)
 docker exec -it $search bash
 ```
-Then, from whithin the container, ```cd /build``` and go on as usual.
+Then, from within the container, ```cd /build``` and go on as usual.
+
 In this mode, all installations remain in the scope of the Docker container.
-Upon exiting the container, you can either re-invoke the container with the above ```docker exec``` or commit the state of the container to an image and re-invoke it on a later stage:
+Upon exiting the container, you can either re-invoke it with the above ```docker exec``` or commit the state of the container to an image and re-invoke it on a later stage:
+
 ```
 docker commit $search redisearch1
 docker stop $search
@@ -25,39 +28,46 @@ search=$(docker run -d -it -v $PWD:/build rediseatch1 bash)
 docker exec -it $search bash
 ```
 
-## Installing prerequisites
-To build and test RediSearch one needs to install serveral packages, depending on the underlying OS. Currently, we support the Ubuntu/Debian, CentOS, Fedora, and macOS.
+You can replace `debian:buster` with your OS of choice, with the host OS being the best choice (so you can run the RediSearch binary on your host once it is built).
 
-If you have ```gnu make``` installed, you can execute
+## Installing prerequisites
+
+To build and test RediSearch one needs to install several packages, depending on the underlying OS. Currently, we support the Ubuntu/Debian, CentOS, Fedora, and macOS.
+
+First, enter `RediSearch` directory.
+
+If you have ```gnu make``` installed, you can execute,
+
+On Linux:
 ```
-cd RediSearch
+sudo make setup
+```
+On macOS:
+```
 make setup
 ```
-Alternatively, just invoke the following:
+
+Alternatively, invoke the following (with `sudo` for Linux):
+
 ```
-cd RediSearch
 ./deps/readies/bin/getpy2
 ./system-setup.py
 ```
-Note that ```system-setup.py``` **will install various packages on your system** using the native package manager and pip. This requires root permissions (i.e. sudo) on Linux.
+Note that ```system-setup.py``` **will install various packages on your system** using the native package manager and pip.
 
 If you prefer to avoid that, you can:
 
-* Review system-setup.py and install packages manually,
+* Review `system-setup.py` and install packages manually,
 * Use an isolated environment like explained above,
-* Utilize a Python virtual environment, as Python installations known to be sensitive when not used in isolation.
-
-Next, execute the following, to complete dependency acquisition:
-```
-make fetch
-```
+* Use a Python virtual environment, as Python installations are known to be sensitive when not used in isolation: `python2 -m virtualenv venv; . ./venv/bin/activate`
 
 ## Installing Redis
 As a rule of thumb, you're better off running the latest Redis version.
 
-If your OS has a Redis 5.x package, you can install it using the OS package manager.
+If your OS has a Redis 6.x package, you can install it using the OS package manager.
 
-Otherwise, you can invoke ```./deps/readies/getredis5```.
+Otherwise, you can invoke ```sudo ./deps/readies/bin/getredis```.
+Skip `sudo` on macOS.
 
 ## Getting help
 ```make help``` provides a quick summary of the development features.
@@ -92,9 +102,9 @@ You can open ```redis-cli``` in another terminal to interact with it.
 
 ## Running tests
 There are several sets of unit tests:
-* C tests, located in ```src/tests```, run by ```make c_tests```.
-* C++ tests (enabled by GTest), located in ```src/cpptests```, run by ```make cpp_tests```.
-* Python tests (enabled by RLTest), located in ```src/pytests```, run by ```make pytest```.
+* C tests, located in ```tests/ctests```, run by ```make c_tests```.
+* C++ tests (enabled by GTest), located in ```tests/cpptests```, run by ```make cpp_tests```.
+* Python tests (enabled by RLTest), located in ```tests/pytests```, run by ```make pytest```.
 
 One can run all tests by invoking ```make test```.
 A single test can be run using the ```TEST``` parameter, e.g. ```make test TEST=regex```.

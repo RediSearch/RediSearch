@@ -1,7 +1,6 @@
 #include "aggregate_plan.h"
 #include "reducer.h"
 #include "expr/expression.h"
-#include <commands.h>
 #include <util/arr.h>
 #include <ctype.h>
 
@@ -304,8 +303,8 @@ static void serializeArrange(myArgArray_t *arr, const PLN_BaseStep *stp) {
   const PLN_ArrangeStep *astp = (PLN_ArrangeStep *)stp;
   if (astp->limit || astp->offset) {
     append_string(arr, "LIMIT");
-    append_uint(arr, astp->offset);
-    append_uint(arr, astp->limit);
+    append_uint(arr, 0);
+    append_uint(arr, astp->offset + astp->limit);
   }
   if (astp->sortKeys) {
     size_t numsort = array_len(astp->sortKeys);

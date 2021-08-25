@@ -24,7 +24,7 @@ From command line:
 $ redis-server --loadmodule ./redisearch.so OPT1 OPT2
 ```
 
-## Setting Configuration Options In Run-Time
+## Setting Configuration Options At Run-Time
 
 As of v1.4.1, the [`FT.CONFIG`](Commands.md#ftconfig) allows setting some options during runtime. In addition, the command can be used to view the current run-time configuration options.
 
@@ -35,7 +35,9 @@ As of v1.4.1, the [`FT.CONFIG`](Commands.md#ftconfig) allows setting some option
 The maximum amount of time **in milliseconds** that a search query is allowed to run. If this time is exceeded we return the top results accumulated so far, or an error depending on the policy set with `ON_TIMEOUT`. The timeout can be disabled by setting it to 0.
 
 !!! note
-    This works only in concurrent mode, so enabling `SAFEMODE` disables this option.
+    Timeout refers to query time only. 
+    Parsing the query is not counted towards `timeout`. 
+    If timeout was not reached during the search, finalizing operation such as loading documents' content or reducers, continue. 
 
 ### Default
 
@@ -143,9 +145,9 @@ $ redis-server --loadmodule ./redisearch.so MINPREFIX 3
 
 ---
 
-## MAXEXPANSIONS
+## MAXPREFIXEXPANSIONS
 
-The maximum number of expansions we allow for query prefixes. Setting it too high can cause performance issues.
+The maximum number of expansions we allow for query prefixes. Setting it too high can cause performance issues. If MAXPREFIXEXPANSIONS is reached, the query will continue with the first acquired results.
 
 ### Default
 
@@ -154,14 +156,20 @@ The maximum number of expansions we allow for query prefixes. Setting it too hig
 ### Example
 
 ```
-$ redis-server --loadmodule ./redisearch.so MAXEXPANSIONS 1000
+$ redis-server --loadmodule ./redisearch.so MAXPREFIXEXPANSIONS 1000
 ```
+!!! Note "MAXPREFIXEXPANSIONS replaces the deprecated config word MAXEXPANSIONS."
+    
+    RediSearch considers these two configurations as synonyms.  The synonym was added to be more descriptive.
+
 
 ---
 
 ## MAXDOCTABLESIZE
 
-The maximum size of the internal hash table used for storing the documents.
+The maximum size of the internal hash table used for storing the documents. 
+Notice, this configuration doesn't limit the amount of documents that can be stored but only the hash table internal array max size.
+Decreasing this property can decrease the memory overhead in case the index holds a small amount of documents that are constantly updated.
 
 ### Default
 
@@ -188,6 +196,23 @@ Setting value to `-1` will remove the limit.
 
 ```
 $ redis-server --loadmodule ./redisearch.so MAXSEARCHRESULTS 3000000
+```
+
+---
+
+## MAXAGGREGATERESULTS
+
+The maximum number of results to be returned by FT.AGGREGATE command if LIMIT is used.
+Setting value to `-1` will remove the limit. 
+
+### Default
+
+unlimited
+
+### Example
+
+```
+$ redis-server --loadmodule ./redisearch.so MAXAGGREGATERESULTS 3000000
 ```
 
 ---
@@ -236,7 +261,7 @@ and may avoid reindexing of the hash if changed fields are not part of schema.
 ### Considerations
 
 The Redis command filter will be executed upon each Redis Command.  Though the filter is
-optimised, this will introduce a small increase in latency on all commands.  
+optimized, this will introduce a small increase in latency on all commands.  
 This configuration is therefore best used with partial indexed documents where the non-
 indexed fields are updated frequently.
 
@@ -347,7 +372,7 @@ $ redis-server --loadmodule ./redisearch.so GC_POLICY FORK FORK_GC_RETRY_INTERVA
 
 ## FORK_GC_CLEAN_THRESHOLD
 
-The `fork GC` will only start to clean when the number of not cleaned documents is exceeding this threshold, otherwise it will skip this run. The default value is zero for backwards compatibility.  However, it's highly recommended to change it to a higher number.
+The `fork GC` will only start to clean when the number of not cleaned documents is exceeding this threshold, otherwise it will skip this run. While the default value is 100, it's highly recommended to change it to a higher number.
 
 ### Default
 

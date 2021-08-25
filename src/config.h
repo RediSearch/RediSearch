@@ -6,7 +6,6 @@
 #include "query_error.h"
 
 typedef enum {
-  TimeoutPolicy_Default = 0,  // Defer to global config
   TimeoutPolicy_Return,       // Return what we have on timeout
   TimeoutPolicy_Fail,         // Just fail without returning anything
   TimeoutPolicy_Invalid       // Not a real value
@@ -41,7 +40,9 @@ static inline const char *GCPolicy_ToString(GCPolicy policy) {
 /* RSConfig is a global configuration struct for the module, it can be included from each file,
  * and is initialized with user config options during module statrtup */
 typedef struct {
-  // Use concurrent serach (default: 1, disable with SAFEMODE)
+  // Version of Redis server
+  int serverVersion;
+  // Use concurrent search (default: 1, disable with SAFEMODE)
   int concurrentMode;
   // If not null, this points at a .so file of an extension we try to load (default: NULL)
   const char *extLoad;
@@ -60,6 +61,8 @@ typedef struct {
   // 0 means unlimited
   long long queryTimeoutMS;
 
+  long long timeoutPolicy;
+
   // Number of rows to read from a cursor if not specified
   long long cursorReadSize;
 
@@ -67,10 +70,9 @@ typedef struct {
   // longer ones
   long long cursorMaxIdle;
 
-  long long timeoutPolicy;
-
   size_t maxDocTableSize;
   size_t maxSearchResults;
+  size_t maxAggregateResults;
   size_t searchPoolSize;
   size_t indexPoolSize;
   int poolSizeNoAuto;  // Don't auto-detect pool size
@@ -89,12 +91,20 @@ typedef struct {
   void *chainedConfig;
 
   long long maxResultsToUnsortedMode;
+  long long minUnionIterHeap;;
 
   int schemaMismatchPolicy;
 
   int noMemPool;
 
   int filterCommands;
+
+  // compress double to float
+  int numericCompress;
+  // keep numeric ranges in parents of leafs
+  size_t numericTreeMaxDepthRange;
+  // reply with time on profile
+  int printProfileClock;
 } RSConfig;
 
 typedef enum {
@@ -162,6 +172,7 @@ sds RSConfig_GetInfoString(const RSConfig *config);
 #define DEFAULT_FORK_GC_RUN_INTERVAL 30
 #define DEFAULT_MAX_RESULTS_TO_UNSORTED_MODE 1000
 #define SEARCH_REQUEST_RESULTS_MAX 1000000
+#define NR_MAX_DEPTH_BALANCE 2
 
 // default configuration
 #define RS_DEFAULT_CONFIG                                                                         \
@@ -175,8 +186,17 @@ sds RSConfig_GetInfoString(const RSConfig *config);
     .gcPolicy = GCPolicy_Fork, .forkGcRunIntervalSec = DEFAULT_FORK_GC_RUN_INTERVAL,              \
     .forkGcSleepBeforeExit = 0, .maxResultsToUnsortedMode = DEFAULT_MAX_RESULTS_TO_UNSORTED_MODE, \
     .forkGcRetryInterval = 5, .forkGcCleanThreshold = 100, .noMemPool = 0, .filterCommands = 0,   \
-    .maxSearchResults = SEARCH_REQUEST_RESULTS_MAX,                                               \
-    .schemaMismatchPolicy = SchemaMismatchPolicy_Partial,                                         \
+    .maxSearchResults = SEARCH_REQUEST_RESULTS_MAX, .maxAggregateResults = -1,                    \
+    .minUnionIterHeap = 20, .numericCompress = false, .numericTreeMaxDepthRange = 0,              \
+    .printProfileClock = 1, .schemaMismatchPolicy = SchemaMismatchPolicy_Partial,                 \
   }
+
+#define REDIS_ARRAY_LIMIT 7
+#define NO_REPLY_DEPTH_LIMIT 0x00060020
+#define RM_SCAN_KEY_API_FIX 0x00060006
+
+static inline int isFeatureSupported(int feature) {
+  return feature <= RSGlobalConfig.serverVersion;
+}
 
 #endif

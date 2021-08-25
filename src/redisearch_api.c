@@ -21,26 +21,36 @@ int RediSearch_GetCApiVersion() {
 }
 
 IndexSpec* RediSearch_CreateIndex(const char* name, const RSIndexOptions* options) {
-  RSIndexOptions opts_s = {.gcPolicy = GC_POLICY_FORK};
+  RSIndexOptions opts_s = {.gcPolicy = GC_POLICY_FORK, .stopwordsLen = -1};
   if (!options) {
     options = &opts_s;
   }
   IndexSpec* spec = NewIndexSpec(name);
   IndexSpec_MakeKeyless(spec);
   spec->flags |= Index_Temporary;  // temporary is so that we will not use threads!!
+  spec->flags |= Index_FromLLAPI;
   if (!spec->indexer) {
     spec->indexer = NewIndexer(spec);
   }
 
+  if (options->score || options->lang) {
+    spec->rule = rm_calloc(1, sizeof *spec->rule);
+    spec->rule->score_default = options->score ? options->score : DEFAULT_SCORE;
+    spec->rule->lang_default = options->lang ? options->lang : DEFAULT_LANGUAGE;
+  }
+
   spec->getValue = options->gvcb;
   spec->getValueCtx = options->gvcbData;
-  spec->minPrefix = 0;
-  spec->maxPrefixExpansions = -1;
   if (options->flags & RSIDXOPT_DOCTBLSIZE_UNLIMITED) {
     spec->docs.maxSize = DOCID_MAX;
   }
   if (options->gcPolicy != GC_POLICY_NONE) {
     IndexSpec_StartGCFromSpec(spec, GC_DEFAULT_HZ, options->gcPolicy);
+  }
+  if (options->stopwordsLen != -1) {
+    // replace default list which is a global so no need to free anything.
+    spec->stopwords = NewStopWordListCStr((const char **)options->stopwords,
+                                                         options->stopwordsLen);
   }
   return spec;
 }
@@ -51,12 +61,31 @@ void RediSearch_DropIndex(IndexSpec* sp) {
   RWLOCK_RELEASE();
 }
 
+char **RediSearch_IndexGetStopwords(IndexSpec* sp, size_t *size) {
+  return GetStopWordsList(sp->stopwords, size);
+}
+
+double RediSearch_IndexGetScore(IndexSpec* sp) {
+  if (sp->rule) {
+    return sp->rule->score_default;
+  }
+  return DEFAULT_SCORE;
+}
+
+const char *RediSearch_IndexGetLanguage(IndexSpec* sp) {
+  if (sp->rule) {
+    return RSLanguage_ToString(sp->rule->lang_default);
+  }
+  return RSLanguage_ToString(DEFAULT_LANGUAGE);
+}
+
 RSFieldID RediSearch_CreateField(IndexSpec* sp, const char* name, unsigned types,
                                  unsigned options) {
   RS_LOG_ASSERT(types, "types should not be RSFLDTYPE_DEFAULT");
   RWLOCK_ACQUIRE_WRITE();
 
-  FieldSpec* fs = IndexSpec_CreateField(sp, name);
+  // TODO: add a function which can take both path and name 
+  FieldSpec* fs = IndexSpec_CreateField(sp, name, NULL);
   int numTypes = 0;
 
   if (types & RSFLDTYPE_FULLTEXT) {
@@ -67,19 +96,19 @@ RSFieldID RediSearch_CreateField(IndexSpec* sp, const char* name, unsigned types
       return RSFIELD_INVALID;
     }
     fs->ftId = txtId;
-    FieldSpec_Initialize(fs, INDEXFLD_T_FULLTEXT);
+    fs->types |= INDEXFLD_T_FULLTEXT;
   }
 
   if (types & RSFLDTYPE_NUMERIC) {
     numTypes++;
-    FieldSpec_Initialize(fs, INDEXFLD_T_NUMERIC);
+    fs->types |= INDEXFLD_T_NUMERIC;
   }
   if (types & RSFLDTYPE_GEO) {
-    FieldSpec_Initialize(fs, INDEXFLD_T_GEO);
+    fs->types |= INDEXFLD_T_GEO;
     numTypes++;
   }
   if (types & RSFLDTYPE_TAG) {
-    FieldSpec_Initialize(fs, INDEXFLD_T_TAG);
+    fs->types |= INDEXFLD_T_TAG;
     numTypes++;
   }
 
@@ -92,7 +121,7 @@ RSFieldID RediSearch_CreateField(IndexSpec* sp, const char* name, unsigned types
   }
   if (options & RSFLDOPT_SORTABLE) {
     fs->options |= FieldSpec_Sortable;
-    fs->sortIdx = RSSortingTable_Add(sp->sortables, fs->name, fieldTypeToValueType(fs->types));
+    fs->sortIdx = RSSortingTable_Add(&sp->sortables, fs->name, fieldTypeToValueType(fs->types));
   }
   if (options & RSFLDOPT_TXTNOSTEM) {
     fs->options |= FieldSpec_NoStemming;
@@ -130,9 +159,10 @@ void RediSearch_TagFieldSetCaseSensitive(IndexSpec* sp, RSFieldID id, int enable
 
 RSDoc* RediSearch_CreateDocument(const void* docKey, size_t len, double score, const char* lang) {
   RedisModuleString* docKeyStr = RedisModule_CreateString(NULL, docKey, len);
-  RSLanguage language = lang ? RSLanguage_Find(lang) : DEFAULT_LANGUAGE;
+  RSLanguage language = lang ? RSLanguage_Find(lang, 0) : DEFAULT_LANGUAGE;
   Document* ret = rm_calloc(1, sizeof(*ret));
-  Document_Init(ret, docKeyStr, score, language);
+  // TODO: Should we introduce DocumentType_LLAPI?
+  Document_Init(ret, docKeyStr, score, language, DocumentType_Hash);
   Document_MakeStringsOwner(ret);
   RedisModule_FreeString(RSDummyContext, docKeyStr);
   return ret;
@@ -166,7 +196,7 @@ int RediSearch_DeleteDocument(IndexSpec* sp, const void* docKey, size_t len) {
 }
 
 void RediSearch_DocumentAddField(Document* d, const char* fieldName, RedisModuleString* value,
-                                 RedisModuleCtx* ctx, unsigned as) {
+                                 unsigned as) {
   Document_AddField(d, fieldName, value, as);
 }
 
@@ -175,10 +205,32 @@ void RediSearch_DocumentAddFieldString(Document* d, const char* fieldname, const
   Document_AddFieldC(d, fieldname, s, n, as);
 }
 
-void RediSearch_DocumentAddFieldNumber(Document* d, const char* fieldname, double n, unsigned as) {
-  char buf[512];
-  size_t len = sprintf(buf, "%lf", n);
-  Document_AddFieldC(d, fieldname, buf, len, as);
+void RediSearch_DocumentAddFieldNumber(Document* d, const char* fieldname, double val, unsigned as) {
+  if (as == RSFLDTYPE_NUMERIC) {
+    Document_AddNumericField(d, fieldname, val, as);
+  } else {
+    char buf[512];
+    size_t len = sprintf(buf, "%lf", val);
+    Document_AddFieldC(d, fieldname, buf, len, as);
+  }
+}
+
+int RediSearch_DocumentAddFieldGeo(Document* d, const char* fieldname, 
+                                    double lat, double lon, unsigned as) {
+  if (lat > GEO_LAT_MAX || lat < GEO_LAT_MIN || lon > GEO_LONG_MAX || lon < GEO_LONG_MIN) {
+    // out of range
+    return REDISMODULE_ERR;
+  }
+
+  if (as == RSFLDTYPE_GEO) {
+    Document_AddGeoField(d, fieldname, lon, lat, as);
+  } else {
+    char buf[24];
+    size_t len = sprintf(buf, "%.6lf,%.6lf", lon, lat);
+    Document_AddFieldC(d, fieldname, buf, len, as);
+  }
+
+  return REDISMODULE_OK;
 }
 
 typedef struct {
@@ -236,6 +288,9 @@ int RediSearch_IndexAddDocument(IndexSpec* sp, Document* d, int options, char** 
 }
 
 QueryNode* RediSearch_CreateTokenNode(IndexSpec* sp, const char* fieldName, const char* token) {
+  if (StopWordList_Contains(sp->stopwords, token, strlen(token))) {
+    return NULL;
+  }
   QueryNode* ret = NewQueryNode(QN_TOKEN);
 
   ret->tn = (QueryTokenNode){
@@ -255,8 +310,26 @@ QueryNode* RediSearch_CreateNumericNode(IndexSpec* sp, const char* field, double
   return ret;
 }
 
+QueryNode* RediSearch_CreateGeoNode(IndexSpec* sp, const char* field, double lat, double lon,
+                                        double radius, RSGeoDistance unitType) {
+  QueryNode* ret = NewQueryNode(QN_GEO);
+  ret->opts.fieldMask = IndexSpec_GetFieldBit(sp, field, strlen(field));
+
+  GeoFilter *flt = rm_malloc(sizeof(*flt));
+  flt->lat = lat;
+  flt->lon = lon;
+  flt->radius = radius;
+  flt->numericFilters = NULL;
+  flt->property = rm_strdup(field);
+  flt->unitType = (GeoDistance)unitType;
+
+  ret->gn.gf = flt;
+
+  return ret;
+}
+
 QueryNode* RediSearch_CreatePrefixNode(IndexSpec* sp, const char* fieldName, const char* s) {
-  QueryNode* ret = NewQueryNode(QN_PREFX);
+  QueryNode* ret = NewQueryNode(QN_PREFIX);
   ret->pfx =
       (QueryPrefixNode){.str = (char*)rm_strdup(s), .len = strlen(s), .expanded = 0, .flags = 0};
   if (fieldName) {
@@ -410,7 +483,7 @@ int RediSearch_DocumentExists(IndexSpec* sp, const void* docKey, size_t len) {
 }
 
 RS_ApiIter* RediSearch_IterateQuery(IndexSpec* sp, const char* s, size_t n, char** error) {
-  QueryInput input = {.qtype = QUERY_INPUT_STRING, .u = {.s = {s, .n = n}}};
+  QueryInput input = {.qtype = QUERY_INPUT_STRING, .u = {.s = {.qs = s, .n = n}}};
   return handleIterCommon(sp, &input, error);
 }
 
@@ -427,6 +500,7 @@ int RediSearch_QueryNodeType(QueryNode* qn) {
   return qn->type;
 }
 
+// use only by LLAPI + unittest
 const void* RediSearch_ResultsIteratorNext(RS_ApiIter* iter, IndexSpec* sp, size_t* len) {
   while (iter->internal->Read(iter->internal->ctx, &iter->res) != INDEXREAD_EOF) {
     const RSDocumentMetadata* md = DocTable_Get(&sp->docs, iter->res->docId);
@@ -468,10 +542,17 @@ void RediSearch_ResultsIteratorReset(RS_ApiIter* iter) {
 RSIndexOptions* RediSearch_CreateIndexOptions() {
   RSIndexOptions* ret = rm_calloc(1, sizeof(RSIndexOptions));
   ret->gcPolicy = GC_POLICY_NONE;
+  ret->stopwordsLen = -1;
   return ret;
 }
 
 void RediSearch_FreeIndexOptions(RSIndexOptions* options) {
+  if (options->stopwordsLen > 0) {
+    for (int i = 0; i < options->stopwordsLen; i++) {
+      rm_free(options->stopwords[i]);
+    }
+    rm_free(options->stopwords);
+  }
   rm_free(options);
 }
 
@@ -479,6 +560,25 @@ void RediSearch_IndexOptionsSetGetValueCallback(RSIndexOptions* options, RSGetVa
                                                 void* ctx) {
   options->gvcb = cb;
   options->gvcbData = ctx;
+}
+
+void RediSearch_IndexOptionsSetStopwords(RSIndexOptions* opts, const char **stopwords, int stopwordsLen) {
+  if (opts->stopwordsLen > 0) {
+    for (int i = 0; i < opts->stopwordsLen; i++) {
+      rm_free(opts->stopwords[i]);
+    }
+    rm_free(opts->stopwords);
+  }
+
+  opts->stopwords = NULL;
+
+  if (stopwordsLen > 0) {
+    opts->stopwords = rm_malloc(sizeof(*opts->stopwords) * stopwordsLen);
+    for (int i = 0; i < stopwordsLen; i++) {
+      opts->stopwords[i] = rm_strdup(stopwords[i]);
+    }
+  }
+  opts->stopwordsLen = stopwordsLen;
 }
 
 void RediSearch_IndexOptionsSetFlags(RSIndexOptions* options, uint32_t flags) {
@@ -511,4 +611,8 @@ void RediSearch_SetCriteriaTesterThreshold(size_t num) {
   } else {
     RSGlobalConfig.maxResultsToUnsortedMode = num;
   }
+}
+
+int RediSearch_StopwordsList_Contains(RSIndex* idx, const char *term, size_t len) {
+  return StopWordList_Contains(idx->stopwords, term, len);
 }

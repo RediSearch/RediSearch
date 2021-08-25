@@ -206,8 +206,9 @@ DEBUG_COMMAND(DumpNumericIndex) {
   size_t resultSize = 0;
   RedisModule_ReplyWithArray(sctx->redisCtx, REDISMODULE_POSTPONED_ARRAY_LEN);
   while ((currNode = NumericRangeTreeIterator_Next(iter))) {
-    if (currNode->range) {
-      IndexReader *reader = NewNumericReader(NULL, currNode->range->entries, NULL);
+    NumericRange *range = currNode->range;
+    if (range) {
+      IndexReader *reader = NewNumericReader(NULL, range->entries, NULL, range->minVal, range->maxVal);
       ReplyReaderResults(reader, sctx->redisCtx);
       ++resultSize;
     }
@@ -561,7 +562,7 @@ static void replySortVector(const RSDocumentMetadata *dmd, RedisSearchCtx *sctx)
     RedisModule_ReplyWithLongLong(sctx->redisCtx, ii);
     RedisModule_ReplyWithSimpleString(sctx->redisCtx, "field");
     const FieldSpec *fs = IndexSpec_GetFieldBySortingIndex(sctx->spec, ii);
-    RedisModule_ReplyWithSimpleString(sctx->redisCtx, fs ? fs->name : "!!!???");
+    RedisModule_ReplyWithPrintf(sctx->redisCtx, "%s AS %s", fs ? fs->path : "!!!", fs ? fs->name : "???");
     RedisModule_ReplyWithSimpleString(sctx->redisCtx, "value");
     RSValue_SendReply(sctx->redisCtx, sv->values[ii], 0);
     nelem++;

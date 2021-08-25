@@ -1,4 +1,4 @@
-site_name: RediSearch Documentation
+site_name: RediSearch - Redis Secondary Index & Query Engine
 site_url: https://oss.redislabs.com/redisearch
 repo_url: https://github.com/RediSearch/RediSearch
 repo_name: RediSearch/RediSearch
@@ -15,6 +15,7 @@ markdown_extensions:
   - toc:
       permalink: True
       separator: "_"
+      toc_depth: 3
   - admonition
 
 use_directory_urls: true
@@ -39,10 +40,11 @@ nav:
   - 'Configuration': 'Configuring.md'
   - 'Development': 'Development.md'
   - 'Clients': 'Clients.md'
-  
+
   - Administration:
     - 'General administration': "Administration.md"
     - 'Upgrade to 2.0 when running in Redis OSS': Upgrade_to_2.0.md
+
   - Reference:
     - 'Query Syntax': 'Query_Syntax.md'
     - 'Stop-Words': 'Stopwords.md'
@@ -58,14 +60,34 @@ nav:
     - 'Document Payloads': payloads.md
     - 'Spelling Correction': Spellcheck.md
     - 'Phonetic Matching': Phonetic_Matching.md
-
   - Design Documents:
     - 'Garbage Collection': 'design/gc.md'
+  - 'Indexing JSON': 'Indexing_JSON.md'
   - 'Chinese Support': 'Chinese.md'
-
   - 'Contributor agreement': contrib.md
 
 plugins:
   - search
-  - versions-menu
+  - modules-template:
+      modules:
+        - name: 'Time Series'
+          link: '/redistimeseries'
 
+        - name: 'Bloom'
+          link: '/redisbloom'
+
+        - name: 'Graph'
+          link: '/redisgraph'
+
+        - name: 'JSON'
+          link: '/redisjson'
+
+        - name: 'AI'
+          link: '/redisai'
+
+        - name: 'Gears'
+          link: '/redisgears'
+  - versions-menu:
+      exclude-regexes:
+        - '1\.8'
+        - '2\.2'

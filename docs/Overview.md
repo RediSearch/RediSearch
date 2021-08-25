@@ -127,13 +127,11 @@ Tag indexes are similar to full-text indexes, but use simpler tokenization and e
 
 The main differences between tag fields and full-text fields are:
 
-1. An entire tag field index resides in a single Redis key and doesn't have a key per term as the full-text one.
+1. The tokenization is simpler: The user can determine a separator (defaults to a comma) for multiple tags, and we only do whitespace trimming at the end of tags. Thus, tags can contain spaces, punctuation marks, accents, etc. The only two transformations we perform are lower-casing (for latin languages only as of now), and whitespace trimming.
 
-2. The tokenization is simpler: The user can determine a separator (defaults to a comma) for multiple tags, and we only do whitespace trimming at the end of tags. Thus, tags can contain spaces, punctuation marks, accents, etc. The only two transformations we perform are lower-casing (for latin languages only as of now), and whitespace trimming.
+2. Tags cannot be found from a general full-text search. If a document has a field called "tags" with the values "foo" and "bar", searching for foo or bar without a special tag modifier (see below) will not return this document.
 
-3. Tags cannot be found from a general full-text search. If a document has a field called "tags" with the values "foo" and "bar", searching for foo or bar without a special tag modifier (see below) will not return this document.
-
-4. The index is much simpler and more compressed: we only store document ids in the index, usually resulting in 1-2 bytes per index entry.
+3. The index is much simpler and more compressed: we only store document ids in the index, usually resulting in 1-2 bytes per index entry.
 
 ### Geo index
 

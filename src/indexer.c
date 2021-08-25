@@ -123,7 +123,7 @@ static RSAddDocumentCtx *doMerge(RSAddDocumentCtx *aCtx, KHTable *ht,
     // document.
     cur->stateFlags |= ACTX_F_TEXTINDEXED;
     parentMap[curIdIdx++] = cur;
-    if (firstZeroId == NULL && cur->doc.docId == 0) {
+    if (firstZeroId == NULL && cur->doc->docId == 0) {
       firstZeroId = cur;
     }
 
@@ -173,12 +173,12 @@ static int writeMergedEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, 
         if (docId == 0) {
           // Meaning the entry is not yet in the cache.
           RSAddDocumentCtx *parent = parentMap[fwent->docId];
-          if ((parent->stateFlags & ACTX_F_ERRORED) || parent->doc.docId == 0) {
+          if ((parent->stateFlags & ACTX_F_ERRORED) || parent->doc->docId == 0) {
             // Has an error, or for some reason it doesn't have a document ID(!? is this possible)
             continue;
           } else {
             // Place the entry in the cache, so we don't need a pointer dereference next time
-            docId = docIdMap[fwent->docId] = parent->doc.docId;
+            docId = docIdMap[fwent->docId] = parent->doc->docId;
           }
         }
 
@@ -207,7 +207,7 @@ static int writeMergedEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, 
  * nothing to merge.
  */
 static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
-  RS_LOG_ASSERT(ctx, "ctx shound not be NULL");
+  RS_LOG_ASSERT(ctx, "ctx should not be NULL");
   
   ForwardIndexIterator it = ForwardIndex_Iterate(aCtx->fwIdx);
   ForwardIndexEntry *entry = ForwardIndexIterator_Next(&it);
@@ -220,7 +220,7 @@ static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, Re
 
     InvertedIndex *invidx = Redis_OpenInvertedIndexEx(ctx, entry->term, entry->len, 1, &idxKey);
     if (invidx) {
-      entry->docId = aCtx->doc.docId;
+      entry->docId = aCtx->doc->docId;
       RS_LOG_ASSERT(entry->docId, "docId should not be 0");
       writeIndexEntry(ctx->spec, invidx, encoder, entry);
     }
@@ -237,11 +237,11 @@ static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, Re
 }
 
 /** Assigns a document ID to a single document. */
-static int makeDocumentId(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, int replace,
+static RSDocumentMetadata *makeDocumentId(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, int replace,
                           QueryError *status) {
   IndexSpec *spec = sctx->spec;
   DocTable *table = &spec->docs;
-  Document *doc = &aCtx->doc;
+  Document *doc = aCtx->doc;
   if (replace) {
     RSDocumentMetadata *dmd = DocTable_PopR(table, doc->docKey);
     if (dmd) {
@@ -257,15 +257,14 @@ static int makeDocumentId(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, int repl
   size_t n;
   const char *s = RedisModule_StringPtrLen(doc->docKey, &n);
 
-  doc->docId =
-      DocTable_Put(table, s, n, doc->score, aCtx->docFlags, doc->payload, doc->payloadSize);
-  if (doc->docId == 0) {
-    QueryError_SetError(status, QUERY_EDOCEXISTS, NULL);
-    return -1;
+  RSDocumentMetadata *dmd =
+      DocTable_Put(table, s, n, doc->score, aCtx->docFlags, doc->payload, doc->payloadSize, doc->type);
+  if (dmd) {
+    doc->docId = dmd->id;
+    ++spec->stats.numDocuments;
   }
-  ++spec->stats.numDocuments;
 
-  return 0;
+  return dmd;
 }
 
 /**
@@ -281,25 +280,24 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
       continue;
     }
 
-    RS_LOG_ASSERT(!cur->doc.docId, "docId must be 0");
-    int rv = makeDocumentId(cur, ctx, cur->options & DOCUMENT_ADD_REPLACE, &cur->status);
-    if (rv != 0) {
+    RS_LOG_ASSERT(!cur->doc->docId, "docId must be 0");
+    RSDocumentMetadata *md = makeDocumentId(cur, ctx, cur->options & DOCUMENT_ADD_REPLACE, &cur->status);
+    if (!md) {
       cur->stateFlags |= ACTX_F_ERRORED;
       continue;
     }
 
-    RSDocumentMetadata *md = DocTable_Get(&spec->docs, cur->doc.docId);
     md->maxFreq = cur->fwIdx->maxFreq;
     md->len = cur->fwIdx->totalFreq;
 
     if (cur->sv) {
-      DocTable_SetSortingVector(&spec->docs, cur->doc.docId, cur->sv);
+      DocTable_SetSortingVector(&spec->docs, md, cur->sv);
       cur->sv = NULL;
     }
 
     if (cur->byteOffsets) {
       ByteOffsetWriter_Move(&cur->offsetsWriter, cur->byteOffsets);
-      DocTable_SetByteOffsets(&spec->docs, cur->doc.docId, cur->byteOffsets);
+      DocTable_SetByteOffsets(&spec->docs, md, cur->byteOffsets);
       cur->byteOffsets = NULL;
     }
   }
@@ -311,16 +309,16 @@ static void indexBulkFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
   IndexBulkData *activeBulks[SPEC_MAX_FIELDS];
   size_t numActiveBulks = 0;
 
-  for (RSAddDocumentCtx *cur = aCtx; cur && cur->doc.docId; cur = cur->next) {
+  for (RSAddDocumentCtx *cur = aCtx; cur && cur->doc->docId; cur = cur->next) {
     if (cur->stateFlags & ACTX_F_ERRORED) {
       continue;
     }
 
-    const Document *doc = &cur->doc;
+    const Document *doc = cur->doc;
     for (size_t ii = 0; ii < doc->numFields; ++ii) {
       const FieldSpec *fs = cur->fspecs + ii;
       FieldIndexerData *fdata = cur->fdatas + ii;
-      if (fs->name == NULL || fs->types == INDEXFLD_T_FULLTEXT || !FieldSpec_IsIndexable(fs)) {
+      if (fs->types == INDEXFLD_T_FULLTEXT || !FieldSpec_IsIndexable(fs)) {
         continue;
       }
       IndexBulkData *bulk = &bData[fs->index];
@@ -402,7 +400,7 @@ static void Indexer_Process(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx) {
     goto cleanup;
   }
 
-  Document *doc = &aCtx->doc;
+  Document *doc = aCtx->doc;
 
   /**
    * Document ID assignment:
@@ -419,7 +417,7 @@ static void Indexer_Process(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx) {
    * Assigning IDs in bulk speeds up indexing of smaller documents by about
    * 10% overall.
    */
-  if (firstZeroId != NULL && firstZeroId->doc.docId == 0) {
+  if (firstZeroId != NULL && firstZeroId->doc->docId == 0) {
     doAssignIds(firstZeroId, &ctx);
   }
 

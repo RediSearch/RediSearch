@@ -37,18 +37,23 @@ struct DocumentIndexer;
 #define SPEC_SCHEMA_STR "SCHEMA"
 #define SPEC_SCHEMA_EXPANDABLE_STR "MAXTEXTFIELDS"
 #define SPEC_TEMPORARY_STR "TEMPORARY"
+#define SPEC_AS_STR "AS"
 #define SPEC_TEXT_STR "TEXT"
 #define SPEC_WEIGHT_STR "WEIGHT"
 #define SPEC_NOSTEM_STR "NOSTEM"
 #define SPEC_PHONETIC_STR "PHONETIC"
 #define SPEC_TAG_STR "TAG"
 #define SPEC_SORTABLE_STR "SORTABLE"
+#define SPEC_UNF_STR "UNF"
 #define SPEC_STOPWORDS_STR "STOPWORDS"
 #define SPEC_NOINDEX_STR "NOINDEX"
-#define SPEC_SEPARATOR_STR "SEPARATOR"
+#define SPEC_TAG_SEPARATOR_STR "SEPARATOR"
+#define SPEC_TAG_CASE_SENSITIVE_STR "CASESENSITIVE"
 #define SPEC_MULTITYPE_STR "MULTITYPE"
 #define SPEC_ASYNC_STR "ASYNC"
-#define SPEC_NOINITIALSCAN_STR "NOINITIALSCAN"
+#define SPEC_SKIPINITIALSCAN_STR "SKIPINITIALSCAN"
+
+#define DEFAULT_SCORE 1.0
 
 #define SPEC_FOLLOW_HASH_ARGS_DEF(rule)                                     \
   {.name = "PREFIX", .target = &rule_prefixes, .type = AC_ARGTYPE_SUBARGS}, \
@@ -88,9 +93,9 @@ static const char *SpecTypeNames[] = {[IXFLDPOS_FULLTEXT] = SPEC_TEXT_STR,
                                       [IXFLDPOS_GEO] = GEO_STR,
                                       [IXFLDPOS_TAG] = SPEC_TAG_STR};
 
+// TODO: remove usage of keyspace prefix now that RediSearch is out of keyspace 
 #define INDEX_SPEC_KEY_PREFIX "idx:"
 #define INDEX_SPEC_KEY_FMT INDEX_SPEC_KEY_PREFIX "%s"
-#define INDEX_SPEC_ALIASES "$idx:aliases$"
 
 #define SPEC_MAX_FIELDS 1024
 #define SPEC_MAX_FIELD_ID (sizeof(t_fieldMask) * 8)
@@ -99,6 +104,7 @@ static const char *SpecTypeNames[] = {[IXFLDPOS_FULLTEXT] = SPEC_TEXT_STR,
 #define SPEC_WIDEFIELD_THRESHOLD 32
 
 extern dict *specDict_g;
+
 extern size_t pending_global_indexing_ops;
 extern struct IndexesScanner *global_spec_scanner;
 extern dict *legacySpecRules;
@@ -135,7 +141,8 @@ typedef enum {
   // If any of the fields has phonetics. This is just a cache for quick lookup
   Index_HasPhonetic = 0x400,
   Index_Async = 0x800,
-  Index_NoInitialScan = 0x1000,
+  Index_SkipInitialScan = 0x1000,
+  Index_FromLLAPI = 0x2000,
 } IndexFlags;
 
 // redis version (its here because most file include it with no problem,
@@ -148,9 +155,11 @@ typedef struct Version {
   int buildVersion;  // if not exits then its zero
 } Version;
 
+extern Version noScanVersion;
 extern Version redisVersion;
 extern Version rlecVersion;
 extern bool isCrdt;
+extern bool isTrimming;
 
 /**
  * This "ID" type is independent of the field mask, and is used to distinguish
@@ -166,7 +175,8 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
   (Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets | Index_StoreNumeric | \
    Index_WideSchema)
 
-#define INDEX_CURRENT_VERSION 17
+#define INDEX_CURRENT_VERSION 18
+#define INDEX_JSON_VERSION 18
 #define INDEX_MIN_COMPAT_VERSION 17
 
 #define LEGACY_INDEX_MAX_VERSION 16
@@ -250,8 +260,6 @@ typedef struct IndexSpec {
   bool isTimerSet;
 
   dict *keysDict;
-  long long minPrefix;
-  long long maxPrefixExpansions;  // -1 unlimited
   RSGetValueCallback getValue;
   void *getValueCtx;
   char **aliases;  // Aliases to self-remove when the index is deleted
@@ -265,6 +273,18 @@ typedef struct IndexSpec {
   bool scan_in_progress;
   bool cascadeDelete;  // remove keys when removing spec
 } IndexSpec;
+
+typedef enum SpecOp { SpecOp_Add, SpecOp_Del } SpecOp;
+
+typedef struct SpecOpCtx {
+  IndexSpec *spec;
+  SpecOp op;
+} SpecOpCtx;
+
+typedef struct SpecOpIndexingCtx {
+  dict *specs;
+  SpecOpCtx *specsOps;
+} SpecOpIndexingCtx;
 
 typedef struct {
   void (*dtor)(void *p);
@@ -289,6 +309,11 @@ typedef struct IndexSpecCache {
   size_t nfields;
   size_t refcount;
 } IndexSpecCache;
+
+/**
+ * For testing only
+ */
+void Spec_AddToDict(const IndexSpec *spec);
 
 /**
  * compare redis versions
@@ -368,7 +393,7 @@ void IndexSpec_StartGCFromSpec(IndexSpec *sp, float initialHZ, uint32_t gcPolicy
 
 /* Same as above but with ordinary strings, to allow unit testing */
 IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryError *status);
-FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name);
+FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *path);
 
 /**
  * Indicate that the index spec should use an internal dictionary,rather than
@@ -379,6 +404,7 @@ void IndexSpec_MakeKeyless(IndexSpec *sp);
 #define IndexSpec_IsKeyless(sp) ((sp)->keysDict != NULL)
 
 void IndexesScanner_Cancel(struct IndexesScanner *scanner, bool still_in_progress);
+void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, IndexSpec *sp);
 
 /**
  * Gets the next text id from the index. This does not currently
@@ -387,9 +413,8 @@ void IndexesScanner_Cancel(struct IndexesScanner *scanner, bool still_in_progres
 int IndexSpec_CreateTextId(const IndexSpec *sp);
 
 /* Add fields to a redis schema */
-int IndexSpec_AddFields(IndexSpec *sp, RedisModuleCtx *ctx, ArgsCursor *ac, QueryError *status);
-
-void FieldSpec_Initialize(FieldSpec *sp, FieldType types);
+int IndexSpec_AddFields(IndexSpec *sp, RedisModuleCtx *ctx, ArgsCursor *ac, bool initialScan,
+                        QueryError *status);
 
 //---------------------------------------------------------------------------------------------
 
@@ -475,8 +500,9 @@ int IndexSpec_AddField(IndexSpec *sp, FieldSpec *fs);
 int IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, int when);
 void IndexSpec_RdbSave(RedisModuleIO *rdb, int when);
 void IndexSpec_Digest(RedisModuleDigest *digest, void *value);
+int CompareVestions(Version v1, Version v2);
 int IndexSpec_RegisterType(RedisModuleCtx *ctx);
-int IndexSpec_UpdateWithHash(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key);
+// int IndexSpec_UpdateWithHash(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key);
 void IndexSpec_ClearAliases(IndexSpec *sp);
 
 /*
@@ -499,7 +525,8 @@ typedef struct IndexesScanner {
 //---------------------------------------------------------------------------------------------
 
 void Indexes_Init(RedisModuleCtx *ctx);
-void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key,
+void Indexes_Free(dict *d);
+void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type,
                                            RedisModuleString **hashFields);
 void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key,
                                            RedisModuleString **hashFields);
