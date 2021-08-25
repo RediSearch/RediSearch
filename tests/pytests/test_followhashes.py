@@ -586,9 +586,9 @@ def testSkipInitialScan(env):
 
 def testHsetPartialSchema(env):
     env.skipOnCluster()
-    res_2 = [2L, 'd', ['n', '43', 't', 'hello'], 'b', ['n', '43', 't', 'hello']]
-    res_4 = [4L, 'd', ['n', '43', 't', 'hello'], 'c', ['n', 'world', 't', 'hello'],
-                 'b', ['n', '43', 't', 'hello'], 'a', ['n', 'world', 't', 'hello']]
+    res_2 = [2L, 'b', ['t', 'hello', 'n', '43'], 'd', ['t', 'hello', 'n', '43']]
+    res_4 = [4L, 'a', ['t', 'hello', 'n', 'world'], 'b', ['t', 'hello', 'n', '43'],
+                 'c', ['t', 'hello', 'n', 'world'], 'd', ['t', 'hello', 'n', '43']]
 
     env.expect('FT.CREATE idx SCHEMA t TEXT n NUMERIC').ok()
     env.expect('HSET', 'a', 't', 'hello', 'n', 'world').equal(2)
@@ -712,5 +712,3 @@ def testIssue1571WithRename(env):
 
     env.assertEqual(toSortedFlatList(env.cmd('ft.search', 'idx1', 'foo*')), toSortedFlatList([1L, 'idx1:{doc}1', ['t', 'foo1', 'index', 'yes']]))
     env.expect('ft.search', 'idx2', 'foo*').equal([0L])
-
-

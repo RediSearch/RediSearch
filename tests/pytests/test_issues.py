@@ -221,8 +221,11 @@ def testIssue2104(env):
       .equal([1L, ['a', '3.14', 'avg', '3.14']])
 
 def test_MOD1266(env):
+  env.skipOnCluster()
   # Test parsing failure
   conn = getConnectionByEnv(env)
+  conn.execute_command('FT.CONFIG', 'SET', 'SCHEMA_MISMATCH_POLICY', 'SKIP')
+  
   conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'n1', 'NUMERIC', 'SORTABLE', 'n2', 'NUMERIC', 'SORTABLE')
   conn.execute_command('HSET', 'doc1', 'n1', '1', 'n2', '1')
   conn.execute_command('HSET', 'doc2', 'n1', '2', 'n2', '2')
