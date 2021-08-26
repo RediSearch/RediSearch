@@ -165,6 +165,22 @@ RSDoc* RediSearch_CreateDocument(const void* docKey, size_t len, double score, c
   return ret;
 }
 
+RSDoc* RediSearch_CreateDocument2(const void* docKey, size_t len, IndexSpec* sp,
+                                  double score, const char* lang) {
+  RedisModuleString* docKeyStr = RedisModule_CreateString(NULL, docKey, len);
+  
+  RSLanguage language = lang ? RSLanguage_Find(lang) : 
+             (sp && sp->rule) ? sp->rule->lang_default : DEFAULT_LANGUAGE;
+  double docScore = !isnan(score) ? score :
+             (sp && sp->rule) ? sp->rule->score_default : DEFAULT_SCORE;
+  
+  Document* ret = rm_calloc(1, sizeof(*ret));
+  Document_Init(ret, docKeyStr, docScore, language);
+  Document_MakeStringsOwner(ret);
+  RedisModule_FreeString(RSDummyContext, docKeyStr);
+  return ret;
+}
+
 void RediSearch_FreeDocument(RSDoc* doc) {
   Document_Free(doc);
   rm_free(doc);
