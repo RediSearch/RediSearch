@@ -356,10 +356,7 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
     aCtx->byteOffsets = NULL;
   }
 
-  RS_LOG_ASSERT(aCtx->spec, "No indexer");
-
 	if(aCtx->tokenizer) {
-    // aCtx->tokenizer->Free(aCtx->tokenizer);
 		Tokenizer_Release(aCtx->tokenizer, aCtx->spec);
     aCtx->tokenizer = NULL;
   }

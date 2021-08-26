@@ -540,13 +540,13 @@ int IndexSpec_AddFields(IndexSpec *sp, RedisModuleCtx *ctx, ArgsCursor *ac, bool
 void IndexSpec_AllocateMemPools(IndexSpec *sp) {
   RS_LOG_ASSERT(!sp->actxPool_g && !sp->tokpoolLatin_g && !sp->tokpoolCn_g, "pools ptrs shouldn't be valid before allocation");
   mempool_options mopts = {
-        .initialCap = 16, .alloc = allocDocumentContext, .free = freeDocumentContext, .isGlobal = 0};
+        .initialCap = 16, .isGlobal = 0, .alloc = allocDocumentContext, .free = freeDocumentContext};
   sp->actxPool_g = mempool_new(&mopts);
   mempool_options opts = {
-        .isGlobal = 0, .initialCap = 16, .alloc = newLatinTokenizerAlloc, .free = tokenizerFree};
+        .initialCap = 16, .isGlobal = 0, .alloc = newLatinTokenizerAlloc, .free = tokenizerFree};
   sp->tokpoolLatin_g = mempool_new(&opts);
   mempool_options optsCn = {
-        .isGlobal = 0, .initialCap = 16, .alloc = newCnTokenizerAlloc, .free = tokenizerFree};
+        .initialCap = 16, .isGlobal = 0, .alloc = newCnTokenizerAlloc, .free = tokenizerFree};
   sp->tokpoolCn_g = mempool_new(&optsCn);
 }
 
