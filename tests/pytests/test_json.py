@@ -364,6 +364,16 @@ def testMultiValueTag(env):
     env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', '@tag:{baz}'), res)
     env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', '@tag:{foo/,bar/,baz}'), [0L])
 
+def testMultiValueTag_Recursive_Decent(env):
+    conn = getConnectionByEnv(env)
+    conn.execute_command('FT.CREATE', 'idx', 'ON', 'JSON',
+                         'SCHEMA', '$..name', 'AS', 'name', 'TAG')
+    conn.execute_command('JSON.SET', 'doc:1', '$', '{"name":"foo", "in" : {"name":"bar"}}')
+
+    res = [1L, 'doc:1', ['$', '{"name":"foo","in":{"name":"bar"}}']]
+    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', '@name:{foo}'), res)
+    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', '@name:{bar}'), res)
+
 def testMultiValueErrors(env):
     # Index with Tag for array with multi-values
     env.execute_command('FT.CREATE', 'idxtext', 'ON', 'JSON',
@@ -689,8 +699,6 @@ def testTagNoSeparetor(env):
     env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', '@tag_list:{foo\\,bar\\,baz}'), [1L, 'doc:1', ['$', '{"tag1":"foo,bar,baz"}']])
     env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', '@tag_array:{bar\\,baz}'), [1L, 'doc:2', ['$', '{"tag2":["foo","bar,baz"]}']])
 
-
-
 def testMixedTagError(env):
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE', 'idx1', 'ON', 'JSON', 'SCHEMA', '$.tag[*]', 'AS', 'tag', 'TAG')
@@ -704,3 +712,9 @@ def testSortableTagError(env):
     env.expect('FT.CREATE', 'idx1', 'ON', 'JSON',                                   \
                'SCHEMA', '$.tag[*]', 'AS', 'idxtag', 'TAG', 'SORTABLE').error()     \
                .contains('On JSON, cannot set tag field to sortable - idxtag')
+
+def testNotExistField(env):
+    conn = getConnectionByEnv(env)
+    conn.execute_command('FT.CREATE', 'idx1', 'ON', 'JSON', 'SCHEMA', '$.t', 'AS', 't', 'TEXT')
+    conn.execute_command('JSON.SET', 'doc1', '$', '{"t":"foo"}')
+    env.expect('FT.SEARCH', 'idx1', '*', 'RETURN', 1, 'name').equal([1L, 'doc1', []])
