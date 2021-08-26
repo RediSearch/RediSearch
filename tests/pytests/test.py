@@ -3348,7 +3348,7 @@ def testMod1452(env):
 def test_mod1548(env):
     conn = getConnectionByEnv(env)
 
-    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$["prod:id"]', 'AS', 'prod:id', 'TEXT', '$.prod_id', 'AS', 'prod_id', 'TEXT', '$.name', 'AS', 'name', 'TEXT', '$.categories', 'AS', 'categories', 'TAG', 'SEPARATOR' ,',').ok()
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$["prod:id"]', 'AS', 'prod:id', 'TEXT', '$.prod:id', 'AS', 'prod:id_unsupported', 'TEXT', '$.name', 'AS', 'name', 'TEXT', '$.categories', 'AS', 'categories', 'TAG', 'SEPARATOR' ,',').ok()
     waitForIndex(env, 'idx')
 
     res = conn.execute_command('JSON.SET', 'prod:1', '$', '{"prod:id": "35114964", "SKU": "35114964", "name":"foo", "categories":"abcat0200000"}')
@@ -3360,7 +3360,11 @@ def test_mod1548(env):
     res = conn.execute_command('FT.SEARCH', 'idx', '@categories:{abcat0200000}', 'RETURN', '1', 'name')
     env.assertEqual(res,  [2L, 'prod:1', ['name', 'foo'], 'prod:2', ['name', 'bar']])
 
-    # Unsupported jsonpath (containing a colon)
+    # Supported jsonpath (actual path contains a colon using the bracket notation)
     res = conn.execute_command('FT.SEARCH', 'idx', '@categories:{abcat0200000}', 'RETURN', '1', 'prod:id')
-    env.assertEqual(res, [2L, 'prod:1', ['prod:id', '35114964'], 'prod:2', ['prod:id', '35114965']])
+    env.assertEqual(res,  [2L, 'prod:1', ['prod:id', '35114964'], 'prod:2', ['prod:id', '35114965']])
+
+    # Currently unsupported jsonpath (actual path contains a colon using the dot notation)
+    res = conn.execute_command('FT.SEARCH', 'idx', '@categories:{abcat0200000}', 'RETURN', '1', 'prod:id_unsupported')
+    env.assertEqual(res, [2L, 'prod:1', [], 'prod:2', []])
 
