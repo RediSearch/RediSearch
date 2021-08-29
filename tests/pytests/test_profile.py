@@ -46,13 +46,13 @@ def testProfileSearch(env):
   # test NOT
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '-hello', 'nocontent')
   expected_res = ['Iterators profile', ['Type', 'NOT', 'Counter', 1L, 'Child iterator',
-                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 0L, 'Size', 1L]]]
+                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1L, 'Size', 1L]]]
   env.assertEqual(actual_res[1][3], expected_res)
 
   # test OPTIONAL
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '~hello', 'nocontent')
   expected_res = ['Iterators profile', ['Type', 'OPTIONAL', 'Counter', 2L, 'Child iterator',
-                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 0L, 'Size', 1L]]]
+                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1L, 'Size', 1L]]]
   env.assertEqual(actual_res[1][3], expected_res)
 
   # test PREFIX
