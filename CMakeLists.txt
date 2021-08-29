@@ -9,7 +9,6 @@ PROJECT(redisearch)
 #    cmake_policy(SET CMP0045 OLD)
 #ENDIF()
 
-
 OPTION(RS_RUN_TESTS "Build & Run RediSearch's tests" OFF)
 OPTION(RS_BUILD_STATIC "Builds a static library" OFF)
 OPTION(USE_ASAN "Use AddressSanitizer (clang)" OFF)
@@ -166,10 +165,12 @@ IF (RS_BUILD_COORDINATOR)
     ADD_LIBRARY(redisearch-oss STATIC ${RS_SRC} ${FINAL_OBJECTS} src/module-init/module-init.c)
     target_compile_definitions(redisearch-oss PRIVATE RS_NO_ONLOAD RS_NO_RMAPI RS_CLUSTER_OSS)
     SET_TARGET_PROPERTIES(redisearch-oss PROPERTIES OUTPUT_NAME "redisearch-oss")
+	ADD_LDFLAGS(redisearch-oss "-Wl,--enable-new-dtags -Wl,-rpath,\$ORIGIN")
 
     ADD_LIBRARY(redisearch-enterprise STATIC ${RS_SRC} ${FINAL_OBJECTS} src/module-init/module-init.c)
     target_compile_definitions(redisearch-enterprise PRIVATE RS_NO_ONLOAD RS_NO_RMAPI RS_CLUSTER_ENTERPRISE)
     SET_TARGET_PROPERTIES(redisearch-enterprise PROPERTIES OUTPUT_NAME "redisearch-enterprise")
+	ADD_LDFLAGS(redisearch-enterprise "-Wl,--enable-new-dtags -Wl,-rpath,\$ORIGIN")
 
 ELSEIF (RS_BUILD_STATIC)
     ADD_LIBRARY(redisearchS STATIC ${FINAL_OBJECTS} src/module-init/module-init.c)
@@ -180,6 +181,7 @@ ELSEIF (RS_BUILD_STATIC)
     TARGET_LINK_LIBRARIES(redisearch dl m)
     SET_TARGET_PROPERTIES(redisearch PROPERTIES PREFIX "")
     SET_TARGET_PROPERTIES(redisearch PROPERTIES SUFFIX ".so")
+	ADD_LDFLAGS(redisearch "-Wl,--enable-new-dtags -Wl,-rpath,\$ORIGIN")
 
     SET(RS_TEST_MODULE redisearchS)
     SET(RS_TEST_MODULE_SO $<TARGET_FILE:redisearch>)
@@ -189,6 +191,7 @@ ELSE ()
     TARGET_LINK_LIBRARIES(redisearch dl m vecsim openblas)
     SET_TARGET_PROPERTIES(redisearch PROPERTIES PREFIX "")
     SET_TARGET_PROPERTIES(redisearch PROPERTIES SUFFIX ".so")
+	ADD_LDFLAGS(redisearch "-Wl,--enable-new-dtags -Wl,-rpath,\$ORIGIN")
 
     IF (NOT APPLE)
         ADD_CUSTOM_COMMAND(TARGET redisearch POST_BUILD
