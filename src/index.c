@@ -1255,12 +1255,11 @@ static t_docId NI_LastDocId(void *ctx) {
 }
 
 IndexIterator *NewNotIterator(IndexIterator *it, t_docId maxDocId, double weight) {
-
   NotContext *nc = rm_malloc(sizeof(*nc));
   nc->base.current = NewVirtualResult(weight);
   nc->base.current->fieldMask = RS_FIELDMASK_ALL;
   nc->base.current->docId = 0;
-  nc->child = it;
+  nc->child = it ? it : NewEmptyIterator();
   nc->childCT = NULL;
   nc->lastDocId = 0;
   nc->maxDocId = maxDocId;
@@ -1478,7 +1477,7 @@ IndexIterator *NewOptionalIterator(IndexIterator *it, t_docId maxDocId, double w
   nc->virt->fieldMask = RS_FIELDMASK_ALL;
   nc->virt->freq = 1;
   nc->base.current = nc->virt;
-  nc->child = it;
+  nc->child = it ? it : NewEmptyIterator();
   nc->childCT = NULL;
   nc->lastDocId = 0;
   nc->maxDocId = maxDocId;
@@ -1504,9 +1503,6 @@ IndexIterator *NewOptionalIterator(IndexIterator *it, t_docId maxDocId, double w
     nc->childCT = IITER_GET_CRITERIA_TESTER(nc->child);
     RS_LOG_ASSERT(nc->childCT, "childCT should not be NULL");
     ret->Read = OI_ReadUnsorted;
-  }
-  if (!nc->child) {
-    nc->child = NewEmptyIterator();
   }
 
   return ret;
