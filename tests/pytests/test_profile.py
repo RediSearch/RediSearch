@@ -258,4 +258,3 @@ def testNotIterator(env):
             'Loader', 'Counter', 1L]]]]
 
   env.expect('ft.profile', 'idx', 'search', 'query', 'foo -@t:baz').equal(res)
-  env.expect('ft.profile', 'idx', 'search', 'query', 'foo -@t:baz').equal(res)
