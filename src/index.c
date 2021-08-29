@@ -1942,7 +1942,7 @@ void Profile_AddIters(IndexIterator **root) {
       Profile_AddIters(&((OptionalIterator *)root)->child);
       break;
     case WILDCARD_ITERATOR:
-      Profile_AddIters(&((NotIterator *)root)->child);
+      //Profile_AddIters(&((WildcardIterator *)root)->child);
       break;     
     case UNION_ITERATOR:
       ui = (*root)->ctx;
