@@ -2052,6 +2052,8 @@ def testTimeout(env):
         env.expect('HSET', 'doc%d'%i, 't', 'aa' + str(i))
 
     env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', '0').noEqual([num_range])
+    res = env.cmd('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', '0')
+    env.assertContains('timeout', res[0])
 
     env.expect('ft.config', 'set', 'on_timeout', 'fail').ok()
     env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', '0') \

@@ -168,7 +168,7 @@ void sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
       RedisModule_ReplyWithSimpleString(outctx, "Timeout limit was reached");
     } else {
       rc = RS_RESULT_OK;
-      RedisModule_ReplyWithLongLong(outctx, req->qiter.totalResults);
+      RedisModule_ReplyWithPrintf(outctx, "%d (timeout)", req->qiter.totalResults);
     }
   } else {
     RedisModule_ReplyWithLongLong(outctx, req->qiter.totalResults);
