@@ -1922,14 +1922,10 @@ void Profile_AddIters(IndexIterator **root) {
   // Add profile iterator before child iterators
   switch((*root)->type) {
     case NOT_ITERATOR:
-      if (((NotIterator *)((*root)->ctx))->child) {
-        Profile_AddIters(&((NotIterator *)((*root)->ctx))->child);
-      }
+      Profile_AddIters(&((NotIterator *)((*root)->ctx))->child);
       break;
     case OPTIONAL_ITERATOR:
-      if (((OptionalIterator *)((*root)->ctx))->child) {
-        Profile_AddIters(&((OptionalIterator *)((*root)->ctx))->child);
-      }
+      Profile_AddIters(&((OptionalIterator *)((*root)->ctx))->child);
       break;
     case UNION_ITERATOR:
       ui = (*root)->ctx;
