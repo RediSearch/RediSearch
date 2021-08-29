@@ -1060,25 +1060,21 @@ typedef struct {
 
 static void NI_Abort(void *ctx) {
   NotContext *nc = ctx;
-  if (nc->child) {
-    nc->child->Abort(nc->child->ctx);
-  }
+  nc->child->Abort(nc->child->ctx);
 }
 
 static void NI_Rewind(void *ctx) {
   NotContext *nc = ctx;
   nc->lastDocId = 0;
   nc->base.current->docId = 0;
-  if (nc->child) {
-    nc->child->Rewind(nc->child->ctx);
-  }
+  nc->child->Rewind(nc->child->ctx);
 }
+
 static void NI_Free(IndexIterator *it) {
 
   NotContext *nc = it->ctx;
-  if (nc->child) {
-    nc->child->Free(nc->child);
-  }
+  nc->child->Free(nc->child);
+
   if (nc->childCT) {
     nc->childCT->Free(nc->childCT);
   }
@@ -1094,11 +1090,6 @@ static int NI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
   // do not skip beyond max doc id
   if (docId > nc->maxDocId) {
     return INDEXREAD_EOF;
-  }
-  // If we don't have a child it means the sub iterator is of a meaningless expression.
-  // So negating it means we will always return OK!
-  if (!nc->child) {
-    goto ok;
   }
 
   // Get the child's last read docId
@@ -1151,9 +1142,6 @@ static void NI_TesterFree(struct IndexCriteriaTester *ct) {
 
 static IndexCriteriaTester *NI_GetCriteriaTester(void *ctx) {
   NotContext *nc = ctx;
-  if (!nc->child) {
-    return NULL;
-  }
   IndexCriteriaTester *ct = IITER_GET_CRITERIA_TESTER(nc->child);
   if (!ct) {
     return NULL;
@@ -1192,12 +1180,10 @@ static int NI_ReadSorted(void *ctx, RSIndexResult **hit) {
 
   RSIndexResult *cr = NULL;
   // if we have a child, get the latest result from the child
-  if (nc->child) {
-    cr = IITER_CURRENT_RECORD(nc->child);
+  cr = IITER_CURRENT_RECORD(nc->child);
 
-    if (cr == NULL || cr->docId == 0) {
-      nc->child->Read(nc->child->ctx, &cr);
-    }
+  if (cr == NULL || cr->docId == 0) {
+    nc->child->Read(nc->child->ctx, &cr);
   }
 
   // advance our reader by one, and let's test if it's a valid value or not
@@ -1941,9 +1927,6 @@ void Profile_AddIters(IndexIterator **root) {
     case OPTIONAL_ITERATOR:
       Profile_AddIters(&((OptionalIterator *)root)->child);
       break;
-    case WILDCARD_ITERATOR:
-      //Profile_AddIters(&((WildcardIterator *)root)->child);
-      break;     
     case UNION_ITERATOR:
       ui = (*root)->ctx;
       for (int i = 0; i < ui->norig; i++) {
@@ -1957,6 +1940,7 @@ void Profile_AddIters(IndexIterator **root) {
         Profile_AddIters(&(ini->its[i]));
       }
       break;
+    case WILDCARD_ITERATOR:
     case READ_ITERATOR:
     case EMPTY_ITERATOR:
     case ID_LIST_ITERATOR:
