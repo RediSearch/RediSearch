@@ -883,6 +883,11 @@ TEST_F(LLApiTest, testGetters) {
   ASSERT_EQ(0.42, RediSearch_IndexGetScore(index));
   ASSERT_STREQ("yiddish", RediSearch_IndexGetLanguage(index));
 
+  RSDoc* d = RediSearch_CreateDocument2(DOCID1, strlen(DOCID1), index, NAN, NULL);
+  ASSERT_STREQ(RSLanguage_ToString(d->language), RediSearch_IndexGetLanguage(index));
+  ASSERT_EQ(d->score, (float)RediSearch_IndexGetScore(index));
+  RediSearch_FreeDocument(d);
+
   RediSearch_FreeIndexOptions(opt);
   RediSearch_DropIndex(index);  
 }
