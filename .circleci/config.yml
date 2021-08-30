@@ -249,7 +249,7 @@ jobs:
 
   debug-asan:
     docker:
-      - image: redisfab/clang:13-x64-buster
+      - image: redisfab/clang:12-x64-stretch
     steps:
       - early-returns
       - checkout-all
@@ -261,7 +261,7 @@ jobs:
 
   debug-msan:
     docker:
-      - image: redisfab/clang:13-x64-buster
+      - image: redisfab/clang:12-x64-stretch
     steps:
       - early-returns
       - checkout-all
