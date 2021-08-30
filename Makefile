@@ -189,8 +189,10 @@ endif
 $(COMPAT_DIR)/redisearch.so: $(BINROOT)/Makefile
 ifeq ($(OSNICK),centos7)
 ifeq ($(wildcard $(BINDIR)/libstdc++.so.6.0.25),)
-	wget -q http://redismodules.s3.amazonaws.com/gnu/libstdc%2B%2B.so.6.0.25-$(OS)-$(ARCH).tgz
-	cd $(BINDIR); ln -sf libstdc++.so.6.0.25 libstdc++.so.6
+	set -e ;\
+	cd $(BINDIR) ;\
+	wget -q http://redismodules.s3.amazonaws.com/gnu/libstdc%2B%2B.so.6.0.25-$(OS)-$(ARCH).tgz ;\
+	ln -sf libstdc++.so.6.0.25 libstdc++.so.6
 endif
 endif
 	@echo Building ...
