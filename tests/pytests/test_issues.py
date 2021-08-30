@@ -321,3 +321,12 @@ def test_MOD_1517(env):
              'GROUPBY', '2', '@field1', '@field2',
              'REDUCE', 'SUM', '1', '@amount1', 'AS', 'amount1Sum',
              'REDUCE', 'SUM', '1', '@amount2', 'as', 'amount2Sum').equal(res)
+
+def test_MOD1544(env):
+  # Test parsing failure
+  conn = getConnectionByEnv(env)
+  conn.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.name', 'AS', 'name', 'TEXT')
+  conn.execute_command('JSON.SET', '1', '.', '{"name": "John Smith"}')
+  res = [1L, '1', ['name', '<b>John</b> Smith']]
+  env.expect('FT.SEARCH', 'idx', '@name:(John)', 'RETURN', '1', 'name', 'HIGHLIGHT').equal(res)
+  env.expect('FT.SEARCH', 'idx', '@name:(John)', 'RETURN', '1', 'name', 'HIGHLIGHT', 'FIELDS', '1', 'name').equal(res)
