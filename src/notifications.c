@@ -2,6 +2,9 @@
 #include "notifications.h"
 #include "spec.h"
 #include "doc_types.h"
+#include "redismodule.h"
+#include "rdb.h"
+#include "module.h"
 
 #define JSON_LEN 5 // length of string "json."
 
@@ -115,7 +118,10 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
       // on loaded event the key is stack allocated so to use it to load the
       // document we must copy it
       key = RedisModule_CreateStringFromString(ctx, key);
-      // notice, not break is ok here, we want to continue.
+      Indexes_UpdateMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields); //TODO: avoid getDocTypeFromString ?
+      RedisModule_FreeString(ctx, key);
+      break;
+
     case hset_cmd:
     case hmset_cmd:
     case hsetnx_cmd:
@@ -123,9 +129,6 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
     case hincrbyfloat_cmd:
     case hdel_cmd:
       Indexes_UpdateMatchingWithSchemaRules(ctx, key, DocumentType_Hash, hashFields);
-      if(redisCommand == loaded_cmd){
-        RedisModule_FreeString(ctx, key);
-      }
       break;
 
 /********************************************************
@@ -311,5 +314,47 @@ void Initialize_KeyspaceNotifications(RedisModuleCtx *ctx) {
 void Initialize_CommandFilter(RedisModuleCtx *ctx) {
   if (RSGlobalConfig.filterCommands) {
     RedisModule_RegisterCommandFilter(ctx, CommandFilterCallback, 0);
+  }
+}
+
+
+void ReplicaBackupCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
+
+  REDISMODULE_NOT_USED(eid);
+  switch(subevent) {
+  case REDISMODULE_SUBEVENT_REPL_BACKUP_CREATE:
+    Backup_Globals();
+    break;
+  case REDISMODULE_SUBEVENT_REPL_BACKUP_RESTORE:
+    Restore_Globals();
+    break;
+  case REDISMODULE_SUBEVENT_REPL_BACKUP_DISCARD:
+    Discard_Globals_Backup();
+    break;
+  }
+}
+
+
+int CheckVersionForShortRead() {
+  // Minimal versions: 6.2.5
+  // (6.0.15 is not supporting the required event notification for modules)
+  if (redisVersion.majorVersion == 6 &&
+      redisVersion.minorVersion == 2) {
+      return redisVersion.patchVersion >= 5 ? REDISMODULE_OK : REDISMODULE_ERR;
+  } else if (redisVersion.majorVersion == 255 &&
+           redisVersion.minorVersion == 255 &&
+           redisVersion.patchVersion == 255) {
+    // Also supported on master (version=255.255.255)
+    return REDISMODULE_OK;
+  }
+  return REDISMODULE_ERR;
+}
+
+void Initialize_RdbNotifications(RedisModuleCtx *ctx) {
+  if (CheckVersionForShortRead() == REDISMODULE_OK) {
+    int success = RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ReplBackup, ReplicaBackupCallback);
+    RedisModule_Assert(success != REDISMODULE_ERR); // should be supported in this redis version/release
+    RedisModule_SetModuleOptions(ctx, REDISMODULE_OPTIONS_HANDLE_IO_ERRORS);
+    RedisModule_Log(ctx, "notice", "Enabled diskless replication");
   }
 }

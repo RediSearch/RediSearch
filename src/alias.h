@@ -31,7 +31,7 @@ int AliasTable_Del(AliasTable *table, const char *alias, IndexSpec *spec, int op
 IndexSpec *AliasTable_Get(AliasTable *table, const char *alias);
 
 void IndexAlias_InitGlobal(void);
-void IndexAlias_DestroyGlobal(void);
+void IndexAlias_DestroyGlobal(AliasTable **t);
 
 int IndexAlias_Add(const char *alias, IndexSpec *spec, int options, QueryError *status);
 int IndexAlias_Del(const char *alias, IndexSpec *spec, int options, QueryError *status);

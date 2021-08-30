@@ -148,8 +148,12 @@ MODULE_API_FUNC(void, RediSearch_TagFieldSetCaseSensitive)(RSIndex* sp, RSFieldI
 
 MODULE_API_FUNC(RSDoc*, RediSearch_CreateDocument)
 (const void* docKey, size_t len, double score, const char* lang);
-MODULE_API_FUNC(void, RediSearch_FreeDocument)(RSDoc* doc);
 #define RediSearch_CreateDocumentSimple(s) RediSearch_CreateDocument(s, strlen(s), 1.0, NULL)
+MODULE_API_FUNC(RSDoc*, RediSearch_CreateDocument2)
+(const void* docKey, size_t len, RSIndex* sp, double score, const char* lang);
+#define RediSearch_CreateDocument2Simple(s, sp) RediSearch_CreateDocument2(s, strlen(s), sp, NAN, NULL)
+
+MODULE_API_FUNC(void, RediSearch_FreeDocument)(RSDoc* doc);
 
 MODULE_API_FUNC(int, RediSearch_DeleteDocument)(RSIndex* sp, const void* docKey, size_t len);
 #define RediSearch_DropDocument RediSearch_DeleteDocument
@@ -267,6 +271,7 @@ MODULE_API_FUNC(void, RediSearch_IndexOptionsSetGCPolicy)(RSIndexOptions* option
   X(TextFieldSetWeight)              \
   X(TagFieldSetSeparator)            \
   X(CreateDocument)                  \
+  X(CreateDocument2)                 \
   X(DeleteDocument)                  \
   X(DocumentAddField)                \
   X(DocumentAddFieldNumber)          \

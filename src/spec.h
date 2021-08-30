@@ -44,6 +44,7 @@ struct DocumentIndexer;
 #define SPEC_PHONETIC_STR "PHONETIC"
 #define SPEC_TAG_STR "TAG"
 #define SPEC_SORTABLE_STR "SORTABLE"
+#define SPEC_UNF_STR "UNF"
 #define SPEC_STOPWORDS_STR "STOPWORDS"
 #define SPEC_NOINDEX_STR "NOINDEX"
 #define SPEC_TAG_SEPARATOR_STR "SEPARATOR"
@@ -524,6 +525,7 @@ typedef struct IndexesScanner {
 //---------------------------------------------------------------------------------------------
 
 void Indexes_Init(RedisModuleCtx *ctx);
+void Indexes_Free(dict *d);
 void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type,
                                            RedisModuleString **hashFields);
 void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key,
