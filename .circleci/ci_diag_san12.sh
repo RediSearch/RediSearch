@@ -66,7 +66,8 @@ cd $ROOT/deps
 cd RedisJSON
 git checkout master
 git pull --recurse-submodules
-./deps/readies/bin/getpy3
+# ./deps/readies/bin/getpy3
+$READIES/bin/getpy3
 ./system-setup.py
 source /etc/profile.d/rust.sh
 make nightly
