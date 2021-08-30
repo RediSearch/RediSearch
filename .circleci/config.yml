@@ -6,24 +6,24 @@ defaults:
     - ubuntu
 
 commands:
-  early_returns:
+  early-returns:
     steps:
       - run:
           name: Early return if this is a docs build
           command: |
-            if [[ $CIRCLE_BRANCH == *_docs ]]; then
+            if [[ $CIRCLE_BRANCH == *docs ]]; then
               echo "Identifies as documents PR, no testing required."
               circleci step halt
             fi
       - run:
           name: Early return if this branch should ignore CI
           command: |
-            if [[ $CIRCLE_BRANCH == *_noci ]]; then
+            if [[ $CIRCLE_BRANCH == *noci ]]; then
               echo "Identifies as actively ignoring CI, no testing required."
               circleci step halt
             fi
 
-  early_return_for_forked_pull_requests:
+  early-return-for-forked-pull-requests:
     description: >-
       If this build is from a fork, stop executing the current job and return success.
       This is useful to avoid steps that will fail due to missing credentials.
@@ -36,13 +36,59 @@ commands:
               circleci step halt
             fi
 
+  setup-executor:
+    steps:
+      - run:
+          name: Setup executor
+          command: |
+            apt-get -qq update
+            apt-get -q install -y git openssh-client curl ca-certificates make tar gzip
+            bash <(curl -fsSL https://raw.githubusercontent.com/docker/docker-install/master/install.sh)
+      - setup_remote_docker:
+          version: 20.10.2
+          docker_layer_caching: true
+
+  checkout-all:
+    steps:
+      - checkout
+      - run:
+          name: Checkout submodules
+          command: git submodule update --init --recursive
+
+  setup-automation:
+    steps:
+      - run:
+          name: Setup automation
+          command: |
+            git submodule update --init deps/readies
+            ./deps/readies/bin/getpy2
+
+  install-prerequisites:
+    parameters:
+      redis_version:
+        type: string
+        default: "6"
+      getredis_params:
+        type: string
+        default: ""
+    steps:
+      - setup-automation
+      - run:
+          name: System setup
+          command: ./system-setup.py
+      - run:
+          name: Install Redis
+          command: |
+            bash -l -c "python2 ./deps/readies/bin/getredis -v '<<parameters.redis_version>>' --force <<parameters.getredis_params>>"
+            redis-server --version
+
   save-tests-logs:
     steps:
       - run:
           name: Cleanup test log dir
           command: |
-            if [[ -d tests/flow/logs ]]; then
-              cd tests/flow/logs
+            if [[ -d tests/pytests/logs ]]; then
+              cd tests/pytests/logs
               rm -f *.aof *.rdb
             fi
       - store_artifacts:
@@ -50,7 +96,7 @@ commands:
 
   persist-artifacts:
     steps:
-      - early_return_for_forked_pull_requests
+      - early-return-for-forked-pull-requests
       - persist_to_workspace:
           root: artifacts
           paths:
@@ -59,10 +105,24 @@ commands:
             - snapshots/*.zip
             - snapshots/*.tgz
 
-  ci_steps:
+  build-steps:
+    parameters:
+      platform:
+        type: string
+      getredis_params:
+        type: string
+        default: ""
+      build_params:
+        type: string
+        default: ""
+      test_params:
+        type: string
+        default: ""
     steps:
-      - early_returns
-      - checkout
+      - early-returns
+      - checkout-all
+      - install-prerequisites:
+          getredis_params: <<parameters.getredis_params>>
       - run:
           name: Get Dependencies
           command: ./.circleci/ci_get_deps.sh
@@ -79,10 +139,10 @@ commands:
           environment:
             - PACKAGE_NAME: redisearch-oss
       - save-tests-logs
-      - early_return_for_forked_pull_requests
+      - early-return-for-forked-pull-requests
       - persist-artifacts
 
-  benchmark_steps:
+  benchmark-automation:
     parameters:
       github_actor:
         type: string
@@ -103,23 +163,25 @@ commands:
           timeout: 60m
           no_output_timeout: 20m
           command: |
-              cd ./tests/ci.benchmarks
-              export AWS_ACCESS_KEY_ID=$PERFORMANCE_EC2_ACCESS_KEY
-              export AWS_SECRET_ACCESS_KEY=$PERFORMANCE_EC2_SECRET_KEY
-              export AWS_DEFAULT_REGION=$PERFORMANCE_EC2_REGION
-              export EC2_PRIVATE_PEM=$PERFORMANCE_EC2_PRIVATE_PEM
+            cd ./tests/ci.benchmarks
+            export AWS_ACCESS_KEY_ID=$PERFORMANCE_EC2_ACCESS_KEY
+            export AWS_SECRET_ACCESS_KEY=$PERFORMANCE_EC2_SECRET_KEY
+            export AWS_DEFAULT_REGION=$PERFORMANCE_EC2_REGION
+            export EC2_PRIVATE_PEM=$PERFORMANCE_EC2_PRIVATE_PEM
 
-              redisbench-admin run-remote \
-                --module_path << parameters.module_path >> \
-                --github_actor << parameters.github_actor >> \
-                --github_repo $CIRCLE_PROJECT_REPONAME \
-                --github_org $CIRCLE_PROJECT_USERNAME \
-                --required-module search \
-                --github_sha $CIRCLE_SHA1 \
-                --github_branch $CIRCLE_BRANCH \
-                --upload_results_s3 \
-                --triggering_env circleci \
-                --push_results_redistimeseries
+            redisbench-admin run-remote \
+              --module_path << parameters.module_path >> \
+              --github_actor << parameters.github_actor >> \
+              --github_repo $CIRCLE_PROJECT_REPONAME \
+              --github_org $CIRCLE_PROJECT_USERNAME \
+              --required-module search \
+              --github_sha $CIRCLE_SHA1 \
+              --github_branch $CIRCLE_BRANCH \
+              --upload_results_s3 \
+              --triggering_env circleci \
+              --push_results_redistimeseries
+
+#----------------------------------------------------------------------------------------------------------------------------------
 
 jobs:
   ubuntu:
@@ -128,15 +190,17 @@ jobs:
     environment:
       - BUILD_DIR: build-debian
     steps:
-      - ci_steps
+      - build-steps:
+          platform: buster
 
   centos:
     docker:
-      - image: redisfab/rmbuilder:6.2.3-x64-centos7
+      - image: redisfab/rmbuilder:6.2.5-x64-centos7
     environment:
       - BUILD_DIR: build-el
     steps:
-      - ci_steps
+      - build-steps:
+          platform: centos7
 
   macos:
     macos:
@@ -144,34 +208,35 @@ jobs:
     environment:
       - BUILD_DIR: build-macos
     steps:
-      - early_returns
+      - early-returns
       - run:
           name: Update Brew
           command: brew update
           no_output_timeout: 20m
-      - ci_steps
+      - build-steps:
+          platform: catalina
 
-  ubuntu_benchmarks:
+  ubuntu-benchmarks:
     docker:
-      - image: redisfab/rmbuilder:6.2.3-x64-bionic
+      - image: redisfab/rmbuilder:6.2.5-x64-bionic
     environment:
       - BUILD_DIR: build-debian
     steps:
-      - checkout
+      - checkout-all
       - run:
           name: Get Dependencies
           command: ./.circleci/ci_get_deps.sh
       - run:
           name: Build
           command: bash -l -c "./.circleci/ci_build.sh"
-      - benchmark_steps
+      - benchmark-automation
 
-  deploy_snapshots:
+  deploy-snapshots:
     docker:
       - image: redisfab/rmbuilder:6.2.5-x64-buster
     steps:
-      - early_returns
-      - early_return_for_forked_pull_requests
+      - early-returns
+      - early-return-for-forked-pull-requests
       - attach_workspace:
           at: ~/workspace
       - run:
@@ -182,24 +247,24 @@ jobs:
               aws s3 cp $f s3://redismodules/$PACKAGE_NAME/snapshots/ --acl public-read
             done
 
-  debug_asan:
+  debug-asan:
     docker:
-      - image: redisfab/clang:12-x64-stretch
+      - image: redisfab/clang:12-x64-strech-6.2.5
     steps:
-      - early_returns
-      - checkout
+      - early-returns
+      - checkout-all
       - run:
           name: Run & build tests
           command: bash -l -c "ASAN=1 ./.circleci/ci_diag_san12.sh"
           no_output_timeout: 30m
       - save-tests-logs
 
-  debug_msan:
+  debug-msan:
     docker:
-      - image: redisfab/clang:12-x64-stretch
+      - image: redisfab/clang:12-x64-strech-6.2.5
     steps:
-      - early_returns
-      - checkout
+      - early-returns
+      - checkout-all
       - run:
           name: Run & build tests
           command: bash -l -c "MSAN=1 ./.circleci/ci_diag_san12.sh"
@@ -210,20 +275,20 @@ jobs:
     docker:
       - image: redisfab/rmbuilder:6.2.5-x64-buster
     steps:
-      - early_returns
-      - checkout
+      - early-returns
+      - checkout-all
       - run:
           name: Build & Test
           command: bash -l -c "./.circleci/ci_coverage.sh"
-          no_output_timeout: 20m
+          no_output_timeout: 30m
       - save-tests-logs
 
-  deploy_release:
+  deploy-release:
     docker:
       - image: redisfab/rmbuilder:6.2.5-x64-buster
     steps:
-      - early_returns
-      - early_return_for_forked_pull_requests
+      - early-returns
+      - early-return-for-forked-pull-requests
       - attach_workspace:
           at: ~/workspace
       - run:
@@ -234,6 +299,7 @@ jobs:
               aws s3 cp $f s3://redismodules/$PACKAGE_NAME/ --acl public-read
             done
 
+#----------------------------------------------------------------------------------------------------------------------------------
 
 on-any-branch: &on-any-branch
   filters:
@@ -293,11 +359,11 @@ on-integ-and-version-tags: &on-integ-and-version-tags
     tags:
       only: /^v[0-9].*/
 
+#----------------------------------------------------------------------------------------------------------------------------------
 
 workflows:
   version: 2
-
-  default_flow:
+  default-flow:
     jobs:
       - ubuntu:
           <<: *on-any-branch
@@ -305,22 +371,22 @@ workflows:
           <<: *on-any-branch
       - macos:
           <<: *on-version-tags
-      - debug_asan:
+      - debug-asan:
           <<: *on-any-branch
-      - debug_msan:
+      - debug-msan:
           <<: *on-any-branch
       - coverage:
           context: common
           <<: *on-any-branch
-      - deploy_snapshots:
+      - deploy-snapshots:
           context: common
           requires: *default_jobs
           <<: *on-integ-and-version-tags
-      - deploy_release:
+      - deploy-release:
           context: common
           requires: *default_jobs
           <<: *on-version-tags
-      - ubuntu_benchmarks:
+      - ubuntu-benchmarks:
           <<: *on-integ-and-version-tags
           context: common
 
@@ -346,5 +412,5 @@ workflows:
                 - /^feature-.*$/
 
     jobs:
-      - ubuntu_benchmarks:
+      - ubuntu-benchmarks:
           context: common
