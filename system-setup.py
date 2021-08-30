@@ -61,7 +61,10 @@ class RediSearchSetup(paella.Setup):
         self.run("{PYTHON} {READIES}/bin/getredis -v 6 --force".format(PYTHON=self.python, READIES=READIES))
 
     def common_last(self):
+        if os.path.exist("/usr/local/bin/cmake"):
+            self.runn("cd /usr/local/bin; rm -f cmake cmake-gui ctest cpack ccmake")
         self.run("{PYTHON} {READIES}/bin/getcmake --usr".format(PYTHON=self.python, READIES=READIES))
+
         self.run("{PYTHON} {READIES}/bin/getrmpytools --reinstall".format(PYTHON=self.python, READIES=READIES))
         if self.dist != "arch":
             self.install("lcov")
