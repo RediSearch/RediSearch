@@ -1267,7 +1267,7 @@ IndexIterator *NewNotIterator(IndexIterator *it, t_docId maxDocId, double weight
   ret->Rewind = NI_Rewind;
   ret->mode = MODE_SORTED;
 
-  if (nc->child && nc->child->mode == MODE_UNSORTED) {
+  if (nc->child->mode == MODE_UNSORTED) {
     nc->childCT = IITER_GET_CRITERIA_TESTER(nc->child);
     RS_LOG_ASSERT(nc->childCT, "childCT should not be NULL");
     ret->Read = NI_ReadUnsorted;
@@ -1637,6 +1637,7 @@ static IndexIterator eofIterator = {.Read = EOI_Read,
                                     .NumEstimated = EOI_NumEstimated,
                                     .Abort = EOI_Abort,
                                     .Rewind = EOI_Rewind,
+                                    .mode = MODE_SORTED,
                                     .type = EMPTY_ITERATOR};
 
 IndexIterator *NewEmptyIterator(void) {
