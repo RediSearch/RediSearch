@@ -2,13 +2,12 @@ CMAKE_MINIMUM_REQUIRED(VERSION 3.0.0)
 PROJECT(redisearch)
 
 # Allow to use 'LOCATION' setting
-IF(POLICY CMP0026)
-    CMAKE_POLICY(SET CMP0026 OLD)
-ENDIF()
-IF(POLICY CMP0045)
-    cmake_policy(SET CMP0045 OLD)
-ENDIF()
-
+#IF(POLICY CMP0026)
+#    CMAKE_POLICY(SET CMP0026 OLD)
+#ENDIF()
+#IF(POLICY CMP0045)
+#    cmake_policy(SET CMP0045 OLD)
+#ENDIF()
 
 OPTION(RS_RUN_TESTS "Build & Run RediSearch's tests" OFF)
 OPTION(RS_BUILD_STATIC "Builds a static library" OFF)
@@ -27,10 +26,12 @@ INCLUDE(cmake/redisearch_debug.cmake)
 
 ADD_DEFINITIONS(-UNDEBUG)
 
+set(RS_VECSIM_SO_FLAGS "-lstdc++")
+
 SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${RS_C_FLAGS}")
 SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${RS_CXX_FLAGS}")
 SET(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${RS_EXE_FLAGS}")
-SET(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} ${RS_SO_FLAGS}")
+SET(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} ${RS_SO_FLAGS} ${RS_VECSIM_SO_FLAGS}")
 
 IF (RS_BUILD_COORDINATOR)
     SET(RS_RUN_TESTS OFF)
@@ -107,8 +108,29 @@ ADD_SUBDIRECTORY(src/dep/friso)
 ADD_SUBDIRECTORY(src/dep/snowball)
 ADD_SUBDIRECTORY(src/dep/phonetics)
 
-option(VECSIM_STATIC "Build as static library" ON)
-ADD_SUBDIRECTORY(deps/VectorSimilarity/src)
+# option(VECSIM_STATIC "Build as static library" ON)
+# ADD_SUBDIRECTORY(deps/VectorSimilarity/src)
+
+include (ExternalProject)
+ExternalProject_Add (VectorSimilarity
+	SOURCE_DIR		${CMAKE_CURRENT_SOURCE_DIR}/deps/VectorSimilarity/src
+	PREFIX          ${CMAKE_CURRENT_BINARY_DIR}/VectorSimilarity
+	CMAKE_ARGS      -DCMAKE_INSTALL_PREFIX:PATH=${CMAKE_CURRENT_BINARY_DIR}/VectorSimilarity
+	CMAKE_ARGS      -DVECSIM_STATIC:BOOL=ON
+)
+
+ExternalProject_Get_Property (VectorSimilarity install_dir)
+set(VectorSimilarity_bindir ${install_dir})
+message("VectorSimilarity bindir: ${VectorSimilarity_bindir}")
+
+include_directories (${VectorSimilarity_bindir}/include)
+
+add_library (vecsim STATIC IMPORTED)
+set_target_properties (vecsim PROPERTIES IMPORTED_LOCATION ${VectorSimilarity_bindir}/src/VectorSimilarity-build/libVectorSimilarity.a)
+
+add_library (openblas STATIC IMPORTED)
+set_target_properties (openblas PROPERTIES IMPORTED_LOCATION ${VectorSimilarity_bindir}/src/VectorSimilarity-build/OpenBLAS/lib/libopenblas.a)
+
 
 FILE(GLOB RS_SRC
     "src/*.c"
@@ -143,10 +165,12 @@ IF (RS_BUILD_COORDINATOR)
     ADD_LIBRARY(redisearch-oss STATIC ${RS_SRC} ${FINAL_OBJECTS} src/module-init/module-init.c)
     target_compile_definitions(redisearch-oss PRIVATE RS_NO_ONLOAD RS_NO_RMAPI RS_CLUSTER_OSS)
     SET_TARGET_PROPERTIES(redisearch-oss PROPERTIES OUTPUT_NAME "redisearch-oss")
+	ADD_LDFLAGS(redisearch-oss "-Wl,--enable-new-dtags -Wl,-rpath,\$ORIGIN")
 
     ADD_LIBRARY(redisearch-enterprise STATIC ${RS_SRC} ${FINAL_OBJECTS} src/module-init/module-init.c)
     target_compile_definitions(redisearch-enterprise PRIVATE RS_NO_ONLOAD RS_NO_RMAPI RS_CLUSTER_ENTERPRISE)
     SET_TARGET_PROPERTIES(redisearch-enterprise PROPERTIES OUTPUT_NAME "redisearch-enterprise")
+	ADD_LDFLAGS(redisearch-enterprise "-Wl,--enable-new-dtags -Wl,-rpath,\$ORIGIN")
 
 ELSEIF (RS_BUILD_STATIC)
     ADD_LIBRARY(redisearchS STATIC ${FINAL_OBJECTS} src/module-init/module-init.c)
@@ -157,15 +181,17 @@ ELSEIF (RS_BUILD_STATIC)
     TARGET_LINK_LIBRARIES(redisearch dl m)
     SET_TARGET_PROPERTIES(redisearch PROPERTIES PREFIX "")
     SET_TARGET_PROPERTIES(redisearch PROPERTIES SUFFIX ".so")
+	ADD_LDFLAGS(redisearch "-Wl,--enable-new-dtags -Wl,-rpath,\$ORIGIN")
 
     SET(RS_TEST_MODULE redisearchS)
     SET(RS_TEST_MODULE_SO $<TARGET_FILE:redisearch>)
 
 ELSE ()
     ADD_LIBRARY(redisearch SHARED ${FINAL_OBJECTS} src/module-init/module-init.c)
-    TARGET_LINK_LIBRARIES(redisearch dl m VectorSimilarity)
+    TARGET_LINK_LIBRARIES(redisearch dl m vecsim openblas)
     SET_TARGET_PROPERTIES(redisearch PROPERTIES PREFIX "")
     SET_TARGET_PROPERTIES(redisearch PROPERTIES SUFFIX ".so")
+	ADD_LDFLAGS(redisearch "-Wl,--enable-new-dtags -Wl,-rpath,\$ORIGIN")
 
     IF (NOT APPLE)
         ADD_CUSTOM_COMMAND(TARGET redisearch POST_BUILD
@@ -179,6 +205,8 @@ IF (APPLE)
     SET_TARGET_PROPERTIES(redisearch
         PROPERTIES LINK_FLAGS "-undefined dynamic_lookup")
 ENDIF()
+
+add_dependencies(redisearch VectorSimilarity)
 
 IF (RS_RUN_TESTS AND NOT RS_BUILD_COORDINATOR)
     SET(BUILD_SHARED_LIBS ON CACHE BOOL "enable shared libs" FORCE)

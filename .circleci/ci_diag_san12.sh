@@ -65,7 +65,8 @@ cd $ROOT/deps
 git clone --recursive https://github.com/RedisJSON/RedisJSON.git
 cd RedisJSON
 git checkout master
-./deps/readies/bin/getpy3
+# ./deps/readies/bin/getpy3
+$READIES/bin/getpy3
 ./system-setup.py
 source /etc/profile.d/rust.sh
 make nightly
