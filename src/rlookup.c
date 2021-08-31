@@ -420,7 +420,6 @@ static int getKeyCommonJSON(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
   }
 
   // Get the actual json value
-  int rc = REDISMODULE_ERR;
   RedisModuleString *val = NULL;
   RSValue *rsv = NULL;
 
@@ -439,12 +438,15 @@ static int getKeyCommonJSON(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
     if (!strncmp(kk->name, UNDERSCORE_KEY, strlen(UNDERSCORE_KEY))) {
       rsv = RS_StringVal(options->dmd->keyPtr, strlen(options->dmd->keyPtr));
     } else {
-      return REDISMODULE_ERR;
+      return REDISMODULE_OK;
     }
   } else {
     RedisJSON jsonValue = japi->next(jsonIter);
-    rsv = jsonValToValue(ctx, jsonValue);
     japi->freeIter(jsonIter);
+    if (!jsonValue) {
+      return REDISMODULE_OK;
+    }
+    rsv = jsonValToValue(ctx, jsonValue);
   }
 
   // Value has a reference count of 1

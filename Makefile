@@ -230,7 +230,7 @@ fetch:
 #----------------------------------------------------------------------------------------------
 
 run:
-	@redis-server --loadmodule $(COMPAT_MODULE)
+	@redis-server --loadmodule $(abspath $(TARGET))
 
 #----------------------------------------------------------------------------------------------
 
@@ -261,6 +261,8 @@ endif
 ifneq ($(CTEST_PARALLEL),)
 override CTEST_ARGS += -j$(CTEST_PARALLEL)
 endif
+
+override CTEST_ARGS += --timeout 15000
 
 test:
 ifneq ($(TEST),)
