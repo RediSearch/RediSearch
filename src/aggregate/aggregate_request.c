@@ -66,8 +66,8 @@ ReturnedField *FieldList_GetCreateField(FieldList *fields, const char *name, con
   fields->fields = rm_realloc(fields->fields, sizeof(*fields->fields) * ++fields->numFields);
   ReturnedField *ret = fields->fields + (fields->numFields - 1);
   memset(ret, 0, sizeof *ret);
-  ret->path = path;
-  ret->name = (name) ? name : path;
+  ret->name = name;
+  ret->path = path ? path : name;
   return ret;
 }
 
