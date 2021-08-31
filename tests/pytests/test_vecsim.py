@@ -11,44 +11,41 @@ import numpy as np
 
 def test_1st(env):
     conn = getConnectionByEnv(env)
-    env.expect('FT.CREATE idx SCHEMA v VECTOR INT32 2 L2 HNSW').ok()
-    conn.execute_command('HSET', 'a', 'v', 'abcdefgh')
-    conn.execute_command('HSET', 'b', 'v', 'abcdefgg')
-    conn.execute_command('HSET', 'c', 'v', 'aacdefgh')
-    conn.execute_command('HSET', 'd', 'v', 'abbdefgh')
+    vecsim_type = ['BF', 'HNSW']
+    for vs_type in vecsim_type:
+        print vs_type
+        conn.execute_command('FT.CREATE idx SCHEMA v VECTOR INT32 2 L2 ' + vs_type)
+        conn.execute_command('HSET', 'a', 'v', 'abcdefgh')
+        conn.execute_command('HSET', 'b', 'v', 'abcdefgg')
+        conn.execute_command('HSET', 'c', 'v', 'aacdefgh')
+        conn.execute_command('HSET', 'd', 'v', 'abbdefgh')
 
-    res = [4L, 'a', ['v', 'abcdefgh'], 'c', ['v', 'aacdefgh'],
-               'b', ['v', 'abcdefgg'], 'd', ['v', 'abbdefgh']]
-    env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 4]', 'SORTBY', 'v', 'ASC').equal(res)
+        res = [4L, 'a', ['v', 'abcdefgh'], 'c', ['v', 'aacdefgh'],
+                'b', ['v', 'abcdefgg'], 'd', ['v', 'abbdefgh']]
+        env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 4]', 'SORTBY', 'v', 'ASC').equal(res)
 
-    message = 'abcdefgh'
-    env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 1]').equal([1L, 'a', ['v', 'abcdefgh']])
+        message = 'abcdefgh'
+        env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 1]').equal([1L, 'a', ['v', 'abcdefgh']])
 
-    message_bytes = message.encode('ascii')
-    base64_bytes = base64.b64encode(message_bytes)
-    base64_message = base64_bytes.decode('ascii')
-    print message_bytes
-    print base64_bytes
-    print base64_message
+        message_bytes = message.encode('ascii')
+        base64_bytes = base64.b64encode(message_bytes)
+        base64_message = base64_bytes.decode('ascii')
+        print message_bytes
+        print base64_bytes
+        print base64_message
 
-    # RANGE uses topk but translate to base64 before
-    env.expect('FT.SEARCH', 'idx', '@v:[' + base64_message +' RANGE 1]').equal([1L, 'a', ['v', 'abcdefgh']])
-    env.expect('FT.SEARCH', 'idx', '@v:[' + base64_message +' TOPK 1] => {$base64:true}').equal([1L, 'a', ['v', 'abcdefgh']])
-    env.expect('FT.SEARCH', 'idx', '@v:[' + base64_message +' TOPK 1] => { $base64:true; $efRuntime:100}').equal([1L, 'a', ['v', 'abcdefgh']])
+        # RANGE uses topk but translate to base64 before
+        env.expect('FT.SEARCH', 'idx', '@v:[' + base64_message +' RANGE 1]').equal([1L, 'a', ['v', 'abcdefgh']])
+        env.expect('FT.SEARCH', 'idx', '@v:[' + base64_message +' TOPK 1] => {$base64:true}').equal([1L, 'a', ['v', 'abcdefgh']])
+        env.expect('FT.SEARCH', 'idx', '@v:[' + base64_message +' TOPK 1] => { $base64:true; $efRuntime:100}').equal([1L, 'a', ['v', 'abcdefgh']])
 
-    #####################
-    ## another example ##
-    #####################
-    message = 'aacdefgh'
-    env.expect('FT.SEARCH', 'idx', '@v:[' + message +' TOPK 1]').equal([1L, 'c', ['v', 'aacdefgh']])
+        #####################
+        ## another example ##
+        #####################
+        message = 'aacdefgh'
+        env.expect('FT.SEARCH', 'idx', '@v:[' + message +' TOPK 1]').equal([1L, 'c', ['v', 'aacdefgh']])
 
-    message_bytes = message.encode('ascii')
-    base64_bytes = base64.b64encode(message_bytes)
-    base64_message = base64_bytes.decode('ascii')
-
-    #print message_bytes
-    #print base64_bytes
-    #print base64_message
+        conn.execute_command('FT.DROPINDEX idx DD')
 
 def test_escape(env):
     conn = getConnectionByEnv(env)
