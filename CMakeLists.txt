@@ -110,7 +110,7 @@ ADD_SUBDIRECTORY(src/dep/phonetics)
 
 include (ExternalProject)
 ExternalProject_Add (VectorSimilarity
-	SOURCE_DIR		${CMAKE_CURRENT_SOURCE_DIR}/deps/VectorSimilarity/src
+	SOURCE_DIR      ${CMAKE_CURRENT_SOURCE_DIR}/deps/VectorSimilarity/src
 	PREFIX          ${CMAKE_CURRENT_BINARY_DIR}/VectorSimilarity
 	CMAKE_ARGS      -DCMAKE_INSTALL_PREFIX:PATH=${CMAKE_CURRENT_BINARY_DIR}/VectorSimilarity
 	CMAKE_ARGS      -DVECSIM_STATIC:BOOL=ON
@@ -174,10 +174,10 @@ ELSEIF (RS_BUILD_STATIC)
 
     ADD_LIBRARY(redisearch SHARED ${FINAL_OBJECTS} src/module-init/module-init.c)
     TARGET_LINK_LIBRARIES(redisearch dl m)
-	SET_TARGET_PROPERTIES(redisearch PROPERTIES LINKER_LANGUAGE CXX) 
+    SET_TARGET_PROPERTIES(redisearch PROPERTIES LINKER_LANGUAGE CXX)
     SET_TARGET_PROPERTIES(redisearch PROPERTIES PREFIX "")
     SET_TARGET_PROPERTIES(redisearch PROPERTIES SUFFIX ".so")
-	ADD_LDFLAGS(redisearch "-Wl,--enable-new-dtags -Wl,-rpath,\$ORIGIN")
+    ADD_LDFLAGS(redisearch "-Wl,--enable-new-dtags -Wl,-rpath,\$ORIGIN")
 
     SET(RS_TEST_MODULE redisearchS)
     SET(RS_TEST_MODULE_SO $<TARGET_FILE:redisearch>)
@@ -185,10 +185,10 @@ ELSEIF (RS_BUILD_STATIC)
 ELSE ()
     ADD_LIBRARY(redisearch SHARED ${FINAL_OBJECTS} src/module-init/module-init.c)
     TARGET_LINK_LIBRARIES(redisearch dl m vecsim openblas)
-	SET_TARGET_PROPERTIES(redisearch PROPERTIES LINKER_LANGUAGE CXX) 
+    SET_TARGET_PROPERTIES(redisearch PROPERTIES LINKER_LANGUAGE CXX)
     SET_TARGET_PROPERTIES(redisearch PROPERTIES PREFIX "")
     SET_TARGET_PROPERTIES(redisearch PROPERTIES SUFFIX ".so")
-	ADD_LDFLAGS(redisearch "-Wl,--enable-new-dtags -Wl,-rpath,\$ORIGIN")
+    ADD_LDFLAGS(redisearch "-Wl,--enable-new-dtags -Wl,-rpath,\$ORIGIN")
 
     IF (NOT APPLE)
         ADD_CUSTOM_COMMAND(TARGET redisearch POST_BUILD
