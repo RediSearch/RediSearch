@@ -599,6 +599,32 @@ error:
   return REDISMODULE_ERR;
 }
 
+static int handleParams (AREQ *req, ArgsCursor *ac, QueryError *status) {
+  ArgsCursor paramsArgs = {0};
+  int rv = AC_GetVarArgs(ac, &paramsArgs);
+  if (rv != AC_OK) {
+    QERR_MKBADARGS_AC(status, "PARAMS", rv);
+    return REDISMODULE_ERR;
+  }
+  if (paramsArgs.argc == 0 || paramsArgs.argc % 2) {
+    QueryError_SetError(status, QUERY_EADDARGS,"Parameters must be specified in PARAM VALUE pairs");
+    return REDISMODULE_ERR;
+  }
+  //if (!AC_IsAtEnd(ac)) {
+  //  QueryError_SetError(status, QUERY_EADDARGS,"Parameters must be specified last arguments in the command");
+  //}
+
+  dict *params = dictCreate(&dictTypeHeapStrings, NULL);
+  while (!AC_IsAtEnd(&paramsArgs)) {
+    const char *param = AC_GetStringNC(&paramsArgs, NULL);
+    const char *value = AC_GetStringNC(&paramsArgs, NULL);
+    dictAdd(params, (void*)param, (void*)value);
+  }
+  // FIXME: assign dict to some owner (new field in AREQ?)
+
+  return REDISMODULE_OK;
+}
+
 static void loadDtor(PLN_BaseStep *bstp) {
   PLN_LoadStep *lstp = (PLN_LoadStep *)bstp;
   rm_free(lstp->keys);
@@ -682,6 +708,10 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
       }
     } else if (AC_AdvanceIfMatch(&ac, "FILTER")) {
       if (handleApplyOrFilter(req, &ac, status, 0) != REDISMODULE_OK) {
+        goto error;
+      }
+    } else if (AC_AdvanceIfMatch(&ac, "PARAMS")) {
+      if (handleParams(req, &ac, status) != REDISMODULE_OK) {
         goto error;
       }
     } else {
