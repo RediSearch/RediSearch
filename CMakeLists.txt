@@ -108,9 +108,6 @@ ADD_SUBDIRECTORY(src/dep/friso)
 ADD_SUBDIRECTORY(src/dep/snowball)
 ADD_SUBDIRECTORY(src/dep/phonetics)
 
-# option(VECSIM_STATIC "Build as static library" ON)
-# ADD_SUBDIRECTORY(deps/VectorSimilarity/src)
-
 include (ExternalProject)
 ExternalProject_Add (VectorSimilarity
 	SOURCE_DIR		${CMAKE_CURRENT_SOURCE_DIR}/deps/VectorSimilarity/src
@@ -165,12 +162,10 @@ IF (RS_BUILD_COORDINATOR)
     ADD_LIBRARY(redisearch-oss STATIC ${RS_SRC} ${FINAL_OBJECTS} src/module-init/module-init.c)
     target_compile_definitions(redisearch-oss PRIVATE RS_NO_ONLOAD RS_NO_RMAPI RS_CLUSTER_OSS)
     SET_TARGET_PROPERTIES(redisearch-oss PROPERTIES OUTPUT_NAME "redisearch-oss")
-	ADD_LDFLAGS(redisearch-oss "-Wl,--enable-new-dtags -Wl,-rpath,\$ORIGIN")
 
     ADD_LIBRARY(redisearch-enterprise STATIC ${RS_SRC} ${FINAL_OBJECTS} src/module-init/module-init.c)
     target_compile_definitions(redisearch-enterprise PRIVATE RS_NO_ONLOAD RS_NO_RMAPI RS_CLUSTER_ENTERPRISE)
     SET_TARGET_PROPERTIES(redisearch-enterprise PROPERTIES OUTPUT_NAME "redisearch-enterprise")
-	ADD_LDFLAGS(redisearch-enterprise "-Wl,--enable-new-dtags -Wl,-rpath,\$ORIGIN")
 
 ELSEIF (RS_BUILD_STATIC)
     ADD_LIBRARY(redisearchS STATIC ${FINAL_OBJECTS} src/module-init/module-init.c)
@@ -179,6 +174,7 @@ ELSEIF (RS_BUILD_STATIC)
 
     ADD_LIBRARY(redisearch SHARED ${FINAL_OBJECTS} src/module-init/module-init.c)
     TARGET_LINK_LIBRARIES(redisearch dl m)
+	SET_TARGET_PROPERTIES(redisearch PROPERTIES LINKER_LANGUAGE CXX) 
     SET_TARGET_PROPERTIES(redisearch PROPERTIES PREFIX "")
     SET_TARGET_PROPERTIES(redisearch PROPERTIES SUFFIX ".so")
 	ADD_LDFLAGS(redisearch "-Wl,--enable-new-dtags -Wl,-rpath,\$ORIGIN")
@@ -189,6 +185,7 @@ ELSEIF (RS_BUILD_STATIC)
 ELSE ()
     ADD_LIBRARY(redisearch SHARED ${FINAL_OBJECTS} src/module-init/module-init.c)
     TARGET_LINK_LIBRARIES(redisearch dl m vecsim openblas)
+	SET_TARGET_PROPERTIES(redisearch PROPERTIES LINKER_LANGUAGE CXX) 
     SET_TARGET_PROPERTIES(redisearch PROPERTIES PREFIX "")
     SET_TARGET_PROPERTIES(redisearch PROPERTIES SUFFIX ".so")
 	ADD_LDFLAGS(redisearch "-Wl,--enable-new-dtags -Wl,-rpath,\$ORIGIN")
@@ -202,8 +199,7 @@ ELSE ()
 ENDIF()
 
 IF (APPLE) 
-    SET_TARGET_PROPERTIES(redisearch
-        PROPERTIES LINK_FLAGS "-undefined dynamic_lookup")
+    SET_TARGET_PROPERTIES(redisearch PROPERTIES LINK_FLAGS "-undefined dynamic_lookup")
 ENDIF()
 
 add_dependencies(redisearch VectorSimilarity)
