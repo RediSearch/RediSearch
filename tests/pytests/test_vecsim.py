@@ -194,10 +194,14 @@ def testDelReuseDvir(env):
 
 def test_create(env):
     conn = getConnectionByEnv(env)
-    env.expect('FT.CREATE idx SCHEMA v VECTOR FLOAT32 16 L2 HNSW INITIAL_CAP 10 M 16 EF 200').ok()
+    env.expect('FT.CREATE idx1 SCHEMA v VECTOR FLOAT32 16 IP HNSW INITIAL_CAP 10 M 16 EF 200').ok()
+    env.expect('FT.CREATE idx2 SCHEMA v VECTOR FLOAT32 16 L2 HNSW INITIAL_CAP 10 M 16 EF 200').ok()
+    env.expect('FT.CREATE idx3 SCHEMA v VECTOR FLOAT32 16 COSINE HNSW INITIAL_CAP 10 M 16 EF 200').ok()
     
     # test wrong query word
-    env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh REDIS 4]').equal([0L])
+    env.expect('FT.SEARCH', 'idx1', '@v:[abcdefgh REDIS 4]').equal([0L])
+    env.expect('FT.SEARCH', 'idx2', '@v:[abcdefgh REDIS 4]').equal([0L])
+    env.expect('FT.SEARCH', 'idx3', '@v:[abcdefgh REDIS 4]').equal([0L])
 
 def test_with_weight(env):
     env.skip()
@@ -231,3 +235,4 @@ def test_with_weight(env):
 
     message = 'abcdefgh'
     env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 1]').equal([1L, 'a', ['v', 'abcdefgh']])
+
