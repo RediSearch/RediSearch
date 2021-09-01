@@ -87,6 +87,19 @@ static int renderIndexDefinitions(RedisModuleCtx *ctx, IndexSpec *sp) {
   return 2;
 }
 
+static const char *getSpecTypeNames(int idx) {
+  switch (idx) {
+  case IXFLDPOS_FULLTEXT: return SPEC_TEXT_STR;
+  case IXFLDPOS_TAG:      return SPEC_TAG_STR;
+  case IXFLDPOS_NUMERIC:  return NUMERIC_STR;
+  case IXFLDPOS_GEO:      return GEO_STR;
+  
+  default:
+    RS_LOG_ASSERT(0, "oops");
+    break;
+  }
+}
+
 /* FT.INFO {index}
  *  Provide info and stats about an index
  */
@@ -130,12 +143,12 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       for (size_t jj = 0; jj < INDEXFLD_NUM_TYPES; ++jj) {
         if (FIELD_IS(fs, INDEXTYPE_FROM_POS(jj))) {
           ntypes++;
-          RedisModule_ReplyWithSimpleString(ctx, SpecTypeNames[jj]);
+          RedisModule_ReplyWithSimpleString(ctx, getSpecTypeNames(jj));
         }
       }
       RedisModule_ReplySetArrayLength(ctx, ntypes);
     } else {
-      REPLY_KVSTR(nn, "type", SpecTypeNames[INDEXTYPE_TO_POS(fs->types)]);
+      REPLY_KVSTR(nn, "type", getSpecTypeNames(INDEXTYPE_TO_POS(fs->types)));
     }
 
     if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT)) {
