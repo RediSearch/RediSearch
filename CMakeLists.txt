@@ -125,9 +125,6 @@ include_directories (${VectorSimilarity_bindir}/include)
 add_library (vecsim STATIC IMPORTED)
 set_target_properties (vecsim PROPERTIES IMPORTED_LOCATION ${VectorSimilarity_bindir}/src/VectorSimilarity-build/libVectorSimilarity.a)
 
-add_library (openblas STATIC IMPORTED)
-set_target_properties (openblas PROPERTIES IMPORTED_LOCATION ${VectorSimilarity_bindir}/src/VectorSimilarity-build/OpenBLAS/lib/libopenblas.a)
-
 
 FILE(GLOB RS_SRC
     "src/*.c"
@@ -184,7 +181,7 @@ ELSEIF (RS_BUILD_STATIC)
 
 ELSE ()
     ADD_LIBRARY(redisearch SHARED ${FINAL_OBJECTS} src/module-init/module-init.c)
-    TARGET_LINK_LIBRARIES(redisearch dl m vecsim openblas)
+    TARGET_LINK_LIBRARIES(redisearch dl m vecsim)
     SET_TARGET_PROPERTIES(redisearch PROPERTIES LINKER_LANGUAGE CXX)
     SET_TARGET_PROPERTIES(redisearch PROPERTIES PREFIX "")
     SET_TARGET_PROPERTIES(redisearch PROPERTIES SUFFIX ".so")
