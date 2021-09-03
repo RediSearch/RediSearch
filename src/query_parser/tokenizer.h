@@ -3,6 +3,7 @@
 
 #include <stdlib.h>
 #include "../tokenize.h"
+#include "param.h"
 
 /* A query-specific tokenizer, that reads symbols like quots, pipes, etc */
 typedef struct {
@@ -25,9 +26,10 @@ typedef struct {
   const char *s;
   int len;
   int pos;
-  char *field;
+  //char *field;      //FIXME: remove unused field
   double numval;
-  // QueryTokenType ;
+  // QueryTokenType ; //FIXME: remove commented out code
+  ParamKind kind;
 } QueryToken;
 
 typedef struct {

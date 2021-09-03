@@ -33,6 +33,7 @@ typedef struct {
   ConcurrentSearchCtx *conc;
   RedisSearchCtx *sctx;
   const RSSearchOptions *opts;
+  QueryError *status;
 
   size_t numTokens;
   uint32_t tokenId;

@@ -620,7 +620,7 @@ static int handleParams (AREQ *req, ArgsCursor *ac, QueryError *status) {
     const char *value = AC_GetStringNC(&paramsArgs, NULL);
     dictAdd(params, (void*)param, (void*)value);
   }
-  // FIXME: assign dict to some owner (new field in AREQ?)
+  req->searchopts.params = params;
 
   return REDISMODULE_OK;
 }
@@ -806,8 +806,9 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   }
 
   ConcurrentSearchCtx_Init(sctx->redisCtx, &req->conc);
-  req->rootiter = QAST_Iterate(ast, opts, sctx, &req->conc);
-  RS_LOG_ASSERT(req->rootiter, "QAST_Iterate failed");
+  req->rootiter = QAST_Iterate(ast, opts, sctx, &req->conc, status);
+  // FIXME: Use status->detail? Avoid potentially too noisy log?
+  RS_LOG_ASSERT(QueryError_HasError(status), "Query has error");
   if (IsProfile(req)) {
     // Add a Profile iterators before every iterator in the tree
     Profile_AddIters(&req->rootiter);
@@ -1283,6 +1284,8 @@ void AREQ_Free(AREQ *req) {
     array_free(req->searchopts.legacy.filters);
   }
   rm_free(req->searchopts.inids);
+  if (req->searchopts.params)
+    dictRelease(req->searchopts.params);
   FieldList_Free(&req->outFields);
   if (thctx) {
     RedisModule_FreeThreadSafeContext(thctx);

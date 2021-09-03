@@ -84,7 +84,7 @@ void QAST_SetGlobalFilters(QueryAST *ast, const QAST_GlobalFilterOptions *option
  * @return an iterator.
  */
 IndexIterator *QAST_Iterate(const QueryAST *ast, const RSSearchOptions *options,
-                            RedisSearchCtx *sctx, ConcurrentSearchCtx *conc);
+                            RedisSearchCtx *sctx, ConcurrentSearchCtx *conc, QueryError *status);
 
 /**
  * Expand the query using a pre-registered expander. Query expansion possibly

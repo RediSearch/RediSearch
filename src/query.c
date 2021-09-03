@@ -525,7 +525,8 @@ static IndexIterator *Query_EvalGeofilterNode(QueryEvalCtx *q, QueryGeofilterNod
   if (!fs || !FIELD_IS(fs, INDEXFLD_T_GEO)) {
     return NULL;
   }
-
+  if (GeoFilter_EvalParams(q->opts->params, (GeoFilter*)node->gf, q->status) == REDISMODULE_ERR)
+    return NULL;
   return NewGeoRangeIterator(q->sctx, node->gf);
 }
 
@@ -844,13 +845,14 @@ int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions 
 }
 
 IndexIterator *QAST_Iterate(const QueryAST *qast, const RSSearchOptions *opts, RedisSearchCtx *sctx,
-                            ConcurrentSearchCtx *conc) {
+                            ConcurrentSearchCtx *conc, QueryError *status) {
   QueryEvalCtx qectx = {
       .conc = conc,
       .opts = opts,
       .numTokens = qast->numTokens,
       .docTable = &sctx->spec->docs,
       .sctx = sctx,
+      .status = status,
   };
   IndexIterator *root = Query_EvalNode(&qectx, qast->root);
   if (!root) {

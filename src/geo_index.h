@@ -9,6 +9,8 @@
 #include "query_error.h"
 #include "dep/geo/rs_geo.h"
 #include "numeric_index.h"
+#include "param.h"
+#include "query_parser/tokenizer.h"
 
 typedef struct geoIndex {
   RedisSearchCtx *ctx;
@@ -30,6 +32,8 @@ typedef enum {  // Placeholder for bad/invalid unit
 #undef X
 } GeoDistance;
 
+#define GEO_FILTER_PARAMS_COUNT 5
+
 typedef struct GeoFilter {
   const char *property;
   double lat;
@@ -37,10 +41,22 @@ typedef struct GeoFilter {
   double radius;
   GeoDistance unitType;
   NumericFilter **numericFilters;
+  Param (*params)[GEO_FILTER_PARAMS_COUNT];
 } GeoFilter;
 
 /* Create a geo filter from parsed strings and numbers */
 GeoFilter *NewGeoFilter(double lon, double lat, double radius, const char *unit);
+
+/* Create a geo filter from actual or parameterized strings and numbers */
+GeoFilter *NewGeoFilter_FromParams(QueryToken *lon_param, QueryToken *lat_param, QueryToken *radius_param, QueryToken *unit_param);
+
+/*
+ * Substitute parameters with actual values used by geo filter
+ * If a parameters is missing, has wrong kind, or the resulting geo filter is invalid
+ * Returns REDISMODULE_ERR
+ * Otherwise, returns REDISMODULE_OK
+ */
+int GeoFilter_EvalParams(dict *params, GeoFilter *gf, QueryError *status);
 
 GeoDistance GeoDistance_Parse(const char *s);
 const char *GeoDistance_ToString(GeoDistance dist);

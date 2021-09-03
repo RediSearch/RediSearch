@@ -8,7 +8,8 @@
 %left STOPWORD.
 
 %left TERMLIST.
-%left TERM. 
+%left TERM.
+%left PARAM.
 %left PREFIX.
 %left PERCENT.
 %left ATTRIBUTE.
@@ -41,6 +42,7 @@
 #include "../util/arr.h"
 #include "../rmutil/vector.h"
 #include "../query_node.h"
+#include "../param.h"
 
 // strndup + lowercase in one pass!
 char *strdupcase(const char *s, size_t len) {
@@ -329,7 +331,7 @@ expr(A) ::= term(B) . [LOWEST]  {
 }
 
 expr(A) ::= prefix(B) . [PREFIX]  {
-    A= B;
+    A = B;
 }
 
 expr(A) ::= termlist(B) .  [TERMLIST] {
@@ -547,8 +549,16 @@ geo_filter(A) ::= LSQB num(B) num(C) num(D) TERM(E) RSQB. [NUMBER] {
     GeoFilter_Validate(A, ctx->status);
 }
 
-
-
+geo_filter(A) ::= LSQB param_num(B) param_num(C) param_num(D) param_term(E) RSQB. [PARAM] {
+  // Update param kind to be more specific if possible
+  if (B.kind == PARAM_NUMERIC)
+    B.kind = PARAM_GEO_COORD;
+  if (C.kind == PARAM_NUMERIC)
+    C.kind = PARAM_GEO_COORD;
+  if (E.kind == PARAM_TERM)
+    E.kind = PARAM_GEO_UNIT;
+  A = NewGeoFilter_FromParams(&B, &C, &D, &E);
+}
 
 /////////////////////////////////////////////////////////////////
 // Primitives - numbers and strings
@@ -576,3 +586,31 @@ term(A) ::= NUMBER(B) . {
     A = B; 
 }
 
+///////////////////////////////////////////////////////////////////////////////////
+// Parameterized Primitives (actual numeric or string, or a parameter/placeholder)
+///////////////////////////////////////////////////////////////////////////////////
+
+param_term(A) ::= TERM(B). [PARAM] {
+  B.kind = PARAM_NONE;
+  A = B;
+}
+
+param_term(A) ::= param(B). [PARAM] {
+  B.kind = PARAM_TERM;
+  A = B;
+}
+
+param_num(A) ::= NUMBER(B). [PARAM] {
+  B.kind = PARAM_NONE;
+  A = B;
+}
+
+param_num(A) ::= param(B). [PARAM] {
+  B.kind = PARAM_NUMERIC;
+  A = B;
+}
+
+param(A) ::= ATTRIBUTE(B) . [ATTRIBUTE] {
+  B.kind = PARAM_ANY;
+  A = B;
+}

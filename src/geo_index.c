@@ -3,6 +3,7 @@
 #include "rmutil/util.h"
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
+#include "param.h"
 
 static double extractUnitFactor(GeoDistance unit);
 
@@ -60,6 +61,12 @@ void GeoFilter_Free(GeoFilter *gf) {
         NumericFilter_Free(gf->numericFilters[i]);
     }
     rm_free(gf->numericFilters);
+  }
+  if (gf->params) {
+    for (int i = 0; i < GEO_FILTER_PARAMS_COUNT; i++) {
+      if ((*gf->params)[i].kind != PARAM_NONE)
+        Param_Free(&(*gf->params)[i]);
+    }
   }
   rm_free(gf);
 }
@@ -166,6 +173,7 @@ GeoFilter *NewGeoFilter(double lon, double lat, double radius, const char *unit)
       .lon = lon,
       .lat = lat,
       .radius = radius,
+      .params = NULL,
   };
   if (unit) {
     gf->unitType = GeoDistance_Parse(unit);
@@ -173,6 +181,58 @@ GeoFilter *NewGeoFilter(double lon, double lat, double radius, const char *unit)
     gf->unitType = GEO_DISTANCE_KM;
   }
   return gf;
+}
+
+
+#define SET_PARAM(ptr, field, param, i)                         \
+  if (param->kind == PARAM_NONE) {                              \
+    ptr->field = param->numval;                                 \
+  } else {                                                      \
+    (*ptr->params)[i].name = rm_strndup(param->s, param->len);  \
+    (*ptr->params)[i].len = param->len;                         \
+    (*ptr->params)[i].kind = param->kind;                       \
+    (*ptr->params)[i].target = &ptr->field;                     \
+  }
+
+
+GeoFilter *NewGeoFilter_FromParams(QueryToken *lon_param, QueryToken *lat_param, QueryToken *radius_param, QueryToken *unit_param) {
+  GeoFilter *gf = rm_malloc(sizeof(*gf));
+  gf->params = rm_calloc(1, sizeof(*gf->params));
+  //SET_PARAM(gf, property, lat_param,    0);
+  SET_PARAM(gf, lat,      lat_param,    1);
+  SET_PARAM(gf, lon,      lon_param,    2);
+  SET_PARAM(gf, radius,   radius_param, 3);
+
+  if (unit_param->kind == PARAM_NONE) {
+    if (unit_param->s) {
+      gf->unitType = GeoDistance_Parse(unit_param->s);
+    } else {
+      gf->unitType = GEO_DISTANCE_KM;
+    }
+  } else {
+    gf->unitType = GEO_DISTANCE_KM;
+    (*gf->params)[4].name = rm_strndup(unit_param->s, unit_param->len);
+    (*gf->params)[4].len = unit_param->len;
+    (*gf->params)[4].kind = unit_param->kind;
+    (*gf->params)[4].target = &gf->unitType;
+  }
+  return gf;
+}
+
+int GeoFilter_EvalParams(dict *params, GeoFilter *gf, QueryError *status) {
+  if (gf->params) {
+    int resolved = 0;
+    for (size_t i = 1; i < GEO_FILTER_PARAMS_COUNT; i++) {
+      int res = Param_Resolve(&(*gf->params)[i], params, status);
+      if (res < 0)
+        return REDISMODULE_ERR;
+      else if (res > 0)
+        resolved = 1;
+    }
+    if (resolved && !GeoFilter_Validate(gf, status))
+        return REDISMODULE_ERR;
+  }
+  return REDISMODULE_OK;
 }
 
 /* Make sure that the parameters of the filter make sense - i.e. coordinates are in range, radius is
