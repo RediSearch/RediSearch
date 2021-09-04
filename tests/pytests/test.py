@@ -2348,18 +2348,20 @@ def testIssue_848(env):
 
 def testMod_309(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
+    conn = getConnectionByEnv(env)
     for i in range(100000):
-        env.cmd('HSET', 'doc%d'%i, 'test', 'foo')
+        conn.execute_command('HSET', 'doc%d'%i, 'test', 'foo')
     res = env.cmd('FT.AGGREGATE', 'idx', 'foo')
     env.assertEqual(len(res), 100001)
 
     # test with cursor
+    env.skipOnCluster()
     res = env.cmd('FT.AGGREGATE', 'idx', 'foo', 'WITHCURSOR')
     l = len(res[0]) - 1 # do not count the number of results (the first element in the results)
     cursor = res[1]
     while cursor != 0:
         r, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', str(cursor))
-        l += (len(r) - 1)
+        l += len(r) - 1
     env.assertEqual(l, 100000)
 
 def testIssue_865(env):
@@ -3222,7 +3224,7 @@ def testMod1452(env):
     conn = getConnectionByEnv(env)
 
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
-    
+
     conn.execute_command('HSET', 'doc1', 't', 'foo')
 
     # here we only check that its not crashing
