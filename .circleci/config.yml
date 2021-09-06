@@ -169,25 +169,27 @@ commands:
           timeout: 60m
           no_output_timeout: 20m
           command: |
-              cd ./tests/ci.benchmarks
-              export AWS_ACCESS_KEY_ID=$PERFORMANCE_EC2_ACCESS_KEY
-              export AWS_SECRET_ACCESS_KEY=$PERFORMANCE_EC2_SECRET_KEY
-              export AWS_DEFAULT_REGION=$PERFORMANCE_EC2_REGION
-              export EC2_PRIVATE_PEM=$PERFORMANCE_EC2_PRIVATE_PEM
+            cd ./tests/ci.benchmarks
+            export AWS_ACCESS_KEY_ID=$PERFORMANCE_EC2_ACCESS_KEY
+            export AWS_SECRET_ACCESS_KEY=$PERFORMANCE_EC2_SECRET_KEY
+            export AWS_DEFAULT_REGION=$PERFORMANCE_EC2_REGION
+            export EC2_PRIVATE_PEM=$PERFORMANCE_EC2_PRIVATE_PEM
 
-              redisbench-admin run-remote \
-                --module_path << parameters.rejson_module_path >> \
-                --required-module ReJSON \
-                --module_path << parameters.module_path >> \
-                --github_actor << parameters.github_actor >> \
-                --github_repo $CIRCLE_PROJECT_REPONAME \
-                --github_org $CIRCLE_PROJECT_USERNAME \
-                --required-module search \
-                --github_sha $CIRCLE_SHA1 \
-                --github_branch $CIRCLE_BRANCH \
-                --upload_results_s3 \
-                --triggering_env circleci \
-                --push_results_redistimeseries
+            redisbench-admin run-remote \
+              --module_path << parameters.rejson_module_path >> \
+              --required-module ReJSON \
+              --module_path << parameters.module_path >> \
+              --github_actor << parameters.github_actor >> \
+              --github_repo $CIRCLE_PROJECT_REPONAME \
+              --github_org $CIRCLE_PROJECT_USERNAME \
+              --required-module search \
+              --github_sha $CIRCLE_SHA1 \
+              --github_branch $CIRCLE_BRANCH \
+              --upload_results_s3 \
+              --triggering_env circleci \
+              --push_results_redistimeseries
+
+#----------------------------------------------------------------------------------------------------------------------------------
 
 jobs:
   ubuntu:
