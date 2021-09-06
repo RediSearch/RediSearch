@@ -233,11 +233,17 @@ run:
 	@redis-server --loadmodule $(abspath $(TARGET))
 
 #----------------------------------------------------------------------------------------------
+export REJSON ?= 1
 
 BENCHMARK_ARGS = redisbench-admin run-local
 
 ifneq ($(REMOTE),)
 	BENCHMARK_ARGS = redisbench-admin run-remote 
+endif
+
+ifeq ($(REJSON),1)
+BENCHMARK_ARGS += --module_path $(realpath $(REJSON_PATH)) \
+	--required-module ReJSON
 endif
 
 BENCHMARK_ARGS += --module_path $(realpath $(TARGET)) \
@@ -252,7 +258,6 @@ benchmark: $(TARGET)
 	cd ./tests/ci.benchmarks; $(BENCHMARK_ARGS) ; cd ../../
 
 #----------------------------------------------------------------------------------------------
-export REJSON ?= 1
 
 ifeq ($(TESTDEBUG),1)
 override CTEST_ARGS += --debug
