@@ -9,8 +9,7 @@
 #include "query_error.h"
 #include "dep/geo/rs_geo.h"
 #include "numeric_index.h"
-#include "param.h"
-#include "query_parser/tokenizer.h"
+#include "query_node.h"
 
 typedef struct geoIndex {
   RedisSearchCtx *ctx;
@@ -41,14 +40,10 @@ typedef struct GeoFilter {
   double radius;
   GeoDistance unitType;
   NumericFilter **numericFilters;
-  Param (*params)[GEO_FILTER_PARAMS_COUNT];
 } GeoFilter;
 
 /* Create a geo filter from parsed strings and numbers */
 GeoFilter *NewGeoFilter(double lon, double lat, double radius, const char *unit);
-
-/* Create a geo filter from actual or parameterized strings and numbers */
-GeoFilter *NewGeoFilter_FromParams(QueryToken *lon_param, QueryToken *lat_param, QueryToken *radius_param, QueryToken *unit_param);
 
 /*
  * Substitute parameters with actual values used by geo filter
@@ -56,14 +51,14 @@ GeoFilter *NewGeoFilter_FromParams(QueryToken *lon_param, QueryToken *lat_param,
  * Returns REDISMODULE_ERR
  * Otherwise, returns REDISMODULE_OK
  */
-int GeoFilter_EvalParams(dict *params, GeoFilter *gf, QueryError *status);
+int GeoFilter_EvalParams(dict *params, QueryNode *node, QueryError *status);
 
 GeoDistance GeoDistance_Parse(const char *s);
 const char *GeoDistance_ToString(GeoDistance dist);
 
 /* Make sure that the parameters of the filter make sense - i.e. coordinates are in range, radius is
  * sane, unit is valid. Return 1 if valid, 0 if not, and set the error string into err */
-int GeoFilter_Validate(GeoFilter *f, QueryError *status);
+int GeoFilter_Validate(const GeoFilter *gf, QueryError *status);
 
 /* Parse a geo filter from redis arguments. We assume the filter args start at argv[0] */
 int GeoFilter_Parse(GeoFilter *gf, ArgsCursor *ac, QueryError *status);

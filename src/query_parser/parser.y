@@ -7,9 +7,9 @@
 %left NUMBER.
 %left STOPWORD.
 
+%left PARAM.
 %left TERMLIST.
 %left TERM.
-%left PARAM.
 %left PREFIX.
 %left PERCENT.
 %left ATTRIBUTE.
@@ -42,7 +42,8 @@
 #include "../util/arr.h"
 #include "../rmutil/vector.h"
 #include "../query_node.h"
-#include "../param.h"
+#include "../query_param.h"
+#include "../query_internal.h"
 
 // strndup + lowercase in one pass!
 char *strdupcase(const char *s, size_t len) {
@@ -136,8 +137,8 @@ static int one_not_null(void *a, void *b, void *out) {
 %destructor tag_list { QueryNode_Free($$); }
 
 //%type 
-%type geo_filter { GeoFilter *}
-%destructor geo_filter { GeoFilter_Free($$); }
+%type geo_filter { QueryParam *}
+%destructor geo_filter { QueryParam_Free($$); }
 
 %type modifierlist { Vector* }
 %destructor modifierlist { 
@@ -328,6 +329,10 @@ expr(A) ::= QUOTE term(B) QUOTE. [TERMLIST] {
 
 expr(A) ::= term(B) . [LOWEST]  {
    A = NewTokenNode(ctx, strdupcase(B.s, B.len), -1);
+}
+
+expr(A) ::= param_term(B) . [PARAM]  {
+  A = NewTokenNode_WithParam(ctx, &B);
 }
 
 expr(A) ::= prefix(B) . [PREFIX]  {
@@ -534,7 +539,7 @@ numeric_range(A) ::= LSQB num(B) num(C) RSQB. [NUMBER] {
 
 expr(A) ::= modifier(B) COLON geo_filter(C). {
     // we keep the capitalization as is
-    C->property = rm_strndup(B.s, B.len);
+    C->gf->property = rm_strndup(B.s, B.len);
     A = NewGeofilterNode(C);
 }
 
@@ -545,19 +550,20 @@ geo_filter(A) ::= LSQB num(B) num(C) num(D) TERM(E) RSQB. [NUMBER] {
     } else {
         strcpy(buf, "INVALID");
     }
-    A = NewGeoFilter(B.num, C.num, D.num, buf);
-    GeoFilter_Validate(A, ctx->status);
+    GeoFilter *gf = NewGeoFilter(B.num, C.num, D.num, buf);
+    GeoFilter_Validate(gf, ctx->status);
+    A = NewGeoFilterQueryParam(gf);
 }
 
 geo_filter(A) ::= LSQB param_num(B) param_num(C) param_num(D) param_term(E) RSQB. [PARAM] {
-  // Update param kind to be more specific if possible
-  if (B.kind == PARAM_NUMERIC)
-    B.kind = PARAM_GEO_COORD;
-  if (C.kind == PARAM_NUMERIC)
-    C.kind = PARAM_GEO_COORD;
-  if (E.kind == PARAM_TERM)
-    E.kind = PARAM_GEO_UNIT;
-  A = NewGeoFilter_FromParams(&B, &C, &D, &E);
+  // Update token type to be more specific if possible
+  if (B.type == QT_PARAM_NUMERIC)
+    B.type = QT_PARAM_GEO_COORD;
+  if (C.type == QT_PARAM_NUMERIC)
+    C.type = PARAM_GEO_COORD;
+  if (E.type == QT_PARAM_TERM)
+    E.type = QT_PARAM_GEO_UNIT;
+  A = NewGeoFilterQueryParam_WithParams(&B, &C, &D, &E);
 }
 
 /////////////////////////////////////////////////////////////////
@@ -591,26 +597,26 @@ term(A) ::= NUMBER(B) . {
 ///////////////////////////////////////////////////////////////////////////////////
 
 param_term(A) ::= TERM(B). [PARAM] {
-  B.kind = PARAM_NONE;
+  B.type = QT_TERM;
   A = B;
 }
 
 param_term(A) ::= param(B). [PARAM] {
-  B.kind = PARAM_TERM;
+  B.type = QT_PARAM_TERM;
   A = B;
 }
 
 param_num(A) ::= NUMBER(B). [PARAM] {
-  B.kind = PARAM_NONE;
+  B.type = QT_NUMERIC;
   A = B;
 }
 
 param_num(A) ::= param(B). [PARAM] {
-  B.kind = PARAM_NUMERIC;
+  B.type = QT_PARAM_NUMERIC;
   A = B;
 }
 
 param(A) ::= ATTRIBUTE(B) . [ATTRIBUTE] {
-  B.kind = PARAM_ANY;
+  B.type = QT_PARAM_ANY;
   A = B;
 }

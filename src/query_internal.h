@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <query_error.h>
 #include <query_node.h>
+#include <query_param.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -62,9 +63,13 @@ QueryNode *NewPhraseNode(int exact);
 QueryNode *NewPrefixNode(QueryParseCtx *q, const char *s, size_t len);
 QueryNode *NewFuzzyNode(QueryParseCtx *q, const char *s, size_t len, int maxDist);
 QueryNode *NewNumericNode(const struct NumericFilter *flt);
-QueryNode *NewIdFilterNode(const t_docId *, size_t);
-QueryNode *NewGeofilterNode(const struct GeoFilter *flt);
+QueryNode *NewGeofilterNode(QueryParam *p);
 QueryNode *NewTagNode(const char *tag, size_t len);
+
+QueryNode *NewTokenNode_WithParam(QueryParseCtx *q, QueryToken *qt);
+void QueryNode_InitParams(QueryNode *n, size_t num);
+void QueryNode_SetParam(Param *target_param, void *target_value, size_t *target_len, QueryToken *source);
+
 void QueryNode_SetFieldMask(QueryNode *n, t_fieldMask mask);
 
 /* Free the query node and its children recursively */

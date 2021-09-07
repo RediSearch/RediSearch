@@ -54,6 +54,14 @@ void QueryNode_Free(QueryNode *n) {
     n->children = NULL;
   }
 
+  if (n->params) {
+    for (size_t ii = 0; ii < QueryNode_NumParams(n); ++ii) {
+      Param_Free(&n->params[ii]);
+    }
+    array_free(n->params);
+    n->params = NULL;
+  }
+
   switch (n->type) {
     case QN_TOKEN:
       QueryTokenNode_Free(&n->tn);
@@ -129,6 +137,29 @@ QueryNode *NewTokenNode(QueryParseCtx *q, const char *s, size_t len) {
   return ret;
 }
 
+QueryNode *NewTokenNode_WithParam(QueryParseCtx *q, QueryToken *qt) {
+  QueryNode *ret = NewQueryNode(QN_TOKEN);
+  q->numTokens++;
+
+  if (qt->type == QT_TERM) {
+    ret->tn =
+        (QueryTokenNode){.str = (char *)qt->s, .len = strlen(qt->s), .expanded = 0, .flags = 0};
+  } else {
+    ret->tn = (QueryTokenNode){.str = NULL, .len = 0, .expanded = 0, .flags = 0};
+    QueryNode_InitParams(ret, 1);
+    QueryNode_SetParam(&ret->params[0], &ret->tn.str, &ret->tn.len, qt);
+  }
+  return ret;
+}
+
+void QueryNode_InitParams(QueryNode *n, size_t num) {
+  n->params = array_newlen(Param, num);
+}
+
+void QueryNode_SetParam(Param *target_param, void *target_value, size_t *target_len, QueryToken *source) {
+    QueryParam_SetParam(target_param, target_value, target_len, source); //FIXME: Move to a common location for QueryNode and QueryParam
+}
+
 QueryNode *NewPrefixNode(QueryParseCtx *q, const char *s, size_t len) {
   QueryNode *ret = NewQueryNode(QN_PREFIX);
   q->numTokens++;
@@ -175,9 +206,14 @@ QueryNode *NewNumericNode(const NumericFilter *flt) {
   return ret;
 }
 
-QueryNode *NewGeofilterNode(const GeoFilter *flt) {
+QueryNode *NewGeofilterNode(QueryParam *p) {
+  assert(p->type == QP_GEO_FILTER);
   QueryNode *ret = NewQueryNode(QN_GEO);
-  ret->gn.gf = flt;
+  // Move data and params pointers
+  ret->gn.gf = p->gf;
+  ret->params = p->params;
+  p->gf = NULL;
+  p->params = NULL;
   return ret;
 }
 
@@ -242,10 +278,22 @@ static void QueryNode_Expand(RSQueryTokenExpander expander, RSQueryExpanderCtx *
   }
 }
 
+int TokenNode_EvalParams(dict *params, QueryNode *node, QueryError *status) {
+  if (node->params) {
+    int res = QueryParam_Resolve(&node->params[0], params, status);
+    if (res < 0)
+      return REDISMODULE_ERR;
+  }
+  return REDISMODULE_OK;
+}
+
 IndexIterator *Query_EvalTokenNode(QueryEvalCtx *q, QueryNode *qn) {
   if (qn->type != QN_TOKEN) {
     return NULL;
   }
+
+  if (TokenNode_EvalParams(q->opts->params, qn, q->status) == REDISMODULE_ERR)
+    return NULL;
 
   // if there's only one word in the query and no special field filtering,
   // and we are not paging beyond MAX_SCOREINDEX_SIZE
@@ -518,16 +566,16 @@ static IndexIterator *Query_EvalNumericNode(QueryEvalCtx *q, QueryNumericNode *n
   return NewNumericFilterIterator(q->sctx, node->nf, q->conc, INDEXFLD_T_NUMERIC);
 }
 
-static IndexIterator *Query_EvalGeofilterNode(QueryEvalCtx *q, QueryGeofilterNode *node,
+static IndexIterator *Query_EvalGeofilterNode(QueryEvalCtx *q, QueryNode *node,
                                               double weight) {
   const FieldSpec *fs =
-      IndexSpec_GetField(q->sctx->spec, node->gf->property, strlen(node->gf->property));
+      IndexSpec_GetField(q->sctx->spec, node->gn.gf->property, strlen(node->gn.gf->property));
   if (!fs || !FIELD_IS(fs, INDEXFLD_T_GEO)) {
     return NULL;
   }
-  if (GeoFilter_EvalParams(q->opts->params, (GeoFilter*)node->gf, q->status) == REDISMODULE_ERR)
+  if (GeoFilter_EvalParams(q->opts->params, node, q->status) == REDISMODULE_ERR)
     return NULL;
-  return NewGeoRangeIterator(q->sctx, node->gf);
+  return NewGeoRangeIterator(q->sctx, node->gn.gf);
 }
 
 static IndexIterator *Query_EvalIdFilterNode(QueryEvalCtx *q, QueryIdFilterNode *node) {
@@ -797,7 +845,7 @@ IndexIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
     case QN_OPTIONAL:
       return Query_EvalOptionalNode(q, n);
     case QN_GEO:
-      return Query_EvalGeofilterNode(q, &n->gn, n->opts.weight);
+      return Query_EvalGeofilterNode(q, n, n->opts.weight);
     case QN_IDS:
       return Query_EvalIdFilterNode(q, &n->fn);
     case QN_WILDCARD:

@@ -611,14 +611,17 @@ static int handleParams (AREQ *req, ArgsCursor *ac, QueryError *status) {
     return REDISMODULE_ERR;
   }
   //if (!AC_IsAtEnd(ac)) {
-  //  QueryError_SetError(status, QUERY_EADDARGS,"Parameters must be specified last arguments in the command");
+  //  QueryError_SetError(status, QUERY_EADDARGS,"Parameters must be specified as last arguments in the command");
   //}
 
   dict *params = dictCreate(&dictTypeHeapStrings, NULL);
   while (!AC_IsAtEnd(&paramsArgs)) {
     const char *param = AC_GetStringNC(&paramsArgs, NULL);
     const char *value = AC_GetStringNC(&paramsArgs, NULL);
-    dictAdd(params, (void*)param, (void*)value);
+    if (DICT_ERR == dictAdd(params, (void*)param, (void*)value)) {
+      QueryError_SetErrorFmt(status, QUERY_EADDARGS, "Duplicated parameter `%s`", param);
+      return REDISMODULE_ERR;
+    }
   }
   req->searchopts.params = params;
 
@@ -807,8 +810,8 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
 
   ConcurrentSearchCtx_Init(sctx->redisCtx, &req->conc);
   req->rootiter = QAST_Iterate(ast, opts, sctx, &req->conc, status);
-  // FIXME: Use status->detail? Avoid potentially too noisy log?
-  RS_LOG_ASSERT(QueryError_HasError(status), "Query has error");
+  if (QueryError_HasError(status))
+    return REDISMODULE_ERR;
   if (IsProfile(req)) {
     // Add a Profile iterators before every iterator in the tree
     Profile_AddIters(&req->rootiter);

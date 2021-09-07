@@ -32,8 +32,8 @@ static int ParseInteger(const char *arg, long long *val) {
 /* Parse string into double, returning 1 on success, 0 otherwise */
 static int ParseDouble(const char *arg, double *d) {
   char *e;
-  *d = strtod(arg, &e);
   errno = 0;
+  *d = strtod(arg, &e);
 
   if ((errno == ERANGE && (*d == HUGE_VAL || *d == -HUGE_VAL)) || (errno != 0 && *d == 0) ||
       *e != '\0') {

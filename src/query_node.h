@@ -3,7 +3,7 @@
 #include <stdlib.h>
 #include "redisearch.h"
 #include "query_error.h"
-//#include "numeric_index.h"
+#include "param.h"
 
 struct RSQueryNode;
 struct numericFilter;
@@ -155,6 +155,7 @@ typedef struct RSQueryNode {
   /* The node type, for resolving the union access */
   QueryNodeType type;
   QueryNodeOptions opts;
+  Param *params;
   struct RSQueryNode **children;
 } QueryNode;
 
@@ -166,6 +167,9 @@ void QueryNode_ClearChildren(QueryNode *parent, int shouldFree);
 
 #define QueryNode_NumChildren(qn) ((qn)->children ? array_len((qn)->children) : 0)
 #define QueryNode_GetChild(qn, ix) (QueryNode_NumChildren(qn) > ix ? (qn)->children[ix] : NULL)
+
+#define QueryNode_NumParams(qn) ((qn)->params ? array_len((qn)->params) : 0)
+#define QueryNode_GetParam(qn, ix) (QueryNode_NumParams(qn) > ix ? (qn)->params[ix] : NULL)
 
 typedef int (*QueryNode_ForEachCallback)(QueryNode *node, QueryNode *q, void *ctx);
 int QueryNode_ForEach(QueryNode *q, QueryNode_ForEachCallback callback, void *ctx, int reverse);

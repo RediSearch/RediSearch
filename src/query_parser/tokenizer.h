@@ -3,7 +3,6 @@
 
 #include <stdlib.h>
 #include "../tokenize.h"
-#include "param.h"
 
 /* A query-specific tokenizer, that reads symbols like quots, pipes, etc */
 typedef struct {
@@ -16,9 +15,16 @@ typedef struct {
 
 } QueryTokenizer;
 
-/* Quer tokenizer token type */
-// typedef enum { T_WORD, T_QUOTE, T_AND, T_OR, T_END, T_STOPWORD }
-// QueryTokenType;
+
+typedef enum {
+  QT_TERM,
+  QT_NUMERIC,
+  QT_PARAM_ANY,
+  QT_PARAM_TERM,
+  QT_PARAM_NUMERIC,
+  QT_PARAM_GEO_COORD,
+  QT_PARAM_GEO_UNIT,
+} QueryTokenType;
 
 /* A token in the process of parsing a query. Unlike the document tokenizer,  it
 works iteratively and is not callback based.  */
@@ -26,10 +32,8 @@ typedef struct {
   const char *s;
   int len;
   int pos;
-  //char *field;      //FIXME: remove unused field
   double numval;
-  // QueryTokenType ; //FIXME: remove commented out code
-  ParamKind kind;
+  QueryTokenType type;
 } QueryToken;
 
 typedef struct {

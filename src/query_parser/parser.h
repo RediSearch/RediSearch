@@ -6,9 +6,9 @@
 #define MINUS                            6
 #define NUMBER                           7
 #define STOPWORD                         8
-#define TERMLIST                         9
-#define TERM                            10
-#define PARAM                           11
+#define PARAM                            9
+#define TERMLIST                        10
+#define TERM                            11
 #define PREFIX                          12
 #define PERCENT                         13
 #define ATTRIBUTE                       14
