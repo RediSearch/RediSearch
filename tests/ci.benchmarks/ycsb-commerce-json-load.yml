@@ -35,3 +35,4 @@ exporter:
       - "$.Tests.INSERT.Return_OK"
 kpis:
   - eq: { $.Tests.INSERT.Return_OK: 100000 }
+  - ge: { $.Tests.OVERALL.Throughput_ops_sec_: 2000 }
