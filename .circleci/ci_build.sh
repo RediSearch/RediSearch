@@ -2,7 +2,7 @@
 
 set -e
 echo $PATH
-export PATH/usr/local/bin:$PATH
+export PATH=/usr/local/bin:$PATH
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 ROOT=$(cd $HERE/.. && pwd)
