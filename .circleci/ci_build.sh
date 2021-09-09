@@ -3,6 +3,7 @@
 set -e
 echo $PATH
 export PATH=$PATH:/usr/local/bin
+ls -l /usr/local/bin/cmake
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 ROOT=$(cd $HERE/.. && pwd)
