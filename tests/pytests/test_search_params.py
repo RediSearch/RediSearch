@@ -66,12 +66,20 @@ def test_binary_data(env):
     res2 = conn.execute_command('FT.SEARCH', 'idx', '@bin:$val', 'NOCONTENT', 'PARAMS', '2', 'val', '10010101001010101100101011001101010101')
     env.assertEqual(res2, res1)
 
-    res1 = conn.execute_command('FT.SEARCH', 'idx', '@bin:\xd7\x93\xd7\x90*', 'NOCONTENT')
+    # res1 = conn.execute_command('FT.SEARCH', 'idx', '@bin:\xd7\x93\xd7\x90*', 'NOCONTENT')
+    # env.assertEqual(res1, [1L, 'key1'])
+    #
+    # # FIXME: Not evaluated as Prefix Node after parameter is substituted
+    # res2 = conn.execute_command('FT.SEARCH', 'idx', '@bin:$val', 'NOCONTENT', 'PARAMS', '2', 'val', '\xd7\x93\xd7\x90*')
+    # #env.assertEqual(res2, res1)
+
+    res1 = conn.execute_command('FT.SEARCH', 'idx', '@bin:' + bin_data1, 'NOCONTENT')
     env.assertEqual(res1, [1L, 'key1'])
 
     # FIXME: Not evaluated as Prefix Node after parameter is substituted
-    res2 = conn.execute_command('FT.SEARCH', 'idx', '@bin:$val', 'NOCONTENT', 'PARAMS', '2', 'val', '\xd7\x93\xd7\x90*')
-    #env.assertEqual(res2, res1)
+    res2 = conn.execute_command('FT.SEARCH', 'idx', '@bin:$val', 'NOCONTENT', 'PARAMS', '2', 'val', bin_data1)
+    env.assertEqual(res2, res1)
+
 
 
 def test_expression(env):
@@ -99,7 +107,7 @@ def test_tags(env):
     env.assertEqual(conn.execute_command('HSET', 'key2', 'tags', 't100,t300'), 1L)
     env.assertEqual(conn.execute_command('HSET', 'key3', 'tags', 't200,t300'), 1L)
 
-    res1 = conn.execute_command('FT.SEARCH', 'idx', '@tags:{t200|t100}', 'NOCONTENT', 'PARAMS', '2', 'myT', 't200')
+    res1 = conn.execute_command('FT.SEARCH', 'idx', '@tags:{t200|t100}', 'NOCONTENT')
     env.assertEqual(res1, [3L, 'key1', 'key2', 'key3'])
     res2 = conn.execute_command('FT.SEARCH', 'idx', '@tags:{$myT1|$myT2}', 'NOCONTENT', 'PARAMS', '4', 'myT1', 't100', 'myT2', 't200')
     env.assertEqual(res2, res1)
