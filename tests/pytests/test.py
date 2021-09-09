@@ -2065,6 +2065,14 @@ def testTimeout(env):
     env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', -1).error()
     env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', 'STR').error()
 
+    # test FT.AGGREGATE
+    env.expect('FT.AGGREGATE', 'myIdx', 'aa*|aa*',
+                                        'LOAD', 1, 't',
+                                        'GROUPBY', 1, '@t',
+                                        'REDUCE', 'COUNT', 0,
+                                        'APPLY', 'contains(@t, "a1")', 'AS', 'contain1') \
+                                        .contains('Timeout limit was reached')
+
     # test cursor
     res = env.cmd('FT.AGGREGATE', 'myIdx', 'aa*', 'WITHCURSOR', 'count', 50, 'timeout', 500)
     l = len(res[0]) - 1 # do not count the number of results (the first element in the results)
@@ -2075,6 +2083,7 @@ def testTimeout(env):
         r, cursor = env.cmd('FT.CURSOR', 'READ', 'myIdx', str(cursor))
         l += (len(r) - 1)
     env.assertEqual(l, 1000)
+
 
     # restore old configuration
     env.cmd('ft.config', 'set', 'timeout', '500')
