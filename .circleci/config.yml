@@ -370,7 +370,7 @@ workflows:
       - centos:
           <<: *on-any-branch
       - macos:
-          <<: *on-version-tags
+          <<: *on-any-branch
       - debug-asan:
           <<: *on-any-branch
       - debug-msan:
