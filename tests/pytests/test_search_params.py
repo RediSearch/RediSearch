@@ -89,3 +89,24 @@ def test_expression(env):
     env.assertEqual(res1, [2L, 'key1', 'key2'])
 
 
+def test_tags(env):
+    conn = getConnectionByEnv(env)
+
+    env.assertOk(conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'tags', 'TAG'))
+    waitForIndex(env, 'idx')
+
+    env.assertEqual(conn.execute_command('HSET', 'key1', 'tags', 't100,t200'), 1L)
+    env.assertEqual(conn.execute_command('HSET', 'key2', 'tags', 't100,t300'), 1L)
+    env.assertEqual(conn.execute_command('HSET', 'key3', 'tags', 't200,t300'), 1L)
+
+    res1 = conn.execute_command('FT.SEARCH', 'idx', '@tags:{t200|t100}', 'NOCONTENT', 'PARAMS', '2', 'myT', 't200')
+    env.assertEqual(res1, [3L, 'key1', 'key2', 'key3'])
+    res2 = conn.execute_command('FT.SEARCH', 'idx', '@tags:{$myT1|$myT2}', 'NOCONTENT', 'PARAMS', '4', 'myT1', 't100', 'myT2', 't200')
+    env.assertEqual(res2, res1)
+
+    res1 = conn.execute_command('FT.SEARCH', 'idx', '@tags:{t200}', 'NOCONTENT', 'PARAMS', '2', 'myT', 't200')
+    env.assertEqual(res1, [2L, 'key1', 'key3'])
+    res2 = conn.execute_command('FT.SEARCH', 'idx', '@tags:{$myT}', 'NOCONTENT', 'PARAMS', '2', 'myT', 't200')
+    env.assertEqual(res2, res1)
+
+

@@ -479,6 +479,11 @@ tag_list(A) ::= LB term(B) . [TAGLIST] {
     QueryNode_AddChild(A, NewTokenNode(ctx, rm_strndup(B.s, B.len), -1));
 }
 
+tag_list(A) ::= LB param_term(B) . [TAGLIST] {
+  A = NewPhraseNode(0);
+  QueryNode_AddChild(A, NewTokenNode_WithParam(ctx, &B));
+}
+
 tag_list(A) ::= LB STOPWORD(B) . [TAGLIST] {
     A = NewPhraseNode(0);
     QueryNode_AddChild(A, NewTokenNode(ctx, rm_strndup(B.s, B.len), -1));
@@ -497,6 +502,11 @@ tag_list(A) ::= LB termlist(B) . [TAGLIST] {
 tag_list(A) ::= tag_list(B) OR term(C) . [TAGLIST] {
     QueryNode_AddChild(B, NewTokenNode(ctx, rm_strndup(C.s, C.len), -1));
     A = B;
+}
+
+tag_list(A) ::= tag_list(B) OR param_term(C) . [TAGLIST] {
+  QueryNode_AddChild(B, NewTokenNode_WithParam(ctx, &C));
+  A = B;
 }
 
 tag_list(A) ::= tag_list(B) OR STOPWORD(C) . [TAGLIST] {

@@ -707,10 +707,22 @@ static void tag_strtolower(char *str, size_t *len) {
   *str = '\0';
 }
 
+int TagNode_EvalParams(dict *params, QueryNode *node, QueryError *status) {
+  if (node->params) {
+    int res = QueryParam_Resolve(&node->params[0], params, status);
+    if (res < 0)
+      return REDISMODULE_ERR;
+  }
+  return REDISMODULE_OK;
+}
+
 static IndexIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, QueryNode *n,
                                               IndexIteratorArray *iterout, double weight,
                                               int caseSensitive) {
   IndexIterator *ret = NULL;
+
+  if (TagNode_EvalParams(q->opts->params, n, q->status) == REDISMODULE_ERR)
+    return NULL;
 
   if (n->tn.str && !caseSensitive) {
     tag_strtolower(n->tn.str, &n->tn.len);
