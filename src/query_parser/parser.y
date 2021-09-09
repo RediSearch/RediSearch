@@ -391,8 +391,7 @@ expr(A) ::= TILDE expr(B) . {
 /////////////////////////////////////////////////////////////////
 
 prefix(A) ::= PREFIX(B) . [PREFIX] {
-    B.s = strdupcase(B.s, B.len);
-    A = NewPrefixNode(ctx, B.s, strlen(B.s));
+    A = NewPrefixNode_WithParam(ctx, &B);
 }
 
 /////////////////////////////////////////////////////////////////
@@ -554,13 +553,7 @@ expr(A) ::= modifier(B) COLON geo_filter(C). {
 }
 
 geo_filter(A) ::= LSQB num(B) num(C) num(D) TERM(E) RSQB. [NUMBER] {
-    char buf[16] = {0};
-    if (E.len < 16) {
-        memcpy(buf, E.s, E.len);
-    } else {
-        strcpy(buf, "INVALID");
-    }
-    GeoFilter *gf = NewGeoFilter(B.num, C.num, D.num, buf);
+    GeoFilter *gf = NewGeoFilter(B.num, C.num, D.num, E.s, E.len);
     GeoFilter_Validate(gf, ctx->status);
     A = NewGeoFilterQueryParam(gf);
 }

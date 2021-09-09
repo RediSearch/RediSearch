@@ -151,6 +151,16 @@ GeoDistance GeoDistance_Parse(const char *s) {
   return GEO_DISTANCE_INVALID;
 }
 
+GeoDistance GeoDistance_Parse_Buffer(const char *s, size_t len) {
+  char buf[16] = {0};
+  if (len < 16) {
+    memcpy(buf, s, len);
+  } else {
+    strcpy(buf, "INVALID");
+  }
+  return GeoDistance_Parse(buf);
+}
+
 const char *GeoDistance_ToString(GeoDistance d) {
 #define X(c, val)              \
   if (d == GEO_DISTANCE_##c) { \
@@ -162,7 +172,7 @@ const char *GeoDistance_ToString(GeoDistance d) {
 }
 
 /* Create a geo filter from parsed strings and numbers */
-GeoFilter *NewGeoFilter(double lon, double lat, double radius, const char *unit) {
+GeoFilter *NewGeoFilter(double lon, double lat, double radius, const char *unit, size_t unit_len) {
   GeoFilter *gf = rm_malloc(sizeof(*gf));
   *gf = (GeoFilter){
       .lon = lon,
@@ -170,7 +180,7 @@ GeoFilter *NewGeoFilter(double lon, double lat, double radius, const char *unit)
       .radius = radius,
   };
   if (unit) {
-    gf->unitType = GeoDistance_Parse(unit);
+    gf->unitType = GeoDistance_Parse_Buffer(unit, unit_len);
   } else {
     gf->unitType = GEO_DISTANCE_KM;
   }

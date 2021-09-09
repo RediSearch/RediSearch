@@ -142,8 +142,9 @@ QueryNode *NewTokenNode_WithParam(QueryParseCtx *q, QueryToken *qt) {
   q->numTokens++;
 
   if (qt->type == QT_TERM) {
+    size_t len = strlen(qt->s);
     ret->tn =
-        (QueryTokenNode){.str = (char *)qt->s, .len = strlen(qt->s), .expanded = 0, .flags = 0};
+        (QueryTokenNode){.str = strndup(qt->s, len), .len = len, .expanded = 0, .flags = 0};
   } else {
     ret->tn = (QueryTokenNode){.str = NULL, .len = 0, .expanded = 0, .flags = 0};
     QueryNode_InitParams(ret, 1);
@@ -165,6 +166,19 @@ QueryNode *NewPrefixNode(QueryParseCtx *q, const char *s, size_t len) {
   q->numTokens++;
 
   ret->pfx = (QueryPrefixNode){.str = (char *)s, .len = len, .expanded = 0, .flags = 0};
+  return ret;
+}
+
+QueryNode *NewPrefixNode_WithParam(QueryParseCtx *q, QueryToken *qt) {
+  QueryNode *ret = NewQueryNode(QN_PREFIX);
+  q->numTokens++;
+  if (qt->type == QT_TERM) {
+    ret->pfx = (QueryPrefixNode){.str = strndup(qt->s, qt->len), .len = qt->len, .expanded = 0, .flags = 0};
+  } else {
+    ret->pfx = (QueryPrefixNode){.str = NULL, .len = 0, .expanded = 0, .flags = 0}; //FIXME: Remove this line - unneeded zero initialization (done in NewQueryNode)
+    QueryNode_InitParams(ret, 1);
+    QueryNode_SetParam(&ret->params[0], &ret->pfx.str, &ret->pfx.len, qt);
+  }
   return ret;
 }
 
@@ -374,11 +388,22 @@ static IndexIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
   QueryNodeType type = prefixMode ? QN_PREFIX : QN_FUZZY;
   return NewUnionIterator(its, itsSz, q->docTable, 1, opts->weight, type, str);
 }
+
+int PrefixNode_EvalParams(dict *params, QueryNode *node, QueryError *status) {
+  if (node->params) {
+    int res = QueryParam_Resolve(&node->params[0], params, status);
+    if (res < 0) return REDISMODULE_ERR;
+  }
+  return REDISMODULE_OK;
+}
+
 /* Ealuate a prefix node by expanding all its possible matches and creating one big UNION on all
  * of them */
 static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
   RS_LOG_ASSERT(qn->type == QN_PREFIX, "query node type should be prefix");
 
+  if (PrefixNode_EvalParams(q->opts->params, qn, q->status) == REDISMODULE_ERR)
+    return NULL;
   // we allow a minimum of 2 letters in the prefx by default (configurable)
   if (qn->pfx.len < RSGlobalConfig.minTermPrefix) {
     return NULL;
@@ -386,7 +411,6 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
   Trie *terms = q->sctx->spec->terms;
 
   if (!terms) return NULL;
-
   return iterateExpandedTerms(q, terms, qn->pfx.str, qn->pfx.len, 0, 1, &qn->opts);
 }
 

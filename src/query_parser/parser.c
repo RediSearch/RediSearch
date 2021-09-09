@@ -1454,8 +1454,7 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 28: /* prefix ::= PREFIX */
 {
-    yymsp[0].minor.yy0.s = strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
-    yylhsminor.yy19 = NewPrefixNode(ctx, yymsp[0].minor.yy0.s, strlen(yymsp[0].minor.yy0.s));
+    yylhsminor.yy19 = NewPrefixNode_WithParam(ctx, &yymsp[0].minor.yy0);
 }
   yymsp[0].minor.yy19 = yylhsminor.yy19;
         break;
@@ -1590,13 +1589,7 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 53: /* geo_filter ::= LSQB num num num TERM RSQB */
 {
-    char buf[16] = {0};
-    if (yymsp[-1].minor.yy0.len < 16) {
-        memcpy(buf, yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len);
-    } else {
-        strcpy(buf, "INVALID");
-    }
-    GeoFilter *gf = NewGeoFilter(yymsp[-4].minor.yy91.num, yymsp[-3].minor.yy91.num, yymsp[-2].minor.yy91.num, buf);
+    GeoFilter *gf = NewGeoFilter(yymsp[-4].minor.yy91.num, yymsp[-3].minor.yy91.num, yymsp[-2].minor.yy91.num, yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len);
     GeoFilter_Validate(gf, ctx->status);
     yymsp[-5].minor.yy86 = NewGeoFilterQueryParam(gf);
 }

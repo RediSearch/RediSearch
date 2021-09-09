@@ -23,14 +23,14 @@ QueryParam *NewGeoFilterQueryParam(GeoFilter *gf) {
 QueryParam *NewGeoFilterQueryParam_WithParams(QueryToken *lon, QueryToken *lat, QueryToken *radius, QueryToken *unit) {
   QueryParam *ret = NewQueryParam(QP_GEO_FILTER);
 
-  GeoFilter *gf = NewGeoFilter(0, 0, 0, NULL); // TODO: Just call rm_calloc ?
+  GeoFilter *gf = NewGeoFilter(0, 0, 0, NULL, 0); // TODO: Just call rm_calloc ?
   ret->gf = gf;
   QueryParam_InitParams(ret, 5);
   QueryParam_SetParam(&ret->params[1], &gf->lon, NULL, lon);
   QueryParam_SetParam(&ret->params[2], &gf->lat, NULL, lat);
   QueryParam_SetParam(&ret->params[3], &gf->radius, NULL, radius);
   if (unit->type == QT_TERM && unit->s) {
-    gf->unitType = GeoDistance_Parse(unit->s);
+    gf->unitType = GeoDistance_Parse_Buffer(unit->s, unit->len);
   } else {
     QueryParam_SetParam(&ret->params[4], &gf->unitType, NULL, unit);
   }
@@ -51,26 +51,28 @@ void QueryParam_Free(QueryParam *p) {
 
 void QueryParam_SetParam(Param *target_param, void *target_value, size_t *target_len, QueryToken *source) {
 
-  if( source->type == QT_TERM) {
+  if (source->type == QT_TERM) {
     target_param->type = PARAM_NONE;
     *(char**)target_value = strndup(source->s, source->len);
   } else if (source->type == QT_NUMERIC) {
     target_param->type = PARAM_NONE;
     *(double *)target_value = source->numval;
   }else {
-    ParamType kind;
+    ParamType type;
     if (source->type == QT_PARAM_ANY)
-      kind = PARAM_ANY;
+      type = PARAM_ANY;
     else if (source->type == QT_PARAM_TERM)
-      kind = PARAM_TERM;
+      type = PARAM_TERM;
     else if (source->type == QT_PARAM_NUMERIC)
-      kind = PARAM_NUMERIC;
+      type = PARAM_NUMERIC;
     else if (source->type == QT_PARAM_GEO_UNIT)
-      kind = PARAM_GEO_UNIT;
+      type = PARAM_GEO_UNIT;
     else if (source->type == QT_PARAM_GEO_COORD)
-      kind = PARAM_GEO_COORD;
+      type = PARAM_GEO_COORD;
+    else
+      type = PARAM_ANY; // avoid warning - not supposed to reach here - all source->type enum options are covered
 
-    target_param->type = kind;
+    target_param->type = type;
     target_param->target = target_value;
     target_param->target_len = target_len;
     target_param->name = strndup(source->s, source->len);
@@ -80,6 +82,7 @@ void QueryParam_SetParam(Param *target_param, void *target_value, size_t *target
 
 void QueryParam_InitParams(QueryParam *p, size_t num) {
   p->params = array_newlen(Param, num);
+  memset(p->params, 0, sizeof(*p->params) * num);
 }
 
 int QueryParam_Resolve(Param *param, dict *params, QueryError *status) {

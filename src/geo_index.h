@@ -43,7 +43,7 @@ typedef struct GeoFilter {
 } GeoFilter;
 
 /* Create a geo filter from parsed strings and numbers */
-GeoFilter *NewGeoFilter(double lon, double lat, double radius, const char *unit);
+GeoFilter *NewGeoFilter(double lon, double lat, double radius, const char *unit, size_t unit_len);
 
 /*
  * Substitute parameters with actual values used by geo filter
@@ -53,8 +53,12 @@ GeoFilter *NewGeoFilter(double lon, double lat, double radius, const char *unit)
  */
 int GeoFilter_EvalParams(dict *params, QueryNode *node, QueryError *status);
 
+/** @param s CString (null-terminated string) */
 GeoDistance GeoDistance_Parse(const char *s);
 const char *GeoDistance_ToString(GeoDistance dist);
+
+/** @param s non null-terminated string */
+GeoDistance GeoDistance_Parse_Buffer(const char *s, size_t len);
 
 /* Make sure that the parameters of the filter make sense - i.e. coordinates are in range, radius is
  * sane, unit is valid. Return 1 if valid, 0 if not, and set the error string into err */

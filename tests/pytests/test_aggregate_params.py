@@ -93,3 +93,4 @@ class TestAggregateParams:
         res = self.env.cmd(*cmd)
         row = to_dict(res[1])
         self.env.assertEqual(695, int(float(row['maxPrice'])))
+

@@ -118,6 +118,32 @@ static int parseCursorSettings(AREQ *req, ArgsCursor *ac, QueryError *status) {
 #define ARG_ERROR -1
 #define ARG_UNKNOWN 0
 
+static int handleParams (AREQ *req, ArgsCursor *ac, QueryError *status) {
+  ArgsCursor paramsArgs = {0};
+  int rv = AC_GetVarArgs(ac, &paramsArgs);
+  if (rv != AC_OK) {
+    QERR_MKBADARGS_AC(status, "PARAMS", rv);
+    return REDISMODULE_ERR;
+  }
+  if (paramsArgs.argc == 0 || paramsArgs.argc % 2) {
+    QueryError_SetError(status, QUERY_EADDARGS,"Parameters must be specified in PARAM VALUE pairs");
+    return REDISMODULE_ERR;
+  }
+
+  dict *params = dictCreate(&dictTypeHeapStrings, NULL);
+  while (!AC_IsAtEnd(&paramsArgs)) {
+    const char *param = AC_GetStringNC(&paramsArgs, NULL);
+    const char *value = AC_GetStringNC(&paramsArgs, NULL);
+    if (DICT_ERR == dictAdd(params, (void*)param, (void*)value)) {
+      QueryError_SetErrorFmt(status, QUERY_EADDARGS, "Duplicated parameter `%s`", param);
+      return REDISMODULE_ERR;
+    }
+  }
+  req->searchopts.params = params;
+
+  return REDISMODULE_OK;
+}
+
 static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int allowLegacy) {
   int rv;
   // This handles the common arguments that are not stateful
@@ -176,6 +202,10 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
     req->reqflags |= QEXEC_F_TYPED;
   } else if (AC_AdvanceIfMatch(ac, "WITHRAWIDS")) {
     req->reqflags |= QEXEC_F_SENDRAWIDS;
+  } else if (AC_AdvanceIfMatch(ac, "PARAMS")) {
+    if (handleParams(req, ac, status) != REDISMODULE_OK) {
+      return ARG_ERROR;
+    }
   } else {
     return ARG_UNKNOWN;
   }
@@ -599,35 +629,6 @@ error:
   return REDISMODULE_ERR;
 }
 
-static int handleParams (AREQ *req, ArgsCursor *ac, QueryError *status) {
-  ArgsCursor paramsArgs = {0};
-  int rv = AC_GetVarArgs(ac, &paramsArgs);
-  if (rv != AC_OK) {
-    QERR_MKBADARGS_AC(status, "PARAMS", rv);
-    return REDISMODULE_ERR;
-  }
-  if (paramsArgs.argc == 0 || paramsArgs.argc % 2) {
-    QueryError_SetError(status, QUERY_EADDARGS,"Parameters must be specified in PARAM VALUE pairs");
-    return REDISMODULE_ERR;
-  }
-  //if (!AC_IsAtEnd(ac)) {
-  //  QueryError_SetError(status, QUERY_EADDARGS,"Parameters must be specified as last arguments in the command");
-  //}
-
-  dict *params = dictCreate(&dictTypeHeapStrings, NULL);
-  while (!AC_IsAtEnd(&paramsArgs)) {
-    const char *param = AC_GetStringNC(&paramsArgs, NULL);
-    const char *value = AC_GetStringNC(&paramsArgs, NULL);
-    if (DICT_ERR == dictAdd(params, (void*)param, (void*)value)) {
-      QueryError_SetErrorFmt(status, QUERY_EADDARGS, "Duplicated parameter `%s`", param);
-      return REDISMODULE_ERR;
-    }
-  }
-  req->searchopts.params = params;
-
-  return REDISMODULE_OK;
-}
-
 static void loadDtor(PLN_BaseStep *bstp) {
   PLN_LoadStep *lstp = (PLN_LoadStep *)bstp;
   rm_free(lstp->keys);
@@ -711,10 +712,6 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
       }
     } else if (AC_AdvanceIfMatch(&ac, "FILTER")) {
       if (handleApplyOrFilter(req, &ac, status, 0) != REDISMODULE_OK) {
-        goto error;
-      }
-    } else if (AC_AdvanceIfMatch(&ac, "PARAMS")) {
-      if (handleParams(req, &ac, status) != REDISMODULE_OK) {
         goto error;
       }
     } else {
