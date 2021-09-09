@@ -1,27 +1,27 @@
 version: 0.2
-name: "ycsb-commerce-hashes-run-40"
-description: "YCSB Commerce workload (RUN step) using RediSearch v2 doing 40% updates"
+name: "ycsb-commerce-json-run-40"
+description: "YCSB Commerce workload (RUN step) using RediSearch + RedisJSON doing 40% updates"
 dbconfig:
-  - dataset: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/ycsb/ycsb-redisearch-binding/datasets/recordcount-100000.rdb"
+  - dataset: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/ycsb/ycsb-redisjson2-binding/datasets/json-recordcount-100000.rdb"
 remote:
  - type: oss-standalone
  - setup: redisearch-m5
 clientconfig:
   - tool: ycsb
   - tool_source:
-    - remote: https://s3.amazonaws.com/benchmarks.redislabs/redisearch/ycsb/ycsb-redisearch-binding-0.18.0-SNAPSHOT.tar.gz
+    - remote: https://s3.amazonaws.com/benchmarks.redislabs/redisearch/ycsb/ycsb-redisjson2-binding-0.18.0-SNAPSHOT.tar.gz
     - bin_path: ./bin/ycsb
   - parameters:
-    - database: redisearch
+    - database: redisjson2
     - step: run
     - workload: "./workloads/workload-ecommerce"
     - override_workload_properties:
       - dictfile: "./bin/uci_online_retail.csv"
       - recordcount: 100000
       - operationcount: 500000
-      - readproportion : 0.15
-      - searchproportion : 0.45
-      - updateproportion : 0.40
+      - readproportion : 0.30
+      - searchproportion : 0.60
+      - updateproportion : 0.10
     - threads: 64
 exporter:
   redistimeseries:
