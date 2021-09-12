@@ -165,7 +165,7 @@ sds RSConfig_GetInfoString(const RSConfig *config);
 #define DEFAULT_MAX_RESULTS_TO_UNSORTED_MODE 1000
 #define SEARCH_REQUEST_RESULTS_MAX 1000000
 #define NR_MAX_DEPTH_BALANCE 2
-#define DEFAULT_TIMEOUT_LIMIT 1000
+#define DEFAULT_TIMEOUT_LIMIT 100
 
 // default configuration
 #define RS_DEFAULT_CONFIG                                                                         \
