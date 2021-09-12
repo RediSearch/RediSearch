@@ -240,6 +240,11 @@ ifneq ($(REMOTE),)
 	BENCHMARK_ARGS = redisbench-admin run-remote 
 endif
 
+ifeq ($(REJSON),1)
+BENCHMARK_ARGS += --module_path $(realpath $(REJSON_PATH)) \
+	--required-module ReJSON
+endif
+
 BENCHMARK_ARGS += --module_path $(realpath $(TARGET)) \
 	--required-module search
 
