@@ -410,7 +410,7 @@ Note that these operators apply only to numeric values and numeric sub expressio
 | geodistance("lon,lat",lon,lat)  | Return distance in meters.    | `geodistance("1.2,-3.4",5.6,-7.8)`   |
 | geodistance(lon,lat,field)      | Return distance in meters.    | `geodistance(1.2,-3.4,@field)`       |
 | geodistance(lon,lat,"lon,lat")  | Return distance in meters.    | `geodistance(1.2,-3.4,"5.6,-7.8")`   |
-| geodistance(lon,lat,"lon,lat")  | Return distance in meters.    | `geodistance(1.2,-3.4,5.6,-7.8)`     |
+| geodistance(lon,lat,lon,lat)    | Return distance in meters.    | `geodistance(1.2,-3.4,5.6,-7.8)`     |
 
 ```
 FT.AGGREGATE myIdx "*"  LOAD 1 location  APPLY "geodistance(@location,\"-1.1,2.2\")" AS dist
