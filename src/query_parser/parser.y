@@ -4,15 +4,15 @@
 %left QUOTE.
 %left COLON.
 %left MINUS.
+%left ATTRIBUTE.
+%left PARAM.
 %left NUMBER.
 %left STOPWORD.
 
-%left PARAM.
 %left TERMLIST.
 %left TERM.
 %left PREFIX.
 %left PERCENT.
-%left ATTRIBUTE.
 %right LP.
 %left RP.
 // needs to be above lp/rp
@@ -152,14 +152,15 @@ static int one_not_null(void *a, void *b, void *out) {
 
 %type num { RangeNumber }
 
-%type numeric_range { NumericFilter * }
+%type numeric_range { QueryParam * }
 %destructor numeric_range {
-    NumericFilter_Free($$);
+  QueryParam_Free($$);
 }
 
 query ::= expr(A) . { 
  /* If the root is a negative node, we intersect it with a wildcard node */
- 
+    // FILE *f = fopen("/tmp/lemon_query.log", "w");
+    // RSQueryParser_Trace(f, "t: ");
     ctx->root = A;
  
 }
@@ -534,12 +535,22 @@ tag_list(A) ::= tag_list(B) RB . [TAGLIST] {
 /////////////////////////////////////////////////////////////////
 expr(A) ::= modifier(B) COLON numeric_range(C). {
     // we keep the capitalization as is
-    C->fieldName = rm_strndup(B.s, B.len);
+    C->nf->fieldName = rm_strndup(B.s, B.len);
     A = NewNumericNode(C);
 }
 
 numeric_range(A) ::= LSQB num(B) num(C) RSQB. [NUMBER] {
-    A = NewNumericFilter(B.num, C.num, B.inclusive, C.inclusive);
+    NumericFilter *nf = NewNumericFilter(B.num, C.num, B.inclusive, C.inclusive);
+    A = NewNumericFilterQueryParam(nf);
+}
+
+numeric_range(A) ::= LSQB param_num(B) param_num(C) RSQB. [PARAM] {
+  // Update token type to be more specific if possible
+  if (B.type == QT_PARAM_NUMERIC)
+    B.type = QT_PARAM_NUMERIC_MIN_RANGE;
+  if (C.type == QT_PARAM_NUMERIC)
+    C.type = QT_PARAM_NUMERIC_MAX_RANGE;
+  A = NewNumericFilterQueryParam_WithParams(&B, &C, B.inclusive, C.inclusive);
 }
 
 /////////////////////////////////////////////////////////////////
@@ -600,26 +611,34 @@ term(A) ::= NUMBER(B) . {
 ///////////////////////////////////////////////////////////////////////////////////
 
 param_term(A) ::= TERM(B). [PARAM] {
-  B.type = QT_TERM;
   A = B;
+  A.type = QT_TERM;
 }
 
 param_term(A) ::= param(B). [PARAM] {
-  B.type = QT_PARAM_TERM;
   A = B;
+  A.type = QT_PARAM_TERM;
 }
 
 param_num(A) ::= NUMBER(B). [PARAM] {
-  B.type = QT_NUMERIC;
   A = B;
+  A.type = QT_NUMERIC;
+  A.inclusive = 1;
 }
 
 param_num(A) ::= param(B). [PARAM] {
-  B.type = QT_PARAM_NUMERIC;
   A = B;
+  A.type = QT_PARAM_NUMERIC;
+  A.inclusive = 1;
+}
+
+param_num(A) ::= LP param(B). [PARAM] {
+  A = B;
+  A.type = QT_PARAM_NUMERIC;
+  A.inclusive = 0;
 }
 
 param(A) ::= ATTRIBUTE(B) . [ATTRIBUTE] {
-  B.type = QT_PARAM_ANY;
   A = B;
+  A.type = QT_PARAM_ANY;
 }

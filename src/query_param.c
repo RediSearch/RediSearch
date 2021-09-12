@@ -1,6 +1,7 @@
 #include "query_param.h"
 #include "query_error.h"
 #include "geo_index.h"
+#include "numeric_filter.h"
 
 QueryParam *NewQueryParam(QueryParamType type) {
   QueryParam *ret = rm_calloc(1, sizeof(*ret));
@@ -25,15 +26,33 @@ QueryParam *NewGeoFilterQueryParam_WithParams(QueryToken *lon, QueryToken *lat, 
 
   GeoFilter *gf = NewGeoFilter(0, 0, 0, NULL, 0); // TODO: Just call rm_calloc ?
   ret->gf = gf;
-  QueryParam_InitParams(ret, 5);
-  QueryParam_SetParam(&ret->params[1], &gf->lon, NULL, lon);
-  QueryParam_SetParam(&ret->params[2], &gf->lat, NULL, lat);
-  QueryParam_SetParam(&ret->params[3], &gf->radius, NULL, radius);
+  QueryParam_InitParams(ret, 4);
+  QueryParam_SetParam(&ret->params[0], &gf->lon, NULL, lon);
+  QueryParam_SetParam(&ret->params[1], &gf->lat, NULL, lat);
+  QueryParam_SetParam(&ret->params[2], &gf->radius, NULL, radius);
   if (unit->type == QT_TERM && unit->s) {
     gf->unitType = GeoDistance_Parse_Buffer(unit->s, unit->len);
   } else {
-    QueryParam_SetParam(&ret->params[4], &gf->unitType, NULL, unit);
+    QueryParam_SetParam(&ret->params[3], &gf->unitType, NULL, unit);
   }
+  return ret;
+}
+
+
+QueryParam *NewNumericFilterQueryParam(NumericFilter *nf) {
+  QueryParam *ret = NewQueryParam(QP_NUMERIC_FILTER);
+  ret->nf = nf;
+  return ret;
+}
+
+QueryParam *NewNumericFilterQueryParam_WithParams(QueryToken *min, QueryToken *max, int inclusiveMin, int inclusiveMax) {
+  QueryParam *ret = NewQueryParam(QP_NUMERIC_FILTER);
+
+  NumericFilter *nf = NewNumericFilter(0, 0, inclusiveMin, inclusiveMax);
+  ret->nf = nf;
+  QueryParam_InitParams(ret, 2);
+  QueryParam_SetParam(&ret->params[0], &nf->min, NULL, min);
+  QueryParam_SetParam(&ret->params[1], &nf->max, NULL, max);
   return ret;
 }
 
@@ -65,6 +84,10 @@ void QueryParam_SetParam(Param *target_param, void *target_value, size_t *target
       type = PARAM_TERM;
     else if (source->type == QT_PARAM_NUMERIC)
       type = PARAM_NUMERIC;
+    else if (source->type == QT_PARAM_NUMERIC_MIN_RANGE)
+      type = PARAM_NUMERIC_MIN_RANGE;
+    else if (source->type == QT_PARAM_NUMERIC_MAX_RANGE)
+      type = PARAM_NUMERIC_MAX_RANGE;
     else if (source->type == QT_PARAM_GEO_UNIT)
       type = PARAM_GEO_UNIT;
     else if (source->type == QT_PARAM_GEO_COORD)
@@ -114,6 +137,18 @@ int QueryParam_Resolve(Param *param, dict *params, QueryError *status) {
         return -1;
       }
       return 1;
+
+
+    case PARAM_NUMERIC_MIN_RANGE:
+    case PARAM_NUMERIC_MAX_RANGE:
+    {
+      int inclusive;
+      int isMin = param->type == PARAM_NUMERIC_MIN_RANGE ? 1 : 0;
+      if (parseDoubleRange(val, &inclusive, (double*)param->target, isMin , status) == REDISMODULE_OK)
+        return 1;
+      else
+        return -1;
+    }
 
     case PARAM_GEO_UNIT:
       *(GeoDistance*)param->target = GeoDistance_Parse(val);

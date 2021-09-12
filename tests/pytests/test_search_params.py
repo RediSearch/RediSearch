@@ -44,12 +44,13 @@ def test_errors(env):
     waitForIndex(env, 'idx')
     env.assertEqual(conn.execute_command('HSET', 'key1', 'foo', 'PARAMS', 'bar', 'PARAMS'), 2L)
 
-    # Test errors in PARAMS definition: duplicated param, missing param value, wrong count, as first command arg
+    # Test errors in PARAMS definition: duplicated param, missing param value, wrong count
     env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'PARAMS', '4', 'param1', 'val1').raiseError().contains('Bad arguments for PARAMS: Expected an argument')
     env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'PARAMS', '2', 'param1').raiseError().contains('Bad arguments for PARAMS: Expected an argument')
     env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'PARAMS', '4', 'param1', 'val1', 'param1', 'val2').raiseError().contains('Duplicated parameter `param1`')
     env.expect('FT.SEARCH', 'idx', '*', 'PARAMS', '4', 'foo', 'x', 'bar', '100', 'NOCONTENT').raiseError().contains('Unknown argument `NOCONTENT`')
     env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', 'PARAMS', 'PARAMS', '4', 'foo', 'x', 'bar', '100'), [1L, 'key1', ['foo', 'PARAMS', 'bar', 'PARAMS']])
+    # FIXME: Add erroneos tests: PARAMS as first command arg, param name with none-alphanumeric, param value with illegal character such as star, paren, etc.
 
     # Test errors in param usage: missing param, wrong param value
     env.expect('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 $rapido $units]', 'NOCONTENT', 'PARAMS', '4', 'radius', '500', 'units', 'm').raiseError().equal('No such parameter `rapido`')
@@ -136,3 +137,44 @@ def test_tags(env):
     env.assertEqual(res2, res1)
 
 
+def test_numeric_range(env):
+    conn = getConnectionByEnv(env)
+
+    env.assertOk(conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'numval', 'NUMERIC'))
+    waitForIndex(env, 'idx')
+
+    env.assertEqual(conn.execute_command('HSET', 'key1', 'numval', '101'), 1L)
+    env.assertEqual(conn.execute_command('HSET', 'key2', 'numval', '102'), 1L)
+    env.assertEqual(conn.execute_command('HSET', 'key3', 'numval', '103'), 1L)
+    env.assertEqual(conn.execute_command('HSET', 'key4', 'numval', '104'), 1L)
+    env.assertEqual(conn.execute_command('HSET', 'key5', 'numval', '105'), 1L)
+
+    res1 = conn.execute_command('FT.SEARCH', 'idx', '@numval:[102 104]', 'NOCONTENT')
+    env.assertEqual(res1, [3L, 'key2', 'key3', 'key4'])
+    res2 = conn.execute_command('FT.SEARCH', 'idx', '@numval:[$min $max]', 'NOCONTENT', 'PARAMS', '4', 'min', '102', 'max', '104')
+    env.assertEqual(res2, res1)
+
+    res1 = conn.execute_command('FT.SEARCH', 'idx', '@numval:[(102 104]', 'NOCONTENT')
+    env.assertEqual(res1, [2L, 'key3', 'key4'])
+    res2 = conn.execute_command('FT.SEARCH', 'idx', '@numval:[($min $max]', 'NOCONTENT', 'PARAMS', '4', 'min', '102', 'max', '104')
+    env.assertEqual(res2, res1)
+
+    res1 = conn.execute_command('FT.SEARCH', 'idx', '@numval:[102 (104]', 'NOCONTENT')
+    env.assertEqual(res1, [2L, 'key2', 'key3'])
+    res2 = conn.execute_command('FT.SEARCH', 'idx', '@numval:[$min ($max]', 'NOCONTENT', 'PARAMS', '4', 'min', '102', 'max', '104')
+    env.assertEqual(res2, res1)
+
+    res1 = conn.execute_command('FT.SEARCH', 'idx', '@numval:[(102 (104]', 'NOCONTENT')
+    env.assertEqual(res1, [1L, 'key3'])
+    res2 = conn.execute_command('FT.SEARCH', 'idx', '@numval:[($min ($max]', 'NOCONTENT', 'PARAMS', '4', 'min', '102', 'max', '104')
+    env.assertEqual(res2, res1)
+
+    res1 = conn.execute_command('FT.SEARCH', 'idx', '@numval:[(102 +inf]', 'NOCONTENT')
+    env.assertEqual(res1, [3L, 'key3', 'key4', 'key5'])
+    res2 = conn.execute_command('FT.SEARCH', 'idx', '@numval:[($min $max]', 'NOCONTENT', 'PARAMS', '4', 'min', '102', 'max', '+inf')
+    env.assertEqual(res2, res1)
+
+    res1 = conn.execute_command('FT.SEARCH', 'idx', '@numval:[-inf, (105]', 'NOCONTENT')
+    env.assertEqual(res1, [4L, 'key1', 'key2', 'key3', 'key4'])
+    res2 = conn.execute_command('FT.SEARCH', 'idx', '@numval:[$min ($max]', 'NOCONTENT', 'PARAMS', '4', 'min', '-inf', 'max', '105')
+    env.assertEqual(res2, res1)

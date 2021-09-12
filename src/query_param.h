@@ -27,6 +27,9 @@ QueryParam *NewTokenQueryParam(QueryToken *qt);
 QueryParam *NewGeoFilterQueryParam(GeoFilter *gf);
 QueryParam *NewGeoFilterQueryParam_WithParams(QueryToken *lon, QueryToken *lat, QueryToken *radius, QueryToken *unit);
 
+QueryParam *NewNumericFilterQueryParam(NumericFilter *nf);
+QueryParam *NewNumericFilterQueryParam_WithParams(QueryToken *min, QueryToken *max, int inclusiveMin, int inclusiveMax);
+
 #define QueryParam_NumParams(p) ((p)->params ? array_len((p)->params) : 0)
 #define QueryParam_GetParam(p, ix) (QueryParam_NumParams(p) > ix ? (p)->params[ix] : NULL)
 

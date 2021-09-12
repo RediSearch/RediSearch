@@ -213,10 +213,13 @@ QueryNode *NewTagNode(const char *field, size_t len) {
   return ret;
 }
 
-QueryNode *NewNumericNode(const NumericFilter *flt) {
+QueryNode *NewNumericNode(QueryParam *p) {
   QueryNode *ret = NewQueryNode(QN_NUMERIC);
-  ret->nn = (QueryNumericNode){.nf = (NumericFilter *)flt};
-
+  // Move data and params pointers
+  ret->nn.nf = p->nf;
+  ret->params = p->params;
+  p->nf = NULL;
+  p->params = NULL;
   return ret;
 }
 
@@ -580,14 +583,15 @@ static IndexIterator *Query_EvalOptionalNode(QueryEvalCtx *q, QueryNode *qn) {
                              q->docTable->maxDocId, qn->opts.weight);
 }
 
-static IndexIterator *Query_EvalNumericNode(QueryEvalCtx *q, QueryNumericNode *node) {
+static IndexIterator *Query_EvalNumericNode(QueryEvalCtx *q, QueryNode *node) {
   const FieldSpec *fs =
-      IndexSpec_GetField(q->sctx->spec, node->nf->fieldName, strlen(node->nf->fieldName));
+      IndexSpec_GetField(q->sctx->spec, node->nn.nf->fieldName, strlen(node->nn.nf->fieldName));
   if (!fs || !FIELD_IS(fs, INDEXFLD_T_NUMERIC)) {
     return NULL;
   }
-
-  return NewNumericFilterIterator(q->sctx, node->nf, q->conc, INDEXFLD_T_NUMERIC);
+  if (NumericFilter_EvalParams(q->opts->params, node, q->status) == REDISMODULE_ERR)
+    return NULL;
+  return NewNumericFilterIterator(q->sctx, node->nn.nf, q->conc, INDEXFLD_T_NUMERIC);
 }
 
 static IndexIterator *Query_EvalGeofilterNode(QueryEvalCtx *q, QueryNode *node,
@@ -877,7 +881,7 @@ IndexIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
     case QN_FUZZY:
       return Query_EvalFuzzyNode(q, n);
     case QN_NUMERIC:
-      return Query_EvalNumericNode(q, &n->nn);
+      return Query_EvalNumericNode(q, n);
     case QN_OPTIONAL:
       return Query_EvalOptionalNode(q, n);
     case QN_GEO:
@@ -1013,6 +1017,17 @@ void QueryNode_ClearChildren(QueryNode *n, int shouldFree) {
   if (QueryNode_NumChildren(n)) {
     array_clear(n->children);
   }
+}
+
+int QueryNode_EvalParams(dict *params, QueryNode *node, QueryError *status) {
+  if (node->params) {
+    for (size_t i = 0; i < QueryNode_NumParams(node); i++) {
+      int res = QueryParam_Resolve(&node->params[i], params, status);
+      if (res < 0)
+        return REDISMODULE_ERR;
+    }
+  }
+  return REDISMODULE_OK;
 }
 
 /* Set the concurrent mode of the query. By default it's on, setting here to 0 will turn it off,

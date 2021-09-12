@@ -5,11 +5,9 @@ import itertools
 from RLTest import Env
 
 from includes import *
+from common import to_dict
 
 
-def to_dict(res):
-    d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
-    return d
 
 
 GAMES_JSON = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'games.json.bz2')

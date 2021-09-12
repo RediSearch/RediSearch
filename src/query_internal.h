@@ -63,7 +63,7 @@ QueryNode *NewPhraseNode(int exact);
 QueryNode *NewPrefixNode(QueryParseCtx *q, const char *s, size_t len);
 QueryNode *NewPrefixNode_WithParam(QueryParseCtx *q, QueryToken *qt);
 QueryNode *NewFuzzyNode(QueryParseCtx *q, const char *s, size_t len, int maxDist);
-QueryNode *NewNumericNode(const struct NumericFilter *flt);
+QueryNode *NewNumericNode(QueryParam *p);
 QueryNode *NewGeofilterNode(QueryParam *p);
 QueryNode *NewTagNode(const char *tag, size_t len);
 

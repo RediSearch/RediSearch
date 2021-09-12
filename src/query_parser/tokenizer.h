@@ -22,6 +22,8 @@ typedef enum {
   QT_PARAM_ANY,
   QT_PARAM_TERM,
   QT_PARAM_NUMERIC,
+  QT_PARAM_NUMERIC_MIN_RANGE,
+  QT_PARAM_NUMERIC_MAX_RANGE,
   QT_PARAM_GEO_COORD,
   QT_PARAM_GEO_UNIT,
 } QueryTokenType;
@@ -33,6 +35,7 @@ typedef struct {
   int len;
   int pos;
   double numval;
+  int inclusive;
   QueryTokenType type;
 } QueryToken;
 
