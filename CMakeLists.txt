@@ -123,7 +123,7 @@ message("VectorSimilarity bindir: ${VectorSimilarity_bindir}")
 include_directories (${VectorSimilarity_bindir}/include)
 
 add_library (vecsim STATIC IMPORTED)
-set_target_properties (vecsim PROPERTIES IMPORTED_LOCATION ${VectorSimilarity_bindir}/src/VectorSimilarity-build/libVectorSimilarity.a)
+set_target_properties (vecsim PROPERTIES IMPORTED_LOCATION ${VectorSimilarity_bindir}/src/libVectorSimilarity.a)
 
 
 FILE(GLOB RS_SRC
