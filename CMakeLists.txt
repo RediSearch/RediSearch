@@ -125,6 +125,8 @@ include_directories (${VectorSimilarity_bindir}/include)
 add_library (vecsim STATIC IMPORTED)
 set_target_properties (vecsim PROPERTIES IMPORTED_LOCATION ${VectorSimilarity_bindir}/libVectorSimilarity.a)
 
+add_library (vecsim-spaces STATIC IMPORTED)
+set_target_properties (vecsim-spaces PROPERTIES IMPORTED_LOCATION ${VectorSimilarity_bindir}/libVectorSimilaritySpaces.a)
 
 FILE(GLOB RS_SRC
     "src/*.c"
@@ -181,7 +183,7 @@ ELSEIF (RS_BUILD_STATIC)
 
 ELSE ()
     ADD_LIBRARY(redisearch SHARED ${FINAL_OBJECTS} src/module-init/module-init.c)
-    TARGET_LINK_LIBRARIES(redisearch dl m vecsim)
+    TARGET_LINK_LIBRARIES(redisearch dl m vecsim vecsim-spaces)
     SET_TARGET_PROPERTIES(redisearch PROPERTIES LINKER_LANGUAGE CXX)
     SET_TARGET_PROPERTIES(redisearch PROPERTIES PREFIX "")
     SET_TARGET_PROPERTIES(redisearch PROPERTIES SUFFIX ".so")
