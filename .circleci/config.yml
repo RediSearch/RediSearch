@@ -41,8 +41,8 @@ commands:
       - run:
           name: Cleanup test log dir
           command: |
-            if [[ -d tests/flow/logs ]]; then
-              cd tests/flow/logs
+            if [[ -d tests/pytests/logs ]]; then
+              cd tests/pytests/logs
               rm -f *.aof *.rdb
             fi
       - store_artifacts:
@@ -190,7 +190,7 @@ jobs:
       - run:
           name: Run & build tests
           command: bash -l -c "ASAN=1 ./.circleci/ci_diag_san12.sh"
-          no_output_timeout: 20m
+          no_output_timeout: 30m
       - save-tests-logs
 
   debug_msan:
@@ -202,7 +202,7 @@ jobs:
       - run:
           name: Run & build tests
           command: bash -l -c "MSAN=1 ./.circleci/ci_diag_san12.sh"
-          no_output_timeout: 20m
+          no_output_timeout: 30m
       - save-tests-logs
 
   coverage:
