@@ -25,7 +25,7 @@ class RediSearchSetup(paella.Setup):
 
     def debian_compat(self):
         self.install("libatomic1")
-        self.run("%s/bin/getgcc" % READIES)
+        self.run("%s/bin/getgcc --modern" % READIES)
         self.install("python-dev")
 
         if self.platform.is_arm() and self.dist == 'ubuntu' and self.os_version[0] < 20:
