@@ -83,4 +83,4 @@ parser.add_argument('-n', '--nop', action="store_true", help='no operation')
 parser.add_argument('--no-gcc', action="store_true", help='do not install gcc')
 args = parser.parse_args()
 
-RediSearchSetup(**args).setup()
+RediSearchSetup(args).setup()
