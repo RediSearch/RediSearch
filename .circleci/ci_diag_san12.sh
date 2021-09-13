@@ -8,7 +8,7 @@ ROOT="$(cd $HERE/.. && pwd)"
 READIES="$ROOT/deps/readies"
 cd $ROOT
 
-./.circleci/ci_get_deps.sh
+GCC=0 ./.circleci/ci_get_deps.sh
 
 SAN_PREFIX=/opt/llvm-project/build-msan
 
