@@ -423,7 +423,7 @@ static int getKeyCommonJSON(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
   RedisModuleString *val = NULL;
   RSValue *rsv = NULL;
 
-  JSONResultsIterator jsonIter = japi->get(*keyobj, kk->path);
+  JSONResultsIterator jsonIter = (*kk->path == '$') ? japi->get(*keyobj, kk->path) : NULL;
   if (!jsonIter) {
     // name of field is the alias given on FT.CREATE
     // get the the actual path
