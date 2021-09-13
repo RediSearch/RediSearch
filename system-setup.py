@@ -39,6 +39,7 @@ class RediSearchSetup(paella.Setup):
         self.install("python2-devel")
 
         if not self.no_gcc:
+            self.run("rm -f /etc/profile.d/scl-devtoolset-9.sh") # remove previously installed toolset
             self.run("%s/bin/getgcc --modern" % READIES)
 
         # fix setuptools
