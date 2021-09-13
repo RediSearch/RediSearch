@@ -16,6 +16,7 @@ OPTION(USE_MSAN "Use MemorySanitizer (clang)" OFF)
 OPTION(USE_TSAN "Use ThreadSanitizer (clang)" OFF)
 OPTION(USE_REDIS_ALLOCATOR "Use redis allocator" ON)
 OPTION(USE_COVERAGE "Build with coverage" OFF)
+OPTION(VECSIM_ARCH_NATIVE "Build for native architecture" OFF)
 
 IF (RS_MODULE_NAME) 
     ADD_DEFINITIONS("-DREDISEARCH_MODULE_NAME=\"${RS_MODULE_NAME}\"")
@@ -113,7 +114,7 @@ ExternalProject_Add (VectorSimilarity
 	SOURCE_DIR      ${CMAKE_CURRENT_SOURCE_DIR}/deps/VectorSimilarity/src
 	PREFIX          ${CMAKE_CURRENT_BINARY_DIR}/VectorSimilarity
 	CMAKE_ARGS      -DCMAKE_INSTALL_PREFIX:PATH=${CMAKE_CURRENT_BINARY_DIR}/VectorSimilarity
-	CMAKE_ARGS      -DVECSIM_STATIC:BOOL=ON
+	CMAKE_ARGS      -DVECSIM_STATIC:BOOL=ON,-DVECSIM_ARCH_NATIVE=${VECSIM_ARCH_NATIVE}
 )
 
 ExternalProject_Get_Property (VectorSimilarity install_dir)

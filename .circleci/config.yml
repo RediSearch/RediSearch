@@ -71,7 +71,9 @@ commands:
           command: bash -l -c "./.circleci/ci_build.sh"
       - run:
           name: Test
-          command: bash -l -c "./.circleci/ci_test.sh"
+          command: |
+            redis-server --version
+            bash -l -c "./.circleci/ci_test.sh"
       - run:
           name: Package
           command: bash -l -c "COMPAT_DIR=$BUILD_DIR make pack"
