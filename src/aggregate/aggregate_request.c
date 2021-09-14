@@ -118,7 +118,7 @@ static int parseCursorSettings(AREQ *req, ArgsCursor *ac, QueryError *status) {
 #define ARG_ERROR -1
 #define ARG_UNKNOWN 0
 
-static int handleParams (AREQ *req, ArgsCursor *ac, QueryError *status) {
+static int parseParams (AREQ *req, ArgsCursor *ac, QueryError *status) {
   ArgsCursor paramsArgs = {0};
   int rv = AC_GetVarArgs(ac, &paramsArgs);
   if (rv != AC_OK) {
@@ -202,10 +202,6 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
     req->reqflags |= QEXEC_F_TYPED;
   } else if (AC_AdvanceIfMatch(ac, "WITHRAWIDS")) {
     req->reqflags |= QEXEC_F_SENDRAWIDS;
-  } else if (AC_AdvanceIfMatch(ac, "PARAMS")) {
-    if (handleParams(req, ac, status) != REDISMODULE_OK) {
-      return ARG_ERROR;
-    }
   } else {
     return ARG_UNKNOWN;
   }
@@ -395,6 +391,10 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
                ((rv = parseQueryLegacyArgs(ac, searchOpts, status)) != ARG_UNKNOWN)) {
       if (rv == ARG_ERROR) {
         return REDISMODULE_ERR;
+      }
+    } else if (AC_AdvanceIfMatch(ac, "PARAMS")) {
+      if (parseParams(req, ac, status) != REDISMODULE_OK) {
+        return ARG_ERROR;
       }
     } else {
       int rv = handleCommonArgs(req, ac, status, 1);
@@ -797,6 +797,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     return REDISMODULE_ERR;
   }
 
+  QAST_EvalParams(ast, opts, status);
   applyGlobalFilters(opts, ast, sctx);
 
   if (!(opts->flags & Search_Verbatim)) {

@@ -141,10 +141,17 @@ QueryNode *NewTokenNode_WithParam(QueryParseCtx *q, QueryToken *qt) {
   QueryNode *ret = NewQueryNode(QN_TOKEN);
   q->numTokens++;
 
-  if (qt->type == QT_TERM) {
-    size_t len = strlen(qt->s);
-    ret->tn =
-        (QueryTokenNode){.str = strndup(qt->s, len), .len = len, .expanded = 0, .flags = 0};
+  if (qt->type == QT_TERM || qt->type == QT_TERM_CASE) {
+    char *s;
+    size_t len;
+    if (qt->type == QT_TERM) {
+      s = rm_strdupcase(qt->s, qt->len);
+      len = strlen(s);
+    } else {
+      s = rm_strndup(qt->s, qt->len);
+      len = qt->len;
+    }
+    ret->tn = (QueryTokenNode){.str = s, .len = len, .expanded = 0, .flags = 0};
   } else {
     ret->tn = (QueryTokenNode){.str = NULL, .len = 0, .expanded = 0, .flags = 0};
     QueryNode_InitParams(ret, 1);
@@ -172,8 +179,10 @@ QueryNode *NewPrefixNode(QueryParseCtx *q, const char *s, size_t len) {
 QueryNode *NewPrefixNode_WithParam(QueryParseCtx *q, QueryToken *qt) {
   QueryNode *ret = NewQueryNode(QN_PREFIX);
   q->numTokens++;
+  assert (qt->type != QT_TERM_CASE);
   if (qt->type == QT_TERM) {
-    ret->pfx = (QueryPrefixNode){.str = strndup(qt->s, qt->len), .len = qt->len, .expanded = 0, .flags = 0};
+    char *s = rm_strdupcase(qt->s, qt->len);
+    ret->pfx = (QueryPrefixNode){.str = s, .len = strlen(s), .expanded = 0, .flags = 0};
   } else {
     ret->pfx = (QueryPrefixNode){.str = NULL, .len = 0, .expanded = 0, .flags = 0}; //FIXME: Remove this line - unneeded zero initialization (done in NewQueryNode)
     QueryNode_InitParams(ret, 1);
@@ -295,22 +304,10 @@ static void QueryNode_Expand(RSQueryTokenExpander expander, RSQueryExpanderCtx *
   }
 }
 
-int TokenNode_EvalParams(dict *params, QueryNode *node, QueryError *status) {
-  if (node->params) {
-    int res = QueryParam_Resolve(&node->params[0], params, status);
-    if (res < 0)
-      return REDISMODULE_ERR;
-  }
-  return REDISMODULE_OK;
-}
-
 IndexIterator *Query_EvalTokenNode(QueryEvalCtx *q, QueryNode *qn) {
   if (qn->type != QN_TOKEN) {
     return NULL;
   }
-
-  if (TokenNode_EvalParams(q->opts->params, qn, q->status) == REDISMODULE_ERR)
-    return NULL;
 
   // if there's only one word in the query and no special field filtering,
   // and we are not paging beyond MAX_SCOREINDEX_SIZE
@@ -392,21 +389,11 @@ static IndexIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
   return NewUnionIterator(its, itsSz, q->docTable, 1, opts->weight, type, str);
 }
 
-int PrefixNode_EvalParams(dict *params, QueryNode *node, QueryError *status) {
-  if (node->params) {
-    int res = QueryParam_Resolve(&node->params[0], params, status);
-    if (res < 0) return REDISMODULE_ERR;
-  }
-  return REDISMODULE_OK;
-}
-
 /* Ealuate a prefix node by expanding all its possible matches and creating one big UNION on all
  * of them */
 static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
   RS_LOG_ASSERT(qn->type == QN_PREFIX, "query node type should be prefix");
 
-  if (PrefixNode_EvalParams(q->opts->params, qn, q->status) == REDISMODULE_ERR)
-    return NULL;
   // we allow a minimum of 2 letters in the prefx by default (configurable)
   if (qn->pfx.len < RSGlobalConfig.minTermPrefix) {
     return NULL;
@@ -589,8 +576,6 @@ static IndexIterator *Query_EvalNumericNode(QueryEvalCtx *q, QueryNode *node) {
   if (!fs || !FIELD_IS(fs, INDEXFLD_T_NUMERIC)) {
     return NULL;
   }
-  if (NumericFilter_EvalParams(q->opts->params, node, q->status) == REDISMODULE_ERR)
-    return NULL;
   return NewNumericFilterIterator(q->sctx, node->nn.nf, q->conc, INDEXFLD_T_NUMERIC);
 }
 
@@ -601,8 +586,6 @@ static IndexIterator *Query_EvalGeofilterNode(QueryEvalCtx *q, QueryNode *node,
   if (!fs || !FIELD_IS(fs, INDEXFLD_T_GEO)) {
     return NULL;
   }
-  if (GeoFilter_EvalParams(q->opts->params, node, q->status) == REDISMODULE_ERR)
-    return NULL;
   return NewGeoRangeIterator(q->sctx, node->gn.gf);
 }
 
@@ -735,22 +718,10 @@ static void tag_strtolower(char *str, size_t *len) {
   *str = '\0';
 }
 
-int TagNode_EvalParams(dict *params, QueryNode *node, QueryError *status) {
-  if (node->params) {
-    int res = QueryParam_Resolve(&node->params[0], params, status);
-    if (res < 0)
-      return REDISMODULE_ERR;
-  }
-  return REDISMODULE_OK;
-}
-
 static IndexIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, QueryNode *n,
                                               IndexIteratorArray *iterout, double weight,
                                               int caseSensitive) {
   IndexIterator *ret = NULL;
-
-  if (TagNode_EvalParams(q->opts->params, n, q->status) == REDISMODULE_ERR)
-    return NULL;
 
   if (n->tn.str && !caseSensitive) {
     tag_strtolower(n->tn.str, &n->tn.len);
@@ -981,6 +952,53 @@ int QAST_Expand(QueryAST *q, const char *expander, RSSearchOptions *opts, RedisS
   return REDISMODULE_OK;
 }
 
+int QAST_EvalParams(QueryAST *q, RSSearchOptions *opts, QueryError *status) {
+  // FIXME: Check if q->numParams is > 0
+  if (!q || !q->root)
+    return REDISMODULE_OK;
+  QueryNode_EvalParams(opts->params, q->root, status);
+  return REDISMODULE_OK;
+}
+
+int QueryNode_EvalParams(dict *params, QueryNode *n, QueryError *status) {
+  int withChildren = 1;
+  int res = REDISMODULE_OK;
+  switch(n->type) {
+    case QN_GEO:
+      res = GeoFilter_EvalParams(params, n, status);
+      break;
+    case QN_TOKEN:
+    case QN_NUMERIC:
+    case QN_TAG:
+    case QN_PHRASE:
+    case QN_NOT:
+    case QN_PREFIX:
+    case QN_LEXRANGE:
+    case QN_FUZZY:
+    case QN_OPTIONAL:
+    case QN_IDS:
+    case QN_WILDCARD:
+      res = QueryNode_EvalParamsCommon(params, n, status);
+      break;
+    case QN_UNION:
+      // no immediately owned params to resolve
+      assert(n->params == NULL);
+      break;
+    case QN_NULL:
+      withChildren = 0;
+      break;
+  }
+  // Handle children
+  if (withChildren && res == REDISMODULE_OK) {
+    for (size_t ii = 0; ii < QueryNode_NumChildren(n); ++ii) {
+      res = QueryNode_EvalParams(params, n->children[ii], status);
+      if (res == REDISMODULE_ERR)
+        break;
+    }
+  }
+  return res;
+}
+
 /* Set the field mask recursively on a query node. This is called by the parser to handle
  * situations like @foo:(bar baz|gaz), where a complex tree is being applied a field mask */
 void QueryNode_SetFieldMask(QueryNode *n, t_fieldMask mask) {
@@ -1019,7 +1037,7 @@ void QueryNode_ClearChildren(QueryNode *n, int shouldFree) {
   }
 }
 
-int QueryNode_EvalParams(dict *params, QueryNode *node, QueryError *status) {
+int QueryNode_EvalParamsCommon(dict *params, QueryNode *node, QueryError *status) {
   if (node->params) {
     for (size_t i = 0; i < QueryNode_NumParams(node); i++) {
       int res = QueryParam_Resolve(&node->params[i], params, status);

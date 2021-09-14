@@ -98,6 +98,9 @@ IndexIterator *QAST_Iterate(const QueryAST *ast, const RSSearchOptions *options,
 int QAST_Expand(QueryAST *q, const char *expander, RSSearchOptions *opts, RedisSearchCtx *sctx,
                 QueryError *status);
 
+int QAST_EvalParams(QueryAST *q, RSSearchOptions *opts, QueryError *status);
+int QueryNode_EvalParams(dict *params, QueryNode *node, QueryError *status);
+
 /* Return a string representation of the QueryParseCtx parse tree. The string should be freed by the
  * caller */
 char *QAST_DumpExplain(const QueryAST *q, const IndexSpec *spec);

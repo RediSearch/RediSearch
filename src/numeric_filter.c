@@ -93,7 +93,3 @@ NumericFilter *NewNumericFilter(double min, double max, int inclusiveMin, int in
   f->geoFilter = NULL;
   return f;
 }
-
-int NumericFilter_EvalParams(dict *params, QueryNode *node, QueryError *status) {
-  return QueryNode_EvalParams(params, node, status);
-}

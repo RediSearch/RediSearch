@@ -40,7 +40,7 @@ def test_geo(env):
 def test_errors(env):
     conn = getConnectionByEnv(env)
 
-    env.assertOk(conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'foo', 'TEXT', 'bar', 'TAG', 'g', 'GEO'))
+    env.assertOk(conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'foo', 'TEXT', 'bar', 'TAG', 'g', 'GEO', 'num', 'NUMERIC'))
     waitForIndex(env, 'idx')
     env.assertEqual(conn.execute_command('HSET', 'key1', 'foo', 'PARAMS', 'bar', 'PARAMS'), 2L)
 
@@ -48,18 +48,17 @@ def test_errors(env):
     env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'PARAMS', '4', 'param1', 'val1').raiseError().contains('Bad arguments for PARAMS: Expected an argument')
     env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'PARAMS', '2', 'param1').raiseError().contains('Bad arguments for PARAMS: Expected an argument')
     env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'PARAMS', '4', 'param1', 'val1', 'param1', 'val2').raiseError().contains('Duplicated parameter `param1`')
-    env.expect('FT.SEARCH', 'idx', '*', 'PARAMS', '4', 'foo', 'x', 'bar', '100', 'NOCONTENT').raiseError().contains('Unknown argument `NOCONTENT`')
-    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', 'PARAMS', 'PARAMS', '4', 'foo', 'x', 'bar', '100'), [1L, 'key1', ['foo', 'PARAMS', 'bar', 'PARAMS']])
+    #X env.expect('FT.SEARCH', 'idx', '*', 'PARAMS', '4', 'foo', 'x', 'bar', '100', 'NOCONTENT').raiseError().contains('Unknown argument `NOCONTENT`')
+    # FIXME: Should next line be supported?
+    # env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', 'PARAMS', 'PARAMS', '4', 'foo', 'x', 'bar', '100'), [1L, 'key1', ['foo', 'PARAMS', 'bar', 'PARAMS']])
     # FIXME: Add erroneos tests: PARAMS as first command arg, param name with none-alphanumeric, param value with illegal character such as star, paren, etc.
 
     # Test errors in param usage: missing param, wrong param value
     env.expect('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 $rapido $units]', 'NOCONTENT', 'PARAMS', '4', 'radius', '500', 'units', 'm').raiseError().equal('No such parameter `rapido`')
+    env.expect('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 $rapido $units]', 'NOCONTENT').raiseError().equal('No such parameter `rapido`')
     env.expect('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 $rapido $units]', 'NOCONTENT', 'PARAMS', '4', 'rapido', 'bad', 'units', 'm').raiseError().equal('Invalid numeric value (bad) for parameter `rapido`')
     env.expect('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 $radius $units]', 'NOCONTENT', 'PARAMS', '4', 'radius', '500', 'units', 'badm').raiseError().contains('Invalid GeoFilter unit')
-    # If property is not found, params are not being evaluated
-    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', '@juju:[29.69465 34.95126 $rapido $units]'), [0l])
-
-
+    env.expect('FT.SEARCH', 'idx', '@num:[$min $max]', 'NOCONTENT', 'PARAMS', '4', 'min', '102', 'max', '-inf').raiseError().contains('Bad upper range')
 
 
 def test_binary_data(env):
@@ -107,13 +106,16 @@ def test_expression(env):
     env.assertOk(conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT', 'id', 'NUMERIC'))
     waitForIndex(env, 'idx')
 
-    env.assertEqual(conn.execute_command('HSET', 'key1', 'name', 'Bob', 'id', '17'), 1L)
-    env.assertEqual(conn.execute_command('HSET', 'key2', 'name', 'Alice', 'id', '31'), 1L)
-    env.assertEqual(conn.execute_command('HSET', 'key3', 'name', 'Carol', 'id', '13'), 1L)
-    env.assertEqual(conn.execute_command('HSET', 'key4', 'name', 'John Doe', 'id', '0'), 1L)
+    env.assertEqual(conn.execute_command('HSET', 'key1', 'name', 'Bob', 'id', '17'), 2L)
+    env.assertEqual(conn.execute_command('HSET', 'key2', 'name', 'Alice', 'id', '31'), 2L)
+    env.assertEqual(conn.execute_command('HSET', 'key3', 'name', 'Carol', 'id', '13'), 2L)
+    env.assertEqual(conn.execute_command('HSET', 'key4', 'name', 'John Doe', 'id', '0'), 2L)
 
-    res1 = conn.execute_command('FT.SEARCH', 'idx', '@name:($val1|Bob)', 'NOCONTENT', 'PARAMS', '2', 'val1', 'Alice')
-    env.assertEqual(res1, [2L, 'key1', 'key2'])
+    res1 = conn.execute_command('FT.SEARCH', 'idx', '@name:(Alice|Bob)', 'NOCONTENT')
+    env.assertEqual(res1, [2L, 'key2', 'key1'])
+
+    res2 = conn.execute_command('FT.SEARCH', 'idx', '@name:($val1|Bob)', 'NOCONTENT', 'PARAMS', '2', 'val1', 'Alice')
+    env.assertEqual(res2, res1)
 
 
 def test_tags(env):
@@ -134,6 +136,12 @@ def test_tags(env):
     res1 = conn.execute_command('FT.SEARCH', 'idx', '@tags:{t200}', 'NOCONTENT', 'PARAMS', '2', 'myT', 't200')
     env.assertEqual(res1, [2L, 'key1', 'key3'])
     res2 = conn.execute_command('FT.SEARCH', 'idx', '@tags:{$myT}', 'NOCONTENT', 'PARAMS', '2', 'myT', 't200')
+    env.assertEqual(res2, res1)
+
+    res1 = conn.execute_command('FT.SEARCH', 'idx', '@tags:{t100 t200}', 'NOCONTENT', 'PARAMS', '2', 'myT', 't200')
+    env.assertEqual(res1, [1L, 'key1'])
+
+    res2 = conn.execute_command('FT.SEARCH', 'idx', '@tags:{$myT1, $myT2}', 'NOCONTENT', 'PARAMS', '4', 'myT1', 't100', 'myT2', 't200')
     env.assertEqual(res2, res1)
 
 

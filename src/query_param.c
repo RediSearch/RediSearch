@@ -30,6 +30,7 @@ QueryParam *NewGeoFilterQueryParam_WithParams(QueryToken *lon, QueryToken *lat, 
   QueryParam_SetParam(&ret->params[0], &gf->lon, NULL, lon);
   QueryParam_SetParam(&ret->params[1], &gf->lat, NULL, lat);
   QueryParam_SetParam(&ret->params[2], &gf->radius, NULL, radius);
+  assert (unit->type != QT_TERM_CASE);
   if (unit->type == QT_TERM && unit->s) {
     gf->unitType = GeoDistance_Parse_Buffer(unit->s, unit->len);
   } else {
@@ -72,7 +73,10 @@ void QueryParam_SetParam(Param *target_param, void *target_value, size_t *target
 
   if (source->type == QT_TERM) {
     target_param->type = PARAM_NONE;
-    *(char**)target_value = strndup(source->s, source->len);
+    *(char**)target_value = rm_strdupcase(source->s, source->len);
+  } else  if (source->type == QT_TERM_CASE) {
+    target_param->type = PARAM_NONE;
+    *(char**)target_value = rm_strndup(source->s, source->len);
   } else if (source->type == QT_NUMERIC) {
     target_param->type = PARAM_NONE;
     *(double *)target_value = source->numval;
@@ -82,6 +86,8 @@ void QueryParam_SetParam(Param *target_param, void *target_value, size_t *target
       type = PARAM_ANY;
     else if (source->type == QT_PARAM_TERM)
       type = PARAM_TERM;
+    else if (source->type == QT_PARAM_TERM_CASE)
+      type = PARAM_TERM_CASE;
     else if (source->type == QT_PARAM_NUMERIC)
       type = PARAM_NUMERIC;
     else if (source->type == QT_PARAM_NUMERIC_MIN_RANGE)
@@ -111,7 +117,7 @@ void QueryParam_InitParams(QueryParam *p, size_t num) {
 int QueryParam_Resolve(Param *param, dict *params, QueryError *status) {
   if (param->type == PARAM_NONE)
     return 0;
-  dictEntry *e = dictFind(params, param->name);
+  dictEntry *e = params ? dictFind(params, param->name) : NULL;
   if (!e) {
     QueryError_SetErrorFmt(status, QUERY_ENOPARAM, "No such parameter `%s`", param->name);
     return -1;
@@ -125,7 +131,12 @@ int QueryParam_Resolve(Param *param, dict *params, QueryError *status) {
 
     case PARAM_ANY:
     case PARAM_TERM:
-      *(char**)param->target = strdup(val);
+      *(char**)param->target = rm_strdupcase(val, strlen(val));
+      *param->target_len = strlen(val);
+      return 1;
+
+    case PARAM_TERM_CASE:
+      *(char**)param->target = rm_strdup(val);
       *param->target_len = strlen(val);
       return 1;
 

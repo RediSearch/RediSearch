@@ -66,4 +66,25 @@ static char *strtolower(char *str) {
   return str;
 }
 
+// strndup + lowercase in one pass!
+static char *rm_strdupcase(const char *s, size_t len) {
+  char *ret = rm_strndup(s, len);
+  char *dst = ret;
+  char *src = dst;
+  while (*src) {
+    // unescape
+    if (*src == '\\' && (ispunct(*(src+1)) || isspace(*(src+1)))) {
+      ++src;
+      continue;
+    }
+    *dst = tolower(*src);
+    ++dst;
+    ++src;
+
+  }
+  *dst = '\0';
+
+  return ret;
+}
+
 #endif

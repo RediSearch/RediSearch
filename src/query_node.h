@@ -155,6 +155,7 @@ typedef struct RSQueryNode {
   /* The node type, for resolving the union access */
   QueryNodeType type;
   QueryNodeOptions opts;
+  /* Parameter data referencing fields in one of the structs in the union above */
   Param *params;
   struct RSQueryNode **children;
 } QueryNode;
@@ -164,7 +165,7 @@ int QueryNode_ApplyAttributes(QueryNode *qn, QueryAttribute *attr, size_t len, Q
 void QueryNode_AddChildren(QueryNode *parent, QueryNode **children, size_t n);
 void QueryNode_AddChild(QueryNode *parent, QueryNode *child);
 void QueryNode_ClearChildren(QueryNode *parent, int shouldFree);
-int QueryNode_EvalParams(dict *params, QueryNode *node, QueryError *status);
+int QueryNode_EvalParamsCommon(dict *params, QueryNode *node, QueryError *status);
 
 #define QueryNode_NumChildren(qn) ((qn)->children ? array_len((qn)->children) : 0)
 #define QueryNode_GetChild(qn, ix) (QueryNode_NumChildren(qn) > ix ? (qn)->children[ix] : NULL)

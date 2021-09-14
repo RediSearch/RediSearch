@@ -4,8 +4,6 @@
 %left QUOTE.
 %left COLON.
 %left MINUS.
-%left ATTRIBUTE.
-%left PARAM.
 %left NUMBER.
 %left STOPWORD.
 
@@ -13,6 +11,9 @@
 %left TERM.
 %left PREFIX.
 %left PERCENT.
+%left PARAM.
+%left ATTRIBUTE.
+
 %right LP.
 %left RP.
 // needs to be above lp/rp
@@ -44,27 +45,7 @@
 #include "../query_node.h"
 #include "../query_param.h"
 #include "../query_internal.h"
-
-// strndup + lowercase in one pass!
-char *strdupcase(const char *s, size_t len) {
-  char *ret = rm_strndup(s, len);
-  char *dst = ret;
-  char *src = dst;
-  while (*src) {
-      // unescape 
-      if (*src == '\\' && (ispunct(*(src+1)) || isspace(*(src+1)))) {
-          ++src;
-          continue;
-      }
-      *dst = tolower(*src);
-      ++dst;
-      ++src;
-
-  }
-  *dst = '\0';
-  
-  return ret;
-}
+#include "../util/strconv.h"
 
 // unescape a string (non null terminated) and return the new length (may be shorter than the original. This manipulates the string itself 
 size_t unescapen(char *s, size_t sz) {
@@ -159,8 +140,8 @@ static int one_not_null(void *a, void *b, void *out) {
 
 query ::= expr(A) . { 
  /* If the root is a negative node, we intersect it with a wildcard node */
-    // FILE *f = fopen("/tmp/lemon_query.log", "w");
-    // RSQueryParser_Trace(f, "t: ");
+    FILE *f = fopen("/tmp/lemon_query.log", "w");
+    RSQueryParser_Trace(f, "t: ");
     ctx->root = A;
  
 }
@@ -323,13 +304,13 @@ expr(A) ::= QUOTE termlist(B) QUOTE. [TERMLIST] {
 }
 
 expr(A) ::= QUOTE term(B) QUOTE. [TERMLIST] {
-    A = NewTokenNode(ctx, strdupcase(B.s, B.len), -1);
+  A = NewTokenNode(ctx, rm_strdupcase(B.s, B.len), -1);
     A->opts.flags |= QueryNode_Verbatim;
     
 }
 
 expr(A) ::= term(B) . [LOWEST]  {
-   A = NewTokenNode(ctx, strdupcase(B.s, B.len), -1);
+  A = NewTokenNode(ctx, rm_strdupcase(B.s, B.len), -1);
 }
 
 expr(A) ::= param_term(B) . [PARAM]  {
@@ -350,13 +331,13 @@ expr(A) ::= STOPWORD . [STOPWORD] {
 
 termlist(A) ::= term(B) term(C). [TERMLIST]  {
     A = NewPhraseNode(0);
-    QueryNode_AddChild(A, NewTokenNode(ctx, strdupcase(B.s, B.len), -1));
-    QueryNode_AddChild(A, NewTokenNode(ctx, strdupcase(C.s, C.len), -1));
+    QueryNode_AddChild(A, NewTokenNode(ctx, rm_strdupcase(B.s, B.len), -1));
+    QueryNode_AddChild(A, NewTokenNode(ctx, rm_strdupcase(C.s, C.len), -1));
 }
 
 termlist(A) ::= termlist(B) term(C) . [TERMLIST] {
     A = B;
-    QueryNode_AddChild(A, NewTokenNode(ctx, strdupcase(C.s, C.len), -1));
+    QueryNode_AddChild(A, NewTokenNode(ctx, rm_strdupcase(C.s, C.len), -1));
 }
 
 termlist(A) ::= termlist(B) STOPWORD . [TERMLIST] {
@@ -400,32 +381,32 @@ prefix(A) ::= PREFIX(B) . [PREFIX] {
 /////////////////////////////////////////////////////////////////
 
 expr(A) ::=  PERCENT term(B) PERCENT. [PREFIX] {
-    B.s = strdupcase(B.s, B.len);
+  B.s = rm_strdupcase(B.s, B.len);
     A = NewFuzzyNode(ctx, B.s, strlen(B.s), 1);
 }
 
 expr(A) ::= PERCENT PERCENT term(B) PERCENT PERCENT. [PREFIX] {
-    B.s = strdupcase(B.s, B.len);
+  B.s = rm_strdupcase(B.s, B.len);
     A = NewFuzzyNode(ctx, B.s, strlen(B.s), 2);
 }
 
 expr(A) ::= PERCENT PERCENT PERCENT term(B) PERCENT PERCENT PERCENT. [PREFIX] {
-    B.s = strdupcase(B.s, B.len);
+  B.s = rm_strdupcase(B.s, B.len);
     A = NewFuzzyNode(ctx, B.s, strlen(B.s), 3);
 }
 
 expr(A) ::=  PERCENT STOPWORD(B) PERCENT. [PREFIX] {
-    B.s = strdupcase(B.s, B.len);
+  B.s = rm_strdupcase(B.s, B.len);
     A = NewFuzzyNode(ctx, B.s, strlen(B.s), 1);
 }
 
 expr(A) ::= PERCENT PERCENT STOPWORD(B) PERCENT PERCENT. [PREFIX] {
-    B.s = strdupcase(B.s, B.len);
+  B.s = rm_strdupcase(B.s, B.len);
     A = NewFuzzyNode(ctx, B.s, strlen(B.s), 2);
 }
 
 expr(A) ::= PERCENT PERCENT PERCENT STOPWORD(B) PERCENT PERCENT PERCENT. [PREFIX] {
-    B.s = strdupcase(B.s, B.len);
+  B.s = rm_strdupcase(B.s, B.len);
     A = NewFuzzyNode(ctx, B.s, strlen(B.s), 3);
 }
 
@@ -461,7 +442,7 @@ expr(A) ::= modifier(B) COLON tag_list(C) . {
     if (!C) {
         A= NULL;
     } else {
-        // Tag field names must be case sensitive, we we can't do strdupcase
+      // Tag field names must be case sensitive, we can't do rm_strdupcase
         char *s = rm_strndup(B.s, B.len);
         size_t slen = unescapen((char*)s, B.len);
 
@@ -481,6 +462,10 @@ tag_list(A) ::= LB term(B) . [TAGLIST] {
 
 tag_list(A) ::= LB param_term(B) . [TAGLIST] {
   A = NewPhraseNode(0);
+  if (B.type == QT_TERM)
+    B.type = QT_TERM_CASE;
+  else if (B.type == QT_PARAM_TERM)
+    B.type = QT_PARAM_TERM_CASE;
   QueryNode_AddChild(A, NewTokenNode_WithParam(ctx, &B));
 }
 
@@ -505,6 +490,10 @@ tag_list(A) ::= tag_list(B) OR term(C) . [TAGLIST] {
 }
 
 tag_list(A) ::= tag_list(B) OR param_term(C) . [TAGLIST] {
+  if (C.type == QT_TERM)
+    C.type = QT_TERM_CASE;
+  else if (C.type == QT_PARAM_TERM)
+    C.type = QT_PARAM_TERM_CASE;
   QueryNode_AddChild(B, NewTokenNode_WithParam(ctx, &C));
   A = B;
 }
@@ -620,10 +609,10 @@ param_term(A) ::= param(B). [PARAM] {
   A.type = QT_PARAM_TERM;
 }
 
-param_num(A) ::= NUMBER(B). [PARAM] {
-  A = B;
+param_num(A) ::= num(B). [PARAM] {
+  A.numval = B.num;
+  A.inclusive = B.inclusive;
   A.type = QT_NUMERIC;
-  A.inclusive = 1;
 }
 
 param_num(A) ::= param(B). [PARAM] {
