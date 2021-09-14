@@ -159,6 +159,11 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
     if ((parseSortby(arng, ac, status, req->reqflags & QEXEC_F_IS_SEARCH)) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
+  } else if (AC_AdvanceIfMatch(ac, "MULTISORTBY")) {
+    PLN_ArrangeStep *arng = AGPLN_GetOrCreateArrangeStep(&req->ap);
+    if ((parseSortby(arng, ac, status, 0)) != REDISMODULE_OK) {
+      return ARG_ERROR;
+    }
   } else if (AC_AdvanceIfMatch(ac, "TIMEOUT")) {	
     if (AC_NumRemaining(ac) < 1) {	
       QueryError_SetError(status, QUERY_EPARSEARGS, "Need argument for TIMEOUT");	

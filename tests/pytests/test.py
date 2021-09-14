@@ -3370,3 +3370,43 @@ def test_mod1548(env):
     res = conn.execute_command('FT.SEARCH', 'idx', '@categories:{abcat0200000}', 'RETURN', '1', 'prod:id_unsupported')
     env.assertEqual(res, [2L, 'prod:1', [], 'prod:2', []])
 
+def testSearchMultiSortBy(env):
+    conn = getConnectionByEnv(env)
+    env.execute_command('FT.CREATE', 'msb_idx', 'SCHEMA', 't1', 'TEXT', 't2', 'TEXT')    
+    conn.execute_command('hset', 'doc1', 't1', 'a', 't2', 'a')
+    conn.execute_command('hset', 'doc2', 't1', 'a', 't2', 'b')
+    conn.execute_command('hset', 'doc3', 't1', 'a', 't2', 'c')  
+    conn.execute_command('hset', 'doc4', 't1', 'b', 't2', 'a')
+    conn.execute_command('hset', 'doc5', 't1', 'b', 't2', 'b')
+    conn.execute_command('hset', 'doc6', 't1', 'b', 't2', 'c')  
+    conn.execute_command('hset', 'doc7', 't1', 'c', 't2', 'a')
+    conn.execute_command('hset', 'doc8', 't1', 'c', 't2', 'b')
+    conn.execute_command('hset', 'doc9', 't1', 'c', 't2', 'c')
+
+    # t1 ASC t2 ASC
+    res = [9L, 'doc1', ['t1', 'a', 't2', 'a'], 'doc2', ['t1', 'a', 't2', 'b'], 'doc3', ['t1', 'a', 't2', 'c'],
+               'doc4', ['t1', 'b', 't2', 'a'], 'doc5', ['t1', 'b', 't2', 'b'], 'doc6', ['t1', 'b', 't2', 'c'],
+               'doc7', ['t1', 'c', 't2', 'a'], 'doc8', ['t1', 'c', 't2', 'b'], 'doc9', ['t1', 'c', 't2', 'c']]
+    env.expect('FT.SEARCH', 'msb_idx', '*',
+                'MULTISORTBY', '4', '@t1', 'ASC', '@t2', 'ASC').equal(res)
+
+    # t1 DESC t2 ASC
+    res = [9L, 'doc7', ['t1', 'c', 't2', 'a'], 'doc8', ['t1', 'c', 't2', 'b'], 'doc9', ['t1', 'c', 't2', 'c'],
+               'doc4', ['t1', 'b', 't2', 'a'], 'doc5', ['t1', 'b', 't2', 'b'], 'doc6', ['t1', 'b', 't2', 'c'],
+               'doc1', ['t1', 'a', 't2', 'a'], 'doc2', ['t1', 'a', 't2', 'b'], 'doc3', ['t1', 'a', 't2', 'c']]
+    env.expect('FT.SEARCH', 'msb_idx', '*',
+                'MULTISORTBY', '4', '@t1', 'DESC', '@t2', 'ASC').equal(res)
+
+    # t2 ASC t1 ASC
+    res = [9L, 'doc1', ['t2', 'a', 't1', 'a'], 'doc4', ['t2', 'a', 't1', 'b'], 'doc7', ['t2', 'a', 't1', 'c'],
+               'doc2', ['t2', 'b', 't1', 'a'], 'doc5', ['t2', 'b', 't1', 'b'], 'doc8', ['t2', 'b', 't1', 'c'],
+               'doc3', ['t2', 'c', 't1', 'a'], 'doc6', ['t2', 'c', 't1', 'b'], 'doc9', ['t2', 'c', 't1', 'c']]
+    env.expect('FT.SEARCH', 'msb_idx', '*',
+                'MULTISORTBY', '4', '@t2', 'ASC', '@t1', 'ASC').equal(res)
+
+    # t2 ASC t1 DESC
+    res = [9L, 'doc7', ['t2', 'a', 't1', 'c'], 'doc4', ['t2', 'a', 't1', 'b'], 'doc1', ['t2', 'a', 't1', 'a'],
+               'doc8', ['t2', 'b', 't1', 'c'], 'doc5', ['t2', 'b', 't1', 'b'], 'doc2', ['t2', 'b', 't1', 'a'],
+               'doc9', ['t2', 'c', 't1', 'c'], 'doc6', ['t2', 'c', 't1', 'b'], 'doc3', ['t2', 'c', 't1', 'a']]
+    env.expect('FT.SEARCH', 'msb_idx', '*',
+                'MULTISORTBY', '4', '@t2', 'ASC', '@t1', 'DESC').equal(res)
