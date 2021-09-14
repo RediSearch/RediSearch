@@ -23,6 +23,7 @@ OPTION(USE_COVERAGE "Build with coverage" OFF)
 if (NOT DEFINED VECSIM_ARCH)
 set(VECSIM_ARCH "native")
 endif()
+message("RediSearch/VecSim VECSIM_ARCH: " ${VECSIM_ARCH})
 
 IF (RS_MODULE_NAME) 
     ADD_DEFINITIONS("-DREDISEARCH_MODULE_NAME=\"${RS_MODULE_NAME}\"")
