@@ -168,6 +168,7 @@ VECSIM_ARCH ?= x86-64-v4
 else
 VECSIM_ARCH ?= native
 endif
+endif
 
 CMAKE_VECSIM=-DVECSIM_ARCH=$(VECSIM_ARCH)
 
