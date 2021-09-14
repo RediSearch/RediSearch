@@ -161,13 +161,13 @@ CMAKE_FILES+= \
 endif
 
 ifeq ($(SAN),)
-ifneq ($(findstring $(OSNICK),centos),)
+ifneq ($(findstring centos,$(OSNICK)),)
 VECSIM_ARCH ?= skylake-avx512
 else
 VECSIM_ARCH ?= x86-64-v4
+endif
 else
 VECSIM_ARCH ?= native
-endif
 endif
 
 CMAKE_VECSIM=-DVECSIM_ARCH=$(VECSIM_ARCH)
