@@ -360,31 +360,39 @@ static int parseVectorField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
     fs->vecSimParams.type = VecSimMetric_IP;
   else if (!strncasecmp(VECSIM_METRIC_L2, metricStr, len)) 
     fs->vecSimParams.type = VecSimMetric_L2;
+  else if (!strncasecmp(VECSIM_METRIC_COSINE, metricStr, len)) 
+    fs->vecSimParams.type = VecSimMetric_Cosine;
   else {
     QERR_MKBADARGS_AC(status, "vecsim metric", AC_ERR_PARSE);
     return 0;
   }
 
   // parse algorithm
+  VecSimAlgo algorithm;
   const char *algStr;
   if ((rc = AC_GetString(ac, &algStr, &len, 0)) != AC_OK) {
     QERR_MKBADARGS_AC(status, "vecsim algorithm", rc);
     return 0;
   }
   if (!strncasecmp(VECSIM_ALGORITHM_BF, algStr, len)) 
-    fs->vecSimParams.algo = VecSimAlgo_BF;
+    algorithm = fs->vecSimParams.algo = VecSimAlgo_BF;
   else if (!strncasecmp(VECSIM_ALGORITHM_HNSW, algStr, len)) 
-    fs->vecSimParams.algo = VecSimAlgo_HNSWLIB;
+    algorithm = fs->vecSimParams.algo = VecSimAlgo_HNSWLIB;
   else {
     QERR_MKBADARGS_AC(status, "vecsim algorithm", AC_ERR_PARSE);
     return 0;
   }
 
-  // defaults for optional params
-  fs->vecSimParams.bfParams.initialCapacity = 1000;
-  fs->vecSimParams.hnswParams.initialCapacity = 1000;
-  fs->vecSimParams.hnswParams.M = 16;
-  fs->vecSimParams.hnswParams.efConstruction = 200;
+  switch (algorithm) {
+  case VecSimAlgo_BF:
+    fs->vecSimParams.bfParams.initialCapacity = 1000;
+    fs->vecSimParams.bfParams.blockSize = BF_DEFAULT_BLOCK_SIZE;
+    break;
+  case VecSimAlgo_HNSWLIB:
+    fs->vecSimParams.hnswParams.initialCapacity = 1000;
+    fs->vecSimParams.hnswParams.M = HNSW_DEFAULT_M;
+    fs->vecSimParams.hnswParams.efConstruction = HNSW_DEFAULT_EF_C;
+  }
 
   // TODO: fix for different order
   if (AC_AdvanceIfMatch(ac, VECSIM_INITIAL_CAP)) {
@@ -397,7 +405,16 @@ static int parseVectorField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
       fs->vecSimParams.hnswParams.initialCapacity = initialCap;
   }
 
-  if (fs->vecSimParams.algo == VecSimAlgo_HNSWLIB) {
+  if (algorithm == VecSimAlgo_BF) {
+    if (AC_AdvanceIfMatch(ac, VECSIM_BLOCKSIZE)) {
+      if ((rc = AC_GetSize(ac, &fs->vecSimParams.bfParams.blockSize, 0)) != AC_OK) {
+        QERR_MKBADARGS_AC(status, "vecsim blocksize", rc);
+        return 0;
+      }
+    }
+  }
+
+  if (algorithm == VecSimAlgo_HNSWLIB) {
     while (!AC_IsAtEnd(ac)) {
       if (AC_AdvanceIfMatch(ac, VECSIM_M)) {
         if ((rc = AC_GetSize(ac, &fs->vecSimParams.hnswParams.M, 0)) != AC_OK) {
