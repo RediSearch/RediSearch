@@ -12,8 +12,9 @@ import paella
 #----------------------------------------------------------------------------------------------
 
 class RediSearchSetup(paella.Setup):
-    def __init__(self, nop=False):
-        paella.Setup.__init__(self, nop)
+    def __init__(self, args):
+        paella.Setup.__init__(self, args.nop)
+        self.no_gcc = args.no_gcc
 
     def common_first(self):
         self.install_downloaders()
@@ -25,7 +26,8 @@ class RediSearchSetup(paella.Setup):
 
     def debian_compat(self):
         self.install("libatomic1")
-        self.run("%s/bin/getgcc" % READIES)
+        if not self.no_gcc:
+            self.run("%s/bin/getgcc --modern" % READIES)
         self.install("python-dev")
 
         if self.platform.is_arm() and self.dist == 'ubuntu' and self.os_version[0] < 20:
@@ -36,7 +38,9 @@ class RediSearchSetup(paella.Setup):
         self.install("libatomic")
         self.install("python2-devel")
 
-        self.run("%s/bin/getgcc --modern" % READIES)
+        if not self.no_gcc:
+            self.run("rm -f /etc/profile.d/scl-devtoolset-9.sh") # remove previously installed toolset
+            self.run("%s/bin/getgcc --modern" % READIES)
 
         # fix setuptools
         self.pip_install("-IU --force-reinstall setuptools")
@@ -49,7 +53,8 @@ class RediSearchSetup(paella.Setup):
 
     def fedora(self):
         self.install("libatomic")
-        self.run("%s/bin/getgcc" % READIES)
+        if not self.no_gcc:
+            self.run("%s/bin/getgcc --modern" % READIES)
 
     def macos(self):
         self.install_gnu_utils()
@@ -76,6 +81,7 @@ class RediSearchSetup(paella.Setup):
 
 parser = argparse.ArgumentParser(description='Set up system for build.')
 parser.add_argument('-n', '--nop', action="store_true", help='no operation')
+parser.add_argument('--no-gcc', action="store_true", help='do not install gcc')
 args = parser.parse_args()
 
-RediSearchSetup(nop = args.nop).setup()
+RediSearchSetup(args).setup()
