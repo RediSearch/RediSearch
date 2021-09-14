@@ -1,5 +1,6 @@
-CMAKE_MINIMUM_REQUIRED(VERSION 3.0.0)
-PROJECT(redisearch)
+cmake_minimum_required(VERSION 3.10)
+cmake_policy(SET CMP0077 NEW)
+set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
 
 # Allow to use 'LOCATION' setting
 #IF(POLICY CMP0026)
@@ -9,6 +10,8 @@ PROJECT(redisearch)
 #    cmake_policy(SET CMP0045 OLD)
 #ENDIF()
 
+PROJECT(redisearch)
+
 OPTION(RS_RUN_TESTS "Build & Run RediSearch's tests" OFF)
 OPTION(RS_BUILD_STATIC "Builds a static library" OFF)
 OPTION(USE_ASAN "Use AddressSanitizer (clang)" OFF)
@@ -16,7 +19,10 @@ OPTION(USE_MSAN "Use MemorySanitizer (clang)" OFF)
 OPTION(USE_TSAN "Use ThreadSanitizer (clang)" OFF)
 OPTION(USE_REDIS_ALLOCATOR "Use redis allocator" ON)
 OPTION(USE_COVERAGE "Build with coverage" OFF)
-OPTION(VECSIM_ARCH_NATIVE "Build for native architecture" OFF)
+
+if (NOT DEFINED VECSIM_ARCH)
+set(VECSIM_ARCH "native")
+endif()
 
 IF (RS_MODULE_NAME) 
     ADD_DEFINITIONS("-DREDISEARCH_MODULE_NAME=\"${RS_MODULE_NAME}\"")
@@ -114,7 +120,7 @@ ExternalProject_Add (VectorSimilarity
 	SOURCE_DIR      ${CMAKE_CURRENT_SOURCE_DIR}/deps/VectorSimilarity/src
 	PREFIX          ${CMAKE_CURRENT_BINARY_DIR}/VectorSimilarity
 	CMAKE_ARGS      -DCMAKE_INSTALL_PREFIX:PATH=${CMAKE_CURRENT_BINARY_DIR}/VectorSimilarity
-	CMAKE_ARGS      -DVECSIM_STATIC:BOOL=ON,-DVECSIM_ARCH_NATIVE=${VECSIM_ARCH_NATIVE}
+	CMAKE_ARGS      -DVECSIM_STATIC:BOOL=ON -DVECSIM_ARCH:string=${VECSIM_ARCH}
 )
 
 ExternalProject_Get_Property (VectorSimilarity install_dir)
