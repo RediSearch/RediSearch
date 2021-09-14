@@ -1,5 +1,6 @@
-CMAKE_MINIMUM_REQUIRED(VERSION 3.0.0)
-PROJECT(redisearch)
+cmake_minimum_required(VERSION 3.10)
+cmake_policy(SET CMP0077 NEW)
+set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
 
 # Allow to use 'LOCATION' setting
 #IF(POLICY CMP0026)
@@ -9,6 +10,8 @@ PROJECT(redisearch)
 #    cmake_policy(SET CMP0045 OLD)
 #ENDIF()
 
+PROJECT(redisearch)
+
 OPTION(RS_RUN_TESTS "Build & Run RediSearch's tests" OFF)
 OPTION(RS_BUILD_STATIC "Builds a static library" OFF)
 OPTION(USE_ASAN "Use AddressSanitizer (clang)" OFF)
@@ -16,6 +19,11 @@ OPTION(USE_MSAN "Use MemorySanitizer (clang)" OFF)
 OPTION(USE_TSAN "Use ThreadSanitizer (clang)" OFF)
 OPTION(USE_REDIS_ALLOCATOR "Use redis allocator" ON)
 OPTION(USE_COVERAGE "Build with coverage" OFF)
+
+if (NOT DEFINED VECSIM_ARCH)
+set(VECSIM_ARCH "native")
+endif()
+message("RediSearch/VecSim VECSIM_ARCH: " ${VECSIM_ARCH})
 
 IF (RS_MODULE_NAME) 
     ADD_DEFINITIONS("-DREDISEARCH_MODULE_NAME=\"${RS_MODULE_NAME}\"")
@@ -113,7 +121,7 @@ ExternalProject_Add (VectorSimilarity
 	SOURCE_DIR      ${CMAKE_CURRENT_SOURCE_DIR}/deps/VectorSimilarity/src
 	PREFIX          ${CMAKE_CURRENT_BINARY_DIR}/VectorSimilarity
 	CMAKE_ARGS      -DCMAKE_INSTALL_PREFIX:PATH=${CMAKE_CURRENT_BINARY_DIR}/VectorSimilarity
-	CMAKE_ARGS      -DVECSIM_STATIC:BOOL=ON
+	CMAKE_ARGS      -DVECSIM_STATIC:BOOL=ON -DVECSIM_ARCH:string=${VECSIM_ARCH}
 )
 
 ExternalProject_Get_Property (VectorSimilarity install_dir)
@@ -123,11 +131,10 @@ message("VectorSimilarity bindir: ${VectorSimilarity_bindir}")
 include_directories (${VectorSimilarity_bindir}/include)
 
 add_library (vecsim STATIC IMPORTED)
-set_target_properties (vecsim PROPERTIES IMPORTED_LOCATION ${VectorSimilarity_bindir}/src/VectorSimilarity-build/libVectorSimilarity.a)
+set_target_properties (vecsim PROPERTIES IMPORTED_LOCATION ${VectorSimilarity_bindir}/libVectorSimilarity.a)
 
-add_library (openblas STATIC IMPORTED)
-set_target_properties (openblas PROPERTIES IMPORTED_LOCATION ${VectorSimilarity_bindir}/src/VectorSimilarity-build/OpenBLAS/lib/libopenblas.a)
-
+add_library (vecsim-spaces STATIC IMPORTED)
+set_target_properties (vecsim-spaces PROPERTIES IMPORTED_LOCATION ${VectorSimilarity_bindir}/libVectorSimilaritySpaces.a)
 
 FILE(GLOB RS_SRC
     "src/*.c"
@@ -184,7 +191,7 @@ ELSEIF (RS_BUILD_STATIC)
 
 ELSE ()
     ADD_LIBRARY(redisearch SHARED ${FINAL_OBJECTS} src/module-init/module-init.c)
-    TARGET_LINK_LIBRARIES(redisearch dl m vecsim openblas)
+    TARGET_LINK_LIBRARIES(redisearch dl m vecsim vecsim-spaces)
     SET_TARGET_PROPERTIES(redisearch PROPERTIES LINKER_LANGUAGE CXX)
     SET_TARGET_PROPERTIES(redisearch PROPERTIES PREFIX "")
     SET_TARGET_PROPERTIES(redisearch PROPERTIES SUFFIX ".so")

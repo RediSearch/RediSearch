@@ -47,7 +47,8 @@ make build         # compile and link
   CMAKE_ARGS=...   # extra arguments to CMake
   STATIC=1         # build as static lib
   VG=1             # build for Valgrind
-  SAN=type         # build with LLVM sanitizer (type=address|memory|leak|thread) 
+  SAN=type         # build with LLVM sanitizer (type=address|memory|leak|thread)
+  VECSIM_ARCH=arch # architecture for VecSim build
 make parsers       # build parsers code
 make clean         # remove build artifacts
   ALL=1              # remove entire artifacts directory
@@ -159,7 +160,20 @@ CMAKE_FILES+= \
 	tests/c_utils/CMakeLists.txt
 endif
 
-CMAKE_FLAGS=$(CMAKE_ARGS) $(CMAKE_DEBUG) $(CMAKE_STATIC) $(CMAKE_SAN) $(CMAKE_TEST) $(CMAKE_WHY) $(CMAKE_PROFILE)
+ifeq ($(SAN),)
+ifneq ($(findstring centos,$(OSNICK)),)
+VECSIM_ARCH ?= skylake-avx512
+else
+VECSIM_ARCH ?= x86-64-v4
+endif
+else
+VECSIM_ARCH ?= native
+endif
+
+CMAKE_VECSIM=-DVECSIM_ARCH=$(VECSIM_ARCH)
+
+CMAKE_FLAGS=$(CMAKE_ARGS) $(CMAKE_DEBUG) $(CMAKE_STATIC) $(CMAKE_SAN) $(CMAKE_TEST) $(CMAKE_WHY) \
+	$(CMAKE_PROFILE) $(CMAKE_VECSIM)
 
 #----------------------------------------------------------------------------------------------
 
