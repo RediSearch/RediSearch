@@ -127,6 +127,8 @@ def test_tags(env):
     env.assertEqual(conn.execute_command('HSET', 'key1', 'tags', 't100,t200'), 1L)
     env.assertEqual(conn.execute_command('HSET', 'key2', 'tags', 't100,t300'), 1L)
     env.assertEqual(conn.execute_command('HSET', 'key3', 'tags', 't200,t300'), 1L)
+    env.assertEqual(conn.execute_command('HSET', 'key4', 'tags', 't100 t200'), 1L)
+    env.assertEqual(conn.execute_command('HSET', 'key5', 'tags', 't100 200'), 1L)
 
     res1 = conn.execute_command('FT.SEARCH', 'idx', '@tags:{t200|t100}', 'NOCONTENT')
     env.assertEqual(res1, [3L, 'key1', 'key2', 'key3'])
@@ -138,11 +140,21 @@ def test_tags(env):
     res2 = conn.execute_command('FT.SEARCH', 'idx', '@tags:{$myT}', 'NOCONTENT', 'PARAMS', '2', 'myT', 't200')
     env.assertEqual(res2, res1)
 
-    res1 = conn.execute_command('FT.SEARCH', 'idx', '@tags:{t100 t200}', 'NOCONTENT', 'PARAMS', '2', 'myT', 't200')
-    env.assertEqual(res1, [1L, 'key1'])
-
-    res2 = conn.execute_command('FT.SEARCH', 'idx', '@tags:{$myT1, $myT2}', 'NOCONTENT', 'PARAMS', '4', 'myT1', 't100', 'myT2', 't200')
+    res1 = conn.execute_command('FT.SEARCH', 'idx', '@tags:{t100 t200}', 'NOCONTENT')
+    env.assertEqual(res1, [1L, 'key4'])
+    res2 = conn.execute_command('FT.SEARCH', 'idx', '@tags:{$myT1 $myT2}', 'NOCONTENT', 'PARAMS', '4', 'myT1', 't100', 'myT2', 't200')
     env.assertEqual(res2, res1)
+
+    res1 = conn.execute_command('FT.SEARCH', 'idx', '@tags:{t100 200}', 'NOCONTENT')
+    env.assertEqual(res1, [1L, 'key5'])
+    res2 = conn.execute_command('FT.SEARCH', 'idx', '@tags:{$myT1 $myT2}', 'NOCONTENT', 'PARAMS', '4', 'myT1', 't100', 'myT2', '200')
+    env.assertEqual(res2, res1)
+
+    #FIXME: Enable the following command (mix param with term)
+    # res2 = conn.execute_command('FT.SEARCH', 'idx', '@tags:{$myT1 200}', 'NOCONTENT', 'PARAMS', '4', 'myT1', 't100', 'myT2', '200')
+    # env.assertEqual(res2, res1)
+    # res2 = conn.execute_command('FT.SEARCH', 'idx', '@tags:{t100 $myT2}', 'NOCONTENT', 'PARAMS', '4', 'myT1', 't100', 'myT2', '200')
+    # env.assertEqual(res2, res1)
 
 
 def test_numeric_range(env):

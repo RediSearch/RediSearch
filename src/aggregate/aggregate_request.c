@@ -134,6 +134,10 @@ static int parseParams (AREQ *req, ArgsCursor *ac, QueryError *status) {
   while (!AC_IsAtEnd(&paramsArgs)) {
     const char *param = AC_GetStringNC(&paramsArgs, NULL);
     const char *value = AC_GetStringNC(&paramsArgs, NULL);
+    // FIXME: Validate param is [a-zA-Z][a-zA-z_\-:0-9]*
+    // FIXME: Validate value is [+-]?inf or any value not ending with unescaped *,
+    //  Not equal to a query keyword,
+    //  Doesn't contain unescaped parenthesis, tilde, percent, ...
     if (DICT_ERR == dictAdd(params, (void*)param, (void*)value)) {
       QueryError_SetErrorFmt(status, QUERY_EADDARGS, "Duplicated parameter `%s`", param);
       return REDISMODULE_ERR;

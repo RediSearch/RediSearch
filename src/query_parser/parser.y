@@ -306,14 +306,18 @@ expr(A) ::= QUOTE termlist(B) QUOTE. [TERMLIST] {
 expr(A) ::= QUOTE term(B) QUOTE. [TERMLIST] {
   A = NewTokenNode(ctx, rm_strdupcase(B.s, B.len), -1);
     A->opts.flags |= QueryNode_Verbatim;
-    
+}
+
+expr(A) ::= QUOTE param(B) QUOTE. [TERMLIST] {
+  A = NewTokenNode(ctx, rm_strdupcase(B.s, B.len), -1);
+  A->opts.flags |= QueryNode_Verbatim;
 }
 
 expr(A) ::= term(B) . [LOWEST]  {
   A = NewTokenNode(ctx, rm_strdupcase(B.s, B.len), -1);
 }
 
-expr(A) ::= param_term(B) . [PARAM]  {
+expr(A) ::= param(B) . [LOWEST]  {
   A = NewTokenNode_WithParam(ctx, &B);
 }
 
@@ -335,9 +339,20 @@ termlist(A) ::= term(B) term(C). [TERMLIST]  {
     QueryNode_AddChild(A, NewTokenNode(ctx, rm_strdupcase(C.s, C.len), -1));
 }
 
+termlist(A) ::= param(B) param(C). [TERMLIST]  {
+  A = NewPhraseNode(0);
+  QueryNode_AddChild(A, NewTokenNode_WithParam(ctx, &B));
+  QueryNode_AddChild(A, NewTokenNode_WithParam(ctx, &C));
+}
+
 termlist(A) ::= termlist(B) term(C) . [TERMLIST] {
     A = B;
     QueryNode_AddChild(A, NewTokenNode(ctx, rm_strdupcase(C.s, C.len), -1));
+}
+
+termlist(A) ::= termlist(B) param(C) . [TERMLIST] {
+  A = B;
+  QueryNode_AddChild(A, NewTokenNode_WithParam(ctx, &C));
 }
 
 termlist(A) ::= termlist(B) STOPWORD . [TERMLIST] {
@@ -460,7 +475,7 @@ tag_list(A) ::= LB term(B) . [TAGLIST] {
     QueryNode_AddChild(A, NewTokenNode(ctx, rm_strndup(B.s, B.len), -1));
 }
 
-tag_list(A) ::= LB param_term(B) . [TAGLIST] {
+tag_list(A) ::= LB param(B) . [TAGLIST] {
   A = NewPhraseNode(0);
   if (B.type == QT_TERM)
     B.type = QT_TERM_CASE;
@@ -489,7 +504,7 @@ tag_list(A) ::= tag_list(B) OR term(C) . [TAGLIST] {
     A = B;
 }
 
-tag_list(A) ::= tag_list(B) OR param_term(C) . [TAGLIST] {
+tag_list(A) ::= tag_list(B) OR param(C) . [TAGLIST] {
   if (C.type == QT_TERM)
     C.type = QT_TERM_CASE;
   else if (C.type == QT_PARAM_TERM)
