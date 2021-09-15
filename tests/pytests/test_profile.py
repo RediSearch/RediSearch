@@ -46,13 +46,13 @@ def testProfileSearch(env):
   # test NOT
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '-hello', 'nocontent')
   expected_res = ['Iterators profile', ['Type', 'NOT', 'Counter', 1L, 'Child iterator',
-                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 0L, 'Size', 1L]]]
+                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1L, 'Size', 1L]]]
   env.assertEqual(actual_res[1][3], expected_res)
 
   # test OPTIONAL
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '~hello', 'nocontent')
   expected_res = ['Iterators profile', ['Type', 'OPTIONAL', 'Counter', 2L, 'Child iterator',
-                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 0L, 'Size', 1L]]]
+                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1L, 'Size', 1L]]]
   env.assertEqual(actual_res[1][3], expected_res)
 
   # test PREFIX
@@ -231,3 +231,30 @@ def testProfileMaxPrefixExpansion(env):
   env.assertEqual(actual_res[1][3][1][6:8], ['Warning', 'Max prefix expansion reached'])
 
   env.cmd('FT.CONFIG', 'SET', 'MAXPREFIXEXPANSIONS', 200)
+
+def testNotIterator(env):
+  env.skipOnCluster()
+  conn = getConnectionByEnv(env)
+  env.cmd('FT.CONFIG', 'SET', 'MAXPREFIXEXPANSIONS', 2)
+  env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+  conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'text')
+  conn.execute_command('HSET', '1', 't', 'foo')
+  conn.execute_command('HSET', '2', 't', 'bar')
+
+  #before the fix, we would not get an empty iterator
+  res = [[1L, '1', ['t', 'foo']],
+         [['Total profile time'], 
+          ['Parsing time'],
+          ['Pipeline creation time'],
+          ['Iterators profile',
+            ['Type', 'INTERSECT', 'Counter', 1L, 'Child iterators',
+              ['Type', 'TEXT', 'Term', 'foo', 'Counter', 1L, 'Size', 1L],
+              ['Type', 'NOT', 'Counter', 1L, 'Child iterator',
+                ['Type', 'EMPTY', 'Counter', 0L]]]],
+          ['Result processors profile',
+            ['Type', 'Index', 'Counter', 1L],
+            ['Type', 'Scorer', 'Counter', 1L],
+            ['Type', 'Sorter', 'Counter', 1L], ['Type',
+            'Loader', 'Counter', 1L]]]]
+
+  env.expect('ft.profile', 'idx', 'search', 'query', 'foo -@t:baz').equal(res)
