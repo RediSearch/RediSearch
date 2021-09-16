@@ -8,7 +8,7 @@ Learn about RediSearch using this [Getting Started Tutorial](https://github.com/
 
 RediSearch is available on all Redis Cloud managed services.  Redis Cloud Essentials offers a completely free managed database up to 30MB.
 
-[Get started here](https://redislabs.com/try-free/)
+[Get started here](https://redis.com/try-free/)
 
 ## Running with Docker
 
@@ -18,7 +18,7 @@ docker run -p 6379:6379 redislabs/redisearch:latest
 
 ## Download and running binaries
 
-First download the pre-compiled version from [RedisLabs download center](https://redislabs.com/download-center/modules/).
+First download the pre-compiled version from the [Redis download center](https://redis.com/download-center/modules/).
 
 Next, run Redis with RediSearch: 
 
