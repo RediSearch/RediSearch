@@ -305,11 +305,11 @@ expr(A) ::= QUOTE termlist(B) QUOTE. [TERMLIST] {
 
 expr(A) ::= QUOTE term(B) QUOTE. [TERMLIST] {
   A = NewTokenNode(ctx, rm_strdupcase(B.s, B.len), -1);
-    A->opts.flags |= QueryNode_Verbatim;
+  A->opts.flags |= QueryNode_Verbatim;
 }
 
-expr(A) ::= QUOTE param(B) QUOTE. [TERMLIST] {
-  A = NewTokenNode(ctx, rm_strdupcase(B.s, B.len), -1);
+expr(A) ::= QUOTE param_term(B) QUOTE. [TERMLIST] {
+  A = NewTokenNode_WithParam(ctx, &B);
   A->opts.flags |= QueryNode_Verbatim;
 }
 
@@ -317,7 +317,7 @@ expr(A) ::= term(B) . [LOWEST]  {
   A = NewTokenNode(ctx, rm_strdupcase(B.s, B.len), -1);
 }
 
-expr(A) ::= param(B) . [LOWEST]  {
+expr(A) ::= param_term(B) . [LOWEST]  {
   A = NewTokenNode_WithParam(ctx, &B);
 }
 
@@ -339,7 +339,7 @@ termlist(A) ::= term(B) term(C). [TERMLIST]  {
     QueryNode_AddChild(A, NewTokenNode(ctx, rm_strdupcase(C.s, C.len), -1));
 }
 
-termlist(A) ::= param(B) param(C). [TERMLIST]  {
+termlist(A) ::= param_term(B) param_term(C). [TERMLIST]  {
   A = NewPhraseNode(0);
   QueryNode_AddChild(A, NewTokenNode_WithParam(ctx, &B));
   QueryNode_AddChild(A, NewTokenNode_WithParam(ctx, &C));
@@ -350,7 +350,7 @@ termlist(A) ::= termlist(B) term(C) . [TERMLIST] {
     QueryNode_AddChild(A, NewTokenNode(ctx, rm_strdupcase(C.s, C.len), -1));
 }
 
-termlist(A) ::= termlist(B) param(C) . [TERMLIST] {
+termlist(A) ::= termlist(B) param_term(C) . [TERMLIST] {
   A = B;
   QueryNode_AddChild(A, NewTokenNode_WithParam(ctx, &C));
 }
@@ -475,7 +475,7 @@ tag_list(A) ::= LB term(B) . [TAGLIST] {
     QueryNode_AddChild(A, NewTokenNode(ctx, rm_strndup(B.s, B.len), -1));
 }
 
-tag_list(A) ::= LB param(B) . [TAGLIST] {
+tag_list(A) ::= LB param_term(B) . [TAGLIST] {
   A = NewPhraseNode(0);
   if (B.type == QT_TERM)
     B.type = QT_TERM_CASE;
@@ -504,7 +504,7 @@ tag_list(A) ::= tag_list(B) OR term(C) . [TAGLIST] {
     A = B;
 }
 
-tag_list(A) ::= tag_list(B) OR param(C) . [TAGLIST] {
+tag_list(A) ::= tag_list(B) OR param_term(C) . [TAGLIST] {
   if (C.type == QT_TERM)
     C.type = QT_TERM_CASE;
   else if (C.type == QT_PARAM_TERM)
@@ -619,7 +619,13 @@ param_term(A) ::= TERM(B). [PARAM] {
   A.type = QT_TERM;
 }
 
-param_term(A) ::= param(B). [PARAM] {
+param_term(A) ::= NUMBER(B). [PARAM] {
+  A = B;
+  // Number is treated as a term here
+  A.type = QT_TERM;
+}
+
+param_term(A) ::= ATTRIBUTE(B). [PARAM] {
   A = B;
   A.type = QT_PARAM_TERM;
 }
@@ -630,19 +636,14 @@ param_num(A) ::= num(B). [PARAM] {
   A.type = QT_NUMERIC;
 }
 
-param_num(A) ::= param(B). [PARAM] {
+param_num(A) ::= ATTRIBUTE(B). [PARAM] {
   A = B;
   A.type = QT_PARAM_NUMERIC;
   A.inclusive = 1;
 }
 
-param_num(A) ::= LP param(B). [PARAM] {
+param_num(A) ::= LP ATTRIBUTE(B). [PARAM] {
   A = B;
   A.type = QT_PARAM_NUMERIC;
   A.inclusive = 0;
-}
-
-param(A) ::= ATTRIBUTE(B) . [ATTRIBUTE] {
-  A = B;
-  A.type = QT_PARAM_ANY;
 }

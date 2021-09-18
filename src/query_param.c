@@ -132,7 +132,7 @@ int QueryParam_Resolve(Param *param, dict *params, QueryError *status) {
     case PARAM_ANY:
     case PARAM_TERM:
       *(char**)param->target = rm_strdupcase(val, strlen(val));
-      *param->target_len = strlen(val);
+      *param->target_len = strlen(*(char**)param->target);
       return 1;
 
     case PARAM_TERM_CASE:

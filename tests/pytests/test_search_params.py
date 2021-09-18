@@ -109,12 +109,26 @@ def test_expression(env):
     env.assertEqual(conn.execute_command('HSET', 'key1', 'name', 'Bob', 'id', '17'), 2L)
     env.assertEqual(conn.execute_command('HSET', 'key2', 'name', 'Alice', 'id', '31'), 2L)
     env.assertEqual(conn.execute_command('HSET', 'key3', 'name', 'Carol', 'id', '13'), 2L)
-    env.assertEqual(conn.execute_command('HSET', 'key4', 'name', 'John Doe', 'id', '0'), 2L)
+    env.assertEqual(conn.execute_command('HSET', 'key4', 'name', 'John\\ Doe', 'id', '0'), 2L)
 
     res1 = conn.execute_command('FT.SEARCH', 'idx', '@name:(Alice|Bob)', 'NOCONTENT')
     env.assertEqual(res1, [2L, 'key2', 'key1'])
-
     res2 = conn.execute_command('FT.SEARCH', 'idx', '@name:($val1|Bob)', 'NOCONTENT', 'PARAMS', '2', 'val1', 'Alice')
+    env.assertEqual(res2, res1)
+
+    res1 = conn.execute_command('FT.SEARCH', 'idx', '@name:("Alice")', 'NOCONTENT')
+    env.assertEqual(res1, [1L, 'key2'])
+    res2 = conn.execute_command('FT.SEARCH', 'idx', '@name:("$val1")', 'NOCONTENT', 'PARAMS', '2', 'val1', 'Alice')
+    env.assertEqual(res2, res1)
+
+    res1 = conn.execute_command('FT.SEARCH', 'idx', '@name:(Alice)', 'NOCONTENT')
+    env.assertEqual(res1, [1L, 'key2'])
+    res2 = conn.execute_command('FT.SEARCH', 'idx', '@name:($val1)', 'NOCONTENT', 'PARAMS', '2', 'val1', 'Alice')
+    env.assertEqual(res2, res1)
+
+    res1 = conn.execute_command('FT.SEARCH', 'idx', '@name:(John\\ Doe)', 'NOCONTENT')
+    env.assertEqual(res1, [1L, 'key4'])
+    res2 = conn.execute_command('FT.SEARCH', 'idx', '@name:($val1)', 'NOCONTENT', 'PARAMS', '2', 'val1', 'John\\ Doe')
     env.assertEqual(res2, res1)
 
 
@@ -150,11 +164,10 @@ def test_tags(env):
     res2 = conn.execute_command('FT.SEARCH', 'idx', '@tags:{$myT1 $myT2}', 'NOCONTENT', 'PARAMS', '4', 'myT1', 't100', 'myT2', '200')
     env.assertEqual(res2, res1)
 
-    #FIXME: Enable the following command (mix param with term)
-    # res2 = conn.execute_command('FT.SEARCH', 'idx', '@tags:{$myT1 200}', 'NOCONTENT', 'PARAMS', '4', 'myT1', 't100', 'myT2', '200')
-    # env.assertEqual(res2, res1)
-    # res2 = conn.execute_command('FT.SEARCH', 'idx', '@tags:{t100 $myT2}', 'NOCONTENT', 'PARAMS', '4', 'myT1', 't100', 'myT2', '200')
-    # env.assertEqual(res2, res1)
+    res2 = conn.execute_command('FT.SEARCH', 'idx', '@tags:{$myT1 200}', 'NOCONTENT', 'PARAMS', '4', 'myT1', 't100', 'myT2', '200')
+    env.assertEqual(res2, res1)
+    res2 = conn.execute_command('FT.SEARCH', 'idx', '@tags:{t100 $myT2}', 'NOCONTENT', 'PARAMS', '4', 'myT1', 't100', 'myT2', '200')
+    env.assertEqual(res2, res1)
 
 
 def test_numeric_range(env):

@@ -141,7 +141,7 @@ QueryNode *NewTokenNode_WithParam(QueryParseCtx *q, QueryToken *qt) {
   QueryNode *ret = NewQueryNode(QN_TOKEN);
   q->numTokens++;
 
-  if (qt->type == QT_TERM || qt->type == QT_TERM_CASE) {
+  if (qt->type == QT_TERM || qt->type == QT_TERM_CASE || qt->type == QT_NUMERIC) {
     char *s;
     size_t len;
     if (qt->type == QT_TERM) {
@@ -179,11 +179,14 @@ QueryNode *NewPrefixNode(QueryParseCtx *q, const char *s, size_t len) {
 QueryNode *NewPrefixNode_WithParam(QueryParseCtx *q, QueryToken *qt) {
   QueryNode *ret = NewQueryNode(QN_PREFIX);
   q->numTokens++;
-  assert (qt->type != QT_TERM_CASE);
   if (qt->type == QT_TERM) {
     char *s = rm_strdupcase(qt->s, qt->len);
     ret->pfx = (QueryPrefixNode){.str = s, .len = strlen(s), .expanded = 0, .flags = 0};
-  } else {
+  } else if (qt->type == QT_NUMERIC) {
+    ret->pfx = (QueryPrefixNode){
+        .str = rm_strndup(qt->s, qt->len), .len = qt->len, .expanded = 0, .flags = 0};
+  }  else {
+    assert (qt->type != QT_TERM_CASE);
     ret->pfx = (QueryPrefixNode){.str = NULL, .len = 0, .expanded = 0, .flags = 0}; //FIXME: Remove this line - unneeded zero initialization (done in NewQueryNode)
     QueryNode_InitParams(ret, 1);
     QueryNode_SetParam(&ret->params[0], &ret->pfx.str, &ret->pfx.len, qt);
