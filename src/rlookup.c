@@ -72,7 +72,7 @@ RLookupKey *RLookup_GetKeyEx(RLookup *lookup, const char *name, size_t n, int fl
   for (RLookupKey *kk = lookup->head; kk; kk = kk->next) {
     // match `name` to the name/path of the field
     if ((kk->name_len == n && !strncmp(kk->name, name, kk->name_len)) || 
-        (kk->path != kk->name && !strcmp(kk->path, name))) {
+        (kk->path != kk->name && !strncmp(kk->path, name, n))) {
       if (flags & RLOOKUP_F_OEXCL) {
         return NULL;
       }
@@ -367,7 +367,7 @@ static int getKeyCommonHash(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
   RSValue *rsv = NULL;
 
   rc = RedisModule_HashGet(*keyobj, REDISMODULE_HASH_CFIELDS, kk->path, &val, NULL);
-  if (!val) {
+  if (!val && options->sctx->spec->flags & Index_HasFieldAlias) {
     // name of field is the alias given on FT.CREATE
     // get the the actual path
     const FieldSpec *fs = IndexSpec_GetField(options->sctx->spec, kk->path, strlen(kk->path));
