@@ -4,14 +4,14 @@
 [![Forum](https://img.shields.io/badge/Forum-RediSearch-blue)](https://forum.redislabs.com/c/modules/redisearch/)
 [![Discord](https://img.shields.io/discord/697882427875393627?style=flat-square)](https://discord.gg/xTbqgTB)
 
-RediSearch is a source available Secondary Index, Query Engine and Full-Text Search over Redis, developed by [Redis Labs](http://redislabs.com).
+RediSearch is a source available Secondary Index, Query Engine and Full-Text Search over Redis, developed by [Redis](http://redis.com).
 
 !!! note "Quick Links:"
     * [Source Code at GitHub](https://github.com/RediSearch/RediSearch).
     * [Latest Release](https://github.com/RediSearch/RediSearch/releases)
     * [Docker Image: redislabs/redisearch](https://hub.docker.com/r/redislabs/redisearch/)
     * [Quick Start Guide](Quick_Start.md)
-    * [Mailing list / Forum](https://forum.redislabs.com/c/modules/redisearch)
+    * [Mailing list / Forum](https://forum.redis.com/c/modules/redisearch/)
 
 !!! tip "Supported Platforms"
     RediSearch is developed and tested on Linux and Mac OS, on x86_64 CPUs.
@@ -34,7 +34,7 @@ See the [Clients page](Clients.md) for the full list.
 
 ## Cluster Support
 
-RediSearch has a distributed cluster version that scales to billions of documents, and hundreds of servers. We also offer official commercial support for RediSearch. See the [Redis Labs Website](https://redislabs.com/redis-enterprise/technology/redis-search/#sds) for more info and contact information.
+RediSearch has a distributed cluster version that scales to billions of documents, and hundreds of servers. We also offer official commercial support for RediSearch. See the [Redis Website](https://redis.com/redis-enterprise/technology/redis-search/#sds) for more info and contact information.
 
 ## Primary Features
 
@@ -68,22 +68,22 @@ RediSearch has a distributed cluster version that scales to billions of document
 
 
 ### Course
-* [RU203: Querying, Indexing, and Full-Text Search](https://university.redislabs.com/courses/ru203/) - An online RediSearch course from [Redis University](https://university.redislabs.com/).
+* [RU203: Querying, Indexing, and Full-Text Search](https://university.redis.com/courses/ru203/) - An online RediSearch course from [Redis University](https://university.redis.com/).
 
 ### Blog posts
-1. [Introducing RediSearch 2.0](https://redislabs.com/blog/introducing-redisearch-2-0/)
-1. [Getting Started with RediSearch 2.0](https://redislabs.com/blog/getting-started-with-redisearch-2-0/)
-1. [Mastering RediSearch / Part I](https://redislabs.com/blog/mastering-redisearch-part/)
-1. [Mastering RediSearch / Part II](https://redislabs.com/blog/mastering-redisearch-part-ii/)
-1. [Mastering RediSearch / Part III](https://redislabs.com/blog/mastering-redisearch-part-iii/)
-1. [Building Real-Time Full-Text Site Search with RediSearch](https://redislabs.com/blog/building-real-time-full-text-site-search-with-redisearch/)
-1. [Search Benchmarking: RediSearch vs. Elasticsearch](https://redislabs.com/blog/search-benchmarking-redisearch-vs-elasticsearch/)
-1. [RediSearch Version 1.6 Adds Features, Improves Performance](https://redislabs.com/blog/redisearch-version-1-6-adds-features-improves-performance/)
-1. [RediSearch 1.6 Boosts Performance Up to 64%](https://redislabs.com/blog/redisearch-1-6-boosts-performance-up-to-64/)
+1. [Introducing RediSearch 2.0](https://redis.com/blog/introducing-redisearch-2-0/)
+1. [Getting Started with RediSearch 2.0](https://redis.com/blog/getting-started-with-redisearch-2-0/)
+1. [Mastering RediSearch / Part I](https://redis.com/blog/mastering-redisearch-part/)
+1. [Mastering RediSearch / Part II](https://redis.com/blog/mastering-redisearch-part-ii/)
+1. [Mastering RediSearch / Part III](https://redis.com/blog/mastering-redisearch-part-iii/)
+1. [Building Real-Time Full-Text Site Search with RediSearch](https://redis.com/blog/building-real-time-full-text-site-search-with-redisearch/)
+1. [Search Benchmarking: RediSearch vs. Elasticsearch](https://redis.com/blog/search-benchmarking-redisearch-vs-elasticsearch/)
+1. [RediSearch Version 1.6 Adds Features, Improves Performance](https://redis.com/blog/redisearch-version-1-6-adds-features-improves-performance/)
+1. [RediSearch 1.6 Boosts Performance Up to 64%](https://redis.com/blog/redisearch-1-6-boosts-performance-up-to-64/)
 
 ## Mailing List / Forum
 
-Got questions? Feel free to ask at the [RediSearch forum](https://forum.redislabs.com/c/modules/redisearch/).
+Got questions? Feel free to ask at the [RediSearch forum](https://forum.redis.com/c/modules/redisearch/).
 
 ## License
 
