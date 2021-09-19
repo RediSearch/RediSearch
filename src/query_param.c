@@ -104,7 +104,7 @@ void QueryParam_SetParam(Param *target_param, void *target_value, size_t *target
     target_param->type = type;
     target_param->target = target_value;
     target_param->target_len = target_len;
-    target_param->name = strndup(source->s, source->len);
+    target_param->name = rm_strndup(source->s, source->len);
     target_param->len = source->len;
   }
 }

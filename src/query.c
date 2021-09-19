@@ -162,6 +162,7 @@ QueryNode *NewTokenNode_WithParam(QueryParseCtx *q, QueryToken *qt) {
 
 void QueryNode_InitParams(QueryNode *n, size_t num) {
   n->params = array_newlen(Param, num);
+  memset(n->params, 0, sizeof(*n->params) * num);
 }
 
 void QueryNode_SetParam(Param *target_param, void *target_value, size_t *target_len, QueryToken *source) {
