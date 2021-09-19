@@ -43,6 +43,9 @@ typedef enum {
   /* Flag for scorer function to create explanation strings */
   QEXEC_F_SEND_SCOREEXPLAIN = 0x4000
 
+  /* FT.AGGREGATE load all fields */
+  QEXEC_AGG_LOAD_ALL = 0x20000,
+
 } QEFlags;
 
 typedef enum {
