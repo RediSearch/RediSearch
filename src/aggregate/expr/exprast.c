@@ -167,7 +167,7 @@ void RSExpr_Print(const RSExpr *e) {
     case RSExpr_Predicate:
       printf("(");
       RSExpr_Print(e->pred.left);
-      printf(" %s ", RSConditionStrings[e->pred.cond]);
+      printf(" %s ", getRSConditionStrings(e->pred.cond));
       RSExpr_Print(e->pred.right);
       printf(")");
 
