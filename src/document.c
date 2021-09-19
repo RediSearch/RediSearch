@@ -314,11 +314,13 @@ void AddDocumentCtx_Submit(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, uint32_
   // ownership
   Document_MakeStringsOwner(aCtx->doc);
 
-  if (AddDocumentCtx_IsBlockable(aCtx)) {
-    aCtx->client.bc = RedisModule_BlockClient(sctx->redisCtx, replyCallback, NULL, NULL, 0);
-  } else {
+  if (!AddDocumentCtx_IsBlockable(aCtx)) {
     aCtx->client.sctx = sctx;
+    Document_AddToIndexes(aCtx);
+    return;
   }
+  
+  aCtx->client.bc = RedisModule_BlockClient(sctx->redisCtx, replyCallback, NULL, NULL, 0);
 
   RS_LOG_ASSERT(aCtx->client.bc, "No blocked client");
   size_t totalSize = 0;
@@ -332,10 +334,8 @@ void AddDocumentCtx_Submit(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, uint32_
     }
   }
 
-  if (totalSize >= SELF_EXEC_THRESHOLD && AddDocumentCtx_IsBlockable(aCtx)) {
+  if (totalSize >= SELF_EXEC_THRESHOLD) {
     ConcurrentSearch_ThreadPoolRun(threadCallback, aCtx, CONCURRENT_POOL_INDEX);
-  } else {
-    Document_AddToIndexes(aCtx);
   }
 }
 
