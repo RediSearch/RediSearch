@@ -31,10 +31,10 @@ if [[ $1 == --help || $1 == help ]]; then
 		REDIS_VERBOSE=0|1     (legacy) Verbose ouput
 		CONFIG_FILE=file      Path to config file
 
-		VERBOSE=1          Print commands and Redis output
-		IGNERR=1           Do not abort on error
-		NOP=1              Dry run
-		EXISTING_ENV=1     Run the tests on existing env
+		VERBOSE=1             Print commands and Redis output
+		IGNERR=1              Do not abort on error
+		NOP=1                 Dry run
+		EXISTING_ENV=1        Run the tests on existing env
 
 
 	END
@@ -147,6 +147,20 @@ fi
 
 #---------------------------------------------------------------------------------------------- 
 
+xredis_config=$(mktemp "${TMPDIR:-/tmp}/xredis_config.XXXXXXX")
+rm -f $xredis_config
+cat << EOF > $xredis_config
+
+--oss-redis-path=$REDIS_SERVER
+--module $MODULE
+--module-args '$MODARGS'
+$RLTEST_ARGS
+$REJSON_ARGS
+$VALGRIND_ARGS
+$@
+
+EOF
+
 if [[ $EXISTING_ENV == 1 ]]; then
 	RLTEST_ARGS+=" --env existing-env"
 	# also start the redis server on which the tests will run
@@ -154,9 +168,9 @@ if [[ $EXISTING_ENV == 1 ]]; then
 	if [[ $REJSON_MODULE ]]; then
 		EXISTING_ENV_ARGS="$EXISTING_ENV_ARGS --loadmodule $REJSON_MODULE $REJSON_MODARGS"
 	fi
-	redis-server $EXISTING_ENV_ARGS &
-	EXTERNAL_REDIS_PID=$!
-	echo "external process pid: " $EXTERNAL_REDIS_PID
+	$REDIS_SERVER $xredis_config &
+	XREDIS_PID=$!
+	echo "external process pid: " $XREDIS_PID
 fi
 
 #---------------------------------------------------------------------------------------------- 
@@ -191,15 +205,17 @@ if [[ $VERBOSE == 1 ]]; then
 	cat $config
 fi
 
-export OS=$($READIES/bin/platform --os)
-
-$OP python2 -m RLTest @$config
-EXIT_CODE=$?
+E=0
+if [[ $NOP != 1 ]]; then
+	{ $OP python2 -m RLTest @$config; (( E |= $? )); } || true
+else
+	$OP python2 -m RLTest @$config
+fi
 rm -f $config
 
-if [[ $EXTERNAL_REDIS_PID ]]; then
-	echo "killing external process: " $EXTERNAL_REDIS_PID
-	kill -s 9 $EXTERNAL_REDIS_PID
+if [[ -n $XREDIS_PID ]]; then
+	echo "killing external process: $XREDIS_PID"
+	kill -9 $XREDIS_PID
 fi
 
-exit $EXIT_CODE
+exit $E
