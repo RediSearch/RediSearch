@@ -29,6 +29,7 @@ extern "C" {
  */
 typedef struct QueryAST {
   size_t numTokens;
+  size_t numParams;
   QueryNode *root;
   // User data and length, for use by scorers
   const void *udata;

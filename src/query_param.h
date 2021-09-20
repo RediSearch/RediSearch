@@ -3,6 +3,8 @@
 #include "query_parser/tokenizer.h"
 #include "param.h"
 
+struct QueryParseCtx;
+
 typedef enum {
   QP_TOK,
   QP_GEO_FILTER,
@@ -25,10 +27,10 @@ typedef struct {
 QueryParam *NewQueryParam(QueryParamType type);
 QueryParam *NewTokenQueryParam(QueryToken *qt);
 QueryParam *NewGeoFilterQueryParam(GeoFilter *gf);
-QueryParam *NewGeoFilterQueryParam_WithParams(QueryToken *lon, QueryToken *lat, QueryToken *radius, QueryToken *unit);
+QueryParam *NewGeoFilterQueryParam_WithParams(struct QueryParseCtx *q, QueryToken *lon, QueryToken *lat, QueryToken *radius, QueryToken *unit);
 
 QueryParam *NewNumericFilterQueryParam(NumericFilter *nf);
-QueryParam *NewNumericFilterQueryParam_WithParams(QueryToken *min, QueryToken *max, int inclusiveMin, int inclusiveMax);
+QueryParam *NewNumericFilterQueryParam_WithParams(struct QueryParseCtx *q, QueryToken *min, QueryToken *max, int inclusiveMin, int inclusiveMax);
 
 #define QueryParam_NumParams(p) ((p)->params ? array_len((p)->params) : 0)
 #define QueryParam_GetParam(p, ix) (QueryParam_NumParams(p) > ix ? (p)->params[ix] : NULL)
@@ -45,6 +47,9 @@ void QueryParam_Free(QueryParam *p);
 int QueryParam_Resolve(Param *param, dict *params, QueryError *status);
 
 /*
- * Set the target Param according to the source
+ * Set the `target` Param according to `source`
+ * Return true if `source` is parameterized (not a concrete value)
+ * Return false otherwise
  */
-void QueryParam_SetParam(Param *target_param, void *target_value, size_t *target_len, QueryToken *source);
+bool QueryParam_SetParam(struct QueryParseCtx *q, Param *target_param, void *target_value,
+                         size_t *target_len, QueryToken *source);

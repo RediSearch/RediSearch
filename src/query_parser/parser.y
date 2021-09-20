@@ -554,7 +554,7 @@ numeric_range(A) ::= LSQB param_num(B) param_num(C) RSQB. [PARAM] {
     B.type = QT_PARAM_NUMERIC_MIN_RANGE;
   if (C.type == QT_PARAM_NUMERIC)
     C.type = QT_PARAM_NUMERIC_MAX_RANGE;
-  A = NewNumericFilterQueryParam_WithParams(&B, &C, B.inclusive, C.inclusive);
+  A = NewNumericFilterQueryParam_WithParams(ctx, &B, &C, B.inclusive, C.inclusive);
 }
 
 /////////////////////////////////////////////////////////////////
@@ -578,10 +578,10 @@ geo_filter(A) ::= LSQB param_num(B) param_num(C) param_num(D) param_term(E) RSQB
   if (B.type == QT_PARAM_NUMERIC)
     B.type = QT_PARAM_GEO_COORD;
   if (C.type == QT_PARAM_NUMERIC)
-    C.type = PARAM_GEO_COORD;
+    C.type = QT_PARAM_GEO_COORD;
   if (E.type == QT_PARAM_TERM)
     E.type = QT_PARAM_GEO_UNIT;
-  A = NewGeoFilterQueryParam_WithParams(&B, &C, &D, &E);
+  A = NewGeoFilterQueryParam_WithParams(ctx, &B, &C, &D, &E);
 }
 
 /////////////////////////////////////////////////////////////////

@@ -24,6 +24,7 @@
 #include "util/arr.h"
 #include "rmutil/rm_assert.h"
 #include "module.h"
+#include "query_internal.h"
 
 #define EFFECTIVE_FIELDMASK(q_, qn_) ((qn_)->opts.fieldMask & (q)->opts->fieldmask)
 
@@ -155,7 +156,7 @@ QueryNode *NewTokenNode_WithParam(QueryParseCtx *q, QueryToken *qt) {
   } else {
     ret->tn = (QueryTokenNode){.str = NULL, .len = 0, .expanded = 0, .flags = 0};
     QueryNode_InitParams(ret, 1);
-    QueryNode_SetParam(&ret->params[0], &ret->tn.str, &ret->tn.len, qt);
+    QueryNode_SetParam(q, &ret->params[0], &ret->tn.str, &ret->tn.len, qt);
   }
   return ret;
 }
@@ -165,8 +166,11 @@ void QueryNode_InitParams(QueryNode *n, size_t num) {
   memset(n->params, 0, sizeof(*n->params) * num);
 }
 
-void QueryNode_SetParam(Param *target_param, void *target_value, size_t *target_len, QueryToken *source) {
-    QueryParam_SetParam(target_param, target_value, target_len, source); //FIXME: Move to a common location for QueryNode and QueryParam
+bool QueryNode_SetParam(QueryParseCtx *q, Param *target_param, void *target_value,
+                        size_t *target_len, QueryToken *source) {
+    return QueryParam_SetParam(
+      q, target_param, target_value, target_len,
+      source); //FIXME: Move to a common location for QueryNode and QueryParam
 }
 
 QueryNode *NewPrefixNode(QueryParseCtx *q, const char *s, size_t len) {
@@ -190,7 +194,7 @@ QueryNode *NewPrefixNode_WithParam(QueryParseCtx *q, QueryToken *qt) {
     assert (qt->type != QT_TERM_CASE);
     ret->pfx = (QueryPrefixNode){.str = NULL, .len = 0, .expanded = 0, .flags = 0}; //FIXME: Remove this line - unneeded zero initialization (done in NewQueryNode)
     QueryNode_InitParams(ret, 1);
-    QueryNode_SetParam(&ret->params[0], &ret->pfx.str, &ret->pfx.len, qt);
+    QueryNode_SetParam(q, &ret->params[0], &ret->pfx.str, &ret->pfx.len, qt);
   }
   return ret;
 }
@@ -904,6 +908,7 @@ int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions 
     return REDISMODULE_ERR;
   }
   dst->numTokens = qpCtx.numTokens;
+  dst->numParams = qpCtx.numParams;
   return REDISMODULE_OK;
 }
 
@@ -929,6 +934,7 @@ void QAST_Destroy(QueryAST *q) {
   QueryNode_Free(q->root);
   q->root = NULL;
   q->numTokens = 0;
+  q->numParams = 0;
   rm_free(q->query);
   q->nquery = 0;
   q->query = NULL;
@@ -957,8 +963,7 @@ int QAST_Expand(QueryAST *q, const char *expander, RSSearchOptions *opts, RedisS
 }
 
 int QAST_EvalParams(QueryAST *q, RSSearchOptions *opts, QueryError *status) {
-  // FIXME: Check if q->numParams is > 0
-  if (!q || !q->root)
+  if (!q || !q->root || q->numParams == 0)
     return REDISMODULE_OK;
   QueryNode_EvalParams(opts->params, q->root, status);
   return REDISMODULE_OK;

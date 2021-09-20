@@ -1609,7 +1609,7 @@ static YYACTIONTYPE yy_reduce(
     yymsp[-2].minor.yy0.type = QT_PARAM_NUMERIC_MIN_RANGE;
   if (yymsp[-1].minor.yy0.type == QT_PARAM_NUMERIC)
     yymsp[-1].minor.yy0.type = QT_PARAM_NUMERIC_MAX_RANGE;
-  yymsp[-3].minor.yy86 = NewNumericFilterQueryParam_WithParams(&yymsp[-2].minor.yy0, &yymsp[-1].minor.yy0, yymsp[-2].minor.yy0.inclusive, yymsp[-1].minor.yy0.inclusive);
+  yymsp[-3].minor.yy86 = NewNumericFilterQueryParam_WithParams(ctx, &yymsp[-2].minor.yy0, &yymsp[-1].minor.yy0, yymsp[-2].minor.yy0.inclusive, yymsp[-1].minor.yy0.inclusive);
 }
         break;
       case 56: /* expr ::= modifier COLON geo_filter */
@@ -1633,10 +1633,10 @@ static YYACTIONTYPE yy_reduce(
   if (yymsp[-4].minor.yy0.type == QT_PARAM_NUMERIC)
     yymsp[-4].minor.yy0.type = QT_PARAM_GEO_COORD;
   if (yymsp[-3].minor.yy0.type == QT_PARAM_NUMERIC)
-    yymsp[-3].minor.yy0.type = PARAM_GEO_COORD;
+    yymsp[-3].minor.yy0.type = QT_PARAM_GEO_COORD;
   if (yymsp[-1].minor.yy0.type == QT_PARAM_TERM)
     yymsp[-1].minor.yy0.type = QT_PARAM_GEO_UNIT;
-  yymsp[-5].minor.yy86 = NewGeoFilterQueryParam_WithParams(&yymsp[-4].minor.yy0, &yymsp[-3].minor.yy0, &yymsp[-2].minor.yy0, &yymsp[-1].minor.yy0);
+  yymsp[-5].minor.yy86 = NewGeoFilterQueryParam_WithParams(ctx, &yymsp[-4].minor.yy0, &yymsp[-3].minor.yy0, &yymsp[-2].minor.yy0, &yymsp[-1].minor.yy0);
 }
         break;
       case 59: /* num ::= NUMBER */

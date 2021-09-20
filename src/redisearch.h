@@ -106,7 +106,7 @@ typedef struct RSDocumentMetadata_s {
 } RSDocumentMetadata;
 
 /* Forward declaration of the opaque query object */
-struct RSQuery;
+struct QueryParseCtx;
 
 /* Forward declaration of the opaque query node object */
 struct RSQueryNode;

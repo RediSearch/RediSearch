@@ -4,17 +4,21 @@
 #include <stdlib.h>
 #include <query_error.h>
 #include <query_node.h>
-#include <query_param.h>
+#include "query_param.h"
+#include "search_options.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-typedef struct RSQuery {
+  typedef struct QueryParseCtx {
   const char *raw;
   size_t len;
 
   // the token count
   size_t numTokens;
+
+  // the param count
+  size_t numParams;
 
   // Index spec
   RedisSearchCtx *sctx;
@@ -69,7 +73,8 @@ QueryNode *NewTagNode(const char *tag, size_t len);
 
 QueryNode *NewTokenNode_WithParam(QueryParseCtx *q, QueryToken *qt);
 void QueryNode_InitParams(QueryNode *n, size_t num);
-void QueryNode_SetParam(Param *target_param, void *target_value, size_t *target_len, QueryToken *source);
+bool QueryNode_SetParam(QueryParseCtx *q, Param *target_param, void *target_value,
+                        size_t *target_len, QueryToken *source);
 
 void QueryNode_SetFieldMask(QueryNode *n, t_fieldMask mask);
 

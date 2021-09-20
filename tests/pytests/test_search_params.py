@@ -23,6 +23,17 @@ def test_geo(env):
     res = conn.execute_command('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 $radius $units]', 'NOCONTENT', 'PARAMS', '4', 'radius', '10', 'units', 'km')
     env.assertEqual(res, [3L, 'geo1', 'geo2', 'geo3'])
 
+    res2 = conn.execute_command('FT.SEARCH', 'idx', '@g:[$lon $lat $radius km]', 'NOCONTENT', 'PARAMS', '8', 'lon', '29.69465', 'lat', '34.95126', 'units', 'km', 'radius', '10')
+    env.assertEqual(res, res2)
+    res2 = conn.execute_command('FT.SEARCH', 'idx', '@g:[29.69465 $lat 10 $units]', 'NOCONTENT', 'PARAMS', '8', 'lon', '29.69465', 'lat', '34.95126', 'units', 'km', 'radius', '10')
+    env.assertEqual(res, res2)
+    res2 = conn.execute_command('FT.SEARCH', 'idx', '@g:[$lon $lat $radius km]', 'NOCONTENT', 'PARAMS', '8', 'lon', '29.69465', 'lat', '34.95126', 'units', 'km', 'radius', '10')
+    env.assertEqual(res, res2)
+    res2 = conn.execute_command('FT.SEARCH', 'idx', '@g:[$lon 34.95126 $radius $units]', 'NOCONTENT', 'PARAMS', '8', 'lon', '29.69465', 'lat', '34.95126', 'units', 'km', 'radius', '10')
+    env.assertEqual(res, res2)
+    res2 = conn.execute_command('FT.SEARCH', 'idx', '@g:[$lon 34.95126 $radius km]', 'NOCONTENT', 'PARAMS', '8', 'lon', '29.69465', 'lat', '34.95126', 'units', 'km', 'radius', '10')
+    env.assertEqual(res, res2)
+
     res = conn.execute_command('ft.aggregate', 'idx', '*',
                                'APPLY', 'geodistance(@g,29.69,34.94)', 'AS', 'dist',
                                'GROUPBY', '1', '@dist',

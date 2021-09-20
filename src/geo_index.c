@@ -191,7 +191,7 @@ int GeoFilter_EvalParams(dict *params, QueryNode *node, QueryError *status) {
   if (node->params) {
     int resolved = 0;
 
-    for (size_t i = 1; i < QueryNode_NumParams(node); i++) {
+    for (size_t i = 0; i < QueryNode_NumParams(node); i++) {
       int res = QueryParam_Resolve(&node->params[i], params, status);
       if (res < 0)
         return REDISMODULE_ERR;
