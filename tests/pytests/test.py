@@ -2065,6 +2065,33 @@ def testTimeout(env):
     env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', -1).error()
     env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', 'STR').error()
 
+
+    # check no time w/o sorter/grouper
+    res = env.cmd('FT.AGGREGATE', 'myIdx', 'aa*|aa*',
+                                        'LOAD', 1, 't',
+                                        'APPLY', 'contains(@t, "a1")', 'AS', 'contain1',
+                                        'APPLY', 'contains(@t, "a1")', 'AS', 'contain2',
+                                        'APPLY', 'contains(@t, "a1")', 'AS', 'contain3')
+    env.assertEqual(res[0], 1L)
+
+    # test grouper
+    env.expect('FT.AGGREGATE', 'myIdx', 'aa*|aa*',
+                                        'LOAD', 1, 't',
+                                        'GROUPBY', 1, '@t',
+                                        'APPLY', 'contains(@t, "a1")', 'AS', 'contain1',
+                                        'APPLY', 'contains(@t, "a1")', 'AS', 'contain2',
+                                        'APPLY', 'contains(@t, "a1")', 'AS', 'contain3') \
+                                        .contains('Timeout limit was reached')
+
+    # test sorter
+    env.expect('FT.AGGREGATE', 'myIdx', 'aa*|aa*',
+                                        'LOAD', 1, 't',
+                                        'SORTBY', 1, '@t',
+                                        'APPLY', 'contains(@t, "a1")', 'AS', 'contain1',
+                                        'APPLY', 'contains(@t, "a1")', 'AS', 'contain2',
+                                        'APPLY', 'contains(@t, "a1")', 'AS', 'contain3') \
+                                        .contains('Timeout limit was reached')
+
     # test cursor
     res = env.cmd('FT.AGGREGATE', 'myIdx', 'aa*', 'WITHCURSOR', 'count', 50, 'timeout', 500)
     l = len(res[0]) - 1 # do not count the number of results (the first element in the results)
@@ -2075,6 +2102,7 @@ def testTimeout(env):
         r, cursor = env.cmd('FT.CURSOR', 'READ', 'myIdx', str(cursor))
         l += (len(r) - 1)
     env.assertEqual(l, 1000)
+
 
     # restore old configuration
     env.cmd('ft.config', 'set', 'timeout', '500')
@@ -2584,6 +2612,7 @@ def testApplyError(env):
 def testLoadError(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
+    env.expect('ft.aggregate', 'idx', '*', 'LOAD').error()
     env.expect('ft.aggregate', 'idx', '*', 'LOAD', 'bad').error()
     env.expect('ft.aggregate', 'idx', '*', 'LOAD', 'bad', 'test').error()
     env.expect('ft.aggregate', 'idx', '*', 'LOAD', '2', 'test').error()

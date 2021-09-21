@@ -13,7 +13,7 @@ The most general option for an isolated environment is a virtual machine (it's v
 Docker is even a more agile, as it offers an almost instant solution:
 
 ```
-search=$(docker run -d -it -v $PWD:/build debian:buster bash)
+search=$(docker run -d -it -v $PWD:/build debian:bullseys bash)
 docker exec -it $search bash
 ```
 Then, from within the container, ```cd /build``` and go on as usual.
@@ -28,7 +28,7 @@ search=$(docker run -d -it -v $PWD:/build rediseatch1 bash)
 docker exec -it $search bash
 ```
 
-You can replace `debian:buster` with your OS of choice, with the host OS being the best choice (so you can run the RediSearch binary on your host once it is built).
+You can replace `debian:bullseye` with your OS of choice, with the host OS being the best choice (so you can run the RediSearch binary on your host once it is built).
 
 ## Installing prerequisites
 
