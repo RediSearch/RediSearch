@@ -186,3 +186,17 @@ FT.SEARCH orgIdx "suite 250"
 - JSON Strings can only be indexed as TEXT, TAG and GEO (using the right syntax).
 - JSON numbers can only be indexes as NUMERIC.
 - Boolean and NULL values are ignored.
+
+### SORTABLE not supported on TAG
+
+```SQL
+FT.CREATE orgIdx ON JSON SCHEMA $.cp[0] AS cp TAG SORTABLE
+(error) On JSON, cannot set tag field to sortable - cp
+```
+
+With hashes, SORTABLE can be used (as a side effect) to improve the performance of FT.AGGREGATE on TAGs.
+This is possible because the value in the hash is a string. Eg.: "foo,bar".
+
+With JSON it is possible to index an array of string values.
+Because there is no valid single textual representation of those values,
+there is no way for RediSearch to know how to sort the result.

@@ -183,5 +183,6 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   Initialize_KeyspaceNotifications(ctx);
   Initialize_CommandFilter(ctx);
   GetJSONAPIs(ctx, 1);
+  Initialize_RdbNotifications(ctx);
   return REDISMODULE_OK;
 }

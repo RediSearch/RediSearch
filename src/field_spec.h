@@ -50,7 +50,8 @@ typedef enum {
   FieldSpec_NoStemming = 0x02,
   FieldSpec_NotIndexable = 0x04,
   FieldSpec_Phonetics = 0x08,
-  FieldSpec_Dynamic = 0x10
+  FieldSpec_Dynamic = 0x10,
+  FieldSpec_UNF = 0x20,
 } FieldSpecOptions;
 
 RS_ENUM_BITWISE_HELPER(FieldSpecOptions)
@@ -99,7 +100,8 @@ typedef struct FieldSpec {
 #define FIELD_CHKIDX(fmask, ix) (fmask & ix)
 
 #define TAG_FIELD_DEFAULT_FLAGS (TagFieldFlags)(TagField_TrimSpace | TagField_RemoveAccents);
-#define TAG_FIELD_DEFAULT_SEP ','
+#define TAG_FIELD_DEFAULT_HASH_SEP ','
+#define TAG_FIELD_DEFAULT_JSON_SEP '\0' // by default, JSON fields have no separetor
 
 #define FieldSpec_IsSortable(fs) ((fs)->options & FieldSpec_Sortable)
 #define FieldSpec_IsNoStem(fs) ((fs)->options & FieldSpec_NoStemming)

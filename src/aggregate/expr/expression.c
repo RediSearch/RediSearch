@@ -508,7 +508,7 @@ void RPEvaluator_Reply(RedisModuleCtx *ctx, const ResultProcessor *rp) {
       RedisModule_ReplyWithPrintf(ctx, "%s - Function %s", typeStr, expr->func.name);
       break;
     case RSExpr_Predicate:
-      RedisModule_ReplyWithPrintf(ctx, "%s - Predicate %s", typeStr, RSConditionStrings[expr->pred.cond]);
+      RedisModule_ReplyWithPrintf(ctx, "%s - Predicate %s", typeStr, getRSConditionStrings(expr->pred.cond));
       break;
     case RSExpr_Inverted:
       RedisModule_ReplyWithPrintf(ctx, "%s - Inverted", typeStr);

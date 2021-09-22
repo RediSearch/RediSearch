@@ -259,7 +259,7 @@ endif
 #----------------------------------------------------------------------------------------------
 
 run:
-	@redis-server --loadmodule $(COMPAT_MODULE)
+	@redis-server --loadmodule $(abspath $(TARGET))
 
 #----------------------------------------------------------------------------------------------
 
@@ -267,6 +267,11 @@ BENCHMARK_ARGS = redisbench-admin run-local
 
 ifneq ($(REMOTE),)
 	BENCHMARK_ARGS = redisbench-admin run-remote 
+endif
+
+ifeq ($(REJSON),1)
+BENCHMARK_ARGS += --module_path $(realpath $(REJSON_PATH)) \
+	--required-module ReJSON
 endif
 
 BENCHMARK_ARGS += --module_path $(realpath $(TARGET)) \
@@ -290,6 +295,8 @@ endif
 ifneq ($(CTEST_PARALLEL),)
 override CTEST_ARGS += -j$(CTEST_PARALLEL)
 endif
+
+override CTEST_ARGS += --timeout 15000
 
 test:
 ifneq ($(TEST),)

@@ -575,6 +575,19 @@ def testContains(env):
                                                              ['t', 'abba', 'substring', '1'], \
                                                              ['t', 'abbabb', 'substring', '2']]))
 
+def testLoadAll(env):
+    conn = getConnectionByEnv(env)
+    env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+    conn.execute_command('HSET', 'doc1', 't', 'hello')
+    conn.execute_command('HSET', 'doc2', 't', 'world')
+    conn.execute_command('HSET', 'doc3', 't', 'hello world')
+    # without LOAD
+    env.expect('FT.AGGREGATE', 'idx', '*').equal([1L, [], [], []])
+    # use LOAD with narg or ALL
+    res = [1L, ['t', 'hello'], ['t', 'world'], ['t', 'hello world']]
+    env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, 't').equal(res)
+    env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', 'ALL').equal(res)
+
 def testLimitIssue(env):
     #ticket 66895
     conn = getConnectionByEnv(env)
@@ -622,12 +635,16 @@ def testLimitIssue(env):
                 'SORTBY', '2', '@CreatedDateTimeUTC', 'DESC', 'LIMIT', '2', '2')
     env.assertEqual(actual_res, res)
 
-def testMaxAggResults():
-    env = Env()
+def testMaxAggResults(env):
+    if env.env == 'existing-env':
+        env.skip()
+    env = Env(moduleArgs="MAXAGGREGATERESULTS 100")
     conn = getConnectionByEnv(env)
-    env.expect('ft.config', 'set', 'MAXAGGREGATERESULTS', 100).ok()
     conn.execute_command('ft.create', 'idx', 'SCHEMA', 't', 'TEXT')
     env.expect('ft.aggregate', 'idx', '*', 'LIMIT', '0', '10000').error()   \
                 .contains('LIMIT exceeds maximum of 100')
 
+def testMaxAggInf(env):
+    env.skipOnCluster()
     env.expect('ft.config', 'set', 'MAXAGGREGATERESULTS', -1).ok()
+    env.expect('ft.config', 'get', 'MAXAGGREGATERESULTS').equal([['MAXAGGREGATERESULTS', 'unlimited']])
