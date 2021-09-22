@@ -14,7 +14,7 @@ The main differences between tag and full-text fields are:
 
 5. The index is much simpler and more compressed: We do not store frequencies, offset vectors of field flags. The index contains only document IDs encoded as deltas. This means that an entry in a tag index is usually one or two bytes long. This makes them very memory efficient and fast.
 
-6. An unlimited number of tag fields can be created per index, as long as the overall number of fields is under 1024.
+6. We can create up to 1024 tag fields per index.
 
 ## Creating a tag field
 

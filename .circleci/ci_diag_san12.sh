@@ -8,7 +8,7 @@ ROOT="$(cd $HERE/.. && pwd)"
 READIES="$ROOT/deps/readies"
 cd $ROOT
 
-GCC=0 ./.circleci/ci_get_deps.sh
+./.circleci/ci_get_deps.sh
 
 SAN_PREFIX=/opt/llvm-project/build-msan
 
@@ -19,12 +19,12 @@ if [[ $ASAN == 1 ]]; then
     mode=asan
 	JSON_SAN_MODE=address
     extra_flags="-DUSE_ASAN=ON"
-    python2 $READIES/bin/getredis --force -v 6.0 --no-run --suffix asan --clang-asan --clang-san-blacklist /build/redis.blacklist
+    $READIES/bin/getredis --force -v 6.2 --no-tls --no-run --suffix asan --clang-asan --clang-san-blacklist /build/redis.blacklist
 elif [[ $MSAN == 1 ]]; then
     mode=msan
 	JSON_SAN_MODE=memory
     extra_flags="-DUSE_MSAN=ON -DMSAN_PREFIX=${SAN_PREFIX}"
-    python2 $READIES/bin/getredis --force -v 6.0 --no-run --suffix msan --clang-msan --llvm-dir /opt/llvm-project/build-msan --clang-san-blacklist /build/redis.blacklist
+    $READIES/bin/getredis --force -v 6.2 --no-tls --no-run --suffix msan --clang-msan --llvm-dir /opt/llvm-project/build-msan --clang-san-blacklist /build/redis.blacklist
 else
     echo "Should define either ASAN=1 or MSAN=1"
     exit 1
