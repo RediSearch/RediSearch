@@ -5,7 +5,6 @@ def search(env, r, *args):
     return r.execute_command('ft.search', *args)
 
 def testTagIndex(env):
-    env.skip()
     r = env
     env.assertOk(r.execute_command(
         'ft.create', 'idx', 'ON', 'HASH','schema', 'title', 'text', 'tags', 'tag'))
@@ -52,7 +51,6 @@ def testTagIndex(env):
             env.assertEqual('doc%d' % n, res[1])
 
 def testSeparator(env):
-    env.skip()
     r = env
     env.assertOk(r.execute_command(
         'ft.create', 'idx', 'ON', 'HASH',
@@ -67,7 +65,6 @@ def testSeparator(env):
             env.assertEqual(1, res[0])
 
 def testTagPrefix(env):
-    env.skip()
     env.skipOnCluster()
     r = env
     env.assertOk(r.execute_command(
@@ -87,7 +84,6 @@ def testTagPrefix(env):
             env.assertEqual(res[0], 1)
 
 def testTagFieldCase(env):
-    env.skip()
     r = env
     env.assertOk(r.execute_command(
         'ft.create', 'idx', 'ON', 'HASH',
@@ -107,7 +103,6 @@ def testTagFieldCase(env):
             'FT.SEARCH', 'idx', '@TAGS:{foo bar}', 'NOCONTENT'))
 
 def testInvalidSyntax(env):
-    env.skip()
     r = env
     # invalid syntax
     with env.assertResponseError():
@@ -124,7 +119,6 @@ def testInvalidSyntax(env):
             'schema', 'title', 'text', 'tags', 'tag', 'separator', "")
 
 def testTagVals(env):
-    env.skip()
     r = env
     r.execute_command(
         'ft.create', 'idx', 'ON', 'HASH',
@@ -157,13 +151,11 @@ def testTagVals(env):
         env.expect('ft.tagvals', 'idx', 'title').raiseError()
 
 def testSearchNotExistsTagValue(env):
-    env.skip()
     # this test basically make sure we are not leaking
     env.expect('FT.CREATE idx ON HASH SCHEMA t TAG SORTABLE').ok()
     env.expect('FT.SEARCH idx @t:{val}').equal([0])
 
 def testIssue1305(env):
-    env.skip()
     env.expect('FT.CREATE myIdx ON HASH SCHEMA title TAG').ok()
     env.expect('FT.ADD myIdx doc2 1.0 FIELDS title "work"').ok()
     env.expect('FT.ADD myIdx doc2 1.0 FIELDS title "hello"').error()
@@ -175,7 +167,6 @@ def testIssue1305(env):
     env.assertEqual(res, expectedRes)
 
 def testTagCaseSensitive(env):
-    env.skip()
     env.skipOnCluster()
     env.expect('FT.CREATE idx1 SCHEMA t TAG').ok()
     env.expect('FT.CREATE idx2 SCHEMA t TAG CASESENSITIVE').ok()
