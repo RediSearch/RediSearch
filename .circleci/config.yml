@@ -91,6 +91,7 @@ commands:
               cd tests/pytests/logs
               rm -f *.aof *.rdb
             fi
+          when: always
       - store_artifacts:
           path: tests/pytests/logs
 
