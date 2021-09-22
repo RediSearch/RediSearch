@@ -194,7 +194,7 @@ def add_index(env, isHash, index_name, key_suffix, num_prefs, num_keys):
 
 
 def testCreateIndexRdbFiles(env):
-    env.skip()  #FIXME: remove this line
+
     if os.environ.get('CI'):
         env.skip()
     create_indices(env, 'redisearch_2.2.0.rdb', 'idxSearch', True, False)
@@ -455,7 +455,7 @@ class Debug:
 
 
 def testShortReadSearch(env):
-    env.skip()  #FIXME: remove this line
+
     if IS_CODE_COVERAGE:
         env.skip()  # FIXME: enable coverage test
 
