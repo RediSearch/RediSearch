@@ -37,16 +37,6 @@ do {                                                                            
   RedisModule_FreeString(ctx, str);                                                     \
 } while (0)
 
-#define RedisModule_LoadStringBufferAlloc(rdb, ptr, len)          \
-do {                                                              \
-  size_t tmp_len;                                                 \
-  size_t *tmp_len_ptr = len ? len : &tmp_len;                     \
-  char *oldbuf = RedisModule_LoadStringBuffer(rdb, tmp_len_ptr);  \
-  ptr = rm_malloc(*tmp_len_ptr);                                  \
-  memcpy(ptr, oldbuf, *tmp_len_ptr);                              \
-  RedisModule_Free(oldbuf);                                       \
-} while (0)
-
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -54,7 +44,6 @@ extern "C" {
 typedef enum {
   DocumentType_Hash,
   DocumentType_Json,
-  // DocumentType_LLAPI,
   DocumentType_None,
 } DocumentType;
 

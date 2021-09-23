@@ -177,6 +177,10 @@ void RMCK_RetainString(RedisModuleCtx *ctx, RedisModuleString *s) {
   s->incref();
 }
 
+void RMCK_SetModuleOptions(RedisModuleCtx *ctx, int options) {
+}
+
+
 const char *RMCK_StringPtrLen(RedisModuleString *s, size_t *len) {
   if (len) {
     *len = s->size();
@@ -820,6 +824,8 @@ static void registerApis() {
   REGISTER_API(SubscribeToKeyspaceEvents);
   REGISTER_API(SubscribeToServerEvent);
   REGISTER_API(RegisterCommandFilter);
+
+  REGISTER_API(SetModuleOptions);
 }
 
 static int RMCK_GetApi(const char *s, void *pp) {
