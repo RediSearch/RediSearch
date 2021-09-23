@@ -3,7 +3,6 @@ from common import getConnectionByEnv, waitForIndex, sortedResults, toSortedFlat
 
 
 def testBasicSynonymsUseCase(env):
-    env.skip()
     r = env
     env.assertOk(r.execute_command(
         'ft.create', 'idx', 'ON', 'HASH',
@@ -19,7 +18,6 @@ def testBasicSynonymsUseCase(env):
     env.assertEqual(set(res[2]), set(['title', 'he is a boy', 'body', 'this is a test']))
 
 def testTermOnTwoSynonymsGroup(env):
-    env.skip()
     r = env
     env.assertOk(r.execute_command(
         'ft.create', 'idx', 'ON', 'HASH',
@@ -41,7 +39,6 @@ def testTermOnTwoSynonymsGroup(env):
     env.assertEqual(set(res[2]), set(['title', 'he is a boy', 'body', 'this is a test']))
 
 def testSynonymGroupWithThreeSynonyms(env):
-    env.skip()
     r = env
     env.assertOk(r.execute_command(
         'ft.create', 'idx', 'ON', 'HASH',
@@ -60,7 +57,6 @@ def testSynonymGroupWithThreeSynonyms(env):
     env.assertEqual(set(res[2]), set(['title', 'he is a boy', 'body', 'this is a test']))
 
 def testSynonymWithMultipleDocs(env):
-    env.skip()
     r = env
     env.assertOk(r.execute_command(
         'ft.create', 'idx', 'ON', 'HASH',
@@ -84,7 +80,6 @@ def testSynonymWithMultipleDocs(env):
     
 
 def testSynonymUpdate(env):
-    env.skip()
     r = env
     env.assertOk(r.execute_command(
         'ft.create', 'idx', 'ON', 'HASH',
@@ -106,7 +101,6 @@ def testSynonymUpdate(env):
     env.assertEqual(set(res[2]), set(['title', 'he is another baby', 'body', 'another test']))
 
 def testSynonymDump(env):
-    env.skip()
     r = env
     env.assertOk(r.execute_command(
         'ft.create', 'idx', 'ON', 'HASH',
@@ -119,7 +113,6 @@ def testSynonymDump(env):
     env.assertEqual(res, {'boy': ['id1'], 'tree': ['id3'], 'wood': ['id3'], 'child': ['id1', 'id2'], 'baby': ['id2'], 'offspring': ['id1']})
 
 def testSynonymUpdateWorngArity(env):
-    env.skip()
     r = env
     env.assertOk(r.execute_command(
         'ft.create', 'idx', 'ON', 'HASH',
@@ -129,11 +122,9 @@ def testSynonymUpdateWorngArity(env):
         r.execute_command('ft.synupdate', 'idx', 'id1')
 
 def testSynonymUpdateUnknownIndex(env):
-    env.skip()
     env.expect('ft.synupdate', 'idx', '0', 'child').error().contains('Unknown index name')
 
 def testSynonymDumpWorngArity(env):
-    env.skip()
     r = env
     env.assertOk(r.execute_command(
         'ft.create', 'idx', 'ON', 'HASH',
@@ -144,7 +135,6 @@ def testSynonymDumpWorngArity(env):
     env.expect('ft.syndump idx foo').error().contains('wrong number of arguments')
 
 def testSynonymUnknownIndex(env):
-    env.skip()
     r = env
     exceptionStr = None
     try:
@@ -154,7 +144,6 @@ def testSynonymUnknownIndex(env):
     env.assertEqual(exceptionStr, 'Unknown index name')
 
 def testSynonymsRdb(env):
-    env.skip()
     r = env
     env.assertOk(r.execute_command(
         'ft.create', 'idx', 'ON', 'HASH',
@@ -167,7 +156,6 @@ def testSynonymsRdb(env):
         env.assertEqual(res, {'boy': ['id1'], 'offspring': ['id1'], 'child': ['id1']})
 
 def testTwoSynonymsSearch(env):
-    env.skip()
     r = env
     env.assertOk(r.execute_command(
         'ft.create', 'idx', 'ON', 'HASH',
@@ -183,7 +171,6 @@ def testTwoSynonymsSearch(env):
     env.assertEqual(set(res[2]), set(['title', 'he is a boy child boy', 'body', 'another test']))
 
 def testSynonymsIntensiveLoad(env):
-    env.skip()
     iterations = 1000
     r = env
     env.assertOk(r.execute_command(
@@ -203,7 +190,6 @@ def testSynonymsIntensiveLoad(env):
             env.assertEqual(set(res[2]), set(['title', 'he is a boy%d' % i, 'body', 'this is a test']))
 
 def testSynonymsLowerCase(env):
-    env.skip()
     env.expect('FT.CREATE lowcase ON HASH SCHEMA foo text').ok()
     env.expect('FT.SYNUPDATE lowcase id1 HELLO SHALOM AHALAN').ok()
     dump = env.cmd('FT.SYNDUMP lowcase')
@@ -215,7 +201,6 @@ def testSynonymsLowerCase(env):
     env.expect('FT.SEARCH lowcase shalom').equal(res)
 
 def testSkipInitialIndex(env):
-    env.skip()
     conn = getConnectionByEnv(env)
 
     env.expect('FT.CREATE idx1 SCHEMA foo text').ok()

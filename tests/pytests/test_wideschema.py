@@ -4,7 +4,6 @@ from common import waitForIndex
 
 
 def testWideSchema(env):
-    env.skip()
     r = env
     schema = []
     FIELDS = 128 if platform.architecture()[0] == '64bit' else 64
