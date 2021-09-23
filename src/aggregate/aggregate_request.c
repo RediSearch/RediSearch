@@ -929,8 +929,8 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
     }
 
     // TODO : this is form POC only
-    SortByType sortbyType = (req->sctx->spec->flags & Index_HasVecSim) && nkeys == 1 ?
-                                        SORTBY_DISTANCE : SORTBY_FIELD;
+    SortByType sortbyType = (req->sctx && (req->sctx->spec->flags & Index_HasVecSim)) && nkeys == 1 ?
+                            SORTBY_DISTANCE : SORTBY_FIELD;
     rp = RPSorter_NewByFields(limit, sortkeys, nkeys, astp->sortAscMap, &req->timeoutTime, sortbyType);
     up = pushRP(req, rp, up);
   }
