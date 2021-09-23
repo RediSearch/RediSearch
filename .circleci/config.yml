@@ -228,7 +228,7 @@ jobs:
       - run:
           name: Test
           no_output_timeout: 30m
-          command: sudo -E bash -c "./.circleci/ci_test.sh"
+          command: sudo -E bash -l -c "PYTHON=/usr/bin/python2 ./.circleci/ci_test.sh"
       - save-tests-logs
 
   centos:

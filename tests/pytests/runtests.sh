@@ -193,7 +193,8 @@ fi
 
 export OS=$($READIES/bin/platform --os)
 
-$OP python2 -m RLTest @$config
+PYTHON=${PYTHON:-python2}
+$OP $PYTHON -m RLTest @$config
 EXIT_CODE=$?
 rm -f $config
 
