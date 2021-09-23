@@ -3,6 +3,7 @@ from includes import *
 from common import *
 
 def test_geo(env):
+    env.skip()
     conn = getConnectionByEnv(env)
 
     env.assertOk(conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'g', 'GEO', 'SORTABLE'))
@@ -49,6 +50,7 @@ def test_geo(env):
 
 
 def test_errors(env):
+    env.skip()
     conn = getConnectionByEnv(env)
 
     env.assertOk(conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'foo', 'TEXT', 'bar', 'TAG', 'g', 'GEO', 'num', 'NUMERIC'))
@@ -73,6 +75,7 @@ def test_errors(env):
 
 
 def test_binary_data(env):
+    env.skip()
     conn = getConnectionByEnv(env)
 
     env.assertOk(conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'bin', 'TEXT'))
@@ -112,6 +115,7 @@ def test_binary_data(env):
 
 
 def test_expression(env):
+    env.skip()
     conn = getConnectionByEnv(env)
 
     env.assertOk(conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT', 'id', 'NUMERIC'))
@@ -144,6 +148,7 @@ def test_expression(env):
 
 
 def test_tags(env):
+    env.skip()
     conn = getConnectionByEnv(env)
 
     env.assertOk(conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'tags', 'TAG'))
@@ -182,6 +187,7 @@ def test_tags(env):
 
 
 def test_numeric_range(env):
+    env.skip()
     conn = getConnectionByEnv(env)
 
     env.assertOk(conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'numval', 'NUMERIC'))
