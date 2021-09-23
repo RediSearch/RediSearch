@@ -198,13 +198,38 @@ jobs:
 #@@      - image: redisfab/rmbuilder:6.2.5-x64-bullseye
     machine:
       enabled: true
-      image: debian:bullseye
+      image: ubuntu-2004:202010-01
       resource_class: medium
     environment:
       - BUILD_DIR: build-debian
     steps:
-      - build-steps:
-          platform: bullseye
+#@@      - build-steps:
+#@@          platform: bullseye
+      - checkout-all
+      - run:
+          name: Setup automation
+          command: |
+            git submodule update --init deps/readies
+            sudo ./deps/readies/bin/getpy2
+      - run:
+          name: System setup
+          command: sudo ./system-setup.py
+      - run:
+          name: Install Redis
+          command: |
+            sudo bash -l -c "python2 ./deps/readies/bin/getredis -v '<<parameters.redis_version>>' --force <<parameters.getredis_params>>"
+            redis-server --version
+      - run:
+          name: Get Dependencies
+          command: sudo ./.circleci/ci_get_deps.sh
+      - run:
+          name: Build
+          command: bash -l -c "./.circleci/ci_build.sh"
+      - run:
+          name: Test
+          no_output_timeout: 30m
+          command: bash -l -c "./.circleci/ci_test.sh"
+      - save-tests-logs
 
   centos:
     docker:
