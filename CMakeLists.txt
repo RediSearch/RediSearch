@@ -119,8 +119,8 @@ ADD_SUBDIRECTORY(src/dep/phonetics)
 include (ExternalProject)
 ExternalProject_Add (VectorSimilarity
 	SOURCE_DIR      ${CMAKE_CURRENT_SOURCE_DIR}/deps/VectorSimilarity/src
-	PREFIX          ${CMAKE_CURRENT_BINARY_DIR}/VectorSimilarity
-	CMAKE_ARGS      -DCMAKE_INSTALL_PREFIX:PATH=${CMAKE_CURRENT_BINARY_DIR}/VectorSimilarity
+	PREFIX          ${binroot}/VectorSimilarity
+	CMAKE_ARGS      -DCMAKE_INSTALL_PREFIX:PATH=${binroot}/VectorSimilarity
 	CMAKE_ARGS      -DVECSIM_STATIC:BOOL=ON -DVECSIM_ARCH:string=${VECSIM_ARCH}
 )
 
@@ -203,13 +203,13 @@ ELSE ()
             COMMAND objcopy --add-gnu-debuglink $<TARGET_FILE:redisearch>.debug $<TARGET_FILE:redisearch>
             COMMAND ${CMAKE_STRIP} -g $<TARGET_FILE:redisearch>) 
     ENDIF()
+
+	add_dependencies(redisearch VectorSimilarity)
 ENDIF()
 
 IF (APPLE) 
     SET_TARGET_PROPERTIES(redisearch PROPERTIES LINK_FLAGS "-undefined dynamic_lookup")
 ENDIF()
-
-add_dependencies(redisearch VectorSimilarity)
 
 IF (RS_RUN_TESTS AND NOT RS_BUILD_COORDINATOR)
     SET(BUILD_SHARED_LIBS ON CACHE BOOL "enable shared libs" FORCE)
