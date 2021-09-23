@@ -193,3 +193,26 @@ def testIssue1497(env):
     env.assertEqual(d['inverted_sz_mb'], '0')
     env.assertEqual(d['num_records'], '0')
     check_empty(env, 'idx')
+
+def testDocTableInfo(env):
+    conn = getConnectionByEnv(env)
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'txt', 'TEXT', 'SORTABLE')
+
+    d = ft_info_to_dict(env, 'idx')
+    env.assertEqual(d['num_docs'], '0')
+    env.assertEqual(d['doc_table_size_mb'], '0')
+    env.assertEqual(d['sortable_values_size_mb'], '0')
+    conn.execute_command('HSET', 'a', 'txt', 'hello')
+    conn.execute_command('HSET', 'b', 'txt', 'world')
+
+    d = ft_info_to_dict(env, 'idx')
+    env.assertEqual(d['num_docs'], '2')
+    env.assertEqual(d['doc_table_size_mb'], '0.0001583099365234375')
+    env.assertEqual(d['sortable_values_size_mb'], '5.53131103515625e-05')
+    conn.execute_command('DEL', 'a')
+    conn.execute_command('DEL', 'b')
+
+    d = ft_info_to_dict(env, 'idx')
+    env.assertEqual(d['num_docs'], '0')
+    env.assertEqual(d['doc_table_size_mb'], '0')
+    env.assertEqual(d['sortable_values_size_mb'], '0')
