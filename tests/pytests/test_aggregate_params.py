@@ -38,9 +38,10 @@ def add_values(env, number_of_iterations=1):
 class TestAggregateParams:
     def __init__(self):
         self.env = Env()
-        add_values(self.env)
+        #X add_values(self.env)
 
     def test_group_by(self):
+        self.env.skip()
         # cmd = ['ft.aggregate', 'games', '*',
         #        'GROUPBY', '1', '@brand',
         #        'REDUCE', 'count', '0', 'AS', 'count',
@@ -61,6 +62,7 @@ class TestAggregateParams:
                                     ['brand', 'logitech', 'count', '35']], res)
 
     def test_min_max(self):
+        self.env.skip()
         # cmd = ['ft.aggregate', 'games', 'sony',
         #        'GROUPBY', '1', '@brand',
         #        'REDUCE', 'count', '0',
