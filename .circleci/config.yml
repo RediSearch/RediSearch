@@ -198,7 +198,7 @@ jobs:
 #@@      - image: redisfab/rmbuilder:6.2.5-x64-bullseye
     machine:
       enabled: true
-      image: ubuntu-2004:202010-01
+      image: ubuntu:bullseye
       resource_class: medium
     environment:
       - BUILD_DIR: build-debian
