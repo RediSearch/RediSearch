@@ -78,6 +78,7 @@ def test_escape(env):
         conn.execute_command('FT.DROPINDEX idx DD')
 
 def testDel(env):
+    env.skip() # @@diag
     conn = getConnectionByEnv(env)
     vecsim_type = ['BF', 'HNSW']
     for vs_type in vecsim_type:
