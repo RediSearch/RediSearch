@@ -302,7 +302,7 @@ typedef struct {
 /* Yield - pops the current top result from the heap */
 static int rpsortNext_Yield(ResultProcessor *rp, SearchResult *r) {
   RPSorter *self = (RPSorter *)rp;
-
+#ifdef DISABLE_TIMEOUT_PR2239
   // check timeout
   if (++self->timeoutLimiter == DEFAULT_TIMEOUT_LIMIT) {
     self->timeoutLimiter = 0;
@@ -310,7 +310,7 @@ static int rpsortNext_Yield(ResultProcessor *rp, SearchResult *r) {
       return RS_RESULT_TIMEDOUT;
     }
   }
-
+#endif // DISABLE_TIMEOUT_PR2239
   // make sure we don't overshoot the heap size, unless the heap size is dynamic
   if (self->pq->count > 0 && (!self->size || self->offset++ < self->size)) {
     SearchResult *sr = mmh_pop_max(self->pq);

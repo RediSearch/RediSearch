@@ -10,49 +10,56 @@ import string
 import numpy as np
 
 def test_1st(env):
+    env.skip() # @@diag
     conn = getConnectionByEnv(env)
     vecsim_type = ['BF', 'HNSW']
     for vs_type in vecsim_type:
-        print vs_type
-        conn.execute_command('FT.CREATE idx SCHEMA v VECTOR INT32 2 L2 ' + vs_type)
+        conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'INT32', '2', 'L2', vs_type)
         conn.execute_command('HSET', 'a', 'v', 'abcdefgh')
         conn.execute_command('HSET', 'b', 'v', 'abcdefgg')
         conn.execute_command('HSET', 'c', 'v', 'aacdefgh')
         conn.execute_command('HSET', 'd', 'v', 'abbdefgh')
 
         res = [4L, 'a', ['v', 'abcdefgh'], 'c', ['v', 'aacdefgh'],
-                'b', ['v', 'abcdefgg'], 'd', ['v', 'abbdefgh']]
-        env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 4]', 'SORTBY', 'v', 'ASC').equal(res)
+                   'b', ['v', 'abcdefgg'], 'd', ['v', 'abbdefgh']]
+        res1 = conn.execute_command('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 4]', 'SORTBY', 'v', 'ASC')
+        env.assertEqual(sortedResults(res), sortedResults(res1))
+
+        res = conn.execute_command('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 1]')
+        env.assertEqual(res, [1L, 'a', ['v', 'abcdefgh']])
 
         message = 'abcdefgh'
-        env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 1]').equal([1L, 'a', ['v', 'abcdefgh']])
-
         message_bytes = message.encode('ascii')
         base64_bytes = base64.b64encode(message_bytes)
         base64_message = base64_bytes.decode('ascii')
-        print message_bytes
-        print base64_bytes
-        print base64_message
+        # print message_bytes
+        # print base64_bytes
+        # print base64_message
 
         # RANGE uses topk but translate to base64 before
-        env.expect('FT.SEARCH', 'idx', '@v:[' + base64_message +' RANGE 1]').equal([1L, 'a', ['v', 'abcdefgh']])
-        env.expect('FT.SEARCH', 'idx', '@v:[' + base64_message +' TOPK 1] => {$base64:true}').equal([1L, 'a', ['v', 'abcdefgh']])
-        env.expect('FT.SEARCH', 'idx', '@v:[' + base64_message +' TOPK 1] => { $base64:true; $efRuntime:100}').equal([1L, 'a', ['v', 'abcdefgh']])
+        res = conn.execute_command('FT.SEARCH', 'idx', '@v:[' + base64_message +' RANGE 1]')
+        env.assertEqual(res, [1L, 'a', ['v', 'abcdefgh']])
+        res = conn.execute_command('FT.SEARCH', 'idx', '@v:[' + base64_message +' TOPK 1] => {$base64:true}')
+        env.assertEqual(res, [1L, 'a', ['v', 'abcdefgh']])
+        res = conn.execute_command('FT.SEARCH', 'idx', '@v:[' + base64_message +' TOPK 1] => { $base64:true; $efRuntime:100}')
+        env.assertEqual(res, [1L, 'a', ['v', 'abcdefgh']])
 
         #####################
         ## another example ##
         #####################
         message = 'aacdefgh'
-        env.expect('FT.SEARCH', 'idx', '@v:[' + message +' TOPK 1]').equal([1L, 'c', ['v', 'aacdefgh']])
+        res = conn.execute_command('FT.SEARCH', 'idx', '@v:[' + message +' TOPK 1]')
+        env.assertEqual(res, [1L, 'c', ['v', 'aacdefgh']])
 
-        conn.execute_command('FT.DROPINDEX idx DD')
+        conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
 
 def test_escape(env):
+    env.skipOnCluster()
     conn = getConnectionByEnv(env)
 
     vecsim_type = ['BF', 'HNSW']
     for vs_type in vecsim_type:
-        conn.execute_command('FT.CREATE idx SCHEMA v VECTOR INT32 2 L2 ' + vs_type)
+        conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'INT32', '2', 'L2', vs_type)
         conn.execute_command('HSET', 'a', 'v', '////////')
         conn.execute_command('HSET', 'b', 'v', '++++++++')
         conn.execute_command('HSET', 'c', 'v', 'abcdefgh')
@@ -61,23 +68,24 @@ def test_escape(env):
 
         messages = ['\+\+\+\+\+\+\+\+', '\/\/\/\/\/\/\/\/', 'abcdefgh', 'aacdefgh', 'aaadefgh']
         for message in messages:
-            res = env.cmd('FT.SEARCH', 'idx', '@v:[' + message + ' TOPK 1]')
+            res = conn.execute_command('FT.SEARCH', 'idx', '@v:[' + message + ' TOPK 1]')
             env.assertEqual(res[2][1], message.replace('\\', ''))
 
             message_bytes = message.encode('ascii')
             base64_bytes = base64.b64encode(message_bytes)
             base64_message = base64_bytes.decode('ascii')
-            print message_bytes
-            print base64_bytes
-            print base64_message
+            # print message_bytes
+            # print base64_bytes
+            # print base64_message
 
             # RANGE uses topk but translate to base64 before
-            res = env.cmd('FT.SEARCH', 'idx', '@v:[' + base64_message + ' RANGE 1]')
+            res = conn.execute_command('FT.SEARCH', 'idx', '@v:[' + base64_message + ' RANGE 1]')
             env.assertEqual(res[2][1], message.replace('\\', ''))
 
-        conn.execute_command('FT.DROPINDEX idx DD')
+        conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
 
 def testDel(env):
+    env.skip() # @@diag
     conn = getConnectionByEnv(env)
     vecsim_type = ['BF', 'HNSW']
     for vs_type in vecsim_type:
@@ -114,7 +122,7 @@ def testDel(env):
         env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 4]').equal([3L, 'b', ['v', 'abcdefgg'], 'c', ['v', 'aacdefgh'], 'd', ['v', 'azcdefgh']])
         '''
 
-        conn.execute_command('FT.DROPINDEX idx DD')
+        conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
 
 def test_query_empty(env):
     env.skip()
@@ -127,7 +135,7 @@ def test_query_empty(env):
         env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 1]').equal([1L, 'a', ['v', 'redislab']])
         conn.execute_command('DEL', 'a')
         env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 1]').equal([0L])
-        conn.execute_command('FT.DROPINDEX idx DD')
+        conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
 
 def del_insert(env):
     conn = getConnectionByEnv(env)
@@ -172,20 +180,24 @@ def testDelReuse(env):
     env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 4]').equal(res)
 
 def load_vectors_to_redis(env, n_vec, query_vec_index, vec_size):
+    conn = getConnectionByEnv(env)
     for i in range(n_vec):
         vector = np.random.rand(1, vec_size).astype(np.float32)
         if i == query_vec_index:
             query_vec = vector
 #         base64_vector = base64.b64encode(vector).decode('ascii')
-        env.execute_command('HSET', i, 'vector', vector.tobytes())
+        conn.execute_command('HSET', i, 'vector', vector.tobytes())
     return query_vec
 
 def query_vector(env, idx, query_vec):
+    conn = getConnectionByEnv(env)
     base64_vector = base64.b64encode(query_vec).decode('ascii')
     base64_vector_escaped = base64_vector.replace("=", r"\=").replace("/", r"\/").replace("+", r"\+")
-    return env.cmd('FT.SEARCH', idx, '@vector:[' + base64_vector_escaped + ' RANGE 5]', 'SORTBY', 'vector', 'ASC', 'NOCONTENT', 'WITHSCORES')
+    return conn.execute_command('FT.SEARCH', idx, '@vector:[' + base64_vector_escaped + ' RANGE 5]',
+                                'SORTBY', 'vector', 'ASC', 'NOCONTENT', 'WITHSCORES')
 
 def testDelReuseDvir(env):
+    env.skip() # @@diag
     conn = getConnectionByEnv(env)
     INDEX_NAME = 'items'
     prefix = 'item'
@@ -203,14 +215,17 @@ def testDelReuseDvir(env):
 
 def test_create(env):
     conn = getConnectionByEnv(env)
-    env.expect('FT.CREATE idx1 SCHEMA v VECTOR FLOAT32 16 IP HNSW INITIAL_CAP 10 M 16 EF 200').ok()
-    env.expect('FT.CREATE idx2 SCHEMA v VECTOR FLOAT32 16 L2 HNSW INITIAL_CAP 10 M 16 EF 200').ok()
-    env.expect('FT.CREATE idx3 SCHEMA v VECTOR FLOAT32 16 COSINE HNSW INITIAL_CAP 10 M 16 EF 200').ok()
+    conn.execute_command('FT.CREATE', 'idx1', 'SCHEMA', 'v', 'VECTOR', 'FLOAT32', '16', 'IP',     'HNSW', 'INITIAL_CAP', '10', 'M', '16', 'EF', '200')
+    conn.execute_command('FT.CREATE', 'idx2', 'SCHEMA', 'v', 'VECTOR', 'FLOAT32', '16', 'L2',     'HNSW', 'INITIAL_CAP', '10', 'M', '16', 'EF', '200')
+    conn.execute_command('FT.CREATE', 'idx3', 'SCHEMA', 'v', 'VECTOR', 'FLOAT32', '16', 'COSINE', 'HNSW', 'INITIAL_CAP', '10', 'M', '16', 'EF', '200')
     
     # test wrong query word
-    env.expect('FT.SEARCH', 'idx1', '@v:[abcdefgh REDIS 4]').equal([0L])
-    env.expect('FT.SEARCH', 'idx2', '@v:[abcdefgh REDIS 4]').equal([0L])
-    env.expect('FT.SEARCH', 'idx3', '@v:[abcdefgh REDIS 4]').equal([0L])
+    res = conn.execute_command('FT.SEARCH', 'idx1', '@v:[abcdefgh REDIS 4]')
+    env.assertEqual(res, [0L])
+    res = conn.execute_command('FT.SEARCH', 'idx2', '@v:[abcdefgh REDIS 4]')
+    env.assertEqual(res, [0L])
+    res = conn.execute_command('FT.SEARCH', 'idx3', '@v:[abcdefgh REDIS 4]')
+    env.assertEqual(res, [0L])
 
 def test_with_weight(env):
     env.skip()
@@ -244,4 +259,3 @@ def test_with_weight(env):
 
     message = 'abcdefgh'
     env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 1]').equal([1L, 'a', ['v', 'abcdefgh']])
-
