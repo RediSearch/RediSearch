@@ -54,6 +54,7 @@ def test_1st(env):
         conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
 
 def test_escape(env):
+    env.skipOnCluster()
     conn = getConnectionByEnv(env)
 
     vecsim_type = ['BF', 'HNSW']
@@ -121,7 +122,7 @@ def testDel(env):
         env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 4]').equal([3L, 'b', ['v', 'abcdefgg'], 'c', ['v', 'aacdefgh'], 'd', ['v', 'azcdefgh']])
         '''
 
-        conn.execute_command('FT.DROPINDEX idx DD')
+        conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
 
 def test_query_empty(env):
     env.skip()
@@ -134,7 +135,7 @@ def test_query_empty(env):
         env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 1]').equal([1L, 'a', ['v', 'redislab']])
         conn.execute_command('DEL', 'a')
         env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 1]').equal([0L])
-        conn.execute_command('FT.DROPINDEX idx DD')
+        conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
 
 def del_insert(env):
     conn = getConnectionByEnv(env)
