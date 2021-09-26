@@ -93,7 +93,8 @@ static const char *getSpecTypeNames(int idx) {
   case IXFLDPOS_TAG:      return SPEC_TAG_STR;
   case IXFLDPOS_NUMERIC:  return SPEC_NUMERIC_STR;
   case IXFLDPOS_GEO:      return SPEC_GEO_STR;
-  
+  case IXFLDPOS_VECTOR:   return SPEC_VECTOR_STR;
+
   default:
     RS_LOG_ASSERT(0, "oops");
     break;
