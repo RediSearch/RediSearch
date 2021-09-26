@@ -336,7 +336,7 @@ class TestAggregate():
                            'LOAD', '3', '@brand', '@price', '@__key',
                            'SORTBY', 2, '@price', 'DESC',
                            'MAX', 4)
-        exp = [3L, ['brand', '', 'price', '759.12', '__key', 'B00006JJIC'], 
+        exp = [3L, ['brand', '', 'price', '759.12', '__key', 'B00006JJIC'],
                    ['brand', 'Sony', 'price', '695.8', '__key', 'B000F6W1AG']]
         self.env.assertEqual(exp[1], res[1])
         self.env.assertEqual(exp[2], res[2])
@@ -388,7 +388,7 @@ class TestAggregate():
                                  ['brand', 'beyerdynamic', 'top_item', 'beyerdynamic mmx300 pc gaming premium digital headset with microphone', 'top_price', '359.74',
                                      'bottom_item', 'beyerdynamic headzone pc gaming digital surround sound system with mmx300 digital headset with microphone', 'bottom_price', '0'],
                                  ['brand', 'mad catz', 'top_item', 'mad catz s.t.r.i.k.e.7 gaming keyboard', 'top_price', '295.95', 'bottom_item', 'madcatz mov4545 xbox replacement breakaway cable', 'bottom_price', '3.49']]
-        
+
         # hack :(
         def mklower(result):
             for arr in result[1:]:
@@ -403,7 +403,7 @@ class TestAggregate():
             self.env.cmd('ft.aggregate', 'games', '*',
                          'GROUPBY', 1, '@brand',
                          'LOAD', 1, '@brand')
-    
+
     def testReducerGeneratedAliasing(self):
         rv = self.env.cmd('ft.aggregate', 'games', '*',
                           'GROUPBY', 1, '@brand',
@@ -535,7 +535,7 @@ def testGroupbyNoReduce(env):
     env.cmd('ft.create', 'idx', 'ON', 'HASH',
             'SCHEMA', 'primaryName', 'TEXT', 'SORTABLE',
             'birthYear', 'NUMERIC', 'SORTABLE')
-    
+
     for x in range(10):
         env.cmd('ft.add', 'idx', 'doc{}'.format(x), 1, 'fields',
             'primaryName', 'sarah number{}'.format(x))
@@ -548,7 +548,7 @@ def testGroupbyNoReduce(env):
 
 def testStartsWith(env):
     conn = getConnectionByEnv(env)
-    env.execute_command('ft.create', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE')    
+    env.execute_command('ft.create', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE')
     conn.execute_command('hset', 'doc1', 't', 'aa')
     conn.execute_command('hset', 'doc2', 't', 'aaa')
     conn.execute_command('hset', 'doc3', 't', 'ab')
@@ -577,6 +577,7 @@ def testContains(env):
                                                              ['t', 'abbabb', 'substring', '2']]))
 
 def testLoadAll(env):
+    env.skip() #@@ DISABLE_LOAD_ALL_PR2243
     conn = getConnectionByEnv(env)
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
     conn.execute_command('HSET', 'doc1', 't', 'hello')
