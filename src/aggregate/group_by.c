@@ -112,14 +112,14 @@ static int Grouper_rpYield(ResultProcessor *base, SearchResult *r) {
   Grouper *g = (Grouper *)base;
 
   while (g->iter != kh_end(g->groups)) {
-#if 0
+#ifdef DISABLE_TIMEOUT_PR2239
     if (++g->timeoutLimiter == DEFAULT_TIMEOUT_LIMIT) {
       g->timeoutLimiter = 0;
       if (TimedOut(g->timeout) == RS_RESULT_TIMEDOUT) {
         return RS_RESULT_TIMEDOUT;
       }
     }
-#endif // 0
+#endif // DISABLE_TIMEOUT_PR2239
     if (!kh_exist(g->groups, g->iter)) {
       g->iter++;
       continue;

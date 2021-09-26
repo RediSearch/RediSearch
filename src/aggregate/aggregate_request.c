@@ -609,6 +609,7 @@ static int handleLoad(AREQ *req, ArgsCursor *ac, QueryError *status) {
   ArgsCursor loadfields = {0};
   int rc = AC_GetVarArgs(ac, &loadfields);
   if (rc != AC_OK) {
+#ifdef DISABLE_LOAD_ALL_PR2243
     const char *s = NULL;
     rc = AC_GetString(ac, &s, NULL, 0);
     if (rc != AC_OK || strncasecmp(s, "ALL", strlen("ALL"))) {
@@ -617,6 +618,10 @@ static int handleLoad(AREQ *req, ArgsCursor *ac, QueryError *status) {
     }
 
     req->reqflags |= QEXEC_AGG_LOAD_ALL;
+#else
+    QERR_MKBADARGS_AC(status, "LOAD", rc);
+    return REDISMODULE_ERR;  
+#endif // DISABLE_LOAD_ALL_PR2243
   }
 
   PLN_LoadStep *lstp = rm_calloc(1, sizeof(*lstp));
@@ -1176,7 +1181,11 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
           kk->name_len = strlen(name);
           lstp->keys[lstp->nkeys++] = kk;
         }
+#ifdef DISABLE_LOAD_ALL_PR2243
         if (lstp->nkeys || req->reqflags & QEXEC_AGG_LOAD_ALL) {
+#else
+        if (lstp->nkeys) {
+#endif // DISABLE_LOAD_ALL_PR2243
           rp = RPLoader_New(curLookup, lstp->keys, lstp->nkeys);
           PUSH_RP();
         }
