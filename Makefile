@@ -253,7 +253,7 @@ fetch:
 ifeq ($(wildcard $(ROOT)/deps/VectorSimilarity/.git),)
 	cd deps; git clone --recursive https://github.com/RedisLabsModules/VectorSimilarity.git
 else
-	-cd deps/VectorSimilarity; git submodule update --init --recursive
+	-cd deps/VectorSimilarity; git pull --recurse-submodules
 endif
 
 #----------------------------------------------------------------------------------------------

@@ -20,8 +20,18 @@ OPTION(USE_TSAN "Use ThreadSanitizer (clang)" OFF)
 OPTION(USE_REDIS_ALLOCATOR "Use redis allocator" ON)
 OPTION(USE_COVERAGE "Build with coverage" OFF)
 
+if(NOT DEFINED root)
+	get_filename_component(root ${CMAKE_CURRENT_SOURCE_DIR} ABSOLUTE)
+endif()
+message("RediSearch root: " ${root})
+
+if(NOT DEFINED binroot)
+	set(binroot ${PROJECT_BINARY_DIR})
+endif()
+message("RediSearch binroot: " ${binroot})
+
 if (NOT DEFINED VECSIM_ARCH)
-set(VECSIM_ARCH "native")
+	set(VECSIM_ARCH "native")
 endif()
 message("RediSearch/VecSim VECSIM_ARCH: " ${VECSIM_ARCH})
 
@@ -120,13 +130,14 @@ include (ExternalProject)
 ExternalProject_Add (VectorSimilarity
 	SOURCE_DIR      ${CMAKE_CURRENT_SOURCE_DIR}/deps/VectorSimilarity/src
 	PREFIX          ${binroot}/VectorSimilarity
-	CMAKE_ARGS      -DCMAKE_INSTALL_PREFIX:PATH=${binroot}/VectorSimilarity
-	CMAKE_ARGS      -DVECSIM_STATIC:BOOL=ON -DVECSIM_ARCH:string=${VECSIM_ARCH}
+	CMAKE_ARGS      -DCMAKE_INSTALL_PREFIX:PATH=${binroot}/VectorSimilarity -Dbinroot:string=${binroot}
+	CMAKE_ARGS      -DCMAKE_BUILD_TYPE:string=${CMAKE_BUILD_TYPE} -DVECSIM_STATIC:BOOL=ON
+	CMAKE_ARGS      -DVECSIM_ARCH:string=${VECSIM_ARCH}
 )
 
 ExternalProject_Get_Property (VectorSimilarity install_dir)
 set(VectorSimilarity_bindir ${install_dir})
-message("VectorSimilarity bindir: ${VectorSimilarity_bindir}")
+message("RediSearch/VecSim bindir: ${VectorSimilarity_bindir}")
 
 include_directories (${VectorSimilarity_bindir}/include)
 
