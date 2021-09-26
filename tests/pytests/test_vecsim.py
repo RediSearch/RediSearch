@@ -67,18 +67,18 @@ def test_escape(env):
 
         messages = ['\+\+\+\+\+\+\+\+', '\/\/\/\/\/\/\/\/', 'abcdefgh', 'aacdefgh', 'aaadefgh']
         for message in messages:
-            res = env.cmd('FT.SEARCH', 'idx', '@v:[' + message + ' TOPK 1]')
+            res = conn.execute_command('FT.SEARCH', 'idx', '@v:[' + message + ' TOPK 1]')
             env.assertEqual(res[2][1], message.replace('\\', ''))
 
             message_bytes = message.encode('ascii')
             base64_bytes = base64.b64encode(message_bytes)
             base64_message = base64_bytes.decode('ascii')
-            print message_bytes
-            print base64_bytes
-            print base64_message
+            # print message_bytes
+            # print base64_bytes
+            # print base64_message
 
             # RANGE uses topk but translate to base64 before
-            res = env.cmd('FT.SEARCH', 'idx', '@v:[' + base64_message + ' RANGE 1]')
+            res = conn.execute_command('FT.SEARCH', 'idx', '@v:[' + base64_message + ' RANGE 1]')
             env.assertEqual(res[2][1], message.replace('\\', ''))
 
         conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
