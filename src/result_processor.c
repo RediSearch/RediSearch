@@ -266,6 +266,8 @@ typedef int (*RPSorterCompareFunc)(const void *e1, const void *e2, const void *u
 typedef struct {
   ResultProcessor base;
 
+  SortByType sortbyType;
+
   // The desired size of the heap - top N results
   // If set to 0 this is a growing heap
   uint32_t size;
@@ -300,7 +302,7 @@ typedef struct {
 /* Yield - pops the current top result from the heap */
 static int rpsortNext_Yield(ResultProcessor *rp, SearchResult *r) {
   RPSorter *self = (RPSorter *)rp;
-
+#ifdef DISABLE_TIMEOUT_PR2239
   // check timeout
   if (++self->timeoutLimiter == DEFAULT_TIMEOUT_LIMIT) {
     self->timeoutLimiter = 0;
@@ -308,7 +310,7 @@ static int rpsortNext_Yield(ResultProcessor *rp, SearchResult *r) {
       return RS_RESULT_TIMEDOUT;
     }
   }
-
+#endif // DISABLE_TIMEOUT_PR2239
   // make sure we don't overshoot the heap size, unless the heap size is dynamic
   if (self->pq->count > 0 && (!self->size || self->offset++ < self->size)) {
     SearchResult *sr = mmh_pop_max(self->pq);
@@ -347,6 +349,11 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
 
   SearchResult *h = self->pooledResult;
   int rc = rp->upstream->Next(rp->upstream, h);
+
+  // For VecSim and Geo, this passes the calculated value to the sorting heap.
+  if (h && h->indexResult && h->indexResult->type == RSResultType_Distance) {
+    h->score = h->indexResult->num.value;
+  }
 
   // if our upstream has finished - just change the state to not accumulating, and yield
   if (rc == RS_RESULT_EOF) {
@@ -452,6 +459,17 @@ static inline int cmpByScore(const void *e1, const void *e2, const void *udata) 
   return h1->docId > h2->docId ? -1 : 1;
 }
 
+static inline int cmpByDistance(const void *e1, const void *e2, const void *udata) {
+  const SearchResult *h1 = e1, *h2 = e2;
+
+  if (h1->score < h2->score) {
+    return 1;
+  } else if (h1->score > h2->score) {
+    return -1;
+  }
+  return h1->docId > h2->docId ? -1 : 1;
+}
+
 /* Compare results for the heap by sorting key */
 static int cmpByFields(const void *e1, const void *e2, const void *udata) {
   const RPSorter *self = udata;
@@ -502,9 +520,20 @@ static void srDtor(void *p) {
 }
 
 ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys, size_t nkeys,
-                                      uint64_t ascmap, struct timespec *timeout) {
+                                      uint64_t ascmap, struct timespec *timeout, SortByType sortByType) {
   RPSorter *ret = rm_calloc(1, sizeof(*ret));
-  ret->cmp = nkeys ? cmpByFields : cmpByScore;
+  ret->sortbyType = sortByType;
+  switch (sortByType) {
+  case SORTBY_FIELD:
+    ret->cmp = cmpByFields;
+    break;
+  case SORTBY_SCORE:
+    ret->cmp = cmpByScore;
+    break;
+  case SORTBY_DISTANCE:
+    ret->cmp = cmpByDistance;
+    break;
+  }
   ret->cmpCtx = ret;
   ret->fieldcmp.ascendMap = ascmap;
   ret->fieldcmp.keys = keys;
@@ -529,7 +558,7 @@ ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys
 }
 
 ResultProcessor *RPSorter_NewByScore(size_t maxresults, struct timespec *timeout) {
-  return RPSorter_NewByFields(maxresults, NULL, 0, 0, timeout);
+  return RPSorter_NewByFields(maxresults, NULL, 0, 0, timeout, SORTBY_SCORE);
 }
 
 void SortAscMap_Dump(uint64_t tt, size_t n) {

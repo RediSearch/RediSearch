@@ -245,7 +245,8 @@ typedef enum {
   RSResultType_Intersection = 0x2,
   RSResultType_Term = 0x4,
   RSResultType_Virtual = 0x8,
-  RSResultType_Numeric = 0x10
+  RSResultType_Numeric = 0x10,
+  RSResultType_Distance = 0x20,
 } RSResultType;
 
 #define RS_RESULT_AGGREGATE (RSResultType_Intersection | RSResultType_Union)

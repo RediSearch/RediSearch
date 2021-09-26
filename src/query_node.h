@@ -3,7 +3,6 @@
 #include <stdlib.h>
 #include "redisearch.h"
 #include "query_error.h"
-//#include "numeric_index.h"
 
 struct RSQueryNode;
 struct numericFilter;
@@ -48,6 +47,9 @@ typedef enum {
   /* Lexical range */
   QN_LEXRANGE,
 
+  /* Vector */
+  QN_VECTOR,
+
   /* Null term - take no action */
   QN_NULL
 } QueryNodeType;
@@ -91,6 +93,10 @@ typedef struct {
 typedef struct {
   const struct GeoFilter *gf;
 } QueryGeofilterNode;
+
+typedef struct {
+  struct VectorFilter *vf;
+} QueryVectorNode;
 
 typedef struct {
   t_docId *ids;
@@ -138,6 +144,7 @@ typedef QueryNullNode QueryUnionNode, QueryNotNode, QueryOptionalNode;
  * is, and a union of all possible nodes  */
 typedef struct RSQueryNode {
   union {
+    QueryVectorNode vn;
     QueryPhraseNode pn;
     QueryTokenNode tn;
     QueryUnionNode un;

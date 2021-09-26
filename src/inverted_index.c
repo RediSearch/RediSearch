@@ -1143,11 +1143,6 @@ void IR_Rewind(void *ctx) {
   ir->lastId = IR_CURRENT_BLOCK(ir).firstId;
 }
 
-typedef struct {
-  IndexIterator it;
-  IndexReader ir;
-} IRIndexIterator;
-
 IndexIterator *NewReadIterator(IndexReader *ir) {
   IndexIterator *ri = rm_malloc(sizeof(IndexIterator));
   ri->ctx = ir;

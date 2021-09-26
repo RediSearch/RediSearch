@@ -131,8 +131,10 @@ commands:
           command: bash -l -c "./.circleci/ci_build.sh"
       - run:
           name: Test
+          command: |
+            redis-server --version
+            bash -l -c "./.circleci/ci_test.sh"
           no_output_timeout: 30m
-          command: bash -l -c "./.circleci/ci_test.sh"
       - run:
           name: Package
           command: bash -l -c "COMPAT_DIR=$BUILD_DIR make pack"
@@ -257,7 +259,7 @@ jobs:
 
   debug-asan:
     docker:
-      - image: redisfab/clang:12-x64-stretch
+      - image: redisfab/clang:12-x64-buster
     steps:
       - early-returns
       - checkout-all
@@ -269,7 +271,7 @@ jobs:
 
   debug-msan:
     docker:
-      - image: redisfab/clang:12-x64-stretch
+      - image: redisfab/clang:12-x64-buster
     steps:
       - early-returns
       - checkout-all

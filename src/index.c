@@ -1774,6 +1774,7 @@ PRINT_PROFILE_FUNC(printUnionIt) {
   case QN_UNION : unionTypeStr = "UNION"; break;
   case QN_FUZZY : unionTypeStr = "FUZZY"; break;
   case QN_PREFIX : unionTypeStr = "PREFIX"; break;
+  case QN_VECTOR : unionTypeStr = "VECTOR"; break;
   case QN_NUMERIC : unionTypeStr = "NUMERIC"; break;
   case QN_LEXRANGE : unionTypeStr = "LEXRANGE"; break;
   default:
@@ -1880,6 +1881,7 @@ PRINT_PROFILE_SINGLE(printOptionalIt, OptionalIterator, "OPTIONAL", 1);
 PRINT_PROFILE_SINGLE(printWildcardIt, DummyIterator, "WILDCARD", 0);
 PRINT_PROFILE_SINGLE(printIdListIt, DummyIterator, "ID-LIST", 0);
 PRINT_PROFILE_SINGLE(printEmptyIt, DummyIterator, "EMPTY", 0);
+PRINT_PROFILE_SINGLE(printListIt, DummyIterator, "LIST", 0);
 
 PRINT_PROFILE_FUNC(printProfileIt) {
   ProfileIterator *pi = (ProfileIterator *)root;
@@ -1909,6 +1911,7 @@ void printIteratorProfile(RedisModuleCtx *ctx, IndexIterator *root, size_t count
     case EMPTY_ITERATOR:      { printEmptyIt(ctx, root, counter, cpuTime, depth, limited);      break; }
     case ID_LIST_ITERATOR:    { printIdListIt(ctx, root, counter, cpuTime, depth, limited);     break; }
     case PROFILE_ITERATOR:    { printProfileIt(ctx, root, 0, 0, depth, limited);                break; }
+    case LIST_ITERATOR:       { printListIt(ctx, root, 0, 0, depth, limited);                break; }
     default:          { RS_LOG_ASSERT(0, "nope");   break; }
   }
 }
@@ -1943,6 +1946,7 @@ void Profile_AddIters(IndexIterator **root) {
       break;
     case WILDCARD_ITERATOR:
     case READ_ITERATOR:
+    case LIST_ITERATOR:
     case EMPTY_ITERATOR:
     case ID_LIST_ITERATOR:
       break;

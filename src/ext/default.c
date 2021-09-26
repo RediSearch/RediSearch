@@ -225,6 +225,7 @@ static double dismaxRecursive(const ScoringFunctionArgs *ctx, const RSIndexResul
   double ret = 0;
   switch (r->type) {
     case RSResultType_Term:
+    case RSResultType_Distance:
     case RSResultType_Numeric:
     case RSResultType_Virtual:
       ret = r->freq;

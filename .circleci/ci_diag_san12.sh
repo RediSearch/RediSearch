@@ -37,6 +37,7 @@ cmake -DCMAKE_BUILD_TYPE=DEBUG \
     -DCMAKE_C_COMPILER=clang \
     -DCMAKE_CXX_COMPILER=clang++ \
     -DRS_RUN_TESTS=ON \
+    -DVECSIM_ARCH=native \
     $extra_flags \
     ..
 
