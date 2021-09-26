@@ -609,14 +609,23 @@ static int handleLoad(AREQ *req, ArgsCursor *ac, QueryError *status) {
   ArgsCursor loadfields = {0};
   int rc = AC_GetVarArgs(ac, &loadfields);
   if (rc != AC_OK) {
-    QERR_MKBADARGS_AC(status, "LOAD", rc);
-    return REDISMODULE_ERR;
+    const char *s = NULL;
+    rc = AC_GetString(ac, &s, NULL, 0);
+    if (rc != AC_OK || strncasecmp(s, "ALL", strlen("ALL"))) {
+      QERR_MKBADARGS_AC(status, "LOAD", rc);
+      return REDISMODULE_ERR;  
+    }
+
+    req->reqflags |= QEXEC_AGG_LOAD_ALL;
   }
+
   PLN_LoadStep *lstp = rm_calloc(1, sizeof(*lstp));
   lstp->base.type = PLN_T_LOAD;
   lstp->base.dtor = loadDtor;
-  lstp->args = loadfields;
-  lstp->keys = rm_calloc(loadfields.argc, sizeof(*lstp->keys));
+  if (loadfields.argc > 0) {
+    lstp->args = loadfields;
+    lstp->keys = rm_calloc(loadfields.argc, sizeof(*lstp->keys));
+  }
 
   AGPLN_AddStep(&req->ap, &lstp->base);
   return REDISMODULE_OK;
@@ -1164,7 +1173,7 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
           kk->name_len = strlen(name);
           lstp->keys[lstp->nkeys++] = kk;
         }
-        if (lstp->nkeys) {
+        if (lstp->nkeys || req->reqflags & QEXEC_AGG_LOAD_ALL) {
           rp = RPLoader_New(curLookup, lstp->keys, lstp->nkeys);
           PUSH_RP();
         }
