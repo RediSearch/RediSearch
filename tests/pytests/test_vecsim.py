@@ -160,7 +160,6 @@ def del_insert(env):
     return res
 
 def testDelReuse(env):
-    env.skip()
     conn = getConnectionByEnv(env)
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'INT32', '2', 'L2', 'HNSW')
 

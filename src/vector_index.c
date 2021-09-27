@@ -86,7 +86,7 @@ IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorFilter *vf) {
       break;
   }
 
-  return NewListIterator(vf->results, vf->value);
+  return NewListIterator(vf->results, VecSimQueryResult_Len(vf->results));
 }
 
 /* Create a vector filter from parsed strings and numbers */
