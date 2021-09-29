@@ -20,7 +20,7 @@
         "type": "key"
       },
       {
-        "name": "get",
+        "name": "deletedocs",
         "type": "enum",
         "enum": [
           "DD"
