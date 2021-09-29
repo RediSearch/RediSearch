@@ -889,8 +889,12 @@ int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions 
                          .len = dst->nquery,
                          .sctx = (RedisSearchCtx *)sctx,
                          .opts = opts,
-                         .status = status};
+                         .status = status,
+                         .trace_log = NULL};
   dst->root = RSQuery_ParseRaw(&qpCtx);
+  if (qpCtx.trace_log != NULL) {
+    fclose(qpCtx.trace_log);
+  }
   // printf("Parsed %.*s. Error (Y/N): %d. Root: %p\n", (int)n, q, QueryError_HasError(status),
   //  dst->root);
   if (!dst->root) {

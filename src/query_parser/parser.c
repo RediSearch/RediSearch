@@ -1205,9 +1205,12 @@ static YYACTIONTYPE yy_reduce(
         YYMINORTYPE yylhsminor;
       case 0: /* query ::= expr */
 { 
- /* If the root is a negative node, we intersect it with a wildcard node */
-    FILE *f = fopen("/tmp/lemon_query.log", "w");
-    RSQueryParser_Trace(f, "t: ");
+    FILE *f = NULL;
+    #ifndef NDEBUG
+    //f = fopen("/tmp/lemon_query.log", "w");
+    //RSQueryParser_Trace(f, "tr: ");
+    #endif
+    ctx->trace_log = f;
     ctx->root = yymsp[0].minor.yy17;
  
 }

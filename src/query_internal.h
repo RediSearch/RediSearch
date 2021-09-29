@@ -30,6 +30,8 @@ extern "C" {
 
   QueryError *status;
 
+  FILE *trace_log;
+
 } QueryParseCtx;
 
 #define QPCTX_ISOK(qpctx) (!QueryError_HasError((qpctx)->status))
