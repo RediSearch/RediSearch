@@ -194,12 +194,8 @@ commands:
 
 jobs:
   ubuntu:
-#@@    docker:
-#@@      - image: redisfab/rmbuilder:6.2.5-x64-bullseye
-    machine:
-      enabled: true
-      image: ubuntu-2004:202010-01
-      resource_class: medium
+    docker:
+      - image: redisfab/rmbuilder:6.2.5-x64-bullseye
     environment:
       - BUILD_DIR: build-debian
     steps:
@@ -406,21 +402,16 @@ workflows:
       - ubuntu:
           <<: *on-any-branch
       - centos:
-          # <<: *on-any-branch
-          <<: *never
+          <<: *on-any-branch
       - macos:
-          # <<: *on-version-tags
-          <<: *never
+          <<: *on-version-tags
       - debug-asan:
-          # <<: *on-any-branch
-          <<: *never
+          <<: *on-any-branch
       - debug-msan:
-          # <<: *on-any-branch
-          <<: *never
+          <<: *on-any-branch
       - coverage:
           context: common
-          # <<: *on-any-branch
-          <<: *never
+          <<: *on-any-branch
       - deploy-snapshots:
           context: common
           requires: *default_jobs
