@@ -4,16 +4,21 @@
 #include <stdlib.h>
 #include <query_error.h>
 #include <query_node.h>
+#include "query_param.h"
+#include "search_options.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-typedef struct RSQuery {
+  typedef struct QueryParseCtx {
   const char *raw;
   size_t len;
 
   // the token count
   size_t numTokens;
+
+  // the param count
+  size_t numParams;
 
   // Index spec
   RedisSearchCtx *sctx;
@@ -25,6 +30,8 @@ typedef struct RSQuery {
 
   QueryError *status;
 
+  FILE *trace_log;
+
 } QueryParseCtx;
 
 #define QPCTX_ISOK(qpctx) (!QueryError_HasError((qpctx)->status))
@@ -33,6 +40,7 @@ typedef struct {
   ConcurrentSearchCtx *conc;
   RedisSearchCtx *sctx;
   const RSSearchOptions *opts;
+  QueryError *status;
 
   size_t numTokens;
   uint32_t tokenId;
@@ -59,12 +67,18 @@ QueryNode *NewPhraseNode(int exact);
 #define NewOptionalNode(child) NewQueryNodeChildren(QN_OPTIONAL, &child, 1)
 
 QueryNode *NewPrefixNode(QueryParseCtx *q, const char *s, size_t len);
+QueryNode *NewPrefixNode_WithParam(QueryParseCtx *q, QueryToken *qt);
 QueryNode *NewFuzzyNode(QueryParseCtx *q, const char *s, size_t len, int maxDist);
-QueryNode *NewNumericNode(const struct NumericFilter *flt);
-QueryNode *NewIdFilterNode(const t_docId *, size_t);
-QueryNode *NewGeofilterNode(const struct GeoFilter *flt);
+QueryNode *NewNumericNode(QueryParam *p);
+QueryNode *NewGeofilterNode(QueryParam *p);
 QueryNode *NewVectorNode(struct VectorFilter *flt);
 QueryNode *NewTagNode(const char *tag, size_t len);
+
+QueryNode *NewTokenNode_WithParam(QueryParseCtx *q, QueryToken *qt);
+void QueryNode_InitParams(QueryNode *n, size_t num);
+bool QueryNode_SetParam(QueryParseCtx *q, Param *target_param, void *target_value,
+                        size_t *target_len, QueryToken *source);
+
 void QueryNode_SetFieldMask(QueryNode *n, t_fieldMask mask);
 
 /* Free the query node and its children recursively */

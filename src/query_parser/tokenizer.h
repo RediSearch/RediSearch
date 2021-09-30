@@ -15,9 +15,20 @@ typedef struct {
 
 } QueryTokenizer;
 
-/* Quer tokenizer token type */
-// typedef enum { T_WORD, T_QUOTE, T_AND, T_OR, T_END, T_STOPWORD }
-// QueryTokenType;
+
+typedef enum {
+  QT_TERM,
+  QT_TERM_CASE,
+  QT_NUMERIC,
+  QT_PARAM_ANY,
+  QT_PARAM_TERM,
+  QT_PARAM_TERM_CASE,
+  QT_PARAM_NUMERIC,
+  QT_PARAM_NUMERIC_MIN_RANGE,
+  QT_PARAM_NUMERIC_MAX_RANGE,
+  QT_PARAM_GEO_COORD,
+  QT_PARAM_GEO_UNIT,
+} QueryTokenType;
 
 /* A token in the process of parsing a query. Unlike the document tokenizer,  it
 works iteratively and is not callback based.  */
@@ -25,9 +36,9 @@ typedef struct {
   const char *s;
   int len;
   int pos;
-  char *field;
   double numval;
-  // QueryTokenType ;
+  int inclusive;
+  QueryTokenType type;
 } QueryToken;
 
 typedef struct {

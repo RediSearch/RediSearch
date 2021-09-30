@@ -44,9 +44,9 @@ lsqb = '[';
 escape = '\\';
 escaped_character = escape (punct | space | escape);
 term = (((any - (punct | cntrl | space | escape)) | escaped_character) | '_')+  $ 0 ;
-prefix = (term.star | number.star) $1;
 mod = '@'.term $ 1;
 attr = '$'.term $ 1;
+prefix = (term.star | number.star | attr.star) $1;
 
 main := |*
 
@@ -219,11 +219,13 @@ main := |*
     }
   };
   prefix => {
-    tok.len = te-ts - 1;
-    tok.s = ts;
+    int is_attr = (*ts == '$') ? 1 : 0;
+    tok.type = is_attr ? QT_PARAM_ANY : QT_TERM;
+    tok.len = te - (ts + 1 + is_attr);
+    tok.s = ts + is_attr;
     tok.numval = 0;
     tok.pos = ts-q->raw;
-    
+
     RSQuery_Parse(pParser, PREFIX, tok, q);
     
     if (!QPCTX_ISOK(q)) {

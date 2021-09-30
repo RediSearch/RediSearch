@@ -8,10 +8,12 @@
 %left STOPWORD.
 
 %left TERMLIST.
-%left TERM. 
+%left TERM.
 %left PREFIX.
 %left PERCENT.
+%left PARAM.
 %left ATTRIBUTE.
+
 %right LP.
 %left RP.
 // needs to be above lp/rp
@@ -42,27 +44,9 @@
 #include "../rmutil/vector.h"
 #include "../query_node.h"
 #include "vector_index.h"
-
-// strndup + lowercase in one pass!
-char *strdupcase(const char *s, size_t len) {
-  char *ret = rm_strndup(s, len);
-  char *dst = ret;
-  char *src = dst;
-  while (*src) {
-      // unescape 
-      if (*src == '\\' && (ispunct(*(src+1)) || isspace(*(src+1)))) {
-          ++src;
-          continue;
-      }
-      *dst = tolower(*src);
-      ++dst;
-      ++src;
-
-  }
-  *dst = '\0';
-  
-  return ret;
-}
+#include "../query_param.h"
+#include "../query_internal.h"
+#include "../util/strconv.h"
 
 // unescape a string (non null terminated) and return the new length (may be shorter than the original. This manipulates the string itself 
 size_t unescapen(char *s, size_t sz) {
@@ -134,8 +118,9 @@ static int one_not_null(void *a, void *b, void *out) {
 %type tag_list { QueryNode *}
 %destructor tag_list { QueryNode_Free($$); }
 
-%type geo_filter { GeoFilter *}
-%destructor geo_filter { GeoFilter_Free($$); }
+//%type 
+%type geo_filter { QueryParam *}
+%destructor geo_filter { QueryParam_Free($$); }
 
 %type vector_filter { VectorFilter *}
 %destructor vector_filter { VectorFilter_Free($$); }
@@ -152,14 +137,18 @@ static int one_not_null(void *a, void *b, void *out) {
 
 %type num { RangeNumber }
 
-%type numeric_range { NumericFilter * }
+%type numeric_range { QueryParam * }
 %destructor numeric_range {
-    NumericFilter_Free($$);
+  QueryParam_Free($$);
 }
 
 query ::= expr(A) . { 
- /* If the root is a negative node, we intersect it with a wildcard node */
- 
+    FILE *f = NULL;
+    #ifndef NDEBUG
+    f = fopen("/tmp/lemon_query.log", "w");
+    RSQueryParser_Trace(f, "tr: ");
+    #endif
+    ctx->trace_log = f;
     ctx->root = A;
  
 }
@@ -322,17 +311,25 @@ expr(A) ::= QUOTE termlist(B) QUOTE. [TERMLIST] {
 }
 
 expr(A) ::= QUOTE term(B) QUOTE. [TERMLIST] {
-    A = NewTokenNode(ctx, strdupcase(B.s, B.len), -1);
-    A->opts.flags |= QueryNode_Verbatim;
-    
+  A = NewTokenNode(ctx, rm_strdupcase(B.s, B.len), -1);
+  A->opts.flags |= QueryNode_Verbatim;
+}
+
+expr(A) ::= QUOTE param_term(B) QUOTE. [TERMLIST] {
+  A = NewTokenNode_WithParam(ctx, &B);
+  A->opts.flags |= QueryNode_Verbatim;
 }
 
 expr(A) ::= term(B) . [LOWEST]  {
-   A = NewTokenNode(ctx, strdupcase(B.s, B.len), -1);
+  A = NewTokenNode(ctx, rm_strdupcase(B.s, B.len), -1);
+}
+
+expr(A) ::= param_term(B) . [LOWEST]  {
+  A = NewTokenNode_WithParam(ctx, &B);
 }
 
 expr(A) ::= prefix(B) . [PREFIX]  {
-    A= B;
+    A = B;
 }
 
 expr(A) ::= termlist(B) .  [TERMLIST] {
@@ -345,13 +342,24 @@ expr(A) ::= STOPWORD . [STOPWORD] {
 
 termlist(A) ::= term(B) term(C). [TERMLIST]  {
     A = NewPhraseNode(0);
-    QueryNode_AddChild(A, NewTokenNode(ctx, strdupcase(B.s, B.len), -1));
-    QueryNode_AddChild(A, NewTokenNode(ctx, strdupcase(C.s, C.len), -1));
+    QueryNode_AddChild(A, NewTokenNode(ctx, rm_strdupcase(B.s, B.len), -1));
+    QueryNode_AddChild(A, NewTokenNode(ctx, rm_strdupcase(C.s, C.len), -1));
+}
+
+termlist(A) ::= param_term(B) param_term(C). [TERMLIST]  {
+  A = NewPhraseNode(0);
+  QueryNode_AddChild(A, NewTokenNode_WithParam(ctx, &B));
+  QueryNode_AddChild(A, NewTokenNode_WithParam(ctx, &C));
 }
 
 termlist(A) ::= termlist(B) term(C) . [TERMLIST] {
     A = B;
-    QueryNode_AddChild(A, NewTokenNode(ctx, strdupcase(C.s, C.len), -1));
+    QueryNode_AddChild(A, NewTokenNode(ctx, rm_strdupcase(C.s, C.len), -1));
+}
+
+termlist(A) ::= termlist(B) param_term(C) . [TERMLIST] {
+  A = B;
+  QueryNode_AddChild(A, NewTokenNode_WithParam(ctx, &C));
 }
 
 termlist(A) ::= termlist(B) STOPWORD . [TERMLIST] {
@@ -387,8 +395,7 @@ expr(A) ::= TILDE expr(B) . {
 /////////////////////////////////////////////////////////////////
 
 prefix(A) ::= PREFIX(B) . [PREFIX] {
-    B.s = strdupcase(B.s, B.len);
-    A = NewPrefixNode(ctx, B.s, strlen(B.s));
+    A = NewPrefixNode_WithParam(ctx, &B);
 }
 
 /////////////////////////////////////////////////////////////////
@@ -396,32 +403,32 @@ prefix(A) ::= PREFIX(B) . [PREFIX] {
 /////////////////////////////////////////////////////////////////
 
 expr(A) ::=  PERCENT term(B) PERCENT. [PREFIX] {
-    B.s = strdupcase(B.s, B.len);
+  B.s = rm_strdupcase(B.s, B.len);
     A = NewFuzzyNode(ctx, B.s, strlen(B.s), 1);
 }
 
 expr(A) ::= PERCENT PERCENT term(B) PERCENT PERCENT. [PREFIX] {
-    B.s = strdupcase(B.s, B.len);
+  B.s = rm_strdupcase(B.s, B.len);
     A = NewFuzzyNode(ctx, B.s, strlen(B.s), 2);
 }
 
 expr(A) ::= PERCENT PERCENT PERCENT term(B) PERCENT PERCENT PERCENT. [PREFIX] {
-    B.s = strdupcase(B.s, B.len);
+  B.s = rm_strdupcase(B.s, B.len);
     A = NewFuzzyNode(ctx, B.s, strlen(B.s), 3);
 }
 
 expr(A) ::=  PERCENT STOPWORD(B) PERCENT. [PREFIX] {
-    B.s = strdupcase(B.s, B.len);
+  B.s = rm_strdupcase(B.s, B.len);
     A = NewFuzzyNode(ctx, B.s, strlen(B.s), 1);
 }
 
 expr(A) ::= PERCENT PERCENT STOPWORD(B) PERCENT PERCENT. [PREFIX] {
-    B.s = strdupcase(B.s, B.len);
+  B.s = rm_strdupcase(B.s, B.len);
     A = NewFuzzyNode(ctx, B.s, strlen(B.s), 2);
 }
 
 expr(A) ::= PERCENT PERCENT PERCENT STOPWORD(B) PERCENT PERCENT PERCENT. [PREFIX] {
-    B.s = strdupcase(B.s, B.len);
+  B.s = rm_strdupcase(B.s, B.len);
     A = NewFuzzyNode(ctx, B.s, strlen(B.s), 3);
 }
 
@@ -457,7 +464,7 @@ expr(A) ::= modifier(B) COLON tag_list(C) . {
     if (!C) {
         A= NULL;
     } else {
-        // Tag field names must be case sensitive, we we can't do strdupcase
+      // Tag field names must be case sensitive, we can't do rm_strdupcase
         char *s = rm_strndup(B.s, B.len);
         size_t slen = unescapen((char*)s, B.len);
 
@@ -473,6 +480,15 @@ expr(A) ::= modifier(B) COLON tag_list(C) . {
 tag_list(A) ::= LB term(B) . [TAGLIST] {
     A = NewPhraseNode(0);
     QueryNode_AddChild(A, NewTokenNode(ctx, rm_strndup(B.s, B.len), -1));
+}
+
+tag_list(A) ::= LB param_term(B) . [TAGLIST] {
+  A = NewPhraseNode(0);
+  if (B.type == QT_TERM)
+    B.type = QT_TERM_CASE;
+  else if (B.type == QT_PARAM_TERM)
+    B.type = QT_PARAM_TERM_CASE;
+  QueryNode_AddChild(A, NewTokenNode_WithParam(ctx, &B));
 }
 
 tag_list(A) ::= LB STOPWORD(B) . [TAGLIST] {
@@ -493,6 +509,15 @@ tag_list(A) ::= LB termlist(B) . [TAGLIST] {
 tag_list(A) ::= tag_list(B) OR term(C) . [TAGLIST] {
     QueryNode_AddChild(B, NewTokenNode(ctx, rm_strndup(C.s, C.len), -1));
     A = B;
+}
+
+tag_list(A) ::= tag_list(B) OR param_term(C) . [TAGLIST] {
+  if (C.type == QT_TERM)
+    C.type = QT_TERM_CASE;
+  else if (C.type == QT_PARAM_TERM)
+    C.type = QT_PARAM_TERM_CASE;
+  QueryNode_AddChild(B, NewTokenNode_WithParam(ctx, &C));
+  A = B;
 }
 
 tag_list(A) ::= tag_list(B) OR STOPWORD(C) . [TAGLIST] {
@@ -521,12 +546,22 @@ tag_list(A) ::= tag_list(B) RB . [TAGLIST] {
 /////////////////////////////////////////////////////////////////
 expr(A) ::= modifier(B) COLON numeric_range(C). {
     // we keep the capitalization as is
-    C->fieldName = rm_strndup(B.s, B.len);
+    C->nf->fieldName = rm_strndup(B.s, B.len);
     A = NewNumericNode(C);
 }
 
 numeric_range(A) ::= LSQB num(B) num(C) RSQB. [NUMBER] {
-    A = NewNumericFilter(B.num, C.num, B.inclusive, C.inclusive);
+    NumericFilter *nf = NewNumericFilter(B.num, C.num, B.inclusive, C.inclusive);
+    A = NewNumericFilterQueryParam(nf);
+}
+
+numeric_range(A) ::= LSQB param_num(B) param_num(C) RSQB. [PARAM] {
+  // Update token type to be more specific if possible
+  if (B.type == QT_PARAM_NUMERIC)
+    B.type = QT_PARAM_NUMERIC_MIN_RANGE;
+  if (C.type == QT_PARAM_NUMERIC)
+    C.type = QT_PARAM_NUMERIC_MAX_RANGE;
+  A = NewNumericFilterQueryParam_WithParams(ctx, &B, &C, B.inclusive, C.inclusive);
 }
 
 /////////////////////////////////////////////////////////////////
@@ -535,21 +570,26 @@ numeric_range(A) ::= LSQB num(B) num(C) RSQB. [NUMBER] {
 
 expr(A) ::= modifier(B) COLON geo_filter(C). {
     // we keep the capitalization as is
-    C->property = rm_strndup(B.s, B.len);
+    C->gf->property = rm_strndup(B.s, B.len);
     A = NewGeofilterNode(C);
 }
 
 geo_filter(A) ::= LSQB num(B) num(C) num(D) TERM(E) RSQB. [NUMBER] {
-    char buf[16] = {0};
-    if (E.len < 16) {
-        memcpy(buf, E.s, E.len);
-    } else {
-        strcpy(buf, "INVALID");
-    }
-    A = NewGeoFilter(B.num, C.num, D.num, buf);
-    GeoFilter_Validate(A, ctx->status);
+    GeoFilter *gf = NewGeoFilter(B.num, C.num, D.num, E.s, E.len);
+    GeoFilter_Validate(gf, ctx->status);
+    A = NewGeoFilterQueryParam(gf);
 }
 
+geo_filter(A) ::= LSQB param_num(B) param_num(C) param_num(D) param_term(E) RSQB. [PARAM] {
+  // Update token type to be more specific if possible
+  if (B.type == QT_PARAM_NUMERIC)
+    B.type = QT_PARAM_GEO_COORD;
+  if (C.type == QT_PARAM_NUMERIC)
+    C.type = QT_PARAM_GEO_COORD;
+  if (E.type == QT_PARAM_TERM)
+    E.type = QT_PARAM_GEO_UNIT;
+  A = NewGeoFilterQueryParam_WithParams(ctx, &B, &C, &D, &E);
+}
 
 expr(A) ::= modifier(B) COLON vector_filter(C). {
     // we keep the capitalization as is
@@ -603,3 +643,40 @@ term(A) ::= NUMBER(B) . {
     A = B; 
 }
 
+///////////////////////////////////////////////////////////////////////////////////
+// Parameterized Primitives (actual numeric or string, or a parameter/placeholder)
+///////////////////////////////////////////////////////////////////////////////////
+
+param_term(A) ::= TERM(B). [PARAM] {
+  A = B;
+  A.type = QT_TERM;
+}
+
+param_term(A) ::= NUMBER(B). [PARAM] {
+  A = B;
+  // Number is treated as a term here
+  A.type = QT_TERM;
+}
+
+param_term(A) ::= ATTRIBUTE(B). [PARAM] {
+  A = B;
+  A.type = QT_PARAM_TERM;
+}
+
+param_num(A) ::= num(B). [PARAM] {
+  A.numval = B.num;
+  A.inclusive = B.inclusive;
+  A.type = QT_NUMERIC;
+}
+
+param_num(A) ::= ATTRIBUTE(B). [PARAM] {
+  A = B;
+  A.type = QT_PARAM_NUMERIC;
+  A.inclusive = 1;
+}
+
+param_num(A) ::= LP ATTRIBUTE(B). [PARAM] {
+  A = B;
+  A.type = QT_PARAM_NUMERIC;
+  A.inclusive = 0;
+}
