@@ -10,7 +10,7 @@ import string
 import numpy as np
 
 def test_1st(env):
-    env.skip() # @@diag
+    # env.skip() # @@diag
     conn = getConnectionByEnv(env)
     vecsim_type = ['BF', 'HNSW']
     for vs_type in vecsim_type:
@@ -85,7 +85,7 @@ def test_escape(env):
         conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
 
 def testDel(env):
-    env.skip() # @@diag
+    # env.skip() # @@diag
     conn = getConnectionByEnv(env)
     vecsim_type = ['BF', 'HNSW']
     for vs_type in vecsim_type:
@@ -196,7 +196,7 @@ def query_vector(env, idx, query_vec):
                                 'SORTBY', 'vector', 'ASC', 'NOCONTENT', 'WITHSCORES')
 
 def testDelReuseDvir(env):
-    env.skip() # @@diag
+    # env.skip() # @@diag
     conn = getConnectionByEnv(env)
     INDEX_NAME = 'items'
     prefix = 'item'
