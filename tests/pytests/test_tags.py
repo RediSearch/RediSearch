@@ -208,3 +208,35 @@ def testTagGCClearEmpty(env):
     conn.execute_command('DEL', 'doc2')
     forceInvokeGC(env, 'idx')
     env.expect('FT.DEBUG', 'dump_tagidx', 'idx', 't').equal([['baz', [3L]]])
+    conn.execute_command('DEL', 'doc3')
+    forceInvokeGC(env, 'idx')
+    env.expect('FT.DEBUG', 'dump_tagidx', 'idx', 't').equal([])
+
+
+def testTagGCClearEmptyWithCursor(env):
+    env.skipOnCluster()
+
+    conn = getConnectionByEnv(env)
+    conn.execute_command('FT.CONFIG', 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0')
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG')
+    conn.execute_command('HSET', 'doc1', 't', 'foo')
+    conn.execute_command('HSET', 'doc2', 't', 'foo')
+    env.expect('FT.DEBUG DUMP_TAGIDX idx t').equal([['foo', [1L, 2L]]])
+    
+    res, cursor = env.cmd('FT.AGGREGATE idx @t:{foo} WITHCURSOR COUNT 1')
+    env.assertEqual(res, [1L, []])
+
+    # delete both documents and run the GC to clean 'foo' inverted index
+    env.expect('DEL doc1').equal(1)
+    env.expect('DEL doc2').equal(1)
+
+    forceInvokeGC(env, 'idx')
+
+    # make sure the inverted index was cleaned
+    env.expect('FT.DEBUG DUMP_TAGIDX idx t').equal([])
+
+    # read from the cursor
+    res, cursor = env.cmd('FT.CURSOR READ idx %d' % cursor)
+
+    env.assertEqual(res, [0L])
+    env.assertEqual(cursor, 0)

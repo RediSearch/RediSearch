@@ -136,6 +136,7 @@ size_t TagIndex_Index(TagIndex *idx, const char **values, size_t n, t_docId docI
 }
 
 typedef struct {
+  TagIndex *idx;
   IndexIterator **its;
   uint32_t uid;
 } TagConcCtx;
@@ -152,10 +153,9 @@ static void TagReader_OnReopen(void *privdata) {
     if (ir->record->type == RSResultType_Term) {
       // we need to reopen the inverted index to make sure its still valid.
       // the GC might have deleted it by now.
-      RedisSearchCtx sctx = (RedisSearchCtx)SEARCH_CTX_STATIC(RSDummyContext, (IndexSpec *)ir->sp);
-      InvertedIndex *idx = Redis_OpenInvertedIndexEx(&sctx, ir->record->term.term->str,
-                                                    ir->record->term.term->len, 0, NULL);
-      if (!idx || ir->idx != idx) {
+      InvertedIndex *idx = TagIndex_OpenIndex(ctx->idx, ir->record->term.term->str,
+                                                    ir->record->term.term->len, 0);
+      if (idx == TRIEMAP_NOTFOUND || ir->idx != idx) {
         // the inverted index was collected entirely by GC, lets stop searching.
         // notice, it might be that a new inverted index was created, we will not
         // continue read those results and we are not promise that documents
@@ -200,6 +200,7 @@ void TagIndex_RegisterConcurrentIterators(TagIndex *idx, ConcurrentSearchCtx *co
                                           array_t *iters) {
   TagConcCtx *tctx = rm_calloc(1, sizeof(*tctx));
   tctx->uid = idx->uniqueId;
+  tctx->idx = idx;
   tctx->its = (IndexIterator **)iters;
   ConcurrentSearch_AddKey(conc, TagReader_OnReopen, tctx, concCtxFree);
 }
