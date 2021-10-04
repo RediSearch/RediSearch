@@ -193,3 +193,18 @@ def testTagCaseSensitive(env):
         .equal([2L, 'doc1', ['t', 'foo,FOO'], 'doc2', ['t', 'FOO']])
     env.expect('FT.SEARCH', 'idx2', '@t:{foo}')         \
         .equal([2L, 'doc1', ['t', 'foo,FOO'], 'doc3', ['t', 'foo']]) 
+
+def testTagGCClearEmpty(env):
+    env.skipOnCluster()
+
+    conn = getConnectionByEnv(env)
+    conn.execute_command('FT.CONFIG', 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0')
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG')
+    conn.execute_command('HSET', 'doc1', 't', 'foo')
+    conn.execute_command('HSET', 'doc2', 't', 'bar')
+    conn.execute_command('HSET', 'doc3', 't', 'baz')
+    env.expect('FT.DEBUG', 'dump_tagidx', 'idx', 't').equal([['foo', [1L]], ['bar', [2L]], ['baz', [3L]]])
+    conn.execute_command('DEL', 'doc1')
+    conn.execute_command('DEL', 'doc2')
+    forceInvokeGC(env, 'idx')
+    env.expect('FT.DEBUG', 'dump_tagidx', 'idx', 't').equal([['baz', [3L]]])
