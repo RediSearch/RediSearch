@@ -149,7 +149,6 @@ static void TagReader_OnReopen(void *privdata) {
   // If the key is valid, we just reset the reader's buffer reader to the current block pointer
   for (size_t ii = 0; ii < nits; ++ii) {
     IndexReader *ir = its[ii]->ctx;
-    /* TODO:finilize
     if (ir->record->type == RSResultType_Term) {
       // we need to reopen the inverted index to make sure its still valid.
       // the GC might have deleted it by now.
@@ -164,7 +163,7 @@ static void TagReader_OnReopen(void *privdata) {
         IR_Abort(ir);
         return;
       }
-    } */
+    }
 
     // the gc marker tells us if there is a chance the keys has undergone GC while we were asleep
     if (ir->gcMarker == ir->idx->gcMarker) {
@@ -173,7 +172,6 @@ static void TagReader_OnReopen(void *privdata) {
       ir->br = NewBufferReader(&ir->idx->blocks[ir->currentBlock].buf);
       ir->br.pos = offset;
     } else {
-    // TODO: 
       // if there has been a GC cycle on this key while we were asleep, the offset might not be
       // valid anymore. This means that we need to seek to last docId we were at
 
