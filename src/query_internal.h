@@ -71,7 +71,7 @@ QueryNode *NewPrefixNode_WithParam(QueryParseCtx *q, QueryToken *qt);
 QueryNode *NewFuzzyNode(QueryParseCtx *q, const char *s, size_t len, int maxDist);
 QueryNode *NewNumericNode(QueryParam *p);
 QueryNode *NewGeofilterNode(QueryParam *p);
-QueryNode *NewVectorNode(struct VectorFilter *flt);
+QueryNode *NewVectorNode(QueryParam *p);
 QueryNode *NewTagNode(const char *tag, size_t len);
 
 QueryNode *NewTokenNode_WithParam(QueryParseCtx *q, QueryToken *qt);

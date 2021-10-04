@@ -36,8 +36,6 @@ def test_1st(env):
         # print base64_bytes
         # print base64_message
 
-        # RANGE uses topk but translate to base64 before
-        res = conn.execute_command('FT.SEARCH', 'idx', '@v:[' + base64_message +' RANGE 1]')
         env.assertEqual(res, [1L, 'a', ['v', 'abcdefgh']])
         res = conn.execute_command('FT.SEARCH', 'idx', '@v:[' + base64_message +' TOPK 1] => {$base64:true}')
         env.assertEqual(res, [1L, 'a', ['v', 'abcdefgh']])
@@ -78,8 +76,7 @@ def test_escape(env):
             # print base64_bytes
             # print base64_message
 
-            # RANGE uses topk but translate to base64 before
-            res = conn.execute_command('FT.SEARCH', 'idx', '@v:[' + base64_message + ' RANGE 1]')
+            res = conn.execute_command('FT.SEARCH', 'idx', '@v:[' + base64_message + ' TOPK 1] => {$base64:true}')
             env.assertEqual(res[2][1], message.replace('\\', ''))
 
         conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
@@ -192,7 +189,7 @@ def query_vector(env, idx, query_vec):
     conn = getConnectionByEnv(env)
     base64_vector = base64.b64encode(query_vec).decode('ascii')
     base64_vector_escaped = base64_vector.replace("=", r"\=").replace("/", r"\/").replace("+", r"\+")
-    return conn.execute_command('FT.SEARCH', idx, '@vector:[' + base64_vector_escaped + ' RANGE 5]',
+    return conn.execute_command('FT.SEARCH', idx, '@vector:[' + base64_vector_escaped + ' TOPk 5] => {$base64:true}',
                                 'SORTBY', 'vector', 'ASC', 'NOCONTENT', 'WITHSCORES')
 
 def testDelReuseDvir(env):
@@ -219,12 +216,9 @@ def test_create(env):
     conn.execute_command('FT.CREATE', 'idx3', 'SCHEMA', 'v', 'VECTOR', 'FLOAT32', '16', 'COSINE', 'HNSW', 'INITIAL_CAP', '10', 'M', '16', 'EF', '200')
     
     # test wrong query word
-    res = conn.execute_command('FT.SEARCH', 'idx1', '@v:[abcdefgh REDIS 4]')
-    env.assertEqual(res, [0L])
-    res = conn.execute_command('FT.SEARCH', 'idx2', '@v:[abcdefgh REDIS 4]')
-    env.assertEqual(res, [0L])
-    res = conn.execute_command('FT.SEARCH', 'idx3', '@v:[abcdefgh REDIS 4]')
-    env.assertEqual(res, [0L])
+    env.expect('FT.SEARCH', 'idx1', '@v:[abcdefgh REDIS 4]').raiseError().equal('Invalid Vector Filter similarity type')
+    env.expect('FT.SEARCH', 'idx2', '@v:[abcdefgh REDIS 4]').raiseError().equal('Invalid Vector Filter similarity type')
+    env.expect('FT.SEARCH', 'idx3', '@v:[abcdefgh REDIS 4]').raiseError().equal('Invalid Vector Filter similarity type')
 
 def test_with_weight(env):
     env.skip()
@@ -237,7 +231,7 @@ def test_with_weight(env):
 
     res = [4L, 'a', ['v', 'abcdefgh'], 'b', ['v', 'abcdefgg'],
                'c', ['v', 'zzzzxxxx'], 'd', ['v', 'abbdefgh']]
-    env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 4]').equal(res)
+    env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 2]').equal(res)
     env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 4] => {$weight: 2000000}', 'WITHSCORES').equal(res)
     
     

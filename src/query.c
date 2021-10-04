@@ -256,9 +256,14 @@ QueryNode *NewGeofilterNode(QueryParam *p) {
   return ret;
 }
 
-QueryNode *NewVectorNode(struct VectorFilter *flt) {
+QueryNode *NewVectorNode(QueryParam *p) {
+  assert(p->type == QP_VEC_FILTER);
   QueryNode *ret = NewQueryNode(QN_VECTOR);
-  ret->vn.vf = flt;
+  // Move data and params pointers
+  ret->vn.vf = p->vf;
+  ret->params = p->params;
+  p->vf = NULL;
+  p->params = NULL;
   return ret;
 }
 
@@ -1003,6 +1008,9 @@ int QueryNode_EvalParams(dict *params, QueryNode *n, QueryError *status) {
   switch(n->type) {
     case QN_GEO:
       res = GeoFilter_EvalParams(params, n, status);
+      break;
+    case QN_VECTOR:
+      res = VectorFilter_EvalParams(params, n, status);
       break;
     case QN_TOKEN:
     case QN_NUMERIC:

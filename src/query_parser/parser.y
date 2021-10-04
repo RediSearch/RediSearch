@@ -1,4 +1,5 @@
 %left LOWEST.
+%left LOWEST.
 %left TILDE.
 %left TAGLIST.
 %left QUOTE.
@@ -122,8 +123,8 @@ static int one_not_null(void *a, void *b, void *out) {
 %type geo_filter { QueryParam *}
 %destructor geo_filter { QueryParam_Free($$); }
 
-%type vector_filter { VectorFilter *}
-%destructor vector_filter { VectorFilter_Free($$); }
+%type vector_filter { QueryParam *}
+%destructor vector_filter { QueryParam_Free($$); }
 
 %type modifierlist { Vector* }
 %destructor modifierlist { 
@@ -315,7 +316,7 @@ expr(A) ::= QUOTE term(B) QUOTE. [TERMLIST] {
   A->opts.flags |= QueryNode_Verbatim;
 }
 
-expr(A) ::= QUOTE param_term(B) QUOTE. [TERMLIST] {
+expr(A) ::= QUOTE value_ref(B) QUOTE. [TERMLIST] {
   A = NewTokenNode_WithParam(ctx, &B);
   A->opts.flags |= QueryNode_Verbatim;
 }
@@ -324,7 +325,7 @@ expr(A) ::= term(B) . [LOWEST]  {
   A = NewTokenNode(ctx, rm_strdupcase(B.s, B.len), -1);
 }
 
-expr(A) ::= param_term(B) . [LOWEST]  {
+expr(A) ::= value_ref(B) . [LOWEST]  {
   A = NewTokenNode_WithParam(ctx, &B);
 }
 
@@ -340,13 +341,13 @@ expr(A) ::= STOPWORD . [STOPWORD] {
     A = NULL;
 }
 
-termlist(A) ::= term(B) term(C). [TERMLIST]  {
-    A = NewPhraseNode(0);
-    QueryNode_AddChild(A, NewTokenNode(ctx, rm_strdupcase(B.s, B.len), -1));
-    QueryNode_AddChild(A, NewTokenNode(ctx, rm_strdupcase(C.s, C.len), -1));
-}
+//termlist(A) ::= term(B) term(C). [TERMLIST]  {
+//    A = NewPhraseNode(0);
+//    QueryNode_AddChild(A, NewTokenNode(ctx, rm_strdupcase(B.s, B.len), -1));
+//    QueryNode_AddChild(A, NewTokenNode(ctx, rm_strdupcase(C.s, C.len), -1));
+//}
 
-termlist(A) ::= param_term(B) param_term(C). [TERMLIST]  {
+termlist(A) ::= value_ref(B) value_ref(C). [TERMLIST]  {
   A = NewPhraseNode(0);
   QueryNode_AddChild(A, NewTokenNode_WithParam(ctx, &B));
   QueryNode_AddChild(A, NewTokenNode_WithParam(ctx, &C));
@@ -357,7 +358,7 @@ termlist(A) ::= termlist(B) term(C) . [TERMLIST] {
     QueryNode_AddChild(A, NewTokenNode(ctx, rm_strdupcase(C.s, C.len), -1));
 }
 
-termlist(A) ::= termlist(B) param_term(C) . [TERMLIST] {
+termlist(A) ::= termlist(B) value_ref(C) . [TERMLIST] {
   A = B;
   QueryNode_AddChild(A, NewTokenNode_WithParam(ctx, &C));
 }
@@ -477,12 +478,12 @@ expr(A) ::= modifier(B) COLON tag_list(C) . {
     }
 }
 
-tag_list(A) ::= LB term(B) . [TAGLIST] {
-    A = NewPhraseNode(0);
-    QueryNode_AddChild(A, NewTokenNode(ctx, rm_strndup(B.s, B.len), -1));
-}
+//tag_list(A) ::= LB term(B) . [TAGLIST] {
+//    A = NewPhraseNode(0);
+//    QueryNode_AddChild(A, NewTokenNode(ctx, rm_strndup(B.s, B.len), -1));
+//}
 
-tag_list(A) ::= LB param_term(B) . [TAGLIST] {
+tag_list(A) ::= LB value_ref(B) . [TAGLIST] {
   A = NewPhraseNode(0);
   if (B.type == QT_TERM)
     B.type = QT_TERM_CASE;
@@ -506,12 +507,12 @@ tag_list(A) ::= LB termlist(B) . [TAGLIST] {
     QueryNode_AddChild(A, B);
 }
 
-tag_list(A) ::= tag_list(B) OR term(C) . [TAGLIST] {
-    QueryNode_AddChild(B, NewTokenNode(ctx, rm_strndup(C.s, C.len), -1));
-    A = B;
-}
+//tag_list(A) ::= tag_list(B) OR term(C) . [TAGLIST] {
+//    QueryNode_AddChild(B, NewTokenNode(ctx, rm_strndup(C.s, C.len), -1));
+//    A = B;
+//}
 
-tag_list(A) ::= tag_list(B) OR param_term(C) . [TAGLIST] {
+tag_list(A) ::= tag_list(B) OR value_ref(C) . [TAGLIST] {
   if (C.type == QT_TERM)
     C.type = QT_TERM_CASE;
   else if (C.type == QT_PARAM_TERM)
@@ -525,10 +526,10 @@ tag_list(A) ::= tag_list(B) OR STOPWORD(C) . [TAGLIST] {
     A = B;
 }
 
-tag_list(A) ::= tag_list(B) OR prefix(C) . [TAGLIST] {
-    QueryNode_AddChild(B, C);
-    A = B;
-}
+//tag_list(A) ::= tag_list(B) OR prefix(C) . [TAGLIST] {
+//    QueryNode_AddChild(B, C);
+//    A = B;
+//}
 
 tag_list(A) ::= tag_list(B) OR termlist(C) . [TAGLIST] {
     QueryNode_AddChild(B, C);
@@ -550,13 +551,13 @@ expr(A) ::= modifier(B) COLON numeric_range(C). {
     A = NewNumericNode(C);
 }
 
-numeric_range(A) ::= LSQB num(B) num(C) RSQB. [NUMBER] {
-    NumericFilter *nf = NewNumericFilter(B.num, C.num, B.inclusive, C.inclusive);
-    A = NewNumericFilterQueryParam(nf);
-}
+//numeric_range(A) ::= LSQB num(B) num(C) RSQB. [NUMBER] {
+//    NumericFilter *nf = NewNumericFilter(B.num, C.num, B.inclusive, C.inclusive);
+//    A = NewNumericFilterQueryParam(nf);
+//}
 
-numeric_range(A) ::= LSQB param_num(B) param_num(C) RSQB. [PARAM] {
-  // Update token type to be more specific if possible
+numeric_range(A) ::= LSQB value_ref(B) value_ref(C) RSQB. [NUMBER] {
+  // Update token types to be more specific if possible
   if (B.type == QT_PARAM_NUMERIC)
     B.type = QT_PARAM_NUMERIC_MIN_RANGE;
   if (C.type == QT_PARAM_NUMERIC)
@@ -574,14 +575,14 @@ expr(A) ::= modifier(B) COLON geo_filter(C). {
     A = NewGeofilterNode(C);
 }
 
-geo_filter(A) ::= LSQB num(B) num(C) num(D) TERM(E) RSQB. [NUMBER] {
-    GeoFilter *gf = NewGeoFilter(B.num, C.num, D.num, E.s, E.len);
-    GeoFilter_Validate(gf, ctx->status);
-    A = NewGeoFilterQueryParam(gf);
-}
+//geo_filter(A) ::= LSQB num(B) num(C) num(D) TERM(E) RSQB. [NUMBER] {
+//    GeoFilter *gf = NewGeoFilter(B.num, C.num, D.num, E.s, E.len);
+//    GeoFilter_Validate(gf, ctx->status);
+//    A = NewGeoFilterQueryParam(gf);
+//}
 
-geo_filter(A) ::= LSQB param_num(B) param_num(C) param_num(D) param_term(E) RSQB. [PARAM] {
-  // Update token type to be more specific if possible
+geo_filter(A) ::= LSQB value_ref(B) value_ref(C) value_ref(D) value_ref(E) RSQB. [NUMBER] {
+  // Update token types to be more specific if possible
   if (B.type == QT_PARAM_NUMERIC)
     B.type = QT_PARAM_GEO_COORD;
   if (C.type == QT_PARAM_NUMERIC)
@@ -594,28 +595,52 @@ geo_filter(A) ::= LSQB param_num(B) param_num(C) param_num(D) param_term(E) RSQB
 expr(A) ::= modifier(B) COLON vector_filter(C). {
     // we keep the capitalization as is
     if (C) {
-        C->property = rm_strndup(B.s, B.len);
+        C->vf->property = rm_strndup(B.s, B.len);
         A = NewVectorNode(C);
     } else {
         A = NewQueryNode(QN_NULL);
     }
 }
 
-vector_filter(A) ::= LSQB TERM(B) TERM(C) num(D) RSQB. [NUMBER] {
-    char buf[16] = {0};
-    if (C.len < 8) {
-        memcpy(buf, C.s, C.len);
-    } else {
-        strcpy(buf, "INVALID"); //TODO: can be removed?
-        QERR_MKSYNTAXERR(ctx->status, "Invalid Vector Filter unit");
-    }
+//vector_filter(A) ::= LSQB TERM(B) TERM(C) num(D) RSQB. [NUMBER] {
+//  // FIXME: Remove hack for handling lexer/scanner of terms with trailing equal signs.
+//  //  Equal signs are currently considered as punct (punctuation) and are not included in a term,
+//  //  But in base64 encoding, it is used as padding to extend the string to a length which is a multiple of 3.
+//  size_t len = B.len;
+//  int remainder = len % 3;
+//  if (remainder == 1 && *((B.s)+len) == '=' && *((B.s)+len+1) == '=')
+//    len = len + 2;
+//  else if (remainder == 2 && *((B.s)+len) == '=')
+//    len = len + 1;
+//  VectorFilter *vf = NewVectorFilter(B.s, len, C.s, C.len, D.num);
+//  if (VectorFilter_Validate(vf, ctx->status)) {
+//    A = NewVectorFilterQueryParam(vf);
+//  } else {
+//    // FIXME: Is this needed here - VectorFilter_Validate will fail parsing anyway (same as with geo_filter)
+//    VectorFilter_Free(vf);
+//    A = NULL;
+//  }
+//}
 
-    // `+ 3` comes to compensate for redisearch parser removing `=` chars
-    // at the end of the string. This is common on vecsim especialy with Base64
-    A = NewVectorFilter(B.s, B.len + 3, buf, D.num);
+vector_filter(A) ::= LSQB value_ref(B) value_ref(C) value_ref(D) RSQB. [NUMBER] {
+  // FIXME: Remove hack for handling lexer/scanner of terms with trailing equal signs.
+  //  Equal signs are currently considered as punct (punctuation) and are not included in a term,
+  //  But in base64 encoding, it is used as padding to extend the string to a length which is a multiple of 3.
+  size_t len = B.len;
+  int remainder = len % 3;
+  if (remainder == 1 && *((B.s)+len) == '=' && *((B.s)+len+1) == '=')
+    B.len = len + 2;
+  else if (remainder == 2 && *((B.s)+len) == '=')
+    B.len = len + 1;
+  // Update token type to be more specific if possible
+  if (B.type == QT_TERM)
+    B.type = QT_TERM_CASE;
+  if (B.type == QT_PARAM_TERM)
+    B.type = QT_PARAM_TERM_CASE;
+  if (C.type == QT_PARAM_TERM)
+    C.type = QT_PARAM_VEC_SIM_TYPE;
+  A = NewVectorFilterQueryParam_WithParams(ctx, &B, &C, &D);
 }
-
-
 
 /////////////////////////////////////////////////////////////////
 // Primitives - numbers and strings
@@ -647,35 +672,24 @@ term(A) ::= NUMBER(B) . {
 // Parameterized Primitives (actual numeric or string, or a parameter/placeholder)
 ///////////////////////////////////////////////////////////////////////////////////
 
-param_term(A) ::= TERM(B). [PARAM] {
+value_ref(A) ::= TERM(B). {
   A = B;
   A.type = QT_TERM;
 }
 
-param_term(A) ::= NUMBER(B). [PARAM] {
-  A = B;
-  // Number is treated as a term here
-  A.type = QT_TERM;
-}
-
-param_term(A) ::= ATTRIBUTE(B). [PARAM] {
-  A = B;
-  A.type = QT_PARAM_TERM;
-}
-
-param_num(A) ::= num(B). [PARAM] {
+value_ref(A) ::= num(B). {
   A.numval = B.num;
   A.inclusive = B.inclusive;
   A.type = QT_NUMERIC;
 }
 
-param_num(A) ::= ATTRIBUTE(B). [PARAM] {
+value_ref(A) ::= ATTRIBUTE(B). {
   A = B;
-  A.type = QT_PARAM_NUMERIC;
+  A.type = QT_PARAM_ANY;
   A.inclusive = 1;
 }
 
-param_num(A) ::= LP ATTRIBUTE(B). [PARAM] {
+value_ref(A) ::= LP ATTRIBUTE(B). {
   A = B;
   A.type = QT_PARAM_NUMERIC;
   A.inclusive = 0;

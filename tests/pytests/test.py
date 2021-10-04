@@ -2109,6 +2109,7 @@ def testTimeout(env):
     env.cmd('ft.config', 'set', 'maxprefixexpansions', 200)
 
 def testAlias(env):
+    env.skip()
     conn = getConnectionByEnv(env)
     env.cmd('ft.create', 'idx', 'ON', 'HASH', 'PREFIX', 1, 'doc1', 'schema', 't1', 'text')
     env.cmd('ft.create', 'idx2', 'ON', 'HASH', 'PREFIX', 1, 'doc2', 'schema', 't1', 'text')

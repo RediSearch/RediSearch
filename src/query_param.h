@@ -2,6 +2,7 @@
 #include "geo_index.h"
 #include "query_parser/tokenizer.h"
 #include "param.h"
+#include "vector_index.h"
 
 struct QueryParseCtx;
 
@@ -10,6 +11,7 @@ typedef enum {
   QP_GEO_FILTER,
   QP_NUMERIC_FILTER,
   QP_RANGE_NUMBER,
+  QP_VEC_FILTER,
   } QueryParamType;
 
 typedef struct {
@@ -18,6 +20,7 @@ typedef struct {
     GeoFilter *gf;
     NumericFilter *nf;
     RangeNumber *rn;
+    VectorFilter *vf;
   };
   QueryParamType type;
   Param *params;
@@ -31,6 +34,10 @@ QueryParam *NewGeoFilterQueryParam_WithParams(struct QueryParseCtx *q, QueryToke
 
 QueryParam *NewNumericFilterQueryParam(NumericFilter *nf);
 QueryParam *NewNumericFilterQueryParam_WithParams(struct QueryParseCtx *q, QueryToken *min, QueryToken *max, int inclusiveMin, int inclusiveMax);
+
+QueryParam *NewVectorFilterQueryParam(struct VectorFilter *vf);
+QueryParam *NewVectorFilterQueryParam_WithParams(struct QueryParseCtx *q, QueryToken *vec, QueryToken *type, QueryToken *value);
+
 
 #define QueryParam_NumParams(p) ((p)->params ? array_len((p)->params) : 0)
 #define QueryParam_GetParam(p, ix) (QueryParam_NumParams(p) > ix ? (p)->params[ix] : NULL)

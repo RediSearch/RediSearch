@@ -28,6 +28,7 @@ typedef enum {
   QT_PARAM_NUMERIC_MAX_RANGE,
   QT_PARAM_GEO_COORD,
   QT_PARAM_GEO_UNIT,
+  QT_PARAM_VEC_SIM_TYPE,
 } QueryTokenType;
 
 /* A token in the process of parsing a query. Unlike the document tokenizer,  it

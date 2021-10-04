@@ -222,3 +222,18 @@ def test_numeric_range(env):
     env.assertEqual(res1, [4L, 'key1', 'key2', 'key3', 'key4'])
     res2 = conn.execute_command('FT.SEARCH', 'idx', '@numval:[$min ($max]', 'NOCONTENT', 'PARAMS', '4', 'min', '-inf', 'max', '105')
     env.assertEqual(res2, res1)
+
+def test_vector(env):
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE idx SCHEMA v VECTOR INT32 2 L2 HNSW').ok()
+    conn.execute_command('HSET', 'a', 'v', 'abcdefgh')
+    conn.execute_command('HSET', 'b', 'v', 'abcdefgg')
+    conn.execute_command('HSET', 'c', 'v', 'zzzzxxxx')
+    conn.execute_command('HSET', 'd', 'v', 'abbdefgh')
+
+    res1 = [2L, 'd', ['v', 'abbdefgh'], 'a', ['v', 'abcdefgh']]
+    res2 = conn.execute_command('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 2]')
+    env.assertEqual(res2, res1)
+
+    res2 = conn.execute_command('FT.SEARCH', 'idx', '@v:[$vec $type $k]', 'PARAMS', '6', 'vec', 'abcdefgh', 'type', 'TOPK', 'k', '2')
+    env.assertEqual(res2, res1)

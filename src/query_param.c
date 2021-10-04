@@ -57,7 +57,52 @@ QueryParam *NewNumericFilterQueryParam_WithParams(struct QueryParseCtx *q, Query
   return ret;
 }
 
+QueryParam *NewVectorFilterQueryParam(struct VectorFilter *vf) {
+  QueryParam *ret = NewQueryParam(QP_VEC_FILTER);
+  ret->vf = vf;
+  return ret;
+}
+
+QueryParam *NewVectorFilterQueryParam_WithParams(struct QueryParseCtx *q, QueryToken *vec, QueryToken *type, QueryToken *value) {
+  QueryParam *ret = NewQueryParam(QP_VEC_FILTER);
+  VectorFilter *vf = rm_calloc(1, sizeof(*vf));
+  VectorFilter_InitValues(vf);
+  ret->vf = vf;
+  int prevNumParams = q->numParams;
+  QueryParam_InitParams(ret, 3);
+  QueryParam_SetParam(q, &ret->params[0], &vf->vector, &vf->vecLen, vec);
+  assert (type->type != QT_TERM_CASE);
+  if (type->type == QT_TERM) {
+    vf->type = VectorFilter_ParseType(type->s, type->len);
+  } else {
+    QueryParam_SetParam(q, &ret->params[1], &vf->type, NULL, type);
+  }
+  QueryParam_SetParam(q, &ret->params[2], &vf->value, NULL, value);
+  if (prevNumParams == q->numParams) {
+    // No parameters were used
+    VectorFilter_Validate(vf, q->status);
+  }
+  return ret;
+}
+
 void QueryParam_Free(QueryParam *p) {
+  switch (p->type) {
+    case QP_TOK:
+      rm_free(p->qt);
+      break;
+    case QP_GEO_FILTER:
+      GeoFilter_Free(p->gf);
+      break;
+    case QP_NUMERIC_FILTER:
+      NumericFilter_Free(p->nf);
+      break;
+    case QP_RANGE_NUMBER:
+      rm_free(p->rn);
+      break;
+    case QP_VEC_FILTER:
+      VectorFilter_Free(p->vf);
+      break;
+  }
   size_t n = QueryParam_NumParams(p);
   if (n) {
     for (size_t ii = 0; ii < n; ++ii) {
@@ -75,10 +120,12 @@ bool QueryParam_SetParam(QueryParseCtx *q, Param *target_param, void *target_val
   if (source->type == QT_TERM) {
     target_param->type = PARAM_NONE;
     *(char**)target_value = rm_strdupcase(source->s, source->len);
+    if (target_len) *target_len = strlen(target_value);
     return false;
   } else  if (source->type == QT_TERM_CASE) {
     target_param->type = PARAM_NONE;
     *(char**)target_value = rm_strndup(source->s, source->len);
+    if (target_len) *target_len = source->len;
     return false;
   } else if (source->type == QT_NUMERIC) {
     target_param->type = PARAM_NONE;
@@ -102,6 +149,8 @@ bool QueryParam_SetParam(QueryParseCtx *q, Param *target_param, void *target_val
       type = PARAM_GEO_UNIT;
     else if (source->type == QT_PARAM_GEO_COORD)
       type = PARAM_GEO_COORD;
+    else if (source->type == QT_PARAM_VEC_SIM_TYPE)
+      type = PARAM_VEC_SIM_TYPE;
     else
       type = PARAM_ANY; // avoid warning - not supposed to reach here - all source->type enum options are covered
 
@@ -155,7 +204,6 @@ int QueryParam_Resolve(Param *param, dict *params, QueryError *status) {
       }
       return 1;
 
-
     case PARAM_NUMERIC_MIN_RANGE:
     case PARAM_NUMERIC_MAX_RANGE:
     {
@@ -169,6 +217,10 @@ int QueryParam_Resolve(Param *param, dict *params, QueryError *status) {
 
     case PARAM_GEO_UNIT:
       *(GeoDistance*)param->target = GeoDistance_Parse(val);
+      return 1;
+
+    case PARAM_VEC_SIM_TYPE:
+      *(VectorQueryType*)param->target = VectorFilter_ParseType(val, strlen(val));
       return 1;
 
   }
