@@ -10,7 +10,6 @@ import string
 import numpy as np
 
 def test_1st(env):
-    # env.skip() # @@diag
     conn = getConnectionByEnv(env)
     vecsim_type = ['BF', 'HNSW']
     for vs_type in vecsim_type:
@@ -65,7 +64,6 @@ def test_1st(env):
         conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
 
 def test_escape(env):
-    env.skipOnCluster()
     conn = getConnectionByEnv(env)
 
     vecsim_type = ['BF', 'HNSW']
@@ -79,8 +77,8 @@ def test_escape(env):
 
         messages = ['\+\+\+\+\+\+\+\+', '\/\/\/\/\/\/\/\/', 'abcdefgh', 'aacdefgh', 'aaadefgh']
         for message in messages:
-            res = conn.execute_command('FT.SEARCH', 'idx', '@v:[' + message + ' TOPK 1]')
-            env.assertEqual(res[2][1], message.replace('\\', ''))
+            res = conn.execute_command('FT.SEARCH', 'idx', '@v:[' + message + ' TOPK 1]', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 1)
+            env.assertEqual(res[2][3], message.replace('\\', ''))
 
             message_bytes = message.encode('ascii')
             base64_bytes = base64.b64encode(message_bytes)
@@ -90,13 +88,12 @@ def test_escape(env):
             # print base64_message
 
             # RANGE uses topk but translate to base64 before
-            res = conn.execute_command('FT.SEARCH', 'idx', '@v:[' + base64_message + ' RANGE 1]')
-            env.assertEqual(res[2][1], message.replace('\\', ''))
+            res = conn.execute_command('FT.SEARCH', 'idx', '@v:[' + base64_message + ' RANGE 1]', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 1)
+            env.assertEqual(res[2][3], message.replace('\\', ''))
 
         conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
 
 def testDel(env):
-    # env.skip() # @@diag
     conn = getConnectionByEnv(env)
     vecsim_type = ['BF', 'HNSW']
     for vs_type in vecsim_type:
@@ -138,7 +135,6 @@ def testDel(env):
         conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
 
 def test_query_empty(env):
-    #env.skip()
     conn = getConnectionByEnv(env)
     vecsim_type = ['BF', 'HNSW']
     for vs_type in vecsim_type:
@@ -209,7 +205,6 @@ def query_vector(env, idx, query_vec):
                                 'SORTBY', 'vector_score', 'ASC', 'RETURN', 1, 'vector_score', 'LIMIT', 0, 5)
 
 def testDelReuseDvir(env):
-    # env.skip() # @@diag
     conn = getConnectionByEnv(env)
     INDEX_NAME = 'items'
     prefix = 'item'
