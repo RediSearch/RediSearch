@@ -20,10 +20,20 @@ def test_1st(env):
         conn.execute_command('HSET', 'c', 'v', 'aacdefgh')
         conn.execute_command('HSET', 'd', 'v', 'abbdefgh')
 
-        res = [4L, 'a', ['v', 'abcdefgh'], 'c', ['v', 'aacdefgh'],
-                   'b', ['v', 'abcdefgg'], 'd', ['v', 'abbdefgh']]
-        res1 = conn.execute_command('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 4]', 'SORTBY', 'v', 'ASC')
-        env.assertEqual(sortedResults(res), sortedResults(res1))
+        res = [4L, 'a', ['v_score', '0', 'v', 'abcdefgh'],
+                   'c', ['v_score', '8.30767497366e+34', 'v', 'aacdefgh'],
+                   'd', ['v_score', 'inf', 'v', 'abbdefgh'],
+                   'b', ['v_score', 'inf', 'v', 'abcdefgg']]
+        res1 = conn.execute_command('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 4]', 'SORTBY', 'v_score', 'ASC')
+        env.assertEqual(res, res1)
+
+        # todo: make test work on coordinator
+        res = [4L, 'd', ['v_score', '0', 'v', 'abbdefgh'],
+                   'c', ['v_score', 'inf', 'v', 'aacdefgh'],
+                   'b', ['v_score', 'inf', 'v', 'abcdefgg'],
+                   'a', ['v_score', 'inf', 'v', 'abcdefgh']]
+        res1 = conn.execute_command('FT.SEARCH', 'idx', '@v:[abbdefgh TOPK 4]', 'SORTBY', 'v_score', 'ASC')
+        env.assertEqual(res, res1)
 
         res = conn.execute_command('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 1]')
         env.assertEqual(res, [1L, 'a', ['v', 'abcdefgh']])
