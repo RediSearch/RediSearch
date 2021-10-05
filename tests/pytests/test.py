@@ -3439,3 +3439,16 @@ def testSearchMultiSortBy(env):
                'doc9', ['t2', 'c', 't1', 'c'], 'doc6', ['t2', 'c', 't1', 'b'], 'doc3', ['t2', 'c', 't1', 'a']]
     env.expect('FT.SEARCH', 'msb_idx', '*',
                 'MULTISORTBY', '4', '@t2', 'ASC', '@t1', 'DESC').equal(res)
+
+    # check error if both sortby and multisortby are used
+    env.expect('FT.SEARCH', 'msb_idx', '*',
+                'SORTBY', 't1',
+                'MULTISORTBY', '4', '@t2', 'ASC', '@t1', 'DESC') \
+                .error() \
+                .contains('Multiple SORTBY steps are not allowed. Sort multiple fields in a single step')
+
+    env.expect('FT.SEARCH', 'msb_idx', '*',
+                'MULTISORTBY', '4', '@t2', 'ASC', '@t1', 'DESC',
+                'SORTBY', 't1') \
+                .error() \
+                .contains('Multiple SORTBY steps are not allowed. Sort multiple fields in a single step')
