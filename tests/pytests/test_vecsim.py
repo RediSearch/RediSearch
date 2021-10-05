@@ -35,9 +35,9 @@ def test_1st(env):
         res1 = conn.execute_command('FT.SEARCH', 'idx', '@v:[aaaaabaa TOPK 4]', 'SORTBY', 'v_score', 'ASC')
         env.assertEqual(res, res1)
 
-        expected_res = [1L, 'a', ['v_score', '0', 'v', 'aaaaaaaa']]
+        expected_res = ['v_score', '0', 'v', 'aaaaaaaa']
         res = conn.execute_command('FT.SEARCH', 'idx', '@v:[aaaaaaaa TOPK 1]', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 1)
-        env.assertEqual(res, expected_res)
+        env.assertEqual(res[2], expected_res)
 
         message = 'aaaaaaaa'
         message_bytes = message.encode('ascii')
@@ -49,18 +49,18 @@ def test_1st(env):
 
         # RANGE uses topk but translate to base64 before
         res = conn.execute_command('FT.SEARCH', 'idx', '@v:[' + base64_message +' RANGE 1]', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 1)
-        env.assertEqual(res, expected_res)
+        env.assertEqual(res[2], expected_res)
         res = conn.execute_command('FT.SEARCH', 'idx', '@v:[' + base64_message +' TOPK 1] => {$base64:true}', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 1)
-        env.assertEqual(res, expected_res)
+        env.assertEqual(res[2], expected_res)
         res = conn.execute_command('FT.SEARCH', 'idx', '@v:[' + base64_message +' TOPK 1] => { $base64:true; $efRuntime:100}', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 1)
-        env.assertEqual(res, expected_res)
+        env.assertEqual(res[2], expected_res)
 
         #####################
         ## another example ##
         #####################
         message = 'aaaaabaa'
         res = conn.execute_command('FT.SEARCH', 'idx', '@v:[' + message +' TOPK 1]', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 1)
-        env.assertEqual(res, [1L, 'c', ['v_score', '0', 'v', 'aaaaabaa']])
+        env.assertEqual(res[2], ['v_score', '0', 'v', 'aaaaabaa'])
 
         conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
 
@@ -111,17 +111,17 @@ def testDel(env):
         env.expect('FT.SEARCH', 'idx', '@v:[aacdefgh TOPK 1]').equal([1L, 'c', ['v', 'aacdefgh']])
         env.expect('FT.SEARCH', 'idx', '@v:[azcdefgh TOPK 1]').equal([1L, 'd', ['v', 'azcdefgh']])
 
-        env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 1]', 'SORTBY', 'v_score', 'ASC')   \
+        env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 1]', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 1)   \
             .equal([1L, 'a', ['v_score', '0', 'v', 'abcdefgh']])
-        env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 2]', 'SORTBY', 'v_score', 'ASC')   \
+        env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 2]', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 2)   \
             .equal([2L, 'a', ['v_score', '0', 'v', 'abcdefgh'], 'c', ['v_score', '8.30767497366e+34', 'v', 'aacdefgh']])
-        env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 3]', 'SORTBY', 'v_score', 'ASC')   \
+        env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 3]', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 3)   \
             .equal([3L, 'a', ['v_score', '0', 'v', 'abcdefgh'], 'c', ['v_score', '8.30767497366e+34', 'v', 'aacdefgh'],
                             'd', ['v_score', '4.78522078483e+37', 'v', 'azcdefgh']])
-        env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 4]', 'SORTBY', 'v_score', 'ASC')   \
+        env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 4]', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 4)   \
             .equal([4L, 'a', ['v_score', '0', 'v', 'abcdefgh'], 'c', ['v_score', '8.30767497366e+34', 'v', 'aacdefgh'],
                             'd', ['v_score', '4.78522078483e+37', 'v', 'azcdefgh'], 'b', ['v_score', 'inf', 'v', 'abcdefgg']])
-        env.expect('DEL', 'a').equal(1)
+        conn.execute_command('DEL', 'a')
         
         env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 1]', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 1)    \
             .equal([1L, 'c', ['v_score', '8.30767497366e+34', 'v', 'aacdefgh']])
@@ -139,7 +139,7 @@ def testDel(env):
         conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
 
 def test_query_empty(env):
-    env.skip()
+    #env.skip()
     conn = getConnectionByEnv(env)
     vecsim_type = ['BF', 'HNSW']
     for vs_type in vecsim_type:
