@@ -1015,7 +1015,7 @@ static FGCError FGC_parentHandleTags(ForkGC *gc, RedisModuleCtx *rctx) {
     MSG_IndexInfo info = {0};
     InvIdxBuffers idxbufs = {0};
     TagIndex *tagIdx = NULL;
-    char *tagVal;
+    char *tagVal = NULL;
     size_t tagValLen;
 
     if (FGC_recvFixed(gc, &value, sizeof value) != REDISMODULE_OK) {
