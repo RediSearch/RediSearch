@@ -2612,6 +2612,7 @@ def testApplyError(env):
 def testLoadError(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
+    env.expect('ft.aggregate', 'idx', '*', 'LOAD').error()
     env.expect('ft.aggregate', 'idx', '*', 'LOAD', 'bad').error()
     env.expect('ft.aggregate', 'idx', '*', 'LOAD', 'bad', 'test').error()
     env.expect('ft.aggregate', 'idx', '*', 'LOAD', '2', 'test').error()
