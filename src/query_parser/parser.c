@@ -1196,8 +1196,8 @@ static YYACTIONTYPE yy_reduce(
 { 
     FILE *f = NULL;
     #ifndef NDEBUG
-    f = fopen("/tmp/lemon_query.log", "w");
-    RSQueryParser_Trace(f, "tr: ");
+    //f = fopen("/tmp/lemon_query.log", "w");
+    //RSQueryParser_Trace(f, "tr: ");
     #endif
     ctx->trace_log = f;
     ctx->root = yymsp[0].minor.yy19;

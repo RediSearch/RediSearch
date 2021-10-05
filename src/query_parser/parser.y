@@ -145,8 +145,8 @@ static int one_not_null(void *a, void *b, void *out) {
 query ::= expr(A) . { 
     FILE *f = NULL;
     #ifndef NDEBUG
-    f = fopen("/tmp/lemon_query.log", "w");
-    RSQueryParser_Trace(f, "tr: ");
+    //f = fopen("/tmp/lemon_query.log", "w");
+    //RSQueryParser_Trace(f, "tr: ");
     #endif
     ctx->trace_log = f;
     ctx->root = A;
