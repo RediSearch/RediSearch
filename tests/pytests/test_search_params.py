@@ -224,7 +224,6 @@ def test_numeric_range(env):
     env.assertEqual(res2, res1)
 
 def test_vector(env):
-    env.skip() # FIXME: do not skip
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE idx SCHEMA v VECTOR INT32 2 L2 HNSW').ok()
     conn.execute_command('HSET', 'a', 'v', 'abcdefgh')

@@ -310,19 +310,19 @@ expr(A) ::= QUOTE termlist(B) QUOTE. [TERMLIST] {
     A = B;
 }
 
-expr(A) ::= QUOTE term(B) QUOTE. [TERMLIST] {
-  A = NewTokenNode(ctx, rm_strdupcase(B.s, B.len), -1);
-  A->opts.flags |= QueryNode_Verbatim;
-}
+//expr(A) ::= QUOTE term(B) QUOTE. [TERMLIST] {
+//  A = NewTokenNode(ctx, rm_strdupcase(B.s, B.len), -1);
+//  A->opts.flags |= QueryNode_Verbatim;
+//}
 
 expr(A) ::= QUOTE param_term(B) QUOTE. [TERMLIST] {
   A = NewTokenNode_WithParam(ctx, &B);
   A->opts.flags |= QueryNode_Verbatim;
 }
 
-expr(A) ::= term(B) . [LOWEST]  {
-  A = NewTokenNode(ctx, rm_strdupcase(B.s, B.len), -1);
-}
+//expr(A) ::= term(B) . [LOWEST]  {
+//  A = NewTokenNode(ctx, rm_strdupcase(B.s, B.len), -1);
+//}
 
 expr(A) ::= param_term(B) . [LOWEST]  {
   A = NewTokenNode_WithParam(ctx, &B);
@@ -352,10 +352,10 @@ termlist(A) ::= param_term(B) param_term(C). [TERMLIST]  {
   QueryNode_AddChild(A, NewTokenNode_WithParam(ctx, &C));
 }
 
-termlist(A) ::= termlist(B) term(C) . [TERMLIST] {
-    A = B;
-    QueryNode_AddChild(A, NewTokenNode(ctx, rm_strdupcase(C.s, C.len), -1));
-}
+//termlist(A) ::= termlist(B) term(C) . [TERMLIST] {
+//    A = B;
+//    QueryNode_AddChild(A, NewTokenNode(ctx, rm_strdupcase(C.s, C.len), -1));
+//}
 
 termlist(A) ::= termlist(B) param_term(C) . [TERMLIST] {
   A = B;
@@ -506,10 +506,10 @@ tag_list(A) ::= LB termlist(B) . [TAGLIST] {
     QueryNode_AddChild(A, B);
 }
 
-tag_list(A) ::= tag_list(B) OR term(C) . [TAGLIST] {
-    QueryNode_AddChild(B, NewTokenNode(ctx, rm_strndup(C.s, C.len), -1));
-    A = B;
-}
+//tag_list(A) ::= tag_list(B) OR term(C) . [TAGLIST] {
+//    QueryNode_AddChild(B, NewTokenNode(ctx, rm_strndup(C.s, C.len), -1));
+//    A = B;
+//}
 
 tag_list(A) ::= tag_list(B) OR param_term(C) . [TAGLIST] {
   if (C.type == QT_TERM)
@@ -525,10 +525,10 @@ tag_list(A) ::= tag_list(B) OR STOPWORD(C) . [TAGLIST] {
     A = B;
 }
 
-//tag_list(A) ::= tag_list(B) OR prefix(C) . [TAGLIST] {
-//    QueryNode_AddChild(B, C);
-//    A = B;
-//}
+tag_list(A) ::= tag_list(B) OR prefix(C) . [TAGLIST] {
+    QueryNode_AddChild(B, C);
+    A = B;
+}
 
 tag_list(A) ::= tag_list(B) OR termlist(C) . [TAGLIST] {
     QueryNode_AddChild(B, C);
@@ -601,45 +601,45 @@ expr(A) ::= modifier(B) COLON vector_filter(C). {
     }
 }
 
-vector_filter(A) ::= LSQB TERM(B) TERM(C) num(D) RSQB. [NUMBER] {
-  // FIXME: Remove hack for handling lexer/scanner of terms with trailing equal signs.
-  //  Equal signs are currently considered as punct (punctuation) and are not included in a term,
-  //  But in base64 encoding, it is used as padding to extend the string to a length which is a multiple of 3.
-  size_t len = B.len;
-  int remainder = len % 3;
-  if (remainder == 1 && *((B.s)+len) == '=' && *((B.s)+len+1) == '=')
-    len = len + 2;
-  else if (remainder == 2 && *((B.s)+len) == '=')
-    len = len + 1;
-  VectorFilter *vf = NewVectorFilter(B.s, len, C.s, C.len, D.num);
-  if (VectorFilter_Validate(vf, ctx->status)) {
-    A = NewVectorFilterQueryParam(vf);
-  } else {
-    // FIXME: Is this needed here - VectorFilter_Validate will fail parsing anyway (same as with geo_filter)
-    VectorFilter_Free(vf);
-    A = NULL;
-  }
-}
-
-//vector_filter(A) ::= LSQB param_term(B) param_term(C) param_num(D) RSQB. [NUMBER] {
+//vector_filter(A) ::= LSQB TERM(B) TERM(C) num(D) RSQB. [NUMBER] {
 //  // FIXME: Remove hack for handling lexer/scanner of terms with trailing equal signs.
 //  //  Equal signs are currently considered as punct (punctuation) and are not included in a term,
 //  //  But in base64 encoding, it is used as padding to extend the string to a length which is a multiple of 3.
 //  size_t len = B.len;
 //  int remainder = len % 3;
 //  if (remainder == 1 && *((B.s)+len) == '=' && *((B.s)+len+1) == '=')
-//    B.len = len + 2;
+//    len = len + 2;
 //  else if (remainder == 2 && *((B.s)+len) == '=')
-//    B.len = len + 1;
-//  // Update token type to be more specific if possible
-//  if (B.type == QT_TERM)
-//    B.type = QT_TERM_CASE;
-//  if (B.type == QT_PARAM_TERM)
-//    B.type = QT_PARAM_TERM_CASE;
-//  if (C.type == QT_PARAM_TERM)
-//    C.type = QT_PARAM_VEC_SIM_TYPE;
-//  A = NewVectorFilterQueryParam_WithParams(ctx, &B, &C, &D);
+//    len = len + 1;
+//  VectorFilter *vf = NewVectorFilter(B.s, len, C.s, C.len, D.num);
+//  if (VectorFilter_Validate(vf, ctx->status)) {
+//    A = NewVectorFilterQueryParam(vf);
+//  } else {
+//    // FIXME: Is this needed here - VectorFilter_Validate will fail parsing anyway (same as with geo_filter)
+//    VectorFilter_Free(vf);
+//    A = NULL;
+//  }
 //}
+
+vector_filter(A) ::= LSQB param_term(B) param_term(C) param_num(D) RSQB. [NUMBER] {
+  // FIXME: Remove hack for handling lexer/scanner of terms with trailing equal signs.
+  //  Equal signs are currently considered as punct (punctuation) and are not included in a term,
+  //  But in base64 encoding, it is used as padding to extend the string to a length which is a multiple of 3.
+  size_t len = B.len;
+  int remainder = len % 3;
+  if (remainder == 1 && *((B.s)+len) == '=' && *((B.s)+len+1) == '=')
+    B.len = len + 2;
+  else if (remainder == 2 && *((B.s)+len) == '=')
+    B.len = len + 1;
+  // Update token type to be more specific if possible
+  if (B.type == QT_TERM)
+    B.type = QT_TERM_CASE;
+  if (B.type == QT_PARAM_TERM)
+    B.type = QT_PARAM_TERM_CASE;
+  if (C.type == QT_PARAM_TERM)
+    C.type = QT_PARAM_VEC_SIM_TYPE;
+  A = NewVectorFilterQueryParam_WithParams(ctx, &B, &C, &D);
+}
 
 /////////////////////////////////////////////////////////////////
 // Primitives - numbers and strings
@@ -704,3 +704,30 @@ param_num(A) ::= LP ATTRIBUTE(B). [PARAM] {
   A.type = QT_PARAM_NUMERIC;
   A.inclusive = 0;
 }
+
+///////////////////////////////
+
+//value_ref(A) ::= TERM(B). [PARAM] {
+//  A = B;
+//  A.type = QT_TERM;
+//}
+//
+//value_ref(A) ::= num(B). [PARAM] {
+//  A.numval = B.num;
+//  A.inclusive = B.inclusive;
+//  A.type = QT_NUMERIC;
+//}
+//
+//value_ref(A) ::= ATTRIBUTE(B). [PARAM] {
+//  A = B;
+//  //`type` could be refined by other rules which may have more accurate semantics,
+//  // e.g., could know it should be numeric
+//  A.type = QT_PARAM_TERM;
+//  A.inclusive = 1;
+//}
+//
+//value_ref(A) ::= LP ATTRIBUTE(B). [PARAM] {
+//  A = B;
+//  A.type = QT_PARAM_NUMERIC;
+//  A.inclusive = 0;
+//}
