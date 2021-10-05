@@ -138,7 +138,6 @@ size_t TagIndex_Index(TagIndex *idx, const char **values, size_t n, t_docId docI
 typedef struct {
   TagIndex *idx;
   IndexIterator **its;
-  uint32_t uid;
 } TagConcCtx;
 
 static void TagReader_OnReopen(void *privdata) {
@@ -199,7 +198,6 @@ static void concCtxFree(void *p) {
 void TagIndex_RegisterConcurrentIterators(TagIndex *idx, ConcurrentSearchCtx *conc,
                                           array_t *iters) {
   TagConcCtx *tctx = rm_calloc(1, sizeof(*tctx));
-  tctx->uid = idx->uniqueId;
   tctx->idx = idx;
   tctx->its = (IndexIterator **)iters;
   ConcurrentSearch_AddKey(conc, TagReader_OnReopen, tctx, concCtxFree);

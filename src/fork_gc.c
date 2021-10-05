@@ -940,7 +940,6 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc, RedisModuleCtx *rctx) {
     NumGcInfo ninfo = {0};
     RedisSearchCtx *sctx = NULL;
     RedisModuleKey *idxKey = NULL;
-
     FGCError status2 = recvNumIdx(gc, &ninfo);
     if (status2 == FGC_DONE) {
       break;
@@ -1016,6 +1015,8 @@ static FGCError FGC_parentHandleTags(ForkGC *gc, RedisModuleCtx *rctx) {
     MSG_IndexInfo info = {0};
     InvIdxBuffers idxbufs = {0};
     TagIndex *tagIdx = NULL;
+    char *tagVal;
+    size_t tagValLen;
 
     if (FGC_recvFixed(gc, &value, sizeof value) != REDISMODULE_OK) {
       status = FGC_CHILD_ERROR;
@@ -1028,8 +1029,6 @@ static FGCError FGC_parentHandleTags(ForkGC *gc, RedisModuleCtx *rctx) {
       break;
     }
 
-    char *tagVal;
-    size_t tagValLen;
     if (FGC_recvBuffer(gc, (void **)&tagVal, &tagValLen) != REDISMODULE_OK) {
       status = FGC_CHILD_ERROR;
       goto loop_cleanup;
@@ -1051,7 +1050,6 @@ static FGCError FGC_parentHandleTags(ForkGC *gc, RedisModuleCtx *rctx) {
       status = FGC_PARENT_ERROR;
       goto loop_cleanup;
     }
-
     keyName = IndexSpec_GetFormattedKeyByName(sctx->spec, fieldName, INDEXFLD_T_TAG);
     tagIdx = TagIndex_Open(sctx, keyName, false, &idxKey);
 
@@ -1083,7 +1081,9 @@ static FGCError FGC_parentHandleTags(ForkGC *gc, RedisModuleCtx *rctx) {
     } else {
       rm_free(idxbufs.changedBlocks);
     }
-    rm_free(tagVal);
+    if (tagVal) {
+      rm_free(tagVal);
+    }
   }
 
   rm_free(fieldName);
