@@ -79,8 +79,11 @@ QueryParam *NewVectorFilterQueryParam_WithParams(struct QueryParseCtx *q, QueryT
   }
   QueryParam_SetParam(q, &ret->params[2], &vf->value, NULL, value);
   if (prevNumParams == q->numParams) {
-    // No parameters were used
-    VectorFilter_Validate(vf, q->status);
+    // No parameters were used - need to validate now
+    if (!VectorFilter_Validate(vf, q->status)) {
+      rm_free(vf);
+      return NULL;
+    }
   }
   return ret;
 }

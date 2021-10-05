@@ -1567,20 +1567,38 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 48: /* expr ::= modifier COLON numeric_range */
 {
+  if (yymsp[0].minor.yy86) {
     // we keep the capitalization as is
     yymsp[0].minor.yy86->nf->fieldName = rm_strndup(yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
     yylhsminor.yy19 = NewNumericNode(yymsp[0].minor.yy86);
+  } else {
+    yylhsminor.yy19 = NewQueryNode(QN_NULL);
+  }
 }
   yymsp[-2].minor.yy19 = yylhsminor.yy19;
         break;
       case 49: /* numeric_range ::= LSQB param_any param_any RSQB */
 {
   // Update token type to be more specific if possible
+  // and detect syntax errors
+  QueryToken *badToken = NULL;
   if (yymsp[-2].minor.yy0.type == QT_PARAM_ANY)
     yymsp[-2].minor.yy0.type = QT_PARAM_NUMERIC_MIN_RANGE;
+  else if (yymsp[-2].minor.yy0.type != QT_NUMERIC)
+    badToken = &yymsp[-2].minor.yy0;
   if (yymsp[-1].minor.yy0.type == QT_PARAM_ANY)
     yymsp[-1].minor.yy0.type = QT_PARAM_NUMERIC_MAX_RANGE;
-  yymsp[-3].minor.yy86 = NewNumericFilterQueryParam_WithParams(ctx, &yymsp[-2].minor.yy0, &yymsp[-1].minor.yy0, yymsp[-2].minor.yy0.inclusive, yymsp[-1].minor.yy0.inclusive);
+  else if (!badToken && yymsp[-1].minor.yy0.type != QT_NUMERIC)
+    badToken = &yymsp[-1].minor.yy0;
+
+  if (!badToken) {
+    yymsp[-3].minor.yy86 = NewNumericFilterQueryParam_WithParams(ctx, &yymsp[-2].minor.yy0, &yymsp[-1].minor.yy0, yymsp[-2].minor.yy0.inclusive, yymsp[-1].minor.yy0.inclusive);
+  } else {
+    QueryError_SetErrorFmt(ctx->status, QUERY_ESYNTAX,
+      "Expecting numeric or parameter at offset %d near %.*s",
+      badToken->pos, badToken->len, badToken->s);
+    yymsp[-3].minor.yy86 = NULL;
+  }
 }
         break;
       case 50: /* expr ::= modifier COLON geo_filter */
@@ -1619,26 +1637,28 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 53: /* vector_filter ::= LSQB param_any param_any param_any RSQB */
 {
-  // FIXME: Remove hack for handling lexer/scanner of terms with trailing equal signs.
-  //  Equal signs are currently considered as punct (punctuation) and are not included in a term,
-  //  But in base64 encoding, it is used as padding to extend the string to a length which is a multiple of 3.
-  size_t len = yymsp[-3].minor.yy0.len;
-  int remainder = len % 3;
-  if (remainder == 1 && *((yymsp[-3].minor.yy0.s)+len) == '=' && *((yymsp[-3].minor.yy0.s)+len+1) == '=')
-    yymsp[-3].minor.yy0.len = len + 2;
-  else if (remainder == 2 && *((yymsp[-3].minor.yy0.s)+len) == '=')
-    yymsp[-3].minor.yy0.len = len + 1;
-  // Update token type to be more specific if possible
-  if (yymsp[-3].minor.yy0.type == QT_TERM)
+  // Update token types to be more specific if possible
+  if (yymsp[-3].minor.yy0.type == QT_TERM) {
     yymsp[-3].minor.yy0.type = QT_TERM_CASE;
-  else if (yymsp[-3].minor.yy0.type == QT_PARAM_ANY)
+    // FIXME: Remove hack for handling lexer/scanner of terms with trailing equal signs.
+    //  Equal signs are currently considered as punct (punctuation) and are not included in a term,
+    //  But in base64 encoding, it is used as padding to extend the string to a length which is a multiple of 3.
+    size_t len = yymsp[-3].minor.yy0.len;
+    int remainder = len % 3;
+    if (remainder == 1 && *((yymsp[-3].minor.yy0.s) + len) == '=' && *((yymsp[-3].minor.yy0.s) + len + 1) == '=')
+      yymsp[-3].minor.yy0.len = len + 2;
+    else if (remainder == 2 && *((yymsp[-3].minor.yy0.s) + len) == '=')
+      yymsp[-3].minor.yy0.len = len + 1;
+  } else if (yymsp[-3].minor.yy0.type == QT_PARAM_ANY) {
     yymsp[-3].minor.yy0.type = QT_PARAM_TERM_CASE;
+  }
+
   if (yymsp[-2].minor.yy0.type == QT_PARAM_ANY)
     yymsp[-2].minor.yy0.type = QT_PARAM_VEC_SIM_TYPE;
-  else if (yymsp[-2].minor.yy0.type == QT_PARAM_ANY)
-    yymsp[-2].minor.yy0.type = QT_PARAM_NUMERIC;
+
   if (yymsp[-1].minor.yy0.type == QT_PARAM_ANY)
     yymsp[-1].minor.yy0.type = QT_PARAM_NUMERIC;
+
   yymsp[-4].minor.yy86 = NewVectorFilterQueryParam_WithParams(ctx, &yymsp[-3].minor.yy0, &yymsp[-2].minor.yy0, &yymsp[-1].minor.yy0);
 }
         break;

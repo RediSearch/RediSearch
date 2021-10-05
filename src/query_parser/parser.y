@@ -528,26 +528,39 @@ tag_list(A) ::= tag_list(B) RB . [TAGLIST] {
 // Numeric Ranges
 /////////////////////////////////////////////////////////////////
 expr(A) ::= modifier(B) COLON numeric_range(C). {
+  if (C) {
     // we keep the capitalization as is
     C->nf->fieldName = rm_strndup(B.s, B.len);
     A = NewNumericNode(C);
+  } else {
+    A = NewQueryNode(QN_NULL);
+  }
 }
-
-//numeric_range(A) ::= LSQB num(B) num(C) RSQB. [NUMBER] {
-//    NumericFilter *nf = NewNumericFilter(B.num, C.num, B.inclusive, C.inclusive);
-//    A = NewNumericFilterQueryParam(nf);
-//}
 
 numeric_range(A) ::= LSQB param_any(B) param_any(C) RSQB. [PARAM] {
   // Update token type to be more specific if possible
+  // and detect syntax errors
+  QueryToken *badToken = NULL;
   if (B.type == QT_PARAM_ANY)
     B.type = QT_PARAM_NUMERIC_MIN_RANGE;
+  else if (B.type != QT_NUMERIC)
+    badToken = &B;
   if (C.type == QT_PARAM_ANY)
     C.type = QT_PARAM_NUMERIC_MAX_RANGE;
-  A = NewNumericFilterQueryParam_WithParams(ctx, &B, &C, B.inclusive, C.inclusive);
+  else if (!badToken && C.type != QT_NUMERIC)
+    badToken = &C;
+
+  if (!badToken) {
+    A = NewNumericFilterQueryParam_WithParams(ctx, &B, &C, B.inclusive, C.inclusive);
+  } else {
+    QueryError_SetErrorFmt(ctx->status, QUERY_ESYNTAX,
+      "Expecting numeric or parameter at offset %d near %.*s",
+      badToken->pos, badToken->len, badToken->s);
+    A = NULL;
+  }
 }
 
-/////////////////////////////////////////////////////////////////
+    /////////////////////////////////////////////////////////////////
 // Geo Filters
 /////////////////////////////////////////////////////////////////
 
@@ -556,12 +569,6 @@ expr(A) ::= modifier(B) COLON geo_filter(C). {
     C->gf->property = rm_strndup(B.s, B.len);
     A = NewGeofilterNode(C);
 }
-
-//geo_filter(A) ::= LSQB num(B) num(C) num(D) TERM(E) RSQB. [NUMBER] {
-//    GeoFilter *gf = NewGeoFilter(B.num, C.num, D.num, E.s, E.len);
-//    GeoFilter_Validate(gf, ctx->status);
-//    A = NewGeoFilterQueryParam(gf);
-//}
 
 geo_filter(A) ::= LSQB param_any(B) param_any(C) param_any(D) param_any(E) RSQB. [PARAM] {
   // Update token type to be more specific if possible
@@ -588,26 +595,28 @@ expr(A) ::= modifier(B) COLON vector_filter(C). {
 
 
 vector_filter(A) ::= LSQB param_any(B) param_any(C) param_any(D) RSQB. [PARAM] {
-  // FIXME: Remove hack for handling lexer/scanner of terms with trailing equal signs.
-  //  Equal signs are currently considered as punct (punctuation) and are not included in a term,
-  //  But in base64 encoding, it is used as padding to extend the string to a length which is a multiple of 3.
-  size_t len = B.len;
-  int remainder = len % 3;
-  if (remainder == 1 && *((B.s)+len) == '=' && *((B.s)+len+1) == '=')
-    B.len = len + 2;
-  else if (remainder == 2 && *((B.s)+len) == '=')
-    B.len = len + 1;
-  // Update token type to be more specific if possible
-  if (B.type == QT_TERM)
+  // Update token types to be more specific if possible
+  if (B.type == QT_TERM) {
     B.type = QT_TERM_CASE;
-  else if (B.type == QT_PARAM_ANY)
+    // FIXME: Remove hack for handling lexer/scanner of terms with trailing equal signs.
+    //  Equal signs are currently considered as punct (punctuation) and are not included in a term,
+    //  But in base64 encoding, it is used as padding to extend the string to a length which is a multiple of 3.
+    size_t len = B.len;
+    int remainder = len % 3;
+    if (remainder == 1 && *((B.s) + len) == '=' && *((B.s) + len + 1) == '=')
+      B.len = len + 2;
+    else if (remainder == 2 && *((B.s) + len) == '=')
+      B.len = len + 1;
+  } else if (B.type == QT_PARAM_ANY) {
     B.type = QT_PARAM_TERM_CASE;
+  }
+
   if (C.type == QT_PARAM_ANY)
     C.type = QT_PARAM_VEC_SIM_TYPE;
-  else if (C.type == QT_PARAM_ANY)
-    C.type = QT_PARAM_NUMERIC;
+
   if (D.type == QT_PARAM_ANY)
     D.type = QT_PARAM_NUMERIC;
+
   A = NewVectorFilterQueryParam_WithParams(ctx, &B, &C, &D);
 }
 

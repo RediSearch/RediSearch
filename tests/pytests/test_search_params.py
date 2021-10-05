@@ -225,6 +225,10 @@ def test_numeric_range(env):
     res2 = conn.execute_command('FT.SEARCH', 'idx', '@numval:[$min ($max]', 'NOCONTENT', 'PARAMS', '4', 'min', '-inf', 'max', '105')
     env.assertEqual(res2, res1)
 
+    # Test error when param is not actually being used
+    env.expect('FT.SEARCH', 'idx', '@numval:[-inf max]', 'NOCONTENT', 'PARAMS', '4', 'min', '-inf', 'max', '105').raiseError().contains('Expecting numeric or parameter')
+    env.expect('FT.SEARCH', 'idx', '@numval:[min 105]', 'NOCONTENT', 'PARAMS', '4', 'min', '-inf', 'max', '105').raiseError().contains('Expecting numeric or parameter')
+
 def test_vector(env):
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE idx SCHEMA v VECTOR INT32 2 L2 HNSW').ok()
