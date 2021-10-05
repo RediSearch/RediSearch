@@ -115,6 +115,10 @@ NumericRangeTree *NewNumericRangeTree();
 /* Add a value to a tree. Returns 0 if no nodes were split, 1 if we splitted nodes */
 NRN_AddRv NumericRangeTree_Add(NumericRangeTree *t, t_docId docId, double value);
 
+/* Remove a node containing a range with value.
+   Returns 1 if node was found, 0 otherwise */
+int NumericRangeTree_DeleteNode(NumericRangeTree *t, double value);
+
 /* Recursively find all the leaves under tree's root, that correspond to a given min-max range.
  * Returns a vector with range node pointers. */
 Vector *NumericRangeTree_Find(NumericRangeTree *t, double min, double max);

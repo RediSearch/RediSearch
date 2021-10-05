@@ -192,4 +192,97 @@ def testTagCaseSensitive(env):
     env.expect('FT.SEARCH', 'idx2', '@t:{FOO}', 'SORTBY', 't')         \
         .equal([2L, 'doc2', ['t', 'FOO'], 'doc1', ['t', 'foo,FOO']])
     env.expect('FT.SEARCH', 'idx2', '@t:{foo}', 'SORTBY', 't')         \
-        .equal([2L, 'doc3', ['t', 'foo'], 'doc1', ['t', 'foo,FOO']])
+        .equal([2L, 'doc3', ['t', 'foo'], 'doc1', ['t', 'foo,FOO']]) 
+
+def testTagGCClearEmpty(env):
+    env.skipOnCluster()
+
+    conn = getConnectionByEnv(env)
+    conn.execute_command('FT.CONFIG', 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0')
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG')
+    conn.execute_command('HSET', 'doc1', 't', 'foo')
+    conn.execute_command('HSET', 'doc2', 't', 'bar')
+    conn.execute_command('HSET', 'doc3', 't', 'baz')
+    env.expect('FT.DEBUG', 'DUMP_TAGIDX', 'idx', 't').equal([['foo', [1L]], ['bar', [2L]], ['baz', [3L]]])
+    env.expect('FT.SEARCH', 'idx', '@t:{foo}').equal([1L, 'doc1', ['t', 'foo']])
+
+    # delete two tags
+    conn.execute_command('DEL', 'doc1')
+    conn.execute_command('DEL', 'doc2')
+    forceInvokeGC(env, 'idx')
+    env.expect('FT.DEBUG', 'DUMP_TAGIDX', 'idx', 't').equal([['baz', [3L]]])
+    env.expect('FT.SEARCH', 'idx', '@t:{foo}').equal([0L])
+
+    # delete last tag
+    conn.execute_command('DEL', 'doc3')
+    forceInvokeGC(env, 'idx')
+    env.expect('FT.DEBUG', 'DUMP_TAGIDX', 'idx', 't').equal([])
+
+    # check term can be used after being empty
+    conn.execute_command('HSET', 'doc4', 't', 'foo')
+    conn.execute_command('HSET', 'doc5', 't', 'foo')
+    env.expect('FT.SEARCH', 'idx', '@t:{foo}')  \
+        .equal([2L, 'doc4', ['t', 'foo'], 'doc5', ['t', 'foo']])
+
+def testTagGCClearEmptyWithCursor(env):
+    env.skipOnCluster()
+
+    conn = getConnectionByEnv(env)
+    conn.execute_command('FT.CONFIG', 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0')
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG')
+    conn.execute_command('HSET', 'doc1', 't', 'foo')
+    conn.execute_command('HSET', 'doc2', 't', 'foo')
+    env.expect('FT.DEBUG', 'DUMP_TAGIDX', 'idx', 't').equal([['foo', [1L, 2L]]])
+    
+    res, cursor = env.cmd('FT.AGGREGATE', 'idx', '@t:{foo}', 'WITHCURSOR', 'COUNT', '1')
+    env.assertEqual(res, [1L, []])
+
+    # delete both documents and run the GC to clean 'foo' inverted index
+    env.expect('DEL', 'doc1').equal(1)
+    env.expect('DEL', 'doc2').equal(1)
+
+    forceInvokeGC(env, 'idx')
+
+    # make sure the inverted index was cleaned
+    env.expect('FT.DEBUG', 'DUMP_TAGIDX', 'idx', 't').equal([])
+
+    # read from the cursor
+    res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+    env.assertEqual(res, [0L])
+    env.assertEqual(cursor, 0)
+
+def testTagGCClearEmptyWithCursorAndMoreData(env):
+    env.skipOnCluster()
+
+    conn = getConnectionByEnv(env)
+    conn.execute_command('FT.CONFIG', 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0')
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG')
+    conn.execute_command('HSET', 'doc1', 't', 'foo')
+    conn.execute_command('HSET', 'doc2', 't', 'foo')
+    env.expect('FT.DEBUG', 'DUMP_TAGIDX', 'idx', 't').equal([['foo', [1L, 2L]]])
+    
+    res, cursor = env.cmd('FT.AGGREGATE', 'idx', '@t:{foo}', 'WITHCURSOR', 'COUNT', '1')
+    env.assertEqual(res, [1L, []])
+
+    # delete both documents and run the GC to clean 'foo' inverted index
+    env.expect('DEL', 'doc1').equal(1)
+    env.expect('DEL', 'doc2').equal(1)
+
+    forceInvokeGC(env, 'idx')
+
+    # make sure the inverted index was cleaned
+    env.expect('FT.DEBUG', 'DUMP_TAGIDX', 'idx', 't').equal([])
+
+    # add data
+    conn.execute_command('HSET', 'doc3', 't', 'foo')
+    conn.execute_command('HSET', 'doc4', 't', 'foo')
+    env.expect('FT.DEBUG', 'DUMP_TAGIDX', 'idx', 't').equal([['foo', [3L, 4L]]])
+
+    # read from the cursor
+    res, cursor = conn.execute_command('FT.CURSOR', 'READ', 'idx', cursor)
+    env.assertEqual(res, [0L])
+    env.assertEqual(cursor, 0)
+
+    # ensure later documents with same tag are read
+    res = conn.execute_command('FT.AGGREGATE', 'idx', '@t:{foo}')
+    env.assertEqual(res, [1L, [], []])

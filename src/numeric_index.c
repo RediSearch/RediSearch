@@ -242,6 +242,11 @@ void __recursiveAddRange(Vector *v, NumericRangeNode *n, double min, double max)
   }
 }
 
+int NumericRangeTree_DeleteNode(NumericRangeTree *t, double value) {
+  // TODO:
+  return 0;
+}
+
 /* Find the numeric ranges that fit the range we are looking for. We try to minimize the number of
  * nodes we'll later need to union */
 Vector *NumericRangeNode_FindRange(NumericRangeNode *n, double min, double max) {
