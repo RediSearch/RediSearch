@@ -15,30 +15,31 @@ def test_1st(env):
     vecsim_type = ['BF', 'HNSW']
     for vs_type in vecsim_type:
         conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'INT32', '2', 'L2', vs_type)
-        conn.execute_command('HSET', 'a', 'v', 'abcdefgh')
-        conn.execute_command('HSET', 'b', 'v', 'abcdefgg')
-        conn.execute_command('HSET', 'c', 'v', 'aacdefgh')
-        conn.execute_command('HSET', 'd', 'v', 'abbdefgh')
+        conn.execute_command('HSET', 'a', 'v', 'aaaaaaaa')
+        conn.execute_command('HSET', 'b', 'v', 'aaaabaaa')
+        conn.execute_command('HSET', 'c', 'v', 'aaaaabaa')
+        conn.execute_command('HSET', 'd', 'v', 'aaaaaaba')
 
-        res = [4L, 'a', ['v_score', '0', 'v', 'abcdefgh'],
-                   'c', ['v_score', '8.30767497366e+34', 'v', 'aacdefgh'],
-                   'd', ['v_score', 'inf', 'v', 'abbdefgh'],
-                   'b', ['v_score', 'inf', 'v', 'abcdefgg']]
-        res1 = conn.execute_command('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 4]', 'SORTBY', 'v_score', 'ASC')
+        res = [4L, 'a', ['v_score', '0', 'v', 'aaaaaaaa'],
+                   'b', ['v_score', '3.09485009821e+26', 'v', 'aaaabaaa'],
+                   'c', ['v_score', '2.02824096037e+31', 'v', 'aaaaabaa'],
+                   'd', ['v_score', '1.32922799578e+36', 'v', 'aaaaaaba']]
+        res1 = conn.execute_command('FT.SEARCH', 'idx', '@v:[aaaaaaaa TOPK 4]', 'SORTBY', 'v_score', 'ASC')
         env.assertEqual(res, res1)
 
         # todo: make test work on coordinator
-        res = [4L, 'd', ['v_score', '0', 'v', 'abbdefgh'],
-                   'c', ['v_score', 'inf', 'v', 'aacdefgh'],
-                   'b', ['v_score', 'inf', 'v', 'abcdefgg'],
-                   'a', ['v_score', 'inf', 'v', 'abcdefgh']]
-        res1 = conn.execute_command('FT.SEARCH', 'idx', '@v:[abbdefgh TOPK 4]', 'SORTBY', 'v_score', 'ASC')
+        res = [4L, 'c', ['v_score', '0', 'v', 'aaaaabaa'],
+                   'b', ['v_score', '2.01242627636e+31', 'v', 'aaaabaaa'],
+                   'a', ['v_score', '2.02824096037e+31', 'v', 'aaaaaaaa'],
+                   'd', ['v_score', '1.31886368448e+36', 'v', 'aaaaaaba']]
+        res1 = conn.execute_command('FT.SEARCH', 'idx', '@v:[aaaaabaa TOPK 4]', 'SORTBY', 'v_score', 'ASC')
         env.assertEqual(res, res1)
 
-        res = conn.execute_command('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 1]')
-        env.assertEqual(res, [1L, 'a', ['v', 'abcdefgh']])
+        expected_res = [1L, 'a', ['v_score', '0', 'v', 'aaaaaaaa']]
+        res = conn.execute_command('FT.SEARCH', 'idx', '@v:[aaaaaaaa TOPK 1]', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 1)
+        env.assertEqual(res, expected_res)
 
-        message = 'abcdefgh'
+        message = 'aaaaaaaa'
         message_bytes = message.encode('ascii')
         base64_bytes = base64.b64encode(message_bytes)
         base64_message = base64_bytes.decode('ascii')
@@ -47,19 +48,19 @@ def test_1st(env):
         # print base64_message
 
         # RANGE uses topk but translate to base64 before
-        res = conn.execute_command('FT.SEARCH', 'idx', '@v:[' + base64_message +' RANGE 1]')
-        env.assertEqual(res, [1L, 'a', ['v', 'abcdefgh']])
-        res = conn.execute_command('FT.SEARCH', 'idx', '@v:[' + base64_message +' TOPK 1] => {$base64:true}')
-        env.assertEqual(res, [1L, 'a', ['v', 'abcdefgh']])
-        res = conn.execute_command('FT.SEARCH', 'idx', '@v:[' + base64_message +' TOPK 1] => { $base64:true; $efRuntime:100}')
-        env.assertEqual(res, [1L, 'a', ['v', 'abcdefgh']])
+        res = conn.execute_command('FT.SEARCH', 'idx', '@v:[' + base64_message +' RANGE 1]', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 1)
+        env.assertEqual(res, expected_res)
+        res = conn.execute_command('FT.SEARCH', 'idx', '@v:[' + base64_message +' TOPK 1] => {$base64:true}', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 1)
+        env.assertEqual(res, expected_res)
+        res = conn.execute_command('FT.SEARCH', 'idx', '@v:[' + base64_message +' TOPK 1] => { $base64:true; $efRuntime:100}', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 1)
+        env.assertEqual(res, expected_res)
 
         #####################
         ## another example ##
         #####################
-        message = 'aacdefgh'
-        res = conn.execute_command('FT.SEARCH', 'idx', '@v:[' + message +' TOPK 1]')
-        env.assertEqual(res, [1L, 'c', ['v', 'aacdefgh']])
+        message = 'aaaaabaa'
+        res = conn.execute_command('FT.SEARCH', 'idx', '@v:[' + message +' TOPK 1]', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 1)
+        env.assertEqual(res, [1L, 'c', ['v_score', '0', 'v', 'aaaaabaa']])
 
         conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
 
@@ -110,22 +111,25 @@ def testDel(env):
         env.expect('FT.SEARCH', 'idx', '@v:[aacdefgh TOPK 1]').equal([1L, 'c', ['v', 'aacdefgh']])
         env.expect('FT.SEARCH', 'idx', '@v:[azcdefgh TOPK 1]').equal([1L, 'd', ['v', 'azcdefgh']])
 
-        env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 1]', 'SORTBY', 'v', 'ASC')   \
-            .equal([1L, 'a', ['v', 'abcdefgh']])
-        env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 2]', 'SORTBY', 'v', 'ASC')   \
-            .equal([2L, 'a', ['v', 'abcdefgh'], 'c', ['v', 'aacdefgh']])
-        env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 3]', 'SORTBY', 'v', 'ASC')   \
-            .equal([3L, 'a', ['v', 'abcdefgh'], 'c', ['v', 'aacdefgh'], 'd', ['v', 'azcdefgh']])
-        env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 4]', 'SORTBY', 'v', 'ASC')   \
-            .equal([4L, 'a', ['v', 'abcdefgh'], 'c', ['v', 'aacdefgh'], 'd', ['v', 'azcdefgh'], 'b', ['v', 'abcdefgg']])
+        env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 1]', 'SORTBY', 'v_score', 'ASC')   \
+            .equal([1L, 'a', ['v_score', '0', 'v', 'abcdefgh']])
+        env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 2]', 'SORTBY', 'v_score', 'ASC')   \
+            .equal([2L, 'a', ['v_score', '0', 'v', 'abcdefgh'], 'c', ['v_score', '8.30767497366e+34', 'v', 'aacdefgh']])
+        env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 3]', 'SORTBY', 'v_score', 'ASC')   \
+            .equal([3L, 'a', ['v_score', '0', 'v', 'abcdefgh'], 'c', ['v_score', '8.30767497366e+34', 'v', 'aacdefgh'],
+                            'd', ['v_score', '4.78522078483e+37', 'v', 'azcdefgh']])
+        env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 4]', 'SORTBY', 'v_score', 'ASC')   \
+            .equal([4L, 'a', ['v_score', '0', 'v', 'abcdefgh'], 'c', ['v_score', '8.30767497366e+34', 'v', 'aacdefgh'],
+                            'd', ['v_score', '4.78522078483e+37', 'v', 'azcdefgh'], 'b', ['v_score', 'inf', 'v', 'abcdefgg']])
         env.expect('DEL', 'a').equal(1)
         
-        env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 1]', 'SORTBY', 'v', 'ASC')    \
-            .equal([1L, 'c', ['v', 'aacdefgh']])
-        env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 2]', 'SORTBY', 'v', 'ASC')    \
-            .equal([2L, 'c', ['v', 'aacdefgh'], 'd', ['v', 'azcdefgh']])
-        env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 3]', 'SORTBY', 'v', 'ASC')    \
-            .equal([3L, 'c', ['v', 'aacdefgh'], 'd', ['v', 'azcdefgh'], 'b', ['v', 'abcdefgg']])
+        env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 1]', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 1)    \
+            .equal([1L, 'c', ['v_score', '8.30767497366e+34', 'v', 'aacdefgh']])
+        env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 2]', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 2)    \
+            .equal([2L, 'c', ['v_score', '8.30767497366e+34', 'v', 'aacdefgh'], 'd', ['v_score', '4.78522078483e+37', 'v', 'azcdefgh']])
+        env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 3]', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 3)    \
+            .equal([3L, 'c', ['v_score', '8.30767497366e+34', 'v', 'aacdefgh'], 'd', ['v_score', '4.78522078483e+37', 'v', 'azcdefgh'],
+                        'b', ['v_score', 'inf', 'v', 'abcdefgg']])
 
         '''
         This test returns 4 results instead of the expected 3. The HNSW library return the additional results.
@@ -203,7 +207,7 @@ def query_vector(env, idx, query_vec):
     base64_vector = base64.b64encode(query_vec).decode('ascii')
     base64_vector_escaped = base64_vector.replace("=", r"\=").replace("/", r"\/").replace("+", r"\+")
     return conn.execute_command('FT.SEARCH', idx, '@vector:[' + base64_vector_escaped + ' RANGE 5]',
-                                'SORTBY', 'vector', 'ASC', 'NOCONTENT', 'WITHSCORES')
+                                'SORTBY', 'vector_score', 'ASC', 'RETURN', 1, 'vector_score', 'LIMIT', 0, 5)
 
 def testDelReuseDvir(env):
     # env.skip() # @@diag
@@ -219,8 +223,9 @@ def testDelReuseDvir(env):
     for _ in range(3):
         query_vec = load_vectors_to_redis(env, n_vec, query_vec_index, vec_size)
         res = query_vector(env, INDEX_NAME, query_vec)
+        print res
         for i in range(4):
-            env.assertLessEqual(res[2 + i * 2], res[2 + (i + 1) * 2])
+            env.assertLessEqual(float(res[2 + i * 2][1]), float(res[2 + (i + 1) * 2][1]))
 
 def test_create(env):
     conn = getConnectionByEnv(env)
@@ -235,36 +240,3 @@ def test_create(env):
     env.assertEqual(res, [0L])
     res = conn.execute_command('FT.SEARCH', 'idx3', '@v:[abcdefgh REDIS 4]')
     env.assertEqual(res, [0L])
-
-def test_with_weight(env):
-    env.skip()
-    conn = getConnectionByEnv(env)
-    env.expect('FT.CREATE idx SCHEMA v VECTOR INT32 2 L2 HNSW').ok()
-    conn.execute_command('HSET', 'a', 'v', 'abcdefgh')
-    conn.execute_command('HSET', 'b', 'v', 'abcdefgg')
-    conn.execute_command('HSET', 'c', 'v', 'zzzzxxxx')
-    conn.execute_command('HSET', 'd', 'v', 'abbdefgh')
-
-    res = [4L, 'a', ['v', 'abcdefgh'], 'b', ['v', 'abcdefgg'],
-               'c', ['v', 'zzzzxxxx'], 'd', ['v', 'abbdefgh']]
-    env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 4]').equal(res)
-    env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 4] => {$weight: 2000000}', 'WITHSCORES').equal(res)
-    
-    
-    profile = [[4L, 'a', ['v', 'abcdefgh'], 'b', ['v', 'abcdefgg'],
-                    'c', ['v', 'zzzzxxxx'], 'd', ['v', 'abbdefgh']],
-               [['Total profile time', '0.13600000000000001'],
-                ['Parsing time', '0.072999999999999995'],
-                ['Pipeline creation time', '0.0040000000000000001'],
-                ['Iterators profile',
-                    ['Type', 'LIST', 'Time', '0', 'Counter', 0L]],
-                ['Result processors profile',
-                    ['Type', 'Index', 'Time', '0.01', 'Counter', 4L],
-                    ['Type', 'Scorer', 'Time', '0.011000000000000001', 'Counter', 4L],
-                    ['Type', 'Sorter', 'Time', '0.0099999999999999985', 'Counter', 4L],
-                    ['Type', 'Loader', 'Time', '0.016', 'Counter', 4L]]]]
-    env.expect('FT.PROFILE', 'idx', 'SEARCH', 'QUERY',
-               '@v:[abcdefgh TOPK 4] => {$weight: 2000000}').equal(profile)
-
-    message = 'abcdefgh'
-    env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 1]').equal([1L, 'a', ['v', 'abcdefgh']])
