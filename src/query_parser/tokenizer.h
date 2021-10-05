@@ -17,9 +17,11 @@ typedef struct {
 
 
 typedef enum {
+  // Concrete types
   QT_TERM,
   QT_TERM_CASE,
   QT_NUMERIC,
+  // Parameterized types
   QT_PARAM_ANY,
   QT_PARAM_TERM,
   QT_PARAM_TERM_CASE,

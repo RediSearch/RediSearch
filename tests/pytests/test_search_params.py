@@ -121,16 +121,18 @@ def test_expression(env):
     env.assertEqual(conn.execute_command('HSET', 'key2', 'name', 'Alice', 'id', '31'), 2L)
     env.assertEqual(conn.execute_command('HSET', 'key3', 'name', 'Carol', 'id', '13'), 2L)
     env.assertEqual(conn.execute_command('HSET', 'key4', 'name', 'John\\ Doe', 'id', '0'), 2L)
+    env.assertEqual(conn.execute_command('HSET', 'key5', 'name', '$val1', 'id', '99'), 2L)
 
     res1 = conn.execute_command('FT.SEARCH', 'idx', '@name:(Alice|Bob)', 'NOCONTENT')
     env.assertEqual(res1, [2L, 'key2', 'key1'])
     res2 = conn.execute_command('FT.SEARCH', 'idx', '@name:($val1|Bob)', 'NOCONTENT', 'PARAMS', '2', 'val1', 'Alice')
     env.assertEqual(res2, res1)
 
-    res1 = conn.execute_command('FT.SEARCH', 'idx', '@name:("Alice")', 'NOCONTENT')
-    env.assertEqual(res1, [1L, 'key2'])
-    res2 = conn.execute_command('FT.SEARCH', 'idx', '@name:("$val1")', 'NOCONTENT', 'PARAMS', '2', 'val1', 'Alice')
-    env.assertEqual(res2, res1)
+    # # FIXME: Avoid parameterization in verbatim string (whether if a param is defined or not)
+    # res1 = conn.execute_command('FT.SEARCH', 'idx', '@name:("$var1")', 'NOCONTENT')
+    # env.assertEqual(res1, [1L, 'key5'])
+    # res2 = conn.execute_command('FT.SEARCH', 'idx', '@name:("$val1")', 'NOCONTENT', 'PARAMS', '2', 'val1', 'Alice')
+    # env.assertEqual(res2, res1)
 
     res1 = conn.execute_command('FT.SEARCH', 'idx', '@name:(Alice)', 'NOCONTENT')
     env.assertEqual(res1, [1L, 'key2'])
@@ -234,6 +236,18 @@ def test_vector(env):
     res1 = [2L, 'd', ['v', 'abbdefgh'], 'a', ['v', 'abcdefgh']]
     res2 = conn.execute_command('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 2]')
     env.assertEqual(res2, res1)
-
+    res2 = conn.execute_command('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK $k]', 'PARAMS', '6', 'vec', 'abcdefgh', 'type', 'TOPK', 'k', '2')
+    env.assertEqual(res2, res1)
+    res2 = conn.execute_command('FT.SEARCH', 'idx', '@v:[abcdefgh $type 2]', 'PARAMS', '6', 'vec', 'abcdefgh', 'type', 'TOPK', 'k', '2')
+    env.assertEqual(res2, res1)
+    res2 = conn.execute_command('FT.SEARCH', 'idx', '@v:[abcdefgh $type $k]', 'PARAMS', '6', 'vec', 'abcdefgh', 'type', 'TOPK', 'k', '2')
+    env.assertEqual(res2, res1)
+    res2 = conn.execute_command('FT.SEARCH', 'idx', '@v:[$vec TOPK 2]', 'PARAMS', '6', 'vec', 'abcdefgh', 'type', 'TOPK', 'k', '2')
+    env.assertEqual(res2, res1)
+    res2 = conn.execute_command('FT.SEARCH', 'idx', '@v:[$vec TOPK $k]', 'PARAMS', '6', 'vec', 'abcdefgh', 'type', 'TOPK', 'k', '2')
+    env.assertEqual(res2, res1)
+    res2 = conn.execute_command('FT.SEARCH', 'idx', '@v:[$vec $type 2]', 'PARAMS', '6', 'vec', 'abcdefgh', 'type', 'TOPK', 'k', '2')
+    env.assertEqual(res2, res1)
     res2 = conn.execute_command('FT.SEARCH', 'idx', '@v:[$vec $type $k]', 'PARAMS', '6', 'vec', 'abcdefgh', 'type', 'TOPK', 'k', '2')
     env.assertEqual(res2, res1)
+
