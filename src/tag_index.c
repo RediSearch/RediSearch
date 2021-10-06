@@ -8,6 +8,8 @@
 #include "util/arr.h"
 #include "rmutil/rm_assert.h"
 
+extern RedisModuleCtx *RSDummyContext;
+
 static uint32_t tagUniqueId = 0;
 
 // Tags are limited to 4096 each
@@ -115,8 +117,8 @@ size_t TagIndex_Index(TagIndex *idx, const char **values, size_t n, t_docId docI
 }
 
 typedef struct {
+  TagIndex *idx;
   IndexIterator **its;
-  uint32_t uid;
 } TagConcCtx;
 
 static void TagReader_OnReopen(void *privdata) {
@@ -128,6 +130,20 @@ static void TagReader_OnReopen(void *privdata) {
   // If the key is valid, we just reset the reader's buffer reader to the current block pointer
   for (size_t ii = 0; ii < nits; ++ii) {
     IndexReader *ir = its[ii]->ctx;
+    if (ir->record->type == RSResultType_Term) {
+      // we need to reopen the inverted index to make sure its still valid.
+      // the GC might have deleted it by now.
+      InvertedIndex *idx = TagIndex_OpenIndex(ctx->idx, ir->record->term.term->str,
+                                                    ir->record->term.term->len, 0);
+      if (idx == TRIEMAP_NOTFOUND || ir->idx != idx) {
+        // the inverted index was collected entirely by GC, lets stop searching.
+        // notice, it might be that a new inverted index was created, we will not
+        // continue read those results and we are not promise that documents
+        // that was added during cursor life will be returned by the cursor.
+        IR_Abort(ir);
+        return;
+      }
+    }
 
     // the gc marker tells us if there is a chance the keys has undergone GC while we were asleep
     if (ir->gcMarker == ir->idx->gcMarker) {
@@ -163,7 +179,7 @@ static void concCtxFree(void *p) {
 void TagIndex_RegisterConcurrentIterators(TagIndex *idx, ConcurrentSearchCtx *conc,
                                           array_t *iters) {
   TagConcCtx *tctx = rm_calloc(1, sizeof(*tctx));
-  tctx->uid = idx->uniqueId;
+  tctx->idx = idx;
   tctx->its = (IndexIterator **)iters;
   ConcurrentSearch_AddKey(conc, TagReader_OnReopen, tctx, concCtxFree);
 }
