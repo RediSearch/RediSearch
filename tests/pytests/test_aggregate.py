@@ -648,3 +648,26 @@ def testMaxAggInf(env):
     env.skipOnCluster()
     env.expect('ft.config', 'set', 'MAXAGGREGATERESULTS', -1).ok()
     env.expect('ft.config', 'get', 'MAXAGGREGATERESULTS').equal([['MAXAGGREGATERESULTS', 'unlimited']])
+
+def testLoadPosition(env):
+    conn = getConnectionByEnv(env)
+    env.execute_command('ft.create', 'idx', 'SCHEMA', 't1', 'TEXT', 't2', 'TEXT')    
+    conn.execute_command('ft.add', 'idx', 'doc1', 1, 'FIELDS', 't1', 'hello', 't2', 'world')
+    
+    # LOAD then SORTBY
+    env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', 't1', 'SORTBY', '2', '@t1', 'ASC') \
+        .equal([1L, ['t1', 'hello']])
+
+    # SORTBY then LOAD
+    env.expect('ft.aggregate', 'idx', '*', 'SORTBY', '2', '@t1', 'ASC', 'LOAD', '1', 't1') \
+        .equal([1L, ['t1', 'hello']])
+
+    # two LOADs
+    env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', 't1', 'LOAD', '1', 't2') \
+        .equal([1L, ['t1', 'hello', 't2', 'world']])
+
+    # two LOADs with an apply for error
+    res = env.cmd('ft.aggregate', 'idx', '*', 'LOAD', '1', 't1',
+                                           'APPLY', '@t2', 'AS', 'load_error', 
+                                           'LOAD', '1', 't2')
+    env.assertContains('Value was not found in result', str(res[1]))
