@@ -652,3 +652,9 @@ def testLoadPosition(env):
     # two LOADs
     env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', 't1', 'LOAD', '1', 't2') \
         .equal([1L, ['t1', 'hello', 't2', 'world']])
+
+    # two LOADs with an apply for error
+    res = env.cmd('ft.aggregate', 'idx', '*', 'LOAD', '1', 't1',
+                                           'APPLY', '@t2', 'AS', 'load_error', 
+                                           'LOAD', '1', 't2')
+    env.assertEqual(str(res[1]), "[ResponseError('Value was not found in result (not a hard error)',)]")                                           
