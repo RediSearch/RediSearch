@@ -47,6 +47,9 @@ typedef enum {
   QEXEC_F_PROFILE = 0x8000,
   QEXEC_F_PROFILE_LIMITED = 0x10000,
 
+  /* FT.AGGREGATE load all fields */
+  QEXEC_AGG_LOAD_ALL = 0x20000,
+
 } QEFlags;
 
 #define IsCount(r) ((r)->reqflags & QEXEC_F_NOROWS)
@@ -209,7 +212,8 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status);
  * ResultProcessors (and a grouper is a ResultProcessor) before the grouper
  * should write their data using `lksrc` as a reference point.
  */
-Grouper *Grouper_New(const RLookupKey **srckeys, const RLookupKey **dstkeys, size_t n);
+Grouper *Grouper_New(const RLookupKey **srckeys, const RLookupKey **dstkeys, size_t n,
+                     struct timespec *timeout);
 
 void Grouper_Free(Grouper *g);
 

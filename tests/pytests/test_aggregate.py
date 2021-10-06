@@ -575,6 +575,19 @@ def testContains(env):
                                                              ['t', 'abba', 'substring', '1'], \
                                                              ['t', 'abbabb', 'substring', '2']]))
 
+def testLoadAll(env):
+    conn = getConnectionByEnv(env)
+    env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+    conn.execute_command('HSET', 'doc1', 't', 'hello')
+    conn.execute_command('HSET', 'doc2', 't', 'world')
+    conn.execute_command('HSET', 'doc3', 't', 'hello world')
+    # without LOAD
+    env.expect('FT.AGGREGATE', 'idx', '*').equal([1L, [], [], []])
+    # use LOAD with narg or ALL
+    res = [1L, ['t', 'hello'], ['t', 'world'], ['t', 'hello world']]
+    env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, 't').equal(res)
+    env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', 'ALL').equal(res)
+
 def testLimitIssue(env):
     #ticket 66895
     conn = getConnectionByEnv(env)

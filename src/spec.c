@@ -436,6 +436,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
         goto reset;
       }
       fieldName = AC_GetStringNC(ac, &namelen);
+      sp->flags |= Index_HasFieldAlias;
     } else {
       // if `AS` is not used, set the path as name
       fieldName = fieldPath;
