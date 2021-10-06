@@ -51,6 +51,8 @@ typedef struct PLN_BaseStep {
   // Type specific stuff goes here..
 } PLN_BaseStep;
 
+#define PLN_F_LOAD_ALL 0x01
+
 #define PLN_NEXT_STEP(step) DLLIST_ITEM((step)->llnodePln.next, PLN_BaseStep, llnodePln)
 #define PLN_PREV_STEP(step) DLLIST_ITEM((step)->llnodePln.prev, PLN_BaseStep, llnodePln)
 

@@ -626,6 +626,10 @@ static int handleLoad(AREQ *req, ArgsCursor *ac, QueryError *status) {
     lstp->keys = rm_calloc(loadfields.argc, sizeof(*lstp->keys));
   }
 
+  if (req->reqflags & QEXEC_AGG_LOAD_ALL) {
+    lstp->base.flags |= PLN_F_LOAD_ALL;
+  }
+
   AGPLN_AddStep(&req->ap, &lstp->base);
   return REDISMODULE_OK;
 }
@@ -1172,7 +1176,7 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
           kk->name_len = strlen(name);
           lstp->keys[lstp->nkeys++] = kk;
         }
-        if (lstp->nkeys || req->reqflags & QEXEC_AGG_LOAD_ALL) {
+        if (lstp->nkeys || lstp->base.flags & PLN_F_LOAD_ALL) {
           rp = RPLoader_New(curLookup, lstp->keys, lstp->nkeys);
           PUSH_RP();
         }
