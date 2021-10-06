@@ -1,4 +1,4 @@
-#include <VectorSimilarity/src/VecSim/vecsim.h>
+#include "VectorSimilarity/src/VecSim/vecsim.h"
 #include "vector_index.h"
 #include "list_reader.h"
 #include "dep/base64/base64.h"
@@ -88,7 +88,6 @@ IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorFilter *vf) {
       break;
 
     case VECTOR_SIM_INVALID:
-      // FIXME: Avoid lowering code coverage: use #pragma GCC diagnostic ignored "-Wswitch"
       return NULL;
   }
 
@@ -99,21 +98,6 @@ void VectorFilter_InitValues(VectorFilter *vf) {
   vf->efRuntime = HNSW_DEFAULT_EF_RT;
 }
 
-/* Create a vector filter from parsed strings and numbers */
-// TODO: add property?
-VectorFilter *NewVectorFilter(const void *vector, size_t vector_len, const char *type, size_t type_len, double value) {
-  VectorFilter *vf = rm_calloc(1, sizeof(*vf));
-  // copy vector
-  vf->vector = rm_malloc(vector_len);
-  memcpy(vf->vector, vector, vector_len);
-  vf->vecLen = vector_len;
-  VectorFilter_InitValues(vf);
-
-  vf->type = VectorFilter_ParseType(type, type_len);
-  vf->value = value;
-
-  return vf;
-}
 
 VectorQueryType VectorFilter_ParseType(const char *s, size_t len) {
   if (!strncasecmp(s, "TOPK", len)) {

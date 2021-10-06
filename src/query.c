@@ -188,12 +188,8 @@ QueryNode *NewPrefixNode_WithParam(QueryParseCtx *q, QueryToken *qt) {
   if (qt->type == QT_TERM) {
     char *s = rm_strdupcase(qt->s, qt->len);
     ret->pfx = (QueryPrefixNode){.str = s, .len = strlen(s), .expanded = 0, .flags = 0};
-  } else if (qt->type == QT_NUMERIC) {
-    ret->pfx = (QueryPrefixNode){
-        .str = rm_strndup(qt->s, qt->len), .len = qt->len, .expanded = 0, .flags = 0};
-  }  else {
-    assert (qt->type != QT_TERM_CASE);
-    ret->pfx = (QueryPrefixNode){.str = NULL, .len = 0, .expanded = 0, .flags = 0}; //FIXME: Remove this line - unneeded zero initialization (done in NewQueryNode)
+  } else {
+    assert (qt->type == QT_PARAM_TERM);
     QueryNode_InitParams(ret, 1);
     QueryNode_SetParam(q, &ret->params[0], &ret->pfx.str, &ret->pfx.len, qt);
   }

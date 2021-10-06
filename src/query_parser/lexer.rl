@@ -220,7 +220,7 @@ main := |*
   };
   prefix => {
     int is_attr = (*ts == '$') ? 1 : 0;
-    tok.type = is_attr ? QT_PARAM_ANY : QT_TERM;
+    tok.type = is_attr ? QT_PARAM_TERM : QT_TERM;
     tok.len = te - (ts + 1 + is_attr);
     tok.s = ts + is_attr;
     tok.numval = 0;

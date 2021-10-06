@@ -47,7 +47,6 @@ VecSimIndex *OpenVectorIndex(RedisSearchCtx *ctx,
 IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorFilter *vf);
 
 void VectorFilter_InitValues(VectorFilter *vf);
-VectorFilter *NewVectorFilter(const void *vector, size_t vector_len, const char *type, size_t type_len, double value);
 VectorQueryType VectorFilter_ParseType(const char *s, size_t len);
 int VectorFilter_Validate(const VectorFilter *vf, QueryError *status);
 int VectorFilter_EvalParams(dict *params, QueryNode *node, QueryError *status);

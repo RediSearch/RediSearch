@@ -195,8 +195,8 @@ def add_index(env, isHash, index_name, key_suffix, num_prefs, num_keys):
 
 
 def testCreateIndexRdbFiles(env):
-    if os.environ.get('CI'):
-        env.skip()
+    #@@ if os.environ.get('CI'):
+    #@@    env.skip()
     create_indices(env, 'redisearch_2.2.0.rdb', 'idxSearch', True, False)
     create_indices(env, 'rejson_2.0.0.rdb', 'idxJson', False, True)
     create_indices(env, 'redisearch_2.2.0_rejson_2.0.0.rdb', 'idxSearchJson', True, True)
