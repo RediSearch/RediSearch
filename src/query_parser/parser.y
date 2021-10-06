@@ -87,7 +87,15 @@ static int one_not_null(void *a, void *b, void *out) {
         return NODENN_ONE_NULL;
     }
 }
-   
+
+void setup_trace(QueryParseCtx *ctx) {
+  #ifdef PARSER_DEBUG
+  void RSQueryParser_Trace(FILE*, char*);
+  ctx->trace_log = fopen("/tmp/lemon_query.log", "w");
+  RSQueryParser_Trace(ctx->trace_log, "tr: ");
+  #endif
+}
+
 } // END %include  
 
 %extra_argument { QueryParseCtx *ctx }
@@ -143,21 +151,17 @@ static int one_not_null(void *a, void *b, void *out) {
 }
 
 query ::= expr(A) . { 
-    FILE *f = NULL;
-    #ifndef NDEBUG
-    //f = fopen("/tmp/lemon_query.log", "w");
-    //RSQueryParser_Trace(f, "tr: ");
-    #endif
-    ctx->trace_log = f;
-    ctx->root = A;
+  setup_trace(ctx);
+  ctx->root = A;
  
 }
 query ::= . {
-    ctx->root = NULL;
+  ctx->root = NULL;
 }
 
 query ::= STAR . {
-    ctx->root = NewWildcardNode();
+  setup_trace(ctx);
+  ctx->root = NewWildcardNode();
 }
 
 /////////////////////////////////////////////////////////////////

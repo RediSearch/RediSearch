@@ -163,8 +163,10 @@ typedef struct RSQueryNode {
   /* The node type, for resolving the union access */
   QueryNodeType type;
   QueryNodeOptions opts;
-  /* Parameter data referencing fields in one of the structs in the union above */
+
+  /* Parameters data, also pointing to the target fields in the appropriate struct in the union above */
   Param *params;
+
   struct RSQueryNode **children;
 } QueryNode;
 

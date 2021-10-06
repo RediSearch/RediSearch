@@ -78,7 +78,15 @@ static int one_not_null(void *a, void *b, void *out) {
         return NODENN_ONE_NULL;
     }
 }
-   
+
+void setup_trace(QueryParseCtx *ctx) {
+  #ifdef PARSER_DEBUG
+  void RSQueryParser_Trace(FILE*, char*);
+  ctx->trace_log = fopen("/tmp/lemon_query.log", "w");
+  RSQueryParser_Trace(ctx->trace_log, "tr: ");
+  #endif
+}
+
 /**************** End of %include directives **********************************/
 /* These constants specify the various numeric values for terminal symbols
 ** in a format understandable to "makeheaders".  This section is blank unless
@@ -1194,24 +1202,20 @@ static YYACTIONTYPE yy_reduce(
         YYMINORTYPE yylhsminor;
       case 0: /* query ::= expr */
 { 
-    FILE *f = NULL;
-    #ifndef NDEBUG
-    //f = fopen("/tmp/lemon_query.log", "w");
-    //RSQueryParser_Trace(f, "tr: ");
-    #endif
-    ctx->trace_log = f;
-    ctx->root = yymsp[0].minor.yy19;
+  setup_trace(ctx);
+  ctx->root = yymsp[0].minor.yy19;
  
 }
         break;
       case 1: /* query ::= */
 {
-    ctx->root = NULL;
+  ctx->root = NULL;
 }
         break;
       case 2: /* query ::= STAR */
 {
-    ctx->root = NewWildcardNode();
+  setup_trace(ctx);
+  ctx->root = NewWildcardNode();
 }
         break;
       case 3: /* expr ::= expr expr */

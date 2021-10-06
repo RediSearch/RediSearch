@@ -59,7 +59,7 @@ void QueryNode_Free(QueryNode *n) {
 
   if (n->params) {
     for (size_t ii = 0; ii < QueryNode_NumParams(n); ++ii) {
-      Param_Free(&n->params[ii]);
+      Param_FreeInternal(&n->params[ii]);
     }
     array_free(n->params);
     n->params = NULL;
@@ -103,6 +103,10 @@ void QueryNode_Free(QueryNode *n) {
       break;
   }
   rm_free(n);
+}
+
+void RangeNumber_Free(RangeNumber *r) {
+  rm_free(r);
 }
 
 QueryNode *NewQueryNode(QueryNodeType type) {
@@ -176,14 +180,6 @@ bool QueryNode_SetParam(QueryParseCtx *q, Param *target_param, void *target_valu
     return QueryParam_SetParam(
       q, target_param, target_value, target_len,
       source); //FIXME: Move to a common location for QueryNode and QueryParam
-}
-
-QueryNode *NewPrefixNode(QueryParseCtx *q, const char *s, size_t len) {
-  QueryNode *ret = NewQueryNode(QN_PREFIX);
-  q->numTokens++;
-
-  ret->pfx = (QueryPrefixNode){.str = (char *)s, .len = len, .expanded = 0, .flags = 0};
-  return ret;
 }
 
 QueryNode *NewPrefixNode_WithParam(QueryParseCtx *q, QueryToken *qt) {
@@ -919,11 +915,17 @@ int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions 
                          .sctx = (RedisSearchCtx *)sctx,
                          .opts = opts,
                          .status = status,
-                         .trace_log = NULL};
+#ifdef PARSER_DEBUG
+                         .trace_log = NULL
+#endif
+  };
   dst->root = RSQuery_ParseRaw(&qpCtx);
+
+#ifdef PARSER_DEBUG
   if (qpCtx.trace_log != NULL) {
     fclose(qpCtx.trace_log);
   }
+#endif
   // printf("Parsed %.*s. Error (Y/N): %d. Root: %p\n", (int)n, q, QueryError_HasError(status),
   //  dst->root);
   if (!dst->root) {

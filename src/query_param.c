@@ -10,12 +10,6 @@ QueryParam *NewQueryParam(QueryParamType type) {
   return ret;
 }
 
-QueryParam *NewTokenQueryParam(QueryToken *qt) {
-  QueryParam *ret = NewQueryParam(QP_TOK);
-  ret->qt = qt;
-  return ret;
-}
-
 QueryParam *NewGeoFilterQueryParam(GeoFilter *gf) {
   QueryParam *ret = NewQueryParam(QP_GEO_FILTER);
   ret->gf = gf;
@@ -90,9 +84,6 @@ QueryParam *NewVectorFilterQueryParam_WithParams(struct QueryParseCtx *q, QueryT
 
 void QueryParam_Free(QueryParam *p) {
   switch (p->type) {
-    case QP_TOK:
-      rm_free(p->qt);
-      break;
     case QP_GEO_FILTER:
       GeoFilter_Free(p->gf);
       break;
@@ -100,7 +91,7 @@ void QueryParam_Free(QueryParam *p) {
       NumericFilter_Free(p->nf);
       break;
     case QP_RANGE_NUMBER:
-      rm_free(p->rn);
+      RangeNumber_Free(p->rn);
       break;
     case QP_VEC_FILTER:
       VectorFilter_Free(p->vf);
@@ -109,7 +100,7 @@ void QueryParam_Free(QueryParam *p) {
   size_t n = QueryParam_NumParams(p);
   if (n) {
     for (size_t ii = 0; ii < n; ++ii) {
-      Param_Free(&p->params[ii]);
+      Param_FreeInternal(&p->params[ii]);
     }
     array_free(p->params);
   }
@@ -120,51 +111,62 @@ void QueryParam_Free(QueryParam *p) {
 bool QueryParam_SetParam(QueryParseCtx *q, Param *target_param, void *target_value,
                          size_t *target_len, QueryToken *source) {
 
-  if (source->type == QT_TERM) {
+  ParamType type = PARAM_NONE;
+  switch (source->type) {
+
+  case QT_TERM:
     target_param->type = PARAM_NONE;
     *(char**)target_value = rm_strdupcase(source->s, source->len);
     if (target_len) *target_len = strlen(target_value);
-    return false;
-  } else  if (source->type == QT_TERM_CASE) {
+    return false; // done
+
+  case QT_TERM_CASE:
     target_param->type = PARAM_NONE;
     *(char**)target_value = rm_strndup(source->s, source->len);
     if (target_len) *target_len = source->len;
-    return false;
-  } else if (source->type == QT_NUMERIC) {
+    return false; // done
+
+  case QT_NUMERIC:
     target_param->type = PARAM_NONE;
     *(double *)target_value = source->numval;
-    return false;
-  }else {
-    ParamType type;
-    if (source->type == QT_PARAM_ANY)
-      type = PARAM_ANY;
-    else if (source->type == QT_PARAM_TERM)
-      type = PARAM_TERM;
-    else if (source->type == QT_PARAM_TERM_CASE)
-      type = PARAM_TERM_CASE;
-    else if (source->type == QT_PARAM_NUMERIC)
-      type = PARAM_NUMERIC;
-    else if (source->type == QT_PARAM_NUMERIC_MIN_RANGE)
-      type = PARAM_NUMERIC_MIN_RANGE;
-    else if (source->type == QT_PARAM_NUMERIC_MAX_RANGE)
-      type = PARAM_NUMERIC_MAX_RANGE;
-    else if (source->type == QT_PARAM_GEO_UNIT)
-      type = PARAM_GEO_UNIT;
-    else if (source->type == QT_PARAM_GEO_COORD)
-      type = PARAM_GEO_COORD;
-    else if (source->type == QT_PARAM_VEC_SIM_TYPE)
-      type = PARAM_VEC_SIM_TYPE;
-    else
-      type = PARAM_ANY; // avoid warning - not supposed to reach here - all source->type enum options are covered
+    return false; // done
 
-    target_param->type = type;
-    target_param->target = target_value;
-    target_param->target_len = target_len;
-    target_param->name = rm_strndup(source->s, source->len);
-    target_param->len = source->len;
-    q->numParams++;
-    return true;
+  case QT_PARAM_ANY:
+    type = PARAM_ANY;
+    break;
+  case QT_PARAM_TERM:
+    type = PARAM_TERM;
+    break;
+  case QT_PARAM_TERM_CASE:
+    type = PARAM_TERM_CASE;
+    break;
+  case QT_PARAM_NUMERIC:
+    type = PARAM_NUMERIC;
+    break;
+  case QT_PARAM_NUMERIC_MIN_RANGE:
+    type = PARAM_NUMERIC_MIN_RANGE;
+    break;
+  case QT_PARAM_NUMERIC_MAX_RANGE:
+    type = PARAM_NUMERIC_MAX_RANGE;
+    break;
+  case QT_PARAM_GEO_UNIT:
+    type = PARAM_GEO_UNIT;
+    break;
+  case QT_PARAM_GEO_COORD:
+    type = PARAM_GEO_COORD;
+    break;
+  case QT_PARAM_VEC_SIM_TYPE:
+    type = PARAM_VEC_SIM_TYPE;
+    break;
   }
+
+  target_param->type = type;
+  target_param->target = target_value;
+  target_param->target_len = target_len;
+  target_param->name = rm_strndup(source->s, source->len);
+  target_param->len = source->len;
+  q->numParams++;
+  return true;
 }
 
 void QueryParam_InitParams(QueryParam *p, size_t num) {

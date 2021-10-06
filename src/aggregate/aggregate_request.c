@@ -139,7 +139,8 @@ static int parseParams (AREQ *req, ArgsCursor *ac, QueryError *status) {
     //  Not equal to a query keyword,
     //  Doesn't contain unescaped parenthesis, tilde, percent, ...
     if (DICT_ERR == dictAdd(params, (void*)param, (void*)value)) {
-      QueryError_SetErrorFmt(status, QUERY_EADDARGS, "Duplicated parameter `%s`", param);
+      QueryError_SetErrorFmt(status, QUERY_EADDARGS, "Duplicate parameter `%s`", param);
+      dictRelease(params);
       return REDISMODULE_ERR;
     }
   }

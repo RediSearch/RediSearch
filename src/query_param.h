@@ -7,7 +7,6 @@
 struct QueryParseCtx;
 
 typedef enum {
-  QP_TOK,
   QP_GEO_FILTER,
   QP_NUMERIC_FILTER,
   QP_RANGE_NUMBER,
@@ -16,7 +15,6 @@ typedef enum {
 
 typedef struct {
   union {
-    QueryToken *qt;
     GeoFilter *gf;
     NumericFilter *nf;
     RangeNumber *rn;

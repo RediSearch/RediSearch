@@ -15,12 +15,18 @@ typedef enum {
 } ParamType;
 
 typedef struct Param {
+  // Parameter name
   const char *name;
+  // Length of the parameter name
   size_t len;
+
   ParamType type;
+
+  // The value the parameter will set when it is resolved
   void *target;
+  // The length of the `target` value (if relevant for the parameter type)
   size_t *target_len;
 } Param;
 
-void Param_Free(Param *param);
+void Param_FreeInternal(Param *param);
 

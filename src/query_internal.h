@@ -30,7 +30,9 @@ extern "C" {
 
   QueryError *status;
 
+  #ifdef PARSER_DEBUG
   FILE *trace_log;
+  #endif
 
 } QueryParseCtx;
 
@@ -66,7 +68,6 @@ QueryNode *NewPhraseNode(int exact);
 #define NewNotNode(child) NewQueryNodeChildren(QN_NOT, &child, 1)
 #define NewOptionalNode(child) NewQueryNodeChildren(QN_OPTIONAL, &child, 1)
 
-QueryNode *NewPrefixNode(QueryParseCtx *q, const char *s, size_t len);
 QueryNode *NewPrefixNode_WithParam(QueryParseCtx *q, QueryToken *qt);
 QueryNode *NewFuzzyNode(QueryParseCtx *q, const char *s, size_t len, int maxDist);
 QueryNode *NewNumericNode(QueryParam *p);
@@ -83,6 +84,8 @@ void QueryNode_SetFieldMask(QueryNode *n, t_fieldMask mask);
 
 /* Free the query node and its children recursively */
 void QueryNode_Free(QueryNode *n);
+
+void RangeNumber_Free(RangeNumber *r);
 
 #ifdef __cplusplus
 }
