@@ -900,6 +900,8 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
   ResultProcessor *rp = NULL;
   PLN_ArrangeStep astp_s = {.base = {.type = PLN_T_ARRANGE}};
   PLN_ArrangeStep *astp = (PLN_ArrangeStep *)stp;
+  IndexSpec *spec = req->sctx ? req->sctx->spec : NULL; // check for sctx?
+  SortByType sortbyType = SORTBY_FIELD;
 
   if (!astp) {
     astp = &astp_s;
@@ -925,17 +927,36 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
     RLookup *lk = AGPLN_GetLookup(pln, stp, AGPLN_GETLOOKUP_PREV);
 
     for (size_t ii = 0; ii < nkeys; ++ii) {
-      sortkeys[ii] = RLookup_GetKey(lk, astp->sortKeys[ii], RLOOKUP_F_NOINCREF);
+      const char *keystr = astp->sortKeys[ii];
+      sortkeys[ii] = RLookup_GetKey(lk, keystr, RLOOKUP_F_NOINCREF);
       if (!sortkeys[ii]) {
-        QueryError_SetErrorFmt(status, QUERY_ENOPROPKEY, "Property `%s` not loaded nor in schema",
-                               astp->sortKeys[ii]);
-        return NULL;
+        // check if key is a vector
+        // for POC
+        if (nkeys == 1 && spec && spec->flags & Index_HasVecSim) {
+          // we check if field contains "_score"
+          int keystrlen = strlen(keystr) - 6;
+          if (keystrlen > 0 && !strcmp(keystr + keystrlen, "_score")) {
+            char buf[keystrlen + 1];
+            strncpy(buf, keystr, keystrlen);
+            buf[keystrlen] = '\0';
+            const FieldSpec *vecField = IndexSpec_GetField(spec, buf, strlen(buf));
+            if (vecField && vecField->types == INDEXFLD_T_VECTOR) {
+              strcpy(buf + keystrlen, "_score");
+              buf[keystrlen + 6] = '\0';
+              sortkeys[ii] = RLookup_GetKey(lk, keystr, RLOOKUP_F_OCREAT);
+              sortbyType = SORTBY_DISTANCE;
+              // astp->sortAscMap = 0; // forcing ascending sort on vector distance
+            }
+          }
+        }
+        if (!sortkeys[ii]) {
+          QueryError_SetErrorFmt(status, QUERY_ENOPROPKEY, "Property `%s` not loaded nor in schema",
+                                keystr);
+          return NULL;
+        }
       }
     }
 
-    // TODO : this is form POC only
-    SortByType sortbyType = (req->sctx && (req->sctx->spec->flags & Index_HasVecSim)) && nkeys == 1 ?
-                            SORTBY_DISTANCE : SORTBY_FIELD;
     rp = RPSorter_NewByFields(limit, sortkeys, nkeys, astp->sortAscMap, &req->timeoutTime, sortbyType);
     up = pushRP(req, rp, up);
   }
