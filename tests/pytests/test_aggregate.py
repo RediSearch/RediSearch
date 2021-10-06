@@ -670,4 +670,4 @@ def testLoadPosition(env):
     res = env.cmd('ft.aggregate', 'idx', '*', 'LOAD', '1', 't1',
                                            'APPLY', '@t2', 'AS', 'load_error', 
                                            'LOAD', '1', 't2')
-    env.assertEqual(str(res[1]), "[ResponseError('Value was not found in result (not a hard error)',)]")                                           
+    env.assertContains('Value was not found in result', str(res[1]))
