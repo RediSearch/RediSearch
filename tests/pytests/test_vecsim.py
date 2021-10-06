@@ -204,7 +204,7 @@ def query_vector(env, idx, query_vec):
     return conn.execute_command('FT.SEARCH', idx, '@vector:[' + base64_vector_escaped + ' RANGE 5]',
                                 'SORTBY', 'vector_score', 'ASC', 'RETURN', 1, 'vector_score', 'LIMIT', 0, 5)
 
-def testDelReuseDvir(env):
+def testDelReuseLarge(env):
     conn = getConnectionByEnv(env)
     INDEX_NAME = 'items'
     prefix = 'item'
