@@ -131,14 +131,13 @@ static int parseParams (AREQ *req, ArgsCursor *ac, QueryError *status) {
   }
 
   dict *params = dictCreate(&dictTypeHeapStrings, NULL);
+  size_t value_len;
   while (!AC_IsAtEnd(&paramsArgs)) {
     const char *param = AC_GetStringNC(&paramsArgs, NULL);
-    const char *value = AC_GetStringNC(&paramsArgs, NULL);
+    const char *value = AC_GetStringNC(&paramsArgs, &value_len);
+    RedisModuleString *rms_value = RedisModule_CreateString(NULL, value, value_len);
     // FIXME: Validate param is [a-zA-Z][a-zA-z_\-:0-9]*
-    // FIXME: Validate value is [+-]?inf or any value not ending with unescaped *,
-    //  Not equal to a query keyword,
-    //  Doesn't contain unescaped parenthesis, tilde, percent, ...
-    if (DICT_ERR == dictAdd(params, (void*)param, (void*)value)) {
+    if (DICT_ERR == dictAdd(params, (void*)param, (void*)rms_value)) {
       QueryError_SetErrorFmt(status, QUERY_EADDARGS, "Duplicate parameter `%s`", param);
       dictRelease(params);
       return REDISMODULE_ERR;
@@ -1312,8 +1311,17 @@ void AREQ_Free(AREQ *req) {
     array_free(req->searchopts.legacy.filters);
   }
   rm_free(req->searchopts.inids);
-  if (req->searchopts.params)
+  if (req->searchopts.params) {
+    // FIXME: Move to a function
+    dictIterator* iter = dictGetIterator(req->searchopts.params);
+    dictEntry* entry = NULL;
+    while ((entry = dictNext(iter))) {
+      RedisModuleString *data = dictGetVal(entry);
+      RedisModule_FreeString(NULL, data);
+    }
+    dictReleaseIterator(iter);
     dictRelease(req->searchopts.params);
+  }
   FieldList_Free(&req->outFields);
   if (thctx) {
     RedisModule_FreeThreadSafeContext(thctx);

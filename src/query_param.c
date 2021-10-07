@@ -131,6 +131,14 @@ bool QueryParam_SetParam(QueryParseCtx *q, Param *target_param, void *target_val
     *(double *)target_value = source->numval;
     return false; // done
 
+  case QT_VEC:
+    target_param->type = PARAM_NONE;
+    target_value = rm_malloc(source->len);
+    memcpy(target_value, source->s, source->len);
+    assert(target_len);
+    *target_len = source->len;
+    return false; // done
+
   case QT_PARAM_ANY:
     type = PARAM_ANY;
     break;
@@ -158,8 +166,10 @@ bool QueryParam_SetParam(QueryParseCtx *q, Param *target_param, void *target_val
   case QT_PARAM_VEC_SIM_TYPE:
     type = PARAM_VEC_SIM_TYPE;
     break;
+  case QT_PARAM_VEC:
+    type = PARAM_VEC;
+    break;
   }
-
   target_param->type = type;
   target_param->target = target_value;
   target_param->target_len = target_len;
@@ -182,7 +192,9 @@ int QueryParam_Resolve(Param *param, dict *params, QueryError *status) {
     QueryError_SetErrorFmt(status, QUERY_ENOPARAM, "No such parameter `%s`", param->name);
     return -1;
   }
-  char *val = dictGetVal(e);
+  RedisModuleString *rms_val = dictGetVal(e);
+  size_t val_len;
+  const char *val = RedisModule_StringPtrLen(rms_val, &val_len);
 
   switch(param->type) {
 
@@ -191,13 +203,13 @@ int QueryParam_Resolve(Param *param, dict *params, QueryError *status) {
 
     case PARAM_ANY:
     case PARAM_TERM:
-      *(char**)param->target = rm_strdupcase(val, strlen(val));
+      *(char**)param->target = rm_strdupcase(val, val_len);
       *param->target_len = strlen(*(char**)param->target);
       return 1;
 
     case PARAM_TERM_CASE:
       *(char**)param->target = rm_strdup(val);
-      *param->target_len = strlen(val);
+      *param->target_len = val_len;
       return 1;
 
     case PARAM_NUMERIC:
@@ -228,6 +240,14 @@ int QueryParam_Resolve(Param *param, dict *params, QueryError *status) {
       *(VectorQueryType*)param->target = VectorFilter_ParseType(val, strlen(val));
       return 1;
 
+    case PARAM_VEC: {
+      char *blob = rm_malloc(val_len);
+      memcpy(blob, val, val_len);  // FIXME: if the same value can be shared among multiple $param
+                                   // usages (is it read-only?) - reuse it
+      *(char **)param->target = blob;
+      *param->target_len = val_len;
+      return 1;
+    }
   }
   return -1;
 }

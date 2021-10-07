@@ -637,7 +637,7 @@ vector_filter(A) ::= LSQB param_any(B) param_any(C) param_any(D) RSQB. [NUMBER] 
     else if (remainder == 2 && *((B.s) + len) == '=')
       B.len = len + 1;
   } else if (B.type == QT_PARAM_ANY) {
-    B.type = QT_PARAM_TERM_CASE;
+    B.type = QT_PARAM_VEC;
   }
 
   if (C.type == QT_PARAM_ANY) {

@@ -1677,7 +1677,7 @@ static YYACTIONTYPE yy_reduce(
     else if (remainder == 2 && *((yymsp[-3].minor.yy0.s) + len) == '=')
       yymsp[-3].minor.yy0.len = len + 1;
   } else if (yymsp[-3].minor.yy0.type == QT_PARAM_ANY) {
-    yymsp[-3].minor.yy0.type = QT_PARAM_TERM_CASE;
+    yymsp[-3].minor.yy0.type = QT_PARAM_VEC;
   }
 
   if (yymsp[-2].minor.yy0.type == QT_PARAM_ANY) {
