@@ -15,3 +15,6 @@
 [submodule "deps/libuv"]
 	path = deps/libuv
 	url = https://github.com/libuv/libuv.git
+[submodule "deps/snowball"]
+	path = deps/snowball
+	url = https://github.com/snowballstem/snowball.git
