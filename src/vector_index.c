@@ -79,6 +79,7 @@ IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorFilter *vf) {
       
       VecSimQueryParams qParams = {.hnswRuntimeParams.efRuntime = vf->efRuntime};
       vf->results = VecSimIndex_TopKQueryByID(vecsim, vector, vf->value, &qParams);
+      vf->resultsLen = VecSimQueryResult_Len(vf->results);
       if (vf->isBase64) {
         rm_free(vector);
       }
@@ -91,7 +92,7 @@ IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorFilter *vf) {
       return NULL;
   }
 
-  return NewListIterator(vf->results, VecSimQueryResult_Len(vf->results));
+  return NewListIterator(vf->results, vf->resultsLen);
 }
 
 void VectorFilter_InitValues(VectorFilter *vf) {

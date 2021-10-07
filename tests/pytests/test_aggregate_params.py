@@ -6,9 +6,7 @@ from RLTest import Env
 
 from includes import *
 from common import to_dict
-
-
-
+import os
 
 GAMES_JSON = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'games.json.bz2')
 
