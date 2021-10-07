@@ -1,6 +1,8 @@
+#pragma once
 #include "search_ctx.h"
 #include "VecSim/vecsim.h"
 #include "index_iterator.h"
+#include "query_node.h"
 
 #define VECSIM_TYPE_FLOAT32 "FLOAT32"
 #define VECSIM_TYPE_FLOAT64 "FLOAT64"
@@ -20,8 +22,9 @@
 #define VECSIM_EF "EF"
 
 typedef enum {
-  VECTOR_TOPK = 0,
-  VECTOR_RANGE = 1,
+  VECTOR_SIM_INVALID = 0,
+  VECTOR_SIM_TOPK = 1,
+  VECTOR_SIM_RANGE = 2,
 } VectorQueryType;
 
 typedef struct VectorFilter {
@@ -43,5 +46,9 @@ VecSimIndex *OpenVectorIndex(RedisSearchCtx *ctx,
 
 IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorFilter *vf);
 
-VectorFilter *NewVectorFilter(const void *vector, size_t len, char *type, double value);
+void VectorFilter_InitValues(VectorFilter *vf);
+VectorQueryType VectorFilter_ParseType(const char *s, size_t len);
+int VectorFilter_Validate(const VectorFilter *vf, QueryError *status);
+int VectorFilter_EvalParams(dict *params, QueryNode *node, QueryError *status);
 void VectorFilter_Free(VectorFilter *vf);
+

@@ -118,6 +118,36 @@ static int parseCursorSettings(AREQ *req, ArgsCursor *ac, QueryError *status) {
 #define ARG_ERROR -1
 #define ARG_UNKNOWN 0
 
+static int parseParams (AREQ *req, ArgsCursor *ac, QueryError *status) {
+  ArgsCursor paramsArgs = {0};
+  int rv = AC_GetVarArgs(ac, &paramsArgs);
+  if (rv != AC_OK) {
+    QERR_MKBADARGS_AC(status, "PARAMS", rv);
+    return REDISMODULE_ERR;
+  }
+  if (paramsArgs.argc == 0 || paramsArgs.argc % 2) {
+    QueryError_SetError(status, QUERY_EADDARGS,"Parameters must be specified in PARAM VALUE pairs");
+    return REDISMODULE_ERR;
+  }
+
+  dict *params = dictCreate(&dictTypeHeapStrings, NULL);
+  size_t value_len;
+  while (!AC_IsAtEnd(&paramsArgs)) {
+    const char *param = AC_GetStringNC(&paramsArgs, NULL);
+    const char *value = AC_GetStringNC(&paramsArgs, &value_len);
+    RedisModuleString *rms_value = RedisModule_CreateString(NULL, value, value_len);
+    // FIXME: Validate param is [a-zA-Z][a-zA-z_\-:0-9]*
+    if (DICT_ERR == dictAdd(params, (void*)param, (void*)rms_value)) {
+      QueryError_SetErrorFmt(status, QUERY_EADDARGS, "Duplicate parameter `%s`", param);
+      dictRelease(params);
+      return REDISMODULE_ERR;
+    }
+  }
+  req->searchopts.params = params;
+
+  return REDISMODULE_OK;
+}
+
 static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int allowLegacy) {
   int rv;
   // This handles the common arguments that are not stateful
@@ -365,6 +395,10 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
                ((rv = parseQueryLegacyArgs(ac, searchOpts, status)) != ARG_UNKNOWN)) {
       if (rv == ARG_ERROR) {
         return REDISMODULE_ERR;
+      }
+    } else if (AC_AdvanceIfMatch(ac, "PARAMS")) {
+      if (parseParams(req, ac, status) != REDISMODULE_OK) {
+        return ARG_ERROR;
       }
     } else {
       int rv = handleCommonArgs(req, ac, status, 1);
@@ -781,6 +815,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     return REDISMODULE_ERR;
   }
 
+  QAST_EvalParams(ast, opts, status);
   applyGlobalFilters(opts, ast, sctx);
 
   if (!(opts->flags & Search_Verbatim)) {
@@ -790,8 +825,9 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   }
 
   ConcurrentSearchCtx_Init(sctx->redisCtx, &req->conc);
-  req->rootiter = QAST_Iterate(ast, opts, sctx, &req->conc);
-  RS_LOG_ASSERT(req->rootiter, "QAST_Iterate failed");
+  req->rootiter = QAST_Iterate(ast, opts, sctx, &req->conc, status);
+  if (QueryError_HasError(status))
+    return REDISMODULE_ERR;
   if (IsProfile(req)) {
     // Add a Profile iterators before every iterator in the tree
     Profile_AddIters(&req->rootiter);
@@ -1296,6 +1332,17 @@ void AREQ_Free(AREQ *req) {
     array_free(req->searchopts.legacy.filters);
   }
   rm_free(req->searchopts.inids);
+  if (req->searchopts.params) {
+    // FIXME: Move to a function
+    dictIterator* iter = dictGetIterator(req->searchopts.params);
+    dictEntry* entry = NULL;
+    while ((entry = dictNext(iter))) {
+      RedisModuleString *data = dictGetVal(entry);
+      RedisModule_FreeString(NULL, data);
+    }
+    dictReleaseIterator(iter);
+    dictRelease(req->searchopts.params);
+  }
   FieldList_Free(&req->outFields);
   if (thctx) {
     RedisModule_FreeThreadSafeContext(thctx);

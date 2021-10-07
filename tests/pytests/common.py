@@ -134,3 +134,7 @@ def waitForRdbSaveToFinish(env):
 def forceInvokeGC(env, idx):
     waitForRdbSaveToFinish(env)
     env.cmd('ft.debug', 'GC_FORCEINVOKE', idx)
+
+def to_dict(res):
+    d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
+    return d

@@ -47,7 +47,7 @@ def test_1st(env):
         # print base64_message
 
         # RANGE uses topk but translate to base64 before
-        res = conn.execute_command('FT.SEARCH', 'idx', '@v:[' + base64_message +' RANGE 1]', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 1)
+        res = conn.execute_command('FT.SEARCH', 'idx', '@v:[' + base64_message +' TOPK 1] => {$base64:true}', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 1)
         env.assertEqual(res[2], expected_res)
         res = conn.execute_command('FT.SEARCH', 'idx', '@v:[' + base64_message +' TOPK 1] => {$base64:true}', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 1)
         env.assertEqual(res[2], expected_res)
@@ -88,7 +88,7 @@ def test_escape(env):
             # print base64_message
 
             # RANGE uses topk but translate to base64 before
-            res = conn.execute_command('FT.SEARCH', 'idx', '@v:[' + base64_message + ' RANGE 1]', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 1)
+            res = conn.execute_command('FT.SEARCH', 'idx', '@v:[' + base64_message + ' TOPK 1] => {$base64:true}', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 1)
             env.assertEqual(res[2][3], message.replace('\\', ''))
 
         conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
@@ -228,9 +228,7 @@ def test_create(env):
     conn.execute_command('FT.CREATE', 'idx3', 'SCHEMA', 'v', 'VECTOR', 'FLOAT32', '16', 'COSINE', 'HNSW', 'INITIAL_CAP', '10', 'M', '16', 'EF', '200')
     
     # test wrong query word
-    res = conn.execute_command('FT.SEARCH', 'idx1', '@v:[abcdefgh REDIS 4]')
-    env.assertEqual(res, [0L])
-    res = conn.execute_command('FT.SEARCH', 'idx2', '@v:[abcdefgh REDIS 4]')
-    env.assertEqual(res, [0L])
-    res = conn.execute_command('FT.SEARCH', 'idx3', '@v:[abcdefgh REDIS 4]')
-    env.assertEqual(res, [0L])
+    env.expect('FT.SEARCH', 'idx1', '@v:[abcdefgh REDIS 4]').raiseError().equal('Invalid Vector similarity type')
+    env.expect('FT.SEARCH', 'idx1', '@v:[abcdefgh REDIS 4]').raiseError().equal('Invalid Vector similarity type')
+    env.expect('FT.SEARCH', 'idx2', '@v:[abcdefgh REDIS 4]').raiseError().equal('Invalid Vector similarity type')
+    env.expect('FT.SEARCH', 'idx3', '@v:[abcdefgh REDIS 4]').raiseError().equal('Invalid Vector similarity type')

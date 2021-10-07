@@ -1,6 +1,8 @@
+#include "VectorSimilarity/src/VecSim/vecsim.h"
 #include "vector_index.h"
 #include "list_reader.h"
 #include "dep/base64/base64.h"
+#include "query_param.h"
 
 // taken from parser.c
 void unescape(char *s, size_t *sz) {
@@ -69,7 +71,7 @@ IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorFilter *vf) {
   size_t outLen;
   unsigned char *vector = vf->vector;
   switch (vf->type) {
-    case VECTOR_TOPK:
+    case VECTOR_SIM_TOPK:
       if (vf->isBase64) {
         unescape((char *)vector, &vf->vecLen);
         vector = base64_decode(vector, vf->vecLen, &outLen);
@@ -82,37 +84,56 @@ IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorFilter *vf) {
         rm_free(vector);
       }
       break;
-    case VECTOR_RANGE:
+    case VECTOR_SIM_RANGE:
       RS_LOG_ASSERT(0, "isn't implemented yet");
       break;
+
+    case VECTOR_SIM_INVALID:
+      return NULL;
   }
 
   return NewListIterator(vf->results, vf->resultsLen);
 }
 
-/* Create a vector filter from parsed strings and numbers */
-// TODO: add property?
-VectorFilter *NewVectorFilter(const void *vector, size_t len, char *type, double value) {
-  VectorFilter *vf = rm_calloc(1, sizeof(*vf));
-  // copy vector
-  vf->vector = rm_malloc(len);
-  memcpy(vf->vector, vector, len);
-  vf->vecLen = len;
+void VectorFilter_InitValues(VectorFilter *vf) {
   vf->efRuntime = HNSW_DEFAULT_EF_RT;
+}
 
-  if (!strncasecmp(type, "TOPK", strlen("TOPK"))) {
-    vf->type = VECTOR_TOPK;
-  } else if (!strncasecmp(type, "RANGE", strlen("RANGE"))) {
-    vf->type = VECTOR_TOPK;
-    vf->isBase64 = true;
+
+VectorQueryType VectorFilter_ParseType(const char *s, size_t len) {
+  if (!strncasecmp(s, "TOPK", len)) {
+    return VECTOR_SIM_TOPK;
+  } else if (!strncasecmp(s, "RANGE", len)) {
+    return VECTOR_SIM_TOPK;
   } else {
-    VectorFilter_Free(vf);
-    return NULL;
+    return VECTOR_SIM_INVALID;
   }
+}
 
-  vf->value = value;
+int VectorFilter_Validate(const VectorFilter *vf, QueryError *status) {
+    if (vf->type == VECTOR_SIM_INVALID) {
+      QERR_MKSYNTAXERR(status, "Invalid Vector similarity type");
+      return 0;
+    }
+    return 1;
+}
 
-  return vf;
+int VectorFilter_EvalParams(dict *params, QueryNode *node, QueryError *status) {
+  if (node->params) {
+    int resolved = 0;
+
+    for (size_t i = 0; i < QueryNode_NumParams(node); i++) {
+      int res = QueryParam_Resolve(&node->params[i], params, status);
+      if (res < 0)
+        return REDISMODULE_ERR;
+      else if (res > 0)
+        resolved = 1;
+    }
+    if (resolved && !VectorFilter_Validate(node->vn.vf, status)) {
+      return REDISMODULE_ERR;
+    }
+  }
+  return REDISMODULE_OK;
 }
 
 void VectorFilter_Free(VectorFilter *vf) {
