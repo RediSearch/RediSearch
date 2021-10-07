@@ -150,6 +150,9 @@ commands:
       module_path:
         type: string
         default: ../../build-debian/redisearch.so
+      rejson_module_path:
+        type: string
+        default: ../../deps/RedisJSON/target/release/rejson.so
     steps:
       - run:
           name: Install remote benchmark tool dependencies
@@ -158,6 +161,9 @@ commands:
       - run:
           name: Install remote benchmark python dependencies
           command: python3 -m pip install -r ./tests/ci.benchmarks/requirements.txt
+      - run:
+          name: Prepare ReJSON Module
+          command: ENABLE_SYSTEM_SETUP=1 ./.circleci/ci_prepare_benchmark.sh
       - run:
           name: Run CI benchmarks on aws
           timeout: 60m
@@ -170,6 +176,8 @@ commands:
             export EC2_PRIVATE_PEM=$PERFORMANCE_EC2_PRIVATE_PEM
 
             redisbench-admin run-remote \
+              --module_path << parameters.rejson_module_path >> \
+              --required-module ReJSON \
               --module_path << parameters.module_path >> \
               --github_actor << parameters.github_actor >> \
               --github_repo $CIRCLE_PROJECT_REPONAME \
@@ -186,12 +194,12 @@ commands:
 jobs:
   ubuntu:
     docker:
-      - image: redisfab/rmbuilder:6.2.5-x64-buster
+      - image: redisfab/rmbuilder:6.2.5-x64-bullseye
     environment:
       - BUILD_DIR: build-debian
     steps:
       - build-steps:
-          platform: buster
+          platform: bullseye
 
   centos:
     docker:
@@ -233,7 +241,7 @@ jobs:
 
   deploy-snapshots:
     docker:
-      - image: redisfab/rmbuilder:6.2.5-x64-buster
+      - image: redisfab/rmbuilder:6.2.5-x64-bullseye
     steps:
       - early-returns
       - early-return-for-forked-pull-requests
@@ -273,7 +281,7 @@ jobs:
 
   coverage:
     docker:
-      - image: redisfab/rmbuilder:6.2.5-x64-buster
+      - image: redisfab/rmbuilder:6.2.5-x64-bullseye
     steps:
       - early-returns
       - checkout-all
@@ -285,7 +293,7 @@ jobs:
 
   deploy-release:
     docker:
-      - image: redisfab/rmbuilder:6.2.5-x64-buster
+      - image: redisfab/rmbuilder:6.2.5-x64-bullseye
     steps:
       - early-returns
       - early-return-for-forked-pull-requests

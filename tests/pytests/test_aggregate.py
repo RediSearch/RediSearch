@@ -575,6 +575,19 @@ def testContains(env):
                                                              ['t', 'abba', 'substring', '1'], \
                                                              ['t', 'abbabb', 'substring', '2']]))
 
+def testLoadAll(env):
+    conn = getConnectionByEnv(env)
+    env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+    conn.execute_command('HSET', 'doc1', 't', 'hello')
+    conn.execute_command('HSET', 'doc2', 't', 'world')
+    conn.execute_command('HSET', 'doc3', 't', 'hello world')
+    # without LOAD
+    env.expect('FT.AGGREGATE', 'idx', '*').equal([1L, [], [], []])
+    # use LOAD with narg or ALL
+    res = [1L, ['t', 'hello'], ['t', 'world'], ['t', 'hello world']]
+    env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, 't').equal(res)
+    env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', 'ALL').equal(res)
+
 def testLimitIssue(env):
     #ticket 66895
     conn = getConnectionByEnv(env)
@@ -635,3 +648,26 @@ def testMaxAggInf(env):
     env.skipOnCluster()
     env.expect('ft.config', 'set', 'MAXAGGREGATERESULTS', -1).ok()
     env.expect('ft.config', 'get', 'MAXAGGREGATERESULTS').equal([['MAXAGGREGATERESULTS', 'unlimited']])
+
+def testLoadPosition(env):
+    conn = getConnectionByEnv(env)
+    env.execute_command('ft.create', 'idx', 'SCHEMA', 't1', 'TEXT', 't2', 'TEXT')    
+    conn.execute_command('ft.add', 'idx', 'doc1', 1, 'FIELDS', 't1', 'hello', 't2', 'world')
+    
+    # LOAD then SORTBY
+    env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', 't1', 'SORTBY', '2', '@t1', 'ASC') \
+        .equal([1L, ['t1', 'hello']])
+
+    # SORTBY then LOAD
+    env.expect('ft.aggregate', 'idx', '*', 'SORTBY', '2', '@t1', 'ASC', 'LOAD', '1', 't1') \
+        .equal([1L, ['t1', 'hello']])
+
+    # two LOADs
+    env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', 't1', 'LOAD', '1', 't2') \
+        .equal([1L, ['t1', 'hello', 't2', 'world']])
+
+    # two LOADs with an apply for error
+    res = env.cmd('ft.aggregate', 'idx', '*', 'LOAD', '1', 't1',
+                                           'APPLY', '@t2', 'AS', 'load_error', 
+                                           'LOAD', '1', 't2')
+    env.assertContains('Value was not found in result', str(res[1]))
