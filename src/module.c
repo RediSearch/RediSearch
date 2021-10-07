@@ -1058,6 +1058,5 @@ void __attribute__((destructor)) RediSearch_CleanupModule(void) {
     SchemaPrefixes_Free(ScemaPrefixes_g);
     RedisModule_FreeThreadSafeContext(RSDummyContext);
     Dictionary_Free();
-    RediSearch_LockDestory();
   }
 }

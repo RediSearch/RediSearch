@@ -3,6 +3,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <pthread.h>
 
 #include "default_gc.h"
 #include "redismodule.h"
@@ -17,6 +18,7 @@
 #include "util/dict.h"
 #include "redisearch_api.h"
 #include "rules.h"
+#include "util/mempool.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -216,12 +218,23 @@ typedef struct {
   RedisModuleString *types[INDEXFLD_NUM_TYPES];
 } IndexSpecFmtStrings;
 
+typedef enum lockType { lockType_None, lockType_Read, lockType_Write } lockType;
+typedef struct rwlockThreadLocal {
+  size_t locked;
+  lockType type;
+} rwlockThreadLocal;
+
 //---------------------------------------------------------------------------------------------
 
 typedef struct IndexSpec {
   char *name;
   FieldSpec *fields;
   int numFields;
+
+  rwlockThreadLocal** rwLocksData;  // Array of lock data
+  pthread_mutex_t rwLocksDataMutex;
+  pthread_key_t lockKey;
+  pthread_rwlock_t rwlock;
 
   IndexStats stats;
   IndexFlags flags;
@@ -262,6 +275,9 @@ typedef struct IndexSpec {
   // in favor on a newer, pending scan
   bool scan_in_progress;
   bool cascadeDelete;  // remove keys when removing spec
+  mempool_t *actxPool_g; // Memory pool for RSAddDocumentContext contexts
+  mempool_t *tokpoolLatin_g;
+  mempool_t *tokpoolCn_g;
 } IndexSpec;
 
 typedef enum SpecOp { SpecOp_Add, SpecOp_Del } SpecOp;
@@ -385,6 +401,9 @@ void IndexSpec_StartGCFromSpec(IndexSpec *sp, float initialHZ, uint32_t gcPolicy
 IndexSpec *IndexSpec_Parse(const char *name, const char **argv, int argc, QueryError *status);
 FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *path);
 
+/* Allocate the mempools contained by the index spec */
+void IndexSpec_AllocateMemPools(IndexSpec *sp);
+
 /**
  * Indicate that the index spec should use an internal dictionary,rather than
  * the Redis keyspace
@@ -467,6 +486,7 @@ char *IndexSpec_GetRandomTerm(IndexSpec *sp, size_t sampleSize);
  */
 void IndexSpec_Free(IndexSpec *spec);
 void IndexSpec_FreeInternals(IndexSpec *spec);
+void IndexSpec_FreeMemPools(IndexSpec *sp);
 
 /**
  * Free the index synchronously. Any keys associated with the index (but not the

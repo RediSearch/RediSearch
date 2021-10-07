@@ -26,6 +26,8 @@ IndexSpec* RediSearch_CreateIndex(const char* name, const RSIndexOptions* option
     options = &opts_s;
   }
   IndexSpec* spec = NewIndexSpec(name);
+  RediSearch_LockInit(spec);
+  IndexSpec_AllocateMemPools(spec);
   IndexSpec_MakeKeyless(spec);
   spec->flags |= Index_Temporary;  // temporary is so that we will not use threads!!
   spec->flags |= Index_FromLLAPI;
@@ -52,13 +54,12 @@ IndexSpec* RediSearch_CreateIndex(const char* name, const RSIndexOptions* option
     spec->stopwords = NewStopWordListCStr((const char **)options->stopwords,
                                                          options->stopwordsLen);
   }
+
   return spec;
 }
 
 void RediSearch_DropIndex(IndexSpec* sp) {
-  RWLOCK_ACQUIRE_WRITE();
   IndexSpec_FreeInternals(sp);
-  RWLOCK_RELEASE();
 }
 
 char **RediSearch_IndexGetStopwords(IndexSpec* sp, size_t *size) {
@@ -82,7 +83,7 @@ const char *RediSearch_IndexGetLanguage(IndexSpec* sp) {
 RSFieldID RediSearch_CreateField(IndexSpec* sp, const char* name, unsigned types,
                                  unsigned options) {
   RS_LOG_ASSERT(types, "types should not be RSFLDTYPE_DEFAULT");
-  RWLOCK_ACQUIRE_WRITE();
+  RWLOCK_ACQUIRE_WRITE(sp);
 
   // TODO: add a function which can take both path and name 
   FieldSpec* fs = IndexSpec_CreateField(sp, name, NULL);
@@ -92,7 +93,7 @@ RSFieldID RediSearch_CreateField(IndexSpec* sp, const char* name, unsigned types
     numTypes++;
     int txtId = IndexSpec_CreateTextId(sp);
     if (txtId < 0) {
-      RWLOCK_RELEASE();
+      RWLOCK_RELEASE(sp);
       return RSFIELD_INVALID;
     }
     fs->ftId = txtId;
@@ -131,7 +132,7 @@ RSFieldID RediSearch_CreateField(IndexSpec* sp, const char* name, unsigned types
     sp->flags |= Index_HasPhonetic;
   }
 
-  RWLOCK_RELEASE();
+  RWLOCK_RELEASE(sp);
   return fs->index;
 }
 
@@ -189,7 +190,7 @@ void RediSearch_FreeDocument(RSDoc* doc) {
 }
 
 int RediSearch_DeleteDocument(IndexSpec* sp, const void* docKey, size_t len) {
-  RWLOCK_ACQUIRE_WRITE();
+  RWLOCK_ACQUIRE_WRITE(sp);
   int rc = REDISMODULE_OK;
   t_docId id = DocTable_GetId(&sp->docs, docKey, len);
   if (id == 0) {
@@ -206,7 +207,7 @@ int RediSearch_DeleteDocument(IndexSpec* sp, const void* docKey, size_t len) {
     }
   }
 
-  RWLOCK_RELEASE();
+  RWLOCK_RELEASE(sp);
   return rc;
 }
 
@@ -264,7 +265,7 @@ void RediSearch_AddDocDone(RSAddDocumentCtx* aCtx, RedisModuleCtx* ctx, void* er
 }
 
 int RediSearch_IndexAddDocument(IndexSpec* sp, Document* d, int options, char** errs) {
-  RWLOCK_ACQUIRE_WRITE();
+  RWLOCK_ACQUIRE_WRITE(sp);
 
   RSError err = {.s = errs};
   QueryError status = {0};
@@ -273,7 +274,7 @@ int RediSearch_IndexAddDocument(IndexSpec* sp, Document* d, int options, char** 
     if (status.detail) {
       QueryError_ClearError(&status);
     }
-    RWLOCK_RELEASE();
+    RWLOCK_RELEASE(sp);
     return REDISMODULE_ERR;
   }
   aCtx->donecb = RediSearch_AddDocDone;
@@ -288,7 +289,7 @@ int RediSearch_IndexAddDocument(IndexSpec* sp, Document* d, int options, char** 
         *errs = rm_strdup("Document already exists");
       }
       AddDocumentCtx_Free(aCtx);
-      RWLOCK_RELEASE();
+      RWLOCK_RELEASE(sp);
       return REDISMODULE_ERR;
     }
   }
@@ -298,7 +299,7 @@ int RediSearch_IndexAddDocument(IndexSpec* sp, Document* d, int options, char** 
   AddDocumentCtx_Submit(aCtx, &sctx, options);
   rm_free(d);
 
-  RWLOCK_RELEASE();
+  RWLOCK_RELEASE(sp);
   return err.hasErr ? REDISMODULE_ERR : REDISMODULE_OK;
 }
 
@@ -417,6 +418,7 @@ size_t RediSearch_QueryNodeNumChildren(const QueryNode* qn) {
 }
 
 typedef struct RS_ApiIter {
+  IndexSpec* sp;
   IndexIterator* internal;
   RSIndexResult* res;
   const RSDocumentMetadata* lastmd;
@@ -443,13 +445,14 @@ typedef struct {
 
 static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** error) {
   // here we only take the read lock and we will free it when the iterator will be freed
-  RWLOCK_ACQUIRE_READ();
+  RWLOCK_ACQUIRE_READ(sp);
 
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(NULL, sp);
   RSSearchOptions options = {0};
   QueryError status = {0};
   RSSearchOptions_Init(&options);
   RS_ApiIter* it = rm_calloc(1, sizeof(*it));
+  it->sp = sp;
 
   if (input->qtype == QUERY_INPUT_STRING) {
     if (QAST_Parse(&it->qast, &sctx, &options, input->u.s.qs, input->u.s.n, &status) !=
@@ -536,6 +539,8 @@ double RediSearch_ResultsIteratorGetScore(const RS_ApiIter* it) {
 }
 
 void RediSearch_ResultsIteratorFree(RS_ApiIter* iter) {
+  RWLOCK_RELEASE(iter->sp);
+
   if (iter->internal) {
     iter->internal->Free(iter->internal);
   } else {
@@ -546,8 +551,6 @@ void RediSearch_ResultsIteratorFree(RS_ApiIter* iter) {
   }
   QAST_Destroy(&iter->qast);
   rm_free(iter);
-
-  RWLOCK_RELEASE();
 }
 
 void RediSearch_ResultsIteratorReset(RS_ApiIter* iter) {

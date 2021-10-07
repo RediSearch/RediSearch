@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <strings.h>
 #include "phonetic_manager.h"
+#include "spec.h"
 
 typedef struct {
   RSTokenizer base;
@@ -163,52 +164,38 @@ RSTokenizer *NewSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint3
   return &t->base;
 }
 
-static mempool_t *tokpoolLatin_g = NULL;
-static mempool_t *tokpoolCn_g = NULL;
-
-static void *newLatinTokenizerAlloc() {
+void *newLatinTokenizerAlloc() {
   return NewSimpleTokenizer(NULL, NULL, 0);
 }
-static void *newCnTokenizerAlloc() {
+void *newCnTokenizerAlloc() {
   return NewChineseTokenizer(NULL, NULL, 0);
 }
-static void tokenizerFree(void *p) {
+void tokenizerFree(void *p) {
   RSTokenizer *t = p;
   t->Free(t);
 }
 
-RSTokenizer *GetTokenizer(RSLanguage language, Stemmer *stemmer, StopWordList *stopwords) {
+RSTokenizer *GetTokenizer(RSLanguage language, Stemmer *stemmer, IndexSpec *sp) {
   if (language == RS_LANG_CHINESE) {
-    return GetChineseTokenizer(stemmer, stopwords);
+    return GetChineseTokenizer(stemmer, sp);
   } else {
-    return GetSimpleTokenizer(stemmer, stopwords);
+    return GetSimpleTokenizer(stemmer, sp);
   }
 }
 
-RSTokenizer *GetChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords) {
-  if (!tokpoolCn_g) {
-    mempool_options opts = {
-        .isGlobal = 1, .initialCap = 16, .alloc = newCnTokenizerAlloc, .free = tokenizerFree};
-    tokpoolCn_g = mempool_new(&opts);
-  }
-
-  RSTokenizer *t = mempool_get(tokpoolCn_g);
-  t->Reset(t, stemmer, stopwords, 0);
+RSTokenizer *GetChineseTokenizer(Stemmer *stemmer, IndexSpec *sp) {
+  RSTokenizer *t = mempool_get(sp->tokpoolCn_g);
+  t->Reset(t, stemmer, sp->stopwords, 0);
   return t;
 }
 
-RSTokenizer *GetSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords) {
-  if (!tokpoolLatin_g) {
-    mempool_options opts = {
-        .isGlobal = 1, .initialCap = 16, .alloc = newLatinTokenizerAlloc, .free = tokenizerFree};
-    tokpoolLatin_g = mempool_new(&opts);
-  }
-  RSTokenizer *t = mempool_get(tokpoolLatin_g);
-  t->Reset(t, stemmer, stopwords, 0);
+RSTokenizer *GetSimpleTokenizer(Stemmer *stemmer, IndexSpec *sp) {
+  RSTokenizer *t = mempool_get(sp->tokpoolLatin_g);
+  t->Reset(t, stemmer, sp->stopwords, 0);
   return t;
 }
 
-void Tokenizer_Release(RSTokenizer *t) {
+void Tokenizer_Release(RSTokenizer *t, IndexSpec *sp) {
   // In the future it would be nice to have an actual ID field or w/e, but for
   // now we can just compare callback pointers
   if (t->Next == simpleTokenizer_Next) {
@@ -216,8 +203,8 @@ void Tokenizer_Release(RSTokenizer *t) {
       StopWordList_Unref(t->ctx.stopwords);
       t->ctx.stopwords = NULL;
     }
-    mempool_release(tokpoolLatin_g, t);
+    mempool_release(sp->tokpoolLatin_g, t);
   } else {
-    mempool_release(tokpoolCn_g, t);
+    mempool_release(sp->tokpoolCn_g, t);
   }
 }

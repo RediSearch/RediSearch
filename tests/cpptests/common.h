@@ -22,7 +22,7 @@ static void donecb(RSAddDocumentCtx *aCtx, RedisModuleCtx *, void *) {
 
 template <typename... Ts>
 bool addDocument(RedisModuleCtx *ctx, IndexSpec *sp, const char *docid, Ts... args) {
-  RWLOCK_ACQUIRE_WRITE();
+  RWLOCK_ACQUIRE_WRITE(sp);
   RMCK::ArgvList argv(ctx, args...);
   AddDocumentOptions options = {0};
   options.numFieldElems = argv.size();
@@ -36,7 +36,7 @@ bool addDocument(RedisModuleCtx *ctx, IndexSpec *sp, const char *docid, Ts... ar
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
   int rv = RS_AddDocument(&sctx, RMCK::RString(docid), &options, &status);
   RedisModule_FreeString(ctx, options.keyStr);
-  RWLOCK_RELEASE();
+  RWLOCK_RELEASE(sp);
   return rv == REDISMODULE_OK;
 }
 
