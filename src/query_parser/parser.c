@@ -87,6 +87,21 @@ void setup_trace(QueryParseCtx *ctx) {
   #endif
 }
 
+
+void reportSyntaxError(QueryError *status, QueryToken* tok, const char *msg) {
+  if (tok->type == QT_TERM || tok->type == QT_TERM_CASE) {
+    QueryError_SetErrorFmt(status, QUERY_ESYNTAX,
+      "%s at offset %d near %.*s",
+      msg, tok->pos, tok->len, tok->s);
+  } else if (tok->type == QT_NUMERIC) {
+    QueryError_SetErrorFmt(status, QUERY_ESYNTAX,
+      "%s at offset %d near %f",
+      msg, tok->pos, tok->numval);
+  } else {
+    QueryError_SetErrorFmt(status, QUERY_ESYNTAX, "%s at offset %d", msg, tok->pos);
+  }
+}
+
 /**************** End of %include directives **********************************/
 /* These constants specify the various numeric values for terminal symbols
 ** in a format understandable to "makeheaders".  This section is blank unless
@@ -1595,9 +1610,7 @@ static YYACTIONTYPE yy_reduce(
   if (!badToken) {
     yymsp[-3].minor.yy86 = NewNumericFilterQueryParam_WithParams(ctx, &yymsp[-2].minor.yy0, &yymsp[-1].minor.yy0, yymsp[-2].minor.yy0.inclusive, yymsp[-1].minor.yy0.inclusive);
   } else {
-    QueryError_SetErrorFmt(ctx->status, QUERY_ESYNTAX,
-      "Expecting numeric or parameter at offset %d near %.*s",
-      badToken->pos, badToken->len, badToken->s);
+    reportSyntaxError(ctx->status, badToken, "Expecting numeric or parameter");
     yymsp[-3].minor.yy86 = NULL;
   }
 }
@@ -1635,14 +1648,12 @@ static YYACTIONTYPE yy_reduce(
   if (yymsp[-1].minor.yy0.type == QT_PARAM_ANY)
     yymsp[-1].minor.yy0.type = QT_PARAM_GEO_UNIT;
   else if (!badToken && yymsp[-1].minor.yy0.type != QT_TERM)
-    badToken = &yymsp[-2].minor.yy0;
+    badToken = &yymsp[-1].minor.yy0;
 
   if (!badToken) {
     yymsp[-5].minor.yy86 = NewGeoFilterQueryParam_WithParams(ctx, &yymsp[-4].minor.yy0, &yymsp[-3].minor.yy0, &yymsp[-2].minor.yy0, &yymsp[-1].minor.yy0);
   } else {
-    QueryError_SetErrorFmt(ctx->status, QUERY_ESYNTAX,
-      "Syntax error at offset %d near %.*s",
-      badToken->pos, badToken->len, badToken->s);
+    reportSyntaxError(ctx->status, badToken, "Syntax error");
     yymsp[-5].minor.yy86 = NULL;
   }
 }
@@ -1665,7 +1676,7 @@ static YYACTIONTYPE yy_reduce(
   // and detect syntax errors
   QueryToken *badToken = NULL;
   if (yymsp[-3].minor.yy0.type == QT_TERM) {
-    yymsp[-3].minor.yy0.type = QT_TERM_CASE;
+    yymsp[-3].minor.yy0.type = QT_VEC;
     // FIXME: Remove hack for handling lexer/scanner of terms with trailing equal signs.
     //  Equal signs are currently considered as punct (punctuation) and are not included in a
     //  term, But in base64 encoding, it is used as padding to extend the string to a length
@@ -1678,6 +1689,8 @@ static YYACTIONTYPE yy_reduce(
       yymsp[-3].minor.yy0.len = len + 1;
   } else if (yymsp[-3].minor.yy0.type == QT_PARAM_ANY) {
     yymsp[-3].minor.yy0.type = QT_PARAM_VEC;
+  } else {
+    badToken = &yymsp[-3].minor.yy0;
   }
 
   if (yymsp[-2].minor.yy0.type == QT_PARAM_ANY) {
@@ -1695,9 +1708,7 @@ static YYACTIONTYPE yy_reduce(
   if (!badToken) {
     yymsp[-4].minor.yy86 = NewVectorFilterQueryParam_WithParams(ctx, &yymsp[-3].minor.yy0, &yymsp[-2].minor.yy0, &yymsp[-1].minor.yy0);
   } else {
-    QueryError_SetErrorFmt(ctx->status, QUERY_ESYNTAX,
-       "Syntax error at offset %d near %.*s",
-       badToken->pos, badToken->len, badToken->s);
+    reportSyntaxError(ctx->status, badToken, "Syntax error");
     yymsp[-4].minor.yy86 = NULL;
   }
 }

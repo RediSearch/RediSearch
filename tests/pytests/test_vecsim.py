@@ -193,7 +193,7 @@ def query_vector(env, idx, query_vec):
                                 'SORTBY', 'vector', 'ASC', 'NOCONTENT', 'WITHSCORES')
 
 def testDelReuseDvir(env):
-    env.skip() # @@diag
+    #env.skip() # @@diag
     conn = getConnectionByEnv(env)
     INDEX_NAME = 'items'
     prefix = 'item'
@@ -216,9 +216,9 @@ def test_create(env):
     conn.execute_command('FT.CREATE', 'idx3', 'SCHEMA', 'v', 'VECTOR', 'FLOAT32', '16', 'COSINE', 'HNSW', 'INITIAL_CAP', '10', 'M', '16', 'EF', '200')
     
     # test wrong query word
-    env.expect('FT.SEARCH', 'idx1', '@v:[abcdefgh REDIS 4]').raiseError().equal('Invalid Vector Filter similarity type')
-    env.expect('FT.SEARCH', 'idx2', '@v:[abcdefgh REDIS 4]').raiseError().equal('Invalid Vector Filter similarity type')
-    env.expect('FT.SEARCH', 'idx3', '@v:[abcdefgh REDIS 4]').raiseError().equal('Invalid Vector Filter similarity type')
+    env.expect('FT.SEARCH', 'idx1', '@v:[abcdefgh REDIS 4]').raiseError().equal('Invalid Vector similarity type')
+    env.expect('FT.SEARCH', 'idx2', '@v:[abcdefgh REDIS 4]').raiseError().equal('Invalid Vector similarity type')
+    env.expect('FT.SEARCH', 'idx3', '@v:[abcdefgh REDIS 4]').raiseError().equal('Invalid Vector similarity type')
 
 def test_with_weight(env):
     env.skip()

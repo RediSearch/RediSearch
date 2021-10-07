@@ -76,11 +76,13 @@ def test_errors(env):
     env.expect('FT.SEARCH', 'idx', '@g:[foo bar $radius $units]', 'NOCONTENT', 'PARAMS', '4', 'radius', '500', 'units', 'badm').raiseError().contains('Syntax error')
     env.expect('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 badval $units]', 'NOCONTENT').raiseError().contains('Syntax error')
     env.expect('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 $radius 100]', 'NOCONTENT').raiseError().contains('Syntax error')
+    env.expect('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 200 100]', 'NOCONTENT').raiseError().contains('Syntax error')
 
     env.expect('FT.SEARCH', 'idx', '@numval:[-inf max]', 'NOCONTENT', 'PARAMS', '4', 'min', '-inf', 'max', '105').raiseError().contains('Expecting numeric or parameter')
     env.expect('FT.SEARCH', 'idx', '@numval:[min 105]', 'NOCONTENT', 'PARAMS', '4', 'min', '-inf', 'max', '105').raiseError().contains('Expecting numeric or parameter')
 
-    env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TKO 4]').raiseError().contains('Invalid Vector Filter similarity type')
+    env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TKOO 4]').raiseError().contains('Invalid Vector similarity type')
+    env.expect('FT.SEARCH', 'idx', '@v:[abcdef TOPK badval]').raiseError().contains('Syntax error')
     env.expect('FT.SEARCH', 'idx', '@v:[abcdef TOPK badval]').raiseError().contains('Syntax error')
 
 
@@ -98,7 +100,7 @@ def test_binary_data(env):
     env.assertEqual(conn.execute_command('HSET', 'key2', 'bin', bin_data2), 1L)
 
     # Compare results with and without param - data1
-    res1 = conn.execute_command('FT.SEARCH', 'idx', '@bin:10010101001010101100101011001101010101', 'NOCONTENT')
+    res1 = conn.execute_command('FT.SEARCH', 'idx', '@bin:' + bin_data2, 'NOCONTENT')
     env.assertEqual(res1, [1L, 'key2'])
     res2 = conn.execute_command('FT.SEARCH', 'idx', '@bin:$val', 'NOCONTENT', 'PARAMS', '2', 'val', '10010101001010101100101011001101010101')
     env.assertEqual(res2, res1)

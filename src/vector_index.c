@@ -111,7 +111,7 @@ VectorQueryType VectorFilter_ParseType(const char *s, size_t len) {
 
 int VectorFilter_Validate(const VectorFilter *vf, QueryError *status) {
     if (vf->type == VECTOR_SIM_INVALID) {
-      QERR_MKSYNTAXERR(status, "Invalid Vector Filter similarity type");
+      QERR_MKSYNTAXERR(status, "Invalid Vector similarity type");
       return 0;
     }
     return 1;

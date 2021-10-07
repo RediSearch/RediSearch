@@ -95,6 +95,21 @@ void setup_trace(QueryParseCtx *ctx) {
   #endif
 }
 
+
+void reportSyntaxError(QueryError *status, QueryToken* tok, const char *msg) {
+  if (tok->type == QT_TERM || tok->type == QT_TERM_CASE) {
+    QueryError_SetErrorFmt(status, QUERY_ESYNTAX,
+      "%s at offset %d near %.*s",
+      msg, tok->pos, tok->len, tok->s);
+  } else if (tok->type == QT_NUMERIC) {
+    QueryError_SetErrorFmt(status, QUERY_ESYNTAX,
+      "%s at offset %d near %f",
+      msg, tok->pos, tok->numval);
+  } else {
+    QueryError_SetErrorFmt(status, QUERY_ESYNTAX, "%s at offset %d", msg, tok->pos);
+  }
+}
+
 } // END %include  
 
 %extra_argument { QueryParseCtx *ctx }
@@ -556,9 +571,7 @@ numeric_range(A) ::= LSQB param_any(B) param_any(C) RSQB. [NUMBER] {
   if (!badToken) {
     A = NewNumericFilterQueryParam_WithParams(ctx, &B, &C, B.inclusive, C.inclusive);
   } else {
-    QueryError_SetErrorFmt(ctx->status, QUERY_ESYNTAX,
-      "Expecting numeric or parameter at offset %d near %.*s",
-      badToken->pos, badToken->len, badToken->s);
+    reportSyntaxError(ctx->status, badToken, "Expecting numeric or parameter");
     A = NULL;
   }
 }
@@ -597,14 +610,12 @@ geo_filter(A) ::= LSQB param_any(B) param_any(C) param_any(D) param_any(E) RSQB.
   if (E.type == QT_PARAM_ANY)
     E.type = QT_PARAM_GEO_UNIT;
   else if (!badToken && E.type != QT_TERM)
-    badToken = &D;
+    badToken = &E;
 
   if (!badToken) {
     A = NewGeoFilterQueryParam_WithParams(ctx, &B, &C, &D, &E);
   } else {
-    QueryError_SetErrorFmt(ctx->status, QUERY_ESYNTAX,
-      "Syntax error at offset %d near %.*s",
-      badToken->pos, badToken->len, badToken->s);
+    reportSyntaxError(ctx->status, badToken, "Syntax error");
     A = NULL;
   }
 }
@@ -625,7 +636,7 @@ vector_filter(A) ::= LSQB param_any(B) param_any(C) param_any(D) RSQB. [NUMBER] 
   // and detect syntax errors
   QueryToken *badToken = NULL;
   if (B.type == QT_TERM) {
-    B.type = QT_TERM_CASE;
+    B.type = QT_VEC;
     // FIXME: Remove hack for handling lexer/scanner of terms with trailing equal signs.
     //  Equal signs are currently considered as punct (punctuation) and are not included in a
     //  term, But in base64 encoding, it is used as padding to extend the string to a length
@@ -638,6 +649,8 @@ vector_filter(A) ::= LSQB param_any(B) param_any(C) param_any(D) RSQB. [NUMBER] 
       B.len = len + 1;
   } else if (B.type == QT_PARAM_ANY) {
     B.type = QT_PARAM_VEC;
+  } else {
+    badToken = &B;
   }
 
   if (C.type == QT_PARAM_ANY) {
@@ -655,9 +668,7 @@ vector_filter(A) ::= LSQB param_any(B) param_any(C) param_any(D) RSQB. [NUMBER] 
   if (!badToken) {
     A = NewVectorFilterQueryParam_WithParams(ctx, &B, &C, &D);
   } else {
-    QueryError_SetErrorFmt(ctx->status, QUERY_ESYNTAX,
-       "Syntax error at offset %d near %.*s",
-       badToken->pos, badToken->len, badToken->s);
+    reportSyntaxError(ctx->status, badToken, "Syntax error");
     A = NULL;
   }
 }

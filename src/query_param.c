@@ -133,8 +133,9 @@ bool QueryParam_SetParam(QueryParseCtx *q, Param *target_param, void *target_val
 
   case QT_VEC:
     target_param->type = PARAM_NONE;
-    target_value = rm_malloc(source->len);
-    memcpy(target_value, source->s, source->len);
+    char *data = rm_malloc(source->len);
+    memcpy(data, source->s, source->len);
+    *(void**)target_value = data;
     assert(target_len);
     *target_len = source->len;
     return false; // done
