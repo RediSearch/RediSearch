@@ -55,7 +55,7 @@ void FieldList_Free(FieldList *fields) {
   rm_free(fields->fields);
 }
 
-ReturnedField *FieldList_GetCreateField(FieldList *fields, const char *name) {
+ReturnedField *FieldList_GetCreateField(FieldList *fields, const char *name, const char *path) {
   size_t foundIndex = -1;
   for (size_t ii = 0; ii < fields->numFields; ++ii) {
     if (!strcmp(fields->fields[ii].name, name)) {
@@ -67,6 +67,7 @@ ReturnedField *FieldList_GetCreateField(FieldList *fields, const char *name) {
   ReturnedField *ret = fields->fields + (fields->numFields - 1);
   memset(ret, 0, sizeof *ret);
   ret->name = name;
+  ret->path = path ? path : name;
   return ret;
 }
 
@@ -159,13 +160,18 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
     if ((parseSortby(arng, ac, status, req->reqflags & QEXEC_F_IS_SEARCH)) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
+  } else if (AC_AdvanceIfMatch(ac, "MSORTBY")) {
+    PLN_ArrangeStep *arng = AGPLN_GetOrCreateArrangeStep(&req->ap);
+    if ((parseSortby(arng, ac, status, 0)) != REDISMODULE_OK) {
+      return ARG_ERROR;
+    }
   } else if (AC_AdvanceIfMatch(ac, "TIMEOUT")) {	
     if (AC_NumRemaining(ac) < 1) {	
       QueryError_SetError(status, QUERY_EPARSEARGS, "Need argument for TIMEOUT");	
       return ARG_ERROR;	
     }	
-    if (AC_GetInt(ac, &req->reqTimeout, AC_F_GE1) != AC_OK) {	
-      QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "TIMEOUT requires a positive integer");	
+    if (AC_GetInt(ac, &req->reqTimeout, AC_F_GE0) != AC_OK) {	
+      QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "TIMEOUT requires a non negative integer");	
       return ARG_ERROR;	
     }
   } else if (AC_AdvanceIfMatch(ac, "WITHCURSOR")) {
@@ -404,7 +410,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
   searchOpts->ninkeys = inKeys.argc;
   searchOpts->legacy.infields = (const char **)inFields.objs;
   searchOpts->legacy.ninfields = inFields.argc;
-  searchOpts->language = RSLanguage_Find(languageStr);
+  searchOpts->language = RSLanguage_Find(languageStr, 0);
 
   if (AC_IsInitialized(&returnFields)) {
     ensureSimpleMode(req);
@@ -415,8 +421,19 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
     }
 
     while (!AC_IsAtEnd(&returnFields)) {
-      const char *name = AC_GetStringNC(&returnFields, NULL);
-      ReturnedField *f = FieldList_GetCreateField(&req->outFields, name);
+      const char *path = AC_GetStringNC(&returnFields, NULL);
+      const char *name = path;
+      if (AC_AdvanceIfMatch(&returnFields, SPEC_AS_STR)) {
+        int rv = AC_GetString(&returnFields, &name, NULL, 0);
+        if (rv != AC_OK) {
+          QERR_MKBADARGS_FMT(status, "RETURN path AS name - must be accompanied with NAME");
+          return REDISMODULE_ERR;
+        } else if (!strncasecmp(name, SPEC_AS_STR, strlen(SPEC_AS_STR))) {
+          QERR_MKBADARGS_FMT(status, "Alias for RETURN cannot be `AS`");
+          return REDISMODULE_ERR;
+        }
+      }
+      ReturnedField *f = FieldList_GetCreateField(&req->outFields, name, path);
       f->explicitReturn = 1;
     }
   }
@@ -615,14 +632,23 @@ static int handleLoad(AREQ *req, ArgsCursor *ac, QueryError *status) {
   ArgsCursor loadfields = {0};
   int rc = AC_GetVarArgs(ac, &loadfields);
   if (rc != AC_OK) {
-    QERR_MKBADARGS_AC(status, "LOAD", rc);
-    return REDISMODULE_ERR;
+    const char *s = NULL;
+    rc = AC_GetString(ac, &s, NULL, 0);
+    if (rc != AC_OK || strncasecmp(s, "ALL", strlen("ALL"))) {
+      QERR_MKBADARGS_AC(status, "LOAD", rc);
+      return REDISMODULE_ERR;  
+    }
+
+    req->reqflags |= QEXEC_AGG_LOAD_ALL;
   }
+
   PLN_LoadStep *lstp = rm_calloc(1, sizeof(*lstp));
   lstp->base.type = PLN_T_LOAD;
   lstp->base.dtor = loadDtor;
-  lstp->args = loadfields;
-  lstp->keys = rm_calloc(loadfields.argc, sizeof(*lstp->keys));
+  if (loadfields.argc > 0) {
+    lstp->args = loadfields;
+    lstp->keys = rm_calloc(loadfields.argc, sizeof(*lstp->keys));
+  }
 
   AGPLN_AddStep(&req->ap, &lstp->base);
   return REDISMODULE_OK;
@@ -792,7 +818,8 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   return REDISMODULE_OK;
 }
 
-static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup, QueryError *err) {
+static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup, QueryError *err,
+                                     struct timespec *timeout) {
   const RLookupKey *srckeys[gstp->nproperties], *dstkeys[gstp->nproperties];
   for (size_t ii = 0; ii < gstp->nproperties; ++ii) {
     const char *fldname = gstp->properties[ii] + 1;  // account for the @-
@@ -804,7 +831,7 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup, Qu
     dstkeys[ii] = RLookup_GetKey(&gstp->lookup, fldname, RLOOKUP_F_OCREAT | RLOOKUP_F_NOINCREF);
   }
 
-  Grouper *grp = Grouper_New(srckeys, dstkeys, gstp->nproperties);
+  Grouper *grp = Grouper_New(srckeys, dstkeys, gstp->nproperties, timeout);
 
   size_t nreducers = array_len(gstp->reducers);
   for (size_t ii = 0; ii < nreducers; ++ii) {
@@ -856,7 +883,7 @@ static ResultProcessor *getGroupRP(AREQ *req, PLN_GroupStep *gstp, ResultProcess
                                    QueryError *status) {
   AGGPlan *pln = &req->ap;
   RLookup *lookup = AGPLN_GetLookup(pln, &gstp->base, AGPLN_GETLOOKUP_PREV);
-  ResultProcessor *groupRP = buildGroupRP(gstp, lookup, status);
+  ResultProcessor *groupRP = buildGroupRP(gstp, lookup, status, &req->timeoutTime);
 
   if (!groupRP) {
     return NULL;
@@ -924,13 +951,13 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
       }
     }
 
-    rp = RPSorter_NewByFields(limit, sortkeys, nkeys, astp->sortAscMap);
+    rp = RPSorter_NewByFields(limit, sortkeys, nkeys, astp->sortAscMap, &req->timeoutTime);
     up = pushRP(req, rp, up);
   }
 
   // No sort? then it must be sort by score, which is the default.
   if (rp == NULL && (req->reqflags & QEXEC_F_IS_SEARCH)) {
-    rp = RPSorter_NewByScore(limit);
+    rp = RPSorter_NewByScore(limit, &req->timeoutTime);
     up = pushRP(req, rp, up);
   }
 
@@ -1032,6 +1059,10 @@ int buildOutputPipeline(AREQ *req, QueryError *status) {
                                rf->name);
         goto error;
       }
+
+      // change path to be used by loader
+      lk->path = rf->path;
+
       *array_ensure_tail(&loadkeys, const RLookupKey *) = lk;
       // assign explicit output flag
       lk->flags |= RLOOKUP_F_EXPLICITRETURN;
@@ -1136,19 +1167,36 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
         }
         // Get all the keys for this lookup...
         while (!AC_IsAtEnd(&lstp->args)) {
-          const char *s = AC_GetStringNC(&lstp->args, NULL);
-          if (*s == '@') {
-            s++;
+          const char *path = AC_GetStringNC(&lstp->args, NULL);
+          if (*path == '@') {
+            path++;
           }
-          const RLookupKey *kk = RLookup_GetKey(curLookup, s, RLOOKUP_F_OEXCL | RLOOKUP_F_OCREAT);
+          const char *name = path;
+
+          RLookupKey *kk = RLookup_GetKey(curLookup, path, RLOOKUP_F_OEXCL | RLOOKUP_F_OCREAT);
           if (!kk) {
             // We only get a NULL return if the key already exists, which means
             // that we don't need to retrieve it again.
             continue;
           }
+
+          if (AC_AdvanceIfMatch(&lstp->args, SPEC_AS_STR)) {
+            int rv = AC_GetString(&lstp->args, &name, NULL, 0);
+            if (rv != AC_OK) {
+              QERR_MKBADARGS_FMT(status, "RETURN path AS name - must be accompanied with NAME");
+              return REDISMODULE_ERR;
+            } else if (!strncasecmp(name, SPEC_AS_STR, strlen(SPEC_AS_STR))) {
+              QERR_MKBADARGS_FMT(status, "Alias for RETURN cannot be `AS`");
+              return REDISMODULE_ERR;
+            }
+          }
+          // set lookupkey name to name.
+          // by defualt "name = path" 
+          kk->name = name;
+          kk->name_len = strlen(name);
           lstp->keys[lstp->nkeys++] = kk;
         }
-        if (lstp->nkeys) {
+        if (lstp->nkeys || req->reqflags & QEXEC_AGG_LOAD_ALL) {
           rp = RPLoader_New(curLookup, lstp->keys, lstp->nkeys);
           PUSH_RP();
         }

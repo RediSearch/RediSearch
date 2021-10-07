@@ -34,6 +34,8 @@ typedef struct {
 } HighlightSettings;
 
 typedef struct {
+  // path AS name
+  const char *path;
   const char *name;
 
   /* Lookup key associated with field */
@@ -57,7 +59,9 @@ typedef struct {
   uint16_t explicitReturn;
 } FieldList;
 
-ReturnedField *FieldList_GetCreateField(FieldList *fields, const char *name);
+// "path AS name"
+// If `path` is NULL then `path` = `name`
+ReturnedField *FieldList_GetCreateField(FieldList *fields, const char *name, const char *path);
 void FieldList_Free(FieldList *fields);
 
 int ParseSummarize(ArgsCursor *ac, FieldList *fields);

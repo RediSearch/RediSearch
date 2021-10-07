@@ -11,6 +11,7 @@ For further details see the [Snowball Stemmer website](http://snowballstem.org/)
 The following languages are supported and can be passed to the engine when indexing or querying, with lowercase letters:
 
 * arabic
+* armenian
 * danish
 * dutch
 * english
@@ -23,10 +24,12 @@ The following languages are supported and can be passed to the engine when index
 * portuguese
 * romanian
 * russian
+* serbian
 * spanish
 * swedish
 * tamil
 * turkish
+* yiddish
 * chinese (see below)
 
 ## Chinese support

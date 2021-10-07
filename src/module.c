@@ -31,6 +31,7 @@
 #include "module.h"
 #include "rwlock.h"
 #include "info_command.h"
+#include "rejson_api.h"
 
 #define LOAD_INDEX(ctx, srcname, write)                                                     \
   ({                                                                                        \
@@ -411,9 +412,11 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   if (RMUtil_StringEqualsCaseC(argv[0], "FT.DROP") ||
       RMUtil_StringEqualsCaseC(argv[0], "_FT.DROP")) {
-    RedisModule_Replicate(ctx, RS_DROP_IF_X_CMD, "v", argv + 1, argc - 1);
+    // We always send KEEPDOC to the slave.
+    RedisModule_Replicate(ctx, RS_DROP_IF_X_CMD, "sc", argv[1], "KEEPDOCS");
   } else {
-    RedisModule_Replicate(ctx, RS_DROP_INDEX_IF_X_CMD, "v", argv + 1, argc - 1);
+    // Remove DD as documents were deleted with RM_Call.
+    RedisModule_Replicate(ctx, RS_DROP_INDEX_IF_X_CMD, "s", argv[1]);
   }
 
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
@@ -565,27 +568,29 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
     initialScan = false;
   }
 
-  if (AC_AdvanceIfMatch(&ac, "SCHEMA")) {
-    if (!AC_AdvanceIfMatch(&ac, "ADD")) {
-      return RedisModule_ReplyWithError(ctx, "Unknown action passed to ALTER SCHEMA");
-    }
-    if (!AC_NumRemaining(&ac)) {
-      return RedisModule_ReplyWithError(ctx, "No fields provided");
-    }
-    if (ifnx) {
-      const char *fieldName;
-      size_t fieldNameSize;
-
-      int rv = AC_GetString(&ac, &fieldName, &fieldNameSize, AC_F_NOADVANCE);
-      if (IndexSpec_GetField(sp, fieldName, fieldNameSize)) {
-        RedisModule_Replicate(ctx, RS_ALTER_IF_NX_CMD, "v", argv + 1, argc - 1);
-        return RedisModule_ReplyWithSimpleString(ctx, "OK");
-      }
-    }
-    IndexSpec_AddFields(sp, ctx, &ac, initialScan, &status);
-  } else {
-      return RedisModule_ReplyWithError(ctx, "ALTER must be followed by SCHEMA");
+  if (!AC_AdvanceIfMatch(&ac, "SCHEMA")) {
+    return RedisModule_ReplyWithError(ctx, "ALTER must be followed by SCHEMA");
   }
+
+  if (!AC_AdvanceIfMatch(&ac, "ADD")) {
+    return RedisModule_ReplyWithError(ctx, "Unknown action passed to ALTER SCHEMA");
+  }
+
+  if (!AC_NumRemaining(&ac)) {
+    return RedisModule_ReplyWithError(ctx, "No fields provided");
+  }
+
+  if (ifnx) {
+    const char *fieldName;
+    size_t fieldNameSize;
+
+    int rv = AC_GetString(&ac, &fieldName, &fieldNameSize, AC_F_NOADVANCE);
+    if (IndexSpec_GetField(sp, fieldName, fieldNameSize)) {
+      RedisModule_Replicate(ctx, RS_ALTER_IF_NX_CMD, "v", argv + 1, argc - 1);
+      return RedisModule_ReplyWithSimpleString(ctx, "OK");
+    }
+  }
+  IndexSpec_AddFields(sp, ctx, &ac, initialScan, &status);
 
   if (QueryError_HasError(&status)) {
     return QueryError_ReplyAndClear(ctx, &status);
@@ -595,6 +600,7 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
   }
 }
 
+/* FT.ALTER */
 int AlterIndexIfNXCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return AlterIndexInternalCommand(ctx, argv, argc, true);
 }
@@ -823,7 +829,7 @@ static void GetRedisVersion() {
   RedisModule_FreeThreadSafeContext(ctx);
 }
 
-static inline int IsEnterprise() {
+int IsEnterprise() {
   return rlecVersion.majorVersion != -1;
 }
 
@@ -1047,9 +1053,9 @@ void __attribute__((destructor)) RediSearch_CleanupModule(void) {
     ConcurrentSearch_ThreadPoolDestroy();
     ReindexPool_ThreadPoolDestroy();
     GC_ThreadPoolDestroy();
-    IndexAlias_DestroyGlobal();
+    IndexAlias_DestroyGlobal(&AliasTable_g);
     freeGlobalAddStrings();
-    SchemaPrefixes_Free();
+    SchemaPrefixes_Free(ScemaPrefixes_g);
     RedisModule_FreeThreadSafeContext(RSDummyContext);
     Dictionary_Free();
     RediSearch_LockDestory();

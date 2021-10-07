@@ -2,6 +2,39 @@
 ROOT=.
 include deps/readies/mk/main
 
+ifneq ($(VG),)
+VALGRIND=$(VG)
+endif
+
+ifeq ($(VALGRIND),1)
+override DEBUG ?= 1
+endif
+
+ifneq ($(SAN),)
+override DEBUG ?= 1
+ifeq ($(SAN),mem)
+CMAKE_SAN=-DUSE_MSAN=ON -DMSAN_PREFIX=/opt/llvm-project/build-msan
+SAN_DIR=msan
+export SAN=memory
+else ifeq ($(SAN),memory)
+CMAKE_SAN=-DUSE_MSAN=ON -DMSAN_PREFIX=/opt/llvm-project/build-msan
+SAN_DIR=msan
+export SAN=memory
+else ifeq ($(SAN),addr)
+CMAKE_SAN=-DUSE_ASAN=ON
+SAN_DIR=asan
+export SAN=address
+else ifeq ($(SAN),address)
+CMAKE_SAN=-DUSE_ASAN=ON
+SAN_DIR=asan
+export SAN=address
+else ifeq ($(SAN),leak)
+else ifeq ($(SAN),thread)
+else
+$(error SAN=mem|addr|leak|thread)
+endif
+endif
+
 define HELP
 make setup         # install prerequisited (CAUTION: THIS WILL MODIFY YOUR SYSTEM)
 make fetch         # download and prepare dependant modules
@@ -10,8 +43,11 @@ make build         # compile and link
   DEBUG=1          # build for debugging (implies WITH_TESTS=1)
   WITH_TESTS=1     # enable unit tests
   WHY=1            # explain CMake decisions (in /tmp/cmake-why)
-  CMAKE=1          # Force CMake rerun
+  FORCE=1          # Force CMake rerun
   CMAKE_ARGS=...   # extra arguments to CMake
+  STATIC=1         # build as static lib
+  VG=1             # build for Valgrind
+  SAN=type         # build with LLVM sanitizer (type=address|memory|leak|thread) 
 make parsers       # build parsers code
 make clean         # remove build artifacts
   ALL=1              # remove entire artifacts directory
@@ -21,12 +57,16 @@ make run           # run redis with RediSearch
 
 make test          # run all tests (via ctest)
   TEST=regex
+  TESTDEBUG=1        # be very verbose (CTest-related)
+  CTEST_ARG=...      # pass args to CTest
 make pytest        # run python tests (tests/pytests)
   TEST=name          # e.g. TEST=test:testSearch
   RLTEST_ARGS=...    # pass args to RLTest
-  CTEST_ARG=...      # pass args to CTest
-  TESTDEBUG=1        # be very verbose (CTest-related)
+  REJSON=1|0         # also load RedisJSON module
+  REJSON_PATH=path   # use RedisJSON module at `path`
   GDB=1              # RLTest interactive debugging
+  VG=1               # use Valgrind
+  SAN=type           # use LLVM sanitizer (type=address|memory|leak|thread) 
 make c_tests       # run C tests (from tests/ctests)
 make cpp_tests     # run C++ tests (from tests/cpptests)
   TEST=name          # e.g. TEST=FGCTest.testRemoveLastBlock
@@ -49,7 +89,11 @@ endef
 
 COMPAT_MODULE := src/redisearch.so
 
+ifeq ($(SAN),)
 COMPAT_DIR ?= build
+else
+COMPAT_DIR ?= build-$(SAN_DIR)
+endif
 
 BINROOT=$(COMPAT_DIR)
 BINDIR=$(COMPAT_DIR)
@@ -63,6 +107,14 @@ export PACKAGE_NAME
 
 #----------------------------------------------------------------------------------------------
 
+ifneq ($(SAN),)
+CMAKE_SAN += -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+endif
+
+ifeq ($(PROFILE),1)
+CMAKE_PROFILE=-DPROFILE=ON
+endif
+
 ifeq ($(DEBUG),1)
 CMAKE_BUILD_TYPE=DEBUG
 WITH_TESTS ?= 1
@@ -73,10 +125,17 @@ CMAKE_DEBUG=-DCMAKE_BUILD_TYPE=$(CMAKE_BUILD_TYPE)
 
 ifeq ($(WITH_TESTS),1)
 CMAKE_TEST=-DRS_RUN_TESTS=ON
+# -DRS_VERBOSE_TESTS=ON
 endif
 
 ifeq ($(WHY),1)
 CMAKE_WHY=--trace-expand > /tmp/cmake-why 2>&1
+endif
+
+ifeq ($(STATIC),1)
+CMAKE_STATIC +=\
+	-DRS_FORCE_NO_GITVERSION=ON \
+	-DRS_BUILD_STATIC=ON
 endif
 
 CMAKE_FILES= \
@@ -100,6 +159,8 @@ CMAKE_FILES+= \
 	tests/c_utils/CMakeLists.txt
 endif
 
+CMAKE_FLAGS=$(CMAKE_ARGS) $(CMAKE_DEBUG) $(CMAKE_STATIC) $(CMAKE_SAN) $(CMAKE_TEST) $(CMAKE_WHY) $(CMAKE_PROFILE)
+
 #----------------------------------------------------------------------------------------------
 
 include $(MK)/defs
@@ -111,7 +172,7 @@ include $(MK)/rules
 $(COMPAT_MODULE): $(BINROOT)/redisearch.so
 	cp $^ $@
 
-ifeq ($(CMAKE),1)
+ifeq ($(FORCE),1)
 .PHONY: __force
 
 $(BINROOT)/Makefile: __force
@@ -123,7 +184,7 @@ ifeq ($(WHY),1)
 	@echo CMake log is in /tmp/cmake-why
 endif
 	@mkdir -p $(BINROOT)
-	@cd $(BINROOT) && cmake .. $(CMAKE_ARGS) $(CMAKE_TEST) $(CMAKE_DEBUG) $(CMAKE_WHY)
+	@cd $(BINROOT) && cmake .. $(CMAKE_FLAGS)
 
 $(COMPAT_DIR)/redisearch.so: $(BINROOT)/Makefile
 	@echo Building ...
@@ -169,40 +230,54 @@ fetch:
 #----------------------------------------------------------------------------------------------
 
 run:
-	@redis-server --loadmodule $(COMPAT_MODULE)
+	@redis-server --loadmodule $(abspath $(TARGET))
 
 #----------------------------------------------------------------------------------------------
+
+BENCHMARK_ARGS = redisbench-admin run-local
+
+ifneq ($(REMOTE),)
+	BENCHMARK_ARGS = redisbench-admin run-remote 
+endif
+
+ifeq ($(REJSON),1)
+BENCHMARK_ARGS += --module_path $(realpath $(REJSON_PATH)) \
+	--required-module ReJSON
+endif
+
+BENCHMARK_ARGS += --module_path $(realpath $(TARGET)) \
+	--required-module search
+
+ifneq ($(BENCHMARK),)
+	BENCHMARK_ARGS += --test $(BENCHMARK)
+endif
+
+
+benchmark: $(TARGET)
+	cd ./tests/ci.benchmarks; $(BENCHMARK_ARGS) ; cd ../../
+
+#----------------------------------------------------------------------------------------------
+export REJSON ?= 1
 
 ifeq ($(TESTDEBUG),1)
 override CTEST_ARGS += --debug
 endif
 
+ifneq ($(CTEST_PARALLEL),)
+override CTEST_ARGS += -j$(CTEST_PARALLEL)
+endif
+
+override CTEST_ARGS += --timeout 15000
+
 test:
 ifneq ($(TEST),)
 	@set -e; cd $(BINROOT); CTEST_OUTPUT_ON_FAILURE=1 RLTEST_ARGS="-s -v" ctest $(CTEST_ARGS) -vv -R $(TEST)
 else
-	@set -e; cd $(BINROOT); ctest
-endif
-
-ifeq ($(GDB),1)
-RLTEST_GDB=-i
-endif
-
-ifneq ($(MOD_ARGS),)
-override RLTEST_ARGS+=--module-args $(MOD_ARGS)
+	@set -e; cd $(BINROOT); ctest $(CTEST_ARGS)
 endif
 
 pytest:
-	@set -e ;\
-	if ! command -v redis-server > /dev/null; then \
-		echo "Cannot find redis-server. Aborting." ;\
-		exit 1 ;\
-	fi
-ifneq ($(TEST),)
-	@cd tests/pytests; PYDEBUG=1 python -m RLTest --test $(TEST) $(RLTEST_GDB) -s -v --module $(abspath $(TARGET)) $(RLTEST_ARGS)
-else
-	@cd tests/pytests; python -m RLTest --module $(abspath $(TARGET))
-endif
+	@TEST=$(TEST) FORCE= $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
 
 ifeq ($(GDB),1)
 GDB_CMD=gdb -ex r --args
@@ -297,4 +372,3 @@ docker_push: docker
 	docker push redislabs/redisearch:$(MODULE_VERSION)
 
 .PHONY: docker docker_push
-

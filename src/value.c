@@ -205,9 +205,9 @@ RSValue *RS_OwnRedisStringVal(RedisModuleString *str) {
   return r;
 }
 
+// TODO : NORMALLY
 RSValue *RS_StealRedisStringVal(RedisModuleString *str) {
   RSValue *ret = RS_RedisStringVal(str);
-  ret->rstrval = str;
   ret->t = RSValue_OwnRstring;
   return ret;
 }

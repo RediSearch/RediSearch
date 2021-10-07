@@ -46,6 +46,9 @@ void StopWordList_Ref(struct StopWordList *sl);
 
 void ReplyWithStopWordsList(RedisModuleCtx *ctx, struct StopWordList *sl);
 
+/* Returns a NULL terminated list of stopwords */
+char **GetStopWordsList(struct StopWordList *sl, size_t *size);
+
 #ifdef __cplusplus
 }
 #endif
