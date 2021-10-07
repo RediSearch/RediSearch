@@ -202,13 +202,15 @@ def testDocTableInfo(env):
     env.assertEqual(d['num_docs'], '0')
     env.assertEqual(d['doc_table_size_mb'], '0')
     env.assertEqual(d['sortable_values_size_mb'], '0')
+
     conn.execute_command('HSET', 'a', 'txt', 'hello')
     conn.execute_command('HSET', 'b', 'txt', 'world')
 
     d = ft_info_to_dict(env, 'idx')
     env.assertEqual(d['num_docs'], '2')
-    env.assertEqual(d['doc_table_size_mb'], '0.0001583099365234375')
-    env.assertEqual(d['sortable_values_size_mb'], '5.53131103515625e-05')
+    env.assertGreater(float(d['doc_table_size_mb']), 0)
+    env.assertGreater(float(d['sortable_values_size_mb']), 0)
+
     conn.execute_command('DEL', 'a')
     conn.execute_command('DEL', 'b')
 
