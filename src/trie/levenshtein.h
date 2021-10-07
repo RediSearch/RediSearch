@@ -2,8 +2,9 @@
 #define __LEVENSHTEIN_H__
 
 #include <stdlib.h>
+
 #include "sparse_vector.h"
-#include "../rmutil/vector.h"
+#include "rmutil/vector.h"
 #include "trie.h"
 
 /*

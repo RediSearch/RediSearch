@@ -1,0 +1,195 @@
+#!/bin/sh
+''''[ ! -z $VIRTUAL_ENV ] && exec python -u -- "$0" ${1+"$@"}; command -v python3 > /dev/null && exec python3 -u -- "$0" ${1+"$@"}; exec python2 -u -- "$0" ${1+"$@"} # '''
+
+import sys
+import os
+import click
+import re
+import json
+import requests
+
+HERE = os.path.dirname(__file__)
+ROOT = os.path.abspath(os.path.join(HERE, ".."))
+READIES = "/w/rafi_1/readies"
+sys.path.insert(0, READIES)
+import paella
+
+VERBOSE = 0
+NOP = False
+OPERETO3_URL = "opereto.qa.redislabs.com"
+
+RS_PLATFORMS = {
+    'xenial': { 
+        'platform':  'Linux-ubuntu16.04',
+        'env': 'xenial-amd64-aws' },
+    'bionic': {
+        'platform': 'Linux-ubuntu18.04',
+        'env': 'bionic-amd64-aws' },
+    'cenos7': {
+        'platform': 'Linux-rhel7',
+        'env': 'rhel7.7-amd64-aws' },
+    'cenos8': {
+        'platform': 'Linux-rhel8',
+        'env': 'rhel8.3-amd64-aws' }
+}
+
+
+class Command1(click.Command):
+    def header(self):
+        return r'''
+                      █████                      █████           
+                     ░░███                      ░░███            
+  ████████  ██████   ███████    ██████   █████  ███████    █████ 
+ ███░░███  ░░░░░███ ░░░███░    ███░░███ ███░░  ░░░███░    ███░░  
+░███ ░███   ███████   ░███    ░███████ ░░█████   ░███    ░░█████ 
+░███ ░███  ███░░███   ░███ ███░███░░░   ░░░░███  ░███ ███ ░░░░███
+░░███████ ░░████████  ░░█████ ░░██████  ██████   ░░█████  ██████ 
+ ░░░░░███  ░░░░░░░░    ░░░░░   ░░░░░░  ░░░░░░     ░░░░░  ░░░░░░  
+     ░███                                                        
+     █████                                                       
+    ░░░░░                                                        
+
+'''
+
+    def footer(self):
+        return '''
+
+Other configuration:
+RS_VERSIONS file includes Redis Enterprive versions for release tests.
+
+'''
+
+    def get_help(self, ctx):
+        h = super().get_help(ctx)
+        return self.header() + h + self.footer()
+
+
+class Test:
+    def __init__(self, token, test_fname, modver, snapshot, rsver, osnick, light):
+        global NOP, VERBOSE
+
+        self.token = token
+        self.test_fname = test_fname
+        self.modver = re.sub(r'^v(.*)', r'\1', modver)
+        self.snapshot = snapshot
+        self.rsver = rsver
+        self.osnick = osnick
+        self.light = light
+
+        os.environ['RS_MODULE_DIR'] = 'redisearch'
+        if light:
+            self.rsmod = 'RedisearchLight'
+            ENV['RS_MODULE_FILE_PREFIX'] = 'redisearch-light'
+        else:
+            self.rsmod = 'RediSearchEnterprise'
+            ENV['RS_MODULE_FILE_PREFIX'] = 'redisearch'
+        if snapshot:
+            ENV['RS_MODULE_FILE_PREFIX'] = "snapshots/" + ENV['RS_MODULE_FILE_PREFIX']
+
+        ENV['RS_MODULE'] = self.rsmod
+        ENV['MODULE_VERSION'] = modver
+        ENV['RS_VERSION'] = rsver
+        
+        ENV['REJSON_MODULE_DIR'] = 'rejson'
+        ENV['REJSON_FILE_PREFIX'] = 'rejson'
+        ENV['REJSON_VERSION'] = '2.0.0'
+
+        self.xtx_vars = ['RS_MODULE', 'RS_MODULE_DIR', 'RS_MODULE_FILE_PREFIX',
+                         'RS_VERSION', 'RS_ENV', 'RS_MODULE_OS',
+                         'MODULE_VERSION',
+                         'REJSON_VERSION', 'REJSON_MODULE_DIR', 'REJSON_FILE_PREFIX']
+
+    def run(self):
+        for osnick in RS_PLATFORMS.keys():
+            if self.osnick is None or osnick == self.osnick:
+                rs_platform = RS_PLATFORMS[osnick]['platform']
+                rs_env = RS_PLATFORMS[osnick]['env']
+                self.run_for_os(rs_platform, rs_env)
+
+    def run_for_os(self, rs_mod_os, rs_env):
+        ENV['RS_ENV'] = rs_env
+        ENV['RS_MODULE_OS'] = rs_mod_os
+        
+        desc = f"{self.rsmod}/{self.modver}/{rs_mod_os} for RS {self.rsver}"
+        click.echo(f"Testing {desc}")
+        
+        global NOP, VERBOSE
+        var_args = ' '.join(map(lambda v: f"-e {v}", self.xtx_vars))
+        
+        try:
+            if VERBOSE > 1:
+                print(f'{READIES}/bin/xtx {var_args} {self.test_fname}')
+
+            rest = sh(f'{READIES}/bin/xtx --strict {var_args} {self.test_fname}')
+        except Exception as x:
+            fatal(x)
+
+        try:
+            rest_json = json.loads(rest)
+            if VERBOSE > 0:
+                print(json.dumps(rest_json, indent=2))
+        except Exception as x:
+            print(rest)
+            fatal(x)
+
+        if NOP:
+            return 0
+
+        BB()
+        res = requests.post(f"https://{OPERETO3_URL}/processes", verify=False,
+                            headers={'Authorization': f'Bearer {self.token}',
+                                     'Content-Type': 'application/json'},
+                            data=rest)
+        if not res.ok:
+            click.echo(f"Failed to run tests on {desc}: {res.reason} [{res.status_code}]")
+            return 1
+        j = json.loads(res.content)
+        if j['status'] != 'success':
+            err = j['text']
+            click.echo(f"Failed to run tests on {desc}: {err}")
+            return 1
+
+        self.id = j['data'][0]
+        click.echo(f"Tests running on {desc}")
+        click.echo(f"Results: https://{OPERETO3_URL}/ui#dashboard/flow/{self.id}")
+        return 0
+
+
+@click.command(help='Invoke QA Automation tests', cls=Command1)
+@click.option('--token', default=None, help='QA automation (Opereto) token (also: QA_AUTOMATION_TOKEN env var)')
+@click.option('--test', '-t', default='release', help='Name of .json parameters file')
+@click.option('--modver', '-m', default='master', help='Module version to test. Default: master')
+@click.option('--snapshot', '-s', is_flag=True, default=False, help='Test a snapshoy module version')
+@click.option('--rsver', default=None, help='Test for a RS version`')
+@click.option('--osnick', default=None, help='Test for OSNICK`')
+@click.option('--light', is_flag=True, default=False, help='Test RediSearch Light')
+@click.option('--quick', is_flag=True, default=False, help='Only test one RS version')
+@click.option('--nop', is_flag=True, default=False, help='Dry run')
+@click.option('--verbose', '-v', is_flag=True, default=False, help='Be verbose')
+@click.option('--verbosity', type=int, default=0, help='Verbosity level')
+def main(token, test, modver, snapshot, rsver, osnick, light, quick, nop, verbose, verbosity, *args, **kwargs):
+    BB()
+    global NOP, VERBOSE
+    VERBOSE = 1 if verbose else verbosity
+    NOP = nop
+
+    if token is None:
+        token = os.getenv('QA_AUTOMATION_TOKEN')
+    if token is None and not nop:
+        raise click.ClickException('QA automation token is missing.')
+    test_fname = os.path.join(HERE, f'{test}.json')
+    if not os.path.exists(test_fname):
+        raise click.ClickException(f"Invalid test name: {test}")
+
+    if rsver is not None:
+        Test(token, test_fname, modver, snapshot, rsver, osnick, light).run()
+    else:
+        rs_versions = paella.flines(os.path.join(HERE, 'RS_VERSIONS'))
+        if quick:
+            rs_versions = [rs_versions[0]]
+        for rsver in rs_versions:
+            Test(token, test_fname, modver, snapshot, rsver, osnick, light).run()
+
+
+if __name__ == '__main__':
+    main()

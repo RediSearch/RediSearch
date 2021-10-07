@@ -1,17 +1,20 @@
+
+#include "time_sample.h"
+
+#include "hiredis/hiredis.h"
+#include "hiredis/async.h"
+#include "hiredis/adapters/libev.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <signal.h>
 #include <sys/time.h>
 #include <time.h>
-#include "time_sample.h"
-
-#include <hiredis/hiredis.h>
-#include <hiredis/async.h>
-#include <hiredis/adapters/libev.h>
 
 #define PORT 6379
 #define N 500000
+
 void fill_first()
 {
     redisContext* c = redisConnect("127.0.0.1", PORT);

@@ -2,6 +2,8 @@
 ROOT=.
 include deps/readies/mk/main
 
+#----------------------------------------------------------------------------------------------
+
 ifneq ($(VG),)
 VALGRIND=$(VG)
 endif
@@ -35,11 +37,14 @@ $(error SAN=mem|addr|leak|thread)
 endif
 endif
 
+#----------------------------------------------------------------------------------------------
+
 define HELP
 make setup         # install prerequisited (CAUTION: THIS WILL MODIFY YOUR SYSTEM)
 make fetch         # download and prepare dependant modules
 
 make build         # compile and link
+  COORD=type       # build coordinator module (type=oss|rlec)
   DEBUG=1          # build for debugging (implies WITH_TESTS=1)
   WITH_TESTS=1     # enable unit tests
   WHY=1            # explain CMake decisions (in /tmp/cmake-why)
@@ -87,22 +92,42 @@ endef
 
 #----------------------------------------------------------------------------------------------
 
-COMPAT_MODULE := src/redisearch.so
+ifeq ($(COORD),)
 
-ifeq ($(SAN),)
-COMPAT_DIR ?= build
-else
-COMPAT_DIR ?= build-$(SAN_DIR)
+CMAKE_DIR=$(ROOT)
+BINDIR=$(BINROOT)/search
+SRCDIR=src
+TARGET=$(BINDIR)/redisearch.so
+PACKAGE_NAME=redisearch
+
+else ifeq ($(COORD),oss)
+
+CMAKE_DIR=$(ROOT)/coord
+BINDIR=$(BINROOT)/coord-oss
+SRCDIR=coord/src
+TARGET=$(BINDIR)/redisearch-cluster.so
+PACKAGE_NAME=redisearch-cluster
+
+else ifeq ($(COORD),rlec)
+
+CMAKE_DIR=$(ROOT)/coord
+BINDIR=$(BINROOT)/coord-rlec
+SRCDIR=coord/src
+TARGET=$(BINDIR)/redisearch-rlec.so
+PACKAGE_NAME=redisearch-rlec
+
 endif
 
-BINROOT=$(COMPAT_DIR)
-BINDIR=$(COMPAT_DIR)
+#----------------------------------------------------------------------------------------------
 
-SRCDIR=src
+#COMPAT_MODULE := src/redisearch.so
 
-TARGET=$(BINDIR)/redisearch.so
+#ifeq ($(SAN),)
+#COMPAT_DIR ?= build
+#else
+#COMPAT_DIR ?= build-$(SAN_DIR)
+#endif
 
-PACKAGE_NAME ?= redisearch-oss
 export PACKAGE_NAME
 
 #----------------------------------------------------------------------------------------------
@@ -140,12 +165,12 @@ endif
 
 CMAKE_FILES= \
 	CMakeLists.txt \
-	cmake/redisearch_cflags.cmake \
-	cmake/redisearch_debug.cmake \
-	src/dep/friso/CMakeLists.txt \
-	src/dep/phonetics/CMakeLists.txt \
-	src/dep/snowball/CMakeLists.txt \
-	src/rmutil/CMakeLists.txt
+	build/cmake/redisearch_cflags.cmake \
+	build/cmake/redisearch_debug.cmake \
+	deps/friso/CMakeLists.txt \
+	deps/phonetics/CMakeLists.txt \
+	deps/snowball/CMakeLists.txt \
+	deps/rmutil/CMakeLists.txt
 
 ifeq ($(WITH_TESTS),1)
 CMAKE_FILES+= \
@@ -167,30 +192,31 @@ include $(MK)/defs
 
 MK_CUSTOM_CLEAN=1
 
+all: bindirs $(TARGET)
+
 include $(MK)/rules
 
-$(COMPAT_MODULE): $(BINROOT)/redisearch.so
-	cp $^ $@
+#$(COMPAT_MODULE): $(BINROOT)/redisearch.so
+#	cp $^ $@
 
 ifeq ($(FORCE),1)
 .PHONY: __force
 
-$(BINROOT)/Makefile: __force
+$(BINDIR)/Makefile: __force
 else
-$(BINROOT)/Makefile : $(CMAKE_FILES)
+$(BINDIR)/Makefile : $(CMAKE_FILES)
 endif
 	@echo Building with CMake ...
 ifeq ($(WHY),1)
 	@echo CMake log is in /tmp/cmake-why
 endif
 	@mkdir -p $(BINROOT)
-	@cd $(BINROOT) && cmake .. $(CMAKE_FLAGS)
+	@cd $(BINDIR) && cmake $(CMAKE_DIR) $(CMAKE_FLAGS)
 
-$(COMPAT_DIR)/redisearch.so: $(BINROOT)/Makefile
-	@echo Building ...
-	@$(MAKE) -C $(BINROOT) -j$(shell nproc)
-	@[ -f $(COMPAT_DIR)/redisearch.so ] && touch $(COMPAT_DIR)/redisearch.so
-#	if [ ! -f src/redisearch.so ]; then cd src; ln -s ../$(BINROOT)/redisearch.so; fi
+$(TARGET): $(BINDIR)/Makefile
+	@echo Building $(TARGET) ...
+	@$(MAKE) -C $(BINDIR) -j$(shell nproc)
+#	@[ -f $(TARGET) ] && touch $(TARGET)
 
 .PHONY: build clean run 
 
@@ -198,7 +224,7 @@ clean:
 ifeq ($(ALL),1)
 	rm -rf $(BINROOT)
 else
-	$(MAKE) -C $(BINROOT) clean
+	$(MAKE) -C $(BINDIR) clean
 endif
 
 #----------------------------------------------------------------------------------------------
@@ -315,15 +341,15 @@ CALLGRIND_ARGS=\
 	--save "" \
 	--appendonly no
 
-callgrind: $(COMPAT_MODULE)
+callgrind: $(TARGET)
 	$(SHOW)valgrind $(CALLGRIND_ARGS) --loadmodule $(abspath $(TARGET)) $(REDIS_ARGS)
 
 #----------------------------------------------------------------------------------------------
 
 RAMP_VARIANT=$(subst release,,$(FLAVOR))$(_VARIANT.string)
 
-RAMP.release:=$(shell JUST_PRINT=1 RAMP=1 DEPS=0 RELEASE=1 SNAPSHOT=0 VARIANT=$(RAMP_VARIANT) PACKAGE_NAME=$(PACKAGE_NAME) ./pack.sh)
-RAMP.snapshot:=$(shell JUST_PRINT=1 RAMP=1 DEPS=0 RELEASE=0 SNAPSHOT=1 VARIANT=$(RAMP_VARIANT) PACKAGE_NAME=$(PACKAGE_NAME) ./pack.sh)
+RAMP.release:=$(shell JUST_PRINT=1 RAMP=1 DEPS=0 RELEASE=1 SNAPSHOT=0 VARIANT=$(RAMP_VARIANT) PACKAGE_NAME=$(PACKAGE_NAME) $(ROOT)/sbin/pack.sh)
+RAMP.snapshot:=$(shell JUST_PRINT=1 RAMP=1 DEPS=0 RELEASE=0 SNAPSHOT=1 VARIANT=$(RAMP_VARIANT) PACKAGE_NAME=$(PACKAGE_NAME) $(ROOT)/sbin/pack.sh)
 
 RAMP_YAML ?= ramp.yml
 
@@ -336,7 +362,7 @@ PACK_ARGS=\
 
 artifacts/$(RAMP.release) : $(TARGET) $(RAMP_YAML)
 	@echo Packing module...
-	$(SHOW)$(PACK_ARGS) ./pack.sh $(TARGET)
+	$(SHOW)$(PACK_ARGS) $(ROOT)/sbin/pack.sh $(TARGET)
 
 pack: artifacts/$(RAMP.release)
 

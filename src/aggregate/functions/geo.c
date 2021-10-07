@@ -1,7 +1,8 @@
+
 #include "function.h"
 #include "aggregate/expr/expression.h"
-#include "dep/geo/rs_geo.h"
-#include "dep/geo/geohash_helper.h"
+#include "rs_geo.h"
+
 #include <err.h>
 
 // parse "x,y"

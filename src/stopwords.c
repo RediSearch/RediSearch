@@ -1,6 +1,6 @@
 #define __REDISEARCH_STOPORWORDS_C__
 #include "stopwords.h"
-#include "dep/triemap/triemap.h"
+#include "triemap/triemap.h"
 #include "rmalloc.h"
 #include "util/strconv.h"
 #include "rmutil/rm_assert.h"

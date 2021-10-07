@@ -1,44 +1,121 @@
 #!/bin/bash
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
-ROOT=$HERE/../..
+ROOT=$(cd $HERE/../..; pwd)
+READIES=$ROOT/deps/readies
 
-if [[ -z $QA_AUTOMATION_USERNAME ]]; then
-	echo "Variable QA_AUTOMATION_USERNAME is undefined." >&2
+(( VERBOSE > 1 )) && { set -x; PS4='$LINENO: '; }
+
+if [[ $1 == --help || $1 == help ]]; then
+	cat <<-END
+		Invoke QA Automation tests
+
+		[ARGVARS...] run [--help|help]
+
+		Argument variables:
+		QA_AUTOMATION_TOKEN=token     QA automation (Opereto) token
+		TEST=name                     Name of .json parameters file
+		MODULE_VERSION=ver            Module version to test. Default: master
+		LIGHT=1                       Test RediSearch Light
+		NOP=1                         Do not execute automation command
+		VERBOSE=N                     Set verbosity level (N=1,2)
+		QUICK=1                       Only test one RS version
+		RS_VERSION=ver                Test for RS version `ver`
+
+		Other configuration:
+		RS_VERSIONS file includes Redis Enterprive versions for release tests.
+
+	END
+	exit 0
+fi
+
+if [[ -z $QA_AUTOMATION_TOKEN && $NOP != 1 ]]; then
+	echo "Variable QA_AUTOMATION_TOKEN is undefined." >&2
 	exit 1
 fi
-if [[ -z $QA_AUTOMATION_PASS ]]; then
-	echo "Variable QA_AUTOMATION_PASS is undefined." >&2
+
+export TEST=${TEST:-release}
+if [[ ! -f $HERE/$TEST.json ]]; then
+	echo "Invalid TEST name: $TEST" >&2
 	exit 1
 fi
 
-export MODULE_VERSION=${MODULE_VERSION:-master}
+run_test() {
+	export RS_VERSION=$1
 
-results() {
-	echo "$JSON" | jq "$1" | cut -d\" -f2
+	if [[ -z $MODULE_VERSION ]]; then
+		export MODULE_VERSION=master
+	else
+		export MODULE_VERSION=$(echo "$MODULE_VERSION" | sed  's/^v\(.*\)/\1/')
+	fi
+
+	export RS_ENV=bionic-amd64-aws
+	
+	export RS_MODULE_OS=Linux-ubuntu18.04
+	export RS_MODULE_DIR=redisearch
+	if [[ $LIGHT == 1 ]]; then
+		export RS_MODULE=RedisearchLight
+		export RS_MODULE_FILE_PREFIX=redisearch-light
+	else
+		export RS_MODULE=RediSearchEnterprise
+		export RS_MODULE_FILE_PREFIX=redisearch
+	fi
+	export REJSON_MODULE_DIR=rejson
+	export REJSON_FILE_PREFIX=rejson
+	export REJSON_VERSION=2.0.0
+
+	results() {
+		echo "$JSON" | jq "$1" | cut -d\" -f2
+	}
+
+	cd $HERE
+
+	json_in=$(mktemp /tmp/$TEST.json.XXXX)
+	$READIES/bin/xtx -e RS_MODULE -e RS_MODULE_DIR -e RS_MODULE_FILE_PREFIX -e MODULE_VERSION -e RS_VERSION \
+		-e RS_MODULE_OS -e RS_ENV \
+		-e REJSON_MODULE_DIR -e REJSON_FILE_PREFIX -e REJSON_VERSION \
+		$TEST.json > $json_in
+	(( VERBOSE >= 1 )) && cat $json_in
+
+	if [[ $NOP == 1 ]]; then
+		echo "Testing ${RS_MODULE}/${MODULE_VERSION} for RS $RS_VERSION"
+		return 0
+	fi
+
+	OPERETO3_URL="opereto.qa.redislabs.com"
+	JSON=$(curl -sk \
+   		-X POST \
+		-H "Content-Type: application/json" \
+   		-H "Authorization: Bearer $QA_AUTOMATION_TOKEN" \
+   		-d @$json_in \
+   		https://$OPERETO3_URL/processes 2>&1)
+	rc=$?
+	rm $json_in
+	status=$(results .status)
+	if [[ $rc == 0 && $status == success ]]; then
+		id=$(results .data[0])
+		echo "Tests running on ${RS_MODULE}/${MODULE_VERSION} for RS $RS_VERSION"
+		echo "Results: https://$OPERETO3_URL/ui#dashboard/flow/$id"
+		return 0
+	else
+		err=$(results .message)
+		echo "Failed to run tests on ${RS_MODULE}/${MODULE_VERSION} for RS $RS_VERSION: $err"
+		return 1
+	fi
 }
 
-cd $HERE
-
-json_in=$(mktemp /tmp/automation-testing.json.XXXX)
-$ROOT/deps/readies/bin/xtx -e MODULE_VERSION automation-testing.json > $json_in
-[[ $VERBOSE == 1 ]] && cat $json_in
-
-JSON=$(curl -sk \
-	-u "$QA_AUTOMATION_USERNAME":"$QA_AUTOMATION_PASS" \
-	-X POST -H "Content-Type: application/json" \
-	-d @$json_in \
-	https://qa-automation-center.redislabs.com/processes 2>&1)
-rc=$?
-rm $json_in
-status=$(results .status)
-if [[ $rc == 0 && $status == success ]]; then
-	id=$(results .data[0])
-	echo "Tests running."
-	echo "Results: https://qa-automation-center.redislabs.com/ui#dashboard/flow/$id"
-	exit 0
+rc=0
+if [[ ! -z $RS_VERSION ]]; then
+	run_test $RS_VERSION
 else
-	err=$(results .message)
-	echo "Error: $err"
-	exit 1
+	if [[ $QUICK == 1 ]]; then
+		RS_VERSIONS=$(cat $HERE/RS_VERSIONS | head -1)
+	else
+		RS_VERSIONS=$(cat $HERE/RS_VERSIONS)
+	fi
+	for RS_VERSION in $RS_VERSIONS; do
+		run_test $RS_VERSION
+		[[ $? != 0 && $rc == 0 ]] && rc=$?
+	done
 fi
+exit $rc
