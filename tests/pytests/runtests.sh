@@ -158,7 +158,6 @@ if [[ $EXISTING_ENV == 1 ]]; then
 	xredis_conf=$(mktemp "${TMPDIR:-/tmp}/xredis_conf.XXXXXXX")
 	rm -f $xredis_conf
 	cat <<-EOF > $xredis_conf
-		--env existing-env
 		--loadmodule $MODULE $MODARGS
 		$XREDIS_REJSON_ARGS
 		EOF
