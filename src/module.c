@@ -1037,6 +1037,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 }
 
 void ReindexPool_ThreadPoolDestroy();
+extern dict *legacySpecDict, *legacySpecRules;
 
 void __attribute__((destructor)) RediSearch_CleanupModule(void) {
   if (getenv("RS_GLOBAL_DTORS")) {  // used in sanitizer
