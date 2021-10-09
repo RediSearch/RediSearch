@@ -1057,7 +1057,7 @@ void __attribute__((destructor)) RediSearch_CleanupModule(void) {
     freeGlobalAddStrings();
     SchemaPrefixes_Free(ScemaPrefixes_g);
 
-    if (legacySpecDict)
+    if (legacySpecDict) {
       dictRelease(legacySpecDict);
       legacySpecDict = NULL;
     }
