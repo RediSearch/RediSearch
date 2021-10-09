@@ -1056,7 +1056,11 @@ void __attribute__((destructor)) RediSearch_CleanupModule(void) {
     IndexAlias_DestroyGlobal(&AliasTable_g);
     freeGlobalAddStrings();
     SchemaPrefixes_Free(ScemaPrefixes_g);
-    
+
+    if (legacySpecDict)
+      dictRelease(legacySpecDict);
+      legacySpecDict = NULL;
+    }
     Indexes_Free(specDict_g);
     dictRelease(specDict_g);
     specDict_g = NULL;
