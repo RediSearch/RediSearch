@@ -94,12 +94,15 @@ if [[ $VG == 1 ]]; then
 		echo Building Redis for Valgrind ...
 		$READIES/bin/getredis -v 6 --valgrind --suffix vg
 	fi
+	VALGRIND_ARGS=--use-valgrind
+
 elif [[ $SAN == addr || $SAN == address ]]; then
 	REDIS_SERVER=${REDIS_SERVER:-redis-server-asan}	
 	if ! command -v $REDIS_SERVER > /dev/null; then
 		echo Building Redis for Valgrind ...
 		$READIES/bin/getredis --force -v 6.0 --no-run --suffix asan --clang-asan --clang-san-blacklist /build/redis.blacklist
 	fi
+
 elif [[ $SAN == memory ]]; then
 	REDIS_SERVER=${REDIS_SERVER:-redis-server-msan}
 	if ! command -v $REDIS_SERVER > /dev/null; then
@@ -147,43 +150,41 @@ fi
 
 #---------------------------------------------------------------------------------------------- 
 
-xredis_config=$(mktemp "${TMPDIR:-/tmp}/xredis_config.XXXXXXX")
-rm -f $xredis_config
-cat << EOF > $xredis_config
-
---oss-redis-path=$REDIS_SERVER
---module $MODULE
---module-args '$MODARGS'
-$RLTEST_ARGS
-$REJSON_ARGS
-$VALGRIND_ARGS
-$@
-
-EOF
-
 if [[ $EXISTING_ENV == 1 ]]; then
-	RLTEST_ARGS+=" --env existing-env"
-	# also start the redis server on which the tests will run
-	EXISTING_ENV_ARGS="--loadmodule $MODULE $MODARGS"
 	if [[ $REJSON_MODULE ]]; then
-		EXISTING_ENV_ARGS="$EXISTING_ENV_ARGS --loadmodule $REJSON_MODULE $REJSON_MODARGS"
+		XREDIS_REJSON_ARGS="--loadmodule $REJSON_MODULE $REJSON_MODARGS"
 	fi
-	$REDIS_SERVER $xredis_config &
+
+	xredis_conf=$(mktemp "${TMPDIR:-/tmp}/xredis_conf.XXXXXXX")
+	rm -f $xredis_conf
+cat << EOF > $xredis_conf
+--env existing-env
+--loadmodule $MODULE $MODARGS
+$XREDIS_REJSON_ARGS
+EOF
+
+	xredis_rltest_conf=$(mktemp "${TMPDIR:-/tmp}/xredis_rltest.XXXXXXX")
+	rm -f $rltest_conf
+cat << EOF > $rltest_conf
+--env existing-env
+$RLTEST_ARGS
+$@
+
+EOF
+
+	if [[ $VERBOSE == 1 ]]; then
+		echo "External redis-server configuration:"
+		cat $xredis_conf
+	fi
+
+	$REDIS_SERVER $xredis_conf &
 	XREDIS_PID=$!
-	echo "external process pid: " $XREDIS_PID
-fi
+	echo "external redis-server pid: " $XREDIS_PID
 
-#---------------------------------------------------------------------------------------------- 
-
-if [[ $VG == 1 ]]; then
-	VALGRIND_ARGS=--use-valgrind
-fi
-
-#---------------------------------------------------------------------------------------------- 
-
-config=$(mktemp "${TMPDIR:-/tmp}/rltest.XXXXXXX")
-rm -f $config
-cat << EOF > $config
+else
+	rltest_config=$(mktemp "${TMPDIR:-/tmp}/rltest.XXXXXXX")
+	rm -f $rltest_config
+cat << EOF > $rltest_config
 
 --oss-redis-path=$REDIS_SERVER
 --module $MODULE
@@ -194,27 +195,31 @@ $VALGRIND_ARGS
 $@
 
 EOF
+
+fi
+
+#---------------------------------------------------------------------------------------------- 
 
 # Use configuration file in the current directory if it exists
 if [[ -n $CONFIG_FILE && -e $CONFIG_FILE ]]; then
-	cat $CONFIG_FILE >> $config
+	cat $CONFIG_FILE >> $rltest_config
 fi
 
 if [[ $VERBOSE == 1 ]]; then
 	echo "RLTest configuration:"
-	cat $config
+	cat $rltest_config
 fi
 
 E=0
 if [[ $NOP != 1 ]]; then
-	{ $OP python2 -m RLTest @$config; (( E |= $? )); } || true
+	{ $OP python2 -m RLTest @$rltest_config; (( E |= $? )); } || true
 else
-	$OP python2 -m RLTest @$config
+	$OP python2 -m RLTest @$rltest_config
 fi
-rm -f $config
+rm -f $rltest_config
 
 if [[ -n $XREDIS_PID ]]; then
-	echo "killing external process: $XREDIS_PID"
+	echo "killing external redis-server: $XREDIS_PID"
 	kill -9 $XREDIS_PID
 fi
 
