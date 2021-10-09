@@ -152,13 +152,13 @@ fi
 
 if [[ $EXISTING_ENV == 1 ]]; then
 	if [[ $REJSON_MODULE ]]; then
-		XREDIS_REJSON_ARGS="--loadmodule $REJSON_MODULE $REJSON_MODARGS"
+		XREDIS_REJSON_ARGS="loadmodule $REJSON_MODULE $REJSON_MODARGS"
 	fi
 
 	xredis_conf=$(mktemp "${TMPDIR:-/tmp}/xredis_conf.XXXXXXX")
 	rm -f $xredis_conf
 	cat <<-EOF > $xredis_conf
-		--loadmodule $MODULE $MODARGS
+		loadmodule $MODULE $MODARGS
 		$XREDIS_REJSON_ARGS
 		EOF
 
