@@ -22,7 +22,7 @@ fi
 make build SAN=${SAN_MODE}
 
 cd $ROOT/deps
-git clone --recursive https://github.com/RedisJSON/RedisJSON.git
+git clone --quiet --recursive https://github.com/RedisJSON/RedisJSON.git
 cd RedisJSON
 git checkout master
 ./deps/readies/bin/getpy3

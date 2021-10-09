@@ -157,20 +157,20 @@ if [[ $EXISTING_ENV == 1 ]]; then
 
 	xredis_conf=$(mktemp "${TMPDIR:-/tmp}/xredis_conf.XXXXXXX")
 	rm -f $xredis_conf
-cat << EOF > $xredis_conf
---env existing-env
---loadmodule $MODULE $MODARGS
-$XREDIS_REJSON_ARGS
-EOF
+	cat <<-EOF > $xredis_conf
+		--env existing-env
+		--loadmodule $MODULE $MODARGS
+		$XREDIS_REJSON_ARGS
+		EOF
 
-	xredis_rltest_conf=$(mktemp "${TMPDIR:-/tmp}/xredis_rltest.XXXXXXX")
-	rm -f $rltest_conf
-cat << EOF > $rltest_conf
---env existing-env
-$RLTEST_ARGS
-$@
+	rltest_config=$(mktemp "${TMPDIR:-/tmp}/xredis_rltest.XXXXXXX")
+	rm -f $rltest_config
+	cat <<-EOF > $rltest_config
+		--env existing-env
+		$RLTEST_ARGS
+		$@
 
-EOF
+		EOF
 
 	if [[ $VERBOSE == 1 ]]; then
 		echo "External redis-server configuration:"
@@ -184,17 +184,16 @@ EOF
 else
 	rltest_config=$(mktemp "${TMPDIR:-/tmp}/rltest.XXXXXXX")
 	rm -f $rltest_config
-cat << EOF > $rltest_config
+	cat <<-EOF > $rltest_config
+		--oss-redis-path=$REDIS_SERVER
+		--module $MODULE
+		--module-args '$MODARGS'
+		$RLTEST_ARGS
+		$REJSON_ARGS
+		$VALGRIND_ARGS
+		$@
 
---oss-redis-path=$REDIS_SERVER
---module $MODULE
---module-args '$MODARGS'
-$RLTEST_ARGS
-$REJSON_ARGS
-$VALGRIND_ARGS
-$@
-
-EOF
+		EOF
 
 fi
 
