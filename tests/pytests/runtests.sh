@@ -81,6 +81,9 @@ if [[ -n $SAN ]]; then
 	fi
 	export ASAN_OPTIONS=detect_odr_violation=0
 	export RS_GLOBAL_DTORS=1
+
+	export SANITIZER=1
+	export SHORT_READ_BYTES_DELTA=512
 	
 	rejson_path=$ROOT/deps/RedisJSON/target/x86_64-unknown-linux-gnu/debug/rejson.so
 	if [[ -z $REJSON_PATH && -f $rejson_path ]]; then
@@ -96,18 +99,21 @@ if [[ $VG == 1 ]]; then
 	fi
 	VALGRIND_ARGS=--use-valgrind
 
+	export SANITIZER=1
+	export SHORT_READ_BYTES_DELTA=512
+
 elif [[ $SAN == addr || $SAN == address ]]; then
-	REDIS_SERVER=${REDIS_SERVER:-redis-server-asan}	
+	REDIS_SERVER=${REDIS_SERVER:-redis-server-asan-6.2}
 	if ! command -v $REDIS_SERVER > /dev/null; then
-		echo Building Redis for Valgrind ...
-		$READIES/bin/getredis --force -v 6.0 --no-run --suffix asan --clang-asan --clang-san-blacklist /build/redis.blacklist
+		echo Building Redis for clang-asan ...
+		$READIES/bin/getredis --force -v 6.2 --own-openssl --no-run --suffix asan --clang-asan --clang-san-blacklist /build/redis.blacklist
 	fi
 
 elif [[ $SAN == memory ]]; then
-	REDIS_SERVER=${REDIS_SERVER:-redis-server-msan}
+	REDIS_SERVER=${REDIS_SERVER:-redis-server-msan-6.2}
 	if ! command -v $REDIS_SERVER > /dev/null; then
-		echo Building Redis for Valgrind ...
-		$READIES/bin/getredis --force -v 6.0  --no-run --suffix msan --clang-msan --llvm-dir /opt/llvm-project/build-msan --clang-san-blacklist /build/redis.blacklist
+		echo Building Redis for clang-msan ...
+		$READIES/bin/getredis --force -v 6.2  --no-run --own-openssl --suffix msan --clang-msan --llvm-dir /opt/llvm-project/build-msan --clang-san-blacklist /build/redis.blacklist
 	fi
 else
 	REDIS_SERVER=${REDIS_SERVER:-redis-server}
