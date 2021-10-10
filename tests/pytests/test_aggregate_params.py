@@ -5,7 +5,7 @@ import itertools
 from RLTest import Env
 
 from includes import *
-from common import to_dict
+from common import *
 import os
 
 GAMES_JSON = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'games.json.bz2')
@@ -58,35 +58,25 @@ class TestAggregateParams:
                                     ['brand', 'generic', 'count', '40'], ['brand', 'steelseries', 'count', '37'],
                                     ['brand', 'logitech', 'count', '35']], res)
 
-    def test_min_max(self):
-        # cmd = ['ft.aggregate', 'games', 'sony',
-        #        'GROUPBY', '1', '@brand',
-        #        'REDUCE', 'count', '0',
-        #        'REDUCE', 'min', '1', '$prop', 'as', '$propas',
-        #        'SORTBY', '2', '@minPrice', 'DESC',
-        #        'PARAMS', '4', 'prop', '@price', 'propas', 'minPrice']
-        cmd = ['ft.aggregate', 'games', 'sony',
-               'GROUPBY', '1', '@brand',
-               'REDUCE', 'count', '0',
-               'REDUCE', 'min', '1', '@price', 'as', 'minPrice',
-               'SORTBY', '2', '@minPrice', 'DESC']
-        res = self.env.cmd(*cmd)
-        self.env.assertIsNotNone(res)
-        row = to_dict(res[1])
-        self.env.assertEqual(88, int(float(row['minPrice'])))
+def test_apply(env):
+        
+        conn = getConnectionByEnv(env)
+        env.flush()
+        env.assertOk(conn.execute_command('FT.CREATE', 'idx', 'PREFIX', 1, 'dkey', 'SCHEMA', 'name', 'TEXT', 'breed', 'TEXT', 'loc', 'GEO'))
+        waitForIndex(env, 'idx')
+        env.assertEqual(conn.execute_command('HSET', 'dkey:1', 'name', 'Lassie', 'breed', 'Rough Collie'), 2L)
+        env.assertEqual(conn.execute_command('HSET', 'dkey:2', 'name', 'lessly', 'breed', 'Poodle'), 2L)
+        env.assertEqual(conn.execute_command('HSET', 'dkey:3', 'name', 'Perrito', 'breed', 'poodle'), 2L)
+        env.assertEqual(conn.execute_command('HSET', 'dkey:4', 'name', 'Lou Dog', 'breed', 'Dalmatian'), 2L)
+        env.assertEqual(conn.execute_command('HSET', 'dkey:5', 'name', 'dipper', 'breed', 'dalmatian'), 2L)
+        env.assertEqual(conn.execute_command('HSET', 'dkey:6', 'name', 'Duff', 'breed', 'Dalmatian'), 2L)
+        env.assertEqual(conn.execute_command('HSET', 'dkey:7', 'name', 'Triumph', 'breed', 'Mountain Hound'), 2L)
+        env.assertEqual(conn.execute_command('HSET', 'dkey:8', 'name', 'Chuck', 'breed', 'Saluki'), 2L)
+        env.assertEqual(conn.execute_command('HSET', 'dkey:9', 'name', 'Tuk', 'breed', 'Husky'), 2L)
+        env.assertEqual(conn.execute_command('HSET', 'dkey:10', 'name', 'Jul', 'breed', 'St. Bernard'), 2L)
 
-        # cmd = ['ft.aggregate', 'games', 'sony',
-        #        'GROUPBY', '1', '@brand',
-        #        'REDUCE', 'count', '0',
-        #        'REDUCE', 'max', '1', '@price', 'as', 'maxPrice',
-        #        'SORTBY', '2', '$sortProp', '$sortOrder',
-        #        'PARAMS', '4', 'sortProp', '@maxPrice', '$sortOrder', 'DESC']
-        cmd = ['ft.aggregate', 'games', 'sony',
-               'GROUPBY', '1', '@brand',
-               'REDUCE', 'count', '0',
-               'REDUCE', 'max', '1', '@price', 'as', 'maxPrice',
-               'SORTBY', '2', '@maxPrice', 'DESC']
-        res = self.env.cmd(*cmd)
-        row = to_dict(res[1])
-        self.env.assertEqual(695, int(float(row['maxPrice'])))
+        res1 = conn.execute_command('ft.aggregate', 'idx', '@breed:(Dal*|Poo*|Ru*|Mo*)', 'LOAD', '2', '@name', '@breed', 'FILTER', 'exists(@breed)', 'APPLY', 'upper(@name)', 'AS', 'n', 'APPLY', 'upper(@breed)', 'AS', 'b', 'SORTBY', '4', '@b', 'ASC', '@n', 'ASC')
+        res2 = conn.execute_command('ft.aggregate', 'idx', '@breed:($p1*|$p2*|$p3*|$p4*)', 'LOAD', '2', '@name', '@breed', 'FILTER', 'exists(@breed)', 'APPLY', 'upper(@name)', 'AS', 'n', 'APPLY', 'upper(@breed)', 'AS', 'b', 'SORTBY', '4', '@b', 'ASC', '@n', 'ASC', 'PARAMS', '8', 'p1', 'Dal', 'p2', 'Poo', 'p3', 'Ru', 'p4', 'Mo')
+        env.assertEqual(res2, res1)
+
 

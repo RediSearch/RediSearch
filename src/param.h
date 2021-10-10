@@ -1,5 +1,7 @@
 #pragma once
 #include <stddef.h>
+#include "query_error.h"
+#include "util/dict.h"
 
 typedef enum {
   PARAM_NONE = 0,
@@ -31,3 +33,7 @@ typedef struct Param {
 
 void Param_FreeInternal(Param *param);
 
+dict *Param_DictCreate();
+int Param_DictAdd(dict *d, const char *name, const char *value, size_t value_len, QueryError *status);
+const char *Param_DictGet(dict *d, const char *name, size_t *value_len, QueryError *status);
+void Param_DictFree(dict *);

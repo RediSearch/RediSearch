@@ -59,10 +59,21 @@ def test_errors(env):
     env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'PARAMS', '4', 'param1', 'val1').raiseError().contains('Bad arguments for PARAMS: Expected an argument')
     env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'PARAMS', '2', 'param1').raiseError().contains('Bad arguments for PARAMS: Expected an argument')
     env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'PARAMS', '4', 'param1', 'val1', 'param1', 'val2').raiseError().contains('Duplicate parameter `param1`')
-    #X env.expect('FT.SEARCH', 'idx', '*', 'PARAMS', '4', 'foo', 'x', 'bar', '100', 'NOCONTENT').raiseError().contains('Unknown argument `NOCONTENT`')
-    # FIXME: Should next line be supported?
-    # env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', 'PARAMS', 'PARAMS', '4', 'foo', 'x', 'bar', '100'), [1L, 'key1', ['foo', 'PARAMS', 'bar', 'PARAMS']])
-    # FIXME: Add erroneos tests: PARAMS as first command arg, param name with none-alphanumeric, param value with illegal character such as star, paren, etc.
+
+    # The search query can be literally 'PARAMS'
+    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', 'PARAMS', 'PARAMS', '4', 'foo', 'x', 'bar', '100'), [1L, 'key1', ['foo', 'PARAMS', 'bar', 'PARAMS']])
+    env.assertEqual(conn.execute_command('FT.AGGREGATE', 'idx', 'PARAMS', 'PARAMS', '4', 'foo', 'x', 'bar', '100', 'LOAD', 2, '@foo', '@bar'), [1L, ['foo', 'PARAMS', 'bar', 'PARAMS']])
+
+    # Parameter definitions cannot come before the search query
+    env.expect('FT.SEARCH', 'idx', 'PARAMS', '4', 'foo', 'x', 'bar', '100', 'PARAMS').raiseError()
+    env.expect('FT.AGGREGATE', 'idx', 'PARAMS', '4', 'foo', 'x', 'bar', '100', 'PARAMS').raiseError()
+
+    # Parameters can be defined only once
+    env.expect('FT.SEARCH', 'idx', '*', 'PARAMS', '4', 'foo', 'x', 'bar', '100', 'PARAMS', '4', 'goo', 'y', 'baz', '900').raiseError()
+    env.expect('FT.AGGREGATE', 'idx', '*', 'PARAMS', '4', 'foo', 'x', 'bar', '100', 'PARAMS', '4', 'goo', 'y', 'baz', '900').raiseError()
+
+
+    # FIXME: Add erroneos tests: param name with none-alphanumeric, param value with illegal character such as star, paren, etc.
 
     # Test errors in param usage: missing param, wrong param value
     env.expect('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 $rapido $units]', 'NOCONTENT', 'PARAMS', '4', 'radius', '500', 'units', 'm').raiseError().equal('No such parameter `rapido`')
@@ -137,17 +148,16 @@ def test_expression(env):
     env.assertEqual(conn.execute_command('HSET', 'key3', 'name', 'Carol', 'id', '13'), 2L)
     env.assertEqual(conn.execute_command('HSET', 'key4', 'name', 'John\\ Doe', 'id', '0'), 2L)
     env.assertEqual(conn.execute_command('HSET', 'key5', 'name', '$val1', 'id', '99'), 2L)
+    env.assertEqual(conn.execute_command('HSET', 'key6', 'name', 'John Doh', 'id', '100'), 2L)
+    env.assertEqual(conn.execute_command('HSET', 'key7', 'name', 'John', 'id', '100'), 2L)
 
+    # Test expression
     res1 = conn.execute_command('FT.SEARCH', 'idx', '@name:(Alice|Bob)', 'NOCONTENT')
     env.assertEqual(res1, [2L, 'key2', 'key1'])
     res2 = conn.execute_command('FT.SEARCH', 'idx', '@name:($val1|Bob)', 'NOCONTENT', 'PARAMS', '2', 'val1', 'Alice')
     env.assertEqual(res2, res1)
-
-    # # FIXME: Avoid parameterization in verbatim string (whether if a param is defined or not)
-    # res1 = conn.execute_command('FT.SEARCH', 'idx', '@name:("$var1")', 'NOCONTENT')
-    # env.assertEqual(res1, [1L, 'key5'])
-    # res2 = conn.execute_command('FT.SEARCH', 'idx', '@name:("$val1")', 'NOCONTENT', 'PARAMS', '2', 'val1', 'Alice')
-    # env.assertEqual(res2, res1)
+    res2 = conn.execute_command('FT.SEARCH', 'idx', '@name:(Alice|$val1)', 'NOCONTENT', 'PARAMS', '2', 'val1', 'Bob')
+    env.assertEqual(res2, res1)
 
     res1 = conn.execute_command('FT.SEARCH', 'idx', '@name:(Alice)', 'NOCONTENT')
     env.assertEqual(res1, [1L, 'key2'])
@@ -158,6 +168,28 @@ def test_expression(env):
     env.assertEqual(res1, [1L, 'key4'])
     res2 = conn.execute_command('FT.SEARCH', 'idx', '@name:($val1)', 'NOCONTENT', 'PARAMS', '2', 'val1', 'John\\ Doe')
     env.assertEqual(res2, res1)
+
+    # Test negative expression
+    res1 = conn.execute_command('FT.SEARCH', 'idx', '-(@name:(Alice|Bob))', 'NOCONTENT')
+    env.assertEqual(res1, [5L, 'key3', 'key4', 'key5', 'key6', 'key7'])
+    res2 = conn.execute_command('FT.SEARCH', 'idx', '-(@name:($val1|Bob))', 'NOCONTENT', 'PARAMS', '2', 'val1', 'Alice')
+    env.assertEqual(res2, res1)
+    res2 = conn.execute_command('FT.SEARCH', 'idx', '-(@name:($val1|Bob))', 'NOCONTENT', 'PARAMS', '2', 'val1', 'Alice')
+    env.assertEqual(res2, res1)
+
+    # Test optional token
+    res1 = conn.execute_command('FT.SEARCH', 'idx', '@name:(John ~Doh)', 'NOCONTENT')
+    env.assertEqual(res1, [2L, 'key6', 'key7'])
+    res2 = conn.execute_command('FT.SEARCH', 'idx', '@name:(John ~$val1)', 'NOCONTENT', 'PARAMS', '2', 'val1', 'Doh')
+    env.assertEqual(res2, res1)
+
+    # FIXME: Avoid parameterization in verbatim string (whether a param is defined or not)
+    #  Parser seems OK
+    #  (need to review indexing, in previous versions the following search query was syntactically illegal)
+    # res1 = conn.execute_command('FT.SEARCH', 'idx', '@name:("$val1")', 'NOCONTENT')
+    # env.assertEqual(res1, [1L, 'key5'])
+    # res2 = conn.execute_command('FT.SEARCH', 'idx', '@name:("$val1")', 'NOCONTENT', 'PARAMS', '2', 'val1', 'Alice')
+    # env.assertEqual(res2, res1)
 
 
 def test_tags(env):
@@ -265,5 +297,44 @@ def test_vector(env):
     res2 = conn.execute_command('FT.SEARCH', 'idx', '@v:[$vec $type 2]', 'PARAMS', '6', 'vec', 'abcdefgh', 'type', 'TOPK', 'k', '2')
     env.assertEqual(res2, res1)
     res2 = conn.execute_command('FT.SEARCH', 'idx', '@v:[$vec $type $k]', 'PARAMS', '6', 'vec', 'abcdefgh', 'type', 'TOPK', 'k', '2')
+    env.assertEqual(res2, res1)
+
+def test_fuzzy(env):
+
+    conn = getConnectionByEnv(env)
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT', 'prop', 'TEXT')
+    waitForIndex(env, 'idx')
+    env.cmd('HSET', 'key1', 'name', 'Fozzie Bear', 'prop', 'Hat')
+    env.cmd('HSET', 'key2', 'name', 'Beaker', 'prop', 'Fan')
+    env.cmd('HSET', 'key3', 'name', 'Beard')
+    env.cmd('HSET', 'key4', 'name', 'Rizzo the Rat', 'prop', 'Mop')
+
+    res1 = conn.execute_command('FT.SEARCH', 'idx', '@name:(%Bear%)')
+    res2 = conn.execute_command('FT.SEARCH', 'idx', '@name:(%$tok%)', 'PARAMS', 2, 'tok', 'Bear')
+    env.assertEqual(res2, res1)
+
+    res1 = conn.execute_command('FT.SEARCH', 'idx', '@name:(%%Bear%%)')
+    res2 = conn.execute_command('FT.SEARCH', 'idx', '@name:(%%$tok%%)', 'PARAMS', 2, 'tok', 'Bear')
+    env.assertEqual(res2, res1)
+
+    res1 = conn.execute_command('FT.SEARCH', 'idx', '@name:(%%%Fozzi%%%)')
+    res2 = conn.execute_command('FT.SEARCH', 'idx', '@name:(%%%$tok%%%)', 'PARAMS', 2, 'tok', 'Fozzi')
+    env.assertEqual(res2, res1)
+
+    res1 = conn.execute_command('FT.SEARCH', 'idx', '%Rat%')
+    res2 = conn.execute_command('FT.SEARCH', 'idx', '%$tok%', 'PARAMS', 2, 'tok', 'Rat')
+    env.assertEqual(res2, res1)
+
+    # Fuzzy stopwords
+    res1 = conn.execute_command('FT.SEARCH', 'idx', '%not%')
+    res2 = conn.execute_command('FT.SEARCH', 'idx', '%$tok%', 'PARAMS', 2, 'tok', 'not')
+    env.assertEqual(res2, res1)
+
+    res1 = conn.execute_command('FT.SEARCH', 'idx', '%%not%%')
+    res2 = conn.execute_command('FT.SEARCH', 'idx', '%%$tok%%', 'PARAMS', 2, 'tok', 'not')
+    env.assertEqual(res2, res1)
+
+    res1 = conn.execute_command('FT.SEARCH', 'idx', '%%%their%%%')
+    res2 = conn.execute_command('FT.SEARCH', 'idx', '%%%$tok%%%', 'PARAMS', 2, 'tok', 'their')
     env.assertEqual(res2, res1)
 

@@ -413,34 +413,28 @@ prefix(A) ::= PREFIX(B) . [PREFIX] {
 // Fuzzy terms
 /////////////////////////////////////////////////////////////////
 
-expr(A) ::=  PERCENT term(B) PERCENT. [PREFIX] {
-  B.s = rm_strdupcase(B.s, B.len);
-    A = NewFuzzyNode(ctx, B.s, strlen(B.s), 1);
+expr(A) ::=  PERCENT param_term(B) PERCENT. [PREFIX] {
+  A = NewFuzzyNode_WithParam(ctx, &B, 1);
 }
 
-expr(A) ::= PERCENT PERCENT term(B) PERCENT PERCENT. [PREFIX] {
-  B.s = rm_strdupcase(B.s, B.len);
-    A = NewFuzzyNode(ctx, B.s, strlen(B.s), 2);
+expr(A) ::= PERCENT PERCENT param_term(B) PERCENT PERCENT. [PREFIX] {
+  A = NewFuzzyNode_WithParam(ctx, &B, 2);
 }
 
-expr(A) ::= PERCENT PERCENT PERCENT term(B) PERCENT PERCENT PERCENT. [PREFIX] {
-  B.s = rm_strdupcase(B.s, B.len);
-    A = NewFuzzyNode(ctx, B.s, strlen(B.s), 3);
+expr(A) ::= PERCENT PERCENT PERCENT param_term(B) PERCENT PERCENT PERCENT. [PREFIX] {
+  A = NewFuzzyNode_WithParam(ctx, &B, 3);
 }
 
 expr(A) ::=  PERCENT STOPWORD(B) PERCENT. [PREFIX] {
-  B.s = rm_strdupcase(B.s, B.len);
-    A = NewFuzzyNode(ctx, B.s, strlen(B.s), 1);
+  A = NewFuzzyNode_WithParam(ctx, &B, 1);
 }
 
 expr(A) ::= PERCENT PERCENT STOPWORD(B) PERCENT PERCENT. [PREFIX] {
-  B.s = rm_strdupcase(B.s, B.len);
-    A = NewFuzzyNode(ctx, B.s, strlen(B.s), 2);
+  A = NewFuzzyNode_WithParam(ctx, &B, 2);
 }
 
 expr(A) ::= PERCENT PERCENT PERCENT STOPWORD(B) PERCENT PERCENT PERCENT. [PREFIX] {
-  B.s = rm_strdupcase(B.s, B.len);
-    A = NewFuzzyNode(ctx, B.s, strlen(B.s), 3);
+  A = NewFuzzyNode_WithParam(ctx, &B, 3);
 }
 
 

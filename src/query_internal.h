@@ -69,7 +69,7 @@ QueryNode *NewPhraseNode(int exact);
 #define NewOptionalNode(child) NewQueryNodeChildren(QN_OPTIONAL, &child, 1)
 
 QueryNode *NewPrefixNode_WithParam(QueryParseCtx *q, QueryToken *qt);
-QueryNode *NewFuzzyNode(QueryParseCtx *q, const char *s, size_t len, int maxDist);
+QueryNode *NewFuzzyNode_WithParam(QueryParseCtx *q, QueryToken *qt, int maxDist);
 QueryNode *NewNumericNode(QueryParam *p);
 QueryNode *NewGeofilterNode(QueryParam *p);
 QueryNode *NewVectorNode(QueryParam *p);

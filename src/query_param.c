@@ -188,14 +188,10 @@ void QueryParam_InitParams(QueryParam *p, size_t num) {
 int QueryParam_Resolve(Param *param, dict *params, QueryError *status) {
   if (param->type == PARAM_NONE)
     return 0;
-  dictEntry *e = params ? dictFind(params, param->name) : NULL;
-  if (!e) {
-    QueryError_SetErrorFmt(status, QUERY_ENOPARAM, "No such parameter `%s`", param->name);
-    return -1;
-  }
-  RedisModuleString *rms_val = dictGetVal(e);
   size_t val_len;
-  const char *val = RedisModule_StringPtrLen(rms_val, &val_len);
+  const char *val = Param_DictGet(params, param->name, &val_len, status);
+  if (!val)
+    return -1;
 
   switch(param->type) {
 

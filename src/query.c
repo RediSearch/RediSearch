@@ -196,22 +196,31 @@ QueryNode *NewPrefixNode_WithParam(QueryParseCtx *q, QueryToken *qt) {
   return ret;
 }
 
-QueryNode *NewFuzzyNode(QueryParseCtx *q, const char *s, size_t len, int maxDist) {
+QueryNode *NewFuzzyNode_WithParam(QueryParseCtx *q, QueryToken *qt, int maxDist) {
   QueryNode *ret = NewQueryNode(QN_FUZZY);
   q->numTokens++;
 
-  ret->fz = (QueryFuzzyNode){
+  if (qt->type == QT_TERM) {
+    char *s = rm_strdupcase(qt->s, qt->len);
+    ret->fz = (QueryFuzzyNode){
       .tok =
           (RSToken){
-              .str = (char *)s,
-              .len = len,
-              .expanded = 0,
-              .flags = 0,
-          },
+            .str = (char *)s,
+            .len = strlen(s),
+            .expanded = 0,
+            .flags = 0,
+            },
       .maxDist = maxDist,
-  };
+    };
+  } else {
+    ret->fz.maxDist = maxDist;
+    assert (qt->type == QT_PARAM_TERM);
+    QueryNode_InitParams(ret, 1);
+    QueryNode_SetParam(q, &ret->params[0], &ret->fz.tok.str, &ret->fz.tok.len, qt);
+  }
   return ret;
 }
+
 
 QueryNode *NewPhraseNode(int exact) {
   QueryNode *ret = NewQueryNode(QN_PHRASE);
