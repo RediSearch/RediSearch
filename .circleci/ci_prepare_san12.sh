@@ -24,7 +24,7 @@ make build SAN=${SAN_MODE}
 cd $ROOT/deps
 if [[ ! -d RedisJSON ]]; then
 	git clone --quiet --recursive https://github.com/RedisJSON/RedisJSON.git
-endif
+fi
 
 cd RedisJSON
 git checkout master
