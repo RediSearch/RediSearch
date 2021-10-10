@@ -31,7 +31,10 @@ typedef enum {
 
   // Plan step is a reducer. This does not mean it uses a reduce function, but
   // rather that it fundamentally modifies the rows.
-  PLN_F_REDUCER = 0x02
+  PLN_F_REDUCER = 0x02,
+
+  // Plan to load all fields by RPLoader
+  PLN_F_LOAD_ALL = 0x04,
 } PlanFlags;
 
 typedef struct PLN_BaseStep {
@@ -50,8 +53,6 @@ typedef struct PLN_BaseStep {
 
   // Type specific stuff goes here..
 } PLN_BaseStep;
-
-#define PLN_F_LOAD_ALL 0x01
 
 #define PLN_NEXT_STEP(step) DLLIST_ITEM((step)->llnodePln.next, PLN_BaseStep, llnodePln)
 #define PLN_PREV_STEP(step) DLLIST_ITEM((step)->llnodePln.prev, PLN_BaseStep, llnodePln)
