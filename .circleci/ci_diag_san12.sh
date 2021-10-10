@@ -19,12 +19,12 @@ if [[ $ASAN == 1 ]]; then
     mode=asan
 	JSON_SAN_MODE=address
     extra_flags="-DUSE_ASAN=ON"
-    $READIES/bin/getredis --force -v 6.2 --no-tls --no-run --suffix asan --clang-asan --clang-san-blacklist /build/redis.blacklist
+    $READIES/bin/getredis --force -v 6.2 --own-openssl --no-run --suffix asan --clang-asan --clang-san-blacklist /build/redis.blacklist
 elif [[ $MSAN == 1 ]]; then
     mode=msan
 	JSON_SAN_MODE=memory
     extra_flags="-DUSE_MSAN=ON -DMSAN_PREFIX=${SAN_PREFIX}"
-    $READIES/bin/getredis --force -v 6.2 --no-tls --no-run --suffix msan --clang-msan --llvm-dir /opt/llvm-project/build-msan --clang-san-blacklist /build/redis.blacklist
+    $READIES/bin/getredis --force -v 6.2 --own-openssl --no-run --suffix msan --clang-msan --llvm-dir /opt/llvm-project/build-msan --clang-san-blacklist /build/redis.blacklist
 else
     echo "Should define either ASAN=1 or MSAN=1"
     exit 1
@@ -62,11 +62,10 @@ export ASAN_OPTIONS=detect_odr_violation=0
 export RS_GLOBAL_DTORS=1
 
 cd $ROOT/deps
-[[ ! -d RedisJSON ]] && git clone --recursive https://github.com/RedisJSON/RedisJSON.git
+[[ ! -d RedisJSON ]] && git clone --quiet --recursive https://github.com/RedisJSON/RedisJSON.git
 cd RedisJSON
 git checkout master
 git pull --recurse-submodules
-# ./deps/readies/bin/getpy3
 $READIES/bin/getpy3
 ./system-setup.py
 source /etc/profile.d/rust.sh
