@@ -97,6 +97,8 @@ def test_errors(env):
     env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TKOO 4]').raiseError().contains('Invalid Vector similarity type')
     env.expect('FT.SEARCH', 'idx', '@v:[abcdef TOPK badval]').raiseError().contains('Syntax error')
     env.expect('FT.SEARCH', 'idx', '@v:[abcdef TOPK badval]').raiseError().contains('Syntax error')
+    env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh $type 4]', 'PARAMS', '2', 'type', 'TKOO').raiseError().contains('Invalid Vector similarity type')
+
 
 
 def test_binary_data(env):

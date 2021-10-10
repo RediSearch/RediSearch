@@ -84,9 +84,6 @@ IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorFilter *vf) {
         rm_free(vector);
       }
       break;
-    case VECTOR_SIM_RANGE:
-      RS_LOG_ASSERT(0, "isn't implemented yet");
-      break;
 
     case VECTOR_SIM_INVALID:
       return NULL;
