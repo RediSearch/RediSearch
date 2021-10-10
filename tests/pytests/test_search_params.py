@@ -276,29 +276,32 @@ def test_numeric_range(env):
 
 def test_vector(env):
     conn = getConnectionByEnv(env)
-    env.expect('FT.CREATE idx SCHEMA v VECTOR INT32 2 L2 HNSW').ok()
-    conn.execute_command('HSET', 'a', 'v', 'abcdefgh')
-    conn.execute_command('HSET', 'b', 'v', 'abcdefgg')
-    conn.execute_command('HSET', 'c', 'v', 'zzzzxxxx')
-    conn.execute_command('HSET', 'd', 'v', 'abbdefgh')
 
-    res1 = [2L, 'd', ['v', 'abbdefgh'], 'a', ['v', 'abcdefgh']]
-    res2 = conn.execute_command('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 2]')
-    env.assertEqual(res2, res1)
-    res2 = conn.execute_command('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK $k]', 'PARAMS', '6', 'vec', 'abcdefgh', 'type', 'TOPK', 'k', '2')
-    env.assertEqual(res2, res1)
-    res2 = conn.execute_command('FT.SEARCH', 'idx', '@v:[abcdefgh $type 2]', 'PARAMS', '6', 'vec', 'abcdefgh', 'type', 'TOPK', 'k', '2')
-    env.assertEqual(res2, res1)
-    res2 = conn.execute_command('FT.SEARCH', 'idx', '@v:[abcdefgh $type $k]', 'PARAMS', '6', 'vec', 'abcdefgh', 'type', 'TOPK', 'k', '2')
-    env.assertEqual(res2, res1)
-    res2 = conn.execute_command('FT.SEARCH', 'idx', '@v:[$vec TOPK 2]', 'PARAMS', '6', 'vec', 'abcdefgh', 'type', 'TOPK', 'k', '2')
-    env.assertEqual(res2, res1)
-    res2 = conn.execute_command('FT.SEARCH', 'idx', '@v:[$vec TOPK $k]', 'PARAMS', '6', 'vec', 'abcdefgh', 'type', 'TOPK', 'k', '2')
-    env.assertEqual(res2, res1)
-    res2 = conn.execute_command('FT.SEARCH', 'idx', '@v:[$vec $type 2]', 'PARAMS', '6', 'vec', 'abcdefgh', 'type', 'TOPK', 'k', '2')
-    env.assertEqual(res2, res1)
-    res2 = conn.execute_command('FT.SEARCH', 'idx', '@v:[$vec $type $k]', 'PARAMS', '6', 'vec', 'abcdefgh', 'type', 'TOPK', 'k', '2')
-    env.assertEqual(res2, res1)
+    args = ['SORTBY', 'v_score', 'ASC', 'RETURN', 1, 'v_score', 'LIMIT', 0, 2]
+
+    env.expect('FT.CREATE idx SCHEMA v VECTOR INT32 2 L2 HNSW').ok()
+    conn.execute_command('HSET', 'a', 'v', 'aaaaaaaa')
+    conn.execute_command('HSET', 'b', 'v', 'aaaabaaa')
+    conn.execute_command('HSET', 'c', 'v', 'aaaaabaa')
+    conn.execute_command('HSET', 'd', 'v', 'aaaaaaba')
+
+    res1 = ['a', ['v_score', '0'], 'b', ['v_score', '3.09485009821e+26']]
+    res2 = conn.execute_command('FT.SEARCH', 'idx', '@v:[aaaaaaaa TOPK 2]', *args)
+    env.assertEqual(res2[1:], res1)
+    res2 = conn.execute_command('FT.SEARCH', 'idx', '@v:[aaaaaaaa TOPK $k]', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'type', 'TOPK', 'k', '2', *args)
+    env.assertEqual(res2[1:], res1)
+    res2 = conn.execute_command('FT.SEARCH', 'idx', '@v:[aaaaaaaa $type 2]', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'type', 'TOPK', 'k', '2', *args)
+    env.assertEqual(res2[1:], res1)
+    res2 = conn.execute_command('FT.SEARCH', 'idx', '@v:[aaaaaaaa $type $k]', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'type', 'TOPK', 'k', '2', *args)
+    env.assertEqual(res2[1:], res1)
+    res2 = conn.execute_command('FT.SEARCH', 'idx', '@v:[$vec TOPK 2]', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'type', 'TOPK', 'k', '2', *args)
+    env.assertEqual(res2[1:], res1)
+    res2 = conn.execute_command('FT.SEARCH', 'idx', '@v:[$vec TOPK $k]', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'type', 'TOPK', 'k', '2', *args)
+    env.assertEqual(res2[1:], res1)
+    res2 = conn.execute_command('FT.SEARCH', 'idx', '@v:[$vec $type 2]', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'type', 'TOPK', 'k', '2', *args)
+    env.assertEqual(res2[1:], res1)
+    res2 = conn.execute_command('FT.SEARCH', 'idx', '@v:[$vec $type $k]', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'type', 'TOPK', 'k', '2', *args)
+    env.assertEqual(res2[1:], res1)
 
 def test_fuzzy(env):
 
