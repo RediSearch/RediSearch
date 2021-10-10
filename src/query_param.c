@@ -10,12 +10,6 @@ QueryParam *NewQueryParam(QueryParamType type) {
   return ret;
 }
 
-QueryParam *NewGeoFilterQueryParam(GeoFilter *gf) {
-  QueryParam *ret = NewQueryParam(QP_GEO_FILTER);
-  ret->gf = gf;
-  return ret;
-}
-
 QueryParam *NewGeoFilterQueryParam_WithParams(struct QueryParseCtx *q, QueryToken *lon, QueryToken *lat, QueryToken *radius, QueryToken *unit) {
   QueryParam *ret = NewQueryParam(QP_GEO_FILTER);
 
@@ -34,13 +28,6 @@ QueryParam *NewGeoFilterQueryParam_WithParams(struct QueryParseCtx *q, QueryToke
   return ret;
 }
 
-
-QueryParam *NewNumericFilterQueryParam(NumericFilter *nf) {
-  QueryParam *ret = NewQueryParam(QP_NUMERIC_FILTER);
-  ret->nf = nf;
-  return ret;
-}
-
 QueryParam *NewNumericFilterQueryParam_WithParams(struct QueryParseCtx *q, QueryToken *min, QueryToken *max, int inclusiveMin, int inclusiveMax) {
   QueryParam *ret = NewQueryParam(QP_NUMERIC_FILTER);
   NumericFilter *nf = NewNumericFilter(0, 0, inclusiveMin, inclusiveMax);
@@ -48,12 +35,6 @@ QueryParam *NewNumericFilterQueryParam_WithParams(struct QueryParseCtx *q, Query
   QueryParam_InitParams(ret, 2);
   QueryParam_SetParam(q, &ret->params[0], &nf->min, NULL, min);
   QueryParam_SetParam(q, &ret->params[1], &nf->max, NULL, max);
-  return ret;
-}
-
-QueryParam *NewVectorFilterQueryParam(struct VectorFilter *vf) {
-  QueryParam *ret = NewQueryParam(QP_VEC_FILTER);
-  ret->vf = vf;
   return ret;
 }
 
@@ -89,9 +70,6 @@ void QueryParam_Free(QueryParam *p) {
       break;
     case QP_NUMERIC_FILTER:
       NumericFilter_Free(p->nf);
-      break;
-    case QP_RANGE_NUMBER:
-      RangeNumber_Free(p->rn);
       break;
     case QP_VEC_FILTER:
       VectorFilter_Free(p->vf);

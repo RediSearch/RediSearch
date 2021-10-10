@@ -87,7 +87,7 @@ void QueryNode_Free(QueryNode *n) {
       QueryLexRangeNode_Free(&n->lxrng);
       break;
     case QN_VECTOR:
-      VectorFilter_Free((void *)n->vn.vf);
+      QueryVectorNode_Free(&n->vn);
       break;
     case QN_WILDCARD:
     case QN_IDS:
@@ -147,7 +147,7 @@ QueryNode *NewTokenNode(QueryParseCtx *q, const char *s, size_t len) {
   return ret;
 }
 
-QueryNode *NewTokenNode_WithParam(QueryParseCtx *q, QueryToken *qt) {
+QueryNode *NewTokenNode_WithParams(QueryParseCtx *q, QueryToken *qt) {
   QueryNode *ret = NewQueryNode(QN_TOKEN);
   q->numTokens++;
 
@@ -182,7 +182,7 @@ bool QueryNode_SetParam(QueryParseCtx *q, Param *target_param, void *target_valu
       source); //FIXME: Move to a common location for QueryNode and QueryParam
 }
 
-QueryNode *NewPrefixNode_WithParam(QueryParseCtx *q, QueryToken *qt) {
+QueryNode *NewPrefixNode_WithParams(QueryParseCtx *q, QueryToken *qt) {
   QueryNode *ret = NewQueryNode(QN_PREFIX);
   q->numTokens++;
   if (qt->type == QT_TERM) {
@@ -196,7 +196,7 @@ QueryNode *NewPrefixNode_WithParam(QueryParseCtx *q, QueryToken *qt) {
   return ret;
 }
 
-QueryNode *NewFuzzyNode_WithParam(QueryParseCtx *q, QueryToken *qt, int maxDist) {
+QueryNode *NewFuzzyNode_WithParams(QueryParseCtx *q, QueryToken *qt, int maxDist) {
   QueryNode *ret = NewQueryNode(QN_FUZZY);
   q->numTokens++;
 

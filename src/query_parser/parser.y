@@ -347,7 +347,7 @@ expr(A) ::= QUOTE ATTRIBUTE(B) QUOTE. [TERMLIST] {
 }
 
 expr(A) ::= param_term(B) . [LOWEST]  {
-  A = NewTokenNode_WithParam(ctx, &B);
+  A = NewTokenNode_WithParams(ctx, &B);
 }
 
 expr(A) ::= prefix(B) . [PREFIX]  {
@@ -364,13 +364,13 @@ expr(A) ::= STOPWORD . [STOPWORD] {
 
 termlist(A) ::= param_term(B) param_term(C). [TERMLIST]  {
   A = NewPhraseNode(0);
-  QueryNode_AddChild(A, NewTokenNode_WithParam(ctx, &B));
-  QueryNode_AddChild(A, NewTokenNode_WithParam(ctx, &C));
+  QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &B));
+  QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &C));
 }
 
 termlist(A) ::= termlist(B) param_term(C) . [TERMLIST] {
   A = B;
-  QueryNode_AddChild(A, NewTokenNode_WithParam(ctx, &C));
+  QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &C));
 }
 
 termlist(A) ::= termlist(B) STOPWORD . [TERMLIST] {
@@ -406,7 +406,7 @@ expr(A) ::= TILDE expr(B) . {
 /////////////////////////////////////////////////////////////////
 
 prefix(A) ::= PREFIX(B) . [PREFIX] {
-    A = NewPrefixNode_WithParam(ctx, &B);
+    A = NewPrefixNode_WithParams(ctx, &B);
 }
 
 /////////////////////////////////////////////////////////////////
@@ -414,27 +414,27 @@ prefix(A) ::= PREFIX(B) . [PREFIX] {
 /////////////////////////////////////////////////////////////////
 
 expr(A) ::=  PERCENT param_term(B) PERCENT. [PREFIX] {
-  A = NewFuzzyNode_WithParam(ctx, &B, 1);
+  A = NewFuzzyNode_WithParams(ctx, &B, 1);
 }
 
 expr(A) ::= PERCENT PERCENT param_term(B) PERCENT PERCENT. [PREFIX] {
-  A = NewFuzzyNode_WithParam(ctx, &B, 2);
+  A = NewFuzzyNode_WithParams(ctx, &B, 2);
 }
 
 expr(A) ::= PERCENT PERCENT PERCENT param_term(B) PERCENT PERCENT PERCENT. [PREFIX] {
-  A = NewFuzzyNode_WithParam(ctx, &B, 3);
+  A = NewFuzzyNode_WithParams(ctx, &B, 3);
 }
 
 expr(A) ::=  PERCENT STOPWORD(B) PERCENT. [PREFIX] {
-  A = NewFuzzyNode_WithParam(ctx, &B, 1);
+  A = NewFuzzyNode_WithParams(ctx, &B, 1);
 }
 
 expr(A) ::= PERCENT PERCENT STOPWORD(B) PERCENT PERCENT. [PREFIX] {
-  A = NewFuzzyNode_WithParam(ctx, &B, 2);
+  A = NewFuzzyNode_WithParams(ctx, &B, 2);
 }
 
 expr(A) ::= PERCENT PERCENT PERCENT STOPWORD(B) PERCENT PERCENT PERCENT. [PREFIX] {
-  A = NewFuzzyNode_WithParam(ctx, &B, 3);
+  A = NewFuzzyNode_WithParams(ctx, &B, 3);
 }
 
 
@@ -488,7 +488,7 @@ tag_list(A) ::= LB param_term(B) . [TAGLIST] {
     B.type = QT_TERM_CASE;
   else if (B.type == QT_PARAM_TERM)
     B.type = QT_PARAM_TERM_CASE;
-  QueryNode_AddChild(A, NewTokenNode_WithParam(ctx, &B));
+  QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &B));
 }
 
 tag_list(A) ::= LB STOPWORD(B) . [TAGLIST] {
@@ -511,7 +511,7 @@ tag_list(A) ::= tag_list(B) OR param_term(C) . [TAGLIST] {
     C.type = QT_TERM_CASE;
   else if (C.type == QT_PARAM_TERM)
     C.type = QT_PARAM_TERM_CASE;
-  QueryNode_AddChild(B, NewTokenNode_WithParam(ctx, &C));
+  QueryNode_AddChild(B, NewTokenNode_WithParams(ctx, &C));
   A = B;
 }
 

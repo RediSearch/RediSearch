@@ -1406,7 +1406,7 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 19: /* expr ::= param_term */
 {
-  yylhsminor.yy17 = NewTokenNode_WithParam(ctx, &yymsp[0].minor.yy0);
+  yylhsminor.yy17 = NewTokenNode_WithParams(ctx, &yymsp[0].minor.yy0);
 }
   yymsp[0].minor.yy17 = yylhsminor.yy17;
         break;
@@ -1424,15 +1424,15 @@ static YYACTIONTYPE yy_reduce(
       case 23: /* termlist ::= param_term param_term */
 {
   yylhsminor.yy17 = NewPhraseNode(0);
-  QueryNode_AddChild(yylhsminor.yy17, NewTokenNode_WithParam(ctx, &yymsp[-1].minor.yy0));
-  QueryNode_AddChild(yylhsminor.yy17, NewTokenNode_WithParam(ctx, &yymsp[0].minor.yy0));
+  QueryNode_AddChild(yylhsminor.yy17, NewTokenNode_WithParams(ctx, &yymsp[-1].minor.yy0));
+  QueryNode_AddChild(yylhsminor.yy17, NewTokenNode_WithParams(ctx, &yymsp[0].minor.yy0));
 }
   yymsp[-1].minor.yy17 = yylhsminor.yy17;
         break;
       case 24: /* termlist ::= termlist param_term */
 {
   yylhsminor.yy17 = yymsp[-1].minor.yy17;
-  QueryNode_AddChild(yylhsminor.yy17, NewTokenNode_WithParam(ctx, &yymsp[0].minor.yy0));
+  QueryNode_AddChild(yylhsminor.yy17, NewTokenNode_WithParams(ctx, &yymsp[0].minor.yy0));
 }
   yymsp[-1].minor.yy17 = yylhsminor.yy17;
         break;
@@ -1463,26 +1463,26 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 28: /* prefix ::= PREFIX */
 {
-    yylhsminor.yy17 = NewPrefixNode_WithParam(ctx, &yymsp[0].minor.yy0);
+    yylhsminor.yy17 = NewPrefixNode_WithParams(ctx, &yymsp[0].minor.yy0);
 }
   yymsp[0].minor.yy17 = yylhsminor.yy17;
         break;
       case 29: /* expr ::= PERCENT param_term PERCENT */
       case 32: /* expr ::= PERCENT STOPWORD PERCENT */ yytestcase(yyruleno==32);
 {
-  yymsp[-2].minor.yy17 = NewFuzzyNode_WithParam(ctx, &yymsp[-1].minor.yy0, 1);
+  yymsp[-2].minor.yy17 = NewFuzzyNode_WithParams(ctx, &yymsp[-1].minor.yy0, 1);
 }
         break;
       case 30: /* expr ::= PERCENT PERCENT param_term PERCENT PERCENT */
       case 33: /* expr ::= PERCENT PERCENT STOPWORD PERCENT PERCENT */ yytestcase(yyruleno==33);
 {
-  yymsp[-4].minor.yy17 = NewFuzzyNode_WithParam(ctx, &yymsp[-2].minor.yy0, 2);
+  yymsp[-4].minor.yy17 = NewFuzzyNode_WithParams(ctx, &yymsp[-2].minor.yy0, 2);
 }
         break;
       case 31: /* expr ::= PERCENT PERCENT PERCENT param_term PERCENT PERCENT PERCENT */
       case 34: /* expr ::= PERCENT PERCENT PERCENT STOPWORD PERCENT PERCENT PERCENT */ yytestcase(yyruleno==34);
 {
-  yymsp[-6].minor.yy17 = NewFuzzyNode_WithParam(ctx, &yymsp[-3].minor.yy0, 3);
+  yymsp[-6].minor.yy17 = NewFuzzyNode_WithParams(ctx, &yymsp[-3].minor.yy0, 3);
 }
         break;
       case 35: /* modifier ::= MODIFIER */
@@ -1536,7 +1536,7 @@ static YYACTIONTYPE yy_reduce(
     yymsp[0].minor.yy0.type = QT_TERM_CASE;
   else if (yymsp[0].minor.yy0.type == QT_PARAM_TERM)
     yymsp[0].minor.yy0.type = QT_PARAM_TERM_CASE;
-  QueryNode_AddChild(yymsp[-1].minor.yy17, NewTokenNode_WithParam(ctx, &yymsp[0].minor.yy0));
+  QueryNode_AddChild(yymsp[-1].minor.yy17, NewTokenNode_WithParams(ctx, &yymsp[0].minor.yy0));
 }
         break;
       case 40: /* tag_list ::= LB STOPWORD */
@@ -1558,7 +1558,7 @@ static YYACTIONTYPE yy_reduce(
     yymsp[0].minor.yy0.type = QT_TERM_CASE;
   else if (yymsp[0].minor.yy0.type == QT_PARAM_TERM)
     yymsp[0].minor.yy0.type = QT_PARAM_TERM_CASE;
-  QueryNode_AddChild(yymsp[-2].minor.yy17, NewTokenNode_WithParam(ctx, &yymsp[0].minor.yy0));
+  QueryNode_AddChild(yymsp[-2].minor.yy17, NewTokenNode_WithParams(ctx, &yymsp[0].minor.yy0));
   yylhsminor.yy17 = yymsp[-2].minor.yy17;
 }
   yymsp[-2].minor.yy17 = yylhsminor.yy17;

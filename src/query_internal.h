@@ -68,14 +68,14 @@ QueryNode *NewPhraseNode(int exact);
 #define NewNotNode(child) NewQueryNodeChildren(QN_NOT, &child, 1)
 #define NewOptionalNode(child) NewQueryNodeChildren(QN_OPTIONAL, &child, 1)
 
-QueryNode *NewPrefixNode_WithParam(QueryParseCtx *q, QueryToken *qt);
-QueryNode *NewFuzzyNode_WithParam(QueryParseCtx *q, QueryToken *qt, int maxDist);
+QueryNode *NewPrefixNode_WithParams(QueryParseCtx *q, QueryToken *qt);
+QueryNode *NewFuzzyNode_WithParams(QueryParseCtx *q, QueryToken *qt, int maxDist);
 QueryNode *NewNumericNode(QueryParam *p);
 QueryNode *NewGeofilterNode(QueryParam *p);
 QueryNode *NewVectorNode(QueryParam *p);
 QueryNode *NewTagNode(const char *tag, size_t len);
 
-QueryNode *NewTokenNode_WithParam(QueryParseCtx *q, QueryToken *qt);
+QueryNode *NewTokenNode_WithParams(QueryParseCtx *q, QueryToken *qt);
 void QueryNode_InitParams(QueryNode *n, size_t num);
 bool QueryNode_SetParam(QueryParseCtx *q, Param *target_param, void *target_value,
                         size_t *target_len, QueryToken *source);

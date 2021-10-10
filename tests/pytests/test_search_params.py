@@ -59,6 +59,8 @@ def test_errors(env):
     env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'PARAMS', '4', 'param1', 'val1').raiseError().contains('Bad arguments for PARAMS: Expected an argument')
     env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'PARAMS', '2', 'param1').raiseError().contains('Bad arguments for PARAMS: Expected an argument')
     env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'PARAMS', '4', 'param1', 'val1', 'param1', 'val2').raiseError().contains('Duplicate parameter `param1`')
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'PARAMS', '3').raiseError()
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'PARAMS').raiseError()
 
     # The search query can be literally 'PARAMS'
     env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', 'PARAMS', 'PARAMS', '4', 'foo', 'x', 'bar', '100'), [1L, 'key1', ['foo', 'PARAMS', 'bar', 'PARAMS']])
@@ -95,7 +97,6 @@ def test_errors(env):
     env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TKOO 4]').raiseError().contains('Invalid Vector similarity type')
     env.expect('FT.SEARCH', 'idx', '@v:[abcdef TOPK badval]').raiseError().contains('Syntax error')
     env.expect('FT.SEARCH', 'idx', '@v:[abcdef TOPK badval]').raiseError().contains('Syntax error')
-
 
 
 def test_binary_data(env):
