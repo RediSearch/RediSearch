@@ -286,18 +286,28 @@ expr(A) ::= LP expr(B) RP . {
 // Attributes
 /////////////////////////////////////////////////////////////////
 
-attribute(A) ::= ATTRIBUTE(B) COLON term(C). {
-    
-    A = (QueryAttribute){ .name = B.s, .namelen = B.len, .value = rm_strndup(C.s, C.len), .vallen = C.len };
+attribute(A) ::= ATTRIBUTE(B) COLON param_term(C). {
+  const char * value = rm_strndup(C.s, C.len);
+  size_t value_len = C.len;
+  if (C.type == QT_PARAM_TERM) {
+    size_t found_value_len;
+    const char *found_value = Param_DictGet(ctx->opts->params, value, &found_value_len, ctx->status);
+    if (found_value) {
+      rm_free((char*)value);
+      value = rm_strndup(found_value, found_value_len);
+      value_len = found_value_len;
+    }
+  }
+  A = (QueryAttribute){ .name = B.s, .namelen = B.len, .value = rm_strndup(value, value_len), .vallen = value_len };
 }
 
 attribute_list(A) ::= attribute(B) . {
-    A = array_new(QueryAttribute, 2);
-    A = array_append(A, B);
+  A = array_new(QueryAttribute, 2);
+  A = array_append(A, B);
 }
 
 attribute_list(A) ::= attribute_list(B) SEMICOLON attribute(C) . {
-    A = array_append(B, C);
+  A = array_append(B, C);
 }
 
 attribute_list(A) ::= attribute_list(B) SEMICOLON . {

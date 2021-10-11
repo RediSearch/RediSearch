@@ -48,10 +48,10 @@ def test_geo(env):
     env.assertEqual(res, [3L, ['dist', '879.66'], ['dist', '1007.98'], ['dist', '1322.22']])
 
 
-def test_errors(env):
+def test_param_errors(env):
     conn = getConnectionByEnv(env)
 
-    env.assertOk(conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'foo', 'TEXT', 'bar', 'TAG', 'g', 'GEO', 'num', 'NUMERIC'))
+    env.assertOk(conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'foo', 'TEXT', 'bar', 'TAG', 'g', 'GEO', 'num', 'NUMERIC', 'v', 'VECTOR', 'INT32', '2', 'L2', 'HNSW'))
     waitForIndex(env, 'idx')
     env.assertEqual(conn.execute_command('HSET', 'key1', 'foo', 'PARAMS', 'bar', 'PARAMS'), 2L)
 
@@ -74,7 +74,6 @@ def test_errors(env):
     env.expect('FT.SEARCH', 'idx', '*', 'PARAMS', '4', 'foo', 'x', 'bar', '100', 'PARAMS', '4', 'goo', 'y', 'baz', '900').raiseError()
     env.expect('FT.AGGREGATE', 'idx', '*', 'PARAMS', '4', 'foo', 'x', 'bar', '100', 'PARAMS', '4', 'goo', 'y', 'baz', '900').raiseError()
 
-
     # FIXME: Add erroneos tests: param name with none-alphanumeric, param value with illegal character such as star, paren, etc.
 
     # Test errors in param usage: missing param, wrong param value
@@ -96,9 +95,39 @@ def test_errors(env):
 
     env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TKOO 4]').raiseError().contains('Invalid Vector similarity type')
     env.expect('FT.SEARCH', 'idx', '@v:[abcdef TOPK badval]').raiseError().contains('Syntax error')
-    env.expect('FT.SEARCH', 'idx', '@v:[abcdef TOPK badval]').raiseError().contains('Syntax error')
     env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh $type 4]', 'PARAMS', '2', 'type', 'TKOO').raiseError().contains('Invalid Vector similarity type')
 
+    # Test Attribute errors
+    env.expect('FT.SEARCH', 'idx', '@v:[$vec $type $k] => { $efRuntime:$runtime}', 'PARAMS', '8', 'vec', 'aaaaaaaa', 'type', 'TOPK', 'k', '2', 'runtime', 'zzz').raiseError().contains('Invalid value')
+    env.expect('FT.SEARCH', 'idx', '@v:[$vec $type $k] => { $efRuntime:$runtime}', 'PARAMS', '8', 'vec', 'aaaaaaaa', 'type', 'TOPK', 'k', '2', 'lunchtime', 'zzz').raiseError().contains('No such parameter')
+    env.expect('FT.SEARCH', 'idx', '@num:[$min $max] => { $efRuntime:$runtime}', 'NOCONTENT', 'PARAMS', '6', 'min', '102', 'max', '204', 'runtime', '100').raiseError().contains('requires vector node')
+    env.expect('FT.SEARCH', 'idx', '@pron:(jon) => { $slop:1; $phonetic:$ph}', 'NOCONTENT', 'PARAMS', '6', 'min', '102', 'max', '204', 'ph', 'maybe').raiseError().contains('Invalid value')
+
+
+def test_attr(env):
+
+    conn = getConnectionByEnv(env)
+    env.assertOk(conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'name_ph', 'TEXT', 'PHONETIC', 'dm:en', 'name', 'TEXT'))
+    waitForIndex(env, 'idx')
+    env.assertEqual(conn.execute_command('HSET', 'key1', 'name_ph', 'John', 'name', 'John'), 2L)
+    env.assertEqual(conn.execute_command('HSET', 'key2', 'name_ph', 'Jon', 'name', 'Jon'), 2L)
+    env.assertEqual(conn.execute_command('HSET', 'key3', 'name_ph', 'Joy', 'name', 'Joy'), 2L)
+    env.assertEqual(conn.execute_command('HSET', 'key4', 'name_ph', 'Lucy', 'name', 'Lucy'), 2L)
+
+    # Error: field does not support phonetics
+    env.expect('FT.SEARCH', 'idx', '@name:($name) => { $slop:$slop; $phonetic:$ph}', 'NOCONTENT', 'PARAMS', '6', 'name', 'jon', 'slop', '0', 'ph', 'true').raiseError()
+
+    # With phonetic
+    res1 = conn.execute_command('FT.SEARCH', 'idx', '(@name_ph:(jon) => { $weight: 1; $phonetic:true}) | (@name_ph:(jon) => { $weight: 2; $phonetic:false})', 'NOCONTENT')
+    env.assertEqual(res1, [2L, 'key2', 'key1'])
+    res2 = conn.execute_command('FT.SEARCH', 'idx', '(@name_ph:($name) => { $weight: $w1; $phonetic:$ph1}) | (@name_ph:($name) => { $weight: $w2; $phonetic:false})', 'NOCONTENT', 'PARAMS', '12', 'name', 'jon', 'slop', '0', 'ph1', 'true', 'ph2', 'false', 'w1', '1', 'w2', '2')
+    env.assertEqual(res2, res1)
+
+    # Without phonetic
+    res1 = conn.execute_command('FT.SEARCH', 'idx', '@name_ph:(jon) => { $weight: 1; $phonetic:false}', 'NOCONTENT')
+    env.assertEqual(res1, [1L, 'key2'])
+    res2 = conn.execute_command('FT.SEARCH', 'idx', '@name_ph:($name) => { $weight: $w1; $phonetic:$ph1}', 'NOCONTENT', 'PARAMS', '6', 'name', 'jon', 'w1', '1', 'ph1', 'false')
+    env.assertEqual(res2, res1)
 
 
 def test_binary_data(env):
@@ -304,6 +333,10 @@ def test_vector(env):
     env.assertEqual(res2[1:], res1)
     res2 = conn.execute_command('FT.SEARCH', 'idx', '@v:[$vec $type $k]', 'PARAMS', '6', 'vec', 'aaaaaaaa', 'type', 'TOPK', 'k', '2', *args)
     env.assertEqual(res2[1:], res1)
+
+    res2 = conn.execute_command('FT.SEARCH', 'idx', '@v:[$vec $type $k] => { $efRuntime:$runtime}', 'PARAMS', '8', 'vec', 'aaaaaaaa', 'type', 'TOPK', 'k', '2', 'runtime', '100', *args)
+    env.assertEqual(res2[1:], res1)
+
 
 def test_fuzzy(env):
 
