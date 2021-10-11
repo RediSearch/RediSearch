@@ -1,4 +1,5 @@
 # coding=utf-8
+
 import collections
 import os
 import random
@@ -13,14 +14,12 @@ import gevent.server
 import gevent.socket
 import time
 
-from common import TimeLimit
-from common import waitForIndex
+from common import getConnectionByEnv, waitForIndex, sortedResults, toSortedFlatList, TimeLimit
+from includes import *
 
 CREATE_INDICES_TARGET_DIR = '/tmp/test'
 BASE_RDBS_URL = 'https://s3.amazonaws.com/redismodules/redisearch-enterprise/rdbs/'
 
-IS_SANITIZER = int(os.getenv('SANITIZER', '0'))
-IS_CODE_COVERAGE = int(os.getenv('CODE_COVERAGE', '0'))
 SHORT_READ_BYTES_DELTA = int(os.getenv('SHORT_READ_BYTES_DELTA', '1'))
 IS_SHORT_READ_FULL_TEST = int(os.getenv('SHORT_READ_FULL_TEST', '0'))
 OS = os.getenv('OS')
@@ -178,24 +177,23 @@ def add_index(env, isHash, index_name, key_suffix, num_prefs, num_keys):
                        get_identifier('myLang', isHash), 'text',
                        get_identifier('myScore', isHash), 'numeric',
                        ])
-    env.assertOk(env.cmd(*cmd_create))
-    waitForIndex(env, index_name)
-    env.assertOk(env.cmd('ft.synupdate', index_name, 'syngrp1', 'pelota', 'bola', 'balón'))
-    env.assertOk(env.cmd('ft.synupdate', index_name, 'syngrp2', 'jugar', 'tocar'))
+    conn = getConnectionByEnv(env)
+    env.assertOk(conn.execute_command(*cmd_create))
+    waitForIndex(conn, index_name)
+    env.assertOk(conn.execute_command('ft.synupdate', index_name, 'syngrp1', 'pelota', 'bola', 'balón'))
+    env.assertOk(conn.execute_command('ft.synupdate', index_name, 'syngrp2', 'jugar', 'tocar'))
 
     # Add keys
     for i in range(1, num_keys + 1):
         if isHash:
             cmd = ['hset', 'pref' + str(i) + ":k" + str(i) + '_' + rand_num(5) + key_suffix, 'a' + rand_name(5), rand_num(2), 'b' + rand_name(5), rand_num(3)]
-            env.assertEqual(env.cmd(*cmd), 2L)
+            env.assertEqual(conn.execute_command(*cmd), 2L)
         else:
             cmd = ['json.set', 'pref' + str(i) + ":k" + str(i) + '_' + rand_num(5) + key_suffix, '$', r'{"field1":"' + rand_name(5) + r'", "field2":' + rand_num(3) + r'}']
-            env.assertOk(env.cmd(*cmd))
+            env.assertOk(conn.execute_command(*cmd))
 
 
 def testCreateIndexRdbFiles(env):
-    if os.environ.get('CI'):
-        env.skip()
     create_indices(env, 'redisearch_2.2.0.rdb', 'idxSearch', True, False)
     create_indices(env, 'rejson_2.0.0.rdb', 'idxJson', False, True)
     create_indices(env, 'redisearch_2.2.0_rejson_2.0.0.rdb', 'idxSearchJson', True, True)
@@ -454,7 +452,6 @@ class Debug:
 
 
 def testShortReadSearch(env):
-
     if IS_CODE_COVERAGE:
         env.skip()  # FIXME: enable coverage test
 
@@ -484,7 +481,6 @@ def testShortReadSearch(env):
             sendShortReads(env, fullfilePath, expected_index)
     finally:
         shutil.rmtree(temp_dir)
-
 
 
 def sendShortReads(env, rdb_file, expected_index):
@@ -583,5 +579,3 @@ def runShortRead(env, data, total_len, expected_index):
 
         # Exit (avoid read-only exception with flush on replica)
         env.assertCmdOk('replicaof', 'no', 'one')
-
-

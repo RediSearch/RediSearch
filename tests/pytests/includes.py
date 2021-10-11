@@ -11,3 +11,7 @@ try:
     import paella
 except:
     pass
+
+UNSTABLE_TESTS = os.getenv('UNSTABLE_TESTS', '0') == '1'
+IS_SANITIZER = int(os.getenv('SANITIZER', '0'))
+IS_CODE_COVERAGE = int(os.getenv('CODE_COVERAGE', '0'))

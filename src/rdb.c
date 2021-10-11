@@ -19,6 +19,7 @@ void Backup_Globals() {
 
 void Restore_Globals() {
   Indexes_Free(specDict_g);
+  dictRelease(specDict_g);
   specDict_g = specDict_g_bkup;
   specDict_g_bkup = NULL;
 

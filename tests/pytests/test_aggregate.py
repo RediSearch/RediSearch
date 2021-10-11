@@ -336,7 +336,7 @@ class TestAggregate():
                            'LOAD', '3', '@brand', '@price', '@__key',
                            'SORTBY', 2, '@price', 'DESC',
                            'MAX', 4)
-        exp = [3L, ['brand', '', 'price', '759.12', '__key', 'B00006JJIC'], 
+        exp = [3L, ['brand', '', 'price', '759.12', '__key', 'B00006JJIC'],
                    ['brand', 'Sony', 'price', '695.8', '__key', 'B000F6W1AG']]
         self.env.assertEqual(exp[1], res[1])
         self.env.assertEqual(exp[2], res[2])
@@ -388,7 +388,7 @@ class TestAggregate():
                                  ['brand', 'beyerdynamic', 'top_item', 'beyerdynamic mmx300 pc gaming premium digital headset with microphone', 'top_price', '359.74',
                                      'bottom_item', 'beyerdynamic headzone pc gaming digital surround sound system with mmx300 digital headset with microphone', 'bottom_price', '0'],
                                  ['brand', 'mad catz', 'top_item', 'mad catz s.t.r.i.k.e.7 gaming keyboard', 'top_price', '295.95', 'bottom_item', 'madcatz mov4545 xbox replacement breakaway cable', 'bottom_price', '3.49']]
-        
+
         # hack :(
         def mklower(result):
             for arr in result[1:]:
@@ -403,7 +403,7 @@ class TestAggregate():
             self.env.cmd('ft.aggregate', 'games', '*',
                          'GROUPBY', 1, '@brand',
                          'LOAD', 1, '@brand')
-    
+
     def testReducerGeneratedAliasing(self):
         rv = self.env.cmd('ft.aggregate', 'games', '*',
                           'GROUPBY', 1, '@brand',
@@ -534,7 +534,7 @@ def testGroupbyNoReduce(env):
     env.cmd('ft.create', 'idx', 'ON', 'HASH',
             'SCHEMA', 'primaryName', 'TEXT', 'SORTABLE',
             'birthYear', 'NUMERIC', 'SORTABLE')
-    
+
     for x in range(10):
         env.cmd('ft.add', 'idx', 'doc{}'.format(x), 1, 'fields',
             'primaryName', 'sarah number{}'.format(x))
@@ -547,7 +547,7 @@ def testGroupbyNoReduce(env):
 
 def testStartsWith(env):
     conn = getConnectionByEnv(env)
-    env.execute_command('ft.create', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE')    
+    env.execute_command('ft.create', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE')
     conn.execute_command('hset', 'doc1', 't', 'aa')
     conn.execute_command('hset', 'doc2', 't', 'aaa')
     conn.execute_command('hset', 'doc3', 't', 'ab')
@@ -595,7 +595,7 @@ def testLimitIssue(env):
     #ticket 66895
     conn = getConnectionByEnv(env)
     conn.execute_command('ft.create', 'idx', 'SCHEMA', 'PrimaryKey', 'TEXT', 'SORTABLE',
-                                           'CreatedDateTimeUTC', 'NUMERIC', 'SORTABLE')
+                         'CreatedDateTimeUTC', 'NUMERIC', 'SORTABLE')
     conn.execute_command('HSET', 'doc1', 'PrimaryKey', '9::362330', 'CreatedDateTimeUTC', '637387878524969984')
     conn.execute_command('HSET', 'doc2', 'PrimaryKey', '9::362329', 'CreatedDateTimeUTC', '637387875859270016')
     conn.execute_command('HSET', 'doc3', 'PrimaryKey', '9::362326', 'CreatedDateTimeUTC', '637386176589869952')
@@ -616,26 +616,26 @@ def testLimitIssue(env):
           ['PrimaryKey', '9::362306', 'CreatedDateTimeUTC', '637166988081200000']]
 
     actual_res = conn.execute_command('FT.AGGREGATE', 'idx', '*',
-                'APPLY', '@PrimaryKey', 'AS', 'PrimaryKey',
-                'SORTBY', '2', '@CreatedDateTimeUTC', 'DESC', 'LIMIT', '0', '8')
+                                      'APPLY', '@PrimaryKey', 'AS', 'PrimaryKey',
+                                      'SORTBY', '2', '@CreatedDateTimeUTC', 'DESC', 'LIMIT', '0', '8')
     env.assertEqual(actual_res, _res)
 
     res = [_res[0]] + _res[1:3]
     actual_res = conn.execute_command('FT.AGGREGATE', 'idx', '*',
-                'APPLY', '@PrimaryKey', 'AS', 'PrimaryKey',
-                'SORTBY', '2', '@CreatedDateTimeUTC', 'DESC', 'LIMIT', '0', '2')
+                                      'APPLY', '@PrimaryKey', 'AS', 'PrimaryKey',
+                                      'SORTBY', '2', '@CreatedDateTimeUTC', 'DESC', 'LIMIT', '0', '2')
     env.assertEqual(actual_res, res)
 
     res = [_res[0]] + _res[2:4]
     actual_res = conn.execute_command('FT.AGGREGATE', 'idx', '*',
-                'APPLY', '@PrimaryKey', 'AS', 'PrimaryKey',
-                'SORTBY', '2', '@CreatedDateTimeUTC', 'DESC', 'LIMIT', '1', '2')
+                                      'APPLY', '@PrimaryKey', 'AS', 'PrimaryKey',
+                                      'SORTBY', '2', '@CreatedDateTimeUTC', 'DESC', 'LIMIT', '1', '2')
     env.assertEqual(actual_res, res)
 
     res = [_res[0]] + _res[3:5]
     actual_res = conn.execute_command('FT.AGGREGATE', 'idx', '*',
-                'APPLY', '@PrimaryKey', 'AS', 'PrimaryKey',
-                'SORTBY', '2', '@CreatedDateTimeUTC', 'DESC', 'LIMIT', '2', '2')
+                                      'APPLY', '@PrimaryKey', 'AS', 'PrimaryKey',
+                                      'SORTBY', '2', '@CreatedDateTimeUTC', 'DESC', 'LIMIT', '2', '2')
     env.assertEqual(actual_res, res)
 
 def testMaxAggResults(env):
@@ -645,9 +645,32 @@ def testMaxAggResults(env):
     conn = getConnectionByEnv(env)
     conn.execute_command('ft.create', 'idx', 'SCHEMA', 't', 'TEXT')
     env.expect('ft.aggregate', 'idx', '*', 'LIMIT', '0', '10000').error()   \
-                .contains('LIMIT exceeds maximum of 100')
+       .contains('LIMIT exceeds maximum of 100')
 
 def testMaxAggInf(env):
     env.skipOnCluster()
     env.expect('ft.config', 'set', 'MAXAGGREGATERESULTS', -1).ok()
     env.expect('ft.config', 'get', 'MAXAGGREGATERESULTS').equal([['MAXAGGREGATERESULTS', 'unlimited']])
+
+def testLoadPosition(env):
+    conn = getConnectionByEnv(env)
+    env.execute_command('ft.create', 'idx', 'SCHEMA', 't1', 'TEXT', 't2', 'TEXT')    
+    conn.execute_command('ft.add', 'idx', 'doc1', 1, 'FIELDS', 't1', 'hello', 't2', 'world')
+    
+    # LOAD then SORTBY
+    env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', 't1', 'SORTBY', '2', '@t1', 'ASC') \
+        .equal([1L, ['t1', 'hello']])
+
+    # SORTBY then LOAD
+    env.expect('ft.aggregate', 'idx', '*', 'SORTBY', '2', '@t1', 'ASC', 'LOAD', '1', 't1') \
+        .equal([1L, ['t1', 'hello']])
+
+    # two LOADs
+    env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', 't1', 'LOAD', '1', 't2') \
+        .equal([1L, ['t1', 'hello', 't2', 'world']])
+
+    # two LOADs with an apply for error
+    res = env.cmd('ft.aggregate', 'idx', '*', 'LOAD', '1', 't1',
+                                           'APPLY', '@t2', 'AS', 'load_error', 
+                                           'LOAD', '1', 't2')
+    env.assertContains('Value was not found in result', str(res[1]))
