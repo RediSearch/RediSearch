@@ -17,12 +17,12 @@ extra_flags=""
 echo "fun:THPIsEnabled" >> /build/redis.blacklist
 if [[ $ASAN == 1 ]]; then
     mode=asan
-	JSON_SAN_MODE=address
+	SAN_MODE=address
     extra_flags="-DUSE_ASAN=ON"
     $READIES/bin/getredis --force -v 6.2 --own-openssl --no-run --suffix asan --clang-asan --clang-san-blacklist /build/redis.blacklist
 elif [[ $MSAN == 1 ]]; then
     mode=msan
-	JSON_SAN_MODE=memory
+	SAN_MODE=memory
     extra_flags="-DUSE_MSAN=ON -DMSAN_PREFIX=${SAN_PREFIX}"
     $READIES/bin/getredis --force -v 6.2 --own-openssl --no-run --suffix msan --clang-msan --llvm-dir /opt/llvm-project/build-msan --clang-san-blacklist /build/redis.blacklist
 else
@@ -73,7 +73,7 @@ $READIES/bin/getpy3
 ./system-setup.py
 source /etc/profile.d/rust.sh
 make nightly
-make SAN=$JSON_SAN_MODE
+make SAN=$SAN_MODE
 export REJSON_PATH=$ROOT/deps/RedisJSON/target/x86_64-unknown-linux-gnu/debug/rejson.so
 
 COMPAT_DIR="$ROOT/build-${mode}" make -C $ROOT test CTEST_ARGS="--output-on-failure" CTEST_PARALLEL="$CI_CONCURRENCY"
