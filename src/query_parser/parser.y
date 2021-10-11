@@ -286,18 +286,28 @@ expr(A) ::= LP expr(B) RP . {
 // Attributes
 /////////////////////////////////////////////////////////////////
 
-attribute(A) ::= ATTRIBUTE(B) COLON term(C). {
-    
-    A = (QueryAttribute){ .name = B.s, .namelen = B.len, .value = rm_strndup(C.s, C.len), .vallen = C.len };
+attribute(A) ::= ATTRIBUTE(B) COLON param_term(C). {
+  const char * value = rm_strndup(C.s, C.len);
+  size_t value_len = C.len;
+  if (C.type == QT_PARAM_TERM) {
+    size_t found_value_len;
+    const char *found_value = Param_DictGet(ctx->opts->params, value, &found_value_len, ctx->status);
+    if (found_value) {
+      rm_free((char*)value);
+      value = rm_strndup(found_value, found_value_len);
+      value_len = found_value_len;
+    }
+  }
+  A = (QueryAttribute){ .name = B.s, .namelen = B.len, .value = rm_strndup(value, value_len), .vallen = value_len };
 }
 
 attribute_list(A) ::= attribute(B) . {
-    A = array_new(QueryAttribute, 2);
-    A = array_append(A, B);
+  A = array_new(QueryAttribute, 2);
+  A = array_append(A, B);
 }
 
 attribute_list(A) ::= attribute_list(B) SEMICOLON attribute(C) . {
-    A = array_append(B, C);
+  A = array_append(B, C);
 }
 
 attribute_list(A) ::= attribute_list(B) SEMICOLON . {
@@ -347,7 +357,7 @@ expr(A) ::= QUOTE ATTRIBUTE(B) QUOTE. [TERMLIST] {
 }
 
 expr(A) ::= param_term(B) . [LOWEST]  {
-  A = NewTokenNode_WithParam(ctx, &B);
+  A = NewTokenNode_WithParams(ctx, &B);
 }
 
 expr(A) ::= prefix(B) . [PREFIX]  {
@@ -364,13 +374,13 @@ expr(A) ::= STOPWORD . [STOPWORD] {
 
 termlist(A) ::= param_term(B) param_term(C). [TERMLIST]  {
   A = NewPhraseNode(0);
-  QueryNode_AddChild(A, NewTokenNode_WithParam(ctx, &B));
-  QueryNode_AddChild(A, NewTokenNode_WithParam(ctx, &C));
+  QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &B));
+  QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &C));
 }
 
 termlist(A) ::= termlist(B) param_term(C) . [TERMLIST] {
   A = B;
-  QueryNode_AddChild(A, NewTokenNode_WithParam(ctx, &C));
+  QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &C));
 }
 
 termlist(A) ::= termlist(B) STOPWORD . [TERMLIST] {
@@ -406,41 +416,35 @@ expr(A) ::= TILDE expr(B) . {
 /////////////////////////////////////////////////////////////////
 
 prefix(A) ::= PREFIX(B) . [PREFIX] {
-    A = NewPrefixNode_WithParam(ctx, &B);
+    A = NewPrefixNode_WithParams(ctx, &B);
 }
 
 /////////////////////////////////////////////////////////////////
 // Fuzzy terms
 /////////////////////////////////////////////////////////////////
 
-expr(A) ::=  PERCENT term(B) PERCENT. [PREFIX] {
-  B.s = rm_strdupcase(B.s, B.len);
-    A = NewFuzzyNode(ctx, B.s, strlen(B.s), 1);
+expr(A) ::=  PERCENT param_term(B) PERCENT. [PREFIX] {
+  A = NewFuzzyNode_WithParams(ctx, &B, 1);
 }
 
-expr(A) ::= PERCENT PERCENT term(B) PERCENT PERCENT. [PREFIX] {
-  B.s = rm_strdupcase(B.s, B.len);
-    A = NewFuzzyNode(ctx, B.s, strlen(B.s), 2);
+expr(A) ::= PERCENT PERCENT param_term(B) PERCENT PERCENT. [PREFIX] {
+  A = NewFuzzyNode_WithParams(ctx, &B, 2);
 }
 
-expr(A) ::= PERCENT PERCENT PERCENT term(B) PERCENT PERCENT PERCENT. [PREFIX] {
-  B.s = rm_strdupcase(B.s, B.len);
-    A = NewFuzzyNode(ctx, B.s, strlen(B.s), 3);
+expr(A) ::= PERCENT PERCENT PERCENT param_term(B) PERCENT PERCENT PERCENT. [PREFIX] {
+  A = NewFuzzyNode_WithParams(ctx, &B, 3);
 }
 
 expr(A) ::=  PERCENT STOPWORD(B) PERCENT. [PREFIX] {
-  B.s = rm_strdupcase(B.s, B.len);
-    A = NewFuzzyNode(ctx, B.s, strlen(B.s), 1);
+  A = NewFuzzyNode_WithParams(ctx, &B, 1);
 }
 
 expr(A) ::= PERCENT PERCENT STOPWORD(B) PERCENT PERCENT. [PREFIX] {
-  B.s = rm_strdupcase(B.s, B.len);
-    A = NewFuzzyNode(ctx, B.s, strlen(B.s), 2);
+  A = NewFuzzyNode_WithParams(ctx, &B, 2);
 }
 
 expr(A) ::= PERCENT PERCENT PERCENT STOPWORD(B) PERCENT PERCENT PERCENT. [PREFIX] {
-  B.s = rm_strdupcase(B.s, B.len);
-    A = NewFuzzyNode(ctx, B.s, strlen(B.s), 3);
+  A = NewFuzzyNode_WithParams(ctx, &B, 3);
 }
 
 
@@ -494,7 +498,7 @@ tag_list(A) ::= LB param_term(B) . [TAGLIST] {
     B.type = QT_TERM_CASE;
   else if (B.type == QT_PARAM_TERM)
     B.type = QT_PARAM_TERM_CASE;
-  QueryNode_AddChild(A, NewTokenNode_WithParam(ctx, &B));
+  QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &B));
 }
 
 tag_list(A) ::= LB STOPWORD(B) . [TAGLIST] {
@@ -517,7 +521,7 @@ tag_list(A) ::= tag_list(B) OR param_term(C) . [TAGLIST] {
     C.type = QT_TERM_CASE;
   else if (C.type == QT_PARAM_TERM)
     C.type = QT_PARAM_TERM_CASE;
-  QueryNode_AddChild(B, NewTokenNode_WithParam(ctx, &C));
+  QueryNode_AddChild(B, NewTokenNode_WithParams(ctx, &C));
   A = B;
 }
 

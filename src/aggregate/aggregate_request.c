@@ -125,21 +125,23 @@ static int parseParams (AREQ *req, ArgsCursor *ac, QueryError *status) {
     QERR_MKBADARGS_AC(status, "PARAMS", rv);
     return REDISMODULE_ERR;
   }
+  if (req->searchopts.params) {
+    QueryError_SetError(status, QUERY_EADDARGS,"Multiple PARAMS are not allowed. Parameters can be defined only once");
+    return REDISMODULE_ERR;
+  }
   if (paramsArgs.argc == 0 || paramsArgs.argc % 2) {
     QueryError_SetError(status, QUERY_EADDARGS,"Parameters must be specified in PARAM VALUE pairs");
     return REDISMODULE_ERR;
   }
 
-  dict *params = dictCreate(&dictTypeHeapStrings, NULL);
+  dict *params = Param_DictCreate();
   size_t value_len;
   while (!AC_IsAtEnd(&paramsArgs)) {
     const char *param = AC_GetStringNC(&paramsArgs, NULL);
     const char *value = AC_GetStringNC(&paramsArgs, &value_len);
-    RedisModuleString *rms_value = RedisModule_CreateString(NULL, value, value_len);
     // FIXME: Validate param is [a-zA-Z][a-zA-z_\-:0-9]*
-    if (DICT_ERR == dictAdd(params, (void*)param, (void*)rms_value)) {
-      QueryError_SetErrorFmt(status, QUERY_EADDARGS, "Duplicate parameter `%s`", param);
-      dictRelease(params);
+    if (DICT_ERR == Param_DictAdd(params, param, value, value_len, status)) {
+      Param_DictFree(params);
       return REDISMODULE_ERR;
     }
   }
@@ -206,6 +208,10 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
     req->reqflags |= QEXEC_F_TYPED;
   } else if (AC_AdvanceIfMatch(ac, "WITHRAWIDS")) {
     req->reqflags |= QEXEC_F_SENDRAWIDS;
+  } else if (AC_AdvanceIfMatch(ac, "PARAMS")) {
+    if (parseParams(req, ac, status) != REDISMODULE_OK) {
+      return ARG_ERROR;
+    }
   } else {
     return ARG_UNKNOWN;
   }
@@ -395,10 +401,6 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
                ((rv = parseQueryLegacyArgs(ac, searchOpts, status)) != ARG_UNKNOWN)) {
       if (rv == ARG_ERROR) {
         return REDISMODULE_ERR;
-      }
-    } else if (AC_AdvanceIfMatch(ac, "PARAMS")) {
-      if (parseParams(req, ac, status) != REDISMODULE_OK) {
-        return ARG_ERROR;
       }
     } else {
       int rv = handleCommonArgs(req, ac, status, 1);
@@ -1333,15 +1335,7 @@ void AREQ_Free(AREQ *req) {
   }
   rm_free(req->searchopts.inids);
   if (req->searchopts.params) {
-    // FIXME: Move to a function
-    dictIterator* iter = dictGetIterator(req->searchopts.params);
-    dictEntry* entry = NULL;
-    while ((entry = dictNext(iter))) {
-      RedisModuleString *data = dictGetVal(entry);
-      RedisModule_FreeString(NULL, data);
-    }
-    dictReleaseIterator(iter);
-    dictRelease(req->searchopts.params);
+    Param_DictFree(req->searchopts.params);
   }
   FieldList_Free(&req->outFields);
   if (thctx) {

@@ -9,7 +9,6 @@ struct QueryParseCtx;
 typedef enum {
   QP_GEO_FILTER,
   QP_NUMERIC_FILTER,
-  QP_RANGE_NUMBER,
   QP_VEC_FILTER,
   } QueryParamType;
 
@@ -17,7 +16,6 @@ typedef struct {
   union {
     GeoFilter *gf;
     NumericFilter *nf;
-    RangeNumber *rn;
     VectorFilter *vf;
   };
   QueryParamType type;
@@ -26,14 +24,10 @@ typedef struct {
 
 
 QueryParam *NewQueryParam(QueryParamType type);
-QueryParam *NewTokenQueryParam(QueryToken *qt);
-QueryParam *NewGeoFilterQueryParam(GeoFilter *gf);
 QueryParam *NewGeoFilterQueryParam_WithParams(struct QueryParseCtx *q, QueryToken *lon, QueryToken *lat, QueryToken *radius, QueryToken *unit);
 
-QueryParam *NewNumericFilterQueryParam(NumericFilter *nf);
 QueryParam *NewNumericFilterQueryParam_WithParams(struct QueryParseCtx *q, QueryToken *min, QueryToken *max, int inclusiveMin, int inclusiveMax);
 
-QueryParam *NewVectorFilterQueryParam(struct VectorFilter *vf);
 QueryParam *NewVectorFilterQueryParam_WithParams(struct QueryParseCtx *q, QueryToken *vec, QueryToken *type, QueryToken *value);
 
 

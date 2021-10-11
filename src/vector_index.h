@@ -24,14 +24,13 @@
 typedef enum {
   VECTOR_SIM_INVALID = 0,
   VECTOR_SIM_TOPK = 1,
-  VECTOR_SIM_RANGE = 2,
 } VectorQueryType;
 
 typedef struct VectorFilter {
   char *property;                 // name of field
   void *vector;                   // vector data
   size_t vecLen;                  // vector length
-  VectorQueryType type;           // TOPK or RANGE
+  VectorQueryType type;           // TOPK
   bool isBase64;                  // uses base64 strings
   long long efRuntime;            // efRuntime
   double value;                   // can hold int for TOPK or double for RANGE.
