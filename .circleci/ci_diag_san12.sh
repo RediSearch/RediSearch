@@ -62,17 +62,18 @@ export ASAN_OPTIONS=detect_odr_violation=0
 export RS_GLOBAL_DTORS=1
 
 cd $ROOT/deps
-[[ ! -d RedisJSON ]] && git clone --quiet --recursive https://github.com/RedisJSON/RedisJSON.git
+if [[ ! -d RedisJSON ]]; then
+	git clone --quiet --recursive https://github.com/RedisJSON/RedisJSON.git
+fi
+
 cd RedisJSON
 git checkout master
-git pull --recurse-submodules
+git pull --quiet --recurse-submodules
 $READIES/bin/getpy3
 ./system-setup.py
 source /etc/profile.d/rust.sh
 make nightly
 make SAN=$JSON_SAN_MODE
 export REJSON_PATH=$ROOT/deps/RedisJSON/target/x86_64-unknown-linux-gnu/debug/rejson.so
-export SANITIZER=1
-export SHORT_READ_BYTES_DELTA=512
 
 COMPAT_DIR="$ROOT/build-${mode}" make -C $ROOT test CTEST_ARGS="--output-on-failure" CTEST_PARALLEL="$CI_CONCURRENCY"
