@@ -1,0 +1,35 @@
+name: "ftsb-1M-enwiki_abstract-hashes-fulltext-2word-intersection-query"
+description: "
+             enwiki-abstract [details here](https://github.com/RediSearch/ftsb/blob/master/docs/enwiki-abstract-benchmark/description.md), 
+             from English-language Wikipedia:Database page abstracts. 
+             This use case generates 3 TEXT fields per document, and focusses on full text queries performance.
+             Specifically for this testcase:
+                - Type (read/write/mixed): read
+                - Query type: 2 Word Intersection Query
+                - Query sample: Abraham|Lincoln
+             "
+remote:
+ - type: oss-standalone
+ - setup: redisearch-m5
+dbconfig:
+  - init_commands:
+  - dataset: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/1M-enwiki_abstract-hashes/1M-enwiki_abstract-hashes.redisearch.rdb"
+clientconfig:
+  - tool: ftsb_redisearch
+  - parameters:
+    - workers: 64
+    - requests: 50000
+    - reporting-period: 1s
+    - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/1M-enwiki_abstract-hashes/1M-enwiki_abstract-hashes.redisearch.commands.BENCH.QUERY_2word-intersection-query.csv"
+exporter:
+  redistimeseries:
+    break_by:
+      - version
+      - commit
+    timemetric: "$.StartTime"
+    metrics:
+      - "$.OverallRates.overallOpsRate"
+      - "$.OverallQuantiles.allCommands.q50"
+      - "$.OverallQuantiles.allCommands.q95"
+      - "$.OverallQuantiles.allCommands.q99"
+      - "$.OverallQuantiles.allCommands.q999"

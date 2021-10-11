@@ -62,11 +62,11 @@ void SchemaRule_Free(SchemaRule *);
 RSLanguage SchemaRule_HashLang(RedisModuleCtx *rctx, const SchemaRule *rule, RedisModuleKey *key,
                                const char *kname);
 RSLanguage SchemaRule_JsonLang(RedisModuleCtx *ctx, const SchemaRule *rule,
-                               RedisJSONKey jsonKey, const char *keyName);
+                               RedisJSON jsonKey, const char *keyName);
 double SchemaRule_HashScore(RedisModuleCtx *rctx, const SchemaRule *rule, RedisModuleKey *key,
                             const char *kname);
 RSLanguage SchemaRule_JsonScore(RedisModuleCtx *ctx, const SchemaRule *rule,
-                                RedisJSONKey jsonKey, const char *keyName);
+                                RedisJSON jsonKey, const char *keyName);
 RedisModuleString *SchemaRule_HashPayload(RedisModuleCtx *rctx, const SchemaRule *rule,
                                           RedisModuleKey *key, const char *kname);
 
@@ -78,7 +78,7 @@ int SchemaRule_RdbLoad(struct IndexSpec *sp, RedisModuleIO *rdb, int encver);
 extern TrieMap *ScemaPrefixes_g;
 
 void SchemaPrefixes_Create();
-void SchemaPrefixes_Free();
+void SchemaPrefixes_Free(TrieMap *t);
 void SchemaPrefixes_Add(const char *prefix, struct IndexSpec *index);
 void SchemaPrefixes_RemoveSpec(struct IndexSpec *spec);
 

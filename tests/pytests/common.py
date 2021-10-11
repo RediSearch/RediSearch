@@ -2,6 +2,31 @@ from collections import Iterable
 import time
 from packaging import version
 
+import signal
+from includes import *
+
+
+class TimeLimit(object):
+    """
+    A context manager that fires a TimeExpired exception if it does not
+    return within the specified amount of time.
+    """
+
+    def __init__(self, timeout):
+        self.timeout = timeout
+
+    def __enter__(self):
+        signal.signal(signal.SIGALRM, self.handler)
+        signal.setitimer(signal.ITIMER_REAL, self.timeout, 0)
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, signal.SIG_DFL)
+
+    def handler(self, signum, frame):
+        raise Exception('timeout')
+
+
 def getConnectionByEnv(env):
     conn = None
     if env.env == 'oss-cluster':
@@ -11,6 +36,7 @@ def getConnectionByEnv(env):
     return conn
 
 def waitForIndex(env, idx):
+    waitForRdbSaveToFinish(env)
     while True:
         res = env.execute_command('ft.info', idx)
         if int(res[res.index('indexing') + 1]) == 0:
@@ -19,7 +45,7 @@ def waitForIndex(env, idx):
 
 def toSortedFlatList(res):
     if isinstance(res, str):
-        return [res]    
+        return [res]
     if isinstance(res, Iterable):
         finalList = []
         for e in res:
@@ -86,3 +112,25 @@ def server_version_at_least(env, ver):
 
 def server_version_less_than(env, ver):
     return not server_version_at_least(env, ver)
+
+def index_info(env, idx):
+    res = env.cmd('FT.INFO', idx)
+    res = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
+    return res
+
+def skipOnExistingEnv(env):
+    if 'existing' in env.env:
+        env.skip()
+
+def skipOnCrdtEnv(env):
+    if len([a for a in env.cmd('module', 'list') if a[1] == 'crdt']) > 0:
+        env.skip()
+
+def waitForRdbSaveToFinish(env):
+    while True:
+        if not env.execute_command('info', 'Persistence')['rdb_bgsave_in_progress']:
+            break
+
+def forceInvokeGC(env, idx):
+    waitForRdbSaveToFinish(env)
+    env.cmd('ft.debug', 'GC_FORCEINVOKE', idx)
