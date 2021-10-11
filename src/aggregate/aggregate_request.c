@@ -611,7 +611,7 @@ static int handleLoad(AREQ *req, ArgsCursor *ac, QueryError *status) {
   if (rc != AC_OK) {
     const char *s = NULL;
     rc = AC_GetString(ac, &s, NULL, 0);
-    if (rc != AC_OK || strncmp(s, "*", strlen("*"))) {
+    if (rc != AC_OK || strcmp(s, "*")) {
       QERR_MKBADARGS_AC(status, "LOAD", rc);
       return REDISMODULE_ERR;  
     }
