@@ -899,7 +899,6 @@ int TrieMapIterator_Next(TrieMapIterator *it, char **ptr, tm_len_t *len, void **
 
       // we've reached
       if (__trieMapNode_isTerminal(n) && it->inSuffix) {
-        it->buf[it->bufOffset] = '\0';
         *ptr = it->buf;
         *len = it->bufOffset;
         *value = n->value;
