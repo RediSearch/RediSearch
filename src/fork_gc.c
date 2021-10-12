@@ -497,6 +497,7 @@ static void FGC_childCollectTags(ForkGC *gc, RedisSearchCtx *sctx) {
       InvertedIndex *value;
       while (TrieMapIterator_Next(iter, &ptr, &len, (void **)&value)) {
         header.curPtr = value;
+        ptr[len] = '\0';
         header.tagValue = ptr;
         // send repaired data
         FGC_childRepairInvidx(gc, sctx, value, sendNumericTagHeader, &header, NULL);
@@ -1033,6 +1034,7 @@ static FGCError FGC_parentHandleTags(ForkGC *gc, RedisModuleCtx *rctx) {
       status = FGC_CHILD_ERROR;
       goto loop_cleanup;
     }
+    // printf("receives %s %ld\n", tagVal, tagValLen);
 
     if (FGC_recvInvIdx(gc, &idxbufs, &info) != REDISMODULE_OK) {
       status = FGC_CHILD_ERROR;
@@ -1058,10 +1060,20 @@ static FGCError FGC_parentHandleTags(ForkGC *gc, RedisModuleCtx *rctx) {
       goto loop_cleanup;
     }
 
-    FGC_applyInvertedIndex(gc, &idxbufs, &info, value);
+    InvertedIndex *idx = TagIndex_OpenIndex(tagIdx, tagVal, tagValLen, 0);
+    if (idx == TRIEMAP_NOTFOUND || idx != value) {
+      status = FGC_PARENT_ERROR;
+      goto loop_cleanup;
+    }
+
+    // printf("Child %p Parent %p\n", value, idx);
+
+    FGC_applyInvertedIndex(gc, &idxbufs, &info, idx);
     FGC_updateStats(sctx, gc, info.ndocsCollected, info.nbytesCollected);
 
-    if (value->numDocs == 0) {
+    // if tag value is empty, let's remove it.
+    if (idx->numDocs == 0) {
+      // printf("Delete GC %s %p\n", tagVal, TrieMap_Find(tagIdx->values, tagVal, tagValLen));
       TrieMap_Delete(tagIdx->values, tagVal, tagValLen, InvertedIndex_Free);
     }
 
