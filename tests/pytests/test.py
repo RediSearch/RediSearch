@@ -3375,7 +3375,6 @@ def testMod1452(env):
     # here we only check that its not crashing
     env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', 'foo', 'REDUCE', 'FIRST_VALUE', 3, '@not_exists', 'BY', '@foo')
 
-
 def test_mod1548(env):
     conn = getConnectionByEnv(env)
 
