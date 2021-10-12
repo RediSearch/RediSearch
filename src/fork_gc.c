@@ -492,8 +492,8 @@ static void FGC_childCollectTags(ForkGC *gc, RedisSearchCtx *sctx) {
                              .uniqueId = tagIdx->uniqueId};
 
       TrieMapIterator *iter = TrieMap_Iterate(tagIdx->values, "", 0);
-      char *ptr;
-      tm_len_t len;
+      char *ptr = NULL;
+      tm_len_t len = 0;
       InvertedIndex *value;
       while (TrieMapIterator_Next(iter, &ptr, &len, (void **)&value)) {
         header.curPtr = value;
