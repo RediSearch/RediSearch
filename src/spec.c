@@ -423,7 +423,6 @@ static int parseVectorField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
           return 0;
         }
         continue;
-
       } else if (AC_AdvanceIfMatch(ac, VECSIM_EF)) {
         double d;
         if ((rc = AC_GetSize(ac, &fs->vecSimParams.hnswParams.efConstruction, 0)) != AC_OK) {
@@ -432,6 +431,7 @@ static int parseVectorField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
         }
         continue;
       }
+      break;
     }
   }
   return 1;

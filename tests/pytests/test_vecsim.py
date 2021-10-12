@@ -9,7 +9,7 @@ import random
 import string
 import numpy as np
 
-def test_1st(env):
+def test_sanity(env):
     conn = getConnectionByEnv(env)
     vecsim_type = ['BF', 'HNSW']
     for vs_type in vecsim_type:
@@ -63,7 +63,7 @@ def test_1st(env):
 
         conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
 
-def test_escape(env):
+def testEscape(env):
     conn = getConnectionByEnv(env)
 
     vecsim_type = ['BF', 'HNSW']
@@ -134,56 +134,55 @@ def testDel(env):
 
         conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
 
-def test_query_empty(env):
-    conn = getConnectionByEnv(env)
-    vecsim_type = ['BF', 'HNSW']
-    for vs_type in vecsim_type:
-        conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'INT32', '2', 'L2', vs_type)
-        env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 1]').equal([0L])
-        conn.execute_command('HSET', 'a', 'v', 'redislab')
-        env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 1]').equal([1L, 'a', ['v', 'redislab']])
-        conn.execute_command('DEL', 'a')
-        env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 1]').equal([0L])
-        conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
-
-def del_insert(env):
-    conn = getConnectionByEnv(env)
-
-    conn.execute_command('DEL', 'a')
-    conn.execute_command('DEL', 'b')
-    conn.execute_command('DEL', 'c')
-    conn.execute_command('DEL', 'd')
-
-    env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 4]').equal([0L])
-
-    res = [''.join(random.choice(string.lowercase) for x in range(8)),
-           ''.join(random.choice(string.lowercase) for x in range(8)),
-           ''.join(random.choice(string.lowercase) for x in range(8)),
-           ''.join(random.choice(string.lowercase) for x in range(8))]
-
-    conn.execute_command('HSET', 'a', 'v', res[0])
-    conn.execute_command('HSET', 'b', 'v', res[1])
-    conn.execute_command('HSET', 'c', 'v', res[2])
-    conn.execute_command('HSET', 'd', 'v', res[3])
-
-    return res
 
 def testDelReuse(env):
+
+    def test_query_empty(env):
+        conn = getConnectionByEnv(env)
+        vecsim_type = ['BF', 'HNSW']
+        for vs_type in vecsim_type:
+            conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'INT32', '2', 'L2', vs_type)
+            env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 1]').equal([0L])
+            conn.execute_command('HSET', 'a', 'v', 'redislab')
+            env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 1]').equal([1L, 'a', ['v', 'redislab']])
+            conn.execute_command('DEL', 'a')
+            env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 1]').equal([0L])
+            conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
+
+    def del_insert(env):
+        conn = getConnectionByEnv(env)
+
+        conn.execute_command('DEL', 'a')
+        conn.execute_command('DEL', 'b')
+        conn.execute_command('DEL', 'c')
+        conn.execute_command('DEL', 'd')
+
+        env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 4]').equal([0L])
+
+        res = [''.join(random.choice(string.lowercase) for x in range(8)),
+            ''.join(random.choice(string.lowercase) for x in range(8)),
+            ''.join(random.choice(string.lowercase) for x in range(8)),
+            ''.join(random.choice(string.lowercase) for x in range(8))]
+
+        conn.execute_command('HSET', 'a', 'v', res[0])
+        conn.execute_command('HSET', 'b', 'v', res[1])
+        conn.execute_command('HSET', 'c', 'v', res[2])
+        conn.execute_command('HSET', 'd', 'v', res[3])
+        return res
+
+    # test start
     conn = getConnectionByEnv(env)
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'INT32', '2', 'L2', 'HNSW')
 
     vecs = del_insert(env)
-    print (env.cmd('FT.INFO', 'idx'))
     res = [4L, 'a', ['v', vecs[0]], 'b', ['v', vecs[1]], 'c', ['v', vecs[2]], 'd', ['v', vecs[3]]]
     env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 4]').equal(res)
 
     vecs = del_insert(env)
-    print (env.cmd('FT.INFO', 'idx'))
     res = [4L, 'a', ['v', vecs[0]], 'b', ['v', vecs[1]], 'c', ['v', vecs[2]], 'd', ['v', vecs[3]]]
     env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 4]').equal(res)
 
     vecs = del_insert(env)
-    print (env.cmd('FT.INFO', 'idx'))
     res = [4L, 'a', ['v', vecs[0]], 'b', ['v', vecs[1]], 'c', ['v', vecs[2]], 'd', ['v', vecs[3]]]
     env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 4]').equal(res)
 
@@ -223,10 +222,29 @@ def testDelReuseLarge(env):
 
 def test_create(env):
     conn = getConnectionByEnv(env)
-    conn.execute_command('FT.CREATE', 'idx1', 'SCHEMA', 'v', 'VECTOR', 'FLOAT32', '16', 'IP',     'HNSW', 'INITIAL_CAP', '10', 'M', '16', 'EF', '200')
-    conn.execute_command('FT.CREATE', 'idx2', 'SCHEMA', 'v', 'VECTOR', 'FLOAT32', '16', 'L2',     'HNSW', 'INITIAL_CAP', '10', 'M', '16', 'EF', '200')
-    conn.execute_command('FT.CREATE', 'idx3', 'SCHEMA', 'v', 'VECTOR', 'FLOAT32', '16', 'COSINE', 'HNSW', 'INITIAL_CAP', '10', 'M', '16', 'EF', '200')
-    
+    res = conn.execute_command('FT.CREATE', 'idx1', 'SCHEMA', 'v', 'VECTOR', 'FLOAT32', '16', 'IP',     'HNSW', 'INITIAL_CAP', '10', 'M', '16', 'EF', '200')
+    env.assertOk(res)
+    res = conn.execute_command('FT.CREATE', 'idx2', 'SCHEMA', 'v', 'VECTOR', 'FLOAT32', '16', 'L2',     'HNSW', 'INITIAL_CAP', '10', 'M', '16', 'EF', '200')
+    env.assertOk(res)
+    res = conn.execute_command('FT.CREATE', 'idx3', 'SCHEMA', 'v', 'VECTOR', 'FLOAT32', '16', 'COSINE', 'HNSW', 'INITIAL_CAP', '10', 'M', '16', 'EF', '200')
+    env.assertOk(res)
+
+    res = conn.execute_command('FT.CREATE', 'idx4', 'SCHEMA',
+            'v', 'VECTOR', 'FLOAT32', '16', 'COSINE', 'HNSW', 'INITIAL_CAP', '10', 'M', '16', 'EF', '200',
+            'txt', 'TEXT')
+    env.assertOk(res)
+
+    res = conn.execute_command('FT.CREATE', 'idx5', 'SCHEMA',
+            'txt', 'TEXT',
+            'v', 'VECTOR', 'FLOAT32', '16', 'COSINE', 'HNSW', 'INITIAL_CAP', '10', 'M', '16', 'EF', '200')
+    env.assertOk(res)
+
+    res = conn.execute_command('FT.CREATE', 'idx6', 'SCHEMA',
+            'txt1', 'TEXT',
+            'v', 'VECTOR', 'FLOAT32', '16', 'COSINE', 'HNSW', 'INITIAL_CAP', '10', 'M', '16', 'EF', '200',
+            'txt2', 'TEXT')
+    env.assertOk(res)
+
     # test wrong query word
     env.expect('FT.SEARCH', 'idx1', '@v:[abcdefgh REDIS 4]').raiseError().equal('Invalid Vector similarity type')
     env.expect('FT.SEARCH', 'idx1', '@v:[abcdefgh REDIS 4]').raiseError().equal('Invalid Vector similarity type')
