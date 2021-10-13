@@ -1,4 +1,4 @@
-mkdocs==1.1.2
+mkdocs==1.2.3
 mkdocs-material==6.2.2
 -e git+https://github.com/RedisLabs/mkdocs-versions-menu.git#egg=mkdocs-versions-menu
 -e git+https://github.com/RedisLabs/mkdocs-modules-template.git#egg=mkdocs-modules-template
