@@ -58,7 +58,7 @@ else
 			nick="ubuntu14.04"
 		fi
 	elif [[ $dist == debian ]]; then
-		if [[ $nick != "buster" ]]; then
+		if [[ $nick != "bullseye" ]]; then
 			nick=ubuntu18.04
 		fi
 	elif [[ $dist == centos || $dist == redhat || $dist == fedora ]]; then
