@@ -6,7 +6,6 @@ import bz2
 from common import getConnectionByEnv, waitForIndex, toSortedFlatList, slice_at, index_info
 from includes import *
 
-UNSTABLE_TESTS = os.getenv('UNSTABLE_TESTS', '0') == '1'
 
 GAMES_JSON = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'games.json.bz2')
 
@@ -22,6 +21,7 @@ doc1_content = r'''{"string": "gotcha1",
                 "scalar_arr": [42, null, -1.2, false, "gotcha5"],
                 "string_arr": ["a", "b", "c", "d", "e", "f", "gotcha6"]
             }'''
+
 
 def testSearchUpdatedContent(env):
     conn = getConnectionByEnv(env)

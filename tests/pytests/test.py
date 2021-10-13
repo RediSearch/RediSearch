@@ -2065,6 +2065,33 @@ def testTimeout(env):
     env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', -1).error()
     env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', 'STR').error()
 
+
+    # check no time w/o sorter/grouper
+    res = env.cmd('FT.AGGREGATE', 'myIdx', 'aa*|aa*',
+                                        'LOAD', 1, 't',
+                                        'APPLY', 'contains(@t, "a1")', 'AS', 'contain1',
+                                        'APPLY', 'contains(@t, "a1")', 'AS', 'contain2',
+                                        'APPLY', 'contains(@t, "a1")', 'AS', 'contain3')
+    env.assertEqual(res[0], 1L)
+
+    # test grouper
+    env.expect('FT.AGGREGATE', 'myIdx', 'aa*|aa*',
+                                        'LOAD', 1, 't',
+                                        'GROUPBY', 1, '@t',
+                                        'APPLY', 'contains(@t, "a1")', 'AS', 'contain1',
+                                        'APPLY', 'contains(@t, "a1")', 'AS', 'contain2',
+                                        'APPLY', 'contains(@t, "a1")', 'AS', 'contain3') \
+                                        .contains('Timeout limit was reached')
+
+    # test sorter
+    env.expect('FT.AGGREGATE', 'myIdx', 'aa*|aa*',
+                                        'LOAD', 1, 't',
+                                        'SORTBY', 1, '@t',
+                                        'APPLY', 'contains(@t, "a1")', 'AS', 'contain1',
+                                        'APPLY', 'contains(@t, "a1")', 'AS', 'contain2',
+                                        'APPLY', 'contains(@t, "a1")', 'AS', 'contain3') \
+                                        .contains('Timeout limit was reached')
+
     # test cursor
     res = env.cmd('FT.AGGREGATE', 'myIdx', 'aa*', 'WITHCURSOR', 'count', 50, 'timeout', 500)
     l = len(res[0]) - 1 # do not count the number of results (the first element in the results)
@@ -2075,6 +2102,7 @@ def testTimeout(env):
         r, cursor = env.cmd('FT.CURSOR', 'READ', 'myIdx', str(cursor))
         l += (len(r) - 1)
     env.assertEqual(l, 1000)
+
 
     # restore old configuration
     env.cmd('ft.config', 'set', 'timeout', '500')
@@ -2584,6 +2612,7 @@ def testApplyError(env):
 def testLoadError(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
+    env.expect('ft.aggregate', 'idx', '*', 'LOAD').error()
     env.expect('ft.aggregate', 'idx', '*', 'LOAD', 'bad').error()
     env.expect('ft.aggregate', 'idx', '*', 'LOAD', 'bad', 'test').error()
     env.expect('ft.aggregate', 'idx', '*', 'LOAD', '2', 'test').error()
@@ -3370,3 +3399,56 @@ def test_mod1548(env):
     res = conn.execute_command('FT.SEARCH', 'idx', '@categories:{abcat0200000}', 'RETURN', '1', 'prod:id_unsupported')
     env.assertEqual(res, [2L, 'prod:1', [], 'prod:2', []])
 
+def testSearchMultiSortBy(env):
+    conn = getConnectionByEnv(env)
+    env.execute_command('FT.CREATE', 'msb_idx', 'SCHEMA', 't1', 'TEXT', 't2', 'TEXT')    
+    conn.execute_command('hset', 'doc1', 't1', 'a', 't2', 'a')
+    conn.execute_command('hset', 'doc2', 't1', 'a', 't2', 'b')
+    conn.execute_command('hset', 'doc3', 't1', 'a', 't2', 'c')  
+    conn.execute_command('hset', 'doc4', 't1', 'b', 't2', 'a')
+    conn.execute_command('hset', 'doc5', 't1', 'b', 't2', 'b')
+    conn.execute_command('hset', 'doc6', 't1', 'b', 't2', 'c')  
+    conn.execute_command('hset', 'doc7', 't1', 'c', 't2', 'a')
+    conn.execute_command('hset', 'doc8', 't1', 'c', 't2', 'b')
+    conn.execute_command('hset', 'doc9', 't1', 'c', 't2', 'c')
+
+    # t1 ASC t2 ASC
+    res = [9L, 'doc1', ['t1', 'a', 't2', 'a'], 'doc2', ['t1', 'a', 't2', 'b'], 'doc3', ['t1', 'a', 't2', 'c'],
+               'doc4', ['t1', 'b', 't2', 'a'], 'doc5', ['t1', 'b', 't2', 'b'], 'doc6', ['t1', 'b', 't2', 'c'],
+               'doc7', ['t1', 'c', 't2', 'a'], 'doc8', ['t1', 'c', 't2', 'b'], 'doc9', ['t1', 'c', 't2', 'c']]
+    env.expect('FT.SEARCH', 'msb_idx', '*',
+                'MSORTBY', '4', '@t1', 'ASC', '@t2', 'ASC').equal(res)
+
+    # t1 DESC t2 ASC
+    res = [9L, 'doc7', ['t1', 'c', 't2', 'a'], 'doc8', ['t1', 'c', 't2', 'b'], 'doc9', ['t1', 'c', 't2', 'c'],
+               'doc4', ['t1', 'b', 't2', 'a'], 'doc5', ['t1', 'b', 't2', 'b'], 'doc6', ['t1', 'b', 't2', 'c'],
+               'doc1', ['t1', 'a', 't2', 'a'], 'doc2', ['t1', 'a', 't2', 'b'], 'doc3', ['t1', 'a', 't2', 'c']]
+    env.expect('FT.SEARCH', 'msb_idx', '*',
+                'MSORTBY', '4', '@t1', 'DESC', '@t2', 'ASC').equal(res)
+
+    # t2 ASC t1 ASC
+    res = [9L, 'doc1', ['t2', 'a', 't1', 'a'], 'doc4', ['t2', 'a', 't1', 'b'], 'doc7', ['t2', 'a', 't1', 'c'],
+               'doc2', ['t2', 'b', 't1', 'a'], 'doc5', ['t2', 'b', 't1', 'b'], 'doc8', ['t2', 'b', 't1', 'c'],
+               'doc3', ['t2', 'c', 't1', 'a'], 'doc6', ['t2', 'c', 't1', 'b'], 'doc9', ['t2', 'c', 't1', 'c']]
+    env.expect('FT.SEARCH', 'msb_idx', '*',
+                'MSORTBY', '4', '@t2', 'ASC', '@t1', 'ASC').equal(res)
+
+    # t2 ASC t1 DESC
+    res = [9L, 'doc7', ['t2', 'a', 't1', 'c'], 'doc4', ['t2', 'a', 't1', 'b'], 'doc1', ['t2', 'a', 't1', 'a'],
+               'doc8', ['t2', 'b', 't1', 'c'], 'doc5', ['t2', 'b', 't1', 'b'], 'doc2', ['t2', 'b', 't1', 'a'],
+               'doc9', ['t2', 'c', 't1', 'c'], 'doc6', ['t2', 'c', 't1', 'b'], 'doc3', ['t2', 'c', 't1', 'a']]
+    env.expect('FT.SEARCH', 'msb_idx', '*',
+                'MSORTBY', '4', '@t2', 'ASC', '@t1', 'DESC').equal(res)
+
+    # check error if both sortby and multisortby are used
+    env.expect('FT.SEARCH', 'msb_idx', '*',
+                'SORTBY', 't1',
+                'MSORTBY', '4', '@t2', 'ASC', '@t1', 'DESC') \
+                .error() \
+                .contains('Multiple SORTBY steps are not allowed. Sort multiple fields in a single step')
+
+    env.expect('FT.SEARCH', 'msb_idx', '*',
+                'MSORTBY', '4', '@t2', 'ASC', '@t1', 'DESC',
+                'SORTBY', 't1') \
+                .error() \
+                .contains('Multiple SORTBY steps are not allowed. Sort multiple fields in a single step')
