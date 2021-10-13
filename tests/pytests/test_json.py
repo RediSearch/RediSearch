@@ -292,10 +292,9 @@ def testArrInsert(env):
     pass
 
 @no_msan
+@unstable
 def testArrpop(env):
     # TODO: array cannot be indexed yet
-    if not UNSTABLE_TESTS:
-        env.skip()
 
     # JSON.ARRPOP
     env.execute_command('FT.CREATE', 'idx1', 'ON', 'JSON', 'SCHEMA', '$.t', 'AS', 'labelT', 'TAG')
@@ -587,8 +586,9 @@ def testAsProjectionRedefinedLabel(env):
     # together with just a label from the schema
     env.expect('ft.search', 'idx2', '*', 'RETURN', '4', '$.n', 'AS', 'labelT', 'labelT').equal(
         [1L, 'doc:1', ['labelT', '9072']])
+
     # TODO: re-enable this
-    if UNSTABLE_TESTS:
+    if not ONLY_STABLE:
         env.expect('ft.aggregate', 'idx2', '*', 'LOAD', '4', '@$.n', 'AS', 'labelT', 'labelT').equal(
             [1L, ['labelT', '"9072"', 'labelT', 'riceratops']])
 
@@ -610,9 +610,8 @@ def testNumeric(env):
         .equal([1L, 'doc:1', ['flt', '9.72']])
 
 @no_msan
+@unstable
 def testLanguage(env):
-    if not UNSTABLE_TESTS:
-        env.skip()
     # TODO: Check stemming? e.g., trad is stem of traduzioni and tradurre ?
     env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'LANGUAGE_FIELD', '$.lang', 'SCHEMA', '$.t', 'TEXT')
     env.execute_command('FT.CREATE', 'idx2', 'ON', 'JSON', 'LANGUAGE', 'Italian', 'SCHEMA', '$.domanda', 'TEXT')

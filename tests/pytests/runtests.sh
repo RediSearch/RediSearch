@@ -35,6 +35,7 @@ if [[ $1 == --help || $1 == help ]]; then
 		IGNERR=1              Do not abort on error
 		NOP=1                 Dry run
 		EXISTING_ENV=1        Run the tests on existing env
+		ONLY_STABLE=1         Skip unstable tests
 
 
 	END
