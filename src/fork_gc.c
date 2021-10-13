@@ -358,6 +358,7 @@ typedef struct {
   const char *field;
   const void *curPtr;
   char *tagValue;
+  size_t tagLen;
   uint64_t uniqueId;
   int sentFieldName;
 } tagNumHeader;
@@ -371,7 +372,7 @@ static void sendNumericTagHeader(ForkGC *fgc, void *arg) {
   }
   FGC_SEND_VAR(fgc, info->curPtr);
   if (info->type == RSFLDTYPE_TAG) {
-    FGC_sendBuffer(fgc, info->tagValue, strlen(info->tagValue));
+    FGC_sendBuffer(fgc, info->tagValue, info->tagLen);
   }
 }
 
@@ -497,8 +498,8 @@ static void FGC_childCollectTags(ForkGC *gc, RedisSearchCtx *sctx) {
       InvertedIndex *value;
       while (TrieMapIterator_Next(iter, &ptr, &len, (void **)&value)) {
         header.curPtr = value;
-        ptr[len] = '\0';
         header.tagValue = ptr;
+        header.tagLen = len;
         // send repaired data
         FGC_childRepairInvidx(gc, sctx, value, sendNumericTagHeader, &header, NULL);
       }
