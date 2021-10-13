@@ -306,5 +306,5 @@ def testEmptyTagLeak(env):
         for j in range(tags):
             pl.execute_command('DEL', 'doc{}'.format(j + i * tags))
         pl.execute()
-    forceInvokeGC(env, 'idx')
+    conn.execute_command('ft.debug', 'gc_forceinvoke', 'idx')
     env.expect('FT.DEBUG', 'DUMP_TAGIDX', 'idx', 't').equal([])
