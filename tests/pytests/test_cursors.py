@@ -45,7 +45,6 @@ def testCursors(env):
 
     # Check info and see if there are other cursors
     info = getCursorStats(env)
-    print info
     env.assertEqual(0, info['global_total'])
 
     resp = exhaustCursor(env, 'idx', resp)
