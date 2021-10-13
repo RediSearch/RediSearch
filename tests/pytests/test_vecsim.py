@@ -2,7 +2,7 @@
 import base64
 import unittest
 from includes import *
-from common import getConnectionByEnv, waitForIndex, sortedResults, toSortedFlatList
+from common import *
 from time import sleep
 from RLTest import Env
 import random
@@ -220,33 +220,55 @@ def testDelReuseLarge(env):
         for i in range(4):
             env.assertLessEqual(float(res[2 + i * 2][1]), float(res[2 + (i + 1) * 2][1]))
 
-def test_create(env):
+def testCreate(env):
+    env.skipOnCluster()
     conn = getConnectionByEnv(env)
-    res = conn.execute_command('FT.CREATE', 'idx1', 'SCHEMA', 'v', 'VECTOR', 'FLOAT32', '16', 'IP',     'HNSW', 'INITIAL_CAP', '10', 'M', '16', 'EF', '200')
-    env.assertOk(res)
-    res = conn.execute_command('FT.CREATE', 'idx2', 'SCHEMA', 'v', 'VECTOR', 'FLOAT32', '16', 'L2',     'HNSW', 'INITIAL_CAP', '10', 'M', '16', 'EF', '200')
-    env.assertOk(res)
-    res = conn.execute_command('FT.CREATE', 'idx3', 'SCHEMA', 'v', 'VECTOR', 'FLOAT32', '16', 'COSINE', 'HNSW', 'INITIAL_CAP', '10', 'M', '16', 'EF', '200')
-    env.assertOk(res)
+    conn.execute_command('FT.CREATE', 'idx1', 'SCHEMA', 'v', 'VECTOR', 'FLOAT32', '1024', 'IP', 'HNSW', 'INITIAL_CAP', '10', 'M', '16', 'EF', '200')
+    info = [['identifier', 'v', 'attribute', 'v', 'type', 'VECTOR', 'TYPE', 'FLOAT64', 'SIZE', '1024', 'METRIC', 'L2', 'ALGORITHM', 'HNSW', 'M', '16', 'EF CONSTRUCTION', '200']]
+    assertInfoField(env, 'idx1', 'attributes', info)
 
-    res = conn.execute_command('FT.CREATE', 'idx4', 'SCHEMA',
-            'v', 'VECTOR', 'FLOAT32', '16', 'COSINE', 'HNSW', 'INITIAL_CAP', '10', 'M', '16', 'EF', '200',
-            'txt', 'TEXT')
-    env.assertOk(res)
+    conn.execute_command('FT.CREATE', 'idx2', 'SCHEMA', 'v', 'VECTOR', 'FLOAT64', '4096', 'L2', 'HNSW', 'INITIAL_CAP', '10', 'M', '32', 'EF', '100')
+    info = [['identifier', 'v', 'attribute', 'v', 'type', 'VECTOR', 'TYPE', 'FLOAT32', 'SIZE', '4096', 'METRIC', 'L2', 'ALGORITHM', 'HNSW', 'M', '32', 'EF CONSTRUCTION', '100']]
+    assertInfoField(env, 'idx2', 'attributes', info)
 
-    res = conn.execute_command('FT.CREATE', 'idx5', 'SCHEMA',
-            'txt', 'TEXT',
-            'v', 'VECTOR', 'FLOAT32', '16', 'COSINE', 'HNSW', 'INITIAL_CAP', '10', 'M', '16', 'EF', '200')
-    env.assertOk(res)
+    conn.execute_command('FT.CREATE', 'idx3', 'SCHEMA', 'v', 'VECTOR', 'INT32', '64', 'COSINE', 'HNSW', 'INITIAL_CAP', '10', 'M', '64', 'EF', '400')
+    info = [['identifier', 'v', 'attribute', 'v', 'type', 'VECTOR', 'TYPE', 'INT32', 'SIZE', '64', 'METRIC', 'L2', 'ALGORITHM', 'HNSW', 'M', '64', 'EF CONSTRUCTION', '400']]
+    assertInfoField(env, 'idx3', 'attributes', info)
 
-    res = conn.execute_command('FT.CREATE', 'idx6', 'SCHEMA',
-            'txt1', 'TEXT',
-            'v', 'VECTOR', 'FLOAT32', '16', 'COSINE', 'HNSW', 'INITIAL_CAP', '10', 'M', '16', 'EF', '200',
-            'txt2', 'TEXT')
-    env.assertOk(res)
+    conn.execute_command('FT.CREATE', 'idx4', 'SCHEMA', 'v', 'VECTOR', 'INT32', '64', 'COSINE', 'HNSW')
+    info = [['identifier', 'v', 'attribute', 'v', 'type', 'VECTOR', 'TYPE', 'INT32', 'SIZE', '64', 'METRIC', 'L2', 'ALGORITHM', 'HNSW', 'M', '16', 'EF CONSTRUCTION', '200']]
+    assertInfoField(env, 'idx4', 'attributes', info)
+
+    conn.execute_command('FT.CREATE', 'idx5', 'SCHEMA', 'v', 'VECTOR', 'INT32', '64', 'COSINE', 'BF')
+    info = [['identifier', 'v', 'attribute', 'v', 'type', 'VECTOR', 'TYPE', 'INT32', 'SIZE', '64', 'METRIC', 'L2', 'ALGORITHM', 'BF']]
+    assertInfoField(env, 'idx5', 'attributes', info)
+
+def testErrors(env):
+    env.skipOnCluster()
+    conn = getConnectionByEnv(env)
+    # missing init args
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR').error().contains('Bad arguments for vecsim type')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLOAT32').error().contains('Bad arguments for vecsim size')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLOAT32', '1024').error().contains('Bad arguments for vecsim metric')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLOAT32', '1024', 'IP').error().contains('Bad arguments for vecsim algorithm')
+
+    # invalid init args
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'DOUBLE', '1024', 'IP', 'HNSW').error().contains('Bad arguments for vecsim type')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLOAT32', 'str', 'IP', 'HNSW').error().contains('Bad arguments for vecsim size')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLOAT32', '1024', 'REDIS', 'HNSW').error().contains('Bad arguments for vecsim metric')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLOAT32', '1024', 'IP', 'REDIS').error().contains('Bad arguments for vecsim algorithm')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLOAT32', '1024', 'IP', 'BF', 'INITIAL_CAP', 'str', 'BLOCKSIZE', '16') \
+        .error().contains('Bad arguments for vecsim initial cap')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLOAT32', '1024', 'IP', 'BF', 'INITIAL_CAP', '10', 'BLOCKSIZE', 'str') \
+        .error().contains('Bad arguments for vecsim blocksize')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLOAT32', '1024', 'IP', 'HNSW', 'INITIAL_CAP', 'str', 'M', '16', 'EF', '200') \
+        .error().contains('Bad arguments for vecsim initial cap')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLOAT32', '1024', 'IP', 'HNSW', 'INITIAL_CAP', '100', 'M', 'str', 'EF', '200') \
+        .error().contains('Bad arguments for vecsim m')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLOAT32', '1024', 'IP', 'HNSW', 'INITIAL_CAP', '100', 'M', '16', 'EF', 'str') \
+        .error().contains('Bad arguments for vecsim ef')
 
     # test wrong query word
-    env.expect('FT.SEARCH', 'idx1', '@v:[abcdefgh REDIS 4]').raiseError().equal('Invalid Vector similarity type')
-    env.expect('FT.SEARCH', 'idx1', '@v:[abcdefgh REDIS 4]').raiseError().equal('Invalid Vector similarity type')
-    env.expect('FT.SEARCH', 'idx2', '@v:[abcdefgh REDIS 4]').raiseError().equal('Invalid Vector similarity type')
-    env.expect('FT.SEARCH', 'idx3', '@v:[abcdefgh REDIS 4]').raiseError().equal('Invalid Vector similarity type')
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLOAT32', '1024', 'IP', 'HNSW', 'INITIAL_CAP', '10', 'M', '16', 'EF', '200')
+    env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh REDIS 4]').error().contains('Invalid Vector similarity type')
+    env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK str]').error().contains('Syntax error')

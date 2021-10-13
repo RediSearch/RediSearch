@@ -51,3 +51,6 @@ int VectorFilter_Validate(const VectorFilter *vf, QueryError *status);
 int VectorFilter_EvalParams(dict *params, QueryNode *node, QueryError *status);
 void VectorFilter_Free(VectorFilter *vf);
 
+const char *VecSimType_ToString(VecSimType type);
+const char *VecSimMetric_ToString(VecSimMetric metric);
+const char *VecSimAlgorithm_ToString(VecSimAlgo algo);

@@ -1,6 +1,7 @@
 #include "redismodule.h"
 #include "spec.h"
 #include "inverted_index.h"
+#include "vector_index.h"
 #include "cursor.h"
 
 #define REPLY_KVNUM(n, k, v)                       \
@@ -160,6 +161,19 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       char buf[2];
       sprintf(buf, "%c", fs->tagSep);
       REPLY_KVSTR(nn, SPEC_TAG_SEPARATOR_STR, buf);
+    }
+    if (FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
+      REPLY_KVSTR(nn, "TYPE", VecSimType_ToString(fs->vecSimParams.type));
+      REPLY_KVNUM(nn, "SIZE", fs->vecSimParams.size);
+      REPLY_KVSTR(nn, "METRIC", VecSimMetric_ToString(fs->vecSimParams.metric));
+      REPLY_KVSTR(nn, "ALGORITHM", VecSimAlgorithm_ToString(fs->vecSimParams.algo));
+      switch (fs->vecSimParams.algo) {
+        case VecSimAlgo_BF: break;
+        case VecSimAlgo_HNSWLIB: {
+          REPLY_KVNUM(nn, "M", fs->vecSimParams.hnswParams.M);
+          REPLY_KVNUM(nn, "EF CONSTRUCTION", fs->vecSimParams.hnswParams.efConstruction);
+        }
+      }      
     }
     if (FieldSpec_IsSortable(fs)) {
       RedisModule_ReplyWithSimpleString(ctx, SPEC_SORTABLE_STR);

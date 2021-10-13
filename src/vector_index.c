@@ -138,3 +138,30 @@ void VectorFilter_Free(VectorFilter *vf) {
   if (vf->vector) rm_free(vf->vector);
   rm_free(vf);
 }
+
+const char *VecSimType_ToString(VecSimType type) {
+  switch (type) {
+    case VecSimType_FLOAT32: return VECSIM_TYPE_FLOAT32;
+    case VecSimType_FLOAT64: return VECSIM_TYPE_FLOAT64;
+    case VecSimType_INT32: return VECSIM_TYPE_INT32;
+    case VecSimType_INT64: return VECSIM_TYPE_INT64;
+  }
+  return NULL;
+}
+
+const char *VecSimMetric_ToString(VecSimMetric metric) {
+  switch (metric) {
+    case VecSimMetric_IP: return VECSIM_METRIC_IP;
+    case VecSimMetric_L2: return VECSIM_METRIC_L2;
+    case VecSimMetric_Cosine: return VECSIM_METRIC_COSINE;
+  }
+  return NULL;
+}
+
+const char *VecSimAlgorithm_ToString(VecSimAlgo algo) {
+  switch (algo) {
+    case VecSimAlgo_BF: return VECSIM_ALGORITHM_BF;
+    case VecSimAlgo_HNSWLIB: return VECSIM_ALGORITHM_HNSW;
+  }
+  return NULL;
+}
