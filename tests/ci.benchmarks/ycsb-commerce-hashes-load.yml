@@ -3,7 +3,7 @@ name: "ycsb-commerce-hashes-load"
 description: "YCSB Commerce workload (LOAD step) using RediSearch v2"
 remote:
  - type: oss-standalone
- - setup: redisearch-m5d
+ - setup: redisearch-m5
 clientconfig:
   - tool: ycsb
   - tool_source:

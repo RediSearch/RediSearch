@@ -87,6 +87,19 @@ static int renderIndexDefinitions(RedisModuleCtx *ctx, IndexSpec *sp) {
   return 2;
 }
 
+static const char *getSpecTypeNames(int idx) {
+  switch (idx) {
+  case IXFLDPOS_FULLTEXT: return SPEC_TEXT_STR;
+  case IXFLDPOS_TAG:      return SPEC_TAG_STR;
+  case IXFLDPOS_NUMERIC:  return NUMERIC_STR;
+  case IXFLDPOS_GEO:      return GEO_STR;
+  
+  default:
+    RS_LOG_ASSERT(0, "oops");
+    break;
+  }
+}
+
 /* FT.INFO {index}
  *  Provide info and stats about an index
  */
@@ -108,14 +121,15 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   n += renderIndexDefinitions(ctx, sp);
 
-  RedisModule_ReplyWithSimpleString(ctx, "fields");
+  RedisModule_ReplyWithSimpleString(ctx, "attributes");
   RedisModule_ReplyWithArray(ctx, sp->numFields);
   for (int i = 0; i < sp->numFields; i++) {
     RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+    RedisModule_ReplyWithSimpleString(ctx, "identifier");
+    RedisModule_ReplyWithSimpleString(ctx, sp->fields[i].path);
+    RedisModule_ReplyWithSimpleString(ctx, "attribute");
     RedisModule_ReplyWithSimpleString(ctx, sp->fields[i].name);
-    // TODO: add
-    // RedisModule_ReplyWithSimpleString(ctx, sp->fields[i].path);
-    int nn = 1;
+    int nn = 4;
     const FieldSpec *fs = sp->fields + i;
 
     // RediSearch_api - No coverage
@@ -129,12 +143,12 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       for (size_t jj = 0; jj < INDEXFLD_NUM_TYPES; ++jj) {
         if (FIELD_IS(fs, INDEXTYPE_FROM_POS(jj))) {
           ntypes++;
-          RedisModule_ReplyWithSimpleString(ctx, SpecTypeNames[jj]);
+          RedisModule_ReplyWithSimpleString(ctx, getSpecTypeNames(jj));
         }
       }
       RedisModule_ReplySetArrayLength(ctx, ntypes);
     } else {
-      REPLY_KVSTR(nn, "type", SpecTypeNames[INDEXTYPE_TO_POS(fs->types)]);
+      REPLY_KVSTR(nn, "type", getSpecTypeNames(INDEXTYPE_TO_POS(fs->types)));
     }
 
     if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT)) {
@@ -144,7 +158,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (FIELD_IS(fs, INDEXFLD_T_TAG)) {
       char buf[2];
       sprintf(buf, "%c", fs->tagSep);
-      REPLY_KVSTR(nn, SPEC_SEPARATOR_STR, buf);
+      REPLY_KVSTR(nn, SPEC_TAG_SEPARATOR_STR, buf);
     }
     if (FieldSpec_IsSortable(fs)) {
       RedisModule_ReplyWithSimpleString(ctx, SPEC_SORTABLE_STR);
