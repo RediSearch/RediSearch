@@ -67,6 +67,7 @@ make pytest        # run python tests (tests/pytests)
   GDB=1              # RLTest interactive debugging
   VG=1               # use Valgrind
   SAN=type           # use LLVM sanitizer (type=address|memory|leak|thread) 
+  ONLY_STABLE=1      # skip unstable tests
 make c_tests       # run C tests (from tests/ctests)
 make cpp_tests     # run C++ tests (from tests/cpptests)
   TEST=name          # e.g. TEST=FGCTest.testRemoveLastBlock

@@ -1,6 +1,8 @@
+
 from collections import Iterable
 import time
 from packaging import version
+from functools import wraps
 
 import signal
 from includes import *
@@ -134,3 +136,23 @@ def waitForRdbSaveToFinish(env):
 def forceInvokeGC(env, idx):
     waitForRdbSaveToFinish(env)
     env.cmd('ft.debug', 'GC_FORCEINVOKE', idx)
+
+def no_msan(f):
+    @wraps(f)
+    def wrapper(env, *args, **kwargs):
+        if SANITIZER == 'memory':
+            fname = f.func_name
+            env.debugPrint("skipping {} due to memory sanitizer".format(fname), force=True)
+            return
+        return f(env, *args, **kwargs)
+    return wrapper
+
+def unstable(f):
+    @wraps(f)
+    def wrapper(env, *args, **kwargs):
+        if ONLY_STABLE:
+            fname = f.func_name
+            env.debugPrint("skipping {} because it is unstable".format(fname), force=True)
+            return
+        return f(env, *args, **kwargs)
+    return wrapper

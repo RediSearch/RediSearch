@@ -1,7 +1,7 @@
 import os
 import subprocess
 from includes import *
-from common import waitForIndex, skipOnExistingEnv
+from common import *
 from RLTest import Env
 
 
@@ -30,6 +30,7 @@ def downloadFiles():
             return False
     return True
 
+@unstable
 def testRDBCompatibility():
     # temp skip for out-of-index
 

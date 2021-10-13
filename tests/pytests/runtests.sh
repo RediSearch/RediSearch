@@ -82,7 +82,7 @@ if [[ -n $SAN ]]; then
 	export ASAN_OPTIONS=detect_odr_violation=0
 	export RS_GLOBAL_DTORS=1
 
-	export SANITIZER=1
+	export SANITIZER="$SAN"
 	export SHORT_READ_BYTES_DELTA=512
 	
 	rejson_path=$ROOT/deps/RedisJSON/target/x86_64-unknown-linux-gnu/debug/rejson.so
@@ -99,7 +99,7 @@ if [[ $VG == 1 ]]; then
 	fi
 	VALGRIND_ARGS=--use-valgrind
 
-	export SANITIZER=1
+	export VALGRIND=1
 	export SHORT_READ_BYTES_DELTA=512
 
 elif [[ $SAN == addr || $SAN == address ]]; then

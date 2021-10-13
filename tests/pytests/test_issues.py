@@ -173,6 +173,7 @@ def test_issue1988(env):
     env.expect('FT.SEARCH', 'idx', 'foo', 'SORTBY' , 't').equal([1L, 'doc1', ['t', 'foo']])
     env.expect('FT.SEARCH', 'idx', 'foo', 'WITHSCORES', 'SORTBY' , 't').equal([1L, 'doc1', '1', ['t', 'foo']])
 
+@no_msan
 def testIssue2104(env):
   # 'AS' attribute does not work in functions
   conn = getConnectionByEnv(env)
@@ -220,6 +221,7 @@ def testIssue2104(env):
   env.expect('FT.AGGREGATE', 'json_idx', '*', 'LOAD', '3', '@$.subj1', 'AS', 'a', 'APPLY', '(@a+@a)/2', 'AS', 'avg')   \
       .equal([1L, ['a', '3.14', 'avg', '3.14']])
 
+@no_msan
 def test_MOD1266(env):
   # Test parsing failure
   conn = getConnectionByEnv(env)
@@ -322,6 +324,7 @@ def test_MOD_1517(env):
              'REDUCE', 'SUM', '1', '@amount1', 'AS', 'amount1Sum',
              'REDUCE', 'SUM', '1', '@amount2', 'as', 'amount2Sum').equal(res)
 
+@no_msan
 def test_MOD1544(env):
   # Test parsing failure
   conn = getConnectionByEnv(env)
