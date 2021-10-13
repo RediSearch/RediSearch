@@ -286,3 +286,25 @@ def testTagGCClearEmptyWithCursorAndMoreData(env):
     # ensure later documents with same tag are read
     res = conn.execute_command('FT.AGGREGATE', 'idx', '@t:{foo}')
     env.assertEqual(res, [1L, [], []])
+
+def testEmptyTagLeak(env):
+    env.skipOnCluster()
+
+    cycles = 1
+    tags = 30
+
+    conn = getConnectionByEnv(env)
+    conn.execute_command('FT.CONFIG', 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0')
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG')
+    pl = conn.pipeline()
+
+    for i in range(cycles):
+        for j in range(tags):
+            x = j + i * tags
+            pl.execute_command('HSET', 'doc{}'.format(x), 't', 'tag{}'.format(x))
+        pl.execute()
+        for j in range(tags):
+            pl.execute_command('DEL', 'doc{}'.format(j + i * tags))
+        pl.execute()
+    forceInvokeGC(env, 'idx')
+    env.expect('FT.DEBUG', 'DUMP_TAGIDX', 'idx', 't').equal([])
