@@ -154,7 +154,9 @@ TEST_F(AggTest, testGroupBy) {
   RLookupKey *score_out = RLookup_GetKey(&rk_out, "SCORE", RLOOKUP_F_OCREAT);
   RLookupKey *count_out = RLookup_GetKey(&rk_out, "COUNT", RLOOKUP_F_OCREAT);
 
-  Grouper *gr = Grouper_New((const RLookupKey **)&ctx.rkvalue, (const RLookupKey **)&v_out, 1);
+  struct timespec timeout;
+  updateTimeout(&timeout, 1000);
+  Grouper *gr = Grouper_New((const RLookupKey **)&ctx.rkvalue, (const RLookupKey **)&v_out, 1, &timeout);
   ASSERT_TRUE(gr != NULL);
 
   ArgsCursor args = {0};
@@ -199,7 +201,11 @@ TEST_F(AggTest, testGroupSplit) {
   gen.kvalue = RLookup_GetKey(&lk_in, "value", RLOOKUP_F_OCREAT);
   RLookupKey *val_out = RLookup_GetKey(&lk_out, "value", RLOOKUP_F_OCREAT);
   RLookupKey *count_out = RLookup_GetKey(&lk_out, "COUNT", RLOOKUP_F_OCREAT);
-  Grouper *gr = Grouper_New((const RLookupKey **)&gen.kvalue, (const RLookupKey **)&val_out, 1);
+
+  struct timespec timeout;
+  updateTimeout(&timeout, 1000);
+  Grouper *gr = Grouper_New((const RLookupKey **)&gen.kvalue, (const RLookupKey **)&val_out, 1, &timeout);
+
   ArgsCursor args = {0};
   ReducerOptions opt = {0};
   opt.args = &args;

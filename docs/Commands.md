@@ -17,7 +17,9 @@
        [PAYLOAD_FIELD {payload_attribute}]
     [MAXTEXTFIELDS] [TEMPORARY {seconds}] [NOOFFSETS] [NOHL] [NOFIELDS] [NOFREQS] [SKIPINITIALSCAN]
     [STOPWORDS {num} {stopword} ...]
-    SCHEMA {identifier} [AS {attribute}] [TEXT [NOSTEM] [WEIGHT {weight}] [PHONETIC {matcher}] | NUMERIC | GEO | TAG [SEPARATOR {sep}] [CASESENSITIVE] [SORTABLE] [NOINDEX]] ...
+    SCHEMA {identifier} [AS {attribute}]
+        [TEXT [NOSTEM] [WEIGHT {weight}] [PHONETIC {matcher}] | NUMERIC | GEO | TAG [SEPARATOR {sep}] [CASESENSITIVE]
+        [SORTABLE [UNF]] [NOINDEX]] ...
 ```
 
 #### Description
@@ -84,7 +86,7 @@ FT.CREATE books-idx ON HASH PREFIX 1 book:details FILTER SCHEMA title TEXT categ
 Indexing a JSON document using a JSON Path expression:
 
 ```sql
-FT.CREATE idx ON JSON SCHEMA $.title AS title TEXT $.categories AS categories TAG SORTABLE
+FT.CREATE idx ON JSON SCHEMA $.title AS title TEXT $.categories AS categories TAG
 ```
 
 #### Parameters
@@ -161,9 +163,9 @@ FT.CREATE idx ON JSON SCHEMA $.title AS title TEXT $.categories AS categories TA
 * **SKIPINITIALSCAN**: If set, we do not scan and index.
 
 * **SCHEMA {identifier} AS {attribute} {attribute type} {options...}**: After the SCHEMA keyword, we declare which fields to index:
-  
+
     * **{identifier}**
-      
+
       For hashes, the identifier is a field name within the hash.
       For JSON, the identifier is a JSON Path expression.
 
@@ -171,7 +173,7 @@ FT.CREATE idx ON JSON SCHEMA $.title AS title TEXT $.categories AS categories TA
 
       This optional parameter defines the attribute associated to the identifier.
       For example, you can use this feature to alias a complex JSONPath expression with more memorable (and easier to type) name
-      
+
     #### Field Types
 
     * **TEXT**
@@ -194,8 +196,12 @@ FT.CREATE idx ON JSON SCHEMA $.title AS title TEXT $.categories AS categories TA
 
     * **SORTABLE**
 
-        Numeric, tag or text attributes can have the optional SORTABLE argument that allows the user to later [sort the results by the value of this attribute](Sorting.md) (this adds memory overhead so do not declare it on large text attributes).
+        Numeric, tag (not supported with JSON) or text attributes can have the optional SORTABLE argument that allows the user to later [sort the results by the value of this attribute](Sorting.md) (this adds memory overhead so do not declare it on large text attributes).
 
+    * **UNF**
+        
+        By default, SORTABLE applies a normalization to the indexed value (characters set to lowercase, removal of diacritics). When using UNF (un-normalized form) it is possible to disable the normalization and keep the original form of the value. 
+  
     * **NOSTEM**
 
         Text attributes can have the NOSTEM argument which will disable stemming when indexing its values.
@@ -230,7 +236,7 @@ FT.CREATE idx ON JSON SCHEMA $.title AS title TEXT $.categories AS categories TA
         must be a single character.
 
     * **CASESENSITIVE**
-        
+
         For `TAG` attributes, keeps the original letter cases of the tags.
         If not specified, the characters are converted to lowercase.
 
@@ -252,7 +258,6 @@ OK or an error
 HSET {hash} {field} {value} [{field} {value} ...]
 ```
 
-
 ```
 JSON.SET {key} {path} {json}
 ```
@@ -265,7 +270,7 @@ When you modify a hash or JSON document, all matching indexes are updated automa
 
 If an attribute fails to be indexed (for example, if a numeric attributes gets a string value) the whole document is not indexed. `FT.INFO` provides the number of document-indexing-failures under `hash_indexing_failures`.
 
-If `LANGUAGE_FIELD`, `SCORE_FIELD`, or `PAYLOAD_FIELD` are specified with `FT.CREATE`, the document will extract the properties. 
+If `LANGUAGE_FIELD`, `SCORE_FIELD`, or `PAYLOAD_FIELD` are specified with `FT.CREATE`, the document will extract the properties.
 
 !!! warning "Schema mismatch"
     If a value in a hash does not match the schema type for that attribute, indexing of the hash will fail. The number of 'failed' document is under `hash_indexing_failures` at `FT.INFO`.
@@ -307,6 +312,7 @@ FT.SEARCH {index} {query} [NOCONTENT] [VERBATIM] [NOSTOPWORDS] [WITHSCORES] [WIT
   [SCORER {scorer}] [EXPLAINSCORE]
   [PAYLOAD {payload}]
   [SORTBY {attribute} [ASC|DESC]]
+  [MSORTBY {nargs} {property} [ASC|DESC] ... [MAX {num}]]
   [LIMIT offset num]
 ```
 
@@ -330,7 +336,7 @@ FT.SEARCH books-idx "@title:dogs"
 Searching for books published in 2020 or 2021:
 
 ```sql
-FT.SEARCH books-idx "@published_at:[2020 2021]
+FT.SEARCH books-idx "@published_at:[2020 2021]"
 ```
 
 Searching for Chinese restaurants within 5 kilometers of longitude -122.41, latitude 37.77 (San Francisco):
@@ -370,7 +376,6 @@ FT.SEARCH books-idx "python" RETURN 3 $.book.price AS price
 
 !!! tip "More examples"
     For more details and query examples, see [query syntax](Query_Syntax.md).
-
 
 #### Parameters
 
@@ -433,6 +438,14 @@ FT.SEARCH books-idx "python" RETURN 3 $.book.price AS price
 
 - **SORTBY {attribute} [ASC|DESC]**: If specified, the results
   are ordered by the value of this attribute. This applies to both text and numeric attributes.
+
+- **MSORTBY {nargs} {property} {ASC|DESC} [MAX {num}]**: Sort the pipeline up until the point of MSORTBY,
+  using a list of properties. By default, sorting is ascending, but `ASC` or `DESC ` can be added for
+  each property. `nargs` is the number of sorting parameters, including ASC and DESC. for example:
+  `MSORTBY 4 @foo ASC @bar DESC`.
+
+    `MAX` is used to optimized sorting, by sorting only for the n-largest elements. Although it is not connected to `LIMIT`, you usually need just `MSORTBY … MAX` for common queries.
+
 - **LIMIT first num**: Limit the results to
   the offset and number of results given. Note that the offset is zero-indexed. The default is 0 10, which returns 10 items starting from the first result.
 
@@ -516,7 +529,6 @@ Here, we needed to use `LOAD` to pre-load the @location attribute because it is 
 
 !!! tip "More examples"
     For more details on aggreations and detailed examples of aggregation queries, see [Aggregations](Aggregations.md).
-
 
 #### Parameters
 
@@ -1346,7 +1358,6 @@ Optional
 * Statistics about `cursors` if a cursor exists for the index.
 * Statistics about `stopword lists` if a custom stopword list is used.
 
-
 ##### Example
 ```bash
 127.0.0.1:6379> ft.info wik{0}
@@ -1678,7 +1689,6 @@ FT.DEL idx doc1
 - **index**: The index name. The index must be first created with FT.CREATE
 - **doc_id**: the id of the document to be deleted. It does not actually delete the HASH key in which
   the document is stored. Use DEL to do that manually if needed.
-
 
 #### Complexity
 

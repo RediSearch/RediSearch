@@ -21,12 +21,13 @@
 #include "rules.h"
 #include "dictionary.h"
 #include "doc_types.h"
+#include "rdb.h"
 
 #define INITIAL_DOC_TABLE_SIZE 1000
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-static void FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver);
+static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver);
 void IndexSpec_UpdateMatchingWithSchemaRules(IndexSpec *sp, RedisModuleCtx *ctx,
                                              RedisModuleString *key, DocumentType type);
 int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key);
@@ -364,6 +365,9 @@ static int parseFieldSpec(ArgsCursor *ac, FieldSpec *fs, QueryError *status) {
   while (!AC_IsAtEnd(ac)) {
     if (AC_AdvanceIfMatch(ac, SPEC_SORTABLE_STR)) {
       FieldSpec_SetSortable(fs);
+      if (AC_AdvanceIfMatch(ac, SPEC_UNF_STR)) {
+        fs->options |= FieldSpec_UNF;
+      }
       continue;
     } else if (AC_AdvanceIfMatch(ac, SPEC_NOINDEX_STR)) {
       fs->options |= FieldSpec_NotIndexable;
@@ -432,6 +436,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
         goto reset;
       }
       fieldName = AC_GetStringNC(ac, &namelen);
+      sp->flags |= Index_HasFieldAlias;
     } else {
       // if `AS` is not used, set the path as name
       fieldName = fieldPath;
@@ -474,6 +479,12 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
     }
 
     if (FieldSpec_IsSortable(fs)) {
+      if (fs->types & INDEXFLD_T_TAG && sp->rule->type == DocumentType_Json) {
+        QueryError_SetErrorFmt(status, QUERY_EBADOPTION,
+                               "On JSON, cannot set tag field to sortable - %s", fieldName);
+        goto reset;
+      }
+
       if (fs->options & FieldSpec_Dynamic) {
         QueryError_SetErrorFmt(status, QUERY_EBADOPTION,
                                "Cannot set dynamic field to sortable - %s", fieldName);
@@ -736,7 +747,7 @@ char *IndexSpec_GetRandomTerm(IndexSpec *sp, size_t sampleSize) {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 void IndexSpec_FreeInternals(IndexSpec *spec) {
-  if (dictFetchValue(specDict_g, spec->name) == spec) {
+  if (spec->name && dictFetchValue(specDict_g, spec->name) == spec) {
     dictDelete(specDict_g, spec->name);
   }
   SchemaPrefixes_RemoveSpec(spec);
@@ -891,9 +902,9 @@ void IndexSpec_FreeSync(IndexSpec *spec) {
 
 //---------------------------------------------------------------------------------------------
 
-void Indexes_Free() {
+void Indexes_Free(dict *d) {
   arrayof(IndexSpec *) specs = array_new(IndexSpec *, 10);
-  dictIterator *iter = dictGetIterator(specDict_g);
+  dictIterator *iter = dictGetIterator(d);
   dictEntry *entry = NULL;
   while ((entry = dictNext(iter))) {
     IndexSpec *sp = dictGetVal(entry);
@@ -1070,7 +1081,17 @@ FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *pa
   fs->ftWeight = 1.0;
   fs->sortIdx = -1;
   fs->tagFlags = TAG_FIELD_DEFAULT_FLAGS;
-  fs->tagSep = TAG_FIELD_DEFAULT_SEP;
+  if (!(sp->flags & Index_FromLLAPI)) {
+    RS_LOG_ASSERT((sp->rule), "index w/o a rule?");
+    switch (sp->rule->type) {
+      case DocumentType_Hash:
+        fs->tagSep = TAG_FIELD_DEFAULT_HASH_SEP; break;
+      case DocumentType_Json:
+        fs->tagSep = TAG_FIELD_DEFAULT_JSON_SEP; break;
+      case DocumentType_None:
+        RS_LOG_ASSERT(0, "shouldn't get here");
+    }
+  }
   return fs;
 }
 
@@ -1124,25 +1145,29 @@ int bit(t_fieldMask id) {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 // Backwards compat version of load for rdbs with version < 8
-static void FieldSpec_RdbLoadCompat8(RedisModuleIO *rdb, FieldSpec *f, int encver) {
-  RedisModule_LoadStringBufferAlloc(rdb, f->name, NULL);
+static int FieldSpec_RdbLoadCompat8(RedisModuleIO *rdb, FieldSpec *f, int encver) {
+  LoadStringBufferAlloc_IOErrors(rdb, f->name, NULL, goto fail);
 
   // the old versions encoded the bit id of the field directly
   // we convert that to a power of 2
   if (encver < INDEX_MIN_WIDESCHEMA_VERSION) {
-    f->ftId = bit(RedisModule_LoadUnsigned(rdb));
+    f->ftId = bit(LoadUnsigned_IOError(rdb, goto fail));
   } else {
     // the new version encodes just the power of 2 of the bit
-    f->ftId = RedisModule_LoadUnsigned(rdb);
+    f->ftId = LoadUnsigned_IOError(rdb, goto fail);
   }
-  f->types = RedisModule_LoadUnsigned(rdb);
-  f->ftWeight = RedisModule_LoadDouble(rdb);
+  f->types = LoadUnsigned_IOError(rdb, goto fail);
+  f->ftWeight = LoadDouble_IOError(rdb, goto fail);
   f->tagFlags = TAG_FIELD_DEFAULT_FLAGS;
-  f->tagSep = TAG_FIELD_DEFAULT_SEP;
+  f->tagSep = TAG_FIELD_DEFAULT_HASH_SEP;
   if (encver >= 4) {
-    f->options = RedisModule_LoadUnsigned(rdb);
-    f->sortIdx = RedisModule_LoadSigned(rdb);
+    f->options = LoadUnsigned_IOError(rdb, goto fail);
+    f->sortIdx = LoadSigned_IOError(rdb, goto fail);
   }
+  return REDISMODULE_OK;
+
+fail:
+  return REDISMODULE_ERR;
 }
 
 static void FieldSpec_RdbSave(RedisModuleIO *rdb, FieldSpec *f) {
@@ -1172,24 +1197,24 @@ static const FieldType fieldTypeMap[] = {[IDXFLD_LEGACY_FULLTEXT] = INDEXFLD_T_F
                                          [IDXFLD_LEGACY_GEO] = INDEXFLD_T_GEO,
                                          [IDXFLD_LEGACY_TAG] = INDEXFLD_T_TAG};
 
-static void FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
+static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
 
   // Fall back to legacy encoding if needed
   if (encver < INDEX_MIN_TAGFIELD_VERSION) {
     return FieldSpec_RdbLoadCompat8(rdb, f, encver);
   }
 
-  RedisModule_LoadStringBufferAlloc(rdb, f->name, NULL);
+  LoadStringBufferAlloc_IOErrors(rdb, f->name, NULL, goto fail);
   f->path = f->name;
   if (encver >= INDEX_JSON_VERSION) {
-    if (RedisModule_LoadUnsigned(rdb) == 1) {
-      RedisModule_LoadStringBufferAlloc(rdb, f->path, NULL);
+    if (LoadUnsigned_IOError(rdb, goto fail) == 1) {
+      LoadStringBufferAlloc_IOErrors(rdb, f->path, NULL,goto fail);
     }
   }
 
-  f->types = RedisModule_LoadUnsigned(rdb);
-  f->options = RedisModule_LoadUnsigned(rdb);
-  f->sortIdx = RedisModule_LoadSigned(rdb);
+  f->types = LoadUnsigned_IOError(rdb, goto fail);
+  f->options = LoadUnsigned_IOError(rdb, goto fail);
+  f->sortIdx = LoadSigned_IOError(rdb, goto fail);
 
   if (encver < INDEX_MIN_MULTITYPE_VERSION) {
     RS_LOG_ASSERT(f->types <= IDXFLD_LEGACY_MAX, "field type should be string or numeric");
@@ -1198,19 +1223,23 @@ static void FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver) {
 
   // Load text specific options
   if (FIELD_IS(f, INDEXFLD_T_FULLTEXT) || (f->options & FieldSpec_Dynamic)) {
-    f->ftId = RedisModule_LoadUnsigned(rdb);
-    f->ftWeight = RedisModule_LoadDouble(rdb);
+    f->ftId = LoadUnsigned_IOError(rdb, goto fail);
+    f->ftWeight = LoadDouble_IOError(rdb, goto fail);
   }
   // Load tag specific options
   if (FIELD_IS(f, INDEXFLD_T_TAG) || (f->options & FieldSpec_Dynamic)) {
-    f->tagFlags = RedisModule_LoadUnsigned(rdb);
+    f->tagFlags = LoadUnsigned_IOError(rdb, goto fail);
     // Load the separator
     size_t l;
-    char *s = RedisModule_LoadStringBuffer(rdb, &l);
+    char *s = LoadStringBuffer_IOError(rdb, &l, goto fail);
     RS_LOG_ASSERT(l == 1, "buffer length should be 1");
     f->tagSep = *s;
     RedisModule_Free(s);
   }
+  return REDISMODULE_OK;
+
+fail:
+  return REDISMODULE_ERR;
 }
 
 static void IndexStats_RdbLoad(RedisModuleIO *rdb, IndexStats *stats) {
@@ -1518,23 +1547,25 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
   IndexSpec_MakeKeyless(sp);
 
   sp->sortables = NewSortingTable();
-  sp->terms = NULL;
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
-  sp->name = RedisModule_LoadStringBuffer(rdb, NULL);
+  sp->name = LoadStringBuffer_IOError(rdb, NULL, goto cleanup);
   char *tmpName = rm_strdup(sp->name);
   RedisModule_Free(sp->name);
   sp->name = tmpName;
-  sp->flags = (IndexFlags)RedisModule_LoadUnsigned(rdb);
+  sp->flags = (IndexFlags)LoadUnsigned_IOError(rdb, goto cleanup);
   if (encver < INDEX_MIN_NOFREQ_VERSION) {
     sp->flags |= Index_StoreFreqs;
   }
 
-  sp->numFields = RedisModule_LoadUnsigned(rdb);
+  sp->numFields = LoadUnsigned_IOError(rdb, goto cleanup);
   sp->fields = rm_calloc(sp->numFields, sizeof(FieldSpec));
   int maxSortIdx = -1;
   for (int i = 0; i < sp->numFields; i++) {
     FieldSpec *fs = sp->fields + i;
-    FieldSpec_RdbLoad(rdb, sp->fields + i, encver);
+    if (FieldSpec_RdbLoad(rdb, sp->fields + i, encver) != REDISMODULE_OK) {
+      QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Failed to load index field");
+      goto cleanup;
+    }
     sp->fields[i].index = i;
     if (FieldSpec_IsSortable(fs)) {
       RSSortingTable_Add(&sp->sortables, fs->name, fieldTypeToValueType(fs->types));
@@ -1545,8 +1576,7 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
 
   if (SchemaRule_RdbLoad(sp, rdb, encver) != REDISMODULE_OK) {
     QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Failed to load schema rule");
-    IndexSpec_Free(sp);
-    return NULL;
+    goto cleanup;
   }
 
   //    DocTable_RdbLoad(&sp->docs, rdb, encver);
@@ -1560,6 +1590,8 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
 
   if (sp->flags & Index_HasCustomStopwords) {
     sp->stopwords = StopWordList_RdbLoad(rdb, encver);
+    if (sp->stopwords == NULL)
+      goto cleanup;
   } else {
     sp->stopwords = DefaultStopWordList();
   }
@@ -1571,29 +1603,31 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
   CursorList_AddSpec(&RSCursors, sp->name, RSCURSORS_DEFAULT_CAPACITY);
   RedisModule_FreeString(ctx, specKey);
 
-  sp->smap = NULL;
   if (sp->flags & Index_HasSmap) {
     sp->smap = SynonymMap_RdbLoad(rdb, encver);
+    if (sp->smap == NULL)
+      goto cleanup;
   }
   if (IndexSpec_OnCreate) {
     IndexSpec_OnCreate(sp);
   }
 
-  sp->timeout = RedisModule_LoadUnsigned(rdb);
+  sp->timeout = LoadUnsigned_IOError(rdb, goto cleanup);
 
-  size_t narr = RedisModule_LoadUnsigned(rdb);
+  size_t narr = LoadUnsigned_IOError(rdb, goto cleanup);
   for (size_t ii = 0; ii < narr; ++ii) {
     QueryError _status;
     size_t dummy;
-    char *s = RedisModule_LoadStringBuffer(rdb, &dummy);
+    char *s = LoadStringBuffer_IOError(rdb, &dummy, goto cleanup);
     int rc = IndexAlias_Add(s, sp, 0, &_status);
     RedisModule_Free(s);
-    RedisModule_Log(NULL, "notice", "Loading existing alias failed");
+    if (rc != REDISMODULE_OK) {
+      RedisModule_Log(NULL, "notice", "Loading existing alias failed");
+    }
   }
 
   sp->indexer = NewIndexer(sp);
 
-  sp->scanner = NULL;
   sp->scan_in_progress = false;
 
   sp->cascadeDelete = true;
@@ -1612,6 +1646,11 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
   }
 
   return sp;
+
+cleanup:
+  IndexSpec_Free(sp);
+  QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "while reading an index");
+  return NULL;
 }
 
 void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
@@ -1725,10 +1764,10 @@ void IndexSpec_LegacyRdbSave(RedisModuleIO *rdb, void *value) {
 int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when) {
 
   if (encver < INDEX_MIN_COMPAT_VERSION) {
-    return REDISMODULE_OK;
+    return REDISMODULE_ERR;
   }
 
-  size_t nIndexes = RedisModule_LoadUnsigned(rdb);
+  size_t nIndexes = LoadUnsigned_IOError(rdb, goto cleanup);
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   QueryError status = {0};
   for (size_t i = 0; i < nIndexes; ++i) {
@@ -1740,6 +1779,9 @@ int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when) {
     }
   }
   return REDISMODULE_OK;
+
+cleanup:
+  return REDISMODULE_ERR;
 }
 
 void Indexes_RdbSave(RedisModuleIO *rdb, int when) {
@@ -1827,7 +1869,7 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
   if (subevent == REDISMODULE_SUBEVENT_LOADING_RDB_START ||
       subevent == REDISMODULE_SUBEVENT_LOADING_AOF_START ||
       subevent == REDISMODULE_SUBEVENT_LOADING_REPL_START) {
-    Indexes_Free();
+    Indexes_Free(specDict_g);
     legacySpecDict = dictCreate(&dictTypeHeapStrings, NULL);
   } else if (subevent == REDISMODULE_SUBEVENT_LOADING_ENDED) {
     int hasLegacyIndexes = dictSize(legacySpecDict);
@@ -1895,7 +1937,7 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
 
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
   Document doc = {0};
-  Document_Init(&doc, key, 1.0, DEFAULT_LANGUAGE, type);
+  Document_Init(&doc, key, DEFAULT_SCORE, DEFAULT_LANGUAGE, type);
   // if a key does not exit, is not a hash or has no fields in index schema
 
   int rv = REDISMODULE_ERR;
@@ -1911,10 +1953,12 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   }
 
   if (rv != REDISMODULE_OK) {
+    spec->stats.indexingFailures++;
+
     // if a document did not load properly, it is deleted
     // to prevent mismatch of index and hash
     DocTable_DeleteR(&spec->docs, key);
-  
+
     IndexSpec_DeleteDoc(spec, ctx, key);
     Document_Free(&doc);
     return REDISMODULE_ERR;
@@ -2096,7 +2140,7 @@ void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
                                            RedisModuleString **hashFields) {
   if (type == DocumentType_None) {
     return;
-  } 
+  }
 
   SpecOpIndexingCtx *specs = Indexes_FindMatchingSchemaRules(ctx, key, true, NULL);
 
@@ -2107,7 +2151,7 @@ void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
     if (type != specOp->spec->rule->type) {
       continue;
     }
-    
+
     if (!hashFields || hashFieldChanged(specOp->spec, hashFields)) {
       if (specOp->op == SpecOp_Add) {
         IndexSpec_UpdateDoc(specOp->spec, ctx, key, type);

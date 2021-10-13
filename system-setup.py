@@ -26,6 +26,7 @@ class RediSearchSetup(paella.Setup):
     def debian_compat(self):
         self.install("libatomic1")
         self.run("%s/bin/getgcc" % READIES)
+        self.install("python-dev")
 
         if self.platform.is_arm() and self.dist == 'ubuntu' and self.os_version[0] < 20:
             self.install("python-gevent")
@@ -33,11 +34,14 @@ class RediSearchSetup(paella.Setup):
     def redhat_compat(self):
         self.install("redhat-lsb-core")
         self.install("libatomic")
+        self.install("python2-devel")
 
         self.run("%s/bin/getgcc --modern" % READIES)
 
         # fix setuptools
         self.pip_install("-IU --force-reinstall setuptools")
+
+        self.install("python-devel")
 
         if self.platform.is_arm():
             self.install("python-gevent")
@@ -57,7 +61,10 @@ class RediSearchSetup(paella.Setup):
         self.run("{PYTHON} {READIES}/bin/getredis -v 6 --force".format(PYTHON=self.python, READIES=READIES))
 
     def common_last(self):
-        self.run("{PYTHON} {READIES}/bin/getcmake".format(PYTHON=self.python, READIES=READIES))
+        if os.path.exists("/usr/local/bin/cmake"):
+            self.run("cd /usr/local/bin; rm -f cmake cmake-gui ctest cpack ccmake")
+        self.run("{PYTHON} {READIES}/bin/getcmake --usr".format(PYTHON=self.python, READIES=READIES))
+
         self.run("{PYTHON} {READIES}/bin/getrmpytools --reinstall".format(PYTHON=self.python, READIES=READIES))
         if self.dist != "arch":
             self.install("lcov")

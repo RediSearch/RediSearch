@@ -7,7 +7,7 @@ import random
 import time
 from RLTest import Env
 from includes import *
-from common import getConnectionByEnv, waitForIndex, toSortedFlatList, assertInfoField, server_version_at_least, module_version_at_least
+from common import *
 
 # this tests is not longer relevant
 # def testAdd(env):
@@ -1130,7 +1130,7 @@ def testGeoDeletion(env):
     # Remove the first doc
     env.cmd('ft.del', 'idx', 'doc1')
     for _ in range(100):
-        env.cmd('ft.debug', 'gc_forceinvoke', 'idx')
+        forceInvokeGC(env, 'idx')
     env.assertEqual(2, len(env.cmd('FT.DEBUG DUMP_NUMIDX idx g1')[0]))
     env.assertEqual(1, len(env.cmd('FT.DEBUG DUMP_NUMIDX idx g2')[0]))
 
@@ -1139,7 +1139,7 @@ def testGeoDeletion(env):
             'replace', 'fields',
             't1', 'just text here')
     for _ in range(100):
-        env.cmd('ft.debug', 'gc_forceinvoke', 'idx')
+        forceInvokeGC(env, 'idx')
     env.assertEqual(1, len(env.cmd('FT.DEBUG DUMP_NUMIDX idx g1')[0]))
     env.assertEqual(0, len(env.cmd('FT.DEBUG DUMP_NUMIDX idx g2')[0]))
 
@@ -1447,7 +1447,7 @@ def testGarbageCollector(env):
 
     for _ in range(100):
         # gc is random so we need to do it long enough times for it to work
-        env.cmd('ft.debug', 'GC_FORCEINVOKE', 'idx')
+        forceInvokeGC(env, 'idx')
 
     stats = get_stats(r)
 
@@ -2065,6 +2065,33 @@ def testTimeout(env):
     env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', -1).error()
     env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', 'STR').error()
 
+
+    # check no time w/o sorter/grouper
+    res = env.cmd('FT.AGGREGATE', 'myIdx', 'aa*|aa*',
+                                        'LOAD', 1, 't',
+                                        'APPLY', 'contains(@t, "a1")', 'AS', 'contain1',
+                                        'APPLY', 'contains(@t, "a1")', 'AS', 'contain2',
+                                        'APPLY', 'contains(@t, "a1")', 'AS', 'contain3')
+    env.assertEqual(res[0], 1L)
+
+    # test grouper
+    env.expect('FT.AGGREGATE', 'myIdx', 'aa*|aa*',
+                                        'LOAD', 1, 't',
+                                        'GROUPBY', 1, '@t',
+                                        'APPLY', 'contains(@t, "a1")', 'AS', 'contain1',
+                                        'APPLY', 'contains(@t, "a1")', 'AS', 'contain2',
+                                        'APPLY', 'contains(@t, "a1")', 'AS', 'contain3') \
+                                        .contains('Timeout limit was reached')
+
+    # test sorter
+    env.expect('FT.AGGREGATE', 'myIdx', 'aa*|aa*',
+                                        'LOAD', 1, 't',
+                                        'SORTBY', 1, '@t',
+                                        'APPLY', 'contains(@t, "a1")', 'AS', 'contain1',
+                                        'APPLY', 'contains(@t, "a1")', 'AS', 'contain2',
+                                        'APPLY', 'contains(@t, "a1")', 'AS', 'contain3') \
+                                        .contains('Timeout limit was reached')
+
     # test cursor
     res = env.cmd('FT.AGGREGATE', 'myIdx', 'aa*', 'WITHCURSOR', 'count', 50, 'timeout', 500)
     l = len(res[0]) - 1 # do not count the number of results (the first element in the results)
@@ -2075,6 +2102,11 @@ def testTimeout(env):
         r, cursor = env.cmd('FT.CURSOR', 'READ', 'myIdx', str(cursor))
         l += (len(r) - 1)
     env.assertEqual(l, 1000)
+
+
+    # restore old configuration
+    env.cmd('ft.config', 'set', 'timeout', '500')
+    env.cmd('ft.config', 'set', 'maxprefixexpansions', 200)
 
 def testAlias(env):
     conn = getConnectionByEnv(env)
@@ -2287,7 +2319,7 @@ def testPrefixDeletedExpansions(env):
     iters = 0
     while time.time() < tmax:
         iters += 1
-        env.cmd('ft.debug', 'gc_forceinvoke', 'idx')
+        forceInvokeGC(env, 'idx')
         r = env.cmd('ft.search', 'idx', '@txt1:term* @tag1:{tag*}')
         if r[0]:
             break
@@ -2378,18 +2410,20 @@ def testIssue_848(env):
 
 def testMod_309(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
+    conn = getConnectionByEnv(env)
     for i in range(100000):
-        env.expect('FT.ADD', 'idx', 'doc%d'%i, '1.0', 'FIELDS', 'test', 'foo').equal('OK')
+        conn.execute_command('HSET', 'doc%d'%i, 'test', 'foo')
     res = env.cmd('FT.AGGREGATE', 'idx', 'foo')
     env.assertEqual(len(res), 100001)
 
     # test with cursor
+    env.skipOnCluster()
     res = env.cmd('FT.AGGREGATE', 'idx', 'foo', 'WITHCURSOR')
     l = len(res[0]) - 1 # do not count the number of results (the first element in the results)
     cursor = res[1]
     while cursor != 0:
         r, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', str(cursor))
-        l += (len(r) - 1)
+        l += len(r) - 1
     env.assertEqual(l, 100000)
 
 def testIssue_865(env):
@@ -2578,6 +2612,7 @@ def testApplyError(env):
 def testLoadError(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
+    env.expect('ft.aggregate', 'idx', '*', 'LOAD').error()
     env.expect('ft.aggregate', 'idx', '*', 'LOAD', 'bad').error()
     env.expect('ft.aggregate', 'idx', '*', 'LOAD', 'bad', 'test').error()
     env.expect('ft.aggregate', 'idx', '*', 'LOAD', '2', 'test').error()
@@ -2847,7 +2882,7 @@ def testIssue1085(env):
     for i in range(1, 10):
         env.cmd('FT.ADD issue1085 document_8 1 REPLACE FIELDS foo foo8 bar 8')
 
-    env.expect('ft.debug GC_FORCEINVOKE issue1085').equal('DONE')
+    forceInvokeGC(env, 'issue1085')
 
     res = env.cmd('FT.SEARCH', 'issue1085', '@bar:[8 8]')
     env.assertEqual(toSortedFlatList(res), toSortedFlatList([1, 'document_8', ['foo', 'foo8', 'bar', '8']]))
@@ -2961,7 +2996,8 @@ def testIssue1184(env):
         env.assertEqual(d['num_records'], '1')
 
         env.assertEqual(env.execute_command('FT.DEL idx doc0'), 1)
-        env.cmd('ft.debug', 'GC_FORCEINVOKE', 'idx')
+
+        forceInvokeGC(env, 'idx')
 
         res = env.execute_command('ft.info', 'idx')
         d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
@@ -3200,7 +3236,7 @@ def testInvertedIndexWasEntirelyDeletedDuringCursor():
     env.expect('DEL doc1').equal(1)
     env.expect('DEL doc2').equal(1)
 
-    env.cmd('FT.DEBUG GC_FORCEINVOKE idx')
+    forceInvokeGC(env, 'idx')
 
     # make sure the inverted index was cleaned
     env.expect('FT.DEBUG DUMP_INVIDX idx foo').error().contains('not find the inverted index')
@@ -3224,7 +3260,7 @@ def testNotOnly(env):
   conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'txt1', 'TEXT')
   conn.execute_command('HSET', 'a', 'txt1', 'hello', 'txt2', 'world')
   conn.execute_command('HSET', 'b', 'txt1', 'world', 'txt2', 'hello')
-  env.expect('ft.search idx !world').equal([1L, 'b', ['txt1', 'world', 'txt2', 'hello']])
+  env.assertEqual(toSortedFlatList(env.cmd('ft.search idx !world')), toSortedFlatList([1L, 'b', ['txt1', 'world', 'txt2', 'hello']]))
 
 def testServerVersion(env):
     env.assertTrue(server_version_at_least(env, "6.0.0"))
@@ -3339,3 +3375,80 @@ def testMod1452(env):
     # here we only check that its not crashing
     env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', 'foo', 'REDUCE', 'FIRST_VALUE', 3, '@not_exists', 'BY', '@foo')
 
+
+def test_mod1548(env):
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$["prod:id"]', 'AS', 'prod:id', 'TEXT', '$.prod:id', 'AS', 'prod:id_unsupported', 'TEXT', '$.name', 'AS', 'name', 'TEXT', '$.categories', 'AS', 'categories', 'TAG', 'SEPARATOR' ,',').ok()
+    waitForIndex(env, 'idx')
+
+    res = conn.execute_command('JSON.SET', 'prod:1', '$', '{"prod:id": "35114964", "SKU": "35114964", "name":"foo", "categories":"abcat0200000"}')
+    env.assertOk(res)
+    res = conn.execute_command('JSON.SET', 'prod:2', '$', '{"prod:id": "35114965", "SKU": "35114965", "name":"bar", "categories":"abcat0200000"}')
+    env.assertOk(res)
+
+    # Supported jsonpath
+    res = conn.execute_command('FT.SEARCH', 'idx', '@categories:{abcat0200000}', 'RETURN', '1', 'name')
+    env.assertEqual(res,  [2L, 'prod:1', ['name', 'foo'], 'prod:2', ['name', 'bar']])
+
+    # Supported jsonpath (actual path contains a colon using the bracket notation)
+    res = conn.execute_command('FT.SEARCH', 'idx', '@categories:{abcat0200000}', 'RETURN', '1', 'prod:id')
+    env.assertEqual(res,  [2L, 'prod:1', ['prod:id', '35114964'], 'prod:2', ['prod:id', '35114965']])
+
+    # Currently unsupported jsonpath (actual path contains a colon using the dot notation)
+    res = conn.execute_command('FT.SEARCH', 'idx', '@categories:{abcat0200000}', 'RETURN', '1', 'prod:id_unsupported')
+    env.assertEqual(res, [2L, 'prod:1', [], 'prod:2', []])
+
+def testSearchMultiSortBy(env):
+    conn = getConnectionByEnv(env)
+    env.execute_command('FT.CREATE', 'msb_idx', 'SCHEMA', 't1', 'TEXT', 't2', 'TEXT')    
+    conn.execute_command('hset', 'doc1', 't1', 'a', 't2', 'a')
+    conn.execute_command('hset', 'doc2', 't1', 'a', 't2', 'b')
+    conn.execute_command('hset', 'doc3', 't1', 'a', 't2', 'c')  
+    conn.execute_command('hset', 'doc4', 't1', 'b', 't2', 'a')
+    conn.execute_command('hset', 'doc5', 't1', 'b', 't2', 'b')
+    conn.execute_command('hset', 'doc6', 't1', 'b', 't2', 'c')  
+    conn.execute_command('hset', 'doc7', 't1', 'c', 't2', 'a')
+    conn.execute_command('hset', 'doc8', 't1', 'c', 't2', 'b')
+    conn.execute_command('hset', 'doc9', 't1', 'c', 't2', 'c')
+
+    # t1 ASC t2 ASC
+    res = [9L, 'doc1', ['t1', 'a', 't2', 'a'], 'doc2', ['t1', 'a', 't2', 'b'], 'doc3', ['t1', 'a', 't2', 'c'],
+               'doc4', ['t1', 'b', 't2', 'a'], 'doc5', ['t1', 'b', 't2', 'b'], 'doc6', ['t1', 'b', 't2', 'c'],
+               'doc7', ['t1', 'c', 't2', 'a'], 'doc8', ['t1', 'c', 't2', 'b'], 'doc9', ['t1', 'c', 't2', 'c']]
+    env.expect('FT.SEARCH', 'msb_idx', '*',
+                'MSORTBY', '4', '@t1', 'ASC', '@t2', 'ASC').equal(res)
+
+    # t1 DESC t2 ASC
+    res = [9L, 'doc7', ['t1', 'c', 't2', 'a'], 'doc8', ['t1', 'c', 't2', 'b'], 'doc9', ['t1', 'c', 't2', 'c'],
+               'doc4', ['t1', 'b', 't2', 'a'], 'doc5', ['t1', 'b', 't2', 'b'], 'doc6', ['t1', 'b', 't2', 'c'],
+               'doc1', ['t1', 'a', 't2', 'a'], 'doc2', ['t1', 'a', 't2', 'b'], 'doc3', ['t1', 'a', 't2', 'c']]
+    env.expect('FT.SEARCH', 'msb_idx', '*',
+                'MSORTBY', '4', '@t1', 'DESC', '@t2', 'ASC').equal(res)
+
+    # t2 ASC t1 ASC
+    res = [9L, 'doc1', ['t2', 'a', 't1', 'a'], 'doc4', ['t2', 'a', 't1', 'b'], 'doc7', ['t2', 'a', 't1', 'c'],
+               'doc2', ['t2', 'b', 't1', 'a'], 'doc5', ['t2', 'b', 't1', 'b'], 'doc8', ['t2', 'b', 't1', 'c'],
+               'doc3', ['t2', 'c', 't1', 'a'], 'doc6', ['t2', 'c', 't1', 'b'], 'doc9', ['t2', 'c', 't1', 'c']]
+    env.expect('FT.SEARCH', 'msb_idx', '*',
+                'MSORTBY', '4', '@t2', 'ASC', '@t1', 'ASC').equal(res)
+
+    # t2 ASC t1 DESC
+    res = [9L, 'doc7', ['t2', 'a', 't1', 'c'], 'doc4', ['t2', 'a', 't1', 'b'], 'doc1', ['t2', 'a', 't1', 'a'],
+               'doc8', ['t2', 'b', 't1', 'c'], 'doc5', ['t2', 'b', 't1', 'b'], 'doc2', ['t2', 'b', 't1', 'a'],
+               'doc9', ['t2', 'c', 't1', 'c'], 'doc6', ['t2', 'c', 't1', 'b'], 'doc3', ['t2', 'c', 't1', 'a']]
+    env.expect('FT.SEARCH', 'msb_idx', '*',
+                'MSORTBY', '4', '@t2', 'ASC', '@t1', 'DESC').equal(res)
+
+    # check error if both sortby and multisortby are used
+    env.expect('FT.SEARCH', 'msb_idx', '*',
+                'SORTBY', 't1',
+                'MSORTBY', '4', '@t2', 'ASC', '@t1', 'DESC') \
+                .error() \
+                .contains('Multiple SORTBY steps are not allowed. Sort multiple fields in a single step')
+
+    env.expect('FT.SEARCH', 'msb_idx', '*',
+                'MSORTBY', '4', '@t2', 'ASC', '@t1', 'DESC',
+                'SORTBY', 't1') \
+                .error() \
+                .contains('Multiple SORTBY steps are not allowed. Sort multiple fields in a single step')

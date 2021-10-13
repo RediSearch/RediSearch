@@ -1,7 +1,6 @@
 from includes import *
 import os
 
-UNSTABLE_TESTS = os.getenv('UNSTABLE_TESTS', '0') == '1'
 
 def testBasicFuzzy(env):
     r = env

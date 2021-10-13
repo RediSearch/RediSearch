@@ -19,6 +19,9 @@ clientconfig:
       - dictfile: "./bin/uci_online_retail.csv"
       - recordcount: 100000
       - operationcount: 500000
+      - readproportion : 0.15
+      - searchproportion : 0.45
+      - updateproportion : 0.40
     - threads: 64
 exporter:
   redistimeseries:

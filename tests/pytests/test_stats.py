@@ -2,7 +2,7 @@
 import unittest
 from random import random, seed 
 from includes import *
-from common import getConnectionByEnv, waitForIndex, sortedResults, toSortedFlatList
+from common import getConnectionByEnv, waitForIndex, sortedResults, toSortedFlatList, waitForRdbSaveToFinish, forceInvokeGC
 from time import sleep, time
 from RLTest import Env
 
@@ -61,7 +61,7 @@ def runTestWithSeed(env, s=None):
         for ii in range(loop_count):
             conn.execute_command('DEL', 'doc%d' % int(loop_count * i + ii))
         for jj in range(10):
-            env.expect('FT.DEBUG', 'GC_FORCEINVOKE', 'idx')
+            forceInvokeGC(env, 'idx')
 
     for i in range(count):
         env.expect('FT.SEARCH', 'idx', '@n:[%d,%d]' % (i, i))#.equal([0L])
@@ -81,7 +81,7 @@ def runTestWithSeed(env, s=None):
         check_not_empty(env, idx)
         for ii in range(loop_count):
             conn.execute_command('DEL', 'doc%d' % int(loop_count * i + ii))
-        env.expect('FT.DEBUG', 'GC_FORCEINVOKE', 'idx')
+        forceInvokeGC(env, 'idx')
     check_empty(env, idx)
 
     for i in range(count):
@@ -102,7 +102,7 @@ def runTestWithSeed(env, s=None):
         for ii in range(loop_count):
             conn.execute_command('DEL', 'doc%d' % int(loop_count * i + ii))
         for jj in range(10):
-            env.expect('FT.DEBUG', 'GC_FORCEINVOKE', 'idx')
+            forceInvokeGC(env, 'idx')
     check_empty(env, idx)
 
 def testRandom(env):
@@ -147,7 +147,7 @@ def testMemoryAfterDrop(env):
         d = ft_info_to_dict(env, 'idx%d' % i)
         env.assertEqual(d['num_docs'], '0')
         for _ in range(10):
-            env.cmd('ft.debug', 'GC_FORCEINVOKE', 'idx%d' % i)
+            forceInvokeGC(env, 'idx%d' % i)
 
     for i in range(idx_count):
         check_empty(env, 'idx%d' % i)
@@ -163,6 +163,7 @@ def testIssue1497(env):
     number_of_fields = 4  # one of every type
 
     env.execute_command('FLUSHALL')
+    waitForRdbSaveToFinish(env)
     env.execute_command('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC', 'tg', 'TAG', 'g', 'GEO').ok()
 
@@ -185,7 +186,7 @@ def testIssue1497(env):
         env.expect('DEL', 'doc%d' % i)
 
     for _ in range(50):
-        env.cmd('ft.debug', 'GC_FORCEINVOKE', 'idx')
+        forceInvokeGC(env, 'idx')
 
     res = env.execute_command('ft.info', 'idx')
     d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}

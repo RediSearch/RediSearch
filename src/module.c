@@ -829,7 +829,7 @@ static void GetRedisVersion() {
   RedisModule_FreeThreadSafeContext(ctx);
 }
 
-static inline int IsEnterprise() {
+int IsEnterprise() {
   return rlecVersion.majorVersion != -1;
 }
 
@@ -1037,6 +1037,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 }
 
 void ReindexPool_ThreadPoolDestroy();
+extern dict *legacySpecDict, *legacySpecRules;
 
 void __attribute__((destructor)) RediSearch_CleanupModule(void) {
   if (getenv("RS_GLOBAL_DTORS")) {  // used in sanitizer
@@ -1053,9 +1054,22 @@ void __attribute__((destructor)) RediSearch_CleanupModule(void) {
     ConcurrentSearch_ThreadPoolDestroy();
     ReindexPool_ThreadPoolDestroy();
     GC_ThreadPoolDestroy();
-    IndexAlias_DestroyGlobal();
+    IndexAlias_DestroyGlobal(&AliasTable_g);
     freeGlobalAddStrings();
-    SchemaPrefixes_Free();
+    SchemaPrefixes_Free(ScemaPrefixes_g);
+
+    Indexes_Free(specDict_g);
+    dictRelease(specDict_g);
+    specDict_g = NULL;
+    if (legacySpecDict) {
+      dictRelease(legacySpecDict);
+      legacySpecDict = NULL;
+    }
+    if (legacySpecRules) {
+      dictRelease(legacySpecRules);
+      legacySpecRules = NULL;
+    }
+
     RedisModule_FreeThreadSafeContext(RSDummyContext);
     Dictionary_Free();
     RediSearch_LockDestory();

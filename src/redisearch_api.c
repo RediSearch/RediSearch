@@ -28,8 +28,15 @@ IndexSpec* RediSearch_CreateIndex(const char* name, const RSIndexOptions* option
   IndexSpec* spec = NewIndexSpec(name);
   IndexSpec_MakeKeyless(spec);
   spec->flags |= Index_Temporary;  // temporary is so that we will not use threads!!
+  spec->flags |= Index_FromLLAPI;
   if (!spec->indexer) {
     spec->indexer = NewIndexer(spec);
+  }
+
+  if (options->score || options->lang) {
+    spec->rule = rm_calloc(1, sizeof *spec->rule);
+    spec->rule->score_default = options->score ? options->score : DEFAULT_SCORE;
+    spec->rule->lang_default = options->lang ? options->lang : DEFAULT_LANGUAGE;
   }
 
   spec->getValue = options->gvcb;
@@ -52,6 +59,24 @@ void RediSearch_DropIndex(IndexSpec* sp) {
   RWLOCK_ACQUIRE_WRITE();
   IndexSpec_FreeInternals(sp);
   RWLOCK_RELEASE();
+}
+
+char **RediSearch_IndexGetStopwords(IndexSpec* sp, size_t *size) {
+  return GetStopWordsList(sp->stopwords, size);
+}
+
+double RediSearch_IndexGetScore(IndexSpec* sp) {
+  if (sp->rule) {
+    return sp->rule->score_default;
+  }
+  return DEFAULT_SCORE;
+}
+
+const char *RediSearch_IndexGetLanguage(IndexSpec* sp) {
+  if (sp->rule) {
+    return RSLanguage_ToString(sp->rule->lang_default);
+  }
+  return RSLanguage_ToString(DEFAULT_LANGUAGE);
 }
 
 RSFieldID RediSearch_CreateField(IndexSpec* sp, const char* name, unsigned types,
@@ -136,8 +161,23 @@ RSDoc* RediSearch_CreateDocument(const void* docKey, size_t len, double score, c
   RedisModuleString* docKeyStr = RedisModule_CreateString(NULL, docKey, len);
   RSLanguage language = lang ? RSLanguage_Find(lang, 0) : DEFAULT_LANGUAGE;
   Document* ret = rm_calloc(1, sizeof(*ret));
-  // TODO: Should we introduce DocumentType_LLAPI?
   Document_Init(ret, docKeyStr, score, language, DocumentType_Hash);
+  Document_MakeStringsOwner(ret);
+  RedisModule_FreeString(RSDummyContext, docKeyStr);
+  return ret;
+}
+
+RSDoc* RediSearch_CreateDocument2(const void* docKey, size_t len, IndexSpec* sp,
+                                  double score, const char* lang) {
+  RedisModuleString* docKeyStr = RedisModule_CreateString(NULL, docKey, len);
+  
+  RSLanguage language = lang ? RSLanguage_Find(lang, 0) : 
+             (sp && sp->rule) ? sp->rule->lang_default : DEFAULT_LANGUAGE;
+  double docScore = !isnan(score) ? score :
+             (sp && sp->rule) ? sp->rule->score_default : DEFAULT_SCORE;
+  
+  Document* ret = rm_calloc(1, sizeof(*ret));
+  Document_Init(ret, docKeyStr, docScore, language, DocumentType_Hash);
   Document_MakeStringsOwner(ret);
   RedisModule_FreeString(RSDummyContext, docKeyStr);
   return ret;
@@ -180,10 +220,14 @@ void RediSearch_DocumentAddFieldString(Document* d, const char* fieldname, const
   Document_AddFieldC(d, fieldname, s, n, as);
 }
 
-void RediSearch_DocumentAddFieldNumber(Document* d, const char* fieldname, double n, unsigned as) {
-  char buf[512];
-  size_t len = sprintf(buf, "%lf", n);
-  Document_AddFieldC(d, fieldname, buf, len, as);
+void RediSearch_DocumentAddFieldNumber(Document* d, const char* fieldname, double val, unsigned as) {
+  if (as == RSFLDTYPE_NUMERIC) {
+    Document_AddNumericField(d, fieldname, val, as);
+  } else {
+    char buf[512];
+    size_t len = sprintf(buf, "%lf", val);
+    Document_AddFieldC(d, fieldname, buf, len, as);
+  }
 }
 
 int RediSearch_DocumentAddFieldGeo(Document* d, const char* fieldname, 
@@ -191,11 +235,16 @@ int RediSearch_DocumentAddFieldGeo(Document* d, const char* fieldname,
   if (lat > GEO_LAT_MAX || lat < GEO_LAT_MIN || lon > GEO_LONG_MAX || lon < GEO_LONG_MIN) {
     // out of range
     return REDISMODULE_ERR;
-  }                                      
-  // The format for a geospacial point is "lon,lat"
-  char buf[24];
-  size_t len = sprintf(buf, "%.6lf,%.6lf", lon, lat);
-  Document_AddFieldC(d, fieldname, buf, len, as);
+  }
+
+  if (as == RSFLDTYPE_GEO) {
+    Document_AddGeoField(d, fieldname, lon, lat, as);
+  } else {
+    char buf[24];
+    size_t len = sprintf(buf, "%.6lf,%.6lf", lon, lat);
+    Document_AddFieldC(d, fieldname, buf, len, as);
+  }
+
   return REDISMODULE_OK;
 }
 
