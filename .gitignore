@@ -29,3 +29,4 @@ VSCODE.DB*
 callgrind.out.*
 /deps/VectorSimilarity/
 
+**/.ipynb_checkpoints/
