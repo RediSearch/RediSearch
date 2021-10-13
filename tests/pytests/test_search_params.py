@@ -39,12 +39,6 @@ def test_geo(env):
                                'GROUPBY', '1', '@dist',
                                'SORTBY', '2', '@dist', 'ASC')
     env.assertEqual(res, [3L, ['dist', '879.66'], ['dist', '1007.98'], ['dist', '1322.22']])
-    # FIXME: add param support in APPLY
-    # res = conn.execute_command('ft.aggregate', 'idx', '*',
-    #                            'APPLY', 'geodistance(@g, $loc)', 'AS', 'dist',
-    #                            'GROUPBY', '1', '@dist',
-    #                            'SORTBY', '2', '@dist', 'ASC',
-    #                            'PARAMS', '2', 'loc', '29.69,34.94')
     env.assertEqual(res, [3L, ['dist', '879.66'], ['dist', '1007.98'], ['dist', '1322.22']])
 
 
@@ -73,8 +67,6 @@ def test_param_errors(env):
     # Parameters can be defined only once
     env.expect('FT.SEARCH', 'idx', '*', 'PARAMS', '4', 'foo', 'x', 'bar', '100', 'PARAMS', '4', 'goo', 'y', 'baz', '900').raiseError()
     env.expect('FT.AGGREGATE', 'idx', '*', 'PARAMS', '4', 'foo', 'x', 'bar', '100', 'PARAMS', '4', 'goo', 'y', 'baz', '900').raiseError()
-
-    # FIXME: Add erroneos tests: param name with none-alphanumeric, param value with illegal character such as star, paren, etc.
 
     # Test errors in param usage: missing param, wrong param value
     env.expect('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 $rapido $units]', 'NOCONTENT', 'PARAMS', '4', 'radius', '500', 'units', 'm').raiseError().equal('No such parameter `rapido`')

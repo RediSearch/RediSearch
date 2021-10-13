@@ -77,6 +77,9 @@ def test_apply(env):
 
         res1 = conn.execute_command('ft.aggregate', 'idx', '@breed:(Dal*|Poo*|Ru*|Mo*)', 'LOAD', '2', '@name', '@breed', 'FILTER', 'exists(@breed)', 'APPLY', 'upper(@name)', 'AS', 'n', 'APPLY', 'upper(@breed)', 'AS', 'b', 'SORTBY', '4', '@b', 'ASC', '@n', 'ASC')
         res2 = conn.execute_command('ft.aggregate', 'idx', '@breed:($p1*|$p2*|$p3*|$p4*)', 'LOAD', '2', '@name', '@breed', 'FILTER', 'exists(@breed)', 'APPLY', 'upper(@name)', 'AS', 'n', 'APPLY', 'upper(@breed)', 'AS', 'b', 'SORTBY', '4', '@b', 'ASC', '@n', 'ASC', 'PARAMS', '8', 'p1', 'Dal', 'p2', 'Poo', 'p3', 'Ru', 'p4', 'Mo')
+
+        res1 = conn.execute_command('ft.aggregate', 'idx', '@breed:(Dal*|Poo*|Ru*|Mo*)', 'SORTBY', '1', '@name')
+        res2 = conn.execute_command('ft.aggregate', 'idx', '@breed:($p1*|$p2*|$p3*|$p4*)', 'PARAMS', '8', 'p1', 'Dal', 'p2', 'Poo', 'p3', 'Ru', 'p4', 'Mo', 'SORTBY', '1', '@name')
         env.assertEqual(res2, res1)
 
 
