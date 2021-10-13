@@ -224,23 +224,23 @@ def testCreate(env):
     env.skipOnCluster()
     conn = getConnectionByEnv(env)
     conn.execute_command('FT.CREATE', 'idx1', 'SCHEMA', 'v', 'VECTOR', 'FLOAT32', '1024', 'IP', 'HNSW', 'INITIAL_CAP', '10', 'M', '16', 'EF', '200')
-    info = [['identifier', 'v', 'attribute', 'v', 'type', 'VECTOR', 'TYPE', 'FLOAT64', 'SIZE', '1024', 'METRIC', 'L2', 'ALGORITHM', 'HNSW', 'M', '16', 'EF CONSTRUCTION', '200']]
+    info = [['identifier', 'v', 'attribute', 'v', 'type', 'VECTOR', 'TYPE', 'FLOAT32', 'SIZE', '1024', 'METRIC', 'IP', 'ALGORITHM', 'HNSW', 'M', '16', 'EF CONSTRUCTION', '200']]
     assertInfoField(env, 'idx1', 'attributes', info)
 
     conn.execute_command('FT.CREATE', 'idx2', 'SCHEMA', 'v', 'VECTOR', 'FLOAT64', '4096', 'L2', 'HNSW', 'INITIAL_CAP', '10', 'M', '32', 'EF', '100')
-    info = [['identifier', 'v', 'attribute', 'v', 'type', 'VECTOR', 'TYPE', 'FLOAT32', 'SIZE', '4096', 'METRIC', 'L2', 'ALGORITHM', 'HNSW', 'M', '32', 'EF CONSTRUCTION', '100']]
+    info = [['identifier', 'v', 'attribute', 'v', 'type', 'VECTOR', 'TYPE', 'FLOAT64', 'SIZE', '4096', 'METRIC', 'L2', 'ALGORITHM', 'HNSW', 'M', '32', 'EF CONSTRUCTION', '100']]
     assertInfoField(env, 'idx2', 'attributes', info)
 
     conn.execute_command('FT.CREATE', 'idx3', 'SCHEMA', 'v', 'VECTOR', 'INT32', '64', 'COSINE', 'HNSW', 'INITIAL_CAP', '10', 'M', '64', 'EF', '400')
-    info = [['identifier', 'v', 'attribute', 'v', 'type', 'VECTOR', 'TYPE', 'INT32', 'SIZE', '64', 'METRIC', 'L2', 'ALGORITHM', 'HNSW', 'M', '64', 'EF CONSTRUCTION', '400']]
+    info = [['identifier', 'v', 'attribute', 'v', 'type', 'VECTOR', 'TYPE', 'INT32', 'SIZE', '64', 'METRIC', 'COSINE', 'ALGORITHM', 'HNSW', 'M', '64', 'EF CONSTRUCTION', '400']]
     assertInfoField(env, 'idx3', 'attributes', info)
 
     conn.execute_command('FT.CREATE', 'idx4', 'SCHEMA', 'v', 'VECTOR', 'INT32', '64', 'COSINE', 'HNSW')
-    info = [['identifier', 'v', 'attribute', 'v', 'type', 'VECTOR', 'TYPE', 'INT32', 'SIZE', '64', 'METRIC', 'L2', 'ALGORITHM', 'HNSW', 'M', '16', 'EF CONSTRUCTION', '200']]
+    info = [['identifier', 'v', 'attribute', 'v', 'type', 'VECTOR', 'TYPE', 'INT32', 'SIZE', '64', 'METRIC', 'COSINE', 'ALGORITHM', 'HNSW', 'M', '16', 'EF CONSTRUCTION', '200']]
     assertInfoField(env, 'idx4', 'attributes', info)
 
     conn.execute_command('FT.CREATE', 'idx5', 'SCHEMA', 'v', 'VECTOR', 'INT32', '64', 'COSINE', 'BF')
-    info = [['identifier', 'v', 'attribute', 'v', 'type', 'VECTOR', 'TYPE', 'INT32', 'SIZE', '64', 'METRIC', 'L2', 'ALGORITHM', 'BF']]
+    info = [['identifier', 'v', 'attribute', 'v', 'type', 'VECTOR', 'TYPE', 'INT32', 'SIZE', '64', 'METRIC', 'COSINE', 'ALGORITHM', 'BF']]
     assertInfoField(env, 'idx5', 'attributes', info)
 
 def testErrors(env):
