@@ -52,11 +52,21 @@ typedef enum {
   RSCondition_Or
 } RSCondition;
 
-static const char *RSConditionStrings[] = {
-    [RSCondition_Eq] = "==",  [RSCondition_Lt] = "<",  [RSCondition_Le] = "<=",
-    [RSCondition_Gt] = ">",   [RSCondition_Ge] = ">=", [RSCondition_Ne] = "!=",
-    [RSCondition_And] = "&&", [RSCondition_Or] = "||",
-};
+static const char *getRSConditionStrings(RSCondition type) {
+  switch (type) {
+  case RSCondition_Eq: return "==";
+  case RSCondition_Lt: return "<";
+  case RSCondition_Le: return "<=";
+  case RSCondition_Gt: return ">";
+  case RSCondition_Ge: return ">=";
+  case RSCondition_Ne: return "!=";
+  case RSCondition_And: return "&&";
+  case RSCondition_Or: return "||";
+  default:
+    RS_LOG_ASSERT(0, "oops");
+    break;
+  }
+}
 
 typedef struct {
   struct RSExpr *left;
