@@ -39,12 +39,6 @@ def test_geo(env):
                                'GROUPBY', '1', '@dist',
                                'SORTBY', '2', '@dist', 'ASC')
     env.assertEqual(res, [3L, ['dist', '879.66'], ['dist', '1007.98'], ['dist', '1322.22']])
-    # FIXME: add param support in APPLY
-    # res = conn.execute_command('ft.aggregate', 'idx', '*',
-    #                            'APPLY', 'geodistance(@g, $loc)', 'AS', 'dist',
-    #                            'GROUPBY', '1', '@dist',
-    #                            'SORTBY', '2', '@dist', 'ASC',
-    #                            'PARAMS', '2', 'loc', '29.69,34.94')
     env.assertEqual(res, [3L, ['dist', '879.66'], ['dist', '1007.98'], ['dist', '1322.22']])
 
 
@@ -74,8 +68,6 @@ def test_param_errors(env):
     env.expect('FT.SEARCH', 'idx', '*', 'PARAMS', '4', 'foo', 'x', 'bar', '100', 'PARAMS', '4', 'goo', 'y', 'baz', '900').raiseError()
     env.expect('FT.AGGREGATE', 'idx', '*', 'PARAMS', '4', 'foo', 'x', 'bar', '100', 'PARAMS', '4', 'goo', 'y', 'baz', '900').raiseError()
 
-    # FIXME: Add erroneos tests: param name with none-alphanumeric, param value with illegal character such as star, paren, etc.
-
     # Test errors in param usage: missing param, wrong param value
     env.expect('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 $rapido $units]', 'NOCONTENT', 'PARAMS', '4', 'radius', '500', 'units', 'm').raiseError().equal('No such parameter `rapido`')
     env.expect('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 $rapido $units]', 'NOCONTENT').raiseError().equal('No such parameter `rapido`')
@@ -102,6 +94,10 @@ def test_param_errors(env):
     env.expect('FT.SEARCH', 'idx', '@v:[$vec $type $k] => { $efRuntime:$runtime}', 'PARAMS', '8', 'vec', 'aaaaaaaa', 'type', 'TOPK', 'k', '2', 'lunchtime', 'zzz').raiseError().contains('No such parameter')
     env.expect('FT.SEARCH', 'idx', '@num:[$min $max] => { $efRuntime:$runtime}', 'NOCONTENT', 'PARAMS', '6', 'min', '102', 'max', '204', 'runtime', '100').raiseError().contains('requires vector node')
     env.expect('FT.SEARCH', 'idx', '@pron:(jon) => { $slop:1; $phonetic:$ph}', 'NOCONTENT', 'PARAMS', '6', 'min', '102', 'max', '204', 'ph', 'maybe').raiseError().contains('Invalid value')
+
+    # # Test Attribute names must begin with alphanumeric?
+    # env.expect('FT.SEARCH', 'idx', '@g:[$3 $_4 $p_5 $_]', 'NOCONTENT',
+    #            'PARAMS', '8', '3', '10', '_4', '20', 'p_5', '30', '_', 'km').raiseError()
 
 
 def test_attr(env):
@@ -235,6 +231,8 @@ def test_tags(env):
     env.assertEqual(conn.execute_command('HSET', 'key3', 'tags', 't200,t300'), 1L)
     env.assertEqual(conn.execute_command('HSET', 'key4', 'tags', 't100 t200'), 1L)
     env.assertEqual(conn.execute_command('HSET', 'key5', 'tags', 't100 200'), 1L)
+    env.assertEqual(conn.execute_command('HSET', 'key6', 'tags', '$t100 t300'), 1L)
+    env.assertEqual(conn.execute_command('HSET', 'key7', 'tags', '$t100,$t200'), 1L)
 
     res1 = conn.execute_command('FT.SEARCH', 'idx', '@tags:{t200|t100}', 'NOCONTENT')
     env.assertEqual(res1, [3L, 'key1', 'key2', 'key3'])
@@ -259,6 +257,11 @@ def test_tags(env):
     res2 = conn.execute_command('FT.SEARCH', 'idx', '@tags:{$myT1 200}', 'NOCONTENT', 'PARAMS', '4', 'myT1', 't100', 'myT2', '200')
     env.assertEqual(res2, res1)
     res2 = conn.execute_command('FT.SEARCH', 'idx', '@tags:{t100 $myT2}', 'NOCONTENT', 'PARAMS', '4', 'myT1', 't100', 'myT2', '200')
+    env.assertEqual(res2, res1)
+
+    res1 = conn.execute_command('FT.SEARCH', 'idx', '@tags:{\\$t200|t200}', 'NOCONTENT')
+    env.assertEqual(res1, [3L, 'key1', 'key3', 'key7'])
+    res2 = conn.execute_command('FT.SEARCH', 'idx', '@tags:{\\$t200|$t100}', 'NOCONTENT', 'PARAMS', '2', 't100', 't200')
     env.assertEqual(res2, res1)
 
 
@@ -341,12 +344,12 @@ def test_vector(env):
 def test_fuzzy(env):
 
     conn = getConnectionByEnv(env)
-    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT', 'prop', 'TEXT')
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT', 'prop', 'TEXT')
     waitForIndex(env, 'idx')
-    env.cmd('HSET', 'key1', 'name', 'Fozzie Bear', 'prop', 'Hat')
-    env.cmd('HSET', 'key2', 'name', 'Beaker', 'prop', 'Fan')
-    env.cmd('HSET', 'key3', 'name', 'Beard')
-    env.cmd('HSET', 'key4', 'name', 'Rizzo the Rat', 'prop', 'Mop')
+    env.assertEqual(conn.execute_command('HSET', 'key1', 'name', 'Fozzie Bear', 'prop', 'Hat'), 2L)
+    env.assertEqual(conn.execute_command('HSET', 'key2', 'name', 'Beaker', 'prop', 'Fan'), 2L)
+    env.assertEqual(conn.execute_command('HSET', 'key3', 'name', 'Beard'), 1L)
+    env.assertEqual(conn.execute_command('HSET', 'key4', 'name', 'Rizzo the Rat', 'prop', 'Mop'), 2L)
 
     res1 = conn.execute_command('FT.SEARCH', 'idx', '@name:(%Bear%)')
     res2 = conn.execute_command('FT.SEARCH', 'idx', '@name:(%$tok%)', 'PARAMS', 2, 'tok', 'Bear')
