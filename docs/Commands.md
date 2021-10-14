@@ -312,7 +312,6 @@ FT.SEARCH {index} {query} [NOCONTENT] [VERBATIM] [NOSTOPWORDS] [WITHSCORES] [WIT
   [SCORER {scorer}] [EXPLAINSCORE]
   [PAYLOAD {payload}]
   [SORTBY {attribute} [ASC|DESC]]
-  [MSORTBY {nargs} {property} [ASC|DESC] ... [MAX {num}]]
   [LIMIT offset num]
 ```
 
@@ -438,14 +437,6 @@ FT.SEARCH books-idx "python" RETURN 3 $.book.price AS price
 
 - **SORTBY {attribute} [ASC|DESC]**: If specified, the results
   are ordered by the value of this attribute. This applies to both text and numeric attributes.
-
-- **MSORTBY {nargs} {property} {ASC|DESC} [MAX {num}]**: Sort the pipeline up until the point of MSORTBY,
-  using a list of properties. By default, sorting is ascending, but `ASC` or `DESC ` can be added for
-  each property. `nargs` is the number of sorting parameters, including ASC and DESC. for example:
-  `MSORTBY 4 @foo ASC @bar DESC`.
-
-    `MAX` is used to optimized sorting, by sorting only for the n-largest elements. Although it is not connected to `LIMIT`, you usually need just `MSORTBY … MAX` for common queries.
-
 - **LIMIT first num**: Limit the results to
   the offset and number of results given. Note that the offset is zero-indexed. The default is 0 10, which returns 10 items starting from the first result.
 
