@@ -20,22 +20,26 @@ if [[ $1 == --help || $1 == help ]]; then
 		Argument variables:
 		MODARGS=args          RediSearch module arguments
 		TEST=name             Operate in single-test mode
-		VG=1|0                Use valgrind
-		SAN=type              Use LLVM sanitizer (type=address|memory|leak|thread) 
-		GDB=0|1               Enable interactive gdb debugging (in single-test mode)
+		ONLY_STABLE=1         Skip unstable tests
+
 		REJSON=0|1|get        Also load RedisJSON module (get: force download from S3)
 		REJSON_BRANCH=branch  Use a snapshot of given branch name
 		REJSON_PATH=path      RedisJSON module path
 		REJSON_MODARGS=args   RedisJSON module arguments
+
 		REDIS_SERVER=path     Redis Server command
-		REDIS_VERBOSE=0|1     (legacy) Verbose ouput
+		REDIS_VERBOSE=1       (legacy) Verbose ouput
 		CONFIG_FILE=file      Path to config file
+		EXISTING_ENV=1        Run the tests on existing env
+
+		VG=1                  Use valgrind
+		VG_LEAKS=0            Do not detect leaks
+		SAN=type              Use LLVM sanitizer (type=address|memory|leak|thread) 
+		GDB=1                 Enable interactive gdb debugging (in single-test mode)
 
 		VERBOSE=1             Print commands and Redis output
 		IGNERR=1              Do not abort on error
 		NOP=1                 Dry run
-		EXISTING_ENV=1        Run the tests on existing env
-		ONLY_STABLE=1         Skip unstable tests
 
 
 	END
