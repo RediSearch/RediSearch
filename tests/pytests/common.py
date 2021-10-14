@@ -137,7 +137,7 @@ def forceInvokeGC(env, idx):
     waitForRdbSaveToFinish(env)
     env.cmd('ft.debug', 'GC_FORCEINVOKE', idx)
 
-def skip(f, on_cluster: False):
+def skip(f, on_cluster=False):
     @wraps(f)
     def wrapper(env, *args, **kwargs):
         if not on_cluster or env.isCluster():
