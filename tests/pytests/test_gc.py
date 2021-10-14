@@ -7,7 +7,6 @@ from includes import *
 from common import *
 
 
-@no_msan
 def testBasicGC(env):
     if env.isCluster():
         raise unittest.SkipTest()
@@ -36,7 +35,6 @@ def testBasicGC(env):
     env.assertEqual(env.cmd('ft.debug', 'DUMP_NUMIDX', 'idx', 'id'), [[long(i) for i in range(2, 102)]])
     env.assertEqual(env.cmd('ft.debug', 'DUMP_TAGIDX', 'idx', 't'), [['tag1', [long(i) for i in range(2, 102)]]])
 
-@no_msan
 def testBasicGCWithEmptyInvIdx(env):
     if env.isCluster():
         raise unittest.SkipTest()
@@ -58,7 +56,6 @@ def testBasicGCWithEmptyInvIdx(env):
     # check that the gc collected the deleted docs
     env.expect('ft.debug', 'DUMP_INVIDX', 'idx', 'world').error().contains('Can not find the inverted index')
 
-@no_msan
 def testNumericGCIntensive(env):
     if env.isCluster():
         raise unittest.SkipTest()
@@ -82,7 +79,6 @@ def testNumericGCIntensive(env):
             # if r2 is greater then 900 its on the last block and fork GC does not clean the last block
             env.assertTrue(r2 % 2 == 0 or r2 > 900)
 
-@no_msan
 def testGeoGCIntensive(env):
     if env.isCluster():
         raise unittest.SkipTest()
@@ -106,7 +102,6 @@ def testGeoGCIntensive(env):
             # if r2 is greater then 900 its on the last block and fork GC does not clean the last block
             env.assertTrue(r2 % 2 == 0 or r2 > 900)
 
-@no_msan
 def testTagGC(env):
     if env.isCluster():
         raise unittest.SkipTest()
@@ -131,7 +126,6 @@ def testTagGC(env):
             # if r2 is greater then 100 its on the last block and fork GC does not clean the last block
             env.assertTrue(r2 % 2 == 0 or r2 > 100)
 
-@no_msan
 def testDeleteEntireBlock(env):
     if env.isCluster():
         raise unittest.SkipTest()
@@ -160,7 +154,6 @@ def testDeleteEntireBlock(env):
         env.assertEqual(res[0:2],[1L, 'doc250'])
         env.assertEqual(set(res[2]), set(['test', 'checking', 'test2', 'checking250']))        
 
-@no_msan
 def testGCIntegrationWithRedisFork(env):
     if env.env == 'existing-env':
         env.skip()
@@ -181,7 +174,6 @@ def testGCIntegrationWithRedisFork(env):
     env.expect('bgsave').true()
     env.cmd('FT.CONFIG', 'SET', 'FORKGC_SLEEP_BEFORE_EXIT', '0')
 
-@no_msan
 def testGCThreshold(env):
     if env.env == 'existing-env':
         env.skip()
@@ -263,7 +255,6 @@ def testGCShutDownOnExit(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'title', 'TEXT', 'SORTABLE').ok()
     waitForIndex(env, 'idx')
 
-@no_msan
 def testGFreeEmpryTerms(env):
     if env.env == 'existing-env' or env.env == 'enterprise' or env.isCluster():
         env.skip()
