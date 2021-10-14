@@ -498,6 +498,7 @@ Here, we needed to use `LOAD` to pre-load the @location field because it is a GE
   performance of aggregate queries considerably, since every processed record needs to execute the
   equivalent of HMGET against a Redis key, which when executed over millions of keys, amounts to very
   high processing times.
+  If `*` is used as `nargs`, all attributes in a document are loaded.
 
 * **GROUPBY {nargs} {property}**: Group the results in the pipeline based on one or more properties.
   Each group should have at least one reducer (See below), a function that handles the group entries,
