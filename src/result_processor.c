@@ -368,38 +368,44 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
   // If the data is not in the sorted vector, lets load it.
   size_t nkeys = self->fieldcmp.nkeys;
   if (nkeys && h->dmd) {
-    int nloadKeys = 0;
-    const RLookupKey **loadKeys = NULL;
-    bool freeKeys = false;
+    if (self->sortbyType == SORTBY_FIELD) {
+      int nloadKeys = 0;
+      const RLookupKey **loadKeys = NULL;
+      bool freeKeys = false;
 
-    // If there is no sorting vector, load all required fields, else, load missing fields
-    if (!h->rowdata.sv) {
-      loadKeys = self->fieldcmp.keys;
-      nloadKeys = nkeys;
-    } else {
-      for (int i = 0; i < nkeys; ++i) {
-        if (RLookup_GetItem(self->fieldcmp.keys[i], &h->rowdata) == NULL) {
-          if (!loadKeys) {
-            loadKeys = rm_calloc(nkeys, sizeof(*loadKeys));
-            freeKeys = true;
+      // If there is no sorting vector, load all required fields, else, load missing fields
+      if (!h->rowdata.sv) {
+        loadKeys = self->fieldcmp.keys;
+        nloadKeys = nkeys;
+      } else {
+        for (int i = 0; i < nkeys; ++i) {
+          if (RLookup_GetItem(self->fieldcmp.keys[i], &h->rowdata) == NULL) {
+            if (!loadKeys) {
+              loadKeys = rm_calloc(nkeys, sizeof(*loadKeys));
+              freeKeys = true;
+            }
+            loadKeys[nloadKeys++] = self->fieldcmp.keys[i];
           }
-          loadKeys[nloadKeys++] = self->fieldcmp.keys[i];
         }
       }
-    }
 
-    if (loadKeys) {
-      QueryError status = {0};
-      RLookupLoadOptions loadopts = {.sctx = rp->parent->sctx,
-                                     .dmd = h->dmd,
-                                     .nkeys = nloadKeys,
-                                     .keys = loadKeys,
-                                     .status = &status};
-      RLookup_LoadDocument(NULL, &h->rowdata, &loadopts);
-      if (QueryError_HasError(&status)) {
-        return RS_RESULT_ERROR;
+      if (loadKeys) {
+        QueryError status = {0};
+        RLookupLoadOptions loadopts = {.sctx = rp->parent->sctx,
+                                      .dmd = h->dmd,
+                                      .nkeys = nloadKeys,
+                                      .keys = loadKeys,
+                                      .status = &status};
+        RLookup_LoadDocument(NULL, &h->rowdata, &loadopts);
+        if (QueryError_HasError(&status)) {
+          return RS_RESULT_ERROR;
+        }
+        if (freeKeys) rm_free(loadKeys);
       }
-      if (freeKeys) rm_free(loadKeys);
+    } else if (self->sortbyType == SORTBY_DISTANCE){
+      RLookup_WriteKey(self->fieldcmp.keys[0], &h->rowdata, RS_NumVal(h->indexResult->num.value));
+    } else {
+      RS_LOG_ASSERT(0, "oops");
     }
   }
 
@@ -459,17 +465,6 @@ static inline int cmpByScore(const void *e1, const void *e2, const void *udata) 
   return h1->docId > h2->docId ? -1 : 1;
 }
 
-static inline int cmpByDistance(const void *e1, const void *e2, const void *udata) {
-  const SearchResult *h1 = e1, *h2 = e2;
-
-  if (h1->score < h2->score) {
-    return 1;
-  } else if (h1->score > h2->score) {
-    return -1;
-  }
-  return h1->docId > h2->docId ? -1 : 1;
-}
-
 /* Compare results for the heap by sorting key */
 static int cmpByFields(const void *e1, const void *e2, const void *udata) {
   const RPSorter *self = udata;
@@ -525,13 +520,11 @@ ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys
   ret->sortbyType = sortByType;
   switch (sortByType) {
   case SORTBY_FIELD:
+  case SORTBY_DISTANCE:
     ret->cmp = cmpByFields;
     break;
   case SORTBY_SCORE:
     ret->cmp = cmpByScore;
-    break;
-  case SORTBY_DISTANCE:
-    ret->cmp = cmpByDistance;
     break;
   }
   ret->cmpCtx = ret;

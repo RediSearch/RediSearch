@@ -358,11 +358,11 @@ static int parseVectorField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
     return 0;
   }
   if (!strncasecmp(VECSIM_METRIC_IP, metricStr, len)) 
-    fs->vecSimParams.type = VecSimMetric_IP;
+    fs->vecSimParams.metric = VecSimMetric_IP;
   else if (!strncasecmp(VECSIM_METRIC_L2, metricStr, len)) 
-    fs->vecSimParams.type = VecSimMetric_L2;
+    fs->vecSimParams.metric = VecSimMetric_L2;
   else if (!strncasecmp(VECSIM_METRIC_COSINE, metricStr, len)) 
-    fs->vecSimParams.type = VecSimMetric_Cosine;
+    fs->vecSimParams.metric = VecSimMetric_Cosine;
   else {
     QERR_MKBADARGS_AC(status, "vecsim metric", AC_ERR_PARSE);
     return 0;
@@ -423,7 +423,6 @@ static int parseVectorField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
           return 0;
         }
         continue;
-
       } else if (AC_AdvanceIfMatch(ac, VECSIM_EF)) {
         double d;
         if ((rc = AC_GetSize(ac, &fs->vecSimParams.hnswParams.efConstruction, 0)) != AC_OK) {
@@ -432,6 +431,7 @@ static int parseVectorField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
         }
         continue;
       }
+      break;
     }
   }
   return 1;

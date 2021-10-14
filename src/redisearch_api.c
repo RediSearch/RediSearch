@@ -468,7 +468,7 @@ static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** err
     goto end;
   }
 
-  it->internal = QAST_Iterate(&it->qast, &options, &sctx, NULL);
+  it->internal = QAST_Iterate(&it->qast, &options, &sctx, NULL, &status);
   if (!it->internal) {
     goto end;
   }

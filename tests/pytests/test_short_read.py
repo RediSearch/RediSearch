@@ -455,6 +455,7 @@ class Debug:
 
 
 def testShortReadSearch(env):
+
     if IS_CODE_COVERAGE:
         env.skip()  # FIXME: enable coverage test
 
