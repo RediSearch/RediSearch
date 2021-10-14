@@ -523,9 +523,9 @@ int RSValue_Cmp(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
   }
 
   // if one of the values is null, the other wins
-  if (v1->t == RSValue_Null) {
+  if (v1 == RS_NullVal()) {
     return -1;
-  } else if (v2->t == RSValue_Null) {
+  } else if (v2 == RS_NullVal()) {
     return 1;
   }
 
@@ -572,7 +572,7 @@ int RSValue_Equal(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
     return RSValue_CmpNC(v1, v2) == 0;
   }
 
-  if (v1->t == RSValue_Null || v2->t == RSValue_Null) {
+  if (v1 == RS_NullVal() || v2 == RS_NullVal()) {
     return 0;
   }
 
