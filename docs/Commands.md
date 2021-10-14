@@ -468,6 +468,7 @@ If **NOCONTENT** was given, we return an array where the first element is the to
 FT.AGGREGATE {index_name}
   {query_string}
   [VERBATIM]
+  [LOAD *]
   [LOAD {nargs} {identifier} [AS {property}] ...]
   [GROUPBY {nargs} {property} ...
     REDUCE {func} {nargs} {arg} ... [AS {name:string}]
@@ -527,6 +528,8 @@ Here, we needed to use `LOAD` to pre-load the @location attribute because it is 
 
 * **query_string**: The base filtering query that retrieves the documents. It follows
   **the exact same syntax** as the search query, including filters, unions, not, optional, etc.
+
+* **LOAD {`*`}**: Load all fields in the document. This is similar to the default behavior of FT.SEARCH.
 
 * **LOAD {nargs} {identifier} AS {property} …**: Load document attributes from the source document.
   `identifier` is either an attribute name (for hashes and JSON) or a JSON Path expression for (JSON).
