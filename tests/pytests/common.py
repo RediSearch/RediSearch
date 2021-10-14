@@ -141,7 +141,7 @@ def skip(f, on_cluster=False):
     @wraps(f)
     def wrapper(env, *args, **kwargs):
         if not on_cluster or env.isCluster():
-            self.skip()
+            env.skip()
             return
         return f(env, *args, **kwargs)
     return wrapper
@@ -149,7 +149,6 @@ def skip(f, on_cluster=False):
 def no_msan(f):
     @wraps(f)
     def wrapper(env, *args, **kwargs):
-        BB()
         if SANITIZER == 'memory':
             fname = f.func_name
             env.debugPrint("skipping {} due to memory sanitizer".format(fname), force=True)
