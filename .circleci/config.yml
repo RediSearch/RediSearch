@@ -277,7 +277,7 @@ jobs:
       - run:
           name: Run & build tests
           command: bash -l -c "MSAN=1 ./.circleci/ci_diag_san12.sh"
-          no_output_timeout: 30m
+          no_output_timeout: 40m
       - save-tests-logs
 
   coverage:

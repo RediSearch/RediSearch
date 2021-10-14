@@ -34,7 +34,7 @@ def runTestWithSeed(env, s=None):
     env.expect('FLUSHALL')
     if s == None:
         s = time()
-    # env.debugPrint('seed: %s' % str(s), force=True)
+    env.debugPrint('seed: %s' % str(s), force=True)
     seed(s)
 
     idx = 'idx'
