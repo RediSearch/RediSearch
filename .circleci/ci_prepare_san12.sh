@@ -11,9 +11,9 @@ cd $ROOT
 ./.circleci/ci_get_deps.sh
 
 if [[ $ASAN == 1 ]]; then
-	JSON_SAN_MODE=address
+	SAN_MODE=address
 elif [[ $MSAN == 1 ]]; then
-	JSON_SAN_MODE=memory
+	SAN_MODE=memory
 else
     echo "Should define either ASAN=1 or MSAN=1"
     exit 1
@@ -33,7 +33,8 @@ $READIES/bin/getpy3
 ./system-setup.py
 source /etc/profile.d/rust.sh
 make nightly
-make SAN=$JSON_SAN_MODE
+rm -rf deps/RedisJSON/target
+make SAN=$SAN_MODE
 export REJSON_PATH=$ROOT/deps/RedisJSON/target/x86_64-unknown-linux-gnu/debug/rejson.so
 
 cd $ROOT

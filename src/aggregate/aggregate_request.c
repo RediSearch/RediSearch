@@ -159,11 +159,6 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
     if ((parseSortby(arng, ac, status, req->reqflags & QEXEC_F_IS_SEARCH)) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
-  } else if (AC_AdvanceIfMatch(ac, "MSORTBY")) {
-    PLN_ArrangeStep *arng = AGPLN_GetOrCreateArrangeStep(&req->ap);
-    if ((parseSortby(arng, ac, status, 0)) != REDISMODULE_OK) {
-      return ARG_ERROR;
-    }
   } else if (AC_AdvanceIfMatch(ac, "TIMEOUT")) {	
     if (AC_NumRemaining(ac) < 1) {	
       QueryError_SetError(status, QUERY_EPARSEARGS, "Need argument for TIMEOUT");	
@@ -616,11 +611,10 @@ static int handleLoad(AREQ *req, ArgsCursor *ac, QueryError *status) {
   if (rc != AC_OK) {
     const char *s = NULL;
     rc = AC_GetString(ac, &s, NULL, 0);
-    if (rc != AC_OK || strncasecmp(s, "ALL", strlen("ALL"))) {
+    if (rc != AC_OK || strcmp(s, "*")) {
       QERR_MKBADARGS_AC(status, "LOAD", rc);
       return REDISMODULE_ERR;  
     }
-
     req->reqflags |= QEXEC_AGG_LOAD_ALL;
   }
 
@@ -630,6 +624,10 @@ static int handleLoad(AREQ *req, ArgsCursor *ac, QueryError *status) {
   if (loadfields.argc > 0) {
     lstp->args = loadfields;
     lstp->keys = rm_calloc(loadfields.argc, sizeof(*lstp->keys));
+  }
+
+  if (req->reqflags & QEXEC_AGG_LOAD_ALL) {
+    lstp->base.flags |= PLN_F_LOAD_ALL;
   }
 
   AGPLN_AddStep(&req->ap, &lstp->base);
@@ -1178,7 +1176,7 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
           kk->name_len = strlen(name);
           lstp->keys[lstp->nkeys++] = kk;
         }
-        if (lstp->nkeys || req->reqflags & QEXEC_AGG_LOAD_ALL) {
+        if (lstp->nkeys || lstp->base.flags & PLN_F_LOAD_ALL) {
           rp = RPLoader_New(curLookup, lstp->keys, lstp->nkeys);
           PUSH_RP();
         }
