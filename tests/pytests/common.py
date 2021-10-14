@@ -137,12 +137,23 @@ def forceInvokeGC(env, idx):
     waitForRdbSaveToFinish(env)
     env.cmd('ft.debug', 'GC_FORCEINVOKE', idx)
 
+def skip(f, on_cluster: False):
+    @wraps(f)
+    def wrapper(env, *args, **kwargs):
+        if not on_cluster or env.isCluster():
+            self.skip()
+            return
+        return f(env, *args, **kwargs)
+    return wrapper
+
 def no_msan(f):
     @wraps(f)
     def wrapper(env, *args, **kwargs):
+        BB()
         if SANITIZER == 'memory':
             fname = f.func_name
             env.debugPrint("skipping {} due to memory sanitizer".format(fname), force=True)
+            env.skip()
             return
         return f(env, *args, **kwargs)
     return wrapper
@@ -153,6 +164,7 @@ def unstable(f):
         if ONLY_STABLE:
             fname = f.func_name
             env.debugPrint("skipping {} because it is unstable".format(fname), force=True)
+            env.skip()
             return
         return f(env, *args, **kwargs)
     return wrapper
