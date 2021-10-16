@@ -938,8 +938,10 @@ int TrieMapIterator_Next(TrieMapIterator *it, char **ptr, tm_len_t *len, void **
 }
 
 void TrieMap_Free(TrieMap *t, void (*freeCB)(void *)) {
-  TrieMapNode_Free(t->root, freeCB);
-  rm_free(t);
+  if (t) {
+    TrieMapNode_Free(t->root, freeCB);
+    rm_free(t);
+  }
 }
 
 TrieMapNode *TrieMapNode_RandomWalk(TrieMapNode *n, int minSteps, char **str, tm_len_t *len) {

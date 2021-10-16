@@ -237,7 +237,6 @@ def testGCThreshold(env):
 
     env.expect('FT.DEBUG', 'DUMP_INVIDX', 'idx', 'foo1').error().contains('Can not find the inverted index')
 
-@no_msan
 def testGCShutDownOnExit(env):
     if env.env == 'existing-env' or env.env == 'enterprise' or env.isCluster() or platform.system() == 'Darwin':
         env.skip()

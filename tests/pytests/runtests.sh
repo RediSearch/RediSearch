@@ -84,7 +84,6 @@ if [[ -n $SAN ]]; then
 	if ! grep THPIsEnabled /build/redis.blacklist &> /dev/null; then
 		echo "fun:THPIsEnabled" >> /build/redis.blacklist
 	fi
-	export ASAN_OPTIONS=detect_odr_violation=0
 	export RS_GLOBAL_DTORS=1
 
 	export SANITIZER="$SAN"
@@ -94,32 +93,40 @@ if [[ -n $SAN ]]; then
 	if [[ -z $REJSON_PATH && -f $rejson_path ]]; then
 		export REJSON_PATH=$rejson_path
 	fi
-fi
 
-if [[ $VG == 1 ]]; then
+	if [[ $SAN == addr || $SAN == address ]]; then
+		REDIS_SERVER=${REDIS_SERVER:-redis-server-asan-6.2}
+		if ! command -v $REDIS_SERVER > /dev/null; then
+			echo Building Redis for clang-asan ...
+			$READIES/bin/getredis --force -v 6.2 --own-openssl --no-run --suffix asan --clang-asan --clang-san-blacklist /build/redis.blacklist
+		fi
+
+		export ASAN_OPTIONS=detect_odr_violation=0
+
+	elif [[ $SAN == memory ]]; then
+		REDIS_SERVER=${REDIS_SERVER:-redis-server-msan-6.2}
+		if ! command -v $REDIS_SERVER > /dev/null; then
+			echo Building Redis for clang-msan ...
+			$READIES/bin/getredis --force -v 6.2  --no-run --own-openssl --suffix msan --clang-msan --llvm-dir /opt/llvm-project/build-msan --clang-san-blacklist /build/redis.blacklist
+		fi
+	fi
+
+elif [[ $VG == 1 ]]; then
 	REDIS_SERVER=${REDIS_SERVER:-redis-server-vg}
 	if ! command -v $REDIS_SERVER > /dev/null; then
 		echo Building Redis for Valgrind ...
 		$READIES/bin/getredis -v 6 --valgrind --suffix vg
 	fi
 	VALGRIND_ARGS=--use-valgrind
+	if [[ $VG_LEAKS == 0 ]]; then
+		export VG_OPTIONS="--leak-check=no --track-origins=yes"
+		VALGRIND_ARGS+=' --vg-no-leakcheck --vg-options="--leak-check=no --track-origins=yes"'
+	fi
 
 	export VALGRIND=1
+	export RS_GLOBAL_DTORS=1
 	export SHORT_READ_BYTES_DELTA=512
 
-elif [[ $SAN == addr || $SAN == address ]]; then
-	REDIS_SERVER=${REDIS_SERVER:-redis-server-asan-6.2}
-	if ! command -v $REDIS_SERVER > /dev/null; then
-		echo Building Redis for clang-asan ...
-		$READIES/bin/getredis --force -v 6.2 --own-openssl --no-run --suffix asan --clang-asan --clang-san-blacklist /build/redis.blacklist
-	fi
-
-elif [[ $SAN == memory ]]; then
-	REDIS_SERVER=${REDIS_SERVER:-redis-server-msan-6.2}
-	if ! command -v $REDIS_SERVER > /dev/null; then
-		echo Building Redis for clang-msan ...
-		$READIES/bin/getredis --force -v 6.2  --no-run --own-openssl --suffix msan --clang-msan --llvm-dir /opt/llvm-project/build-msan --clang-san-blacklist /build/redis.blacklist
-	fi
 else
 	REDIS_SERVER=${REDIS_SERVER:-redis-server}
 fi
@@ -204,7 +211,10 @@ else
 		$@
 
 		EOF
-
+	if [[ $VERBOSE == 1 ]]; then
+		echo "# RLTest config:"
+		cat $rltest_config
+	fi
 fi
 
 #---------------------------------------------------------------------------------------------- 
