@@ -155,7 +155,7 @@ int TrieMapNode_Add(TrieMapNode **np, char *str, tm_len_t len, void *value, Trie
     *np = n;
     // if the node existed - we return 0, otherwise return 1 as it's a new
     // node
-    rv += !(term && !deleted);
+    rv += term && !deleted ? 1 : 0;
     return rv;
   }
 
@@ -179,7 +179,7 @@ int TrieMapNode_Add(TrieMapNode **np, char *str, tm_len_t len, void *value, Trie
 int TrieMap_Add(TrieMap *t, char *str, tm_len_t len, void *value, TrieMapReplaceFunc cb) {
   int rc = TrieMapNode_Add(&t->root, str, len, value, cb);
   t->size += rc;
-  int added = !!rc;
+  int added = !rc ? 1 : 0;
   t->cardinality += added;
   return added;
 }
@@ -527,7 +527,7 @@ end:
 int TrieMap_Delete(TrieMap *t, char *str, tm_len_t len, void (*freeCB)(void *)) {
   int rc = TrieMapNode_Delete(t->root, str, len, freeCB);
   t->size -= rc;
-  int deleted = !!rc;
+  int deleted = !rc ? 1 : 0;
   t->cardinality -= deleted;
   return deleted;
 }

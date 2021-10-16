@@ -10,6 +10,9 @@ cd $ROOT
 
 ./.circleci/ci_get_deps.sh
 
+$READIES/bin/getredis -v 6 --valgrind --suffix vg
+$READIES/bin/getvalgrind
+
 if [[ -z $CI_CONCURRENCY ]]; then
 	CI_CONCURRENCY=$($ROOT/deps/readies/bin/nproc)
 fi
@@ -19,14 +22,14 @@ fi
 
 make VG=1 -j$CI_CONCURRENCY
 
-export REDIS_SERVER=redis-server-${mode}
+export REDIS_SERVER=redis-server-vg
 cat >rltest.config <<EOF
 --no-output-catch
 --exit-on-failure
 --check-exitcode
 --unix
 EOF
-export CONFIG_FILE="$PWD/rltest.config"
+export CONFIG_FILE="$ROOT/rltest-vg.config"
 
 cd $ROOT/deps
 if [[ ! -d RedisJSON ]]; then

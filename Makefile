@@ -16,18 +16,22 @@ ifeq ($(SAN),mem)
 CMAKE_SAN=-DUSE_MSAN=ON -DMSAN_PREFIX=/opt/llvm-project/build-msan
 SAN_DIR=msan
 export SAN=memory
+
 else ifeq ($(SAN),memory)
 CMAKE_SAN=-DUSE_MSAN=ON -DMSAN_PREFIX=/opt/llvm-project/build-msan
 SAN_DIR=msan
 export SAN=memory
+
 else ifeq ($(SAN),addr)
 CMAKE_SAN=-DUSE_ASAN=ON
 SAN_DIR=asan
 export SAN=address
+
 else ifeq ($(SAN),address)
 CMAKE_SAN=-DUSE_ASAN=ON
 SAN_DIR=asan
 export SAN=address
+
 else ifeq ($(SAN),leak)
 else ifeq ($(SAN),thread)
 else
