@@ -1870,7 +1870,11 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
       subevent == REDISMODULE_SUBEVENT_LOADING_AOF_START ||
       subevent == REDISMODULE_SUBEVENT_LOADING_REPL_START) {
     Indexes_Free(specDict_g);
-    legacySpecDict = dictCreate(&dictTypeHeapStrings, NULL);
+    if (legacySpecDict) {
+      dictEmpty(legacySpecDict, NULL);
+    } else {
+      legacySpecDict = dictCreate(&dictTypeHeapStrings, NULL);
+    }
   } else if (subevent == REDISMODULE_SUBEVENT_LOADING_ENDED) {
     int hasLegacyIndexes = dictSize(legacySpecDict);
     Indexes_UpgradeLegacyIndexes();
@@ -2013,6 +2017,11 @@ static void onFlush(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent
   }
   IndexSpec_CleanAll();
   Dictionary_Clear();
+  if (legacySpecRules) {
+    dictEmpty(legacySpecRules, NULL);
+    dictRelease(legacySpecRules);
+    legacySpecRules = NULL;
+  }
 }
 
 void Indexes_Init(RedisModuleCtx *ctx) {
