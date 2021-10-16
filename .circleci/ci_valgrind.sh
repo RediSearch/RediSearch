@@ -41,7 +41,8 @@ $READIES/bin/getpy3
 source /etc/profile.d/rust.sh
 # make nightly
 make DEBUG=1
-export REJSON_PATH=$ROOT/deps/RedisJSON/target/debug/rejson.so
 
-make pytest 
-make -C $ROOT test VG=1 VG_LEAKS=0 CTEST_ARGS="--output-on-failure" CTEST_PARALLEL="$CI_CONCURRENCY"
+make -C $ROOT test \
+	VG=1 VG_LEAKS=0 \
+	REJSON_PATH=$ROOT/deps/RedisJSON/target/debug/rejson.so \
+	CTEST_ARGS="--output-on-failure" CTEST_PARALLEL="$CI_CONCURRENCY"
