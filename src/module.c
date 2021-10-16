@@ -1051,6 +1051,20 @@ void __attribute__((destructor)) RediSearch_CleanupModule(void) {
   invoked = 1;
 
   CursorList_Destroy(&RSCursors);
+
+  Indexes_Free(specDict_g);
+  dictRelease(specDict_g);
+  specDict_g = NULL;
+
+  if (legacySpecDict) {
+    dictRelease(legacySpecDict);
+    legacySpecDict = NULL;
+  }
+  if (legacySpecRules) {
+    dictRelease(legacySpecRules);
+    legacySpecRules = NULL;
+  }
+
   Extensions_Free();
   StopWordList_FreeGlobals();
   FunctionRegistry_Free();
@@ -1061,18 +1075,6 @@ void __attribute__((destructor)) RediSearch_CleanupModule(void) {
   IndexAlias_DestroyGlobal(&AliasTable_g);
   freeGlobalAddStrings();
   SchemaPrefixes_Free(ScemaPrefixes_g);
-
-  // Indexes_Free(specDict_g);
-  dictRelease(specDict_g);
-  specDict_g = NULL;
-  if (legacySpecDict) {
-    dictRelease(legacySpecDict);
-    legacySpecDict = NULL;
-  }
-  if (legacySpecRules) {
-    dictRelease(legacySpecRules);
-    legacySpecRules = NULL;
-  }
 
   RedisModule_FreeThreadSafeContext(RSDummyContext);
   Dictionary_Free();
