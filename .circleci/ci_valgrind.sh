@@ -23,7 +23,7 @@ fi
 make VG=1 -j$CI_CONCURRENCY
 
 export REDIS_SERVER=redis-server-vg
-cat >rltest.config <<EOF
+cat >rltest-vg.config <<EOF
 --no-output-catch
 --exit-on-failure
 --check-exitcode
