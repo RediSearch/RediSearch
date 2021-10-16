@@ -15,6 +15,8 @@ SAN_PREFIX=/opt/llvm-project/build-msan
 extra_flags=""
 
 echo "fun:THPIsEnabled" >> /build/redis.blacklist
+echo "fun:ztrymalloc_usable" >> /build/redis.blacklist
+
 if [[ $ASAN == 1 ]]; then
     mode=asan
 	SAN_MODE=address

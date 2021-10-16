@@ -84,7 +84,6 @@ if [[ -n $SAN ]]; then
 	if ! grep THPIsEnabled /build/redis.blacklist &> /dev/null; then
 		echo "fun:THPIsEnabled" >> /build/redis.blacklist
 	fi
-	echo "fun:ztrymalloc_usable" >> /build/redis.blacklist
 	export RS_GLOBAL_DTORS=1
 
 	export SANITIZER="$SAN"
@@ -97,10 +96,10 @@ if [[ -n $SAN ]]; then
 
 	if [[ $SAN == addr || $SAN == address ]]; then
 		REDIS_SERVER=${REDIS_SERVER:-redis-server-asan-6.2}
-		# if ! command -v $REDIS_SERVER > /dev/null; then
+		if ! command -v $REDIS_SERVER > /dev/null; then
 			echo Building Redis for clang-asan ...
 			$READIES/bin/getredis --force -v 6.2 --own-openssl --no-run --suffix asan --clang-asan --clang-san-blacklist /build/redis.blacklist
-		# fi
+		fi
 
 		export ASAN_OPTIONS=detect_odr_violation=0:detect_leaks=0
 
