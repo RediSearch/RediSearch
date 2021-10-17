@@ -272,3 +272,32 @@ def testErrors(env):
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLOAT32', '1024', 'IP', 'HNSW', 'INITIAL_CAP', '10', 'M', '16', 'EF', '200')
     env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh REDIS 4]').error().contains('Invalid Vector similarity type')
     env.expect('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK str]').error().contains('Syntax error')
+
+
+def load_vectors_into_redis(con, vector_field, dim, num_vectors):
+    data = np.float32(np.random.random((num_vectors, dim)))
+    id_vec_list = []
+    p = con.pipeline(transaction=False)
+    for i, vector in enumerate(data):
+        con.execute_command('HSET', i, vector_field, vector.tobytes(), 't', i % 10)
+        id_vec_list.append((i, vector))
+    p.execute()
+    return id_vec_list
+
+def test_with_fields(env):
+    conn = getConnectionByEnv(env)
+    dimension = 128
+    qty = 100
+
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLOAT32', dimension, 'L2', 'HNSW', 't', 'TEXT')
+    load_vectors_into_redis(conn, 'v', dimension, qty)
+
+    query_data = np.float32(np.random.random((1, dimension)))
+    res = env.cmd('FT.SEARCH', 'idx', '5 @v:[$vec_param TOPK 100]',
+                    'SORTBY', 'v_score', 'PARAMS', 2, 'vec_param', query_data.tobytes(),
+                    'RETURN', 2, 'v_score', 't')
+    res_nocontent = env.cmd('FT.SEARCH', 'idx', '5 @v:[$vec_param TOPK 100]',
+                    'SORTBY', 'v_score', 'PARAMS', 2, 'vec_param', query_data.tobytes(),
+                    'NOCONTENT')
+    env.assertEqual(res[1::2], res_nocontent[1:])
+    env.assertEqual('t', res[2][2])

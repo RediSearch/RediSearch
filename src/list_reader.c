@@ -36,7 +36,7 @@ static int LR_Read(void *ctx, RSIndexResult **hit) {
 static int LR_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
   ListIterator *lr = ctx;
   while(lr->offset < lr->size) {
-    if (docId < lr->list[lr->offset].id) {
+    if (docId > lr->list[lr->offset].id) {
       ++lr->offset; // consider binary search for next value
       continue;
     }
