@@ -33,6 +33,7 @@ typedef struct GCContext {
 typedef struct GCTask {
   GCContext* gc;
   RedisModuleBlockedClient* bClient;
+  int debug;
 } GCTask;
 
 GCContext* GCContext_CreateGCFromSpec(struct IndexSpec* sp, float initialHZ, uint64_t uniqueId,

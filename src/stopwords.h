@@ -23,7 +23,6 @@ struct StopWordList;
 int StopWordList_Contains(const struct StopWordList *sl, const char *term, size_t len);
 
 struct StopWordList *DefaultStopWordList();
-struct StopWordList *EmptyStopWordList();
 void StopWordList_FreeGlobals(void);
 
 /* Create a new stopword list from a list of redis strings */
@@ -46,6 +45,9 @@ void StopWordList_RdbSave(RedisModuleIO *rdb, struct StopWordList *sl);
 void StopWordList_Ref(struct StopWordList *sl);
 
 void ReplyWithStopWordsList(RedisModuleCtx *ctx, struct StopWordList *sl);
+
+/* Returns a NULL terminated list of stopwords */
+char **GetStopWordsList(struct StopWordList *sl, size_t *size);
 
 #ifdef __cplusplus
 }

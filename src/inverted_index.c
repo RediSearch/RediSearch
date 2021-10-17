@@ -30,7 +30,7 @@ uint64_t TotalIIBlocks = 0;
 
 static IndexReader *NewIndexReaderGeneric(const IndexSpec *sp, InvertedIndex *idx,
                                           IndexDecoderProcs decoder, IndexDecoderCtx decoderCtx,
-                                          RSIndexResult *record, double weight);
+                                          RSIndexResult *record);
 
 /**
  * Get the real ID, given the current delta
@@ -341,7 +341,8 @@ ENCODER(encodeNumeric) {
   } else {
     // Floating point
     NumEncodingFloat *encFloat = &header.encFloat;
-    if (fabs(absVal - f32Num) < 0.01) {
+    if (absVal == f32Num || (RSGlobalConfig.numericCompress == true &&
+                             fabs(absVal - f32Num) < 0.01)) {
       sz += Buffer_Write(bw, (void *)&f32Num, 4);
       encFloat->isDouble = 0;
     } else {
@@ -772,15 +773,16 @@ IndexDecoderProcs InvertedIndex_GetDecoder(uint32_t flags) {
   }
 }
 
-IndexReader *NewNumericReader(const IndexSpec *sp, InvertedIndex *idx, const NumericFilter *flt) {
+IndexReader *NewNumericReader(const IndexSpec *sp, InvertedIndex *idx, const NumericFilter *flt,
+                              double rangeMin, double rangeMax) {
   RSIndexResult *res = NewNumericResult();
   res->freq = 1;
   res->fieldMask = RS_FIELDMASK_ALL;
   res->num.value = 0;
 
-  IndexDecoderCtx ctx = {.ptr = (void *)flt};
+  IndexDecoderCtx ctx = {.ptr = (void *)flt, .rangeMin = rangeMin, .rangeMax = rangeMax};
   IndexDecoderProcs procs = {.decoder = readNumeric};
-  return NewIndexReaderGeneric(sp, idx, procs, ctx, res, 1);
+  return NewIndexReaderGeneric(sp, idx, procs, ctx, res);
 }
 
 static t_docId calculateId(t_docId lastId, uint32_t delta, int isFirst) {
@@ -1062,13 +1064,12 @@ size_t IR_NumDocs(void *ctx) {
 
 static void IndexReader_Init(const IndexSpec *sp, IndexReader *ret, InvertedIndex *idx,
                              IndexDecoderProcs decoder, IndexDecoderCtx decoderCtx,
-                             RSIndexResult *record, double weight) {
+                             RSIndexResult *record) {
   ret->currentBlock = 0;
   ret->idx = idx;
   ret->gcMarker = idx->gcMarker;
   ret->record = record;
   ret->len = 0;
-  ret->weight = weight;
   ret->lastId = IR_CURRENT_BLOCK(ret).firstId;
   ret->br = NewBufferReader(&IR_CURRENT_BLOCK(ret).buf);
   ret->decoders = decoder;
@@ -1080,9 +1081,9 @@ static void IndexReader_Init(const IndexSpec *sp, IndexReader *ret, InvertedInde
 
 static IndexReader *NewIndexReaderGeneric(const IndexSpec *sp, InvertedIndex *idx,
                                           IndexDecoderProcs decoder, IndexDecoderCtx decoderCtx,
-                                          RSIndexResult *record, double weight) {
+                                          RSIndexResult *record) {
   IndexReader *ret = rm_malloc(sizeof(IndexReader));
-  IndexReader_Init(sp, ret, idx, decoder, decoderCtx, record, weight);
+  IndexReader_Init(sp, ret, idx, decoder, decoderCtx, record);
   return ret;
 }
 
@@ -1105,7 +1106,7 @@ IndexReader *NewTermIndexReader(InvertedIndex *idx, IndexSpec *sp, t_fieldMask f
 
   IndexDecoderCtx dctx = {.num = fieldMask};
 
-  return NewIndexReaderGeneric(sp, idx, decoder, dctx, record, weight);
+  return NewIndexReaderGeneric(sp, idx, decoder, dctx, record);
 }
 
 void IR_Free(IndexReader *ir) {
@@ -1151,6 +1152,7 @@ IndexIterator *NewReadIterator(IndexReader *ir) {
   IndexIterator *ri = rm_malloc(sizeof(IndexIterator));
   ri->ctx = ir;
   ri->mode = MODE_SORTED;
+  ri->type = READ_ITERATOR;
   ri->NumEstimated = IR_NumEstimated;
   ri->GetCriteriaTester = IR_GetCriteriaTester;
   ri->Read = IR_Read;

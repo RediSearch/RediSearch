@@ -44,6 +44,22 @@ typedef enum {
   QITR_S_TIMEDOUT
 } QITRState;
 
+typedef enum {
+  RP_INDEX,
+  RP_LOADER,
+  RP_SCORER,
+  RP_SORTER,
+  RP_COUNTER,
+  RP_PAGER_LIMITER,
+  RP_HIGHLIGHTER,
+  RP_GROUP,
+  RP_PROJECTOR,
+  RP_FILTER,
+  RP_PROFILE,
+  RP_NETWORK,
+  RP_MAX,
+} ResultProcessorType;
+
 struct ResultProcessor;
 struct RLookup;
 
@@ -136,8 +152,8 @@ typedef struct ResultProcessor {
   // Previous result processor in the chain
   struct ResultProcessor *upstream;
 
-  // For debugging purposes
-  const char *name;
+  // Type of result processor
+  ResultProcessorType type;
 
   /**
    * Populates the result pointed to by `res`. The existing data of `res` is
@@ -171,7 +187,7 @@ void SearchResult_Clear(SearchResult *r);
  */
 void SearchResult_Destroy(SearchResult *r);
 
-ResultProcessor *RPIndexIterator_New(IndexIterator *itr);
+ResultProcessor *RPIndexIterator_New(IndexIterator *itr, struct timespec timeoutTime);
 
 ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
                               const ScoringFunctionArgs *fnargs);
@@ -185,9 +201,9 @@ ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
 void SortAscMap_Dump(uint64_t v, size_t n);
 
 ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys, size_t nkeys,
-                                      uint64_t ascendingMap);
+                                      uint64_t ascendingMap, struct timespec *timeout);
 
-ResultProcessor *RPSorter_NewByScore(size_t maxresults);
+ResultProcessor *RPSorter_NewByScore(size_t maxresults, struct timespec *timeout);
 
 ResultProcessor *RPPager_New(size_t offset, size_t limit);
 
@@ -207,6 +223,87 @@ ResultProcessor *RPHighlighter_New(const RSSearchOptions *searchopts, const Fiel
                                    const RLookup *lookup);
 
 void RP_DumpChain(const ResultProcessor *rp);
+
+
+/*******************************************************************************************************************
+ *  Profiling Processor
+ *
+ * This processor collects time and count info about the performance of its upstream RP.
+ *
+ *******************************************************************************************************************/
+ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryIterator *qiter);
+
+
+/*******************************************************************************************************************
+ *  Counter Processor
+ *
+ * This processor counts the search results.
+ * 
+ *******************************************************************************************************************/
+ResultProcessor *RPCounter_New();
+
+/*****************************************
+ *            Timeout API
+ ****************************************/
+
+static inline int rs_timer_ge(struct timespec *a, struct timespec *b) {
+  if (a->tv_sec == b->tv_sec) {
+    return a->tv_nsec >= b->tv_nsec;
+  }
+  return a->tv_sec >= b->tv_sec;
+}
+
+static inline void rs_timeradd(struct timespec *a, struct timespec *b, struct timespec *result) {
+  result->tv_sec = a->tv_sec + b->tv_sec;
+  result->tv_nsec = a->tv_nsec + b->tv_nsec;
+  if (result->tv_nsec >= 1000000000) { 
+    result->tv_sec  += 1;
+    result->tv_nsec -= 1000000000;
+  } 
+}
+
+static inline void rs_timersub(struct timespec *a, struct timespec *b, struct timespec *result) {
+  result->tv_sec = a->tv_sec - b->tv_sec;
+  result->tv_nsec = a->tv_nsec - b->tv_nsec;
+  if (result->tv_nsec < 0) {	
+    result->tv_sec  -= 1;
+    result->tv_nsec += 1000000000;
+  }	
+}
+
+static inline int TimedOut(struct timespec timeout) {
+  // Check the elapsed processing time
+  static struct timespec now;
+  clock_gettime(CLOCK_MONOTONIC_RAW, &now);
+
+  if (__builtin_expect(rs_timer_ge(&now, &timeout), 0)) {
+    return RS_RESULT_TIMEDOUT;
+  }
+  return RS_RESULT_OK;
+}
+
+static inline void updateTimeout(struct timespec *timeout, int32_t durationNS) {
+  // 0 disables the timeout
+  if (durationNS == 0) {
+    durationNS = INT32_MAX;
+  }
+
+  struct timespec now = { .tv_sec = 0 ,
+                          .tv_nsec = 0 };
+  struct timespec duration = { .tv_sec = durationNS / 1000,
+                              .tv_nsec = ((durationNS % 1000) * 1000000) };
+  clock_gettime(CLOCK_MONOTONIC_RAW, &now);
+  rs_timeradd(&now, &duration, timeout);
+  //printf("sec %ld ms %ld\n", now.tv_sec, now.tv_nsec);
+}
+
+void updateRPIndexTimeout(ResultProcessor *base, struct timespec timeout);
+
+clock_t RPProfile_GetClock(ResultProcessor *rp);
+uint64_t RPProfile_GetCount(ResultProcessor *rp);
+
+// Return string for RPType
+const char *RPTypeToString(ResultProcessorType type);
 
 #ifdef __cplusplus
 }

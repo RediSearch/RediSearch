@@ -2,6 +2,7 @@
 #define SRC_REDISEARCH_API_H_
 
 #include "redismodule.h"
+#include "stemmer.h"
 #include <limits.h>
 
 #ifdef __cplusplus
@@ -59,6 +60,15 @@ typedef struct RSIdxOptions RSIndexOptions;
 #define RSFLDOPT_TXTNOSTEM 0x04
 #define RSFLDOPT_TXTPHONETIC 0x08
 
+// This enum copies
+typedef enum {
+  RS_GEO_DISTANCE_INVALID = -1,
+  RS_GEO_DISTANCE_KM,
+  RS_GEO_DISTANCE_M,
+  RS_GEO_DISTANCE_FT,
+  RS_GEO_DISTANCE_MI,
+} RSGeoDistance;
+
 typedef int (*RSGetValueCallback)(void* ctx, const char* fieldName, const void* id, char** strVal,
                                   double* doubleVal);
 
@@ -74,6 +84,10 @@ struct RSIdxOptions {
   void* gvcbData;
   uint32_t flags;
   int gcPolicy;
+  char **stopwords;
+  int stopwordsLen;
+  double score;
+  RSLanguage lang;
 };
 
 /**
@@ -89,6 +103,8 @@ MODULE_API_FUNC(RSIndexOptions*, RediSearch_CreateIndexOptions)(void);
 MODULE_API_FUNC(void, RediSearch_FreeIndexOptions)(RSIndexOptions*);
 MODULE_API_FUNC(void, RediSearch_IndexOptionsSetGetValueCallback)
 (RSIndexOptions* opts, RSGetValueCallback cb, void* ctx);
+MODULE_API_FUNC(void, RediSearch_IndexOptionsSetStopwords)
+(RSIndexOptions* opts, const char **stopwords, int stopwordsLen);
 
 /** Set flags modifying index creation. */
 MODULE_API_FUNC(void, RediSearch_IndexOptionsSetFlags)(RSIndexOptions* opts, uint32_t flags);
@@ -97,6 +113,14 @@ MODULE_API_FUNC(RSIndex*, RediSearch_CreateIndex)
 (const char* name, const RSIndexOptions* options);
 
 MODULE_API_FUNC(void, RediSearch_DropIndex)(RSIndex*);
+
+/** Handle Stopwords list */
+MODULE_API_FUNC(int, RediSearch_StopwordsList_Contains)(RSIndex* idx, const char *term, size_t len);
+
+/** Getter functions */
+MODULE_API_FUNC(char **, RediSearch_IndexGetStopwords)(RSIndex*, size_t*);
+MODULE_API_FUNC(double, RediSearch_IndexGetScore)(RSIndex*);
+MODULE_API_FUNC(const char *, RediSearch_IndexGetLanguage)(RSIndex*);
 
 /**
  * Create a new field in the index
@@ -124,8 +148,12 @@ MODULE_API_FUNC(void, RediSearch_TagFieldSetCaseSensitive)(RSIndex* sp, RSFieldI
 
 MODULE_API_FUNC(RSDoc*, RediSearch_CreateDocument)
 (const void* docKey, size_t len, double score, const char* lang);
-MODULE_API_FUNC(void, RediSearch_FreeDocument)(RSDoc* doc);
 #define RediSearch_CreateDocumentSimple(s) RediSearch_CreateDocument(s, strlen(s), 1.0, NULL)
+MODULE_API_FUNC(RSDoc*, RediSearch_CreateDocument2)
+(const void* docKey, size_t len, RSIndex* sp, double score, const char* lang);
+#define RediSearch_CreateDocument2Simple(s, sp) RediSearch_CreateDocument2(s, strlen(s), sp, NAN, NULL)
+
+MODULE_API_FUNC(void, RediSearch_FreeDocument)(RSDoc* doc);
 
 MODULE_API_FUNC(int, RediSearch_DeleteDocument)(RSIndex* sp, const void* docKey, size_t len);
 #define RediSearch_DropDocument RediSearch_DeleteDocument
@@ -138,14 +166,23 @@ MODULE_API_FUNC(int, RediSearch_DeleteDocument)(RSIndex* sp, const void* docKey,
  *  bitmask of RSFieldType.
  */
 MODULE_API_FUNC(void, RediSearch_DocumentAddField)
-(RSDoc* d, const char* fieldName, RedisModuleString* s, RedisModuleCtx* ctx, unsigned indexAsTypes);
+(RSDoc* d, const char* fieldName, RedisModuleString* s, unsigned indexAsTypes);
 
 MODULE_API_FUNC(void, RediSearch_DocumentAddFieldString)
 (RSDoc* d, const char* fieldName, const char* s, size_t n, unsigned indexAsTypes);
 #define RediSearch_DocumentAddFieldCString(doc, fieldname, s, indexAs) \
   RediSearch_DocumentAddFieldString(doc, fieldname, s, strlen(s), indexAs)
+
 MODULE_API_FUNC(void, RediSearch_DocumentAddFieldNumber)
-(RSDoc* d, const char* fieldName, double n, unsigned indexAsTypes);
+(RSDoc* d, const char* fieldName, double val, unsigned indexAsTypes);
+
+/**
+ * Add geo field to a document.
+ * Return REDISMODULE_ERR if longitude or latitude is out-of-range
+ * otherwise, returns REDISMODULE_OK
+ */
+MODULE_API_FUNC(int, RediSearch_DocumentAddFieldGeo)
+(RSDoc* d, const char* fieldName, double lat, double lon, unsigned indexAsTypes);
 
 /**
  * Replace document if it already exists
@@ -161,6 +198,9 @@ MODULE_API_FUNC(RSQNode*, RediSearch_CreateTokenNode)
 
 MODULE_API_FUNC(RSQNode*, RediSearch_CreateNumericNode)
 (RSIndex* sp, const char* field, double max, double min, int includeMax, int includeMin);
+
+MODULE_API_FUNC(RSQNode*, RediSearch_CreateGeoNode)
+(RSIndex* sp, const char* field, double lat, double lon, double radius, RSGeoDistance unitType);
 
 MODULE_API_FUNC(RSQNode*, RediSearch_CreatePrefixNode)
 (RSIndex* sp, const char* fieldName, const char* s);
@@ -224,10 +264,14 @@ MODULE_API_FUNC(void, RediSearch_IndexOptionsSetGCPolicy)(RSIndexOptions* option
   X(FreeIndexOptions)                \
   X(CreateIndex)                     \
   X(DropIndex)                       \
+  X(IndexGetStopwords)               \
+  X(IndexGetScore)                   \
+  X(IndexGetLanguage)                \
   X(CreateField)                     \
   X(TextFieldSetWeight)              \
   X(TagFieldSetSeparator)            \
   X(CreateDocument)                  \
+  X(CreateDocument2)                 \
   X(DeleteDocument)                  \
   X(DocumentAddField)                \
   X(DocumentAddFieldNumber)          \

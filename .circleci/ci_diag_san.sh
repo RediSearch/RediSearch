@@ -45,13 +45,14 @@ make -j$CI_CONCURRENCY
 
 ## Add some configuration options to our rltest file
 
+export REDIS_SERVER=${SAN_PREFIX}/bin/redis-server-${mode}
 cat >rltest.config <<EOF
---oss-redis-path=${SAN_PREFIX}/bin/redis-server-${mode}
 --no-output-catch
 --exit-on-failure
 --check-exitcode
 --unix
 EOF
+export CONFIG_FILE="$PWD/rltest.config"
 
 export ASAN_OPTIONS=detect_odr_violation=0
 export RS_GLOBAL_DTORS=1
@@ -59,4 +60,5 @@ export RS_GLOBAL_DTORS=1
 # FIXME: Need to change the image once this actually works..
 ln -sf /usr/bin/llvm-symbolizer-4.0 /usr/bin/llvm-symbolizer || true
 
+# COMPAT_DIR="$ROOT/build-${mode}" make -C $ROOT test CTEST_ARGS="--output-on-failure -j$CI_CONCURRENCY"
 ctest --output-on-failure -j$CI_CONCURRENCY

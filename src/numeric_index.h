@@ -12,8 +12,6 @@
 #include "inverted_index.h"
 #include "numeric_filter.h"
 
-#define RT_LEAF_CARDINALITY_MAX 500
-
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -57,7 +55,8 @@ typedef struct rtNode {
 typedef struct {
   int sz;
   int numRecords;
-  uint32_t changed;
+  int changed;
+  int numRanges;
 } NRN_AddRv;
 
 typedef struct {
@@ -114,6 +113,10 @@ NumericRangeTree *NewNumericRangeTree();
 
 /* Add a value to a tree. Returns 0 if no nodes were split, 1 if we splitted nodes */
 NRN_AddRv NumericRangeTree_Add(NumericRangeTree *t, t_docId docId, double value);
+
+/* Remove a node containing a range with value.
+   Returns 1 if node was found, 0 otherwise */
+int NumericRangeTree_DeleteNode(NumericRangeTree *t, double value);
 
 /* Recursively find all the leaves under tree's root, that correspond to a given min-max range.
  * Returns a vector with range node pointers. */

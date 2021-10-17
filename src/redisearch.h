@@ -30,9 +30,22 @@ struct RSSortingVector;
 #define REDISEARCH_ERR 1
 #define REDISEARCH_OK 0
 
+#define RedisModule_ReplyWithPrintf(ctx, fmt, ...)                                      \
+do {                                                                                    \
+  RedisModuleString *str = RedisModule_CreateStringPrintf(ctx, fmt, __VA_ARGS__);       \
+  RedisModule_ReplyWithString(ctx, str);                                                \
+  RedisModule_FreeString(ctx, str);                                                     \
+} while (0)
+
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+typedef enum {
+  DocumentType_Hash,
+  DocumentType_Json,
+  DocumentType_None,
+} DocumentType;
 
 /* A payload object is set either by a query expander or by the user, and can be used to process
  * scores. For examples, it can be a feature vector that is then compared to a feature vector
@@ -87,6 +100,9 @@ typedef struct RSDocumentMetadata_s {
   struct RSByteOffsets *byteOffsets;
   DLLIST2_node llnode;
   uint32_t ref_count;
+
+  // Type of source document. Hash or JSON.
+  DocumentType type;
 } RSDocumentMetadata;
 
 /* Forward declaration of the opaque query object */

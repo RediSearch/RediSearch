@@ -258,7 +258,6 @@ int IndexResult_MinOffsetDelta(const RSIndexResult *r) {
     }
     if (i == num) {
       v1.Free(v1.ctx);
-      dist = dist ? dist : 100;
       break;
     }
     v2 = RSIndexResult_IterateOffsets(agg->children[i]);

@@ -13,7 +13,7 @@ The most general option for an isolated environment is a virtual machine (it's v
 Docker is even a more agile, as it offers an almost instant solution:
 
 ```
-search=$(docker run -d -it -v $PWD:/build debian:buster bash)
+search=$(docker run -d -it -v $PWD:/build debian:bullseys bash)
 docker exec -it $search bash
 ```
 Then, from within the container, ```cd /build``` and go on as usual.
@@ -28,35 +28,38 @@ search=$(docker run -d -it -v $PWD:/build rediseatch1 bash)
 docker exec -it $search bash
 ```
 
-You can replace `debian:buster` with your OS of choice, with the host OS being the best choice (so you can run the RediSearch binary on your host once it is built).
+You can replace `debian:bullseye` with your OS of choice, with the host OS being the best choice (so you can run the RediSearch binary on your host once it is built).
 
 ## Installing prerequisites
 
 To build and test RediSearch one needs to install several packages, depending on the underlying OS. Currently, we support the Ubuntu/Debian, CentOS, Fedora, and macOS.
 
-If you have ```gnu make``` installed, you can execute
+First, enter `RediSearch` directory.
+
+If you have ```gnu make``` installed, you can execute,
+
+On Linux:
 ```
-cd RediSearch
 sudo make setup
 ```
-Alternatively, just invoke the following:
+On macOS:
 ```
-cd RediSearch
-sudo ./deps/readies/bin/getpy2
-sudo ./system-setup.py
+make setup
 ```
-Note that ```system-setup.py``` **will install various packages on your system** using the native package manager and pip. This requires root permissions (i.e. sudo) on Linux.
+
+Alternatively, invoke the following (with `sudo` for Linux):
+
+```
+./deps/readies/bin/getpy2
+./system-setup.py
+```
+Note that ```system-setup.py``` **will install various packages on your system** using the native package manager and pip.
 
 If you prefer to avoid that, you can:
 
-* Review system-setup.py and install packages manually,
+* Review `system-setup.py` and install packages manually,
 * Use an isolated environment like explained above,
 * Use a Python virtual environment, as Python installations are known to be sensitive when not used in isolation: `python2 -m virtualenv venv; . ./venv/bin/activate`
-
-Next, execute the following, to complete dependency acquisition:
-```
-make fetch
-```
 
 ## Installing Redis
 As a rule of thumb, you're better off running the latest Redis version.
@@ -64,6 +67,7 @@ As a rule of thumb, you're better off running the latest Redis version.
 If your OS has a Redis 6.x package, you can install it using the OS package manager.
 
 Otherwise, you can invoke ```sudo ./deps/readies/bin/getredis```.
+Skip `sudo` on macOS.
 
 ## Getting help
 ```make help``` provides a quick summary of the development features.
@@ -98,9 +102,9 @@ You can open ```redis-cli``` in another terminal to interact with it.
 
 ## Running tests
 There are several sets of unit tests:
-* C tests, located in ```src/tests```, run by ```make c_tests```.
-* C++ tests (enabled by GTest), located in ```src/cpptests```, run by ```make cpp_tests```.
-* Python tests (enabled by RLTest), located in ```src/pytests```, run by ```make pytest```.
+* C tests, located in ```tests/ctests```, run by ```make c_tests```.
+* C++ tests (enabled by GTest), located in ```tests/cpptests```, run by ```make cpp_tests```.
+* Python tests (enabled by RLTest), located in ```tests/pytests```, run by ```make pytest```.
 
 One can run all tests by invoking ```make test```.
 A single test can be run using the ```TEST``` parameter, e.g. ```make test TEST=regex```.

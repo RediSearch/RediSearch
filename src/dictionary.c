@@ -2,8 +2,9 @@
 #include "redismodule.h"
 #include "rmalloc.h"
 #include "util/dict.h"
+#include "rdb.h"
 
-dict *spellCheckDicts;
+dict *spellCheckDicts = NULL;
 
 Trie *SpellCheck_OpenDict(RedisModuleCtx *ctx, const char *dictName, int mode) {
   Trie *t = dictFetchValue(spellCheckDicts, dictName);
@@ -149,8 +150,10 @@ void Dictionary_Clear() {
 }
 
 void Dictionary_Free() {
-  Dictionary_Clear();
-  dictRelease(spellCheckDicts);
+  if (spellCheckDicts) {
+    Dictionary_Clear();
+    dictRelease(spellCheckDicts);
+  }
 }
 
 static int SpellCheckDictAuxLoad(RedisModuleIO *rdb, int encver, int when) {
@@ -158,15 +161,23 @@ static int SpellCheckDictAuxLoad(RedisModuleIO *rdb, int encver, int when) {
     Dictionary_Clear();
     return REDISMODULE_OK;
   }
-  size_t len = RedisModule_LoadUnsigned(rdb);
+  size_t len = LoadUnsigned_IOError(rdb, goto cleanup);
   for (size_t i = 0; i < len; i++) {
     size_t keyLen;
-    char *key = RedisModule_LoadStringBuffer(rdb, &keyLen);
+    char *key = LoadStringBuffer_IOError(rdb, &keyLen, goto cleanup);
     Trie *val = TrieType_GenericLoad(rdb, false);
+    if (val == NULL) {
+      RedisModule_Free(key);
+      goto cleanup;
+    }
     dictAdd(spellCheckDicts, key, val);
     RedisModule_Free(key);
   }
   return REDISMODULE_OK;
+
+cleanup:
+  Dictionary_Clear();
+  return REDISMODULE_ERR;
 }
 
 static void SpellCheckDictAuxSave(RedisModuleIO *rdb, int when) {

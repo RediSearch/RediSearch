@@ -67,6 +67,13 @@ int heap_offerx(heap_t * hp, void *item);
 void *heap_poll(heap_t * hp);
 
 /**
+ * Replace root item
+ *
+ * @param[in] item The item to replace item at root
+ * @return 0 on success; -1 on error */
+void heap_replace(heap_t *h, void *item);
+
+/**
  * @return top item of the heap */
 void *heap_peek(const heap_t * hp);
 
@@ -103,5 +110,19 @@ void *heap_remove_item(heap_t * hp, const void *item);
  * @param[in] item The item to test
  * @return 1 if the heap contains this item; otherwise 0 */
 int heap_contains_item(const heap_t * hp, const void *item);
+
+/**
+ * Called when an entry is removed
+ */
+typedef void (*HeapCallback)(void *dst, void *src);
+
+/**
+ * Run callback of all elements equal to root
+ *
+ * @param[in] callback The function to be called
+ * @param[in] ctx The data required by the callback function 
+ * @return 
+ */
+void heap_cb_root(const heap_t * hp, HeapCallback cb, void *ctx);
 
 #endif /* HEAP_H */
