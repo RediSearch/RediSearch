@@ -15,13 +15,13 @@ SAN_PREFIX=/opt/llvm-project/build-msan
 extra_flags=""
 
 echo "fun:THPIsEnabled" >> /build/redis.blacklist
-echo "fun:ztrymalloc_usable" >> /build/redis.blacklist
+# echo "fun:ztrymalloc_usable" >> /build/redis.blacklist
 
 if [[ $ASAN == 1 ]]; then
     mode=asan
 	SAN_MODE=address
     extra_flags="-DUSE_ASAN=ON"
-    $READIES/bin/getredis --force -v 6.2 --own-openssl --no-run --suffix asan --clang-asan --clang-san-blacklist /build/redis.blacklist
+    $READIES/bin/getredis --force -v 6.2 --own-openssl --no-run --valgrind --suffix asan --clang-asan --clang-san-blacklist /build/redis.blacklist
 elif [[ $MSAN == 1 ]]; then
     mode=msan
 	SAN_MODE=memory
