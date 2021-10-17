@@ -313,6 +313,7 @@ FT.SEARCH {index} {query} [NOCONTENT] [VERBATIM] [NOSTOPWORDS] [WITHSCORES] [WIT
   [PAYLOAD {payload}]
   [SORTBY {attribute} [ASC|DESC]]
   [LIMIT offset num]
+  [PARAMS {nargs} {name} {value} ... ]
 ```
 
 #### Description
@@ -438,10 +439,11 @@ FT.SEARCH books-idx "python" RETURN 3 $.book.price AS price
 - **SORTBY {attribute} [ASC|DESC]**: If specified, the results
   are ordered by the value of this attribute. This applies to both text and numeric attributes.
 - **LIMIT first num**: Limit the results to
-  the offset and number of results given. Note that the offset is zero-indexed. The default is 0 10, which returns 10 items starting from the first result.
-
+  the offset and number of results given. Note that the offset is zero-indexed. The default is 0 10, which returns 10 items starting from the first result.\
 !!! tip
     `LIMIT 0 0` can be used to count the number of documents in the result set without actually returning them.
+
+* **PARAMS {nargs} {name} {value}**. Define one or more value parameters. Each parameter has a name and a value. Parameters can be referenced in the query string by a `$`, followed by the parameter name, e.g., `$user`, and each such reference in the search query to a parameter name is substituted by the corresponding parameter value. For example, with parameter definition `PARAMS 4 lon 29.69465 lat 34.95126`, the expression `@loc:[$lon $lat 10 km]` would be evaluated to `@loc:[29.69465 34.95126 10 km]`. Parameters cannot be referenced in the query string where concrete values are not allowed, such as in field names, e.g., `@loc`
 
 #### Complexity
 
