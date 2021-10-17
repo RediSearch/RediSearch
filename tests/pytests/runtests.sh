@@ -31,10 +31,10 @@ if [[ $1 == --help || $1 == help ]]; then
 		REDIS_VERBOSE=0|1     (legacy) Verbose ouput
 		CONFIG_FILE=file      Path to config file
 
-		VERBOSE=1          Print commands and Redis output
-		IGNERR=1           Do not abort on error
-		NOP=1              Dry run
-		EXISTING_ENV=1     Run the tests on existing env
+		VERBOSE=1             Print commands and Redis output
+		IGNERR=1              Do not abort on error
+		NOP=1                 Dry run
+		EXISTING_ENV=1        Run the tests on existing env
 
 
 	END
@@ -81,6 +81,9 @@ if [[ -n $SAN ]]; then
 	fi
 	export ASAN_OPTIONS=detect_odr_violation=0
 	export RS_GLOBAL_DTORS=1
+
+	export SANITIZER=1
+	export SHORT_READ_BYTES_DELTA=512
 	
 	rejson_path=$ROOT/deps/RedisJSON/target/x86_64-unknown-linux-gnu/debug/rejson.so
 	if [[ -z $REJSON_PATH && -f $rejson_path ]]; then
@@ -94,17 +97,23 @@ if [[ $VG == 1 ]]; then
 		echo Building Redis for Valgrind ...
 		$READIES/bin/getredis -v 6 --valgrind --suffix vg
 	fi
+	VALGRIND_ARGS=--use-valgrind
+
+	export SANITIZER=1
+	export SHORT_READ_BYTES_DELTA=512
+
 elif [[ $SAN == addr || $SAN == address ]]; then
-	REDIS_SERVER=${REDIS_SERVER:-redis-server-asan}	
+	REDIS_SERVER=${REDIS_SERVER:-redis-server-asan-6.2}
 	if ! command -v $REDIS_SERVER > /dev/null; then
-		echo Building Redis for Valgrind ...
-		$READIES/bin/getredis --force -v 6.0 --no-run --suffix asan --clang-asan --clang-san-blacklist /build/redis.blacklist
+		echo Building Redis for clang-asan ...
+		$READIES/bin/getredis --force -v 6.2 --own-openssl --no-run --suffix asan --clang-asan --clang-san-blacklist /build/redis.blacklist
 	fi
+
 elif [[ $SAN == memory ]]; then
-	REDIS_SERVER=${REDIS_SERVER:-redis-server-msan}
+	REDIS_SERVER=${REDIS_SERVER:-redis-server-msan-6.2}
 	if ! command -v $REDIS_SERVER > /dev/null; then
-		echo Building Redis for Valgrind ...
-		$READIES/bin/getredis --force -v 6.0  --no-run --suffix msan --clang-msan --llvm-dir /opt/llvm-project/build-msan --clang-san-blacklist /build/redis.blacklist
+		echo Building Redis for clang-msan ...
+		$READIES/bin/getredis --force -v 6.2  --no-run --own-openssl --suffix msan --clang-msan --llvm-dir /opt/llvm-project/build-msan --clang-san-blacklist /build/redis.blacklist
 	fi
 else
 	REDIS_SERVER=${REDIS_SERVER:-redis-server}
@@ -148,58 +157,74 @@ fi
 #---------------------------------------------------------------------------------------------- 
 
 if [[ $EXISTING_ENV == 1 ]]; then
-	RLTEST_ARGS+=" --env existing-env"
-	# also start the redis server on which the tests will run
-	EXISTING_ENV_ARGS="--loadmodule $MODULE $MODARGS"
 	if [[ $REJSON_MODULE ]]; then
-		EXISTING_ENV_ARGS="$EXISTING_ENV_ARGS --loadmodule $REJSON_MODULE $REJSON_MODARGS"
+		XREDIS_REJSON_ARGS="loadmodule $REJSON_MODULE $REJSON_MODARGS"
 	fi
-	redis-server $EXISTING_ENV_ARGS &
-	EXTERNAL_REDIS_PID=$!
-	echo "external process pid: " $EXTERNAL_REDIS_PID
+
+	xredis_conf=$(mktemp "${TMPDIR:-/tmp}/xredis_conf.XXXXXXX")
+	rm -f $xredis_conf
+	cat <<-EOF > $xredis_conf
+		loadmodule $MODULE $MODARGS
+		$XREDIS_REJSON_ARGS
+		EOF
+
+	rltest_config=$(mktemp "${TMPDIR:-/tmp}/xredis_rltest.XXXXXXX")
+	rm -f $rltest_config
+	cat <<-EOF > $rltest_config
+		--env existing-env
+		$RLTEST_ARGS
+		$@
+
+		EOF
+
+	if [[ $VERBOSE == 1 ]]; then
+		echo "External redis-server configuration:"
+		cat $xredis_conf
+	fi
+
+	$REDIS_SERVER $xredis_conf &
+	XREDIS_PID=$!
+	echo "external redis-server pid: " $XREDIS_PID
+
+else
+	rltest_config=$(mktemp "${TMPDIR:-/tmp}/rltest.XXXXXXX")
+	rm -f $rltest_config
+	cat <<-EOF > $rltest_config
+		--oss-redis-path=$REDIS_SERVER
+		--module $MODULE
+		--module-args '$MODARGS'
+		$RLTEST_ARGS
+		$REJSON_ARGS
+		$VALGRIND_ARGS
+		$@
+
+		EOF
+
 fi
 
 #---------------------------------------------------------------------------------------------- 
-
-if [[ $VG == 1 ]]; then
-	VALGRIND_ARGS=--use-valgrind
-fi
-
-#---------------------------------------------------------------------------------------------- 
-
-config=$(mktemp "${TMPDIR:-/tmp}/rltest.XXXXXXX")
-rm -f $config
-cat << EOF > $config
-
---oss-redis-path=$REDIS_SERVER
---module $MODULE
---module-args '$MODARGS'
-$RLTEST_ARGS
-$REJSON_ARGS
-$VALGRIND_ARGS
-$@
-
-EOF
 
 # Use configuration file in the current directory if it exists
 if [[ -n $CONFIG_FILE && -e $CONFIG_FILE ]]; then
-	cat $CONFIG_FILE >> $config
+	cat $CONFIG_FILE >> $rltest_config
 fi
 
 if [[ $VERBOSE == 1 ]]; then
 	echo "RLTest configuration:"
-	cat $config
+	cat $rltest_config
 fi
 
-export OS=$($READIES/bin/platform --os)
+E=0
+if [[ $NOP != 1 ]]; then
+	{ $OP python2 -m RLTest @$rltest_config; (( E |= $? )); } || true
+else
+	$OP python2 -m RLTest @$rltest_config
+fi
+rm -f $rltest_config
 
-$OP python2 -m RLTest @$config
-EXIT_CODE=$?
-rm -f $config
-
-if [[ $EXTERNAL_REDIS_PID ]]; then
-	echo "killing external process: " $EXTERNAL_REDIS_PID
-	kill -s 9 $EXTERNAL_REDIS_PID
+if [[ -n $XREDIS_PID ]]; then
+	echo "killing external redis-server: $XREDIS_PID"
+	kill -9 $XREDIS_PID
 fi
 
-exit $EXIT_CODE
+exit $E
