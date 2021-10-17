@@ -49,6 +49,7 @@ typedef enum {
   RP_LOADER,
   RP_SCORER,
   RP_SORTER,
+  RP_COUNTER,
   RP_PAGER_LIMITER,
   RP_HIGHLIGHTER,
   RP_GROUP,
@@ -200,9 +201,9 @@ ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
 void SortAscMap_Dump(uint64_t v, size_t n);
 
 ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys, size_t nkeys,
-                                      uint64_t ascendingMap);
+                                      uint64_t ascendingMap, struct timespec *timeout);
 
-ResultProcessor *RPSorter_NewByScore(size_t maxresults);
+ResultProcessor *RPSorter_NewByScore(size_t maxresults, struct timespec *timeout);
 
 ResultProcessor *RPPager_New(size_t offset, size_t limit);
 
@@ -227,13 +228,19 @@ void RP_DumpChain(const ResultProcessor *rp);
 /*******************************************************************************************************************
  *  Profiling Processor
  *
- * This processor simply takes the search results, and based on the request parameters, loads the
- * relevant fields for the results that need to be displayed to the user, from redis.
- *
- * It fills the result objects' field map with values corresponding to the requested return fields
+ * This processor collects time and count info about the performance of its upstream RP.
  *
  *******************************************************************************************************************/
 ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryIterator *qiter);
+
+
+/*******************************************************************************************************************
+ *  Counter Processor
+ *
+ * This processor counts the search results.
+ * 
+ *******************************************************************************************************************/
+ResultProcessor *RPCounter_New();
 
 /*****************************************
  *            Timeout API
@@ -276,7 +283,13 @@ static inline int TimedOut(struct timespec timeout) {
 }
 
 static inline void updateTimeout(struct timespec *timeout, int32_t durationNS) {
-  struct timespec now;
+  // 0 disables the timeout
+  if (durationNS == 0) {
+    durationNS = INT32_MAX;
+  }
+
+  struct timespec now = { .tv_sec = 0 ,
+                          .tv_nsec = 0 };
   struct timespec duration = { .tv_sec = durationNS / 1000,
                               .tv_nsec = ((durationNS % 1000) * 1000000) };
   clock_gettime(CLOCK_MONOTONIC_RAW, &now);

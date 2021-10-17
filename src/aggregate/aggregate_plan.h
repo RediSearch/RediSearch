@@ -31,7 +31,10 @@ typedef enum {
 
   // Plan step is a reducer. This does not mean it uses a reduce function, but
   // rather that it fundamentally modifies the rows.
-  PLN_F_REDUCER = 0x02
+  PLN_F_REDUCER = 0x02,
+
+  // Plan to load all fields by RPLoader
+  PLN_F_LOAD_ALL = 0x04,
 } PlanFlags;
 
 typedef struct PLN_BaseStep {
@@ -86,6 +89,7 @@ typedef struct {
   const RLookupKey **sortkeysLK;  // simple array
   const char **sortKeys;          // array_*
   uint64_t sortAscMap;            // Mapping of ascending/descending. Bitwise
+  int isLimited;                  // Flag if `LIMIT` keyward was used.
   uint64_t offset;                // Seek results. If 0, then no paging is applied
   uint64_t limit;                 // Number of rows to output
 } PLN_ArrangeStep;

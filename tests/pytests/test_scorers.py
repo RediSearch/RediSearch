@@ -1,6 +1,6 @@
 import math
 from includes import *
-from common import getConnectionByEnv, waitForIndex
+from common import getConnectionByEnv, waitForIndex, server_version_at_least
 
 
 def testHammingScorer(env):
@@ -89,12 +89,15 @@ def testDocscoreScorerExplanation(env):
     env.assertEqual(res[8][1], "Document's score is 0.10")
 
 def testTFIDFScorerExplanation(env):
+    conn = getConnectionByEnv(env)
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'SCORE_FIELD', '__score',
                'schema', 'title', 'text', 'weight', 10, 'body', 'text').ok()
     waitForIndex(env, 'idx')
-    env.expect('ft.add', 'idx', 'doc1', 0.5, 'fields', 'title', 'hello world',' body', 'lorem ist ipsum').ok()
-    env.expect('ft.add', 'idx', 'doc2', 1, 'fields', 'title', 'hello another world',' body', 'lorem ist ipsum lorem lorem').ok()
-    env.expect('ft.add', 'idx', 'doc3', 0.1, 'fields', 'title', 'hello yet another world',' body', 'lorem ist ipsum lorem lorem').ok()
+
+    conn.execute_command('ft.add', 'idx', 'doc1', 0.5, 'fields', 'title', 'hello world',' body', 'lorem ist ipsum')
+    conn.execute_command('ft.add', 'idx', 'doc2', 1, 'fields', 'title', 'hello another world',' body', 'lorem ist ipsum lorem lorem')
+    conn.execute_command('ft.add', 'idx', 'doc3', 0.1, 'fields', 'title', 'hello yet another world',' body', 'lorem ist ipsum lorem lorem')
+
     res = env.cmd('ft.search', 'idx', 'hello world', 'withscores', 'EXPLAINSCORE')
     env.assertEqual(res[0], 3L)
     env.assertEqual(res[2][1], ['Final TFIDF : words TFIDF 20.00 * document score 0.50 / norm 10 / slop 1',
@@ -111,6 +114,10 @@ def testTFIDFScorerExplanation(env):
                                 '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)']]]])
 
     # test depth limit
+
+    # TODO: re-enable this
+    env.skipOnCluster()
+        
     res = env.cmd('ft.search', 'idx', 'hello(world(world))', 'withscores', 'EXPLAINSCORE', 'limit', 0, 1)
     env.assertEqual(res[2][1], ['Final TFIDF : words TFIDF 30.00 * document score 0.50 / norm 10 / slop 1',
                                 [['(Weight 1.00 * total children TFIDF 30.00)',
@@ -119,13 +126,26 @@ def testTFIDFScorerExplanation(env):
                                             ['(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)',
                                             '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)']]]]]])
 
-    res = env.cmd('ft.search', 'idx', 'hello(world(world(hello)))', 'withscores', 'EXPLAINSCORE', 'limit', 0, 1)
-    env.assertEqual(res[2][1], ['Final TFIDF : words TFIDF 40.00 * document score 1.00 / norm 10 / slop 1',
-                                [['(Weight 1.00 * total children TFIDF 40.00)',
+    res1 = ['Final TFIDF : words TFIDF 40.00 * document score 1.00 / norm 10 / slop 1',
+                [['(Weight 1.00 * total children TFIDF 40.00)',
+                    ['(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)',
+                        ['(Weight 1.00 * total children TFIDF 30.00)',
+                            ['(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)',
+                                ['(Weight 1.00 * total children TFIDF 20.00)',
                                     ['(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)',
-                                        ['(Weight 1.00 * total children TFIDF 30.00)',
-                                            ['(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)',
-                                            '(Weight 1.00 * total children TFIDF 20.00)']]]]]])
+                                     '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)']]]]]]]]
+    res2 = ['Final TFIDF : words TFIDF 40.00 * document score 1.00 / norm 10 / slop 1',
+                [['(Weight 1.00 * total children TFIDF 40.00)',
+                    ['(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)',
+                        ['(Weight 1.00 * total children TFIDF 30.00)',
+                            ['(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)',
+                             '(Weight 1.00 * total children TFIDF 20.00)']]]]]]
+
+
+    actual_res = env.cmd('ft.search', 'idx', 'hello(world(world(hello)))', 'withscores', 'EXPLAINSCORE', 'limit', 0, 1)
+    # on older versions we trim the reply to remain under the 7-layer limitation.
+    res = res1 if server_version_at_least(env, "6.2.0") else res2
+    env.assertEqual(actual_res[2][1], res)
 
 def testBM25ScorerExplanation(env):
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'SCORE_FIELD', '__score',

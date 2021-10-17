@@ -219,6 +219,7 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                         QueryError *status, AREQ **r) {
 
   int rc = REDISMODULE_ERR;
+  clock_t parseClock;
   const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
   RedisSearchCtx *sctx = NULL;
   RedisModuleCtx *thctx = NULL;
@@ -259,10 +260,16 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     goto done;
   }
 
+  bool is_profile = IsProfile(*r);
+  if (is_profile) {
+    parseClock = clock();
+    (*r)->parseTime = parseClock - (*r)->initClock;
+  }
+
   rc = AREQ_BuildPipeline(*r, 0, status);
 
-  if (IsProfile(*r)) {
-    (*r)->parseTime = clock() - (*r)->initClock;
+  if (is_profile) {
+    (*r)->pipelineBuildTime = clock() - parseClock;
   }
 
 done:
@@ -280,14 +287,24 @@ done:
 #define PROFILE_FULL 1
 #define PROFILE_LIMITED 2
 
-static void parseProfile(AREQ *r, int withProfile) {
+static int parseProfile(AREQ *r, int withProfile, RedisModuleString **argv, int argc, QueryError *status) {
   if (withProfile != NO_PROFILE) {
+
+    // WithCursor is disabled on the shards for external use but is available internally to the coordinator
+    #ifndef RS_COORDINATOR
+    if (RMUtil_ArgExists("WITHCURSOR", argv, argc, 3)) {
+      QueryError_SetError(status, QUERY_EGENERIC, "FT.PROFILE does not support cursor");
+      return REDISMODULE_ERR;
+    }
+    #endif
+
     r->reqflags |= QEXEC_F_PROFILE;
     if (withProfile == PROFILE_LIMITED) {
       r->reqflags |= QEXEC_F_PROFILE_LIMITED;
     }
     r->initClock = clock();
   }
+  return REDISMODULE_OK;
 }
 
 static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
@@ -300,7 +317,9 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
   AREQ *r = AREQ_New();
   QueryError status = {0};
-  parseProfile(r, withProfile);
+  if (parseProfile(r, withProfile, argv, argc, &status) != REDISMODULE_OK) {
+    goto error;
+  }
 
   if (buildRequest(ctx, argv, argc, type, &status, &r) != REDISMODULE_OK) {
     goto error;
@@ -346,6 +365,10 @@ RedisModuleString **_profileArgsDup(RedisModuleString **argv, int argc, int para
 }
 
 int RSProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  if (argc < 5) {
+    return RedisModule_WrongArity(ctx);
+  }
+
   CommandType cmdType;
   int curArg = PROFILE_1ST_PARAM;
   int withProfile = PROFILE_FULL;
@@ -357,7 +380,7 @@ int RSProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   } else if (strcasecmp(cmd, "AGGREGATE") == 0) {
     cmdType = COMMAND_AGGREGATE;
   } else {
-    RedisModule_ReplyWithError(ctx, "Bad command type");
+    RedisModule_ReplyWithError(ctx, "No `SEARCH` or `AGGREGATE` provided");
     return REDISMODULE_OK;
   }
   

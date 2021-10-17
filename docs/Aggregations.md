@@ -16,7 +16,7 @@ The basic idea of an aggregate query is this:
   * **Limit**: Limit the result, regardless of sorting the result. 
   * **Filter**: Filter the results (post-query) based on predicates relating to its values. 
 
-The pipeline is dynamic and reentrant, and every operation can be repeated. For example, you can group by property X, sort the top 100 results by group size, then group by property Y and sort the results by some other property, then apply a transformation on the output. 
+The pipeline is dynamic and re-entrant, and every operation can be repeated. For example, you can group by property X, sort the top 100 results by group size, then group by property Y and sort the results by some other property, then apply a transformation on the output. 
 
 Figure 1: Aggregation Pipeline Example
 ![Aggregation Pipeline](https://docs.google.com/drawings/d/e/2PACX-1vRFyP17ingsG86OYNaienojHHA8DwnlVVv67-WlKxv7a7xTJCluWvs3SzXYQSS6QqwB9QZ1vqDuoJ-0/pub?w=518&h=163)
@@ -64,7 +64,7 @@ country, one would specify `SORTBY 6 firstName ASC lastName DESC country ASC`.
 
 * **query_string**: The base filtering query that retrieves the documents. It follows **the exact same syntax** as the search query, including filters, unions, not, optional, etc.
 
-* **LOAD {nargs} {property} …**: Load document fields from the document HASH objects. This should be avoided as a general rule of thumb. Fields needed for aggregations should be stored as **SORTABLE**, where they are available to the aggregation pipeline with very low latency. LOAD hurts the performance of aggregate queries considerably since every processed record needs to execute the equivalent of HMGET against a redis key, which when executed over millions of keys, amounts to very high processing times.
+* **LOAD {nargs} {property} …**: Load document fields from the document HASH objects. This should be avoided as a general rule of thumb. Fields needed for aggregations should be stored as SORTABLE (and optionally UNF to avoid any normalization), where they are available to the aggregation pipeline with very low latency. LOAD hurts the performance of aggregate queries considerably since every processed record needs to execute the equivalent of HMGET against a redis key, which when executed over millions of keys, amounts to very high processing times.
 The document ID can be loaded using `@__key`.
 
 * **GROUPBY {nargs} {property}**: Group the results in the pipeline based on one or more properties. Each group should have at least one reducer (See below), a function that handles the group entries, either counting them or performing multiple aggregate operations (see below).
@@ -79,7 +79,7 @@ The document ID can be loaded using `@__key`.
 
 * **APPLY {expr} AS {name}**: Apply a 1-to-1 transformation on one or more properties, and either store the result as a new property down the pipeline, or replace any property using this transformation. `expr` is an expression that can be used to perform arithmetic operations on numeric properties, or functions that can be applied on properties depending on their types (see below), or any combination thereof. For example: `APPLY "sqrt(@foo)/log(@bar) + 5" AS baz` will evaluate this expression dynamically for each record in the pipeline and store the result as a new property called baz, that can be referenced by further APPLY / SORTBY / GROUPBY / REDUCE operations down the pipeline. 
 
-* **LIMIT {offset} {num}**. Limit the number of results to return just `num` results starting at index `offset` (zero based). AS mentioned above, it is much more efficient to use `SORTBY … MAX` if you are interested in just limiting the optput of a sort operation.
+* **LIMIT {offset} {num}**. Limit the number of results to return just `num` results starting at index `offset` (zero based). AS mentioned above, it is much more efficient to use `SORTBY … MAX` if you are interested in just limiting the output of a sort operation.
 
      However, limit can be used to limit results without sorting, or for paging the n-largest results as determined by `SORTBY MAX`. For example, getting results 50-100 of the top 100 results is most efficiently expressed as `SORTBY 1 @foo MAX 100 LIMIT 50 50`. Removing the MAX from SORTBY will result in the pipeline sorting _all_ the records and then paging over results 50-100. 
 
@@ -376,7 +376,7 @@ Note that these operators apply only to numeric values and numeric sub expressio
 | upper(s)                         | Return the uppercase conversion of s                         | `upper('hello world')`                                   |
 | lower(s)                         | Return the lowercase conversion of s                         | `lower("HELLO WORLD")`                                   |
 | startswith(s1,s2)                | Return `1` if s2 is the prefix of s1, `0` otherwise.         | `startswith(@field, "company")`                          |
-| contains(s1,s2)                  | Return the number of occurences of s2 in s1, `0` otherwise.  | `contains(@field, "pa")`                                 |
+| contains(s1,s2)                  | Return the number of occurrences of s2 in s1, `0` otherwise.  | `contains(@field, "pa")`                                 |
 | substr(s, offset, count)         | Return the substring of s, starting at _offset_ and having _count_ characters. <br />If offset is negative, it represents the distance from the end of the string. <br />If count is -1, it means "the rest of the string starting at offset". | `substr("hello", 0, 3)` <br> `substr("hello", -2, -1)`  |
 | format( fmt, ...)                | Use the arguments following `fmt` to format a string. <br />Currently the only format argument supported is `%s` and it applies to all types of arguments. | `format("Hello, %s, you are %s years old", @name, @age)` |
 | matched_terms([max_terms=100])   | Return the query terms that matched for each record (up to 100), as a list. If a limit is specified, we will return the first N matches we find - based on query order. | `matched_terms()`                                        |
@@ -410,8 +410,28 @@ Note that these operators apply only to numeric values and numeric sub expressio
 | geodistance("lon,lat",lon,lat)  | Return distance in meters.    | `geodistance("1.2,-3.4",5.6,-7.8)`   |
 | geodistance(lon,lat,field)      | Return distance in meters.    | `geodistance(1.2,-3.4,@field)`       |
 | geodistance(lon,lat,"lon,lat")  | Return distance in meters.    | `geodistance(1.2,-3.4,"5.6,-7.8")`   |
-| geodistance(lon,lat,"lon,lat")  | Return distance in meters.    | `geodistance(1.2,-3.4,5.6,-7.8)`     |
-* Note: Geo field must be preloaded using `LOAD`.
+| geodistance(lon,lat,lon,lat)    | Return distance in meters.    | `geodistance(1.2,-3.4,5.6,-7.8)`     |
+
+```
+FT.AGGREGATE myIdx "*"  LOAD 1 location  APPLY "geodistance(@location,\"-1.1,2.2\")" AS dist
+```
+
+To print out the distance:
+
+```
+FT.AGGREGATE myIdx "*"  LOAD 1 location  APPLY "geodistance(@location,\"-1.1,2.2\")" AS dist
+```
+
+**Note:** Geo field must be preloaded using `LOAD`.
+
+Results can also be sorted by distance:
+
+```
+FT.AGGREGATE idx "*" LOAD 1 @location FILTER "exists(@location)" APPLY "geodistance(@location,-117.824722,33.68590)" AS dist SORTBY 2 @dist DESC
+```
+
+**Note:** Make sure no location is missing, otherwise the SORTBY will not return any result.
+Use FILTER to make sure you do the sorting on all valid locations.
 
 ## FILTER expressions
 

@@ -47,8 +47,13 @@ typedef enum {
   QEXEC_F_PROFILE = 0x8000,
   QEXEC_F_PROFILE_LIMITED = 0x10000,
 
+  /* FT.AGGREGATE load all fields */
+  QEXEC_AGG_LOAD_ALL = 0x20000,
+
 } QEFlags;
 
+#define IsCount(r) ((r)->reqflags & QEXEC_F_NOROWS)
+#define IsSearch(r) ((r)->reqflags & QEXEC_F_IS_SEARCH)
 #define IsProfile(r) ((r)->reqflags & QEXEC_F_PROFILE)
 
 typedef enum {
@@ -103,9 +108,10 @@ typedef struct {
   unsigned cursorChunkSize;
 
   /** Profile variables */
-  clock_t initClock; // Time of start. Reset for each cursor call
-  clock_t totalTime; // Total time. Used to accimulate cursors times
-  clock_t parseTime; // Time for parsing the query
+  clock_t initClock;          // Time of start. Reset for each cursor call
+  clock_t totalTime;          // Total time. Used to accimulate cursors times
+  clock_t parseTime;          // Time for parsing the query
+  clock_t pipelineBuildTime;  // Time for creating the pipeline
 } AREQ;
 
 /**
@@ -206,7 +212,8 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status);
  * ResultProcessors (and a grouper is a ResultProcessor) before the grouper
  * should write their data using `lksrc` as a reference point.
  */
-Grouper *Grouper_New(const RLookupKey **srckeys, const RLookupKey **dstkeys, size_t n);
+Grouper *Grouper_New(const RLookupKey **srckeys, const RLookupKey **dstkeys, size_t n,
+                     struct timespec *timeout);
 
 void Grouper_Free(Grouper *g);
 

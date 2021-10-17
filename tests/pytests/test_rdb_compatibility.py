@@ -1,7 +1,7 @@
 import os
 import subprocess
 from includes import *
-from common import waitForIndex
+from common import waitForIndex, skipOnExistingEnv
 from RLTest import Env
 
 
@@ -15,7 +15,8 @@ RDBS = [
     'redisearch_1.4.11.rdb',
     'redisearch_1.6.13.rdb',
     'redisearch_1.6.13_with_synonyms.rdb',
-    'redisearch_1.8.1.rdb'
+    'redisearch_1.8.1.rdb',
+    'redisearch_2.0.9.rdb'
 ]
 
 def downloadFiles():
@@ -24,7 +25,7 @@ def downloadFiles():
     for f in RDBS:
         path = os.path.join(REDISEARCH_CACHE_DIR, f)
         if not os.path.exists(path):
-            subprocess.call(['wget', BASE_RDBS_URL + f, '-O', path])
+            subprocess.call(['wget', '-q', BASE_RDBS_URL + f, '-O', path])
         if not os.path.exists(path):
             return False
     return True
@@ -32,9 +33,12 @@ def downloadFiles():
 def testRDBCompatibility():
     # temp skip for out-of-index
 
-    env = Env(moduleArgs='UPGRADE_INDEX idx PREFIX 1 tt LANGUAGE french LANGUAGE_FIELD MyLang SCORE 0.5 SCORE_FIELD MyScore PAYLOAD_FIELD MyPayload UPGRADE_INDEX idx1')
+    env = Env(moduleArgs='UPGRADE_INDEX idx; PREFIX 1 tt; LANGUAGE french; LANGUAGE_FIELD MyLang; SCORE 0.5; SCORE_FIELD MyScore; PAYLOAD_FIELD MyPayload; UPGRADE_INDEX idx1')
+    # env = Env(moduleArgs=['UPGRADE_INDEX idx', 'PREFIX 1 tt', 'LANGUAGE french', 'LANGUAGE_FIELD MyLang', 'SCORE 0.5', 'SCORE_FIELD MyScore', 'PAYLOAD_FIELD MyPayload', 'UPGRADE_INDEX idx1'])
+    # env = Env(moduleArgs=['UPGRADE_INDEX idx; PREFIX 1 tt; LANGUAGE french', 'LANGUAGE_FIELD MyLang', 'SCORE 0.5', 'SCORE_FIELD MyScore', 'PAYLOAD_FIELD MyPayload', 'UPGRADE_INDEX idx1'])
 
     env.skipOnCluster()
+    skipOnExistingEnv(env)
     dbFileName = env.cmd('config', 'get', 'dbfilename')[1]
     dbDir = env.cmd('config', 'get', 'dir')[1]
     rdbFilePath = os.path.join(dbDir, dbFileName)
@@ -60,6 +64,8 @@ def testRDBCompatibility():
         res = env.cmd('FT.INFO idx')
         res = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
         env.assertEqual(res['index_definition'], ['key_type', 'HASH', 'prefixes', ['tt'], 'default_language', 'french', 'language_field', 'MyLang', 'default_score', '0.5', 'score_field', 'MyScore', 'payload_field', 'MyPayload'])
+        env.assertEqual(res['num_docs'], '1000')
+        env.expect('FT.SEARCH', 'idx', 'Short', 'LIMIT', '0', '0').equal([943])
         if fileName == 'redisearch_1.6.13_with_synonyms.rdb':
             res = env.cmd('FT.SYNDUMP idx')
             res = {res[i]: res[i + 1] for i in range(0, len(res), 2)}

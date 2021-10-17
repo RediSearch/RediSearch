@@ -36,7 +36,7 @@ static inline const char *GCPolicy_ToString(GCPolicy policy) {
 typedef struct {
   // Version of Redis server
   int serverVersion;
-  // Use concurrent serach (default: 1, disable with SAFEMODE)
+  // Use concurrent search (default: 1, disable with SAFEMODE)
   int concurrentMode;
   // If not null, this points at a .so file of an extension we try to load (default: NULL)
   const char *extLoad;
@@ -163,6 +163,7 @@ sds RSConfig_GetInfoString(const RSConfig *config);
 #define DEFAULT_FORK_GC_RUN_INTERVAL 30
 #define SEARCH_REQUEST_RESULTS_MAX 1000000
 #define NR_MAX_DEPTH_BALANCE 2
+#define DEFAULT_TIMEOUT_LIMIT 100
 
 // default configuration
 #define RS_DEFAULT_CONFIG                                                                         \
@@ -183,6 +184,7 @@ sds RSConfig_GetInfoString(const RSConfig *config);
 
 #define REDIS_ARRAY_LIMIT 7
 #define NO_REPLY_DEPTH_LIMIT 0x00060020
+#define RM_SCAN_KEY_API_FIX 0x00060006
 
 static inline int isFeatureSupported(int feature) {
   return feature <= RSGlobalConfig.serverVersion;

@@ -590,7 +590,7 @@ TEST_F(LLApiTest, testMultitypeNumericTag) {
   // Add document...
   RSDoc* d = RediSearch_CreateDocumentSimple("doc1");
   RediSearch_DocumentAddFieldCString(d, "f1", "World", RSFLDTYPE_TAG);
-  RediSearch_DocumentAddFieldCString(d, "f2", "World", RSFLDTYPE_TAG);
+  RediSearch_DocumentAddFieldCString(d, "f2", "world", RSFLDTYPE_TAG);
   int rc = RediSearch_SpecAddDocument(index, d);
   ASSERT_EQ(REDISMODULE_OK, rc);
 
@@ -753,4 +753,102 @@ TEST_F(LLApiTest, duplicateFieldAdd) {
 
   RediSearch_FreeDocument(d);
   RediSearch_DropIndex(index);
+}
+
+TEST_F(LLApiTest, testScorer) {
+  RSIndex* index = RediSearch_CreateIndex("index", NULL);
+
+  // adding text field to the index
+  RediSearch_CreateField(index, FIELD_NAME_1, RSFLDTYPE_FULLTEXT, RSFLDOPT_NONE);
+
+  // adding documents to the index
+  Document* d1 = RediSearch_CreateDocumentSimple("doc1");
+  Document* d2 = RediSearch_CreateDocumentSimple("doc2");
+
+  // adding document with a different TFIDF score
+  RediSearch_DocumentAddFieldCString(d1, FIELD_NAME_1, "hello world hello world", RSFLDTYPE_DEFAULT);
+  ASSERT_EQ(RediSearch_SpecAddDocument(index, d1), REDISMODULE_OK);
+  RediSearch_DocumentAddFieldCString(d2, FIELD_NAME_1, "hello world hello", RSFLDTYPE_DEFAULT);
+  ASSERT_EQ(RediSearch_SpecAddDocument(index, d2), REDISMODULE_OK);
+
+  const char *s = "hello world";
+  RSResultsIterator *it = RediSearch_IterateQuery(index, s, strlen(s), NULL);
+  RediSearch_ResultsIteratorNext(it, index, NULL);
+  ASSERT_EQ(RediSearch_ResultsIteratorGetScore(it), 2);
+  RediSearch_ResultsIteratorNext(it, index, NULL);
+  ASSERT_EQ(RediSearch_ResultsIteratorGetScore(it), 1.5);
+
+  RediSearch_ResultsIteratorFree(it);
+  RediSearch_DropIndex(index);
+}
+
+TEST_F(LLApiTest, testStopwords) {
+  // Check default stopword list
+  RSIndex* index = RediSearch_CreateIndex("index", NULL);
+  ASSERT_EQ(RediSearch_StopwordsList_Contains(index, "is", strlen("is")), 1);
+  ASSERT_EQ(RediSearch_StopwordsList_Contains(index, "Redis", strlen("Redis")), 0);
+  // check creation of token node
+  RSQNode *node = RediSearch_CreateTokenNode(index, "doesnt_matter", "is");
+  ASSERT_EQ((size_t)node, 0);
+  node = RediSearch_CreateTokenNode(index, "doesnt_matter", "Redis");
+  ASSERT_NE((size_t)node, 0);
+  RediSearch_QueryNodeFree(node);
+  RediSearch_DropIndex(index);
+
+  // Check custom stopword list
+  const char *words[] = {"Redis", "Labs"};
+  RSIndexOptions *options = RediSearch_CreateIndexOptions();
+  RediSearch_IndexOptionsSetStopwords(options, words, 2);
+
+  index = RediSearch_CreateIndex("index", options);
+  ASSERT_EQ(RediSearch_StopwordsList_Contains(index, words[0], strlen(words[0])), 1);
+  ASSERT_EQ(RediSearch_StopwordsList_Contains(index, words[1], strlen(words[1])), 1);
+  ASSERT_EQ(RediSearch_StopwordsList_Contains(index, "RediSearch", strlen("RediSearch")), 0);
+
+  size_t size;
+  char **list = RediSearch_IndexGetStopwords(index, &size);
+  ASSERT_EQ(size, 2);
+  ASSERT_STRCASEEQ(list[0], words[0]);
+  ASSERT_STRCASEEQ(list[1], words[1]);
+  rm_free(list[0]);
+  rm_free(list[1]);
+  rm_free(list);
+
+  RediSearch_FreeIndexOptions(options);
+  RediSearch_DropIndex(index);
+
+  // Check empty stopword list
+  options = RediSearch_CreateIndexOptions();
+  RediSearch_IndexOptionsSetStopwords(options, NULL, 0);
+
+  index = RediSearch_CreateIndex("index", options);
+  ASSERT_EQ(RediSearch_StopwordsList_Contains(index, "is", strlen("is")), 0);
+  ASSERT_EQ(RediSearch_StopwordsList_Contains(index, words[0], strlen(words[0])), 0);
+  RediSearch_FreeIndexOptions(options);
+  RediSearch_DropIndex(index);
+}
+
+TEST_F(LLApiTest, testGetters) {
+  // test defaults
+  RSIndex* index = RediSearch_CreateIndex("index", NULL);
+  ASSERT_EQ(DEFAULT_SCORE, RediSearch_IndexGetScore(index));
+  ASSERT_STREQ(RSLanguage_ToString(DEFAULT_LANGUAGE), RediSearch_IndexGetLanguage(index));
+  RediSearch_DropIndex(index);
+
+  // test custom language and score
+  RSIndexOptions *opt = RediSearch_CreateIndexOptions();
+  opt->score = 0.42;
+  opt->lang = RS_LANG_YIDDISH;
+
+  index = RediSearch_CreateIndex("index", opt);
+  ASSERT_EQ(0.42, RediSearch_IndexGetScore(index));
+  ASSERT_STREQ("yiddish", RediSearch_IndexGetLanguage(index));
+
+  RSDoc* d = RediSearch_CreateDocument2(DOCID1, strlen(DOCID1), index, NAN, NULL);
+  ASSERT_STREQ(RSLanguage_ToString(d->language), RediSearch_IndexGetLanguage(index));
+  ASSERT_EQ(d->score, (float)RediSearch_IndexGetScore(index));
+  RediSearch_FreeDocument(d);
+
+  RediSearch_FreeIndexOptions(opt);
+  RediSearch_DropIndex(index);  
 }

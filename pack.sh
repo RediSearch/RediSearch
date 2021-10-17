@@ -52,6 +52,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 ROOT=$HERE
 READIES=$ROOT/deps/readies
 . $READIES/shibumi/functions
+CURDIR="$PWD"
 
 #----------------------------------------------------------------------------------------------
 
@@ -65,7 +66,9 @@ OSNICK=$($READIES/bin/platform --osnick)
 [[ $OSNICK == trusty ]] && OSNICK=ubuntu14.04
 [[ $OSNICK == xenial ]] && OSNICK=ubuntu16.04
 [[ $OSNICK == bionic ]] && OSNICK=ubuntu18.04
+[[ $OSNICK == focal ]] && OSNICK=ubuntu20.04
 [[ $OSNICK == centos7 ]] && OSNICK=rhel7
+[[ $OSNICK == centos8 ]] && OSNICK=rhel8
 
 #----------------------------------------------------------------------------------------------
 
@@ -134,6 +137,9 @@ pack_ramp() {
 
 	local ramp="$(command -v python2) -m RAMP.ramp"
 	rm -f /tmp/ramp.fname
+	
+	# CURDIR is required so ramp will detect the right git commit
+	cd $CURDIR
 	$ramp pack -m /tmp/ramp.yml $RAMP_ARGS --packname-file /tmp/ramp.fname --verbose --debug \
 		-o $packfile $MODULE_SO >/tmp/ramp.err 2>&1 || true
 
@@ -146,6 +152,7 @@ pack_ramp() {
 	fi
 
 	echo "Created $packname"
+	cd $ROOT
 }
 
 #----------------------------------------------------------------------------------------------

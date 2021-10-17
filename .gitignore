@@ -14,6 +14,7 @@
 *.gz
 *.bz2
 *.tar
+/bin/
 /site/*
 /build*/
 /artifacts/

@@ -64,6 +64,10 @@ typedef struct Grouper {
 
   // Used for maintaining state when yielding groups
   khiter_t iter;
+
+  // timeout counter
+  uint32_t timeoutLimiter;
+  struct timespec timeout;
 } Grouper;
 
 /**
@@ -108,6 +112,14 @@ static int Grouper_rpYield(ResultProcessor *base, SearchResult *r) {
   Grouper *g = (Grouper *)base;
 
   while (g->iter != kh_end(g->groups)) {
+
+    if (++g->timeoutLimiter == DEFAULT_TIMEOUT_LIMIT) {
+      g->timeoutLimiter = 0;
+      if (TimedOut(g->timeout) == RS_RESULT_TIMEDOUT) {
+        return RS_RESULT_TIMEDOUT;
+      }
+    }
+    
     if (!kh_exist(g->groups, g->iter)) {
       g->iter++;
       continue;
@@ -289,10 +301,13 @@ void Grouper_Free(Grouper *g) {
   g->base.Free(&g->base);
 }
 
-Grouper *Grouper_New(const RLookupKey **srckeys, const RLookupKey **dstkeys, size_t nkeys) {
+Grouper *Grouper_New(const RLookupKey **srckeys, const RLookupKey **dstkeys, size_t nkeys,
+                     struct timespec *timeout) {
   Grouper *g = rm_calloc(1, sizeof(*g));
   BlkAlloc_Init(&g->groupsAlloc);
   g->groups = kh_init(khid);
+  g->timeout = *timeout;
+  g->timeoutLimiter = 0;
 
   g->srckeys = rm_calloc(nkeys, sizeof(*g->srckeys));
   g->dstkeys = rm_calloc(nkeys, sizeof(*g->dstkeys));
