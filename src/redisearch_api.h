@@ -2,6 +2,7 @@
 #define SRC_REDISEARCH_API_H_
 
 #include "redismodule.h"
+#include "stemmer.h"
 #include <limits.h>
 
 #ifdef __cplusplus
@@ -83,6 +84,10 @@ struct RSIdxOptions {
   void* gvcbData;
   uint32_t flags;
   int gcPolicy;
+  char **stopwords;
+  int stopwordsLen;
+  double score;
+  RSLanguage lang;
 };
 
 /**
@@ -98,6 +103,8 @@ MODULE_API_FUNC(RSIndexOptions*, RediSearch_CreateIndexOptions)(void);
 MODULE_API_FUNC(void, RediSearch_FreeIndexOptions)(RSIndexOptions*);
 MODULE_API_FUNC(void, RediSearch_IndexOptionsSetGetValueCallback)
 (RSIndexOptions* opts, RSGetValueCallback cb, void* ctx);
+MODULE_API_FUNC(void, RediSearch_IndexOptionsSetStopwords)
+(RSIndexOptions* opts, const char **stopwords, int stopwordsLen);
 
 /** Set flags modifying index creation. */
 MODULE_API_FUNC(void, RediSearch_IndexOptionsSetFlags)(RSIndexOptions* opts, uint32_t flags);
@@ -106,6 +113,14 @@ MODULE_API_FUNC(RSIndex*, RediSearch_CreateIndex)
 (const char* name, const RSIndexOptions* options);
 
 MODULE_API_FUNC(void, RediSearch_DropIndex)(RSIndex*);
+
+/** Handle Stopwords list */
+MODULE_API_FUNC(int, RediSearch_StopwordsList_Contains)(RSIndex* idx, const char *term, size_t len);
+
+/** Getter functions */
+MODULE_API_FUNC(char **, RediSearch_IndexGetStopwords)(RSIndex*, size_t*);
+MODULE_API_FUNC(double, RediSearch_IndexGetScore)(RSIndex*);
+MODULE_API_FUNC(const char *, RediSearch_IndexGetLanguage)(RSIndex*);
 
 /**
  * Create a new field in the index
@@ -133,8 +148,12 @@ MODULE_API_FUNC(void, RediSearch_TagFieldSetCaseSensitive)(RSIndex* sp, RSFieldI
 
 MODULE_API_FUNC(RSDoc*, RediSearch_CreateDocument)
 (const void* docKey, size_t len, double score, const char* lang);
-MODULE_API_FUNC(void, RediSearch_FreeDocument)(RSDoc* doc);
 #define RediSearch_CreateDocumentSimple(s) RediSearch_CreateDocument(s, strlen(s), 1.0, NULL)
+MODULE_API_FUNC(RSDoc*, RediSearch_CreateDocument2)
+(const void* docKey, size_t len, RSIndex* sp, double score, const char* lang);
+#define RediSearch_CreateDocument2Simple(s, sp) RediSearch_CreateDocument2(s, strlen(s), sp, NAN, NULL)
+
+MODULE_API_FUNC(void, RediSearch_FreeDocument)(RSDoc* doc);
 
 MODULE_API_FUNC(int, RediSearch_DeleteDocument)(RSIndex* sp, const void* docKey, size_t len);
 #define RediSearch_DropDocument RediSearch_DeleteDocument
@@ -155,7 +174,7 @@ MODULE_API_FUNC(void, RediSearch_DocumentAddFieldString)
   RediSearch_DocumentAddFieldString(doc, fieldname, s, strlen(s), indexAs)
 
 MODULE_API_FUNC(void, RediSearch_DocumentAddFieldNumber)
-(RSDoc* d, const char* fieldName, double n, unsigned indexAsTypes);
+(RSDoc* d, const char* fieldName, double val, unsigned indexAsTypes);
 
 /**
  * Add geo field to a document.
@@ -245,10 +264,14 @@ MODULE_API_FUNC(void, RediSearch_IndexOptionsSetGCPolicy)(RSIndexOptions* option
   X(FreeIndexOptions)                \
   X(CreateIndex)                     \
   X(DropIndex)                       \
+  X(IndexGetStopwords)               \
+  X(IndexGetScore)                   \
+  X(IndexGetLanguage)                \
   X(CreateField)                     \
   X(TextFieldSetWeight)              \
   X(TagFieldSetSeparator)            \
   X(CreateDocument)                  \
+  X(CreateDocument2)                 \
   X(DeleteDocument)                  \
   X(DocumentAddField)                \
   X(DocumentAddFieldNumber)          \

@@ -41,9 +41,9 @@ English.
    If an unsupported language is sent, the command returns an error.
    The supported languages are:
 
-   > "arabic",  "danish",    "dutch",     "english",   "finnish",    "french",
-   > "german",  "hindi",     "hungarian", "italian",   "norwegian",  "portuguese", "romanian",
-   > "russian", "spanish",   "swedish",   "tamil",     "turkish"
+   > "arabic",  "armenian",  "danish",    "dutch",     "english",   "finnish",    "french",
+   > "german",  "hindi",     "hungarian", "italian",   "norwegian", "portuguese", "romanian",
+   > "russian", "serbian",   "spanish",   "swedish",   "tamil",     "turkish",    "yiddish"
 
 
 Returns OK on success, NOADD if the document was not added due to an IF expression not evaluating to
@@ -108,7 +108,7 @@ static int parseDocumentOptions(AddDocumentOptions *opts, ArgsCursor *ac, QueryE
   }
 
   if (opts->languageStr != NULL) {
-    opts->language = RSLanguage_Find(RedisModule_StringPtrLen(opts->languageStr, NULL));
+    opts->language = RSLanguage_Find(RedisModule_StringPtrLen(opts->languageStr, NULL), 0);
     if (opts->language == RS_LANG_UNSUPPORTED) {
       QueryError_SetError(status, QUERY_EADDARGS, "Unsupported language");
       return REDISMODULE_ERR;
@@ -132,13 +132,19 @@ int RS_AddDocument(RedisSearchCtx *sctx, RedisModuleString *name, const AddDocum
   int rc = REDISMODULE_ERR;
   IndexSpec *sp = sctx->spec;
 
-  int exists;
+  int exists = -1;
   RedisModuleKey *k = RedisModule_OpenKey(sctx->redisCtx, name, REDISMODULE_READ);
   if (k == NULL || RedisModule_KeyType(k) == REDISMODULE_KEYTYPE_EMPTY) {
     exists = 0;
   } else if (RedisModule_KeyType(k) == REDISMODULE_KEYTYPE_HASH) {
     exists = 1;
-  } else {
+  }
+
+  if (k) {
+    RedisModule_CloseKey(k);
+  }
+
+  if (exists == -1) {
     QueryError_SetError(status, QUERY_EREDISKEYTYPE, NULL);
     goto done;
   }
@@ -183,9 +189,6 @@ int RS_AddDocument(RedisSearchCtx *sctx, RedisModuleString *name, const AddDocum
   rc = Redis_SaveDocument(&sctx_s, opts, status);
 
 done:
-  if (k) {
-    RedisModule_CloseKey(k);
-  }
   return rc;
 }
 

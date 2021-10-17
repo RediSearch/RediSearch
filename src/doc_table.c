@@ -183,8 +183,8 @@ int DocTable_SetByteOffsets(DocTable *t, RSDocumentMetadata *dmd, RSByteOffsets 
  * table.
  *
  * Return 0 if the document is already in the index  */
-RSDocumentMetadata *DocTable_Put(DocTable *t, const char *s, size_t n, double score,
-                                 RSDocumentFlags flags, const char *payload, size_t payloadSize) {
+RSDocumentMetadata *DocTable_Put(DocTable *t, const char *s, size_t n, double score, RSDocumentFlags flags, 
+                                 const char *payload, size_t payloadSize, DocumentType type) {
 
   t_docId xid = DocIdMap_Get(&t->dim, s, n);
   // if the document is already in the index, return 0
@@ -215,6 +215,7 @@ RSDocumentMetadata *DocTable_Put(DocTable *t, const char *s, size_t n, double sc
   dmd->maxFreq = 1;
   dmd->id = docId;
   dmd->sortVector = NULL;
+  dmd->type = type;
 
   DocTable_Set(t, docId, dmd);
   ++t->size;
@@ -315,6 +316,14 @@ RSDocumentMetadata *DocTable_Pop(DocTable *t, const char *s, size_t n) {
     }
 
     md->flags |= Document_Deleted;
+
+    t->memsize -= sizeof(RSDocumentMetadata) + sdsAllocSize(md->keyPtr);
+    if (md->payload) {
+      t->memsize -= md->payload->len + sizeof(RSPayload);
+    }
+    if (md->sortVector) {
+      t->sortablesSize -= RSSortingVector_GetMemorySize(md->sortVector);
+    }
 
     DocTable_DmdUnchain(t, md);
     DocIdMap_Delete(&t->dim, s, n);

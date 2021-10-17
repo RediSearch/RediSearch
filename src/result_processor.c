@@ -68,7 +68,7 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
   RPIndexIterator *self = (RPIndexIterator *)base;
   IndexIterator *it = self->iiter;
 
-  if (++self->timeoutLimiter == 100) {
+  if (++self->timeoutLimiter == DEFAULT_TIMEOUT_LIMIT) {
     self->timeoutLimiter = 0;
     if (TimedOut(self->timeout) == RS_RESULT_TIMEDOUT) {
       return RS_RESULT_TIMEDOUT;
@@ -291,11 +291,24 @@ typedef struct {
     uint64_t ascendMap;
   } fieldcmp;
 
+  // timeout counter
+  uint32_t timeoutLimiter;
+  struct timespec timeout;
+
 } RPSorter;
 
 /* Yield - pops the current top result from the heap */
 static int rpsortNext_Yield(ResultProcessor *rp, SearchResult *r) {
   RPSorter *self = (RPSorter *)rp;
+
+  // check timeout
+  if (++self->timeoutLimiter == DEFAULT_TIMEOUT_LIMIT) {
+    self->timeoutLimiter = 0;
+    if (TimedOut(self->timeout) == RS_RESULT_TIMEDOUT) {
+      return RS_RESULT_TIMEDOUT;
+    }
+  }
+
   // make sure we don't overshoot the heap size, unless the heap size is dynamic
   if (self->pq->count > 0 && (!self->size || self->offset++ < self->size)) {
     SearchResult *sr = mmh_pop_max(self->pq);
@@ -489,13 +502,21 @@ static void srDtor(void *p) {
 }
 
 ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys, size_t nkeys,
-                                      uint64_t ascmap) {
+                                      uint64_t ascmap, struct timespec *timeout) {
   RPSorter *ret = rm_calloc(1, sizeof(*ret));
   ret->cmp = nkeys ? cmpByFields : cmpByScore;
   ret->cmpCtx = ret;
   ret->fieldcmp.ascendMap = ascmap;
   ret->fieldcmp.keys = keys;
   ret->fieldcmp.nkeys = nkeys;
+  ret->timeout = *timeout;
+  ret->timeoutLimiter = 0;
+
+  if (RSGlobalConfig.maxAggregateResults != UINT64_MAX) {
+    maxresults = MIN(maxresults, RSGlobalConfig.maxAggregateResults);
+  } else if (RSGlobalConfig.maxSearchResults != UINT64_MAX) {
+    maxresults = MIN(maxresults, RSGlobalConfig.maxSearchResults);
+  }
 
   ret->pq = mmh_init_with_size(maxresults + 1, ret->cmp, ret->cmpCtx, srDtor);
   ret->size = maxresults;
@@ -507,8 +528,8 @@ ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys
   return &ret->base;
 }
 
-ResultProcessor *RPSorter_NewByScore(size_t maxresults) {
-  return RPSorter_NewByFields(maxresults, NULL, 0, 0);
+ResultProcessor *RPSorter_NewByScore(size_t maxresults, struct timespec *timeout) {
+  return RPSorter_NewByFields(maxresults, NULL, 0, 0, timeout);
 }
 
 void SortAscMap_Dump(uint64_t tt, size_t n) {

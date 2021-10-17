@@ -16,7 +16,11 @@ The fields `last_name` and `age` are sortable, but `first_name` isn't. This mean
 
 In the current implementation, when declaring a sortable field, its content gets copied into a special location in the index, for fast access on sorting. This means that making long text fields sortable is very expensive, and you should be careful with it.
 
-Also, note that text fields get normalized and lowercased in a Unicode-safe way when stored for sorting and currently there is no way to change this behaviour. This means that `America` and `america` are considered equal in terms of sorting.
+### Normalization (UNF option)
+
+By default, text fields get normalized and lowercased in a Unicode-safe way when stored for sorting. This means that `America` and `america` are considered equal in terms of sorting.
+
+Using the argument UNF (un-normalized form) it is possible to disable the normalization and keep the original form of the value. Therefore, `America` will come before `america`.
 
 ## Specifying SORTBY
 

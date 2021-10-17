@@ -781,7 +781,9 @@ IndexIterator *NewIntersecIterator(IndexIterator **its_, size_t num, DocTable *d
   ctx->num = num;
 
   // Sort children iterators from low count to high count which reduces the number of iterations.
-  qsort(ctx->its, ctx->num, sizeof(*ctx->its), (CompareFunc)cmpIter);
+  if (!ctx->inOrder) {
+    qsort(ctx->its, ctx->num, sizeof(*ctx->its), (CompareFunc)cmpIter);
+  }
 
   // bind the iterator calls
   IndexIterator *it = &ctx->base;
@@ -1058,25 +1060,21 @@ typedef struct {
 
 static void NI_Abort(void *ctx) {
   NotContext *nc = ctx;
-  if (nc->child) {
-    nc->child->Abort(nc->child->ctx);
-  }
+  nc->child->Abort(nc->child->ctx);
 }
 
 static void NI_Rewind(void *ctx) {
   NotContext *nc = ctx;
   nc->lastDocId = 0;
   nc->base.current->docId = 0;
-  if (nc->child) {
-    nc->child->Rewind(nc->child->ctx);
-  }
+  nc->child->Rewind(nc->child->ctx);
 }
+
 static void NI_Free(IndexIterator *it) {
 
   NotContext *nc = it->ctx;
-  if (nc->child) {
-    nc->child->Free(nc->child);
-  }
+  nc->child->Free(nc->child);
+
   if (nc->childCT) {
     nc->childCT->Free(nc->childCT);
   }
@@ -1092,11 +1090,6 @@ static int NI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
   // do not skip beyond max doc id
   if (docId > nc->maxDocId) {
     return INDEXREAD_EOF;
-  }
-  // If we don't have a child it means the sub iterator is of a meaningless expression.
-  // So negating it means we will always return OK!
-  if (!nc->child) {
-    goto ok;
   }
 
   // Get the child's last read docId
@@ -1149,9 +1142,6 @@ static void NI_TesterFree(struct IndexCriteriaTester *ct) {
 
 static IndexCriteriaTester *NI_GetCriteriaTester(void *ctx) {
   NotContext *nc = ctx;
-  if (!nc->child) {
-    return NULL;
-  }
   IndexCriteriaTester *ct = IITER_GET_CRITERIA_TESTER(nc->child);
   if (!ct) {
     return NULL;
@@ -1190,12 +1180,10 @@ static int NI_ReadSorted(void *ctx, RSIndexResult **hit) {
 
   RSIndexResult *cr = NULL;
   // if we have a child, get the latest result from the child
-  if (nc->child) {
-    cr = IITER_CURRENT_RECORD(nc->child);
+  cr = IITER_CURRENT_RECORD(nc->child);
 
-    if (cr == NULL || cr->docId == 0) {
-      nc->child->Read(nc->child->ctx, &cr);
-    }
+  if (cr == NULL || cr->docId == 0) {
+    nc->child->Read(nc->child->ctx, &cr);
   }
 
   // advance our reader by one, and let's test if it's a valid value or not
@@ -1253,12 +1241,11 @@ static t_docId NI_LastDocId(void *ctx) {
 }
 
 IndexIterator *NewNotIterator(IndexIterator *it, t_docId maxDocId, double weight) {
-
   NotContext *nc = rm_malloc(sizeof(*nc));
   nc->base.current = NewVirtualResult(weight);
   nc->base.current->fieldMask = RS_FIELDMASK_ALL;
   nc->base.current->docId = 0;
-  nc->child = it;
+  nc->child = it ? it : NewEmptyIterator();
   nc->childCT = NULL;
   nc->lastDocId = 0;
   nc->maxDocId = maxDocId;
@@ -1280,7 +1267,7 @@ IndexIterator *NewNotIterator(IndexIterator *it, t_docId maxDocId, double weight
   ret->Rewind = NI_Rewind;
   ret->mode = MODE_SORTED;
 
-  if (nc->child && nc->child->mode == MODE_UNSORTED) {
+  if (nc->child->mode == MODE_UNSORTED) {
     nc->childCT = IITER_GET_CRITERIA_TESTER(nc->child);
     RS_LOG_ASSERT(nc->childCT, "childCT should not be NULL");
     ret->Read = NI_ReadUnsorted;
@@ -1476,7 +1463,7 @@ IndexIterator *NewOptionalIterator(IndexIterator *it, t_docId maxDocId, double w
   nc->virt->fieldMask = RS_FIELDMASK_ALL;
   nc->virt->freq = 1;
   nc->base.current = nc->virt;
-  nc->child = it;
+  nc->child = it ? it : NewEmptyIterator();
   nc->childCT = NULL;
   nc->lastDocId = 0;
   nc->maxDocId = maxDocId;
@@ -1502,9 +1489,6 @@ IndexIterator *NewOptionalIterator(IndexIterator *it, t_docId maxDocId, double w
     nc->childCT = IITER_GET_CRITERIA_TESTER(nc->child);
     RS_LOG_ASSERT(nc->childCT, "childCT should not be NULL");
     ret->Read = OI_ReadUnsorted;
-  }
-  if (!nc->child) {
-    nc->child = NewEmptyIterator();
   }
 
   return ret;
@@ -1653,6 +1637,7 @@ static IndexIterator eofIterator = {.Read = EOI_Read,
                                     .NumEstimated = EOI_NumEstimated,
                                     .Abort = EOI_Abort,
                                     .Rewind = EOI_Rewind,
+                                    .mode = MODE_SORTED,
                                     .type = EMPTY_ITERATOR};
 
 IndexIterator *NewEmptyIterator(void) {
@@ -1817,7 +1802,7 @@ PRINT_PROFILE_FUNC(printUnionIt) {
     nlen += 2;
   }
 
-  RedisModule_ReplyWithSimpleString(ctx, "Children iterators");
+  RedisModule_ReplyWithSimpleString(ctx, "Child iterators");
   nlen++;
   if (printFull) {
     for (int i = 0; i < ui->norig; i++) {
@@ -1825,7 +1810,7 @@ PRINT_PROFILE_FUNC(printUnionIt) {
     }
     nlen += ui->norig;
   } else {
-    RedisModule_ReplyWithPrintf(ctx, "The number of iterators in union is %d", ui->norig);
+    RedisModule_ReplyWithPrintf(ctx, "The number of iterators in the union is %d", ui->norig);
     nlen++;
   }
 
@@ -1849,7 +1834,7 @@ PRINT_PROFILE_FUNC(printIntersectIt) {
   printProfileCounter(counter);
   nlen += 2;
 
-  RedisModule_ReplyWithSimpleString(ctx, "Children iterators");
+  RedisModule_ReplyWithSimpleString(ctx, "Child iterators");
   nlen++;
   for (int i = 0; i < ii->num; i++) {
     if (ii->its[i]) {
@@ -1938,14 +1923,11 @@ void Profile_AddIters(IndexIterator **root) {
   // Add profile iterator before child iterators
   switch((*root)->type) {
     case NOT_ITERATOR:
-      Profile_AddIters(&((NotIterator *)root)->child);
+      Profile_AddIters(&((NotIterator *)((*root)->ctx))->child);
       break;
     case OPTIONAL_ITERATOR:
-      Profile_AddIters(&((OptionalIterator *)root)->child);
+      Profile_AddIters(&((OptionalIterator *)((*root)->ctx))->child);
       break;
-    case WILDCARD_ITERATOR:
-      Profile_AddIters(&((NotIterator *)root)->child);
-      break;     
     case UNION_ITERATOR:
       ui = (*root)->ctx;
       for (int i = 0; i < ui->norig; i++) {
@@ -1959,6 +1941,7 @@ void Profile_AddIters(IndexIterator **root) {
         Profile_AddIters(&(ini->its[i]));
       }
       break;
+    case WILDCARD_ITERATOR:
     case READ_ITERATOR:
     case EMPTY_ITERATOR:
     case ID_LIST_ITERATOR:

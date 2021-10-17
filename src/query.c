@@ -646,9 +646,27 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
   return NewUnionIterator(its, itsSz, q->docTable, 1, weight, QN_PREFIX, qn->pfx.str);
 }
 
+static void tag_strtolower(char *str, size_t *len) {
+  char *p = str;
+  while (*p) {
+    if (*p == '\\') {
+      ++p;
+      --*len;
+    }
+    *str++ = tolower(*p++);
+  }
+  *str = '\0';
+}
+
 static IndexIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, QueryNode *n,
-                                              IndexIteratorArray *iterout, double weight) {
+                                              IndexIteratorArray *iterout, double weight,
+                                              int caseSensitive) {
   IndexIterator *ret = NULL;
+
+  if (n->tn.str && !caseSensitive) {
+    tag_strtolower(n->tn.str, &n->tn.len);
+  }
+
   switch (n->type) {
     case QN_TOKEN: {
       ret = TagIndex_OpenReader(idx, q->sctx->spec, n->tn.str, n->tn.len, weight);
@@ -708,7 +726,8 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
   }
   // a union stage with one child is the same as the child, so we just return it
   if (QueryNode_NumChildren(qn) == 1) {
-    ret = query_EvalSingleTagNode(q, idx, qn->children[0], &total_its, qn->opts.weight);
+    ret = query_EvalSingleTagNode(q, idx, qn->children[0], &total_its, qn->opts.weight,
+                                  fs->tagFlags & TagField_CaseSensitive);
     if (ret) {
       if (q->conc) {
         TagIndex_RegisterConcurrentIterators(idx, q->conc, (array_t *)total_its);
@@ -725,7 +744,8 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
   size_t n = 0;
   for (size_t i = 0; i < QueryNode_NumChildren(qn); i++) {
     IndexIterator *it =
-        query_EvalSingleTagNode(q, idx, qn->children[i], &total_its, qn->opts.weight);
+        query_EvalSingleTagNode(q, idx, qn->children[i], &total_its, qn->opts.weight,
+                                fs->tagFlags & TagField_CaseSensitive);
     if (it) {
       iters[n++] = it;
     }
@@ -869,7 +889,6 @@ int QAST_Expand(QueryAST *q, const char *expander, RSSearchOptions *opts, RedisS
     return REDISMODULE_ERR;
   }
   return REDISMODULE_OK;
-  ;
 }
 
 /* Set the field mask recursively on a query node. This is called by the parser to handle
@@ -1153,7 +1172,7 @@ static int QueryNode_ApplyAttribute(QueryNode *qn, QueryAttribute *attr, QueryEr
       qn->opts.phonetic = PHONETIC_ENABLED;  // means we specifically asked for phonetic matching
     } else {
       qn->opts.phonetic =
-          PHONETIC_DESABLED;  // means we specifically asked no for phonetic matching
+          PHONETIC_DISABLED;  // means we specifically asked no for phonetic matching
     }
     // qn->opts.noPhonetic = PHONETIC_DEFAULT -> means no special asks regarding phonetics
     //                                          will be enable if field was declared phonetic

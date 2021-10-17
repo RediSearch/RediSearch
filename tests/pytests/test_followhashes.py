@@ -2,7 +2,7 @@
 
 import unittest
 from includes import *
-from common import getConnectionByEnv, waitForIndex, sortedResults, toSortedFlatList
+from common import *
 from time import sleep
 from RLTest import Env
 
@@ -129,8 +129,8 @@ def testIdxField(env):
     conn.execute_command('hset', 'doc1', 'name', 'foo', 'indexName', 'idx1')
     conn.execute_command('hset', 'doc2', 'name', 'bar', 'indexName', 'idx2')
 
-    env.expect('ft.search', 'idx1', '*').equal([1L, 'doc1', ['name', 'foo', 'indexName', 'idx1']])
-    env.expect('ft.search', 'idx2', '*').equal([1L, 'doc2', ['name', 'bar', 'indexName', 'idx2']])
+    env.assertEqual(toSortedFlatList(env.cmd('ft.search', 'idx1', '*')), toSortedFlatList([1L, 'doc1', ['name', 'foo', 'indexName', 'idx1']]))
+    env.assertEqual(toSortedFlatList(env.cmd('ft.search', 'idx2', '*')), toSortedFlatList([1L, 'doc2', ['name', 'bar', 'indexName', 'idx2']]))
 
 def testDel(env):
     conn = getConnectionByEnv(env)
@@ -172,6 +172,9 @@ def testRename(env):
     env.expect('RENAME thing:foo otherthing:foo').ok()
     env.expect('ft.search things foo').equal([0L])
     env.expect('ft.search otherthings foo').equal([1L, 'otherthing:foo', ['name', 'foo']])
+
+    env.cmd('SET foo bar')
+    env.cmd('RENAME foo fubu')
 
 def testFlush(env):
     conn = getConnectionByEnv(env)
@@ -254,6 +257,7 @@ def testReplace(env):
     env.assertEqual(res, 0)
 
     for _ in r.retry_with_rdb_reload():
+        waitForRdbSaveToFinish(env)
         waitForIndex(env, 'idx')
         # make sure the query for hello world does not return the replaced document
         r.expect('ft.search', 'idx', 'hello world', 'nocontent').equal([1, 'doc2'])
@@ -368,10 +372,7 @@ def testInfo(env):
     res_actual = env.cmd('FT.INFO test')
     res_expected = ['key_type', 'HASH',
                     'prefixes', [''],
-                    'language_field', '__language',
-                    'default_score', '1',
-                    'score_field', '__score',
-                    'payload_field', '__payload']
+                    'default_score', '1']
     env.assertEqual(res_actual[5], res_expected)
 
 def testCreateDropCreate(env):
@@ -492,6 +493,7 @@ def testExpire(env):
 
 def testEvicted(env):
     env.skipOnCluster()
+    skipOnCrdtEnv(env)
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE idx SCHEMA test TEXT').equal('OK')
 
@@ -509,6 +511,7 @@ def testEvicted(env):
     res = env.cmd('FT.SEARCH idx foo limit 0 0')
     env.assertLess(res[0], 1000)
     env.assertGreater(res[0], 0)
+    conn.execute_command('CONFIG', 'SET', 'MAXMEMORY', 0)
 
 def createExpire(env, N):
   env.flush()
@@ -567,7 +570,7 @@ def testSkipInitialScan(env):
     # Regular
     env.expect('FT.CREATE idx SCHEMA test TEXT').ok()
     waitForIndex(env, 'idx')
-    env.expect('FT.SEARCH idx hello').equal([1L, 'a', ['test', 'hello', 'text', 'world']])
+    env.assertEqual(toSortedFlatList(env.cmd('FT.SEARCH idx hello')), toSortedFlatList([1L, 'a', ['test', 'hello', 'text', 'world']]))
     # SkipInitialIndex
     env.expect('FT.CREATE idx_no_scan SKIPINITIALSCAN SCHEMA test TEXT').ok()
     waitForIndex(env, 'idx_no_scan')
@@ -575,7 +578,7 @@ def testSkipInitialScan(env):
     # Temporary
     env.expect('FT.CREATE temp_idx TEMPORARY 10 SCHEMA test TEXT').ok()
     waitForIndex(env, 'temp_idx')
-    env.expect('FT.SEARCH temp_idx hello').equal([1L, 'a', ['test', 'hello', 'text', 'world']])
+    env.assertEqual(toSortedFlatList(env.cmd('FT.SEARCH temp_idx hello')), toSortedFlatList([1L, 'a', ['test', 'hello', 'text', 'world']]))
     # Temporary & NoInitialIndex
     env.expect('FT.CREATE temp_idx_no_scan SKIPINITIALSCAN TEMPORARY 10 SCHEMA test TEXT').equal('OK')
     waitForIndex(env, 'temp_idx_no_scan')
@@ -587,7 +590,7 @@ def testWrongFieldType(env):
     conn.execute_command('HSET', 'a', 't', 'hello', 'n', '42')
     conn.execute_command('HSET', 'b', 't', 'hello', 'n', 'world')
 
-    env.expect('FT.SEARCH idx hello').equal([1L, 'a', ['t', 'hello', 'n', '42']])
+    env.assertEqual(toSortedFlatList(env.cmd('FT.SEARCH idx hello')), toSortedFlatList([1L, 'a', ['t', 'hello', 'n', '42']]))
 
     res_actual = env.cmd('FT.INFO idx')
     res_actual = {res_actual[i]: res_actual[i + 1] for i in range(0, len(res_actual), 2)}
@@ -617,7 +620,8 @@ def testCountry(env):
     conn.execute_command('hset', 'address:1', 'business', 'foo', 'country', 'usa')
     conn.execute_command('hset', 'address:2', 'business', 'bar', 'country', 'israel')
 
-    env.expect('ft.search', 'idx1', '*').equal([1L, 'address:1', ['business', 'foo', 'country', 'usa']])
+    res = env.cmd('ft.search', 'idx1', '*')
+    env.assertEqual(toSortedFlatList(res), toSortedFlatList([1L, 'address:1', ['business', 'foo', 'country', 'usa']]))
 
 def testIssue1571(env):
     conn = getConnectionByEnv(env)
@@ -627,7 +631,7 @@ def testIssue1571(env):
 
     conn.execute_command('hset', 'doc1', 't', 'foo1', 'index', 'yes')
 
-    env.expect('ft.search', 'idx', 'foo*').equal([1L, 'doc1', ['t', 'foo1', 'index', 'yes']])
+    env.assertEqual(toSortedFlatList(env.cmd('ft.search', 'idx', 'foo*')), toSortedFlatList([1L, 'doc1', ['t', 'foo1', 'index', 'yes']]))
 
     conn.execute_command('hset', 'doc1', 'index', 'no')
 
@@ -639,7 +643,7 @@ def testIssue1571(env):
 
     conn.execute_command('hset', 'doc1', 'index', 'yes')
 
-    env.expect('ft.search', 'idx', 'foo*').equal([1L, 'doc1', ['t', 'foo2', 'index', 'yes']])
+    env.assertEqual(toSortedFlatList(env.cmd('ft.search', 'idx', 'foo*')), toSortedFlatList([1L, 'doc1', ['t', 'foo2', 'index', 'yes']]))
 
 def testIssue1571WithRename(env):
     conn = getConnectionByEnv(env)
@@ -654,12 +658,12 @@ def testIssue1571WithRename(env):
 
     conn.execute_command('hset', 'idx1:{doc}1', 't', 'foo1', 'index', 'yes')
 
-    env.expect('ft.search', 'idx1', 'foo*').equal([1L, 'idx1:{doc}1', ['t', 'foo1', 'index', 'yes']])
+    env.assertEqual(toSortedFlatList(env.cmd('ft.search', 'idx1', 'foo*')), toSortedFlatList([1L, 'idx1:{doc}1', ['t', 'foo1', 'index', 'yes']]))
     env.expect('ft.search', 'idx2', 'foo*').equal([0L])
 
     conn.execute_command('rename', 'idx1:{doc}1', 'idx2:{doc}1')
 
-    env.expect('ft.search', 'idx2', 'foo*').equal([1L, 'idx2:{doc}1', ['t', 'foo1', 'index', 'yes']])
+    env.assertEqual(toSortedFlatList(env.cmd('ft.search', 'idx2', 'foo*')), toSortedFlatList([1L, 'idx2:{doc}1', ['t', 'foo1', 'index', 'yes']]))
     env.expect('ft.search', 'idx1', 'foo*').equal([0L])
 
     conn.execute_command('hset', 'idx2:{doc}1', 'index', 'no')
@@ -674,7 +678,7 @@ def testIssue1571WithRename(env):
 
     conn.execute_command('hset', 'idx1:{doc}1', 'index', 'yes')
 
-    env.expect('ft.search', 'idx1', 'foo*').equal([1L, 'idx1:{doc}1', ['t', 'foo1', 'index', 'yes']])
+    env.assertEqual(toSortedFlatList(env.cmd('ft.search', 'idx1', 'foo*')), toSortedFlatList([1L, 'idx1:{doc}1', ['t', 'foo1', 'index', 'yes']]))
     env.expect('ft.search', 'idx2', 'foo*').equal([0L])
 
 

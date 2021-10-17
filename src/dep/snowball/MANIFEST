@@ -1,4 +1,4 @@
-README
+README.rst
 src_c/stem_ISO_8859_1_basque.c
 src_c/stem_ISO_8859_1_basque.h
 src_c/stem_ISO_8859_1_catalan.c
@@ -39,6 +39,8 @@ src_c/stem_KOI8_R_russian.c
 src_c/stem_KOI8_R_russian.h
 src_c/stem_UTF_8_arabic.c
 src_c/stem_UTF_8_arabic.h
+src_c/stem_UTF_8_armenian.c
+src_c/stem_UTF_8_armenian.h
 src_c/stem_UTF_8_basque.c
 src_c/stem_UTF_8_basque.h
 src_c/stem_UTF_8_catalan.c
@@ -81,6 +83,8 @@ src_c/stem_UTF_8_romanian.c
 src_c/stem_UTF_8_romanian.h
 src_c/stem_UTF_8_russian.c
 src_c/stem_UTF_8_russian.h
+src_c/stem_UTF_8_serbian.c
+src_c/stem_UTF_8_serbian.h
 src_c/stem_UTF_8_spanish.c
 src_c/stem_UTF_8_spanish.h
 src_c/stem_UTF_8_swedish.c
@@ -89,6 +93,8 @@ src_c/stem_UTF_8_tamil.c
 src_c/stem_UTF_8_tamil.h
 src_c/stem_UTF_8_turkish.c
 src_c/stem_UTF_8_turkish.h
+src_c/stem_UTF_8_yiddish.c
+src_c/stem_UTF_8_yiddish.h
 runtime/api.c
 runtime/api.h
 runtime/header.h

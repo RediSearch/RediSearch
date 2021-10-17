@@ -76,7 +76,9 @@ typedef struct RLookupKey {
 
   uint32_t refcnt;
 
-  /** Name of this field */
+  /** Path and name of this field
+   *  path AS name */
+  const char *path;
   const char *name;
 
   /** Size of this field */
@@ -261,7 +263,7 @@ static inline RSValue *RLookup_GetItem(const RLookupKey *key, const RLookupRow *
     if (key->flags & RLOOKUP_F_SVSRC) {
       if (row->sv && row->sv->len > key->svidx) {
         ret = row->sv->values[key->svidx];
-        if (ret != NULL && ret->t == RSValue_Null) {
+        if (ret != NULL && ret == RS_NullVal()) {
           ret = NULL;
         }
       }
