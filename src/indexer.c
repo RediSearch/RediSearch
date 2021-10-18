@@ -207,7 +207,7 @@ static int writeMergedEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, 
  * nothing to merge.
  */
 static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
-  RS_LOG_ASSERT(ctx, "ctx shound not be NULL");
+  RS_LOG_ASSERT(ctx, "ctx should not be NULL");
   
   ForwardIndexIterator it = ForwardIndex_Iterate(aCtx->fwIdx);
   ForwardIndexEntry *entry = ForwardIndexIterator_Next(&it);
@@ -258,7 +258,7 @@ static RSDocumentMetadata *makeDocumentId(RSAddDocumentCtx *aCtx, RedisSearchCtx
   const char *s = RedisModule_StringPtrLen(doc->docKey, &n);
 
   RSDocumentMetadata *dmd =
-      DocTable_Put(table, s, n, doc->score, aCtx->docFlags, doc->payload, doc->payloadSize);
+      DocTable_Put(table, s, n, doc->score, aCtx->docFlags, doc->payload, doc->payloadSize, doc->type);
   if (dmd) {
     doc->docId = dmd->id;
     ++spec->stats.numDocuments;
@@ -318,7 +318,7 @@ static void indexBulkFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
     for (size_t ii = 0; ii < doc->numFields; ++ii) {
       const FieldSpec *fs = cur->fspecs + ii;
       FieldIndexerData *fdata = cur->fdatas + ii;
-      if (fs->name == NULL || fs->types == INDEXFLD_T_FULLTEXT || !FieldSpec_IsIndexable(fs)) {
+      if (fs->types == INDEXFLD_T_FULLTEXT || !FieldSpec_IsIndexable(fs)) {
         continue;
       }
       IndexBulkData *bulk = &bData[fs->index];

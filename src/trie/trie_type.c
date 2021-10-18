@@ -12,6 +12,7 @@
 #include <string.h>
 #include <limits.h>
 #include "rmalloc.h"
+#include "rdb.h"
 
 Trie *NewTrie() {
   Trie *tree = rm_malloc(sizeof(Trie));
@@ -170,7 +171,7 @@ Vector *Trie_Search(Trie *tree, const char *s, size_t len, size_t num, int maxDi
     }
     TrieSearchResult *ent = pooledEntry;
 
-    ent->score = slen > 0 && slen == rlen && memcmp(runes, rstr, slen) == 0 ? INT_MAX : score;
+    ent->score = slen > 0 && slen == rlen && memcmp(runes, rstr, slen) == 0 ? (float)INT_MAX : score;
 
     if (maxDist > 0) {
       // factor the distance into the score
@@ -305,16 +306,18 @@ void *TrieType_RdbLoad(RedisModuleIO *rdb, int encver) {
 }
 void *TrieType_GenericLoad(RedisModuleIO *rdb, int loadPayloads) {
 
-  uint64_t elements = RedisModule_LoadUnsigned(rdb);
-  Trie *tree = NewTrie();
+  Trie *tree = NULL;
+  char *str = NULL;
+  uint64_t elements = LoadUnsigned_IOError(rdb, goto cleanup);
+  tree = NewTrie();
 
   while (elements--) {
     size_t len;
     RSPayload payload = {.data = NULL, .len = 0};
-    char *str = RedisModule_LoadStringBuffer(rdb, &len);
-    double score = RedisModule_LoadDouble(rdb);
+    str = LoadStringBuffer_IOError(rdb, &len, goto cleanup);
+    double score = LoadDouble_IOError(rdb, goto cleanup);
     if (loadPayloads) {
-      payload.data = RedisModule_LoadStringBuffer(rdb, &payload.len);
+      payload.data = LoadStringBuffer_IOError(rdb, &payload.len, goto cleanup);
       // load an extra space for the null terminator
       payload.len--;
     }
@@ -324,6 +327,15 @@ void *TrieType_GenericLoad(RedisModuleIO *rdb, int loadPayloads) {
   }
   // TrieNode_Print(tree->root, 0, 0);
   return tree;
+
+cleanup:
+  if (str) {
+    RedisModule_Free(str);
+  }
+  if (tree) {
+    TrieType_Free(tree);
+  }
+  return NULL;
 }
 
 void TrieType_RdbSave(RedisModuleIO *rdb, void *value) {

@@ -8,6 +8,8 @@
 #include "util/arr.h"
 #include "rmutil/rm_assert.h"
 
+extern RedisModuleCtx *RSDummyContext;
+
 static uint32_t tagUniqueId = 0;
 
 // Tags are limited to 4096 each
@@ -55,13 +57,14 @@ char *TagIndex_SepString(char sep, char **s, size_t *toklen) {
   return start;
 }
 
-/* Preprocess a document tag field, returning a vector of all tags split from the content */
-char **TagIndex_Preprocess(char sep, TagFieldFlags flags, const DocumentField *data) {
-  size_t sz;
-  char *p = (char *)RedisModule_StringPtrLen(data->text, &sz);
-  if (!p || sz == 0) return NULL;
-  char **ret = array_new(char *, 4);
-  char *pp = p = rm_strndup(p, sz);
+static int tokenizeTagString(const char *str, char sep, TagFieldFlags flags, char ***resArray) {
+  if (sep == TAG_FIELD_DEFAULT_JSON_SEP) {
+    *resArray = array_append(*resArray, rm_strdup(str));
+    return REDISMODULE_OK;
+  }
+
+  char *p;
+  char *pp = p = rm_strdup(str);  
   while (p) {
     // get the next token
     size_t toklen;
@@ -70,14 +73,32 @@ char **TagIndex_Preprocess(char sep, TagFieldFlags flags, const DocumentField *d
     if (tok == NULL) break;
     if (toklen > 0) {
       // lowercase the string (TODO: non latin lowercase)
-      if (!(flags & TagField_CaseSensitive)) {
+      if (!(flags & TagField_CaseSensitive)) { // check case sensitive
         tok = strtolower(tok);
       }
       tok = rm_strndup(tok, MIN(toklen, MAX_TAG_LEN));
-      ret = array_append(ret, tok);
+      *resArray = array_append(*resArray, tok);
     }
   }
   rm_free(pp);
+  return REDISMODULE_OK;
+}
+
+/* Preprocess a document tag field, returning a vector of all tags split from the content */
+char **TagIndex_Preprocess(char sep, TagFieldFlags flags, const DocumentField *data) {
+  char **ret = array_new(char *, 4);
+  if (data->unionType == FLD_VAR_T_RMS) {
+    const char *str = (char *)RedisModule_StringPtrLen(data->text, NULL);
+    tokenizeTagString(str, sep, flags, &ret);
+  } else if (data->unionType == FLD_VAR_T_CSTR) {
+    tokenizeTagString(data->strval, sep, flags, &ret);
+  } else if (data->unionType == FLD_VAR_T_ARRAY) {
+    for (int i = 0; i < data->arrayLen; i++) {
+      tokenizeTagString(data->multiVal[i], sep, flags, &ret);
+    }
+  } else {
+    RS_LOG_ASSERT(0, "nope")
+  }
   return ret;
 }
 
@@ -115,8 +136,8 @@ size_t TagIndex_Index(TagIndex *idx, const char **values, size_t n, t_docId docI
 }
 
 typedef struct {
+  TagIndex *idx;
   IndexIterator **its;
-  uint32_t uid;
 } TagConcCtx;
 
 static void TagReader_OnReopen(void *privdata) {
@@ -128,6 +149,20 @@ static void TagReader_OnReopen(void *privdata) {
   // If the key is valid, we just reset the reader's buffer reader to the current block pointer
   for (size_t ii = 0; ii < nits; ++ii) {
     IndexReader *ir = its[ii]->ctx;
+    if (ir->record->type == RSResultType_Term) {
+      // we need to reopen the inverted index to make sure its still valid.
+      // the GC might have deleted it by now.
+      InvertedIndex *idx = TagIndex_OpenIndex(ctx->idx, ir->record->term.term->str,
+                                                    ir->record->term.term->len, 0);
+      if (idx == TRIEMAP_NOTFOUND || ir->idx != idx) {
+        // the inverted index was collected entirely by GC, lets stop searching.
+        // notice, it might be that a new inverted index was created, we will not
+        // continue read those results and we are not promise that documents
+        // that was added during cursor life will be returned by the cursor.
+        IR_Abort(ir);
+        return;
+      }
+    }
 
     // the gc marker tells us if there is a chance the keys has undergone GC while we were asleep
     if (ir->gcMarker == ir->idx->gcMarker) {
@@ -163,7 +198,7 @@ static void concCtxFree(void *p) {
 void TagIndex_RegisterConcurrentIterators(TagIndex *idx, ConcurrentSearchCtx *conc,
                                           array_t *iters) {
   TagConcCtx *tctx = rm_calloc(1, sizeof(*tctx));
-  tctx->uid = idx->uniqueId;
+  tctx->idx = idx;
   tctx->its = (IndexIterator **)iters;
   ConcurrentSearch_AddKey(conc, TagReader_OnReopen, tctx, concCtxFree);
 }

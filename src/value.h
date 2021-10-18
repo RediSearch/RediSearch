@@ -206,9 +206,12 @@ static inline int RSValue_IsString(const RSValue *value) {
                    value->t == RSValue_OwnRstring);
 }
 
+/* Create a new NULL RSValue */
+RSValue *RS_NullVal();
+
 /* Return 1 if the value is NULL, RSValue_Null or a reference to RSValue_Null */
 static inline int RSValue_IsNull(const RSValue *value) {
-  if (!value || value->t == RSValue_Null) return 1;
+  if (!value || value == RS_NullVal()) return 1;
   if (value->t == RSValue_Reference) return RSValue_IsNull(value->ref);
   return 0;
 }
@@ -267,7 +270,7 @@ static inline uint64_t RSValue_Hash(const RSValue *v, uint64_t hval) {
       return fnv_64a_buf((void *)c, sz, hval);
     }
     case RSValue_Null:
-      return 1337;  // TODO: fix...
+      return hval + 1;
 
     case RSValue_Array: {
       for (uint32_t i = 0; i < v->arrval.len; i++) {
@@ -322,9 +325,6 @@ RSValue *RS_StringArray(char **strs, uint32_t sz);
 
 /* Initialize all strings in the array with a given string type */
 RSValue *RS_StringArrayT(char **strs, uint32_t sz, RSStringType st);
-
-/* Create a new NULL RSValue */
-RSValue *RS_NullVal();
 
 /* Compare 2 values for sorting */
 int RSValue_Cmp(const RSValue *v1, const RSValue *v2, QueryError *status);
