@@ -397,7 +397,7 @@ workflows:
       - debug-msan:
           <<: *on-any-branch
       - valgrind-memcheck:
-          <<: *on-any-branch
+          <<: *never
       - coverage:
           context: common
           <<: *on-any-branch
