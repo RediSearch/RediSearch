@@ -14,7 +14,7 @@ import gevent.server
 import gevent.socket
 import time
 
-from common import getConnectionByEnv, waitForIndex, sortedResults, toSortedFlatList, TimeLimit
+from common import *
 from includes import *
 
 CREATE_INDICES_TARGET_DIR = '/tmp/test'
@@ -42,7 +42,7 @@ RDBS_EXPECTED_INDICES = [
 
 RDBS = []
 RDBS.extend(RDBS_SHORT_READS)
-if (not IS_CODE_COVERAGE) and (not IS_SANITIZER) and IS_SHORT_READ_FULL_TEST:
+if not IS_CODE_COVERAGE and SANITIZER == '' and IS_SHORT_READ_FULL_TEST:
     RDBS.extend(RDBS_COMPATIBILITY)
     RDBS_EXPECTED_INDICES.append(ExpectedIndex(1, 'idx', [1000]))
 
@@ -195,6 +195,9 @@ def add_index(env, isHash, index_name, key_suffix, num_prefs, num_keys):
 
 def testCreateIndexRdbFiles(env):
     create_indices(env, 'redisearch_2.2.0.rdb', 'idxSearch', True, False)
+
+@no_msan
+def testCreateIndexRdbFilesWithJSON(env):
     create_indices(env, 'rejson_2.0.0.rdb', 'idxJson', False, True)
     create_indices(env, 'redisearch_2.2.0_rejson_2.0.0.rdb', 'idxSearchJson', True, True)
 
@@ -450,7 +453,7 @@ class Debug:
 
         env.debugPrint(name + ': %d out of %d \n%s' % (self.dbg_ndx, total_len, self.dbg_str))
 
-
+@no_msan
 def testShortReadSearch(env):
     if IS_CODE_COVERAGE:
         env.skip()  # FIXME: enable coverage test

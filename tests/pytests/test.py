@@ -2294,6 +2294,7 @@ def testIssue621(env):
 # 127.0.0.1:6379> ft.add foo "ft:foo/two" 1 FIELDS bar "four five six"
 # Could not connect to Redis at 127.0.0.1:6379: Connection refused
 
+@unstable
 def testPrefixDeletedExpansions(env):
     env.skipOnCluster()
 
@@ -2362,7 +2363,7 @@ def testCriteriaTesterDeactivated():
     env.cmd('ft.add', 'idx', 'doc1', 1, 'fields', 't1', 'hello1 hey hello2')
     env.cmd('ft.add', 'idx', 'doc2', 1, 'fields', 't1', 'hello2 hey')
     env.cmd('ft.add', 'idx', 'doc3', 1, 'fields', 't1', 'hey')
-    
+
     expected_res = sorted([2L, 'doc1', ['t1', 'hello1 hey hello2'], 'doc2', ['t1', 'hello2 hey']])
     actual_res = sorted(env.cmd('ft.search', 'idx', '(hey hello1)|(hello2 hey)'))
     env.assertEqual(expected_res, actual_res)
@@ -3271,7 +3272,7 @@ def testSchemaWithAs(env):
   conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'txt', 'AS', 'foo', 'TEXT')
   conn.execute_command('HSET', 'a', 'txt', 'hello')
   conn.execute_command('HSET', 'b', 'foo', 'world')
-  
+
   for _ in env.retry_with_rdb_reload():
     env.expect('ft.search idx @txt:hello').equal([0L])
     env.expect('ft.search idx @txt:world').equal([0L])
@@ -3298,7 +3299,7 @@ def testSchemaWithAs(env):
     env.expect('ft.search idx hello RETURN 1 not_exist').equal([1L, 'a', []])
 
     env.expect('ft.search idx hello RETURN 3 txt as as').error().contains('Alias for RETURN cannot be `AS`')
-    
+
     # LOAD for FT.AGGREGATE
     # for path - can rename
     env.expect('ft.aggregate', 'idx', 'hello', 'LOAD', '1', '@txt').equal([1L, ['txt', 'hello']])
@@ -3307,7 +3308,7 @@ def testSchemaWithAs(env):
     # for name - cannot rename
     env.expect('ft.aggregate', 'idx', 'hello', 'LOAD', '1', '@foo').equal([1L, ['foo', 'hello']])
     env.expect('ft.aggregate', 'idx', 'hello', 'LOAD', '3', '@foo', 'AS', 'foo1').equal([1L, ['foo1', 'hello']])
-    
+
     # for for not in schema - can rename
     env.expect('ft.aggregate', 'idx', 'hello', 'LOAD', '1', '@not_in_schema').equal([1L, ['not_in_schema', '42']])
     env.expect('ft.aggregate', 'idx', 'hello', 'LOAD', '3', '@not_in_schema', 'AS', 'NIS').equal([1L, ['NIS', '42']])
@@ -3320,7 +3321,7 @@ def testSchemaWithAs_Alter(env):
   conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'txt', 'AS', 'foo', 'TEXT')
   conn.execute_command('HSET', 'a', 'txt', 'hello')
   conn.execute_command('HSET', 'b', 'foo', 'world')
-  
+
   # FT.ALTER
   conn.execute_command('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'foo', 'AS', 'bar', 'TEXT')
   waitForIndex(env, 'idx')
@@ -3330,7 +3331,7 @@ def testSchemaWithAs_Alter(env):
 
 def testSchemaWithAs_Duplicates(env):
     conn = getConnectionByEnv(env)
-    
+
     conn.execute_command('HSET', 'a', 'txt', 'hello')
 
     # Error if field name is duplicated
@@ -3349,7 +3350,7 @@ def testMod1407(env):
     conn = getConnectionByEnv(env)
 
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'limit', 'TEXT', 'LimitationTypeID', 'TAG', 'LimitationTypeDesc', 'TEXT').ok()
-    
+
     conn.execute_command('HSET', 'doc1', 'limit', 'foo1', 'LimitationTypeID', 'boo1', 'LimitationTypeDesc', 'doo1')
     conn.execute_command('HSET', 'doc2', 'limit', 'foo2', 'LimitationTypeID', 'boo2', 'LimitationTypeDesc', 'doo2')
 
@@ -3369,13 +3370,13 @@ def testMod1452(env):
     conn = getConnectionByEnv(env)
 
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
-    
+
     conn.execute_command('HSET', 'doc1', 't', 'foo')
 
     # here we only check that its not crashing
     env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', 'foo', 'REDUCE', 'FIRST_VALUE', 3, '@not_exists', 'BY', '@foo')
 
-
+@no_msan
 def test_mod1548(env):
     conn = getConnectionByEnv(env)
 
