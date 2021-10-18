@@ -282,7 +282,7 @@ else
 endif
 
 pytest:
-	@TEST=$(TEST) FORCE= $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
+	@TEST=$(TEST) FORCE= VG=$(VALGRIND) VG_LEAKS=0 $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
 
 ifeq ($(GDB),1)
 GDB_CMD=gdb -ex r --args
