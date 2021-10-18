@@ -1,6 +1,6 @@
 # BUILD redisfab/redisearch:${VERSION}-${ARCH}-${OSNICK}
 
-ARG REDIS_VER=6.2.4
+ARG REDIS_VER=6.2.5
 
 # OSNICK=bullseye|centos7|centos8|xenial|bionic
 ARG OSNICK=bullseye
