@@ -45,7 +45,7 @@ source /etc/profile.d/rust.sh
 # make nightly
 make DEBUG=1
 
-make -C $ROOT test \
+make -C $ROOT pytest \
 	VG=1 VG_LEAKS=0 \
 	REJSON_PATH=$ROOT/deps/RedisJSON/target/debug/rejson.so \
 	CTEST_ARGS="--output-on-failure" CTEST_PARALLEL="$CI_CONCURRENCY"
