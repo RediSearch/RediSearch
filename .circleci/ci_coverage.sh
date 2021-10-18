@@ -26,6 +26,7 @@ cat >rltest.config <<EOF
 EOF
 export CONFIG_FILE="$PWD/rltest.config"
 export CODE_COVERAGE=1
+export RS_GLOBAL_DTORS=1
 
 ./lcov-init.sh
 COMPAT_DIR=$ROOT/build-coverage make -C $ROOT test CTEST_ARGS="--output-on-failure" CTEST_PARALLEL=${CI_CONCURRENCY}
