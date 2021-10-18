@@ -354,8 +354,11 @@ static void countDeleted(const RSIndexResult *r, const IndexBlock *blk, void *ar
 }
 
 typedef struct {
+  int type;
   const char *field;
   const void *curPtr;
+  char *tagValue;
+  size_t tagLen;
   uint64_t uniqueId;
   int sentFieldName;
 } tagNumHeader;
@@ -368,6 +371,9 @@ static void sendNumericTagHeader(ForkGC *fgc, void *arg) {
     FGC_sendFixed(fgc, &info->uniqueId, sizeof info->uniqueId);
   }
   FGC_SEND_VAR(fgc, info->curPtr);
+  if (info->type == RSFLDTYPE_TAG) {
+    FGC_sendBuffer(fgc, info->tagValue, info->tagLen);
+  }
 }
 
 // If anything other than FGC_COLLECTED is returned, it is an error or done
@@ -424,7 +430,9 @@ static void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
     NumericRangeTreeIterator *gcIterator = NumericRangeTreeIterator_New(rt);
 
     NumericRangeNode *currNode = NULL;
-    tagNumHeader header = {.field = numericFields[i]->name, .uniqueId = rt->uniqueId};
+    tagNumHeader header = {.type = RSFLDTYPE_NUMERIC,
+                           .field = numericFields[i]->name,
+                           .uniqueId = rt->uniqueId};
 
     while ((currNode = NumericRangeTreeIterator_Next(gcIterator))) {
       if (!currNode->range) {
@@ -480,7 +488,9 @@ static void FGC_childCollectTags(ForkGC *gc, RedisSearchCtx *sctx) {
         continue;
       }
 
-      tagNumHeader header = {.field = tagFields[i]->name, .uniqueId = tagIdx->uniqueId};
+      tagNumHeader header = {.type = RSFLDTYPE_TAG,
+                             .field = tagFields[i]->name,
+                             .uniqueId = tagIdx->uniqueId};
 
       TrieMapIterator *iter = TrieMap_Iterate(tagIdx->values, "", 0);
       char *ptr;
@@ -488,6 +498,8 @@ static void FGC_childCollectTags(ForkGC *gc, RedisSearchCtx *sctx) {
       InvertedIndex *value;
       while (TrieMapIterator_Next(iter, &ptr, &len, (void **)&value)) {
         header.curPtr = value;
+        header.tagValue = ptr;
+        header.tagLen = len;
         // send repaired data
         FGC_childRepairInvidx(gc, sctx, value, sendNumericTagHeader, &header, NULL);
       }
@@ -908,6 +920,11 @@ static void applyNumIdx(ForkGC *gc, RedisSearchCtx *sctx, NumGcInfo *ninfo) {
   currNode->range->invertedIndexSize -= info->nbytesCollected;
   FGC_updateStats(sctx, gc, info->ndocsCollected, info->nbytesCollected);
 
+  // TODO: fix for NUMERIC similar to TAG fix PR#2269
+  // if (currNode->range->entries->numDocs == 0) {
+  //   NumericRangeTree_DeleteNode(rt, (currNode->range->minVal + currNode->range->maxVal) / 2);
+  // }
+
   resetCardinality(ninfo, currNode);
 }
 
@@ -1000,16 +1017,25 @@ static FGCError FGC_parentHandleTags(ForkGC *gc, RedisModuleCtx *rctx) {
     MSG_IndexInfo info = {0};
     InvIdxBuffers idxbufs = {0};
     TagIndex *tagIdx = NULL;
+    char *tagVal = NULL;
+    size_t tagValLen;
 
     if (FGC_recvFixed(gc, &value, sizeof value) != REDISMODULE_OK) {
       status = FGC_CHILD_ERROR;
       break;
     }
 
+    // No more tags values in tag field
     if (value == NULL) {
       RS_LOG_ASSERT(status == FGC_COLLECTED, "GC status is COLLECTED");
       break;
     }
+
+    if (FGC_recvBuffer(gc, (void **)&tagVal, &tagValLen) != REDISMODULE_OK) {
+      status = FGC_CHILD_ERROR;
+      goto loop_cleanup;
+    }
+    // printf("receives %s %ld\n", tagVal, tagValLen);
 
     if (FGC_recvInvIdx(gc, &idxbufs, &info) != REDISMODULE_OK) {
       status = FGC_CHILD_ERROR;
@@ -1035,8 +1061,22 @@ static FGCError FGC_parentHandleTags(ForkGC *gc, RedisModuleCtx *rctx) {
       goto loop_cleanup;
     }
 
-    FGC_applyInvertedIndex(gc, &idxbufs, &info, value);
+    InvertedIndex *idx = TagIndex_OpenIndex(tagIdx, tagVal, tagValLen, 0);
+    if (idx == TRIEMAP_NOTFOUND || idx != value) {
+      status = FGC_PARENT_ERROR;
+      goto loop_cleanup;
+    }
+
+    // printf("Child %p Parent %p\n", value, idx);
+
+    FGC_applyInvertedIndex(gc, &idxbufs, &info, idx);
     FGC_updateStats(sctx, gc, info.ndocsCollected, info.nbytesCollected);
+
+    // if tag value is empty, let's remove it.
+    if (idx->numDocs == 0) {
+      // printf("Delete GC %s %p\n", tagVal, TrieMap_Find(tagIdx->values, tagVal, tagValLen));
+      TrieMap_Delete(tagIdx->values, tagVal, tagValLen, InvertedIndex_Free);
+    }
 
   loop_cleanup:
     if (sctx) {
@@ -1053,6 +1093,9 @@ static FGCError FGC_parentHandleTags(ForkGC *gc, RedisModuleCtx *rctx) {
       freeInvIdx(&idxbufs, &info);
     } else {
       rm_free(idxbufs.changedBlocks);
+    }
+    if (tagVal) {
+      rm_free(tagVal);
     }
   }
 
