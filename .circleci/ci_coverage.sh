@@ -14,7 +14,9 @@ cmake .. -DCMAKE_BUILD_TYPE=DEBUG \
     -DRS_RUN_TESTS=ON \
     -DUSE_COVERAGE=ON
 
-[[ -z $CI_CONCURRENCY ]] && CI_CONCURRENCY=$($ROOT/deps/readies/bin/nproc)
+if [[ -z $CI_CONCURRENCY ]]; then
+	CI_CONCURRENCY=$($ROOT/deps/readies/bin/nproc)
+fi
 
 make -j$CI_CONCURRENCY
 BRANCH=master $ROOT/sbin/get-redisjson
