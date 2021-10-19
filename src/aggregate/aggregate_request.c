@@ -982,8 +982,6 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
             buf[keystrlen] = '\0';
             const FieldSpec *vecField = IndexSpec_GetField(spec, buf, strlen(buf));
             if (vecField && vecField->types == INDEXFLD_T_VECTOR) {
-              strcpy(buf + keystrlen, "_score");
-              buf[keystrlen + 6] = '\0';
               sortkeys[ii] = RLookup_GetKey(lk, keystr, RLOOKUP_F_OCREAT);
               sortbyType = SORTBY_DISTANCE;
               // astp->sortAscMap = 0; // forcing ascending sort on vector distance
