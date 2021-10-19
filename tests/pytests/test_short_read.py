@@ -14,15 +14,14 @@ import gevent.server
 import gevent.socket
 import time
 
-from common import getConnectionByEnv, waitForIndex, sortedResults, toSortedFlatList, TimeLimit
+from common import *
 from includes import *
 
 CREATE_INDICES_TARGET_DIR = '/tmp/test'
 BASE_RDBS_URL = 'https://s3.amazonaws.com/redismodules/redisearch-enterprise/rdbs/'
 
 SHORT_READ_BYTES_DELTA = int(os.getenv('SHORT_READ_BYTES_DELTA', '1'))
-IS_SHORT_READ_FULL_TEST = int(os.getenv('SHORT_READ_FULL_TEST', '0'))
-OS = os.getenv('OS')
+SHORT_READ_FULL_TEST = int(os.getenv('SHORT_READ_FULL_TEST', '0'))
 
 RDBS_SHORT_READS = [
     'short-reads/redisearch_2.2.0.rdb.zip',
@@ -42,7 +41,7 @@ RDBS_EXPECTED_INDICES = [
 
 RDBS = []
 RDBS.extend(RDBS_SHORT_READS)
-if (not IS_CODE_COVERAGE) and (not IS_SANITIZER) and IS_SHORT_READ_FULL_TEST:
+if not CODE_COVERAGE and SANITIZER == '' and SHORT_READ_FULL_TEST:
     RDBS.extend(RDBS_COMPATIBILITY)
     RDBS_EXPECTED_INDICES.append(ExpectedIndex(1, 'idx', [1000]))
 
@@ -195,6 +194,9 @@ def add_index(env, isHash, index_name, key_suffix, num_prefs, num_keys):
 
 def testCreateIndexRdbFiles(env):
     create_indices(env, 'redisearch_2.2.0.rdb', 'idxSearch', True, False)
+
+@no_msan
+def testCreateIndexRdbFilesWithJSON(env):
     create_indices(env, 'rejson_2.0.0.rdb', 'idxJson', False, True)
     create_indices(env, 'redisearch_2.2.0_rejson_2.0.0.rdb', 'idxSearchJson', True, True)
 
@@ -450,16 +452,16 @@ class Debug:
 
         env.debugPrint(name + ': %d out of %d \n%s' % (self.dbg_ndx, total_len, self.dbg_str))
 
-
+@no_msan
 def testShortReadSearch(env):
-    if IS_CODE_COVERAGE:
+    if CODE_COVERAGE:
         env.skip()  # FIXME: enable coverage test
 
     env.skipOnCluster()
     if env.env.endswith('existing-env') and os.environ.get('CI'):
         env.skip()
 
-    if OS == 'macos':
+    if OSNICK == 'macos':
         env.skip()
 
     seed = str(time.time())
