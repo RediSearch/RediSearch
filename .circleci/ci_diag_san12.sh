@@ -14,12 +14,16 @@ SAN_PREFIX=/opt/llvm-project/build-msan
 
 extra_flags=""
 
+echo "fun:THPIsEnabled" >> /build/redis.blacklist
+
 if [[ $ASAN == 1 ]]; then
     mode=asan
+	SAN_MODE=address
     extra_flags="-DUSE_ASAN=ON"
     $READIES/bin/getredis --force -v 6.2 --own-openssl --no-run --suffix asan --clang-asan --clang-san-blacklist /build/redis.blacklist
 elif [[ $MSAN == 1 ]]; then
     mode=msan
+	SAN_MODE=memory
     extra_flags="-DUSE_MSAN=ON -DMSAN_PREFIX=${SAN_PREFIX}"
     $READIES/bin/getredis --force -v 6.2 --own-openssl --no-run --suffix msan --clang-msan --llvm-dir /opt/llvm-project/build-msan --clang-san-blacklist /build/redis.blacklist
 else
@@ -40,7 +44,7 @@ cmake -DCMAKE_BUILD_TYPE=DEBUG \
 if [[ -z $CI_CONCURRENCY ]]; then
 	CI_CONCURRENCY=$($ROOT/deps/readies/bin/nproc)
 fi
-if [[ $CI_CONCURRENCY > 20 ]]; then
+if (( $CI_CONCURRENCY > 20 )); then
 	CI_CONCURRENCY=20
 fi
 
@@ -58,4 +62,4 @@ export CONFIG_FILE="$PWD/rltest.config"
 export ASAN_OPTIONS=detect_odr_violation=0
 export RS_GLOBAL_DTORS=1
 
-COMPAT_DIR="$ROOT/build-${mode}" make -C $ROOT test CTEST_ARGS="--output-on-failure" CTEST_PARALLEL="$CI_CONCURRENCY"
+COMPAT_DIR="$ROOT/build-${mode}" make -C $ROOT test SAN="$SAN_MODE" CTEST_ARGS="--output-on-failure" CTEST_PARALLEL="$CI_CONCURRENCY"
