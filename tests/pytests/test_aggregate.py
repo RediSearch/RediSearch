@@ -419,6 +419,8 @@ class TestAggregate():
 
     def testIssue1125(self):
         self.env.skipOnCluster()
+        if VALGRIND:
+            self.env.skip()
         # SEARCH should fail
         self.env.expect('ft.search', 'games', '*', 'limit', 0, 2000000).error()     \
                 .contains('LIMIT exceeds maximum of 1000000')
