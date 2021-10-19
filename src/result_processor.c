@@ -289,6 +289,10 @@ typedef struct {
     const RLookupKey **keys;
     size_t nkeys;
     uint64_t ascendMap;
+    
+    // Load key that are missing from sortables
+    const RLookupKey **loadKeys;
+    size_t nLoadKeys;
   } fieldcmp;
 
   // timeout counter
@@ -329,6 +333,10 @@ static void rpsortFree(ResultProcessor *rp) {
     rm_free(self->pooledResult);
   }
 
+  if (self->fieldcmp.loadKeys && self->fieldcmp.loadKeys != self->fieldcmp.keys) {
+    rm_free(self->fieldcmp.loadKeys);
+  }
+
   // calling mmh_free will free all the remaining results in the heap, if any
   mmh_free(self->pq);
   rm_free(rp);
@@ -361,38 +369,40 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
   // If the data is not in the sorted vector, lets load it.
   size_t nkeys = self->fieldcmp.nkeys;
   if (nkeys && h->dmd) {
-    int nloadKeys = 0;
-    const RLookupKey **loadKeys = NULL;
-    bool freeKeys = false;
+    int nLoadKeys = self->fieldcmp.nLoadKeys;
+    const RLookupKey **loadKeys = self->fieldcmp.loadKeys;
 
     // If there is no sorting vector, load all required fields, else, load missing fields
-    if (!h->rowdata.sv) {
-      loadKeys = self->fieldcmp.keys;
-      nloadKeys = nkeys;
-    } else {
-      for (int i = 0; i < nkeys; ++i) {
-        if (RLookup_GetItem(self->fieldcmp.keys[i], &h->rowdata) == NULL) {
-          if (!loadKeys) {
-            loadKeys = rm_calloc(nkeys, sizeof(*loadKeys));
-            freeKeys = true;
+    if (nLoadKeys == REDISEARCH_UNINITIALIZED) {
+      if (!h->rowdata.sv) {
+        loadKeys = self->fieldcmp.keys;
+        nLoadKeys = nkeys;
+      } else {
+        nLoadKeys = 0;
+        for (int i = 0; i < nkeys; ++i) {
+          if (RLookup_GetItem(self->fieldcmp.keys[i], &h->rowdata) == NULL) {
+            if (!loadKeys) {
+              loadKeys = rm_calloc(nkeys, sizeof(*loadKeys));
+            }
+            loadKeys[nLoadKeys++] = self->fieldcmp.keys[i];
           }
-          loadKeys[nloadKeys++] = self->fieldcmp.keys[i];
         }
       }
+      self->fieldcmp.loadKeys = loadKeys;
+      self->fieldcmp.nLoadKeys = nLoadKeys;
     }
 
     if (loadKeys) {
       QueryError status = {0};
       RLookupLoadOptions loadopts = {.sctx = rp->parent->sctx,
                                      .dmd = h->dmd,
-                                     .nkeys = nloadKeys,
+                                     .nkeys = nLoadKeys,
                                      .keys = loadKeys,
                                      .status = &status};
       RLookup_LoadDocument(NULL, &h->rowdata, &loadopts);
       if (QueryError_HasError(&status)) {
         return RS_RESULT_ERROR;
       }
-      if (freeKeys) rm_free(loadKeys);
     }
   }
 
@@ -509,6 +519,8 @@ ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys
   ret->fieldcmp.ascendMap = ascmap;
   ret->fieldcmp.keys = keys;
   ret->fieldcmp.nkeys = nkeys;
+  ret->fieldcmp.loadKeys = NULL;
+  ret->fieldcmp.nLoadKeys = REDISEARCH_UNINITIALIZED;
   ret->timeout = *timeout;
   ret->timeoutLimiter = 0;
 
