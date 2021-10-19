@@ -37,6 +37,7 @@ def getConnectionByEnv(env):
     return conn
 
 def waitForIndex(env, idx):
+    waitForRdbSaveToFinish(env)
     while True:
         res = env.execute_command('ft.info', idx)
         if int(res[res.index('indexing') + 1]) == 0:

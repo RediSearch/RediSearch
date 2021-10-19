@@ -1129,7 +1129,7 @@ def testGeoDeletion(env):
     # Remove the first doc
     env.cmd('ft.del', 'idx', 'doc1')
     for _ in range(100):
-        env.cmd('ft.debug', 'gc_forceinvoke', 'idx')
+        forceInvokeGC(env, 'idx')
     env.assertEqual(2, len(env.cmd('FT.DEBUG DUMP_NUMIDX idx g1')[0]))
     env.assertEqual(1, len(env.cmd('FT.DEBUG DUMP_NUMIDX idx g2')[0]))
 
@@ -1138,7 +1138,7 @@ def testGeoDeletion(env):
             'replace', 'fields',
             't1', 'just text here')
     for _ in range(100):
-        env.cmd('ft.debug', 'gc_forceinvoke', 'idx')
+        forceInvokeGC(env, 'idx')
     env.assertEqual(1, len(env.cmd('FT.DEBUG DUMP_NUMIDX idx g1')[0]))
     env.assertEqual(0, len(env.cmd('FT.DEBUG DUMP_NUMIDX idx g2')[0]))
 
@@ -1446,7 +1446,7 @@ def testGarbageCollector(env):
 
     for _ in range(100):
         # gc is random so we need to do it long enough times for it to work
-        env.cmd('ft.debug', 'GC_FORCEINVOKE', 'idx')
+        forceInvokeGC(env, 'idx')
 
     stats = get_stats(r)
 
@@ -2233,6 +2233,7 @@ def testIssue621(env):
 # 127.0.0.1:6379> ft.add foo "ft:foo/two" 1 FIELDS bar "four five six"
 # Could not connect to Redis at 127.0.0.1:6379: Connection refused
 
+@unstable
 def testPrefixDeletedExpansions(env):
     env.skipOnCluster()
 
@@ -2258,7 +2259,7 @@ def testPrefixDeletedExpansions(env):
     iters = 0
     while time.time() < tmax:
         iters += 1
-        env.cmd('ft.debug', 'gc_forceinvoke', 'idx')
+        forceInvokeGC(env, 'idx')
         r = env.cmd('ft.search', 'idx', '@txt1:term* @tag1:{tag*}')
         if r[0]:
             break
@@ -2347,12 +2348,13 @@ def testIssue_848(env):
     env.expect('FT.SEARCH', 'idx', 'foo', 'SORTBY', 'test2', 'ASC').equal([2L, 'doc1', ['test1', 'foo'], 'doc2', ['test2', 'bar', 'test1', 'foo']])
 
 def testMod_309(env):
+    n = 10000 if VALGRIND else 100000
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
     conn = getConnectionByEnv(env)
-    for i in range(100000):
+    for i in range(n):
         conn.execute_command('HSET', 'doc%d'%i, 'test', 'foo')
     res = env.cmd('FT.AGGREGATE', 'idx', 'foo')
-    env.assertEqual(len(res), 100001)
+    env.assertEqual(len(res), n + 1)
 
     # test with cursor
     env.skipOnCluster()
@@ -2362,7 +2364,7 @@ def testMod_309(env):
     while cursor != 0:
         r, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', str(cursor))
         l += len(r) - 1
-    env.assertEqual(l, 100000)
+    env.assertEqual(l, n)
 
 def testIssue_865(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', '1', 'TEXT', 'SORTABLE').equal('OK')
@@ -2819,7 +2821,7 @@ def testIssue1085(env):
     for i in range(1, 10):
         env.cmd('FT.ADD issue1085 document_8 1 REPLACE FIELDS foo foo8 bar 8')
 
-    env.expect('ft.debug GC_FORCEINVOKE issue1085').equal('DONE')
+    forceInvokeGC(env, 'issue1085')
 
     res = env.cmd('FT.SEARCH', 'issue1085', '@bar:[8 8]')
     env.assertEqual(toSortedFlatList(res), toSortedFlatList([1, 'document_8', ['foo', 'foo8', 'bar', '8']]))
@@ -2933,7 +2935,8 @@ def testIssue1184(env):
         env.assertEqual(d['num_records'], '1')
 
         env.assertEqual(env.execute_command('FT.DEL idx doc0'), 1)
-        env.cmd('ft.debug', 'GC_FORCEINVOKE', 'idx')
+
+        forceInvokeGC(env, 'idx')
 
         res = env.execute_command('ft.info', 'idx')
         d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
@@ -3171,7 +3174,7 @@ def testInvertedIndexWasEntirelyDeletedDuringCursor():
     env.expect('DEL doc1').equal(1)
     env.expect('DEL doc2').equal(1)
 
-    env.cmd('FT.DEBUG GC_FORCEINVOKE idx')
+    forceInvokeGC(env, 'idx')
 
     # make sure the inverted index was cleaned
     env.expect('FT.DEBUG DUMP_INVIDX idx foo').error().contains('not find the inverted index')
