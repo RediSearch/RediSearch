@@ -12,6 +12,10 @@ try:
 except:
     pass
 
-UNSTABLE_TESTS = os.getenv('UNSTABLE_TESTS', '0') == '1'
-IS_SANITIZER = os.getenv('SANITIZER', '0') == '1'
-IS_CODE_COVERAGE = os.getenv('CODE_COVERAGE', '0') == '1'
+ONLY_STABLE = os.getenv('ONLY_STABLE', '0') == '1'
+SANITIZER = os.getenv('SANITIZER', '')
+VALGRIND = os.getenv('VALGRIND', '0') == '1'
+CODE_COVERAGE = os.getenv('CODE_COVERAGE', '0') == '1'
+
+
+OSNICK = paella.Platform().osnick

@@ -1,8 +1,8 @@
 
 import unittest
-from random import random, seed 
+from random import random, seed
 from includes import *
-from common import getConnectionByEnv, waitForIndex, sortedResults, toSortedFlatList, waitForRdbSaveToFinish, forceInvokeGC
+from common import *
 from time import sleep, time
 from RLTest import Env
 
@@ -34,7 +34,7 @@ def runTestWithSeed(env, s=None):
     env.expect('FLUSHALL')
     if s == None:
         s = time()
-    env.debugPrint('seed: %s' % str(s), force=True)    
+    env.debugPrint('seed: %s' % str(s), force=True)
     seed(s)
 
     idx = 'idx'
@@ -44,7 +44,7 @@ def runTestWithSeed(env, s=None):
 
     ### test increasing integers
     env.expect('ft.config set FORK_GC_CLEAN_THRESHOLD 0').ok()
-    
+
     env.expect('FT.CREATE idx SCHEMA n NUMERIC').ok()
     check_empty(env, idx)
 
@@ -115,6 +115,7 @@ def testRandom(env):
 
     runTestWithSeed(env)
 
+@unstable
 def testMemoryAfterDrop(env):
     env.skipOnCluster()
 
@@ -123,7 +124,7 @@ def testMemoryAfterDrop(env):
 
     idx_count = 100
     doc_count = 50
-    divide_by = 1000000   # ensure limits of geo are not exceeded 
+    divide_by = 1000000   # ensure limits of geo are not exceeded
     pl = env.getConnection().pipeline()
 
     env.execute_command('FLUSHALL')
@@ -159,7 +160,7 @@ def testIssue1497(env):
         env.skip()
 
     count = 110
-    divide_by = 1000000   # ensure limits of geo are not exceeded 
+    divide_by = 1000000   # ensure limits of geo are not exceeded
     number_of_fields = 4  # one of every type
 
     env.execute_command('FLUSHALL')
