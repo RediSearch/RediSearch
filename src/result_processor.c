@@ -336,11 +336,18 @@ static void rpsortFree(ResultProcessor *rp) {
 
 #define RESULT_QUEUED RS_RESULT_MAX + 1
 
+static void SearchResult_Load(RPSorter *self, SearchResult *r) {
+  for (size_t i = 0; i < self->fieldcmp.nkeys; i++) {
+    RSValue *rsv = RLookup_GetItem(self->fieldcmp.keys[i], &r->rowdata);
+    r->values[i] = rsv ? RSValue_Dereference(rsv) : RS_NullVal();
+  }
+}
+
 static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
   RPSorter *self = (RPSorter *)rp;
 
   if (self->pooledResult == NULL) {
-    self->pooledResult = rm_calloc(1, sizeof(*self->pooledResult));
+    self->pooledResult = rm_calloc(1, sizeof(*self->pooledResult) + sizeof(*r->values) * self->fieldcmp.nkeys);
   } else {
     RLookupRow_Wipe(&self->pooledResult->rowdata);
   }
@@ -395,6 +402,8 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
       if (freeKeys) rm_free(loadKeys);
     }
   }
+
+  SearchResult_Load(self, h);
 
   // If the queue is not full - we just push the result into it
   // If the pool size is 0 we always do that, letting the heap grow dynamically
@@ -464,23 +473,9 @@ static int cmpByFields(const void *e1, const void *e2, const void *udata) {
   }
 
   for (size_t i = 0; i < self->fieldcmp.nkeys && i < SORTASCMAP_MAXFIELDS; i++) {
-    const RSValue *v1 = RLookup_GetItem(self->fieldcmp.keys[i], &h1->rowdata);
-    const RSValue *v2 = RLookup_GetItem(self->fieldcmp.keys[i], &h2->rowdata);
-    // take the ascending bit for this property from the ascending bitmap
     ascending = SORTASCMAP_GETASC(self->fieldcmp.ascendMap, i);
-    if (!v1 || !v2) {
-      int rc;
-      if (v1) {
-        rc = 1;
-      } else if (v2) {
-        rc = -1;
-      } else {
-        rc = h1->docId < h2->docId ? -1 : 1;
-      }
-      return ascending ? -rc : rc;
-    }
 
-    int rc = RSValue_Cmp(v1, v2, qerr);
+    int rc = RSValue_Cmp(h1->values[i], h2->values[i], qerr);
     // printf("asc? %d Compare: \n", ascending);
     // RSValue_Print(v1);
     // printf(" <=> ");

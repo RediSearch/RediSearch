@@ -333,3 +333,16 @@ def test_MOD1544(env):
   res = [1L, '1', ['name', '<b>John</b> Smith']]
   env.expect('FT.SEARCH', 'idx', '@name:(John)', 'RETURN', '1', 'name', 'HIGHLIGHT').equal(res)
   env.expect('FT.SEARCH', 'idx', '@name:(John)', 'RETURN', '1', 'name', 'HIGHLIGHT', 'FIELDS', '1', 'name').equal(res)
+
+def testSortbyWithNull(env):
+  conn = getConnectionByEnv(env)
+
+  conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 'SORTABLE', 't2', 'TEXT', 'SORTABLE')
+  conn.execute_command('HSET', 'doc1', 't1', 'b', 't2', 'b')
+  conn.execute_command('HSET', 'doc2', 't1', 'a')
+  conn.execute_command('HSET', 'doc3', 't1', 'c')
+
+  res =  [3L, ['t1', 'a'], ['t1', 'b', 't2', 'b'], ['t1', 'c']]
+  env.expect('FT.AGGREGATE', 'idx', '*', 'SORTBY', '4', '@t1', 'ASC', '@t2', 'ASC').equal(res)
+
+  pass

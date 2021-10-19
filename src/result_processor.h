@@ -119,6 +119,10 @@ typedef struct {
 
   // Row data. Use RLookup_* functions to access
   RLookupRow rowdata;
+
+  // store value on result instead of fetching every time
+  size_t numValues;
+  RSValue *values[]; // consider derefence. issue with RS_Null
 } SearchResult;
 
 /* Result processor return codes */
