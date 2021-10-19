@@ -107,8 +107,8 @@ void StopWordList_Ref(StopWordList *sl) {
 static void StopWordList_FreeInternal(StopWordList *sl) {
   if (sl) {
     TrieMap_Free(sl->m, NULL);
+    rm_free(sl);
   }
-  rm_free(sl);
 }
 
 /* Free a stopword list's memory */
@@ -153,7 +153,9 @@ StopWordList *StopWordList_RdbLoad(RedisModuleIO *rdb, int encver) {
   return sl;
 
 cleanup:
-  StopWordList_FreeInternal(sl);
+  if (sl) {
+    StopWordList_FreeInternal(sl);
+  }
   return NULL;
 }
 

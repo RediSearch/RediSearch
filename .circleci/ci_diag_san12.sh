@@ -15,6 +15,7 @@ SAN_PREFIX=/opt/llvm-project/build-msan
 extra_flags=""
 
 echo "fun:THPIsEnabled" >> /build/redis.blacklist
+
 if [[ $ASAN == 1 ]]; then
     mode=asan
 	SAN_MODE=address
@@ -44,7 +45,7 @@ cmake -DCMAKE_BUILD_TYPE=DEBUG \
 if [[ -z $CI_CONCURRENCY ]]; then
 	CI_CONCURRENCY=$($ROOT/deps/readies/bin/nproc)
 fi
-if [[ $CI_CONCURRENCY > 20 ]]; then
+if (( $CI_CONCURRENCY > 20 )); then
 	CI_CONCURRENCY=20
 fi
 
@@ -74,7 +75,7 @@ $READIES/bin/getpy3
 ./system-setup.py
 source /etc/profile.d/rust.sh
 make nightly
-make SAN=$SAN_MODE
+make SAN="$SAN_MODE"
 export REJSON_PATH=$ROOT/deps/RedisJSON/target/x86_64-unknown-linux-gnu/debug/rejson.so
 
-COMPAT_DIR="$ROOT/build-${mode}" make -C $ROOT test CTEST_ARGS="--output-on-failure" CTEST_PARALLEL="$CI_CONCURRENCY"
+COMPAT_DIR="$ROOT/build-${mode}" make -C $ROOT test SAN="$SAN_MODE" CTEST_ARGS="--output-on-failure" CTEST_PARALLEL="$CI_CONCURRENCY"
