@@ -196,7 +196,7 @@ def testSynonymsLowerCase(env):
     env.assertEqual(toSortedFlatList(dump), toSortedFlatList((['ahalan', ['id1'], 'shalom', ['id1'], 'hello', ['id1']])))
     env.expect('FT.ADD lowcase doc1 1 FIELDS foo hello').ok()
     env.expect('FT.ADD lowcase doc2 1 FIELDS foo HELLO').ok()
-    res = [2L, 'doc1', ['foo', 'hello'], 'doc2', ['foo', 'HELLO']]
+    res = [2L, 'doc2', ['foo', 'HELLO'], 'doc1', ['foo', 'hello']]
     env.expect('FT.SEARCH lowcase SHALOM').equal(res)
     env.expect('FT.SEARCH lowcase shalom').equal(res)
 
