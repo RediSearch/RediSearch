@@ -4,7 +4,7 @@ from RLTest import Env
 import platform
 from time import sleep
 from includes import *
-from common import waitForIndex
+from common import *
 
 
 def testBasicGC(env):
@@ -28,7 +28,7 @@ def testBasicGC(env):
 
     for i in range(100):
         # gc is random so we need to do it long enough times for it to work
-        env.cmd('ft.debug', 'GC_FORCEINVOKE', 'idx')
+        forceInvokeGC(env, 'idx')
 
     # check that the gc collected the deleted docs
     env.assertEqual(env.cmd('ft.debug', 'DUMP_INVIDX', 'idx', 'world'), [long(i) for i in range(2, 102)])
@@ -51,7 +51,7 @@ def testBasicGCWithEmptyInvIdx(env):
 
     env.assertEqual(env.cmd('ft.del', 'idx', 'doc1'), 1)
 
-    env.cmd('ft.debug', 'GC_FORCEINVOKE', 'idx')
+    forceInvokeGC(env, 'idx')
 
     # check that the gc collected the deleted docs
     env.expect('ft.debug', 'DUMP_INVIDX', 'idx', 'world').error().contains('Can not find the inverted index')
@@ -71,7 +71,7 @@ def testNumericGCIntensive(env):
         env.assertEqual(env.cmd('ft.del', 'idx', 'doc%d' % i), 1)
 
     for i in range(100):
-        env.cmd('ft.debug', 'GC_FORCEINVOKE', 'idx')
+        forceInvokeGC(env, 'idx')
 
     res = env.cmd('ft.debug', 'DUMP_NUMIDX', 'idx', 'id')
     for r1 in res:
@@ -94,7 +94,7 @@ def testGeoGCIntensive(env):
         env.assertEqual(env.cmd('ft.del', 'idx', 'doc%d' % i), 1)
 
     for i in range(100):
-        env.cmd('ft.debug', 'GC_FORCEINVOKE', 'idx')
+        forceInvokeGC(env, 'idx')
 
     res = env.cmd('ft.debug', 'DUMP_NUMIDX', 'idx', 'g')
     for r1 in res:
@@ -118,7 +118,7 @@ def testTagGC(env):
 
     for i in range(100):
         # gc is random so we need to do it long enough times for it to work
-        env.cmd('ft.debug', 'GC_FORCEINVOKE', 'idx')
+        forceInvokeGC(env, 'idx')
 
     res = env.cmd('ft.debug', 'DUMP_TAGIDX', 'idx', 't')
     for r1 in res:
@@ -147,12 +147,12 @@ def testDeleteEntireBlock(env):
     # actually clean the inverted index, make sure the binary search are not braken, check also after rdb reload
     for i in range(100):
         # gc is random so we need to do it long enough times for it to work
-        env.cmd('ft.debug', 'GC_FORCEINVOKE', 'idx')
+        forceInvokeGC(env, 'idx')
     for _ in env.reloading_iterator():
         waitForIndex(env, 'idx')
         res = env.cmd('FT.SEARCH', 'idx', '@test:checking @test2:checking250')
         env.assertEqual(res[0:2],[1L, 'doc250'])
-        env.assertEqual(set(res[2]), set(['test', 'checking', 'test2', 'checking250']))        
+        env.assertEqual(set(res[2]), set(['test', 'checking', 'test2', 'checking250']))
 
 def testGCIntegrationWithRedisFork(env):
     if env.env == 'existing-env':
@@ -170,7 +170,7 @@ def testGCIntegrationWithRedisFork(env):
     waitForIndex(env, 'idx')
     env.expect('FT.ADD', 'idx', 'doc1', 1.0, 'FIELDS', 'title', 'hello world').ok()
     env.expect('bgsave').true()
-    env.cmd('FT.DEBUG', 'GC_FORCEINVOKE', 'idx')
+    forceInvokeGC(env, 'idx')
     env.expect('bgsave').true()
     env.cmd('FT.CONFIG', 'SET', 'FORKGC_SLEEP_BEFORE_EXIT', '0')
 
@@ -191,13 +191,13 @@ def testGCThreshold(env):
     for i in range(999):
         env.expect('FT.DEL', 'idx', 'doc%d' % i).equal(1)
 
-    env.cmd('ft.debug', 'GC_FORCEINVOKE', 'idx')
+    forceInvokeGC(env, 'idx')
 
     env.expect('FT.DEBUG', 'DUMP_INVIDX', 'idx', 'foo').equal(debug_rep)
 
     env.expect('FT.DEL', 'idx', 'doc999').equal(1)
 
-    env.cmd('ft.debug', 'GC_FORCEINVOKE', 'idx')
+    forceInvokeGC(env, 'idx')
 
     env.expect('FT.DEBUG', 'DUMP_INVIDX', 'idx', 'foo').error().contains('Can not find the inverted index')
 
@@ -210,13 +210,13 @@ def testGCThreshold(env):
     for i in range(999):
         env.expect('FT.ADD', 'idx', 'doc%d' % i, '1.0', 'REPLACE', 'FIELDS', 'title', 'foo1').ok()
 
-    env.cmd('ft.debug', 'GC_FORCEINVOKE', 'idx')
+    forceInvokeGC(env, 'idx')
 
     env.expect('FT.DEBUG', 'DUMP_INVIDX', 'idx', 'foo').equal(debug_rep)
 
     env.expect('FT.ADD', 'idx', 'doc999', '1.0', 'REPLACE', 'FIELDS', 'title', 'foo1').ok()
 
-    env.cmd('ft.debug', 'GC_FORCEINVOKE', 'idx')
+    forceInvokeGC(env, 'idx')
 
     env.expect('FT.DEBUG', 'DUMP_INVIDX', 'idx', 'foo').error().contains('Can not find the inverted index')
 
@@ -227,13 +227,13 @@ def testGCThreshold(env):
     for i in range(999):
         env.expect('FT.ADD', 'idx', 'doc%d' % i, '1.0', 'REPLACE', 'PARTIAL', 'FIELDS', 'title', 'foo2').ok()
 
-    env.cmd('ft.debug', 'GC_FORCEINVOKE', 'idx')
+    forceInvokeGC(env, 'idx')
 
     env.expect('FT.DEBUG', 'DUMP_INVIDX', 'idx', 'foo1').equal(debug_rep)
 
     env.expect('FT.ADD', 'idx', 'doc999', '1.0', 'REPLACE', 'PARTIAL', 'FIELDS', 'title', 'foo2').ok()
 
-    env.cmd('ft.debug', 'GC_FORCEINVOKE', 'idx')
+    forceInvokeGC(env, 'idx')
 
     env.expect('FT.DEBUG', 'DUMP_INVIDX', 'idx', 'foo1').error().contains('Can not find the inverted index')
 
@@ -268,6 +268,6 @@ def testGFreeEmpryTerms(env):
         env.expect('del', 'doc%d'%i)
 
     env.expect('FT.DEBUG', 'DUMP_TERMS', 'idx').equal(['foo'])
-    env.expect('FT.DEBUG', 'GC_FORCEINVOKE', 'idx')
+    forceInvokeGC(env, 'idx')
     env.expect('FT.DEBUG', 'DUMP_TERMS', 'idx').equal([])
 

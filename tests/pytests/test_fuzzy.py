@@ -1,7 +1,7 @@
 from includes import *
+from common import *
 import os
 
-UNSTABLE_TESTS = os.getenv('UNSTABLE_TESTS', '0') == '1'
 
 def testBasicFuzzy(env):
     r = env
@@ -91,10 +91,9 @@ def testFuzzyWithNumbersOnly(env):
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', '12345').equal('OK')
     env.expect('ft.search', 'idx', '%%21345%%').equal([1, 'doc1', ['test', '12345']])
 
+@skip
 def testTagFuzzy(env):
     # TODO: fuzzy on tag is broken?
-    if not UNSTABLE_TESTS:
-        env.skip()
 
     env.cmd('FT.CREATE', 'idx1', 'SCHEMA', 't', 'TAG')
     env.cmd('FT.CREATE', 'idx2', 'SCHEMA', 't', 'TAG', 'CASESENSITIVE')

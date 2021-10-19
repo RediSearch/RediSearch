@@ -192,7 +192,7 @@ def testTagCaseSensitive(env):
     env.expect('FT.SEARCH', 'idx2', '@t:{FOO}', 'SORTBY', 't')         \
         .equal([2L, 'doc2', ['t', 'FOO'], 'doc1', ['t', 'foo,FOO']])
     env.expect('FT.SEARCH', 'idx2', '@t:{foo}', 'SORTBY', 't')         \
-        .equal([2L, 'doc3', ['t', 'foo'], 'doc1', ['t', 'foo,FOO']]) 
+        .equal([2L, 'doc3', ['t', 'foo'], 'doc1', ['t', 'foo,FOO']])
 
 def testTagGCClearEmpty(env):
     env.skipOnCluster()
@@ -209,13 +209,13 @@ def testTagGCClearEmpty(env):
     # delete two tags
     conn.execute_command('DEL', 'doc1')
     conn.execute_command('DEL', 'doc2')
-    conn.execute_command('ft.debug', 'gc_forceinvoke', 'idx')
+    forceInvokeGC(env, 'idx')
     env.expect('FT.DEBUG', 'DUMP_TAGIDX', 'idx', 't').equal([['baz', [3L]]])
     env.expect('FT.SEARCH', 'idx', '@t:{foo}').equal([0L])
 
     # delete last tag
     conn.execute_command('DEL', 'doc3')
-    conn.execute_command('ft.debug', 'gc_forceinvoke', 'idx')
+    forceInvokeGC(env, 'idx')
     env.expect('FT.DEBUG', 'DUMP_TAGIDX', 'idx', 't').equal([])
 
     # check term can be used after being empty
@@ -233,7 +233,7 @@ def testTagGCClearEmptyWithCursor(env):
     conn.execute_command('HSET', 'doc1', 't', 'foo')
     conn.execute_command('HSET', 'doc2', 't', 'foo')
     env.expect('FT.DEBUG', 'DUMP_TAGIDX', 'idx', 't').equal([['foo', [1L, 2L]]])
-    
+
     res, cursor = env.cmd('FT.AGGREGATE', 'idx', '@t:{foo}', 'WITHCURSOR', 'COUNT', '1')
     env.assertEqual(res, [1L, []])
 
@@ -241,7 +241,7 @@ def testTagGCClearEmptyWithCursor(env):
     env.expect('DEL', 'doc1').equal(1)
     env.expect('DEL', 'doc2').equal(1)
 
-    conn.execute_command('ft.debug', 'gc_forceinvoke', 'idx')
+    forceInvokeGC(env, 'idx')
 
     # make sure the inverted index was cleaned
     env.expect('FT.DEBUG', 'DUMP_TAGIDX', 'idx', 't').equal([])
@@ -260,7 +260,7 @@ def testTagGCClearEmptyWithCursorAndMoreData(env):
     conn.execute_command('HSET', 'doc1', 't', 'foo')
     conn.execute_command('HSET', 'doc2', 't', 'foo')
     env.expect('FT.DEBUG', 'DUMP_TAGIDX', 'idx', 't').equal([['foo', [1L, 2L]]])
-    
+
     res, cursor = env.cmd('FT.AGGREGATE', 'idx', '@t:{foo}', 'WITHCURSOR', 'COUNT', '1')
     env.assertEqual(res, [1L, []])
 
@@ -268,7 +268,7 @@ def testTagGCClearEmptyWithCursorAndMoreData(env):
     env.expect('DEL', 'doc1').equal(1)
     env.expect('DEL', 'doc2').equal(1)
 
-    conn.execute_command('ft.debug', 'gc_forceinvoke', 'idx')
+    forceInvokeGC(env, 'idx')
 
     # make sure the inverted index was cleaned
     env.expect('FT.DEBUG', 'DUMP_TAGIDX', 'idx', 't').equal([])
@@ -287,6 +287,7 @@ def testTagGCClearEmptyWithCursorAndMoreData(env):
     res = conn.execute_command('FT.AGGREGATE', 'idx', '@t:{foo}')
     env.assertEqual(res, [1L, [], []])
 
+@unstable
 def testEmptyTagLeak(env):
     env.skipOnCluster()
 
@@ -306,5 +307,5 @@ def testEmptyTagLeak(env):
         for j in range(tags):
             pl.execute_command('DEL', 'doc{}'.format(j + i * tags))
         pl.execute()
-    conn.execute_command('ft.debug', 'gc_forceinvoke', 'idx')
+    forceInvokeGC(env, 'idx')
     env.expect('FT.DEBUG', 'DUMP_TAGIDX', 'idx', 't').equal([])

@@ -1,6 +1,32 @@
 from collections import Iterable
 import time
 from packaging import version
+from functools import wraps
+
+import signal
+from includes import *
+
+
+class TimeLimit(object):
+    """
+    A context manager that fires a TimeExpired exception if it does not
+    return within the specified amount of time.
+    """
+
+    def __init__(self, timeout):
+        self.timeout = timeout
+
+    def __enter__(self):
+        signal.signal(signal.SIGALRM, self.handler)
+        signal.setitimer(signal.ITIMER_REAL, self.timeout, 0)
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, signal.SIG_DFL)
+
+    def handler(self, signum, frame):
+        raise Exception('timeout')
+
 
 def getConnectionByEnv(env):
     conn = None
@@ -11,6 +37,7 @@ def getConnectionByEnv(env):
     return conn
 
 def waitForIndex(env, idx):
+    waitForRdbSaveToFinish(env)
     while True:
         res = env.execute_command('ft.info', idx)
         if int(res[res.index('indexing') + 1]) == 0:
@@ -86,3 +113,56 @@ def server_version_at_least(env, ver):
 
 def server_version_less_than(env, ver):
     return not server_version_at_least(env, ver)
+
+def index_info(env, idx):
+    res = env.cmd('FT.INFO', idx)
+    res = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
+    return res
+
+def skipOnExistingEnv(env):
+    if 'existing' in env.env:
+        env.skip()
+
+def skipOnCrdtEnv(env):
+    if len([a for a in env.cmd('module', 'list') if a[1] == 'crdt']) > 0:
+        env.skip()
+
+def waitForRdbSaveToFinish(env):
+    while True:
+        if not env.execute_command('info', 'Persistence')['rdb_bgsave_in_progress']:
+            break
+
+def forceInvokeGC(env, idx):
+    waitForRdbSaveToFinish(env)
+    env.cmd('ft.debug', 'GC_FORCEINVOKE', idx)
+
+def skip(f, on_cluster=False):
+    @wraps(f)
+    def wrapper(env, *args, **kwargs):
+        if not on_cluster or env.isCluster():
+            env.skip()
+            return
+        return f(env, *args, **kwargs)
+    return wrapper
+
+def no_msan(f):
+    @wraps(f)
+    def wrapper(env, *args, **kwargs):
+        if SANITIZER == 'memory':
+            fname = f.func_name
+            env.debugPrint("skipping {} due to memory sanitizer".format(fname), force=True)
+            env.skip()
+            return
+        return f(env, *args, **kwargs)
+    return wrapper
+
+def unstable(f):
+    @wraps(f)
+    def wrapper(env, *args, **kwargs):
+        if ONLY_STABLE:
+            fname = f.func_name
+            env.debugPrint("skipping {} because it is unstable".format(fname), force=True)
+            env.skip()
+            return
+        return f(env, *args, **kwargs)
+    return wrapper

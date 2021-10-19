@@ -2,7 +2,7 @@
 
 import unittest
 from includes import *
-from common import getConnectionByEnv, waitForIndex, sortedResults, toSortedFlatList
+from common import getConnectionByEnv, waitForIndex, sortedResults, toSortedFlatList, skipOnCrdtEnv
 from time import sleep
 from RLTest import Env
 
@@ -10,6 +10,7 @@ from RLTest import Env
 
 def testSuggestions(env):
     r = env
+    skipOnCrdtEnv(env)
     r.expect('ft.SUGADD', 'ac', 'hello world', 1).equal(1)
     r.expect('ft.SUGADD', 'ac', 'hello world', 1, 'INCR').equal(1)
 
@@ -50,6 +51,7 @@ def testSuggestions(env):
     r.expect('ft.SUGGET', 'ac', 'hello').equal(['hello werld'])
 
 def testSuggestErrors(env):
+    skipOnCrdtEnv(env)
     env.expect('ft.SUGADD ac olah 1').equal(1)
     env.expect('ft.SUGADD ac olah 1 INCR').equal(1)
     env.expect('ft.SUGADD ac missing').error().contains('wrong number of arguments')
@@ -64,6 +66,7 @@ def testSuggestErrors(env):
     env.expect('ft.SUGGET ac', query + query).error().contains('Invalid query length')
 
 def testSuggestPayload(env):
+    skipOnCrdtEnv(env)
     r = env
     env.assertEqual(1, r.execute_command(
         'ft.SUGADD', 'ac', 'hello world', 1, 'PAYLOAD', 'foo'))
@@ -86,36 +89,40 @@ def testSuggestPayload(env):
     env.assertEqual(12, len(res))
 
 def testIssue_866(env):
+    skipOnCrdtEnv(env)
     env.expect('ft.sugadd', 'sug', 'test123', '1').equal(1)
     env.expect('ft.sugadd', 'sug', 'test456', '1').equal(2)
     env.expect('ft.sugdel', 'sug', 'test').equal(0)
     env.expect('ft.sugget', 'sug', '').equal(['test123', 'test456'])
 
 def testSuggestMax(env):
-  for i in range(10):
-    env.expect('ft.sugadd', 'sug', 'test%d' % i, i + 1).equal(i + 1)
-  #  for j in range(i + 1):
-  #env.expect('ft.sugadd', 'sug', 'test10', '1', 'INCR').equal(i + 1)
+    skipOnCrdtEnv(env)
+    for i in range(10):
+        env.expect('ft.sugadd', 'sug', 'test%d' % i, i + 1).equal(i + 1)
+        #  for j in range(i + 1):
+        #env.expect('ft.sugadd', 'sug', 'test10', '1', 'INCR').equal(i + 1)
 
-  expected_res = ['test9', '7.0710678100585938', 'test8', '6.3639612197875977', 'test7', '5.6568541526794434',
+    expected_res = ['test9', '7.0710678100585938', 'test8', '6.3639612197875977', 'test7', '5.6568541526794434',
                   'test6', '4.9497475624084473', 'test5', '4.242640495300293', 'test4', '3.5355339050292969',
                   'test3', '2.8284270763397217', 'test2', '2.1213202476501465', 'test1', '1.4142135381698608',
                   'test0', '0.70710676908493042']
-  for i in range(1,11):
-    env.expect('FT.SUGGET', 'sug', 'test', 'MAX', i, 'WITHSCORES').equal(expected_res[0:i*2])
-  env.expect('FT.SUGGET', 'sug', 'test', 'MAX', 10, 'WITHSCORES').equal(expected_res)
+    for i in range(1,11):
+        env.expect('FT.SUGGET', 'sug', 'test', 'MAX', i, 'WITHSCORES').equal(expected_res[0:i*2])
+    env.expect('FT.SUGGET', 'sug', 'test', 'MAX', 10, 'WITHSCORES').equal(expected_res)
 
 def testSuggestMax2(env):
-  for i in range(10):
-    env.expect('ft.sugadd', 'sug', 'test %d' % i, 1).equal(i + 1)
+    skipOnCrdtEnv(env)
+    for i in range(10):
+        env.expect('ft.sugadd', 'sug', 'test %d' % i, 1).equal(i + 1)
 
-  expected_res = ['test 0', 'test 1', 'test 2', 'test 3', 'test 4', 'test 5']
-  for i in range(1,7):
-    res = env.cmd('FT.SUGGET', 'sug', 'test ', 'MAX', i)
-    for item in res:
-        env.assertIn(item, expected_res[0:i])
+    expected_res = ['test 0', 'test 1', 'test 2', 'test 3', 'test 4', 'test 5']
+    for i in range(1,7):
+        res = env.cmd('FT.SUGGET', 'sug', 'test ', 'MAX', i)
+        for item in res:
+            env.assertIn(item, expected_res[0:i])
 
 def testIssue_490(env):
+    skipOnCrdtEnv(env)
     env.expect('ft.sugadd', 'sug', 'RediSearch', '1', 'PAYLOAD', 'RediSearch, an awesome search engine').equal(1)
     env.expect('ft.sugget', 'sug', 'Redis', 'WITHPAYLOADS').equal(['RediSearch', 'RediSearch, an awesome search engine'])
     env.expect('ft.sugadd', 'sug', 'RediSearch', '1', 'INCR').equal(1)

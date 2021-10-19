@@ -19,26 +19,26 @@ def test_1414(env):
   env.skipOnCluster()
   env.expect('FT.CREATE idx SCHEMA txt1 TEXT').equal('OK')
   env.expect('ft.add idx doc 1 fields foo hello bar world').ok()
-  env.expect('ft.search idx * limit 0 1234567').error().contains('LIMIT exceeds maximum of 1000000') 
+  env.expect('ft.search idx * limit 0 1234567').error().contains('LIMIT exceeds maximum of 1000000')
   env.expect('FT.CONFIG set MAXSEARCHRESULTS -1').equal('OK')
-  env.expect('ft.search idx * limit 0 1234567').equal([1L, 'doc', ['foo', 'hello', 'bar', 'world']]) 
-  
+  env.assertEqual(toSortedFlatList(env.cmd('ft.search idx * limit 0 1234567')), toSortedFlatList([1L, 'doc', ['foo', 'hello', 'bar', 'world']]))
+
 def test_1502(env):
   conn = getConnectionByEnv(env)
   conn.execute_command('HSET', 'a', 'bar', 'hello')
 
   env.expect('FT.CREATE idx1 SKIPINITIALSCAN SCHEMA foo TEXT').ok()
   env.expect('FT.CREATE idx2 SKIPINITIALSCAN SCHEMA foo TEXT').ok()
-  
-  env.expect('ft.search idx1 *').equal([0L]) 
-  env.expect('ft.search idx2 *').equal([0L]) 
-  
+
+  env.expect('ft.search idx1 *').equal([0L])
+  env.expect('ft.search idx2 *').equal([0L])
+
   env.expect('FT.ALTER idx1 SKIPINITIALSCAN SCHEMA ADD bar TEXT').ok()
   env.expect('FT.ALTER idx2 SCHEMA ADD bar TEXT').ok()
   waitForIndex(env, 'idx2')
 
-  env.expect('ft.search idx1 *').equal([0L]) 
-  env.expect('ft.search idx2 *').equal([1L, 'a', ['bar', 'hello']]) 
+  env.expect('ft.search idx1 *').equal([0L])
+  env.expect('ft.search idx2 *').equal([1L, 'a', ['bar', 'hello']])
 
 def test_1601(env):
   conn = getConnectionByEnv(env)
@@ -86,7 +86,7 @@ def test_1667(env):
   # test stopword with prefix
   env.expect('ft.search idx @tag:{ab*}').equal([1L, 'doc1', ['tag', 'abc']])
   env.expect('ft.search idx @tag:{abc*}').equal([1L, 'doc1', ['tag', 'abc']])
-  
+
   # ensure regular text field
   conn.execute_command('HSET', 'doc_a', 'text', 'a')
   conn.execute_command('HSET', 'doc_b', 'text', 'b')
@@ -176,7 +176,7 @@ def testMemAllocated(env):
   for i in range(1000):
     conn.execute_command('DEL', 'doc%d' % i)
   assertInfoField(env, 'idx2', 'key_table_size_mb', '0')
-  
+
 def testUNF(env):
   conn = getConnectionByEnv(env)
 
@@ -184,7 +184,7 @@ def testUNF(env):
                                                       'txt_unf', 'TEXT', 'SORTABLE', 'UNF',
                                                       'tag', 'TAG', 'SORTABLE',
                                                       'tag_unf', 'TAG', 'SORTABLE', 'UNF')
-  conn.execute_command('HSET', 'doc1', 'txt', 'FOO', 'txt_unf', 'FOO', 
+  conn.execute_command('HSET', 'doc1', 'txt', 'FOO', 'txt_unf', 'FOO',
                                        'tag', 'FOO', 'tag_unf', 'FOO')
 
   # test `FOO`
@@ -192,13 +192,13 @@ def testUNF(env):
     .equal([1L, ['txt', 'foo', 'txt_unf', 'FOO', 'tag', 'foo', 'tag_unf', 'FOO']])
 
   # test `Maße`
-  conn.execute_command('HSET', 'doc1', 'txt', 'Maße', 'txt_unf', 'Maße', 
+  conn.execute_command('HSET', 'doc1', 'txt', 'Maße', 'txt_unf', 'Maße',
                                        'tag', 'Maße', 'tag_unf', 'Maße')
   env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '4', '@txt', '@txt_unf', '@tag', '@tag_unf')  \
     .equal([1L, ['txt', 'masse', 'txt_unf', 'Ma\xc3\x9fe', 'tag', 'masse', 'tag_unf', 'Ma\xc3\x9fe']])
 
   # test `Maße` with LOAD
-  conn.execute_command('HSET', 'doc1', 'txt', 'Maße', 'txt_unf', 'Maße', 
+  conn.execute_command('HSET', 'doc1', 'txt', 'Maße', 'txt_unf', 'Maße',
                                        'tag', 'Maße', 'tag_unf', 'Maße')
   env.expect('FT.AGGREGATE', 'idx', '*',                              \
              'LOAD',    '4', '@txt', '@txt_unf', '@tag', '@tag_unf',  \

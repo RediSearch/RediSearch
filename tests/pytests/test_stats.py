@@ -1,8 +1,8 @@
 
 import unittest
-from random import random, seed 
+from random import random, seed
 from includes import *
-from common import getConnectionByEnv, waitForIndex, sortedResults, toSortedFlatList
+from common import *
 from time import sleep, time
 from RLTest import Env
 
@@ -34,7 +34,7 @@ def runTestWithSeed(env, s=None):
     env.expect('FLUSHALL')
     if s == None:
         s = time()
-    env.debugPrint('seed: %s' % str(s), force=True)    
+    env.debugPrint('seed: %s' % str(s), force=True)
     seed(s)
 
     idx = 'idx'
@@ -44,7 +44,7 @@ def runTestWithSeed(env, s=None):
 
     ### test increasing integers
     env.expect('ft.config set FORK_GC_CLEAN_THRESHOLD 0').ok()
-    
+
     env.expect('FT.CREATE idx SCHEMA n NUMERIC').ok()
     check_empty(env, idx)
 
@@ -61,7 +61,7 @@ def runTestWithSeed(env, s=None):
         for ii in range(loop_count):
             conn.execute_command('DEL', 'doc%d' % int(loop_count * i + ii))
         for jj in range(10):
-            env.expect('FT.DEBUG', 'GC_FORCEINVOKE', 'idx')
+            forceInvokeGC(env, 'idx')
 
     for i in range(count):
         env.expect('FT.SEARCH', 'idx', '@n:[%d,%d]' % (i, i))#.equal([0L])
@@ -81,7 +81,7 @@ def runTestWithSeed(env, s=None):
         check_not_empty(env, idx)
         for ii in range(loop_count):
             conn.execute_command('DEL', 'doc%d' % int(loop_count * i + ii))
-        env.expect('FT.DEBUG', 'GC_FORCEINVOKE', 'idx')
+        forceInvokeGC(env, 'idx')
     check_empty(env, idx)
 
     for i in range(count):
@@ -102,7 +102,7 @@ def runTestWithSeed(env, s=None):
         for ii in range(loop_count):
             conn.execute_command('DEL', 'doc%d' % int(loop_count * i + ii))
         for jj in range(10):
-            env.expect('FT.DEBUG', 'GC_FORCEINVOKE', 'idx')
+            forceInvokeGC(env, 'idx')
     check_empty(env, idx)
 
 def testRandom(env):
@@ -115,6 +115,7 @@ def testRandom(env):
 
     runTestWithSeed(env)
 
+@unstable
 def testMemoryAfterDrop(env):
     env.skipOnCluster()
 
@@ -123,7 +124,7 @@ def testMemoryAfterDrop(env):
 
     idx_count = 100
     doc_count = 50
-    divide_by = 1000000   # ensure limits of geo are not exceeded 
+    divide_by = 1000000   # ensure limits of geo are not exceeded
     pl = env.getConnection().pipeline()
 
     env.execute_command('FLUSHALL')
@@ -147,7 +148,7 @@ def testMemoryAfterDrop(env):
         d = ft_info_to_dict(env, 'idx%d' % i)
         env.assertEqual(d['num_docs'], '0')
         for _ in range(10):
-            env.cmd('ft.debug', 'GC_FORCEINVOKE', 'idx%d' % i)
+            forceInvokeGC(env, 'idx%d' % i)
 
     for i in range(idx_count):
         check_empty(env, 'idx%d' % i)
@@ -159,10 +160,11 @@ def testIssue1497(env):
         env.skip()
 
     count = 110
-    divide_by = 1000000   # ensure limits of geo are not exceeded 
+    divide_by = 1000000   # ensure limits of geo are not exceeded
     number_of_fields = 4  # one of every type
 
     env.execute_command('FLUSHALL')
+    waitForRdbSaveToFinish(env)
     env.execute_command('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC', 'tg', 'TAG', 'g', 'GEO').ok()
 
@@ -180,12 +182,12 @@ def testIssue1497(env):
     res = env.execute_command('ft.info', 'idx')
     d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
     env.assertGreater(d['inverted_sz_mb'], '0')
-    env.assertGreater(int(d['num_records']), count * number_of_fields)
+    env.assertGreaterEqual(int(d['num_records']), count * number_of_fields)
     for i in range(count):
         env.expect('DEL', 'doc%d' % i)
 
     for _ in range(50):
-        env.cmd('ft.debug', 'GC_FORCEINVOKE', 'idx')
+        forceInvokeGC(env, 'idx')
 
     res = env.execute_command('ft.info', 'idx')
     d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
