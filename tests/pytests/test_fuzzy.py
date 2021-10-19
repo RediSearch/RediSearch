@@ -40,7 +40,7 @@ def testStopwords(env):
     env.assertEqual([1, 'foo', ['t1', 'foo']], r)
 
     r = env.cmd('ft.search', 'idx', '%%with%%')
-    env.assertEqual([2, 'iwth', ['t1', 'iwth'], 'witha', ['t1', 'witha']], r)
+    env.assertEqual([2, 'witha', ['t1', 'witha'], 'iwth', ['t1', 'iwth']], r)
 
     r = env.cmd('ft.search', 'idx', '%with%')
     env.assertEqual([1, 'witha', ['t1', 'witha']], r)
