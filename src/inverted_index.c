@@ -32,15 +32,6 @@ static IndexReader *NewIndexReaderGeneric(const IndexSpec *sp, InvertedIndex *id
                                           IndexDecoderProcs decoder, IndexDecoderCtx decoderCtx,
                                           RSIndexResult *record);
 
-/**
- * Get the real ID, given the current delta
- * @param lastId[in, out] The last ID processed. This is updated with the
- *  current ID after computing
- * @param delta the raw delta read
- * @param isFirst whether this is the first ID in the block
- */
-static t_docId calculateId(t_docId lastId, uint32_t delta, int isFirst);
-
 /* Add a new block to the index with a given document id as the initial id */
 IndexBlock *InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId) {
   TotalIIBlocks++;
@@ -785,19 +776,6 @@ IndexReader *NewNumericReader(const IndexSpec *sp, InvertedIndex *idx, const Num
   return NewIndexReaderGeneric(sp, idx, procs, ctx, res);
 }
 
-static t_docId calculateId(t_docId lastId, uint32_t delta, int isFirst) {
-  t_docId ret;
-
-  if (isFirst && delta != 0) {
-    // this is an old version rdb, the first entry is the docid itself and
-    // not the delta
-    ret = delta;
-  } else {
-    ret = delta + lastId;
-  }
-  return ret;
-}
-
 typedef struct {
   IndexCriteriaTester base;
   union {
@@ -914,7 +892,7 @@ int IR_Read(void *ctx, RSIndexResult **e) {
 
     // We write the docid as a 32 bit number when decoding it with qint.
     uint32_t delta = *(uint32_t *)&record->docId;
-    ir->lastId = record->docId = calculateId(ir->lastId, delta, pos == 0);
+    ir->lastId = record->docId = ir->lastId + delta;
 
     // The decoder also acts as a filter. A zero return value means that the
     // current record should not be processed.
