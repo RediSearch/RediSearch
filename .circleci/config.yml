@@ -70,7 +70,7 @@ commands:
       - setup-automation
       - run:
           name: System setup
-          command: ./system-setup.py
+          command: ./sbin/system-setup.py
       - run:
           name: Install Redis
           shell: /bin/bash -l -eo pipefail
@@ -274,6 +274,35 @@ jobs:
           platform: bionic
       - benchmark-automation
 
+  coverage:
+    docker:
+      - image: redisfab/rmbuilder:6.2.5-x64-bullseye
+    steps:
+      - early-returns
+      - checkout-all
+      - install-prerequisites
+      - run:
+          name: Build & Test
+          command: bash -l -c "make COV=1"
+          no_output_timeout: 30m
+      - save-tests-logs
+
+  sanitize:
+    docker:
+      - image: redisfab/clang:13-x64-bullseye
+    parameters:
+      san-type:
+        type: string
+    steps:
+      - early-returns
+      - checkout-all
+      - install-prerequisites
+      - run:
+          name: Run & build tests
+          command: bash -l -c "make SAN=<<parameters.san-type>> build test"
+          no_output_timeout: 30m
+      - save-tests-logs
+
   test-rlec:
     machine:
       enabled: true
@@ -288,7 +317,7 @@ jobs:
           shell: /bin/bash -l -eo pipefail
           command: |
             sudo ./deps/readies/bin/getpy3
-            sudo ./system-setup.py
+            sudo ./sbin/system-setup.py
             sudo ./deps/readies/bin/getredis
             sudo ./deps/readies/bin/getdocker --just-enable-exp
             docker version
@@ -323,33 +352,6 @@ jobs:
             sudo make test RLEC=1 GEARS=1 SHOW=1 V=2
       - save-tests-logs
 
-  coverage:
-    docker:
-      - image: redisfab/rmbuilder:6.2.5-x64-bullseye
-    steps:
-      - early-returns
-      - checkout-all
-      - run:
-          name: Build & Test
-          command: bash -l -c "make COV=1"
-          no_output_timeout: 30m
-      - save-tests-logs
-
-  sanitize:
-    docker:
-      - image: redisfab/clang:13-x64-bullseye
-    parameters:
-      san-type:
-        type: string
-    steps:
-      - early-returns
-      - checkout-all
-      - run:
-          name: Run & build tests
-          command: bash -l -c "make SAN=<<parameters.san-type>> build test"
-          no_output_timeout: 30m
-      - save-tests-logs
-
   deploy-artifacts:
     parameters:
       location:
@@ -374,38 +376,6 @@ jobs:
             fi
             for f in `ls *.zip *.tgz`; do
               aws s3 cp $f s3://redismodules/$PACKAGE_NAME/$path --acl public-read
-            done
-
-  deploy-snapshots:
-    docker:
-      - image: redisfab/rmbuilder:6.2.5-x64-bullseye
-    steps:
-      - early-returns
-      - early-return-for-forked-pull-requests
-      - attach_workspace:
-          at: ~/workspace
-      - run:
-          name: Deploy Snapshots to S3
-          command: |
-            cd ~/workspace/snapshots
-            for f in *.zip *.tgz; do
-              aws s3 cp $f s3://redismodules/$PACKAGE_NAME/snapshots/ --acl public-read
-            done
-
-  deploy-release:
-    docker:
-      - image: redisfab/rmbuilder:6.2.5-x64-bullseye
-    steps:
-      - early-returns
-      - early-return-for-forked-pull-requests
-      - attach_workspace:
-          at: ~/workspace
-      - run:
-          name: Deploy Releases to S3
-          command: |
-            cd ~/workspace
-            for f in *.zip *.tgz; do
-              aws s3 cp $f s3://redismodules/$PACKAGE_NAME/ --acl public-read
             done
 
   release-automation:
