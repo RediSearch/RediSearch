@@ -347,7 +347,7 @@ static void rpsortFree(ResultProcessor *rp) {
 static void SearchResult_Load(RPSorter *self, SearchResult *r) {
   for (size_t i = 0; i < self->fieldcmp.nkeys; i++) {
     RSValue *rsv = RLookup_GetItem(self->fieldcmp.keys[i], &r->rowdata);
-    r->values[i] = rsv ? RSValue_Dereference(rsv) : RS_NullVal();
+    r->values[i] = rsv ? rsv : RS_NullVal();
   }
 }
 
