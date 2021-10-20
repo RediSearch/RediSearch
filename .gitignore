@@ -16,7 +16,6 @@
 *.tar
 /bin/
 /site/*
-/build*/
 /artifacts/
 /venv*/
 srcutil/lemon
