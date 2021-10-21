@@ -1,6 +1,8 @@
+
 #include "test_util.h"
-#include "../../src/util/khtable.h"
-#include "../../src/util/fnv.h"
+#include "src/util/khtable.h"
+#include "src/util/fnv.h"
+
 #include <string.h>
 #include <assert.h>
 #include "rmutil/alloc.h"

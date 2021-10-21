@@ -1,19 +1,22 @@
-#include "../../src/buffer.h"
-#include "../../src/index.h"
-#include "../../src/inverted_index.h"
-#include "../../src/index_result.h"
-#include "../../src/query_parser/tokenizer.h"
-#include "../../src/rmutil/alloc.h"
-#include "../../src/spec.h"
-#include "../../src/tokenize.h"
-#include "../../src/varint.h"
-#include "../../src/rmutil/alloc.h"
+#include "src/buffer.h"
+#include "src/index.h"
+#include "src/inverted_index.h"
+#include "src/index_result.h"
+#include "src/query_parser/tokenizer.h"
+#include "src/spec.h"
+#include "src/tokenize.h"
+#include "src/varint.h"
+
+#include "rmutil/alloc.h"
+#include "rmutil/alloc.h"
+
+#include "gtest/gtest.h"
+
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
 #include <time.h>
 #include <float.h>
-#include <gtest/gtest.h>
 #include <vector>
 #include <cstdint>
 
