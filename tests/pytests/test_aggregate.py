@@ -304,6 +304,21 @@ class TestAggregate():
         self.env.assertListEqual([292L, ['brand', 'zps', 'price', '0'], ['brand', 'zalman', 'price', '0'], ['brand', 'yoozoo', 'price', '0'], ['brand', 'white label', 'price', '0'], ['brand', 'stinky', 'price', '0'], [
                                  'brand', 'polaroid', 'price', '0'], ['brand', 'plantronics', 'price', '0'], ['brand', 'ozone', 'price', '0'], ['brand', 'oooo', 'price', '0'], ['brand', 'neon', 'price', '0']], res)
 
+        # test LOAD with SORTBY
+        expected_res = [2265L, ['title', 'Gamepad Controller Converter Adapter Cable for Sony PS2 to Nintendo Wii White', 'price', '0'],
+                               ['title', 'POKEMON WORLD Nintendo 3DS XL Vinyl Skin Decal Sticker +Screen Protectors', 'price', '0']]
+        res = self.env.cmd('ft.aggregate', 'games', '*',
+                           'LOAD', 1, '@title',
+                           'SORTBY', 2, '@price', 'asc',
+                           'LIMIT', '0', '2')
+        self.env.assertListEqual(toSortedFlatList(res), toSortedFlatList(expected_res))
+
+        res = self.env.cmd('ft.aggregate', 'games', '*',
+                           'SORTBY', 2, '@price', 'asc',
+                           'LOAD', 1, '@title',
+                           'LIMIT', '0', '2')                           
+        self.env.assertListEqual(toSortedFlatList(res), toSortedFlatList(expected_res))
+
     def testExpressions(self):
         pass
 
@@ -448,6 +463,14 @@ class TestAggregate():
         self.env.expect('ft.config', 'set', 'MAXSEARCHRESULTS', 1000000).ok()
 
     def testMultiSortBy(self):
+        self.env.expect('ft.aggregate', 'games', '*',
+                           'LOAD', '2', '@brand', '@price',
+                           'SORTBY', 2, '@brand', 'DESC',
+                           'SORTBY', 2, '@price', 'DESC').error()\
+                            .contains('Multiple SORTBY steps are not allowed. Sort multiple fields in a single step')
+
+
+    def testLoadWithSortBy(self):
         self.env.expect('ft.aggregate', 'games', '*',
                            'LOAD', '2', '@brand', '@price',
                            'SORTBY', 2, '@brand', 'DESC',
