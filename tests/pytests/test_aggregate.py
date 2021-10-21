@@ -305,16 +305,16 @@ class TestAggregate():
                                  'brand', 'polaroid', 'price', '0'], ['brand', 'plantronics', 'price', '0'], ['brand', 'ozone', 'price', '0'], ['brand', 'oooo', 'price', '0'], ['brand', 'neon', 'price', '0']], res)
 
         # test LOAD with SORTBY
-        expected_res = [2265L, ['title', 'Gamepad Controller Converter Adapter Cable for Sony PS2 to Nintendo Wii White', 'price', '0'],
-                               ['title', 'POKEMON WORLD Nintendo 3DS XL Vinyl Skin Decal Sticker +Screen Protectors', 'price', '0']]
+        expected_res = [2265L, ['title', 'Logitech MOMO Racing - Wheel and pedals set - 6 button(s) - PC, MAC - black', 'price', '759.12'],
+                               ['title', 'Sony PSP Slim &amp; Lite 2000 Console', 'price', '695.8']]
         res = self.env.cmd('ft.aggregate', 'games', '*',
                            'LOAD', 1, '@title',
-                           'SORTBY', 2, '@price', 'asc',
+                           'SORTBY', 2, '@price', 'desc',
                            'LIMIT', '0', '2')
         self.env.assertListEqual(toSortedFlatList(res), toSortedFlatList(expected_res))
 
         res = self.env.cmd('ft.aggregate', 'games', '*',
-                           'SORTBY', 2, '@price', 'asc',
+                           'SORTBY', 2, '@price', 'desc',
                            'LOAD', 1, '@title',
                            'LIMIT', '0', '2')                           
         self.env.assertListEqual(toSortedFlatList(res), toSortedFlatList(expected_res))
