@@ -9,6 +9,13 @@
 
 #include "cmdparse.h"
 
+#define __ignore__(X) \
+    do { \
+        int rc = (X); \
+        if (rc == -1) \
+            ; \
+    } while(0)
+
 int CmdString_CaseEquals(CmdString *str, const char *other) {
   if (!str || !other) return 0;
   size_t l = strlen(other);
@@ -497,7 +504,7 @@ int typedParse(CmdArg **node, CmdString *arg, char type, char **err) {
     case 'l': {
       long long i;
       if (!parseInt(arg->str, &i)) {
-        asprintf(err, "Could not parse int value '%s'", arg->str);
+        __ignore__(asprintf(err, "Could not parse int value '%s'", arg->str));
         return CMDPARSE_ERR;
       }
       *node = NewCmdInteger(i);
@@ -507,14 +514,14 @@ int typedParse(CmdArg **node, CmdString *arg, char type, char **err) {
     case 'd': {
       double d;
       if (!parseDouble(arg->str, &d)) {
-        asprintf(err, "Could not parse double value '%s'", arg->str);
+        __ignore__(asprintf(err, "Could not parse double value '%s'", arg->str));
         return CMDPARSE_ERR;
       }
       *node = NewCmdDouble(d);
       break;
     }
     default:
-      asprintf(err, "Invalid type specifier '%c'", type);
+      __ignore__(asprintf(err, "Invalid type specifier '%c'", type));
       return CMDPARSE_ERR;
   }
   return CMDPARSE_OK;
@@ -597,12 +604,12 @@ static int parseVector(CmdSchemaVector *vec, CmdArg **current, CmdString *argv, 
   CMDPARSE_CHECK_POS(*pos, argc, err, "Vector length out of range");
   long long vlen = 0;
   if (!parseInt(argv[*pos].str, &vlen)) {
-    asprintf(err, "Invalid vector length token '%s'", argv[*pos].str);
+    __ignore__(asprintf(err, "Invalid vector length token '%s'", argv[*pos].str));
     return CMDPARSE_ERR;
   }
 
   if (vlen < 0 || *pos + vlen >= argc) {
-    asprintf(err, "Invalid or out of range vector length: %lld", vlen);
+    __ignore__(asprintf(err, "Invalid or out of range vector length: %lld", vlen));
     return CMDPARSE_ERR;
   }
 
@@ -701,7 +708,7 @@ static int cmdParser_ProcessElement(CmdSchemaElement *elem, CmdArg **out, CmdStr
   // if needed - validate the element
   if (elem->validator) {
     if (!elem->validator(*out, elem->validatorCtx)) {
-      asprintf(err, "Validation failed at offset %d near '%s'", *pos, argv[*pos - 1].str);
+      __ignore__(asprintf(err, "Validation failed at offset %d near '%s'", *pos, argv[*pos - 1].str));
       return CMDPARSE_ERR;
     }
   }
@@ -718,7 +725,7 @@ static int cmdArg_AddChild(CmdArg *parent, const char *name, CmdArg *child, char
       return CmdArray_Append(&parent->a, child);
 
     default: {
-      asprintf(err, "Cannot add child to node of type %d", parent->type);
+      __ignore__(asprintf(err, "Cannot add child to node of type %d", parent->type));
       return CMDPARSE_ERR;
     }
   }
@@ -822,7 +829,7 @@ end:
     CmdSchemaNode *edge = node->edges[i];
     if (edge->flags & CmdSchema_Required && !(sf[i] & CmdParser_Visited)) {
       // set an error indicating the first missed required argument
-      asprintf(err, "Missing required argument '%s' in '%s'", node->edges[i]->name, node->name);
+      __ignore__(asprintf(err, "Missing required argument '%s' in '%s'", node->edges[i]->name, node->name));
       return CMDPARSE_ERR;
     }
 
@@ -849,7 +856,7 @@ int CmdParser_ParseCmd(CmdSchemaNode *schema, CmdArg **arg, CmdString *argv, int
     return CMDPARSE_ERR;
   }
   if (strict && pos < argc) {
-    asprintf(err, "Extra arguments not parsed. Only %d of %d args parsed", pos, argc);
+    __ignore__(asprintf(err, "Extra arguments not parsed. Only %d of %d args parsed", pos, argc));
     if (*arg) CmdArg_Free(*arg);
     *arg = NULL;
     return CMDPARSE_ERR;

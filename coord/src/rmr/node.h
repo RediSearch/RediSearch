@@ -1,6 +1,7 @@
 
 #pragma once
 
+#include "common.h"
 #include "endpoint.h"
 #include "triemap/triemap.h"
 

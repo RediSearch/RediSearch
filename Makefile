@@ -44,7 +44,7 @@ make setup         # install prerequisited (CAUTION: THIS WILL MODIFY YOUR SYSTE
 make fetch         # download and prepare dependant modules
 
 make build         # compile and link
-  COORD=type       # build coordinator module (type=oss|rlec)
+  COORD=1          # build coordinator module
   DEBUG=1          # build for debugging (implies WITH_TESTS=1)
   WITH_TESTS=1     # enable unit tests
   WHY=1            # explain CMake decisions (in /tmp/cmake-why)
@@ -92,41 +92,31 @@ endef
 
 #----------------------------------------------------------------------------------------------
 
-ifeq ($(COORD),)
+ifneq ($(COORD),1)
 
 CMAKE_DIR=$(ROOT)
 BINDIR=$(BINROOT)/search
 SRCDIR=src
 TARGET=$(BINDIR)/redisearch.so
+PACKAGE_NAME=redisearch-oss
+
+else
+
+CMAKE_DIR=$(ROOT)/coord
+BINDIR=$(BINROOT)/coord
+SRCDIR=coord/src
+TARGET=$(BINDIR)/module-enterprise.so
 PACKAGE_NAME=redisearch
 
-else ifeq ($(COORD),oss)
+LIBUV_BINDIR=bin/$(FULL_VARIANT.release)/libuv
+include build/libuv/Makefile.defs
 
-CMAKE_DIR=$(ROOT)/coord
-BINDIR=$(BINROOT)/coord-oss
-SRCDIR=coord/src
-TARGET=$(BINDIR)/redisearch-cluster.so
-PACKAGE_NAME=redisearch-cluster
-
-else ifeq ($(COORD),rlec)
-
-CMAKE_DIR=$(ROOT)/coord
-BINDIR=$(BINROOT)/coord-rlec
-SRCDIR=coord/src
-TARGET=$(BINDIR)/redisearch-rlec.so
-PACKAGE_NAME=redisearch-rlec
+HIREDIS_BINDIR=bin/$(FULL_VARIANT.release)/hiredis
+include build/hiredis/Makefile.defs
 
 endif
 
 #----------------------------------------------------------------------------------------------
-
-#COMPAT_MODULE := src/redisearch.so
-
-#ifeq ($(SAN),)
-#COMPAT_DIR ?= build
-#else
-#COMPAT_DIR ?= build-$(SAN_DIR)
-#endif
 
 export PACKAGE_NAME
 
@@ -184,7 +174,9 @@ CMAKE_FILES+= \
 	tests/c_utils/CMakeLists.txt
 endif
 
-CMAKE_FLAGS=$(CMAKE_ARGS) $(CMAKE_DEBUG) $(CMAKE_STATIC) $(CMAKE_SAN) $(CMAKE_TEST) $(CMAKE_WHY) $(CMAKE_PROFILE)
+CMAKE_FLAGS=-Wno-dev
+CMAKE_FLAGS += $(CMAKE_ARGS) $(CMAKE_DEBUG) $(CMAKE_STATIC) $(CMAKE_SAN) $(CMAKE_TEST) \
+	$(CMAKE_WHY) $(CMAKE_PROFILE)
 
 #----------------------------------------------------------------------------------------------
 
@@ -192,12 +184,39 @@ include $(MK)/defs
 
 MK_CUSTOM_CLEAN=1
 
+#----------------------------------------------------------------------------------------------
+
+MISSING_DEPS:=
+ifeq ($(wildcard $(LIBUV)),)
+MISSING_DEPS += $(LIBUV) $(HIREDIS)
+endif
+ifeq ($(wildcard $(HIREDIS)),)
+MISSING_DEPS += $(HIREDIS)
+endif
+
+ifneq ($(MISSING_DEPS),)
+DEPS=1
+endif
+
+DEPENDENCIES=libuv hiredis
+
+ifneq ($(filter all deps $(DEPENDENCIES) pack,$(MAKECMDGOALS)),)
+DEPS=1
+endif
+
+.PHONY: deps $(DEPENDENCIES)
+
+#----------------------------------------------------------------------------------------------
+
 all: bindirs $(TARGET)
 
 include $(MK)/rules
 
-#$(COMPAT_MODULE): $(BINROOT)/redisearch.so
-#	cp $^ $@
+ifeq ($(SLOW),1)
+MAKE_J=
+else
+MAKE_J:=-j$(shell nproc)
+endif
 
 ifeq ($(FORCE),1)
 .PHONY: __force
@@ -213,9 +232,9 @@ endif
 	@mkdir -p $(BINROOT)
 	@cd $(BINDIR) && cmake $(CMAKE_DIR) $(CMAKE_FLAGS)
 
-$(TARGET): $(BINDIR)/Makefile
+$(TARGET): $(MISSING_DEPS) $(BINDIR)/Makefile
 	@echo Building $(TARGET) ...
-	@$(MAKE) -C $(BINDIR) -j$(shell nproc)
+	@$(MAKE) -C $(BINDIR) $(MAKE_J)
 #	@[ -f $(TARGET) ] && touch $(TARGET)
 
 .PHONY: build clean run 
@@ -243,6 +262,32 @@ endif
 
 #----------------------------------------------------------------------------------------------
 
+ifeq ($(DEPS),1)
+
+deps: $(LIBUV) $(HIREDIS)
+
+libuv: $(LIBUV)
+
+$(LIBUV):
+	@echo Building libuv...
+	$(SHOW)$(MAKE) --no-print-directory -C build/libuv DEBUG=
+
+hiredis: $(HIREDIS)
+
+$(HIREDIS):
+	@echo Building hiredis...
+	$(SHOW)$(MAKE) --no-print-directory -C build/hiredis DEBUG=
+
+#----------------------------------------------------------------------------------------------
+
+else
+
+deps: ;
+
+endif # DEPS
+
+#----------------------------------------------------------------------------------------------
+
 setup:
 	@echo Setting up system...
 	$(SHOW)./deps/readies/bin/getpy2
@@ -260,29 +305,6 @@ run:
 
 #----------------------------------------------------------------------------------------------
 
-BENCHMARK_ARGS = redisbench-admin run-local
-
-ifneq ($(REMOTE),)
-	BENCHMARK_ARGS = redisbench-admin run-remote 
-endif
-
-ifeq ($(REJSON),1)
-BENCHMARK_ARGS += --module_path $(realpath $(REJSON_PATH)) \
-	--required-module ReJSON
-endif
-
-BENCHMARK_ARGS += --module_path $(realpath $(TARGET)) \
-	--required-module search
-
-ifneq ($(BENCHMARK),)
-	BENCHMARK_ARGS += --test $(BENCHMARK)
-endif
-
-
-benchmark: $(TARGET)
-	cd ./tests/ci.benchmarks; $(BENCHMARK_ARGS) ; cd ../../
-
-#----------------------------------------------------------------------------------------------
 export REJSON ?= 1
 
 ifeq ($(TESTDEBUG),1)
@@ -368,6 +390,28 @@ pack: artifacts/$(RAMP.release)
 
 #----------------------------------------------------------------------------------------------
 
+ifeq ($(REMOTE),1)
+BENCHMARK_ARGS=run-remote 
+else
+BENCHMARK_ARGS=run-local
+endif
+
+BENCHMARK_ARGS += --module_path $(realpath $(TARGET)) --required-module search
+
+ifeq ($(REJSON),1)
+BENCHMARK_ARGS += --module_path $(realpath $(REJSON_PATH)) --required-module ReJSON
+endif
+
+ifneq ($(BENCHMARK),)
+BENCHMARK_ARGS += --test $(BENCHMARK)
+endif
+
+benchmark:
+	$(SHOW)cd tests/benchmarks ;\
+	redisbench-admin $(BENCHMARK_ARGS)
+
+#----------------------------------------------------------------------------------------------
+
 docs:
 	$(SHOW)mkdocs build
 
@@ -392,9 +436,4 @@ docker:
 	docker build . -t $(DOCKER_IMAGE) -f docker/Dockerfile $(DOCKER_ARGS) \
 		--build-arg=GIT_DESCRIBE_VERSION=$(MODULE_VERSION)
 
-docker_push: docker
-	docker push redislabs/redisearch:latest
-	docker tag redislabs/redisearch:latest redislabs/redisearch:$(MODULE_VERSION)
-	docker push redislabs/redisearch:$(MODULE_VERSION)
-
-.PHONY: docker docker_push
+.PHONY: docker

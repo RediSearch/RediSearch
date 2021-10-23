@@ -1,7 +1,9 @@
-#include <stdlib.h>
+
 #include "node.h"
 #include "triemap/triemap.h"
 #include "triemap/triemap.h"
+
+#include <stdlib.h>
 
 void MRNodeMapIterator_Free(MRNodeMapIterator *it) {
   TrieMapIterator_Free(it->iter);
@@ -96,7 +98,7 @@ void MRNodeMap_Add(MRNodeMap *m, MRClusterNode *n) {
   TrieMap_Add(m->hosts, n->endpoint.host, strlen(n->endpoint.host), NULL, NULL);
 
   char *addr;
-  asprintf(&addr, "%s:%d", n->endpoint.host, n->endpoint.port);
+  __ignore__(asprintf(&addr, "%s:%d", n->endpoint.host, n->endpoint.port));
   TrieMap_Add(m->nodes, addr, strlen(addr), n, _node_replace);
   free(addr);
 }

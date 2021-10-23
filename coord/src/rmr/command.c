@@ -290,7 +290,7 @@ void MRCommand_SetPrefix(MRCommand *cmd, const char *newPrefix) {
   }
 
   char *buf = NULL;
-  asprintf(&buf, "%s.%s", newPrefix, suffix);
+  __ignore__(asprintf(&buf, "%s.%s", newPrefix, suffix));
   MRCommand_ReplaceArgNoDup(cmd, 0, buf, strlen(buf));
   _getCommandConfId(cmd);
 }

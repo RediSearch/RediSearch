@@ -8,6 +8,9 @@
 #include "gc.h"
 #include "module.h"
 
+#define __STRINGIFY(x) #x
+#define STRINGIFY(x) __STRINGIFY(x)
+
 #define DUMP_PHONETIC_HASH "DUMP_PHONETIC_HASH"
 
 #define DEBUG_COMMAND(name) static int name(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
@@ -394,7 +397,7 @@ DEBUG_COMMAND(ttl) {
 
 DEBUG_COMMAND(GitSha) {
 #ifdef RS_GIT_SHA
-  RedisModule_ReplyWithStringBuffer(ctx, RS_GIT_SHA, strlen(RS_GIT_SHA));
+  RedisModule_ReplyWithStringBuffer(ctx, STRINGIFY(RS_GIT_SHA), strlen(STRINGIFY(RS_GIT_SHA)));
 #else
   RedisModule_ReplyWithError(ctx, "GIT SHA was not defined on compilation");
 #endif

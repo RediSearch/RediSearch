@@ -5,48 +5,55 @@ INCLUDE(CheckCCompilerFlag)
 # RS_CXX_FLAGS
 # RS_COMMON_FLAGS
 # RS_DEFINES variables
-# This does not handle linker flags.
 
 CHECK_C_COMPILER_FLAG("-Wincompatible-pointer-types" HAVE_W_INCOMPATIBLE_POINTER_TYPES)
 CHECK_C_COMPILER_FLAG("-Wincompatible-pointer-types-discards-qualifiers" HAVE_W_DISCARDS_QUALIFIERS)
 
-SET(RS_COMMON_FLAGS "-Wall -Wno-unused-function -Wno-unused-variable -Wno-sign-compare")
-SET(RS_COMMON_FLAGS "${RS_COMMON_FLAGS} -fPIC -Werror=implicit-function-declaration")
-SET(RS_COMMON_FLAGS "${RS_COMMON_FLAGS} -pthread")
-SET(RS_COMMON_FLAGS "${RS_COMMON_FLAGS} -fno-strict-aliasing")
+set(RS_COMMON_FLAGS "-Wall -Wno-unused-function -Wno-unused-variable -Wno-sign-compare")
+set(RS_COMMON_FLAGS "${RS_COMMON_FLAGS} -fPIC")
+set(RS_COMMON_FLAGS "${RS_COMMON_FLAGS} -pthread")
+set(RS_COMMON_FLAGS "${RS_COMMON_FLAGS} -fno-strict-aliasing")
 
+if (HAVE_W_INCOMPATIBLE_POINTER_TYPES)
+    SET(RS_C_FLAGS "${RS_C_FLAGS} -Werror=incompatible-pointer-types")
+    if (HAVE_W_DISCARDS_QUALIFIERS)
+        set(RS_COMMON_FLAGS "${RS_COMMON_FLAGS} -Wno-error=incompatible-pointer-types-discards-qualifiers")
+    endif()
+endif()
 
-IF (HAVE_W_INCOMPATIBLE_POINTER_TYPES)
-    SET(RS_COMMON_FLAGS "${RS_COMMON_FLAGS} -Werror=incompatible-pointer-types")
-    IF (HAVE_W_DISCARDS_QUALIFIERS)
-        SET(RS_COMMON_FLAGS "${RS_COMMON_FLAGS} -Wno-error=incompatible-pointer-types-discards-qualifiers")
-    ENDIF()
-ENDIF()
+set(RS_C_FLAGS "${RS_C_FLAGS}  -Werror=implicit-function-declaration")
 
+#----------------------------------------------------------------------------------------------
 
-IF (USE_ASAN)
-    SET(RS_COMMON_FLAGS "${RS_COMMON_FLAGS} -fno-omit-frame-pointer -fsanitize=address")
-ELSEIF(USE_TSAN)
-    SET(RS_COMMON_FLAGS "${RS_COMMON_FLAGS} -fno-omit-frame-pointer -fsanitize=thread -pie")
-ELSEIF(USE_MSAN)
-    SET(RS_COMMON_FLAGS "${RS_COMMON_FLAGS} -fno-omit-frame-pointer -fsanitize=memory -fsanitize-memory-track-origins=2")
-    SET(CMAKE_LINKER "${CMAKE_C_COMPILER}")
-    IF (NOT MSAN_PREFIX)
-        MESSAGE(FATAL_ERROR "Need MSAN_PREFIX")
-    ENDIF()
-    SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++ -Wl,-rpath=${MSAN_PREFIX}/lib -L${MSAN_PREFIX}/lib -lc++abi -I${MSAN_PREFIX}/include -I${MSAN_PREFIX}/include/c++/v1")
-ENDIF()
+if (USE_ASAN)
+    set(RS_COMMON_FLAGS "${RS_COMMON_FLAGS} -fno-omit-frame-pointer -fsanitize=address")
+elseif(USE_TSAN)
+    set(RS_COMMON_FLAGS "${RS_COMMON_FLAGS} -fno-omit-frame-pointer -fsanitize=thread -pie")
+elseif(USE_MSAN)
+    set(RS_COMMON_FLAGS "${RS_COMMON_FLAGS} -fno-omit-frame-pointer -fsanitize=memory -fsanitize-memory-track-origins=2")
+    set(CMAKE_LINKER "${CMAKE_C_COMPILER}")
+    if (NOT MSAN_PREFIX)
+        message(FATAL_ERROR "Need MSAN_PREFIX")
+    endif()
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++ -Wl,-rpath=${MSAN_PREFIX}/lib -L${MSAN_PREFIX}/lib -lc++abi -I${MSAN_PREFIX}/include -I${MSAN_PREFIX}/include/c++/v1")
+endif()
 
-IF (USE_COVERAGE)
-    IF (NOT CMAKE_BUILD_TYPE STREQUAL "DEBUG")
-        MESSAGE(FATAL_ERROR "Build type must be DEBUG for coverage")
-    ENDIF()
-    SET(RS_COMMON_FLAGS "${RS_COMMON_FLAGS} -coverage")
-ENDIF()
+#----------------------------------------------------------------------------------------------
 
-SET(RS_C_FLAGS "${RS_COMMON_FLAGS} -std=gnu99")
-SET(RS_CXX_FLAGS "${RS_COMMON_FLAGS} -fno-rtti -fno-exceptions -std=c++11")
+if (USE_COVERAGE)
+    if (NOT CMAKE_BUILD_TYPE STREQUAL "DEBUG")
+        message(FATAL_ERROR "Build type must be DEBUG for coverage")
+    endif()
+    set(RS_COMMON_FLAGS "${RS_COMMON_FLAGS} -coverage")
+endif()
 
-IF (NOT APPLE)
-    SET(RS_SO_FLAGS "-Wl,-Bsymbolic,-Bsymbolic-functions")
-ENDIF()
+#----------------------------------------------------------------------------------------------
+
+set(RS_C_FLAGS "${RS_COMMON_FLAGS} -std=gnu99")
+set(RS_CXX_FLAGS "${RS_COMMON_FLAGS} -fno-rtti -fno-exceptions -std=c++11")
+
+#----------------------------------------------------------------------------------------------
+
+if (NOT APPLE)
+    set(RS_SO_FLAGS "-Wl,-Bsymbolic,-Bsymbolic-functions")
+endif()

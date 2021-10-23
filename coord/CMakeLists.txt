@@ -1,30 +1,27 @@
-cmake_minimum_required(VERSION 3.10.0)
+# cmake_minimum_required(VERSION 3.10.0)
 
-cmake_policy(SET CMP0026 NEW)
-cmake_policy(SET CMP0045 NEW)
+get_filename_component(RS_DIR ${CMAKE_SOURCE_DIR}/.. ABSOLUTE)
+get_filename_component(binroot ${CMAKE_CURRENT_BINARY_DIR}/.. ABSOLUTE)
+message("# coord root: " ${RS_DIR})
+message("# coord binroot: " ${binroot})
 
-# Allow to use 'LOCATION' setting
-IF(POLICY CMP0026)
-    cmake_policy(SET CMP0026 NEW)
-ENDIF()
-IF(POLICY CMP0045)
-    cmake_policy(SET CMP0045 NEW)
-ENDIF()
+include(${RS_DIR}/build/cmake/common.cmake)
+
+set(RS_RUN_TESTS OFF CACHE BOOL "" FORCE) # Don't run RS' own tests
+set(RS_ENABLE_MOCK ON CACHE BOOL "" FORCE) # But build mock so we can link our own tests
+set(RS_BUILD_STATIC ON CACHE BOOL "" FORCE)
 
 #----------------------------------------------------------------------------------------------
 
 project(RSCoordinator)
-
-get_filename_component(RS_DIR ${PROJECT_SOURCE_DIR}/.. ABSOLUTE)
-get_filename_component(binroot ${PROJECT_BINARY_DIR}/.. ABSOLUTE)
-message("# coord root: " ${RS_DIR})
-message("# coord binroot: " ${binroot})
 
 include(${RS_DIR}/build/cmake/redisearch_cflags.cmake)
 
 option(RS_ENTERPRISE_BUILD "build for enterprise cluster" OFF)
 
 set(RS_BUILD_COORDINATOR 1)
+
+#----------------------------------------------------------------------------------------------
 
 add_definitions(-DREDISMODULE_EXPERIMENTAL_API)
 add_definitions(-D_GNU_SOURCE)
@@ -43,32 +40,10 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fvisibility=hidden")
 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Bsymbolic -Bsymbolic-functions")
 set(CMAKE_MODULE_LINKER_FLAGS "${CMAKE_MODULE_LINKER_FLAGS} -Bsymbolic -Bsymbolic-functions")
 
-set(RS_RUN_TESTS OFF CACHE BOOL "" FORCE) # Don't run RS' own tests
-set(RS_ENABLE_MOCK ON CACHE BOOL "" FORCE) # But build mock so we can link our own tests
-set(RS_BUILD_STATIC ON CACHE BOOL "" FORCE)
-
 #----------------------------------------------------------------------------------------------
 
-set(LIBUV_BINROOT ${binroot}/libuv/.libs)
-
-find_path(LIBUV_INCLUDE_DIR uv.h
-    HINTS ${RS_DIR}/deps/libuv
-    PATH_SUFFIXES include)
-
-find_library(LIBUV_LIBRARIES
-    NAMES libuv.a uv
-    HINTS "${LIBUV_BINROOT}"
-    PATH_SUFFIXES .lib)
-if (NOT LIBUV_LIBRARIES)
-	message(FATAL_ERROR "cannot find libuv in ${LIBUV_BINROOT}")
-endif()
-
-#----------------------------------------------------------------------------------------------
-
-set(ENABLE_SSL ON CACHE BOOL "Build hiredis with ssl")
-option(DISABLE_TESTS "If tests should be compiled or not" ON)
-
-add_subdirectory(${RS_DIR}/deps/hiredis hiredis)
+include(${RS_DIR}/build/libuv/libuv.cmake)
+include(${RS_DIR}/build/hiredis/hiredis.cmake)
 
 #----------------------------------------------------------------------------------------------
 
@@ -91,7 +66,7 @@ set(FINAL_OBJECTS
 macro(MODULE_TARGET SUFFIX)
     set(_moduleName module-${SUFFIX})
     add_library(${_moduleName} SHARED ${FINAL_OBJECTS} src/build-info/info-${SUFFIX}.c)
-    target_link_libraries(${_moduleName} redisearch-${SUFFIX} ${LIBUV_LIBRARIES} hiredis_static hiredis_ssl_static crypt ssl)
+    target_link_libraries(${_moduleName} redisearch-${SUFFIX} ${LIBUV_LIBRARIES} hiredis hiredis_ssl crypt ssl)
 
     if (${SUFFIX} STREQUAL "oss")
         set(_moduleDefs "RS_CLUSTER_OSS")
@@ -116,13 +91,13 @@ MODULE_TARGET(enterprise)
 
 #----------------------------------------------------------------------------------------------
 
-# enable_testing() # enable coordinator tests
+enable_testing() # enable coordinator tests
 
 add_library(testdeps STATIC ${FINAL_OBJECTS})
-target_link_libraries(testdeps ${LIBUV_LIBRARIES} redisearch-oss redismock hiredis_static hiredis_ssl_static crypt ssl dl)
+target_link_libraries(testdeps ${LIBUV_LIBS} redisearch-oss redismock ${HIREDIS_LIBS} crypt ssl dl)
 
-# add_subdirectory(src/rmr/test)
-# add_subdirectory(tests/unit)
-# add_subdirectory(${RS_DIR}/tests/ctests/ext-example ext-example)
+add_subdirectory(src/rmr/test)
+add_subdirectory(tests/unit)
+add_subdirectory(${RS_DIR}/tests/ctests/ext-example ext-example)
 
 # set_target_properties(redismock PROPERTIES COMPILE_FLAGS "-fvisibility=default")

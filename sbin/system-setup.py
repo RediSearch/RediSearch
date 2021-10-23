@@ -22,11 +22,12 @@ class RediSearchSetup(paella.Setup):
         self.pip_install("setuptools --upgrade")
 
         self.run("%s/bin/enable-utf8" % READIES)
-        self.install("git rsync")
+        self.install("git gawk lcov jq openssl rsync unzip patch")
 
     def debian_compat(self):
         self.install("libatomic1")
         self.run("%s/bin/getgcc" % READIES)
+        self.install("libtool m4 automake libssl-dev")
         self.install("python-dev")
 
         if self.platform.is_arm() and self.dist == 'ubuntu' and self.os_version[0] < 20:
@@ -35,13 +36,9 @@ class RediSearchSetup(paella.Setup):
     def redhat_compat(self):
         self.install("redhat-lsb-core")
         self.install("libatomic")
-        self.install("python2-devel")
 
         self.run("%s/bin/getgcc --modern" % READIES)
-
-        # fix setuptools
-        self.pip_install("-IU --force-reinstall setuptools")
-
+        self.install("libtool m4 automake openssl-devel")
         self.install("python-devel")
 
         if self.platform.is_arm():
@@ -53,6 +50,7 @@ class RediSearchSetup(paella.Setup):
     def fedora(self):
         self.install("libatomic")
         self.run("%s/bin/getgcc" % READIES)
+        self.install("openssl-devel")
 
     def macos(self):
         self.install_gnu_utils()

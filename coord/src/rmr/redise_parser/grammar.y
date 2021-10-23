@@ -1,28 +1,32 @@
 %token_type {Token}
 
 %include {
-	#include <stdlib.h>
-	#include <stdio.h>
-	#include <assert.h>
-	#include "token.h"	
-	#include "grammar.h"
-    #include "parser_ctx.h"
-    #include "../cluster.h"
-    #include "../node.h"
-    #include "../endpoint.h"
 
-    #include "lexer.h"
-	void yyerror(char *s);
+#include "common.h"
+#include "token.h"	
+#include "grammar.h"
+#include "parser_ctx.h"
+#include "../cluster.h"
+#include "../node.h"
+#include "../endpoint.h"
 
-    static void parseCtx_Free(parseCtx *ctx) {
-        if (ctx->my_id) {
-            free(ctx->my_id);
-        }
-    }
+#include <stdlib.h>
+#include <stdio.h>
+#include <assert.h>
+
+#include "lexer.h"
+void yyerror(char *s);
+
+static void parseCtx_Free(parseCtx *ctx) {
+	if (ctx->my_id) {
+		free(ctx->my_id);
+	}
+}
+
 } // END %include
 
 %syntax_error {  
-    asprintf(&ctx->errorMsg, "Syntax error at offset %d near '%.*s'\n", TOKEN.pos,(int)TOKEN.len, TOKEN.s);
+    __ignore__(asprintf(&ctx->errorMsg, "Syntax error at offset %d near '%.*s'\n", TOKEN.pos,(int)TOKEN.len, TOKEN.s));
     ctx->ok = 0;
 }  
   
@@ -51,7 +55,7 @@ root ::=  cluster topology(D). {
             D->numSlots = ctx->numSlots;
         } else {
             // ERROR!
-            asprintf(&ctx->errorMsg, "Invalid slot number %d", ctx->numSlots);
+            __ignore__(asprintf(&ctx->errorMsg, "Invalid slot number %d", ctx->numSlots));
             ctx->ok = 0;
             goto err;
         }
@@ -67,7 +71,7 @@ root ::=  cluster topology(D). {
             D->hashFunc = MRHashFunc_CRC16;
         } else {
             // ERROR!
-            asprintf(&ctx->errorMsg, "Invalid hash func %s\n", ctx->shardFunc);
+            __ignore__(asprintf(&ctx->errorMsg, "Invalid hash func %s\n", ctx->shardFunc));
             ctx->ok = 0;
             goto err;
         }
@@ -147,7 +151,7 @@ shardid(A) ::= STRING(B). {
 }
 
 shardid(A) ::= INTEGER(B). {
-	asprintf(&A, "%lld", B.intval);
+	__ignore__(asprintf(&A, "%lld", B.intval));
 }
 
 endpoint(A) ::= tcp_addr(B). {

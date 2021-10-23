@@ -1,12 +1,6 @@
-cmake_minimum_required(VERSION 3.10.0)
+# cmake_minimum_required(VERSION 3.10.0)
 
-# Allow to use 'LOCATION' setting
-if(POLICY CMP0026)
-    CMAKE_POLICY(SET CMP0026 NEW)
-endif()
-if(POLICY CMP0045)
-    cmake_policy(SET CMP0045 NEW)
-endif()
+include(build/cmake/common.cmake)
 
 project(redisearch)
 
@@ -18,39 +12,8 @@ option(USE_TSAN "Use ThreadSanitizer (clang)" OFF)
 option(USE_REDIS_ALLOCATOR "Use redis allocator" ON)
 option(USE_COVERAGE "Build with coverage" OFF)
 
-if (RS_MODULE_NAME) 
-    add_definitions("-DREDISEARCH_MODULE_NAME=\"${RS_MODULE_NAME}\"")
-endif()
-
 include(build/cmake/redisearch_cflags.cmake)
 include(build/cmake/redisearch_debug.cmake)
-
-add_definitions(-UNDEBUG)
-
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${RS_C_FLAGS}")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${RS_CXX_FLAGS}")
-set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${RS_EXE_FLAGS}")
-set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} ${RS_SO_FLAGS}")
-
-if (RS_BUILD_COORDINATOR)
-    set(RS_RUN_TESTS OFF)
-endif()
-
-if (RS_RUN_TESTS)
-    enable_testing()
-endif()
-
-# Also remove /D NDEBUG to avoid MSVC warnings about conflicting defines.
-foreach (flags_var_to_scrub
-         CMAKE_CXX_FLAGS_RELEASE
-         CMAKE_CXX_FLAGS_RELWITHDEBINFO
-         CMAKE_CXX_FLAGS_MINSIZEREL
-         CMAKE_C_FLAGS_RELEASE
-         CMAKE_C_FLAGS_RELWITHDEBINFO
-         CMAKE_C_FLAGS_MINSIZEREL)
-    string(REGEX REPLACE "(^| )[/-]D *NDEBUG($| )" " "
-        "${flags_var_to_scrub}" "${${flags_var_to_scrub}}")
-endforeach()
 
 if (NOT GIT_DESCRIBE_VERSION)
     execute_process(COMMAND git describe
@@ -70,37 +33,43 @@ if (NOT GIT_DESCRIBE_VERSION AND NOT RS_FORCE_NO_GITVERSION)
     message(FATAL_ERROR "`git describe` failed. Either define `GIT_DESCRIBE_VERSION` or `RS_FORCE_NO_GITVERSION`")
 endif()
 
-# message("${GIT_DESCRIBE_VERSION}")
-# message("${GIT_SHA}")
+#----------------------------------------------------------------------------------------------
 
-if (GIT_DESCRIBE_VERSION)
-    add_definitions(-DRS_GIT_VERSION="${GIT_DESCRIBE_VERSION}")
-endif (GIT_DESCRIBE_VERSION)
+## Also remove /D NDEBUG to avoid MSVC warnings about conflicting defines.
+#foreach (flags_var_to_scrub
+#         CMAKE_CXX_FLAGS_RELEASE
+#         CMAKE_CXX_FLAGS_RELWITHDEBINFO
+#         CMAKE_CXX_FLAGS_MINSIZEREL
+#         CMAKE_C_FLAGS_RELEASE
+#         CMAKE_C_FLAGS_RELWITHDEBINFO
+#         CMAKE_C_FLAGS_MINSIZEREL)
+#    string(REGEX REPLACE "(^| )[/-]D *NDEBUG($| )" " "
+#        "${flags_var_to_scrub}" "${${flags_var_to_scrub}}")
+#endforeach()
 
-if (GIT_SHA)
-    add_definitions(-DRS_GIT_SHA="${GIT_SHA}")
-endif (GIT_SHA)
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${RS_C_FLAGS}")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${RS_CXX_FLAGS}")
+set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${RS_EXE_FLAGS}")
+set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} ${RS_SO_FLAGS}")
 
-
-if (USE_COVERAGE)
-    set(_lcovInit "${PROJECT_BINARY_DIR}/lcov-init.sh")
-    set(_lcovCapture "${PROJECT_BINARY_DIR}/lcov-capture.sh")
-    configure_file("cmake/lcov-init.sh.in" "${_lcovInit}" @ONLY)
-    configure_file("cmake/lcov-capture.sh.in" "${_lcovCapture}" @ONLY)
-    execute_process(COMMAND chmod a+x ${_lcovInit} ${_lcovCapture})
+if (RS_MODULE_NAME) 
+    add_definitions("-DREDISEARCH_MODULE_NAME=\"${RS_MODULE_NAME}\"")
 endif()
 
-# Set globals here!
-include_directories(${PROJECT_SOURCE_DIR}/src)
-include_directories(${PROJECT_SOURCE_DIR}/deps)
-include_directories(${PROJECT_SOURCE_DIR})
-
+add_definitions(-UNDEBUG)
+add_definitions(-DGIT_DESCRIBE="${GIT_DESCRIBE}")
+add_definitions(-DRS_GIT_SHA="${GIT_SHA}")
 add_definitions(-DREDISMODULE_EXPERIMENTAL_API)
 add_definitions(-D_GNU_SOURCE)
-
 IF(USE_REDIS_ALLOCATOR)
     add_definitions(-DREDIS_MODULE_TARGET)
 endif()
+
+#----------------------------------------------------------------------------------------------
+
+include_directories(${PROJECT_SOURCE_DIR}/src)
+include_directories(${PROJECT_SOURCE_DIR}/deps)
+include_directories(${PROJECT_SOURCE_DIR})
 
 add_subdirectory(deps/rmutil)
 add_subdirectory(deps/friso)
@@ -118,13 +87,14 @@ file(GLOB RS_SRC
     "src/query_parser/*.c"
     "src/util/*.c"
     "src/trie/*.c"
+	${RS_DEBUG_SRC}
+
     "deps/cndict/cndict_data.c"
     "deps/libnu/*.c"
     "deps/miniz/*.c"
     "deps/thpool/*.c"
     "deps/triemap/*.c"
-    "deps/geohash/*.c"
-    ${RS_DEBUG_SRC})
+    "deps/geohash/*.c")
 
 add_library(rscore OBJECT ${RS_SRC})
 
@@ -134,6 +104,8 @@ set(FINAL_OBJECTS
     $<TARGET_OBJECTS:friso>
     $<TARGET_OBJECTS:snowball>
     $<TARGET_OBJECTS:metaphone>)
+
+#----------------------------------------------------------------------------------------------
 
 if (RS_BUILD_COORDINATOR)
     add_library(redisearch-oss STATIC ${RS_SRC} ${FINAL_OBJECTS} src/module-init/module-init.c)
@@ -176,6 +148,16 @@ if (APPLE)
         PROPERTIES LINK_FLAGS "-undefined dynamic_lookup")
 endif()
 
+#----------------------------------------------------------------------------------------------
+
+if (RS_BUILD_COORDINATOR)
+    set(RS_RUN_TESTS OFF)
+endif()
+
+if (RS_RUN_TESTS)
+    enable_testing()
+endif()
+
 if (RS_RUN_TESTS AND NOT RS_BUILD_COORDINATOR)
     set(BUILD_SHARED_LIBS ON CACHE BOOL "enable shared libs" FORCE)
     set(BUILD_GTEST ON CACHE BOOL "enable gtest" FORCE)
@@ -185,18 +167,6 @@ if (RS_RUN_TESTS AND NOT RS_BUILD_COORDINATOR)
     add_subdirectory(tests/ctests)
     add_subdirectory(tests/pytests)
     add_subdirectory(tests/c_utils)
-elseif (RS_ENABLE_MOCK)
+ELSEIF (RS_ENABLE_MOCK)
     add_subdirectory(tests/cpptests/redismock)
 endif()
-
-# ---
-
-# set(RMTEST_MODULE_PATH $<TARGET_FILE:redisearch>)
-# set(RMTEST_EXT_PATH $<TARGET_FILE:example_extension>)
-
-# get_target_property(RMTEST_MODULE_PATH redisearch LOCATION)
-# get_target_property(RMTEST_EXT_PATH example_extension LOCATION)
-
-# CONFIGURE_FILE(cmake/rmtest.config.in
-#     ${PROJECT_BINARY_DIR}/rmtest.config.default)
-
