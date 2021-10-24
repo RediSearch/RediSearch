@@ -2017,11 +2017,6 @@ static void onFlush(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent
   }
   IndexSpec_CleanAll();
   Dictionary_Clear();
-  if (legacySpecRules) {
-    dictEmpty(legacySpecRules, NULL);
-    dictRelease(legacySpecRules);
-    legacySpecRules = NULL;
-  }
 }
 
 void Indexes_Init(RedisModuleCtx *ctx) {
