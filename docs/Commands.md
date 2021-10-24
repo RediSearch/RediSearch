@@ -468,7 +468,6 @@ If **NOCONTENT** was given, we return an array where the first element is the to
 FT.AGGREGATE {index_name}
   {query_string}
   [VERBATIM]
-  [LOAD *]
   [LOAD {nargs} {identifier} [AS {property}] ...]
   [GROUPBY {nargs} {property} ...
     REDUCE {func} {nargs} {arg} ... [AS {name:string}]
@@ -529,12 +528,11 @@ Here, we needed to use `LOAD` to pre-load the @location attribute because it is 
 * **query_string**: The base filtering query that retrieves the documents. It follows
   **the exact same syntax** as the search query, including filters, unions, not, optional, etc.
 
-* **LOAD {`*`}**: Load all fields in the document. This is similar to the default behavior of FT.SEARCH.
-
 * **LOAD {nargs} {identifier} AS {property} …**: Load document attributes from the source document.
   `identifier` is either an attribute name (for hashes and JSON) or a JSON Path expression for (JSON).
   `property` is the optional name used in the result. It is not provided, the `identifier` is used.
   This should be avoided as a general rule of thumb.
+  If `*` is used as `nargs`, all attributes in a document are loaded.
   Attributes needed for aggregations should be stored as **SORTABLE**,
   where they are available to the aggregation pipeline with very low latency. LOAD hurts the
   performance of aggregate queries considerably, since every processed record needs to execute the
