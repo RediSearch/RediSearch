@@ -322,12 +322,16 @@ static void serializeArrange(myArgArray_t *arr, const PLN_BaseStep *stp) {
     }
   }
 }
+
 static void serializeLoad(myArgArray_t *arr, const PLN_BaseStep *stp) {
   PLN_LoadStep *lstp = (PLN_LoadStep *)stp;
   if (lstp->args.argc) {
     append_string(arr, "LOAD");
     append_uint(arr, lstp->args.argc);
     append_ac(arr, &lstp->args);
+  } else if (lstp->base.flags & PLN_F_LOAD_ALL) {
+    append_string(arr, "LOAD");
+    append_string(arr, "*");
   }
 }
 
