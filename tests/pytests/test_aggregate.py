@@ -477,7 +477,7 @@ class TestAggregate():
         self.env.expect('ft.config', 'set', 'MAXAGGREGATERESULTS', -1).ok()
         self.env.expect('ft.config', 'set', 'MAXSEARCHRESULTS', 1000000).ok()
 
-    def testMultiSortBy(self):
+    def testMultiSortByStepsError(self):
         self.env.expect('ft.aggregate', 'games', '*',
                            'LOAD', '2', '@brand', '@price',
                            'SORTBY', 2, '@brand', 'DESC',
@@ -569,6 +569,47 @@ def testAggregateGroupByOnEmptyField(env):
                     ['check', None, 'count', '1'], ['check', 'test1', 'count', '1'], ['check', 'test2', 'count', '1']]
     for var in expected:
         env.assertIn(var, res)
+
+def testMultiSortBy(env):
+    conn = getConnectionByEnv(env)
+    env.execute_command('FT.CREATE', 'sb_idx', 'SCHEMA', 't1', 'TEXT', 't2', 'TEXT')    
+    conn.execute_command('hset', 'doc1', 't1', 'a', 't2', 'a')
+    conn.execute_command('hset', 'doc2', 't1', 'a', 't2', 'b')
+    conn.execute_command('hset', 'doc3', 't1', 'a', 't2', 'c')  
+    conn.execute_command('hset', 'doc4', 't1', 'b', 't2', 'a')
+    conn.execute_command('hset', 'doc5', 't1', 'b', 't2', 'b')
+    conn.execute_command('hset', 'doc6', 't1', 'b', 't2', 'c')  
+    conn.execute_command('hset', 'doc7', 't1', 'c', 't2', 'a')
+    conn.execute_command('hset', 'doc8', 't1', 'c', 't2', 'b')
+    conn.execute_command('hset', 'doc9', 't1', 'c', 't2', 'c')
+
+    # t1 ASC t2 ASC
+    res = [9L, ['t1', 'a', 't2', 'a'], ['t1', 'a', 't2', 'b'], ['t1', 'a', 't2', 'c'],
+               ['t1', 'b', 't2', 'a'], ['t1', 'b', 't2', 'b'], ['t1', 'b', 't2', 'c'],
+               ['t1', 'c', 't2', 'a'], ['t1', 'c', 't2', 'b'], ['t1', 'c', 't2', 'c']]
+    env.expect('FT.AGGREGATE', 'sb_idx', '*',
+                'LOAD', '2', '@t1', '@t2',
+                'SORTBY', '4', '@t1', 'ASC', '@t2', 'ASC').equal(res)
+
+    # t1 DESC t2 ASC
+    res = [9L, ['t1', 'c', 't2', 'a'], ['t1', 'c', 't2', 'b'], ['t1', 'c', 't2', 'c'],
+               ['t1', 'b', 't2', 'a'], ['t1', 'b', 't2', 'b'], ['t1', 'b', 't2', 'c'],
+               ['t1', 'a', 't2', 'a'], ['t1', 'a', 't2', 'b'], ['t1', 'a', 't2', 'c']]
+    env.expect('FT.AGGREGATE', 'sb_idx', '*',
+                'LOAD', '2', '@t1', '@t2',
+                'SORTBY', '4', '@t1', 'DESC', '@t2', 'ASC').equal(res)
+
+    # t2 ASC t1 ASC
+    res = [9L, ['t1', 'a', 't2', 'a'], ['t1', 'b', 't2', 'a'], ['t1', 'c', 't2', 'a'],
+               ['t1', 'a', 't2', 'b'], ['t1', 'b', 't2', 'b'], ['t1', 'c', 't2', 'b'],
+               ['t1', 'a', 't2', 'c'], ['t1', 'b', 't2', 'c'], ['t1', 'c', 't2', 'c']]
+    env.expect('FT.AGGREGATE', 'sb_idx', '*',
+                'LOAD', '2', '@t1', '@t2',
+                'SORTBY', '4', '@t2', 'ASC', '@t1', 'ASC').equal(res)
+    # t2 ASC t1 DESC
+    env.expect('FT.AGGREGATE', 'sb_idx', '*',
+                'LOAD', '2', '@t1', '@t2',
+                'SORTBY', '4', '@t2', 'ASC', '@t1', 'ASC').equal(res)
 
 def testGroupbyNoReduce(env):
     env.cmd('ft.create', 'idx', 'ON', 'HASH',
