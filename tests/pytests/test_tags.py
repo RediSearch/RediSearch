@@ -193,6 +193,7 @@ def testTagCaseSensitive(env):
         .equal([3L, 'doc1', ['t', 'foo,FOO'], 'doc2', ['t', 'FOO'], 'doc3', ['t', 'foo']])
     env.expect('FT.SEARCH', 'idx1', '@t:{foo}')         \
         .equal([3L, 'doc1', ['t', 'foo,FOO'], 'doc2', ['t', 'FOO'], 'doc3', ['t', 'foo']])
+
     env.expect('FT.SEARCH', 'idx2', '@t:{FOO}')         \
         .equal([2L, 'doc1', ['t', 'foo,FOO'], 'doc2', ['t', 'FOO']])
     env.expect('FT.SEARCH', 'idx2', '@t:{foo}')         \
@@ -215,14 +216,41 @@ def testTagCaseSensitive(env):
         env.expect('FT.DEBUG', 'dump_tagidx', 'idx4', 't').equal([['f o', [6L]], ['f o,F O', [4L]], ['F O', [5L]]])
         env.expect('FT.DEBUG', 'dump_tagidx', 'idx5', 't').equal([['f o', [6L]], ['f o,F O', [4L]], ['F O', [5L]]])
 
+    # not casesensitive
     env.expect('FT.SEARCH', 'idx1', '@t:{F\\ O}')         \
         .equal([3L, 'doc1', ['t', 'f o,F O'], 'doc2', ['t', 'F O'], 'doc3', ['t', 'f o']])
     env.expect('FT.SEARCH', 'idx1', '@t:{f\\ o}')         \
         .equal([3L, 'doc1', ['t', 'f o,F O'], 'doc2', ['t', 'F O'], 'doc3', ['t', 'f o']])
+
+    # casesensitive
     env.expect('FT.SEARCH', 'idx2', '@t:{F\\ O}')         \
         .equal([2L, 'doc1', ['t', 'f o,F O'], 'doc2', ['t', 'F O']])
     env.expect('FT.SEARCH', 'idx2', '@t:{f\\ o}')         \
         .equal([2L, 'doc1', ['t', 'f o,F O'], 'doc3', ['t', 'f o']])
+
+    # not casesensitive
+    env.expect('FT.SEARCH', 'idx3', '@t:{f\\ o\\,f\\ o}')         \
+        .equal([1L, 'doc1', ['t', 'f o,F O']])
+    env.expect('FT.SEARCH', 'idx3', '@t:{f\\ o\\,F\\ O}')         \
+        .equal([1L, 'doc1', ['t', 'f o,F O']])
+    env.expect('FT.SEARCH', 'idx3', '@t:{F\\ O\\,F\\ O}')         \
+        .equal([1L, 'doc1', ['t', 'f o,F O']])
+    env.expect('FT.SEARCH', 'idx3', '@t:{F\\ O}')         \
+        .equal([2L, 'doc2', ['t', 'F O'], 'doc3', ['t', 'f o']])
+    env.expect('FT.SEARCH', 'idx3', '@t:{f\\ o}')         \
+        .equal([2L, 'doc2', ['t', 'F O'], 'doc3', ['t', 'f o']])
+
+    # casesensitive
+    env.expect('FT.SEARCH', 'idx4', '@t:{f\\ o\\,f\\ o}')         \
+        .equal([0L])
+    env.expect('FT.SEARCH', 'idx4', '@t:{f\\ o\\,F\\ O}')         \
+        .equal([1L, 'doc1', ['t', 'f o,F O']])
+    env.expect('FT.SEARCH', 'idx4', '@t:{F\\ O\\,F\\ O}')         \
+        .equal([0L])
+    env.expect('FT.SEARCH', 'idx4', '@t:{F\\ O}')         \
+        .equal([1L, 'doc2', ['t', 'F O']])
+    env.expect('FT.SEARCH', 'idx4', '@t:{f\\ o}')         \
+        .equal([1L, 'doc3', ['t', 'f o']])
 
 def testTagGCClearEmpty(env):
     env.skipOnCluster()

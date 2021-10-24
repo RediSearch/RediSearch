@@ -648,14 +648,20 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
 
 static void tag_strtolower(char *str, size_t *len, int caseSensitive) {
   char *p = str;
-  while (*p) {
-    if (*p == '\\' && (ispunct(*(p+1)) || isspace(*(p+1)))) {
-      ++p;
-      --*len;
-    }
-    if (caseSensitive) {
+  if (caseSensitive) {
+    while (*p) {
+      if (*p == '\\' && (ispunct(*(p+1)) || isspace(*(p+1)))) {
+        ++p;
+        --*len;
+      }
       *str++ = *p++;
-    } else {
+      }
+  } else {
+    while (*p) {
+      if (*p == '\\' && (ispunct(*(p+1)) || isspace(*(p+1)))) {
+        ++p;
+        --*len;
+      }
       *str++ = tolower(*p++);
     }
   }
