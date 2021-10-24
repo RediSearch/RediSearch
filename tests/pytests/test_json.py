@@ -496,6 +496,13 @@ def testDemo(env):
     env.expect('FT.SEARCH', 'airports', 'sfo', 'RETURN', '1', '$.name') \
         .equal([1L, 'A:SFO', ['$.name', 'San Francisco International Airport']])
 
+    expected_res = [1L, ['iata', 'SFO', '$', '{"iata":"SFO","name":"San Francisco International Airport","location":"-122.375,37.6189995"}']]
+    res = env.cmd('FT.AGGREGATE', 'airports', 'sfo', 'LOAD', '1', '$', 'SORTBY', '1', '@iata')
+    env.assertEqual(toSortedFlatList(res), toSortedFlatList(expected_res))
+
+    res =env.cmd('FT.AGGREGATE', 'airports', 'sfo', 'SORTBY', '1', '@iata', 'LOAD', '1', '$')
+    env.assertEqual(toSortedFlatList(res), toSortedFlatList(expected_res))
+
 @no_msan
 def testIndexSeparation(env):
     # Test results from different indexes do not mix (either JSON with JSON and JSON with HASH)
