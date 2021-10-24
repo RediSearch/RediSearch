@@ -319,6 +319,21 @@ class TestAggregate():
                            'LIMIT', '0', '2')                           
         self.env.assertListEqual(toSortedFlatList(res), toSortedFlatList(expected_res))
 
+        # test with non-sortable filed
+        expected_res = [2265L, ['description', 'world of warcraft:the burning crusade-expansion set'],
+                               ['description', 'wired playstation 3 controller, third party product with high quality.']]
+        res = self.env.cmd('ft.aggregate', 'games', '*',
+                           'SORTBY', 2, '@description', 'desc',
+                           'LOAD', 1, '@description',
+                           'LIMIT', '0', '2')     
+        self.env.assertListEqual(toSortedFlatList(res), toSortedFlatList(expected_res))
+
+        res = self.env.cmd('ft.aggregate', 'games', '*',
+                           'LOAD', 1, '@description',
+                           'SORTBY', 2, '@description', 'desc',
+                           'LIMIT', '0', '2')     
+        self.env.assertListEqual(toSortedFlatList(res), toSortedFlatList(expected_res))
+
     def testExpressions(self):
         pass
 
