@@ -1,4 +1,3 @@
-# cmake_minimum_required(VERSION 3.10.0)
 
 get_filename_component(RS_DIR ${CMAKE_SOURCE_DIR}/.. ABSOLUTE)
 get_filename_component(binroot ${CMAKE_CURRENT_BINARY_DIR}/.. ABSOLUTE)
@@ -7,19 +6,19 @@ message("# coord binroot: " ${binroot})
 
 include(${RS_DIR}/build/cmake/common.cmake)
 
+option(RS_ENTERPRISE_BUILD "build for enterprise cluster" OFF)
+
 set(RS_RUN_TESTS OFF CACHE BOOL "" FORCE) # Don't run RS' own tests
 set(RS_ENABLE_MOCK ON CACHE BOOL "" FORCE) # But build mock so we can link our own tests
 set(RS_BUILD_STATIC ON CACHE BOOL "" FORCE)
+set(RS_BUILD_COORDINATOR 1)
 
 #----------------------------------------------------------------------------------------------
 
 project(RSCoordinator)
 
 include(${RS_DIR}/build/cmake/redisearch_cflags.cmake)
-
-option(RS_ENTERPRISE_BUILD "build for enterprise cluster" OFF)
-
-set(RS_BUILD_COORDINATOR 1)
+include(${RS_DIR}/build/cmake/redisearch_debug.cmake)
 
 #----------------------------------------------------------------------------------------------
 
@@ -66,7 +65,7 @@ set(FINAL_OBJECTS
 macro(MODULE_TARGET SUFFIX)
     set(_moduleName module-${SUFFIX})
     add_library(${_moduleName} SHARED ${FINAL_OBJECTS} src/build-info/info-${SUFFIX}.c)
-    target_link_libraries(${_moduleName} redisearch-${SUFFIX} ${LIBUV_LIBRARIES} hiredis hiredis_ssl crypt ssl)
+    target_link_libraries(${_moduleName} redisearch-${SUFFIX} ${LIBUV_LIBS} ${HIREDIS_LIBS} crypt ssl)
 
     if (${SUFFIX} STREQUAL "oss")
         set(_moduleDefs "RS_CLUSTER_OSS")
@@ -98,6 +97,6 @@ target_link_libraries(testdeps ${LIBUV_LIBS} redisearch-oss redismock ${HIREDIS_
 
 add_subdirectory(src/rmr/test)
 add_subdirectory(tests/unit)
-add_subdirectory(${RS_DIR}/tests/ctests/ext-example ext-example)
+add_subdirectory(${RS_DIR}/tests/ctests/ext-example example_extension)
 
 # set_target_properties(redismock PROPERTIES COMPILE_FLAGS "-fvisibility=default")

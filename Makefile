@@ -108,7 +108,7 @@ SRCDIR=coord/src
 TARGET=$(BINDIR)/module-enterprise.so
 PACKAGE_NAME=redisearch
 
-LIBUV_BINDIR=bin/$(FULL_VARIANT.release)/libuv
+export LIBUV_BINDIR=$(realpath bin/$(FULL_VARIANT.release)/libuv)
 include build/libuv/Makefile.defs
 
 HIREDIS_BINDIR=bin/$(FULL_VARIANT.release)/hiredis
@@ -135,6 +135,7 @@ CMAKE_BUILD_TYPE=DEBUG
 WITH_TESTS ?= 1
 else
 CMAKE_BUILD_TYPE=RelWithDebInfo
+WITH_TESTS ?= 1
 endif
 CMAKE_DEBUG=-DCMAKE_BUILD_TYPE=$(CMAKE_BUILD_TYPE)
 
@@ -211,6 +212,8 @@ endif
 all: bindirs $(TARGET)
 
 include $(MK)/rules
+
+FORCE?=1
 
 ifeq ($(SLOW),1)
 MAKE_J=

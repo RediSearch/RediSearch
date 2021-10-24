@@ -1,12 +1,14 @@
-#include <aggregate/aggregate.h>
-#include <aggregate/aggregate_plan.h>
-#include <aggregate/reducer.h>
-#include <util/arr.h>
+
+#include "aggregate/aggregate.h"
+#include "aggregate/aggregate_plan.h"
+#include "aggregate/reducer.h"
+#include "util/arr.h"
+#include "dist_plan.h"
+
 #include <vector>
 #include <string>
 #include <sstream>
 #include <algorithm>
-#include "dist_plan.h"
 
 static char *getLastAlias(const PLN_GroupStep *gstp) {
   return gstp->reducers[array_len(gstp->reducers) - 1].alias;

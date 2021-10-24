@@ -1,5 +1,8 @@
 
-set(LIBUV_BINROOT ${binroot}/libuv/.libs)
+if (NOT LIBUV_BINROOT)
+	set(LIBUV_BINROOT $ENV{LIBUV_BINDIR}/.libs)
+endif()
+message("# libuv: LIBUV_BINROOT=${LIBUV_BINROOT}")
 
 find_path(LIBUV_INCLUDE_DIR uv.h
     HINTS ${RS_DIR}/deps/libuv

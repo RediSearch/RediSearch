@@ -1,21 +1,21 @@
-INCLUDE (CTest)
 
-IF (NOT RS_TEST_MODULE)
-    SET(RS_TEST_MODULE redisearch)
-ENDIF()
+include(CTest)
 
-FUNCTION(RSTEST name)
-    ADD_EXECUTABLE("${name}" "${name}.c")
-    TARGET_LINK_LIBRARIES("${name}" ${RS_TEST_MODULE} m apistubs)
-    ADD_TEST(NAME "${name}" COMMAND "${name}" WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
-ENDFUNCTION()
+if (NOT RS_TEST_MODULE)
+    set(RS_TEST_MODULE redisearch)
+endif()
 
-FILE(GLOB TEST_SOURCES "test_*.c")
+function(RSTEST name)
+    add_executable("${name}" "${name}.c")
+    target_link_libraries("${name}" ${RS_TEST_MODULE} m apistubs)
+    add_test(NAME "${name}" COMMAND "${name}" WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+endfunction()
 
-FOREACH(n ${TEST_SOURCES})
-    GET_FILENAME_COMPONENT(test_name ${n} NAME_WE)
+file(GLOB TEST_SOURCES "test_*.c")
+
+foreach(n ${TEST_SOURCES})
+    get_filename_component(test_name ${n} NAME_WE)
     RSTEST("${test_name}")
-ENDFOREACH()
+endforeach()
 
-ADD_SUBDIRECTORY(ext-example)
-
+add_subdirectory(ext-example example_extension)

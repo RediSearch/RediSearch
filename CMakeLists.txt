@@ -1,8 +1,10 @@
-# cmake_minimum_required(VERSION 3.10.0)
+
+get_filename_component(RS_DIR ${CMAKE_SOURCE_DIR} ABSOLUTE)
+get_filename_component(binroot ${CMAKE_CURRENT_BINARY_DIR}/.. ABSOLUTE)
+message("# search root: " ${RS_DIR})
+message("# search binroot: " ${binroot})
 
 include(build/cmake/common.cmake)
-
-project(redisearch)
 
 option(RS_RUN_TESTS "Build & Run RediSearch's tests" OFF)
 option(RS_BUILD_STATIC "Builds a static library" OFF)
@@ -11,6 +13,8 @@ option(USE_MSAN "Use MemorySanitizer (clang)" OFF)
 option(USE_TSAN "Use ThreadSanitizer (clang)" OFF)
 option(USE_REDIS_ALLOCATOR "Use redis allocator" ON)
 option(USE_COVERAGE "Build with coverage" OFF)
+
+project(redisearch)
 
 include(build/cmake/redisearch_cflags.cmake)
 include(build/cmake/redisearch_debug.cmake)
@@ -34,18 +38,6 @@ if (NOT GIT_DESCRIBE_VERSION AND NOT RS_FORCE_NO_GITVERSION)
 endif()
 
 #----------------------------------------------------------------------------------------------
-
-## Also remove /D NDEBUG to avoid MSVC warnings about conflicting defines.
-#foreach (flags_var_to_scrub
-#         CMAKE_CXX_FLAGS_RELEASE
-#         CMAKE_CXX_FLAGS_RELWITHDEBINFO
-#         CMAKE_CXX_FLAGS_MINSIZEREL
-#         CMAKE_C_FLAGS_RELEASE
-#         CMAKE_C_FLAGS_RELWITHDEBINFO
-#         CMAKE_C_FLAGS_MINSIZEREL)
-#    string(REGEX REPLACE "(^| )[/-]D *NDEBUG($| )" " "
-#        "${flags_var_to_scrub}" "${${flags_var_to_scrub}}")
-#endforeach()
 
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${RS_C_FLAGS}")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${RS_CXX_FLAGS}")
@@ -144,8 +136,7 @@ else()
 endif()
 
 if (APPLE) 
-    set_target_properties(redisearch
-        PROPERTIES LINK_FLAGS "-undefined dynamic_lookup")
+    set_target_properties(redisearch PROPERTIES LINK_FLAGS "-undefined dynamic_lookup")
 endif()
 
 #----------------------------------------------------------------------------------------------
@@ -167,6 +158,6 @@ if (RS_RUN_TESTS AND NOT RS_BUILD_COORDINATOR)
     add_subdirectory(tests/ctests)
     add_subdirectory(tests/pytests)
     add_subdirectory(tests/c_utils)
-ELSEIF (RS_ENABLE_MOCK)
+elseif (RS_ENABLE_MOCK)
     add_subdirectory(tests/cpptests/redismock)
 endif()
