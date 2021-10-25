@@ -13,7 +13,7 @@ extern struct RedisModuleCtx *RSDummyContext;
 static inline double curTimeNs() {
   struct timespec tv;
   clock_gettime(CLOCK_MONOTONIC, &tv);
-  return (tv.tv_nsec + (tv.tv_sec * 1000000000)) / 1000000.0;
+  return (tv.tv_nsec / 1000000.0 + (tv.tv_sec * 1000));
 }
 
 #define RS_LOG_TIME(str)                                      \
