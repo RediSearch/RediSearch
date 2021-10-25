@@ -7,6 +7,7 @@
 #include "score_explain.h"
 #include "commands.h"
 #include "profile.h"
+#include "log_time.h"
 
 typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN } CommandType;
 static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num);
@@ -310,6 +311,7 @@ static int parseProfile(AREQ *r, int withProfile, RedisModuleString **argv, int 
 static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                              CommandType type, int withProfile) {
   // Index name is argv[1]
+  RS_LOG_TIME("RediSearch command starts");
   if (argc < 2) {
     return RedisModule_WrongArity(ctx);
   }
@@ -336,6 +338,7 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     }
     AREQ_Execute(r, ctx);
   }
+  RS_LOG_TIME("RediSearch command returns");
   return REDISMODULE_OK;
 
 error:
