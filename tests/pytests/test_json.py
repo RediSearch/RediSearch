@@ -3,7 +3,7 @@
 import json
 import bz2
 
-from common import getConnectionByEnv, waitForIndex, toSortedFlatList, slice_at, index_info
+from common import *
 from includes import *
 
 
@@ -23,6 +23,7 @@ doc1_content = r'''{"string": "gotcha1",
             }'''
 
 
+@no_msan
 def testSearchUpdatedContent(env):
     conn = getConnectionByEnv(env)
 
@@ -73,7 +74,7 @@ def testSearchUpdatedContent(env):
     res[2][1] = json.loads(res[2][1])
     res[4][1] = json.loads(res[4][1])
     env.assertEqual(res, expected)
-    
+
     expected = [1L, 'doc:1', ['$', json.loads(plain_val_1_raw)]]
     res = env.cmd('ft.search', 'idx1', 're*')
     res[2][1] = json.loads(res[2][1])
@@ -122,12 +123,13 @@ def testSearchUpdatedContent(env):
 # TODO: Check arrays
 # TODO: Check Object/Map
 
+@no_msan
+@skip
 def testHandleUnindexedTypes(env):
     # TODO: Ignore and resume indexing when encountering an Object/Array/null
     # TODO: Except for array of only scalars which is defined as a TAG in the schema
     # ... FT.CREATE idx SCHEMA $.arr TAG
-    if not UNSTABLE_TESTS:
-        env.skip()
+
     env.expect('JSON.SET', 'doc:1', '$', doc1_content).ok()
 
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
@@ -151,7 +153,7 @@ def testHandleUnindexedTypes(env):
     # TODO: test TAGVALS ?
     pass
 
-
+@no_msan
 def testReturnAllTypes(env):
     # Test returning all JSON types
     # (even if some of them are not able to be indexed/found,
@@ -160,17 +162,16 @@ def testReturnAllTypes(env):
     env.expect('JSON.SET', 'doc:1', '$', doc1_content).ok()
     env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.string', 'AS', 'string', 'TEXT')
 
-
     # TODO: Make sure TAG can be used as a label in "FT.SEARCH idx "*" RETURN $.t As Tag"
     pass
 
-
+@no_msan
 def testOldJsonPathSyntax(env):
     # Make sure root path '.' is working
     # For example, '$.t' should also work as '.t' and 't'
     pass
 
-
+@no_msan
 def testNoContent(env):
     # Test NOCONTENT
     env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT', '$.flt', 'NUMERIC')
@@ -178,7 +179,7 @@ def testNoContent(env):
     env.expect('ft.search', 'idx', 're*', 'NOCONTENT').equal([0L])
     env.expect('ft.search', 'idx', 'ri*', 'NOCONTENT').equal([1L, 'doc:1'])
 
-
+@no_msan
 def testDocNoFullSchema(env):
     # Test NOCONTENT
     env.cmd('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.t1', 'TEXT', '$.t2', 'TEXT')
@@ -186,12 +187,14 @@ def testDocNoFullSchema(env):
     env.expect('ft.search', 'idx', 're*', 'NOCONTENT').equal([0L])
     env.expect('ft.search', 'idx', 'ri*', 'NOCONTENT').equal([1L, 'doc:1'])
 
+@no_msan
 def testReturnRoot(env):
     # Test NOCONTENT
     env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT')
     env.execute_command('JSON.SET', 'doc:1', '$', r'{"t":"foo"}')
     env.expect('ft.search', 'idx', 'foo', 'RETURN', '1', '$').equal([1L, 'doc:1', ['$', '{"t":"foo"}']])
 
+@no_msan
 def testNonEnglish(env):
     # Test json in non-English languages
     env.execute_command('FT.CREATE', 'idx1', 'ON', 'JSON', 'SCHEMA', '$.t', 'AS', 'labelT', 'TEXT', '$.n', 'AS',
@@ -217,6 +220,7 @@ def testNonEnglish(env):
                 'doc:4', ['MyReturnLabel', '\xe3\x83\x89\xe3\x83\xa9\xe3\x82\xb4\xe3\x83\xb3'],
                 'doc:5', ['MyReturnLabel', '\xe8\xb8\xaa\xe8\xbf\xb9']])
 
+@no_msan
 def testSet(env):
     # JSON.SET (either set the entire key or a sub-value)
     # Can also do multiple changes/side-effects, such as converting an object to a scalar
@@ -229,9 +233,10 @@ def testSet(env):
     env.expect('ft.search', 'idx', 're*').equal(res)
     env.expect('ft.search', 'idx', 're*', 'NOCONTENT').equal([1L, 'doc:1'])
 
+@no_msan
 def testDel(env):
     conn = getConnectionByEnv(env)
-    
+
     # JSON.DEL and JSON.FORGET
     env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT')
     conn.execute_command('JSON.SET', 'doc:1', '$', r'{"t":"ReJSON"}')
@@ -244,6 +249,7 @@ def testDel(env):
     env.assertEqual(res, 1L)
     env.expect('ft.search', 'idx', 're*', 'NOCONTENT').equal([0L])
 
+@no_msan
 def testToggle(env):
     # JSON.TOGGLE
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
@@ -253,6 +259,7 @@ def testToggle(env):
     env.expect('JSON.TOGGLE','doc:1','$.boolT').equal('true')
     env.expect('ft.search', 'idx', '*').equal([1L, 'doc:1', ['$', '{"boolT":true}']])
 
+@no_msan
 def testStrappend(env):
     # JSON.STRAPPEND
 
@@ -267,22 +274,22 @@ def testStrappend(env):
     env.expect('ft.search', 'idx', 'RedisLabs').equal([1L, 'doc:1', ['$', '{"t":"RedisLabs"}']])
     env.expect('ft.search', 'idx', 'Redis').equal([0L])
 
+@no_msan
 def testArrappend(env):
     # JSON.ARRAPPEND
     # FIXME: Currently unsupported
     pass
 
-
+@no_msan
 def testArrInsert(env):
     # JSON.ARRINSERT
     # FIXME: Currently unsupported
     pass
 
-
+@no_msan
+@skip
 def testArrpop(env):
     # TODO: array cannot be indexed yet
-    if not UNSTABLE_TESTS:
-        env.skip()
 
     # JSON.ARRPOP
     env.execute_command('FT.CREATE', 'idx1', 'ON', 'JSON', 'SCHEMA', '$.t', 'AS', 'labelT', 'TAG')
@@ -302,18 +309,19 @@ def testArrpop(env):
     env.expect('JSON.ARRPOP', 'doc:1', '$.t', 0).equal('"foo"')
     env.expect('FT.SEARCH', 'idx1', '*').equal([1L, 'doc:1', ['$', '{"t":["bar"]}']])
 
-
+@no_msan
 def testRootValues(env):
     # Search all JSON types as a top-level element
     # FIXME:
     pass
 
-
+@no_msan
 def testArrtrim(env):
     # json.arrtrim
     # FIXME:
     pass
 
+@no_msan
 def testAsTag(env):
     res = env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON',
                               'SCHEMA', '$.tag', 'AS', 'tag', 'TAG', 'SEPARATOR', ',')
@@ -330,8 +338,8 @@ def testAsTag(env):
 
     env.expect('FT.SEARCH', 'idx', '@tag:{foo\\,bar\\,baz}').equal([0L])
 
+@no_msan
 def testMultiValueTag(env):
-
     conn = getConnectionByEnv(env)
 
     # Index with Tag for array with multi-values
@@ -339,7 +347,7 @@ def testMultiValueTag(env):
                               'SCHEMA', '$.tag[*]', 'AS', 'tag', 'TAG', 'SEPARATOR', ',')
 
     # multivalue without a separator
-    # 
+    #
     env.assertOk(conn.execute_command('JSON.SET', 'doc:1', '$', '{"tag":["foo", "bar", "baz"]}'))
     env.assertOk(conn.execute_command('JSON.SET', 'doc:2', '$', '{"tag":["foo, bar", "baz"]}'))
     env.assertOk(conn.execute_command('JSON.SET', 'doc:3', '$', '{"tag":["foo, bar, baz"]}'))
@@ -364,6 +372,7 @@ def testMultiValueTag(env):
     env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', '@tag:{baz}'), res)
     env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', '@tag:{foo/,bar/,baz}'), [0L])
 
+@no_msan
 def testMultiValueTag_Recursive_Decent(env):
     conn = getConnectionByEnv(env)
     conn.execute_command('FT.CREATE', 'idx', 'ON', 'JSON',
@@ -374,6 +383,7 @@ def testMultiValueTag_Recursive_Decent(env):
     env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', '@name:{foo}'), res)
     env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', '@name:{bar}'), res)
 
+@no_msan
 def testMultiValueErrors(env):
     # Index with Tag for array with multi-values
     env.execute_command('FT.CREATE', 'idxtext', 'ON', 'JSON',
@@ -392,9 +402,9 @@ def testMultiValueErrors(env):
     for index in indexes:
         res_actual = env.cmd('FT.INFO', index)
         res_actual = {res_actual[i]: res_actual[i + 1] for i in range(0, len(res_actual), 2)}
-        env.assertEqual(str(res_actual['hash_indexing_failures']), '1')               
+        env.assertEqual(str(res_actual['hash_indexing_failures']), '1')
 
-
+@no_msan
 def add_values(env, number_of_iterations=1):
     res = env.execute_command('FT.CREATE', 'games', 'ON', 'JSON',
                               'SCHEMA', '$.title', 'TEXT', 'SORTABLE',
@@ -419,7 +429,7 @@ def add_values(env, number_of_iterations=1):
             conn.execute_command(*cmd)
         fp.close()
 
-
+@no_msan
 def testAggregate(env):
     add_values(env)
 
@@ -436,7 +446,7 @@ def testAggregate(env):
                                   ['$.brand', 'logitech', 'count', '35']])
     # FIXME: Test FT.AGGREGATE params - or alternatively reuse test_aggregate.py to also run on json content
 
-
+@no_msan
 def testDemo(env):
     conn = getConnectionByEnv(env)
 
@@ -473,7 +483,7 @@ def testDemo(env):
 
     res = env.cmd('FT.SEARCH', 'airports', 'TL*')
     res[2][1] = json.loads(res[2][1])
-    env.assertEqual(res, tlv_doc)    
+    env.assertEqual(res, tlv_doc)
 
     res = env.cmd('FT.SEARCH', 'airports', 'sen frensysclo')
     res[2][1] = json.loads(res[2][1])
@@ -486,7 +496,14 @@ def testDemo(env):
     env.expect('FT.SEARCH', 'airports', 'sfo', 'RETURN', '1', '$.name') \
         .equal([1L, 'A:SFO', ['$.name', 'San Francisco International Airport']])
 
+    expected_res = [1L, ['iata', 'SFO', '$', '{"iata":"SFO","name":"San Francisco International Airport","location":"-122.375,37.6189995"}']]
+    res = env.cmd('FT.AGGREGATE', 'airports', 'sfo', 'LOAD', '1', '$', 'SORTBY', '1', '@iata')
+    env.assertEqual(toSortedFlatList(res), toSortedFlatList(expected_res))
 
+    res =env.cmd('FT.AGGREGATE', 'airports', 'sfo', 'SORTBY', '1', '@iata', 'LOAD', '1', '$')
+    env.assertEqual(toSortedFlatList(res), toSortedFlatList(expected_res))
+
+@no_msan
 def testIndexSeparation(env):
     # Test results from different indexes do not mix (either JSON with JSON and JSON with HASH)
     env.expect('HSET', 'hash:1', 't', 'telmatosaurus', 'n', '9', 'f', '9.72').equal(3)
@@ -506,7 +523,7 @@ def testIndexSeparation(env):
     env.expect('FT.SEARCH', 'idxHash', '*', 'RETURN', '3', 't', 'AS', 'txt').equal(
         [1L, 'hash:1', ['txt', 'telmatosaurus']])
 
-
+@no_msan
 def testMapProjectionAsToSchemaAs(env):
     # Test that label defined in the schema can be used in the search query
     env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.t', 'AS', 'labelT', 'TEXT', '$.flt', 'AS',
@@ -516,7 +533,7 @@ def testMapProjectionAsToSchemaAs(env):
     env.expect('FT.SEARCH', 'idx', '*', 'RETURN', '1', 'labelT').equal(
         [1L, 'doc:1', ['labelT', 'riceratops']])  # use $.t value
 
-
+@no_msan
 def testAsProjection(env):
     # Test RETURN and LOAD with label/alias from schema
     env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.t', 'TEXT', '$.flt', 'NUMERIC')
@@ -540,7 +557,7 @@ def testAsProjection(env):
 
     # TODO: Search for numeric field 'flt'
 
-
+@no_msan
 def testAsProjectionRedefinedLabel(env):
     conn = getConnectionByEnv(env)
 
@@ -551,7 +568,7 @@ def testAsProjectionRedefinedLabel(env):
     # (different values for fields F1 and F2 were retrieved with the same label Label1)
 
     # FIXME: Handle Numeric - In the following line, change '$.n' to: 'AS', 'labelN', 'NUMERIC'
-    env.execute_command('FT.CREATE', 'idx2', 'ON', 'JSON', 'SCHEMA', 
+    env.execute_command('FT.CREATE', 'idx2', 'ON', 'JSON', 'SCHEMA',
                         '$.t', 'AS', 'labelT', 'TEXT', '$.n', 'AS', 'labelN', 'TEXT')
     conn.execute_command('JSON.SET', 'doc:1', '$', r'{"t":"riceratops","n":"9072"}')
 
@@ -571,8 +588,9 @@ def testAsProjectionRedefinedLabel(env):
     # together with just a label from the schema
     env.expect('ft.search', 'idx2', '*', 'RETURN', '4', '$.n', 'AS', 'labelT', 'labelT').equal(
         [1L, 'doc:1', ['labelT', '9072']])
+
     # TODO: re-enable this
-    if UNSTABLE_TESTS:
+    if False: # UNSTABLE_TEST
         env.expect('ft.aggregate', 'idx2', '*', 'LOAD', '4', '@$.n', 'AS', 'labelT', 'labelT').equal(
             [1L, ['labelT', '"9072"', 'labelT', 'riceratops']])
 
@@ -581,6 +599,7 @@ def testAsProjectionRedefinedLabel(env):
     env.expect('ft.aggregate', 'idx2', '*', 'LOAD', '4', '@$.n', 'AS', 'labelT', 'labelN').equal(
         [1L, ['labelT', '9072', 'labelN', '9072']])
 
+@no_msan
 def testNumeric(env):
     conn = getConnectionByEnv(env)
     env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.n', 'AS', 'n', 'NUMERIC', "$.f", 'AS', 'f', 'NUMERIC')
@@ -588,13 +607,13 @@ def testNumeric(env):
     env.expect('FT.SEARCH', 'idx', '*', 'RETURN', '3', '$.n', 'AS', 'int').equal([1L, 'doc:1', ['int', '9']])
     env.expect('FT.SEARCH', 'idx', '@n:[0 10]', 'RETURN', '3', '$.n', 'AS', 'int').equal([1L, 'doc:1', ['int', '9']])
     env.expect('FT.SEARCH', 'idx', '@f:[9.5 9.9]', 'RETURN', '1', 'f') \
-        .equal([1L, 'doc:1', ['f', '9.72']])    
+        .equal([1L, 'doc:1', ['f', '9.72']])
     env.expect('FT.SEARCH', 'idx', '@f:[9.5 9.9]', 'RETURN', '3', '$.f', 'AS', 'flt') \
         .equal([1L, 'doc:1', ['flt', '9.72']])
 
+@no_msan
+@skip
 def testLanguage(env):
-    if not UNSTABLE_TESTS:
-        env.skip()
     # TODO: Check stemming? e.g., trad is stem of traduzioni and tradurre ?
     env.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'LANGUAGE_FIELD', '$.lang', 'SCHEMA', '$.t', 'TEXT')
     env.execute_command('FT.CREATE', 'idx2', 'ON', 'JSON', 'LANGUAGE', 'Italian', 'SCHEMA', '$.domanda', 'TEXT')
@@ -605,6 +624,7 @@ def testLanguage(env):
     env.execute_command('JSON.SET', 'doc:2', '$', r'{"domanda":"perché"}')
     env.expect('ft.search', 'idx2', 'per*', 'RETURN', '1', '$.domanda' ).equal([1L, 'doc:2', ['$.domanda', '"perch\xc3\xa9"']])
 
+@no_msan
 def testDifferentType(env):
     conn = getConnectionByEnv(env)
     env.execute_command('FT.CREATE', 'hidx', 'ON', 'HASH', 'SCHEMA', '$.t', 'TEXT')
@@ -614,12 +634,13 @@ def testDifferentType(env):
     env.expect('FT.SEARCH', 'hidx', '*', 'NOCONTENT').equal([1L, 'doc:1'])
     env.expect('FT.SEARCH', 'jidx', '*', 'NOCONTENT').equal([1L, 'doc:2'])
 
+@no_msan
 def test_WrongJsonType(env):
     # test all possible errors in processing a field
     # we test that all documents failed to index
     conn = getConnectionByEnv(env)
     wrong_types = ['object', 'array', 'null']
-    conn.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', 
+    conn.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
         '$.object1', 'TEXT',
         '$.object2', 'TAG',
         '$.object3', 'NUMERIC',
@@ -659,7 +680,7 @@ def test_WrongJsonType(env):
     env.expect('JSON.SET', 'doc', '$', '{"numeric1":3.141}').ok()
     env.expect('JSON.SET', 'doc', '$', '{"numeric2":3.141}').ok()
     env.expect('JSON.SET', 'doc', '$', '{"numeric3":3.141}').ok()
-    
+
     env.expect('JSON.SET', 'doc', '$', '{"bool1":true}').ok()
     env.expect('JSON.SET', 'doc', '$', '{"bool2":true}').ok()
     env.expect('JSON.SET', 'doc', '$', '{"bool3":true}').ok()
@@ -674,15 +695,15 @@ def test_WrongJsonType(env):
     env.expect('JSON.SET', 'doc', '$', '{"null3":null}').ok()
     env.expect('JSON.SET', 'doc', '$', '{"null4":null}').ok()
 
-    # no field was indexed 
+    # no field was indexed
     env.expect('FT.SEARCH', 'idx', '*').equal([0L])
 
     # check indexing failed on all field in schema
     res = index_info(env, 'idx')
     env.assertEqual(int(res['hash_indexing_failures']), len(res['attributes']))
 
+@no_msan
 def testTagNoSeparetor(env):
-
     conn = getConnectionByEnv(env)
 
     env.cmd('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
@@ -699,6 +720,7 @@ def testTagNoSeparetor(env):
     env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', '@tag_list:{foo\\,bar\\,baz}'), [1L, 'doc:1', ['$', '{"tag1":"foo,bar,baz"}']])
     env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', '@tag_array:{bar\\,baz}'), [1L, 'doc:2', ['$', '{"tag2":["foo","bar,baz"]}']])
 
+@no_msan
 def testMixedTagError(env):
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE', 'idx1', 'ON', 'JSON', 'SCHEMA', '$.tag[*]', 'AS', 'tag', 'TAG')
@@ -708,11 +730,13 @@ def testMixedTagError(env):
                                                 {"another":"bad result"}]}'))
     env.assertEqual(conn.execute_command('FT.SEARCH', 'idx1', '*'), [0L])
 
+@no_msan
 def testSortableTagError(env):
     env.expect('FT.CREATE', 'idx1', 'ON', 'JSON',                                   \
                'SCHEMA', '$.tag[*]', 'AS', 'idxtag', 'TAG', 'SORTABLE').error()     \
                .contains('On JSON, cannot set tag field to sortable - idxtag')
 
+@no_msan
 def testNotExistField(env):
     conn = getConnectionByEnv(env)
     conn.execute_command('FT.CREATE', 'idx1', 'ON', 'JSON', 'SCHEMA', '$.t', 'AS', 't', 'TEXT')

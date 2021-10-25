@@ -304,6 +304,36 @@ class TestAggregate():
         self.env.assertListEqual([292L, ['brand', 'zps', 'price', '0'], ['brand', 'zalman', 'price', '0'], ['brand', 'yoozoo', 'price', '0'], ['brand', 'white label', 'price', '0'], ['brand', 'stinky', 'price', '0'], [
                                  'brand', 'polaroid', 'price', '0'], ['brand', 'plantronics', 'price', '0'], ['brand', 'ozone', 'price', '0'], ['brand', 'oooo', 'price', '0'], ['brand', 'neon', 'price', '0']], res)
 
+        # test LOAD with SORTBY
+        expected_res = [2265L, ['title', 'Logitech MOMO Racing - Wheel and pedals set - 6 button(s) - PC, MAC - black', 'price', '759.12'],
+                               ['title', 'Sony PSP Slim &amp; Lite 2000 Console', 'price', '695.8']]
+        res = self.env.cmd('ft.aggregate', 'games', '*',
+                           'LOAD', 1, '@title',
+                           'SORTBY', 2, '@price', 'desc',
+                           'LIMIT', '0', '2')
+        self.env.assertListEqual(toSortedFlatList(res), toSortedFlatList(expected_res))
+
+        res = self.env.cmd('ft.aggregate', 'games', '*',
+                           'SORTBY', 2, '@price', 'desc',
+                           'LOAD', 1, '@title',
+                           'LIMIT', '0', '2')                           
+        self.env.assertListEqual(toSortedFlatList(res), toSortedFlatList(expected_res))
+
+        # test with non-sortable filed
+        expected_res = [2265L, ['description', 'world of warcraft:the burning crusade-expansion set'],
+                               ['description', 'wired playstation 3 controller, third party product with high quality.']]
+        res = self.env.cmd('ft.aggregate', 'games', '*',
+                           'SORTBY', 2, '@description', 'desc',
+                           'LOAD', 1, '@description',
+                           'LIMIT', '0', '2')     
+        self.env.assertListEqual(toSortedFlatList(res), toSortedFlatList(expected_res))
+
+        res = self.env.cmd('ft.aggregate', 'games', '*',
+                           'LOAD', 1, '@description',
+                           'SORTBY', 2, '@description', 'desc',
+                           'LIMIT', '0', '2')     
+        self.env.assertListEqual(toSortedFlatList(res), toSortedFlatList(expected_res))
+
     def testExpressions(self):
         pass
 
@@ -419,6 +449,8 @@ class TestAggregate():
 
     def testIssue1125(self):
         self.env.skipOnCluster()
+        if VALGRIND:
+            self.env.skip()
         # SEARCH should fail
         self.env.expect('ft.search', 'games', '*', 'limit', 0, 2000000).error()     \
                 .contains('LIMIT exceeds maximum of 1000000')
@@ -445,7 +477,15 @@ class TestAggregate():
         self.env.expect('ft.config', 'set', 'MAXAGGREGATERESULTS', -1).ok()
         self.env.expect('ft.config', 'set', 'MAXSEARCHRESULTS', 1000000).ok()
 
-    def testMultiSortBy(self):
+    def testMultiSortByStepsError(self):
+        self.env.expect('ft.aggregate', 'games', '*',
+                           'LOAD', '2', '@brand', '@price',
+                           'SORTBY', 2, '@brand', 'DESC',
+                           'SORTBY', 2, '@price', 'DESC').error()\
+                            .contains('Multiple SORTBY steps are not allowed. Sort multiple fields in a single step')
+
+
+    def testLoadWithSortBy(self):
         self.env.expect('ft.aggregate', 'games', '*',
                            'LOAD', '2', '@brand', '@price',
                            'SORTBY', 2, '@brand', 'DESC',
@@ -529,6 +569,47 @@ def testAggregateGroupByOnEmptyField(env):
                     ['check', None, 'count', '1'], ['check', 'test1', 'count', '1'], ['check', 'test2', 'count', '1']]
     for var in expected:
         env.assertIn(var, res)
+
+def testMultiSortBy(env):
+    conn = getConnectionByEnv(env)
+    env.execute_command('FT.CREATE', 'sb_idx', 'SCHEMA', 't1', 'TEXT', 't2', 'TEXT')    
+    conn.execute_command('hset', 'doc1', 't1', 'a', 't2', 'a')
+    conn.execute_command('hset', 'doc2', 't1', 'a', 't2', 'b')
+    conn.execute_command('hset', 'doc3', 't1', 'a', 't2', 'c')  
+    conn.execute_command('hset', 'doc4', 't1', 'b', 't2', 'a')
+    conn.execute_command('hset', 'doc5', 't1', 'b', 't2', 'b')
+    conn.execute_command('hset', 'doc6', 't1', 'b', 't2', 'c')  
+    conn.execute_command('hset', 'doc7', 't1', 'c', 't2', 'a')
+    conn.execute_command('hset', 'doc8', 't1', 'c', 't2', 'b')
+    conn.execute_command('hset', 'doc9', 't1', 'c', 't2', 'c')
+
+    # t1 ASC t2 ASC
+    res = [9L, ['t1', 'a', 't2', 'a'], ['t1', 'a', 't2', 'b'], ['t1', 'a', 't2', 'c'],
+               ['t1', 'b', 't2', 'a'], ['t1', 'b', 't2', 'b'], ['t1', 'b', 't2', 'c'],
+               ['t1', 'c', 't2', 'a'], ['t1', 'c', 't2', 'b'], ['t1', 'c', 't2', 'c']]
+    env.expect('FT.AGGREGATE', 'sb_idx', '*',
+                'LOAD', '2', '@t1', '@t2',
+                'SORTBY', '4', '@t1', 'ASC', '@t2', 'ASC').equal(res)
+
+    # t1 DESC t2 ASC
+    res = [9L, ['t1', 'c', 't2', 'a'], ['t1', 'c', 't2', 'b'], ['t1', 'c', 't2', 'c'],
+               ['t1', 'b', 't2', 'a'], ['t1', 'b', 't2', 'b'], ['t1', 'b', 't2', 'c'],
+               ['t1', 'a', 't2', 'a'], ['t1', 'a', 't2', 'b'], ['t1', 'a', 't2', 'c']]
+    env.expect('FT.AGGREGATE', 'sb_idx', '*',
+                'LOAD', '2', '@t1', '@t2',
+                'SORTBY', '4', '@t1', 'DESC', '@t2', 'ASC').equal(res)
+
+    # t2 ASC t1 ASC
+    res = [9L, ['t1', 'a', 't2', 'a'], ['t1', 'b', 't2', 'a'], ['t1', 'c', 't2', 'a'],
+               ['t1', 'a', 't2', 'b'], ['t1', 'b', 't2', 'b'], ['t1', 'c', 't2', 'b'],
+               ['t1', 'a', 't2', 'c'], ['t1', 'b', 't2', 'c'], ['t1', 'c', 't2', 'c']]
+    env.expect('FT.AGGREGATE', 'sb_idx', '*',
+                'LOAD', '2', '@t1', '@t2',
+                'SORTBY', '4', '@t2', 'ASC', '@t1', 'ASC').equal(res)
+    # t2 ASC t1 DESC
+    env.expect('FT.AGGREGATE', 'sb_idx', '*',
+                'LOAD', '2', '@t1', '@t2',
+                'SORTBY', '4', '@t2', 'ASC', '@t1', 'ASC').equal(res)
 
 def testGroupbyNoReduce(env):
     env.cmd('ft.create', 'idx', 'ON', 'HASH',
