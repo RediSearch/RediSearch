@@ -330,7 +330,21 @@ jobs:
       - install-prerequisites
       - run:
           name: Run & build tests
-          command: bash -l -c "make SAN=<<parameters.san-type>> build test"
+          shell: /bin/bash -l -eo pipefail
+          command: make SAN=<<parameters.san-type>> build test
+          no_output_timeout: 30m
+      - save-tests-logs
+
+  valgrind-memcheck:
+    docker:
+      - image: redisfab/rmbuilder:6.2.5-x64-bullseye
+    steps:
+      - early-returns
+      - checkout-all
+      - run:
+          name: Build & Test
+          shell: /bin/bash -l -eo pipefail
+          command: make VG=1 build test
           no_output_timeout: 30m
       - save-tests-logs
 
@@ -503,6 +517,8 @@ workflows:
             parameters:
               san-type: [address, memory]
           <<: *on-any-branch
+      - valgrind-memcheck:
+          <<: *never
       - benchmark:
           context: common
           <<: *on-integ-and-version-tags

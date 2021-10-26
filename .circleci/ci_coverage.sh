@@ -14,7 +14,9 @@ cmake .. -DCMAKE_BUILD_TYPE=DEBUG \
     -DRS_RUN_TESTS=ON \
     -DUSE_COVERAGE=ON
 
-[[ -z $CI_CONCURRENCY ]] && CI_CONCURRENCY=$($ROOT/deps/readies/bin/nproc)
+if [[ -z $CI_CONCURRENCY ]]; then
+	CI_CONCURRENCY=$($ROOT/deps/readies/bin/nproc)
+fi
 
 make -j$CI_CONCURRENCY
 BRANCH=master $ROOT/sbin/get-redisjson
@@ -24,6 +26,7 @@ cat >rltest.config <<EOF
 EOF
 export CONFIG_FILE="$PWD/rltest.config"
 export CODE_COVERAGE=1
+export RS_GLOBAL_DTORS=1
 
 ./lcov-init.sh
 COMPAT_DIR=$ROOT/build-coverage make -C $ROOT test CTEST_ARGS="--output-on-failure" CTEST_PARALLEL=${CI_CONCURRENCY}
