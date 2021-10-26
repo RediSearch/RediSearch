@@ -151,7 +151,7 @@ def test_issue1880(env):
 
   # test with a term which does not exist
   excepted_res = ['Type', 'INTERSECT', 'Counter', 0L, 'Child iterators',
-                    None,
+                    ['Type', 'EMPTY', 'Counter', 0L],
                     ['Type', 'TEXT', 'Term', 'world', 'Counter', 0L, 'Size', 1L],
                     ['Type', 'TEXT', 'Term', 'hello', 'Counter', 0L, 'Size', 2L]]
   res3 = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'hello new world')

@@ -785,6 +785,13 @@ IndexIterator *NewIntersecIterator(IndexIterator **its_, size_t num, DocTable *d
     qsort(ctx->its, ctx->num, sizeof(*ctx->its), (CompareFunc)cmpIter);
   }
 
+  // use empty iterator so wo don't have to check for a NULL pointer
+  for (int i = 0; i < ctx->num; ++i) {
+    if (ctx->its[i] == NULL) {
+      ctx->its[i] = NewEmptyIterator();
+    }
+  }
+
   // bind the iterator calls
   IndexIterator *it = &ctx->base;
   it->ctx = ctx;
@@ -962,8 +969,6 @@ static int II_ReadSorted(void *ctx, RSIndexResult **hit) {
 
     for (i = 0; i < ic->num; i++) {
       IndexIterator *it = ic->its[i];
-
-      if (!it) goto eof;
 
       RSIndexResult *h = IITER_CURRENT_RECORD(it);
       // skip to the next
