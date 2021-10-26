@@ -17,7 +17,7 @@
 uint64_t TotalIIBlocks = 0;
 
 // The number of entries in each index block. A new block will be created after every N entries
-#define INDEX_BLOCK_SIZE 100
+#define INDEX_BLOCK_SIZE 1000
 
 // Initial capacity (in bytes) of a new block
 #define INDEX_BLOCK_INITIAL_CAP 6
@@ -431,7 +431,11 @@ size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
     blk->firstId = blk->lastId = docId;
   }
 
-  delta = docId - blk->lastId;
+  if (encoder != encodeDocIdsOnly) {
+    delta = docId - blk->lastId;
+  } else {
+    delta = docId - blk->firstId;
+  }
   if (delta > UINT32_MAX) {
     blk = InvertedIndex_AddBlock(idx, docId);
     delta = 0;
@@ -698,6 +702,83 @@ DECODER(readFreqsOffsets) {
   return 1;
 }
 
+SKIPPER(seekDocIdsOnly) {
+  uint32_t delta = expid - IR_CURRENT_BLOCK(ir).firstId;
+
+  size_t firstPos = br->pos;
+  size_t lastPos = br->buf->cap - 4;
+  
+  // int direction = 1;
+
+  // let's try to read first
+  Buffer_Read(br, &res->docId, 4);
+  if (res->docId >= delta) {
+    goto final;
+  }
+
+  // check latest
+  /* Buffer_Seek(br, lastPos);
+  Buffer_Read(br, &res->docId, 4);
+  if (res->docId < delta) {
+    return 0;
+  } */
+
+  uint32_t *buf = (uint32_t *)br->buf->data;
+  size_t start = firstPos / 4;
+  size_t end = lastPos / 4;
+  size_t cur;
+  uint32_t curVal;
+  while (start < end) {
+    cur = (end + start) / 2;
+    curVal = buf[cur]; 
+    if (curVal == delta) {
+      break;
+    }
+    if (curVal > delta) {
+      end = cur;
+    } else {
+      start = cur + 1;
+    }
+  }
+
+  // we cannot get out of range since we check in 
+  if (curVal < delta) {
+    cur++;
+  }
+
+  Buffer_Seek(br, cur * 4);
+  Buffer_Read(br, &res->docId, 4);
+
+
+
+final:
+  res->docId += IR_CURRENT_BLOCK(ir).firstId;
+  res->freq = 1;
+  return 1;
+}
+
+/* 
+    nextPos = (latestPos + nextPos) / 2;
+    // we have to align to 4
+    if (nextPos & 0x11) {
+      nextPos -= 2; // check
+    }
+
+    if (nextPos == latestPos) {
+      break;
+    }
+
+    Buffer_Seek(br, nextPos);
+    Buffer_Read(br, &res->docId, 4);
+    if (res->docId == expid) {
+      break;
+    } else if (res->docId > expid) {
+      nextPos = (latestPos + nextPos) / 2;
+    }
+
+
+*/
+
 DECODER(readDocIdsOnly) {
   Buffer_Read(br, &res->docId, 4);
   // res->docId = ReadVarint(br);
@@ -737,7 +818,7 @@ IndexDecoderProcs InvertedIndex_GetDecoder(uint32_t flags) {
 
     // ()
     case Index_DocIdsOnly:
-      RETURN_DECODERS(readDocIdsOnly, NULL);
+      RETURN_DECODERS(readDocIdsOnly, seekDocIdsOnly);
 
     // (freqs, offsets)
     case Index_StoreFreqs | Index_StoreTermOffsets:
@@ -894,7 +975,11 @@ int IR_Read(void *ctx, RSIndexResult **e) {
 
     // We write the docid as a 32 bit number when decoding it with qint.
     uint32_t delta = *(uint32_t *)&record->docId;
-    ir->lastId = record->docId = ir->lastId + delta;
+    if (ir->decoders.decoder != readDocIdsOnly) {
+      ir->lastId = record->docId = ir->lastId + delta;
+    } else {
+      ir->lastId = record->docId = IR_CURRENT_BLOCK(ir).firstId + delta;
+    }
 
     // The decoder also acts as a filter. A zero return value means that the
     // current record should not be processed.
