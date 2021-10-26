@@ -489,8 +489,8 @@ workflows:
     jobs:
       - build:
           <<: *on-any-branch
-      - build-coordinator:
-          <<: *on-any-branch
+#      - build-coordinator:
+#          <<: *on-any-branch
       - build-platforms:
           <<: *on-integ-and-version-tags
           context: common
