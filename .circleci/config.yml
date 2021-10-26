@@ -254,14 +254,14 @@ jobs:
           platform: bullseye
       - persist-artifacts
 
-  build-coordinator:
-    docker:
-      - image: redisfab/rmbuilder:6.2.5-x64-bullseye
-    steps:
-      - build-steps:
-          platform: bullseye
-          build_params: "COORD="
-      - persist-artifacts
+#  build-coordinator:
+#    docker:
+#      - image: redisfab/rmbuilder:6.2.5-x64-bullseye
+#    steps:
+#      - build-steps:
+#          platform: bullseye
+#          build_params: "COORD="
+#      - persist-artifacts
 
   build-platforms:
     parameters:

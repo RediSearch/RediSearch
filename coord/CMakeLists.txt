@@ -15,7 +15,7 @@ elseif (RS_COORD_TYPE STREQUAL "oss")
 elseif (RS_COORD_TYPE STREQUAL "rlec")
 	set(RS_BUILD_COORD_RLEC 1)
 else()
-	message(FATAL_ERROR "Invalid RS_COORD_TYPE. Should be 'oss' or 'rlec'")
+	message(FATAL_ERROR "Invalid RS_COORD_TYPE (='${RS_COORD_TYPE}'). Should be either 'oss' or 'rlec'")
 endif()
 
 set(RS_RUN_TESTS OFF CACHE BOOL "" FORCE) # Don't run RS' own tests
@@ -73,12 +73,14 @@ set(FINAL_OBJECTS
     $<TARGET_OBJECTS:rmr>)
 
 macro(MODULE_TARGET TYPE)
-    if (TYPE STREQUAL "oss")
+    if (${TYPE} STREQUAL "oss")
         set(_moduleDefs "RS_CLUSTER_OSS")
 		set(SUFFIX "oss")
-    elseif (TYPE STREQUAL "rlec")
+    elseif (${TYPE} STREQUAL "rlec")
         set(_moduleDefs "RS_CLUSTER_ENTERPRISE")
 		set(SUFFIX "enterprise")
+	else()
+		message(FATAL_ERROR "Invalid TYPE (='${TYPE}'). Should be either 'oss' or 'rlec'")
     endif()
 
     set(_moduleName module-${SUFFIX})

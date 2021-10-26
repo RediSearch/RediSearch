@@ -41,9 +41,6 @@ endif
 ROOT=.
 include deps/readies/mk/main
 
-$(info ### DEBUG=$(DEBUG))
-$(info ### BINROOT=$(BINROOT))
-
 #----------------------------------------------------------------------------------------------
 
 define HELP
@@ -369,6 +366,15 @@ export REJSON ?= 1
 
 ifeq ($(TESTDEBUG),1)
 override CTEST_ARGS += --debug
+endif
+
+ifneq ($(SLOW),1)
+CTEST_PARALLEL_MAX:=$(shell $(ROOT)/deps/readies/bin/nproc)
+ifneq ($(SAN),)
+CTEST_PARALLEL=
+else ifeq ($(COV),1)
+CTEST_PARALLEL=$(CTEST_PARALLEL_MAX)
+endif
 endif
 
 ifneq ($(CTEST_PARALLEL),)
