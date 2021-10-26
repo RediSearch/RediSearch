@@ -1,9 +1,4 @@
 
-ROOT=.
-include deps/readies/mk/main
-
-#----------------------------------------------------------------------------------------------
-
 ifneq ($(VG),)
 VALGRIND=$(VG)
 endif
@@ -40,6 +35,14 @@ else
 $(error SAN=mem|addr|leak|thread)
 endif
 endif
+
+#----------------------------------------------------------------------------------------------
+
+ROOT=.
+include deps/readies/mk/main
+
+$(info ### DEBUG=$(DEBUG))
+$(info ### BINROOT=$(BINROOT))
 
 #----------------------------------------------------------------------------------------------
 
@@ -474,6 +477,17 @@ endif
 benchmark:
 	$(SHOW)cd tests/benchmarks ;\
 	redisbench-admin $(BENCHMARK_ARGS)
+
+#----------------------------------------------------------------------------------------------
+
+coverage:
+	$(SHOW)$(MAKE) COV=1
+	$(SHOW)$(MAKE) COORD=oss COV=1
+	$(COVERAGE_RESET)
+	$(SHOW)$(MAKE) test COV=1
+	$(SHOW)$(MAKE) test COORD=oss COV=1
+	$(COVERAGE_COLLECT_REPORT)
+#	bash <(curl -s https://raw.githubusercontent.com/codecov/codecov-bash/master/codecov) -f bin/linux-x64-debug-cov/cov.info
 
 #----------------------------------------------------------------------------------------------
 

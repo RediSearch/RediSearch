@@ -1,8 +1,9 @@
 
 #pragma once
 
-#include "common.h"
+#include "rmr/common.h"
 #include "redismodule.h"
+
 #include <assert.h>
 
 /* A redis command is represented with all its arguments and its flags as MRCommand */

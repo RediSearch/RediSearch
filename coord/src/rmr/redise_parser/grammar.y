@@ -2,7 +2,7 @@
 
 %include {
 
-#include "common.h"
+#include "rmr/common.h"
 #include "token.h"	
 #include "grammar.h"
 #include "parser_ctx.h"

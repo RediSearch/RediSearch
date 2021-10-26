@@ -26,17 +26,19 @@
 /************ Begin %include sections from the grammar ************************/
 #line 3 "grammar.y"
 
-	#include <stdlib.h>
-	#include <stdio.h>
-	#include <assert.h>
-	#include "token.h"	
-	#include "grammar.h"
-    #include "parser_ctx.h"
-    #include "../cluster.h"
-    #include "../node.h"
-    #include "../endpoint.h"
+#include "rmr/common.h"
+#include "token.h"	
+#include "grammar.h"
+#include "parser_ctx.h"
+#include "../cluster.h"
+#include "../node.h"
+#include "../endpoint.h"
 
-    #include "lexer.h"
+#include <stdlib.h>
+#include <stdio.h>
+#include <assert.h>
+
+#include "lexer.h"
 	void yyerror(char *s);
 
     static void parseCtx_Free(parseCtx *ctx) {

@@ -305,16 +305,7 @@ jobs:
       - run:
           name: Build & Test
           shell: /bin/bash -l -eo pipefail
-          command: |
-            make COV=1
-            make test COV=1
-          no_output_timeout: 30m
-      - run:
-          name: Build & Test (oss-coordinator)
-          shell: /bin/bash -l -eo pipefail
-          command: |
-            make COORD=oss COV=1
-            make test COORD=oss COV=1
+          command: make coverage
           no_output_timeout: 30m
       - save-tests-logs
 
