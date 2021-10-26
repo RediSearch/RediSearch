@@ -214,7 +214,7 @@ ENCODER(encodeFreqsOffsets) {
 
 // 8. Encode only the doc ids
 ENCODER(encodeDocIdsOnly) {
-  return Buffer_Write(bw, &delta, sizeof(delta));
+  return Buffer_Write(bw, &delta, 2);
   // return WriteVarint(delta, bw);
 }
 
@@ -441,7 +441,7 @@ size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
   }
 
   delta = docId - blk->lastId;
-  if (delta > UINT32_MAX) {
+  if (delta > UINT16_MAX) {
     blk = InvertedIndex_AddBlock(idx, docId);
     delta = 0;
   }
@@ -708,7 +708,7 @@ DECODER(readFreqsOffsets) {
 }
 
 DECODER(readDocIdsOnly) {
-  Buffer_Read(br, &res->docId, 4);
+  Buffer_Read(br, &res->docId, 2);
   // res->docId = ReadVarint(br);
   res->freq = 1;
   return 1;  // Don't care about field mask
