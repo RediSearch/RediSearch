@@ -4,7 +4,7 @@ from RLTest import Env
 import platform
 from time import sleep
 from includes import *
-from common import waitForIndex, waitForRdbSaveToFinish, forceInvokeGC
+from common import *
 
 
 def testBasicGC(env):
@@ -152,7 +152,7 @@ def testDeleteEntireBlock(env):
         waitForIndex(env, 'idx')
         res = env.cmd('FT.SEARCH', 'idx', '@test:checking @test2:checking250')
         env.assertEqual(res[0:2],[1L, 'doc250'])
-        env.assertEqual(set(res[2]), set(['test', 'checking', 'test2', 'checking250']))        
+        env.assertEqual(set(res[2]), set(['test', 'checking', 'test2', 'checking250']))
 
 def testGCIntegrationWithRedisFork(env):
     if env.env == 'existing-env':
