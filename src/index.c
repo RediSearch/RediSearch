@@ -288,11 +288,6 @@ static inline int UI_ReadUnsorted(void *ctx, RSIndexResult **hit) {
 
 static inline int UI_ReadSorted(void *ctx, RSIndexResult **hit) {
   UnionIterator *ui = ctx;
-  // nothing to do
-  if (ui->num == 0 || !IITER_HAS_NEXT(&ui->base)) {
-    IITER_SET_EOF(&ui->base);
-    return INDEXREAD_EOF;
-  }
 
   int numActive = 0;
   AggregateResult_Reset(CURRENT_RECORD(ui));
@@ -328,8 +323,13 @@ static inline int UI_ReadSorted(void *ctx, RSIndexResult **hit) {
       } else {
         // Remove this from the active list
         i = UI_RemoveExhausted(ui, i);
-        nits = ui->num;
-        continue;
+        if (ui->num != 0) {
+          nits = ui->num;
+          continue;
+        } else {
+          IITER_SET_EOF(&ui->base);
+          return INDEXREAD_EOF;
+        }
       }
 
       if (rc == INDEXREAD_OK && res->docId <= minDocId) {
@@ -360,11 +360,6 @@ static inline int UI_ReadSortedHigh(void *ctx, RSIndexResult **hit) {
   RSIndexResult *res;
   heap_t *hp = ui->heapMinId;
 
-  // nothing to do
-  if (!IITER_HAS_NEXT(&ui->base)) {
-    IITER_SET_EOF(&ui->base);
-    return INDEXREAD_EOF;
-  }
   AggregateResult_Reset(CURRENT_RECORD(ui));
   t_docId nextValidId = ui->minDocId + 1;
 
@@ -434,10 +429,6 @@ static int UI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
 
   if (docId == 0) {
     return UI_ReadSorted(ctx, hit);
-  }
-
-  if (!IITER_HAS_NEXT(&ui->base)) {
-    return INDEXREAD_EOF;
   }
 
   // reset the current hitf
@@ -528,10 +519,6 @@ static int UI_SkipToHigh(void *ctx, t_docId docId, RSIndexResult **hit) {
 
   if (docId == 0) {
     return UI_ReadSorted(ctx, hit);
-  }
-
-  if (!IITER_HAS_NEXT(&ui->base)) {
-    return INDEXREAD_EOF;
   }
 
   AggregateResult_Reset(CURRENT_RECORD(ui));
@@ -824,8 +811,6 @@ static int II_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
   // skip all iterators to docId
   for (int i = 0; i < ic->num; i++) {
     IndexIterator *it = ic->its[i];
-
-    if (!it || !IITER_HAS_NEXT(it)) return INDEXREAD_EOF;
 
     RSIndexResult *res = IITER_CURRENT_RECORD(it);
     rc = INDEXREAD_OK;
