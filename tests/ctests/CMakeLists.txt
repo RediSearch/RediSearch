@@ -1,4 +1,3 @@
-
 include(CTest)
 
 if (NOT RS_TEST_MODULE)

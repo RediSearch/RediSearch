@@ -16,7 +16,6 @@
 *.tar
 /bin/
 /site/*
-/artifacts/
 /venv*/
 srcutil/lemon
 src/query_parser/lemon
@@ -26,7 +25,4 @@ src/query_parser/lemon
 .cproject
 VSCODE.DB*
 callgrind.out.*
-/deps/hiredis.[12]
-/deps/snowball.1
-/deps/libuv.1
 /1/

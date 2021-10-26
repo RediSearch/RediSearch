@@ -11,7 +11,8 @@ ARG OS=debian:bullseye-slim
 # ARCH=x64|arm64v8|arm32v7
 ARG ARCH=x64
 
-ARG GIT_DESCRIBE_VERSION
+ARG GIT_SHA
+ARG GIT_VERSPEC
 
 #----------------------------------------------------------------------------------------------
 FROM redisfab/redis:${REDIS_VER}-${ARCH}-${OSNICK} AS redis
@@ -21,7 +22,8 @@ ARG OSNICK
 ARG OS
 ARG ARCH
 ARG REDIS_VER
-ARG GIT_DESCRIBE_VERSION
+ARG GIT_SHA
+ARG GIT_VERSPEC
 
 RUN echo "Building for ${OSNICK} (${OS}) for ${ARCH}"
 
@@ -36,7 +38,7 @@ RUN ./system-setup.py
 
 RUN /usr/local/bin/redis-server --version
 RUN make fetch SHOW=1
-RUN make build WITH_TESTS=1 SHOW=1 CMAKE_ARGS="-DGIT_DESCRIBE_VERSION=${GIT_DESCRIBE_VERSION}"
+RUN make build WITH_TESTS=1 SHOW=1
 
 # ARG PACK=0
 ARG TEST=0

@@ -117,7 +117,7 @@ static int updateTopoCB(RedisModuleCtx *ctx, void *p) {
   RedisModule_ThreadSafeContextLock(ctx);
   RedisModule_AutoMemory(ctx);
 
-  RedisModuleCallReply *r = RedisModule_Call(ctx, REDISEARCH_MODULE_NAME".CLUSTERREFRESH", "");
+  RedisModuleCallReply *r = RedisModule_Call(ctx, STRINGIFY(REDISEARCH_MODULE_NAME)".CLUSTERREFRESH", "");
   if (RedisModule_CallReplyType(r) == REDIS_REPLY_ERROR) {
     fprintf(stderr, "Error running CLUSTERREFRESH: %s\n", RedisModule_CallReplyStringPtr(r, NULL));
   }

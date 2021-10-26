@@ -135,14 +135,34 @@ commands:
           getredis_params: <<parameters.getredis_params>>
       - run:
           name: Build
-          command: bash -l -c "make build WITH_TESTS=1 <<parameters.build_params>> SHOW=1"
+          shell: /bin/bash -l -eo pipefail
+          command: |
+            make build WITH_TESTS=1 <<parameters.build_params>> SHOW=1
+            make build LITE=1 <<parameters.build_params>> SHOW=1
+      - run:
+          name: Build (OSS Coordinator)
+          shell: /bin/bash -l -eo pipefail
+          command: make build COORD=oss WITH_TESTS=1 <<parameters.build_params>> SHOW=1
+      - run:
+          name: Build (RLEC Coordinator)
+          shell: /bin/bash -l -eo pipefail
+          command: make build COORD=rlec <<parameters.build_params>> SHOW=1
       - run:
           name: Pack
-          command: bash -l -c "make pack SHOW=1"
+          shell: /bin/bash -l -eo pipefail
+          command: |
+            make pack COORD=rlec SHOW=1
+            make pack LITE=1 SHOW=1
       - run:
           name: Test
+          shell: /bin/bash -l -eo pipefail
           no_output_timeout: 30m
-          command: bash -l -c "make test SHOW=1"
+          command: make test SHOW=1
+      - run:
+          name: Test (OSS coordinator)
+          shell: /bin/bash -l -eo pipefail
+          no_output_timeout: 30m
+          command: make test COORD=oss SHOW=1
       - save-tests-logs
       - early-return-for-forked-pull-requests
       - persist-artifacts
@@ -239,7 +259,7 @@ jobs:
     steps:
       - build-steps:
           platform: bullseye
-          build_params: "COORD=1"
+          build_params: "COORD="
       - persist-artifacts
 
   build-platforms:
@@ -283,7 +303,17 @@ jobs:
       - install-prerequisites
       - run:
           name: Build & Test
-          command: bash -l -c "make COV=1"
+          shell: /bin/bash -l -eo pipefail
+          command: |
+            make COV=1
+            make test COV=1
+          no_output_timeout: 30m
+      - run:
+          name: Build & Test (oss-coordinator)
+          shell: /bin/bash -l -eo pipefail
+          command: |
+            make COORD=oss COV=1
+            make test COORD=oss COV=1
           no_output_timeout: 30m
       - save-tests-logs
 
@@ -316,7 +346,7 @@ jobs:
           name: Install prerequisites
           shell: /bin/bash -l -eo pipefail
           command: |
-            sudo ./deps/readies/bin/getpy3
+            sudo ./deps/readies/bin/getpy2
             sudo ./sbin/system-setup.py
             sudo ./deps/readies/bin/getredis
             sudo ./deps/readies/bin/getdocker --just-enable-exp
@@ -341,15 +371,9 @@ jobs:
           shell: /bin/bash -l -eo pipefail
           no_output_timeout: 30m
           command: |
-            sudo python3 -m pip list
+            sudo python2 -m pip list
             sudo mkdir -p ~/workspace/tests
-            sudo make test RLEC=1 SHOW=1
-      - run:
-          name: Run flow with gears
-          shell: /bin/bash -l -eo pipefail
-          no_output_timeout: 30m
-          command: |
-            sudo make test RLEC=1 GEARS=1 SHOW=1 V=2
+            sudo make test COORD=1 SHOW=1
       - save-tests-logs
 
   deploy-artifacts:
@@ -367,7 +391,7 @@ jobs:
       - run:
           name: Deploy to S3
           command: |
-            cd "workspace/artifacts/<<parameters.location>>"
+            cd "workspace/bin/artifacts/<<parameters.location>>"
             du -ah --apparent-size *
             if [[ -z "<<parameters.location>>" ]]; then
                 path=""

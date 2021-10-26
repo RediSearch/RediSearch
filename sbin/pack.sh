@@ -3,16 +3,15 @@
 [[ $IGNERR == 1 ]] || set -e
 [[ $VERBOSE == 1 ]] && set -x
 
-error() {
-	>&2 echo "$0: There are errors."
-	exit 1
-}
-
-if [[ -z $_Dbg_DEBUGGER_LEVEL ]]; then
-	trap error ERR
-fi
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+ROOT=$(cd $HERE/.. && pwd)
+export READIES=$ROOT/deps/readies
+. $READIES/shibumi/defs
+SBIN=$ROOT/sbin
 
 export PYTHONWARNINGS=ignore
+
+cd $ROOT
 
 #----------------------------------------------------------------------------------------------
 
@@ -23,36 +22,29 @@ if [[ $1 == --help || $1 == help ]]; then
 		[ARGVARS...] pack.sh [--help|help] [<module-so-path>]
 
 		Argument variables:
-		VERBOSE=1     Print commands
-		IGNERR=1      Do not abort on error
-
 		RAMP=1              Generate RAMP package
 		DEPS=1              Generate dependency packages
 		RELEASE=1           Generate "release" packages (artifacts/release/)
 		SNAPSHOT=1          Generate "shapshot" packages (artifacts/snapshot/)
 		JUST_PRINT=1        Only print package names, do not generate
 
+		MODULE_NAME=name    Module name (default: redisearch)
 		PACKAGE_NAME=name   Package stem name
 		VARIANT=name        Build variant (empty for standard packages)
 		BRANCH=name         Branch name for snapshot packages
 		GITSHA=1            Append Git SHA to shapshot package names
 
-		ARTDIR=dir          Directory in which packages are created
+		ARTDIR=dir          Directory in which packages are created (default: bin/artifacts)
 		
 		RAMP_YAML=path      RAMP configuration file path
 		RAMP_ARGS=args      Extra arguments to RAMP
 
+		VERBOSE=1           Print commands
+		IGNERR=1            Do not abort on error
+
 	END
 	exit 0
 fi
-
-#----------------------------------------------------------------------------------------------
-
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
-ROOT=$(cd $HERE/..; pwd)
-READIES=$ROOT/deps/readies
-. $READIES/shibumi/functions
-SBIN=$ROOT/sbin
 
 #----------------------------------------------------------------------------------------------
 
@@ -80,13 +72,13 @@ DEPS=${DEPS:-1}
 RELEASE=${RELEASE:-1}
 SNAPSHOT=${SNAPSHOT:-1}
 
-if [[ $JUST_PRINT != 1 ]]; then
-	[[ -z $ARTDIR ]] && { echo ARTDIR undefined; exit 1; }
-	ARTDIR=$(realpath $ARTDIR)
-fi
+[[ -z $ARTDIR ]] && ARTDIR=bin/artifacts
+mkdir -p $ARTDIR $ARTDIR/snapshots
+ARTDIR=$(cd $ARTDIR && pwd)
 
 #----------------------------------------------------------------------------------------------
 
+MODULE_NAME=${MODULE_NAME:-redisearch}
 PACKAGE_NAME=${PACKAGE_NAME:-redisearch-oss}
 
 DEP_NAMES="debug"
@@ -140,8 +132,9 @@ pack_ramp() {
 	
 	# ROOT is required so ramp will detect the right git commit
 	cd $ROOT
-	$ramp pack -m /tmp/ramp.yml $RAMP_ARGS --packname-file /tmp/ramp.fname --verbose --debug \
-		-o $packfile $MODULE_SO >/tmp/ramp.err 2>&1 || true
+	$ramp pack -m /tmp/ramp.yml $RAMP_ARGS -n $MODULE_NAME --verbose --debug \
+		--packname-file /tmp/ramp.fname -o $packfile \
+		$MODULE_SO >/tmp/ramp.err 2>&1 || true
 
 	if [[ ! -e $packfile ]]; then
 		>&2 echo "Error generating RAMP file:"

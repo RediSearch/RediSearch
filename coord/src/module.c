@@ -32,6 +32,9 @@
 #include <pthread.h>
 #include <stdbool.h>
 
+#define __STRINGIFY(x) #x
+#define STRINGIFY(x) __STRINGIFY(x)
+
 #define CLUSTERDOWN_ERR "ERRCLUSTER Uninitialized cluster state, could not perform command"
 
 int redisMajorVesion = 0;
@@ -1485,7 +1488,8 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   printf("RSValue size: %lu\n", sizeof(RSValue));
 
-  if (RedisModule_Init(ctx, REDISEARCH_MODULE_NAME, REDISEARCH_MODULE_VERSION, REDISMODULE_APIVER_1) == REDISMODULE_ERR) {
+  if (RedisModule_Init(ctx, STRINGIFY(REDISEARCH_MODULE_NAME), REDISEARCH_MODULE_VERSION, 
+                       REDISMODULE_APIVER_1) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   }
 
@@ -1577,9 +1581,9 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
 
   // cluster set commands
-  RM_TRY(RedisModule_CreateCommand(ctx, REDISEARCH_MODULE_NAME".CLUSTERSET", SafeCmd(SetClusterCommand), "readonly allow-loading", 0,0, -1));
-  RM_TRY(RedisModule_CreateCommand(ctx, REDISEARCH_MODULE_NAME".CLUSTERREFRESH", SafeCmd(RefreshClusterCommand),"readonly", 0, 0, -1));
-  RM_TRY(RedisModule_CreateCommand(ctx, REDISEARCH_MODULE_NAME".CLUSTERINFO", SafeCmd(ClusterInfoCommand), "readonly allow-loading",0, 0, -1));
+  RM_TRY(RedisModule_CreateCommand(ctx, STRINGIFY(REDISEARCH_MODULE_NAME)".CLUSTERSET", SafeCmd(SetClusterCommand), "readonly allow-loading", 0,0, -1));
+  RM_TRY(RedisModule_CreateCommand(ctx, STRINGIFY(REDISEARCH_MODULE_NAME)".CLUSTERREFRESH", SafeCmd(RefreshClusterCommand),"readonly", 0, 0, -1));
+  RM_TRY(RedisModule_CreateCommand(ctx, STRINGIFY(REDISEARCH_MODULE_NAME)".CLUSTERINFO", SafeCmd(ClusterInfoCommand), "readonly allow-loading",0, 0, -1));
 
   return REDISMODULE_OK;
 }

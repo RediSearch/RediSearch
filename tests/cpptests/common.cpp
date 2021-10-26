@@ -8,12 +8,17 @@
 
 #include "gtest/gtest.h"
 
+#define __STRINGIFY(x) #x
+#define STRINGIFY(x) __STRINGIFY(x)
+
 extern "C" {
+
 static int my_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
-  if (RedisModule_Init(ctx, REDISEARCH_MODULE_NAME, REDISEARCH_MODULE_VERSION, REDISMODULE_APIVER_1) ==
-      REDISMODULE_ERR)
+  if (RedisModule_Init(ctx, STRINGIFY(REDISEARCH_MODULE_NAME), REDISEARCH_MODULE_VERSION, 
+                       REDISMODULE_APIVER_1) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
+  }
   return RediSearch_InitModuleInternal(ctx, argv, argc);
 }
 

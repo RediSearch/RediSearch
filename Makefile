@@ -44,15 +44,17 @@ make setup         # install prerequisited (CAUTION: THIS WILL MODIFY YOUR SYSTE
 make fetch         # download and prepare dependant modules
 
 make build         # compile and link
-  COORD=1          # build coordinator module
-  DEBUG=1          # build for debugging (implies WITH_TESTS=1)
-  WITH_TESTS=1     # enable unit tests
-  WHY=1            # explain CMake decisions (in /tmp/cmake-why)
-  FORCE=1          # Force CMake rerun
-  CMAKE_ARGS=...   # extra arguments to CMake
-  STATIC=1         # build as static lib
-  VG=1             # build for Valgrind
-  SAN=type         # build with LLVM sanitizer (type=address|memory|leak|thread) 
+  COORD=oss|rlec     # build coordinator
+  STATIC=1           # build as static lib
+  LITE=1             # build RediSearchLight
+  DEBUG=1            # build for debugging (implies WITH_TESTS=1)
+  WITH_TESTS=1       # enable unit tests
+  WHY=1              # explain CMake decisions (in /tmp/cmake-why)
+  FORCE=1            # Force CMake rerun
+  CMAKE_ARGS=...     # extra arguments to CMake
+  VG=1               # build for Valgrind
+  SAN=type           # build with LLVM sanitizer (type=address|memory|leak|thread) 
+  SLOW=1             # do not parallelize build (for diagnostics)
 make parsers       # build parsers code
 make clean         # remove build artifacts
   ALL=1              # remove entire artifacts directory
@@ -61,10 +63,12 @@ make run           # run redis with RediSearch
   DEBUG=1            # invoke using gdb
 
 make test          # run all tests (via ctest)
-  TEST=regex
+  COORD=oss|rlec     # test coordinator
+  TEST=regex         # run tests that match regex
   TESTDEBUG=1        # be very verbose (CTest-related)
   CTEST_ARG=...      # pass args to CTest
 make pytest        # run python tests (tests/pytests)
+  COORD=oss|rlec     # test coordinator
   TEST=name          # e.g. TEST=test:testSearch
   RLTEST_ARGS=...    # pass args to RLTest
   REJSON=1|0         # also load RedisJSON module
@@ -92,21 +96,60 @@ endef
 
 #----------------------------------------------------------------------------------------------
 
-ifneq ($(COORD),1)
+ifeq ($(STATIC),1)
+
+ifneq ($(COORD),)
+$(error STATIC=1 is incompatible with COORD)
+endif
 
 CMAKE_DIR=$(ROOT)
-BINDIR=$(BINROOT)/search
+BINDIR=$(BINROOT)/search-static
+SRCDIR=src
+TARGET=$(BINDIR)/redisearch.a
+PACKAGE_NAME=
+
+endif # STATIC
+
+ifeq ($(COORD),)
+
+CMAKE_DIR=$(ROOT)
 SRCDIR=src
 TARGET=$(BINDIR)/redisearch.so
-PACKAGE_NAME=redisearch-oss
+PACKAGE_NAME=redisearch
+RAMP_YAML=pack/ramp.yml
 
+ifneq ($(LITE),1)
+BINDIR=$(BINROOT)/search
+RAMP_MODULE_NAME=search
 else
+BINDIR=$(BINROOT)/search-lite
+RAMP_MODULE_NAME=searchlight
+PACKAGE_NAME=redisearch-light
+RAMP_YAML=pack/ramp-light.yml
+endif
 
+else # COORD
+
+ifeq ($(COORD),oss)
 CMAKE_DIR=$(ROOT)/coord
-BINDIR=$(BINROOT)/coord
+BINDIR=$(BINROOT)/coord-oss
+SRCDIR=coord/src
+TARGET=$(BINDIR)/module-oss.so
+PACKAGE_NAME=redisearch-oss
+RAMP_MODULE_NAME=search
+
+else ifeq ($(COORD),rlec)
+CMAKE_DIR=$(ROOT)/coord
+BINDIR=$(BINROOT)/coord-rlec
 SRCDIR=coord/src
 TARGET=$(BINDIR)/module-enterprise.so
-PACKAGE_NAME=redisearch
+PACKAGE_NAME=redisearch-enterprise
+RAMP_MODULE_NAME=search
+RAMP_YAML=coord/pack/ramp.yml
+
+else
+$(error COORD should be either oss or rlec)
+endif
 
 export LIBUV_BINDIR=$(realpath bin/$(FULL_VARIANT.release)/libuv)
 include build/libuv/Makefile.defs
@@ -114,7 +157,7 @@ include build/libuv/Makefile.defs
 HIREDIS_BINDIR=bin/$(FULL_VARIANT.release)/hiredis
 include build/hiredis/Makefile.defs
 
-endif
+endif # COORD
 
 #----------------------------------------------------------------------------------------------
 
@@ -135,7 +178,6 @@ CMAKE_BUILD_TYPE=DEBUG
 WITH_TESTS ?= 1
 else
 CMAKE_BUILD_TYPE=RelWithDebInfo
-WITH_TESTS ?= 1
 endif
 CMAKE_DEBUG=-DCMAKE_BUILD_TYPE=$(CMAKE_BUILD_TYPE)
 
@@ -149,9 +191,11 @@ CMAKE_WHY=--trace-expand > /tmp/cmake-why 2>&1
 endif
 
 ifeq ($(STATIC),1)
-CMAKE_STATIC +=\
-	-DRS_FORCE_NO_GITVERSION=ON \
-	-DRS_BUILD_STATIC=ON
+CMAKE_STATIC += -DRS_BUILD_STATIC=ON
+endif
+
+ifneq ($(COORD),)
+CMAKE_COORD += -DRS_COORD_TYPE=$(COORD)
 endif
 
 CMAKE_FILES= \
@@ -175,9 +219,14 @@ CMAKE_FILES+= \
 	tests/c_utils/CMakeLists.txt
 endif
 
-CMAKE_FLAGS=-Wno-dev
-CMAKE_FLAGS += $(CMAKE_ARGS) $(CMAKE_DEBUG) $(CMAKE_STATIC) $(CMAKE_SAN) $(CMAKE_TEST) \
-	$(CMAKE_WHY) $(CMAKE_PROFILE)
+CMAKE_FLAGS=\
+	-Wno-dev \
+	-DGIT_SHA=$(GIT_SHA) \
+	-DGIT_VERSPEC=$(GIT_VERSPEC) \
+	-DRS_MODULE_NAME=$(RAMP_MODULE_NAME)
+
+CMAKE_FLAGS += $(CMAKE_ARGS) $(CMAKE_DEBUG) $(CMAKE_STATIC)  $(CMAKE_COORD) \
+	$(CMAKE_SAN) $(CMAKE_TEST) $(CMAKE_WHY) $(CMAKE_PROFILE)
 
 #----------------------------------------------------------------------------------------------
 
@@ -228,7 +277,6 @@ $(BINDIR)/Makefile: __force
 else
 $(BINDIR)/Makefile : $(CMAKE_FILES)
 endif
-	@echo Building with CMake ...
 ifeq ($(WHY),1)
 	@echo CMake log is in /tmp/cmake-why
 endif
@@ -322,9 +370,9 @@ override CTEST_ARGS += --timeout 15000
 
 test:
 ifneq ($(TEST),)
-	@set -e; cd $(BINROOT); CTEST_OUTPUT_ON_FAILURE=1 RLTEST_ARGS="-s -v" ctest $(CTEST_ARGS) -vv -R $(TEST)
+	@set -e; cd $(BINRDIR); CTEST_OUTPUT_ON_FAILURE=1 RLTEST_ARGS="-s -v" ctest $(CTEST_ARGS) -vv -R $(TEST)
 else
-	@set -e; cd $(BINROOT); ctest $(CTEST_ARGS)
+	@set -e; cd $(BINDIR); ctest $(CTEST_ARGS)
 endif
 
 pytest:
@@ -376,20 +424,19 @@ RAMP_VARIANT=$(subst release,,$(FLAVOR))$(_VARIANT.string)
 RAMP.release:=$(shell JUST_PRINT=1 RAMP=1 DEPS=0 RELEASE=1 SNAPSHOT=0 VARIANT=$(RAMP_VARIANT) PACKAGE_NAME=$(PACKAGE_NAME) $(ROOT)/sbin/pack.sh)
 RAMP.snapshot:=$(shell JUST_PRINT=1 RAMP=1 DEPS=0 RELEASE=0 SNAPSHOT=1 VARIANT=$(RAMP_VARIANT) PACKAGE_NAME=$(PACKAGE_NAME) $(ROOT)/sbin/pack.sh)
 
-RAMP_YAML ?= ramp.yml
-
 PACK_ARGS=\
 	VARIANT=$(RAMP_VARIANT) \
-	ARTDIR=$(ROOT)/artifacts \
 	PACKAGE_NAME=$(PACKAGE_NAME) \
+	MODULE_NAME=$(RAMP_MODULE_NAME) \
 	RAMP_YAML=$(RAMP_YAML) \
 	RAMP_ARGS=$(RAMP_ARGS)
 
-artifacts/$(RAMP.release) : $(TARGET) $(RAMP_YAML)
+# $(TARGET) 
+bin/artifacts/$(RAMP.release) : $(RAMP_YAML)
 	@echo Packing module...
 	$(SHOW)$(PACK_ARGS) $(ROOT)/sbin/pack.sh $(TARGET)
 
-pack: artifacts/$(RAMP.release)
+pack: bin/artifacts/$(RAMP.release)
 
 #----------------------------------------------------------------------------------------------
 
@@ -425,8 +472,6 @@ deploydocs:
 
 #----------------------------------------------------------------------------------------------
 
-MODULE_VERSION := $(shell git describe)
-
 DOCKER_ARGS=
 
 ifeq ($(CACHE),0)
@@ -436,7 +481,6 @@ endif
 DOCKER_IMAGE ?= redislabs/redisearch
 
 docker:
-	docker build . -t $(DOCKER_IMAGE) -f docker/Dockerfile $(DOCKER_ARGS) \
-		--build-arg=GIT_DESCRIBE_VERSION=$(MODULE_VERSION)
+	docker build . -t $(DOCKER_IMAGE) -f docker/Dockerfile $(DOCKER_ARGS)
 
 .PHONY: docker

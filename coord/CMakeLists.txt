@@ -6,11 +6,21 @@ message("# coord binroot: " ${binroot})
 
 include(${RS_DIR}/build/cmake/common.cmake)
 
-option(RS_ENTERPRISE_BUILD "build for enterprise cluster" OFF)
+# RS_COORD_TYPE=oss|rlec
+
+if (NOT RS_COORD_TYPE)
+	message(FATAL_ERROR "Missing RS_COORD_TYPE. Should be 'oss' or 'rlec'.")
+elseif (${RS_COORD_TYPE} STREQUAL "oss")
+	set(RS_BUILD_COORD_OSS 1)
+elseif (${RS_COORD_TYPE} STREQUAL "rlec")
+	set(RS_BUILD_COORD_RLEC 1)
+else()
+	message(FATAL_ERROR "Invalid RS_COORD_TYPE. Should be 'oss' or 'rlec'")
+endif()
 
 set(RS_RUN_TESTS OFF CACHE BOOL "" FORCE) # Don't run RS' own tests
 set(RS_ENABLE_MOCK ON CACHE BOOL "" FORCE) # But build mock so we can link our own tests
-set(RS_BUILD_STATIC ON CACHE BOOL "" FORCE)
+set(RS_BUILD_STATIC OFF CACHE BOOL "" FORCE)
 set(RS_BUILD_COORDINATOR 1)
 
 #----------------------------------------------------------------------------------------------
@@ -62,16 +72,19 @@ set(FINAL_OBJECTS
     $<TARGET_OBJECTS:rmutil>
     $<TARGET_OBJECTS:rmr>)
 
-macro(MODULE_TARGET SUFFIX)
+macro(MODULE_TARGET TYPE)
+    if (${TYPE} STREQUAL "oss")
+        set(_moduleDefs "RS_CLUSTER_OSS")
+		set(SUFFIX "oss")
+    elseif (${TYPE} STREQUAL "rlec")
+        set(_moduleDefs "RS_CLUSTER_ENTERPRISE")
+		set(SUFFIX "enterprise")
+    endif()
+
     set(_moduleName module-${SUFFIX})
     add_library(${_moduleName} SHARED ${FINAL_OBJECTS} src/build-info/info-${SUFFIX}.c)
     target_link_libraries(${_moduleName} redisearch-${SUFFIX} ${LIBUV_LIBS} ${HIREDIS_LIBS} crypt ssl)
 
-    if (${SUFFIX} STREQUAL "oss")
-        set(_moduleDefs "RS_CLUSTER_OSS")
-    elseif (${SUFFIX} STREQUAL "enterprise")
-        SET(_moduleDefs "RS_CLUSTER_ENTERPRISE")
-    endif()
     target_compile_definitions(${_moduleName} PRIVATE ${_moduleDefs})
     
     set_target_properties(${_moduleName} PROPERTIES PREFIX "")
@@ -85,18 +98,18 @@ macro(MODULE_TARGET SUFFIX)
     endif()
 endmacro()
 
-MODULE_TARGET(oss)
-MODULE_TARGET(enterprise)
+MODULE_TARGET(${RS_COORD_TYPE})
 
 #----------------------------------------------------------------------------------------------
 
-enable_testing() # enable coordinator tests
+if (RS_BUILD_COORD_OSS)
+	enable_testing()
 
-add_library(testdeps STATIC ${FINAL_OBJECTS})
-target_link_libraries(testdeps ${LIBUV_LIBS} redisearch-oss redismock ${HIREDIS_LIBS} crypt ssl dl)
+	add_library(testdeps STATIC ${FINAL_OBJECTS})
+	target_link_libraries(testdeps ${LIBUV_LIBS} redisearch-oss redismock ${HIREDIS_LIBS} crypt ssl dl)
 
-add_subdirectory(src/rmr/test)
-add_subdirectory(tests/unit)
-add_subdirectory(${RS_DIR}/tests/ctests/ext-example example_extension)
-
-# set_target_properties(redismock PROPERTIES COMPILE_FLAGS "-fvisibility=default")
+	add_subdirectory(src/rmr/test)
+	add_subdirectory(tests/unit)
+	add_subdirectory(${RS_DIR}/tests/ctests/ext-example example_extension)
+	add_subdirectory(${RS_DIR}/tests/cpptests/redismock redismock)
+endif()
