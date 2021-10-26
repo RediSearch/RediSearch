@@ -73,6 +73,7 @@ make pytest        # run python tests (tests/pytests)
   RLTEST_ARGS=...    # pass args to RLTest
   REJSON=1|0         # also load RedisJSON module
   REJSON_PATH=path   # use RedisJSON module at `path`
+  EXT=1              # External (existing) environment
   GDB=1              # RLTest interactive debugging
   VG=1               # use Valgrind
   SAN=type           # use LLVM sanitizer (type=address|memory|leak|thread) 
@@ -375,8 +376,15 @@ else
 	@set -e; cd $(BINDIR); ctest $(CTEST_ARGS)
 endif
 
+FLOW_TESTS_ARGS=
+ifeq ($(EXT),1)
+FLOW_TESTS_ARGS += EXISTING_EXT=1
+endif
+
+export EXT_TEST_PATH:=$(BINDIR)/tests/ctests/example_extension/libexample_extension.so
+
 pytest:
-	@TEST=$(TEST) FORCE= $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
+	@TEST=$(TEST) $(FLOW_TESTS_ARGS) FORCE='' $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
 
 ifeq ($(GDB),1)
 GDB_CMD=gdb -ex r --args
