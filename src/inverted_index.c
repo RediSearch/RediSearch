@@ -205,7 +205,8 @@ ENCODER(encodeFreqsOffsets) {
 
 // 8. Encode only the doc ids
 ENCODER(encodeDocIdsOnly) {
-  return WriteVarint(delta, bw);
+  return Buffer_Write(bw, &delta, 4);
+  // return WriteVarint(delta, bw);
 }
 
 /**
@@ -698,7 +699,8 @@ DECODER(readFreqsOffsets) {
 }
 
 DECODER(readDocIdsOnly) {
-  res->docId = ReadVarint(br);
+  Buffer_Read(br, &res->docId, 4);
+  // res->docId = ReadVarint(br);
   res->freq = 1;
   return 1;  // Don't care about field mask
 }
