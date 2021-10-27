@@ -171,6 +171,10 @@ export PACKAGE_NAME
 
 #----------------------------------------------------------------------------------------------
 
+ifeq ($(COV),1)
+CMAKE_COV += -DUSE_COVERAGE=ON
+endif
+
 ifneq ($(SAN),)
 CMAKE_SAN += -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
 endif
@@ -232,7 +236,7 @@ CMAKE_FLAGS=\
 	-DRS_MODULE_NAME=$(RAMP_MODULE_NAME)
 
 CMAKE_FLAGS += $(CMAKE_ARGS) $(CMAKE_DEBUG) $(CMAKE_STATIC)  $(CMAKE_COORD) \
-	$(CMAKE_SAN) $(CMAKE_TEST) $(CMAKE_WHY) $(CMAKE_PROFILE)
+	$(CMAKE_COV) $(CMAKE_SAN) $(CMAKE_TEST) $(CMAKE_WHY) $(CMAKE_PROFILE)
 
 #----------------------------------------------------------------------------------------------
 
@@ -368,6 +372,18 @@ ifeq ($(TESTDEBUG),1)
 override CTEST_ARGS += --debug
 endif
 
+ifneq ($(SAN),)
+CTEST_ARGS += --output-on-failure
+endif
+
+ifeq ($(COV),1)
+CTEST_ARGS += --output-on-failure
+endif
+
+ifeq ($(VG),1)
+CTEST_ARGS += --output-on-failure
+endif
+
 ifneq ($(SLOW),1)
 CTEST_PARALLEL_MAX:=$(shell $(ROOT)/deps/readies/bin/nproc)
 ifneq ($(SAN),)
@@ -383,13 +399,6 @@ endif
 
 override CTEST_ARGS += --timeout 15000
 
-test:
-ifneq ($(TEST),)
-	@set -e; cd $(BINRDIR); CTEST_OUTPUT_ON_FAILURE=1 RLTEST_ARGS="-s -v" ctest $(CTEST_ARGS) -vv -R $(TEST)
-else
-	@set -e; cd $(BINDIR); ctest $(CTEST_ARGS)
-endif
-
 FLOW_TESTS_ARGS=\
 	VG=$(VALGRIND) VG_LEAKS=0
 
@@ -399,8 +408,18 @@ endif
 
 export EXT_TEST_PATH:=$(BINDIR)/tests/ctests/example_extension/libexample_extension.so
 
+test:
+ifneq ($(TEST),)
+	$(SHOW)set -e; cd $(BINRDIR); CTEST_OUTPUT_ON_FAILURE=1 RLTEST_ARGS="-s -v" ctest $(CTEST_ARGS) -vv -R $(TEST)
+else
+	$(SHOW)set -e; cd $(BINDIR); ctest $(CTEST_ARGS)
+ifeq ($(COORD),oss)
+	$(SHOW)$(FLOW_TESTS_ARGS) FORCE='' $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
+endif
+endif
+
 pytest:
-	@TEST=$(TEST) $(FLOW_TESTS_ARGS) FORCE='' $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
+	$(SHOW)TEST=$(TEST) $(FLOW_TESTS_ARGS) FORCE='' $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
 
 ifeq ($(GDB),1)
 GDB_CMD=gdb -ex r --args
@@ -409,13 +428,13 @@ GDB_CMD=
 endif
 
 c_tests:
-	find $(abspath $(BINROOT)/tests/ctests) -name "test_*" -type f -executable -exec ${GDB_CMD} {} \;
+	$(SHOW)find $(abspath $(BINROOT)/tests/ctests) -name "test_*" -type f -executable -exec ${GDB_CMD} {} \;
 
 cpp_tests:
 ifeq ($(TEST),)
-	find $(abspath $(BINROOT)/tests/cpptests) -name "test_*" -type f -executable -exec ${GDB_CMD} {} \;
+	$(SHOW)find $(abspath $(BINROOT)/tests/cpptests) -name "test_*" -type f -executable -exec ${GDB_CMD} {} \;
 else
-	set -e ;\
+	$(SHOW)set -e ;\
 	$(GDB_CMD) $(abspath $(BINROOT)/tests/cpptests/$(TEST)) --gtest_filter=$(TEST)
 endif
 
@@ -446,7 +465,7 @@ callgrind: $(TARGET)
 RAMP_VARIANT=$(subst release,,$(FLAVOR))$(_VARIANT.string)
 
 RAMP.release:=$(shell JUST_PRINT=1 RAMP=1 DEPS=0 RELEASE=1 SNAPSHOT=0 VARIANT=$(RAMP_VARIANT) PACKAGE_NAME=$(PACKAGE_NAME) $(ROOT)/sbin/pack.sh)
-RAMP.snapshot:=$(shell JUST_PRINT=1 RAMP=1 DEPS=0 RELEASE=0 SNAPSHOT=1 VARIANT=$(RAMP_VARIANT) PACKAGE_NAME=$(PACKAGE_NAME) $(ROOT)/sbin/pack.sh)
+# RAMP.snapshot:=$(shell JUST_PRINT=1 RAMP=1 DEPS=0 RELEASE=0 SNAPSHOT=1 VARIANT=$(RAMP_VARIANT) PACKAGE_NAME=$(PACKAGE_NAME) $(ROOT)/sbin/pack.sh)
 
 PACK_ARGS=\
 	VARIANT=$(RAMP_VARIANT) \
@@ -489,11 +508,13 @@ benchmark:
 coverage:
 	$(SHOW)$(MAKE) COV=1
 	$(SHOW)$(MAKE) COORD=oss COV=1
-	$(COVERAGE_RESET)
+	$(SHOW)$(COVERAGE_RESET)
 	$(SHOW)$(MAKE) test COV=1
 	$(SHOW)$(MAKE) test COORD=oss COV=1
-	$(COVERAGE_COLLECT_REPORT)
-#	bash <(curl -s https://raw.githubusercontent.com/codecov/codecov-bash/master/codecov) -f bin/linux-x64-debug-cov/cov.info
+	$(SHOW)$(COVERAGE_COLLECT_REPORT)
+
+upload-cov:
+	$(SHOW)bash <(curl -s https://raw.githubusercontent.com/codecov/codecov-bash/master/codecov) -f bin/linux-x64-debug-cov/cov.info
 
 #----------------------------------------------------------------------------------------------
 

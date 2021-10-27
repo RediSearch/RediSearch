@@ -93,9 +93,9 @@ if [[ -n $SAN ]]; then
 	export SANITIZER="$SAN"
 	export SHORT_READ_BYTES_DELTA=512
 	
-	rejson_path=$ROOT/deps/RedisJSON/target/x86_64-unknown-linux-gnu/debug/rejson.so
-	if [[ -z $REJSON_PATH && -f $rejson_path ]]; then
-		export REJSON_PATH=$rejson_path
+	rejson_pathfile=$ROOT/deps/RedisJSON/target.$SAN/REJSON_PATH
+	if [[ -z $REJSON_PATH && -f $rejson_pathfile ]]; then
+		export REJSON_PATH=`cat $rejson_pathfile`
 	fi
 
 	if [[ $SAN == addr || $SAN == address ]]; then
@@ -160,11 +160,11 @@ fi
 REJSON_BRANCH=${REJSON_BRANCH:-master}
 
 if [[ -n $REJSON && $REJSON != 0 ]]; then
-	platform=`$READIES/bin/platform -t`
 	if [[ -n $REJSON_PATH ]]; then
 		REJSON_ARGS="--module $REJSON_PATH"
 		REJSON_MODULE="$REJSON_PATH"
 	else
+		platform=`$READIES/bin/platform -t`
 		REJSON_MODULE="$ROOT/bin/$platform/RedisJSON/rejson.so"
 		if [[ ! -f $REJSON_MODULE || $REJSON == get ]]; then
 			FORCE_GET=
@@ -264,15 +264,24 @@ if [[ -z $COORD ]]; then
 	{ (run_tests "RediSearch tests"); (( E |= $? )); } || true
 
 elif [[ $COORD == oss ]]; then
-	OSS_CLUSTER_ARGS="--env oss-cluster --env-reuse --clear-logs --shards-count 3"
+	oss_cluster_args="--env oss-cluster --env-reuse --clear-logs --shards-count 3"
 
-	{ (REJSON=1 MODARGS+=" PARTITIONS AUTO" RLTEST_ARGS+=" ${OSS_CLUSTER_ARGS}" \
+	{ (MODARGS+=" PARTITIONS AUTO" RLTEST_ARGS+=" ${oss_cluster_args}" \
 	   run_tests "OSS cluster tests"); (( E |= $? )); } || true
-	{ (REJSON=1 MODARGS+=" PARTITIONS AUTO; OSS_GLOBAL_PASSWORD password;" \
-	   RLTEST_ARGS+=" ${OSS_CLUSTER_ARGS} --oss_password password" \
-	   run_tests "OSS cluster tests with password:"); (( E |= $? )); } || true
-	{ (REJSON=1 MODARGS+=" PARTITIONS AUTO SAFEMODE" RLTEST_ARGS+=" ${OSS_CLUSTER_ARGS}" \
+	{ (MODARGS+=" PARTITIONS AUTO; OSS_GLOBAL_PASSWORD password;" \
+	   RLTEST_ARGS+=" ${oss_cluster_args} --oss_password password" \
+	   run_tests "OSS cluster tests with password"); (( E |= $? )); } || true
+	{ (MODARGS+=" PARTITIONS AUTO SAFEMODE" RLTEST_ARGS+=" ${oss_cluster_args}" \
 	   run_tests "OSS cluster tests (safe mode)"); (( E |= $? )); } || true
+
+	tls_args="--tls \
+		--tls-cert-file $ROOT/bin/tls/redis.crt \
+		--tls-key-file $ROOT/bin/tls/redis.key \
+		--tls-ca-cert-file $ROOT/bin/tls/ca.crt"
+
+	$ROOT/sbin/gen-test-certs.sh
+	{ (RLTEST_ARGS+=" ${oss_cluster_args} ${tls_args}" \
+	   run_tests "OSS cluster tests TLS"); (( E |= $? )); } || true
 
 elif [[ $COORD == rlec ]]; then
 	{ (RLTEST_ARGS+=" --env existing-env --existing-env-addr $DOCKER_HOST:$RLEC_PORT" run_tests "tests on RLEC"); (( E |= $? )); } || true
