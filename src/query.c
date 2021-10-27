@@ -458,7 +458,8 @@ static IndexIterator *Query_EvalPhraseNode(QueryEvalCtx *q, QueryNode *qn) {
 
   if (node->exact) {
     ret = NewIntersecIterator(iters, QueryNode_NumChildren(qn), q->docTable,
-                              EFFECTIVE_FIELDMASK(q, qn), 0, 1, qn->opts.weight);
+                              EFFECTIVE_FIELDMASK(q, qn), 0, 1, qn->opts.weight,
+                              !(q->opts->flags & Search_NoScorer));
   } else {
     // Let the query node override the slop/order parameters
     int slop = qn->opts.maxSlop;
@@ -475,7 +476,8 @@ static IndexIterator *Query_EvalPhraseNode(QueryEvalCtx *q, QueryNode *qn) {
     }
 
     ret = NewIntersecIterator(iters, QueryNode_NumChildren(qn), q->docTable,
-                              EFFECTIVE_FIELDMASK(q, qn), slop, inOrder, qn->opts.weight);
+                              EFFECTIVE_FIELDMASK(q, qn), slop, inOrder, qn->opts.weight,
+                              !(q->opts->flags & Search_NoScorer));
   }
   return ret;
 }

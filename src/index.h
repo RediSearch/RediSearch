@@ -45,7 +45,8 @@ IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *t, int q
  * maxSlop is set and inOrder is 1, we assert that the terms are in
  * order. I.e anexact match has maxSlop of 0 and inOrder 1.  */
 IndexIterator *NewIntersecIterator(IndexIterator **its, size_t num, DocTable *t,
-                                   t_fieldMask fieldMask, int maxSlop, int inOrder, double weight);
+                                   t_fieldMask fieldMask, int maxSlop, int inOrder,
+                                   double weight, int aggregateResults);
 
 /* Create a NOT iterator by wrapping another index iterator */
 IndexIterator *NewNotIterator(IndexIterator *it, t_docId maxDocId, double weight);

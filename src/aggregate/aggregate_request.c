@@ -159,6 +159,7 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
     if ((parseSortby(arng, ac, status, req->reqflags & QEXEC_F_IS_SEARCH)) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
+    req->reqflags |= QEXEC_F_SORTBY;
   } else if (AC_AdvanceIfMatch(ac, "TIMEOUT")) {	
     if (AC_NumRemaining(ac) < 1) {	
       QueryError_SetError(status, QUERY_EPARSEARGS, "Need argument for TIMEOUT");	
@@ -381,6 +382,13 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
   if ((req->reqflags & QEXEC_F_SEND_SCOREEXPLAIN) && !(req->reqflags & QEXEC_F_SEND_SCORES)) {
     QERR_MKBADARGS_FMT(status, "EXPLAINSCORE must be accompanied with WITHSCORES");
     return REDISMODULE_ERR;
+  }
+
+
+  // Move to end
+  // fix for offsets and slop?
+  if (req->reqflags & QEXEC_F_SORTBY && !(req->reqflags & QEXEC_F_SEND_SCORES)) {
+    searchOpts->flags |= Search_NoScorer;
   }
 
   searchOpts->inkeys = (const char **)inKeys.objs;

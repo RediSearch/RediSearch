@@ -619,6 +619,7 @@ typedef struct {
   size_t len;
   int maxSlop;
   int inOrder;
+  int aggregateResults;
   // the last read docId from any child
   t_docId lastDocId;
   // the last id that was found on all children
@@ -761,7 +762,8 @@ static void II_SortChildren(IntersectIterator *ctx) {
 }
 
 IndexIterator *NewIntersecIterator(IndexIterator **its_, size_t num, DocTable *dt,
-                                   t_fieldMask fieldMask, int maxSlop, int inOrder, double weight) {
+                                   t_fieldMask fieldMask, int maxSlop, int inOrder,
+                                   double weight, int aggregateResults) {
   // printf("Creating new intersection iterator with fieldMask=%llx\n", fieldMask);
   IntersectIterator *ctx = rm_calloc(1, sizeof(*ctx));
   ctx->lastDocId = 0;
@@ -774,7 +776,7 @@ IndexIterator *NewIntersecIterator(IndexIterator **its_, size_t num, DocTable *d
   ctx->docIds = rm_calloc(num, sizeof(t_docId));
   ctx->docTable = dt;
   ctx->nexpected = UINT32_MAX;
-
+  ctx->aggregateResults = aggregateResults;
   ctx->base.isValid = 1;
   ctx->base.current = NewIntersectResult(num, weight);
   ctx->its = its_;
@@ -810,7 +812,9 @@ static int II_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
     return II_ReadSorted(ctx, hit);
   }
   IntersectIterator *ic = ctx;
-  AggregateResult_Reset(ic->base.current);
+  if (ic->aggregateResults) {
+    AggregateResult_Reset(ic->base.current);
+  }
   int nfound = 0;
 
   int rc = INDEXREAD_EOF;
@@ -837,7 +841,9 @@ static int II_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
       return rc;
     } else if (rc == INDEXREAD_OK) {
       // YAY! found!
-      AggregateResult_AddChild(ic->base.current, res);
+      if (ic->aggregateResults) {
+        AggregateResult_AddChild(ic->base.current, res);
+      }
       ic->lastDocId = docId;
 
       ++nfound;
@@ -958,8 +964,9 @@ static int II_ReadSorted(void *ctx, RSIndexResult **hit) {
 
   do {
     nh = 0;
-    AggregateResult_Reset(ic->base.current);
-
+    if (ic->aggregateResults) {
+      AggregateResult_Reset(ic->base.current);
+    }
     for (i = 0; i < ic->num; i++) {
       IndexIterator *it = ic->its[i];
 
@@ -988,7 +995,9 @@ static int II_ReadSorted(void *ctx, RSIndexResult **hit) {
       }
       if (rc == INDEXREAD_OK) {
         ++nh;
-        AggregateResult_AddChild(ic->base.current, h);
+        if (ic->aggregateResults) {
+          AggregateResult_AddChild(ic->base.current, h);
+        }
       } else {
         ic->lastDocId++;
       }
