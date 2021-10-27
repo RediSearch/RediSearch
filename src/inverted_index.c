@@ -703,14 +703,15 @@ DECODER(readFreqsOffsets) {
 }
 
 SKIPPER(seekDocIdsOnly) {
-  uint32_t delta = expid - IR_CURRENT_BLOCK(ir).firstId;
+  uint64_t delta = expid - IR_CURRENT_BLOCK(ir).firstId;
 
   size_t firstPos = br->pos;
-  size_t lastPos = br->buf->cap - 4;
+  size_t lastPos = br->buf->offset - 4;
   
   // let's try to read first
+  // or if expid is smaller than the firstId of the block
   Buffer_Read(br, &res->docId, 4);
-  if (res->docId >= delta) {
+  if (res->docId >= delta || delta > UINT32_MAX) {
     goto final;
   }
 
