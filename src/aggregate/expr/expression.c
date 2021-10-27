@@ -99,6 +99,10 @@ cleanup:
 
 static int getPredicateBoolean(ExprEval *eval, const RSValue *l, const RSValue *r, RSCondition op) {
   QueryError *qerr = eval ? eval->err : NULL;
+  
+  l = RSValue_Dereference(l);
+  r = RSValue_Dereference(r);
+
   switch (op) {
     case RSCondition_Eq:
       return RSValue_Equal(l, r, qerr);
