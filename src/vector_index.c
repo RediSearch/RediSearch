@@ -78,7 +78,7 @@ IndexIterator *NewVectorIterator(RedisSearchCtx *ctx, VectorFilter *vf) {
       }
       
       VecSimQueryParams qParams = {.hnswRuntimeParams.efRuntime = vf->efRuntime};
-      vf->results = VecSimIndex_TopKQueryByID(vecsim, vector, vf->value, &qParams);
+      vf->results = VecSimIndex_TopKQuery(vecsim, vector, vf->value, &qParams, BY_ID);
       vf->resultsLen = VecSimQueryResult_Len(vf->results);
       if (vf->isBase64) {
         rm_free(vector);
