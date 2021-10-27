@@ -18,12 +18,18 @@ SRCDIR=$(ROOT)/deps/libuv
 
 TARGET=$(BINDIR)/.libs/libevent.a
 
-export CFLAGS += -fPIC
+# export CFLAGS += -fPIC
 
 #----------------------------------------------------------------------------------------------
 
 include $(MK)/defs
 include $(MK)/rules
+
+CONFIGURE_FLAGS += \
+	--with-pic \
+	--disable-shared \
+	--enable-static \
+	--disable-silent-rules
 
 #----------------------------------------------------------------------------------------------
 

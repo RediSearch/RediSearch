@@ -164,7 +164,7 @@ endif
 export LIBUV_BINDIR=$(realpath bin/$(FULL_VARIANT.debug)/libuv)
 include build/libuv/Makefile.defs
 
-HIREDIS_BINDIR=bin/$(FULL_VARIANT.debug)/hiredis
+HIREDIS_BINDIR=bin/$(FULL_VARIANT.release)/hiredis
 include build/hiredis/Makefile.defs
 
 endif # COORD
@@ -341,7 +341,7 @@ hiredis: $(HIREDIS)
 
 $(HIREDIS):
 	@echo Building hiredis...
-	$(SHOW)$(MAKE) --no-print-directory -C build/hiredis DEBUG=1
+	$(SHOW)$(MAKE) --no-print-directory -C build/hiredis DEBUG=
 
 #----------------------------------------------------------------------------------------------
 
@@ -376,17 +376,19 @@ ifeq ($(TESTDEBUG),1)
 override CTEST_ARGS += --debug
 endif
 
-ifneq ($(SAN),)
 CTEST_ARGS += --output-on-failure
+
+
+ifneq ($(SAN),)
 export ASAN_OPTIONS=detect_odr_violation=0
 endif
 
 ifeq ($(COV),1)
-CTEST_ARGS += --output-on-failure
+# CTEST_ARGS += --output-on-failure
 endif
 
 ifeq ($(VG),1)
-CTEST_ARGS += --output-on-failure
+# CTEST_ARGS += --output-on-failure
 endif
 
 ifneq ($(SLOW),1)
