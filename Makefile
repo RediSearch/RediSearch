@@ -161,10 +161,10 @@ else
 $(error COORD should be either oss or rlec)
 endif
 
-export LIBUV_BINDIR=$(realpath bin/$(FULL_VARIANT.release)/libuv)
+export LIBUV_BINDIR=$(realpath bin/$(FULL_VARIANT.debug)/libuv)
 include build/libuv/Makefile.defs
 
-HIREDIS_BINDIR=bin/$(FULL_VARIANT.release)/hiredis
+HIREDIS_BINDIR=bin/$(FULL_VARIANT.debug)/hiredis
 include build/hiredis/Makefile.defs
 
 endif # COORD
@@ -335,13 +335,13 @@ libuv: $(LIBUV)
 
 $(LIBUV):
 	@echo Building libuv...
-	$(SHOW)$(MAKE) --no-print-directory -C build/libuv DEBUG=
+	$(SHOW)$(MAKE) --no-print-directory -C build/libuv DEBUG=1
 
 hiredis: $(HIREDIS)
 
 $(HIREDIS):
 	@echo Building hiredis...
-	$(SHOW)$(MAKE) --no-print-directory -C build/hiredis DEBUG=
+	$(SHOW)$(MAKE) --no-print-directory -C build/hiredis DEBUG=1
 
 #----------------------------------------------------------------------------------------------
 
@@ -390,13 +390,14 @@ CTEST_ARGS += --output-on-failure
 endif
 
 ifneq ($(SLOW),1)
-CTEST_PARALLEL_MAX:=$(shell $(ROOT)/deps/readies/bin/nproc)
-ifneq ($(SAN),)
-CTEST_PARALLEL=
+ifeq ($(SAN),)
+CTEST_PARALLEL=8
 else ifeq ($(COV),1)
-CTEST_PARALLEL=$(CTEST_PARALLEL_MAX)
+CTEST_PARALLEL:=$(shell $(ROOT)/deps/readies/bin/nproc)
+else
+CTEST_PARALLEL=
 endif
-endif
+endif # SLOW
 
 ifneq ($(CTEST_PARALLEL),)
 override CTEST_ARGS += -j$(CTEST_PARALLEL)
