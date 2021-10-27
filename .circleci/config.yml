@@ -494,15 +494,17 @@ workflows:
   default-flow:
     jobs:
       - build:
-          <<: *on-any-branch
+          <<: *not-on-integ-branch
 #      - build-coordinator:
 #          <<: *on-any-branch
       - build-platforms:
-          <<: *on-integ-and-version-tags
+          #@@ <<: *on-integ-and-version-tags
+          <<: *not-on-integ-branch
           context: common
           matrix:
             parameters:
-              platform: [focal, bionic, xenial, centos7, centos8]
+              #@@ platform: [focal, bionic, xenial, centos7, centos8]
+              platform: [focal]
       - build-macos:
           <<: *on-version-tags
       - coverage:

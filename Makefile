@@ -392,7 +392,7 @@ ifeq ($(VG),1)
 endif
 
 ifneq ($(SLOW),1)
-ifeq ($(SAN),)
+ifneq ($(SAN),)
 CTEST_PARALLEL=8
 else ifeq ($(COV),1)
 CTEST_PARALLEL:=$(shell $(ROOT)/deps/readies/bin/nproc)
@@ -515,7 +515,8 @@ benchmark:
 
 COV_EXCLUDE += \
     'deps/*' \
-	'tests/*'
+	'tests/*' \
+	'coord/tests/*'
 
 coverage:
 	$(SHOW)$(MAKE) COV=1
