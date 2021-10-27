@@ -1,4 +1,8 @@
 
+ifneq ($(filter coverage,$(MAKECMDGOALS)),)
+COV=1
+endif
+
 ifneq ($(VG),)
 VALGRIND=$(VG)
 endif
@@ -374,6 +378,7 @@ endif
 
 ifneq ($(SAN),)
 CTEST_ARGS += --output-on-failure
+export ASAN_OPTIONS=detect_odr_violation=0
 endif
 
 ifeq ($(COV),1)
@@ -504,6 +509,10 @@ benchmark:
 	redisbench-admin $(BENCHMARK_ARGS)
 
 #----------------------------------------------------------------------------------------------
+
+COV_EXCLUDE += \
+    'deps/*' \
+	'tests/*'
 
 coverage:
 	$(SHOW)$(MAKE) COV=1

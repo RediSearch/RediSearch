@@ -105,7 +105,8 @@ if [[ -n $SAN ]]; then
 			$READIES/bin/getredis --force -v 6.2 --own-openssl --no-run --suffix asan --clang-asan --clang-san-blacklist /build/redis.blacklist
 		fi
 
-		export ASAN_OPTIONS=detect_odr_violation=0:detect_leaks=0
+		export ASAN_OPTIONS=detect_odr_violation=0
+		# :detect_leaks=0
 
 	elif [[ $SAN == memory ]]; then
 		REDIS_SERVER=${REDIS_SERVER:-redis-server-msan-6.2}

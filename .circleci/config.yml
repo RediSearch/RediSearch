@@ -306,6 +306,7 @@ jobs:
           name: Build & Test
           shell: /bin/bash -l -eo pipefail
           command: |
+            BRANCH=master ./sbin/get-redisjson
             make coverage SHOW=1
             make upload-cov SHOW=1
           no_output_timeout: 30m
@@ -326,7 +327,8 @@ jobs:
           shell: /bin/bash -l -eo pipefail
           command: |
             SAN=<<parameters.san-type>> ./sbin/build-redisjson
-            make SAN=<<parameters.san-type>> build test
+            make SAN=<<parameters.san-type>> build test SHOW=1
+            make SAN=<<parameters.san-type>> COORD=oss build test SHOW=1
           no_output_timeout: 30m
       - save-tests-logs
 
@@ -339,7 +341,7 @@ jobs:
       - run:
           name: Build & Test
           shell: /bin/bash -l -eo pipefail
-          command: make VG=1 build test
+          command: make VG=1 build test SHOW=1
           no_output_timeout: 30m
       - save-tests-logs
 
