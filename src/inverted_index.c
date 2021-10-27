@@ -17,7 +17,8 @@
 uint64_t TotalIIBlocks = 0;
 
 // The number of entries in each index block. A new block will be created after every N entries
-#define INDEX_BLOCK_SIZE 1000
+#define INDEX_BLOCK_SIZE 100
+#define INDEX_BLOCK_SIZE_DOCID_ONLY 1000
 
 // Initial capacity (in bytes) of a new block
 #define INDEX_BLOCK_INITIAL_CAP 6
@@ -424,8 +425,13 @@ size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
   t_docId delta = 0;
   IndexBlock *blk = &INDEX_LAST_BLOCK(idx);
 
+  // use proper block size. Index_DocIdsOnly == 0x00
+  uint16_t blockSize = (idx->flags & INDEX_STORAGE_MASK) ? 
+          INDEX_BLOCK_SIZE :
+          INDEX_BLOCK_SIZE_DOCID_ONLY;
+
   // see if we need to grow the current block
-  if (blk->numDocs >= INDEX_BLOCK_SIZE) {
+  if (blk->numDocs >= blockSize) {
     blk = InvertedIndex_AddBlock(idx, docId);
   } else if (blk->numDocs == 0) {
     blk->firstId = blk->lastId = docId;
@@ -707,7 +713,7 @@ SKIPPER(seekDocIdsOnly) {
 
   size_t firstPos = br->pos;
   size_t lastPos = br->buf->offset - 4;
-  
+
   // let's try to read first
   // or if expid is smaller than the firstId of the block
   Buffer_Read(br, &res->docId, 4);
