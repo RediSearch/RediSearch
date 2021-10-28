@@ -379,6 +379,12 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   int rc = AREQ_Compile(r, argv + 2 + profileArgs, argc - 2 - profileArgs, &status);
   if (rc != REDISMODULE_OK) goto err;
 
+  // Save time when query was initiated
+  if (!r->reqTimeout) {
+    r->reqTimeout = RSGlobalConfig.queryTimeoutMS;
+  }
+  updateTimeout(&r->timeoutTime, r->reqTimeout);
+
   rc = AGGPLN_Distribute(&r->ap, &status);
   if (rc != REDISMODULE_OK) goto err;
 

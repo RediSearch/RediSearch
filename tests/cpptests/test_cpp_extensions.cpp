@@ -9,9 +9,6 @@
 
 #include <algorithm>
 
-#define __STRINGIFY(x) #x
-#define STRINGIFY(x) __STRINGIFY(x)
-
 int myRegisterFunc(RSExtensionCtx *ctx);
 
 class ExtTest : public ::testing::Test {

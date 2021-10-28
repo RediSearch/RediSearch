@@ -94,6 +94,8 @@ make callgrind     # produce a call graph
   REDIS_ARGS="args"
 
 make pack          # create installation packages
+  COORD=rlec         # pack RLEC coordinator ('redisearch' package)
+  LITE=1             # pack RediSearchLight ('redisearch-light' package)
 make deploy        # copy packages to S3
 make release       # release a version
 

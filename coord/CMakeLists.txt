@@ -67,7 +67,7 @@ add_subdirectory(src/rmr)
 add_subdirectory(src)
 
 set(FINAL_OBJECTS
-    ${COORDINATOR_SRC}
+    # ${COORDINATOR_SRC}
     $<TARGET_OBJECTS:coordinator-core>
     $<TARGET_OBJECTS:rmutil>
     $<TARGET_OBJECTS:rmr>)

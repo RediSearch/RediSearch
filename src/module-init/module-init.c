@@ -21,12 +21,9 @@
 #include "rwlock.h"
 #include "json.h"
 
-#define __STRINGIFY(x) #x
-#define STRINGIFY(x) __STRINGIFY(x)
-
 #ifndef RS_NO_ONLOAD
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  if (RedisModule_Init(ctx, STRINGIFY(REDISEARCH_MODULE_NAME), REDISEARCH_MODULE_VERSION,
+  if (RedisModule_Init(ctx, REDISEARCH_MODULE_NAME, REDISEARCH_MODULE_VERSION,
                        REDISMODULE_APIVER_1) == REDISMODULE_ERR)
     return REDISMODULE_ERR;
   return RediSearch_InitModuleInternal(ctx, argv, argc);
@@ -113,7 +110,7 @@ static int initAsLibrary(RedisModuleCtx *ctx) {
 
 static inline const char* RS_GetExtraVersion() {
 #ifdef GIT_VERSPEC
-  return STRINGIFY(GIT_VERSPEC);
+  return GIT_VERSPEC;
 #else
   return "";
 #endif

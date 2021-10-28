@@ -122,8 +122,12 @@ int MRConn_SendCommand(MRConn *c, MRCommand *cmd, redisCallbackFn *fn, void *pri
   }
   // printf("Sending to %s:%d\n", c->ep.host, c->ep.port);
   // MRCommand_Print(cmd);
-  return redisAsyncCommandArgv(c->conn, fn, privdata, cmd->num, (const char **)cmd->strs,
-                               cmd->lens);
+  if (!cmd->cmd) {
+    if (redisFormatSdsCommandArgv(&cmd->cmd, cmd->num, (const char **)cmd->strs, cmd->lens) == REDIS_ERR) {
+      return REDIS_ERR;
+    }
+  }
+  return redisAsyncFormattedCommand(c->conn, fn, privdata, cmd->cmd, sdslen(cmd->cmd));
 }
 
 // replace an existing coonnection pool with a new one

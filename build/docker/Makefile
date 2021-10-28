@@ -2,6 +2,8 @@
 ROOT=../..
 include $(ROOT)/deps/readies/mk/main
 
+DOCKERFILE_STEM=$(ROOT)/build/docker/Dockerfile
+
 # OSNICK=bullseye|bionic|xenial|centos7|centos8
 OSNICK ?= bullseye
 

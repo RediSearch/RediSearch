@@ -22,6 +22,7 @@ static InfoFieldSpec toplevelSpecs_g[] = {
     {.name = "inverted_sz_mb", .type = InfoField_DoubleSum},
     {.name = "offset_vectors_sz_mb", .type = InfoField_DoubleSum},
     {.name = "doc_table_size_mb", .type = InfoField_DoubleSum},
+    {.name = "sortable_values_size_mb", .type = InfoField_DoubleSum},
     {.name = "key_table_size_mb", .type = InfoField_DoubleSum},
     {.name = "records_per_doc_avg", .type = InfoField_DoubleAverage},
     {.name = "bytes_per_record_avg", .type = InfoField_DoubleAverage},

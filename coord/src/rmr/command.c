@@ -1,4 +1,5 @@
 
+#include "common.h"
 #include "command.h"
 
 #include "version.h"
@@ -73,7 +74,7 @@ struct mrCommandConf __commandConfig[] = {
     {"FT.CREATE", MRCommand_Read | MRCommand_Coordination, -1, 1, NULL},
     {"FT.RULEADD", MRCommand_Read | MRCommand_Coordination, -1, 1, NULL},
     {"FT.RULESET", MRCommand_Read | MRCommand_Coordination, -1, 1, NULL},
-    {STRINGIFY(REDISEARCH_MODULE_NAME)".CLUSTERINFO", MRCommand_Read | MRCommand_Coordination, -1, -1, NULL},
+    {REDISEARCH_MODULE_NAME".CLUSTERINFO", MRCommand_Read | MRCommand_Coordination, -1, -1, NULL},
     {"FT.INFO", MRCommand_Read | MRCommand_Coordination, -1, 1, NULL},
     {"FT.ADDHASH", MRCommand_Read | MRCommand_Coordination, -1, 2, NULL},
     {"FT.DEL", MRCommand_Read | MRCommand_Coordination, -1, 2, NULL},
@@ -122,6 +123,9 @@ int _getCommandConfId(MRCommand *cmd) {
 }
 
 void MRCommand_Free(MRCommand *cmd) {
+  if (cmd->cmd) {
+    sdsfree(cmd->cmd);
+  }
   for (int i = 0; i < cmd->num; i++) {
     free(cmd->strs[i]);
   }
@@ -160,6 +164,7 @@ static void MRCommand_Init(MRCommand *cmd, size_t len) {
   cmd->lens = malloc(sizeof(*cmd->lens) * len);
   cmd->id = 0;
   cmd->targetSlot = -1;
+  cmd->cmd = NULL;
 }
 
 MRCommand MR_NewCommandArgv(int argc, const char **argv) {

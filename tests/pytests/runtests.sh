@@ -20,9 +20,12 @@ if [[ $1 == --help || $1 == help ]]; then
 		Argument variables:
 		RLTEST_ARGS=args      Extra RLTest args
 		MODARGS=args          RediSearch module arguments
-		COORD=oss|rlec        Test Coordinator
 		TEST=name             Operate in single-test mode
 		ONLY_STABLE=1         Skip unstable tests
+
+		COORD=oss|rlec        Test Coordinator
+		COORD_SHARDS=n        Number of OSS coordinator shards (default: 3)
+		COORD_QUICK=1
 
 		REJSON=0|1|get        Also load RedisJSON module (get: force download from S3)
 		REJSON_BRANCH=branch  Use a snapshot of given branch name
@@ -81,6 +84,8 @@ if [[ -n $TEST ]]; then
 	RLTEST_ARGS+=" -v -s --test $TEST"
 	export RUST_BACKTRACE=1
 fi
+
+COORD_SHARDS=${COORD_SHARDS:-3}
 
 #---------------------------------------------------------------------------------------------- 
 
@@ -265,24 +270,27 @@ if [[ -z $COORD ]]; then
 	{ (run_tests "RediSearch tests"); (( E |= $? )); } || true
 
 elif [[ $COORD == oss ]]; then
-	oss_cluster_args="--env oss-cluster --env-reuse --clear-logs --shards-count 3"
+	oss_cluster_args="--env oss-cluster --env-reuse --clear-logs --shards-count $COORD_SHARDS"
 
 	{ (MODARGS+=" PARTITIONS AUTO" RLTEST_ARGS+=" ${oss_cluster_args}" \
 	   run_tests "OSS cluster tests"); (( E |= $? )); } || true
-	{ (MODARGS+=" PARTITIONS AUTO; OSS_GLOBAL_PASSWORD password;" \
-	   RLTEST_ARGS+=" ${oss_cluster_args} --oss_password password" \
-	   run_tests "OSS cluster tests with password"); (( E |= $? )); } || true
-	{ (MODARGS+=" PARTITIONS AUTO SAFEMODE" RLTEST_ARGS+=" ${oss_cluster_args}" \
-	   run_tests "OSS cluster tests (safe mode)"); (( E |= $? )); } || true
 
-	tls_args="--tls \
-		--tls-cert-file $ROOT/bin/tls/redis.crt \
-		--tls-key-file $ROOT/bin/tls/redis.key \
-		--tls-ca-cert-file $ROOT/bin/tls/ca.crt"
+	if [[ $QUICK != 1 ]]; then
+		{ (MODARGS+=" PARTITIONS AUTO; OSS_GLOBAL_PASSWORD password;" \
+		   RLTEST_ARGS+=" ${oss_cluster_args} --oss_password password" \
+		   run_tests "OSS cluster tests with password"); (( E |= $? )); } || true
+		{ (MODARGS+=" PARTITIONS AUTO SAFEMODE" RLTEST_ARGS+=" ${oss_cluster_args}" \
+		   run_tests "OSS cluster tests (safe mode)"); (( E |= $? )); } || true
 
-	$ROOT/sbin/gen-test-certs.sh
-	{ (RLTEST_ARGS+=" ${oss_cluster_args} ${tls_args}" \
-	   run_tests "OSS cluster tests TLS"); (( E |= $? )); } || true
+		tls_args="--tls \
+			--tls-cert-file $ROOT/bin/tls/redis.crt \
+			--tls-key-file $ROOT/bin/tls/redis.key \
+			--tls-ca-cert-file $ROOT/bin/tls/ca.crt"
+
+		$ROOT/sbin/gen-test-certs.sh
+		{ (RLTEST_ARGS+=" ${oss_cluster_args} ${tls_args}" \
+		   run_tests "OSS cluster tests TLS"); (( E |= $? )); } || true
+	fi # QUICK
 
 elif [[ $COORD == rlec ]]; then
 	{ (RLTEST_ARGS+=" --env existing-env --existing-env-addr $DOCKER_HOST:$RLEC_PORT" run_tests "tests on RLEC"); (( E |= $? )); } || true

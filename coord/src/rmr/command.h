@@ -1,7 +1,7 @@
 
 #pragma once
 
-#include "rmr/common.h"
+#include "hiredis/sds.h"
 #include "redismodule.h"
 
 #include <assert.h>
@@ -20,6 +20,8 @@ typedef struct {
 
   /* if not -1, this value indicate to which slot the command should be sent */
   int targetSlot;
+
+  sds cmd;
 } MRCommand;
 
 /* Free the command and all its strings. Doesn't free the actual commmand struct, as it is usually

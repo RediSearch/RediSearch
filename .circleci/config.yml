@@ -135,10 +135,14 @@ commands:
       - install-prerequisites:
           getredis_params: <<parameters.getredis_params>>
       - run:
-          name: Build
+          name: Build (Search)
           shell: /bin/bash -l -eo pipefail
           command: |
             make build WITH_TESTS=1 <<parameters.build_params>> SHOW=1
+      - run:
+          name: Build (Search Lite)
+          shell: /bin/bash -l -eo pipefail
+          command: |
             make build LITE=1 <<parameters.build_params>> SHOW=1
       - run:
           name: Build (OSS Coordinator)
@@ -155,12 +159,12 @@ commands:
             make pack COORD=rlec SHOW=1
             make pack LITE=1 SHOW=1
       - run:
-          name: Test
+          name: Test (Search)
           shell: /bin/bash -l -eo pipefail
           no_output_timeout: 30m
           command: make test SHOW=1
       - run:
-          name: Test (OSS coordinator)
+          name: Test (OSS Coordinator)
           shell: /bin/bash -l -eo pipefail
           no_output_timeout: 30m
           command: make test COORD=oss SHOW=1
@@ -323,12 +327,18 @@ jobs:
       - checkout-all
       - install-prerequisites
       - run:
-          name: Run & build tests
+          name: Build RedisJSON
           shell: /bin/bash -l -eo pipefail
-          command: |
-            SAN=<<parameters.san-type>> ./sbin/build-redisjson
-            make SAN=<<parameters.san-type>> build test SHOW=1
-            make SAN=<<parameters.san-type>> COORD=oss build test SHOW=1
+          command: SAN=<<parameters.san-type>> ./sbin/build-redisjson
+      - run:
+          name: Build & test (Search)
+          shell: /bin/bash -l -eo pipefail
+          command: make SAN=<<parameters.san-type>> build test SHOW=1
+          no_output_timeout: 30m
+      - run:
+          name: Build & test (OSS Coordinator)
+          shell: /bin/bash -l -eo pipefail
+          command: make SAN=<<parameters.san-type>> COORD=oss build test SHOW=1
           no_output_timeout: 30m
       - save-tests-logs
 
@@ -506,7 +516,8 @@ workflows:
               #@@ platform: [focal, bionic, xenial, centos7, centos8]
               platform: [focal]
       - build-macos:
-          <<: *on-version-tags
+          #@@ <<: *on-version-tags
+          <<: *not-on-integ-branch
       - coverage:
           context: common
           <<: *on-any-branch

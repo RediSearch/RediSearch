@@ -119,6 +119,10 @@ RedisModuleCtx *MRCtx_GetRedisCtx(struct MRCtx *ctx) {
   return ctx->redisCtx;
 }
 
+void MRCtx_SetRedisCtx(struct MRCtx *ctx, void* rctx){
+  ctx->redisCtx = rctx;
+}
+
 MRCommand *MRCtx_GetCmds(struct MRCtx *ctx) {
   return ctx->cmds;
 }
@@ -316,13 +320,15 @@ void MR_requestCompleted() {
 
 /* Fanout map - send the same command to all the shards, sending the collective
  * reply to the reducer callback */
-int MR_Fanout(struct MRCtx *ctx, MRReduceFunc reducer, MRCommand cmd) {
+int MR_Fanout(struct MRCtx *ctx, MRReduceFunc reducer, MRCommand cmd, bool block) {
 
   struct MRRequestCtx *rc = malloc(sizeof(struct MRRequestCtx));
-  ctx->redisCtx = RedisModule_BlockClient(
-      ctx->redisCtx, unblockHandler, timeoutHandler,
-      redisMajorVesion < 5 ? (void (*)(RedisModuleCtx *, void *))freePrivDataCB : freePrivDataCB_V5,
-      timeout_g);
+  if (block) {
+    ctx->redisCtx = RedisModule_BlockClient(
+        ctx->redisCtx, unblockHandler, timeoutHandler,
+        redisMajorVesion < 5 ? (void (*)(RedisModuleCtx *, void *))freePrivDataCB : freePrivDataCB_V5,
+        timeout_g);
+  }
   rc->ctx = ctx;
   rc->f = reducer;
   rc->cmds = calloc(1, sizeof(MRCommand));
