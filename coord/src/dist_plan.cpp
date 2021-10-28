@@ -396,12 +396,6 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
           for (size_t ii = 0; ii < array_len(astp->sortKeys); ++ii) {
             newStp->sortKeys = array_append(newStp->sortKeys, astp->sortKeys[ii]);
           }
-
-          if (array_len(astp->sortKeys)) {
-            cont = 0;
-            current = NULL;
-            break;
-          }
         }
         current = PLN_NEXT_STEP(&astp->base);
         break;

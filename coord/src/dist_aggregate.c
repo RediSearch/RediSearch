@@ -192,8 +192,11 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
   MRReply *rep = MRReply_ArrayElement(nc->current.rows, nc->curIdx++);
   for (size_t i = 0; i < MRReply_Length(rep); i += 2) {
     const char *c = MRReply_String(MRReply_ArrayElement(rep, i), NULL);
-    MRReply *val = MRReply_ArrayElement(rep, i + 1);
-    RSValue *v = MRReply_ToValue(val);
+    RSValue *v = RS_NullVal();
+    if (i + 1 < MRReply_Length(rep)) {
+      MRReply *val = MRReply_ArrayElement(rep, i + 1);
+      v = MRReply_ToValue(val);
+    }
     RLookup_WriteOwnKeyByName(nc->lookup, c, &r->rowdata, v);
   }
   return RS_RESULT_OK;

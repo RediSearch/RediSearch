@@ -58,6 +58,7 @@ class RediSearchSetup(paella.Setup):
     def macos(self):
         self.install_gnu_utils()
         self.install("pkg-config")
+        self.install("libtool m4 automake")
 
         # for now depending on redis from brew, it's version6 with TLS.
         self.run("{PYTHON} {READIES}/bin/getredis -v 6 --force".format(PYTHON=self.python, READIES=READIES))

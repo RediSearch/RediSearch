@@ -24,8 +24,8 @@ if [[ $1 == --help || $1 == help ]]; then
 		ONLY_STABLE=1         Skip unstable tests
 
 		COORD=oss|rlec        Test Coordinator
-		COORD_SHARDS=n        Number of OSS coordinator shards (default: 3)
-		COORD_QUICK=1
+		SHARDS=n              Number of OSS coordinator shards (default: 3)
+		QUICK=1               Perform only one test variant
 
 		REJSON=0|1|get        Also load RedisJSON module (get: force download from S3)
 		REJSON_BRANCH=branch  Use a snapshot of given branch name
@@ -85,7 +85,7 @@ if [[ -n $TEST ]]; then
 	export RUST_BACKTRACE=1
 fi
 
-COORD_SHARDS=${COORD_SHARDS:-3}
+SHARDS=${SHARDS:-3}
 
 #---------------------------------------------------------------------------------------------- 
 
@@ -270,7 +270,7 @@ if [[ -z $COORD ]]; then
 	{ (run_tests "RediSearch tests"); (( E |= $? )); } || true
 
 elif [[ $COORD == oss ]]; then
-	oss_cluster_args="--env oss-cluster --env-reuse --clear-logs --shards-count $COORD_SHARDS"
+	oss_cluster_args="--env oss-cluster --env-reuse --clear-logs --shards-count $SHARDS"
 
 	{ (MODARGS+=" PARTITIONS AUTO" RLTEST_ARGS+=" ${oss_cluster_args}" \
 	   run_tests "OSS cluster tests"); (( E |= $? )); } || true

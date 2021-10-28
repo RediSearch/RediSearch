@@ -1,6 +1,6 @@
 # BUILD redisfab/redisearch:${VERSION}-${ARCH}-${OSNICK}
 
-ARG REDIS_VER=6.2.5
+ARG REDIS_VER=6.2.6
 
 # OSNICK=bullseye|centos7|centos8|xenial|bionic
 ARG OSNICK=bullseye
@@ -39,7 +39,7 @@ ADD . /build
 
 RUN ./deps/readies/bin/getupdates
 RUN ./deps/readies/bin/getpy2
-RUN ./system-setup.py
+RUN ./sbin/system-setup.py
 
 RUN /usr/local/bin/redis-server --version
 RUN make fetch SHOW=1
