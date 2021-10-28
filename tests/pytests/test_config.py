@@ -183,4 +183,19 @@ def testInitConfig(env):
     test_arg_str('RAW_DOCID_ENCODING', 'false', 'false')
     test_arg_str('RAW_DOCID_ENCODING', 'true', 'true')
 
-    
+def testImmutable(env):
+    env.skipOnCluster()
+
+    env.expect('ft.config', 'set', 'EXTLOAD').error().contains('Not modifiable at runtime')
+    env.expect('ft.config', 'set', 'SAFEMODE').error().contains('Not modifiable at runtime')
+    env.expect('ft.config', 'set', 'CONCURRENT_WRITE_MODE').error().contains('Not modifiable at runtime')
+    env.expect('ft.config', 'set', 'NOGC').error().contains('Not modifiable at runtime')
+    env.expect('ft.config', 'set', 'MAXDOCTABLESIZE').error().contains('Not modifiable at runtime')
+    env.expect('ft.config', 'set', 'INDEX_THREADS').error().contains('Not modifiable at runtime')
+    env.expect('ft.config', 'set', 'SEARCH_THREADS').error().contains('Not modifiable at runtime')
+    env.expect('ft.config', 'set', 'FRISOINI').error().contains('Not modifiable at runtime')
+    env.expect('ft.config', 'set', 'GC_POLICY').error().contains('Not modifiable at runtime')
+    env.expect('ft.config', 'set', 'NO_MEM_POOLS').error().contains('Not modifiable at runtime')
+    env.expect('ft.config', 'set', 'PARTIAL_INDEXED_DOCS').error().contains('Not modifiable at runtime')
+    env.expect('ft.config', 'set', 'UPGRADE_INDEX').error().contains('Not modifiable at runtime')
+    env.expect('ft.config', 'set', 'RAW_DOCID_ENCODING').error().contains('Not modifiable at runtime')

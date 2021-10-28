@@ -664,7 +664,8 @@ RSConfigOptions RSGlobalConfigOptions = {
         {.name = "RAW_DOCID_ENCODING",
          .helpText = "Disable compression for DocID inverted index. Boost CPU performance.",
          .setValue = setRawDocIDEncoding,
-         .getValue = getRawDocIDEncoding},
+         .getValue = getRawDocIDEncoding,
+         .flags = RSCONFIGVAR_F_IMMUTABLE},
         {.name = "_NUMERIC_RANGES_PARENTS",
          .helpText = "Keep numeric ranges in numeric tree parent nodes of leafs " 
                      "for `x` generations.",
