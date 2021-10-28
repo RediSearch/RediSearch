@@ -183,7 +183,7 @@ sds RSConfig_GetInfoString(const RSConfig *config);
     .forkGcRetryInterval = 5, .forkGcCleanThreshold = 100, .noMemPool = 0, .filterCommands = 0,   \
     .maxSearchResults = SEARCH_REQUEST_RESULTS_MAX, .maxAggregateResults = -1,                    \
     .minUnionIterHeap = 20, .numericCompress = false, .numericTreeMaxDepthRange = 0,              \
-    .printProfileClock = 1, .invertedIndexRawDocidEncoding = 0,                                   \
+    .printProfileClock = 1, .invertedIndexRawDocidEncoding = false,                                   \
   }
 
 #define REDIS_ARRAY_LIMIT 7
