@@ -187,7 +187,7 @@ def testCopy(env):
     env.expect('FT.SEARCH', 'things', 'foo').equal([1L, '1', ['name', 'foo']])
 
     # copy key to a non existing key
-    conn.expect('COPY', '1', '2').equal(1L)
+    env.expect('COPY', '1', '2').equal(1L)
     env.expect('FT.SEARCH', 'things', 'foo').equal([2L, '1', ['name', 'foo'], '2', ['name', 'foo']])
 
     conn.execute_command('hset', '2', 'name', 'bar')
