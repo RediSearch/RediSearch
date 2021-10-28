@@ -11,5 +11,7 @@
 # .git
 /bin/
 /site/
-/build*/
-/artifacts/
+/deps/RedisJSON/
+/deps/libuv.*/
+/tests/pytests/logs/
+/1/

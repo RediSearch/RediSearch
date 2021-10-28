@@ -891,8 +891,6 @@ static ResultProcessor *getGroupRP(AREQ *req, PLN_GroupStep *gstp, ResultProcess
   return pushRP(req, groupRP, rpUpstream);
 }
 
-#define DEFAULT_LIMIT 10
-
 static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep *stp,
                                      QueryError *status, ResultProcessor *up) {
   ResultProcessor *rp = NULL;
@@ -931,13 +929,13 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
       }
     }
 
-    rp = RPSorter_NewByFields(limit, sortkeys, nkeys, astp->sortAscMap, &req->timeoutTime);
+    rp = RPSorter_NewByFields(limit, sortkeys, nkeys, astp->sortAscMap);
     up = pushRP(req, rp, up);
   }
 
   // No sort? then it must be sort by score, which is the default.
   if (rp == NULL && (req->reqflags & QEXEC_F_IS_SEARCH)) {
-    rp = RPSorter_NewByScore(limit, &req->timeoutTime);
+    rp = RPSorter_NewByScore(limit);
     up = pushRP(req, rp, up);
   }
 

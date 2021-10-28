@@ -22,7 +22,10 @@ class RediSearchSetup(paella.Setup):
         self.pip_install("setuptools --upgrade")
 
         self.run("%s/bin/enable-utf8" % READIES)
-        self.install("git gawk lcov jq openssl rsync unzip patch")
+        self.install("git gawk lcov jq openssl rsync unzip")
+
+    def linux_first(self):
+        self.install("patch")
 
     def debian_compat(self):
         self.install("libatomic1")

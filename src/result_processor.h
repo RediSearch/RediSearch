@@ -201,9 +201,9 @@ ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
 void SortAscMap_Dump(uint64_t v, size_t n);
 
 ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys, size_t nkeys,
-                                      uint64_t ascendingMap, struct timespec *timeout);
+                                      uint64_t ascendingMap);
 
-ResultProcessor *RPSorter_NewByScore(size_t maxresults, struct timespec *timeout);
+ResultProcessor *RPSorter_NewByScore(size_t maxresults);
 
 ResultProcessor *RPPager_New(size_t offset, size_t limit);
 

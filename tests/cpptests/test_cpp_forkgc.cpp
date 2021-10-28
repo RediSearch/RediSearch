@@ -164,7 +164,7 @@ TEST_F(FGCTest, testRepairLastBlockWhileRemovingMiddle) {
   ASSERT_TRUE(RS::deleteDocument(ctx, sp, "doc0"));
 
   // delete an entire block
-  for (int i = 100; i < 200; ++i) {
+  for (int i = 1000; i < 2000; ++i) {
     sprintf(buf, "doc%u", i);
     ASSERT_TRUE(RS::deleteDocument(ctx, sp, buf));
   }

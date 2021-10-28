@@ -26,7 +26,7 @@ TEST_F(TagIndexTest, testCreate) {
   }
 
   ASSERT_EQ(v.size(), idx->values->cardinality);
-  ASSERT_EQ(300000, totalSZ);
+  ASSERT_EQ(1200000, totalSZ);
 
   IndexIterator *it = TagIndex_OpenReader(idx, NULL, "hello", 5, 1);
   ASSERT_TRUE(it != NULL);

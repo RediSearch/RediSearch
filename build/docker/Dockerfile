@@ -47,7 +47,7 @@ RUN make fetch SHOW=1
 RUN make build WITH_TESTS=1 SHOW=1
 RUN set -e ;\
     if [ "$PACK" = "1" ]; then \
-		make build LITE=1 SHOW=1
+		make build LITE=1 SHOW=1 ;\
         make build COORD=rlec SHOW=1 ;\
     fi
 RUN set -e ;\
