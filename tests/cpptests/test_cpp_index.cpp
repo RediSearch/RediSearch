@@ -80,8 +80,8 @@ TEST_F(IndexTest, testDistance) {
   tr2->term.offsets = offsetsFromVVW(vw2);
 
   RSIndexResult *res = NewIntersectResult(2, 1);
-  AggregateResult_AddChild(res, tr1);
-  AggregateResult_AddChild(res, tr2);
+  AggregateResult_AddChild(res, tr1, 1);
+  AggregateResult_AddChild(res, tr2, 1);
 
   int delta = IndexResult_MinOffsetDelta(res);
   ASSERT_EQ(2, delta);
@@ -100,7 +100,7 @@ TEST_F(IndexTest, testDistance) {
   RSIndexResult *tr3 = NewTokenRecord(NULL, 1);
   tr3->docId = 1;
   tr3->term.offsets = offsetsFromVVW(vw3);
-  AggregateResult_AddChild(res, tr3);
+  AggregateResult_AddChild(res, tr3, 1);
 
   delta = IndexResult_MinOffsetDelta(res);
   ASSERT_EQ(7, delta);

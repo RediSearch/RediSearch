@@ -18,11 +18,12 @@ recycle index hits during reads */
 void IndexResult_Init(RSIndexResult *h);
 
 /* Reset the aggregate result's child vector */
-static inline void AggregateResult_Reset(RSIndexResult *r) {
-
+static inline void AggregateResult_Reset(RSIndexResult *r, int aggregate) {
   r->docId = 0;
-  r->agg.numChildren = 0;
-  r->agg.typeMask = (RSResultType)0;
+  if (aggregate) {
+    r->agg.numChildren = 0;
+    r->agg.typeMask = (RSResultType)0;
+  }
 }
 /* Allocate a new intersection result with a given capacity*/
 RSIndexResult *NewIntersectResult(size_t cap, double weight);
@@ -38,19 +39,20 @@ RSIndexResult *NewNumericResult();
 RSIndexResult *NewTokenRecord(RSQueryTerm *term, double weight);
 
 /* Append a child to an aggregate result */
-static inline void AggregateResult_AddChild(RSIndexResult *parent, RSIndexResult *child) {
+static inline void AggregateResult_AddChild(RSIndexResult *parent, RSIndexResult *child, int aggregate) {
+  if (aggregate) {
+    RSAggregateResult *agg = &parent->agg;
 
-  RSAggregateResult *agg = &parent->agg;
-
-  /* Increase capacity if needed */
-  if (agg->numChildren >= agg->childrenCap) {
-    agg->childrenCap = agg->childrenCap ? agg->childrenCap * 2 : 1;
-    agg->children = (__typeof__(agg->children))rm_realloc(
-        agg->children, agg->childrenCap * sizeof(RSIndexResult *));
+    /* Increase capacity if needed */
+    if (agg->numChildren >= agg->childrenCap) {
+      agg->childrenCap = agg->childrenCap ? agg->childrenCap * 2 : 1;
+      agg->children = (__typeof__(agg->children))rm_realloc(
+          agg->children, agg->childrenCap * sizeof(RSIndexResult *));
+    }
+    agg->children[agg->numChildren++] = child;
+    // update the parent's type mask
+    agg->typeMask |= child->type;
   }
-  agg->children[agg->numChildren++] = child;
-  // update the parent's type mask
-  agg->typeMask |= child->type;
   parent->freq += child->freq;
   parent->docId = child->docId;
   parent->fieldMask |= child->fieldMask;

@@ -43,7 +43,7 @@ IndexIterator *NewUnionIterator(IndexIterator **its, int num, DocTable *t, int q
 /* Create a new intersect iterator over the given list of child iterators. If maxSlop is not a
  * negative number, we will allow at most maxSlop intervening positions between the terms. If
  * maxSlop is set and inOrder is 1, we assert that the terms are in
- * order. I.e anexact match has maxSlop of 0 and inOrder 1.  */
+ * order. I.e an exact match has maxSlop of 0 and inOrder 1.  */
 IndexIterator *NewIntersecIterator(IndexIterator **its, size_t num, DocTable *t,
                                    t_fieldMask fieldMask, int maxSlop, int inOrder,
                                    double weight, int aggregateResults);

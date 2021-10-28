@@ -82,7 +82,7 @@ static void resetMinIdHeap(UnionIterator *ui) {
 }
 
 static void UI_HeapAddChildren(UnionIterator *ui, IndexIterator *it) {
-  AggregateResult_AddChild(CURRENT_RECORD(ui), IITER_CURRENT_RECORD(it));
+  AggregateResult_AddChild(CURRENT_RECORD(ui), IITER_CURRENT_RECORD(it), 1);
 }
 
 static inline t_docId UI_LastDocId(void *ctx) {
@@ -295,7 +295,7 @@ static inline int UI_ReadSorted(void *ctx, RSIndexResult **hit) {
   }
 
   int numActive = 0;
-  AggregateResult_Reset(CURRENT_RECORD(ui));
+  AggregateResult_Reset(CURRENT_RECORD(ui), 1);
 
   do {
 
@@ -365,7 +365,7 @@ static inline int UI_ReadSortedHigh(void *ctx, RSIndexResult **hit) {
     IITER_SET_EOF(&ui->base);
     return INDEXREAD_EOF;
   }
-  AggregateResult_Reset(CURRENT_RECORD(ui));
+  AggregateResult_Reset(CURRENT_RECORD(ui), 1);
   t_docId nextValidId = ui->minDocId + 1;
 
   /*
@@ -408,7 +408,7 @@ static inline int UI_ReadSortedHigh(void *ctx, RSIndexResult **hit) {
   // On quickExit we just return one result. 
   // Otherwise, we collect all the results that equal to the root of the heap.
   if (ui->quickExit) {
-    AggregateResult_AddChild(CURRENT_RECORD(ui), res);
+    AggregateResult_AddChild(CURRENT_RECORD(ui), res, 1);
   } else {
     heap_cb_root(hp, (HeapCallback)UI_HeapAddChildren, ui);
   }
@@ -441,7 +441,7 @@ static int UI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
   }
 
   // reset the current hitf
-  AggregateResult_Reset(CURRENT_RECORD(ui));
+  AggregateResult_Reset(CURRENT_RECORD(ui), 1);
   CURRENT_RECORD(ui)->weight = ui->weight;
   int numActive = 0;
   int found = 0;
@@ -489,7 +489,7 @@ static int UI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
 
       // add the result to the aggregate result we are holding
       if (hit) {
-        AggregateResult_AddChild(CURRENT_RECORD(ui), res ? res : IITER_CURRENT_RECORD(it));
+        AggregateResult_AddChild(CURRENT_RECORD(ui), res ? res : IITER_CURRENT_RECORD(it), 1);
       }
       ui->minDocId = it->minId;
       ++found;
@@ -512,7 +512,7 @@ static int UI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
   }
   if (minResult) {
     *hit = minResult;
-    AggregateResult_AddChild(CURRENT_RECORD(ui), minResult);
+    AggregateResult_AddChild(CURRENT_RECORD(ui), minResult, 1);
   }
   // not found...
   ui->minDocId = minDocId;
@@ -534,7 +534,7 @@ static int UI_SkipToHigh(void *ctx, t_docId docId, RSIndexResult **hit) {
     return INDEXREAD_EOF;
   }
 
-  AggregateResult_Reset(CURRENT_RECORD(ui));
+  AggregateResult_Reset(CURRENT_RECORD(ui), 1);
   CURRENT_RECORD(ui)->weight = ui->weight;
   int rc = INDEXREAD_EOF;
   IndexIterator *it = NULL;
@@ -575,7 +575,7 @@ static int UI_SkipToHigh(void *ctx, t_docId docId, RSIndexResult **hit) {
   // On quickExit we just return one result. 
   // Otherwise, we collect all the results that equal to the root of the heap.
   if (ui->quickExit) {
-    AggregateResult_AddChild(CURRENT_RECORD(ui), IITER_CURRENT_RECORD(it));
+    AggregateResult_AddChild(CURRENT_RECORD(ui), IITER_CURRENT_RECORD(it), 1);
   } else {
     heap_cb_root(hp, (HeapCallback)UI_HeapAddChildren, ui);
   }
@@ -812,9 +812,7 @@ static int II_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
     return II_ReadSorted(ctx, hit);
   }
   IntersectIterator *ic = ctx;
-  if (ic->aggregateResults) {
-    AggregateResult_Reset(ic->base.current);
-  }
+  AggregateResult_Reset(ic->base.current, ic->aggregateResults);
   int nfound = 0;
 
   int rc = INDEXREAD_EOF;
@@ -841,9 +839,7 @@ static int II_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
       return rc;
     } else if (rc == INDEXREAD_OK) {
       // YAY! found!
-      if (ic->aggregateResults) {
-        AggregateResult_AddChild(ic->base.current, res);
-      }
+      AggregateResult_AddChild(ic->base.current, res, ic->aggregateResults);
       ic->lastDocId = docId;
 
       ++nfound;
@@ -964,9 +960,7 @@ static int II_ReadSorted(void *ctx, RSIndexResult **hit) {
 
   do {
     nh = 0;
-    if (ic->aggregateResults) {
-      AggregateResult_Reset(ic->base.current);
-    }
+    AggregateResult_Reset(ic->base.current, ic->aggregateResults);
     for (i = 0; i < ic->num; i++) {
       IndexIterator *it = ic->its[i];
 
@@ -995,9 +989,7 @@ static int II_ReadSorted(void *ctx, RSIndexResult **hit) {
       }
       if (rc == INDEXREAD_OK) {
         ++nh;
-        if (ic->aggregateResults) {
-          AggregateResult_AddChild(ic->base.current, h);
-        }
+        AggregateResult_AddChild(ic->base.current, h, ic->aggregateResults);
       } else {
         ic->lastDocId++;
       }
