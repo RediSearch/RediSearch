@@ -176,6 +176,36 @@ def testRename(env):
     env.cmd('SET foo bar')
     env.cmd('RENAME foo fubu')
 
+def testCopy(env):
+    env.skipOnCluster()
+    conn = getConnectionByEnv(env)
+
+    env.cmd('ft.create', 'things', 'SCHEMA', 'name', 'text')
+    env.expect('FT.SEARCH', 'things', 'foo').equal([0L])
+
+    conn.execute_command('hset', '1', 'name', 'foo')
+    env.expect('FT.SEARCH', 'things', 'foo').equal([1L, '1', ['name', 'foo']])
+
+    # copy key to a non existing key
+    env.expect('COPY', '1', '2').equal(1L)
+    env.expect('FT.SEARCH', 'things', 'foo').equal([2L, '1', ['name', 'foo'], '2', ['name', 'foo']])
+
+    conn.execute_command('hset', '2', 'name', 'bar')
+    env.expect('FT.SEARCH', 'things', 'foo').equal([1L, '1', ['name', 'foo']])
+
+    # copy key to an existing key
+    env.expect('COPY', '1', '2').equal(0L)
+    env.expect('FT.SEARCH', 'things', 'foo').equal([1L, '1', ['name', 'foo']])
+
+    # copy key to an existing key with replace
+    env.expect('COPY', '1', '2', 'REPLACE').equal(1L)
+    env.expect('FT.SEARCH', 'things', 'foo').equal([2L, '1', ['name', 'foo'], '2', ['name', 'foo']])
+
+    # replace with non hash key
+    conn.execute_command('set', '3', 'foo')
+    env.expect('COPY', '3', '1', 'REPLACE').equal(1L)
+    env.expect('FT.SEARCH', 'things', 'foo').equal([1L, '2', ['name', 'foo']])
+
 def testFlush(env):
     conn = getConnectionByEnv(env)
     env.cmd('ft.create', 'things', 'ON', 'HASH',
