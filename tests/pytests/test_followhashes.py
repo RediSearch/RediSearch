@@ -547,9 +547,13 @@ def createExpire(env, N):
   env.flush()
   conn = getConnectionByEnv(env)
   env.expect('FT.CREATE idx SCHEMA txt1 TEXT n NUMERIC').ok()
-  for i in range(N):
-    conn.execute_command('HSET', 'doc%d' % i, 'txt1', 'hello%i' % i, 'n', i)
-    conn.execute_command('PEXPIRE', 'doc%d' % i, '100')
+  with conn.pipeline(transaction=True) as pl:
+    for i in range(N):
+      pl.execute_command('HSET', 'doc%d' % i, 'txt1', 'hello%i' % i, 'n', i)
+    pl.execute()
+    for i in range(N):
+      pl.execute_command('PEXPIRE', 'doc%d' % i, '100')
+    pl.execute()
   conn.execute_command('HSET', 'foo', 'txt1', 'hello', 'n', 0)
   conn.execute_command('HSET', 'bar', 'txt1', 'hello', 'n', 20)
   waitForIndex(env, 'idx')
