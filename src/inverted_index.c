@@ -207,7 +207,6 @@ ENCODER(encodeFreqsOffsets) {
 // 8. Encode only the doc ids
 ENCODER(encodeDocIdsOnly) {
   return Buffer_Write(bw, &delta, 4);
-  // return WriteVarint(delta, bw);
 }
 
 /**
@@ -709,24 +708,15 @@ DECODER(readFreqsOffsets) {
 }
 
 SKIPPER(seekDocIdsOnly) {
-  uint64_t delta = expid - IR_CURRENT_BLOCK(ir).firstId;
-
-  size_t firstPos = br->pos;
-  size_t lastPos = br->buf->offset - 4;
-
-  // let's try to read first
-  // or if expid is smaller than the firstId of the block
-  Buffer_Read(br, &res->docId, 4);
-  if (res->docId >= delta || delta > UINT32_MAX) {
-    goto final;
-  }
+  int64_t delta = expid - IR_CURRENT_BLOCK(ir).firstId;
 
   uint32_t *buf = (uint32_t *)br->buf->data;
-  size_t start = firstPos / 4;
-  size_t end = lastPos / 4;
+  size_t start = br->pos / 4;
+  size_t end = (br->buf->offset - 4) / 4;
   size_t cur = start;
   uint32_t curVal = buf[cur];
 
+  // perform binary search
   while (start < end) {
     if (curVal == delta) {
       break;
@@ -737,7 +727,7 @@ SKIPPER(seekDocIdsOnly) {
       start = cur + 1;
     }
     cur = (end + start) / 2;
-    curVal = buf[cur]; 
+    curVal = buf[cur];
   }
 
   // we cannot get out of range since we check in 
@@ -745,10 +735,10 @@ SKIPPER(seekDocIdsOnly) {
     cur++;
   }
 
+  // skip to position and read
   Buffer_Seek(br, cur * 4);
   Buffer_Read(br, &res->docId, 4);
 
-final:
   res->docId += IR_CURRENT_BLOCK(ir).firstId;
   res->freq = 1;
   return 1;
@@ -756,7 +746,6 @@ final:
 
 DECODER(readDocIdsOnly) {
   Buffer_Read(br, &res->docId, 4);
-  // res->docId = ReadVarint(br);
   res->freq = 1;
   return 1;  // Don't care about field mask
 }
