@@ -202,8 +202,7 @@ def testDocTableInfo(env):
     d = ft_info_to_dict(env, 'idx')
     env.assertEqual(int(d['num_docs']), 0)
     env.assertEqual(d['doc_table_size_mb'], '0')
-    if not env.isCluster():
-        env.assertEqual(d['sortable_values_size_mb'], '0')
+    env.assertEqual(d['sortable_values_size_mb'], '0')
 
     conn.execute_command('HSET', 'a', 'txt', 'hello')
     conn.execute_command('HSET', 'b', 'txt', 'world')
@@ -213,9 +212,8 @@ def testDocTableInfo(env):
     env.assertEqual(int(d['num_docs']), 2)
     doctable_size1 = float(d['doc_table_size_mb'])
     env.assertGreater(doctable_size1, 0)
-    if not env.isCluster():
-        sortable_size1 = float(d['sortable_values_size_mb'])
-        env.assertGreater(sortable_size1, 0)
+    sortable_size1 = float(d['sortable_values_size_mb'])
+    env.assertGreater(sortable_size1, 0)
 
     # check size after an update with larger text
     conn.execute_command('HSET', 'a', 'txt', 'hello world')
@@ -223,9 +221,8 @@ def testDocTableInfo(env):
     env.assertEqual(int(d['num_docs']), 2)
     doctable_size2 = float(d['doc_table_size_mb'])
     env.assertEqual(doctable_size1, doctable_size2)
-    if not env.isCluster():
-        sortable_size2 = float(d['sortable_values_size_mb'])
-        env.assertLess(sortable_size1, sortable_size2)
+    sortable_size2 = float(d['sortable_values_size_mb'])
+    env.assertLess(sortable_size1, sortable_size2)
 
     # check size after an update with identical text
     conn.execute_command('HSET', 'b', 'txt', 'world')
@@ -233,9 +230,8 @@ def testDocTableInfo(env):
     env.assertEqual(int(d['num_docs']), 2)
     doctable_size3 = float(d['doc_table_size_mb'])
     env.assertEqual(doctable_size2, doctable_size3)
-    if not env.isCluster():
-        sortable_size3 = float(d['sortable_values_size_mb'])
-        env.assertEqual(sortable_size2, sortable_size3)
+    sortable_size3 = float(d['sortable_values_size_mb'])
+    env.assertEqual(sortable_size2, sortable_size3)
 
     # check 0 after deletion
     conn.execute_command('DEL', 'a')
@@ -243,5 +239,4 @@ def testDocTableInfo(env):
     d = ft_info_to_dict(env, 'idx')
     env.assertEqual(int(d['num_docs']), 0)
     env.assertEqual(d['doc_table_size_mb'], '0')
-    if not env.isCluster():
-        env.assertEqual(d['sortable_values_size_mb'], '0')
+    env.assertEqual(d['sortable_values_size_mb'], '0')
