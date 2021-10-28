@@ -194,16 +194,16 @@ def testCopy(env):
     env.expect('FT.SEARCH', 'things', 'foo').equal([1L, '1', ['name', 'foo']])
 
     # copy key to an existing key
-    conn.execute_command('COPY', '1', '2').equal(0L)
+    env.expect('COPY', '1', '2').equal(0L)
     env.expect('FT.SEARCH', 'things', 'foo').equal([1L, '1', ['name', 'foo']])
 
     # copy key to an existing key with replace
-    conn.execute_command('COPY', '1', '2', 'REPLACE').equal(1L)
+    env.expect('COPY', '1', '2', 'REPLACE').equal(1L)
     env.expect('FT.SEARCH', 'things', 'foo').equal([2L, '1', ['name', 'foo'], '2', ['name', 'foo']])
 
     # replace with non hash key
     conn.execute_command('set', '3', 'foo')
-    conn.execute_command('COPY', '3', '1', 'REPLACE').equal(1L)
+    env.expect('COPY', '3', '1', 'REPLACE').equal(1L)
     env.expect('FT.SEARCH', 'things', 'foo').equal([1L, '2', ['name', 'foo']])
 
 def testFlush(env):
