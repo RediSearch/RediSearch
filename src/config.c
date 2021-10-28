@@ -343,6 +343,10 @@ CONFIG_BOOLEAN_GETTER(getNumericCompress, numericCompress, 0)
 CONFIG_BOOLEAN_SETTER(setPrintProfileClock, printProfileClock)
 CONFIG_BOOLEAN_GETTER(getPrintProfileClock, printProfileClock, 0)
 
+// RAW_DOCID_ENCODING
+CONFIG_BOOLEAN_SETTER(setRawDocIDEncoding, invertedIndexRawDocidEncoding)
+CONFIG_BOOLEAN_GETTER(getRawDocIDEncoding, invertedIndexRawDocidEncoding, 0)
+
 CONFIG_SETTER(setNumericTreeMaxDepthRange) {
   size_t maxDepthRange;
   int acrc = AC_GetSize(ac, &maxDepthRange, AC_F_GE0);
@@ -657,6 +661,10 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "Disable print of time for ft.profile. For testing only.",
          .setValue = setPrintProfileClock,
          .getValue = getPrintProfileClock},
+        {.name = "RAW_DOCID_ENCODING",
+         .helpText = "Disable compression for DocID inverted index. Boost CPU performance.",
+         .setValue = setRawDocIDEncoding,
+         .getValue = getRawDocIDEncoding},
         {.name = "_NUMERIC_RANGES_PARENTS",
          .helpText = "Keep numeric ranges in numeric tree parent nodes of leafs " 
                      "for `x` generations.",

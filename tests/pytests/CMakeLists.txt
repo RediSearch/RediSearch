@@ -21,19 +21,24 @@ FOREACH(n ${PY_TEST_FILES})
         COMMAND bash -c "${baseCommand} -t ${n}"
         WORKING_DIRECTORY ${PROJECT_BINARY_DIR})
 
-    ADD_TEST(NAME "PY_${test_name}_CONCURRENT_WRITE_MODE"
-        COMMAND bash -c "MODARGS='CONCURRENT_WRITE_MODE;' ${baseCommand} -t ${n}"
-        WORKING_DIRECTORY ${PROJECT_BINARY_DIR})
+#    ADD_TEST(NAME "PY_${test_name}_CONCURRENT_WRITE_MODE"
+#        COMMAND bash -c "MODARGS='CONCURRENT_WRITE_MODE;' ${baseCommand} -t ${n}"
+#        WORKING_DIRECTORY ${PROJECT_BINARY_DIR})
 
 #    ADD_TEST(NAME "PY_${test_name}_legacygc"
 #        COMMAND bash -c "MODARGS='GC_POLICY LEGACY' ${baseCommand} -t ${n}"
 #        WORKING_DIRECTORY ${PROJECT_BINARY_DIR})
 
-    ADD_TEST(NAME "PY_${test_name}_CRITERIA_TESTER"
-        COMMAND bash -c "MODARGS='_MAX_RESULTS_TO_UNSORTED_MODE 1;' ${baseCommand} -t ${n}"
+#    ADD_TEST(NAME "PY_${test_name}_CRITERIA_TESTER"
+#        COMMAND bash -c "MODARGS='_MAX_RESULTS_TO_UNSORTED_MODE 1;' ${baseCommand} -t ${n}"
+#        WORKING_DIRECTORY ${PROJECT_BINARY_DIR})
+
+#    ADD_TEST(NAME "PY_${test_name}_UNION_ITERATOR_HEAP"
+#    COMMAND bash -c "MODARGS='UNION_ITERATOR_HEAP 1;' ${baseCommand} -t ${n}"
+#    WORKING_DIRECTORY ${PROJECT_BINARY_DIR})
+
+    ADD_TEST(NAME "PY_${test_name}_RAW_DOCID_ENCODING"
+        COMMAND bash -c "MODARGS='RAW_DOCID_ENCODING true;' ${baseCommand} -t ${n}"
         WORKING_DIRECTORY ${PROJECT_BINARY_DIR})
 
-    ADD_TEST(NAME "PY_${test_name}_UNION_ITERATOR_HEAP"
-    COMMAND bash -c "MODARGS='UNION_ITERATOR_HEAP 1;' ${baseCommand} -t ${n}"
-    WORKING_DIRECTORY ${PROJECT_BINARY_DIR})
 ENDFOREACH()
