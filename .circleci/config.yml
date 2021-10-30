@@ -188,8 +188,8 @@ commands:
             cd build/docker
             make build OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH ARTIFACTS=1 TEST=1 SHOW=1 PACK=1
             cd $ROOT
-            mkdir -p tests/flow/logs
-            tar -C tests/flow/logs -xzf bin/artifacts/tests-flow-logs*.tgz
+            mkdir -p tests/pytests/logs
+            tar -C tests/pytests/logs -xzf bin/artifacts/tests-pytests-logs*.tgz
           no_output_timeout: 30m
       - early-return-for-forked-pull-requests
       - run:

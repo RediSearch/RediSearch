@@ -1,4 +1,10 @@
 
+ifeq (n,$(findstring n,$(firstword -$(MAKEFLAGS))))
+DRY_RUN:=1
+else
+DRY_RUN:=
+endif
+
 ifneq ($(filter coverage,$(MAKECMDGOALS)),)
 COV=1
 endif
@@ -15,30 +21,26 @@ ifneq ($(SAN),)
 override DEBUG ?= 1
 ifeq ($(SAN),mem)
 CMAKE_SAN=-DUSE_MSAN=ON -DMSAN_PREFIX=/opt/llvm-project/build-msan
-SAN_DIR=msan
-export SAN=memory
+override SAN=memory
 
 else ifeq ($(SAN),memory)
 CMAKE_SAN=-DUSE_MSAN=ON -DMSAN_PREFIX=/opt/llvm-project/build-msan
-SAN_DIR=msan
-export SAN=memory
 
 else ifeq ($(SAN),addr)
 CMAKE_SAN=-DUSE_ASAN=ON
-SAN_DIR=asan
-export SAN=address
+override SAN=address
 
 else ifeq ($(SAN),address)
 CMAKE_SAN=-DUSE_ASAN=ON
-SAN_DIR=asan
-export SAN=address
 
 else ifeq ($(SAN),leak)
 else ifeq ($(SAN),thread)
 else
 $(error SAN=mem|addr|leak|thread)
 endif
-endif
+
+export SAN
+endif # SAN
 
 #----------------------------------------------------------------------------------------------
 
@@ -75,6 +77,7 @@ make test          # run all tests (via ctest)
   TEST=regex         # run tests that match regex
   TESTDEBUG=1        # be very verbose (CTest-related)
   CTEST_ARG=...      # pass args to CTest
+  CTEST_PARALLEL=n   # run tests in give parallelism
 make pytest        # run python tests (tests/pytests)
   COORD=oss|rlec     # test coordinator
   TEST=name          # e.g. TEST=test:testSearch
@@ -163,7 +166,7 @@ else
 $(error COORD should be either oss or rlec)
 endif
 
-export LIBUV_BINDIR=$(realpath bin/$(FULL_VARIANT.debug)/libuv)
+export LIBUV_BINDIR=$(realpath bin/$(FULL_VARIANT.release)/libuv)
 include build/libuv/Makefile.defs
 
 HIREDIS_BINDIR=bin/$(FULL_VARIANT.release)/hiredis
@@ -295,34 +298,38 @@ endif
 ifeq ($(WHY),1)
 	@echo CMake log is in /tmp/cmake-why
 endif
-	@mkdir -p $(BINROOT)
-	@cd $(BINDIR) && cmake $(CMAKE_DIR) $(CMAKE_FLAGS)
+	$(SHOW)mkdir -p $(BINROOT)
+	$(SHOW)cd $(BINDIR) && cmake $(CMAKE_DIR) $(CMAKE_FLAGS)
 
 $(TARGET): $(MISSING_DEPS) $(BINDIR)/Makefile
 	@echo Building $(TARGET) ...
-	@$(MAKE) -C $(BINDIR) $(MAKE_J)
-#	@[ -f $(TARGET) ] && touch $(TARGET)
+ifneq ($(DRY_RUN),1)
+	$(SHOW)$(MAKE) -C $(BINDIR) $(MAKE_J)
+#	$(SHOW)[ -f $(TARGET) ] && touch $(TARGET)
+else
+	@make -C $(BINDIR) $(MAKE_J)
+endif
 
 .PHONY: build clean run 
 
 clean:
 ifeq ($(ALL),1)
-	rm -rf $(BINROOT)
+	$(SHOW)rm -rf $(BINROOT)
 else
-	$(MAKE) -C $(BINDIR) clean
+	$(SHOW)$(MAKE) -C $(BINDIR) clean
 endif
 
 #----------------------------------------------------------------------------------------------
 
 parsers:
 ifeq ($(FORCE),1)
-	cd src/aggregate/expr ;\
+	$(SHOW)cd src/aggregate/expr ;\
 	rm -f lexer.c parser-toplevel.c parser.c.inc
-	cd src/query_parser ;\
+	$(SHOW)cd src/query_parser ;\
 	rm -f lexer.c parser-toplevel.c parser.c.inc
 endif
-	$(MAKE) -C src/aggregate/expr
-	$(MAKE) -C src/query_parser
+	$(SHOW)$(MAKE) -C src/aggregate/expr
+	$(SHOW)$(MAKE) -C src/query_parser
 
 .PHONY: parsers
 
@@ -336,13 +343,13 @@ libuv: $(LIBUV)
 
 $(LIBUV):
 	@echo Building libuv...
-	$(SHOW)$(MAKE) --no-print-directory -C build/libuv DEBUG=1
+	$(SHOW)$(MAKE) --no-print-directory -C build/libuv DEBUG=''
 
 hiredis: $(HIREDIS)
 
 $(HIREDIS):
 	@echo Building hiredis...
-	$(SHOW)$(MAKE) --no-print-directory -C build/hiredis DEBUG=
+	$(SHOW)$(MAKE) --no-print-directory -C build/hiredis DEBUG=''
 
 #----------------------------------------------------------------------------------------------
 
@@ -417,7 +424,6 @@ endif
 
 # export EXT_TEST_PATH:=$(BINDIR)/tests/ctests/example_extension/libexample_extension.so
 export EXT_TEST_PATH:=$(BINDIR)/example_extension/libexample_extension.so
-$(info EXT_TEST_PATH=(EXT_TEST_PATH))
 
 test:
 ifneq ($(TEST),)
@@ -522,11 +528,11 @@ COV_EXCLUDE += \
 	'coord/tests/*'
 
 coverage:
-	$(SHOW)$(MAKE) COV=1
-	$(SHOW)$(MAKE) COORD=oss COV=1
+	$(SHOW)$(MAKE) build COV=1
+	$(SHOW)$(MAKE) build COORD=oss COV=1
 	$(SHOW)$(COVERAGE_RESET)
 	$(SHOW)$(MAKE) test COV=1
-	$(SHOW)$(MAKE) test COORD=oss COV=1
+	$(SHOW)$(MAKE) test COORD=oss COV=1 CTEST_PARALLEL=1
 	$(SHOW)$(COVERAGE_COLLECT_REPORT)
 
 upload-cov:

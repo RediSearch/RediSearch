@@ -93,10 +93,15 @@ if [[ -n $SAN ]]; then
 	if ! grep THPIsEnabled /build/redis.blacklist &> /dev/null; then
 		echo "fun:THPIsEnabled" >> /build/redis.blacklist
 	fi
+
+	# for module
 	export RS_GLOBAL_DTORS=1
 
+	# for RLTest
 	export SANITIZER="$SAN"
 	export SHORT_READ_BYTES_DELTA=512
+	
+	SAN_ARGS="--no-output-catch --exit-on-failure --check-exitcode --unix"
 	
 	rejson_pathfile=$ROOT/deps/RedisJSON/target.$SAN/REJSON_PATH
 	if [[ -z $REJSON_PATH && -f $rejson_pathfile ]]; then
@@ -133,8 +138,11 @@ elif [[ $VG == 1 ]]; then
 		VALGRIND_ARGS+=" --vg-no-leakcheck --vg-options=\"--leak-check=no --track-origins=yes --suppressions=$ROOT/tests/valgrind/redis_valgrind.sup\" "
 	fi
 
-	export VALGRIND=1
+	# for module
 	export RS_GLOBAL_DTORS=1
+
+	# for RLTest
+	export VALGRIND=1
 	export SHORT_READ_BYTES_DELTA=512
 
 else
@@ -149,7 +157,7 @@ fi
 #---------------------------------------------------------------------------------------------- 
 
 if [[ $COV == 1 ]]; then
-	COV_ARGS=--unix
+	COV_ARGS="--unix"
 	
 	export CODE_COVERAGE=1
 	export RS_GLOBAL_DTORS=1
@@ -192,7 +200,22 @@ run_tests() {
 		printf "Running $title:\n\n"
 	fi
 
-	if [[ $EXISTING_ENV == 1 ]]; then
+	if [[ $EXISTING_ENV != 1 ]]; then
+		rltest_config=$(mktemp "${TMPDIR:-/tmp}/rltest.XXXXXXX")
+		rm -f $rltest_config
+		cat <<-EOF > $rltest_config
+			--oss-redis-path=$REDIS_SERVER
+			--module $MODULE
+			--module-args '$MODARGS'
+			$RLTEST_ARGS
+			$REJSON_ARGS
+			$VALGRIND_ARGS
+			$SAN_ARGS
+			$COV_ARGS
+
+			EOF
+
+	else # existing env
 		if [[ $REJSON_MODULE ]]; then
 			XREDIS_REJSON_ARGS="loadmodule $REJSON_MODULE $REJSON_MODARGS"
 		fi
@@ -220,20 +243,6 @@ run_tests() {
 		$REDIS_SERVER $xredis_conf &
 		XREDIS_PID=$!
 		echo "External redis-server pid: " $XREDIS_PID
-
-	else
-		rltest_config=$(mktemp "${TMPDIR:-/tmp}/rltest.XXXXXXX")
-		rm -f $rltest_config
-		cat <<-EOF > $rltest_config
-			--oss-redis-path=$REDIS_SERVER
-			--module $MODULE
-			--module-args '$MODARGS'
-			$RLTEST_ARGS
-			$REJSON_ARGS
-			$VALGRIND_ARGS
-			$COV_ARGS
-
-			EOF
 	fi
 
 	# Use configuration file in the current directory if it exists

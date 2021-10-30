@@ -370,7 +370,6 @@ class ShardMock:
         self.env = env
         self.new_conns = gevent.queue.Queue()
 
-
     def _handle_conn(self, sock, client_addr):
         conn = Connection(sock)
         self.new_conns.put(conn)
@@ -397,7 +396,7 @@ class ShardMock:
 
     def StartListening(self, port, attempts=1):
         for i in range(1, attempts + 1):
-            self.stream_server = gevent.server.StreamServer(('localhost', port), self._handle_conn)
+            self.stream_server = gevent.server.StreamServer(('127.0.0.1', port), self._handle_conn)
             try:
                 self.stream_server.start()
             except Exception as e:
@@ -413,7 +412,6 @@ class ShardMock:
 
 
 class Debug:
-
     def __init__(self, enabled=False):
         self.enabled = enabled
         self.clear()
@@ -514,7 +512,6 @@ def sendShortReads(env, rdb_file, expected_index):
 @Debug(False)
 def runShortRead(env, data, total_len, expected_index):
     with ShardMock(env) as shardMock:
-
         # For debugging: if adding breakpoints in redis,
         # In order to avoid closing the connection, uncomment the following line
         # res = env.cmd('CONFIG', 'SET', 'timeout', '0')
@@ -522,7 +519,7 @@ def runShortRead(env, data, total_len, expected_index):
         # Notice: Do not use env.expect in this test
         # (since it is sending commands to redis and in this test we need to follow strict hand-shaking)
         res = env.cmd('CONFIG', 'SET', 'repl-diskless-load', 'swapdb')
-        res = env.cmd('replicaof', 'localhost', shardMock.server_port)
+        res = env.cmd('replicaof', '127.0.0.1', shardMock.server_port)
         env.assertTrue(res)
         conn = shardMock.GetConnection()
         # Perform hand-shake with replica

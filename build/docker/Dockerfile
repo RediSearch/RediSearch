@@ -65,9 +65,9 @@ RUN set -e ;\
     if [ "$TEST" = "1" ]; then \
         bash -l -c "TEST= make test" ;\
 		bash -l -c "TEST= make test COORD=oss" ;\
-        cd /build/tests/flow/logs ;\
+        cd /build/tests/pytests/logs ;\
         rm -f *.aof *.rdb ;\
-        tar -czf /build/bin/artifacts/tests-flow-logs-${ARCH}-${OSNICK}.tgz . ;\
+        tar -czf /build/bin/artifacts/tests-pytests-logs-${ARCH}-${OSNICK}.tgz . ;\
     fi
 
 #----------------------------------------------------------------------------------------------
