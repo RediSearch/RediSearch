@@ -17,4 +17,4 @@ foreach(n ${TEST_SOURCES})
     RSTEST("${test_name}")
 endforeach()
 
-add_subdirectory(ext-example example_extension)
+# add_subdirectory(ext-example example_extension)

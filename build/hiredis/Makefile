@@ -38,6 +38,7 @@ CC_FLAGS += \
 	-MMD -MF $(@:.o=.d) \
 	-I$(SRCDIR) \
 	-I$(BINDIR) \
+	-I/usr/local/opt/openssl/include \
 	$(CC_FLAGS.coverage)
 
 ifeq ($(DEBUG),1)

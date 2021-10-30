@@ -61,6 +61,10 @@ include_directories(${LIBUV_INCLUDE_DIR})
 include_directories(${RS_DIR}/deps)
 include_directories(${RS_DIR}/src)
 include_directories(${RS_DIR})
+if (APPLE)
+    include_directories(/usr/local/opt/openssl/include)
+	set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -L/usr/local/opt/openssl/lib")
+endif()
 
 add_subdirectory(${RS_DIR} search)
 add_subdirectory(src/rmr)
@@ -71,6 +75,14 @@ set(FINAL_OBJECTS
     $<TARGET_OBJECTS:coordinator-core>
     $<TARGET_OBJECTS:rmutil>
     $<TARGET_OBJECTS:rmr>)
+
+if (APPLE)
+	include_directories(/usr/local/opt/openssl/include)
+	set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -L/usr/local/opt/openssl/lib")
+	set(SSL_LIBS crypto ssl)
+else()
+	set(SSL_LIBS crypt ssl)
+endif()
 
 macro(MODULE_TARGET TYPE)
     if (${TYPE} STREQUAL "oss")
@@ -85,7 +97,7 @@ macro(MODULE_TARGET TYPE)
 
     set(_moduleName module-${SUFFIX})
     add_library(${_moduleName} SHARED ${FINAL_OBJECTS} src/build-info/info-${SUFFIX}.c)
-    target_link_libraries(${_moduleName} redisearch-${SUFFIX} ${LIBUV_LIBS} ${HIREDIS_LIBS} crypt ssl)
+    target_link_libraries(${_moduleName} redisearch-${SUFFIX} ${LIBUV_LIBS} ${HIREDIS_LIBS} ${SSL_LIBS})
 
     target_compile_definitions(${_moduleName} PRIVATE ${_moduleDefs})
     
@@ -108,7 +120,7 @@ if (RS_BUILD_COORD_OSS)
 	enable_testing()
 
 	add_library(testdeps STATIC ${FINAL_OBJECTS})
-	target_link_libraries(testdeps ${LIBUV_LIBS} redisearch-oss redismock ${HIREDIS_LIBS} crypt ssl dl)
+	target_link_libraries(testdeps ${LIBUV_LIBS} redisearch-oss redismock ${HIREDIS_LIBS} ${SSL_LIBS} dl)
 
 	add_subdirectory(src/rmr/test)
 	add_subdirectory(tests/unit)

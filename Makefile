@@ -55,8 +55,8 @@ make build         # compile and link
   COORD=oss|rlec     # build coordinator
   STATIC=1           # build as static lib
   LITE=1             # build RediSearchLight
-  DEBUG=1            # build for debugging (implies WITH_TESTS=1)
-  WITH_TESTS=1       # enable unit tests
+  DEBUG=1            # build for debugging
+  NO_TESTS=1         # disable unit tests
   WHY=1              # explain CMake decisions (in /tmp/cmake-why)
   FORCE=1            # Force CMake rerun
   CMAKE_ARGS=...     # extra arguments to CMake
@@ -191,13 +191,12 @@ endif
 
 ifeq ($(DEBUG),1)
 CMAKE_BUILD_TYPE=DEBUG
-WITH_TESTS ?= 1
 else
 CMAKE_BUILD_TYPE=RelWithDebInfo
 endif
 CMAKE_DEBUG=-DCMAKE_BUILD_TYPE=$(CMAKE_BUILD_TYPE)
 
-ifeq ($(WITH_TESTS),1)
+ifneq ($(NO_TESTS),1)
 CMAKE_TEST=-DRS_RUN_TESTS=ON
 # -DRS_VERBOSE_TESTS=ON
 endif
@@ -223,7 +222,7 @@ CMAKE_FILES= \
 	deps/snowball/CMakeLists.txt \
 	deps/rmutil/CMakeLists.txt
 
-ifeq ($(WITH_TESTS),1)
+ifneq ($(NO_TESTS),1)
 CMAKE_FILES+= \
 	deps/googletest/CMakeLists.txt \
 	deps/googletest/googlemock/CMakeLists.txt \
@@ -416,7 +415,9 @@ ifeq ($(EXT),1)
 FLOW_TESTS_ARGS += EXISTING_EXT=1
 endif
 
-export EXT_TEST_PATH:=$(BINDIR)/tests/ctests/example_extension/libexample_extension.so
+# export EXT_TEST_PATH:=$(BINDIR)/tests/ctests/example_extension/libexample_extension.so
+export EXT_TEST_PATH:=$(BINDIR)/example_extension/libexample_extension.so
+$(info EXT_TEST_PATH=(EXT_TEST_PATH))
 
 test:
 ifneq ($(TEST),)
