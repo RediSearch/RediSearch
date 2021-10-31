@@ -13,8 +13,10 @@ The most general option for an isolated environment is a virtual machine (it's v
 Docker is even a more agile, as it offers an almost instant solution:
 
 ```
-search=$(docker run -d -it -v $PWD:/build debian:bullseys bash)
+search=$(docker run -d -it -v $PWD:/build debian:bullseye bash)
 docker exec -it $search bash
+apt update
+apt install -y make build-essential python2 git redis-server
 ```
 Then, from within the container, ```cd /build``` and go on as usual.
 
