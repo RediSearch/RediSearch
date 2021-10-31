@@ -718,6 +718,11 @@ DECODER(readFreqsOffsets) {
 SKIPPER(seekRawDocIdsOnly) {
   int64_t delta = expid - IR_CURRENT_BLOCK(ir).firstId;
 
+  Buffer_Read(br, &res->docId, 4);
+  if (res->docId >= delta || delta < 0) {
+    goto final;
+  }
+
   uint32_t *buf = (uint32_t *)br->buf->data;
   size_t start = br->pos / 4;
   size_t end = (br->buf->offset - 4) / 4;
@@ -747,6 +752,7 @@ SKIPPER(seekRawDocIdsOnly) {
   Buffer_Seek(br, cur * 4);
   Buffer_Read(br, &res->docId, 4);
 
+final:
   res->docId += IR_CURRENT_BLOCK(ir).firstId;
   res->freq = 1;
   return 1;
