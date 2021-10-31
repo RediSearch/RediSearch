@@ -206,7 +206,8 @@ ENCODER(encodeFreqsOffsets) {
 
 // 8. Encode only the doc ids
 ENCODER(encodeDocIdsOnly) {
-  return WriteVarint(delta, bw);}
+  return WriteVarint(delta, bw);
+}
 
 // 9. Encode only the doc ids
 ENCODER(encodeRawDocIdsOnly) {
@@ -404,10 +405,10 @@ IndexEncoder InvertedIndex_GetEncoder(IndexFlags flags) {
 
     // 0. docid only
     case Index_DocIdsOnly:
-      if (RSGlobalConfig.invertedIndexRawDocidEncoding == 0) {
-        return encodeDocIdsOnly;
-      } else {
+      if (RSGlobalConfig.invertedIndexRawDocidEncoding) {
         return encodeRawDocIdsOnly;
+      } else {
+        return encodeDocIdsOnly;
       }
 
     case Index_StoreNumeric:
@@ -802,13 +803,11 @@ IndexDecoderProcs InvertedIndex_GetDecoder(uint32_t flags) {
 
     // ()
     case Index_DocIdsOnly:
-      if (RSGlobalConfig.invertedIndexRawDocidEncoding == 0) {
-        RETURN_DECODERS(readDocIdsOnly, NULL);
-      } else {
+      if (RSGlobalConfig.invertedIndexRawDocidEncoding) {
         RETURN_DECODERS(readRawDocIdsOnly, seekRawDocIdsOnly);
+      } else {
+        RETURN_DECODERS(readDocIdsOnly, NULL);
       }
-    // ()
-    // case Index_RawDocIdsOnly:
 
     // (freqs, offsets)
     case Index_StoreFreqs | Index_StoreTermOffsets:
