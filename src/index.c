@@ -1460,7 +1460,7 @@ static void OI_Rewind(void *ctx) {
 }
 
 IndexIterator *NewOptionalIterator(IndexIterator *it, t_docId maxDocId, double weight) {
-  OptionalMatchContext *nc = rm_malloc(sizeof(*nc));
+  OptionalMatchContext *nc = rm_calloc(1, sizeof(*nc));
   nc->virt = NewVirtualResult(weight);
   nc->virt->fieldMask = RS_FIELDMASK_ALL;
   nc->virt->freq = 1;
