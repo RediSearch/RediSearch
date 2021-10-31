@@ -6,35 +6,34 @@ def testFlushDb(env):
     if env.isCluster():
         raise unittest.SkipTest()
 
-    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'SCHEMA', 'f', 'TEXT', 'SORTABLE', 'test', 'TEXT', 'SORTABLE')
-    env.cmd('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'f', 'field', 'test', 'test1')
-    env.cmd('ft.add', 'idx', 'doc2', '1.0', 'FIELDS', 'f', 'field', 'test', 'test2')
+    env.cmd('SELECT 0')
+    env.cmd('SET foo bar')
 
-    rv = env.cmd('ft.search', 'idx', '*', 'LIMIT', 0, 12345678)
-    env.assertEqual(2, len(rv))
+    rv = env.cmd('GET foo')
+    env.assertEqual('bar', rv)
 
-    env.cmd('flushdb 1')
+    env.cmd('SELECT 1')
+    env.cmd('FLUSHDB')
+    env.cmd('SELECT 0')
 
-    rv = env.cmd('ft.search', 'idx', '*', 'LIMIT', 0, 12345678)
-    env.assertEqual(2, len(rv))
+    rv = env.cmd('GET foo')
+    env.assertEqual('bar', rv)
 
-    env.cmd('flushdb 0')
+    env.cmd('FLUSHDB')
 
-    rv = env.cmd('ft.search', 'idx', '*', 'LIMIT', 0, 12345678)
-    env.assertEqual(0, len(rv))
+    rv = env.cmd('GET foo')
+    env.assertEqual(None, rv)
 
 def testFlushAll(env):
     if env.isCluster():
         raise unittest.SkipTest()
 
-    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'SCHEMA', 'f', 'TEXT', 'SORTABLE', 'test', 'TEXT', 'SORTABLE')
-    env.cmd('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'f', 'field', 'test', 'test1')
-    env.cmd('ft.add', 'idx', 'doc2', '1.0', 'FIELDS', 'f', 'field', 'test', 'test2')
+    env.cmd('SET foo bar')
 
-    rv = env.cmd('ft.search', 'idx', '*', 'LIMIT', 0, 12345678)
-    env.assertEqual(2, len(rv))
+    rv = env.cmd('GET foo')
+    env.assertEqual('bar', rv)
 
-    env.cmd('flushall')
+    env.cmd('FLUSHALL')
 
-    rv = env.cmd('ft.search', 'idx', '*', 'LIMIT', 0, 12345678)
-    env.assertEqual(0, len(rv))
+    rv = env.cmd('GET foo')
+    env.assertEqual(None, rv)
