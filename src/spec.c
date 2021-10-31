@@ -2015,8 +2015,12 @@ static void onFlush(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent
   if (subevent != REDISMODULE_SUBEVENT_FLUSHDB_START) {
     return;
   }
-  IndexSpec_CleanAll();
-  Dictionary_Clear();
+  RedisModuleFlushInfo *fi = data;
+  if (fi->dbnum == 0 || fi->dbnum == -1) {
+    // Clear on FLUSHDB 0 or FLUSHALL
+    IndexSpec_CleanAll();
+    Dictionary_Clear();
+  }
 }
 
 void Indexes_Init(RedisModuleCtx *ctx) {
