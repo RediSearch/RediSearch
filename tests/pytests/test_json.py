@@ -100,7 +100,7 @@ def testSearchUpdatedContent(env):
     plain_int_res_val_3 = str(int(plain_int_val_3) + int(int_incrby_3))
     env.expect('json.set', 'doc:1', '$.n', plain_int_val_3).ok()
     # test JSON.NUMINCRBY
-    env.expect('json.numincrby', 'doc:1', '$.n', int_incrby_3).equal(plain_int_res_val_3)
+    env.expect('json.numincrby', 'doc:1', '$.n', int_incrby_3).equal('[' + plain_int_res_val_3 + ']')
 
     expected = [1L, 'doc:1', ['$', json.loads(r'{"t":"hescelosaurus","n":' + plain_int_res_val_3 + '}')]]
     res = env.cmd('ft.search', 'idx1', 'he*')
@@ -256,7 +256,7 @@ def testToggle(env):
                '$.boolT', 'AS', 'boolT', 'TAG').ok()
     env.expect('JSON.SET', 'doc:1', '$', r'{"boolT":false}').ok()
     env.expect('ft.search', 'idx', '*').equal([1L, 'doc:1', ['$', '{"boolT":false}']])
-    env.expect('JSON.TOGGLE','doc:1','$.boolT').equal('true')
+    env.expect('JSON.TOGGLE','doc:1','$.boolT').equal([1L])
     env.expect('ft.search', 'idx', '*').equal([1L, 'doc:1', ['$', '{"boolT":true}']])
 
 @no_msan
@@ -556,6 +556,7 @@ def testAsProjection(env):
     # env.expect('FT.AGGREGATE', 'idx', '907*', 'LOAD', '3', '@$.n', 'AS', 'num').equal([1L, ['num', '"9072"']])
 
     # TODO: Search for numeric field 'flt'
+
 
 @no_msan
 def testAsProjectionRedefinedLabel(env):
