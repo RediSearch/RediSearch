@@ -66,8 +66,8 @@ ReturnedField *FieldList_GetCreateField(FieldList *fields, const char *name, con
   fields->fields = rm_realloc(fields->fields, sizeof(*fields->fields) * ++fields->numFields);
   ReturnedField *ret = fields->fields + (fields->numFields - 1);
   memset(ret, 0, sizeof *ret);
-  ret->path = path;
-  ret->name = (name) ? name : path;
+  ret->name = name;
+  ret->path = path ? path : name;
   return ret;
 }
 
@@ -164,8 +164,8 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
       QueryError_SetError(status, QUERY_EPARSEARGS, "Need argument for TIMEOUT");	
       return ARG_ERROR;	
     }	
-    if (AC_GetInt(ac, &req->reqTimeout, AC_F_GE1) != AC_OK) {	
-      QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "TIMEOUT requires a positive integer");	
+    if (AC_GetInt(ac, &req->reqTimeout, AC_F_GE0) != AC_OK) {	
+      QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "TIMEOUT requires a non negative integer");	
       return ARG_ERROR;	
     }
   } else if (AC_AdvanceIfMatch(ac, "WITHCURSOR")) {
@@ -608,14 +608,26 @@ static int handleLoad(AREQ *req, ArgsCursor *ac, QueryError *status) {
   ArgsCursor loadfields = {0};
   int rc = AC_GetVarArgs(ac, &loadfields);
   if (rc != AC_OK) {
-    QERR_MKBADARGS_AC(status, "LOAD", rc);
-    return REDISMODULE_ERR;
+    const char *s = NULL;
+    rc = AC_GetString(ac, &s, NULL, 0);
+    if (rc != AC_OK || strcmp(s, "*")) {
+      QERR_MKBADARGS_AC(status, "LOAD", rc);
+      return REDISMODULE_ERR;  
+    }
+    req->reqflags |= QEXEC_AGG_LOAD_ALL;
   }
+
   PLN_LoadStep *lstp = rm_calloc(1, sizeof(*lstp));
   lstp->base.type = PLN_T_LOAD;
   lstp->base.dtor = loadDtor;
-  lstp->args = loadfields;
-  lstp->keys = rm_calloc(loadfields.argc, sizeof(*lstp->keys));
+  if (loadfields.argc > 0) {
+    lstp->args = loadfields;
+    lstp->keys = rm_calloc(loadfields.argc, sizeof(*lstp->keys));
+  }
+
+  if (req->reqflags & QEXEC_AGG_LOAD_ALL) {
+    lstp->base.flags |= PLN_F_LOAD_ALL;
+  }
 
   AGPLN_AddStep(&req->ap, &lstp->base);
   return REDISMODULE_OK;
@@ -1159,9 +1171,10 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
           // set lookupkey name to name.
           // by defualt "name = path" 
           kk->name = name;
+          kk->name_len = strlen(name);
           lstp->keys[lstp->nkeys++] = kk;
         }
-        if (lstp->nkeys) {
+        if (lstp->nkeys || lstp->base.flags & PLN_F_LOAD_ALL) {
           rp = RPLoader_New(curLookup, lstp->keys, lstp->nkeys);
           PUSH_RP();
         }

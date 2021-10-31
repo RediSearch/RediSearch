@@ -4,6 +4,7 @@
 #include "redismodule.h"
 #include "json.h"
 
+extern RedisJSONAPI_V1 *japi;
 extern RedisModuleCtx *RSDummyContext;
 
 #ifdef __cplusplus
@@ -11,10 +12,10 @@ extern "C" {
 #endif
 
 static inline DocumentType getDocType(RedisModuleKey *key) {
-  if (RedisModule_KeyType(key) == REDISMODULE_KEYTYPE_HASH) {
+  int keyType = RedisModule_KeyType(key);
+  if (keyType == REDISMODULE_KEYTYPE_HASH) {
     return DocumentType_Hash;
-  } else if (1) {
-    // TODO: fix once can figure out JSON
+  } else if (keyType == REDISMODULE_KEYTYPE_MODULE && japi && japi->isJSON(key)) {
     return DocumentType_Json;
   }
   return DocumentType_None;

@@ -1,4 +1,6 @@
 from includes import *
+from common import *
+import os
 
 
 def testBasicFuzzy(env):
@@ -12,6 +14,15 @@ def testBasicFuzzy(env):
     res = r.execute_command('ft.search', 'idx', '%word%')
     env.assertEqual(res[0:2], [1L, 'doc1'])
     env.assertEqual(set(res[2]), set(['title', 'hello world', 'body', 'this is a test']))
+
+def testThreeFuzzy(env):
+    env.cmd('FT.CREATE', 'idx', 'schema', 't', 'text')
+    env.cmd('HSET', 'doc', 't', 'hello world')
+    env.expect('FT.SEARCH', 'idx', '%%%wo%%%').equal([1L, 'doc', ['t', 'hello world']])
+    env.expect('FT.SEARCH', 'idx', '%%%wi%%%').equal([0L])
+
+    # check for upper case to lower case
+    env.expect('FT.SEARCH', 'idx', '%%%WO%%%').equal([1L, 'doc', ['t', 'hello world']])
 
 def testLdLimit(env):
     env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'body', 'text')
@@ -79,3 +90,15 @@ def testFuzzyWithNumbersOnly(env):
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'test', 'TEXT', 'SORTABLE').equal('OK')
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', '12345').equal('OK')
     env.expect('ft.search', 'idx', '%%21345%%').equal([1, 'doc1', ['test', '12345']])
+
+@skip
+def testTagFuzzy(env):
+    # TODO: fuzzy on tag is broken?
+
+    env.cmd('FT.CREATE', 'idx1', 'SCHEMA', 't', 'TAG')
+    env.cmd('FT.CREATE', 'idx2', 'SCHEMA', 't', 'TAG', 'CASESENSITIVE')
+    env.cmd('HSET', 'doc', 't', 'hello world')
+    env.expect('FT.SEARCH', 'idx1', '@t:{(%worl%)}').equal([1L, 'doc', ['t', 'hello world']])
+    env.expect('FT.SEARCH', 'idx1', '@t:{(%wor%)}').equal([0L])
+    env.expect('FT.SEARCH', 'idx2', '@t:{(%worl%)}').equal([0L])
+    env.expect('FT.SEARCH', 'idx2', '@t:{(%wir%)}').equal([0L])

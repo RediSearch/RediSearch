@@ -1,0 +1,151 @@
+{
+   <lzf_unitialized_hash_table>
+   Memcheck:Cond
+   fun:lzf_compress
+}
+
+{
+   <lzf_unitialized_hash_table>
+   Memcheck:Value4
+   fun:lzf_compress
+}
+
+{
+   <lzf_unitialized_hash_table>
+   Memcheck:Value8
+   fun:lzf_compress
+}
+
+{
+   <redis_dumpCommand_supression>
+   Memcheck:Value8
+   fun:crcspeed64little
+   fun:crcspeed64native
+   fun:crc64
+   fun:createDumpPayload
+   fun:dumpCommand
+}
+
+
+{
+   <redis_rioGenericUpdateChecksum_supression>
+   Memcheck:Value8
+   fun:crcspeed64little
+   fun:crcspeed64native
+   fun:crc64
+   fun:rioGenericUpdateChecksum
+   fun:rioWrite
+}
+
+{
+   <redis_dumpCommand_supression>
+   Memcheck:Value8
+   fun:crcspeed64little
+   fun:createDumpPayload
+   fun:dumpCommand
+}
+
+{
+   <uninitialised_bytes_connWrite>
+   Memcheck:Param
+   write(buf)
+   fun:__libc_write
+   fun:write
+   fun:connSocketWrite
+   fun:connWrite
+}
+
+{
+   <invalid_write_size_8_compression_appendFloat>
+   Memcheck:Addr8
+   fun:appendBits
+   fun:appendFloat
+   fun:Compressed_Append
+   fun:Compressed_AddSample
+}
+
+{
+   <invalid_write_size_8_compression_appendInteger>
+   Memcheck:Addr8
+   fun:appendBits
+   fun:appendInteger
+   fun:Compressed_Append
+   fun:Compressed_AddSample
+}
+
+{
+   <supression_invalid_read_size_1raxLowWalk>
+   Memcheck:Addr1
+   fun:raxLowWalk
+   fun:raxSeek
+   fun:RM_DictIteratorStartC
+}
+
+{
+   <supression_invalid_read_size_1raxSeek>
+   Memcheck:Addr1
+   fun:raxSeek
+   fun:RM_DictIteratorStartC
+}
+
+{
+   <rmlog_supression>
+   Memcheck:Param
+   write(buf)
+   fun:__libc_write
+   fun:write
+   fun:_IO_file_write@@GLIBC_2.2.5
+   fun:new_do_write
+   fun:_IO_new_do_write
+   fun:_IO_do_write@@GLIBC_2.2.5
+   fun:_IO_new_file_xsputn
+   fun:_IO_file_xsputn@@GLIBC_2.2.5
+   fun:__vfprintf_internal
+   fun:__fprintf_chk
+   fun:fprintf
+   fun:serverLogRaw
+   fun:RM_LogRaw
+   fun:RM_Log
+}
+
+{
+   <rm_log_supression>
+   Memcheck:Cond
+   fun:strlen
+   fun:__vfprintf_internal
+   fun:__vsnprintf_internal
+   fun:RM_LogRaw
+   fun:RM_Log
+}
+
+{
+   <rmlog_supressions>
+   Memcheck:Cond
+   fun:strlen
+   fun:__vfprintf_internal
+   fun:__vsnprintf_internal
+   fun:vsnprintf
+   fun:RM_LogRaw
+   fun:RM_Log
+}
+
+{
+   <rmlog_supressions>
+   Memcheck:Cond
+   fun:strlen
+   fun:vfprintf
+   fun:fprintf
+   fun:serverLogRaw
+   fun:RM_LogRaw
+   fun:RM_Log
+}
+
+{
+   <rmlog_supressions>
+   Memcheck:Cond
+   fun:strlen
+   fun:vfprintf
+   fun:vsnprintf
+   fun:RM_LogRaw
+   fun:RM_Log
+}

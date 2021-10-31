@@ -412,9 +412,11 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   if (RMUtil_StringEqualsCaseC(argv[0], "FT.DROP") ||
       RMUtil_StringEqualsCaseC(argv[0], "_FT.DROP")) {
-    RedisModule_Replicate(ctx, RS_DROP_IF_X_CMD, "v", argv + 1, argc - 1);
+    // We always send KEEPDOC to the slave.
+    RedisModule_Replicate(ctx, RS_DROP_IF_X_CMD, "sc", argv[1], "KEEPDOCS");
   } else {
-    RedisModule_Replicate(ctx, RS_DROP_INDEX_IF_X_CMD, "v", argv + 1, argc - 1);
+    // Remove DD as documents were deleted with RM_Call.
+    RedisModule_Replicate(ctx, RS_DROP_INDEX_IF_X_CMD, "s", argv[1]);
   }
 
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
@@ -827,7 +829,7 @@ static void GetRedisVersion() {
   RedisModule_FreeThreadSafeContext(ctx);
 }
 
-static inline int IsEnterprise() {
+int IsEnterprise() {
   return rlecVersion.majorVersion != -1;
 }
 
@@ -1035,27 +1037,46 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 }
 
 void ReindexPool_ThreadPoolDestroy();
+extern dict *legacySpecDict, *legacySpecRules;
 
 void __attribute__((destructor)) RediSearch_CleanupModule(void) {
-  if (getenv("RS_GLOBAL_DTORS")) {  // used in sanitizer
-    static int invoked = 0;
-    if (invoked || !RS_Initialized) {
-      return;
-    }
-    invoked = 1;
-    CursorList_Destroy(&RSCursors);
-    Extensions_Free();
-    StopWordList_FreeGlobals();
-    FunctionRegistry_Free();
-    mempool_free_global();
-    ConcurrentSearch_ThreadPoolDestroy();
-    ReindexPool_ThreadPoolDestroy();
-    GC_ThreadPoolDestroy();
-    IndexAlias_DestroyGlobal();
-    freeGlobalAddStrings();
-    SchemaPrefixes_Free();
-    RedisModule_FreeThreadSafeContext(RSDummyContext);
-    Dictionary_Free();
-    RediSearch_LockDestory();
+  if (!getenv("RS_GLOBAL_DTORS")) {  // used only with sanitizer or valgrind
+    return; 
   }
+  
+  static int invoked = 0;
+  if (invoked || !RS_Initialized) {
+    return;
+  }
+  invoked = 1;
+
+  CursorList_Destroy(&RSCursors);
+
+  Indexes_Free(specDict_g);
+  dictRelease(specDict_g);
+  specDict_g = NULL;
+
+  if (legacySpecDict) {
+    dictRelease(legacySpecDict);
+    legacySpecDict = NULL;
+  }
+  if (legacySpecRules) {
+    dictRelease(legacySpecRules);
+    legacySpecRules = NULL;
+  }
+
+  Extensions_Free();
+  StopWordList_FreeGlobals();
+  FunctionRegistry_Free();
+  mempool_free_global();
+  ConcurrentSearch_ThreadPoolDestroy();
+  ReindexPool_ThreadPoolDestroy();
+  GC_ThreadPoolDestroy();
+  IndexAlias_DestroyGlobal(&AliasTable_g);
+  freeGlobalAddStrings();
+  SchemaPrefixes_Free(ScemaPrefixes_g);
+
+  RedisModule_FreeThreadSafeContext(RSDummyContext);
+  Dictionary_Free();
+  RediSearch_LockDestory();
 }

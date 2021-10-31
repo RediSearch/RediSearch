@@ -1040,23 +1040,23 @@ TEST_F(IndexTest, testSortable) {
   const char *masse = "Maße";
   double num = 3.141;
   ASSERT_TRUE(RSValue_IsNull(v->values[0]));
-  RSSortingVector_Put(v, 0, str, RS_SORTABLE_STR);
+  RSSortingVector_Put(v, 0, str, RS_SORTABLE_STR, 0);
   ASSERT_EQ(v->values[0]->t, RSValue_String);
   ASSERT_EQ(v->values[0]->strval.stype, RSString_RMAlloc);
 
   ASSERT_TRUE(RSValue_IsNull(v->values[1]));
   ASSERT_TRUE(RSValue_IsNull(v->values[2]));
-  RSSortingVector_Put(v, 1, &num, RSValue_Number);
+  RSSortingVector_Put(v, 1, &num, RSValue_Number, 0);
   ASSERT_EQ(v->values[1]->t, RS_SORTABLE_NUM);
 
   RSSortingVector *v2 = NewSortingVector(tbl->len);
-  RSSortingVector_Put(v2, 0, masse, RS_SORTABLE_STR);
+  RSSortingVector_Put(v2, 0, masse, RS_SORTABLE_STR, 0);
 
   /// test string unicode lowercase normalization
   ASSERT_STREQ("masse", v2->values[0]->strval.str);
 
   double s2 = 4.444;
-  RSSortingVector_Put(v2, 1, &s2, RS_SORTABLE_NUM);
+  RSSortingVector_Put(v2, 1, &s2, RS_SORTABLE_NUM, 0);
 
   RSSortingKey sk = {.index = 0, .ascending = 0};
 

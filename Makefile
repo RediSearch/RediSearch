@@ -16,18 +16,22 @@ ifeq ($(SAN),mem)
 CMAKE_SAN=-DUSE_MSAN=ON -DMSAN_PREFIX=/opt/llvm-project/build-msan
 SAN_DIR=msan
 export SAN=memory
+
 else ifeq ($(SAN),memory)
 CMAKE_SAN=-DUSE_MSAN=ON -DMSAN_PREFIX=/opt/llvm-project/build-msan
 SAN_DIR=msan
 export SAN=memory
+
 else ifeq ($(SAN),addr)
 CMAKE_SAN=-DUSE_ASAN=ON
 SAN_DIR=asan
 export SAN=address
+
 else ifeq ($(SAN),address)
 CMAKE_SAN=-DUSE_ASAN=ON
 SAN_DIR=asan
 export SAN=address
+
 else ifeq ($(SAN),leak)
 else ifeq ($(SAN),thread)
 else
@@ -45,6 +49,7 @@ make build         # compile and link
   WHY=1            # explain CMake decisions (in /tmp/cmake-why)
   FORCE=1          # Force CMake rerun
   CMAKE_ARGS=...   # extra arguments to CMake
+  STATIC=1         # build as static lib
   VG=1             # build for Valgrind
   SAN=type         # build with LLVM sanitizer (type=address|memory|leak|thread) 
 make parsers       # build parsers code
@@ -66,6 +71,7 @@ make pytest        # run python tests (tests/pytests)
   GDB=1              # RLTest interactive debugging
   VG=1               # use Valgrind
   SAN=type           # use LLVM sanitizer (type=address|memory|leak|thread) 
+  ONLY_STABLE=1      # skip unstable tests
 make c_tests       # run C tests (from tests/ctests)
 make cpp_tests     # run C++ tests (from tests/cpptests)
   TEST=name          # e.g. TEST=FGCTest.testRemoveLastBlock
@@ -107,7 +113,11 @@ export PACKAGE_NAME
 #----------------------------------------------------------------------------------------------
 
 ifneq ($(SAN),)
-override CMAKE_ARGS += -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+CMAKE_SAN += -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+endif
+
+ifeq ($(PROFILE),1)
+CMAKE_PROFILE=-DPROFILE=ON
 endif
 
 ifeq ($(DEBUG),1)
@@ -125,6 +135,12 @@ endif
 
 ifeq ($(WHY),1)
 CMAKE_WHY=--trace-expand > /tmp/cmake-why 2>&1
+endif
+
+ifeq ($(STATIC),1)
+CMAKE_STATIC +=\
+	-DRS_FORCE_NO_GITVERSION=ON \
+	-DRS_BUILD_STATIC=ON
 endif
 
 CMAKE_FILES= \
@@ -147,6 +163,8 @@ CMAKE_FILES+= \
 	tests/pytests/CMakeLists.txt \
 	tests/c_utils/CMakeLists.txt
 endif
+
+CMAKE_FLAGS=$(CMAKE_ARGS) $(CMAKE_DEBUG) $(CMAKE_STATIC) $(CMAKE_SAN) $(CMAKE_TEST) $(CMAKE_WHY) $(CMAKE_PROFILE)
 
 #----------------------------------------------------------------------------------------------
 
@@ -171,7 +189,7 @@ ifeq ($(WHY),1)
 	@echo CMake log is in /tmp/cmake-why
 endif
 	@mkdir -p $(BINROOT)
-	@cd $(BINROOT) && cmake .. $(CMAKE_ARGS) $(CMAKE_SAN) $(CMAKE_TEST) $(CMAKE_DEBUG) $(CMAKE_WHY)
+	@cd $(BINROOT) && cmake .. $(CMAKE_FLAGS)
 
 $(COMPAT_DIR)/redisearch.so: $(BINROOT)/Makefile
 	@echo Building ...
@@ -217,7 +235,7 @@ fetch:
 #----------------------------------------------------------------------------------------------
 
 run:
-	@redis-server --loadmodule $(COMPAT_MODULE)
+	@redis-server --loadmodule $(abspath $(TARGET))
 
 #----------------------------------------------------------------------------------------------
 
@@ -227,7 +245,14 @@ ifneq ($(REMOTE),)
 	BENCHMARK_ARGS = redisbench-admin run-remote 
 endif
 
-BENCHMARK_ARGS += --module_path $(realpath $(TARGET))
+ifeq ($(REJSON),1)
+BENCHMARK_ARGS += --module_path $(realpath $(REJSON_PATH)) \
+	--required-module ReJSON
+endif
+
+BENCHMARK_ARGS += --module_path $(realpath $(TARGET)) \
+	--required-module search
+
 ifneq ($(BENCHMARK),)
 	BENCHMARK_ARGS += --test $(BENCHMARK)
 endif
@@ -247,6 +272,8 @@ ifneq ($(CTEST_PARALLEL),)
 override CTEST_ARGS += -j$(CTEST_PARALLEL)
 endif
 
+override CTEST_ARGS += --timeout 15000
+
 test:
 ifneq ($(TEST),)
 	@set -e; cd $(BINROOT); CTEST_OUTPUT_ON_FAILURE=1 RLTEST_ARGS="-s -v" ctest $(CTEST_ARGS) -vv -R $(TEST)
@@ -255,7 +282,7 @@ else
 endif
 
 pytest:
-	@TEST=$(TEST) FORCE= $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
+	@TEST=$(TEST) FORCE= VG=$(VALGRIND) VG_LEAKS=0 $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
 
 ifeq ($(GDB),1)
 GDB_CMD=gdb -ex r --args

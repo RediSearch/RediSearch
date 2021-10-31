@@ -70,7 +70,9 @@ RLookupKey *RLookup_GetKeyEx(RLookup *lookup, const char *name, size_t n, int fl
   int isNew = 0;
 
   for (RLookupKey *kk = lookup->head; kk; kk = kk->next) {
-    if (kk->name_len == n && !strncmp(kk->name, name, kk->name_len)) {
+    // match `name` to the name/path of the field
+    if ((kk->name_len == n && !strncmp(kk->name, name, kk->name_len)) || 
+        (kk->path != kk->name && !strncmp(kk->path, name, n))) {
       if (flags & RLOOKUP_F_OEXCL) {
         return NULL;
       }
@@ -252,16 +254,53 @@ void RLookup_Cleanup(RLookup *lk) {
 
 static RSValue *hvalToValue(RedisModuleString *src, RLookupCoerceType type) {
   if (type == RLOOKUP_C_BOOL || type == RLOOKUP_C_INT) {
-    long long ll = 0;
+    long long ll;
     RedisModule_StringToLongLong(src, &ll);
     return RS_Int64Val(ll);
   } else if (type == RLOOKUP_C_DBL) {
-    double dd = 0.0;
+    double dd;
     RedisModule_StringToDouble(src, &dd);
     return RS_NumVal(dd);
   } else {
     return RS_OwnRedisStringVal(src);
   }
+}
+
+static RSValue *jsonValToValue(RedisModuleCtx *ctx, RedisJSON json) {
+  size_t len;
+  char *str;
+  const char *constStr;
+  RedisModuleString *rstr;
+  RSValue *rs_val;
+  long long ll;
+  double dd;
+  int i;
+
+  switch (japi->getType(json)) {
+    case JSONType_String:
+      japi->getString(json, &constStr, &len);
+      str = rm_strndup(constStr, len);
+      return RS_StringVal(str, len);
+    case JSONType_Int:
+      japi->getInt(json, &ll);
+      return RS_Int64Val(ll);
+    case JSONType_Double:
+      japi->getDouble(json, &dd);
+      return RS_NumVal(dd);
+    case JSONType_Bool:
+      japi->getBoolean(json, &i);
+      return RS_Int64Val(i);
+    case JSONType_Array:
+    case JSONType_Object:
+      japi->getJSON(json, ctx, &rstr);
+      rs_val = RS_StealRedisStringVal(rstr);
+      return rs_val;
+    case JSONType_Null:
+      return RS_NullVal();
+    case JSONType__EOF:
+      RS_LOG_ASSERT(0, "Cannot get here");
+  }
+  return NULL;
 }
 
 static RSValue *replyElemToValue(RedisModuleCallReply *rep, RLookupCoerceType otype) {
@@ -327,16 +366,15 @@ static int getKeyCommonHash(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
   RedisModuleString *val = NULL;
   RSValue *rsv = NULL;
 
-  // field name should be translated to a path
-  // TODO: consider better solution for faster
-  const char *path;
-  if (kk->path != kk->name) {
-    path = kk->path;
-  } else {
-    const FieldSpec *fs = IndexSpec_GetField(options->sctx->spec, kk->name, kk->name_len);
-    path = fs ? fs->path : kk->name;
+  rc = RedisModule_HashGet(*keyobj, REDISMODULE_HASH_CFIELDS, kk->path, &val, NULL);
+  if (!val && options->sctx->spec->flags & Index_HasFieldAlias) {
+    // name of field is the alias given on FT.CREATE
+    // get the the actual path
+    const FieldSpec *fs = IndexSpec_GetField(options->sctx->spec, kk->path, strlen(kk->path));
+    if (fs) {
+      rc = RedisModule_HashGet(*keyobj, REDISMODULE_HASH_CFIELDS, fs->path, &val, NULL);
+    }
   }
-  rc = RedisModule_HashGet(*keyobj, REDISMODULE_HASH_CFIELDS, path, &val, NULL);
 
   if (rc == REDISMODULE_OK && val != NULL) {
     rsv = hvalToValue(val, kk->fieldtype);
@@ -358,7 +396,7 @@ static int getKeyCommonHash(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
 
 
 static int getKeyCommonJSON(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOptions *options,
-                        RedisJSONKey *keyobj) {
+                        RedisJSON *keyobj) {
   if (!japi) {
     QueryError_SetCode(options->status, QUERY_EUNSUPPTYPE);
     RedisModule_Log(RSDummyContext, "warning", "cannot operate on a JSON index as RedisJSON is not loaded");
@@ -382,37 +420,33 @@ static int getKeyCommonJSON(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
   }
 
   // Get the actual json value
-  int rc = REDISMODULE_ERR;
   RedisModuleString *val = NULL;
   RSValue *rsv = NULL;
 
-  const char *path;
-  if (kk->path != kk->name) {
-    path = kk->path;
-  } else { 
-    // field name should be translated to a path
-    // TODO: consider better solution for faster
-    const FieldSpec *fs = IndexSpec_GetField(options->sctx->spec, kk->name, kk->name_len);
-    path = fs ? fs->path : kk->name;
+  JSONResultsIterator jsonIter = (*kk->path == '$') ? japi->get(*keyobj, kk->path) : NULL;
+  if (!jsonIter) {
+    // name of field is the alias given on FT.CREATE
+    // get the the actual path
+    const FieldSpec *fs = IndexSpec_GetField(options->sctx->spec, kk->path, strlen(kk->path));
+    if (fs) {
+      jsonIter = japi->get(*keyobj, fs->path);
+    }
   }
 
-  RedisJSON json = japi->get(*keyobj, path, NULL);
-  if (json) {
-    rc = japi->getJSON(json, ctx, &val);    
+  if (!jsonIter) {
+    // The field does not exist and and it isn't `__key`
+    if (!strncmp(kk->name, UNDERSCORE_KEY, strlen(UNDERSCORE_KEY))) {
+      rsv = RS_StringVal(options->dmd->keyPtr, strlen(options->dmd->keyPtr));
+    } else {
+      return REDISMODULE_OK;
+    }
   } else {
-    rc = REDISMODULE_ERR;
-  }
-
-  if (rc == REDISMODULE_OK && val != NULL) {
-    rsv = hvalToValue(val, kk->fieldtype);
-    RedisModule_FreeString(RSDummyContext, val);
-  } else if (!strncmp(kk->name, UNDERSCORE_KEY, strlen(UNDERSCORE_KEY))) {
-    RedisModuleString *keyName = RedisModule_CreateString(options->sctx->redisCtx,
-                                  options->dmd->keyPtr, strlen(options->dmd->keyPtr));
-    rsv = hvalToValue(keyName, RLOOKUP_C_STR);
-    RedisModule_FreeString(options->sctx->redisCtx, keyName);
-  } else {
-    return REDISMODULE_OK;
+    RedisJSON jsonValue = japi->next(jsonIter);
+    japi->freeIter(jsonIter);
+    if (!jsonValue) {
+      return REDISMODULE_OK;
+    }
+    rsv = jsonValToValue(ctx, jsonValue);
   }
 
   // Value has a reference count of 1
@@ -461,7 +495,7 @@ done:
   if (key) {
     switch (options->dmd->type) {
     case DocumentType_Hash: RedisModule_CloseKey(key); break;
-    case DocumentType_Json: if (japi) japi->closeKey(key); break;
+    case DocumentType_Json: break;
     case DocumentType_None: RS_LOG_ASSERT(1, "placeholder");
     }
   }
@@ -606,19 +640,21 @@ static int RLookup_JSON_GetAll(RLookup *it, RLookupRow *dst, RLookupLoadOptions 
     return rc;
   }
 
+  JSONResultsIterator jsonIter = NULL;
   RedisModuleCtx *ctx = options->sctx->redisCtx;
-  RedisJSONKey jsonKey = japi->openKeyFromStr(ctx, options->dmd->keyPtr);
-  if (!jsonKey) {
+  RedisJSON jsonRoot = japi->openKeyFromStr(ctx, options->dmd->keyPtr);
+  if (!jsonRoot) {
     goto done;
   }
 
-  RedisJSON json = japi->get(jsonKey, JSON_ROOT, NULL);
-  if (json == NULL) {
+  jsonIter = japi->get(jsonRoot, JSON_ROOT);
+  if (jsonIter == NULL) {
     goto done;
   }
 
   RedisModuleString *value = NULL;
-  if (japi->getJSON(json, ctx, &value) != REDISMODULE_OK) {
+  RedisJSON jsonValue = japi->next(jsonIter);
+  if (!jsonValue || japi->getJSON(jsonRoot, ctx, &value) != REDISMODULE_OK) {
     if (value) {
       RedisModule_FreeString(ctx, value);
     }
@@ -632,8 +668,8 @@ static int RLookup_JSON_GetAll(RLookup *it, RLookupRow *dst, RLookupLoadOptions 
   rc = REDISMODULE_OK;
 
 done:
-  if (jsonKey) {
-    japi->closeKey(jsonKey);
+  if (jsonIter) {
+    japi->freeIter(jsonIter);
   }
   return rc;
 }

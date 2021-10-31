@@ -29,22 +29,13 @@ struct RSSortingVector;
 
 #define REDISEARCH_ERR 1
 #define REDISEARCH_OK 0
+#define REDISEARCH_UNINITIALIZED -1
 
 #define RedisModule_ReplyWithPrintf(ctx, fmt, ...)                                      \
 do {                                                                                    \
   RedisModuleString *str = RedisModule_CreateStringPrintf(ctx, fmt, __VA_ARGS__);       \
   RedisModule_ReplyWithString(ctx, str);                                                \
   RedisModule_FreeString(ctx, str);                                                     \
-} while (0)
-
-#define RedisModule_LoadStringBufferAlloc(rdb, ptr, len)          \
-do {                                                              \
-  size_t tmp_len;                                                 \
-  size_t *tmp_len_ptr = len ? len : &tmp_len;                     \
-  char *oldbuf = RedisModule_LoadStringBuffer(rdb, tmp_len_ptr);  \
-  ptr = rm_malloc(*tmp_len_ptr);                                  \
-  memcpy(ptr, oldbuf, *tmp_len_ptr);                              \
-  RedisModule_Free(oldbuf);                                       \
 } while (0)
 
 #ifdef __cplusplus
@@ -54,9 +45,11 @@ extern "C" {
 typedef enum {
   DocumentType_Hash,
   DocumentType_Json,
-  // DocumentType_LLAPI,
   DocumentType_None,
 } DocumentType;
+
+#define isSpecHash(spec) (spec->rule && spec->rule->type == DocumentType_Hash)
+#define isSpecJson(spec) (spec->rule && spec->rule->type == DocumentType_Json)
 
 /* A payload object is set either by a query expander or by the user, and can be used to process
  * scores. For examples, it can be a feature vector that is then compared to a feature vector

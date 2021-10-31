@@ -5,6 +5,17 @@
 #include "trie/trie_type.h"
 #include "query_error.h"
 
+extern bool isCrdt;
+
+static int replyCrdtError(RedisModuleCtx *ctx) {
+  return RedisModule_ReplyWithSimpleString(ctx, "Suggest commands are not available with CRDT");
+}
+
+#define RETURN_ERROR_ON_CRDT(ctx)     \
+  if (isCrdt) {                       \
+    return replyCrdtError(ctx);       \
+  }
+
 /*
 ## FT.SUGGADD key string score [INCR] [PAYLOAD {payload}]
 
@@ -40,6 +51,7 @@ int RSSuggestAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   if (argc < 4 || argc > 7) {
     return RedisModule_WrongArity(ctx);
   }
+  RETURN_ERROR_ON_CRDT(ctx);
 
   int incr = 0, rv = AC_OK;
   RSPayload payload = {0};
@@ -105,6 +117,8 @@ int RSSuggestLenCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   RedisModule_AutoMemory(ctx); /* Use automatic memory management. */
 
   if (argc != 2) return RedisModule_WrongArity(ctx);
+  RETURN_ERROR_ON_CRDT(ctx);
+
   RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_READ);
   int type = RedisModule_KeyType(key);
   if (type != REDISMODULE_KEYTYPE_EMPTY && RedisModule_ModuleTypeGetType(key) != TrieType) {
@@ -134,6 +148,7 @@ int RSSuggestDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   RedisModule_AutoMemory(ctx); /* Use automatic memory management. */
 
   if (argc != 3) return RedisModule_WrongArity(ctx);
+  RETURN_ERROR_ON_CRDT(ctx);
   RedisModule_ReplicateVerbatim(ctx);
 
   RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_READ);
@@ -233,6 +248,7 @@ int RSSuggestGetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   RedisModule_AutoMemory(ctx); /* Use automatic memory management. */
 
   if (argc < 3 || argc > 10) return RedisModule_WrongArity(ctx);
+  RETURN_ERROR_ON_CRDT(ctx);
 
   // get the string to search for
   size_t len;
