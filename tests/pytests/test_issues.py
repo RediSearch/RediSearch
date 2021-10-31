@@ -229,3 +229,14 @@ def test_MOD_1517(env):
              'GROUPBY', '2', '@field1', '@field2',
              'REDUCE', 'SUM', '1', '@amount1', 'AS', 'amount1Sum',
              'REDUCE', 'SUM', '1', '@amount2', 'as', 'amount2Sum').equal(res)
+
+def test_MOD_1808(env):
+  conn = getConnectionByEnv(env)
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+  conn.execute_command('hset', 'doc0', 't', 'world0')
+  conn.execute_command('hset', 'doc1', 't', 'world1')
+  conn.execute_command('hset', 'doc2', 't', 'world2')
+  conn.execute_command('hset', 'doc3', 't', 'world3')
+  env.expect('FT.SEARCH', 'idx', '(~@t:world2) (~@t:world1) (~@fawdfa:wada)', 'SUMMARIZE', 'FRAGS', '1', 'LEN', '25', 'HIGHLIGHT', 'TAGS', "<span style='background-color:yellow'>", '</span>')\
+  .equal([4L, 'doc2', ['t', "<span style='background-color:yellow'>world2</span>... "], 'doc1', ['t', 'world1'], 'doc0', ['t', 'world0'], 'doc3', ['t', 'world3']])
+
