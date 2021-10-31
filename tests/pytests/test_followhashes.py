@@ -568,6 +568,7 @@ def createExpire(env, N):
     res = {res[i]:res[i + 1] for i in range(0, len(res), 2)}
   env.assertEqual(res, {})
 
+@no_msan
 def testExpiredDuringSearch(env):
   N = 100
   createExpire(env, N)
@@ -580,6 +581,7 @@ def testExpiredDuringSearch(env):
   env.assertEqual(toSortedFlatList(res[1:]), toSortedFlatList(['bar', ['txt1', 'hello', 'n', '20'], 
                                                                'foo', ['txt1', 'hello', 'n', '0']]))
 
+@no_msan
 def testExpiredDuringAggregate(env):
   N = 100
   res = [1L, ['txt1', 'hello', 'COUNT', '2']]
