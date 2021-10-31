@@ -69,7 +69,7 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
   for (size_t i = 0; i < doc->numFields; i++) {
     DocumentField *f = doc->fields + i;
     const FieldSpec *fs = IndexSpec_GetField(sp, f->name, strlen(f->name));
-    if (!fs || !f->text) {
+    if (!fs || (isSpecHash(sp) && !f->text)) {
       aCtx->fspecs[i].name = NULL;
       aCtx->fspecs[i].path = NULL;
       aCtx->fspecs[i].types = 0;
@@ -538,7 +538,7 @@ FIELD_PREPROCESSOR(tagPreprocessor) {
   if (fdata->tags == NULL) {
     return 0;
   }
-  if (FieldSpec_IsSortable(fs) && aCtx->spec->rule->type == DocumentType_Hash) {
+  if (FieldSpec_IsSortable(fs) && isSpecHash(aCtx->spec)) {
     size_t fl;
     const char *str = DocumentField_GetValueCStr(field, &fl);
     RSSortingVector_Put(aCtx->sv, fs->sortIdx, str, RS_SORTABLE_STR, fs->options & FieldSpec_UNF);

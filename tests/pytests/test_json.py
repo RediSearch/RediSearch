@@ -760,3 +760,14 @@ def testScoreField(env):
     env.expect('FT.SEARCH', 'permits2', '*').equal(res)
     env.expect('FT.SEARCH', 'permits1', 'facade').equal(res)
     env.expect('FT.SEARCH', 'permits2', 'facade').equal(res)
+
+@no_msan
+def testMOD1853(env):
+    # test numeric with 0 value
+    conn = getConnectionByEnv(env)
+    conn.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.sid', 'AS', 'sid', 'NUMERIC')
+    env.assertOk(conn.execute_command('JSON.SET', 'json1', '$', r'{"sid":0}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'json2', '$', r'{"sid":1}'))
+    res = [2L, 'json1', ['sid', '0', '$', '{"sid":0}'], 'json2', ['sid', '1', '$', '{"sid":1}']]
+    env.expect('FT.SEARCH', 'idx', '@sid:[0 1]', 'SORTBY', 'sid').equal(res)
+ 

@@ -48,6 +48,9 @@ typedef enum {
   DocumentType_None,
 } DocumentType;
 
+#define isSpecHash(spec) (spec->rule->type == DocumentType_Hash)
+#define isSpecJson(spec) (spec->rule->type == DocumentType_Json)
+
 /* A payload object is set either by a query expander or by the user, and can be used to process
  * scores. For examples, it can be a feature vector that is then compared to a feature vector
  * extracted from each result or document */
