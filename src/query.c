@@ -650,14 +650,24 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
                           UNION_QUICK_EXIT(q), weight, QN_PREFIX, qn->pfx.str);
 }
 
-static void tag_strtolower(char *str, size_t *len) {
+static void tag_strtolower(char *str, size_t *len, int caseSensitive) {
   char *p = str;
-  while (*p) {
-    if (*p == '\\') {
-      ++p;
-      --*len;
+  if (caseSensitive) {
+    while (*p) {
+      if (*p == '\\' && (ispunct(*(p+1)) || isspace(*(p+1)))) {
+        ++p;
+        --*len;
+      }
+      *str++ = *p++;
+      }
+  } else {
+    while (*p) {
+      if (*p == '\\' && (ispunct(*(p+1)) || isspace(*(p+1)))) {
+        ++p;
+        --*len;
+      }
+      *str++ = tolower(*p++);
     }
-    *str++ = tolower(*p++);
   }
   *str = '\0';
 }
@@ -667,8 +677,8 @@ static IndexIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, Qu
                                               int caseSensitive) {
   IndexIterator *ret = NULL;
 
-  if (n->tn.str && !caseSensitive) {
-    tag_strtolower(n->tn.str, &n->tn.len);
+  if (n->tn.str) {
+    tag_strtolower(n->tn.str, &n->tn.len, caseSensitive);
   }
 
   switch (n->type) {

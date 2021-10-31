@@ -160,11 +160,6 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
     if ((parseSortby(arng, ac, status, req->reqflags & QEXEC_F_IS_SEARCH)) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
-  } else if (AC_AdvanceIfMatch(ac, "MSORTBY")) {
-    PLN_ArrangeStep *arng = AGPLN_GetOrCreateArrangeStep(&req->ap);
-    if ((parseSortby(arng, ac, status, 0)) != REDISMODULE_OK) {
-      return ARG_ERROR;
-    }
   } else if (AC_AdvanceIfMatch(ac, "TIMEOUT")) {	
     if (AC_NumRemaining(ac) < 1) {	
       QueryError_SetError(status, QUERY_EPARSEARGS, "Need argument for TIMEOUT");	
@@ -634,11 +629,10 @@ static int handleLoad(AREQ *req, ArgsCursor *ac, QueryError *status) {
   if (rc != AC_OK) {
     const char *s = NULL;
     rc = AC_GetString(ac, &s, NULL, 0);
-    if (rc != AC_OK || strncasecmp(s, "ALL", strlen("ALL"))) {
+    if (rc != AC_OK || strcmp(s, "*")) {
       QERR_MKBADARGS_AC(status, "LOAD", rc);
       return REDISMODULE_ERR;  
     }
-
     req->reqflags |= QEXEC_AGG_LOAD_ALL;
   }
 
@@ -648,6 +642,10 @@ static int handleLoad(AREQ *req, ArgsCursor *ac, QueryError *status) {
   if (loadfields.argc > 0) {
     lstp->args = loadfields;
     lstp->keys = rm_calloc(loadfields.argc, sizeof(*lstp->keys));
+  }
+
+  if (req->reqflags & QEXEC_AGG_LOAD_ALL) {
+    lstp->base.flags |= PLN_F_LOAD_ALL;
   }
 
   AGPLN_AddStep(&req->ap, &lstp->base);
@@ -818,8 +816,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   return REDISMODULE_OK;
 }
 
-static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup, QueryError *err,
-                                     struct timespec *timeout) {
+static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup, QueryError *err) {
   const RLookupKey *srckeys[gstp->nproperties], *dstkeys[gstp->nproperties];
   for (size_t ii = 0; ii < gstp->nproperties; ++ii) {
     const char *fldname = gstp->properties[ii] + 1;  // account for the @-
@@ -831,7 +828,7 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup, Qu
     dstkeys[ii] = RLookup_GetKey(&gstp->lookup, fldname, RLOOKUP_F_OCREAT | RLOOKUP_F_NOINCREF);
   }
 
-  Grouper *grp = Grouper_New(srckeys, dstkeys, gstp->nproperties, timeout);
+  Grouper *grp = Grouper_New(srckeys, dstkeys, gstp->nproperties);
 
   size_t nreducers = array_len(gstp->reducers);
   for (size_t ii = 0; ii < nreducers; ++ii) {
@@ -883,7 +880,7 @@ static ResultProcessor *getGroupRP(AREQ *req, PLN_GroupStep *gstp, ResultProcess
                                    QueryError *status) {
   AGGPlan *pln = &req->ap;
   RLookup *lookup = AGPLN_GetLookup(pln, &gstp->base, AGPLN_GETLOOKUP_PREV);
-  ResultProcessor *groupRP = buildGroupRP(gstp, lookup, status, &req->timeoutTime);
+  ResultProcessor *groupRP = buildGroupRP(gstp, lookup, status);
 
   if (!groupRP) {
     return NULL;
@@ -951,13 +948,13 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
       }
     }
 
-    rp = RPSorter_NewByFields(limit, sortkeys, nkeys, astp->sortAscMap, &req->timeoutTime);
+    rp = RPSorter_NewByFields(limit, sortkeys, nkeys, astp->sortAscMap);
     up = pushRP(req, rp, up);
   }
 
   // No sort? then it must be sort by score, which is the default.
   if (rp == NULL && (req->reqflags & QEXEC_F_IS_SEARCH)) {
-    rp = RPSorter_NewByScore(limit, &req->timeoutTime);
+    rp = RPSorter_NewByScore(limit);
     up = pushRP(req, rp, up);
   }
 
@@ -1196,7 +1193,7 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status) {
           kk->name_len = strlen(name);
           lstp->keys[lstp->nkeys++] = kk;
         }
-        if (lstp->nkeys || req->reqflags & QEXEC_AGG_LOAD_ALL) {
+        if (lstp->nkeys || lstp->base.flags & PLN_F_LOAD_ALL) {
           rp = RPLoader_New(curLookup, lstp->keys, lstp->nkeys);
           PUSH_RP();
         }

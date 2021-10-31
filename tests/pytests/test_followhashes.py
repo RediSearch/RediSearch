@@ -176,6 +176,36 @@ def testRename(env):
     env.cmd('SET foo bar')
     env.cmd('RENAME foo fubu')
 
+def testCopy(env):
+    env.skipOnCluster()
+    conn = getConnectionByEnv(env)
+
+    conn.execute_command('ft.create', 'things', 'SCHEMA', 'name', 'text')
+    env.expect('FT.SEARCH', 'things', 'foo').equal([0L])
+
+    conn.execute_command('hset', '1', 'name', 'foo')
+    env.expect('FT.SEARCH', 'things', 'foo').equal([1L, '1', ['name', 'foo']])
+
+    # copy key to a non existing key
+    env.expect('COPY', '1', '2').equal(1L)
+    env.expect('FT.SEARCH', 'things', 'foo').equal([2L, '1', ['name', 'foo'], '2', ['name', 'foo']])
+
+    conn.execute_command('hset', '2', 'name', 'bar')
+    env.expect('FT.SEARCH', 'things', 'foo').equal([1L, '1', ['name', 'foo']])
+
+    # copy key to an existing key
+    env.expect('COPY', '1', '2').equal(0L)
+    env.expect('FT.SEARCH', 'things', 'foo').equal([1L, '1', ['name', 'foo']])
+
+    # copy key to an existing key with replace
+    env.expect('COPY', '1', '2', 'REPLACE').equal(1L)
+    env.expect('FT.SEARCH', 'things', 'foo').equal([2L, '1', ['name', 'foo'], '2', ['name', 'foo']])
+
+    # replace with non hash key
+    conn.execute_command('set', '3', 'foo')
+    env.expect('COPY', '3', '1', 'REPLACE').equal(1L)
+    env.expect('FT.SEARCH', 'things', 'foo').equal([1L, '2', ['name', 'foo']])
+
 def testFlush(env):
     conn = getConnectionByEnv(env)
     env.cmd('ft.create', 'things', 'ON', 'HASH',
@@ -517,9 +547,13 @@ def createExpire(env, N):
   env.flush()
   conn = getConnectionByEnv(env)
   env.expect('FT.CREATE idx SCHEMA txt1 TEXT n NUMERIC').ok()
-  for i in range(N):
-    conn.execute_command('HSET', 'doc%d' % i, 'txt1', 'hello%i' % i, 'n', i)
-    conn.execute_command('PEXPIRE', 'doc%d' % i, '100')
+  with conn.pipeline(transaction=True) as pl:
+    for i in range(N):
+      pl.execute_command('HSET', 'doc%d' % i, 'txt1', 'hello%i' % i, 'n', i)
+    pl.execute()
+    for i in range(N):
+      pl.execute_command('PEXPIRE', 'doc%d' % i, '100')
+    pl.execute()
   conn.execute_command('HSET', 'foo', 'txt1', 'hello', 'n', 0)
   conn.execute_command('HSET', 'bar', 'txt1', 'hello', 'n', 20)
   waitForIndex(env, 'idx')
@@ -534,6 +568,7 @@ def createExpire(env, N):
     res = {res[i]:res[i + 1] for i in range(0, len(res), 2)}
   env.assertEqual(res, {})
 
+@no_msan
 def testExpiredDuringSearch(env):
   N = 100
   createExpire(env, N)
@@ -546,6 +581,7 @@ def testExpiredDuringSearch(env):
   env.assertEqual(toSortedFlatList(res[1:]), toSortedFlatList(['bar', ['txt1', 'hello', 'n', '20'], 
                                                                'foo', ['txt1', 'hello', 'n', '0']]))
 
+@no_msan
 def testExpiredDuringAggregate(env):
   N = 100
   res = [1L, ['txt1', 'hello', 'COUNT', '2']]

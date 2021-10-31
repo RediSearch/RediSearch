@@ -479,7 +479,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, ArgsCursor *ac, QueryError
     }
 
     if (FieldSpec_IsSortable(fs)) {
-      if (fs->types & INDEXFLD_T_TAG && sp->rule->type == DocumentType_Json) {
+      if (fs->types & INDEXFLD_T_TAG && isSpecJson(sp)) {
         QueryError_SetErrorFmt(status, QUERY_EBADOPTION,
                                "On JSON, cannot set tag field to sortable - %s", fieldName);
         goto reset;
@@ -1870,7 +1870,11 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
       subevent == REDISMODULE_SUBEVENT_LOADING_AOF_START ||
       subevent == REDISMODULE_SUBEVENT_LOADING_REPL_START) {
     Indexes_Free(specDict_g);
-    legacySpecDict = dictCreate(&dictTypeHeapStrings, NULL);
+    if (legacySpecDict) {
+      dictEmpty(legacySpecDict, NULL);
+    } else {
+      legacySpecDict = dictCreate(&dictTypeHeapStrings, NULL);
+    }
   } else if (subevent == REDISMODULE_SUBEVENT_LOADING_ENDED) {
     int hasLegacyIndexes = dictSize(legacySpecDict);
     Indexes_UpgradeLegacyIndexes();
