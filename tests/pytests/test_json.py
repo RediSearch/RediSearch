@@ -743,3 +743,31 @@ def testNotExistField(env):
     conn.execute_command('FT.CREATE', 'idx1', 'ON', 'JSON', 'SCHEMA', '$.t', 'AS', 't', 'TEXT')
     conn.execute_command('JSON.SET', 'doc1', '$', '{"t":"foo"}')
     env.expect('FT.SEARCH', 'idx1', '*', 'RETURN', 1, 'name').equal([1L, 'doc1', []])
+
+@no_msan
+def testScoreField(env):
+    conn = getConnectionByEnv(env)
+    conn.execute_command('FT.CREATE', 'permits1', 'ON', 'JSON', 'PREFIX', '1', 'tst:', 'SCORE_FIELD', '$._score', 'SCHEMA', '$._score', 'AS', '_score', 'NUMERIC', '$.description', 'AS', 'description', 'TEXT')
+    conn.execute_command('FT.CREATE', 'permits2', 'ON', 'JSON', 'PREFIX', '1', 'tst:', 'SCORE_FIELD', '$._score', 'SCHEMA', '$.description', 'AS', 'description', 'TEXT')
+    env.assertOk(conn.execute_command('JSON.SET', 'tst:permit1', '$', r'{"_score":0.8, "description":"Fix the facade"}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'tst:permit2', '$', r'{"_score":0.7, "description":"Fix the facade"}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'tst:permit3', '$', r'{"_score":0.9, "description":"Fix the facade"}'))
+ 
+    res = [3L, 'tst:permit3', ['$', '{"_score":0.9,"description":"Fix the facade"}'],
+               'tst:permit1', ['$', '{"_score":0.8,"description":"Fix the facade"}'],
+               'tst:permit2', ['$', '{"_score":0.7,"description":"Fix the facade"}']]
+    env.expect('FT.SEARCH', 'permits1', '*').equal(res)
+    env.expect('FT.SEARCH', 'permits2', '*').equal(res)
+    env.expect('FT.SEARCH', 'permits1', 'facade').equal(res)
+    env.expect('FT.SEARCH', 'permits2', 'facade').equal(res)
+
+@no_msan
+def testMOD1853(env):
+    # test numeric with 0 value
+    conn = getConnectionByEnv(env)
+    conn.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.sid', 'AS', 'sid', 'NUMERIC')
+    env.assertOk(conn.execute_command('JSON.SET', 'json1', '$', r'{"sid":0}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'json2', '$', r'{"sid":1}'))
+    res = [2L, 'json1', ['sid', '0', '$', '{"sid":0}'], 'json2', ['sid', '1', '$', '{"sid":1}']]
+    env.expect('FT.SEARCH', 'idx', '@sid:[0 1]', 'SORTBY', 'sid').equal(res)
+ 
