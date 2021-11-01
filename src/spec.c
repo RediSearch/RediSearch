@@ -1739,7 +1739,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   QueryError status;
   sp->rule = SchemaRule_Create(rule_args, sp, &status);
 
-#if 0
+#if 1
   dictDelete(legacySpecRules, sp->name);
   SchemaRuleArgs_Free(rule_args);
 #endif
@@ -1751,7 +1751,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
     return NULL;
   }
 
-#if 1
+#if 0
   SchemaRuleArgs_Free(rule_args);
   dictDelete(legacySpecRules, sp->name);
 #endif

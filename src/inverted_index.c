@@ -1298,7 +1298,6 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepa
         if (!blk->lastId) {
           blk->lastId = res->docId;
         }
-#if 1
         if (encoder != encodeRawDocIdsOnly) {
           if (isLastValid) {
             Buffer_Write(&bw, bufBegin, sz);
@@ -1311,20 +1310,6 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepa
           }
             encoder(&bw, res->docId - blk->firstId, res);
           }
-#else
-        if (!blk->firstId) {
-          blk->firstId = res->docId;
-        }
-        if (isLastValid && encoder != encodeRawDocIdsOnly) {
-          Buffer_Write(&bw, bufBegin, sz);
-        } else {
-          if (encoder != encodeRawDocIdsOnly) {
-            encoder(&bw, res->docId - blk->lastId, res);
-          } else {
-            encoder(&bw, res->docId - blk->firstId, res);
-          }
-        }
-#endif
       }
 
       // Update these for every valid document, even for those which
