@@ -37,6 +37,7 @@ int DocumentType_Parse(const char *type_str, DocumentType *type, QueryError *sta
 
 void SchemaRuleArgs_Free(SchemaRuleArgs *rule_args) {
   // free rule_args
+  if (!rule_args) return;
 #define FREE_IF_NEEDED(arg) \
   if (arg) rm_free(arg)
   FREE_IF_NEEDED(rule_args->filter_exp_str);
@@ -53,8 +54,11 @@ void SchemaRuleArgs_Free(SchemaRuleArgs *rule_args) {
   rm_free(rule_args);
 }
 
-void SchemaRulesArgs_Free(RedisModuleCtx *ctx) {
+void LegacySchemaRulesArgs_Free(RedisModuleCtx *ctx) {
   if (!legacySpecRules) return;
+  if (!ctx) {
+    ctx = RSDummyContext;
+  }
   dictIterator *iter = dictGetIterator(legacySpecRules);
   dictEntry *entry = NULL;
   while ((entry = dictNext(iter))) {

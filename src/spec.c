@@ -1883,7 +1883,7 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
     dictRelease(legacySpecDict);
     legacySpecDict = NULL;
 
-    SchemaRulesArgs_Free(ctx);
+    LegacySchemaRulesArgs_Free(ctx);
 
     if (hasLegacyIndexes || CompareVestions(redisVersion, noScanVersion) < 0) {
       Indexes_ScanAndReindex();
@@ -2003,7 +2003,6 @@ static void onFlush(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent
   }
   IndexSpec_CleanAll();
   Dictionary_Clear();
-  SchemaRulesArgs_Free(ctx);
 }
 
 void Indexes_Init(RedisModuleCtx *ctx) {
