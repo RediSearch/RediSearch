@@ -56,9 +56,6 @@ void SchemaRuleArgs_Free(SchemaRuleArgs *rule_args) {
 
 void LegacySchemaRulesArgs_Free(RedisModuleCtx *ctx) {
   if (!legacySpecRules) return;
-  if (!ctx) {
-    ctx = RSDummyContext;
-  }
   dictIterator *iter = dictGetIterator(legacySpecRules);
   dictEntry *entry = NULL;
   while ((entry = dictNext(iter))) {
