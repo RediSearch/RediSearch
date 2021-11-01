@@ -552,7 +552,7 @@ def createExpire(env, N):
       pl.execute_command('HSET', 'doc%d' % i, 'txt1', 'hello%i' % i, 'n', i)
     pl.execute()
     for i in range(N):
-      pl.execute_command('PEXPIRE', 'doc%d' % i, '100')
+      pl.execute_command('PEXPIRE', 'doc%d' % i, '200')
     pl.execute()
   conn.execute_command('HSET', 'foo', 'txt1', 'hello', 'n', 0)
   conn.execute_command('HSET', 'bar', 'txt1', 'hello', 'n', 20)
@@ -562,7 +562,7 @@ def createExpire(env, N):
   if type(res) is list:
     res = {res[i]:res[i + 1] for i in range(0, len(res), 2)}
   env.assertEqual(res, {'txt1': 'hello99', 'n': '99'})
-  sleep(0.1)
+  sleep(0.25)
   res = conn.execute_command('HGETALL', 'doc99')
   if isinstance(res, list):
     res = {res[i]:res[i + 1] for i in range(0, len(res), 2)}

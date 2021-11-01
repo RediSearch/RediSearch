@@ -134,8 +134,8 @@ TEST_P(IndexFlagsTest, testRWFlags) {
 
   IndexEncoder enc = InvertedIndex_GetEncoder(indexFlags);
   IndexEncoder docIdEnc = InvertedIndex_GetEncoder(Index_DocIdsOnly);
-  
   ASSERT_TRUE(enc != NULL);
+  ASSERT_TRUE(docIdEnc != NULL);
 
   for (size_t i = 0; i < 200; i++) {
     // if (i % 10000 == 1) {
