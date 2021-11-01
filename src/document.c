@@ -69,7 +69,7 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
   for (size_t i = 0; i < doc->numFields; i++) {
     DocumentField *f = doc->fields + i;
     const FieldSpec *fs = IndexSpec_GetField(sp, f->name, strlen(f->name));
-    if (!fs || (!isSpecJson(sp) && !f->text)) {
+    if (!fs || (isSpecHash(sp) && !f->text)) {
       aCtx->fspecs[i].name = NULL;
       aCtx->fspecs[i].path = NULL;
       aCtx->fspecs[i].types = 0;
