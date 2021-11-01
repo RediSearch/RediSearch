@@ -1739,8 +1739,10 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   QueryError status;
   sp->rule = SchemaRule_Create(rule_args, sp, &status);
 
+#if 0
   dictDelete(legacySpecRules, sp->name);
   SchemaRuleArgs_Free(rule_args);
+#endif
 
   if (!sp->rule) {
     RedisModule_LogIOError(rdb, "warning", "Failed creating rule for legacy index '%s', error='%s'",
@@ -1748,6 +1750,11 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
     IndexSpec_Free(sp);
     return NULL;
   }
+
+#if 1
+  SchemaRuleArgs_Free(rule_args);
+  dictDelete(legacySpecRules, sp->name);
+#endif
 
   // start the gc and add the spec to the cursor list
   IndexSpec_StartGC(RSDummyContext, sp, GC_DEFAULT_HZ);
@@ -1884,7 +1891,7 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
     dictRelease(legacySpecDict);
     legacySpecDict = NULL;
 
-    SchemaRulesArgs_Free(ctx);
+    LegacySchemaRulesArgs_Free(ctx);
 
     if (hasLegacyIndexes || CompareVestions(redisVersion, noScanVersion) < 0) {
       Indexes_ScanAndReindex();
@@ -2004,7 +2011,6 @@ static void onFlush(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent
   }
   IndexSpec_CleanAll();
   Dictionary_Clear();
-  SchemaRulesArgs_Free(ctx);
 }
 
 void Indexes_Init(RedisModuleCtx *ctx) {
