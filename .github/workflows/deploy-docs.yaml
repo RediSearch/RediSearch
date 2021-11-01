@@ -21,9 +21,9 @@ jobs:
       id: extract_branch
     - uses: actions/checkout@v2.1.1
     - name: Set up Python 3.x
-      uses: actions/setup-python@v1
+      uses: actions/setup-python@v2
       with:
-        python-version: '3.x'
+        python-version: '3.9'
     - name: Display Python version
       run: python -c "import sys; print(sys.version)"
     - name: Install docs dependencies

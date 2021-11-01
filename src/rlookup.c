@@ -609,6 +609,9 @@ static int RLookup_HGETALL(RLookup *it, RLookupRow *dst, RLookupLoadOptions *opt
     RedisModuleKey *key = RedisModule_OpenKey(ctx, krstr, REDISMODULE_READ);
     if (!key || RedisModule_KeyType(key) != REDISMODULE_KEYTYPE_HASH) {
       // key does not exist or is not a hash
+      if (key) {
+        RedisModule_CloseKey(key);
+      }
       goto done;
     }
     RedisModuleScanCursor *cursor = RedisModule_ScanCursorCreate();

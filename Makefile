@@ -16,18 +16,22 @@ ifeq ($(SAN),mem)
 CMAKE_SAN=-DUSE_MSAN=ON -DMSAN_PREFIX=/opt/llvm-project/build-msan
 SAN_DIR=msan
 export SAN=memory
+
 else ifeq ($(SAN),memory)
 CMAKE_SAN=-DUSE_MSAN=ON -DMSAN_PREFIX=/opt/llvm-project/build-msan
 SAN_DIR=msan
 export SAN=memory
+
 else ifeq ($(SAN),addr)
 CMAKE_SAN=-DUSE_ASAN=ON
 SAN_DIR=asan
 export SAN=address
+
 else ifeq ($(SAN),address)
 CMAKE_SAN=-DUSE_ASAN=ON
 SAN_DIR=asan
 export SAN=address
+
 else ifeq ($(SAN),leak)
 else ifeq ($(SAN),thread)
 else
@@ -67,6 +71,7 @@ make pytest        # run python tests (tests/pytests)
   GDB=1              # RLTest interactive debugging
   VG=1               # use Valgrind
   SAN=type           # use LLVM sanitizer (type=address|memory|leak|thread) 
+  ONLY_STABLE=1      # skip unstable tests
 make c_tests       # run C tests (from tests/ctests)
 make cpp_tests     # run C++ tests (from tests/cpptests)
   TEST=name          # e.g. TEST=FGCTest.testRemoveLastBlock
@@ -277,7 +282,7 @@ else
 endif
 
 pytest:
-	@TEST=$(TEST) FORCE= $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
+	@TEST=$(TEST) FORCE= VG=$(VALGRIND) VG_LEAKS=0 $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
 
 ifeq ($(GDB),1)
 GDB_CMD=gdb -ex r --args

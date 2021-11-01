@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 from includes import *
 from common import *
 
@@ -167,32 +169,88 @@ def testIssue1305(env):
     env.assertEqual(res, expectedRes)
 
 def testTagCaseSensitive(env):
-    env.skipOnCluster()
+    conn = getConnectionByEnv(env)
+
     env.expect('FT.CREATE idx1 SCHEMA t TAG').ok()
     env.expect('FT.CREATE idx2 SCHEMA t TAG CASESENSITIVE').ok()
     env.expect('FT.CREATE idx3 SCHEMA t TAG SEPARATOR .').ok()
     env.expect('FT.CREATE idx4 SCHEMA t TAG SEPARATOR . CASESENSITIVE').ok()
     env.expect('FT.CREATE idx5 SCHEMA t TAG CASESENSITIVE SEPARATOR .').ok()
 
-    conn = getConnectionByEnv(env)
     conn.execute_command('HSET', 'doc1', 't', 'foo,FOO')
     conn.execute_command('HSET', 'doc2', 't', 'FOO')
     conn.execute_command('HSET', 'doc3', 't', 'foo')
 
-    env.expect('FT.DEBUG', 'dump_tagidx', 'idx1', 't').equal([['foo', [1L, 2L, 3L]]])
-    env.expect('FT.DEBUG', 'dump_tagidx', 'idx2', 't').equal([['foo', [1L, 3L]], ['FOO', [1L, 2L]]])
-    env.expect('FT.DEBUG', 'dump_tagidx', 'idx3', 't').equal([['foo', [2L, 3L]], ['foo,foo', [1L]]])
-    env.expect('FT.DEBUG', 'dump_tagidx', 'idx4', 't').equal([['foo', [3L]], ['foo,FOO', [1L]], ['FOO', [2L]]])
-    env.expect('FT.DEBUG', 'dump_tagidx', 'idx5', 't').equal([['foo', [3L]], ['foo,FOO', [1L]], ['FOO', [2L]]])
+    if not env.is_cluster():
+        conn.execute_command('FT.CONFIG', 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0')
+        env.expect('FT.DEBUG', 'dump_tagidx', 'idx1', 't').equal([['foo', [1L, 2L, 3L]]])
+        env.expect('FT.DEBUG', 'dump_tagidx', 'idx2', 't').equal([['foo', [1L, 3L]], ['FOO', [1L, 2L]]])
+        env.expect('FT.DEBUG', 'dump_tagidx', 'idx3', 't').equal([['foo', [2L, 3L]], ['foo,foo', [1L]]])
+        env.expect('FT.DEBUG', 'dump_tagidx', 'idx4', 't').equal([['foo', [3L]], ['foo,FOO', [1L]], ['FOO', [2L]]])
+        env.expect('FT.DEBUG', 'dump_tagidx', 'idx5', 't').equal([['foo', [3L]], ['foo,FOO', [1L]], ['FOO', [2L]]])
 
     env.expect('FT.SEARCH', 'idx1', '@t:{FOO}')         \
         .equal([3L, 'doc1', ['t', 'foo,FOO'], 'doc2', ['t', 'FOO'], 'doc3', ['t', 'foo']])
     env.expect('FT.SEARCH', 'idx1', '@t:{foo}')         \
         .equal([3L, 'doc1', ['t', 'foo,FOO'], 'doc2', ['t', 'FOO'], 'doc3', ['t', 'foo']])
+
     env.expect('FT.SEARCH', 'idx2', '@t:{FOO}')         \
         .equal([2L, 'doc1', ['t', 'foo,FOO'], 'doc2', ['t', 'FOO']])
     env.expect('FT.SEARCH', 'idx2', '@t:{foo}')         \
-        .equal([2L, 'doc1', ['t', 'foo,FOO'], 'doc3', ['t', 'foo']]) 
+        .equal([2L, 'doc1', ['t', 'foo,FOO'], 'doc3', ['t', 'foo']])
+
+    conn.execute_command('HSET', 'doc1', 't', 'f o,F O')
+    conn.execute_command('HSET', 'doc2', 't', 'F O')
+    conn.execute_command('HSET', 'doc3', 't', 'f o')
+
+    if not env.is_cluster():
+        forceInvokeGC(env, 'idx1')
+        forceInvokeGC(env, 'idx2')
+        forceInvokeGC(env, 'idx3')
+        forceInvokeGC(env, 'idx4')
+        forceInvokeGC(env, 'idx5')
+
+        env.expect('FT.DEBUG', 'dump_tagidx', 'idx1', 't').equal([['f o', [4L, 5L, 6L]]])
+        env.expect('FT.DEBUG', 'dump_tagidx', 'idx2', 't').equal([['f o', [4L, 6L]], ['F O', [4L, 5L]]])
+        env.expect('FT.DEBUG', 'dump_tagidx', 'idx3', 't').equal([['f o', [5L, 6L]], ['f o,f o', [4L]]])
+        env.expect('FT.DEBUG', 'dump_tagidx', 'idx4', 't').equal([['f o', [6L]], ['f o,F O', [4L]], ['F O', [5L]]])
+        env.expect('FT.DEBUG', 'dump_tagidx', 'idx5', 't').equal([['f o', [6L]], ['f o,F O', [4L]], ['F O', [5L]]])
+
+    # not casesensitive
+    env.expect('FT.SEARCH', 'idx1', '@t:{F\\ O}')         \
+        .equal([3L, 'doc1', ['t', 'f o,F O'], 'doc2', ['t', 'F O'], 'doc3', ['t', 'f o']])
+    env.expect('FT.SEARCH', 'idx1', '@t:{f\\ o}')         \
+        .equal([3L, 'doc1', ['t', 'f o,F O'], 'doc2', ['t', 'F O'], 'doc3', ['t', 'f o']])
+
+    # casesensitive
+    env.expect('FT.SEARCH', 'idx2', '@t:{F\\ O}')         \
+        .equal([2L, 'doc1', ['t', 'f o,F O'], 'doc2', ['t', 'F O']])
+    env.expect('FT.SEARCH', 'idx2', '@t:{f\\ o}')         \
+        .equal([2L, 'doc1', ['t', 'f o,F O'], 'doc3', ['t', 'f o']])
+
+    # not casesensitive
+    env.expect('FT.SEARCH', 'idx3', '@t:{f\\ o\\,f\\ o}')         \
+        .equal([1L, 'doc1', ['t', 'f o,F O']])
+    env.expect('FT.SEARCH', 'idx3', '@t:{f\\ o\\,F\\ O}')         \
+        .equal([1L, 'doc1', ['t', 'f o,F O']])
+    env.expect('FT.SEARCH', 'idx3', '@t:{F\\ O\\,F\\ O}')         \
+        .equal([1L, 'doc1', ['t', 'f o,F O']])
+    env.expect('FT.SEARCH', 'idx3', '@t:{F\\ O}')         \
+        .equal([2L, 'doc2', ['t', 'F O'], 'doc3', ['t', 'f o']])
+    env.expect('FT.SEARCH', 'idx3', '@t:{f\\ o}')         \
+        .equal([2L, 'doc2', ['t', 'F O'], 'doc3', ['t', 'f o']])
+
+    # casesensitive
+    env.expect('FT.SEARCH', 'idx4', '@t:{f\\ o\\,f\\ o}')         \
+        .equal([0L])
+    env.expect('FT.SEARCH', 'idx4', '@t:{f\\ o\\,F\\ O}')         \
+        .equal([1L, 'doc1', ['t', 'f o,F O']])
+    env.expect('FT.SEARCH', 'idx4', '@t:{F\\ O\\,F\\ O}')         \
+        .equal([0L])
+    env.expect('FT.SEARCH', 'idx4', '@t:{F\\ O}')         \
+        .equal([1L, 'doc2', ['t', 'F O']])
+    env.expect('FT.SEARCH', 'idx4', '@t:{f\\ o}')         \
+        .equal([1L, 'doc3', ['t', 'f o']])
 
 def testTagGCClearEmpty(env):
     env.skipOnCluster()
@@ -233,7 +291,7 @@ def testTagGCClearEmptyWithCursor(env):
     conn.execute_command('HSET', 'doc1', 't', 'foo')
     conn.execute_command('HSET', 'doc2', 't', 'foo')
     env.expect('FT.DEBUG', 'DUMP_TAGIDX', 'idx', 't').equal([['foo', [1L, 2L]]])
-    
+
     res, cursor = env.cmd('FT.AGGREGATE', 'idx', '@t:{foo}', 'WITHCURSOR', 'COUNT', '1')
     env.assertEqual(res, [1L, []])
 
@@ -260,7 +318,7 @@ def testTagGCClearEmptyWithCursorAndMoreData(env):
     conn.execute_command('HSET', 'doc1', 't', 'foo')
     conn.execute_command('HSET', 'doc2', 't', 'foo')
     env.expect('FT.DEBUG', 'DUMP_TAGIDX', 'idx', 't').equal([['foo', [1L, 2L]]])
-    
+
     res, cursor = env.cmd('FT.AGGREGATE', 'idx', '@t:{foo}', 'WITHCURSOR', 'COUNT', '1')
     env.assertEqual(res, [1L, []])
 
@@ -287,6 +345,7 @@ def testTagGCClearEmptyWithCursorAndMoreData(env):
     res = conn.execute_command('FT.AGGREGATE', 'idx', '@t:{foo}')
     env.assertEqual(res, [1L, [], []])
 
+@unstable
 def testEmptyTagLeak(env):
     env.skipOnCluster()
 

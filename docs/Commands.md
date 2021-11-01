@@ -532,6 +532,7 @@ Here, we needed to use `LOAD` to pre-load the @location attribute because it is 
   `identifier` is either an attribute name (for hashes and JSON) or a JSON Path expression for (JSON).
   `property` is the optional name used in the result. It is not provided, the `identifier` is used.
   This should be avoided as a general rule of thumb.
+  If `*` is used as `nargs`, all attributes in a document are loaded.
   Attributes needed for aggregations should be stored as **SORTABLE**,
   where they are available to the aggregation pipeline with very low latency. LOAD hurts the
   performance of aggregate queries considerably, since every processed record needs to execute the
