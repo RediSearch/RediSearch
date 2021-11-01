@@ -1040,38 +1040,40 @@ void ReindexPool_ThreadPoolDestroy();
 extern dict *legacySpecDict, *legacySpecRules;
 
 void __attribute__((destructor)) RediSearch_CleanupModule(void) {
-  if (getenv("RS_GLOBAL_DTORS")) {  // used in sanitizer
-    static int invoked = 0;
-    if (invoked || !RS_Initialized) {
-      return;
-    }
-    invoked = 1;
-    CursorList_Destroy(&RSCursors);
-    Extensions_Free();
-    StopWordList_FreeGlobals();
-    FunctionRegistry_Free();
-    mempool_free_global();
-    ConcurrentSearch_ThreadPoolDestroy();
-    ReindexPool_ThreadPoolDestroy();
-    GC_ThreadPoolDestroy();
-    IndexAlias_DestroyGlobal(&AliasTable_g);
-    freeGlobalAddStrings();
-    SchemaPrefixes_Free(ScemaPrefixes_g);
-
-    Indexes_Free(specDict_g);
-    dictRelease(specDict_g);
-    specDict_g = NULL;
-    if (legacySpecDict) {
-      dictRelease(legacySpecDict);
-      legacySpecDict = NULL;
-    }
-    if (legacySpecRules) {
-      dictRelease(legacySpecRules);
-      legacySpecRules = NULL;
-    }
-
-    RedisModule_FreeThreadSafeContext(RSDummyContext);
-    Dictionary_Free();
-    RediSearch_LockDestory();
+  if (!getenv("RS_GLOBAL_DTORS")) {  // used only with sanitizer or valgrind
+    return; 
   }
+  
+  static int invoked = 0;
+  if (invoked || !RS_Initialized) {
+    return;
+  }
+  invoked = 1;
+
+  CursorList_Destroy(&RSCursors);
+
+  Indexes_Free(specDict_g);
+  dictRelease(specDict_g);
+  specDict_g = NULL;
+
+  if (legacySpecDict) {
+    dictRelease(legacySpecDict);
+    legacySpecDict = NULL;
+  }
+  LegacySchemaRulesArgs_Free(RSDummyContext);
+
+  Extensions_Free();
+  StopWordList_FreeGlobals();
+  FunctionRegistry_Free();
+  mempool_free_global();
+  ConcurrentSearch_ThreadPoolDestroy();
+  ReindexPool_ThreadPoolDestroy();
+  GC_ThreadPoolDestroy();
+  IndexAlias_DestroyGlobal(&AliasTable_g);
+  freeGlobalAddStrings();
+  SchemaPrefixes_Free(ScemaPrefixes_g);
+
+  RedisModule_FreeThreadSafeContext(RSDummyContext);
+  Dictionary_Free();
+  RediSearch_LockDestory();
 }

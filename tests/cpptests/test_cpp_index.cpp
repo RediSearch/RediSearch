@@ -133,7 +133,9 @@ TEST_P(IndexFlagsTest, testRWFlags) {
   InvertedIndex *idx = NewInvertedIndex(indexFlags, 1);
 
   IndexEncoder enc = InvertedIndex_GetEncoder(indexFlags);
+  IndexEncoder docIdEnc = InvertedIndex_GetEncoder(Index_DocIdsOnly);
   ASSERT_TRUE(enc != NULL);
+  ASSERT_TRUE(docIdEnc != NULL);
 
   for (size_t i = 0; i < 200; i++) {
     // if (i % 10000 == 1) {
@@ -159,7 +161,11 @@ TEST_P(IndexFlagsTest, testRWFlags) {
   }
 
   ASSERT_EQ(200, idx->numDocs);
-  ASSERT_EQ(2, idx->size);
+  if (enc != docIdEnc) {
+    ASSERT_EQ(2, idx->size);
+  } else {
+    ASSERT_EQ(1, idx->size);
+  }
   ASSERT_EQ(199, idx->lastId);
 
   // IW_MakeSkipIndex(w, NewMemoryBuffer(8, BUFFER_WRITE));

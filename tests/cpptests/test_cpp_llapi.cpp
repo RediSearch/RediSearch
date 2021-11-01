@@ -684,11 +684,11 @@ TEST_F(LLApiTest, testNumericFieldWithCT) {
   RediSearch_SpecAddDocument(index, d);
 
   d = RediSearch_CreateDocumentSimple("doc2");
-  RediSearch_DocumentAddFieldNumber(d, "ft1", 60, RSFLDTYPE_NUMERIC);
+  RediSearch_DocumentAddFieldNumber(d, "ft1", 0, RSFLDTYPE_NUMERIC);
   RediSearch_SpecAddDocument(index, d);
 
-  RSQNode* qn1 = RediSearch_CreateNumericNode(index, "ft1", 70, 10, 0, 0);
-  RSQNode* qn2 = RediSearch_CreateNumericNode(index, "ft1", 70, 10, 0, 0);
+  RSQNode* qn1 = RediSearch_CreateNumericNode(index, "ft1", 70, -10, 0, 0);
+  RSQNode* qn2 = RediSearch_CreateNumericNode(index, "ft1", 70, -10, 0, 0);
   RSQNode* un = RediSearch_CreateUnionNode(index);
   RediSearch_QueryNodeAddChild(un, qn1);
   RediSearch_QueryNodeAddChild(un, qn2);

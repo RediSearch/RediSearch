@@ -91,6 +91,7 @@ commands:
               cd tests/pytests/logs
               rm -f *.aof *.rdb
             fi
+          when: always
       - store_artifacts:
           path: tests/pytests/logs
 
@@ -276,6 +277,18 @@ jobs:
       - run:
           name: Run & build tests
           command: bash -l -c "MSAN=1 ./.circleci/ci_diag_san12.sh"
+          no_output_timeout: 40m
+      - save-tests-logs
+
+  valgrind-memcheck:
+    docker:
+      - image: redisfab/rmbuilder:6.2.5-x64-bullseye
+    steps:
+      - early-returns
+      - checkout-all
+      - run:
+          name: Build & Test
+          command: bash -l -c "./.circleci/ci_valgrind.sh"
           no_output_timeout: 30m
       - save-tests-logs
 
@@ -383,6 +396,8 @@ workflows:
           <<: *on-any-branch
       - debug-msan:
           <<: *on-any-branch
+      - valgrind-memcheck:
+          <<: *never
       - coverage:
           context: common
           <<: *on-any-branch

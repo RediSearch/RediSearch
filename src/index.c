@@ -837,7 +837,9 @@ static int II_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
       return rc;
     } else if (rc == INDEXREAD_OK) {
       // YAY! found!
-      AggregateResult_AddChild(ic->base.current, res);
+      if (res) {
+        AggregateResult_AddChild(ic->base.current, res);
+      }
       ic->lastDocId = docId;
 
       ++nfound;
@@ -1340,7 +1342,9 @@ static int OI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
     if (rc == INDEXREAD_OK) {
       found = 1;
     }
-    nc->nextRealId = nc->base.current->docId;
+    if (nc->base.current) {
+      nc->nextRealId = nc->base.current->docId;
+    }
   }
 
   if (found) {
@@ -1452,13 +1456,14 @@ static void OI_Rewind(void *ctx) {
   OptionalMatchContext *nc = ctx;
   nc->lastDocId = 0;
   nc->virt->docId = 0;
+  nc->nextRealId = 0;
   if (nc->child) {
     nc->child->Rewind(nc->child->ctx);
   }
 }
 
 IndexIterator *NewOptionalIterator(IndexIterator *it, t_docId maxDocId, double weight) {
-  OptionalMatchContext *nc = rm_malloc(sizeof(*nc));
+  OptionalMatchContext *nc = rm_calloc(1, sizeof(*nc));
   nc->virt = NewVirtualResult(weight);
   nc->virt->fieldMask = RS_FIELDMASK_ALL;
   nc->virt->freq = 1;

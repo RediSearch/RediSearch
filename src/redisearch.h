@@ -29,6 +29,7 @@ struct RSSortingVector;
 
 #define REDISEARCH_ERR 1
 #define REDISEARCH_OK 0
+#define REDISEARCH_UNINITIALIZED -1
 
 #define RedisModule_ReplyWithPrintf(ctx, fmt, ...)                                      \
 do {                                                                                    \
@@ -46,6 +47,9 @@ typedef enum {
   DocumentType_Json,
   DocumentType_None,
 } DocumentType;
+
+#define isSpecHash(spec) (spec->rule && spec->rule->type == DocumentType_Hash)
+#define isSpecJson(spec) (spec->rule && spec->rule->type == DocumentType_Json)
 
 /* A payload object is set either by a query expander or by the user, and can be used to process
  * scores. For examples, it can be a feature vector that is then compared to a feature vector
