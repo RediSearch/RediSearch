@@ -65,7 +65,7 @@ RSLanguage SchemaRule_JsonLang(RedisModuleCtx *ctx, const SchemaRule *rule,
                                RedisJSON jsonKey, const char *keyName);
 double SchemaRule_HashScore(RedisModuleCtx *rctx, const SchemaRule *rule, RedisModuleKey *key,
                             const char *kname);
-RSLanguage SchemaRule_JsonScore(RedisModuleCtx *ctx, const SchemaRule *rule,
+double SchemaRule_JsonScore(RedisModuleCtx *ctx, const SchemaRule *rule,
                                 RedisJSON jsonKey, const char *keyName);
 RedisModuleString *SchemaRule_HashPayload(RedisModuleCtx *rctx, const SchemaRule *rule,
                                           RedisModuleKey *key, const char *kname);

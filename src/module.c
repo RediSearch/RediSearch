@@ -1062,10 +1062,7 @@ void __attribute__((destructor)) RediSearch_CleanupModule(void) {
     dictRelease(legacySpecDict);
     legacySpecDict = NULL;
   }
-  if (legacySpecRules) {
-    dictRelease(legacySpecRules);
-    legacySpecRules = NULL;
-  }
+  SchemaRulesArgs_Free(NULL);
 
   Extensions_Free();
   StopWordList_FreeGlobals();

@@ -20,18 +20,18 @@ endif
 ifneq ($(SAN),)
 override DEBUG ?= 1
 ifeq ($(SAN),mem)
-CMAKE_SAN=-DUSE_MSAN=ON -DMSAN_PREFIX=/opt/llvm-project/build-msan
 override SAN=memory
+else ifeq ($(SAN),addr)
+override SAN=address
+endif
+
+ifeq ($(SAN),address)
+CMAKE_SAN=-DUSE_ASAN=ON
+export REDIS_SERVER ?= redis-server-asan-6.2
 
 else ifeq ($(SAN),memory)
 CMAKE_SAN=-DUSE_MSAN=ON -DMSAN_PREFIX=/opt/llvm-project/build-msan
-
-else ifeq ($(SAN),addr)
-CMAKE_SAN=-DUSE_ASAN=ON
-override SAN=address
-
-else ifeq ($(SAN),address)
-CMAKE_SAN=-DUSE_ASAN=ON
+export REDIS_SERVER ?= redis-server-msan-6.2
 
 else ifeq ($(SAN),leak)
 else ifeq ($(SAN),thread)

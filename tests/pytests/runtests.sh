@@ -87,6 +87,9 @@ fi
 
 SHARDS=${SHARDS:-3}
 
+[[ $SAN == addr ]] && SAN=address
+[[ $SAN == mem ]] && SAN=memory
+
 #---------------------------------------------------------------------------------------------- 
 
 if [[ -n $SAN ]]; then
@@ -106,6 +109,10 @@ if [[ -n $SAN ]]; then
 	rejson_pathfile=$ROOT/deps/RedisJSON/target.$SAN/REJSON_PATH
 	if [[ -z $REJSON_PATH && -f $rejson_pathfile ]]; then
 		export REJSON_PATH=`cat $rejson_pathfile`
+	else
+		echo Building RedisJSON ...
+		$ROOT/sbin/build-redisjson
+		export REJSON_PATH=`cat $rejson_pathfile`
 	fi
 
 	if [[ $SAN == addr || $SAN == address ]]; then
@@ -118,7 +125,7 @@ if [[ -n $SAN ]]; then
 		export ASAN_OPTIONS=detect_odr_violation=0
 		# :detect_leaks=0
 
-	elif [[ $SAN == memory ]]; then
+	elif [[ $SAN == mem || $SAN == memory ]]; then
 		REDIS_SERVER=${REDIS_SERVER:-redis-server-msan-6.2}
 		if ! command -v $REDIS_SERVER > /dev/null; then
 			echo Building Redis for clang-msan ...

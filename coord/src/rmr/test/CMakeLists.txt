@@ -7,7 +7,7 @@ function(RMRTEST name)
     target_link_libraries("${name}" testdeps redismock m)
     add_test(NAME "${name}" COMMAND "${name}")
     set_target_properties("${name}" PROPERTIES COMPILE_FLAGS "-fvisibility=default")
-    target_compile_definitions("${name}" PRIVATE REDISMODULE_MAIN)
+    # target_compile_definitions("${name}" PRIVATE REDISMODULE_MAIN)
 endfunction()
 
 file(GLOB TEST_SOURCES "test_*.c")

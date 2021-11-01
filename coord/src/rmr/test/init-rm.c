@@ -1,2 +1,3 @@
-#include "redismodule.h"
 
+#define REDISMODULE_MAIN
+#include "redismodule.h"

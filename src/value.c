@@ -515,9 +515,6 @@ static int RSValue_CmpNC(const RSValue *v1, const RSValue *v2) {
 
 int RSValue_Cmp(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
   RS_LOG_ASSERT(v1 && v2, "missing RSvalue");
-  v1 = RSValue_Dereference(v1);
-  v2 = RSValue_Dereference(v2);
-
   if (v1->t == v2->t) {
     return RSValue_CmpNC(v1, v2);
   }
@@ -565,8 +562,6 @@ int RSValue_Cmp(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
 
 int RSValue_Equal(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
   RS_LOG_ASSERT(v1 && v2, "missing RSvalue");
-  v1 = RSValue_Dereference(v1);
-  v2 = RSValue_Dereference(v2);
 
   if (v1->t == v2->t) {
     return RSValue_CmpNC(v1, v2) == 0;

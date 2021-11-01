@@ -200,7 +200,7 @@ def testDocTableInfo(env):
     env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'txt', 'TEXT', 'SORTABLE')
 
     d = ft_info_to_dict(env, 'idx')
-    env.assertEqual(int(d['num_docs']), 0L)
+    env.assertEqual(int(d['num_docs']), 0)
     env.assertEqual(int(d['doc_table_size_mb']), 0)
     env.assertEqual(int(d['sortable_values_size_mb']), 0)
 
@@ -211,8 +211,8 @@ def testDocTableInfo(env):
     d = ft_info_to_dict(env, 'idx')
     env.assertEqual(int(d['num_docs']), 2)
     doctable_size1 = float(d['doc_table_size_mb'])
-    sortable_size1 = float(d['sortable_values_size_mb'])
     env.assertGreater(doctable_size1, 0)
+    sortable_size1 = float(d['sortable_values_size_mb'])
     env.assertGreater(sortable_size1, 0)
 
     # check size after an update with larger text
@@ -220,8 +220,8 @@ def testDocTableInfo(env):
     d = ft_info_to_dict(env, 'idx')
     env.assertEqual(int(d['num_docs']), 2)
     doctable_size2 = float(d['doc_table_size_mb'])
-    sortable_size2 = float(d['sortable_values_size_mb'])
     env.assertEqual(doctable_size1, doctable_size2)
+    sortable_size2 = float(d['sortable_values_size_mb'])
     env.assertLess(sortable_size1, sortable_size2)
 
     # check size after an update with identical text
@@ -229,8 +229,8 @@ def testDocTableInfo(env):
     d = ft_info_to_dict(env, 'idx')
     env.assertEqual(int(d['num_docs']), 2)
     doctable_size3 = float(d['doc_table_size_mb'])
-    sortable_size3 = float(d['sortable_values_size_mb'])
     env.assertEqual(doctable_size2, doctable_size3)
+    sortable_size3 = float(d['sortable_values_size_mb'])
     env.assertEqual(sortable_size2, sortable_size3)
 
     # check 0 after deletion

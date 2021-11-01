@@ -85,7 +85,7 @@ WORKDIR /data
 ENV LIBDIR /usr/lib/redis/modules/
 RUN mkdir -p "$LIBDIR";
 
-COPY --from=builder /build/build/redisearch.so*       "$LIBDIR"
+COPY --from=builder /build/bin/linux-x64-release/search/redisearch.so* "$LIBDIR"
 COPY --from=json    /usr/lib/redis/modules/rejson.so* "$LIBDIR"
 
 CMD ["redis-server", "--loadmodule", "/usr/lib/redis/modules/redisearch.so", "--loadmodule", "/usr/lib/redis/modules/rejson.so"]

@@ -452,7 +452,7 @@ class Debug:
 
 @no_msan
 def testShortReadSearch(env):
-    if CODE_COVERAGE:
+    if CODE_COVERAGE or SANITIZER:
         env.skip()  # FIXME: enable coverage test
 
     env.skipOnCluster()

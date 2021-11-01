@@ -798,8 +798,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   return REDISMODULE_OK;
 }
 
-static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup, QueryError *err,
-                                     struct timespec *timeout) {
+static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup, QueryError *err) {
   const RLookupKey *srckeys[gstp->nproperties], *dstkeys[gstp->nproperties];
   for (size_t ii = 0; ii < gstp->nproperties; ++ii) {
     const char *fldname = gstp->properties[ii] + 1;  // account for the @-
@@ -811,7 +810,7 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup, Qu
     dstkeys[ii] = RLookup_GetKey(&gstp->lookup, fldname, RLOOKUP_F_OCREAT | RLOOKUP_F_NOINCREF);
   }
 
-  Grouper *grp = Grouper_New(srckeys, dstkeys, gstp->nproperties, timeout);
+  Grouper *grp = Grouper_New(srckeys, dstkeys, gstp->nproperties);
 
   size_t nreducers = array_len(gstp->reducers);
   for (size_t ii = 0; ii < nreducers; ++ii) {
@@ -863,7 +862,7 @@ static ResultProcessor *getGroupRP(AREQ *req, PLN_GroupStep *gstp, ResultProcess
                                    QueryError *status) {
   AGGPlan *pln = &req->ap;
   RLookup *lookup = AGPLN_GetLookup(pln, &gstp->base, AGPLN_GETLOOKUP_PREV);
-  ResultProcessor *groupRP = buildGroupRP(gstp, lookup, status, &req->timeoutTime);
+  ResultProcessor *groupRP = buildGroupRP(gstp, lookup, status);
 
   if (!groupRP) {
     return NULL;

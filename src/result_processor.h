@@ -288,8 +288,7 @@ static inline void updateTimeout(struct timespec *timeout, int32_t durationNS) {
     durationNS = INT32_MAX;
   }
 
-  struct timespec now = { .tv_sec = 0 ,
-                          .tv_nsec = 0 };
+  struct timespec now;
   struct timespec duration = { .tv_sec = durationNS / 1000,
                               .tv_nsec = ((durationNS % 1000) * 1000000) };
   clock_gettime(CLOCK_MONOTONIC_RAW, &now);

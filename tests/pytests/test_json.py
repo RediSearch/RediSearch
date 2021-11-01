@@ -89,7 +89,7 @@ def testSearchUpdatedContent(env):
 
     # Update an existing text value
     plain_text_val_3_raw = '"hescelosaurus"'
-    plain_text_val_3 = '[' + plain_text_val_3_raw + ']'
+    plain_text_val_3 = '[' +plain_text_val_3_raw + ']'
 
     env.expect('json.set', 'doc:1', '$.t', plain_text_val_3_raw).ok()
     env.expect('json.get', 'doc:1', '$.t').equal(plain_text_val_3)
@@ -100,7 +100,7 @@ def testSearchUpdatedContent(env):
     plain_int_res_val_3 = str(int(plain_int_val_3) + int(int_incrby_3))
     env.expect('json.set', 'doc:1', '$.n', plain_int_val_3).ok()
     # test JSON.NUMINCRBY
-    env.expect('json.numincrby', 'doc:1', '$.n', int_incrby_3).equal(str([int(plain_int_val_3) + int(int_incrby_3)]))
+    env.expect('json.numincrby', 'doc:1', '$.n', int_incrby_3).equal('[' + plain_int_res_val_3 + ']')
 
     expected = [1L, 'doc:1', ['$', json.loads(r'{"t":"hescelosaurus","n":' + plain_int_res_val_3 + '}')]]
     res = env.cmd('ft.search', 'idx1', 'he*')
@@ -742,3 +742,30 @@ def testNotExistField(env):
     conn.execute_command('FT.CREATE', 'idx1', 'ON', 'JSON', 'SCHEMA', '$.t', 'AS', 't', 'TEXT')
     conn.execute_command('JSON.SET', 'doc1', '$', '{"t":"foo"}')
     env.expect('FT.SEARCH', 'idx1', '*', 'RETURN', 1, 'name').equal([1L, 'doc1', []])
+
+@no_msan
+def testScoreField(env):
+    conn = getConnectionByEnv(env)
+    conn.execute_command('FT.CREATE', 'permits1', 'ON', 'JSON', 'PREFIX', '1', 'tst:', 'SCORE_FIELD', '$._score', 'SCHEMA', '$._score', 'AS', '_score', 'NUMERIC', '$.description', 'AS', 'description', 'TEXT')
+    conn.execute_command('FT.CREATE', 'permits2', 'ON', 'JSON', 'PREFIX', '1', 'tst:', 'SCORE_FIELD', '$._score', 'SCHEMA', '$.description', 'AS', 'description', 'TEXT')
+    env.assertOk(conn.execute_command('JSON.SET', 'tst:permit1', '$', r'{"_score":0.8, "description":"Fix the facade"}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'tst:permit2', '$', r'{"_score":0.7, "description":"Fix the facade"}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'tst:permit3', '$', r'{"_score":0.9, "description":"Fix the facade"}'))
+
+    res = [3L, 'tst:permit3', ['$', '{"_score":0.9,"description":"Fix the facade"}'],
+               'tst:permit1', ['$', '{"_score":0.8,"description":"Fix the facade"}'],
+               'tst:permit2', ['$', '{"_score":0.7,"description":"Fix the facade"}']]
+    env.expect('FT.SEARCH', 'permits1', '*').equal(res)
+    env.expect('FT.SEARCH', 'permits2', '*').equal(res)
+    env.expect('FT.SEARCH', 'permits1', 'facade').equal(res)
+    env.expect('FT.SEARCH', 'permits2', 'facade').equal(res)
+
+@no_msan
+def testMOD1853(env):
+    # test numeric with 0 value
+    conn = getConnectionByEnv(env)
+    conn.execute_command('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.sid', 'AS', 'sid', 'NUMERIC')
+    env.assertOk(conn.execute_command('JSON.SET', 'json1', '$', r'{"sid":0}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'json2', '$', r'{"sid":1}'))
+    res = [2L, 'json1', ['sid', '0', '$', '{"sid":0}'], 'json2', ['sid', '1', '$', '{"sid":1}']]
+    env.expect('FT.SEARCH', 'idx', '@sid:[0 1]', 'SORTBY', 'sid').equal(res)

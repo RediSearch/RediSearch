@@ -214,8 +214,7 @@ int AREQ_BuildPipeline(AREQ *req, int options, QueryError *status);
  * ResultProcessors (and a grouper is a ResultProcessor) before the grouper
  * should write their data using `lksrc` as a reference point.
  */
-Grouper *Grouper_New(const RLookupKey **srckeys, const RLookupKey **dstkeys, size_t n,
-                     struct timespec *timeout);
+Grouper *Grouper_New(const RLookupKey **srckeys, const RLookupKey **dstkeys, size_t n);
 
 void Grouper_Free(Grouper *g);
 
