@@ -333,3 +333,14 @@ def test_MOD1544(env):
   res = [1L, '1', ['name', '<b>John</b> Smith']]
   env.expect('FT.SEARCH', 'idx', '@name:(John)', 'RETURN', '1', 'name', 'HIGHLIGHT').equal(res)
   env.expect('FT.SEARCH', 'idx', '@name:(John)', 'RETURN', '1', 'name', 'HIGHLIGHT', 'FIELDS', '1', 'name').equal(res)
+
+def test_MOD_1808(env):
+  conn = getConnectionByEnv(env)
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+  conn.execute_command('hset', 'doc0', 't', 'world0')
+  conn.execute_command('hset', 'doc1', 't', 'world1')
+  conn.execute_command('hset', 'doc2', 't', 'world2')
+  conn.execute_command('hset', 'doc3', 't', 'world3')
+  env.expect('FT.SEARCH', 'idx', '(~@t:world2) (~@t:world1) (~@fawdfa:wada)', 'SUMMARIZE', 'FRAGS', '1', 'LEN', '25', 'HIGHLIGHT', 'TAGS', "<span style='background-color:yellow'>", '</span>')\
+  .equal([4L, 'doc2', ['t', "<span style='background-color:yellow'>world2</span>... "], 'doc1', ['t', 'world1'], 'doc0', ['t', 'world0'], 'doc3', ['t', 'world3']])
+
