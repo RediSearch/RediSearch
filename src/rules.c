@@ -37,6 +37,7 @@ int DocumentType_Parse(const char *type_str, DocumentType *type, QueryError *sta
 
 void SchemaRuleArgs_Free(SchemaRuleArgs *rule_args) {
   // free rule_args
+  if (!rule_args) return;
 #define FREE_IF_NEEDED(arg) \
   if (arg) rm_free(arg)
   FREE_IF_NEEDED(rule_args->filter_exp_str);
@@ -51,6 +52,22 @@ void SchemaRuleArgs_Free(SchemaRuleArgs *rule_args) {
   }
   rm_free(rule_args->prefixes);
   rm_free(rule_args);
+}
+
+void LegacySchemaRulesArgs_Free(RedisModuleCtx *ctx) {
+  if (!legacySpecRules) return;
+  dictIterator *iter = dictGetIterator(legacySpecRules);
+  dictEntry *entry = NULL;
+  while ((entry = dictNext(iter))) {
+    char *indexName = dictGetKey(entry);
+    SchemaRuleArgs *rule_args = dictGetVal(entry);
+    RedisModule_Log(ctx, "warning", "Index %s was defined for upgrade but was not found", indexName);
+    SchemaRuleArgs_Free(rule_args);
+  }
+  dictReleaseIterator(iter);
+  dictEmpty(legacySpecRules, NULL);
+  dictRelease(legacySpecRules);
+  legacySpecRules = NULL;
 }
 
 SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, IndexSpec *spec, QueryError *status) {

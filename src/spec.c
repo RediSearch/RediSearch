@@ -1883,21 +1883,7 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
     dictRelease(legacySpecDict);
     legacySpecDict = NULL;
 
-    if (legacySpecRules) {
-      dictIterator *iter = dictGetIterator(legacySpecRules);
-      dictEntry *entry = NULL;
-      while ((entry = dictNext(iter))) {
-        char *indexName = dictGetKey(entry);
-        SchemaRuleArgs *rule_args = dictGetVal(entry);
-        RedisModule_Log(ctx, "warning", "Index %s was defined for upgrade but was not found",
-                        indexName);
-        SchemaRuleArgs_Free(rule_args);
-      }
-      dictReleaseIterator(iter);
-      dictEmpty(legacySpecRules, NULL);
-      dictRelease(legacySpecRules);
-      legacySpecRules = NULL;
-    }
+    LegacySchemaRulesArgs_Free(ctx);
 
     if (hasLegacyIndexes || CompareVestions(redisVersion, noScanVersion) < 0) {
       Indexes_ScanAndReindex();
