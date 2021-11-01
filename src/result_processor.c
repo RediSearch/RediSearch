@@ -300,6 +300,7 @@ typedef struct {
 /* Yield - pops the current top result from the heap */
 static int rpsortNext_Yield(ResultProcessor *rp, SearchResult *r) {
   RPSorter *self = (RPSorter *)rp;
+
   // make sure we don't overshoot the heap size, unless the heap size is dynamic
   if (self->pq->count > 0 && (!self->size || self->offset++ < self->size)) {
     SearchResult *sr = mmh_pop_max(self->pq);
