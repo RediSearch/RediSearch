@@ -55,6 +55,7 @@ typedef struct SchemaRule {
  * only if the entire SchemaRuleArgs is heap allocated.
  */
 void SchemaRuleArgs_Free(SchemaRuleArgs *args);
+void SchemaRulesArgs_Free(RedisModuleCtx *ctx);
 
 SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, struct IndexSpec *spec, QueryError *status);
 void SchemaRule_Free(SchemaRule *);
