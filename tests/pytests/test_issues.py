@@ -237,6 +237,5 @@ def test_MOD_1808(env):
   conn.execute_command('hset', 'doc1', 't', 'world1')
   conn.execute_command('hset', 'doc2', 't', 'world2')
   conn.execute_command('hset', 'doc3', 't', 'world3')
-  env.expect('FT.SEARCH', 'idx', '(~@t:world2) (~@t:world1) (~@fawdfa:wada)', 'SUMMARIZE', 'FRAGS', '1', 'LEN', '25', 'HIGHLIGHT', 'TAGS', "<span style='background-color:yellow'>", '</span>')\
-  .equal([4L, 'doc2', ['t', "<span style='background-color:yellow'>world2</span>... "], 'doc1', ['t', 'world1'], 'doc3', ['t', 'world3'], 'doc0', ['t', 'world0']])
-
+  res = env.cmd('FT.SEARCH', 'idx', '(~@t:world2) (~@t:world1) (~@fawdfa:wada)', 'SUMMARIZE', 'FRAGS', '1', 'LEN', '25', 'HIGHLIGHT', 'TAGS', "<span style='background-color:yellow'>", '</span>')
+  env.assertEqual(toSortedFlatList(res), toSortedFlatList([4L, 'doc2', ['t', "<span style='background-color:yellow'>world2</span>... "], 'doc1', ['t', "<span style='background-color:yellow'>world1</span>... "], 'doc0', ['t', 'world0'], 'doc3', ['t', 'world3']]))
