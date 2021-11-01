@@ -629,3 +629,10 @@ def testMaxAggResults(env):
     conn.execute_command('ft.create', 'idx', 'SCHEMA', 't', 'TEXT')
     env.expect('ft.aggregate', 'idx', '*', 'LIMIT', '0', '10000').error()   \
        .contains('LIMIT exceeds maximum of 100')
+
+def testAggregateWithLimit0(env):
+    conn = getConnectionByEnv(env)
+    conn.execute_command('ft.create', 'idx', 'SCHEMA', 't', 'TEXT')
+    conn.execute_command('hset', 'doc1', 't', 'foo')
+    # limit 0 0 on aggregate should return no results
+    env.expect('ft.aggregate', 'idx', '*', 'LIMIT', '0', '0').equal([0])

@@ -906,6 +906,11 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
     up = pushRP(req, rp, up);
   }
 
+  if (rp == NULL && !(req->reqflags & QEXEC_F_IS_SEARCH) && (req->reqflags & QEXEC_F_NOROWS)) {
+    rp = RPPager_New(astp->offset, astp->limit);
+    up = pushRP(req, rp, up);
+  }
+
   return rp;
 }
 
