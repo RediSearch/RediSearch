@@ -3,7 +3,7 @@
 
 #include "redisearch.h"
 #include "value.h"
-#include "VecSim/vecsim.h"
+#include "VecSim/vec_sim.h"
 
 #ifdef __cplusplus
 #define RS_ENUM_BITWISE_HELPER(T)   \

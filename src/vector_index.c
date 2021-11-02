@@ -1,4 +1,3 @@
-#include "VectorSimilarity/src/VecSim/vecsim.h"
 #include "vector_index.h"
 #include "list_reader.h"
 #include "dep/base64/base64.h"
