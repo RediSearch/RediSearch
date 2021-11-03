@@ -1218,9 +1218,10 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       // TODO: add vector query params
       s = sdscat(s, "VECTOR { ");
       VecSimQueryResult_Iterator *iter = VecSimQueryResult_List_GetIterator(qs->vn.vf->results);
-      while (VecSimQueryResult_IteratorHasNext(iter)) {
-        VecSimQueryResult *res = VecSimQueryResult_IteratorNext(iter);
+      VecSimQueryResult *res = VecSimQueryResult_IteratorNext(iter);
+      while (res) {
         s = sdscatprintf(s, "[%lu,%lf]", VecSimQueryResult_GetId(res), VecSimQueryResult_GetScore(res));
+        res = VecSimQueryResult_IteratorNext(iter);
       }
       VecSimQueryResult_IteratorFree(iter);
       break;
