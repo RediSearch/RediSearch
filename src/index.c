@@ -1179,7 +1179,9 @@ static int OI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
     if (rc == INDEXREAD_OK) {
       found = 1;
     }
-    nc->nextRealId = nc->base.current->docId;
+    if (nc->base.current) {
+      nc->nextRealId = nc->base.current->docId;
+    }
   }
 
   if (found) {
@@ -1291,6 +1293,7 @@ static void OI_Rewind(void *ctx) {
   OptionalMatchContext *nc = ctx;
   nc->lastDocId = 0;
   nc->virt->docId = 0;
+  nc->nextRealId = 0;
   if (nc->child) {
     nc->child->Rewind(nc->child->ctx);
   }
