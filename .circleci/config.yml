@@ -76,7 +76,6 @@ commands:
       - run:
           name: System setup
           command: ./system-setup.py
-          no_output_timeout: 20m
       - run:
           name: Install Redis
           command: |
@@ -219,14 +218,10 @@ jobs:
       - BUILD_DIR: build-macos
     steps:
       - early-returns
-      #- run:
-      #    name: Update Brew
-      #    command: brew update
-      #    no_output_timeout: 20m
       - build-steps:
           platform: catalina
 
-  benchmarks:
+  ubuntu-benchmarks:
     docker:
       - image: redisfab/rmbuilder:6.2.5-x64-bionic
     environment:
@@ -388,26 +383,20 @@ workflows:
   default-flow:
     jobs:
       - ubuntu:
-          #@@ <<: *on-any-branch
-          <<: *never
-      - centos:
-          #@@ <<: *on-any-branch
-          <<: *never
-      - macos:
-          #@@ <<: *on-version-tags
           <<: *on-any-branch
+      - centos:
+          <<: *on-any-branch
+      - macos:
+          <<: *on-version-tags
       - debug-asan:
-          #@@ <<: *on-any-branch
-          <<: *never
+          <<: *on-any-branch
       - debug-msan:
-          #@@ <<: *on-any-branch
-          <<: *never
+          <<: *on-any-branch
       - valgrind-memcheck:
           <<: *never
       - coverage:
           context: common
-          #@@ <<: *on-any-branch
-          <<: *never
+          <<: *on-any-branch
       - deploy-snapshots:
           context: common
           requires: *default_jobs
@@ -416,7 +405,7 @@ workflows:
           context: common
           requires: *default_jobs
           <<: *on-version-tags
-      - benchmarks:
+      - ubuntu-benchmarks:
           <<: *on-integ-and-version-tags
           context: common
 
@@ -442,5 +431,5 @@ workflows:
                 - /^feature-.*$/
 
     jobs:
-      - benchmarks:
+      - ubuntu-benchmarks:
           context: common
