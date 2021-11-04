@@ -8,5 +8,6 @@ cd $ROOT
 
 git submodule update --init --recursive
 ./deps/readies/bin/getpy2
-python2 ./system-setup.py
+./deps/readies/bin/getpy3
+./system-setup.py
 python2 ./tests/pytests/test_rdb_compatibility.py
