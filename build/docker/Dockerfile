@@ -17,6 +17,8 @@ ARG TEST=0
 ARG GIT_SHA
 ARG GIT_VERSPEC
 
+ARG REJSON_BRANCH=master
+
 #----------------------------------------------------------------------------------------------
 FROM redisfab/redis:${REDIS_VER}-${ARCH}-${OSNICK} AS redis
 FROM ${OS} AS builder
@@ -29,6 +31,7 @@ ARG PACK
 ARG TEST
 ARG GIT_SHA
 ARG GIT_VERSPEC
+ARG REJSON_BRANCH
 
 RUN echo "Building for ${OSNICK} (${OS}) for ${ARCH} [with Redis ${REDIS_VER}]"
 
@@ -60,6 +63,8 @@ RUN set -e ;\
     if [ "$PACK" = "1" ]; then \
         bash -l -c "make pack COORD=rlec" ;\
 		bash -l -c "make pack LITE=1" ;\
+		echo "Artifacts:" ;\
+		du -ah --apparent-size /build/bin/artifacts ;\
     fi
 RUN set -e ;\
     if [ "$TEST" = "1" ]; then \
@@ -71,14 +76,13 @@ RUN set -e ;\
     fi
 
 #----------------------------------------------------------------------------------------------
-FROM redisfab/rejson:master-${ARCH}-${OSNICK} AS json
+FROM redisfab/rejson:${REJSON_BRANCH}-${ARCH}-${OSNICK} AS json
 FROM redisfab/redis:${REDIS_VER}-${ARCH}-${OSNICK}
 
 ARG OSNICK
 ARG OS
 ARG ARCH
 ARG REDIS_VER
-# ARG PACK
 
 WORKDIR /data
 
@@ -90,5 +94,7 @@ RUN chown -R redis:redis /var/opt/redislabs
 COPY --from=builder /build/bin/linux-x64-release/search/redisearch.so* "$LIBDIR"
 RUN true
 COPY --from=json    /usr/lib/redis/modules/rejson.so* "$LIBDIR"
+RUN true
+COPY --from=builder /build/bin/artifacts/ /var/opt/redislabs/artifacts
 
 CMD ["redis-server", "--loadmodule", "/usr/lib/redis/modules/redisearch.so", "--loadmodule", "/usr/lib/redis/modules/rejson.so"]
