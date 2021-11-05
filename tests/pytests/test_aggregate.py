@@ -574,6 +574,22 @@ def testContains(env):
                                                              ['t', 'abba', 'substring', '1'], \
                                                              ['t', 'abbabb', 'substring', '2']]))
 
+def testLoadAll(env):
+    conn = getConnectionByEnv(env)
+    env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC')
+    conn.execute_command('HSET', 'doc1', 't', 'hello', 'n', 42)
+    conn.execute_command('HSET', 'doc2', 't', 'world', 'n', 3.141)
+    conn.execute_command('HSET', 'doc3', 't', 'hello world', 'n', 17.8)
+    # without LOAD
+    env.expect('FT.AGGREGATE', 'idx', '*').equal([1L, [], [], []])
+    # use LOAD with narg or ALL
+    res = [3L, ['__key', 'doc1', 't', 'hello', 'n', '42'],
+               ['__key', 'doc2', 't', 'world', 'n', '3.141'],
+               ['__key', 'doc3', 't', 'hello world', 'n', '17.8']]
+
+    env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', 3, '__key', 't', 'n', 'SORTBY', 1, '@__key').equal(res)
+    env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'LOAD', 1, '@__key', 'SORTBY', 1, '@__key').equal(res)
+
 def testLimitIssue(env):
     #ticket 66895
     conn = getConnectionByEnv(env)
