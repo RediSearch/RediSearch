@@ -1739,10 +1739,8 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   QueryError status;
   sp->rule = SchemaRule_Create(rule_args, sp, &status);
 
-#if 1
   dictDelete(legacySpecRules, sp->name);
   SchemaRuleArgs_Free(rule_args);
-#endif
 
   if (!sp->rule) {
     RedisModule_LogIOError(rdb, "warning", "Failed creating rule for legacy index '%s', error='%s'",
@@ -1750,11 +1748,6 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
     IndexSpec_Free(sp);
     return NULL;
   }
-
-#if 0
-  SchemaRuleArgs_Free(rule_args);
-  dictDelete(legacySpecRules, sp->name);
-#endif
 
   // start the gc and add the spec to the cursor list
   IndexSpec_StartGC(RSDummyContext, sp, GC_DEFAULT_HZ);

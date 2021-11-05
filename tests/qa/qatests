@@ -9,8 +9,8 @@ import json
 import requests
 
 HERE = os.path.dirname(__file__)
-ROOT = os.path.abspath(os.path.join(HERE, ".."))
-READIES = "/w/rafi_1/readies"
+ROOT = os.path.abspath(os.path.join(HERE, "../.."))
+READIES = os.path.abspath(os.path.join(ROOT, "deps/readies"))
 sys.path.insert(0, READIES)
 import paella
 
@@ -25,12 +25,12 @@ RS_PLATFORMS = {
     'bionic': {
         'platform': 'Linux-ubuntu18.04',
         'env': 'bionic-amd64-aws' },
-    'cenos7': {
+    'centos7': {
         'platform': 'Linux-rhel7',
-        'env': 'rhel7.7-amd64-aws' },
-    'cenos8': {
+        'env': 'rhel7.7-x86_64-aws' },
+    'cenots8': {
         'platform': 'Linux-rhel8',
-        'env': 'rhel8.3-amd64-aws' }
+        'env': 'rhel8.3-x86_64-aws' }
 }
 
 
@@ -70,7 +70,8 @@ class Test:
 
         self.token = token
         self.test_fname = test_fname
-        self.modver = re.sub(r'^v(.*)', r'\1', modver)
+        modver = re.sub(r'^v(.*)', r'\1', modver)
+        self.modver = modver
         self.snapshot = snapshot
         self.rsver = rsver
         self.osnick = osnick
@@ -92,7 +93,7 @@ class Test:
         
         ENV['REJSON_MODULE_DIR'] = 'rejson'
         ENV['REJSON_FILE_PREFIX'] = 'rejson'
-        ENV['REJSON_VERSION'] = '2.0.0'
+        ENV['REJSON_VERSION'] = '2.0.2'
 
         self.xtx_vars = ['RS_MODULE', 'RS_MODULE_DIR', 'RS_MODULE_FILE_PREFIX',
                          'RS_VERSION', 'RS_ENV', 'RS_MODULE_OS',
@@ -100,11 +101,15 @@ class Test:
                          'REJSON_VERSION', 'REJSON_MODULE_DIR', 'REJSON_FILE_PREFIX']
 
     def run(self):
+        found_osnick = False
         for osnick in RS_PLATFORMS.keys():
             if self.osnick is None or osnick == self.osnick:
+                found_osnick = True
                 rs_platform = RS_PLATFORMS[osnick]['platform']
                 rs_env = RS_PLATFORMS[osnick]['env']
                 self.run_for_os(rs_platform, rs_env)
+        if not found_osnick:
+            click.echo(f"osnick {self.osnick}: not found")
 
     def run_for_os(self, rs_mod_os, rs_env):
         ENV['RS_ENV'] = rs_env

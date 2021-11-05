@@ -10,7 +10,7 @@
     "test_names_modules": [
         "{{RS_MODULE}}"
     ],
-    "module_download_url": "'http://redismodules.s3.amazonaws.com/{{RS_MODULE_DIR}}/{{RS_MODULE_FILE_PREFIX}}.{{RS_MODULE_OS}}-x86_64.{{MODULE_VERSION}}.zip','http://redismodules.s3.amazonaws.com/{{REJSON_MODULE_DIR}}/{{REJSON_FILE_PREFIX}}.{{RS_MODULE_OS}}-x86_64.{{REJSON_VERSION}}.zip'",
+    "module_download_url": "['http://redismodules.s3.amazonaws.com/{{RS_MODULE_DIR}}/{{RS_MODULE_FILE_PREFIX}}.{{RS_MODULE_OS}}-x86_64.{{MODULE_VERSION}}.zip','http://redismodules.s3.amazonaws.com/{{REJSON_MODULE_DIR}}/{{REJSON_FILE_PREFIX}}.{{RS_MODULE_OS}}-x86_64.{{REJSON_VERSION}}.zip']",
     "cycle_environments_setup": [
       {
         "teardown": true,

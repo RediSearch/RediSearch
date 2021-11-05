@@ -20,6 +20,7 @@ static InfoFieldSpec toplevelSpecs_g[] = {
     {.name = "num_terms", .type = InfoField_WholeSum},
     {.name = "num_records", .type = InfoField_WholeSum},
     {.name = "inverted_sz_mb", .type = InfoField_DoubleSum},
+    {.name = "total_inverted_index_blocks", .type = InfoField_WholeSum},
     {.name = "offset_vectors_sz_mb", .type = InfoField_DoubleSum},
     {.name = "doc_table_size_mb", .type = InfoField_DoubleSum},
     {.name = "sortable_values_size_mb", .type = InfoField_DoubleSum},

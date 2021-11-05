@@ -83,9 +83,12 @@ ARG REDIS_VER
 WORKDIR /data
 
 ENV LIBDIR /usr/lib/redis/modules/
-RUN mkdir -p "$LIBDIR";
+RUN mkdir -p "$LIBDIR"
 
+RUN mkdir -p /var/opt/redislabs/artifacts
+RUN chown -R redis:redis /var/opt/redislabs
 COPY --from=builder /build/bin/linux-x64-release/search/redisearch.so* "$LIBDIR"
+RUN true
 COPY --from=json    /usr/lib/redis/modules/rejson.so* "$LIBDIR"
 
 CMD ["redis-server", "--loadmodule", "/usr/lib/redis/modules/redisearch.so", "--loadmodule", "/usr/lib/redis/modules/rejson.so"]
