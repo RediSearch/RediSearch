@@ -37,6 +37,7 @@ add_definitions(-D_GNU_SOURCE)
 add_definitions(-DREDIS_MODULE_TARGET)
 add_definitions(-UNDEBUG)
 add_definitions(-DRS_COORDINATOR)
+add_definitions(-DRMUTIL_NO_SDS)
 
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${RS_C_FLAGS}")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${RS_CXX_FLAGS}")
@@ -71,7 +72,6 @@ add_subdirectory(src/rmr)
 add_subdirectory(src)
 
 set(FINAL_OBJECTS
-    # ${COORDINATOR_SRC}
     $<TARGET_OBJECTS:coordinator-core>
     $<TARGET_OBJECTS:rmutil>
     $<TARGET_OBJECTS:rmr>)

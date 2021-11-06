@@ -41,6 +41,8 @@
 #include "sds.h"
 #include "sdsalloc.h"
 
+#ifndef RMUTIL_NO_SDS
+
 const char *SDS_NOINIT = "SDS_NOINIT";
 
 static inline int sdsHdrSize(char type) {
@@ -1303,3 +1305,5 @@ int main(void) {
     return sdsTest();
 }
 #endif
+
+#endif // RMUTIL_NO_SDS

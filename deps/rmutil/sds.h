@@ -30,8 +30,13 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef __SDS_H
-#define __SDS_H
+#pragma once
+
+#ifdef RMUTIL_NO_SDS
+
+#include "hiredis/sds.h"
+
+#else
 
 #include <sys/types.h>
 #include <stdarg.h>
@@ -276,4 +281,4 @@ int sdsTest(int argc, char *argv[]);
 }
 #endif
 
-#endif
+#endif // RMUTIL_NO_SDS

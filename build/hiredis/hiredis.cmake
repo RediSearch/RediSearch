@@ -1,6 +1,6 @@
 
 set(ENABLE_SSL ON CACHE BOOL "Build hiredis with ssl")
-option(DISABLE_TESTS "If tests should be compiled or not" OFF)
+option(DISABLE_TESTS "If tests should be compiled or not" ON)
 
 add_subdirectory(${RS_DIR}/deps/hiredis hiredis)
 

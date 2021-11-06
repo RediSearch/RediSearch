@@ -335,11 +335,11 @@ jobs:
           shell: /bin/bash -l -eo pipefail
           command: make SAN=<<parameters.san-type>> build test SHOW=1
           no_output_timeout: 30m
-      - run:
-          name: Build & test (OSS Coordinator)
-          shell: /bin/bash -l -eo pipefail
-          command: make SAN=<<parameters.san-type>> COORD=oss build test SHOW=1
-          no_output_timeout: 30m
+#      - run:
+#          name: Build & test (OSS Coordinator)
+#          shell: /bin/bash -l -eo pipefail
+#          command: make SAN=<<parameters.san-type>> COORD=oss build test SHOW=1
+#          no_output_timeout: 30m
       - save-tests-logs
 
   valgrind-memcheck:

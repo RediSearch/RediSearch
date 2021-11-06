@@ -37,8 +37,16 @@
  * the include of your alternate allocator if needed (not needed in order
  * to use the default libc allocator). */
 
+#ifdef RMUTIL_NO_SDS
+
+#include "hiredis/sdsalloc.h"
+
+#else
+
 #include "rmalloc.h"
-//#include "zmalloc.h"
+
 #define s_malloc rm_malloc
 #define s_realloc rm_realloc
 #define s_free rm_free
+
+#endif // RMUTIL_NO_SDS
