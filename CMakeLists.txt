@@ -133,6 +133,7 @@ ExternalProject_Add (VectorSimilarity
 	CMAKE_ARGS      -DCMAKE_INSTALL_PREFIX:PATH=${binroot}/VectorSimilarity -Dbinroot:string=${binroot}
 	CMAKE_ARGS      -DCMAKE_BUILD_TYPE:string=${CMAKE_BUILD_TYPE} -DVECSIM_STATIC:BOOL=ON
 	CMAKE_ARGS      -DVECSIM_ARCH:string=${VECSIM_ARCH}
+	CMAKE_ARGS      -DUSE_ASAN=${USE_ASAN} -DUSE_MSAN=${USE_MSAN} -DMSAN_PREFIX=${MSAN_PREFIX}
 )
 
 ExternalProject_Get_Property (VectorSimilarity install_dir)
@@ -243,4 +244,3 @@ ENDIF()
 
 # CONFIGURE_FILE(cmake/rmtest.config.in
 #     ${PROJECT_BINARY_DIR}/rmtest.config.default)
-
