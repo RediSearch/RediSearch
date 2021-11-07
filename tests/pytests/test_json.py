@@ -99,7 +99,7 @@ def testSearchUpdatedContent(env):
     plain_int_res_val_3 = str(int(plain_int_val_3) + int(int_incrby_3))
     env.expect('json.set', 'doc:1', '$.n', plain_int_val_3).ok()
     # test JSON.NUMINCRBY
-    env.expect('json.numincrby', 'doc:1', '$.n', int_incrby_3).equal([plain_int_res_val_3])
+    env.expect('json.numincrby', 'doc:1', '$.n', int_incrby_3).equal('[' + plain_int_res_val_3 + ']')
 
     expected = [1L, 'doc:1', ['$', json.loads(r'{"t":"hescelosaurus","n":' + plain_int_res_val_3 + '}')]]
     res = env.cmd('ft.search', 'idx1', 'he*')
