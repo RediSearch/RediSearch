@@ -250,7 +250,7 @@ def testToggle(env):
                '$.boolT', 'AS', 'boolT', 'TAG').ok()
     env.expect('JSON.SET', 'doc:1', '$', r'{"boolT":false}').ok()
     env.expect('ft.search', 'idx', '*').equal([1L, 'doc:1', ['$', '{"boolT":false}']])
-    env.expect('JSON.TOGGLE','doc:1','$.boolT').equal('[1L]')
+    env.expect('JSON.TOGGLE','doc:1','$.boolT').equal([1L])
     env.expect('ft.search', 'idx', '*').equal([1L, 'doc:1', ['$', '{"boolT":true}']])
 
 def testStrappend(env):
