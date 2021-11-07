@@ -5,6 +5,7 @@ import os
 from RLTest import Env
 import pprint
 from includes import *
+from common import getConnectionByEnv
 
 def to_dict(res):
     d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
