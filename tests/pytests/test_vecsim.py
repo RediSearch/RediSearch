@@ -98,34 +98,38 @@ def testDel(env):
     vecsim_type = ['BF', 'HNSW']
     for vs_type in vecsim_type:
         conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'INT32', '2', 'L2', vs_type)
-        conn.execute_command('HSET', 'a', 'v', 'abcdefgh')
-        conn.execute_command('HSET', 'b', 'v', 'abcdefgg')
-        conn.execute_command('HSET', 'c', 'v', 'aacdefgh')
-        conn.execute_command('HSET', 'd', 'v', 'azcdefgh')
 
-        res = env.cmd('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 1]', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 1)
-        env.assertEqual(res[1:3], ['a', ['v_score', '0', 'v', 'abcdefgh']])
+        conn.execute_command('HSET', 'a', 'v', 'aaaaaaaa')
+        conn.execute_command('HSET', 'b', 'v', 'aaaaaaba')
+        conn.execute_command('HSET', 'c', 'v', 'aaaabaaa')
+        conn.execute_command('HSET', 'd', 'v', 'aaaaabaa')
+
+        expected_res = ['a', ['v_score', '0', 'v', 'aaaaaaaa'], 'c', ['v_score', '3.09485009821e+26', 'v', 'aaaabaaa'],
+                        'd', ['v_score', '2.02824096037e+31', 'v', 'aaaaabaa'], 'b', ['v_score', '1.32922799578e+36', 'v', 'aaaaaaba']]
+
+        res = env.cmd('FT.SEARCH', 'idx', '@v:[aaaaaaaa TOPK 1]', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 1)
+        env.assertEqual(res[1:3], expected_res[0:2])
         
-        res = env.cmd('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 2]', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 2)
-        env.assertEqual(res[1:5], ['a', ['v_score', '0', 'v', 'abcdefgh'], 'c', ['v_score', '8.30767497366e+34', 'v', 'aacdefgh']])
+        res = env.cmd('FT.SEARCH', 'idx', '@v:[aaaaaaaa TOPK 2]', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 2)
+        env.assertEqual(res[1:5], expected_res[0:4])
         
-        res = env.cmd('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 3]', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 3)
-        env.assertEqual(res[1:7], ['a', ['v_score', '0', 'v', 'abcdefgh'], 'c', ['v_score', '8.30767497366e+34', 'v', 'aacdefgh'],
-                                   'd', ['v_score', '4.78522078483e+37', 'v', 'azcdefgh']])
+        res = env.cmd('FT.SEARCH', 'idx', '@v:[aaaaaaaa TOPK 3]', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 3)
+        env.assertEqual(res[1:7], expected_res[0:6])
         
-        res = env.cmd('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 4]', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 4)
-        env.assertEqual(res[1:9], ['a', ['v_score', '0', 'v', 'abcdefgh'], 'c', ['v_score', '8.30767497366e+34', 'v', 'aacdefgh'],
-                                   'd', ['v_score', '4.78522078483e+37', 'v', 'azcdefgh'], 'b', ['v_score', 'inf', 'v', 'abcdefgg']])
+        res = env.cmd('FT.SEARCH', 'idx', '@v:[aaaaaaaa TOPK 4]', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 4)
+        env.assertEqual(res[1:9], expected_res[0:8])
         
         conn.execute_command('DEL', 'a')
         
-        res = env.cmd('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 1]', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 1)
-        env.assertEqual(res[1:3], ['c', ['v_score', '8.30767497366e+34', 'v', 'aacdefgh']])
-        res = env.cmd('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 2]', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 2)
-        env.assertEqual(res[1:5], ['c', ['v_score', '8.30767497366e+34', 'v', 'aacdefgh'], 'd', ['v_score', '4.78522078483e+37', 'v', 'azcdefgh']])
-        res = env.cmd('FT.SEARCH', 'idx', '@v:[abcdefgh TOPK 3]', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 3)
-        env.assertEqual(res[1:7], ['c', ['v_score', '8.30767497366e+34', 'v', 'aacdefgh'], 'd', ['v_score', '4.78522078483e+37', 'v', 'azcdefgh'],
-                        'b', ['v_score', 'inf', 'v', 'abcdefgg']])
+        res = ['d', ['v_score', '3.09485009821e+26', 'v', 'aaaabaaa'],
+               'b', ['v_score', '2.02824096037e+31', 'v', 'aaaaabaa'],
+               'c', ['v_score', '1.32922799578e+36', 'v', 'aaaaaaba']]
+        res = env.cmd('FT.SEARCH', 'idx', '@v:[aaaaaaaa TOPK 1]', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 1)
+        env.assertEqual(res[1:3], res[1:3])
+        res = env.cmd('FT.SEARCH', 'idx', '@v:[aaaaaaaa TOPK 2]', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 2)
+        env.assertEqual(res[1:5], res[1:5])
+        res = env.cmd('FT.SEARCH', 'idx', '@v:[aaaaaaaa TOPK 3]', 'SORTBY', 'v_score', 'ASC', 'LIMIT', 0, 3)
+        env.assertEqual(res[1:7], res[1:7])
 
         '''
         This test returns 4 results instead of the expected 3. The HNSW library return the additional results.

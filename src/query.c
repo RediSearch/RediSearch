@@ -1217,9 +1217,13 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
     case QN_VECTOR:
       // TODO: add vector query params
       s = sdscat(s, "VECTOR { ");
-      for (int i = 0; i < qs->vn.vf->resultsLen; i++) {
-        s = sdscatprintf(s, "[%lu,%lf]", qs->vn.vf->results[i].id, qs->vn.vf->results[i].score);
+      VecSimQueryResult_Iterator *iter = VecSimQueryResult_List_GetIterator(qs->vn.vf->results);
+      VecSimQueryResult *res = VecSimQueryResult_IteratorNext(iter);
+      while (res) {
+        s = sdscatprintf(s, "[%lu,%lf]", VecSimQueryResult_GetId(res), VecSimQueryResult_GetScore(res));
+        res = VecSimQueryResult_IteratorNext(iter);
       }
+      VecSimQueryResult_IteratorFree(iter);
       break;
     case QN_WILDCARD:
 

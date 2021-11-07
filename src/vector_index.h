@@ -1,6 +1,6 @@
 #pragma once
 #include "search_ctx.h"
-#include "VecSim/vecsim.h"
+#include "VecSim/vec_sim.h"
 #include "index_iterator.h"
 #include "query_node.h"
 
