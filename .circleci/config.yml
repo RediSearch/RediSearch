@@ -218,10 +218,6 @@ jobs:
       - BUILD_DIR: build-macos
     steps:
       - early-returns
-      - run:
-          name: Update Brew
-          command: brew update
-          no_output_timeout: 20m
       - build-steps:
           platform: catalina
 
