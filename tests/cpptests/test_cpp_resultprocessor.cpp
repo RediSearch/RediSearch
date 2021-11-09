@@ -1,6 +1,7 @@
-#include <result_processor.h>
-#include <query.h>
-#include <gtest/gtest.h>
+
+#include "result_processor.h"
+#include "query.h"
+#include "gtest/gtest.h"
 
 struct processor1Ctx : public ResultProcessor {
   processor1Ctx() {

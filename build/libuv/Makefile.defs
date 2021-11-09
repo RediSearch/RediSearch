@@ -1,0 +1,2 @@
+
+LIBUV=$(LIBUV_BINDIR)/.libs/libuv.a

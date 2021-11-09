@@ -1,10 +1,13 @@
-#include <util/minmax.h>
-#include <rmutil/sds.h>
-#include <util/block_alloc.h>
-#include <aggregate/expr/expression.h>
-#include <ctype.h>
-#include <util/arr.h>
+
+#include "util/minmax.h"
+#include "util/block_alloc.h"
+#include "aggregate/expr/expression.h"
+#include "util/arr.h"
 #include "function.h"
+
+#include "rmutil/sds.h"
+
+#include <ctype.h>
 #include <err.h>
 
 #define STRING_BLOCK_SIZE 512
