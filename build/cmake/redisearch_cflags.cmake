@@ -15,7 +15,7 @@ set(RS_COMMON_FLAGS "${RS_COMMON_FLAGS} -pthread")
 set(RS_COMMON_FLAGS "${RS_COMMON_FLAGS} -fno-strict-aliasing")
 
 if (HAVE_W_INCOMPATIBLE_POINTER_TYPES)
-    SET(RS_C_FLAGS "${RS_C_FLAGS} -Werror=incompatible-pointer-types")
+    set(RS_C_FLAGS "${RS_C_FLAGS} -Werror=incompatible-pointer-types")
     if (HAVE_W_DISCARDS_QUALIFIERS)
         set(RS_COMMON_FLAGS "${RS_COMMON_FLAGS} -Wno-error=incompatible-pointer-types-discards-qualifiers")
     endif()
@@ -27,15 +27,26 @@ set(RS_C_FLAGS "${RS_C_FLAGS}  -Werror=implicit-function-declaration")
 
 if (USE_ASAN)
     set(RS_COMMON_FLAGS "${RS_COMMON_FLAGS} -fno-omit-frame-pointer -fsanitize=address")
+
 elseif(USE_TSAN)
     set(RS_COMMON_FLAGS "${RS_COMMON_FLAGS} -fno-omit-frame-pointer -fsanitize=thread -pie")
+
 elseif(USE_MSAN)
     set(RS_COMMON_FLAGS "${RS_COMMON_FLAGS} -fno-omit-frame-pointer -fsanitize=memory -fsanitize-memory-track-origins=2")
     set(CMAKE_LINKER "${CMAKE_C_COMPILER}")
     if (NOT MSAN_PREFIX)
-        message(FATAL_ERROR "Need MSAN_PREFIX")
+        set(MSAN_PREFIX "/opt/llvm-project/build-msan")
+        if (NOT EXISTS ${MSAN_PREFIX})
+            message(FATAL_ERROR "LLVM/MSAN stdlibc++ directory '${MSAN_PREFIX}' is missing")
+        endif()
     endif()
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++ -Wl,-rpath=${MSAN_PREFIX}/lib -L${MSAN_PREFIX}/lib -lc++abi -I${MSAN_PREFIX}/include -I${MSAN_PREFIX}/include/c++/v1")
+
+    set(LLVM_CXX_FLAGS "-stdlib=libc++ -I${MSAN_PREFIX}/include -I${MSAN_PREFIX}/include/c++/v1")
+    set(LLVM_LD_FLAGS "-stdlib=libc++ -Wl,-rpath=${MSAN_PREFIX}/lib -L${MSAN_PREFIX}/lib -lc++abi")
+
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${LLVM_CXX_FLAGS}")
+    set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} ${LLVM_LD_FLAGS}")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${LLVM_LD_FLAGS}")
 endif()
 
 #----------------------------------------------------------------------------------------------

@@ -561,14 +561,14 @@ DOCKER_IMAGE ?= redislabs/redisearch
 docker:
 	docker build . -t $(DOCKER_IMAGE) -f docker/Dockerfile $(DOCKER_ARGS)
 
-# dvm:
+# box:
 # ifneq ($(OSNICK),)
-# 	@docker run -it -v $PWD:/build --cap-add=SYS_PTRACE --security-opt seccomp=unconfined $(shell $(ROOT)/deps/readies/bin/platform --docker-from-osnick $(OSNICK)) bash
+# 	@docker run -it -v $(PWD):/build --cap-add=SYS_PTRACE --security-opt seccomp=unconfined $(shell $(ROOT)/deps/readies/bin/platform --docker-from-osnick $(OSNICK)) bash
 # else
-# 	@docker run -it -v $PWD:/build --cap-add=SYS_PTRACE --security-opt seccomp=unconfined $(shell $(ROOT)/deps/readies/bin/platform --docker) bash
+# 	@docker run -it -v $(PWD):/build --cap-add=SYS_PTRACE --security-opt seccomp=unconfined $(shell $(ROOT)/deps/readies/bin/platform --docker) bash
 # endif
 
-sanitizer-dvm:
-	@docker run -it -v $PWD:/build --cap-add=SYS_PTRACE --security-opt seccomp=unconfined redisfab/clang:13-x64-bullseye bash
+sanitizer-box:
+	@docker run -it -v $(PWD):/search -w /search --cap-add=SYS_PTRACE --security-opt seccomp=unconfined redisfab/clang:13-x64-bullseye bash
 
 .PHONY: docker
