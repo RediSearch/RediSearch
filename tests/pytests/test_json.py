@@ -284,7 +284,9 @@ def testArrayCommands(env):
     env.assertEqual(conn.execute_command('JSON.ARRAPPEND', 'doc:1', '$.tag', '"bar"'), [2L])
     env.assertEqual(conn.execute_command('JSON.GET', 'doc:1', '$.tag[*]'), '["foo","bar"]')
     env.assertEqual(conn.execute_command('JSON.ARRLEN', 'doc:1', '$.tag'), [2L])
-    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', '@tag:{foo}'), [1L, 'doc:1', ['$', '{"tag":["foo","bar"]}']])
+    res = [1L, 'doc:1', ['$', '{"tag":["foo","bar"]}']]
+    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', '@tag:{foo}'), res)
+    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', '@tag:{bar}'), res)
     env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', '@tag:{baz}'), [0L])
 
     # use JSON.ARRINSERT
@@ -293,14 +295,17 @@ def testArrayCommands(env):
     env.assertEqual(conn.execute_command('JSON.ARRLEN', 'doc:1', '$.tag'), [3L])
     res = [1L, 'doc:1', ['$', '{"tag":["foo","bar","baz"]}']] 
     env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', '@tag:{foo}'), res)
+    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', '@tag:{bar}'), res)
     env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', '@tag:{baz}'), res)
 
     # use JSON.ARRPOP
     env.assertEqual(conn.execute_command('JSON.ARRPOP', 'doc:1', '$.tag', '1'), ['"bar"'])
     env.assertEqual(conn.execute_command('JSON.GET', 'doc:1', '$.tag[*]'), '["foo","baz"]')
     env.assertEqual(conn.execute_command('JSON.ARRLEN', 'doc:1', '$.tag'), [2L])
+    res = [1L, 'doc:1', ['$', '{"tag":["foo","baz"]}']]
+    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', '@tag:{foo}'), res)
     env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', '@tag:{bar}'), [0L])
-    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', '@tag:{baz}'), [1L, 'doc:1', ['$', '{"tag":["foo","baz"]}']])
+    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', '@tag:{baz}'), res)
 
     # use JSON.ARRTRIM
     env.assertEqual(conn.execute_command('JSON.ARRINSERT', 'doc:1', '$.tag', '0', '"1"'), [3L])
@@ -312,7 +317,8 @@ def testArrayCommands(env):
     env.assertEqual(conn.execute_command('JSON.GET', 'doc:1', '$.tag[*]'), '["foo","baz"]')
     env.assertEqual(conn.execute_command('JSON.ARRLEN', 'doc:1', '$.tag'), [2L])
     env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', '@tag:{1}'), [0L])
-    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', '@tag:{baz}'), [1L, 'doc:1', ['$', '{"tag":["foo","baz"]}']])
+    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', '@tag:{foo}'), res)
+    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', '@tag:{baz}'), res)
 
 @no_msan
 def testRootValues(env):
