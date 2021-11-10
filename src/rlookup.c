@@ -554,7 +554,6 @@ static void RLookup_HGETALL_scan_callback(RedisModuleKey *key, RedisModuleString
   RLookup_HGETALL_privdata *pd = privdata;
   size_t fieldCStrLen;
   const char *fieldCStr = RedisModule_StringPtrLen(field, &fieldCStrLen);
-  RS_LOG_ASSERT(fieldCStrLen > 0, "field string cannot be empty");
   RLookupKey *rlk = RLookup_GetKeyEx(pd->it, fieldCStr, fieldCStrLen, RLOOKUP_F_OCREAT | RLOOKUP_F_NAMEALLOC);
   if (!pd->options->noSortables && (rlk->flags & RLOOKUP_F_SVSRC)) {
     return;  // Can load it from the sort vector on demand.
