@@ -69,7 +69,7 @@ file(GLOB RS_SRC
     "src/query_parser/*.c"
     "src/util/*.c"
     "src/trie/*.c"
-	${RS_DEBUG_SRC}
+    ${RS_DEBUG_SRC}
 
     "deps/cndict/cndict_data.c"
     "deps/libnu/*.c"
@@ -90,22 +90,22 @@ set(FINAL_OBJECTS
 #----------------------------------------------------------------------------------------------
 
 if (RS_BUILD_COORDINATOR)
-	if (RS_BUILD_COORD_OSS)
-		add_library(redisearch-oss STATIC ${RS_SRC} ${FINAL_OBJECTS} src/module-init/module-init.c)
-		target_compile_definitions(redisearch-oss PRIVATE RS_NO_ONLOAD RS_NO_RMAPI RS_CLUSTER_OSS)
-		set_target_properties(redisearch-oss PROPERTIES OUTPUT_NAME "redisearch-oss")
-	    if (APPLE)
-			set_target_properties(redisearch-oss PROPERTIES LINK_FLAGS "-undefined dynamic_lookup")
-		endif()
+    if (RS_BUILD_COORD_OSS)
+        add_library(redisearch-oss STATIC ${RS_SRC} ${FINAL_OBJECTS} src/module-init/module-init.c)
+        target_compile_definitions(redisearch-oss PRIVATE RS_NO_ONLOAD RS_NO_RMAPI RS_CLUSTER_OSS)
+        set_target_properties(redisearch-oss PROPERTIES OUTPUT_NAME "redisearch-oss")
+        if (APPLE)
+            set_target_properties(redisearch-oss PROPERTIES LINK_FLAGS "-undefined dynamic_lookup")
+        endif()
 
-	elseif (RS_BUILD_COORD_RLEC)
-		add_library(redisearch-enterprise STATIC ${RS_SRC} ${FINAL_OBJECTS} src/module-init/module-init.c)
-		target_compile_definitions(redisearch-enterprise PRIVATE RS_NO_ONLOAD RS_NO_RMAPI RS_CLUSTER_ENTERPRISE)
-		set_target_properties(redisearch-enterprise PROPERTIES OUTPUT_NAME "redisearch-enterprise")
-	    if (APPLE)
-			set_target_properties(redisearch-enterprise PROPERTIES LINK_FLAGS "-undefined dynamic_lookup")
-		endif()
-	endif()
+    elseif (RS_BUILD_COORD_RLEC)
+        add_library(redisearch-enterprise STATIC ${RS_SRC} ${FINAL_OBJECTS} src/module-init/module-init.c)
+        target_compile_definitions(redisearch-enterprise PRIVATE RS_NO_ONLOAD RS_NO_RMAPI RS_CLUSTER_ENTERPRISE)
+        set_target_properties(redisearch-enterprise PROPERTIES OUTPUT_NAME "redisearch-enterprise")
+        if (APPLE)
+            set_target_properties(redisearch-enterprise PROPERTIES LINK_FLAGS "-undefined dynamic_lookup")
+        endif()
+    endif()
 
 elseif (RS_BUILD_STATIC)
     add_library(redisearchS STATIC ${FINAL_OBJECTS} src/module-init/module-init.c)
@@ -127,8 +127,8 @@ else() # OSS RediSearch
     set_target_properties(redisearch PROPERTIES SUFFIX ".so")
 
     if (APPLE)
-		set_target_properties(redisearch PROPERTIES LINK_FLAGS "-undefined dynamic_lookup")
-	else()
+        set_target_properties(redisearch PROPERTIES LINK_FLAGS "-undefined dynamic_lookup")
+    else()
         add_custom_command(TARGET redisearch POST_BUILD
             COMMAND objcopy --only-keep-debug $<TARGET_FILE:redisearch> $<TARGET_FILE:redisearch>.debug
             COMMAND objcopy --add-gnu-debuglink $<TARGET_FILE:redisearch>.debug $<TARGET_FILE:redisearch>
@@ -157,7 +157,7 @@ if (RS_RUN_TESTS AND NOT RS_BUILD_COORDINATOR AND NOT RS_BUILD_STATIC)
     add_subdirectory(tests/pytests)
     add_subdirectory(tests/c_utils)
     add_subdirectory(tests/ctests/ext-example example_extension)
-	if (RS_ENABLE_MOCK)
-		add_subdirectory(tests/cpptests/redismock)
-	endif()
+    if (RS_ENABLE_MOCK)
+        add_subdirectory(tests/cpptests/redismock)
+    endif()
 endif()

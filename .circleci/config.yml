@@ -138,7 +138,7 @@ commands:
           name: Build (Search)
           shell: /bin/bash -l -eo pipefail
           command: |
-            make build WITH_TESTS=1 <<parameters.build_params>> SHOW=1
+            make build <<parameters.build_params>> SHOW=1
       - run:
           name: Build (Search Lite)
           shell: /bin/bash -l -eo pipefail
@@ -147,7 +147,7 @@ commands:
       - run:
           name: Build (OSS Coordinator)
           shell: /bin/bash -l -eo pipefail
-          command: make build COORD=oss WITH_TESTS=1 <<parameters.build_params>> SHOW=1
+          command: make build COORD=oss <<parameters.build_params>> SHOW=1
       - run:
           name: Build (RLEC Coordinator)
           shell: /bin/bash -l -eo pipefail
@@ -181,6 +181,37 @@ commands:
       - setup-executor
       - checkout
       - setup-automation
+      - run:
+          name: Build for platform
+          command: |
+            ROOT=$PWD
+            cd build/docker
+            make build OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH ARTIFACTS=1 TEST=1 SHOW=1 PACK=1
+            cd $ROOT
+            mkdir -p tests/pytests/logs
+            tar -C tests/pytests/logs -xzf bin/artifacts/tests-pytests-logs*.tgz
+          no_output_timeout: 30m
+      - early-return-for-forked-pull-requests
+      - run:
+          name: Build for platform (publish)
+          command: |
+            docker login -u redisfab -p $DOCKER_REDISFAB_PWD
+            cd build/docker
+            make publish OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH OFFICIAL=0 SHOW=1 VERBOSE=1
+      - persist-artifacts
+      - save-tests-logs
+
+  vm-build-platforms-steps:
+    parameters:
+      platform:
+        type: string
+    steps:
+      - early-returns
+      - checkout
+      - setup-automation
+      - run:
+          name: Install Docker
+          command: bash <(curl -fsSL https://raw.githubusercontent.com/docker/docker-install/master/install.sh)
       - run:
           name: Build for platform
           command: |
@@ -272,9 +303,20 @@ jobs:
       platform:
         type: string
     docker:
-      - image: debian:buster
+      - image: debian:bullseye
     steps:
       - build-platforms-steps:
+          platform: <<parameters.platform>>
+
+  build-arm-platforms:
+    parameters:
+      platform:
+        type: string
+    machine:
+      image: ubuntu-2004:202101-01
+    resource_class: arm.medium
+    steps:
+      - vm-build-platforms-steps:
           platform: <<parameters.platform>>
 
   build-macos:
@@ -426,7 +468,7 @@ jobs:
 
   release-automation:
     docker:
-      - image: redisfab/rmbuilder:6.2.5-x64-buster
+      - image: redisfab/rmbuilder:6.2.5-x64-bullseye
     steps:
       - early-returns
       - early-return-for-forked-pull-requests

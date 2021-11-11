@@ -19,6 +19,7 @@ endif
 
 ifneq ($(SAN),)
 override DEBUG ?= 1
+
 ifeq ($(SAN),mem)
 override SAN=memory
 else ifeq ($(SAN),addr)
@@ -49,7 +50,7 @@ include deps/readies/mk/main
 
 #----------------------------------------------------------------------------------------------
 
-define HELP
+define HELPTEXT
 make setup         # install prerequisited (CAUTION: THIS WILL MODIFY YOUR SYSTEM)
 make fetch         # download and prepare dependant modules
 
@@ -60,7 +61,7 @@ make build         # compile and link
   DEBUG=1            # build for debugging
   NO_TESTS=1         # disable unit tests
   WHY=1              # explain CMake decisions (in /tmp/cmake-why)
-  FORCE=1            # Force CMake rerun
+  FORCE=1            # Force CMake rerun (default)
   CMAKE_ARGS=...     # extra arguments to CMake
   VG=1               # build for Valgrind
   SAN=type           # build with LLVM sanitizer (type=address|memory|leak|thread) 
@@ -70,7 +71,7 @@ make clean         # remove build artifacts
   ALL=1              # remove entire artifacts directory
 
 make run           # run redis with RediSearch
-  DEBUG=1            # invoke using gdb
+  GDB=1              # invoke using gdb
 
 make test          # run all tests (via ctest)
   COORD=oss|rlec     # test coordinator
@@ -105,8 +106,16 @@ make release       # release a version
 make docs          # create documentation
 make deploydocs    # deploy documentation
 
-make docker
-make docker_push
+make platform      # build for specified platform
+  OSNICK=nick        # platform to build for (default: host platform)
+  TEST=1             # run tests after build
+  PACK=1             # create package
+  ARTIFACTS=1        # copy artifacts to host
+
+make box           # create container with volumen mapping into /search
+  OSNICK=nick        # platform spec
+make sanbox        # create container with CLang Sanitizer
+
 endef
 
 #----------------------------------------------------------------------------------------------
@@ -364,7 +373,7 @@ endif # DEPS
 setup:
 	@echo Setting up system...
 	$(SHOW)./deps/readies/bin/getpy2
-	$(SHOW)./system-setup.py 
+	$(SHOW)./sbin/system-setup.py 
 
 #----------------------------------------------------------------------------------------------
 
@@ -374,7 +383,11 @@ fetch:
 #----------------------------------------------------------------------------------------------
 
 run:
+ifeq ($(GDB),1)
+	gdb -ex r --args redis-server --loadmodule $(abspath $(TARGET))
+else
 	@redis-server --loadmodule $(abspath $(TARGET))
+endif
 
 #----------------------------------------------------------------------------------------------
 
@@ -550,16 +563,8 @@ deploydocs:
 
 #----------------------------------------------------------------------------------------------
 
-DOCKER_ARGS=
-
-ifeq ($(CACHE),0)
-DOCKER_ARGS += --no-cache
-endif
-
-DOCKER_IMAGE ?= redislabs/redisearch
-
-docker:
-	docker build . -t $(DOCKER_IMAGE) -f docker/Dockerfile $(DOCKER_ARGS)
+platform:
+	$(SHOW)$(MAKE) -C build/docker
 
 # box:
 # ifneq ($(OSNICK),)
@@ -568,7 +573,7 @@ docker:
 # 	@docker run -it -v $(PWD):/build --cap-add=SYS_PTRACE --security-opt seccomp=unconfined $(shell $(ROOT)/deps/readies/bin/platform --docker) bash
 # endif
 
-sanitizer-box:
+sanbox:
 	@docker run -it -v $(PWD):/search -w /search --cap-add=SYS_PTRACE --security-opt seccomp=unconfined redisfab/clang:13-x64-bullseye bash
 
-.PHONY: docker
+.PHONY: box sanbox
