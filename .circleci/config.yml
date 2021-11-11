@@ -557,6 +557,12 @@ workflows:
             parameters:
               #@@ platform: [focal, bionic, xenial, centos7, centos8]
               platform: [focal]
+      - build-arm-platforms:
+          <<: *on-integ-and-version-tags
+          context: common
+          matrix:
+            parameters:
+              platform: [focal]
       - build-macos:
           #@@ <<: *on-version-tags
           <<: *not-on-integ-branch
