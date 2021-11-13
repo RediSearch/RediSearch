@@ -39,7 +39,7 @@ $(error SAN=mem|addr|leak|thread)
 endif
 endif
 
-define HELP
+define HELPTEXT
 make setup         # install prerequisited (CAUTION: THIS WILL MODIFY YOUR SYSTEM)
 make fetch         # download and prepare dependant modules
 
