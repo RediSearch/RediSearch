@@ -1,10 +1,12 @@
-#include <redismodule.h>
-#include <gtest/gtest.h>
-#include <module.h>
-#include <version.h>
+
+#include "redismodule.h"
+#include "module.h"
+#include "version.h"
+#include "common.h"
 #include "redismock/util.h"
 #include "redismock/internal.h"
-#include "common.h"
+
+#include "gtest/gtest.h"
 
 extern "C" {
 static int my_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
