@@ -20,7 +20,8 @@ class RediSearchSetup(paella.Setup):
         self.pip_install("wheel")
         self.pip_install("setuptools --upgrade")
 
-        self.install("git")
+        self.run("%s/bin/enable-utf8" % READIES)
+        self.install("git rsync")
 
     def debian_compat(self):
         self.install("libatomic1")
@@ -50,7 +51,7 @@ class RediSearchSetup(paella.Setup):
         self.run("{PYTHON} {READIES}/bin/getredis -v 6 --force".format(PYTHON=self.python, READIES=READIES))
 
     def common_last(self):
-        self.run("{PYTHON} {READIES}/bin/getcmake".format(PYTHON=self.python, READIES=READIES))
+        self.run("{PYTHON} {READIES}/bin/getcmake --usr".format(PYTHON=self.python, READIES=READIES))
         self.run("{PYTHON} {READIES}/bin/getrmpytools --reinstall".format(PYTHON=self.python, READIES=READIES))
         if self.dist != "arch":
             self.install("lcov")
@@ -58,7 +59,7 @@ class RediSearchSetup(paella.Setup):
             self.install("lcov-git", aur=True)
         self.pip_install("pudb awscli")
 
-        self.pip_install("-r %s/tests/pytests/requirements.txt" % ROOT)
+        # self.pip_install("-r %s/tests/pytests/requirements.txt" % ROOT)
 
 #----------------------------------------------------------------------------------------------
 

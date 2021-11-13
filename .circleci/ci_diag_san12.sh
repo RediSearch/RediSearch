@@ -16,10 +16,12 @@ extra_flags=""
 
 if [[ $ASAN == 1 ]]; then
     mode=asan
+	SAN_MODE=address
     extra_flags="-DUSE_ASAN=ON"
     $READIES/bin/getredis --force -v 6.0 --no-run --suffix asan --clang-asan --clang-san-blacklist /build/redis.blacklist
 elif [[ $MSAN == 1 ]]; then
     mode=msan
+	SAN_MODE=memory
     extra_flags="-DUSE_MSAN=ON -DMSAN_PREFIX=${SAN_PREFIX}"
     $READIES/bin/getredis --force -v 6.0  --no-run --suffix msan --clang-msan --llvm-dir /opt/llvm-project/build-msan --clang-san-blacklist /build/redis.blacklist
 else
@@ -40,21 +42,22 @@ cmake -DCMAKE_BUILD_TYPE=DEBUG \
 if [[ -z $CI_CONCURRENCY ]]; then
 	CI_CONCURRENCY=$($ROOT/deps/readies/bin/nproc)
 fi
-if [[ $CI_CONCURRENCY > 20 ]]; then
-	CI_CONCURRENCY=20
+if (( $CI_CONCURRENCY > 8 )); then
+	CI_CONCURRENCY=8
 fi
 
 make -j$CI_CONCURRENCY
 
+export REDIS_SERVER=redis-server-${mode}
 cat >rltest.config <<EOF
---oss-redis-path=redis-server-${mode}
 --no-output-catch
 --exit-on-failure
 --check-exitcode
 --unix
 EOF
+export CONFIG_FILE="$PWD/rltest.config"
 
 export ASAN_OPTIONS=detect_odr_violation=0
 export RS_GLOBAL_DTORS=1
 
-ctest --output-on-failure -j$CI_CONCURRENCY
+COMPAT_DIR="$ROOT/build-${mode}" make -C $ROOT test SAN="$SAN_MODE" CTEST_ARGS="--output-on-failure" CTEST_PARALLEL="$CI_CONCURRENCY"

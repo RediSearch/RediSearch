@@ -10,4 +10,4 @@ git submodule update --init --recursive
 ./deps/readies/bin/getpy2
 python2 ./system-setup.py
 ./srcutil/get_gtest.sh
-python ./src/pytest/test_rdb_compatibility.py
+python2 ./tests/pytests/test_rdb_compatibility.py

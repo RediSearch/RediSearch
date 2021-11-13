@@ -4,9 +4,13 @@ INCLUDE_DIRECTORIES("${gtest_SOURCE_DIR}/include")
 INCLUDE_DIRECTORIES(.)
 ADD_SUBDIRECTORY(redismock)
 
-FILE(GLOB TEST_SOURCES "t_*.cpp")
+IF (NOT RS_TEST_MODULE)
+    SET(RS_TEST_MODULE redisearch)
+ENDIF()
+
+FILE(GLOB TEST_SOURCES "test_cpp_*.cpp")
 ADD_EXECUTABLE(rstest ${TEST_SOURCES} common.cpp)
-TARGET_LINK_LIBRARIES(rstest gtest redisearch redismock)
+TARGET_LINK_LIBRARIES(rstest gtest ${RS_TEST_MODULE} redismock dl)
 SET_PROPERTY(TARGET rstest PROPERTY CXX_STANDARD 11)
 ADD_DEPENDENCIES(rstest example_extension)
 

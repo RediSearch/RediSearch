@@ -1,8 +1,12 @@
 INCLUDE (CTest)
 
+IF (NOT RS_TEST_MODULE)
+    SET(RS_TEST_MODULE redisearch)
+ENDIF()
+
 FUNCTION(RSTEST name)
     ADD_EXECUTABLE("${name}" "${name}.c")
-    TARGET_LINK_LIBRARIES("${name}" redisearch apistubs)
+    TARGET_LINK_LIBRARIES("${name}" ${RS_TEST_MODULE} m apistubs)
     ADD_TEST(NAME "${name}" COMMAND "${name}" WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
 ENDFUNCTION()
 
@@ -13,4 +17,5 @@ FOREACH(n ${TEST_SOURCES})
     RSTEST("${test_name}")
 ENDFOREACH()
 
-ADD_LIBRARY(example_extension SHARED "ext-example/example.c")
+ADD_SUBDIRECTORY(ext-example)
+
