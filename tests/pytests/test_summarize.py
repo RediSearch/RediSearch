@@ -2,7 +2,7 @@ import os.path
 from includes import *
 
 
-GENTEXT = os.path.dirname(os.path.abspath(__file__)) + '/../tests/genesis.txt'
+GENTEXT = os.path.dirname(os.path.abspath(__file__)) + '/../ctests/genesis.txt'
 
 
 def setupGenesis(env):
@@ -148,7 +148,7 @@ def testOverflow1(env):
     env.assertEqual('15ad80086ccc7f', res[1])
     for term in ['title', 'The <b>Vampire</b> Diaries', 'rating', 'TV-14', 'level', 'Parents strongly cautioned. May be unsuitable for children ages 14 and under.', 'description', '90', 'year', '2017', 'uscore', '91', 'usize', '80']:
         env.assertIn(term, res[2])
-    
+
 def testIssue364(env):
     # FT.CREATE testset "SCHEMA" "permit_timestamp" "NUMERIC" "SORTABLE" "job_category" "TEXT" "NOSTEM" "address" "TEXT" "NOSTEM"  "neighbourhood" "TAG" "SORTABLE" "description" "TEXT"  "building_type" "TEXT" "WEIGHT" "20" "NOSTEM" "SORTABLE"     "work_type" "TEXT" "NOSTEM" "SORTABLE"     "floor_area" "NUMERIC" "SORTABLE"     "construction_value" "NUMERIC" "SORTABLE"     "zoning" "TAG"     "units_added" "NUMERIC" "SORTABLE"     "location" "GEO"
     # ft.add testset 109056573-002 1 fields building_type "Retail and Shops" description "To change the use from a Restaurant to a Personal Service Shop (Great Clips)"
@@ -157,7 +157,7 @@ def testIssue364(env):
     env.cmd('ft.add', 'idx', 'doc1', '1.0', 'FIELDS',
              'building_type', 'Retail and Shops',
              'description', 'To change the use from a Restaurant to a Personal Service Shop (Great Clips)')
-    
+
     env.cmd('ft.add', 'idx', 'doc2', '1.0', 'FIELDS',
              'building_type', 'Retail and Shops',
              'description', 'To change the use from a Restaurant to a Personal Service Shop (Great Clips) at the end')
@@ -204,4 +204,4 @@ def testFailedHighlight(env):
     env.assertEqual([1L, 'doc3', ['f2', 'not a', 'f1', 'foo foo foo', 'f3', 'baz baz baz']],
         env.cmd('ft.search idx3 foo highlight fields 1 f2'))
     env.assertEqual([1L, 'doc3', ['f3', 'baz baz baz', 'f1', 'foo foo foo', 'f2', 'not a']],
-        env.cmd('ft.search idx3 foo highlight fields 1 f3')) 
+        env.cmd('ft.search idx3 foo highlight fields 1 f3'))
