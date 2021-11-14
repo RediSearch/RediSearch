@@ -67,7 +67,7 @@ commands:
     parameters:
       redis_version:
         type: string
-        default: "6"
+        default: "6.0"
       getredis_params:
         type: string
         default: ""
@@ -171,10 +171,6 @@ jobs:
       - BUILD_DIR: build-macos
     steps:
       - early-returns
-      - run:
-          name: Update Brew
-          command: brew update
-          no_output_timeout: 20m
       - build-steps:
           platform: catalina
 
@@ -240,6 +236,7 @@ jobs:
     steps:
       - early-returns
       - checkout-all
+      - install-prerequisites
       - run:
           name: Build & Test
           command: bash -l -c "./.circleci/ci_valgrind.sh"
@@ -252,6 +249,7 @@ jobs:
     steps:
       - early-returns
       - checkout-all
+      - install-prerequisites
       - run:
           name: Build & Test
           command: bash -l -c "./.circleci/ci_coverage.sh"

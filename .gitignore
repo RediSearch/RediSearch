@@ -11,16 +11,16 @@
 *.DS_Store
 *.dSYM
 *.zip
-*.gz
-*.bz2
+# *.gz
+# *.bz2
 *.tar
 /bin/
 /site/*
 /build*/
 /artifacts/
 /venv*/
-srcutil/lemon
-src/query_parser/lemon
+/srcutil/lemon
+/src/query_parser/lemon
 .vscode/*
 .idea/*
 .project

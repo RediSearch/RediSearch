@@ -222,4 +222,5 @@ def testGCShutDownOnExit(env):
     env.start()
 
     # make sure server started successfully
+    env.cmd('flushall')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT', 'SORTABLE').ok()
