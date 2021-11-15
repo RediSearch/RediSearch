@@ -343,3 +343,15 @@ def test_MOD_1808(env):
   conn.execute_command('hset', 'doc3', 't', 'world3')
   res = env.cmd('FT.SEARCH', 'idx', '(~@t:world2) (~@t:world1) (~@fawdfa:wada)', 'SUMMARIZE', 'FRAGS', '1', 'LEN', '25', 'HIGHLIGHT', 'TAGS', "<span style='background-color:yellow'>", '</span>')
   env.assertEqual(toSortedFlatList(res), toSortedFlatList([4L, 'doc2', ['t', "<span style='background-color:yellow'>world2</span>... "], 'doc1', ['t', "<span style='background-color:yellow'>world1</span>... "], 'doc0', ['t', 'world0'], 'doc3', ['t', 'world3']]))
+
+def test_2370(env):
+  # Test limit offset great than number of results
+  conn = getConnectionByEnv(env)
+  conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 't2', 'TEXT')
+  conn.execute_command('HSET', 'doc1', 't1', 'foo', 't2', 'bar')
+  conn.execute_command('HSET', 'doc2', 't1', 'baz')
+  
+  # number of results is lower than LIMIT
+  env.expect('FT.SEARCH', 'idx', '*', 'LIMIT', '10', '10').equal([2L])
+  # missing fields
+  env.expect('FT.SEARCH', 'idx', '*').equal([2L, 'doc1', ['t1', 'foo', 't2', 'bar'], 'doc2', ['t1', 'baz']])
