@@ -3,7 +3,7 @@
     "summary": "Creates an index with the given spec",
     "complexity": [
       "O(K) at creation where K is the number of fields,",
-      "O(N) if scanning the keyspaceis triggered where N is the number of keys in the keyspace"],
+      "O(N) if scanning the keyspace is triggered, where N is the number of keys in the keyspace"],
     "arguments": [
       {
         "name": "index",
@@ -266,8 +266,8 @@
     "group": "search"
   },
   "FT.DROPINDEX": {
-    "summary": "Deltes the index",
-    "complexity": "O(1) or O(N) if documents are removed",
+    "summary": "Deletes the index",
+    "complexity": "O(1) or O(N) if documents are deleted, where N is the number of keys in the keyspace",
     "arguments": [
       {
         "name": "index",
@@ -577,7 +577,7 @@
   },
   "FT.DICTDUMP": {
     "summary": "Dumps all terms in the given dictionary",
-    "complexity": "O(N)",
+    "complexity": "O(N), where N is the size of the dictionary",
     "arguments": [
       {
         "name": "dict",
@@ -678,7 +678,7 @@
         ]
       },
       {
-        "name": "withpatloads",
+        "name": "withpayloads",
         "type": "enum",
         "optional": true,
         "enum": [
@@ -694,7 +694,7 @@
         ]
       },
       {
-        "name": "withpatloads",
+        "name": "withpayloads",
         "type": "enum",
         "optional": true,
         "enum": [
@@ -811,10 +811,10 @@
         "optional": true,
         "block": [
           {
-            "name": "summerize",
+            "name": "summarize",
             "type": "enum",
             "enum": [
-              "SUMMERIZE"
+              "SUMMARIZE"
             ]
           },
           {
@@ -1120,7 +1120,7 @@
         "block" : [
           {
             "name": "expression",
-            "type": "integer",
+            "type": "string",
             "command":"APPLY"
           },
           {
