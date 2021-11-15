@@ -591,13 +591,41 @@
     "since": "2.0.0",
     "group": "search"
   },
-  "FT.CONFIG": {
-    "summary": "Retrieves, describes and sets runtime configuration options - WIP",
+  "FT.CONFIG SET": {
+    "summary": "Set runtime configuration options",
     "complexity": "O(1)",
     "arguments": [
       {
-        "name": "dict",
-        "type": "key"
+        "name": "option",
+        "type": "string"
+      }
+    ],
+    "since": "1.0.0",
+    "group": "search"
+  },
+  "FT.CONFIG GET": {
+    "summary": "Retrieve runtime configuration options",
+    "complexity": "O(1)",
+    "arguments": [
+      {
+        "name": "option",
+        "type": "string"
+      },
+      {
+        "name": "value",
+        "type": "string"
+      }
+    ],
+    "since": "1.0.0",
+    "group": "search"
+  },
+  "FT.CONFIG HELP": {
+    "summary": "Help description of runtime configuration options",
+    "complexity": "O(1)",
+    "arguments": [
+      {
+        "name": "option",
+        "type": "string"
       }
     ],
     "since": "1.0.0",
