@@ -173,8 +173,10 @@
           },
           {
             "name": "sortable",
-            "type": "string",
-            "command": "SORTABLE",
+            "type": "enum",
+            "enum": [ 
+              "SORTABLE"
+            ],
             "optional":true
           }
         ]
@@ -918,7 +920,7 @@
         "command":"PAYLOAD"
       },
       {
-        "name": "limit",
+        "name": "sortby",
         "type": "block",
         "optional": true,
         "block": [
@@ -954,6 +956,173 @@
             "type": ["string", "string"]
           }
         ]
+      }
+    ],
+    "since": "1.0.0",
+    "group": "search"
+  },
+
+  "FT.AGGREGATE": {
+    "summary": "Adds terms to a dictionary",
+    "complexity": "O(1)",
+    "arguments": [
+      {
+        "name": "index",
+        "type": "key"
+      },
+      {
+        "name": "query",
+        "type": "string"
+      },
+      {
+        "name": "verbatim",
+        "type": "enum",
+        "optional": true,
+        "enum": [
+          "VERBATIM"
+        ]
+      },
+      {
+        "name": "load",
+        "type": "block",
+        "optional": true,
+        "block": [
+          {
+            "name": "count",
+            "type": "string",
+            "command":"LOAD"
+          },
+          {
+            "name": "field",
+            "type": "string",
+            "multiple": true
+          }
+        ]
+      },
+      {
+        "name": "groupby",
+        "type": "block",
+        "optional": true,
+        "multiple": true,
+        "block" : [
+          {
+            "name": "nargs",
+            "type": "integer",
+            "command":"GROUPBY"
+          },
+          {
+            "name": "property",
+            "type": "string",
+            "multiple": true
+          },
+          {
+            "name": "reduce",
+            "type": "block",
+            "optional": true,
+            "multiple": true,
+            "block" : [
+              {
+                "name": "function",
+                "type": "string",
+                "command":"REDUCE"
+              },
+              {
+                "name": "nargs",
+                "type": "integer"
+              },
+              {
+                "name": "arg",
+                "type": "string",
+                "multiple": true
+              },
+              {
+                "name": "name",
+                "type": "string",
+                "command":"AS",
+                "optional": true
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "sortby",
+        "type": "block",
+        "optional": true,
+        "block" : [
+          {
+            "name": "nargs",
+            "type": "integer",
+            "command":"SORTBY"
+          },
+          {
+            "name": "fields",
+            "type": "block",
+            "optional": true,
+            "multiple": true,
+            "block" : [
+              {
+                "name": "property",
+                "type": "string"
+              },
+              {
+                "name": "order",
+                "type": "enum",
+                "enum": [
+                  "ASC", "DESC"
+                ]
+              }
+            ]
+          },
+          {
+            "name": "num",
+            "type": "integer",
+            "command":"MAX",
+            "optional": true
+          }
+        ]
+      },
+      {
+        "name": "apply",
+        "type": "block",
+        "optional": true,
+        "multiple": true,
+        "block" : [
+          {
+            "name": "expression",
+            "type": "integer",
+            "command":"APPLY"
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "command":"AS"
+          }
+        ]
+      },
+      {
+        "name": "limit",
+        "type": "block",
+        "optional": true,
+        "block": [
+          {
+            "name": "limit",
+            "type": "enum",
+            "enum": [
+              "LIMIT"
+            ]
+          },
+          {
+            "name": ["offset", "num"],
+            "type": ["string", "string"]
+          }
+        ]
+      },
+      {
+        "name": "filter",
+        "type": "string",
+        "optional": true,
+        "command":"FILTER"
       }
     ],
     "since": "1.0.0",
