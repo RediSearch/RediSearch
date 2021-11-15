@@ -156,30 +156,39 @@
           {
             "name": "field_type",
             "type": "enum",
-            "TEXT": [
-              {
-                "name": "type",
-                "type": "string"
-              }
-            ],
-            "GEO": [
-              {
-                "name": "type",
-                "type": "string"
-                
-              }
-            ],
             "enum": [
               "TEXT", "TAG", "NUMERIC", "GEO"
             ]
           },
           {
             "name": "sortable",
+            "type": "block",
+            "optional": true,
+            "block": [
+              {
+                "name": "sortable",
+                "type": "enum",
+                "enum": [ 
+                  "SORTABLE"
+                ]
+              },
+              {
+                "name": "UNF",
+                "type": "enum",
+                "enum": [ 
+                  "UNF"
+                ],
+                "optional": true
+              }
+            ]
+          },
+          {
+            "name": "noindex",
             "type": "enum",
-            "enum": [ 
-              "SORTABLE"
-            ],
-            "optional":true
+            "optional": true,
+            "enum": [
+              "NOINDEX"
+            ]
           }
         ]
       }
@@ -507,7 +516,7 @@
         "type": "string"
       },
       {
-          "name": "dist",
+          "name": "distance",
           "command": "DISTANCE",
           "type": "integer",
           "optional": true
@@ -983,7 +992,7 @@
           },
           {
             "name": ["offset", "num"],
-            "type": ["string", "string"]
+            "type": ["integer", "integer"]
           }
         ]
       }
@@ -1144,7 +1153,7 @@
           },
           {
             "name": ["offset", "num"],
-            "type": ["string", "string"]
+            "type": ["integer", "integer"]
           }
         ]
       },
