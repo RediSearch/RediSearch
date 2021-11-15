@@ -1,11 +1,13 @@
 {
   "FT.CREATE": {
     "summary": "Creates an index with the given spec",
-    "complexity": "O(1)",
+    "complexity": [
+      "O(K) at creation where K is the number of fields,",
+      "O(N) if scanning the keyspaceis triggered where N is the number of keys in the keyspace"],
     "arguments": [
       {
         "name": "index",
-        "type": "key"
+        "type": "string"
       },
       {
         "name": "data_type",
@@ -191,7 +193,7 @@
     "arguments": [
       {
         "name": "index",
-        "type": "key"
+        "type": "string"
       }
     ],
     "since": "1.0.0",
@@ -203,7 +205,7 @@
     "arguments": [
       {
         "name": "index",
-        "type": "key"
+        "type": "string"
       },
       {
         "name": "query",
@@ -219,7 +221,7 @@
     "arguments": [
       {
         "name": "index",
-        "type": "key"
+        "type": "string"
       },
       {
         "name": "query",
@@ -231,11 +233,11 @@
   },
   "FT.ALTER": {
     "summary": "Adds a new field to the index",
-    "complexity": "O(1)",
+    "complexity": "O(N) where N is the number of keys in the keyspace",
     "arguments": [
       {
         "name": "index",
-        "type": "key"
+        "type": "string"
       },
       {
         "name": "schema",
@@ -265,11 +267,11 @@
   },
   "FT.DROPINDEX": {
     "summary": "Deltes the index",
-    "complexity": "O(N)",
+    "complexity": "O(1) or O(N) if documents are removed",
     "arguments": [
       {
         "name": "index",
-        "type": "key"
+        "type": "string"
       },
       {
         "name": "delete docs",
@@ -293,7 +295,7 @@
       },
       {
         "name": "index",
-        "type": "key"
+        "type": "string"
       }
     ],
     "since": "1.0.0",
@@ -309,7 +311,7 @@
       },
       {
         "name": "index",
-        "type": "key"
+        "type": "string"
       }
     ],
     "since": "1.0.0",
@@ -333,7 +335,7 @@
     "arguments": [
       {
         "name": "index",
-        "type": "key"
+        "type": "string"
       },
       {
         "name": "field_name",
@@ -349,7 +351,7 @@
     "arguments": [
       {
         "name": "key",
-        "type": "key"
+        "type": "string"
       },
       {
         "name": "string",
@@ -383,7 +385,7 @@
     "arguments": [
       {
         "name": "key",
-        "type": "key"
+        "type": "string"
       },
       {
         "name": "prefix",
@@ -429,7 +431,7 @@
     "arguments": [
       {
         "name": "key",
-        "type": "key"
+        "type": "string"
       },
       {
         "name": "string",
@@ -445,7 +447,7 @@
     "arguments": [
       {
         "name": "key",
-        "type": "key"
+        "type": "string"
       }
     ],
     "since": "1.0.0",
@@ -457,7 +459,7 @@
     "arguments": [
       {
         "name": "index",
-        "type": "key"
+        "type": "string"
       },
       {
         "name": "synonym_group_id",
@@ -477,7 +479,7 @@
         "multiple": true
       }
     ],
-    "since": "1.0.0",
+    "since": "1.2.0",
     "group": "search"
   },
   "FT.SYNDUMP": {
@@ -486,10 +488,10 @@
     "arguments": [
       {
         "name": "index",
-        "type": "key"
+        "type": "string"
       }
     ],
-    "since": "1.0.0",
+    "since": "1.2.0",
     "group": "search"
   },
   "FT.SPELLCHECK": {
@@ -498,7 +500,7 @@
     "arguments": [
       {
         "name": "index",
-        "type": "key"
+        "type": "string"
       },
       {
         "name": "query",
@@ -536,7 +538,7 @@
         ]
       }
     ],
-    "since": "1.0.0",
+    "since": "1.4.0",
     "group": "search"
   },
   "FT.DICTADD": {
@@ -545,7 +547,7 @@
     "arguments": [
       {
         "name": "dict",
-        "type": "key"
+        "type": "string"
       },
       {
         "name": "term",
@@ -553,7 +555,7 @@
         "multiple": true
       }
     ],
-    "since": "1.0.0",
+    "since": "1.4.0",
     "group": "search"
   },
   "FT.DICTDEL": {
@@ -562,7 +564,7 @@
     "arguments": [
       {
         "name": "dict",
-        "type": "key"
+        "type": "string"
       },
       {
         "name": "term",
@@ -570,19 +572,19 @@
         "multiple": true
       }
     ],
-    "since": "1.0.0",
+    "since": "1.4.0",
     "group": "search"
   },
   "FT.DICTDUMP": {
     "summary": "Dumps all terms in the given dictionary",
-    "complexity": "O(1)",
+    "complexity": "O(N)",
     "arguments": [
       {
         "name": "dict",
-        "type": "key"
+        "type": "string"
       }
     ],
-    "since": "1.0.0",
+    "since": "1.4.0",
     "group": "search"
   },
   "FT._LIST": {
@@ -637,7 +639,7 @@
     "arguments": [
       {
         "name": "index",
-        "type": "key"
+        "type": "string"
       },
       {
         "name": "query",
@@ -996,7 +998,7 @@
     "arguments": [
       {
         "name": "index",
-        "type": "key"
+        "type": "string"
       },
       {
         "name": "query",
@@ -1153,7 +1155,7 @@
         "command":"FILTER"
       }
     ],
-    "since": "1.0.0",
+    "since": "1.1.0",
     "group": "search"
   }
 }
