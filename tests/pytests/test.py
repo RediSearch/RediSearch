@@ -3406,6 +3406,6 @@ def test_mod1548(env):
 def test_empty_field_name(env):
     conn = getConnectionByEnv(env)
 
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', '', 'TEXT').ok()    
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', '', 'TEXT').ok()
     conn.execute_command('hset', 'doc1', '', 'foo')
     env.expect('FT.SEARCH', 'idx', 'foo').equal([1L, 'doc1', ['', 'foo']])

@@ -1,0 +1,66 @@
+#!/bin/bash
+
+# set -e
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+ROOT=$(cd $HERE/.. && pwd)
+READIES=$ROOT/deps/readies
+. $READIES/shibumi/defs
+
+if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
+	cat <<-END
+		Build RedisJSON module (for Sanitizer)
+
+		build-redisjson [--help|help]
+
+		Argument variables:
+		BRANCH=name     Use given branch (default: master)
+		SAN=mode        Clang Sanitizer mode (address|memory)
+		FORCE=1         Force rebuild
+		NOP=1           No operation
+		HELP=1          Show help
+
+	END
+	exit 0
+fi
+
+OP=
+[[ $NOP == 1 ]] && OP=echo
+
+if [[ $SAN != address && $SAN != memory ]]; then
+	echo "Invalid SAN setting: '$SAN'"
+	exit 1
+fi
+
+TARGET_DIR=$ROOT/deps/RedisJSON/target.${SAN}
+
+if [[ -f ${TARGET_DIR}/REJSON_PATH && $FORCE != 1 ]]; then
+	exit 0
+fi
+
+if [[ $FORCE == 1 ]]; then
+	runn rm -rf $TARGET_DIR
+fi
+
+BRANCH=${BRANCH:-master}
+
+$OP cd $ROOT/deps
+if [[ ! -d RedisJSON ]]; then
+	runn git clone --quiet --recursive https://github.com/RedisJSON/RedisJSON.git
+fi
+
+$OP cd RedisJSON
+runn git checkout $BRANCH
+runn git pull --quiet --recurse-submodules
+runn $READIES/bin/getpy3
+runn ./system-setup.py
+$OP source /etc/profile.d/rust.sh
+runn make nightly
+
+runn make SAN=$SAN
+$OP mv $ROOT/deps/RedisJSON/target $TARGET_DIR
+if [[ $NOP != 1 ]]; then
+	echo ${TARGET_DIR}/x86_64-unknown-linux-gnu/debug/rejson.so > ${TARGET_DIR}/REJSON_PATH
+else
+	echo "echo ${TARGET_DIR}/x86_64-unknown-linux-gnu/debug/rejson.so > ${TARGET_DIR}/REJSON_PATH"
+fi
