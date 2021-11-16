@@ -16,14 +16,13 @@
 *.tar
 /bin/
 /site/*
-/build*/
-/artifacts/
 /venv*/
-srcutil/lemon
-src/query_parser/lemon
+/srcutil/lemon
+/src/query_parser/lemon
 .vscode/*
 .idea/*
 .project
 .cproject
 VSCODE.DB*
 callgrind.out.*
+/1/

@@ -1,0 +1,41 @@
+name: "ftsb-1M-enwiki_abstract-hashes-load"
+description: "
+             enwiki-abstract [details here](https://github.com/RediSearch/ftsb/blob/master/docs/enwiki-abstract-benchmark/description.md), 
+             from English-language Wikipedia:Database page abstracts. 
+             This use case generates 3 TEXT fields per document, and focusses on full text queries performance.
+             Specifically for this testcase:
+                - Type (read/write/mixed): write
+                - Query type: N/A
+                - Query sample: N/A
+             "
+remote:
+ - type: oss-standalone
+ - setup: redisearch-m5
+
+setups:
+  - oss-cluster-3-primaries
+
+dbconfig:
+  - init_commands:
+      - '"FT.CREATE" "enwiki_abstract" "ON" "HASH" "SCHEMA" "title" "text" "SORTABLE" "url" "text" "SORTABLE" "abstract" "text" "SORTABLE"'
+
+clientconfig:
+  - tool: ftsb_redisearch
+  - parameters:
+    - workers: 64
+    - reporting-period: 1s
+    - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/1M-enwiki_abstract-hashes/1M-enwiki_abstract-hashes.redisearch.commands.SETUP.csv"
+
+exporter:
+  redistimeseries:
+    break_by:
+      - version
+      - commit
+    timemetric: "$.StartTime"
+    metrics:
+      - "$.Tests.OverallRates.overallOpsRate"
+      - "$.Tests.OverallQuantiles.allCommands.q50"
+      - "$.Tests.OverallQuantiles.allCommands.q95"
+      - "$.Tests.OverallQuantiles.allCommands.q99"
+      - "$.Tests.OverallQuantiles.allCommands.q999"
+

@@ -1176,7 +1176,10 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
   pid_t ppid_before_fork = getpid();
 
   TimeSampler_Start(&ts);
-  pipe(gc->pipefd);  // create the pipe
+  int rc = pipe(gc->pipefd);  // create the pipe
+  if (rc == -1) {
+    return 1;
+  }
 
   if (gc->type == FGC_TYPE_NOKEYSPACE) {
     // If we are not in key space we still need to acquire the GIL to use the fork api

@@ -1,9 +1,11 @@
-#include <gtest/gtest.h>
+
+#include "gtest/gtest.h"
+
 #include "numeric_index.h"
-#include <stdio.h>
-// #include "time_sample.h"
 #include "index.h"
 #include "rmutil/alloc.h"
+
+#include <stdio.h>
 
 extern "C" {
 // declaration for an internal function implemented in numeric_index.c

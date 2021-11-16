@@ -10,7 +10,7 @@
 #include "rmalloc.h"
 #include "module.h"
 #include "spec.h"
-#include "dep/thpool/thpool.h"
+#include "thpool/thpool.h"
 #include "rmutil/rm_assert.h"
 
 static threadpool gcThreadpool_g = NULL;

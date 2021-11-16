@@ -58,6 +58,7 @@ Note that ```system-setup.py``` **will install various packages on your system**
 If you prefer to avoid that, you can:
 
 * Review `system-setup.py` and install packages manually,
+* Use `system-setup.py --nop` to display installation commands without executing them,
 * Use an isolated environment like explained above,
 * Use a Python virtual environment, as Python installations are known to be sensitive when not used in isolation: `python2 -m virtualenv venv; . ./venv/bin/activate`
 
@@ -70,28 +71,83 @@ Otherwise, you can invoke ```sudo ./deps/readies/bin/getredis```.
 Skip `sudo` on macOS.
 
 ## Getting help
-```make help``` provides a quick summary of the development features.
+```make help``` provides a quick summary of the development features:
+
+```
+make setup         # install prerequisited (CAUTION: THIS WILL MODIFY YOUR SYSTEM)
+make fetch         # download and prepare dependant modules
+
+make build         # compile and link
+  COORD=1|oss|rlec   # build coordinator
+  STATIC=1           # build as static lib
+  LITE=1             # build RediSearchLight
+  DEBUG=1            # build for debugging
+  NO_TESTS=1         # disable unit tests
+  WHY=1              # explain CMake decisions (in /tmp/cmake-why)
+  FORCE=1            # Force CMake rerun
+  CMAKE_ARGS=...     # extra arguments to CMake
+  VG=1               # build for Valgrind
+  SAN=type           # build with LLVM sanitizer (type=address|memory|leak|thread) 
+  SLOW=1             # do not parallelize build (for diagnostics)
+make parsers       # build parsers code
+make clean         # remove build artifacts
+  ALL=1              # remove entire artifacts directory
+
+make run           # run redis with RediSearch
+  DEBUG=1            # invoke using gdb
+
+make test          # run all tests (via ctest)
+  COORD=oss|rlec     # test coordinator
+  TEST=regex         # run tests that match regex
+  TESTDEBUG=1        # be very verbose (CTest-related)
+  CTEST_ARG=...      # pass args to CTest
+  CTEST_PARALLEL=n   # run tests in give parallelism
+make pytest        # run python tests (tests/pytests)
+  COORD=oss|rlec     # test coordinator
+  TEST=name          # e.g. TEST=test:testSearch
+  RLTEST_ARGS=...    # pass args to RLTest
+  REJSON=1|0         # also load RedisJSON module
+  REJSON_PATH=path   # use RedisJSON module at `path`
+  EXT=1              # External (existing) environment
+  GDB=1              # RLTest interactive debugging
+  VG=1               # use Valgrind
+  SAN=type           # use LLVM sanitizer (type=address|memory|leak|thread) 
+  ONLY_STABLE=1      # skip unstable tests
+make c_tests       # run C tests (from tests/ctests)
+make cpp_tests     # run C++ tests (from tests/cpptests)
+  TEST=name          # e.g. TEST=FGCTest.testRemoveLastBlock
+
+make callgrind     # produce a call graph
+  REDIS_ARGS="args"
+
+make pack          # create installation packages
+  COORD=rlec         # pack RLEC coordinator ('redisearch' package)
+  LITE=1             # pack RediSearchLight ('redisearch-light' package)
+make deploy        # copy packages to S3
+make release       # release a version
+
+make docs          # create documentation
+make deploydocs    # deploy documentation
+
+make docker
+make docker_push
+```
 
 ## Building from source
 ```make build``` will build RediSearch.
+
+`make build COORD=oss` will build OSS RediSearch Coordinator.
+
+`make build STATIC=1` will build
+
 To enable unit tests, add ```TEST=1```.
 Note that RediSearch uses [CMake](https://cmake.org) as its build system. ```make build``` will invoke both CMake and the subsequent make command that's required to complete the build.
 Use ```make clean``` to remove built artifacts. ```make clean ALL=1``` will remove the entire ```RediSearch/build``` directory.
 
-### Diagnosing CMake
-To get a glimpse into CMake decesion process, add ```WHY=1``` to the build command.
-CMake stores its intermediate files in ```RediSearch/build```.
-Afterwards, one can use:
-```
-cd build
-make -n
-```
-or:
-```
-cd build
-make V=1
-```
-to further diagnose the build process.
+### Diagnosing build process
+`make build` will build in parallel by default.
+
+For purposes of build diagnosis, `make build SLOW=1 VERBOSE=1` can be used to examine compilation commands.
 
 ## Running Redis with RediSearch
 The following will run ```redis``` and load RediSearch module.

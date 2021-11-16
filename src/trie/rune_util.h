@@ -1,7 +1,6 @@
-#ifndef __RUNE_UTIL_H__
-#define __RUNE_UTIL_H__
+#pragma once
 
-#include "../dep/libnu/libnu.h"
+#include "libnu/libnu.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -31,5 +30,4 @@ size_t strToRunesN(const char *s, size_t slen, rune *outbuf);
 
 #ifdef __cplusplus
 }
-#endif
 #endif
