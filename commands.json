@@ -290,7 +290,7 @@
     "group": "search"
   },
   "FT.ALIASADD": {
-    "summary": "Add an alias to the index",
+    "summary": "Adds an alias to the index",
     "complexity": "O(1)",
     "arguments": [
       {
@@ -306,7 +306,7 @@
     "group": "search"
   },
   "FT.ALIASUPDATE": {
-    "summary": "Add or update an alias to the index",
+    "summary": "Adds or updates an alias to the index",
     "complexity": "O(1)",
     "arguments": [
       {
@@ -458,7 +458,7 @@
     "group": "search"
   },
   "FT.SYNUPDATE": {
-    "summary": "Create or update a synonym group with additional terms",
+    "summary": "Creates or updates a synonym group with additional terms",
     "complexity": "O(1)",
     "arguments": [
       {
@@ -598,7 +598,7 @@
     "group": "search"
   },
   "FT.CONFIG SET": {
-    "summary": "Set runtime configuration options",
+    "summary": "Sets runtime configuration options",
     "complexity": "O(1)",
     "arguments": [
       {
@@ -610,7 +610,7 @@
     "group": "search"
   },
   "FT.CONFIG GET": {
-    "summary": "Retrieve runtime configuration options",
+    "summary": "Retrieves runtime configuration options",
     "complexity": "O(1)",
     "arguments": [
       {
