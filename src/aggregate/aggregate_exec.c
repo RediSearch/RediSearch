@@ -200,7 +200,8 @@ void sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
     size_t reqLimit = arng && arng->isLimited? arng->limit : DEFAULT_LIMIT;
     size_t reqOffset = arng && arng->isLimited? arng->offset : 0;
     size_t resultFactor = getResultsFactor(req->reqflags);
-    resultsLen = 1 + MIN(limit, MIN(reqLimit, req->qiter.totalResults - reqOffset)) * resultFactor;
+    size_t reqResults = req->qiter.totalResults > reqOffset ? req->qiter.totalResults - reqOffset : 0;
+    resultsLen = 1 + MIN(limit, MIN(reqLimit, reqResults)) * resultFactor;
   }
 
   RedisModule_ReplyWithArray(outctx, resultsLen);

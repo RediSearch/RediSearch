@@ -275,49 +275,54 @@ def testStrappend(env):
     env.expect('ft.search', 'idx', 'Redis').equal([0L])
 
 @no_msan
-def testArrappend(env):
-    # JSON.ARRAPPEND
-    # FIXME: Currently unsupported
-    pass
+def testArrayCommands(env):
+    conn = getConnectionByEnv(env)
+    conn.execute_command('FT.CREATE', 'idx', 'ON', 'JSON',
+                         'SCHEMA', '$.tag[*]', 'AS', 'tag', 'TAG')
 
-@no_msan
-def testArrInsert(env):
-    # JSON.ARRINSERT
-    # FIXME: Currently unsupported
-    pass
+    env.assertOk(conn.execute_command('JSON.SET', 'doc:1', '$', '{"tag":["foo"]}'))
+    env.assertEqual(conn.execute_command('JSON.ARRAPPEND', 'doc:1', '$.tag', '"bar"'), [2L])
+    env.assertEqual(conn.execute_command('JSON.GET', 'doc:1', '$.tag[*]'), '["foo","bar"]')
+    env.assertEqual(conn.execute_command('JSON.ARRLEN', 'doc:1', '$.tag'), [2L])
+    res = [1L, 'doc:1', ['$', '{"tag":["foo","bar"]}']]
+    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', '@tag:{foo}'), res)
+    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', '@tag:{bar}'), res)
+    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', '@tag:{baz}'), [0L])
 
-@no_msan
-@skip
-def testArrpop(env):
-    # TODO: array cannot be indexed yet
+    # use JSON.ARRINSERT
+    env.assertEqual(conn.execute_command('JSON.ARRINSERT', 'doc:1', '$.tag', '2', '"baz"'), [3L])
+    env.assertEqual(conn.execute_command('JSON.GET', 'doc:1', '$.tag[*]'), '["foo","bar","baz"]')
+    env.assertEqual(conn.execute_command('JSON.ARRLEN', 'doc:1', '$.tag'), [3L])
+    res = [1L, 'doc:1', ['$', '{"tag":["foo","bar","baz"]}']] 
+    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', '@tag:{foo}'), res)
+    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', '@tag:{bar}'), res)
+    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', '@tag:{baz}'), res)
 
-    # JSON.ARRPOP
-    env.execute_command('FT.CREATE', 'idx1', 'ON', 'JSON', 'SCHEMA', '$.t', 'AS', 'labelT', 'TAG')
-    env.expect('JSON.SET', 'doc:1', '$', '{"t":["foo", "bar", "back"]}').ok()
+    # use JSON.ARRPOP
+    env.assertEqual(conn.execute_command('JSON.ARRPOP', 'doc:1', '$.tag', '1'), ['"bar"'])
+    env.assertEqual(conn.execute_command('JSON.GET', 'doc:1', '$.tag[*]'), '["foo","baz"]')
+    env.assertEqual(conn.execute_command('JSON.ARRLEN', 'doc:1', '$.tag'), [2L])
+    res = [1L, 'doc:1', ['$', '{"tag":["foo","baz"]}']]
+    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', '@tag:{foo}'), res)
+    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', '@tag:{bar}'), [0L])
+    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', '@tag:{baz}'), res)
 
-    # FIXME: Enable the following line: Should we search in array content? Need TAG for that?
-    #env.expect('FT.SEARCH', 'idx1', 'ba*', 'RETURN', '1', 'labelT').equal([1L, 'doc:1', ['labelT', '"bar"']])
+    # use JSON.ARRTRIM
+    env.assertEqual(conn.execute_command('JSON.ARRINSERT', 'doc:1', '$.tag', '0', '"1"'), [3L])
+    env.assertEqual(conn.execute_command('JSON.ARRINSERT', 'doc:1', '$.tag', '0', '"2"'), [4L])
+    env.assertEqual(conn.execute_command('JSON.ARRAPPEND', 'doc:1', '$.tag', '"3"', '"4"'), [6L])
+    env.assertEqual(conn.execute_command('JSON.ARRLEN', 'doc:1', '$.tag'), [6L])
 
-    # FIXME: Why aggregate 'ba*' returns zero results?
-    # env.expect('FT.AGGREGATE', 'idx1', 'ba*', 'LOAD', '3', '@$.t', 'AS', 't').equal([1L, ['t', '["foo","bar","back"]']])
-
-    env.expect('FT.SEARCH', 'idx1', '*').equal([1L, 'doc:1', ['$', '{"t":["foo","bar","back"]}']])
-    env.expect('FT.AGGREGATE', 'idx1', '*', 'LOAD', '3', '@$.t', 'AS', 't').equal([1L, ['t', '["foo","bar","back"]']])
-
-    env.expect('JSON.ARRPOP', 'doc:1', '$.t').equal('"back"')
-    env.expect('FT.SEARCH', 'idx1', '*').equal([1L, 'doc:1', ['$', '{"t":["foo","bar"]}']])
-    env.expect('JSON.ARRPOP', 'doc:1', '$.t', 0).equal('"foo"')
-    env.expect('FT.SEARCH', 'idx1', '*').equal([1L, 'doc:1', ['$', '{"t":["bar"]}']])
+    env.assertEqual(conn.execute_command('JSON.ARRTRIM', 'doc:1', '$.tag', '2', '3'), [2L])
+    env.assertEqual(conn.execute_command('JSON.GET', 'doc:1', '$.tag[*]'), '["foo","baz"]')
+    env.assertEqual(conn.execute_command('JSON.ARRLEN', 'doc:1', '$.tag'), [2L])
+    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', '@tag:{1}'), [0L])
+    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', '@tag:{foo}'), res)
+    env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', '@tag:{baz}'), res)
 
 @no_msan
 def testRootValues(env):
     # Search all JSON types as a top-level element
-    # FIXME:
-    pass
-
-@no_msan
-def testArrtrim(env):
-    # json.arrtrim
     # FIXME:
     pass
 
