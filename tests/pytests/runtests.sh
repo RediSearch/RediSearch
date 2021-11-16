@@ -36,6 +36,7 @@ if [[ $1 == --help || $1 == help ]]; then
 		REDIS_VERBOSE=1       (legacy) Verbose ouput
 		CONFIG_FILE=file      Path to config file
 		EXISTING_ENV=1        Run the tests on existing env
+		RLEC_PORT=n           Port of RLEC database (default: 12000)
 
 		COV=1				  Run with coverage analysis
 		VG=1                  Use valgrind
@@ -89,6 +90,8 @@ SHARDS=${SHARDS:-3}
 
 [[ $SAN == addr ]] && SAN=address
 [[ $SAN == mem ]] && SAN=memory
+
+RLEC_PORT=${RLEC_PORT:-12000}
 
 #---------------------------------------------------------------------------------------------- 
 
@@ -309,7 +312,8 @@ elif [[ $COORD == oss ]]; then
 	fi # QUICK
 
 elif [[ $COORD == rlec ]]; then
-	{ (RLTEST_ARGS+=" --env existing-env --existing-env-addr $DOCKER_HOST:$RLEC_PORT" run_tests "tests on RLEC"); (( E |= $? )); } || true
+	dhost=$(echo "$DOCKER_HOST" | awk -F[/:] '{print $4}')
+	{ (RLTEST_ARGS+=" --env existing-env --existing-env-addr $dhost:$RLEC_PORT" run_tests "tests on RLEC"); (( E |= $? )); } || true
 fi
 
 exit $E

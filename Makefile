@@ -55,7 +55,7 @@ make setup         # install prerequisited (CAUTION: THIS WILL MODIFY YOUR SYSTE
 make fetch         # download and prepare dependant modules
 
 make build         # compile and link
-  COORD=oss|rlec     # build coordinator
+  COORD=1|oss|rlec   # build coordinator (1|oss: Open Source, rlec: Enterprise)
   STATIC=1           # build as static lib
   LITE=1             # build RediSearchLight
   DEBUG=1            # build for debugging
@@ -74,13 +74,13 @@ make run           # run redis with RediSearch
   GDB=1              # invoke using gdb
 
 make test          # run all tests (via ctest)
-  COORD=oss|rlec     # test coordinator
+  COORD=1|oss|rlec   # test coordinator
   TEST=regex         # run tests that match regex
   TESTDEBUG=1        # be very verbose (CTest-related)
   CTEST_ARG=...      # pass args to CTest
   CTEST_PARALLEL=n   # run tests in give parallelism
 make pytest        # run python tests (tests/pytests)
-  COORD=oss|rlec     # test coordinator
+  COORD=1|oss|rlec   # test coordinator
   TEST=name          # e.g. TEST=test:testSearch
   RLTEST_ARGS=...    # pass args to RLTest
   REJSON=1|0         # also load RedisJSON module
@@ -154,6 +154,10 @@ endif
 
 else # COORD
 
+ifeq ($(COORD),1)
+override COORD:=oss
+endif
+
 ifeq ($(COORD),oss)
 CMAKE_DIR=$(ROOT)/coord
 BINDIR=$(BINROOT)/coord-oss
@@ -182,6 +186,8 @@ HIREDIS_BINDIR=bin/$(FULL_VARIANT.release)/hiredis
 include build/hiredis/Makefile.defs
 
 endif # COORD
+
+export COORD
 
 #----------------------------------------------------------------------------------------------
 
@@ -432,10 +438,9 @@ FLOW_TESTS_ARGS=\
 	VG=$(VALGRIND) VG_LEAKS=0
 
 ifeq ($(EXT),1)
-FLOW_TESTS_ARGS += EXISTING_EXT=1
+FLOW_TESTS_ARGS += EXISTING_ENV=1
 endif
 
-# export EXT_TEST_PATH:=$(BINDIR)/tests/ctests/example_extension/libexample_extension.so
 export EXT_TEST_PATH:=$(BINDIR)/example_extension/libexample_extension.so
 
 test:
@@ -504,8 +509,7 @@ PACK_ARGS=\
 	RAMP_YAML=$(RAMP_YAML) \
 	RAMP_ARGS=$(RAMP_ARGS)
 
-# $(TARGET) 
-bin/artifacts/$(RAMP.release) : $(RAMP_YAML)
+bin/artifacts/$(RAMP.release) : $(RAMP_YAML) $(TARGET)
 	@echo Packing module...
 	$(SHOW)$(PACK_ARGS) $(ROOT)/sbin/pack.sh $(TARGET)
 

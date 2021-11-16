@@ -547,16 +547,12 @@ workflows:
     jobs:
       - build:
           <<: *not-on-integ-branch
-#      - build-coordinator:
-#          <<: *on-any-branch
       - build-platforms:
-          #@@ <<: *on-integ-and-version-tags
-          <<: *not-on-integ-branch
+          <<: *on-integ-and-version-tags
           context: common
           matrix:
             parameters:
-              #@@ platform: [focal, bionic, xenial, centos7, centos8]
-              platform: [focal]
+              platform: [focal, bionic, xenial, centos7, centos8]
       - build-arm-platforms:
           <<: *on-integ-and-version-tags
           context: common
@@ -564,8 +560,7 @@ workflows:
             parameters:
               platform: [focal]
       - build-macos:
-          #@@ <<: *on-version-tags
-          <<: *not-on-integ-branch
+          <<: *on-version-tags
       - coverage:
           context: common
           <<: *on-any-branch
@@ -587,6 +582,7 @@ workflows:
           <<: *on-integ-branch
           requires:
             - build-platforms
+            - build-arm-platforms
             - build-macos
       - deploy-artifacts:
           name: deploy-release
@@ -594,6 +590,7 @@ workflows:
           <<: *on-version-tags
           requires:
             - build-platforms
+            - build-arm-platforms
             - build-macos
       - release-automation:
           context: common
