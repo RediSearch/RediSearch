@@ -45,17 +45,17 @@ RUN ./deps/readies/bin/getpy2
 RUN ./sbin/system-setup.py
 
 RUN /usr/local/bin/redis-server --version
-RUN make fetch SHOW=1
+RUN bash -l -c "make fetch"
 
-RUN make build WITH_TESTS=1 SHOW=1
+RUN bash -l -c "make build WITH_TESTS=1 SHOW=1"
 RUN set -e ;\
     if [ "$PACK" = "1" ]; then \
-		make build LITE=1 SHOW=1 ;\
-        make build COORD=rlec SHOW=1 ;\
+        bash -l -c "make build LITE=1 SHOW=1" ;\
+        bash -l -c "make build COORD=rlec SHOW=1" ;\
     fi
 RUN set -e ;\
     if [ "$TEST" = "1" ]; then \
-        make build WITH_TESTS=1 COORD=oss SHOW=1 ;\
+        bash -l -c "make build WITH_TESTS=1 COORD=oss SHOW=1" ;\
     fi
 
 RUN mkdir -p bin/artifacts
