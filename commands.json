@@ -698,14 +698,6 @@
         ]
       },
       {
-        "name": "withpayloads",
-        "type": "enum",
-        "optional": true,
-        "enum": [
-          "WITHPAYLOADS"
-        ]
-      },
-      {
         "name": "filter",
         "type": "block",
         "optional": true,
@@ -1031,6 +1023,14 @@
             "type": "string",
             "multiple": true
           }
+        ]
+      },
+      {
+        "name": "loadall",
+        "type": "enum",
+        "optional": true,
+        "enum": [
+          "LOAD *"
         ]
       },
       {
