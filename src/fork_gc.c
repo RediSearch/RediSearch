@@ -933,6 +933,8 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc, RedisModuleCtx *rctx) {
   size_t fieldNameLen;
   char *fieldName = NULL;
   uint64_t rtUniqueId;
+  static size_t emptyInvIdx = 0;
+  NumericRangeTree *rt = NULL;
   FGCError status = recvNumericTagHeader(gc, &fieldName, &fieldNameLen, &rtUniqueId);
   if (status == FGC_DONE) {
     return FGC_DONE;
@@ -963,7 +965,7 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc, RedisModuleCtx *rctx) {
     }
     RedisModuleString *keyName =
         IndexSpec_GetFormattedKeyByName(sctx->spec, fieldName, INDEXFLD_T_NUMERIC);
-    NumericRangeTree *rt = OpenNumericIndex(sctx, keyName, &idxKey);
+    rt = OpenNumericIndex(sctx, keyName, &idxKey);
 
     if (rt->uniqueId != rtUniqueId) {
       status = FGC_PARENT_ERROR;
@@ -976,6 +978,10 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc, RedisModuleCtx *rctx) {
     }
 
     applyNumIdx(gc, sctx, &ninfo);
+
+    if (ninfo.node->range->entries->numDocs == 0) {
+      emptyInvIdx++;
+    }
 
   loop_cleanup:
     if (sctx) {
@@ -997,6 +1003,26 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc, RedisModuleCtx *rctx) {
     rm_free(ninfo.restBlockDeleted);
     rm_free(ninfo.lastBlockDeleted);
   }
+
+  //printf("empty %ld, number of ranges %ld\n", emptyInvIdx, rt->numRanges);
+  if (rt && emptyInvIdx >= rt->numRanges / 2) {
+    hasLock = 1;
+    if (!FGC_lock(gc, rctx)) {
+      status = FGC_PARENT_ERROR;
+    }
+
+    NRN_AddRv rv = NumericRangeTree_TrimEmptyLeaves(rt);
+
+    if (hasLock) {
+      FGC_unlock(gc, rctx);
+      hasLock = 0;
+    }
+
+    rt->numRanges += rv.numRanges;
+    emptyInvIdx = 0;
+  }
+  //printf("removed %d\n", rv.numRanges);
+
 
   rm_free(fieldName);
   return status;
