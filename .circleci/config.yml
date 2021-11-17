@@ -126,9 +126,6 @@ commands:
       build_params:
         type: string
         default: ""
-      test_params:
-        type: string
-        default: ""
     steps:
       - early-returns
       - checkout-all
@@ -158,6 +155,13 @@ commands:
           command: |
             make pack COORD=rlec SHOW=1
             make pack LITE=1 SHOW=1
+
+  test-steps:
+    parameters:
+      test_params:
+        type: string
+        default: ""
+    steps:
       - run:
           name: Test (Search)
           shell: /bin/bash -l -eo pipefail
@@ -169,8 +173,6 @@ commands:
           no_output_timeout: 30m
           command: make test COORD=oss SHOW=1
       - save-tests-logs
-      # - early-return-for-forked-pull-requests
-      # - persist-artifacts
 
   build-platforms-steps:
     parameters:
@@ -239,10 +241,10 @@ commands:
         default: $CIRCLE_USERNAME
       module_path:
         type: string
-        default: ../../build-debian/redisearch.so
+        default: bin/linux-x64-release/search/redisearch.so
       rejson_module_path:
         type: string
-        default: ../../deps/RedisJSON/target/release/rejson.so
+        default: deps/RedisJSON/target/release/rejson.so
     steps:
       - run:
           name: Prepare automation
@@ -252,12 +254,13 @@ commands:
             VERSION=0.14.8 ./deps/readies/bin/getterraform
       - run:
           name: Prepare ReJSON Module
-          command: ./deps/get-redisjson
+          command: ./sbin/get-redisjson
       - run:
           name: Run CI benchmarks on aws
           timeout: 60m
           no_output_timeout: 20m
           command: |
+            ROOT="$PWD"
             cd tests/benchmarks
             export AWS_ACCESS_KEY_ID=$PERFORMANCE_EC2_ACCESS_KEY
             export AWS_SECRET_ACCESS_KEY=$PERFORMANCE_EC2_SECRET_KEY
@@ -265,9 +268,9 @@ commands:
             export EC2_PRIVATE_PEM=$PERFORMANCE_EC2_PRIVATE_PEM
 
             redisbench-admin run-remote \
-              --module_path << parameters.rejson_module_path >> \
+              --module_path $ROOT/<< parameters.rejson_module_path >> \
               --required-module ReJSON \
-              --module_path << parameters.module_path >> \
+              --module_path $ROOT/<< parameters.module_path >> \
               --github_actor << parameters.github_actor >> \
               --github_repo $CIRCLE_PROJECT_REPONAME \
               --github_org $CIRCLE_PROJECT_USERNAME \
@@ -287,16 +290,8 @@ jobs:
     steps:
       - build-steps:
           platform: bullseye
+      - test-steps
       - persist-artifacts
-
-#  build-coordinator:
-#    docker:
-#      - image: redisfab/rmbuilder:6.2.5-x64-bullseye
-#    steps:
-#      - build-steps:
-#          platform: bullseye
-#          build_params: "COORD="
-#      - persist-artifacts
 
   build-platforms:
     parameters:
@@ -331,6 +326,7 @@ jobs:
             sudo chown $USER ~/workspace
       - build-steps:
           platform: catalina
+      - test-steps
       - persist-artifacts
 
   benchmark:

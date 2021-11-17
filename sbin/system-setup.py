@@ -33,8 +33,11 @@ class RediSearchSetup(paella.Setup):
         self.install("libtool m4 automake libssl-dev")
         self.install("python-dev")
 
-        if self.platform.is_arm(): # and self.dist == 'ubuntu' and self.os_version[0] < 20:
-            self.install("python-gevent")
+        if self.platform.is_arm():
+            if self.dist == 'ubuntu' and self.os_version[0] < 20:
+                self.install("python-gevent")
+            else:
+                self.install("libffi-dev")
 
     def redhat_compat(self):
         self.install("redhat-lsb-core")
