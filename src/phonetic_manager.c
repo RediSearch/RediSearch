@@ -1,5 +1,5 @@
 #include "phonetic_manager.h"
-#include "dep/phonetics/double_metaphone.h"
+#include "phonetics/double_metaphone.h"
 #include <string.h>
 #include <stdlib.h>
 #include "rmalloc.h"

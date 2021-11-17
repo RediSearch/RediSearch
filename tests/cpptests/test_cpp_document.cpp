@@ -1,4 +1,4 @@
-#include <gtest/gtest.h>
+#include "gtest/gtest.h"
 #include "redismock/redismock.h"
 #include "redismock/util.h"
 #include "document.h"

@@ -108,6 +108,14 @@ static int initAsLibrary(RedisModuleCtx *ctx) {
   return REDISMODULE_OK;
 }
 
+static inline const char* RS_GetExtraVersion() {
+#ifdef GIT_VERSPEC
+  return GIT_VERSPEC;
+#else
+  return "";
+#endif
+}
+
 int RS_Initialized = 0;
 RedisModuleCtx *RSDummyContext = NULL;
 

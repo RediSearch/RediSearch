@@ -562,7 +562,6 @@ def testAsProjection(env):
 
     # TODO: Search for numeric field 'flt'
 
-
 @no_msan
 def testAsProjectionRedefinedLabel(env):
     conn = getConnectionByEnv(env)
@@ -757,7 +756,7 @@ def testScoreField(env):
     env.assertOk(conn.execute_command('JSON.SET', 'tst:permit1', '$', r'{"_score":0.8, "description":"Fix the facade"}'))
     env.assertOk(conn.execute_command('JSON.SET', 'tst:permit2', '$', r'{"_score":0.7, "description":"Fix the facade"}'))
     env.assertOk(conn.execute_command('JSON.SET', 'tst:permit3', '$', r'{"_score":0.9, "description":"Fix the facade"}'))
- 
+
     res = [3L, 'tst:permit3', ['$', '{"_score":0.9,"description":"Fix the facade"}'],
                'tst:permit1', ['$', '{"_score":0.8,"description":"Fix the facade"}'],
                'tst:permit2', ['$', '{"_score":0.7,"description":"Fix the facade"}']]
@@ -775,4 +774,3 @@ def testMOD1853(env):
     env.assertOk(conn.execute_command('JSON.SET', 'json2', '$', r'{"sid":1}'))
     res = [2L, 'json1', ['sid', '0', '$', '{"sid":0}'], 'json2', ['sid', '1', '$', '{"sid":1}']]
     env.expect('FT.SEARCH', 'idx', '@sid:[0 1]', 'SORTBY', 'sid').equal(res)
- 
