@@ -1004,11 +1004,13 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc, RedisModuleCtx *rctx) {
     rm_free(ninfo.lastBlockDeleted);
   }
 
+  rm_free(fieldName);
+
   //printf("empty %ld, number of ranges %ld\n", emptyInvIdx, rt->numRanges);
   if (rt && emptyInvIdx >= rt->numRanges / 2) {
     hasLock = 1;
     if (!FGC_lock(gc, rctx)) {
-      status = FGC_PARENT_ERROR;
+      return FGC_PARENT_ERROR;
     }
 
     NRN_AddRv rv = NumericRangeTree_TrimEmptyLeaves(rt);
@@ -1023,8 +1025,6 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc, RedisModuleCtx *rctx) {
   }
   //printf("removed %d\n", rv.numRanges);
 
-
-  rm_free(fieldName);
   return status;
 }
 
