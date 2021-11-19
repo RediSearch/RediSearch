@@ -310,6 +310,7 @@ NumericRangeTree *NewNumericRangeTree() {
   ret->numRanges = 1;
   ret->revisionId = 0;
   ret->lastDocId = 0;
+  ret->emptyLeaves = 0;
   ret->uniqueId = numericTreesUniqueId++;
   return ret;
 }
