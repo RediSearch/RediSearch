@@ -168,7 +168,7 @@ static void NumericRangeNode_Balance(NumericRangeNode **n) {
     left->right = node;
     --node->maxDepth;
     *n = left;
-  }
+  } 
 }
 
 NRN_AddRv NumericRangeNode_Add(NumericRangeNode *n, t_docId docId, double value) {
@@ -357,7 +357,8 @@ void NumericRangeNode_Traverse(NumericRangeNode *n,
 #define CHILD_EMPTY 1
 #define CHILD_NOT_EMPTY 0
 
-int NumericRangeNode_RemoveChild(NumericRangeNode *n, NRN_AddRv *rv) {
+int NumericRangeNode_RemoveChild(NumericRangeNode **node, NRN_AddRv *rv) {
+  NumericRangeNode *n = *node;
   // stop condition - we are at leaf
   if (NumericRangeNode_IsLeaf(n)) {
     if (n->range->invertedIndexSize == 0) {
@@ -368,15 +369,14 @@ int NumericRangeNode_RemoveChild(NumericRangeNode *n, NRN_AddRv *rv) {
   }
 
   // run recursively on both children
+  int rvRight = NumericRangeNode_RemoveChild(&n->right, rv);
+  int rvLeft = NumericRangeNode_RemoveChild(&n->left, rv);
   NumericRangeNode *rightChild = n->right;
   NumericRangeNode *leftChild = n->left;
-  int rvRight = NumericRangeNode_RemoveChild(rightChild, rv);
-  int rvLeft = NumericRangeNode_RemoveChild(leftChild, rv);
-  
 
   // balance if required
   if (rvRight == CHILD_NOT_EMPTY && rvLeft == CHILD_NOT_EMPTY) {
-    //NumericRangeNode_Balance(&n);
+    // NumericRangeNode_Balance(node);
     return CHILD_NOT_EMPTY;
   }
 
@@ -389,10 +389,8 @@ int NumericRangeNode_RemoveChild(NumericRangeNode *n, NRN_AddRv *rv) {
 
   // both children are empty, save one as parent
   if (rvRight == CHILD_EMPTY && rvLeft == CHILD_EMPTY) {
-    *n = *rightChild;
-    // nullify range so we won't free it
-    rightChild->range = NULL;
-    NumericRangeNode_Free(rightChild);
+    rm_free(n);
+    *node = rightChild;
     NumericRangeNode_Free(leftChild);
     rv->numRanges--;
 
@@ -402,28 +400,22 @@ int NumericRangeNode_RemoveChild(NumericRangeNode *n, NRN_AddRv *rv) {
   // one child is not empty, save copy as parent and free
   if (rvRight == CHILD_EMPTY) {
     // right child is empty, save left as parent
-    *n = *leftChild;
-    // nullify range so we won't free it
-    leftChild->range = NULL;
-    leftChild->right = NULL;
-    leftChild->left = NULL;
+    rm_free(n);
+    *node = leftChild;
+    NumericRangeNode_Free(rightChild);
   } else {
     // left child is empty, save right as parent
-    *n = *rightChild;
-    // nullify range so we won't free it
-    rightChild->range = NULL;
-    rightChild->right = NULL;
-    rightChild->left = NULL;
+    rm_free(n);
+    *node = rightChild;
+    NumericRangeNode_Free(leftChild);
   }
-  NumericRangeNode_Free(rightChild);
-  NumericRangeNode_Free(leftChild);
   rv->numRanges--;
   return CHILD_NOT_EMPTY;
 }
 
 NRN_AddRv NumericRangeTree_TrimEmptyLeaves(NumericRangeTree *t) {
   NRN_AddRv rv = {0}; 
-  NumericRangeNode_RemoveChild(t->root, &rv);
+  NumericRangeNode_RemoveChild(&t->root, &rv);
   return rv;
 }
 
