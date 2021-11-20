@@ -110,6 +110,8 @@ def testEmptyNumericLeakIncrease(env):
         env.assertEqual(res[0], docs)
 
     forceInvokeGC(env, 'idx')
+    env.expect('FT.DEBUG', 'DUMP_NUMIDX', 'idx', 'n').contains([])
+    env.expect('FT.DEBUG', 'GC_CLEAN_NUMERIC', 'idx', 'n').ok()
     env.expect('FT.DEBUG', 'DUMP_NUMIDX', 'idx', 'n').notContains([])
 
     res = env.cmd('FT.SEARCH', 'idx', '@n:[-inf +inf]', 'NOCONTENT')
@@ -141,6 +143,10 @@ def testEmptyNumericLeakCenter(env):
         env.assertEqual(res[0], docs / 100 + 100)
 
     forceInvokeGC(env, 'idx')
+    env.expect('FT.DEBUG', 'DUMP_NUMIDX', 'idx', 'n').contains([])
+
+    env.expect('FT.DEBUG', 'GC_CLEAN_NUMERIC', 'idx', 'n').ok()
+	
     env.expect('FT.DEBUG', 'DUMP_NUMIDX', 'idx', 'n').notContains([])
 
     res = env.cmd('FT.SEARCH', 'idx', '@n:[-inf + inf]', 'NOCONTENT')
@@ -153,7 +159,8 @@ def testEmptyNumericLeakCenter(env):
         pl.execute()
 
     forceInvokeGC(env, 'idx')
-
+    env.expect('FT.DEBUG', 'GC_CLEAN_NUMERIC', 'idx', 'n').ok()
+	
     env.expect('FT.DEBUG', 'DUMP_NUMIDX', 'idx', 'n').notContains([])
     res = env.cmd('FT.SEARCH', 'idx', '@n:[-inf + inf]', 'NOCONTENT')
     env.assertEqual(res[0], docs / 100 + 100)

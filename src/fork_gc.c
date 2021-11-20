@@ -1004,7 +1004,7 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc, RedisModuleCtx *rctx) {
   }
 
   rm_free(fieldName);
-
+  /*
   //printf("empty %ld, number of ranges %ld\n", rt->emptyLeaves, rt->numRanges);
   if (rt && rt->emptyLeaves >= rt->numRanges / 2) {
     hasLock = 1;
@@ -1023,7 +1023,7 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc, RedisModuleCtx *rctx) {
     rt->emptyLeaves = 0;
   }
   //printf("removed %d\n", rv.numRanges);
-
+  */
   return status;
 }
 
