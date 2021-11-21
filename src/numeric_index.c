@@ -374,15 +374,9 @@ int NumericRangeNode_RemoveChild(NumericRangeNode **node, NRN_AddRv *rv) {
   NumericRangeNode *rightChild = n->right;
   NumericRangeNode *leftChild = n->left;
 
-  // balance if required
   if (rvRight == CHILD_NOT_EMPTY && rvLeft == CHILD_NOT_EMPTY) {
-    if (rv->changed) {
-      NumericRangeNode_Balance(node);
-    }  
     return CHILD_NOT_EMPTY;
   }
-
-  rv->changed = 1;
 
   // we can remove local and use child's instead
   if (n->range) {
