@@ -1,10 +1,12 @@
-#include "cndict_loader.h"
-#include "dep/miniz/miniz.h"
 #include "buffer.h"
-#include <arpa/inet.h>  // htonl, etc.
-#include <stdint.h>
+
+#include "cndict_loader.h"
+#include "miniz/miniz.h"
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
+
+#include <arpa/inet.h>  // htonl, etc.
+#include <stdint.h>
 
 extern const char ChineseDict[];
 extern const size_t ChineseDictCompressedLength;

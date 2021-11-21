@@ -1,8 +1,10 @@
-#include "../../src/redisearch_api.h"
-#include <gtest/gtest.h>
+
+#include "src/redisearch_api.h"
+#include "gtest/gtest.h"
+#include "common.h"
+
 #include <set>
 #include <string>
-#include "common.h"
 
 #define DOCID1 "doc1"
 #define DOCID2 "doc2"

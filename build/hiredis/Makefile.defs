@@ -1,0 +1,2 @@
+
+HIREDIS=$(HIREDIS_BINDIR)/libhiredis.a

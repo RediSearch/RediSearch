@@ -1,8 +1,10 @@
-#include <stdio.h>
-#include <assert.h>
+
 #include "util/array.h"
 #include "rmutil/alloc.h"
 #include "test_util.h"
+
+#include <stdio.h>
+#include <assert.h>
 
 int testArray() {
   Array arr;

@@ -1,18 +1,19 @@
-#include "../dep/libnu/libnu.h"
-#include "../rmutil/strings.h"
-#include "../rmutil/util.h"
-#include "../util/heap.h"
-#include "../util/misc.h"
-#include "rune_util.h"
 
+#include "libnu/libnu.h"
+#include "rmutil/strings.h"
+#include "rmutil/util.h"
+#include "util/heap.h"
+#include "util/misc.h"
+#include "rune_util.h"
 #include "trie_type.h"
+#include "rmalloc.h"
+#include "rdb.h"
+
 #include <math.h>
 #include <sys/param.h>
 #include <time.h>
 #include <string.h>
 #include <limits.h>
-#include "rmalloc.h"
-#include "rdb.h"
 
 Trie *NewTrie() {
   Trie *tree = rm_malloc(sizeof(Trie));

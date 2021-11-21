@@ -1,4 +1,4 @@
-#include <gtest/gtest.h>
+#include "gtest/gtest.h"
 #include "spec.h"
 #include "common.h"
 #include "redisearch_api.h"
@@ -11,6 +11,7 @@
 extern "C" {
 #include "util/dict.h"
 }
+
 #include <set>
 
 static timespec getTimespecCb(void *) {

@@ -1,0 +1,11 @@
+{
+   <ignore_py_error0>
+   Memcheck:Cond
+   fun:lzf_compress
+}
+{
+   <ignore_py_error0>
+   Memcheck:Value8
+   fun:lzf_compress
+}
+
