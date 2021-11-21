@@ -97,7 +97,7 @@ def testEmptyNumericLeakIncrease(env):
     conn = getConnectionByEnv(env)
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC')
 
-    repeat = 10
+    repeat = 3
     docs = 10000
 
     for i in range(repeat):
@@ -108,8 +108,6 @@ def testEmptyNumericLeakIncrease(env):
         env.assertEqual(res[0], docs)
 
     forceInvokeGC(env, 'idx')
-    env.expect('FT.DEBUG', 'DUMP_NUMIDX', 'idx', 'n').contains([])
-    env.expect('FT.DEBUG', 'GC_CLEAN_NUMERIC', 'idx', 'n').ok()
     env.expect('FT.DEBUG', 'DUMP_NUMIDX', 'idx', 'n').notContains([])
 
     res = env.cmd('FT.SEARCH', 'idx', '@n:[-inf +inf]', 'NOCONTENT')
@@ -124,7 +122,7 @@ def testEmptyNumericLeakCenter(env):
     conn = getConnectionByEnv(env)
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC')
 
-    repeat = 10
+    repeat = 3
     docs = 10000
 
     for i in range(100):
@@ -139,7 +137,7 @@ def testEmptyNumericLeakCenter(env):
 
     forceInvokeGC(env, 'idx')
     env.expect('FT.DEBUG', 'DUMP_NUMIDX', 'idx', 'n').contains([])
-    env.expect('FT.DEBUG', 'GC_CLEAN_NUMERIC', 'idx', 'n').ok()
+    #env.expect('FT.DEBUG', 'GC_CLEAN_NUMERIC', 'idx', 'n').ok()
     env.expect('FT.DEBUG', 'DUMP_NUMIDX', 'idx', 'n').notContains([])
 
     res = env.cmd('FT.SEARCH', 'idx', '@n:[-inf + inf]', 'NOCONTENT')
@@ -151,9 +149,7 @@ def testEmptyNumericLeakCenter(env):
             conn.execute_command('HSET', 'doc{}'.format(i), 'n', format(i))
 
     forceInvokeGC(env, 'idx')
-    #env.expect('FT.DEBUG', 'GC_CLEAN_NUMERIC', 'idx', 'n').ok()
-	
-    #env.expect('FT.DEBUG', 'DUMP_NUMIDX', 'idx', 'n').notContains([])
+    env.expect('FT.DEBUG', 'DUMP_NUMIDX', 'idx', 'n').notContains([])
     res = env.cmd('FT.SEARCH', 'idx', '@n:[-inf + inf]', 'NOCONTENT')
     env.assertEqual(res[0], docs / 100 + 100)
 
