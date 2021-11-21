@@ -97,7 +97,7 @@ def testEmptyNumericLeakIncrease(env):
     conn = getConnectionByEnv(env)
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC')
 
-    repeat = 5
+    repeat = 3
     docs = 10000
 
     for i in range(repeat):
@@ -107,8 +107,10 @@ def testEmptyNumericLeakIncrease(env):
         res = env.cmd('FT.SEARCH', 'idx', '@n:[-inf +inf]', 'NOCONTENT')
         env.assertEqual(res[0], docs)
 
+    num_summery_before = env.cmd('FT.DEBUG', 'NUMIDX_SUMMARY', 'idx', 'n')
     forceInvokeGC(env, 'idx')
-    env.expect('FT.DEBUG', 'DUMP_NUMIDX', 'idx', 'n').notContains([])
+    num_summery_after = env.cmd('FT.DEBUG', 'NUMIDX_SUMMARY', 'idx', 'n')
+    env.assertGreater(num_summery_before[1], num_summery_after[1])
 
     res = env.cmd('FT.SEARCH', 'idx', '@n:[-inf +inf]', 'NOCONTENT')
     env.assertEqual(res[0], docs)
@@ -135,19 +137,10 @@ def testEmptyNumericLeakCenter(env):
         res = env.cmd('FT.SEARCH', 'idx', '@n:[-inf + inf]', 'NOCONTENT')
         env.assertEqual(res[0], docs / 100 + 100)
 
+    num_summery_before = env.cmd('FT.DEBUG', 'NUMIDX_SUMMARY', 'idx', 'n')
     forceInvokeGC(env, 'idx')
-    env.expect('FT.DEBUG', 'DUMP_NUMIDX', 'idx', 'n').notContains([])
+    num_summery_after = env.cmd('FT.DEBUG', 'NUMIDX_SUMMARY', 'idx', 'n')
+    env.assertGreater(num_summery_before[1], num_summery_after[1])
 
     res = env.cmd('FT.SEARCH', 'idx', '@n:[-inf + inf]', 'NOCONTENT')
     env.assertEqual(res[0], docs / 100 + 100)
-
-    # add low values on existing node 
-    for _ in range(500):
-        for i in range(100):
-            conn.execute_command('HSET', 'doc{}'.format(i), 'n', format(i))
-
-    forceInvokeGC(env, 'idx')
-    env.expect('FT.DEBUG', 'DUMP_NUMIDX', 'idx', 'n').notContains([])
-    res = env.cmd('FT.SEARCH', 'idx', '@n:[-inf + inf]', 'NOCONTENT')
-    env.assertEqual(res[0], docs / 100 + 100)
-

@@ -374,9 +374,15 @@ int NumericRangeNode_RemoveChild(NumericRangeNode **node, NRN_AddRv *rv) {
   NumericRangeNode *rightChild = n->right;
   NumericRangeNode *leftChild = n->left;
 
+  // balance if required
   if (rvRight == CHILD_NOT_EMPTY && rvLeft == CHILD_NOT_EMPTY) {
+    if (rv->changed) {
+      NumericRangeNode_Balance(node);
+    }  
     return CHILD_NOT_EMPTY;
   }
+
+  rv->changed = 1;
 
   // we can remove local and use child's instead
   if (n->range) {
@@ -412,7 +418,8 @@ int NumericRangeNode_RemoveChild(NumericRangeNode **node, NRN_AddRv *rv) {
 }
 
 NRN_AddRv NumericRangeTree_TrimEmptyLeaves(NumericRangeTree *t) {
-  NRN_AddRv rv = {0}; 
+  NRN_AddRv rv = {.numRanges = 0,
+                  .changed = 0 }; 
   NumericRangeNode_RemoveChild(&t->root, &rv);
   return rv;
 }
