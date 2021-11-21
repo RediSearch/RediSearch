@@ -97,7 +97,7 @@ def testEmptyNumericLeakIncrease(env):
     conn = getConnectionByEnv(env)
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC')
 
-    repeat = 3
+    repeat = 5
     docs = 10000
 
     for i in range(repeat):
@@ -122,7 +122,7 @@ def testEmptyNumericLeakCenter(env):
     conn = getConnectionByEnv(env)
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC')
 
-    repeat = 3
+    repeat = 5
     docs = 10000
 
     for i in range(100):
