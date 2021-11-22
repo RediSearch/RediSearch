@@ -5,7 +5,7 @@ else
 DRY_RUN:=
 endif
 
-ifneq ($(filter coverage,$(MAKECMDGOALS)),)
+ifneq ($(filter coverage show-cov upload-cov,$(MAKECMDGOALS)),)
 COV=1
 endif
 
@@ -271,7 +271,7 @@ MK_CUSTOM_CLEAN=1
 
 MISSING_DEPS:=
 ifeq ($(wildcard $(LIBUV)),)
-MISSING_DEPS += $(LIBUV) $(HIREDIS)
+MISSING_DEPS += $(LIBUV)
 endif
 ifeq ($(wildcard $(HIREDIS)),)
 MISSING_DEPS += $(HIREDIS)
@@ -445,7 +445,7 @@ export EXT_TEST_PATH:=$(BINDIR)/example_extension/libexample_extension.so
 
 test:
 ifneq ($(TEST),)
-	$(SHOW)set -e; cd $(BINRDIR); CTEST_OUTPUT_ON_FAILURE=1 RLTEST_ARGS="-s -v" ctest $(CTEST_ARGS) -vv -R $(TEST)
+	$(SHOW)set -e; cd $(BINDIR); CTEST_OUTPUT_ON_FAILURE=1 RLTEST_ARGS="-s -v" ctest $(CTEST_ARGS) -vv -R $(TEST)
 else
 	$(SHOW)set -e; cd $(BINDIR); ctest $(CTEST_ARGS)
 ifeq ($(COORD),oss)
@@ -539,21 +539,28 @@ benchmark:
 
 #----------------------------------------------------------------------------------------------
 
-COV_EXCLUDE += \
-    'deps/*' \
-	'tests/*' \
-	'coord/tests/*'
+COV_EXCLUDE_DIRS += \
+    deps \
+	tests \
+	coord/tests
+
+COV_EXCLUDE=$(foreach D,$(COV_EXCLUDE_DIRS),'$(realpath $(ROOT))/$(D)/*')
 
 coverage:
 	$(SHOW)$(MAKE) build COV=1
 	$(SHOW)$(MAKE) build COORD=oss COV=1
 	$(SHOW)$(COVERAGE_RESET)
-	$(SHOW)$(MAKE) test COV=1
-	$(SHOW)$(MAKE) test COORD=oss COV=1 CTEST_PARALLEL=1
+	-$(SHOW)$(MAKE) test COV=1
+	-$(SHOW)$(MAKE) test COORD=oss COV=1 CTEST_PARALLEL=1
 	$(SHOW)$(COVERAGE_COLLECT_REPORT)
+
+show-cov:
+	$(SHOW)lcov -l $(COV_INFO)
 
 upload-cov:
 	$(SHOW)bash <(curl -s https://raw.githubusercontent.com/codecov/codecov-bash/master/codecov) -f bin/linux-x64-debug-cov/cov.info
+
+.PHONY: coverage show-cov upload-cov
 
 #----------------------------------------------------------------------------------------------
 
