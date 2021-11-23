@@ -381,7 +381,7 @@
       }
     ],
     "since": "1.0.0",
-    "group": "search"
+    "group": "suggestion"
   },
   "FT.SUGGET": {
     "summary": "Gets completion suggestions for a prefix",
@@ -427,7 +427,7 @@
       }
     ],
     "since": "1.0.0",
-    "group": "search"
+    "group": "suggestion"
   },
   "FT.SUGDEL": {
     "summary": "Deletes a string from a suggestion index",
@@ -443,7 +443,7 @@
       }
     ],
     "since": "1.0.0",
-    "group": "search"
+    "group": "suggestion"
   },
   "FT.SUGLEN": {
     "summary": "Gets the size of an auto-complete suggestion dictionary",
@@ -455,7 +455,7 @@
       }
     ],
     "since": "1.0.0",
-    "group": "search"
+    "group": "suggestion"
   },
   "FT.SYNUPDATE": {
     "summary": "Creates or updates a synonym group with additional terms",
