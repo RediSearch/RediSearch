@@ -17,6 +17,8 @@ if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
 		OSNICK=nick     Get binaries for given osnick
 		BRANCH=name     Use given branch
 		REPO_PATH=dir   Get binaries from given repo path
+		BINROOT=dir     Place module in `dir`/RedisJSON
+		BUILD=0         Do not build if unable to download
 		FORCE=1         Download module even if already present
 		NOP=1           No operation
 		HELP=1          Show help
@@ -37,8 +39,13 @@ if [[ ! -z $REPO_PATH ]]; then
 	platform="$($READIES/bin/platform -t)"
 else
 	if [[ $os != linux && $os != macos || $arch != x64 ]]; then
-		eprint "Cannot match binary artifacts - build RedisJSON and set REPO_PATH"
-		exit 1
+		if [[ BUILD == 0 ]]; then
+			eprint "Cannot match binary artifacts - build RedisJSON and set REPO_PATH"
+			exit 1
+		fi
+		echo "Cannot match binary artifacts - building RedisJSON from source."
+		$ROOT/sbin/build-redisjson
+		exit $?
 	fi
 
 	dist="$($READIES/bin/platform --dist)"
@@ -76,7 +83,11 @@ fi
 MOD_S3_URL="http://redismodules.s3.amazonaws.com/rejson/snapshots"
 MOD_RAMP="rejson.${platform}.$BRANCH.zip"
 
-DEST_REJSON_DIR="$ROOT/bin/$($READIES/bin/platform -t)/RedisJSON"
+if [[ -n $BINROOT ]]; then
+	DEST_REJSON_DIR="$BINROOT/RedisJSON"
+else
+	DEST_REJSON_DIR="$ROOT/bin/$($READIES/bin/platform -t)/RedisJSON"
+fi
 
 if [[ $FORCE != 1 && -d $DEST_REJSON_DIR && -f $DEST_REJSON_DIR/rejson.so ]]; then
 	echo "RedisJSON is in ${DEST_REJSON_DIR}:"

@@ -193,6 +193,7 @@ commands:
             mkdir -p tests/pytests/logs
             tar -C tests/pytests/logs -xzf bin/artifacts/tests-pytests-logs*.tgz
           no_output_timeout: 30m
+      - save-tests-logs
       - early-return-for-forked-pull-requests
       - run:
           name: Build for platform (publish)
@@ -201,7 +202,6 @@ commands:
             cd build/docker
             make publish OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH OFFICIAL=0 SHOW=1 VERBOSE=1
       - persist-artifacts
-      - save-tests-logs
 
   vm-build-platforms-steps:
     parameters:
@@ -224,6 +224,7 @@ commands:
             mkdir -p tests/pytests/logs
             tar -C tests/pytests/logs -xzf bin/artifacts/tests-pytests-logs*.tgz
           no_output_timeout: 30m
+      - save-tests-logs
       - early-return-for-forked-pull-requests
       - run:
           name: Build for platform (publish)
@@ -232,7 +233,6 @@ commands:
             cd build/docker
             make publish OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH OFFICIAL=0 SHOW=1 VERBOSE=1
       - persist-artifacts
-      - save-tests-logs
 
   benchmark-automation:
     parameters:
@@ -244,7 +244,7 @@ commands:
         default: bin/linux-x64-release/search/redisearch.so
       rejson_module_path:
         type: string
-        default: deps/RedisJSON/target/release/rejson.so
+        default: bin/linux-x64-release/RedisJSON/rejson.so
     steps:
       - run:
           name: Prepare automation

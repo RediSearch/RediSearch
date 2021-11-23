@@ -120,6 +120,8 @@ endef
 
 #----------------------------------------------------------------------------------------------
 
+export BINROOT
+
 ifeq ($(STATIC),1)
 
 ifneq ($(COORD),)
@@ -584,7 +586,11 @@ platform:
 # 	@docker run -it -v $(PWD):/build --cap-add=SYS_PTRACE --security-opt seccomp=unconfined $(shell $(ROOT)/deps/readies/bin/platform --docker) bash
 # endif
 
+ifneq ($(wildcard /w/*),)
+SANBOX_ARGS += -v /w:/w
+endif
+
 sanbox:
-	@docker run -it -v $(PWD):/search -w /search --cap-add=SYS_PTRACE --security-opt seccomp=unconfined redisfab/clang:13-x64-bullseye bash
+	@docker run -it -v $(PWD):/search -w /search --cap-add=SYS_PTRACE --security-opt seccomp=unconfined $(SANBOX_ARGS) redisfab/clang:13-x64-bullseye bash
 
 .PHONY: box sanbox
