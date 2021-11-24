@@ -14,12 +14,13 @@ if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
 		build-redisjson [--help|help]
 
 		Argument variables:
-		BINROOT=dir     Build into dir
-		BRANCH=name     Use given branch (default: master)
-		SAN=mode        Clang Sanitizer mode (address|memory)
-		FORCE=1         Force rebuild
-		NOP=1           No operation
-		HELP=1          Show help
+		BINROOT=dir        Build into dir
+		BRANCH=name        Use given branch (default: master)
+		SAN=mode           Clang Sanitizer mode (address|memory)
+		MODULE_FILE=file   Write module path into `file`
+		FORCE=1            Force rebuild
+		NOP=1              No operation
+		HELP=1             Show help
 
 	END
 	exit 0
@@ -34,14 +35,10 @@ if [[ -n $SAN && $SAN != address && $SAN != memory ]]; then
 fi
 
 if [[ -z $BINROOT ]]; then
-	export BINROOT=$ROOT/bin/RedisJSON/$($READIES/bin/platform -t)
-	echo Building into $BINROOT ...
+	export BINROOT=$ROOT/bin/$($READIES/bin/platform -t)
 fi
 TARGET_DIR=$BINROOT/RedisJSON
-
-if [[ -f ${TARGET_DIR}/REJSON_PATH && $FORCE != 1 ]]; then
-	exit 0
-fi
+echo Building into $TARGET_DIR ...
 
 if [[ $FORCE == 1 ]]; then
 	runn rm -rf $TARGET_DIR
@@ -62,10 +59,8 @@ runn ./sbin/system-setup.py
 $OP source /etc/profile.d/rust.sh
 runn make nightly
 
-runn make SAN=$SAN
-# $OP mv $ROOT/deps/RedisJSON/target $TARGET_DIR
-##if [[ $NOP != 1 ]]; then
-##	echo ${TARGET_DIR}/x86_64-unknown-linux-gnu/debug/rejson.so > ${TARGET_DIR}/REJSON_PATH
-##else
-##	echo "echo ${TARGET_DIR}/x86_64-unknown-linux-gnu/debug/rejson.so > ${TARGET_DIR}/REJSON_PATH"
-##fi
+runn BINROOT=$TARGET_DIR make SAN=$SAN
+
+if [[ -n $MODULE_FILE ]]; then
+	echo "${TARGET_DIR}/rejson.so" > $MODULE_FILE
+fi

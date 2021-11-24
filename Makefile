@@ -546,15 +546,31 @@ COV_EXCLUDE_DIRS += \
 	tests \
 	coord/tests
 
-COV_EXCLUDE=$(foreach D,$(COV_EXCLUDE_DIRS),'$(realpath $(ROOT))/$(D)/*')
+COV_EXCLUDE+=$(foreach D,$(COV_EXCLUDE_DIRS),'$(realpath $(ROOT))/$(D)/*')
+
+ifneq ($(REJSON_PATH),)
+export REJSON_PATH
+else
+REJSON_MODULE_FILE:=$(shell mktemp /tmp/rejson.XXXX)
+endif
 
 coverage:
+ifeq ($(REJSON_PATH),)
+	$(SHOW)MODULE_FILE=$(REJSON_MODULE_FILE) ./sbin/get-redisjson
+endif
 	$(SHOW)$(MAKE) build COV=1
 	$(SHOW)$(MAKE) build COORD=oss COV=1
 	$(SHOW)$(COVERAGE_RESET)
+ifneq ($(REJSON_PATH),)
 	-$(SHOW)$(MAKE) test COV=1
-	-$(SHOW)$(MAKE) test COORD=oss COV=1 CTEST_PARALLEL=1
+	-$(SHOW)$(MAKE) test COORD=oss COV=1
+else
+	-$(SHOW)$(MAKE) test COV=1 REJSON_PATH=$$(cat $(REJSON_MODULE_FILE))
+	-$(SHOW)$(MAKE) test COORD=oss COV=1 REJSON_PATH=$$(cat $(REJSON_MODULE_FILE))
+endif
 	$(SHOW)$(COVERAGE_COLLECT_REPORT)
+
+# CTEST_PARALLEL=8
 
 show-cov:
 	$(SHOW)lcov -l $(COV_INFO)

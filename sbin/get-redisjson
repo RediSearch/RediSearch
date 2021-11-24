@@ -14,14 +14,15 @@ if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
 		get-redisjson [--help|help]
 
 		Argument variables:
-		OSNICK=nick     Get binaries for given osnick
-		BRANCH=name     Use given branch
-		REPO_PATH=dir   Get binaries from given repo path
-		BINROOT=dir     Place module in `dir`/RedisJSON
-		BUILD=0         Do not build if unable to download
-		FORCE=1         Download module even if already present
-		NOP=1           No operation
-		HELP=1          Show help
+		OSNICK=nick        Get binaries for given `nick`
+		BRANCH=name        Use given branch
+		REPO_PATH=dir      Get binary artifacts from given repo `dir`
+		BINROOT=dir        On Build, place module .so in `dir`/RedisJSON
+		BUILD=0            Do not build if unable to download
+		FORCE=1            Download module even if already present
+		MODULE_FILE=file   Write module path into `file`
+		NOP=1              No operation
+		HELP=1             Show help
 
 	END
 	exit 0
@@ -83,10 +84,10 @@ fi
 MOD_S3_URL="http://redismodules.s3.amazonaws.com/rejson/snapshots"
 MOD_RAMP="rejson.${platform}.$BRANCH.zip"
 
-if [[ -n $BINROOT ]]; then
-	DEST_REJSON_DIR="$BINROOT/RedisJSON"
-else
-	DEST_REJSON_DIR="$ROOT/bin/$($READIES/bin/platform -t)/RedisJSON"
+DEST_REJSON_DIR="$ROOT/bin/$($READIES/bin/platform -t)/RedisJSON"
+
+if [[ -n $MODULE_FILE ]]; then
+	echo "${DEST_REJSON_DIR}/rejson.so" > $MODULE_FILE
 fi
 
 if [[ $FORCE != 1 && -d $DEST_REJSON_DIR && -f $DEST_REJSON_DIR/rejson.so ]]; then

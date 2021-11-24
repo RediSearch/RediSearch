@@ -254,7 +254,7 @@ commands:
             VERSION=0.14.8 ./deps/readies/bin/getterraform
       - run:
           name: Prepare ReJSON Module
-          command: ./sbin/get-redisjson
+          command: BINROOT=bin/linux-x64-release ./sbin/get-redisjson
       - run:
           name: Run CI benchmarks on aws
           timeout: 60m
@@ -348,7 +348,6 @@ jobs:
           name: Build & Test
           shell: /bin/bash -l -eo pipefail
           command: |
-            BRANCH=master ./sbin/get-redisjson
             make coverage SHOW=1
             make upload-cov SHOW=1
           no_output_timeout: 30m

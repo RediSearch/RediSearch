@@ -131,7 +131,8 @@ if [[ -n $SAN ]]; then
 		fi
 		if [[ ! -f $BINROOT/RedisJSON/rejson.so ]]; then
 			echo Building RedisJSON ...
-			BINROOT=$BINROOT/RedisJSON $ROOT/sbin/build-redisjson
+			# BINROOT=$BINROOT/RedisJSON $ROOT/sbin/build-redisjson
+			$ROOT/sbin/build-redisjson
 		fi
 		export REJSON_PATH=$BINROOT/RedisJSON/rejson.so
 	elif [[ ! -f $REJSON_PATH ]]; then
@@ -206,21 +207,14 @@ REJSON_BRANCH=${REJSON_BRANCH:-master}
 
 if [[ -n $REJSON && $REJSON != 0 ]]; then
 	if [[ -n $REJSON_PATH ]]; then
-		REJSON_ARGS="--module $REJSON_PATH"
 		REJSON_MODULE="$REJSON_PATH"
+		REJSON_ARGS="--module $REJSON_PATH"
 	else
-		if [[ -n $BINROOT ]]; then
-			REJSON_BINROOT=$BINROOT
-		else
-			platform=`$READIES/bin/platform -t`
-			REJSON_BINROOT=$ROOT/bin/$platform
-		fi
-		REJSON_MODULE=$REJSON_BINROOT/RedisJSON/rejson.so
-		if [[ ! -f $REJSON_MODULE || $REJSON == get ]]; then
-			FORCE_GET=
-			[[ $REJSON == get ]] && FORCE_GET=1
-			BINROOT=$REJSON_BINROOT BRANCH=$REJSON_BRANCH FORCE=$FORCE_GET $OP $ROOT/sbin/get-redisjson
-		fi
+		FORCE_GET=
+		[[ $REJSON == get ]] && FORCE_GET=1
+		export MODULE_FILE=$(mktemp /tmp/rejson.XXXX)
+		BRANCH=$REJSON_BRANCH FORCE=$FORCE_GET $OP $ROOT/sbin/get-redisjson
+		REJSON_MODULE=$(cat $MODULE_FILE)
 		REJSON_ARGS="--module $REJSON_MODULE"
 	fi
 	REJSON_ARGS+=" --module-args '$REJSON_MODARGS'"
