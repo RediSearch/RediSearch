@@ -236,15 +236,15 @@ commands:
 
   benchmark-automation:
     parameters:
+      platform:
+        type: string
+    parameters:
       github_actor:
         type: string
         default: $CIRCLE_USERNAME
       module_path:
         type: string
         default: bin/linux-x64-release/search/redisearch.so
-      rejson_module_path:
-        type: string
-        default: bin/linux-x64-release/RedisJSON/rejson.so
     steps:
       - run:
           name: Prepare automation
@@ -254,7 +254,7 @@ commands:
             VERSION=0.14.8 ./deps/readies/bin/getterraform
       - run:
           name: Prepare ReJSON Module
-          command: BINROOT=bin/linux-x64-release ./sbin/get-redisjson
+          command: MODULE_FILE=bin/REJSON_PATH ./sbin/get-redisjson
       - run:
           name: Run CI benchmarks on aws
           timeout: 60m
@@ -268,7 +268,7 @@ commands:
             export EC2_PRIVATE_PEM=$PERFORMANCE_EC2_PRIVATE_PEM
 
             redisbench-admin run-remote \
-              --module_path $ROOT/<< parameters.rejson_module_path >> \
+              --module_path $(cat bin/REJSON_PATH) \
               --required-module ReJSON \
               --module_path $ROOT/<< parameters.module_path >> \
               --github_actor << parameters.github_actor >> \
@@ -335,7 +335,8 @@ jobs:
     steps:
       - build-steps:
           platform: bionic
-      - benchmark-automation
+      - benchmark-automation:
+          platform: bionic
 
   coverage:
     docker:

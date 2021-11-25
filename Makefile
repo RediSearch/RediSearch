@@ -120,8 +120,6 @@ endef
 
 #----------------------------------------------------------------------------------------------
 
-export BINROOT
-
 ifeq ($(STATIC),1)
 
 ifneq ($(COORD),)
@@ -437,6 +435,7 @@ endif
 override CTEST_ARGS += --timeout 15000
 
 FLOW_TESTS_ARGS=\
+	BINROOT=$(BINROOT) \
 	VG=$(VALGRIND) VG_LEAKS=0
 
 ifeq ($(EXT),1)

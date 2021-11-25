@@ -6,6 +6,7 @@
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 ROOT=$(cd $HERE/../.. && pwd)
 READIES=$ROOT/deps/readies
+. $READIES/shibumi/defs
 
 cd $HERE
 
@@ -126,7 +127,7 @@ if [[ -n $SAN ]]; then
 
 	if [[ -z $REJSON_PATH ]]; then
 		if [[ -z $BINROOT ]]; then
-			eprint "BINROOT is not set: cannot build RedisJSON"
+			eprint "BINROOT is not set - cannot build RedisJSON"
 			exit 1
 		fi
 		if [[ ! -f $BINROOT/RedisJSON/rejson.so ]]; then
