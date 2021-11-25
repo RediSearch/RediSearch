@@ -445,6 +445,9 @@ endif
 export EXT_TEST_PATH:=$(BINDIR)/example_extension/libexample_extension.so
 
 test:
+ifneq ($(SAN),)
+	$(SHOW)BINROOT=$(BINROOT)./sbin/build-rejson
+endif
 ifneq ($(TEST),)
 	$(SHOW)set -e; cd $(BINDIR); CTEST_OUTPUT_ON_FAILURE=1 RLTEST_ARGS="-s -v" ctest $(CTEST_ARGS) -vv -R $(TEST)
 else
@@ -455,6 +458,9 @@ endif
 endif
 
 pytest:
+ifneq ($(SAN),)
+	$(SHOW)BINROOT=$(BINROOT)./sbin/build-rejson
+endif
 	$(SHOW)TEST=$(TEST) $(FLOW_TESTS_ARGS) FORCE='' $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
 
 ifeq ($(GDB),1)
