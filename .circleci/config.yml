@@ -238,7 +238,6 @@ commands:
     parameters:
       platform:
         type: string
-    parameters:
       github_actor:
         type: string
         default: $CIRCLE_USERNAME
