@@ -106,7 +106,7 @@ def test_MOD_865(env):
   args_list = ['FT.CREATE', 'idx', 'SCHEMA']
   for i in range(129):
     args_list.extend([i, 'TEXT'])
-  arch = platform.processor()
+  arch = platform.machine()
   if arch == 'x86_64':
     bits = 128
   elif arch == 'aarch64':
