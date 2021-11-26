@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 from common import *
+import platform
 
 def test_1282(env):
   env.expect('FT.CREATE idx ON HASH SCHEMA txt1 TEXT').equal('OK')
@@ -105,7 +106,14 @@ def test_MOD_865(env):
   args_list = ['FT.CREATE', 'idx', 'SCHEMA']
   for i in range(129):
     args_list.extend([i, 'TEXT'])
-  env.expect(*args_list).error().contains('Schema is limited to 128 TEXT fields')
+  arch = platform.processor()
+  if arch == 'x86_64':
+    bits = 128
+  elif arch == 'aarch64':
+    bits = 64
+  else:
+    bits = 64
+  env.expect(*args_list).error().contains('Schema is limited to {} TEXT fields'.format(bits))
   env.expect('FT.DROPINDEX', 'idx')
 
   args_list = ['FT.CREATE', 'idx', 'SCHEMA']

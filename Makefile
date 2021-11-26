@@ -399,23 +399,12 @@ endif
 
 export REJSON ?= 1
 
-ifeq ($(TESTDEBUG),1)
-override CTEST_ARGS += --debug
-endif
-
-CTEST_ARGS += --output-on-failure
-
-
 ifneq ($(SAN),)
 export ASAN_OPTIONS=detect_odr_violation=0
 endif
 
-ifeq ($(COV),1)
-# CTEST_ARGS += --output-on-failure
-endif
-
-ifeq ($(VG),1)
-# CTEST_ARGS += --output-on-failure
+ifeq ($(TESTDEBUG),1)
+override CTEST_ARGS.debug += --debug
 endif
 
 ifneq ($(SLOW),1)
@@ -429,12 +418,19 @@ endif
 endif # SLOW
 
 ifneq ($(CTEST_PARALLEL),)
-override CTEST_ARGS += -j$(CTEST_PARALLEL)
+CTEST_ARGS.parallel += -j$(CTEST_PARALLEL)
 endif
 
-override CTEST_ARGS += --timeout 15000
+override CTEST_ARGS += \
+	--output-on-failure \
+	--timeout 15000 \
+	$(CTEST.debug) \
+	$(CTEST.parallel)
 
-FLOW_TESTS_ARGS=\
+CTESTS_DEFS += \
+	BINROOT=$(BINROOT)
+
+override FLOW_TESTS_ARGS+=\
 	BINROOT=$(BINROOT) \
 	VG=$(VALGRIND) VG_LEAKS=0
 
@@ -446,12 +442,12 @@ export EXT_TEST_PATH:=$(BINDIR)/example_extension/libexample_extension.so
 
 test:
 ifneq ($(SAN),)
-	$(SHOW)BINROOT=$(BINROOT)./sbin/build-rejson
+	$(SHOW)BINROOT=$(BINROOT) ./sbin/build-redisjson
 endif
 ifneq ($(TEST),)
-	$(SHOW)set -e; cd $(BINDIR); CTEST_OUTPUT_ON_FAILURE=1 RLTEST_ARGS="-s -v" ctest $(CTEST_ARGS) -vv -R $(TEST)
+	$(SHOW)set -e; cd $(BINDIR); $(CTESTS_DEFS) RLTEST_ARGS="-s -v" ctest $(CTEST_ARGS) -vv -R $(TEST)
 else
-	$(SHOW)set -e; cd $(BINDIR); ctest $(CTEST_ARGS)
+	$(SHOW)set -e; cd $(BINDIR); $(CTESTS_DEFS) ctest $(CTEST_ARGS)
 ifeq ($(COORD),oss)
 	$(SHOW)$(FLOW_TESTS_ARGS) FORCE='' $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
 endif
