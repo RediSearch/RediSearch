@@ -45,17 +45,17 @@ RUN ./deps/readies/bin/getpy2
 RUN ./sbin/system-setup.py
 
 RUN /usr/local/bin/redis-server --version
-RUN make fetch SHOW=1
+RUN bash -l -c "make fetch"
 
-RUN make build WITH_TESTS=1 SHOW=1
+RUN bash -l -c "make build WITH_TESTS=1 SHOW=1"
 RUN set -e ;\
     if [ "$PACK" = "1" ]; then \
-		make build LITE=1 SHOW=1 ;\
-        make build COORD=rlec SHOW=1 ;\
+        bash -l -c "make build LITE=1 SHOW=1" ;\
+        bash -l -c "make build COORD=rlec SHOW=1" ;\
     fi
 RUN set -e ;\
     if [ "$TEST" = "1" ]; then \
-        make build WITH_TESTS=1 COORD=oss SHOW=1 ;\
+        bash -l -c "make build WITH_TESTS=1 COORD=oss SHOW=1" ;\
     fi
 
 RUN mkdir -p bin/artifacts
@@ -91,7 +91,7 @@ RUN mkdir -p "$LIBDIR"
 
 RUN mkdir -p /var/opt/redislabs/artifacts
 RUN chown -R redis:redis /var/opt/redislabs
-COPY --from=builder /build/bin/linux-x64-release/search/redisearch.so* "$LIBDIR"
+COPY --from=builder /build/bin/linux-${ARCH}-release/search/redisearch.so* "$LIBDIR"
 RUN true
 COPY --from=json    /usr/lib/redis/modules/rejson.so* "$LIBDIR"
 RUN true

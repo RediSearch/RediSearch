@@ -14,11 +14,13 @@ if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
 		build-redisjson [--help|help]
 
 		Argument variables:
-		BRANCH=name     Use given branch (default: master)
-		SAN=mode        Clang Sanitizer mode (address|memory)
-		FORCE=1         Force rebuild
-		NOP=1           No operation
-		HELP=1          Show help
+		BINROOT=dir        Build into dir
+		BRANCH=name        Use given branch (default: master)
+		SAN=mode           Clang Sanitizer mode (address|memory)
+		MODULE_FILE=file   Write module path into `file`
+		FORCE=1            Force rebuild
+		NOP=1              No operation
+		HELP=1             Show help
 
 	END
 	exit 0
@@ -27,16 +29,16 @@ fi
 OP=
 [[ $NOP == 1 ]] && OP=echo
 
-if [[ $SAN != address && $SAN != memory ]]; then
+if [[ -n $SAN && $SAN != address && $SAN != memory ]]; then
 	echo "Invalid SAN setting: '$SAN'"
 	exit 1
 fi
 
-TARGET_DIR=$ROOT/deps/RedisJSON/target.${SAN}
-
-if [[ -f ${TARGET_DIR}/REJSON_PATH && $FORCE != 1 ]]; then
-	exit 0
+if [[ -z $BINROOT ]]; then
+	export BINROOT=$ROOT/bin/$($READIES/bin/platform -t)
 fi
+TARGET_DIR=$BINROOT/RedisJSON
+echo Building into $TARGET_DIR ...
 
 if [[ $FORCE == 1 ]]; then
 	runn rm -rf $TARGET_DIR
@@ -53,14 +55,11 @@ $OP cd RedisJSON
 runn git checkout $BRANCH
 runn git pull --quiet --recurse-submodules
 runn $READIES/bin/getpy3
-runn ./system-setup.py
+runn ./sbin/system-setup.py
 $OP source /etc/profile.d/rust.sh
-runn make nightly
 
-runn make SAN=$SAN
-$OP mv $ROOT/deps/RedisJSON/target $TARGET_DIR
-if [[ $NOP != 1 ]]; then
-	echo ${TARGET_DIR}/x86_64-unknown-linux-gnu/debug/rejson.so > ${TARGET_DIR}/REJSON_PATH
-else
-	echo "echo ${TARGET_DIR}/x86_64-unknown-linux-gnu/debug/rejson.so > ${TARGET_DIR}/REJSON_PATH"
+runn BINROOT=$TARGET_DIR make SAN=$SAN
+
+if [[ -n $MODULE_FILE ]]; then
+	echo "${TARGET_DIR}/rejson.so" > $MODULE_FILE
 fi
