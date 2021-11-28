@@ -105,7 +105,7 @@ def test_MOD_865(env):
   args_list = ['FT.CREATE', 'idx', 'SCHEMA']
   for i in range(129):
     args_list.extend([i, 'TEXT'])
-  env.expect(*args_list).error().contains('Schema is limited to {} TEXT fields'.format(arch_bits()))
+  env.expect(*args_list).error().contains('Schema is limited to {} TEXT fields'.format(arch_int_bits()))
   env.expect('FT.DROPINDEX', 'idx')
 
   args_list = ['FT.CREATE', 'idx', 'SCHEMA']

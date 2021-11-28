@@ -382,10 +382,6 @@ jobs:
       - checkout-all
       - install-prerequisites
       - run:
-          name: Build RedisJSON
-          shell: /bin/bash -l -eo pipefail
-          command: SAN=<<parameters.san-type>> ./sbin/build-redisjson
-      - run:
           name: Build & test (Search)
           shell: /bin/bash -l -eo pipefail
           command: make SAN=<<parameters.san-type>> build test SHOW=1

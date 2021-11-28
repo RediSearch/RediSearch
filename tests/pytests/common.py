@@ -90,7 +90,7 @@ def numver_to_version(numver):
     v = "%d.%d.%d" % (int(v/10000), int(v/100)%100, v%100)
     return version.parse(v)
 
-def arch_bits():
+def arch_int_bits():
   arch = platform.machine()
   if arch == 'x86_64':
     return 128
