@@ -91,7 +91,7 @@ RUN mkdir -p "$LIBDIR"
 
 RUN mkdir -p /var/opt/redislabs/artifacts
 RUN chown -R redis:redis /var/opt/redislabs
-COPY --from=builder /build/bin/linux-x64-release/search/redisearch.so* "$LIBDIR"
+COPY --from=builder /build/bin/linux-${ARCH}-release/search/redisearch.so* "$LIBDIR"
 RUN true
 COPY --from=json    /usr/lib/redis/modules/rejson.so* "$LIBDIR"
 RUN true

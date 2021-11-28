@@ -459,7 +459,7 @@ endif
 
 pytest:
 ifneq ($(SAN),)
-	$(SHOW)BINROOT=$(BINROOT) ./sbin/build-rejson
+	$(SHOW)BINROOT=$(BINROOT) ./sbin/build-redisjson
 endif
 	$(SHOW)TEST=$(TEST) $(FLOW_TESTS_ARGS) FORCE='' $(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
 
