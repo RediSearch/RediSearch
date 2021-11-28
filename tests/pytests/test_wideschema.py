@@ -6,7 +6,7 @@ from common import waitForIndex
 def testWideSchema(env):
     r = env
     schema = []
-    FIELDS = 128 if platform.architecture()[0] == '64bit' else 64
+    FIELDS = arch_bits()
     for i in range(FIELDS):
         schema.extend(('field_%d' % i, 'TEXT'))
     env.assertOk(env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', *schema))

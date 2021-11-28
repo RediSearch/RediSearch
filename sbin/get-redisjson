@@ -39,7 +39,7 @@ arch="$($READIES/bin/platform --arch)"
 if [[ ! -z $REPO_PATH ]]; then
 	platform="$($READIES/bin/platform -t)"
 else
-	if [[ $os != linux && $os != macos || $arch != x64 ]]; then
+	if [[ $os != linux && $os != macos ]]; then
 		if [[ BUILD == 0 ]]; then
 			eprint "Cannot match binary artifacts - build RedisJSON and set REPO_PATH"
 			exit 1
@@ -104,6 +104,15 @@ if [[ -z $REPO_PATH ]]; then
 	if [[ $FORCE == 1 || ! -f $F_MOD_RAMP ]]; then
 		echo "Download RedisJSON [$MOD_S3_URL/$MOD_RAMP] ..."
 		$OP wget -q -P $WORK_DIR $MOD_S3_URL/$MOD_RAMP
+		if [[ $NOP != 1 && $? != 0 ]]; then
+			if [[ BUILD == 0 ]]; then
+				eprint "Cannot download binary artifacts - build RedisJSON and set REPO_PATH"
+				exit 1
+			fi
+			echo "Cannot download binary artifacts - building RedisJSON from source."
+			$ROOT/sbin/build-redisjson
+			exit $?
+		fi
 	fi
 else
 	F_MOD_RAMP="${REPO_PATH}/artifacts/snapshots/${MOD_RAMP}"

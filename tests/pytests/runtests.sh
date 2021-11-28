@@ -12,7 +12,7 @@ cd $HERE
 
 #----------------------------------------------------------------------------------------------
 
-if [[ $1 == --help || $1 == help ]]; then
+if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
 	cat <<-END
 		Run Python tests using RLTest
 
@@ -51,6 +51,7 @@ if [[ $1 == --help || $1 == help ]]; then
 		VERBOSE=1             Print commands and Redis output
 		IGNERR=1              Do not abort on error
 		NOP=1                 Dry run
+		HELP=1                Show help
 
 
 	END

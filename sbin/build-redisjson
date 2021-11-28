@@ -57,7 +57,6 @@ runn git pull --quiet --recurse-submodules
 runn $READIES/bin/getpy3
 runn ./sbin/system-setup.py
 $OP source /etc/profile.d/rust.sh
-runn make nightly
 
 runn BINROOT=$TARGET_DIR make SAN=$SAN
 

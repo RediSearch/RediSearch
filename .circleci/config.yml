@@ -40,7 +40,7 @@ commands:
             apt-get -q install -y git openssh-client curl ca-certificates make tar gzip
             bash <(curl -fsSL https://raw.githubusercontent.com/docker/docker-install/master/install.sh)
       - setup_remote_docker:
-          version: 20.10.2
+          version: 20.10.7
           docker_layer_caching: true
 
   checkout-all:
@@ -120,6 +120,9 @@ commands:
     parameters:
       platform:
         type: string
+      redis_version:
+        type: string
+        default: "6"
       getredis_params:
         type: string
         default: ""
@@ -130,6 +133,7 @@ commands:
       - early-returns
       - checkout-all
       - install-prerequisites:
+          redis_version: <<parameters.redis_version>>
           getredis_params: <<parameters.getredis_params>>
       - run:
           name: Build (Search)
@@ -283,13 +287,27 @@ commands:
 #----------------------------------------------------------------------------------------------------------------------------------
 
 jobs:
-  build:
+  build-linux-debian:
     docker:
       - image: redisfab/rmbuilder:6.2.5-x64-bullseye
+    parameters:
+      redis_version:
+        type: string
+        default: "6"
+      persist:
+        type: string
+        default: "yes"
     steps:
       - build-steps:
           platform: bullseye
+          redis_version: <<parameters.redis_version>>
       - test-steps
+      - run:
+          name: Persist artifacts?
+          command: |
+            if [[ "<<parameters.persist>>" != "yes" ]]; then
+              circleci step halt
+            fi
       - persist-artifacts
 
   build-platforms:
@@ -540,8 +558,16 @@ workflows:
   version: 2
   default-flow:
     jobs:
-      - build:
+      - build-linux-debian:
+          name: build
           <<: *not-on-integ-branch
+      - build-linux-debian:
+          name: build-with-redis-<<matrix.redis_version>>
+          #@@<<: *on-integ-branch
+          <<: *on-any-branch
+          matrix:
+            parameters:
+              redis_version: ["6.0", "6.2"]
       - build-platforms:
           <<: *on-integ-and-version-tags
           context: common
@@ -556,7 +582,8 @@ workflows:
             parameters:
               platform: [focal]
       - build-macos:
-          <<: *on-version-tags
+          #@@<<: *on-version-tags
+          <<: *on-any-branch
       - coverage:
           context: common
           <<: *on-any-branch
@@ -604,6 +631,11 @@ workflows:
               only: master
     jobs:
       - build-macos
+      - build-linux-debian:
+          name: build-with-redis-<<matrix.redis_version>>
+          matrix:
+            parameters:
+              redis_version: ["6.0", "6.2"]
 
   nightly-performance:
     triggers:
