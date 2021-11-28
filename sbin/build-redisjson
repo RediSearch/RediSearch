@@ -44,7 +44,7 @@ if [[ $FORCE == 1 ]]; then
 	runn rm -rf $TARGET_DIR
 fi
 
-BRANCH=${BRANCH:-master}
+BRANCH=${BRANCH:-2.0}
 
 $OP cd $ROOT/deps
 if [[ ! -d RedisJSON ]]; then
