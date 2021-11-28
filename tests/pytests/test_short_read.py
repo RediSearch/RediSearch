@@ -193,10 +193,14 @@ def add_index(env, isHash, index_name, key_suffix, num_prefs, num_keys):
 
 
 def testCreateIndexRdbFiles(env):
+    if not server_version_at_least(env, "6.2.0"):
+        env.skip()
     create_indices(env, 'redisearch_2.2.0.rdb', 'idxSearch', True, False)
 
 @no_msan
 def testCreateIndexRdbFilesWithJSON(env):
+    if not server_version_at_least(env, "6.2.0"):
+        env.skip()
     create_indices(env, 'rejson_2.0.0.rdb', 'idxJson', False, True)
     create_indices(env, 'redisearch_2.2.0_rejson_2.0.0.rdb', 'idxSearchJson', True, True)
 
@@ -452,6 +456,9 @@ class Debug:
 
 @no_msan
 def testShortReadSearch(env):
+    if not server_version_at_least(env, "6.2.0"):
+        env.skip()
+
     if CODE_COVERAGE or SANITIZER:
         env.skip()  # FIXME: enable coverage test
 
