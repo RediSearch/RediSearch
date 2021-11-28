@@ -571,15 +571,13 @@ workflows:
             parameters:
               platform: [focal, bionic, xenial, centos7, centos8]
       - build-arm-platforms:
-          #@@ <<: *on-integ-and-version-tags
-          <<: *on-any-branch
+          <<: *on-integ-and-version-tags
           context: common
           matrix:
             parameters:
               platform: [focal]
       - build-macos:
-          #@@<<: *on-version-tags
-          <<: *on-any-branch
+          <<: *on-version-tags
       - coverage:
           context: common
           <<: *on-any-branch
@@ -593,8 +591,7 @@ workflows:
           <<: *never
       - benchmark:
           context: common
-          #@@ <<: *on-integ-and-version-tags
-          <<: *on-any-branch
+          <<: *on-integ-and-version-tags
       - deploy-artifacts:
           name: deploy-snapshot
           location: snapshots
