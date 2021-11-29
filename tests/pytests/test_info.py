@@ -26,10 +26,10 @@ def testInfo(env):
       pl.execute()
   pl.execute()
 
-  env.expect('FT.CREATE', idx, 'STOPWORDS', 3, 'TLV', 'summer', '2020', 
-                               'SCHEMA', 'title', 'TEXT', 'SORTABLE',                                          
-                                         'body', 'TEXT',                                         
-                                         'id', 'NUMERIC',                                         
+  env.expect('FT.CREATE', idx, 'STOPWORDS', 3, 'TLV', 'summer', '2020',
+                               'SCHEMA', 'title', 'TEXT', 'SORTABLE',
+                                         'body', 'TEXT',
+                                         'id', 'NUMERIC',
                                          'subject location', 'GEO').ok()
 
   waitForIndex(env, idx)
@@ -47,7 +47,7 @@ def testInfo(env):
 
   # cursor stats
   #query = ['FT.AGGREGATE', idx, '*', 'WITHCURSOR']
-  #res = env.cmd(*query)  
+  #res = env.cmd(*query)
   #env.cmd('FT.CURSOR', 'READ', idx, str(res[1]))
-  
+
   #print info
