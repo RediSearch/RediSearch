@@ -99,10 +99,6 @@ bool isWithinRadiusLonLat(double lon1, double lat1, double lon2, double lat2, do
 }
 
 int parseGeo(const char *c, size_t len, double *lon, double *lat) {
-  if (len > 31) {
-    return REDISMODULE_ERR;
-  }
-
   char str[len + 1];
   memcpy(str, c, len + 1);
   char *pos = strpbrk(str, " ,");
