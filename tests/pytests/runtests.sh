@@ -6,24 +6,28 @@
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 ROOT=$(cd $HERE/../.. && pwd)
 READIES=$ROOT/deps/readies
+. $READIES/shibumi/defs
 
 cd $HERE
 
 #----------------------------------------------------------------------------------------------
 
-if [[ $1 == --help || $1 == help ]]; then
+if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
 	cat <<-END
 		Run Python tests using RLTest
 
 		[ARGVARS...] runtests.sh [--help|help] [<module-so-path>] [extra RLTest args...]
 
 		Argument variables:
+		MODULE=path           Path to RediSearch module .so
+		BINROOT=path          Path to repo binary root dir
+
 		RLTEST_ARGS=args      Extra RLTest args
 		MODARGS=args          RediSearch module arguments
 		TEST=name             Operate in single-test mode
 		ONLY_STABLE=1         Skip unstable tests
 
-		COORD=oss|rlec        Test Coordinator
+		COORD=1|oss|rlec      Test Coordinator
 		SHARDS=n              Number of OSS coordinator shards (default: 3)
 		QUICK=1               Perform only one test variant
 
@@ -47,6 +51,7 @@ if [[ $1 == --help || $1 == help ]]; then
 		VERBOSE=1             Print commands and Redis output
 		IGNERR=1              Do not abort on error
 		NOP=1                 Dry run
+		HELP=1                Show help
 
 
 	END
@@ -73,8 +78,20 @@ export PYTHONPATH
 
 #---------------------------------------------------------------------------------------------- 
 
-MODULE="$1"
+MODULE="${MODULE:-$1}"
 shift
+
+[[ $COORD == 1 ]] && COORD=oss
+
+if [[ -z $MODULE ]]; then
+	if [[ -n $BINROOT ]]; then
+		if [[ -z $COORD ]]; then
+			MODULE=$BINROOT/search/redisearch.so
+		elif [[ $COORD == oss ]]; then
+			MODULE=$BINROOT/oss-coord/module-oss.so
+		fi
+	fi
+fi
 
 OP=
 [[ $NOP == 1 ]] && OP=echo
@@ -108,14 +125,21 @@ if [[ -n $SAN ]]; then
 	export SHORT_READ_BYTES_DELTA=512
 	
 	SAN_ARGS="--no-output-catch --exit-on-failure --check-exitcode --unix"
-	
-	rejson_pathfile=$ROOT/deps/RedisJSON/target.$SAN/REJSON_PATH
-	if [[ -z $REJSON_PATH && -f $rejson_pathfile ]]; then
-		export REJSON_PATH=`cat $rejson_pathfile`
-	else
-		echo Building RedisJSON ...
-		$ROOT/sbin/build-redisjson
-		export REJSON_PATH=`cat $rejson_pathfile`
+
+	if [[ -z $REJSON_PATH ]]; then
+		if [[ -z $BINROOT ]]; then
+			eprint "BINROOT is not set - cannot build RedisJSON"
+			exit 1
+		fi
+		if [[ ! -f $BINROOT/RedisJSON/rejson.so ]]; then
+			echo Building RedisJSON ...
+			# BINROOT=$BINROOT/RedisJSON $ROOT/sbin/build-redisjson
+			$ROOT/sbin/build-redisjson
+		fi
+		export REJSON_PATH=$BINROOT/RedisJSON/rejson.so
+	elif [[ ! -f $REJSON_PATH ]]; then
+		eprint "REJSON_PATH is set to '$REJSON_PATH' but does not exist"
+		exit 1
 	fi
 
 	if [[ $SAN == addr || $SAN == address ]]; then
@@ -185,16 +209,14 @@ REJSON_BRANCH=${REJSON_BRANCH:-master}
 
 if [[ -n $REJSON && $REJSON != 0 ]]; then
 	if [[ -n $REJSON_PATH ]]; then
-		REJSON_ARGS="--module $REJSON_PATH"
 		REJSON_MODULE="$REJSON_PATH"
+		REJSON_ARGS="--module $REJSON_PATH"
 	else
-		platform=`$READIES/bin/platform -t`
-		REJSON_MODULE="$ROOT/bin/$platform/RedisJSON/rejson.so"
-		if [[ ! -f $REJSON_MODULE || $REJSON == get ]]; then
-			FORCE_GET=
-			[[ $REJSON == get ]] && FORCE_GET=1
-			BRANCH=$REJSON_BRANCH FORCE=$FORCE_GET $OP $ROOT/sbin/get-redisjson
-		fi
+		FORCE_GET=
+		[[ $REJSON == get ]] && FORCE_GET=1
+		export MODULE_FILE=$(mktemp /tmp/rejson.XXXX)
+		BRANCH=$REJSON_BRANCH FORCE=$FORCE_GET $OP $ROOT/sbin/get-redisjson
+		REJSON_MODULE=$(cat $MODULE_FILE)
 		REJSON_ARGS="--module $REJSON_MODULE"
 	fi
 	REJSON_ARGS+=" --module-args '$REJSON_MODARGS'"

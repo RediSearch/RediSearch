@@ -40,7 +40,7 @@ commands:
             apt-get -q install -y git openssh-client curl ca-certificates make tar gzip
             bash <(curl -fsSL https://raw.githubusercontent.com/docker/docker-install/master/install.sh)
       - setup_remote_docker:
-          version: 20.10.2
+          version: 20.10.7
           docker_layer_caching: true
 
   checkout-all:
@@ -120,19 +120,20 @@ commands:
     parameters:
       platform:
         type: string
+      redis_version:
+        type: string
+        default: "6"
       getredis_params:
         type: string
         default: ""
       build_params:
         type: string
         default: ""
-      test_params:
-        type: string
-        default: ""
     steps:
       - early-returns
       - checkout-all
       - install-prerequisites:
+          redis_version: <<parameters.redis_version>>
           getredis_params: <<parameters.getredis_params>>
       - run:
           name: Build (Search)
@@ -158,6 +159,13 @@ commands:
           command: |
             make pack COORD=rlec SHOW=1
             make pack LITE=1 SHOW=1
+
+  test-steps:
+    parameters:
+      test_params:
+        type: string
+        default: ""
+    steps:
       - run:
           name: Test (Search)
           shell: /bin/bash -l -eo pipefail
@@ -169,8 +177,6 @@ commands:
           no_output_timeout: 30m
           command: make test COORD=oss SHOW=1
       - save-tests-logs
-      # - early-return-for-forked-pull-requests
-      # - persist-artifacts
 
   build-platforms-steps:
     parameters:
@@ -191,6 +197,7 @@ commands:
             mkdir -p tests/pytests/logs
             tar -C tests/pytests/logs -xzf bin/artifacts/tests-pytests-logs*.tgz
           no_output_timeout: 30m
+      - save-tests-logs
       - early-return-for-forked-pull-requests
       - run:
           name: Build for platform (publish)
@@ -199,7 +206,6 @@ commands:
             cd build/docker
             make publish OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH OFFICIAL=0 SHOW=1 VERBOSE=1
       - persist-artifacts
-      - save-tests-logs
 
   vm-build-platforms-steps:
     parameters:
@@ -222,6 +228,7 @@ commands:
             mkdir -p tests/pytests/logs
             tar -C tests/pytests/logs -xzf bin/artifacts/tests-pytests-logs*.tgz
           no_output_timeout: 30m
+      - save-tests-logs
       - early-return-for-forked-pull-requests
       - run:
           name: Build for platform (publish)
@@ -230,19 +237,17 @@ commands:
             cd build/docker
             make publish OSNICK=<<parameters.platform>> VERSION=$CIRCLE_TAG BRANCH=$CIRCLE_BRANCH OFFICIAL=0 SHOW=1 VERBOSE=1
       - persist-artifacts
-      - save-tests-logs
 
   benchmark-automation:
     parameters:
+      platform:
+        type: string
       github_actor:
         type: string
         default: $CIRCLE_USERNAME
       module_path:
         type: string
-        default: ../../build-debian/redisearch.so
-      rejson_module_path:
-        type: string
-        default: ../../deps/RedisJSON/target/release/rejson.so
+        default: bin/linux-x64-release/search/redisearch.so
     steps:
       - run:
           name: Prepare automation
@@ -252,12 +257,13 @@ commands:
             VERSION=0.14.8 ./deps/readies/bin/getterraform
       - run:
           name: Prepare ReJSON Module
-          command: ./deps/get-redisjson
+          command: MODULE_FILE=bin/REJSON_PATH ./sbin/get-redisjson
       - run:
           name: Run CI benchmarks on aws
           timeout: 60m
           no_output_timeout: 20m
           command: |
+            ROOT="$PWD"
             cd tests/benchmarks
             export AWS_ACCESS_KEY_ID=$PERFORMANCE_EC2_ACCESS_KEY
             export AWS_SECRET_ACCESS_KEY=$PERFORMANCE_EC2_SECRET_KEY
@@ -265,9 +271,9 @@ commands:
             export EC2_PRIVATE_PEM=$PERFORMANCE_EC2_PRIVATE_PEM
 
             redisbench-admin run-remote \
-              --module_path << parameters.rejson_module_path >> \
+              --module_path $(cat $ROOT/bin/REJSON_PATH) \
               --required-module ReJSON \
-              --module_path << parameters.module_path >> \
+              --module_path $ROOT/<< parameters.module_path >> \
               --github_actor << parameters.github_actor >> \
               --github_repo $CIRCLE_PROJECT_REPONAME \
               --github_org $CIRCLE_PROJECT_USERNAME \
@@ -281,22 +287,28 @@ commands:
 #----------------------------------------------------------------------------------------------------------------------------------
 
 jobs:
-  build:
+  build-linux-debian:
     docker:
       - image: redisfab/rmbuilder:6.2.5-x64-bullseye
+    parameters:
+      redis_version:
+        type: string
+        default: "6"
+      persist:
+        type: string
+        default: "yes"
     steps:
       - build-steps:
           platform: bullseye
+          redis_version: <<parameters.redis_version>>
+      - test-steps
+      - run:
+          name: Persist artifacts?
+          command: |
+            if [[ "<<parameters.persist>>" != "yes" ]]; then
+              circleci step halt
+            fi
       - persist-artifacts
-
-#  build-coordinator:
-#    docker:
-#      - image: redisfab/rmbuilder:6.2.5-x64-bullseye
-#    steps:
-#      - build-steps:
-#          platform: bullseye
-#          build_params: "COORD="
-#      - persist-artifacts
 
   build-platforms:
     parameters:
@@ -331,6 +343,7 @@ jobs:
             sudo chown $USER ~/workspace
       - build-steps:
           platform: catalina
+      - test-steps
       - persist-artifacts
 
   benchmark:
@@ -339,7 +352,8 @@ jobs:
     steps:
       - build-steps:
           platform: bionic
-      - benchmark-automation
+      - benchmark-automation:
+          platform: bionic
 
   coverage:
     docker:
@@ -352,7 +366,6 @@ jobs:
           name: Build & Test
           shell: /bin/bash -l -eo pipefail
           command: |
-            BRANCH=master ./sbin/get-redisjson
             make coverage SHOW=1
             make upload-cov SHOW=1
           no_output_timeout: 30m
@@ -368,10 +381,6 @@ jobs:
       - early-returns
       - checkout-all
       - install-prerequisites
-      - run:
-          name: Build RedisJSON
-          shell: /bin/bash -l -eo pipefail
-          command: SAN=<<parameters.san-type>> ./sbin/build-redisjson
       - run:
           name: Build & test (Search)
           shell: /bin/bash -l -eo pipefail
@@ -545,8 +554,15 @@ workflows:
   version: 2
   default-flow:
     jobs:
-      - build:
+      - build-linux-debian:
+          name: build
           <<: *not-on-integ-branch
+      - build-linux-debian:
+          name: build-with-redis-<<matrix.redis_version>>
+          <<: *on-integ-branch
+          matrix:
+            parameters:
+              redis_version: ["6.0", "6.2"]
       - build-platforms:
           <<: *on-integ-and-version-tags
           context: common
@@ -558,7 +574,7 @@ workflows:
           context: common
           matrix:
             parameters:
-              platform: [focal]
+              platform: [bionic]
       - build-macos:
           <<: *on-version-tags
       - coverage:
@@ -607,6 +623,11 @@ workflows:
               only: master
     jobs:
       - build-macos
+      - build-linux-debian:
+          name: build-with-redis-<<matrix.redis_version>>
+          matrix:
+            parameters:
+              redis_version: ["6.0", "6.2"]
 
   nightly-performance:
     triggers:
