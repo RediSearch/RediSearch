@@ -152,6 +152,7 @@ static void removeRange(NumericRangeNode *n, NRN_AddRv *rv) {
 
 static void NumericRangeNode_Balance(NumericRangeNode **n) {
   NumericRangeNode *node = *n;
+  node->maxDepth = MAX(node->right->maxDepth, node->left->maxDepth);
   // check if we need to rebalance the child.
   // To ease the rebalance we don't rebalance the root
   // nor do we rebalance nodes that are with ranges (node->maxDepth > NR_MAX_DEPTH)
@@ -386,6 +387,9 @@ int NumericRangeNode_RemoveChild(NumericRangeNode **node, NRN_AddRv *rv) {
 
   // we can remove local and use child's instead
   if (n->range) {
+    if (n->range->invertedIndexSize != 0) {
+      return CHILD_NOT_EMPTY;
+    }
     removeRange(n, rv);
     n->range = NULL;
     rv->numRanges--;
