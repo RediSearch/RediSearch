@@ -54,3 +54,6 @@ void VectorFilter_Free(VectorFilter *vf);
 const char *VecSimType_ToString(VecSimType type);
 const char *VecSimMetric_ToString(VecSimMetric metric);
 const char *VecSimAlgorithm_ToString(VecSimAlgo algo);
+
+void VecSim_RdbSave(RedisModuleIO *rdb, VecSimParams *vecsimParams);
+int VecSim_RdbLoad(RedisModuleIO *rdb, VecSimParams *vecsimParams, int encver);
